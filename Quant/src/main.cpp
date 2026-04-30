@@ -2,6 +2,7 @@
 #include "api/KisWebSocket.h"
 #include "strategy/MACrossStrategy.h"
 #include "strategy/MomentumStrategy.h"
+#include "strategy/ValueContraryStrategy.h"
 #include "utils/Logger.h"
 #include <iostream>
 #include <iomanip>
@@ -195,8 +196,10 @@ int main(int argc, char* argv[]) {
     kis_cfg.account_type = cfg["kis"]["account_type"].get<std::string>();
     kis_cfg.is_paper     = cfg["kis"]["is_paper"].get<bool>();
 
-    std::vector<std::string> tickers =
-        cfg["tickers"].get<std::vector<std::string>>();
+    // FEED 모드 전용 — TRADE 모드는 전략이 동적으로 종목 구성
+    std::vector<std::string> tickers;
+    if (cfg.contains("tickers"))
+        tickers = cfg["tickers"].get<std::vector<std::string>>();
 
     std::signal(SIGINT,  signal_handler);
     std::signal(SIGTERM, signal_handler);
@@ -232,8 +235,12 @@ int main(int argc, char* argv[]) {
             }
         );
 
+        std::vector<WatchSpec> specs;
+        for (const auto& t : tickers)
+            specs.push_back({t, Market::KR, ""});
+
         LOG_INFO("[Main] FEED 모드 — WebSocket 연결 시도");
-        if (!ws.connect(tickers)) {
+        if (!ws.connect(specs)) {
             LOG_ERROR("[Main] WebSocket 연결 실패");
             return 1;
         }
@@ -261,24 +268,36 @@ int main(int argc, char* argv[]) {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  TRADE 모드: 기존 전략 매매 엔진
+    //  TRADE 모드: 전략 매매 엔진 (tickers 설정 불필요 — 전략이 동적으로 구성)
     // ═══════════════════════════════════════════════════════════════════════
     int interval = cfg.value("fetch_interval_sec", 60);
-    Engine engine(kis_cfg, tickers, interval);
+    Engine engine(kis_cfg, interval);
     g_engine = &engine;
 
     for (auto& s : cfg["strategies"]) {
-        std::string type   = s["type"];
-        std::string ticker = s["ticker"];
-        int         qty    = s["quantity"];
+        std::string type = s["type"];
+        int         qty  = s.value("quantity", 1);
 
         if (type == "MA_CROSS") {
             engine.add_strategy(std::make_unique<MACrossStrategy>(
-                ticker, s["short_period"].get<int>(),
+                s["ticker"].get<std::string>(),
+                s["short_period"].get<int>(),
                 s["long_period"].get<int>(), qty));
+
         } else if (type == "MOMENTUM") {
             engine.add_strategy(std::make_unique<MomentumStrategy>(
-                ticker, s["period"].get<int>(), qty));
+                s["ticker"].get<std::string>(),
+                s["period"].get<int>(), qty));
+
+        } else if (type == "VALUE_CONTRARY") {
+            std::string market_str = s.value("market", "KR");
+            Market      market     = (market_str == "US") ? Market::US : Market::KR;
+            std::string exchange   = s.value("exchange", "");
+            double      pbr_max    = s.value("pbr_max", 1.0);
+            int         eod_hhmm   = s.value("eod_exit_hhmm", 1520);
+            engine.add_strategy(std::make_unique<ValueContraryStrategy>(
+                market, exchange, pbr_max, qty, eod_hhmm));
+
         } else {
             LOG_WARN("[Main] 알 수 없는 전략: " + type);
         }
