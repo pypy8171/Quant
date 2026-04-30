@@ -1,0 +1,10 @@
+﻿.vs/
+out/
+Quant/build/
+Quant/config/config.json
+*.log
+*.pid
+*.exe
+*.obj
+*.pdb
+*.ilk
