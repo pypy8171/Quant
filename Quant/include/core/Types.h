@@ -44,3 +44,33 @@ struct Position {
     double      avg_price   = 0.0;
     double      unrealized_pnl = 0.0;
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 실시간 호가 (KIS WebSocket H0STASP0)
+// ─────────────────────────────────────────────────────────────────────────────
+struct OrderBookLevel {
+    double  price    = 0.0;
+    int64_t quantity = 0;
+};
+
+// asks[0]=ASKP1(최우선매도), asks[4]=ASKP5
+// bids[0]=BIDP1(최우선매수), bids[4]=BIDP5
+struct OrderBook {
+    std::string    ticker;
+    std::string    time;        // "HHMMSS"
+    OrderBookLevel asks[5];
+    OrderBookLevel bids[5];
+    std::chrono::system_clock::time_point timestamp;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 실시간 체결 (KIS WebSocket H0STCNT0)
+// ─────────────────────────────────────────────────────────────────────────────
+struct TradeData {
+    std::string ticker;
+    std::string time;           // "HHMMSS"
+    double      price     = 0.0;
+    int64_t     quantity  = 0;  // 체결량
+    int         direction = 0;  // 1=매수체결, 5=매도체결
+    std::chrono::system_clock::time_point timestamp;
+};
