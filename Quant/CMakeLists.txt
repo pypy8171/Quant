@@ -17,7 +17,7 @@ if(UNIX)
 else()
     # MSVC: UTF-8 소스 인식, deprecated 함수 경고 억제, WinHTTP 최소 대상 버전
     add_compile_options(/utf-8)
-    add_compile_definitions(_CRT_SECURE_NO_WARNINGS _WIN32_WINNT=0x0601)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS _WIN32_WINNT=0x0A00)  # Windows 10+
 endif()
  
 # ─── 플랫폼 감지 ──────────────────────────────────────────────────────────
@@ -82,6 +82,11 @@ else()
     )
 endif()
  
+# ─── config 파일을 IDE(솔루션 탐색기)에 표시 ─────────────────────────────
+target_sources(quant_trader PRIVATE config/config.json)
+set_source_files_properties(config/config.json PROPERTIES HEADER_FILE_ONLY TRUE)
+source_group("config" FILES config/config.json)
+
 # ─── 빌드 후 config 자동 복사 ─────────────────────────────────────────────
 add_custom_command(TARGET quant_trader POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:quant_trader>/config

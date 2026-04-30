@@ -1,6 +1,7 @@
 ﻿.vs/
 out/
 Quant/build/
+Quant/build_win/
 Quant/config/config.json
 *.log
 *.pid
