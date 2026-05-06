@@ -22,6 +22,12 @@ public:
         min_level_ = min_level;
     }
 
+    // 화면 표시 모드일 때 콘솔 출력을 끄고 파일에만 기록
+    void set_console_enabled(bool enabled) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        console_enabled_ = enabled;
+    }
+
     void log(LogLevel level, const std::string& msg) {
         if (level < min_level_) return;
 
@@ -36,7 +42,7 @@ public:
            << " [" << level_str(level) << "] " << msg;
 
         std::lock_guard<std::mutex> lock(mutex_);
-        std::cout << ss.str() << '\n';
+        if (console_enabled_) std::cout << ss.str() << '\n';
         if (file_.is_open()) file_ << ss.str() << '\n';
     }
 
@@ -59,7 +65,8 @@ private:
 
     std::mutex    mutex_;
     std::ofstream file_;
-    LogLevel      min_level_ = LogLevel::INFO;
+    LogLevel      min_level_      = LogLevel::INFO;
+    bool          console_enabled_ = true;
 };
 
 #define LOG_INFO(msg)  Logger::instance().info(msg)

@@ -3,6 +3,8 @@
 #include "core/Types.h"
 #include "strategy/StrategyBase.h"
 #include "api/KisClient.h"
+#include "api/KisWebSocket.h"
+#include "risk/OrderGate.h"
 #include <vector>
 #include <memory>
 #include <thread>
@@ -12,63 +14,58 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Engine  —  퀀트 트레이딩 엔진
 //
-// 스레드 구조:
-//   [데이터 수집 스레드]  →  market_queue (RingBuffer)
-//   [전략 처리 스레드]   →  order_queue  (RingBuffer)
-//   [주문 실행 스레드]   →  KisClient.send_order()
+//  [데이터 스레드]  KIS REST 일봉 폴링   → market_queue_
+//  [전략 스레드]    ob_queue_ + td_queue_ + market_queue_ → order_queue_
+//  [주문 스레드]    order_queue_ → KIS REST 주문 (KR/US 자동 분기)
 //
-// 게임서버의 패킷 처리 분산 구조와 동일한 패턴
+//  WS 구독 목록은 on_start() 이후 전략의 get_watch_specs()로 동적 수집
 // ─────────────────────────────────────────────────────────────────────────────
 class Engine {
 public:
-    Engine(KisConfig kis_cfg,
-           std::vector<std::string> tickers,
-           int fetch_interval_sec = 60);
+    Engine(KisConfig kis_cfg, int fetch_interval_sec = 60);
     ~Engine();
 
-    // 전략 등록 (플러그인 구조)
     void add_strategy(std::unique_ptr<StrategyBase> strategy);
-
-    // 엔진 시작/중지
     void start();
     void stop();
 
     bool is_running() const { return running_.load(); }
 
 private:
-    // 스레드 함수들
-    void data_thread_fn();      // KIS API → market_queue
-    void strategy_thread_fn();  // market_queue → order_queue
-    void order_thread_fn();     // order_queue → KIS 주문
+    void data_thread_fn();
+    void strategy_thread_fn();
+    void order_thread_fn();
 
-    // 장 시간 체크 (09:00 ~ 15:30 KST)
-    bool is_market_open() const;
-
-    // 통계 출력
-    void print_stats() const;
+    bool is_kr_market_open()  const;
+    bool is_us_market_open()  const;
+    bool is_any_market_open() const;
+    void print_stats()        const;
 
     KisConfig                               kis_cfg_;
-    std::vector<std::string>                tickers_;
     int                                     fetch_interval_sec_;
 
     std::unique_ptr<KisClient>              kis_;
+    std::unique_ptr<KisWebSocket>           ws_;
 
-    // 전략 목록
     std::vector<std::unique_ptr<StrategyBase>> strategies_;
 
-    // 스레드 간 통신 큐
-    RingBuffer<MarketData>                  market_queue_{1024};
-    RingBuffer<OrderSignal>                 order_queue_{256};
+    RingBuffer<MarketData>  market_queue_{1024};
+    RingBuffer<OrderSignal> order_queue_{256};
+    RingBuffer<OrderBook>   ob_queue_{4096};   // 호가 (국내)
+    RingBuffer<TradeData>   td_queue_{4096};   // 체결 (미국 + 국내)
 
-    // 스레드
     std::thread data_thread_;
     std::thread strategy_thread_;
     std::thread order_thread_;
 
     std::atomic<bool> running_{false};
 
-    // 통계
     std::atomic<uint64_t> data_count_{0};
     std::atomic<uint64_t> signal_count_{0};
     std::atomic<uint64_t> order_count_{0};
+
+    OrderGate order_gate_;
+
+    // 전략에서 수집한 구독 스펙 (on_start 이후 확정)
+    std::vector<WatchSpec> watch_specs_;
 };

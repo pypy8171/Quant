@@ -3,6 +3,7 @@
 #include <vector>
 #include <optional>
 #include <cstddef>
+#include <new>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RingBuffer<T>  —  SPSC Lock-Free Ring Buffer
@@ -10,6 +11,15 @@
 //   - Windows/Linux 공통 사용 가능 (std::atomic 표준)
 //   - 퀀트 엔진: 시세 수신 스레드(Producer) → 전략 처리 스레드(Consumer)
 // ─────────────────────────────────────────────────────────────────────────────
+
+// std::hardware_destructive_interference_size는 C++17이지만
+// MSVC 19.26 미만과 일부 GCC에서 미지원 — 64로 fallback
+#ifdef __cpp_lib_hardware_interference_size
+    inline constexpr size_t kCacheLine = std::hardware_destructive_interference_size;
+#else
+    inline constexpr size_t kCacheLine = 64;
+#endif
+
 template<typename T>
 class RingBuffer {
 public:
@@ -71,8 +81,11 @@ public:
     size_t capacity() const { return capacity_ - 1; }
 
 private:
-    const size_t        capacity_;
-    std::vector<T>      buffer_;
-    std::atomic<size_t> head_;
-    std::atomic<size_t> tail_;
+    const size_t   capacity_;
+    std::vector<T> buffer_;
+
+    // head_: producer만 씀, tail_: consumer만 씀
+    // 같은 cache line에 있으면 false sharing 발생 → 각각 독립 라인으로 분리
+    alignas(kCacheLine) std::atomic<size_t> head_;
+    alignas(kCacheLine) std::atomic<size_t> tail_;
 };

@@ -55,6 +55,7 @@ set(SOURCES
   src/strategy/StrategyBase.cpp
   src/strategy/MACrossStrategy.cpp
   src/strategy/MomentumStrategy.cpp
+  src/risk/OrderGate.cpp
   src/utils/Logger.cpp
   src/utils/Config.cpp
   src/utils/Timer.cpp
@@ -98,3 +99,30 @@ add_custom_command(TARGET quant_trader POST_BUILD
 # ─── 설치 ──────────────────────────────────────────────────────────────────
 install(TARGETS quant_trader DESTINATION bin)
 install(FILES config/config.json DESTINATION etc/quant_trader)
+
+# ─── 테스트 타겟: SPSC RingBuffer 검증 ───────────────────────────────────
+add_executable(test_ringbuffer tests/test_ringbuffer.cpp)
+target_include_directories(test_ringbuffer PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_ringbuffer PRIVATE pthread)
+endif()
+
+# ─── 테스트 타겟: RingBuffer 부하/안정성 시뮬레이션 ──────────────────────
+add_executable(test_ringbuffer_stress tests/test_ringbuffer_stress.cpp)
+target_include_directories(test_ringbuffer_stress PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_ringbuffer_stress PRIVATE pthread)
+endif()
+
+# ─── 테스트 타겟: E2E 파이프라인 부하 시뮬레이션 ─────────────────────────
+add_executable(test_pipeline_stress tests/test_pipeline_stress.cpp)
+target_include_directories(test_pipeline_stress PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_pipeline_stress PRIVATE pthread)
+endif()

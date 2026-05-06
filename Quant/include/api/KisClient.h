@@ -5,17 +5,12 @@
 #include <functional>
 #include <nlohmann/json.hpp>
 
-// ─────────────────────────────────────────────────────────────────────────────
-// KisClient  —  한국투자증권 REST API 클라이언트 (libcurl 기반)
-//   Windows의 WinHTTP → Linux에서는 libcurl로 대체
-//   인터페이스는 동일하게 유지
-// ─────────────────────────────────────────────────────────────────────────────
 struct KisConfig {
     std::string app_key;
     std::string app_secret;
-    std::string account_no;     // 계좌번호 (앞 8자리)
-    std::string account_type;   // 계좌 유형 (e.g. "01")
-    bool        is_paper;       // true: 모의투자, false: 실거래
+    std::string account_no;
+    std::string account_type;  // "01"
+    bool        is_paper = false;
 };
 
 class KisClient {
@@ -23,25 +18,48 @@ public:
     explicit KisClient(const KisConfig& cfg);
     ~KisClient();
 
-    // 토큰 발급 (앱 시작 시 1회 호출)
     bool authenticate();
-
-    // 일봉 데이터 조회 (최근 N개)
-    std::vector<MarketData> get_daily_ohlcv(const std::string& ticker, int count);
-
-    // 현재가 조회
-    double get_current_price(const std::string& ticker);
-
-    // 시장가 주문
-    bool send_order(const OrderSignal& signal);
-
-    // 잔고 조회
-    nlohmann::json get_balance();
-
     bool is_authenticated() const { return !access_token_.empty(); }
 
+    // ── 국내 (KR) ──────────────────────────────────────────────────────────
+    std::vector<MarketData> get_daily_ohlcv(const std::string& ticker, int count);
+    double                  get_current_price(const std::string& ticker);
+    Fundamentals            get_fundamentals(const std::string& ticker);
+    bool                    send_order(const OrderSignal& signal);
+    nlohmann::json          get_balance();
+
+    // 시가총액 순위 — 현재가·등락률 포함 전체 데이터
+    struct RankingStock {
+        int         rank        = 0;
+        std::string ticker;
+        std::string name;
+        double      price       = 0.0;
+        double      change      = 0.0;   // 전일 대비
+        double      change_rate = 0.0;   // 등락률(%)
+        int64_t     volume      = 0;     // 누적 거래량
+        double      pbr         = 0.0;
+    };
+    std::vector<RankingStock> fetch_kr_ranking(int count = 200,
+                                               const std::string& market_div = "J");
+
+    // 전체 시장 PBR 기반 Universe 조회 (ticker만 반환)
+    std::vector<std::string> fetch_universe_by_pbr(double max_pbr,
+                                                    const std::string& market_div = "J");
+
+    // ── 해외 (US) ──────────────────────────────────────────────────────────
+    // exchange: "NAS"(NASDAQ), "NYS"(NYSE)
+    std::vector<MarketData> get_us_daily_ohlcv(const std::string& ticker,
+                                                int count,
+                                                const std::string& exchange = "NAS");
+    Fundamentals            get_us_fundamentals(const std::string& ticker,
+                                                const std::string& exchange = "NAS");
+    bool                    send_us_order(const OrderSignal& signal);
+
+    // S&P 500 주요 종목 내장 리스트 — PBR 필터 적용 후 반환
+    std::vector<std::string> fetch_us_universe_by_pbr(double max_pbr,
+                                                       const std::string& exchange = "NAS");
+
 private:
-    // libcurl GET/POST 래퍼
     std::string http_get (const std::string& url,
                           const std::vector<std::string>& headers);
     std::string http_post(const std::string& url,

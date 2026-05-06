@@ -5,20 +5,17 @@
 #include <ctime>
 #include <sstream>
 #include <iomanip>
+#include <algorithm>
+#include <unordered_set>
 
 using namespace std::chrono_literals;
 
-Engine::Engine(KisConfig kis_cfg,
-               std::vector<std::string> tickers,
-               int fetch_interval_sec)
+Engine::Engine(KisConfig kis_cfg, int fetch_interval_sec)
     : kis_cfg_(std::move(kis_cfg))
-    , tickers_(std::move(tickers))
     , fetch_interval_sec_(fetch_interval_sec)
 {}
 
-Engine::~Engine() {
-    stop();
-}
+Engine::~Engine() { stop(); }
 
 void Engine::add_strategy(std::unique_ptr<StrategyBase> strategy) {
     LOG_INFO("[Engine] 전략 등록: " + strategy->describe());
@@ -29,27 +26,47 @@ void Engine::start() {
     if (running_.load()) return;
 
     LOG_INFO("[Engine] ── 퀀트 엔진 시작 ──────────────────────────────");
-    LOG_INFO("[Engine] 종목: " + [&]{
-        std::string s;
-        for (auto& t : tickers_) s += t + " ";
-        return s;
-    }());
-    LOG_INFO("[Engine] 전략 수: " + std::to_string(strategies_.size()));
-    LOG_INFO("[Engine] 수집 주기: " + std::to_string(fetch_interval_sec_) + "초");
 
-    // KIS 인증
     kis_ = std::make_unique<KisClient>(kis_cfg_);
     if (!kis_->authenticate()) {
-        LOG_ERROR("[Engine] KIS 인증 실패 — 엔진 시작 중단");
+        LOG_ERROR("[Engine] KIS 인증 실패");
         return;
     }
 
-    // 전략 초기화
-    for (auto& s : strategies_) s->on_start();
+    // 전략 초기화 (kis_ 주입 → on_start 내부에서 Universe 조회)
+    for (auto& s : strategies_) {
+        s->set_kis(kis_.get());
+        s->on_start();
+    }
+
+    // 전략별 구독 스펙 수집 (중복 제거)
+    watch_specs_.clear();
+    {
+        std::unordered_set<std::string> seen;
+        for (auto& s : strategies_) {
+            for (auto& spec : s->get_watch_specs()) {
+                std::string key = (spec.market == Market::US ? "US:" : "KR:")
+                                + spec.exchange + ":" + spec.ticker;
+                if (seen.insert(key).second)
+                    watch_specs_.push_back(spec);
+            }
+        }
+    }
+    LOG_INFO("[Engine] WS 구독 종목: " + std::to_string(watch_specs_.size()) + "개");
 
     running_.store(true);
 
-    // 스레드 시작
+    // WebSocket — 동적 구독 스펙으로 연결
+    if (!watch_specs_.empty()) {
+        ws_ = std::make_unique<KisWebSocket>(kis_cfg_);
+        ws_->set_callbacks(
+            [this](const OrderBook& ob)  { ob_queue_.push(ob); },
+            [this](const TradeData& td)  { td_queue_.push(td); }
+        );
+        if (!ws_->connect(watch_specs_))
+            LOG_WARN("[Engine] WebSocket 연결 실패 — 호가/체결 이벤트 없이 동작");
+    }
+
     data_thread_     = std::thread(&Engine::data_thread_fn,     this);
     strategy_thread_ = std::thread(&Engine::strategy_thread_fn, this);
     order_thread_    = std::thread(&Engine::order_thread_fn,    this);
@@ -61,12 +78,13 @@ void Engine::stop() {
     if (!running_.load()) return;
     running_.store(false);
 
+    if (ws_ && ws_->is_connected()) ws_->disconnect();
+
     if (data_thread_.joinable())     data_thread_.join();
     if (strategy_thread_.joinable()) strategy_thread_.join();
     if (order_thread_.joinable())    order_thread_.join();
 
     for (auto& s : strategies_) s->on_stop();
-
     print_stats();
     LOG_INFO("[Engine] ── 퀀트 엔진 종료 ──────────────────────────────");
 }
@@ -74,112 +92,142 @@ void Engine::stop() {
 // ─── 데이터 수집 스레드 ───────────────────────────────────────────────────
 void Engine::data_thread_fn() {
     LOG_INFO("[DataThread] 시작");
-
     while (running_.load()) {
-        if (!is_market_open()) {
-            LOG_INFO("[DataThread] 장 외 시간 — 대기 중...");
+        if (!is_any_market_open()) {
             std::this_thread::sleep_for(60s);
             continue;
         }
 
-        for (const auto& ticker : tickers_) {
-            auto bars = kis_->get_daily_ohlcv(ticker, 1);
-            if (bars.empty()) continue;
+        for (const auto& spec : watch_specs_) {
+            std::vector<MarketData> bars;
+            if (spec.market == Market::KR)
+                bars = kis_->get_daily_ohlcv(spec.ticker, 1);
+            else
+                bars = kis_->get_us_daily_ohlcv(spec.ticker, 1, spec.exchange);
 
+            if (bars.empty()) continue;
             auto& md = bars[0];
             md.bar_index = static_cast<int>(data_count_.load());
-
-            // RingBuffer에 push (lock-free)
-            while (!market_queue_.push(md) && running_.load()) {
-                // 버퍼 가득 참 → 잠시 대기
+            while (!market_queue_.push(md) && running_.load())
                 std::this_thread::sleep_for(1ms);
-            }
-
             ++data_count_;
-            LOG_DEBUG("[DataThread] " + ticker + " 시세 수집: "
-                      + std::to_string(md.close));
         }
-
-        std::this_thread::sleep_for(
-            std::chrono::seconds(fetch_interval_sec_));
+        std::this_thread::sleep_for(std::chrono::seconds(fetch_interval_sec_));
     }
-
     LOG_INFO("[DataThread] 종료");
 }
 
 // ─── 전략 처리 스레드 ─────────────────────────────────────────────────────
+// ob_queue_(호가) → td_queue_(체결) → market_queue_(일봉) 순 우선처리
+// 아이들 시 100µs 슬립 → 저지연 유지
 void Engine::strategy_thread_fn() {
     LOG_INFO("[StrategyThread] 시작");
 
+    auto push_signal = [&](const OrderSignal& sig) {
+        ++signal_count_;
+        LOG_INFO("[Strategy] 신호: [" + sig.strategy_id + "] "
+                 + sig.ticker + " "
+                 + (sig.side == OrderSide::BUY ? "BUY" : "SELL")
+                 + " " + std::to_string(sig.quantity));
+        while (!order_queue_.push(sig) && running_.load())
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+    };
+
     while (running_.load()) {
-        auto md_opt = market_queue_.pop();
-        if (!md_opt) {
-            std::this_thread::sleep_for(1ms);
-            continue;
-        }
+        bool did_work = false;
 
-        const auto& md = *md_opt;
-
-        for (auto& strategy : strategies_) {
-            auto signal = strategy->on_data(md);
-            if (!signal) continue;
-
-            ++signal_count_;
-            LOG_INFO("[Strategy] 신호 발생: ["
-                     + signal->strategy_id + "] "
-                     + signal->ticker + " "
-                     + (signal->side == OrderSide::BUY ? "BUY" : "SELL")
-                     + " " + std::to_string(signal->quantity) + "주");
-
-            // 주문 큐에 push
-            while (!order_queue_.push(*signal) && running_.load()) {
-                std::this_thread::sleep_for(1ms);
+        // 호가 (국내 — 고주파)
+        while (auto opt = ob_queue_.pop()) {
+            for (auto& s : strategies_) {
+                auto sig = s->on_order_book(*opt);
+                if (sig && sig->side != OrderSide::NONE) push_signal(*sig);
             }
+            did_work = true;
         }
-    }
 
+        // 체결 (미국 + 국내)
+        while (auto opt = td_queue_.pop()) {
+            for (auto& s : strategies_) {
+                auto sig = s->on_trade(*opt);
+                if (sig && sig->side != OrderSide::NONE) push_signal(*sig);
+            }
+            did_work = true;
+        }
+
+        // 일봉
+        if (auto opt = market_queue_.pop()) {
+            for (auto& s : strategies_) {
+                auto sig = s->on_data(*opt);
+                if (sig && sig->side != OrderSide::NONE) push_signal(*sig);
+            }
+            did_work = true;
+        }
+
+        if (!did_work)
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+    }
     LOG_INFO("[StrategyThread] 종료");
 }
 
 // ─── 주문 실행 스레드 ─────────────────────────────────────────────────────
 void Engine::order_thread_fn() {
     LOG_INFO("[OrderThread] 시작");
-
     while (running_.load()) {
-        auto sig_opt = order_queue_.pop();
-        if (!sig_opt) {
-            std::this_thread::sleep_for(1ms);
+        auto opt = order_queue_.pop();
+        if (!opt) { std::this_thread::sleep_for(1ms); continue; }
+
+        std::string reject_reason;
+        if (!order_gate_.check(*opt, reject_reason)) {
+            LOG_WARN("[OrderGate] 주문 거부 [" + opt->strategy_id + "] "
+                     + opt->ticker + " → " + reject_reason);
             continue;
         }
 
-        bool ok = kis_->send_order(*sig_opt);
+        bool ok = (opt->market == Market::US)
+                  ? kis_->send_us_order(*opt)
+                  : kis_->send_order(*opt);
         if (ok) ++order_count_;
     }
-
     LOG_INFO("[OrderThread] 종료");
 }
 
-// ─── 장 시간 체크 (KST 09:00 ~ 15:30) ────────────────────────────────────
-bool Engine::is_market_open() const {
+// ─── 장 시간 체크 ─────────────────────────────────────────────────────────
+bool Engine::is_kr_market_open() const {
     auto now = std::chrono::system_clock::now();
     auto t   = std::chrono::system_clock::to_time_t(now);
-    struct tm* lt = std::localtime(&t);
-
-    int h = lt->tm_hour;
-    int m = lt->tm_min;
-    int wday = lt->tm_wday;  // 0=일, 6=토
-
-    // 주말 제외
-    if (wday == 0 || wday == 6) return false;
-
-    int total_min = h * 60 + m;
-    return (total_min >= 9 * 60) && (total_min < 15 * 60 + 30);
+    struct tm lt{};
+#ifdef _WIN32
+    localtime_s(&lt, &t);
+#else
+    localtime_r(&t, &lt);
+#endif
+    if (lt.tm_wday == 0 || lt.tm_wday == 6) return false;
+    int m = lt.tm_hour * 60 + lt.tm_min;
+    return m >= 540 && m < 930;  // 09:00~15:30 KST
 }
 
-// ─── 통계 출력 ────────────────────────────────────────────────────────────
+// 미국 정규장: ET 09:30~16:00 = KST 22:30~05:00 (다음날)
+bool Engine::is_us_market_open() const {
+    auto now = std::chrono::system_clock::now();
+    auto t   = std::chrono::system_clock::to_time_t(now);
+    struct tm lt{};
+#ifdef _WIN32
+    localtime_s(&lt, &t);
+#else
+    localtime_r(&t, &lt);
+#endif
+    if (lt.tm_wday == 0 || lt.tm_wday == 6) return false;
+    int m = lt.tm_hour * 60 + lt.tm_min;
+    // KST 22:30~익일 05:00 → 1350~1500 (당일), 0~300 (익일)
+    return (m >= 1350) || (m < 300);
+}
+
+bool Engine::is_any_market_open() const {
+    return is_kr_market_open() || is_us_market_open();
+}
+
 void Engine::print_stats() const {
-    LOG_INFO("[Engine] ── 통계 ─────────────────────────────────────────");
-    LOG_INFO("[Engine] 수집된 시세: " + std::to_string(data_count_.load()));
-    LOG_INFO("[Engine] 발생 신호:   " + std::to_string(signal_count_.load()));
-    LOG_INFO("[Engine] 실행 주문:   " + std::to_string(order_count_.load()));
+    LOG_INFO("[Engine] 수집: " + std::to_string(data_count_.load())
+             + "  신호: " + std::to_string(signal_count_.load())
+             + "  주문: " + std::to_string(order_count_.load()));
 }

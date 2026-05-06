@@ -17,22 +17,21 @@
 #  endif
 #  include <windows.h>
 #  include <winhttp.h>
-// windows.h가 ERROR를 매크로로 정의 → LogLevel::ERROR 충돌 방지
 #  ifdef ERROR
 #    undef ERROR
 #  endif
 #endif
 
 // ─────────────────────────────────────────────────────────────────────────────
-// KisWebSocket  —  KIS 실시간 WebSocket 클라이언트
-//   H0STASP0 : 실시간 호가 (위아래 5단계)
-//   H0STCNT0 : 실시간 체결
+// KisWebSocket  —  국내 + 미국 실시간 WebSocket
+//
+//  국내  H0STASP0 → OrderBook  /  H0STCNT0 → TradeData(KR)
+//  미국  HDFSCNT0 → TradeData(US)  (KIS는 미국 호가 미제공)
 //
 // 사용법:
 //   KisWebSocket ws(cfg);
-//   ws.set_callbacks(on_orderbook, on_trade);
-//   ws.connect({"005930", "000660", ...});
-//   ...
+//   ws.set_callbacks(on_ob, on_trade);
+//   ws.connect(specs);   // WatchSpec 리스트로 KR/US 혼합 구독
 //   ws.disconnect();
 // ─────────────────────────────────────────────────────────────────────────────
 class KisWebSocket {
@@ -44,7 +43,7 @@ public:
     ~KisWebSocket();
 
     void set_callbacks(OrderBookCb on_ob, TradeCb on_trade);
-    bool connect(const std::vector<std::string>& tickers);
+    bool connect(const std::vector<WatchSpec>& specs);
     void disconnect();
 
     bool is_connected() const { return connected_.load(); }
@@ -52,11 +51,12 @@ public:
 private:
     bool get_approval_key();
     void send_text(const std::string& msg);
-    void send_subscribe(const std::string& tr_id, const std::string& ticker);
+    void send_subscribe(const std::string& tr_id, const std::string& tr_key);
     void recv_loop();
     void parse_message(const std::string& msg);
     void parse_orderbook(const std::vector<std::string>& f);
-    void parse_trade(const std::vector<std::string>& f);
+    void parse_kr_trade(const std::vector<std::string>& f);
+    void parse_us_trade(const std::vector<std::string>& f);
 
     static std::vector<std::string> split_str(const std::string& s, char delim);
     static std::wstring             to_wide(const std::string& s);
@@ -65,7 +65,7 @@ private:
 
     KisConfig                cfg_;
     std::string              approval_key_;
-    std::vector<std::string> tickers_;
+    std::vector<WatchSpec>   specs_;
 
     std::atomic<bool>  connected_{false};
     std::thread        recv_thread_;

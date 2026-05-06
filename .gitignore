@@ -9,3 +9,7 @@ Quant/config/config.json
 *.obj
 *.pdb
 *.ilk
+Quant/kis_token_*.json
+.claude/
+build_test/
+linux_practice/dummy_server

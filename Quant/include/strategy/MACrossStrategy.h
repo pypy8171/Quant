@@ -21,6 +21,10 @@ public:
         return "MA_CROSS_" + ticker_;
     }
 
+    std::vector<WatchSpec> get_watch_specs() const override {
+        return {{ ticker_, Market::KR, "" }};
+    }
+
     std::string describe() const override {
         return "MACross | " + ticker_
             + " | short=" + std::to_string(short_period_)

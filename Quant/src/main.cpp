@@ -13,6 +13,7 @@
 #include <map>
 #include <mutex>
 #include <atomic>
+#include <thread>
 #include <nlohmann/json.hpp>
 
 #ifdef _WIN32
@@ -175,10 +176,32 @@ static void print_feed(const std::vector<std::string>& tickers,
 //  main
 // ═══════════════════════════════════════════════════════════════════════════
 int main(int argc, char* argv[]) {
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD dwMode = 0;
+    GetConsoleMode(hOut, &dwMode);
+    SetConsoleMode(hOut, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+#endif
     Logger::instance().init("quant_trader.log", LogLevel::INFO);
     LOG_INFO("=== Quant Trader v2.0 ===");
 
-    std::string config_path = (argc > 1) ? argv[1] : "config/config.json";
+    // 인자 파싱: quant_trader [config] [MODE]
+    //   quant_trader.exe                  → config/config.json, mode from json
+    //   quant_trader.exe KR_TEST          → config/config.json, mode=KR_TEST
+    //   quant_trader.exe US_TEST          → config/config.json, mode=US_TEST
+    //   quant_trader.exe config.json TRADE → 지정 config, mode=TRADE
+    std::string config_path  = "config/config.json";
+    std::string mode_override = "";
+
+    for (int i = 1; i < argc; ++i) {
+        std::string a = argv[i];
+        if (a == "KR_TEST" || a == "US_TEST" || a == "FEED" || a == "TRADE")
+            mode_override = a;
+        else
+            config_path = a;
+    }
+
     json cfg;
     try {
         cfg = load_config(config_path);
@@ -186,6 +209,11 @@ int main(int argc, char* argv[]) {
     } catch (const std::exception& e) {
         LOG_ERROR(std::string("[Main] 설정 로드 실패: ") + e.what());
         return 1;
+    }
+
+    if (!mode_override.empty()) {
+        cfg["mode"] = mode_override;
+        LOG_INFO("[Main] 모드 오버라이드: " + mode_override);
     }
 
     // KIS 설정
@@ -218,6 +246,7 @@ int main(int argc, char* argv[]) {
         GetConsoleMode(hOut, &dwMode);
         SetConsoleMode(hOut, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
 #endif
+        Logger::instance().set_console_enabled(false);
 
         std::mutex                          cache_mtx;
         std::map<std::string, OrderBook>    ob_cache;
@@ -264,6 +293,321 @@ int main(int argc, char* argv[]) {
 
         ws.disconnect();
         LOG_INFO("[Main] FEED 종료");
+        return 0;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  KR_TEST 모드: 고정 종목 리스트 현재가 조회
+    //   - get_fundamentals() 로 종목별 현재가·등락률·PBR 조회
+    //   - 종목당 300ms 간격 (KIS 초당 거래건수 제한), 전체 순환 후 반복
+    // ═══════════════════════════════════════════════════════════════════════
+    if (mode == "KR_TEST") {
+        // ── 조회할 종목 (코드, 이름)
+        static const std::vector<std::pair<std::string,std::string>> KR_WATCH = {
+            {"005930","삼성전자"},{"000660","SK하이닉스"},{"005380","현대차"},
+            {"035420","NAVER  "},{"051910","LG화학  "},{"006400","삼성SDI "},
+            {"035720","카카오  "},{"028260","삼성물산"},{"068270","셀트리온"},
+            {"012330","현대모비"},{"066570","LG전자  "},{"105560","KB금융  "},
+            {"055550","신한지주"},{"000270","기아    "},{"017670","SK텔레콤"},
+            {"030200","KT     "},{"003550","LG     "},{"009150","삼성전기"},
+            {"047050","포스코홀"},{"096770","SK이노베"},
+        };
+
+        KisClient kis(kis_cfg);
+        if (!kis.authenticate()) {
+            LOG_ERROR("[KR_TEST] KIS 인증 실패");
+            return 1;
+        }
+
+        Logger::instance().set_console_enabled(false);
+
+        struct StockPrice {
+            std::string ticker, name;
+            double price = 0, change = 0, change_rate = 0, pbr = 0, per = 0;
+            std::string updated;
+        };
+
+        std::mutex                           cache_mtx;
+        std::map<std::string, StockPrice>    cache;
+
+        // ── 백그라운드 fetch: 종목 순환, 종목당 300ms ────────────────────────
+        std::thread fetcher([&]() {
+            while (g_running.load()) {
+                for (const auto& [code, name] : KR_WATCH) {
+                    if (!g_running.load()) break;
+
+                    auto f = kis.get_fundamentals(code);
+
+                    auto now = std::chrono::system_clock::now();
+                    auto tt  = std::chrono::system_clock::to_time_t(now);
+                    struct tm tmi{};
+#ifdef _WIN32
+                    localtime_s(&tmi, &tt);
+#else
+                    localtime_r(&tt, &tmi);
+#endif
+                    char tbuf[16];
+                    std::strftime(tbuf, sizeof(tbuf), "%H:%M:%S", &tmi);
+
+                    StockPrice sp;
+                    sp.ticker  = code;
+                    sp.name    = name;
+                    sp.price   = f.last;
+                    sp.change  = f.diff;
+                    sp.change_rate = f.rate;
+                    sp.pbr     = f.pbr;
+                    sp.per     = f.per;
+                    sp.updated = tbuf;
+
+                    {
+                        std::lock_guard<std::mutex> lk(cache_mtx);
+                        cache[code] = sp;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                }
+            }
+        });
+
+        // ── 화면 표시: 500ms 주기 ────────────────────────────────────────────
+        std::cout << "\033[2J";
+
+        while (g_running.load()) {
+            // 캐시 스냅샷
+            std::map<std::string, StockPrice> snap;
+            {
+                std::lock_guard<std::mutex> lk(cache_mtx);
+                snap = cache;
+            }
+
+            std::cout << "\033[H";
+
+            // 현재 시각
+            auto now2 = std::chrono::system_clock::now();
+            auto tt2  = std::chrono::system_clock::to_time_t(now2);
+            struct tm tmi2{};
+#ifdef _WIN32
+            localtime_s(&tmi2, &tt2);
+#else
+            localtime_r(&tt2, &tmi2);
+#endif
+            char hbuf[32];
+            std::strftime(hbuf, sizeof(hbuf), "%H:%M:%S", &tmi2);
+
+            std::cout << "══════════ KR 주요 종목 현재가 [" << hbuf << "] ══════════\n";
+            std::cout << std::left
+                      << std::setw(4)  << "#"
+                      << std::setw(8)  << "코드"
+                      << std::setw(14) << "종목명"
+                      << std::right
+                      << std::setw(10) << "현재가"
+                      << std::setw(7)  << "PBR"
+                      << std::setw(7)  << "PER"
+                      << std::setw(10) << "갱신"
+                      << "\n";
+            std::cout << std::string(60, '-') << "\n";
+
+            int idx = 0;
+            for (const auto& [code, name] : KR_WATCH) {
+                ++idx;
+                auto it = snap.find(code);
+                if (it == snap.end()) {
+                    std::cout << std::left
+                              << std::setw(4)  << idx
+                              << std::setw(8)  << code
+                              << std::setw(14) << name
+                              << "  (조회 중...)\n";
+                    continue;
+                }
+                const StockPrice& sp = it->second;
+
+                const char* color = (sp.price > 0) ? "" : "";
+                const char* reset = "\033[0m";
+                (void)color; (void)reset;
+
+                char ln[128];
+                snprintf(ln, sizeof(ln),
+                    "%3d  %-6s  %-12s  %9.0f  %5.2f  %5.1f  %s\n",
+                    idx,
+                    code.c_str(),
+                    name.c_str(),
+                    sp.price,
+                    sp.pbr,
+                    sp.per,
+                    sp.updated.c_str());
+                std::cout << ln;
+            }
+
+            std::cout << "\nCtrl+C 종료\n";
+            std::cout.flush();
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+
+        fetcher.join();
+        Logger::instance().set_console_enabled(true);
+        LOG_INFO("[KR_TEST] 종료");
+        return 0;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  US_TEST 모드: M7 REST 시세 확인 (장 외 시간에도 동작)
+    //   - WebSocket 불필요 — KIS 해외주식 REST만 사용
+    //   - 실시간 체결은 미국 정규장(KST 22:30~05:00)에만 가능
+    // ═══════════════════════════════════════════════════════════════════════
+    if (mode == "US_TEST") {
+#ifdef _WIN32
+        SetConsoleOutputCP(CP_UTF8);
+        HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        DWORD  dwMode = 0;
+        GetConsoleMode(hOut, &dwMode);
+        SetConsoleMode(hOut, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+#endif
+        static const std::vector<std::pair<std::string,std::string>> M7 = {
+            {"AAPL","Apple"}, {"MSFT","Microsoft"}, {"NVDA","NVIDIA"},
+            {"AMZN","Amazon"}, {"GOOGL","Alphabet"}, {"META","Meta"},
+            {"TSLA","Tesla"}
+        };
+
+        KisClient kis(kis_cfg);
+        if (!kis.authenticate()) {
+            LOG_ERROR("[US_TEST] KIS 인증 실패");
+            return 1;
+        }
+
+        Logger::instance().set_console_enabled(false);
+
+        // 공유 캐시
+        struct StockCache {
+            Fundamentals            fund;
+            std::vector<MarketData> bars;
+            std::string             updated;  // HH:MM:SS
+        };
+        std::mutex                         cache_mtx;
+        std::map<std::string, StockCache>  cache;
+        double                             kr_px = 0.0;
+
+        // ── 백그라운드 fetch 스레드 ──────────────────────────────────────────
+        // 7종목을 순환하며 계속 갱신. 종목당 ~250ms → 전체 1.75s/cycle
+        std::thread fetcher([&]() {
+            // 최초 1회: 삼성전자 현재가 확인
+            kr_px = kis.get_current_price("005930");
+
+            while (g_running.load()) {
+                for (const auto& [sym, name] : M7) {
+                    if (!g_running.load()) break;
+
+                    auto f    = kis.get_us_fundamentals(sym, "NAS");
+                    auto bars = kis.get_us_daily_ohlcv(sym, 5, "NAS");
+
+                    auto now = std::chrono::system_clock::now();
+                    auto tt  = std::chrono::system_clock::to_time_t(now);
+                    struct tm tmi{};
+#ifdef _WIN32
+                    localtime_s(&tmi, &tt);
+#else
+                    localtime_r(&tt, &tmi);
+#endif
+                    char tbuf[16];
+                    std::strftime(tbuf, sizeof(tbuf), "%H:%M:%S", &tmi);
+
+                    {
+                        std::lock_guard<std::mutex> lk(cache_mtx);
+                        cache[sym] = { f, bars, tbuf };
+                    }
+                    // KIS rate limit: 종목당 최소 200ms 간격
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                }
+            }
+        });
+
+        // ── 화면 표시 루프: 500ms 주기 ──────────────────────────────────────
+        std::cout << "\033[2J";
+
+        while (g_running.load()) {
+            std::cout << "\033[H";
+
+            auto now = std::chrono::system_clock::now();
+            auto tt  = std::chrono::system_clock::to_time_t(now);
+            struct tm tm_info{};
+#ifdef _WIN32
+            localtime_s(&tm_info, &tt);
+#else
+            localtime_r(&tt, &tm_info);
+#endif
+            char tbuf[32];
+            std::strftime(tbuf, sizeof(tbuf), "%H:%M:%S", &tm_info);
+
+            std::cout << "══════════ M7 미국주식 시세 [" << tbuf << "] ══════════\n";
+            std::cout << std::fixed << std::setprecision(0);
+            std::cout << "  국내 삼성전자: ";
+            if (kr_px > 0) std::cout << kr_px << "원";
+            else            std::cout << "조회 중...";
+            std::cout << "\n\n";
+
+            std::lock_guard<std::mutex> lk(cache_mtx);
+
+            bool any_ok = false;
+            for (const auto& [sym, name] : M7) {
+                auto it = cache.find(sym);
+
+                std::cout << "  [" << name << " / " << sym << "]";
+                if (it != cache.end()) {
+                    std::cout << "  갱신: " << it->second.updated;
+                }
+                std::cout << "\n";
+
+                if (it == cache.end()) {
+                    std::cout << "    (조회 중...)\n\n";
+                    continue;
+                }
+
+                const auto& f    = it->second.fund;
+                const auto& bars = it->second.bars;
+
+                if (f.last > 0.0) {
+                    any_ok = true;
+                    std::string dir = (f.rate > 0) ? "▲" : (f.rate < 0 ? "▼" : "-");
+                    std::cout << std::setprecision(2)
+                              << "    현재가: $" << f.last << " " << dir
+                              << std::showpos << std::setprecision(2) << f.rate << "%"
+                              << " (" << f.diff << ")\n" << std::noshowpos;
+                    if (f.open > 0.0)
+                        std::cout << "    시가: $" << f.open
+                                  << "  고가: $" << f.high
+                                  << "  저가: $" << f.low << "\n";
+                    if (f.pbid > 0.0 || f.pask > 0.0)
+                        std::cout << "    매수호가: $" << f.pbid << "  매도호가: $" << f.pask << "\n";
+                    std::cout << std::setprecision(1)
+                              << "    PER=" << f.per << "  PBR=" << f.pbr << "\n";
+                } else {
+                    std::cout << "    (시세 없음 — 장 외 또는 API 오류)\n";
+                }
+
+                if (!bars.empty()) {
+                    std::cout << "    일봉:";
+                    for (const auto& b : bars)
+                        std::cout << "  $" << std::setprecision(2) << b.close;
+                    if (bars.size() >= 4) {
+                        bool dec = bars[0].close < bars[1].close
+                                && bars[1].close < bars[2].close
+                                && bars[2].close < bars[3].close;
+                        if (dec) std::cout << "  ※3일연속하락";
+                    }
+                    std::cout << "\n";
+                }
+                std::cout << "\n";
+            }
+
+            std::cout << (any_ok ? "해외 API: OK" : "해외 API: 대기 중") << "\n";
+            std::cout << "Ctrl+C 로 종료\n";
+            std::cout.flush();
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+
+        fetcher.join();
+        Logger::instance().set_console_enabled(true);
+        LOG_INFO("[US_TEST] 종료");
         return 0;
     }
 

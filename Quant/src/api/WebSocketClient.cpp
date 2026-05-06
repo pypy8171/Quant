@@ -80,8 +80,8 @@ std::string KisWebSocket::http_post_json(const std::string& url, const std::stri
 }
 
 // ─── Windows WebSocket 연결 ──────────────────────────────────────────────────
-bool KisWebSocket::connect(const std::vector<std::string>& tickers) {
-    tickers_ = tickers;
+bool KisWebSocket::connect(const std::vector<WatchSpec>& specs) {
+    specs_ = specs;
     if (!get_approval_key()) return false;
 
     const wchar_t* ws_host = L"ops.koreainvestment.com";
@@ -119,9 +119,15 @@ bool KisWebSocket::connect(const std::vector<std::string>& tickers) {
              (cfg_.is_paper ? "모의투자" : "실거래") + ")");
     connected_.store(true);
 
-    for (const auto& tk : tickers_) {
-        send_subscribe("H0STASP0", tk);
-        send_subscribe("H0STCNT0", tk);
+    for (const auto& spec : specs_) {
+        if (spec.market == Market::KR) {
+            send_subscribe("H0STASP0", spec.ticker);
+            send_subscribe("H0STCNT0", spec.ticker);
+        } else {
+            // 미국: HDFSCNT0, tr_key = "EXCH|SYMBOL"
+            std::string exch = spec.exchange.empty() ? "NAS" : spec.exchange;
+            send_subscribe("HDFSCNT0", exch + "|" + spec.ticker);
+        }
     }
 
     recv_thread_ = std::thread(&KisWebSocket::recv_loop, this);
@@ -164,6 +170,15 @@ void KisWebSocket::recv_loop() {
             accumulated.clear();
         }
     }
+
+    // TODO: 재연결 로직
+    //  1. exponential backoff (1s → 2s → 4s ... max 30s)
+    //  2. get_approval_key() 재호출 (자정 넘어가면 토큰 만료)
+    //  3. 기존 hWebSocket_ close 후 WinHttpWebSocketCompleteUpgrade 재시도
+    //  4. specs_ 기반으로 send_subscribe 재호출
+    //  5. 연속 실패 N회 시 alert + 종료
+    //  현재는 단순 break — 운영 환경에선 외부 supervisor가
+    //  프로세스 재시작 처리 필요.
 
     connected_.store(false);
     LOG_INFO("[WS] 수신 스레드 종료");
@@ -337,8 +352,8 @@ static std::string ws_recv_frame_linux(int fd) {
 }
 
 // ─── Linux WebSocket 연결 ─────────────────────────────────────────────────
-bool KisWebSocket::connect(const std::vector<std::string>& tickers) {
-    tickers_ = tickers;
+bool KisWebSocket::connect(const std::vector<WatchSpec>& specs) {
+    specs_ = specs;
     if (!get_approval_key()) return false;
 
     std::string host = "ops.koreainvestment.com";
@@ -353,9 +368,14 @@ bool KisWebSocket::connect(const std::vector<std::string>& tickers) {
              (cfg_.is_paper ? "모의투자" : "실거래") + ")");
     connected_.store(true);
 
-    for (const auto& tk : tickers_) {
-        send_subscribe("H0STASP0", tk);
-        send_subscribe("H0STCNT0", tk);
+    for (const auto& spec : specs_) {
+        if (spec.market == Market::KR) {
+            send_subscribe("H0STASP0", spec.ticker);
+            send_subscribe("H0STCNT0", spec.ticker);
+        } else {
+            std::string exch = spec.exchange.empty() ? "NAS" : spec.exchange;
+            send_subscribe("HDFSCNT0", exch + "|" + spec.ticker);
+        }
     }
 
     recv_thread_ = std::thread(&KisWebSocket::recv_loop, this);
@@ -382,6 +402,15 @@ void KisWebSocket::recv_loop() {
         }
         parse_message(frame);
     }
+
+    // TODO: 재연결 로직
+    //  1. exponential backoff (1s → 2s → 4s ... max 30s)
+    //  2. get_approval_key() 재호출 (자정 넘어가면 토큰 만료)
+    //  3. 기존 sock_fd_ close 후 ws_tcp_connect 재시도
+    //  4. specs_ 기반으로 send_subscribe 재호출
+    //  5. 연속 실패 N회 시 alert + 종료
+    //  현재는 단순 break — 운영 환경에선 외부 supervisor가
+    //  프로세스 재시작 처리 필요.
 
     connected_.store(false);
     LOG_INFO("[WS] 수신 스레드 종료");
@@ -485,7 +514,8 @@ void KisWebSocket::parse_message(const std::string& msg) {
     auto fields = split_str(data, '^');
 
     if      (tr_id == "H0STASP0") parse_orderbook(fields);
-    else if (tr_id == "H0STCNT0") parse_trade(fields);
+    else if (tr_id == "H0STCNT0") parse_kr_trade(fields);
+    else if (tr_id == "HDFSCNT0") parse_us_trade(fields);
 }
 
 // ─── 호가 파싱 (H0STASP0) ────────────────────────────────────────────────
@@ -530,17 +560,16 @@ void KisWebSocket::parse_orderbook(const std::vector<std::string>& f) {
     if (on_orderbook_) on_orderbook_(ob);
 }
 
-// ─── 체결 파싱 (H0STCNT0) ────────────────────────────────────────────────
+// ─── 국내 체결 파싱 (H0STCNT0) ───────────────────────────────────────────
 // [0]종목코드 [1]체결시간 [2]현재가 [12]체결량 [21]체결구분(1=매수,5=매도)
-void KisWebSocket::parse_trade(const std::vector<std::string>& f) {
+void KisWebSocket::parse_kr_trade(const std::vector<std::string>& f) {
     if (f.size() < 22) return;
 
-    // 첫 수신 시 원본 필드 로그 (체결가 인덱스 진단용)
-    static std::set<std::string> first_trade_logged;
-    if (first_trade_logged.find(f[0]) == first_trade_logged.end()) {
-        first_trade_logged.insert(f[0]);
-        std::string dbg = "[WS] H0STCNT0 첫 수신 [" + f[0] + "] 총 " +
-                          std::to_string(f.size()) + "필드:";
+    static std::set<std::string> first_logged;
+    if (first_logged.find(f[0]) == first_logged.end()) {
+        first_logged.insert(f[0]);
+        std::string dbg = "[WS] H0STCNT0 첫 수신 [" + f[0] + "] 총 "
+                        + std::to_string(f.size()) + "필드:";
         for (size_t i = 0; i < std::min(f.size(), size_t(13)); ++i)
             dbg += "\n  [" + std::to_string(i) + "]=" + f[i];
         LOG_INFO(dbg);
@@ -549,13 +578,42 @@ void KisWebSocket::parse_trade(const std::vector<std::string>& f) {
     TradeData td;
     td.ticker    = f[0];
     td.time      = f[1];
+    td.market    = Market::KR;
     td.timestamp = std::chrono::system_clock::now();
-
     try {
         td.price     = std::stod(f[2]);
         td.quantity  = std::stoll(f[12]);
         td.direction = std::stoi(f[21]);
     } catch (...) {}
+    if (on_trade_) on_trade_(td);
+}
 
+// ─── 미국 체결 파싱 (HDFSCNT0) ───────────────────────────────────────────
+// tr_key 형식: "NAS|AAPL" → ticker = "AAPL"
+// [0]종목코드 [1]체결시간(KST) [2]현재가 [8]체결량 [?]방향
+void KisWebSocket::parse_us_trade(const std::vector<std::string>& f) {
+    if (f.size() < 9) return;
+
+    static std::set<std::string> first_us_logged;
+    if (first_us_logged.find(f[0]) == first_us_logged.end()) {
+        first_us_logged.insert(f[0]);
+        std::string dbg = "[WS] HDFSCNT0 첫 수신 [" + f[0] + "] 총 "
+                        + std::to_string(f.size()) + "필드:";
+        for (size_t i = 0; i < std::min(f.size(), size_t(15)); ++i)
+            dbg += "\n  [" + std::to_string(i) + "]=" + f[i];
+        LOG_INFO(dbg);
+    }
+
+    TradeData td;
+    td.ticker    = f[0];
+    td.time      = f[1];
+    td.market    = Market::US;
+    td.timestamp = std::chrono::system_clock::now();
+    try {
+        td.price    = std::stod(f[2]);
+        td.quantity = std::stoll(f[8]);
+        // 방향 필드 위치 확인 후 조정 (진단 로그 참조)
+        td.direction = (f.size() > 20) ? std::stoi(f[20]) : 0;
+    } catch (...) {}
     if (on_trade_) on_trade_(td);
 }

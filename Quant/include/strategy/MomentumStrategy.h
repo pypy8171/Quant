@@ -20,6 +20,10 @@ public:
         return "MOMENTUM_" + ticker_;
     }
 
+    std::vector<WatchSpec> get_watch_specs() const override {
+        return {{ ticker_, Market::KR, "" }};
+    }
+
     std::string describe() const override {
         return "Momentum(Donchian) | " + ticker_
             + " | period=" + std::to_string(period_)
