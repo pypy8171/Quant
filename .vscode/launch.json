@@ -5,7 +5,7 @@
             "name": "🔍 백테스팅 (2023)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/python/main.py",
+            "program": "${workspaceFolder}/PYQuant/main.py",
             "cwd": "${workspaceFolder}/python",
             "args": ["backtest", "--from", "2023-01-01", "--to", "2023-12-31", "--pbr", "1.0"],
             "console": "integratedTerminal"
@@ -14,7 +14,7 @@
             "name": "🔍 백테스팅 (2024)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/python/main.py",
+            "program": "${workspaceFolder}/PYQuant/main.py",
             "cwd": "${workspaceFolder}/python",
             "args": ["backtest", "--from", "2024-01-01", "--to", "2024-12-31", "--pbr", "1.0"],
             "console": "integratedTerminal"
@@ -23,7 +23,7 @@
             "name": "📈 실전매매 (DRY RUN)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/python/main.py",
+            "program": "${workspaceFolder}/PYQuant/main.py",
             "cwd": "${workspaceFolder}/python",
             "args": ["live", "--dry-run", "--pbr", "1.0"],
             "console": "integratedTerminal"
@@ -32,7 +32,7 @@
             "name": "🚀 실전매매 (실거래)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/python/main.py",
+            "program": "${workspaceFolder}/PYQuant/main.py",
             "cwd": "${workspaceFolder}/python",
             "args": ["live", "--pbr", "1.0", "--qty", "1"],
             "console": "integratedTerminal"
