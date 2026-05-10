@@ -6,7 +6,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/PYQuant/main.py",
-            "cwd": "${workspaceFolder}/python",
+            "cwd": "${workspaceFolder}/PYQuant",
             "args": ["backtest", "--from", "2023-01-01", "--to", "2023-12-31", "--pbr", "1.0"],
             "console": "integratedTerminal"
         },
@@ -15,7 +15,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/PYQuant/main.py",
-            "cwd": "${workspaceFolder}/python",
+            "cwd": "${workspaceFolder}/PYQuant",
             "args": ["backtest", "--from", "2024-01-01", "--to", "2024-12-31", "--pbr", "1.0"],
             "console": "integratedTerminal"
         },
@@ -24,7 +24,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/PYQuant/main.py",
-            "cwd": "${workspaceFolder}/python",
+            "cwd": "${workspaceFolder}/PYQuant",
             "args": ["live", "--dry-run", "--pbr", "1.0"],
             "console": "integratedTerminal"
         },
@@ -33,7 +33,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/PYQuant/main.py",
-            "cwd": "${workspaceFolder}/python",
+            "cwd": "${workspaceFolder}/PYQuant",
             "args": ["live", "--pbr", "1.0", "--qty", "1"],
             "console": "integratedTerminal"
         }
