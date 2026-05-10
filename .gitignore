@@ -13,3 +13,8 @@ Quant/kis_token_*.json
 .claude/
 build_test/
 linux_practice/dummy_server
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+data/

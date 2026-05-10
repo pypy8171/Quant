@@ -1,0 +1,245 @@
+"""
+KIS (한국투자증권) REST API 클라이언트
+C++ KisClient와 동일한 기능을 Python으로 구현
+"""
+import json
+import time
+import requests
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+
+@dataclass
+class Bar:
+    date:   str
+    open:   float
+    high:   float
+    low:    float
+    close:  float
+    volume: int
+
+
+@dataclass
+class Fundamentals:
+    ticker:      str
+    last:        float = 0.0   # 현재가
+    diff:        float = 0.0   # 전일대비
+    rate:        float = 0.0   # 등락률(%)
+    pbr:         float = 0.0
+    per:         float = 0.0
+    open:        float = 0.0
+    high:        float = 0.0
+    low:         float = 0.0
+
+
+@dataclass
+class OrderSignal:
+    ticker:   str
+    side:     str          # "BUY" | "SELL"
+    quantity: int
+    order_type: str = "MARKET"   # "MARKET" | "LIMIT"
+    price:    float = 0.0
+
+
+class KisClient:
+    REAL_URL  = "https://openapi.koreainvestment.com:9443"
+    PAPER_URL = "https://openapivts.koreainvestment.com:29443"
+
+    def __init__(self, app_key: str, app_secret: str,
+                 account_no: str, account_type: str = "01",
+                 is_paper: bool = False):
+        self.app_key      = app_key
+        self.app_secret   = app_secret
+        self.account_no   = account_no
+        self.account_type = account_type
+        self.is_paper     = is_paper
+        self.base_url     = self.PAPER_URL if is_paper else self.REAL_URL
+        self._token: Optional[str] = None
+        self._token_exp: float = 0.0
+
+    # ── 인증 ────────────────────────────────────────────────────────────────
+    def authenticate(self) -> bool:
+        url  = f"{self.base_url}/oauth2/tokenP"
+        body = {
+            "grant_type": "client_credentials",
+            "appkey":     self.app_key,
+            "appsecret":  self.app_secret,
+        }
+        try:
+            r = requests.post(url, json=body, timeout=10)
+            r.raise_for_status()
+            data = r.json()
+            self._token     = data["access_token"]
+            self._token_exp = time.time() + int(data.get("expires_in", 86400))
+            print(f"[KIS] 인증 성공 (만료: {data.get('access_token_token_expired', '?')})")
+            return True
+        except Exception as e:
+            print(f"[KIS] 인증 실패: {e}")
+            return False
+
+    def _ensure_token(self):
+        if not self._token or time.time() > self._token_exp - 300:
+            self.authenticate()
+
+    def _headers(self, tr_id: str) -> dict:
+        self._ensure_token()
+        return {
+            "authorization": f"Bearer {self._token}",
+            "appkey":        self.app_key,
+            "appsecret":     self.app_secret,
+            "tr_id":         tr_id,
+            "Content-Type":  "application/json",
+        }
+
+    def _get(self, path: str, params: dict, tr_id: str) -> dict:
+        try:
+            r = requests.get(
+                self.base_url + path,
+                params=params,
+                headers=self._headers(tr_id),
+                timeout=10,
+            )
+            return r.json()
+        except Exception as e:
+            print(f"[KIS] GET 오류 {path}: {e}")
+            return {}
+
+    def _post(self, path: str, body: dict, tr_id: str) -> dict:
+        try:
+            r = requests.post(
+                self.base_url + path,
+                json=body,
+                headers=self._headers(tr_id),
+                timeout=10,
+            )
+            return r.json()
+        except Exception as e:
+            print(f"[KIS] POST 오류 {path}: {e}")
+            return {}
+
+    # ── 현재가 + PBR/PER ────────────────────────────────────────────────────
+    def get_fundamentals(self, ticker: str) -> Fundamentals:
+        data = self._get(
+            "/uapi/domestic-stock/v1/quotations/inquire-price",
+            {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker},
+            "FHKST01010100",
+        )
+        f = Fundamentals(ticker=ticker)
+        out = data.get("output", {})
+        def d(k):
+            try: return float(out.get(k, 0) or 0)
+            except: return 0.0
+        f.last = d("stck_prpr")
+        f.diff = d("prdy_vrss")
+        f.rate = d("prdy_ctrt")
+        f.open = d("stck_oprc")
+        f.high = d("stck_hgpr")
+        f.low  = d("stck_lwpr")
+        f.pbr  = d("pbr")
+        f.per  = d("per")
+        return f
+
+    # ── 일봉 OHLCV ──────────────────────────────────────────────────────────
+    def get_daily_ohlcv(self, ticker: str, count: int = 100) -> list[Bar]:
+        data = self._get(
+            "/uapi/domestic-stock/v1/quotations/inquire-daily-price",
+            {
+                "FID_COND_MRKT_DIV_CODE": "J",
+                "FID_INPUT_ISCD":         ticker,
+                "FID_PERIOD_DIV_CODE":    "D",
+                "FID_ORG_ADJ_PRC":        "0",
+            },
+            "FHKST01010400",
+        )
+        bars = []
+        for item in data.get("output2", []):
+            try:
+                raw = item.get("stck_bsop_date", "")
+                # KIS 반환형: "20230101" → "2023-01-01" 로 정규화
+                date = f"{raw[:4]}-{raw[4:6]}-{raw[6:]}" if len(raw) == 8 else raw
+                bars.append(Bar(
+                    date   = date,
+                    open   = float(item.get("stck_oprc", 0) or 0),
+                    high   = float(item.get("stck_hgpr", 0) or 0),
+                    low    = float(item.get("stck_lwpr", 0) or 0),
+                    close  = float(item.get("stck_clpr", 0) or 0),
+                    volume = int(item.get("acml_vol", 0) or 0),
+                ))
+            except:
+                continue
+        # 최신순 → 오래된순 정렬 (bars[0]=가장 오래됨, bars[-1]=최신)
+        bars.reverse()
+        return bars[:count]
+
+    # ── 시총 상위 Universe 조회 ──────────────────────────────────────────────
+    def fetch_universe(self, market: str = "J", max_pbr: float = 999.0) -> list[str]:
+        data = self._get(
+            "/uapi/domestic-stock/v1/ranking/market-cap",
+            {
+                "FID_COND_MRKT_DIV_CODE": market,
+                "FID_COND_SCR_DIV_CODE":  "20171",
+                "FID_INPUT_ISCD":         "0000",
+                "FID_DIV_CLS_CODE":       "0",
+                "FID_TRGT_CLS_CODE":      "0",
+                "FID_RANK_SORT_CLS_CODE": "0",
+                "FID_INPUT_CNT_1":        "0",
+                "FID_PBLICATN_NM":        "",
+            },
+            "FHPST01720000",
+        )
+        result = []
+        for item in data.get("output2", []):
+            ticker = item.get("mksc_shrn_iscd", "")
+            if not ticker:
+                continue
+            try:
+                pbr = float(item.get("hts_pbr", 0) or 0)
+                if pbr > 0 and pbr > max_pbr:
+                    continue
+            except:
+                pass
+            result.append(ticker)
+        return result
+
+    # ── 주문 실행 ────────────────────────────────────────────────────────────
+    def send_order(self, signal: OrderSignal) -> bool:
+        tr_id = ("VTTC0802U" if self.is_paper else "TTTC0802U") \
+                if signal.side == "BUY" \
+                else ("VTTC0801U" if self.is_paper else "TTTC0801U")
+
+        body = {
+            "CANO":         self.account_no,
+            "ACNT_PRDT_CD": self.account_type,
+            "PDNO":         signal.ticker,
+            "ORD_DVSN":     "01" if signal.order_type == "MARKET" else "00",
+            "ORD_QTY":      str(signal.quantity),
+            "ORD_UNPR":     "0" if signal.order_type == "MARKET"
+                            else str(int(signal.price)),
+        }
+        data = self._post(
+            "/uapi/domestic-stock/v1/trading/order-cash", body, tr_id
+        )
+        ok = data.get("rt_cd") == "0"
+        if ok:
+            print(f"[KIS] 주문 성공: {signal.ticker} {signal.side} {signal.quantity}주")
+        else:
+            print(f"[KIS] 주문 실패: {data.get('msg1', '')}")
+        return ok
+
+
+# ── config.json에서 자동 로드 ────────────────────────────────────────────────
+def from_config(config_path: str = None) -> KisClient:
+    if config_path is None:
+        config_path = Path(__file__).parents[2] / "Quant" / "config" / "config.json"
+    with open(config_path, encoding="utf-8") as f:
+        cfg = json.load(f)
+    k = cfg["kis"]
+    return KisClient(
+        app_key      = k["app_key"],
+        app_secret   = k["app_secret"],
+        account_no   = k["account_no"],
+        account_type = k.get("account_type", "01"),
+        is_paper     = k.get("is_paper", False),
+    )
