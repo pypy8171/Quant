@@ -349,10 +349,19 @@ Fundamentals KisClient::get_fundamentals(const std::string& ticker) {
     try {
         auto j = json::parse(resp);
         auto& out = j["output"];
-        std::string pbr_s = out.value("pbr", "0");
-        std::string per_s = out.value("per", "0");
-        f.pbr = pbr_s.empty() ? 0.0 : std::stod(pbr_s);
-        f.per = per_s.empty() ? 0.0 : std::stod(per_s);
+        auto parse_d = [&](const std::string& key) -> double {
+            std::string s = out.value(key, "");
+            if (s.empty()) return 0.0;
+            try { return std::stod(s); } catch (...) { return 0.0; }
+        };
+        f.last = parse_d("stck_prpr");   // 현재가
+        f.diff = parse_d("prdy_vrss");   // 전일대비
+        f.rate = parse_d("prdy_ctrt");   // 등락률(%)
+        f.open = parse_d("stck_oprc");   // 시가
+        f.high = parse_d("stck_hgpr");   // 고가
+        f.low  = parse_d("stck_lwpr");   // 저가
+        f.pbr  = parse_d("pbr");
+        f.per  = parse_d("per");
     } catch (...) {}
 
     return f;

@@ -297,12 +297,12 @@ int main(int argc, char* argv[]) {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  KR_TEST 모드: 고정 종목 리스트 현재가 조회
-    //   - get_fundamentals() 로 종목별 현재가·등락률·PBR 조회
-    //   - 종목당 300ms 간격 (KIS 초당 거래건수 제한), 전체 순환 후 반복
+    //  KR_TEST 모드
+    //   [REST 1회] 인증 + PBR·PER·전일기준가 초기 로드 (종목당 300ms)
+    //   [WS 실시간] H0STCNT0 체결 구독 → 가격 캐시 업데이트
+    //   [화면] 1초 주기로 캐시 출력
     // ═══════════════════════════════════════════════════════════════════════
     if (mode == "KR_TEST") {
-        // ── 조회할 종목 (코드, 이름)
         static const std::vector<std::pair<std::string,std::string>> KR_WATCH = {
             {"005930","삼성전자"},{"000660","SK하이닉스"},{"005380","현대차"},
             {"035420","NAVER  "},{"051910","LG화학  "},{"006400","삼성SDI "},
@@ -319,60 +319,89 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        Logger::instance().set_console_enabled(false);
-
         struct StockPrice {
             std::string ticker, name;
-            double price = 0, change = 0, change_rate = 0, pbr = 0, per = 0;
+            double price      = 0;   // 현재 체결가 (WS 갱신)
+            double base_price = 0;   // 전일 기준가 (REST 1회)
+            double change     = 0;   // 전일대비
+            double change_rate= 0;   // 등락률(%)
+            double pbr        = 0;   // REST 1회
+            double per        = 0;   // REST 1회
+            int    direction  = 0;   // 1=상승 5=하락 (WS 갱신)
             std::string updated;
         };
 
-        std::mutex                           cache_mtx;
-        std::map<std::string, StockPrice>    cache;
+        std::mutex                        cache_mtx;
+        std::map<std::string, StockPrice> cache;
 
-        // ── 백그라운드 fetch: 종목 순환, 종목당 300ms ────────────────────────
-        std::thread fetcher([&]() {
-            while (g_running.load()) {
-                for (const auto& [code, name] : KR_WATCH) {
-                    if (!g_running.load()) break;
-
-                    auto f = kis.get_fundamentals(code);
-
-                    auto now = std::chrono::system_clock::now();
-                    auto tt  = std::chrono::system_clock::to_time_t(now);
-                    struct tm tmi{};
-#ifdef _WIN32
-                    localtime_s(&tmi, &tt);
-#else
-                    localtime_r(&tt, &tmi);
-#endif
-                    char tbuf[16];
-                    std::strftime(tbuf, sizeof(tbuf), "%H:%M:%S", &tmi);
-
-                    StockPrice sp;
-                    sp.ticker  = code;
-                    sp.name    = name;
-                    sp.price   = f.last;
-                    sp.change  = f.diff;
-                    sp.change_rate = f.rate;
-                    sp.pbr     = f.pbr;
-                    sp.per     = f.per;
-                    sp.updated = tbuf;
-
-                    {
-                        std::lock_guard<std::mutex> lk(cache_mtx);
-                        cache[code] = sp;
-                    }
-                    std::this_thread::sleep_for(std::chrono::milliseconds(300));
-                }
+        // ── [REST 1회] PBR·PER·초기가격 로드 ────────────────────────────────
+        std::cout << "\033[2J\033[H";
+        std::cout << "기본 정보 로딩 중 (REST)...\n";
+        for (const auto& [code, name] : KR_WATCH) {
+            auto f = kis.get_fundamentals(code);
+            StockPrice sp;
+            sp.ticker      = code;
+            sp.name        = name;
+            sp.pbr         = f.pbr;
+            sp.per         = f.per;
+            sp.price       = f.last;
+            sp.change      = f.diff;
+            sp.change_rate = f.rate;
+            sp.base_price  = (f.diff != 0.0) ? f.last - f.diff : f.last;
+            std::cout << "  " << code << " " << name << " 완료\n";
+            std::cout.flush();
+            {
+                std::lock_guard<std::mutex> lk(cache_mtx);
+                cache[code] = sp;
             }
-        });
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        }
+        std::cout << "로딩 완료. WebSocket 연결 중...\n";
+        std::cout.flush();
 
-        // ── 화면 표시: 500ms 주기 ────────────────────────────────────────────
+        // ── [WS] 20종목 체결 구독 ────────────────────────────────────────────
+        Logger::instance().set_console_enabled(false);
+
+        KisWebSocket ws(kis_cfg);
+        ws.set_callbacks(
+            [](const OrderBook&) {},   // 호가 불필요
+            [&](const TradeData& td) {
+                auto now = std::chrono::system_clock::now();
+                auto tt  = std::chrono::system_clock::to_time_t(now);
+                struct tm tmi{};
+#ifdef _WIN32
+                localtime_s(&tmi, &tt);
+#else
+                localtime_r(&tt, &tmi);
+#endif
+                char tbuf[16];
+                std::strftime(tbuf, sizeof(tbuf), "%H:%M:%S", &tmi);
+
+                std::lock_guard<std::mutex> lk(cache_mtx);
+                auto it = cache.find(td.ticker);
+                if (it == cache.end()) return;
+                auto& sp       = it->second;
+                sp.price       = td.price;
+                sp.direction   = td.direction;
+                sp.change      = sp.price - sp.base_price;
+                sp.change_rate = (sp.base_price > 0)
+                                 ? sp.change / sp.base_price * 100.0 : 0.0;
+                sp.updated     = tbuf;
+            }
+        );
+
+        std::vector<WatchSpec> specs;
+        for (const auto& [code, name] : KR_WATCH)
+            specs.push_back({code, Market::KR, ""});
+
+        bool ws_ok = ws.connect(specs);
+        if (!ws_ok)
+            LOG_WARN("[KR_TEST] WebSocket 연결 실패 — REST 초기값으로만 표시");
+
+        // ── 화면 표시: 1초 주기 ──────────────────────────────────────────────
         std::cout << "\033[2J";
 
         while (g_running.load()) {
-            // 캐시 스냅샷
             std::map<std::string, StockPrice> snap;
             {
                 std::lock_guard<std::mutex> lk(cache_mtx);
@@ -381,7 +410,6 @@ int main(int argc, char* argv[]) {
 
             std::cout << "\033[H";
 
-            // 현재 시각
             auto now2 = std::chrono::system_clock::now();
             auto tt2  = std::chrono::system_clock::to_time_t(now2);
             struct tm tmi2{};
@@ -393,57 +421,52 @@ int main(int argc, char* argv[]) {
             char hbuf[32];
             std::strftime(hbuf, sizeof(hbuf), "%H:%M:%S", &tmi2);
 
-            std::cout << "══════════ KR 주요 종목 현재가 [" << hbuf << "] ══════════\n";
-            std::cout << std::left
-                      << std::setw(4)  << "#"
-                      << std::setw(8)  << "코드"
-                      << std::setw(14) << "종목명"
-                      << std::right
-                      << std::setw(10) << "현재가"
-                      << std::setw(7)  << "PBR"
-                      << std::setw(7)  << "PER"
-                      << std::setw(10) << "갱신"
-                      << "\n";
-            std::cout << std::string(60, '-') << "\n";
+            std::cout << "══════ KR 주요 종목 실시간 시세 ["
+                      << hbuf << "] "
+                      << (ws_ok ? "[WS:연결]" : "[WS:끊김]")
+                      << " ══════\n";
+            std::cout << " #   코드     종목명          현재가     등락     등락률   PBR   PER   갱신\n";
+            std::cout << std::string(80, '-') << "\n";
 
             int idx = 0;
             for (const auto& [code, name] : KR_WATCH) {
                 ++idx;
                 auto it = snap.find(code);
                 if (it == snap.end()) {
-                    std::cout << std::left
-                              << std::setw(4)  << idx
-                              << std::setw(8)  << code
-                              << std::setw(14) << name
-                              << "  (조회 중...)\n";
+                    std::cout << std::setw(2) << idx << "  " << code
+                              << "  " << name << "  (로딩 중...)\n";
                     continue;
                 }
                 const StockPrice& sp = it->second;
 
-                const char* color = (sp.price > 0) ? "" : "";
-                const char* reset = "\033[0m";
-                (void)color; (void)reset;
+                // 등락 색: 상승=빨강, 하락=파랑, 보합=기본
+                const char* col = (sp.direction == 1 || sp.change > 0) ? "\033[31m"
+                                : (sp.direction == 5 || sp.change < 0) ? "\033[34m"
+                                : "";
+                const char* rst = "\033[0m";
+                const char* arr = (sp.direction == 1) ? "\xE2\x96\xB2"
+                                : (sp.direction == 5) ? "\xE2\x96\xBC" : " ";
 
-                char ln[128];
+                char ln[160];
                 snprintf(ln, sizeof(ln),
-                    "%3d  %-6s  %-12s  %9.0f  %5.2f  %5.1f  %s\n",
+                    "%2d  %-6s  %-10s  %s%9.0f  %s %+8.0f  %+6.2f%%%s  %4.2f  %5.1f  %s\n",
                     idx,
                     code.c_str(),
                     name.c_str(),
-                    sp.price,
-                    sp.pbr,
-                    sp.per,
-                    sp.updated.c_str());
+                    col, sp.price,
+                    arr, sp.change, sp.change_rate, rst,
+                    sp.pbr, sp.per,
+                    sp.updated.empty() ? "--:--:--" : sp.updated.c_str());
                 std::cout << ln;
             }
 
             std::cout << "\nCtrl+C 종료\n";
             std::cout.flush();
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            std::this_thread::sleep_for(std::chrono::seconds(1));
         }
 
-        fetcher.join();
+        if (ws_ok) ws.disconnect();
         Logger::instance().set_console_enabled(true);
         LOG_INFO("[KR_TEST] 종료");
         return 0;
