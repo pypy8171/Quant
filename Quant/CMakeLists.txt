@@ -45,6 +45,31 @@ if(NOT nlohmann_json_FOUND)
   FetchContent_MakeAvailable(json)
 endif()
  
+# ─── 의존성: ZeroMQ (선택적) ──────────────────────────────────────────────
+# Windows: vcpkg install zeromq  /  Linux: sudo apt install libzmq3-dev
+find_library(ZMQ_LIB  NAMES zmq libzmq)
+find_path   (ZMQ_INC  NAMES zmq.h)
+
+if(ZMQ_LIB AND ZMQ_INC)
+  message(STATUS "ZeroMQ found: ${ZMQ_LIB}")
+  add_compile_definitions(HAS_ZMQ)
+
+  # cppzmq — C++ header-only wrapper (zmq.hpp)
+  include(FetchContent)
+  FetchContent_Declare(cppzmq
+    URL https://github.com/zeromq/cppzmq/archive/refs/tags/v4.10.0.tar.gz
+  )
+  set(CPPZMQ_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(cppzmq)
+
+  set(ZMQ_FOUND TRUE)
+else()
+  message(STATUS "ZeroMQ not found — ZMQ bridge disabled")
+  message(STATUS "  Linux  : sudo apt install libzmq3-dev")
+  message(STATUS "  Windows: vcpkg install zeromq")
+  set(ZMQ_FOUND FALSE)
+endif()
+
 # ─── 소스 파일 ────────────────────────────────────────────────────────────
 set(SOURCES
   src/main.cpp
@@ -60,6 +85,10 @@ set(SOURCES
   src/utils/Config.cpp
   src/utils/Timer.cpp
 )
+
+if(ZMQ_FOUND)
+  list(APPEND SOURCES src/ipc/ZmqBridge.cpp)
+endif()
  
 # ─── 실행 파일 ────────────────────────────────────────────────────────────
 add_executable(quant_trader ${SOURCES})
@@ -67,6 +96,10 @@ add_executable(quant_trader ${SOURCES})
 target_include_directories(quant_trader PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+
+if(ZMQ_FOUND)
+  target_include_directories(quant_trader PRIVATE ${ZMQ_INC} ${cppzmq_SOURCE_DIR})
+endif()
 
 if(UNIX)
     target_link_libraries(quant_trader PRIVATE
@@ -81,6 +114,10 @@ else()
       nlohmann_json::nlohmann_json
       winhttp
     )
+endif()
+
+if(ZMQ_FOUND)
+  target_link_libraries(quant_trader PRIVATE ${ZMQ_LIB})
 endif()
  
 # ─── config 파일을 IDE(솔루션 탐색기)에 표시 ─────────────────────────────

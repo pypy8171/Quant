@@ -1,0 +1,60 @@
+#pragma once
+#ifdef HAS_ZMQ
+
+#include "core/Types.h"
+#include <zmq.hpp>
+#include <atomic>
+#include <functional>
+#include <mutex>
+#include <queue>
+#include <string>
+#include <thread>
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ZmqBridge  —  C++ 엔진과 Python 레이어 간 IPC
+//
+//  PUB  tcp://*:5555  — 엔진이 publish (체결/시그널/주문/헬스)
+//  REP  tcp://*:5556  — Python이 명령 전송 (KILL / STATUS / PAUSE / RESUME)
+//
+//  ZMQ 소켓은 비-스레드세이프 → 전용 zmq_thread_ 에서만 사용
+//  다른 스레드는 enqueue() 로 메시지 전달
+// ─────────────────────────────────────────────────────────────────────────────
+class ZmqBridge {
+public:
+    explicit ZmqBridge(int pub_port = 5555, int rep_port = 5556);
+    ~ZmqBridge();
+
+    bool start();
+    void stop();
+
+    // ── 이벤트 publish (스레드-안전: 내부 큐 경유) ──────────────────────────
+    void publish_trade(const TradeData& td);
+    void publish_signal(const OrderSignal& sig);
+    void publish_order(const OrderSignal& sig, bool ok);
+    void publish_health(uint64_t data_cnt, uint64_t sig_cnt, uint64_t ord_cnt);
+
+    // ── Python 명령 수신 콜백 설정 ──────────────────────────────────────────
+    // cmd  : 수신된 명령 문자열 (KILL / STATUS / PAUSE <id> 등)
+    // reply: 명령에 대한 응답 문자열 반환
+    using CmdHandler = std::function<std::string(const std::string& cmd)>;
+    void set_command_handler(CmdHandler handler) { cmd_handler_ = std::move(handler); }
+
+private:
+    struct Msg { std::string topic; std::string payload; };
+
+    void enqueue(std::string topic, std::string payload);
+    void thread_fn();
+
+    int pub_port_;
+    int rep_port_;
+
+    std::atomic<bool>   running_{false};
+    std::thread         zmq_thread_;
+
+    std::mutex          queue_mtx_;
+    std::queue<Msg>     send_queue_;
+
+    CmdHandler          cmd_handler_;
+};
+
+#endif // HAS_ZMQ

@@ -303,14 +303,37 @@ int main(int argc, char* argv[]) {
     //   [화면] 1초 주기로 캐시 출력
     // ═══════════════════════════════════════════════════════════════════════
     if (mode == "KR_TEST") {
-        static const std::vector<std::pair<std::string,std::string>> KR_WATCH = {
-            {"005930","삼성전자"},{"000660","SK하이닉스"},{"005380","현대차"},
-            {"035420","NAVER  "},{"051910","LG화학  "},{"006400","삼성SDI "},
-            {"035720","카카오  "},{"028260","삼성물산"},{"068270","셀트리온"},
-            {"012330","현대모비"},{"066570","LG전자  "},{"105560","KB금융  "},
-            {"055550","신한지주"},{"000270","기아    "},{"017670","SK텔레콤"},
-            {"030200","KT     "},{"003550","LG     "},{"009150","삼성전기"},
-            {"047050","포스코홀"},{"096770","SK이노베"},
+        // UTF-8 한글 포함 문자열을 terminal 표시폭 기준으로 패딩
+        auto utf8_display_width = [](const std::string& s) -> int {
+            int w = 0;
+            size_t i = 0;
+            while (i < s.size()) {
+                unsigned char c = s[i];
+                if      (c < 0x80) { i += 1; w += 1; }
+                else if (c < 0xE0) { i += 2; w += 2; }
+                else if (c < 0xF0) { i += 3; w += 2; }  // CJK 2칸
+                else               { i += 4; w += 2; }
+            }
+            return w;
+        };
+        auto utf8_pad_right = [&](const std::string& s, int target) -> std::string {
+            int w = utf8_display_width(s);
+            return (w >= target) ? s : s + std::string(target - w, ' ');
+        };
+        // 표시폭 기준으로 최대 max_w칸에 맞게 truncate
+        auto utf8_trunc = [](const std::string& s, int max_w) -> std::string {
+            int w = 0; size_t i = 0;
+            while (i < s.size()) {
+                unsigned char c = s[i];
+                int cw, cb;
+                if      (c < 0x80) { cw = 1; cb = 1; }
+                else if (c < 0xE0) { cw = 2; cb = 2; }
+                else if (c < 0xF0) { cw = 2; cb = 3; }
+                else               { cw = 2; cb = 4; }
+                if (w + cw > max_w) break;
+                w += cw; i += cb;
+            }
+            return s.substr(0, i);
         };
 
         KisClient kis(kis_cfg);
@@ -321,50 +344,79 @@ int main(int argc, char* argv[]) {
 
         struct StockPrice {
             std::string ticker, name;
-            double price      = 0;   // 현재 체결가 (WS 갱신)
-            double base_price = 0;   // 전일 기준가 (REST 1회)
-            double change     = 0;   // 전일대비
-            double change_rate= 0;   // 등락률(%)
-            double pbr        = 0;   // REST 1회
-            double per        = 0;   // REST 1회
+            double price      = 0;
+            double base_price = 0;
+            double change     = 0;
+            double change_rate= 0;
+            double pbr        = 0;
+            double per        = 0;
             int    direction  = 0;   // 1=상승 5=하락 (WS 갱신)
             std::string updated;
         };
 
+        // KOSPI 시가총액 상위 20 고정 목록 (KIS 랭킹 API가 거래량 기준이라 직접 정의)
+        // 시가총액 기준 순서 — 분기 단위로 검토 필요
+        static const std::vector<std::pair<std::string,std::string>> KR_TOP20 = {
+            {"005930","삼성전자  "},
+            {"000660","SK하이닉스"},
+            {"207940","삼성바이오"},
+            {"005490","POSCO홀딩 "},
+            {"005380","현대차    "},
+            {"000270","기아      "},
+            {"105560","KB금융    "},
+            {"055550","신한지주  "},
+            {"035420","NAVER     "},
+            {"068270","셀트리온  "},
+            {"051910","LG화학    "},
+            {"066570","LG전자    "},
+            {"012330","현대모비스"},
+            {"035720","카카오    "},
+            {"003550","LG        "},
+            {"086790","하나금융  "},
+            {"017670","SK텔레콤  "},
+            {"009150","삼성전기  "},
+            {"402340","SK스퀘어  "},
+            {"316140","우리금융  "},
+        };
+
         std::mutex                        cache_mtx;
         std::map<std::string, StockPrice> cache;
+        std::vector<std::string>          display_order;
 
-        // ── [REST 1회] PBR·PER·초기가격 로드 ────────────────────────────────
+        // ── [REST 1회] 20종목 fundamentals 로드 ─────────────────────────────
         std::cout << "\033[2J\033[H";
-        std::cout << "기본 정보 로딩 중 (REST)...\n";
-        for (const auto& [code, name] : KR_WATCH) {
+        std::cout << "KOSPI 시가총액 상위 20종목 로딩 중 (REST)...\n";
+        std::cout.flush();
+
+        for (const auto& [code, name] : KR_TOP20) {
             auto f = kis.get_fundamentals(code);
             StockPrice sp;
             sp.ticker      = code;
             sp.name        = name;
-            sp.pbr         = f.pbr;
-            sp.per         = f.per;
             sp.price       = f.last;
             sp.change      = f.diff;
             sp.change_rate = f.rate;
             sp.base_price  = (f.diff != 0.0) ? f.last - f.diff : f.last;
+            sp.pbr         = f.pbr;
+            sp.per         = f.per;
             std::cout << "  " << code << " " << name << " 완료\n";
             std::cout.flush();
             {
                 std::lock_guard<std::mutex> lk(cache_mtx);
                 cache[code] = sp;
+                display_order.push_back(code);
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(300));
         }
         std::cout << "로딩 완료. WebSocket 연결 중...\n";
         std::cout.flush();
 
-        // ── [WS] 20종목 체결 구독 ────────────────────────────────────────────
+        // ── [WS] 상위 N종목 체결 구독 ────────────────────────────────────────
         Logger::instance().set_console_enabled(false);
 
         KisWebSocket ws(kis_cfg);
         ws.set_callbacks(
-            [](const OrderBook&) {},   // 호가 불필요
+            [](const OrderBook&) {},
             [&](const TradeData& td) {
                 auto now = std::chrono::system_clock::now();
                 auto tt  = std::chrono::system_clock::to_time_t(now);
@@ -391,8 +443,11 @@ int main(int argc, char* argv[]) {
         );
 
         std::vector<WatchSpec> specs;
-        for (const auto& [code, name] : KR_WATCH)
-            specs.push_back({code, Market::KR, ""});
+        {
+            std::lock_guard<std::mutex> lk(cache_mtx);
+            for (const auto& code : display_order)
+                specs.push_back({code, Market::KR, ""});
+        }
 
         bool ws_ok = ws.connect(specs);
         if (!ws_ok)
@@ -403,9 +458,11 @@ int main(int argc, char* argv[]) {
 
         while (g_running.load()) {
             std::map<std::string, StockPrice> snap;
+            std::vector<std::string> order;
             {
                 std::lock_guard<std::mutex> lk(cache_mtx);
-                snap = cache;
+                snap  = cache;
+                order = display_order;
             }
 
             std::cout << "\033[H";
@@ -421,7 +478,7 @@ int main(int argc, char* argv[]) {
             char hbuf[32];
             std::strftime(hbuf, sizeof(hbuf), "%H:%M:%S", &tmi2);
 
-            std::cout << "══════ KR 주요 종목 실시간 시세 ["
+            std::cout << "══════ KR 시가총액 상위 KOSPI 20 실시간 시세 ["
                       << hbuf << "] "
                       << (ws_ok ? "[WS:연결]" : "[WS:끊김]")
                       << " ══════\n";
@@ -429,30 +486,32 @@ int main(int argc, char* argv[]) {
             std::cout << std::string(80, '-') << "\n";
 
             int idx = 0;
-            for (const auto& [code, name] : KR_WATCH) {
+            for (const auto& code : order) {
                 ++idx;
                 auto it = snap.find(code);
                 if (it == snap.end()) {
-                    std::cout << std::setw(2) << idx << "  " << code
-                              << "  " << name << "  (로딩 중...)\n";
+                    std::cout << std::setw(2) << idx << "  " << code << "  (로딩 중...)\n";
                     continue;
                 }
                 const StockPrice& sp = it->second;
 
-                // 등락 색: 상승=빨강, 하락=파랑, 보합=기본
-                const char* col = (sp.direction == 1 || sp.change > 0) ? "\033[31m"
-                                : (sp.direction == 5 || sp.change < 0) ? "\033[34m"
+                // 당일 등락(change)으로 색/화살표 결정 — direction은 마지막 체결 틱 방향이라 부정확
+                const char* col = sp.change > 0 ? "\033[31m"   // 상승 = 빨간색
+                                : sp.change < 0 ? "\033[34m"   // 하락 = 파란색
                                 : "";
                 const char* rst = "\033[0m";
-                const char* arr = (sp.direction == 1) ? "\xE2\x96\xB2"
-                                : (sp.direction == 5) ? "\xE2\x96\xBC" : " ";
+                const char* arr = sp.change > 0 ? "\xE2\x96\xB2"   // ▲
+                                : sp.change < 0 ? "\xE2\x96\xBC"   // ▼
+                                : " ";
 
-                char ln[160];
+                std::string disp_name = utf8_pad_right(utf8_trunc(sp.name, 10), 10);
+
+                char ln[256];
                 snprintf(ln, sizeof(ln),
-                    "%2d  %-6s  %-10s  %s%9.0f  %s %+8.0f  %+6.2f%%%s  %4.2f  %5.1f  %s\n",
+                    "%2d  %-6s  %s  %s%9.0f  %s %+8.0f  %+6.2f%%%s  %4.2f  %5.1f  %s\n",
                     idx,
                     code.c_str(),
-                    name.c_str(),
+                    disp_name.c_str(),
                     col, sp.price,
                     arr, sp.change, sp.change_rate, rst,
                     sp.pbr, sp.per,

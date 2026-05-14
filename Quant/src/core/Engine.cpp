@@ -27,6 +27,26 @@ void Engine::start() {
 
     LOG_INFO("[Engine] ── 퀀트 엔진 시작 ──────────────────────────────");
 
+#ifdef HAS_ZMQ
+    zmq_bridge_ = std::make_unique<ZmqBridge>();
+    zmq_bridge_->set_command_handler([this](const std::string& cmd) -> std::string {
+        if (cmd == "KILL") {
+            LOG_WARN("[ZMQ] KILL 명령 수신 — 신규 주문 차단 + 엔진 종료");
+            order_gate_.set_kill_switch(true);
+            running_.store(false);
+            return "OK";
+        }
+        if (cmd == "STATUS") {
+            return "{\"running\":true"
+                   ",\"data\":"   + std::to_string(data_count_.load())
+                 + ",\"signal\":" + std::to_string(signal_count_.load())
+                 + ",\"order\":"  + std::to_string(order_count_.load()) + "}";
+        }
+        return "UNKNOWN";
+    });
+    zmq_bridge_->start();
+#endif
+
     kis_ = std::make_unique<KisClient>(kis_cfg_);
     if (!kis_->authenticate()) {
         LOG_ERROR("[Engine] KIS 인증 실패");
@@ -60,8 +80,13 @@ void Engine::start() {
     if (!watch_specs_.empty()) {
         ws_ = std::make_unique<KisWebSocket>(kis_cfg_);
         ws_->set_callbacks(
-            [this](const OrderBook& ob)  { ob_queue_.push(ob); },
-            [this](const TradeData& td)  { td_queue_.push(td); }
+            [this](const OrderBook& ob) { ob_queue_.push(ob); },
+            [this](const TradeData& td) {
+                td_queue_.push(td);
+#ifdef HAS_ZMQ
+                if (zmq_bridge_) zmq_bridge_->publish_trade(td);
+#endif
+            }
         );
         if (!ws_->connect(watch_specs_))
             LOG_WARN("[Engine] WebSocket 연결 실패 — 호가/체결 이벤트 없이 동작");
@@ -70,6 +95,7 @@ void Engine::start() {
     data_thread_     = std::thread(&Engine::data_thread_fn,     this);
     strategy_thread_ = std::thread(&Engine::strategy_thread_fn, this);
     order_thread_    = std::thread(&Engine::order_thread_fn,    this);
+    control_thread_  = std::thread(&Engine::control_thread_fn,  this);
 
     LOG_INFO("[Engine] 모든 스레드 시작 완료");
 }
@@ -83,6 +109,11 @@ void Engine::stop() {
     if (data_thread_.joinable())     data_thread_.join();
     if (strategy_thread_.joinable()) strategy_thread_.join();
     if (order_thread_.joinable())    order_thread_.join();
+    if (control_thread_.joinable())  control_thread_.join();
+
+#ifdef HAS_ZMQ
+    if (zmq_bridge_) zmq_bridge_->stop();
+#endif
 
     for (auto& s : strategies_) s->on_stop();
     print_stats();
@@ -92,8 +123,18 @@ void Engine::stop() {
 // ─── 데이터 수집 스레드 ───────────────────────────────────────────────────
 void Engine::data_thread_fn() {
     LOG_INFO("[DataThread] 시작");
+    bool was_market_open = false;
     while (running_.load()) {
-        if (!is_any_market_open()) {
+        bool market_now = is_any_market_open();
+
+        // 장 시작 감지 → 일별 카운터 리셋
+        if (market_now && !was_market_open) {
+            order_gate_.reset_daily();
+            LOG_INFO("[DataThread] 장 시작 — OrderGate 일별 카운터 리셋");
+        }
+        was_market_open = market_now;
+
+        if (!market_now) {
             std::this_thread::sleep_for(60s);
             continue;
         }
@@ -113,6 +154,12 @@ void Engine::data_thread_fn() {
             ++data_count_;
         }
         std::this_thread::sleep_for(std::chrono::seconds(fetch_interval_sec_));
+#ifdef HAS_ZMQ
+        if (zmq_bridge_)
+            zmq_bridge_->publish_health(data_count_.load(),
+                                        signal_count_.load(),
+                                        order_count_.load());
+#endif
     }
     LOG_INFO("[DataThread] 종료");
 }
@@ -129,6 +176,9 @@ void Engine::strategy_thread_fn() {
                  + sig.ticker + " "
                  + (sig.side == OrderSide::BUY ? "BUY" : "SELL")
                  + " " + std::to_string(sig.quantity));
+#ifdef HAS_ZMQ
+        if (zmq_bridge_) zmq_bridge_->publish_signal(sig);
+#endif
         while (!order_queue_.push(sig) && running_.load())
             std::this_thread::sleep_for(std::chrono::microseconds(100));
     };
@@ -186,7 +236,13 @@ void Engine::order_thread_fn() {
         bool ok = (opt->market == Market::US)
                   ? kis_->send_us_order(*opt)
                   : kis_->send_order(*opt);
-        if (ok) ++order_count_;
+        if (ok) {
+            ++order_count_;
+            order_gate_.on_fill(opt->ticker, opt->side, opt->quantity, opt->price);
+        }
+#ifdef HAS_ZMQ
+        if (zmq_bridge_) zmq_bridge_->publish_order(*opt, ok);
+#endif
     }
     LOG_INFO("[OrderThread] 종료");
 }
@@ -230,4 +286,14 @@ void Engine::print_stats() const {
     LOG_INFO("[Engine] 수집: " + std::to_string(data_count_.load())
              + "  신호: " + std::to_string(signal_count_.load())
              + "  주문: " + std::to_string(order_count_.load()));
+}
+
+// ─── ZMQ 제어 스레드 ──────────────────────────────────────────────────────
+// ZmqBridge 자체 스레드가 REP 소켓을 처리하므로 이 스레드는
+// running_ 감시만 담당 (ZMQ 없을 때도 컴파일 가능하도록 유지)
+void Engine::control_thread_fn() {
+    using namespace std::chrono_literals;
+    while (running_.load()) {
+        std::this_thread::sleep_for(500ms);
+    }
 }

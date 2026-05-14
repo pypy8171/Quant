@@ -60,7 +60,41 @@ class KisClient:
         self._token_exp: float = 0.0
 
     # ── 인증 ────────────────────────────────────────────────────────────────
+    @property
+    def _cache_path(self) -> Path:
+        return Path(__file__).parents[2] / "Quant" / "config" / ".token_cache.json"
+
+    def _load_cached_token(self) -> bool:
+        try:
+            with open(self._cache_path, encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("app_key") != self.app_key:
+                return False
+            exp = float(data.get("expires_at", 0))
+            if time.time() < exp - 300:
+                self._token     = data["access_token"]
+                self._token_exp = exp
+                print(f"[KIS] 캐시 토큰 사용 (만료: {data.get('expired_str', '?')})")
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _save_token_cache(self, access_token: str, expires_at: float, expired_str: str):
+        try:
+            with open(self._cache_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "app_key":      self.app_key,
+                    "access_token": access_token,
+                    "expires_at":   expires_at,
+                    "expired_str":  expired_str,
+                }, f)
+        except Exception:
+            pass
+
     def authenticate(self) -> bool:
+        if self._load_cached_token():
+            return True
         url  = f"{self.base_url}/oauth2/tokenP"
         body = {
             "grant_type": "client_credentials",
@@ -73,7 +107,9 @@ class KisClient:
             data = r.json()
             self._token     = data["access_token"]
             self._token_exp = time.time() + int(data.get("expires_in", 86400))
-            print(f"[KIS] 인증 성공 (만료: {data.get('access_token_token_expired', '?')})")
+            expired_str     = data.get("access_token_token_expired", "?")
+            self._save_token_cache(self._token, self._token_exp, expired_str)
+            print(f"[KIS] 인증 성공 (만료: {expired_str})")
             return True
         except Exception as e:
             print(f"[KIS] 인증 실패: {e}")
@@ -141,8 +177,8 @@ class KisClient:
         f.per  = d("per")
         return f
 
-    # ── 일봉 OHLCV ──────────────────────────────────────────────────────────
-    def get_daily_ohlcv(self, ticker: str, count: int = 100) -> list[Bar]:
+    # ── 최근 일봉 OHLCV (최근 ~30봉, 라이브용) ─────────────────────────────
+    def get_daily_ohlcv(self, ticker: str, count: int = 30) -> list[Bar]:
         data = self._get(
             "/uapi/domestic-stock/v1/quotations/inquire-daily-price",
             {
@@ -157,7 +193,6 @@ class KisClient:
         for item in data.get("output2", []):
             try:
                 raw = item.get("stck_bsop_date", "")
-                # KIS 반환형: "20230101" → "2023-01-01" 로 정규화
                 date = f"{raw[:4]}-{raw[4:6]}-{raw[6:]}" if len(raw) == 8 else raw
                 bars.append(Bar(
                     date   = date,
@@ -169,9 +204,65 @@ class KisClient:
                 ))
             except:
                 continue
-        # 최신순 → 오래된순 정렬 (bars[0]=가장 오래됨, bars[-1]=최신)
         bars.reverse()
         return bars[:count]
+
+    # ── 날짜 범위 일봉 OHLCV (백테스팅용) ──────────────────────────────────
+    def get_historical_ohlcv(self, ticker: str, start_date: str, end_date: str) -> list[Bar]:
+        from datetime import date as _date, timedelta
+        start_ymd = start_date.replace("-", "")
+        all_bars: list[Bar] = []
+        current_end = end_date.replace("-", "")
+
+        for _ in range(10):  # 최대 10페이지 (~1000 거래일)
+            data = self._get(
+                "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
+                {
+                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_INPUT_ISCD":         ticker,
+                    "FID_INPUT_DATE_1":        start_ymd,
+                    "FID_INPUT_DATE_2":        current_end,
+                    "FID_PERIOD_DIV_CODE":     "D",
+                    "FID_ORG_ADJ_PRC":         "0",
+                },
+                "FHKST03010100",
+            )
+            items = data.get("output2", [])
+            if not items:
+                break
+            batch: list[Bar] = []
+            for item in items:
+                try:
+                    raw = item.get("stck_bsop_date", "")
+                    bar_date = f"{raw[:4]}-{raw[4:6]}-{raw[6:]}" if len(raw) == 8 else raw
+                    batch.append(Bar(
+                        date   = bar_date,
+                        open   = float(item.get("stck_oprc", 0) or 0),
+                        high   = float(item.get("stck_hgpr", 0) or 0),
+                        low    = float(item.get("stck_lwpr", 0) or 0),
+                        close  = float(item.get("stck_clpr", 0) or 0),
+                        volume = int(item.get("acml_vol", 0) or 0),
+                    ))
+                except:
+                    continue
+            all_bars.extend(batch)
+            if len(items) < 100:
+                break
+            dated = [b.date for b in batch if b.date >= start_date]
+            if not dated:
+                break
+            oldest = min(dated)
+            if oldest <= start_date:
+                break
+            current_end = (_date.fromisoformat(oldest) - timedelta(days=1)).strftime("%Y%m%d")
+
+        seen: set[str] = set()
+        result: list[Bar] = []
+        for b in sorted(all_bars, key=lambda b: b.date):
+            if b.date not in seen:
+                seen.add(b.date)
+                result.append(b)
+        return result
 
     # ── 시총 상위 Universe 조회 ──────────────────────────────────────────────
     def fetch_universe(self, market: str = "J", max_pbr: float = 999.0) -> list[str]:

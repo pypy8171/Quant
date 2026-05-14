@@ -5,6 +5,9 @@
 #include "api/KisClient.h"
 #include "api/KisWebSocket.h"
 #include "risk/OrderGate.h"
+#ifdef HAS_ZMQ
+#include "ipc/ZmqBridge.h"
+#endif
 #include <vector>
 #include <memory>
 #include <thread>
@@ -35,6 +38,7 @@ private:
     void data_thread_fn();
     void strategy_thread_fn();
     void order_thread_fn();
+    void control_thread_fn();   // ZMQ REP 명령 처리 (HAS_ZMQ 시 활성)
 
     bool is_kr_market_open()  const;
     bool is_us_market_open()  const;
@@ -57,8 +61,13 @@ private:
     std::thread data_thread_;
     std::thread strategy_thread_;
     std::thread order_thread_;
+    std::thread control_thread_;
 
     std::atomic<bool> running_{false};
+
+#ifdef HAS_ZMQ
+    std::unique_ptr<ZmqBridge> zmq_bridge_;
+#endif
 
     std::atomic<uint64_t> data_count_{0};
     std::atomic<uint64_t> signal_count_{0};

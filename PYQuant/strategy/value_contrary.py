@@ -22,6 +22,9 @@ class ValueContraryStrategy(StrategyBase):
     def set_kis(self, kis: KisClient):
         self._kis = kis
 
+    def set_candidates(self, tickers: list[str]):
+        self._candidates = set(tickers)
+
     # ── 스크리닝: 저PBR + 3일 연속 하락 ────────────────────────────────────
     def on_start(self, universe: list[str]) -> list[str]:
         self._candidates.clear()

@@ -42,6 +42,10 @@ class StrategyBase(ABC):
     def on_stop(self):
         pass
 
+    def set_candidates(self, tickers: list[str]):
+        """백테스팅 엔진이 역사적 스크리닝 결과를 직접 주입할 때 사용"""
+        pass
+
     # ── 포지션 관리 헬퍼 ────────────────────────────────────────────────────
     def has_position(self, ticker: str) -> bool:
         return ticker in self.positions and self.positions[ticker].quantity > 0

@@ -145,40 +145,96 @@ void KisWebSocket::send_text(const std::string& msg) {
 void KisWebSocket::recv_loop() {
     LOG_INFO("[WS] 수신 스레드 시작");
     std::vector<BYTE> buf(128 * 1024);
-    std::string accumulated;
+    int retry_sec = 1;
 
     while (connected_.load()) {
-        DWORD bytesRead = 0;
-        WINHTTP_WEB_SOCKET_BUFFER_TYPE bufType{};
+        // ── 수신 루프 ───────────────────────────────────────────────────────
+        std::string accumulated;
+        bool recv_ok = true;
 
-        DWORD rc = WinHttpWebSocketReceive(
-            hWebSocket_, buf.data(), (DWORD)buf.size(), &bytesRead, &bufType);
+        while (connected_.load()) {
+            DWORD bytesRead = 0;
+            WINHTTP_WEB_SOCKET_BUFFER_TYPE bufType{};
+            DWORD rc = WinHttpWebSocketReceive(
+                hWebSocket_, buf.data(), (DWORD)buf.size(), &bytesRead, &bufType);
 
-        if (rc != ERROR_SUCCESS) {
-            if (connected_.load())
-                LOG_WARN("[WS] 수신 오류 (code=" + std::to_string(rc) + ")");
-            break;
+            if (rc != ERROR_SUCCESS) {
+                if (connected_.load())
+                    LOG_WARN("[WS] 수신 오류 (code=" + std::to_string(rc) + ") — 재연결 준비");
+                recv_ok = false;
+                break;
+            }
+
+            retry_sec = 1;  // 정상 수신 시 백오프 리셋
+            std::string chunk(reinterpret_cast<char*>(buf.data()), bytesRead);
+            if (bufType == WINHTTP_WEB_SOCKET_UTF8_FRAGMENT_BUFFER_TYPE)
+                accumulated += chunk;
+            else if (bufType == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE) {
+                accumulated += chunk;
+                parse_message(accumulated);
+                accumulated.clear();
+            }
         }
 
-        std::string chunk(reinterpret_cast<char*>(buf.data()), bytesRead);
+        if (!recv_ok && connected_.load()) {
+            // ── 지수 백오프 재연결 ─────────────────────────────────────────
+            LOG_WARN("[WS] " + std::to_string(retry_sec) + "초 후 재연결 시도");
+            std::this_thread::sleep_for(std::chrono::seconds(retry_sec));
+            retry_sec = std::min(retry_sec * 2, 30);
 
-        if (bufType == WINHTTP_WEB_SOCKET_UTF8_FRAGMENT_BUFFER_TYPE) {
-            accumulated += chunk;
-        } else if (bufType == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE) {
-            accumulated += chunk;
-            parse_message(accumulated);
-            accumulated.clear();
+            // 기존 핸들 정리
+            { std::lock_guard<std::mutex> lk(send_mtx_);
+              if (hWebSocket_) { WinHttpCloseHandle(hWebSocket_); hWebSocket_ = nullptr; } }
+            if (hConnect_) { WinHttpCloseHandle(hConnect_); hConnect_ = nullptr; }
+            if (hSession_) { WinHttpCloseHandle(hSession_); hSession_ = nullptr; }
+
+            // Approval key 재발급
+            if (!get_approval_key()) { LOG_ERROR("[WS] approval key 재발급 실패"); continue; }
+
+            // WinHTTP 재연결
+            const wchar_t* ws_host = L"ops.koreainvestment.com";
+            INTERNET_PORT  ws_port = cfg_.is_paper ? 31000 : 21000;
+
+            hSession_ = WinHttpOpen(L"QuantTrader/1.0",
+                WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+            if (!hSession_) { LOG_ERROR("[WS] 재연결: WinHttpOpen 실패"); continue; }
+
+            hConnect_ = WinHttpConnect(hSession_, ws_host, ws_port, 0);
+            if (!hConnect_) { WinHttpCloseHandle(hSession_); hSession_ = nullptr;
+                              LOG_ERROR("[WS] 재연결: WinHttpConnect 실패"); continue; }
+
+            HINTERNET hReq = WinHttpOpenRequest(hConnect_, L"GET", L"/", nullptr,
+                WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, 0);
+            if (!hReq) { LOG_ERROR("[WS] 재연결: OpenRequest 실패"); continue; }
+
+            WinHttpSetOption(hReq, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0);
+            if (!WinHttpSendRequest(hReq, WINHTTP_NO_ADDITIONAL_HEADERS, 0, nullptr, 0, 0, 0)
+                || !WinHttpReceiveResponse(hReq, nullptr)) {
+                WinHttpCloseHandle(hReq);
+                LOG_ERROR("[WS] 재연결: 업그레이드 실패: " + std::to_string(GetLastError()));
+                continue;
+            }
+
+            HINTERNET hWs = WinHttpWebSocketCompleteUpgrade(hReq, 0);
+            WinHttpCloseHandle(hReq);
+            if (!hWs) { LOG_ERROR("[WS] 재연결: CompleteUpgrade 실패"); continue; }
+
+            { std::lock_guard<std::mutex> lk(send_mtx_); hWebSocket_ = hWs; }
+
+            // 채널 재구독
+            for (const auto& spec : specs_) {
+                if (spec.market == Market::KR) {
+                    send_subscribe("H0STASP0", spec.ticker);
+                    send_subscribe("H0STCNT0", spec.ticker);
+                } else {
+                    std::string exch = spec.exchange.empty() ? "NAS" : spec.exchange;
+                    send_subscribe("HDFSCNT0", exch + "|" + spec.ticker);
+                }
+            }
+            LOG_INFO("[WS] 재연결 성공");
+            retry_sec = 1;
         }
     }
-
-    // TODO: 재연결 로직
-    //  1. exponential backoff (1s → 2s → 4s ... max 30s)
-    //  2. get_approval_key() 재호출 (자정 넘어가면 토큰 만료)
-    //  3. 기존 hWebSocket_ close 후 WinHttpWebSocketCompleteUpgrade 재시도
-    //  4. specs_ 기반으로 send_subscribe 재호출
-    //  5. 연속 실패 N회 시 alert + 종료
-    //  현재는 단순 break — 운영 환경에선 외부 supervisor가
-    //  프로세스 재시작 처리 필요.
 
     connected_.store(false);
     LOG_INFO("[WS] 수신 스레드 종료");
@@ -390,27 +446,63 @@ void KisWebSocket::send_text(const std::string& msg) {
 
 void KisWebSocket::recv_loop() {
     LOG_INFO("[WS] 수신 스레드 시작");
+    int retry_sec = 1;
 
-    int fd;
-    { std::lock_guard<std::mutex> lk(send_mtx_); fd = sock_fd_; }
+    while (connected_.load()) {
+        // ── 수신 루프 ───────────────────────────────────────────────────────
+        int fd;
+        { std::lock_guard<std::mutex> lk(send_mtx_); fd = sock_fd_; }
 
-    while (connected_.load() && fd >= 0) {
-        std::string frame = ws_recv_frame_linux(fd);
-        if (frame.empty()) {
-            if (connected_.load()) LOG_WARN("[WS] 수신 오류 또는 연결 종료");
-            break;
+        bool recv_ok = true;
+        while (connected_.load() && fd >= 0) {
+            std::string frame = ws_recv_frame_linux(fd);
+            if (frame.empty()) {
+                if (connected_.load())
+                    LOG_WARN("[WS] 수신 오류 또는 연결 종료 — 재연결 준비");
+                recv_ok = false;
+                break;
+            }
+            retry_sec = 1;  // 정상 수신 시 백오프 리셋
+            parse_message(frame);
         }
-        parse_message(frame);
-    }
 
-    // TODO: 재연결 로직
-    //  1. exponential backoff (1s → 2s → 4s ... max 30s)
-    //  2. get_approval_key() 재호출 (자정 넘어가면 토큰 만료)
-    //  3. 기존 sock_fd_ close 후 ws_tcp_connect 재시도
-    //  4. specs_ 기반으로 send_subscribe 재호출
-    //  5. 연속 실패 N회 시 alert + 종료
-    //  현재는 단순 break — 운영 환경에선 외부 supervisor가
-    //  프로세스 재시작 처리 필요.
+        if (!recv_ok && connected_.load()) {
+            // ── 지수 백오프 재연결 ─────────────────────────────────────────
+            LOG_WARN("[WS] " + std::to_string(retry_sec) + "초 후 재연결 시도");
+            std::this_thread::sleep_for(std::chrono::seconds(retry_sec));
+            retry_sec = std::min(retry_sec * 2, 30);
+
+            // 기존 소켓 정리
+            { std::lock_guard<std::mutex> lk(send_mtx_);
+              if (sock_fd_ >= 0) { ::close(sock_fd_); sock_fd_ = -1; } }
+
+            // Approval key 재발급
+            if (!get_approval_key()) { LOG_ERROR("[WS] approval key 재발급 실패"); continue; }
+
+            std::string host = "ops.koreainvestment.com";
+            int         port = cfg_.is_paper ? 31000 : 21000;
+            int new_fd = -1;
+            if (!ws_tcp_connect(host, port, new_fd)) {
+                LOG_ERROR("[WS] 재연결: TCP+WebSocket 연결 실패");
+                continue;
+            }
+
+            { std::lock_guard<std::mutex> lk(send_mtx_); sock_fd_ = new_fd; }
+
+            // 채널 재구독
+            for (const auto& spec : specs_) {
+                if (spec.market == Market::KR) {
+                    send_subscribe("H0STASP0", spec.ticker);
+                    send_subscribe("H0STCNT0", spec.ticker);
+                } else {
+                    std::string exch = spec.exchange.empty() ? "NAS" : spec.exchange;
+                    send_subscribe("HDFSCNT0", exch + "|" + spec.ticker);
+                }
+            }
+            LOG_INFO("[WS] 재연결 성공");
+            retry_sec = 1;
+        }
+    }
 
     connected_.store(false);
     LOG_INFO("[WS] 수신 스레드 종료");

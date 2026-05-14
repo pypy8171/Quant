@@ -2,21 +2,21 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "🔍 백테스팅 (2023)",
+            "name": "🔍 백테스팅 (2025-H1)",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/PYQuant/main.py",
             "cwd": "${workspaceFolder}/PYQuant",
-            "args": ["backtest", "--from", "2023-01-01", "--to", "2023-12-31", "--pbr", "1.0"],
+            "args": ["backtest", "--from", "2025-01-01", "--to", "2025-06-30", "--pbr", "1.0"],
             "console": "integratedTerminal"
         },
         {
-            "name": "🔍 백테스팅 (2024)",
+            "name": "🔍 백테스팅 (2025 전체)",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/PYQuant/main.py",
             "cwd": "${workspaceFolder}/PYQuant",
-            "args": ["backtest", "--from", "2024-01-01", "--to", "2024-12-31", "--pbr", "1.0"],
+            "args": ["backtest", "--from", "2025-01-01", "--to", "2025-12-31", "--pbr", "1.0"],
             "console": "integratedTerminal"
         },
         {

@@ -41,27 +41,44 @@ class BacktestEngine:
         self._equity:   list[float] = []   # 날짜별 평가금액
 
     def run(self, universe: list[str], start_date: str, end_date: str) -> BacktestResult:
+        from datetime import date as _date, timedelta
         print(f"\n{'='*60}")
         print(f"백테스팅: {self.strategy.id()}")
         print(f"기간: {start_date} ~ {end_date}  |  종목: {len(universe)}개")
         print(f"초기 자금: {self.init_cash:,.0f}원")
         print('='*60)
 
-        # 1. 전 종목 일봉 데이터 수집
-        all_bars: dict[str, list[Bar]] = {}
+        # 스크리닝용 여분 데이터: start_date -14일
+        pre_start = (_date.fromisoformat(start_date) - timedelta(days=14)).isoformat()
+
+        # 1. 전 종목 일봉 데이터 수집 (날짜 범위 기반)
+        raw_bars:  dict[str, list[Bar]] = {}   # pre_start ~ end_date
+        all_bars:  dict[str, list[Bar]] = {}   # start_date ~ end_date (시뮬레이션용)
         for i, ticker in enumerate(universe):
-            print(f"\r  데이터 수집 중... {i+1}/{len(universe)} ({ticker})", end="")
-            bars = self.kis.get_daily_ohlcv(ticker, 300)
-            # 기간 필터
-            bars = [b for b in bars if start_date <= b.date <= end_date]
-            if bars:
-                all_bars[ticker] = bars
-            time.sleep(0.2)
+            print(f"\r  데이터 수집 중... {i+1}/{len(universe)} ({ticker})", end="", flush=True)
+            bars = self.kis.get_historical_ohlcv(ticker, pre_start, end_date)
+            sim  = [b for b in bars if b.date >= start_date]
+            if sim:
+                raw_bars[ticker] = bars
+                all_bars[ticker] = sim
+            time.sleep(0.3)
         print(f"\r  데이터 수집 완료: {len(all_bars)}종목{' '*20}")
 
-        # 2. 스크리닝 (on_start)
+        # 2. 역사적 스크리닝: start_date 직전 4봉 기준 3일 연속 하락
         self.strategy.set_kis(self.kis)
-        watch = self.strategy.on_start(list(all_bars.keys()))
+        candidates = []
+        for ticker, bars in raw_bars.items():
+            pre = [b for b in bars if b.date < start_date and b.volume > 0][-4:]
+            if len(pre) >= 4 and (
+                pre[-1].close < pre[-2].close
+                and pre[-2].close < pre[-3].close
+                and pre[-3].close < pre[-4].close
+            ):
+                candidates.append(ticker)
+        self.strategy.set_candidates(candidates)
+        print(f"  스크리닝 완료: {len(candidates)}종목 후보 → {[c for c in candidates]}")
+
+        watch = list(all_bars.keys())
 
         # 3. 날짜 순으로 시뮬레이션
         all_dates = sorted({b.date for bars in all_bars.values() for b in bars})
@@ -79,7 +96,13 @@ class BacktestEngine:
                 if signal is None:
                     continue
 
-                price = visible[-1].close
+                # 체결 가정: 시그널 발생 봉의 다음 봉 시가 (look-ahead bias 방지)
+                # visible[-1] = 시그널 발생 봉, 다음 날짜 봉의 시가로 체결
+                future = [b for b in bars if b.date > date]
+                if not future:
+                    continue  # 마지막 봉에선 체결 불가
+                price = future[0].open if future[0].open > 0 else future[0].close
+
                 if signal.side == "BUY":
                     cost = price * signal.quantity
                     if self.cash >= cost:

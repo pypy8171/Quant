@@ -1,5 +1,6 @@
 #pragma once
 #include "core/Types.h"
+#include <chrono>
 #include <string>
 #include <vector>
 #include <functional>
@@ -38,6 +39,7 @@ public:
         double      change_rate = 0.0;   // 등락률(%)
         int64_t     volume      = 0;     // 누적 거래량
         double      pbr         = 0.0;
+        double      per         = 0.0;
     };
     std::vector<RankingStock> fetch_kr_ranking(int count = 200,
                                                const std::string& market_div = "J");
@@ -66,6 +68,9 @@ private:
                           const std::vector<std::string>& headers,
                           const std::string& body);
 
+    // 토큰 만료 5분 전이면 자동 재발급
+    void ensure_authenticated();
+
     std::string base_url() const {
         return cfg_.is_paper
             ? "https://openapivts.koreainvestment.com:29443"
@@ -74,4 +79,5 @@ private:
 
     KisConfig   cfg_;
     std::string access_token_;
+    std::chrono::system_clock::time_point token_expires_at_;
 };

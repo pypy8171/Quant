@@ -1,1 +1,2 @@
 requests>=2.31.0
+pyzmq>=25.0.0

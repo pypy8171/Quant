@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <thread>
 #include <chrono>
+#include <algorithm>
 
 using json = nlohmann::json;
 
@@ -180,6 +181,16 @@ static std::string token_cache_path(const std::string& app_key) {
     return "kis_token_" + app_key.substr(0, 8) + ".json";
 }
 
+void KisClient::ensure_authenticated() {
+    // 만료 5분 전이면 재발급
+    auto now    = std::chrono::system_clock::now();
+    auto margin = std::chrono::minutes(5);
+    if (access_token_.empty() || now + margin >= token_expires_at_) {
+        LOG_INFO("[KIS] 토큰 갱신 시작");
+        authenticate();
+    }
+}
+
 bool KisClient::authenticate() {
     // ── 캐시 파일에 유효한 토큰이 있으면 재사용 ──────────────────────────
     std::string cache_path = token_cache_path(cfg_.app_key);
@@ -208,7 +219,8 @@ bool KisClient::authenticate() {
                         auto now_t = std::time(nullptr);
                         // 만료 10분 전까지 사용
                         if (exp_t - now_t > 600) {
-                            access_token_ = token;
+                            access_token_    = token;
+                            token_expires_at_ = std::chrono::system_clock::from_time_t(exp_t);
                             LOG_INFO("[KIS] 캐시 토큰 재사용 (만료: " + expires + ")");
                             return true;
                         }
@@ -239,6 +251,23 @@ bool KisClient::authenticate() {
 
         // 만료 시각 저장 (KIS 응답 필드: access_token_token_expired)
         std::string expires = j.value("access_token_token_expired", "");
+
+        // 인메모리 만료 시각 설정
+        {
+            struct tm tm_exp{};
+            int y, mo, d, h, mi, s;
+            if (sscanf(expires.c_str(), "%d-%d-%d %d:%d:%d",
+                       &y, &mo, &d, &h, &mi, &s) == 6) {
+                tm_exp.tm_year = y - 1900; tm_exp.tm_mon = mo - 1;
+                tm_exp.tm_mday = d;        tm_exp.tm_hour = h;
+                tm_exp.tm_min  = mi;       tm_exp.tm_sec  = s;
+                tm_exp.tm_isdst = -1;
+                token_expires_at_ = std::chrono::system_clock::from_time_t(std::mktime(&tm_exp));
+            } else {
+                // 파싱 실패 시 24시간 후로 설정
+                token_expires_at_ = std::chrono::system_clock::now() + std::chrono::hours(24);
+            }
+        }
 
         // 캐시 파일에 저장
         json cache_j = {
@@ -443,6 +472,10 @@ bool KisClient::send_order(const OrderSignal& signal) {
 
 std::string KisClient::http_get(const std::string& url,
                                 const std::vector<std::string>& headers) {
+    // oauth2 토큰 발급 엔드포인트가 아닌 경우에만 자동 갱신 (재귀 방지)
+    if (url.find("oauth2") == std::string::npos)
+        ensure_authenticated();
+
     // KIS API는 GET에도 Content-Type: application/json 요구
     auto hdrs = headers;
     bool has_ct = false;
@@ -458,6 +491,9 @@ std::string KisClient::http_get(const std::string& url,
 std::string KisClient::http_post(const std::string& url,
                                   const std::vector<std::string>& headers,
                                   const std::string& body) {
+    if (url.find("oauth2") == std::string::npos)
+        ensure_authenticated();
+
 #ifdef _WIN32
     return winhttp_request("POST", url, headers, body);
 #else
@@ -477,11 +513,15 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(
         + "?FID_COND_MRKT_DIV_CODE=" + market_div
         + "&FID_COND_SCR_DIV_CODE=20171"
         + "&FID_INPUT_ISCD=0000"
-        + "&FID_DIV_CLS_CODE=0"
+        + "&FID_DIV_CLS_CODE=1"
+        + "&FID_BLNG_CLS_CODE=0"
         + "&FID_TRGT_CLS_CODE=0"
+        + "&FID_TRGT_EXLS_CLS_CODE=0"
         + "&FID_RANK_SORT_CLS_CODE=0"
-        + "&FID_INPUT_CNT_1=0"
-        + "&FID_PBLICATN_NM=";
+        + "&FID_INPUT_PRICE_1="
+        + "&FID_INPUT_PRICE_2="
+        + "&FID_VOL_CNT="
+        + "&FID_INPUT_DATE_1=";
 
     std::vector<std::string> hdrs = {
         "authorization: Bearer " + access_token_,
@@ -511,20 +551,53 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(
             try { return std::stoll(s); } catch (...) { return 0; }
         };
 
-        int rank = 1;
-        for (const auto& item : j["output2"]) {
-            if (rank > count) break;
+        // ETF/ETN/ELW 제외: 이름 접두사 + 비정상 티커(6자리 숫자 아닌 것) 필터
+        static const std::vector<std::string> ETF_PREFIXES = {
+            "KODEX","TIGER","KINDEX","KOSEF","ARIRANG","ACE","SOL",
+            "HANARO","FOCUS","TREX","WON","PLUS","KoAct","TIMEFOLIO",
+            "KTOP","BIG","히어로즈","KCGI","파워","KBSTAR","마이다스",
+            "RISE","TRUE","MASTER"
+        };
+        auto is_etf_name = [&](const std::string& name) {
+            for (const auto& pfx : ETF_PREFIXES)
+                if (name.rfind(pfx, 0) == 0) return true;
+            return false;
+        };
+        // KOSPI 보통주 티커는 반드시 6자리 숫자
+        auto is_normal_ticker = [](const std::string& t) {
+            if (t.size() != 6) return false;
+            for (char c : t) if (c < '0' || c > '9') return false;
+            return true;
+        };
+
+        // API 응답 키: "output" (단일 배열)
+        auto& arr = j.contains("output2") ? j["output2"] : j["output"];
+        for (const auto& item : arr) {
+            std::string name   = item.value("hts_kor_isnm", "");
+            std::string ticker = item.value("mksc_shrn_iscd", "");
+            if (!is_normal_ticker(ticker) || is_etf_name(name)) continue;
+
             RankingStock s;
-            s.rank        = rank++;
-            s.ticker      = item.value("mksc_shrn_iscd", "");
-            s.name        = item.value("hts_kor_isnm", "");
+            s.ticker      = ticker;
+            s.name        = name;
             s.price       = safe_d(item, "stck_prpr");
             s.change      = safe_d(item, "prdy_vrss");
             s.change_rate = safe_d(item, "prdy_ctrt");
             s.volume      = safe_i(item, "acml_vol");
             s.pbr         = safe_d(item, "hts_pbr");
-            if (!s.ticker.empty()) result.push_back(s);
+            s.per         = safe_d(item, "hts_per");
+            result.push_back(s);
         }
+
+        // API 정렬 기준이 불명확하므로 거래대금(가격×거래량) 내림차순 정렬 — 시가총액 대용
+        std::sort(result.begin(), result.end(), [](const RankingStock& a, const RankingStock& b) {
+            return (a.price * static_cast<double>(a.volume))
+                 > (b.price * static_cast<double>(b.volume));
+        });
+
+        // count개로 자르고 순위 재부여
+        if (static_cast<int>(result.size()) > count) result.resize(count);
+        for (int i = 0; i < static_cast<int>(result.size()); ++i) result[i].rank = i + 1;
     } catch (const std::exception& e) {
         LOG_ERROR("[KIS] 랭킹 파싱 오류: " + std::string(e.what()));
     }
@@ -544,11 +617,15 @@ std::vector<std::string> KisClient::fetch_universe_by_pbr(
         + "?FID_COND_MRKT_DIV_CODE=" + market_div
         + "&FID_COND_SCR_DIV_CODE=20171"
         + "&FID_INPUT_ISCD=0000"
-        + "&FID_DIV_CLS_CODE=0"
+        + "&FID_DIV_CLS_CODE=1"
+        + "&FID_BLNG_CLS_CODE=0"
         + "&FID_TRGT_CLS_CODE=0"
+        + "&FID_TRGT_EXLS_CLS_CODE=0"
         + "&FID_RANK_SORT_CLS_CODE=0"
-        + "&FID_INPUT_CNT_1=0"
-        + "&FID_PBLICATN_NM=";
+        + "&FID_INPUT_PRICE_1="
+        + "&FID_INPUT_PRICE_2="
+        + "&FID_VOL_CNT="
+        + "&FID_INPUT_DATE_1=";
 
     std::vector<std::string> hdrs = {
         "authorization: Bearer " + access_token_,
@@ -568,7 +645,8 @@ std::vector<std::string> KisClient::fetch_universe_by_pbr(
     std::vector<std::string> result;
     try {
         auto j = json::parse(resp);
-        for (const auto& item : j["output2"]) {
+        auto& arr2 = j.contains("output2") ? j["output2"] : j["output"];
+        for (const auto& item : arr2) {
             std::string ticker = item.value("mksc_shrn_iscd", "");
             if (ticker.empty()) continue;
 
