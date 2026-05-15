@@ -1,9 +1,9 @@
 #pragma once
 #include <atomic>
-#include <vector>
-#include <optional>
 #include <cstddef>
 #include <new>
+#include <optional>
+#include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RingBuffer<T>  —  SPSC Lock-Free Ring Buffer
@@ -15,35 +15,37 @@
 // std::hardware_destructive_interference_size는 C++17이지만
 // MSVC 19.26 미만과 일부 GCC에서 미지원 — 64로 fallback
 #ifdef __cpp_lib_hardware_interference_size
-    inline constexpr size_t kCacheLine = std::hardware_destructive_interference_size;
+inline constexpr size_t kCacheLine = std::hardware_destructive_interference_size;
 #else
-    inline constexpr size_t kCacheLine = 64;
+inline constexpr size_t kCacheLine = 64;
 #endif
 
-template<typename T>
-class RingBuffer {
+template <typename T> class RingBuffer
+{
 public:
     explicit RingBuffer(size_t capacity)
-        : capacity_(capacity + 1)   // 슬롯 1개는 full/empty 구분용
-        , buffer_(capacity + 1)
-        , head_(0)
-        , tail_(0)
-    {}
+        : capacity_(capacity + 1) // 슬롯 1개는 full/empty 구분용
+          ,
+          buffer_(capacity + 1), head_(0), tail_(0)
+    {
+    }
 
     // 생산자 스레드에서 호출
-    bool push(const T& item) {
+    bool push(const T& item)
+    {
         const size_t head = head_.load(std::memory_order_relaxed);
         const size_t next = (head + 1) % capacity_;
 
         if (next == tail_.load(std::memory_order_acquire))
-            return false;   // 버퍼 가득 참
+            return false; // 버퍼 가득 참
 
         buffer_[head] = item;
         head_.store(next, std::memory_order_release);
         return true;
     }
 
-    bool push(T&& item) {
+    bool push(T&& item)
+    {
         const size_t head = head_.load(std::memory_order_relaxed);
         const size_t next = (head + 1) % capacity_;
 
@@ -56,32 +58,37 @@ public:
     }
 
     // 소비자 스레드에서 호출
-    std::optional<T> pop() {
+    std::optional<T> pop()
+    {
         const size_t tail = tail_.load(std::memory_order_relaxed);
 
         if (tail == head_.load(std::memory_order_acquire))
-            return std::nullopt;    // 버퍼 비어 있음
+            return std::nullopt; // 버퍼 비어 있음
 
         T item = std::move(buffer_[tail]);
         tail_.store((tail + 1) % capacity_, std::memory_order_release);
         return item;
     }
 
-    bool empty() const {
-        return head_.load(std::memory_order_acquire)
-            == tail_.load(std::memory_order_acquire);
+    bool empty() const
+    {
+        return head_.load(std::memory_order_acquire) == tail_.load(std::memory_order_acquire);
     }
 
-    size_t size() const {
+    size_t size() const
+    {
         const size_t head = head_.load(std::memory_order_acquire);
         const size_t tail = tail_.load(std::memory_order_acquire);
         return (head >= tail) ? (head - tail) : (capacity_ - tail + head);
     }
 
-    size_t capacity() const { return capacity_ - 1; }
+    size_t capacity() const
+    {
+        return capacity_ - 1;
+    }
 
 private:
-    const size_t   capacity_;
+    const size_t capacity_;
     std::vector<T> buffer_;
 
     // head_: producer만 씀, tail_: consumer만 씀

@@ -1,18 +1,18 @@
 #pragma once
-#include "core/RingBuffer.h"
-#include "core/Types.h"
-#include "strategy/StrategyBase.h"
 #include "api/KisClient.h"
 #include "api/KisWebSocket.h"
+#include "core/RingBuffer.h"
+#include "core/Types.h"
 #include "risk/OrderGate.h"
+#include "strategy/StrategyBase.h"
 #ifdef HAS_ZMQ
 #include "ipc/ZmqBridge.h"
 #endif
-#include <vector>
-#include <memory>
-#include <thread>
 #include <atomic>
+#include <memory>
 #include <string>
+#include <thread>
+#include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Engine  —  퀀트 트레이딩 엔진
@@ -23,7 +23,8 @@
 //
 //  WS 구독 목록은 on_start() 이후 전략의 get_watch_specs()로 동적 수집
 // ─────────────────────────────────────────────────────────────────────────────
-class Engine {
+class Engine
+{
 public:
     Engine(KisConfig kis_cfg, int fetch_interval_sec = 60);
     ~Engine();
@@ -32,31 +33,34 @@ public:
     void start();
     void stop();
 
-    bool is_running() const { return running_.load(); }
+    bool is_running() const
+    {
+        return running_.load();
+    }
 
 private:
     void data_thread_fn();
     void strategy_thread_fn();
     void order_thread_fn();
-    void control_thread_fn();   // ZMQ REP 명령 처리 (HAS_ZMQ 시 활성)
+    void control_thread_fn(); // ZMQ REP 명령 처리 (HAS_ZMQ 시 활성)
 
-    bool is_kr_market_open()  const;
-    bool is_us_market_open()  const;
+    bool is_kr_market_open() const;
+    bool is_us_market_open() const;
     bool is_any_market_open() const;
-    void print_stats()        const;
+    void print_stats() const;
 
-    KisConfig                               kis_cfg_;
-    int                                     fetch_interval_sec_;
+    KisConfig kis_cfg_;
+    int fetch_interval_sec_;
 
-    std::unique_ptr<KisClient>              kis_;
-    std::unique_ptr<KisWebSocket>           ws_;
+    std::unique_ptr<KisClient> kis_;
+    std::unique_ptr<KisWebSocket> ws_;
 
     std::vector<std::unique_ptr<StrategyBase>> strategies_;
 
-    RingBuffer<MarketData>  market_queue_{1024};
+    RingBuffer<MarketData> market_queue_{1024};
     RingBuffer<OrderSignal> order_queue_{256};
-    RingBuffer<OrderBook>   ob_queue_{4096};   // 호가 (국내)
-    RingBuffer<TradeData>   td_queue_{4096};   // 체결 (미국 + 국내)
+    RingBuffer<OrderBook> ob_queue_{4096}; // 호가 (국내)
+    RingBuffer<TradeData> td_queue_{4096}; // 체결 (미국 + 국내)
 
     std::thread data_thread_;
     std::thread strategy_thread_;

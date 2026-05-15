@@ -2,13 +2,13 @@
 #ifdef HAS_ZMQ
 
 #include "core/Types.h"
-#include <zmq.hpp>
 #include <atomic>
 #include <functional>
 #include <mutex>
 #include <queue>
 #include <string>
 #include <thread>
+#include <zmq.hpp>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ZmqBridge  —  C++ 엔진과 Python 레이어 간 IPC
@@ -19,7 +19,8 @@
 //  ZMQ 소켓은 비-스레드세이프 → 전용 zmq_thread_ 에서만 사용
 //  다른 스레드는 enqueue() 로 메시지 전달
 // ─────────────────────────────────────────────────────────────────────────────
-class ZmqBridge {
+class ZmqBridge
+{
 public:
     explicit ZmqBridge(int pub_port = 5555, int rep_port = 5556);
     ~ZmqBridge();
@@ -37,10 +38,17 @@ public:
     // cmd  : 수신된 명령 문자열 (KILL / STATUS / PAUSE <id> 등)
     // reply: 명령에 대한 응답 문자열 반환
     using CmdHandler = std::function<std::string(const std::string& cmd)>;
-    void set_command_handler(CmdHandler handler) { cmd_handler_ = std::move(handler); }
+    void set_command_handler(CmdHandler handler)
+    {
+        cmd_handler_ = std::move(handler);
+    }
 
 private:
-    struct Msg { std::string topic; std::string payload; };
+    struct Msg
+    {
+        std::string topic;
+        std::string payload;
+    };
 
     void enqueue(std::string topic, std::string payload);
     void thread_fn();
@@ -48,13 +56,13 @@ private:
     int pub_port_;
     int rep_port_;
 
-    std::atomic<bool>   running_{false};
-    std::thread         zmq_thread_;
+    std::atomic<bool> running_{false};
+    std::thread zmq_thread_;
 
-    std::mutex          queue_mtx_;
-    std::queue<Msg>     send_queue_;
+    std::mutex queue_mtx_;
+    std::queue<Msg> send_queue_;
 
-    CmdHandler          cmd_handler_;
+    CmdHandler cmd_handler_;
 };
 
 #endif // HAS_ZMQ
