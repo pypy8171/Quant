@@ -17,7 +17,8 @@ struct WatchSpec
 {
     std::string ticker;
     Market market = Market::KR;
-    std::string exchange; // US only: "NAS", "NYS"
+    std::string exchange;      // US only: "NAS", "NYS"
+    bool trade_only = false;   // true: H0STCNT0만 구독 (호가 제외, 구독 한도 절약)
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -123,6 +124,7 @@ struct Fundamentals
     double pask = 0.0; // 매도호가
     int64_t vbid = 0;  // 매수잔량
     int64_t vask = 0;  // 매도잔량
-    double diff = 0.0; // 전일 대비
-    double rate = 0.0; // 등락율(%)
+    double diff = 0.0;         // 전일 대비
+    double rate = 0.0;         // 등락율(%)
+    double market_cap = 0.0;   // 시가총액 (억원)
 };

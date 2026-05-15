@@ -34,6 +34,17 @@ public:
     bool send_order(const OrderSignal& signal);
     nlohmann::json get_balance();
 
+    // 지수 현재값 (코스피 "0001", 코스닥 "1001", KOSPI200 "2001")
+    struct IndexPrice
+    {
+        std::string ticker;
+        double price = 0.0;
+        double change = 0.0;
+        double change_rate = 0.0;
+        int sign = 3; // 1=상한 2=상승 3=보합 4=하한 5=하락
+    };
+    IndexPrice get_index_price(const std::string& ticker);
+
     // 시가총액 순위 — 현재가·등락률 포함 전체 데이터
     struct RankingStock
     {

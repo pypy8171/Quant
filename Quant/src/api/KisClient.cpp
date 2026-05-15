@@ -439,8 +439,9 @@ Fundamentals KisClient::get_fundamentals(const std::string& ticker)
         f.open = parse_d("stck_oprc"); // 시가
         f.high = parse_d("stck_hgpr"); // 고가
         f.low = parse_d("stck_lwpr");  // 저가
-        f.pbr = parse_d("pbr");
-        f.per = parse_d("per");
+        f.pbr        = parse_d("pbr");
+        f.per        = parse_d("per");
+        f.market_cap = parse_d("hts_avls"); // 시가총액 (억원)
     }
     catch (...)
     {
@@ -985,4 +986,61 @@ std::vector<std::string> KisClient::fetch_us_universe_by_pbr(double max_pbr, con
     LOG_INFO("[KIS-US] Universe(" + exchange + ") PBR<=" + std::to_string(max_pbr) +
              " 통과: " + std::to_string(result.size()) + "종목");
     return result;
+}
+
+// ─── 지수 현재값 (코스피 "0001", 코스닥 "1001", KOSPI200 "2001") ────────────
+KisClient::IndexPrice KisClient::get_index_price(const std::string& ticker)
+{
+    ensure_authenticated();
+
+    std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/inquire-index-price"
+                      + "?FID_COND_MRKT_DIV_CODE=U&FID_INPUT_ISCD=" + ticker;
+
+    std::vector<std::string> headers = {
+        "authorization: Bearer " + access_token_,
+        "appkey: " + cfg_.app_key,
+        "appsecret: " + cfg_.app_secret,
+        "tr_id: FHPUP02100000",
+        "Content-Type: application/json",
+    };
+
+    IndexPrice ip;
+    ip.ticker = ticker;
+
+    try
+    {
+        auto resp = http_get(url, headers);
+        auto j = json::parse(resp, nullptr, false);
+        if (j.is_discarded() || !j.contains("output"))
+            return ip;
+
+        auto& o = j["output"];
+        auto sd = [&](const char* k) -> double
+        {
+            try
+            {
+                return std::stod(o.value(k, "0"));
+            }
+            catch (...)
+            {
+                return 0.0;
+            }
+        };
+        ip.price = sd("bstp_nmix_prpr");
+        ip.change = sd("bstp_nmix_prdy_vrss");
+        ip.change_rate = sd("bstp_nmix_prdy_ctrt");
+        try
+        {
+            ip.sign = std::stoi(o.value("prdy_vrss_sign", "3"));
+        }
+        catch (...)
+        {
+            ip.sign = 3;
+        }
+    }
+    catch (const std::exception& e)
+    {
+        LOG_WARN("[KIS] get_index_price(" + ticker + ") 실패: " + e.what());
+    }
+    return ip;
 }

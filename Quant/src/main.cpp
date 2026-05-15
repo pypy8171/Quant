@@ -421,12 +421,50 @@ int main(int argc, char* argv[])
             double change_rate = 0;
             double pbr = 0;
             double per = 0;
-            int direction = 0; // 1=상승 5=하락 (WS 갱신)
+            double ma5 = 0, ma10 = 0, ma20 = 0, ma60 = 0;
+            double market_cap = 0; // 억원
+            int direction = 0;
             std::string updated;
         };
 
+        // 이동평균 계산 헬퍼 — KIS는 최신봉이 bars[0]에 오므로 앞에서 period개를 사용
+        auto calc_ma = [](const std::vector<MarketData>& bars, int period) -> double
+        {
+            if (static_cast<int>(bars.size()) < period)
+                return 0.0;
+            double sum = 0.0;
+            for (int i = 0; i < period; ++i)
+                sum += bars[i].close;
+            return sum / period;
+        };
+
+        // 시가총액(억원) → 콤팩트 문자열 (543210억→"54.3조", 12345억→"1.2조", 500억→"500억")
+        auto fmt_cap = [](double v) -> std::string
+        {
+            if (v <= 0)
+                return "    --";
+            char buf[16];
+            if (v >= 10000.0)
+                snprintf(buf, sizeof(buf), "%.1f조", v / 10000.0);
+            else
+                snprintf(buf, sizeof(buf), "%.0f억", v);
+            return buf;
+        };
+
+        // MA값 → 콤팩트 문자열 (283250→"283K", 1900000→"1.9M")
+        auto fmt_ma = [](double v) -> std::string
+        {
+            if (v <= 0)
+                return "   --";
+            char buf[16];
+            if (v >= 1'000'000.0)
+                snprintf(buf, sizeof(buf), "%.1fM", v / 1'000'000.0);
+            else
+                snprintf(buf, sizeof(buf), "%.0fK", v / 1'000.0);
+            return buf;
+        };
+
         // KOSPI 시가총액 상위 20 고정 목록 (KIS 랭킹 API가 거래량 기준이라 직접 정의)
-        // 시가총액 기준 순서 — 분기 단위로 검토 필요
         static const std::vector<std::pair<std::string, std::string>> KR_TOP20 = {
             {"005930", "삼성전자  "}, {"000660", "SK하이닉스"}, {"207940", "삼성바이오"}, {"005490", "POSCO홀딩 "},
             {"005380", "현대차    "}, {"000270", "기아      "}, {"105560", "KB금융    "}, {"055550", "신한지주  "},
@@ -435,18 +473,46 @@ int main(int argc, char* argv[])
             {"017670", "SK텔레콤  "}, {"009150", "삼성전기  "}, {"402340", "SK스퀘어  "}, {"316140", "우리금융  "},
         };
 
+        // 관심 종목
+        static const std::vector<std::pair<std::string, std::string>> KR_WATCH = {
+            {"042700", "한미반도체"}, {"108490", "로보티즈  "}, {"097230", "HJ중공업  "},
+            {"327260", "RF머트리얼"}, {"482630", "삼양엔씨켐"}, {"489790", "한화비전  "},
+            {"295310", "에이치브이"}, {"100790", "미래에셋벤"},
+        };
+
+        // 지수 캐시 (REST 5초 폴링)
+        struct IdxSnap
+        {
+            KisClient::IndexPrice data;
+            bool loaded = false;
+        };
+        std::mutex idx_mtx;
+        std::map<std::string, IdxSnap> idx_cache;
+        static const std::vector<std::pair<std::string, std::string>> INDICES = {
+            {"0001", "코스피  "}, {"1001", "코스닥  "}, {"2001", "KOSPI200"},
+        };
+
         std::mutex cache_mtx;
         std::map<std::string, StockPrice> cache;
         std::vector<std::string> display_order;
 
-        // ── [REST 1회] 20종목 fundamentals 로드 ─────────────────────────────
+        // ── [REST 1회] 20종목 + 관심종목 fundamentals 로드 ──────────────────
         std::cout << "\033[2J\033[H";
-        std::cout << "KOSPI 시가총액 상위 20종목 로딩 중 (REST)...\n";
+        std::cout << "KOSPI 시가총액 상위 20 + 관심종목 로딩 중 (REST)...\n";
         std::cout.flush();
 
-        for (const auto& [code, name] : KR_TOP20)
+        // 모든 종목 합쳐서 순서대로 로드
+        std::vector<std::pair<std::string, std::string>> all_stocks;
+        for (const auto& s : KR_TOP20)
+            all_stocks.push_back(s);
+        for (const auto& s : KR_WATCH)
+            all_stocks.push_back(s);
+
+        for (const auto& [code, name] : all_stocks)
         {
             auto f = kis.get_fundamentals(code);
+            auto bars = kis.get_daily_ohlcv(code, 65); // MA60 계산용
+
             StockPrice sp;
             sp.ticker = code;
             sp.name = name;
@@ -456,6 +522,11 @@ int main(int argc, char* argv[])
             sp.base_price = (f.diff != 0.0) ? f.last - f.diff : f.last;
             sp.pbr = f.pbr;
             sp.per = f.per;
+            sp.ma5        = calc_ma(bars, 5);
+            sp.ma10       = calc_ma(bars, 10);
+            sp.ma20       = calc_ma(bars, 20);
+            sp.ma60       = calc_ma(bars, 60);
+            sp.market_cap = f.market_cap;
             std::cout << "  " << code << " " << name << " 완료\n";
             std::cout.flush();
             {
@@ -504,27 +575,76 @@ int main(int argc, char* argv[])
         {
             std::lock_guard<std::mutex> lk(cache_mtx);
             for (const auto& code : display_order)
-                specs.push_back({code, Market::KR, ""});
+                specs.push_back({code, Market::KR, "", true}); // trade_only: 구독 28개로 한도 절약
         }
 
         bool ws_ok = ws.connect(specs);
         if (!ws_ok)
             LOG_WARN("[KR_TEST] WebSocket 연결 실패 — REST 초기값으로만 표시");
 
+        // ── [백그라운드] 지수 5초 폴링 ───────────────────────────────────────
+        std::thread idx_poller(
+            [&]()
+            {
+                while (g_running.load())
+                {
+                    for (const auto& [code, name] : INDICES)
+                    {
+                        if (!g_running.load())
+                            break;
+                        auto ip = kis.get_index_price(code);
+                        {
+                            std::lock_guard<std::mutex> lk(idx_mtx);
+                            idx_cache[code] = {ip, true};
+                        }
+                        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                    }
+                    // 5초 대기 (인터럽트 가능하게 100ms 단위로 분할)
+                    for (int i = 0; i < 47 && g_running.load(); ++i)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+            });
+
         // ── 화면 표시: 1초 주기 ──────────────────────────────────────────────
-        std::cout << "\033[2J";
+        // alternate screen buffer: 스크롤 없이 독립 화면 사용 (top/vim 방식)
+        // 종료 시 \033[?1049l 로 원래 화면 복원
+        std::cout << "\033[?1049h\033[H";
+
+        // 헬퍼: 한 종목 행 → string 반환 (줄 끝 \n 미포함)
+        auto stock_row = [&](int rank, const std::string& code, const StockPrice& sp) -> std::string
+        {
+            const char* col = sp.change > 0   ? "\033[31m"
+                              : sp.change < 0 ? "\033[34m"
+                                              : "";
+            const char* rst = "\033[0m";
+            const char* arr = sp.change > 0   ? "\xE2\x96\xB2"
+                              : sp.change < 0 ? "\xE2\x96\xBC"
+                                              : " ";
+            std::string disp_name = utf8_pad_right(utf8_trunc(sp.name, 10), 10);
+            std::string scap = fmt_cap(sp.market_cap);
+            std::string s5   = fmt_ma(sp.ma5);
+            std::string s10  = fmt_ma(sp.ma10);
+            std::string s20  = fmt_ma(sp.ma20);
+            std::string s60  = fmt_ma(sp.ma60);
+            char ln[512];
+            snprintf(ln, sizeof(ln),
+                     "%2d  %-6s  %s  %s%9.0f  %s %+8.0f  %+6.2f%%%s  %4.2f  %5.1f  %6s  %5s %5s %5s %5s  %s",
+                     rank, code.c_str(), disp_name.c_str(), col, sp.price, arr, sp.change, sp.change_rate, rst,
+                     sp.pbr, sp.per, scap.c_str(), s5.c_str(), s10.c_str(), s20.c_str(), s60.c_str(),
+                     sp.updated.empty() ? "--:--:--" : sp.updated.c_str());
+            return std::string(ln);
+        };
 
         while (g_running.load())
         {
             std::map<std::string, StockPrice> snap;
-            std::vector<std::string> order;
             {
                 std::lock_guard<std::mutex> lk(cache_mtx);
                 snap = cache;
-                order = display_order;
             }
 
-            std::cout << "\033[H";
+            // 출력할 모든 줄을 벡터로 수집 후 한 번에 출력
+            std::vector<std::string> lines;
 
             auto now2 = std::chrono::system_clock::now();
             auto tt2 = std::chrono::system_clock::to_time_t(now2);
@@ -539,42 +659,85 @@ int main(int argc, char* argv[])
             char hbuf[32];
             std::strftime(hbuf, sizeof(hbuf), "%H:%M:%S", &tmi2);
 
-            std::cout << "══════ KR 시가총액 상위 KOSPI 20 실시간 시세 [" << hbuf << "] "
-                      << (ws_ok ? "[WS:연결]" : "[WS:끊김]") << " ══════\n";
-            std::cout << " #   코드     종목명          현재가     등락     등락률   PBR   PER   갱신\n";
-            std::cout << std::string(80, '-') << "\n";
-
-            int idx = 0;
-            for (const auto& code : order)
+            // 헤더 + 지수 (2줄)
             {
-                ++idx;
+                char h[160];
+                snprintf(h, sizeof(h), "══ KR 실시간 시세 [%s] %s ══", hbuf,
+                         ws_ok ? "[WS:연결]" : "[WS:끊김]");
+                lines.push_back(h);
+            }
+            {
+                std::string idx_line;
+                std::lock_guard<std::mutex> ilk(idx_mtx);
+                for (const auto& [code, name] : INDICES)
+                {
+                    auto it = idx_cache.find(code);
+                    if (it == idx_cache.end() || !it->second.loaded)
+                    {
+                        idx_line += name + ":조회중  ";
+                        continue;
+                    }
+                    const auto& ip = it->second.data;
+                    const char* col = (ip.sign == 1 || ip.sign == 2)   ? "\033[31m"
+                                      : (ip.sign == 4 || ip.sign == 5) ? "\033[34m"
+                                                                        : "";
+                    const char* rst = "\033[0m";
+                    const char* arr = (ip.sign == 1 || ip.sign == 2)   ? "\xE2\x96\xB2"
+                                      : (ip.sign == 4 || ip.sign == 5) ? "\xE2\x96\xBC"
+                                                                        : " ";
+                    char seg[120];
+                    snprintf(seg, sizeof(seg), "%s:%s%.2f%s%+.2f(%+.2f%%)%s  ", name.c_str(), col, ip.price, arr,
+                             ip.change, ip.change_rate, rst);
+                    idx_line += seg;
+                }
+                lines.push_back(idx_line);
+            }
+
+            // ── KOSPI 상위 20 (구분선 + 헤더 각 1줄) ─────────────────────
+            lines.push_back("\033[90m── KOSPI 시총 상위 20 " + std::string(50, '-') + "\033[0m");
+            lines.push_back(" #  code    name            price         chg     chg%   PBR    PER     cap    MA5  MA10  MA20  MA60      time");
+            for (size_t i = 0; i < KR_TOP20.size(); ++i)
+            {
+                const auto& code = KR_TOP20[i].first;
                 auto it = snap.find(code);
                 if (it == snap.end())
                 {
-                    std::cout << std::setw(2) << idx << "  " << code << "  (로딩 중...)\n";
-                    continue;
+                    char tmp[64];
+                    snprintf(tmp, sizeof(tmp), "%2zu  %s  (로딩 중...)", i + 1, code.c_str());
+                    lines.push_back(tmp);
                 }
-                const StockPrice& sp = it->second;
-
-                // 당일 등락(change)으로 색/화살표 결정 — direction은 마지막 체결 틱 방향이라 부정확
-                const char* col = sp.change > 0   ? "\033[31m" // 상승 = 빨간색
-                                  : sp.change < 0 ? "\033[34m" // 하락 = 파란색
-                                                  : "";
-                const char* rst = "\033[0m";
-                const char* arr = sp.change > 0   ? "\xE2\x96\xB2" // ▲
-                                  : sp.change < 0 ? "\xE2\x96\xBC" // ▼
-                                                  : " ";
-
-                std::string disp_name = utf8_pad_right(utf8_trunc(sp.name, 10), 10);
-
-                char ln[256];
-                snprintf(ln, sizeof(ln), "%2d  %-6s  %s  %s%9.0f  %s %+8.0f  %+6.2f%%%s  %4.2f  %5.1f  %s\n", idx,
-                         code.c_str(), disp_name.c_str(), col, sp.price, arr, sp.change, sp.change_rate, rst, sp.pbr,
-                         sp.per, sp.updated.empty() ? "--:--:--" : sp.updated.c_str());
-                std::cout << ln;
+                else
+                {
+                    lines.push_back(stock_row(static_cast<int>(i + 1), code, it->second));
+                }
             }
 
-            std::cout << "\nCtrl+C 종료\n";
+            // ── 관심 종목 (구분선만, 헤더 재사용) ────────────────────────
+            lines.push_back("\033[90m── 관심 종목 " + std::string(59, '-') + "\033[0m");
+            for (size_t i = 0; i < KR_WATCH.size(); ++i)
+            {
+                const auto& code = KR_WATCH[i].first;
+                auto it = snap.find(code);
+                if (it == snap.end())
+                {
+                    char tmp[64];
+                    snprintf(tmp, sizeof(tmp), "%2zu  %s  (로딩 중...)", i + 1, code.c_str());
+                    lines.push_back(tmp);
+                }
+                else
+                {
+                    lines.push_back(stock_row(static_cast<int>(i + 1), code, it->second));
+                }
+            }
+
+            lines.push_back("");
+            lines.push_back("Ctrl+C 종료");
+
+            // ── 출력: 커서를 항상 화면 최상단으로 이동 후 덮어쓰기
+            std::cout << "\033[H";
+            for (const auto& line : lines)
+                std::cout << line << "\033[K\n";
+            std::cout << "\033[J";
             std::cout.flush();
 
             std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -582,6 +745,9 @@ int main(int argc, char* argv[])
 
         if (ws_ok)
             ws.disconnect();
+        idx_poller.join();
+        std::cout << "\033[?1049l"; // alternate screen 종료 → 원래 터미널 복원
+        std::cout.flush();
         Logger::instance().set_console_enabled(true);
         LOG_INFO("[KR_TEST] 종료");
         return 0;

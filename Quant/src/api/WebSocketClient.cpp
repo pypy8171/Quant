@@ -165,7 +165,8 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
     {
         if (spec.market == Market::KR)
         {
-            send_subscribe("H0STASP0", spec.ticker);
+            if (!spec.trade_only)
+                send_subscribe("H0STASP0", spec.ticker);
             send_subscribe("H0STCNT0", spec.ticker);
         }
         else
