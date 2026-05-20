@@ -120,22 +120,27 @@ if(ZMQ_FOUND)
   target_link_libraries(quant_trader PRIVATE ${ZMQ_LIB})
 endif()
  
-# ─── config 파일을 IDE(솔루션 탐색기)에 표시 ─────────────────────────────
-target_sources(quant_trader PRIVATE config/config.json)
-set_source_files_properties(config/config.json PROPERTIES HEADER_FILE_ONLY TRUE)
-source_group("config" FILES config/config.json)
+# ─── config 파일 처리 (파일이 없으면 스킵 — Docker 빌드 시 volume으로 주입) ──
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/config/config.json)
+  # IDE(솔루션 탐색기)에 표시
+  target_sources(quant_trader PRIVATE config/config.json)
+  set_source_files_properties(config/config.json PROPERTIES HEADER_FILE_ONLY TRUE)
+  source_group("config" FILES config/config.json)
 
-# ─── 빌드 후 config 자동 복사 ─────────────────────────────────────────────
-add_custom_command(TARGET quant_trader POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:quant_trader>/config
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_CURRENT_SOURCE_DIR}/config/config.json
-        $<TARGET_FILE_DIR:quant_trader>/config/config.json
-)
+  # 빌드 후 바이너리 옆에 자동 복사
+  add_custom_command(TARGET quant_trader POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:quant_trader>/config
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          ${CMAKE_CURRENT_SOURCE_DIR}/config/config.json
+          $<TARGET_FILE_DIR:quant_trader>/config/config.json
+  )
+endif()
 
 # ─── 설치 ──────────────────────────────────────────────────────────────────
 install(TARGETS quant_trader DESTINATION bin)
-install(FILES config/config.json DESTINATION etc/quant_trader)
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/config/config.json)
+  install(FILES config/config.json DESTINATION etc/quant_trader)
+endif()
 
 # ─── 테스트 타겟: SPSC RingBuffer 검증 ───────────────────────────────────
 add_executable(test_ringbuffer tests/test_ringbuffer.cpp)
