@@ -1,0 +1,24 @@
+{
+  "kis": {
+    "app_key":      "YOUR_APP_KEY",
+    "app_secret":   "YOUR_APP_SECRET",
+    "account_no":   "XXXXXXXXXX-XX",
+    "account_type": "01",
+    "is_paper":     false
+  },
+
+  "mode": "KR_TEST",
+
+  "fetch_interval_sec": 60,
+
+  "strategies": [
+    {
+      "type":           "VALUE_CONTRARY",
+      "market":         "KR",
+      "exchange":       "",
+      "pbr_max":        1.0,
+      "quantity":       1,
+      "eod_exit_hhmm":  1520
+    }
+  ]
+}
