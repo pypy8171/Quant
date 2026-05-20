@@ -151,6 +151,18 @@ if(UNIX)
     target_link_libraries(test_order_gate PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: OrderRouter 통합 테스트 (StubOrderExecutor, KIS 불필요) ──
+add_executable(test_order_router
+    tests/test_order_router.cpp
+    src/risk/OrderGate.cpp
+    src/ipc/OrderRouter.cpp
+    src/utils/Logger.cpp
+)
+target_include_directories(test_order_router PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(test_order_router PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟: SPSC RingBuffer 검증 ───────────────────────────────────
 add_executable(test_ringbuffer tests/test_ringbuffer.cpp)
 target_include_directories(test_ringbuffer PRIVATE

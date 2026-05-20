@@ -1,7 +1,7 @@
 #pragma once
 #include "core/Types.h"
 #include "risk/OrderGate.h"
-#include "api/KisClient.h"
+#include "api/IOrderExecutor.h"
 #ifdef HAS_ZMQ
 #include "ipc/ZmqBridge.h"
 #endif
@@ -36,12 +36,12 @@ class OrderRouter
 {
 public:
 #ifdef HAS_ZMQ
-    OrderRouter(OrderGate& gate, KisClient& kis,
+    OrderRouter(OrderGate& gate, IOrderExecutor& kis,
                 ZmqBridge* zmq = nullptr,
                 OrderRouterConfig cfg = OrderRouterConfig())
         : gate_(gate), kis_(kis), cfg_(cfg), zmq_(zmq) {}
 #else
-    OrderRouter(OrderGate& gate, KisClient& kis,
+    OrderRouter(OrderGate& gate, IOrderExecutor& kis,
                 OrderRouterConfig cfg = OrderRouterConfig())
         : gate_(gate), kis_(kis), cfg_(cfg) {}
 #endif
@@ -66,7 +66,7 @@ private:
     void        record(const ManagedOrder& mo);
 
     OrderGate&       gate_;
-    KisClient&       kis_;
+    IOrderExecutor&  kis_;
     OrderRouterConfig cfg_;
 #ifdef HAS_ZMQ
     ZmqBridge*       zmq_ = nullptr;

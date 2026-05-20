@@ -1,4 +1,5 @@
 #pragma once
+#include "api/IOrderExecutor.h"
 #include "core/Types.h"
 #include <chrono>
 #include <functional>
@@ -15,11 +16,11 @@ struct KisConfig
     bool is_paper = false;
 };
 
-class KisClient
+class KisClient : public IOrderExecutor
 {
 public:
     explicit KisClient(const KisConfig& cfg);
-    ~KisClient();
+    ~KisClient() override;
 
     bool authenticate();
     bool is_authenticated() const
@@ -33,7 +34,7 @@ public:
     Fundamentals get_fundamentals(const std::string& ticker);
     bool send_order(const OrderSignal& signal);
     // FEP: 주문 제출 — KIS 접수번호(ODNO) 반환, 실패 시 빈 문자열
-    std::string submit_order(const OrderSignal& signal);
+    std::string submit_order(const OrderSignal& signal) override;
     nlohmann::json get_balance();
 
     // 지수 현재값 (코스피 "0001", 코스닥 "1001", KOSPI200 "2001")
