@@ -86,6 +86,8 @@ set(SOURCES
   src/utils/Timer.cpp
 )
 
+list(APPEND SOURCES src/ipc/OrderRouter.cpp)
+
 if(ZMQ_FOUND)
   list(APPEND SOURCES src/ipc/ZmqBridge.cpp)
 endif()
@@ -140,6 +142,13 @@ endif()
 install(TARGETS quant_trader DESTINATION bin)
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/config/config.json)
   install(FILES config/config.json DESTINATION etc/quant_trader)
+endif()
+
+# ─── 테스트 타겟: OrderGate 단위 테스트 ──────────────────────────────────
+add_executable(test_order_gate tests/test_order_gate.cpp src/risk/OrderGate.cpp)
+target_include_directories(test_order_gate PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(test_order_gate PRIVATE pthread)
 endif()
 
 # ─── 테스트 타겟: SPSC RingBuffer 검증 ───────────────────────────────────

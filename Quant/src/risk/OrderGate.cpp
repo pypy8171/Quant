@@ -42,18 +42,32 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
         }
     }
 
-    // 4. Rate limit (분당 최대 주문)
+    // 4. Rate limit — 초당 / 분당 두 단계 검사
     {
         auto now = Clock::now();
         std::lock_guard<std::mutex> lk(rate_mtx_);
-        auto cutoff = now - std::chrono::minutes(1);
-        while (!order_times_.empty() && order_times_.front() < cutoff)
+
+        // 초당 제한
+        auto cutoff_sec = now - std::chrono::seconds(1);
+        while (!order_times_sec_.empty() && order_times_sec_.front() < cutoff_sec)
+            order_times_sec_.pop_front();
+        if (static_cast<int>(order_times_sec_.size()) >= cfg_.max_orders_per_sec)
+        {
+            reject_reason = "Rate limit 초과 (초당 " + std::to_string(cfg_.max_orders_per_sec) + "건)";
+            return false;
+        }
+
+        // 분당 제한
+        auto cutoff_min = now - std::chrono::minutes(1);
+        while (!order_times_.empty() && order_times_.front() < cutoff_min)
             order_times_.pop_front();
         if (static_cast<int>(order_times_.size()) >= cfg_.max_orders_per_min)
         {
             reject_reason = "Rate limit 초과 (분당 " + std::to_string(cfg_.max_orders_per_min) + "건)";
             return false;
         }
+
+        order_times_sec_.push_back(now);
         order_times_.push_back(now);
     }
 
@@ -106,6 +120,7 @@ void OrderGate::reset_daily()
     {
         std::lock_guard<std::mutex> lk(rate_mtx_);
         order_times_.clear();
+        order_times_sec_.clear();
     }
     {
         std::lock_guard<std::mutex> lk(dedup_mtx_);

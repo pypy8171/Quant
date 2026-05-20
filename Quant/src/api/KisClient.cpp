@@ -521,6 +521,64 @@ bool KisClient::send_order(const OrderSignal& signal)
     return ok;
 }
 
+// ─── FEP: 주문 제출 — ODNO(접수번호) 반환 ────────────────────────────────
+std::string KisClient::submit_order(const OrderSignal& signal)
+{
+    // send_order와 동일한 본문을 재사용하되, 성공 시 ODNO를 추출해 반환
+    bool is_us = (signal.market == Market::US);
+    std::string tr_id, url;
+
+    if (is_us)
+    {
+        tr_id = (signal.side == OrderSide::BUY) ? (cfg_.is_paper ? "VTTT1002U" : "TTTT1002U")
+                                                 : (cfg_.is_paper ? "VTTT1006U" : "TTTT1006U");
+        url = base_url() + "/uapi/overseas-stock/v1/trading/order";
+    }
+    else
+    {
+        tr_id = (signal.side == OrderSide::BUY) ? (cfg_.is_paper ? "VTTC0802U" : "TTTC0802U")
+                                                 : (cfg_.is_paper ? "VTTC0801U" : "TTTC0801U");
+        url = base_url() + "/uapi/domestic-stock/v1/trading/order-cash";
+    }
+
+    json body;
+    if (is_us)
+        body = {{"CANO", cfg_.account_no}, {"ACNT_PRDT_CD", cfg_.account_type},
+                {"OVRS_EXCG_CD", signal.exchange}, {"PDNO", signal.ticker},
+                {"ORD_DVSN", "00"}, {"ORD_QTY", std::to_string(signal.quantity)},
+                {"OVRS_ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(signal.price) : "0"}};
+    else
+        body = {{"CANO", cfg_.account_no}, {"ACNT_PRDT_CD", cfg_.account_type},
+                {"PDNO", signal.ticker},
+                {"ORD_DVSN", signal.type == OrderType::MARKET ? "01" : "00"},
+                {"ORD_QTY", std::to_string(signal.quantity)},
+                {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string((int)signal.price) : "0"}};
+
+    std::string resp = http_post(url,
+        {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+         "appsecret: " + cfg_.app_secret, "tr_id: " + tr_id, "Content-Type: application/json"},
+        body.dump());
+
+    if (resp.empty())
+    {
+        LOG_ERROR("[KIS] submit_order 실패: " + signal.ticker);
+        return "";
+    }
+
+    auto j = json::parse(resp);
+    if (j["rt_cd"].get<std::string>() != "0")
+    {
+        LOG_ERROR("[KIS] 주문 오류: " + j["msg1"].get<std::string>());
+        return "";
+    }
+
+    std::string odno = j.value("output", json::object()).value("ODNO", "");
+    LOG_INFO("[KIS] 주문 접수: " + signal.ticker +
+             (signal.side == OrderSide::BUY ? " BUY " : " SELL ") +
+             std::to_string(signal.quantity) + "주  ODNO=" + odno);
+    return odno;
+}
+
 // ─── HTTP 래퍼 ────────────────────────────────────────────────────────────
 
 std::string KisClient::http_get(const std::string& url, const std::vector<std::string>& headers)

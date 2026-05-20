@@ -1,6 +1,6 @@
 # Quant Trading System — 프로젝트 가이드
 
-> 최종 업데이트: 2026-05-20
+> 최종 업데이트: 2026-05-20 (FEP 레이어 추가)
 
 ---
 
@@ -11,8 +11,9 @@
 3. [Docker — 설치 및 운영 명령어](#3-docker--설치-및-운영-명령어)
 4. [TimescaleDB — 설치 구조와 PostgreSQL과의 관계](#4-timescaledb--설치-구조와-postgresql과의-관계)
 5. [플랫폼별 실행 방법 (Windows / Linux)](#5-플랫폼별-실행-방법-windows--linux)
-6. [실제 매매 연결 로드맵](#6-실제-매매-연결-로드맵)
-7. [디스크 용량 관리](#7-디스크-용량-관리)
+6. [FEP 레이어 — OrderRouter](#6-fep-레이어--orderrouter)
+7. [실제 매매 연결 로드맵](#7-실제-매매-연결-로드맵)
+8. [디스크 용량 관리](#8-디스크-용량-관리)
 
 ---
 
@@ -438,7 +439,99 @@ cmake --build Quant/build
 
 ---
 
-## 6. 실제 매매 연결 로드맵
+## 6. FEP 레이어 — OrderRouter
+
+### 증권사 FEP vs 이 프로젝트
+
+| 항목 | 증권사 FEP | 이 프로젝트 (OrderRouter) |
+|------|-----------|--------------------------|
+| 접속 방식 | KRX 전용선 직접 연결 | KIS REST API 경유 |
+| 주문 지연 | 수십 마이크로초 | 수십~수백 밀리초 |
+| 프로토콜 | KRX 전용 바이너리 | HTTP/JSON |
+| 주문 검증 | ✅ | ✅ (OrderGate) |
+| 상태 추적 | ✅ | ✅ (ManagedOrder) |
+| Rate Limit | ✅ | ✅ (초당/분당 이중 검사) |
+| 접수번호 관리 | ✅ | ✅ (KIS ODNO 저장) |
+| 이력 보관 | ✅ | ✅ (최근 500건 메모리) |
+
+### 주문 흐름 (OrderRouter 내부)
+
+```
+OrderSignal (전략에서 생성)
+     │
+     ▼
+ [1] OrderGate::check()
+     ├─ Kill switch 활성?         → REJECTED
+     ├─ 포지션 한도 초과?         → REJECTED
+     ├─ 일일 손실 한도 초과?      → REJECTED
+     ├─ 초당 주문 수 초과?        → REJECTED  ← KIS 5건/초 안전 한도
+     ├─ 분당 주문 수 초과?        → REJECTED  ← KIS 20건/분 권장
+     └─ 중복 신호 (1초 내)?       → REJECTED
+     │
+     ▼ PASS
+ [2] KisClient::submit_order()
+     ├─ KIS API 전송
+     ├─ 성공 → ODNO(접수번호) 수신   → ACCEPTED
+     └─ 실패 → HTTP 오류 / rt_cd≠0  → REJECTED
+     │
+     ▼
+ [3] ZMQ publish_order(ok=true/false)   → quant-recorder → TimescaleDB
+ [4] ManagedOrder → 이력 deque에 저장
+```
+
+### 주요 타입
+
+```cpp
+// ManagedOrder — 주문 1건의 전체 생명주기
+struct ManagedOrder {
+    std::string   order_id;      // 내부 순번  "ORD-000001"
+    std::string   kis_order_no;  // KIS 접수번호  ODNO
+    OrderSignal   signal;        // 원본 주문 신호
+    OrderStatus   status;        // PENDING → SUBMITTED → ACCEPTED/REJECTED
+    std::string   reject_reason; // 거부 사유 (REJECTED 시)
+    time_point    submitted_at;
+    time_point    updated_at;
+};
+
+// OrderStatus
+enum class OrderStatus { PENDING, SUBMITTED, ACCEPTED, REJECTED, FILLED, CANCELLED };
+```
+
+### OrderGate 검증 체계 (단위 테스트 완료)
+
+| 검증 항목 | 설정 키 | 기본값 | 테스트 |
+|-----------|---------|--------|--------|
+| Kill switch | `set_kill_switch(true)` | false | ✅ `test_kill_switch` |
+| 종목당 최대 보유 | `max_qty_per_ticker` | 100주 | ✅ `test_position_limit` |
+| 일일 최대 손실 | `daily_loss_limit` | -30만원 | ✅ `test_daily_loss_limit` |
+| 초당 주문 수 | `max_orders_per_sec` | 5건 | ✅ `test_rate_limit_per_sec` |
+| 분당 주문 수 | `max_orders_per_min` | 20건 | (초당으로 커버) |
+| 중복 신호 | `dedup_window_sec` | 1.0초 | ✅ `test_dedup` |
+| 정상 통과 | — | — | ✅ `test_normal_pass` |
+| SELL 포지션 무관 | — | — | ✅ `test_sell_bypasses_position_check` |
+
+테스트 실행:
+```bash
+# Docker 빌더 스테이지에서 실행
+docker build --target builder -f Quant/Dockerfile -t quant-builder-test .
+docker run --rm quant-builder-test sh -c \
+  'cmake --build build --target test_order_gate && ./build/test_order_gate'
+```
+
+### 관련 파일
+
+| 파일 | 역할 |
+|------|------|
+| [Quant/include/core/Types.h](Quant/include/core/Types.h) | `OrderStatus`, `ManagedOrder` 타입 정의 |
+| [Quant/include/ipc/OrderRouter.h](Quant/include/ipc/OrderRouter.h) | OrderRouter 인터페이스 |
+| [Quant/src/ipc/OrderRouter.cpp](Quant/src/ipc/OrderRouter.cpp) | submit / record / stats 구현 |
+| [Quant/include/risk/OrderGate.h](Quant/include/risk/OrderGate.h) | 검증 게이트 (초당/분당 이중 Rate Limit) |
+| [Quant/src/risk/OrderGate.cpp](Quant/src/risk/OrderGate.cpp) | 검증 로직 구현 |
+| [Quant/tests/test_order_gate.cpp](Quant/tests/test_order_gate.cpp) | 7개 단위 테스트 |
+
+---
+
+## 7. 실제 매매 연결 로드맵
 
 ### 현재 상태
 
@@ -511,7 +604,7 @@ python main.py operate kill   # C++ 엔진 종료 명령 (ZMQ REP)
 
 ---
 
-## 7. 디스크 용량 관리
+## 8. 디스크 용량 관리
 
 ### 현재 용량 현황 (2026-05-20 기준)
 

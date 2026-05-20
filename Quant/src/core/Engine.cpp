@@ -64,6 +64,14 @@ void Engine::start()
         return;
     }
 
+    // FEP OrderRouter 초기화
+#ifdef HAS_ZMQ
+    order_router_ = std::make_unique<OrderRouter>(order_gate_, *kis_, zmq_bridge_.get());
+#else
+    order_router_ = std::make_unique<OrderRouter>(order_gate_, *kis_);
+#endif
+    LOG_INFO("[Engine] OrderRouter (FEP) 초기화 완료");
+
     // 전략 초기화 (kis_ 주입 → on_start 내부에서 Universe 조회)
     for (auto& s : strategies_)
     {
@@ -270,23 +278,9 @@ void Engine::order_thread_fn()
             continue;
         }
 
-        std::string reject_reason;
-        if (!order_gate_.check(*opt, reject_reason))
-        {
-            LOG_WARN("[OrderGate] 주문 거부 [" + opt->strategy_id + "] " + opt->ticker + " → " + reject_reason);
-            continue;
-        }
-
-        bool ok = (opt->market == Market::US) ? kis_->send_us_order(*opt) : kis_->send_order(*opt);
-        if (ok)
-        {
+        auto mo = order_router_->submit(*opt);
+        if (mo.status == OrderStatus::ACCEPTED)
             ++order_count_;
-            order_gate_.on_fill(opt->ticker, opt->side, opt->quantity, opt->price);
-        }
-#ifdef HAS_ZMQ
-        if (zmq_bridge_)
-            zmq_bridge_->publish_order(*opt, ok);
-#endif
     }
     LOG_INFO("[OrderThread] 종료");
 }

@@ -109,6 +109,30 @@ struct TradeData
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 주문 상태 머신 (FEP 레이어)
+// ─────────────────────────────────────────────────────────────────────────────
+enum class OrderStatus
+{
+    PENDING,    // OrderGate 검증 대기
+    SUBMITTED,  // KIS API 전송 완료, 거래소 접수 대기
+    ACCEPTED,   // KIS rt_cd=="0" 접수 성공
+    REJECTED,   // OrderGate 거부 또는 KIS 오류
+    FILLED,     // 체결 확인 (WebSocket 또는 조회)
+    CANCELLED   // 취소
+};
+
+struct ManagedOrder
+{
+    std::string   order_id;       // 내부 순번 ID  "ORD-000001"
+    std::string   kis_order_no;   // KIS 접수번호  ODNO
+    OrderSignal   signal;
+    OrderStatus   status{OrderStatus::PENDING};
+    std::string   reject_reason;
+    std::chrono::system_clock::time_point submitted_at;
+    std::chrono::system_clock::time_point updated_at;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 종목 펀더멘털 + 현재가/호가 (KIS inquire-price 응답 output1)
 // ─────────────────────────────────────────────────────────────────────────────
 struct Fundamentals

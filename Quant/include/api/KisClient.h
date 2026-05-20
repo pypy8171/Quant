@@ -32,6 +32,8 @@ public:
     double get_current_price(const std::string& ticker);
     Fundamentals get_fundamentals(const std::string& ticker);
     bool send_order(const OrderSignal& signal);
+    // FEP: 주문 제출 — KIS 접수번호(ODNO) 반환, 실패 시 빈 문자열
+    std::string submit_order(const OrderSignal& signal);
     nlohmann::json get_balance();
 
     // 지수 현재값 (코스피 "0001", 코스닥 "1001", KOSPI200 "2001")

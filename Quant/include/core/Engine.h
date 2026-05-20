@@ -8,6 +8,7 @@
 #ifdef HAS_ZMQ
 #include "ipc/ZmqBridge.h"
 #endif
+#include "ipc/OrderRouter.h"
 #include <atomic>
 #include <memory>
 #include <string>
@@ -78,6 +79,7 @@ private:
     std::atomic<uint64_t> order_count_{0};
 
     OrderGate order_gate_;
+    std::unique_ptr<OrderRouter> order_router_; // FEP 레이어 (start() 이후 유효)
 
     // 전략에서 수집한 구독 스펙 (on_start 이후 확정)
     std::vector<WatchSpec> watch_specs_;

@@ -25,10 +25,11 @@ class OrderGate
 public:
     struct Config
     {
-        int max_qty_per_ticker = 100;         // 종목당 최대 보유 수량
-        double daily_loss_limit = -300'000.0; // 일일 최대 손실 (-30만원)
-        int max_orders_per_min = 20;          // 분당 최대 주문
-        double dedup_window_sec = 1.0;        // 중복 신호 제거 윈도우(초)
+        int max_qty_per_ticker  = 100;          // 종목당 최대 보유 수량
+        double daily_loss_limit = -300'000.0;   // 일일 최대 손실 (-30만원)
+        int max_orders_per_min  = 20;           // 분당 최대 주문 (KIS 권장)
+        int max_orders_per_sec  = 5;            // 초당 최대 주문 (KIS 안전 한도)
+        double dedup_window_sec = 1.0;          // 중복 신호 제거 윈도우(초)
     };
 
     OrderGate() : cfg_()
@@ -43,7 +44,7 @@ public:
 
     // ── 상태 업데이트 (Engine이 체결 후 호출) ────────────────────────────────
     void on_fill(const std::string& ticker, OrderSide side, int qty, double price);
-    void add_realized_pnl(double pnl); // SELL 체결 시 실현 손익 추가
+    void add_realized_pnl(double pnl);  // SELL 체결 시 실현 손익 추가 (테스트에서도 사용)
 
     // ── Kill switch ─────────────────────────────────────────────────────────
     void set_kill_switch(bool on)
@@ -76,7 +77,8 @@ private:
     double daily_pnl_{0.0};
 
     mutable std::mutex rate_mtx_;
-    std::deque<TimePoint> order_times_; // 최근 1분 내 주문 시각
+    std::deque<TimePoint> order_times_;     // 최근 1분 내 주문 시각 (분당 제한)
+    std::deque<TimePoint> order_times_sec_; // 최근 1초 내 주문 시각 (초당 제한)
 
     mutable std::mutex dedup_mtx_;
     std::unordered_map<std::string, TimePoint> last_signal_; // "strategy:ticker" → 마지막 신호 시각
