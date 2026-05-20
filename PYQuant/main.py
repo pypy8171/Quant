@@ -9,6 +9,7 @@ Python 퀀트 트레이딩 시스템 진입점
   python main.py live --dry-run                  # 주문 없이 시뮬
   python main.py monitor                         # C++ 엔진 이벤트 실시간 출력
   python main.py monitor --topics TRADE SIGNAL   # 특정 토픽만 구독
+  python main.py record                          # ZMQ 이벤트 → TimescaleDB 적재
   python main.py operate status                  # 엔진 상태 조회
   python main.py operate kill                    # 엔진 종료
 """
@@ -86,6 +87,23 @@ def cmd_monitor(args):
     monitor.run()
 
 
+def cmd_record(args):
+    from db.client import DbClient
+    db = DbClient()
+
+    monitor = EngineMonitor(host=args.host, pub_port=args.port)
+    monitor.on_trade  = lambda d: (db.insert_trade(d),  print(f"[REC] TRADE  {d.get('ticker')} {d.get('price'):,.0f}"))
+    monitor.on_signal = lambda d: (db.insert_signal(d), print(f"[REC] SIGNAL {d.get('ticker')} {d.get('side')}"))
+    monitor.on_order  = lambda d: (db.insert_order(d),  print(f"[REC] ORDER  {d.get('ticker')} {'OK' if d.get('ok') else 'FAIL'}"))
+    monitor.on_health = lambda d: (db.insert_health(d), print(f"[REC] HEALTH data={d.get('data')} sig={d.get('signal')} ord={d.get('order')}"))
+
+    print(f"[Record] ZMQ({args.host}:{args.port}) → TimescaleDB 적재 시작 (Ctrl+C로 종료)")
+    try:
+        monitor.run()
+    finally:
+        db.close()
+
+
 def cmd_operate(args):
     with ZmqOperator(host=args.host, rep_port=args.port) as op:
         if args.action == "status":
@@ -150,6 +168,11 @@ def main():
                     choices=["TRADE", "SIGNAL", "ORDER", "HEALTH"],
                     help="구독할 토픽 (기본: 전체)")
 
+    # ── record ──────────────────────────────────────────────────────────────
+    rp = sub.add_parser("record", help="ZMQ 이벤트 → TimescaleDB 적재")
+    rp.add_argument("--host",   default="localhost")
+    rp.add_argument("--port",   type=int, default=5555)
+
     # ── operate ─────────────────────────────────────────────────────────────
     op = sub.add_parser("operate", help="C++ 엔진 원격 제어")
     op.add_argument("action", choices=["status", "kill"], help="실행할 명령")
@@ -164,6 +187,8 @@ def main():
         cmd_live(args)
     elif args.cmd == "monitor":
         cmd_monitor(args)
+    elif args.cmd == "record":
+        cmd_record(args)
     elif args.cmd == "operate":
         cmd_operate(args)
     else:

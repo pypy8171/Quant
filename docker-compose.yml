@@ -40,23 +40,56 @@ services:
       - quant-net
 
   # ── Phase 2: TimescaleDB (OHLCV / 체결 데이터 영속화) ──────────────────────
-  # timescaledb:
-  #   image: timescale/timescaledb:latest-pg16
-  #   container_name: quant-tsdb
-  #   environment:
-  #     POSTGRES_DB:       quant
-  #     POSTGRES_USER:     quant
-  #     POSTGRES_PASSWORD: ${TSDB_PASSWORD:-changeme}
-  #   volumes:
-  #     - tsdb-data:/var/lib/postgresql/data
-  #   ports:
-  #     - "5432:5432"
-  #   networks:
-  #     - quant-net
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: quant-tsdb
+    environment:
+      POSTGRES_DB:       quant
+      POSTGRES_USER:     quant
+      POSTGRES_PASSWORD: ${TSDB_PASSWORD:-changeme}
+    volumes:
+      - tsdb-data:/var/lib/postgresql/data
+      # 최초 기동 시 스키마 자동 적용
+      - ./PYQuant/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quant -d quant"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - quant-net
+
+  # ── ZMQ → TimescaleDB 적재 (C++ 엔진 이벤트를 DB에 저장) ──────────────────
+  quant-recorder:
+    build:
+      context: .
+      dockerfile: PYQuant/Dockerfile
+    container_name: quant-recorder
+    depends_on:
+      quant-engine:
+        condition: service_started
+      timescaledb:
+        condition: service_healthy
+    volumes:
+      - ./Quant/config:/app/config:ro
+    environment:
+      TZ: Asia/Seoul
+      ENGINE_HOST: quant-engine
+      TSDB_HOST: timescaledb
+      TSDB_PORT: "5432"
+      TSDB_DB: quant
+      TSDB_USER: quant
+      TSDB_PASSWORD: ${TSDB_PASSWORD:-changeme}
+    command: ["record", "--host", "quant-engine", "--port", "5555"]
+    restart: unless-stopped
+    networks:
+      - quant-net
 
 networks:
   quant-net:
     driver: bridge
 
-# volumes:
-#   tsdb-data:
+volumes:
+  tsdb-data:
