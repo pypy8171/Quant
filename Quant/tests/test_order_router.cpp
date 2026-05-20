@@ -16,6 +16,9 @@
 #include <cassert>
 #include <iostream>
 #include <string>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 // ─── KIS 응답 시뮬레이션 Stub ─────────────────────────────────────────────────
 struct StubOrderExecutor : IOrderExecutor
@@ -172,6 +175,9 @@ void test_order_id_sequence()
 
 int main()
 {
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+#endif
     std::cout << "=== OrderRouter Unit Tests ===\n";
     test_gate_rejected();
     test_kis_accepted();

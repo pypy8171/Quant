@@ -16,6 +16,9 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 static OrderSignal make_signal(const std::string& ticker, OrderSide side, int qty = 1)
 {
@@ -159,6 +162,9 @@ void test_sell_bypasses_position_check()
 
 int main()
 {
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+#endif
     std::cout << "=== OrderGate Unit Tests ===\n";
     test_kill_switch();
     test_position_limit();
