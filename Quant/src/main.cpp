@@ -542,6 +542,11 @@ int main(int argc, char* argv[])
         // ── [WS] 상위 N종목 체결 구독 ────────────────────────────────────────
         Logger::instance().set_console_enabled(false);
 
+#ifdef HAS_ZMQ
+        auto zmq_br = std::make_unique<ZmqBridge>();
+        zmq_br->start();
+#endif
+
         KisWebSocket ws(kis_cfg);
         ws.set_callbacks([](const OrderBook&) {},
                          [&](const TradeData& td)
@@ -569,6 +574,9 @@ int main(int argc, char* argv[])
                              sp.change = sp.price - sp.base_price;
                              sp.change_rate = (sp.base_price > 0) ? sp.change / sp.base_price * 100.0 : 0.0;
                              sp.updated = tbuf;
+#ifdef HAS_ZMQ
+                             zmq_br->publish_trade(td);
+#endif
                          });
 
         std::vector<WatchSpec> specs;
@@ -741,6 +749,9 @@ int main(int argc, char* argv[])
             std::cout.flush();
 
             std::this_thread::sleep_for(std::chrono::seconds(1));
+#ifdef HAS_ZMQ
+            zmq_br->publish_health(0, 0, 0);
+#endif
         }
 
         if (ws_ok)
