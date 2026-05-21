@@ -38,7 +38,8 @@ class BacktestEngine:
         self.init_cash  = initial_cash
         self.cash       = initial_cash
         self._trades:   list[Trade] = []
-        self._equity:   list[float] = []   # 날짜별 평가금액
+        self._equity:   list[float] = []      # 날짜별 포트폴리오 평가금액 (현금 + 보유 포지션 시가)
+        self._positions: dict[str, int] = {}  # ticker → 현재 보유 수량
 
     def run(self, universe: list[str], start_date: str, end_date: str) -> BacktestResult:
         from datetime import date as _date, timedelta
@@ -84,7 +85,6 @@ class BacktestEngine:
         all_dates = sorted({b.date for bars in all_bars.values() for b in bars})
 
         for date in all_dates:
-            equity = self.cash
             for ticker in watch:
                 bars = all_bars.get(ticker, [])
                 # 해당 날짜까지의 봉만 전달 (미래 데이터 차단)
@@ -97,7 +97,6 @@ class BacktestEngine:
                     continue
 
                 # 체결 가정: 시그널 발생 봉의 다음 봉 시가 (look-ahead bias 방지)
-                # visible[-1] = 시그널 발생 봉, 다음 날짜 봉의 시가로 체결
                 future = [b for b in bars if b.date > date]
                 if not future:
                     continue  # 마지막 봉에선 체결 불가
@@ -107,6 +106,7 @@ class BacktestEngine:
                     cost = price * signal.quantity
                     if self.cash >= cost:
                         self.cash -= cost
+                        self._positions[ticker] = self._positions.get(ticker, 0) + signal.quantity
                         self._trades.append(Trade(
                             ticker   = ticker,
                             side     = "BUY",
@@ -115,26 +115,34 @@ class BacktestEngine:
                             quantity = signal.quantity,
                         ))
                 elif signal.side == "SELL":
-                    # 진입가 찾기
-                    buy = next((t for t in reversed(self._trades)
-                                if t.ticker == ticker and t.side == "BUY"), None)
-                    entry_price = buy.price if buy else price
-                    pnl = (price - entry_price) * signal.quantity
-                    self.cash += price * signal.quantity
-                    self._trades.append(Trade(
-                        ticker   = ticker,
-                        side     = "SELL",
-                        date     = date,
-                        price    = price,
-                        quantity = signal.quantity,
-                        pnl      = pnl,
-                    ))
+                    held = self._positions.get(ticker, 0)
+                    sell_qty = min(signal.quantity, held)  # 보유 수량 초과 매도 방지
+                    if sell_qty > 0:
+                        buy = next((t for t in reversed(self._trades)
+                                    if t.ticker == ticker and t.side == "BUY"), None)
+                        entry_price = buy.price if buy else price
+                        pnl = (price - entry_price) * sell_qty
+                        self.cash += price * sell_qty
+                        self._positions[ticker] = held - sell_qty
+                        if self._positions[ticker] == 0:
+                            del self._positions[ticker]
+                        self._trades.append(Trade(
+                            ticker   = ticker,
+                            side     = "SELL",
+                            date     = date,
+                            price    = price,
+                            quantity = sell_qty,
+                            pnl      = pnl,
+                        ))
 
-                # 포지션 평가금액
-                if self.strategy.has_position(ticker):
-                    equity += price * signal.quantity
-
-            self._equity.append(self.cash + equity - self.cash)
+            # 일별 포트폴리오 평가: 현금 + 보유 포지션 당일 종가 기준
+            port_value = self.cash
+            for t, qty in self._positions.items():
+                t_bars = all_bars.get(t, [])
+                day_bar = next((b for b in t_bars if b.date == date), None)
+                if day_bar:
+                    port_value += qty * day_bar.close
+            self._equity.append(port_value)
 
         self.strategy.on_stop()
         return self._calc_result()
@@ -148,18 +156,14 @@ class BacktestEngine:
         final_cash    = self.cash
         total_return  = (final_cash - self.init_cash) / self.init_cash * 100
 
-        # MDD 계산
+        # MDD 계산 — 일별 포트폴리오 평가금액(equity) 시계열 기반
         mdd = 0.0
-        peak = self.init_cash
-        running = self.init_cash
-        for t in self._trades:
-            if t.side == "BUY":
-                running -= t.price * t.quantity
-            else:
-                running += t.price * t.quantity
-            peak = max(peak, running)
-            dd   = (peak - running) / peak * 100 if peak > 0 else 0
-            mdd  = max(mdd, dd)
+        if self._equity:
+            peak = self._equity[0]
+            for e in self._equity:
+                peak = max(peak, e)
+                dd   = (peak - e) / peak * 100 if peak > 0 else 0
+                mdd  = max(mdd, dd)
 
         # 샤프지수 (일별 수익률 기준, 간이 계산)
         trade_returns = [t.pnl / (t.price * t.quantity) for t in sells

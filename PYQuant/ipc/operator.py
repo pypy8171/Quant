@@ -16,6 +16,10 @@ Python REQ  →  C++ REP  tcp://*:5556
 import json
 from typing import Optional
 
+from core.logger import setup_logger
+
+logger = setup_logger("quant.ipc")
+
 try:
     import zmq
     _ZMQ_AVAILABLE = True
@@ -29,17 +33,25 @@ class ZmqOperator:
         if not _ZMQ_AVAILABLE:
             raise RuntimeError("pyzmq가 설치되지 않았습니다: pip install pyzmq")
         self._ctx  = zmq.Context()
+        self._timeout_ms = timeout_ms
+        self._endpoint = f"tcp://{host}:{rep_port}"
         self._sock = self._ctx.socket(zmq.REQ)
         self._sock.setsockopt(zmq.RCVTIMEO, timeout_ms)
         self._sock.setsockopt(zmq.SNDTIMEO, timeout_ms)
-        self._sock.connect(f"tcp://{host}:{rep_port}")
-        print(f"[ZMQ-REQ] tcp://{host}:{rep_port} 연결")
+        self._sock.connect(self._endpoint)
+        logger.info(f"ZMQ-REQ {self._endpoint} 연결")
 
     def _send(self, cmd: str) -> str:
         try:
             self._sock.send_string(cmd)
             return self._sock.recv_string()
         except zmq.Again:
+            # TIMEOUT 후 REQ 소켓은 EFSM 오염 → 닫고 재생성해야 이후 명령이 가능
+            self._sock.close()
+            self._sock = self._ctx.socket(zmq.REQ)
+            self._sock.setsockopt(zmq.RCVTIMEO, self._timeout_ms)
+            self._sock.setsockopt(zmq.SNDTIMEO, self._timeout_ms)
+            self._sock.connect(self._endpoint)
             return "TIMEOUT"
 
     def status(self) -> Optional[dict]:
@@ -47,7 +59,8 @@ class ZmqOperator:
         raw = self._send("STATUS")
         try:
             return json.loads(raw)
-        except Exception:
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(f"status 응답 파싱 실패: {e}")
             return None
 
     def kill(self) -> bool:

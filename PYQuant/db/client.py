@@ -6,6 +6,10 @@ import os
 import time
 from datetime import datetime, timezone
 
+from core.logger import setup_logger
+
+logger = setup_logger("quant.db")
+
 try:
     import psycopg2
     _PG_AVAILABLE = True
@@ -15,6 +19,12 @@ except ImportError:
 
 def _ms_to_dt(ts_ms: int) -> datetime:
     return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+
+
+def _require(data: dict, *keys: str) -> None:
+    missing = [k for k in keys if data.get(k) is None]
+    if missing:
+        raise ValueError(f"필수 필드 누락: {missing}")
 
 
 class DbClient:
@@ -46,75 +56,91 @@ class DbClient:
                     connect_timeout=5,
                 )
                 self._conn.autocommit = True
-                print(f"[DB] 연결 완료: {user}@{host}:{port}/{db}")
+                logger.info(f"연결 완료: {user}@{host}:{port}/{db}")
                 return
             except psycopg2.OperationalError as e:
                 if attempt == retries:
                     raise
-                print(f"[DB] 연결 대기 중... ({attempt}/{retries}): {e}")
+                logger.info(f"연결 대기 중... ({attempt}/{retries}): {e}")
                 time.sleep(retry_interval)
 
     # ── 이벤트 insert ──────────────────────────────────────────────────────────
 
     def insert_trade(self, data: dict):
-        with self._conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO ticks(ts,ticker,price,volume,direction,market)"
-                " VALUES (%s,%s,%s,%s,%s,%s)",
-                (
-                    _ms_to_dt(data["ts"]),
-                    data.get("ticker"),
-                    data.get("price"),
-                    data.get("volume"),
-                    data.get("direction"),
-                    data.get("market", "KR"),
-                ),
-            )
+        try:
+            _require(data, "ts", "ticker", "price")
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO ticks(ts,ticker,price,volume,direction,market)"
+                    " VALUES (%s,%s,%s,%s,%s,%s)",
+                    (
+                        _ms_to_dt(data["ts"]),
+                        data["ticker"],
+                        data["price"],
+                        data.get("volume"),
+                        data.get("direction"),
+                        data.get("market", "KR"),
+                    ),
+                )
+        except Exception as e:
+            logger.error(f"insert_trade 실패 (data={data}): {e}")
 
     def insert_signal(self, data: dict):
-        with self._conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO signals(ts,strategy,ticker,side,qty,price,market)"
-                " VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                (
-                    _ms_to_dt(data["ts"]),
-                    data.get("strategy"),
-                    data.get("ticker"),
-                    data.get("side"),
-                    data.get("qty"),
-                    data.get("price"),
-                    data.get("market", "KR"),
-                ),
-            )
+        try:
+            _require(data, "ts", "strategy", "ticker", "side", "qty")
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO signals(ts,strategy,ticker,side,qty,price,market)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (
+                        _ms_to_dt(data["ts"]),
+                        data["strategy"],
+                        data["ticker"],
+                        data["side"],
+                        data["qty"],
+                        data.get("price"),
+                        data.get("market", "KR"),
+                    ),
+                )
+        except Exception as e:
+            logger.error(f"insert_signal 실패 (data={data}): {e}")
 
     def insert_order(self, data: dict):
-        with self._conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO orders(ts,ticker,side,qty,price,ok,market)"
-                " VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                (
-                    _ms_to_dt(data["ts"]),
-                    data.get("ticker"),
-                    data.get("side"),
-                    data.get("qty"),
-                    data.get("price"),
-                    data.get("ok"),
-                    data.get("market", "KR"),
-                ),
-            )
+        try:
+            _require(data, "ts", "ticker", "side", "qty", "ok")
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO orders(ts,ticker,side,qty,price,ok,market)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (
+                        _ms_to_dt(data["ts"]),
+                        data["ticker"],
+                        data["side"],
+                        data["qty"],
+                        data.get("price"),
+                        data["ok"],
+                        data.get("market", "KR"),
+                    ),
+                )
+        except Exception as e:
+            logger.error(f"insert_order 실패 (data={data}): {e}")
 
     def insert_health(self, data: dict):
-        with self._conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO health(ts,data_cnt,signal_cnt,order_cnt)"
-                " VALUES (%s,%s,%s,%s)",
-                (
-                    _ms_to_dt(data["ts"]),
-                    data.get("data", 0),
-                    data.get("signal", 0),
-                    data.get("order", 0),
-                ),
-            )
+        try:
+            _require(data, "ts")
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO health(ts,data_cnt,signal_cnt,order_cnt)"
+                    " VALUES (%s,%s,%s,%s)",
+                    (
+                        _ms_to_dt(data["ts"]),
+                        data.get("data", 0),
+                        data.get("signal", 0),
+                        data.get("order", 0),
+                    ),
+                )
+        except Exception as e:
+            logger.error(f"insert_health 실패 (data={data}): {e}")
 
     def insert_bar(self, ticker: str, ts: datetime, o: float, h: float,
                    lo: float, c: float, vol: int, market: str = "KR"):

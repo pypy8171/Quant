@@ -20,3 +20,10 @@ __pycache__/
 .venv/
 data/
 .env
+*.pem
+*.key
+
+# 개인용 리뷰/분석 문서 — 커밋 제외
+REVIEW_PROMPT.md
+CODE_REVIEW.md
+ARCHITECTURE.md

@@ -3,12 +3,22 @@ KIS (한국투자증권) REST API 클라이언트
 C++ KisClient와 동일한 기능을 Python으로 구현
 """
 import json
+import os
+import stat
 import time
 import requests
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+from core.logger import setup_logger
+
+logger = setup_logger("quant.kis")
+
+
+class KisAuthError(Exception):
+    """KIS 인증 실패 — app_key/app_secret 오류 또는 네트워크 문제"""
 
 
 @dataclass
@@ -74,14 +84,15 @@ class KisClient:
             if time.time() < exp - 300:
                 self._token     = data["access_token"]
                 self._token_exp = exp
-                print(f"[KIS] 캐시 토큰 사용 (만료: {data.get('expired_str', '?')})")
+                logger.info(f"캐시 토큰 사용 (만료: {data.get('expired_str', '?')})")
                 return True
-        except Exception:
-            pass
+        except (OSError, json.JSONDecodeError, KeyError, ValueError) as e:
+            logger.debug(f"토큰 캐시 로드 실패: {e}")
         return False
 
     def _save_token_cache(self, access_token: str, expires_at: float, expired_str: str):
         try:
+            self._cache_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self._cache_path, "w", encoding="utf-8") as f:
                 json.dump({
                     "app_key":      self.app_key,
@@ -89,8 +100,11 @@ class KisClient:
                     "expires_at":   expires_at,
                     "expired_str":  expired_str,
                 }, f)
-        except Exception:
-            pass
+            # 소유자만 읽기/쓰기 (0600) — Windows는 ACL 모델이 달라 무시됨
+            if os.name != "nt":
+                os.chmod(self._cache_path, stat.S_IRUSR | stat.S_IWUSR)
+        except OSError as e:
+            logger.warning(f"토큰 캐시 저장 실패: {e}")
 
     def authenticate(self) -> bool:
         if self._load_cached_token():
@@ -109,18 +123,24 @@ class KisClient:
             self._token_exp = time.time() + int(data.get("expires_in", 86400))
             expired_str     = data.get("access_token_token_expired", "?")
             self._save_token_cache(self._token, self._token_exp, expired_str)
-            print(f"[KIS] 인증 성공 (만료: {expired_str})")
+            logger.info(f"인증 성공 (만료: {expired_str})")
             return True
-        except Exception as e:
-            print(f"[KIS] 인증 실패: {e}")
+        except requests.RequestException as e:
+            logger.error(f"인증 네트워크 오류: {e}")
+            return False
+        except (KeyError, ValueError) as e:
+            logger.error(f"인증 응답 파싱 실패: {e}")
             return False
 
     def _ensure_token(self):
         if not self._token or time.time() > self._token_exp - 300:
-            self.authenticate()
+            if not self.authenticate():
+                raise KisAuthError("토큰 발급 실패 — app_key/app_secret 또는 네트워크 확인 필요")
 
     def _headers(self, tr_id: str) -> dict:
         self._ensure_token()
+        if not self._token:
+            raise KisAuthError("토큰이 없습니다")
         return {
             "authorization": f"Bearer {self._token}",
             "appkey":        self.app_key,
@@ -138,8 +158,11 @@ class KisClient:
                 timeout=10,
             )
             return r.json()
-        except Exception as e:
-            print(f"[KIS] GET 오류 {path}: {e}")
+        except requests.RequestException as e:
+            logger.error(f"GET 네트워크 오류 {path}: {e}")
+            return {}
+        except ValueError as e:
+            logger.error(f"GET 응답 JSON 파싱 실패 {path}: {e}")
             return {}
 
     def _post(self, path: str, body: dict, tr_id: str) -> dict:
@@ -151,8 +174,11 @@ class KisClient:
                 timeout=10,
             )
             return r.json()
-        except Exception as e:
-            print(f"[KIS] POST 오류 {path}: {e}")
+        except requests.RequestException as e:
+            logger.error(f"POST 네트워크 오류 {path}: {e}")
+            return {}
+        except ValueError as e:
+            logger.error(f"POST 응답 JSON 파싱 실패 {path}: {e}")
             return {}
 
     # ── 현재가 + PBR/PER ────────────────────────────────────────────────────
@@ -165,8 +191,10 @@ class KisClient:
         f = Fundamentals(ticker=ticker)
         out = data.get("output", {})
         def d(k):
-            try: return float(out.get(k, 0) or 0)
-            except: return 0.0
+            try:
+                return float(out.get(k, 0) or 0)
+            except (ValueError, TypeError):
+                return 0.0
         f.last = d("stck_prpr")
         f.diff = d("prdy_vrss")
         f.rate = d("prdy_ctrt")
@@ -202,7 +230,8 @@ class KisClient:
                     close  = float(item.get("stck_clpr", 0) or 0),
                     volume = int(item.get("acml_vol", 0) or 0),
                 ))
-            except:
+            except (ValueError, KeyError, TypeError) as e:
+                logger.warning(f"bar 파싱 실패 ticker={ticker} item={item}: {e}")
                 continue
         bars.reverse()
         return bars[:count]
@@ -243,7 +272,8 @@ class KisClient:
                         close  = float(item.get("stck_clpr", 0) or 0),
                         volume = int(item.get("acml_vol", 0) or 0),
                     ))
-                except:
+                except (ValueError, KeyError, TypeError) as e:
+                    logger.warning(f"bar 파싱 실패 ticker={ticker} item={item}: {e}")
                     continue
             all_bars.extend(batch)
             if len(items) < 100:
@@ -289,8 +319,8 @@ class KisClient:
                 pbr = float(item.get("hts_pbr", 0) or 0)
                 if pbr > 0 and pbr > max_pbr:
                     continue
-            except:
-                pass
+            except (ValueError, TypeError) as e:
+                logger.warning(f"PBR 파싱 실패 ticker={ticker}: {e}")
             result.append(ticker)
         return result
 
@@ -314,9 +344,9 @@ class KisClient:
         )
         ok = data.get("rt_cd") == "0"
         if ok:
-            print(f"[KIS] 주문 성공: {signal.ticker} {signal.side} {signal.quantity}주")
+            logger.info(f"주문 성공: {signal.ticker} {signal.side} {signal.quantity}주")
         else:
-            print(f"[KIS] 주문 실패: {data.get('msg1', '')}")
+            logger.warning(f"주문 실패: {data.get('msg1', '')}")
         return ok
 
 

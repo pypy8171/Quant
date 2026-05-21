@@ -20,7 +20,10 @@ from pathlib import Path
 # python/ 폴더를 패키지 루트로
 sys.path.insert(0, str(Path(__file__).parent))
 
-from kis.client import from_config
+from core.logger import setup_logger
+from kis.client import from_config, KisAuthError
+
+logger = setup_logger("quant.main")
 from strategy.value_contrary import ValueContraryStrategy
 from backtest.engine import BacktestEngine
 from backtest.report import print_report
@@ -38,22 +41,24 @@ DEFAULT_UNIVERSE = [
 
 
 def cmd_backtest(args):
-    kis = from_config()
-    if not kis.authenticate():
-        print("인증 실패"); return
+    try:
+        kis = from_config()
+        if not kis.authenticate():
+            raise KisAuthError("초기 인증 실패 — app_key/app_secret 확인 필요")
 
-    strategy = ValueContraryStrategy(pbr_max=args.pbr, quantity=args.qty)
-    engine   = BacktestEngine(kis, strategy, initial_cash=args.cash)
+        strategy = ValueContraryStrategy(pbr_max=args.pbr, quantity=args.qty)
+        engine   = BacktestEngine(kis, strategy, initial_cash=args.cash)
 
-    universe = DEFAULT_UNIVERSE
-    if args.universe:
-        # Universe 동적 조회 (PBR 필터 포함)
-        print("Universe 조회 중...")
-        universe = kis.fetch_universe(max_pbr=args.pbr)
-        print(f"Universe: {len(universe)}종목")
+        universe = DEFAULT_UNIVERSE
+        if args.universe:
+            logger.info("Universe 조회 중...")
+            universe = kis.fetch_universe(max_pbr=args.pbr)
+            logger.info(f"Universe: {len(universe)}종목")
 
-    result = engine.run(universe, start_date=args.from_date, end_date=args.to_date)
-    print_report(result)
+        result = engine.run(universe, start_date=args.from_date, end_date=args.to_date)
+        print_report(result)
+    except KisAuthError as e:
+        logger.error(f"인증 오류: {e}")
 
 
 def cmd_monitor(args):
@@ -67,20 +72,20 @@ def cmd_monitor(args):
         ts = data.get("ts", 0)
         return datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime("%H:%M:%S.%f")[:-3]
 
-    monitor.on_trade = lambda d: print(
+    monitor.on_trade = lambda d: logger.info(
         f"[{fmt_ts(d)}] TRADE  {d.get('ticker')} "
         f"{'▲' if d.get('direction') == 1 else '▼'} "
         f"{d.get('price'):,.0f}  vol={d.get('volume')}"
     )
-    monitor.on_signal = lambda d: print(
+    monitor.on_signal = lambda d: logger.info(
         f"[{fmt_ts(d)}] SIGNAL [{d.get('strategy')}] "
         f"{d.get('ticker')} {d.get('side')} {d.get('qty')}주"
     )
-    monitor.on_order = lambda d: print(
+    monitor.on_order = lambda d: logger.info(
         f"[{fmt_ts(d)}] ORDER  {d.get('ticker')} {d.get('side')} "
         f"{d.get('qty')}주  {'✓' if d.get('ok') else '✗'}"
     )
-    monitor.on_health = lambda d: print(
+    monitor.on_health = lambda d: logger.info(
         f"[{fmt_ts(d)}] HEALTH data={d.get('data')} "
         f"signal={d.get('signal')} order={d.get('order')}"
     )
@@ -92,12 +97,12 @@ def cmd_record(args):
     db = DbClient()
 
     monitor = EngineMonitor(host=args.host, pub_port=args.port)
-    monitor.on_trade  = lambda d: (db.insert_trade(d),  print(f"[REC] TRADE  {d.get('ticker')} {d.get('price'):,.0f}"))
-    monitor.on_signal = lambda d: (db.insert_signal(d), print(f"[REC] SIGNAL {d.get('ticker')} {d.get('side')}"))
-    monitor.on_order  = lambda d: (db.insert_order(d),  print(f"[REC] ORDER  {d.get('ticker')} {'OK' if d.get('ok') else 'FAIL'}"))
-    monitor.on_health = lambda d: (db.insert_health(d), print(f"[REC] HEALTH data={d.get('data')} sig={d.get('signal')} ord={d.get('order')}"))
+    monitor.on_trade  = lambda d: (db.insert_trade(d),  logger.info(f"REC TRADE  {d.get('ticker')} {d.get('price'):,.0f}"))
+    monitor.on_signal = lambda d: (db.insert_signal(d), logger.info(f"REC SIGNAL {d.get('ticker')} {d.get('side')}"))
+    monitor.on_order  = lambda d: (db.insert_order(d),  logger.info(f"REC ORDER  {d.get('ticker')} {'OK' if d.get('ok') else 'FAIL'}"))
+    monitor.on_health = lambda d: (db.insert_health(d), logger.info(f"REC HEALTH data={d.get('data')} sig={d.get('signal')} ord={d.get('order')}"))
 
-    print(f"[Record] ZMQ({args.host}:{args.port}) → TimescaleDB 적재 시작 (Ctrl+C로 종료)")
+    logger.info(f"ZMQ({args.host}:{args.port}) → TimescaleDB 적재 시작 (Ctrl+C로 종료)")
     try:
         monitor.run()
     finally:
@@ -125,19 +130,22 @@ def cmd_operate(args):
 
 
 def cmd_live(args):
-    kis = from_config()
-    if not kis.authenticate():
-        print("인증 실패"); return
+    try:
+        kis = from_config()
+        if not kis.authenticate():
+            raise KisAuthError("초기 인증 실패 — app_key/app_secret 확인 필요")
 
-    strategy = ValueContraryStrategy(pbr_max=args.pbr, quantity=args.qty)
-    trader   = LiveTrader(kis, strategy, poll_sec=60, dry_run=args.dry_run)
+        strategy = ValueContraryStrategy(pbr_max=args.pbr, quantity=args.qty)
+        trader   = LiveTrader(kis, strategy, poll_sec=60, dry_run=args.dry_run)
 
-    universe = DEFAULT_UNIVERSE
-    if args.universe:
-        print("Universe 조회 중...")
-        universe = kis.fetch_universe(max_pbr=args.pbr)
+        universe = DEFAULT_UNIVERSE
+        if args.universe:
+            logger.info("Universe 조회 중...")
+            universe = kis.fetch_universe(max_pbr=args.pbr)
 
-    trader.run(universe)
+        trader.run(universe)
+    except KisAuthError as e:
+        logger.error(f"인증 오류: {e}")
 
 
 def main():
