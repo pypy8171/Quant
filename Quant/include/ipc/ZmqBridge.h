@@ -43,6 +43,8 @@ public:
         cmd_handler_ = std::move(handler);
     }
 
+    uint64_t drop_count() const { return drop_count_.load(); }
+
 private:
     struct Msg
     {
@@ -63,6 +65,7 @@ private:
     std::queue<Msg> send_queue_;
 
     CmdHandler cmd_handler_;
+    std::atomic<uint64_t> drop_count_{0};
 };
 
 #endif // HAS_ZMQ

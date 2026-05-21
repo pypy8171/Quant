@@ -4,6 +4,7 @@
 #include "strategy/MomentumStrategy.h"
 #include "strategy/ValueContraryStrategy.h"
 #include "utils/Logger.h"
+#include "utils/Utf8.h"
 #include <atomic>
 #include <csignal>
 #include <fstream>
@@ -50,32 +51,10 @@ static const std::map<std::string, std::string> TICKER_NAMES = {{"005380", "현�
                                                                 {"000660", "SK하이닉"}, {"402340", "SK스퀘어"},
                                                                 {"006400", "삼성SDI "}, {"009150", "삼성전기"}};
 
-static std::string fmt_price(double v)
-{
-    if (v <= 0.0)
-        return "       -";
-    long long iv = static_cast<long long>(v);
-    std::string s = std::to_string(iv);
-    std::string r;
-    int cnt = 0;
-    for (int i = static_cast<int>(s.size()) - 1; i >= 0; --i)
-    {
-        if (cnt > 0 && cnt % 3 == 0)
-            r = "," + r;
-        r = s[i] + r;
-        ++cnt;
-    }
-
-    // 오른쪽 정렬 8자리
-    while (static_cast<int>(r.size()) < 8)
-        r = " " + r;
-    return r;
-}
-
-static std::string fmt_qty(int64_t v)
+static std::string fmt_int_comma(long long v, int width, const std::string& empty)
 {
     if (v <= 0)
-        return "      -";
+        return empty;
     std::string s = std::to_string(v);
     std::string r;
     int cnt = 0;
@@ -86,10 +65,13 @@ static std::string fmt_qty(int64_t v)
         r = s[i] + r;
         ++cnt;
     }
-    while (static_cast<int>(r.size()) < 7)
+    while (static_cast<int>(r.size()) < width)
         r = " " + r;
     return r;
 }
+
+static std::string fmt_price(double v) { return fmt_int_comma(static_cast<long long>(v), 8, "       -"); }
+static std::string fmt_qty(int64_t v)  { return fmt_int_comma(v, 7, "      -"); }
 
 static std::string fmt_time_hms(const std::string& t)
 {
@@ -262,14 +244,7 @@ int main(int argc, char* argv[])
     // ═══════════════════════════════════════════════════════════════════════
     if (mode == "FEED")
     {
-#ifdef _WIN32
-        // Windows 콘솔 UTF-8 + ANSI 이스케이프 활성화
-        SetConsoleOutputCP(CP_UTF8);
-        HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-        DWORD dwMode = 0;
-        GetConsoleMode(hOut, &dwMode);
-        SetConsoleMode(hOut, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
-#endif
+        // SetConsoleOutputCP + ANSI 이스케이프는 main 상단에서 이미 설정됨
         Logger::instance().set_console_enabled(false);
 
         std::mutex cache_mtx;
@@ -332,78 +307,10 @@ int main(int argc, char* argv[])
     // ═══════════════════════════════════════════════════════════════════════
     if (mode == "KR_TEST")
     {
-        // UTF-8 한글 포함 문자열을 terminal 표시폭 기준으로 패딩
-        auto utf8_display_width = [](const std::string& s) -> int
-        {
-            int w = 0;
-            size_t i = 0;
-            while (i < s.size())
-            {
-                unsigned char c = s[i];
-                if (c < 0x80)
-                {
-                    i += 1;
-                    w += 1;
-                }
-                else if (c < 0xE0)
-                {
-                    i += 2;
-                    w += 2;
-                }
-                else if (c < 0xF0)
-                {
-                    i += 3;
-                    w += 2;
-                } // CJK 2칸
-                else
-                {
-                    i += 4;
-                    w += 2;
-                }
-            }
-            return w;
-        };
-        auto utf8_pad_right = [&](const std::string& s, int target) -> std::string
-        {
-            int w = utf8_display_width(s);
-            return (w >= target) ? s : s + std::string(target - w, ' ');
-        };
-        // 표시폭 기준으로 최대 max_w칸에 맞게 truncate
-        auto utf8_trunc = [](const std::string& s, int max_w) -> std::string
-        {
-            int w = 0;
-            size_t i = 0;
-            while (i < s.size())
-            {
-                unsigned char c = s[i];
-                int cw, cb;
-                if (c < 0x80)
-                {
-                    cw = 1;
-                    cb = 1;
-                }
-                else if (c < 0xE0)
-                {
-                    cw = 2;
-                    cb = 2;
-                }
-                else if (c < 0xF0)
-                {
-                    cw = 2;
-                    cb = 3;
-                }
-                else
-                {
-                    cw = 2;
-                    cb = 4;
-                }
-                if (w + cw > max_w)
-                    break;
-                w += cw;
-                i += cb;
-            }
-            return s.substr(0, i);
-        };
+        // UTF-8 유틸 — utils/Utf8.h 참조
+        auto utf8_display_width = [](const std::string& s) { return utf8::display_width(s); };
+        auto utf8_pad_right     = [](const std::string& s, int t) { return utf8::pad_right(s, t); };
+        auto utf8_trunc         = [](const std::string& s, int m) { return utf8::trunc(s, m); };
 
         KisClient kis(kis_cfg);
         if (!kis.authenticate())

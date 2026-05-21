@@ -45,7 +45,24 @@ ManagedOrder OrderRouter::submit(const OrderSignal& sig)
 
     // 2. KIS 주문 전송
     mo.status = OrderStatus::SUBMITTED;
-    std::string odno = kis_.submit_order(sig);
+    std::string odno;
+    try
+    {
+        odno = kis_.submit_order(sig);
+    }
+    catch (const std::exception& e)
+    {
+        mo.status        = OrderStatus::REJECTED;
+        mo.reject_reason = std::string("KIS 예외: ") + e.what();
+        ++rejected_count_;
+        LOG_ERROR("[OrderRouter] KIS 예외 [" + mo.order_id + "] " + sig.ticker + " — " + e.what());
+#ifdef HAS_ZMQ
+        if (zmq_)
+            zmq_->publish_order(sig, false);
+#endif
+        record(mo);
+        return mo;
+    }
 
     mo.updated_at = std::chrono::system_clock::now();
 
@@ -68,7 +85,7 @@ ManagedOrder OrderRouter::submit(const OrderSignal& sig)
     else
     {
         mo.status        = OrderStatus::REJECTED;
-        mo.reject_reason = "KIS API 오류";
+        mo.reject_reason = "KIS API 거부 (빈 ODNO)";
         ++rejected_count_;
         LOG_ERROR("[OrderRouter] KIS 거부 [" + mo.order_id + "] " + sig.ticker);
 #ifdef HAS_ZMQ

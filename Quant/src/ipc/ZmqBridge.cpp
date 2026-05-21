@@ -81,8 +81,9 @@ void ZmqBridge::thread_fn()
                     pub.send(t_frame, zmq::send_flags::sndmore);
                     pub.send(p_frame, zmq::send_flags::dontwait);
                 }
-                catch (...)
+                catch (const zmq::error_t& e)
                 {
+                    LOG_WARN(std::string("[ZMQ] publish 실패 topic=") + m.topic + " : " + e.what());
                 }
                 send_queue_.pop();
             }
@@ -131,9 +132,12 @@ void ZmqBridge::thread_fn()
 void ZmqBridge::enqueue(std::string topic, std::string payload)
 {
     std::lock_guard<std::mutex> lk(queue_mtx_);
-    // 큐 과부하 방지: 최대 1000개
-    if (send_queue_.size() < 1000)
-        send_queue_.push({std::move(topic), std::move(payload)});
+    if (send_queue_.size() >= 1000)
+    {
+        ++drop_count_;
+        return;
+    }
+    send_queue_.push({std::move(topic), std::move(payload)});
 }
 
 // ─── 이벤트별 publish 헬퍼 ─────────────────────────────────────────────────
@@ -183,10 +187,11 @@ void ZmqBridge::publish_order(const OrderSignal& sig, bool ok)
 void ZmqBridge::publish_health(uint64_t data_cnt, uint64_t sig_cnt, uint64_t ord_cnt)
 {
     json j;
-    j["ts"] = now_ms();
-    j["data"] = data_cnt;
+    j["ts"]    = now_ms();
+    j["data"]  = data_cnt;
     j["signal"] = sig_cnt;
     j["order"] = ord_cnt;
+    j["drop"]  = drop_count_.load();
     enqueue("HEALTH", j.dump());
 }
 

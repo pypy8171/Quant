@@ -303,41 +303,38 @@ void Engine::order_thread_fn()
     LOG_INFO("[OrderThread] 종료");
 }
 
-// ─── 장 시간 체크 ─────────────────────────────────────────────────────────
-bool Engine::is_kr_market_open() const
+// ─── 장 시간 체크 (UTC 기반 → 머신 TZ 무관) ─────────────────────────────
+static struct tm utc_plus_hours(int offset_h)
 {
     auto now = std::chrono::system_clock::now();
-    auto t = std::chrono::system_clock::to_time_t(now);
-    struct tm lt
-    {
-    };
+    auto t   = std::chrono::system_clock::to_time_t(now);
+    t += static_cast<time_t>(offset_h) * 3600;
+    struct tm tm_out{};
 #ifdef _WIN32
-    localtime_s(&lt, &t);
+    gmtime_s(&tm_out, &t);
 #else
-    localtime_r(&t, &lt);
+    gmtime_r(&t, &tm_out);
 #endif
-    if (lt.tm_wday == 0 || lt.tm_wday == 6)
+    return tm_out;
+}
+
+bool Engine::is_kr_market_open() const
+{
+    // KST = UTC+9, gmtime + 9h offset으로 머신 TZ 무관하게 계산
+    auto kst = utc_plus_hours(9);
+    if (kst.tm_wday == 0 || kst.tm_wday == 6)
         return false;
-    int m = lt.tm_hour * 60 + lt.tm_min;
+    int m = kst.tm_hour * 60 + kst.tm_min;
     return m >= 540 && m < 930; // 09:00~15:30 KST
 }
 
 // 미국 정규장: ET 09:30~16:00 = KST 22:30~05:00 (다음날)
 bool Engine::is_us_market_open() const
 {
-    auto now = std::chrono::system_clock::now();
-    auto t = std::chrono::system_clock::to_time_t(now);
-    struct tm lt
-    {
-    };
-#ifdef _WIN32
-    localtime_s(&lt, &t);
-#else
-    localtime_r(&t, &lt);
-#endif
-    if (lt.tm_wday == 0 || lt.tm_wday == 6)
+    auto kst = utc_plus_hours(9);
+    if (kst.tm_wday == 0 || kst.tm_wday == 6)
         return false;
-    int m = lt.tm_hour * 60 + lt.tm_min;
+    int m = kst.tm_hour * 60 + kst.tm_min;
     // KST 22:30~익일 05:00 → 1350~1500 (당일), 0~300 (익일)
     return (m >= 1350) || (m < 300);
 }
@@ -375,9 +372,18 @@ void Engine::control_thread_fn()
 
         if (ws_->is_stale(kStaleThresholdSec))
         {
-            LOG_ERROR("[Control] WebSocket " + std::to_string(kStaleThresholdSec) +
-                      "초 이상 시세 미수신 — kill switch 발동");
-            order_gate_.set_kill_switch(true);
+            LOG_WARN("[Control] WebSocket " + std::to_string(kStaleThresholdSec) +
+                     "초 이상 시세 미수신 — 재연결 시도");
+            ws_->disconnect();
+            if (ws_->connect(watch_specs_))
+            {
+                LOG_INFO("[Control] WebSocket 재연결 성공");
+            }
+            else
+            {
+                LOG_ERROR("[Control] WebSocket 재연결 실패 — kill switch 발동");
+                order_gate_.set_kill_switch(true);
+            }
         }
     }
 }

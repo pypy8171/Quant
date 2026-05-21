@@ -46,11 +46,13 @@ public:
         return {};
     }
 
+    // Engine이 unique_ptr<KisClient>로 수명을 관리한다.
+    // set_kis()는 Engine::start() 내부에서만 호출되며, 전략 소멸 전에 Engine이 먼저 종료된다.
     void set_kis(KisClient* k)
     {
         kis_ = k;
     }
 
 protected:
-    KisClient* kis_ = nullptr;
+    KisClient* kis_ = nullptr; // non-owning; lifetime guaranteed by Engine
 };
