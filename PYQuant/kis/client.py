@@ -53,6 +53,15 @@ class OrderSignal:
     price:    float = 0.0
 
 
+@dataclass
+class OrderResult:
+    ok:     bool
+    odno:   str = ""   # KIS 주문번호 (접수 시에만)
+    rt_cd:  str = ""   # KIS 응답코드 ("0"=성공)
+    msg_cd: str = ""   # KIS 메시지코드
+    msg1:   str = ""   # KIS 응답 메시지
+
+
 class KisClient:
     REAL_URL  = "https://openapi.koreainvestment.com:9443"
     PAPER_URL = "https://openapivts.koreainvestment.com:29443"
@@ -137,7 +146,14 @@ class KisClient:
             if not self.authenticate():
                 raise KisAuthError("토큰 발급 실패 — app_key/app_secret 또는 네트워크 확인 필요")
 
+    @staticmethod
+    def _mask(s: str) -> str:
+        if not s or len(s) <= 8:
+            return "***"
+        return s[:4] + "****" + s[-4:]
+
     def _headers(self, tr_id: str) -> dict:
+        """헤더 생성. appsecret을 포함하므로 절대 직접 로깅하지 말 것 — _mask() 사용."""
         self._ensure_token()
         if not self._token:
             raise KisAuthError("토큰이 없습니다")
@@ -213,7 +229,7 @@ class KisClient:
                 "FID_COND_MRKT_DIV_CODE": "J",
                 "FID_INPUT_ISCD":         ticker,
                 "FID_PERIOD_DIV_CODE":    "D",
-                "FID_ORG_ADJ_PRC":        "0",
+                "FID_ORG_ADJ_PRC":        "0",  # "0"=수정주가, "1"=원주가. 분할이력 종목으로 실측 검증 필요
             },
             "FHKST01010400",
         )
@@ -252,7 +268,7 @@ class KisClient:
                     "FID_INPUT_DATE_1":        start_ymd,
                     "FID_INPUT_DATE_2":        current_end,
                     "FID_PERIOD_DIV_CODE":     "D",
-                    "FID_ORG_ADJ_PRC":         "0",
+                    "FID_ORG_ADJ_PRC":         "0",  # "0"=수정주가, "1"=원주가. 분할이력 종목으로 실측 검증 필요
                 },
                 "FHKST03010100",
             )
@@ -325,7 +341,7 @@ class KisClient:
         return result
 
     # ── 주문 실행 ────────────────────────────────────────────────────────────
-    def send_order(self, signal: OrderSignal) -> bool:
+    def send_order(self, signal: OrderSignal) -> OrderResult:
         tr_id = ("VTTC0802U" if self.is_paper else "TTTC0802U") \
                 if signal.side == "BUY" \
                 else ("VTTC0801U" if self.is_paper else "TTTC0801U")
@@ -342,12 +358,16 @@ class KisClient:
         data = self._post(
             "/uapi/domestic-stock/v1/trading/order-cash", body, tr_id
         )
-        ok = data.get("rt_cd") == "0"
+        rt_cd  = data.get("rt_cd", "")
+        msg_cd = data.get("msg_cd", "")
+        msg1   = data.get("msg1", "")
+        odno   = data.get("output", {}).get("ODNO", "") if isinstance(data.get("output"), dict) else ""
+        ok = rt_cd == "0"
         if ok:
-            logger.info(f"주문 성공: {signal.ticker} {signal.side} {signal.quantity}주")
+            logger.info(f"주문 성공: {signal.ticker} {signal.side} {signal.quantity}주 ODNO={odno}")
         else:
-            logger.warning(f"주문 실패: {data.get('msg1', '')}")
-        return ok
+            logger.warning(f"주문 실패: {signal.ticker} rt_cd={rt_cd} msg_cd={msg_cd} {msg1}")
+        return OrderResult(ok=ok, odno=odno, rt_cd=rt_cd, msg_cd=msg_cd, msg1=msg1)
 
 
 # ── config.json에서 자동 로드 ────────────────────────────────────────────────

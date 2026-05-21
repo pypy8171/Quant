@@ -10,6 +10,24 @@ import time
 
 
 @dataclass
+class CostModel:
+    """거래 비용 모델 (한국 현물)"""
+    commission_rate: float = 0.00015  # 수수료 0.015% (증권사별 상이)
+    tax_rate:        float = 0.0018   # 거래세 0.18% (매도 시만)
+    slippage_bps:    float = 5.0      # 슬리피지 5bp
+
+    def buy_total_cost(self, price: float, qty: int) -> float:
+        """매수 총비용 (체결금액 + 수수료 + 슬리피지)"""
+        notional = price * qty
+        return notional * (1 + self.commission_rate + self.slippage_bps / 10_000)
+
+    def sell_net_proceeds(self, price: float, qty: int) -> float:
+        """매도 실수령액 (체결금액 - 수수료 - 거래세 - 슬리피지)"""
+        notional = price * qty
+        return notional * (1 - self.commission_rate - self.tax_rate - self.slippage_bps / 10_000)
+
+
+@dataclass
 class Trade:
     ticker:     str
     side:       str       # "BUY" | "SELL"
@@ -32,11 +50,13 @@ class BacktestResult:
 
 class BacktestEngine:
     def __init__(self, kis: KisClient, strategy: StrategyBase,
-                 initial_cash: float = 10_000_000):
+                 initial_cash: float = 10_000_000,
+                 cost_model: CostModel | None = None):
         self.kis        = kis
         self.strategy   = strategy
         self.init_cash  = initial_cash
         self.cash       = initial_cash
+        self.cost       = cost_model or CostModel()
         self._trades:   list[Trade] = []
         self._equity:   list[float] = []      # 날짜별 포트폴리오 평가금액 (현금 + 보유 포지션 시가)
         self._positions: dict[str, int] = {}  # ticker → 현재 보유 수량
@@ -103,9 +123,9 @@ class BacktestEngine:
                 price = future[0].open if future[0].open > 0 else future[0].close
 
                 if signal.side == "BUY":
-                    cost = price * signal.quantity
-                    if self.cash >= cost:
-                        self.cash -= cost
+                    total_cost = self.cost.buy_total_cost(price, signal.quantity)
+                    if self.cash >= total_cost:
+                        self.cash -= total_cost
                         self._positions[ticker] = self._positions.get(ticker, 0) + signal.quantity
                         self._trades.append(Trade(
                             ticker   = ticker,
@@ -121,8 +141,9 @@ class BacktestEngine:
                         buy = next((t for t in reversed(self._trades)
                                     if t.ticker == ticker and t.side == "BUY"), None)
                         entry_price = buy.price if buy else price
-                        pnl = (price - entry_price) * sell_qty
-                        self.cash += price * sell_qty
+                        proceeds = self.cost.sell_net_proceeds(price, sell_qty)
+                        pnl = proceeds - entry_price * sell_qty
+                        self.cash += proceeds
                         self._positions[ticker] = held - sell_qty
                         if self._positions[ticker] == 0:
                             del self._positions[ticker]
@@ -165,15 +186,19 @@ class BacktestEngine:
                 dd   = (peak - e) / peak * 100 if peak > 0 else 0
                 mdd  = max(mdd, dd)
 
-        # 샤프지수 (일별 수익률 기준, 간이 계산)
-        trade_returns = [t.pnl / (t.price * t.quantity) for t in sells
-                         if t.price * t.quantity > 0]
+        # 샤프지수 — 일별 equity 수익률 기반 연환산 (252 거래일)
         sharpe = 0.0
-        if len(trade_returns) > 1:
+        if len(self._equity) > 1:
             import statistics
-            avg = statistics.mean(trade_returns)
-            std = statistics.stdev(trade_returns)
-            sharpe = (avg / std * (252 ** 0.5)) if std > 0 else 0.0
+            daily_rets = [
+                (self._equity[i] - self._equity[i - 1]) / self._equity[i - 1]
+                for i in range(1, len(self._equity))
+                if self._equity[i - 1] > 0
+            ]
+            if len(daily_rets) > 1:
+                avg = statistics.mean(daily_rets)
+                std = statistics.stdev(daily_rets)
+                sharpe = (avg / std * (252 ** 0.5)) if std > 0 else 0.0
 
         return BacktestResult(
             trades       = self._trades,

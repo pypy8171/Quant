@@ -15,6 +15,10 @@ import json
 import time
 from typing import Callable, Iterator, Optional
 
+from core.logger import setup_logger
+
+logger = setup_logger("quant.ipc")
+
 try:
     import zmq
     _ZMQ_AVAILABLE = True
@@ -31,7 +35,7 @@ class ZmqSubscriber:
         self._sock.connect(f"tcp://{host}:{pub_port}")
         self._sock.setsockopt(zmq.SUBSCRIBE, b"")  # 모든 토픽 구독
         self._sock.setsockopt(zmq.RCVTIMEO, 1000)  # 1초 타임아웃
-        print(f"[ZMQ-SUB] tcp://{host}:{pub_port} 연결")
+        logger.info(f"ZMQ-SUB tcp://{host}:{pub_port} 연결")
 
     def recv_one(self) -> Optional[tuple[str, dict]]:
         """이벤트 1개 수신. 타임아웃이면 None 반환."""
@@ -89,7 +93,7 @@ class EngineMonitor:
         self.on_health: Optional[Callable[[dict], None]] = None
 
     def run(self):
-        print("[Monitor] 수신 시작 (Ctrl+C로 종료)")
+        logger.info("Monitor 수신 시작 (Ctrl+C로 종료)")
         try:
             for topic, data in self._sub.iter_events():
                 if   topic == "TRADE"  and self.on_trade:  self.on_trade(data)
@@ -97,6 +101,6 @@ class EngineMonitor:
                 elif topic == "ORDER"  and self.on_order:  self.on_order(data)
                 elif topic == "HEALTH" and self.on_health: self.on_health(data)
         except KeyboardInterrupt:
-            print("\n[Monitor] 종료")
+            logger.info("Monitor 종료")
         finally:
             self._sub.close()

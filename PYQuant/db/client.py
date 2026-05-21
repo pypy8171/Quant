@@ -142,6 +142,34 @@ class DbClient:
         except Exception as e:
             logger.error(f"insert_health 실패 (data={data}): {e}")
 
+    def insert_trade_batch(self, records: list[dict]):
+        """고빈도 tick 배치 insert — executemany로 개별 autocommit 부하 감소."""
+        valid = []
+        for data in records:
+            try:
+                _require(data, "ts", "ticker", "price")
+                valid.append((
+                    _ms_to_dt(data["ts"]),
+                    data["ticker"],
+                    data["price"],
+                    data.get("volume"),
+                    data.get("direction"),
+                    data.get("market", "KR"),
+                ))
+            except Exception as e:
+                logger.error(f"insert_trade_batch 필드 오류 (data={data}): {e}")
+        if not valid:
+            return
+        try:
+            with self._conn.cursor() as cur:
+                cur.executemany(
+                    "INSERT INTO ticks(ts,ticker,price,volume,direction,market)"
+                    " VALUES (%s,%s,%s,%s,%s,%s)",
+                    valid,
+                )
+        except Exception as e:
+            logger.error(f"insert_trade_batch 실패 ({len(valid)}건): {e}")
+
     def insert_bar(self, ticker: str, ts: datetime, o: float, h: float,
                    lo: float, c: float, vol: int, market: str = "KR"):
         with self._conn.cursor() as cur:
