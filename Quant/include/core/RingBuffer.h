@@ -75,6 +75,7 @@ public:
         return head_.load(std::memory_order_acquire) == tail_.load(std::memory_order_acquire);
     }
 
+    // 두 atomic을 별도로 읽으므로 순간적인 근사치만 반환 (SPSC 특성상 실사용 무방)
     size_t size() const
     {
         const size_t head = head_.load(std::memory_order_acquire);

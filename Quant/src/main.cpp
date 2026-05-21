@@ -214,11 +214,11 @@ int main(int argc, char* argv[])
 
     for (int i = 1; i < argc; ++i)
     {
-        std::string a = argv[i];
-        if (a == "KR_TEST" || a == "US_TEST" || a == "FEED" || a == "TRADE")
-            mode_override = a;
+        std::string input_mode = argv[i];
+        if (input_mode == "KR_TEST" || input_mode == "US_TEST" || input_mode == "FEED" || input_mode == "TRADE")
+            mode_override = input_mode;
         else
-            config_path = a;
+            config_path = input_mode;
     }
 
     json cfg;

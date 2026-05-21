@@ -33,7 +33,7 @@ struct MarketData
     double low = 0.0;
     int64_t volume = 0;
     Market market = Market::KR;
-    std::chrono::system_clock::time_point timestamp;
+    std::chrono::system_clock::time_point timestamp; // 수신 시각 (KIS REST 응답 처리 시점, 거래소 체결 시각과 다를 수 있음)
     int bar_index = 0;
 };
 

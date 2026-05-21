@@ -124,21 +124,20 @@ void Engine::start()
 
 void Engine::stop()
 {
-    if (!running_.load())
+    // exchange로 중복 호출 방지 — 이미 false면 즉시 반환
+    if (!running_.exchange(false, std::memory_order_acq_rel))
         return;
-    running_.store(false);
 
-    if (ws_ && ws_->is_connected())
+    LOG_INFO("[Engine] 종료 시작");
+
+    // 역순 join 권장: control → order → strategy → data
+    if (control_thread_.joinable())  control_thread_.join();
+    if (order_thread_.joinable())    order_thread_.join();
+    if (strategy_thread_.joinable()) strategy_thread_.join();
+    if (data_thread_.joinable())     data_thread_.join();
+
+    if (ws_)
         ws_->disconnect();
-
-    if (data_thread_.joinable())
-        data_thread_.join();
-    if (strategy_thread_.joinable())
-        strategy_thread_.join();
-    if (order_thread_.joinable())
-        order_thread_.join();
-    if (control_thread_.joinable())
-        control_thread_.join();
 
 #ifdef HAS_ZMQ
     if (zmq_bridge_)
@@ -148,7 +147,7 @@ void Engine::stop()
     for (auto& s : strategies_)
         s->on_stop();
     print_stats();
-    LOG_INFO("[Engine] ── 퀀트 엔진 종료 ──────────────────────────────");
+    LOG_INFO("[Engine] 종료 완료");
 }
 
 // ─── 데이터 수집 스레드 ───────────────────────────────────────────────────
@@ -156,7 +155,7 @@ void Engine::data_thread_fn()
 {
     LOG_INFO("[DataThread] 시작");
     bool was_market_open = false;
-    while (running_.load())
+    while (running_.load(std::memory_order_acquire))
     {
         bool market_now = is_any_market_open();
 
@@ -174,21 +173,28 @@ void Engine::data_thread_fn()
             continue;
         }
 
-        for (const auto& spec : watch_specs_)
+        try
         {
-            std::vector<MarketData> bars;
-            if (spec.market == Market::KR)
-                bars = kis_->get_daily_ohlcv(spec.ticker, 1);
-            else
-                bars = kis_->get_us_daily_ohlcv(spec.ticker, 1, spec.exchange);
+            for (const auto& spec : watch_specs_)
+            {
+                std::vector<MarketData> bars;
+                if (spec.market == Market::KR)
+                    bars = kis_->get_daily_ohlcv(spec.ticker, 1);
+                else
+                    bars = kis_->get_us_daily_ohlcv(spec.ticker, 1, spec.exchange);
 
-            if (bars.empty())
-                continue;
-            auto& md = bars[0];
-            md.bar_index = static_cast<int>(data_count_.load());
-            while (!market_queue_.push(md) && running_.load())
-                std::this_thread::sleep_for(1ms);
-            ++data_count_;
+                if (bars.empty())
+                    continue;
+                auto& md = bars[0];
+                md.bar_index = static_cast<int>(data_count_.load());
+                while (!market_queue_.push(md) && running_.load(std::memory_order_acquire))
+                    std::this_thread::sleep_for(1ms);
+                ++data_count_;
+            }
+        }
+        catch (const std::exception& e)
+        {
+            LOG_ERROR("[DataThread] 예외: " + std::string(e.what()));
         }
         std::this_thread::sleep_for(std::chrono::seconds(fetch_interval_sec_));
 #ifdef HAS_ZMQ
@@ -219,44 +225,50 @@ void Engine::strategy_thread_fn()
             std::this_thread::sleep_for(std::chrono::microseconds(100));
     };
 
-    while (running_.load())
+    while (running_.load(std::memory_order_acquire))
     {
         bool did_work = false;
-
-        // 호가 (국내 — 고주파)
-        while (auto opt = ob_queue_.pop())
+        try
         {
-            for (auto& s : strategies_)
+            // 호가 (국내 — 고주파)
+            while (auto opt = ob_queue_.pop())
             {
-                auto sig = s->on_order_book(*opt);
-                if (sig && sig->side != OrderSide::NONE)
-                    push_signal(*sig);
+                for (auto& s : strategies_)
+                {
+                    auto sig = s->on_order_book(*opt);
+                    if (sig && sig->side != OrderSide::NONE)
+                        push_signal(*sig);
+                }
+                did_work = true;
             }
-            did_work = true;
+
+            // 체결 (미국 + 국내)
+            while (auto opt = td_queue_.pop())
+            {
+                for (auto& s : strategies_)
+                {
+                    auto sig = s->on_trade(*opt);
+                    if (sig && sig->side != OrderSide::NONE)
+                        push_signal(*sig);
+                }
+                did_work = true;
+            }
+
+            // 일봉
+            if (auto opt = market_queue_.pop())
+            {
+                for (auto& s : strategies_)
+                {
+                    auto sig = s->on_data(*opt);
+                    if (sig && sig->side != OrderSide::NONE)
+                        push_signal(*sig);
+                }
+                did_work = true;
+            }
         }
-
-        // 체결 (미국 + 국내)
-        while (auto opt = td_queue_.pop())
+        catch (const std::exception& e)
         {
-            for (auto& s : strategies_)
-            {
-                auto sig = s->on_trade(*opt);
-                if (sig && sig->side != OrderSide::NONE)
-                    push_signal(*sig);
-            }
-            did_work = true;
-        }
-
-        // 일봉
-        if (auto opt = market_queue_.pop())
-        {
-            for (auto& s : strategies_)
-            {
-                auto sig = s->on_data(*opt);
-                if (sig && sig->side != OrderSide::NONE)
-                    push_signal(*sig);
-            }
-            did_work = true;
+            LOG_ERROR("[StrategyThread] 예외: " + std::string(e.what()));
         }
 
         if (!did_work)
@@ -269,7 +281,7 @@ void Engine::strategy_thread_fn()
 void Engine::order_thread_fn()
 {
     LOG_INFO("[OrderThread] 시작");
-    while (running_.load())
+    while (running_.load(std::memory_order_acquire))
     {
         auto opt = order_queue_.pop();
         if (!opt)
@@ -277,10 +289,16 @@ void Engine::order_thread_fn()
             std::this_thread::sleep_for(1ms);
             continue;
         }
-
-        auto mo = order_router_->submit(*opt);
-        if (mo.status == OrderStatus::ACCEPTED)
-            ++order_count_;
+        try
+        {
+            auto mo = order_router_->submit(*opt);
+            if (mo.status == OrderStatus::ACCEPTED)
+                ++order_count_;
+        }
+        catch (const std::exception& e)
+        {
+            LOG_ERROR("[OrderThread] 예외: " + std::string(e.what()));
+        }
     }
     LOG_INFO("[OrderThread] 종료");
 }
@@ -337,12 +355,29 @@ void Engine::print_stats() const
 
 // ─── ZMQ 제어 스레드 ──────────────────────────────────────────────────────
 // ZmqBridge 자체 스레드가 REP 소켓을 처리하므로 이 스레드는
-// running_ 감시만 담당 (ZMQ 없을 때도 컴파일 가능하도록 유지)
+// running_ 감시 + WebSocket stale 감지를 담당
 void Engine::control_thread_fn()
 {
     using namespace std::chrono_literals;
-    while (running_.load())
+    constexpr int kStaleThresholdSec = 30;
+    constexpr int kCheckIntervalSec  = 5;
+
+    while (running_.load(std::memory_order_acquire))
     {
-        std::this_thread::sleep_for(500ms);
+        std::this_thread::sleep_for(std::chrono::seconds(kCheckIntervalSec));
+
+        if (!ws_)
+            continue;
+
+        // 장 외 시간에는 stale이 정상 — 장 중에만 체크
+        if (!is_any_market_open())
+            continue;
+
+        if (ws_->is_stale(kStaleThresholdSec))
+        {
+            LOG_ERROR("[Control] WebSocket " + std::to_string(kStaleThresholdSec) +
+                      "초 이상 시세 미수신 — kill switch 발동");
+            order_gate_.set_kill_switch(true);
+        }
     }
 }

@@ -787,6 +787,8 @@ void KisWebSocket::parse_message(const std::string& msg)
     if (msg.empty())
         return;
 
+    on_message_received(); // 모든 수신 메시지에서 stale 타이머 리셋
+
     if (msg[0] == '{')
     {
         try
@@ -863,10 +865,12 @@ void KisWebSocket::parse_orderbook(const std::vector<std::string>& f)
     ob.time = f[1];
     ob.timestamp = std::chrono::system_clock::now();
 
+    
     for (int i = 0; i < 5; ++i)
     {
         try
         {
+            // 필드 기준을 ENUM으로 처리하는게 가독성 좋아보임 추후 변경때도 편할듯
             ob.asks[i].price = std::stod(f[3 + i]);      // ASKP1-5  [3-7]
             ob.asks[i].quantity = std::stoll(f[23 + i]); // ASKP_RSQN1-5  [23-27]
             ob.bids[i].price = std::stod(f[13 + i]);     // BIDP1-5  [13-17]

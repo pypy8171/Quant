@@ -52,7 +52,22 @@ public:
         return connected_.load();
     }
 
+    // 임계 시간(초) 이상 메시지 미수신 시 true — 장 중 호출할 것
+    bool is_stale(int threshold_sec = 30) const
+    {
+        auto now_ns  = std::chrono::steady_clock::now().time_since_epoch().count();
+        auto last_ns = last_message_ns_.load(std::memory_order_relaxed);
+        return (now_ns - last_ns) / 1'000'000'000LL >= threshold_sec;
+    }
+
 private:
+    // 메시지 수신 시 호출 — parse_message 진입부에서 갱신
+    void on_message_received()
+    {
+        last_message_ns_.store(
+            std::chrono::steady_clock::now().time_since_epoch().count(),
+            std::memory_order_relaxed);
+    }
     bool get_approval_key();
     void send_text(const std::string& msg);
     void send_subscribe(const std::string& tr_id, const std::string& tr_key);
@@ -70,7 +85,11 @@ private:
     std::string approval_key_;
     std::vector<WatchSpec> specs_;
 
-    std::atomic<bool> connected_{false};
+    std::atomic<bool>    connected_{false};
+    // 나노초 단위 — std::atomic<time_point>는 이식성 문제로 int64_t 사용
+    std::atomic<int64_t> last_message_ns_{
+        std::chrono::steady_clock::now().time_since_epoch().count()
+    };
     std::thread recv_thread_;
     std::mutex send_mtx_;
 
