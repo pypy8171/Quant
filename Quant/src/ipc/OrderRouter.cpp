@@ -24,7 +24,7 @@ ManagedOrder OrderRouter::submit(const OrderSignal& sig)
     mo.updated_at   = now;
     mo.status       = OrderStatus::PENDING;
 
-    ++cnt_total_;
+    ++total_count_;
 
     // 1. OrderGate 검증
     std::string reject_reason;
@@ -32,7 +32,7 @@ ManagedOrder OrderRouter::submit(const OrderSignal& sig)
     {
         mo.status        = OrderStatus::REJECTED;
         mo.reject_reason = reject_reason;
-        ++cnt_rejected_;
+        ++rejected_count_;
         LOG_WARN("[OrderRouter] 거부 [" + mo.order_id + "] " +
                  sig.ticker + " → " + reject_reason);
 #ifdef HAS_ZMQ
@@ -53,8 +53,9 @@ ManagedOrder OrderRouter::submit(const OrderSignal& sig)
     {
         mo.status      = OrderStatus::ACCEPTED;
         mo.kis_order_no = odno;
-        ++cnt_accepted_;
-        gate_.on_fill(sig.ticker, sig.side, sig.quantity, sig.price);
+        ++accepted_count_;
+        // KIS 접수 시점에 포지션 선점 (보수적 추적 — 실제 체결 확인 전까지 재주문 차단)
+        gate_.on_accept(sig.ticker, sig.side, sig.quantity, sig.price);
         LOG_INFO("[OrderRouter] 접수 [" + mo.order_id + "] ODNO=" + odno +
                  " " + sig.ticker +
                  (sig.side == OrderSide::BUY ? " BUY " : " SELL ") +
@@ -68,7 +69,7 @@ ManagedOrder OrderRouter::submit(const OrderSignal& sig)
     {
         mo.status        = OrderStatus::REJECTED;
         mo.reject_reason = "KIS API 오류";
-        ++cnt_rejected_;
+        ++rejected_count_;
         LOG_ERROR("[OrderRouter] KIS 거부 [" + mo.order_id + "] " + sig.ticker);
 #ifdef HAS_ZMQ
         if (zmq_)
@@ -92,7 +93,7 @@ void OrderRouter::record(const ManagedOrder& mo)
 // ─── 통계 ─────────────────────────────────────────────────────────────────
 OrderRouter::Stats OrderRouter::stats() const
 {
-    return {cnt_total_.load(), cnt_accepted_.load(), cnt_rejected_.load()};
+    return {total_count_.load(), accepted_count_.load(), rejected_count_.load()};
 }
 
 // ─── 최근 N건 이력 ────────────────────────────────────────────────────────

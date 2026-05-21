@@ -76,7 +76,7 @@ private:
     std::deque<ManagedOrder> history_;
 
     std::atomic<uint64_t> seq_{0};
-    std::atomic<uint64_t> cnt_total_{0};
-    std::atomic<uint64_t> cnt_accepted_{0};
-    std::atomic<uint64_t> cnt_rejected_{0};
+    std::atomic<uint64_t> total_count_{0};
+    std::atomic<uint64_t> accepted_count_{0};
+    std::atomic<uint64_t> rejected_count_{0};
 };

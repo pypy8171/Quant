@@ -11,14 +11,19 @@
 // OrderGate  —  주문 전 위험 검증 게이트
 //
 //  Engine::order_thread_fn이 send_order 직전에 check()를 통과한 신호만 실행.
-//  Engine이 on_fill()·add_realized_pnl()로 내부 상태를 업데이트한다.
+//  OrderRouter가 on_accept()·add_realized_pnl()로 내부 상태를 업데이트한다.
 //
 //  체크 항목:
 //   1. Kill switch   — 강제 중단 플래그
-//   2. 포지션 수량   — 종목당 최대 보유 수량
-//   3. 일일 손실     — 일일 최대 손실 초과 시 신규 매수 거부
-//   4. Rate limit    — 분당 최대 주문수 초과 방지
-//   5. 중복 신호     — 동일 strategy+ticker 1초 이내 중복 거부
+//   2. NONE side     — 신호 없음, 즉시 거부
+//   3. 포지션 수량   — 종목당 최대 보유 수량
+//   4. 일일 손실     — 일일 최대 손실 초과 시 신규 매수 거부
+//   5. Rate limit    — 분당 최대 주문수 초과 방지
+//   6. 중복 신호     — 동일 strategy+ticker 1초 이내 중복 거부
+//
+//  뮤텍스 획득 규칙:
+//   각 뮤텍스는 항상 독립 스코프에서만 획득 — 중첩 락 없음.
+//   중첩이 필요할 경우 반드시 선언 순서(positions→pnl→rate→dedup)를 따를 것.
 // ─────────────────────────────────────────────────────────────────────────────
 class OrderGate
 {
@@ -42,8 +47,10 @@ public:
     // ── 주문 검증 (true = 통과, false = 거부) ──────────────────────────────
     bool check(const OrderSignal& sig, std::string& reject_reason);
 
-    // ── 상태 업데이트 (Engine이 체결 후 호출) ────────────────────────────────
-    void on_fill(const std::string& ticker, OrderSide side, int qty, double price);
+    // ── 상태 업데이트 ───────────────────────────────────────────────────────
+    // KIS 접수(ODNO 수신) 시 보수적으로 포지션을 선점. 실제 체결(FILLED)을
+    // 확인하기 전까지 접수 수량을 포지션으로 간주해 과잉 주문을 차단한다.
+    void on_accept(const std::string& ticker, OrderSide side, int qty, double price);
     void add_realized_pnl(double pnl);  // SELL 체결 시 실현 손익 추가 (테스트에서도 사용)
 
     // ── Kill switch ─────────────────────────────────────────────────────────
@@ -77,7 +84,7 @@ private:
     double daily_pnl_{0.0};
 
     mutable std::mutex rate_mtx_;
-    std::deque<TimePoint> order_times_;     // 최근 1분 내 주문 시각 (분당 제한)
+    std::deque<TimePoint> order_times_min_; // 최근 1분 내 주문 시각 (분당 제한)
     std::deque<TimePoint> order_times_sec_; // 최근 1초 내 주문 시각 (초당 제한)
 
     mutable std::mutex dedup_mtx_;

@@ -13,7 +13,14 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
         return false;
     }
 
-    // 2. 포지션 수량 한도 (BUY에만 적용)
+    // 2. NONE side — 전략이 신호 없음을 나타낼 때 사용; 주문 처리 불가
+    if (sig.side == OrderSide::NONE)
+    {
+        reject_reason = "OrderSide::NONE — 유효하지 않은 주문 방향";
+        return false;
+    }
+
+    // 3. 포지션 수량 한도 (BUY에만 적용)
     if (sig.side == OrderSide::BUY)
     {
         std::lock_guard<std::mutex> lk(positions_mtx_);
@@ -28,7 +35,7 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
         }
     }
 
-    // 3. 일일 손실 한도 (BUY에만 적용 — 추가 손실 가능성 차단)
+    // 4. 일일 손실 한도 (BUY에만 적용 — 추가 손실 가능성 차단)
     if (sig.side == OrderSide::BUY)
     {
         std::lock_guard<std::mutex> lk(pnl_mtx_);
@@ -42,36 +49,7 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
         }
     }
 
-    // 4. Rate limit — 초당 / 분당 두 단계 검사
-    {
-        auto now = Clock::now();
-        std::lock_guard<std::mutex> lk(rate_mtx_);
-
-        // 초당 제한
-        auto cutoff_sec = now - std::chrono::seconds(1);
-        while (!order_times_sec_.empty() && order_times_sec_.front() < cutoff_sec)
-            order_times_sec_.pop_front();
-        if (static_cast<int>(order_times_sec_.size()) >= cfg_.max_orders_per_sec)
-        {
-            reject_reason = "Rate limit 초과 (초당 " + std::to_string(cfg_.max_orders_per_sec) + "건)";
-            return false;
-        }
-
-        // 분당 제한
-        auto cutoff_min = now - std::chrono::minutes(1);
-        while (!order_times_.empty() && order_times_.front() < cutoff_min)
-            order_times_.pop_front();
-        if (static_cast<int>(order_times_.size()) >= cfg_.max_orders_per_min)
-        {
-            reject_reason = "Rate limit 초과 (분당 " + std::to_string(cfg_.max_orders_per_min) + "건)";
-            return false;
-        }
-
-        order_times_sec_.push_back(now);
-        order_times_.push_back(now);
-    }
-
-    // 5. 중복 신호 제거 (동일 strategy+ticker, dedup_window 이내)
+    // 5. 중복 신호 제거 — rate 소비 전에 먼저 검사해 중복이 rate slot을 소모하지 않도록 함
     {
         auto now = Clock::now();
         std::string key = sig.strategy_id + ":" + sig.ticker;
@@ -89,17 +67,48 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
         last_signal_[key] = now;
     }
 
+    // 6. Rate limit — 초당 / 분당 두 단계 검사 (dedup 통과 후에만 카운터 소모)
+    {
+        auto now = Clock::now();
+        std::lock_guard<std::mutex> lk(rate_mtx_);
+
+        // 초당 제한
+        auto cutoff_sec = now - std::chrono::seconds(1);
+        while (!order_times_sec_.empty() && order_times_sec_.front() < cutoff_sec)
+            order_times_sec_.pop_front();
+        if (static_cast<int>(order_times_sec_.size()) >= cfg_.max_orders_per_sec)
+        {
+            reject_reason = "Rate limit 초과 (초당 " + std::to_string(cfg_.max_orders_per_sec) + "건)";
+            return false;
+        }
+
+        // 분당 제한
+        auto cutoff_min = now - std::chrono::minutes(1);
+        while (!order_times_min_.empty() && order_times_min_.front() < cutoff_min)
+            order_times_min_.pop_front();
+        if (static_cast<int>(order_times_min_.size()) >= cfg_.max_orders_per_min)
+        {
+            reject_reason = "Rate limit 초과 (분당 " + std::to_string(cfg_.max_orders_per_min) + "건)";
+            return false;
+        }
+
+        order_times_sec_.push_back(now);
+        order_times_min_.push_back(now);
+    }
+
     return true;
 }
 
-// ─── 체결 후 포지션 업데이트 ────────────────────────────────────────────────
-void OrderGate::on_fill(const std::string& ticker, OrderSide side, int qty, double price)
+// ─── 접수 후 포지션 선점 ─────────────────────────────────────────────────────
+void OrderGate::on_accept(const std::string& ticker, OrderSide side, int qty, double price)
 {
     std::lock_guard<std::mutex> lk(positions_mtx_);
     int delta = (side == OrderSide::BUY) ? qty : -qty;
-    positions_[ticker] += delta;
-    if (positions_[ticker] == 0)
-        positions_.erase(ticker);
+    int next  = positions_.count(ticker) ? positions_[ticker] + delta : delta;
+    if (next <= 0)
+        positions_.erase(ticker);  // SELL은 0 아래로 내려가지 않음 (공매도 미지원)
+    else
+        positions_[ticker] = next;
     (void)price;
 }
 
@@ -119,7 +128,7 @@ void OrderGate::reset_daily()
     }
     {
         std::lock_guard<std::mutex> lk(rate_mtx_);
-        order_times_.clear();
+        order_times_min_.clear();
         order_times_sec_.clear();
     }
     {

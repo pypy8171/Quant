@@ -7,9 +7,11 @@
 //   2. 포지션 한도 초과 차단
 //   3. 일일 손실 한도 차단
 //   4. 초당 Rate limit 차단
-//   5. 분당 Rate limit 차단
-//   6. 중복 신호 차단
-//   7. 정상 주문 통과
+//   5. 중복 신호 차단
+//   6. 정상 주문 통과
+//   7. SELL은 포지션 한도 미적용
+//   8. 중복 신호는 rate slot 소모 안 함 (C5 fix)
+//   9. SELL on_accept은 포지션 0 미만 방지 (C6 fix)
 
 #include "risk/OrderGate.h"
 #include <cassert>
@@ -63,7 +65,7 @@ void test_position_limit()
     // 3주 매수 → 통과 후 포지션 등록
     auto sig3 = make_signal("005930", OrderSide::BUY, 3);
     assert(gate.check(sig3, reason));
-    gate.on_fill("005930", OrderSide::BUY, 3, 100000);
+    gate.on_accept("005930", OrderSide::BUY, 3, 100000);
 
     // 추가 3주 시도 → 합산 6 > 5, 차단
     assert(!gate.check(sig3, reason));
@@ -160,6 +162,52 @@ void test_sell_bypasses_position_check()
     PASS("sell_bypasses_position_check");
 }
 
+// ─── 테스트 8: 중복 신호는 rate slot 소모 안 함 (C5 fix) ─────────────────
+void test_dedup_does_not_consume_rate_slot()
+{
+    OrderGate::Config cfg;
+    cfg.max_orders_per_sec = 2;   // 초당 2건 허용
+    cfg.max_orders_per_min = 100;
+    cfg.dedup_window_sec   = 10.0; // 10초 dedup
+    OrderGate gate(cfg);
+
+    std::string reason;
+    auto sig = make_signal("005930", OrderSide::BUY);
+
+    // 첫 번째 통과 (rate slot 1 소모)
+    assert(gate.check(sig, reason));
+
+    // 두 번째: dedup 차단 — rate slot 소모 없어야 함
+    assert(!gate.check(sig, reason));
+    assert(reason.find("중복") != std::string::npos);
+
+    // 다른 ticker로 두 번 더 시도 (rate slot 2번 소모 → 한도 도달)
+    assert(gate.check(make_signal("005935", OrderSide::BUY), reason)); // slot 2
+    // 이제 rate 한도 초과 (slot 3이므로 차단)
+    assert(!gate.check(make_signal("005936", OrderSide::BUY), reason));
+    assert(reason.find("초당") != std::string::npos);
+    PASS("dedup_does_not_consume_rate_slot");
+}
+
+// ─── 테스트 9: SELL on_accept은 포지션을 0 미만으로 내리지 않음 (C6 fix) ──
+void test_sell_clamps_position_at_zero()
+{
+    OrderGate::Config cfg;
+    cfg.max_orders_per_min = 100;
+    cfg.max_orders_per_sec = 100;
+    cfg.dedup_window_sec   = 0.0;
+    OrderGate gate(cfg);
+
+    // BUY 2주 접수
+    gate.on_accept("005930", OrderSide::BUY, 2, 100000);
+    assert(gate.position("005930") == 2);
+
+    // SELL 5주 접수 (보유 2주보다 많음) → 포지션은 0으로 클램프
+    gate.on_accept("005930", OrderSide::SELL, 5, 100000);
+    assert(gate.position("005930") == 0);
+    PASS("sell_clamps_position_at_zero");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -173,6 +221,8 @@ int main()
     test_dedup();
     test_normal_pass();
     test_sell_bypasses_position_check();
+    test_dedup_does_not_consume_rate_slot();
+    test_sell_clamps_position_at_zero();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }
