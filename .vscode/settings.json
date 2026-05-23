@@ -1,4 +1,4 @@
 {
     "terminal.integrated.cwd": "${workspaceFolder}",
-    "python.defaultInterpreterPath": "py"
+    "python.defaultInterpreterPath": "${workspaceFolder}/PYQuant/.venv/bin/python"
 }

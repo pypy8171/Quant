@@ -36,6 +36,33 @@
             "cwd": "${workspaceFolder}/PYQuant",
             "args": ["live", "--pbr", "1.0", "--qty", "1"],
             "console": "integratedTerminal"
+        },
+        {
+            "name": "🧪 pytest — indicators",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": ["tests/test_indicators.py", "-v"],
+            "cwd": "${workspaceFolder}/PYQuant",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "🧪 pytest — strategy_a",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": ["tests/test_strategy_a.py", "-v"],
+            "cwd": "${workspaceFolder}/PYQuant",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "🧪 pytest — 전체",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": ["tests/", "-v"],
+            "cwd": "${workspaceFolder}/PYQuant",
+            "console": "integratedTerminal"
         }
     ]
 }
