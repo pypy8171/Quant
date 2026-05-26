@@ -129,6 +129,48 @@ def cmd_operate(args):
             print(f"알 수 없는 명령: {args.action}")
 
 
+def cmd_balance(args):
+    import time, os
+    try:
+        kis = from_config()
+        if not kis.authenticate():
+            raise KisAuthError("초기 인증 실패")
+
+        def show():
+            items, s = kis.get_kr_balance()
+            if args.watch:
+                os.system("cls" if os.name == "nt" else "clear")
+            from datetime import datetime
+            print(f"  [{datetime.now().strftime('%H:%M:%S')}] 국내주식 잔고")
+            print(f"  {'─'*60}")
+            print(f"  예수금       {s.cash:>15,.0f}원")
+            print(f"  총평가금액   {s.total_eval:>15,.0f}원")
+            sg = '+' if s.total_pnl >= 0 else ''
+            print(f"  총손익       {sg}{s.total_pnl:>14,.0f}원  ({sg}{s.total_pnl_rate:.2f}%)")
+            print(f"  {'─'*60}")
+            if items:
+                print(f"  {'종목명':<14} {'수량':>5} {'평균단가':>10} {'현재가':>10} {'평가손익':>12} {'수익률':>7}")
+                print(f"  {'─'*60}")
+                for it in items:
+                    sg = '+' if it.pnl >= 0 else ''
+                    print(f"  {it.name:<14} {it.quantity:>5} "
+                          f"{it.avg_price:>10,.0f} {it.current_price:>10,.0f} "
+                          f"{sg}{it.pnl:>11,.0f} {sg}{it.pnl_rate:.2f}%")
+            else:
+                print("  보유 종목 없음")
+            print()
+
+        if args.watch:
+            logger.info(f"잔고 {args.interval}초마다 갱신 (Ctrl+C로 종료)")
+            while True:
+                show()
+                time.sleep(args.interval)
+        else:
+            show()
+    except KisAuthError as e:
+        logger.error(f"인증 오류: {e}")
+
+
 def cmd_live(args):
     try:
         kis = from_config()
@@ -168,6 +210,11 @@ def main():
     lp.add_argument("--dry-run",  action="store_true", help="주문 없이 시뮬")
     lp.add_argument("--universe", action="store_true")
 
+    # ── balance ─────────────────────────────────────────────────────────────
+    blp = sub.add_parser("balance", help="국내주식 잔고 조회")
+    blp.add_argument("--watch",    action="store_true", help="N초마다 자동 갱신")
+    blp.add_argument("--interval", type=int, default=30, help="갱신 주기(초, 기본 30)")
+
     # ── monitor ─────────────────────────────────────────────────────────────
     mp = sub.add_parser("monitor", help="C++ 엔진 이벤트 실시간 출력")
     mp.add_argument("--host",   default="localhost")
@@ -193,6 +240,8 @@ def main():
         cmd_backtest(args)
     elif args.cmd == "live":
         cmd_live(args)
+    elif args.cmd == "balance":
+        cmd_balance(args)
     elif args.cmd == "monitor":
         cmd_monitor(args)
     elif args.cmd == "record":

@@ -2,6 +2,36 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "⚡ C++ FEED — 실전 (시세확인)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/Quant/build_win/quant_trader.exe",
+            "args": ["${workspaceFolder}/Quant/config/config.json"],
+            "cwd": "${workspaceFolder}/Quant/build_win",
+            "console": "integratedTerminal",
+            "preLaunchTask": "C++ 빌드 (build_win)"
+        },
+        {
+            "name": "🚨 C++ TRADE — 실전 (실거래 주문)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/Quant/build_win/quant_trader.exe",
+            "args": ["${workspaceFolder}/Quant/config/config.json"],
+            "cwd": "${workspaceFolder}/Quant/build_win",
+            "console": "integratedTerminal",
+            "preLaunchTask": "C++ 빌드 (build_win)"
+        },
+        {
+            "name": "🧪 C++ TRADE — 모의투자",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/Quant/build_win/quant_trader.exe",
+            "args": ["${workspaceFolder}/Quant/config/config_paper.json"],
+            "cwd": "${workspaceFolder}/Quant/build_win",
+            "console": "integratedTerminal",
+            "preLaunchTask": "C++ 빌드 (build_win)"
+        },
+        {
             "name": "🔍 백테스팅 (2025-H1)",
             "type": "debugpy",
             "request": "launch",

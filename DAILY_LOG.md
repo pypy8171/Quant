@@ -2,6 +2,41 @@
 
 ---
 
+## 2026-05-26 (월)
+
+### 한 일
+- C++ 코드 흐름 분석 — Engine/OrderGate/RingBuffer/KisClient 전체 흐름도 정리
+- VSCode C++ 빌드 환경 구성 — tasks.json, c_cpp_properties.json 추가, vcvarsall.bat 연동
+- launch.json 실전/모의투자 실행 구성 분리 (config.json / config_paper.json)
+- `python main.py balance --watch` — 국내주식 잔고 실시간 폴링 기능 구현
+- `kis/client.py` — `get_kr_balance()` 추가 (BalanceItem, AccountSummary 데이터클래스 포함)
+- `main.py` — `balance` 서브커맨드 추가 (`--watch`, `--interval` 옵션)
+- KIS 모의투자 계좌 발급 — config_paper.json 분리, .gitignore 추가
+- `Quant/src/main.cpp` — KR_WATCH에 제주반도체(080220) 추가
+
+### 변경 파일
+- `.gitignore` → `config_paper.json` 추가 (인증정보 git 제외)
+- `.vscode/launch.json` → C++ 실전/모의투자 실행 구성 분리
+- `.vscode/tasks.json` → 신규: vcvarsall.bat 경유 cmake 빌드 태스크
+- `.vscode/c_cpp_properties.json` → 신규: MSVC IntelliSense 설정
+- `PYQuant/kis/client.py` → BalanceItem, AccountSummary, get_kr_balance() 추가
+- `PYQuant/main.py` → cmd_balance(), balance 서브커맨드 추가
+- `Quant/src/main.cpp` → KR_WATCH 관심종목에 제주반도체 추가
+
+### 막힌 지점 / 미해결
+- 모의투자 APP Key 채팅 노출 → 내일 apiportal에서 갱신 필요
+- KIS 모의투자 가상 자금 신청 아직 미완료 (잔고 0원 상태)
+
+### 내일 할 일
+- 모의투자 APP Key/Secret 갱신 → config_paper.json 업데이트
+- 모의투자 가상 자금 신청 후 `python main.py balance` 정상 확인
+- 장 중 모의투자 주문 발생 여부 확인 (09:00~15:30)
+
+### 학습 카드 영향
+- C++ 엔진 흐름(Engine→OrderGate→KisClient) 직접 분석 → 학습 질문 대응력 향상
+
+---
+
 ## 2026-05-21 (목)
 
 ### 한 일

@@ -62,6 +62,26 @@ class OrderResult:
     msg1:   str = ""   # KIS 응답 메시지
 
 
+@dataclass
+class BalanceItem:
+    ticker:        str
+    name:          str
+    quantity:      int
+    avg_price:     float
+    current_price: float
+    eval_amount:   float
+    pnl:           float
+    pnl_rate:      float
+
+
+@dataclass
+class AccountSummary:
+    cash:           float   # 예수금
+    total_eval:     float   # 총평가금액
+    total_pnl:      float   # 총손익금액
+    total_pnl_rate: float   # 총수익률(%)
+
+
 class KisClient:
     REAL_URL  = "https://openapi.koreainvestment.com:9443"
     PAPER_URL = "https://openapivts.koreainvestment.com:29443"
@@ -339,6 +359,55 @@ class KisClient:
                 logger.warning(f"PBR 파싱 실패 ticker={ticker}: {e}")
             result.append(ticker)
         return result
+
+    # ── 잔고 조회 ────────────────────────────────────────────────────────────
+    def get_kr_balance(self) -> tuple[list[BalanceItem], AccountSummary]:
+        tr_id = "VTTC8434R" if self.is_paper else "TTTC8434R"
+        data = self._get(
+            "/uapi/domestic-stock/v1/trading/inquire-balance",
+            {
+                "CANO":                 self.account_no,
+                "ACNT_PRDT_CD":         self.account_type,
+                "AFHR_FLPR_YN":         "N",
+                "OFL_YN":               "",
+                "INQR_DVSN":            "02",
+                "UNPR_DVSN":            "01",
+                "FUND_STTL_ICLD_YN":    "N",
+                "FNCG_AMT_AUTO_RDPT_YN":"N",
+                "PRCS_DVSN":            "01",
+                "CTX_AREA_FK100":       "",
+                "CTX_AREA_NK100":       "",
+            },
+            tr_id,
+        )
+        items: list[BalanceItem] = []
+        for item in data.get("output1", []):
+            try:
+                qty = int(item.get("hldg_qty", 0) or 0)
+                if qty == 0:
+                    continue
+                items.append(BalanceItem(
+                    ticker        = item.get("pdno", ""),
+                    name          = item.get("prdt_name", ""),
+                    quantity      = qty,
+                    avg_price     = float(item.get("pchs_avg_pric", 0) or 0),
+                    current_price = float(item.get("prpr", 0) or 0),
+                    eval_amount   = float(item.get("evlu_amt", 0) or 0),
+                    pnl           = float(item.get("evlu_pfls_amt", 0) or 0),
+                    pnl_rate      = float(item.get("evlu_pfls_rt", 0) or 0),
+                ))
+            except (ValueError, TypeError):
+                continue
+
+        out2 = data.get("output2", [{}])
+        r = out2[0] if out2 else {}
+        summary = AccountSummary(
+            cash           = float(r.get("dnca_tot_amt", 0) or 0),
+            total_eval     = float(r.get("tot_evlu_amt", 0) or 0),
+            total_pnl      = float(r.get("evlu_pfls_smtl_amt", 0) or 0),
+            total_pnl_rate = float(r.get("evlu_erng_rt", 0) or 0),
+        )
+        return items, summary
 
     # ── 주문 실행 ────────────────────────────────────────────────────────────
     def send_order(self, signal: OrderSignal) -> OrderResult:

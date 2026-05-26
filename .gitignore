@@ -3,6 +3,7 @@ out/
 Quant/build/
 Quant/build_win/
 Quant/config/config.json
+Quant/config/config_paper.json
 Quant/config/.token_cache.json
 *.log
 *.pid
