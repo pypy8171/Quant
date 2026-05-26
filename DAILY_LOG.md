@@ -5,12 +5,10 @@
 ## 2026-05-26 (월)
 
 ### 한 일
-- C++ 코드 흐름 분석 — Engine/OrderGate/RingBuffer/KisClient 전체 흐름도 정리
 - VSCode C++ 빌드 환경 구성 — tasks.json, c_cpp_properties.json 추가, vcvarsall.bat 연동
 - launch.json 실전/모의투자 실행 구성 분리 (config.json / config_paper.json)
-- `python main.py balance --watch` — 국내주식 잔고 실시간 폴링 기능 구현
 - `kis/client.py` — `get_kr_balance()` 추가 (BalanceItem, AccountSummary 데이터클래스 포함)
-- `main.py` — `balance` 서브커맨드 추가 (`--watch`, `--interval` 옵션)
+- `main.py` — `balance --watch` 서브커맨드 추가 (국내주식 잔고 폴링)
 - KIS 모의투자 계좌 발급 — config_paper.json 분리, .gitignore 추가
 - `Quant/src/main.cpp` — KR_WATCH에 제주반도체(080220) 추가
 
@@ -24,16 +22,13 @@
 - `Quant/src/main.cpp` → KR_WATCH 관심종목에 제주반도체 추가
 
 ### 막힌 지점 / 미해결
-- 모의투자 APP Key 채팅 노출 → 내일 apiportal에서 갱신 필요
-- KIS 모의투자 가상 자금 신청 아직 미완료 (잔고 0원 상태)
+- 모의투자 APP Key 갱신 필요 (내일 apiportal에서 처리)
+- KIS 모의투자 가상 자금 신청 미완료 (잔고 0원 상태)
 
 ### 내일 할 일
 - 모의투자 APP Key/Secret 갱신 → config_paper.json 업데이트
 - 모의투자 가상 자금 신청 후 `python main.py balance` 정상 확인
 - 장 중 모의투자 주문 발생 여부 확인 (09:00~15:30)
-
-### 학습 카드 영향
-- C++ 엔진 흐름(Engine→OrderGate→KisClient) 직접 분석 → 학습 질문 대응력 향상
 
 ---
 
@@ -97,10 +92,3 @@
 - 전체 프로젝트 구조 파악 (아키텍처 흐름, 각 모듈 역할 정리)
 - C2 main.cpp 모드별 파일 분리 검토
 - Python pytest 도입 (BacktestEngine CostModel / DbClient 필드검증 / ZmqOperator TIMEOUT)
-
-### 학습 카드 영향
-- **P6 반영**: "kill 명령 신뢰성" 약점 해소 → ZMQ EFSM 오염 설명 + 소켓 재생성 패턴 답변 가능
-- **D1 반영**: "한 건 실패가 전체를 죽이지 않는 격리" → recorder 루프 생존 보장, 게임서버 패킷 격리 경험과 연결
-- **C11 반영**: "UTC 통일, 머신 TZ 무관 설계" → 운영 성숙도 어필 가능
-- **C12 반영**: "WS stale 재연결 → 자동 복구" → 장애대응 답변 보강
-- **K1+C8 반영**: ODNO/에러코드 수신 → ACCEPTED→FILLED 체결통보(H0STCNI0) 연결의 전제 확보
