@@ -49,6 +49,9 @@ public:
     // ── 주문 제출 — 검증 → KIS 전송 → 상태 기록 ─────────────────────────
     ManagedOrder submit(const OrderSignal& sig);
 
+    // ── 체결통보 수신 — ODNO로 이력 조회 후 FILLED 상태 갱신 ────────────
+    void on_fill(const FillNotification& fn);
+
     // ── 통계 조회 ─────────────────────────────────────────────────────────
     struct Stats
     {

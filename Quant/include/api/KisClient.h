@@ -13,6 +13,7 @@ struct KisConfig
     std::string app_secret;
     std::string account_no;
     std::string account_type; // "01"
+    std::string hts_id;       // H0STCNI0 구독 키 (미설정 시 account_no 사용)
     bool is_paper = false;
 };
 

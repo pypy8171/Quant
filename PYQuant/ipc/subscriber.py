@@ -91,6 +91,7 @@ class EngineMonitor:
         self.on_signal: Optional[Callable[[dict], None]] = None
         self.on_order:  Optional[Callable[[dict], None]] = None
         self.on_health: Optional[Callable[[dict], None]] = None
+        self.on_fill:   Optional[Callable[[dict], None]] = None
 
     def run(self):
         logger.info("Monitor 수신 시작 (Ctrl+C로 종료)")
@@ -100,6 +101,7 @@ class EngineMonitor:
                 elif topic == "SIGNAL" and self.on_signal: self.on_signal(data)
                 elif topic == "ORDER"  and self.on_order:  self.on_order(data)
                 elif topic == "HEALTH" and self.on_health: self.on_health(data)
+                elif topic == "FILL"   and self.on_fill:   self.on_fill(data)
         except KeyboardInterrupt:
             logger.info("Monitor 종료")
         finally:

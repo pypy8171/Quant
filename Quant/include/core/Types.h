@@ -109,6 +109,20 @@ struct TradeData
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 체결통보 (H0STCNI0 실거래 / H0STCNI9 모의투자)
+// ─────────────────────────────────────────────────────────────────────────────
+struct FillNotification
+{
+    std::string odno;                              // KIS 주문번호 (ODER_NO)
+    std::string ticker;                            // 단축종목코드
+    OrderSide   side        = OrderSide::NONE;
+    int         filled_qty  = 0;                   // 체결수량 (CNTG_QTY)
+    double      filled_price = 0.0;                // 체결단가 (CNTG_UNPR)
+    std::string fill_time;                         // 체결시간 HHMMSS
+    std::chrono::system_clock::time_point timestamp;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 주문 상태 머신 (FEP 레이어)
 // ─────────────────────────────────────────────────────────────────────────────
 enum class OrderStatus

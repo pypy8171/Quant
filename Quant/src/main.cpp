@@ -223,11 +223,12 @@ int main(int argc, char* argv[])
 
     // KIS 설정
     KisConfig kis_cfg;
-    kis_cfg.app_key = cfg["kis"]["app_key"];
-    kis_cfg.app_secret = cfg["kis"]["app_secret"];
-    kis_cfg.account_no = cfg["kis"]["account_no"];
+    kis_cfg.app_key      = cfg["kis"]["app_key"];
+    kis_cfg.app_secret   = cfg["kis"]["app_secret"];
+    kis_cfg.account_no   = cfg["kis"]["account_no"];
     kis_cfg.account_type = cfg["kis"]["account_type"].get<std::string>();
-    kis_cfg.is_paper = cfg["kis"]["is_paper"].get<bool>();
+    kis_cfg.hts_id       = cfg["kis"].value("hts_id", ""); // 미설정 시 account_no 사용
+    kis_cfg.is_paper     = cfg["kis"]["is_paper"].get<bool>();
 
     // FEED 모드 전용 — TRADE 모드는 전략이 동적으로 종목 구성
     std::vector<std::string> tickers;

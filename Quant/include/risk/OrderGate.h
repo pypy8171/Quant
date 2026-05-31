@@ -53,6 +53,19 @@ public:
     void on_accept(const std::string& ticker, OrderSide side, int qty, double price);
     void add_realized_pnl(double pnl);  // SELL 체결 시 실현 손익 추가 (테스트에서도 사용)
 
+    // ── 체결 확인 시 원장 갱신 ─────────────────────────────────────────────
+    // H0STCNI0 체결통보 수신 후 호출. avg_price 재계산 + 실현손익 적립.
+    struct FillResult
+    {
+        double avg_price    = 0.0; // 갱신된 매수 평균단가
+        int    net_qty      = 0;   // 체결 후 순 보유수량
+        double commission   = 0.0; // 수수료 (0.015%)
+        double tax          = 0.0; // 거래세 (매도 0.18%)
+        double realized_pnl = 0.0; // 이번 체결 실현손익 (SELL만 양수)
+    };
+    FillResult on_fill_confirmed(const std::string& ticker, OrderSide side,
+                                 int qty, double price);
+
     // ── Kill switch ─────────────────────────────────────────────────────────
     void set_kill_switch(bool on)
     {
@@ -67,7 +80,8 @@ public:
     void reset_daily();
 
     // ── 조회 ─────────────────────────────────────────────────────────────────
-    int position(const std::string& ticker) const;
+    int    position(const std::string& ticker) const;
+    double avg_price(const std::string& ticker) const;
     double daily_pnl() const;
 
 private:
@@ -78,7 +92,8 @@ private:
     std::atomic<bool> kill_switch_{false};
 
     mutable std::mutex positions_mtx_;
-    std::unordered_map<std::string, int> positions_; // ticker → net qty (양수=롱, 음수=숏)
+    std::unordered_map<std::string, int>    positions_;  // ticker → net qty (양수=롱)
+    std::unordered_map<std::string, double> avg_prices_; // ticker → 매수 평균단가
 
     mutable std::mutex pnl_mtx_;
     double daily_pnl_{0.0};

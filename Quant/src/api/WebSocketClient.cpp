@@ -161,10 +161,12 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
     LOG_INFO(std::string("[WS] WebSocket 연결 성공 (") + (cfg_.is_paper ? "모의투자" : "실거래") + ")");
     connected_.store(true);
 
+    bool has_kr = false;
     for (const auto& spec : specs_)
     {
         if (spec.market == Market::KR)
         {
+            has_kr = true;
             if (!spec.trade_only)
                 send_subscribe("H0STASP0", spec.ticker);
             send_subscribe("H0STCNT0", spec.ticker);
@@ -175,6 +177,14 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
             std::string exch = spec.exchange.empty() ? "NAS" : spec.exchange;
             send_subscribe("HDFSCNT0", exch + "|" + spec.ticker);
         }
+    }
+
+    // 체결통보 구독 — KR 종목이 있을 때만 (실거래: H0STCNI0, 모의: H0STCNI9)
+    if (has_kr && on_fill_)
+    {
+        std::string fill_tr  = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
+        std::string fill_key = cfg_.hts_id.empty() ? cfg_.account_no : cfg_.hts_id;
+        send_subscribe(fill_tr, fill_key);
     }
 
     recv_thread_ = std::thread(&KisWebSocket::recv_loop, this);
@@ -742,7 +752,12 @@ KisWebSocket::~KisWebSocket()
 void KisWebSocket::set_callbacks(OrderBookCb on_ob, TradeCb on_trade)
 {
     on_orderbook_ = std::move(on_ob);
-    on_trade_ = std::move(on_trade);
+    on_trade_     = std::move(on_trade);
+}
+
+void KisWebSocket::set_fill_callback(FillCb on_fill)
+{
+    on_fill_ = std::move(on_fill);
 }
 
 bool KisWebSocket::get_approval_key()
@@ -831,6 +846,8 @@ void KisWebSocket::parse_message(const std::string& msg)
         parse_kr_trade(fields);
     else if (tr_id == "HDFSCNT0")
         parse_us_trade(fields);
+    else if (tr_id == "H0STCNI0" || tr_id == "H0STCNI9")
+        parse_fill_notification(fields);
 }
 
 // ─── 호가 파싱 (H0STASP0) ────────────────────────────────────────────────
@@ -955,4 +972,46 @@ void KisWebSocket::parse_us_trade(const std::vector<std::string>& f)
     }
     if (on_trade_)
         on_trade_(td);
+}
+
+// ─── 체결통보 파싱 (H0STCNI0 실거래 / H0STCNI9 모의) ────────────────────
+// 주요 필드:
+//  [2]ODER_NO(주문번호)  [4]SELN_BYOV_CLS(01=매도,02=매수)
+//  [8]STCK_SHRN_ISCD(종목코드)  [9]CNTG_QTY(체결수량)
+//  [10]CNTG_UNPR(체결단가)  [11]STCK_CNTG_HOUR(HHMMSS)
+//  [13]CNTG_YN(Y=체결, N=접수/취소)
+void KisWebSocket::parse_fill_notification(const std::vector<std::string>& f)
+{
+    if (f.size() < 14)
+    {
+        LOG_WARN("[WS] H0STCNI0 필드 부족: " + std::to_string(f.size()));
+        return;
+    }
+    if (f[13] != "Y")  // 접수·취소 이벤트 제외, 체결(Y)만 처리
+        return;
+    if (!on_fill_)
+        return;
+
+    FillNotification fn;
+    fn.odno       = f[2];
+    fn.ticker     = f[8];
+    fn.side       = (f[4] == "02") ? OrderSide::BUY : OrderSide::SELL;
+    fn.fill_time  = f[11];
+    fn.timestamp  = std::chrono::system_clock::now();
+    try
+    {
+        fn.filled_qty   = std::stoi(f[9]);
+        fn.filled_price = std::stod(f[10]);
+    }
+    catch (...)
+    {
+        LOG_WARN("[WS] H0STCNI0 수량/단가 파싱 오류 ODNO=" + fn.odno);
+        return;
+    }
+
+    LOG_INFO("[WS] 체결통보 ODNO=" + fn.odno + " " + fn.ticker +
+             (fn.side == OrderSide::BUY ? " BUY " : " SELL ") +
+             std::to_string(fn.filled_qty) + "주 @" +
+             std::to_string(static_cast<int>(fn.filled_price)));
+    on_fill_(fn);
 }

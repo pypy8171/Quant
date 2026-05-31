@@ -38,12 +38,14 @@ class KisWebSocket
 {
 public:
     using OrderBookCb = std::function<void(const OrderBook&)>;
-    using TradeCb = std::function<void(const TradeData&)>;
+    using TradeCb     = std::function<void(const TradeData&)>;
+    using FillCb      = std::function<void(const FillNotification&)>;
 
     explicit KisWebSocket(const KisConfig& cfg);
     ~KisWebSocket();
 
     void set_callbacks(OrderBookCb on_ob, TradeCb on_trade);
+    void set_fill_callback(FillCb on_fill);
     bool connect(const std::vector<WatchSpec>& specs);
     void disconnect();
 
@@ -76,6 +78,7 @@ private:
     void parse_orderbook(const std::vector<std::string>& f);
     void parse_kr_trade(const std::vector<std::string>& f);
     void parse_us_trade(const std::vector<std::string>& f);
+    void parse_fill_notification(const std::vector<std::string>& f);
 
     static std::vector<std::string> split_str(const std::string& s, char delim);
     static std::wstring to_wide(const std::string& s);
@@ -94,7 +97,8 @@ private:
     std::mutex send_mtx_;
 
     OrderBookCb on_orderbook_;
-    TradeCb on_trade_;
+    TradeCb     on_trade_;
+    FillCb      on_fill_;
 
 #ifdef _WIN32
     HINTERNET hSession_ = nullptr;

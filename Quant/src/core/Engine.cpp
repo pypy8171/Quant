@@ -110,6 +110,11 @@ void Engine::start()
                                    zmq_bridge_->publish_trade(td);
 #endif
                            });
+        ws_->set_fill_callback([this](const FillNotification& fn)
+                               {
+                                   if (order_router_)
+                                       order_router_->on_fill(fn);
+                               });
         if (!ws_->connect(watch_specs_))
             LOG_WARN("[Engine] WebSocket 연결 실패 — 호가/체결 이벤트 없이 동작");
     }

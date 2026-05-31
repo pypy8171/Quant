@@ -48,6 +48,32 @@ CREATE TABLE IF NOT EXISTS health (
 );
 SELECT create_hypertable('health', 'ts', if_not_exists => TRUE);
 
+-- ── 체결 원장 (H0STCNI0 체결통보) ───────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS fills (
+    ts           TIMESTAMPTZ   NOT NULL,
+    odno         TEXT          NOT NULL,   -- KIS 주문번호
+    ticker       TEXT          NOT NULL,
+    side         TEXT          NOT NULL,   -- BUY / SELL
+    filled_qty   INTEGER       NOT NULL,
+    filled_price NUMERIC(18,4) NOT NULL,
+    commission   NUMERIC(18,4),            -- 수수료 (매수·매도 0.015%)
+    tax          NUMERIC(18,4),            -- 거래세 (매도 0.18%)
+    market       TEXT DEFAULT 'KR'
+);
+SELECT create_hypertable('fills', 'ts', if_not_exists => TRUE);
+CREATE INDEX IF NOT EXISTS fills_odno        ON fills (odno);
+CREATE INDEX IF NOT EXISTS fills_ticker_ts   ON fills (ticker, ts DESC);
+
+-- ── 포지션 원장 (계좌 현재 상태) ─────────────────────────────────────────────
+-- 체결 발생 시 UPSERT, 장 마감 EOD 배치에서도 갱신
+CREATE TABLE IF NOT EXISTS positions (
+    ticker       TEXT          PRIMARY KEY,
+    quantity     INTEGER       NOT NULL DEFAULT 0,
+    avg_price    NUMERIC(18,4) NOT NULL DEFAULT 0,  -- 매수 평균단가
+    realized_pnl NUMERIC(18,4) NOT NULL DEFAULT 0,  -- 당일 실현손익
+    updated_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
 -- ── KIS REST 일봉 (bars_1d) ──────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS bars_1d (
     ts         TIMESTAMPTZ  NOT NULL,

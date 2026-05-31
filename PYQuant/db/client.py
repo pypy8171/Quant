@@ -170,6 +170,49 @@ class DbClient:
         except Exception as e:
             logger.error(f"insert_trade_batch 실패 ({len(valid)}건): {e}")
 
+    def insert_fill(self, data: dict):
+        """체결통보(H0STCNI0) 1건을 fills 원장에 기록."""
+        try:
+            _require(data, "ts", "odno", "ticker", "side", "filled_qty", "filled_price")
+            ts = data["ts"] if isinstance(data["ts"], datetime) else _ms_to_dt(data["ts"])
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO fills"
+                    "(ts,odno,ticker,side,filled_qty,filled_price,commission,tax,market)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (
+                        ts,
+                        data["odno"],
+                        data["ticker"],
+                        data["side"],
+                        data["filled_qty"],
+                        data["filled_price"],
+                        data.get("commission"),
+                        data.get("tax"),
+                        data.get("market", "KR"),
+                    ),
+                )
+        except Exception as e:
+            logger.error(f"insert_fill 실패 (data={data}): {e}")
+
+    def upsert_position(self, ticker: str, quantity: int,
+                        avg_price: float, realized_pnl: float):
+        """포지션 원장 갱신 — 체결 후 또는 EOD 배치에서 호출."""
+        try:
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO positions(ticker,quantity,avg_price,realized_pnl,updated_at)"
+                    " VALUES (%s,%s,%s,%s,NOW())"
+                    " ON CONFLICT (ticker) DO UPDATE SET"
+                    "   quantity=EXCLUDED.quantity,"
+                    "   avg_price=EXCLUDED.avg_price,"
+                    "   realized_pnl=EXCLUDED.realized_pnl,"
+                    "   updated_at=NOW()",
+                    (ticker, quantity, avg_price, realized_pnl),
+                )
+        except Exception as e:
+            logger.error(f"upsert_position 실패 ({ticker}): {e}")
+
     def insert_bar(self, ticker: str, ts: datetime, o: float, h: float,
                    lo: float, c: float, vol: int, market: str = "KR"):
         with self._conn.cursor() as cur:

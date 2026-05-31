@@ -33,6 +33,8 @@ public:
     void publish_signal(const OrderSignal& sig);
     void publish_order(const OrderSignal& sig, bool ok);
     void publish_health(uint64_t data_cnt, uint64_t sig_cnt, uint64_t ord_cnt);
+    void publish_fill(const FillNotification& fn, double commission, double tax,
+                      double avg_price, int net_qty, double realized_pnl);
 
     // ── Python 명령 수신 콜백 설정 ──────────────────────────────────────────
     // cmd  : 수신된 명령 문자열 (KILL / STATUS / PAUSE <id> 등)

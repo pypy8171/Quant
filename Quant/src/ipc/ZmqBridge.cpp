@@ -195,4 +195,23 @@ void ZmqBridge::publish_health(uint64_t data_cnt, uint64_t sig_cnt, uint64_t ord
     enqueue("HEALTH", j.dump());
 }
 
+void ZmqBridge::publish_fill(const FillNotification& fn, double commission,
+                              double tax, double avg_price, int net_qty,
+                              double realized_pnl)
+{
+    json j;
+    j["ts"]           = now_ms();
+    j["odno"]         = fn.odno;
+    j["ticker"]       = fn.ticker;
+    j["side"]         = (fn.side == OrderSide::BUY ? "BUY" : "SELL");
+    j["filled_qty"]   = fn.filled_qty;
+    j["filled_price"] = fn.filled_price;
+    j["commission"]   = commission;
+    j["tax"]          = tax;
+    j["avg_price"]    = avg_price;
+    j["net_qty"]      = net_qty;
+    j["realized_pnl"] = realized_pnl;
+    enqueue("FILL", j.dump());
+}
+
 #endif // HAS_ZMQ

@@ -119,6 +119,45 @@ void OrderGate::add_realized_pnl(double pnl)
     daily_pnl_ += pnl;
 }
 
+// ─── 체결 확인 — avg_price 재계산 + 실현손익 적립 ──────────────────────────
+OrderGate::FillResult OrderGate::on_fill_confirmed(
+    const std::string& ticker, OrderSide side, int qty, double price)
+{
+    FillResult result;
+    result.commission = price * qty * 0.00015;                              // 수수료 0.015%
+    result.tax        = (side == OrderSide::SELL) ? price * qty * 0.0018 : 0.0; // 거래세 매도만
+
+    {
+        std::lock_guard<std::mutex> lk(positions_mtx_);
+        int cur_qty  = positions_.count(ticker) ? positions_[ticker] : 0;
+        double cur_avg = avg_prices_.count(ticker) ? avg_prices_[ticker] : 0.0;
+
+        if (side == OrderSide::BUY)
+        {
+            int new_qty = cur_qty + qty;
+            avg_prices_[ticker] = (new_qty > 0)
+                ? (cur_qty * cur_avg + qty * price) / new_qty
+                : price;
+            result.avg_price = avg_prices_[ticker];
+            result.net_qty   = new_qty;
+        }
+        else // SELL
+        {
+            result.realized_pnl = (price - cur_avg) * qty
+                                  - result.commission - result.tax;
+            result.avg_price = cur_avg; // SELL 후 평균단가 불변
+            result.net_qty   = std::max(0, cur_qty - qty);
+            if (result.net_qty == 0)
+                avg_prices_.erase(ticker); // 포지션 청산 시 평균단가 초기화
+        }
+    }
+
+    if (side == OrderSide::SELL)
+        add_realized_pnl(result.realized_pnl);
+
+    return result;
+}
+
 // ─── 일별 리셋 (장 시작 시) ─────────────────────────────────────────────────
 void OrderGate::reset_daily()
 {
@@ -135,6 +174,7 @@ void OrderGate::reset_daily()
         std::lock_guard<std::mutex> lk(dedup_mtx_);
         last_signal_.clear();
     }
+    // avg_prices_ / positions_ 는 영속 원장 — 장 시작에 초기화하지 않는다
 }
 
 // ─── 조회 ───────────────────────────────────────────────────────────────────
@@ -143,6 +183,13 @@ int OrderGate::position(const std::string& ticker) const
     std::lock_guard<std::mutex> lk(positions_mtx_);
     auto it = positions_.find(ticker);
     return (it != positions_.end()) ? it->second : 0;
+}
+
+double OrderGate::avg_price(const std::string& ticker) const
+{
+    std::lock_guard<std::mutex> lk(positions_mtx_);
+    auto it = avg_prices_.find(ticker);
+    return (it != avg_prices_.end()) ? it->second : 0.0;
 }
 
 double OrderGate::daily_pnl() const

@@ -107,6 +107,40 @@ void OrderRouter::record(const ManagedOrder& mo)
         history_.pop_front();
 }
 
+// ─── 체결통보 처리 — ODNO 매핑 → FILLED 전이 ──────────────────────────────
+void OrderRouter::on_fill(const FillNotification& fn)
+{
+    std::lock_guard<std::mutex> lk(hist_mtx_);
+    for (auto& mo : history_)
+    {
+        if (mo.kis_order_no != fn.odno)
+            continue;
+        if (mo.status != OrderStatus::ACCEPTED)
+            continue;
+
+        mo.status     = OrderStatus::FILLED;
+        mo.updated_at = fn.timestamp;
+        LOG_INFO("[OrderRouter] 체결 확인 [" + mo.order_id + "] ODNO=" + fn.odno +
+                 " " + fn.ticker +
+                 (fn.side == OrderSide::BUY ? " BUY " : " SELL ") +
+                 std::to_string(fn.filled_qty) + "주 @" +
+                 std::to_string(static_cast<int>(fn.filled_price)));
+
+        // 포지션 원장 갱신 (avg_price 재계산 + 실현손익)
+        auto result = gate_.on_fill_confirmed(fn.ticker, fn.side,
+                                              fn.filled_qty, fn.filled_price);
+#ifdef HAS_ZMQ
+        if (zmq_)
+            zmq_->publish_fill(fn, result.commission, result.tax,
+                               result.avg_price, result.net_qty,
+                               result.realized_pnl);
+#endif
+        return;
+    }
+    LOG_WARN("[OrderRouter] 체결통보 매핑 실패 ODNO=" + fn.odno +
+             " (이미 처리됐거나 이력 범위 초과)");
+}
+
 // ─── 통계 ─────────────────────────────────────────────────────────────────
 OrderRouter::Stats OrderRouter::stats() const
 {

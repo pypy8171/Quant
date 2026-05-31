@@ -97,10 +97,21 @@ def cmd_record(args):
     db = DbClient()
 
     monitor = EngineMonitor(host=args.host, pub_port=args.port)
+    def _rec_fill(d):
+        db.insert_fill(d)
+        db.upsert_position(d["ticker"], d["net_qty"], d["avg_price"],
+                           d.get("realized_pnl", 0.0))
+        sg = '+' if d.get("realized_pnl", 0) >= 0 else ''
+        logger.info(f"REC FILL   {d.get('ticker')} {d.get('side')} "
+                    f"{d.get('filled_qty')}주 @{d.get('filled_price'):,.0f}  "
+                    f"avg={d.get('avg_price'):,.0f}  "
+                    f"pnl={sg}{d.get('realized_pnl', 0):,.0f}")
+
     monitor.on_trade  = lambda d: (db.insert_trade(d),  logger.info(f"REC TRADE  {d.get('ticker')} {d.get('price'):,.0f}"))
     monitor.on_signal = lambda d: (db.insert_signal(d), logger.info(f"REC SIGNAL {d.get('ticker')} {d.get('side')}"))
     monitor.on_order  = lambda d: (db.insert_order(d),  logger.info(f"REC ORDER  {d.get('ticker')} {'OK' if d.get('ok') else 'FAIL'}"))
     monitor.on_health = lambda d: (db.insert_health(d), logger.info(f"REC HEALTH data={d.get('data')} sig={d.get('signal')} ord={d.get('order')}"))
+    monitor.on_fill   = _rec_fill
 
     logger.info(f"ZMQ({args.host}:{args.port}) → TimescaleDB 적재 시작 (Ctrl+C로 종료)")
     try:
