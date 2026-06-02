@@ -98,13 +98,18 @@ ManagedOrder OrderRouter::submit(const OrderSignal& sig)
     return mo;
 }
 
-// ─── 이력 저장 (max_history 초과 시 가장 오래된 것 삭제) ─────────────────
+// ─── 이력 저장 (max_history 초과 시 체결 완료/거부된 것만 삭제) ───────────
 void OrderRouter::record(const ManagedOrder& mo)
 {
     std::lock_guard<std::mutex> lk(hist_mtx_);
     history_.push_back(mo);
     while (static_cast<int>(history_.size()) > cfg_.max_history)
+    {
+        // ACCEPTED(체결 대기 중) 주문은 보호 — ODNO 매핑이 끊기면 체결통보 누락
+        if (history_.front().status == OrderStatus::ACCEPTED)
+            break;
         history_.pop_front();
+    }
 }
 
 // ─── 체결통보 처리 — ODNO 매핑 → 부분/전량 체결 처리 ─────────────────────

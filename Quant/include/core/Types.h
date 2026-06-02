@@ -113,7 +113,7 @@ struct TradeData
 // ─────────────────────────────────────────────────────────────────────────────
 struct FillNotification
 {
-    std::string odno;                              // KIS 주문번호 (ODER_NO)
+    std::string odno;                              // KIS 주문번호 (ODNO)
     std::string ticker;                            // 단축종목코드
     OrderSide   side        = OrderSide::NONE;
     int         filled_qty  = 0;                   // 체결수량 (CNTG_QTY)

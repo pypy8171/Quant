@@ -1016,9 +1016,9 @@ void KisWebSocket::parse_fill_notification(const std::vector<std::string>& f)
         LOG_WARN("[WS] H0STCNI0 필드 부족: " + std::to_string(f.size()));
         return;
     }
-    if (f[13] != "Y")  // 접수·취소 이벤트 제외, 체결(Y)만 처리
+    if (!on_fill_)     // 콜백 미등록 시 즉시 반환 (파싱 비용 절감)
         return;
-    if (!on_fill_)
+    if (f[13] != "Y")  // 접수·취소 이벤트 제외, 체결(Y)만 처리
         return;
 
     FillNotification fn;
