@@ -142,6 +142,7 @@ struct ManagedOrder
     OrderSignal   signal;
     OrderStatus   status{OrderStatus::PENDING};
     std::string   reject_reason;
+    int           confirmed_qty = 0; // 누적 체결 수량 (부분체결 추적)
     std::chrono::system_clock::time_point submitted_at;
     std::chrono::system_clock::time_point updated_at;
 };

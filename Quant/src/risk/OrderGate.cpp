@@ -134,19 +134,23 @@ OrderGate::FillResult OrderGate::on_fill_confirmed(
 
         if (side == OrderSide::BUY)
         {
-            int new_qty = cur_qty + qty;
-            avg_prices_[ticker] = (new_qty > 0)
-                ? (cur_qty * cur_avg + qty * price) / new_qty
+            // positions_[ticker]는 on_accept에서 이미 qty 선점됨
+            // post_qty = 선점 후 수량, pre_qty = 체결 전 보유 수량
+            int post_qty = positions_.count(ticker) ? positions_[ticker] : qty;
+            int pre_qty  = post_qty - qty;
+            avg_prices_[ticker] = (post_qty > 0)
+                ? (pre_qty * cur_avg + qty * price) / post_qty
                 : price;
             result.avg_price = avg_prices_[ticker];
-            result.net_qty   = new_qty;
+            result.net_qty   = post_qty;
         }
         else // SELL
         {
+            // positions_[ticker]는 on_accept에서 이미 qty 차감됨
             result.realized_pnl = (price - cur_avg) * qty
                                   - result.commission - result.tax;
             result.avg_price = cur_avg; // SELL 후 평균단가 불변
-            result.net_qty   = std::max(0, cur_qty - qty);
+            result.net_qty   = positions_.count(ticker) ? positions_[ticker] : 0;
             if (result.net_qty == 0)
                 avg_prices_.erase(ticker); // 포지션 청산 시 평균단가 초기화
         }

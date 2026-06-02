@@ -324,10 +324,12 @@ void KisWebSocket::recv_loop()
             }
 
             // 채널 재구독
+            bool has_kr_rc = false;
             for (const auto& spec : specs_)
             {
                 if (spec.market == Market::KR)
                 {
+                    has_kr_rc = true;
                     send_subscribe("H0STASP0", spec.ticker);
                     send_subscribe("H0STCNT0", spec.ticker);
                 }
@@ -336,6 +338,13 @@ void KisWebSocket::recv_loop()
                     std::string exch = spec.exchange.empty() ? "NAS" : spec.exchange;
                     send_subscribe("HDFSCNT0", exch + "|" + spec.ticker);
                 }
+            }
+            // 체결통보 채널 재구독 (초기 connect와 동일하게)
+            if (has_kr_rc && on_fill_)
+            {
+                std::string fill_tr  = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
+                std::string fill_key = cfg_.hts_id.empty() ? cfg_.account_no : cfg_.hts_id;
+                send_subscribe(fill_tr, fill_key);
             }
             LOG_INFO("[WS] 재연결 성공");
             retry_sec = 1;
@@ -601,11 +610,14 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
     LOG_INFO(std::string("[WS] WebSocket 연결 성공 (Linux, ") + (cfg_.is_paper ? "모의투자" : "실거래") + ")");
     connected_.store(true);
 
+    bool has_kr = false;
     for (const auto& spec : specs_)
     {
         if (spec.market == Market::KR)
         {
-            send_subscribe("H0STASP0", spec.ticker);
+            has_kr = true;
+            if (!spec.trade_only)
+                send_subscribe("H0STASP0", spec.ticker);
             send_subscribe("H0STCNT0", spec.ticker);
         }
         else
@@ -613,6 +625,14 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
             std::string exch = spec.exchange.empty() ? "NAS" : spec.exchange;
             send_subscribe("HDFSCNT0", exch + "|" + spec.ticker);
         }
+    }
+
+    // 체결통보 구독 — KR 종목이 있을 때만 (실거래: H0STCNI0, 모의: H0STCNI9)
+    if (has_kr && on_fill_)
+    {
+        std::string fill_tr  = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
+        std::string fill_key = cfg_.hts_id.empty() ? cfg_.account_no : cfg_.hts_id;
+        send_subscribe(fill_tr, fill_key);
     }
 
     recv_thread_ = std::thread(&KisWebSocket::recv_loop, this);
@@ -695,10 +715,12 @@ void KisWebSocket::recv_loop()
             }
 
             // 채널 재구독
+            bool has_kr_rc = false;
             for (const auto& spec : specs_)
             {
                 if (spec.market == Market::KR)
                 {
+                    has_kr_rc = true;
                     send_subscribe("H0STASP0", spec.ticker);
                     send_subscribe("H0STCNT0", spec.ticker);
                 }
@@ -707,6 +729,13 @@ void KisWebSocket::recv_loop()
                     std::string exch = spec.exchange.empty() ? "NAS" : spec.exchange;
                     send_subscribe("HDFSCNT0", exch + "|" + spec.ticker);
                 }
+            }
+            // 체결통보 채널 재구독 (초기 connect와 동일하게)
+            if (has_kr_rc && on_fill_)
+            {
+                std::string fill_tr  = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
+                std::string fill_key = cfg_.hts_id.empty() ? cfg_.account_no : cfg_.hts_id;
+                send_subscribe(fill_tr, fill_key);
             }
             LOG_INFO("[WS] 재연결 성공");
             retry_sec = 1;

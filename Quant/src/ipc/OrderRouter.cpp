@@ -107,7 +107,7 @@ void OrderRouter::record(const ManagedOrder& mo)
         history_.pop_front();
 }
 
-// ─── 체결통보 처리 — ODNO 매핑 → FILLED 전이 ──────────────────────────────
+// ─── 체결통보 처리 — ODNO 매핑 → 부분/전량 체결 처리 ─────────────────────
 void OrderRouter::on_fill(const FillNotification& fn)
 {
     std::lock_guard<std::mutex> lk(hist_mtx_);
@@ -115,16 +115,25 @@ void OrderRouter::on_fill(const FillNotification& fn)
     {
         if (mo.kis_order_no != fn.odno)
             continue;
-        if (mo.status != OrderStatus::ACCEPTED)
+        // 부분체결: ACCEPTED(최초) 또는 FILLED(분할 진행 중) 모두 허용
+        if (mo.status != OrderStatus::ACCEPTED && mo.status != OrderStatus::FILLED)
+            continue;
+        // 이미 전량 체결 완료된 주문은 재처리 방지
+        if (mo.confirmed_qty >= mo.signal.quantity)
             continue;
 
-        mo.status     = OrderStatus::FILLED;
-        mo.updated_at = fn.timestamp;
+        mo.confirmed_qty += fn.filled_qty;
+        mo.updated_at     = fn.timestamp;
+        if (mo.confirmed_qty >= mo.signal.quantity)
+            mo.status = OrderStatus::FILLED;
+
         LOG_INFO("[OrderRouter] 체결 확인 [" + mo.order_id + "] ODNO=" + fn.odno +
                  " " + fn.ticker +
                  (fn.side == OrderSide::BUY ? " BUY " : " SELL ") +
                  std::to_string(fn.filled_qty) + "주 @" +
-                 std::to_string(static_cast<int>(fn.filled_price)));
+                 std::to_string(static_cast<int>(fn.filled_price)) +
+                 " (누적 " + std::to_string(mo.confirmed_qty) +
+                 "/" + std::to_string(mo.signal.quantity) + "주)");
 
         // 포지션 원장 갱신 (avg_price 재계산 + 실현손익)
         auto result = gate_.on_fill_confirmed(fn.ticker, fn.side,
