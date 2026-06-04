@@ -4,6 +4,10 @@
 using Clock = std::chrono::steady_clock;
 
 // ─── 주문 검증 ──────────────────────────────────────────────────────────────
+// 주의(C6): check()는 항목별 뮤텍스를 독립 스코프로 잡으므로 호출 단위가 원자적이지 않다.
+// 현재 호출자는 단일 order_thread(Engine::order_thread_fn → OrderRouter::submit)뿐이라
+// check()+on_accept이 직렬 실행돼 TOCTOU가 발생하지 않는다. 멀티 producer로 확장하려면
+// check()+on_accept을 하나의 임계구역으로 묶어 원자적 reserve로 만들어야 한다.
 bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
 {
     // 1. Kill switch
@@ -20,12 +24,13 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
         return false;
     }
 
-    // 3. 포지션 수량 한도 (BUY에만 적용)
+    // 3. 포지션 수량 한도 (BUY에만 적용) — 실체결(positions_) + 미체결 선점(reserved_) 합산
     if (sig.side == OrderSide::BUY)
     {
         std::lock_guard<std::mutex> lk(positions_mtx_);
-        auto it = positions_.find(sig.ticker);
-        int cur_qty = (it != positions_.end()) ? it->second : 0;
+        int filled = positions_.count(sig.ticker) ? positions_[sig.ticker] : 0;
+        int resv   = reserved_.count(sig.ticker)  ? reserved_[sig.ticker]  : 0;
+        int cur_qty = filled + resv;
         if (cur_qty + sig.quantity > cfg_.max_qty_per_ticker)
         {
             std::ostringstream ss;
@@ -35,7 +40,8 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
         }
     }
 
-    // 4. 일일 손실 한도 (BUY에만 적용 — 추가 손실 가능성 차단)
+    // 4. 일일 손실 한도 (BUY에만 적용 — 신규 진입 차단이 설계 의도)
+    //    (C10) 보유분 추가 하락은 막지 않는다. 강제 청산이 필요하면 별도 청산 로직 도입.
     if (sig.side == OrderSide::BUY)
     {
         std::lock_guard<std::mutex> lk(pnl_mtx_);
@@ -99,16 +105,16 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
     return true;
 }
 
-// ─── 접수 후 포지션 선점 ─────────────────────────────────────────────────────
+// ─── 접수 후 선점 (reserved_만 갱신, 실체결 원장 positions_는 불변) ──────────────
 void OrderGate::on_accept(const std::string& ticker, OrderSide side, int qty, double price)
 {
     std::lock_guard<std::mutex> lk(positions_mtx_);
-    int delta = (side == OrderSide::BUY) ? qty : -qty;
-    int next  = positions_.count(ticker) ? positions_[ticker] + delta : delta;
-    if (next <= 0)
-        positions_.erase(ticker);  // SELL은 0 아래로 내려가지 않음 (공매도 미지원)
+    int delta = (side == OrderSide::BUY) ? qty : -qty;  // BUY 선점 +, SELL 선점 -
+    int next  = (reserved_.count(ticker) ? reserved_[ticker] : 0) + delta;
+    if (next == 0)
+        reserved_.erase(ticker);
     else
-        positions_[ticker] = next;
+        reserved_[ticker] = next;
     (void)price;
 }
 
@@ -129,30 +135,43 @@ OrderGate::FillResult OrderGate::on_fill_confirmed(
 
     {
         std::lock_guard<std::mutex> lk(positions_mtx_);
-        int cur_qty  = positions_.count(ticker) ? positions_[ticker] : 0;
+        int pre_qty    = positions_.count(ticker) ? positions_[ticker] : 0; // 체결 전 실보유
         double cur_avg = avg_prices_.count(ticker) ? avg_prices_[ticker] : 0.0;
 
         if (side == OrderSide::BUY)
         {
-            // positions_[ticker]는 on_accept에서 이미 qty 선점됨
-            // post_qty = 선점 후 수량, pre_qty = 체결 전 보유 수량
-            int post_qty = positions_.count(ticker) ? positions_[ticker] : qty;
-            int pre_qty  = post_qty - qty;
-            avg_prices_[ticker] = (post_qty > 0)
-                ? (pre_qty * cur_avg + qty * price) / post_qty
+            // 실체결분만 원장에 반영 (부분체결도 정확) — 평단 분모는 실체결 수량
+            int new_qty = pre_qty + qty;
+            avg_prices_[ticker] = (new_qty > 0)
+                ? (pre_qty * cur_avg + qty * price) / new_qty
                 : price;
+            positions_[ticker] = new_qty;
             result.avg_price = avg_prices_[ticker];
-            result.net_qty   = post_qty;
+            result.net_qty   = new_qty;
+
+            // 선점 해제 (BUY 선점은 +였으므로 -qty)
+            int r = (reserved_.count(ticker) ? reserved_[ticker] : 0) - qty;
+            if (r == 0) reserved_.erase(ticker); else reserved_[ticker] = r;
         }
         else // SELL
         {
-            // positions_[ticker]는 on_accept에서 이미 qty 차감됨
+            int new_qty = pre_qty - qty;
+            if (new_qty < 0) new_qty = 0; // 공매도 미지원 — 보유 초과 매도는 0으로 클램프
             result.realized_pnl = (price - cur_avg) * qty
                                   - result.commission - result.tax;
             result.avg_price = cur_avg; // SELL 후 평균단가 불변
-            result.net_qty   = positions_.count(ticker) ? positions_[ticker] : 0;
-            if (result.net_qty == 0)
+            result.net_qty   = new_qty;
+            if (new_qty == 0)
+            {
+                positions_.erase(ticker);
                 avg_prices_.erase(ticker); // 포지션 청산 시 평균단가 초기화
+            }
+            else
+                positions_[ticker] = new_qty;
+
+            // 선점 해제 (SELL 선점은 -였으므로 +qty)
+            int r = (reserved_.count(ticker) ? reserved_[ticker] : 0) + qty;
+            if (r == 0) reserved_.erase(ticker); else reserved_[ticker] = r;
         }
     }
 
@@ -178,6 +197,12 @@ void OrderGate::reset_daily()
         std::lock_guard<std::mutex> lk(dedup_mtx_);
         last_signal_.clear();
     }
+    {
+        // 미체결 선점은 일일 만료 (KIS 당일 주문은 EOD 소멸 → 다음날 잘못된 차단 방지).
+        // TODO(C5): 미체결 주문 명시적 취소 경로 도입 시 그쪽에서 reserved_ 해제로 일원화.
+        std::lock_guard<std::mutex> lk(positions_mtx_);
+        reserved_.clear();
+    }
     // avg_prices_ / positions_ 는 영속 원장 — 장 시작에 초기화하지 않는다
 }
 
@@ -187,6 +212,13 @@ int OrderGate::position(const std::string& ticker) const
     std::lock_guard<std::mutex> lk(positions_mtx_);
     auto it = positions_.find(ticker);
     return (it != positions_.end()) ? it->second : 0;
+}
+
+int OrderGate::reserved(const std::string& ticker) const
+{
+    std::lock_guard<std::mutex> lk(positions_mtx_);
+    auto it = reserved_.find(ticker);
+    return (it != reserved_.end()) ? it->second : 0;
 }
 
 double OrderGate::avg_price(const std::string& ticker) const

@@ -132,9 +132,17 @@ void ZmqBridge::thread_fn()
 void ZmqBridge::enqueue(std::string topic, std::string payload)
 {
     std::lock_guard<std::mutex> lk(queue_mtx_);
-    if (send_queue_.size() >= 1000)
+    // (C8) 토픽별 drop 차등 — FILL/ORDER/SIGNAL은 원장 정합성에 직결되므로
+    // 고빈도 TRADE/HEALTH(1000)보다 훨씬 큰 하드캡(100000)까지 보존한다.
+    const bool critical = (topic == "FILL" || topic == "ORDER" || topic == "SIGNAL");
+    const size_t cap = critical ? 100000 : 1000;
+    if (send_queue_.size() >= cap)
     {
         ++drop_count_;
+        if (critical)
+            LOG_ERROR("[ZMQ] 치명적 메시지 drop! topic=" + topic +
+                      " queue=" + std::to_string(send_queue_.size()) +
+                      " (구독자 다운 의심) — 원장 불일치 위험");
         return;
     }
     send_queue_.push({std::move(topic), std::move(payload)});

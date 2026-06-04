@@ -189,7 +189,8 @@ void test_dedup_does_not_consume_rate_slot()
     PASS("dedup_does_not_consume_rate_slot");
 }
 
-// ─── 테스트 9: SELL on_accept은 포지션을 0 미만으로 내리지 않음 (C6 fix) ──
+// ─── 테스트 9: SELL 체결이 실보유를 0 미만으로 내리지 않음 (C6 + C2/C4) ──
+//   원장 분리 후: on_accept는 reserved_만, 실보유 positions_는 on_fill_confirmed가 갱신
 void test_sell_clamps_position_at_zero()
 {
     OrderGate::Config cfg;
@@ -198,14 +199,46 @@ void test_sell_clamps_position_at_zero()
     cfg.dedup_window_sec   = 0.0;
     OrderGate gate(cfg);
 
-    // BUY 2주 접수
+    // BUY 2주 접수→체결 → 실보유 2, 선점 해제
     gate.on_accept("005930", OrderSide::BUY, 2, 100000);
+    gate.on_fill_confirmed("005930", OrderSide::BUY, 2, 100000);
     assert(gate.position("005930") == 2);
+    assert(gate.reserved("005930") == 0);
 
-    // SELL 5주 접수 (보유 2주보다 많음) → 포지션은 0으로 클램프
+    // SELL 5주 접수→체결 (보유 2 초과) → 실보유 0으로 클램프 (공매도 미지원)
     gate.on_accept("005930", OrderSide::SELL, 5, 100000);
+    gate.on_fill_confirmed("005930", OrderSide::SELL, 5, 100000);
     assert(gate.position("005930") == 0);
     PASS("sell_clamps_position_at_zero");
+}
+
+// ─── 테스트 10: 부분체결 평단 정확성 (C2/C4 fix) ───────────────────────────
+//   on_accept 선점값이 아니라 실체결 수량으로 평단을 계산해야 함
+void test_partial_fill_avg_price()
+{
+    OrderGate::Config cfg;
+    cfg.max_qty_per_ticker = 100;
+    cfg.max_orders_per_min = 100;
+    cfg.max_orders_per_sec = 100;
+    cfg.dedup_window_sec   = 0.0;
+    OrderGate gate(cfg);
+
+    gate.on_accept("005930", OrderSide::BUY, 10, 1000.0); // 선점 10
+    assert(gate.reserved("005930") == 10);
+
+    // 5주 부분체결 @1000 → 평단 1000 (구버그라면 분모=선점10 → 500)
+    auto r1 = gate.on_fill_confirmed("005930", OrderSide::BUY, 5, 1000.0);
+    assert(r1.net_qty == 5);
+    assert(r1.avg_price > 999.9 && r1.avg_price < 1000.1);
+    assert(gate.reserved("005930") == 5); // 체결분만큼 선점 해제
+
+    // 나머지 5주 체결 @1100 → 평단 (5*1000 + 5*1100)/10 = 1050
+    auto r2 = gate.on_fill_confirmed("005930", OrderSide::BUY, 5, 1100.0);
+    assert(r2.net_qty == 10);
+    assert(r2.avg_price > 1049.9 && r2.avg_price < 1050.1);
+    assert(gate.position("005930") == 10);
+    assert(gate.reserved("005930") == 0); // 선점 전부 해제
+    PASS("partial_fill_avg_price");
 }
 
 int main()
@@ -223,6 +256,7 @@ int main()
     test_sell_bypasses_position_check();
     test_dedup_does_not_consume_rate_slot();
     test_sell_clamps_position_at_zero();
+    test_partial_fill_avg_price();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

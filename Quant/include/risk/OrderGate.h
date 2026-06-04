@@ -48,8 +48,9 @@ public:
     bool check(const OrderSignal& sig, std::string& reject_reason);
 
     // ── 상태 업데이트 ───────────────────────────────────────────────────────
-    // KIS 접수(ODNO 수신) 시 보수적으로 포지션을 선점. 실제 체결(FILLED)을
-    // 확인하기 전까지 접수 수량을 포지션으로 간주해 과잉 주문을 차단한다.
+    // KIS 접수(ODNO 수신) 시 reserved_에 선점만 기록(실체결 원장 positions_는 불변).
+    // check()는 positions_ + reserved_ 합산으로 한도를 보므로 미체결 주문이 과잉 주문을 차단한다.
+    // 체결(on_fill_confirmed) 시 reserved_가 해제되고 positions_/avg_price가 갱신된다.
     void on_accept(const std::string& ticker, OrderSide side, int qty, double price);
     void add_realized_pnl(double pnl);  // SELL 체결 시 실현 손익 추가 (테스트에서도 사용)
 
@@ -80,7 +81,8 @@ public:
     void reset_daily();
 
     // ── 조회 ─────────────────────────────────────────────────────────────────
-    int    position(const std::string& ticker) const;
+    int    position(const std::string& ticker) const;  // 실체결 순보유 수량
+    int    reserved(const std::string& ticker) const;  // 미체결 선점 수량
     double avg_price(const std::string& ticker) const;
     double daily_pnl() const;
 
@@ -92,8 +94,9 @@ private:
     std::atomic<bool> kill_switch_{false};
 
     mutable std::mutex positions_mtx_;
-    std::unordered_map<std::string, int>    positions_;  // ticker → net qty (양수=롱)
-    std::unordered_map<std::string, double> avg_prices_; // ticker → 매수 평균단가
+    std::unordered_map<std::string, int>    reserved_;   // ticker → 미체결 선점 수량 (BUY +, SELL -). 재주문 차단용
+    std::unordered_map<std::string, int>    positions_;  // ticker → 실체결 순보유 수량 (양수=롱)
+    std::unordered_map<std::string, double> avg_prices_; // ticker → 매수 평균단가 (실체결 기준)
 
     mutable std::mutex pnl_mtx_;
     double daily_pnl_{0.0};

@@ -179,14 +179,21 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
         }
     }
 
-    // 체결통보 구독 — KR 종목이 있을 때만 (실거래: H0STCNI0, 모의: H0STCNI9)
-    if (has_kr && on_fill_)
+    // 체결통보 구독 — hts_id가 명시된 경우에만 (비어있으면 건너뜀)
+    if (has_kr && on_fill_ && !cfg_.hts_id.empty())
     {
-        std::string fill_tr  = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
-        std::string fill_key = cfg_.hts_id.empty() ? cfg_.account_no : cfg_.hts_id;
-        send_subscribe(fill_tr, fill_key);
+        std::string fill_tr = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
+        send_subscribe(fill_tr, cfg_.hts_id);
+    }
+    else if (has_kr && on_fill_ && cfg_.hts_id.empty())
+    {
+        LOG_WARN("[WS] hts_id 미설정 — 체결통보(H0STCNI9/0) 구독 건너뜀. 주문 실행은 정상 동작.");
     }
 
+    // 구 수신 스레드가 자체 종료(connected_=false)로 join되지 않은 채 남아 있을 수 있다.
+    // joinable 상태에서 재대입하면 std::terminate → 재대입 전 반드시 reap.
+    if (recv_thread_.joinable())
+        recv_thread_.join();
     recv_thread_ = std::thread(&KisWebSocket::recv_loop, this);
     return true;
 }
@@ -339,12 +346,11 @@ void KisWebSocket::recv_loop()
                     send_subscribe("HDFSCNT0", exch + "|" + spec.ticker);
                 }
             }
-            // 체결통보 채널 재구독 (초기 connect와 동일하게)
-            if (has_kr_rc && on_fill_)
+            // 체결통보 채널 재구독 — hts_id 설정 시에만
+            if (has_kr_rc && on_fill_ && !cfg_.hts_id.empty())
             {
-                std::string fill_tr  = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
-                std::string fill_key = cfg_.hts_id.empty() ? cfg_.account_no : cfg_.hts_id;
-                send_subscribe(fill_tr, fill_key);
+                std::string fill_tr = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
+                send_subscribe(fill_tr, cfg_.hts_id);
             }
             LOG_INFO("[WS] 재연결 성공");
             retry_sec = 1;
@@ -627,14 +633,21 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
         }
     }
 
-    // 체결통보 구독 — KR 종목이 있을 때만 (실거래: H0STCNI0, 모의: H0STCNI9)
-    if (has_kr && on_fill_)
+    // 체결통보 구독 — hts_id가 명시된 경우에만 (비어있으면 건너뜀)
+    if (has_kr && on_fill_ && !cfg_.hts_id.empty())
     {
-        std::string fill_tr  = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
-        std::string fill_key = cfg_.hts_id.empty() ? cfg_.account_no : cfg_.hts_id;
-        send_subscribe(fill_tr, fill_key);
+        std::string fill_tr = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
+        send_subscribe(fill_tr, cfg_.hts_id);
+    }
+    else if (has_kr && on_fill_ && cfg_.hts_id.empty())
+    {
+        LOG_WARN("[WS] hts_id 미설정 — 체결통보(H0STCNI9/0) 구독 건너뜀. 주문 실행은 정상 동작.");
     }
 
+    // 구 수신 스레드가 자체 종료(connected_=false)로 join되지 않은 채 남아 있을 수 있다.
+    // joinable 상태에서 재대입하면 std::terminate → 재대입 전 반드시 reap.
+    if (recv_thread_.joinable())
+        recv_thread_.join();
     recv_thread_ = std::thread(&KisWebSocket::recv_loop, this);
     return true;
 }
@@ -730,12 +743,11 @@ void KisWebSocket::recv_loop()
                     send_subscribe("HDFSCNT0", exch + "|" + spec.ticker);
                 }
             }
-            // 체결통보 채널 재구독 (초기 connect와 동일하게)
-            if (has_kr_rc && on_fill_)
+            // 체결통보 채널 재구독 — hts_id 설정 시에만
+            if (has_kr_rc && on_fill_ && !cfg_.hts_id.empty())
             {
-                std::string fill_tr  = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
-                std::string fill_key = cfg_.hts_id.empty() ? cfg_.account_no : cfg_.hts_id;
-                send_subscribe(fill_tr, fill_key);
+                std::string fill_tr = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
+                send_subscribe(fill_tr, cfg_.hts_id);
             }
             LOG_INFO("[WS] 재연결 성공");
             retry_sec = 1;
@@ -1013,7 +1025,9 @@ void KisWebSocket::parse_fill_notification(const std::vector<std::string>& f)
 {
     if (f.size() < 14)
     {
-        LOG_WARN("[WS] H0STCNI0 필드 부족: " + std::to_string(f.size()));
+        // 1~2필드: KIS 서버 제어 메시지(ack/heartbeat) — 정상 동작, DEBUG 수준
+        if (f.size() > 2)
+            LOG_WARN("[WS] H0STCNI 필드 부족: " + std::to_string(f.size()));
         return;
     }
     if (!on_fill_)     // 콜백 미등록 시 즉시 반환 (파싱 비용 절감)

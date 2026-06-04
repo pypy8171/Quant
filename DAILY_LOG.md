@@ -2,6 +2,51 @@
 
 ---
 
+## 2026-06-04 (목)
+
+### 한 일
+- **웹 Claude 리뷰(C1~C10) 코드 반영 (`/review-apply`)** — 1·2·3순위 전부 처리
+  - 🔴 C1 중복 체결통보 멱등 처리 (at-least-once 방어)
+  - 🔴 C2·C4 OrderGate 선점(reserved)/실체결(positions) 원장 분리 — 부분체결 평단 왜곡·net_qty 불일치 동시 해결
+  - 🔴 C3 WS 재연결 시 joinable 스레드 재대입 → std::terminate 크래시 가드
+  - 🟡 C6 TOCTOU 단일호출자 가정 주석 / C7 backtest total_return equity 기반 / C8 ZMQ FILL 토픽 drop 차등
+  - 🟢 C9 큐 스핀(검토완료·변경불필요) / C10 손실한도 BUY-only 설계의도 확정
+  - 🟦 C5 미체결 타임아웃/취소 — reserved 일일만료만 반영, KIS 취소 API 선행 필요로 부분반영
+- 회귀 테스트 추가/갱신: `test_duplicate_fill_ignored`(C1), `test_partial_fill_avg_price`(C2/C4), `test_sell_clamps_position_at_zero` 재작성 → **test_order_gate 10/10, test_order_router 7/7 통과**, quant_trader.exe 빌드 OK
+- `@review-recorder` 에이전트 신설 — review-apply 반영분을 git diff 기준으로 검증·정리 (AGENTS.md 등록)
+- 리뷰용 번들 `REVIEW_PROMPT.md`(full) 재생성 — FEP 레이어/체결통보 파이프라인 반영, secret 미포함 확인
+- `config_paper.json` 검증용 구성 정비 — SDP(INTRADAY) 제거하고 FixedInterval **BUY/SELL 왕복**(402340·097230, interval 120/180)으로 교체 (파이프라인 SELL 경로까지 검증 목적)
+- 보안 점검 — config_paper.json/config.json이 git 이력에 단 한 번도 없음 확인 (.gitignore 정상, secret 노출 0)
+- 1M 컨텍스트 크레딧 에러 해결 — `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` 사용자 환경변수 설정
+
+### 변경 파일
+- `Quant/include/risk/OrderGate.h` / `src/risk/OrderGate.cpp` → reserved_/positions_ 분리, reserved() 게터, check()=합산, on_fill_confirmed 실체결 평단, reset_daily reserved 만료, C6/C10 주석
+- `Quant/include/ipc/OrderRouter.h` / `src/ipc/OrderRouter.cpp` → seen_fills_ 멱등 set + on_fill dedup
+- `Quant/src/api/WebSocketClient.cpp` → connect()(Win/Linux) recv_thread_ join 가드
+- `Quant/src/ipc/ZmqBridge.cpp` → enqueue 토픽별 drop 차등(FILL/ORDER/SIGNAL 보존)
+- `PYQuant/backtest/engine.py` → total_return을 equity[-1] 기반으로
+- `Quant/tests/test_order_gate.cpp` / `test_order_router.cpp` → 회귀 테스트 추가/갱신
+- `CODE_REVIEW.md` → C1~C10 ✅/🟦 + 반영 내역 상세 기록
+- `.claude/agents/review-recorder.md` / `.claude/AGENTS.md` → 신규 에이전트 + 등록
+- `Quant/config/config_paper.json` → 검증용 왕복 전략 구성 (gitignored)
+
+### 막힌 지점 / 미해결
+- 🟦 C5 미체결 주문 타임아웃/취소: **KisClient에 주문 취소 API(order-rvsecncl)가 없어** 풀구현 보류 — 취소 API 구현이 선행돼야 함 (실거래 전 필수)
+- WS 재연결 이중 메커니즘(recv_loop 내부 + control_thread) 일원화 미해결 — C5와 함께 재검토
+- C8 FILL drop 차등은 HAS_ZMQ 빌드 전용 → Docker/Linux에서 컴파일·동작 미검증
+
+### 내일 할 일
+- Docker로 모의 왕복 파이프라인 검증 — BUY/SELL 체결이 fills/positions/orders DB 원장에 정상 기록되는지 확인 (이게 되면 그간 작업분 커밋)
+- 검증 통과 후 SDP를 entry_mode=EOD + 완화 파라미터로 재투입
+- (여유 시) KIS 주문취소 API 구현 → C5 풀구현
+
+### 학습 카드 영향
+- **체결원장 도메인 버그 4종을 코딩으로 발견·보완** → 학습 카드 다수 확보:
+  - 외부 이벤트 at-least-once 멱등성(C1), 예약잔고 vs 확정잔고 분리·평단 회계(C2/C4), joinable std::thread 재대입=terminate·스레드 RAII(C3)
+- "토이라 안 했다"가 아니라 "약점을 정확히 짚고 보완 중(C5)"으로 프레이밍 가능 — 거래소 연동 운영 이해도 어필
+
+---
+
 ## 2026-05-26 (월)
 
 ### 한 일

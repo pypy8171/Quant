@@ -9,6 +9,7 @@
 #include <deque>
 #include <mutex>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -77,6 +78,7 @@ private:
 
     mutable std::mutex       hist_mtx_;
     std::deque<ManagedOrder> history_;
+    std::unordered_set<std::string> seen_fills_; // 멱등 처리: 처리한 체결통보 키 (hist_mtx_로 보호)
 
     std::atomic<uint64_t> seq_{0};
     std::atomic<uint64_t> total_count_{0};

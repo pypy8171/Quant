@@ -173,6 +173,45 @@ void test_order_id_sequence()
     PASS("order_id_sequence");
 }
 
+// ─── 테스트 7: 중복 체결통보 멱등 처리 (C1 fix) ──────────────────────────────
+//   부분체결 중 동일 통보가 재수신돼도 confirmed_qty가 이중 반영되면 안 됨
+void test_duplicate_fill_ignored()
+{
+    OrderGate         gate(relaxed_cfg());
+    StubOrderExecutor stub(true, "K000077");
+    OrderRouter       router(gate, stub);
+
+    router.submit(make_signal("005930", OrderSide::BUY, 10)); // ACCEPTED, ODNO=K000077
+
+    // 부분체결 5주 통보
+    FillNotification fn;
+    fn.odno         = "K000077";
+    fn.ticker       = "005930";
+    fn.side         = OrderSide::BUY;
+    fn.filled_qty   = 5;
+    fn.filled_price = 75000.0;
+    fn.fill_time    = "100000";
+    router.on_fill(fn);
+
+    auto h1 = router.recent(1);
+    assert(h1[0].confirmed_qty == 5);
+    assert(h1[0].status == OrderStatus::ACCEPTED);
+
+    // 동일 체결통보 중복 수신 → 무시되어야 함 (confirmed_qty 증가 X, FILLED 전환 X)
+    router.on_fill(fn);
+    auto h2 = router.recent(1);
+    assert(h2[0].confirmed_qty == 5);
+    assert(h2[0].status == OrderStatus::ACCEPTED);
+
+    // 나머지 5주는 다른 체결(fill_time 상이) → 정상 처리되어 전량 체결
+    fn.fill_time = "100005";
+    router.on_fill(fn);
+    auto h3 = router.recent(1);
+    assert(h3[0].confirmed_qty == 10);
+    assert(h3[0].status == OrderStatus::FILLED);
+    PASS("duplicate_fill_ignored");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -185,6 +224,7 @@ int main()
     test_stats_mixed();
     test_history_recent();
     test_order_id_sequence();
+    test_duplicate_fill_ignored();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

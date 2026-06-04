@@ -174,8 +174,10 @@ class BacktestEngine:
         wins      = [t for t in sells if t.pnl > 0]
         win_rate  = len(wins) / len(sells) * 100 if sells else 0.0
 
-        final_cash    = self.cash
-        total_return  = (final_cash - self.init_cash) / self.init_cash * 100
+        # 미청산 보유 포지션 평가액을 포함한 최종 자산(equity)으로 수익률 계산.
+        # self.cash만 쓰면 미청산분을 0으로 친 셈이라 장기 보유형 전략 수익률이 왜곡됨.
+        final_equity  = self._equity[-1] if self._equity else self.cash
+        total_return  = (final_equity - self.init_cash) / self.init_cash * 100
 
         # MDD 계산 — 일별 포트폴리오 평가금액(equity) 시계열 기반
         mdd = 0.0

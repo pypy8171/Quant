@@ -116,6 +116,16 @@ void OrderRouter::record(const ManagedOrder& mo)
 void OrderRouter::on_fill(const FillNotification& fn)
 {
     std::lock_guard<std::mutex> lk(hist_mtx_);
+    // 멱등 처리 — KIS 체결통보는 at-least-once(재전송/WS 재구독 시 중복 가능).
+    // H0STCNI0 전문에 체결고유번호가 없어 odno+체결시각+수량+단가를 조합 키로 사용.
+    std::string fill_key = fn.odno + ":" + fn.fill_time + ":" +
+                           std::to_string(fn.filled_qty) + ":" +
+                           std::to_string(static_cast<long long>(fn.filled_price * 100));
+    if (!seen_fills_.insert(fill_key).second)
+    {
+        LOG_WARN("[OrderRouter] 중복 체결통보 무시 ODNO=" + fn.odno + " time=" + fn.fill_time);
+        return;
+    }
     for (auto& mo : history_)
     {
         if (mo.kis_order_no != fn.odno)
