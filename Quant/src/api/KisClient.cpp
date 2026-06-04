@@ -1046,6 +1046,262 @@ std::vector<std::string> KisClient::fetch_us_universe_by_pbr(double max_pbr, con
     return result;
 }
 
+// ─── 업종 지수 일봉 ──────────────────────────────────────────────────────────
+std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sector_code, int count)
+{
+    ensure_authenticated();
+
+    // 날짜 범위: 오늘 기준 충분히 넓게 (30일)
+    auto now = std::chrono::system_clock::now();
+    auto today = std::chrono::system_clock::to_time_t(now);
+    struct tm tm_now{};
+#ifdef _WIN32
+    localtime_s(&tm_now, &today);
+#else
+    localtime_r(&today, &tm_now);
+#endif
+    char date_buf[9];
+    std::strftime(date_buf, sizeof(date_buf), "%Y%m%d", &tm_now);
+
+    // 30일 전
+    auto past = today - 30 * 86400;
+    struct tm tm_past{};
+#ifdef _WIN32
+    localtime_s(&tm_past, &past);
+#else
+    localtime_r(&past, &tm_past);
+#endif
+    char past_buf[9];
+    std::strftime(past_buf, sizeof(past_buf), "%Y%m%d", &tm_past);
+
+    std::string url = base_url() +
+        "/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice"
+        "?FID_COND_MRKT_DIV_CODE=U"
+        "&FID_INPUT_ISCD=" + sector_code +
+        "&FID_INPUT_DATE_1=" + std::string(past_buf) +
+        "&FID_INPUT_DATE_2=" + std::string(date_buf) +
+        "&FID_PERIOD_DIV_CODE=D";
+
+    std::vector<std::string> hdrs = {
+        "authorization: Bearer " + access_token_,
+        "appkey: " + cfg_.app_key,
+        "appsecret: " + cfg_.app_secret,
+        "tr_id: FHKUP03500100",
+    };
+
+    std::vector<MarketData> result;
+    try
+    {
+        auto resp = http_get(url, hdrs);
+        if (resp.empty()) return result;
+
+        LOG_INFO("[KIS] 업종 일봉 응답(" + sector_code + "): " + resp.substr(0, 300));
+
+        auto j = json::parse(resp, nullptr, false);
+        if (j.is_discarded() || !j.contains("output2")) return result;
+
+        auto sd = [](const nlohmann::json& o, const std::string& k) -> double {
+            try { return std::stod(o.value(k, "0")); } catch (...) { return 0.0; }
+        };
+
+        for (const auto& item : j["output2"])
+        {
+            MarketData d;
+            d.ticker = sector_code;
+            d.close  = sd(item, "bstp_nmix_prpr");   // 지수 종가
+            d.open   = sd(item, "bstp_nmix_oprc");
+            d.high   = sd(item, "bstp_nmix_hgpr");
+            d.low    = sd(item, "bstp_nmix_lwpr");
+            d.volume = static_cast<int64_t>(sd(item, "acml_vol"));
+            result.push_back(d);
+            if (static_cast<int>(result.size()) >= count) break;
+        }
+    }
+    catch (const std::exception& e)
+    {
+        LOG_WARN("[KIS] 업종 일봉(" + sector_code + ") 오류: " + e.what());
+    }
+    return result;
+}
+
+// ─── 업종별 등락률 순위 ────────────────────────────────────────────────────
+std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
+    const std::string& sector_code, int count)
+{
+    ensure_authenticated();
+
+    // 등락률 순위 API — FID_INPUT_ISCD에 업종코드 지정
+    std::string url = base_url() +
+        "/uapi/domestic-stock/v1/ranking/fluctuation"
+        "?FID_COND_MRKT_DIV_CODE=J"
+        "&FID_COND_SCR_DIV_CODE=20170"
+        "&FID_INPUT_ISCD=" + sector_code +
+        "&FID_RANK_SORT_CLS_CODE=0"   // 상승률 내림차순
+        "&FID_INPUT_CNT_1=" + std::to_string(count) +
+        "&FID_PRC_CLS_CODE=0"
+        "&FID_TRGT_CLS_CODE=0"
+        "&FID_TRGT_EXLS_CLS_CODE=0"
+        "&FID_INPUT_PRICE_1=&FID_INPUT_PRICE_2="
+        "&FID_VOL_CNT=&FID_INPUT_DATE_1=";
+
+    std::vector<std::string> hdrs = {
+        "authorization: Bearer " + access_token_,
+        "appkey: " + cfg_.app_key,
+        "appsecret: " + cfg_.app_secret,
+        "tr_id: FHPST01700000",
+    };
+
+    std::vector<RankingStock> result;
+    try
+    {
+        auto resp = http_get(url, hdrs);
+        if (resp.empty()) return result;
+
+        LOG_INFO("[KIS] 업종 등락률 응답(" + sector_code + "): " + resp.substr(0, 300));
+
+        auto j = json::parse(resp, nullptr, false);
+        if (j.is_discarded()) return result;
+
+        auto sd = [](const nlohmann::json& o, const std::string& k) -> double {
+            try { return std::stod(o.value(k, "0")); } catch (...) { return 0.0; }
+        };
+        auto si = [](const nlohmann::json& o, const std::string& k) -> int64_t {
+            try { return std::stoll(o.value(k, "0")); } catch (...) { return 0; }
+        };
+        auto is_normal_ticker = [](const std::string& t) {
+            if (t.size() != 6) return false;
+            for (char c : t) if (c < '0' || c > '9') return false;
+            return true;
+        };
+
+        auto& arr = j.contains("output2") ? j["output2"] : j["output"];
+        for (const auto& item : arr)
+        {
+            std::string ticker = item.value("mksc_shrn_iscd", "");
+            if (!is_normal_ticker(ticker)) continue;
+
+            RankingStock s;
+            s.ticker      = ticker;
+            s.name        = item.value("hts_kor_isnm", "");
+            s.price       = sd(item, "stck_prpr");
+            s.change_rate = sd(item, "prdy_ctrt");
+            s.volume      = si(item, "acml_vol");
+            result.push_back(s);
+            if (static_cast<int>(result.size()) >= count) break;
+        }
+    }
+    catch (const std::exception& e)
+    {
+        LOG_WARN("[KIS] 업종 등락률(" + sector_code + ") 오류: " + e.what());
+    }
+    return result;
+}
+
+// ─── 투자자별 매매동향 (외국인·기관 순매수) ──────────────────────────────────
+KisClient::InvestorTrend KisClient::get_investor_trend(const std::string& ticker)
+{
+    ensure_authenticated();
+
+    std::string url = base_url() +
+        "/uapi/domestic-stock/v1/quotations/inquire-investor"
+        "?FID_COND_MRKT_DIV_CODE=J"
+        "&FID_INPUT_ISCD=" + ticker;
+
+    std::vector<std::string> hdrs = {
+        "authorization: Bearer " + access_token_,
+        "appkey: " + cfg_.app_key,
+        "appsecret: " + cfg_.app_secret,
+        "tr_id: FHKST01010900",
+    };
+
+    InvestorTrend result;
+    result.ticker = ticker;
+    try
+    {
+        auto resp = http_get(url, hdrs);
+        if (resp.empty()) return result;
+
+        auto j = json::parse(resp, nullptr, false);
+        if (j.is_discarded() || !j.contains("output")) return result;
+
+        // output 배열 최신(오늘) 데이터만 사용
+        auto& arr = j["output"];
+        if (arr.empty()) return result;
+        const auto& latest = arr[0];
+
+        auto si = [](const nlohmann::json& o, const std::string& k) -> int64_t {
+            try { return std::stoll(o.value(k, "0")); } catch (...) { return 0; }
+        };
+        result.foreign_net = si(latest, "frgn_ntby_qty");  // 외국인 순매수
+        result.inst_net    = si(latest, "orgn_ntby_qty");   // 기관 순매수
+    }
+    catch (const std::exception& e)
+    {
+        LOG_WARN("[KIS] 투자자동향(" + ticker + ") 오류: " + e.what());
+    }
+    return result;
+}
+
+// ─── 투자자별 매매동향 일자별 시계열 ────────────────────────────────────────
+// 동일 엔드포인트(FHKST01010900), output 배열 전체 파싱 (최대 30거래일)
+// flows[0] = 가장 최근 거래일 (장 종료 후 확정치)
+std::vector<InvestorFlow> KisClient::get_investor_flow(const std::string& ticker,
+                                                        const std::string& market_div)
+{
+    ensure_authenticated();
+
+    std::string url = base_url() +
+        "/uapi/domestic-stock/v1/quotations/inquire-investor"
+        "?FID_COND_MRKT_DIV_CODE=" + market_div +
+        "&FID_INPUT_ISCD=" + ticker;
+
+    std::vector<std::string> hdrs = {
+        "authorization: Bearer " + access_token_,
+        "appkey: " + cfg_.app_key,
+        "appsecret: " + cfg_.app_secret,
+        "tr_id: FHKST01010900",
+    };
+
+    std::vector<InvestorFlow> result;
+    try
+    {
+        auto resp = http_get(url, hdrs);
+        if (resp.empty()) return result;
+
+        auto j = json::parse(resp, nullptr, false);
+        if (j.is_discarded() || !j.contains("output")) return result;
+
+        auto si = [](const nlohmann::json& o, const std::string& k) -> int64_t {
+            std::string s = o.value(k, "");
+            if (s.empty()) return 0;
+            // KIS 부호 있는 수치 문자열: 앞에 + / - 포함 가능
+            try { return std::stoll(s); } catch (...) { return 0; }
+        };
+        auto sd = [](const nlohmann::json& o, const std::string& k) -> double {
+            std::string s = o.value(k, "");
+            if (s.empty()) return 0.0;
+            try { return std::stod(s); } catch (...) { return 0.0; }
+        };
+
+        for (const auto& row : j["output"])
+        {
+            InvestorFlow f;
+            f.date        = row.value("stck_bsop_date", "");
+            f.foreign_net = si(row, "frgn_ntby_qty");
+            f.inst_net    = si(row, "orgn_ntby_qty");
+            f.indiv_net   = si(row, "prsn_ntby_qty");
+            f.close       = sd(row, "stck_clpr");
+            if (!f.date.empty())
+                result.push_back(std::move(f));
+        }
+    }
+    catch (const std::exception& e)
+    {
+        LOG_WARN("[KIS] 투자자 시계열(" + ticker + ") 오류: " + e.what());
+    }
+    return result; // [0]=가장 최근, look-ahead 방지는 호출측 책임
+}
+
 // ─── 지수 현재값 (코스피 "0001", 코스닥 "1001", KOSPI200 "2001") ────────────
 KisClient::IndexPrice KisClient::get_index_price(const std::string& ticker)
 {

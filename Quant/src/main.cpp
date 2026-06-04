@@ -1,7 +1,11 @@
 #include "api/KisWebSocket.h"
 #include "core/Engine.h"
+#include "strategy/FixedIntervalStrategy.h"
 #include "strategy/MACrossStrategy.h"
 #include "strategy/MomentumStrategy.h"
+#include "strategy/PriceTargetStrategy.h"
+#include "strategy/SupplyDemandPullbackStrategy.h"
+#include "strategy/ThemeStrategy.h"
 #include "strategy/ValueContraryStrategy.h"
 #include "utils/Logger.h"
 #include "utils/Utf8.h"
@@ -883,6 +887,79 @@ int main(int argc, char* argv[])
             double pbr_max = s.value("pbr_max", 1.0);
             int eod_hhmm = s.value("eod_exit_hhmm", 1520);
             engine.add_strategy(std::make_unique<ValueContraryStrategy>(market, exchange, pbr_max, qty, eod_hhmm));
+        }
+        else if (type == "FIXED_INTERVAL")
+        {
+            std::string ticker   = s["ticker"].get<std::string>();
+            int buy_qty          = s.value("buy_qty", 1);
+            int sell_qty         = s.value("sell_qty", 1);
+            int interval_sec     = s.value("interval_sec", 300);
+            engine.add_strategy(std::make_unique<FixedIntervalStrategy>(ticker, buy_qty, sell_qty, interval_sec));
+        }
+        else if (type == "PRICE_TARGET")
+        {
+            std::vector<PriceTargetStrategy::PriceTarget> price_targets;
+            if (s.contains("price_targets"))
+            {
+                for (const auto& pt : s["price_targets"])
+                {
+                    PriceTargetStrategy::PriceTarget t;
+                    t.ticker       = pt["ticker"].get<std::string>();
+                    t.buy_price    = pt.value("buy_price",  0.0);
+                    t.sell_price   = pt.value("sell_price", 0.0);
+                    t.quantity     = pt.value("quantity",   1);
+                    t.cooldown_sec = pt.value("cooldown_sec", 60);
+                    price_targets.push_back(t);
+                }
+            }
+            std::vector<PriceTargetStrategy::LimitOrder> limit_orders;
+            if (s.contains("limit_orders"))
+            {
+                for (const auto& lo : s["limit_orders"])
+                {
+                    PriceTargetStrategy::LimitOrder l;
+                    l.ticker   = lo["ticker"].get<std::string>();
+                    l.side     = (lo.value("side", "BUY") == "SELL") ? OrderSide::SELL : OrderSide::BUY;
+                    l.price    = lo.value("price",    0.0);
+                    l.quantity = lo.value("quantity", 1);
+                    limit_orders.push_back(l);
+                }
+            }
+            engine.add_strategy(std::make_unique<PriceTargetStrategy>(
+                std::move(price_targets), std::move(limit_orders)));
+        }
+        else if (type == "SUPPLY_DEMAND_PULLBACK")
+        {
+            SupplyDemandPullbackStrategy::Params sp;
+            sp.market_div        = s.value("market_div",        "J");
+            sp.universe_size     = s.value("universe_size",     50);
+            sp.lookback_days     = s.value("lookback_days",     5);
+            sp.min_dual_days     = s.value("min_dual_days",     3);
+            sp.min_consec_days   = s.value("min_consec_days",   0);
+            sp.net_buy_threshold = s.value("net_buy_threshold", (int64_t)0);
+            sp.ma_period         = s.value("ma_period",         5);
+            sp.pullback_band     = s.value("pullback_band",     0.01);
+            sp.require_prev_above= s.value("require_prev_above",true);
+            sp.quantity          = s.value("quantity",          10);
+            sp.eod_exit_hhmm     = s.value("eod_exit_hhmm",    std::string("1500"));
+            sp.stop_below_ma     = s.value("stop_below_ma",    0.0);
+            std::string mode_str = s.value("entry_mode", "EOD");
+            sp.mode = (mode_str == "INTRADAY")
+                    ? SupplyDemandPullbackStrategy::EntryMode::INTRADAY
+                    : SupplyDemandPullbackStrategy::EntryMode::EOD;
+            engine.add_strategy(std::make_unique<SupplyDemandPullbackStrategy>(sp));
+        }
+        else if (type == "THEME")
+        {
+            std::vector<std::string> sector_codes;
+            if (s.contains("sector_codes") && s["sector_codes"].is_array())
+                sector_codes = s["sector_codes"].get<std::vector<std::string>>();
+            int top_n            = s.value("top_n_sectors", 2);
+            double vol_surge     = s.value("volume_surge_mult", 2.0);
+            bool inst_filter     = s.value("inst_filter", true);
+            int eod_hhmm         = s.value("eod_exit_hhmm", 1520);
+            engine.add_strategy(std::make_unique<ThemeStrategy>(
+                sector_codes, top_n, vol_surge, inst_filter, qty, eod_hhmm));
         }
         else
         {

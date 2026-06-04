@@ -1,4 +1,14 @@
 {
     "terminal.integrated.cwd": "${workspaceFolder}",
-    "python.defaultInterpreterPath": "${workspaceFolder}/PYQuant/.venv/bin/python"
+    "python.defaultInterpreterPath": "${workspaceFolder}/PYQuant/.venv/bin/python",
+    "search.useIgnoreFiles": false,
+    "search.exclude": {
+        "**/node_modules": true,
+        "**/build": true,
+        "**/build_win": true,
+        "**/out": true,
+        "**/.venv": true,
+        "**/__pycache__": true,
+        "**/_deps": true
+    }
 }

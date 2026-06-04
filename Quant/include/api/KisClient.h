@@ -67,6 +67,26 @@ public:
     // 전체 시장 PBR 기반 Universe 조회 (ticker만 반환)
     std::vector<std::string> fetch_universe_by_pbr(double max_pbr, const std::string& market_div = "J");
 
+    // 업종 지수 일봉 (sector_code: 코스피 업종 "0001"~"0026" 등)
+    std::vector<MarketData> get_index_daily_ohlcv(const std::string& sector_code, int count = 6);
+
+    // 업종별 등락률 순위 — 업종 내 상승 종목 스캔
+    std::vector<RankingStock> fetch_sector_ranking(const std::string& sector_code, int count = 30);
+
+    // 투자자별 매매동향 — 외국인·기관 순매수 확인 (단일 최신값)
+    struct InvestorTrend
+    {
+        std::string ticker;
+        int64_t foreign_net = 0; // 외국인 순매수 수량 (양수=순매수)
+        int64_t inst_net    = 0; // 기관 순매수 수량
+    };
+    InvestorTrend get_investor_trend(const std::string& ticker);
+
+    // 투자자별 매매동향 일자별 시계열 (수급 전략용 — 최대 30거래일)
+    // flows[0] = 가장 최근 거래일, look-ahead 방지는 호출측 책임
+    std::vector<InvestorFlow> get_investor_flow(const std::string& ticker,
+                                                const std::string& market_div = "J");
+
     // ── 해외 (US) ──────────────────────────────────────────────────────────
     // exchange: "NAS"(NASDAQ), "NYS"(NYSE)
     std::vector<MarketData> get_us_daily_ohlcv(const std::string& ticker, int count,

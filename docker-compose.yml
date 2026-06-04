@@ -14,8 +14,9 @@ services:
       - "5556:5556"   # ZMQ REP  (엔진 원격 제어)
     environment:
       TZ: Asia/Seoul
-    # 기본 실행 모드: KR_TEST (docker compose up quant-engine 으로 바로 실행)
-    command: ["./quant_trader", "config/config.json", "KR_TEST"]
+    # 모의투자 TRADE 모드 기본 실행
+    # 실거래 전환: command: ["./quant_trader", "config/config.json", "TRADE"]
+    command: ["./quant_trader", "config/config_paper.json", "TRADE"]
     restart: unless-stopped
     networks:
       - quant-net

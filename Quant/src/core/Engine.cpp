@@ -76,7 +76,18 @@ void Engine::start()
     for (auto& s : strategies_)
     {
         s->set_kis(kis_.get());
-        s->on_start();
+        try
+        {
+            s->on_start();
+        }
+        catch (const std::exception& e)
+        {
+            LOG_ERROR("[Engine] on_start 예외 [" + s->id() + "]: " + e.what() + " — 전략 건너뜀");
+        }
+        catch (...)
+        {
+            LOG_ERROR("[Engine] on_start 알 수 없는 예외 [" + s->id() + "] — 전략 건너뜀");
+        }
     }
 
     // 전략별 구독 스펙 수집 (중복 제거)
