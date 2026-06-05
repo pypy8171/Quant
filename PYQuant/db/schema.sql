@@ -74,6 +74,31 @@ CREATE TABLE IF NOT EXISTS positions (
     updated_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 
+-- ── 계좌 일별 스냅샷 (원금추적/기간수익률용) ────────────────────────────────
+-- EOD 1회 get_kr_balance() 결과를 적재. account='paper'|'real' 로 모의/실전 분리.
+CREATE TABLE IF NOT EXISTS account_snapshots (
+    ts             TIMESTAMPTZ   NOT NULL,
+    account        TEXT          NOT NULL,   -- 'paper' | 'real'
+    cash           NUMERIC(18,4),            -- 예수금
+    total_eval     NUMERIC(18,4),            -- 총평가금액
+    total_pnl      NUMERIC(18,4),            -- 총평가손익
+    total_pnl_rate NUMERIC(10,4)             -- 총수익률(%)
+);
+SELECT create_hypertable('account_snapshots', 'ts', if_not_exists => TRUE);
+CREATE INDEX IF NOT EXISTS account_snapshots_acct_ts ON account_snapshots (account, ts DESC);
+
+-- ── 입출금 내역 (원금 추적) ─────────────────────────────────────────────────
+-- 실전은 입출금이 의미 있음(현재 수동 기록 — KIS 입출금 TR 확정 시 자동화).
+-- 모의는 입출금 개념이 없어 비워 둠.
+CREATE TABLE IF NOT EXISTS cash_flows (
+    ts         TIMESTAMPTZ   NOT NULL,
+    account    TEXT          NOT NULL,   -- 'paper' | 'real'
+    flow_type  TEXT          NOT NULL,   -- DEPOSIT | WITHDRAW
+    amount     NUMERIC(18,4) NOT NULL,   -- 양수 (방향은 flow_type)
+    memo       TEXT
+);
+CREATE INDEX IF NOT EXISTS cash_flows_acct_ts ON cash_flows (account, ts DESC);
+
 -- ── KIS REST 일봉 (bars_1d) ──────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS bars_1d (
     ts         TIMESTAMPTZ  NOT NULL,
@@ -87,3 +112,21 @@ CREATE TABLE IF NOT EXISTS bars_1d (
 );
 SELECT create_hypertable('bars_1d', 'ts', if_not_exists => TRUE);
 CREATE UNIQUE INDEX IF NOT EXISTS bars_1d_ticker_ts ON bars_1d (ticker, ts DESC);
+
+-- ── 시장 국면 (RegimeController, 장 시작 1회 판정) ───────────────────────────
+-- 학습 데이터 축적 시작점. 개별 지표 분해 저장 (어느 지표가 국면을 갈랐나).
+CREATE TABLE IF NOT EXISTS regime (
+    date          DATE PRIMARY KEY,
+    regime        TEXT NOT NULL,        -- BULL / NEUTRAL / BEAR
+    score         INT  NOT NULL,        -- v0: -2..+2
+    above_ma200   BOOLEAN,
+    aligned_bull  BOOLEAN,
+    aligned_bear  BOOLEAN,
+    index_close   DOUBLE PRECISION,
+    ts            TIMESTAMPTZ NOT NULL
+);
+
+-- ── 거래 라벨: 그때의 국면을 행동(signals)·결과(fills)에 stamp ────────────────
+-- (상황→행동→결과) 삼각형 완성. 지금 안 붙이면 소급 불가.
+ALTER TABLE signals ADD COLUMN IF NOT EXISTS regime TEXT;
+ALTER TABLE fills   ADD COLUMN IF NOT EXISTS regime TEXT;

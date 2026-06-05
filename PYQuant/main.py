@@ -182,6 +182,46 @@ def cmd_balance(args):
         logger.error(f"인증 오류: {e}")
 
 
+def cmd_report(args):
+    try:
+        config_path = None
+        if args.paper:
+            config_path = str(Path(__file__).parents[1] / "Quant" / "config" / "config_paper.json")
+        kis = from_config(config_path)
+        if not kis.authenticate():
+            raise KisAuthError("초기 인증 실패")
+        account = "paper" if kis.is_paper else "real"
+
+        db = None
+        try:
+            from db.client import DbClient
+            db = DbClient()
+            db.ensure_report_tables()
+        except Exception as e:
+            logger.warning(f"DB 미연결 — 현재 잔고만 표시 (스냅샷/입출금 비활성): {e}")
+
+        from report.account import AccountReport
+        rpt = AccountReport(kis, db, account)
+
+        if args.snapshot:
+            _, s = rpt.snapshot()
+            print(f"[{account}] 잔고 스냅샷 적재: 총평가 {s.total_eval:,.0f}원")
+        if args.deposit is not None:
+            rpt.record_cash_flow("DEPOSIT", args.deposit, args.memo or "")
+            print(f"[{account}] 입금 {args.deposit:,.0f}원 기록")
+        if args.withdraw is not None:
+            rpt.record_cash_flow("WITHDRAW", args.withdraw, args.memo or "")
+            print(f"[{account}] 출금 {args.withdraw:,.0f}원 기록")
+
+        if not args.no_report:
+            rpt.print_report(args.from_date, args.to_date, show_trades=args.trades)
+
+        if db:
+            db.close()
+    except KisAuthError as e:
+        logger.error(f"인증 오류: {e}")
+
+
 def cmd_live(args):
     try:
         kis = from_config()
@@ -226,6 +266,18 @@ def main():
     blp.add_argument("--watch",    action="store_true", help="N초마다 자동 갱신")
     blp.add_argument("--interval", type=int, default=30, help="갱신 주기(초, 기본 30)")
 
+    # ── report ──────────────────────────────────────────────────────────────
+    rp2 = sub.add_parser("report", help="계좌 입출금/수익률/거래내역 리포트")
+    rp2.add_argument("--paper",    action="store_true", help="모의투자 계좌(config_paper.json) 대상")
+    rp2.add_argument("--from",     dest="from_date", default=None, help="기간 시작 YYYY-MM-DD")
+    rp2.add_argument("--to",       dest="to_date",   default=None, help="기간 종료 YYYY-MM-DD")
+    rp2.add_argument("--snapshot", action="store_true", help="현재 잔고를 스냅샷으로 적재 (EOD 1회 권장)")
+    rp2.add_argument("--deposit",  type=float, default=None, help="입금액 기록 (실전)")
+    rp2.add_argument("--withdraw", type=float, default=None, help="출금액 기록 (실전)")
+    rp2.add_argument("--memo",     default=None, help="입출금 메모")
+    rp2.add_argument("--trades",   action="store_true", help="거래내역(체결) 표시")
+    rp2.add_argument("--no-report", action="store_true", help="적재만 하고 리포트 출력 생략")
+
     # ── monitor ─────────────────────────────────────────────────────────────
     mp = sub.add_parser("monitor", help="C++ 엔진 이벤트 실시간 출력")
     mp.add_argument("--host",   default="localhost")
@@ -253,6 +305,8 @@ def main():
         cmd_live(args)
     elif args.cmd == "balance":
         cmd_balance(args)
+    elif args.cmd == "report":
+        cmd_report(args)
     elif args.cmd == "monitor":
         cmd_monitor(args)
     elif args.cmd == "record":

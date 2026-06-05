@@ -74,6 +74,7 @@ endif()
 set(SOURCES
   src/main.cpp
   src/core/Engine.cpp
+  src/core/RegimeController.cpp
   src/core/RingBuffer.cpp
   src/api/KisClient.cpp
   src/api/WebSocketClient.cpp
@@ -161,6 +162,13 @@ add_executable(test_order_router
 target_include_directories(test_order_router PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(UNIX)
     target_link_libraries(test_order_router PRIVATE pthread)
+endif()
+
+# ─── 테스트 타겟: RegimeController 점수/분류 단위 테스트 (KIS 불필요) ──────
+add_executable(test_regime tests/test_regime.cpp)
+target_include_directories(test_regime PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(test_regime PRIVATE pthread)
 endif()
 
 # ─── 테스트 타겟: SPSC RingBuffer 검증 ───────────────────────────────────

@@ -181,3 +181,28 @@ struct Fundamentals
     double rate = 0.0;         // 등락율(%)
     double market_cap = 0.0;   // 시가총액 (억원)
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 시장 국면 (RegimeController, 장 시작 1회 판정)
+// 개별 지표를 분해 저장 — 학습 입력 + 학습 설명 + 디버깅
+// ─────────────────────────────────────────────────────────────────────────────
+enum class Regime
+{
+    BULL,
+    NEUTRAL,
+    BEAR,
+    UNKNOWN
+};
+
+struct RegimeSnapshot
+{
+    std::string date;            // "YYYYMMDD" — 국면이 적용되는 거래일(KST)
+    Regime      regime = Regime::UNKNOWN;
+    int         score  = 0;      // v0: -2..+2
+    bool        above_ma200  = false;  // 지수 종가 > 200일선
+    bool        aligned_bull  = false; // ma20 > ma60 > ma120
+    bool        aligned_bear  = false; // ma20 < ma60 < ma120
+    double      index_close = 0.0;
+    double      ma200 = 0.0, ma20 = 0.0, ma60 = 0.0, ma120 = 0.0;
+    std::chrono::system_clock::time_point timestamp;
+};

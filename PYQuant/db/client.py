@@ -27,6 +27,21 @@ def _require(data: dict, *keys: str) -> None:
         raise ValueError(f"필수 필드 누락: {missing}")
 
 
+def _exclusive_end(end):
+    """기간 상한을 '그날 포함'으로 — 'YYYY-MM-DD'/date/datetime → 다음날(배타상한, `ts < %s` 용).
+    'ts <= 날짜'는 그날 00:00로 해석돼 EOD(장마감 후) 적재분을 누락시킨다 (C-1)."""
+    from datetime import date as _date, datetime as _dt, timedelta
+    if isinstance(end, str):
+        d = _dt.strptime(end[:10], "%Y-%m-%d").date()
+    elif isinstance(end, _dt):
+        d = end.date()
+    elif isinstance(end, _date):
+        d = end
+    else:
+        return end  # 알 수 없는 타입 → 그대로 (호출측 책임)
+    return d + timedelta(days=1)
+
+
 class DbClient:
     def __init__(
         self,
@@ -90,8 +105,8 @@ class DbClient:
             _require(data, "ts", "strategy", "ticker", "side", "qty")
             with self._conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO signals(ts,strategy,ticker,side,qty,price,market)"
-                    " VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    "INSERT INTO signals(ts,strategy,ticker,side,qty,price,market,regime)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                     (
                         _ms_to_dt(data["ts"]),
                         data["strategy"],
@@ -100,6 +115,7 @@ class DbClient:
                         data["qty"],
                         data.get("price"),
                         data.get("market", "KR"),
+                        data.get("regime"),   # 그때의 국면 stamp (없으면 NULL)
                     ),
                 )
         except Exception as e:
@@ -178,8 +194,8 @@ class DbClient:
             with self._conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO fills"
-                    "(ts,odno,ticker,side,filled_qty,filled_price,commission,tax,market)"
-                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    "(ts,odno,ticker,side,filled_qty,filled_price,commission,tax,market,regime)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (
                         ts,
                         data["odno"],
@@ -190,6 +206,7 @@ class DbClient:
                         data.get("commission"),
                         data.get("tax"),
                         data.get("market", "KR"),
+                        data.get("regime"),   # 그때의 국면 stamp (없으면 NULL)
                     ),
                 )
         except Exception as e:
@@ -222,6 +239,155 @@ class DbClient:
                 " ON CONFLICT (ticker,ts) DO NOTHING",
                 (ts, ticker, o, h, lo, c, vol, market),
             )
+
+    # ── 시장 국면 (RegimeController) ─────────────────────────────────────────
+
+    def ensure_regime_tables(self):
+        """기존 DB에도 regime 테이블 + signals/fills.regime 컬럼이 있도록 보장.
+        schema.sql은 fresh init에만 적용되므로 기존 DB는 이 마이그레이션 필요."""
+        ddl = [
+            "CREATE TABLE IF NOT EXISTS regime ("
+            " date DATE PRIMARY KEY, regime TEXT NOT NULL, score INT NOT NULL,"
+            " above_ma200 BOOLEAN, aligned_bull BOOLEAN, aligned_bear BOOLEAN,"
+            " index_close DOUBLE PRECISION, ts TIMESTAMPTZ NOT NULL)",
+            "ALTER TABLE signals ADD COLUMN IF NOT EXISTS regime TEXT",
+            "ALTER TABLE fills   ADD COLUMN IF NOT EXISTS regime TEXT",
+        ]
+        try:
+            with self._conn.cursor() as cur:
+                for stmt in ddl:
+                    cur.execute(stmt)
+        except Exception as e:
+            logger.error(f"ensure_regime_tables 실패: {e}")
+
+    def insert_regime(self, data: dict):
+        """국면 스냅샷 1건 적재. date를 PK로 UPSERT (장 시작 1회 → 하루 1행)."""
+        try:
+            _require(data, "date", "regime", "score")
+            ts = data.get("ts")
+            ts = ts if isinstance(ts, datetime) else (_ms_to_dt(ts) if ts else datetime.now(timezone.utc))
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO regime"
+                    "(date,regime,score,above_ma200,aligned_bull,aligned_bear,index_close,ts)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"
+                    " ON CONFLICT (date) DO UPDATE SET"
+                    "   regime=EXCLUDED.regime, score=EXCLUDED.score,"
+                    "   above_ma200=EXCLUDED.above_ma200, aligned_bull=EXCLUDED.aligned_bull,"
+                    "   aligned_bear=EXCLUDED.aligned_bear, index_close=EXCLUDED.index_close,"
+                    "   ts=EXCLUDED.ts",
+                    (
+                        data["date"], data["regime"], data["score"],
+                        data.get("above_ma200"), data.get("aligned_bull"),
+                        data.get("aligned_bear"), data.get("index_close"), ts,
+                    ),
+                )
+        except Exception as e:
+            logger.error(f"insert_regime 실패 (data={data}): {e}")
+
+    def get_regime(self, start=None, end=None) -> list[dict]:
+        sql = ("SELECT date,regime,score,above_ma200,aligned_bull,aligned_bear,"
+               "index_close,ts FROM regime WHERE TRUE")
+        p: list = []
+        if start: sql += " AND date >= %s"; p.append(start)
+        if end:   sql += " AND date <= %s"; p.append(end)
+        sql += " ORDER BY date ASC"
+        return self._query(sql, tuple(p))
+
+    # ── 계좌 리포트 (스냅샷 / 입출금 / 거래내역) ─────────────────────────────
+
+    def ensure_report_tables(self):
+        """기존 DB(초기화 이후 생성)에도 리포트 테이블이 있도록 보장 — schema.sql과 동일 DDL."""
+        ddl = [
+            "CREATE TABLE IF NOT EXISTS account_snapshots ("
+            " ts TIMESTAMPTZ NOT NULL, account TEXT NOT NULL,"
+            " cash NUMERIC(18,4), total_eval NUMERIC(18,4),"
+            " total_pnl NUMERIC(18,4), total_pnl_rate NUMERIC(10,4))",
+            "CREATE INDEX IF NOT EXISTS account_snapshots_acct_ts"
+            " ON account_snapshots (account, ts DESC)",
+            "CREATE TABLE IF NOT EXISTS cash_flows ("
+            " ts TIMESTAMPTZ NOT NULL, account TEXT NOT NULL,"
+            " flow_type TEXT NOT NULL, amount NUMERIC(18,4) NOT NULL, memo TEXT)",
+            "CREATE INDEX IF NOT EXISTS cash_flows_acct_ts"
+            " ON cash_flows (account, ts DESC)",
+        ]
+        try:
+            with self._conn.cursor() as cur:
+                for stmt in ddl:
+                    cur.execute(stmt)
+                # account_snapshots를 하이퍼테이블로 (가능할 때만 — TimescaleDB 없으면 무시)
+                try:
+                    cur.execute("SELECT create_hypertable('account_snapshots','ts',"
+                                "if_not_exists => TRUE)")
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"ensure_report_tables 실패: {e}")
+
+    def insert_account_snapshot(self, account: str, cash: float, total_eval: float,
+                                total_pnl: float, total_pnl_rate: float, ts=None):
+        try:
+            ts = ts or datetime.now(timezone.utc)
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO account_snapshots"
+                    "(ts,account,cash,total_eval,total_pnl,total_pnl_rate)"
+                    " VALUES (%s,%s,%s,%s,%s,%s)",
+                    (ts, account, cash, total_eval, total_pnl, total_pnl_rate),
+                )
+        except Exception as e:
+            logger.error(f"insert_account_snapshot 실패: {e}")
+
+    def insert_cash_flow(self, account: str, flow_type: str, amount: float,
+                         memo: str = "", ts=None):
+        try:
+            if flow_type not in ("DEPOSIT", "WITHDRAW"):
+                raise ValueError(f"flow_type은 DEPOSIT/WITHDRAW: {flow_type}")
+            ts = ts or datetime.now(timezone.utc)
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO cash_flows(ts,account,flow_type,amount,memo)"
+                    " VALUES (%s,%s,%s,%s,%s)",
+                    (ts, account, flow_type, abs(float(amount)), memo),
+                )
+        except Exception as e:
+            logger.error(f"insert_cash_flow 실패: {e}")
+
+    def _query(self, sql: str, params: tuple) -> list[dict]:
+        try:
+            with self._conn.cursor() as cur:
+                cur.execute(sql, params)
+                cols = [c[0] for c in cur.description]
+                return [dict(zip(cols, row)) for row in cur.fetchall()]
+        except Exception as e:
+            logger.error(f"query 실패 ({sql[:40]}...): {e}")
+            return []
+
+    def get_snapshots(self, account: str, start=None, end=None) -> list[dict]:
+        sql = ("SELECT ts,cash,total_eval,total_pnl,total_pnl_rate FROM account_snapshots"
+               " WHERE account=%s")
+        p: list = [account]
+        if start: sql += " AND ts >= %s"; p.append(start)
+        if end:   sql += " AND ts < %s";  p.append(_exclusive_end(end))  # 배타상한 (그날 포함, C-1)
+        sql += " ORDER BY ts ASC"
+        return self._query(sql, tuple(p))
+
+    def get_cash_flows(self, account: str, start=None, end=None) -> list[dict]:
+        sql = "SELECT ts,flow_type,amount,memo FROM cash_flows WHERE account=%s"
+        p: list = [account]
+        if start: sql += " AND ts >= %s"; p.append(start)
+        if end:   sql += " AND ts < %s";  p.append(_exclusive_end(end))  # 배타상한 (그날 포함, C-1)
+        sql += " ORDER BY ts ASC"
+        return self._query(sql, tuple(p))
+
+    def get_fills(self, start=None, end=None, limit: int = 500) -> list[dict]:
+        sql = ("SELECT ts,ticker,side,filled_qty,filled_price,commission,tax"
+               " FROM fills WHERE TRUE")
+        p: list = []
+        if start: sql += " AND ts >= %s"; p.append(start)
+        if end:   sql += " AND ts < %s";  p.append(_exclusive_end(end))  # 배타상한 (그날 포함, C-1)
+        sql += " ORDER BY ts ASC LIMIT %s"; p.append(limit)
+        return self._query(sql, tuple(p))
 
     def close(self):
         self._conn.close()
