@@ -388,6 +388,9 @@ void Engine::control_thread_fn()
     constexpr int kStaleThresholdSec = 30;
     constexpr int kCheckIntervalSec  = 5;
 
+    int fail_streak = 0;
+    auto next_try = std::chrono::steady_clock::now();
+
     while (running_.load(std::memory_order_acquire))
     {
         std::this_thread::sleep_for(std::chrono::seconds(kCheckIntervalSec));
@@ -399,20 +402,33 @@ void Engine::control_thread_fn()
         if (!is_any_market_open())
             continue;
 
-        if (ws_->is_stale(kStaleThresholdSec))
+        if (!ws_->is_stale(kStaleThresholdSec))
         {
-            LOG_WARN("[Control] WebSocket " + std::to_string(kStaleThresholdSec) +
-                     "초 이상 시세 미수신 — 재연결 시도");
-            ws_->disconnect();
-            if (ws_->connect(watch_specs_))
-            {
-                LOG_INFO("[Control] WebSocket 재연결 성공");
-            }
-            else
-            {
-                LOG_ERROR("[Control] WebSocket 재연결 실패 — kill switch 발동");
+            fail_streak = 0;   // 정상 수신 → 백오프 리셋
+            continue;
+        }
+
+        // 재연결 백오프: 실패가 누적될수록 재시도 간격을 늘려 KIS 측 연결한도 소진/스팸 방지
+        if (std::chrono::steady_clock::now() < next_try)
+            continue;
+
+        LOG_WARN("[Control] WebSocket " + std::to_string(kStaleThresholdSec) +
+                 "초 이상 시세 미수신 — 재연결 시도");
+        ws_->disconnect();
+        if (ws_->connect(watch_specs_))
+        {
+            LOG_INFO("[Control] WebSocket 재연결 성공");
+            fail_streak = 0;
+        }
+        else
+        {
+            ++fail_streak;
+            int backoff = std::min(30 * fail_streak, 300);   // 30s → ... → 최대 300s
+            next_try = std::chrono::steady_clock::now() + std::chrono::seconds(backoff);
+            LOG_ERROR("[Control] WebSocket 재연결 실패(" + std::to_string(fail_streak) +
+                      "회) — " + std::to_string(backoff) + "초 후 재시도");
+            if (fail_streak >= 3)   // 반복 실패 시에만 kill switch (1회 실패로 즉시 중단 방지)
                 order_gate_.set_kill_switch(true);
-            }
         }
     }
 }

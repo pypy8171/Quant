@@ -111,7 +111,8 @@ RegimeSnapshot RegimeController::evaluate()
     s.ma20  = sma(cfg_.ma_short);
     s.ma60  = sma(cfg_.ma_mid);
     s.ma120 = sma(cfg_.ma_align3);
-    if (s.index_close <= 0.0 || s.ma200 <= 0.0)   // 과도기 비정상값 방어 (W3)
+    if (s.index_close <= 0.0 || s.ma200 <= 0.0 ||  // 과도기 비정상값 방어 (W3/S-1)
+        s.ma20 <= 0.0 || s.ma60 <= 0.0 || s.ma120 <= 0.0)
         return on_fail("지수 종가/MA 비정상값(close=" + std::to_string(static_cast<int>(s.index_close)) + ")");
     s.above_ma200  = s.index_close > s.ma200;
     s.aligned_bull = (s.ma20 > s.ma60) && (s.ma60 > s.ma120);

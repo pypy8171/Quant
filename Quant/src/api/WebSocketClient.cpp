@@ -394,10 +394,12 @@ void KisWebSocket::disconnect()
 
 #else
 // ─── Linux: libcurl (HTTP) + POSIX socket (WebSocket) ─────────────────────
+#include <cerrno>
 #include <cstring>
 #include <curl/curl.h>
 #include <netdb.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 std::wstring KisWebSocket::to_wide(const std::string&)
@@ -457,14 +459,18 @@ static bool sock_recv_all(int fd, void* buf, size_t len)
 // RFC 6455 WebSocket TCP 연결 + HTTP Upgrade 핸드셰이크
 static bool ws_tcp_connect(const std::string& host, int port, int& out_fd)
 {
-    struct addrinfo hints
-    {
-    }, *res = nullptr;
-    hints.ai_family = AF_UNSPEC;
+    // AF_INET(IPv4) 강제: AF_UNSPEC면 getaddrinfo가 IPv6를 먼저 줄 수 있고,
+    // Docker에서 IPv6 connect는 성공하나 KIS WS가 IPv6 핸드셰이크에 무응답 → recv 실패.
+    struct addrinfo hints{}, *res = nullptr;
+    hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
 
-    if (getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res) != 0)
+    int gai = getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res);
+    if (gai != 0)
+    {
+        LOG_WARN(std::string("[WS] getaddrinfo 실패: ") + gai_strerror(gai));
         return false;
+    }
 
     int fd = -1;
     for (auto* p = res; p; p = p->ai_next)
@@ -479,7 +485,16 @@ static bool ws_tcp_connect(const std::string& host, int port, int& out_fd)
     }
     freeaddrinfo(res);
     if (fd < 0)
+    {
+        LOG_WARN("[WS] TCP connect 실패 (" + host + ":" + std::to_string(port) + "): " +
+                 std::strerror(errno));
         return false;
+    }
+
+    // 핸드셰이크 응답 수신 타임아웃 (무응답 시 무한대기 방지)
+    struct timeval tv{};
+    tv.tv_sec = 5;
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     // HTTP/1.1 Upgrade 핸드셰이크
     std::string req = "GET / HTTP/1.1\r\n"
@@ -493,17 +508,34 @@ static bool ws_tcp_connect(const std::string& host, int port, int& out_fd)
 
     if (::send(fd, req.c_str(), req.size(), 0) < 0)
     {
+        LOG_WARN(std::string("[WS] 핸드셰이크 send 실패: ") + std::strerror(errno));
         ::close(fd);
         return false;
     }
 
-    char resp[4096]{};
-    ssize_t n = ::recv(fd, resp, sizeof(resp) - 1, 0);
-    if (n <= 0 || strstr(resp, "101") == nullptr)
+    // 응답을 헤더 끝(\r\n\r\n)까지 읽기 (부분 수신 대비)
+    std::string resp;
+    char buf[1024];
+    for (int i = 0; i < 8; ++i)
     {
+        ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
+        if (n <= 0)
+            break;
+        resp.append(buf, static_cast<size_t>(n));
+        if (resp.find("\r\n\r\n") != std::string::npos)
+            break;
+    }
+    if (resp.find("101") == std::string::npos)
+    {
+        LOG_WARN("[WS] 핸드셰이크 응답에 101 없음 (recv " + std::to_string(resp.size()) +
+                 "B): " + resp.substr(0, 120));
         ::close(fd);
         return false;
     }
+
+    // 핸드셰이크 후 데이터 수신은 블로킹(타임아웃 해제) — recv_loop/disconnect가 관리
+    tv.tv_sec = 0;
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     out_fd = fd;
     return true;
