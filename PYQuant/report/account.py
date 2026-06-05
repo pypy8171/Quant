@@ -19,6 +19,14 @@ def _fmt(n) -> str:
         return "-"
 
 
+def _fmt_dt(ts, fmt: str = "%Y-%m-%d") -> str:
+    """ts가 datetime이면 포맷, str로 오는 드라이버면 그대로 반환 (C-4 — TypeError 방지)."""
+    try:
+        return ts.strftime(fmt)
+    except AttributeError:
+        return str(ts)
+
+
 class AccountReport:
     def __init__(self, kis, db=None, account: str = "real"):
         self.kis = kis
@@ -117,7 +125,7 @@ class AccountReport:
             print("  스냅샷 없음 — `report --snapshot`으로 적재를 시작하세요 (EOD 1회 권장)")
         else:
             print(f"  스냅샷 {summ['snap_count']}개  "
-                  f"({summ['begin_ts']:%Y-%m-%d} ~ {summ['end_ts']:%Y-%m-%d})")
+                  f"({_fmt_dt(summ['begin_ts'])} ~ {_fmt_dt(summ['end_ts'])})")
             print(f"  시작 평가금   {_fmt(summ['begin_eval']):>16}원")
             print(f"  순입금        {('+' if summ['net_deposit']>=0 else '')}{_fmt(summ['net_deposit']):>15}원")
             print(f"  원금(투입)    {_fmt(summ['principal']):>16}원")
@@ -137,7 +145,7 @@ class AccountReport:
         else:
             for f in flows:
                 sign = '+' if f["flow_type"] == "DEPOSIT" else '-'
-                print(f"  {f['ts']:%Y-%m-%d} {f['flow_type']:<8} {sign}{_fmt(f['amount']):>14}원"
+                print(f"  {_fmt_dt(f['ts'])} {f['flow_type']:<8} {sign}{_fmt(f['amount']):>14}원"
                       f"  {f.get('memo') or ''}")
 
         # 5) 거래내역 (DB fills — 이 시스템 주문)
@@ -149,7 +157,7 @@ class AccountReport:
             else:
                 print(f"  {'시각':<20}{'종목':>8}{'구분':>5}{'수량':>6}{'단가':>11}{'수수료':>9}{'세금':>9}")
                 for f in fills:
-                    print(f"  {f['ts']:%Y-%m-%d %H:%M:%S}{f['ticker']:>8}{f['side']:>5}"
+                    print(f"  {_fmt_dt(f['ts'], '%Y-%m-%d %H:%M:%S')}{f['ticker']:>8}{f['side']:>5}"
                           f"{f['filled_qty']:>6}{_fmt(f['filled_price']):>11}"
                           f"{_fmt(f['commission']):>9}{_fmt(f['tax']):>9}")
         print(f"\n{'='*64}\n")

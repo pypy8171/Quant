@@ -329,6 +329,10 @@ class DbClient:
         try:
             ts = ts or datetime.now(timezone.utc)
             with self._conn.cursor() as cur:
+                # 같은 날 중복 적재 방지 (C-2): 하이퍼테이블이라 (account,date) UNIQUE가 까다로워
+                # 동일 (account, 날짜) 기존 행을 제거 후 삽입 → 하루 1행 보장(결정적 begin/end)
+                cur.execute("DELETE FROM account_snapshots"
+                            " WHERE account=%s AND ts::date = %s::date", (account, ts))
                 cur.execute(
                     "INSERT INTO account_snapshots"
                     "(ts,account,cash,total_eval,total_pnl,total_pnl_rate)"
@@ -354,14 +358,12 @@ class DbClient:
             logger.error(f"insert_cash_flow 실패: {e}")
 
     def _query(self, sql: str, params: tuple) -> list[dict]:
-        try:
-            with self._conn.cursor() as cur:
-                cur.execute(sql, params)
-                cols = [c[0] for c in cur.description]
-                return [dict(zip(cols, row)) for row in cur.fetchall()]
-        except Exception as e:
-            logger.error(f"query 실패 ({sql[:40]}...): {e}")
-            return []
+        # SQL 예외를 삼키지 않는다 (C-3): []를 반환하면 "조회 실패"와 "무데이터"가 구분 불가 →
+        # 자금 리포트가 DB 오류를 '거래 없음'으로 오인할 수 있다. 예외를 전파해 호출측이 인지하게 한다.
+        with self._conn.cursor() as cur:
+            cur.execute(sql, params)
+            cols = [c[0] for c in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
 
     def get_snapshots(self, account: str, start=None, end=None) -> list[dict]:
         sql = ("SELECT ts,cash,total_eval,total_pnl,total_pnl_rate FROM account_snapshots"
