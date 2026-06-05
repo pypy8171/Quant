@@ -72,6 +72,11 @@ void Engine::start()
 #endif
     LOG_INFO("[Engine] OrderRouter (FEP) 초기화 완료");
 
+    // RegimeController (국면 메타레이어) 초기화
+    regime_ = std::make_unique<RegimeController>();
+    regime_->set_kis(kis_.get());
+    LOG_INFO("[Engine] RegimeController 초기화 완료");
+
     // 전략 초기화 (kis_ 주입 → on_start 내부에서 Universe 조회)
     for (auto& s : strategies_)
     {
@@ -175,11 +180,19 @@ void Engine::data_thread_fn()
     {
         bool market_now = is_any_market_open();
 
-        // 장 시작 감지 → 일별 카운터 리셋
+        // 장 시작 감지 → 일별 카운터 리셋 + 국면 판정
         if (market_now && !was_market_open)
         {
             order_gate_.reset_daily();
             LOG_INFO("[DataThread] 장 시작 — OrderGate 일별 카운터 리셋");
+
+            // 국면 판정(장 시작 1회) → 전략별 활성 국면 설정 (R-1a: 판정·플래그만, 진입차단은 R-1b)
+            if (regime_)
+            {
+                regime_->evaluate();   // 내부에서 [Regime] 로그
+                for (auto& s : strategies_)
+                    s->set_active(regime_->is_active_for(s->active_regimes()));
+            }
         }
         was_market_open = market_now;
 

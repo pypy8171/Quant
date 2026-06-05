@@ -228,8 +228,8 @@ private:
         int hhmm = parse_hhmm(time_str);
         if (hhmm < 900 || hhmm >= 1530) return std::nullopt;
 
-        // 진입: 후보이고 아직 매수 안 했으면
-        if (candidates_.count(ticker) && !buy_sent_.count(ticker))
+        // 진입: 후보이고 아직 매수 안 했으면 (국면 게이트 적용)
+        if (is_active() && candidates_.count(ticker) && !buy_sent_.count(ticker))
         {
             buy_sent_.insert(ticker);
             candidates_.erase(ticker);

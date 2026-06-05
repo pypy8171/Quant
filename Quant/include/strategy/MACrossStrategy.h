@@ -57,8 +57,8 @@ public:
 
         std::optional<OrderSignal> signal;
 
-        // 골든크로스: 단기가 장기를 상향 돌파
-        if (!in_position_ && prev_short_ma_ <= prev_long_ma_ && short_ma > long_ma)
+        // 골든크로스: 단기가 장기를 상향 돌파 (진입 — 국면 게이트 적용)
+        if (is_active() && !in_position_ && prev_short_ma_ <= prev_long_ma_ && short_ma > long_ma)
         {
             signal = make_signal(data, OrderSide::BUY);
             in_position_ = true;

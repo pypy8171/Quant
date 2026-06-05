@@ -185,7 +185,7 @@ public:
                        && price <= ma * (1.0 + p_.pullback_band);
         bool supported  = price >= ma;
 
-        if (prev_above && in_band && supported)
+        if (is_active() && prev_above && in_band && supported)   // 진입 — 국면 게이트
         {
             held_.insert(md.ticker);
             return make_signal(md.ticker, OrderSide::BUY, price);
@@ -232,7 +232,7 @@ public:
                       && price <= ma * (1.0 + p_.pullback_band);
         bool supported = price >= ma;
 
-        if (in_band && supported)
+        if (is_active() && in_band && supported)   // 진입 — 국면 게이트
         {
             held_.insert(td.ticker);
             return make_signal(td.ticker, OrderSide::BUY, price);

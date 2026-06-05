@@ -46,6 +46,16 @@ public:
         return {};
     }
 
+    // 이 전략이 활성화될 시장 국면. 기본값=전 국면(기존 전략 무변경 호환).
+    // config "active_regimes"로 set_active_regimes() 오버라이드. RegimeController 게이트가 참조.
+    std::vector<Regime> active_regimes() const { return active_regimes_; }
+    void set_active_regimes(std::vector<Regime> r) { active_regimes_ = std::move(r); }
+
+    // Engine이 장시작 국면 판정 후 설정 (현재 국면 ∈ active_regimes 이면 true).
+    // 진입 분기에서 is_active() 체크 → 비활성 국면 진입 차단(청산은 무관). 기본 true(국면 모를 때 통과).
+    void set_active(bool a) { active_ = a; }
+    bool is_active() const { return active_; }
+
     // Engine이 unique_ptr<KisClient>로 수명을 관리한다.
     // set_kis()는 Engine::start() 내부에서만 호출되며, 전략 소멸 전에 Engine이 먼저 종료된다.
     void set_kis(KisClient* k)
@@ -55,4 +65,6 @@ public:
 
 protected:
     KisClient* kis_ = nullptr; // non-owning; lifetime guaranteed by Engine
+    bool active_ = true;       // 국면 게이트(Engine이 설정). 기본 true=통과
+    std::vector<Regime> active_regimes_ = {Regime::BULL, Regime::NEUTRAL, Regime::BEAR};
 };

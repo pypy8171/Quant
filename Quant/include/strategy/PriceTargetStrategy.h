@@ -130,6 +130,7 @@ private:
         for (auto& lo : limit_orders_)
         {
             if (lo.placed || lo.ticker != ticker) continue;
+            if (lo.side == OrderSide::BUY && !is_active()) continue;  // BUY 예약은 국면 게이트
 
             lo.placed = true;
             OrderSignal sig;
@@ -168,8 +169,8 @@ private:
             auto& t = targets_[i];
             if (t.ticker != ticker) continue;
 
-            // 매수 조건: 가격 ≤ buy_price
-            if (t.buy_price > 0 && price <= t.buy_price)
+            // 매수 조건: 가격 ≤ buy_price (진입 — 국면 게이트)
+            if (is_active() && t.buy_price > 0 && price <= t.buy_price)
             {
                 auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                                    now - last_buy_[i]).count();

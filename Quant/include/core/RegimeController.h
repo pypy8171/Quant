@@ -34,7 +34,10 @@ public:
         int fail_fallback_n      =  3;     // 연속 N회 조회실패 → NEUTRAL fallback
     };
 
-    explicit RegimeController(Config cfg = Config()) : cfg_(cfg) {}
+    // GCC: 중첩 Config의 NSDMI를 enclosing 클래스 완성 전 default 인자(=Config())로 쓰면 거부.
+    // default 생성자 분리 + Config 인자 생성자로 회피 (MSVC/GCC 공통 컴파일).
+    RegimeController() = default;
+    explicit RegimeController(Config cfg) : cfg_(cfg) {}
     void set_kis(KisClient* k) { kis_ = k; }
 
     // ⚠ 계약: evaluate()는 data_thread에서 장 시작 1회만 호출(단일 호출자). fail_streak_가

@@ -868,6 +868,7 @@ int main(int argc, char* argv[])
     {
         std::string type = s["type"];
         int qty = s.value("quantity", 1);
+        size_t n_before = engine.strategy_count();
 
         if (type == "MA_CROSS")
         {
@@ -964,6 +965,24 @@ int main(int argc, char* argv[])
         else
         {
             LOG_WARN("[Main] 알 수 없는 전략: " + type);
+        }
+
+        // 전략-국면 매핑 (config "active_regimes", 미지정 시 전 국면). 추가된 전략에만 적용.
+        if (engine.strategy_count() > n_before && s.contains("active_regimes") && s["active_regimes"].is_array())
+        {
+            std::vector<Regime> ar;
+            for (const auto& r : s["active_regimes"])
+            {
+                std::string rs = r.get<std::string>();
+                if (rs == "BULL")         ar.push_back(Regime::BULL);
+                else if (rs == "NEUTRAL") ar.push_back(Regime::NEUTRAL);
+                else if (rs == "BEAR")    ar.push_back(Regime::BEAR);
+            }
+            if (!ar.empty())
+            {
+                engine.set_last_active_regimes(ar);
+                LOG_INFO("[Main] " + type + " 활성국면: " + std::to_string(ar.size()) + "개");
+            }
         }
     }
 

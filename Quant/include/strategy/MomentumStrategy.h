@@ -58,8 +58,8 @@ public:
         double channel_high = *std::max_element(highs_.begin(), highs_.end());
         double channel_low = *std::min_element(lows_.begin(), lows_.end());
 
-        // 돌파 매수
-        if (!in_position_ && data.close >= channel_high)
+        // 돌파 매수 (진입 — 국면 게이트 적용)
+        if (is_active() && !in_position_ && data.close >= channel_high)
         {
             in_position_ = true;
             return make_signal(data, OrderSide::BUY);

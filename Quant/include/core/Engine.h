@@ -2,6 +2,7 @@
 #include "api/KisClient.h"
 #include "api/KisWebSocket.h"
 #include "core/RingBuffer.h"
+#include "core/RegimeController.h"
 #include "core/Types.h"
 #include "risk/OrderGate.h"
 #include "strategy/StrategyBase.h"
@@ -31,6 +32,12 @@ public:
     ~Engine();
 
     void add_strategy(std::unique_ptr<StrategyBase> strategy);
+    size_t strategy_count() const { return strategies_.size(); }
+    // 직전 추가된 전략에 활성 국면 설정 (main.cpp config 파싱용)
+    void set_last_active_regimes(const std::vector<Regime>& r)
+    {
+        if (!strategies_.empty()) strategies_.back()->set_active_regimes(r);
+    }
     void start();
     void stop();
 
@@ -80,6 +87,7 @@ private:
 
     OrderGate order_gate_;
     std::unique_ptr<OrderRouter> order_router_; // FEP 레이어 (start() 이후 유효)
+    std::unique_ptr<RegimeController> regime_;  // 국면 메타레이어 (start() 이후 유효)
 
     // 전략에서 수집한 구독 스펙 (on_start 이후 확정)
     std::vector<WatchSpec> watch_specs_;
