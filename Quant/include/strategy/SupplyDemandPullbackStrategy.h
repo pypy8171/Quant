@@ -118,6 +118,9 @@ public:
         }
         LOG_INFO("[SDP] 수급 필터 통과: " + std::to_string(candidates_.size()) + "종목");
 
+        // candidates_ 확정 후 O(1) 조회용 set 동기화 (필수 — 누락 시 is_candidate가 항상 false)
+        rebuild_set();
+
         // 3-A. EOD 모드: 최근 일봉으로 ma 초기화
         if (p_.mode == EntryMode::EOD)
         {

@@ -1051,36 +1051,43 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
 {
     ensure_authenticated();
 
-    // 날짜 범위: 오늘 기준 충분히 넓게 (30일)
-    auto now = std::chrono::system_clock::now();
-    auto today = std::chrono::system_clock::to_time_t(now);
-    struct tm tm_now{};
-#ifdef _WIN32
-    localtime_s(&tm_now, &today);
-#else
-    localtime_r(&today, &tm_now);
-#endif
-    char date_buf[9];
-    std::strftime(date_buf, sizeof(date_buf), "%Y%m%d", &tm_now);
+    // 이 TR(FHKUP03500100)은 응답 헤더(tr_cont) 페이지네이션 대신 날짜범위 방식.
+    // 1콜당 ~50봉만 오므로(라이브 확인), DATE_2를 과거로 밀며 count봉까지 누적한다.
+    // (Python get_historical_ohlcv와 동일 패턴). 결과는 최신→과거(timestamp 내림차순) 정렬.
+    std::vector<MarketData> result;
+    if (count <= 0) return result;
 
-    // 30일 전
-    auto past = today - 30 * 86400;
-    struct tm tm_past{};
+    // 날짜 산술은 서버 로컬 TZ에 독립적이어야 한다(UTC 클라우드 등). gmtime/timegm으로
+    // 통일하고, '오늘'은 KST(+9h) 기준으로 잡는다(KST 자정~오전 실행 시 최신봉 누락 방지).
+    auto fmt_date = [](time_t t) -> std::string {
+        struct tm tmv{};
 #ifdef _WIN32
-    localtime_s(&tm_past, &past);
+        gmtime_s(&tmv, &t);
 #else
-    localtime_r(&past, &tm_past);
+        gmtime_r(&t, &tmv);
 #endif
-    char past_buf[9];
-    std::strftime(past_buf, sizeof(past_buf), "%Y%m%d", &tm_past);
-
-    std::string url = base_url() +
-        "/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice"
-        "?FID_COND_MRKT_DIV_CODE=U"
-        "&FID_INPUT_ISCD=" + sector_code +
-        "&FID_INPUT_DATE_1=" + std::string(past_buf) +
-        "&FID_INPUT_DATE_2=" + std::string(date_buf) +
-        "&FID_PERIOD_DIV_CODE=D";
+        char buf[9];
+        std::strftime(buf, sizeof(buf), "%Y%m%d", &tmv);
+        return std::string(buf);
+    };
+    auto parse_ymd = [](const std::string& s) -> time_t {
+        if (s.size() != 8) return 0;
+        struct tm tmv{};
+        try {
+            tmv.tm_year = std::stoi(s.substr(0, 4)) - 1900;
+            tmv.tm_mon  = std::stoi(s.substr(4, 2)) - 1;
+            tmv.tm_mday = std::stoi(s.substr(6, 2));
+            tmv.tm_hour = 12; // 정오 기준 — 경계 회피
+        } catch (...) { return 0; }
+#ifdef _WIN32
+        return _mkgmtime(&tmv);
+#else
+        return timegm(&tmv);
+#endif
+    };
+    auto sd = [](const nlohmann::json& o, const std::string& k) -> double {
+        try { return std::stod(o.value(k, "0")); } catch (...) { return 0.0; }
+    };
 
     std::vector<std::string> hdrs = {
         "authorization: Bearer " + access_token_,
@@ -1089,38 +1096,77 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
         "tr_id: FHKUP03500100",
     };
 
-    std::vector<MarketData> result;
-    try
+    time_t end_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now())
+                   + 9 * 3600;                // KST 기준 '오늘'
+    std::string oldest_seen;                  // 직전까지 받은 가장 오래된 날짜
+    constexpr int kMaxPages   = 10;
+    constexpr int kWindowDays = 130;          // 1콜 ~50봉 커버 위해 넉넉히
+
+    for (int page = 0; page < kMaxPages && static_cast<int>(result.size()) < count; ++page)
     {
-        auto resp = http_get(url, hdrs);
-        if (resp.empty()) return result;
+        std::string d2 = fmt_date(end_t);
+        std::string d1 = fmt_date(end_t - static_cast<time_t>(kWindowDays) * 86400);
+        std::string url = base_url() +
+            "/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice"
+            "?FID_COND_MRKT_DIV_CODE=U"
+            "&FID_INPUT_ISCD=" + sector_code +
+            "&FID_INPUT_DATE_1=" + d1 +
+            "&FID_INPUT_DATE_2=" + d2 +
+            "&FID_PERIOD_DIV_CODE=D";
 
-        LOG_INFO("[KIS] 업종 일봉 응답(" + sector_code + "): " + resp.substr(0, 300));
-
-        auto j = json::parse(resp, nullptr, false);
-        if (j.is_discarded() || !j.contains("output2")) return result;
-
-        auto sd = [](const nlohmann::json& o, const std::string& k) -> double {
-            try { return std::stod(o.value(k, "0")); } catch (...) { return 0.0; }
-        };
-
-        for (const auto& item : j["output2"])
+        try
         {
-            MarketData d;
-            d.ticker = sector_code;
-            d.close  = sd(item, "bstp_nmix_prpr");   // 지수 종가
-            d.open   = sd(item, "bstp_nmix_oprc");
-            d.high   = sd(item, "bstp_nmix_hgpr");
-            d.low    = sd(item, "bstp_nmix_lwpr");
-            d.volume = static_cast<int64_t>(sd(item, "acml_vol"));
-            result.push_back(d);
-            if (static_cast<int>(result.size()) >= count) break;
+            auto resp = http_get(url, hdrs);
+            if (resp.empty()) break;
+            auto j = json::parse(resp, nullptr, false);
+            if (j.is_discarded() || !j.contains("output2")) break;
+            auto& arr = j["output2"];
+            if (arr.empty()) break;
+
+            std::string page_oldest;
+            int added = 0;
+            for (const auto& item : arr)              // output2는 최신→과거 순
+            {
+                std::string bd = item.value("stck_bsop_date", "");
+                // 페이지 경계 중복 방지: 이미 받은 범위(>= oldest_seen)는 스킵
+                if (!oldest_seen.empty() && !bd.empty() && bd >= oldest_seen) continue;
+                MarketData d;
+                d.ticker = sector_code;
+                d.close  = sd(item, "bstp_nmix_prpr");
+                d.open   = sd(item, "bstp_nmix_oprc");
+                d.high   = sd(item, "bstp_nmix_hgpr");
+                d.low    = sd(item, "bstp_nmix_lwpr");
+                d.volume = static_cast<int64_t>(sd(item, "acml_vol"));
+                if (!bd.empty())
+                    d.timestamp = std::chrono::system_clock::from_time_t(parse_ymd(bd));
+                result.push_back(d);
+                ++added;
+                if (!bd.empty() && (page_oldest.empty() || bd < page_oldest)) page_oldest = bd;
+                if (static_cast<int>(result.size()) >= count) break;
+            }
+
+            if (page_oldest.empty() || added == 0) break;   // 새 데이터 없음 → 종료
+            oldest_seen = page_oldest;
+            time_t ot = parse_ymd(page_oldest);
+            if (ot == 0) break;
+            end_t = ot - 86400;                              // 다음 윈도우: 최古일 -1일
         }
+        catch (const std::exception& e)
+        {
+            LOG_WARN("[KIS] 업종 일봉(" + sector_code + ") 오류: " + e.what());
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(120)); // rate limit 여유
     }
-    catch (const std::exception& e)
-    {
-        LOG_WARN("[KIS] 업종 일봉(" + sector_code + ") 오류: " + e.what());
-    }
+
+    // 호출자(ThemeStrategy: bars[0]=최신)·MA 계산이 정렬에 의존 → KIS 응답 순서와
+    // 무관하게 최신→과거(timestamp 내림차순)로 명시 보장.
+    std::sort(result.begin(), result.end(),
+              [](const MarketData& a, const MarketData& b) { return a.timestamp > b.timestamp; });
+
+    if (static_cast<int>(result.size()) < count)
+        LOG_WARN("[KIS] 업종 일봉(" + sector_code + ") 요청 " + std::to_string(count) +
+                 "봉 중 " + std::to_string(result.size()) + "봉만 수집 (페이지 한계/데이터 부족)");
     return result;
 }
 
