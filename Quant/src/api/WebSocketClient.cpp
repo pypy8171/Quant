@@ -72,7 +72,7 @@ std::string KisWebSocket::aes_cbc_decrypt(const std::string& cipher,
                                           const std::string& key,
                                           const std::string& iv)
 {
-    if (cipher.empty() || cipher.size() % 16 != 0 || key.size() < 32 || iv.size() < 16)
+    if (cipher.empty() || cipher.size() % 16 != 0 || key.size() != 32 || iv.size() != 16)
         return "";
 
     BCRYPT_ALG_HANDLE hAlg = nullptr;
@@ -111,7 +111,7 @@ std::string KisWebSocket::aes_cbc_decrypt(const std::string& cipher,
                                           const std::string& key,
                                           const std::string& iv)
 {
-    if (cipher.empty() || cipher.size() % 16 != 0 || key.size() < 32 || iv.size() < 16)
+    if (cipher.empty() || cipher.size() % 16 != 0 || key.size() != 32 || iv.size() != 16)
         return "";
 
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
@@ -443,6 +443,11 @@ void KisWebSocket::recv_loop()
                 std::lock_guard<std::mutex> lk(send_mtx_);
                 hWebSocket_ = hWs;
             }
+
+            // 재연결: 옛 연결의 체결통보 key/iv는 무효 — 새 구독응답 도착 전까지
+            // 암호프레임을 drop해 stale 키 복호를 막는다 (C-3)
+            aes_key_.clear();
+            aes_iv_.clear();
 
             // 채널 재구독
             bool has_kr_rc = false;
@@ -873,6 +878,11 @@ void KisWebSocket::recv_loop()
                 sock_fd_ = new_fd;
             }
 
+            // 재연결: 옛 연결의 체결통보 key/iv는 무효 — 새 구독응답 도착 전까지
+            // 암호프레임을 drop해 stale 키 복호를 막는다 (C-3)
+            aes_key_.clear();
+            aes_iv_.clear();
+
             // 채널 재구독
             bool has_kr_rc = false;
             for (const auto& spec : specs_)
@@ -1019,12 +1029,25 @@ void KisWebSocket::parse_message(const std::string& msg)
                     j["body"].contains("output"))
                 {
                     const auto& out = j["body"]["output"];
-                    aes_key_ = out.value("key", "");
-                    aes_iv_  = out.value("iv", "");
-                    if (!aes_key_.empty() && !aes_iv_.empty())
+                    std::string k = out.value("key", "");
+                    std::string v = out.value("iv", "");
+                    // AES-256-CBC: key는 정확히 32바이트, iv는 16바이트여야 함.
+                    // 길이가 다르면(서버 포맷 변경 등) 앞 N바이트만 써서 잘못된 키로
+                    // 복호→쓰레기 평문이 원장에 들어가므로 등호 검증 후 거부 (C-2)
+                    if (k.size() == 32 && v.size() == 16)
+                    {
+                        aes_key_ = std::move(k);
+                        aes_iv_  = std::move(v);
                         LOG_INFO("[WS] 체결통보 AES key/iv 확보 — 복호화 준비 완료");
+                    }
                     else
-                        LOG_WARN("[WS] 체결통보 구독응답에 key/iv 없음 — 복호화 불가");
+                    {
+                        aes_key_.clear();
+                        aes_iv_.clear();
+                        LOG_WARN("[WS] 체결통보 key/iv 길이 비정상 (key=" +
+                                 std::to_string(k.size()) + " iv=" + std::to_string(v.size()) +
+                                 ") — 복호화 불가, 암호프레임 drop");
+                    }
                 }
             }
         }
@@ -1054,6 +1077,12 @@ void KisWebSocket::parse_message(const std::string& msg)
         if (plain.empty())
         {
             LOG_WARN("[WS] 체결통보 복호화 실패 tr_id=" + tr_id);
+            return;
+        }
+        // 복호 평문은 ^구분 다필드(체결통보 23필드). 너무 적으면 키 불일치/손상 의심 (C-1)
+        if (split_str(plain, '^').size() < 14)
+        {
+            LOG_WARN("[WS] 체결통보 복호 평문 비정상(필드부족) — 키 불일치/손상 의심 tr_id=" + tr_id);
             return;
         }
         data = std::move(plain);
