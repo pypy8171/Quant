@@ -799,6 +799,9 @@ void KisWebSocket::disconnect()
         std::lock_guard<std::mutex> lk(send_mtx_);
         if (sock_fd_ >= 0)
         {
+            // W-1: close()는 다른 스레드가 recv() 블로킹 중일 때 깨운다는 보장이 없다(POSIX).
+            // shutdown(SHUT_RDWR)은 블로킹된 recv를 즉시 깨워 half-open 교착(join 무한대기)을 막는다.
+            ::shutdown(sock_fd_, SHUT_RDWR);
             ::close(sock_fd_);
             sock_fd_ = -1;
         }

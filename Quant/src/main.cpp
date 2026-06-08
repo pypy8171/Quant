@@ -977,12 +977,16 @@ int main(int argc, char* argv[])
                 if (rs == "BULL")         ar.push_back(Regime::BULL);
                 else if (rs == "NEUTRAL") ar.push_back(Regime::NEUTRAL);
                 else if (rs == "BEAR")    ar.push_back(Regime::BEAR);
+                else LOG_WARN("[Main] " + type + " 알 수 없는 active_regimes 값: '" + rs +
+                              "' (BULL/NEUTRAL/BEAR만 유효) — 무시됨");   // G-2
             }
             if (!ar.empty())
             {
                 engine.set_last_active_regimes(ar);
                 LOG_INFO("[Main] " + type + " 활성국면: " + std::to_string(ar.size()) + "개");
             }
+            else   // G-2: 키는 있는데 파싱 결과가 비면 게이트가 조용히 무력화됨 → 경고
+                LOG_WARN("[Main] " + type + " active_regimes 파싱 결과 비어있음 — 전 국면 통과로 동작(게이트 무효)");
         }
     }
 

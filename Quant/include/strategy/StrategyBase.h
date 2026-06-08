@@ -1,5 +1,6 @@
 #pragma once
 #include "core/Types.h"
+#include <atomic>
 #include <optional>
 #include <string>
 #include <vector>
@@ -53,8 +54,8 @@ public:
 
     // Engine이 장시작 국면 판정 후 설정 (현재 국면 ∈ active_regimes 이면 true).
     // 진입 분기에서 is_active() 체크 → 비활성 국면 진입 차단(청산은 무관). 기본 true(국면 모를 때 통과).
-    void set_active(bool a) { active_ = a; }
-    bool is_active() const { return active_; }
+    void set_active(bool a) { active_.store(a, std::memory_order_relaxed); }
+    bool is_active() const { return active_.load(std::memory_order_relaxed); }
 
     // Engine이 unique_ptr<KisClient>로 수명을 관리한다.
     // set_kis()는 Engine::start() 내부에서만 호출되며, 전략 소멸 전에 Engine이 먼저 종료된다.
@@ -65,6 +66,6 @@ public:
 
 protected:
     KisClient* kis_ = nullptr; // non-owning; lifetime guaranteed by Engine
-    bool active_ = true;       // 국면 게이트(Engine이 설정). 기본 true=통과
+    std::atomic<bool> active_{true};   // 국면 게이트(Engine이 설정). 기본 true=통과 (G-1)
     std::vector<Regime> active_regimes_ = {Regime::BULL, Regime::NEUTRAL, Regime::BEAR};
 };
