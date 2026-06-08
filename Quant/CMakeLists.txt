@@ -29,8 +29,10 @@ else()
 endif()
  
 # ─── 의존성: libcurl (Linux만), WinHTTP는 Windows SDK 내장 ───────────────
+# OpenSSL: 체결통보(H0STCNI) AES-256-CBC 복호화 (Windows는 BCrypt/CNG 사용)
 if(UNIX)
     find_package(CURL REQUIRED)
+    find_package(OpenSSL REQUIRED)
 endif()
  
 # ─── 의존성: nlohmann/json (JSON 파싱) ────────────────────────────────────
@@ -107,15 +109,17 @@ endif()
 if(UNIX)
     target_link_libraries(quant_trader PRIVATE
       CURL::libcurl
+      OpenSSL::Crypto
       nlohmann_json::nlohmann_json
       pthread
       stdc++fs
     )
 else()
-    # Windows: WinHTTP는 Windows SDK 내장 (별도 설치 불필요)
+    # Windows: WinHTTP/BCrypt는 Windows SDK 내장 (별도 설치 불필요)
     target_link_libraries(quant_trader PRIVATE
       nlohmann_json::nlohmann_json
       winhttp
+      bcrypt
     )
 endif()
 

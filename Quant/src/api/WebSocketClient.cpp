@@ -4,6 +4,13 @@
 #include <set>
 #include <sstream>
 
+// 체결통보(H0STCNI) AES-256-CBC 복호화용
+#ifdef _WIN32
+#include <bcrypt.h>
+#else
+#include <openssl/evp.h>
+#endif
+
 using json = nlohmann::json;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -29,6 +36,113 @@ std::vector<std::string> KisWebSocket::split_str(const std::string& s, char deli
     out.push_back(tok);
     return out;
 }
+
+// ─── 체결통보 복호화 (KIS H0STCNI: base64 → AES-256-CBC) ────────────────────
+// 시세 채널은 평문이나 체결통보는 암호화 전송. key/iv는 구독 응답 body.output에서 획득.
+std::string KisWebSocket::base64_decode(const std::string& in)
+{
+    static const std::string chars =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    int T[256];
+    for (int i = 0; i < 256; ++i)
+        T[i] = -1;
+    for (int i = 0; i < 64; ++i)
+        T[static_cast<unsigned char>(chars[i])] = i;
+
+    std::string out;
+    int val = 0, valb = -8;
+    for (unsigned char c : in)
+    {
+        if (T[c] == -1) // '=' / 개행 / 공백 무시
+            continue;
+        val = (val << 6) + T[c];
+        valb += 6;
+        if (valb >= 0)
+        {
+            out.push_back(static_cast<char>((val >> valb) & 0xFF));
+            valb -= 8;
+        }
+    }
+    return out;
+}
+
+#ifdef _WIN32
+// Windows: BCrypt(CNG) — AES-256-CBC, PKCS7 패딩 제거
+std::string KisWebSocket::aes_cbc_decrypt(const std::string& cipher,
+                                          const std::string& key,
+                                          const std::string& iv)
+{
+    if (cipher.empty() || cipher.size() % 16 != 0 || key.size() < 32 || iv.size() < 16)
+        return "";
+
+    BCRYPT_ALG_HANDLE hAlg = nullptr;
+    BCRYPT_KEY_HANDLE hKey = nullptr;
+    std::string result;
+
+    if (BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_AES_ALGORITHM, nullptr, 0) != 0)
+        return "";
+    BCryptSetProperty(hAlg, BCRYPT_CHAINING_MODE,
+                      (PUCHAR)BCRYPT_CHAIN_MODE_CBC,
+                      sizeof(BCRYPT_CHAIN_MODE_CBC), 0);
+
+    if (BCryptGenerateSymmetricKey(hAlg, &hKey, nullptr, 0,
+                                   (PUCHAR)key.data(), 32, 0) == 0)
+    {
+        std::vector<UCHAR> ivbuf(iv.begin(), iv.begin() + 16); // BCrypt가 IV를 갱신하므로 복사
+        std::string out(cipher.size(), '\0');
+        ULONG outLen = 0;
+        if (BCryptDecrypt(hKey,
+                          (PUCHAR)cipher.data(), (ULONG)cipher.size(),
+                          nullptr, ivbuf.data(), (ULONG)ivbuf.size(),
+                          (PUCHAR)&out[0], (ULONG)out.size(), &outLen,
+                          BCRYPT_BLOCK_PADDING) == 0)
+        {
+            result.assign(out.data(), outLen);
+        }
+    }
+
+    if (hKey) BCryptDestroyKey(hKey);
+    if (hAlg) BCryptCloseAlgorithmProvider(hAlg, 0);
+    return result;
+}
+#else
+// Linux: OpenSSL EVP — AES-256-CBC, PKCS7 패딩 제거(DecryptFinal)
+std::string KisWebSocket::aes_cbc_decrypt(const std::string& cipher,
+                                          const std::string& key,
+                                          const std::string& iv)
+{
+    if (cipher.empty() || cipher.size() % 16 != 0 || key.size() < 32 || iv.size() < 16)
+        return "";
+
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx)
+        return "";
+
+    std::string out(cipher.size() + 16, '\0');
+    int len = 0, total = 0;
+    std::string result;
+
+    if (EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr,
+            reinterpret_cast<const unsigned char*>(key.data()),
+            reinterpret_cast<const unsigned char*>(iv.data())) == 1 &&
+        EVP_DecryptUpdate(ctx,
+            reinterpret_cast<unsigned char*>(&out[0]), &len,
+            reinterpret_cast<const unsigned char*>(cipher.data()),
+            static_cast<int>(cipher.size())) == 1)
+    {
+        total = len;
+        if (EVP_DecryptFinal_ex(ctx,
+                reinterpret_cast<unsigned char*>(&out[0]) + total, &len) == 1)
+        {
+            total += len;
+            result.assign(out.data(), total);
+        }
+    }
+
+    EVP_CIPHER_CTX_free(ctx);
+    return result;
+}
+#endif
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  플랫폼별 구현
@@ -899,6 +1013,19 @@ void KisWebSocket::parse_message(const std::string& msg)
                 std::string msg1 = j["body"].value("msg1", "");
                 std::string tk = j["header"].value("tr_key", "");
                 LOG_INFO("[WS] " + tr_id + "(" + tk + ") rt=" + rt + " " + msg1);
+
+                // 체결통보 구독 응답: AES key/iv 확보 → 이후 암호화 프레임 복호화에 사용
+                if ((tr_id == "H0STCNI0" || tr_id == "H0STCNI9") &&
+                    j["body"].contains("output"))
+                {
+                    const auto& out = j["body"]["output"];
+                    aes_key_ = out.value("key", "");
+                    aes_iv_  = out.value("iv", "");
+                    if (!aes_key_.empty() && !aes_iv_.empty())
+                        LOG_INFO("[WS] 체결통보 AES key/iv 확보 — 복호화 준비 완료");
+                    else
+                        LOG_WARN("[WS] 체결통보 구독응답에 key/iv 없음 — 복호화 불가");
+                }
             }
         }
         catch (...)
@@ -913,7 +1040,25 @@ void KisWebSocket::parse_message(const std::string& msg)
         return;
 
     const std::string& tr_id = parts[1];
-    const std::string& data = parts[3];
+    std::string data = parts[3]; // 암호화 시 복호문으로 교체되므로 값 복사
+
+    // 암호화 프레임(체결통보 H0STCNI): parts[0]=="1" → base64 + AES-256-CBC 복호화
+    if (parts[0] == "1")
+    {
+        if (aes_key_.empty() || aes_iv_.empty())
+        {
+            LOG_WARN("[WS] 암호화 프레임 수신했으나 key/iv 미확보 — drop tr_id=" + tr_id);
+            return;
+        }
+        std::string plain = aes_cbc_decrypt(base64_decode(data), aes_key_, aes_iv_);
+        if (plain.empty())
+        {
+            LOG_WARN("[WS] 체결통보 복호화 실패 tr_id=" + tr_id);
+            return;
+        }
+        data = std::move(plain);
+    }
+
     auto fields = split_str(data, '^');
 
     if (tr_id == "H0STASP0")
@@ -1055,7 +1200,7 @@ void KisWebSocket::parse_us_trade(const std::vector<std::string>& f)
 //  [2]ODER_NO(주문번호)  [4]SELN_BYOV_CLS(01=매도,02=매수)
 //  [8]STCK_SHRN_ISCD(종목코드)  [9]CNTG_QTY(체결수량)
 //  [10]CNTG_UNPR(체결단가)  [11]STCK_CNTG_HOUR(HHMMSS)
-//  [13]CNTG_YN(Y=체결, N=접수/취소)
+//  [13]CNTG_YN(1=주문/정정/취소/거부 접수통보, 2=체결통보) — 모의 실측 확인
 void KisWebSocket::parse_fill_notification(const std::vector<std::string>& f)
 {
     if (f.size() < 14)
@@ -1067,7 +1212,7 @@ void KisWebSocket::parse_fill_notification(const std::vector<std::string>& f)
     }
     if (!on_fill_)     // 콜백 미등록 시 즉시 반환 (파싱 비용 절감)
         return;
-    if (f[13] != "Y")  // 접수·취소 이벤트 제외, 체결(Y)만 처리
+    if (f[13] != "2")  // 접수/정정/취소/거부(1) 제외, 체결(2)만 처리
         return;
 
     FillNotification fn;

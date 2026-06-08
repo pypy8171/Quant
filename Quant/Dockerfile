@@ -6,6 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake ninja-build g++ git ca-certificates \
     libcurl4-openssl-dev \
+    libssl-dev \
     libzmq3-dev \
     && rm -rf /var/lib/apt/lists/*
 
@@ -26,6 +27,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libcurl4 \
+    libssl3 \
     libzmq5 \
     tzdata \
     ca-certificates \

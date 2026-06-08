@@ -80,12 +80,20 @@ private:
     void parse_us_trade(const std::vector<std::string>& f);
     void parse_fill_notification(const std::vector<std::string>& f);
 
+    // 체결통보(H0STCNI) 복호화 — base64 + AES-256-CBC (플랫폼별 구현)
+    static std::string base64_decode(const std::string& in);
+    static std::string aes_cbc_decrypt(const std::string& cipher,
+                                       const std::string& key,
+                                       const std::string& iv);
+
     static std::vector<std::string> split_str(const std::string& s, char delim);
     static std::wstring to_wide(const std::string& s);
     static std::string http_post_json(const std::string& url, const std::string& body);
 
     KisConfig cfg_;
     std::string approval_key_;
+    std::string aes_key_; // 체결통보 복호화 키 (구독 응답에서 획득)
+    std::string aes_iv_;  // 체결통보 복호화 IV
     std::vector<WatchSpec> specs_;
 
     std::atomic<bool>    connected_{false};
