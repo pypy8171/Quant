@@ -15,6 +15,7 @@ Python 퀀트 트레이딩 시스템 진입점
 """
 import argparse
 import sys
+import unicodedata
 from pathlib import Path
 
 # python/ 폴더를 패키지 루트로
@@ -140,10 +141,32 @@ def cmd_operate(args):
             print(f"알 수 없는 명령: {args.action}")
 
 
+def _dwidth(s) -> int:
+    """터미널 표시 너비 — 한글/전각 문자는 2칸으로 계산 (East-Asian Width)."""
+    return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in str(s))
+
+
+def _ljust_d(s, width: int) -> str:
+    return str(s) + " " * max(0, width - _dwidth(s))
+
+
+def _rjust_d(s, width: int) -> str:
+    return " " * max(0, width - _dwidth(s)) + str(s)
+
+
+def _resolve_config(paper: bool) -> str:
+    """host/docker 양쪽에서 config 경로 해석. docker 판별은 cwd의 config/ 존재
+    여부(취약)가 아니라 /.dockerenv 명시 신호로 — 실/모의 오선택 방지 (P-1)."""
+    fname = "config_paper.json" if paper else "config.json"
+    if Path("/.dockerenv").exists():                       # docker: WORKDIR /app + config 볼륨 마운트
+        return str(Path("config") / fname)
+    return str(Path(__file__).parents[1] / "Quant" / "config" / fname)  # host: repo/Quant/config
+
+
 def cmd_balance(args):
     import time, os
     try:
-        kis = from_config()
+        kis = from_config(_resolve_config(args.paper))
         if not kis.authenticate():
             raise KisAuthError("초기 인증 실패")
 
@@ -160,13 +183,15 @@ def cmd_balance(args):
             print(f"  총손익       {sg}{s.total_pnl:>14,.0f}원  ({sg}{s.total_pnl_rate:.2f}%)")
             print(f"  {'─'*60}")
             if items:
-                print(f"  {'종목명':<14} {'수량':>5} {'평균단가':>10} {'현재가':>10} {'평가손익':>12} {'수익률':>7}")
+                print(f"  {_ljust_d('종목명', 14)} {_rjust_d('수량', 6)} "
+                      f"{_rjust_d('평균단가', 11)} {_rjust_d('현재가', 11)} "
+                      f"{_rjust_d('평가손익', 13)} {_rjust_d('수익률', 8)}")
                 print(f"  {'─'*60}")
                 for it in items:
                     sg = '+' if it.pnl >= 0 else ''
-                    print(f"  {it.name:<14} {it.quantity:>5} "
-                          f"{it.avg_price:>10,.0f} {it.current_price:>10,.0f} "
-                          f"{sg}{it.pnl:>11,.0f} {sg}{it.pnl_rate:.2f}%")
+                    print(f"  {_ljust_d(it.name, 14)} {_rjust_d(f'{it.quantity:,}', 6)} "
+                          f"{_rjust_d(f'{it.avg_price:,.0f}', 11)} {_rjust_d(f'{it.current_price:,.0f}', 11)} "
+                          f"{_rjust_d(f'{sg}{it.pnl:,.0f}', 13)} {_rjust_d(f'{sg}{it.pnl_rate:.2f}%', 8)}")
             else:
                 print("  보유 종목 없음")
             print()
@@ -184,10 +209,7 @@ def cmd_balance(args):
 
 def cmd_report(args):
     try:
-        config_path = None
-        if args.paper:
-            config_path = str(Path(__file__).parents[1] / "Quant" / "config" / "config_paper.json")
-        kis = from_config(config_path)
+        kis = from_config(_resolve_config(args.paper))
         if not kis.authenticate():
             raise KisAuthError("초기 인증 실패")
         account = "paper" if kis.is_paper else "real"
@@ -263,6 +285,7 @@ def main():
 
     # ── balance ─────────────────────────────────────────────────────────────
     blp = sub.add_parser("balance", help="국내주식 잔고 조회")
+    blp.add_argument("--paper",    action="store_true", help="모의투자 계좌(config_paper.json) 대상")
     blp.add_argument("--watch",    action="store_true", help="N초마다 자동 갱신")
     blp.add_argument("--interval", type=int, default=30, help="갱신 주기(초, 기본 30)")
 

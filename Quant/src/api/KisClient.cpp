@@ -2,10 +2,15 @@
 #include "utils/Logger.h"
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
+#ifndef _WIN32
+#include <sys/stat.h> // chmod — 토큰 캐시 0600 (W-4)
+#endif
 
 using json = nlohmann::json;
 
@@ -205,10 +210,13 @@ KisClient::~KisClient()
 #endif
 }
 
-// 토큰 캐시 파일: app_key 앞 8자리로 구분 (실계좌/모의 혼용 방지)
+// 토큰 캐시 파일: app_key 앞 8자리로 구분 (실계좌/모의 혼용 방지).
+// KIS_TOKEN_CACHE_DIR(docker 공유 볼륨) 설정 시 그 경로에 저장 → Python balance가 재사용.
 static std::string token_cache_path(const std::string& app_key)
 {
-    return "kis_token_" + app_key.substr(0, 8) + ".json";
+    const char* dir = std::getenv("KIS_TOKEN_CACHE_DIR");
+    std::string prefix = (dir && *dir) ? std::string(dir) + "/" : "";
+    return prefix + "kis_token_" + app_key.substr(0, 8) + ".json";
 }
 
 void KisClient::ensure_authenticated()
@@ -316,11 +324,21 @@ bool KisClient::authenticate()
             }
         }
 
-        // 캐시 파일에 저장
+        // 캐시 파일에 저장 — temp 작성 후 atomic rename (C-2).
+        // 읽는 쪽(Python balance)이 스트리밍 중인 truncated JSON을 보지 않게 한다.
         json cache_j = {{"access_token", access_token_}, {"expires_at", expires}};
-        std::ofstream cf(cache_path);
-        if (cf.is_open())
-            cf << cache_j.dump(2);
+        std::string tmp_path = cache_path + ".tmp";
+        {
+            std::ofstream cf(tmp_path);
+            if (cf.is_open())
+                cf << cache_j.dump(2);
+        }
+#ifdef _WIN32
+        MoveFileExA(tmp_path.c_str(), cache_path.c_str(), MOVEFILE_REPLACE_EXISTING);
+#else
+        ::chmod(tmp_path.c_str(), S_IRUSR | S_IWUSR); // 0600 — 공유 볼륨 평문 토큰 보호 (W-4)
+        std::rename(tmp_path.c_str(), cache_path.c_str()); // POSIX atomic
+#endif
 
         LOG_INFO("[KIS] 토큰 발급 성공 (만료: " + expires + ")");
         return true;

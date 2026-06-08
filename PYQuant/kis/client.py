@@ -101,37 +101,43 @@ class KisClient:
     # ── 인증 ────────────────────────────────────────────────────────────────
     @property
     def _cache_path(self) -> Path:
-        return Path(__file__).parents[2] / "Quant" / "config" / ".token_cache.json"
+        # 엔진(C++)과 공유: KIS_TOKEN_CACHE_DIR(docker 공유 볼륨) 우선, 없으면 host 기본.
+        # 파일명 kis_token_<app_key[:8]>.json — C++ KisClient와 동일 규약(실/모의 분리 + 캐시 공유)
+        cache_dir = os.environ.get("KIS_TOKEN_CACHE_DIR")
+        base = Path(cache_dir) if cache_dir else (Path(__file__).parents[2] / "Quant" / "config")
+        return base / f"kis_token_{self.app_key[:8]}.json"
 
     def _load_cached_token(self) -> bool:
         try:
             with open(self._cache_path, encoding="utf-8") as f:
                 data = json.load(f)
-            if data.get("app_key") != self.app_key:
-                return False
-            exp = float(data.get("expires_at", 0))
+            # 공유 포맷 {"access_token", "expires_at": "YYYY-MM-DD HH:MM:SS"} (C++ 엔진과 동일).
+            # 파일명에 app_key[:8]가 들어가 계좌 분리 — 별도 app_key 필드 검증 불필요.
+            exp_str = data.get("expires_at", "")
+            exp = datetime.strptime(exp_str, "%Y-%m-%d %H:%M:%S").timestamp()
             if time.time() < exp - 300:
                 self._token     = data["access_token"]
                 self._token_exp = exp
-                logger.info(f"캐시 토큰 사용 (만료: {data.get('expired_str', '?')})")
+                logger.info(f"캐시 토큰 사용 (만료: {exp_str})")
                 return True
         except (OSError, json.JSONDecodeError, KeyError, ValueError) as e:
             logger.debug(f"토큰 캐시 로드 실패: {e}")
         return False
 
-    def _save_token_cache(self, access_token: str, expires_at: float, expired_str: str):
+    def _save_token_cache(self, access_token: str, expired_str: str):
         try:
             self._cache_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self._cache_path, "w", encoding="utf-8") as f:
+            tmp = self._cache_path.with_suffix(".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                # C++ 엔진과 공유 가능한 포맷 (expires_at = KIS ISO "YYYY-MM-DD HH:MM:SS")
                 json.dump({
-                    "app_key":      self.app_key,
                     "access_token": access_token,
-                    "expires_at":   expires_at,
-                    "expired_str":  expired_str,
+                    "expires_at":   expired_str,
                 }, f)
             # 소유자만 읽기/쓰기 (0600) — Windows는 ACL 모델이 달라 무시됨
             if os.name != "nt":
-                os.chmod(self._cache_path, stat.S_IRUSR | stat.S_IWUSR)
+                os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR)
+            os.replace(tmp, self._cache_path)  # 원자적 교체 (C-2) — 읽는 쪽이 완전한 JSON만 봄
         except OSError as e:
             logger.warning(f"토큰 캐시 저장 실패: {e}")
 
@@ -151,7 +157,7 @@ class KisClient:
             self._token     = data["access_token"]
             self._token_exp = time.time() + int(data.get("expires_in", 86400))
             expired_str     = data.get("access_token_token_expired", "?")
-            self._save_token_cache(self._token, self._token_exp, expired_str)
+            self._save_token_cache(self._token, expired_str)
             logger.info(f"인증 성공 (만료: {expired_str})")
             return True
         except requests.RequestException as e:

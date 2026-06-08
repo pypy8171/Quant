@@ -9,11 +9,14 @@ services:
     volumes:
       # 인증정보가 담긴 config.json 을 읽기 전용으로 마운트
       - ./Quant/config:/app/config:ro
+      # KIS 토큰 캐시 공유 볼륨 — 엔진이 발급→balance가 재사용(중복발급/403 방지)
+      - token-cache:/app/.tokcache
     ports:
       - "5555:5555"   # ZMQ PUB  (시장데이터·신호 발행)
       - "5556:5556"   # ZMQ REP  (엔진 원격 제어)
     environment:
       TZ: Asia/Seoul
+      KIS_TOKEN_CACHE_DIR: /app/.tokcache
     # 모의투자 TRADE 모드 기본 실행
     # 실거래 전환: command: ["./quant_trader", "config/config.json", "TRADE"]
     command: ["./quant_trader", "config/config_paper.json", "TRADE"]
@@ -32,9 +35,12 @@ services:
     volumes:
       # config.json 공유 (KIS REST 인증 필요 시)
       - ./Quant/config:/app/config:ro
+      # KIS 토큰 캐시 공유 — 엔진 발급 토큰 재사용(중복발급/403 방지)
+      - token-cache:/app/.tokcache
     environment:
       TZ: Asia/Seoul
       ENGINE_HOST: quant-engine
+      KIS_TOKEN_CACHE_DIR: /app/.tokcache
     # 기본: 엔진 이벤트 모니터링
     command: ["monitor", "--host", "quant-engine", "--port", "5555"]
     networks:
@@ -94,3 +100,4 @@ networks:
 
 volumes:
   tsdb-data:
+  token-cache:
