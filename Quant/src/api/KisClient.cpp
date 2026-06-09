@@ -9,7 +9,9 @@
 #include <stdexcept>
 #include <thread>
 #ifndef _WIN32
+#include <fcntl.h>    // open — fsync용 (V-2)
 #include <sys/stat.h> // chmod — 토큰 캐시 0600 (W-4)
+#include <unistd.h>   // fsync, close (V-2)
 #endif
 
 using json = nlohmann::json;
@@ -337,6 +339,12 @@ bool KisClient::authenticate()
         MoveFileExA(tmp_path.c_str(), cache_path.c_str(), MOVEFILE_REPLACE_EXISTING);
 #else
         ::chmod(tmp_path.c_str(), S_IRUSR | S_IWUSR); // 0600 — 공유 볼륨 평문 토큰 보호 (W-4)
+        // rename은 원자적이나 durability는 보장 안 함 — 크래시 시 0바이트 캐시→재발급(403).
+        // tmp를 fsync해 데이터를 디스크에 내린 뒤 rename (V-2).
+        {
+            int fd = ::open(tmp_path.c_str(), O_RDONLY);
+            if (fd >= 0) { ::fsync(fd); ::close(fd); }
+        }
         std::rename(tmp_path.c_str(), cache_path.c_str()); // POSIX atomic
 #endif
 

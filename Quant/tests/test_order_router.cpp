@@ -14,6 +14,8 @@
 #include "ipc/OrderRouter.h"
 #include "risk/OrderGate.h"
 #include <cassert>
+#include <chrono>
+#include <ctime>
 #include <iostream>
 #include <string>
 #ifdef _WIN32
@@ -212,6 +214,39 @@ void test_duplicate_fill_ignored()
     PASS("duplicate_fill_ignored");
 }
 
+// ─── 테스트 8: cross-day 멱등키 (V-4 fix) ────────────────────────────────────
+//   ODNO는 영업일 단위 재사용 + fill_time은 HHMMSS(날짜 없음). 다른 거래일의 동일
+//   (odno,fill_time,qty,price) 통보가 전일 체결로 오인돼 drop되면 실체결 누락 사고.
+//   거래일 prefix로 차단 — 둘 다 정상 반영되어야 한다.
+void test_cross_day_fill_not_deduped()
+{
+    OrderGate         gate(relaxed_cfg());
+    StubOrderExecutor stub(true, "K000077");
+    OrderRouter       router(gate, stub);
+    router.submit(make_signal("005930", OrderSide::BUY, 10));
+
+    auto mk_ts = [](int y, int mo, int d) {
+        std::tm t{}; t.tm_year = y - 1900; t.tm_mon = mo - 1; t.tm_mday = d;
+        t.tm_hour = 10; t.tm_isdst = -1;
+        return std::chrono::system_clock::from_time_t(std::mktime(&t));
+    };
+
+    FillNotification fn;
+    fn.odno = "K000077"; fn.ticker = "005930"; fn.side = OrderSide::BUY;
+    fn.filled_qty = 5; fn.filled_price = 75000.0; fn.fill_time = "100000";
+
+    fn.timestamp = mk_ts(2024, 1, 10);   // 거래일 1
+    router.on_fill(fn);
+    assert(router.recent(1)[0].confirmed_qty == 5);
+
+    // 동일 (odno,fill_time,qty,price) + 다른 거래일 → 별개 체결로 처리(중복 아님)
+    fn.timestamp = mk_ts(2024, 1, 11);   // 거래일 2
+    router.on_fill(fn);
+    assert(router.recent(1)[0].confirmed_qty == 10);   // 누락 없이 누적
+    assert(router.recent(1)[0].status == OrderStatus::FILLED);
+    PASS("cross_day_fill_not_deduped");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -225,6 +260,7 @@ int main()
     test_history_recent();
     test_order_id_sequence();
     test_duplicate_fill_ignored();
+    test_cross_day_fill_not_deduped();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

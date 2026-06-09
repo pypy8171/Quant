@@ -184,6 +184,8 @@ void Engine::data_thread_fn()
         if (market_now && !was_market_open)
         {
             order_gate_.reset_daily();
+            if (order_router_)
+                order_router_->reset_daily();   // V-4: 멱등키 일별 정리(거래일 prefix와 함께 cross-day 충돌 차단)
             LOG_INFO("[DataThread] 장 시작 — OrderGate 일별 카운터 리셋");
 
             // 국면 판정(장 시작 1회) → 전략별 활성 국면 설정 (R-1a: 판정·플래그만, 진입차단은 R-1b)

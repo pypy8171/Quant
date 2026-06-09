@@ -134,6 +134,8 @@ class KisClient:
                     "access_token": access_token,
                     "expires_at":   expired_str,
                 }, f)
+                f.flush()
+                os.fsync(f.fileno())   # durability — os.replace 전 디스크 반영 (V-2)
             # 소유자만 읽기/쓰기 (0600) — Windows는 ACL 모델이 달라 무시됨
             if os.name != "nt":
                 os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR)

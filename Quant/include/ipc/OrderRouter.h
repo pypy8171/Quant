@@ -53,6 +53,9 @@ public:
     // ── 체결통보 수신 — ODNO로 이력 조회 후 FILLED 상태 갱신 ────────────
     void on_fill(const FillNotification& fn);
 
+    // ── 일별 리셋 (장 시작) — 멱등키(seen_fills_) 정리 ───────────────────
+    void reset_daily();
+
     // ── 통계 조회 ─────────────────────────────────────────────────────────
     struct Stats
     {

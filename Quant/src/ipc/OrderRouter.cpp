@@ -1,5 +1,6 @@
 #include "ipc/OrderRouter.h"
 #include "utils/Logger.h"
+#include <ctime>
 #include <iomanip>
 #include <sstream>
 
@@ -118,7 +119,18 @@ void OrderRouter::on_fill(const FillNotification& fn)
     std::lock_guard<std::mutex> lk(hist_mtx_);
     // 멱등 처리 — KIS 체결통보는 at-least-once(재전송/WS 재구독 시 중복 가능).
     // H0STCNI0 전문에 체결고유번호가 없어 odno+체결시각+수량+단가를 조합 키로 사용.
-    std::string fill_key = fn.odno + ":" + fn.fill_time + ":" +
+    // ODNO는 영업일 단위 재사용되고 fill_time은 HHMMSS(날짜 없음)라, 거래일(수신일)을
+    // prefix로 붙여 cross-day 동일키 충돌 → 실체결 오인 drop을 차단한다 (V-4).
+    std::time_t tt = std::chrono::system_clock::to_time_t(fn.timestamp);
+    std::tm lt{};
+#ifdef _WIN32
+    localtime_s(&lt, &tt);
+#else
+    localtime_r(&tt, &lt);
+#endif
+    char dbuf[9];
+    std::strftime(dbuf, sizeof(dbuf), "%Y%m%d", &lt);
+    std::string fill_key = std::string(dbuf) + ":" + fn.odno + ":" + fn.fill_time + ":" +
                            std::to_string(fn.filled_qty) + ":" +
                            std::to_string(static_cast<long long>(fn.filled_price * 100));
     if (!seen_fills_.insert(fill_key).second)
@@ -163,6 +175,15 @@ void OrderRouter::on_fill(const FillNotification& fn)
     }
     LOG_WARN("[OrderRouter] 체결통보 매핑 실패 ODNO=" + fn.odno +
              " (이미 처리됐거나 이력 범위 초과)");
+}
+
+// ─── 일별 리셋 (장 시작 시 Engine이 호출) ─────────────────────────────────
+// 멱등키(seen_fills_)의 무한 증가를 해소. 거래일 prefix로 cross-day 충돌은 이미
+// 차단되므로, 전일 키는 더 이상 필요 없다.
+void OrderRouter::reset_daily()
+{
+    std::lock_guard<std::mutex> lk(hist_mtx_);
+    seen_fills_.clear();
 }
 
 // ─── 통계 ─────────────────────────────────────────────────────────────────
