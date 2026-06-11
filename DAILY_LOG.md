@@ -2,6 +2,45 @@
 
 ---
 
+## 2026-06-08 (월)
+
+### 한 일
+- **모의 WS(:31000) 회복 + 전체 파이프라인 검증** — WS 시세→전략→모의주문(체결)→OrderRouter end-to-end 정상.
+- **리뷰 G-1/W-1 반영** — 국면 게이트 `active_` atomic화(data race 제거), Linux WS disconnect `shutdown()`로 종료 교착 해소.
+- **DB 원장 트랙 완성 (오늘의 핵심)**:
+  - 스키마 드리프트 해결 — fills/positions/regime 테이블이 옛 볼륨에 없던 것 `schema.sql` 재적용으로 생성.
+  - orders/signals 적재는 원래 정상이었음(멀티터미널 인스턴스 혼선이 원인 → 단일 스택으로 해소).
+  - **체결통보(H0STCNI9) AES-256-CBC 복호화 구현** — KIS 시세는 평문이나 체결통보는 암호화 전문임을 모의 실측으로 발견. 구독응답 key/iv 확보 → base64+AES 복호. Linux=OpenSSL/Windows=BCrypt.
+  - **체결구분 파싱 버그 수정** — `f[13]`을 "Y"로 검사하던 것을 "2"(체결)로. 기존엔 모든 체결통보가 조용히 드롭돼 fills/positions가 영구 공백이었음 → 수정 후 실체결가·수수료·세금 적재 + at-least-once 멱등 동작 확인.
+- **로컬 @reviewer + 웹 Claude 리뷰 반영** — C-1~4(key/iv 길이검증·재연결 clear·평문 sanity), C-2/W-4(토큰 캐시 atomic write·chmod 0600). C-1/C-3는 오탐·검증완료로 플래그(번들 축약 탓).
+- **KIS 토큰 공유 캐시 + `balance --paper`** — docker 컨테이너 간 공유 볼륨으로 엔진 발급 토큰을 balance가 재사용(중복발급 403 해소). 모의계좌 잔고 터미널 조회 + 한글 폭 보정 정렬.
+- **strategist 방향 설정** — 병목이 인프라→엣지로 이동. 다음 한 수 = VALUE_CONTRARY 백테스트로 엣지 흑백 판정. 지수 페이지네이션/국면게이트 정교화는 "보호할 엣지 0개"라 보류.
+
+### 변경 파일
+- `Quant/src/api/WebSocketClient.cpp` → 체결통보 AES-256-CBC 복호화(base64_decode/aes_cbc_decrypt 플랫폼분기) + 파싱 `f[13]=="2"` 수정 + 견고화(C-1~4)
+- `Quant/include/api/KisWebSocket.h` → aes_key_/aes_iv_ 멤버 + 복호화 선언
+- `Quant/src/api/KisClient.cpp` → 토큰 캐시 경로 env(KIS_TOKEN_CACHE_DIR) + atomic write + chmod 0600
+- `PYQuant/kis/client.py` → 토큰 캐시 공유(C++ 동일 파일·포맷) + atomic os.replace
+- `PYQuant/main.py` → balance `--paper`, `_resolve_config`(/.dockerenv), 한글 정렬 헬퍼
+- `docker-compose.yml` → token-cache 공유 볼륨 + KIS_TOKEN_CACHE_DIR
+- `Quant/CMakeLists.txt`·`Dockerfile` → OpenSSL(Linux)/bcrypt(Windows) 링크, libssl
+
+### 막힌 지점 / 미해결
+- RegimeController 지수 일봉이 50봉만 수집(페이지네이션 1콜)돼 ma200 못 만들고 NEUTRAL 폴백 → 국면 게이트 실질 무력. (엣지 검증 후로 보류)
+- 백로그: W-1(복호 실패 로깅), W-2(base64 strict), OrderRouter `seen_fills_` 무한 증가(EOD clear 경로 없음).
+- AES 견고화·토큰공유 변경의 **전체 체결 fills 회귀**는 장 마감으로 다음 장중 재확인 필요(happy-path 불변).
+
+### 내일 할 일
+- **VALUE_CONTRARY 백테스트로 엣지 흑백 판정** (사전 합격기준 박고) — strategist의 다음 한 수.
+- (장중) AES/토큰 변경분 전체 체결 fills 회귀 확인.
+
+### 학습 카드 영향
+- **체결통보 AES-256-CBC 복호화 직접 구현** — "왜 OS crypto(EVP/CNG) 직접? / 체결통보가 암호화인 걸 실측으로 발견 / CBC는 MAC 없어 복호 후 필드검증으로 garbage 거부" 등 강한 카드 다수 확보.
+- **토큰 공유 캐시(atomic write)** — "프로세스 2개가 1토큰 공유, 비원자적 쓰기→temp+rename" IPC/동시성 카드.
+- **"조용히 틀리는 버그" 규명 사례** — `f[13]` "Y"vs"2"로 체결통보 전량 드롭되던 것을 모의 실측 23필드로 규명·수정.
+
+---
+
 ## 2026-06-04 (목)
 
 ### 한 일

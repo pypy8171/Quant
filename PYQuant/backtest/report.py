@@ -4,7 +4,8 @@
 from backtest.engine import BacktestResult
 
 
-def print_report(result: BacktestResult):
+def print_report(result: BacktestResult, names: dict | None = None):
+    names = names or {}
     print(f"\n{'='*60}")
     print("  백테스팅 결과")
     print('='*60)
@@ -20,14 +21,15 @@ def print_report(result: BacktestResult):
         print("  거래 없음")
         return
 
-    print("\n  ── 거래 내역 ──────────────────────────────────────")
-    print(f"  {'날짜':<12} {'종목':<8} {'구분':<5} {'가격':>9} {'수량':>4} {'손익':>10}")
-    print(f"  {'-'*56}")
+    print("\n  ── 거래 내역 (매수/매도) ──────────────────────────")
+    print(f"  {'날짜':<12} {'종목':<8} {'구분':<5} {'체결가':>9} {'수량':>5} {'손익':>11}  종목명")
+    print(f"  {'-'*66}")
+    for t in result.trades[-40:]:   # 최근 40건 (매수+매도)
+        side    = "매수" if t.side == "BUY" else "매도"
+        pnl_str = f"{t.pnl:+,.0f}" if t.side == "SELL" else "-"
+        print(f"  {t.date:<12} {t.ticker:<8} {side:<5} "
+              f"{t.price:>9,.0f} {t.quantity:>5} {pnl_str:>11}  {names.get(t.ticker, '')}")
     sells = [t for t in result.trades if t.side == "SELL"]
-    for t in sells[-20:]:   # 최근 20건만
-        pnl_str = f"{t.pnl:+,.0f}" if t.pnl != 0 else "-"
-        print(f"  {t.date:<12} {t.ticker:<8} {'매도':<5} "
-              f"{t.price:>9,.0f} {t.quantity:>4} {pnl_str:>10}")
 
     wins  = [t for t in sells if t.pnl > 0]
     loses = [t for t in sells if t.pnl <= 0]

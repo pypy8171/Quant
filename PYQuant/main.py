@@ -43,21 +43,52 @@ DEFAULT_UNIVERSE = [
 
 def cmd_backtest(args):
     try:
-        kis = from_config()
+        # 데이터 소스: krx(pykrx — 수급 백테스트) 또는 kis(REST — OHLCV)
+        if args.source == "krx":
+            from data.krx_source import KrxSource
+            kis = KrxSource(market="KOSPI")
+        else:
+            # 백테스트는 OHLCV만(계좌 무관) — 모의 config로 엔진과 토큰 공유(403 회피)
+            kis = from_config(_resolve_config(True))
         if not kis.authenticate():
-            raise KisAuthError("초기 인증 실패 — app_key/app_secret 확인 필요")
+            raise KisAuthError("초기 인증 실패")
 
-        strategy = ValueContraryStrategy(pbr_max=args.pbr, quantity=args.qty)
-        engine   = BacktestEngine(kis, strategy, initial_cash=args.cash)
+        if args.strategy == "value_contrary":
+            strategy = ValueContraryStrategy(pbr_max=args.pbr, quantity=args.qty)
+        elif args.strategy == "strategy_a":
+            from strategy.strategy_a import StrategyA
+            strategy = StrategyA()
+        elif args.strategy == "momentum":
+            from strategy.cross_momentum import CrossMomentumStrategy
+            strategy = CrossMomentumStrategy(top_n=args.top_n,
+                                             rebalance_every=args.rebalance_every)
+        elif args.strategy == "supply_demand":
+            from strategy.supply_demand_rank import SupplyDemandRankStrategy
+            strategy = SupplyDemandRankStrategy(top_n=args.top_n,
+                                                rebalance_every=args.rebalance_every)
+        else:
+            raise ValueError(f"알 수 없는 전략: {args.strategy}")
 
+        # 모멘텀은 lookback 워밍업 필요(거래일 ~140 → 달력 300일)
+        warmup = 300 if args.strategy == "momentum" else 30
+        engine = BacktestEngine(kis, strategy, initial_cash=args.cash,
+                                target_positions=args.top_n, warmup_days=warmup)
+
+        # 유니버스: krx 시총상위 > --universe(KIS PBR) > 기본
         universe = DEFAULT_UNIVERSE
-        if args.universe:
+        if args.source == "krx" and hasattr(kis, "universe_top"):
+            logger.info(f"KRX 시총 상위 {args.universe_size} 조회...")
+            u = kis.universe_top(args.from_date, args.universe_size)
+            if u:
+                universe = u
+                logger.info(f"유니버스: {len(universe)}종목")
+        elif args.universe:
             logger.info("Universe 조회 중...")
             universe = kis.fetch_universe(max_pbr=args.pbr)
             logger.info(f"Universe: {len(universe)}종목")
 
         result = engine.run(universe, start_date=args.from_date, end_date=args.to_date)
-        print_report(result)
+        print_report(result, names=engine._names)
     except KisAuthError as e:
         logger.error(f"인증 오류: {e}")
 
@@ -273,8 +304,19 @@ def main():
     bp.add_argument("--to",       dest="to_date",   default="2024-12-31")
     bp.add_argument("--pbr",      type=float,        default=1.0)
     bp.add_argument("--qty",      type=int,          default=1)
-    bp.add_argument("--cash",     type=float,        default=10_000_000)
+    bp.add_argument("--cash",     type=float,        default=100_000_000)
     bp.add_argument("--universe", action="store_true", help="KIS API로 Universe 동적 조회")
+    bp.add_argument("--strategy", default="value_contrary",
+                    choices=["value_contrary", "strategy_a", "momentum", "supply_demand"],
+                    help="백테스트 전략 (기본: value_contrary)")
+    bp.add_argument("--source", default="kis", choices=["kis", "krx"],
+                    help="데이터 소스 (krx=pykrx 수급/백테스트, kis=REST)")
+    bp.add_argument("--top-n",           dest="top_n",           type=int, default=10,
+                    help="동일가중 보유 종목수 (수급/모멘텀)")
+    bp.add_argument("--rebalance-every", dest="rebalance_every", type=int, default=5,
+                    help="리밸런싱 주기 (거래일)")
+    bp.add_argument("--universe-size",   dest="universe_size",   type=int, default=100,
+                    help="KRX 시총 상위 N 유니버스")
 
     # ── live ────────────────────────────────────────────────────────────────
     lp = sub.add_parser("live", help="실전 매매")

@@ -19,13 +19,17 @@ __pycache__/
 *.pyc
 *.pyo
 .venv/
-data/
+.venv-win/
 .env
 *.pem
 *.key
+# 백테스트 캐시(시장데이터 parquet — 로컬 전용). PYQuant/data 소스코드는 커밋함.
+PYQuant/.krx_cache/
+*.parquet
 
 # 개인용 리뷰/분석 문서 — 커밋 제외
 REVIEW_PROMPT.md
+REVIEW_SKILL.md
 CODE_REVIEW.md
 ARCHITECTURE.md
 DEV_GUIDE_STRATEGY_A.md
