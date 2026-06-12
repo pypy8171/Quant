@@ -5,6 +5,8 @@ Quant/build_win/
 Quant/config/config.json
 Quant/config/config_paper.json
 Quant/config/.token_cache.json
+Quant/config/kis_token_*.json
+kis_token_*.json
 *.log
 *.pid
 *.exe
@@ -25,7 +27,10 @@ __pycache__/
 *.key
 # 백테스트 캐시(시장데이터 parquet — 로컬 전용). PYQuant/data 소스코드는 커밋함.
 PYQuant/.krx_cache/
+PYQuant/.datagokr_cache/
 *.parquet
+# 백테스트 출력물(CSV — 결과/보유/체결 덤프, 로컬 전용)
+*.csv
 
 # 개인용 리뷰/분석 문서 — 커밋 제외
 REVIEW_PROMPT.md
@@ -35,5 +40,6 @@ DAILY_LOG.md
 ARCHITECTURE.md
 DEV_GUIDE_STRATEGY_A.md
 STRATEGIES.md
+STRATEGY_LAB.md
 DECISIONS.md
 REGIME_CONTROLLER_SPEC.md
