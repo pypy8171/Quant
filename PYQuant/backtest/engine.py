@@ -46,6 +46,23 @@ class BacktestResult:
     win_rate:      float   # 승률(%)
     total_pnl:     float   # 총 손익(원)
     trade_count:   int
+    # ── 기간 ──
+    start_date:    str = ""    # 첫 평가일
+    end_date:      str = ""    # 마지막 평가일(최신 누적 시점)
+    # ── 벤치마크(등가중 유니버스 buy&hold) / 알파 ──
+    bench_return:  float = 0.0   # 등가중 buy&hold 수익률(%)
+    bench_mdd:     float = 0.0
+    bench_sharpe:  float = 0.0
+    alpha:         float = 0.0   # 전략 - 등가중 벤치 (초과수익 %p)
+    kodex_return:  float | None = None   # KODEX200 buy&hold 수익률(%), 데이터 없으면 None
+    regime_off:    int = 0               # 시장국면 필터로 현금화한 리밸런싱 횟수
+    # ── 일별 상태(데일리 export용) ──
+    equity_dates:  list = None   # list[str]
+    equity_curve:  list = None   # list[float] 전략
+    bench_curve:   list = None   # list[float] 등가중
+    daily_cash:    list = None
+    daily_npos:    list = None
+    daily_holdings: list = None   # [[(ticker,qty,value),...] per day]
 
 
 class _AsOfKisAdapter:
@@ -74,7 +91,9 @@ class BacktestEngine:
                  initial_cash: float = 10_000_000,
                  cost_model: CostModel | None = None,
                  target_positions: int = 10,
-                 warmup_days: int = 14):
+                 warmup_days: int = 14,
+                 regime_on: bool = False, regime_ma: int = 200,
+                 regime_thresh: float = 0.5):
         self.kis        = kis
         self.strategy   = strategy
         self.init_cash  = initial_cash
@@ -82,10 +101,18 @@ class BacktestEngine:
         self.cost       = cost_model or CostModel()
         self.target_positions = target_positions   # TARGET_WEIGHT 동일가중 분모
         self.warmup_days = warmup_days             # start_date 이전 워밍업 일수(모멘텀 lookback)
+        self.regime_on = regime_on                 # 시장국면 필터(하락장 현금화) on/off
+        self.regime_ma = regime_ma                 # 국면판정 이평 기간(거래일)
+        self.regime_thresh = regime_thresh         # breadth(이평위 비율) 임계 — 미만이면 risk-off
+        self._regime_off_days = 0                  # 리스크오프로 현금화한 리밸런싱 횟수(리포트용)
         self._trades:   list[Trade] = []
         self._equity:   list[float] = []      # 날짜별 포트폴리오 평가금액 (현금 + 보유 포지션 시가)
+        self._equity_dates: list[str] = []    # _equity와 1:1 정렬된 거래일
         self._positions: dict[str, int] = {}  # ticker → 현재 보유 수량
         self._names:    dict[str, str] = {}   # ticker → 종목명 (소스가 제공 시)
+        self._daily_cash: list[float] = []    # 일별 현금 잔고 (상태 export용)
+        self._daily_npos: list[int] = []      # 일별 보유 종목수 (상태 export용)
+        self._daily_holdings: list = []       # 일별 보유 상세 [[(ticker,qty,value),...], ...]
 
     def _label(self, code: str) -> str:
         nm = self._names.get(code)
@@ -103,6 +130,11 @@ class BacktestEngine:
         pre_start = (_date.fromisoformat(start_date) - timedelta(days=self.warmup_days)).isoformat()
 
         # 1. 전 종목 일봉 데이터 수집 (날짜 범위 기반)
+        #    소스가 병렬 prefetch를 지원하면 루프 전 한 번에 캐시를 채운다(대량 수집 가속).
+        if hasattr(self.kis, "prefetch_ohlcv"):
+            self.kis.prefetch_ohlcv(universe, pre_start, end_date)
+        # per-ticker throttle — 소스가 지정(fetch_sleep)하면 사용, 없으면 0.3(기존 KrxSource).
+        per_sleep = getattr(self.kis, "fetch_sleep", 0.3)
         raw_bars:  dict[str, list[Bar]] = {}   # pre_start ~ end_date
         all_bars:  dict[str, list[Bar]] = {}   # start_date ~ end_date (시뮬레이션용)
         for i, ticker in enumerate(universe):
@@ -112,7 +144,8 @@ class BacktestEngine:
             if sim:
                 raw_bars[ticker] = bars
                 all_bars[ticker] = sim
-            time.sleep(0.3)
+            if per_sleep:
+                time.sleep(per_sleep)
         print(f"\r  데이터 수집 완료: {len(all_bars)}종목{' '*20}")
 
         # 종목명 prefetch (소스가 제공할 때) — 로그/리포트 가독성
@@ -155,6 +188,9 @@ class BacktestEngine:
             # 횡단면 리밸런싱: 목표 집합 반환 시 엔진이 실보유 기준 reconcile(청산+매수+사이징)
             target = self.strategy.on_rebalance(date, visible_all, flow_visible)
             if target is not None:
+                if self.regime_on and not self._market_risk_on(visible_all):
+                    target = set()              # 시장 하락국면 → 전량 청산(현금)
+                    self._regime_off_days += 1
                 self._rebalance_to_target(set(target), date, raw_bars)
 
             # per-ticker 신호(개별 MARKET 주문) — 다음봉 시가 체결
@@ -163,25 +199,95 @@ class BacktestEngine:
                 if sig is not None:
                     self._execute(sig, date, raw_bars)
 
-            # 일별 포트폴리오 평가: 현금 + 보유 포지션 당일 종가 기준
+            # 일별 포트폴리오 평가: 현금 + 보유 포지션 당일 종가 기준 (매일 기록 — 데일리 상태)
             port_value = self.cash
+            holds: list = []
             for t, qty in self._positions.items():
                 day_bar = next((b for b in raw_bars.get(t, []) if b.date == date), None)
                 if day_bar:
-                    port_value += qty * day_bar.close
+                    val = qty * day_bar.close
+                    port_value += val
+                    holds.append((t, qty, val))
             self._equity.append(port_value)
+            self._equity_dates.append(date)
+            self._daily_cash.append(self.cash)
+            self._daily_npos.append(len(self._positions))
+            self._daily_holdings.append(holds)
 
         self.strategy.on_stop()
+
+        # 벤치마크: 유니버스 등가중 buy&hold + KODEX200(069500) buy&hold — 알파/베타 분리용
+        self._bench_eq  = self._buyhold_equity(list(all_bars.keys()), all_dates, all_bars)
+        kodex_bars = {}
+        try:
+            kb = self.kis.get_historical_ohlcv("069500", start_date, end_date)
+            if kb:
+                kodex_bars["069500"] = kb
+        except Exception:
+            kodex_bars = {}
+        self._kodex_eq = (self._buyhold_equity(["069500"], all_dates, kodex_bars)
+                          if kodex_bars else None)
         return self._calc_result()
+
+    def _buyhold_equity(self, tickers: list[str], all_dates: list[str],
+                        bars_by_ticker: dict) -> list[float] | None:
+        """초기자금을 종목들에 등가중 분배해 시작일 매수 후 보유. 일별 평가액 시계열 반환.
+        결측일/상폐 후엔 마지막 종가로 평가(전방채움). 벤치마크 비교용(비용 미반영 — 보수적)."""
+        present = {t: bars for t in tickers
+                   if (bars := bars_by_ticker.get(t)) }
+        n = len(present)
+        if n == 0 or not all_dates:
+            return None
+        alloc = self.init_cash / n
+        shares: dict[str, float] = {}
+        close_map: dict[str, dict] = {}
+        for t, bars in present.items():
+            p0 = bars[0].open if bars[0].open > 0 else bars[0].close
+            shares[t] = (alloc / p0) if p0 > 0 else 0.0
+            close_map[t] = {b.date: b.close for b in bars}
+        last_close = {t: 0.0 for t in present}
+        eq: list[float] = []
+        for d in all_dates:
+            v = 0.0
+            for t in present:
+                c = close_map[t].get(d)
+                if c is not None:
+                    last_close[t] = c
+                v += shares[t] * last_close[t]
+            eq.append(v)
+        return eq
+
+    def _market_risk_on(self, visible: dict) -> bool:
+        """시장 국면 판정(외부 데이터 불필요) — 유니버스 종목 중 N일 이평선 위 비율(breadth).
+        breadth >= regime_thresh면 risk-on(상승국면). 미만이면 risk-off(하락국면→현금).
+        visible: ticker→bars(date까지, look-ahead 없음). 절대모멘텀/지수 200일선의 breadth판."""
+        ma = self.regime_ma
+        above = total = 0
+        for bars in visible.values():
+            if len(bars) < ma:
+                continue
+            sma = sum(b.close for b in bars[-ma:]) / ma
+            total += 1
+            if bars[-1].close > sma:
+                above += 1
+        if total == 0:
+            return True   # 워밍업 부족 등 판단 불가 → 투자 유지(보수적으로 막지 않음)
+        return (above / total) >= self.regime_thresh
 
     def _execute(self, sig, date: str, all_bars: dict):
         """신호를 다음 봉 시가로 체결(look-ahead 방지). cash/positions/trades 갱신.
         order_type=="TARGET_WEIGHT"면 엔진이 동일가중 사이징: BUY=floor(직전equity/N/price), SELL=전량."""
         bars = all_bars.get(sig.ticker, [])
         future = [b for b in bars if b.date > date]
-        if not future:
-            return  # 다음 봉 없음 → 체결 불가(마지막 봉)
-        price = future[0].open if future[0].open > 0 else future[0].close
+        if future:
+            price = future[0].open if future[0].open > 0 else future[0].close
+        elif sig.side == "SELL":
+            # 미래봉 없음(상폐/데이터종료) + 매도 → 마지막 알려진 종가로 강제 청산(W-1).
+            # 자본이 포지션에 영구 잠겨 equity에서 증발하는 것 방지.
+            past = [b for b in bars if b.date <= date]
+            price = past[-1].close if past else 0.0
+        else:
+            return  # 미래봉 없음 + 매수 → 체결 불가
         if price <= 0:
             return
 
@@ -250,39 +356,45 @@ class BacktestEngine:
             print(f"  [{date}] 리밸런싱: 신규 {[self._label(t) for t in new_in]} / "
                   f"청산 {[self._label(t) for t in gone]} → 보유 {len(self._positions)}종목")
 
+    @staticmethod
+    def _curve_stats(equity: list[float]) -> tuple[float, float, float]:
+        """equity 시계열 → (총수익률%, MDD%, 연환산 샤프). 초기값 대비."""
+        if not equity:
+            return 0.0, 0.0, 0.0
+        total_return = (equity[-1] - equity[0]) / equity[0] * 100 if equity[0] > 0 else 0.0
+        peak, mdd = equity[0], 0.0
+        for e in equity:
+            peak = max(peak, e)
+            dd   = (peak - e) / peak * 100 if peak > 0 else 0.0
+            mdd  = max(mdd, dd)
+        sharpe = 0.0
+        if len(equity) > 1:
+            import statistics
+            rets = [(equity[i] - equity[i-1]) / equity[i-1]
+                    for i in range(1, len(equity)) if equity[i-1] > 0]
+            if len(rets) > 1:
+                std = statistics.stdev(rets)
+                sharpe = (statistics.mean(rets) / std * (252 ** 0.5)) if std > 0 else 0.0
+        return total_return, mdd, sharpe
+
     def _calc_result(self) -> BacktestResult:
         sells    = [t for t in self._trades if t.side == "SELL"]
         total_pnl = sum(t.pnl for t in sells)
         wins      = [t for t in sells if t.pnl > 0]
         win_rate  = len(wins) / len(sells) * 100 if sells else 0.0
 
-        # 미청산 보유 포지션 평가액을 포함한 최종 자산(equity)으로 수익률 계산.
-        # self.cash만 쓰면 미청산분을 0으로 친 셈이라 장기 보유형 전략 수익률이 왜곡됨.
-        final_equity  = self._equity[-1] if self._equity else self.cash
-        total_return  = (final_equity - self.init_cash) / self.init_cash * 100
+        # 전략: 미청산 보유 평가액 포함 최종 equity 기반 (init_cash 대비)
+        final_equity = self._equity[-1] if self._equity else self.cash
+        total_return = (final_equity - self.init_cash) / self.init_cash * 100
+        _, mdd, sharpe = self._curve_stats(self._equity)
 
-        # MDD 계산 — 일별 포트폴리오 평가금액(equity) 시계열 기반
-        mdd = 0.0
-        if self._equity:
-            peak = self._equity[0]
-            for e in self._equity:
-                peak = max(peak, e)
-                dd   = (peak - e) / peak * 100 if peak > 0 else 0
-                mdd  = max(mdd, dd)
-
-        # 샤프지수 — 일별 equity 수익률 기반 연환산 (252 거래일)
-        sharpe = 0.0
-        if len(self._equity) > 1:
-            import statistics
-            daily_rets = [
-                (self._equity[i] - self._equity[i - 1]) / self._equity[i - 1]
-                for i in range(1, len(self._equity))
-                if self._equity[i - 1] > 0
-            ]
-            if len(daily_rets) > 1:
-                avg = statistics.mean(daily_rets)
-                std = statistics.stdev(daily_rets)
-                sharpe = (avg / std * (252 ** 0.5)) if std > 0 else 0.0
+        # 벤치마크(등가중 유니버스 buy&hold) 통계 + 알파
+        bench_eq = getattr(self, "_bench_eq", None)
+        bench_return = bench_mdd = bench_sharpe = 0.0
+        if bench_eq:
+            bench_return, bench_mdd, bench_sharpe = self._curve_stats(bench_eq)
+        kodex_eq = getattr(self, "_kodex_eq", None)
+        kodex_return = self._curve_stats(kodex_eq)[0] if kodex_eq else None
 
         return BacktestResult(
             trades       = self._trades,
@@ -292,4 +404,18 @@ class BacktestEngine:
             win_rate     = win_rate,
             total_pnl    = total_pnl,
             trade_count  = len(sells),
+            start_date   = self._equity_dates[0]  if self._equity_dates else "",
+            end_date     = self._equity_dates[-1] if self._equity_dates else "",
+            bench_return = bench_return,
+            bench_mdd    = bench_mdd,
+            bench_sharpe = bench_sharpe,
+            alpha        = total_return - bench_return,
+            kodex_return = kodex_return,
+            regime_off   = self._regime_off_days,
+            equity_dates = list(self._equity_dates),
+            equity_curve = list(self._equity),
+            bench_curve  = list(bench_eq) if bench_eq else None,
+            daily_cash   = list(self._daily_cash),
+            daily_npos   = list(self._daily_npos),
+            daily_holdings = list(self._daily_holdings),
         )

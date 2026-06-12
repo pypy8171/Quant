@@ -43,8 +43,13 @@ DEFAULT_UNIVERSE = [
 
 def cmd_backtest(args):
     try:
-        # 데이터 소스: krx(pykrx — 수급 백테스트) 또는 kis(REST — OHLCV)
-        if args.source == "krx":
+        # 데이터 소스: datagokr(공공데이터포털 금융위 — point-in-time 시총/OHLCV, 권장)
+        #            / krx(pykrx — OHLCV만, 스냅샷·수급 차단) / kis(REST — OHLCV)
+        if args.source == "datagokr":
+            from data.datagokr_source import DataGoKrSource
+            kis = DataGoKrSource(market={"kospi": "KOSPI", "kosdaq": "KOSDAQ",
+                                          "all": "ALL"}[args.market])
+        elif args.source == "krx":
             from data.krx_source import KrxSource
             kis = KrxSource(market="KOSPI")
         else:
@@ -61,7 +66,9 @@ def cmd_backtest(args):
         elif args.strategy == "momentum":
             from strategy.cross_momentum import CrossMomentumStrategy
             strategy = CrossMomentumStrategy(top_n=args.top_n,
-                                             rebalance_every=args.rebalance_every)
+                                             rebalance_every=args.rebalance_every,
+                                             lookback=args.lookback, skip=args.skip,
+                                             vol_adjust=args.vol_adjust)
         elif args.strategy == "supply_demand":
             from strategy.supply_demand_rank import SupplyDemandRankStrategy
             strategy = SupplyDemandRankStrategy(top_n=args.top_n,
@@ -69,19 +76,46 @@ def cmd_backtest(args):
         else:
             raise ValueError(f"알 수 없는 전략: {args.strategy}")
 
-        # 모멘텀은 lookback 워밍업 필요(거래일 ~140 → 달력 300일)
-        warmup = 300 if args.strategy == "momentum" else 30
+        # 모멘텀은 lookback 워밍업 필요(거래일 lookback+skip → 달력 ~2.1배).
+        # regime 필터 켜면 이평기간(regime_ma) 워밍업도 필요 → 더 큰 쪽 사용.
+        warmup = (int((args.lookback + args.skip) * 2.1) + 20
+                  if args.strategy == "momentum" else 30)
+        if args.regime:
+            warmup = max(warmup, int(args.regime_ma * 1.5) + 20)
         engine = BacktestEngine(kis, strategy, initial_cash=args.cash,
-                                target_positions=args.top_n, warmup_days=warmup)
+                                target_positions=args.top_n, warmup_days=warmup,
+                                regime_on=args.regime, regime_ma=args.regime_ma)
 
-        # 유니버스: krx 시총상위 > --universe(KIS PBR) > 기본
+        # 유니버스: datagokr/krx 시총상위(동적) > 정적 KOSPI > --universe(KIS PBR) > 기본
         universe = DEFAULT_UNIVERSE
-        if args.source == "krx" and hasattr(kis, "universe_top"):
-            logger.info(f"KRX 시총 상위 {args.universe_size} 조회...")
-            u = kis.universe_top(args.from_date, args.universe_size)
+        if args.source in ("datagokr", "krx") and hasattr(kis, "universe_top"):
+            # 시작일(from_date) 시점 시총상위로 유니버스 1회 고정 = as-of 유니버스.
+            # 시작일 기준 생존편향은 제거하나, 기간 중 멤버십 갱신은 안 함(완전한 dynamic
+            # point-in-time 아님). TODO: 리밸런싱마다 universe_top(그날) 재조회.
+            asof = args.from_date
+            if args.source == "datagokr":
+                sizes = {"KOSPI": args.universe_size,
+                         "KOSDAQ": args.kosdaq_size or args.universe_size}
+                logger.info(f"datagokr/{args.market} 유니버스 조회 (as-of {asof}) "
+                            f"KOSPI={sizes['KOSPI']} KOSDAQ={sizes['KOSDAQ']}...")
+                u = kis.universe_top(asof, args.universe_size, sizes=sizes)
+            else:
+                logger.info(f"{args.source} 시총 상위 {args.universe_size} 조회 (as-of {asof})...")
+                u = kis.universe_top(asof, args.universe_size)
             if u:
                 universe = u
-                logger.info(f"유니버스: {len(universe)}종목")
+                tag = "as-of시작일" if args.source == "datagokr" else "동적"
+                logger.info(f"유니버스({tag}): {len(universe)}종목")
+            elif args.source == "krx":
+                # KRX MDC 스냅샷 차단(OTP "LOGOUT") → 정적 KOSPI 유니버스로 폴백.
+                # ⚠ survivorship bias 있음(universe_kospi.py 참조).
+                from data.universe_kospi import universe_codes
+                universe = universe_codes()
+                logger.warning(
+                    f"KRX 시총조회 차단 → 정적 KOSPI 유니버스 {len(universe)}종목 사용 "
+                    "(survivorship bias 감안)")
+            else:
+                logger.error("datagokr 유니버스 조회 실패 — DATA_GO_KR_KEY 확인")
         elif args.universe:
             logger.info("Universe 조회 중...")
             universe = kis.fetch_universe(max_pbr=args.pbr)
@@ -89,6 +123,13 @@ def cmd_backtest(args):
 
         result = engine.run(universe, start_date=args.from_date, end_date=args.to_date)
         print_report(result, names=engine._names)
+        if args.export:
+            from backtest.report import (export_daily_csv, export_trades_csv,
+                                         export_holdings_csv)
+            base = args.export.rsplit(".", 1)[0]
+            export_daily_csv(result, args.export)                       # 일별 잔고/수익률
+            export_trades_csv(result, base + "_trades.csv", names=engine._names)
+            export_holdings_csv(result, base + "_holdings.csv", names=engine._names)  # 일별 보유종목
     except KisAuthError as e:
         logger.error(f"인증 오류: {e}")
 
@@ -309,14 +350,31 @@ def main():
     bp.add_argument("--strategy", default="value_contrary",
                     choices=["value_contrary", "strategy_a", "momentum", "supply_demand"],
                     help="백테스트 전략 (기본: value_contrary)")
-    bp.add_argument("--source", default="kis", choices=["kis", "krx"],
-                    help="데이터 소스 (krx=pykrx 수급/백테스트, kis=REST)")
+    bp.add_argument("--source", default="kis", choices=["kis", "krx", "datagokr"],
+                    help="데이터 소스 (datagokr=공공데이터포털 금융위 point-in-time 권장, "
+                         "krx=pykrx OHLCV, kis=REST)")
     bp.add_argument("--top-n",           dest="top_n",           type=int, default=10,
                     help="동일가중 보유 종목수 (수급/모멘텀)")
     bp.add_argument("--rebalance-every", dest="rebalance_every", type=int, default=5,
                     help="리밸런싱 주기 (거래일)")
     bp.add_argument("--universe-size",   dest="universe_size",   type=int, default=100,
-                    help="KRX 시총 상위 N 유니버스")
+                    help="시총 상위 N 유니버스 (datagokr ALL이면 시장별 각 N)")
+    bp.add_argument("--market", default="kospi", choices=["kospi", "kosdaq", "all"],
+                    help="datagokr 유니버스 시장 (all=KOSPI 상위N + KOSDAQ 상위M)")
+    bp.add_argument("--kosdaq-size", dest="kosdaq_size", type=int, default=None,
+                    help="datagokr all 모드에서 KOSDAQ 종목수 (미지정 시 --universe-size와 동일)")
+    bp.add_argument("--lookback", type=int, default=120,
+                    help="모멘텀 lookback 거래일 (기본 120≈6개월)")
+    bp.add_argument("--skip", type=int, default=20,
+                    help="모멘텀 최근 제외 거래일 (기본 20≈1개월)")
+    bp.add_argument("--vol-adjust", dest="vol_adjust", action="store_true",
+                    help="변동성조정 모멘텀(점수=수익률/변동성) — 펌프주 강등")
+    bp.add_argument("--regime", action="store_true",
+                    help="시장국면 필터 — 유니버스 200일선 breadth<50%%면 전량 현금(하락장 방어)")
+    bp.add_argument("--regime-ma", dest="regime_ma", type=int, default=200,
+                    help="국면판정 이동평균 기간(거래일, 기본 200)")
+    bp.add_argument("--export", default=None,
+                    help="일별 상태 CSV 저장 경로 (매일매일 자산/수익률/낙폭/벤치)")
 
     # ── live ────────────────────────────────────────────────────────────────
     lp = sub.add_parser("live", help="실전 매매")
