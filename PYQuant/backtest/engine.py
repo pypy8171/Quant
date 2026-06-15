@@ -118,13 +118,16 @@ class BacktestEngine:
         nm = self._names.get(code)
         return f"{code}({nm})" if nm else code
 
-    def run(self, universe: list[str], start_date: str, end_date: str) -> BacktestResult:
+    def run(self, universe: list[str], start_date: str, end_date: str,
+            verbose: bool = True) -> BacktestResult:
         from datetime import date as _date, timedelta
-        print(f"\n{'='*60}")
-        print(f"백테스팅: {self.strategy.id()}")
-        print(f"기간: {start_date} ~ {end_date}  |  종목: {len(universe)}개")
-        print(f"초기 자금: {self.init_cash:,.0f}원")
-        print('='*60)
+        self._verbose = verbose   # 스윕 등 대량 실행 시 False로 출력 억제
+        if verbose:
+            print(f"\n{'='*60}")
+            print(f"백테스팅: {self.strategy.id()}")
+            print(f"기간: {start_date} ~ {end_date}  |  종목: {len(universe)}개")
+            print(f"초기 자금: {self.init_cash:,.0f}원")
+            print('='*60)
 
         # 워밍업(스크리닝/모멘텀 lookback)용 여분 과거 데이터
         pre_start = (_date.fromisoformat(start_date) - timedelta(days=self.warmup_days)).isoformat()
@@ -138,7 +141,8 @@ class BacktestEngine:
         raw_bars:  dict[str, list[Bar]] = {}   # pre_start ~ end_date
         all_bars:  dict[str, list[Bar]] = {}   # start_date ~ end_date (시뮬레이션용)
         for i, ticker in enumerate(universe):
-            print(f"\r  데이터 수집 중... {i+1}/{len(universe)} ({ticker})", end="", flush=True)
+            if verbose:
+                print(f"\r  데이터 수집 중... {i+1}/{len(universe)} ({ticker})", end="", flush=True)
             bars = self.kis.get_historical_ohlcv(ticker, pre_start, end_date)
             sim  = [b for b in bars if b.date >= start_date]
             if sim:
@@ -146,7 +150,8 @@ class BacktestEngine:
                 all_bars[ticker] = sim
             if per_sleep:
                 time.sleep(per_sleep)
-        print(f"\r  데이터 수집 완료: {len(all_bars)}종목{' '*20}")
+        if verbose:
+            print(f"\r  데이터 수집 완료: {len(all_bars)}종목{' '*20}")
 
         # 종목명 prefetch (소스가 제공할 때) — 로그/리포트 가독성
         if hasattr(self.kis, "ticker_name"):
@@ -158,7 +163,8 @@ class BacktestEngine:
         if getattr(self.strategy, "uses_flow", False) and hasattr(self.kis, "flow_history"):
             for ticker in list(all_bars.keys()):
                 all_flow[ticker] = self.kis.flow_history(ticker, pre_start, end_date)
-            print(f"  수급 수집 완료: {sum(1 for v in all_flow.values() if v)}종목")
+            if verbose:
+                print(f"  수급 수집 완료: {sum(1 for v in all_flow.values() if v)}종목")
 
         # 2. 전략 자체 스크리닝 — look-ahead 차단 as-of 어댑터로 on_start 호출.
         #    엔진은 전략 로직을 모른다(전략-불가지). 빈 리스트 반환 시 전 종목 감시.
@@ -168,7 +174,8 @@ class BacktestEngine:
         watch = [t for t in watch if t in all_bars]
         if not watch:
             watch = list(all_bars.keys())
-        print(f"  감시 종목: {len(watch)}개")
+        if verbose:
+            print(f"  감시 종목: {len(watch)}개")
 
         # 3. 날짜 순으로 시뮬레이션
         all_dates = sorted({b.date for bars in all_bars.values() for b in bars})
@@ -352,7 +359,7 @@ class BacktestEngine:
             if qty > 0:
                 self._execute(OrderSignal(t, "BUY", qty, "MARKET"), date, all_bars)
 
-        if new_in or gone:
+        if (new_in or gone) and getattr(self, "_verbose", True):
             print(f"  [{date}] 리밸런싱: 신규 {[self._label(t) for t in new_in]} / "
                   f"청산 {[self._label(t) for t in gone]} → 보유 {len(self._positions)}종목")
 
