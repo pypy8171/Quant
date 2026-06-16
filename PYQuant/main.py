@@ -340,6 +340,30 @@ def cmd_live(args):
         logger.error(f"인증 오류: {e}")
 
 
+def cmd_forward(args):
+    """forward-test: 검증된 regime-모멘텀을 KIS 모의계좌로 매매(기본 dry-run).
+    데이터=datagokr(OHLCV/유니버스), 매매=KIS 모의계좌(is_paper). 실거래 경로 없음(안전)."""
+    try:
+        kis = from_config(_resolve_config(True))   # 항상 모의계좌(config_paper.json)
+        if not kis.authenticate():
+            raise KisAuthError("KIS 모의 인증 실패 — config_paper.json 확인")
+        source = make_source("datagokr", "all")
+        if not source.authenticate():
+            raise KisAuthError("datagokr 인증 실패 — DATA_GO_KR_KEY 확인")
+        from strategy.cross_momentum import CrossMomentumStrategy
+        from live.forward_trader import ForwardTrader
+        strategy = CrossMomentumStrategy(top_n=args.top_n, rebalance_every=args.rebalance_every,
+                                         lookback=args.lookback, skip=args.skip)
+        ft = ForwardTrader(kis, strategy, source, top_n=args.top_n, lookback=args.lookback,
+                           skip=args.skip, rebalance_every=args.rebalance_every,
+                           regime_on=not args.no_regime, regime_ma=args.regime_ma,
+                           universe_size=args.universe_size, kosdaq_size=args.kosdaq_size,
+                           dry_run=not args.execute)   # allow_real 미노출 = 모의 전용(안전)
+        ft.run_once(force=args.force)
+    except KisAuthError as e:
+        logger.error(f"인증 오류: {e}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Python 퀀트 트레이딩")
     sub = parser.add_subparsers(dest="cmd")
@@ -425,6 +449,19 @@ def main():
     op.add_argument("--host", default="localhost")
     op.add_argument("--port", type=int, default=5556)
 
+    # ── forward (모의계좌 forward-test) ──────────────────────────────────────
+    fp = sub.add_parser("forward", help="regime-모멘텀 모의계좌 forward-test (기본 dry-run)")
+    fp.add_argument("--execute", action="store_true", help="실제 모의주문 발행(기본은 dry-run, 주문 안 냄)")
+    fp.add_argument("--force", action="store_true", help="리밸런싱 주기 무시하고 강제 실행")
+    fp.add_argument("--top-n", dest="top_n", type=int, default=30)
+    fp.add_argument("--rebalance-every", dest="rebalance_every", type=int, default=20)
+    fp.add_argument("--lookback", type=int, default=120)
+    fp.add_argument("--skip", type=int, default=20)
+    fp.add_argument("--regime-ma", dest="regime_ma", type=int, default=200)
+    fp.add_argument("--no-regime", dest="no_regime", action="store_true")
+    fp.add_argument("--universe-size", dest="universe_size", type=int, default=200)
+    fp.add_argument("--kosdaq-size", dest="kosdaq_size", type=int, default=100)
+
     args = parser.parse_args()
 
     if args.cmd == "backtest":
@@ -441,6 +478,8 @@ def main():
         cmd_record(args)
     elif args.cmd == "operate":
         cmd_operate(args)
+    elif args.cmd == "forward":
+        cmd_forward(args)
     else:
         parser.print_help()
 

@@ -65,6 +65,33 @@ class BacktestResult:
     daily_holdings: list = None   # [[(ticker,qty,value),...] per day]
 
 
+def market_risk_on(visible: dict, ma: int = 200, thresh: float = 0.5) -> bool:
+    """시장 국면 = 유니버스 종목 중 ma일 이평선 위 비율(breadth) >= thresh면 risk-on(상승),
+    미만이면 risk-off(하락→현금). visible: ticker→bars(평가일까지, look-ahead 없음).
+    백테스트 엔진과 라이브 ForwardTrader가 **공유**(결정 로직 단일 소스 = 신호 패리티)."""
+    above = total = 0
+    for bars in visible.values():
+        if len(bars) < ma:
+            continue
+        sma = sum(b.close for b in bars[-ma:]) / ma
+        total += 1
+        if bars[-1].close > sma:
+            above += 1
+    if total == 0:
+        return True   # 워밍업 부족 등 판단 불가 → 투자 유지(보수적으로 막지 않음)
+    return (above / total) >= thresh
+
+
+def equal_weight_qty(equity: float, n_target: int, price: float,
+                     cost_rate: float, available_cash: float) -> int:
+    """동일가중 1슬롯 매수 수량(정수주). 슬롯=equity/N, 가용현금 cap, 비용 반영.
+    백테스트·라이브 공유 사이징(집행 환경 달라도 수량 규칙 동일)."""
+    if price <= 0 or n_target <= 0:
+        return 0
+    budget = min(equity / max(1, n_target), available_cash)
+    return int(budget / (price * (1 + cost_rate)))
+
+
 class _AsOfKisAdapter:
     """백테스트 on_start 전용 KIS 어댑터 — start_date 이전 데이터만 노출(look-ahead 차단).
     엔진이 이미 수집한 raw_bars를 재사용하고, 시계열 외 메서드는 실제 kis로 위임한다."""
@@ -265,21 +292,8 @@ class BacktestEngine:
         return eq
 
     def _market_risk_on(self, visible: dict) -> bool:
-        """시장 국면 판정(외부 데이터 불필요) — 유니버스 종목 중 N일 이평선 위 비율(breadth).
-        breadth >= regime_thresh면 risk-on(상승국면). 미만이면 risk-off(하락국면→현금).
-        visible: ticker→bars(date까지, look-ahead 없음). 절대모멘텀/지수 200일선의 breadth판."""
-        ma = self.regime_ma
-        above = total = 0
-        for bars in visible.values():
-            if len(bars) < ma:
-                continue
-            sma = sum(b.close for b in bars[-ma:]) / ma
-            total += 1
-            if bars[-1].close > sma:
-                above += 1
-        if total == 0:
-            return True   # 워밍업 부족 등 판단 불가 → 투자 유지(보수적으로 막지 않음)
-        return (above / total) >= self.regime_thresh
+        """엔진 인스턴스 파라미터로 모듈 함수 market_risk_on 위임(백테스트·라이브 단일 소스)."""
+        return market_risk_on(visible, self.regime_ma, self.regime_thresh)
 
     def _execute(self, sig, date: str, all_bars: dict):
         """신호를 다음 봉 시가로 체결(look-ahead 방지). cash/positions/trades 갱신.
@@ -346,7 +360,6 @@ class BacktestEngine:
         # 2. 목표 중 미보유분 동일가중 매수 (선택 종목끼리 풀투자 동일가중, 비용+가용현금 반영).
         #    분모를 len(target)으로 — target<N일 때 (N-target)/N 자본이 유휴로 남는 문제 해소(W-1).
         equity   = self._equity[-1] if self._equity else self.init_cash
-        slot_val = equity / max(1, len(target))
         cost_rate = self.cost.commission_rate + self.cost.slippage_bps / 10_000
         for t in sorted(target):   # 정렬 — set 순회순서 randomization 제거(백테스트 재현성)
             if t in self._positions:
@@ -354,8 +367,7 @@ class BacktestEngine:
             price = self._peek_next_open(t, date, all_bars)
             if price is None or price <= 0:
                 continue
-            budget = min(slot_val, self.cash)             # 가용현금 cap → 항상 체결 가능
-            qty = int(budget / (price * (1 + cost_rate)))
+            qty = equal_weight_qty(equity, len(target), price, cost_rate, self.cash)  # 공유 사이징
             if qty > 0:
                 self._execute(OrderSignal(t, "BUY", qty, "MARKET"), date, all_bars)
 

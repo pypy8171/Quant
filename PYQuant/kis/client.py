@@ -152,22 +152,27 @@ class KisClient:
             "appkey":     self.app_key,
             "appsecret":  self.app_secret,
         }
-        try:
-            r = requests.post(url, json=body, timeout=10)
-            r.raise_for_status()
-            data = r.json()
-            self._token     = data["access_token"]
-            self._token_exp = time.time() + int(data.get("expires_in", 86400))
-            expired_str     = data.get("access_token_token_expired", "?")
-            self._save_token_cache(self._token, expired_str)
-            logger.info(f"인증 성공 (만료: {expired_str})")
-            return True
-        except requests.RequestException as e:
-            logger.error(f"인증 네트워크 오류: {e}")
-            return False
-        except (KeyError, ValueError) as e:
-            logger.error(f"인증 응답 파싱 실패: {e}")
-            return False
+        last_err = None
+        for attempt in range(3):   # KIS(특히 모의) 서버 지연 대비 재시도(타임아웃 30s)
+            try:
+                r = requests.post(url, json=body, timeout=30)
+                r.raise_for_status()
+                data = r.json()
+                self._token     = data["access_token"]
+                self._token_exp = time.time() + int(data.get("expires_in", 86400))
+                expired_str     = data.get("access_token_token_expired", "?")
+                self._save_token_cache(self._token, expired_str)
+                logger.info(f"인증 성공 (만료: {expired_str})")
+                return True
+            except requests.RequestException as e:
+                last_err = e
+                if attempt < 2:
+                    time.sleep(2 * (attempt + 1))   # 2s, 4s 백오프
+            except (KeyError, ValueError) as e:
+                logger.error(f"인증 응답 파싱 실패: {e}")
+                return False
+        logger.error(f"인증 네트워크 오류(재시도 3회 소진): {last_err}")
+        return False
 
     def _ensure_token(self):
         if not self._token or time.time() > self._token_exp - 300:
@@ -194,29 +199,28 @@ class KisClient:
         }
 
     def _get(self, path: str, params: dict, tr_id: str) -> dict:
-        try:
-            r = requests.get(
-                self.base_url + path,
-                params=params,
-                headers=self._headers(tr_id),
-                timeout=10,
-            )
-            return r.json()
-        except requests.RequestException as e:
-            logger.error(f"GET 네트워크 오류 {path}: {e}")
-            return {}
-        except ValueError as e:
-            logger.error(f"GET 응답 JSON 파싱 실패 {path}: {e}")
-            return {}
+        last = None
+        for attempt in range(3):   # KIS(특히 모의) 지연 대비 재시도, 타임아웃 20s
+            try:
+                r = requests.get(self.base_url + path, params=params,
+                                 headers=self._headers(tr_id), timeout=20)
+                return r.json()
+            except requests.RequestException as e:
+                last = e
+                if attempt < 2:
+                    time.sleep(1.5 * (attempt + 1))
+            except ValueError as e:
+                logger.error(f"GET 응답 JSON 파싱 실패 {path}: {e}")
+                return {}
+        logger.error(f"GET 네트워크 오류(재시도 3회) {path}: {last}")
+        return {}
 
     def _post(self, path: str, body: dict, tr_id: str) -> dict:
+        # ⚠️ 자동 재시도 없음 — _post는 주문(send_order) 등 상태변경에 쓰여,
+        #    타임아웃 후 재시도하면 이중주문 위험. 타임아웃만 20s로 완화.
         try:
-            r = requests.post(
-                self.base_url + path,
-                json=body,
-                headers=self._headers(tr_id),
-                timeout=10,
-            )
+            r = requests.post(self.base_url + path, json=body,
+                              headers=self._headers(tr_id), timeout=20)
             return r.json()
         except requests.RequestException as e:
             logger.error(f"POST 네트워크 오류 {path}: {e}")
