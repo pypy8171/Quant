@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from main import make_source, select_universe, run_backtest
 
 # 한 번에 한 축만 — 허용 축(전략 파라미터)
-AXES = {"top_n", "rebalance", "lookback", "skip", "regime_ma"}
+AXES = {"top_n", "rebalance", "lookback", "skip", "regime_ma", "regime_thresh"}
 
 
 def main() -> None:
@@ -48,13 +48,15 @@ def main() -> None:
     ap.add_argument("--lookback", type=int, default=120)
     ap.add_argument("--skip", type=int, default=20)
     ap.add_argument("--regime-ma", dest="regime_ma", type=int, default=200)
+    ap.add_argument("--regime-thresh", dest="regime_thresh", type=float, default=0.5)
     args = ap.parse_args()
 
-    values = [int(v) for v in args.values.split(",")]
-    base = {"top_n": args.top_n, "rebalance_every": args.rebalance,
-            "lookback": args.lookback, "skip": args.skip, "regime_ma": args.regime_ma}
+    cast = float if args.axis == "regime_thresh" else int   # thresh만 실수
+    values = [cast(v) for v in args.values.split(",")]
+    base = {"top_n": args.top_n, "rebalance_every": args.rebalance, "lookback": args.lookback,
+            "skip": args.skip, "regime_ma": args.regime_ma, "regime_thresh": args.regime_thresh}
     axis_key = {"top_n": "top_n", "rebalance": "rebalance_every", "lookback": "lookback",
-                "skip": "skip", "regime_ma": "regime_ma"}[args.axis]
+                "skip": "skip", "regime_ma": "regime_ma", "regime_thresh": "regime_thresh"}[args.axis]
 
     src = make_source("datagokr", args.market)
     if not src.authenticate():
@@ -77,7 +79,8 @@ def main() -> None:
             from_date=args.from_date, to_date=args.to_date,
             top_n=params["top_n"], rebalance_every=params["rebalance_every"],
             lookback=params["lookback"], skip=params["skip"],
-            regime=regime, regime_ma=params["regime_ma"], verbose=False)
+            regime=regime, regime_ma=params["regime_ma"],
+            regime_thresh=params["regime_thresh"], verbose=False)
         n_days = len(result.equity_dates) or 1
         cagr = ((1 + result.total_return/100) ** (252/n_days) - 1) * 100
         print(f"{v:>10} | {result.total_return:>8.1f} {cagr:>7.1f} {result.sharpe:>6.2f} "

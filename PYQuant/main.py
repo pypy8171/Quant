@@ -96,7 +96,8 @@ def select_universe(kis, source: str, *, from_date: str, universe_size: int,
 def run_backtest(kis, *, strategy_name: str, universe: list[str], from_date: str, to_date: str,
                  top_n: int = 20, rebalance_every: int = 20, lookback: int = 120, skip: int = 20,
                  vol_adjust: bool = False, regime: bool = False, regime_ma: int = 200,
-                 cash: float = 100_000_000, pbr: float = 1.0, qty: int = 1, verbose: bool = True):
+                 regime_thresh: float = 0.5, cash: float = 100_000_000,
+                 pbr: float = 1.0, qty: int = 1, verbose: bool = True):
     """엔진 1회 실행 — 재사용 가능(스윕·단발 공용). (result, names) 반환."""
     strategy = make_strategy(strategy_name, top_n=top_n, rebalance_every=rebalance_every,
                              lookback=lookback, skip=skip, vol_adjust=vol_adjust, pbr=pbr, qty=qty)
@@ -104,7 +105,8 @@ def run_backtest(kis, *, strategy_name: str, universe: list[str], from_date: str
     if regime:
         warmup = max(warmup, int(regime_ma * 1.5) + 20)
     engine = BacktestEngine(kis, strategy, initial_cash=cash, target_positions=top_n,
-                            warmup_days=warmup, regime_on=regime, regime_ma=regime_ma)
+                            warmup_days=warmup, regime_on=regime, regime_ma=regime_ma,
+                            regime_thresh=regime_thresh)
     result = engine.run(universe, start_date=from_date, end_date=to_date, verbose=verbose)
     return result, engine._names
 
