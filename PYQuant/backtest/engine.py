@@ -82,6 +82,16 @@ def market_risk_on(visible: dict, ma: int = 200, thresh: float = 0.5) -> bool:
     return (above / total) >= thresh
 
 
+def index_risk_on(bars: list, ma: int = 200) -> bool:
+    """지수(예: KODEX200) 종가가 ma일 이평선 위면 risk-on, 아래면 risk-off(현금).
+    bars: 평가일까지의 지수 일봉(look-ahead 없음). 유니버스 breadth보다 신호가 매끄러워
+    경계선 진동(whipsaw)이 적다 → 매일 체크에 적합. 워밍업 부족 시 보수적으로 투자 유지."""
+    if len(bars) < ma:
+        return True
+    sma = sum(b.close for b in bars[-ma:]) / ma
+    return bars[-1].close > sma
+
+
 def equal_weight_qty(equity: float, n_target: int, price: float,
                      cost_rate: float, available_cash: float) -> int:
     """동일가중 1슬롯 매수 수량(정수주). 슬롯=equity/N, 가용현금 cap, 비용 반영.
@@ -120,7 +130,8 @@ class BacktestEngine:
                  target_positions: int = 10,
                  warmup_days: int = 14,
                  regime_on: bool = False, regime_ma: int = 200,
-                 regime_thresh: float = 0.5):
+                 regime_thresh: float = 0.5, daily_regime: bool = False,
+                 regime_mode: str = "breadth", regime_index: str = "^KS11"):
         self.kis        = kis
         self.strategy   = strategy
         self.init_cash  = initial_cash
@@ -131,7 +142,13 @@ class BacktestEngine:
         self.regime_on = regime_on                 # 시장국면 필터(하락장 현금화) on/off
         self.regime_ma = regime_ma                 # 국면판정 이평 기간(거래일)
         self.regime_thresh = regime_thresh         # breadth(이평위 비율) 임계 — 미만이면 risk-off
-        self._regime_off_days = 0                  # 리스크오프로 현금화한 리밸런싱 횟수(리포트용)
+        self.daily_regime = daily_regime           # True=매일 국면체크(전환시 즉시 현금화/재진입), False=리밸런싱일만
+        self.regime_mode = regime_mode             # "breadth"=유니버스 이평위 비율, "index"=지수 200MA(매끄러움)
+        self.regime_index = regime_index           # index 모드 지수 티커(yfinance 심볼, 기본 ^KS11 코스피)
+        self._index_bars: list[Bar] = []           # index 모드용 지수 일봉(pre_start~end, 200MA 워밍업 포함)
+        self._regime_off_days = 0                  # 리스크오프로 현금화한 횟수(리포트용)
+        self._last_target: set = set()             # 최신 종목선정(재진입용 — 국면 회복시 이걸로 복귀)
+        self._regime_state = True                  # 직전 국면(risk-on=True). 전환 감지용
         self._trades:   list[Trade] = []
         self._equity:   list[float] = []      # 날짜별 포트폴리오 평가금액 (현금 + 보유 포지션 시가)
         self._equity_dates: list[str] = []    # _equity와 1:1 정렬된 거래일
@@ -185,6 +202,23 @@ class BacktestEngine:
             for t in all_bars:
                 self._names[t] = self.kis.ticker_name(t)
 
+        # 지수 regime 모드용 지수 일봉(pre_start부터 — 200MA 워밍업 포함). breadth 모드면 불필요.
+        # 지수/해외지표는 datagokr(주식 전용)로 못 받으므로 yfinance IndexSource 사용.
+        # ⚠️ 연구용: 라이브(forward_trader)는 breadth만 지원 — index/daily 채택 시 신호 패리티 별도 작업 필요(C-2).
+        if self.regime_on and self.regime_mode == "index":
+            from data.index_source import IndexSource
+            self._index_bars = IndexSource().get_historical_ohlcv(self.regime_index, pre_start, end_date) or []
+            # C-1: 봉 부족이면 index_risk_on이 조용히 True(전구간 풀투자)로 무력화되어
+            # "regime ON" 결과가 실제로는 regime OFF가 된다 → 과적합 판단 오염. 명시적 중단.
+            if len(self._index_bars) < self.regime_ma:
+                raise RuntimeError(
+                    f"index regime 활성인데 지수({self.regime_index}) 봉 부족"
+                    f"({len(self._index_bars)}<{self.regime_ma}). yfinance 설치/네트워크/티커 확인. "
+                    f"조용한 풀투자 방지 위해 중단.")
+            if verbose:
+                cov = sum(1 for b in self._index_bars if b.date >= start_date)
+                print(f"  지수({self.regime_index}) 일봉 수집: {len(self._index_bars)}봉 (시뮬구간 {cov}봉)")
+
         # 1b. 수급 데이터 — 전략이 수급을 쓰고(uses_flow) 소스가 제공할 때만 수집(불필요 호출/노이즈 방지)
         all_flow: dict[str, list] = {}
         if getattr(self.strategy, "uses_flow", False) and hasattr(self.kis, "flow_history"):
@@ -219,13 +253,25 @@ class BacktestEngine:
             flow_visible = {t: [f for f in all_flow.get(t, []) if f.date < date]
                             for t in visible_all}
 
-            # 횡단면 리밸런싱: 목표 집합 반환 시 엔진이 실보유 기준 reconcile(청산+매수+사이징)
+            # 종목 재선정(주기적) — 목표집합 갱신. 종목 선정은 느려도 됨(6개월 신호).
             target = self.strategy.on_rebalance(date, visible_all, flow_visible)
-            if target is not None:
-                if self.regime_on and not self._market_risk_on(visible_all):
-                    target = set()              # 시장 하락국면 → 전량 청산(현금)
+            is_rebal = target is not None
+            if is_rebal:
+                self._last_target = set(target)
+
+            # 국면(regime) 게이트 — daily_regime이면 매일 체크(빠른 대응), 아니면 리밸런싱일만.
+            # 하락국면→현금화, 회복→마지막 종목선정으로 재진입. "현금화는 빠르게, 종목교체는 느리게".
+            if self.regime_on and (is_rebal or self.daily_regime):
+                risk_on = self._market_risk_on(visible_all, date)
+            else:
+                risk_on = True   # regime 미사용 또는 비체크일 → 보유 유지
+            desired = self._last_target if risk_on else set()
+            flipped = self.regime_on and self.daily_regime and (risk_on != self._regime_state)
+            if is_rebal or flipped:
+                self._rebalance_to_target(set(desired), date, raw_bars)
+                if not risk_on:
                     self._regime_off_days += 1
-                self._rebalance_to_target(set(target), date, raw_bars)
+            self._regime_state = risk_on
 
             # per-ticker 신호(개별 MARKET 주문) — 다음봉 시가 체결
             for ticker, vis in visible_all.items():
@@ -291,8 +337,12 @@ class BacktestEngine:
             eq.append(v)
         return eq
 
-    def _market_risk_on(self, visible: dict) -> bool:
-        """엔진 인스턴스 파라미터로 모듈 함수 market_risk_on 위임(백테스트·라이브 단일 소스)."""
+    def _market_risk_on(self, visible: dict, date: str) -> bool:
+        """국면 판정. index 모드=지수 200MA(매끄러움, whipsaw 적음), breadth 모드=유니버스 이평위 비율.
+        둘 다 평가일까지 데이터만 사용(look-ahead 없음). 백테스트·라이브 단일 소스."""
+        if self.regime_mode == "index":
+            vis_idx = [b for b in self._index_bars if b.date <= date]
+            return index_risk_on(vis_idx, self.regime_ma)
         return market_risk_on(visible, self.regime_ma, self.regime_thresh)
 
     def _execute(self, sig, date: str, all_bars: dict):

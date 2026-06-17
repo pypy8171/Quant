@@ -96,8 +96,9 @@ def select_universe(kis, source: str, *, from_date: str, universe_size: int,
 def run_backtest(kis, *, strategy_name: str, universe: list[str], from_date: str, to_date: str,
                  top_n: int = 20, rebalance_every: int = 20, lookback: int = 120, skip: int = 20,
                  vol_adjust: bool = False, regime: bool = False, regime_ma: int = 200,
-                 regime_thresh: float = 0.5, cash: float = 100_000_000,
-                 pbr: float = 1.0, qty: int = 1, verbose: bool = True):
+                 regime_thresh: float = 0.5, daily_regime: bool = False,
+                 regime_mode: str = "breadth", regime_index: str = "^KS11",
+                 cash: float = 100_000_000, pbr: float = 1.0, qty: int = 1, verbose: bool = True):
     """엔진 1회 실행 — 재사용 가능(스윕·단발 공용). (result, names) 반환."""
     strategy = make_strategy(strategy_name, top_n=top_n, rebalance_every=rebalance_every,
                              lookback=lookback, skip=skip, vol_adjust=vol_adjust, pbr=pbr, qty=qty)
@@ -106,7 +107,8 @@ def run_backtest(kis, *, strategy_name: str, universe: list[str], from_date: str
         warmup = max(warmup, int(regime_ma * 1.5) + 20)
     engine = BacktestEngine(kis, strategy, initial_cash=cash, target_positions=top_n,
                             warmup_days=warmup, regime_on=regime, regime_ma=regime_ma,
-                            regime_thresh=regime_thresh)
+                            regime_thresh=regime_thresh, daily_regime=daily_regime,
+                            regime_mode=regime_mode, regime_index=regime_index)
     result = engine.run(universe, start_date=from_date, end_date=to_date, verbose=verbose)
     return result, engine._names
 
@@ -125,8 +127,9 @@ def cmd_backtest(args):
             from_date=args.from_date, to_date=args.to_date,
             top_n=args.top_n, rebalance_every=args.rebalance_every,
             lookback=args.lookback, skip=args.skip, vol_adjust=args.vol_adjust,
-            regime=args.regime, regime_ma=args.regime_ma, cash=args.cash,
-            pbr=args.pbr, qty=args.qty)
+            regime=args.regime, regime_ma=args.regime_ma, daily_regime=args.daily_regime,
+            regime_mode=args.regime_mode, regime_index=args.regime_index,
+            cash=args.cash, pbr=args.pbr, qty=args.qty)
         print_report(result, names=names)
         if args.export:
             from backtest.report import (export_daily_csv, export_trades_csv,
@@ -402,6 +405,13 @@ def main():
                     help="시장국면 필터 — 유니버스 200일선 breadth<50%%면 전량 현금(하락장 방어)")
     bp.add_argument("--regime-ma", dest="regime_ma", type=int, default=200,
                     help="국면판정 이동평균 기간(거래일, 기본 200)")
+    bp.add_argument("--daily-regime", dest="daily_regime", action="store_true",
+                    help="매일 국면체크(전환시 즉시 현금화/재진입). 기본은 리밸런싱일만 체크")
+    bp.add_argument("--regime-mode", dest="regime_mode", default="breadth",
+                    choices=["breadth", "index"],
+                    help="국면 신호: breadth=유니버스 이평위 비율, index=지수 200MA(매끄러워 whipsaw 적음)")
+    bp.add_argument("--regime-index", dest="regime_index", default="^KS11",
+                    help="index 모드 지수 티커(yfinance): ^KS11 코스피, ^KQ11 코스닥, ^GSPC S&P, ^IXIC 나스닥")
     bp.add_argument("--export", default=None,
                     help="일별 상태 CSV 저장 경로 (매일매일 자산/수익률/낙폭/벤치)")
 

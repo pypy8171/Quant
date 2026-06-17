@@ -13,6 +13,7 @@ ForwardTrader — 검증된 횡단면 전략(regime-모멘텀)을 KIS 모의계�
    ③슬리피지 가정 내. 최소 1리밸런싱 사이클(~1개월).
 """
 import json
+import os
 import time
 from datetime import date, timedelta
 from pathlib import Path
@@ -183,6 +184,10 @@ class ForwardTrader:
             print("리밸런싱 날 아님 — 스냅샷만."); self._snapshot(asof); return
 
         # 3. 신호: regime + 목표집합 (백테스트와 동일 함수)
+        # ⚠️ 신호 패리티 범위(C-2): 라이브는 breadth 국면(market_risk_on)만 지원한다.
+        #    백테스트의 index 모드(지수 200MA)·daily_regime은 연구용이며 아직 라이브 미배선 —
+        #    백테스트에서 그 모드를 채택하려면 여기에 IndexSource+index_risk_on / 매일체크를 동일 이식해야
+        #    포워드테스트가 백테스트 엣지를 재현한다. 현재 채택 신호(breadth 월간)는 일치.
         self.strategy.set_kis(self.source)
         target = set(self.strategy.on_rebalance(asof, visible) or [])
         risk_on = True
@@ -204,9 +209,12 @@ class ForwardTrader:
             self._snapshot(asof); return
         sells = sorted(set(held) - target)
         buys = sorted(target - set(held))
-        # 매수 가용현금 = 예수금 + 청산 추정대금(매도 후 확보될 현금 — W-4 보정)
+        # 매수 가용현금 = 예수금 + 청산 추정대금 × 0.9(buffer).
+        # 한국 매도대금 T+2 결제라 전액 즉시가용 아님(C-2) → 보수적 90%만 반영해 "주문가능금액 부족"
+        # 거부 줄임. 남는 매수는 다음 사이클 self-heal. ⚠️실계좌 전: KIS inquire-psbl-order(실주문가능금액)
+        # 직접 조회로 대체 + 접수≠체결 inquire-ccnl 체결확인 추가(C-1) 필요.
         sell_proceeds = sum(held[t] * (cur_px.get(t, 0) or 0) for t in sells)
-        avail = summary.cash + sell_proceeds
+        avail = summary.cash + sell_proceeds * 0.9
         print(f"보유 {len(held)}종목 → 청산 {len(sells)} / 신규매수 {len(buys)} "
               f"(평가 {equity:,.0f} 예수금 {summary.cash:,.0f} +청산대금 {sell_proceeds:,.0f})")
 
@@ -249,14 +257,26 @@ class ForwardTrader:
     def _snapshot(self, asof: str):
         try:
             items, summary = self.kis.get_kr_balance()
+            # 잔고조회 실패(타임아웃→빈응답)면 0값 행 기록 금지 — P&L 곡선 오염 방지
+            if not items and (summary.total_eval or 0) <= 0:
+                print("  (잔고조회 실패 — P&L 스냅샷 생략)"); return
+            today = date.today().isoformat()   # 데이터일(asof=T-1) 아닌 '실행일' 기록
             path = Path(__file__).resolve().parent / "forward_pnl.csv"
             new = not path.exists()
-            with open(path, "a", encoding="utf-8-sig") as f:
-                if new:
-                    f.write("date,total_eval,cash,n_positions,total_pnl\n")
-                pnl = sum(it.pnl for it in items)
-                f.write(f"{asof},{summary.total_eval:.0f},{summary.cash:.0f},"
-                        f"{len([i for i in items if i.quantity>0])},{pnl:.0f}\n")
-            print(f"  📄 P&L 스냅샷 → forward_pnl.csv (평가 {summary.total_eval:,.0f})")
+            rows = path.read_text(encoding="utf-8-sig").splitlines() if not new else []
+            # 헤더·빈줄 제거 + 같은 날 중복 행 제거(하루 1행, 재실행 시 갱신) — 명시 필터(W-4)
+            data_rows = [r for r in rows
+                         if r and not r.startswith("date") and not r.startswith(today + ",")]
+            pnl = sum(it.pnl for it in items)
+            line = (f"{today},{summary.total_eval:.0f},{summary.cash:.0f},"
+                    f"{len([i for i in items if i.quantity>0])},{pnl:.0f}")
+            tmp = path.with_suffix(".csv.tmp")        # 원자적 교체(중단 시 원본 보존)
+            with open(tmp, "w", encoding="utf-8-sig") as f:
+                f.write("date,total_eval,cash,n_positions,total_pnl\n")
+                for r in data_rows:
+                    f.write(r + "\n")
+                f.write(line + "\n")
+            os.replace(tmp, path)
+            print(f"  📄 P&L 스냅샷 → forward_pnl.csv ({today} 평가 {summary.total_eval:,.0f})")
         except Exception as e:                       # noqa: BLE001
             print(f"  (스냅샷 실패: {type(e).__name__})")

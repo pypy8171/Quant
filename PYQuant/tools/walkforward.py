@@ -55,6 +55,12 @@ def main() -> None:
     ap.add_argument("--universe-size", type=int, default=200)
     ap.add_argument("--kosdaq-size", type=int, default=100)
     ap.add_argument("--no-regime", action="store_true")
+    ap.add_argument("--regime-mode", dest="regime_mode", default="breadth",
+                    choices=["breadth", "index"], help="국면 신호: breadth or index(지수 200MA)")
+    ap.add_argument("--regime-index", dest="regime_index", default="^KS11",
+                    help="index 모드 지수 티커(yfinance): ^KS11 코스피 등")
+    ap.add_argument("--vol-adjust", dest="vol_adjust", action="store_true",
+                    help="변동성조정 모멘텀(점수=수익률/변동성) — 펌프주 강등, MDD 완화 시도")
     # 고정 베이스라인(강건 후보 설정)
     ap.add_argument("--top-n", dest="top_n", type=int, default=30)
     ap.add_argument("--rebalance", type=int, default=20)
@@ -79,7 +85,8 @@ def main() -> None:
         print("DATA_GO_KR_KEY 환경변수 필요. 중단."); return
 
     mode = f"IS그리드최적({args.grid})" if args.grid else "고정파라미터"
-    print(f"Walk-forward ({mode}, regime={'ON' if regime else 'OFF'}, "
+    rmode = f"{args.regime_mode}" + (f":{args.regime_index}" if args.regime_mode == "index" else "")
+    print(f"Walk-forward ({mode}, regime={'ON('+rmode+')' if regime else 'OFF'}, "
           f"top{args.top_n}/rb{args.rebalance}/lb{args.lookback}/skip{args.skip}/rgma{args.regime_ma})")
     print("=" * 92)
     print(f"{'OOS구간':<12} {'선택파라미터':<18} {'IS샤프':>7} {'OOS샤프':>7} {'OOS수익%':>8} "
@@ -97,14 +104,18 @@ def main() -> None:
         for combo in grid_combos:
             params = dict(base); params.update(combo)
             r, _ = run_backtest(src, strategy_name="momentum", universe=is_uni,
-                                from_date=is_from, to_date=is_to, regime=regime, verbose=False, **params)
+                                from_date=is_from, to_date=is_to, regime=regime,
+                                regime_mode=args.regime_mode, regime_index=args.regime_index,
+                                vol_adjust=args.vol_adjust, verbose=False, **params)
             if r.sharpe > best_sharpe:
                 best_sharpe, best = r.sharpe, params
         # OOS 평가 (선택된 파라미터 고정, OOS 유니버스 as-of)
         oos_uni = select_universe(src, "datagokr", from_date=oos_from,
                                   universe_size=args.universe_size, kosdaq_size=args.kosdaq_size)
         r_oos, _ = run_backtest(src, strategy_name="momentum", universe=oos_uni,
-                                from_date=oos_from, to_date=oos_to, regime=regime, verbose=False, **best)
+                                from_date=oos_from, to_date=oos_to, regime=regime,
+                                regime_mode=args.regime_mode, regime_index=args.regime_index,
+                                vol_adjust=args.vol_adjust, verbose=False, **best)
         if args.grid:
             gk = list(grid_combos[0].keys())[0]
             pick = f"{gk}={best[gk]}"

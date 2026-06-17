@@ -5,3 +5,5 @@ psycopg2-binary>=2.9.0
 pykrx>=1.0.45
 pandas>=2.0.0
 pyarrow>=14.0.0
+# 지수/매크로 국면판정용(KOSPI/KOSDAQ/S&P/나스닥/미10년물 — datagokr가 지수/ETF 미제공)
+yfinance>=0.2.0
