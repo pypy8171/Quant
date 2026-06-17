@@ -28,6 +28,7 @@ __pycache__/
 # 백테스트 캐시(시장데이터 parquet — 로컬 전용). PYQuant/data 소스코드는 커밋함.
 PYQuant/.krx_cache/
 PYQuant/.datagokr_cache/
+PYQuant/.index_cache/
 *.parquet
 # 백테스트 출력물(CSV — 결과/보유/체결 덤프, 로컬 전용)
 *.csv
