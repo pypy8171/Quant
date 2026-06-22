@@ -98,6 +98,7 @@ def run_backtest(kis, *, strategy_name: str, universe: list[str], from_date: str
                  vol_adjust: bool = False, regime: bool = False, regime_ma: int = 200,
                  regime_thresh: float = 0.5, daily_regime: bool = False,
                  regime_mode: str = "breadth", regime_index: str = "^KS11",
+                 vol_target: float = 0.0, vol_window: int = 20,
                  cash: float = 100_000_000, pbr: float = 1.0, qty: int = 1, verbose: bool = True):
     """엔진 1회 실행 — 재사용 가능(스윕·단발 공용). (result, names) 반환."""
     strategy = make_strategy(strategy_name, top_n=top_n, rebalance_every=rebalance_every,
@@ -108,7 +109,8 @@ def run_backtest(kis, *, strategy_name: str, universe: list[str], from_date: str
     engine = BacktestEngine(kis, strategy, initial_cash=cash, target_positions=top_n,
                             warmup_days=warmup, regime_on=regime, regime_ma=regime_ma,
                             regime_thresh=regime_thresh, daily_regime=daily_regime,
-                            regime_mode=regime_mode, regime_index=regime_index)
+                            regime_mode=regime_mode, regime_index=regime_index,
+                            vol_target=vol_target, vol_window=vol_window)
     result = engine.run(universe, start_date=from_date, end_date=to_date, verbose=verbose)
     return result, engine._names
 
@@ -129,6 +131,7 @@ def cmd_backtest(args):
             lookback=args.lookback, skip=args.skip, vol_adjust=args.vol_adjust,
             regime=args.regime, regime_ma=args.regime_ma, daily_regime=args.daily_regime,
             regime_mode=args.regime_mode, regime_index=args.regime_index,
+            vol_target=args.vol_target, vol_window=args.vol_window,
             cash=args.cash, pbr=args.pbr, qty=args.qty)
         print_report(result, names=names)
         if args.export:
@@ -355,8 +358,16 @@ def cmd_forward(args):
             raise KisAuthError("datagokr 인증 실패 — DATA_GO_KR_KEY 확인")
         from strategy.cross_momentum import CrossMomentumStrategy
         from live.forward_trader import ForwardTrader
+        # footgun 가드: 백테스트로 검증·채택된 전략은 no-regime + vol_adjust. 플래그 누락 시 다른 전략을
+        # 조용히 매매하게 되므로 불일치를 크게 경고(주문 전 사용자 인지 — S/W-1).
+        if not (args.no_regime and args.vol_adjust):
+            logger.warning(
+                "채택 전략은 [--no-regime --vol-adjust] 임. 현재 "
+                f"regime={'OFF' if args.no_regime else 'ON'}, vol_adjust={args.vol_adjust} "
+                "→ 백테스트 검증 전략과 불일치. 의도한 게 아니면 중단하고 플래그 확인.")
         strategy = CrossMomentumStrategy(top_n=args.top_n, rebalance_every=args.rebalance_every,
-                                         lookback=args.lookback, skip=args.skip)
+                                         lookback=args.lookback, skip=args.skip,
+                                         vol_adjust=args.vol_adjust)
         ft = ForwardTrader(kis, strategy, source, top_n=args.top_n, lookback=args.lookback,
                            skip=args.skip, rebalance_every=args.rebalance_every,
                            regime_on=not args.no_regime, regime_ma=args.regime_ma,
@@ -401,6 +412,10 @@ def main():
                     help="모멘텀 최근 제외 거래일 (기본 20≈1개월)")
     bp.add_argument("--vol-adjust", dest="vol_adjust", action="store_true",
                     help="변동성조정 모멘텀(점수=수익률/변동성) — 펌프주 강등")
+    bp.add_argument("--vol-target", dest="vol_target", type=float, default=0.0,
+                    help="변동성 타게팅 연환산 목표변동성(예 0.20=20%%). 0=비활성. 실현>목표면 노출↓(MDD완화)")
+    bp.add_argument("--vol-window", dest="vol_window", type=int, default=20,
+                    help="변동성 타게팅 실현변동성 측정 거래일(기본 20)")
     bp.add_argument("--regime", action="store_true",
                     help="시장국면 필터 — 유니버스 200일선 breadth<50%%면 전량 현금(하락장 방어)")
     bp.add_argument("--regime-ma", dest="regime_ma", type=int, default=200,
@@ -469,6 +484,8 @@ def main():
     fp.add_argument("--skip", type=int, default=20)
     fp.add_argument("--regime-ma", dest="regime_ma", type=int, default=200)
     fp.add_argument("--no-regime", dest="no_regime", action="store_true")
+    fp.add_argument("--vol-adjust", dest="vol_adjust", action="store_true",
+                    help="변동성조정 모멘텀(채택 전략) — 점수=수익률/변동성. 백테스트 검증 승자와 일치시킬 것")
     fp.add_argument("--universe-size", dest="universe_size", type=int, default=200)
     fp.add_argument("--kosdaq-size", dest="kosdaq_size", type=int, default=100)
 

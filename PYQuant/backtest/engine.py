@@ -131,7 +131,8 @@ class BacktestEngine:
                  warmup_days: int = 14,
                  regime_on: bool = False, regime_ma: int = 200,
                  regime_thresh: float = 0.5, daily_regime: bool = False,
-                 regime_mode: str = "breadth", regime_index: str = "^KS11"):
+                 regime_mode: str = "breadth", regime_index: str = "^KS11",
+                 vol_target: float = 0.0, vol_window: int = 20):
         self.kis        = kis
         self.strategy   = strategy
         self.init_cash  = initial_cash
@@ -146,6 +147,8 @@ class BacktestEngine:
         self.regime_mode = regime_mode             # "breadth"=유니버스 이평위 비율, "index"=지수 200MA(매끄러움)
         self.regime_index = regime_index           # index 모드 지수 티커(yfinance 심볼, 기본 ^KS11 코스피)
         self._index_bars: list[Bar] = []           # index 모드용 지수 일봉(pre_start~end, 200MA 워밍업 포함)
+        self.vol_target = vol_target               # 변동성 타게팅: 연환산 목표변동성(0=비활성). 실현변동성>목표면 노출↓
+        self.vol_window = vol_window               # 실현변동성 측정 일수(일간 포트수익률)
         self._regime_off_days = 0                  # 리스크오프로 현금화한 횟수(리포트용)
         self._last_target: set = set()             # 최신 종목선정(재진입용 — 국면 회복시 이걸로 복귀)
         self._regime_state = True                  # 직전 국면(risk-on=True). 전환 감지용
@@ -394,6 +397,24 @@ class BacktestEngine:
             return None
         return fut[0].open if fut[0].open > 0 else fut[0].close
 
+    def _vol_exposure(self) -> float:
+        """변동성 타게팅 노출계수 ∈ (0,1]. 최근 vol_window 일간 포트수익률의 연환산 실현변동성이
+        vol_target보다 크면 노출<1(현금↑), 이하면 1.0(무레버리지 cap). vol_target<=0이면 비활성.
+        self._equity는 직전일까지의 평가금액(과거)만 담겨 look-ahead 없음."""
+        if self.vol_target <= 0:
+            return 1.0
+        eq = self._equity
+        if len(eq) < self.vol_window + 1:
+            return 1.0   # 측정 표본 부족 → 풀노출
+        import statistics
+        rets = [eq[i] / eq[i - 1] - 1.0
+                for i in range(len(eq) - self.vol_window, len(eq))
+                if i > 0 and eq[i - 1] > 0]
+        if len(rets) < 2:
+            return 1.0
+        ann = statistics.pstdev(rets) * (252 ** 0.5)
+        return 1.0 if ann <= 0 else min(1.0, self.vol_target / ann)
+
     def _rebalance_to_target(self, target: set, date: str, all_bars: dict):
         """목표 동일가중 포트폴리오로 재조정 — 실보유(_positions) 기준 diff.
         이탈 청산(현금 확보 먼저) → 신규 매수. 사이징은 비용 반영 + 가용현금 cap이라
@@ -407,17 +428,35 @@ class BacktestEngine:
             if t not in target:
                 self._execute(OrderSignal(t, "SELL", self._positions[t], "MARKET"), date, all_bars)
 
-        # 2. 목표 중 미보유분 동일가중 매수 (선택 종목끼리 풀투자 동일가중, 비용+가용현금 반영).
-        #    분모를 len(target)으로 — target<N일 때 (N-target)/N 자본이 유휴로 남는 문제 해소(W-1).
+        # 2. 변동성 타게팅 노출 적용 — 투자가능자본 = equity * expo. expo<1이면 전체 노출을 줄임.
         equity   = self._equity[-1] if self._equity else self.init_cash
+        expo     = self._vol_exposure()
+        invest_equity = equity * expo
         cost_rate = self.cost.commission_rate + self.cost.slippage_bps / 10_000
+        slot_val = invest_equity / max(1, len(target))   # 슬롯당 목표 평가금액
+
+        # 2a. expo<1: 목표를 유지하는 보유분도 슬롯 목표가치 초과분만큼 매도(전체 노출을 expo로 수렴).
+        #     vol_target=0이면 expo=1.0이라 이 블록 스킵 → 기존 동작(top-up/trim 없음) 그대로.
+        if expo < 1.0:
+            for t in sorted(target & set(self._positions.keys())):
+                price = self._peek_next_open(t, date, all_bars)
+                if price is None or price <= 0:
+                    continue
+                cur_val = self._positions[t] * price
+                if cur_val > slot_val:
+                    trim = int((cur_val - slot_val) / price)
+                    if trim > 0:
+                        self._execute(OrderSignal(t, "SELL", trim, "MARKET"), date, all_bars)
+
+        # 2b. 목표 중 미보유분 동일가중 매수 (선택 종목끼리 동일가중, 비용+가용현금 반영).
+        #     분모를 len(target)으로 — target<N일 때 (N-target)/N 자본이 유휴로 남는 문제 해소(W-1).
         for t in sorted(target):   # 정렬 — set 순회순서 randomization 제거(백테스트 재현성)
             if t in self._positions:
-                continue   # 이미 보유(목표 유지) — v1은 top-up 안 함(턴오버 절감)
+                continue   # 이미 보유(목표 유지) — top-up 안 함(턴오버 절감)
             price = self._peek_next_open(t, date, all_bars)
             if price is None or price <= 0:
                 continue
-            qty = equal_weight_qty(equity, len(target), price, cost_rate, self.cash)  # 공유 사이징
+            qty = equal_weight_qty(invest_equity, len(target), price, cost_rate, self.cash)  # 노출반영 사이징
             if qty > 0:
                 self._execute(OrderSignal(t, "BUY", qty, "MARKET"), date, all_bars)
 

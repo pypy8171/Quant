@@ -61,6 +61,8 @@ def main() -> None:
                     help="index 모드 지수 티커(yfinance): ^KS11 코스피 등")
     ap.add_argument("--vol-adjust", dest="vol_adjust", action="store_true",
                     help="변동성조정 모멘텀(점수=수익률/변동성) — 펌프주 강등, MDD 완화 시도")
+    ap.add_argument("--vol-target", dest="vol_target", type=float, default=0.0,
+                    help="변동성 타게팅 연환산 목표변동성(예 0.20). 0=비활성. 실현>목표면 노출↓")
     # 고정 베이스라인(강건 후보 설정)
     ap.add_argument("--top-n", dest="top_n", type=int, default=30)
     ap.add_argument("--rebalance", type=int, default=20)
@@ -106,7 +108,8 @@ def main() -> None:
             r, _ = run_backtest(src, strategy_name="momentum", universe=is_uni,
                                 from_date=is_from, to_date=is_to, regime=regime,
                                 regime_mode=args.regime_mode, regime_index=args.regime_index,
-                                vol_adjust=args.vol_adjust, verbose=False, **params)
+                                vol_adjust=args.vol_adjust, vol_target=args.vol_target,
+                                verbose=False, **params)
             if r.sharpe > best_sharpe:
                 best_sharpe, best = r.sharpe, params
         # OOS 평가 (선택된 파라미터 고정, OOS 유니버스 as-of)
@@ -115,7 +118,8 @@ def main() -> None:
         r_oos, _ = run_backtest(src, strategy_name="momentum", universe=oos_uni,
                                 from_date=oos_from, to_date=oos_to, regime=regime,
                                 regime_mode=args.regime_mode, regime_index=args.regime_index,
-                                vol_adjust=args.vol_adjust, verbose=False, **best)
+                                vol_adjust=args.vol_adjust, vol_target=args.vol_target,
+                                verbose=False, **best)
         if args.grid:
             gk = list(grid_combos[0].keys())[0]
             pick = f"{gk}={best[gk]}"
