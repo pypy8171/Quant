@@ -201,3 +201,21 @@ target_include_directories(test_pipeline_stress PRIVATE
 if(UNIX)
     target_link_libraries(test_pipeline_stress PRIVATE pthread)
 endif()
+
+# ─── 테스트 타겟: MPSC/Mutex 큐 정확성 검증 (멀티클라이언트 인테이크 D1) ──
+add_executable(test_mpsc tests/test_mpsc.cpp)
+target_include_directories(test_mpsc PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_mpsc PRIVATE pthread)
+endif()
+
+# ─── 벤치 타겟: 멀티클라이언트 주문 인테이크 부하 (D2) ────────────────────
+add_executable(bench_intake tests/bench_intake.cpp)
+target_include_directories(bench_intake PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(bench_intake PRIVATE pthread)
+endif()

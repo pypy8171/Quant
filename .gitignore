@@ -45,6 +45,7 @@ STRATEGY_LAB.md
 DECISIONS.md
 REGIME_CONTROLLER_SPEC.md
 
+
 # forward-test(모의매매) 로컬 산출물 — 상태/멱등키/P&L (절대 커밋 금지)
 PYQuant/live/.forward_state.json
 PYQuant/live/forward_pnl.csv
