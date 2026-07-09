@@ -63,6 +63,7 @@ struct OrderSignal
     Market market = Market::KR;
     std::string exchange; // US only: "NAS", "NYS"
     std::chrono::system_clock::time_point timestamp;
+    std::string account_id; // 법인/DMA 다계좌 인테이크 — 계좌별 원장 파티션 키 (빈값=단일 계좌)
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -73,7 +73,7 @@ ManagedOrder OrderRouter::submit(const OrderSignal& sig)
         mo.kis_order_no = odno;
         ++accepted_count_;
         // KIS 접수 시점에 포지션 선점 (보수적 추적 — 실제 체결 확인 전까지 재주문 차단)
-        gate_.on_accept(sig.ticker, sig.side, sig.quantity, sig.price);
+        gate_.on_accept(sig.account_id, sig.ticker, sig.side, sig.quantity, sig.price);
         LOG_INFO("[OrderRouter] 접수 [" + mo.order_id + "] ODNO=" + odno +
                  " " + sig.ticker +
                  (sig.side == OrderSide::BUY ? " BUY " : " SELL ") +
@@ -162,8 +162,11 @@ void OrderRouter::on_fill(const FillNotification& fn)
                  " (누적 " + std::to_string(mo.confirmed_qty) +
                  "/" + std::to_string(mo.signal.quantity) + "주)");
 
-        // 포지션 원장 갱신 (avg_price 재계산 + 실현손익)
-        auto result = gate_.on_fill_confirmed(fn.ticker, fn.side,
+        // 포지션 원장 갱신 (avg_price 재계산 + 실현손익) — 원주문의 계좌로 파티션.
+        // 현재는 단일 CANO 전제라 ODNO가 유일 → mo.signal.account_id 매핑이 정확하다.
+        // TODO(다계좌): 진짜 다중 CANO 라우팅 시 ODNO가 계좌별로 재사용되므로 체결 매칭 키를
+        //   (odno + account) 또는 CANO별 H0STCNI 피드 분리로 확장해야 오적립을 막는다.
+        auto result = gate_.on_fill_confirmed(mo.signal.account_id, fn.ticker, fn.side,
                                               fn.filled_qty, fn.filled_price);
 #ifdef HAS_ZMQ
         if (zmq_)

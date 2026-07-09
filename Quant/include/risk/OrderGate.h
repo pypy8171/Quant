@@ -51,7 +51,13 @@ public:
     // KIS 접수(ODNO 수신) 시 reserved_에 선점만 기록(실체결 원장 positions_는 불변).
     // check()는 positions_ + reserved_ 합산으로 한도를 보므로 미체결 주문이 과잉 주문을 차단한다.
     // 체결(on_fill_confirmed) 시 reserved_가 해제되고 positions_/avg_price가 갱신된다.
-    void on_accept(const std::string& ticker, OrderSide side, int qty, double price);
+    // 원장은 (account_id:ticker)로 파티셔닝 — 계좌별 독립. 아래 4-arg 오버로드는 account="" 하위호환.
+    void on_accept(const std::string& account, const std::string& ticker,
+                   OrderSide side, int qty, double price);
+    void on_accept(const std::string& ticker, OrderSide side, int qty, double price)
+    {
+        on_accept(std::string(), ticker, side, qty, price);
+    }
     void add_realized_pnl(double pnl);  // SELL 체결 시 실현 손익 추가 (테스트에서도 사용)
 
     // ── 체결 확인 시 원장 갱신 ─────────────────────────────────────────────
@@ -64,8 +70,13 @@ public:
         double tax          = 0.0; // 거래세 (매도 0.18%)
         double realized_pnl = 0.0; // 이번 체결 실현손익 (SELL만 양수)
     };
+    FillResult on_fill_confirmed(const std::string& account, const std::string& ticker,
+                                 OrderSide side, int qty, double price);
     FillResult on_fill_confirmed(const std::string& ticker, OrderSide side,
-                                 int qty, double price);
+                                 int qty, double price)
+    {
+        return on_fill_confirmed(std::string(), ticker, side, qty, price);
+    }
 
     // ── Kill switch ─────────────────────────────────────────────────────────
     void set_kill_switch(bool on)
@@ -81,22 +92,34 @@ public:
     void reset_daily();
 
     // ── 조회 ─────────────────────────────────────────────────────────────────
-    int    position(const std::string& ticker) const;  // 실체결 순보유 수량
-    int    reserved(const std::string& ticker) const;  // 미체결 선점 수량
-    double avg_price(const std::string& ticker) const;
+    // 계좌 지정 버전(주 경로) + account="" 하위호환(단일 계좌).
+    int    position(const std::string& account, const std::string& ticker) const;
+    int    reserved(const std::string& account, const std::string& ticker) const;
+    double avg_price(const std::string& account, const std::string& ticker) const;
+    int    position(const std::string& ticker) const { return position(std::string(), ticker); }
+    int    reserved(const std::string& ticker) const { return reserved(std::string(), ticker); }
+    double avg_price(const std::string& ticker) const { return avg_price(std::string(), ticker); }
     double daily_pnl() const;
 
 private:
     using Clock = std::chrono::steady_clock;
     using TimePoint = Clock::time_point;
 
+    // 원장 파티션 키 — 계좌별 독립. account_id는 외부(법인/DMA) 입력이 될 수 있어
+    // 단순 구분자('account:ticker')는 "A"+"B:C"와 "A:B"+"C"가 충돌한다(US 영문 티커·
+    // 외부 계좌ID에 ':' 가능). account 길이를 접두해 모호성을 제거한다(주입 안전).
+    static std::string make_key(const std::string& account, const std::string& ticker)
+    {
+        return std::to_string(account.size()) + ":" + account + ticker;
+    }
+
     Config cfg_;
     std::atomic<bool> kill_switch_{false};
 
     mutable std::mutex positions_mtx_;
-    std::unordered_map<std::string, int>    reserved_;   // ticker → 미체결 선점 수량 (BUY +, SELL -). 재주문 차단용
-    std::unordered_map<std::string, int>    positions_;  // ticker → 실체결 순보유 수량 (양수=롱)
-    std::unordered_map<std::string, double> avg_prices_; // ticker → 매수 평균단가 (실체결 기준)
+    std::unordered_map<std::string, int>    reserved_;   // account:ticker → 미체결 선점 수량 (BUY +, SELL -). 재주문 차단용
+    std::unordered_map<std::string, int>    positions_;  // account:ticker → 실체결 순보유 수량 (양수=롱)
+    std::unordered_map<std::string, double> avg_prices_; // account:ticker → 매수 평균단가 (실체결 기준)
 
     mutable std::mutex pnl_mtx_;
     double daily_pnl_{0.0};

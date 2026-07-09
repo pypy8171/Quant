@@ -25,11 +25,13 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
     }
 
     // 3. 포지션 수량 한도 (BUY에만 적용) — 실체결(positions_) + 미체결 선점(reserved_) 합산
+    //    계좌별 파티션 — 한 계좌 한도는 다른 계좌 주문을 막지 않는다.
     if (sig.side == OrderSide::BUY)
     {
         std::lock_guard<std::mutex> lk(positions_mtx_);
-        int filled = positions_.count(sig.ticker) ? positions_[sig.ticker] : 0;
-        int resv   = reserved_.count(sig.ticker)  ? reserved_[sig.ticker]  : 0;
+        const std::string k = make_key(sig.account_id, sig.ticker);
+        int filled = positions_.count(k) ? positions_[k] : 0;
+        int resv   = reserved_.count(k)  ? reserved_[k]  : 0;
         int cur_qty = filled + resv;
         if (cur_qty + sig.quantity > cfg_.max_qty_per_ticker)
         {
@@ -58,7 +60,7 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
     // 5. 중복 신호 제거 — rate 소비 전에 먼저 검사해 중복이 rate slot을 소모하지 않도록 함
     {
         auto now = Clock::now();
-        std::string key = sig.strategy_id + ":" + sig.ticker;
+        std::string key = sig.account_id + ":" + sig.strategy_id + ":" + sig.ticker;
         std::lock_guard<std::mutex> lk(dedup_mtx_);
         auto it = last_signal_.find(key);
         if (it != last_signal_.end())
@@ -106,15 +108,17 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
 }
 
 // ─── 접수 후 선점 (reserved_만 갱신, 실체결 원장 positions_는 불변) ──────────────
-void OrderGate::on_accept(const std::string& ticker, OrderSide side, int qty, double price)
+void OrderGate::on_accept(const std::string& account, const std::string& ticker,
+                          OrderSide side, int qty, double price)
 {
     std::lock_guard<std::mutex> lk(positions_mtx_);
+    const std::string k = make_key(account, ticker);
     int delta = (side == OrderSide::BUY) ? qty : -qty;  // BUY 선점 +, SELL 선점 -
-    int next  = (reserved_.count(ticker) ? reserved_[ticker] : 0) + delta;
+    int next  = (reserved_.count(k) ? reserved_[k] : 0) + delta;
     if (next == 0)
-        reserved_.erase(ticker);
+        reserved_.erase(k);
     else
-        reserved_[ticker] = next;
+        reserved_[k] = next;
     (void)price;
 }
 
@@ -127,7 +131,7 @@ void OrderGate::add_realized_pnl(double pnl)
 
 // ─── 체결 확인 — avg_price 재계산 + 실현손익 적립 ──────────────────────────
 OrderGate::FillResult OrderGate::on_fill_confirmed(
-    const std::string& ticker, OrderSide side, int qty, double price)
+    const std::string& account, const std::string& ticker, OrderSide side, int qty, double price)
 {
     FillResult result;
     result.commission = price * qty * 0.00015;                              // 수수료 0.015%
@@ -135,23 +139,24 @@ OrderGate::FillResult OrderGate::on_fill_confirmed(
 
     {
         std::lock_guard<std::mutex> lk(positions_mtx_);
-        int pre_qty    = positions_.count(ticker) ? positions_[ticker] : 0; // 체결 전 실보유
-        double cur_avg = avg_prices_.count(ticker) ? avg_prices_[ticker] : 0.0;
+        const std::string k = make_key(account, ticker);
+        int pre_qty    = positions_.count(k) ? positions_[k] : 0; // 체결 전 실보유
+        double cur_avg = avg_prices_.count(k) ? avg_prices_[k] : 0.0;
 
         if (side == OrderSide::BUY)
         {
             // 실체결분만 원장에 반영 (부분체결도 정확) — 평단 분모는 실체결 수량
             int new_qty = pre_qty + qty;
-            avg_prices_[ticker] = (new_qty > 0)
+            avg_prices_[k] = (new_qty > 0)
                 ? (pre_qty * cur_avg + qty * price) / new_qty
                 : price;
-            positions_[ticker] = new_qty;
-            result.avg_price = avg_prices_[ticker];
+            positions_[k] = new_qty;
+            result.avg_price = avg_prices_[k];
             result.net_qty   = new_qty;
 
             // 선점 해제 (BUY 선점은 +였으므로 -qty)
-            int r = (reserved_.count(ticker) ? reserved_[ticker] : 0) - qty;
-            if (r == 0) reserved_.erase(ticker); else reserved_[ticker] = r;
+            int r = (reserved_.count(k) ? reserved_[k] : 0) - qty;
+            if (r == 0) reserved_.erase(k); else reserved_[k] = r;
         }
         else // SELL
         {
@@ -163,15 +168,15 @@ OrderGate::FillResult OrderGate::on_fill_confirmed(
             result.net_qty   = new_qty;
             if (new_qty == 0)
             {
-                positions_.erase(ticker);
-                avg_prices_.erase(ticker); // 포지션 청산 시 평균단가 초기화
+                positions_.erase(k);
+                avg_prices_.erase(k); // 포지션 청산 시 평균단가 초기화
             }
             else
-                positions_[ticker] = new_qty;
+                positions_[k] = new_qty;
 
             // 선점 해제 (SELL 선점은 -였으므로 +qty)
-            int r = (reserved_.count(ticker) ? reserved_[ticker] : 0) + qty;
-            if (r == 0) reserved_.erase(ticker); else reserved_[ticker] = r;
+            int r = (reserved_.count(k) ? reserved_[k] : 0) + qty;
+            if (r == 0) reserved_.erase(k); else reserved_[k] = r;
         }
     }
 
@@ -206,25 +211,25 @@ void OrderGate::reset_daily()
     // avg_prices_ / positions_ 는 영속 원장 — 장 시작에 초기화하지 않는다
 }
 
-// ─── 조회 ───────────────────────────────────────────────────────────────────
-int OrderGate::position(const std::string& ticker) const
+// ─── 조회 (계좌별) ───────────────────────────────────────────────────────────
+int OrderGate::position(const std::string& account, const std::string& ticker) const
 {
     std::lock_guard<std::mutex> lk(positions_mtx_);
-    auto it = positions_.find(ticker);
+    auto it = positions_.find(make_key(account, ticker));
     return (it != positions_.end()) ? it->second : 0;
 }
 
-int OrderGate::reserved(const std::string& ticker) const
+int OrderGate::reserved(const std::string& account, const std::string& ticker) const
 {
     std::lock_guard<std::mutex> lk(positions_mtx_);
-    auto it = reserved_.find(ticker);
+    auto it = reserved_.find(make_key(account, ticker));
     return (it != reserved_.end()) ? it->second : 0;
 }
 
-double OrderGate::avg_price(const std::string& ticker) const
+double OrderGate::avg_price(const std::string& account, const std::string& ticker) const
 {
     std::lock_guard<std::mutex> lk(positions_mtx_);
-    auto it = avg_prices_.find(ticker);
+    auto it = avg_prices_.find(make_key(account, ticker));
     return (it != avg_prices_.end()) ? it->second : 0.0;
 }
 
