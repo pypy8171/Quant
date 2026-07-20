@@ -28,7 +28,7 @@ class OrderGate:
     """모든 주문의 단일 통과 지점 — 안전 가드. send_order 직호출 금지, 반드시 여기로."""
     def __init__(self, kis, *, allow_real: bool, max_notional: float,
                  max_orders_per_day: int, state: dict, asof: str, dry_run: bool,
-                 names: dict | None = None, order_sleep: float = 0.5, persist=None):
+                 names: dict | None = None, order_sleep: float = 1.1, persist=None):
         self.kis = kis
         self.allow_real = allow_real
         self.persist = persist   # 멱등키 즉시 디스크 영속화 콜백(크래시 중 이중발행 방지, W-1)
@@ -67,8 +67,15 @@ class OrderGate:
         tag = "[DRY]" if self.dry_run else "[주문]"
         print(f"  {tag} {side_kr} {label} {sig.quantity}주 @{price_hint:,.0f} (~{notional:,.0f}원)")
         if not self.dry_run:
-            time.sleep(self.order_sleep)   # rate limit — 매 호출 전(실패해도 적용)
-            res = self.kis.send_order(sig)
+            # 초당거래 한도(EGW00201)는 주문이 접수조차 안 된 상태라 재시도 안전(이중주문 위험 없음).
+            # 그 외 실패(자금부족 등)는 재시도 무의미 → 즉시 중단.
+            res = None
+            for attempt in range(3):
+                time.sleep(self.order_sleep)   # rate limit — 매 호출 전(실패해도 적용)
+                res = self.kis.send_order(sig)
+                if res.ok or res.msg_cd != "EGW00201":
+                    break
+                print(f"     ⏳ 초당거래 한도 — {self.order_sleep:.1f}s 후 재시도 ({attempt+1}/3)")
             if not res.ok:
                 print(f"     ❌ 주문실패 rt_cd={res.rt_cd} {res.msg1}"); return False
             print(f"     ✅ 접수 ODNO={res.odno}")
