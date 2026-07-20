@@ -605,6 +605,35 @@ std::string KisClient::submit_order(const OrderSignal& signal)
     return odno;
 }
 
+// ─── 잔고 조회 (체결 확인용) — inquire-balance ────────────────────────────
+//  output1 = 보유종목 배열(pdno·hldg_qty·pchs_avg_pric), output2 = 계좌 요약.
+//  체결 후 보유수량 변화로 체결을 확인한다. (모의: VTTC8434R / 실거래: TTTC8434R)
+nlohmann::json KisClient::get_balance()
+{
+    std::string tr_id = cfg_.is_paper ? "VTTC8434R" : "TTTC8434R";
+    std::string url = base_url() + "/uapi/domestic-stock/v1/trading/inquire-balance" +
+                      "?CANO=" + cfg_.account_no + "&ACNT_PRDT_CD=" + cfg_.account_type +
+                      "&AFHR_FLPR_YN=N&OFL_YN=&INQR_DVSN=02&UNPR_DVSN=01" +
+                      "&FUND_STTL_ICLD_YN=N&FNCG_AMT_AUTO_RDPT_YN=N&PRCS_DVSN=00" +
+                      "&CTX_AREA_FK100=&CTX_AREA_NK100=";
+
+    std::vector<std::string> headers = {"authorization: Bearer " + access_token_,
+                                        "appkey: " + cfg_.app_key, "appsecret: " + cfg_.app_secret,
+                                        "tr_id: " + tr_id};
+
+    std::string resp = http_get(url, headers);
+    if (resp.empty())
+        return json::object();
+    try
+    {
+        return json::parse(resp);
+    }
+    catch (...)
+    {
+        return json::object();
+    }
+}
+
 // ─── HTTP 래퍼 ────────────────────────────────────────────────────────────
 
 std::string KisClient::http_get(const std::string& url, const std::vector<std::string>& headers)

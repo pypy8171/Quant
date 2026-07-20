@@ -228,3 +228,18 @@ target_include_directories(test_account_ledger PRIVATE
 if(UNIX)
     target_link_libraries(test_account_ledger PRIVATE pthread)
 endif()
+
+# ─── 도구: 수동 주문(모의계좌) — 접수→체결 실증 ───────────────────────────
+add_executable(manual_order
+    tools/manual_order.cpp
+    src/api/KisClient.cpp
+    src/risk/OrderGate.cpp
+    src/utils/Logger.cpp
+)
+target_include_directories(manual_order PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(manual_order PRIVATE
+        CURL::libcurl OpenSSL::Crypto nlohmann_json::nlohmann_json pthread stdc++fs)
+else()
+    target_link_libraries(manual_order PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
+endif()
