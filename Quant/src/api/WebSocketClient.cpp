@@ -332,6 +332,10 @@ void KisWebSocket::recv_loop()
         // ── 수신 루프 ───────────────────────────────────────────────────────
         std::string accumulated;
         bool recv_ok = true;
+        // 백오프는 "메시지 수신"이 아니라 "연결 유지 시간"으로 판단한다. 재연결 직후
+        // 구독응답/에러프레임(ALREADY IN USE)이 곧바로 수신되면 메시지 기반 리셋은
+        // 백오프를 매번 1초로 되돌려 폭주한다. 연결이 얼마나 살아있었는지로 구분한다.
+        const auto conn_start = std::chrono::steady_clock::now();
 
         while (connected_.load())
         {
@@ -347,7 +351,6 @@ void KisWebSocket::recv_loop()
                 break;
             }
 
-            retry_sec = 1; // 정상 수신 시 백오프 리셋
             std::string chunk(reinterpret_cast<char*>(buf.data()), bytesRead);
             if (bufType == WINHTTP_WEB_SOCKET_UTF8_FRAGMENT_BUFFER_TYPE)
                 accumulated += chunk;
@@ -361,6 +364,12 @@ void KisWebSocket::recv_loop()
 
         if (!recv_ok && connected_.load())
         {
+            // 충분히 오래(≥5s) 유지된 연결이 끊긴 것이면 일시 장애로 보고 백오프 리셋 후
+            // 빠르게 재시도. 즉시 죽는 연결(=서버가 appkey 세션 미해제/off-hours abort)은
+            // 지수적으로 물러서서 서버가 직전 세션을 놓을 시간을 준다.
+            if (std::chrono::steady_clock::now() - conn_start > std::chrono::seconds(5))
+                retry_sec = 1;
+
             // ── 지수 백오프 재연결 ─────────────────────────────────────────
             LOG_WARN("[WS] " + std::to_string(retry_sec) + "초 후 재연결 시도");
             std::this_thread::sleep_for(std::chrono::seconds(retry_sec));
@@ -386,10 +395,13 @@ void KisWebSocket::recv_loop()
                 hSession_ = nullptr;
             }
 
-            // Approval key 재발급
-            if (!get_approval_key())
+            // Approval key 재사용: 재연결마다 신규 발급하면 KIS가 직전 세션의 appkey를
+            // 아직 해제하지 않은 상태에서 새 키로 접속 → "ALREADY IN USE appkey"(rt=9)
+            // 충돌이 반복돼 재연결 폭주가 된다. 최초 연결의 approval_key_를 유지하고,
+            // 비어있을 때만(발급 실패 이력 등) 재발급한다.
+            if (approval_key_.empty() && !get_approval_key())
             {
-                LOG_ERROR("[WS] approval key 재발급 실패");
+                LOG_ERROR("[WS] approval key 발급 실패");
                 continue;
             }
 
@@ -472,7 +484,9 @@ void KisWebSocket::recv_loop()
                 send_subscribe(fill_tr, cfg_.hts_id);
             }
             LOG_INFO("[WS] 재연결 성공");
-            retry_sec = 1;
+            // 여기서 retry_sec을 리셋하지 않는다. '재연결 성공'은 소켓 업그레이드 성공일
+            // 뿐, 직후 곧바로 끊기는(ALREADY IN USE) 경우 백오프가 매번 1초로 되돌아가
+            // 폭주한다. 백오프 리셋은 연결이 실제로 ≥5s 유지됐을 때만(위 uptime 판정).
         }
     }
 
@@ -826,6 +840,9 @@ void KisWebSocket::recv_loop()
         }
 
         bool recv_ok = true;
+        // 백오프는 연결 유지 시간으로 판단(메시지 기반 리셋은 재연결 직후 프레임에 매번
+        // 리셋돼 폭주). Windows 경로와 동일 모델.
+        const auto conn_start = std::chrono::steady_clock::now();
         while (connected_.load() && fd >= 0)
         {
             std::string frame = ws_recv_frame_linux(fd);
@@ -836,12 +853,16 @@ void KisWebSocket::recv_loop()
                 recv_ok = false;
                 break;
             }
-            retry_sec = 1; // 정상 수신 시 백오프 리셋
             parse_message(frame);
         }
 
         if (!recv_ok && connected_.load())
         {
+            // 충분히 오래 유지된 연결이 끊긴 것이면 백오프 리셋 후 빠른 재시도,
+            // 즉시 죽는 연결은 지수적으로 물러선다(서버 appkey 세션 해제 대기).
+            if (std::chrono::steady_clock::now() - conn_start > std::chrono::seconds(5))
+                retry_sec = 1;
+
             // ── 지수 백오프 재연결 ─────────────────────────────────────────
             LOG_WARN("[WS] " + std::to_string(retry_sec) + "초 후 재연결 시도");
             std::this_thread::sleep_for(std::chrono::seconds(retry_sec));
@@ -857,10 +878,11 @@ void KisWebSocket::recv_loop()
                 }
             }
 
-            // Approval key 재발급
-            if (!get_approval_key())
+            // Approval key 재사용(재연결마다 신규 발급 시 appkey 세션 충돌 → 폭주).
+            // Windows 경로와 동일: 비어있을 때만 재발급.
+            if (approval_key_.empty() && !get_approval_key())
             {
-                LOG_ERROR("[WS] approval key 재발급 실패");
+                LOG_ERROR("[WS] approval key 발급 실패");
                 continue;
             }
 
@@ -906,7 +928,9 @@ void KisWebSocket::recv_loop()
                 send_subscribe(fill_tr, cfg_.hts_id);
             }
             LOG_INFO("[WS] 재연결 성공");
-            retry_sec = 1;
+            // 여기서 retry_sec을 리셋하지 않는다. '재연결 성공'은 소켓 업그레이드 성공일
+            // 뿐, 직후 곧바로 끊기는(ALREADY IN USE) 경우 백오프가 매번 1초로 되돌아가
+            // 폭주한다. 백오프 리셋은 연결이 실제로 ≥5s 유지됐을 때만(위 uptime 판정).
         }
     }
 
