@@ -58,9 +58,13 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
     }
 
     // 5. 중복 신호 제거 — rate 소비 전에 먼저 검사해 중복이 rate slot을 소모하지 않도록 함
+    //    키에 side 포함(MM-1): 시장조성은 같은 틱에 동일 strategy+ticker로 BUY(bid)+SELL(ask)를
+    //    동시 발주한다. side를 넣지 않으면 두 번째(ask)가 중복으로 오거부된다. BUY/SELL은 서로
+    //    다른 의도이므로 중복이 아니다. (같은 side 반복은 여전히 dedup — 기존 전략 동작 불변)
     {
         auto now = Clock::now();
-        std::string key = sig.account_id + ":" + sig.strategy_id + ":" + sig.ticker;
+        std::string key = sig.account_id + ":" + sig.strategy_id + ":" + sig.ticker + ":" +
+                          std::to_string(static_cast<int>(sig.side));
         std::lock_guard<std::mutex> lk(dedup_mtx_);
         auto it = last_signal_.find(key);
         if (it != last_signal_.end())
@@ -120,6 +124,25 @@ void OrderGate::on_accept(const std::string& account, const std::string& ticker,
     else
         reserved_[k] = next;
     (void)price;
+}
+
+// ─── 미체결 취소/정정 축소 시 선점 해제 (C5) ────────────────────────────────
+//  on_fill_confirmed의 reserved 해제 로직과 동일 방향. positions_/avg_price는 손대지 않는다
+//  (취소는 체결이 아니므로 실보유·평단 불변). qty<=0이면 no-op(방어).
+void OrderGate::on_cancel(const std::string& account, const std::string& ticker,
+                          OrderSide side, int qty)
+{
+    if (qty <= 0)
+        return;
+    std::lock_guard<std::mutex> lk(positions_mtx_);
+    const std::string k = make_key(account, ticker);
+    // BUY 선점은 +였으므로 -qty, SELL 선점은 -였으므로 +qty (해제 = 반대부호 가산)
+    int delta = (side == OrderSide::BUY) ? -qty : qty;
+    int r = (reserved_.count(k) ? reserved_[k] : 0) + delta;
+    if (r == 0)
+        reserved_.erase(k);
+    else
+        reserved_[k] = r;
 }
 
 // ─── 실현 손익 누적 ─────────────────────────────────────────────────────────
@@ -204,7 +227,8 @@ void OrderGate::reset_daily()
     }
     {
         // 미체결 선점은 일일 만료 (KIS 당일 주문은 EOD 소멸 → 다음날 잘못된 차단 방지).
-        // TODO(C5): 미체결 주문 명시적 취소 경로 도입 시 그쪽에서 reserved_ 해제로 일원화.
+        // C5(MM-1): 명시적 취소는 on_cancel()로 일원화됨. reserved_.clear()는 EOD 안전망
+        //   — 취소 없이 만료된 미체결(장 마감까지 미체결분)의 선점을 청소한다.
         std::lock_guard<std::mutex> lk(positions_mtx_);
         reserved_.clear();
     }

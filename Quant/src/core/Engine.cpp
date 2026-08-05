@@ -256,6 +256,8 @@ void Engine::strategy_thread_fn()
             std::this_thread::sleep_for(std::chrono::microseconds(100));
     };
 
+    std::vector<OrderSignal> batch_buf; // MM 다건 발주 재사용 버퍼 (per-tick 할당 회피)
+
     while (running_.load(std::memory_order_acquire))
     {
         bool did_work = false;
@@ -269,6 +271,14 @@ void Engine::strategy_thread_fn()
                     auto sig = s->on_order_book(*opt);
                     if (sig && sig->side != OrderSide::NONE)
                         push_signal(*sig);
+
+                    // 다건 발주 경로 (MM 등) — 취소/정정 포함. 기본 no-op.
+                    // CANCEL/REPLACE는 side가 NONE이어도 통과(생명주기 액션은 NONE 가드 우회).
+                    batch_buf.clear();
+                    s->on_order_book_batch(*opt, batch_buf);
+                    for (auto& b : batch_buf)
+                        if (b.action != OrderAction::NEW || b.side != OrderSide::NONE)
+                            push_signal(b);
                 }
                 did_work = true;
             }

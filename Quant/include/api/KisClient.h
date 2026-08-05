@@ -36,6 +36,14 @@ public:
     bool send_order(const OrderSignal& signal);
     // FEP: 주문 제출 — KIS 접수번호(ODNO) 반환, 실패 시 빈 문자열
     std::string submit_order(const OrderSignal& signal) override;
+    // MM-1: 신규 주문 + KRX 조직번호(정정/취소용) 캡처
+    OrderAck submit_order_ack(const OrderSignal& signal) override;
+    // MM-1: 국내 미체결 취소 (order-rvsecncl). 성공 시 취소접수 ODNO, 실패 시 ""
+    std::string cancel_order(const std::string& ticker, const std::string& orig_odno,
+                             const std::string& krx_orgno, int qty, bool all_remaining) override;
+    // MM-1: 국내 정정 (order-rvsecncl). 성공 시 새 ODNO(정정접수번호), 실패 시 ""
+    std::string revise_order(const std::string& ticker, const std::string& orig_odno,
+                             const std::string& krx_orgno, int new_qty, double new_price) override;
     nlohmann::json get_balance();
 
     // 지수 현재값 (코스피 "0001", 코스닥 "1001", KOSPI200 "2001")

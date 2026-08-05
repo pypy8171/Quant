@@ -60,6 +60,16 @@ public:
     }
     void add_realized_pnl(double pnl);  // SELL 체결 시 실현 손익 추가 (테스트에서도 사용)
 
+    // ── 미체결 취소/정정 축소 시 선점 해제 (C5, MM-1) ─────────────────────
+    // qty = 취소된 미체결 잔량(>0). reserved_만 감소 — positions_/avg_price는 불변(취소는 체결 아님).
+    // 방향은 on_fill_confirmed의 선점 해제와 동일: BUY 선점(+)은 -qty, SELL 선점(-)은 +qty.
+    // 호출 규약: 반드시 KIS 취소 성공(rt_cd=="0") 이후에만 호출 — 실패 시 호출하면 이중해제.
+    void on_cancel(const std::string& account, const std::string& ticker, OrderSide side, int qty);
+    void on_cancel(const std::string& ticker, OrderSide side, int qty)
+    {
+        on_cancel(std::string(), ticker, side, qty);
+    }
+
     // ── 체결 확인 시 원장 갱신 ─────────────────────────────────────────────
     // H0STCNI0 체결통보 수신 후 호출. avg_price 재계산 + 실현손익 적립.
     struct FillResult

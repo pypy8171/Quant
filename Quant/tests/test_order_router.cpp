@@ -28,6 +28,13 @@ struct StubOrderExecutor : IOrderExecutor
     bool        succeed;
     std::string odno;
     int         call_count = 0;
+    // MM-1 확장 — 취소/정정 경로 추적
+    std::string orgno        = "ORG000001"; // submit_order_ack가 반환할 조직번호
+    bool        cancel_ok    = true;          // cancel_order 성공 여부
+    bool        revise_ok    = true;          // revise_order 성공 여부
+    int         cancel_calls = 0;
+    int         revise_calls = 0;
+    int         last_cancel_qty = -1;         // 마지막 취소에 전달된 qty(잔량 재계산 검증)
 
     explicit StubOrderExecutor(bool s, std::string o = "A000000042")
         : succeed(s), odno(std::move(o))
@@ -38,6 +45,28 @@ struct StubOrderExecutor : IOrderExecutor
     {
         ++call_count;
         return succeed ? odno : "";
+    }
+
+    // 기존 call_count 계약 유지를 위해 submit_order를 내부 호출 + 조직번호만 덧붙임
+    OrderAck submit_order_ack(const OrderSignal& sig) override
+    {
+        std::string o = submit_order(sig);
+        return OrderAck{o, o.empty() ? std::string() : orgno};
+    }
+
+    std::string cancel_order(const std::string&, const std::string&, const std::string&,
+                             int qty, bool) override
+    {
+        ++cancel_calls;
+        last_cancel_qty = qty;
+        return cancel_ok ? std::string("C000000001") : std::string();
+    }
+
+    std::string revise_order(const std::string&, const std::string&, const std::string&,
+                             int, double) override
+    {
+        ++revise_calls;
+        return revise_ok ? std::string("R000000001") : std::string();
     }
 };
 
@@ -247,6 +276,145 @@ void test_cross_day_fill_not_deduped()
     PASS("cross_day_fill_not_deduped");
 }
 
+// ─── 테스트 9: CANCEL 경로 — reserved 해제 + orgno 캡처 (MM-1) ────────────────
+void test_cancel_releases_reserved()
+{
+    OrderGate         gate(relaxed_cfg());
+    StubOrderExecutor stub(true, "K000111");
+    OrderRouter       router(gate, stub);
+
+    OrderSignal buy = make_signal("005930", OrderSide::BUY, 10);
+    buy.client_oid  = "MM:B:1";
+    auto mo = router.submit(buy);
+    assert(mo.status == OrderStatus::ACCEPTED);
+    assert(mo.krx_orgno == "ORG000001");       // submit_order_ack가 조직번호 캡처
+    assert(gate.reserved("005930") == 10);
+
+    OrderSignal cancel;
+    cancel.ticker          = "005930";
+    cancel.strategy_id     = "MM";
+    cancel.action          = OrderAction::CANCEL;
+    cancel.orig_client_oid = "MM:B:1";
+    auto cm = router.submit(cancel);
+
+    assert(cm.status == OrderStatus::CANCELLED);
+    assert(stub.cancel_calls == 1);
+    assert(stub.last_cancel_qty == 10);         // 미체결 전량
+    assert(gate.reserved("005930") == 0);       // 선점 해제
+    PASS("cancel_releases_reserved");
+}
+
+// ─── 테스트 10: 존재하지 않는 oid 취소 → REJECTED, KIS 미호출 ────────────────
+void test_cancel_unknown_oid()
+{
+    OrderGate         gate(relaxed_cfg());
+    StubOrderExecutor stub(true, "K000222");
+    OrderRouter       router(gate, stub);
+
+    OrderSignal cancel;
+    cancel.ticker          = "005930";
+    cancel.action          = OrderAction::CANCEL;
+    cancel.orig_client_oid = "NOPE";
+    auto cm = router.submit(cancel);
+
+    assert(cm.status == OrderStatus::REJECTED);
+    assert(stub.cancel_calls == 0);
+    PASS("cancel_unknown_oid");
+}
+
+// ─── 테스트 11: 부분체결 중 취소 → 잔량만 취소·해제 ──────────────────────────
+void test_partial_fill_then_cancel()
+{
+    OrderGate         gate(relaxed_cfg());
+    StubOrderExecutor stub(true, "K000333");
+    OrderRouter       router(gate, stub);
+
+    OrderSignal buy = make_signal("005930", OrderSide::BUY, 10);
+    buy.client_oid  = "MM:B:1";
+    router.submit(buy);
+    assert(gate.reserved("005930") == 10);
+
+    FillNotification fn;
+    fn.odno = "K000333"; fn.ticker = "005930"; fn.side = OrderSide::BUY;
+    fn.filled_qty = 4; fn.filled_price = 75000.0; fn.fill_time = "100000";
+    router.on_fill(fn);
+    assert(gate.reserved("005930") == 6);   // 10 - 4
+    assert(gate.position("005930") == 4);
+
+    OrderSignal cancel;
+    cancel.ticker          = "005930";
+    cancel.action          = OrderAction::CANCEL;
+    cancel.orig_client_oid = "MM:B:1";
+    auto cm = router.submit(cancel);
+
+    assert(cm.status == OrderStatus::CANCELLED);
+    assert(stub.last_cancel_qty == 6);      // 미체결 잔량만
+    assert(gate.reserved("005930") == 0);   // 잔량 6 해제
+    assert(gate.position("005930") == 4);   // 체결분은 불변
+    PASS("partial_fill_then_cancel");
+}
+
+// ─── 테스트 12: 전량체결 후 취소 → 자가치유(REJECTED, 이중해제 없음) ─────────
+void test_cancel_after_full_fill_selfheal()
+{
+    OrderGate         gate(relaxed_cfg());
+    StubOrderExecutor stub(true, "K000444");
+    OrderRouter       router(gate, stub);
+
+    OrderSignal buy = make_signal("005930", OrderSide::BUY, 10);
+    buy.client_oid  = "MM:B:1";
+    router.submit(buy);
+
+    FillNotification fn;
+    fn.odno = "K000444"; fn.ticker = "005930"; fn.side = OrderSide::BUY;
+    fn.filled_qty = 10; fn.filled_price = 75000.0; fn.fill_time = "100000";
+    router.on_fill(fn);
+    assert(gate.reserved("005930") == 0);
+    assert(gate.position("005930") == 10);
+
+    OrderSignal cancel;
+    cancel.ticker          = "005930";
+    cancel.action          = OrderAction::CANCEL;
+    cancel.orig_client_oid = "MM:B:1";
+    auto cm = router.submit(cancel);
+
+    assert(cm.status == OrderStatus::REJECTED); // 이미 FILLED → 취소 대상 없음
+    assert(stub.cancel_calls == 0);
+    assert(gate.reserved("005930") == 0);       // 이중해제 없음
+    assert(gate.position("005930") == 10);
+    PASS("cancel_after_full_fill_selfheal");
+}
+
+// ─── 테스트 13: REPLACE(정정) — 잔량 해제 후 new_qty 재선점 ──────────────────
+void test_replace_reserves_new_qty()
+{
+    OrderGate         gate(relaxed_cfg());
+    StubOrderExecutor stub(true, "K000555");
+    OrderRouter       router(gate, stub);
+
+    OrderSignal buy = make_signal("005930", OrderSide::BUY, 10);
+    buy.client_oid  = "MM:B:1";
+    router.submit(buy);
+    assert(gate.reserved("005930") == 10);
+
+    OrderSignal rep;
+    rep.ticker          = "005930";
+    rep.side            = OrderSide::BUY;
+    rep.type            = OrderType::LIMIT;
+    rep.quantity        = 8;
+    rep.price           = 74000.0;
+    rep.action          = OrderAction::REPLACE;
+    rep.orig_client_oid = "MM:B:1";
+    rep.client_oid      = "MM:B:2";
+    auto rm = router.submit(rep);
+
+    assert(rm.status == OrderStatus::ACCEPTED);
+    assert(rm.kis_order_no == "R000000001");
+    assert(stub.revise_calls == 1);
+    assert(gate.reserved("005930") == 8);   // 10 해제 후 8 재선점
+    PASS("replace_reserves_new_qty");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -261,6 +429,11 @@ int main()
     test_order_id_sequence();
     test_duplicate_fill_ignored();
     test_cross_day_fill_not_deduped();
+    test_cancel_releases_reserved();
+    test_cancel_unknown_oid();
+    test_partial_fill_then_cancel();
+    test_cancel_after_full_fill_selfheal();
+    test_replace_reserves_new_qty();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

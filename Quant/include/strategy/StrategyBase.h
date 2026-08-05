@@ -27,6 +27,13 @@ public:
         return std::nullopt;
     }
 
+    // 다건 발주 (취소/정정 포함) — 시장조성(MM) 등 틱당 여러 주문을 내는 전략 전용.
+    // 기본 no-op → 기존 전략 무영향. Engine이 on_order_book 직후 호출하며, out에 채운
+    // 신호를 order_queue_로 push한다. CANCEL/REPLACE는 side가 NONE이어도 통과된다.
+    virtual void on_order_book_batch(const OrderBook&, std::vector<OrderSignal>& /*out*/)
+    {
+    }
+
     // 체결 이벤트 (미국 — HDFSCNT0, 국내 — H0STCNT0)
     virtual std::optional<OrderSignal> on_trade(const TradeData&)
     {

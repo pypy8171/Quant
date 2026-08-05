@@ -2,6 +2,7 @@
 #include "core/Engine.h"
 #include "strategy/FixedIntervalStrategy.h"
 #include "strategy/MACrossStrategy.h"
+#include "strategy/MarketMakingStrategy.h"
 #include "strategy/MomentumStrategy.h"
 #include "strategy/PriceTargetStrategy.h"
 #include "strategy/SupplyDemandPullbackStrategy.h"
@@ -949,6 +950,16 @@ int main(int argc, char* argv[])
                     ? SupplyDemandPullbackStrategy::EntryMode::INTRADAY
                     : SupplyDemandPullbackStrategy::EntryMode::EOD;
             engine.add_strategy(std::make_unique<SupplyDemandPullbackStrategy>(sp));
+        }
+        else if (type == "MARKET_MAKING")
+        {
+            std::string ticker      = s["ticker"].get<std::string>();
+            int mm_qty              = s.value("quantity", 1);
+            int half_spread_ticks   = s.value("half_spread_ticks", 1);
+            int requote_move_ticks  = s.value("requote_move_ticks", 1);
+            int min_requote_ms      = s.value("min_requote_ms", 1000); // ≥1000 권장(초당 4건 rate 백스톱)
+            engine.add_strategy(std::make_unique<MarketMakingStrategy>(
+                ticker, mm_qty, half_spread_ticks, requote_move_ticks, min_requote_ms));
         }
         else if (type == "THEME")
         {

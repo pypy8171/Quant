@@ -4,6 +4,7 @@ Quant/build/
 Quant/build_win/
 Quant/config/config.json
 Quant/config/config_paper.json
+Quant/config/config_mm_paper.json
 Quant/config/.token_cache.json
 Quant/config/kis_token_*.json
 kis_token_*.json

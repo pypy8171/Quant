@@ -52,6 +52,17 @@ enum class OrderType
     LIMIT
 };
 
+// 주문 생명주기 액션 (MM-1) — 기본 NEW로 기존 전략 무변경.
+//   NEW     : 신규 주문 (기존 경로)
+//   CANCEL  : orig_client_oid 대상 미체결 취소 (order-rvsecncl, 취소)
+//   REPLACE : orig_client_oid 대상 정정 (order-rvsecncl, 정정 — cancel-replace 단일 콜)
+enum class OrderAction
+{
+    NEW,
+    CANCEL,
+    REPLACE
+};
+
 struct OrderSignal
 {
     std::string ticker;
@@ -64,6 +75,11 @@ struct OrderSignal
     std::string exchange; // US only: "NAS", "NYS"
     std::chrono::system_clock::time_point timestamp;
     std::string account_id; // 법인/DMA 다계좌 인테이크 — 계좌별 원장 파티션 키 (빈값=단일 계좌)
+
+    // ── 주문 생명주기 관리 (MM-1) — 전부 기본값, 비파괴 확장 ─────────────────
+    OrderAction action = OrderAction::NEW; // 기본 NEW → 기존 전략은 이 필드를 몰라도 동일 동작
+    std::string client_oid;                // 전략이 부여하는 주문 식별자 (취소/정정 추적용)
+    std::string orig_client_oid;           // CANCEL/REPLACE 대상 원주문 client_oid
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -140,6 +156,7 @@ struct ManagedOrder
 {
     std::string   order_id;       // 내부 순번 ID  "ORD-000001"
     std::string   kis_order_no;   // KIS 접수번호  ODNO
+    std::string   krx_orgno;      // KRX_FWDG_ORD_ORGNO — 정정/취소 필수 입력 (원주문 조직번호). 빈값=미보존
     OrderSignal   signal;
     OrderStatus   status{OrderStatus::PENDING};
     std::string   reject_reason;
