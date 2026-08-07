@@ -32,6 +32,11 @@ from kis.client import Bar
 
 BASE_URL = "https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService/getStockPriceInfo"
 
+# 창(window) 무관 캐시 바닥. 요청 시작일이 이보다 늦어도 이 날짜부터 받아 캐시를 공유한다.
+# → 1/2/3/4/5년 백테스트(끝점 동일)가 한 번 수집으로 전부 캐시 히트. 튜닝 재실행도 즉시.
+# 값 근거: 5년 창의 워밍업(pre_start≈2020-04)까지 덮음. 더 긴 창 필요 시 이 값만 앞당기면 됨.
+FETCH_FLOOR = "20200101"
+
 
 def _ymd(iso: str) -> str:
     return iso.replace("-", "")
@@ -67,6 +72,7 @@ class DataGoKrSource:
         self._cache.mkdir(parents=True, exist_ok=True)
         self._name_cache: dict[str, str] = {}
         self._dumped_once = False   # 첫 응답 원본 필드명 1회 출력(스펙 검증용)
+        self._cache_write_warned = False   # 캐시 쓰기 실패(예: pyarrow 미설치) 1회 경고
 
     def authenticate(self) -> bool:
         if not self.service_key:
@@ -190,20 +196,29 @@ class DataGoKrSource:
             ))
         return out
 
+    # ── 창 무관 캐시 경로 (FETCH_FLOOR로 시작일 정규화 → 창별 캐시 공유) ──────
+    def _cache_path(self, ticker: str, start: str, end: str):
+        """(cache_path, floor_ymd) 반환. floor = min(요청시작, FETCH_FLOOR).
+        시작일을 바닥으로 당겨 서로 다른 창이 같은 파일을 쓰게 만든다."""
+        suffix = "" if self.adjust_prices else "_raw"
+        floor = min(_ymd(start), FETCH_FLOOR)
+        return (self._cache / f"ohlcv_{ticker}_{floor}_{_ymd(end)}{suffix}.parquet", floor)
+
     # ── per-ticker OHLCV (수정주가 보정 포함) ────────────────────────────────
     def get_historical_ohlcv(self, ticker: str, start: str, end: str) -> list[Bar]:
         import pandas as pd
-        suffix = "" if self.adjust_prices else "_raw"
-        cache = self._cache / f"ohlcv_{ticker}_{_ymd(start)}_{_ymd(end)}{suffix}.parquet"
+        cache, floor = self._cache_path(ticker, start, end)
+        floor_iso = f"{floor[:4]}-{floor[4:6]}-{floor[6:]}"
         try:
             if cache.exists():
                 df = pd.read_parquet(cache)
+                # 캐시는 [floor, end] 슈퍼셋 — 요청 [start, end]로 슬라이스해 반환
                 return [Bar(r.date, r.open, r.high, r.low, r.close, int(r.volume))
-                        for r in df.itertuples()]
+                        for r in df.itertuples() if start <= r.date <= end]
         except Exception:
             pass
         items = self._fetch_pages({
-            "beginBasDt": _ymd(start),
+            "beginBasDt": floor,        # 항상 바닥부터 수집 → 캐시 슈퍼셋
             "endBasDt":   _ymd(end),
             "likeSrtnCd": ticker,   # LIKE 매칭 → 아래서 정확 코드만 필터
         })
@@ -215,7 +230,7 @@ class DataGoKrSource:
             if len(bd) != 8:
                 continue
             d = f"{bd[:4]}-{bd[4:6]}-{bd[6:]}"
-            if not (start <= d <= end):
+            if not (floor_iso <= d <= end):   # 슈퍼셋 범위로 저장(요청보다 넓게)
                 continue
             rows.append({"date": d, "o": _f(it.get("mkp")), "h": _f(it.get("hipr")),
                          "l": _f(it.get("lopr")), "c": _f(it.get("clpr")),
@@ -230,21 +245,26 @@ class DataGoKrSource:
                else [Bar(r["date"], r["o"], r["h"], r["l"], r["c"], int(r["v"])) for r in dedup])
         try:
             if out:
-                pd.DataFrame([b.__dict__ for b in out]).to_parquet(cache)
-        except Exception:
-            pass
+                pd.DataFrame([b.__dict__ for b in out]).to_parquet(cache)   # 슈퍼셋 전체 캐시
+        except Exception as e:
+            # 캐시 쓰기 실패는 조용히 넘기면 "매 창 재수집"으로 나타나 원인 파악이 어렵다.
+            # 가장 흔한 원인은 parquet 엔진(pyarrow) 미설치 — 1회만 명확히 경고한다.
+            if not self._cache_write_warned:
+                self._cache_write_warned = True
+                print(f"[datagokr] ⚠ 캐시 쓰기 실패 — 이후 모든 백테스트가 매번 재수집(느림). "
+                      f"원인: {type(e).__name__}: {e}. "
+                      f"해결: pip install pyarrow (또는 pip install -r requirements.txt)")
         time.sleep(self.sleep)
-        return out
+        return [b for b in out if start <= b.date <= end]   # 요청 구간만 반환
 
     # ── 병렬 prefetch (엔진이 루프 돌기 전 1회 호출) ────────────────────────
     def prefetch_ohlcv(self, tickers: list[str], start: str, end: str,
-                       workers: int = 10) -> None:
+                       workers: int = 16) -> None:
         """미캐시 종목을 스레드풀로 동시 수집해 parquet 캐시를 채운다.
-        이후 엔진의 per-ticker get_historical_ohlcv는 캐시 히트로 즉시 반환."""
+        이후 엔진의 per-ticker get_historical_ohlcv는 캐시 히트로 즉시 반환.
+        캐시 경로는 _cache_path(창 무관 floor 정규화) 기준 — 다른 창이 이미 받았으면 재수집 안 함."""
         from concurrent.futures import ThreadPoolExecutor
-        sfx = "" if self.adjust_prices else "_raw"
-        todo = [t for t in tickers
-                if not (self._cache / f"ohlcv_{t}_{_ymd(start)}_{_ymd(end)}{sfx}.parquet").exists()]
+        todo = [t for t in tickers if not self._cache_path(t, start, end)[0].exists()]
         if not todo:
             return
         print(f"[datagokr] 병렬 수집 {len(todo)}/{len(tickers)}종목 (workers={workers})...")
