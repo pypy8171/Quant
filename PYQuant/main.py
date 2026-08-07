@@ -55,7 +55,8 @@ def make_source(source: str, market: str = "kospi"):
 
 
 def make_strategy(name: str, *, top_n: int, rebalance_every: int, lookback: int,
-                  skip: int, vol_adjust: bool, pbr: float = 1.0, qty: int = 1):
+                  skip: int, vol_adjust: bool, pbr: float = 1.0, qty: int = 1,
+                  trend_ma: int = 0, abs_mom: bool = False):
     if name == "value_contrary":
         return ValueContraryStrategy(pbr_max=pbr, quantity=qty)
     if name == "strategy_a":
@@ -64,10 +65,16 @@ def make_strategy(name: str, *, top_n: int, rebalance_every: int, lookback: int,
     if name == "momentum":
         from strategy.cross_momentum import CrossMomentumStrategy
         return CrossMomentumStrategy(top_n=top_n, rebalance_every=rebalance_every,
-                                     lookback=lookback, skip=skip, vol_adjust=vol_adjust)
+                                     lookback=lookback, skip=skip, vol_adjust=vol_adjust,
+                                     trend_ma=trend_ma, abs_mom=abs_mom)
     if name == "supply_demand":
         from strategy.supply_demand_rank import SupplyDemandRankStrategy
         return SupplyDemandRankStrategy(top_n=top_n, rebalance_every=rebalance_every)
+    if name == "mean_reversion":
+        # 횡단면 이격도 역추세(실행 #4). lookback을 이격 기준 SMA 창으로 재사용(예: --lookback 20).
+        from strategy.mean_reversion import MeanReversionContraryStrategy
+        return MeanReversionContraryStrategy(top_n=top_n, rebalance_every=rebalance_every,
+                                             sma_period=lookback)
     raise ValueError(f"알 수 없는 전략: {name}")
 
 
@@ -99,13 +106,19 @@ def run_backtest(kis, *, strategy_name: str, universe: list[str], from_date: str
                  regime_thresh: float = 0.5, daily_regime: bool = False,
                  regime_mode: str = "breadth", regime_index: str = "^KS11",
                  vol_target: float = 0.0, vol_window: int = 20,
+                 trend_ma: int = 0, abs_mom: bool = False,
                  cash: float = 100_000_000, pbr: float = 1.0, qty: int = 1, verbose: bool = True):
     """엔진 1회 실행 — 재사용 가능(스윕·단발 공용). (result, names) 반환."""
     strategy = make_strategy(strategy_name, top_n=top_n, rebalance_every=rebalance_every,
-                             lookback=lookback, skip=skip, vol_adjust=vol_adjust, pbr=pbr, qty=qty)
-    warmup = (int((lookback + skip) * 2.1) + 20 if strategy_name == "momentum" else 30)
+                             lookback=lookback, skip=skip, vol_adjust=vol_adjust, pbr=pbr, qty=qty,
+                             trend_ma=trend_ma, abs_mom=abs_mom)
+    warmup = (int((lookback + skip) * 2.1) + 20 if strategy_name == "momentum"
+              else lookback + 20 if strategy_name == "mean_reversion"   # 이격 SMA 창 워밍업
+              else 30)
     if regime:
         warmup = max(warmup, int(regime_ma * 1.5) + 20)
+    if trend_ma:
+        warmup = max(warmup, int(trend_ma * 1.5) + 20)
     engine = BacktestEngine(kis, strategy, initial_cash=cash, target_positions=top_n,
                             warmup_days=warmup, regime_on=regime, regime_ma=regime_ma,
                             regime_thresh=regime_thresh, daily_regime=daily_regime,
@@ -391,7 +404,7 @@ def main():
     bp.add_argument("--cash",     type=float,        default=100_000_000)
     bp.add_argument("--universe", action="store_true", help="KIS API로 Universe 동적 조회")
     bp.add_argument("--strategy", default="value_contrary",
-                    choices=["value_contrary", "strategy_a", "momentum", "supply_demand"],
+                    choices=["value_contrary", "strategy_a", "momentum", "supply_demand", "mean_reversion"],
                     help="백테스트 전략 (기본: value_contrary)")
     bp.add_argument("--source", default="kis", choices=["kis", "krx", "datagokr"],
                     help="데이터 소스 (datagokr=공공데이터포털 금융위 point-in-time 권장, "

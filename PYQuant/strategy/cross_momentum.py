@@ -15,20 +15,25 @@ from strategy.base import StrategyBase
 
 class CrossMomentumStrategy(StrategyBase):
     def __init__(self, top_n: int = 10, rebalance_every: int = 20,
-                 lookback: int = 120, skip: int = 20, vol_adjust: bool = False):
+                 lookback: int = 120, skip: int = 20, vol_adjust: bool = False,
+                 trend_ma: int = 0, abs_mom: bool = False):
         super().__init__()
         self.top_n           = top_n
         self.rebalance_every = rebalance_every
         self.lookback        = lookback   # 거래일 (≈6개월)
         self.skip            = skip       # 최근 제외 거래일 (≈1개월, 단기 반전 회피)
         self.vol_adjust      = vol_adjust # True면 점수=수익률/변동성(펌프주 강등)
+        self.trend_ma        = trend_ma   # >0이면 개별종목 추세필터: close>SMA(trend_ma)만 매수후보
+        self.abs_mom         = abs_mom    # True면 절대모멘텀 게이트: 형성구간 수익률>0만 매수후보
         self._tick = 0
         self._held: set[str] = set()
 
     def id(self) -> str:
         mode = "voladj" if self.vol_adjust else "raw"
+        extra = (f", trend{self.trend_ma}" if self.trend_ma else "") + \
+                (", absmom" if self.abs_mom else "")
         return (f"CROSS_MOMENTUM (top{self.top_n}, rb{self.rebalance_every}d, "
-                f"lb{self.lookback}/skip{self.skip}, {mode})")
+                f"lb{self.lookback}/skip{self.skip}, {mode}{extra})")
 
     def on_start(self, universe: list[str]) -> list[str]:
         return []   # 전 종목 감시 — 랭킹은 on_rebalance에서
@@ -45,7 +50,7 @@ class CrossMomentumStrategy(StrategyBase):
         # vol_adjust=True면 형성구간 일별수익률 변동성으로 나눠 위험조정(펌프주 강등).
         import statistics
         scores: dict[str, float] = {}
-        need = self.lookback + 1
+        need = max(self.lookback + 1, self.trend_ma)   # 추세필터 SMA 워밍업 포함
         for t, bars in visible.items():
             n = len(bars)
             if n < need:
@@ -57,6 +62,15 @@ class CrossMomentumStrategy(StrategyBase):
             if past <= 0:
                 continue
             mom = recent / past - 1.0
+            # C1 개별종목 추세필터: 현재가가 자기 SMA(trend_ma) 아래면 매수후보 제외
+            # (하락 유니버스에서 '덜 나쁜 하락주' 매수 차단 — regime이 못 보는 개별 롤오버 컷).
+            if self.trend_ma > 0:
+                sma = sum(b.close for b in bars[-self.trend_ma:]) / self.trend_ma
+                if bars[-1].close <= sma:
+                    continue
+            # 절대(시계열) 모멘텀 게이트: 형성구간 수익률 ≤ 0이면 제외
+            if self.abs_mom and mom <= 0:
+                continue
             if not self.vol_adjust:
                 scores[t] = mom
                 continue
