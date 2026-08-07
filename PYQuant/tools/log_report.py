@@ -27,7 +27,7 @@ quant_trader 로그를 파싱해 세션·주문·체결·신뢰성(장애) 지�
 
 사용법:
     python tools/log_report.py <로그경로> [--md 리포트.md] [--html 리포트.html]
-    python tools/log_report.py ../Quant/quant_trader.log
+    python tools/log_report.py ../Quant/logs/quant_trader.log
     python tools/log_report.py quant_trader.log --md ops_report.md --html ops_report.html
 """
 from __future__ import annotations

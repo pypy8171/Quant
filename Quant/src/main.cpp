@@ -188,7 +188,8 @@ int main(int argc, char* argv[])
     GetConsoleMode(hOut, &dwMode);
     SetConsoleMode(hOut, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
 #endif
-    Logger::instance().init("quant_trader.log", LogLevel::INFO);
+    // 로그는 cwd 루트에 흩뿌리지 않고 logs/ 하위로 모은다(부모 폴더는 Logger가 자동 생성).
+    Logger::instance().init("logs/quant_trader.log", LogLevel::INFO);
     LOG_INFO("=== Quant Trader v2.0 ===");
 
     // 인자 파싱: quant_trader [config] [MODE]

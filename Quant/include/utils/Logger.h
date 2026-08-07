@@ -1,5 +1,6 @@
 #pragma once
 #include <chrono>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -27,6 +28,12 @@ public:
     void init(const std::string& filepath, LogLevel min_level = LogLevel::INFO)
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        // 로그 경로가 하위 폴더(예: logs/)를 포함하면 부모 디렉터리를 먼저 만든다.
+        // cwd 위치와 무관하게 파일이 흩어지지 않고 지정 폴더에 모이도록 보장.
+        std::error_code ec;
+        auto parent = std::filesystem::path(filepath).parent_path();
+        if (!parent.empty())
+            std::filesystem::create_directories(parent, ec);
         file_.open(filepath, std::ios::app);
         min_level_ = min_level;
     }

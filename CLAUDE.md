@@ -77,7 +77,7 @@ FEED 모드에서 사용합니다. REST로 approval key를 발급받고, `ops.ko
 
 ### 로깅
 
-싱글톤 `Logger`가 밀리초 단위 UTC 타임스탬프로 콘솔과 `quant_trader.log`에 기록합니다. 사용 매크로: `LOG_INFO()`, `LOG_WARN()`, `LOG_ERROR()`, `LOG_DEBUG()`.
+싱글톤 `Logger`가 밀리초 단위 UTC 타임스탬프로 콘솔과 `logs/quant_trader.log`(cwd 하위 `logs/` 폴더에 고정, 부모 폴더는 자동 생성)에 기록합니다. 과거 로그는 `logs/archive/`에 보관합니다. 사용 매크로: `LOG_INFO()`, `LOG_WARN()`, `LOG_ERROR()`, `LOG_DEBUG()`.
 
 ## 플랫폼 참고사항
 
