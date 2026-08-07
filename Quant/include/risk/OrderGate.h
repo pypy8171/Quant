@@ -30,11 +30,15 @@ class OrderGate
 public:
     struct Config
     {
-        int max_qty_per_ticker  = 100;          // 종목당 최대 보유 수량
+        int max_qty_per_ticker  = 100;          // 종목당 최대 보유 수량(BUY 누적)
         double daily_loss_limit = -300'000.0;   // 일일 최대 손실 (-30만원)
         int max_orders_per_min  = 20;           // 분당 최대 주문 (KIS 권장)
         int max_orders_per_sec  = 5;            // 초당 최대 주문 (KIS 안전 한도)
         double dedup_window_sec = 1.0;          // 중복 신호 제거 윈도우(초)
+        // ── 1주문 fat-finger 백스톱 (C-3) — NEW BUY/SELL 공통. 시장가 대량주문 슬리피지 방어.
+        //    보유 전량 매도 등 정상 주문은 통과할 만큼 넉넉하게, 비정상 대량만 차단.
+        int max_qty_per_order        = 10'000;         // 1주문 최대 수량
+        double max_notional_per_order = 50'000'000.0;  // 1주문 최대 명목(원). price>0일 때만 검사
     };
 
     OrderGate() : cfg_()
@@ -43,6 +47,10 @@ public:
     explicit OrderGate(Config cfg) : cfg_(cfg)
     {
     }
+
+    // 위험 한도 주입 — 반드시 order_thread 시작 전에만 호출(cfg_는 check()에서 락 없이 읽힘).
+    void set_config(const Config& cfg) { cfg_ = cfg; }
+    const Config& config() const { return cfg_; }
 
     // ── 주문 검증 (true = 통과, false = 거부) ──────────────────────────────
     bool check(const OrderSignal& sig, std::string& reject_reason);
@@ -59,6 +67,24 @@ public:
         on_accept(std::string(), ticker, side, qty, price);
     }
     void add_realized_pnl(double pnl);  // SELL 체결 시 실현 손익 추가 (테스트에서도 사용)
+    // C-1: rest_price_feed 모드는 체결콜백이 없어 daily_pnl_이 0 고정 → BUY-only 손실컷(§4) 死.
+    //  Engine이 잔고 재조회로 당일 기준선 대비 평가금 델타를 계산해 이 값으로 직접 덮어쓴다.
+    //  (add_realized_pnl은 누적, 이건 절대치 세팅 — 리컨사일 전용)
+    void set_daily_pnl(double pnl)
+    {
+        std::lock_guard<std::mutex> lk(pnl_mtx_);
+        daily_pnl_ = pnl;
+    }
+
+    // ── 원장 부트스트랩 (G5) — 기동 시 실계좌 보유분을 원장에 시드 ─────────────
+    // 체결이 아니므로 reserved_/daily_pnl_은 불변, positions_/avg_prices_만 설정.
+    // on_fill_confirmed 재사용 금지(수수료·실현손익 오적립) → 전용 API.
+    // 계좌키는 신호가 쓰는 account_id와 반드시 동일해야 조회된다(단일계좌는 account="").
+    void seed_position(const std::string& account, const std::string& ticker, int qty, double avg_price);
+    void seed_position(const std::string& ticker, int qty, double avg_price)
+    {
+        seed_position(std::string(), ticker, qty, avg_price);
+    }
 
     // ── 미체결 취소/정정 축소 시 선점 해제 (C5, MM-1) ─────────────────────
     // qty = 취소된 미체결 잔량(>0). reserved_만 감소 — positions_/avg_price는 불변(취소는 체결 아님).

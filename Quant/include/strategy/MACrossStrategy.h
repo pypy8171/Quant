@@ -11,8 +11,13 @@
 class MACrossStrategy : public StrategyBase
 {
 public:
-    MACrossStrategy(std::string ticker, int short_period, int long_period, int qty)
-        : ticker_(std::move(ticker)), short_period_(short_period), long_period_(long_period), quantity_(qty)
+    // start_in_position=true: 기동 시 이미 보유 중인 것으로 간주(모의계좌 보유분).
+    //   → 첫 신호는 항상 데드크로스 매도(BUY는 무포지션에서만) → 기존 보유분을 지표로 청산 가능.
+    //   → OrderGate 상대원장상 매도(선점 -qty) 후 재매수가 net-zero라 포지션 한도에 안 걸림.
+    MACrossStrategy(std::string ticker, int short_period, int long_period, int qty,
+                    bool start_in_position = false)
+        : ticker_(std::move(ticker)), short_period_(short_period), long_period_(long_period),
+          quantity_(qty), start_in_position_(start_in_position)
     {
     }
 
@@ -23,7 +28,9 @@ public:
 
     std::vector<WatchSpec> get_watch_specs() const override
     {
-        return {{ticker_, Market::KR, ""}};
+        // MACross는 REST 폴링(get_daily_ohlcv)으로만 동작 — WS 호가/체결 불필요.
+        // trade_only=true → H0STCNT0만 구독(호가 제외)해 구독 한도(≈41건) 절약.
+        return {{ticker_, Market::KR, "", true}};
     }
 
     std::string describe() const override
@@ -37,7 +44,7 @@ public:
         prices_.clear();
         prev_short_ma_ = 0.0;
         prev_long_ma_ = 0.0;
-        in_position_ = false;
+        in_position_ = start_in_position_;
     }
 
     std::optional<OrderSignal> on_data(const MarketData& data) override
@@ -101,6 +108,7 @@ private:
     int short_period_;
     int long_period_;
     int quantity_;
+    bool start_in_position_ = false;
     std::deque<double> prices_;
     double prev_short_ma_ = 0.0;
     double prev_long_ma_ = 0.0;

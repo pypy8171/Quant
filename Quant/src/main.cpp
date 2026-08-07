@@ -1,6 +1,8 @@
 #include "api/KisWebSocket.h"
 #include "core/Engine.h"
+#include "strategy/DeviationScaleStrategy.h"
 #include "strategy/FixedIntervalStrategy.h"
+#include "strategy/IntradayBreakoutStrategy.h"
 #include "strategy/MACrossStrategy.h"
 #include "strategy/MarketMakingStrategy.h"
 #include "strategy/MomentumStrategy.h"
@@ -21,6 +23,7 @@
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <thread>
+#include <unordered_set>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -865,6 +868,55 @@ int main(int argc, char* argv[])
     int interval = cfg.value("fetch_interval_sec", 60);
     Engine engine(kis_cfg, interval);
     g_engine = &engine;
+    // G5: 기동 시 실계좌 보유분을 OrderGate 원장에 시드(ITB 매도수량·평단·손실한도 정합).
+    engine.set_bootstrap_ledger(cfg.value("bootstrap_ledger_from_balance", false));
+    // REST 현재가 폴링을 체결 피드로 사용(WS 실시간 세션 rt=9 폭주 우회). ITB가 이 틱으로 구동.
+    engine.set_rest_price_feed(cfg.value("rest_price_feed", false));
+    // 시세 전용(실전 도메인) 키: 모의(openapivts)는 시세 REST가 HTTP 500이므로 시세만 실전으로 조회.
+    // 스캔 유니버스 분기(universe_from_scan)도 이 실전 키로 거래대금 랭킹/지수를 조회하므로 바깥 스코프로 보관.
+    KisConfig quote_kis_cfg;
+    bool has_quote_kis = false;
+    if (cfg.contains("quote_kis"))
+    {
+        KisConfig q;
+        q.app_key      = cfg["quote_kis"]["app_key"];
+        q.app_secret   = cfg["quote_kis"]["app_secret"];
+        q.account_no   = cfg["quote_kis"].value("account_no", "");
+        q.account_type = cfg["quote_kis"].value("account_type", "01");
+        q.hts_id       = cfg["quote_kis"].value("hts_id", "");
+        q.is_paper     = false; // 시세는 실전 도메인
+        engine.set_quote_kis_config(q);
+        quote_kis_cfg = q;
+        has_quote_kis = true;
+        LOG_INFO("[Main] 시세 전용 클라이언트(실전 도메인) 설정됨");
+    }
+
+    // 위험 한도(risk) + 주문 페이싱 — config로 노출(없으면 OrderGate 기본값·페이싱 기본값 유지).
+    //  지정된 키만 기본값에서 덮어쓴다. 실제 돈 규율 튜닝을 재빌드 없이 하기 위함(S-1).
+    if (cfg.contains("risk"))
+    {
+        const auto& r = cfg["risk"];
+        OrderGate::Config rc; // OrderGate::Config 기본값에서 시작
+        rc.max_qty_per_ticker     = r.value("max_qty_per_ticker", rc.max_qty_per_ticker);
+        rc.daily_loss_limit       = r.value("daily_loss_limit", rc.daily_loss_limit);
+        rc.max_orders_per_min     = r.value("max_orders_per_min", rc.max_orders_per_min);
+        rc.max_orders_per_sec     = r.value("max_orders_per_sec", rc.max_orders_per_sec);
+        rc.dedup_window_sec       = r.value("dedup_window_sec", rc.dedup_window_sec);
+        rc.max_qty_per_order      = r.value("max_qty_per_order", rc.max_qty_per_order);
+        rc.max_notional_per_order = r.value("max_notional_per_order", rc.max_notional_per_order);
+        engine.set_risk_config(rc);
+        LOG_INFO("[Main] risk 한도: 종목당 " + std::to_string(rc.max_qty_per_ticker) + "주, 일손실 " +
+                 std::to_string((long long)rc.daily_loss_limit) + "원, " +
+                 std::to_string(rc.max_orders_per_sec) + "/s·" +
+                 std::to_string(rc.max_orders_per_min) + "/min");
+
+        // 주문 페이싱(C-2/W-3) — 버스트 청산 EGW00201 회피 + 거부 SELL 재시도.
+        int pace_ms = r.value("order_min_interval_ms", 350);
+        int max_ret = r.value("order_max_retries", 3);
+        engine.set_order_pacing(pace_ms, max_ret);
+        LOG_INFO("[Main] 주문 페이싱: " + std::to_string(pace_ms) + "ms 간격, 청산 SELL 재시도 " +
+                 std::to_string(max_ret) + "회");
+    }
 
     for (auto& s : cfg["strategies"])
     {
@@ -874,8 +926,197 @@ int main(int argc, char* argv[])
 
         if (type == "MA_CROSS")
         {
-            engine.add_strategy(std::make_unique<MACrossStrategy>(
-                s["ticker"].get<std::string>(), s["short_period"].get<int>(), s["long_period"].get<int>(), qty));
+            int sp = s["short_period"].get<int>();
+            int lp = s["long_period"].get<int>();
+
+            if (s.value("universe_from_balance", false))
+            {
+                // 모의계좌 보유종목 전체를 유니버스로 — 종목마다 MACross 등록.
+                // 보유분은 start_in_position=true 로 시드 → 데드크로스에 실제 보유수량 매도, 골든크로스에 재매수.
+                KisClient bal_kis(kis_cfg);
+                if (!bal_kis.authenticate())
+                {
+                    LOG_ERROR("[Main] universe_from_balance: 잔고조회용 인증 실패 — 건너뜀");
+                }
+                else
+                {
+                    nlohmann::json bal = bal_kis.get_balance();
+                    int added = 0;
+                    if (bal.contains("output1"))
+                    {
+                        for (auto& h : bal["output1"])
+                        {
+                            std::string code = h.value("pdno", "");
+                            int hq           = std::atoi(h.value("hldg_qty", "0").c_str());
+                            if (!code.empty() && hq > 0)
+                            {
+                                engine.add_strategy(std::make_unique<MACrossStrategy>(
+                                    code, sp, lp, hq, /*start_in_position=*/true));
+                                LOG_INFO("[Main]   + MACross " + code + " 보유 " + std::to_string(hq) + "주 (in_position 시드)");
+                                ++added;
+                            }
+                        }
+                    }
+                    LOG_INFO("[Main] universe_from_balance: 보유 " + std::to_string(added) +
+                             "종목 등록 (short=" + std::to_string(sp) + " long=" + std::to_string(lp) + ")");
+                }
+            }
+            else
+            {
+                engine.add_strategy(std::make_unique<MACrossStrategy>(
+                    s["ticker"].get<std::string>(), sp, lp, qty));
+            }
+        }
+        else if (type == "INTRADAY_BREAKOUT")
+        {
+            // 첫 장중 자동매매 기준(ITB) — WS 체결 틱 기반 채널돌파 + 트레일/하드 스탑.
+            int channel_min   = s.value("channel_min", 10);
+            double eps         = s.value("breakout_eps", 0.002);
+            double trail_pct   = s.value("trail_pct", 0.010);
+            double hard_pct    = s.value("hard_pct", 0.015);
+            int eod_hhmm       = s.value("eod_hhmm", 1515);
+            int cooldown_sec   = s.value("reentry_cooldown_sec", 60);
+            int entry_qty      = s.value("entry_qty", 1); // 신규 돌파 진입 수량(명목 미지정 시)
+            double avg_loss_pct = s.value("avg_loss_pct", 0.0); // 평단 대비 손절률(0=비활성)
+            // ── v2 파라미터(strategies/ITB/SPEC.md §2/§3) ──
+            double seed_trail_pct      = s.value("seed_trail_pct", 0.0);      // 물린분 앵커 트레일(넓게)
+            double exit_near_avg_pct   = s.value("exit_near_avg_pct", 0.0);   // 물린분 본전탈출 임계
+            int    no_new_entry_hhmm   = s.value("no_new_entry_hhmm", 0);     // 신규진입 금지 시각(0→eod)
+            double notional_per_position = s.value("notional_per_position", 0.0); // 종목당 명목(원)
+
+            if (s.value("universe_from_scan", false))
+            {
+                // ── 거래대금 상위 스캔 유니버스(ITB v2) ─────────────────────────
+                //  실전 도메인 키로 거래대금 랭킹 → 등락률/가격 필터 → (opt)수급 → 레짐 게이트
+                //  통과 종목만 ITB(start_in_position=false, 명목 사이징)로 등록.
+                int    scan_top_n    = s.value("scan_top_n", 30);
+                double chg_min       = s.value("chg_min", 0.02);
+                double chg_max       = s.value("chg_max", 0.12);
+                double min_price     = s.value("min_price", 3000.0);
+                bool   sd_filter     = s.value("sd_filter", true);
+                double risk_off_idx  = s.value("risk_off_index_pct", -0.01);
+                int    max_register  = s.value("max_concurrent_positions", 3) * 2; // 후보는 상한의 2배까지 등록(경쟁)
+
+                if (!has_quote_kis)
+                {
+                    LOG_ERROR("[Main] universe_from_scan: quote_kis(실전 시세 키) 미설정 — 스캔 불가, 건너뜀");
+                }
+                else
+                {
+                    KisClient scan_kis(quote_kis_cfg);
+                    if (!scan_kis.authenticate())
+                    {
+                        LOG_ERROR("[Main] universe_from_scan: 시세 키 인증 실패 — 건너뜀");
+                    }
+                    else
+                    {
+                        // 레짐 게이트: 코스피(0001) 당일 등락률이 risk_off 이하면 신규매수 유니버스 전면 스킵.
+                        auto kospi = scan_kis.get_index_price("0001");
+                        double idx_chg = kospi.change_rate / 100.0; // KIS는 % 단위
+                        if (idx_chg < risk_off_idx)
+                        {
+                            LOG_WARN("[Main] universe_from_scan: 레짐 위험회피(코스피 " +
+                                     std::to_string(kospi.change_rate) + "% < " +
+                                     std::to_string(risk_off_idx * 100.0) + "%) — 신규매수 유니버스 미등록");
+                        }
+                        else
+                        {
+                            auto rank = scan_kis.fetch_value_ranking(scan_top_n, "J");
+                            int added = 0;
+                            for (const auto& r : rank)
+                            {
+                                if (added >= max_register)
+                                    break;
+                                double chg = r.change_rate / 100.0; // % → 비율
+                                // 필터①: 등락률 밴드(강세 모멘텀, 급등 추격 배제)
+                                if (chg < chg_min || chg > chg_max)
+                                    continue;
+                                // 필터②: 최소가(동전주·호가스프레드 배제)
+                                if (r.price < min_price)
+                                    continue;
+                                // 필터③: 수급(opt) — 외국인 T-1 확정 순매수 > 0 (후보 소수에만 조회)
+                                if (sd_filter)
+                                {
+                                    auto tr = scan_kis.get_investor_trend(r.ticker);
+                                    if (tr.foreign_net <= 0)
+                                    {
+                                        LOG_INFO("[Main]   - ITB 스캔 제외 " + r.ticker + " 외국인순매수<=0");
+                                        continue;
+                                    }
+                                }
+                                // 통과 → 신규 진입 유니버스로 등록(당일 시가 앵커 주입).
+                                //  ⚠️ 앵커는 랭킹 스냅샷 현재가(r.price)가 아니라 실제 당일 시가여야 함.
+                                //  갭업일엔 스냅샷=장중 고점 근처라 앵커가 고점에 고정되어 돌파 진입이 영구 차단됨.
+                                //  inquire-price(FHKST01010100)의 stck_oprc로 진짜 시가를 조회, 0이면 r.price 폴백.
+                                double day_open = scan_kis.get_fundamentals(r.ticker).open;
+                                if (day_open <= 0.0)
+                                    day_open = r.price;
+                                auto strat = std::make_unique<IntradayBreakoutStrategy>(
+                                    r.ticker, entry_qty, /*hold_qty=*/0, /*start_in_position=*/false,
+                                    channel_min, eps, trail_pct, hard_pct, eod_hhmm, cooldown_sec,
+                                    /*avg_px=*/0.0, avg_loss_pct, seed_trail_pct, exit_near_avg_pct,
+                                    no_new_entry_hhmm, notional_per_position, /*day_open_px=*/day_open);
+                                strat->set_name(r.name);
+                                engine.add_strategy(std::move(strat));
+                                LOG_INFO("[Main]   + ITB 스캔 " + r.ticker + " " + r.name + " (등락 " +
+                                         std::to_string(r.change_rate) + "% 가격 " +
+                                         std::to_string((long long)r.price) + " 시가앵커 " +
+                                         std::to_string((long long)day_open) + " 거래대금 " +
+                                         std::to_string((long long)r.trade_value) + ")");
+                                ++added;
+                            }
+                            LOG_INFO("[Main] universe_from_scan: 후보 " + std::to_string(rank.size()) +
+                                     "종목 중 " + std::to_string(added) + "종목 등록");
+                        }
+                    }
+                }
+            }
+            else if (s.value("universe_from_balance", false))
+            {
+                // 모의계좌 보유종목 전체를 유니버스로 — 종목마다 ITB 등록(보유분 in_position 시드).
+                KisClient bal_kis(kis_cfg);
+                if (!bal_kis.authenticate())
+                {
+                    LOG_ERROR("[Main] ITB universe_from_balance: 잔고조회용 인증 실패 — 건너뜀");
+                }
+                else
+                {
+                    nlohmann::json bal = bal_kis.get_balance();
+                    int added = 0;
+                    if (bal.contains("output1"))
+                    {
+                        for (auto& h : bal["output1"])
+                        {
+                            std::string code = h.value("pdno", "");
+                            std::string pname = h.value("prdt_name", "");
+                            int hq           = std::atoi(h.value("hldg_qty", "0").c_str());
+                            double avg_px    = std::atof(h.value("pchs_avg_pric", "0").c_str());
+                            if (!code.empty() && hq > 0)
+                            {
+                                auto strat = std::make_unique<IntradayBreakoutStrategy>(
+                                    code, entry_qty, hq, /*start_in_position=*/true, channel_min, eps,
+                                    trail_pct, hard_pct, eod_hhmm, cooldown_sec, avg_px, avg_loss_pct,
+                                    seed_trail_pct, exit_near_avg_pct, no_new_entry_hhmm,
+                                    /*notional=*/0.0, /*day_open_px=*/0.0);
+                                strat->set_name(pname);
+                                engine.add_strategy(std::move(strat));
+                                LOG_INFO("[Main]   + ITB " + code + " " + pname + " 보유 " + std::to_string(hq) +
+                                         "주 (in_position 시드, 평단=" + std::to_string((long long)avg_px) + ")");
+                                ++added;
+                            }
+                        }
+                    }
+                    LOG_INFO("[Main] ITB universe_from_balance: 보유 " + std::to_string(added) + "종목 등록");
+                }
+            }
+            else
+            {
+                engine.add_strategy(std::make_unique<IntradayBreakoutStrategy>(
+                    s["ticker"].get<std::string>(), entry_qty, /*hold_qty=*/0, /*start_in_position=*/false,
+                    channel_min, eps, trail_pct, hard_pct, eod_hhmm, cooldown_sec,
+                    /*avg_px=*/0.0, avg_loss_pct, seed_trail_pct, exit_near_avg_pct,
+                    no_new_entry_hhmm, notional_per_position, /*day_open_px=*/0.0));
+            }
         }
         else if (type == "MOMENTUM")
         {
@@ -961,6 +1202,110 @@ int main(int argc, char* argv[])
             int min_requote_ms      = s.value("min_requote_ms", 1000); // ≥1000 권장(초당 4건 rate 백스톱)
             engine.add_strategy(std::make_unique<MarketMakingStrategy>(
                 ticker, mm_qty, half_spread_ticks, requote_move_ticks, min_requote_ms));
+        }
+        else if (type == "DEVIATION_SCALE")
+        {
+            // 공통 파라미터(티커 제외) — 스캔 유니버스/단일 종목이 함께 쓴다.
+            DeviationScaleStrategy::Params base;
+            base.base_qty          = s.value("base_qty", 10);
+            base.step_qty          = s.value("step_qty", 5);
+            base.sma_period        = s.value("sma_period", 20);
+            base.dev_sell          = s.value("dev_sell_pct", 1.5);
+            base.dev_buy           = s.value("dev_buy_pct", 0.8);
+            base.n_rungs           = s.value("n_rungs", 2);
+            base.pullback_pct      = s.value("pullback_pct", 2.0);
+            base.reprice_move_ticks = s.value("reprice_move_ticks", 2);
+            base.eod_hhmm          = s.value("eod_exit_hhmm", 1515);
+            base.interval_min      = s.value("interval_min", 3);
+            base.min_action_ms     = s.value("min_action_ms", 3000);
+            base.daily_lookback    = s.value("daily_lookback", 70);
+            base.account           = s.value("account", std::string());
+
+            // 티커 → DeviationScale 인스턴스 팩토리 (초기 스캔·주기적 재스캔 공용).
+            auto factory = [base](const std::string& ticker) -> std::unique_ptr<StrategyBase> {
+                DeviationScaleStrategy::Params dp = base;
+                dp.ticker = ticker;
+                return std::make_unique<DeviationScaleStrategy>(std::move(dp));
+            };
+
+            if (s.value("universe_from_scan", false))
+            {
+                // ── 전체 시장 자동 선정 ("둘 다": 시총 상위 ∪ 거래대금 상위) ─────────
+                //  1단(여기): 시총 상위(넓은 유동 유니버스) + 거래대금 상위(장중 급변 종목)의
+                //             합집합을 최소·최대가 필터로 압축.
+                //  2단(전략): 등록된 각 DeviationScale이 자기 일봉으로 정배열+눌림 존을 판정 →
+                //             자격 종목만 실제 오실레이션. 시장 스캔 + 종목별 자리판정 = 2단 선정.
+                int    scan_top_n   = s.value("scan_top_n", 80);   // 시총 상위 스캔 수(넓은 유니버스)
+                int    value_top_n  = s.value("value_top_n", 30);  // 거래대금 상위 스캔 수(장중 급변)
+                double min_price    = s.value("min_price", 5000.0);
+                double max_price    = s.value("max_price", 0.0);   // 0이면 상한 없음(고가주 포함)
+                int    max_register = s.value("max_universe", 40);
+                double risk_off_idx = s.value("risk_off_index_pct", -0.02);
+                int    rescan_sec   = s.value("rescan_interval_sec", 600); // 주기적 재스캔 간격(초)
+
+                // 유니버스 산출 람다 — 초기 등록과 주기적 재스캔이 공용으로 사용.
+                //  레짐 위험회피면 빈 목록 반환(신규 미등록). 시총·거래대금 상위 합집합에
+                //  가격 필터 적용, max_register개까지. 중복 티커는 seen으로 제거.
+                auto universe = [=](KisClient& c) -> std::vector<std::string> {
+                    std::vector<std::string> out;
+                    auto kospi = c.get_index_price("0001");
+                    if (kospi.change_rate / 100.0 < risk_off_idx)
+                    {
+                        LOG_WARN("[Main] DEVSCALE 스캔: 레짐 위험회피(코스피 " +
+                                 std::to_string(kospi.change_rate) + "%) — 신규 유니버스 스킵");
+                        return out;
+                    }
+                    std::unordered_set<std::string> seen;
+                    auto take = [&](const auto& rank) {
+                        for (const auto& r : rank)
+                        {
+                            if ((int)out.size() >= max_register) break;
+                            if (r.price < min_price) continue;
+                            if (max_price > 0.0 && r.price > max_price) continue;
+                            if (!seen.insert(r.ticker).second) continue;
+                            out.push_back(r.ticker);
+                        }
+                    };
+                    take(c.fetch_kr_ranking(scan_top_n, "J"));     // 시총 상위
+                    take(c.fetch_value_ranking(value_top_n, "J")); // 거래대금 상위
+                    return out;
+                };
+
+                if (!has_quote_kis)
+                {
+                    LOG_ERROR("[Main] DEVSCALE universe_from_scan: quote_kis(실전 시세 키) 미설정 — 스캔 불가, 건너뜀");
+                }
+                else
+                {
+                    KisClient scan_kis(quote_kis_cfg);
+                    if (!scan_kis.authenticate())
+                    {
+                        LOG_ERROR("[Main] DEVSCALE universe_from_scan: 시세 키 인증 실패 — 건너뜀");
+                    }
+                    else
+                    {
+                        auto tickers = universe(scan_kis);
+                        int  added   = 0;
+                        for (const auto& t : tickers)
+                        {
+                            engine.add_strategy(factory(t));
+                            LOG_INFO("[Main]   + DEVSCALE 초기 " + t);
+                            ++added;
+                        }
+                        LOG_INFO("[Main] DEVSCALE universe_from_scan: 초기 " + std::to_string(added) +
+                                 "종목 등록 (각자 정배열+눌림 존 게이트로 자체 선별)");
+                    }
+
+                    // 주기적 재스캔 등록(동적) — data_thread가 rescan_sec마다 universe를 재호출해
+                    //  신규 티커만 런타임 add. 인증 실패해도 재스캔은 엔진 내부 시세 클라이언트로 시도.
+                    engine.set_universe_rescan(universe, factory, rescan_sec);
+                    LOG_INFO("[Main] DEVSCALE 주기적 재스캔 활성: " + std::to_string(rescan_sec) + "초 간격");
+                }
+            }
+            else
+            {
+                engine.add_strategy(factory(s["ticker"].get<std::string>()));
+            }
         }
         else if (type == "THEME")
         {

@@ -1,6 +1,7 @@
 #pragma once
 #include "core/Types.h"
 #include <atomic>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -40,6 +41,14 @@ public:
         return std::nullopt;
     }
 
+    // 다건 발주 (체결틱/현재가 하트비트 구동) — 3분봉 이격도 분할매매(지정가 예약) 등
+    // 틱마다 CANCEL+NEW 여러 주문을 내는 전략 전용. 기본 no-op → 기존 전략 무영향.
+    // rest_price_feed 모드에서 DataThread가 종목별 현재가를 TradeData로 매 사이클 주입하므로
+    // (WS 없이도) 이 훅이 하트비트로 동작한다. Engine이 on_trade 직후 호출해 out을 order_queue_로 push.
+    virtual void on_trade_batch(const TradeData&, std::vector<OrderSignal>& /*out*/)
+    {
+    }
+
     // Engine이 on_start() 직전에 호출
     virtual void on_start()
     {
@@ -71,8 +80,21 @@ public:
         kis_ = k;
     }
 
+    // OrderGate 확정 포지션 접근자 주입 — WS/REST 양모드 공용 원장 진실원천.
+    // Engine::start()에서 order_gate_.position(account,ticker)로 바인딩. 미주입 시 0 반환.
+    // (체결콜백 부재 rest 모드에서도 리컨사일로 원장이 최신이라 이 값이 신뢰 가능)
+    void set_position_provider(std::function<int(const std::string&, const std::string&)> f)
+    {
+        position_provider_ = std::move(f);
+    }
+    int confirmed_position(const std::string& account, const std::string& ticker) const
+    {
+        return position_provider_ ? position_provider_(account, ticker) : 0;
+    }
+
 protected:
     KisClient* kis_ = nullptr; // non-owning; lifetime guaranteed by Engine
+    std::function<int(const std::string&, const std::string&)> position_provider_; // 확정 포지션(D2)
     std::atomic<bool> active_{true};   // 국면 게이트(Engine이 설정). 기본 true=통과 (G-1)
     std::vector<Regime> active_regimes_ = {Regime::BULL, Regime::NEUTRAL, Regime::BEAR};
 };

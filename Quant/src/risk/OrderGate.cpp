@@ -24,6 +24,32 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
         return false;
     }
 
+    // 2b. 1주문 fat-finger 백스톱 (C-3) — NEW BUY/SELL 공통, 시장가 대량주문 슬리피지 방어.
+    //     CANCEL/REPLACE(잔량 취소·정정)는 대상이 아님 → action==NEW로 한정해 MM 취소경로 무영향.
+    if (sig.action == OrderAction::NEW)
+    {
+        if (sig.quantity <= 0)
+        {
+            reject_reason = "잘못된 주문 수량 (" + std::to_string(sig.quantity) + ")";
+            return false;
+        }
+        if (sig.quantity > cfg_.max_qty_per_order)
+        {
+            std::ostringstream ss;
+            ss << "1주문 수량 한도 초과 (" << sig.quantity << " > " << cfg_.max_qty_per_order << ")";
+            reject_reason = ss.str();
+            return false;
+        }
+        if (sig.price > 0.0 && sig.price * sig.quantity > cfg_.max_notional_per_order)
+        {
+            std::ostringstream ss;
+            ss << "1주문 명목 한도 초과 (" << static_cast<long long>(sig.price * sig.quantity) << " > "
+               << static_cast<long long>(cfg_.max_notional_per_order) << ")";
+            reject_reason = ss.str();
+            return false;
+        }
+    }
+
     // 3. 포지션 수량 한도 (BUY에만 적용) — 실체결(positions_) + 미체결 선점(reserved_) 합산
     //    계좌별 파티션 — 한 계좌 한도는 다른 계좌 주문을 막지 않는다.
     if (sig.side == OrderSide::BUY)
@@ -150,6 +176,19 @@ void OrderGate::add_realized_pnl(double pnl)
 {
     std::lock_guard<std::mutex> lk(pnl_mtx_);
     daily_pnl_ += pnl;
+}
+
+// ─── 원장 부트스트랩 (G5) — 실계좌 보유분 시드 ──────────────────────────────
+//  체결이 아니므로 reserved_·daily_pnl_은 건드리지 않고 positions_/avg_prices_만 설정한다.
+//  기동 init 구간(스레드 시작 전)에서만 호출 → 첫 주문/체결과 경합 없음.
+void OrderGate::seed_position(const std::string& account, const std::string& ticker, int qty, double avg)
+{
+    if (qty <= 0)
+        return;
+    std::lock_guard<std::mutex> lk(positions_mtx_);
+    const std::string k = make_key(account, ticker);
+    positions_[k]  = qty;
+    avg_prices_[k] = avg;
 }
 
 // ─── 체결 확인 — avg_price 재계산 + 실현손익 적립 ──────────────────────────

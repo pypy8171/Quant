@@ -8,6 +8,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <thread>
+#include <unordered_set>
 #ifndef _WIN32
 #include <fcntl.h>    // open — fsync용 (V-2)
 #include <sys/stat.h> // chmod — 토큰 캐시 0600 (W-4)
@@ -360,9 +361,28 @@ bool KisClient::authenticate()
 
 std::vector<MarketData> KisClient::get_daily_ohlcv(const std::string& ticker, int count)
 {
+    // G1 수정: 날짜 하드코딩(19000101~99991231)은 모의서버 500 → 유한창(오늘−N일 ~ 오늘, KST).
+    //   1콜 ~100봉이면 충분(정배열/추세 판정 60~120일). count>≈100은 페이지네이션 미구현(초기 단일콜).
+    auto fmt_date = [](time_t t) -> std::string {
+        struct tm tmv{};
+#ifdef _WIN32
+        gmtime_s(&tmv, &t);
+#else
+        gmtime_r(&t, &tmv);
+#endif
+        char buf[9];
+        std::strftime(buf, sizeof(buf), "%Y%m%d", &tmv);
+        return std::string(buf);
+    };
+    time_t end_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + 9 * 3600; // KST 오늘
+    // count 거래일 확보를 위해 달력일 여유(주말·휴일 ~1.6배 + 헤드룸), 최소 30일.
+    int window_days = (std::max)(30, static_cast<int>(count * 1.7) + 10); // (): windows.h max 매크로 회피
+    std::string d2 = fmt_date(end_t);
+    std::string d1 = fmt_date(end_t - static_cast<time_t>(window_days) * 86400);
+
     std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice" +
-                      "?FID_COND_MRKT_DIV_CODE=J" + "&FID_INPUT_ISCD=" + ticker + "&FID_INPUT_DATE_1=19000101" +
-                      "&FID_INPUT_DATE_2=99991231" + "&FID_PERIOD_DIV_CODE=D" + "&FID_ORG_ADJ_PRC=0";
+                      "?FID_COND_MRKT_DIV_CODE=J" + "&FID_INPUT_ISCD=" + ticker + "&FID_INPUT_DATE_1=" + d1 +
+                      "&FID_INPUT_DATE_2=" + d2 + "&FID_PERIOD_DIV_CODE=D" + "&FID_ORG_ADJ_PRC=0";
 
     std::vector<std::string> headers = {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
                                         "appsecret: " + cfg_.app_secret, "tr_id: FHKST03010100"};
@@ -400,6 +420,156 @@ std::vector<MarketData> KisClient::get_daily_ohlcv(const std::string& ticker, in
         LOG_ERROR(std::string("[KIS] 일봉 파싱 오류: ") + e.what());
     }
 
+    return result;
+}
+
+std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, int count, int interval_min)
+{
+    ensure_authenticated();
+    std::vector<MarketData> result;
+    if (count <= 0) return result;
+    if (interval_min < 1) interval_min = 1;
+
+    auto sd = [](const nlohmann::json& o, const std::string& k) -> double {
+        try { return std::stod(o.value(k, "0")); } catch (...) { return 0.0; }
+    };
+    // YYYYMMDD + HHMMSS → time_t (서버 TZ 독립: gmtime 계열로 통일, KST 오프셋은 호출 무관)
+    auto parse_dt = [](const std::string& d, const std::string& t) -> time_t {
+        if (d.size() != 8 || t.size() < 6) return 0;
+        struct tm tmv{};
+        try {
+            tmv.tm_year = std::stoi(d.substr(0, 4)) - 1900;
+            tmv.tm_mon  = std::stoi(d.substr(4, 2)) - 1;
+            tmv.tm_mday = std::stoi(d.substr(6, 2));
+            tmv.tm_hour = std::stoi(t.substr(0, 2));
+            tmv.tm_min  = std::stoi(t.substr(2, 2));
+            tmv.tm_sec  = std::stoi(t.substr(4, 2));
+        } catch (...) { return 0; }
+#ifdef _WIN32
+        return _mkgmtime(&tmv);
+#else
+        return timegm(&tmv);
+#endif
+    };
+
+    // 기준시각: 현재 KST(장중)이면 지금, 장전/장후면 15:30에서 역조회.
+    time_t now_kst = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + 9 * 3600;
+    struct tm ntm{};
+#ifdef _WIN32
+    gmtime_s(&ntm, &now_kst);
+#else
+    gmtime_r(&now_kst, &ntm);
+#endif
+    char hbuf[7];
+    std::snprintf(hbuf, sizeof(hbuf), "%02d%02d%02d", ntm.tm_hour, ntm.tm_min, ntm.tm_sec);
+    std::string hour = hbuf;
+    if (hour < "090000" || hour > "153000") hour = "153000";
+
+    std::vector<std::string> hdrs = {
+        "authorization: Bearer " + access_token_,
+        "appkey: " + cfg_.app_key,
+        "appsecret: " + cfg_.app_secret,
+        "tr_id: FHKST03010200",
+    };
+
+    // 필요한 1분봉 수 = count*interval_min. 1콜당 ~30봉 → 여유롭게 페이지 상한.
+    const int need_1min  = count * interval_min;
+    const int kMaxPages  = (std::min)(20, need_1min / 25 + 3); // (): windows.h min 매크로 회피
+
+    struct Raw { std::string date, hour; double o = 0, h = 0, l = 0, c = 0; int64_t v = 0; };
+    std::vector<Raw> raws;
+    std::unordered_set<std::string> seen; // date+hour 중복(페이지 경계) 제거
+
+    for (int page = 0; page < kMaxPages && static_cast<int>(raws.size()) < need_1min; ++page)
+    {
+        std::string url = base_url() +
+            "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice"
+            "?FID_ETC_CLS_CODE="
+            "&FID_COND_MRKT_DIV_CODE=J"
+            "&FID_INPUT_ISCD=" + ticker +
+            "&FID_INPUT_HOUR_1=" + hour +
+            "&FID_PW_DATA_INCU_YN=N";
+
+        std::string resp = http_get(url, hdrs);
+        if (resp.empty()) break;
+        auto j = json::parse(resp, nullptr, false);
+        if (j.is_discarded() || !j.contains("output2")) break;
+        auto& arr = j["output2"];
+        if (arr.empty()) break;
+
+        std::string page_earliest; // 이 페이지에서 가장 이른 시각(HHMMSS)
+        int added = 0;
+        for (const auto& item : arr) // output2: 최신→과거
+        {
+            std::string d = item.value("stck_bsop_date", "");
+            std::string t = item.value("stck_cntg_hour", "");
+            if (t.size() < 6) continue;
+            if (page_earliest.empty() || t < page_earliest) page_earliest = t;
+            std::string key = d + t;
+            if (!seen.insert(key).second) continue; // 중복
+            Raw r;
+            r.date = d; r.hour = t;
+            r.o = sd(item, "stck_oprc");
+            r.h = sd(item, "stck_hgpr");
+            r.l = sd(item, "stck_lwpr");
+            r.c = sd(item, "stck_prpr");
+            r.v = static_cast<int64_t>(sd(item, "cntg_vol"));
+            raws.push_back(r);
+            ++added;
+        }
+        if (page_earliest.empty()) break;
+        int prev = std::stoi(page_earliest) - 100; // 1분(=HHMMSS 100) 이전으로 밀기
+        if (prev < 90000) break;                   // 당일 장중만 수집
+        char nb[7];
+        std::snprintf(nb, sizeof(nb), "%06d", prev);
+        hour = nb;
+        std::this_thread::sleep_for(std::chrono::milliseconds(120)); // rate limit 여유
+    }
+
+    if (raws.empty()) return result;
+
+    // 1분봉 오름차순(과거→최신) 정렬 후 interval_min 버킷 집계.
+    std::sort(raws.begin(), raws.end(), [](const Raw& a, const Raw& b) {
+        return a.date != b.date ? a.date < b.date : a.hour < b.hour;
+    });
+
+    std::vector<MarketData> asc; // 과거→최신 집계봉
+    std::string cur_key;
+    for (const auto& r : raws)
+    {
+        int hh = 0, mm = 0;
+        try { hh = std::stoi(r.hour.substr(0, 2)); mm = std::stoi(r.hour.substr(2, 2)); } catch (...) { continue; }
+        int bucket = (hh * 60 + mm) / interval_min;        // 시계 정렬 버킷
+        std::string key = r.date + ":" + std::to_string(bucket);
+        if (key != cur_key)
+        {
+            MarketData md;
+            md.ticker = ticker;
+            md.market = Market::KR;
+            md.open = r.o; md.high = r.h; md.low = r.l; md.close = r.c;
+            md.volume = r.v;
+            md.timestamp = std::chrono::system_clock::from_time_t(parse_dt(r.date, r.hour));
+            asc.push_back(md);
+            cur_key = key;
+        }
+        else
+        {
+            MarketData& md = asc.back();
+            md.high = (std::max)(md.high, r.h); // (): windows.h max 매크로 회피
+            md.low  = (std::min)(md.low, r.l);
+            md.close = r.c;                                // 버킷 내 최신 마감
+            md.volume += r.v;
+            md.timestamp = std::chrono::system_clock::from_time_t(parse_dt(r.date, r.hour));
+        }
+    }
+
+    // 최신→과거(result[0]=최신)로 뒤집고 count봉만.
+    for (auto it = asc.rbegin(); it != asc.rend() && static_cast<int>(result.size()) < count; ++it)
+    {
+        MarketData md = *it;
+        md.bar_index = static_cast<int>(result.size()); // 0=최신
+        result.push_back(md);
+    }
     return result;
 }
 
@@ -769,27 +939,65 @@ std::string KisClient::revise_order(const std::string& ticker, const std::string
 nlohmann::json KisClient::get_balance()
 {
     std::string tr_id = cfg_.is_paper ? "VTTC8434R" : "TTTC8434R";
-    std::string url = base_url() + "/uapi/domestic-stock/v1/trading/inquire-balance" +
-                      "?CANO=" + cfg_.account_no + "&ACNT_PRDT_CD=" + cfg_.account_type +
-                      "&AFHR_FLPR_YN=N&OFL_YN=&INQR_DVSN=02&UNPR_DVSN=01" +
-                      "&FUND_STTL_ICLD_YN=N&FNCG_AMT_AUTO_RDPT_YN=N&PRCS_DVSN=00" +
-                      "&CTX_AREA_FK100=&CTX_AREA_NK100=";
 
-    std::vector<std::string> headers = {"authorization: Bearer " + access_token_,
-                                        "appkey: " + cfg_.app_key, "appsecret: " + cfg_.app_secret,
-                                        "tr_id: " + tr_id};
+    // 연속조회(페이지네이션): 잔고는 페이지당 ~20종목만 반환하고, 더 있으면 응답 body의
+    //  ctx_area_nk100(다음페이지 키)가 채워진다. 이를 CTX_AREA_FK100/NK100로 되넣고
+    //  요청헤더 tr_cont:N으로 다음 페이지를 받아 output1을 전부 누적한다. 트림 후 raw 연결로
+    //  충분(모의계좌 실측: 20+11=31종목 정상 수신). output2/최상위는 첫 페이지 것을 유지.
+    auto rtrim = [](std::string s)
+    {
+        while (!s.empty() && (s.back() == ' ' || s.back() == '\t'))
+            s.pop_back();
+        return s;
+    };
 
-    std::string resp = http_get(url, headers);
-    if (resp.empty())
-        return json::object();
-    try
+    nlohmann::json result;
+    nlohmann::json out1 = nlohmann::json::array();
+    std::string fk, nk, cont;
+    for (int page = 0; page < 30; ++page) // 안전 상한(무한루프 방지)
     {
-        return json::parse(resp);
+        std::string url = base_url() + "/uapi/domestic-stock/v1/trading/inquire-balance" +
+                          "?CANO=" + cfg_.account_no + "&ACNT_PRDT_CD=" + cfg_.account_type +
+                          "&AFHR_FLPR_YN=N&OFL_YN=&INQR_DVSN=02&UNPR_DVSN=01" +
+                          "&FUND_STTL_ICLD_YN=N&FNCG_AMT_AUTO_RDPT_YN=N&PRCS_DVSN=00" +
+                          "&CTX_AREA_FK100=" + fk + "&CTX_AREA_NK100=" + nk;
+
+        std::vector<std::string> headers = {"authorization: Bearer " + access_token_,
+                                            "appkey: " + cfg_.app_key,
+                                            "appsecret: " + cfg_.app_secret, "tr_id: " + tr_id,
+                                            "tr_cont: " + cont};
+
+        std::string resp = http_get(url, headers);
+        if (resp.empty())
+            break;
+        nlohmann::json j;
+        try
+        {
+            j = json::parse(resp);
+        }
+        catch (...)
+        {
+            break;
+        }
+
+        if (page == 0)
+            result = j; // output2(계좌요약)·최상위 필드는 첫 페이지 기준
+        if (j.contains("output1") && j["output1"].is_array())
+            for (auto& h : j["output1"])
+                out1.push_back(h);
+
+        std::string nk_next = rtrim(j.value("ctx_area_nk100", ""));
+        if (nk_next.empty())
+            break; // 다음 페이지 없음
+        fk = rtrim(j.value("ctx_area_fk100", ""));
+        nk = nk_next;
+        cont = "N";
     }
-    catch (...)
-    {
+
+    if (result.is_null())
         return json::object();
-    }
+    result["output1"] = out1;
+    return result;
 }
 
 // ─── HTTP 래퍼 ────────────────────────────────────────────────────────────
@@ -948,6 +1156,209 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
     }
 
     LOG_INFO("[KIS] 랭킹 조회 완료: " + std::to_string(result.size()) + "종목");
+    return result;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  국내 거래대금 상위 순위 — volume-rank API
+//  tr_id: FHPST01710000, FID_BLNG_CLS_CODE=3(거래금액순). acml_tr_pbmn 직접 사용.
+//  ⚠️ 응답 스키마 변동 잦음 — 첫 400자 로깅으로 필드/행수 확인. 상위 ~30행 고정 반환.
+// ═══════════════════════════════════════════════════════════════════════════
+std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, const std::string& market_div)
+{
+    // FID_TRGT_CLS_CODE(대상 9자리)/EXLS(제외 6자리)는 전체 대상 기본값. FID_BLNG_CLS_CODE=3=거래금액순.
+    std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/volume-rank" +
+                      "?FID_COND_MRKT_DIV_CODE=" + market_div + "&FID_COND_SCR_DIV_CODE=20171" +
+                      "&FID_INPUT_ISCD=0000" + "&FID_DIV_CLS_CODE=0" + "&FID_BLNG_CLS_CODE=3" +
+                      "&FID_TRGT_CLS_CODE=111111111" + "&FID_TRGT_EXLS_CLS_CODE=000000" +
+                      "&FID_INPUT_PRICE_1=" + "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
+
+    std::vector<std::string> hdrs = {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+                                     "appsecret: " + cfg_.app_secret, "tr_id: FHPST01710000"};
+
+    std::string resp = http_get(url, hdrs);
+    if (resp.empty())
+    {
+        LOG_WARN("[KIS] 거래대금 랭킹 조회 실패 (" + market_div + ")");
+        return {};
+    }
+    LOG_INFO("[KIS] 거래대금 랭킹 응답: " + resp.substr(0, 400));
+
+    std::vector<RankingStock> result;
+    try
+    {
+        auto j = json::parse(resp);
+        auto safe_d = [](const nlohmann::json& o, const std::string& k) -> double
+        {
+            std::string s = o.value(k, "");
+            if (s.empty())
+                return 0.0;
+            try
+            {
+                return std::stod(s);
+            }
+            catch (...)
+            {
+                return 0.0;
+            }
+        };
+        auto safe_i = [](const nlohmann::json& o, const std::string& k) -> int64_t
+        {
+            std::string s = o.value(k, "");
+            if (s.empty())
+                return 0;
+            try
+            {
+                return std::stoll(s);
+            }
+            catch (...)
+            {
+                return 0;
+            }
+        };
+
+        // ETF/ETN/ELW 제외: 이름 접두사 + 6자리 숫자 티커만 허용(fetch_kr_ranking과 동일 규칙)
+        static const std::vector<std::string> ETF_PREFIXES = {
+            "KODEX",    "TIGER", "KINDEX", "KOSEF",  "ARIRANG",  "ACE",       "SOL",  "HANARO",
+            "FOCUS",    "TREX",  "WON",    "PLUS",   "KoAct",    "TIMEFOLIO", "KTOP", "BIG",
+            "히어로즈", "KCGI",  "파워",   "KBSTAR", "마이다스", "RISE",      "TRUE", "MASTER"};
+        auto is_etf_name = [&](const std::string& name)
+        {
+            for (const auto& pfx : ETF_PREFIXES)
+                if (name.rfind(pfx, 0) == 0)
+                    return true;
+            return false;
+        };
+        auto is_normal_ticker = [](const std::string& t)
+        {
+            if (t.size() != 6)
+                return false;
+            for (char c : t)
+                if (c < '0' || c > '9')
+                    return false;
+            return true;
+        };
+
+        // volume-rank 응답 배열 키: "output" (표준). output2도 방어적으로 수용.
+        auto& arr = j.contains("output") ? j["output"] : j["output2"];
+        for (const auto& item : arr)
+        {
+            std::string name = item.value("hts_kor_isnm", "");
+            // 티커 키가 mksc_shrn_iscd 또는 stck_shrn_iscd 둘 다 관측됨 → 양쪽 시도
+            std::string ticker = item.value("mksc_shrn_iscd", "");
+            if (ticker.empty())
+                ticker = item.value("stck_shrn_iscd", "");
+            if (!is_normal_ticker(ticker) || is_etf_name(name))
+                continue;
+
+            RankingStock s;
+            s.ticker = ticker;
+            s.name = name;
+            s.price = safe_d(item, "stck_prpr");
+            s.change = safe_d(item, "prdy_vrss");
+            s.change_rate = safe_d(item, "prdy_ctrt");
+            s.volume = safe_i(item, "acml_vol");
+            s.trade_value = safe_d(item, "acml_tr_pbmn"); // 누적 거래대금(원)
+            result.push_back(s);
+        }
+
+        // 거래대금 내림차순 확정(API가 이미 정렬하나 방어적으로 재정렬).
+        std::sort(result.begin(), result.end(),
+                  [](const RankingStock& a, const RankingStock& b) { return a.trade_value > b.trade_value; });
+
+        if (static_cast<int>(result.size()) > count)
+            result.resize(count);
+        for (int i = 0; i < static_cast<int>(result.size()); ++i)
+            result[i].rank = i + 1;
+    }
+    catch (const std::exception& e)
+    {
+        LOG_ERROR("[KIS] 거래대금 랭킹 파싱 오류: " + std::string(e.what()));
+    }
+
+    LOG_INFO("[KIS] 거래대금 랭킹 조회 완료: " + std::to_string(result.size()) + "종목");
+    return result;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  당일 장중 외국인·기관 "추정(가집계)" 순매수 랭킹 — 배치 1콜
+//  tr_id: FHPTJ04400000 (foreign-institution-total). 실전 도메인 전용.
+//  ⚠️ 파라미터/필드명 미확정 — 첫 성공 응답 1회를 원문 로깅해 스키마 확정할 것.
+// ═══════════════════════════════════════════════════════════════════════════
+std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
+    const std::string& market, const std::string& sort, const std::string& etc_cls)
+{
+    // FID_COND_MRKT_DIV_CODE=V(장중 추정), SCR_DIV=16449, ISCD=market, DIV_CLS=0(수량),
+    // RANK_SORT=sort(0 순매수상위/1 순매도상위), ETC_CLS=etc_cls(0 전체/1 외국인/2 기관)
+    std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/foreign-institution-total" +
+                      "?FID_COND_MRKT_DIV_CODE=V" + "&FID_COND_SCR_DIV_CODE=16449" +
+                      "&FID_INPUT_ISCD=" + market + "&FID_DIV_CLS_CODE=0" +
+                      "&FID_RANK_SORT_CLS_CODE=" + sort + "&FID_ETC_CLS_CODE=" + etc_cls;
+
+    std::vector<std::string> hdrs = {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+                                     "appsecret: " + cfg_.app_secret, "tr_id: FHPTJ04400000"};
+
+    std::string resp = http_get(url, hdrs);
+    if (resp.empty())
+    {
+        LOG_WARN("[KIS] 당일 수급 랭킹 조회 실패 (sort=" + sort + " etc=" + etc_cls + ")");
+        return {};
+    }
+
+    std::vector<EstInvestorFlow> result;
+    try
+    {
+        auto j = json::parse(resp);
+        // 스키마 확정 전: 파싱 결과가 비면 원문을 로깅해 필드명/구조를 눈으로 확인한다.
+        auto safe_i = [](const nlohmann::json& o, const std::string& k) -> int64_t
+        {
+            std::string s = o.value(k, "");
+            if (s.empty())
+                return 0;
+            try { return std::stoll(s); } catch (...) { return 0; }
+        };
+        auto safe_d = [](const nlohmann::json& o, const std::string& k) -> double
+        {
+            std::string s = o.value(k, "");
+            if (s.empty())
+                return 0.0;
+            try { return std::stod(s); } catch (...) { return 0.0; }
+        };
+
+        const nlohmann::json* arr = nullptr;
+        if (j.contains("output"))
+            arr = &j["output"];
+        else if (j.contains("output1"))
+            arr = &j["output1"];
+        else if (j.contains("output2"))
+            arr = &j["output2"];
+
+        if (arr && arr->is_array())
+        {
+            for (const auto& item : *arr)
+            {
+                EstInvestorFlow f;
+                f.ticker = item.value("mksc_shrn_iscd", "");
+                if (f.ticker.empty())
+                    f.ticker = item.value("stck_shrn_iscd", "");
+                f.name = item.value("hts_kor_isnm", "");
+                f.foreign_net_qty = safe_i(item, "frgn_ntby_qty");
+                f.inst_net_qty    = safe_i(item, "orgn_ntby_qty");
+                f.foreign_net_amt = safe_d(item, "frgn_ntby_tr_pbmn");
+                f.inst_net_amt    = safe_d(item, "orgn_ntby_tr_pbmn");
+                if (!f.ticker.empty())
+                    result.push_back(std::move(f));
+            }
+        }
+
+        if (result.empty())
+            LOG_WARN("[KIS] 당일 수급 랭킹 파싱 0건 — 스키마 확인용 원문: " + resp.substr(0, 500));
+    }
+    catch (const std::exception& e)
+    {
+        LOG_ERROR("[KIS] 당일 수급 랭킹 파싱 오류: " + std::string(e.what()) + " 원문: " + resp.substr(0, 300));
+    }
+
     return result;
 }
 

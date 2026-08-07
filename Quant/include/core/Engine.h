@@ -11,9 +11,13 @@
 #endif
 #include "ipc/OrderRouter.h"
 #include <atomic>
+#include <chrono>
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -32,11 +36,45 @@ public:
     ~Engine();
 
     void add_strategy(std::unique_ptr<StrategyBase> strategy);
+    // 기동 시 get_balance로 실계좌 보유분을 OrderGate 원장에 시드(G5). main이 config로 설정.
+    void set_bootstrap_ledger(bool b) { bootstrap_ledger_ = b; }
+    // REST 현재가 폴링을 체결 피드로 사용(WS 실시간 세션 우회). true면 DataThread가
+    // get_current_price를 폴링해 TradeData로 td_queue_에 넣고, WS 연결은 생략한다.
+    void set_rest_price_feed(bool b) { rest_price_feed_ = b; }
+    // 시세 전용 클라이언트 설정(실전 도메인). KIS 모의(openapivts)는 시세 REST가 HTTP 500이라
+    // 시세는 실전 키+실전 도메인으로 조회하고 주문만 모의로 낸다. rest_price_feed_ 폴링이 사용.
+    void set_quote_kis_config(const KisConfig& c)
+    {
+        quote_kis_cfg_ = c;
+        has_quote_kis_ = true;
+    }
+    // 주문 페이싱/재시도 (C-2/W-3) — 버스트 청산이 초당한도로 튕겨 유실되는 것 방지.
+    //  min_interval_ms 간격으로만 발주(레이트리밋 하회), 거부된 청산 SELL은 order_thread
+    //  로컬 큐로 dedup 창 밖에서 최대 max_retries회 재시도. 스레드 시작 전에만 호출.
+    void set_order_pacing(int min_interval_ms, int max_retries)
+    {
+        order_min_interval_ms_ = min_interval_ms;
+        order_max_retries_ = max_retries;
+    }
+    // OrderGate 위험 한도를 config로 주입(스레드 시작 전에만). 기본값은 OrderGate::Config.
+    void set_risk_config(const OrderGate::Config& c) { order_gate_.set_config(c); }
     size_t strategy_count() const { return strategies_.size(); }
     // 직전 추가된 전략에 활성 국면 설정 (main.cpp config 파싱용)
     void set_last_active_regimes(const std::vector<Regime>& r)
     {
         if (!strategies_.empty()) strategies_.back()->set_active_regimes(r);
+    }
+    // 주기적 유니버스 재스캔(동적 등록). universe_fn: 시세 클라이언트로 유니버스 티커 목록 산출.
+    // factory: 티커 → 전략 인스턴스 생성. interval_sec: 재스캔 주기(초, ≤0이면 비활성).
+    // data_thread가 interval_sec마다 universe_fn을 호출해 신규 티커만 런타임 등록한다.
+    void set_universe_rescan(
+        std::function<std::vector<std::string>(KisClient&)> universe_fn,
+        std::function<std::unique_ptr<StrategyBase>(const std::string&)> factory,
+        int interval_sec)
+    {
+        universe_fn_ = std::move(universe_fn);
+        strategy_factory_ = std::move(factory);
+        rescan_interval_sec_ = interval_sec;
     }
     void start();
     void stop();
@@ -51,6 +89,12 @@ private:
     void strategy_thread_fn();
     void order_thread_fn();
     void control_thread_fn(); // ZMQ REP 명령 처리 (HAS_ZMQ 시 활성)
+    void bootstrap_ledger();  // G5: get_balance → OrderGate.seed_position (스레드 시작 전 1회)
+    void reconcile_from_balance(); // C-1: rest 모드 주기적 잔고 재조회 → positions_/daily_pnl_ 재동기
+    void maybe_rescan_universe();  // 주기적 유니버스 재스캔 → 신규 티커 런타임 등록 (data_thread 전용)
+    // 런타임 전략 등록(set_kis·position_provider·on_start·set_active·watch_specs_ 추가 일괄).
+    // strategies_ push_back은 락 하에, strat_version_ 증가로 strategy_thread 스냅샷 갱신 유도.
+    void register_strategy_runtime(std::unique_ptr<StrategyBase> strategy);
 
     bool is_kr_market_open() const;
     bool is_us_market_open() const;
@@ -59,11 +103,32 @@ private:
 
     KisConfig kis_cfg_;
     int fetch_interval_sec_;
+    bool bootstrap_ledger_ = false; // 기동 시 실계좌 보유분 원장 시드 여부(G5, opt-in)
+    bool rest_price_feed_ = false;  // REST 현재가 폴링을 체결 피드로 사용(WS 우회, opt-in)
+    KisConfig quote_kis_cfg_;        // 시세 전용(실전 도메인) 설정
+    bool has_quote_kis_ = false;     // 시세 전용 클라이언트 사용 여부
+    int order_min_interval_ms_ = 350; // 주문 간 최소 간격(ms) — 초당한도 회피(C-2/W-3)
+    int order_max_retries_ = 3;       // 거부된 청산 SELL 재시도 횟수(C-2)
+    // C-1 리컨사일 상태(rest 모드 전용) — 당일 기준 총평가금 대비 델타로 daily_pnl_ 근사.
+    bool have_pnl_baseline_ = false;
+    double pnl_baseline_ = 0.0;       // 당일 첫 리컨사일 시 캡처한 총평가금(원)
 
     std::unique_ptr<KisClient> kis_;
+    std::unique_ptr<KisClient> quote_kis_; // 시세 전용(실전 도메인). rest_price_feed_ 시에만 생성
     std::unique_ptr<KisWebSocket> ws_;
 
     std::vector<std::unique_ptr<StrategyBase>> strategies_;
+    // strategies_ 동시성 보호: strategy_thread는 strat_version_ 변경 시에만 StrategyBase*
+    // 스냅샷을 재구성(무락 순회), data_thread는 재스캔 등록 시 락+version 증가.
+    std::mutex strat_mutex_;
+    std::atomic<uint64_t> strat_version_{0};
+
+    // 주기적 유니버스 재스캔 상태 (data_thread 전용)
+    std::function<std::vector<std::string>(KisClient&)> universe_fn_;
+    std::function<std::unique_ptr<StrategyBase>(const std::string&)> strategy_factory_;
+    int rescan_interval_sec_ = 0;                 // ≤0이면 재스캔 비활성
+    std::unordered_set<std::string> registered_tickers_; // 이미 등록된 KR 티커(중복 등록 방지)
+    std::chrono::steady_clock::time_point last_rescan_{};
 
     RingBuffer<MarketData> market_queue_{1024};
     RingBuffer<OrderSignal> order_queue_{256};
