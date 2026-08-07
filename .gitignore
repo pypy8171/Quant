@@ -5,6 +5,11 @@ Quant/build_win/
 Quant/config/config.json
 Quant/config/config_paper.json
 Quant/config/config_mm_paper.json
+Quant/config/config_ma_paper.json
+Quant/config/config_itb_paper.json
+Quant/config/config_smoke_paper.json
+# 실키가 담긴 모든 모의/설정 config는 와일드카드로 근본 차단(신규 config_*_paper.json 누락 방지)
+Quant/config/config_*.json
 Quant/config/.token_cache.json
 Quant/config/kis_token_*.json
 kis_token_*.json
@@ -20,6 +25,12 @@ build_test/
 linux_practice/dummy_server
 __pycache__/
 *.pyc
+# 백테스트 산출물(재생성 가능한 equity 시계열) — 저장소에 넣지 않음
+PYQuant/bt_*.json
+PYQuant/bt2_*.json
+# 일일 체크리스트/작업메모 — 로컬 전용
+내일_*.md
+체크리스트*.md
 *.pyo
 .venv/
 .venv-win/
@@ -35,6 +46,7 @@ PYQuant/.index_cache/
 *.csv
 
 # 개인용 리뷰/분석 문서 — 커밋 제외
+SESSION_HUB.md
 REVIEW_PROMPT.md
 REVIEW_SKILL.md
 CODE_REVIEW.md
@@ -43,6 +55,7 @@ ARCHITECTURE.md
 DEV_GUIDE_STRATEGY_A.md
 STRATEGIES.md
 STRATEGY_LAB.md
+research/STRATEGY_LAB.md
 DECISIONS.md
 REGIME_CONTROLLER_SPEC.md
 
