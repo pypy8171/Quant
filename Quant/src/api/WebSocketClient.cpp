@@ -375,11 +375,14 @@ void KisWebSocket::recv_loop()
             std::this_thread::sleep_for(std::chrono::seconds(retry_sec));
             retry_sec = std::min(retry_sec * 2, 30);
 
-            // 기존 핸들 정리
+            // 기존 핸들 정리 — WS close 프레임을 먼저 보내 KIS가 이 approval_key 세션을
+            // 즉시 해제하게 한다. 이걸 생략하고 핸들만 닫으면(WinHttpCloseHandle) KIS는
+            // 세션을 계속 붙잡아 다음 접속이 "ALREADY IN USE appkey"(rt=9)로 거부된다.
             {
                 std::lock_guard<std::mutex> lk(send_mtx_);
                 if (hWebSocket_)
                 {
+                    WinHttpWebSocketClose(hWebSocket_, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0);
                     WinHttpCloseHandle(hWebSocket_);
                     hWebSocket_ = nullptr;
                 }
@@ -461,14 +464,17 @@ void KisWebSocket::recv_loop()
             aes_key_.clear();
             aes_iv_.clear();
 
-            // 채널 재구독
+            // 채널 재구독 — 최초 연결과 동일하게 trade_only를 준수한다(호가 불필요 종목은
+            // H0STCNT0만). 재연결마다 호가를 덧구독하면 등록 한도(41)를 갉아먹고 불필요한
+            // 트래픽이 는다.
             bool has_kr_rc = false;
             for (const auto& spec : specs_)
             {
                 if (spec.market == Market::KR)
                 {
                     has_kr_rc = true;
-                    send_subscribe("H0STASP0", spec.ticker);
+                    if (!spec.trade_only)
+                        send_subscribe("H0STASP0", spec.ticker);
                     send_subscribe("H0STCNT0", spec.ticker);
                 }
                 else
@@ -503,6 +509,9 @@ void KisWebSocket::disconnect()
         std::lock_guard<std::mutex> lk(send_mtx_);
         if (hWebSocket_)
         {
+            // graceful close 프레임을 먼저 보내 KIS가 approval_key 세션을 즉시 해제하게 한다.
+            // (생략 시 다음 실행이 "ALREADY IN USE appkey" rt=9로 거부됨)
+            WinHttpWebSocketClose(hWebSocket_, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0);
             WinHttpCloseHandle(hWebSocket_);
             hWebSocket_ = nullptr;
         }
@@ -905,14 +914,17 @@ void KisWebSocket::recv_loop()
             aes_key_.clear();
             aes_iv_.clear();
 
-            // 채널 재구독
+            // 채널 재구독 — 최초 연결과 동일하게 trade_only를 준수한다(호가 불필요 종목은
+            // H0STCNT0만). 재연결마다 호가를 덧구독하면 등록 한도(41)를 갉아먹고 불필요한
+            // 트래픽이 는다.
             bool has_kr_rc = false;
             for (const auto& spec : specs_)
             {
                 if (spec.market == Market::KR)
                 {
                     has_kr_rc = true;
-                    send_subscribe("H0STASP0", spec.ticker);
+                    if (!spec.trade_only)
+                        send_subscribe("H0STASP0", spec.ticker);
                     send_subscribe("H0STCNT0", spec.ticker);
                 }
                 else
