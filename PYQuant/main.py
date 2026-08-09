@@ -50,6 +50,10 @@ def make_source(source: str, market: str = "kospi"):
     elif source == "krx":
         from data.krx_source import KrxSource
         return KrxSource(market="KOSPI")
+    elif source == "yf":
+        # datagokr 하한(2020) 이전 과거 하락장(2011·2018·2020 full) — 무키 Yahoo
+        from data.yfinance_source import YFinanceSource
+        return YFinanceSource(market="KOSPI")
     # 백테스트는 OHLCV만(계좌 무관) — 모의 config로 엔진과 토큰 공유(403 회피)
     return from_config(_resolve_config(True))
 
@@ -83,7 +87,7 @@ def select_universe(kis, source: str, *, from_date: str, universe_size: int,
                     pbr: float = 1.0) -> list[str]:
     """유니버스 선정: datagokr/krx 시총상위(as-of 시작일 고정) > 정적 > KIS PBR > 기본.
     스윕에서 1회 호출해 재사용(같은 from_date/market/size면 동일 유니버스)."""
-    if source in ("datagokr", "krx") and hasattr(kis, "universe_top"):
+    if source in ("datagokr", "krx", "yf") and hasattr(kis, "universe_top"):
         if source == "datagokr":
             sizes = {"KOSPI": universe_size, "KOSDAQ": kosdaq_size or universe_size}
             u = kis.universe_top(from_date, universe_size, sizes=sizes)
@@ -91,9 +95,9 @@ def select_universe(kis, source: str, *, from_date: str, universe_size: int,
             u = kis.universe_top(from_date, universe_size)
         if u:
             return u
-        if source == "krx":
+        if source in ("krx", "yf"):
             from data.universe_kospi import universe_codes
-            return universe_codes()   # ⚠ KRX 차단 폴백 — survivorship bias
+            return universe_codes()   # ⚠ 폴백 — survivorship bias
         logger.error("datagokr 유니버스 조회 실패 — DATA_GO_KR_KEY 확인")
     elif use_kis_universe:
         return kis.fetch_universe(max_pbr=pbr)
@@ -406,7 +410,7 @@ def main():
     bp.add_argument("--strategy", default="value_contrary",
                     choices=["value_contrary", "strategy_a", "momentum", "supply_demand", "mean_reversion"],
                     help="백테스트 전략 (기본: value_contrary)")
-    bp.add_argument("--source", default="kis", choices=["kis", "krx", "datagokr"],
+    bp.add_argument("--source", default="kis", choices=["kis", "krx", "datagokr", "yf"],
                     help="데이터 소스 (datagokr=공공데이터포털 금융위 point-in-time 권장, "
                          "krx=pykrx OHLCV, kis=REST)")
     bp.add_argument("--top-n",           dest="top_n",           type=int, default=10,

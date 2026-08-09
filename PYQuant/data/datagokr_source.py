@@ -209,10 +209,28 @@ class DataGoKrSource:
         import pandas as pd
         cache, floor = self._cache_path(ticker, start, end)
         floor_iso = f"{floor[:4]}-{floor[4:6]}-{floor[6:]}"
+        # 캐시 파일명은 end 날짜에 묶여 있으나(ohlcv_{t}_{floor}_{end}), 캐시는 항상
+        # [floor, 그 end]의 슈퍼셋이다. 요청 end가 기존 캐시의 end보다 이르면 정확한
+        # 파일은 없어도 더 긴 캐시가 커버한다 → floor 동일·suffix 동일·저장 end≥요청 end인
+        # 파일 중 가장 촘촘한(최소 end) 것을 골라 슬라이스한다(키 없이 오프라인 재사용).
+        src = cache if cache.exists() else None
+        if src is None:
+            suffix = "_raw" if not self.adjust_prices else ""
+            want_end = _ymd(end)
+            best_end = None
+            for p in self._cache.glob(f"ohlcv_{ticker}_{floor}_*.parquet"):
+                stem = p.stem  # ohlcv_{ticker}_{floor}_{end}[_raw]
+                is_raw = stem.endswith("_raw")
+                if is_raw != (not self.adjust_prices):
+                    continue
+                core = stem[:-4] if is_raw else stem
+                got_end = core.rsplit("_", 1)[-1]   # 저장된 end (YYYYMMDD)
+                if len(got_end) == 8 and got_end >= want_end and (best_end is None or got_end < best_end):
+                    best_end, src = got_end, p
         try:
-            if cache.exists():
-                df = pd.read_parquet(cache)
-                # 캐시는 [floor, end] 슈퍼셋 — 요청 [start, end]로 슬라이스해 반환
+            if src is not None:
+                df = pd.read_parquet(src)
+                # 캐시는 [floor, 저장end] 슈퍼셋 — 요청 [start, end]로 슬라이스해 반환
                 return [Bar(r.date, r.open, r.high, r.low, r.close, int(r.volume))
                         for r in df.itertuples() if start <= r.date <= end]
         except Exception:
