@@ -41,6 +41,15 @@ public:
     // REST 현재가 폴링을 체결 피드로 사용(WS 실시간 세션 우회). true면 DataThread가
     // get_current_price를 폴링해 TradeData로 td_queue_에 넣고, WS 연결은 생략한다.
     void set_rest_price_feed(bool b) { rest_price_feed_ = b; }
+    // 매크로 레짐 사이드카 브리지(2026-08-09 회의 Task 3). Python macro_regime_feed.py가
+    // 원자적으로 쓰는 regime.json 경로를 지정하면, data_thread가 매 사이클 읽어
+    // OrderGate::set_entry_halt(entry_halt)를 토글한다(신규매수만 차단, 청산은 통과).
+    // path 빈 문자열이면 기능 미가동(기본). stale_sec 경과 파일은 신뢰하지 않음(페일세이프).
+    void set_regime_file(const std::string& path, int stale_sec = 600)
+    {
+        regime_file_ = path;
+        if (stale_sec > 0) regime_stale_sec_ = stale_sec;
+    }
     // 시세 전용 클라이언트 설정(실전 도메인). KIS 모의(openapivts)는 시세 REST가 HTTP 500이라
     // 시세는 실전 키+실전 도메인으로 조회하고 주문만 모의로 낸다. rest_price_feed_ 폴링이 사용.
     void set_quote_kis_config(const KisConfig& c)
@@ -91,6 +100,7 @@ private:
     void control_thread_fn(); // ZMQ REP 명령 처리 (HAS_ZMQ 시 활성)
     void bootstrap_ledger();  // G5: get_balance → OrderGate.seed_position (스레드 시작 전 1회)
     void reconcile_from_balance(); // C-1: rest 모드 주기적 잔고 재조회 → positions_/daily_pnl_ 재동기
+    void poll_regime_file();       // 매크로 레짐 파일 폴링 → OrderGate entry_halt 토글 (data_thread 전용)
     void maybe_rescan_universe();  // 주기적 유니버스 재스캔 → 신규 티커 런타임 등록 (data_thread 전용)
     // 런타임 전략 등록(set_kis·position_provider·on_start·set_active·watch_specs_ 추가 일괄).
     // strategies_ push_back은 락 하에, strat_version_ 증가로 strategy_thread 스냅샷 갱신 유도.
@@ -105,6 +115,12 @@ private:
     int fetch_interval_sec_;
     bool bootstrap_ledger_ = false; // 기동 시 실계좌 보유분 원장 시드 여부(G5, opt-in)
     bool rest_price_feed_ = false;  // REST 현재가 폴링을 체결 피드로 사용(WS 우회, opt-in)
+    // 매크로 레짐 브리지 상태(data_thread 전용) — regime.json → OrderGate entry_halt.
+    std::string regime_file_;             // 빈 문자열이면 기능 미가동
+    int  regime_stale_sec_    = 600;      // 이 초 이상 오래된 파일은 신뢰 안 함(사이드카 사망 감지)
+    bool regime_halt_on_      = false;    // 우리가 현재 건 halt 상태(전이 시에만 로그·set 호출)
+    bool regime_stale_warned_ = false;    // stale 경고 1회화
+    bool regime_liq_warned_   = false;    // force_liquidate 경고 1회화
     KisConfig quote_kis_cfg_;        // 시세 전용(실전 도메인) 설정
     bool has_quote_kis_ = false;     // 시세 전용 클라이언트 사용 여부
     int order_min_interval_ms_ = 350; // 주문 간 최소 간격(ms) — 초당한도 회피(C-2/W-3)

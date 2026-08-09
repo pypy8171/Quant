@@ -75,6 +75,9 @@ endif()
 # ─── 소스 파일 ────────────────────────────────────────────────────────────
 set(SOURCES
   src/main.cpp
+  src/modes/Monitors.cpp
+  src/universe/UniverseScanner.cpp
+  src/strategy/StrategyFactory.cpp
   src/core/Engine.cpp
   src/core/RegimeController.cpp
   src/core/RingBuffer.cpp

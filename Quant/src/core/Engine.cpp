@@ -4,11 +4,13 @@
 #include <chrono>
 #include <ctime>
 #include <deque>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
 #include <thread>
 #include <unordered_set>
+#include <nlohmann/json.hpp>
 
 using namespace std::chrono_literals;
 
@@ -485,6 +487,10 @@ void Engine::data_thread_fn()
 
         try
         {
+            // 매크로 레짐 게이트: 사이드카가 쓴 regime.json → OrderGate entry_halt 토글.
+            //  재스캔/리컨사일과 같은 "사이클 1회" 계층. rest·일봉 모드 공통 경로라 두 모드 다 커버.
+            poll_regime_file();
+
             // 주기적 유니버스 재스캔(동적 등록) — rescan_interval_sec_마다 신규 티커 런타임 추가.
             if (rescan_interval_sec_ > 0)
             {
@@ -609,6 +615,83 @@ void Engine::data_thread_fn()
 #endif
     }
     LOG_INFO("[DataThread] 종료");
+}
+
+// ─── 매크로 레짐 파일 폴링 → OrderGate entry_halt 토글 (data_thread 전용) ─────
+//  Python macro_regime_feed.py가 원자적으로 쓰는 regime.json을 매 사이클 읽어,
+//  entry_halt(신규 진입만 차단, 청산은 통과)를 국면에 맞춰 켜고 끈다.
+//  set_entry_halt는 이 함수가 유일 호출자 — 다른 곳에서 토글하지 않으므로 소유권 단순.
+//  안전장치: 파일 없음/손상/판정보류(valid=false)/stale이면 게이트를 "새로 켜지" 않는다.
+//  (entry_halt는 자본보호 측 — 신규매수만 막고 청산은 통과 — 이라 유지가 실패안전)
+void Engine::poll_regime_file()
+{
+    if (regime_file_.empty())
+        return; // 기능 미가동(기본)
+
+    std::error_code ec;
+    if (!std::filesystem::exists(regime_file_, ec) || ec)
+        return; // 파일 없음 → 게이트 불변
+
+    // 신선도: 사이드카가 죽어 파일이 오래되면 신뢰 불가 → halt를 새로 켜지 않는다.
+    auto ftime = std::filesystem::last_write_time(regime_file_, ec);
+    if (!ec)
+    {
+        auto age = std::chrono::duration_cast<std::chrono::seconds>(
+                       std::filesystem::file_time_type::clock::now() - ftime).count();
+        if (age > regime_stale_sec_)
+        {
+            if (!regime_stale_warned_)
+            {
+                LOG_WARN("[Regime] regime.json " + std::to_string(age) + "s 경과(> " +
+                         std::to_string(regime_stale_sec_) +
+                         "s) — 사이드카 중단 의심, 게이트 신규 변경 보류(현 halt 유지)");
+                regime_stale_warned_ = true;
+            }
+            return;
+        }
+        regime_stale_warned_ = false;
+    }
+
+    // 파싱 — 원자적 write라 정상은 완전한 json. 실패(부분/손상)는 조용히 무시.
+    nlohmann::json j;
+    try
+    {
+        std::ifstream f(regime_file_);
+        if (!f)
+            return;
+        f >> j;
+    }
+    catch (const std::exception&)
+    {
+        return;
+    }
+
+    if (!j.value("valid", false))
+        return; // 사이드카가 데이터 부족으로 판정 보류 → 게이트 불변
+
+    // ── entry_halt 전이 시에만 set + 로그 ────────────────────────────────────
+    bool halt = j.value("entry_halt", false);
+    if (halt != regime_halt_on_)
+    {
+        order_gate_.set_entry_halt(halt);
+        regime_halt_on_ = halt;
+        std::string reg = j.value("regime", std::string("?"));
+        int score = j.value("risk_score", 0);
+        LOG_WARN(std::string("[Regime] 신규진입 ") +
+                 (halt ? "정지(ENTRY_HALT ON)" : "재개(ENTRY_HALT OFF)") +
+                 " — regime=" + reg + " score=" + std::to_string(score));
+    }
+
+    // ── force_liquidate: MVP는 로그만(강제청산 배선은 후속 Task). 전이 시 1회 ──
+    bool liq = j.value("force_liquidate", false);
+    if (liq && !regime_liq_warned_)
+    {
+        LOG_ERROR("[Regime] force_liquidate=TRUE (극단 위험회피) — 강제청산 배선 미구현, "
+                  "수동 개입 권장");
+        regime_liq_warned_ = true;
+    }
+    if (!liq)
+        regime_liq_warned_ = false;
 }
 
 // ─── 전략 처리 스레드 ─────────────────────────────────────────────────────

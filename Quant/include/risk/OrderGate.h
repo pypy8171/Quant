@@ -14,7 +14,8 @@
 //  OrderRouter가 on_accept()·add_realized_pnl()로 내부 상태를 업데이트한다.
 //
 //  체크 항목:
-//   1. Kill switch   — 강제 중단 플래그
+//   1. Kill switch   — 강제 중단 플래그(전방향 차단: BUY·SELL 모두)
+//   1b. Entry halt   — 신규 진입 정지(BUY NEW만 차단, SELL 청산은 통과). 지수 급락 킬스위치용.
 //   2. NONE side     — 신호 없음, 즉시 거부
 //   3. 포지션 수량   — 종목당 최대 보유 수량
 //   4. 일일 손실     — 일일 최대 손실 초과 시 신규 매수 거부
@@ -124,6 +125,19 @@ public:
         return kill_switch_.load();
     }
 
+    // ── Entry halt (신규 진입 정지) ────────────────────────────────────────────
+    // kill_switch_와 분리된 "BUY-only 정지" 플래그. 지수 급락·일일손실 등 국면 리스크로
+    // 신규 진입만 막되 보유분 청산(SELL)은 반드시 통과시켜야 하는 상황에 쓴다.
+    // kill_switch_(전방향 하드스톱)와 달리 SELL은 게이트를 통과 → 급락장 청산 좌초 방지(C-2).
+    void set_entry_halt(bool on)
+    {
+        entry_halt_.store(on);
+    }
+    bool is_entry_halted() const
+    {
+        return entry_halt_.load();
+    }
+
     // ── 자정 리셋 (Engine 데이터 스레드가 장 시작 시 호출) ──────────────────
     void reset_daily();
 
@@ -151,6 +165,7 @@ private:
 
     Config cfg_;
     std::atomic<bool> kill_switch_{false};
+    std::atomic<bool> entry_halt_{false};  // 신규 진입(BUY NEW)만 정지, SELL 청산은 통과 — 국면 리스크용
 
     mutable std::mutex positions_mtx_;
     std::unordered_map<std::string, int>    reserved_;   // account:ticker → 미체결 선점 수량 (BUY +, SELL -). 재주문 차단용

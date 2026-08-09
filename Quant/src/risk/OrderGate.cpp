@@ -10,7 +10,7 @@ using Clock = std::chrono::steady_clock;
 // check()+on_accept을 하나의 임계구역으로 묶어 원자적 reserve로 만들어야 한다.
 bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
 {
-    // 1. Kill switch
+    // 1. Kill switch — 전방향 하드스톱(BUY·SELL 모두). 연결단절/수동 긴급정지용.
     if (kill_switch_.load())
     {
         reject_reason = "KILL_SWITCH 활성";
@@ -21,6 +21,15 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
     if (sig.side == OrderSide::NONE)
     {
         reject_reason = "OrderSide::NONE — 유효하지 않은 주문 방향";
+        return false;
+    }
+
+    // 1b. Entry halt — 신규 진입(BUY NEW)만 차단. SELL 청산·취소(CANCEL/REPLACE)는 통과시켜
+    //     지수 급락 시 "신규정지 + 보유분 청산"이 게이트에서 좌초되지 않게 한다(C-2).
+    //     kill_switch_(전방향)와 분리된 국면 리스크 플래그.
+    if (entry_halt_.load() && sig.side == OrderSide::BUY && sig.action == OrderAction::NEW)
+    {
+        reject_reason = "ENTRY_HALT 활성 — 신규 진입 정지(청산은 허용)";
         return false;
     }
 
