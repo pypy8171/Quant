@@ -92,8 +92,11 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg)
             cand.push_back(r.ticker);
         }
     };
-    take(c.fetch_kr_ranking(cfg.scan_top_n, "J"));     // 시총 상위
-    take(c.fetch_value_ranking(cfg.value_top_n, "J")); // 거래대금 상위
+    take(c.fetch_kr_ranking(cfg.scan_top_n, "J"));          // 시총 상위
+    take(c.fetch_value_ranking(cfg.value_top_n, "J", "3")); // 거래대금 상위
+    // 랭킹 TR은 축마다 상위 30행 고정(연속조회 불가) → 정렬축을 하나 더 union해 풀을 넓힌다.
+    //  거래증가율(1)은 대형주에 편중된 시총·거래대금축과 겹침이 적어(중소형 모멘텀) 정배열 후보를 늘린다.
+    take(c.fetch_value_ranking(cfg.value_top_n, "J", "1")); // 거래증가율 상위
 
     if (!cfg.require_aligned)
     {

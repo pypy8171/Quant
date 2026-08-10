@@ -14,7 +14,8 @@
 
 데이터(무료 시작): yfinance 선물 심볼.
   ⚠️ **현물지수(^GSPC 등)는 한국 장중 죽어있다 → 반드시 선물 심볼 사용**:
-    ES=F(S&P500 선물) NQ=F(나스닥100 선물) ZN=F(10Y 미국채 선물) ^VIX / KRW=X(USDKRW).
+    ES=F(S&P500 선물) NQ=F(나스닥100 선물) ^VIX / KRW=X(USDKRW).
+    채권은 ^TNX(10Y 국채금리, %)로 표시(가격 선물 ZN=F 대신 — 읽기 직관 우선).
   OANDA v20 FX 스트림은 --oanda-token 주면 USD/KRW 실시간으로 대체(옵션, 기본 off).
 
 ⚠️ 임계값은 전부 **검증 필요 가정**(STRATEGIES.md 회의 §검증 필요 가정 3).
@@ -39,21 +40,23 @@ KST = timezone(timedelta(hours=9))
 # ── 심볼 정의 (yfinance) — 현물 아님, 선물/환율 ─────────────────────────────
 #  vote_dir: 이 지표가 "오르면" 위험선호(+1)인지 위험회피(-1)인지.
 #    NQ=F↑ → risk-on(+1). VIX↑ → risk-off(지표값↑이 위험이므로 -1).
-#    ZN=F(채권선물)↑ → 금리↓ → risk-on(+1). KRW=X(USDKRW)↑ → 원화약세 → risk-off(-1).
+#    ^TNX(10Y 금리)↑ → 금리상승 → risk-off(-1). KRW=X(USDKRW)↑ → 원화약세 → risk-off(-1).
+#    ※ 채권은 "선물가격(ZN=F)" 대신 "금리(^TNX, %)"로 표시 — 읽기 직관 우선.
+#      가격↑=금리↓라 방향이 정반대이므로 vote_dir 는 -1(선물가격이면 +1이었음).
 SYMBOLS = {
     "NQ_F":  {"yf": "NQ=F",  "vote_dir": +1, "label": "나스닥100 선물"},
     "ES_F":  {"yf": "ES=F",  "vote_dir": +1, "label": "S&P500 선물"},
-    "ZN_F":  {"yf": "ZN=F",  "vote_dir": +1, "label": "10Y 미국채 선물"},
+    "TNX10": {"yf": "^TNX",  "vote_dir": -1, "label": "10Y 미국채금리"},
     "VIX":   {"yf": "^VIX",  "vote_dir": -1, "label": "VIX"},
     "USDKRW":{"yf": "KRW=X", "vote_dir": -1, "label": "USD/KRW"},
 }
 
 # 지표별 % 변화 임계(검증 필요) — |chg| 가 warn 이상이면 방향표 1표, strong 이상이면 2표.
-#  VIX 는 절대 % 변화가 크므로 별도 임계.
+#  VIX 는 절대 % 변화가 크므로 별도 임계. TNX10(금리)은 하루 %변동이 채권선물보다 커 별도.
 THRESHOLDS = {
     "NQ_F":   {"warn": 0.4, "strong": 0.9},
     "ES_F":   {"warn": 0.4, "strong": 0.9},
-    "ZN_F":   {"warn": 0.3, "strong": 0.7},
+    "TNX10":  {"warn": 1.5, "strong": 3.0},
     "VIX":    {"warn": 4.0, "strong": 9.0},
     "USDKRW": {"warn": 0.4, "strong": 0.9},
 }
