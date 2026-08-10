@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -274,6 +275,69 @@ static void load_market_making(StrategyLoadCtx& ctx, const json& s)
         ticker, mm_qty, half_spread_ticks, requote_move_ticks, min_requote_ms));
 }
 
+// ─── 보유분 청산 가디언 (DEVIATION_SCALE 보조) ───────────────────────────────
+//  스캔 유니버스가 잡지 못한 잔고 보유분(아침에 산 물린분 등)마다 "청산 전용" ITB를
+//  붙인다. 신규진입은 no_new_entry_hhmm=1(항상 과거)로 영구 차단 → 오직 보호·청산만:
+//    seed_trail_pct(넓은 앵커 트레일) + exit_near_avg_pct(본전근처 반등청산)
+//    + avg_loss_pct(평단손절, 0=비활성) + EOD(eod_exit_hhmm, 기본 1600=장중 강제청산 안 함).
+//  covered = 이미 스캔 전략이 담당하는 티커(중복 부착 방지). rest_price_feed 합성틱으로 on_trade 구동.
+static void attach_holding_guardians(StrategyLoadCtx& ctx, const json& mh,
+                                     const std::set<std::string>& covered)
+{
+    Engine& engine = ctx.engine;
+    double seed_trail_disp    = mh.value("seed_trail_pct", 2.0);     // 표시용(%)
+    double exit_near_avg_disp = mh.value("exit_near_avg_pct", 1.0);
+    double seed_trail_pct     = seed_trail_disp / 100.0;             // %→비율
+    double exit_near_avg_pct  = exit_near_avg_disp / 100.0;
+    double avg_loss_pct       = mh.value("avg_loss_pct", 0.0) / 100.0; // 0=비활성
+    int    eod_hhmm           = mh.value("eod_exit_hhmm", 1600);     // 1600=장중 강제청산 안 함(보호만)
+    int    channel_min        = mh.value("channel_min", 10);
+    int    cooldown_sec       = mh.value("reentry_cooldown_sec", 60);
+
+    KisClient bal_kis(ctx.kis_cfg);
+    if (!bal_kis.authenticate())
+    {
+        LOG_ERROR("[Main] manage_holdings: 잔고조회 인증 실패 — 청산 가디언 건너뜀");
+        return;
+    }
+    nlohmann::json bal = bal_kis.get_balance();
+    if (!bal.contains("output1"))
+    {
+        LOG_WARN("[Main] manage_holdings: 잔고 output1 없음 — 부착할 보유분 없음");
+        return;
+    }
+    int added = 0, skipped = 0;
+    for (auto& h : bal["output1"])
+    {
+        std::string code  = h.value("pdno", "");
+        std::string pname = h.value("prdt_name", "");
+        int    hq = std::atoi(h.value("hldg_qty", "0").c_str());
+        double av = std::atof(h.value("pchs_avg_pric", "0").c_str());
+        if (code.empty() || hq <= 0)
+            continue;
+        if (covered.count(code)) // 스캔 전략이 이미 담당 → 이중 부착 방지
+        {
+            ++skipped;
+            continue;
+        }
+        auto strat = std::make_unique<IntradayBreakoutStrategy>(
+            code, /*entry_qty=*/0, /*hold_qty=*/hq, /*start_in_position=*/true,
+            channel_min, /*breakout_eps=*/0.002, /*trail_pct=*/0.010, /*hard_pct=*/0.015,
+            eod_hhmm, cooldown_sec, /*avg_px=*/av, avg_loss_pct,
+            seed_trail_pct, exit_near_avg_pct, /*no_new_entry_hhmm=*/1,
+            /*notional=*/0.0, /*day_open_px=*/0.0);
+        strat->set_name(pname);
+        engine.add_strategy(std::move(strat));
+        LOG_INFO("[Main]   + 청산가디언(ITB) " + code + " " + pname + " 보유 " +
+                 std::to_string(hq) + "주 @평단 " + std::to_string((long long)av) +
+                 " (trail=" + std::to_string(seed_trail_disp) + "% 본전탈출=" +
+                 std::to_string(exit_near_avg_disp) + "% eod=" + std::to_string(eod_hhmm) + ")");
+        ++added;
+    }
+    LOG_INFO("[Main] manage_holdings: 청산 가디언 " + std::to_string(added) +
+             "종목 부착, 스캔중복 " + std::to_string(skipped) + "종목 스킵");
+}
+
 // ─── DEVIATION_SCALE ────────────────────────────────────────────────────────
 static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
 {
@@ -293,6 +357,9 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
     base.min_action_ms     = s.value("min_action_ms", 3000);
     base.daily_lookback    = s.value("daily_lookback", 70);
     base.account           = s.value("account", std::string());
+
+    // 스캔/단일로 실제 DeviationScale이 담당하는 티커 — 보유분 청산 가디언 중복 부착 방지.
+    std::set<std::string> covered;
 
     // 티커 → DeviationScale 인스턴스 팩토리 (초기 스캔·주기적 재스캔 공용).
     auto factory = [base](const std::string& ticker) -> std::unique_ptr<StrategyBase>
@@ -348,6 +415,7 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
                 for (const auto& t : tickers)
                 {
                     engine.add_strategy(factory(t));
+                    covered.insert(t); // 청산 가디언 중복 부착 방지용
                     LOG_INFO("[Main]   + DEVSCALE 초기 " + t);
                     ++added;
                 }
@@ -363,8 +431,14 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
     }
     else
     {
-        engine.add_strategy(factory(s["ticker"].get<std::string>()));
+        std::string t = s["ticker"].get<std::string>();
+        engine.add_strategy(factory(t));
+        covered.insert(t);
     }
+
+    // 보유분 청산 가디언 — 스캔에 안 잡힌 잔고 보유분에 청산 전용 ITB 부착(옵션).
+    if (s.contains("manage_holdings") && s["manage_holdings"].value("enabled", false))
+        attach_holding_guardians(ctx, s["manage_holdings"], covered);
 }
 
 // ─── THEME ──────────────────────────────────────────────────────────────────

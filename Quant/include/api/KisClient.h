@@ -47,6 +47,11 @@ public:
     // MM-1: 국내 정정 (order-rvsecncl). 성공 시 새 ODNO(정정접수번호), 실패 시 ""
     std::string revise_order(const std::string& ticker, const std::string& orig_odno,
                              const std::string& krx_orgno, int new_qty, double new_price) override;
+    // 직전 주문/취소/정정의 KIS 오류코드(msg_cd). 성공 시 "". EGW00201(초당한도) 적응재시도 판별용.
+    //  주문 3메서드는 단일 order_thread에서만 호출되므로 락 없이 안전(단일 기록자·판독자).
+    std::string last_order_error_code() const override { return last_order_msg_cd_; }
+    // 미체결(정정취소 가능) 예약주문 조회 — inquire-psbl-rvsecncl (모의 VTTC0084R / 실전 TTTC0084R)
+    std::vector<OpenOrder> get_open_orders() override;
     nlohmann::json get_balance();
 
     // 지수 현재값 (코스피 "0001", 코스닥 "1001", KOSPI200 "2001")
@@ -76,9 +81,12 @@ public:
     };
     std::vector<RankingStock> fetch_kr_ranking(int count = 200, const std::string& market_div = "J");
 
-    // 거래대금 상위 순위 — volume-rank API (tr_id FHPST01710000, FID_BLNG_CLS_CODE=3 거래금액순).
-    // 응답 acml_tr_pbmn(누적거래대금) 직접 사용 → price×volume 근사 폐기. 상위 ~30행 고정.
-    std::vector<RankingStock> fetch_value_ranking(int count = 30, const std::string& market_div = "J");
+    // 거래대금 상위 순위 — volume-rank API (tr_id FHPST01710000). 상위 ~30행 고정(연속조회 불가).
+    //  blng_cls = FID_BLNG_CLS_CODE 정렬축: "0"=거래량 "1"=거래증가율 "3"=거래금액(기본). 축마다
+    //  다른 30행이 오므로 여러 축을 union하면 유니버스를 넓힐 수 있다(페이지네이션 대체).
+    //  거래대금축("3")일 때만 acml_tr_pbmn 내림차순 재정렬, 그 외엔 API 순위 순서 유지.
+    std::vector<RankingStock> fetch_value_ranking(int count = 30, const std::string& market_div = "J",
+                                                  const std::string& blng_cls = "3");
 
     // 전체 시장 PBR 기반 Universe 조회 (ticker만 반환)
     std::vector<std::string> fetch_universe_by_pbr(double max_pbr, const std::string& market_div = "J");
@@ -149,4 +157,5 @@ private:
     KisConfig cfg_;
     std::string access_token_;
     std::chrono::system_clock::time_point token_expires_at_;
+    std::string last_order_msg_cd_; // 직전 주문/취소/정정 KIS 오류코드(msg_cd), 성공 시 "" — order_thread 전용
 };

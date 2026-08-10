@@ -71,12 +71,23 @@ public:
 
 private:
     std::string next_id();
+    // 직전 KIS 주문/취소/정정 오류코드를 " [코드]" 꼬리표로 만든다(EGW00201 재시도 판별용). 없으면 "".
+    std::string kis_err_suffix() const;
     void        record(const ManagedOrder& mo);
+    // 거래 원장 CSV 적재 — 주문/체결을 logs/trades_YYYYMMDD.csv 에 한 줄씩 영속화.
+    //   event 빈 문자열이면 mo.status 문자열을 event로 사용(접수/거부/취소). 체결은 "FILL".
+    //   호출자(record·on_fill)가 hist_mtx_ 보유 상태라 파일 쓰기가 직렬화된다.
+    void        write_trade_row(const std::string& event, const ManagedOrder& mo,
+                                int fill_qty, double fill_price);
 
     // ── MM-1: 주문 생명주기 라우팅 ────────────────────────────────────────
     ManagedOrder new_route(const OrderSignal& sig);     // 기존 신규 주문 경로
     ManagedOrder cancel_route(const OrderSignal& sig);  // action=CANCEL
     ManagedOrder replace_route(const OrderSignal& sig); // action=REPLACE(정정)
+    // SELL이 40240000(주문가능분 없음)으로 막히면: 그 종목의 미체결 예약매도를 조회·취소하고
+    //  시장가 매도를 1회 재시도한다(장중 자가 청산 정리). 성공 시 odno 채워진 OrderAck,
+    //  해당 예약 없음/취소 실패 시 빈 ack. 이전 세션·수동 예약이 보유수량을 묶은 경우를 해소.
+    OrderAck reconcile_blocked_sell(const OrderSignal& sig);
     // client_oid로 아직 살아있는(ACCEPTED, 미체결 잔량>0) 주문을 history_에서 찾는다.
     // 호출자는 반드시 hist_mtx_를 보유해야 한다. 반환 포인터는 lock 보유 동안만 유효.
     ManagedOrder* find_live_by_oid(const std::string& client_oid);

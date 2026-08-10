@@ -38,7 +38,8 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     if (!strategy)
         return;
 
-    strategy->set_kis(kis_.get());
+    // 런타임 등록 전략도 차트 조회는 실전 시세키로(분봉 모의 HTTP500 회피) — start()와 동일 패턴.
+    strategy->set_kis(quote_kis_ ? quote_kis_.get() : kis_.get());
     strategy->set_position_provider([this](const std::string& account, const std::string& ticker) {
         return order_gate_.position(account, ticker);
     });
@@ -198,10 +199,13 @@ void Engine::start()
     regime_->set_kis(quote_kis_ ? quote_kis_.get() : kis_.get());
     LOG_INFO("[Engine] RegimeController 초기화 완료");
 
-    // 전략 초기화 (kis_ 주입 → on_start 내부에서 Universe 조회)
+    // 전략 초기화 (시세 클라이언트 주입 → on_start 내부에서 Universe 조회)
+    // 전략의 kis_는 차트(일봉·분봉)·랭킹 등 "읽기 전용 시세 조회"에만 쓰인다(주문은 out→OrderThread).
+    // 분봉 TR(inquire-time-itemchartprice)은 모의 도메인에서 HTTP 500 → 시세 전용 실전 클라이언트가
+    //  있으면 그걸로 조회(regime_·스캐너와 동일 패턴). 없으면 모의로 폴백.
     for (auto& s : strategies_)
     {
-        s->set_kis(kis_.get());
+        s->set_kis(quote_kis_ ? quote_kis_.get() : kis_.get());
         // D2: 확정 포지션 접근자 주입 — 전략이 OrderGate 원장(WS/REST 공용)을 진실원천으로 읽음.
         s->set_position_provider([this](const std::string& account, const std::string& ticker) {
             return order_gate_.position(account, ticker);
@@ -303,8 +307,11 @@ void Engine::bootstrap_ledger()
             if (!code.empty() && q > 0)
             {
                 order_gate_.seed_position(std::string(), code, q, av);
+                // 진단: 주문가능수량(ord_psbl_qty)을 함께 남긴다 — 보유수량과 다르면(특히 0)
+                //  "잔고내역이 없습니다"(40240000) 매도거부의 근거(매도불가/미결제)를 규명.
+                std::string psbl = h.value("ord_psbl_qty", std::string("(field없음)"));
                 LOG_INFO("[Engine]   시드 " + code + " " + pname + " " + std::to_string(q) + "주 @평단 " +
-                         std::to_string(static_cast<long long>(av)));
+                         std::to_string(static_cast<long long>(av)) + " 주문가능=" + psbl);
                 ++n;
             }
         }
@@ -528,28 +535,144 @@ void Engine::data_thread_fn()
                         std::this_thread::sleep_for(150ms);
                         auto sell_top = eqc->fetch_est_investor_ranking("0000", "1", "0"); // 순매도 상위
 
+                        // 로그 축소: 전체시장 30행 덤프 대신 "우리 유니버스(★) 교집합만" 남긴다.
+                        //  fetch(관측 적재)는 그대로 — 로그 볼륨만 스냅샷당 ~61줄→1~4줄로 줄인다.
+                        //  전체 랭킹 아카이브가 필요하면 별도 sidecar(logs/supply_*.csv)로 후속 분리.
                         auto dump = [&](const char* label,
-                                        const std::vector<KisClient::EstInvestorFlow>& v)
+                                        const std::vector<KisClient::EstInvestorFlow>& v) -> int
                         {
                             int shown = 0;
                             for (const auto& f : v)
                             {
-                                if (shown >= 15)
-                                    break;
-                                bool mine = ours.count(f.ticker) > 0;
-                                LOG_INFO(std::string("[수급추정] ") + label + " " +
-                                         (mine ? "★" : " ") + f.ticker + " " + f.name +
+                                if (ours.count(f.ticker) == 0)
+                                    continue; // 우리 종목만 로깅
+                                int rank = 0;
+                                for (const auto& g : v) { ++rank; if (g.ticker == f.ticker) break; }
+                                LOG_INFO(std::string("[수급추정] ") + label + " ★" + f.ticker + " " +
+                                         f.name + " (전체 " + std::to_string(rank) + "위)" +
                                          " 외인=" + std::to_string(f.foreign_net_qty) +
                                          " 기관=" + std::to_string(f.inst_net_qty) +
                                          " 외인금액=" + std::to_string((int64_t)f.foreign_net_amt));
                                 ++shown;
                             }
+                            return shown;
                         };
-                        LOG_INFO("[수급추정] ── 당일 외국인·기관 추정 순매수 스냅샷(관측용) ──");
-                        dump("매수상위", buy_top);
-                        dump("매도상위", sell_top);
+                        LOG_INFO("[수급추정] 스냅샷(관측) 매수상위 " + std::to_string(buy_top.size()) +
+                                 "행·매도상위 " + std::to_string(sell_top.size()) + "행 수신");
+                        int nb = dump("매수상위", buy_top);
+                        int ns = dump("매도상위", sell_top);
+                        if (nb + ns == 0)
+                            LOG_INFO("[수급추정]   (우리 유니버스가 외인·기관 상위권 미포함)");
                     }
                     ++est_flow_tick;
+                }
+
+                // ── 섹터(업종) 강약 모니터(관측용) ─────────────────────────────────
+                //  업종 지수 등락률을 강→약으로 로깅해 "오늘 어느 섹터가 주도하나"를 눈으로 본다.
+                //  코드는 ThemeStrategy.h KOSPI_SECTORS와 동일(실전 시세키로 조회, 5분 주기).
+                //  get_index_price(업종코드): inquire-index-price(FID_MRKT_DIV=U) → 등락률.
+                {
+                    static int sector_tick = 0;
+                    KisClient* sqc = quote_kis_ ? quote_kis_.get() : kis_.get();
+                    if (sqc && (sector_tick % 10) == 0) // 30s×10 ≈ 5분
+                    {
+                        static const std::vector<std::pair<std::string, std::string>> kSectors = {
+                            {"0005", "화학"},   {"0006", "의약품"},   {"0008", "철강금속"},
+                            {"0009", "기계"},   {"0010", "전기전자"}, {"0011", "의료정밀"},
+                            {"0012", "운수장비"}, {"0015", "건설업"},  {"0017", "통신업"},
+                            {"0022", "서비스업"}};
+
+                        struct SecRate { std::string name; double rate; double price; };
+                        std::vector<SecRate> secs;
+                        for (const auto& [code, name] : kSectors)
+                        {
+                            std::this_thread::sleep_for(120ms); // rate limit 여유
+                            auto ip = sqc->get_index_price(code);
+                            if (ip.price > 0.0)
+                                secs.push_back({name, ip.change_rate, ip.price});
+                        }
+                        std::sort(secs.begin(), secs.end(),
+                                  [](const SecRate& a, const SecRate& b) { return a.rate > b.rate; });
+
+                        LOG_INFO("[섹터] ── 업종 등락률(강→약, 관측용) ──");
+                        for (const auto& s : secs)
+                        {
+                            char line[128];
+                            std::snprintf(line, sizeof(line), "[섹터] %-8s %+6.2f%%  지수=%.2f",
+                                          s.name.c_str(), s.rate, s.price);
+                            LOG_INFO(line);
+                        }
+                    }
+                    ++sector_tick;
+                }
+
+                // ── 매크로 지표 모니터(관측용) ─────────────────────────────────────
+                //  환율·나스닥선물·미국채10Y금리는 도메스틱 KIS 밖 → 사이드카(macro_regime_feed.py)가
+                //  yfinance 심볼로 계산해 regime.json에 쓴 components를 그대로 로깅한다.
+                //  (선물은 한국 장중에도 살아있음 — 현물지수는 KST 장중 죽어 부적합. 금리는 ^TNX.)
+                //  regime.json 미존재(사이드카 미실행) 시 조용히 스킵. entry_halt 게이트와 독립.
+                {
+                    static int macro_tick = 0;
+                    if (!regime_file_.empty() && (macro_tick % 10) == 0) // 30s×10 ≈ 5분
+                    {
+                        std::error_code mec;
+                        if (std::filesystem::exists(regime_file_, mec) && !mec)
+                        {
+                            try
+                            {
+                                std::ifstream mf(regime_file_);
+                                nlohmann::json mj;
+                                if (mf) mf >> mj;
+                                if (mj.contains("components"))
+                                {
+                                    std::string reg = mj.value("regime", std::string("?"));
+                                    int score = mj.value("risk_score", 0);
+                                    bool valid = mj.value("valid", false);
+                                    LOG_INFO("[매크로] ── regime=" + reg + " score=" +
+                                             std::to_string(score) +
+                                             (valid ? "" : " (valid=false)") + " ──");
+                                    // 관심 순서: 환율·나스닥선물·미국채10Y·(참고)S&P선물·VIX
+                                    static const std::vector<std::pair<std::string, std::string>> kMacro = {
+                                        {"USDKRW", "환율(USD/KRW)"}, {"NQ_F", "나스닥선물"},
+                                        {"TNX10", "미국채10Y금리"},  {"ES_F", "S&P500선물"},
+                                        {"VIX", "VIX"}};
+                                    auto& comps = mj["components"];
+                                    for (const auto& [key, label] : kMacro)
+                                    {
+                                        if (!comps.contains(key))
+                                            continue;
+                                        auto& c = comps[key];
+                                        if (c.contains("pct") && !c["pct"].is_null())
+                                        {
+                                            double pct = c["pct"].get<double>();
+                                            double price = (c.contains("price") && !c["price"].is_null())
+                                                               ? c["price"].get<double>() : 0.0;
+                                            int vote = c.value("vote", 0);
+                                            char line[160];
+                                            std::snprintf(line, sizeof(line),
+                                                          "[매크로] %s  %+.2f%%  price=%.2f  vote=%+d",
+                                                          label.c_str(), pct, price, vote);
+                                            LOG_INFO(line);
+                                        }
+                                        else
+                                        {
+                                            LOG_INFO("[매크로] " + label + " = NA(데이터 없음)");
+                                        }
+                                    }
+                                }
+                            }
+                            catch (const std::exception&)
+                            {
+                                // 원자적 write라 정상은 완전한 json — 부분/손상은 다음 틱 재시도.
+                            }
+                        }
+                        else if (macro_tick == 0)
+                        {
+                            LOG_INFO("[매크로] regime.json 없음 — 매크로 표시엔 사이드카"
+                                     "(macro_regime_feed.py) 실행 필요");
+                        }
+                    }
+                    ++macro_tick;
                 }
 
                 // REST 현재가 폴링 → TradeData로 td_queue_에 주입(WS on_trade 경로 대체).
@@ -857,6 +980,20 @@ void Engine::order_thread_fn()
             if (mo.status == OrderStatus::ACCEPTED)
             {
                 ++order_count_;
+            }
+            else if (mo.status == OrderStatus::REJECTED && attempts < order_max_retries_ &&
+                     mo.reject_reason.find("EGW00201") != std::string::npos)
+            {
+                // 초당 거래건수 초과 — KIS가 '접수 전' 거부라 중복주문 위험 없음(빈-ODNO 모호성 없음).
+                //  모든 action(취소·정정·매수·매도)을 dedup 창 밖(retry_delay≥1.2s)으로 재예약해
+                //  유실 없이 자가치유한다. 예전엔 취소·매수가 드롭돼 고아주문→다음 사이클 재처닝
+                //  →또 한도초과 되는 악순환이었다. 간격은 짧게 두고, 한도에 부딪힐 때만 물러난다.
+                const std::string act = sig.action == OrderAction::CANCEL ? "CANCEL"
+                                      : sig.action == OrderAction::REPLACE ? "REPLACE" : "NEW";
+                retry_q.push_back({sig, attempts + 1, steady_clock::now() + retry_delay});
+                LOG_WARN("[OrderThread] 초당한도(EGW00201) 거부 → 재시도 예약 " + sig.ticker + " " +
+                         act + " (" + std::to_string(attempts + 1) + "/" +
+                         std::to_string(order_max_retries_) + ")");
             }
             else if (mo.status == OrderStatus::REJECTED && sig.action == OrderAction::NEW &&
                      sig.side == OrderSide::SELL && attempts < order_max_retries_)

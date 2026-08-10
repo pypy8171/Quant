@@ -1,12 +1,27 @@
 #pragma once
 #include "core/Types.h"
 #include <string>
+#include <vector>
 
 // KIS 접수 응답 — ODNO + KRX 조직번호(정정/취소 필수). (MM-1)
 struct OrderAck
 {
     std::string odno;      // KIS 접수번호 (ODNO)
     std::string krx_orgno; // KRX_FWDG_ORD_ORGNO — 정정/취소 시 원주문 조직번호로 재입력
+};
+
+// 미체결(정정취소 가능) 예약주문 1건 — inquire-psbl-rvsecncl 결과.
+//  장중 청산이 "주문가능분 없음"(40240000)으로 막힐 때, 그 종목의 예약매도를 찾아
+//  취소→재매도로 자가정리하는 데 쓴다.
+struct OpenOrder
+{
+    std::string ticker;    // pdno — 종목코드
+    std::string name;      // prdt_name — 종목명
+    std::string odno;      // odno — 취소 시 ORGN_ODNO(원주문번호)로 재입력
+    std::string krx_orgno; // ord_gno_brno — 취소 시 KRX_FWDG_ORD_ORGNO(조직번호)로 재입력
+    int         psbl_qty = 0;   // psbl_qty — 정정취소 가능 수량(예약으로 묶인 잔량)
+    double      ord_unpr = 0.0; // ord_unpr — 주문단가
+    OrderSide   side = OrderSide::NONE; // sll_buy_dvsn_cd: 01=매도, 02=매수
 };
 
 // KIS API 또는 테스트 stub 중 어느 것이든 OrderRouter에 주입 가능한 추상 인터페이스
@@ -44,4 +59,14 @@ public:
     {
         return std::string();
     }
+
+    // 직전 주문/취소/정정 호출의 KIS 오류코드(msg_cd). 성공 시 "".
+    //  초당 거래건수 초과(EGW00201) 등 "접수 전 거부·재발주 안전" 사유를 호출부(OrderRouter/
+    //  order_thread)가 판별해 적응적 재시도를 걸 수 있게 노출한다. 기본은 미지원("").
+    virtual std::string last_order_error_code() const { return std::string(); }
+
+    // 미체결(정정취소 가능) 예약주문 조회 (inquire-psbl-rvsecncl). 기본은 빈 목록.
+    //  장중 청산이 "주문가능분 없음"(40240000)으로 막힐 때, 해당 종목의 예약매도를 찾아
+    //  취소→재매도로 자가정리하기 위한 조회 경로. 세션 간/수동 예약도 감지 가능.
+    virtual std::vector<OpenOrder> get_open_orders() { return {}; }
 };

@@ -781,6 +781,7 @@ std::string KisClient::submit_order(const OrderSignal& signal)
 //  HTTP 플랫폼 분기(WinHTTP/libcurl)는 http_post 내부에 이미 캡슐화됨.
 OrderAck KisClient::submit_order_ack(const OrderSignal& signal)
 {
+    last_order_msg_cd_.clear(); // 이번 호출 결과로만 채운다(직전 값 오귀속 방지)
     bool is_us = (signal.market == Market::US);
     std::string tr_id, url;
 
@@ -824,6 +825,7 @@ OrderAck KisClient::submit_order_ack(const OrderSignal& signal)
     auto j = json::parse(resp);
     if (j["rt_cd"].get<std::string>() != "0")
     {
+        last_order_msg_cd_ = j.value("msg_cd", std::string(""));
         LOG_ERROR("[KIS] 주문 오류: " + j["msg1"].get<std::string>());
         return OrderAck{};
     }
@@ -846,6 +848,7 @@ OrderAck KisClient::submit_order_ack(const OrderSignal& signal)
 std::string KisClient::cancel_order(const std::string& ticker, const std::string& orig_odno,
                                     const std::string& krx_orgno, int qty, bool all_remaining)
 {
+    last_order_msg_cd_.clear();
     if (orig_odno.empty())
     {
         LOG_ERROR("[KIS] cancel_order 원주문번호(ODNO) 없음 — " + ticker);
@@ -877,6 +880,7 @@ std::string KisClient::cancel_order(const std::string& ticker, const std::string
     auto j = json::parse(resp);
     if (j["rt_cd"].get<std::string>() != "0")
     {
+        last_order_msg_cd_ = j.value("msg_cd", std::string(""));
         // 이미 체결/취소된 주문이면 KIS가 거부 → 자가치유(호출부가 reserved 미변경). 로그만.
         LOG_WARN("[KIS] 취소 거부: " + ticker + " ODNO=" + orig_odno + " — " +
                  j.value("msg1", std::string("")));
@@ -891,6 +895,7 @@ std::string KisClient::cancel_order(const std::string& ticker, const std::string
 std::string KisClient::revise_order(const std::string& ticker, const std::string& orig_odno,
                                     const std::string& krx_orgno, int new_qty, double new_price)
 {
+    last_order_msg_cd_.clear();
     if (orig_odno.empty())
     {
         LOG_ERROR("[KIS] revise_order 원주문번호(ODNO) 없음 — " + ticker);
@@ -922,6 +927,7 @@ std::string KisClient::revise_order(const std::string& ticker, const std::string
     auto j = json::parse(resp);
     if (j["rt_cd"].get<std::string>() != "0")
     {
+        last_order_msg_cd_ = j.value("msg_cd", std::string(""));
         LOG_WARN("[KIS] 정정 거부: " + ticker + " ODNO=" + orig_odno + " — " +
                  j.value("msg1", std::string("")));
         return "";
@@ -997,6 +1003,90 @@ nlohmann::json KisClient::get_balance()
     if (result.is_null())
         return json::object();
     result["output1"] = out1;
+    return result;
+}
+
+// ─── 미체결(정정취소 가능) 예약주문 조회 — inquire-psbl-rvsecncl ─────────────
+//  장중 청산이 40240000(주문가능분 없음)으로 막힐 때, 그 종목의 예약매도를 찾아
+//  취소→재매도로 자가정리하기 위한 조회. (모의: VTTC0084R / 실거래: TTTC0084R)
+//  응답 output(array) 필드는 소문자: odno·ord_gno_brno·pdno·prdt_name·psbl_qty·
+//  ord_unpr·sll_buy_dvsn_cd(01매도/02매수). 수량·단가는 문자열이라 파싱 가드.
+//  잔고처럼 ctx_area(FK/NK)로 페이지네이션한다.
+std::vector<OpenOrder> KisClient::get_open_orders()
+{
+    std::string tr_id = cfg_.is_paper ? "VTTC0084R" : "TTTC0084R";
+
+    auto to_int = [](const std::string& s) -> int
+    { try { return s.empty() ? 0 : std::stoi(s); } catch (...) { return 0; } };
+    auto to_dbl = [](const std::string& s) -> double
+    { try { return s.empty() ? 0.0 : std::stod(s); } catch (...) { return 0.0; } };
+    auto rtrim = [](std::string s)
+    {
+        while (!s.empty() && (s.back() == ' ' || s.back() == '\t'))
+            s.pop_back();
+        return s;
+    };
+
+    std::vector<OpenOrder> result;
+    std::string fk, nk, cont;
+    for (int page = 0; page < 30; ++page) // 안전 상한(무한루프 방지)
+    {
+        std::string url = base_url() +
+                          "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl" +
+                          "?CANO=" + cfg_.account_no + "&ACNT_PRDT_CD=" + cfg_.account_type +
+                          "&INQR_DVSN_1=0&INQR_DVSN_2=0" +
+                          "&CTX_AREA_FK100=" + fk + "&CTX_AREA_NK100=" + nk;
+
+        std::vector<std::string> headers = {"authorization: Bearer " + access_token_,
+                                            "appkey: " + cfg_.app_key,
+                                            "appsecret: " + cfg_.app_secret, "tr_id: " + tr_id,
+                                            "tr_cont: " + cont};
+
+        std::string resp = http_get(url, headers);
+        if (resp.empty())
+            break;
+        nlohmann::json j;
+        try
+        {
+            j = json::parse(resp);
+        }
+        catch (...)
+        {
+            break;
+        }
+        if (j.value("rt_cd", std::string("")) != "0")
+        {
+            LOG_WARN("[KIS] 미체결 조회 오류: " + j.value("msg1", std::string("")));
+            break;
+        }
+
+        if (j.contains("output") && j["output"].is_array())
+        {
+            for (auto& o : j["output"])
+            {
+                OpenOrder oo;
+                oo.ticker    = o.value("pdno", std::string(""));
+                oo.name      = o.value("prdt_name", std::string(""));
+                oo.odno      = o.value("odno", o.value("ODNO", std::string("")));
+                oo.krx_orgno = o.value("ord_gno_brno", std::string(""));
+                oo.psbl_qty  = to_int(o.value("psbl_qty", std::string("")));
+                oo.ord_unpr  = to_dbl(o.value("ord_unpr", std::string("")));
+                std::string sb = o.value("sll_buy_dvsn_cd", std::string(""));
+                oo.side = (sb == "01") ? OrderSide::SELL
+                        : (sb == "02") ? OrderSide::BUY
+                                       : OrderSide::NONE;
+                if (!oo.ticker.empty() && oo.psbl_qty > 0)
+                    result.push_back(oo);
+            }
+        }
+
+        std::string nk_next = rtrim(j.value("ctx_area_nk100", ""));
+        if (nk_next.empty())
+            break; // 다음 페이지 없음
+        fk = rtrim(j.value("ctx_area_fk100", ""));
+        nk = nk_next;
+        cont = "N";
+    }
     return result;
 }
 
@@ -1120,12 +1210,13 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
 
         // API 응답 키: "output" (단일 배열)
         auto& arr = j.contains("output2") ? j["output2"] : j["output"];
+        int drop_etf = 0, drop_ticker = 0; // 진단: raw 행이 어디서 새는지 계측
         for (const auto& item : arr)
         {
             std::string name = item.value("hts_kor_isnm", "");
             std::string ticker = item.value("mksc_shrn_iscd", "");
-            if (!is_normal_ticker(ticker) || is_etf_name(name))
-                continue;
+            if (!is_normal_ticker(ticker)) { ++drop_ticker; continue; }
+            if (is_etf_name(name)) { ++drop_etf; continue; }
 
             RankingStock s;
             s.ticker = ticker;
@@ -1138,6 +1229,10 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
             s.per = safe_d(item, "hts_per");
             result.push_back(s);
         }
+        // 진단: raw 행수 vs 필터 후. raw가 ~30 고정이면 페이지네이션 필요, ETF드롭이 크면 API단 제외로 회복.
+        LOG_INFO("[KIS] 시총랭킹 진단: raw=" + std::to_string(arr.size()) +
+                 " ETF드롭=" + std::to_string(drop_etf) + " 티커드롭=" + std::to_string(drop_ticker) +
+                 " 생존=" + std::to_string(result.size()) + " (요청 count=" + std::to_string(count) + ")");
 
         // API 정렬 기준이 불명확하므로 거래대금(가격×거래량) 내림차순 정렬 — 시가총액 대용
         std::sort(result.begin(), result.end(),
@@ -1164,12 +1259,14 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
 //  tr_id: FHPST01710000, FID_BLNG_CLS_CODE=3(거래금액순). acml_tr_pbmn 직접 사용.
 //  ⚠️ 응답 스키마 변동 잦음 — 첫 400자 로깅으로 필드/행수 확인. 상위 ~30행 고정 반환.
 // ═══════════════════════════════════════════════════════════════════════════
-std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, const std::string& market_div)
+std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, const std::string& market_div,
+                                                                   const std::string& blng_cls)
 {
-    // FID_TRGT_CLS_CODE(대상 9자리)/EXLS(제외 6자리)는 전체 대상 기본값. FID_BLNG_CLS_CODE=3=거래금액순.
+    // FID_TRGT_CLS_CODE(대상 9자리)/EXLS(제외 6자리)는 전체 대상 기본값.
+    // FID_BLNG_CLS_CODE 정렬축: 0=거래량 1=거래증가율 3=거래금액(기본) — 호출자가 지정.
     std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/volume-rank" +
                       "?FID_COND_MRKT_DIV_CODE=" + market_div + "&FID_COND_SCR_DIV_CODE=20171" +
-                      "&FID_INPUT_ISCD=0000" + "&FID_DIV_CLS_CODE=0" + "&FID_BLNG_CLS_CODE=3" +
+                      "&FID_INPUT_ISCD=0000" + "&FID_DIV_CLS_CODE=0" + "&FID_BLNG_CLS_CODE=" + blng_cls +
                       "&FID_TRGT_CLS_CODE=111111111" + "&FID_TRGT_EXLS_CLS_CODE=000000" +
                       "&FID_INPUT_PRICE_1=" + "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
 
@@ -1241,6 +1338,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
 
         // volume-rank 응답 배열 키: "output" (표준). output2도 방어적으로 수용.
         auto& arr = j.contains("output") ? j["output"] : j["output2"];
+        int drop_etf = 0, drop_ticker = 0; // 진단: raw 행이 어디서 새는지 계측
         for (const auto& item : arr)
         {
             std::string name = item.value("hts_kor_isnm", "");
@@ -1248,8 +1346,8 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
             std::string ticker = item.value("mksc_shrn_iscd", "");
             if (ticker.empty())
                 ticker = item.value("stck_shrn_iscd", "");
-            if (!is_normal_ticker(ticker) || is_etf_name(name))
-                continue;
+            if (!is_normal_ticker(ticker)) { ++drop_ticker; continue; }
+            if (is_etf_name(name)) { ++drop_etf; continue; }
 
             RankingStock s;
             s.ticker = ticker;
@@ -1261,10 +1359,16 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
             s.trade_value = safe_d(item, "acml_tr_pbmn"); // 누적 거래대금(원)
             result.push_back(s);
         }
+        // 진단: raw 행수 vs 필터 후. raw가 ~30 고정이면 페이지네이션 필요, ETF드롭이 크면 API단 제외로 회복.
+        LOG_INFO("[KIS] 거래대금랭킹 진단(축=" + blng_cls + "): raw=" + std::to_string(arr.size()) +
+                 " ETF드롭=" + std::to_string(drop_etf) + " 티커드롭=" + std::to_string(drop_ticker) +
+                 " 생존=" + std::to_string(result.size()) + " (요청 count=" + std::to_string(count) + ")");
 
-        // 거래대금 내림차순 확정(API가 이미 정렬하나 방어적으로 재정렬).
-        std::sort(result.begin(), result.end(),
-                  [](const RankingStock& a, const RankingStock& b) { return a.trade_value > b.trade_value; });
+        // 거래대금축(3)일 때만 acml_tr_pbmn 내림차순 재정렬. 다른 축(거래량0·거래증가율1)은
+        // trade_value가 비어 있어 재정렬하면 순서가 망가지므로 API 순위 순서를 그대로 유지.
+        if (blng_cls == "3")
+            std::sort(result.begin(), result.end(),
+                      [](const RankingStock& a, const RankingStock& b) { return a.trade_value > b.trade_value; });
 
         if (static_cast<int>(result.size()) > count)
             result.resize(count);
