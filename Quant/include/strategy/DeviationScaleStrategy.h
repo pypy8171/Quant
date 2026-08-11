@@ -47,7 +47,8 @@ public:
         double dev_sell       = 1.5;   // 매도 밴드 이격도(%) — 층당 배수
         double dev_buy        = 0.8;   // 매수 밴드 이격도(%) — 층당 배수
         int    n_rungs        = 2;     // 밴드 층수
-        double pullback_pct   = 2.0;   // 일봉 SMA20 눌림 허용폭(±%)
+        double pullback_pct   = 2.0;   // 일봉 SMA20 눌림 허용폭(±%) — 존 진입 임계
+        double zone_hyst_pct  = 4.0;   // 존 히스테리시스 밴드(%) — 청산 임계 = pullback + 이 값
         int    reprice_move_ticks = 2; // SMA가 이만큼(틱) 이동하면 재호가
         int    eod_hhmm       = 1515;  // 이 시각(KST HHMM) 이후 전량 취소+청산
         int    interval_min   = 3;     // 집계봉 간격(분)
@@ -86,7 +87,8 @@ public:
     {
         live_.clear();
         last_sma_ = 0.0;
-        last_bar_ts_ = {};
+        last_ladder_sig_.clear();
+        in_zone_ = false;
         last_work_ = std::chrono::steady_clock::time_point{};
         daily_.clear();
         daily_date_.clear();
@@ -133,7 +135,13 @@ public:
         const bool   aligned = is_aligned(daily_);
         const double d_s20   = sma_close(daily_, 20);
         const double d_dev   = d_s20 > 0.0 ? std::fabs(cur_px - d_s20) / d_s20 * 100.0 : -1.0;
-        const bool   zone    = aligned && d_s20 > 0.0 && d_dev <= p_.pullback_pct;
+        // 히스테리시스: 진입은 좁게(pullback_pct), 한번 활성이면 넓게(pullback+hyst)까지 유지.
+        //   절대이격이라 경계에서 0-폭 활성↔대기 진동 → 매수 직후 시장가 청산되던 휩쏘 방지.
+        const double enter_th = p_.pullback_pct;
+        const double exit_th  = p_.pullback_pct + p_.zone_hyst_pct;
+        const double zone_th  = in_zone_ ? exit_th : enter_th;
+        const bool   zone     = aligned && d_s20 > 0.0 && d_dev <= zone_th;
+        in_zone_ = zone;
 
         // 존 판정 가시화: 상태 변화 시 또는 60초마다 1회(관찰용).
         if (zone != last_zone_ || zone_log_ts_.time_since_epoch().count() == 0 ||
@@ -142,8 +150,9 @@ public:
             LOG_INFO("[" + id() + "] 존 판정 " + std::string(zone ? "활성" : "대기") +
                      " | 정배열=" + std::string(aligned ? "Y" : "N") +
                      " 일봉SMA20=" + fmt1(d_s20) + " 현재가=" + fmt1(cur_px) +
-                     " 이격=" + fmt1(d_dev) + "% (한도 " + fmt1(p_.pullback_pct) +
-                     "%) 일봉수=" + std::to_string(daily_.size()));
+                     " 이격=" + fmt1(d_dev) + "% (한도 " + fmt1(zone_th) +
+                     "% 진입" + fmt1(enter_th) + "/청산" + fmt1(exit_th) +
+                     ") 일봉수=" + std::to_string(daily_.size()));
             last_zone_    = zone;
             zone_log_ts_  = now;
         }
@@ -172,27 +181,21 @@ public:
         const double sma = sma_close(bars, p_.sma_period); // bars[0]=최신
         if (sma <= 0.0)
             return;
-        const double tick = tick_size(sma);
-
-        // 재호가 필요 판단: 새 3분봉 또는 SMA가 reprice_move_ticks 이상 이동.
-        const auto bar_ts = bars[0].timestamp;
-        const bool new_bar = (bar_ts != last_bar_ts_);
-        const bool sma_moved = last_sma_ > 0.0 &&
-                               std::fabs(sma - last_sma_) >= p_.reprice_move_ticks * tick;
-        const bool have_live = !live_.empty();
-        if (!new_bar && !sma_moved && have_live)
-            return; // 변화 없음 → 사다리 유지(폭주 방지)
-
-        // ── 사다리 재구성: 기존 취소 후 신규 지정가 ──────────────────────────
-        cancel_all(out);
         int pos = confirmed_position(p_.account, p_.ticker);
+
+        // ── 목표 사다리 산출(발주 전) ─────────────────────────────────────────
+        //  계단 가격·수량은 sma·pos의 순수 함수. 먼저 계획을 만들고 직전 사다리와
+        //  시그니처를 비교해 "동일하면 재발주 스킵". 분봉 정지(HTTP 500 폴백)로
+        //  sma=px가 고정될 때 동일 사다리를 취소·재발주하던 처닝을 근본 차단.
+        struct Rung { OrderSide side; double price; int qty; };
+        std::vector<Rung> plan;
 
         // 베이스: 무포지션이면 기준선 근처 지정가 매수(목표 절반).
         if (pos <= 0)
         {
             double bp = round_to_tick(sma, OrderSide::BUY);
             if (bp > 0.0)
-                place(out, OrderSide::BUY, bp, p_.base_qty);
+                plan.push_back({OrderSide::BUY, bp, p_.base_qty});
         }
 
         // 매도 밴드: 이격 +dev_sell%*i. 보유분 한도 내에서만(숏 방지).
@@ -203,7 +206,7 @@ public:
             int q = sell_avail < p_.step_qty ? sell_avail : p_.step_qty;
             if (sp > 0.0 && q > 0)
             {
-                place(out, OrderSide::SELL, sp, q);
+                plan.push_back({OrderSide::SELL, sp, q});
                 sell_avail -= q;
             }
         }
@@ -213,11 +216,25 @@ public:
         {
             double bp = round_to_tick(sma * (1.0 - p_.dev_buy * i / 100.0), OrderSide::BUY);
             if (bp > 0.0)
-                place(out, OrderSide::BUY, bp, p_.step_qty);
+                plan.push_back({OrderSide::BUY, bp, p_.step_qty});
         }
 
+        // ── no-change 가드: 시그니처(side:price:qty 나열)가 직전과 동일하고
+        //    사다리가 살아있으면 취소·재발주 스킵(처닝 차단). ──────────────────
+        std::string sig;
+        for (const auto& r : plan)
+            sig += std::string(r.side == OrderSide::BUY ? "B" : "S") + fmt1(r.price) +
+                   "x" + std::to_string(r.qty) + "|";
+        if (sig == last_ladder_sig_ && !live_.empty())
+            return; // 동일 사다리 → 유지
+
+        // ── 재구성: 기존 취소 후 신규 지정가 ──────────────────────────────────
+        cancel_all(out);
+        for (const auto& r : plan)
+            place(out, r.side, r.price, r.qty);
+
         last_sma_ = sma;
-        last_bar_ts_ = bar_ts;
+        last_ladder_sig_ = sig;
         LOG_INFO("[" + id() + "] 사다리 재구성 sma=" + fmt1(sma) + " px=" + fmt1(cur_px) +
                  " pos=" + std::to_string(pos) + " live=" + std::to_string(live_.size()));
     }
@@ -391,9 +408,10 @@ private:
     std::vector<MarketData> daily_;        // 일봉 캐시(정배열/눌림 판정)
     std::string daily_date_;               // 캐시 기준일(KST YYYYMMDD)
     double last_sma_ = 0.0;                // 마지막 재호가 기준 SMA
-    std::chrono::system_clock::time_point last_bar_ts_{}; // 마지막 처리 3분봉 시각
+    std::string last_ladder_sig_;          // 마지막 발주 사다리 시그니처(no-change 가드)
     std::chrono::steady_clock::time_point last_work_{};   // 스로틀
     bool last_zone_ = false;                              // 마지막 존 상태(변화 로그용)
+    bool in_zone_   = false;                              // 존 히스테리시스 상태(진입/청산 임계 전환)
     std::chrono::steady_clock::time_point zone_log_ts_{}; // 마지막 존 판정 로그 시각
     uint64_t seq_ = 0;
 };

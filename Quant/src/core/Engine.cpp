@@ -996,9 +996,14 @@ void Engine::order_thread_fn()
                          std::to_string(order_max_retries_) + ")");
             }
             else if (mo.status == OrderStatus::REJECTED && sig.action == OrderAction::NEW &&
-                     sig.side == OrderSide::SELL && attempts < order_max_retries_)
+                     sig.side == OrderSide::SELL && attempts < order_max_retries_ &&
+                     mo.reject_reason.find("40240000") == std::string::npos)
             {
                 // 청산 SELL 유실 방지(C-2) — dedup 창 밖에서 재시도 예약.
+                //  단 40240000(주문가능분 없음)은 제외: 보유수량이 예약매도/미결제로 묶인 '지속성'
+                //  조건이라 그냥 되쏘면 매번 같은 거부다. 유일 해법(예약매도 취소→시장가 재매도)은
+                //  new_route의 reconcile_blocked_sell이 이미 인라인으로 1회 시도했으므로,
+                //  여기서 또 재시도하면 reconcile만 중복 실행하고 결국 같은 거부가 반복된다.
                 retry_q.push_back({sig, attempts + 1, steady_clock::now() + retry_delay});
                 LOG_WARN("[OrderThread] 청산 SELL 거부 → 재시도 예약 " + sig.ticker + " (" +
                          std::to_string(attempts + 1) + "/" + std::to_string(order_max_retries_) +

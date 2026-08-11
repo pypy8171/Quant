@@ -139,8 +139,12 @@ public:
                     why = " (seed-trail)";
                 }
                 else if (exit_near_avg_pct_ > 0.0 && avg_px_ > 0.0 &&
+                         px < avg_px_ && // 상단 가드: 아직 물린(underwater) 상태에서만
                          px >= avg_px_ * (1.0 - exit_near_avg_pct_))
                 {
+                    // 본전탈출 = "물린 보유분이 평단 근처까지 회복하면 재하락 전에 탈출".
+                    //  밴드: avg*(1-pct) ≤ px < avg. 상단 가드(px<avg)가 없으면 평단 위(수익)
+                    //  포지션도 본전에서 청산돼 상방을 스스로 잘라먹는다 → 수익 구간은 seed-trail에 태운다.
                     hit = true;
                     why = " (본전탈출)";
                 }
