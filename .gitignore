@@ -12,6 +12,7 @@ Quant/config/config_smoke_paper.json
 Quant/config/config_*.json
 Quant/config/.token_cache.json
 Quant/config/kis_token_*.json
+Quant/config/regime.json
 kis_token_*.json
 *.log
 *.pid
