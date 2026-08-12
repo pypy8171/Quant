@@ -353,6 +353,10 @@ void Engine::reconcile_from_balance()
         // 2) 당일 총평가금 델타 → daily_pnl_. output2는 배열 또는 객체로 올 수 있어 양쪽 수용.
         double tot_eval = 0.0;
         bool have_eval = false;
+        // 표시 전용: 전일 총자산(bfdy_tot_asst_evlu_amt) 대비 오늘 손익 — launch 시점과 무관하게
+        //  "전일종가 대비 당일손익"을 정확히 찍기 위함. 손실컷 기준선(세션 앵커)과는 분리(리스크 동작 불변).
+        double bfdy_asset = 0.0;
+        bool have_bfdy = false;
         if (bal.contains("output2"))
         {
             const auto& o2 = bal["output2"];
@@ -369,6 +373,12 @@ void Engine::reconcile_from_balance()
                 if (!s.empty())
                 {
                     try { tot_eval = std::stod(s); have_eval = true; } catch (...) {}
+                }
+                // 전일 총자산(없으면 순자산 폴백 없이 스킵) — 표시 전용.
+                std::string bs = row->value("bfdy_tot_asst_evlu_amt", "");
+                if (!bs.empty())
+                {
+                    try { bfdy_asset = std::stod(bs); have_bfdy = true; } catch (...) {}
                 }
             }
         }
@@ -417,9 +427,17 @@ void Engine::reconcile_from_balance()
                 have_pnl_baseline_ = true;
             }
             double delta = tot_eval - pnl_baseline_;
-            order_gate_.set_daily_pnl(delta);
+            order_gate_.set_daily_pnl(delta); // 손실컷용(세션 앵커) — 리스크게이트 동작 유지
             LOG_INFO("[Engine] 리컨사일: 당일손익 " + std::to_string(static_cast<long long>(delta)) +
                      "원 (총평가 " + std::to_string(static_cast<long long>(tot_eval)) + ")");
+            // 표시 전용: 전일종가 대비 진짜 당일손익 — launch 시점과 무관하게 정확·연속 누적.
+            if (have_bfdy && bfdy_asset > 0.0)
+            {
+                double day_delta = tot_eval - bfdy_asset;
+                LOG_INFO("[Engine] 당일손익(전일대비): " +
+                         std::to_string(static_cast<long long>(day_delta)) +
+                         "원 (전일총자산 " + std::to_string(static_cast<long long>(bfdy_asset)) + ")");
+            }
         }
     }
     catch (const std::exception& e)
@@ -838,6 +856,23 @@ void Engine::strategy_thread_fn()
     };
 
     std::vector<OrderSignal> batch_buf; // MM 다건 발주 재사용 버퍼 (per-tick 할당 회피)
+
+    // 기동 스모크 프로브 — 모의계좌 주문경로 검증용 1회성 시장가 매수(config startup_probe).
+    //  이 스레드가 order_queue_ 단일 생산자라 여기서 딱 1번 push하면 SPSC 위반 없음.
+    if (!startup_probe_fired_ && !startup_probe_ticker_.empty() && startup_probe_qty_ > 0)
+    {
+        OrderSignal probe;
+        probe.ticker      = startup_probe_ticker_;
+        probe.side        = OrderSide::BUY;
+        probe.type        = OrderType::MARKET;
+        probe.quantity    = startup_probe_qty_;
+        probe.price       = 0.0;
+        probe.strategy_id = "STARTUP_PROBE";
+        LOG_INFO("[Engine] 기동 스모크 프로브 — " + probe.ticker + " 시장가 BUY " +
+                 std::to_string(probe.quantity) + "주 (모의계좌 주문경로 검증)");
+        push_signal(probe);
+        startup_probe_fired_ = true;
+    }
 
     // strategies_ 무락 순회용 StrategyBase* 스냅샷. data_thread의 재스캔 등록이
     // strat_version_을 올릴 때만 락 하에 재구성한다(틱마다 락 회피). 삭제는 없으므로

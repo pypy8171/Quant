@@ -135,6 +135,18 @@ int main(int argc, char* argv[])
     //  빈 문자열(기본)이면 미가동 — 기존 동작 불변.
     engine.set_regime_file(cfg.value("regime_file", std::string()),
                            cfg.value("regime_stale_sec", 600));
+    // 기동 스모크 프로브 — 서버 실행 시 지정 종목 시장가 1주 매수로 모의계좌 주문경로 검증.
+    //  config "startup_probe": {"ticker":"005930","qty":1}. 없으면 미가동(기존 동작 불변).
+    if (cfg.contains("startup_probe"))
+    {
+        const auto& sp = cfg["startup_probe"];
+        std::string sp_ticker = sp.value("ticker", std::string());
+        int         sp_qty    = sp.value("qty", 0);
+        engine.set_startup_probe(sp_ticker, sp_qty);
+        if (!sp_ticker.empty() && sp_qty > 0)
+            LOG_INFO("[Main] 기동 스모크 프로브 설정: " + sp_ticker + " 시장가 " +
+                     std::to_string(sp_qty) + "주 (모의계좌 주문경로 검증)");
+    }
     // 시세 전용(실전 도메인) 키: 모의(openapivts)는 시세 REST가 HTTP 500이므로 시세만 실전으로 조회.
     // 스캔 유니버스 분기(universe_from_scan)도 이 실전 키로 거래대금 랭킹/지수를 조회하므로 바깥 스코프로 보관.
     KisConfig quote_kis_cfg;

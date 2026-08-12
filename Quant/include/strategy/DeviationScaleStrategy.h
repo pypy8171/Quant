@@ -87,8 +87,12 @@ public:
     {
         live_.clear();
         last_sma_ = 0.0;
+        last_pos_ = -1;
         last_ladder_sig_.clear();
         in_zone_ = false;
+        liq_next_ = std::chrono::steady_clock::time_point{};
+        liq_last_pos_ = -1;
+        liq_fail_streak_ = 0;
         last_work_ = std::chrono::steady_clock::time_point{};
         daily_.clear();
         daily_date_.clear();
@@ -106,16 +110,12 @@ public:
         // ── EOD 안전장치: 전량 취소 + 시장가 청산 ────────────────────────────
         if (hhmm >= p_.eod_hhmm)
         {
-            bool acted = cancel_all(out);
+            bool cancelled = cancel_all(out);
             int pos = confirmed_position(p_.account, p_.ticker);
-            if (pos > 0)
-            {
-                out.push_back(make_market_sell(pos));
-                acted = true;
-            }
-            if (acted)
-                LOG_INFO("[" + id() + "] EOD(" + std::to_string(hhmm) + ") — 전량 취소+청산 pos=" +
-                         std::to_string(pos));
+            const std::string tag = "EOD(" + std::to_string(hhmm) + ")";
+            emit_liquidation(out, pos, std::chrono::steady_clock::now(), tag); // 클램프+백오프(자체 로깅)
+            if (cancelled && pos <= 0)
+                LOG_INFO("[" + id() + "] " + tag + " — 미체결 취소(보유 0)");
             return;
         }
 
@@ -134,13 +134,15 @@ public:
         refresh_daily_if_needed();
         const bool   aligned = is_aligned(daily_);
         const double d_s20   = sma_close(daily_, 20);
-        const double d_dev   = d_s20 > 0.0 ? std::fabs(cur_px - d_s20) / d_s20 * 100.0 : -1.0;
-        // 히스테리시스: 진입은 좁게(pullback_pct), 한번 활성이면 넓게(pullback+hyst)까지 유지.
-        //   절대이격이라 경계에서 0-폭 활성↔대기 진동 → 매수 직후 시장가 청산되던 휩쏘 방지.
-        const double enter_th = p_.pullback_pct;
-        const double exit_th  = p_.pullback_pct + p_.zone_hyst_pct;
-        const double zone_th  = in_zone_ ? exit_th : enter_th;
-        const bool   zone     = aligned && d_s20 > 0.0 && d_dev <= zone_th;
+        // 방향성 이격(부호 유지): +면 SMA20 위(확장추격), −면 아래(눌림). 절대값 금지.
+        const double s_dev   = d_s20 > 0.0 ? (cur_px - d_s20) / d_s20 * 100.0 : 999.0;
+        // 방향성 눌림 게이트: 진입은 "SMA20 이하(≤0%) ~ pullback_pct 아래"의 눌림 구간에서만.
+        //   정배열 상승추세에서 SMA20으로 되돌린(눌린) 자리만 잡고, 위로 벌어진 확장은 배제.
+        //   히스테리시스: 활성이면 상단 +zone_hyst, 하단 −(pullback+zone_hyst)까지 유지(경계 진동 방지).
+        const double up_th   = in_zone_ ? p_.zone_hyst_pct : 0.0;            // 진입 상단=SMA20(0%), 유지=+hyst
+        const double down_th = in_zone_ ? p_.pullback_pct + p_.zone_hyst_pct // 유지 하단
+                                        : p_.pullback_pct;                   // 진입 하단
+        const bool   zone    = aligned && d_s20 > 0.0 && s_dev <= up_th && s_dev >= -down_th;
         in_zone_ = zone;
 
         // 존 판정 가시화: 상태 변화 시 또는 60초마다 1회(관찰용).
@@ -150,25 +152,20 @@ public:
             LOG_INFO("[" + id() + "] 존 판정 " + std::string(zone ? "활성" : "대기") +
                      " | 정배열=" + std::string(aligned ? "Y" : "N") +
                      " 일봉SMA20=" + fmt1(d_s20) + " 현재가=" + fmt1(cur_px) +
-                     " 이격=" + fmt1(d_dev) + "% (한도 " + fmt1(zone_th) +
-                     "% 진입" + fmt1(enter_th) + "/청산" + fmt1(exit_th) +
-                     ") 일봉수=" + std::to_string(daily_.size()));
+                     " 이격=" + fmt1(s_dev) + "% (눌림밴드 " + fmt1(-down_th) + "%~" + fmt1(up_th) +
+                     "%) 일봉수=" + std::to_string(daily_.size()));
             last_zone_    = zone;
             zone_log_ts_  = now;
         }
 
         if (!zone)
         {
-            // 존 이탈 → 미체결 전부 취소 + 보유분 시장가 청산.
-            bool acted = cancel_all(out);
+            // 존 이탈 → 미체결 전부 취소 + 보유분 시장가 청산(매도가능분 클램프+백오프).
+            bool cancelled = cancel_all(out);
             int pos = confirmed_position(p_.account, p_.ticker);
-            if (pos > 0)
-            {
-                out.push_back(make_market_sell(pos));
-                acted = true;
-            }
-            if (acted)
-                LOG_INFO("[" + id() + "] 존 이탈 — 취소+청산 pos=" + std::to_string(pos));
+            emit_liquidation(out, pos, now, "존 이탈"); // 클램프+백오프(자체 로깅)
+            if (cancelled && pos <= 0)
+                LOG_INFO("[" + id() + "] 존 이탈 — 미체결 취소(보유 0)");
             return;
         }
 
@@ -219,14 +216,18 @@ public:
                 plan.push_back({OrderSide::BUY, bp, p_.step_qty});
         }
 
-        // ── no-change 가드: 시그니처(side:price:qty 나열)가 직전과 동일하고
-        //    사다리가 살아있으면 취소·재발주 스킵(처닝 차단). ──────────────────
+        // ── no-change 가드: 처닝 차단. 사다리가 살아있고 (a)계획 시그니처가 직전과 동일하거나
+        //    (b)SMA 이동이 reprice_move_ticks 데드밴드 이내이고 포지션도 그대로면 재발주 스킵.
+        //    (b)가 핵심: SMA가 틱경계를 스치며 미세이동할 때마다 전량 취소·재발주해 매도 rung이
+        //    체결 전에 취소되고 매수만 쌓여 pos가 편증하던 처닝을 근본 차단(reprice_move_ticks 구현).
         std::string sig;
         for (const auto& r : plan)
             sig += std::string(r.side == OrderSide::BUY ? "B" : "S") + fmt1(r.price) +
                    "x" + std::to_string(r.qty) + "|";
-        if (sig == last_ladder_sig_ && !live_.empty())
-            return; // 동일 사다리 → 유지
+        const double reprice_band = p_.reprice_move_ticks * tick_size(sma);
+        const bool   sma_quiet    = last_sma_ > 0.0 && std::fabs(sma - last_sma_) < reprice_band;
+        if (!live_.empty() && (sig == last_ladder_sig_ || (sma_quiet && pos == last_pos_)))
+            return; // 동일 사다리 또는 데드밴드 내 미세이동 → 유지
 
         // ── 재구성: 기존 취소 후 신규 지정가 ──────────────────────────────────
         cancel_all(out);
@@ -235,6 +236,7 @@ public:
 
         last_sma_ = sma;
         last_ladder_sig_ = sig;
+        last_pos_ = pos;
         LOG_INFO("[" + id() + "] 사다리 재구성 sma=" + fmt1(sma) + " px=" + fmt1(cur_px) +
                  " pos=" + std::to_string(pos) + " live=" + std::to_string(live_.size()));
     }
@@ -260,17 +262,6 @@ private:
         double s20 = sma_close(daily, 20);
         double s60 = sma_close(daily, 60);
         return s5 > s10 && s10 > s20 && s20 > s60;
-    }
-
-    bool zone_active(double cur_px) const
-    {
-        if (!is_aligned(daily_))
-            return false;
-        double s20 = sma_close(daily_, 20);
-        if (s20 <= 0.0)
-            return false;
-        double dev = std::fabs(cur_px - s20) / s20 * 100.0; // 일봉 20MA 대비 이격(%)
-        return dev <= p_.pullback_pct;                      // 눌림목(기준선 ±pullback_pct 이내)
     }
 
     void refresh_daily_if_needed()
@@ -370,6 +361,85 @@ private:
         return s;
     }
 
+    // ── 청산 발주: 매도가능분 클램프 + 지수 백오프 ───────────────────────────
+    //  버그 이력: 존이탈/EOD 청산이 원장 보유수량 전량을 시장가 매도했으나, 예약매도
+    //  (고아/미결제)로 실매도가능분(ord_psbl_qty)이 보유보다 작으면 KIS가 전량 거부
+    //  (40240000 "잔고내역 없습니다") → 매 하트비트 무한 재거부 스팸. 실계좌 동일.
+    //  대책: (1) 매 시도 get_balance의 '실시간' 주문가능수량으로 클램프 → 잠긴 수량
+    //  초과분 미발주(과매도·이중주문 위험 0, 브로커 상태 기준이라 체결지연에도 자기교정).
+    //  (2) 시도 후 진행(pos 감소) 없으면 30·60·120·240·480s(cap 300s) 지수 백오프.
+    //  반환: 시장가 매도를 실제로 out에 넣었으면 true.
+    bool emit_liquidation(std::vector<OrderSignal>& out, int pos,
+                          std::chrono::steady_clock::time_point now, const std::string& tag)
+    {
+        if (pos <= 0)
+            return false;
+        // 진행 판정: 직전 시도보다 pos가 줄었으면(부분체결) 백오프 리셋.
+        if (liq_last_pos_ < 0 || pos < liq_last_pos_)
+        {
+            liq_fail_streak_ = 0;
+            liq_next_ = std::chrono::steady_clock::time_point{};
+        }
+        if (liq_next_.time_since_epoch().count() != 0 && now < liq_next_)
+            return false; // 백오프 창 내 — 재발주 스킵(스팸 차단)
+
+        const int sellable = sellable_qty();             // 안전 우선: 불확실하면 0(보류)
+        const int q = sellable > 0 ? (pos < sellable ? pos : sellable) : 0;
+        bool emitted = false;
+        if (q > 0)
+        {
+            out.push_back(make_market_sell(q));
+            emitted = true;
+            LOG_INFO("[" + id() + "] " + tag + " — 취소+청산 pos=" + std::to_string(pos) +
+                     " 매도가능=" + std::to_string(sellable) + " 발주=" + std::to_string(q));
+        }
+        else
+        {
+            LOG_WARN("[" + id() + "] " + tag + " 청산 보류 — 매도가능=0 (잠긴 " +
+                     std::to_string(pos) + "주, 예약취소/결제 대기) 백오프#" +
+                     std::to_string(liq_fail_streak_ + 1));
+        }
+        liq_last_pos_ = pos;
+        ++liq_fail_streak_;
+        int shift = liq_fail_streak_ - 1;
+        if (shift > 4) shift = 4;
+        long long ms = 30000LL << shift;                 // 30/60/120/240/480…
+        if (ms > 300000LL) ms = 300000LL;                // cap 5분
+        liq_next_ = now + std::chrono::milliseconds(ms);
+        return emitted;
+    }
+
+    // 해당 종목의 실시간 매도가능수량(ord_psbl_qty). 안전 우선: 확실히 알 수 없으면 0
+    //  (보류)을 반환해 절대 과매도/이중주문을 유발하지 않는다.
+    //  - kis_ 없음/시세전용(계좌 없는 quote) 클라이언트 → 0 (불필요한 잔고 조회도 안 함).
+    //    실계좌(단일 클라이언트)는 account 보유 → 정상 조회로 클램프.
+    //  - 조회 실패(예외·output1 없음)·잔고에 종목 없음·필드 없음 → 0 (다음 백오프에 재시도).
+    int sellable_qty()
+    {
+        if (!kis_ || !kis_->has_account())
+            return 0;
+        try
+        {
+            nlohmann::json bal = kis_->get_balance();
+            if (!bal.contains("output1") || !bal["output1"].is_array())
+                return 0;
+            for (const auto& h : bal["output1"])
+            {
+                if (h.value("pdno", std::string()) != p_.ticker)
+                    continue;
+                std::string p = h.value("ord_psbl_qty", std::string());
+                if (p.empty())
+                    return 0;
+                try { return std::stoi(p); } catch (...) { return 0; }
+            }
+            return 0; // 잔고에 종목 없음 → 매도가능 0
+        }
+        catch (...)
+        {
+            return 0;
+        }
+    }
+
     // ── KST 시각 헬퍼(서버 TZ 독립: gmtime + 9h) ─────────────────────────────
     static struct tm kst_tm()
     {
@@ -408,10 +478,14 @@ private:
     std::vector<MarketData> daily_;        // 일봉 캐시(정배열/눌림 판정)
     std::string daily_date_;               // 캐시 기준일(KST YYYYMMDD)
     double last_sma_ = 0.0;                // 마지막 재호가 기준 SMA
+    int    last_pos_ = -1;                  // 마지막 재구성 시 포지션(데드밴드 가드)
     std::string last_ladder_sig_;          // 마지막 발주 사다리 시그니처(no-change 가드)
     std::chrono::steady_clock::time_point last_work_{};   // 스로틀
     bool last_zone_ = false;                              // 마지막 존 상태(변화 로그용)
     bool in_zone_   = false;                              // 존 히스테리시스 상태(진입/청산 임계 전환)
     std::chrono::steady_clock::time_point zone_log_ts_{}; // 마지막 존 판정 로그 시각
+    std::chrono::steady_clock::time_point liq_next_{};    // 청산 재시도 백오프 해제 시각
+    int    liq_last_pos_    = -1;                          // 직전 청산시도 pos(진행 판정)
+    int    liq_fail_streak_ = 0;                           // 연속 미진행 횟수(백오프 지수)
     uint64_t seq_ = 0;
 };

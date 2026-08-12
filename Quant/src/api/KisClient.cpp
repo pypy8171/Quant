@@ -67,15 +67,24 @@ static WinHttpResult crack_url(const std::string& url)
     return r;
 }
 
-static std::string winhttp_request(const std::string& method, const std::string& url,
-                                   const std::vector<std::string>& headers, const std::string& body)
+// 단발 시도. transport_ok = HTTP 응답을 실제로 받았는가(상태코드 무관, 4xx/5xx도 true).
+//  false = 전송 계층 실패(핸들 생성/SendRequest/ReceiveResponse 실패 — 예: 12152). 이때만 재시도 대상.
+static std::string winhttp_request_once(const std::string& method, const std::string& url,
+                                        const std::vector<std::string>& headers, const std::string& body,
+                                        bool& transport_ok, int& status_code)
 {
+    transport_ok = false;
+    status_code = 0;
     auto c = crack_url(url);
 
     HINTERNET hSession = WinHttpOpen(L"QuantTrader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
                                      WINHTTP_NO_PROXY_BYPASS, 0);
     if (!hSession)
         return "";
+
+    // 명시적 타임아웃(ms): resolve/connect/send/receive. 기본값(무한대급)에서 하향해
+    // 전송 계층 히컵이 스레드를 장시간 잡는 것을 막는다.
+    WinHttpSetTimeouts(hSession, 5000, 5000, 10000, 15000);
 
     HINTERNET hConnect = WinHttpConnect(hSession, c.host.c_str(), c.port, 0);
     if (!hConnect)
@@ -124,10 +133,14 @@ static std::string winhttp_request(const std::string& method, const std::string&
         WinHttpCloseHandle(hSession);
         return "";
     }
+    // 여기 도달 = HTTP 응답 수신 성공(상태코드는 아래에서 확인). 전송 계층은 정상.
+    transport_ok = true;
+
     // HTTP 상태 코드 확인 (4xx/5xx도 body를 읽어야 함)
     DWORD statusCode = 0, statusSize = sizeof(statusCode);
     WinHttpQueryHeaders(hReq, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
                         &statusCode, &statusSize, WINHTTP_NO_HEADER_INDEX);
+    status_code = (int)statusCode;
     if (statusCode >= 400)
     {
         char errbuf[32];
@@ -151,6 +164,37 @@ static std::string winhttp_request(const std::string& method, const std::string&
     return response;
 }
 
+// 재시도 래퍼. ⚠ 멱등 요청(GET)만 재시도한다 — (a) 전송 계층 실패(12152 등), (b) 5xx 서버 일시장애.
+//  KIS 시세/일봉 TR은 부하 시 간헐 HTTP 500을 뱉는데(전송은 정상, transport_ok=true), 이때 일봉이 <60봉으로
+//  잘려 스캔 후보가 통째로 탈락한다 → 멱등 GET에 한해 5xx도 재시도해 후보 유실을 막는다.
+//  주문 등 POST는 재시도하지 않는다 — 빈 응답(12152)이 "미접수"라는 보장이 없어(서버엔 접수됐을 수 있음)
+//  블라인드 재시도는 이중주문 위험. POST 실패는 호출자가 리컨사일로 확정해야 한다.
+static std::string winhttp_request(const std::string& method, const std::string& url,
+                                   const std::vector<std::string>& headers, const std::string& body)
+{
+    const bool idempotent = (method == "GET");
+    const int max_attempts = idempotent ? 3 : 1;
+    std::string resp;
+    for (int attempt = 1; attempt <= max_attempts; ++attempt)
+    {
+        bool transport_ok = false;
+        int status = 0;
+        resp = winhttp_request_once(method, url, headers, body, transport_ok, status);
+        // 재시도 대상: 전송 실패(항상) 또는 멱등 GET의 5xx. 그 외(2xx/4xx)는 즉시 반환.
+        const bool retryable = !transport_ok || (idempotent && status >= 500);
+        if (!retryable)
+            return resp;
+        if (attempt < max_attempts)
+        {
+            LOG_WARN("[WinHTTP] " + std::string(transport_ok ? "HTTP " + std::to_string(status) : "전송 실패") +
+                     " — 재시도 " + std::to_string(attempt + 1) + "/" + std::to_string(max_attempts) +
+                     " (GET 멱등)  url=" + url);
+            Sleep(150u * attempt); // 선형 백오프: 150ms, 300ms
+        }
+    }
+    return resp; // 재시도 소진 — 마지막 응답(빈 문자열 또는 5xx 바디)
+}
+
 #else
 // ─── Linux: libcurl ────────────────────────────────────────────────────────
 #include <curl/curl.h>
@@ -161,9 +205,14 @@ static size_t write_callback(char* ptr, size_t size, size_t nmemb, std::string* 
     return size * nmemb;
 }
 
-static std::string curl_request(const std::string& method, const std::string& url,
-                                const std::vector<std::string>& headers, const std::string& body)
+// 단발 시도. transport_ok = HTTP 응답을 받았는가(CURLE_OK; 4xx/5xx도 true).
+//  curl_easy_perform은 HTTP 응답을 받으면(상태코드 무관) CURLE_OK, 전송 실패(타임아웃·연결단절 등)만 비-OK.
+static std::string curl_request_once(const std::string& method, const std::string& url,
+                                     const std::vector<std::string>& headers, const std::string& body,
+                                     bool& transport_ok, int& status_code)
 {
+    transport_ok = false;
+    status_code = 0;
     CURL* curl = curl_easy_init();
     if (!curl)
         return "";
@@ -188,10 +237,43 @@ static std::string curl_request(const std::string& method, const std::string& ur
     CURLcode rc = curl_easy_perform(curl);
     if (rc != CURLE_OK)
         LOG_ERROR(std::string("[CURL] 요청 실패: ") + curl_easy_strerror(rc));
+    else
+    {
+        transport_ok = true;
+        long http_code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+        status_code = (int)http_code;
+    }
 
     curl_slist_free_all(hlist);
     curl_easy_cleanup(curl);
     return response;
+}
+
+// 재시도 래퍼. ⚠ 멱등 요청(GET)만 재시도 — 전송 계층 실패 또는 5xx(WinHTTP 경로와 동일 규약 — 주문 POST 제외).
+static std::string curl_request(const std::string& method, const std::string& url,
+                                const std::vector<std::string>& headers, const std::string& body)
+{
+    const bool idempotent = (method == "GET");
+    const int max_attempts = idempotent ? 3 : 1;
+    std::string resp;
+    for (int attempt = 1; attempt <= max_attempts; ++attempt)
+    {
+        bool transport_ok = false;
+        int status = 0;
+        resp = curl_request_once(method, url, headers, body, transport_ok, status);
+        const bool retryable = !transport_ok || (idempotent && status >= 500);
+        if (!retryable)
+            return resp;
+        if (attempt < max_attempts)
+        {
+            LOG_WARN("[CURL] " + std::string(transport_ok ? "HTTP " + std::to_string(status) : "전송 실패") +
+                     " — 재시도 " + std::to_string(attempt + 1) + "/" + std::to_string(max_attempts) +
+                     " (GET 멱등)  url=" + url);
+            std::this_thread::sleep_for(std::chrono::milliseconds(150 * attempt));
+        }
+    }
+    return resp;
 }
 #endif
 

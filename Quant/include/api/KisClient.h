@@ -28,6 +28,12 @@ public:
     {
         return !access_token_.empty();
     }
+    // 이 클라이언트가 계좌번호를 가졌는가(주문/잔고 계좌). 시세전용(quote) 클라이언트는
+    // account_no가 비어 있어 잔고·주문가능 조회가 불가 — 호출측이 사전에 가드용으로 사용.
+    bool has_account() const
+    {
+        return !cfg_.account_no.empty();
+    }
 
     // ── 국내 (KR) ──────────────────────────────────────────────────────────
     std::vector<MarketData> get_daily_ohlcv(const std::string& ticker, int count);

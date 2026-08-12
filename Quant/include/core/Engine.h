@@ -50,6 +50,14 @@ public:
         regime_file_ = path;
         if (stale_sec > 0) regime_stale_sec_ = stale_sec;
     }
+    // 기동 스모크 프로브 — 서버 실행 직후 지정 종목을 시장가로 1회 매수해 모의계좌 주문경로
+    //  (OrderRouter→체결통보→원장)가 실제로 도는지 검증한다. qty≤0 또는 ticker 빈 문자열이면 미가동.
+    //  strategy_thread가 order_queue_의 단일 생산자이므로 그 스레드 진입 시 1회만 push한다.
+    void set_startup_probe(const std::string& ticker, int qty)
+    {
+        startup_probe_ticker_ = ticker;
+        startup_probe_qty_    = qty;
+    }
     // 시세 전용 클라이언트 설정(실전 도메인). KIS 모의(openapivts)는 시세 REST가 HTTP 500이라
     // 시세는 실전 키+실전 도메인으로 조회하고 주문만 모의로 낸다. rest_price_feed_ 폴링이 사용.
     void set_quote_kis_config(const KisConfig& c)
@@ -114,6 +122,9 @@ private:
     KisConfig kis_cfg_;
     int fetch_interval_sec_;
     bool bootstrap_ledger_ = false; // 기동 시 실계좌 보유분 원장 시드 여부(G5, opt-in)
+    std::string startup_probe_ticker_;  // 기동 스모크 프로브 종목(빈 문자열=미가동)
+    int         startup_probe_qty_ = 0; // 기동 스모크 프로브 수량(≤0=미가동)
+    bool        startup_probe_fired_ = false; // 프로브 1회성 발사 가드
     bool rest_price_feed_ = false;  // REST 현재가 폴링을 체결 피드로 사용(WS 우회, opt-in)
     // 매크로 레짐 브리지 상태(data_thread 전용) — regime.json → OrderGate entry_halt.
     std::string regime_file_;             // 빈 문자열이면 기능 미가동
