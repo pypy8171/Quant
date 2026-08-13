@@ -25,17 +25,38 @@ public:
         return inst;
     }
 
-    void init(const std::string& filepath, LogLevel min_level = LogLevel::INFO)
+    void init(const std::filesystem::path& filepath, LogLevel min_level = LogLevel::INFO)
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        // 로그 경로가 하위 폴더(예: logs/)를 포함하면 부모 디렉터리를 먼저 만든다.
-        // cwd 위치와 무관하게 파일이 흩어지지 않고 지정 폴더에 모이도록 보장.
+        // 부모 디렉터리를 먼저 만든다. main에서 실행파일 기준 절대경로가 넘어오므로
+        // cwd 위치와 무관하게 로그가 한 폴더에 모인다. (Windows 한글 경로 대비 path로 open)
         std::error_code ec;
-        auto parent = std::filesystem::path(filepath).parent_path();
+        auto parent = filepath.parent_path();
         if (!parent.empty())
             std::filesystem::create_directories(parent, ec);
         file_.open(filepath, std::ios::app);
         min_level_ = min_level;
+    }
+
+    // 실행 위치(cwd)와 무관하게 로그·산출물을 한 곳에 모으기 위한 기준 디렉터리.
+    // main에서 실행파일 기준 절대경로로 한 번 고정한다(미설정 시 cwd 하위 "logs").
+    void set_base_dir(const std::filesystem::path& dir)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        base_dir_ = dir;
+    }
+    std::filesystem::path base_dir()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return base_dir_;
+    }
+    // 기준 디렉터리 하위 파일의 전체 경로(부모 폴더가 없으면 생성).
+    std::filesystem::path path_for(const std::string& name)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::error_code ec;
+        std::filesystem::create_directories(base_dir_, ec);
+        return base_dir_ / name;
     }
 
     // 화면 표시 모드일 때 콘솔 출력을 끄고 파일에만 기록
@@ -104,6 +125,7 @@ private:
     std::ofstream file_;
     LogLevel min_level_ = LogLevel::INFO;
     bool console_enabled_ = true;
+    std::filesystem::path base_dir_{"logs"}; // set_base_dir 전 기본값(하위호환)
 };
 
 #define LOG_INFO(msg) Logger::instance().info(msg)

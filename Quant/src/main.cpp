@@ -5,6 +5,8 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #include <thread>
@@ -38,6 +40,26 @@ static json load_config(const std::string& path)
     return json::parse(f);
 }
 
+// ─── 실행파일이 놓인 디렉터리 (cwd와 무관) ──────────────────────────────────
+//  로그·산출물을 실행 위치가 아니라 바이너리 기준으로 모으기 위한 앵커.
+//  Windows 한글 경로(예: C:\Users\...\) 대비 wide 버퍼로 받아 path로만 다룬다.
+static std::filesystem::path executable_dir()
+{
+#ifdef _WIN32
+    wchar_t buf[MAX_PATH];
+    DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH)
+        return std::filesystem::current_path();
+    return std::filesystem::path(std::wstring(buf, n)).parent_path();
+#else
+    std::error_code ec;
+    auto p = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (ec)
+        return std::filesystem::current_path();
+    return p.parent_path();
+#endif
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  main — 설정·인증 부트스트랩 후 모드별 실행으로 디스패치한다.
 //   · 관찰 모드(FEED/KR_TEST/US_TEST) → modes/Monitors.cpp
@@ -52,8 +74,16 @@ int main(int argc, char* argv[])
     GetConsoleMode(hOut, &dwMode);
     SetConsoleMode(hOut, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
 #endif
-    // 로그는 cwd 루트에 흩뿌리지 않고 logs/ 하위로 모은다(부모 폴더는 Logger가 자동 생성).
-    Logger::instance().init("logs/quant_trader.log", LogLevel::INFO);
+    // 로그·산출물을 실행 위치(cwd)와 무관하게 한 폴더로 못박는다.
+    //  기본: 실행파일 옆 logs/  ·  QUANT_LOG_DIR 환경변수가 있으면 그 절대경로 우선.
+    //  (같은 바이너리를 어느 폴더에서 띄워도 trades/pnl_baseline/log가 흩어지지 않음)
+    std::filesystem::path log_base;
+    if (const char* env = std::getenv("QUANT_LOG_DIR"); env && *env)
+        log_base = std::filesystem::path(env);
+    else
+        log_base = executable_dir() / "logs";
+    Logger::instance().set_base_dir(log_base);
+    Logger::instance().init(Logger::instance().path_for("quant_trader.log"), LogLevel::INFO);
     LOG_INFO("=== Quant Trader v2.0 ===");
 
     // 인자 파싱: quant_trader [config] [MODE]
@@ -179,11 +209,17 @@ int main(int argc, char* argv[])
         rc.dedup_window_sec       = r.value("dedup_window_sec", rc.dedup_window_sec);
         rc.max_qty_per_order      = r.value("max_qty_per_order", rc.max_qty_per_order);
         rc.max_notional_per_order = r.value("max_notional_per_order", rc.max_notional_per_order);
+        rc.max_notional_per_ticker  = r.value("max_notional_per_ticker", rc.max_notional_per_ticker);
+        rc.max_concurrent_positions = r.value("max_concurrent_positions", rc.max_concurrent_positions);
         engine.set_risk_config(rc);
         LOG_INFO("[Main] risk 한도: 종목당 " + std::to_string(rc.max_qty_per_ticker) + "주, 일손실 " +
                  std::to_string((long long)rc.daily_loss_limit) + "원, " +
                  std::to_string(rc.max_orders_per_sec) + "/s·" +
                  std::to_string(rc.max_orders_per_min) + "/min");
+        if (rc.max_notional_per_ticker > 0.0 || rc.max_concurrent_positions > 0)
+            LOG_INFO("[Main] 사이징 백스톱: 종목당 명목 " +
+                     std::to_string((long long)rc.max_notional_per_ticker) + "원, 동시보유 " +
+                     std::to_string(rc.max_concurrent_positions) + "종목");
 
         // 주문 페이싱(C-2/W-3) — 버스트 청산 EGW00201 회피 + 거부 SELL 재시도.
         int pace_ms = r.value("order_min_interval_ms", 350);

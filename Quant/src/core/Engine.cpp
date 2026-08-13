@@ -399,7 +399,9 @@ void Engine::reconcile_from_balance()
 #endif
                 char dbuf[9];
                 std::strftime(dbuf, sizeof(dbuf), "%Y%m%d", &ktm);
-                std::string bpath = std::string("logs/pnl_baseline_") + dbuf + ".txt";
+                // 실행 위치와 무관하게 로그 폴더(main에서 고정)와 같은 곳에 기준선 저장.
+                std::filesystem::path bpath =
+                    Logger::instance().path_for(std::string("pnl_baseline_") + dbuf + ".txt");
 
                 double file_base = 0.0;
                 bool from_file = false;

@@ -56,6 +56,7 @@ public:
     // 직전 주문/취소/정정의 KIS 오류코드(msg_cd). 성공 시 "". EGW00201(초당한도) 적응재시도 판별용.
     //  주문 3메서드는 단일 order_thread에서만 호출되므로 락 없이 안전(단일 기록자·판독자).
     std::string last_order_error_code() const override { return last_order_msg_cd_; }
+    bool is_paper() const override { return cfg_.is_paper; }
     // 미체결(정정취소 가능) 예약주문 조회 — inquire-psbl-rvsecncl (모의 VTTC0084R / 실전 TTTC0084R)
     std::vector<OpenOrder> get_open_orders() override;
     nlohmann::json get_balance();

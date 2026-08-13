@@ -31,7 +31,10 @@ class OrderGate
 public:
     struct Config
     {
-        int max_qty_per_ticker  = 100;          // 종목당 최대 보유 수량(BUY 누적)
+        int max_qty_per_ticker  = 100;          // 종목당 최대 보유 수량(BUY 누적) — fat-finger 백스톱
+        // ── 명목 사이징 백스톱 — 전략이 자본%로 사이징할 때의 상한/집중 제어(0=미적용) ──
+        double max_notional_per_ticker  = 0.0;  // 종목당 최대 보유 명목(원). limit가로 평가. 0=수량 한도만
+        int    max_concurrent_positions = 0;    // 동시 보유 종목 상한(새 종목 여는 BUY NEW에만). 0=미적용
         double daily_loss_limit = -300'000.0;   // 일일 최대 손실 (-30만원)
         int max_orders_per_min  = 20;           // 분당 최대 주문 (KIS 권장)
         int max_orders_per_sec  = 5;            // 초당 최대 주문 (KIS 안전 한도)

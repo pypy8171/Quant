@@ -41,13 +41,23 @@ public:
     struct Params
     {
         std::string ticker;
-        int    base_qty       = 10;    // 존 진입 베이스 매수 수량(목표의 절반 개념)
-        int    step_qty       = 5;     // 각 밴드(rung) 분할 수량
+        // ── 명목 사이징(자본%) — 우선. 자본 스냅샷(총평가금)×pct 를 가격으로 나눠 수량 산출.
+        //    베이스=자본×base_pct, 물타기 총예산=자본×(max_pct−base_pct)를 n_rungs로 분할.
+        //    자본을 알 수 없고(조회 실패) fallback_equity 도 0이면 아래 base_qty/step_qty 로 폴백.
+        double base_pct       = 0.05;  // 존 진입 베이스 명목 = 자본의 5%
+        double max_pct        = 0.10;  // 종목당 상한 명목 = 자본의 10%(물타기 포함)
+        double fallback_equity = 0.0;  // 잔고조회 실패 시 사용할 기준자본(원). 0이면 주수 폴백
+        int    base_qty       = 10;    // (폴백) 존 진입 베이스 매수 수량
+        int    step_qty       = 5;     // (폴백) 각 밴드(rung) 분할 수량
         int    sma_period     = 20;    // 3분봉 기준선 SMA 기간
         double dev_sell       = 1.5;   // 매도 밴드 이격도(%) — 층당 배수
         double dev_buy        = 0.8;   // 매수 밴드 이격도(%) — 층당 배수
         int    n_rungs        = 2;     // 밴드 층수
-        double pullback_pct   = 2.0;   // 일봉 SMA20 눌림 허용폭(±%) — 존 진입 임계
+        bool   add_below_sma_only = true; // 물타기(매수 밴드)를 현재가가 3분봉 기준선 아래(실제 눌림)일 때만 깐다.
+                                          //  true=점진 진입: 활성 시 base만 → 진짜 눌림에서만 평단 낮춤(즉시 10% 만재 방지).
+                                          //  false=예전 성격: 활성 즉시 base+물타기 전부 예약(빠른 풀사이즈).
+        double pullback_pct   = 2.0;   // 일봉 SMA20 눌림 허용폭(하단,%) — 존 진입 임계(SMA20 아래)
+        double entry_upper_pct = 0.0;  // 진입 상단(SMA20 위 허용%). 0=SMA20 이하만(순수 눌림). >0이면 SMA20 위 그만큼까지 진입 허용(완만상승·소폭눌림 포착)
         double zone_hyst_pct  = 4.0;   // 존 히스테리시스 밴드(%) — 청산 임계 = pullback + 이 값
         int    reprice_move_ticks = 2; // SMA가 이만큼(틱) 이동하면 재호가
         int    eod_hhmm       = 1515;  // 이 시각(KST HHMM) 이후 전량 취소+청산
@@ -96,6 +106,7 @@ public:
         last_work_ = std::chrono::steady_clock::time_point{};
         daily_.clear();
         daily_date_.clear();
+        equity_ = 0.0;
         seq_ = 0;
         LOG_INFO("[" + id() + "] 시작 — " + describe());
     }
@@ -137,9 +148,9 @@ public:
         // 방향성 이격(부호 유지): +면 SMA20 위(확장추격), −면 아래(눌림). 절대값 금지.
         const double s_dev   = d_s20 > 0.0 ? (cur_px - d_s20) / d_s20 * 100.0 : 999.0;
         // 방향성 눌림 게이트: 진입은 "SMA20 이하(≤0%) ~ pullback_pct 아래"의 눌림 구간에서만.
-        //   정배열 상승추세에서 SMA20으로 되돌린(눌린) 자리만 잡고, 위로 벌어진 확장은 배제.
-        //   히스테리시스: 활성이면 상단 +zone_hyst, 하단 −(pullback+zone_hyst)까지 유지(경계 진동 방지).
-        const double up_th   = in_zone_ ? p_.zone_hyst_pct : 0.0;            // 진입 상단=SMA20(0%), 유지=+hyst
+        //   정배열 상승추세에서 SMA20 눌림(entry_upper_pct=0) 또는 SMA20 위 소폭(entry_upper_pct>0)까지 진입 허용.
+        //   히스테리시스: 활성이면 상단 +zone_hyst 더 여유, 하단 −(pullback+zone_hyst)까지 유지(경계 진동 방지).
+        const double up_th   = p_.entry_upper_pct + (in_zone_ ? p_.zone_hyst_pct : 0.0); // 진입 상단=entry_upper, 유지=+hyst
         const double down_th = in_zone_ ? p_.pullback_pct + p_.zone_hyst_pct // 유지 하단
                                         : p_.pullback_pct;                   // 진입 하단
         const bool   zone    = aligned && d_s20 > 0.0 && s_dev <= up_th && s_dev >= -down_th;
@@ -187,20 +198,31 @@ public:
         struct Rung { OrderSide side; double price; int qty; };
         std::vector<Rung> plan;
 
-        // 베이스: 무포지션이면 기준선 근처 지정가 매수(목표 절반).
+        // ── 명목 사이징: 자본%를 가격으로 나눠 수량 산출(자본 미상이면 주수 폴백) ──
+        //  베이스=자본×base_pct(5%), 물타기 총예산=자본×(max_pct−base_pct)(5%)를 n_rungs로 분할.
+        //  베이스+물타기 합 ≈ 자본×max_pct(10%) → OrderGate 명목캡과 정합(캡은 백스톱).
+        const double eq            = equity_ > 0.0 ? equity_ : p_.fallback_equity;
+        const double base_notional = eq * p_.base_pct;
+        const double rung_budget   = eq * (p_.max_pct > p_.base_pct ? p_.max_pct - p_.base_pct : 0.0);
+        const double rung_notional = p_.n_rungs > 0 ? rung_budget / p_.n_rungs : 0.0;
+
+        // 베이스: 무포지션이면 기준선 근처 지정가 매수(자본의 base_pct).
         if (pos <= 0)
         {
             double bp = round_to_tick(sma, OrderSide::BUY);
-            if (bp > 0.0)
-                plan.push_back({OrderSide::BUY, bp, p_.base_qty});
+            int    bq = qty_for(base_notional, bp);
+            if (bq <= 0) bq = p_.base_qty;              // 자본 미상 폴백
+            if (bp > 0.0 && bq > 0)
+                plan.push_back({OrderSide::BUY, bp, bq});
         }
 
-        // 매도 밴드: 이격 +dev_sell%*i. 보유분 한도 내에서만(숏 방지).
+        // 매도 밴드: 이격 +dev_sell%*i. 보유분을 n_rungs로 균등 분할(숏 방지).
         int sell_avail = pos;
+        const int sell_per = p_.n_rungs > 0 ? (pos + p_.n_rungs - 1) / p_.n_rungs : pos; // ceil
         for (int i = 1; i <= p_.n_rungs && sell_avail > 0; ++i)
         {
             double sp = round_to_tick(sma * (1.0 + p_.dev_sell * i / 100.0), OrderSide::SELL);
-            int q = sell_avail < p_.step_qty ? sell_avail : p_.step_qty;
+            int q = sell_avail < sell_per ? sell_avail : sell_per;
             if (sp > 0.0 && q > 0)
             {
                 plan.push_back({OrderSide::SELL, sp, q});
@@ -208,12 +230,20 @@ public:
             }
         }
 
-        // 매수 밴드: 이격 −dev_buy%*i. 순보유 한도는 OrderGate가 캡.
-        for (int i = 1; i <= p_.n_rungs; ++i)
+        // 매수 밴드(물타기): 이격 −dev_buy%*i. rung당 자본의 rung_notional. 종목당 상한은 OrderGate가 캡.
+        //  점진 진입: add_below_sma_only면 현재가가 3분봉 기준선 아래(실제 눌림)일 때만 물타기를 깐다.
+        //  → 활성 즉시 base+물타기를 한꺼번에 예약해 1분 만에 10% 만재되던 성격을 제거. 기준선 위/근처에선
+        //    base(+익절 매도레그)만 유지하고, 진짜 눌림이 와야 평단을 낮춘다.
+        if (!p_.add_below_sma_only || cur_px < sma)
         {
-            double bp = round_to_tick(sma * (1.0 - p_.dev_buy * i / 100.0), OrderSide::BUY);
-            if (bp > 0.0)
-                plan.push_back({OrderSide::BUY, bp, p_.step_qty});
+            for (int i = 1; i <= p_.n_rungs; ++i)
+            {
+                double bp = round_to_tick(sma * (1.0 - p_.dev_buy * i / 100.0), OrderSide::BUY);
+                int    rq = qty_for(rung_notional, bp);
+                if (rq <= 0) rq = p_.step_qty;              // 자본 미상 폴백
+                if (bp > 0.0 && rq > 0)
+                    plan.push_back({OrderSide::BUY, bp, rq});
+            }
         }
 
         // ── no-change 가드: 처닝 차단. 사다리가 살아있고 (a)계획 시그니처가 직전과 동일하거나
@@ -226,13 +256,37 @@ public:
                    "x" + std::to_string(r.qty) + "|";
         const double reprice_band = p_.reprice_move_ticks * tick_size(sma);
         const bool   sma_quiet    = last_sma_ > 0.0 && std::fabs(sma - last_sma_) < reprice_band;
-        if (!live_.empty() && (sig == last_ladder_sig_ || (sma_quiet && pos == last_pos_)))
-            return; // 동일 사다리 또는 데드밴드 내 미세이동 → 유지
+        // (a) 계획 시그니처+pos가 직전과 동일하면 live 유무와 무관하게 스킵.
+        //     매도가능=0이라 아무것도 못 깔아 live_가 빈 채로 남을 때(원장 보유↔매도가능 괴리)
+        //     매 하트비트 재진입해 잔고조회를 난사하던 스핀을 차단. 체결로 pos가 바뀌면 즉시 재구성.
+        // (b) 데드밴드(reprice 이내 미세이동)+pos 동일 스킵은 살아있는 사다리에만 적용.
+        if (sig == last_ladder_sig_ && pos == last_pos_)
+            return; // 동일 계획 → 유지(빈 계획 포함)
+        if (!live_.empty() && sma_quiet && pos == last_pos_)
+            return; // 데드밴드 내 미세이동 → 유지
 
         // ── 재구성: 기존 취소 후 신규 지정가 ──────────────────────────────────
+        //  익절 매도는 재구성 시점의 실매도가능분(ord_psbl_qty)으로 클램프 → 원장 보유와
+        //  매도가능 괴리(예약매도·미결제)로 KIS가 전량 거부(40240000 "잔고내역 없습니다")하던
+        //  것을 원천 차단. 청산 경로(emit_liquidation)와 동일 원칙. 잔고조회는 재구성 시 1회만
+        //  (핫패스 부하 억제 — 매수는 캡을 OrderGate가 처리하므로 클램프 불필요).
         cancel_all(out);
+        int sell_room = -1;                          // -1=미조회(지연). 첫 매도 rung에서 1회 조회.
         for (const auto& r : plan)
-            place(out, r.side, r.price, r.qty);
+        {
+            if (r.side == OrderSide::SELL)
+            {
+                if (sell_room < 0)
+                    sell_room = sellable_qty();      // 안전 우선: 불확실하면 0(매도 보류)
+                int q = r.qty < sell_room ? r.qty : sell_room;
+                if (q <= 0)
+                    continue;                        // 매도가능 소진/없음 → 이 rung 스킵
+                place(out, OrderSide::SELL, r.price, q);
+                sell_room -= q;
+            }
+            else
+                place(out, r.side, r.price, r.qty);
+        }
 
         last_sma_ = sma;
         last_ladder_sig_ = sig;
@@ -277,6 +331,44 @@ private:
             daily_ = std::move(d);
             daily_date_ = today;
         }
+        refresh_equity(); // 사이징 기준 자본도 일별 1회 갱신(계좌 성장 시 자동 스케일)
+    }
+
+    // 사이징 기준 자본(총평가금) 스냅샷. output2 tot_evlu_amt(없으면 nass_amt).
+    //  시세전용/계좌없는 kis_ 또는 조회 실패 → fallback_equity 사용(그래도 0이면 주수 폴백).
+    void refresh_equity()
+    {
+        double eq = 0.0;
+        if (kis_ && kis_->has_account())
+        {
+            try
+            {
+                nlohmann::json bal = kis_->get_balance();
+                const nlohmann::json* row = nullptr;
+                if (bal.contains("output2"))
+                {
+                    const auto& o2 = bal["output2"];
+                    if (o2.is_array() && !o2.empty()) row = &o2[0];
+                    else if (o2.is_object())          row = &o2;
+                }
+                if (row)
+                {
+                    std::string s = row->value("tot_evlu_amt", std::string());
+                    if (s.empty()) s = row->value("nass_amt", std::string());
+                    if (!s.empty()) { try { eq = std::stod(s); } catch (...) {} }
+                }
+            }
+            catch (...) {}
+        }
+        equity_ = eq > 0.0 ? eq : p_.fallback_equity;
+    }
+
+    // 명목→수량(주). 가격/명목 유효하지 않으면 0(호출측이 폴백 결정).
+    static int qty_for(double notional, double price)
+    {
+        if (price <= 0.0 || notional <= 0.0) return 0;
+        int q = static_cast<int>(std::floor(notional / price));
+        return q > 0 ? q : 0;
     }
 
     // ── KRX 호가단위(2023 통합) — MM-1과 동일 ────────────────────────────────
@@ -477,6 +569,7 @@ private:
     std::vector<Live> live_;               // 현재 live로 낙관하는 예약들
     std::vector<MarketData> daily_;        // 일봉 캐시(정배열/눌림 판정)
     std::string daily_date_;               // 캐시 기준일(KST YYYYMMDD)
+    double equity_ = 0.0;                   // 사이징 기준 자본(총평가금) 스냅샷 — 일별 갱신
     double last_sma_ = 0.0;                // 마지막 재호가 기준 SMA
     int    last_pos_ = -1;                  // 마지막 재구성 시 포지션(데드밴드 가드)
     std::string last_ladder_sig_;          // 마지막 발주 사다리 시그니처(no-change 가드)

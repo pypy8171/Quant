@@ -65,6 +65,10 @@ public:
     //  order_thread)가 판별해 적응적 재시도를 걸 수 있게 노출한다. 기본은 미지원("").
     virtual std::string last_order_error_code() const { return std::string(); }
 
+    // 모의투자 서버 여부. 모의는 정정취소가능조회(inquire-psbl-rvsecncl) 등 일부 TR을 미지원
+    //  ("없는 서비스 코드") → 호출부가 그 경로(청산차단 자가정리)를 건너뛰도록 노출. 기본 false(실전).
+    virtual bool is_paper() const { return false; }
+
     // 미체결(정정취소 가능) 예약주문 조회 (inquire-psbl-rvsecncl). 기본은 빈 목록.
     //  장중 청산이 "주문가능분 없음"(40240000)으로 막힐 때, 해당 종목의 예약매도를 찾아
     //  취소→재매도로 자가정리하기 위한 조회 경로. 세션 간/수동 예약도 감지 가능.

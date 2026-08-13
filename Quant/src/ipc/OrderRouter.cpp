@@ -163,6 +163,17 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& sig)
 //  내부 reserved_(이번 세션 것)엔 없으므로 gate_는 건드리지 않는다(포지션 정합은 체결통보로).
 OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& sig)
 {
+    // 모의투자는 정정취소가능조회(inquire-psbl-rvsecncl) TR을 미지원("없는 서비스 코드") →
+    //  예약매도를 조회·취소할 방법이 없어 이 자가정리는 구조적으로 불가. 헛도는 실패 조회와
+    //  오해 소지 로그("수동 확인 필요")를 피하려 정직하게 단락한다. 실계좌에선 정상 동작.
+    //  (애초에 익절·청산 매도를 매도가능분으로 클램프하므로 40240000 자체가 거의 안 난다.)
+    if (kis_.is_paper())
+    {
+        LOG_WARN("[OrderRouter] 청산차단 자가정리 스킵 " + sig.ticker +
+                 " — 모의투자는 미체결조회 미지원(실계좌 전용 경로)");
+        return OrderAck{};
+    }
+
     std::vector<OpenOrder> opens;
     try
     {
@@ -273,8 +284,8 @@ void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& 
 
     namespace fs = std::filesystem;
     std::error_code ec;
-    fs::create_directories("logs", ec); // 없으면 생성(실패해도 아래 open이 조용히 실패)
-    fs::path path = fs::path("logs") / (std::string("trades_") + dbuf + ".csv");
+    // 실행 위치(cwd)와 무관하게 로그 폴더(main에서 고정)에 매매원장 append.
+    fs::path path = Logger::instance().path_for(std::string("trades_") + dbuf + ".csv");
 
     bool need_header = !fs::exists(path, ec);
     std::ofstream f(path, std::ios::app);

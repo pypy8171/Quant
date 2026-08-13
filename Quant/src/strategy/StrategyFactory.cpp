@@ -344,13 +344,18 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
     Engine& engine = ctx.engine;
     // 공통 파라미터(티커 제외) — 스캔 유니버스/단일 종목이 함께 쓴다.
     DeviationScaleStrategy::Params base;
-    base.base_qty          = s.value("base_qty", 10);
-    base.step_qty          = s.value("step_qty", 5);
+    base.base_pct          = s.value("base_pct", 0.05);        // 베이스 명목 = 자본의 5%
+    base.max_pct           = s.value("max_pct", 0.10);         // 종목당 상한 명목 = 자본의 10%
+    base.fallback_equity   = s.value("fallback_equity", 0.0);  // 잔고조회 실패 시 기준자본(원)
+    base.base_qty          = s.value("base_qty", 10);          // (폴백) 주수
+    base.step_qty          = s.value("step_qty", 5);           // (폴백) 주수
     base.sma_period        = s.value("sma_period", 20);
     base.dev_sell          = s.value("dev_sell_pct", 1.5);
     base.dev_buy           = s.value("dev_buy_pct", 0.8);
     base.n_rungs           = s.value("n_rungs", 2);
+    base.add_below_sma_only = s.value("add_below_sma_only", true); // 점진 진입: 물타기는 기준선 아래(눌림)에서만
     base.pullback_pct      = s.value("pullback_pct", 2.0);
+    base.entry_upper_pct   = s.value("entry_upper_pct", 0.0);   // SMA20 위 진입 허용%(0=순수 눌림만)
     base.reprice_move_ticks = s.value("reprice_move_ticks", 2);
     base.eod_hhmm          = s.value("eod_exit_hhmm", 1515);
     base.interval_min      = s.value("interval_min", 3);

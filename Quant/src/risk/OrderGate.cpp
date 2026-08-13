@@ -75,6 +75,43 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
             reject_reason = ss.str();
             return false;
         }
+
+        // 3b. 종목당 명목 한도 — 자본% 사이징의 상한 백스톱. limit가(sig.price)로 보유·예약 합산 평가.
+        if (cfg_.max_notional_per_ticker > 0.0 && sig.price > 0.0 &&
+            (cur_qty + sig.quantity) * sig.price > cfg_.max_notional_per_ticker)
+        {
+            std::ostringstream ss;
+            ss << "종목당 명목 한도 초과 ("
+               << static_cast<long long>((cur_qty + sig.quantity) * sig.price) << " > "
+               << static_cast<long long>(cfg_.max_notional_per_ticker) << ")";
+            reject_reason = ss.str();
+            return false;
+        }
+
+        // 3c. 동시 보유 종목 상한 — "새 종목"을 여는 BUY NEW에만 적용(기존 보유·예약 종목은 통과).
+        //     총노출 제어: 실보유(positions_>0)∪예약(reserved_>0) 종목 수가 상한이면 신규 진입 차단.
+        //     기존 보유·예약이 이미 있는 종목(filled>0 또는 resv!=0)은 새로 여는 게 아니므로 예외.
+        if (cfg_.max_concurrent_positions > 0 && sig.action == OrderAction::NEW &&
+            filled == 0 && resv == 0)
+        {
+            size_t open = 0;
+            for (const auto& kv : positions_)
+                if (kv.second > 0) ++open;
+            for (const auto& kv : reserved_)
+                if (kv.second > 0)
+                {
+                    auto it = positions_.find(kv.first);
+                    if (it == positions_.end() || it->second <= 0) ++open; // 예약만 있는 종목(중복 제외)
+                }
+            if (open >= static_cast<size_t>(cfg_.max_concurrent_positions))
+            {
+                std::ostringstream ss;
+                ss << "동시 보유 종목 한도 초과 (" << open << " >= "
+                   << cfg_.max_concurrent_positions << ") — 신규 종목 진입 정지";
+                reject_reason = ss.str();
+                return false;
+            }
+        }
     }
 
     // 4. 일일 손실 한도 (BUY에만 적용 — 신규 진입 차단이 설계 의도)
