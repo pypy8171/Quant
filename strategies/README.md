@@ -22,6 +22,7 @@ strategies/
 
 | 전략 | 상태 | 스펙 | 실증 |
 |------|------|------|------|
+| **DeviationScale** (일봉 정배열+눌림 존 게이트 + 3분봉 이격도 분할매매) | 모의계좌 forward 실증 중 | — (3분봉 PIT 재현 불가로 오프라인 백테스트 제외, forward가 유일 검증) | [live/2026-08-13.md](DeviationScale/live/2026-08-13.md) · [08-12](DeviationScale/live/2026-08-12.md) |
 | **ITB** (IntradayBreakout v2, 1분 버킷 채널 돌파 + 당일 시가앵커) | 모의계좌 forward 관찰 중 | [ITB/SPEC.md](ITB/SPEC.md) | [ITB/live/2026-08-07.md](ITB/live/2026-08-07.md) |
 
 ## 경계(다른 폴더)
