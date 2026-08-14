@@ -144,6 +144,13 @@ public:
     // ── 자정 리셋 (Engine 데이터 스레드가 장 시작 시 호출) ──────────────────
     void reset_daily();
 
+    // ── 선점(reserved_) 전면 초기화 — REST 리컨사일 전용 ────────────────────
+    // 체결피드(H0STCNI0)가 없는 rest_price_feed 모드는 on_fill_confirmed가 호출되지 않아
+    // reserved_(미체결 선점)가 영구 누적된다(H-1 드리프트) → check()가 positions_+reserved_로
+    // 한도를 봐 정상 신호까지 과잉 차단. 잔고 리컨사일은 서버 확정 스냅샷이므로, 재동기 시점에
+    // reserved_를 통째로 비우고 실보유(positions_)만 신뢰한다. 잔고조회 성공 사이클에만 호출.
+    void reset_reserved();
+
     // ── 조회 ─────────────────────────────────────────────────────────────────
     // 계좌 지정 버전(주 경로) + account="" 하위호환(단일 계좌).
     int    position(const std::string& account, const std::string& ticker) const;

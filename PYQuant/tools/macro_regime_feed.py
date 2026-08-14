@@ -211,15 +211,26 @@ def main() -> None:
     print("⚠️ 임계값은 검증 필요 가정 — 라이브 관찰하며 보정(STRATEGIES.md 참조)")
 
     while True:
-        changes = fetch_changes(SYMBOLS)
-        regime = build_regime(changes)
-        write_atomic(out_path, regime)
-        comp = " ".join(
-            f"{k}={v['pct']}%({v['vote']:+d})" if v.get("pct") is not None else f"{k}=NA"
-            for k, v in regime["components"].items()
-        )
-        print(f"[{regime['ts']}] regime={regime['regime']} score={regime['risk_score']} "
-              f"halt={regime['entry_halt']} liq={regime['force_liquidate']} | {comp}")
+        # 사이클 단위 예외 격리 — yfinance/네트워크/IO 실패가 프로세스를 죽이지 않게(외부
+        #  재기동 래퍼와 별개의 in-process 내성). fetch_changes는 심볼별로 이미 격리되지만
+        #  build/write 레벨 throw는 여기서 잡아 다음 주기에 재시도한다.
+        regime = None
+        try:
+            changes = fetch_changes(SYMBOLS)
+            regime = build_regime(changes)
+            write_atomic(out_path, regime)
+        except KeyboardInterrupt:
+            print("\n중단 — 마지막 regime.json 유지")
+            break
+        except Exception as e:  # noqa: BLE001
+            print(f"[WARN] 사이클 실패: {type(e).__name__}: {e} — 다음 주기 재시도", file=sys.stderr)
+        if regime is not None:
+            comp = " ".join(
+                f"{k}={v['pct']}%({v['vote']:+d})" if v.get("pct") is not None else f"{k}=NA"
+                for k, v in regime["components"].items()
+            )
+            print(f"[{regime['ts']}] regime={regime['regime']} score={regime['risk_score']} "
+                  f"halt={regime['entry_halt']} liq={regime['force_liquidate']} | {comp}")
         if args.once:
             break
         try:

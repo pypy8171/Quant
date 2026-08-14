@@ -352,6 +352,15 @@ void Engine::bootstrap_ledger()
 //     미실현손실을 daily_pnl로 넣으면 개장 즉시 모든 신규매수가 막혀버리기 때문.
 void Engine::reconcile_from_balance()
 {
+    // 서킷브레이커: 잔고조회가 연속 실패 중이면 이번 사이클은 조회를 건너뛴다.
+    //  (get_balance 12002 타임아웃 시 GET 3회 재시도로 ~60s를 태워 데이터 스레드를 정체시킴)
+    if (reconcile_skip_remaining_ > 0)
+    {
+        --reconcile_skip_remaining_;
+        return;
+    }
+
+    bool responded = false; // 잔고 응답을 실제 파싱했는가(서킷브레이커 판정용)
     try
     {
         nlohmann::json bal = kis_->get_balance();
@@ -359,6 +368,11 @@ void Engine::reconcile_from_balance()
         // 1) 보유분 재동기 — 실체결 원장을 실제 잔고로 강제 일치.
         if (bal.contains("output1"))
         {
+            responded = true;
+            // 잔고는 서버 확정 스냅샷 → 미체결 선점(reserved_)을 통째로 비우고 실보유만 신뢰.
+            //  체결피드(H0STCNI0) 부재로 누적된 H-1 드리프트(과잉 선점 → 정상신호 과잉차단)를
+            //  동기화 시점마다 해소한다(#1). reset은 seed 재기록 전에 1회.
+            order_gate_.reset_reserved();
             for (auto& h : bal["output1"])
             {
                 std::string code = h.value("pdno", "");
@@ -464,6 +478,25 @@ void Engine::reconcile_from_balance()
     catch (const std::exception& e)
     {
         LOG_ERROR("[Engine] 리컨사일 예외: " + std::string(e.what()));
+    }
+
+    // 서킷브레이커 갱신 — 성공 시 즉시 복귀, 실패 시 지수 백오프(1·2·4·8 사이클, 상한 8).
+    if (responded)
+    {
+        if (reconcile_fail_streak_ > 0)
+            LOG_INFO("[Engine] 잔고조회 복구 — 리컨사일 정상화");
+        reconcile_fail_streak_ = 0;
+        reconcile_skip_remaining_ = 0;
+    }
+    else
+    {
+        ++reconcile_fail_streak_;
+        int cap = reconcile_fail_streak_ - 1;
+        if (cap > 3) cap = 3;              // 백오프 상한: 2^3 = 8 사이클
+        reconcile_skip_remaining_ = 1 << cap;
+        LOG_WARN("[Engine] 잔고조회 실패(streak=" + std::to_string(reconcile_fail_streak_) +
+                 ", 12002 타임아웃 등) — 리컨사일 " + std::to_string(reconcile_skip_remaining_) +
+                 "사이클 백오프(핫루프 보호)");
     }
 }
 

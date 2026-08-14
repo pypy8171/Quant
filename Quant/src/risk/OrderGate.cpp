@@ -208,13 +208,28 @@ void OrderGate::on_cancel(const std::string& account, const std::string& ticker,
         return;
     std::lock_guard<std::mutex> lk(positions_mtx_);
     const std::string k = make_key(account, ticker);
+    // 리컨사일이 reserved_를 비운 뒤 도착한 취소 통보는 대상이 이미 없다 → no-op.
+    //  (없는 키를 -qty/+qty로 갱신하면 음수 선점이 생겨 이후 한도 계산이 왜곡됨)
+    int cur = reserved_.count(k) ? reserved_[k] : 0;
+    if (cur == 0)
+        return;
     // BUY 선점은 +였으므로 -qty, SELL 선점은 -였으므로 +qty (해제 = 반대부호 가산)
     int delta = (side == OrderSide::BUY) ? -qty : qty;
-    int r = (reserved_.count(k) ? reserved_[k] : 0) + delta;
+    int r = cur + delta;
+    // 과잉 해제(부호 역전) 시 0에서 정지 — 리셋·이중통보로 음수 선점이 남지 않게.
+    if ((cur > 0 && r < 0) || (cur < 0 && r > 0))
+        r = 0;
     if (r == 0)
         reserved_.erase(k);
     else
         reserved_[k] = r;
+}
+
+// ─── 선점 전면 초기화 (REST 리컨사일 전용) ──────────────────────────────────
+void OrderGate::reset_reserved()
+{
+    std::lock_guard<std::mutex> lk(positions_mtx_);
+    reserved_.clear();
 }
 
 // ─── 실현 손익 누적 ─────────────────────────────────────────────────────────

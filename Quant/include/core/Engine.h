@@ -146,6 +146,11 @@ private:
     // C-1 리컨사일 상태(rest 모드 전용) — 당일 기준 총평가금 대비 델타로 daily_pnl_ 근사.
     bool have_pnl_baseline_ = false;
     double pnl_baseline_ = 0.0;       // 당일 첫 리컨사일 시 캡처한 총평가금(원)
+    // 잔고조회 서킷브레이커 — 모의/실서버 inquire-balance가 연속 타임아웃(12002)하면 GET 3회
+    //  재시도로 사이클당 ~60s를 태우고 데이터 스레드를 정체시킨다. 실패 누적 시 지수 백오프로
+    //  조회 자체를 건너뛰어 핫루프를 보호하고, 성공 시 즉시 복귀한다.
+    int reconcile_fail_streak_ = 0;   // 연속 실패 수(성공 시 0)
+    int reconcile_skip_remaining_ = 0; // 남은 스킵 사이클 수(>0이면 조회 생략)
 
     std::unique_ptr<KisClient> kis_;
     std::unique_ptr<KisClient> quote_kis_; // 시세 전용(실전 도메인). rest_price_feed_ 시에만 생성
