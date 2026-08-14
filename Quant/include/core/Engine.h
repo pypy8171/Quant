@@ -17,6 +17,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -93,6 +94,12 @@ public:
         strategy_factory_ = std::move(factory);
         rescan_interval_sec_ = interval_sec;
     }
+    // 티커→종목명 매핑 등록/조회 (로그 가독성). 스캔·가디언 부착 스레드가 write,
+    //  전략 스레드의 신호 로그가 read라 ticker_names_mu_로 보호.
+    void register_ticker_name(const std::string& ticker, const std::string& name);
+    // 이름이 있으면 "티커(종목명)", 없으면 티커 원문을 반환.
+    std::string ticker_label(const std::string& ticker) const;
+
     void start();
     void stop();
 
@@ -183,4 +190,8 @@ private:
 
     // 전략에서 수집한 구독 스펙 (on_start 이후 확정)
     std::vector<WatchSpec> watch_specs_;
+
+    // 티커→종목명 라벨(로그 표시용). 여러 스레드가 접근해 ticker_names_mu_로 보호.
+    std::unordered_map<std::string, std::string> ticker_names_;
+    mutable std::mutex ticker_names_mu_;
 };

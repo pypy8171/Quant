@@ -3,6 +3,7 @@
 #include "utils/Logger.h"
 #include <algorithm>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -67,9 +68,17 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& cfg)
     return out;
 }
 
-std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg)
+std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
+                                       std::unordered_map<std::string, std::string>* out_names)
 {
     std::vector<std::string> out;
+    // 후보 수집 단계에서 티커→종목명을 함께 보관해, 최종 등록 확정 때 out_names에 채운다.
+    std::unordered_map<std::string, std::string> cand_names;
+    auto label_name = [&](const std::string& t) -> std::string
+    {
+        auto it = cand_names.find(t);
+        return it != cand_names.end() ? it->second : std::string();
+    };
     auto kospi = c.get_index_price("0001");
     if (kospi.change_rate / 100.0 < cfg.risk_off_idx)
     {
@@ -90,6 +99,7 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg)
             if (cfg.max_price > 0.0 && r.price > cfg.max_price) continue;
             if (!seen.insert(r.ticker).second) continue;
             cand.push_back(r.ticker);
+            cand_names[r.ticker] = r.name; // 종목명 보관(로그 라벨용)
         }
     };
     take(c.fetch_kr_ranking(cfg.scan_top_n, "J"));          // 시총 상위
@@ -105,6 +115,7 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg)
         {
             if ((int)out.size() >= cfg.max_register) break;
             out.push_back(t);
+            if (out_names) (*out_names)[t] = label_name(t);
         }
         return out;
     }
@@ -158,7 +169,10 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg)
                   [](const Scored& a, const Scored& b) { return a.score > b.score; });
         int take_n = (int)passed.size() < cfg.score_top_n ? (int)passed.size() : cfg.score_top_n;
         for (int i = 0; i < take_n; ++i)
+        {
             out.push_back(passed[i].ticker);
+            if (out_names) (*out_names)[passed[i].ticker] = label_name(passed[i].ticker);
+        }
         LOG_INFO("[Main] DEVSCALE 횡단면 스코어: 정배열통과=" + std::to_string(passed.size()) +
                  " → 상위 " + std::to_string(take_n) + " 선정 (w_trend=" +
                  std::to_string(cfg.score_w_trend) + " w_pull=" + std::to_string(cfg.score_w_pullback) +
@@ -167,7 +181,10 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg)
     else
     {
         for (const auto& p : passed)
+        {
             out.push_back(p.ticker);
+            if (out_names) (*out_names)[p.ticker] = label_name(p.ticker);
+        }
     }
     LOG_INFO("[Main] DEVSCALE 정배열 프리필터: 후보=" + std::to_string(cand.size()) +
              " 검사=" + std::to_string(probed) + " 정배열=" + std::to_string(aligned_cnt) +

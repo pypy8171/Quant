@@ -1,6 +1,7 @@
 #pragma once
 #include "api/KisClient.h"
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -61,6 +62,8 @@ struct DevScanCfg
 
 // 시총 상위 ∪ 거래대금 상위 → 가격 필터 → (opt)정배열 프리필터. 티커 목록 반환.
 //  초기 등록·주기적 재스캔이 공용으로 호출(cfg 값 복사 캡처라 std::function 저장 안전).
-std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& cfg);
+//  out_names(옵션)를 주면 등록 티커→종목명(hts_kor_isnm)을 채워 로그 라벨에 쓴다.
+std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& cfg,
+                                       std::unordered_map<std::string, std::string>* out_names = nullptr);
 
 } // namespace universe

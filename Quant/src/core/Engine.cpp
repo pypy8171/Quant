@@ -282,6 +282,24 @@ void Engine::start()
     LOG_INFO("[Engine] 모든 스레드 시작 완료");
 }
 
+// ─── 티커→종목명 라벨 (로그 가독성) ─────────────────────────────────────────
+//  스캔·가디언 부착 스레드가 write, 전략 스레드 신호 로그가 read라 뮤텍스로 보호.
+void Engine::register_ticker_name(const std::string& ticker, const std::string& name)
+{
+    if (name.empty()) return;
+    std::lock_guard<std::mutex> lk(ticker_names_mu_);
+    ticker_names_[ticker] = name;
+}
+
+std::string Engine::ticker_label(const std::string& ticker) const
+{
+    std::lock_guard<std::mutex> lk(ticker_names_mu_);
+    auto it = ticker_names_.find(ticker);
+    if (it != ticker_names_.end() && !it->second.empty())
+        return ticker + "(" + it->second + ")";
+    return ticker;
+}
+
 // ─── G5: 실계좌 보유분 원장 부트스트랩 ──────────────────────────────────────
 //  get_balance output1의 pdno/hldg_qty/pchs_avg_pric를 OrderGate.seed_position으로 시드.
 //  계좌키는 account=""(전략 신호의 기본 account_id와 일치, C-1). 평단까지 시드해야
@@ -307,6 +325,7 @@ void Engine::bootstrap_ledger()
             if (!code.empty() && q > 0)
             {
                 order_gate_.seed_position(std::string(), code, q, av);
+                register_ticker_name(code, pname); // 로그 라벨(초기 보유분 종목명)
                 // 진단: 주문가능수량(ord_psbl_qty)을 함께 남긴다 — 보유수량과 다르면(특히 0)
                 //  "잔고내역이 없습니다"(40240000) 매도거부의 근거(매도불가/미결제)를 규명.
                 std::string psbl = h.value("ord_psbl_qty", std::string("(field없음)"));
@@ -847,7 +866,7 @@ void Engine::strategy_thread_fn()
     auto push_signal = [&](const OrderSignal& sig)
     {
         ++signal_count_;
-        LOG_INFO("[Strategy] 신호: [" + sig.strategy_id + "] " + sig.ticker + " " +
+        LOG_INFO("[Strategy] 신호: [" + sig.strategy_id + "] " + ticker_label(sig.ticker) + " " +
                  (sig.side == OrderSide::BUY ? "BUY" : "SELL") + " " + std::to_string(sig.quantity));
 #ifdef HAS_ZMQ
         if (zmq_bridge_)

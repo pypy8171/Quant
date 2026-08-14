@@ -156,6 +156,7 @@ static void load_intraday_breakout(StrategyLoadCtx& ctx, const json& s)
                             seed_trail_pct, exit_near_avg_pct, no_new_entry_hhmm,
                             /*notional=*/0.0, /*day_open_px=*/0.0);
                         strat->set_name(pname);
+                        engine.register_ticker_name(code, pname); // 로그 라벨(보유분 종목명)
                         engine.add_strategy(std::move(strat));
                         LOG_INFO("[Main]   + ITB " + code + " " + pname + " 보유 " + std::to_string(hq) +
                                  "주 (in_position 시드, 평단=" + std::to_string((long long)avg_px) + ")");
@@ -327,6 +328,7 @@ static void attach_holding_guardians(StrategyLoadCtx& ctx, const json& mh,
             seed_trail_pct, exit_near_avg_pct, /*no_new_entry_hhmm=*/1,
             /*notional=*/0.0, /*day_open_px=*/0.0);
         strat->set_name(pname);
+        engine.register_ticker_name(code, pname); // 로그 라벨(보유분 종목명)
         engine.add_strategy(std::move(strat));
         LOG_INFO("[Main]   + 청산가디언(ITB) " + code + " " + pname + " 보유 " +
                  std::to_string(hq) + "주 @평단 " + std::to_string((long long)av) +
@@ -400,7 +402,15 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         int rescan_sec     = s.value("rescan_interval_sec", 600); // 주기적 재스캔 간격(초)
 
         // 유니버스 산출 콜백 — 초기 등록과 주기적 재스캔이 공용으로 사용(cfg 값 복사 캡처).
-        auto universe_fn = [sc](KisClient& c) { return universe::scan_devscale(c, sc); };
+        //  &engine 참조 캡처: universe_fn은 엔진(set_universe_rescan)에 저장되어 엔진이 살아있는
+        //  동안만 호출되므로 참조 수명 안전. 스캔 결과 종목명을 엔진 라벨 맵에 등록해 로그에 노출.
+        auto universe_fn = [sc, &engine](KisClient& c)
+        {
+            std::unordered_map<std::string, std::string> nm;
+            auto ts = universe::scan_devscale(c, sc, &nm);
+            for (auto& kv : nm) engine.register_ticker_name(kv.first, kv.second);
+            return ts;
+        };
 
         if (!ctx.has_quote_kis)
         {
