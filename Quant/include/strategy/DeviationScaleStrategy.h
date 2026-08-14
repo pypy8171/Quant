@@ -397,6 +397,8 @@ private:
 
     void place(std::vector<OrderSignal>& out, OrderSide side, double price, int qty)
     {
+        if (qty <= 0)
+            return; // qty=0 NEW 발주 억제 — 게이트 거부·로그 노이즈 원천 차단(SELL은 상위서도 클램프)
         std::string oid = next_oid(side == OrderSide::BUY ? "B" : "S");
         OrderSignal s;
         s.ticker      = p_.ticker;

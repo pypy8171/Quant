@@ -306,17 +306,27 @@ static std::string token_cache_path(const std::string& app_key)
 
 void KisClient::ensure_authenticated()
 {
-    // 만료 5분 전이면 재발급
+    // 락을 먼저 잡고 만료를 재확인(double-checked) → 여러 스레드가 만료창에 동시 진입해도
+    // 첫 스레드만 발급하고 나머지는 갱신된 만료시각을 보고 건너뜀(thundering-herd 제거).
+    std::lock_guard<std::mutex> lk(token_mtx_);
     auto now = std::chrono::system_clock::now();
     auto margin = std::chrono::minutes(5);
     if (access_token_.empty() || now + margin >= token_expires_at_)
     {
         LOG_INFO("[KIS] 토큰 갱신 시작");
-        authenticate();
+        authenticate_locked();
     }
 }
 
+// public 진입점 — 기동 시 직접 호출(단일 스레드)에도 안전하도록 락을 잡고 위임.
 bool KisClient::authenticate()
+{
+    std::lock_guard<std::mutex> lk(token_mtx_);
+    return authenticate_locked();
+}
+
+// token_mtx_를 이미 쥔 상태에서만 호출 — 내부에서 다시 락을 잡지 않는다(비재귀 뮤텍스).
+bool KisClient::authenticate_locked()
 {
     // ── 캐시 파일에 유효한 토큰이 있으면 재사용 ──────────────────────────
     std::string cache_path = token_cache_path(cfg_.app_key);
@@ -466,7 +476,7 @@ std::vector<MarketData> KisClient::get_daily_ohlcv(const std::string& ticker, in
                       "?FID_COND_MRKT_DIV_CODE=J" + "&FID_INPUT_ISCD=" + ticker + "&FID_INPUT_DATE_1=" + d1 +
                       "&FID_INPUT_DATE_2=" + d2 + "&FID_PERIOD_DIV_CODE=D" + "&FID_ORG_ADJ_PRC=0";
 
-    std::vector<std::string> headers = {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+    std::vector<std::string> headers = {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
                                         "appsecret: " + cfg_.app_secret, "tr_id: FHKST03010100"};
 
     std::string resp = http_get(url, headers);
@@ -548,7 +558,7 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
     if (hour < "090000" || hour > "153000") hour = "153000";
 
     std::vector<std::string> hdrs = {
-        "authorization: Bearer " + access_token_,
+        "authorization: Bearer " + token(),
         "appkey: " + cfg_.app_key,
         "appsecret: " + cfg_.app_secret,
         "tr_id: FHKST03010200",
@@ -660,7 +670,7 @@ double KisClient::get_current_price(const std::string& ticker)
     std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/inquire-price" + "?FID_COND_MRKT_DIV_CODE=J" +
                       "&FID_INPUT_ISCD=" + ticker;
 
-    std::vector<std::string> headers = {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+    std::vector<std::string> headers = {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
                                         "appsecret: " + cfg_.app_secret, "tr_id: FHKST01010100"};
 
     std::string resp = http_get(url, headers);
@@ -683,7 +693,7 @@ Fundamentals KisClient::get_fundamentals(const std::string& ticker)
     std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/inquire-price" + "?FID_COND_MRKT_DIV_CODE=J" +
                       "&FID_INPUT_ISCD=" + ticker;
 
-    std::vector<std::string> headers = {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+    std::vector<std::string> headers = {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
                                         "appsecret: " + cfg_.app_secret, "tr_id: FHKST01010100"};
 
     Fundamentals f;
@@ -775,7 +785,7 @@ bool KisClient::send_order(const OrderSignal& signal)
     }
 
     std::string resp = http_post(url,
-                                 {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+                                 {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
                                   "appsecret: " + cfg_.app_secret, "tr_id: " + tr_id, "Content-Type: application/json"},
                                  body.dump());
 
@@ -833,7 +843,7 @@ std::string KisClient::submit_order(const OrderSignal& signal)
                 {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string((int)signal.price) : "0"}};
 
     std::string resp = http_post(url,
-        {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+        {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
          "appsecret: " + cfg_.app_secret, "tr_id: " + tr_id, "Content-Type: application/json"},
         body.dump());
 
@@ -894,7 +904,7 @@ OrderAck KisClient::submit_order_ack(const OrderSignal& signal)
                 {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string((int)signal.price) : "0"}};
 
     std::string resp = http_post(url,
-        {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+        {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
          "appsecret: " + cfg_.app_secret, "tr_id: " + tr_id, "Content-Type: application/json"},
         body.dump());
 
@@ -950,7 +960,7 @@ std::string KisClient::cancel_order(const std::string& ticker, const std::string
                  {"QTY_ALL_ORD_YN", all_remaining ? "Y" : "N"}}; // 잔량 전체 취소
 
     std::string resp = http_post(url,
-        {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+        {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
          "appsecret: " + cfg_.app_secret, "tr_id: " + tr_id, "Content-Type: application/json"},
         body.dump());
 
@@ -997,7 +1007,7 @@ std::string KisClient::revise_order(const std::string& ticker, const std::string
                  {"QTY_ALL_ORD_YN", "Y"}};                        // 잔량 전체 정정
 
     std::string resp = http_post(url,
-        {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+        {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
          "appsecret: " + cfg_.app_secret, "tr_id: " + tr_id, "Content-Type: application/json"},
         body.dump());
 
@@ -1050,7 +1060,7 @@ nlohmann::json KisClient::get_balance()
                           "&FUND_STTL_ICLD_YN=N&FNCG_AMT_AUTO_RDPT_YN=N&PRCS_DVSN=00" +
                           "&CTX_AREA_FK100=" + fk + "&CTX_AREA_NK100=" + nk;
 
-        std::vector<std::string> headers = {"authorization: Bearer " + access_token_,
+        std::vector<std::string> headers = {"authorization: Bearer " + token(),
                                             "appkey: " + cfg_.app_key,
                                             "appsecret: " + cfg_.app_secret, "tr_id: " + tr_id,
                                             "tr_cont: " + cont};
@@ -1119,7 +1129,7 @@ std::vector<OpenOrder> KisClient::get_open_orders()
                           "&INQR_DVSN_1=0&INQR_DVSN_2=0" +
                           "&CTX_AREA_FK100=" + fk + "&CTX_AREA_NK100=" + nk;
 
-        std::vector<std::string> headers = {"authorization: Bearer " + access_token_,
+        std::vector<std::string> headers = {"authorization: Bearer " + token(),
                                             "appkey: " + cfg_.app_key,
                                             "appsecret: " + cfg_.app_secret, "tr_id: " + tr_id,
                                             "tr_cont: " + cont};
@@ -1223,7 +1233,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
                       "&FID_TRGT_EXLS_CLS_CODE=0" + "&FID_RANK_SORT_CLS_CODE=0" +
                       "&FID_INPUT_PRICE_1=" + "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
 
-    std::vector<std::string> hdrs = {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+    std::vector<std::string> hdrs = {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
                                      "appsecret: " + cfg_.app_secret, "tr_id: FHPST01720000"};
 
     std::string resp = http_get(url, hdrs);
@@ -1352,7 +1362,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
                       "&FID_TRGT_CLS_CODE=111111111" + "&FID_TRGT_EXLS_CLS_CODE=000000" +
                       "&FID_INPUT_PRICE_1=" + "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
 
-    std::vector<std::string> hdrs = {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+    std::vector<std::string> hdrs = {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
                                      "appsecret: " + cfg_.app_secret, "tr_id: FHPST01710000"};
 
     std::string resp = http_get(url, hdrs);
@@ -1481,7 +1491,7 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
                       "&FID_INPUT_ISCD=" + market + "&FID_DIV_CLS_CODE=0" +
                       "&FID_RANK_SORT_CLS_CODE=" + sort + "&FID_ETC_CLS_CODE=" + etc_cls;
 
-    std::vector<std::string> hdrs = {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+    std::vector<std::string> hdrs = {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
                                      "appsecret: " + cfg_.app_secret, "tr_id: FHPTJ04400000"};
 
     std::string resp = http_get(url, hdrs);
@@ -1559,7 +1569,7 @@ std::vector<std::string> KisClient::fetch_universe_by_pbr(double max_pbr, const 
                       "&FID_TRGT_EXLS_CLS_CODE=0" + "&FID_RANK_SORT_CLS_CODE=0" +
                       "&FID_INPUT_PRICE_1=" + "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
 
-    std::vector<std::string> hdrs = {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+    std::vector<std::string> hdrs = {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
                                      "appsecret: " + cfg_.app_secret, "tr_id: FHPST01720000"};
 
     std::string resp = http_get(url, hdrs);
@@ -1618,7 +1628,7 @@ std::vector<MarketData> KisClient::get_us_daily_ohlcv(const std::string& ticker,
     std::string url = base_url() + "/uapi/overseas-price/v1/quotations/dailyprice" + "?AUTH=" + "&EXCD=" + exchange +
                       "&SYMB=" + ticker + "&GUBN=0" + "&BYMD=" + "&MODP=0";
 
-    std::vector<std::string> hdrs = {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+    std::vector<std::string> hdrs = {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
                                      "appsecret: " + cfg_.app_secret, "tr_id: HHDFS76240000", "custtype: P"};
 
     std::string resp = http_get(url, hdrs);
@@ -1696,7 +1706,7 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
     std::string url =
         base_url() + "/uapi/overseas-price/v1/quotations/price-detail" + "?AUTH=&EXCD=" + exchange + "&SYMB=" + ticker;
 
-    std::vector<std::string> hdrs = {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+    std::vector<std::string> hdrs = {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
                                      "appsecret: " + cfg_.app_secret, "tr_id: HHDFS00000300", "custtype: P"};
 
     Fundamentals f;
@@ -1796,7 +1806,7 @@ bool KisClient::send_us_order(const OrderSignal& signal)
 
     std::string url = base_url() + "/uapi/overseas-stock/v1/trading/order";
     std::string resp = http_post(url,
-                                 {"authorization: Bearer " + access_token_, "appkey: " + cfg_.app_key,
+                                 {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
                                   "appsecret: " + cfg_.app_secret, "tr_id: " + tr_id, "Content-Type: application/json"},
                                  body.dump());
 
@@ -1900,7 +1910,7 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
     };
 
     std::vector<std::string> hdrs = {
-        "authorization: Bearer " + access_token_,
+        "authorization: Bearer " + token(),
         "appkey: " + cfg_.app_key,
         "appsecret: " + cfg_.app_secret,
         "tr_id: FHKUP03500100",
@@ -2001,7 +2011,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
         "&FID_VOL_CNT=&FID_INPUT_DATE_1=";
 
     std::vector<std::string> hdrs = {
-        "authorization: Bearer " + access_token_,
+        "authorization: Bearer " + token(),
         "appkey: " + cfg_.app_key,
         "appsecret: " + cfg_.app_secret,
         "tr_id: FHPST01700000",
@@ -2064,7 +2074,7 @@ KisClient::InvestorTrend KisClient::get_investor_trend(const std::string& ticker
         "&FID_INPUT_ISCD=" + ticker;
 
     std::vector<std::string> hdrs = {
-        "authorization: Bearer " + access_token_,
+        "authorization: Bearer " + token(),
         "appkey: " + cfg_.app_key,
         "appsecret: " + cfg_.app_secret,
         "tr_id: FHKST01010900",
@@ -2112,7 +2122,7 @@ std::vector<InvestorFlow> KisClient::get_investor_flow(const std::string& ticker
         "&FID_INPUT_ISCD=" + ticker;
 
     std::vector<std::string> hdrs = {
-        "authorization: Bearer " + access_token_,
+        "authorization: Bearer " + token(),
         "appkey: " + cfg_.app_key,
         "appsecret: " + cfg_.app_secret,
         "tr_id: FHKST01010900",
@@ -2167,7 +2177,7 @@ KisClient::IndexPrice KisClient::get_index_price(const std::string& ticker)
                       + "?FID_COND_MRKT_DIV_CODE=U&FID_INPUT_ISCD=" + ticker;
 
     std::vector<std::string> headers = {
-        "authorization: Bearer " + access_token_,
+        "authorization: Bearer " + token(),
         "appkey: " + cfg_.app_key,
         "appsecret: " + cfg_.app_secret,
         "tr_id: FHPUP02100000",

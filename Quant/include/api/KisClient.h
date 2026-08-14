@@ -3,6 +3,7 @@
 #include "core/Types.h"
 #include <chrono>
 #include <functional>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
@@ -26,6 +27,7 @@ public:
     bool authenticate();
     bool is_authenticated() const
     {
+        std::lock_guard<std::mutex> lk(token_mtx_);
         return !access_token_.empty();
     }
     // 이 클라이언트가 계좌번호를 가졌는가(주문/잔고 계좌). 시세전용(quote) 클라이언트는
@@ -152,8 +154,17 @@ private:
     std::string http_get(const std::string& url, const std::vector<std::string>& headers);
     std::string http_post(const std::string& url, const std::vector<std::string>& headers, const std::string& body);
 
-    // 토큰 만료 5분 전이면 자동 재발급
+    // 토큰 만료 5분 전이면 자동 재발급 (token_mtx_ 하에서 authenticate_locked 호출)
     void ensure_authenticated();
+    // 실제 발급/캐시로직 — token_mtx_를 이미 쥔 상태에서만 호출(락 없음). 데드락 방지 분리.
+    bool authenticate_locked();
+    // 현재 토큰의 락-보호 스냅샷 복사본. 헤더 조립 시 access_token_ 직접 참조 대신 사용
+    // — authenticate가 std::string을 재기록하는 순간 다른 스레드가 복사하다 힙 손상되던 레이스 차단.
+    std::string token() const
+    {
+        std::lock_guard<std::mutex> lk(token_mtx_);
+        return access_token_;
+    }
 
     std::string base_url() const
     {
@@ -162,6 +173,10 @@ private:
     }
 
     KisConfig cfg_;
+    // 토큰 상태(access_token_/token_expires_at_)는 전략·데이터 스레드가 같은 인스턴스를
+    // 공유하며 재발급 시 동시 읽기/쓰기가 발생 → token_mtx_로 직렬화(비재귀). 진입점은
+    // authenticate()/ensure_authenticated()/token()/is_authenticated() 넷 모두 각자 독립 획득.
+    mutable std::mutex token_mtx_;
     std::string access_token_;
     std::chrono::system_clock::time_point token_expires_at_;
     std::string last_order_msg_cd_; // 직전 주문/취소/정정 KIS 오류코드(msg_cd), 성공 시 "" — order_thread 전용
