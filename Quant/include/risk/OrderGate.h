@@ -19,6 +19,7 @@
 //   2. NONE side     — 신호 없음, 즉시 거부
 //   3. 포지션 수량   — 종목당 최대 보유 수량
 //   4. 일일 손실     — 일일 최대 손실 초과 시 신규 매수 거부
+//   4b. PnL stale    — 잔고 리컨사일 정체로 daily_pnl 미갱신 시 신규 매수 보수적 정지(B2)
 //   5. Rate limit    — 분당 최대 주문수 초과 방지
 //   6. 중복 신호     — 동일 strategy+ticker 1초 이내 중복 거부
 //
@@ -141,6 +142,21 @@ public:
         return entry_halt_.load();
     }
 
+    // ── PnL stale guard (B2) — 잔고 리컨사일 정체 시 신규 매수 정지 ──────────────
+    // rest_price_feed 모드는 daily_pnl_을 잔고 리컨사일(총평가금 델타)로만 갱신한다. 잔고조회가
+    // 연속 실패(12002 타임아웃 등)해 서킷브레이커가 리컨사일을 스킵하는 동안 daily_pnl_은 낡은
+    // 값이라, 그 창에서 손실이 나도 §4 손실컷이 트립하지 못한다. Engine이 실패 스트릭이 임계를
+    // 넘으면 이 플래그를 세워 BUY NEW만 보수적으로 차단(SELL 청산·취소는 통과 — entry_halt와 동일
+    // 의미론). 잔고조회 복구 시 자동 해제. 손실컷을 대체하지 않고 "믿을 수 없는 창"만 보수 처리.
+    void set_pnl_stale(bool on)
+    {
+        pnl_stale_.store(on);
+    }
+    bool is_pnl_stale() const
+    {
+        return pnl_stale_.load();
+    }
+
     // ── 자정 리셋 (Engine 데이터 스레드가 장 시작 시 호출) ──────────────────
     void reset_daily();
 
@@ -176,6 +192,7 @@ private:
     Config cfg_;
     std::atomic<bool> kill_switch_{false};
     std::atomic<bool> entry_halt_{false};  // 신규 진입(BUY NEW)만 정지, SELL 청산은 통과 — 국면 리스크용
+    std::atomic<bool> pnl_stale_{false};   // 잔고 리컨사일 정체 → daily_pnl 미갱신, BUY NEW 보수 정지(B2)
 
     mutable std::mutex positions_mtx_;
     std::unordered_map<std::string, int>    reserved_;   // account:ticker → 미체결 선점 수량 (BUY +, SELL -). 재주문 차단용

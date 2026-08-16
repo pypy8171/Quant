@@ -203,6 +203,72 @@ def expo_o5_crossasset_rebound(closes, ret, ctx, p):
     return e
 
 
+def _n4_core(closes, ret, ctx, p):
+    """N4 변동성 타게팅 연속 익스포저 코어(방어 오버레이·저토글).
+    e_t = clip(target_vol_{t-1} / rvol20_{t-1}, 0.5, 1.2).
+      - rvol20 = 최근 20거래일 일수익 std × √252(연율). **t-1 까지 룩백만**(당일 종가 미포함)
+        → rolling_vol(ret,20)[t-1]. run_curve 의 e[t-1] 배선과 합쳐 이중 룩어헤드 차단.
+      - 데드밴드 0.05: |목표 e − 직전 커밋 e| < 0.05 면 직전 e 유지(미세 토글 억제).
+      - target_vol 앵커는 mode 로 결정(누출 원천 통제):
+          "leak"   : std(ret[전표본])×√252 — 2022 홀드아웃 포함 = **미래정보 누출**(감사 지적, 비교용).
+          "expand" : std(ret[:t])×√252 인과확장창(t 이전만). warmup 252봉 e=1(앵커 안정화 후 시작).
+                     확장창이라 자동 train-only → 2022 홀드아웃 앵커오염 없음.
+          "const"  : 시장무관 사전등록 상수(기본 15%). 전표본·train 어느 것도 안 봄 = 누출원천 제거.
+    20일 후행이라 1987·2020 갭형 급락엔 반응이 늦다(설계상 한계)."""
+    mode = p.get("mode", "expand")
+    tv_const = p.get("target_vol", 0.15)
+    n = len(closes)
+    rv = bt08.rolling_vol(ret, 20)                     # rv[t] = close t 까지 20일 연율변동성
+    if mode == "const":
+        anchor = np.full(n, float(tv_const))
+        warm = 20
+    elif mode == "leak":                               # 감사 지적: 전표본(2022 포함) — 비교용만
+        tv = float(np.std(ret[1:], ddof=1)) * bt08.ANNUAL if n > 2 else tv_const
+        anchor = np.full(n, tv)
+        warm = 20
+    else:                                              # expand: 인과 확장창 std(ret[:t])
+        anchor = np.full(n, np.nan)
+        sx = sx2 = 0.0
+        cnt = 0
+        for k in range(1, n):                          # ret[0]=0 제외
+            r = ret[k]
+            sx += r; sx2 += r * r; cnt += 1
+            if cnt >= 2:
+                var = (sx2 - sx * sx / cnt) / (cnt - 1)
+                anchor[k] = np.sqrt(var if var > 0 else 0.0) * bt08.ANNUAL
+        warm = 252                                     # 앵커 안정화 후 시작
+    e = np.ones(n)
+    prev = 1.0                                         # 직전 커밋 익스포저(초기 BH)
+    for t in range(n):
+        rvl = rv[t - 1] if t >= 1 else np.nan          # t-1 까지 룩백(당일 종가 제외)
+        tvl = anchor[t - 1] if t >= 1 else np.nan      # 앵커도 t-1 까지(인과)
+        if t < warm or not _ok(rvl) or rvl <= 0 or not _ok(tvl) or tvl <= 0:
+            e[t] = prev                                # 워밍업·결측 → 직전 유지(초기 1.0)
+            continue
+        target = min(1.2, max(0.5, tvl / rvl))         # clip(0.5, 1.2)
+        if abs(target - prev) < 0.05:                  # 데드밴드 → 이전 e 유지
+            e[t] = prev
+        else:
+            e[t] = target
+            prev = target
+    return e
+
+
+def expo_n4_voltarget(closes, ret, ctx, p):
+    """N4(누출본) — target=전표본 실현변동성. 감사 CONDITIONAL 지적 대상(비교용 유지)."""
+    return _n4_core(closes, ret, ctx, {"mode": "leak"})
+
+
+def expo_n4a_expand(closes, ret, ctx, p):
+    """N4a 변형 — 인과 확장창 앵커 std(ret[:t]). 홀드아웃 자동 순수(누출 제거)."""
+    return _n4_core(closes, ret, ctx, {"mode": "expand"})
+
+
+def expo_n4b_const(closes, ret, ctx, p):
+    """N4b 변형 — 사전등록 상수 target=15%. 전표본·train 미참조(누출원천 제거)."""
+    return _n4_core(closes, ret, ctx, {"mode": "const", "target_vol": 0.15})
+
+
 STRATS = [
     # code, label, fn, side, desc, needs
     ("C1", "유가·금리 공급충격 게이트",  expo_c1_supplyshock,     "방어",
@@ -225,4 +291,10 @@ STRATS = [
      "oil20d≥+10% & tnx잠잠 & C>SMA50 & SOX↑→1.2", "CL=F·^TNX·^SOX"),
     ("O5", "크로스에셋 조기 재진입",     expo_o5_crossasset_rebound, "공세",
      "낙폭중 VIX·DXY 롤오버 & 금리안정 → 1.2", "VIX·TNX·DXY(조기)"),
+    ("N4", "변동성 타게팅(누출본·감사지적)", expo_n4_voltarget,     "방어",
+     "target=전표본 실현변동성(2022 홀드아웃 포함 누출)·비교용", "가격전용(전구간)"),
+    ("N4a", "변동성 타게팅·인과확장창",   expo_n4a_expand,          "방어",
+     "target=std(ret[:t]) 확장창(t이전만)·warmup252·홀드아웃 순수", "가격전용(전구간)"),
+    ("N4b", "변동성 타게팅·상수15%",      expo_n4b_const,           "방어",
+     "target=15% 사전등록상수(전표본·train 미참조)·clip0.5~1.2·데드밴드0.05", "가격전용(전구간)"),
 ]

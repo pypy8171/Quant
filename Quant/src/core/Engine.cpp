@@ -481,12 +481,19 @@ void Engine::reconcile_from_balance()
     }
 
     // 서킷브레이커 갱신 — 성공 시 즉시 복귀, 실패 시 지수 백오프(1·2·4·8 사이클, 상한 8).
+    //  B2: 잔고조회가 지속 실패하는 동안 daily_pnl_은 낡아 §4 손실컷이 트립하지 못한다.
+    //      스트릭이 임계(2)를 넘으면 OrderGate.pnl_stale를 세워 그 창에서 BUY NEW를 보수 정지하고,
+    //      복구되는 즉시 해제한다. 임계 2 = 단발 타임아웃(streak 1)엔 발동 않고 지속 정체만 잡음.
+    static constexpr int kPnlStaleStreak = 2;
     if (responded)
     {
         if (reconcile_fail_streak_ > 0)
             LOG_INFO("[Engine] 잔고조회 복구 — 리컨사일 정상화");
+        if (reconcile_fail_streak_ >= kPnlStaleStreak)
+            LOG_INFO("[Engine] daily_pnl 신선도 복구 — 신규 진입 정지 해제(B2)");
         reconcile_fail_streak_ = 0;
         reconcile_skip_remaining_ = 0;
+        order_gate_.set_pnl_stale(false);
     }
     else
     {
@@ -497,6 +504,12 @@ void Engine::reconcile_from_balance()
         LOG_WARN("[Engine] 잔고조회 실패(streak=" + std::to_string(reconcile_fail_streak_) +
                  ", 12002 타임아웃 등) — 리컨사일 " + std::to_string(reconcile_skip_remaining_) +
                  "사이클 백오프(핫루프 보호)");
+        // 지속 정체 → daily_pnl 낡음: 신규 진입 보수 정지(SELL 청산은 통과). 임계 진입 시 1회 경고.
+        if (reconcile_fail_streak_ == kPnlStaleStreak)
+            LOG_WARN("[Engine] daily_pnl 신선도 상실(streak≥" + std::to_string(kPnlStaleStreak) +
+                     ") — BUY NEW 보수 정지(B2), 손실컷 신뢰불가 창 방어");
+        if (reconcile_fail_streak_ >= kPnlStaleStreak)
+            order_gate_.set_pnl_stale(true);
     }
 }
 

@@ -129,6 +129,15 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
         }
     }
 
+    // 4b. PnL stale guard (B2) — daily_pnl_이 낡았으면(잔고 리컨사일 연속 정체) §4 손실컷을
+    //     신뢰할 수 없으므로 BUY NEW만 보수적으로 정지한다. SELL 청산·BUY 취소/정정은 통과시켜
+    //     "신규 위험만 억제, 탈출은 허용"(entry_halt와 동일 의미론). Engine이 잔고조회 복구 시 해제.
+    if (pnl_stale_.load() && sig.side == OrderSide::BUY && sig.action == OrderAction::NEW)
+    {
+        reject_reason = "PNL_STALE — 잔고 리컨사일 정체(daily_pnl 미갱신), 신규 진입 보수적 정지";
+        return false;
+    }
+
     // 5. 중복 신호 제거 — rate 소비 전에 먼저 검사해 중복이 rate slot을 소모하지 않도록 함
     //    키에 side 포함(MM-1): 시장조성은 같은 틱에 동일 strategy+ticker로 BUY(bid)+SELL(ask)를
     //    동시 발주한다. side를 넣지 않으면 두 번째(ask)가 중복으로 오거부된다. BUY/SELL은 서로
