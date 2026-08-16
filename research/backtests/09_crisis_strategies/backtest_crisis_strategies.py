@@ -77,6 +77,7 @@ from bt09_strategies import (                                 # noqa: E402
     expo_c4_rateshock, expo_c5_overnight_gap,
     expo_o1_regime_switch, expo_o2_vol_breakout, expo_o3_sox_lead,
     expo_o4_demandpull, expo_o5_crossasset_rebound,
+    expo_n4_voltarget, expo_n4a_expand, expo_n4b_const,
 )
 from bt09_report import write_readme                          # noqa: E402
 
