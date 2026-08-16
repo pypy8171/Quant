@@ -26,25 +26,51 @@ _생성: `analyze_crisis_regimes.py` (엔진 무관 단독실행). 재실행 시
 
 ## 개별 이벤트 (지수레벨 기술통계)
 
-| id(이벤트) | 원인 | 대표(지수) | peak(고점일) | trough(저점일) | max_dd%(최대낙폭) | fall_d(하락일) | rec_d(회복일) | recov(회복) | shape(형태) | speed(속도) | rvol_pre(사전변동성) | rvol_peak(충격변동성) | vix_pk(VIX정점) | tnx_Δ(금리Δ%p) | krw_Δ%(원화Δ) | tag(시스템성) |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1929_great_crash | financial | ^GSPC | 1929-09-16 | 1932-06-01 | -86.2 | 678 | 252 | False | L | slow | 17.7 | 107.5 | NA | NA | NA | narrow/external |
-| 1987_black_monday | structural | ^GSPC | 1987-08-25 | 1987-12-04 | -33.5 | 71 | 252 | False | L | slow | 11.4 | 103.1 | NA | 0.21 | NA | narrow/external |
-| 1990_gulf_war | war | ^GSPC | 1990-07-16 | 1990-10-11 | -19.9 | 62 | 86 | True | V | slow | 13.2 | 26.2 | NA | 0.48 | NA | narrow/external |
-| 1997_imf_asian | financial | ^KS11 | 1997-06-17 | 1998-06-16 | -64.7 | 241 | 212 | True | V | slow | NA | 90.9 | NA | NA | NA | narrow/external |
-| 1998_ltcm_russia | financial | ^GSPC | 1998-07-17 | 1998-08-31 | -19.3 | 31 | 59 | True | U | slow | 14.0 | 33.7 | NA | NA | NA | narrow/external |
-| 2000_dotcom | financial | ^IXIC | 2000-03-10 | 2002-10-09 | -77.9 | 647 | 252 | False | L | slow | 37.3 | 87.4 | 45.1 | NA | NA | systemic |
-| 2001_911 | terror | ^GSPC | 2001-07-02 | 2001-09-21 | -21.9 | 53 | 252 | False | L | slow | NA | 25.1 | 43.7 | NA | NA | systemic |
-| 2003_sars_iraq | pandemic+war | ^GSPC | 2002-12-02 | 2003-03-11 | -14.3 | 67 | 43 | True | V | slow | NA | 25.5 | NA | NA | NA | narrow/external |
-| 2008_gfc | financial | ^GSPC | 2007-10-09 | 2009-03-09 | -56.8 | 355 | 252 | False | L | slow | 19.7 | 85.2 | 80.9 | -1.77 | 68.8 | systemic |
-| 2010_flash_euro | financial | ^GSPC | 2010-04-23 | 2010-07-02 | -16.0 | 49 | 87 | True | U | slow | 8.5 | 33.1 | 45.8 | NA | NA | systemic |
-| 2011_us_downgrade_euro | financial | ^GSPC | 2011-05-02 | 2011-10-03 | -19.2 | 107 | 95 | True | V | slow | NA | 50.7 | 48.0 | NA | 11.0 | systemic |
-| 2015_china_yuan | financial | ^GSPC | 2015-07-20 | 2016-02-11 | -14.1 | 143 | 102 | True | V | slow | 11.7 | 32.5 | 40.7 | NA | NA | systemic |
-| 2018_fed_q4 | inflation | ^GSPC | 2018-09-20 | 2018-12-24 | -19.8 | 65 | 81 | True | V | slow | 6.8 | 24.8 | 36.1 | NA | 0.5 | narrow/external |
-| 2020_covid | pandemic | ^GSPC | 2020-02-19 | 2020-03-23 | -33.9 | 23 | 103 | True | U | fast | 11.3 | 86.8 | 82.7 | -0.81 | 5.4 | systemic |
-| 2022_inflation_bear | inflation | ^GSPC | 2022-01-03 | 2022-10-12 | -25.4 | 195 | 252 | False | L | slow | 15.2 | 35.1 | 36.5 | 2.27 | 20.5 | systemic |
-| 2023_svb | financial | ^GSPC | 2023-02-02 | 2023-03-13 | -7.8 | 26 | 47 | True | U | fast | NA | 17.2 | 26.5 | NA | NA | narrow/external |
-| 2024_yen_carry | structural | ^GSPC | 2024-07-16 | 2024-08-05 | -8.5 | 14 | 32 | True | U | fast | NA | 19.5 | 38.6 | NA | NA | narrow/external |
+표가 넓어 **① 낙폭·회복 타이밍**과 **② 변동성·매크로**로 나눴다(맨 왼쪽 id로 연결). 각 열의 뜻은 두 표 아래 **지표 설명** 참조.
+
+### ① 낙폭·회복 타이밍
+
+| id(이벤트) | 원인 | 대표(지수) | peak(고점일) | trough(저점일) | max_dd%(최대낙폭) | fall_d(하락일) | rec_d(회복일) | shape(형태) | speed(속도) |
+|---|---|---|---|---|---|---|---|---|---|
+| 1929_great_crash | financial | ^GSPC | 1929-09-16 | 1932-06-01 | -86.2 | 678 | 252 | L | slow |
+| 1987_black_monday | structural | ^GSPC | 1987-08-25 | 1987-12-04 | -33.5 | 71 | 252 | L | slow |
+| 1990_gulf_war | war | ^GSPC | 1990-07-16 | 1990-10-11 | -19.9 | 62 | 86 | V | slow |
+| 1997_imf_asian | financial | ^KS11 | 1997-06-17 | 1998-06-16 | -64.7 | 241 | 212 | V | slow |
+| 1998_ltcm_russia | financial | ^GSPC | 1998-07-17 | 1998-08-31 | -19.3 | 31 | 59 | U | slow |
+| 2000_dotcom | financial | ^IXIC | 2000-03-10 | 2002-10-09 | -77.9 | 647 | 252 | L | slow |
+| 2001_911 | terror | ^GSPC | 2001-07-02 | 2001-09-21 | -21.9 | 53 | 252 | L | slow |
+| 2003_sars_iraq | pandemic+war | ^GSPC | 2002-12-02 | 2003-03-11 | -14.3 | 67 | 43 | V | slow |
+| 2008_gfc | financial | ^GSPC | 2007-10-09 | 2009-03-09 | -56.8 | 355 | 252 | L | slow |
+| 2010_flash_euro | financial | ^GSPC | 2010-04-23 | 2010-07-02 | -16.0 | 49 | 87 | U | slow |
+| 2011_us_downgrade_euro | financial | ^GSPC | 2011-05-02 | 2011-10-03 | -19.2 | 107 | 95 | V | slow |
+| 2015_china_yuan | financial | ^GSPC | 2015-07-20 | 2016-02-11 | -14.1 | 143 | 102 | V | slow |
+| 2018_fed_q4 | inflation | ^GSPC | 2018-09-20 | 2018-12-24 | -19.8 | 65 | 81 | V | slow |
+| 2020_covid | pandemic | ^GSPC | 2020-02-19 | 2020-03-23 | -33.9 | 23 | 103 | U | fast |
+| 2022_inflation_bear | inflation | ^GSPC | 2022-01-03 | 2022-10-12 | -25.4 | 195 | 252 | L | slow |
+| 2023_svb | financial | ^GSPC | 2023-02-02 | 2023-03-13 | -7.8 | 26 | 47 | U | fast |
+| 2024_yen_carry | structural | ^GSPC | 2024-07-16 | 2024-08-05 | -8.5 | 14 | 32 | U | fast |
+
+### ② 변동성·매크로·시스템성
+
+| id(이벤트) | recov(회복) | rvol_pre(사전변동성) | rvol_peak(충격변동성) | vix_pk(VIX정점) | tnx_Δ(금리Δ%p) | krw_Δ%(원화Δ) | tag(시스템성) |
+|---|---|---|---|---|---|---|---|
+| 1929_great_crash | False | 17.7 | 107.5 | NA | NA | NA | narrow/external |
+| 1987_black_monday | False | 11.4 | 103.1 | NA | 0.21 | NA | narrow/external |
+| 1990_gulf_war | True | 13.2 | 26.2 | NA | 0.48 | NA | narrow/external |
+| 1997_imf_asian | True | NA | 90.9 | NA | NA | NA | narrow/external |
+| 1998_ltcm_russia | True | 14.0 | 33.7 | NA | NA | NA | narrow/external |
+| 2000_dotcom | False | 37.3 | 87.4 | 45.1 | NA | NA | systemic |
+| 2001_911 | False | NA | 25.1 | 43.7 | NA | NA | systemic |
+| 2003_sars_iraq | True | NA | 25.5 | NA | NA | NA | narrow/external |
+| 2008_gfc | False | 19.7 | 85.2 | 80.9 | -1.77 | 68.8 | systemic |
+| 2010_flash_euro | True | 8.5 | 33.1 | 45.8 | NA | NA | systemic |
+| 2011_us_downgrade_euro | True | NA | 50.7 | 48.0 | NA | 11.0 | systemic |
+| 2015_china_yuan | True | 11.7 | 32.5 | 40.7 | NA | NA | systemic |
+| 2018_fed_q4 | True | 6.8 | 24.8 | 36.1 | NA | 0.5 | narrow/external |
+| 2020_covid | True | 11.3 | 86.8 | 82.7 | -0.81 | 5.4 | systemic |
+| 2022_inflation_bear | False | 15.2 | 35.1 | 36.5 | 2.27 | 20.5 | systemic |
+| 2023_svb | True | NA | 17.2 | 26.5 | NA | NA | narrow/external |
+| 2024_yen_carry | True | NA | 19.5 | 38.6 | NA | NA | narrow/external |
 
 ### 지표 설명 (한글 — 어떤 지표이고 값이 무슨 뜻인지)
 

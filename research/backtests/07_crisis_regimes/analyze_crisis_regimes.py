@@ -416,21 +416,34 @@ def write_readme(rows, grid, coverage):
             L.append(f"| {sp}·{sh} | {n} | {verdict} |")
     L.append("")
 
-    # 개별 이벤트 표
+    # 개별 이벤트 표 — 17열은 너무 넓어 가독성이 무너짐. id로 잇는 2개 표로 분할.
     L.append("## 개별 이벤트 (지수레벨 기술통계)\n")
-    hdr = ["id(이벤트)", "원인", "대표(지수)", "peak(고점일)", "trough(저점일)",
-           "max_dd%(최대낙폭)", "fall_d(하락일)", "rec_d(회복일)", "recov(회복)",
-           "shape(형태)", "speed(속도)", "rvol_pre(사전변동성)", "rvol_peak(충격변동성)",
-           "vix_pk(VIX정점)", "tnx_Δ(금리Δ%p)", "krw_Δ%(원화Δ)", "tag(시스템성)"]
-    L.append("| " + " | ".join(hdr) + " |")
-    L.append("|" + "---|" * len(hdr))
+    L.append("표가 넓어 **① 낙폭·회복 타이밍**과 **② 변동성·매크로**로 나눴다(맨 왼쪽 id로 연결). "
+             "각 열의 뜻은 두 표 아래 **지표 설명** 참조.\n")
+
+    L.append("### ① 낙폭·회복 타이밍\n")
+    hdr_a = ["id(이벤트)", "원인", "대표(지수)", "peak(고점일)", "trough(저점일)",
+             "max_dd%(최대낙폭)", "fall_d(하락일)", "rec_d(회복일)", "shape(형태)", "speed(속도)"]
+    L.append("| " + " | ".join(hdr_a) + " |")
+    L.append("|" + "---|" * len(hdr_a))
     for r in rows:
         L.append("| " + " | ".join([
             r["id"], r["cause"], r["rep_index"], r["peak_date"], r["trough_date"],
             fmt(r["max_dd"], 1), fmt(r["fall_days"], 0), fmt(r["recovery_days"], 0),
-            r["recovered"], r["shape"], r["speed"], fmt(r["rvol_pre"], 1),
-            fmt(r["rvol_peak"], 1), fmt(r["vix_peak"], 1), fmt(r["tnx_chg"], 2),
-            fmt(r["krw_chg"], 1), r["systemic_tag"],
+            r["shape"], r["speed"],
+        ]) + " |")
+    L.append("")
+
+    L.append("### ② 변동성·매크로·시스템성\n")
+    hdr_b = ["id(이벤트)", "recov(회복)", "rvol_pre(사전변동성)", "rvol_peak(충격변동성)",
+             "vix_pk(VIX정점)", "tnx_Δ(금리Δ%p)", "krw_Δ%(원화Δ)", "tag(시스템성)"]
+    L.append("| " + " | ".join(hdr_b) + " |")
+    L.append("|" + "---|" * len(hdr_b))
+    for r in rows:
+        L.append("| " + " | ".join([
+            r["id"], r["recovered"], fmt(r["rvol_pre"], 1), fmt(r["rvol_peak"], 1),
+            fmt(r["vix_peak"], 1), fmt(r["tnx_chg"], 2), fmt(r["krw_chg"], 1),
+            r["systemic_tag"],
         ]) + " |")
     L.append("")
     L.append("### 지표 설명 (한글 — 어떤 지표이고 값이 무슨 뜻인지)\n")
