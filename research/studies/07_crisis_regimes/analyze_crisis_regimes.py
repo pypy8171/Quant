@@ -15,7 +15,7 @@
  5. n<3 셀은 verdict = "표본부족 — 일반화 금지" 고정. README 상단 배너 하드코딩.
 
 단독 실행:
-    python research/backtests/07_crisis_regimes/analyze_crisis_regimes.py
+    python research/studies/07_crisis_regimes/analyze_crisis_regimes.py
 콘솔 요약 + summary.tsv + README.md 생성. 네트워크 실패 티커는 NA로 스킵.
 """
 import os

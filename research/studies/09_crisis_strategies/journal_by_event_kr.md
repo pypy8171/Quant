@@ -4326,4 +4326,4 @@ BH 평균 창내수익 -3.5% (n=14). 아래는 각 전략의 17이벤트 평균�
 
 
 ---
-생성: `research/backtests/09_crisis_strategies/gen_trade_journal.py` (단독실행, IndexSource·BT-08/09 재사용, 결정론적). 전체 일별×전략 평가액은 `journal_tsv/<event>.tsv`.
+생성: `research/studies/09_crisis_strategies/gen_trade_journal.py` (단독실행, IndexSource·BT-08/09 재사용, 결정론적). 전체 일별×전략 평가액은 `journal_tsv/<event>.tsv`.

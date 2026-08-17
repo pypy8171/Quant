@@ -29,7 +29,7 @@
     홀드아웃 2022 잠금(train=2022제외, holdout=2022). 결측신호 → 중립(e=1) + 커버리지 명시.
 
 단독 실행:
-    python research/backtests/09_crisis_strategies/backtest_crisis_strategies.py
+    python research/studies/09_crisis_strategies/backtest_crisis_strategies.py
 콘솔 요약 + README.md 생성.
 """
 import sys

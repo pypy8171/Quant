@@ -199,4 +199,4 @@
 - **자유도**: 5룰 임계값 노브 ~17개 vs 방어대상 실질표본 n≈6~9. 사전등록 그리드 전량공개로 곡선맞춤을 노출하되, '발견'이 아닌 '스트레스테스트'로 프레이밍.
 
 ---
-생성 스크립트: `research/backtests/08_crisis_response/backtest_crisis_response.py` (단독실행, IndexSource 전용, 결정론적 재현). 관련: BT-06(regime 양날의검)·BT-07(위기 특성화).
+생성 스크립트: `research/studies/08_crisis_response/backtest_crisis_response.py` (단독실행, IndexSource 전용, 결정론적 재현). 관련: BT-06(regime 양날의검)·BT-07(위기 특성화).

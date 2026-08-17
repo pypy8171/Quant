@@ -27,7 +27,7 @@
 - **핵심 수치:** 1년 +146.7%(샤프2.11, MDD−23.5%) · 3년 +159.6%(샤프1.12, **MDD−35.6%**) · 4년 +203%(샤프1.10, α+77%p).
 - **발견:** 알파가 최근 12개월에 집중, 3년창에선 엣지 거의 소멸. MDD 비단조(4년<3년)=낙폭이 진입 타이밍 의존. **전 구간 MDD 게이트(≤15%) 불합격.**
 - **→ 다음:** 수익이 아니라 **낙폭 통제**가 1순위.
-- 상세: **[backtests/01_momentum_regime/](backtests/01_momentum_regime/README.md)** (종목별 매매 원장) · [BACKTEST_LOG 실행 #1](BACKTEST_LOG.md) · export `bt_1y.json`~`bt_5y.json`
+- 상세: **[studies/01_momentum_regime/](studies/01_momentum_regime/README.md)** (종목별 매매 원장) · [BACKTEST_LOG 실행 #1](BACKTEST_LOG.md) · export `bt_1y.json`~`bt_5y.json`
 
 ## BT-02
 ### 변동성 타게팅(vol_target=0.15) 도입 (2026-08-05)
@@ -36,7 +36,7 @@
 - **핵심 수치:** 1년 MDD `−23.5→−11.6%`(**게이트 첫 통과**), 3년 `−35.6→−25.9%`. 샤프 유지(1년 2.11→2.21). 거래수 급증(3년 445).
 - **발견:** MDD 전 구간 8~12%p 개선·샤프 유지 = 목표 달성. α 음전은 벤치가 풀노출이라 당연(위험조정으론 미달 아님). 3년 MDD는 아직 불합격.
 - **→ 다음:** vol_target 채택. 단 α는 상승장 표본뿐 → **약세장 OOS 필요.**
-- 상세: **[backtests/02_vol_target/](backtests/02_vol_target/README.md)** (종목별 매매 원장) · [BACKTEST_LOG 실행 #2](BACKTEST_LOG.md) · export `bt2_1y.json`~`bt2_5y.json`
+- 상세: **[studies/02_vol_target/](studies/02_vol_target/README.md)** (종목별 매매 원장) · [BACKTEST_LOG 실행 #2](BACKTEST_LOG.md) · export `bt2_1y.json`~`bt2_5y.json`
 
 ## BT-03
 ### 2022 약세장 격리 OOS + 국면필터 ON/OFF ablation (2026-08-05)
@@ -45,7 +45,7 @@
 - **핵심 수치:** regime OFF −35.4%(MDD−37.6%, 샤프−1.95, **벤치 −20.5%보다 나쁨**) vs regime ON **+0.0%(100% 현금)**.
 - **발견:** 모멘텀 단독 엣지는 약세장에서 소멸·역전(모멘텀 크래시 실증). 시스템을 살리는 건 **국면 오버레이의 하방 컷**. ⚠️ ON의 "✅알파" 라벨은 비참여(현금)를 실력으로 오독시키니 반드시 ON/OFF 짝으로 해석.
 - **→ 다음:** 손실통제 레버는 regime으로 확정.
-- 상세: **[backtests/03_2022_ablation/](backtests/03_2022_ablation/README.md)** (종목별 매매 원장) · [BACKTEST_LOG 실행 #3](BACKTEST_LOG.md) · export `bt_2022bear.json`(ON)·`bt_2022bear_noregime.json`(OFF)
+- 상세: **[studies/03_2022_ablation/](studies/03_2022_ablation/README.md)** (종목별 매매 원장) · [BACKTEST_LOG 실행 #3](BACKTEST_LOG.md) · export `bt_2022bear.json`(ON)·`bt_2022bear_noregime.json`(OFF)
 
 ## BT-04
 ### 올해(2026) 월별 시작 민감도 스윕 + C1 개별추세필터 (2026-08-07)
@@ -72,7 +72,7 @@
 - **핵심 수치:** 2011 momentum ON +24.1%(샤프1.17) · 2018 **mean_reversion OFF +10.9%**(momentum은 −22% 최악) · 2020 momentum OFF +58%(V반등) · 2026 momentum ON +99.9%(샤프2.30).
 - **발견:** momentum 대체로 우세하나 절대우위 아님(2018 박스+급락장은 역추세가 승). **regime은 순수하락 방어/V자반등엔 독.** ⚠️ yf 3구간은 정적 대형주 후보라 survivorship bias(방향성용).
 - **→ 다음:** regime 게이트에 반등 전환 재진입 로직 필요(DeviationScale 배포 함의).
-- 상세: **[backtests/06_bear_market/README.md](backtests/06_bear_market/README.md)** · [이벤트별 매매 원장](backtests/06_bear_market/events/README.md) · summary `backtests/06_bear_market/summary_*.tsv`
+- 상세: **[studies/06_bear_market/README.md](studies/06_bear_market/README.md)** · [이벤트별 매매 원장](studies/06_bear_market/events/README.md) · summary `studies/06_bear_market/summary_*.tsv`
 
 ---
 

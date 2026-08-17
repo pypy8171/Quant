@@ -25,7 +25,7 @@
 
 - **RingBuffer** — 명시적 메모리 순서를 쓰는 SPSC 락-프리 큐(스레드 간 배압).
 - **OrderGate** — 주문이 나가기 전 통과해야 하는 위험 검증 게이트(아래).
-- 확장 구성(ZMQ IPC · TimescaleDB 적재 · Python 오퍼레이터)은 [PROJECT_GUIDE.md](PROJECT_GUIDE.md) 참조.
+- 확장 구성(ZMQ IPC · TimescaleDB 적재 · Python 오퍼레이터)은 [PROJECT_GUIDE.md](docs/guides/PROJECT_GUIDE.md) 참조.
 
 ---
 
@@ -79,7 +79,7 @@ strategies/     전략별 스펙(SPEC) · 실증 로그 · 백테스트 결과
 scripts/        운영 보조 스크립트
 ```
 
-세부 디렉토리·기술스택·Docker 운영은 [PROJECT_GUIDE.md](PROJECT_GUIDE.md)에 정리돼 있습니다.
+세부 디렉토리·기술스택·Docker 운영은 [PROJECT_GUIDE.md](docs/guides/PROJECT_GUIDE.md)에 정리돼 있습니다.
 
 ---
 

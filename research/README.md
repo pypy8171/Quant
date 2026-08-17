@@ -8,7 +8,7 @@
 | 파일 | 역할 | git |
 |---|---|---|
 | [**BACKTESTS.md**](BACKTESTS.md) | **백테스트 카탈로그** — 진행한 모든 백테스트를 한 항목씩 카드로(질문·기간·핵심수치·판정·상세링크). 전체 조망은 여기부터 | 추적 |
-| [backtests/](backtests/) | **폴더형 스터디** — 종목별 매매 원장까지 드릴다운. BT-01 모멘텀×국면 / BT-02 vol_target / BT-03 2022 ablation / BT-06 하락장 6구간 | 추적 |
+| [studies/](studies/) | **폴더형 스터디** — 종목별 매매 원장까지 드릴다운. BT-01 모멘텀×국면 / BT-02 vol_target / BT-03 2022 ablation / BT-06 하락장 6구간 | 추적 |
 | [RESEARCH_COUNCIL.md](RESEARCH_COUNCIL.md) | 회의 프로토콜 — 결과 하나마다 어느 에이전트가 무엇을 검토하고 다음 실험을 합의하는지 | 추적 |
 | [BACKTEST_LOG.md](BACKTEST_LOG.md) | **실행 저널** — 실행별 규칙변경·결과표·지표델타·해석 (최신이 위, prepend) | 추적 |
 | [BACKTEST_FLOW.md](BACKTEST_FLOW.md) | 파이프라인 흐름 — 데이터→백테스트→리포트 배선과 문서 지도 | 추적 |

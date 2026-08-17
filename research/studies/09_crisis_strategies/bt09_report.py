@@ -182,7 +182,7 @@ def write_readme(bms, results, sweeps, readme_path):
              "비용감도 1.0%를 보수적 하한 참조.")
     L.append("- **자유도**: 10전략 임계값 다수 vs 성격별 실질표본 n≈6~9. 사전등록+전량스윕+홀드아웃"
              "(2022)으로 곡선맞춤을 노출하되 '발견'이 아닌 '규율검증'으로 프레이밍.")
-    L.append(f"\n---\n생성 스크립트: `research/backtests/09_crisis_strategies/backtest_crisis_strategies.py` "
+    L.append(f"\n---\n생성 스크립트: `research/studies/09_crisis_strategies/backtest_crisis_strategies.py`"
              f"(단독실행, IndexSource 전용, BT-08 엔진 재사용, 결정론적 재현). 관련: BT-06·BT-07·BT-08.\n")
 
     readme_path.write_text("\n".join(L), encoding="utf-8")

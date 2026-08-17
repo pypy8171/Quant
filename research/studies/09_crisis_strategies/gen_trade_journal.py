@@ -255,7 +255,7 @@ def run(force_rep=None, tag=""):
     L.append("\n*'창내수익'은 저점±2개월 4개월 구간 수익이라 대부분 음수(위기창)거나 반등포함. "
              "방어전략은 낙폭을 줄이는 대신 수익이 BH보다 낮을 수 있고(정상), 공세전략은 반등참여로 초과를 노린다. "
              "BH초과 이벤트 수가 절반 이상이면 그 창에서 값어치. 단 n≈13~17, 성격별로는 더 적어 과대해석 금지.*\n")
-    L.append(f"\n---\n생성: `research/backtests/09_crisis_strategies/gen_trade_journal.py` "
+    L.append(f"\n---\n생성: `research/studies/09_crisis_strategies/gen_trade_journal.py`"
              f"(단독실행, IndexSource·BT-08/09 재사용, 결정론적). 전체 일별×전략 평가액은 `journal_tsv/<event>.tsv`.\n")
 
     out_md.write_text("\n".join(L), encoding="utf-8")

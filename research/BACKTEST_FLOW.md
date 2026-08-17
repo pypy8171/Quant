@@ -117,12 +117,12 @@ flowchart TD
 | 전략 베이스 | [Quant/include/strategy/StrategyBase.h](Quant/include/strategy/StrategyBase.h) | C++ 추상 전략 | `on_trade`, `get_watch_specs`, `is_active` |
 | 원형 전략 | [Quant/include/strategy/MACrossStrategy.h](Quant/include/strategy/MACrossStrategy.h) | 보유분 시드 패턴 참조 | `on_data`, `start_in_position_` |
 | 확정 스펙 | [ITB_V2_SPEC.md](ITB_V2_SPEC.md) | 파라미터·안전장치 협의체 결론 | §0~§6 |
-| 라이브 경로 추적 | [PIPELINE_A_to_Z.md](PIPELINE_A_to_Z.md) | TRADE 모드 파일:라인 흐름 + 빈틈목록 | §13 G1/G2/G3 |
+| 라이브 경로 추적 | [PIPELINE_A_to_Z.md](../docs/guides/PIPELINE_A_to_Z.md) | TRADE 모드 파일:라인 흐름 + 빈틈목록 | §13 G1/G2/G3 |
 | 리스크 게이트 | [Quant/src/risk/OrderGate.cpp](Quant/src/risk/OrderGate.cpp) | 6단계 주문 검증 | `check` |
 | 엔진 | [Quant/src/core/Engine.cpp](Quant/src/core/Engine.cpp) | 스레드 파이프라인 | `start` |
 
 ### ITB가 `on_trade`(WS 체결틱) 기반인 이유
-[PIPELINE_A_to_Z.md](PIPELINE_A_to_Z.md) §13의 빈틈 **G1**(`get_daily_ohlcv` 날짜 하드코딩 → 모의서버 500 → 일봉 신호 0건)·**G2**(count=1 폴링 반복)을 우회하기 위해, REST 일봉 대신 WS 체결틱을 직접 소비하도록 설계됨.
+[PIPELINE_A_to_Z.md](../docs/guides/PIPELINE_A_to_Z.md) §13의 빈틈 **G1**(`get_daily_ohlcv` 날짜 하드코딩 → 모의서버 500 → 일봉 신호 0건)·**G2**(count=1 폴링 반복)을 우회하기 위해, REST 일봉 대신 WS 체결틱을 직접 소비하도록 설계됨.
 
 ---
 

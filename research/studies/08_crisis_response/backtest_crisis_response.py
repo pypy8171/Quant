@@ -17,7 +17,7 @@
     임계값은 사전등록 + 전체 스윕 공개(best 셀 보고 금지). 비용 0.21/0.5/1.0% 감도.
 
 단독 실행:
-    python research/backtests/08_crisis_response/backtest_crisis_response.py
+    python research/studies/08_crisis_response/backtest_crisis_response.py
 콘솔 요약 + summary_*.tsv + events_*.tsv + sweep.tsv + README.md 생성.
 """
 import os
@@ -638,7 +638,7 @@ def write_readme(bms, results, sweeps):
              "감도표의 1.0%를 보수적 하한으로 참조.")
     L.append("- **자유도**: 5룰 임계값 노브 ~17개 vs 방어대상 실질표본 n≈6~9. 사전등록 그리드 전량공개로 "
              "곡선맞춤을 노출하되, '발견'이 아닌 '스트레스테스트'로 프레이밍.")
-    L.append(f"\n---\n생성 스크립트: `research/backtests/08_crisis_response/backtest_crisis_response.py` "
+    L.append(f"\n---\n생성 스크립트: `research/studies/08_crisis_response/backtest_crisis_response.py`"
              f"(단독실행, IndexSource 전용, 결정론적 재현). 관련: BT-06(regime 양날의검)·BT-07(위기 특성화).\n")
 
     README_PATH.write_text("\n".join(L), encoding="utf-8")
