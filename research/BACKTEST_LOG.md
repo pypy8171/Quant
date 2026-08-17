@@ -1,5 +1,7 @@
 # 백테스트 저널 (BACKTEST_LOG)
 
+> **이 저널은 계열 A(종목레벨 모멘텀/레짐) 실행 원문의 단일 소유자다.** 한 줄 카탈로그=[BACKTESTS.md](BACKTESTS.md), 방향 요약=[research 허브](README.md), 위기대응 계열(07~09)=[studies/README](studies/README.md#계열-b--지수레벨-위기대응).
+
 > 운용 첫걸음 — 돌린 백테스트를 **무엇을·왜·결과**로 누적 기록한다.
 > 규칙: **최신 실행을 맨 위에 추가(prepend)**. 기존 기록은 덮어쓰거나 삭제하지 않는다.
 >
