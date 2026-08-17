@@ -26,6 +26,12 @@ build_test/
 linux_practice/dummy_server
 __pycache__/
 *.pyc
+# Python 학습노트 — 로컬 전용, 절대 커밋/푸시 금지(학습 목적 개인 문서)
+research/backtests/PYTHON_학습노트.md
+PYTHON_학습노트.md
+# C++ 엔진 학습노트 — 로컬 전용, 절대 커밋/푸시 금지(학습·개인 문서)
+Quant/CPP_학습노트.md
+CPP_학습노트.md
 # 백테스트 산출물(재생성 가능한 equity 시계열) — 저장소에 넣지 않음
 PYQuant/bt_*.json
 PYQuant/bt2_*.json
