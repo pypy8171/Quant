@@ -309,6 +309,7 @@ class DataGoKrSource:
                 "market":   str(it.get("mrktCtg", "") or ""),
                 "mktcap":   _f(it.get("mrktTotAmt")),
                 "turnover": _f(it.get("trPrc")),
+                "close":    _f(it.get("clpr")),   # 종가 — universe_feed 유니버스 피드 min_price 필터용
             } for it in items if self._code6(it)]
             if rows:
                 try:

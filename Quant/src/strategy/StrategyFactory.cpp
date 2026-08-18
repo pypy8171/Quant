@@ -368,6 +368,31 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
     // 스캔/단일로 실제 DeviationScale이 담당하는 티커 — 보유분 청산 가디언 중복 부착 방지.
     std::set<std::string> covered;
 
+    // 이미 보유 중인 종목은 DeviationScale 신규 스캔에서 제외 → 청산 가디언이 전담(윈드다운).
+    //  시드/전일 물린 보유분에 DevScale 사다리 매수가 겹치면 종목당 명목상한(max_pct)을
+    //  초과해 CANCEL 거부·과주문이 난다(073240 사례). 보유분=guardian, 신규만=DevScale로 분리.
+    //  manage_holdings.enabled일 때만 적용(가디언이 있어야 보유분을 인수하므로).
+    std::set<std::string> held;
+    if (s.contains("manage_holdings") && s["manage_holdings"].value("enabled", false))
+    {
+        KisClient held_kis(ctx.kis_cfg);
+        if (held_kis.authenticate())
+        {
+            nlohmann::json bal = held_kis.get_balance();
+            if (bal.contains("output1"))
+                for (auto& h : bal["output1"])
+                {
+                    std::string code = h.value("pdno", "");
+                    int hq = std::atoi(h.value("hldg_qty", "0").c_str());
+                    if (!code.empty() && hq > 0) held.insert(code);
+                }
+            LOG_INFO("[Main] DEVSCALE: 보유분 " + std::to_string(held.size()) +
+                     "종목 스캔 제외(청산 가디언 전담)");
+        }
+        else
+            LOG_WARN("[Main] DEVSCALE: 보유분 조회 인증 실패 — 스캔 제외 미적용(중복 위험)");
+    }
+
     // 티커 → DeviationScale 인스턴스 팩토리 (초기 스캔·주기적 재스캔 공용).
     auto factory = [base](const std::string& ticker) -> std::unique_ptr<StrategyBase>
     {
@@ -392,6 +417,8 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         sc.risk_off_idx    = s.value("risk_off_index_pct", -0.02);
         sc.require_aligned = s.value("require_aligned", true);  // 정배열 프리필터 on/off
         sc.align_probe_max = s.value("align_probe_max", 60);    // 정배열 검사 후보 상한(일봉 조회 비용 캡)
+        sc.max_dev_pct     = s.value("max_dev_pct", 0.0);       // 과확장 컷(일봉 이격 상한, 0=비활성)
+        sc.universe_file   = s.value("universe_file", std::string()); // data.go.kr 유니버스 피드(ETF-free·30행캡 우회), 비면 KIS 랭킹만
         sc.align_daily_n   = base.daily_lookback;               // 정배열(SMA60) 판정용 일봉 개수(≥60)
         // 횡단면 스코어러(2026-08-09 회의 Task 4) — score_top_n>0이면 정배열 통과분을
         //  점수 랭킹해 상위 N만 등록(오너 원안 "점수 내고 5개"). 0=기존 동작(전체 등록).
@@ -404,10 +431,17 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         // 유니버스 산출 콜백 — 초기 등록과 주기적 재스캔이 공용으로 사용(cfg 값 복사 캡처).
         //  &engine 참조 캡처: universe_fn은 엔진(set_universe_rescan)에 저장되어 엔진이 살아있는
         //  동안만 호출되므로 참조 수명 안전. 스캔 결과 종목명을 엔진 라벨 맵에 등록해 로그에 노출.
-        auto universe_fn = [sc, &engine](KisClient& c)
+        auto universe_fn = [sc, &engine, held](KisClient& c)
         {
             std::unordered_map<std::string, std::string> nm;
             auto ts = universe::scan_devscale(c, sc, &nm);
+            if (!held.empty()) // 보유분 제외 — 청산 가디언 전담(초기·재스캔 공용)
+            {
+                std::vector<std::string> keep;
+                for (auto& t : ts)
+                    if (!held.count(t)) keep.push_back(t);
+                ts.swap(keep);
+            }
             for (auto& kv : nm) engine.register_ticker_name(kv.first, kv.second);
             return ts;
         };

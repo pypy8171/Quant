@@ -13,6 +13,8 @@ Quant/config/config_*.json
 Quant/config/.token_cache.json
 Quant/config/kis_token_*.json
 Quant/config/regime.json
+# 유니버스 피드(universe_feed.py) 매일 재생성 산출물 — 스냅샷 커밋 시 히스토리 churn 방지(시크릿 없음)
+Quant/config/universe_scan.json
 kis_token_*.json
 *.log
 *.pid

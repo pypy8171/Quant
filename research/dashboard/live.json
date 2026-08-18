@@ -2,6 +2,14 @@
   "schema": "quant.live/v1",
   "journals": [
     {
+      "date": "2026-08-18",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-08-18.md",
+      "title": "라이브 모의 매매 일지 — 2026-08-18 (월)",
+      "strat_line": "DeviationScale (DEVSCALE) + ITB 청산 가디언(물린 보유분). 일봉 정배열+눌림 존 게이트 + 3분봉 이격도 분할매매(지정가 예약 사다리).",
+      "summary": "유니버스 ETF잠식 수정이 라이브에서 최초로 입증된 날 — 후보 131·정배열 18·등록 18(옛빌드 15·0)로, \"상위권에 정배열 0은 말이 안 된다\"던 지적이 정확히 맞았음이 확인됐다. data.go.kr 시총∪거래대금 유니버스 피드(125종목, ETF-free)가 4번째 축으로 정상 union됐고 정배열 프리필터가 처음으로 두 자릿수(18)를 냈다. 다만 DevScale 신규 진입은 오늘도 체결 0 — 오후 세션에서 일일 손실 서킷(-504,481원 / 한도 -300,000원)이 신규 BUY 45건을 전량 차단했다. 이 손실은 DevScale이 아니라 아침에 물려 있던 레거시 보유분(대원전선 562주 등)을 ITB 가디언이 청산하며 확정된 MTM이 주범이다(정상 방어 동작). 별도로, 회의 결과 +20% 추격 밴드는 눌림 철학과 배치돼 상단을 +5%로 조이고 스캐너 컷을 0.05로 동반 조정하기로 결론냈다(수치 정당화 완료, 적용은 승인 대기)."
+    },
+    {
       "date": "2026-08-14",
       "strategy": "DeviationScale",
       "path": "strategies/DeviationScale/live/2026-08-14.md",
@@ -108,6 +116,50 @@
       "accepted": 263,
       "rejected": 273,
       "cancelled": 233,
+      "filled": 0
+    },
+    {
+      "date": "2026-08-18",
+      "path": "logs/trades_20260818.csv",
+      "total": 119,
+      "by_status": {
+        "REJECTED": 104,
+        "ACCEPTED": 15
+      },
+      "by_strategy": {
+        "DEVSCALE_073240": 20,
+        "DEVSCALE_207940": 6,
+        "DEVSCALE_068270": 6,
+        "DEVSCALE_096770": 6,
+        "DEVSCALE_035720": 6,
+        "DEVSCALE_010950": 6,
+        "DEVSCALE_003230": 6,
+        "DEVSCALE_161390": 6,
+        "DEVSCALE_000100": 6,
+        "DEVSCALE_175330": 6,
+        "DEVSCALE_005180": 6,
+        "DEVSCALE_006340": 6,
+        "DEVSCALE_006360": 6,
+        "DEVSCALE_004370": 6,
+        "STARTUP_PROBE": 5,
+        "DEVSCALE_011200": 4,
+        "ITB_005930": 2,
+        "DEVSCALE_005830": 2,
+        "DEVSCALE_021240": 2,
+        "DEVSCALE_192820": 2,
+        "ITB_006340": 1,
+        "ITB_005180": 1,
+        "ITB_011200": 1,
+        "ITB_073240": 1
+      },
+      "by_side": {
+        "BUY": 113,
+        "SELL": 6
+      },
+      "n_tickers": 19,
+      "accepted": 15,
+      "rejected": 104,
+      "cancelled": 0,
       "filled": 0
     }
   ]
