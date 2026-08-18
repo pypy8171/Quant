@@ -36,6 +36,7 @@ if str(_PYQ) not in sys.path:
     sys.path.insert(0, str(_PYQ))
 
 from data.index_source import IndexSource  # noqa: E402
+from data.asof import as_of  # noqa: E402  (재현성: 벤치마크 종료일 상한 고정)
 
 OUT_DIR = _HERE.parent
 README_PATH = OUT_DIR / "README.md"
@@ -362,13 +363,13 @@ def fmt(x, nd=1):
 
 
 def build_benchmark(src, name, ticker, start, use_vix):
-    dates, closes = load_series(src, ticker, start, _date.today().isoformat())
+    dates, closes = load_series(src, ticker, start, as_of().isoformat())
     if len(closes) < WARMUP + 20:
         return None
     ret = daily_returns(closes)
     vix = None
     if use_vix:
-        vd, vc = load_series(src, "^VIX", "2000-01-01", _date.today().isoformat())
+        vd, vc = load_series(src, "^VIX", "2000-01-01", as_of().isoformat())
         vix = align_to(dates, vd, vc) if len(vc) else None
     # 갭 점검(연속성): 평균 연 거래일수
     years = (int(dates[-1][:4]) - int(dates[0][:4])) + 1
@@ -510,7 +511,7 @@ def main():
 
 def write_readme(bms, results, sweeps):
     L = []
-    today = _date.today().isoformat()
+    today = as_of().isoformat()
     L.append("# 위기 인과적 대응 백테스트 (BT-08)\n")
     L.append("> ⚠️ **정직성 배너.** 이 표는 *엣지 발견이 아니라 인과적 스트레스테스트*다. "
              "익스포저는 오직 **t-1 종가까지의 정보**로 산출(룩어헤드 차단), 수익=e[t-1]×지수수익. "

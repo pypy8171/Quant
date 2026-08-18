@@ -24,12 +24,13 @@ import numpy as np
 _HERE = Path(__file__).resolve()
 _REPO = _HERE.parents[3]
 _PYQ = _REPO / "PYQuant"
-_BT08 = _REPO / "research" / "backtests" / "08_crisis_response"
+_BT08 = _REPO / "research" / "studies" / "08_crisis_response"
 for p in (str(_PYQ), str(_BT08), str(_HERE.parent)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
 from data.index_source import IndexSource            # noqa: E402
+from data.asof import as_of                          # noqa: E402  (재현성: 종료일 상한 고정)
 import backtest_crisis_response as bt08              # noqa: E402
 import backtest_crisis_strategies as bt09            # noqa: E402
 
@@ -47,7 +48,7 @@ CAP = 1_000_000_000          # 10억원
 PRE_BD = 42                  # 저점 전 거래일(~2개월)
 POST_BD = 42                 # 저점 후 거래일(~2개월)
 
-TODAY = _date.today().isoformat()
+TODAY = as_of().isoformat()
 
 # 대표지수 → 매매상품(ETF 근사) 라벨
 INSTRUMENT = {

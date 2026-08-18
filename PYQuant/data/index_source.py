@@ -48,6 +48,11 @@ class IndexSource:
         except Exception:
             pass
 
+        if os.environ.get("INDEX_OFFLINE"):
+            raise RuntimeError(
+                f"INDEX_OFFLINE — 캐시 미스로 네트워크 차단: {cache.name} "
+                f"(재현성 게이트는 커밋된 캐시에서만 돈다; 먼저 온라인 워밍 필요)")
+
         try:
             import yfinance as yf
         except ModuleNotFoundError:

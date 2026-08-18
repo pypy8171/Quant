@@ -20,17 +20,18 @@ import numpy as np
 _HERE = Path(__file__).resolve()
 _REPO = _HERE.parents[3]                        # .../Quant
 _PYQ = _REPO / "PYQuant"
-_BT08 = _REPO / "research" / "backtests" / "08_crisis_response"
+_BT08 = _REPO / "research" / "studies" / "08_crisis_response"
 for _p in (str(_PYQ), str(_BT08)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 import backtest_crisis_response as bt08                       # noqa: E402  (엔진 헬퍼 재사용)
+from data.asof import as_of                                   # noqa: E402  (재현성: 종료일 상한 고정)
 
 load_series = bt08.load_series                                # build_ctx 가 사용
 
 # ── 신호 상수 ────────────────────────────────────────────────────────────────
-TODAY = _date.today().isoformat()
+TODAY = as_of().isoformat()
 STALE_CAP_DAYS = 7          # 신호 정체 상한(달력일). 초과 → NA(중립)
 
 # 신호 데이터 소스(달력 시작·가용범위 — probe로 실측):
