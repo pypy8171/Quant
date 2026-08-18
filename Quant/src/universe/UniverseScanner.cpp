@@ -2,6 +2,8 @@
 #include "core/Types.h"
 #include "utils/Logger.h"
 #include <algorithm>
+#include <fstream>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -102,6 +104,49 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
             cand_names[r.ticker] = r.name; // 종목명 보관(로그 라벨용)
         }
     };
+    // 4축(우선) — data.go.kr 시총∪거래대금 유니버스 피드. 후보 풀 "맨 앞"에 넣어 프로브 우선순위 확보.
+    //  KIS 30행캡·ETF 잠식을 우회한 개별주 깊은 풀(ETF-free 구조적). 파일 없으면 조용히 스킵(하위호환).
+    if (!cfg.universe_file.empty())
+    {
+        std::ifstream f(cfg.universe_file);
+        if (!f)
+        {
+            LOG_WARN("[Main] DEVSCALE 유니버스 파일 없음(" + cfg.universe_file +
+                     ") — data.go.kr 축 스킵, KIS 랭킹 축만 사용");
+        }
+        else
+        {
+            try
+            {
+                nlohmann::json j;
+                f >> j;
+                const std::string basDt = j.value("basDt", std::string());
+                const auto arr = j.value("universe", nlohmann::json::array());
+                int added_file = 0, dup = 0;
+                for (const auto& e : arr)
+                {
+                    const std::string t = e.value("ticker", std::string());
+                    if (t.empty()) continue;
+                    const double px = e.value("close", 0.0);
+                    // close(0=미제공)면 가격필터는 뒤 정배열 프리필터의 일봉이 대신 검증.
+                    if (px > 0.0 && px < cfg.min_price) continue;
+                    if (cfg.max_price > 0.0 && px > cfg.max_price) continue;
+                    if (!seen.insert(t).second) { ++dup; continue; }
+                    cand.push_back(t);
+                    cand_names[t] = e.value("name", std::string());
+                    ++added_file;
+                }
+                LOG_INFO("[Main] DEVSCALE data.go.kr 축(기준일 " + basDt + "): 파일 " +
+                         std::to_string(arr.size()) + "종목 → 신규 " + std::to_string(added_file) +
+                         " union (중복 " + std::to_string(dup) + ")");
+            }
+            catch (const std::exception& ex)
+            {
+                LOG_WARN("[Main] DEVSCALE 유니버스 파일 파싱 실패(" + cfg.universe_file +
+                         "): " + std::string(ex.what()) + " — data.go.kr 축 스킵");
+            }
+        }
+    }
     take(c.fetch_kr_ranking(cfg.scan_top_n, "J"));          // 시총 상위
     take(c.fetch_value_ranking(cfg.value_top_n, "J", "3")); // 거래대금 상위
     // 랭킹 TR은 축마다 상위 30행 고정(연속조회 불가) → 정렬축을 하나 더 union해 풀을 넓힌다.
@@ -134,7 +179,7 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
     //      score_top_n>0이면 통과분을 (ticker, 점수)로 모아 3단에서 랭킹·절단.
     struct Scored { std::string ticker; double score; };
     std::vector<Scored> passed;
-    int probed = 0, aligned_cnt = 0, short_bars = 0;
+    int probed = 0, aligned_cnt = 0, short_bars = 0, overext = 0;
     for (const auto& t : cand)
     {
         // 스코어링 시엔 max_register 대신 align_probe_max까지 넓게 모아 랭킹(더 나은 상위 N).
@@ -156,6 +201,12 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
         double trend = s60 > 0.0 ? (s5 - s60) / s60 : 0.0;   // 추세강도(정배열 기울기)
         double px = d[0].close;
         double pull = s20 > 0.0 ? (px - s20) / s20 : 0.0;     // 눌림깊이(음수=SMA20 아래)
+        // 과확장 컷 — 일봉 이격이 상한 초과면 제외(존 밴드 진입 불가한 폭등주 슬롯 낭비 방지).
+        if (cfg.max_dev_pct > 0.0 && pull > cfg.max_dev_pct)
+        {
+            ++overext;
+            continue;
+        }
         double score = cfg.score_w_trend * trend + cfg.score_w_pullback * (-pull) +
                        cfg.score_w_supply * 0.0;              // 수급항은 로거 데이터 확보 후
         passed.push_back({t, score});
@@ -189,6 +240,7 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
     LOG_INFO("[Main] DEVSCALE 정배열 프리필터: 후보=" + std::to_string(cand.size()) +
              " 검사=" + std::to_string(probed) + " 정배열=" + std::to_string(aligned_cnt) +
              " 데이터부족(<60봉)=" + std::to_string(short_bars) +
+             " 과확장컷=" + std::to_string(overext) +
              " 등록=" + std::to_string(out.size()));
     return out;
 }

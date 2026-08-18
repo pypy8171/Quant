@@ -47,6 +47,15 @@ struct DevScanCfg
     bool   require_aligned = true;
     int    align_probe_max = 60;
     int    align_daily_n   = 70;
+    // 과확장 컷 — 정배열이어도 일봉 이격 (price-SMA20)/SMA20 이 값을 넘으면 제외.
+    //  0=비활성(기존 동작). >0이면 존 밴드(entry_upper_pct)를 벗어나 진입 불가한
+    //  폭등주(이격 33~104%)를 유니버스에서 미리 제거해 슬롯 낭비를 막는다.
+    double max_dev_pct     = 0.0;
+    // data.go.kr 시총∪거래대금 top-N 유니버스 피드 파일(ETF-free·30행캡 우회). 비면 KIS 랭킹 축만.
+    //  Python universe_feed.py가 T-1 스냅샷으로 {ticker,name,close} 리스트를 이 경로에 기록하고,
+    //  scan_devscale가 후보 풀의 "맨 앞"(프로브 우선) 4번째 축으로 union한다. KIS 랭킹 TR의
+    //  30행 하드캡과 장중 ETF 잠식을 원천 차단 — 개별주 깊은 풀을 안정적으로 확보.
+    std::string universe_file;
     // 횡단면 스코어러(2026-08-09 회의 Task 4) — 오너 원안 "점수 내고 5개 골라서".
     //  score_top_n>0이면 정배열 통과 후보를 점수로 랭킹해 상위 N만 등록(0=전체, 기존 동작).
     //  점수는 정배열 검사에 이미 쓴 일봉을 재활용 → 추가 REST 0.
