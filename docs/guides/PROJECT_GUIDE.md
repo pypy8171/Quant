@@ -628,16 +628,16 @@ REP tcp://*:5556  요청/응답
 
 | 파일 | 역할 |
 |------|------|
-| [Quant/include/core/Types.h](Quant/include/core/Types.h) | `OrderStatus`, `ManagedOrder`, `WatchSpec` |
-| [Quant/include/api/IOrderExecutor.h](Quant/include/api/IOrderExecutor.h) | 주문 실행 추상 인터페이스 |
-| [Quant/include/ipc/OrderRouter.h](Quant/include/ipc/OrderRouter.h) | FEP 라우터 인터페이스 |
-| [Quant/src/ipc/OrderRouter.cpp](Quant/src/ipc/OrderRouter.cpp) | submit / record / stats |
-| [Quant/include/risk/OrderGate.h](Quant/include/risk/OrderGate.h) | 6단계 검증 게이트 |
-| [Quant/src/risk/OrderGate.cpp](Quant/src/risk/OrderGate.cpp) | 검증 로직 |
-| [Quant/include/ipc/ZmqBridge.h](Quant/include/ipc/ZmqBridge.h) | ZMQ 브리지 (HAS_ZMQ) |
-| [Quant/src/ipc/ZmqBridge.cpp](Quant/src/ipc/ZmqBridge.cpp) | 전용 스레드 + 송신 큐 |
-| [Quant/tests/test_order_gate.cpp](Quant/tests/test_order_gate.cpp) | 7개 단위 테스트 |
-| [Quant/tests/test_order_router.cpp](Quant/tests/test_order_router.cpp) | 6개 통합 테스트 |
+| [Quant/include/core/Types.h](../../Quant/include/core/Types.h) | `OrderStatus`, `ManagedOrder`, `WatchSpec` |
+| [Quant/include/api/IOrderExecutor.h](../../Quant/include/api/IOrderExecutor.h) | 주문 실행 추상 인터페이스 |
+| [Quant/include/ipc/OrderRouter.h](../../Quant/include/ipc/OrderRouter.h) | FEP 라우터 인터페이스 |
+| [Quant/src/ipc/OrderRouter.cpp](../../Quant/src/ipc/OrderRouter.cpp) | submit / record / stats |
+| [Quant/include/risk/OrderGate.h](../../Quant/include/risk/OrderGate.h) | 6단계 검증 게이트 |
+| [Quant/src/risk/OrderGate.cpp](../../Quant/src/risk/OrderGate.cpp) | 검증 로직 |
+| [Quant/include/ipc/ZmqBridge.h](../../Quant/include/ipc/ZmqBridge.h) | ZMQ 브리지 (HAS_ZMQ) |
+| [Quant/src/ipc/ZmqBridge.cpp](../../Quant/src/ipc/ZmqBridge.cpp) | 전용 스레드 + 송신 큐 |
+| [Quant/tests/test_order_gate.cpp](../../Quant/tests/test_order_gate.cpp) | 7개 단위 테스트 |
+| [Quant/tests/test_order_router.cpp](../../Quant/tests/test_order_router.cpp) | 6개 통합 테스트 |
 
 ---
 
