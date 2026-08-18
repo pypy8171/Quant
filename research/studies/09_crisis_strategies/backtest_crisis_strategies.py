@@ -204,6 +204,46 @@ def run_sweep(bm):
 # ════════════════════════════════════════════════════════════════════════════
 # 엔트리
 # ════════════════════════════════════════════════════════════════════════════
+def _r(v, n=4):
+    return round(v, n) if isinstance(v, (int, float)) and v == v else v
+
+
+def _emit_metrics(bms, results):
+    """대시보드 데이터 계약 ①로 백필 — 계열 B(지수 익스포저 오버레이).
+    벤치마크×전략 full-curve 지표를 quant.metrics/v1 배열로 저장(BT-09/08 공용 curve_stats).
+    저자 규율상 결과는 정직(look-ahead 삼중차단·2022 홀드아웃 잠금) → honesty=robust.
+    홀드아웃 맥락(train/hold calmar)을 extra로 보존해 카드가 전패 사실을 지우지 못하게."""
+    from backtest.report import overlay_metric_row, write_metrics_rows
+    rows_out = []
+    for bm in bms:
+        r = results[bm["name"]]
+        bh = r["bh"]
+        bench, span = bm["name"], bm["span"]
+        d0, d1 = bm["dates"][0], bm["dates"][-1]
+        rows_out.append(overlay_metric_row(
+            study_id="BT-09", strategy="BH", benchmark=bench,
+            base=bh, bh=bh, window=span, start_date=d0, end_date=d1,
+            honesty_label="robust"))
+        for row in r["rows"]:
+            hold, train = row.get("hold"), row.get("train")
+            rows_out.append(overlay_metric_row(
+                study_id="BT-09", strategy=row["code"], benchmark=bench,
+                base=row["base"], bh=bh, window=span, start_date=d0, end_date=d1,
+                honesty_label="robust",
+                extra={
+                    "side": row["side"], "label": row["label"],
+                    "mdd_red": _r(row.get("mdd_red")),
+                    "cagr_delta": _r(row.get("cagr_delta")),
+                    "active_pct": _r(row.get("active"), 1),
+                    "holdout_window": f"{HOLDOUT[0]}~{HOLDOUT[1]}",
+                    "holdout_calmar": _r(hold.get("calmar")) if hold else None,
+                    "holdout_total": _r(hold.get("total")) if hold else None,
+                    "train_calmar": _r(train.get("calmar")) if train else None,
+                }))
+    out = OUT_DIR / "metrics.json"
+    write_metrics_rows(str(out), rows_out)
+
+
 def main():
     src = IndexSource()
     print("[load] 벤치마크·신호 구축 중...")
@@ -217,6 +257,7 @@ def main():
         sweeps[bm["name"]] = run_sweep(bm)
     write_readme(bms, results, sweeps, README_PATH)
     print(f"[done] README → {README_PATH}")
+    _emit_metrics(bms, results)
     # 콘솔 요약
     for bm in bms:
         r = results[bm["name"]]
