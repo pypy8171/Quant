@@ -33,6 +33,7 @@ if str(_PYQ) not in sys.path:
     sys.path.insert(0, str(_PYQ))
 
 from data.index_source import IndexSource  # noqa: E402
+from data.asof import as_of  # noqa: E402  (재현성: 벤치마크 종료일 상한 고정)
 
 OUT_DIR = _HERE.parent
 TSV_PATH = OUT_DIR / "summary.tsv"
@@ -180,7 +181,7 @@ def monthly_context(src, rep, peak_date, trough_date, coverage):
     ty, tm = int(trough_date[:4]), int(trough_date[5:7])
     dl_s = add_days(peak_date, -170)     # 전−3월의 전월 종가까지 확보하려 여유
     dl_e = add_days(trough_date, 170)
-    today = _date.today().isoformat()
+    today = as_of().isoformat()
     if dl_e > today:
         dl_e = today
     bars = src.get_historical_ohlcv(rep, dl_s, dl_e)
@@ -198,7 +199,7 @@ def analyze_event(src, ev, coverage):
     s_end = ym_to_end(e_ym)
     # recovery 는 앵커창 이후까지 볼 수 있게 다운로드 상한을 여유있게(앵커는 창 내 고정).
     dl_end = add_days(s_end, RECOVERY_EXT_DAYS)
-    today = _date.today().isoformat()
+    today = as_of().isoformat()
     if dl_end > today:
         dl_end = today
 

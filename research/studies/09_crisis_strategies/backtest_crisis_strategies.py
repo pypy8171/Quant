@@ -40,7 +40,7 @@ import numpy as np
 _HERE = Path(__file__).resolve()
 _REPO = _HERE.parents[3]                        # .../Quant
 _PYQ = _REPO / "PYQuant"
-_BT08 = _REPO / "research" / "backtests" / "08_crisis_response"
+_BT08 = _REPO / "research" / "studies" / "08_crisis_response"
 for _p in (str(_PYQ), str(_BT08)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
