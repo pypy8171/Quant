@@ -1,0 +1,114 @@
+{
+  "schema": "quant.live/v1",
+  "journals": [
+    {
+      "date": "2026-08-14",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-08-14.md",
+      "title": "라이브 모의 매매 일지 — 2026-08-14 (목)",
+      "strat_line": "DeviationScale (DEVSCALE) + ITB 청산 가디언(005930). 일봉 정배열+눌림 존 게이트 + 3분봉 이격도 분할매매(지정가 예약 사다리).",
+      "summary": "엔진 크래시 근본원인(토큰 레이스)을 규명·수정하고 무중단 2시간+로 되돌린 날. 오전 11:03 세션이 힙 손상으로 사망 → 조사 결과 \"500 파싱 예외\"가 아니라 동기화 없이 공유되던 KisClient 토큰 상태의 데이터 레이스였음. 뮤텍스로 직렬화 후 12:40 세션은 15:15까지 무중단. 오후엔 모의 잔고조회가 매 사이클 타임아웃(12002) 하며 리컨사일이 조용히 죽는 새 문제 노출 → 서킷브레이커로 방어. 이전 세션에서 \"완료\"로 기록됐던 `reserved_` 누수 수정(#1)이 실제로는 디스크에 없던 것을 발견해 처음부터 재구현. 발주는 활발(접수 ODNO 10건), 명목캡이 사다리 상단을 절단하는 구조는 08-13에서 계속됨."
+    },
+    {
+      "date": "2026-08-13",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-08-13.md",
+      "title": "라이브 모의 매매 일지 — 2026-08-13 (수)",
+      "strat_line": "DeviationScale (DEVSCALE) 3종 + ITB 청산 가디언(005930). 일봉 정배열+눌림 존 게이트 + 3분봉 이격도 분할매매(지정가 예약 사다리).",
+      "summary": "KIS 서버측 HTTP 500 폭풍이 세션을 지배한 날. GET 멱등 재시도(08-12 Fix1)가 대부분 흡수해 파이프라인은 버텼지만, 일부는 3/3 소진 실패 → 일봉 유실(프리필터 데이터부족=1). ITB 005930 본전탈출 SELL 1건 정상 집행. DEVSCALE_006340이 명목 한도 초과 상태로 사다리 헛발주(게이트가 전량 차단) — 과잉주문 자체는 막혔으나 조율 갭 노출. 모의 당일손익(전일대비) −52k → −188k → −148k 구간 출혈."
+    },
+    {
+      "date": "2026-08-12",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-08-12.md",
+      "title": "라이브 모의 매매 일지 — 2026-08-12 (화)",
+      "strat_line": "DeviationScale (DEVSCALE) — 일봉 정배열+눌림 존 게이트 + 3분봉 이격도 분할매매(지정가 예약 사다리).",
+      "summary": "주문 파이프라인 인프라를 안정화한 날. 전날 하드킬이 남긴 청산 무한루프·잘못된 클라이언트 잔고조회를 진단·수정해 실증으로 소멸 확인. 전략 신규 진입은 0건 — 강세장이라 등록 5종목 전부 SMA20 대비 +19~+200% 확장 상태로 눌림밴드(−8%~0%) 미진입 = 엄격 눌림 게이트의 정상 결과. 모의 당일손익 −5~7만원(대부분 시드 물린분 표류)."
+    },
+    {
+      "date": "2026-08-07",
+      "strategy": "ITB",
+      "path": "strategies/ITB/live/2026-08-07.md",
+      "title": "라이브 모의 매매 일지 — 2026-08-07 (금)",
+      "strat_line": "ITB v2(1분 버킷 채널 돌파 + 당일 시가앵커) — 지표 기반 자동매매. (S3만 FIXED_INTERVAL 강제매매)",
+      "summary": ""
+    }
+  ],
+  "order_log": [
+    {
+      "date": "2026-08-10",
+      "path": "logs/trades_20260810.csv",
+      "total": 599,
+      "by_status": {
+        "ACCEPTED": 220,
+        "CANCELLED": 198,
+        "REJECTED": 181
+      },
+      "by_strategy": {
+        "DEVSCALE_458210": 523,
+        "DEVSCALE_463290": 63,
+        "ITB_017650": 8,
+        "TEST": 4,
+        "ITB_214450": 1
+      },
+      "by_side": {
+        "BUY": 590,
+        "SELL": 9
+      },
+      "n_tickers": 5,
+      "accepted": 220,
+      "rejected": 181,
+      "cancelled": 198,
+      "filled": 0
+    },
+    {
+      "date": "2026-08-11",
+      "path": "logs/trades_20260811.csv",
+      "total": 408,
+      "by_status": {
+        "REJECTED": 206,
+        "ACCEPTED": 106,
+        "CANCELLED": 96
+      },
+      "by_strategy": {
+        "DEVSCALE_419890": 246,
+        "DEVSCALE_073240": 161,
+        "ITB_017650": 1
+      },
+      "by_side": {
+        "BUY": 265,
+        "SELL": 143
+      },
+      "n_tickers": 3,
+      "accepted": 106,
+      "rejected": 206,
+      "cancelled": 96,
+      "filled": 0
+    },
+    {
+      "date": "2026-08-12",
+      "path": "logs/trades_20260812.csv",
+      "total": 769,
+      "by_status": {
+        "REJECTED": 273,
+        "ACCEPTED": 263,
+        "CANCELLED": 233
+      },
+      "by_strategy": {
+        "DEVSCALE_006340": 290,
+        "DEVSCALE_362320": 260,
+        "DEVSCALE_257720": 217,
+        "STARTUP_PROBE": 2
+      },
+      "by_side": {
+        "BUY": 386,
+        "SELL": 383
+      },
+      "n_tickers": 4,
+      "accepted": 263,
+      "rejected": 273,
+      "cancelled": 233,
+      "filled": 0
+    }
+  ]
+}
