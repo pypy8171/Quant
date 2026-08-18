@@ -507,6 +507,37 @@ def main():
     sweeps = {bm["name"]: run_sweep(bm) for bm in bms}
     write_readme(bms, results, sweeps)
     print(f"[done] README → {README_PATH}")
+    _emit_metrics(bms, results)
+
+
+def _emit_metrics(bms, results):
+    """대시보드 데이터 계약 ①로 백필 — 계열 B(지수 익스포저 오버레이).
+    벤치마크×대응법 full-curve 지표를 quant.metrics/v1 배열로 저장.
+    BT-08은 방어대응 연구(홀드아웃 분리 없음) → honesty=robust, 방어효율(eff)을 extra로 보존."""
+    from backtest.report import overlay_metric_row, write_metrics_rows
+
+    def _r(v, n=4):
+        return round(v, n) if isinstance(v, (int, float)) and v == v else v
+
+    rows_out = []
+    for bm in bms:
+        r = results[bm["name"]]
+        bh = r["bh"]
+        bench, span = bm["name"], bm["span"]
+        d0, d1 = bm["dates"][0], bm["dates"][-1]
+        for row in r["rows"]:
+            rows_out.append(overlay_metric_row(
+                study_id="BT-08", strategy=row["code"], benchmark=bench,
+                base=row["base"], bh=bh, window=span, start_date=d0, end_date=d1,
+                honesty_label="robust",
+                extra={
+                    "label": row["label"],
+                    "mdd_red": _r(row.get("mdd_red")),
+                    "give": _r(row.get("give")),
+                    "defense_eff": row.get("eff"),
+                }))
+    out = OUT_DIR / "metrics.json"
+    write_metrics_rows(str(out), rows_out)
 
 
 def write_readme(bms, results, sweeps):

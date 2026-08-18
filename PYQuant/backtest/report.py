@@ -105,6 +105,160 @@ def export_trades_csv(result: BacktestResult, path: str, names: dict | None = No
     print(f"  📄 전체 거래 CSV 저장: {path} ({len(result.trades)}건)")
 
 
+def _derived_metrics(equity: list) -> dict:
+    """equity 시계열 → 파생 지표(CAGR·Sortino·Calmar). 초기 exporter가 계산 안 하던 축.
+    거래일 252 기준 연환산. equity는 과거만(look-ahead 없음). 표본 부족 시 0.0."""
+    out = {"cagr": 0.0, "sortino": 0.0, "calmar": 0.0}
+    if not equity or len(equity) < 2 or equity[0] <= 0:
+        return out
+    import statistics
+    # CAGR — 거래일 수 기준 연수
+    years = max((len(equity) - 1) / 252.0, 1e-9)
+    cagr = ((equity[-1] / equity[0]) ** (1.0 / years) - 1.0) * 100.0
+    # MDD (calmar 분모)
+    peak, mdd = equity[0], 0.0
+    for e in equity:
+        peak = max(peak, e)
+        mdd = max(mdd, (peak - e) / peak * 100.0 if peak > 0 else 0.0)
+    # Sortino — 하방편차(음수 수익률만)로 연환산
+    rets = [(equity[i] - equity[i-1]) / equity[i-1]
+            for i in range(1, len(equity)) if equity[i-1] > 0]
+    sortino = 0.0
+    if len(rets) > 1:
+        downside = [r for r in rets if r < 0]
+        if len(downside) > 1:
+            dstd = statistics.pstdev(downside)
+            sortino = (statistics.mean(rets) / dstd * (252 ** 0.5)) if dstd > 0 else 0.0
+    out["cagr"] = cagr
+    out["sortino"] = sortino
+    out["calmar"] = (cagr / mdd) if mdd > 0 else 0.0
+    return out
+
+
+def _turnover_proxy(result: BacktestResult) -> float:
+    """연환산 회전율 근사 = 총 매수체결금액 / 평균 equity / 연수. 엔진이 turnover를 직접
+    추적하지 않으므로 체결로그로 재구성한 **프록시**(대시보드에 proxy로 표기). 표본부족 시 0."""
+    trades = result.trades or []
+    eq = result.equity_curve or []
+    if not trades or not eq:
+        return 0.0
+    buy_notional = sum(t.price * t.quantity for t in trades if t.side == "BUY")
+    mean_eq = sum(eq) / len(eq) if eq else 0.0
+    years = max(len(eq) / 252.0, 1e-9)
+    return (buy_notional / mean_eq / years) if mean_eq > 0 else 0.0
+
+
+def _round(v, n=4):
+    return round(v, n) if isinstance(v, (int, float)) and v == v else v  # NaN 통과
+
+
+def metrics_row(**over) -> dict:
+    """quant.metrics/v1 한 행 — 전 키를 기본값으로 깔고 over로 덮는다(스키마 단일 소스).
+    계열 A(포트폴리오)·B(지수 오버레이) 공용. 해당 없는 필드는 None으로 남겨
+    대시보드가 family로 판단한다(예: 오버레이엔 win_rate/n_trades=None).
+    mdd는 **항상 양수 크기**(A는 양수, B의 음수 mdd는 호출부에서 abs 정규화).
+    스키마 문서: docs/design/DASHBOARD_SPEC.md"""
+    row = {
+        "schema": "quant.metrics/v1",
+        "study_id": "", "strategy": "",
+        "family": "A_portfolio",         # A_portfolio | B_overlay
+        "benchmark": "",                 # B: ^GSPC/^KS11 등 오버레이 대상 지수
+        "event": "", "window": "", "start_date": "", "end_date": "",
+        # ── 헤드라인 성과 ──
+        "total_return": None, "cagr": None, "sharpe": None, "sortino": None,
+        "mdd": None, "calmar": None, "win_rate": None,
+        "turnover": None, "turnover_is_proxy": False,
+        "n_trades": None, "total_pnl": None,
+        # ── 벤치마크/알파 ──
+        "bench_return": None, "bench_mdd": None, "bench_sharpe": None,
+        "alpha": None, "kodex_return": None, "regime_off": None,
+        # ── 정직성/검증 라벨 (편향 감사관 필수 필드) ──
+        "oos_flag": False, "holdout_flag": False, "honesty_label": "unlabeled",
+        # ── 곡선·체결 링크 ──
+        "equity_csv_path": "", "trades_csv_path": "",
+    }
+    row.update(over)
+    return row
+
+
+def _write_metrics(path: str, payload):
+    """metrics 파일 쓰기(단일 객체 또는 배열). ensure_ascii=False, indent=2."""
+    import json
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
+def export_metrics_json(result: BacktestResult, path: str, *,
+                        study_id: str = "", strategy: str = "", event: str = "",
+                        window: str = "", turnover=None,
+                        family: str = "A_portfolio", benchmark: str = "",
+                        oos_flag: bool = False, holdout_flag: bool = False,
+                        honesty_label: str = "unlabeled",
+                        equity_csv_path: str = "", trades_csv_path: str = "",
+                        extra: dict | None = None):
+    """정규화 요약지표 export (대시보드 데이터 계약 ①, 계열 A). 콘솔·md 산문에만 있던
+    헤드라인 지표를 파일화. 곡선·체결은 CSV 경로로 링크. honesty_label로 결과 맥락 보존."""
+    d = _derived_metrics(result.equity_curve or [])
+    metrics = metrics_row(
+        study_id=study_id, strategy=strategy or "", family=family, benchmark=benchmark,
+        event=event,
+        window=window or (f"{result.start_date}~{result.end_date}"
+                          if result.start_date else ""),
+        start_date=result.start_date, end_date=result.end_date,
+        total_return=_round(result.total_return), cagr=_round(d["cagr"]),
+        sharpe=_round(result.sharpe), sortino=_round(d["sortino"]),
+        mdd=_round(result.mdd), calmar=_round(d["calmar"]),
+        win_rate=_round(result.win_rate),
+        turnover=_round(turnover if turnover is not None else _turnover_proxy(result)),
+        turnover_is_proxy=turnover is None,
+        n_trades=result.trade_count, total_pnl=_round(result.total_pnl, 2),
+        bench_return=_round(result.bench_return), bench_mdd=_round(result.bench_mdd),
+        bench_sharpe=_round(result.bench_sharpe), alpha=_round(result.alpha),
+        kodex_return=(_round(result.kodex_return)
+                      if result.kodex_return is not None else None),
+        regime_off=result.regime_off,
+        oos_flag=bool(oos_flag), holdout_flag=bool(holdout_flag),
+        honesty_label=honesty_label or "unlabeled",
+        equity_csv_path=equity_csv_path, trades_csv_path=trades_csv_path)
+    if extra:
+        metrics.update(extra)
+    _write_metrics(path, metrics)
+    print(f"  📄 정규화 지표 JSON 저장: {path} "
+          f"(honesty={metrics['honesty_label']}, oos={metrics['oos_flag']})")
+
+
+def overlay_metric_row(*, study_id: str, strategy: str, benchmark: str,
+                       base: dict, bh: dict, window: str = "",
+                       start_date: str = "", end_date: str = "",
+                       honesty_label: str = "robust", extra: dict | None = None) -> dict:
+    """계열 B(지수 익스포저 오버레이) 한 행 빌더 — BT-08/09의 curve_stats dict를
+    quant.metrics/v1로 정규화. base/bh = {total,cagr,mdd(음수%),sharpe,calmar}.
+    mdd를 양수 크기로 정규화(스키마 규약), win_rate/n_trades는 None(오버레이 무의미).
+    alpha = 전략 CAGR − BH CAGR(%p, 초과연율). 저자 규율상 결과는 정직 → 기본 robust."""
+    row = metrics_row(
+        study_id=study_id, strategy=strategy, family="B_overlay", benchmark=benchmark,
+        event="full_curve", window=window, start_date=start_date, end_date=end_date,
+        total_return=_round(base.get("total")), cagr=_round(base.get("cagr")),
+        sharpe=_round(base.get("sharpe")),
+        mdd=_round(abs(base["mdd"]) if base.get("mdd") is not None else None),
+        calmar=_round(base.get("calmar")),
+        bench_return=_round(bh.get("total")),
+        bench_mdd=_round(abs(bh["mdd"]) if bh.get("mdd") is not None else None),
+        bench_sharpe=_round(bh.get("sharpe")),
+        alpha=_round(base["cagr"] - bh["cagr"]
+                     if base.get("cagr") is not None and bh.get("cagr") is not None else None),
+        honesty_label=honesty_label)
+    if extra:
+        row.update(extra)
+    return row
+
+
+def write_metrics_rows(path: str, rows: list):
+    """여러 metrics 행을 JSON 배열로 저장(계열 B: 한 스터디에 전략 다수)."""
+    _write_metrics(path, rows)
+    print(f"  📄 정규화 지표 배열 저장: {path} ({len(rows)}행)")
+
+
 def export_holdings_csv(result: BacktestResult, path: str, names: dict | None = None):
     """일별 보유종목 상세(long format) — 날짜마다 어떤 종목을 얼마나 들고 있었는지.
     한 행 = (날짜, 종목, 수량, 평가액, 비중%). 엑셀 피벗으로 날짜별 보유 확인."""

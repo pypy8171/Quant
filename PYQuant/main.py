@@ -152,12 +152,23 @@ def cmd_backtest(args):
             cash=args.cash, pbr=args.pbr, qty=args.qty)
         print_report(result, names=names)
         if args.export:
+            import os
             from backtest.report import (export_daily_csv, export_trades_csv,
-                                         export_holdings_csv)
+                                         export_holdings_csv, export_metrics_json)
             base = args.export.rsplit(".", 1)[0]
             export_daily_csv(result, args.export)
             export_trades_csv(result, base + "_trades.csv", names=names)
             export_holdings_csv(result, base + "_holdings.csv", names=names)
+            # 정규화 지표 JSON (대시보드 데이터 계약 ① — docs/design/DASHBOARD_SPEC.md)
+            export_metrics_json(
+                result, base + "_metrics.json",
+                study_id=args.study or "", strategy=args.strategy,
+                event=args.event or "",
+                window=f"{args.from_date}~{args.to_date}",
+                oos_flag=args.oos, holdout_flag=args.holdout,
+                honesty_label=args.honesty,
+                equity_csv_path=os.path.basename(args.export),
+                trades_csv_path=os.path.basename(base + "_trades.csv"))
     except KisAuthError as e:
         logger.error(f"인증 오류: {e}")
 
@@ -444,6 +455,13 @@ def main():
                     help="국면 신호: breadth=유니버스 이평위 비율, index=지수 200MA(매끄러워 whipsaw 적음)")
     bp.add_argument("--regime-index", dest="regime_index", default="^KS11",
                     help="index 모드 지수 티커(yfinance): ^KS11 코스피, ^KQ11 코스닥, ^GSPC S&P, ^IXIC 나스닥")
+    bp.add_argument("--study",   default=None, help="스터디 ID(예: BT-01) — metrics.json 라벨")
+    bp.add_argument("--event",   default=None, help="이벤트/구간명(예: 2022bear) — metrics.json 라벨")
+    bp.add_argument("--honesty", default="unlabeled",
+                    choices=["robust", "honest_failure", "overfit_suspect", "unlabeled"],
+                    help="정직성 라벨(편향 감사관) — 결과 맥락을 대시보드 카드에 보존")
+    bp.add_argument("--oos",     action="store_true", help="out-of-sample 구간 결과로 표기")
+    bp.add_argument("--holdout", action="store_true", help="홀드아웃 검증 결과로 표기")
     bp.add_argument("--export", default=None,
                     help="일별 상태 CSV 저장 경로 (매일매일 자산/수익률/낙폭/벤치)")
 
