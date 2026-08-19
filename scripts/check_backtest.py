@@ -35,12 +35,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 CACHE = REPO / "PYQuant" / ".index_cache"
-AS_OF = "2026-08-15"
-SCRATCH = Path(
-    r"C:\Users\PYH\AppData\Local\Temp\claude"
-    r"\c--Users-----source-repos-Quant"
-    r"\2daa99f3-7173-46c7-b3d7-89aea32c9544\scratchpad"
-)
+# 결정론 앵커 날짜 — 환경변수로 오버라이드 가능(미지정 시 커밋된 산출물 생성일 고정).
+AS_OF = os.environ.get("BACKTEST_AS_OF", "2026-08-15")
+# 스냅샷 임시경로 — 세션 고정 절대경로(죽은 UUID) 대신 QUANT_SCRATCH_DIR env → 없으면 OS 임시폴더.
+SCRATCH = Path(os.environ.get("QUANT_SCRATCH_DIR") or tempfile.mkdtemp(prefix="quant_bt_"))
 
 STUDIES = [
     ("07", "research/studies/07_crisis_regimes/analyze_crisis_regimes.py"),

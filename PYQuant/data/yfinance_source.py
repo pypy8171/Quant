@@ -26,13 +26,22 @@ from data.universe_kospi import KOSPI_LARGE_MID, universe_codes
 class YFinanceSource:
     HISTORY_START = "2005-01-01"   # 티커당 1회 최대범위 수집 → 모든 창 슬라이스 재사용
     HISTORY_END = "2027-01-01"
+    # Yahoo Finance 시장 접미사. KOSPI=.KS / KOSDAQ=.KQ (하드코딩 `.KS` 리터럴 externalize)
+    SUFFIX = {"KOSPI": ".KS", "KOSDAQ": ".KQ"}
 
     def __init__(self, market: str = "KOSPI", cache_dir: str | None = None):
         self.market = market
+        self._suffix = self.SUFFIX.get(str(market).upper(), ".KS")   # 미지정 시 KOSPI 기본
         base = cache_dir or str(Path(__file__).resolve().parents[1] / ".yf_cache")
         self._cache = Path(base)
         self._cache.mkdir(parents=True, exist_ok=True)
         self._mem: dict[str, object] = {}   # ticker -> DataFrame (프로세스 내 재사용)
+
+    def _cache_path(self, ticker: str) -> Path:
+        # 캐시키: KOSPI(.KS)는 레거시 파일명 유지(기존 캐시 무효화 방지), 그 외 시장은
+        # 접두로 동일 종목코드의 시장 간 충돌(005930.KS vs .KQ) 방지.
+        key = ticker if self._suffix == ".KS" else f"{self.market}_{ticker}"
+        return self._cache / f"{key}.parquet"
 
     def authenticate(self) -> bool:
         try:
@@ -47,7 +56,7 @@ class YFinanceSource:
         import pandas as pd
         if ticker in self._mem:
             return self._mem[ticker]
-        p = self._cache / f"{ticker}.parquet"
+        p = self._cache_path(ticker)
         if p.exists():
             try:
                 df = pd.read_parquet(p)
@@ -56,7 +65,7 @@ class YFinanceSource:
             except Exception:
                 pass
         import yfinance as yf
-        raw = yf.download(f"{ticker}.KS", start=self.HISTORY_START, end=self.HISTORY_END,
+        raw = yf.download(f"{ticker}{self._suffix}", start=self.HISTORY_START, end=self.HISTORY_END,
                           auto_adjust=True, progress=False, threads=False)
         if raw is None or len(raw) == 0:
             self._mem[ticker] = None
@@ -99,7 +108,7 @@ class YFinanceSource:
 
     def prefetch_ohlcv(self, tickers: list[str], start: str, end: str, workers: int = 8) -> None:
         from concurrent.futures import ThreadPoolExecutor
-        todo = [t for t in tickers if t not in self._mem and not (self._cache / f"{t}.parquet").exists()]
+        todo = [t for t in tickers if t not in self._mem and not self._cache_path(t).exists()]
         if not todo:
             return
         print(f"[yfinance] 병렬 수집 {len(todo)}/{len(tickers)}종목 (workers={workers})...")

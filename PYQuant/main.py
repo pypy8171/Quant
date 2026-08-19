@@ -32,13 +32,39 @@ from live.trader import LiveTrader
 from ipc.subscriber import EngineMonitor
 from ipc.operator import ZmqOperator
 
-# 기본 Universe — KOSPI 시가총액 상위 20 (분기 단위 검토)
-DEFAULT_UNIVERSE = [
+# 기본 Universe — KOSPI 시가총액 상위 20 (분기 단위 검토).
+# 하드코딩 상수는 config/default_universe.json 부재·파싱실패 시의 **최종 폴백**으로만 남긴다
+# (빈 유니버스로 조용히 진행하지 않도록 — 로드 실패는 WARN 후 이 상수 사용).
+_FALLBACK_UNIVERSE = [
     "005930","000660","207940","005490","005380",
     "000270","105560","055550","035420","068270",
     "051910","066570","012330","035720","003550",
     "086790","017670","009150","402340","316140",
 ]
+DEFAULT_UNIVERSE_FILE = Path(__file__).parent / "config" / "default_universe.json"
+
+
+def load_default_universe(path=None, market: str = "kospi") -> list[str]:
+    """기본 유니버스를 외부 json에서 로드. 실패 시 WARN 후 내장 상수 폴백(빈 유니버스 금지).
+    json 형식: {"kospi": [...], "kosdaq": [...]}. path 미지정 시 DEFAULT_UNIVERSE_FILE."""
+    import json
+    p = Path(path) if path else DEFAULT_UNIVERSE_FILE
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        codes = data.get(str(market).lower(), [])
+        codes = [str(c) for c in codes if str(c).strip()]
+        if codes:
+            return codes
+        logger.warning(f"기본 유니버스 파일에 '{market}' 항목이 비어있음({p}) — 내장 상수 폴백")
+    except FileNotFoundError:
+        logger.warning(f"기본 유니버스 파일 없음({p}) — 내장 상수 폴백")
+    except Exception as e:
+        logger.warning(f"기본 유니버스 파일 로드 실패({p}: {e}) — 내장 상수 폴백")
+    return _FALLBACK_UNIVERSE
+
+
+# 모듈 로드 시 1회 확정(외부 json → 실패 시 상수). 기존 참조는 그대로 이 이름을 쓴다.
+DEFAULT_UNIVERSE = load_default_universe()
 
 
 def make_source(source: str, market: str = "kospi"):
@@ -84,7 +110,7 @@ def make_strategy(name: str, *, top_n: int, rebalance_every: int, lookback: int,
 
 def select_universe(kis, source: str, *, from_date: str, universe_size: int,
                     kosdaq_size: int | None, use_kis_universe: bool = False,
-                    pbr: float = 1.0) -> list[str]:
+                    pbr: float = 1.0, default_universe: list[str] | None = None) -> list[str]:
     """유니버스 선정: datagokr/krx 시총상위(as-of 시작일 고정) > 정적 > KIS PBR > 기본.
     스윕에서 1회 호출해 재사용(같은 from_date/market/size면 동일 유니버스)."""
     if source in ("datagokr", "krx", "yf") and hasattr(kis, "universe_top"):
@@ -101,7 +127,7 @@ def select_universe(kis, source: str, *, from_date: str, universe_size: int,
         logger.error("datagokr 유니버스 조회 실패 — DATA_GO_KR_KEY 확인")
     elif use_kis_universe:
         return kis.fetch_universe(max_pbr=pbr)
-    return DEFAULT_UNIVERSE
+    return default_universe if default_universe is not None else DEFAULT_UNIVERSE
 
 
 def run_backtest(kis, *, strategy_name: str, universe: list[str], from_date: str, to_date: str,
@@ -137,9 +163,12 @@ def cmd_backtest(args):
         kis = make_source(args.source, args.market)
         if not kis.authenticate():
             raise KisAuthError("초기 인증 실패")
+        default_uni = (load_default_universe(args.universe_file, args.market)
+                       if getattr(args, "universe_file", None) else None)
         universe = select_universe(kis, args.source, from_date=args.from_date,
                                    universe_size=args.universe_size, kosdaq_size=args.kosdaq_size,
-                                   use_kis_universe=args.universe, pbr=args.pbr)
+                                   use_kis_universe=args.universe, pbr=args.pbr,
+                                   default_universe=default_uni)
         logger.info(f"유니버스: {len(universe)}종목 (source={args.source}, as-of {args.from_date})")
         result, names = run_backtest(
             kis, strategy_name=args.strategy, universe=universe,
@@ -364,7 +393,8 @@ def cmd_live(args):
         strategy = ValueContraryStrategy(pbr_max=args.pbr, quantity=args.qty)
         trader   = LiveTrader(kis, strategy, poll_sec=60, dry_run=args.dry_run)
 
-        universe = DEFAULT_UNIVERSE
+        universe = (load_default_universe(args.universe_file)
+                    if getattr(args, "universe_file", None) else DEFAULT_UNIVERSE)
         if args.universe:
             logger.info("Universe 조회 중...")
             universe = kis.fetch_universe(max_pbr=args.pbr)
@@ -418,6 +448,9 @@ def main():
     bp.add_argument("--qty",      type=int,          default=1)
     bp.add_argument("--cash",     type=float,        default=100_000_000)
     bp.add_argument("--universe", action="store_true", help="KIS API로 Universe 동적 조회")
+    bp.add_argument("--universe-file", dest="universe_file", default=None,
+                    help="기본 유니버스 json 경로(미지정 시 config/default_universe.json). "
+                         "동적조회/시총상위 미사용 시의 폴백 유니버스를 외부 파일로 지정")
     bp.add_argument("--strategy", default="value_contrary",
                     choices=["value_contrary", "strategy_a", "momentum", "supply_demand", "mean_reversion"],
                     help="백테스트 전략 (기본: value_contrary)")
@@ -471,6 +504,8 @@ def main():
     lp.add_argument("--qty",      type=int,    default=1)
     lp.add_argument("--dry-run",  action="store_true", help="주문 없이 시뮬")
     lp.add_argument("--universe", action="store_true")
+    lp.add_argument("--universe-file", dest="universe_file", default=None,
+                    help="기본 유니버스 json 경로(미지정 시 config/default_universe.json)")
 
     # ── balance ─────────────────────────────────────────────────────────────
     blp = sub.add_parser("balance", help="국내주식 잔고 조회")

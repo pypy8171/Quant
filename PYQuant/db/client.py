@@ -60,7 +60,15 @@ class DbClient:
         port     = port     or int(os.getenv("TSDB_PORT", "5432"))
         db       = db       or os.getenv("TSDB_DB",       "quant")
         user     = user     or os.getenv("TSDB_USER",     "quant")
-        password = password or os.getenv("TSDB_PASSWORD", "changeme")
+        # 비밀번호는 하드코딩 기본값(구 'changeme')을 제거 — 소스에 크레덴셜을 심지 않는다.
+        # 명시 인자 > TSDB_PASSWORD env 순. 둘 다 없으면 조용히 약한 기본으로 붙지 않고 기동 실패.
+        # (docker-compose는 컨테이너에 TSDB_PASSWORD를 항상 주입하므로 도커 경로는 영향 없음.)
+        password = password or os.getenv("TSDB_PASSWORD")
+        if not password:
+            raise RuntimeError(
+                "TSDB_PASSWORD 미설정 — DB 비밀번호를 환경변수로 지정하세요 "
+                "(하드코딩 기본값 제거됨). 로컬 개발은 .env.example 참고."
+            )
 
         # DB가 준비될 때까지 재시도 (Docker 기동 순서 대응)
         for attempt in range(1, retries + 1):
