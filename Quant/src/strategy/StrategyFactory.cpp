@@ -415,6 +415,8 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         sc.max_price       = s.value("max_price", 0.0);   // 0이면 상한 없음(고가주 포함)
         sc.max_register    = s.value("max_universe", 40);
         sc.risk_off_idx    = s.value("risk_off_index_pct", -0.02);
+        sc.kosdaq_enabled      = s.value("kosdaq_enabled", false);              // 코스닥 참여(기본 off, 백테스트 통과 후 개방)
+        sc.risk_off_idx_kosdaq = s.value("risk_off_index_pct_kosdaq", -0.015);  // 코스닥 지수 risk_off 임계(코스피보다 보수적)
         sc.require_aligned = s.value("require_aligned", true);  // 정배열 프리필터 on/off
         sc.align_probe_max = s.value("align_probe_max", 60);    // 정배열 검사 후보 상한(일봉 조회 비용 캡)
         sc.max_dev_pct     = s.value("max_dev_pct", 0.0);       // 과확장 컷(일봉 이격 상한, 0=비활성)

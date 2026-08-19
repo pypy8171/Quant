@@ -76,16 +76,46 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
     std::vector<std::string> out;
     // 후보 수집 단계에서 티커→종목명을 함께 보관해, 최종 등록 확정 때 out_names에 채운다.
     std::unordered_map<std::string, std::string> cand_names;
+    // 티커→시장("KOSPI"/"KOSDAQ") — universe_scan.json의 "market" 필드에서 채운다. 태그 없는
+    //  후보(KIS 랭킹축 등)는 KOSPI로 간주(KIS FID_INPUT_ISCD=0000축은 코스피 지배).
+    std::unordered_map<std::string, std::string> cand_market;
     auto label_name = [&](const std::string& t) -> std::string
     {
         auto it = cand_names.find(t);
         return it != cand_names.end() ? it->second : std::string();
     };
-    auto kospi = c.get_index_price("0001");
-    if (kospi.change_rate / 100.0 < cfg.risk_off_idx)
+    auto market_of = [&](const std::string& t) -> std::string
     {
-        LOG_WARN("[Main] DEVSCALE 스캔: 레짐 위험회피(코스피 " +
-                 std::to_string(kospi.change_rate) + "%) — 신규 유니버스 스킵");
+        auto it = cand_market.find(t);
+        return (it != cand_market.end() && !it->second.empty()) ? it->second : std::string("KOSPI");
+    };
+
+    // ── 시장별 risk_off 게이트(2026-08-19 회의) ──────────────────────────────
+    //  코스피 급락은 전이 회피를 위해 코스피·코스닥 신규진입 모두에 영향(코스닥은 하루 늦게 따라오는
+    //  전이 지연이 잦음). 코스닥 종목은 이중 AND — (코스피 정상 AND 코스닥 정상)일 때만 통과.
+    //  kosdaq_enabled=false면 코스닥 지수 조회조차 생략하고 코스닥 후보는 아래에서 전량 드롭.
+    double kospi_chg = c.get_index_price("0001").change_rate / 100.0; // KIS는 % 단위
+    bool kospi_off   = kospi_chg < cfg.risk_off_idx;
+    bool kosdaq_off  = false;
+    double kosdaq_chg = 0.0;
+    if (cfg.kosdaq_enabled)
+    {
+        kosdaq_chg = c.get_index_price("1001").change_rate / 100.0; // 코스닥 종합지수
+        kosdaq_off = kosdaq_chg < cfg.risk_off_idx_kosdaq;
+    }
+    const bool kospi_pass  = !kospi_off;                                       // 코스피 종목 통과 가능?
+    const bool kosdaq_pass = cfg.kosdaq_enabled && !kospi_off && !kosdaq_off;  // 코스닥 종목 통과 가능?(이중 AND)
+    // 이 종목의 시장이 지금 신규진입 허용 상태인가.
+    auto market_allows = [&](const std::string& t) -> bool
+    {
+        return market_of(t) == "KOSDAQ" ? kosdaq_pass : kospi_pass;
+    };
+    if (!kospi_pass && !kosdaq_pass)
+    {
+        // 모든 시장이 위험회피 → 후보 수집·일봉 프로브 전부 생략(기존 조기 스킵과 동일 비용).
+        LOG_WARN("[Main] DEVSCALE 스캔: 레짐 위험회피(코스피 " + std::to_string(kospi_chg * 100.0) +
+                 "%" + (cfg.kosdaq_enabled ? ", 코스닥 " + std::to_string(kosdaq_chg * 100.0) + "%" : "") +
+                 ") — 신규 유니버스 스킵");
         return out;
     }
 
@@ -134,6 +164,7 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
                     if (!seen.insert(t).second) { ++dup; continue; }
                     cand.push_back(t);
                     cand_names[t] = e.value("name", std::string());
+                    cand_market[t] = e.value("market", std::string()); // 시장별 risk_off 게이트용(없으면 KOSPI 간주)
                     ++added_file;
                 }
                 LOG_INFO("[Main] DEVSCALE data.go.kr 축(기준일 " + basDt + "): 파일 " +
@@ -158,6 +189,7 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
         // 프리필터 off — 기존 동작(후보 앞에서부터 max_register개).
         for (const auto& t : cand)
         {
+            if (!market_allows(t)) continue; // 시장 risk_off 게이트(코스닥 후보는 kosdaq_pass일 때만)
             if ((int)out.size() >= cfg.max_register) break;
             out.push_back(t);
             if (out_names) (*out_names)[t] = label_name(t);
@@ -182,6 +214,7 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
     int probed = 0, aligned_cnt = 0, short_bars = 0, overext = 0;
     for (const auto& t : cand)
     {
+        if (!market_allows(t)) continue; // 시장 risk_off 게이트(코스닥 후보는 kosdaq_pass일 때만, 일봉 프로브 비용도 아낌)
         // 스코어링 시엔 max_register 대신 align_probe_max까지 넓게 모아 랭킹(더 나은 상위 N).
         if (cfg.score_top_n <= 0 && (int)passed.size() >= cfg.max_register) break;
         if (probed >= cfg.align_probe_max)
