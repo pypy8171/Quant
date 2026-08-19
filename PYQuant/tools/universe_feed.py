@@ -13,7 +13,9 @@ C++ DeviationScale 스캐너의 4번째 후보 축(ETF-free·KIS 30행캡 우회
 
 실행:
   set PYTHONIOENCODING=utf-8
-  python PYQuant/tools/universe_feed.py [--n-mktcap 100] [--n-turnover 100] [--date YYYY-MM-DD]
+  python PYQuant/tools/universe_feed.py [--n-mktcap 100] [--n-turnover 100] [--date YYYY-MM-DD] [--market KOSPI|KOSDAQ|ALL]
+  --market ALL: 코스피·코스닥 각각 시총∪거래대금 top-N을 union하고 종목별 "market" 태그를 부여
+    → C++ UniverseScanner가 종목 시장별로 코스피(0001)/코스닥(1001) risk_off 게이트를 분기.
 키: 환경변수 DATA_GO_KR_KEY (없으면 즉시 에러). [[data-source-constraints]] 참조.
 """
 from __future__ import annotations
@@ -44,6 +46,9 @@ def _yesterday_iso() -> str:
 
 def build(on_date: str, n_mktcap: int, n_turnover: int,
           min_turnover: float = 1e9, market: str = "KOSPI") -> dict | None:
+    # market="ALL"이면 코스피·코스닥 각각 시총∪거래대금 top-N을 뽑아 union한다(시장별 균형 —
+    # 코스피 대형주가 코스닥 슬롯을 잠식하지 않도록 시장을 나눠 각자 상위 N을 확보). datagokr
+    # _snapshot은 시장 무관 전종목을 한 번에 서빙하므로 시장 수와 무관하게 API 비용 동일.
     src = DataGoKrSource(market=market)
     if not src.authenticate():
         print("[universe_feed] DATA_GO_KR_KEY 미설정 — 유니버스 생성 불가.")
@@ -59,34 +64,43 @@ def build(on_date: str, n_mktcap: int, n_turnover: int,
     cached = sorted(p.stem.split("_", 1)[1] for p in src._cache.glob("univ_*.parquet"))
     served = max((d for d in cached if len(d) == 8 and d <= req_ymd), default=req_ymd)
 
-    pool = [r for r in rows
-            if r.get("market") == market
-            and r.get("turnover", 0.0) >= min_turnover
-            and r.get("mktcap", 0.0) > 0.0]
-    if not pool:
-        print(f"[universe_feed] {market} 유효 종목 0개(turnover>={min_turnover:.0f}).")
-        return None
-
-    by_cap = sorted(pool, key=lambda r: r["mktcap"],   reverse=True)[:n_mktcap]
-    by_val = sorted(pool, key=lambda r: r["turnover"], reverse=True)[:n_turnover]
-
-    # union — 시총순 먼저(프로브 우선), 이어 거래대금 상위 중 미포함 중형주. code 중복 제거.
+    markets = ["KOSPI", "KOSDAQ"] if market == "ALL" else [market]
     seen: set[str] = set()
     universe: list[dict] = []
-    for r in by_cap + by_val:
-        code = r["code"]
-        if not code or code in seen:
+    per_market: dict[str, int] = {}
+    for mk in markets:
+        pool = [r for r in rows
+                if r.get("market") == mk
+                and r.get("turnover", 0.0) >= min_turnover
+                and r.get("mktcap", 0.0) > 0.0]
+        if not pool:
+            print(f"[universe_feed] {mk} 유효 종목 0개(turnover>={min_turnover:.0f}).")
             continue
-        seen.add(code)
-        universe.append({
-            "ticker": code,
-            "name":   r.get("name", ""),
-            "close":  round(r.get("close", 0.0)),
-        })
+        by_cap = sorted(pool, key=lambda r: r["mktcap"],   reverse=True)[:n_mktcap]
+        by_val = sorted(pool, key=lambda r: r["turnover"], reverse=True)[:n_turnover]
+        # union — 시총순 먼저(프로브 우선), 이어 거래대금 상위 중 미포함 중형주. code 중복 제거.
+        added = 0
+        for r in by_cap + by_val:
+            code = r["code"]
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            universe.append({
+                "ticker": code,
+                "name":   r.get("name", ""),
+                "close":  round(r.get("close", 0.0)),
+                "market": mk,   # 시장별 risk_off 게이트용(C++ UniverseScanner가 코스피/코스닥 지수 분기).
+            })
+            added += 1
+        per_market[mk] = added
 
-    n_val_extra = len(universe) - len(by_cap)
-    print(f"[universe_feed] 기준일 {served}: 시총 top{len(by_cap)} ∪ 거래대금 top{n_turnover} "
-          f"= {len(universe)}종목 (거래대금 추가 {n_val_extra}). ETF-free.")
+    if not universe:
+        print(f"[universe_feed] 유효 종목 0개(turnover>={min_turnover:.0f}).")
+        return None
+
+    breakdown = " ".join(f"{mk}={n}" for mk, n in per_market.items())
+    print(f"[universe_feed] 기준일 {served}: 시총 top{n_mktcap} ∪ 거래대금 top{n_turnover} "
+          f"= {len(universe)}종목 ({breakdown}). ETF-free.")
     return {
         "schema":   1,
         "source":   "data.go.kr:getStockPriceInfo",
@@ -104,11 +118,13 @@ def main() -> int:
     ap.add_argument("--n-turnover", type=int, default=100, help="거래대금 상위 N")
     ap.add_argument("--date", default=None, help="기준일 YYYY-MM-DD (기본 T-1, 백오프 자동)")
     ap.add_argument("--min-turnover", type=float, default=1e9, help="최소 거래대금(원)")
+    ap.add_argument("--market", default="KOSPI", choices=["KOSPI", "KOSDAQ", "ALL"],
+                    help="유니버스 시장(기본 KOSPI). ALL=코스피·코스닥 각각 top-N union, 종목별 market 태그 부여.")
     ap.add_argument("--out", default=str(_OUT_PATH), help="출력 JSON 경로")
     args = ap.parse_args()
 
     on_date = args.date or _yesterday_iso()
-    doc = build(on_date, args.n_mktcap, args.n_turnover, args.min_turnover)
+    doc = build(on_date, args.n_mktcap, args.n_turnover, args.min_turnover, args.market)
     if doc is None:
         return 1
 

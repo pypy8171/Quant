@@ -71,7 +71,7 @@ strategies/     전략별 스펙(SPEC) · 실증 로그 · 백테스트 결과
 scripts/        운영 보조 스크립트
 ```
 
-세부 디렉토리·기술스택·Docker 운영은 [PROJECT_GUIDE.md](docs/guides/PROJECT_GUIDE.md)에 정리돼 있습니다.
+세부 디렉토리·기술스택·Docker 운영은 [PROJECT_GUIDE.md](docs/guides/PROJECT_GUIDE.md)에 정리돼 있습니다. 코드·로그에 나오는 약어(`DevScale`·`ITB`·`dev_buy`·`reconcile` 등)의 뜻은 [용어 사전 GLOSSARY.md](docs/GLOSSARY.md)에서 찾을 수 있습니다.
 
 ---
 

@@ -67,6 +67,15 @@ struct DevScanCfg
     double score_w_trend    = 1.0;
     double score_w_pullback = 1.0;
     double score_w_supply   = 0.0; // 로거 데이터 확보 후 활성
+    // ── 코스닥 참여(2026-08-19 strategist·data-sourcer 회의) ──────────────────
+    //  기본 false: universe_scan.json에 코스닥("market"=="KOSDAQ") 종목이 섞여 있어도 전량 드롭
+    //  → 코스피 동작을 오늘과 바이트 단위로 동일 유지(라이브 무위험). 코스닥 EOD 백테스트가 LAB
+    //  게이트(PF≥1.3/Sharpe≥1.0/MDD≤15%/표본≥200)를 통과한 뒤에만 true로 개방한다.
+    bool   kosdaq_enabled      = false;
+    // 코스닥 지수(get_index_price("1001")) risk_off 임계(분수). 코스닥 신규진입은 이중 AND —
+    //  (코스피 정상 AND 코스닥 정상)일 때만 통과. 전이 함정(코스피 급락→코스닥 후행하락) 회피용.
+    //  코스닥이 먼저 무너지면 더 빨리 차단하도록 코스피(risk_off_idx)보다 보수적(덜 음수) 권장.
+    double risk_off_idx_kosdaq = -0.015;
 };
 
 // 시총 상위 ∪ 거래대금 상위 → 가격 필터 → (opt)정배열 프리필터. 티커 목록 반환.
