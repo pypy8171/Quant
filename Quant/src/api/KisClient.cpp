@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <stdexcept>
@@ -16,6 +17,74 @@
 #endif
 
 using json = nlohmann::json;
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  하드코딩 리스트 externalize — 외부 JSON에서 로드, 부재·오류 시 내장 폴백.
+//  프로젝트 패턴(universe_scan.json)과 동일: ifstream + 파싱 + LOG_WARN 폴백.
+//  파일 위치: 환경변수 $QUANT_CONFIG_DIR, 미설정 시 기본 "Quant/config".
+//  폴백은 아래 내장 상수와 동일하므로 파일이 없어도 동작은 바이트 동일.
+// ═══════════════════════════════════════════════════════════════════════════
+namespace
+{
+// ETF/ETN 제외용 이름 접두사 — Quant/config/etf_prefixes.json 미존재 시 폴백.
+const std::vector<std::string> ETF_PREFIXES_FALLBACK = {
+    "KODEX",    "TIGER", "KINDEX", "KOSEF",  "ARIRANG",  "ACE",       "SOL",  "HANARO",
+    "FOCUS",    "TREX",  "WON",    "PLUS",   "KoAct",    "TIMEFOLIO", "KTOP", "BIG",
+    "히어로즈", "KCGI",  "파워",   "KBSTAR", "마이다스", "RISE",      "TRUE", "MASTER"};
+
+// 미국 유니버스 — Quant/config/us_universe.json {"nasdaq":[...],"nyse":[...]} 미존재 시 폴백.
+const std::vector<std::string> US_NAS_FALLBACK = {"AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO",
+                                                  "ORCL", "ADBE", "AMD",  "QCOM", "TXN",   "MU",   "INTC", "AMAT",
+                                                  "LRCX", "KLAC", "MRVL", "SNPS", "V",     "MA",   "PYPL", "INTU",
+                                                  "CSCO", "NFLX", "COST", "SBUX", "PEP",   "MDLZ"};
+const std::vector<std::string> US_NYS_FALLBACK = {
+    "BRK-B", "JPM", "BAC", "WFC", "GS",  "MS",  "C",   "AXP", "JNJ", "LLY",   "ABBV", "MRK", "PFE", "BMY", "UNH",
+    "CVS",   "PG",  "KO",  "WMT", "HD",  "MCD", "NKE", "PEP", "CL",  "XOM",   "CVX",  "OXY", "COP", "SLB", "GE",
+    "CAT",   "HON", "BA",  "MMM", "UPS", "FDX", "T",   "VZ",  "DIS", "CMCSA", "BX",   "KKR", "APO"};
+
+// 외부 JSON에서 문자열 리스트 로드. key 비면 top-level 배열, 아니면 object[key] 배열을 읽는다.
+// 파일 부재·형식오류·빈배열이면 fallback 반환(LOG_WARN). 호출측 static 으로 최초 1회만 로드.
+std::vector<std::string> load_str_list(const std::string& filename, const std::string& key,
+                                       const std::vector<std::string>& fallback, const char* what)
+{
+    const char* dir = std::getenv("QUANT_CONFIG_DIR");
+    std::string base = (dir && *dir) ? std::string(dir) : std::string("Quant/config");
+    std::string path = base + "/" + filename;
+    std::ifstream f(path);
+    if (!f.is_open())
+    {
+        LOG_WARN(std::string("[KIS] ") + what + " 외부파일 없음(" + path + ") — 내장 기본값 " +
+                 std::to_string(fallback.size()) + "개 사용");
+        return fallback;
+    }
+    try
+    {
+        auto j = json::parse(f);
+        const json* arr = nullptr;
+        if (key.empty() && j.is_array())
+            arr = &j;
+        else if (!key.empty() && j.is_object() && j.contains(key) && j[key].is_array())
+            arr = &j[key];
+        std::vector<std::string> out;
+        if (arr)
+            for (const auto& e : *arr)
+                if (e.is_string())
+                    out.push_back(e.get<std::string>());
+        if (out.empty())
+        {
+            LOG_WARN(std::string("[KIS] ") + what + " 외부파일 형식오류/빈값(" + path + ") — 내장 기본값 사용");
+            return fallback;
+        }
+        LOG_INFO(std::string("[KIS] ") + what + " 외부파일 로드 " + std::to_string(out.size()) + "개 (" + path + ")");
+        return out;
+    }
+    catch (const std::exception& e)
+    {
+        LOG_WARN(std::string("[KIS] ") + what + " 외부파일 파싱실패(" + path + ": " + e.what() + ") — 내장 기본값 사용");
+        return fallback;
+    }
+}
+} // namespace
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  플랫폼별 HTTP 구현
@@ -1278,10 +1347,8 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
         };
 
         // ETF/ETN/ELW 제외: 이름 접두사 + 비정상 티커(6자리 숫자 아닌 것) 필터
-        static const std::vector<std::string> ETF_PREFIXES = {
-            "KODEX",    "TIGER", "KINDEX", "KOSEF",  "ARIRANG",  "ACE",       "SOL",  "HANARO",
-            "FOCUS",    "TREX",  "WON",    "PLUS",   "KoAct",    "TIMEFOLIO", "KTOP", "BIG",
-            "히어로즈", "KCGI",  "파워",   "KBSTAR", "마이다스", "RISE",      "TRUE", "MASTER"};
+        static const std::vector<std::string> ETF_PREFIXES =
+            load_str_list("etf_prefixes.json", "", ETF_PREFIXES_FALLBACK, "ETF 접두");
         auto is_etf_name = [&](const std::string& name)
         {
             for (const auto& pfx : ETF_PREFIXES)
@@ -1407,10 +1474,8 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
         };
 
         // ETF/ETN/ELW 제외: 이름 접두사 + 6자리 숫자 티커만 허용(fetch_kr_ranking과 동일 규칙)
-        static const std::vector<std::string> ETF_PREFIXES = {
-            "KODEX",    "TIGER", "KINDEX", "KOSEF",  "ARIRANG",  "ACE",       "SOL",  "HANARO",
-            "FOCUS",    "TREX",  "WON",    "PLUS",   "KoAct",    "TIMEFOLIO", "KTOP", "BIG",
-            "히어로즈", "KCGI",  "파워",   "KBSTAR", "마이다스", "RISE",      "TRUE", "MASTER"};
+        static const std::vector<std::string> ETF_PREFIXES =
+            load_str_list("etf_prefixes.json", "", ETF_PREFIXES_FALLBACK, "ETF 접두");
         auto is_etf_name = [&](const std::string& name)
         {
             for (const auto& pfx : ETF_PREFIXES)
@@ -1832,15 +1897,11 @@ bool KisClient::send_us_order(const OrderSignal& signal)
 // ═══════════════════════════════════════════════════════════════════════════
 std::vector<std::string> KisClient::fetch_us_universe_by_pbr(double max_pbr, const std::string& exchange)
 {
-    // S&P 500 핵심 100종목 (가치주·성장주 혼합)
-    static const std::vector<std::string> NAS_LIST = {"AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO",
-                                                      "ORCL", "ADBE", "AMD",  "QCOM", "TXN",   "MU",   "INTC", "AMAT",
-                                                      "LRCX", "KLAC", "MRVL", "SNPS", "V",     "MA",   "PYPL", "INTU",
-                                                      "CSCO", "NFLX", "COST", "SBUX", "PEP",   "MDLZ"};
-    static const std::vector<std::string> NYS_LIST = {
-        "BRK-B", "JPM", "BAC", "WFC", "GS",  "MS",  "C",   "AXP", "JNJ", "LLY",   "ABBV", "MRK", "PFE", "BMY", "UNH",
-        "CVS",   "PG",  "KO",  "WMT", "HD",  "MCD", "NKE", "PEP", "CL",  "XOM",   "CVX",  "OXY", "COP", "SLB", "GE",
-        "CAT",   "HON", "BA",  "MMM", "UPS", "FDX", "T",   "VZ",  "DIS", "CMCSA", "BX",   "KKR", "APO"};
+    // S&P 500 핵심 100종목 (가치주·성장주 혼합) — 외부 us_universe.json {"nasdaq","nyse"} 로드/폴백
+    static const std::vector<std::string> NAS_LIST =
+        load_str_list("us_universe.json", "nasdaq", US_NAS_FALLBACK, "US NASDAQ 유니버스");
+    static const std::vector<std::string> NYS_LIST =
+        load_str_list("us_universe.json", "nyse", US_NYS_FALLBACK, "US NYSE 유니버스");
 
     const auto& src = (exchange == "NYS") ? NYS_LIST : NAS_LIST;
     std::vector<std::string> result;
