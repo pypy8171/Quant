@@ -1,0 +1,14 @@
+{
+  "_comment": "KIS 해외주식 fetch_us_universe_by_pbr 후보(S&P 500 핵심). 부재·형식오류 시 KisClient.cpp 내장 폴백 사용.",
+  "nasdaq": [
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO",
+    "ORCL", "ADBE", "AMD", "QCOM", "TXN", "MU", "INTC", "AMAT",
+    "LRCX", "KLAC", "MRVL", "SNPS", "V", "MA", "PYPL", "INTU",
+    "CSCO", "NFLX", "COST", "SBUX", "PEP", "MDLZ"
+  ],
+  "nyse": [
+    "BRK-B", "JPM", "BAC", "WFC", "GS", "MS", "C", "AXP", "JNJ", "LLY", "ABBV", "MRK", "PFE", "BMY", "UNH",
+    "CVS", "PG", "KO", "WMT", "HD", "MCD", "NKE", "PEP", "CL", "XOM", "CVX", "OXY", "COP", "SLB", "GE",
+    "CAT", "HON", "BA", "MMM", "UPS", "FDX", "T", "VZ", "DIS", "CMCSA", "BX", "KKR", "APO"
+  ]
+}
