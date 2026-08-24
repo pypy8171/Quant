@@ -13,6 +13,7 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -94,6 +95,21 @@ public:
         strategy_factory_ = std::move(factory);
         rescan_interval_sec_ = interval_sec;
     }
+    // ── G1: 국면→전략 자동선택 ──────────────────────────────────────────────
+    // 국면(BULL/NEUTRAL/BEAR)별 활성 전략 id 목록(권위적 선택자). 스레드 시작 전에만.
+    //  현재 국면의 목록에 든 전략만 활성, 나머지 비활성 → "국면에 맞는 전략을 선택해 적용".
+    //  id 항목이 '*'로 끝나면 접두 매칭(스캐너 동적 id: "DevScale_*", "ITB_*").
+    //  맵이 비면(미지정) 기존 per-strategy active_regimes 방식으로 폴백(하위호환).
+    void set_regime_strategies(std::map<Regime, std::vector<std::string>> m)
+    {
+        regime_strategies_ = std::move(m);
+        has_regime_map_ = !regime_strategies_.empty();
+    }
+    // 장중 국면 재평가 주기(초, ≤0이면 기본 유지). 국면 변화 시 전략셋 동적 재선택.
+    void set_regime_reeval_interval(int sec)
+    {
+        if (sec > 0) regime_reeval_interval_sec_ = sec;
+    }
     // 티커→종목명 매핑 등록/조회 (로그 가독성). 스캔·가디언 부착 스레드가 write,
     //  전략 스레드의 신호 로그가 read라 ticker_names_mu_로 보호.
     void register_ticker_name(const std::string& ticker, const std::string& name);
@@ -117,6 +133,9 @@ private:
     void reconcile_from_balance(); // C-1: rest 모드 주기적 잔고 재조회 → positions_/daily_pnl_ 재동기
     void poll_regime_file();       // 매크로 레짐 파일 폴링 → OrderGate entry_halt 토글 (data_thread 전용)
     void maybe_rescan_universe();  // 주기적 유니버스 재스캔 → 신규 티커 런타임 등록 (data_thread 전용)
+    // G1: 현재 국면 r에 맞춰 전략별 active 플래그 재선택. 선택 결정을 로그로 기록(국면 변화
+    //  또는 force_log 시). data_thread 전용(strategies_ 반복은 이 스레드에서만 mutate).
+    void apply_regime_selection(Regime r, bool force_log);
     // 런타임 전략 등록(set_kis·position_provider·on_start·set_active·watch_specs_ 추가 일괄).
     // strategies_ push_back은 락 하에, strat_version_ 증가로 strategy_thread 스냅샷 갱신 유도.
     void register_strategy_runtime(std::unique_ptr<StrategyBase> strategy);
@@ -138,7 +157,11 @@ private:
     int  regime_stale_sec_    = 600;      // 이 초 이상 오래된 파일은 신뢰 안 함(사이드카 사망 감지)
     bool regime_halt_on_      = false;    // 우리가 현재 건 halt 상태(전이 시에만 로그·set 호출)
     bool regime_stale_warned_ = false;    // stale 경고 1회화
-    bool regime_liq_warned_   = false;    // force_liquidate 경고 1회화
+    bool regime_liq_warned_   = false;    // force_liquidate 경고 1회화(전이 로그용)
+    // G3: 극단 위험회피(force_liquidate=TRUE) 시 보유 전량 강제청산 요청 플래그.
+    //  data_thread(poll_regime_file)가 set → strategy_thread(order_queue_ 단일 생산자)가
+    //  이 플래그를 보고 매 주기 시장가 전량 매도를 발주(SPSC 위반 회피). 해제 시 중단.
+    std::atomic<bool> force_liquidate_{false};
     KisConfig quote_kis_cfg_;        // 시세 전용(실전 도메인) 설정
     bool has_quote_kis_ = false;     // 시세 전용 클라이언트 사용 여부
     int order_min_interval_ms_ = 350; // 주문 간 최소 간격(ms) — 초당한도 회피(C-2/W-3)
@@ -168,6 +191,13 @@ private:
     int rescan_interval_sec_ = 0;                 // ≤0이면 재스캔 비활성
     std::unordered_set<std::string> registered_tickers_; // 이미 등록된 KR 티커(중복 등록 방지)
     std::chrono::steady_clock::time_point last_rescan_{};
+
+    // G1: 국면→전략 자동선택 상태 (data_thread 전용)
+    std::map<Regime, std::vector<std::string>> regime_strategies_; // 국면별 활성 전략 id(빈 항목=아무 전략도 활성 안 함)
+    bool has_regime_map_ = false;                 // false면 per-strategy active_regimes 폴백
+    Regime last_selected_regime_ = Regime::UNKNOWN; // 직전 선택 국면(변화 감지→재선택·로그)
+    int regime_reeval_interval_sec_ = 300;        // 장중 국면 재평가 주기(초)
+    std::chrono::steady_clock::time_point last_regime_eval_{};
 
     RingBuffer<MarketData> market_queue_{1024};
     RingBuffer<OrderSignal> order_queue_{256};

@@ -83,6 +83,67 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     }
 }
 
+// G1: 국면 r에 맞춰 전략 활성셋을 재선택한다(국면을 판단해 그에 맞는 전략을 선택·적용).
+//  has_regime_map_이면 국면별 id 목록이 권위적 선택자('*' 접두 매칭으로 스캐너 동적 id 포함),
+//  아니면 기존 per-strategy active_regimes 폴백. 선택 결정(활성/비활성 목록)은 국면 변화 또는
+//  force_log 시 [RegimeSelect]로 기록 → "왜 이 전략을 켰나"가 로그에 남는다.
+//
+//  ── 국면 두 축은 별개(G2) ─────────────────────────────────────────────────
+//  ① RegimeController(내부 지수 국면) = **전략 선택 축**. BULL/NEUTRAL/BEAR로
+//     어떤 전략을 켤지 고른다(이 함수). ② regime.json(매크로 risk-off) =
+//     **리스크 오버레이 축**. poll_regime_file()이 entry_halt/force_liquidate로
+//     신규진입 정지·강제청산을 건다. 서로 다른 관심사라 통합하지 않는다 — ①은
+//     "무엇을 살까", ②는 "지금 사도 되나/다 팔아야 하나"를 각각 결정한다.
+void Engine::apply_regime_selection(Regime r, bool force_log)
+{
+    // id 매칭: 목록 항목이 '*'로 끝나면 접두 매칭, 아니면 정확히 일치.
+    auto matches = [](const std::string& id, const std::vector<std::string>& sel)
+    {
+        for (const auto& p : sel)
+        {
+            if (!p.empty() && p.back() == '*')
+            {
+                if (id.compare(0, p.size() - 1, p, 0, p.size() - 1) == 0)
+                    return true;
+            }
+            else if (id == p)
+            {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    const std::vector<std::string>* sel = nullptr;
+    if (has_regime_map_)
+    {
+        auto it = regime_strategies_.find(r);
+        if (it != regime_strategies_.end())
+            sel = &it->second; // 없는 국면 키 = 아무 전략도 활성 안 함(전량 비활성)
+    }
+
+    auto append = [](std::string& csv, const std::string& id)
+    { csv += csv.empty() ? id : ", " + id; };
+
+    std::string active_ids, inactive_ids;
+    for (auto& s : strategies_)
+    {
+        bool on;
+        if (has_regime_map_)
+            on = sel && matches(s->id(), *sel);
+        else
+            on = regime_ ? regime_->is_active_for(s->active_regimes()) : true;
+        s->set_active(on);
+        append(on ? active_ids : inactive_ids, s->id());
+    }
+
+    if (force_log || r != last_selected_regime_)
+        LOG_INFO("[RegimeSelect] 국면=" + to_string(r) + " → 활성=[" + active_ids +
+                 "] 비활성=[" + inactive_ids + "]" +
+                 (has_regime_map_ ? "" : " (per-strategy 폴백)"));
+    last_selected_regime_ = r;
+}
+
 // 주기적 유니버스 재스캔 — universe_fn_으로 티커 목록을 산출해 미등록 종목만 런타임 등록.
 void Engine::maybe_rescan_universe()
 {
@@ -561,12 +622,12 @@ void Engine::data_thread_fn()
             have_pnl_baseline_ = false; // C-1: 새 거래일 → 총평가금 기준선 재캡처
             LOG_INFO("[DataThread] 장 시작 — OrderGate 일별 카운터 리셋");
 
-            // 국면 판정(장 시작 1회) → 전략별 활성 국면 설정 (R-1a: 판정·플래그만, 진입차단은 R-1b)
+            // 국면 판정(장 시작) → 국면에 맞는 전략셋 선택·적용 (G1). 선택 결정은 로그로 기록.
             if (regime_)
             {
-                regime_->evaluate();   // 내부에서 [Regime] 로그
-                for (auto& s : strategies_)
-                    s->set_active(regime_->is_active_for(s->active_regimes()));
+                auto snap = regime_->evaluate();   // 내부에서 [Regime] 로그
+                apply_regime_selection(snap.regime, /*force_log=*/true);
+                last_regime_eval_ = std::chrono::steady_clock::now();
             }
         }
         was_market_open = market_now;
@@ -583,6 +644,21 @@ void Engine::data_thread_fn()
             //  재스캔/리컨사일과 같은 "사이클 1회" 계층. rest·일봉 모드 공통 경로라 두 모드 다 커버.
             poll_regime_file();
 
+            // G1: 장중 국면 재평가 → 국면이 바뀌면 전략셋 동적 재선택(국면 전환 시 교체).
+            //  일봉 기반 국면 신호라 장중 변화는 드물지만, 재평가로 국면 전이를 놓치지 않는다.
+            //  RegimeController::evaluate()는 이 data_thread 단일 호출자라 재호출 계약 위반 없음.
+            if (regime_ && regime_reeval_interval_sec_ > 0)
+            {
+                auto now_r = std::chrono::steady_clock::now();
+                if (last_regime_eval_.time_since_epoch().count() == 0 ||
+                    now_r - last_regime_eval_ >= std::chrono::seconds(regime_reeval_interval_sec_))
+                {
+                    auto snap = regime_->evaluate();
+                    apply_regime_selection(snap.regime, /*force_log=*/false); // 변화 시에만 로그
+                    last_regime_eval_ = now_r;
+                }
+            }
+
             // 주기적 유니버스 재스캔(동적 등록) — rescan_interval_sec_마다 신규 티커 런타임 추가.
             if (rescan_interval_sec_ > 0)
             {
@@ -592,6 +668,11 @@ void Engine::data_thread_fn()
                 {
                     maybe_rescan_universe();
                     last_rescan_ = now_c;
+                    // G1: 재스캔으로 새로 등록된 전략도 현재 국면 선택에 맞춰 즉시 게이팅
+                    //  (기본 active_=true로 잘못된 국면에 진입하는 창을 닫는다). 국면 불변이라
+                    //  force_log=false → 로그 노이즈 없음.
+                    if (regime_ && last_selected_regime_ != Regime::UNKNOWN)
+                        apply_regime_selection(last_selected_regime_, /*force_log=*/false);
                 }
             }
 
@@ -831,6 +912,9 @@ void Engine::data_thread_fn()
 //  set_entry_halt는 이 함수가 유일 호출자 — 다른 곳에서 토글하지 않으므로 소유권 단순.
 //  안전장치: 파일 없음/손상/판정보류(valid=false)/stale이면 게이트를 "새로 켜지" 않는다.
 //  (entry_halt는 자본보호 측 — 신규매수만 막고 청산은 통과 — 이라 유지가 실패안전)
+// 매크로 risk-off **오버레이 축**(G2): regime.json을 읽어 entry_halt(신규진입 정지)·
+//  force_liquidate(강제청산)를 건다. RegimeController의 전략선택 축과는 별개 관심사
+//  — 선택 축은 apply_regime_selection() 참조.
 void Engine::poll_regime_file()
 {
     if (regime_file_.empty())
@@ -877,8 +961,11 @@ void Engine::poll_regime_file()
     if (!j.value("valid", false))
         return; // 사이드카가 데이터 부족으로 판정 보류 → 게이트 불변
 
-    // ── entry_halt 전이 시에만 set + 로그 ────────────────────────────────────
-    bool halt = j.value("entry_halt", false);
+    // ── force_liquidate: 청산 중엔 신규 진입도 반드시 정지(entry_halt에 OR) ────────
+    bool liq = j.value("force_liquidate", false);
+
+    // ── entry_halt 전이 시에만 set + 로그 (liq이면 강제 halt) ────────────────────
+    bool halt = j.value("entry_halt", false) || liq;
     if (halt != regime_halt_on_)
     {
         order_gate_.set_entry_halt(halt);
@@ -890,16 +977,21 @@ void Engine::poll_regime_file()
                  " — regime=" + reg + " score=" + std::to_string(score));
     }
 
-    // ── force_liquidate: MVP는 로그만(강제청산 배선은 후속 Task). 전이 시 1회 ──
-    bool liq = j.value("force_liquidate", false);
+    // ── force_liquidate 배선(G3): 전이 시 플래그를 세워 strategy_thread가 전량 청산 ──
+    //  실제 매도는 order_queue_ 단일 생산자인 strategy_thread에서만 낸다(SPSC 준수).
+    //  여기(data_thread)는 원자 플래그만 토글하고 1회 로그만 남긴다.
     if (liq && !regime_liq_warned_)
     {
-        LOG_ERROR("[Regime] force_liquidate=TRUE (극단 위험회피) — 강제청산 배선 미구현, "
-                  "수동 개입 권장");
+        LOG_ERROR("[Regime] force_liquidate=TRUE (극단 위험회피) — 보유 전량 강제청산 요청, "
+                  "strategy_thread가 시장가 매도 발주");
         regime_liq_warned_ = true;
     }
-    if (!liq)
+    if (!liq && regime_liq_warned_)
+    {
+        LOG_WARN("[Regime] force_liquidate 해제 — 강제청산 중단");
         regime_liq_warned_ = false;
+    }
+    force_liquidate_.store(liq, std::memory_order_relaxed);
 }
 
 // ─── 전략 처리 스레드 ─────────────────────────────────────────────────────
@@ -913,7 +1005,8 @@ void Engine::strategy_thread_fn()
     {
         ++signal_count_;
         LOG_INFO("[Strategy] 신호: [" + sig.strategy_id + "] " + ticker_label(sig.ticker) + " " +
-                 (sig.side == OrderSide::BUY ? "BUY" : "SELL") + " " + std::to_string(sig.quantity));
+                 (sig.side == OrderSide::BUY ? "BUY" : "SELL") + " " + std::to_string(sig.quantity) +
+                 (sig.reason.empty() ? "" : " | 근거: " + sig.reason));
 #ifdef HAS_ZMQ
         if (zmq_bridge_)
             zmq_bridge_->publish_signal(sig);
@@ -947,6 +1040,9 @@ void Engine::strategy_thread_fn()
     std::vector<StrategyBase*> snap;
     uint64_t seen_ver = static_cast<uint64_t>(-1);
 
+    // G3 강제청산 재발주 스로틀 — dedup 윈도우(1s)보다 길게 잡아 재발주가 통과되게.
+    auto last_liq_attempt = std::chrono::steady_clock::now();
+
     while (running_.load(std::memory_order_acquire))
     {
         uint64_t ver = strat_version_.load(std::memory_order_acquire);
@@ -958,6 +1054,39 @@ void Engine::strategy_thread_fn()
             for (auto& s : strategies_)
                 snap.push_back(s.get());
             seen_ver = ver;
+        }
+
+        // ── G3 강제청산: force_liquidate 동안 매 주기(≤2s) 보유 전량 시장가 매도 ──
+        //  order_queue_ 단일 생산자(이 스레드)에서만 발주 → SPSC 준수. reserved(미체결
+        //  매도)만큼 차감해 오버셀 방지, 잔량이 남는 한 재발주(G3-2 좌초 방지).
+        //  entry_halt가 함께 켜져 SELL만 통과(check §1b). 대량은 fat-finger/레이트리밋에
+        //  일부 막힐 수 있으나 다음 주기에 잔량 재시도된다.
+        if (force_liquidate_.load(std::memory_order_relaxed))
+        {
+            auto now = std::chrono::steady_clock::now();
+            if (now - last_liq_attempt >= std::chrono::seconds(2))
+            {
+                last_liq_attempt = now;
+                for (const auto& h : order_gate_.snapshot_positions())
+                {
+                    int resv = order_gate_.reserved(h.account, h.ticker);
+                    int sell_pending = (resv < 0) ? -resv : 0; // 이미 낸 미체결 매도
+                    int sellable = h.qty - sell_pending;
+                    if (sellable <= 0)
+                        continue;
+                    OrderSignal s;
+                    s.ticker      = h.ticker;
+                    s.account_id  = h.account;
+                    s.side        = OrderSide::SELL;
+                    s.type        = OrderType::MARKET;
+                    s.quantity    = sellable;
+                    s.price       = 0.0;
+                    s.strategy_id = "FORCE_LIQ";
+                    s.reason      = "강제청산(force_liquidate) 보유=" + std::to_string(h.qty) +
+                                    " 미체결매도=" + std::to_string(sell_pending);
+                    push_signal(s);
+                }
+            }
         }
 
         bool did_work = false;

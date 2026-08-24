@@ -165,6 +165,34 @@ int main(int argc, char* argv[])
     //  빈 문자열(기본)이면 미가동 — 기존 동작 불변.
     engine.set_regime_file(cfg.value("regime_file", std::string()),
                            cfg.value("regime_stale_sec", 600));
+    // G1: 국면→전략 자동선택 맵. config "regime_strategies": {"BULL":[id...], "NEUTRAL":[...], "BEAR":[...]}.
+    //  id 항목이 '*'로 끝나면 접두 매칭(스캐너 동적 id: "DevScale_*"). 미지정이면 기존
+    //  per-strategy active_regimes 방식 유지(하위호환). 지정 시 국면이 전략셋을 권위적으로 선택.
+    if (cfg.contains("regime_strategies"))
+    {
+        auto to_regime = [](const std::string& k) -> Regime
+        {
+            if (k == "BULL")    return Regime::BULL;
+            if (k == "BEAR")    return Regime::BEAR;
+            if (k == "NEUTRAL") return Regime::NEUTRAL;
+            return Regime::UNKNOWN;
+        };
+        std::map<Regime, std::vector<std::string>> rmap;
+        for (auto it = cfg["regime_strategies"].begin(); it != cfg["regime_strategies"].end(); ++it)
+        {
+            Regime r = to_regime(it.key());
+            if (r == Regime::UNKNOWN)
+            {
+                LOG_WARN("[Main] regime_strategies: 알 수 없는 국면 키 '" + it.key() + "' 무시");
+                continue;
+            }
+            rmap[r] = it.value().get<std::vector<std::string>>();
+        }
+        engine.set_regime_strategies(rmap);
+        engine.set_regime_reeval_interval(cfg.value("regime_reeval_sec", 300));
+        LOG_INFO("[Main] 국면→전략 자동선택 맵 " + std::to_string(rmap.size()) +
+                 "개 국면 적용(재평가 " + std::to_string(cfg.value("regime_reeval_sec", 300)) + "s)");
+    }
     // 기동 스모크 프로브 — 서버 실행 시 지정 종목 시장가 1주 매수로 모의계좌 주문경로 검증.
     //  config "startup_probe": {"ticker":"005930","qty":1}. 없으면 미가동(기존 동작 불변).
     if (cfg.contains("startup_probe"))

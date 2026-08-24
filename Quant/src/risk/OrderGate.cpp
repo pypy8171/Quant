@@ -371,3 +371,37 @@ double OrderGate::daily_pnl() const
     std::lock_guard<std::mutex> lk(pnl_mtx_);
     return daily_pnl_;
 }
+
+// ─── 보유 포지션 스냅샷 (G3 강제청산) ────────────────────────────────────────
+//  make_key = to_string(account.size()) + ":" + account + ticker 를 역파싱.
+//  ':' 앞의 정수 n = account 길이 → 이후 문자열의 앞 n자 = account, 나머지 = ticker.
+//  파싱 실패(예상 밖 키)는 방어적으로 스킵한다.
+std::vector<OrderGate::HeldPos> OrderGate::snapshot_positions() const
+{
+    std::vector<HeldPos> out;
+    std::lock_guard<std::mutex> lk(positions_mtx_);
+    out.reserve(positions_.size());
+    for (const auto& kv : positions_)
+    {
+        if (kv.second <= 0)
+            continue; // 롱 보유분만 청산 대상
+        const std::string& key = kv.first;
+        auto colon = key.find(':');
+        if (colon == std::string::npos)
+            continue;
+        int n = 0;
+        try { n = std::stoi(key.substr(0, colon)); }
+        catch (...) { continue; }
+        const std::string rest = key.substr(colon + 1);
+        if (n < 0 || static_cast<size_t>(n) > rest.size())
+            continue;
+        HeldPos h;
+        h.account = rest.substr(0, n);
+        h.ticker  = rest.substr(n);
+        h.qty     = kv.second;
+        auto ap = avg_prices_.find(key);
+        h.avg_price = (ap != avg_prices_.end()) ? ap->second : 0.0;
+        out.push_back(std::move(h));
+    }
+    return out;
+}

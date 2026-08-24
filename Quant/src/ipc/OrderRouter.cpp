@@ -294,15 +294,21 @@ void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& 
 
     if (need_header)
         f << "ts_kst,event,order_id,odno,strategy,ticker,side,type,"
-             "order_qty,order_price,fill_qty,fill_price,status,reason\n";
+             "order_qty,order_price,fill_qty,fill_price,status,reason,entry_reason\n";
 
     // event 빈 문자열이면 상태 문자열을 사용
     std::string ev = event.empty() ? status_str(mo.status) : event;
-    // reason에 콤마/개행이 있으면 CSV가 깨지므로 공백 치환
-    std::string reason = mo.reject_reason;
-    for (char& c : reason)
-        if (c == ',' || c == '\n' || c == '\r')
-            c = ' ';
+    // CSV 깨짐 방지: 콤마/개행 공백 치환
+    auto csv_safe = [](std::string s)
+    {
+        for (char& c : s)
+            if (c == ',' || c == '\n' || c == '\r')
+                c = ' ';
+        return s;
+    };
+    // reason = 거부/봉쇄 사유(OrderGate·KIS), entry_reason = 진입 판단 근거(전략, G4) — 분리 컬럼.
+    std::string reason       = csv_safe(mo.reject_reason);
+    std::string entry_reason = csv_safe(sig.reason);
 
     f << tbuf << ','
       << ev << ','
@@ -317,7 +323,8 @@ void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& 
       << fill_qty << ','
       << std::fixed << std::setprecision(2) << fill_price << ','
       << status_str(mo.status) << ','
-      << reason << '\n';
+      << reason << ','
+      << entry_reason << '\n';
 }
 
 // ─── client_oid로 살아있는 주문 조회 (호출자가 hist_mtx_ 보유) ────────────

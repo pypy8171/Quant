@@ -176,9 +176,10 @@ public:
             bool eod = hhmm >= eod_hhmm_;
             if (hit || eod)
             {
-                auto sig = make_signal(OrderSide::SELL, hold_qty_, px, td.timestamp);
                 if (eod && !hit)
                     why = " (EOD)";
+                auto sig = make_signal(OrderSide::SELL, hold_qty_, px, td.timestamp,
+                                       std::string("청산") + why);
                 LOG_INFO("[ITB] SELL " + tag() + " qty=" + std::to_string(hold_qty_) + " @" +
                          px_str(px) + why);
                 in_position_ = false;
@@ -219,7 +220,9 @@ public:
                 int qty = entry_qty_;
                 if (notional_per_position_ > 0.0 && bucket_close > 0.0)
                     qty = std::max(1, static_cast<int>(std::floor(notional_per_position_ / bucket_close)));
-                sig = make_signal(OrderSide::BUY, qty, bucket_close, td.timestamp);
+                sig = make_signal(OrderSide::BUY, qty, bucket_close, td.timestamp,
+                                  "채널돌파 종가=" + px_str(bucket_close) + ">hiN=" + px_str(hi_n) +
+                                  " 앵커=" + px_str(anchor_px_));
                 LOG_INFO("[ITB] BUY " + tag() + " qty=" + std::to_string(qty) + " @" +
                          px_str(bucket_close) + " (돌파 hiN=" + px_str(hi_n) + ")");
                 in_position_ = true;
@@ -242,7 +245,8 @@ public:
 
 private:
     OrderSignal make_signal(OrderSide side, int qty, double px,
-                            std::chrono::system_clock::time_point ts)
+                            std::chrono::system_clock::time_point ts,
+                            const std::string& reason = "")
     {
         OrderSignal s;
         s.ticker = ticker_;
@@ -252,6 +256,7 @@ private:
         s.price = px; // MARKET은 미사용이나 로깅·명목 상한 계산·향후 LIMIT 대비
         s.market = Market::KR;
         s.strategy_id = id();
+        s.reason = reason; // G4: 판단 근거(돌파/청산 사유)를 신호에 실어 영속
         s.timestamp = ts;
         return s; // account_id="" (기본) — OrderGate 원장 시드 계좌키와 일치(C-1)
     }

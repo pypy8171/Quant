@@ -80,6 +80,11 @@ struct OrderSignal
     OrderAction action = OrderAction::NEW; // 기본 NEW → 기존 전략은 이 필드를 몰라도 동일 동작
     std::string client_oid;                // 전략이 부여하는 주문 식별자 (취소/정정 추적용)
     std::string orig_client_oid;           // CANCEL/REPLACE 대상 원주문 client_oid
+
+    // ── 판단 근거 (G4) — 비파괴 확장, 기본 빈값 ──────────────────────────────
+    // 전략이 이 신호를 낸 "이유"(충족된 지표·조건 요약). 신호와 한 레코드로 영속되어
+    // 로그 타임라인 재구성 없이 "왜 샀나"를 조인 가능. reject_reason(거부사유)과 별개.
+    std::string reason;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

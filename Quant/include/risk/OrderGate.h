@@ -6,6 +6,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // OrderGate  —  주문 전 위험 검증 게이트
@@ -176,6 +177,13 @@ public:
     int    reserved(const std::string& ticker) const { return reserved(std::string(), ticker); }
     double avg_price(const std::string& ticker) const { return avg_price(std::string(), ticker); }
     double daily_pnl() const;
+
+    // ── 보유 포지션 스냅샷 (G3 강제청산) — net>0 실보유분만 락 하 복사 반환 ──────
+    //  합성키(make_key = "<len>:<account><ticker>")를 역파싱해 (account,ticker)를 복원한다.
+    //  data_thread가 아닌 strategy_thread(order_queue_ 단일 생산자)가 force_liquidate 시
+    //  이 목록으로 전량 시장가 매도를 발주한다.
+    struct HeldPos { std::string account; std::string ticker; int qty; double avg_price; };
+    std::vector<HeldPos> snapshot_positions() const;
 
 private:
     using Clock = std::chrono::steady_clock;

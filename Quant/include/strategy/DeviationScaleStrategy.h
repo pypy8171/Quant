@@ -254,6 +254,12 @@ public:
         for (const auto& r : plan)
             sig += std::string(r.side == OrderSide::BUY ? "B" : "S") + fmt1(r.price) +
                    "x" + std::to_string(r.qty) + "|";
+        // G1 국면 게이트: 비활성 국면(regime→전략 자동선택에서 미선택)에선 매수(진입·물타기)
+        //  rung을 깔지 않는다. 익절 매도·청산은 국면과 무관하게 유지(is_active 계약: 진입만 차단).
+        //  active 상태를 시그니처에 접미 → 국면 플립 시 no-change 가드에 걸리지 않고 재구성되어
+        //  기존 매수 예약이 cancel_all로 취소된다(플립 후 매수만 잔존하는 구멍 차단).
+        const bool entry_on = is_active();
+        sig += entry_on ? "A1" : "A0";
         const double reprice_band = p_.reprice_move_ticks * tick_size(sma);
         const bool   sma_quiet    = last_sma_ > 0.0 && std::fabs(sma - last_sma_) < reprice_band;
         // (a) 계획 시그니처+pos가 직전과 동일하면 live 유무와 무관하게 스킵.
@@ -271,6 +277,9 @@ public:
         //  것을 원천 차단. 청산 경로(emit_liquidation)와 동일 원칙. 잔고조회는 재구성 시 1회만
         //  (핫패스 부하 억제 — 매수는 캡을 OrderGate가 처리하므로 클램프 불필요).
         cancel_all(out);
+        // G4: 이 사다리를 깐 판단 근거 — 존 판정 지표를 신호에 실어 영속(로그 재구성 불필요).
+        const std::string buy_ctx  = "정배열눌림진입 이격=" + fmt1(s_dev) + "% 일봉SMA20=" +
+                                     fmt1(d_s20) + " 현재가=" + fmt1(cur_px);
         int sell_room = -1;                          // -1=미조회(지연). 첫 매도 rung에서 1회 조회.
         for (const auto& r : plan)
         {
@@ -281,11 +290,11 @@ public:
                 int q = r.qty < sell_room ? r.qty : sell_room;
                 if (q <= 0)
                     continue;                        // 매도가능 소진/없음 → 이 rung 스킵
-                place(out, OrderSide::SELL, r.price, q);
+                place(out, OrderSide::SELL, r.price, q, "익절밴드 지정가=" + fmt1(r.price));
                 sell_room -= q;
             }
-            else
-                place(out, r.side, r.price, r.qty);
+            else if (entry_on)                       // G1: 비활성 국면이면 매수 rung 스킵(진입 차단)
+                place(out, r.side, r.price, r.qty, buy_ctx);
         }
 
         last_sma_ = sma;
@@ -395,7 +404,8 @@ private:
         return id() + ":" + tag + ":" + std::to_string(++seq_);
     }
 
-    void place(std::vector<OrderSignal>& out, OrderSide side, double price, int qty)
+    void place(std::vector<OrderSignal>& out, OrderSide side, double price, int qty,
+               const std::string& reason = "")
     {
         if (qty <= 0)
             return; // qty=0 NEW 발주 억제 — 게이트 거부·로그 노이즈 원천 차단(SELL은 상위서도 클램프)
@@ -411,6 +421,7 @@ private:
         s.action      = OrderAction::NEW;
         s.client_oid  = oid;
         s.account_id  = p_.account;
+        s.reason      = reason; // G4: 판단 근거를 신호에 실어 영속
         s.timestamp   = std::chrono::system_clock::now();
         out.push_back(s);
         live_.push_back({oid, side});
@@ -440,7 +451,7 @@ private:
         return true;
     }
 
-    OrderSignal make_market_sell(int qty)
+    OrderSignal make_market_sell(int qty, const std::string& reason = "")
     {
         OrderSignal s;
         s.ticker      = p_.ticker;
@@ -451,6 +462,7 @@ private:
         s.market      = Market::KR;
         s.action      = OrderAction::NEW;
         s.account_id  = p_.account;
+        s.reason      = reason; // G4: 청산 사유(존 이탈/EOD 등)를 신호에 실어 영속
         s.timestamp   = std::chrono::system_clock::now();
         return s;
     }
@@ -482,7 +494,7 @@ private:
         bool emitted = false;
         if (q > 0)
         {
-            out.push_back(make_market_sell(q));
+            out.push_back(make_market_sell(q, "청산:" + tag));
             emitted = true;
             LOG_INFO("[" + id() + "] " + tag + " — 취소+청산 pos=" + std::to_string(pos) +
                      " 매도가능=" + std::to_string(sellable) + " 발주=" + std::to_string(q));
