@@ -1,0 +1,177 @@
+{
+  "schema": "quant.review/v1",
+  "_comment": "실증 사후검토(post-mortem) 데이터 계약. build_dashboard.py render_reviews()가 이 파일만 읽어 '리뷰' 탭을 렌더한다. *_html 필드는 신뢰된 인라인 HTML(작성자=본인), 그 외는 이스케이프. 새 리뷰는 reviews 배열에 append.",
+  "reviews": [
+    {
+      "id": "2026-08-21_postmortem_08-20_08-21",
+      "strategy": "DeviationScale",
+      "eyebrow": "Post-mortem · 08-20 → 08-21 · 3자 패널 회의",
+      "headline_html": "안전망을 그것을 무력화한<br>스레드에 얹었다",
+      "verdict_html": "두 크리티컬 — <b>08-21 크래시로 EOD 미실행</b>, <b>08-20 매도가능=0 청산 실패</b> — 은 하나의 구조결함이다. EOD 청산과 손실컷이 시세 이벤트 스레드 위에 얹혀 있어, 안전망이 가장 필요한 순간(프로세스 사망·시세 정체)에 함께 무력화된다. 실계좌 전환 전 <b>P0 3건</b>을 닫아야 한다.",
+      "meta_html": [
+        "근거 로그 <span class=\"mono\">quant_trader.log</span> · 08-20 <span class=\"mono\">9,025</span>줄 · 08-21 <span class=\"mono\">4,379</span>줄",
+        "분석 <span class=\"mono\">6축</span> · 패널 <span class=\"mono\">3</span> · 개선안 <span class=\"mono\">13</span>",
+        "계좌 <span class=\"mono\">모의 50189928</span> · <span class=\"mono\">rest_price_feed</span>"
+      ],
+      "doc_path": "strategies/DeviationScale/reviews/2026-08-21_postmortem_08-20_08-21.md",
+      "log_path": "Quant/build_win/logs/quant_trader.log",
+      "kpi": {
+        "day_a": {"day": "08-20", "wk": "수"},
+        "day_b": {"day": "08-21", "wk": "목"},
+        "rows": [
+          {"label": "신규 매수 진입", "a": {"big": "34", "note": "093190×16 등 · 사다리 리프라이싱"}, "b": {"big": "0", "note": "BUY 신호 55건 발생, 접수 0"}},
+          {"label": "체결 (추정)", "a": {"big": "7", "note": "명시 체결로그 0 — 잔고 역산"}, "b": {"big": "0", "note": "캐리오버 관리·probe만"}},
+          {"label": "세션손익 최저", "a": {"big": "−317,260", "cls": "neg", "note": "15:03:47 · 한도 −300k 초과"}, "b": {"big": "−153,816", "cls": "neg", "note": "한도 내"}},
+          {"label": "세션손익 종점", "a": {"big": "−203,600", "cls": "neg", "note": "15:15 마감"}, "b": {"big": "+31,184", "cls": "pos", "note": "12:57 크래시 시점"}},
+          {"label": "EOD 15:15 청산", "a": {"big": "실패 · 매도가능=0", "cls": "neg small", "note": "백오프 #1~#5 전량 무발주"}, "b": {"big": "미실행 · 프로세스 소멸", "cls": "neg small", "note": "EOD 3시간 전 사망"}},
+          {"label": "결과", "a": {"big": "5종목 overnight 이월", "cls": "small", "note": ""}, "b": {"big": "018260·161390 2박 이월", "cls": "small", "note": ""}}
+        ]
+      },
+      "incidents": [
+        {
+          "sev": "CRITICAL", "when": "08-21 12:57:07", "title": "트레이더 크래시 → EOD 미실행",
+          "desc_html": "단일 세션(09:37→12:57, 재시작 0)이 <b>업종 등락률 로깅 도중</b> 소멸. 정상종료·<span class=\"mono\">[ERROR]</span> 로그 전무.",
+          "evidence": "12:57:05 리컨사일 당일손익 +31,184\n12:57:06 [수급추정] 매수상위 ★005930 …\n12:57:07 [섹터] ── 업종 등락률 ── ◀ 파일 절단(EOF)",
+          "impact_html": "근본원인은 로그 단독 규명 불가 — 크래시 덤프·stderr 부재. 확정 영향: EOD 미실행으로 캐리오버 재이월(08-20 실패분 복리)."
+        },
+        {
+          "sev": "CRITICAL", "when": "08-20 15:15~15:25", "title": "EOD 청산 실패 · 매도가능=0",
+          "desc_html": "<span class=\"mono\">sellable_qty()=0</span>이면 시장가 청산 자체를 보류 — 강제청산 에스컬레이션 경로 부재(강제청산 로그 0건).",
+          "evidence": "15:15:37 [DEVSCALE_011200] EOD 청산 보류\n         — 매도가능=0 (잠긴 318주) 백오프#1\n… 018260·161390·093190 동일 · #2~#5 전량 실패",
+          "impact_html": "\"잠김\" = 모의계좌 당일 매수분 당일 매도불가(익일 반영). 12002 조회실패가 \"잠김\"으로 위장 → EOD 창 실유효 관측 단 1회."
+        }
+      ],
+      "pnl": {
+        "title_html": "08-21 세션 당일손익 <span class=\"u\">KRW · 리컨사일 샘플 11:00~12:57</span>",
+        "series": [
+          {"t": "11:02", "v": -17316}, {"t": "11:03", "v": -62316}, {"t": "11:23", "v": -29316},
+          {"t": "11:43", "v": -58316}, {"t": "12:03", "v": 14684}, {"t": "12:23", "v": -15816},
+          {"t": "12:43", "v": 41684}, {"t": "12:57", "v": 31184}
+        ],
+        "floor": -70000, "ceil": 50000,
+        "gridlines": [0, -100000, -50000, 50000],
+        "last_label": "세션손익",
+        "note_html": "최저 <b class=\"neg\">−317,260</b> · 마감 <b>−203,600</b>(검은 선). 한도(주황)를 초과했으나 거부·청산 로그 0건 — 손실한도가 신규 BUY 사전점검일 뿐 집행 액션이 없다."
+      },
+      "breach": {
+        "title_html": "08-20 손실한도 돌파",
+        "min_value": -317260, "min_at": "15:03:47", "close_value": -203600, "limit": -300000,
+        "scale_floor": -360000,
+        "caption_html": "최저 <b class=\"neg\">−317,260</b> @15:03:47 · 마감 −203,600(검은 선). 한도(주황)를 초과했으나 거부·청산 로그 0건."
+      },
+      "halt": {
+        "title_html": "entry_halt 토글 <span class=\"u\">08-21 · 히스테리시스 부재</span>",
+        "events": [
+          {"t": "09:37", "state": "on", "label_html": "HALT <b>ON</b> — RISK_OFF score −3 (초기)"},
+          {"t": "10:22", "state": "off", "label_html": "HALT OFF — NEUTRAL −2"},
+          {"t": "12:08", "state": "on", "label_html": "HALT ON — −3"},
+          {"t": "12:14", "state": "off", "label_html": "HALT OFF — −2"},
+          {"t": "12:41", "state": "on", "label_html": "HALT ON — −3 <span class=\"faintnote\">(2분53초 뒤 12:44 OFF)</span>"},
+          {"t": "12:57", "state": "crash", "label_html": "프로세스 크래시"}
+        ]
+      },
+      "axes": [
+        {"n": "AXIS 1", "title": "주문·체결 파이프라인", "tag": "by-design 중심", "tag_cls": "info", "items": [
+          {"kind": "des", "text_html": "H0STCNI0 미배선 — 명시 체결 0건, 잔고 스냅샷 차이로만 역추정"},
+          {"kind": "des", "text_html": "dev_buy 사다리 리프라이싱 루프(093190 20회+). 체결은 \"취소 거부: 수량 없음\"으로만 확인"},
+          {"kind": "bug", "text_html": "리컨사일 30초 폴링 + 12002 시 지수 백오프 최대 8사이클 실명"}
+        ]},
+        {"n": "AXIS 2", "title": "EOD 청산 실패", "tag": "critical", "tag_cls": "crit", "items": [
+          {"kind": "bug", "text_html": "sellable=0 하드 클램프 — 강제청산 fallback 부재"},
+          {"kind": "bug", "text_html": "12002 조회실패가 \"매도가능=0 잠김\"으로 위장 — 실유효 관측 1회"},
+          {"kind": "bug", "text_html": "read-before-cancel 레이스 — 취소로 푼 수량을 같은 틱에 못 봄"}
+        ]},
+        {"n": "AXIS 3", "title": "08-21 트레이더 크래시", "tag": "critical", "tag_cls": "crit", "items": [
+          {"kind": "bug", "text_html": "무증상 소멸 — SEH(접근위반)는 catch(std::exception)이 못 잡음"},
+          {"kind": "unc", "text_html": "근본원인 로그 단독 규명 불가 — 덤프·stderr 부재"},
+          {"kind": "bug", "text_html": "프로세스 감시·자동재시작·하트비트 경보 부재"}
+        ]},
+        {"n": "AXIS 4", "title": "손실한도 · 리스크게이트", "tag": "critical 갭", "tag_cls": "crit", "items": [
+          {"kind": "bug", "text_html": "집행 액션 없음 — 신규 BUY만 막고 기보유 방치. \"계산만 하면 한도가 아니다\""},
+          {"kind": "des", "text_html": "per-order 사전점검 — 위반·주문 타이밍 겹쳐야 흔적"},
+          {"kind": "des", "text_html": "REST 총평가 폴링 노이즈(6분새 +127k 스윙) → 앵커·확인틱 필요"}
+        ]},
+        {"n": "AXIS 5", "title": "레짐 · entry_halt 토글", "tag": "high", "tag_cls": "warn", "items": [
+          {"kind": "bug", "text_html": "히스테리시스 전무 — 단일점 −3/−2 경계에서 5회 플래핑"},
+          {"kind": "bug", "text_html": "환율 vote가 −0.4% 경계서 +1↔0 진동(0.08%p). VIX·10Y vote 종일 고정"},
+          {"kind": "des", "text_html": "사이드카 파일은 신선(stale 아님) · force_liq(−6) 미도달"}
+        ]},
+        {"n": "AXIS 6", "title": "DevScale 진입 게이팅", "tag": "근본원인 재지목", "tag_cls": "info", "items": [
+          {"kind": "des", "text_html": "3중 게이트는 병목 아님 — BUY 신호 55건 정상 발생"},
+          {"kind": "bug", "text_html": "진짜 병목 = 동시보유 5슬롯 포화(전일 청산실패 캐리오버가 선점)"},
+          {"kind": "bug", "text_html": "08-20(33) vs 08-21(0) 차이 = 시작 슬롯 여유, 국면·게이트 아님"}
+        ]}
+      ],
+      "dissent": {
+        "title": "주요 이견",
+        "items": [
+          {"q": "손실한도 미로깅 성격", "j_html": "구현 P2(발동대상 부재) vs 전략·리스크 P0(집행 배선 부재). → <b>집행 배선 P0 격상(IMP-03)</b>"},
+          {"q": "H0STCNI0 미배선", "j_html": "by-design이나 사이징 무결성 붕괴(093190 7.58M > 캡 7.5M). → <b>정공법 P1(IMP-08), 캡 클램프 선행(IMP-06)</b>"},
+          {"q": "게이팅이 수익을 죽이나", "j_html": "전략 교정: 08-21 halt는 정확히 옳았음(세션 +31,184 마감). → <b>진짜 결함은 진입컷·사이징</b>"}
+        ],
+        "limit_block": {
+          "title": "모의계좌의 구조적 한계",
+          "body_html": [
+            "모의계좌는 당일 매수분 당일 매도불가(익일 반영)라 DevScale·ITB의 핵심 전제인 <b>EOD net-flat</b>을 forward-test 할 수 없다.",
+            "08-20 청산 실패는 전략 결함과 모의 아티팩트가 뒤섞여 분리 불가. 청산 안정성 근거를 paper EOD에서 취하지 말 것 — 강제청산 fallback은 실계좌 이관 전제조건으로만 요구(IMP-11)."
+          ]
+        }
+      },
+      "improvements": {
+        "section_sub": "손실통제 → 청산배관 → 관측성 → 전략재배치",
+        "lanes": [
+          {
+            "prio": "P0", "title": "실계좌 전환 게이트 — 닫히기 전 라이브 금지", "count_note": "3건 · 벽시계·워치독·집행",
+            "items": [
+              {"id": "IMP-01", "cat": "리스크", "eff": "M", "title": "EOD 청산·손실컷을 시세이벤트 → 독립 벽시계 타이머 구동으로 분리",
+               "prob_html": "EOD가 <code>on_trade_batch</code>(td 도착)로만 트리거 → td는 <code>data_thread_fn</code> 공급. 크래시·12002 정체 시 EOD가 안 돎 — 08-20/08-21 이월의 공통 원인.",
+               "fix_html": "<code>control_thread_fn</code>에 <code>kst_hhmm≥eod</code> 감시 가디언 신설 — 시세 무관하게 청산 시그널을 <code>order_queue_</code>에 직접 push. 전략 EOD 블록은 백업 유지."},
+              {"id": "IMP-02", "cat": "관측성", "eff": "M", "title": "크래시 관측성(SEH→C++예외 변환) + 외부 워치독 자동 재기동",
+               "prob_html": "12:57:07 무증상 소멸, <code>[ERROR]</code> 0건. 접근위반(SEH)은 <code>/EHsc</code>의 <code>catch(std::exception)</code>이 못 잡음.",
+               "fix_html": "스레드 시작부 <code>_set_se_translator</code> 또는 <code>__try/__except</code>로 폴트 주소·스택 로깅. 외부 워치독이 exe 소멸 시 재기동 → 부트스트랩 재시드 후 EOD 가디언 청산."},
+              {"id": "IMP-03", "cat": "리스크", "eff": "M", "title": "손실한도 −300k 집행 배선 (신규 BUY 차단 + soft de-risk + 세션 진입예산)",
+               "prob_html": "OrderGate 손실한도가 신규 BUY에만 적용, 강제청산·kill 에스컬레이션 없음. −317,260 시점 봉쇄·경고 전무.",
+               "fix_html": "<code>daily_pnl_ ≤ −300k</code>이면 WARN 1회 + 기존 <code>set_entry_halt()</code> 재사용(신규 BUY 차단, SELL/CANCEL 통과) + 청산 모드로 EOD 가디언 경로 연결. −180k 선제 soft halt."}
+            ]
+          },
+          {
+            "prio": "P1", "title": "청산 배관 정합 · 관측성 · 전략 재배치", "count_note": "8건",
+            "items": [
+              {"id": "IMP-04", "cat": "리스크", "eff": "M", "title": "EOD 강제청산 에스컬레이션 상태머신",
+               "prob_html": "sellable tri-state{N / LOCKED / UNKNOWN} 구분 + marketable-limit fallback. 12002 위장 제거, 15:20 미청산 시 CRITICAL 알림.", "fix_html": ""},
+              {"id": "IMP-05", "cat": "버그수정", "eff": "M", "title": "취소→매도 순차 상태머신",
+               "prob_html": "CANCELLING→취소확인 대기→REQUERY→LIQUIDATING. read-before-cancel 레이스 제거(최소수정: 1-tick 지연 플래그).", "fix_html": ""},
+              {"id": "IMP-06", "cat": "리스크", "eff": "M", "title": "확정잔고 기반 종목 명목 캡 클램프",
+               "prob_html": "reserved_ 드리프트로 093190 7.58M > 캡 7.5M. 리컨사일 확정잔고 명목이 캡 이상이면 신규 BUY 거부. IMP-08 전 즉효 방어.", "fix_html": ""},
+              {"id": "IMP-07", "cat": "리스크", "eff": "S", "title": "manage_holdings eod 1600→1515 정렬",
+               "prob_html": "protect-only 1600이 캐리오버를 장중 청산 안 함 → 018260·161390 2박 이월 원인. DevScale 본체 eod와 시각 일치.", "fix_html": ""},
+              {"id": "IMP-08", "cat": "버그수정", "eff": "L", "title": "H0STCNI0 체결통보 배선 / FILLED 전이",
+               "prob_html": "ACCEPTED에서 못 벗어나 스테일 주문이 취소무시 64건 양산. 체결통보 웹소켓 독립 배선 또는 reconcile로 on_fill 상태전이.", "fix_html": ""},
+              {"id": "IMP-09", "cat": "버그수정", "eff": "S", "title": "Logger localtime 스레드안전 수정",
+               "prob_html": "std::localtime을 lock 밖에서 호출 — 4스레드 데이터레이스(UB). localtime_s/r로 교체 + 포맷을 lock 안으로.", "fix_html": ""},
+              {"id": "IMP-10", "cat": "관측성", "eff": "M", "title": "관측 모니터 예외격리 + 리컨사일 신선도 격리",
+               "prob_html": "수급/섹터/매크로가 data_thread 순차 실행 → 청산·손실컷이 낡은 스냅샷 위 판단. try/catch 격리 + 리컨사일 우선.", "fix_html": ""},
+              {"id": "IMP-11", "cat": "전략", "eff": "M", "title": "DevScale INTRADAY 실계좌 셸빙 + H7 우선",
+               "prob_html": "paper EOD 검증불가 명시(STRATEGY_LAB). 실계좌 라이브 셸빙, 백테스트 가능한 H7(dip-buy EOD ablation, 2022 홀드아웃 사전등록)로 이동.", "fix_html": ""}
+            ]
+          },
+          {
+            "prio": "P2", "title": "저비용 구조 방어 — 파라미터 튜닝 금지", "count_note": "2건",
+            "items": [
+              {"id": "IMP-12", "cat": "전략", "eff": "S", "title": "entry_halt 히스테리시스(dwell + 확인카운터)",
+               "prob_html": "−3 임계 5회 휩쏘 억제. 최소 15분 dwell + 2연속 폴 확인 후 전환. regime 3-state 재설계는 금지(보류목록).", "fix_html": ""},
+              {"id": "IMP-13", "cat": "리스크", "eff": "S", "title": "사다리 회전 상한 가드",
+               "prob_html": "종목당 세션 재호가·누적체결 명목 상한(IMP-06과 공유). 값 튜닝 없이 구조적 상한만 — 093190 churn 통제.", "fix_html": ""}
+            ]
+          }
+        ]
+      },
+      "gate": [
+        {"html": "<b class=\"stop\">실계좌 전환 게이트</b> — IMP-01·02·03(P0)이 닫히기 전 실계좌 라이브 <b class=\"stop\">금지</b>."},
+        {"html": "<b>청산 배관 정합(P1)</b> — IMP-04·05·06·07로 EOD net-flat 보장."},
+        {"html": "<b>관측성·격리(P1)</b> — IMP-08·09·10."},
+        {"html": "<b>전략 재배치(P1)</b> — IMP-11: DevScale INTRADAY 셸빙, H7로 리서치 이동. LAB 합격 엣지 0개 동안 regime 개조·파라미터 튜닝 금지."}
+      ]
+    }
+  ]
+}

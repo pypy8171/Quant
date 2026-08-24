@@ -20,6 +20,13 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+# Windows 콘솔(cp949)에서 성공 print(✅ 등) 깨짐/크래시 방지
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 _HERE = Path(__file__).resolve()
 _REPO = _HERE.parents[2]
 LOGS = _REPO / "logs"

@@ -2,6 +2,14 @@
   "schema": "quant.live/v1",
   "journals": [
     {
+      "date": "2026-08-19",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-08-19.md",
+      "title": "라이브 모의 매매 일지 — 2026-08-19 (화)",
+      "strat_line": "DeviationScale (DEVSCALE) + ITB 청산 가디언(물린 보유분). 일봉 정배열+눌림 존 게이트 + 3분봉 이격도 분할매매(지정가 예약 사다리).",
+      "summary": "코스피 실제 -4~-6% 위험회피장에서 두 겹 게이트(스캐너 risk_off + ENTRY_HALT)가 DevScale 신규 진입을 정상 봉쇄한 날 — 체결 0건, 유의미한 신규 실증 데이터는 오늘도 못 얻음. 아침 물린 시드 청산과 halt 해제(11:45) 후 006340 지정가 사다리 진입 시도 1건이 있었으나 reconcile 원장상 신규 보유·평단 변화가 없어 미체결/취소 정황이다. 최종 당일손익 -29,581원(전일대비 -152,811원)은 대부분 시드 2종목의 MTM. 시스템 측면에선 13:03~13:06 balance 12002 타임아웃 스트릭이 재시도·백오프로 자동 복구됐고, 비정상은 EOD 없이 13:39 조기 종료된 점 하나. 오늘은 별도로 코스닥 매매 경로 개발 + 용어 사전(GLOSSARY)을 커밋(`04bb6af`)했다."
+    },
+    {
       "date": "2026-08-18",
       "strategy": "DeviationScale",
       "path": "strategies/DeviationScale/live/2026-08-18.md",
