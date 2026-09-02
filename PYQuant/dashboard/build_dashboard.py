@@ -174,12 +174,14 @@ def alpha_cell(r):
 
 
 # ── 테이블 ────────────────────────────────────────────────────────────────────
-# 계열 B(오버레이): 연환산 민감 → total_return 1차. side는 전략 셀 pill로 흡수.
+# 계열 B(오버레이): 창 길이 상이(예 98yr vs 30yr) → 총수익%는 복리로 창에 종속.
+# 연환산 CAGR%·Calmar가 창에 덜 민감한 1차 비교축. 총수익%는 raw로 뒤에 배치. side는 전략 셀 pill로 흡수.
 COLS_B = [
     ("전략", "strategy", "strat"), ("설명", "label", "left"),
-    ("총수익%", "total_return", "num"), ("MDD%", "mdd", "num"),
-    ("Calmar", "calmar", "num"), ("Sharpe", "sharpe", "num"),
+    ("CAGR%", "cagr", "num1"), ("Calmar", "calmar", "num"),
+    ("MDD%", "mdd", "num"), ("Sharpe", "sharpe", "num"),
     ("초과CAGR%p", "alpha", "abar"), ("낙폭축소%p", "mdd_red", "signed"),
+    ("총수익%(raw)", "total_return", "num"),
     ("활성%", "active_pct", "num1"), ("홀드아웃(train→2022)", "_holdout", "raw"),
     ("정직성·비고", "_honesty", "raw"),
 ]
@@ -947,7 +949,7 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 5px;bo
   <h3>읽는 법 · 규율</h3>
   <ul>
     <li><b>계열 분리</b> — 계열 B(지수 오버레이)는 종목 포트폴리오(계열 A)와 <b>직접 비교 불가</b>. 표를 계열·벤치마크로 나눈 이유.</li>
-    <li><b>총수익률이 1차</b> — <code>CAGR</code>/<code>Calmar</code>는 연환산이라 창 길이에 민감. 총수익%를 먼저 본다.</li>
+    <li><b>CAGR·Calmar가 1차</b> — 창 길이가 다르면(예 98년 vs 30년) <code>총수익%</code>는 복리로 부풀어 직접 비교 불가. 연환산한 <code>CAGR%</code>·<code>Calmar</code>를 먼저 보고, 총수익%(raw)는 참고로 둔다.</li>
     <li><b>초과CAGR(막대)</b> = 전략 CAGR − Buy&amp;Hold CAGR(%p). 0 중심 바, +초록/−빨강. 그룹 최대치로 스케일.</li>
     <li><b>정직성·비고</b> — <span class="cav">⚠</span>에 마우스=편향/해석 주의(생존편향·비참여·소표본·수정주가). 표 아래 <b>비고</b>에 전문.</li>
     <li><b>맥락필수</b> 라벨 — regime-ON 비참여(현금)처럼 헤드라인 숫자가 오독을 부르는 행. 초록 '견고'와 구분.</li>

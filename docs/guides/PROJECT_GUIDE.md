@@ -135,21 +135,22 @@ Quant/                              ← 저장소 루트
 │   │   │   ├── KisClient.h         REST API (인증·OHLCV·주문·지수)
 │   │   │   └── KisWebSocket.h      실시간 체결·호가 WebSocket + stale 감지
 │   │   ├── core/
-│   │   │   ├── Engine.h            4-스레드 트레이딩 엔진
+│   │   │   ├── Engine.h            4-스레드 트레이딩 엔진 (+국면→전략 자동선택·강제청산)
+│   │   │   ├── RegimeController.h  장시작 국면 판정 (200MA·정배열 → BULL/NEUTRAL/BEAR)
 │   │   │   ├── RingBuffer.h        SPSC 락-프리 큐 (cache-line 분리)
-│   │   │   └── Types.h             MarketData, OrderSignal, ManagedOrder 등
+│   │   │   └── Types.h             MarketData, OrderSignal(+ref_price), Regime/RegimeSnapshot 등
 │   │   ├── ipc/
 │   │   │   ├── OrderRouter.h       FEP 레이어 (주문 라우팅·이력·통계)
 │   │   │   └── ZmqBridge.h         ZMQ PUB/REP 브리지 (HAS_ZMQ 시 활성)
 │   │   ├── risk/
-│   │   │   └── OrderGate.h         6단계 주문 검증 게이트 + Kill Switch
+│   │   │   └── OrderGate.h         주문 검증 게이트 + Kill Switch + entry_halt (명목 백스톱은 시장가 시 ref_price 평가)
 │   │   ├── strategy/
 │   │   │   ├── StrategyBase.h      전략 인터페이스 (on_data/on_order_book/on_trade)
 │   │   │   ├── MACrossStrategy.h   이동평균 교차 전략
 │   │   │   ├── MomentumStrategy.h  모멘텀 전략
 │   │   │   └── ValueContraryStrategy.h  저PBR 역추세 전략
 │   │   └── utils/
-│   │       ├── Logger.h            싱글톤 로거 (ms UTC 타임스탬프)
+│   │       ├── Logger.h            비동기 싱글톤 로거 (ms UTC·전용 writer 스레드·백프레셔·flush)
 │   │       ├── Config.h            JSON 설정 파서
 │   │       └── Timer.h             고분해능 타이머
 │   ├── src/
@@ -190,7 +191,7 @@ Quant/                              ← 저장소 루트
 │   │   └── logger.py               setup_logger(name) → 구조화 로깅
 │   ├── kis/
 │   │   ├── __init__.py
-│   │   └── client.py               KisClient (토큰 캐시·KisAuthError·예외 분리)
+│   │   └── client.py               KisClient (토큰 캐시·KisAuthError·예외 분리·지수 현재가 get_index_price)
 │   ├── strategy/
 │   │   ├── __init__.py
 │   │   ├── base.py                 StrategyBase (Python)
@@ -198,7 +199,12 @@ Quant/                              ← 저장소 루트
 │   ├── backtest/
 │   │   ├── __init__.py
 │   │   ├── engine.py               날짜별 시뮬레이션 (look-ahead bias 방지)
-│   │   └── report.py               수익률·MDD·Sharpe·승률 출력
+│   │   ├── report.py               수익률·MDD·Sharpe·승률 출력
+│   │   └── regime_scorer.py        C++ RegimeController 미러 + 구조 국면 애블레이션 (Track A)
+│   ├── tools/
+│   │   └── index_intraday_logger.py  장중 지수(0001/1001/2001) 30s append-only JSONL forward 적재 (Track B)
+│   ├── tests/
+│   │   └── test_regime_scorer.py   regime_scorer 변형 A의 C++ 라이브 패리티 강제
 │   ├── live/
 │   │   ├── __init__.py
 │   │   └── trader.py               REST 폴링 기반 실시간 트레이더

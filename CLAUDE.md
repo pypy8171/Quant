@@ -58,7 +58,13 @@ Linux는 `libcurl4-openssl-dev`가 필요합니다 (`sudo apt install libcurl4-o
 
 ### 핵심 타입 (`Quant/include/core/Types.h`)
 
-`MarketData`(OHLCV + bar_index), `OrderSignal`(side/type/qty/price + strategy_id), `Position`, `OrderBook`(5단계 호가, 채널 `H0STASP0`), `TradeData`(실시간 체결, 채널 `H0STCNT0`).
+`MarketData`(OHLCV + bar_index), `OrderSignal`(side/type/qty/price/**ref_price** + strategy_id), `Position`, `OrderBook`(5단계 호가, 채널 `H0STASP0`), `TradeData`(실시간 체결, 채널 `H0STCNT0`), `Regime`(enum: BULL/NEUTRAL/BEAR/UNKNOWN), `RegimeSnapshot`(장 시작 국면 판정 결과 — score·200MA·정배열/역배열·지수 이평 분해).
+
+> `OrderSignal.ref_price`는 시장가(price=0) 주문의 명목 한도 평가 기준가다. 지정가는 `price`로 명목을 재지만 시장가는 `price`가 0이라 이 값이 없으면 명목 백스톱이 우회된다(특히 급락장 강제청산의 시장가 전량매도). 발주 측이 직전 현재가/평단을 stamp한다.
+
+### 국면(Regime) 대응
+
+`RegimeController`(`Quant/include/core/RegimeController.h`)가 장 시작 1회 지수 종가>200MA(±1)와 정배열/역배열(ma20·ma60·ma120, ±1)로 `score∈{-2..+2}`를 매겨 BULL/NEUTRAL/BEAR/UNKNOWN을 판정한다. config `"regime_strategies": {"BULL":[id…],"NEUTRAL":[…],"BEAR":[…]}`를 주면 국면이 전략 집합을 권위적으로 자동 선택하고(재평가 주기 `regime_reeval_sec`, 기본 300초), 지정하지 않으면 전략별 `active_regimes` 방식으로 하위호환한다. BEAR 등에서는 보유 전량을 시장가로 청산하는 `FORCE_LIQ` 신호를 낸다. 이와 별개로 매크로 사이드카(`macro_regime_feed.py`)가 쓰는 `regime.json` 파일브리지가 `OrderGate::set_entry_halt`(신규매수만 차단, 청산은 통과)를 토글한다(config `regime_file`·`regime_stale_sec`).
 
 ### 전략 추가하기
 
@@ -78,6 +84,8 @@ FEED 모드에서 사용합니다. REST로 approval key를 발급받고, `ops.ko
 ### 로깅
 
 싱글톤 `Logger`가 밀리초 단위 UTC 타임스탬프로 콘솔과 `logs/quant_trader.log`(cwd 하위 `logs/` 폴더에 고정, 부모 폴더는 자동 생성)에 기록합니다. 과거 로그는 `logs/archive/`에 보관합니다. 사용 매크로: `LOG_INFO()`, `LOG_WARN()`, `LOG_ERROR()`, `LOG_DEBUG()`.
+
+**비동기 구조**: 전략·주문 hot path는 레코드를 큐에 push만 하고 즉시 반환하며, 타임스탬프 포맷팅과 파일/콘솔 I/O는 전용 writer 스레드가 담당합니다("저지연은 평균이 아니라 최악(tail latency)을 다루는 문제"라는 설계 의도로 디스크 플러시를 hot path에서 분리). 백프레셔: 큐가 상한(`kMaxQueue`)을 넘으면 가장 오래된 레코드를 드롭하고 드롭 수를 셉니다(운영 중 무한 증가·블로킹 방지). 종료·테스트 직전 정합 확인용 `flush()`를 제공합니다.
 
 ### 문서 동기화 (드리프트 방지)
 

@@ -74,3 +74,8 @@ _private/
 # forward-test(모의매매) 로컬 산출물 — 상태/멱등키/P&L (절대 커밋 금지)
 PYQuant/live/.forward_state.json
 PYQuant/live/forward_pnl.csv
+
+# 런타임 산출물 — P&L 베이스라인·모니터 상태·장중 캡처 데이터 (로컬 전용, 커밋 금지)
+pnl_baseline_*.txt
+.watch_intraday_state.json
+PYQuant/data/index_intraday/

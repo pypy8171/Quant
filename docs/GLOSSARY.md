@@ -41,14 +41,18 @@
 | **OrderRouter** | order 스레드에서 실제 KIS 주문을 실행·라우팅(new_route/on_fill) | 거부(REJECTED) 시 drop, 재큐잉 없음(C++). 체결콜백 on_fill로 원장 갱신 | `Quant/src/ipc/OrderRouter.cpp` |
 | **reconcile** (리컨사일) | 로컬 원장 ↔ KIS 실잔고를 재조회로 재동기 | rest 모드처럼 체결콜백이 없을 때 손익 근사 경로 | `Quant/src/core/Engine.cpp` |
 | **kill switch** | 신규·청산 양방향 하드스톱 스위치 | ZMQ 수동명령 / WS 연속 실패로 발동(손익기반 자동킬은 미구현) | `Quant/src/risk/OrderGate.cpp` |
-| **entry_halt** | 신규 진입(BUY)만 차단, 청산(SELL)은 허용하는 플래그 | **OrderGate 전역 플래그**라 켜지면 모든 전략의 신규진입이 함께 막힌다. regime.json 파일브리지가 토글 | `Quant/src/risk/OrderGate.cpp` |
+| **entry_halt** | 신규 진입(BUY)만 차단, 청산(SELL)은 허용하는 플래그 | **OrderGate 전역 플래그**라 켜지면 모든 전략의 신규진입이 함께 막힌다. 매크로 사이드카 regime.json 파일브리지가 토글(→ 구조 국면 `RegimeController`와 다른 축) | `Quant/src/risk/OrderGate.cpp` |
+| **RegimeController** | 장 시작 1회 지수 종가>200MA(±1)+정배열(ma20>ma60>ma120)/역배열(±1)로 `score∈{-2..+2}`를 매겨 BULL/NEUTRAL/BEAR/UNKNOWN 판정 | 매크로 사이드카(regime.json)와 **별개 축**인 구조 국면. config `regime_strategies`로 국면별 전략 집합 자동선택 | `Quant/include/core/RegimeController.h` |
+| **Regime / RegimeSnapshot** | 국면 enum(BULL/NEUTRAL/BEAR/UNKNOWN) + 판정 스냅샷 구조체(date·score·200MA·정배열/역배열·지수 이평 분해) | RegimeController가 산출, 학습입력·설명·디버깅용 개별지표 분해 저장 | `Quant/include/core/Types.h` |
+| **FORCE_LIQ** | BEAR 등에서 보유 전량을 시장가로 청산하는 강제청산 신호 | `strategy_id="FORCE_LIQ"`. 시장가라 명목 백스톱 우회 방지로 평단을 `ref_price`에 stamp | `Quant/src/core/Engine.cpp` |
 | **UniverseScanner** | 시총·거래대금·등락률 필터로 매매 유니버스를 스캔(scan_devscale / scan_itb) | 정배열 프로브·수급 필터 포함 | `Quant/include/universe/UniverseScanner.h:16` |
 | **StrategyFactory** | config를 읽어 전략 인스턴스를 생성·등록하는 팩토리 | main.cpp에서 분리된 전략 로딩 계층 | `Quant/src/strategy/StrategyFactory.cpp` |
-| **Logger** | 싱글톤 로거(ms UTC 타임스탬프, 콘솔 + `logs/quant_trader.log`) | LOG_INFO/WARN/ERROR/DEBUG 매크로 | `Quant/include/utils/Logger.h` |
+| **Logger** | 비동기 싱글톤 로거(ms UTC 타임스탬프, 콘솔 + `logs/quant_trader.log`) | hot path는 큐 push만·전용 writer 스레드가 I/O(tail-latency 억제). 백프레셔(kMaxQueue 초과 시 드롭+드롭카운트)·`flush()`. LOG_INFO/WARN/ERROR/DEBUG 매크로 | `Quant/include/utils/Logger.h` |
 | **bootstrap_ledger** | 기동 시 실계좌 보유분을 OrderGate 원장에 시드(매도수량·평단·손실한도 정합) | config `bootstrap_ledger_from_balance` | `Quant/src/main.cpp` |
 | **manage_holdings** | 스캔 유니버스 밖 잔고 보유분에 "청산 전용" 가디언을 부착(신규진입 영구차단) | config `manage_holdings` 블록 | `Quant/config` 전략 블록 |
 | **ZmqBridge / OrderRouter(IPC)** | ZeroMQ 기반 프로세스 간 시세·주문 중계(선택 구성) | Python 오퍼레이터 연동 | `Quant/src/ipc/ZmqBridge.cpp` |
-| **OrderSignal / MarketData** | 전략이 산출한 주문신호 / OHLCV+bar_index 시세 | 파이프라인 코어 타입 | `Quant/include/core/Types.h` |
+| **OrderSignal / MarketData** | 전략이 산출한 주문신호(side/type/qty/price/ref_price) / OHLCV+bar_index 시세 | 파이프라인 코어 타입 | `Quant/include/core/Types.h` |
+| **ref_price** | 시장가(price=0) 주문의 명목 한도(max_notional_per_order/per_ticker) 평가 기준가 | 지정가는 price로 명목 평가, 시장가는 이 값으로 — 시장가의 백스톱 우회 차단. FORCE_LIQ 매도는 평단을 stamp | `Quant/include/core/Types.h` · `Quant/src/risk/OrderGate.cpp` |
 
 ---
 
@@ -98,7 +102,8 @@
 | **rest_price_feed** | WS 대신 REST 현재가 폴링을 체결 하트비트로 사용 | true면 reconcile 필수 |
 | **is_paper** | 모의(true, openapivts:29443) / 실계좌(false) 스위치 | 시세·주문 도메인 분기 |
 | **fetch_interval_sec** | 데이터 폴링 주기(초) | 장외 시간은 스킵 |
-| **regime / regime.json** | 매크로 사이드카가 쓰는 위험국면 파일브리지 | risk_score 낮으면 entry_halt 토글 |
+| **regime / regime.json** | 매크로 사이드카(`macro_regime_feed.py`)가 쓰는 위험국면 파일브리지 | risk_score 낮으면 entry_halt 토글. ※ 장시작 구조 국면 판정은 별도 축 → `RegimeController` 참조 |
+| **regime_strategies / regime_reeval_sec** | 국면(BULL/NEUTRAL/BEAR)별 전략 집합을 자동선택하는 config 맵 / 재평가 주기(기본 300s) | 지정 시 국면이 전략셋을 권위적으로 선택, 미지정 시 전략별 active_regimes 하위호환 |
 | **dedup** (dedup_window_sec) | 동일 전략+종목 중복주문 제거 창 | 1초 내 중복 거부 |
 
 ---
@@ -119,6 +124,8 @@
 | **walk-forward** | walk-forward | 롤링으로 재적합하며 전진 검증 | — |
 | **ablation** | 절제실험 | 요소를 하나씩 제거해 기여도 측정 | BT-10 EOD ablation |
 | **regime filter** | 국면필터 | 지수 국면으로 신규진입을 게이팅하는 레버 | 지금까지 견고성 확인된 유일 레버 |
+| **regime_scorer** | 구조 국면 스코어러 | C++ `RegimeController`를 미러(변형 A)하고 연속화/기울기/오버레이로 확장한 Track A 애블레이션 | `PYQuant/backtest/regime_scorer.py`, study [10](../research/studies/10_regime_scorer/README.md) |
+| **index_intraday_logger** | 장중 지수 forward 로거 | 장중 지수(0001/1001/2001) 30s append-only JSONL 적재 — 지수 PIT 히스토리 부재로 백테스트 불가한 Track B의 유일 검증경로 | `PYQuant/tools/index_intraday_logger.py` |
 | **BT-NN** | Backtest #NN | 백테스트 일련번호(예: BT-08 위기대응, BT-09 위기전략 10종, BT-10 저점매수) | 상세는 research 허브 |
 | **LAB** | STRATEGY_LAB | 전략 실험 가설·판정 카탈로그(로컬전용 문서) | GitHub 미포함 |
 

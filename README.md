@@ -25,6 +25,7 @@
 
 - **RingBuffer** — 명시적 메모리 순서를 쓰는 SPSC 락-프리 큐(스레드 간 배압).
 - **OrderGate** — 주문이 나가기 전 통과해야 하는 위험 검증 게이트(아래).
+- **국면(Regime) 자동전환** — `RegimeController`가 장 시작 지수 국면(BULL/NEUTRAL/BEAR)을 판정해 전략 집합을 자동 선택하고, 약세장에서 `FORCE_LIQ`로 강제청산한다(config `regime_strategies`). 매크로 사이드카(`regime.json`)는 별도로 신규매수만 막는 entry halt를 토글한다.
 - 확장 구성(ZMQ IPC · TimescaleDB 적재 · Python 오퍼레이터)은 [PROJECT_GUIDE.md](docs/guides/PROJECT_GUIDE.md) 참조.
 
 ---
@@ -41,7 +42,7 @@
 | 일일 손실 한도 | 당일 손실이 한도 초과 시 **신규 매수만** 거부(강제청산 아님) |
 | Rate limit | 초당·분당 주문 수 상한(KIS 한도 준수) |
 | 중복 신호 | 동일 전략+종목 1초 내 중복 거부 |
-| Fat-finger 백스톱 | 1주문 최대 수량·최대 명목 초과 시 거부 |
+| Fat-finger 백스톱 | 1주문 최대 수량·최대 명목 초과 시 거부(시장가 주문은 `ref_price`로 명목 평가 — 시장가의 백스톱 우회 차단, `FORCE_LIQ` 매도는 평단을 stamp) |
 
 관련: [OrderGate.h](Quant/include/risk/OrderGate.h) · [OrderGate.cpp](Quant/src/risk/OrderGate.cpp) · 단위 테스트 [test_order_gate.cpp](Quant/tests/test_order_gate.cpp)
 
