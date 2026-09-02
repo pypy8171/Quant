@@ -103,7 +103,7 @@
 | **is_paper** | 모의(true, openapivts:29443) / 실계좌(false) 스위치 | 시세·주문 도메인 분기 |
 | **fetch_interval_sec** | 데이터 폴링 주기(초) | 장외 시간은 스킵 |
 | **regime / regime.json** | 매크로 사이드카(`macro_regime_feed.py`)가 쓰는 위험국면 파일브리지 | risk_score 낮으면 entry_halt 토글. ※ 장시작 구조 국면 판정은 별도 축 → `RegimeController` 참조 |
-| **regime_strategies / regime_reeval_sec** | 국면(BULL/NEUTRAL/BEAR)별 전략 집합을 자동선택하는 config 맵 / 재평가 주기(기본 300s) | 지정 시 국면이 전략셋을 권위적으로 선택, 미지정 시 전략별 active_regimes 하위호환 |
+| **regime_strategies / regime_reeval_sec** | 국면(BULL/NEUTRAL/BEAR)별 전략 집합을 자동선택하는 config 맵 / 재평가 주기(기본 300s) | 지정 시 국면이 전략셋을 선택, 미지정 시 전략별 active_regimes 하위호환 |
 | **dedup** (dedup_window_sec) | 동일 전략+종목 중복주문 제거 창 | 1초 내 중복 거부 |
 
 ---

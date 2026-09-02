@@ -128,5 +128,5 @@ flowchart TD
 
 ## 두 트랙의 연결 고리
 
-- **신호 패리티**: [engine.py](../PYQuant/backtest/engine.py)의 `market_risk_on`·`equal_weight_qty`는 "백테스트·라이브 공유"로 명시 → 백테스트에서 검증한 규칙을 [PYQuant/live/forward_trader.py](../PYQuant/live/forward_trader.py)가 KIS 모의계좌로 재현.
+- **신호 패리티**: [engine.py](../PYQuant/backtest/engine.py)의 `market_risk_on`·`equal_weight_qty`는 "백테스트·라이브 공유"로 명시되어 있고, 백테스트에서 검증한 규칙을 [PYQuant/live/forward_trader.py](../PYQuant/live/forward_trader.py)가 KIS 모의계좌로 재현.
 - **ITB는 별개 트랙**: 백테스트 불가 전략이므로, PYQuant 백테스트 루프와 분리해 `C++ 라이브 엔진 → forward 관찰 → BACKTEST_LOG/ITB_V2_SPEC 수기 기록` 형태로 검증.

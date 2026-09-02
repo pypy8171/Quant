@@ -64,7 +64,7 @@ Linux는 `libcurl4-openssl-dev`가 필요합니다 (`sudo apt install libcurl4-o
 
 ### 국면(Regime) 대응
 
-`RegimeController`(`Quant/include/core/RegimeController.h`)가 장 시작 1회 지수 종가>200MA(±1)와 정배열/역배열(ma20·ma60·ma120, ±1)로 `score∈{-2..+2}`를 매겨 BULL/NEUTRAL/BEAR/UNKNOWN을 판정한다. config `"regime_strategies": {"BULL":[id…],"NEUTRAL":[…],"BEAR":[…]}`를 주면 국면이 전략 집합을 권위적으로 자동 선택하고(재평가 주기 `regime_reeval_sec`, 기본 300초), 지정하지 않으면 전략별 `active_regimes` 방식으로 하위호환한다. BEAR 등에서는 보유 전량을 시장가로 청산하는 `FORCE_LIQ` 신호를 낸다. 이와 별개로 매크로 사이드카(`macro_regime_feed.py`)가 쓰는 `regime.json` 파일브리지가 `OrderGate::set_entry_halt`(신규매수만 차단, 청산은 통과)를 토글한다(config `regime_file`·`regime_stale_sec`).
+`RegimeController`(`Quant/include/core/RegimeController.h`)가 장 시작 1회 지수 종가>200MA(±1)와 정배열/역배열(ma20·ma60·ma120, ±1)로 `score∈{-2..+2}`를 매겨 BULL/NEUTRAL/BEAR/UNKNOWN을 판정한다. config `"regime_strategies": {"BULL":[id…],"NEUTRAL":[…],"BEAR":[…]}`를 주면 국면이 전략 집합을 자동 선택하고(재평가 주기 `regime_reeval_sec`, 기본 300초), 지정하지 않으면 전략별 `active_regimes` 방식으로 하위호환한다. BEAR 등에서는 보유 전량을 시장가로 청산하는 `FORCE_LIQ` 신호를 낸다. 이와 별개로 매크로 사이드카(`macro_regime_feed.py`)가 쓰는 `regime.json` 파일브리지가 `OrderGate::set_entry_halt`(신규매수만 차단, 청산은 통과)를 토글한다(config `regime_file`·`regime_stale_sec`).
 
 ### 전략 추가하기
 
@@ -89,7 +89,7 @@ FEED 모드에서 사용합니다. REST로 approval key를 발급받고, `ops.ko
 
 ### 문서 동기화 (드리프트 방지)
 
-색인·요약·링크가 실제 트리와 어긋나는 것을 막는다. 대표/색인 파일이 무엇을 요약하는지의 의존 표와 커밋 전 체크리스트는 [docs/SYNC_MAP.md](docs/SYNC_MAP.md)에 있다. 문서를 옮기거나 새 스터디·전략을 추가한 뒤에는 다음으로 링크·색인 정합을 검사한다(깨진 내부 링크·색인 미등재를 결정론적으로 잡음, `@committer`가 문서 커밋 전 자동 실행):
+색인·요약·링크가 실제 트리와 어긋나는 것을 막는다. 대표/색인 파일이 무엇을 요약하는지의 의존 표와 커밋 전 체크리스트는 [docs/SYNC_MAP.md](docs/SYNC_MAP.md)에 있다. 문서를 옮기거나 새 스터디·전략을 추가한 뒤에는 다음으로 링크·색인 정합을 검사한다(깨진 내부 링크·색인 미등재를 기계적으로 잡음, `@committer`가 문서 커밋 전 자동 실행):
 
 ```bash
 python scripts/check_docs.py   # exit 0 = 통과, 1 = 드리프트

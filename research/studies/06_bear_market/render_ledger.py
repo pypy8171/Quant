@@ -138,7 +138,7 @@ def render_ledger(window, strat, regime, summ):
                      f"{won(t['pnl'])} | {t['pnl_pct']:+.1f}% |")
         L.append("")
     else:
-        L += ["_체결 없음 — regime 필터가 전 구간 신규 진입을 차단(현금 보유).__", ""]
+        L += ["_체결 없음 — regime 필터가 전 구간 신규 진입을 차단(현금 보유)._", ""]
 
     if opens:
         L += ["## 종료시점 보유 중 (미실현)", "", "| 진입일 | 종목 | 진입가 | 수량 |", "|---|---|---:|---:|"]

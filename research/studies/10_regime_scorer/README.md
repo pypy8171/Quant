@@ -2,7 +2,7 @@
 
 > 한 줄 요약: C++ `RegimeController`의 국면 판정(v0 이산)을 연속화·기울기·개장 오버레이로 확장한 4변형을, 지수 long/flat 타이밍 필터로 6개 하락장 창에서 결정론 비교한다. **상태: 미판정(판정 보류 — 편향감사·엣지판정 후속).**
 
-이 스터디는 계열 A(종목레벨 모멘텀/레짐)의 **국면 레버를 스코어러로 분해**한 Track A다. 라이브 C++ `RegimeController::compute_score`/`classify`의 순수 로직을 파이썬(`PYQuant/backtest/regime_scorer.py`, 변형 A)으로 1:1 미러하고, 사용자 문제제기(①단조 ②일봉이라 5분 재평가 무의미 ③이산·과보수)를 겨냥해 연속화(B)·기울기(C)·SOX/VIX 개장 오버레이(D)로 확장했다. `PYQuant/tests/test_regime_scorer.py`가 변형 A의 라이브 패리티를 강제한다.
+이 스터디는 계열 A(종목레벨 모멘텀/레짐)의 **국면 레버를 스코어러로 분해**한 Track A다. 라이브 C++ `RegimeController::compute_score`/`classify`의 순수 로직을 파이썬(`PYQuant/backtest/regime_scorer.py`, 변형 A)으로 1:1 미러하고, 사용자 문제제기(①단조 ②일봉이라 5분 재평가 무의미 ③이산·과보수)를 겨냥해 연속화(B)·기울기(C)·SOX/VIX 개장 오버레이(D)로 확장했다. `PYQuant/tests/test_regime_scorer.py`가 변형 A의 라이브 패리티를 확인한다.
 
 > **Track B(장중 국면 자동전환)는 여기 없다.** 장중 국면의 후보 지표(시가대비 낙폭·장중 실현변동성·추세지속·가속)는 전부 장중 지수 시계열 파생인데, 장중 지수 PIT 히스토리는 KIS·data.go.kr 어디에도 없어 백테스트 불가다. 그래서 `PYQuant/tools/index_intraday_logger.py`로 **forward 적재만** 가능하며, 검증 궤도는 별도다.
 
