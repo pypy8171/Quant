@@ -1,5 +1,5 @@
 """
-Walk-forward (OOS) 검증 — in-sample 고원이 out-of-sample에서도 유지되는지 채점.
+전진검증(walk-forward, OOS=표본외) 검증 — in-sample 고원이 out-of-sample에서도 유지되는지 채점.
 
 스윕(sweep.py)은 전부 IS(in-sample)라 과적합을 못 가린다. 여기서는 anchored walk-forward로
 "한 번도 안 본 미래 구간(OOS)"에서만 성과를 측정한다:
@@ -8,7 +8,7 @@ Walk-forward (OOS) 검증 — in-sample 고원이 out-of-sample에서도 유지�
   - 폴드별 OOS 수익곡선을 이어붙여 단일 OOS 누적곡선 생성 → 진짜 out-of-sample 성과.
   - 유니버스는 각 구간 시작일 as-of로 선정(세그먼트별 point-in-time).
 
-판정: OOS 샤프가 IS 샤프의 ~60%+ 유지 & OOS가 벤치 초과면 엣지 후보가 OOS 통과.
+판정: OOS 샤프(위험조정수익)가 IS 샤프의 ~60%+ 유지 & OOS가 벤치 초과면 엣지 후보가 OOS 통과.
   IS-OOS 격차가 크면 = 과적합 세금. 단일구간 스윕 숫자가 무너지면 그게 진짜 답이다.
 
 사용 (키 환경변수):

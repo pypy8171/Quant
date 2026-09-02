@@ -155,7 +155,7 @@ def holdout_cell(r):
 
 
 def alpha_cell(r):
-    """초과CAGR(%p) 인라인 바 — 0 중심, +초록/−빨강. 그룹 최대치(_amax)로 스케일."""
+    """초과CAGR(연복리, %p) 인라인 바 — 0 중심, +초록/−빨강. 그룹 최대치(_amax)로 스케일."""
     a = r.get("alpha")
     if _isna(a):
         return '<span class="na">—</span>'

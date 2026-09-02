@@ -37,7 +37,7 @@ def write_readme(bms, results, sweeps, readme_path):
              "직전 세션값으로 정렬(미국장이 한국장 뒤 마감 → 같은날 US종가는 룩어헤드). "
              "**매크로는 신호전용** — 수익곡선은 오직 거래대상 지수(금리·유가로 곡선 안 만듦). "
              "결측신호 → 중립(e=1)+커버리지 명시. 1차 지표=단일곡선 Calmar 1개, "
-             "이벤트별은 진단·중앙값만. 임계값 사전등록+전량스윕, 홀드아웃 2022 잠금, "
+             "이벤트별은 진단·중앙값만. 임계값 사전등록+전량스윕, 홀드아웃(격리검증) 2022 잠금, "
              f"비용 0.21/0.5/1.0% 감도. yfinance 무키. 생성일 {TODAY}.\n")
 
     # 설계 논의
@@ -65,8 +65,8 @@ def write_readme(bms, results, sweeps, readme_path):
         r = results[bm["name"]]
         bh = r["bh"]
         L.append(f"\n## 1차 지표 — 단일 연결곡선 · {bm['name']} ({bm['span']}, {bm['nbars']}봉)\n")
-        L.append(f"> Buy&Hold: CAGR {fmt(bh['cagr'],2)}% · MDD {fmt(bh['mdd'])}% · "
-                 f"Sharpe {fmt(bh['sharpe'],2)} · **Calmar {fmt(bh['calmar'],2)}**\n")
+        L.append(f"> Buy&Hold: 연복리(CAGR) {fmt(bh['cagr'],2)}% · 최대낙폭(MDD) {fmt(bh['mdd'])}% · "
+                 f"샤프(위험조정수익) {fmt(bh['sharpe'],2)} · **Calmar {fmt(bh['calmar'],2)}**\n")
         L.append("| 전략 | 구분 | CAGR% | MDD% | Sharpe | **Calmar** | 낙폭축소%p | 초과CAGR%p | 활성% | 토글 |")
         L.append("|---|---|---|---|---|---|---|---|---|---|")
         for row in r["rows"]:

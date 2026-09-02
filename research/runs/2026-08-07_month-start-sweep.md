@@ -3,7 +3,7 @@
 > BACKTEST_LOG.md 실행 #4·#5의 **원자료 아카이브**(구성별 전체 표). 요약·해석은 BACKTEST_LOG 참조.
 > 재현: `DATA_GO_KR_KEY=dummy .venv-win/Scripts/python.exe tools/month_start_sweep.py --config <name>`
 > ·`tools/fullperiod_validate.py`. 유니버스 as-of 2025-12-30 KOSPI 99종목(캐시 보유 ∩ 시총상위 100).
-> ⚠ 유니버스 생존편향 — 절대 α는 낙관 편향, "구성 간 상대비교"로만 유효.
+> ⚠ 유니버스 생존편향 — 절대 초과수익(α)는 낙관 편향, "구성 간 상대비교"로만 유효.
 
 ## 공통 파라미터
 - BASE: `top_n=10, rebalance_every=5, lookback=120, skip=20, regime=True, regime_ma=200, regime_mode=breadth, vol_target=0.15, vol_window=20`
@@ -18,7 +18,7 @@
 
 ### baseline / trend200 / absmom — **세 구성 동일**(2026 강세장에서 C1 inert)
 
-| 시작월 | 수익률 | MDD | 샤프 | 승률 | 거래수 | 벤치 | α(등가중) |
+| 시작월 | 수익률 | 최대낙폭(MDD) | 샤프(위험조정수익) | 승률 | 거래수 | 벤치 | α(등가중) |
 |---|---|---|---|---|---|---|---|
 | 2026-01 | +36.29% | 8.05% | 2.09 | 65.2% | 89 | +21.76% | +14.53%p |
 | 2026-02 | +30.69% | 20.60% | 1.74 | 52.8% | 72 | +7.92% | +22.77%p |

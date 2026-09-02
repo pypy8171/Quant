@@ -1,7 +1,7 @@
-# BT-03 · 2022 약세장 격리 OOS + 국면필터 ON/OFF ablation
+# BT-03 · 2022 약세장 격리 표본외(OOS) + 국면필터 ON/OFF 절제실험(ablation)
 ## regime OFF (모멘텀 단독)
 
-- 원천 export: `bt_2022bear_noregime.json` · 지표 전체(수익률·샤프·MDD·α)는 [BACKTEST_LOG 실행 #3](../../BACKTEST_LOG.md)
+- 원천 export: `bt_2022bear_noregime.json` · 지표 전체(수익률·샤프(위험조정수익)·최대낙폭(MDD)·초과수익(α))는 [BACKTEST_LOG 실행 #3](../../BACKTEST_LOG.md)
 - 왕복 **121건** · 승 54/패 67 · 승률 44.6% · 실현손익 합 **-33,258,711원**
 
 ## 손익 상위/하위 5

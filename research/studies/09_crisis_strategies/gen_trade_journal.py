@@ -179,7 +179,7 @@ def run(force_rep=None, tag=""):
         bh_vals = sim_window(closes, ret, bh_e, w_lo, w_hi)
         bh_ret = (bh_vals[-1] / CAP - 1.0) * 100.0
         bh_mdd = max_drawdown(bh_vals)
-        L.append(f"- **그냥 보유(BH) 10억 → {won(bh_vals[-1])}원 ({fmt(bh_ret,1)}%)**, 창내 MDD {fmt(bh_mdd,1)}%")
+        L.append(f"- **그냥 보유(BH) 10억 → {won(bh_vals[-1])}원 ({fmt(bh_ret,1)}%)**, 창내 최대낙폭(MDD) {fmt(bh_mdd,1)}%")
         bh_board.append(bh_ret)
 
         # 일별 베이스라인 표

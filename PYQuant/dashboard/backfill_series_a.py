@@ -5,8 +5,8 @@
 대시보드는 `metrics.json`만 읽는다(데이터 계약①). 계열 A 실행은 두 출처에 기록돼 있다:
 
   1. `research/BACKTEST_LOG.md` — **계열 A 실행 원문의 단일 소유자**(스스로 선언).
-     실행 #1~#5의 총수익·MDD·샤프·승률·거래수·α 표. 여기서 백필한다(재실행 아님).
-     이유: 재실행은 DATA_GO_KR_KEY·네트워크·PIT 유니버스 스냅샷이 필요해 재현 리스크가 있고,
+     실행 #1~#5의 총수익·최대낙폭(MDD)·샤프(위험조정수익)·승률·거래수·초과수익(α) 표. 여기서 백필한다(재실행 아님).
+     이유: 재실행은 DATA_GO_KR_KEY·네트워크·시점정합(PIT) 유니버스 스냅샷이 필요해 재현 리스크가 있고,
      BACKTEST_LOG가 이미 검증·편향 caveat까지 담은 권위 소스다. 각 행에 source=실행#N 명기.
   2. `research/studies/06_bear_market/summary_{yf,datagokr}.tsv` — (window,strat,regime)별
      지표를 이미 파일로 보유 → **프로그램적으로 파싱**(전사 리스크 0).
@@ -84,7 +84,7 @@ BT02 = [
       source="BACKTEST_LOG 실행 #2"),
 ]
 
-# ── BT-03 · 2022 약세장 OOS + 국면 ON/OFF ablation (실행 #3) ─────────────────────
+# ── BT-03 · 2022 약세장 표본외(OOS) + 국면 ON/OFF 절제실험(ablation) (실행 #3) ─────────────────────
 BT03 = [
     A("BT-03", "모멘텀 regime ON", "2022 약세장 OOS", ret=0.00, mdd=0.00, sharpe=0.00,
       win=None, alpha=20.50, n=0, honesty="context_required",

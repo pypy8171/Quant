@@ -31,7 +31,7 @@ STUDIES = {
         question="시총 상위 100에 6-1 모멘텀 + 200MA 국면필터를 굴리면 비용 물고 벤치를 이기나? 기간에 견고한가?",
         setup="`CrossMomentumStrategy` lb120/skip20/top10/rb5, regime ON, 동일가중, datagokr 일봉, "
               "유니버스 시총상위100(PIT), END=2026-08-05 고정. 창 길이만 1~5년으로 변화.",
-        note="알파가 최근 12개월에 집중되고 3년창에선 엣지가 거의 소멸. 전 구간 MDD 게이트(≤15%) 불합격 "
+        note="알파가 최근 12개월에 집중되고 3년창에선 엣지가 거의 소멸. 전 구간 최대낙폭(MDD) 게이트(≤15%) 불합격 "
              "→ '수익'이 아니라 '낙폭 통제'가 1순위 과제로 판명(→ BT-02).",
         runs=[("bt_1y", "1y", "최근 1년"), ("bt_2y", "2y", "최근 2년"),
               ("bt_3y", "3y", "최근 3년"), ("bt_4y", "4y", "최근 4년"),
@@ -41,9 +41,9 @@ STUDIES = {
         folder="02_vol_target",
         title="BT-02 · 변동성 타게팅(vol_target=0.15) 사이징",
         log_ref="실행 #2",
-        question="노출을 변동성으로 조절하면 샤프 지키며 MDD를 게이트(≤15%)까지 낮추나? (변수: 사이징만)",
+        question="노출을 변동성으로 조절하면 샤프(위험조정수익) 지키며 최대낙폭(MDD)를 게이트(≤15%)까지 낮추나? (변수: 사이징만)",
         setup="BT-01과 동일하되 동일가중 → 20일 실현변동성 기준 연 15% 목표로 종목별 비중 조절. 창 1~5년.",
-        note="MDD 전 구간 8~12%p 개선·샤프 유지, 1년 −11.6%로 게이트 첫 통과. 거래수 급증·α 음전은 "
+        note="MDD 전 구간 8~12%p 개선·샤프 유지, 1년 −11.6%로 게이트 첫 통과. 거래수 급증·초과수익(α) 음전은 "
              "벤치가 풀노출이라 당연(위험조정으론 미달 아님). vol_target 채택.",
         runs=[("bt2_1y", "1y", "최근 1년"), ("bt2_2y", "2y", "최근 2년"),
               ("bt2_3y", "3y", "최근 3년"), ("bt2_4y", "4y", "최근 4년"),
@@ -51,7 +51,7 @@ STUDIES = {
     ),
     "03": dict(
         folder="03_2022_ablation",
-        title="BT-03 · 2022 약세장 격리 OOS + 국면필터 ON/OFF ablation",
+        title="BT-03 · 2022 약세장 격리 표본외(OOS) + 국면필터 ON/OFF 절제실험(ablation)",
         log_ref="실행 #3",
         question="모멘텀 엣지가 처음 보는 약세장에서 살아남나? 국면필터의 순수 기여는?",
         setup="최근 롤링 → 격리된 2022 약세장(1개년). regime ON vs OFF만 토글(변수 하나). 나머지 BT-01과 동일.",
@@ -121,7 +121,7 @@ def render_run(study, csv_stem, run_key, run_label):
     winrt = len(win) / len(trips) * 100 if trips else 0.0
 
     L = [f"# {study['title']}", f"## {run_label}", "",
-         f"- 원천 export: `{csv_stem}.json` · 지표 전체(수익률·샤프·MDD·α)는 "
+         f"- 원천 export: `{csv_stem}.json` · 지표 전체(수익률·샤프(위험조정수익)·최대낙폭(MDD)·초과수익(α))는 "
          f"[BACKTEST_LOG {study['log_ref']}](../../BACKTEST_LOG.md)",
          f"- 왕복 **{len(trips)}건** · 승 {len(win)}/패 {len(trips)-len(win)} · 승률 {winrt:.1f}% · "
          f"실현손익 합 **{won(total)}원**", ""]
@@ -174,7 +174,7 @@ def render_study(key):
          f"**질문.** {study['question']}", "",
          f"**설정.** {study['setup']}", "",
          f"**발견.** {study['note']}", "",
-         f"> 수익률·샤프·MDD·α 전체 지표표는 [BACKTEST_LOG {study['log_ref']}](../../BACKTEST_LOG.md), "
+         f"> 수익률·샤프(위험조정수익)·최대낙폭(MDD)·초과수익(α) 전체 지표표는 [BACKTEST_LOG {study['log_ref']}](../../BACKTEST_LOG.md), "
          f"카드 요약은 [BACKTESTS.md](../../BACKTESTS.md). 아래는 각 런의 **실현손익 원장**(CSV 직접 계산).", "",
          "| 런 | 왕복수 | 승률 | 실현손익 합(원) | 종료시 보유 | 원장 |",
          "|---|---:|---:|---:|---:|---|"]

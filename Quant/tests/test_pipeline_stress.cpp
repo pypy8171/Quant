@@ -97,7 +97,7 @@ struct PipelineStats {
     std::atomic<uint64_t> td_drops{ 0 };
     std::atomic<uint64_t> order_drops{ 0 };
 
-    // E2E latency: producer push → order_thread 처리 완료
+    // 전 구간(E2E) latency: producer push → order_thread 처리 완료
     // NOTE: order_thread 단독 producer. 다른 스레드 추가 시 mutex 또는
     //       per-thread vector 후 합산 필요 (현재 std::vector는 thread-safe 아님)
     std::vector<int64_t> e2e_latencies_ns;

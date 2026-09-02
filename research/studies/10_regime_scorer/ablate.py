@@ -67,7 +67,7 @@ INDEX_SOX = "^SOX"                    # D 오버레이: 반도체 밤사이
 INDEX_VIX = "^VIX"                    # D 오버레이: 공포지수
 
 WARMUP_CAL_DAYS = 450                 # start 이전 ~300거래일(200MA+기울기20+실현변동성20 워밍업)
-ANN = math.sqrt(252.0)               # 샤프 연율화
+ANN = math.sqrt(252.0)               # 샤프(위험조정수익) 연율화
 
 # 6개 하락장 창 — start/end 는 BT-06 raw equity CSV 첫/마지막 날짜에서 재사용(발명 금지).
 WINDOWS: dict[str, tuple[str, str]] = {
@@ -231,7 +231,7 @@ def is_long(rec: dict, variant: str, bull_th: float, bear_th: float) -> int:
 # 성과 지표 (equity 는 세그먼트 복리 — 창별로 1.0 리셋, 전구간 복리 금지)
 # ════════════════════════════════════════════════════════════════════════════
 def _curve_stats(rets: list[float]) -> tuple[float, float, float]:
-    """세그 수익률 시계열 → (총수익%, MDD%, 연율 샤프)."""
+    """세그 수익률 시계열 → (총수익%, 최대낙폭(MDD)%, 연율 샤프)."""
     eq, curve = 1.0, [1.0]
     for r in rets:
         eq *= (1.0 + r)

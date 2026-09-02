@@ -27,7 +27,7 @@ std::string OrderRouter::kis_err_suffix() const
 
 // ─── 주문 제출 — action에 따라 라우팅 (MM-1) ─────────────────────────────
 //  전 경로가 단일 order_thread에서만 실행된다(Engine::order_thread_fn).
-//  → OrderGate C6의 단일소비자 전제·SPSC 불변 보존. 전략 스레드는 절대 여기 진입 안 함.
+//  → OrderGate C6의 단일소비자 전제·단일생산자·단일소비자(SPSC) 불변 보존. 전략 스레드는 절대 여기 진입 안 함.
 ManagedOrder OrderRouter::submit(const OrderSignal& sig)
 {
     switch (sig.action)
@@ -71,7 +71,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& sig)
     }
 
     // 2. KIS 주문 전송 (submit_order_ack로 ODNO + KRX 조직번호 캡처 — 정정/취소 준비)
-    //    접수 왕복지연(RTT)을 재서 접수 로그에 남긴다 → log_report.py가 p50/p99 집계.
+    //    접수 왕복지연(RTT)을 재서 접수 로그에 남긴다 → log_report.py가 중앙값(p50)·상위 1%(p99) 집계.
     mo.status = OrderStatus::SUBMITTED;
     std::string odno;
     OrderAck ack;

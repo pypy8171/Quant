@@ -42,7 +42,7 @@ class BacktestResult:
     trades:        list[Trade]
     total_return:  float   # 총 수익률(%)
     mdd:           float   # 최대낙폭(%)
-    sharpe:        float   # 샤프지수
+    sharpe:        float   # 샤프지수(위험조정수익)
     win_rate:      float   # 승률(%)
     total_pnl:     float   # 총 손익(원)
     trade_count:   int
@@ -466,7 +466,7 @@ class BacktestEngine:
 
     @staticmethod
     def _curve_stats(equity: list[float]) -> tuple[float, float, float]:
-        """equity 시계열 → (총수익률%, MDD%, 연환산 샤프). 초기값 대비."""
+        """equity 시계열 → (총수익률%, 최대낙폭(MDD)%, 연환산 샤프). 초기값 대비."""
         if not equity:
             return 0.0, 0.0, 0.0
         total_return = (equity[-1] - equity[0]) / equity[0] * 100 if equity[0] > 0 else 0.0

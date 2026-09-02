@@ -113,8 +113,8 @@ def render_ledger(window, strat, regime, summ):
 
     L = [f"# {label} — {STRAT_KO[strat]}, regime {regime.upper()}", ""]
     if s:
-        L.append(f"- 총수익률 **{s['ret_pct']}%** · MDD {s['mdd_pct']}% · 샤프 {s['sharpe']} · "
-                 f"승률 {s['win_pct']}% · 벤치 {s['bench_ret']}% · α {s['alpha_p']}%p")
+        L.append(f"- 총수익률 **{s['ret_pct']}%** · 최대낙폭(MDD) {s['mdd_pct']}% · 샤프(위험조정수익) {s['sharpe']} · "
+                 f"승률 {s['win_pct']}% · 벤치 {s['bench_ret']}% · 초과수익(α) {s['alpha_p']}%p")
         L.append(f"- 판정: {s['verdict']}")
     if window in YF_WINDOWS:
         L.append("- ⚠️ 가격은 **수정주가(yfinance, 액면분할 반영)** — 당시 실호가와 다를 수 있음. 손익률 비교엔 무방.")
@@ -168,7 +168,7 @@ def render_event(window, summ):
     # 이벤트 요약 README
     L = [f"# {label}", "",
          f"> {story}", f"> 데이터: {src}", ""]
-    L += ["| 전략 | regime | 총수익 | MDD | 샤프 | 승률 | α(초과) | 판정 | 원장 |",
+    L += ["| 전략 | regime | 총수익 | 최대낙폭(MDD) | 샤프(위험조정수익) | 승률 | 초과수익(α) | 판정 | 원장 |",
           "|---|---|---:|---:|---:|---:|---:|---|---|"]
     for m in metas:
         s = summ.get((window, m["strat"], m["regime"]), {})
@@ -191,7 +191,7 @@ def render_index(all_metas):
     for w in ORDER:
         order, label, story, src = WINDOWS[w]
         L += [f"## {order}. [{label}]({w}/README.md)  ·  _{src}_", "", f"{story}", "",
-              "| 전략·regime | 총수익 | 샤프 | 원장 |", "|---|---:|---:|---|"]
+              "| 전략·regime | 총수익 | 샤프(위험조정수익) | 원장 |", "|---|---:|---:|---|"]
         for m in all_metas.get(w, []):
             s = m["_summ"]
             L.append(f"| {STRAT_SHORT[m['strat']]} {m['regime'].upper()} | {s.get('ret_pct','?')}% | "

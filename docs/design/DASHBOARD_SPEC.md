@@ -78,7 +78,7 @@
 }
 ```
 
-**정직성 필드가 필수인 이유**: 대시보드가 보기 좋아지면 근거 없는 신뢰가 생긴다. BT-09는 홀드아웃 전패·정직한 실패가 다수인데(`research/studies/09_...`), 지표 카드만 크게 띄우면 그 맥락이 지워진다. `honesty_label`·`oos_flag`·`holdout_flag`를 스키마에 못 박아 카드가 맥락과 함께 표시되게 강제한다. → [GUARDRAILS](../../research/GUARDRAILS.md), `bias-auditor`.
+**정직성 필드가 필수인 이유**: 대시보드가 보기 좋아지면 근거 없는 신뢰가 생긴다. BT-09는 홀드아웃(격리검증) 전패·정직한 실패가 다수인데(`research/studies/09_...`), 지표 카드만 크게 띄우면 그 맥락이 지워진다. `honesty_label`·`oos_flag`·`holdout_flag`를 스키마에 못 박아 카드가 맥락과 함께 표시되게 강제한다. → [GUARDRAILS](../../research/GUARDRAILS.md), `bias-auditor`.
 
 **주의(연환산 민감도)**: `cagr`/`calmar`는 연환산 지표라 계열 B의 짧은 이벤트 윈도우(±2~10개월)에서 값이 커진다. 대시보드는 계열 B에 대해 **`total_return`을 1차 지표로** 표시하고 cagr/calmar는 참고로 둔다.
 
@@ -97,7 +97,7 @@ python research/studies/09_crisis_strategies/backtest_crisis_strategies.py # →
 #  ※ yfinance 네트워크 필요(^GSPC 1928~/^KS11 1996~). 산출은 quant.metrics/v1, family=B_overlay.
 ```
 
-**계열 B 백필 규약** — 위기 연구는 종목 포트폴리오가 아니라 **지수 익스포저 0~1.2x 오버레이**라 계열 A와 직접 비교 불가. `family="B_overlay"`+`benchmark`로 대시보드가 비교군을 분리한다. 오버레이엔 무의미한 `win_rate`/`n_trades`는 `null`. `mdd`는 계열 A(양수)와 통일해 **양수 크기로 정규화**(연구 스크립트의 `curve_stats`는 음수 mdd → `abs()`). `alpha`=전략 CAGR−BH CAGR(%p). BT-09는 홀드아웃(2022) 맥락을 `holdout_calmar`/`train_calmar` extra로 보존(예: C1 train +0.18 → holdout −0.71, 전패 사실이 카드에서 지워지지 않게). 전 행 `honesty_label="robust"`(look-ahead 삼중차단·홀드아웃 잠금으로 **방법론**은 견고, 승패는 지표값이 말함).
+**계열 B 백필 규약** — 위기 연구는 종목 포트폴리오가 아니라 **지수 익스포저 0~1.2x 오버레이**라 계열 A와 직접 비교 불가. `family="B_overlay"`+`benchmark`로 대시보드가 비교군을 분리한다. 오버레이엔 무의미한 `win_rate`/`n_trades`는 `null`. `mdd`는 계열 A(양수)와 통일해 **양수 크기로 정규화**(연구 스크립트의 `curve_stats`는 음수 mdd → `abs()`). `alpha`=전략 연복리(CAGR)−BH CAGR(%p). BT-09는 홀드아웃(2022) 맥락을 `holdout_calmar`/`train_calmar` extra로 보존(예: C1 train +0.18 → holdout −0.71, 전패 사실이 카드에서 지워지지 않게). 전 행 `honesty_label="robust"`(look-ahead 삼중차단·홀드아웃 잠금으로 **방법론**은 견고, 승패는 지표값이 말함).
 
 - **BT-07(07_crisis_regimes)은 제외** — 위기 국면 *특성화*(peak/trough/max-dd/회복일수/shape)이지 전략 성과가 아니라 `quant.metrics/v1` 스키마에 맞지 않는다. 대시보드에선 위기 배경 참조 데이터셋으로 별도 취급(성과표엔 넣지 않음).
 
@@ -145,8 +145,8 @@ python research/studies/09_crisis_strategies/backtest_crisis_strategies.py # →
 
 - [x] `export_metrics_json` (`PYQuant/backtest/report.py`) — `quant.metrics/v1` 스키마, calmar/sortino/turnover 파생, 정직성 라벨.
 - [x] `main.py backtest` 배선 — `--export` 시 `*_metrics.json` 동시 생성. CLI: `--study --event --honesty --oos --holdout`.
-- [x] 계열 B 백필 — BT-08/09 스크립트에 `_emit_metrics` 훅 추가, 실행 시 `metrics.json` 배열(42행) 산출. `family=B_overlay`, mdd 양수정규화, 홀드아웃 맥락 보존. **BT-07 제외**(특성화 데이터, 성과 아님).
+- [x] 계열 B 백필 — BT-08/09 스크립트에 `_emit_metrics` 훅 추가, 실행 시 `metrics.json` 배열(42행) 산출. `family=B_overlay`, 최대낙폭(MDD) 양수정규화, 홀드아웃 맥락 보존. **BT-07 제외**(특성화 데이터, 성과 아님).
 - [x] 백테스트 HTML 대시보드 — `PYQuant/dashboard/build_dashboard.py`가 `metrics.json`(계열 A 단일객체 + 계열 B 배열)과 `research/dashboard/live.json`을 발견→**탭 분리**(백테스트/라이브 매매) 렌더. 백테스트 탭은 `family`별 지표표 + 초과CAGR(alpha) **인라인 막대**(0 중심, 그룹 최대치 스케일) + 홀드아웃 **배너 1건**(그룹 전패를 캡션으로 통합, 26개 반복 ⚠ 제거) + `honesty_label`·`caveat`(⚠ 툴팁 + 접이식 비고 각주). 가독성: sticky 전략열·zebra·빈 컬럼 제외(계열 A는 cagr/calmar/sortino/turnover 미보유 → 컬럼 제거). 자체완결 정적 HTML(CDN·외부참조 0, 3-state 테마 토큰, tabular-nums, 키보드 정렬·탭 토글) → `research/dashboard/dashboard.html`. Artifact 발행으로 공유링크 겸용.
-- [x] 계열 A 백필 — `PYQuant/dashboard/backfill_series_a.py`: BACKTEST_LOG(실행 #1~#5, 큐레이션 상수·`source` 태그) + 06 `summary_{yf,datagokr}.tsv`(프로그램 파싱) → `studies/{01,02,03,06}/metrics.json`(46행). 재실행(DATA_GO_KR_KEY·PIT 유니버스) 대신 **기록된 결과를 표면화**(재현 리스크 회피). `honesty_label`에 `context_required`(맥락필수, 비참여/생존편향) 추가, `caveat` 필드로 편향 주석.
+- [x] 계열 A 백필 — `PYQuant/dashboard/backfill_series_a.py`: BACKTEST_LOG(실행 #1~#5, 큐레이션 상수·`source` 태그) + 06 `summary_{yf,datagokr}.tsv`(프로그램 파싱) → `studies/{01,02,03,06}/metrics.json`(46행). 재실행(DATA_GO_KR_KEY·시점정합(PIT) 유니버스) 대신 **기록된 결과를 표면화**(재현 리스크 회피). `honesty_label`에 `context_required`(맥락필수, 비참여/생존편향) 추가, `caveat` 필드로 편향 주석.
 - [x] 라이브 백필 — `PYQuant/dashboard/backfill_live.py`: `logs/trades_*.csv` 일자별 롤업(상태·전략·종목) + `strategies/*/live/*.md` 카드(제목·전략·한줄) → `research/dashboard/live.json`(`quant.live/v1`). 체결가·손익은 원장(별도)이라 주문흐름만 집계(손익 미생성).
   - **잔여(후속)**: equity 곡선 오버레이(계열 B full-curve가 단일 정규화파일로 없음 — exporter에 곡선 덤프 추가 필요). 계열 A `--export` 재현 경로(현재는 기록 표면화 백필). P2 FastAPI 라이브 자동갱신(`state_snapshot.json`).

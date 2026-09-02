@@ -4,16 +4,16 @@
 
 이 스터디는 계열 A(종목레벨 모멘텀/레짐)의 **국면 레버를 스코어러로 분해**한 Track A다. 라이브 C++ `RegimeController::compute_score`/`classify`의 순수 로직을 파이썬(`PYQuant/backtest/regime_scorer.py`, 변형 A)으로 1:1 미러하고, 사용자 문제제기(①단조 ②일봉이라 5분 재평가 무의미 ③이산·과보수)를 겨냥해 연속화(B)·기울기(C)·SOX/VIX 개장 오버레이(D)로 확장했다. `PYQuant/tests/test_regime_scorer.py`가 변형 A의 라이브 패리티를 확인한다.
 
-> **Track B(장중 국면 자동전환)는 여기 없다.** 장중 국면의 후보 지표(시가대비 낙폭·장중 실현변동성·추세지속·가속)는 전부 장중 지수 시계열 파생인데, 장중 지수 PIT 히스토리는 KIS·data.go.kr 어디에도 없어 백테스트 불가다. 그래서 `PYQuant/tools/index_intraday_logger.py`로 **forward 적재만** 가능하며, 검증 궤도는 별도다.
+> **Track B(장중 국면 자동전환)는 여기 없다.** 장중 국면의 후보 지표(시가대비 낙폭·장중 실현변동성·추세지속·가속)는 전부 장중 지수 시계열 파생인데, 장중 지수 시점정합(PIT) 히스토리는 KIS·data.go.kr 어디에도 없어 백테스트 불가다. 그래서 `PYQuant/tools/index_intraday_logger.py`로 **forward 적재만** 가능하며, 검증 궤도는 별도다.
 
 ---
 
 ## 1. 사전등록 (Pre-registration)
-- **가설**: 국면 판정을 이산({-2..+2})에서 연속·기울기로 바꾸면 하락장 진입/청산 타이밍이 개선되어, long/flat 프록시에서 Buy&Hold 대비 MDD를 줄이고 drawdown을 매끄럽게 만든다.
+- **가설**: 국면 판정을 이산({-2..+2})에서 연속·기울기로 바꾸면 하락장 진입/청산 타이밍이 개선되어, long/flat 프록시에서 Buy&Hold 대비 최대낙폭(MDD)를 줄이고 drawdown을 매끄럽게 만든다.
 - **사전등록 임계**: 자유파라미터는 가중치 w(기본 1.0)와 classify 임계(`bull_th`/`bear_th`)뿐. tanh 스케일 s는 자유파라미터가 아니라 **지수 20일 실현변동성의 배수로 사전고정**(6개 인과중첩 창에 6연속 파라미터를 맞추는 "식별 불가" 회피).
 - **데이터 소스**: `PYQuant/data/index_source.py` `IndexSource().get_historical_ohlcv` — `^KS11`(코스피, 구조축) + `^SOX`(반도체, D 오버레이) + `^VIX`(공포, D 오버레이). 캐시=parquet(`.index_cache`), 워밍 후 오프라인 결정론.
 - **유니버스**: index-macro(지수·매크로만). 개별종목·수급·survivorship 미반영.
-- **홀드아웃 선언**: train = 2022 제외, **holdout = 2022bear 잠금**.
+- **홀드아웃(격리검증) 선언**: train = 2022 제외, **holdout = 2022bear 잠금**.
 
 ## 2. 방법 (Method)
 - **프록시**: 국면 = 전략 로스터 선택의 대리 → 지수 long/flat. BULL/NEUTRAL = 지수 롱, BEAR = 현금(flat).
@@ -23,7 +23,7 @@
 - **창 날짜 출처**(발명 아님): `research/studies/06_bear_market/raw/<window>_momentum_on.csv`의 equity 시계열.
 
 ## 3. 결과 (Primary) — 6창 × 4변형, 결정론 재현
-공개 표는 [`summary.tsv`](summary.tsv). 헤드라인 발췌(총수익% / MDD% / Sharpe / 국면전환수, BH=Buy&Hold 지수):
+공개 표는 [`summary.tsv`](summary.tsv). 헤드라인 발췌(총수익% / MDD% / 샤프(위험조정수익) / 국면전환수, BH=Buy&Hold 지수):
 
 | 창 | 변형 A(v0) | 변형 B(연속) | 변형 C(기울기) | 변형 D(오버레이) | BH(지수) |
 |---|---|---|---|---|---|

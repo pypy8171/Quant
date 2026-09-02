@@ -686,8 +686,8 @@ docker compose run --rm quant-engine ./quant_trader config/config.json TRADE
 #### Step 2. 백테스팅 품질 개선 (우선순위 2 — 내일)
 
 - CostModel 추가 (수수료 0.015%, 거래세 0.18%, 슬리피지 5bp)
-- MDD: equity 시계열 기반으로 수정 (현재 현금 흐름 기준으로 오류)
-- Sharpe: 일별 수익률 기반으로 수정
+- 최대낙폭(MDD): equity 시계열 기반으로 수정 (현재 현금 흐름 기준으로 오류)
+- 샤프(위험조정수익): 일별 수익률 기반으로 수정
 
 #### Step 3. DB 캐시 연동
 

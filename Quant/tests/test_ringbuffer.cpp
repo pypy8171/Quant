@@ -1,5 +1,5 @@
 // tests/test_ringbuffer.cpp
-// SPSC RingBuffer 정확성 + 처리량 검증
+// 단일생산자·단일소비자(SPSC) RingBuffer 정확성 + 처리량 검증
 
 #include "core/RingBuffer.h"
 #include <thread>

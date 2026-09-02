@@ -549,7 +549,7 @@ def write_readme(bms, results, sweeps):
              "peak/trough 앵커는 **평가에만** 쓰고 신호엔 절대 미투입. "
              "방어대상 실질표본 n≈6~9(위기 17건, 방어가 켜지는 slow·L·systemic 소수)라 "
              "**임계값 단일 우승셀 보고 금지** — 사전등록 그리드 전량 공개. "
-             "1차 지표=단일 연결곡선 Calmar/Sharpe 1개(검정 1회), 이벤트별은 진단·중앙값만. "
+             "1차 지표=단일 연결곡선 Calmar/샤프(위험조정수익) 1개(검정 1회), 이벤트별은 진단·중앙값만. "
              "지수레벨 익스포저 토글이며 개별종목·수급·survivorship 미반영. "
              f"데이터: yfinance 무키. 생성일 {today}.\n")
 
@@ -580,8 +580,8 @@ def write_readme(bms, results, sweeps):
         r = results[bm["name"]]
         bh = r["bh"]
         L.append(f"\n## 1차 지표 — 단일 연결곡선 · {bm['name']} ({bm['span']}, {bm['nbars']}봉)\n")
-        L.append(f"> Buy&Hold 기준: 총수익 {fmt(bh['total'])}% · CAGR {fmt(bh['cagr'],2)}% · "
-                 f"MDD {fmt(bh['mdd'])}% · Sharpe {fmt(bh['sharpe'],2)} · Calmar {fmt(bh['calmar'],2)}\n")
+        L.append(f"> Buy&Hold 기준: 총수익 {fmt(bh['total'])}% · 연복리(CAGR) {fmt(bh['cagr'],2)}% · "
+                 f"최대낙폭(MDD) {fmt(bh['mdd'])}% · Sharpe {fmt(bh['sharpe'],2)} · Calmar {fmt(bh['calmar'],2)}\n")
         L.append("| 대응법 | CAGR% | MDD% | Sharpe | **Calmar** | 낙폭축소%p | CAGR반납%p/yr | 방어효율 | 토글수 |")
         L.append("|---|---|---|---|---|---|---|---|---|")
         for row in r["rows"]:

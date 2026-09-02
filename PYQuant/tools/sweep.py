@@ -1,5 +1,5 @@
 """
-파라미터 강건성 스윕 — 한 번에 한 축만 바꿔 Sharpe/MDD/CAGR/알파를 표로 수집.
+파라미터 강건성 스윕 — 한 번에 한 축만 바꿔 샤프(위험조정수익)/최대낙폭(MDD)/연복리(CAGR)/알파를 표로 수집.
 
 과적합 판정: 결과가 고원(plateau, 인접값도 비슷)이면 강건, 단일 첨탑(spike)이면 과적합.
 한 축만 변화시키고 나머지는 베이스라인 고정(변수 하나씩 원칙). 데이터소스·유니버스는
@@ -13,9 +13,9 @@
   python3 PYQuant/tools/sweep.py --axis regime_ma --values 150,200,250
   python3 PYQuant/tools/sweep.py --axis skip      --values 10,15,20,25
 
-기본 베이스라인(벤치초과 후보 — IS만, OOS 미검증): regime ON, top20, rb20, lb120,
+기본 베이스라인(벤치초과 후보 — IS만, 표본외(OOS) 미검증): regime ON, top20, rb20, lb120,
   skip20, regime_ma200, KOSPI200+KOSDAQ100, 2020-01-02~2026-06-11. --base 로 변경 가능.
-  ⚠️ 단일구간 1축 스윕은 IS(in-sample)이며 다중비교 미통제 — walk-forward로 OOS 검증 전엔
+  ⚠️ 단일구간 1축 스윕은 IS(in-sample)이며 다중비교 미통제 — 전진검증(walk-forward)로 OOS 검증 전엔
   "검증된 엣지"가 아니라 후보. (tools/walkforward.py 참조)
 """
 import argparse

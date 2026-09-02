@@ -3,7 +3,7 @@
 > 이 문서는 **요약본**이다. 날짜별 상세는 `journal_by_event.md`(대표지수)·`journal_by_event_kr.md`(KODEX 200),
 > 전체 지표표는 `README.md` 참조. 여기선 **어떤 전략이 왜 상위인지**만 빠르게 파악한다.
 > 값은 전부 **기본비용 0.21%·단일 연결곡선**(US ^GSPC 1985~ 10,485봉 / KR ^KS11 1996~ 7,305봉) 기준.
-> BH(Buy&Hold): US Calmar 0.17·CAGR 9.70%·MDD −56.8% / KR Calmar 0.13·CAGR 8.23%·MDD −64.7%.
+> BH(Buy&Hold): US Calmar 0.17·연복리(CAGR) 9.70%·최대낙폭(MDD) −56.8% / KR Calmar 0.13·CAGR 8.23%·MDD −64.7%.
 
 ## 📖 먼저: 이 표를 30초에 읽는 법 (용어가 낯설다면)
 

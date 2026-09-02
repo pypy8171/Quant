@@ -3,7 +3,7 @@
 //
 //   N개 생산자(클라이언트)가 동시에 OrderSignal을 push → 단일 소비자(FEP)가 pop.
 //   큐 종류(mpsc/mutex)와 소비자 처리지연(exec_delay_us)을 바꿔가며
-//   처리량(orders/sec)·E2E 지연(p50/p99/p999)·backpressure·계좌 fairness를 측정.
+//   처리량(orders/sec)·전 구간(E2E) 지연(중앙값(p50)·상위 1%(p99)·상위 0.1%(p999))·backpressure·계좌 fairness를 측정.
 //
 //   ⚠ 이 단계(D2)는 "큐 자체"를 격리 측정한다. 소비자는 실제 OrderRouter::submit 대신
 //     FEP 처리시간을 busy-wait로 시뮬레이션한다(exec_delay_us). 실 OrderRouter·계좌별
@@ -18,7 +18,7 @@
 //   사용법: bench_intake [N_producers=8] [duration_sec=3] [mpsc|mutex] [exec_delay_us=0]
 //                        [capacity=65536] [rate_per_producer=0]
 //     rate_per_producer=0 → 풀스로틀(open-loop): 최대 처리량 측정용. 큐 포화 → 지연은
-//       "큐깊이/처리율" 백로그 지연이라 지연 수치는 무의미. throughput만 신뢰.
+//       "큐깊이/처리율" 백로그 지연이라 지연 수치는 무의미. 처리량(throughput)만 신뢰.
 //     rate_per_producer>0 → 목표 rate로 pacing(초당 건수): 정상 부하에서 E2E 지연 측정용.
 //       총 offered = N × rate. 처리능력 미만으로 걸면 큐가 얕게 유지돼 µs 단위 지연이 나온다.
 

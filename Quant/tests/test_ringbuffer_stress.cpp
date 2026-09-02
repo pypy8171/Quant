@@ -1,5 +1,5 @@
 ﻿// tests/test_ringbuffer_stress.cpp
-// SPSC RingBuffer 실환경 부하 시뮬레이션
+// 단일생산자·단일소비자(SPSC) RingBuffer 실환경 부하 시뮬레이션
 //
 // 시나리오:
 //  - 실제 OrderBook 크기 구조체 (200B 수준)

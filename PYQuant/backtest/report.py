@@ -23,7 +23,7 @@ def print_report(result: BacktestResult, names: dict | None = None):
           f"(MDD -{result.bench_mdd:.2f}%, 샤프 {result.bench_sharpe:.2f})")
     if result.kodex_return is not None:
         print(f"             KODEX200 buy&hold: {result.kodex_return:+.2f}%")
-    # 위험조정까지 본 정직한 판정 — 수익률만 높고 샤프가 벤치 미달이면 "더 큰 위험의 대가"
+    # 위험조정까지 본 정직한 판정 — 수익률만 높고 샤프(위험조정수익)가 벤치 미달이면 "더 큰 위험의 대가"
     if result.alpha > 0 and result.sharpe > result.bench_sharpe:
         verdict = "✅ 위험조정 알파(수익↑ & 샤프↑)"
     elif result.alpha > 0:
@@ -106,7 +106,7 @@ def export_trades_csv(result: BacktestResult, path: str, names: dict | None = No
 
 
 def _derived_metrics(equity: list) -> dict:
-    """equity 시계열 → 파생 지표(CAGR·Sortino·Calmar). 초기 exporter가 계산 안 하던 축.
+    """equity 시계열 → 파생 지표(연복리 CAGR·Sortino·Calmar). 초기 exporter가 계산 안 하던 축.
     거래일 252 기준 연환산. equity는 과거만(look-ahead 없음). 표본 부족 시 0.0."""
     out = {"cagr": 0.0, "sortino": 0.0, "calmar": 0.0}
     if not equity or len(equity) < 2 or equity[0] <= 0:
@@ -115,7 +115,7 @@ def _derived_metrics(equity: list) -> dict:
     # CAGR — 거래일 수 기준 연수
     years = max((len(equity) - 1) / 252.0, 1e-9)
     cagr = ((equity[-1] / equity[0]) ** (1.0 / years) - 1.0) * 100.0
-    # MDD (calmar 분모)
+    # 최대낙폭(MDD) (calmar 분모)
     peak, mdd = equity[0], 0.0
     for e in equity:
         peak = max(peak, e)
@@ -136,7 +136,7 @@ def _derived_metrics(equity: list) -> dict:
 
 
 def _turnover_proxy(result: BacktestResult) -> float:
-    """연환산 회전율 근사 = 총 매수체결금액 / 평균 equity / 연수. 엔진이 turnover를 직접
+    """연환산 회전율 근사 = 총 매수체결금액 / 평균 equity / 연수. 엔진이 회전율(turnover)를 직접
     추적하지 않으므로 체결로그로 재구성한 **프록시**(대시보드에 proxy로 표기). 표본부족 시 0."""
     trades = result.trades or []
     eq = result.equity_curve or []
@@ -234,7 +234,7 @@ def overlay_metric_row(*, study_id: str, strategy: str, benchmark: str,
     """계열 B(지수 익스포저 오버레이) 한 행 빌더 — BT-08/09의 curve_stats dict를
     quant.metrics/v1로 정규화. base/bh = {total,cagr,mdd(음수%),sharpe,calmar}.
     mdd를 양수 크기로 정규화(스키마 규약), win_rate/n_trades는 None(오버레이 무의미).
-    alpha = 전략 CAGR − BH CAGR(%p, 초과연율). 저자 규율상 결과는 정직 → 기본 robust."""
+    alpha(초과수익) = 전략 CAGR − BH CAGR(%p, 초과연율). 저자 규율상 결과는 정직 → 기본 robust."""
     row = metrics_row(
         study_id=study_id, strategy=strategy, family="B_overlay", benchmark=benchmark,
         event="full_curve", window=window, start_date=start_date, end_date=end_date,
