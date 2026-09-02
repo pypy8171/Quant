@@ -205,6 +205,15 @@ if(UNIX)
     target_link_libraries(test_pipeline_stress PRIVATE pthread)
 endif()
 
+# ─── 벤치 타겟: 전종목 규모 시세 파이프라인 부하 (market firehose) ────────
+add_executable(bench_market_firehose tests/bench_market_firehose.cpp)
+target_include_directories(bench_market_firehose PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(bench_market_firehose PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟: MPSC/Mutex 큐 정확성 검증 (멀티클라이언트 인테이크 D1) ──
 add_executable(test_mpsc tests/test_mpsc.cpp)
 target_include_directories(test_mpsc PRIVATE
