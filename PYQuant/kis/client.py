@@ -45,6 +45,16 @@ class Fundamentals:
 
 
 @dataclass
+class IndexPrice:
+    code:        str
+    price:       float = 0.0   # bstp_nmix_prpr (현재 지수)
+    change:      float = 0.0   # bstp_nmix_prdy_vrss (전일대비)
+    change_rate: float = 0.0   # bstp_nmix_prdy_ctrt (전일종가 대비 %) — 장중이동 아님 주의
+    sign:        int   = 3     # prdy_vrss_sign (1상한 2상승 3보합 4하한 5하락)
+    ok:          bool  = False
+
+
+@dataclass
 class OrderSignal:
     ticker:   str
     side:     str          # "BUY" | "SELL"
@@ -252,6 +262,33 @@ class KisClient:
         f.pbr  = d("pbr")
         f.per  = d("per")
         return f
+
+    # ── 국내 지수 현재가 (Track B 장중국면 폴링용) ────────────────────────────
+    def get_index_price(self, code: str) -> IndexPrice:
+        """국내 지수 현재가. C++ KisClient::get_index_price 미러 (TR FHPUP02100000,
+        FID_COND_MRKT_DIV_CODE=U). code: "0001"=코스피종합 "1001"=코스닥종합 "2001"=KOSPI200.
+        change_rate(prdy_ctrt)는 전일종가 대비라 장중이동(시가 대비)엔 못 씀 — price 시계열로 파생할 것."""
+        data = self._get(
+            "/uapi/domestic-stock/v1/quotations/inquire-index-price",
+            {"FID_COND_MRKT_DIV_CODE": "U", "FID_INPUT_ISCD": code},
+            "FHPUP02100000",
+        )
+        o = data.get("output", {}) or {}
+        def d(k):
+            try:
+                return float(o.get(k, 0) or 0)
+            except (ValueError, TypeError):
+                return 0.0
+        ip = IndexPrice(code=code)
+        ip.price       = d("bstp_nmix_prpr")
+        ip.change      = d("bstp_nmix_prdy_vrss")
+        ip.change_rate = d("bstp_nmix_prdy_ctrt")
+        try:
+            ip.sign = int(o.get("prdy_vrss_sign", 3) or 3)
+        except (ValueError, TypeError):
+            ip.sign = 3
+        ip.ok = ip.price > 0
+        return ip
 
     # ── 최근 일봉 OHLCV (최근 ~30봉, 라이브용) ─────────────────────────────
     def get_daily_ohlcv(self, ticker: str, count: int = 30) -> list[Bar]:
