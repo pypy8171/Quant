@@ -15,6 +15,14 @@
 > 지표 전체(수익률·샤프·MDD·α)는 [BACKTEST_LOG](../BACKTEST_LOG.md) 실행 #1~#3(폴더 01~03), 6구간은 각 이벤트 README.
 > BT-04/05는 trade CSV 없이 summary JSON만이라 폴더 미승격 — [카탈로그](../BACKTESTS.md) 카드로만(의도적 공백).
 
+### 계열 A 확장 — 구조 국면 스코어러 (Track A)
+
+계열 A의 **유일 레버(국면필터)** 를 라이브 C++ `RegimeController`에서 분해해, 이산 판정을 연속화·기울기·오버레이로 애블레이션한 스터디.
+
+| 스터디 | 무엇 | 한 줄 요지 |
+|---|---|---|
+| [10_regime_scorer/](10_regime_scorer/README.md) | 구조 국면 스코어러 4변형(A/B/C/D) 애블레이션 | C++ `compute_score`/`classify`를 미러(A)하고 연속(B)·기울기(C)·SOX/VIX 오버레이(D)로 확장 → 06 하락장 6창에서 지수 long/flat 프록시로 결정론 비교. `test_regime_scorer.py`가 라이브 패리티 강제. **미판정**(연속화가 나아 보이나 편향감사·엣지판정 후속). 장중 국면 Track B(`index_intraday_logger.py`)는 지수 PIT 부재로 forward 적재만. |
+
 ## 계열 B — 지수레벨 위기대응
 
 > 계열 A와 **엔진·데이터가 다른 독립 계열**이다. 엔진 무관 단독 실행 스크립트로 yfinance 무키 **대표 지수**를 굴려 위기 국면의 익스포저 토글을 검증한다(개별종목·수급·survivorship 미반영, 룩어헤드 차단). 엣지 발견이 아니라 **인과적 스트레스테스트**로 읽는다.
