@@ -49,11 +49,15 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
             reject_reason = ss.str();
             return false;
         }
-        if (sig.price > 0.0 && sig.price * sig.quantity > cfg_.max_notional_per_order)
+        // 명목 평가가: 지정가는 price, 시장가(price=0)는 ref_price(직전 현재가)로 평가.
+        // 시장가가 ref_price도 없으면 명목 백스톱을 걸 수 없다(수량 한도로만 방어).
+        const double eval_px = sig.price > 0.0 ? sig.price : sig.ref_price;
+        if (eval_px > 0.0 && eval_px * sig.quantity > cfg_.max_notional_per_order)
         {
             std::ostringstream ss;
-            ss << "1주문 명목 한도 초과 (" << static_cast<long long>(sig.price * sig.quantity) << " > "
-               << static_cast<long long>(cfg_.max_notional_per_order) << ")";
+            ss << "1주문 명목 한도 초과 (" << static_cast<long long>(eval_px * sig.quantity) << " > "
+               << static_cast<long long>(cfg_.max_notional_per_order)
+               << (sig.price > 0.0 ? ")" : ", 시장가 참조평가)");
             reject_reason = ss.str();
             return false;
         }
@@ -76,13 +80,15 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
             return false;
         }
 
-        // 3b. 종목당 명목 한도 — 자본% 사이징의 상한 백스톱. limit가(sig.price)로 보유·예약 합산 평가.
-        if (cfg_.max_notional_per_ticker > 0.0 && sig.price > 0.0 &&
-            (cur_qty + sig.quantity) * sig.price > cfg_.max_notional_per_ticker)
+        // 3b. 종목당 명목 한도 — 자본% 사이징의 상한 백스톱. 지정가는 price, 시장가는 ref_price로
+        //     보유·예약 합산 평가(시장가가 명목 백스톱을 우회하지 않도록).
+        const double eval_px = sig.price > 0.0 ? sig.price : sig.ref_price;
+        if (cfg_.max_notional_per_ticker > 0.0 && eval_px > 0.0 &&
+            (cur_qty + sig.quantity) * eval_px > cfg_.max_notional_per_ticker)
         {
             std::ostringstream ss;
             ss << "종목당 명목 한도 초과 ("
-               << static_cast<long long>((cur_qty + sig.quantity) * sig.price) << " > "
+               << static_cast<long long>((cur_qty + sig.quantity) * eval_px) << " > "
                << static_cast<long long>(cfg_.max_notional_per_ticker) << ")";
             reject_reason = ss.str();
             return false;

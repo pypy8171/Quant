@@ -1081,6 +1081,10 @@ void Engine::strategy_thread_fn()
                     s.type        = OrderType::MARKET;
                     s.quantity    = sellable;
                     s.price       = 0.0;
+                    // 시장가라 price=0 → 게이트 명목 백스톱이 우회되지 않도록 매입평단을 참조가로
+                    // stamp(라이브 현재가가 없는 경로라 평단이 최선의 근사). fat-finger 명목 한도가
+                    // 급락장 대량 강제청산에도 걸리게 한다.
+                    s.ref_price   = h.avg_price;
                     s.strategy_id = "FORCE_LIQ";
                     s.reason      = "강제청산(force_liquidate) 보유=" + std::to_string(h.qty) +
                                     " 미체결매도=" + std::to_string(sell_pending);

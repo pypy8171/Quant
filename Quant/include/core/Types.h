@@ -70,6 +70,10 @@ struct OrderSignal
     OrderType type = OrderType::MARKET;
     int quantity = 0;
     double price = 0.0;
+    // 시장가(price=0) 주문의 명목 한도 평가용 참조가(직전 현재가/최우선호가). 기본 0=미지정.
+    // 지정가는 price로 명목을 평가하지만 시장가는 price가 0이라, 이 값이 없으면 명목 백스톱이
+    // 우회된다(특히 급락장 강제청산의 시장가 전량매도). 발주 측이 마지막 체결가를 stamp한다.
+    double ref_price = 0.0;
     std::string strategy_id;
     Market market = Market::KR;
     std::string exchange; // US only: "NAS", "NYS"
