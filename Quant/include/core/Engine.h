@@ -97,7 +97,7 @@ public:
     }
     // ── G1: 국면→전략 자동선택 ──────────────────────────────────────────────
     // 국면(BULL/NEUTRAL/BEAR)별 활성 전략 id 목록(권위적 선택자). 스레드 시작 전에만.
-    //  현재 국면의 목록에 든 전략만 활성, 나머지 비활성 → "국면에 맞는 전략을 선택해 적용".
+    //  현재 국면 목록에 든 전략만 활성, 나머지 비활성.
     //  id 항목이 '*'로 끝나면 접두 매칭(스캐너 동적 id: "DevScale_*", "ITB_*").
     //  맵이 비면(미지정) 기존 per-strategy active_regimes 방식으로 폴백(하위호환).
     void set_regime_strategies(std::map<Regime, std::vector<std::string>> m)
@@ -115,6 +115,8 @@ public:
     void register_ticker_name(const std::string& ticker, const std::string& name);
     // 이름이 있으면 "티커(종목명)", 없으면 티커 원문을 반환.
     std::string ticker_label(const std::string& ticker) const;
+    // 등록된 종목명(hts_kor_isnm)만 반환, 없으면 빈 문자열. 전략에 이름을 주입해 로그에 노출할 때 사용.
+    std::string ticker_name(const std::string& ticker) const;
 
     void start();
     void stop();

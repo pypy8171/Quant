@@ -41,6 +41,7 @@ public:
     struct Params
     {
         std::string ticker;
+        std::string name;             // 종목명(로그 표시용). 비면 티커만. id()/데이터키는 티커 그대로 유지.
         // ── 명목 사이징(자본%) — 우선. 자본 스냅샷(총평가금)×pct 를 가격으로 나눠 수량 산출.
         //    베이스=자본×base_pct, 물타기 총예산=자본×(max_pct−base_pct)를 n_rungs로 분할.
         //    자본을 알 수 없고(조회 실패) fallback_equity 도 0이면 아래 base_qty/step_qty 로 폴백.
@@ -76,9 +77,15 @@ public:
 
     std::string id() const override { return "DEVSCALE_" + p_.ticker; }
 
+    // 로그 표시용 "티커(종목명)". 이름 없으면 티커만. id()·데이터키와는 분리.
+    std::string disp() const
+    {
+        return p_.name.empty() ? p_.ticker : p_.ticker + "(" + p_.name + ")";
+    }
+
     std::string describe() const override
     {
-        return "DeviationScale | " + p_.ticker + " | base=" + std::to_string(p_.base_qty) +
+        return "DeviationScale | " + disp() + " | base=" + std::to_string(p_.base_qty) +
                " step=" + std::to_string(p_.step_qty) + " sma=" + std::to_string(p_.sma_period) +
                "(3m) dev_sell=" + fmt1(p_.dev_sell) + "% dev_buy=" + fmt1(p_.dev_buy) +
                "% rungs=" + std::to_string(p_.n_rungs) + " pullback=" + fmt1(p_.pullback_pct) + "%";
@@ -156,11 +163,11 @@ public:
         const bool   zone    = aligned && d_s20 > 0.0 && s_dev <= up_th && s_dev >= -down_th;
         in_zone_ = zone;
 
-        // 존 판정 가시화: 상태 변화 시 또는 60초마다 1회(관찰용).
+        // 존 판정 로그: 상태 변화 시 또는 60초마다 1회.
         if (zone != last_zone_ || zone_log_ts_.time_since_epoch().count() == 0 ||
             now - zone_log_ts_ >= std::chrono::seconds(60))
         {
-            LOG_INFO("[" + id() + "] 존 판정 " + std::string(zone ? "활성" : "대기") +
+            LOG_INFO("[" + id() + "] " + disp() + " 존 판정 " + std::string(zone ? "활성" : "대기") +
                      " | 정배열=" + std::string(aligned ? "Y" : "N") +
                      " 일봉SMA20=" + fmt1(d_s20) + " 현재가=" + fmt1(cur_px) +
                      " 이격=" + fmt1(s_dev) + "% (눌림밴드 " + fmt1(-down_th) + "%~" + fmt1(up_th) +
@@ -194,7 +201,7 @@ public:
         // ── 목표 사다리 산출(발주 전) ─────────────────────────────────────────
         //  계단 가격·수량은 sma·pos의 순수 함수. 먼저 계획을 만들고 직전 사다리와
         //  시그니처를 비교해 "동일하면 재발주 스킵". 분봉 정지(HTTP 500 폴백)로
-        //  sma=px가 고정될 때 동일 사다리를 취소·재발주하던 처닝을 근본 차단.
+        //  sma=px가 고정될 때 동일 사다리를 취소·재발주하던 처닝을 차단.
         struct Rung { OrderSide side; double price; int qty; };
         std::vector<Rung> plan;
 
@@ -249,7 +256,7 @@ public:
         // ── no-change 가드: 처닝 차단. 사다리가 살아있고 (a)계획 시그니처가 직전과 동일하거나
         //    (b)SMA 이동이 reprice_move_ticks 데드밴드 이내이고 포지션도 그대로면 재발주 스킵.
         //    (b)가 핵심: SMA가 틱경계를 스치며 미세이동할 때마다 전량 취소·재발주해 매도 rung이
-        //    체결 전에 취소되고 매수만 쌓여 pos가 편증하던 처닝을 근본 차단(reprice_move_ticks 구현).
+        //    체결 전에 취소되고 매수만 쌓여 pos가 편증하던 처닝을 차단(reprice_move_ticks 구현).
         std::string sig;
         for (const auto& r : plan)
             sig += std::string(r.side == OrderSide::BUY ? "B" : "S") + fmt1(r.price) +
@@ -274,7 +281,7 @@ public:
         // ── 재구성: 기존 취소 후 신규 지정가 ──────────────────────────────────
         //  익절 매도는 재구성 시점의 실매도가능분(ord_psbl_qty)으로 클램프 → 원장 보유와
         //  매도가능 괴리(예약매도·미결제)로 KIS가 전량 거부(40240000 "잔고내역 없습니다")하던
-        //  것을 원천 차단. 청산 경로(emit_liquidation)와 동일 원칙. 잔고조회는 재구성 시 1회만
+        //  것을 차단. 청산 경로(emit_liquidation)와 동일 원칙. 잔고조회는 재구성 시 1회만
         //  (핫패스 부하 억제 — 매수는 캡을 OrderGate가 처리하므로 클램프 불필요).
         cancel_all(out);
         // G4: 이 사다리를 깐 판단 근거 — 존 판정 지표를 신호에 실어 영속(로그 재구성 불필요).

@@ -394,10 +394,14 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
     }
 
     // 티커 → DeviationScale 인스턴스 팩토리 (초기 스캔·주기적 재스캔 공용).
-    auto factory = [base](const std::string& ticker) -> std::unique_ptr<StrategyBase>
+    //  &engine 참조 캡처: factory는 engine에 저장(set_universe_rescan)되어 engine 생존 중에만
+    //   호출되므로 참조 수명 안전. 스캔이 register_ticker_name으로 이름을 먼저 등록하므로
+    //   여기서 조회해 전략에 주입 → 로그에 "티커(종목명)" 노출(id()·데이터키는 티커 그대로).
+    auto factory = [base, &engine](const std::string& ticker) -> std::unique_ptr<StrategyBase>
     {
         DeviationScaleStrategy::Params dp = base;
         dp.ticker = ticker;
+        dp.name   = engine.ticker_name(ticker);
         return std::make_unique<DeviationScaleStrategy>(std::move(dp));
     };
 
@@ -407,7 +411,7 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         //  1단(스캐너): 시총 상위(넓은 유동 유니버스) + 거래대금 상위(장중 급변 종목)의
         //             합집합을 최소·최대가 필터로 압축 + 정배열 프리필터.
         //  2단(전략): 등록된 각 DeviationScale이 자기 일봉으로 정배열+눌림 존을 판정 →
-        //             자격 종목만 실제 오실레이션. 시장 스캔 + 종목별 자리판정 = 2단 선정.
+        //             자격 종목만 실제 오실레이션.
         universe::DevScanCfg sc;
         sc.scan_top_n      = s.value("scan_top_n", 80);   // 시총 상위 스캔 수(넓은 유니버스)
         sc.value_top_n     = s.value("value_top_n", 30);  // 거래대금 상위 스캔 수(장중 급변)
@@ -430,9 +434,8 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         sc.score_w_supply   = s.value("score_w_supply", 0.0); // 수급 로거 데이터 확보 후 ablation
         int rescan_sec     = s.value("rescan_interval_sec", 600); // 주기적 재스캔 간격(초)
 
-        // 유니버스 산출 콜백 — 초기 등록과 주기적 재스캔이 공용으로 사용(cfg 값 복사 캡처).
-        //  &engine 참조 캡처: universe_fn은 엔진(set_universe_rescan)에 저장되어 엔진이 살아있는
-        //  동안만 호출되므로 참조 수명 안전. 스캔 결과 종목명을 엔진 라벨 맵에 등록해 로그에 노출.
+        // 유니버스 산출 콜백 — 초기 등록·주기적 재스캔 공용(cfg 값 복사 캡처).
+        //  &engine 캡처의 수명 안전은 위 factory와 동일. 스캔 결과 종목명을 엔진 라벨 맵에 등록해 로그에 노출.
         auto universe_fn = [sc, &engine, held](KisClient& c)
         {
             std::unordered_map<std::string, std::string> nm;

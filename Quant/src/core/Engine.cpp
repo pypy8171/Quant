@@ -83,7 +83,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     }
 }
 
-// G1: 국면 r에 맞춰 전략 활성셋을 재선택한다(국면을 판단해 그에 맞는 전략을 선택·적용).
+// G1: 국면 r에 맞춰 전략 활성셋을 재선택한다.
 //  has_regime_map_이면 국면별 id 목록이 권위적 선택자('*' 접두 매칭으로 스캐너 동적 id 포함),
 //  아니면 기존 per-strategy active_regimes 폴백. 선택 결정(활성/비활성 목록)은 국면 변화 또는
 //  force_log 시 [RegimeSelect]로 기록 → "왜 이 전략을 켰나"가 로그에 남는다.
@@ -361,6 +361,15 @@ std::string Engine::ticker_label(const std::string& ticker) const
     return ticker;
 }
 
+std::string Engine::ticker_name(const std::string& ticker) const
+{
+    std::lock_guard<std::mutex> lk(ticker_names_mu_);
+    auto it = ticker_names_.find(ticker);
+    if (it != ticker_names_.end())
+        return it->second;
+    return std::string();
+}
+
 // ─── G5: 실계좌 보유분 원장 부트스트랩 ──────────────────────────────────────
 //  get_balance output1의 pdno/hldg_qty/pchs_avg_pric를 OrderGate.seed_position으로 시드.
 //  계좌키는 account=""(전략 신호의 기본 account_id와 일치, C-1). 평단까지 시드해야
@@ -494,8 +503,13 @@ void Engine::reconcile_from_balance()
                 char dbuf[9];
                 std::strftime(dbuf, sizeof(dbuf), "%Y%m%d", &ktm);
                 // 실행 위치와 무관하게 로그 폴더(main에서 고정)와 같은 곳에 기준선 저장.
-                std::filesystem::path bpath =
-                    Logger::instance().path_for(std::string("pnl_baseline_") + dbuf + ".txt");
+                //  파일명에 계좌번호를 포함 → 같은 거래일에 계좌를 갈아끼면(모의계좌 재발급 등)
+                //  옛 계좌 기준선을 재사용해 당일손익이 오염되는 것을 막는다(계좌 바뀌면 새로 캡처).
+                std::string acct = kis_ ? kis_->account_no() : std::string();
+                std::string bname = std::string("pnl_baseline_") + dbuf;
+                if (!acct.empty()) bname += "_" + acct;
+                bname += ".txt";
+                std::filesystem::path bpath = Logger::instance().path_for(bname);
 
                 double file_base = 0.0;
                 bool from_file = false;
@@ -909,12 +923,10 @@ void Engine::data_thread_fn()
 // ─── 매크로 레짐 파일 폴링 → OrderGate entry_halt 토글 (data_thread 전용) ─────
 //  Python macro_regime_feed.py가 원자적으로 쓰는 regime.json을 매 사이클 읽어,
 //  entry_halt(신규 진입만 차단, 청산은 통과)를 국면에 맞춰 켜고 끈다.
-//  set_entry_halt는 이 함수가 유일 호출자 — 다른 곳에서 토글하지 않으므로 소유권 단순.
-//  안전장치: 파일 없음/손상/판정보류(valid=false)/stale이면 게이트를 "새로 켜지" 않는다.
-//  (entry_halt는 자본보호 측 — 신규매수만 막고 청산은 통과 — 이라 유지가 실패안전)
-// 매크로 risk-off **오버레이 축**(G2): regime.json을 읽어 entry_halt(신규진입 정지)·
-//  force_liquidate(강제청산)를 건다. RegimeController의 전략선택 축과는 별개 관심사
-//  — 선택 축은 apply_regime_selection() 참조.
+//  set_entry_halt는 이 함수가 유일 호출자라 소유권 단순. 파일 없음/손상/
+//  판정보류(valid=false)/stale이면 게이트를 새로 켜지 않는다(유지가 실패안전).
+//  매크로 risk-off 오버레이 축(G2): entry_halt·force_liquidate(강제청산)를 건다.
+//  RegimeController의 전략선택 축과는 별개 관심사 — 선택 축은 apply_regime_selection() 참조.
 void Engine::poll_regime_file()
 {
     if (regime_file_.empty())

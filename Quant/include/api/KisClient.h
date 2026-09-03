@@ -30,12 +30,15 @@ public:
         std::lock_guard<std::mutex> lk(token_mtx_);
         return !access_token_.empty();
     }
-    // 이 클라이언트가 계좌번호를 가졌는가(주문/잔고 계좌). 시세전용(quote) 클라이언트는
-    // account_no가 비어 있어 잔고·주문가능 조회가 불가 — 호출측이 사전에 가드용으로 사용.
+    // 계좌번호 보유 여부(주문/잔고 계좌). 시세전용(quote) 클라이언트는 account_no가 비어
+    // 잔고·주문가능 조회가 불가 — 호출측 가드용.
     bool has_account() const
     {
         return !cfg_.account_no.empty();
     }
+    // 주문/잔고 계좌번호(CANO). 당일손익 기준선을 계좌별로 분리 저장할 때 쓴다
+    //  (같은 거래일에 계좌를 바꾸면 옛 기준선 재사용으로 당일손익이 오염되는 것 방지).
+    const std::string& account_no() const { return cfg_.account_no; }
 
     // ── 국내 (KR) ──────────────────────────────────────────────────────────
     std::vector<MarketData> get_daily_ohlcv(const std::string& ticker, int count);
