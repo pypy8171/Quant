@@ -1,0 +1,582 @@
+{
+  "modules": [
+    "api",
+    "core",
+    "ipc",
+    "main",
+    "modes",
+    "risk",
+    "strategy",
+    "universe",
+    "utils"
+  ],
+  "module_edges": [
+    {
+      "from": "api",
+      "to": "core",
+      "weight": 3
+    },
+    {
+      "from": "api",
+      "to": "utils",
+      "weight": 2
+    },
+    {
+      "from": "core",
+      "to": "api",
+      "weight": 3
+    },
+    {
+      "from": "core",
+      "to": "ipc",
+      "weight": 2
+    },
+    {
+      "from": "core",
+      "to": "risk",
+      "weight": 1
+    },
+    {
+      "from": "core",
+      "to": "strategy",
+      "weight": 1
+    },
+    {
+      "from": "core",
+      "to": "utils",
+      "weight": 2
+    },
+    {
+      "from": "ipc",
+      "to": "api",
+      "weight": 1
+    },
+    {
+      "from": "ipc",
+      "to": "core",
+      "weight": 2
+    },
+    {
+      "from": "ipc",
+      "to": "risk",
+      "weight": 1
+    },
+    {
+      "from": "ipc",
+      "to": "utils",
+      "weight": 2
+    },
+    {
+      "from": "main",
+      "to": "core",
+      "weight": 1
+    },
+    {
+      "from": "main",
+      "to": "modes",
+      "weight": 1
+    },
+    {
+      "from": "main",
+      "to": "strategy",
+      "weight": 1
+    },
+    {
+      "from": "main",
+      "to": "utils",
+      "weight": 1
+    },
+    {
+      "from": "modes",
+      "to": "api",
+      "weight": 3
+    },
+    {
+      "from": "modes",
+      "to": "core",
+      "weight": 1
+    },
+    {
+      "from": "modes",
+      "to": "ipc",
+      "weight": 1
+    },
+    {
+      "from": "modes",
+      "to": "utils",
+      "weight": 2
+    },
+    {
+      "from": "risk",
+      "to": "core",
+      "weight": 1
+    },
+    {
+      "from": "strategy",
+      "to": "api",
+      "weight": 5
+    },
+    {
+      "from": "strategy",
+      "to": "core",
+      "weight": 4
+    },
+    {
+      "from": "strategy",
+      "to": "universe",
+      "weight": 1
+    },
+    {
+      "from": "strategy",
+      "to": "utils",
+      "weight": 8
+    },
+    {
+      "from": "universe",
+      "to": "api",
+      "weight": 1
+    },
+    {
+      "from": "universe",
+      "to": "core",
+      "weight": 1
+    },
+    {
+      "from": "universe",
+      "to": "utils",
+      "weight": 1
+    }
+  ],
+  "file_module": {
+    "api/IOrderExecutor.h": "api",
+    "api/KisClient.h": "api",
+    "api/KisWebSocket.h": "api",
+    "core/Engine.h": "core",
+    "core/MpscQueue.h": "core",
+    "core/MutexQueue.h": "core",
+    "core/RegimeController.h": "core",
+    "core/RingBuffer.h": "core",
+    "core/Types.h": "core",
+    "ipc/OrderRouter.h": "ipc",
+    "ipc/ZmqBridge.h": "ipc",
+    "modes/Monitors.h": "modes",
+    "risk/OrderGate.h": "risk",
+    "strategy/DeviationScaleStrategy.h": "strategy",
+    "strategy/FixedIntervalStrategy.h": "strategy",
+    "strategy/IntradayBreakoutStrategy.h": "strategy",
+    "strategy/MACrossStrategy.h": "strategy",
+    "strategy/MarketMakingStrategy.h": "strategy",
+    "strategy/MomentumStrategy.h": "strategy",
+    "strategy/PriceTargetStrategy.h": "strategy",
+    "strategy/StrategyBase.h": "strategy",
+    "strategy/StrategyFactory.h": "strategy",
+    "strategy/SupplyDemandPullbackStrategy.h": "strategy",
+    "strategy/ThemeStrategy.h": "strategy",
+    "strategy/ValueContraryStrategy.h": "strategy",
+    "universe/UniverseScanner.h": "universe",
+    "utils/Logger.h": "utils",
+    "utils/Utf8.h": "utils",
+    "main.cpp": "main",
+    "api/KisClient.cpp": "api",
+    "api/WebSocketClient.cpp": "api",
+    "core/Engine.cpp": "core",
+    "core/RegimeController.cpp": "core",
+    "core/RingBuffer.cpp": "core",
+    "ipc/OrderRouter.cpp": "ipc",
+    "ipc/ZmqBridge.cpp": "ipc",
+    "modes/Monitors.cpp": "modes",
+    "risk/OrderGate.cpp": "risk",
+    "strategy/MACrossStrategy.cpp": "strategy",
+    "strategy/MomentumStrategy.cpp": "strategy",
+    "strategy/StrategyBase.cpp": "strategy",
+    "strategy/StrategyFactory.cpp": "strategy",
+    "universe/UniverseScanner.cpp": "universe",
+    "utils/Config.cpp": "utils",
+    "utils/Logger.cpp": "utils",
+    "utils/Timer.cpp": "utils"
+  },
+  "file_includes": {
+    "api/IOrderExecutor.h": [
+      "core/Types.h"
+    ],
+    "api/KisClient.cpp": [
+      "api/KisClient.h",
+      "utils/Logger.h"
+    ],
+    "api/KisClient.h": [
+      "api/IOrderExecutor.h",
+      "core/Types.h"
+    ],
+    "api/KisWebSocket.h": [
+      "api/KisClient.h",
+      "core/Types.h"
+    ],
+    "api/WebSocketClient.cpp": [
+      "api/KisWebSocket.h",
+      "utils/Logger.h"
+    ],
+    "core/Engine.cpp": [
+      "core/Engine.h",
+      "utils/Logger.h"
+    ],
+    "core/Engine.h": [
+      "api/KisClient.h",
+      "api/KisWebSocket.h",
+      "core/RegimeController.h",
+      "core/RingBuffer.h",
+      "core/Types.h",
+      "ipc/OrderRouter.h",
+      "ipc/ZmqBridge.h",
+      "risk/OrderGate.h",
+      "strategy/StrategyBase.h"
+    ],
+    "core/RegimeController.cpp": [
+      "api/KisClient.h",
+      "core/RegimeController.h",
+      "utils/Logger.h"
+    ],
+    "core/RegimeController.h": [
+      "core/Types.h"
+    ],
+    "ipc/OrderRouter.cpp": [
+      "ipc/OrderRouter.h",
+      "utils/Logger.h"
+    ],
+    "ipc/OrderRouter.h": [
+      "api/IOrderExecutor.h",
+      "core/Types.h",
+      "ipc/ZmqBridge.h",
+      "risk/OrderGate.h"
+    ],
+    "ipc/ZmqBridge.cpp": [
+      "ipc/ZmqBridge.h",
+      "utils/Logger.h"
+    ],
+    "ipc/ZmqBridge.h": [
+      "core/Types.h"
+    ],
+    "main.cpp": [
+      "core/Engine.h",
+      "modes/Monitors.h",
+      "strategy/StrategyFactory.h",
+      "utils/Logger.h"
+    ],
+    "modes/Monitors.cpp": [
+      "api/KisClient.h",
+      "api/KisWebSocket.h",
+      "core/Types.h",
+      "ipc/ZmqBridge.h",
+      "modes/Monitors.h",
+      "utils/Logger.h",
+      "utils/Utf8.h"
+    ],
+    "modes/Monitors.h": [
+      "api/KisClient.h"
+    ],
+    "risk/OrderGate.cpp": [
+      "risk/OrderGate.h"
+    ],
+    "risk/OrderGate.h": [
+      "core/Types.h"
+    ],
+    "strategy/DeviationScaleStrategy.h": [
+      "api/KisClient.h",
+      "strategy/StrategyBase.h",
+      "utils/Logger.h"
+    ],
+    "strategy/FixedIntervalStrategy.h": [
+      "strategy/StrategyBase.h",
+      "utils/Logger.h"
+    ],
+    "strategy/IntradayBreakoutStrategy.h": [
+      "strategy/StrategyBase.h",
+      "utils/Logger.h"
+    ],
+    "strategy/MACrossStrategy.h": [
+      "strategy/StrategyBase.h"
+    ],
+    "strategy/MarketMakingStrategy.h": [
+      "strategy/StrategyBase.h"
+    ],
+    "strategy/MomentumStrategy.h": [
+      "strategy/StrategyBase.h"
+    ],
+    "strategy/PriceTargetStrategy.h": [
+      "strategy/StrategyBase.h",
+      "utils/Logger.h"
+    ],
+    "strategy/StrategyBase.h": [
+      "core/Types.h"
+    ],
+    "strategy/StrategyFactory.cpp": [
+      "core/Engine.h",
+      "core/Types.h",
+      "strategy/DeviationScaleStrategy.h",
+      "strategy/FixedIntervalStrategy.h",
+      "strategy/IntradayBreakoutStrategy.h",
+      "strategy/MACrossStrategy.h",
+      "strategy/MarketMakingStrategy.h",
+      "strategy/MomentumStrategy.h",
+      "strategy/PriceTargetStrategy.h",
+      "strategy/StrategyFactory.h",
+      "strategy/SupplyDemandPullbackStrategy.h",
+      "strategy/ThemeStrategy.h",
+      "strategy/ValueContraryStrategy.h",
+      "universe/UniverseScanner.h",
+      "utils/Logger.h"
+    ],
+    "strategy/StrategyFactory.h": [
+      "api/KisClient.h"
+    ],
+    "strategy/SupplyDemandPullbackStrategy.h": [
+      "api/KisClient.h",
+      "core/Types.h",
+      "strategy/StrategyBase.h",
+      "utils/Logger.h"
+    ],
+    "strategy/ThemeStrategy.h": [
+      "api/KisClient.h",
+      "strategy/StrategyBase.h",
+      "utils/Logger.h"
+    ],
+    "strategy/ValueContraryStrategy.h": [
+      "api/KisClient.h",
+      "strategy/StrategyBase.h",
+      "utils/Logger.h"
+    ],
+    "universe/UniverseScanner.cpp": [
+      "core/Types.h",
+      "universe/UniverseScanner.h",
+      "utils/Logger.h"
+    ],
+    "universe/UniverseScanner.h": [
+      "api/KisClient.h"
+    ]
+  },
+  "included_by": {
+    "api/IOrderExecutor.h": [
+      "api/KisClient.h",
+      "ipc/OrderRouter.h"
+    ],
+    "api/KisClient.h": [
+      "api/KisClient.cpp",
+      "api/KisWebSocket.h",
+      "core/Engine.h",
+      "core/RegimeController.cpp",
+      "modes/Monitors.cpp",
+      "modes/Monitors.h",
+      "strategy/DeviationScaleStrategy.h",
+      "strategy/StrategyFactory.h",
+      "strategy/SupplyDemandPullbackStrategy.h",
+      "strategy/ThemeStrategy.h",
+      "strategy/ValueContraryStrategy.h",
+      "universe/UniverseScanner.h"
+    ],
+    "api/KisWebSocket.h": [
+      "api/WebSocketClient.cpp",
+      "core/Engine.h",
+      "modes/Monitors.cpp"
+    ],
+    "core/Engine.h": [
+      "core/Engine.cpp",
+      "main.cpp",
+      "strategy/StrategyFactory.cpp"
+    ],
+    "core/RegimeController.h": [
+      "core/Engine.h",
+      "core/RegimeController.cpp"
+    ],
+    "core/RingBuffer.h": [
+      "core/Engine.h"
+    ],
+    "core/Types.h": [
+      "api/IOrderExecutor.h",
+      "api/KisClient.h",
+      "api/KisWebSocket.h",
+      "core/Engine.h",
+      "core/RegimeController.h",
+      "ipc/OrderRouter.h",
+      "ipc/ZmqBridge.h",
+      "modes/Monitors.cpp",
+      "risk/OrderGate.h",
+      "strategy/StrategyBase.h",
+      "strategy/StrategyFactory.cpp",
+      "strategy/SupplyDemandPullbackStrategy.h",
+      "universe/UniverseScanner.cpp"
+    ],
+    "ipc/OrderRouter.h": [
+      "core/Engine.h",
+      "ipc/OrderRouter.cpp"
+    ],
+    "ipc/ZmqBridge.h": [
+      "core/Engine.h",
+      "ipc/OrderRouter.h",
+      "ipc/ZmqBridge.cpp",
+      "modes/Monitors.cpp"
+    ],
+    "modes/Monitors.h": [
+      "main.cpp",
+      "modes/Monitors.cpp"
+    ],
+    "risk/OrderGate.h": [
+      "core/Engine.h",
+      "ipc/OrderRouter.h",
+      "risk/OrderGate.cpp"
+    ],
+    "strategy/DeviationScaleStrategy.h": [
+      "strategy/StrategyFactory.cpp"
+    ],
+    "strategy/FixedIntervalStrategy.h": [
+      "strategy/StrategyFactory.cpp"
+    ],
+    "strategy/IntradayBreakoutStrategy.h": [
+      "strategy/StrategyFactory.cpp"
+    ],
+    "strategy/MACrossStrategy.h": [
+      "strategy/StrategyFactory.cpp"
+    ],
+    "strategy/MarketMakingStrategy.h": [
+      "strategy/StrategyFactory.cpp"
+    ],
+    "strategy/MomentumStrategy.h": [
+      "strategy/StrategyFactory.cpp"
+    ],
+    "strategy/PriceTargetStrategy.h": [
+      "strategy/StrategyFactory.cpp"
+    ],
+    "strategy/StrategyBase.h": [
+      "core/Engine.h",
+      "strategy/DeviationScaleStrategy.h",
+      "strategy/FixedIntervalStrategy.h",
+      "strategy/IntradayBreakoutStrategy.h",
+      "strategy/MACrossStrategy.h",
+      "strategy/MarketMakingStrategy.h",
+      "strategy/MomentumStrategy.h",
+      "strategy/PriceTargetStrategy.h",
+      "strategy/SupplyDemandPullbackStrategy.h",
+      "strategy/ThemeStrategy.h",
+      "strategy/ValueContraryStrategy.h"
+    ],
+    "strategy/StrategyFactory.h": [
+      "main.cpp",
+      "strategy/StrategyFactory.cpp"
+    ],
+    "strategy/SupplyDemandPullbackStrategy.h": [
+      "strategy/StrategyFactory.cpp"
+    ],
+    "strategy/ThemeStrategy.h": [
+      "strategy/StrategyFactory.cpp"
+    ],
+    "strategy/ValueContraryStrategy.h": [
+      "strategy/StrategyFactory.cpp"
+    ],
+    "universe/UniverseScanner.h": [
+      "strategy/StrategyFactory.cpp",
+      "universe/UniverseScanner.cpp"
+    ],
+    "utils/Logger.h": [
+      "api/KisClient.cpp",
+      "api/WebSocketClient.cpp",
+      "core/Engine.cpp",
+      "core/RegimeController.cpp",
+      "ipc/OrderRouter.cpp",
+      "ipc/ZmqBridge.cpp",
+      "main.cpp",
+      "modes/Monitors.cpp",
+      "strategy/DeviationScaleStrategy.h",
+      "strategy/FixedIntervalStrategy.h",
+      "strategy/IntradayBreakoutStrategy.h",
+      "strategy/PriceTargetStrategy.h",
+      "strategy/StrategyFactory.cpp",
+      "strategy/SupplyDemandPullbackStrategy.h",
+      "strategy/ThemeStrategy.h",
+      "strategy/ValueContraryStrategy.h",
+      "universe/UniverseScanner.cpp"
+    ],
+    "utils/Utf8.h": [
+      "modes/Monitors.cpp"
+    ]
+  },
+  "hubs": [
+    {
+      "header": "utils/Logger.h",
+      "in_degree": 17
+    },
+    {
+      "header": "core/Types.h",
+      "in_degree": 13
+    },
+    {
+      "header": "api/KisClient.h",
+      "in_degree": 12
+    },
+    {
+      "header": "strategy/StrategyBase.h",
+      "in_degree": 11
+    },
+    {
+      "header": "ipc/ZmqBridge.h",
+      "in_degree": 4
+    },
+    {
+      "header": "api/KisWebSocket.h",
+      "in_degree": 3
+    },
+    {
+      "header": "core/Engine.h",
+      "in_degree": 3
+    },
+    {
+      "header": "risk/OrderGate.h",
+      "in_degree": 3
+    },
+    {
+      "header": "api/IOrderExecutor.h",
+      "in_degree": 2
+    },
+    {
+      "header": "core/RegimeController.h",
+      "in_degree": 2
+    },
+    {
+      "header": "ipc/OrderRouter.h",
+      "in_degree": 2
+    },
+    {
+      "header": "modes/Monitors.h",
+      "in_degree": 2
+    },
+    {
+      "header": "strategy/StrategyFactory.h",
+      "in_degree": 2
+    },
+    {
+      "header": "universe/UniverseScanner.h",
+      "in_degree": 2
+    },
+    {
+      "header": "core/RingBuffer.h",
+      "in_degree": 1
+    },
+    {
+      "header": "strategy/DeviationScaleStrategy.h",
+      "in_degree": 1
+    },
+    {
+      "header": "strategy/FixedIntervalStrategy.h",
+      "in_degree": 1
+    },
+    {
+      "header": "strategy/IntradayBreakoutStrategy.h",
+      "in_degree": 1
+    },
+    {
+      "header": "strategy/MACrossStrategy.h",
+      "in_degree": 1
+    },
+    {
+      "header": "strategy/MarketMakingStrategy.h",
+      "in_degree": 1
+    }
+  ]
+}
