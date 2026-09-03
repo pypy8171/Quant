@@ -11,7 +11,7 @@
 
 ## 전략 (Strategy)
 
-프로젝트에 존재하는 전략은 14종이다(C++ 엔진 12 + Python 리서치 3, StrategyBase 인터페이스 포함 시).
+프로젝트에 존재하는 전략은 13종이다(C++ 구체 전략 10 + Python 리서치 3). StrategyBase는 공통 인터페이스라 전략 수에서 제외한다.
 
 | 약어 / 코드명 | 풀네임 | 정의 | 어원·주의 | 대표 위치 |
 |---|---|---|---|---|
@@ -37,7 +37,7 @@
 | 용어 | 정의 | 어원·주의 | 대표 위치 |
 |---|---|---|---|
 | **RingBuffer** | SPSC 락-프리 링버퍼 큐(데이터→전략→주문 파이프라인 연결) | SPSC = 단일생산자·단일소비자. `std::atomic` 명시적 메모리순서 | `Quant/include/core/RingBuffer.h` |
-| **Engine** | 3-스레드(데이터/전략/주문) 오케스트레이터 | rest_price_feed 분기·WS 연결을 여기서 관리 | `Quant/src/core/Engine.cpp` |
+| **Engine** | 4-스레드(데이터/전략/주문 파이프라인 + 제어) 오케스트레이터 | rest_price_feed 분기·WS 연결을 여기서 관리 | `Quant/src/core/Engine.cpp` |
 | **OrderGate** | 주문 통과 게이트 — 포지션 한도·rate limit·손실컷을 검증하고 확정포지션 원장을 보유 | confirmed_position이 전략 포지션의 진실원천 | `Quant/src/risk/OrderGate.cpp` |
 | **OrderRouter** | order 스레드에서 실제 KIS 주문을 실행·라우팅(new_route/on_fill) | 거부(REJECTED) 시 drop, 재큐잉 없음(C++). 체결콜백 on_fill로 원장 갱신 | `Quant/src/ipc/OrderRouter.cpp` |
 | **reconcile** (리컨사일) | 로컬 원장 ↔ KIS 실잔고를 재조회로 재동기 | rest 모드처럼 체결콜백이 없을 때 손익 근사 경로 | `Quant/src/core/Engine.cpp` |

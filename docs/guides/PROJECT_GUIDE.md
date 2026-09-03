@@ -1,6 +1,6 @@
 # Quant Trading System — 프로젝트 가이드
 
-> 최종 업데이트: 2026-05-20 (4-스레드 파이프라인 + ZMQ IPC + FEP 레이어 완성)
+> 최종 업데이트: 2026-09-03 (4-스레드 엔진 = 3-스레드 파이프라인 + 제어 스레드. ZMQ IPC·FEP는 목표 아키텍처이며 현 C++ 엔진 탑재 범위는 ARCHITECTURE.md 기준)
 
 ---
 
@@ -96,7 +96,7 @@
 
 [Order Thread]
   OrderRouter::submit()
-    → OrderGate::check() (6단계 검증)
+    → OrderGate::check() (11개 검사)
     → IOrderExecutor::submit_order() (KisClient 또는 Stub)
     → ZMQ publish_order
 
@@ -166,7 +166,7 @@ Quant/                              ← 저장소 루트
 │   │   │   ├── OrderRouter.cpp     submit / record / stats 구현
 │   │   │   └── ZmqBridge.cpp       전용 zmq_thread_ + 송신 큐 (HAS_ZMQ)
 │   │   ├── risk/
-│   │   │   └── OrderGate.cpp       6단계 검증 + 뮤텍스 4개 독립 스코프
+│   │   │   └── OrderGate.cpp       11개 검사 + 뮤텍스 4개 독립 스코프
 │   │   ├── strategy/
 │   │   │   ├── StrategyBase.cpp
 │   │   │   ├── MACrossStrategy.cpp
@@ -178,7 +178,7 @@ Quant/                              ← 저장소 루트
 │   ├── config/
 │   │   └── config.json             ← gitignore (실KIS 인증정보+계좌번호)
 │   ├── tests/
-│   │   ├── test_order_gate.cpp     OrderGate 단위 테스트 (7/7 PASS)
+│   │   ├── test_order_gate.cpp     OrderGate 단위 테스트
 │   │   ├── test_order_router.cpp   OrderRouter 통합 테스트 (6/6 PASS, StubExecutor)
 │   │   ├── test_ringbuffer.cpp     RingBuffer 기본 동작 검증
 │   │   ├── test_ringbuffer_stress.cpp  SPSC 부하 테스트
@@ -588,15 +588,23 @@ struct ManagedOrder {
 
 ### OrderGate 검증 항목 + 테스트 현황
 
+`OrderGate::check()`는 순서대로 아래 검사를 수행한다(약 11개 검사, `OrderGate.cpp:11-199`).
+
 | 검증 항목 | 설정 키 | 기본값 | 테스트 |
 |-----------|---------|--------|--------|
-| Kill switch | `set_kill_switch(true)` | false | ✅ |
+| Kill switch (전방향 하드스톱) | `set_kill_switch(true)` | false | ✅ |
 | NONE side | — | — | (OrderRouter에서 검증) |
-| 종목당 최대 보유 | `max_qty_per_ticker` | 100주 | ✅ |
+| Entry halt (신규매수만 차단, 청산 통과) | `set_entry_halt(true)` | false | — |
+| 1주문 수량 상한 (fat-finger) | `max_qty_per_order` | — | — |
+| 1주문 명목 상한 (fat-finger, 시장가는 ref_price) | `max_notional_per_order` | — | — |
+| 종목당 최대 보유 (positions_+reserved_) | `max_qty_per_ticker` | 100주 | ✅ |
+| 종목당 명목 상한 | `max_notional_per_ticker` | — | — |
+| 동시 보유 종목 상한 (신규 진입만) | `max_concurrent_positions` | — | — |
 | 일일 최대 손실 | `daily_loss_limit` | -30만원 | ✅ |
+| PnL stale 가드 (신규매수만, control 스레드 감시) | — | — | — |
 | 초당 주문 수 | `max_orders_per_sec` | 5건 | ✅ |
 | 분당 주문 수 | `max_orders_per_min` | 20건 | (초당으로 커버) |
-| 중복 신호 | `dedup_window_sec` | 1.0초 | ✅ |
+| 중복 신호 (키에 side 포함, MM 양방 발주) | `dedup_window_sec` | 1.0초 | ✅ |
 | 정상 통과 | — | — | ✅ |
 | SELL 포지션 무관 | — | — | ✅ |
 
@@ -641,11 +649,11 @@ REP tcp://*:5556  요청/응답
 | [Quant/include/api/IOrderExecutor.h](../../Quant/include/api/IOrderExecutor.h) | 주문 실행 추상 인터페이스 |
 | [Quant/include/ipc/OrderRouter.h](../../Quant/include/ipc/OrderRouter.h) | FEP 라우터 인터페이스 |
 | [Quant/src/ipc/OrderRouter.cpp](../../Quant/src/ipc/OrderRouter.cpp) | submit / record / stats |
-| [Quant/include/risk/OrderGate.h](../../Quant/include/risk/OrderGate.h) | 6단계 검증 게이트 |
+| [Quant/include/risk/OrderGate.h](../../Quant/include/risk/OrderGate.h) | 11개 검사 게이트 |
 | [Quant/src/risk/OrderGate.cpp](../../Quant/src/risk/OrderGate.cpp) | 검증 로직 |
 | [Quant/include/ipc/ZmqBridge.h](../../Quant/include/ipc/ZmqBridge.h) | ZMQ 브리지 (HAS_ZMQ) |
 | [Quant/src/ipc/ZmqBridge.cpp](../../Quant/src/ipc/ZmqBridge.cpp) | 전용 스레드 + 송신 큐 |
-| [Quant/tests/test_order_gate.cpp](../../Quant/tests/test_order_gate.cpp) | 7개 단위 테스트 |
+| [Quant/tests/test_order_gate.cpp](../../Quant/tests/test_order_gate.cpp) | 단위 테스트 |
 | [Quant/tests/test_order_router.cpp](../../Quant/tests/test_order_router.cpp) | 6개 통합 테스트 |
 
 ---

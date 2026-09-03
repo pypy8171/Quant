@@ -36,7 +36,7 @@ Linux는 `libcurl4-openssl-dev`가 필요합니다 (`sudo apt install libcurl4-o
 `Quant/config/config.json`의 `"mode"` 값으로 제어합니다:
 
 - **`"FEED"`** — KIS WebSocket에 연결하여 실시간 호가·체결 데이터를 1초마다 콘솔에 표시합니다. 주문 없이 연결 상태와 인증 정보를 검증할 때 사용합니다. 최상위 config `"tickers"`(국내 현물)와 함께 `"futures"`(국내 선물 코드 배열)를 주면 선물 실시간도 같이 구독·표시합니다. 선물은 실계좌 WS 도메인 전용이라 `is_paper=true`면 경고만 내고 건너뜁니다.
-- **`"TRADE"`** — 3-스레드 전략 엔진을 실행하고 장 중(평일 09:00–15:30 KST)에 실제 주문을 냅니다.
+- **`"TRADE"`** — 4-스레드 엔진(3-스레드 파이프라인 + 제어 스레드)을 실행하고 장 중(평일 09:00–15:30 KST)에 실제 주문을 냅니다.
 
 `config.json`에는 현재 **실거래 인증 정보**(`app_key`, `app_secret`, 실계좌 번호)가 저장되어 있습니다. 모의투자 엔드포인트(`openapivts.koreainvestment.com:29443`)로 전환하려면 `"is_paper": true`로 설정하세요.
 
@@ -44,7 +44,7 @@ Linux는 `libcurl4-openssl-dev`가 필요합니다 (`sudo apt install libcurl4-o
 
 ### 스레드 모델
 
-엔진은 락-프리 파이프라인으로 세 개의 스레드를 실행합니다:
+엔진은 락-프리 파이프라인 3-스레드(데이터→전략→주문)에 제어 스레드 하나를 더해 총 네 개의 스레드를 실행합니다:
 
 ```
 [데이터 스레드]  →  market_queue_ (RingBuffer)  →  [전략 스레드]  →  order_queue_ (RingBuffer)  →  [주문 스레드]
@@ -55,6 +55,7 @@ Linux는 `libcurl4-openssl-dev`가 필요합니다 (`sudo apt install libcurl4-o
 - `RingBuffer<T>`는 명시적 메모리 순서를 가진 `std::atomic`을 사용하는 SPSC(단일 생산자/단일 소비자) 락-프리 큐입니다.
 - 데이터 스레드는 `fetch_interval_sec`초마다 KIS REST를 폴링하며, 장 외 시간에는 건너뜁니다.
 - 전략 스레드는 등록된 전략 전체를 순회하며, `NONE`이 아닌 신호는 주문 큐에 push합니다.
+- 제어 스레드(`control_thread_fn`)는 파이프라인 밖에서 잔고 리컨사일·손익(daily_pnl) 신선도 감시 등 주기 운영 작업을 담당합니다(신선도 상실 시 OrderGate 보수정지 토글).
 
 ### 핵심 타입 (`Quant/include/core/Types.h`)
 

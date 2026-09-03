@@ -28,7 +28,7 @@ TRADE 모드의 데이터 흐름:
    order_queue_(RingBuffer<OrderSignal>, 256)
         │
    [OrderThread]  order_queue_ pop → OrderRouter::submit
-        │  OrderGate::check(6단계) → KisClient::submit_order_ack(REST)
+        │  OrderGate::check(11검사) → KisClient::submit_order_ack(REST)
         ▼
    KIS 주문 API → ODNO 수신 → gate_.on_accept (reserved_ 선점)
 
@@ -208,18 +208,23 @@ MACross의 `make_signal` (`MACrossStrategy.h:95-105`)은 `type=MARKET`, `quantit
 
 ---
 
-## 8. 리스크 게이트 — OrderGate::check 6단계
+## 8. 리스크 게이트 — OrderGate::check 11개 검사
 
-`OrderGate::check()` (`OrderGate.cpp:11-112`)는 순서대로:
+`OrderGate::check()` (`OrderGate.cpp:11-199`)는 순서대로:
 
-1. **Kill switch** — `kill_switch_` 활성 시 거부 (`OrderGate.cpp:13-18`).
+1. **Kill switch** — `kill_switch_` 활성 시 전방향(BUY·SELL) 거부 (`OrderGate.cpp:13-18`).
 2. **NONE side** — `sig.side==NONE`이면 거부 (`OrderGate.cpp:20-25`).
-3. **포지션 수량 한도** — BUY에만 적용. 파티션 키 `make_key(account, ticker)`로 `positions_[k]`(실체결) + `reserved_[k]`(미체결 선점) 합산이 `max_qty_per_ticker`(기본 100) 초과면 거부 (`OrderGate.cpp:29-43`). **매도에는 한도 미적용** — 청산은 막지 않는 설계.
-4. **일일 손실 한도** — BUY에만 적용. `daily_pnl_ <= daily_loss_limit`(기본 -30만원)이면 신규 매수 거부 (`OrderGate.cpp:47-58`). 보유분 추가 하락은 막지 않음(주석 C10).
-5. **중복 신호(dedup)** — rate 소비 전에 검사. 키 = `account:strategy:ticker:side` (side 포함 이유: MM이 같은 틱에 BUY+SELL 동시 발주 시 오거부 방지). `dedup_window_sec`(기본 1.0초) 이내 동일 키면 거부 (`OrderGate.cpp:60-80`).
-6. **Rate limit** — 초당(`max_orders_per_sec`=5)/분당(`max_orders_per_min`=20) 슬라이딩 윈도우. 초과 시 거부, 통과 시에만 `order_times_sec_/min_`에 push (`OrderGate.cpp:82-109`).
+3. **Entry halt** — 신규 진입(BUY NEW)만 차단, SELL 청산·CANCEL/REPLACE는 통과 (`OrderGate.cpp:27-34`). kill_switch와 분리된 국면 리스크 플래그.
+4. **1주문 fat-finger 백스톱** — NEW에만. 수량≤0·`max_qty_per_order` 초과·명목(`max_notional_per_order`) 초과 거부. 명목 평가는 지정가=price, 시장가(price=0)=ref_price (`OrderGate.cpp:36-64`).
+5. **종목당 포지션 수량 한도** — BUY에만. 파티션 키 `make_key(account, ticker)`로 `positions_[k]`(실체결) + `reserved_[k]`(미체결 선점) 합산이 `max_qty_per_ticker`(기본 100) 초과면 거부 (`OrderGate.cpp:66-81`). **매도에는 한도 미적용** — 청산은 막지 않는 설계.
+6. **종목당 명목 한도** — BUY에만. 보유·예약 합산 평가가 `max_notional_per_ticker` 초과면 거부(자본% 사이징 상한 백스톱) (`OrderGate.cpp:83-95`).
+7. **동시 보유 종목 상한** — 새 종목을 여는 BUY NEW에만. 실보유∪예약 종목 수가 `max_concurrent_positions` 이상이면 신규 진입 차단(기존 보유·예약 종목은 예외) (`OrderGate.cpp:97-120`).
+8. **일일 손실 한도** — BUY에만. `daily_pnl_ <= daily_loss_limit`(기본 -30만원)이면 신규 매수 거부 (`OrderGate.cpp:123-136`). 보유분 추가 하락은 막지 않음(주석 C10).
+9. **PnL stale 가드(B2)** — BUY NEW에만. `daily_pnl_`이 낡으면(잔고 리컨사일 정체) §8 손실컷을 신뢰할 수 없어 신규 진입만 보수 정지. SELL·취소/정정은 통과 (`OrderGate.cpp:138-145`).
+10. **중복 신호(dedup)** — rate 소비 전에 검사. 키 = `account:strategy:ticker:side` (side 포함 이유: MM이 같은 틱에 BUY+SELL 동시 발주 시 오거부 방지). `dedup_window_sec`(기본 1.0초) 이내 동일 키면 거부 (`OrderGate.cpp:147-167`).
+11. **Rate limit** — 초당(`max_orders_per_sec`=5)/분당(`max_orders_per_min`=20) 슬라이딩 윈도우. 초과 시 거부, 통과 시에만 `order_times_sec_/min_`에 push (`OrderGate.cpp:169-196`).
 
-**뮤텍스 규칙**: 각 항목은 독립 스코프에서만 락(중첩 없음) (`OrderGate.h:24-26`). check() 자체는 원자적이지 않으나 **단일 order_thread만 호출**하므로 check()+on_accept가 직렬 실행돼 TOCTOU가 없다 (`OrderGate.cpp:6-10`, C6 주석).
+**뮤텍스 규칙**: 각 항목은 독립 스코프에서만 락(중첩 없음). check() 자체는 원자적이지 않으나 **단일 order_thread만 호출**하므로 check()+on_accept가 직렬 실행돼 TOCTOU가 없다 (`OrderGate.cpp:6-10`, C6 주석).
 
 원장 파티션 키 `make_key`는 `account.size() + ":" + account + ticker`로 구성해 `"A"+"B:C"`와 `"A:B"+"C"` 충돌을 방지(외부 계좌ID/US 티커에 `:` 가능) (`OrderGate.h:121-124`).
 
@@ -242,7 +247,7 @@ MACross의 `make_signal` (`MACrossStrategy.h:95-105`)은 `type=MARKET`, `quantit
 
 `KisClient::submit_order_ack()` (`KisClient.cpp:612-670`): tr_id 분기(§2 참조), body 구성(국내는 `ORD_DVSN` MARKET="01"/LIMIT="00", `ORD_QTY`, `ORD_UNPR`) (`KisClient.cpp:636-641`), `http_post` 후 `rt_cd=="0"` 확인, `output.ODNO`와 `output.KRX_FWDG_ORD_ORGNO` 추출해 `OrderAck` 반환 (`KisClient.cpp:661-669`).
 
-**on_accept** (`OrderGate.cpp:115-127`): `reserved_[k] += (BUY? +qty : -qty)`, 0이면 erase. positions_/avg_price는 불변(접수는 체결이 아님).
+**on_accept** (`OrderGate.cpp:201-214`): `reserved_[k] += (BUY? +qty : -qty)`, 0이면 erase. positions_/avg_price는 불변(접수는 체결이 아님).
 
 ---
 
@@ -258,7 +263,7 @@ MACross의 `make_signal` (`MACrossStrategy.h:95-105`)은 `type=MARKET`, `quantit
 2. `history_`에서 `kis_order_no==fn.odno`이고 ACCEPTED/FILLED이며 미체결 잔량이 있는 주문을 찾아 (`OrderRouter.cpp:400-409`) `confirmed_qty += filled_qty`, 전량이면 status=FILLED (`OrderRouter.cpp:411-414`).
 3. **원장 갱신**: `gate_.on_fill_confirmed(account, ticker, side, qty, price)` (`OrderRouter.cpp:428-429`).
 
-### 10.3 on_fill_confirmed (`OrderGate.cpp:156-210`)
+### 10.3 on_fill_confirmed (`OrderGate.cpp:271-325`)
 - 수수료 `price*qty*0.00015`, 거래세(매도만) `price*qty*0.0018` (`OrderGate.cpp:160-161`).
 - **BUY**: `new_qty=pre_qty+qty`, `avg_prices_[k] = (pre_qty*cur_avg + qty*price)/new_qty` (부분체결도 정확), `positions_[k]=new_qty`, reserved_ 선점 -qty 해제 (`OrderGate.cpp:169-183`).
 - **SELL**: `new_qty=pre_qty-qty`(음수는 0 클램프—공매도 미지원), `realized_pnl=(price-cur_avg)*qty - 수수료 - 세금`, avg_price 불변, new_qty==0이면 positions_/avg_prices_ erase, reserved_ +qty 해제 (`OrderGate.cpp:184-203`). SELL이면 `add_realized_pnl`로 `daily_pnl_` 적립 (`OrderGate.cpp:206-207`).
