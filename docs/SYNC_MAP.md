@@ -34,6 +34,7 @@
 | [`CLAUDE.md`](../CLAUDE.md) | 빌드 명령·스레드 모델·핵심 타입 | 빌드/아키텍처 코드 변경 시 |
 | [`docs/guides/PROJECT_GUIDE.md`](guides/PROJECT_GUIDE.md) | 디렉터리 구조·기술스택·코드 파일 링크 | 파일 이동/리네임 시 링크 재검 |
 | [`docs/GLOSSARY.md`](GLOSSARY.md) | 전략·인프라·데이터·설정 약어 사전 | 새 전략/개념 추가·약어 신설 시 항목 추가 |
+| [`docs/CODE_GRAPH.md`](CODE_GRAPH.md) (자동생성) | `Quant/include`·`src` 의 로컬 `#include` 관계 | 헤더 추가/이동·`#include` 변경 시 `py scripts/gen_code_graph.py` 재생성(손편집 금지). 사용법은 [가이드](guides/CODE_GRAPH_GUIDE.md) |
 
 > `research/BACKTEST_LOG.md`는 **소스(소유자)**라 위 표의 "대표"가 아니다 — 다른 문서가 이걸 링크한다.
 > `STRATEGY_LAB.md`·`ARCHITECTURE.md` 등 gitignore 개인문서는 GitHub에 없으므로 색인에서 **하드링크하지 말 것**(텍스트+"로컬전용" 표기만).
@@ -49,6 +50,7 @@
 - [ ] **새 전략 폴더** → `strategies/README` 표에 SPEC·실증·검증경로 행 추가.
 - [ ] **결론이 바뀜**(예: regime 유효성 재판정, 지표 채택) → 루트 `README`·`research/README`의 요약 문구를 **함께** 고쳤나.
 - [ ] **파일 이동/리네임** → `python scripts/check_docs.py` 통과 확인(깨진 상대링크 0).
+- [ ] **헤더 추가/이동·`#include` 변경** → `py scripts/gen_code_graph.py` 재생성으로 `docs/CODE_GRAPH.md`·`code_graph.dot`(+ 필요시 `--json`) 최신화.
 
 ---
 

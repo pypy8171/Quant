@@ -227,6 +227,8 @@ Quant/                              ← 저장소 루트
 └── CLAUDE.md                       AI 어시스턴트용 빌드·실행 가이드
 ```
 
+부속 가이드: [코드 의존 그래프 가이드](CODE_GRAPH_GUIDE.md) — 모듈·파일 의존 그래프 생성, `--impact` 영향범위 질의, 증분빌드 팬아웃 최적화. 그래프 산출물은 [../CODE_GRAPH.md](../CODE_GRAPH.md).
+
 ### 실행 모드 (`config.json` → `"mode"` 또는 CLI 인자)
 
 | 모드 | 동작 |
