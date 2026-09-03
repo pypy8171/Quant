@@ -1,4 +1,5 @@
 #include "api/KisClient.h"
+#include "utils/EtfFilter.h"
 #include "utils/Logger.h"
 #include <algorithm>
 #include <chrono>
@@ -152,7 +153,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
         return "";
 
     // 명시적 타임아웃(ms): resolve/connect/send/receive. 기본값(무한대급)에서 하향해
-    // 전송 계층 히컵이 스레드를 장시간 잡는 것을 막는다.
+    // 전송 계층 히컵이 스레드를 오래 잡지 않게 한다.
     WinHttpSetTimeouts(hSession, 5000, 5000, 10000, 15000);
 
     HINTERNET hConnect = WinHttpConnect(hSession, c.host.c_str(), c.port, 0);
@@ -1346,16 +1347,14 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
             }
         };
 
-        // ETF/ETN/ELW 제외: 이름 접두사 + 비정상 티커(6자리 숫자 아닌 것) 필터
+        // ETF/ETN/ELW 제외: 브랜드 접두사(경계검사) + 상품 토큰(채권·액티브·레버리지…) + 6자리 숫자 티커.
+        //  접두사는 KODEX·TIGER 등 브랜드를, 토큰은 접두사 목록 밖 비브랜드 액티브(KIWOOM 단기채권ESG액티브 등)를 잡는다.
         static const std::vector<std::string> ETF_PREFIXES =
             load_str_list("etf_prefixes.json", "", ETF_PREFIXES_FALLBACK, "ETF 접두");
+        static const std::vector<std::string> ETF_TOKENS =
+            load_str_list("etf_name_tokens.json", "", etf_filter::default_tokens(), "ETF 토큰");
         auto is_etf_name = [&](const std::string& name)
-        {
-            for (const auto& pfx : ETF_PREFIXES)
-                if (name.rfind(pfx, 0) == 0)
-                    return true;
-            return false;
-        };
+        { return etf_filter::is_etf_like(name, ETF_PREFIXES, ETF_TOKENS); };
         // KOSPI 보통주 티커는 반드시 6자리 숫자
         auto is_normal_ticker = [](const std::string& t)
         {
@@ -1473,16 +1472,13 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
             }
         };
 
-        // ETF/ETN/ELW 제외: 이름 접두사 + 6자리 숫자 티커만 허용(fetch_kr_ranking과 동일 규칙)
+        // ETF/ETN/ELW 제외: 브랜드 접두사(경계검사) + 상품 토큰 + 6자리 숫자 티커(fetch_kr_ranking과 동일 규칙)
         static const std::vector<std::string> ETF_PREFIXES =
             load_str_list("etf_prefixes.json", "", ETF_PREFIXES_FALLBACK, "ETF 접두");
+        static const std::vector<std::string> ETF_TOKENS =
+            load_str_list("etf_name_tokens.json", "", etf_filter::default_tokens(), "ETF 토큰");
         auto is_etf_name = [&](const std::string& name)
-        {
-            for (const auto& pfx : ETF_PREFIXES)
-                if (name.rfind(pfx, 0) == 0)
-                    return true;
-            return false;
-        };
+        { return etf_filter::is_etf_like(name, ETF_PREFIXES, ETF_TOKENS); };
         auto is_normal_ticker = [](const std::string& t)
         {
             if (t.size() != 6)

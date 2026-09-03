@@ -1,5 +1,6 @@
 #include "universe/UniverseScanner.h"
 #include "core/Types.h"
+#include "utils/EtfFilter.h"
 #include "utils/Logger.h"
 #include <algorithm>
 #include <fstream>
@@ -123,12 +124,20 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
     //      프리필터로 상당수가 탈락하므로 여기선 max_register로 자르지 않고 넓게 모은다.
     std::vector<std::string> cand;
     std::unordered_set<std::string> seen;
+    // ETF/ETN 배제(개별주만) — 브랜드 접두사(경계검사)∪상품 토큰. KIS 축은 이미 KisClient에서
+    //  걸러지지만, data.go.kr 축(구조상 ETF-free지만 방어)과 함께 한 규칙으로 이중 차단한다.
+    static const std::vector<std::string> kEtfPrefixes =
+        etf_filter::load_list("etf_prefixes.json", etf_filter::default_prefixes());
+    static const std::vector<std::string> kEtfTokens =
+        etf_filter::load_list("etf_name_tokens.json", etf_filter::default_tokens());
+    int etf_drop = 0;
     auto take = [&](const std::vector<KisClient::RankingStock>& rank)
     {
         for (const auto& r : rank)
         {
             if (r.price < cfg.min_price) continue;
             if (cfg.max_price > 0.0 && r.price > cfg.max_price) continue;
+            if (etf_filter::is_etf_like(r.name, kEtfPrefixes, kEtfTokens)) { ++etf_drop; continue; }
             if (!seen.insert(r.ticker).second) continue;
             cand.push_back(r.ticker);
             cand_names[r.ticker] = r.name; // 종목명 보관(로그 라벨용)
@@ -157,13 +166,15 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
                 {
                     const std::string t = e.value("ticker", std::string());
                     if (t.empty()) continue;
+                    const std::string nm = e.value("name", std::string());
+                    if (etf_filter::is_etf_like(nm, kEtfPrefixes, kEtfTokens)) { ++etf_drop; continue; }
                     const double px = e.value("close", 0.0);
                     // close(0=미제공)면 가격필터는 뒤 정배열 프리필터의 일봉이 대신 검증.
                     if (px > 0.0 && px < cfg.min_price) continue;
                     if (cfg.max_price > 0.0 && px > cfg.max_price) continue;
                     if (!seen.insert(t).second) { ++dup; continue; }
                     cand.push_back(t);
-                    cand_names[t] = e.value("name", std::string());
+                    cand_names[t] = nm;
                     cand_market[t] = e.value("market", std::string()); // 시장별 risk_off 게이트용(없으면 KOSPI 간주)
                     ++added_file;
                 }
@@ -271,6 +282,7 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
         }
     }
     LOG_INFO("[Main] DEVSCALE 정배열 프리필터: 후보=" + std::to_string(cand.size()) +
+             " ETF드롭=" + std::to_string(etf_drop) +
              " 검사=" + std::to_string(probed) + " 정배열=" + std::to_string(aligned_cnt) +
              " 데이터부족(<60봉)=" + std::to_string(short_bars) +
              " 과확장컷=" + std::to_string(overext) +
