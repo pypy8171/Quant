@@ -409,6 +409,150 @@ class KisClient:
             result.append(ticker)
         return result
 
+    # ── 차트용 OHLCV (일/주봉 + 분봉) ─────────────────────────────────────────
+    def get_chart_ohlcv(self, ticker: str, period: str = "D", count: int = 120) -> list[dict]:
+        """일봉("D")/주봉("W")/월봉("M") 차트용. TR FHKST03010100.
+        반환: [{date, open, high, low, close, volume}] (오래된→최신 순)."""
+        from datetime import date as _date, timedelta
+        span_days = {"D": count * 2 + 10, "W": count * 8 + 30, "M": count * 34 + 60}.get(period, count * 2 + 10)
+        end = _date.today()
+        start = end - timedelta(days=span_days)
+        rows: list[dict] = []
+        cur_end = end.strftime("%Y%m%d")
+        start_ymd = start.strftime("%Y%m%d")
+        for _ in range(6):
+            data = self._get(
+                "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
+                {
+                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_INPUT_ISCD":         ticker,
+                    "FID_INPUT_DATE_1":       start_ymd,
+                    "FID_INPUT_DATE_2":       cur_end,
+                    "FID_PERIOD_DIV_CODE":    period,
+                    "FID_ORG_ADJ_PRC":        "0",
+                },
+                "FHKST03010100",
+            )
+            items = data.get("output2", []) or []
+            if not items:
+                break
+            for it in items:
+                try:
+                    raw = it.get("stck_bsop_date", "")
+                    d = f"{raw[:4]}-{raw[4:6]}-{raw[6:]}" if len(raw) == 8 else raw
+                    if not it.get("stck_clpr"):
+                        continue
+                    rows.append({
+                        "date":   d,
+                        "open":   float(it.get("stck_oprc", 0) or 0),
+                        "high":   float(it.get("stck_hgpr", 0) or 0),
+                        "low":    float(it.get("stck_lwpr", 0) or 0),
+                        "close":  float(it.get("stck_clpr", 0) or 0),
+                        "volume": int(it.get("acml_vol", 0) or 0),
+                    })
+                except (ValueError, TypeError):
+                    continue
+            if len(items) < 100:
+                break
+            oldest = min((r["date"] for r in rows), default=None)
+            if not oldest or oldest.replace("-", "") <= start_ymd:
+                break
+            cur_end = (_date.fromisoformat(oldest) - timedelta(days=1)).strftime("%Y%m%d")
+        seen, out = set(), []
+        for r in sorted(rows, key=lambda x: x["date"]):
+            if r["date"] not in seen:
+                seen.add(r["date"])
+                out.append(r)
+        return out[-count:]
+
+    def get_minute_ohlcv(self, ticker: str, count: int = 150) -> list[dict]:
+        """당일 1분봉. TR FHKST03010200 (inquire-time-itemchartprice). 여러 번 페이지네이션.
+        반환: [{time("HHMM"), open, high, low, close, volume}] (오래된→최신 순). 3/5분봉은 서버에서 리샘플."""
+        rows: dict[str, dict] = {}
+        hour1 = ""   # 빈 값=최신부터
+        for _ in range(max(1, count // 30 + 1)):
+            data = self._get(
+                "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice",
+                {
+                    "FID_ETC_CLS_CODE":       "",
+                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_INPUT_ISCD":         ticker,
+                    "FID_INPUT_HOUR_1":       hour1,
+                    "FID_PW_DATA_INCU_YN":    "N",
+                },
+                "FHKST03010200",
+            )
+            items = data.get("output2", []) or []
+            if not items:
+                break
+            times = []
+            for it in items:
+                try:
+                    hms = it.get("stck_cntg_hour", "")
+                    if not hms or not it.get("stck_prpr"):
+                        continue
+                    times.append(hms)
+                    rows[hms] = {
+                        "time":   hms[:4],
+                        "hms":    hms,
+                        "open":   float(it.get("stck_oprc", 0) or 0),
+                        "high":   float(it.get("stck_hgpr", 0) or 0),
+                        "low":    float(it.get("stck_lwpr", 0) or 0),
+                        "close":  float(it.get("stck_prpr", 0) or 0),
+                        "volume": int(it.get("cntg_vol", 0) or 0),
+                    }
+                except (ValueError, TypeError):
+                    continue
+            if not times or len(rows) >= count:
+                break
+            earliest = min(times)
+            # 다음 페이지: 가장 이른 시각 1초 전부터
+            try:
+                nxt = int(earliest) - 1
+                hour1 = f"{nxt:06d}"
+            except ValueError:
+                break
+        out = [rows[k] for k in sorted(rows.keys())]
+        return out[-count:]
+
+    # ── 거래대금 상위 랭킹 (대시보드 스냅샷용) ────────────────────────────────
+    def get_volume_ranking(self, top_n: int = 30, by_value: bool = True) -> list[dict]:
+        """국내주식 거래량/거래대금 순위 (TR FHPST01710000). 코스콤 실시간이 아닌
+        REST 스냅샷이다. by_value=True면 거래금액순(FID_BLNG_CLS_CODE=3), False면 거래량순(0).
+        반환: [{rank, ticker, name, price, change_rate, volume, trade_value}] (trade_value=누적거래대금 원)."""
+        data = self._get(
+            "/uapi/domestic-stock/v1/quotations/volume-rank",
+            {
+                "FID_COND_MRKT_DIV_CODE": "J",
+                "FID_COND_SCR_DIV_CODE":  "20171",
+                "FID_INPUT_ISCD":         "0000",
+                "FID_DIV_CLS_CODE":       "0",
+                "FID_BLNG_CLS_CODE":      "3" if by_value else "0",
+                "FID_TRGT_CLS_CODE":      "111111111",
+                "FID_TRGT_EXLS_CLS_CODE": "0000000000",
+                "FID_INPUT_PRICE_1":      "",
+                "FID_INPUT_PRICE_2":      "",
+                "FID_VOL_CNT":            "",
+                "FID_INPUT_DATE_1":       "",
+            },
+            "FHPST01710000",
+        )
+        rows: list[dict] = []
+        for item in data.get("output", [])[:top_n]:
+            try:
+                rows.append({
+                    "rank":        int(item.get("data_rank", 0) or 0),
+                    "ticker":      item.get("mksc_shrn_iscd", ""),
+                    "name":        item.get("hts_kor_isnm", ""),
+                    "price":       float(item.get("stck_prpr", 0) or 0),
+                    "change_rate": float(item.get("prdy_ctrt", 0) or 0),
+                    "volume":      int(item.get("acml_vol", 0) or 0),
+                    "trade_value": float(item.get("acml_tr_pbmn", 0) or 0),
+                })
+            except (ValueError, TypeError):
+                continue
+        return rows
+
     # ── 잔고 조회 ────────────────────────────────────────────────────────────
     def get_kr_balance(self) -> tuple[list[BalanceItem], AccountSummary]:
         tr_id = "VTTC8434R" if self.is_paper else "TTTC8434R"
