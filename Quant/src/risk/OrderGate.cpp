@@ -4,9 +4,9 @@
 using Clock = std::chrono::steady_clock;
 
 // ─── 주문 검증 ──────────────────────────────────────────────────────────────
-// 주의(C6): check()는 항목별 뮤텍스를 독립 스코프로 잡으므로 호출 단위가 원자적이지 않다.
+// 주의(C6): check()는 항목별 뮤텍스를 독립 스코프로 잡아 호출 단위가 원자적이지 않다.
 // 현재 호출자는 단일 order_thread(Engine::order_thread_fn → OrderRouter::submit)뿐이라
-// check()+on_accept이 직렬 실행돼 TOCTOU가 발생하지 않는다. 멀티 producer로 확장하려면
+// check()+on_accept이 직렬 실행돼 TOCTOU가 없다. 멀티 producer로 확장하려면
 // check()+on_accept을 하나의 임계구역으로 묶어 원자적 reserve로 만들어야 한다.
 bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
 {
@@ -34,7 +34,7 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
     }
 
     // 2b. 1주문 fat-finger 백스톱 (C-3) — NEW BUY/SELL 공통, 시장가 대량주문 슬리피지 방어.
-    //     CANCEL/REPLACE(잔량 취소·정정)는 대상이 아님 → action==NEW로 한정해 MM 취소경로 무영향.
+    //     CANCEL/REPLACE는 대상 아님 → action==NEW로 한정해 MM 취소경로에 무영향.
     if (sig.action == OrderAction::NEW)
     {
         if (sig.quantity <= 0)
@@ -49,8 +49,8 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
             reject_reason = ss.str();
             return false;
         }
-        // 명목 평가가: 지정가는 price, 시장가(price=0)는 ref_price(직전 현재가)로 평가.
-        // 시장가가 ref_price도 없으면 명목 백스톱을 걸 수 없다(수량 한도로만 방어).
+        // 명목 평가가: 지정가는 price, 시장가(price=0)는 ref_price(직전 현재가).
+        // 시장가가 ref_price도 없으면 명목 백스톱 불가(수량 한도로만 방어).
         const double eval_px = sig.price > 0.0 ? sig.price : sig.ref_price;
         if (eval_px > 0.0 && eval_px * sig.quantity > cfg_.max_notional_per_order)
         {
@@ -81,7 +81,7 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
         }
 
         // 3b. 종목당 명목 한도 — 자본% 사이징의 상한 백스톱. 지정가는 price, 시장가는 ref_price로
-        //     보유·예약 합산 평가(시장가가 명목 백스톱을 우회하지 않도록).
+        //     보유·예약 합산 평가(시장가가 백스톱을 우회하지 않도록).
         const double eval_px = sig.price > 0.0 ? sig.price : sig.ref_price;
         if (cfg_.max_notional_per_ticker > 0.0 && eval_px > 0.0 &&
             (cur_qty + sig.quantity) * eval_px > cfg_.max_notional_per_ticker)
@@ -96,7 +96,7 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
 
         // 3c. 동시 보유 종목 상한 — "새 종목"을 여는 BUY NEW에만 적용(기존 보유·예약 종목은 통과).
         //     총노출 제어: 실보유(positions_>0)∪예약(reserved_>0) 종목 수가 상한이면 신규 진입 차단.
-        //     기존 보유·예약이 이미 있는 종목(filled>0 또는 resv!=0)은 새로 여는 게 아니므로 예외.
+        //     기존 보유·예약이 있는 종목(filled>0 또는 resv!=0)은 새로 여는 게 아니므로 예외.
         if (cfg_.max_concurrent_positions > 0 && sig.action == OrderAction::NEW &&
             filled == 0 && resv == 0)
         {
@@ -135,8 +135,8 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
         }
     }
 
-    // 4b. PnL stale guard (B2) — daily_pnl_이 낡았으면(잔고 리컨사일 연속 정체) §4 손실컷을
-    //     신뢰할 수 없으므로 BUY NEW만 보수적으로 정지한다. SELL 청산·BUY 취소/정정은 통과시켜
+    // 4b. PnL stale guard (B2) — daily_pnl_이 낡으면(잔고 리컨사일 연속 정체) §4 손실컷을
+    //     신뢰할 수 없어 BUY NEW만 보수적으로 정지. SELL 청산·BUY 취소/정정은 통과시켜
     //     "신규 위험만 억제, 탈출은 허용"(entry_halt와 동일 의미론). Engine이 잔고조회 복구 시 해제.
     if (pnl_stale_.load() && sig.side == OrderSide::BUY && sig.action == OrderAction::NEW)
     {
@@ -144,10 +144,10 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
         return false;
     }
 
-    // 5. 중복 신호 제거 — rate 소비 전에 먼저 검사해 중복이 rate slot을 소모하지 않도록 함
+    // 5. 중복 신호 제거 — rate 소비 전에 검사해 중복이 rate slot을 소모하지 않게 함.
     //    키에 side 포함(MM-1): 시장조성은 같은 틱에 동일 strategy+ticker로 BUY(bid)+SELL(ask)를
-    //    동시 발주한다. side를 넣지 않으면 두 번째(ask)가 중복으로 오거부된다. BUY/SELL은 서로
-    //    다른 의도이므로 중복이 아니다. (같은 side 반복은 여전히 dedup — 기존 전략 동작 불변)
+    //    동시 발주한다. side가 없으면 두 번째(ask)가 중복 오거부된다. BUY/SELL은 다른 의도라
+    //    중복이 아니다. (같은 side 반복은 여전히 dedup — 기존 전략 동작 불변)
     {
         auto now = Clock::now();
         std::string key = sig.account_id + ":" + sig.strategy_id + ":" + sig.ticker + ":" +
@@ -214,7 +214,7 @@ void OrderGate::on_accept(const std::string& account, const std::string& ticker,
 }
 
 // ─── 미체결 취소/정정 축소 시 선점 해제 (C5) ────────────────────────────────
-//  on_fill_confirmed의 reserved 해제 로직과 동일 방향. positions_/avg_price는 손대지 않는다
+//  on_fill_confirmed의 reserved 해제와 같은 방향. positions_/avg_price는 손대지 않는다
 //  (취소는 체결이 아니므로 실보유·평단 불변). qty<=0이면 no-op(방어).
 void OrderGate::on_cancel(const std::string& account, const std::string& ticker,
                           OrderSide side, int qty)
@@ -223,7 +223,7 @@ void OrderGate::on_cancel(const std::string& account, const std::string& ticker,
         return;
     std::lock_guard<std::mutex> lk(positions_mtx_);
     const std::string k = make_key(account, ticker);
-    // 리컨사일이 reserved_를 비운 뒤 도착한 취소 통보는 대상이 이미 없다 → no-op.
+    // 리컨사일이 reserved_를 비운 뒤 온 취소 통보는 대상이 이미 없다 → no-op.
     //  (없는 키를 -qty/+qty로 갱신하면 음수 선점이 생겨 이후 한도 계산이 왜곡됨)
     int cur = reserved_.count(k) ? reserved_[k] : 0;
     if (cur == 0)
@@ -255,7 +255,7 @@ void OrderGate::add_realized_pnl(double pnl)
 }
 
 // ─── 원장 부트스트랩 (G5) — 실계좌 보유분 시드 ──────────────────────────────
-//  체결이 아니므로 reserved_·daily_pnl_은 건드리지 않고 positions_/avg_prices_만 설정한다.
+//  체결이 아니므로 reserved_·daily_pnl_은 두고 positions_/avg_prices_만 설정한다.
 //  기동 init 구간(스레드 시작 전)에서만 호출 → 첫 주문/체결과 경합 없음.
 void OrderGate::seed_position(const std::string& account, const std::string& ticker, int qty, double avg)
 {
@@ -342,8 +342,8 @@ void OrderGate::reset_daily()
     }
     {
         // 미체결 선점은 일일 만료 (KIS 당일 주문은 EOD 소멸 → 다음날 잘못된 차단 방지).
-        // C5(MM-1): 명시적 취소는 on_cancel()로 일원화됨. reserved_.clear()는 EOD 안전망
-        //   — 취소 없이 만료된 미체결(장 마감까지 미체결분)의 선점을 청소한다.
+        // C5(MM-1): 명시적 취소는 on_cancel()로 일원화. reserved_.clear()는 EOD 안전망
+        //   — 취소 없이 장 마감까지 미체결로 만료된 분의 선점을 청소한다.
         std::lock_guard<std::mutex> lk(positions_mtx_);
         reserved_.clear();
     }
@@ -380,7 +380,7 @@ double OrderGate::daily_pnl() const
 
 // ─── 보유 포지션 스냅샷 (G3 강제청산) ────────────────────────────────────────
 //  make_key = to_string(account.size()) + ":" + account + ticker 를 역파싱.
-//  ':' 앞의 정수 n = account 길이 → 이후 문자열의 앞 n자 = account, 나머지 = ticker.
+//  ':' 앞의 정수 n = account 길이 → 뒤 문자열의 앞 n자 = account, 나머지 = ticker.
 //  파싱 실패(예상 밖 키)는 방어적으로 스킵한다.
 std::vector<OrderGate::HeldPos> OrderGate::snapshot_positions() const
 {
