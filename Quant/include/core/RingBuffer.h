@@ -7,8 +7,7 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RingBuffer<T>  —  단일생산자·단일소비자(SPSC) Lock-Free Ring Buffer
-//   - Single Producer / Single Consumer 구조에서 mutex 없이 동작
-//   - Windows/Linux 공통 사용 가능 (std::atomic 표준)
+//   - mutex 없이 동작, Windows/Linux 공통(std::atomic 표준)
 //   - 퀀트 엔진: 시세 수신 스레드(Producer) → 전략 처리 스레드(Consumer)
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -3,9 +3,9 @@
 // 1콜 찍어 파싱 결과 + raw output(로그)을 확인한다.
 //
 //   목적: KisClient::get_future_price의 output 필드명은 KIS 공개 스키마가 없어 잠정값이다.
-//         이 툴로 실키 1콜의 raw output을 눈으로 보고 필드명을 확정한 뒤 게터를 잠근다.
+//         실키 1콜의 raw output을 보고 필드명을 확정한 뒤 게터를 잠근다.
 //
-//   시세 REST는 모의(openapivts:29443)가 미지원(HTTP500)이므로 반드시 실전 도메인이 필요하다.
+//   시세 REST는 모의(openapivts:29443)가 미지원(HTTP500)이라 실전 도메인이 필요하다.
 //   config에 quote_kis(실전 시세키) 블록이 있으면 그걸 쓰고, 없으면 kis 블록을 쓴다.
 //   quote_kis/kis 중 실제로 쓰는 키가 is_paper=true면 경고만 하고 진행(500 예상).
 //

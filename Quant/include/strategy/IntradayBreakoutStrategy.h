@@ -58,7 +58,7 @@ public:
 
     std::string id() const override { return "ITB_" + ticker_; }
 
-    // 로그 확인 편의용 표시명(종목명). id()/dedup 키는 ticker 기반 유지 — 로깅에만 사용.
+    // 표시명(종목명) — 로깅 전용. id()/dedup 키는 ticker 기반 유지.
     void set_name(std::string n) { name_ = std::move(n); }
     std::string tag() const { return name_.empty() ? ticker_ : (ticker_ + " " + name_); }
 

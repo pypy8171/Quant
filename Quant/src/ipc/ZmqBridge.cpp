@@ -132,7 +132,7 @@ void ZmqBridge::thread_fn()
 void ZmqBridge::enqueue(std::string topic, std::string payload)
 {
     std::lock_guard<std::mutex> lk(queue_mtx_);
-    // (C8) 토픽별 drop 차등 — FILL/ORDER/SIGNAL은 원장 정합성에 직결되므로
+    // (C8) 토픽별 drop 차등 — 원장 정합성에 직결되는 FILL/ORDER/SIGNAL은
     // 고빈도 TRADE/HEALTH(1000)보다 훨씬 큰 하드캡(100000)까지 보존한다.
     const bool critical = (topic == "FILL" || topic == "ORDER" || topic == "SIGNAL");
     const size_t cap = critical ? 100000 : 1000;

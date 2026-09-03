@@ -122,8 +122,7 @@ static void ws_producer_fn(RingBuffer<MockOrderBook>& ob_q,
 
     std::mt19937 rng(42);
     std::uniform_int_distribution<int> ticker_dist(0, N_TICKERS - 1);
-    // OB:TD 비율 = ob_rate:(td_rate) → type_dist 범위로 근사
-    // ob_rate/(ob_rate+td_rate) 확률로 OB, 나머지 TD
+    // OB:TD 비율을 type_dist 범위로 근사 — ob_rate/(ob_rate+td_rate) 확률로 OB, 나머지 TD
     const int type_range = ob_rate + td_rate;
     std::uniform_int_distribution<int> type_dist(0, type_range - 1);
 

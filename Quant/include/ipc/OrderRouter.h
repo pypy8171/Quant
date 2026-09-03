@@ -75,7 +75,7 @@ private:
     std::string kis_err_suffix() const;
     void        record(const ManagedOrder& mo);
     // 거래 원장 CSV 적재 — 주문/체결을 logs/trades_YYYYMMDD.csv 에 한 줄씩 영속화.
-    //   event 빈 문자열이면 mo.status 문자열을 event로 사용(접수/거부/취소). 체결은 "FILL".
+    //   event가 빈 문자열이면 mo.status를 event로 사용(접수/거부/취소). 체결은 "FILL".
     //   호출자(record·on_fill)가 hist_mtx_ 보유 상태라 파일 쓰기가 직렬화된다.
     void        write_trade_row(const std::string& event, const ManagedOrder& mo,
                                 int fill_qty, double fill_price);
@@ -85,8 +85,8 @@ private:
     ManagedOrder cancel_route(const OrderSignal& sig);  // action=CANCEL
     ManagedOrder replace_route(const OrderSignal& sig); // action=REPLACE(정정)
     // SELL이 40240000(주문가능분 없음)으로 막히면: 그 종목의 미체결 예약매도를 조회·취소하고
-    //  시장가 매도를 1회 재시도한다(장중 자가 청산 정리). 성공 시 odno 채워진 OrderAck,
-    //  해당 예약 없음/취소 실패 시 빈 ack. 이전 세션·수동 예약이 보유수량을 묶은 경우를 해소.
+    //  시장가 매도를 1회 재시도한다(장중 자가 청산 정리). 성공 시 odno 채운 OrderAck,
+    //  예약 없음/취소 실패 시 빈 ack. 이전 세션·수동 예약이 보유수량을 묶은 경우를 해소.
     OrderAck reconcile_blocked_sell(const OrderSignal& sig);
     // client_oid로 아직 살아있는(ACCEPTED, 미체결 잔량>0) 주문을 history_에서 찾는다.
     // 호출자는 반드시 hist_mtx_를 보유해야 한다. 반환 포인터는 lock 보유 동안만 유효.
@@ -103,7 +103,7 @@ private:
     std::deque<ManagedOrder> history_;
     std::unordered_set<std::string> seen_fills_; // 멱등 처리: 처리한 체결통보 키 (hist_mtx_로 보호)
     // MM-1: client_oid → order_id 존재 힌트 (hist_mtx_로 보호). 실제 ManagedOrder는
-    //   history_ 스캔으로 해석한다(deque 요소는 pop_front로 소멸 가능 → 안정 핸들 아님).
+    //   history_ 스캔으로 해석(deque 요소는 pop_front로 소멸 가능 → 안정 핸들 아님).
     std::unordered_map<std::string, std::string> oid_index_;
 
     std::atomic<uint64_t> seq_{0};

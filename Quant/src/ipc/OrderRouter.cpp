@@ -26,8 +26,8 @@ std::string OrderRouter::kis_err_suffix() const
 }
 
 // ─── 주문 제출 — action에 따라 라우팅 (MM-1) ─────────────────────────────
-//  전 경로가 단일 order_thread에서만 실행된다(Engine::order_thread_fn).
-//  → OrderGate C6의 단일소비자 전제·단일생산자·단일소비자(SPSC) 불변 보존. 전략 스레드는 절대 여기 진입 안 함.
+//  전 경로가 단일 order_thread에서만 실행된다(Engine::order_thread_fn) — OrderGate C6의
+//  단일생산자·단일소비자(SPSC) 불변 보존. 전략 스레드는 여기 진입하지 않는다.
 ManagedOrder OrderRouter::submit(const OrderSignal& sig)
 {
     switch (sig.action)
