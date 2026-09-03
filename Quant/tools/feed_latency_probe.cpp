@@ -1,24 +1,22 @@
 // tools/feed_latency_probe.cpp
 // 실 KIS 실시간 시세 수신·처리 지연 프로브 — 멀티세션 샤딩(300+종목 확장)
 //
-// 목적: bench_feed_ingest(합성 부하, TCP loopback)의 자매 실증. 여기서는 **실제
-//   KIS WebSocket 실시간 시세**를 다수 구독해, "실데이터가 실제로 우리 파이프라인을
-//   통과한다"는 사실과, 수신 콜백에서 주문 결정까지의 내부 처리 지연을 라이브로 잰다.
+// 목적: bench_feed_ingest(합성 부하, TCP loopback)의 자매 실증. 실제 KIS WebSocket
+//   실시간 시세를 다수 구독해, 실데이터가 파이프라인을 통과함과 수신 콜백→주문 결정까지의
+//   내부 처리 지연을 라이브로 잰다.
 //
 //   왜 멀티세션인가: KIS 실시간 WS는 app_key당 1세션·약 41건 등록 상한이다. 호가+체결
-//     동시 구독이면 ~20종목, 체결전용(H0STCNT0만)이면 ~40종목이 세션 한계다. 300+종목을
-//     라이브로 받으려면 app_key를 여러 개 발급해 세션 N개를 병렬로 돌리고(샤딩) 결과를
-//     하나의 측정으로 합쳐야 한다. 300종목 체결전용이면 ~8세션.
+//     동시 구독이면 ~20종목, 체결전용(H0STCNT0만)이면 ~40종목이 세션 한계다. 300+종목은
+//     app_key를 여러 개 발급해 세션 N개를 병렬로(샤딩) 돌려 결과를 합친다. 300종목
+//     체결전용이면 ~8세션.
 //
-//   RingBuffer는 SPSC(단일 생산자/소비자)다. WS 세션마다 수신 스레드가 하나이므로
-//     세션당 큐·소비자를 1:1로 두면 각 큐는 SPSC를 지킨다. 지연 표본은 세션별로 모아
-//     종료 후 하나로 병합한다.
+//   RingBuffer는 SPSC(단일 생산자/소비자)다. WS 세션당 수신 스레드가 하나이므로 세션당
+//     큐·소비자를 1:1로 두면 SPSC를 지킨다. 지연 표본은 세션별로 모아 종료 후 병합한다.
 //
-//   ⚠ 정직 경계 — 무료 OpenAPI 실시간 시세에는 µs 해상도의 거래소 원천 타임스탬프가
-//     없다(체결시각은 초/HHMMSS 단위). 따라서 "거래소→KIS→우리" 물리 wire 지연은
-//     이 경로로 측정 불가다. 이 프로브가 재는 것은 (1) 수신 콜백 진입 → 주문 결정까지의
-//     내부 처리 지연(우리가 통제하는 구간)과 (2) 다수 구독에서 관측되는 실제 메시지
-//     rate·집계 처리량이다. wire 지연 측정은 bench_feed_ingest가 담당(합성).
+//   측정 범위 — 무료 OpenAPI 실시간 시세에는 µs 해상도의 거래소 원천 타임스탬프가 없어
+//     (체결시각은 초/HHMMSS 단위) "거래소→KIS→우리" 물리 wire 지연은 이 경로로 측정 불가다.
+//     이 프로브가 재는 것은 (1) 수신 콜백→주문 결정까지의 내부 처리 지연과 (2) 다수 구독의
+//     실제 메시지 rate·집계 처리량이다. wire 지연은 bench_feed_ingest가 담당(합성).
 //
 // 실행 (반드시 장 중 09:00–15:30 KST — 장외에는 틱이 없어 샘플 0):
 //   feed_latency_probe --sessions creds.json --universe universe_full.json --count 300
@@ -206,7 +204,10 @@ int main(int argc, char** argv)
             // 위치 인자 하나 = 단일 config(기존 동작)
             std::string cfg_path = "config/config_dev_paper.json";
             for (int i = 1; i < argc; ++i)
-                if (argv[i][0] != '-') { cfg_path = argv[i]; break; }
+            {
+                if (argv[i][0] == '-') { ++i; continue; } // 플래그 + 그 값 건너뜀(모든 플래그가 값 1개)
+                cfg_path = argv[i]; break;
+            }
             std::ifstream f(cfg_path);
             if (!f) { std::printf("[probe] config 열기 실패: %s\n", cfg_path.c_str()); return 1; }
             nlohmann::json j; f >> j;

@@ -35,6 +35,9 @@
 | [`docs/guides/PROJECT_GUIDE.md`](guides/PROJECT_GUIDE.md) | 디렉터리 구조·기술스택·코드 파일 링크 | 파일 이동/리네임 시 링크 재검 |
 | [`docs/GLOSSARY.md`](GLOSSARY.md) | 전략·인프라·데이터·설정 약어 사전 | 새 전략/개념 추가·약어 신설 시 항목 추가 |
 | [`docs/CODE_GRAPH.md`](CODE_GRAPH.md) (자동생성) | `Quant/include`·`src` 의 로컬 `#include` 관계 | 헤더 추가/이동·`#include` 변경 시 `py scripts/gen_code_graph.py` 재생성(손편집 금지). 사용법은 [가이드](guides/CODE_GRAPH_GUIDE.md) |
+| [`docs/reports/PIPELINE_LATENCY_REPORT.md`](reports/PIPELINE_LATENCY_REPORT.md) | 부하·지연 하네스 3종 결과·해석 | 하네스 인자/동작 변경·새 실측 시 수치·재현 명령 갱신 |
+| [`docs/HARNESS.md`](HARNESS.md) | `.claude/` 하네스(CLAUDE.md·커맨드·MCP·서브에이전트·훅)·루프·스크립트 사이드카 | 레버/루프·에이전트/커맨드/훅 개수·목록 변경 시 |
+| [`docs/design/DASHBOARD_SPEC.md`](design/DASHBOARD_SPEC.md) | `scripts/dashboard_server.py`·PYQuant 대시보드 API·데이터 계약 | 대시보드 구현·API·데이터소스 변경 시 |
 
 > `research/BACKTEST_LOG.md`는 **소스(소유자)**라 위 표의 "대표"가 아니다 — 다른 문서가 이걸 링크한다.
 > `STRATEGY_LAB.md`·`ARCHITECTURE.md` 등 gitignore 개인문서는 GitHub에 없으므로 색인에서 **하드링크하지 말 것**(텍스트+"로컬전용" 표기만).
