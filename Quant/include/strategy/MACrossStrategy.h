@@ -44,6 +44,7 @@ public:
         prices_.clear();
         prev_short_ma_ = 0.0;
         prev_long_ma_ = 0.0;
+        have_prev_ = false;
         in_position_ = start_in_position_;
     }
 
@@ -64,21 +65,28 @@ public:
 
         std::optional<OrderSignal> signal;
 
-        // 골든크로스: 단기가 장기를 상향 돌파 (진입 — 국면 게이트 적용)
-        if (is_active() && !in_position_ && prev_short_ma_ <= prev_long_ma_ && short_ma > long_ma)
+        // 첫 완전창은 prev만 시드하고 신호를 건너뛴다. prev가 0.0으로 시작하면
+        // prev_short<=prev_long(0<=0)이 무조건 참이라, 실제 교차가 없어도 그 순간
+        // short>long이기만 하면 허위 골든크로스로 매수해버린다.
+        if (have_prev_)
         {
-            signal = make_signal(data, OrderSide::BUY);
-            in_position_ = true;
-        }
-        // 데드크로스: 단기가 장기를 하향 돌파
-        else if (in_position_ && prev_short_ma_ >= prev_long_ma_ && short_ma < long_ma)
-        {
-            signal = make_signal(data, OrderSide::SELL);
-            in_position_ = false;
+            // 골든크로스: 단기가 장기를 상향 돌파 (진입 — 국면 게이트 적용)
+            if (is_active() && !in_position_ && prev_short_ma_ <= prev_long_ma_ && short_ma > long_ma)
+            {
+                signal = make_signal(data, OrderSide::BUY);
+                in_position_ = true;
+            }
+            // 데드크로스: 단기가 장기를 하향 돌파
+            else if (in_position_ && prev_short_ma_ >= prev_long_ma_ && short_ma < long_ma)
+            {
+                signal = make_signal(data, OrderSide::SELL);
+                in_position_ = false;
+            }
         }
 
         prev_short_ma_ = short_ma;
         prev_long_ma_ = long_ma;
+        have_prev_ = true;
         return signal;
     }
 
@@ -99,6 +107,7 @@ private:
         s.side = side;
         s.type = OrderType::MARKET;
         s.quantity = quantity_;
+        s.ref_price = d.close;  // 시장가 명목 백스톱 평가 기준가(price=0이라 없으면 우회됨)
         s.strategy_id = id();
         s.timestamp = d.timestamp;
         return s;
@@ -112,5 +121,6 @@ private:
     std::deque<double> prices_;
     double prev_short_ma_ = 0.0;
     double prev_long_ma_ = 0.0;
+    bool have_prev_ = false;
     bool in_position_ = false;
 };

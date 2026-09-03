@@ -205,14 +205,15 @@ public:
     // 호가 이벤트 — 진입/청산
     std::optional<OrderSignal> on_order_book(const OrderBook& ob) override
     {
-        return check_entry_exit(ob.ticker, ob.time);
+        double px = ob.asks[0].price > 0 ? ob.asks[0].price : ob.bids[0].price;
+        return check_entry_exit(ob.ticker, ob.time, px);
     }
 
     // 체결 이벤트 — 호가 보완
     std::optional<OrderSignal> on_trade(const TradeData& td) override
     {
         if (td.market != Market::KR) return std::nullopt;
-        return check_entry_exit(td.ticker, td.time);
+        return check_entry_exit(td.ticker, td.time, td.price);
     }
 
     void on_stop() override
@@ -223,7 +224,8 @@ public:
 
 private:
     std::optional<OrderSignal> check_entry_exit(const std::string& ticker,
-                                                 const std::string& time_str)
+                                                 const std::string& time_str,
+                                                 double ref_px)
     {
         int hhmm = parse_hhmm(time_str);
         if (hhmm < 900 || hhmm >= 1530) return std::nullopt;
@@ -239,6 +241,7 @@ private:
             sig.side        = OrderSide::BUY;
             sig.type        = OrderType::MARKET;
             sig.quantity    = quantity_;
+            sig.ref_price   = ref_px;  // 시장가 명목 백스톱 기준가(현재가/체결가)
             sig.market      = Market::KR;
             sig.strategy_id = id();
             sig.timestamp   = std::chrono::system_clock::now();
@@ -257,6 +260,7 @@ private:
             sig.side        = OrderSide::SELL;
             sig.type        = OrderType::MARKET;
             sig.quantity    = quantity_;
+            sig.ref_price   = ref_px;  // 시장가 명목 백스톱 기준가(현재가/체결가)
             sig.market      = Market::KR;
             sig.strategy_id = id();
             sig.timestamp   = std::chrono::system_clock::now();

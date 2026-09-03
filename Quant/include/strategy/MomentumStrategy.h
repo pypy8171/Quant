@@ -44,6 +44,32 @@ public:
         if (data.ticker != ticker_)
             return std::nullopt;
 
+        std::optional<OrderSignal> signal;
+
+        // 채널은 직전 N봉(당일 제외) 고저로 만든다. 당일 바를 채널에 먼저 넣으면
+        // close>=channel_high가 close==당일고가일 때만 성립해 돌파 진입이 거의 발화하지
+        // 않고, 저점 청산(close<=channel_low)도 같이 억제돼 손절이 조용히 멈춘다.
+        // 그래서 판정을 먼저 하고 당일 바 반영(push)은 뒤에 둔다.
+        if ((int)highs_.size() >= period_)
+        {
+            double channel_high = *std::max_element(highs_.begin(), highs_.end());
+            double channel_low = *std::min_element(lows_.begin(), lows_.end());
+
+            // 돌파 매수 (진입 — 국면 게이트 적용)
+            if (is_active() && !in_position_ && data.close >= channel_high)
+            {
+                in_position_ = true;
+                signal = make_signal(data, OrderSide::BUY);
+            }
+            // 저점 이탈 청산
+            else if (in_position_ && data.close <= channel_low)
+            {
+                in_position_ = false;
+                signal = make_signal(data, OrderSide::SELL);
+            }
+        }
+
+        // 판정 후 당일 바를 채널에 반영(다음 사이클용)
         highs_.push_back(data.high);
         lows_.push_back(data.low);
         if ((int)highs_.size() > period_)
@@ -52,26 +78,7 @@ public:
             lows_.pop_front();
         }
 
-        if ((int)highs_.size() < period_)
-            return std::nullopt;
-
-        double channel_high = *std::max_element(highs_.begin(), highs_.end());
-        double channel_low = *std::min_element(lows_.begin(), lows_.end());
-
-        // 돌파 매수 (진입 — 국면 게이트 적용)
-        if (is_active() && !in_position_ && data.close >= channel_high)
-        {
-            in_position_ = true;
-            return make_signal(data, OrderSide::BUY);
-        }
-        // 저점 이탈 청산
-        if (in_position_ && data.close <= channel_low)
-        {
-            in_position_ = false;
-            return make_signal(data, OrderSide::SELL);
-        }
-
-        return std::nullopt;
+        return signal;
     }
 
 private:
@@ -82,6 +89,7 @@ private:
         s.side = side;
         s.type = OrderType::MARKET;
         s.quantity = quantity_;
+        s.ref_price = d.close;  // 시장가 명목 백스톱 평가 기준가(price=0이라 없으면 우회됨)
         s.strategy_id = id();
         s.timestamp = d.timestamp;
         return s;

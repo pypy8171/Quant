@@ -180,7 +180,7 @@ private:
                     LOG_INFO("[PriceTarget] BUY 조건 충족: " + ticker +
                              " @" + std::to_string(static_cast<int>(price)) +
                              " (목표≤" + std::to_string(static_cast<int>(t.buy_price)) + ")");
-                    return make_signal(t, OrderSide::BUY);
+                    return make_signal(t, OrderSide::BUY, price);
                 }
             }
 
@@ -195,20 +195,21 @@ private:
                     LOG_INFO("[PriceTarget] SELL 조건 충족: " + ticker +
                              " @" + std::to_string(static_cast<int>(price)) +
                              " (목표≥" + std::to_string(static_cast<int>(t.sell_price)) + ")");
-                    return make_signal(t, OrderSide::SELL);
+                    return make_signal(t, OrderSide::SELL, price);
                 }
             }
         }
         return std::nullopt;
     }
 
-    static OrderSignal make_signal(const PriceTarget& t, OrderSide side)
+    static OrderSignal make_signal(const PriceTarget& t, OrderSide side, double trigger_price)
     {
         OrderSignal sig;
         sig.ticker      = t.ticker;
         sig.side        = side;
         sig.type        = OrderType::MARKET;
         sig.quantity    = t.quantity;
+        sig.ref_price   = trigger_price;  // 시장가 명목 백스톱 기준가(트리거 현재가)
         sig.market      = Market::KR;
         sig.strategy_id = "PRICE_TARGET";
         sig.timestamp   = std::chrono::system_clock::now();

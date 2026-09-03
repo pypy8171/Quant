@@ -30,6 +30,15 @@ static void load_ma_cross(StrategyLoadCtx& ctx, const json& s)
     int sp = s["short_period"].get<int>();
     int lp = s["long_period"].get<int>();
 
+    // calc_ma는 prices_(최대 lp개) 끝에서 sp/lp회 역참조한다. sp<1이거나 sp>=lp면
+    // begin 이전 역참조(UB/크래시)가 되므로 등록을 건너뛴다.
+    if (sp < 1 || sp >= lp)
+    {
+        LOG_ERROR("[Main] MACross 설정 오류: short_period(" + std::to_string(sp) +
+                  ")는 1 이상이고 long_period(" + std::to_string(lp) + ") 미만이어야 함 — 등록 건너뜀");
+        return;
+    }
+
     if (s.value("universe_from_balance", false))
     {
         // 모의계좌 보유종목 전체를 유니버스로 — 종목마다 MACross 등록.
