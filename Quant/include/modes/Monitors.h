@@ -11,8 +11,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 // FEED — KIS WebSocket 실시간 호가/체결을 1초 주기로 콘솔 표시.
+// futures: 국내 선물 종목코드(H0IFCNT0/H0IFASP0, 실계좌 도메인 전용). 비어 있으면 현물만.
 int run_feed(const KisConfig& kis_cfg, const std::vector<std::string>& tickers,
-             const std::atomic<bool>& running);
+             const std::vector<std::string>& futures, const std::atomic<bool>& running);
 
 // KR_TEST — KOSPI 시총 상위 20 + 관심종목 fundamentals(REST) + 체결(WS) 1초 표시.
 int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running);

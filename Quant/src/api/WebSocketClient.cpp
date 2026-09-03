@@ -275,34 +275,7 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
     LOG_INFO(std::string("[WS] WebSocket 연결 성공 (") + (cfg_.is_paper ? "모의투자" : "실거래") + ")");
     connected_.store(true);
 
-    bool has_kr = false;
-    for (const auto& spec : specs_)
-    {
-        if (spec.market == Market::KR)
-        {
-            has_kr = true;
-            if (!spec.trade_only)
-                send_subscribe("H0STASP0", spec.ticker);
-            send_subscribe("H0STCNT0", spec.ticker);
-        }
-        else
-        {
-            // 미국: HDFSCNT0, tr_key = "EXCH|SYMBOL"
-            std::string exch = spec.exchange.empty() ? "NAS" : spec.exchange;
-            send_subscribe("HDFSCNT0", exch + "|" + spec.ticker);
-        }
-    }
-
-    // 체결통보 구독 — hts_id가 명시된 경우에만 (비어있으면 건너뜀)
-    if (has_kr && on_fill_ && !cfg_.hts_id.empty())
-    {
-        std::string fill_tr = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
-        send_subscribe(fill_tr, cfg_.hts_id);
-    }
-    else if (has_kr && on_fill_ && cfg_.hts_id.empty())
-    {
-        LOG_WARN("[WS] hts_id 미설정 — 체결통보(H0STCNI9/0) 구독 건너뜀. 주문 실행은 정상 동작.");
-    }
+    subscribe_all();
 
     // 구 수신 스레드가 자체 종료(connected_=false)로 join되지 않은 채 남아 있을 수 있다.
     // joinable 상태에서 재대입하면 std::terminate → 재대입 전 반드시 reap.
@@ -464,31 +437,9 @@ void KisWebSocket::recv_loop()
             aes_key_.clear();
             aes_iv_.clear();
 
-            // 채널 재구독 — 최초 연결과 동일하게 trade_only를 준수한다(호가 불필요 종목은
-            // H0STCNT0만). 재연결마다 호가를 덧구독하면 등록 한도(41)를 갉아먹고 불필요한
-            // 트래픽이 는다.
-            bool has_kr_rc = false;
-            for (const auto& spec : specs_)
-            {
-                if (spec.market == Market::KR)
-                {
-                    has_kr_rc = true;
-                    if (!spec.trade_only)
-                        send_subscribe("H0STASP0", spec.ticker);
-                    send_subscribe("H0STCNT0", spec.ticker);
-                }
-                else
-                {
-                    std::string exch = spec.exchange.empty() ? "NAS" : spec.exchange;
-                    send_subscribe("HDFSCNT0", exch + "|" + spec.ticker);
-                }
-            }
-            // 체결통보 채널 재구독 — hts_id 설정 시에만
-            if (has_kr_rc && on_fill_ && !cfg_.hts_id.empty())
-            {
-                std::string fill_tr = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
-                send_subscribe(fill_tr, cfg_.hts_id);
-            }
+            // 채널 재구독 — 최초 연결과 동일 경로(subscribe_all). trade_only·선물 분기가
+            // 한 곳에 모여 있어 재연결에서도 동일하게 복원된다.
+            subscribe_all();
             LOG_INFO("[WS] 재연결 성공");
             // 여기서 retry_sec을 리셋하지 않는다. '재연결 성공'은 소켓 업그레이드 성공일
             // 뿐, 직후 곧바로 끊기는(ALREADY IN USE) 경우 백오프가 매번 1초로 되돌아가
@@ -790,33 +741,7 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
     LOG_INFO(std::string("[WS] WebSocket 연결 성공 (Linux, ") + (cfg_.is_paper ? "모의투자" : "실거래") + ")");
     connected_.store(true);
 
-    bool has_kr = false;
-    for (const auto& spec : specs_)
-    {
-        if (spec.market == Market::KR)
-        {
-            has_kr = true;
-            if (!spec.trade_only)
-                send_subscribe("H0STASP0", spec.ticker);
-            send_subscribe("H0STCNT0", spec.ticker);
-        }
-        else
-        {
-            std::string exch = spec.exchange.empty() ? "NAS" : spec.exchange;
-            send_subscribe("HDFSCNT0", exch + "|" + spec.ticker);
-        }
-    }
-
-    // 체결통보 구독 — hts_id가 명시된 경우에만 (비어있으면 건너뜀)
-    if (has_kr && on_fill_ && !cfg_.hts_id.empty())
-    {
-        std::string fill_tr = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
-        send_subscribe(fill_tr, cfg_.hts_id);
-    }
-    else if (has_kr && on_fill_ && cfg_.hts_id.empty())
-    {
-        LOG_WARN("[WS] hts_id 미설정 — 체결통보(H0STCNI9/0) 구독 건너뜀. 주문 실행은 정상 동작.");
-    }
+    subscribe_all();
 
     // 구 수신 스레드가 자체 종료(connected_=false)로 join되지 않은 채 남아 있을 수 있다.
     // joinable 상태에서 재대입하면 std::terminate → 재대입 전 반드시 reap.
@@ -914,31 +839,9 @@ void KisWebSocket::recv_loop()
             aes_key_.clear();
             aes_iv_.clear();
 
-            // 채널 재구독 — 최초 연결과 동일하게 trade_only를 준수한다(호가 불필요 종목은
-            // H0STCNT0만). 재연결마다 호가를 덧구독하면 등록 한도(41)를 갉아먹고 불필요한
-            // 트래픽이 는다.
-            bool has_kr_rc = false;
-            for (const auto& spec : specs_)
-            {
-                if (spec.market == Market::KR)
-                {
-                    has_kr_rc = true;
-                    if (!spec.trade_only)
-                        send_subscribe("H0STASP0", spec.ticker);
-                    send_subscribe("H0STCNT0", spec.ticker);
-                }
-                else
-                {
-                    std::string exch = spec.exchange.empty() ? "NAS" : spec.exchange;
-                    send_subscribe("HDFSCNT0", exch + "|" + spec.ticker);
-                }
-            }
-            // 체결통보 채널 재구독 — hts_id 설정 시에만
-            if (has_kr_rc && on_fill_ && !cfg_.hts_id.empty())
-            {
-                std::string fill_tr = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
-                send_subscribe(fill_tr, cfg_.hts_id);
-            }
+            // 채널 재구독 — 최초 연결과 동일 경로(subscribe_all). trade_only·선물 분기가
+            // 한 곳에 모여 있어 재연결에서도 동일하게 복원된다.
+            subscribe_all();
             LOG_INFO("[WS] 재연결 성공");
             // 여기서 retry_sec을 리셋하지 않는다. '재연결 성공'은 소켓 업그레이드 성공일
             // 뿐, 직후 곧바로 끊기는(ALREADY IN USE) 경우 백오프가 매번 1초로 되돌아가
@@ -1031,6 +934,48 @@ void KisWebSocket::send_subscribe(const std::string& tr_id, const std::string& t
         {"body", {{"input", {{"tr_id", tr_id}, {"tr_key", ticker}}}}}};
     send_text(msg.dump());
     LOG_INFO("[WS] 구독: " + tr_id + " / " + ticker);
+}
+
+// specs_ 전체를 순회해 채널을 구독한다. 최초 연결·재연결에서 공통으로 호출한다.
+// 재연결 시 trade_only를 준수해야 등록 한도(약 41)를 갉아먹지 않는다(호가 미필요 종목은
+// 체결만). 선물은 WatchSpec.is_future로 골라 H0IFASP0/H0IFCNT0을 구독한다.
+void KisWebSocket::subscribe_all()
+{
+    bool has_kr = false;
+    for (const auto& spec : specs_)
+    {
+        if (spec.is_future)
+        {
+            // 국내 선물: tr_key = 선물 종목코드(예 101W09), 미국과 달리 exchange prefix 없음.
+            if (!spec.trade_only)
+                send_subscribe("H0IFASP0", spec.ticker);
+            send_subscribe("H0IFCNT0", spec.ticker);
+        }
+        else if (spec.market == Market::KR)
+        {
+            has_kr = true;
+            if (!spec.trade_only)
+                send_subscribe("H0STASP0", spec.ticker);
+            send_subscribe("H0STCNT0", spec.ticker);
+        }
+        else
+        {
+            // 미국: HDFSCNT0, tr_key = "EXCH|SYMBOL"
+            std::string exch = spec.exchange.empty() ? "NAS" : spec.exchange;
+            send_subscribe("HDFSCNT0", exch + "|" + spec.ticker);
+        }
+    }
+
+    // 체결통보 구독 — 현물 hts_id가 명시된 경우에만 (비어있으면 건너뜀)
+    if (has_kr && on_fill_ && !cfg_.hts_id.empty())
+    {
+        std::string fill_tr = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
+        send_subscribe(fill_tr, cfg_.hts_id);
+    }
+    else if (has_kr && on_fill_ && cfg_.hts_id.empty())
+    {
+        LOG_WARN("[WS] hts_id 미설정 — 체결통보(H0STCNI9/0) 구독 건너뜀. 주문 실행은 정상 동작.");
+    }
 }
 
 void KisWebSocket::parse_message(const std::string& msg)
@@ -1130,6 +1075,10 @@ void KisWebSocket::parse_message(const std::string& msg)
         parse_orderbook(fields);
     else if (tr_id == "H0STCNT0")
         parse_kr_trade(fields);
+    else if (tr_id == "H0IFASP0")
+        parse_fut_orderbook(fields);
+    else if (tr_id == "H0IFCNT0")
+        parse_fut_trade(fields);
     else if (tr_id == "HDFSCNT0")
         parse_us_trade(fields);
     else if (tr_id == "H0STCNI0" || tr_id == "H0STCNI9")
@@ -1258,6 +1207,91 @@ void KisWebSocket::parse_us_trade(const std::vector<std::string>& f)
     }
     if (on_trade_)
         on_trade_(td);
+}
+
+// ─── 국내 선물 체결 파싱 (H0IFCNT0) ──────────────────────────────────────
+// KIS 공식 예제(open-trading-api index_futures_realtime_conclusion) 기준 50필드:
+//  [0]종목코드 [1]체결시각 [5]현재가 [9]단위체결량 [10]누적거래량 [18]미결제약정
+//  현물 H0STCNT0과 달리 틱 단위 매수/매도 구분 코드(cntg_cls_code)가 없다 —
+//  방향은 채널이 안 주므로 0으로 둔다(여기선 앞 19필드만 파싱·검증한다).
+void KisWebSocket::parse_fut_trade(const std::vector<std::string>& f)
+{
+    if (f.size() < 19)
+        return;
+
+    static std::set<std::string> first_logged;
+    if (first_logged.find(f[0]) == first_logged.end())
+    {
+        first_logged.insert(f[0]);
+        std::string dbg = "[WS] H0IFCNT0 첫 수신 [" + f[0] + "] 총 " + std::to_string(f.size()) + "필드:";
+        for (size_t i = 0; i < std::min(f.size(), size_t(19)); ++i)
+            dbg += "\n  [" + std::to_string(i) + "]=" + f[i];
+        LOG_INFO(dbg);
+    }
+
+    TradeData td;
+    td.ticker = f[0];
+    td.time = f[1];
+    td.market = Market::KR; // 선물도 국내 세션. TradeData엔 선물 플래그가 없어 소비 측은 종목코드로 현·선을 구분한다.
+    td.timestamp = std::chrono::system_clock::now();
+    try
+    {
+        td.price = std::stod(f[5]);     // futs_prpr 선물 현재가
+        td.quantity = std::stoll(f[9]); // last_cnqn 단위체결량
+        // direction: 선물 체결 채널엔 단일 방향 코드가 없어 미설정(0).
+    }
+    catch (...)
+    {
+    }
+    if (on_trade_)
+        on_trade_(td);
+}
+
+// ─── 국내 선물 호가 파싱 (H0IFASP0) ──────────────────────────────────────
+// KIS 공식 예제(index_futures_realtime_quote) 기준 5단계 38필드. 현물과 배열이 다르다:
+//  [0]종목코드 [1]시각
+//  [2-6]  매도호가1-5   [7-11] 매수호가1-5   (가격 블록)
+//  [12-21] 호가건수      ← 가격과 잔량 사이에 건수 블록이 끼어 있음(현물 감각과 다름)
+//  [22-26] 매도잔량1-5  [27-31] 매수잔량1-5
+void KisWebSocket::parse_fut_orderbook(const std::vector<std::string>& f)
+{
+    if (f.size() < 32)
+    { // 매수잔량5 = f[31]
+        LOG_WARN("[WS] H0IFASP0 필드 부족: " + std::to_string(f.size()) + " (32 필요)");
+        return;
+    }
+
+    static std::set<std::string> first_logged;
+    if (first_logged.find(f[0]) == first_logged.end())
+    {
+        first_logged.insert(f[0]);
+        std::string dbg = "[WS] H0IFASP0 첫 수신 [" + f[0] + "] 총 " + std::to_string(f.size()) + "필드:";
+        for (size_t i = 0; i < f.size(); ++i)
+            dbg += " [" + std::to_string(i) + "]=" + f[i];
+        LOG_INFO(dbg);
+    }
+
+    OrderBook ob;
+    ob.ticker = f[0];
+    ob.time = f[1];
+    ob.timestamp = std::chrono::system_clock::now();
+
+    for (int i = 0; i < 5; ++i)
+    {
+        try
+        {
+            ob.asks[i].price = std::stod(f[2 + i]);      // futs_askp1-5  [2-6]
+            ob.asks[i].quantity = std::stoll(f[22 + i]); // askp_rsqn1-5  [22-26]
+            ob.bids[i].price = std::stod(f[7 + i]);      // futs_bidp1-5  [7-11]
+            ob.bids[i].quantity = std::stoll(f[27 + i]); // bidp_rsqn1-5  [27-31]
+        }
+        catch (...)
+        {
+        }
+    }
+
+    if (on_orderbook_)
+        on_orderbook_(ob);
 }
 
 // ─── 체결통보 파싱 (H0STCNI0 실거래 / H0STCNI9 모의) ────────────────────

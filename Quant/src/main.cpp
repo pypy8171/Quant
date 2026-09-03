@@ -134,6 +134,10 @@ int main(int argc, char* argv[])
     std::vector<std::string> tickers;
     if (cfg.contains("tickers"))
         tickers = cfg["tickers"].get<std::vector<std::string>>();
+    // 국내 선물 실시간(H0IFCNT0/H0IFASP0). 실계좌 WS 도메인 전용이라 kis.is_paper=false 필요.
+    std::vector<std::string> futures;
+    if (cfg.contains("futures"))
+        futures = cfg["futures"].get<std::vector<std::string>>();
 
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
@@ -144,7 +148,7 @@ int main(int argc, char* argv[])
     //  관찰용 모니터 모드 — 각자 자기 루프를 돌다 종료 (modes/Monitors.cpp)
     // ═══════════════════════════════════════════════════════════════════════
     if (mode == "FEED")
-        return run_feed(kis_cfg, tickers, g_running);
+        return run_feed(kis_cfg, tickers, futures, g_running);
     if (mode == "KR_TEST")
         return run_kr_test(kis_cfg, g_running);
     if (mode == "US_TEST")
@@ -167,7 +171,7 @@ int main(int argc, char* argv[])
                            cfg.value("regime_stale_sec", 600));
     // G1: 국면→전략 자동선택 맵. config "regime_strategies": {"BULL":[id...], "NEUTRAL":[...], "BEAR":[...]}.
     //  id 항목이 '*'로 끝나면 접두 매칭(스캐너 동적 id: "DevScale_*"). 미지정이면 기존
-    //  per-strategy active_regimes 방식 유지(하위호환). 지정 시 국면이 전략셋을 권위적으로 선택.
+    //  per-strategy active_regimes 방식 유지(하위호환). 지정 시 국면이 전략셋을 선택한다.
     if (cfg.contains("regime_strategies"))
     {
         auto to_regime = [](const std::string& k) -> Regime

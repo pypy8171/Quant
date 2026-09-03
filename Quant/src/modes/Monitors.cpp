@@ -153,7 +153,7 @@ static void print_feed(const std::vector<std::string>& tickers, std::mutex& mtx,
 //  FEED 모드: WebSocket 실시간 호가/체결 표시
 // ═══════════════════════════════════════════════════════════════════════════
 int run_feed(const KisConfig& kis_cfg, const std::vector<std::string>& tickers,
-             const std::atomic<bool>& running)
+             const std::vector<std::string>& futures, const std::atomic<bool>& running)
 {
     // SetConsoleOutputCP + ANSI 이스케이프는 main 상단에서 이미 설정됨
     Logger::instance().set_console_enabled(false);
@@ -178,6 +178,23 @@ int run_feed(const KisConfig& kis_cfg, const std::vector<std::string>& tickers,
     std::vector<WatchSpec> specs;
     for (const auto& t : tickers)
         specs.push_back({t, Market::KR, ""});
+    // 국내 선물 — H0IFCNT0 체결·H0IFASP0 호가. 실계좌 WS 도메인 전용(모의 미지원)이라
+    // kis 블록이 is_paper=false여야 데이터가 온다.
+    for (const auto& fcode : futures)
+    {
+        WatchSpec fs;
+        fs.ticker = fcode;
+        fs.is_future = true;
+        specs.push_back(fs);
+    }
+    if (kis_cfg.is_paper && !futures.empty())
+        LOG_WARN("[Main] FEED에 선물 종목이 있으나 kis.is_paper=true — 선물 실시간은 모의 미지원이라 "
+                 "데이터가 안 옵니다. 실계좌 키 config로 실행하세요.");
+
+    // 화면 렌더용 통합 목록(현물 뒤에 선물). print_feed는 종목코드 키로 캐시를 찾으므로
+    // 선물 코드도 그대로 표시된다.
+    std::vector<std::string> display = tickers;
+    display.insert(display.end(), futures.begin(), futures.end());
 
     LOG_INFO("[Main] FEED 모드 — WebSocket 연결 시도");
     if (!ws.connect(specs))
@@ -202,7 +219,7 @@ int run_feed(const KisConfig& kis_cfg, const std::vector<std::string>& tickers,
             break;
         }
 
-        print_feed(tickers, cache_mtx, ob_cache, td_cache);
+        print_feed(display, cache_mtx, ob_cache, td_cache);
     }
 
     ws.disconnect();

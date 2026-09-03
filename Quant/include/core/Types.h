@@ -19,6 +19,9 @@ struct WatchSpec
     Market market = Market::KR;
     std::string exchange;      // US only: "NAS", "NYS"
     bool trade_only = false;   // true: H0STCNT0만 구독 (호가 제외, 구독 한도 절약)
+    // true: 국내 선물 채널(H0IFCNT0 체결·H0IFASP0 호가)로 구독. market은 KR로 두되
+    // 이 플래그로 선물 tr_id를 고른다(주문/엔진 경로의 Market enum은 건드리지 않음).
+    bool is_future = false;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

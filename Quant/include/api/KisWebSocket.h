@@ -25,8 +25,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // KisWebSocket  —  국내 + 미국 실시간 WebSocket
 //
-//  국내  H0STASP0 → OrderBook  /  H0STCNT0 → TradeData(KR)
-//  미국  HDFSCNT0 → TradeData(US)  (KIS는 미국 호가 미제공)
+//  국내      H0STASP0 → OrderBook  /  H0STCNT0 → TradeData(KR)
+//  국내선물  H0IFASP0 → OrderBook  /  H0IFCNT0 → TradeData  (WatchSpec.is_future=true)
+//  미국      HDFSCNT0 → TradeData(US)  (KIS는 미국 호가 미제공)
 //
 // 사용법:
 //   KisWebSocket ws(cfg);
@@ -73,11 +74,17 @@ private:
     bool get_approval_key();
     void send_text(const std::string& msg);
     void send_subscribe(const std::string& tr_id, const std::string& tr_key);
+    // specs_ 전체를 순회하며 채널을 구독한다(최초 연결·재연결 공통). tr_id 하드코딩
+    // 블록이 네 곳(플랫폼×최초/재연결)에 중복돼 있던 것을 한 곳으로 모은다 —
+    // 재연결 시 선물 채널이 빠지는 불일치를 원천 차단.
+    void subscribe_all();
     void recv_loop();
     void parse_message(const std::string& msg);
     void parse_orderbook(const std::vector<std::string>& f);
     void parse_kr_trade(const std::vector<std::string>& f);
     void parse_us_trade(const std::vector<std::string>& f);
+    void parse_fut_trade(const std::vector<std::string>& f);     // H0IFCNT0 선물 체결
+    void parse_fut_orderbook(const std::vector<std::string>& f); // H0IFASP0 선물 호가
     void parse_fill_notification(const std::vector<std::string>& f);
 
     // 체결통보(H0STCNI) 복호화 — base64 + AES-256-CBC (플랫폼별 구현)
