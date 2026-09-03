@@ -35,6 +35,8 @@
 - **라이브 소스 교체 무손실**: 지금은 `state_snapshot.json` 폴링 → 이후 ZMQ SUB → 최종 TimescaleDB. 프론트는 계약만 보므로 불변.
 - **Grafana + TimescaleDB는 MVP에 세우지 않는다**(front-loading 금지). Phase 3에서 라이브 보존·운영 등급이 필요해질 때 옵션으로 붙인다. (목표 아키텍처의 종착지.)
 
+> **구현 현황(스펙과의 차이)**: 실제 라이브 MVP는 `scripts/dashboard_server.py`로 먼저 나왔고, 위 확정안과 일부 갈린다. FastAPI 대신 **의존성 0 stdlib `http.server`**를 쓰고, 계약②(`state_snapshot.json`)를 거치지 않고 **기존 소스를 직접 읽는다**: 잔고 REST(PYQuant `KisClient`), 국면 `regime.json`, 유니버스 `universe_scan.json`, `quant_trader.log` tail, 체결원장 `trades_YYYYMMDD.csv`, 거래대금 랭킹. 차트/랭킹은 PYQuant 신규 메서드(`get_chart_ohlcv`·`get_minute_ohlcv`·`get_volume_ranking`)를 소비하며 `/api/state`·`/api/chart`로 서빙한다. state_snapshot.json 계약은 아직 미배선이라, 프론트-소스 분리(계약만 읽기)는 이 서버에는 적용되지 않았다.
+
 ---
 
 ## 2. 데이터 계약 ① — 백테스트 `metrics.json` (`quant.metrics/v1`)

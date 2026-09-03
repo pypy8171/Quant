@@ -11,7 +11,7 @@ digraph code_graph {
   "universe";
   "utils";
   "api" -> "core" [label="3"];
-  "api" -> "utils" [label="2"];
+  "api" -> "utils" [label="3"];
   "core" -> "api" [label="3"];
   "core" -> "ipc" [label="2"];
   "core" -> "risk" [label="1"];
@@ -36,5 +36,5 @@ digraph code_graph {
   "strategy" -> "utils" [label="8"];
   "universe" -> "api" [label="1"];
   "universe" -> "core" [label="1"];
-  "universe" -> "utils" [label="1"];
+  "universe" -> "utils" [label="2"];
 }

@@ -132,7 +132,7 @@ Quant/                              ← 저장소 루트
 │   ├── include/
 │   │   ├── api/
 │   │   │   ├── IOrderExecutor.h    주문 실행 추상 인터페이스 (테스트 격리용)
-│   │   │   ├── KisClient.h         REST API (인증·OHLCV·주문·지수)
+│   │   │   ├── KisClient.h         REST API (인증·OHLCV·주문·지수·국내선물 시세 get_future_price/board)
 │   │   │   └── KisWebSocket.h      실시간 체결·호가 WebSocket + stale 감지
 │   │   ├── core/
 │   │   │   ├── Engine.h            4-스레드 트레이딩 엔진 (+국면→전략 자동선택·강제청산)
@@ -152,6 +152,7 @@ Quant/                              ← 저장소 루트
 │   │   └── utils/
 │   │       ├── Logger.h            비동기 싱글톤 로거 (ms UTC·전용 writer 스레드·백프레셔·flush)
 │   │       ├── Config.h            JSON 설정 파서
+│   │       ├── EtfFilter.h         종목명 기반 ETF/ETN 판별 (브랜드 접두사∪상품 토큰, config/etf_name_tokens.json)
 │   │       └── Timer.h             고분해능 타이머
 │   ├── src/
 │   │   ├── main.cpp                진입점 + FEED / KR_TEST / US_TEST / TRADE 모드
@@ -191,7 +192,7 @@ Quant/                              ← 저장소 루트
 │   │   └── logger.py               setup_logger(name) → 구조화 로깅
 │   ├── kis/
 │   │   ├── __init__.py
-│   │   └── client.py               KisClient (토큰 캐시·KisAuthError·예외 분리·지수 현재가 get_index_price)
+│   │   └── client.py               KisClient (토큰 캐시·KisAuthError·예외 분리·지수 get_index_price·차트 get_chart_ohlcv/get_minute_ohlcv·거래대금 get_volume_ranking)
 │   ├── strategy/
 │   │   ├── __init__.py
 │   │   ├── base.py                 StrategyBase (Python)

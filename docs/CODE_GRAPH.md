@@ -19,7 +19,7 @@ graph LR
   ipc[ipc]
   utils[utils]
   api -->|3| core
-  api -->|2| utils
+  api -->|3| utils
   core -->|3| api
   core -->|2| ipc
   core --> risk
@@ -44,7 +44,7 @@ graph LR
   strategy -->|8| utils
   universe --> api
   universe --> core
-  universe --> utils
+  universe -->|2| utils
 ```
 
 ## 공용 허브 헤더 (재빌드 팬아웃)
@@ -120,6 +120,7 @@ graph LR
   end
   n_api_IOrderExecutor_h --> n_core_Types_h
   n_api_KisClient_cpp --> n_api_KisClient_h
+  n_api_KisClient_cpp --> n_utils_EtfFilter_h
   n_api_KisClient_cpp --> n_utils_Logger_h
   n_api_KisClient_h --> n_api_IOrderExecutor_h
   n_api_KisClient_h --> n_core_Types_h
@@ -206,6 +207,7 @@ graph LR
   n_strategy_ValueContraryStrategy_h --> n_utils_Logger_h
   n_universe_UniverseScanner_cpp --> n_core_Types_h
   n_universe_UniverseScanner_cpp --> n_universe_UniverseScanner_h
+  n_universe_UniverseScanner_cpp --> n_utils_EtfFilter_h
   n_universe_UniverseScanner_cpp --> n_utils_Logger_h
   n_universe_UniverseScanner_h --> n_api_KisClient_h
 ```
