@@ -214,6 +214,17 @@ if(UNIX)
     target_link_libraries(bench_market_firehose PRIVATE pthread)
 endif()
 
+# ─── 벤치 타겟: 시세 피드 수신·처리 부하 (TCP loopback, KOSCOM→broker) ────
+add_executable(bench_feed_ingest tests/bench_feed_ingest.cpp)
+target_include_directories(bench_feed_ingest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(bench_feed_ingest PRIVATE pthread)
+else()
+    target_link_libraries(bench_feed_ingest PRIVATE ws2_32)
+endif()
+
 # ─── 테스트 타겟: MPSC/Mutex 큐 정확성 검증 (멀티클라이언트 인테이크 D1) ──
 add_executable(test_mpsc tests/test_mpsc.cpp)
 target_include_directories(test_mpsc PRIVATE
@@ -254,4 +265,19 @@ if(UNIX)
         CURL::libcurl OpenSSL::Crypto nlohmann_json::nlohmann_json pthread stdc++fs)
 else()
     target_link_libraries(manual_order PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
+endif()
+
+# ─── 도구: 실 KIS 실시간 시세 수신·처리 지연 프로브 (bench_feed_ingest 자매 실증) ──
+add_executable(feed_latency_probe
+    tools/feed_latency_probe.cpp
+    src/api/WebSocketClient.cpp
+    src/api/KisClient.cpp
+    src/utils/Logger.cpp
+)
+target_include_directories(feed_latency_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(feed_latency_probe PRIVATE
+        CURL::libcurl OpenSSL::Crypto nlohmann_json::nlohmann_json pthread stdc++fs)
+else()
+    target_link_libraries(feed_latency_probe PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
 endif()
