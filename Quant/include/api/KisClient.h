@@ -74,6 +74,37 @@ public:
     };
     IndexPrice get_index_price(const std::string& ticker);
 
+    // ── 파생 (선물·옵션) ────────────────────────────────────────────────────
+    // 국내 선물/옵션 현재가 — inquire-price (tr_id FHMIF10000000).
+    //   market_div = FID_COND_MRKT_DIV_CODE("F"=지수선물 등), iscd = 종목코드(예 KOSPI200
+    //   최근월물). 시세 REST이므로 실전 도메인 전용 — 모의(openapivts:29443)는 시세 미지원이라
+    //   HTTP500이 뜬다. 시세전용(quote) KisClient(is_paper=false)로 호출해야 한다.
+    //   output 스키마는 실키 1콜(future_quote_probe, 2026-09-03 확정): output1=계약 시세
+    //   (futs_prpr 현재가, futs_prdy_vrss/ctrt, prdy_vrss_sign, futs_oprc/hgpr/lwpr, acml_vol,
+    //   hts_otst_stpl_qty 미결제 + delta/gama/theta/vega/rho 그릭스·basis·futs_last_tr_date 만기),
+    //   output2/3=기초지수(종합·KOSPI200). 첫 호출 1회 raw를 로그로 남긴다(스키마 변동 대비).
+    struct FuturePrice
+    {
+        std::string iscd;
+        double price = 0.0;
+        double change = 0.0;       // 전일 대비
+        double change_rate = 0.0;  // 전일 대비율(%)
+        int sign = 3;              // 1=상한 2=상승 3=보합 4=하한 5=하락
+        double open = 0.0;
+        double high = 0.0;
+        double low = 0.0;
+        int64_t volume = 0;        // 누적 거래량
+        int64_t open_interest = 0; // 미결제약정(open interest)
+        bool ok = false;           // 가격 파싱 성공 여부
+    };
+    FuturePrice get_future_price(const std::string& iscd, const std::string& market_div = "F");
+
+    // 선물 전광판 — display-board-futures (tr_id FHPIF05030200). 현재 거래가능 선물 계약 목록.
+    //   market_cls = FID_COND_MRKT_CLS_CODE("MKI"=KOSPI200 지수선물 등). raw json 반환.
+    //   inquire-price에 넣을 최근월물 코드(FID_INPUT_ISCD) 확보용. 실전 도메인 전용.
+    nlohmann::json get_future_board(const std::string& market_cls = "MKI",
+                                    const std::string& market_div = "F");
+
     // 시가총액 순위 — 현재가·등락률 포함 전체 데이터
     struct RankingStock
     {

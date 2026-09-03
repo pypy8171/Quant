@@ -2285,3 +2285,121 @@ KisClient::IndexPrice KisClient::get_index_price(const std::string& ticker)
     }
     return ip;
 }
+
+KisClient::FuturePrice KisClient::get_future_price(const std::string& iscd, const std::string& market_div)
+{
+    ensure_authenticated();
+
+    std::string url = base_url() + "/uapi/domestic-futureoption/v1/quotations/inquire-price"
+                      + "?FID_COND_MRKT_DIV_CODE=" + market_div + "&FID_INPUT_ISCD=" + iscd;
+
+    std::vector<std::string> headers = {
+        "authorization: Bearer " + token(),
+        "appkey: " + cfg_.app_key,
+        "appsecret: " + cfg_.app_secret,
+        "tr_id: FHMIF10000000",
+        "Content-Type: application/json",
+    };
+
+    FuturePrice fp;
+    fp.iscd = iscd;
+
+    try
+    {
+        auto resp = http_get(url, headers);
+        auto j = json::parse(resp, nullptr, false);
+        if (j.is_discarded())
+        {
+            LOG_WARN("[KIS] get_future_price(" + iscd + ") JSON 파싱 불가: " + resp.substr(0, 200));
+            return fp;
+        }
+
+        // 스키마 확정됨(2026-09-03). 첫 호출 1회 raw output 덤프 유지 — 스키마 변동/디버그 대비.
+        static bool dumped = false;
+        if (!dumped)
+        {
+            dumped = true;
+            std::string dump;
+            for (const char* key : {"output1", "output2", "output3", "output"})
+                if (j.contains(key))
+                    dump += std::string(key) + "=" + j[key].dump() + "  ";
+            LOG_INFO("[KIS] get_future_price RAW " + (dump.empty() ? resp.substr(0, 500) : dump));
+        }
+
+        // 시세를 담은 output 객체 탐색: 가격 필드(futs_prpr)를 가진 객체를 우선 확정,
+        // 없으면 output2→output1→output 순서의 첫 객체.
+        const json* o = nullptr;
+        for (const char* key : {"output2", "output1", "output"})
+        {
+            if (j.contains(key) && j[key].is_object())
+            {
+                if (!o)
+                    o = &j[key];
+                if (j[key].contains("futs_prpr"))
+                {
+                    o = &j[key];
+                    break;
+                }
+            }
+        }
+        if (!o)
+            return fp;
+
+        auto sd = [&](const char* k) -> double {
+            try { return std::stod((*o).value(k, "0")); } catch (...) { return 0.0; }
+        };
+        auto sll = [&](const char* k) -> int64_t {
+            try { return std::stoll((*o).value(k, "0")); } catch (...) { return 0; }
+        };
+
+        fp.price         = sd("futs_prpr");
+        fp.change        = sd("futs_prdy_vrss");
+        fp.change_rate   = sd("futs_prdy_ctrt");
+        try { fp.sign = std::stoi((*o).value("prdy_vrss_sign", "3")); } catch (...) { fp.sign = 3; }
+        fp.open          = sd("futs_oprc");
+        fp.high          = sd("futs_hgpr");
+        fp.low           = sd("futs_lwpr");
+        fp.volume        = sll("acml_vol");
+        fp.open_interest = sll("hts_otst_stpl_qty");
+        fp.ok            = (fp.price != 0.0);
+    }
+    catch (const std::exception& e)
+    {
+        LOG_WARN("[KIS] get_future_price(" + iscd + ") 실패: " + e.what());
+    }
+    return fp;
+}
+
+nlohmann::json KisClient::get_future_board(const std::string& market_cls, const std::string& market_div)
+{
+    ensure_authenticated();
+
+    std::string url = base_url() + "/uapi/domestic-futureoption/v1/quotations/display-board-futures"
+                      + "?FID_COND_MRKT_DIV_CODE=" + market_div + "&FID_COND_SCR_DIV_CODE=20503"
+                      + "&FID_COND_MRKT_CLS_CODE=" + market_cls;
+
+    std::vector<std::string> headers = {
+        "authorization: Bearer " + token(),
+        "appkey: " + cfg_.app_key,
+        "appsecret: " + cfg_.app_secret,
+        "tr_id: FHPIF05030200",
+        "Content-Type: application/json",
+    };
+
+    try
+    {
+        auto resp = http_get(url, headers);
+        auto j = json::parse(resp, nullptr, false);
+        if (j.is_discarded())
+        {
+            LOG_WARN("[KIS] get_future_board JSON 파싱 불가: " + resp.substr(0, 200));
+            return json::object();
+        }
+        return j;
+    }
+    catch (const std::exception& e)
+    {
+        LOG_WARN(std::string("[KIS] get_future_board 실패: ") + e.what());
+        return json::object();
+    }
+}

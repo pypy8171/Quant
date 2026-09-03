@@ -281,3 +281,17 @@ if(UNIX)
 else()
     target_link_libraries(feed_latency_probe PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
 endif()
+
+# ─── 도구: 국내 선물 시세 조회 프로브 (파생 배선 1단계 — REST inquire-price) ──
+add_executable(future_quote_probe
+    tools/future_quote_probe.cpp
+    src/api/KisClient.cpp
+    src/utils/Logger.cpp
+)
+target_include_directories(future_quote_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(future_quote_probe PRIVATE
+        CURL::libcurl OpenSSL::Crypto nlohmann_json::nlohmann_json pthread stdc++fs)
+else()
+    target_link_libraries(future_quote_probe PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
+endif()
