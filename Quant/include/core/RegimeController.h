@@ -25,16 +25,18 @@ public:
     struct Config
     {
         std::string index_code = "0001";   // 코스피 종합 (지수 일봉 TR)
-        int ma_long   = 200;
+        int ma_long   = 200;               // 축1: 200일 이동평균(장기 추세선). 지수 종가와 비교
+        // 축2 정배열/역배열 판정에 쓰는 세 이평. 이름(short/mid)이 아니라 값 20<60<120 순서로 본다.
         int ma_mid    = 60;
         int ma_short  = 20;
-        int ma_align3 = 120;
+        int ma_align3 = 120;               // 정배열 축의 세 번째(가장 긴) 이평
         int score_bull_threshold =  2;     // v0: 2축이라 ±2
         int score_bear_threshold = -2;
         int fail_fallback_n      =  3;     // 연속 N회 조회실패 → NEUTRAL fallback
     };
 
-    // GCC: 중첩 Config의 NSDMI를 enclosing 클래스 완성 전 default 인자(=Config())로 쓰면 거부.
+    // GCC: 중첩 Config의 멤버 기본값 초기화(NSDMI, Non-Static Data Member Initializer)를
+    //   바깥 클래스 완성 전 default 인자(=Config())로 쓰면 거부한다.
     // default 생성자 분리 + Config 인자 생성자로 회피 (MSVC/GCC 공통 컴파일).
     RegimeController() = default;
     explicit RegimeController(Config cfg) : cfg_(cfg) {}

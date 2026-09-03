@@ -58,6 +58,7 @@ static std::string fmt_time_hms(const std::string& t)
     return t.substr(0, 2) + ":" + t.substr(2, 2) + ":" + t.substr(4, 2);
 }
 
+// 체결 방향(TradeData.direction, KIS 부호와 동일): 1=매수우위(상승) ▲, 5=매도우위(하락) ▼.
 static std::string dir_str(int d)
 {
     if (d == 1)
@@ -442,7 +443,8 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
                     }
                     std::this_thread::sleep_for(std::chrono::milliseconds(300));
                 }
-                // 5초 대기 (인터럽트 가능하게 100ms 단위로 분할)
+                // 지수 3종 조회(각 300ms) 뒤 약 4.7초 대기 → 폴링 주기 대략 5초.
+                // 종료 신호에 빨리 반응하도록 100ms 단위로 쪼갠다(47회 × 100ms = 4.7초).
                 for (int i = 0; i < 47 && running.load(); ++i)
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
@@ -521,6 +523,8 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
                     continue;
                 }
                 const auto& ip = it->second.data;
+                // KIS 전일대비 부호(sign): 1=상한, 2=상승, 3=보합, 4=하한, 5=하락.
+                // 상승계열(1·2)=빨강↑, 하락계열(4·5)=파랑↓, 보합(3)=색 없음.
                 const char* col = (ip.sign == 1 || ip.sign == 2)   ? "\033[31m"
                                   : (ip.sign == 4 || ip.sign == 5) ? "\033[34m"
                                                                     : "";

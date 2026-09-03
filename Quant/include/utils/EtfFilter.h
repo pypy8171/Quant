@@ -56,6 +56,9 @@ inline const std::vector<std::string>& default_prefixes()
 
 // config JSON(top-level 문자열 배열) 로드. QUANT_CONFIG_DIR(없으면 "Quant/config") 기준.
 //  파일 부재·형식오류·빈배열이면 fallback 반환(조용히 — 로깅은 호출측이 필요하면 담당).
+//  주의: 폴백 경로 "Quant/config"는 현재 작업 디렉터리 기준 상대경로다. 프로세스를
+//   레포 루트가 아닌 곳(예: build_win/)에서 띄우면 파일을 못 찾아 조용히 fallback으로
+//   떨어진다 — 실행은 레포 루트에서 하거나 QUANT_CONFIG_DIR를 절대경로로 지정할 것.
 inline std::vector<std::string> load_list(const std::string& filename,
                                           const std::vector<std::string>& fallback)
 {

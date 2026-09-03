@@ -1,4 +1,5 @@
 #pragma once
+#include "core/MarketSession.h"
 #include "strategy/StrategyBase.h"
 #include "utils/Logger.h"
 #include <chrono>
@@ -94,7 +95,7 @@ public:
 
     std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
 
-    // 호가 이벤트 — 매수호가 기준 가격 체크
+    // 호가 이벤트 — 매도호가[0]을 현재가 대리로 삼아 가격 체크(없으면 매수호가[0]로 폴백)
     std::optional<OrderSignal> on_order_book(const OrderBook& ob) override
     {
         // 지정가 예약 주문 먼저
@@ -160,7 +161,7 @@ private:
         if (price <= 0) return std::nullopt;
 
         int hhmm = parse_hhmm(time_str);
-        if (hhmm < 900 || hhmm >= 1530) return std::nullopt;
+        if (!krx::in_session(hhmm)) return std::nullopt; // 09:00~15:30 정규장만(core/MarketSession.h)
 
         auto now = std::chrono::steady_clock::now();
 

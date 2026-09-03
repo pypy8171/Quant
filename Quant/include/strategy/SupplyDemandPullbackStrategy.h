@@ -14,6 +14,13 @@
 #include <unordered_set>
 #include <vector>
 
+// 선별 단계에서 종목마다 KIS REST를 연속 호출하므로 호출 사이에 짧게 쉰다
+// (초당 호출 한도(EGW00201) 회피용 페이싱 간격).
+namespace
+{
+constexpr int kSdpRestPacingMs = 60;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SupplyDemandPullbackStrategy  —  수급 선별 + 5일선 눌림목 진입
 //
@@ -96,7 +103,7 @@ public:
         {
             const std::string& tk = stock.ticker;
             auto flows = kis_->get_investor_flow(tk, p_.market_div);
-            std::this_thread::sleep_for(std::chrono::milliseconds(60));
+            std::this_thread::sleep_for(std::chrono::milliseconds(kSdpRestPacingMs));
 
             if (flows.empty()) continue;
 
@@ -127,7 +134,7 @@ public:
             for (const auto& tk : candidates_)
             {
                 auto bars = kis_->get_daily_ohlcv(tk, p_.ma_period + 2);
-                std::this_thread::sleep_for(std::chrono::milliseconds(60));
+                std::this_thread::sleep_for(std::chrono::milliseconds(kSdpRestPacingMs));
                 auto& dq = closes_[tk];
                 for (auto it = bars.rbegin(); it != bars.rend(); ++it)
                     dq.push_back(it->close);
@@ -140,11 +147,13 @@ public:
             for (const auto& tk : candidates_)
             {
                 auto bars = kis_->get_daily_ohlcv(tk, p_.ma_period + 2);
-                std::this_thread::sleep_for(std::chrono::milliseconds(60));
+                std::this_thread::sleep_for(std::chrono::milliseconds(kSdpRestPacingMs));
                 if ((int)bars.size() < p_.ma_period) continue;
                 // bars[0]=최신(당일 미완성 가능) → bars[1..ma_period] 사용
                 double sum = 0.0;
-                int start = (bars[0].volume == 0) ? 1 : 1; // 보수적: 항상 1부터
+                // 현재는 두 가지(당일봉 유무)를 구분하지 않고 항상 1부터 쓴다(보수적).
+                // 삼항의 두 분기 값이 같아 실질 무조건 1 — 당일봉 처리 분기 지점만 남겨둔 자리(보류 목록).
+                int start = (bars[0].volume == 0) ? 1 : 1;
                 if ((int)bars.size() <= start + p_.ma_period - 1) continue;
                 for (int i = start; i < start + p_.ma_period; ++i)
                     sum += bars[i].close;

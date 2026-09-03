@@ -19,6 +19,9 @@
 
 using json = nlohmann::json;
 
+// KST = UTC+9. UTC now()에 더해 KST 기준 '오늘' 날짜를 뽑는 데 쓴다.
+static constexpr int kKstOffsetSec = 9 * 3600;
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  하드코딩 리스트 externalize — 외부 JSON에서 로드, 부재·오류 시 내장 폴백.
 //  프로젝트 패턴(universe_scan.json)과 동일: ifstream + 파싱 + LOG_WARN 폴백.
@@ -242,8 +245,10 @@ static std::string winhttp_request_once(const std::string& method, const std::st
 static std::string winhttp_request(const std::string& method, const std::string& url,
                                    const std::vector<std::string>& headers, const std::string& body)
 {
+    constexpr int      kMaxGetAttempts    = 3;   // 멱등 GET 최대 시도(원 시도 + 재시도 2)
+    constexpr unsigned kRetryBackoffMsBase = 150; // 선형 백오프 기준(attempt배: 150ms, 300ms)
     const bool idempotent = (method == "GET");
-    const int max_attempts = idempotent ? 3 : 1;
+    const int max_attempts = idempotent ? kMaxGetAttempts : 1;
     std::string resp;
     for (int attempt = 1; attempt <= max_attempts; ++attempt)
     {
@@ -259,7 +264,7 @@ static std::string winhttp_request(const std::string& method, const std::string&
             LOG_WARN("[WinHTTP] " + std::string(transport_ok ? "HTTP " + std::to_string(status) : "전송 실패") +
                      " — 재시도 " + std::to_string(attempt + 1) + "/" + std::to_string(max_attempts) +
                      " (GET 멱등)  url=" + url);
-            Sleep(150u * attempt); // 선형 백오프: 150ms, 300ms
+            Sleep(kRetryBackoffMsBase * attempt); // 선형 백오프: 150ms, 300ms
         }
     }
     return resp; // 재시도 소진 — 마지막 응답(빈 문자열 또는 5xx 바디)
@@ -324,8 +329,10 @@ static std::string curl_request_once(const std::string& method, const std::strin
 static std::string curl_request(const std::string& method, const std::string& url,
                                 const std::vector<std::string>& headers, const std::string& body)
 {
+    constexpr int kMaxGetAttempts     = 3;   // 멱등 GET 최대 시도(원 시도 + 재시도 2)
+    constexpr int kRetryBackoffMsBase = 150; // 선형 백오프 기준(attempt배: 150ms, 300ms)
     const bool idempotent = (method == "GET");
-    const int max_attempts = idempotent ? 3 : 1;
+    const int max_attempts = idempotent ? kMaxGetAttempts : 1;
     std::string resp;
     for (int attempt = 1; attempt <= max_attempts; ++attempt)
     {
@@ -340,7 +347,7 @@ static std::string curl_request(const std::string& method, const std::string& ur
             LOG_WARN("[CURL] " + std::string(transport_ok ? "HTTP " + std::to_string(status) : "전송 실패") +
                      " — 재시도 " + std::to_string(attempt + 1) + "/" + std::to_string(max_attempts) +
                      " (GET 멱등)  url=" + url);
-            std::this_thread::sleep_for(std::chrono::milliseconds(150 * attempt));
+            std::this_thread::sleep_for(std::chrono::milliseconds(kRetryBackoffMsBase * attempt));
         }
     }
     return resp;
@@ -536,8 +543,8 @@ std::vector<MarketData> KisClient::get_daily_ohlcv(const std::string& ticker, in
         std::strftime(buf, sizeof(buf), "%Y%m%d", &tmv);
         return std::string(buf);
     };
-    time_t end_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + 9 * 3600; // KST 오늘
-    // count 거래일 확보를 위해 달력일 여유(주말·휴일 ~1.6배 + 헤드룸), 최소 30일.
+    time_t end_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + kKstOffsetSec; // KST 오늘
+    // count 거래일 확보를 위해 달력일 여유(주말·휴일 감안 1.7배 + 헤드룸 10일), 최소 30일.
     int window_days = (std::max)(30, static_cast<int>(count * 1.7) + 10); // (): windows.h max 매크로 회피
     std::string d2 = fmt_date(end_t);
     std::string d1 = fmt_date(end_t - static_cast<time_t>(window_days) * 86400);
@@ -615,7 +622,7 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
     };
 
     // 기준시각: 현재 KST(장중)이면 지금, 장전/장후면 15:30에서 역조회.
-    time_t now_kst = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + 9 * 3600;
+    time_t now_kst = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + kKstOffsetSec;
     struct tm ntm{};
 #ifdef _WIN32
     gmtime_s(&ntm, &now_kst);
@@ -1072,8 +1079,11 @@ std::string KisClient::revise_order(const std::string& ticker, const std::string
                  {"ORGN_ODNO", orig_odno},
                  {"ORD_DVSN", "00"},                              // 지정가
                  {"RVSE_CNCL_DVSN_CD", "01"},                     // 01=정정
-                 {"ORD_QTY", std::to_string(new_qty)},            // 정정 수량 (0이면 잔량 유지 규약도 있으나 명시)
+                 {"ORD_QTY", std::to_string(new_qty)},            // 정정 수량
                  {"ORD_UNPR", std::to_string((int)new_price)},    // 정정 단가
+                 // QTY_ALL_ORD_YN="Y"는 KIS가 잔량 전체를 정정하게 하므로, 위 ORD_QTY(부분 정정
+                 // 수량)는 실제로 반영되지 않는다. 현재 호출부는 단가 정정만 쓰므로 무해하나,
+                 // 부분수량 정정이 필요해지면 "N"으로 바꾸고 ORD_QTY를 살려야 한다(보류 목록).
                  {"QTY_ALL_ORD_YN", "Y"}};                        // 잔량 전체 정정
 
     std::string resp = http_post(url,
@@ -1974,7 +1984,7 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
     };
 
     time_t end_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now())
-                   + 9 * 3600;                // KST 기준 '오늘'
+                   + kKstOffsetSec;           // KST 기준 '오늘'
     std::string oldest_seen;                  // 직전까지 받은 가장 오래된 날짜
     constexpr int kMaxPages   = 10;
     constexpr int kWindowDays = 130;          // 1콜 ~50봉 커버 위해 넉넉히

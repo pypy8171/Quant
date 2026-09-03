@@ -18,6 +18,8 @@ std::string to_string(Regime r)
 
 namespace
 {
+constexpr int kKstOffsetSec = 9 * 3600; // KST = UTC+9
+
 // time_point → "YYYYMMDD" (UTC 고정 — 서버 TZ 독립)
 std::string ymd_of(std::chrono::system_clock::time_point tp)
 {
@@ -36,7 +38,7 @@ std::string ymd_of(std::chrono::system_clock::time_point tp)
 // KST 기준 오늘 "YYYYMMDD"
 std::string today_kst()
 {
-    time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + 9 * 3600;
+    time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + kKstOffsetSec;
     struct tm tmv{};
 #ifdef _WIN32
     gmtime_s(&tmv, &t);

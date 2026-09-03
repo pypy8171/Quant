@@ -14,15 +14,16 @@
 //  Engine::order_thread_fn이 send_order 직전에 check()를 통과한 신호만 실행.
 //  OrderRouter가 on_accept()·add_realized_pnl()로 내부 상태를 업데이트한다.
 //
-//  체크 항목:
-//   1. Kill switch   — 강제 중단 플래그(전방향 차단: BUY·SELL 모두)
-//   1b. Entry halt   — 신규 진입 정지(BUY NEW만 차단, SELL 청산은 통과). 지수 급락 킬스위치용.
-//   2. NONE side     — 신호 없음, 즉시 거부
-//   3. 포지션 수량   — 종목당 최대 보유 수량
-//   4. 일일 손실     — 일일 최대 손실 초과 시 신규 매수 거부
-//   4b. PnL stale    — 잔고 리컨사일 정체로 daily_pnl 미갱신 시 신규 매수 보수적 정지(B2)
-//   5. Rate limit    — 분당 최대 주문수 초과 방지
-//   6. 중복 신호     — 동일 strategy+ticker 1초 이내 중복 거부
+//  체크 항목 (아래 번호는 실제 check() 실행 순서):
+//   1.  Kill switch  — 강제 중단 플래그(전방향 차단: BUY·SELL 모두)
+//   2.  NONE side    — 신호 없음, 즉시 거부
+//   1b. Entry halt   — 신규 진입(BUY NEW)만 차단, SELL 청산은 통과. 지수 급락 킬스위치용.
+//   2b. fat-finger   — NEW 주문 1건의 수량/명목 상한(C-3, 시장가 대량주문 슬리피지 방어)
+//   3.  포지션 한도  — 종목당 최대 수량(3b 종목당 명목·3c 동시 보유 종목 상한 포함), BUY만
+//   4.  일일 손실    — 일일 최대 손실 초과 시 신규 매수 거부
+//   4b. PnL stale    — 잔고 대조(리컨사일) 정체로 daily_pnl 미갱신 시 신규 매수 보수적 정지(B2)
+//   5.  중복 신호    — 동일 account:strategy:ticker:side 1초 이내 중복 거부
+//   6.  Rate limit   — 초당/분당 최대 주문수 초과 방지(중복 통과분만 카운터 소모)
 //
 //  뮤텍스 획득 규칙:
 //   각 뮤텍스는 항상 독립 스코프에서만 획득 — 중첩 락 없음.
@@ -62,7 +63,7 @@ public:
     bool check(const OrderSignal& sig, std::string& reject_reason);
 
     // ── 상태 업데이트 ───────────────────────────────────────────────────────
-    // KIS 접수(ODNO 수신) 시 reserved_에 선점만 기록(실체결 원장 positions_는 불변).
+    // KIS 접수(주문번호 ODNO 수신) 시 reserved_에 선점만 기록(실체결 원장 positions_는 불변).
     // check()는 positions_ + reserved_ 합산으로 한도를 보므로 미체결 주문이 과잉 주문을 차단한다.
     // 체결(on_fill_confirmed) 시 reserved_가 해제되고 positions_/avg_price가 갱신된다.
     // 원장은 (account_id:ticker)로 파티셔닝 — 계좌별 독립. 아래 4-arg 오버로드는 account="" 하위호환.
@@ -73,7 +74,8 @@ public:
         on_accept(std::string(), ticker, side, qty, price);
     }
     void add_realized_pnl(double pnl);  // SELL 체결 시 실현 손익 추가 (테스트에서도 사용)
-    // C-1: rest_price_feed 모드는 체결콜백이 없어 daily_pnl_이 0 고정 → BUY-only 손실컷(§4) 死.
+    // C-1: rest_price_feed 모드는 체결 콜백이 없어 daily_pnl_이 0에 고정되고, 그러면 §4의
+    //  BUY 전용 손실컷이 동작하지 못한다.
     //  Engine이 잔고 재조회로 당일 기준선 대비 평가금 델타를 계산해 이 값으로 직접 덮어쓴다.
     //  (add_realized_pnl은 누적, 이건 절대치 세팅 — 리컨사일 전용)
     void set_daily_pnl(double pnl)

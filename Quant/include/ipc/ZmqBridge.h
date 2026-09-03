@@ -11,13 +11,14 @@
 #include <zmq.hpp>
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ZmqBridge  —  C++ 엔진과 Python 레이어 간 IPC
+// ZmqBridge  —  C++ 엔진과 Python 레이어 간 프로세스간 통신(IPC, Inter-Process Communication)
 //
-//  PUB  tcp://*:5555  — 엔진이 publish (체결/시그널/주문/헬스)
-//  REP  tcp://*:5556  — Python이 명령 전송 (KILL / STATUS / PAUSE / RESUME)
+//  ZMQ(ZeroMQ) 소켓 두 개로 통신한다:
+//  PUB  tcp://*:5555  — 엔진이 발행(publish). 체결/시그널/주문/헬스를 구독자에게 단방향 송신.
+//  REP  tcp://*:5556  — Python이 명령 전송(KILL / STATUS / PAUSE / RESUME), 엔진이 응답(reply).
 //
-//  ZMQ 소켓은 비-스레드세이프 → 전용 zmq_thread_ 에서만 사용
-//  다른 스레드는 enqueue() 로 메시지 전달
+//  ZMQ 소켓은 스레드 세이프하지 않아 전용 zmq_thread_에서만 사용한다.
+//  다른 스레드는 enqueue()로 메시지를 전달한다.
 // ─────────────────────────────────────────────────────────────────────────────
 class ZmqBridge
 {

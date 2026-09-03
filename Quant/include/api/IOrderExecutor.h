@@ -65,8 +65,8 @@ public:
     //  order_thread)가 판별해 적응적 재시도를 걸 수 있게 노출한다. 기본은 미지원("").
     virtual std::string last_order_error_code() const { return std::string(); }
 
-    // 모의투자 서버 여부. 모의는 정정취소가능조회(inquire-psbl-rvsecncl) 등 일부 TR을 미지원
-    //  ("없는 서비스 코드") → 호출부가 그 경로(청산차단 자가정리)를 건너뛰도록 노출. 기본 false(실전).
+    // 모의투자 서버 여부. 모의는 정정취소가능조회(inquire-psbl-rvsecncl) 등 일부 거래코드(TR)를
+    //  미지원("없는 서비스 코드")이라, 호출부가 그 경로(청산차단 자가정리)를 건너뛰도록 노출한다. 기본 false(실전).
     virtual bool is_paper() const { return false; }
 
     // 미체결(정정취소 가능) 예약주문 조회 (inquire-psbl-rvsecncl). 기본은 빈 목록.

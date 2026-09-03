@@ -74,9 +74,9 @@ private:
     bool get_approval_key();
     void send_text(const std::string& msg);
     void send_subscribe(const std::string& tr_id, const std::string& tr_key);
-    // specs_ 전체를 순회하며 채널을 구독한다(최초 연결·재연결 공통). tr_id 하드코딩
-    // 블록이 네 곳(플랫폼×최초/재연결)에 중복돼 있던 것을 한 곳으로 모은다 —
-    // 재연결 시 선물 채널이 빠지는 불일치를 원천 차단.
+    // specs_ 전체를 순회하며 채널을 구독한다(최초 연결·재연결 공통). 거래ID(tr_id) 하드코딩
+    // 블록이 네 곳(플랫폼×최초/재연결)에 중복돼 있던 것을 한 곳으로 모은다.
+    // 재연결 시 선물 채널이 빠지는 불일치를 막는다.
     void subscribe_all();
     void recv_loop();
     void parse_message(const std::string& msg);
@@ -98,7 +98,7 @@ private:
     static std::string http_post_json(const std::string& url, const std::string& body);
 
     KisConfig cfg_;
-    std::string approval_key_;
+    std::string approval_key_; // KIS 실시간 WS 접속 승인키 (REST로 발급, 세션 내 재사용)
     std::string aes_key_; // 체결통보 복호화 키 (구독 응답에서 획득)
     std::string aes_iv_;  // 체결통보 복호화 IV
     std::vector<WatchSpec> specs_;

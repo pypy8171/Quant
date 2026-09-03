@@ -31,6 +31,11 @@
 //
 //  WS 구독 목록은 on_start() 이후 전략의 get_watch_specs()로 동적 수집
 // ─────────────────────────────────────────────────────────────────────────────
+
+// regime.json 이 이 초(sec)보다 오래되면 사이드카가 죽은 것으로 보고 신뢰하지 않는다(페일세이프).
+// config "regime_stale_sec" 로 덮어쓸 수 있고, 미지정 시 이 기본값을 쓴다.
+inline constexpr int kDefaultRegimeStaleSec = 600;
+
 class Engine
 {
 public:
@@ -38,22 +43,29 @@ public:
     ~Engine();
 
     void add_strategy(std::unique_ptr<StrategyBase> strategy);
-    // 기동 시 get_balance로 실계좌 보유분을 OrderGate 원장에 시드(G5). main이 config로 설정.
+    // 기동 시(bootstrap) 실계좌 잔고를 내부 장부의 초기값으로 채운다(G5).
+    // 프로그램을 재시작하면 OrderGate 원장이 0으로 비는데, 실계좌엔 이미 보유분이 남아있다.
+    // get_balance(잔고조회)로 종목·수량·평단을 읽어 원장에 심어(seed) 실제와 장부를 맞춘다
+    // (안 맞으면 매도수량·평단·손실한도 계산이 어긋난다). main이 config로 켠다.
     void set_bootstrap_ledger(bool b) { bootstrap_ledger_ = b; }
-    // REST 현재가 폴링을 체결 피드로 사용(WS 실시간 세션 우회). true면 DataThread가
-    // get_current_price를 폴링해 TradeData로 td_queue_에 넣고, WS 연결은 생략한다.
+    // 실시간 체결가는 원래 WebSocket으로 받지만, WS 세션이 rt_cd=9(ALREADY IN USE, 중복접속)로
+    // 폭주할 때의 우회책이다. true면 DataThread가 REST get_current_price(현재가 조회)를 주기적으로
+    // 폴링해 그 값을 TradeData(체결 틱)처럼 td_queue_에 넣고, WS 연결은 생략한다. ITB 전략이
+    // 이 틱으로 구동된다(ITB = IntradayBreakoutStrategy, 장중 돌파 전략).
     void set_rest_price_feed(bool b) { rest_price_feed_ = b; }
     // 매크로 레짐 사이드카 브리지(2026-08-09 회의 Task 3). Python macro_regime_feed.py가
-    // 원자적으로 쓰는 regime.json 경로를 지정하면, data_thread가 매 사이클 읽어
-    // OrderGate::set_entry_halt(entry_halt)를 토글한다(신규매수만 차단, 청산은 통과).
-    // path 빈 문자열이면 기능 미가동(기본). stale_sec 경과 파일은 신뢰하지 않음(페일세이프).
-    void set_regime_file(const std::string& path, int stale_sec = 600)
+    // 원자적으로 쓰는 regime.json 경로를 지정하면, data_thread가 매 사이클 그 파일을 읽어
+    // 시장이 위험하면 OrderGate 의 "신규매수 정지" 스위치(entry_halt)를 켜고, 풀리면 끈다
+    // (매수만 막고 청산·매도는 그대로 통과). path 빈 문자열이면 기능 미가동(기본).
+    // stale_sec(기본 kDefaultRegimeStaleSec)보다 오래된 파일은 사이드카가 죽은 것으로 보고 무시한다.
+    void set_regime_file(const std::string& path, int stale_sec = kDefaultRegimeStaleSec)
     {
         regime_file_ = path;
         if (stale_sec > 0) regime_stale_sec_ = stale_sec;
     }
-    // 기동 스모크 프로브 — 서버 실행 직후 지정 종목을 시장가로 1회 매수해 모의계좌 주문경로
-    //  (OrderRouter→체결통보→원장)가 실제로 도는지 검증한다. qty≤0 또는 ticker 빈 문자열이면 미가동.
+    // 기동 스모크 테스트(smoke test: 전원 켜서 최소한 도는지 보는 점검) — 서버 실행 직후 지정
+    //  종목을 시장가로 딱 1회 매수해 주문 경로 전체(OrderRouter→체결통보→원장)가 살아있는지
+    //  확인한다. qty≤0 또는 ticker 빈 문자열이면 미가동.
     //  strategy_thread가 order_queue_의 단일 생산자이므로 그 스레드 진입 시 1회만 push한다.
     void set_startup_probe(const std::string& ticker, int qty)
     {
@@ -130,7 +142,7 @@ private:
     void data_thread_fn();
     void strategy_thread_fn();
     void order_thread_fn();
-    void control_thread_fn(); // ZMQ REP 명령 처리 (HAS_ZMQ 시 활성)
+    void control_thread_fn(); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
     void bootstrap_ledger();  // G5: get_balance → OrderGate.seed_position (스레드 시작 전 1회)
     void reconcile_from_balance(); // C-1: rest 모드 주기적 잔고 재조회 → positions_/daily_pnl_ 재동기
     void poll_regime_file();       // 매크로 레짐 파일 폴링 → OrderGate entry_halt 토글 (data_thread 전용)
@@ -156,13 +168,14 @@ private:
     bool rest_price_feed_ = false;  // REST 현재가 폴링을 체결 피드로 사용(WS 우회, opt-in)
     // 매크로 레짐 브리지 상태(data_thread 전용) — regime.json → OrderGate entry_halt.
     std::string regime_file_;             // 빈 문자열이면 기능 미가동
-    int  regime_stale_sec_    = 600;      // 이 초 이상 오래된 파일은 신뢰 안 함(사이드카 사망 감지)
+    int  regime_stale_sec_    = kDefaultRegimeStaleSec; // 이 초 이상 오래된 파일은 신뢰 안 함(사이드카 사망 감지)
     bool regime_halt_on_      = false;    // 우리가 현재 건 halt 상태(전이 시에만 로그·set 호출)
     bool regime_stale_warned_ = false;    // stale 경고 1회화
     bool regime_liq_warned_   = false;    // force_liquidate 경고 1회화(전이 로그용)
     // G3: 극단 위험회피(force_liquidate=TRUE) 시 보유 전량 강제청산 요청 플래그.
     //  data_thread(poll_regime_file)가 set → strategy_thread(order_queue_ 단일 생산자)가
-    //  이 플래그를 보고 매 주기 시장가 전량 매도를 발주(SPSC 위반 회피). 해제 시 중단.
+    //  이 플래그를 보고 매 주기 시장가 전량 매도를 발주(주문큐의 단일생산자·단일소비자(SPSC)
+    //  규약 위반 회피 — order_queue_에 넣는 스레드를 하나로 유지). 해제 시 중단.
     std::atomic<bool> force_liquidate_{false};
     KisConfig quote_kis_cfg_;        // 시세 전용(실전 도메인) 설정
     bool has_quote_kis_ = false;     // 시세 전용 클라이언트 사용 여부
@@ -222,7 +235,7 @@ private:
     std::atomic<uint64_t> order_count_{0};
 
     OrderGate order_gate_;
-    std::unique_ptr<OrderRouter> order_router_; // FEP 레이어 (start() 이후 유효)
+    std::unique_ptr<OrderRouter> order_router_; // 주문 전처리·중계 레이어(증권업계 용어로 FEP, Front-End Processor). start() 이후 유효
     std::unique_ptr<RegimeController> regime_;  // 국면 메타레이어 (start() 이후 유효)
 
     // 전략에서 수집한 구독 스펙 (on_start 이후 확정)

@@ -13,6 +13,10 @@
 
 using json = nlohmann::json;
 
+// KIS 실시간 WebSocket 포트 — 모의투자와 실계좌가 다르다(도메인은 동일 ops.koreainvestment.com).
+static constexpr int kWsPortPaper = 31000; // 모의투자
+static constexpr int kWsPortReal  = 21000; // 실계좌
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  공통 유틸
 // ═══════════════════════════════════════════════════════════════════════════
@@ -228,7 +232,7 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
         return false;
 
     const wchar_t* ws_host = L"ops.koreainvestment.com";
-    INTERNET_PORT ws_port = cfg_.is_paper ? 31000 : 21000;
+    INTERNET_PORT ws_port = cfg_.is_paper ? kWsPortPaper : kWsPortReal;
 
     hSession_ = WinHttpOpen(L"QuantTrader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
                             WINHTTP_NO_PROXY_BYPASS, 0);
@@ -383,7 +387,7 @@ void KisWebSocket::recv_loop()
 
             // WinHTTP 재연결
             const wchar_t* ws_host = L"ops.koreainvestment.com";
-            INTERNET_PORT ws_port = cfg_.is_paper ? 31000 : 21000;
+            INTERNET_PORT ws_port = cfg_.is_paper ? kWsPortPaper : kWsPortReal;
 
             hSession_ = WinHttpOpen(L"QuantTrader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
                                     WINHTTP_NO_PROXY_BYPASS, 0);
@@ -658,7 +662,9 @@ static void ws_send_text_linux(int fd, const std::string& data)
             frame.push_back(uint8_t(len >> (8 * i)));
     }
 
-    // 마스킹 키
+    // 마스킹 키. RFC 6455는 프레임마다 새 난수 마스크를 요구하지만, 여기선 고정 키를 쓴다.
+    // WS 마스킹은 보안이 아니라 프록시 캐시 오염 방지용 XOR 난독화라 KIS 서버는 값을 검증하지
+    // 않아 실동작에 무해하다. 규격 엄밀성을 맞추려면 프레임별 난수로 바꿔야 한다(보류 목록).
     const uint8_t mk[4] = {0x37, 0x1A, 0xC5, 0x4F};
     frame.insert(frame.end(), mk, mk + 4);
     for (size_t i = 0; i < len; ++i)
@@ -730,7 +736,7 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
         return false;
 
     std::string host = "ops.koreainvestment.com";
-    int port = cfg_.is_paper ? 31000 : 21000;
+    int port = cfg_.is_paper ? kWsPortPaper : kWsPortReal;
 
     if (!ws_tcp_connect(host, port, sock_fd_))
     {
@@ -821,7 +827,7 @@ void KisWebSocket::recv_loop()
             }
 
             std::string host = "ops.koreainvestment.com";
-            int port = cfg_.is_paper ? 31000 : 21000;
+            int port = cfg_.is_paper ? kWsPortPaper : kWsPortReal;
             int new_fd = -1;
             if (!ws_tcp_connect(host, port, new_fd))
             {
@@ -992,6 +998,7 @@ void KisWebSocket::parse_message(const std::string& msg)
             auto j = json::parse(msg);
             std::string tr_id = j["header"].value("tr_id", "");
 
+            // PINGPONG: KIS가 주기적으로 보내는 연결 유지 신호(heartbeat). 받은 그대로 되돌려준다.
             if (tr_id == "PINGPONG")
             {
                 send_text(msg);
@@ -1199,7 +1206,8 @@ void KisWebSocket::parse_us_trade(const std::vector<std::string>& f)
     {
         td.price = std::stod(f[2]);
         td.quantity = std::stoll(f[8]);
-        // 방향 필드 위치 확인 후 조정 (진단 로그 참조)
+        // f[20]이 매수/매도 방향 필드라고 가정한다. 미국 체결(HDFSCNT0) 전문 필드 순서를
+        // 실데이터로 확정하지 못해 아직 미검증이다 — 확인 전까지 방향값은 신뢰하지 말 것(보류 목록).
         td.direction = (f.size() > 20) ? std::stoi(f[20]) : 0;
     }
     catch (...)

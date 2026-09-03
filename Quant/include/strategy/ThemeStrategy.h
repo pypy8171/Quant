@@ -1,5 +1,6 @@
 #pragma once
 #include "api/KisClient.h"
+#include "core/MarketSession.h"
 #include "strategy/StrategyBase.h"
 #include "utils/Logger.h"
 #include <algorithm>
@@ -23,6 +24,15 @@
 //  [청산 — on_order_book()]
 //  eod_exit_hhmm 도달 시 시장가 청산
 // ─────────────────────────────────────────────────────────────────────────────
+
+// 스크리닝 단계에서 종목·업종마다 KIS REST를 연속 호출하므로 호출 사이에 짧게 쉰다
+// (초당 호출 한도(EGW00201) 회피용 페이싱 간격). 지수 조회가 더 길다.
+namespace
+{
+constexpr int kThemeIndexPacingMs = 500; // 업종 지수 일봉 조회 후 대기
+constexpr int kThemeRestPacingMs  = 200; // 종목 순위·일봉·수급 조회 후 대기
+constexpr size_t kThemeMaxSurgeCandidates = 50; // 거래량 급증 후보 안전 상한
+}
 
 // KOSPI 주요 업종 코드
 // 0005:화학  0006:의약품  0008:철강금속  0009:기계  0010:전기전자
@@ -104,7 +114,7 @@ public:
         for (const auto& [code, name] : sectors)
         {
             auto bars = kis_->get_index_daily_ohlcv(code, 6);
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            std::this_thread::sleep_for(std::chrono::milliseconds(kThemeIndexPacingMs));
 
             if (bars.size() < 2 || bars[0].close <= 0 || bars.back().close <= 0)
             {
@@ -136,14 +146,14 @@ public:
         {
             const std::string& sector_code = momentum_rank[i].second;
             auto ranked = kis_->fetch_sector_ranking(sector_code, 30);
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            std::this_thread::sleep_for(std::chrono::milliseconds(kThemeRestPacingMs));
 
             for (const auto& stock : ranked)
             {
-                if (surge_candidates.size() >= 50) break; // 안전 상한
+                if (surge_candidates.size() >= kThemeMaxSurgeCandidates) break; // 안전 상한
 
                 auto bars = kis_->get_daily_ohlcv(stock.ticker, 21);
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                std::this_thread::sleep_for(std::chrono::milliseconds(kThemeRestPacingMs));
 
                 if (bars.size() < 5) continue;
 
@@ -182,7 +192,7 @@ public:
             for (const auto& tk : surge_candidates)
             {
                 auto trend = kis_->get_investor_trend(tk);
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                std::this_thread::sleep_for(std::chrono::milliseconds(kThemeRestPacingMs));
 
                 if (trend.foreign_net > 0 && trend.inst_net > 0)
                 {
@@ -228,7 +238,7 @@ private:
                                                  double ref_px)
     {
         int hhmm = parse_hhmm(time_str);
-        if (hhmm < 900 || hhmm >= 1530) return std::nullopt;
+        if (!krx::in_session(hhmm)) return std::nullopt; // 09:00~15:30 정규장만(core/MarketSession.h)
 
         // 진입: 후보이고 아직 매수 안 했으면 (국면 게이트 적용)
         if (is_active() && candidates_.count(ticker) && !buy_sent_.count(ticker))

@@ -1,5 +1,6 @@
 #pragma once
 #include "api/KisClient.h"
+#include "core/MarketSession.h"
 #include "strategy/StrategyBase.h"
 #include "utils/Logger.h"
 #include <chrono>
@@ -7,6 +8,13 @@
 #include <thread>
 #include <unordered_set>
 #include <vector>
+
+// 유니버스 종목마다 KIS REST를 연속 호출하므로 호출 사이에 짧게 쉰다
+// (초당 호출 한도(EGW00201) 회피용 페이싱 간격).
+namespace
+{
+constexpr int kValueContraryRestPacingMs = 200;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ValueContraryStrategy  —  저PBR 3일 연속 하락 반전 매수
@@ -88,7 +96,7 @@ public:
                 bars = kis_->get_us_daily_ohlcv(ticker, 5, exchange_);
 
             // KIS 초당 거래건수 제한 — 매 호출 후 대기
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            std::this_thread::sleep_for(std::chrono::milliseconds(kValueContraryRestPacingMs));
 
             // 오늘 미완성 bar 제거 (pre-market or 장 개시 전: volume=0)
             while (!bars.empty() && bars[0].volume == 0)
@@ -227,7 +235,7 @@ private:
     bool is_in_session(int hhmm) const
     {
         if (market_ == Market::KR)
-            return hhmm >= 900 && hhmm < 1530;
+            return krx::in_session(hhmm); // 09:00~15:30 정규장(core/MarketSession.h)
         // 미국 정규장 KST: 22:30~익일 05:00
         return hhmm >= 2230 || hhmm < 500;
     }

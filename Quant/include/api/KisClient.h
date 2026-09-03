@@ -78,7 +78,7 @@ public:
     IndexPrice get_index_price(const std::string& ticker);
 
     // ── 파생 (선물·옵션) ────────────────────────────────────────────────────
-    // 국내 선물/옵션 현재가 — inquire-price (tr_id FHMIF10000000).
+    // 국내 선물/옵션 현재가 — inquire-price (거래ID tr_id=FHMIF10000000).
     //   market_div = FID_COND_MRKT_DIV_CODE("F"=지수선물 등), iscd = 종목코드(예 KOSPI200
     //   최근월물). 시세 REST이므로 실전 도메인 전용 — 모의(openapivts:29443)는 시세 미지원이라
     //   HTTP500이 뜬다. 시세전용(quote) KisClient(is_paper=false)로 호출해야 한다.

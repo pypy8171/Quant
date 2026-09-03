@@ -14,7 +14,7 @@
 #include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
-// OrderRouter  —  FEP 역할의 주문 라우팅 레이어
+// OrderRouter  —  주문 전처리·중계(FEP, Front-End Processor) 역할의 주문 라우팅 레이어
 //
 //  흐름:
 //    OrderSignal

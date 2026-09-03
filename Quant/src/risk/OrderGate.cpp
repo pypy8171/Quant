@@ -3,10 +3,18 @@
 
 using Clock = std::chrono::steady_clock;
 
+namespace
+{
+// 국내 주식 체결 비용률 (KIS 실계좌 기준).
+constexpr double kCommissionRate = 0.00015; // 위탁수수료 0.015% (매수·매도 공통)
+constexpr double kSellTaxRate    = 0.0018;  // 증권거래세 0.18% (매도에만 부과)
+} // namespace
+
 // ─── 주문 검증 ──────────────────────────────────────────────────────────────
 // 주의(C6): check()는 항목별 뮤텍스를 독립 스코프로 잡아 호출 단위가 원자적이지 않다.
 // 현재 호출자는 단일 order_thread(Engine::order_thread_fn → OrderRouter::submit)뿐이라
-// check()+on_accept이 직렬 실행돼 TOCTOU가 없다. 멀티 producer로 확장하려면
+// check()+on_accept이 직렬 실행돼 검사~사용 사이 경합(TOCTOU, Time-Of-Check-To-Time-Of-Use)이
+// 없다. 멀티 producer로 확장하려면
 // check()+on_accept을 하나의 임계구역으로 묶어 원자적 reserve로 만들어야 한다.
 bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
 {
@@ -223,7 +231,7 @@ void OrderGate::on_cancel(const std::string& account, const std::string& ticker,
         return;
     std::lock_guard<std::mutex> lk(positions_mtx_);
     const std::string k = make_key(account, ticker);
-    // 리컨사일이 reserved_를 비운 뒤 온 취소 통보는 대상이 이미 없다 → no-op.
+    // 잔고 대조(리컨사일)가 reserved_를 비운 뒤 온 취소 통보는 대상이 이미 없으므로 아무 것도 하지 않는다.
     //  (없는 키를 -qty/+qty로 갱신하면 음수 선점이 생겨 이후 한도 계산이 왜곡됨)
     int cur = reserved_.count(k) ? reserved_[k] : 0;
     if (cur == 0)
@@ -272,8 +280,8 @@ OrderGate::FillResult OrderGate::on_fill_confirmed(
     const std::string& account, const std::string& ticker, OrderSide side, int qty, double price)
 {
     FillResult result;
-    result.commission = price * qty * 0.00015;                              // 수수료 0.015%
-    result.tax        = (side == OrderSide::SELL) ? price * qty * 0.0018 : 0.0; // 거래세 매도만
+    result.commission = price * qty * kCommissionRate;                              // 수수료 0.015%
+    result.tax        = (side == OrderSide::SELL) ? price * qty * kSellTaxRate : 0.0; // 거래세 매도만
 
     {
         std::lock_guard<std::mutex> lk(positions_mtx_);

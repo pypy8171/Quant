@@ -94,7 +94,7 @@ public:
 
 protected:
     KisClient* kis_ = nullptr; // non-owning; lifetime guaranteed by Engine
-    std::function<int(const std::string&, const std::string&)> position_provider_; // 확정 포지션(D2)
+    std::function<int(const std::string&, const std::string&)> position_provider_; // 결제완료 확정 포지션(D2=결제일 T+2)
     std::atomic<bool> active_{true};   // 국면 게이트(Engine이 설정). 기본 true=통과 (G-1)
     std::vector<Regime> active_regimes_ = {Regime::BULL, Regime::NEUTRAL, Regime::BEAR};
 };

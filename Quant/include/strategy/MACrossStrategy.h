@@ -13,7 +13,8 @@ class MACrossStrategy : public StrategyBase
 public:
     // start_in_position=true: 기동 시 이미 보유 중인 것으로 간주(모의계좌 보유분).
     //   → 첫 신호는 항상 데드크로스 매도(BUY는 무포지션에서만) → 기존 보유분을 지표로 청산 가능.
-    //   → OrderGate 상대원장상 매도(선점 -qty) 후 재매수가 net-zero라 포지션 한도에 안 걸림.
+    //   → OrderGate 내부 원장에서 매도가 먼저 -qty를 선점하므로, 뒤이은 재매수가 상쇄(net-zero)돼
+    //     포지션 한도에 걸리지 않는다.
     MACrossStrategy(std::string ticker, int short_period, int long_period, int qty,
                     bool start_in_position = false)
         : ticker_(std::move(ticker)), short_period_(short_period), long_period_(long_period),

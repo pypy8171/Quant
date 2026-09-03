@@ -13,13 +13,13 @@
 //  협의체(전략·아키텍처·데이터·리스크) 확정 스펙(strategies/ITB/SPEC.md §2).
 //  입력은 오직 WS/REST 체결 틱(on_trade) — 깨진 REST 일봉 경로(G1/G2)를 우회한다.
 //
-//  [입력]  H0STCNT0 체결 틱 → on_trade(TradeData). td.price=현재가, td.time=HHMMSS.
+//  [입력]  국내 실시간 체결 채널(H0STCNT0) 틱을 on_trade(TradeData)로 받는다. td.price=현재가, td.time=HHMMSS.
 //  [진입]  1분 버킷 종가가 최근 N분 채널 고점을 상향 돌파 + 당일 앵커 대비 +eps 위
 //          → 시장가 신규 매수. 버킷 마감 시에만 평가(틱 노이즈/휩쏘 억제).
 //          수량은 notional_per_position>0이면 floor(명목/현재가), 아니면 entry_qty 고정.
 //          앵커는 day_open_px(>0) 주입 시 당일 시가, 아니면 첫 관측 틱(자기참조 방지).
 //  [청산]  포지션 성격에 따라 분기(매 틱, 손실통제 우선):
-//    (A) 물린 보유분(position_is_seed_): 넓은 앵커 트레일 seed_trail_pct + 본전근처
+//    (A) 물린 보유분(position_is_seed_): 고점 기준 넓은 트레일링 스탑 seed_trail_pct + 본전근처
 //        반등 청산 exit_near_avg_pct. 이미 -30% 물린 평단에 -3% 하드손절을 걸어 개장
 //        즉시 시장가 투매하는 자해(v1 결함)를 제거. 반등에 실어 던진다.
 //    (B) 신규 진입분: 타이트 트레일 trail_pct + 진입가 하드손절 hard_pct.
@@ -40,7 +40,7 @@ public:
                              int reentry_cooldown_sec = 60,
                              double avg_px = 0.0, double avg_loss_pct = 0.0,
                              // ── v2 추가 (뒤에 붙여 하위호환) ──
-                             double seed_trail_pct = 0.0,      // 물린분 앵커 트레일(0→trail_pct)
+                             double seed_trail_pct = 0.0,      // 물린분 고점 기준 트레일(0→trail_pct)
                              double exit_near_avg_pct = 0.0,   // 물린분 본전탈출(평단 -x% 이내, 0=비활성)
                              int no_new_entry_hhmm = 0,        // 신규진입 금지 시각(0→eod_hhmm)
                              double notional_per_position = 0.0, // 종목당 명목(0→entry_qty 고정)
@@ -130,7 +130,7 @@ public:
 
             if (position_is_seed_)
             {
-                // (A) 물린 보유분: 넓은 앵커 트레일 + 본전근처 반등 청산.
+                // (A) 물린 보유분: 고점 기준 넓은 트레일링 스탑 + 본전근처 반등 청산.
                 double strail = (seed_trail_pct_ > 0.0 ? seed_trail_pct_ : trail_pct_);
                 double seed_trail_stop = peak_ * (1.0 - strail);
                 if (px <= seed_trail_stop)
@@ -291,7 +291,7 @@ private:
     double avg_px_ = 0.0;       // 매입 평단(시드분) — 평단손절/본전탈출 기준가
     double avg_loss_pct_ = 0.0; // 평단 대비 손절률(0=비활성)
     // ── v2 ──
-    double seed_trail_pct_ = 0.0;       // 물린분 앵커 트레일(넓게)
+    double seed_trail_pct_ = 0.0;       // 물린분 고점 기준 트레일(넓게)
     double exit_near_avg_pct_ = 0.0;    // 물린분 본전탈출 임계(평단 -x% 이내 반등)
     int no_new_entry_hhmm_ = 0;         // 신규진입 금지 시각(0→eod_hhmm)
     double notional_per_position_ = 0.0; // 종목당 명목(원)

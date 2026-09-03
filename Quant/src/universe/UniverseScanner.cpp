@@ -78,7 +78,7 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
     // 후보 수집 단계에서 티커→종목명을 함께 보관해, 최종 등록 확정 때 out_names에 채운다.
     std::unordered_map<std::string, std::string> cand_names;
     // 티커→시장("KOSPI"/"KOSDAQ") — universe_scan.json의 "market" 필드에서 채운다. 태그 없는
-    //  후보(KIS 랭킹축 등)는 KOSPI로 간주(KIS FID_INPUT_ISCD=0000축은 코스피 지배).
+    //  후보(KIS 랭킹축 등)는 KOSPI로 간주(KIS 입력 시장코드(FID_INPUT_ISCD)=0000축이 코스피 위주).
     std::unordered_map<std::string, std::string> cand_market;
     auto label_name = [&](const std::string& t) -> std::string
     {

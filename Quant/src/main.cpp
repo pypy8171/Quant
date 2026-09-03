@@ -149,9 +149,9 @@ int main(int argc, char* argv[])
     // ═══════════════════════════════════════════════════════════════════════
     if (mode == "FEED")
         return run_feed(kis_cfg, tickers, futures, g_running);
-    if (mode == "KR_TEST")
+    else if (mode == "KR_TEST")
         return run_kr_test(kis_cfg, g_running);
-    if (mode == "US_TEST")
+    else if (mode == "US_TEST")
         return run_us_test(kis_cfg, g_running);
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -160,15 +160,17 @@ int main(int argc, char* argv[])
     int interval = cfg.value("fetch_interval_sec", 60);
     Engine engine(kis_cfg, interval);
     g_engine = &engine;
-    // G5: 기동 시 실계좌 보유분을 OrderGate 원장에 시드(ITB 매도수량·평단·손실한도 정합).
+    // G5: 기동 시 실계좌 보유분을 읽어 OrderGate 내부 장부의 초기값으로 채운다.
+    //  (재시작하면 장부는 0이지만 실계좌엔 보유분이 남아, 안 맞추면 매도수량·평단·손실한도가 어긋남)
     engine.set_bootstrap_ledger(cfg.value("bootstrap_ledger_from_balance", false));
-    // REST 현재가 폴링을 체결 피드로 사용(WS 실시간 세션 rt=9 폭주 우회). ITB가 이 틱으로 구동.
+    // WS 세션이 rt_cd=9(ALREADY IN USE) 로 폭주할 때의 우회책. REST 현재가를 주기적으로 폴링해
+    //  실시간 체결 틱처럼 전략에 먹인다. ITB(IntradayBreakoutStrategy, 장중 돌파)가 이 틱으로 돈다.
     engine.set_rest_price_feed(cfg.value("rest_price_feed", false));
-    // 매크로 레짐 사이드카 브리지(2026-08-09 회의): Python macro_regime_feed.py가 쓰는
-    //  regime.json 경로. 지정 시 data_thread가 매 사이클 읽어 OrderGate entry_halt를 토글한다.
-    //  빈 문자열(기본)이면 미가동 — 기존 동작 불변.
+    // 매크로 레짐 사이드카 브리지(2026-08-09 회의): Python macro_regime_feed.py가 쓰는 regime.json
+    //  경로. 지정 시 data_thread가 매 사이클 읽어, 시장이 위험하면 OrderGate 의 신규매수 정지 스위치
+    //  (entry_halt)를 켜고 풀리면 끈다. 빈 문자열(기본)이면 미가동 — 기존 동작 불변.
     engine.set_regime_file(cfg.value("regime_file", std::string()),
-                           cfg.value("regime_stale_sec", 600));
+                           cfg.value("regime_stale_sec", kDefaultRegimeStaleSec));
     // G1: 국면→전략 자동선택 맵. config "regime_strategies": {"BULL":[id...], "NEUTRAL":[...], "BEAR":[...]}.
     //  id 항목이 '*'로 끝나면 접두 매칭(스캐너 동적 id: "DevScale_*"). 미지정이면 기존
     //  per-strategy active_regimes 방식 유지(하위호환). 지정 시 국면이 전략셋을 선택한다.
@@ -197,8 +199,9 @@ int main(int argc, char* argv[])
         LOG_INFO("[Main] 국면→전략 자동선택 맵 " + std::to_string(rmap.size()) +
                  "개 국면 적용(재평가 " + std::to_string(cfg.value("regime_reeval_sec", 300)) + "s)");
     }
-    // 기동 스모크 프로브 — 서버 실행 시 지정 종목 시장가 1주 매수로 모의계좌 주문경로 검증.
-    //  config "startup_probe": {"ticker":"005930","qty":1}. 없으면 미가동(기존 동작 불변).
+    // 기동 스모크 테스트 — 서버 실행 직후 지정 종목을 시장가 1주 매수해, 주문 경로 전체가
+    //  살아있는지 최소 점검한다. config "startup_probe": {"ticker":"005930","qty":1}.
+    //  없으면 미가동(기존 동작 불변).
     if (cfg.contains("startup_probe"))
     {
         const auto& sp = cfg["startup_probe"];

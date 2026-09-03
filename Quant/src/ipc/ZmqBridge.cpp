@@ -10,6 +10,15 @@ using json = nlohmann::json;
 using namespace std::chrono;
 using namespace std::chrono_literals;
 
+namespace
+{
+// 송신 큐 상한(백프레셔). 원장 정합에 직결되는 토픽(FILL/ORDER/SIGNAL)은 훨씬 크게 잡아
+// 구독자 지연에도 최대한 보존하고, 고빈도 TRADE/HEALTH는 작게 잡아 메모리 폭주를 막는다.
+constexpr size_t kCriticalQueueCap = 100000; // FILL/ORDER/SIGNAL 하드캡
+constexpr size_t kNormalQueueCap   = 1000;   // TRADE/HEALTH 하드캡
+constexpr auto   kReplyPollTimeout = 10ms;   // REP 명령 수신 폴링 1회 대기 시간
+} // namespace
+
 // ─── 생성자/소멸자 ──────────────────────────────────────────────────────────
 ZmqBridge::ZmqBridge(int pub_port, int rep_port) : pub_port_(pub_port), rep_port_(rep_port)
 {
@@ -60,7 +69,7 @@ void ZmqBridge::thread_fn()
         return;
     }
 
-    // REP 폴링 아이템 (논블로킹)
+    // REP 소켓 폴링 대상 (아래 루프에서 타임아웃 폴링으로 확인)
     zmq::pollitem_t items[] = {{rep, 0, ZMQ_POLLIN, 0}};
 
     while (running_.load())
@@ -89,10 +98,10 @@ void ZmqBridge::thread_fn()
             }
         }
 
-        // 2. 명령 수신 (REP, 10ms 타임아웃)
+        // 2. 명령 수신 (REP, kReplyPollTimeout 타임아웃)
         try
         {
-            zmq::poll(items, 1, 10ms);
+            zmq::poll(items, 1, kReplyPollTimeout);
             if (items[0].revents & ZMQ_POLLIN)
             {
                 zmq::message_t req;
@@ -133,9 +142,9 @@ void ZmqBridge::enqueue(std::string topic, std::string payload)
 {
     std::lock_guard<std::mutex> lk(queue_mtx_);
     // (C8) 토픽별 drop 차등 — 원장 정합성에 직결되는 FILL/ORDER/SIGNAL은
-    // 고빈도 TRADE/HEALTH(1000)보다 훨씬 큰 하드캡(100000)까지 보존한다.
+    // 고빈도 TRADE/HEALTH보다 훨씬 큰 하드캡까지 보존한다.
     const bool critical = (topic == "FILL" || topic == "ORDER" || topic == "SIGNAL");
-    const size_t cap = critical ? 100000 : 1000;
+    const size_t cap = critical ? kCriticalQueueCap : kNormalQueueCap;
     if (send_queue_.size() >= cap)
     {
         ++drop_count_;

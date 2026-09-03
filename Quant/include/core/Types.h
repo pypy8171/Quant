@@ -81,10 +81,10 @@ struct OrderSignal
     Market market = Market::KR;
     std::string exchange; // US only: "NAS", "NYS"
     std::chrono::system_clock::time_point timestamp;
-    std::string account_id; // 법인/DMA 다계좌 인테이크 — 계좌별 원장 파티션 키 (빈값=단일 계좌)
+    std::string account_id; // 법인/직접시장접속(DMA, Direct Market Access) 다계좌 구분 — 계좌별 원장 분리 키 (빈값=단일 계좌)
 
     // ── 주문 생명주기 관리 (MM-1) — 전부 기본값, 비파괴 확장 ─────────────────
-    OrderAction action = OrderAction::NEW; // 기본 NEW → 기존 전략은 이 필드를 몰라도 동일 동작
+    OrderAction action = OrderAction::NEW; // 기본 NEW라 기존 전략은 이 필드를 몰라도 동일 동작
     std::string client_oid;                // 전략이 부여하는 주문 식별자 (취소/정정 추적용)
     std::string orig_client_oid;           // CANCEL/REPLACE 대상 원주문 client_oid
 
@@ -152,7 +152,7 @@ struct FillNotification
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 주문 상태 머신 (FEP 레이어)
+// 주문 상태 머신 (주문 전처리·중계 레이어, FEP=Front-End Processor)
 // ─────────────────────────────────────────────────────────────────────────────
 enum class OrderStatus
 {
@@ -213,17 +213,19 @@ struct Fundamentals
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 시장 국면 (RegimeController, 장 시작 1회 판정)
-// 개별 지표를 분해 저장 — 학습 입력 + 학습 설명 + 디버깅
+// 시장 국면 (RegimeController가 장 시작 시 1회 판정)
 // ─────────────────────────────────────────────────────────────────────────────
 enum class Regime
 {
-    BULL,
-    NEUTRAL,
-    BEAR,
-    UNKNOWN
+    BULL,     // 강세장
+    NEUTRAL,  // 중립(방향성 약함)
+    BEAR,     // 약세장
+    UNKNOWN   // 판정 불가(데이터 부족 등)
 };
 
+// 국면 판정 결과 1건. 최종 regime 하나만 두지 않고 판정에 쓴 개별 지표(200일선 돌파 여부,
+// 정배열/역배열, 각 이평값)를 따로 남긴다 — 나중에 학습 피처로 쓰거나, "왜 이 국면으로
+// 판정했는지" 설명하거나, 디버깅할 때 근거를 되짚기 위해서다.
 struct RegimeSnapshot
 {
     std::string date;            // "YYYYMMDD" — 국면이 적용되는 거래일(KST)

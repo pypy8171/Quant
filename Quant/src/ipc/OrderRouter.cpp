@@ -1,4 +1,5 @@
 #include "ipc/OrderRouter.h"
+#include "api/KisErrorCodes.h"
 #include "utils/Logger.h"
 #include <chrono>
 #include <ctime>
@@ -105,7 +106,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& sig)
     //  미체결 예약매도(이전 세션/수동 예약이 보유수량을 묶은 것)를 조회·취소하고 시장가로 1회
     //  재시도한다. 성공하면 아래 접수 블록이 그대로 처리(odno/ack가 재시도 결과로 갱신됨).
     if (odno.empty() && sig.side == OrderSide::SELL &&
-        kis_.last_order_error_code() == "40240000")
+        kis_.last_order_error_code() == kis_err::kNoSellableQty)
     {
         OrderAck rack = reconcile_blocked_sell(sig);
         if (!rack.odno.empty())
@@ -543,7 +544,7 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& sig)
 
     mo.status       = OrderStatus::ACCEPTED;
     mo.kis_order_no = new_odno;
-    mo.krx_orgno    = krx_orgno; // 정정 응답 조직번호 미파싱 → 원 조직번호 승계(통상 동일). TODO: 응답서 재캡처
+    mo.krx_orgno    = krx_orgno; // 정정 응답의 조직번호를 미파싱해 원 조직번호를 승계(통상 동일). TODO: 응답서 재캡처
     mo.signal.side  = side;      // NONE 방지: 원주문 side 승계
     mo.updated_at   = std::chrono::system_clock::now();
     ++accepted_count_;
@@ -561,7 +562,7 @@ void OrderRouter::on_fill(const FillNotification& fn)
     // 멱등 처리 — KIS 체결통보는 at-least-once(재전송/WS 재구독 시 중복 가능).
     // H0STCNI0 전문에 체결고유번호가 없어 odno+체결시각+수량+단가를 조합 키로 사용.
     // ODNO는 영업일 단위 재사용되고 fill_time은 HHMMSS(날짜 없음)라, 거래일(수신일)을
-    // prefix로 붙여 cross-day 동일키 충돌 → 실체결 오인 drop을 차단한다 (V-4).
+    // prefix로 붙여, 서로 다른 날의 동일키 충돌로 실체결을 오인해 drop하는 일을 막는다 (V-4).
     std::time_t tt = std::chrono::system_clock::to_time_t(fn.timestamp);
     std::tm lt{};
 #ifdef _WIN32

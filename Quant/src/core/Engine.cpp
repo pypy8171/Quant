@@ -1,4 +1,5 @@
 #include "core/Engine.h"
+#include "api/KisErrorCodes.h"
 #include "utils/Logger.h"
 #include <algorithm>
 #include <chrono>
@@ -89,10 +90,10 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
 //  force_log 시 [RegimeSelect]로 기록 → "왜 이 전략을 켰나"가 로그에 남는다.
 //
 //  ── 국면 두 축은 별개(G2) ─────────────────────────────────────────────────
-//  ① RegimeController(내부 지수 국면) = **전략 선택 축**. BULL/NEUTRAL/BEAR로
-//     어떤 전략을 켤지 고른다(이 함수). ② regime.json(매크로 risk-off) =
-//     **리스크 오버레이 축**. poll_regime_file()이 entry_halt/force_liquidate로
-//     신규진입 정지·강제청산을 건다. 서로 다른 관심사라 통합하지 않는다 — ①은
+//  ① RegimeController(내부 지수 국면)는 전략 선택 축이다. BULL/NEUTRAL/BEAR로
+//     어떤 전략을 켤지 고른다(이 함수). ② regime.json(매크로 risk-off)은
+//     리스크 오버레이 축이다. poll_regime_file()이 entry_halt/force_liquidate로
+//     신규진입 정지·강제청산을 건다. 서로 다른 관심사라 통합하지 않는다. ①은
 //     "무엇을 살까", ②는 "지금 사도 되나/다 팔아야 하나"를 각각 결정한다.
 void Engine::apply_regime_selection(Regime r, bool force_log)
 {
@@ -261,7 +262,7 @@ void Engine::start()
     LOG_INFO("[Engine] RegimeController 초기화 완료");
 
     // 전략 초기화 (시세 클라이언트 주입 → on_start 내부에서 Universe 조회)
-    // 전략의 kis_는 차트(일봉·분봉)·랭킹 등 "읽기 전용 시세 조회"에만 쓰인다(주문은 out→OrderThread).
+    // 전략의 kis_는 차트(일봉·분봉)·랭킹 등 "읽기 전용 시세 조회"에만 쓰인다(실제 주문 발주는 OrderThread가 담당).
     // 분봉 TR(inquire-time-itemchartprice)은 모의 도메인에서 HTTP 500 → 시세 전용 실전 클라이언트가
     //  있으면 그걸로 조회(regime_·스캐너와 동일 패턴). 없으면 모의로 폴백.
     for (auto& s : strategies_)
@@ -493,7 +494,8 @@ void Engine::reconcile_from_balance()
                 // 손실컷 재시작 리셋 구멍 방지: 기준선을 거래일(KST)별 파일로 영속화.
                 //  같은 날 재시작 → 저장된 기준선 재사용(손실 한도 유지), 새 거래일 → 신규 캡처+저장.
                 //  장 시작(09:00)부터 연속 구동 시 파일이 그날 시가 기준선을 담아 당일손익이 정확.
-                time_t kt = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + 9 * 3600;
+                constexpr int kKstOffsetSec = 9 * 3600; // KST = UTC+9
+                time_t kt = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + kKstOffsetSec;
                 struct tm ktm{};
 #ifdef _WIN32
                 gmtime_s(&ktm, &kt);
@@ -702,8 +704,11 @@ void Engine::data_thread_fn()
                 //  ⚠️ 스키마 미확정 — 첫 성공 응답의 원문 로그로 필드명 확정할 것.
                 {
                     static int est_flow_tick = 0;
+                    // 수급추정(EstInvestorFlow) 로그 주기. 폴 간격(fetch_interval_sec_)이
+                    //  30초일 때 10틱이면 약 5분마다다. 폴 간격을 바꾸면 실제 분 주기도 바뀐다.
+                    constexpr int kEstFlowLogEveryNTicks = 10;
                     KisClient* eqc = quote_kis_ ? quote_kis_.get() : kis_.get();
-                    if (eqc && (est_flow_tick % 10) == 0) // 30s×10 ≈ 5분
+                    if (eqc && (est_flow_tick % kEstFlowLogEveryNTicks) == 0)
                     {
                         // 우리 유니버스(watch) 티커 집합 — 교집합만 강조 로깅.
                         std::unordered_set<std::string> ours;
@@ -867,9 +872,9 @@ void Engine::data_thread_fn()
                 {
                     if (spec.market != Market::KR)
                         continue;
-                    // 실전 도메인 시세는 초당 호출 한도(~20/s)가 있어, 33종목을 무간격으로
-                    //  몰아치면 뒷종목이 HTTP 500(초당 한도)로 떨어진다. 종목 간 소량 슬립으로
-                    //  한도 밑에 깔아 전 종목이 매 사이클 틱을 받도록 한다. 33×150ms≈5s ≪ 30s.
+                    // 실전 도메인 시세는 초당 호출 한도(~20/s)가 있어, 수십 종목을 무간격으로
+                    //  몰아치면 뒷종목이 HTTP 500(초당 한도)로 떨어진다. 종목 간 소량 슬립(150ms)으로
+                    //  한도 밑에 깔아 전 종목이 매 사이클 틱을 받도록 한다(종목 수×150ms가 30초 사이클 안에 들게).
                     std::this_thread::sleep_for(150ms);
                     double px = qc->get_current_price(spec.ticker);
                     if (px <= 0.0)
@@ -1229,12 +1234,12 @@ void Engine::order_thread_fn()
                 ++order_count_;
             }
             else if (mo.status == OrderStatus::REJECTED && attempts < order_max_retries_ &&
-                     mo.reject_reason.find("EGW00201") != std::string::npos)
+                     mo.reject_reason.find(kis_err::kRateLimit) != std::string::npos)
             {
                 // 초당 거래건수 초과 — KIS가 '접수 전' 거부라 중복주문 위험 없음(빈-ODNO 모호성 없음).
                 //  모든 action(취소·정정·매수·매도)을 dedup 창 밖(retry_delay≥1.2s)으로 재예약해
-                //  유실 없이 자가치유한다. 예전엔 취소·매수가 드롭돼 고아주문→다음 사이클 재처닝
-                //  →또 한도초과 되는 악순환이었다. 간격은 짧게 두고, 한도에 부딪힐 때만 물러난다.
+                //  유실 없이 자가치유한다. 예전엔 취소·매수가 드롭돼 고아 주문이 남고, 다음 사이클에
+                //  다시 처리되다 또 한도초과가 나는 악순환이었다. 간격은 짧게 두고, 한도에 부딪힐 때만 물러난다.
                 const std::string act = sig.action == OrderAction::CANCEL ? "CANCEL"
                                       : sig.action == OrderAction::REPLACE ? "REPLACE" : "NEW";
                 retry_q.push_back({sig, attempts + 1, steady_clock::now() + retry_delay});
@@ -1244,7 +1249,7 @@ void Engine::order_thread_fn()
             }
             else if (mo.status == OrderStatus::REJECTED && sig.action == OrderAction::NEW &&
                      sig.side == OrderSide::SELL && attempts < order_max_retries_ &&
-                     mo.reject_reason.find("40240000") == std::string::npos)
+                     mo.reject_reason.find(kis_err::kNoSellableQty) == std::string::npos)
             {
                 // 청산 SELL 유실 방지(C-2) — dedup 창 밖에서 재시도 예약.
                 //  단 40240000(주문가능분 없음)은 제외: 보유수량이 예약매도/미결제로 묶인 '지속성'
@@ -1298,7 +1303,8 @@ bool Engine::is_us_market_open() const
     if (kst.tm_wday == 0 || kst.tm_wday == 6)
         return false;
     int m = kst.tm_hour * 60 + kst.tm_min;
-    // KST 22:30~익일 05:00 → 1350~1500 (당일), 0~300 (익일)
+    // 미국 정규장(KST 22:30~익일 05:00): 하루 분(min) 기준으로 당일 1350~1439분 또는
+    //  익일 0~299분(05:00 직전까지). 하루는 최대 1439분이라 1500분은 존재하지 않는다.
     return (m >= 1350) || (m < 300);
 }
 

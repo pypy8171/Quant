@@ -16,7 +16,8 @@
 //   - 소비자는 하나뿐이므로 dequeue 경로에는 CAS가 필요 없다.
 //
 //   참조: Dmitry Vyukov, "Bounded MPMC queue"
-//         (원형은 MPMC. 여기서는 소비자 1개 계약으로 사용 — dequeue를 store로 단순화)
+//         (원형은 다중 생산자/다중 소비자(MPMC, Multi Producer Multi Consumer).
+//          여기서는 소비자 1개 계약으로 사용 — dequeue를 store로 단순화)
 // ─────────────────────────────────────────────────────────────────────────────
 
 namespace mpsc_detail

@@ -1,13 +1,17 @@
 #pragma once
 #include "api/KisClient.h"
+#include "core/TickSize.h"
 #include "strategy/StrategyBase.h"
 #include "utils/Logger.h"
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -75,6 +79,8 @@ public:
         if (p_.interval_min < 1) p_.interval_min = 1;
     }
 
+    ~DeviationScaleStrategy() { stop_prefetch(); }
+
     std::string id() const override { return "DEVSCALE_" + p_.ticker; }
 
     // 로그 표시용 "티커(종목명)". 이름 없으면 티커만. id()·데이터키와는 분리.
@@ -115,7 +121,23 @@ public:
         daily_date_.clear();
         equity_ = 0.0;
         seq_ = 0;
+        {
+            std::lock_guard<std::mutex> lk(snap_mtx_);
+            snap_daily_.clear();
+            snap_daily_date_.clear();
+            snap_equity_ = 0.0;
+            snap_bars_.clear();
+        }
         LOG_INFO("[" + id() + "] 시작 — " + describe());
+        // set_kis()가 on_start 직전 호출됨(Engine start/재스캔 둘 다) → kis_ 확정. 여기서 프리페치 기동.
+        prefetch_stop_.store(false, std::memory_order_relaxed);
+        prefetch_thread_ = std::thread([this] { prefetch_loop(); });
+    }
+
+    void on_stop() override
+    {
+        stop_prefetch();
+        LOG_INFO("[" + id() + "] 종료");
     }
 
     void on_trade_batch(const TradeData& td, std::vector<OrderSignal>& out) override
@@ -148,12 +170,25 @@ public:
         if (cur_px <= 0.0)
             return;
 
+        // ── 프리페치 스냅샷 스냅(일봉·자본·3분봉). 아직 준비 전이면 다음 하트비트 대기 ──
+        //  무거운 REST는 프리페치 스레드가 미리 당겨둔다. 여기선 락을 짧게 잡고 복사만.
+        std::vector<MarketData> bars;
+        {
+            std::lock_guard<std::mutex> lk(snap_mtx_);
+            if (snap_daily_.empty())
+                return; // 일봉 미준비 — 프리페치 대기
+            daily_  = snap_daily_;
+            equity_ = snap_equity_;
+            bars    = snap_bars_;
+        }
+
         // ── 일봉 존 판정(정배열 + SMA20 눌림) ────────────────────────────────
-        refresh_daily_if_needed();
         const bool   aligned = is_aligned(daily_);
         const double d_s20   = sma_close(daily_, 20);
         // 방향성 이격(부호 유지): +면 SMA20 위(확장추격), −면 아래(눌림). 절대값 금지.
-        const double s_dev   = d_s20 > 0.0 ? (cur_px - d_s20) / d_s20 * 100.0 : 999.0;
+        //  SMA20 미확보(≤0) 시 큰 양수 센티넬로 둬 존 상단 밖으로 밀어내 진입을 막는다.
+        constexpr double kNoDataDeviationPct = 999.0;
+        const double s_dev   = d_s20 > 0.0 ? (cur_px - d_s20) / d_s20 * 100.0 : kNoDataDeviationPct;
         // 방향성 눌림 게이트: 진입은 "SMA20 이하(≤0%) ~ pullback_pct 아래"의 눌림 구간에서만.
         //   정배열 상승추세에서 SMA20 눌림(entry_upper_pct=0) 또는 SMA20 위 소폭(entry_upper_pct>0)까지 진입 허용.
         //   히스테리시스: 활성이면 상단 +zone_hyst 더 여유, 하단 −(pullback+zone_hyst)까지 유지(경계 진동 방지).
@@ -187,10 +222,7 @@ public:
             return;
         }
 
-        // ── 3분봉 기준선 ─────────────────────────────────────────────────────
-        if (!kis_)
-            return;
-        std::vector<MarketData> bars = kis_->get_minute_ohlcv(p_.ticker, p_.sma_period + 1, p_.interval_min);
+        // ── 3분봉 기준선(스냅샷에서 이미 받음) ───────────────────────────────
         if (static_cast<int>(bars.size()) < p_.sma_period)
             return; // 봉 부족 — 다음 하트비트 재시도
         const double sma = sma_close(bars, p_.sma_period); // bars[0]=최신
@@ -334,25 +366,62 @@ private:
         return s5 > s10 && s10 > s20 && s20 > s60;
     }
 
-    void refresh_daily_if_needed()
+    // ── 프리페치: 무거운 REST(3분봉·일봉·잔고)를 공유 전략 스레드 밖에서 미리 당겨
+    //    스냅샷에 적재한다. on_trade_batch는 스냅샷만 읽어(락 짧게) 발주를 판단 → 특정
+    //    종목의 느린 REST가 전 전략을 막던 head-of-line 블로킹을 없앤다. 발주·매도가능
+    //    (sellable_qty)은 원장 최신성을 위해 동기 유지. 여기서 부르는 KIS 메서드는 전부
+    //    읽기전용(get_daily_ohlcv·get_minute_ohlcv·get_balance, 동시호출 감사 완료).
+    void prefetch_loop()
     {
-        std::string today = kst_ymd();
-        if (daily_date_ == today && !daily_.empty())
-            return;
-        if (!kis_)
-            return;
-        auto d = kis_->get_daily_ohlcv(p_.ticker, p_.daily_lookback);
-        if (!d.empty())
+        while (!prefetch_stop_.load(std::memory_order_relaxed))
         {
-            daily_ = std::move(d);
-            daily_date_ = today;
+            if (kis_)
+            {
+                // 일봉·자본: 날짜 바뀌면 1회 갱신(장중엔 사실상 1일 1회).
+                std::string today = kst_ymd();
+                bool need_daily;
+                {
+                    std::lock_guard<std::mutex> lk(snap_mtx_);
+                    need_daily = snap_daily_.empty() || snap_daily_date_ != today;
+                }
+                if (need_daily)
+                {
+                    auto   d  = kis_->get_daily_ohlcv(p_.ticker, p_.daily_lookback);
+                    double eq = fetch_equity();
+                    if (!d.empty())
+                    {
+                        std::lock_guard<std::mutex> lk(snap_mtx_);
+                        snap_daily_      = std::move(d);
+                        snap_daily_date_ = today;
+                        snap_equity_     = eq;
+                    }
+                }
+                // 3분봉: 매 주기 갱신(기존 핫패스).
+                auto bars = kis_->get_minute_ohlcv(p_.ticker, p_.sma_period + 1, p_.interval_min);
+                if (!bars.empty())
+                {
+                    std::lock_guard<std::mutex> lk(snap_mtx_);
+                    snap_bars_ = std::move(bars);
+                }
+            }
+            // min_action_ms를 50ms 조각으로 자며 stop 신호에 빠르게 반응.
+            for (int slept = 0;
+                 slept < p_.min_action_ms && !prefetch_stop_.load(std::memory_order_relaxed);
+                 slept += 50)
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
-        refresh_equity(); // 사이징 기준 자본도 일별 1회 갱신(계좌 성장 시 자동 스케일)
     }
 
-    // 사이징 기준 자본(총평가금) 스냅샷. output2 tot_evlu_amt(없으면 nass_amt).
-    //  시세전용/계좌없는 kis_ 또는 조회 실패 → fallback_equity 사용(그래도 0이면 주수 폴백).
-    void refresh_equity()
+    void stop_prefetch()
+    {
+        prefetch_stop_.store(true, std::memory_order_relaxed);
+        if (prefetch_thread_.joinable())
+            prefetch_thread_.join();
+    }
+
+    // 사이징 기준 자본(총평가금) 조회. output2 tot_evlu_amt(없으면 nass_amt). 알 수 없으면 0.
+    //  프리페치 스레드에서 호출(읽기전용). 폴백(fallback_equity) 적용은 호출측(on_trade_batch, line eq).
+    double fetch_equity()
     {
         double eq = 0.0;
         if (kis_ && kis_->has_account())
@@ -376,7 +445,7 @@ private:
             }
             catch (...) {}
         }
-        equity_ = eq > 0.0 ? eq : p_.fallback_equity;
+        return eq;
     }
 
     // 명목→수량(주). 가격/명목 유효하지 않으면 0(호출측이 폴백 결정).
@@ -387,24 +456,9 @@ private:
         return q > 0 ? q : 0;
     }
 
-    // ── KRX 호가단위(2023 통합) — MM-1과 동일 ────────────────────────────────
-    static double tick_size(double price)
-    {
-        if (price < 2000)    return 1;
-        if (price < 5000)    return 5;
-        if (price < 20000)   return 10;
-        if (price < 50000)   return 50;
-        if (price < 200000)  return 100;
-        if (price < 500000)  return 500;
-        return 1000;
-    }
-    static double round_to_tick(double p, OrderSide side)
-    {
-        const double t = tick_size(p);
-        if (t <= 0.0)
-            return p;
-        return (side == OrderSide::BUY) ? std::floor(p / t) * t : std::ceil(p / t) * t;
-    }
+    // ── KRX 호가단위/격자 절사는 core/TickSize.h(krx::)로 일원화. 얇은 위임만 유지. ──
+    static double tick_size(double price) { return krx::tick_size(price); }
+    static double round_to_tick(double p, OrderSide side) { return krx::round_to_tick(p, side); }
 
     std::string next_oid(const char* tag)
     {
@@ -602,4 +656,13 @@ private:
     int    liq_last_pos_    = -1;                          // 직전 청산시도 pos(진행 판정)
     int    liq_fail_streak_ = 0;                           // 연속 미진행 횟수(백오프 지수)
     uint64_t seq_ = 0;
+
+    // ── 프리페치(무거운 REST를 공유 전략 스레드 밖으로) ──────────────────────
+    std::thread             prefetch_thread_;
+    std::atomic<bool>       prefetch_stop_{false};
+    std::mutex              snap_mtx_;               // 아래 snap_* 보호
+    std::vector<MarketData> snap_daily_;             // 일봉 스냅샷
+    std::string             snap_daily_date_;        // 스냅샷 기준일(KST YYYYMMDD)
+    double                  snap_equity_ = 0.0;      // 자본 스냅샷(raw, 폴백 미적용)
+    std::vector<MarketData> snap_bars_;              // 3분봉 스냅샷
 };

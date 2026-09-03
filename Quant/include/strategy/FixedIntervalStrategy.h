@@ -1,4 +1,5 @@
 #pragma once
+#include "core/MarketSession.h"
 #include "strategy/StrategyBase.h"
 #include "utils/Logger.h"
 #include <chrono>
@@ -107,6 +108,6 @@ private:
     bool is_in_session(const std::string& time_str) const
     {
         int hhmm = parse_hhmm(time_str);
-        return hhmm >= 900 && hhmm < 1530;
+        return krx::in_session(hhmm); // 09:00~15:30 정규장 창(core/MarketSession.h)
     }
 };
