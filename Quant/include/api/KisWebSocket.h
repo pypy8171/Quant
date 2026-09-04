@@ -50,6 +50,15 @@ public:
     bool connect(const std::vector<WatchSpec>& specs);
     void disconnect();
 
+    // 연결을 유지한 채 종목 하나를 더 구독한다(장중 유니버스 재스캔으로 늘어난 종목용).
+    //  connect()는 최초 1회만 도는데, 재스캔으로 등록된 전략의 WatchSpec은 그때 목록에 없었다.
+    //  이 함수로 specs_에 넣어 두면 다음 재연결에서도 함께 살아난다. 이미 있는 종목이면
+    //  아무것도 하지 않는다(중복 구독은 등록 한도만 갉아먹는다).
+    //  연결 전이면 목록에만 넣고 실제 구독은 connect()가 한다.
+    //  data_thread에서 호출하고 specs_는 연결 스레드가 읽으므로 specs_mtx_로 보호한다.
+    // 반환: 구독 프레임을 실제로 보냈으면 true.
+    bool subscribe_incremental(const WatchSpec& spec);
+
     bool is_connected() const
     {
         return connected_.load();
@@ -78,6 +87,8 @@ private:
     // 블록이 네 곳(플랫폼×최초/재연결)에 중복돼 있던 것을 한 곳으로 모은다.
     // 재연결 시 선물 채널이 빠지는 불일치를 막는다.
     void subscribe_all();
+    // spec 하나의 채널을 구독한다(현·선물·미국 분기 한 곳). subscribe_all과 증분 구독이 공유한다.
+    void subscribe_spec(const WatchSpec& spec);
     void recv_loop();
     void parse_message(const std::string& msg);
     void parse_orderbook(const std::vector<std::string>& f);
@@ -102,6 +113,8 @@ private:
     std::string aes_key_; // 체결통보 복호화 키 (구독 응답에서 획득)
     std::string aes_iv_;  // 체결통보 복호화 IV
     std::vector<WatchSpec> specs_;
+    // specs_ 보호 — 연결 스레드가 읽고(subscribe_all) data_thread가 쓴다(subscribe_incremental).
+    mutable std::mutex specs_mtx_;
 
     std::atomic<bool>    connected_{false};
     // 나노초 단위 — std::atomic<time_point>는 이식성 문제로 int64_t 사용

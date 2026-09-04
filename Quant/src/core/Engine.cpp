@@ -41,6 +41,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
 
     // 런타임 등록 전략도 차트 조회는 실전 시세키로(분봉 모의 HTTP500 회피) — start()와 동일 패턴.
     strategy->set_kis(quote_kis_ ? quote_kis_.get() : kis_.get());
+    strategy->set_account_kis(kis_.get()); // 잔고·매도가능수량은 계좌를 가진 주문 클라이언트로
     strategy->set_position_provider([this](const std::string& account, const std::string& ticker) {
         return order_gate_.position(account, ticker);
     });
@@ -61,7 +62,11 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     if (regime_)
         strategy->set_active(regime_->is_active_for(strategy->active_regimes()));
 
-    // 구독 스펙 추가 (data_thread 전용 → 무락). 다음 폴링 사이클부터 현재가를 받는다.
+    // 구독 스펙 추가 (data_thread 전용 → 무락).
+    //  REST 폴링 모드면 다음 폴링 사이클부터 현재가를 받는다. WS 모드는 connect()가 기동 때
+    //  한 번만 돌아서, 여기서 늘어난 종목은 목록에 넣는 것만으로는 틱이 오지 않는다. 살아 있는
+    //  연결에 증분 구독을 걸어 둔다. 이게 없으면 재스캔으로 등록된 전략이 on_data를 한 번도
+    //  못 받아 조용히 매매하지 않는다(등록 로그만 남아 정상으로 보인다).
     for (auto& spec : strategy->get_watch_specs())
     {
         if (spec.market == Market::KR)
@@ -74,7 +79,11 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
                 break;
             }
         if (!exists)
+        {
             watch_specs_.push_back(spec);
+            if (ws_)
+                ws_->subscribe_incremental(spec);
+        }
     }
 
     {
@@ -270,6 +279,10 @@ void Engine::start()
     for (auto& s : strategies_)
     {
         s->set_kis(quote_kis_ ? quote_kis_.get() : kis_.get());
+        // 잔고 조회는 시세 클라이언트가 아니라 계좌를 가진 주문 클라이언트로 한다.
+        //  시세 전용 클라이언트에는 account_no가 없어 has_account()가 false가 되고,
+        //  그러면 매도가능수량이 항상 0으로 떨어져 익절·존이탈청산·EOD청산이 전부 발주되지 않는다.
+        s->set_account_kis(kis_.get());
         // D2: 확정 포지션 접근자 주입 — 전략이 OrderGate 원장(WS/REST 공용)을 진실원천으로 읽음.
         s->set_position_provider([this](const std::string& account, const std::string& ticker) {
             return order_gate_.position(account, ticker);
@@ -433,7 +446,7 @@ void Engine::bootstrap_ledger()
 //      → BUY-only 손실컷(§4)이 정상 작동(C-3의 신규매수 차단 의도 재무장).
 //  ⚠️ 절대 평가손익(evlu_pfls)이 아니라 "당일 기준선 델타"를 쓴다. 이미 -30% 물린
 //     미실현손실을 daily_pnl로 넣으면 개장 즉시 모든 신규매수가 막혀버리기 때문.
-void Engine::reconcile_from_balance()
+void Engine::reconcile_from_balance(bool resync_positions)
 {
     // 서킷브레이커: 잔고조회가 연속 실패 중이면 이번 사이클은 조회를 건너뛴다.
     //  (get_balance 12002 타임아웃 시 GET 3회 재시도로 ~60s를 태워 데이터 스레드를 정체시킴)
@@ -455,14 +468,19 @@ void Engine::reconcile_from_balance()
             // 잔고는 서버 확정 스냅샷 → 미체결 선점(reserved_)을 통째로 비우고 실보유만 신뢰.
             //  체결피드(H0STCNI0) 부재로 누적된 H-1 드리프트(과잉 선점 → 정상신호 과잉차단)를
             //  동기화 시점마다 해소한다(#1). reset은 seed 재기록 전에 1회.
-            order_gate_.reset_reserved();
-            for (auto& h : bal["output1"])
+            //  체결통보가 오는 WS 모드에서는 건너뛴다 — 그쪽은 원장이 체결로 이미 갱신되고,
+            //  reserved_에는 아직 살아 있는 지정가 주문이 잡혀 있어 비우면 재발주를 부른다.
+            if (resync_positions)
             {
-                std::string code = h.value("pdno", "");
-                int    q  = std::atoi(h.value("hldg_qty", "0").c_str());
-                double av = std::atof(h.value("pchs_avg_pric", "0").c_str());
-                if (!code.empty() && q > 0)
-                    order_gate_.seed_position(std::string(), code, q, av);
+                order_gate_.reset_reserved();
+                for (auto& h : bal["output1"])
+                {
+                    std::string code = h.value("pdno", "");
+                    int    q  = std::atoi(h.value("hldg_qty", "0").c_str());
+                    double av = std::atof(h.value("pchs_avg_pric", "0").c_str());
+                    if (!code.empty() && q > 0)
+                        order_gate_.seed_position(std::string(), code, q, av);
+                }
             }
         }
 
@@ -552,6 +570,7 @@ void Engine::reconcile_from_balance()
             }
             double delta = tot_eval - pnl_baseline_;
             order_gate_.set_daily_pnl(delta); // 손실컷용(세션 앵커) — 리스크게이트 동작 유지
+            order_gate_.set_equity(tot_eval); // 총노출 게이트(§3d) 분모 — 총평가금 스냅샷 갱신
             LOG_INFO("[Engine] 리컨사일: 당일손익 " + std::to_string(static_cast<long long>(delta)) +
                      "원 (총평가 " + std::to_string(static_cast<long long>(tot_eval)) + ")");
             // 표시 전용: 전일종가 대비 진짜 당일손익 — launch 시점과 무관하게 정확·연속 누적.
@@ -646,7 +665,7 @@ void Engine::data_thread_fn()
         {
             order_gate_.reset_daily();
             if (order_router_)
-                order_router_->reset_daily();   // V-4: 멱등키 일별 정리(거래일 prefix와 함께 cross-day 충돌 차단)
+                order_router_->reset_daily();   // V-4: 중복방지 키 일별 정리(거래일 prefix와 함께 cross-day 충돌 차단)
             have_pnl_baseline_ = false; // C-1: 새 거래일 → 총평가금 기준선 재캡처
             LOG_INFO("[DataThread] 장 시작 — OrderGate 일별 카운터 리셋");
 
@@ -704,10 +723,15 @@ void Engine::data_thread_fn()
                 }
             }
 
-            if (rest_feed_active_.load(std::memory_order_relaxed))
+            const bool rest_now = rest_feed_active_.load(std::memory_order_relaxed);
+
+            // 매 사이클 잔고 리컨사일. 폴링 모드는 원장까지 덮어쓰고(체결콜백 부재 보완),
+            //  WS 모드는 총평가금·일손익만 갱신한다. WS 모드에서 이걸 건너뛰면 equity가 0에
+            //  머물러 총노출 게이트가 조용히 통과만 하고, 일간손실 한도의 기준값도 안 움직인다.
+            reconcile_from_balance(/*resync_positions=*/rest_now);
+
+            if (rest_now)
             {
-                // C-1: 매 사이클 잔고 리컨사일(체결콜백 부재 보완) — 원장/일손실 재동기.
-                reconcile_from_balance();
 
                 // ── 당일 외국인·기관 추정 순매수 "관측 적재"(게이트 아님) ──────────────
                 //  data-sourcer 판정: FHPTJ04400000는 추정/가집계 → 부호·상대크기만 신뢰.
@@ -906,13 +930,17 @@ void Engine::data_thread_fn()
             }
             else
             {
+                // 차트(일봉) TR은 모의 도메인에서 HTTP 500을 돌려준다. 주문 클라이언트로 부르면
+                //  종목 수×사이클마다 500이 쌓여 로그가 그걸로 덮인다(3회 재시도까지 붙는다).
+                //  위 rest 분기와 같이 시세 클라이언트로 부른다.
+                KisClient* qc = quote_kis_ ? quote_kis_.get() : kis_.get();
                 for (const auto& spec : watch_specs_)
                 {
                     std::vector<MarketData> bars;
                     if (spec.market == Market::KR)
-                        bars = kis_->get_daily_ohlcv(spec.ticker, 1);
+                        bars = qc->get_daily_ohlcv(spec.ticker, 1);
                     else
-                        bars = kis_->get_us_daily_ohlcv(spec.ticker, 1, spec.exchange);
+                        bars = qc->get_us_daily_ohlcv(spec.ticker, 1, spec.exchange);
 
                     if (bars.empty())
                         continue;

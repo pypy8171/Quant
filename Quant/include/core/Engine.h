@@ -144,7 +144,12 @@ private:
     void order_thread_fn();
     void control_thread_fn(); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
     void bootstrap_ledger();  // G5: get_balance → OrderGate.seed_position (스레드 시작 전 1회)
-    void reconcile_from_balance(); // C-1: rest 모드 주기적 잔고 재조회 → positions_/daily_pnl_ 재동기
+    // 주기적 잔고 재조회 → positions_/daily_pnl_/총평가금 재동기.
+    //  resync_positions=true(폴링 모드)면 미체결 선점(reserved_)을 비우고 실보유로 원장을 덮어쓴다.
+    //  체결통보가 오는 WS 모드에서는 원장이 이미 체결로 갱신되고 reserved_에는 살아 있는 지정가
+    //  주문이 잡혀 있으므로, false로 불러 총평가금·일손익만 갱신한다(선점을 지우면 같은 주문을
+    //  다시 낼 수 있다). 이 갱신이 없으면 equity가 0에 머물러 총노출 게이트가 통과만 하게 된다.
+    void reconcile_from_balance(bool resync_positions);
     void poll_regime_file();       // 매크로 레짐 파일 폴링 → OrderGate entry_halt 토글 (data_thread 전용)
     void maybe_rescan_universe();  // 주기적 유니버스 재스캔 → 신규 티커 런타임 등록 (data_thread 전용)
     // G1: 현재 국면 r에 맞춰 전략별 active 플래그 재선택. 선택 결정을 로그로 기록(국면 변화

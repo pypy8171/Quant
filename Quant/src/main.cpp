@@ -246,6 +246,7 @@ int main(int argc, char* argv[])
         rc.max_notional_per_order = r.value("max_notional_per_order", rc.max_notional_per_order);
         rc.max_notional_per_ticker  = r.value("max_notional_per_ticker", rc.max_notional_per_ticker);
         rc.max_concurrent_positions = r.value("max_concurrent_positions", rc.max_concurrent_positions);
+        rc.max_gross_exposure_pct   = r.value("max_gross_exposure_pct", rc.max_gross_exposure_pct);
         engine.set_risk_config(rc);
         LOG_INFO("[Main] risk 한도: 종목당 " + std::to_string(rc.max_qty_per_ticker) + "주, 일손실 " +
                  std::to_string((long long)rc.daily_loss_limit) + "원, " +
@@ -255,6 +256,9 @@ int main(int argc, char* argv[])
             LOG_INFO("[Main] 사이징 백스톱: 종목당 명목 " +
                      std::to_string((long long)rc.max_notional_per_ticker) + "원, 동시보유 " +
                      std::to_string(rc.max_concurrent_positions) + "종목");
+        if (rc.max_gross_exposure_pct > 0.0)
+            LOG_INFO("[Main] 총노출 상한: 자본의 " +
+                     std::to_string(rc.max_gross_exposure_pct) + " (리컨사일 총평가금 기준)");
 
         // 주문 페이싱(C-2/W-3) — 버스트 청산 EGW00201 회피 + 거부 SELL 재시도.
         int pace_ms = r.value("order_min_interval_ms", 350);

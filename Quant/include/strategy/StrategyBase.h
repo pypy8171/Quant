@@ -80,6 +80,17 @@ public:
         kis_ = k;
     }
 
+    // 계좌 조회(잔고·매도가능수량·총평가금) 전용 클라이언트 주입.
+    //  set_kis()가 받는 것은 시세 클라이언트다. 주문을 모의로 내면서 시세만 실전 도메인으로
+    //  받는 구성에서는 그 시세 클라이언트에 계좌번호가 없어 has_account()가 false가 되고,
+    //  잔고를 쓰는 코드가 전부 "알 수 없음"으로 떨어진다(매도가능=0 → 청산·익절 미발주).
+    //  계좌를 가진 주문 클라이언트를 따로 받아 두 관심사를 분리한다.
+    //  미주입이면 account_kis()가 kis_로 되돌아가 단일 클라이언트 구성의 기존 동작을 유지한다.
+    void set_account_kis(KisClient* k)
+    {
+        account_kis_ = k;
+    }
+
     // OrderGate 확정 포지션 접근자 주입 — WS/REST 양모드 공용 원장 진실원천.
     // Engine::start()에서 order_gate_.position(account,ticker)로 바인딩. 미주입 시 0 반환.
     // (체결콜백 부재 rest 모드에서도 리컨사일로 원장이 최신이라 이 값이 신뢰 가능)
@@ -93,7 +104,15 @@ public:
     }
 
 protected:
-    KisClient* kis_ = nullptr; // non-owning; lifetime guaranteed by Engine
+    // 잔고·매도가능수량·총평가금을 조회할 클라이언트. 주입됐으면 그쪽, 아니면 시세 클라이언트.
+    //  (호출측은 지금까지처럼 has_account()로 한 번 더 확인한다.)
+    KisClient* account_kis() const
+    {
+        return account_kis_ ? account_kis_ : kis_;
+    }
+
+    KisClient* kis_ = nullptr;         // non-owning; lifetime guaranteed by Engine
+    KisClient* account_kis_ = nullptr; // non-owning; 계좌 조회용(미주입 시 kis_ 사용)
     std::function<int(const std::string&, const std::string&)> position_provider_; // 결제완료 확정 포지션(D2=결제일 T+2)
     std::atomic<bool> active_{true};   // 국면 게이트(Engine이 설정). 기본 true=통과 (G-1)
     std::vector<Regime> active_regimes_ = {Regime::BULL, Regime::NEUTRAL, Regime::BEAR};

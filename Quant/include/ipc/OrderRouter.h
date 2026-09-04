@@ -54,7 +54,7 @@ public:
     // ── 체결통보 수신 — ODNO로 이력 조회 후 FILLED 상태 갱신 ────────────
     void on_fill(const FillNotification& fn);
 
-    // ── 일별 리셋 (장 시작) — 멱등키(seen_fills_) 정리 ───────────────────
+    // ── 일별 리셋 (장 시작) — 중복방지 키(seen_fills_) 정리 ───────────────────
     void reset_daily();
 
     // ── 통계 조회 ─────────────────────────────────────────────────────────
@@ -101,7 +101,7 @@ private:
 
     mutable std::mutex       hist_mtx_;
     std::deque<ManagedOrder> history_;
-    std::unordered_set<std::string> seen_fills_; // 멱등 처리: 처리한 체결통보 키 (hist_mtx_로 보호)
+    std::unordered_set<std::string> seen_fills_; // 중복 제거: 처리한 체결통보 키 (hist_mtx_로 보호)
     // MM-1: client_oid → order_id 존재 힌트 (hist_mtx_로 보호). 실제 ManagedOrder는
     //   history_ 스캔으로 해석(deque 요소는 pop_front로 소멸 가능 → 안정 핸들 아님).
     std::unordered_map<std::string, std::string> oid_index_;

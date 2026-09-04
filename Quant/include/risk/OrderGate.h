@@ -19,7 +19,7 @@
 //   2.  NONE side    — 신호 없음, 즉시 거부
 //   1b. Entry halt   — 신규 진입(BUY NEW)만 차단, SELL 청산은 통과. 지수 급락 킬스위치용.
 //   2b. fat-finger   — NEW 주문 1건의 수량/명목 상한(C-3, 시장가 대량주문 슬리피지 방어)
-//   3.  포지션 한도  — 종목당 최대 수량(3b 종목당 명목·3c 동시 보유 종목 상한 포함), BUY만
+//   3.  포지션 한도  — 종목당 최대 수량(3b 종목당 명목·3c 동시 보유 종목 상한·3d 포트폴리오 총노출 상한 포함), BUY만
 //   4.  일일 손실    — 일일 최대 손실 초과 시 신규 매수 거부
 //   4b. PnL stale    — 잔고 대조(리컨사일) 정체로 daily_pnl 미갱신 시 신규 매수 보수적 정지(B2)
 //   5.  중복 신호    — 동일 account:strategy:ticker:side 1초 이내 중복 거부
@@ -38,6 +38,9 @@ public:
         // ── 명목 사이징 백스톱 — 전략이 자본%로 사이징할 때의 상한/집중 제어(0=미적용) ──
         double max_notional_per_ticker  = 0.0;  // 종목당 최대 보유 명목(원). limit가로 평가. 0=수량 한도만
         int    max_concurrent_positions = 0;    // 동시 보유 종목 상한(새 종목 여는 BUY NEW에만). 0=미적용
+        // ── 포트폴리오 총노출 상한 — 모든 종목 보유·예약 명목 합이 자본의 이 비율을 넘으면 신규 매수 차단(0=미적용).
+        //    종목당 상한(15%)×동시보유(10)=150% 같은 과노출을 총합 단에서 막는다(청산은 통과).
+        double max_gross_exposure_pct   = 0.0;  // 예: 0.95 = 자본의 95%. equity_ 미주입(0)이면 자동 비활성
         double daily_loss_limit = -300'000.0;   // 일일 최대 손실 (-30만원)
         int max_orders_per_min  = 20;           // 분당 최대 주문 (KIS 권장)
         int max_orders_per_sec  = 5;            // 초당 최대 주문 (KIS 안전 한도)
@@ -83,6 +86,12 @@ public:
         std::lock_guard<std::mutex> lk(pnl_mtx_);
         daily_pnl_ = pnl;
     }
+
+    // ── 총노출 게이트용 자본 주입 (§3d) ──────────────────────────────────────
+    // 리컨사일 스레드가 총평가금(tot_evlu_amt) 갱신 시 호출. check()가 락 없이 읽도록 atomic.
+    // 0이면 §3d 게이트 비활성(자본 미상 시 폴백 안전 — 종목당·동시보유 백스톱이 커버).
+    void set_equity(double equity) { equity_.store(equity, std::memory_order_relaxed); }
+    double equity() const { return equity_.load(std::memory_order_relaxed); }
 
     // ── 원장 부트스트랩 (G5) — 기동 시 실계좌 보유분을 원장에 시드 ─────────────
     // 체결이 아니므로 reserved_/daily_pnl_은 불변, positions_/avg_prices_만 설정.
@@ -202,11 +211,13 @@ private:
     std::atomic<bool> kill_switch_{false};
     std::atomic<bool> entry_halt_{false};  // 신규 진입(BUY NEW)만 정지, SELL 청산은 통과 — 국면 리스크용
     std::atomic<bool> pnl_stale_{false};   // 잔고 리컨사일 정체 → daily_pnl 미갱신, BUY NEW 보수 정지(B2)
+    std::atomic<double> equity_{0.0};      // 총평가금 스냅샷(§3d 총노출 게이트 분모). 리컨사일이 갱신, check()가 락 없이 읽음
 
     mutable std::mutex positions_mtx_;
-    std::unordered_map<std::string, int>    reserved_;   // account:ticker → 미체결 선점 수량 (BUY +, SELL -). 재주문 차단용
-    std::unordered_map<std::string, int>    positions_;  // account:ticker → 실체결 순보유 수량 (양수=롱)
-    std::unordered_map<std::string, double> avg_prices_; // account:ticker → 매수 평균단가 (실체결 기준)
+    std::unordered_map<std::string, int>    reserved_;    // account:ticker → 미체결 선점 수량 (BUY +, SELL -). 재주문 차단용
+    std::unordered_map<std::string, double> reserved_px_; // account:ticker → 미체결 선점가(§3d 총노출 계산용). reserved_와 동일 생명주기로 정리
+    std::unordered_map<std::string, int>    positions_;   // account:ticker → 실체결 순보유 수량 (양수=롱)
+    std::unordered_map<std::string, double> avg_prices_;  // account:ticker → 매수 평균단가 (실체결 기준)
 
     mutable std::mutex pnl_mtx_;
     double daily_pnl_{0.0};

@@ -204,7 +204,7 @@ void test_order_id_sequence()
     PASS("order_id_sequence");
 }
 
-// ─── 테스트 7: 중복 체결통보 멱등 처리 (C1 fix) ──────────────────────────────
+// ─── 테스트 7: 중복 체결통보 무시 (C1 fix) ──────────────────────────────
 //   부분체결 중 동일 통보가 재수신돼도 confirmed_qty가 이중 반영되면 안 됨
 void test_duplicate_fill_ignored()
 {
@@ -243,7 +243,7 @@ void test_duplicate_fill_ignored()
     PASS("duplicate_fill_ignored");
 }
 
-// ─── 테스트 8: cross-day 멱등키 (V-4 fix) ────────────────────────────────────
+// ─── 테스트 8: cross-day 중복방지 키 (V-4 fix) ────────────────────────────────────
 //   ODNO는 영업일 단위 재사용 + fill_time은 HHMMSS(날짜 없음). 다른 거래일의 동일
 //   (odno,fill_time,qty,price) 통보가 전일 체결로 오인돼 drop되면 실체결 누락 사고.
 //   거래일 prefix로 차단 — 둘 다 정상 반영되어야 한다.

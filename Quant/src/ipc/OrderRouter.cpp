@@ -123,7 +123,10 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& sig)
         mo.krx_orgno    = ack.krx_orgno; // 정정/취소 시 원주문 조직번호로 재입력
         ++accepted_count_;
         // KIS 접수 시점에 포지션 선점 (보수적 추적 — 실제 체결 확인 전까지 재주문 차단)
-        gate_.on_accept(sig.account_id, sig.ticker, sig.side, sig.quantity, sig.price);
+        //  선점가는 지정가=price, 시장가(0)=ref_price로 근사 stamp → §3d 총노출이 시장가 선점을
+        //  과소평가하지 않게(check()의 eval_px와 대칭, 보수측).
+        gate_.on_accept(sig.account_id, sig.ticker, sig.side, sig.quantity,
+                        sig.price > 0.0 ? sig.price : sig.ref_price);
         // client_oid → order_id 인덱스 (취소/정정 대상 조회용). hist_mtx_는 record()에서 잡으므로
         //   여기선 별도로 짧게 보호한다(단일 order_thread라 경합은 on_fill/recent와만 발생).
         if (!sig.client_oid.empty())
@@ -536,8 +539,8 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& sig)
         oid_index_.erase(sig.orig_client_oid);
         if (release > 0)
             gate_.on_cancel(account, ticker, side, release);
-        // 정정본 재선점 — 새 side는 원주문과 동일
-        gate_.on_accept(account, ticker, side, new_qty, sig.price);
+        // 정정본 재선점 — 새 side는 원주문과 동일 (선점가는 지정가=price, 시장가=ref_price 근사)
+        gate_.on_accept(account, ticker, side, new_qty, sig.price > 0.0 ? sig.price : sig.ref_price);
         if (!sig.client_oid.empty())
             oid_index_[sig.client_oid] = mo.order_id;
     }
@@ -559,7 +562,7 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& sig)
 void OrderRouter::on_fill(const FillNotification& fn)
 {
     std::lock_guard<std::mutex> lk(hist_mtx_);
-    // 멱등 처리 — KIS 체결통보는 at-least-once(재전송/WS 재구독 시 중복 가능).
+    // 중복 제거 — KIS 체결통보는 at-least-once(재전송/WS 재구독 시 중복 가능).
     // H0STCNI0 전문에 체결고유번호가 없어 odno+체결시각+수량+단가를 조합 키로 사용.
     // ODNO는 영업일 단위 재사용되고 fill_time은 HHMMSS(날짜 없음)라, 거래일(수신일)을
     // prefix로 붙여, 서로 다른 날의 동일키 충돌로 실체결을 오인해 drop하는 일을 막는다 (V-4).
@@ -627,7 +630,7 @@ void OrderRouter::on_fill(const FillNotification& fn)
 }
 
 // ─── 일별 리셋 (장 시작 시 Engine이 호출) ─────────────────────────────────
-// 멱등키(seen_fills_)의 무한 증가를 해소. 거래일 prefix로 cross-day 충돌은 이미
+// 중복방지 키(seen_fills_)의 무한 증가를 해소. 거래일 prefix로 cross-day 충돌은 이미
 // 차단되므로, 전일 키는 더 이상 필요 없다.
 void OrderRouter::reset_daily()
 {

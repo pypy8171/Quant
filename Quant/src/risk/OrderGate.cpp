@@ -126,6 +126,39 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
                 return false;
             }
         }
+
+        // 3d. 포트폴리오 총노출 상한 — 모든 종목 보유(positions_×평단)+미체결 선점(reserved_×선점가) 합이
+        //     자본의 max_gross_exposure_pct를 넘게 만드는 BUY를 차단(신규·물타기 공통). 청산(SELL)은 위에서 제외.
+        //     종목당 명목(15%)×동시보유(10)=150% 같은 과노출을 총합 단에서 막는다. equity 미주입(0)이면 비활성.
+        //     보유분은 원가(평단)로, 분모 equity는 시장 총평가금이라 상승장 과소·하락장 과대의 근사(수용).
+        const double equity = equity_.load(std::memory_order_relaxed);
+        if (cfg_.max_gross_exposure_pct > 0.0 && equity > 0.0 && eval_px > 0.0)
+        {
+            double gross = 0.0;
+            for (const auto& kv : positions_)
+            {
+                if (kv.second <= 0) continue;
+                auto ap = avg_prices_.find(kv.first);
+                gross += kv.second * (ap != avg_prices_.end() ? ap->second : 0.0);
+            }
+            for (const auto& kv : reserved_)
+            {
+                if (kv.second <= 0) continue; // BUY 선점(+)만 노출 증가. SELL 선점(-)은 축소라 보수적으로 무시
+                auto pp = reserved_px_.find(kv.first);
+                gross += kv.second * (pp != reserved_px_.end() ? pp->second : 0.0);
+            }
+            const double cap        = cfg_.max_gross_exposure_pct * equity;
+            const double next_gross = gross + sig.quantity * eval_px;
+            if (next_gross > cap)
+            {
+                std::ostringstream ss;
+                ss << "총노출 한도 초과 (" << static_cast<long long>(next_gross) << " > "
+                   << static_cast<long long>(cap) << " = 자본 " << static_cast<long long>(equity)
+                   << "×" << cfg_.max_gross_exposure_pct << ") — 신규 매수 정지(청산 허용)";
+                reject_reason = ss.str();
+                return false;
+            }
+        }
     }
 
     // 4. 일일 손실 한도 (BUY에만 적용 — 신규 진입 차단이 설계 의도)
@@ -215,10 +248,16 @@ void OrderGate::on_accept(const std::string& account, const std::string& ticker,
     int delta = (side == OrderSide::BUY) ? qty : -qty;  // BUY 선점 +, SELL 선점 -
     int next  = (reserved_.count(k) ? reserved_[k] : 0) + delta;
     if (next == 0)
+    {
         reserved_.erase(k);
+        reserved_px_.erase(k);      // 선점이 해소되면 선점가도 정리(§3d 명목이 남아 부풀지 않게)
+    }
     else
+    {
         reserved_[k] = next;
-    (void)price;
+        if (price > 0.0)
+            reserved_px_[k] = price; // 최신 선점가 기록. 시장가(0)면 유지(직전 값)해 총노출 근사 보존
+    }
 }
 
 // ─── 미체결 취소/정정 축소 시 선점 해제 (C5) ────────────────────────────────
@@ -243,7 +282,10 @@ void OrderGate::on_cancel(const std::string& account, const std::string& ticker,
     if ((cur > 0 && r < 0) || (cur < 0 && r > 0))
         r = 0;
     if (r == 0)
+    {
         reserved_.erase(k);
+        reserved_px_.erase(k);
+    }
     else
         reserved_[k] = r;
 }
@@ -253,6 +295,7 @@ void OrderGate::reset_reserved()
 {
     std::lock_guard<std::mutex> lk(positions_mtx_);
     reserved_.clear();
+    reserved_px_.clear();
 }
 
 // ─── 실현 손익 누적 ─────────────────────────────────────────────────────────
@@ -302,7 +345,7 @@ OrderGate::FillResult OrderGate::on_fill_confirmed(
 
             // 선점 해제 (BUY 선점은 +였으므로 -qty)
             int r = (reserved_.count(k) ? reserved_[k] : 0) - qty;
-            if (r == 0) reserved_.erase(k); else reserved_[k] = r;
+            if (r == 0) { reserved_.erase(k); reserved_px_.erase(k); } else reserved_[k] = r;
         }
         else // SELL
         {
@@ -322,7 +365,7 @@ OrderGate::FillResult OrderGate::on_fill_confirmed(
 
             // 선점 해제 (SELL 선점은 -였으므로 +qty)
             int r = (reserved_.count(k) ? reserved_[k] : 0) + qty;
-            if (r == 0) reserved_.erase(k); else reserved_[k] = r;
+            if (r == 0) { reserved_.erase(k); reserved_px_.erase(k); } else reserved_[k] = r;
         }
     }
 
@@ -354,6 +397,7 @@ void OrderGate::reset_daily()
         //   — 취소 없이 장 마감까지 미체결로 만료된 분의 선점을 청소한다.
         std::lock_guard<std::mutex> lk(positions_mtx_);
         reserved_.clear();
+        reserved_px_.clear();
     }
     // avg_prices_ / positions_ 는 영속 원장 — 장 시작에 초기화하지 않는다
 }

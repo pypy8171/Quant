@@ -424,11 +424,12 @@ private:
     double fetch_equity()
     {
         double eq = 0.0;
-        if (kis_ && kis_->has_account())
+        KisClient* akis = account_kis();
+        if (akis && akis->has_account())
         {
             try
             {
-                nlohmann::json bal = kis_->get_balance();
+                nlohmann::json bal = akis->get_balance();
                 const nlohmann::json* row = nullptr;
                 if (bal.contains("output2"))
                 {
@@ -583,11 +584,12 @@ private:
     //  - 조회 실패(예외·output1 없음)·잔고에 종목 없음·필드 없음 → 0 (다음 백오프에 재시도).
     int sellable_qty()
     {
-        if (!kis_ || !kis_->has_account())
+        KisClient* akis = account_kis();
+        if (!akis || !akis->has_account())
             return 0;
         try
         {
-            nlohmann::json bal = kis_->get_balance();
+            nlohmann::json bal = akis->get_balance();
             if (!bal.contains("output1") || !bal["output1"].is_array())
                 return 0;
             for (const auto& h : bal["output1"])

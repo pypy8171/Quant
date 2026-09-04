@@ -227,7 +227,10 @@ std::string KisWebSocket::http_post_json(const std::string& url, const std::stri
 // ─── Windows WebSocket 연결 ──────────────────────────────────────────────────
 bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
 {
-    specs_ = specs;
+    {
+        std::lock_guard<std::mutex> lk(specs_mtx_);
+        specs_ = specs;
+    }
     if (!get_approval_key())
         return false;
 
@@ -731,7 +734,10 @@ static std::string ws_recv_frame_linux(int fd)
 // ─── Linux WebSocket 연결 ─────────────────────────────────────────────────
 bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
 {
-    specs_ = specs;
+    {
+        std::lock_guard<std::mutex> lk(specs_mtx_);
+        specs_ = specs;
+    }
     if (!get_approval_key())
         return false;
 
@@ -945,31 +951,60 @@ void KisWebSocket::send_subscribe(const std::string& tr_id, const std::string& t
 // specs_ 전체를 순회해 채널을 구독한다. 최초 연결·재연결에서 공통으로 호출한다.
 // 재연결 시 trade_only를 준수해야 등록 한도(약 41)를 갉아먹지 않는다(호가 미필요 종목은
 // 체결만). 선물은 WatchSpec.is_future로 골라 H0IFASP0/H0IFCNT0을 구독한다.
+void KisWebSocket::subscribe_spec(const WatchSpec& spec)
+{
+    if (spec.is_future)
+    {
+        // 국내 선물: tr_key = 선물 종목코드(예 101W09), 미국과 달리 exchange prefix 없음.
+        if (!spec.trade_only)
+            send_subscribe("H0IFASP0", spec.ticker);
+        send_subscribe("H0IFCNT0", spec.ticker);
+    }
+    else if (spec.market == Market::KR)
+    {
+        if (!spec.trade_only)
+            send_subscribe("H0STASP0", spec.ticker);
+        send_subscribe("H0STCNT0", spec.ticker);
+    }
+    else
+    {
+        // 미국: HDFSCNT0, tr_key = "EXCH|SYMBOL"
+        std::string exch = spec.exchange.empty() ? "NAS" : spec.exchange;
+        send_subscribe("HDFSCNT0", exch + "|" + spec.ticker);
+    }
+}
+
+bool KisWebSocket::subscribe_incremental(const WatchSpec& spec)
+{
+    {
+        std::lock_guard<std::mutex> lk(specs_mtx_);
+        for (const auto& w : specs_)
+            if (w.market == spec.market && w.exchange == spec.exchange &&
+                w.ticker == spec.ticker && w.is_future == spec.is_future)
+                return false; // 이미 구독 중
+        specs_.push_back(spec);
+    }
+    if (!connected_.load())
+        return false; // 목록에만 넣어 둔다. 실제 구독은 connect()/재연결의 subscribe_all이 한다.
+    subscribe_spec(spec);
+    return true;
+}
+
 void KisWebSocket::subscribe_all()
 {
-    bool has_kr = false;
-    for (const auto& spec : specs_)
+    // 전송 중에 락을 쥐지 않도록 스냅샷을 뜬다(증분 구독이 data_thread에서 들어올 수 있다).
+    std::vector<WatchSpec> snapshot;
     {
-        if (spec.is_future)
-        {
-            // 국내 선물: tr_key = 선물 종목코드(예 101W09), 미국과 달리 exchange prefix 없음.
-            if (!spec.trade_only)
-                send_subscribe("H0IFASP0", spec.ticker);
-            send_subscribe("H0IFCNT0", spec.ticker);
-        }
-        else if (spec.market == Market::KR)
-        {
+        std::lock_guard<std::mutex> lk(specs_mtx_);
+        snapshot = specs_;
+    }
+
+    bool has_kr = false;
+    for (const auto& spec : snapshot)
+    {
+        if (!spec.is_future && spec.market == Market::KR)
             has_kr = true;
-            if (!spec.trade_only)
-                send_subscribe("H0STASP0", spec.ticker);
-            send_subscribe("H0STCNT0", spec.ticker);
-        }
-        else
-        {
-            // 미국: HDFSCNT0, tr_key = "EXCH|SYMBOL"
-            std::string exch = spec.exchange.empty() ? "NAS" : spec.exchange;
-            send_subscribe("HDFSCNT0", exch + "|" + spec.ticker);
-        }
+        subscribe_spec(spec);
     }
 
     // 체결통보 구독 — 현물 hts_id가 명시된 경우에만 (비어있으면 건너뜀)
