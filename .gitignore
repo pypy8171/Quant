@@ -71,7 +71,7 @@ REGIME_CONTROLLER_SPEC.md
 # 로컬 전용 자료 — 절대 커밋 금지
 _private/
 
-# forward-test(모의매매) 로컬 산출물 — 상태/멱등키/P&L (절대 커밋 금지)
+# forward-test(모의매매) 로컬 산출물 — 상태/중복방지 키/P&L (절대 커밋 금지)
 PYQuant/live/.forward_state.json
 PYQuant/live/forward_pnl.csv
 
@@ -79,3 +79,6 @@ PYQuant/live/forward_pnl.csv
 pnl_baseline_*.txt
 .watch_intraday_state.json
 PYQuant/data/index_intraday/
+
+# 운영 런북 — 복붙 편의를 위해 실제 홈 경로가 그대로 박혀 있어 로컬 전용으로 둔다.
+docs/RUNBOOK.html
