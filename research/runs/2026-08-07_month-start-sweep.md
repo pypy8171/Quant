@@ -3,7 +3,7 @@
 > BACKTEST_LOG.md 실행 #4·#5의 **원자료 아카이브**(구성별 전체 표). 요약·해석은 BACKTEST_LOG 참조.
 > 재현: `DATA_GO_KR_KEY=dummy .venv-win/Scripts/python.exe tools/month_start_sweep.py --config <name>`
 > ·`tools/fullperiod_validate.py`. 유니버스 as-of 2025-12-30 KOSPI 99종목(캐시 보유 ∩ 시총상위 100).
-> ⚠ 유니버스 생존편향 — 절대 초과수익(α)는 낙관 편향, "구성 간 상대비교"로만 유효.
+> 유니버스 생존편향 주의 — 절대 초과수익(α)는 낙관 편향이라 "구성 간 상대비교"로만 유효하다.
 
 ## 공통 파라미터
 - BASE: `top_n=10, rebalance_every=5, lookback=120, skip=20, regime=True, regime_ma=200, regime_mode=breadth, vol_target=0.15, vol_window=20`
@@ -55,7 +55,7 @@
 | 2026-07 | -7.50% | 12.70% | -4.31 | 10.0% | 10 | -7.77% |
 | 2026-08 | 0.00% | 0.00% | 0.00 | 0.0% | 0 | +3.18% |
 
-> 관찰: vol_adjust는 1월 +48.95%로 튀지만(승자 재배열) 2·5월은 baseline보다 낮음 → 소표본 노이즈. 실행 #5 전기간에서 악화 확정.
+> 관찰: vol_adjust는 1월 +48.95%로 튀지만(승자 재배열) 2·5월은 baseline보다 낮다. 소표본 노이즈로 보이며, 실행 #5 전기간에서 악화로 확인됐다.
 
 ---
 
@@ -71,12 +71,12 @@
 | trend200_va | +227.76% | 19.37% | 1.27 | 56.9% | -196.21%p | +423.97% | 801 |
 | absmom | +295.71% | 18.48% | 1.40 | 58.7% | -128.26%p | +423.97% | 758 |
 
-> α 전부 큰 음수 = 생존편향 벤치(등가중 buy&hold의 오늘 생존자 99종목 = +423.97%)가 구조적으로 이길 수 없음.
-> **절대 알파 아님 — 구성 간 상대비교로만.** 판정: 채택 게이트 통과 지표 0개(BACKTEST_LOG #5 해석 참조).
+> α가 전부 큰 음수인 것은 생존편향 벤치(등가중 buy&hold의 오늘 생존자 99종목, +423.97%)를 구조적으로 이길 수 없기 때문이다.
+> **절대 알파가 아니라 구성 간 상대비교로만 유효하다.** 판정: 채택 게이트 통과 지표 0개(BACKTEST_LOG #5 해석 참조).
 
 ---
 
 ## 구현 변경 (코드)
 - `strategy/cross_momentum.py`: `trend_ma`(개별 SMA 필터), `abs_mom`(형성구간 수익률>0 게이트) 파라미터 추가. 스코어 루프에서 `need = max(lookback+1, trend_ma)`, 종가≤SMA면 `continue`.
-- `main.py`: `make_strategy`/`run_backtest`에 `trend_ma`·`abs_mom` 선택 파라미터 전달. `trend_ma` 설정 시 워밍업 `max(warmup, trend_ma*1.5+20)`. (기본값 유지 → prod 동작 불변)
+- `main.py`: `make_strategy`/`run_backtest`에 `trend_ma`·`abs_mom` 선택 파라미터 전달. `trend_ma` 설정 시 워밍업 `max(warmup, trend_ma*1.5+20)`. (기본값을 유지해 prod 동작은 불변)
 - `tools/month_start_sweep.py`(신규), `tools/fullperiod_validate.py`(신규).

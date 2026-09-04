@@ -31,7 +31,7 @@
     "honesty_label": "context_required",
     "equity_csv_path": "",
     "trades_csv_path": "",
-    "caveat": "비참여(현금): regime-ON 전구간 현금화. 샤프0=무변동 — '현금이 시장을 이김'은 실력 아님(ON/OFF 짝으로 해석). breadth<0.5가 1년내내 → 50회 전부 현금화. 재앙(-35%) 완전 회피가 국면필터의 값.",
+    "caveat": "비참여(현금): regime-ON 전구간 현금화. 샤프0=무변동 — '현금이 시장을 이김'은 실력 아님(ON/OFF 짝으로 해석). breadth<0.5가 1년 내내 이어져 50회 전부 현금화. 큰 낙폭(-35%)을 피한 것이 국면필터의 값.",
     "source": "BACKTEST_LOG 실행 #3"
   },
   {
@@ -66,7 +66,7 @@
     "honesty_label": "honest_failure",
     "equity_csv_path": "",
     "trades_csv_path": "",
-    "caveat": "모멘텀 크래시 실증 — 벌거벗은 모멘텀은 약세장에서 벤치(-20.50%)보다도 나쁨(음의 skew 발현).",
+    "caveat": "모멘텀 크래시 사례 — 국면필터 없는 모멘텀은 약세장에서 벤치(-20.50%)보다도 나쁘다(음의 skew 발현).",
     "source": "BACKTEST_LOG 실행 #3"
   }
 ]

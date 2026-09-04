@@ -3,13 +3,13 @@
 """BT-09 리포트 계층 — 평가 결과(dict)를 README.md 마크다운으로 직렬화.
 
 엔트리(backtest_crisis_strategies.main)가 eval_benchmark/run_sweep 산출물을 넘기면
-write_readme 가 정직성 배너·전략표·1차지표·홀드아웃·비용감도·커버리지·이벤트별·스윕·
+write_readme 가 범위·한계 안내·전략표·1차지표·홀드아웃·비용감도·커버리지·이벤트별·스윕·
 용어·경계 섹션을 한 파일로 쓴다. 계산은 하지 않는다(표현 전용).
 """
 import sys
 from pathlib import Path
 
-# ── 부트스트랩(멱등): BT-08 엔진(fmt/median/WARMUP) 배선 ──────────────────────
+# ── 부트스트랩(중복 실행 안전): BT-08 엔진(fmt/median/WARMUP) 배선 ──────────────────────
 _HERE = Path(__file__).resolve()
 _REPO = _HERE.parents[3]
 _PYQ = _REPO / "PYQuant"
@@ -30,7 +30,7 @@ WARMUP = bt08.WARMUP
 def write_readme(bms, results, sweeps, readme_path):
     L = []
     L.append("# 위기 대응·수익추구 전략 10종 인과 백테스트 (BT-09)\n")
-    L.append("> ⚠️ **정직성 배너.** BT-08의 방어 5종(M1~M5)을 넘어, 시장 도메인 지식(지표·이벤트·"
+    L.append("> ⚠️ **이 리포트의 범위와 한계.** BT-08의 방어 5종(M1~M5)을 넘어, 시장 도메인 지식(지표·이벤트·"
              "크로스에셋 연관)에서 도출한 **방어 5 + 공세 5 = 10전략**을 동일 규율로 검증한다. "
              "익스포저 e[t]는 **오직 t-1 종가까지의 정보**(수익=e[t-1]×지수수익). "
              "**US→KR 시차**: KR 벤치마크에선 US계열 신호(^GSPC·^VIX·^TNX·^SOX·CL=F·DXY)를 "
@@ -46,7 +46,7 @@ def write_readme(bms, results, sweeps, readme_path):
              "방어 C1), 금리는 잠잠한데 유가만↑이면 수요견인(리스크온·공세 O4). 같은 유가상승도 "
              "금리 동조 방향으로 성격이 갈린다.\n")
     L.append("- **국면 의존성**: 추세장에선 추세추종, 횡보·약세장에선 평균회귀 — 하나의 규칙이 "
-             "두 국면에서 반대로 작동(O1). BT-06 '레짐필터 양날의검'의 계승.\n")
+             "두 국면에서 반대로 작동(O1). BT-06 레짐필터의 방어·수익 상충을 잇는다.\n")
     L.append("- **크로스에셋 확인은 사전방어가 아니다**(reviewer 경고): VIX·DXY·KRW 동시 리스크오프"
              "(C2)나 롤오버 재진입(O5)은 **동행·반응** 신호다. '위기 전에 미리 안다'가 아니라 "
              "'이미 벌어지는 리스크오프에 규율 있게 반응'으로만 주장한다.\n")
@@ -167,7 +167,7 @@ def write_readme(bms, results, sweeps, readme_path):
     L.append("- **동행/반응 vs 사전**: VIX·DXY·KRW 신호는 위기와 함께 움직이는 동행·반응 지표. '미리 안다'가 아니라 '규율 있게 반응'으로만 해석.")
 
     # 경계
-    L.append("\n## 데이터·방법 경계(정직성)\n")
+    L.append("\n## 데이터·방법의 한계\n")
     for bm in bms:
         L.append(f"- **{bm['name']}**: {bm['span']}, {bm['nbars']}봉(~{bm['bpy']:.0f}/년). "
                  f"워밍업 {WARMUP}봉 e=1.")

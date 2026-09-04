@@ -60,7 +60,7 @@ BT01 = [
       source="BACKTEST_LOG 실행 #1"),
     A("BT-01", "모멘텀+국면 top10/rb5", "최근 3년", ret=159.56, mdd=-35.56, sharpe=1.12,
       win=49.2, alpha=36.77, n=256, honesty="robust",
-      caveat=CV_SURV + " 3년창 엣지 거의 소멸(샤프1.12 vs 벤치1.10), MDD는 벤치보다 나쁨.",
+      caveat=CV_SURV + " 3년창 엣지 거의 사라짐(샤프1.12 vs 벤치1.10), MDD는 벤치보다 나쁨.",
       source="BACKTEST_LOG 실행 #1"),
     A("BT-01", "모멘텀+국면 top10/rb5", "최근 4년", ret=203.03, mdd=-22.72, sharpe=1.10,
       win=51.1, alpha=77.28, n=284, honesty="robust",
@@ -88,11 +88,11 @@ BT02 = [
 BT03 = [
     A("BT-03", "모멘텀 regime ON", "2022 약세장 OOS", ret=0.00, mdd=0.00, sharpe=0.00,
       win=None, alpha=20.50, n=0, honesty="context_required",
-      caveat=CV_CASH + " breadth<0.5가 1년내내 → 50회 전부 현금화. 재앙(-35%) 완전 회피가 국면필터의 값.",
+      caveat=CV_CASH + " breadth<0.5가 1년 내내 이어져 50회 전부 현금화. 큰 낙폭(-35%)을 피한 것이 국면필터의 값.",
       source="BACKTEST_LOG 실행 #3"),
     A("BT-03", "모멘텀 regime OFF", "2022 약세장 OOS", ret=-35.35, mdd=-37.64, sharpe=-1.95,
       win=44.6, alpha=-14.85, n=121, honesty="honest_failure",
-      caveat="모멘텀 크래시 실증 — 벌거벗은 모멘텀은 약세장에서 벤치(-20.50%)보다도 나쁨(음의 skew 발현).",
+      caveat="모멘텀 크래시 사례 — 국면필터 없는 모멘텀은 약세장에서 벤치(-20.50%)보다도 나쁘다(음의 skew 발현).",
       source="BACKTEST_LOG 실행 #3"),
 ]
 

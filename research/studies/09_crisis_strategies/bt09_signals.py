@@ -16,7 +16,7 @@ from datetime import date as _date
 
 import numpy as np
 
-# ── 부트스트랩(멱등): PYQuant + BT-08 엔진을 sys.path 에 배선 ──────────────────
+# ── 부트스트랩(중복 실행 안전): PYQuant + BT-08 엔진을 sys.path 에 배선 ──────────────────
 _HERE = Path(__file__).resolve()
 _REPO = _HERE.parents[3]                        # .../Quant
 _PYQ = _REPO / "PYQuant"

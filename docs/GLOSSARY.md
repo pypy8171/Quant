@@ -5,7 +5,7 @@
 - 파일 경로 참조는 백틱(예: `Quant/include/strategy/DeviationScaleStrategy.h:14`)으로 적는다 — 코드가 이동하면 줄번호는 어긋날 수 있으니 **개념 위치의 힌트**로만 본다(정합 검사는 마크다운 링크만 대상).
 - 두 허브: 리서치·백테스트는 [research/README.md](../research/README.md), 전략 스펙·실증은 [strategies/README.md](../strategies/README.md).
 - 일부 항목은 코드에 명문 정의가 없어 관례상 확장을 적었고, 그런 경우는 "(관례)"로 표시했다.
-- **표기 규약**: 문서·표·코드 주석에서 약어를 처음 쓸 때는 **쉬운말(약어)** 로 병기한다(예: `중앙값(p50)`·`최대낙폭(MDD)`·`전 구간(E2E)`). 표 헤더도 병기하고, 같은 문서 안 반복 등장은 약어만 써도 된다. 코드에서는 **주석에만** 병기하고 식별자·필드명은 그대로 둔다. 병기 표준어는 아래 표(특히 [성능·지연](#성능지연-latency--throughput)·[백테스트·리서치](#백테스트리서치-backtest--research))를 따른다.
+- **표기 규약**: 문서·표·코드 주석에서 약어를 처음 쓸 때는 **쉬운말(약어)** 로 병기한다(예: `중앙값(p50)`·`최대낙폭(MDD)`·`전 구간(E2E)`). 표 헤더도 병기하고, 같은 문서 안 반복 등장은 약어만 써도 된다. 코드에서는 주석에만 병기하고 식별자·필드명은 그대로 둔다. 병기 표준어는 아래 표(특히 [성능·지연](#성능지연-latency--throughput)·[백테스트·리서치](#백테스트리서치-backtest--research))를 따른다.
 
 ---
 
@@ -48,7 +48,7 @@
 | **FORCE_LIQ** | BEAR 등에서 보유 전량을 시장가로 청산하는 강제청산 신호 | `strategy_id="FORCE_LIQ"`. 시장가라 명목 백스톱 우회 방지로 평단을 `ref_price`에 stamp | `Quant/src/core/Engine.cpp` |
 | **UniverseScanner** | 시총·거래대금·등락률 필터로 매매 유니버스를 스캔(scan_devscale / scan_itb) | 정배열 프로브·수급 필터 포함 | `Quant/include/universe/UniverseScanner.h:16` |
 | **StrategyFactory** | config를 읽어 전략 인스턴스를 생성·등록하는 팩토리 | main.cpp에서 분리된 전략 로딩 계층 | `Quant/src/strategy/StrategyFactory.cpp` |
-| **Logger** | 비동기 싱글톤 로거(ms UTC 타임스탬프, 콘솔 + `logs/quant_trader.log`) | hot path는 큐 push만·전용 writer 스레드가 I/O(tail-latency 억제). 백프레셔(kMaxQueue 초과 시 드롭+드롭카운트)·`flush()`. LOG_INFO/WARN/ERROR/DEBUG 매크로 | `Quant/include/utils/Logger.h` |
+| **Logger** | 비동기 싱글톤 로거(ms UTC 타임스탬프, 콘솔 + `logs/quant_trader.log`) | hot path는 큐 push만·전용 writer 스레드가 I/O(꼬리 지연(tail) 억제). 백프레셔(kMaxQueue 초과 시 드롭+드롭카운트)·`flush()`. LOG_INFO/WARN/ERROR/DEBUG 매크로 | `Quant/include/utils/Logger.h` |
 | **bootstrap_ledger** | 기동 시 실계좌 보유분을 OrderGate 원장에 시드(매도수량·평단·손실한도 정합) | config `bootstrap_ledger_from_balance` | `Quant/src/main.cpp` |
 | **manage_holdings** | 스캔 유니버스 밖 잔고 보유분에 "청산 전용" 가디언을 부착(신규진입 영구차단) | config `manage_holdings` 블록 | `Quant/config` 전략 블록 |
 | **ZmqBridge / OrderRouter(IPC)** | ZeroMQ 기반 프로세스 간 시세·주문 중계(선택 구성) | Python 오퍼레이터 연동 | `Quant/src/ipc/ZmqBridge.cpp` |
@@ -66,7 +66,7 @@
 | **PIT** | Point-In-Time | 그 시점에 실제로 알 수 있던 값만 사용(미래참조 방지) | 3분봉 PIT 재현 불가로 DevScale 백테스트 제외 |
 | **look-ahead** | look-ahead bias | 미래 정보 누설 편향 | 결정은 당일 종가, 체결은 다음봉 시가로 방지 |
 | **survivorship** | survivorship bias | 생존편향 — 살아남은 종목만 유니버스에 남아 성과가 부풀려지는 편향 | 정적 유니버스 백테스트의 상시 주의 |
-| **approval key** | WebSocket approval key | KIS 실시간 WS 접속용 승인키(REST로 발급) | OAuth 토큰과 별개. 재연결 폭주 시 재발급 이슈 |
+| **approval key** | WebSocket approval key | KIS 실시간 WS 접속용 승인키(REST로 발급) | OAuth 토큰과 별개. 재연결 반복 시 재발급 이슈 |
 | **OAuth2 / bearer** | — | KIS REST 인증 토큰 발급·캐싱(bearer 헤더) | approval key와 다른 축 |
 | **H0STASP0** | KIS 실시간 호가 채널 | 5단계 호가 실시간 스트림 | ASP = 호가 |
 | **H0STCNT0** | KIS 실시간 체결 채널 | 실시간 체결(틱) 스트림 | CNT = 체결 |
@@ -91,7 +91,7 @@
 | **rung / n_rungs** | 이격도 사다리 분할매매의 각 층(가격대) / 층 수 | 물타기 총예산을 n_rungs로 분할 |
 | **reprice** (reprice_move_ticks) | 미체결 사다리를 CANCEL+NEW로 재호가 | SMA가 지정 틱 이상 이동 시 |
 | **requote** (half_spread_ticks·min_requote_ms) | 시장 이동 시 양방향 견적 재호가·반스프레드·최소간격 | 간격 AND 이동폭 동시조건으로 churn 억제 |
-| **churn** | 과잉 재주문(재호가 폭주) | 데드밴드/최소간격 가드로 억제 |
+| **churn** | 과잉 재주문(재호가 반복) | 데드밴드/최소간격 가드로 억제 |
 | **notional** | 주문 명목 금액(자본%×총평가 → 수량 산출) | 명목 사이징 백스톱 |
 | **TARGET_WEIGHT** | 수량 대신 목표비중을 지정하면 엔진이 동일가중 사이징 | Python 횡단면 전략용 order_type |
 | **require_aligned** | 스캔 단계에서 일봉 정배열 종목만 등록 | 신규상장·역배열 제거 |
@@ -154,6 +154,34 @@
 | **drops** | 유실(drops) | 버린 메시지 수 | 0이 정상 |
 | **ns / µs / ms** | 나노초(ns)/마이크로초(µs)/밀리초(ms) | 10억분의 1 / 100만분의 1 / 1,000분의 1초 | 1 µs=1,000 ns, 1 ms=1,000 µs |
 | **SPSC** | 단일생산자·단일소비자(SPSC) | 한 스레드가 넣고 한 스레드가 빼는 락-프리 큐 구조 | RingBuffer의 전제 |
+
+---
+
+## 사내 작업 추적 코드 (코드 주석의 괄호 태그)
+
+소스 주석 곳곳에 `(G1)`, `(C-2)`, `(H-1)`, `(MM-1)`, `(W2)` 같은 괄호 태그가 붙어 있다. 이는 그 줄이 **어떤 개발 작업·수정에서 나왔는지** 표시한 사내 추적 번호다. 처음 보는 사람이 코드만 봐서는 뜻을 알 수 없으므로 여기에 범례를 둔다. 접두 글자로 대략의 성격을 나눈다.
+
+| 접두 | 대략의 성격 |
+|---|---|
+| **G** | 기능 추가(Gate/기능 단위 작업) |
+| **C** | 정확성 수정(correctness fix) |
+| **W** | 방어·경고 처리(warning/방어 로직) |
+| **M** | 실계좌 전환 전 유지보수 항목 |
+| **MM** | 시장조성(Market Making) 관련 작업 |
+| **H / S / V / B** | 그 외 리스크·안정화·검증 작업 |
+
+자주 보이는 태그 중 뜻이 문서로 확정된 것:
+
+| 태그 | 의미 | 관련 위치 |
+|---|---|---|
+| **G1** | 국면→전략 자동선택 | `Quant/src/core/Engine.cpp` |
+| **G3** | 극단 위험회피 시 보유 전량 강제청산(FORCE_LIQ) | `Quant/src/core/Engine.cpp` |
+| **G5** | 기동 시 실계좌 잔고로 OrderGate 원장 시드(bootstrap) | `Quant/src/main.cpp` |
+| **H-1** | reserved_(예약수량) 드리프트 정합 | `Quant/src/risk/OrderGate.cpp` |
+| **M-1 / M-2** | 장 마감 재방출 / 청산 재시도 미완료 방지 | `Quant/src/ipc/OrderRouter.cpp` |
+| **MM-1** | 시장조성 1단계(정정·취소 지원 포함) | `Quant/include/strategy/MarketMakingStrategy.h` |
+
+여기 없는 번호(개별 `C-x`, `S-1`, `V-4` 등)의 구체적 배경은 해당 커밋 메시지·`strategies/*/SPEC.md`·개발로그에서 찾는다. 태그는 추적용 표시라, 코드 동작은 태그 옆 기능 설명으로 파악할 수 있다.
 
 ---
 

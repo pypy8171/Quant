@@ -544,7 +544,7 @@ def write_readme(bms, results, sweeps):
     L = []
     today = as_of().isoformat()
     L.append("# 위기 인과적 대응 백테스트 (BT-08)\n")
-    L.append("> ⚠️ **정직성 배너.** 이 표는 *엣지 발견이 아니라 인과적 스트레스테스트*다. "
+    L.append("> ⚠️ **이 리포트의 범위와 한계.** 이 표는 *엣지 발견이 아니라 인과적 스트레스테스트*다. "
              "익스포저는 오직 **t-1 종가까지의 정보**로 산출(룩어헤드 차단), 수익=e[t-1]×지수수익. "
              "peak/trough 앵커는 **평가에만** 쓰고 신호엔 절대 미투입. "
              "방어대상 실질표본 n≈6~9(위기 17건, 방어가 켜지는 slow·L·systemic 소수)라 "
@@ -561,14 +561,14 @@ def write_readme(bms, results, sweeps):
     L.append("- **당일 방어의 원리적 한계**: 일간 -4%는 *종가에만* 확정되므로 그 급락 몸통은 "
              "e[t-1]=1로 **이미 맞은 뒤**다. 종가-종가 인과 구조에서 서킷브레이커(M4)는 "
              "**당일 몸통을 못 막고 꼬리(익일 이후)만 자른다.** '당일 대응'의 정직한 답이다.\n")
-    L.append("- **양날의 검(BT-06 계승)**: 방어룰은 낙폭만 보면 다 좋아 보인다. 그래서 "
+    L.append("- **방어와 수익의 상충(BT-06 계승)**: 방어룰은 낙폭만 보면 다 좋아 보인다. 그래서 "
              "**낙폭 감소가 아니라 전 구간(위기+정상+회복) 순효과**로 평가한다 — 방어효율·회복참여율·휘프소.\n")
 
     # ── 대응법 5종 ──
     L.append("\n## 대응법 5종 + 기준선 + 조합\n")
-    L.append("| 코드 | 대응법 | 트리거(후행 데이터만) | 이론상 효과/독 |")
+    L.append("| 코드 | 대응법 | 트리거(후행 데이터만) | 이론상 효과/역효과 |")
     L.append("|---|---|---|---|")
-    L.append("| M1 | 200일선 추세게이트 | C<200MA AND 200MA 기울기 음전 → 현금 | slow·L 방어 / fast·U 재진입지연으로 독 |")
+    L.append("| M1 | 200일선 추세게이트 | C<200MA AND 200MA 기울기 음전 → 현금 | slow·L 방어 / fast·U 재진입지연으로 역효과 |")
     L.append("| M2 | 실현변동성 z-score 축소 | 20일 vol의 252일 z>1.5 → 50%축소 | vol 서서히 오른 slow·L / fast엔 안켜짐 |")
     L.append("| M3 | VIX 게이트(2000+) | VIX≥25 반컷·≥30 전액컷 | systemic 특화 / 동행지표라 사전방어 아님 |")
     L.append("| M4 | 일간 서킷브레이커 | 일간 -4% → 5일 현금(종가-종가) | 낙폭연장 방어 / V반등·계단하락서 톱니 |")
@@ -658,7 +658,7 @@ def write_readme(bms, results, sweeps):
     L.append("- **hindsight(사후정보)**: 결과를 이미 알고 되짚는 것. 이 백테스트는 hindsight **금지** — 익스포저는 오직 t−1 종가까지의 정보로만 계산.")
 
     # ── 경계 ──
-    L.append("\n## 데이터·방법 경계(정직성)\n")
+    L.append("\n## 데이터·방법의 한계\n")
     for bm in bms:
         L.append(f"- **{bm['name']}**: {bm['span']}, {bm['nbars']}봉(~{bm['bpy']:.0f}/년). "
                  f"워밍업 {WARMUP}봉은 e=1(BH) — 이 구간 방어 없음.")
@@ -671,7 +671,7 @@ def write_readme(bms, results, sweeps):
     L.append("- **자유도**: 5룰 임계값 노브 ~17개 vs 방어대상 실질표본 n≈6~9. 사전등록 그리드 전량공개로 "
              "곡선맞춤을 노출하되, '발견'이 아닌 '스트레스테스트'로 프레이밍.")
     L.append(f"\n---\n생성 스크립트: `research/studies/08_crisis_response/backtest_crisis_response.py`"
-             f"(단독실행, IndexSource 전용, 결정론적 재현). 관련: BT-06(regime 양날의검)·BT-07(위기 특성화).\n")
+             f"(단독실행, IndexSource 전용, 결정론적 재현). 관련: BT-06(regime 필터의 방어·수익 상충)·BT-07(위기 특성화).\n")
 
     README_PATH.write_text("\n".join(L), encoding="utf-8")
 

@@ -16,7 +16,7 @@
   1. **사전등록 가정** — 무엇을·왜 바꾸는지, 어떤 기존 가정을 대체하는지 커밋 메시지 + 해당 study README에 명시.
   2. **재현 회귀(골든 케이스)** — 고정 골든 케이스 1건을 변경 전후 재실행. 동일이면 통과, 숫자가 바뀌면 **어느 결과가 왜 바뀌는지** 명문화(조용한 변화 금지).
   3. **불변식 보존** — look-ahead 차단(`_AsOfKisAdapter` / `visible = b.date <= date`)·결정론(`sorted()`·global seed)·체결시점(신호 다음봉 시가)·비용 ON을 훼손하지 않는다.
-  4. **단일 진입점·캐시 정합** — 엔진 계약(authenticate/get_historical_ohlcv/prefetch/universe_top/ticker_name) 유지. 소스의 데이터 형태·수정주가·기간을 바꾸면 **캐시(`.yf_cache`) 무효화**(parquet가 티커-only 키잉이라 소스만 바꾸면 스테일 캐시가 조용히 과거를 오염).
+  4. **단일 진입점·캐시 정합** — 엔진 계약(authenticate/get_historical_ohlcv/prefetch/universe_top/ticker_name) 유지. 소스의 데이터 형태·수정주가·기간을 바꾸면 **캐시(`.yf_cache`) 무효화**(parquet가 티커-only 키잉이라 소스만 바꾸면 오래된 캐시가 조용히 과거를 오염).
 - 헬퍼는 **import 재사용**(새 엔진 분기 금지 = 단일소스 유지).
 
 > _앵커: `engine.py`(체결·비용·결정론 집약), `PYQuant/data/yfinance_source.py`(auto_adjust·캐시), `PYQuant/data/index_source.py`._

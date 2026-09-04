@@ -1,7 +1,7 @@
 # research/ — 백테스트·전략 리서치 허브
 
 > 백테스트를 **왜 그렇게 굴렸고, 무엇을 발견했고, 그래서 방향이 어떻게 바뀌었는지**를 한곳에서 추적한다.
-> "돌려보고 감으로 다음" 대신 **결과 → 다면 검토 → 근거 있는 다음 1수**(Research Council)를 표준으로 한다.
+> "돌려보고 감으로 다음" 대신 결과를 다면으로 검토한 뒤 **근거 있는 다음 1수**를 정하는 절차(Research Council)를 표준으로 한다.
 
 ---
 
@@ -11,7 +11,7 @@
 
 ### 계열 A — 종목레벨 모멘텀/레짐 (studies 01~06, 국면 스코어러 10)
 - **한 줄 결론:** 견고한 유일 레버는 **국면필터(regime)** — 약세장에서 노출을 걷어 하방을 막는다. 테스트한 개별 지표(추세필터·절대모멘텀·변동성조정)는 전기간 재검증에서 **채택 게이트 통과 0개**. 유니버스 생존편향으로 절대 초과수익(α)는 신뢰 불가, 구성 간 상대비교로만 읽는다.
-- **국면 레버 분해(study 10, Track A):** 라이브 C++ `RegimeController`의 이산 판정을 연속화·기울기·오버레이로 애블레이션 → 연속화(B/C)가 하락장 타이밍이 나아 보이나 **미판정**(편향감사·엣지판정 후속). 장중 국면(Track B)은 지수 시점정합(PIT) 부재로 forward 적재만 가능.
+- **국면 레버 분해(study 10, Track A):** 라이브 C++ `RegimeController`의 이산 판정을 연속화·기울기·오버레이로 애블레이션했다. 연속화(B/C)가 하락장 타이밍이 나아 보이나 **미판정**(편향감사·엣지판정 후속). 장중 국면(Track B)은 지수 시점정합(PIT) 부재로 forward 적재만 가능.
 - 엔진·데이터: PYQuant 백테스트(`engine.py`) · datagokr/yfinance **일봉 종목 유니버스** · 횡단면 6-1 모멘텀.
 - 문서: [**BACKTESTS.md**](BACKTESTS.md)(카탈로그 — 한눈에) · [**BACKTEST_LOG.md**](BACKTEST_LOG.md)(실행 저널 — 상세 원문).
 
@@ -33,7 +33,7 @@
 | [GUARDRAILS.md](GUARDRAILS.md) | 백테스트 규율 — 조용한 오염·사후정당화를 막는 현 단계 최선의 경계(불변식·수정 조건). |
 | [RESEARCH_COUNCIL.md](RESEARCH_COUNCIL.md) | 회의 프로토콜 — 결과 하나마다 어느 에이전트가 무엇을 검토하고 다음 실험을 합의하는지. |
 | [BACKTEST_FLOW.md](BACKTEST_FLOW.md) | 코드 배선 흐름 — 데이터→백테스트→리포트 파이프라인과 두 검증 트랙(A/B) 지도. |
-| [studies/_TEMPLATE.md](studies/_TEMPLATE.md) | 결과 표준 양식 — 새 study가 채우는 8섹션 골격(사전등록·정직성 배너 포함). |
+| [studies/_TEMPLATE.md](studies/_TEMPLATE.md) | 결과 표준 양식 — 새 study가 채우는 8섹션 골격(사전등록·데이터·방법의 한계 포함). |
 
 ---
 
@@ -57,21 +57,21 @@
 
 ## 방향성 타임라인 — 계열 A는 어떻게 진화했나 (서사 요약)
 
-각 단계 = **무엇을 물었나 → 무엇을 발견했나 → 그래서 다음 방향**. 수치·표는 [BACKTEST_LOG.md](BACKTEST_LOG.md)의 해당 실행, 카드 요약은 [BACKTESTS.md](BACKTESTS.md).
+각 단계는 무엇을 물었고, 무엇을 발견했고, 그래서 다음 방향이 무엇인지 순으로 적는다. 수치·표는 [BACKTEST_LOG.md](BACKTEST_LOG.md)의 해당 실행, 카드 요약은 [BACKTESTS.md](BACKTESTS.md).
 
-- **#1 기준선(모멘텀×국면, 1~5년 롤링):** α는 최근 12개월에 집중되나 전 구간 최대낙폭(MDD)이 게이트(≤15%)를 넘겨 불합격 → 과제는 수익이 아니라 **낙폭 통제**. ([실행 #1](BACKTEST_LOG.md) · [카탈로그 BT-01](BACKTESTS.md))
-- **#2 변동성 타게팅:** MDD 전 구간 8~12%p 개선·샤프(위험조정수익) 유지, 1년은 게이트 첫 통과 → vol_target 채택, 단 α는 상승장 표본뿐이라 **약세장 표본외(OOS) 필요**. ([실행 #2](BACKTEST_LOG.md) · [카탈로그 BT-02](BACKTESTS.md))
-- **#3 2022 약세장 OOS + regime ablation:** 모멘텀 단독은 약세장에서 벤치보다도 나쁨(모멘텀 크래시), regime ON은 100% 현금으로 재앙 회피 → 약세장 엣지는 모멘텀이 아니라 **국면 오버레이의 하방 컷**. ([실행 #3](BACKTEST_LOG.md) · [카탈로그 BT-03](BACKTESTS.md))
-- **#4 월별 시작 민감도 + C1 추세필터:** 진입 시점(국면)이 결과를 좌우, C1은 강세장에서 inert, 표본 소(N=10~89) → **전기간 재검증 필수**. ([실행 #4](BACKTEST_LOG.md) · [카탈로그 BT-04](BACKTESTS.md))
-- **#5 지표 4종 전기간 재검증(N≥750):** 채택 게이트 통과 지표 **0개**(trend200 미세우위지만 MDD 악화, absmom inert, vol_adjust 악화). 유효 레버는 여전히 regime → 지표 튜닝 한계, **진짜 병목=데이터(PIT 유니버스)**. ([실행 #5](BACKTEST_LOG.md) · [카탈로그 BT-05](BACKTESTS.md))
-- **BT-06 하락장 6구간:** momentum 대체로 우세하나 절대우위 아님(2018 박스장은 mean_reversion 승), regime은 순수하락 방어·V반등엔 독. ([카탈로그 BT-06](BACKTESTS.md) · [studies/06](studies/06_bear_market/README.md))
+- **#1 기준선(모멘텀×국면, 1~5년 롤링):** α는 최근 12개월에 집중되나 전 구간 최대낙폭(MDD)이 게이트(≤15%)를 넘겨 불합격. 다음 과제는 수익이 아니라 **낙폭 통제**로 잡았다. ([실행 #1](BACKTEST_LOG.md) · [카탈로그 BT-01](BACKTESTS.md))
+- **#2 변동성 타게팅:** MDD 전 구간 8~12%p 개선·샤프(위험조정수익) 유지, 1년은 게이트 첫 통과. vol_target 채택, 단 α는 상승장 표본뿐이라 **약세장 표본외(OOS) 필요**. ([실행 #2](BACKTEST_LOG.md) · [카탈로그 BT-02](BACKTESTS.md))
+- **#3 2022 약세장 OOS + regime ablation:** 모멘텀 단독은 약세장에서 벤치보다도 나쁨(모멘텀 크래시), regime ON은 100% 현금으로 큰 낙폭을 피했다. 약세장 엣지는 모멘텀보다 **국면 오버레이의 하방 컷** 쪽이다. ([실행 #3](BACKTEST_LOG.md) · [카탈로그 BT-03](BACKTESTS.md))
+- **#4 월별 시작 민감도 + C1 추세필터:** 진입 시점(국면)이 결과를 좌우, C1은 강세장에서 inert, 표본 소(N=10~89)라 **전기간 재검증 필수**. ([실행 #4](BACKTEST_LOG.md) · [카탈로그 BT-04](BACKTESTS.md))
+- **#5 지표 4종 전기간 재검증(N≥750):** 채택 게이트 통과 지표 **0개**(trend200 미세우위지만 MDD 악화, absmom inert, vol_adjust 악화). 유효 레버는 여전히 regime이다. 지표 튜닝은 한계에 왔고 진짜 병목은 **데이터(PIT 유니버스)**로 본다. ([실행 #5](BACKTEST_LOG.md) · [카탈로그 BT-05](BACKTESTS.md))
+- **BT-06 하락장 6구간:** momentum 대체로 우세하나 절대우위 아님(2018 박스장은 mean_reversion 승), regime은 순수하락은 방어하나 V반등에선 역효과. ([카탈로그 BT-06](BACKTESTS.md) · [studies/06](studies/06_bear_market/README.md))
 
 ---
 
 ## 현재 상태 / 다음 데이터 단계 (계열 A)
 
 - **확정 사실:** (1) 진입 시점(국면)이 수익을 좌우, (2) **regime 필터가 낙폭 방어의 실제 레버**(vol_target 보조), (3) 테스트한 개별 지표는 견고한 개선 없음.
-- **최우선 병목:** 유니버스가 "오늘 생존 종목" 고정 → **생존편향**으로 모든 절대 α가 낙관 편향. 편출·상장폐지 포함 **point-in-time 유니버스 OHLCV**가 있어야 지표 판정을 신뢰할 수 있다.
-- **다음 1수:** `DATA_GO_KR_KEY` 확보 → 과거 시점 유니버스 OHLCV 백필 → 생존편향 제거 후 지표 재판정. (strategist·data-sourcer 합의)
+- **최우선 병목:** 유니버스가 "오늘 생존 종목"으로 고정돼 생존편향이 남고, 그래서 모든 절대 α가 낙관 쪽으로 치우친다. 편출·상장폐지 포함 **point-in-time 유니버스 OHLCV**가 있어야 지표 판정을 신뢰할 수 있다.
+- **다음 1수:** `DATA_GO_KR_KEY` 확보, 과거 시점 유니버스 OHLCV 백필, 생존편향 제거 후 지표 재판정 순으로 간다. (strategist·data-sourcer 합의)
 
 > 최종 갱신: 2026-09-02 (구조 국면 스코어러 study 10 등재)
