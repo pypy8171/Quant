@@ -140,8 +140,86 @@ static WinHttpResult crack_url(const std::string& url)
     return r;
 }
 
+// ─── 커넥션 풀(P-2): 스레드별 WinHTTP 세션·연결 상주로 keep-alive 재사용 ────────
+//  매 호출 hSession/hConnect를 새로 열면 주문·조회마다 TCP+TLS 핸드셰이크를 재지불한다.
+//  hSession·hConnect를 thread_local로 상주시키고 hReq만 매번 생성한다. WINHTTP_DISABLE_KEEP_ALIVE를
+//  걸지 않으므로 WinHTTP가 기저 TCP+TLS 연결을 keep-alive 풀에서 재사용한다.
+//  스레드별 소유라 락이 없다(SPSC 파이프라인과 같은 기조: data·order 스레드가 각자 warm 연결을 가짐).
+//  전송 계층 실패 시 캐시를 파기해 다음 호출이 새 연결을 맺는다(끊긴 keep-alive 복구).
+namespace
+{
+struct WinHttpConn
+{
+    HINTERNET     session = nullptr;
+    HINTERNET     connect = nullptr;
+    std::wstring  host;
+    INTERNET_PORT port = 0;
+
+    ~WinHttpConn() { reset(); }
+    void reset()
+    {
+        if (connect)
+        {
+            WinHttpCloseHandle(connect);
+            connect = nullptr;
+        }
+        if (session)
+        {
+            WinHttpCloseHandle(session);
+            session = nullptr;
+        }
+        host.clear();
+        port = 0;
+    }
+};
+
+// 스레드별 상주 연결. 호스트/포트가 바뀌면(현재는 사실상 단일 호스트라 최초 1회) 재수립한다.
+static thread_local WinHttpConn t_conn;
+
+// 풀링 해제 스위치. 환경변수 QUANT_HTTP_NOPOOL=1이면 매 요청 뒤 상주 연결을 파기해
+// 풀링 도입 전(요청마다 TCP+TLS 재수립) 거동을 그대로 재현한다. 측정용으로만 쓴다 —
+// 바이너리 하나에서 변수 하나(풀링 유무)만 바꿔 before/after를 비교하려는 목적.
+static bool http_nopool()
+{
+    static const bool v = [] {
+        const char* e = std::getenv("QUANT_HTTP_NOPOOL");
+        return e && *e == '1';
+    }();
+    return v;
+}
+
+// (host,port)에 대한 상주 hConnect 확보. 실패 시 nullptr.
+static HINTERNET acquire_connection(const WinHttpResult& c)
+{
+    if (t_conn.session && t_conn.connect && t_conn.host == c.host && t_conn.port == c.port)
+        return t_conn.connect; // 워밍된 연결 재사용
+
+    t_conn.reset(); // 최초 or 호스트 변경 → 재수립
+
+    t_conn.session = WinHttpOpen(L"QuantTrader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
+                                 WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!t_conn.session)
+        return nullptr;
+
+    // 명시적 타임아웃(ms): resolve/connect/send/receive. 기본값(무한대급)에서 하향해
+    // 전송 계층 히컵이 스레드를 오래 잡지 않게 한다.
+    WinHttpSetTimeouts(t_conn.session, 5000, 5000, 10000, 15000);
+
+    t_conn.connect = WinHttpConnect(t_conn.session, c.host.c_str(), c.port, 0);
+    if (!t_conn.connect)
+    {
+        t_conn.reset();
+        return nullptr;
+    }
+    t_conn.host = c.host;
+    t_conn.port = c.port;
+    return t_conn.connect;
+}
+} // namespace
+
 // 단발 시도. transport_ok = HTTP 응답을 실제로 받았는가(상태코드 무관, 4xx/5xx도 true).
 //  false = 전송 계층 실패(핸들 생성/SendRequest/ReceiveResponse 실패 — 예: 12152). 이때만 재시도 대상.
+//  hSession/hConnect는 상주(keep-alive)라 매 호출 hReq만 열고 닫는다. 전송 실패 시 상주 연결을 파기한다.
 static std::string winhttp_request_once(const std::string& method, const std::string& url,
                                         const std::vector<std::string>& headers, const std::string& body,
                                         bool& transport_ok, int& status_code)
@@ -150,29 +228,16 @@ static std::string winhttp_request_once(const std::string& method, const std::st
     status_code = 0;
     auto c = crack_url(url);
 
-    HINTERNET hSession = WinHttpOpen(L"QuantTrader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
-                                     WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!hSession)
-        return "";
-
-    // 명시적 타임아웃(ms): resolve/connect/send/receive. 기본값(무한대급)에서 하향해
-    // 전송 계층 히컵이 스레드를 오래 잡지 않게 한다.
-    WinHttpSetTimeouts(hSession, 5000, 5000, 10000, 15000);
-
-    HINTERNET hConnect = WinHttpConnect(hSession, c.host.c_str(), c.port, 0);
+    HINTERNET hConnect = acquire_connection(c);
     if (!hConnect)
-    {
-        WinHttpCloseHandle(hSession);
         return "";
-    }
 
     DWORD flags = c.https ? WINHTTP_FLAG_SECURE : 0;
     HINTERNET hReq = WinHttpOpenRequest(hConnect, to_wstring(method).c_str(), c.path.c_str(), nullptr,
                                         WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
     if (!hReq)
     {
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
+        t_conn.reset(); // 상주 연결이 상해 있을 수 있음 → 파기, 다음 호출서 재수립
         return "";
     }
 
@@ -191,8 +256,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
         snprintf(errbuf, sizeof(errbuf), "[WinHTTP] SendRequest 실패: %lu", err);
         LOG_ERROR(std::string(errbuf) + "  url=" + url);
         WinHttpCloseHandle(hReq);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
+        t_conn.reset(); // 끊긴 keep-alive 가능 → 파기 후 재수립(GET이면 래퍼가 재시도)
         return "";
     }
     if (!WinHttpReceiveResponse(hReq, nullptr))
@@ -202,8 +266,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
         snprintf(errbuf, sizeof(errbuf), "[WinHTTP] ReceiveResponse 실패: %lu", err);
         LOG_ERROR(std::string(errbuf) + "  url=" + url);
         WinHttpCloseHandle(hReq);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
+        t_conn.reset();
         return "";
     }
     // 여기 도달 = HTTP 응답 수신 성공(상태코드는 아래에서 확인). 전송 계층은 정상.
@@ -231,21 +294,21 @@ static std::string winhttp_request_once(const std::string& method, const std::st
         response.append(chunk, 0, read);
     }
 
-    WinHttpCloseHandle(hReq);
-    WinHttpCloseHandle(hConnect);
-    WinHttpCloseHandle(hSession);
+    WinHttpCloseHandle(hReq); // hReq만 닫는다. hConnect/hSession은 상주(keep-alive 재사용).
+    if (http_nopool())
+        t_conn.reset(); // 측정용 스위치 — 풀링 도입 전 거동(요청마다 재수립) 재현
     return response;
 }
 
-// 재시도 래퍼. ⚠ 멱등 요청(GET)만 재시도한다 — (a) 전송 계층 실패(12152 등), (b) 5xx 서버 일시장애.
+// 재시도 래퍼. ⚠ 조회(GET) 요청(여러 번 보내도 서버 상태 불변이라 재시도 안전)만 재시도한다 — (a) 전송 계층 실패(12152 등), (b) 5xx 서버 일시장애.
 //  KIS 시세/일봉 TR은 부하 시 간헐 HTTP 500을 뱉는데(전송은 정상, transport_ok=true), 이때 일봉이 <60봉으로
-//  잘려 스캔 후보가 통째로 탈락한다 → 멱등 GET에 한해 5xx도 재시도해 후보 유실을 막는다.
+//  잘려 스캔 후보가 통째로 탈락한다 → 조회(GET)에 한해 5xx도 재시도해 후보 유실을 막는다.
 //  주문 등 POST는 재시도하지 않는다 — 빈 응답(12152)이 "미접수"라는 보장이 없어(서버엔 접수됐을 수 있음)
 //  블라인드 재시도는 이중주문 위험. POST 실패는 호출자가 리컨사일로 확정해야 한다.
 static std::string winhttp_request(const std::string& method, const std::string& url,
                                    const std::vector<std::string>& headers, const std::string& body)
 {
-    constexpr int      kMaxGetAttempts    = 3;   // 멱등 GET 최대 시도(원 시도 + 재시도 2)
+    constexpr int      kMaxGetAttempts    = 3;   // 조회(GET) 최대 시도(원 시도 + 재시도 2)
     constexpr unsigned kRetryBackoffMsBase = 150; // 선형 백오프 기준(attempt배: 150ms, 300ms)
     const bool idempotent = (method == "GET");
     const int max_attempts = idempotent ? kMaxGetAttempts : 1;
@@ -255,7 +318,7 @@ static std::string winhttp_request(const std::string& method, const std::string&
         bool transport_ok = false;
         int status = 0;
         resp = winhttp_request_once(method, url, headers, body, transport_ok, status);
-        // 재시도 대상: 전송 실패(항상) 또는 멱등 GET의 5xx. 그 외(2xx/4xx)는 즉시 반환.
+        // 재시도 대상: 전송 실패(항상) 또는 조회(GET)의 5xx. 그 외(2xx/4xx)는 즉시 반환.
         const bool retryable = !transport_ok || (idempotent && status >= 500);
         if (!retryable)
             return resp;
@@ -263,7 +326,7 @@ static std::string winhttp_request(const std::string& method, const std::string&
         {
             LOG_WARN("[WinHTTP] " + std::string(transport_ok ? "HTTP " + std::to_string(status) : "전송 실패") +
                      " — 재시도 " + std::to_string(attempt + 1) + "/" + std::to_string(max_attempts) +
-                     " (GET 멱등)  url=" + url);
+                     " (GET 재시도)  url=" + url);
             Sleep(kRetryBackoffMsBase * attempt); // 선형 백오프: 150ms, 300ms
         }
     }
@@ -325,11 +388,11 @@ static std::string curl_request_once(const std::string& method, const std::strin
     return response;
 }
 
-// 재시도 래퍼. ⚠ 멱등 요청(GET)만 재시도 — 전송 계층 실패 또는 5xx(WinHTTP 경로와 동일 규약 — 주문 POST 제외).
+// 재시도 래퍼. ⚠ 조회(GET) 요청만 재시도 — 전송 계층 실패 또는 5xx(WinHTTP 경로와 동일 규약 — 주문 POST 제외).
 static std::string curl_request(const std::string& method, const std::string& url,
                                 const std::vector<std::string>& headers, const std::string& body)
 {
-    constexpr int kMaxGetAttempts     = 3;   // 멱등 GET 최대 시도(원 시도 + 재시도 2)
+    constexpr int kMaxGetAttempts     = 3;   // 조회(GET) 최대 시도(원 시도 + 재시도 2)
     constexpr int kRetryBackoffMsBase = 150; // 선형 백오프 기준(attempt배: 150ms, 300ms)
     const bool idempotent = (method == "GET");
     const int max_attempts = idempotent ? kMaxGetAttempts : 1;
@@ -346,7 +409,7 @@ static std::string curl_request(const std::string& method, const std::string& ur
         {
             LOG_WARN("[CURL] " + std::string(transport_ok ? "HTTP " + std::to_string(status) : "전송 실패") +
                      " — 재시도 " + std::to_string(attempt + 1) + "/" + std::to_string(max_attempts) +
-                     " (GET 멱등)  url=" + url);
+                     " (GET 재시도)  url=" + url);
             std::this_thread::sleep_for(std::chrono::milliseconds(kRetryBackoffMsBase * attempt));
         }
     }

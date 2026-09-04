@@ -295,3 +295,17 @@ if(UNIX)
 else()
     target_link_libraries(future_quote_probe PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
 endif()
+
+# ─── 벤치: REST 커넥션 풀링(P-2) 효과 — 조회 왕복 지연 분포, QUANT_HTTP_NOPOOL로 A/B ──
+add_executable(bench_rest_pool
+    tools/bench_rest_pool.cpp
+    src/api/KisClient.cpp
+    src/utils/Logger.cpp
+)
+target_include_directories(bench_rest_pool PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(bench_rest_pool PRIVATE
+        CURL::libcurl OpenSSL::Crypto nlohmann_json::nlohmann_json pthread stdc++fs)
+else()
+    target_link_libraries(bench_rest_pool PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
+endif()
