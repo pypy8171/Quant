@@ -158,6 +158,11 @@ private:
     bool is_us_market_open() const;
     bool is_any_market_open() const;
     void print_stats() const;
+    // WS 피드가 죽었을 때 REST 현재가 폴링으로 낮춘다. 폴링이 쓸 시세 소스(실전 도메인)가
+    //  없으면 낮춰봐야 틱이 안 나오므로 false를 돌려주고, 호출부는 kill switch로 넘어간다.
+    bool activate_rest_fallback(const std::string& reason);
+    // WS가 돌아왔을 때 원래 피드로 복귀. 처음부터 폴링이었으면(rest_price_feed_=true) 아무것도 안 한다.
+    void deactivate_rest_fallback();
 
     KisConfig kis_cfg_;
     int fetch_interval_sec_;
@@ -166,6 +171,12 @@ private:
     int         startup_probe_qty_ = 0; // 기동 스모크 프로브 수량(≤0=미가동)
     bool        startup_probe_fired_ = false; // 프로브 1회성 발사 가드
     bool rest_price_feed_ = false;  // REST 현재가 폴링을 체결 피드로 사용(WS 우회, opt-in)
+    // 지금 실제로 어느 피드로 도는지(런타임 상태). 기동 시 rest_price_feed_로 초기화하고,
+    //  WS 모드에서 연결이 죽으면 control_thread가 true로 올려 폴링으로 낮춘다(WS 복귀 시 되돌림).
+    //  config 의도(rest_price_feed_)와 분리해 둔 이유는, 폴백으로 켜진 것인지 처음부터 폴링이었는지를
+    //  구분해야 복귀 여부를 판단할 수 있어서다. control_thread write / data_thread read.
+    std::atomic<bool> rest_feed_active_{false};
+    bool rest_fallback_engaged_ = false; // 폴백으로 낮춘 상태인가(control_thread 전용, 전이 로그·복귀 판정)
     // 매크로 레짐 브리지 상태(data_thread 전용) — regime.json → OrderGate entry_halt.
     std::string regime_file_;             // 빈 문자열이면 기능 미가동
     int  regime_stale_sec_    = kDefaultRegimeStaleSec; // 이 초 이상 오래된 파일은 신뢰 안 함(사이드카 사망 감지)
@@ -191,7 +202,8 @@ private:
     int reconcile_skip_remaining_ = 0; // 남은 스킵 사이클 수(>0이면 조회 생략)
 
     std::unique_ptr<KisClient> kis_;
-    std::unique_ptr<KisClient> quote_kis_; // 시세 전용(실전 도메인). rest_price_feed_ 시에만 생성
+    // 시세 전용(실전 도메인). WS 모드에서도 폴백이 쓸 수 있어야 하므로 config에 블록이 있으면 항상 만든다.
+    std::unique_ptr<KisClient> quote_kis_;
     std::unique_ptr<KisWebSocket> ws_;
 
     std::vector<std::unique_ptr<StrategyBase>> strategies_;

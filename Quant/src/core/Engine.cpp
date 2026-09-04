@@ -228,7 +228,9 @@ void Engine::start()
 
     // 시세 전용 클라이언트(실전 도메인) — 모의 시세 REST가 HTTP 500이므로 시세만 실전으로 조회.
     //  실패해도 kis_(모의)로 폴백하되, 모의 시세는 500이라 사실상 틱이 안 나옴을 경고.
-    if (rest_price_feed_ && has_quote_kis_)
+    //  WS 모드에서도 만들어 둔다: WS가 죽어 폴링으로 낮출 때 쓸 시세 소스가 그때 가서는 없으면
+    //  폴백이 무의미해진다(모의 도메인으로 폴링하면 500만 쌓인다).
+    if (has_quote_kis_)
     {
         quote_kis_ = std::make_unique<KisClient>(quote_kis_cfg_);
         if (!quote_kis_->authenticate())
@@ -310,6 +312,9 @@ void Engine::start()
 
     running_.store(true);
 
+    // 런타임 피드 상태를 config 의도로 초기화. 이후 WS 생사에 따라 control_thread가 토글한다.
+    rest_feed_active_.store(rest_price_feed_, std::memory_order_relaxed);
+
     // WebSocket — 동적 구독 스펙으로 연결.
     //  rest_price_feed_ 모드에서는 WS를 열지 않는다: KIS는 app_key당 실시간 1세션만
     //  허용하는데, 세션 정리가 서버측에 걸려 rt=9(ALREADY IN USE) 재연결 폭주가 나므로
@@ -333,7 +338,14 @@ void Engine::start()
                                        order_router_->on_fill(fn);
                                });
         if (!ws_->connect(watch_specs_))
-            LOG_WARN("[Engine] WebSocket 연결 실패 — 호가/체결 이벤트 없이 동작");
+        {
+            // 예전에는 경고만 남기고 넘어갔는데, 그러면 전략이 호가·체결을 하나도 못 받아
+            //  매매가 조용히 멈춘다(폴링 경로가 꺼져 있으므로). 폴링으로 낮춰 계속 돈다.
+            //  control_thread가 재연결을 계속 시도하고, 붙으면 WS로 되돌린다.
+            LOG_ERROR("[Engine] WebSocket 최초 연결 실패");
+            if (!activate_rest_fallback("최초 연결 실패"))
+                LOG_ERROR("[Engine] 폴링 폴백도 불가(시세 소스 없음) — 호가/체결 이벤트 없이 동작");
+        }
     }
 
     data_thread_ = std::thread(&Engine::data_thread_fn, this);
@@ -692,7 +704,7 @@ void Engine::data_thread_fn()
                 }
             }
 
-            if (rest_price_feed_)
+            if (rest_feed_active_.load(std::memory_order_relaxed))
             {
                 // C-1: 매 사이클 잔고 리컨사일(체결콜백 부재 보완) — 원장/일손실 재동기.
                 reconcile_from_balance();
@@ -1322,6 +1334,39 @@ void Engine::print_stats() const
 // ─── ZMQ 제어 스레드 ──────────────────────────────────────────────────────
 // ZmqBridge 자체 스레드가 REP 소켓을 처리하므로 이 스레드는
 // running_ 감시 + WebSocket stale 감지를 담당
+// ─── WS 피드 끊김 시 REST 폴링으로 낮추기 / 복귀 ──────────────────────────────
+//  WS 모드에서 호가·체결이 끊기면 전략은 입력을 하나도 못 받는다(폴링 분기가 꺼져 있으므로).
+//  매매를 세우는 대신 data_thread의 폴링 분기를 켜서 30초 주기 현재가 틱으로 이어간다.
+//  느려진 대가는 있지만 눈이 아주 감기는 것보다는 낫다는 판단이다.
+bool Engine::activate_rest_fallback(const std::string& reason)
+{
+    if (rest_price_feed_)
+        return true; // 처음부터 폴링 — 낮출 것이 없다
+
+    // 폴링이 쓸 시세 소스. 모의 도메인은 시세 REST가 HTTP 500이라 실전 시세 클라이언트가
+    //  없고 주문계좌마저 모의면 낮춰봐야 틱이 안 나온다. 그때는 거짓 안심을 주지 않는다.
+    if (!quote_kis_ && kis_cfg_.is_paper)
+        return false;
+
+    if (!rest_fallback_engaged_)
+    {
+        rest_fallback_engaged_ = true;
+        rest_feed_active_.store(true, std::memory_order_relaxed);
+        LOG_ERROR("[Feed] WS → REST 폴링 폴백 (" + reason + ") — 틱 주기가 " +
+                  std::to_string(fetch_interval_sec_) + "초로 떨어집니다. WS 복귀 시 자동 원복");
+    }
+    return true;
+}
+
+void Engine::deactivate_rest_fallback()
+{
+    if (!rest_fallback_engaged_)
+        return;
+    rest_fallback_engaged_ = false;
+    rest_feed_active_.store(rest_price_feed_, std::memory_order_relaxed);
+    LOG_INFO("[Feed] WS 수신 정상 — REST 폴링 폴백 해제, 실시간 피드로 복귀");
+}
+
 void Engine::control_thread_fn()
 {
     using namespace std::chrono_literals;
@@ -1345,6 +1390,7 @@ void Engine::control_thread_fn()
         if (!ws_->is_stale(kStaleThresholdSec))
         {
             fail_streak = 0;   // 정상 수신 → 백오프 리셋
+            deactivate_rest_fallback(); // 폴백으로 낮춰 뒀다면 WS로 되돌린다(전이 시에만 동작)
             continue;
         }
 
@@ -1367,8 +1413,17 @@ void Engine::control_thread_fn()
             next_try = std::chrono::steady_clock::now() + std::chrono::seconds(backoff);
             LOG_ERROR("[Control] WebSocket 재연결 실패(" + std::to_string(fail_streak) +
                       "회) — " + std::to_string(backoff) + "초 후 재시도");
-            if (fail_streak >= 3)   // 반복 실패 시에만 kill switch (1회 실패로 즉시 중단 방지)
-                order_gate_.set_kill_switch(true);
+            // 반복 실패 시에만 대응한다(1회 실패로 즉시 조치하면 순간 장애에도 흔들린다).
+            //  먼저 REST 폴링으로 낮춰 매매를 이어가고, 그것마저 불가할 때 kill switch로 멈춘다.
+            //  예전에는 곧장 kill switch였다 — 시세 경로가 하나 죽었다고 매매 전체를 세울 이유는 없다.
+            if (fail_streak >= 3 && !rest_fallback_engaged_)
+            {
+                if (!activate_rest_fallback("재연결 " + std::to_string(fail_streak) + "회 실패"))
+                {
+                    LOG_ERROR("[Control] 폴링 폴백 불가(시세 소스 없음) — kill switch 작동");
+                    order_gate_.set_kill_switch(true);
+                }
+            }
         }
     }
 }
