@@ -12,11 +12,13 @@
   파이프라인이 결정론적으로 검증된 뒤 ZMQ PUB/SUB로 업그레이드(목표 아키텍처).
   regime.json 스키마(=C++ 리더 계약)는 아래 build_regime() 반환부 주석 참조.
 
-데이터(무료 시작): yfinance 선물 심볼.
-  ⚠️ **현물지수(^GSPC 등)는 한국 장중 죽어있다 → 반드시 선물 심볼 사용**:
-    ES=F(S&P500 선물) NQ=F(나스닥100 선물) ^VIX / KRW=X(USDKRW).
-    채권은 ^TNX(10Y 국채금리, %)로 표시(가격 선물 ZN=F 대신 — 읽기 직관 우선).
-  OANDA v20 FX 스트림은 --oanda-token 주면 USD/KRW 실시간으로 대체(옵션, 기본 off).
+데이터(무료): FinanceDataReader(FDR).
+  이 게이트는 "전일 종가 대비 당일 %"를 하루 단위로 계산한다. 그래서 장중 실시간 틱이
+  필요한 선물이 아니라, 완료된 간밤 미국 종가(코스피 시가가 반응하는 신호)면 충분하고
+  오히려 더 잘 정의된다. yfinance는 이 환경에서 Yahoo 크럼 SSL 차단으로 전 심볼 no_data라
+  폐기하고(2026-09-04 확인), FDR로 교체했다:
+    US500(S&P500) IXIC(나스닥) VIX / USD/KRW / FRED:DGS10(10Y 국채금리, %).
+  FDR는 소스별 라우팅(naver·stooq·FRED)이라 Yahoo 단일 장애에 덜 취약하다.
 
 ⚠️ 임계값은 전부 **검증 필요 가정**(STRATEGIES.md 회의 §검증 필요 가정 3).
    과최적화·국면 표본 부족 위험 — 라이브로 관찰하며 보정할 것.
@@ -37,18 +39,18 @@ from pathlib import Path
 
 KST = timezone(timedelta(hours=9))
 
-# ── 심볼 정의 (yfinance) — 현물 아님, 선물/환율 ─────────────────────────────
+# ── 심볼 정의 (FinanceDataReader) — 간밤 미국 종가 기준 일일 게이트 ──────────
 #  vote_dir: 이 지표가 "오르면" 위험선호(+1)인지 위험회피(-1)인지.
-#    NQ=F↑ → risk-on(+1). VIX↑ → risk-off(지표값↑이 위험이므로 -1).
-#    ^TNX(10Y 금리)↑ → 금리상승 → risk-off(-1). KRW=X(USDKRW)↑ → 원화약세 → risk-off(-1).
-#    ※ 채권은 "선물가격(ZN=F)" 대신 "금리(^TNX, %)"로 표시 — 읽기 직관 우선.
-#      가격↑=금리↓라 방향이 정반대이므로 vote_dir 는 -1(선물가격이면 +1이었음).
+#    나스닥/S&P↑ → risk-on(+1). VIX↑ → risk-off(지표값↑이 위험이므로 -1).
+#    10Y 금리↑ → 금리상승 → risk-off(-1). USD/KRW↑ → 원화약세 → risk-off(-1).
+#  키(NQ_F/ES_F 등)는 C++ 리더·기존 로그와의 호환을 위해 유지하되, 소스는 현물지수/금리다.
+#  FRED:DGS10 은 'Close' 컬럼이 없고 시리즈명이 컬럼 → fetch_changes 가 첫 수치열로 폴백.
 SYMBOLS = {
-    "NQ_F":  {"yf": "NQ=F",  "vote_dir": +1, "label": "나스닥100 선물"},
-    "ES_F":  {"yf": "ES=F",  "vote_dir": +1, "label": "S&P500 선물"},
-    "TNX10": {"yf": "^TNX",  "vote_dir": -1, "label": "10Y 미국채금리"},
-    "VIX":   {"yf": "^VIX",  "vote_dir": -1, "label": "VIX"},
-    "USDKRW":{"yf": "KRW=X", "vote_dir": -1, "label": "USD/KRW"},
+    "NQ_F":  {"fdr": "IXIC",       "vote_dir": +1, "label": "나스닥 지수"},
+    "ES_F":  {"fdr": "US500",      "vote_dir": +1, "label": "S&P500 지수"},
+    "TNX10": {"fdr": "FRED:DGS10", "vote_dir": -1, "label": "10Y 미국채금리"},
+    "VIX":   {"fdr": "VIX",        "vote_dir": -1, "label": "VIX"},
+    "USDKRW":{"fdr": "USD/KRW",    "vote_dir": -1, "label": "USD/KRW"},
 }
 
 # 지표별 % 변화 임계(검증 필요) — |chg| 가 warn 이상이면 방향표 1표, strong 이상이면 2표.
@@ -74,42 +76,42 @@ def now_kst_iso() -> str:
 
 
 def fetch_changes(symbols: dict) -> dict:
-    """yfinance로 각 심볼의 당일 % 변화(전일 종가 대비)를 best-effort 수집.
+    """FinanceDataReader로 각 심볼의 당일 % 변화(전일 종가 대비)를 best-effort 수집.
 
     반환: {key: {"pct": float|None, "price": float|None, "err": str|None}}
     네트워크/패키지 실패는 pct=None 으로 격리(하나 죽어도 나머지로 판정).
     """
     try:
-        import yfinance as yf
+        import FinanceDataReader as fdr
     except ImportError:
-        print("[!] yfinance 미설치 — `pip install yfinance` 후 재실행", file=sys.stderr)
-        return {k: {"pct": None, "price": None, "err": "no_yfinance"} for k in symbols}
+        print("[!] FinanceDataReader 미설치 — `pip install finance-datareader` 후 재실행",
+              file=sys.stderr)
+        return {k: {"pct": None, "price": None, "err": "no_fdr"} for k in symbols}
 
+    # 최근 15일치를 받아 유효 종가 2개(전일·당일)로 % 변화 산출. 휴장·형성중 봉은 dropna 로 제거.
+    start = (datetime.now(KST).date() - timedelta(days=15)).isoformat()
     out = {}
     for key, meta in symbols.items():
         pct = price = None
         err = None
         try:
-            t = yf.Ticker(meta["yf"])
-            prev = last = None
-            # 1순위: fast_info (가벼움). 없으면 2일 일봉으로 폴백.
-            fi = getattr(t, "fast_info", None)
-            if fi is not None:
-                last = fi.get("last_price") if hasattr(fi, "get") else getattr(fi, "last_price", None)
-                prev = fi.get("previous_close") if hasattr(fi, "get") else getattr(fi, "previous_close", None)
-            if not last or not prev:
-                hist = t.history(period="2d", interval="1d")
-                if len(hist) >= 2:
-                    prev = float(hist["Close"].iloc[-2])
-                    last = float(hist["Close"].iloc[-1])
-                elif len(hist) == 1:
-                    prev = float(hist["Open"].iloc[-1])
-                    last = float(hist["Close"].iloc[-1])
-            if last and prev and prev != 0:
-                price = float(last)
-                pct = (float(last) - float(prev)) / float(prev) * 100.0
-            else:
+            df = fdr.DataReader(meta["fdr"], start)
+            if df is None or len(df) == 0:
                 err = "no_data"
+            else:
+                # FRED 등 'Close' 없는 시리즈는 첫 수치열로 폴백(시리즈명이 컬럼).
+                col = "Close" if "Close" in df.columns else df.columns[0]
+                s = df[col].dropna()
+                if len(s) >= 2:
+                    prev = float(s.iloc[-2])
+                    last = float(s.iloc[-1])
+                    if prev != 0:
+                        price = last
+                        pct = (last - prev) / prev * 100.0
+                    else:
+                        err = "zero_prev"
+                else:
+                    err = "no_data"
         except Exception as e:  # noqa: BLE001 — 심볼 하나 실패가 전체를 멈추면 안 됨
             err = f"{type(e).__name__}:{e}"
         out[key] = {"pct": pct, "price": price, "err": err}
@@ -179,7 +181,7 @@ def build_regime(changes: dict) -> dict:
         "stale_after_sec": 600,
         "thresholds": {"halt_score": HALT_SCORE, "liq_score": LIQ_SCORE},
         "components": components,
-        "source": "yfinance",
+        "source": "FinanceDataReader",
     }
 
 
