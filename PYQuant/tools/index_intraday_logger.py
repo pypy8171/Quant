@@ -28,7 +28,7 @@
     python -m tools.index_intraday_logger --interval 30 --codes 0001 1001 2001
     python -m tools.index_intraday_logger --out ../data/index_intraday
 
-멱등성: (ts, code)가 오늘 파일에 이미 있으면 건너뜀(재기동 안전).
+중복 방지: (ts, code)가 오늘 파일에 이미 있으면 건너뜀(재기동 안전).
 """
 import argparse
 import json
@@ -69,7 +69,7 @@ def day_file(out_dir: Path, dt: datetime) -> Path:
 
 
 def load_existing_keys(path: Path) -> set:
-    """오늘 파일의 (ts, code) 집합 — 멱등 재기동용."""
+    """오늘 파일의 (ts, code) 집합 — 중복 무시 재기동용."""
     keys = set()
     if not path.exists():
         return keys

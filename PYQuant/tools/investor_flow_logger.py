@@ -24,7 +24,7 @@
     python -m tools.investor_flow_logger 005930 000660   # 특정 종목만
     python -m tools.investor_flow_logger --out ../data/investor_flow
 
-멱등성: (date, ticker, captured_date) 조합이 이미 적재돼 있으면 건너뛴다.
+중복 방지: (date, ticker, captured_date) 조합이 이미 적재돼 있으면 건너뛴다.
         같은 날 여러 번 돌려도 하루 1행만 남는다(그날의 최종 관측치).
 주문 없음 — 조회 전용, 안전.
 """
@@ -111,7 +111,7 @@ def fetch_investor_series(kis, ticker: str) -> list[dict]:
 
 
 def load_existing_index(path: Path) -> set:
-    """이미 적재된 (date, ticker) 집합 — 멱등 재실행용. 오늘 captured 행만 중복 판정."""
+    """이미 적재된 (date, ticker) 집합 — 중복 무시 재실행용. 오늘 captured 행만 중복 판정."""
     idx = set()
     if not path.exists():
         return idx

@@ -6,8 +6,8 @@ ForwardTrader — 검증된 횡단면 전략(regime-모멘텀)을 KIS 모의계�
   - 집행은 별도: KIS **실잔고(get_kr_balance)를 진실**로 한 무상태 diff(보유 vs 목표) →
     비목표 전량매도 + 목표 동일가중매수. 부분체결은 다음 사이클 재diff로 자가수렴.
   - 안전: ❶ 모의 강제(is_paper 아니면 거부, --real 명시해야 실거래) ❷ OrderGate(수량/금액
-    상한·일일주문제한·디스크 멱등·rate limit) ❸ 기본 dry-run(주문 안 냄).
-  - 트리거: 달력 아닌 **거래일 카운터**(데이터 날짜로 셈 → 공휴일 자동) + 상태파일 멱등.
+    상한·일일주문제한·디스크 중복방지·rate limit) ❸ 기본 dry-run(주문 안 냄).
+  - 트리거: 달력 아닌 **거래일 카운터**(데이터 날짜로 셈 → 공휴일 자동) + 상태파일 중복방지.
 
 ⚠️ forward-test 성공 = P&L 아님. ①신호 일치(백테스트==라이브 목표집합) ②파이프라인 완주
    ③슬리피지 가정 내. 최소 1리밸런싱 사이클(~1개월).
@@ -31,7 +31,7 @@ class OrderGate:
                  names: dict | None = None, order_sleep: float = 1.1, persist=None):
         self.kis = kis
         self.allow_real = allow_real
-        self.persist = persist   # 멱등키 즉시 디스크 영속화 콜백(크래시 중 이중발행 방지, W-1)
+        self.persist = persist   # 중복방지 키 즉시 디스크 영속화 콜백(크래시 중 이중발행 방지, W-1)
         self.max_notional = max_notional
         self.max_orders_per_day = max_orders_per_day
         self.state = state
@@ -58,10 +58,10 @@ class OrderGate:
         # 일일 주문수 제한
         if self._today_count >= self.max_orders_per_day:
             print(f"  🚫 일일 주문수 한도({self.max_orders_per_day}) — 차단"); return False
-        # 멱등(디스크): 같은 (날짜,종목,방향,수량) 재전송 금지
+        # 중복 방지(디스크): 같은 (날짜,종목,방향,수량) 재전송 금지
         key = f"{self.asof}|{sig.ticker}|{sig.side}|{sig.quantity}"
         if key in self.state.get("submitted_keys", []):
-            print(f"  ↺ 멱등 스킵 {label} {sig.side} {sig.quantity}"); return False
+            print(f"  ↺ 중복 스킵 {label} {sig.side} {sig.quantity}"); return False
 
         side_kr = "매수" if sig.side == "BUY" else "매도"
         tag = "[DRY]" if self.dry_run else "[주문]"
@@ -122,7 +122,7 @@ class ForwardTrader:
         hhmm = now.hour * 100 + now.minute
         return 900 <= hhmm < 1530
 
-    # ── 상태(멱등·리밸런싱 카운터) ───────────────────────────────────────────
+    # ── 상태(중복방지·리밸런싱 카운터) ───────────────────────────────────────────
     def _load_state(self) -> dict:
         try:
             return json.loads(self.state_path.read_text(encoding="utf-8"))
@@ -177,7 +177,7 @@ class ForwardTrader:
         # 2. 리밸런싱 데이 판정(거래일 카운터)
         last_rb = state.get("last_rebalance_date")
         if last_rb == asof and not force:
-            print(f"이미 {asof} 리밸런싱 완료(멱등) — 스냅샷만."); self._snapshot(asof); return
+            print(f"이미 {asof} 리밸런싱 완료(중복 무시) — 스냅샷만."); self._snapshot(asof); return
         if last_rb:
             days_since = sum(1 for d in all_dates if d > last_rb)
             is_rb = days_since >= self.rebalance_every
