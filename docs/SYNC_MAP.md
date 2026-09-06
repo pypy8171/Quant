@@ -31,9 +31,10 @@
 | [`research/BACKTESTS.md`](../research/BACKTESTS.md) | studies 01~06 README, BACKTEST_LOG 실행#, runs/ | 계열 A 새 실행 시 카탈로그 한 줄 추가 |
 | [`research/studies/README.md`](../research/studies/README.md) | studies `<NN>/README.md` (A:01·02·03·06 / B:07·08·09) | 새 스터디 폴더 추가 시 해당 계열 섹션에 등재 |
 | [`strategies/README.md`](../strategies/README.md) | `strategies/<전략>/SPEC·live/` | 새 전략 폴더·새 SPEC 추가 시 표에 행 추가 |
-| [`CLAUDE.md`](../CLAUDE.md) | 빌드 명령·스레드 모델·핵심 타입 | 빌드/아키텍처 코드 변경 시 |
+| [`CLAUDE.md`](../CLAUDE.md) | 빌드 명령·스레드 모델·핵심 타입·문체 규약 요약 | 빌드/아키텍처 코드 변경 시. 문체 규약 본문은 `docs/STYLE_GUIDE.md`가 소유 |
 | [`docs/guides/PROJECT_GUIDE.md`](guides/PROJECT_GUIDE.md) | 디렉터리 구조·기술스택·코드 파일 링크 | 파일 이동/리네임 시 링크 재검 |
 | [`docs/GLOSSARY.md`](GLOSSARY.md) | 전략·인프라·데이터·설정 약어 사전 | 새 전략/개념 추가·약어 신설 시 항목 추가 |
+| [`docs/STYLE_GUIDE.md`](STYLE_GUIDE.md) | 문서 문체 규약 정본(금지 표현과 대체어 표·지표 약어 병기·적용 범위) | 새 금지 표현 적발·적용 범위 변경 시 항목 추가. `CLAUDE.md` 요약과 `@committer` (d-2) 스캔이 이 파일을 가리킨다 |
 | [`docs/CODE_GRAPH.md`](CODE_GRAPH.md) (자동생성) | `Quant/include`·`src` 의 로컬 `#include` 관계 | 헤더 추가/이동·`#include` 변경 시 `py scripts/gen_code_graph.py` 재생성(손편집 금지). 사용법은 [가이드](guides/CODE_GRAPH_GUIDE.md) |
 | [`docs/reports/PIPELINE_LATENCY_REPORT.md`](reports/PIPELINE_LATENCY_REPORT.md) | 부하·지연 하네스 3종 결과·해석 | 하네스 인자/동작 변경·새 실측 시 수치·재현 명령 갱신 |
 | [`docs/HARNESS.md`](HARNESS.md) | `.claude/` 하네스(CLAUDE.md·커맨드·MCP·서브에이전트·훅)·루프·스크립트 사이드카 | 레버/루프·에이전트/커맨드/훅 개수·목록 변경 시 |
