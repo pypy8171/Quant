@@ -22,6 +22,12 @@ using json = nlohmann::json;
 // KST = UTC+9. UTC now()에 더해 KST 기준 '오늘' 날짜를 뽑는 데 쓴다.
 static constexpr int kKstOffsetSec = 9 * 3600;
 
+// 빠른 실패 스코프 깊이(스레드별). 0보다 크면 조회 재시도를 하지 않는다.
+static thread_local int g_fastfail_depth = 0;
+
+KisClient::FastFailScope::FastFailScope() { ++g_fastfail_depth; }
+KisClient::FastFailScope::~FastFailScope() { --g_fastfail_depth; }
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  하드코딩 리스트 externalize — 외부 JSON에서 로드, 부재·오류 시 내장 폴백.
 //  프로젝트 패턴(universe_scan.json)과 동일: ifstream + 파싱 + LOG_WARN 폴백.
@@ -300,6 +306,15 @@ static std::string winhttp_request_once(const std::string& method, const std::st
     return response;
 }
 
+// 초당 호출 한도 초과 신호. KIS는 이걸 HTTP 500으로도 돌려줘서 상태코드만으로는 일시 서버
+//  장애와 구분이 안 된다 — 바디의 코드로 가른다. 한도 초과에 즉시 재시도하면 호출량을 1→3배로
+//  늘려 초과를 더 키운다(양의 되먹임). 한도 창이 1초라 150·300ms 백오프도 같은 창 안에 떨어진다.
+static bool is_rate_limited(const std::string& body)
+{
+    return body.find("EGW00201") != std::string::npos ||
+           body.find("초당 거래건수") != std::string::npos;
+}
+
 // 재시도 래퍼. ⚠ 조회(GET) 요청(여러 번 보내도 서버 상태 불변이라 재시도 안전)만 재시도한다 — (a) 전송 계층 실패(12152 등), (b) 5xx 서버 일시장애.
 //  KIS 시세/일봉 TR은 부하 시 간헐 HTTP 500을 뱉는데(전송은 정상, transport_ok=true), 이때 일봉이 <60봉으로
 //  잘려 스캔 후보가 통째로 탈락한다 → 조회(GET)에 한해 5xx도 재시도해 후보 유실을 막는다.
@@ -309,9 +324,9 @@ static std::string winhttp_request(const std::string& method, const std::string&
                                    const std::vector<std::string>& headers, const std::string& body)
 {
     constexpr int      kMaxGetAttempts    = 3;   // 조회(GET) 최대 시도(원 시도 + 재시도 2)
-    constexpr unsigned kRetryBackoffMsBase = 150; // 선형 백오프 기준(attempt배: 150ms, 300ms)
+    constexpr unsigned kRetryBackoffMsBase = 500; // 선형 백오프 기준(attempt배: 500ms, 1000ms)
     const bool idempotent = (method == "GET");
-    const int max_attempts = idempotent ? kMaxGetAttempts : 1;
+    const int max_attempts = (idempotent && g_fastfail_depth == 0) ? kMaxGetAttempts : 1;
     std::string resp;
     for (int attempt = 1; attempt <= max_attempts; ++attempt)
     {
@@ -322,12 +337,19 @@ static std::string winhttp_request(const std::string& method, const std::string&
         const bool retryable = !transport_ok || (idempotent && status >= 500);
         if (!retryable)
             return resp;
+        // 한도 초과가 확인되면 한 번만 더 시도하고 그친다. 부하가 원인인 실패에 재시도를
+        //  겹치면 부하를 더 얹는다.
+        const bool rate_limited = is_rate_limited(resp);
+        if (rate_limited && attempt >= 2)
+            return resp;
         if (attempt < max_attempts)
         {
             LOG_WARN("[WinHTTP] " + std::string(transport_ok ? "HTTP " + std::to_string(status) : "전송 실패") +
+                     (rate_limited ? " (초당 한도)" : "") +
                      " — 재시도 " + std::to_string(attempt + 1) + "/" + std::to_string(max_attempts) +
-                     " (GET 재시도)  url=" + url);
-            Sleep(kRetryBackoffMsBase * attempt); // 선형 백오프: 150ms, 300ms
+                     "  url=" + url);
+            // 한도 창이 1초라 그보다 짧게 자면 같은 창에 다시 떨어진다.
+            Sleep(rate_limited ? 1100u : kRetryBackoffMsBase * attempt);
         }
     }
     return resp; // 재시도 소진 — 마지막 응답(빈 문자열 또는 5xx 바디)
@@ -393,9 +415,9 @@ static std::string curl_request(const std::string& method, const std::string& ur
                                 const std::vector<std::string>& headers, const std::string& body)
 {
     constexpr int kMaxGetAttempts     = 3;   // 조회(GET) 최대 시도(원 시도 + 재시도 2)
-    constexpr int kRetryBackoffMsBase = 150; // 선형 백오프 기준(attempt배: 150ms, 300ms)
+    constexpr int kRetryBackoffMsBase = 500; // 선형 백오프 기준(attempt배: 500ms, 1000ms)
     const bool idempotent = (method == "GET");
-    const int max_attempts = idempotent ? kMaxGetAttempts : 1;
+    const int max_attempts = (idempotent && g_fastfail_depth == 0) ? kMaxGetAttempts : 1;
     std::string resp;
     for (int attempt = 1; attempt <= max_attempts; ++attempt)
     {
@@ -405,12 +427,17 @@ static std::string curl_request(const std::string& method, const std::string& ur
         const bool retryable = !transport_ok || (idempotent && status >= 500);
         if (!retryable)
             return resp;
+        const bool rate_limited = is_rate_limited(resp); // 한도 초과면 한 번만 더 시도
+        if (rate_limited && attempt >= 2)
+            return resp;
         if (attempt < max_attempts)
         {
             LOG_WARN("[CURL] " + std::string(transport_ok ? "HTTP " + std::to_string(status) : "전송 실패") +
+                     (rate_limited ? " (초당 한도)" : "") +
                      " — 재시도 " + std::to_string(attempt + 1) + "/" + std::to_string(max_attempts) +
-                     " (GET 재시도)  url=" + url);
-            std::this_thread::sleep_for(std::chrono::milliseconds(kRetryBackoffMsBase * attempt));
+                     "  url=" + url);
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(rate_limited ? 1100 : kRetryBackoffMsBase * attempt));
         }
     }
     return resp;
@@ -593,6 +620,28 @@ bool KisClient::authenticate_locked()
 
 std::vector<MarketData> KisClient::get_daily_ohlcv(const std::string& ticker, int count)
 {
+    if (count <= 0)
+        return {};
+
+    // 캐시 조회 — 유효시간 안이고 요청한 만큼 담겨 있으면 그대로 쓴다. 최신봉이 앞이라
+    //  더 짧은 요청은 앞에서 잘라 답한다. timestamp는 받아온 시각이라 지금으로 다시 찍는다.
+    if (cfg_.daily_cache_ttl_sec > 0)
+    {
+        std::lock_guard<std::mutex> lk(daily_cache_mtx_);
+        auto it = daily_cache_.find(ticker);
+        if (it != daily_cache_.end() && it->second.requested >= count &&
+            std::chrono::steady_clock::now() - it->second.at <
+                std::chrono::seconds(cfg_.daily_cache_ttl_sec))
+        {
+            size_t n = (std::min)(static_cast<size_t>(count), it->second.bars.size());
+            std::vector<MarketData> hit(it->second.bars.begin(), it->second.bars.begin() + n);
+            auto now = std::chrono::system_clock::now();
+            for (auto& md : hit)
+                md.timestamp = now;
+            return hit;
+        }
+    }
+
     // G1 수정: 날짜 하드코딩(19000101~99991231)은 모의서버 500 → 유한창(오늘−N일 ~ 오늘, KST).
     //   1콜 ~100봉이면 충분(정배열/추세 판정 60~120일). count>≈100은 페이지네이션 미구현(초기 단일콜).
     auto fmt_date = [](time_t t) -> std::string {
@@ -650,6 +699,16 @@ std::vector<MarketData> KisClient::get_daily_ohlcv(const std::string& ticker, in
     catch (const std::exception& e)
     {
         LOG_ERROR(std::string("[KIS] 일봉 파싱 오류: ") + e.what());
+    }
+
+    // 빈 결과는 캐시하지 않는다(일시적 500·파싱 실패를 TTL 동안 굳히지 않기 위해).
+    if (cfg_.daily_cache_ttl_sec > 0 && !result.empty())
+    {
+        std::lock_guard<std::mutex> lk(daily_cache_mtx_);
+        auto& e = daily_cache_[ticker];
+        e.at = std::chrono::steady_clock::now();
+        e.requested = count;
+        e.bars = result;
     }
 
     return result;
@@ -1327,11 +1386,59 @@ std::vector<OpenOrder> KisClient::get_open_orders()
 
 // ─── HTTP 래퍼 ────────────────────────────────────────────────────────────
 
+// 초당 호출 한도를 넘지 않게 호출을 고르게 편다. KIS는 한도를 넘긴 요청에 HTTP 500이나
+//  EGW00201을 돌려주는데, 어느 쪽이든 그 호출은 버려지고 재시도가 붙어 호출량이 더 는다.
+//  버킷은 인스턴스(=app_key)마다 따로다 — 한도가 app_key 단위라 시세 클라이언트와 주문
+//  클라이언트의 예산은 서로 무관하다. 총 호출량을 줄이지는 못하고 순서만 고르게 만든다.
+void KisClient::rate_limit_acquire(const std::string& url)
+{
+    // 실전 초당 20건, 모의 초당 2건이 공표 한도다. 재시도·토큰 갱신이 끼어들 여유를 남겨 낮게 잡는다.
+    const double refill = cfg_.is_paper ? 2.0 : 15.0;
+    const double cap = refill; // 1초치까지만 모아둔다(그 이상 몰아치면 어차피 한도에 걸린다)
+    // 주문·잔고 경로에는 예약분을 남긴다. 시세 조회가 버킷을 다 비운 순간 청산 주문이
+    //  그 뒤에 줄서면 몇 백 ms가 늦는데, 그 지연은 조회 지연과 값이 다르다.
+    const bool priority = url.find("/trading/") != std::string::npos;
+    const double need = priority ? 1.0 : 2.0;
+
+    for (;;)
+    {
+        double wait_sec = 0.0;
+        {
+            std::lock_guard<std::mutex> lk(rate_mtx_);
+            auto now = std::chrono::steady_clock::now();
+            if (rate_last_.time_since_epoch().count() == 0)
+            {
+                rate_last_ = now;
+                rate_tokens_ = cap; // 첫 호출은 기다리지 않는다
+            }
+            double elapsed = std::chrono::duration<double>(now - rate_last_).count();
+            rate_last_ = now;
+            rate_tokens_ = (std::min)(cap, rate_tokens_ + elapsed * refill);
+            if (rate_tokens_ >= need)
+            {
+                rate_tokens_ -= 1.0;
+                return;
+            }
+            wait_sec = (need - rate_tokens_) / refill;
+        }
+        if (wait_sec > 0.2)
+            wait_sec = 0.2; // 재확인 주기 상한 — 먼저 기다리던 호출이 풀렸을 수 있다
+        std::this_thread::sleep_for(std::chrono::duration<double>(wait_sec));
+    }
+}
+
+void KisClient::note_rate_limited()
+{
+    std::lock_guard<std::mutex> lk(rate_mtx_);
+    rate_tokens_ = 0.0; // 다음 호출은 리필을 기다린다(≈1초치)
+}
+
 std::string KisClient::http_get(const std::string& url, const std::vector<std::string>& headers)
 {
     // oauth2 토큰 발급 엔드포인트가 아닌 경우에만 자동 갱신 (재귀 방지)
     if (url.find("oauth2") == std::string::npos)
         ensure_authenticated();
+    rate_limit_acquire(url);
 
     // KIS API는 GET에도 Content-Type: application/json 요구
     auto hdrs = headers;
@@ -1345,10 +1452,13 @@ std::string KisClient::http_get(const std::string& url, const std::vector<std::s
     if (!has_ct)
         hdrs.push_back("Content-Type: application/json; charset=utf-8");
 #ifdef _WIN32
-    return winhttp_request("GET", url, hdrs, "");
+    std::string resp = winhttp_request("GET", url, hdrs, "");
 #else
-    return curl_request("GET", url, hdrs, "");
+    std::string resp = curl_request("GET", url, hdrs, "");
 #endif
+    if (is_rate_limited(resp))
+        note_rate_limited();
+    return resp;
 }
 
 std::string KisClient::http_post(const std::string& url, const std::vector<std::string>& headers,
@@ -1356,12 +1466,16 @@ std::string KisClient::http_post(const std::string& url, const std::vector<std::
 {
     if (url.find("oauth2") == std::string::npos)
         ensure_authenticated();
+    rate_limit_acquire(url);
 
 #ifdef _WIN32
-    return winhttp_request("POST", url, headers, body);
+    std::string resp = winhttp_request("POST", url, headers, body);
 #else
-    return curl_request("POST", url, headers, body);
+    std::string resp = curl_request("POST", url, headers, body);
 #endif
+    if (is_rate_limited(resp))
+        note_rate_limited();
+    return resp;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

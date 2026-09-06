@@ -6,6 +6,7 @@
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 struct KisConfig
@@ -16,6 +17,9 @@ struct KisConfig
     std::string account_type; // "01"
     std::string hts_id;       // H0STCNI0 구독 키 (미설정 시 account_no 사용)
     bool is_paper = false;
+    // 일봉 캐시 유효시간(초). 0이면 캐시 끔. 일봉을 매 사이클 다시 받아야 하는 전략
+    //  (MA_CROSS·MOMENTUM처럼 on_data로 도는 것)을 쓸 때는 짧게 두거나 0으로 끈다.
+    int daily_cache_ttl_sec = 600;
 };
 
 class KisClient : public IOrderExecutor
@@ -23,6 +27,16 @@ class KisClient : public IOrderExecutor
 public:
     explicit KisClient(const KisConfig& cfg);
     ~KisClient() override;
+
+    // 이 스레드의 조회를 재시도 없이 보낸다(빠른 실패). 공유 전략 스레드처럼 한 번의 왕복이
+    //  다른 종목 전체를 막는 자리에서 쓴다 — 3회 재시도 × 타임아웃이면 한 번의 조회가 스레드를
+    //  수십 초 잡는다. 실패는 호출자가 보류(0)로 처리하고 다음 하트비트에 다시 온다.
+    class FastFailScope
+    {
+    public:
+        FastFailScope();
+        ~FastFailScope();
+    };
 
     bool authenticate();
     bool is_authenticated() const
@@ -211,6 +225,32 @@ private:
     // 공유하며 재발급 시 동시 읽기/쓰기가 발생 → token_mtx_로 직렬화(비재귀). 진입점은
     // authenticate()/ensure_authenticated()/token()/is_authenticated() 넷 모두 각자 독립 획득.
     mutable std::mutex token_mtx_;
+
+    // 일봉 캐시 — 같은 종목의 일봉을 유니버스 스캐너·데이터 스레드·전략 프리페치가 겹쳐 부른다.
+    //  120봉 추세 판정은 몇 분 사이에 결론이 달라지지 않으므로 TTL 안에서는 받아둔 것을 다시 쓴다.
+    //  KIS는 최신봉부터 주므로 더 짧은 요청은 앞부분을 잘라 답하고, 더 긴 요청은 캐시를 못 쓴다.
+    //  하루 캐시로 두지 않는 것은 장중 마지막 봉이 당일 미완성 봉이라 계속 갱신되기 때문이다.
+    struct DailyCacheEntry
+    {
+        std::chrono::steady_clock::time_point at;
+        int requested = 0; // 이 항목을 만들 때 요청한 봉 수(짧은 이력 종목이 매번 미스 나는 것 방지)
+        std::vector<MarketData> bars;
+    };
+    mutable std::mutex daily_cache_mtx_;
+    std::unordered_map<std::string, DailyCacheEntry> daily_cache_;
+
+    // 초당 호출 한도 토큰버킷 — 인스턴스(=app_key)당 하나. 한도는 app_key 단위라 시세 클라이언트와
+    //  주문 클라이언트가 각각 자기 예산을 쓴다. 모든 호출이 http_get/http_post를 지나므로
+    //  여기서 재우면 우회하는 호출 경로가 없다. 주문·잔고 경로는 예약분을 따로 둬, 시세 조회가
+    //  버킷을 비워도 주문이 그 뒤에 줄서지 않게 한다.
+    mutable std::mutex rate_mtx_;
+    double rate_tokens_ = 0.0;
+    std::chrono::steady_clock::time_point rate_last_;
+    void rate_limit_acquire(const std::string& url);
+    // 서버가 한도 초과를 알려오면 버킷을 비워 다음 호출들을 스스로 늦춘다. 리필률 추정이
+    //  실제 한도보다 높았을 때 되돌리는 유일한 경로다(응답이 알려주는 값을 그대로 쓴다).
+    void note_rate_limited();
+
     std::string access_token_;
     std::chrono::system_clock::time_point token_expires_at_;
     std::string last_order_msg_cd_; // 직전 주문/취소/정정 KIS 오류코드(msg_cd), 성공 시 "" — order_thread 전용
