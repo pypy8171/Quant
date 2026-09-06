@@ -56,6 +56,16 @@ RegimeSnapshot RegimeController::evaluate()
 {
     const std::string today = today_kst();
 
+    // 같은 거래일에 이미 판정했으면 그대로 돌려준다. 아래 판정은 당일 미완성봉을 빼고
+    //  전일 확정봉만 쓰므로(start 계산) 장중에는 입력이 상수다 — 다시 받아도 결과가 같다.
+    //  지수 일봉은 1회 조회가 GET 5회(날짜창을 밀며 누적)라 재평가 주기마다 그만큼이 그냥 나간다.
+    //  실패한 판정(index_close=0)은 캐시하지 않아 다음 주기에 다시 시도한다.
+    {
+        std::lock_guard<std::mutex> lk(snap_mtx_);
+        if (last_.date == today && last_.index_close > 0.0)
+            return last_;
+    }
+
     auto on_fail = [&](const std::string& why) -> RegimeSnapshot {
         ++fail_streak_;
         Regime out;

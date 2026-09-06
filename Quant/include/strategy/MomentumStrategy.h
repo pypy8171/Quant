@@ -39,6 +39,8 @@ public:
         in_position_ = false;
     }
 
+    bool wants_daily_bars() const override { return true; }
+
     std::optional<OrderSignal> on_data(const MarketData& data) override
     {
         if (data.ticker != ticker_)

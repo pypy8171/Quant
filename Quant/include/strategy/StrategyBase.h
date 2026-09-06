@@ -22,6 +22,12 @@ public:
     // 일봉 시세 이벤트
     virtual std::optional<OrderSignal> on_data(const MarketData&) = 0;
 
+    // 이 전략이 on_data(일봉)를 실제로 쓰는가. 기본 false — 대부분의 전략은 호가·체결
+    //  이벤트로만 동작하고 on_data는 인터페이스 충족용 no-op이다. Engine은 등록된 전략 중
+    //  하나라도 true일 때만 일봉을 폴링한다. 아무도 안 쓰면 종목 수만큼의 차트 TR 호출이
+    //  매 사이클 그대로 버려지고, 그 호출량이 초당 한도를 밀어올려 다른 조회까지 500으로 떨어뜨린다.
+    virtual bool wants_daily_bars() const { return false; }
+
     // 호가 이벤트 (국내 전용 — H0STASP0)
     virtual std::optional<OrderSignal> on_order_book(const OrderBook&)
     {

@@ -488,7 +488,10 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
 
             // 주기적 재스캔 등록(동적) — data_thread가 rescan_sec마다 universe_fn을 재호출해
             //  신규 티커만 런타임 add. 인증 실패해도 재스캔은 엔진 내부 시세 클라이언트로 시도.
-            engine.set_universe_rescan(universe_fn, factory, rescan_sec);
+            // 등록 총수 상한은 스캔 1회 상한(max_universe)과 같게 둔다 — 스캔은 매번 그만큼만
+            //  고르는데 등록은 누적되므로, 상한이 없으면 총수가 그 값을 넘어 계속 는다.
+            engine.set_universe_rescan(universe_fn, factory, rescan_sec,
+                                       static_cast<size_t>(sc.max_register));
             LOG_INFO("[Main] DEVSCALE 주기적 재스캔 활성: " + std::to_string(rescan_sec) + "초 간격");
         }
     }

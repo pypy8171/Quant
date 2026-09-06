@@ -181,10 +181,18 @@ void Engine::maybe_rescan_universe()
     }
 
     int added = 0;
+    bool capped = false;
     for (auto& t : tickers)
     {
         if (t.empty() || registered_tickers_.count(t))
             continue;
+        // 상한에 닿으면 더 등록하지 않는다. 해제 경로가 없어 한번 등록한 종목은 남으므로,
+        //  상한이 없으면 재스캔마다 조회량이 계단식으로 늘어난다.
+        if (max_registered_ > 0 && registered_tickers_.size() >= max_registered_)
+        {
+            capped = true;
+            break;
+        }
         auto strat = strategy_factory_(t);
         if (!strat)
             continue;
@@ -192,9 +200,11 @@ void Engine::maybe_rescan_universe()
         register_strategy_runtime(std::move(strat));
         ++added;
     }
-    if (added > 0)
+    if (added > 0 || capped)
         LOG_INFO("[Engine] 유니버스 재스캔 완료: +" + std::to_string(added) +
-                 "종목 (총 " + std::to_string(registered_tickers_.size()) + "종목)");
+                 "종목 (총 " + std::to_string(registered_tickers_.size()) + "종목)" +
+                 (capped ? " — 등록 상한 " + std::to_string(max_registered_) + " 도달, 신규 등록 중단"
+                         : ""));
 }
 
 void Engine::start()
@@ -934,21 +944,28 @@ void Engine::data_thread_fn()
                 //  종목 수×사이클마다 500이 쌓여 로그가 그걸로 덮인다(3회 재시도까지 붙는다).
                 //  위 rest 분기와 같이 시세 클라이언트로 부른다.
                 KisClient* qc = quote_kis_ ? quote_kis_.get() : kis_.get();
-                for (const auto& spec : watch_specs_)
+                // 일봉을 받아 쓰는 전략이 하나도 없으면 폴링 자체를 건너뛴다. DevScale·ITB처럼
+                //  호가·체결 이벤트로만 도는 구성에서는 이 루프가 종목 수만큼 차트 TR을 매 사이클
+                //  때리고 결과는 아무도 안 본다. 그 호출량이 초당 한도를 밀어 다른 조회(3분봉·현재가)까지
+                //  500으로 떨어뜨린다. 전략 집합은 국면 전환으로 바뀌므로 매 사이클 다시 확인한다.
+                if (daily_bars_needed())
                 {
-                    std::vector<MarketData> bars;
-                    if (spec.market == Market::KR)
-                        bars = qc->get_daily_ohlcv(spec.ticker, 1);
-                    else
-                        bars = qc->get_us_daily_ohlcv(spec.ticker, 1, spec.exchange);
+                    for (const auto& spec : watch_specs_)
+                    {
+                        std::vector<MarketData> bars;
+                        if (spec.market == Market::KR)
+                            bars = qc->get_daily_ohlcv(spec.ticker, 1);
+                        else
+                            bars = qc->get_us_daily_ohlcv(spec.ticker, 1, spec.exchange);
 
-                    if (bars.empty())
-                        continue;
-                    auto& md = bars[0];
-                    md.bar_index = static_cast<int>(data_count_.load());
-                    while (!market_queue_.push(md) && running_.load(std::memory_order_acquire))
-                        std::this_thread::sleep_for(1ms);
-                    ++data_count_;
+                        if (bars.empty())
+                            continue;
+                        auto& md = bars[0];
+                        md.bar_index = static_cast<int>(data_count_.load());
+                        while (!market_queue_.push(md) && running_.load(std::memory_order_acquire))
+                            std::this_thread::sleep_for(1ms);
+                        ++data_count_;
+                    }
                 }
             }
         }
@@ -1324,6 +1341,15 @@ static struct tm utc_plus_hours(int offset_h)
     gmtime_r(&t, &tm_out);
 #endif
     return tm_out;
+}
+
+bool Engine::daily_bars_needed()
+{
+    std::lock_guard<std::mutex> lk(strat_mutex_);
+    for (const auto& s : strategies_)
+        if (s && s->is_active() && s->wants_daily_bars())
+            return true;
+    return false;
 }
 
 bool Engine::is_kr_market_open() const

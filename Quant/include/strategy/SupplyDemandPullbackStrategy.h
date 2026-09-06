@@ -162,6 +162,9 @@ public:
         }
     }
 
+    // EOD 모드에서만 일봉을 쓴다. 장중(INTRADAY) 모드면 on_data가 바로 빠져나가므로 폴링도 불필요.
+    bool wants_daily_bars() const override { return p_.mode == EntryMode::EOD; }
+
     // ── EOD 모드 진입/청산 (일봉) ─────────────────────────────────────────────
     std::optional<OrderSignal> on_data(const MarketData& md) override
     {

@@ -127,6 +127,7 @@ public:
             snap_daily_date_.clear();
             snap_equity_ = 0.0;
             snap_bars_.clear();
+            snap_bars_bucket_ = -1;
         }
         LOG_INFO("[" + id() + "] 시작 — " + describe());
         // set_kis()가 on_start 직전 호출됨(Engine start/재스캔 둘 다) → kis_ 확정. 여기서 프리페치 기동.
@@ -173,6 +174,7 @@ public:
         // ── 프리페치 스냅샷 스냅(일봉·자본·3분봉). 아직 준비 전이면 다음 하트비트 대기 ──
         //  무거운 REST는 프리페치 스레드가 미리 당겨둔다. 여기선 락을 짧게 잡고 복사만.
         std::vector<MarketData> bars;
+        int bars_bucket = -1;
         {
             std::lock_guard<std::mutex> lk(snap_mtx_);
             if (snap_daily_.empty())
@@ -180,7 +182,13 @@ public:
             daily_  = snap_daily_;
             equity_ = snap_equity_;
             bars    = snap_bars_;
+            bars_bucket = snap_bars_bucket_;
         }
+        // 진행 중인 봉(bars[0])의 종가를 방금 들어온 체결가로 덮는다. 프리페치가 봉 주기당
+        //  한 번만 받으므로 그 사이의 가격 변화는 이 한 줄이 반영한다. 봉이 이미 넘어갔는데
+        //  프리페치가 아직 안 왔으면(bucket 불일치) 덮지 않는다 — 마감된 봉의 종가를 고칠 순 없다.
+        if (!bars.empty() && bars_bucket == kst_bar_bucket(p_.interval_min))
+            bars[0].close = cur_px;
 
         // ── 일봉 존 판정(정배열 + SMA20 눌림) ────────────────────────────────
         const bool   aligned = is_aligned(daily_);
@@ -375,7 +383,14 @@ private:
     {
         while (!prefetch_stop_.load(std::memory_order_relaxed))
         {
-            if (kis_)
+            // 장 밖에서는 받아봐야 같은 응답이다. KIS 분봉은 기준시각을 15:30으로 클램프하므로
+            //  (KisClient.cpp) 장 마감 후엔 종일 같은 봉을 다시 받고, 그 호출이 초당 한도를
+            //  차지해 다른 조회를 500으로 밀어낸다. 발주는 어차피 장중에만 나가므로 건너뛴다.
+            //  창은 08:50~15:35로 EOD 청산(15:15)까지 덮는다.
+            const int hhmm = kst_hhmm();
+            const int wday = kst_tm().tm_wday;
+            const bool in_session = (wday >= 1 && wday <= 5) && hhmm >= 850 && hhmm <= 1535;
+            if (kis_ && in_session)
             {
                 // 일봉·자본: 날짜 바뀌면 1회 갱신(장중엔 사실상 1일 1회).
                 std::string today = kst_ymd();
@@ -386,22 +401,38 @@ private:
                 }
                 if (need_daily)
                 {
-                    auto   d  = kis_->get_daily_ohlcv(p_.ticker, p_.daily_lookback);
-                    double eq = fetch_equity();
+                    auto d = kis_->get_daily_ohlcv(p_.ticker, p_.daily_lookback);
+                    // 일봉이 비면(500·휴장) 스냅샷을 안 채우므로 need_daily가 참으로 남아
+                    //  다음 주기에 또 온다. 그때 잔고까지 같이 부르면 한도 초과 상황에서
+                    //  호출을 오히려 늘린다 — 일봉이 온 경우에만 잔고를 부른다.
                     if (!d.empty())
                     {
+                        double eq = fetch_equity();
                         std::lock_guard<std::mutex> lk(snap_mtx_);
                         snap_daily_      = std::move(d);
                         snap_daily_date_ = today;
                         snap_equity_     = eq;
                     }
                 }
-                // 3분봉: 매 주기 갱신(기존 핫패스).
-                auto bars = kis_->get_minute_ohlcv(p_.ticker, p_.sma_period + 1, p_.interval_min);
-                if (!bars.empty())
+                // 3분봉: 봉이 바뀔 때만 갱신한다. 이 조회는 페이지네이션이라 1회에 HTTP GET이
+                //  세 번 나가는데(당일 63분치 1분봉을 다시 받아 집계), 그중 마감된 봉은 불변이고
+                //  달라지는 건 진행 중인 봉 하나뿐이다. 그 하나는 아래 on_trade_batch가 들어오는
+                //  체결 틱으로 덮으므로 SMA 값은 같게 유지되면서 조회는 봉 주기당 1회로 준다.
+                const int bucket = kst_bar_bucket(p_.interval_min);
+                bool need_bars;
                 {
                     std::lock_guard<std::mutex> lk(snap_mtx_);
-                    snap_bars_ = std::move(bars);
+                    need_bars = snap_bars_.empty() || snap_bars_bucket_ != bucket;
+                }
+                if (need_bars)
+                {
+                    auto bars = kis_->get_minute_ohlcv(p_.ticker, p_.sma_period + 1, p_.interval_min);
+                    if (!bars.empty())
+                    {
+                        std::lock_guard<std::mutex> lk(snap_mtx_);
+                        snap_bars_        = std::move(bars);
+                        snap_bars_bucket_ = bucket;
+                    }
                 }
             }
             // min_action_ms를 50ms 조각으로 자며 stop 신호에 빠르게 반응.
@@ -589,6 +620,11 @@ private:
             return 0;
         try
         {
+            // 이 조회는 공유 전략 스레드에서 동기로 돈다 — 재시도가 붙으면 한 종목의 잔고 조회가
+            //  다른 종목 전부의 발주를 수십 초 막는다. 원장 최신성 때문에 비동기화는 하지 않고
+            //  (스냅샷이 낡으면 매도가능을 0으로 봐야 해서 청산이 막힌다) 재시도만 뗀다.
+            //  실패는 아래 경로에서 0으로 떨어지고 다음 하트비트에 다시 온다.
+            KisClient::FastFailScope ff;
             nlohmann::json bal = akis->get_balance();
             if (!bal.contains("output1") || !bal["output1"].is_array())
                 return 0;
@@ -625,6 +661,14 @@ private:
     {
         struct tm k = kst_tm();
         return k.tm_hour * 100 + k.tm_min;
+    }
+    // 지금이 몇 번째 봉인가(KST). 날짜를 섞어 자정을 넘겨도 값이 겹치지 않게 한다.
+    static int kst_bar_bucket(int interval_min)
+    {
+        if (interval_min < 1)
+            interval_min = 1;
+        struct tm k = kst_tm();
+        return (k.tm_yday * 1440 + k.tm_hour * 60 + k.tm_min) / interval_min;
     }
     static std::string kst_ymd()
     {
@@ -667,4 +711,5 @@ private:
     std::string             snap_daily_date_;        // 스냅샷 기준일(KST YYYYMMDD)
     double                  snap_equity_ = 0.0;      // 자본 스냅샷(raw, 폴백 미적용)
     std::vector<MarketData> snap_bars_;              // 3분봉 스냅샷
+    int snap_bars_bucket_ = -1;                      // 그 스냅샷을 받은 봉 번호(kst_bar_bucket)
 };

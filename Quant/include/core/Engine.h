@@ -98,14 +98,18 @@ public:
     // 주기적 유니버스 재스캔(동적 등록). universe_fn: 시세 클라이언트로 유니버스 티커 목록 산출.
     // factory: 티커 → 전략 인스턴스 생성. interval_sec: 재스캔 주기(초, ≤0이면 비활성).
     // data_thread가 interval_sec마다 universe_fn을 호출해 신규 티커만 런타임 등록한다.
+    // max_registered: 등록 전략 총수 상한(0이면 무제한). 재스캔은 추가만 하고 해제 경로가 없어,
+    //  구성이 바뀔 때마다 등록 수가 단조 증가한다. 등록 하나당 프리페치 스레드와 실시간 구독이
+    //  영구히 붙으므로 상한을 두지 않으면 하루가 갈수록 조회량이 늘어난다.
     void set_universe_rescan(
         std::function<std::vector<std::string>(KisClient&)> universe_fn,
         std::function<std::unique_ptr<StrategyBase>(const std::string&)> factory,
-        int interval_sec)
+        int interval_sec, size_t max_registered = 0)
     {
         universe_fn_ = std::move(universe_fn);
         strategy_factory_ = std::move(factory);
         rescan_interval_sec_ = interval_sec;
+        max_registered_ = max_registered;
     }
     // ── G1: 국면→전략 자동선택 ──────────────────────────────────────────────
     // 국면(BULL/NEUTRAL/BEAR)별 활성 전략 id 목록(권위적 선택자). 스레드 시작 전에만.
@@ -158,6 +162,11 @@ private:
     // 런타임 전략 등록(set_kis·position_provider·on_start·set_active·watch_specs_ 추가 일괄).
     // strategies_ push_back은 락 하에, strat_version_ 증가로 strategy_thread 스냅샷 갱신 유도.
     void register_strategy_runtime(std::unique_ptr<StrategyBase> strategy);
+
+    // 지금 활성인 전략 중 일봉(on_data)을 쓰는 전략이 하나라도 있는가. data_thread의 일봉 폴링
+    //  가드 — 아무도 안 쓰면 종목 수만큼의 차트 TR이 매 사이클 버려진다. 국면 전환으로 전략 집합이
+    //  바뀌므로 캐시하지 않고 매번 확인한다(strategies_는 strat_mutex_ 하에 읽는다).
+    bool daily_bars_needed();
 
     bool is_kr_market_open() const;
     bool is_us_market_open() const;
@@ -218,6 +227,7 @@ private:
     std::atomic<uint64_t> strat_version_{0};
 
     // 주기적 유니버스 재스캔 상태 (data_thread 전용)
+    size_t max_registered_ = 0; // 등록 전략 총수 상한(0=무제한)
     std::function<std::vector<std::string>(KisClient&)> universe_fn_;
     std::function<std::unique_ptr<StrategyBase>(const std::string&)> strategy_factory_;
     int rescan_interval_sec_ = 0;                 // ≤0이면 재스캔 비활성
