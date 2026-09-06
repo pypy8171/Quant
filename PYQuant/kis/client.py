@@ -86,10 +86,12 @@ class BalanceItem:
 
 @dataclass
 class AccountSummary:
-    cash:           float   # 예수금
+    cash:           float   # 예수금(총) — 결제 전 금액이라 당일 매수분이 아직 안 빠져 있을 수 있다
     total_eval:     float   # 총평가금액
     total_pnl:      float   # 총손익금액
     total_pnl_rate: float   # 총수익률(%)
+    buy_amount:     float = 0.0   # 매입금액 합계(보유분 원가 = 평단×수량 합)
+    cash_avail:     float = 0.0   # 가수도정산 예수금(D+2) — 실제로 지금 주문에 쓸 수 있는 현금에 가장 가깝다
 
 
 class KisClient:
@@ -599,6 +601,13 @@ class KisClient:
             total_eval     = float(r.get("tot_evlu_amt", 0) or 0),
             total_pnl      = float(r.get("evlu_pfls_smtl_amt", 0) or 0),
             total_pnl_rate = float(r.get("evlu_erng_rt", 0) or 0),
+            # 매입금액 합계가 응답에 없으면 보유분 평단×수량으로 대체(모의 도메인 필드 누락 대비)
+            buy_amount     = float(r.get("pchs_amt_smtl_amt", 0) or 0)
+                             or sum(b.avg_price * b.quantity for b in items),
+            # 주문가능현금 근사: D+2 정산 예수금 → 없으면 D+1 → 없으면 예수금(총)
+            cash_avail     = float(r.get("prvs_rcdl_excc_amt", 0) or 0)
+                             or float(r.get("nxdy_excc_amt", 0) or 0)
+                             or float(r.get("dnca_tot_amt", 0) or 0),
         )
         return items, summary
 

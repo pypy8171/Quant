@@ -301,6 +301,9 @@ def _fetch_balance(kis: KisClient):
         "summary": {
             "cash": summ.cash, "total_eval": summ.total_eval,
             "total_pnl": summ.total_pnl, "total_pnl_rate": summ.total_pnl_rate,
+            # 총매수금액(보유분 원가)과 주문가능현금. 총매수금액은 OrderGate §3d 총노출과
+            # 같은 원가 기준이라 한도 소진율을 그대로 비교할 수 있다.
+            "buy_amount": summ.buy_amount, "cash_avail": summ.cash_avail,
         },
         "positions": [
             {"ticker": b.ticker, "name": b.name, "qty": b.quantity,
@@ -354,17 +357,20 @@ def _resample(bars: list, n: int) -> list:
 def build_chart(quote: KisClient, ticker: str, tf: str):
     tf = (tf or "D").upper()
     ttl = 60.0 if tf in ("D", "W") else 20.0
+    # bars는 이평 워밍업분까지 포함해 넉넉히 주고, 화면에는 뒤쪽 show개만 그린다.
+    # (240이평을 첫 표시봉부터 그리려면 그 앞에 240봉이 더 있어야 한다)
     def _fetch():
         if tf == "D":
-            bars = quote.get_chart_ohlcv(ticker, "D", 120)
-            return {"tf": "D", "label": "일봉", "bars": bars, "x": "date"}
+            bars = quote.get_chart_ohlcv(ticker, "D", 380)
+            return {"tf": "D", "label": "일봉", "bars": bars, "x": "date", "show": 140}
         if tf == "W":
-            bars = quote.get_chart_ohlcv(ticker, "W", 60)
-            return {"tf": "W", "label": "주봉", "bars": bars, "x": "date"}
+            bars = quote.get_chart_ohlcv(ticker, "W", 300)
+            return {"tf": "W", "label": "주봉", "bars": bars, "x": "date", "show": 80}
         n = 5 if tf == "5" else 3
         raw = quote.get_minute_ohlcv(ticker, 300)
         bars = _resample(raw, n)
-        return {"tf": tf, "label": f"{n}분봉", "bars": bars, "x": "time"}
+        # 분봉은 당일치만 받으므로 워밍업 여분이 없다. 전부 표시하고, 데이터가 모자란 장기이평은 클라이언트가 건너뛴다.
+        return {"tf": tf, "label": f"{n}분봉", "bars": bars, "x": "time", "show": len(bars)}
     return CACHE.get_or(f"chart:{ticker}:{tf}", ttl, _fetch)
 
 
@@ -628,12 +634,22 @@ async function tick(){
   }else{
     document.getElementById('acctnote').innerHTML= a._stale_err
       ? '<small class="warnc">현재 조회 지연('+eb(a._stale_age)+'s) — 마지막 정상값 표시 중: '+eb(a._stale_err)+'</small>' : '';
+    // 총노출 = 보유분 원가합(총매수금액) / 총평가금. OrderGate §3d와 같은 기준이라 한도 소진율을 그대로 읽는다.
+    const gross=sm.buy_amount||0, capPct=(((s.criteria||{}).risk||{}).max_gross_exposure_pct)||0;
+    const useRate= sm.total_eval? gross/sm.total_eval*100 : null;
+    const capTxt = !capPct? '한도 미설정'
+                 : (useRate==null?'–':useRate.toFixed(1)+'% / '+(capPct*100).toFixed(0)+'%');
+    const capCls = (capPct&&useRate!=null)? (useRate>=capPct*100?'dn':(useRate>=capPct*80?'warnc':'up')) : '';
+    const maxN=(((s.criteria||{}).risk||{}).max_concurrent_positions)||0;
     document.getElementById('kpis').innerHTML=[
       ['총평가금액',won(sm.total_eval)+' 원',''],
-      ['예수금(현금)',won(sm.cash)+' 원',''],
+      ['총매수금액(원가)',won(gross)+' 원',''],
+      ['가용현금(D+2)',won(sm.cash_avail)+' 원',''],
+      ['예수금(총·결제전)',won(sm.cash)+' 원','mut'],
+      ['총노출 / 한도',capTxt,capCls],
       ['평가손익',won(sm.total_pnl)+' 원',cls(sm.total_pnl)],
       ['총수익률',pct(sm.total_pnl_rate),cls(sm.total_pnl_rate)],
-      ['보유 종목수',(a.positions?a.positions.length:0)+' 종목',''],
+      ['보유 종목수',(a.positions?a.positions.length:0)+(maxN?' / '+maxN:'')+' 종목',''],
     ].map(k=>`<div class="kpi"><div class="l">${k[0]}</div><div class="v ${k[2]}">${k[1]}</div></div>`).join('');
   }
 
@@ -676,7 +692,7 @@ async function tick(){
     <div><span class="k">스캔 규모</span> 시총 top ${eb(st.scan_top_n)} ∪ 거래대금 top ${eb(st.value_top_n)} → 등록상한 ${eb(st.max_universe)}종목</div>
     <div><span class="k">가격 필터</span> ${won(st.min_price)}원 이상${st.max_price?(' ~ '+won(st.max_price)+'원'):' (상한 무제한)'} · 과확장컷 ${eb(st.max_dev_pct)}</div>
     <div><span class="k">코스닥</span> ${c.kosdaq_enabled?'참여':'미참여(코스피만)'} · 폴링 ${eb(c.fetch_interval_sec)}s · 시세 ${c.rest_price_feed?'REST폴링':'WS'}</div>
-    <div><span class="k">리스크 한도</span> 동시보유 ${eb(rk.max_concurrent_positions)} · 종목당 명목 ${won(rk.max_notional_per_ticker)}원 · 일손실 한도 ${won(rk.daily_loss_limit)}원</div>
+    <div><span class="k">리스크 한도</span> 동시보유 ${eb(rk.max_concurrent_positions)} · 종목당 명목 ${won(rk.max_notional_per_ticker)}원 · 총노출 ${rk.max_gross_exposure_pct?(rk.max_gross_exposure_pct*100).toFixed(0)+'%':'미설정'} · 일손실 한도 ${won(rk.daily_loss_limit)}원</div>
     <div><span class="k">발주 제한</span> ${eb(rk.max_orders_per_sec)}/s · ${eb(rk.max_orders_per_min)}/min · 재시도 ${eb(rk.order_max_retries)}</div>`;
 
   // 엔진 로그 최신(콘솔 상당: 국면선택/스캔/섹터/수급/매크로)
@@ -756,9 +772,26 @@ async function loadChart(){
   if(d.__error__){ info.textContent='오류: '+d.__error__; return; }
   const bars=d.bars||[];
   if(!bars.length){ info.textContent=d.label+' 데이터 없음 (분봉은 장중에만)'; return; }
-  drawCandles(cv,ctx,bars,d);
-  const last=bars[bars.length-1];
-  info.textContent=`${d.label} · ${bars.length}봉 · 종가 ${Math.round(last.close).toLocaleString('ko-KR')} · ${bars[0][d.x]||''}~${last[d.x]||''}`;
+  const legend=drawCandles(cv,ctx,bars,d);
+  const show=Math.max(1,Math.min(bars.length,d.show||bars.length));
+  const vis=bars.slice(bars.length-show), last=vis[vis.length-1];
+  const ma=legend.map(m=>`<span style="color:${m.c}">━ ${m.p} ${Math.round(m.last).toLocaleString('ko-KR')}</span>`).join('  ');
+  const miss=MA_DEFS.filter(x=>!legend.some(m=>m.p===x[0])).map(x=>x[0]);
+  info.innerHTML=`${eb(d.label)} · ${vis.length}봉 · 종가 ${Math.round(last.close).toLocaleString('ko-KR')} · ${eb(vis[0][d.x]||'')}~${eb(last[d.x]||'')}`
+    +`<div style="margin-top:4px">${ma}`
+    +(miss.length?` <span class="mut">(${miss.join('/')}이평은 봉 수 부족)</span>`:'')+`</div>`;
+}
+// 이동평균 정의 — 기간과 선 색. 전략의 정배열 판정(SMA5>10>20>60)과 같은 기간을 포함한다.
+const MA_DEFS=[[5,'#ff9f43'],[10,'#5b9dff'],[20,'#2ec26b'],[60,'#c678dd'],[120,'#ffd166'],[240,'#9aa4bb']];
+// 단순이동평균. 값이 아직 없는 앞구간은 null(그리지 않음).
+function sma(bars,p){
+  const out=new Array(bars.length).fill(null); let s=0;
+  for(let i=0;i<bars.length;i++){
+    s+=bars[i].close;
+    if(i>=p) s-=bars[i-p].close;
+    if(i>=p-1) out[i]=s/p;
+  }
+  return out;
 }
 function drawCandles(cv,ctx,bars,d){
   const DPR=window.devicePixelRatio||1;
@@ -768,10 +801,17 @@ function drawCandles(cv,ctx,bars,d){
   const up=css.getPropertyValue('--up').trim(), dn=css.getPropertyValue('--dn').trim();
   const mut=css.getPropertyValue('--mut').trim(), bd=css.getPropertyValue('--bd').trim();
   const padL=8, padR=64, padT=10, volH=64, gap=8, priceH=H-volH-gap-padT-16;
+  // 표시 구간: 뒤쪽 show개. 이평은 워밍업분을 포함한 전체로 계산한 뒤 이 구간만 잘라 쓴다.
+  const show=Math.max(1,Math.min(bars.length, d.show||bars.length));
+  const start=bars.length-show, vis=bars.slice(start);
+  const mas=MA_DEFS.map(([p,c])=>({p:p, c:c, v:sma(bars,p).slice(start)}))
+                   .filter(m=>m.v.some(x=>x!=null));
   let hi=-1e18, lo=1e18, vmax=0;
-  bars.forEach(b=>{ hi=Math.max(hi,b.high); lo=Math.min(lo,b.low); vmax=Math.max(vmax,b.volume); });
+  vis.forEach(b=>{ hi=Math.max(hi,b.high); lo=Math.min(lo,b.low); vmax=Math.max(vmax,b.volume); });
+  // 이평선이 화면 밖으로 나가지 않게 스케일에 포함
+  mas.forEach(m=>m.v.forEach(x=>{ if(x!=null){ hi=Math.max(hi,x); lo=Math.min(lo,x); } }));
   const pad=(hi-lo)*0.06||1; hi+=pad; lo-=pad;
-  const cw=(W-padL-padR)/bars.length;
+  const cw=(W-padL-padR)/vis.length;
   const bw=Math.max(1,Math.min(14,cw*0.7));
   const py=v=>padT+(hi-v)/(hi-lo)*priceH;
   // 가격 그리드 + 우측 라벨
@@ -782,7 +822,7 @@ function drawCandles(cv,ctx,bars,d){
   }
   // 캔들 + 거래량
   const volTop=padT+priceH+gap;
-  bars.forEach((b,i)=>{
+  vis.forEach((b,i)=>{
     const x=padL+cw*i+cw/2; const col=b.close>=b.open?up:dn;
     ctx.strokeStyle=col; ctx.fillStyle=col; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(x,py(b.high)); ctx.lineTo(x,py(b.low)); ctx.stroke();
@@ -791,6 +831,21 @@ function drawCandles(cv,ctx,bars,d){
     const vh=vmax?(b.volume/vmax)*volH:0;
     ctx.globalAlpha=.55; ctx.fillRect(x-bw/2, volTop+volH-vh, bw, vh); ctx.globalAlpha=1;
   });
+  // 이평선 — 값이 있는 구간만 이어 그린다
+  ctx.lineWidth=1.3; ctx.lineJoin='round';
+  mas.forEach(m=>{
+    ctx.strokeStyle=m.c; ctx.beginPath();
+    let pen=false;
+    m.v.forEach((val,i)=>{
+      if(val==null){ pen=false; return; }
+      const x=padL+cw*i+cw/2, y=py(val);
+      if(pen) ctx.lineTo(x,y); else { ctx.moveTo(x,y); pen=true; }
+    });
+    ctx.stroke();
+  });
+  ctx.lineWidth=1;
+  // 마지막 값이 있는 이평만 범례로 돌려준다
+  return mas.map(m=>({p:m.p, c:m.c, last:m.v[m.v.length-1]})).filter(m=>m.last!=null);
 }
 tick(); setInterval(tick, 3000);
 </script></body></html>"""
