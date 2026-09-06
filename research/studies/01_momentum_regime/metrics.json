@@ -171,7 +171,7 @@
     "honesty_label": "overfit_suspect",
     "equity_csv_path": "",
     "trades_csv_path": "",
-    "caveat": "소표본 N=10~89: 게이트(≥200) 미달 — 통계 아닌 일화. 전기간 재검증(BT-05)로만 판정.",
+    "caveat": "소표본 N=10~89: 게이트(≥200) 미달 — 통계 아닌 일화. 지표 4종 전기간 재검증으로만 판정.",
     "source": "BACKTEST_LOG 실행 #4"
   },
   {
@@ -206,7 +206,7 @@
     "honesty_label": "overfit_suspect",
     "equity_csv_path": "",
     "trades_csv_path": "",
-    "caveat": "소표본 N=10~89: 게이트(≥200) 미달 — 통계 아닌 일화. 전기간 재검증(BT-05)로만 판정.",
+    "caveat": "소표본 N=10~89: 게이트(≥200) 미달 — 통계 아닌 일화. 지표 4종 전기간 재검증으로만 판정.",
     "source": "BACKTEST_LOG 실행 #4"
   },
   {
@@ -241,7 +241,7 @@
     "honesty_label": "overfit_suspect",
     "equity_csv_path": "",
     "trades_csv_path": "",
-    "caveat": "소표본 N=10~89: 게이트(≥200) 미달 — 통계 아닌 일화. 전기간 재검증(BT-05)로만 판정.",
+    "caveat": "소표본 N=10~89: 게이트(≥200) 미달 — 통계 아닌 일화. 지표 4종 전기간 재검증으로만 판정.",
     "source": "BACKTEST_LOG 실행 #4"
   },
   {
@@ -276,7 +276,7 @@
     "honesty_label": "overfit_suspect",
     "equity_csv_path": "",
     "trades_csv_path": "",
-    "caveat": "소표본 N=10~89: 게이트(≥200) 미달 — 통계 아닌 일화. 전기간 재검증(BT-05)로만 판정.",
+    "caveat": "소표본 N=10~89: 게이트(≥200) 미달 — 통계 아닌 일화. 지표 4종 전기간 재검증으로만 판정.",
     "source": "BACKTEST_LOG 실행 #4"
   },
   {
@@ -311,7 +311,7 @@
     "honesty_label": "overfit_suspect",
     "equity_csv_path": "",
     "trades_csv_path": "",
-    "caveat": "소표본 N=10~89: 게이트(≥200) 미달 — 통계 아닌 일화. 전기간 재검증(BT-05)로만 판정.",
+    "caveat": "소표본 N=10~89: 게이트(≥200) 미달 — 통계 아닌 일화. 지표 4종 전기간 재검증으로만 판정.",
     "source": "BACKTEST_LOG 실행 #4"
   },
   {
@@ -346,7 +346,7 @@
     "honesty_label": "overfit_suspect",
     "equity_csv_path": "",
     "trades_csv_path": "",
-    "caveat": "소표본 N=10~89: 게이트(≥200) 미달 — 통계 아닌 일화. 전기간 재검증(BT-05)로만 판정.",
+    "caveat": "소표본 N=10~89: 게이트(≥200) 미달 — 통계 아닌 일화. 지표 4종 전기간 재검증으로만 판정.",
     "source": "BACKTEST_LOG 실행 #4"
   },
   {
@@ -381,7 +381,7 @@
     "honesty_label": "overfit_suspect",
     "equity_csv_path": "",
     "trades_csv_path": "",
-    "caveat": "소표본 N=10~89: 게이트(≥200) 미달 — 통계 아닌 일화. 전기간 재검증(BT-05)로만 판정.",
+    "caveat": "소표본 N=10~89: 게이트(≥200) 미달 — 통계 아닌 일화. 지표 4종 전기간 재검증으로만 판정.",
     "source": "BACKTEST_LOG 실행 #4"
   },
   {

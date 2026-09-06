@@ -29,4 +29,4 @@ strategies/
 ## 경계(다른 폴더)
 
 - **`research/`** — 리서치 프로세스(백테스트 저널 `BACKTEST_LOG.md`, 흐름도 `BACKTEST_FLOW.md`, 협의체 `RESEARCH_COUNCIL.md`, `runs/`). 전략별 결과가 아니라 "무엇을 왜 돌렸나"의 과정 기록.
-- **루트(gitignore, 비공개)** — `STRATEGIES.md`(코드화 전략 카탈로그 단일 소스), `REGIME_CONTROLLER_SPEC.md`, `DEV_GUIDE_STRATEGY_A.md`, `DECISIONS.md`, `DAILY_LOG.md`. 개인용이라 커밋 제외.
+- **루트(gitignore, 비공개)** — `STRATEGIES.md`(코드화 전략 목록 단일 소스), `REGIME_CONTROLLER_SPEC.md`, `DEV_GUIDE_STRATEGY_A.md`, `DECISIONS.md`, `DAILY_LOG.md`. 개인용이라 커밋 제외.

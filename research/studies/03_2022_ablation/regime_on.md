@@ -1,4 +1,4 @@
-# BT-03 · 2022 약세장 격리 표본외(OOS) + 국면필터 ON/OFF 절제실험(ablation)
+# 2022 약세장 격리 표본외(OOS) + 국면필터 ON/OFF 제거실험
 ## regime ON (200MA 국면필터)
 
 - 원천 export: `bt_2022bear.json` · 지표 전체(수익률·샤프(위험조정수익)·최대낙폭(MDD)·초과수익(α))는 [BACKTEST_LOG 실행 #3](../../BACKTEST_LOG.md)
@@ -7,4 +7,4 @@
 _체결 없음 — regime 필터가 전 구간 신규 진입을 차단(100% 현금 보유)._
 
 ---
-← [스터디 요약](README.md) · [백테스트 카탈로그](../../BACKTESTS.md) · [research 허브](../../README.md)
+← [스터디 요약](README.md) · [백테스트 목록](../../BACKTESTS.md) · [research 허브](../../README.md)

@@ -28,7 +28,7 @@
 |---|---|---|
 | 루트 [`README.md`](../README.md) | research 허브·strategies 허브·아키텍처·OrderGate | 결론(regime 판정 등)·구조 변경 시 요약 1줄 동기화 |
 | [`research/README.md`](../research/README.md) (허브) | BACKTESTS·BACKTEST_LOG·studies/·GUARDRAILS·RESEARCH_COUNCIL·BACKTEST_FLOW·_TEMPLATE | 새 문서 추가·계열 결론 변경 시 지도표·타임라인 갱신 |
-| [`research/BACKTESTS.md`](../research/BACKTESTS.md) | studies 01~06 README, BACKTEST_LOG 실행#, runs/ | 계열 A 새 실행 시 카탈로그 한 줄 추가 |
+| [`research/BACKTESTS.md`](../research/BACKTESTS.md) | studies 01~06 README, BACKTEST_LOG 실행#, runs/ | 계열 A 새 실행 시 목록 한 줄 추가 |
 | [`research/studies/README.md`](../research/studies/README.md) | studies `<NN>/README.md` (A:01·02·03·06 / B:07·08·09) | 새 스터디 폴더 추가 시 해당 계열 섹션에 등재 |
 | [`strategies/README.md`](../strategies/README.md) | `strategies/<전략>/SPEC·live/` | 새 전략 폴더·새 SPEC 추가 시 표에 행 추가 |
 | [`CLAUDE.md`](../CLAUDE.md) | 빌드 명령·스레드 모델·핵심 타입·문체 규약 요약 | 빌드/아키텍처 코드 변경 시. 문체 규약 본문은 `docs/STYLE_GUIDE.md`가 소유 |
@@ -49,7 +49,7 @@
 
 `scripts/check_docs.py`는 **링크 깨짐·색인 등재 여부**만 본다. 아래는 사람이 확인한다:
 
-- [ ] **새 백테스트 실행** → `BACKTEST_LOG`에 원문 prepend + `BACKTESTS` 카탈로그 한 줄 + `research/README` 타임라인 서사 1줄(수치는 링크).
+- [ ] **새 백테스트 실행** → `BACKTEST_LOG`에 원문 prepend + `BACKTESTS` 목록 한 줄 + `research/README` 타임라인 서사 1줄(수치는 링크).
 - [ ] **새 스터디 폴더** → `studies/README`의 **올바른 계열**(A 종목레벨 / B 지수레벨위기) 섹션에 요지 1줄로 등재. (등재 누락 자체는 스크립트가 잡음)
 - [ ] **새 전략 폴더** → `strategies/README` 표에 SPEC·실증·검증경로 행 추가.
 - [ ] **결론이 바뀜**(예: regime 유효성 재판정, 지표 채택) → 루트 `README`·`research/README`의 요약 문구를 **함께** 고쳤나.

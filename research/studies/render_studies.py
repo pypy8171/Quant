@@ -26,23 +26,23 @@ RAW = os.path.join(HERE, "raw")
 STUDIES = {
     "01": dict(
         folder="01_momentum_regime",
-        title="BT-01 · 모멘텀 × 국면필터, 최근 1~5년 롤링 (기준선)",
+        title="모멘텀 × 국면필터, 최근 1~5년 롤링 (기준선)",
         log_ref="실행 #1",
         question="시총 상위 100에 6-1 모멘텀 + 200MA 국면필터를 굴리면 비용 물고 벤치를 이기나? 기간에 견고한가?",
         setup="`CrossMomentumStrategy` lb120/skip20/top10/rb5, regime ON, 동일가중, datagokr 일봉, "
               "유니버스 시총상위100(PIT), END=2026-08-05 고정. 창 길이만 1~5년으로 변화.",
         note="알파가 최근 12개월에 집중되고 3년창에선 엣지가 거의 사라진다. 전 구간 최대낙폭(MDD) 게이트(≤15%) 불합격이라 "
-             "1순위 과제는 '수익'이 아니라 '낙폭 통제'로 잡았다(BT-02로 이어짐).",
+             "1순위 과제는 '수익'이 아니라 '낙폭 통제'로 잡았다(변동성 타게팅 사이징으로 이어짐).",
         runs=[("bt_1y", "1y", "최근 1년"), ("bt_2y", "2y", "최근 2년"),
               ("bt_3y", "3y", "최근 3년"), ("bt_4y", "4y", "최근 4년"),
               ("bt_5y", "5y", "최근 5년")],
     ),
     "02": dict(
         folder="02_vol_target",
-        title="BT-02 · 변동성 타게팅(vol_target=0.15) 사이징",
+        title="변동성 타게팅(vol_target=0.15) 사이징",
         log_ref="실행 #2",
         question="노출을 변동성으로 조절하면 샤프(위험조정수익) 지키며 최대낙폭(MDD)를 게이트(≤15%)까지 낮추나? (변수: 사이징만)",
-        setup="BT-01과 동일하되 동일가중 → 20일 실현변동성 기준 연 15% 목표로 종목별 비중 조절. 창 1~5년.",
+        setup="모멘텀·국면필터 기준선과 동일하되 동일가중 → 20일 실현변동성 기준 연 15% 목표로 종목별 비중 조절. 창 1~5년.",
         note="MDD 전 구간 8~12%p 개선·샤프 유지, 1년 −11.6%로 게이트 첫 통과. 거래수 급증·초과수익(α) 음전은 "
              "벤치가 풀노출이라 당연(위험조정으론 미달 아님). vol_target 채택.",
         runs=[("bt2_1y", "1y", "최근 1년"), ("bt2_2y", "2y", "최근 2년"),
@@ -51,10 +51,10 @@ STUDIES = {
     ),
     "03": dict(
         folder="03_2022_ablation",
-        title="BT-03 · 2022 약세장 격리 표본외(OOS) + 국면필터 ON/OFF 절제실험(ablation)",
+        title="2022 약세장 격리 표본외(OOS) + 국면필터 ON/OFF 제거실험",
         log_ref="실행 #3",
         question="모멘텀 엣지가 처음 보는 약세장에서 살아남나? 국면필터의 순수 기여는?",
-        setup="최근 롤링 → 격리된 2022 약세장(1개년). regime ON vs OFF만 토글(변수 하나). 나머지 BT-01과 동일.",
+        setup="최근 롤링 → 격리된 2022 약세장(1개년). regime ON vs OFF만 토글(변수 하나). 나머지는 모멘텀·국면필터 기준선과 동일.",
         note="모멘텀 단독(OFF) −35.4%로 벤치(−20.5%)보다도 나쁨(모멘텀 크래시). regime ON은 1년 내내 "
              "100% 현금화로 큰 낙폭을 피했다. ON의 '체결 없음'은 방어 성과가 아니라 비참여이므로 OFF와 짝으로 해석한다.",
         runs=[("bt_2022bear", "regime_on", "regime ON (200MA 국면필터)"),
@@ -151,7 +151,7 @@ def render_run(study, csv_stem, run_key, run_label):
             L.append(f"| {t['entry_date']} | {t['name']}({t['ticker']}) | {t['entry_price']:,.0f} | {t['qty']:,} |")
         L.append("")
 
-    L += ["---", "← [스터디 요약](README.md) · [백테스트 카탈로그](../../BACKTESTS.md) · [research 허브](../../README.md)"]
+    L += ["---", "← [스터디 요약](README.md) · [백테스트 목록](../../BACKTESTS.md) · [research 허브](../../README.md)"]
     return "\n".join(L), {"run_key": run_key, "run_label": run_label, "n": len(trips),
                           "winrt": winrt, "total": total, "opens": len(opens)}
 
@@ -183,7 +183,7 @@ def render_study(key):
                  f"{m['opens']}종목 | [원장]({m['run_key']}.md) |")
     L += ["", "> 실현손익 합 = 청산 완료된 왕복의 손익만 합산(종료시점 보유분 미실현 제외). "
           "누적 총수익률과 다른 이유는 미실현·현금·복리 때문 — 방향/종목 드릴다운용 지표.", "",
-          "← [백테스트 카탈로그](../../BACKTESTS.md) · [research 허브](../../README.md)"]
+          "← [백테스트 목록](../../BACKTESTS.md) · [research 허브](../../README.md)"]
     with open(os.path.join(d, "README.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(L))
     print(f"ok: {study['folder']}/ ({len(metas)}런, 실현합 {sum(m['total'] for m in metas):+,.0f})")

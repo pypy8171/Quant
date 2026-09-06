@@ -56,7 +56,7 @@ OUT_HTML = OUT_DIR / "dashboard.html"
 
 HONESTY = {
     "robust":          ("견고", "look-ahead 차단·비용·홀드아웃 등 방법론이 견고. 승패는 지표값이 말함."),
-    "honest_failure":  ("정직한 실패", "엣지 없음(또는 실패)을 정직하게 보고한 결과."),
+    "honest_failure":  ("벤치 못 이김", "비용을 반영하면 벤치(그냥 보유)를 이기지 못한 결과를 그대로 보고."),
     "overfit_suspect": ("과최적화 의심", "표본·자유도 대비 성과가 과함 — 신뢰 보류(소표본 포함)."),
     "context_required":("맥락필수", "헤드라인 숫자가 오독을 부름(비참여·생존편향 등) — 캡션·짝 해석 필수."),
     "unlabeled":       ("미분류", "정직성 라벨 미지정."),
@@ -197,6 +197,44 @@ COLS_A = [
 SIDE_PILL = {"방어": "def", "공세": "off"}
 
 
+# 표시 평이화 — metrics.json에 baked-in된 축약/영문 벤치 라벨을 렌더 단계에서만 평문화.
+# 데이터가 있어야 재생성되는 스터디(07~09 등)는 소스를 못 고치므로 여기서 표시만 정규화한다.
+# (긴 문자열 우선 치환: "등가중 B&H"가 "B&H"보다 먼저 잡히게 순서 고정)
+_PLAIN_MAP = [
+    ("등가중 Buy&Hold", "동일가중 매수 후 보유"),
+    ("Buy&Hold(기준선)", "매수 후 보유(기준선)"),
+    ("등가중 B&H", "동일가중 매수 후 보유"),
+    ("Buy&Hold", "매수 후 보유"),
+    ("B&H", "매수 후 보유"),
+    ("정직한 실패", "벤치 못 이김"),
+    ("절제실험(ablation)", "제거실험"),
+    ("애블레이션", "제거실험"),
+    ("ablation", "제거실험"),
+    ("Donchian", "채널 돌파"),
+    ("등가중", "동일가중"),
+]
+
+# study_id(BT-NN) → 사람이 읽는 서술형 이름. metrics.json엔 기계 키를 남기고 표시만 교체.
+# 정본: docs/STYLE_GUIDE.md · scripts/check_plain_language.py NAME_MAP과 동기 유지.
+NAME_MAP = {
+    "01": "모멘텀·국면필터 롤링검증(1~5년)", "02": "변동성 타게팅 사이징",
+    "03": "2022 약세장 국면필터 제거실험",  "04": "월별 시작시점 스윕",
+    "05": "지표 4종 전기간 검증",           "06": "하락장 유사구간 6구간 비교",
+    "07": "위기 레짐 지수레벨 특성화",      "08": "위기 인과 대응 5법",
+    "09": "위기 대응·수익추구 전략 10종",   "10": "구조 국면 스코어러 제거실험",
+    "11": "신호 3축 나란히 비교",
+}
+
+
+def plain(v):
+    if not isinstance(v, str):
+        return v
+    for a, b in _PLAIN_MAP:
+        if a in v:
+            v = v.replace(a, b)
+    return v
+
+
 def cell(r, key, kind):
     if key == "_holdout":
         return holdout_cell(r)
@@ -206,13 +244,13 @@ def cell(r, key, kind):
         return alpha_cell(r)
     v = r.get(key)
     if kind == "strat":
-        s = esc(v) if v not in (None, "") else '<span class="na">—</span>'
+        s = esc(plain(v)) if v not in (None, "") else '<span class="na">—</span>'
         side = r.get("side")
         if side:
             s += f' <span class="pill p-{SIDE_PILL.get(side,"def")}">{esc(side)}</span>'
         return s
     if kind == "left":
-        return esc(v) if v not in (None, "") else '<span class="na">—</span>'
+        return esc(plain(v)) if v not in (None, "") else '<span class="na">—</span>'
     if kind == "num":
         return num(v, 2)
     if kind == "num1":
@@ -230,7 +268,8 @@ def table(rows, cols):
     body = []
     for r in rows:
         is_bh = r.get("strategy") == "BH"
-        tds = "".join(f'<td class="c-{esc(k)} k-{esc(kind)}">{cell(r,k,kind)}</td>'
+        rr = {**r, "strategy": "매수 후 보유"} if is_bh else r  # 벤치 감지는 "BH" 센티넬 유지, 표시만 평이화
+        tds = "".join(f'<td class="c-{esc(k)} k-{esc(kind)}">{cell(rr,k,kind)}</td>'
                       for _, k, kind in cols)
         body.append(f'<tr class="{"bh" if is_bh else ""}">{tds}</tr>')
     return (f'<div class="tw"><table><thead><tr>{head}</tr></thead>'
@@ -242,7 +281,7 @@ def caveats_block(rows):
     items = [(r.get("strategy", ""), r.get("caveat")) for r in rows if r.get("caveat")]
     if not items:
         return ""
-    lis = "".join(f'<li><b>{esc(s)}</b> — {esc(c)}</li>' for s, c in items)
+    lis = "".join(f'<li><b>{esc(plain(s))}</b> — {esc(plain(c))}</li>' for s, c in items)
     return (f'<details class="caveats"><summary>⚠ 비고 {len(items)}건 '
             f'(편향·해석 주의)</summary><ul>{lis}</ul></details>')
 
@@ -286,12 +325,13 @@ def render_backtest(rows):
             for r in grp:
                 r["_amax"] = amax
             win = grp[0].get("window", "")
-            gtitle = " · ".join(x for x in (study, bench) if x)
+            study_disp = NAME_MAP.get(study[3:5], study) if study.startswith("BT-") else study
+            gtitle = " · ".join(x for x in (study_disp, plain(bench)) if x)
             n_beat = sum(1 for r in grp
                          if r.get("strategy") != "BH" and not _isna(r.get("alpha"))
                          and r["alpha"] > 0)
             n_strat = sum(1 for r in grp if r.get("strategy") != "BH")
-            cap = (f'<span class="gcap">{n_strat}전략 · BH 초과 '
+            cap = (f'<span class="gcap">{n_strat}전략 · 매수 후 보유 초과 '
                    f'<b class="pos">{n_beat}</b>/{n_strat}</span>') if n_strat else ""
             blocks.append(
                 f'<div class="grp"><h3>{esc(gtitle)} '
@@ -956,7 +996,7 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 5px;bo
   <ul>
     <li><b>계열 분리</b> — 계열 B(지수 오버레이)는 종목 포트폴리오(계열 A)와 <b>직접 비교 불가</b>. 표를 계열·벤치마크로 나눈 이유.</li>
     <li><b>CAGR·Calmar가 1차</b> — 창 길이가 다르면(예 98년 vs 30년) <code>총수익%</code>는 복리로 부풀어 직접 비교 불가. 연환산한 <code>CAGR%</code>·<code>Calmar</code>를 먼저 보고, 총수익%(raw)는 참고로 둔다.</li>
-    <li><b>초과CAGR(막대)</b> = 전략 CAGR − Buy&amp;Hold CAGR(%p). 0 중심 바, +초록/−빨강. 그룹 최대치로 스케일.</li>
+    <li><b>초과CAGR(막대)</b> = 전략 CAGR − 매수 후 보유 CAGR(%p). 0 중심 바, +초록/−빨강. 그룹 최대치로 스케일.</li>
     <li><b>정직성·비고</b> — <span class="cav">⚠</span>에 마우스=편향/해석 주의(생존편향·비참여·소표본·수정주가). 표 아래 <b>비고</b>에 전문.</li>
     <li><b>맥락필수</b> 라벨 — regime-ON 비참여(현금)처럼 헤드라인 숫자가 오독을 부르는 행. 초록 '견고'와 구분.</li>
     <li><b>홀드아웃 배너</b> — 학습구간 Calmar + → 2022 − 전환(표본외 붕괴). 예뻐 보인 지표가 지우면 안 되는 사실.</li>

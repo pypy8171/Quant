@@ -543,7 +543,7 @@ def _emit_metrics(bms, results):
 def write_readme(bms, results, sweeps):
     L = []
     today = as_of().isoformat()
-    L.append("# 위기 인과적 대응 백테스트 (BT-08)\n")
+    L.append("# 위기 인과적 대응 백테스트\n")
     L.append("> ⚠️ **이 리포트의 범위와 한계.** 이 표는 *엣지 발견이 아니라 인과적 스트레스테스트*다. "
              "익스포저는 오직 **t-1 종가까지의 정보**로 산출(룩어헤드 차단), 수익=e[t-1]×지수수익. "
              "peak/trough 앵커는 **평가에만** 쓰고 신호엔 절대 미투입. "

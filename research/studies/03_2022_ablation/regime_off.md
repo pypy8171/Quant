@@ -1,4 +1,4 @@
-# BT-03 · 2022 약세장 격리 표본외(OOS) + 국면필터 ON/OFF 절제실험(ablation)
+# 2022 약세장 격리 표본외(OOS) + 국면필터 ON/OFF 제거실험
 ## regime OFF (모멘텀 단독)
 
 - 원천 export: `bt_2022bear_noregime.json` · 지표 전체(수익률·샤프(위험조정수익)·최대낙폭(MDD)·초과수익(α))는 [BACKTEST_LOG 실행 #3](../../BACKTEST_LOG.md)
@@ -160,4 +160,4 @@
 | 2022-12-22 | 메리츠금융지주(138040) | 41,900 | 159 |
 
 ---
-← [스터디 요약](README.md) · [백테스트 카탈로그](../../BACKTESTS.md) · [research 허브](../../README.md)
+← [스터디 요약](README.md) · [백테스트 목록](../../BACKTESTS.md) · [research 허브](../../README.md)

@@ -1,6 +1,6 @@
 # studies/ — 폴더형 백테스트 스터디
 
-> [BACKTESTS.md](../BACKTESTS.md) 카탈로그 항목 중 **trade CSV가 남아 종목별 매매 원장까지 드릴다운되는** 스터디를 폴더로 승격한 곳.
+> [BACKTESTS.md](../BACKTESTS.md) 목록 항목 중 **trade CSV가 남아 종목별 매매 원장까지 드릴다운되는** 스터디를 폴더로 승격한 곳.
 > 각 폴더의 `README.md`는 질문·설정·발견 요약 + 런별 실현손익 표, `{run}.md`는 **어떤 종목을 언제 사고팔아 얼마 손익**이었는지 왕복 원장(FIFO 매칭).
 
 ## 계열 A — 종목레벨 모멘텀/레짐
@@ -13,15 +13,23 @@
 | [06_bear_market/](06_bear_market/README.md) | 하락장 6구간 이벤트 스터디 | 6구간×4전략 | [events/](06_bear_market/events/README.md) |
 
 > 지표 전체(수익률·샤프·MDD·α)는 [BACKTEST_LOG](../BACKTEST_LOG.md) 실행 #1~#3(폴더 01~03), 6구간은 각 이벤트 README.
-> BT-04/05는 trade CSV 없이 summary JSON만이라 폴더 미승격 — [카탈로그](../BACKTESTS.md) 카드로만(의도적 공백).
+> 월별 시작시점 스윕·05는 trade CSV 없이 summary JSON만이라 폴더 미승격 — [목록](../BACKTESTS.md) 카드로만(의도적 공백).
 
 ### 계열 A 확장 — 구조 국면 스코어러 (Track A)
 
-계열 A의 **유일 레버(국면필터)** 를 라이브 C++ `RegimeController`에서 분해해, 이산 판정을 연속화·기울기·오버레이로 애블레이션한 스터디.
+계열 A의 **유일 레버(국면필터)** 를 라이브 C++ `RegimeController`에서 분해해, 이산 판정을 연속화·기울기·오버레이로 제거실험한 스터디.
 
 | 스터디 | 무엇 | 한 줄 요지 |
 |---|---|---|
-| [10_regime_scorer/](10_regime_scorer/README.md) | 구조 국면 스코어러 4변형(A/B/C/D) 애블레이션 | C++ `compute_score`/`classify`를 미러(A)하고 연속(B)·기울기(C)·SOX/VIX 오버레이(D)로 확장 → 06 하락장 6창에서 지수 long/flat 프록시로 결정론 비교. `test_regime_scorer.py`가 라이브 패리티 강제. **미판정**(연속화가 나아 보이나 편향감사·엣지판정 후속). 장중 국면 Track B(`index_intraday_logger.py`)는 지수 PIT 부재로 forward 적재만. |
+| [10_regime_scorer/](10_regime_scorer/README.md) | 구조 국면 스코어러 4변형(A/B/C/D) 제거실험 | C++ `compute_score`/`classify`를 미러(A)하고 연속(B)·기울기(C)·SOX/VIX 오버레이(D)로 확장 → 06 하락장 6창에서 지수 long/flat 프록시로 결정론 비교. `test_regime_scorer.py`가 라이브 패리티 강제. **미판정**(연속화가 나아 보이나 편향감사·엣지판정 후속). 장중 국면 Track B(`index_intraday_logger.py`)는 지수 PIT 부재로 forward 적재만. |
+
+### 계열 A 확장 — 신호 3축 나란히 비교 (신호 3축 나란히 비교)
+
+성격이 다른 세 신호축을 같은 유니버스·기간·비용에서 나란히 검정한 스터디.
+
+| 스터디 | 무엇 | 한 줄 요지 |
+|---|---|---|
+| [11_signal_axes/](11_signal_axes/README.md) | 횡단면추세(C1)·시계열추세(C3)·단기역추세(C4) 3축 나란히 비교 | KOSPI 상위 100·2021~2024에서 비용 물고 동일가중 매수 후 보유 초과 여부. 세 축 모두 벤치 못 이김(α<0) — **벤치 못 이김**(전천후 엣지 아님). C4 눌림 필터본만 무필터 대비 α·낙폭 개선하고 2022 홀드아웃에서 매수 후 보유 +4.77%p 상회 — 하락장 국한 방어 단서. 지표는 [metrics.json](11_signal_axes/metrics.json), 규칙원문은 [BACKTEST_LOG 실행 #6](../BACKTEST_LOG.md). |
 
 ## 계열 B — 지수레벨 위기대응
 
@@ -31,7 +39,7 @@
 |---|---|---|
 | [07_crisis_regimes/](07_crisis_regimes/README.md) | 위기 17건 지수레벨 특성화 | speed(fast/slow)×shape(V/U/L) 거동 그리드로 분류 — 표본 n≈17·셀당 1~3개라 셀단위 우열비교는 무의미, hindsight 라벨은 신호 아님(기술통계만). |
 | [08_crisis_response/](08_crisis_response/README.md) | 위기 인과적 대응 5종(M1~M5) | t-1 정보로만 익스포저 산출 → 종가-종가 구조상 **당일 급락 몸통은 못 막고 꼬리만** 자름. 낙폭이 아니라 전 구간(위기+정상+회복) 순효과로 평가. |
-| [09_crisis_strategies/](09_crisis_strategies/README.md) | 위기 전략 10종(방어5+공세5) | 동일 규율로 확장·홀드아웃(2022) 잠금. Buy&Hold 대비 결정적 우위는 없고 진짜 유효 신호는 소수(O3 SOX 선행 등) — 순위 요약은 [SUMMARY_RANKING.md](09_crisis_strategies/SUMMARY_RANKING.md). |
+| [09_crisis_strategies/](09_crisis_strategies/README.md) | 위기 전략 10종(방어5+공세5) | 동일 규율로 확장·홀드아웃(2022) 잠금. 매수 후 보유 대비 결정적 우위는 없고 진짜 유효 신호는 소수(O3 SOX 선행 등) — 순위 요약은 [SUMMARY_RANKING.md](09_crisis_strategies/SUMMARY_RANKING.md). |
 
 > 04/05 공백은 계열 A와 동일하게 **의도적**(summary만 남아 폴더 미승격).
 
@@ -44,4 +52,4 @@ cd 06_bear_market && python3 render_ledger.py
 ```
 `raw/`(원본 trade CSV)는 gitignore.
 
-← [research 허브](../README.md) · [백테스트 카탈로그](../BACKTESTS.md)
+← [research 허브](../README.md) · [백테스트 목록](../BACKTESTS.md)
