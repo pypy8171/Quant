@@ -29,7 +29,11 @@ for _s in (sys.stdout, sys.stderr):
 
 _HERE = Path(__file__).resolve()
 _REPO = _HERE.parents[2]
-LOGS = _REPO / "logs"
+# 엔진은 실행 시점 cwd 하위 logs/ 에 원장을 쓴다. 어디서 띄웠느냐에 따라 위치가 갈리므로
+# 후보를 모두 훑고, 같은 날짜가 겹치면 이벤트가 많은 쪽(온전한 쪽)을 쓴다.
+LOG_DIRS = [_REPO / "Quant" / "build_win" / "logs",
+            _REPO / "Quant" / "logs",
+            _REPO / "logs"]
 STRAT = _REPO / "strategies"
 OUT = _REPO / "research" / "dashboard" / "live.json"
 
@@ -40,37 +44,51 @@ def rel(p: Path) -> str:
 
 # ── 주문로그 롤업 ─────────────────────────────────────────────────────────────
 def rollup_trades():
-    out = []
-    for p in sorted(LOGS.glob("trades_*.csv")):
-        m = re.search(r"trades_(\d{4})(\d{2})(\d{2})", p.name)
-        date = f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else p.stem
-        status, strat, tickers, sides = Counter(), Counter(), set(), Counter()
-        total = 0
-        try:
-            with open(p, encoding="utf-8-sig") as f:
-                for r in csv.DictReader(f):
-                    total += 1
-                    status[(r.get("status") or "").strip()] += 1
-                    strat[(r.get("strategy") or "").strip()] += 1
-                    sides[(r.get("side") or "").strip()] += 1
-                    t = (r.get("ticker") or "").strip()
-                    if t:
-                        tickers.add(t)
-        except Exception as e:
-            print(f"  ! 스킵 {p}: {e}", file=sys.stderr)
+    best = {}
+    for d in LOG_DIRS:
+        if not d.is_dir():
             continue
-        out.append({
-            "date": date, "path": rel(p), "total": total,
-            "by_status": dict(status.most_common()),
-            "by_strategy": dict(strat.most_common()),
-            "by_side": dict(sides.most_common()),
-            "n_tickers": len(tickers),
-            "accepted": status.get("ACCEPTED", 0),
-            "rejected": status.get("REJECTED", 0),
-            "cancelled": status.get("CANCELLED", 0),
-            "filled": status.get("FILLED", 0) + status.get("EXECUTED", 0),
-        })
-    return out
+        for p in sorted(d.glob("trades_*.csv")):
+            m = re.search(r"trades_(\d{4})(\d{2})(\d{2})", p.name)
+            date = f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else p.stem
+            row = _rollup_one(p, date)
+            if row is None:
+                continue
+            if date not in best or row["total"] > best[date]["total"]:
+                best[date] = row
+    return [best[k] for k in sorted(best)]
+
+
+def _rollup_one(p: Path, date: str):
+    status, event, strat, tickers, sides = Counter(), Counter(), Counter(), set(), Counter()
+    total = 0
+    try:
+        with open(p, encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                total += 1
+                status[(r.get("status") or "").strip()] += 1
+                event[(r.get("event") or "").strip()] += 1
+                strat[(r.get("strategy") or "").strip()] += 1
+                sides[(r.get("side") or "").strip()] += 1
+                t = (r.get("ticker") or "").strip()
+                if t:
+                    tickers.add(t)
+    except Exception as e:
+        print(f"  ! 스킵 {p}: {e}", file=sys.stderr)
+        return None
+    return {
+        "date": date, "path": rel(p), "total": total,
+        "by_status": dict(status.most_common()),
+        "by_strategy": dict(strat.most_common()),
+        "by_side": dict(sides.most_common()),
+        "n_tickers": len(tickers),
+        "accepted": status.get("ACCEPTED", 0),
+        "rejected": status.get("REJECTED", 0),
+        "cancelled": status.get("CANCELLED", 0),
+        # filled = 최종 상태가 체결인 주문 수. fill_events = 체결통보 낱건 수(부분체결 포함).
+        "filled": status.get("FILLED", 0) + status.get("EXECUTED", 0),
+        "fill_events": event.get("FILL", 0) + event.get("FILLED", 0),
+    }
 
 
 # ── 매매 일지(md) 카드 ────────────────────────────────────────────────────────
@@ -115,8 +133,10 @@ def scan_journals():
 
 
 def main():
+    import datetime
     payload = {
         "schema": "quant.live/v1",
+        "generated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         "journals": scan_journals(),
         "order_log": rollup_trades(),
     }
@@ -124,6 +144,12 @@ def main():
     OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"✅ 라이브 요약 저장: {rel(OUT)} "
           f"(일지 {len(payload['journals'])} · 주문로그일 {len(payload['order_log'])})")
+    # 원장은 있는데 서술 일지가 없는 날 — /dashboard-sync 가 이 목록을 보고 일지를 채운다.
+    have = {c["date"] for c in payload["journals"]}
+    missing = sorted((o["date"] for o in payload["order_log"] if o["date"] not in have),
+                     reverse=True)
+    if missing:
+        print("   일지 없는 매매일: " + ", ".join(missing))
 
 
 if __name__ == "__main__":

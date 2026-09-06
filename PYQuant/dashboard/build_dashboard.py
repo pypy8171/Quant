@@ -306,10 +306,14 @@ def render_backtest(rows):
 def render_live(live):
     journals = live.get("journals", [])
     order_log = live.get("order_log", [])
+    stamp = live.get("generated") or ""
+    tail = (f' <span class="win">갱신 {esc(stamp)} · 일지 {len(journals)}건 · '
+            f'원장 {len(order_log)}일</span>' if stamp else "")
     out = ['<section class="fam"><h2>라이브(모의) 매매 기록</h2>'
            '<p class="fdesc">KIS 모의계좌(paper) 실증. 아래 <b>매매 일지</b>는 서술 원문 링크, '
            '<b>주문 로그</b>는 <code>logs/trades_*.csv</code> 일자별 롤업. '
-           '체결가·실현손익은 체결통보 원장(별도)이라 여기선 주문흐름만 집계(손익 미생성).</p>']
+           '체결 열은 최종 상태가 체결인 주문 수이고, 실현손익은 여기서 집계하지 않는다.'
+           + tail + '</p>']
 
     # 매매 일지 카드
     if journals:
@@ -346,6 +350,8 @@ def render_live(live):
                 f'<td class="k-int"><span class="pos">{num(o.get("accepted"),0)}</span></td>'
                 f'<td class="k-int"><span class="zero">{num(o.get("cancelled"),0)}</span></td>'
                 f'<td class="k-int"><span class="neg">{num(o.get("rejected"),0)}</span></td>'
+                f'<td class="k-int"><span class="{"pos" if o.get("filled") else "zero"}">'
+                f'{num(o.get("filled"),0)}</span></td>'
                 f'<td class="k-int">{num(o.get("n_tickers"),0)}</td>'
                 f'<td class="k-bar"><span class="stack">{"".join(seg)}</span></td>'
                 f'<td class="k-left cstrat">{strat}</td></tr>')
@@ -354,7 +360,7 @@ def render_live(live):
             '(접수=초록·취소=회색·거부=빨강)</span></h3>'
             '<div class="tw"><table><thead><tr>'
             '<th>일자</th><th>총주문</th><th>접수</th><th>취소</th><th>거부</th>'
-            '<th>종목수</th><th>상태 비율</th><th>전략</th></tr></thead>'
+            '<th>체결</th><th>종목수</th><th>상태 비율</th><th>전략</th></tr></thead>'
             f'<tbody>{"".join(rows)}</tbody></table></div></div>')
 
     if not journals and not order_log:

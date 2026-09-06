@@ -1,6 +1,15 @@
 {
   "schema": "quant.live/v1",
+  "generated": "2026-09-06 18:04",
   "journals": [
+    {
+      "date": "2026-09-04",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-09-04.md",
+      "title": "라이브 모의 매매 일지 — 2026-09-04 (금)",
+      "strat_line": "DeviationScale (DEVSCALE) 정배열눌림 지정가 사다리 + ITB 청산 가디언(전일 보유분 7종목).",
+      "summary": "전일 보유분 7종목을 ITB 청산 가디언이 모두 정리한 날이다. 12:13 세션에서 체결통보 구독이 붙은 뒤로는 원장에 체결이 71건 기록됐고, 그중 매도 36건은 전부 ITB 본전탈출 청산 체결이다. 종료 당일손익은 baseline 대비 -408,952원(전일총자산 대비 -222,692원, -0.22%)이고 일중 저점은 14:02의 -475,102원이다. 13:21부터는 일일 손실 한도(-300,000원)에 걸려 신규 진입이 7건 차단됐고 그 상태로 마감했다. 운영 마찰은 세 가지다. ① 09:22~12:09 세션에는 체결통보가 붙지 않아 그 구간 체결이 원장에 남지 않았다(미체결이 아니라 계측 공백). ② REST 조회 폭주로 WARN 4,044건 중 3,863건이 WinHTTP HTTP 500 재시도였다. ③ \"초당 거래건수 초과\" 오류 13건이 그대로 빈 ODNO 거부 13건으로 이어졌다."
+    },
     {
       "date": "2026-09-03",
       "strategy": "DeviationScale",
@@ -8,6 +17,30 @@
       "title": "라이브 모의 매매 일지 — 2026-09-03 (목)",
       "strat_line": "DeviationScale (DEVSCALE) 정배열눌림 지정가 사다리 + ITB 청산 가디언(전일 보유분). 일봉 정배열+눌림 존 게이트 + 3분봉 이격도(deviation) 분할매매.",
       "summary": "계좌 설정 오류로 오전 초반 4개 런이 빈 ODNO 거부로 끝났고, 09:33 교정 후 정상 발주로 넘어갔다. 종료 당일손익은 +15,919원(+0.016%)으로 사실상 본전이고, 일중 등락폭은 약 70만원이다(피크 +24만, 저점 -46만). DevScale 정배열눌림 지정가 사다리가 8종목에 26건 접수됐고 OrderGate가 동시보유·명목 한도로 177건 중 94건을 거부해 방어는 설계대로 작동했다. 운영 마찰은 세 가지가 남았다. ① 리컨사일 REST 조회 실패 49건이 daily_pnl 갱신 끊김을 유발해 B2 보수정지(신규매수 차단)가 2회 발동했다. ② DEVSCALE_084730 한 종목이 취소-재주문 churn 루프에 갇혀 거부 87건(접수 0)을 냈다. ③ 마감 시 3종목이 매도가능=0(잠김)이라 청산을 마치지 못하고 오버나이트로 이월됐다. 재기동은 13회(마감 직전 다발)로 운영 부담이 있었다."
+    },
+    {
+      "date": "2026-08-25",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-08-25.md",
+      "title": "라이브 모의 매매 일지 — 2026-08-25 (월)",
+      "strat_line": "DeviationScale (DEVSCALE) 정배열눌림 지정가 사다리 + ITB 청산 가디언. 국면→전략 자동선택(3개 국면 맵, 재평가 300초) 적용.",
+      "summary": "가동은 반일(10:53~13:03)이고 원장 이벤트도 11건뿐이지만, 국면→전략 자동선택(G1)이 눈에 보이게 갈린 날이다. 10:53 기동에서는 `국면=NEUTRAL → 활성=[] 비활성=[DEVSCALE_207940, DEVSCALE_122260, ITB_005930, ITB_018260, ITB_161390]`으로 전략이 전부 비활성이라 두 시간 동안 신규 진입이 나가지 않았고, 13:01 재기동 뒤 13:02:20에는 같은 NEUTRAL에서 `활성=[DEVSCALE_207940, DEVSCALE_122260]`으로 바뀌면서 곧바로 지정가 사다리 4건이 나갔다. 종료 당일손익은 +108,793원, 전일대비로는 -145,737원이다."
+    },
+    {
+      "date": "2026-08-21",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-08-21.md",
+      "title": "라이브 모의 매매 일지 — 2026-08-21 (금)",
+      "strat_line": "DeviationScale (DEVSCALE) + ITB 청산 가디언(전일 보유 5종목).",
+      "summary": "09:37 늦게 기동했고 12:57:07에 로그가 끊겼다(사후검토에서 크래시로 판정). 기동 직후 ENTRY_HALT가 켜져(사이드카 regime=RISK_OFF score=-3) DevScale 신규 진입은 0건이고, 접수 3건은 기동 프로브 1건과 전일 물린 보유분 시장가 청산 2건이 전부다. 전일대비 -655,106원(전일총자산 67,380,989)으로 이 구간에서 가장 큰 하루 손실인데, 신규 매매가 없었으므로 대부분 보유분 시가평가(MTM) 변동이다."
+    },
+    {
+      "date": "2026-08-20",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-08-20.md",
+      "title": "라이브 모의 매매 일지 — 2026-08-20 (목)",
+      "strat_line": "DeviationScale (DEVSCALE) 정배열눌림 지정가 사다리 + ITB 청산 가디언(전일 보유분).",
+      "summary": "전일대비 -154,050원(전일총자산 67,401,679). 일중 저점은 15:03 -317,260원이었고 마감 무렵 -203,600원으로 줄었다. 접수 35·거부 139·취소 22, 체결 이벤트 0건. 거부의 대부분은 게이트가 의도대로 막은 쪽이다 — 동시 보유 종목 한도 48건, 종목당 명목 한도 15건. 사다리는 093190에 집중됐고(접수 16건) 같은 호가 재구성으로 \"취소 대상 없음\" 64건이 뒤따랐다. 마감 구간에서 EOD 청산이 매도가능=0(잠긴 수량·예약취소 대기)으로 20회 보류돼 청산을 마치지 못했다. 이 건은 다음 날 사후검토에서 P0로 잡힌다."
     },
     {
       "date": "2026-08-19",
@@ -50,6 +83,22 @@
       "summary": "주문 파이프라인 인프라를 안정화했다. 전날 하드킬이 남긴 청산 무한루프와 잘못된 클라이언트 잔고조회를 진단·수정해 실증으로 해소를 확인했다. 전략 신규 진입은 0건이다. 강세장이라 등록 5종목 전부 SMA20 대비 +19~+200% 확장 상태로 눌림밴드(−8%~0%)에 들지 않았다. 엄격한 눌림 게이트가 정상 작동한 결과다. 모의 당일손익 −5~7만원(대부분 시드 물린 분이 그대로 남음)."
     },
     {
+      "date": "2026-08-11",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-08-11.md",
+      "title": "라이브 모의 매매 일지 — 2026-08-11 (화)",
+      "strat_line": "DeviationScale (DEVSCALE) + ITB 청산 가디언.",
+      "summary": "반나절(11:50~14:17)만 가동했고 종료 당일손익은 +82원(총평가 68,226,138)으로 사실상 무변동이다. 접수 106·거부 206·취소 96, 체결 이벤트 0건. 이 날의 본론은 매매가 아니라 오류다. ERROR 283건 중 \"모의투자 잔고내역이 없습니다\" 118건과 빈 ODNO 거부 117건이 대부분을 차지했고, 청산 SELL이 빈 ODNO로 튕겨 90회 재시도 예약됐다. \"청산차단 미해소 — 취소할 예약매도 없음/취소 실패(수동 확인 필요)\" 경고가 118회 나면서 073240 청산이 세션 내내 끝나지 않았다."
+    },
+    {
+      "date": "2026-08-10",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-08-10.md",
+      "title": "라이브 모의 매매 일지 — 2026-08-10 (월)",
+      "strat_line": "DeviationScale (DEVSCALE) 정배열눌림 지정가 사다리 + ITB 청산 가디언.",
+      "summary": "종료 당일손익 +162,171원(총평가 68,225,496), 피크 +290,070원(10:21), 저점 -175,000원(09:11). 세션은 하루 동안 9회 재기동했다. 원장이 12:52부터 기록돼 오전 발주(09:59 017650 사다리 등)는 로그에만 남았고, 그래서 이 날 손익을 원장만으로는 재구성할 수 없다. 오후는 458210 한 종목에 접수 196·취소 183·거부 144가 몰린 취소-재주문 churn이 대부분이다. 원장에 체결(FILL) 이벤트가 없어(체결통보 채널 미배선) 체결 여부는 리컨사일 손익 변동으로만 간접 확인된다."
+    },
+    {
       "date": "2026-08-07",
       "strategy": "ITB",
       "path": "strategies/ITB/live/2026-08-07.md",
@@ -83,7 +132,8 @@
       "accepted": 220,
       "rejected": 181,
       "cancelled": 198,
-      "filled": 0
+      "filled": 0,
+      "fill_events": 0
     },
     {
       "date": "2026-08-11",
@@ -107,7 +157,8 @@
       "accepted": 106,
       "rejected": 206,
       "cancelled": 96,
-      "filled": 0
+      "filled": 0,
+      "fill_events": 0
     },
     {
       "date": "2026-08-12",
@@ -132,11 +183,65 @@
       "accepted": 263,
       "rejected": 273,
       "cancelled": 233,
-      "filled": 0
+      "filled": 0,
+      "fill_events": 0
+    },
+    {
+      "date": "2026-08-13",
+      "path": "Quant/build_win/logs/trades_20260813.csv",
+      "total": 188,
+      "by_status": {
+        "REJECTED": 116,
+        "ACCEPTED": 46,
+        "CANCELLED": 26
+      },
+      "by_strategy": {
+        "DEVSCALE_006340": 103,
+        "DEVSCALE_073240": 76,
+        "STARTUP_PROBE": 7,
+        "ITB_005930": 2
+      },
+      "by_side": {
+        "BUY": 96,
+        "SELL": 92
+      },
+      "n_tickers": 3,
+      "accepted": 46,
+      "rejected": 116,
+      "cancelled": 26,
+      "filled": 0,
+      "fill_events": 0
+    },
+    {
+      "date": "2026-08-14",
+      "path": "Quant/build_win/logs/trades_20260814.csv",
+      "total": 49,
+      "by_status": {
+        "REJECTED": 28,
+        "ACCEPTED": 19,
+        "CANCELLED": 2
+      },
+      "by_strategy": {
+        "DEVSCALE_073240": 22,
+        "DEVSCALE_005180": 12,
+        "DEVSCALE_464240": 10,
+        "STARTUP_PROBE": 3,
+        "ITB_005930": 2
+      },
+      "by_side": {
+        "BUY": 47,
+        "SELL": 2
+      },
+      "n_tickers": 4,
+      "accepted": 19,
+      "rejected": 28,
+      "cancelled": 2,
+      "filled": 0,
+      "fill_events": 0
     },
     {
       "date": "2026-08-18",
-      "path": "logs/trades_20260818.csv",
+      "path": "Quant/build_win/logs/trades_20260818.csv",
       "total": 119,
       "by_status": {
         "REJECTED": 104,
@@ -176,7 +281,228 @@
       "accepted": 15,
       "rejected": 104,
       "cancelled": 0,
-      "filled": 0
+      "filled": 0,
+      "fill_events": 0
+    },
+    {
+      "date": "2026-08-19",
+      "path": "Quant/build_win/logs/trades_20260819.csv",
+      "total": 37,
+      "by_status": {
+        "REJECTED": 29,
+        "ACCEPTED": 7,
+        "CANCELLED": 1
+      },
+      "by_strategy": {
+        "DEVSCALE_006340": 24,
+        "DEVSCALE_161390": 3,
+        "DEVSCALE_000100": 3,
+        "DEVSCALE_377300": 3,
+        "STARTUP_PROBE": 1,
+        "ITB_011200": 1,
+        "DEVSCALE_021240": 1,
+        "ITB_005930": 1
+      },
+      "by_side": {
+        "BUY": 35,
+        "SELL": 2
+      },
+      "n_tickers": 7,
+      "accepted": 7,
+      "rejected": 29,
+      "cancelled": 1,
+      "filled": 0,
+      "fill_events": 0
+    },
+    {
+      "date": "2026-08-20",
+      "path": "Quant/build_win/logs/trades_20260820.csv",
+      "total": 196,
+      "by_status": {
+        "REJECTED": 139,
+        "ACCEPTED": 35,
+        "CANCELLED": 22
+      },
+      "by_strategy": {
+        "DEVSCALE_093190": 56,
+        "DEVSCALE_007340": 24,
+        "DEVSCALE_011200": 18,
+        "DEVSCALE_010950": 18,
+        "DEVSCALE_018260": 14,
+        "DEVSCALE_161390": 14,
+        "DEVSCALE_073240": 14,
+        "DEVSCALE_021240": 14,
+        "DEVSCALE_377300": 8,
+        "DEVSCALE_028670": 6,
+        "DEVSCALE_096770": 6,
+        "STARTUP_PROBE": 2,
+        "ITB_006340": 1,
+        "ITB_005930": 1
+      },
+      "by_side": {
+        "BUY": 194,
+        "SELL": 2
+      },
+      "n_tickers": 13,
+      "accepted": 35,
+      "rejected": 139,
+      "cancelled": 22,
+      "filled": 0,
+      "fill_events": 0
+    },
+    {
+      "date": "2026-08-21",
+      "path": "Quant/build_win/logs/trades_20260821.csv",
+      "total": 60,
+      "by_status": {
+        "REJECTED": 57,
+        "ACCEPTED": 3
+      },
+      "by_strategy": {
+        "DEVSCALE_007575": 23,
+        "DEVSCALE_096770": 9,
+        "DEVSCALE_475150": 9,
+        "DEVSCALE_007340": 7,
+        "DEVSCALE_010950": 3,
+        "DEVSCALE_028670": 3,
+        "DEVSCALE_086280": 3,
+        "STARTUP_PROBE": 1,
+        "ITB_011200": 1,
+        "ITB_093190": 1
+      },
+      "by_side": {
+        "BUY": 58,
+        "SELL": 2
+      },
+      "n_tickers": 10,
+      "accepted": 3,
+      "rejected": 57,
+      "cancelled": 0,
+      "filled": 0,
+      "fill_events": 0
+    },
+    {
+      "date": "2026-08-25",
+      "path": "Quant/build_win/logs/trades_20260825.csv",
+      "total": 11,
+      "by_status": {
+        "ACCEPTED": 7,
+        "REJECTED": 2,
+        "CANCELLED": 2
+      },
+      "by_strategy": {
+        "DEVSCALE_207940": 7,
+        "STARTUP_PROBE": 2,
+        "ITB_161390": 1,
+        "DEVSCALE_122260": 1
+      },
+      "by_side": {
+        "BUY": 10,
+        "SELL": 1
+      },
+      "n_tickers": 4,
+      "accepted": 7,
+      "rejected": 2,
+      "cancelled": 2,
+      "filled": 0,
+      "fill_events": 0
+    },
+    {
+      "date": "2026-09-03",
+      "path": "Quant/build_win/logs/trades_20260903.csv",
+      "total": 223,
+      "by_status": {
+        "REJECTED": 177,
+        "ACCEPTED": 34,
+        "CANCELLED": 12
+      },
+      "by_strategy": {
+        "DEVSCALE_084730": 87,
+        "DEVSCALE_092790": 34,
+        "DEVSCALE_105560": 28,
+        "DEVSCALE_048430": 17,
+        "STARTUP_PROBE": 8,
+        "ITB_018260": 8,
+        "DEVSCALE_000810": 8,
+        "DEVSCALE_278470": 3,
+        "DEVSCALE_090430": 3,
+        "DEVSCALE_326030": 3,
+        "DEVSCALE_021240": 3,
+        "DEVSCALE_322000": 3,
+        "DEVSCALE_006400": 3,
+        "DEVSCALE_122260": 3,
+        "DEVSCALE_419890": 2,
+        "ITB_005930": 2,
+        "ITB_000810": 2,
+        "DEVSCALE_373220": 1,
+        "DEVSCALE_066570": 1,
+        "DEVSCALE_005490": 1,
+        "DEVSCALE_018260": 1,
+        "DEVSCALE_000720": 1,
+        "DEVSCALE_377300": 1
+      },
+      "by_side": {
+        "BUY": 211,
+        "SELL": 12
+      },
+      "n_tickers": 20,
+      "accepted": 34,
+      "rejected": 177,
+      "cancelled": 12,
+      "filled": 0,
+      "fill_events": 0
+    },
+    {
+      "date": "2026-09-04",
+      "path": "Quant/build_win/logs/trades_20260904.csv",
+      "total": 397,
+      "by_status": {
+        "ACCEPTED": 192,
+        "REJECTED": 135,
+        "CANCELLED": 49,
+        "FILLED": 21
+      },
+      "by_strategy": {
+        "DEVSCALE_086790": 80,
+        "DEVSCALE_316140": 37,
+        "DEVSCALE_005490": 32,
+        "DEVSCALE_161890": 30,
+        "DEVSCALE_373220": 27,
+        "TEST": 26,
+        "DEVSCALE_055550": 24,
+        "DEVSCALE_090430": 23,
+        "DEVSCALE_000810": 13,
+        "DEVSCALE_018260": 12,
+        "DEVSCALE_066570": 11,
+        "ITB_086790": 9,
+        "STARTUP_PROBE": 8,
+        "ITB_316140": 8,
+        "DEVSCALE_066970": 7,
+        "ITB_373220": 6,
+        "ITB_055550": 6,
+        "ITB_090430": 6,
+        "DEVSCALE_130730": 5,
+        "ITB_066570": 4,
+        "ITB_005490": 4,
+        "": 4,
+        "ITB_000810": 4,
+        "ITB_018260": 4,
+        "DEVSCALE_001450": 3,
+        "ITB_066970": 2,
+        "ITB_092790": 1,
+        "MM": 1
+      },
+      "by_side": {
+        "BUY": 311,
+        "SELL": 82,
+        "NONE": 4
+      },
+      "n_tickers": 20,
+      "accepted": 192,
+      "rejected": 135,
+      "cancelled": 49,
+      "filled": 21,
+      "fill_events": 79
     }
   ]
 }
