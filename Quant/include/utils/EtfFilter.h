@@ -34,6 +34,37 @@ inline bool is_etf_like(const std::string& name,
     return false;
 }
 
+// 리츠(부동산투자회사) 판별 — 접미사 일치 + 예외 정확일치.
+//  "리츠"를 부분일치로 쓰면 메리츠금융지주·메리츠화재 같은 보통주를 오드롭한다(브랜드
+//  접두사에 경계검사를 둔 것과 같은 취지). 상장 리츠 종목명은 거의 전부 "…리츠"로 끝나므로
+//  접미사로 좁히고, 그렇지 않은 예외만 정확일치로 보완한다.
+inline bool is_reit_like(const std::string& name,
+                         const std::vector<std::string>& suffixes,
+                         const std::vector<std::string>& exacts)
+{
+    for (const auto& sfx : suffixes)
+        if (!sfx.empty() && name.size() >= sfx.size() &&
+            name.compare(name.size() - sfx.size(), sfx.size(), sfx) == 0)
+            return true;
+    for (const auto& e : exacts)
+        if (!e.empty() && name == e)
+            return true;
+    return false;
+}
+
+inline const std::vector<std::string>& default_reit_suffixes()
+{
+    static const std::vector<std::string> s = {"리츠"};
+    return s;
+}
+
+// 접미사로 안 잡히는 상장 리츠(사명에 리츠가 끝에 오지 않는 경우)만 열거.
+inline const std::vector<std::string>& default_reit_exacts()
+{
+    static const std::vector<std::string> e = {"이리츠코크렙"};
+    return e;
+}
+
 // 상품 토큰 기본값 — 개별 보통주 이름엔 나타나지 않는 ETF/ETN 표지만(오탐 방지).
 //  단기'채권'·ESG'액티브' 같은 비브랜드 액티브·채권 ETF를 접두사 없이 잡는다.
 inline const std::vector<std::string>& default_tokens()

@@ -45,7 +45,8 @@ def _yesterday_iso() -> str:
 
 
 def build(on_date: str, n_mktcap: int, n_turnover: int,
-          min_turnover: float = 1e9, market: str = "KOSPI") -> dict | None:
+          min_turnover: float = 1e9, market: str = "KOSPI",
+          with_market_map: bool = False) -> dict | None:
     # market="ALL"이면 코스피·코스닥 각각 시총∪거래대금 top-N을 뽑아 union한다(시장별 균형 —
     # 코스피 대형주가 코스닥 슬롯을 잠식하지 않도록 시장을 나눠 각자 상위 N을 확보). datagokr
     # _snapshot은 시장 무관 전종목을 한 번에 서빙하므로 시장 수와 무관하게 API 비용 동일.
@@ -101,7 +102,7 @@ def build(on_date: str, n_mktcap: int, n_turnover: int,
     breakdown = " ".join(f"{mk}={n}" for mk, n in per_market.items())
     print(f"[universe_feed] 기준일 {served}: 시총 top{n_mktcap} ∪ 거래대금 top{n_turnover} "
           f"= {len(universe)}종목 ({breakdown}). ETF-free.")
-    return {
+    doc = {
         "schema":   1,
         "source":   "data.go.kr:getStockPriceInfo",
         "market":   market,
@@ -110,6 +111,15 @@ def build(on_date: str, n_mktcap: int, n_turnover: int,
         "count":    len(universe),
         "universe": universe,
     }
+    if with_market_map:
+        # 전 종목 코드→시장 사전. C++ 스캐너가 KIS 랭킹축으로 들어온 티커의 시장을 여기서
+        #  해석한다. 이게 없으면 태그 없는 티커가 KOSPI로 간주돼 kosdaq_enabled 게이트가 샌다.
+        #  universe(top-N)와 달리 스냅샷 전종목을 담으므로 PIT 백필 파일에는 넣지 않는다
+        #  (246일 × 수천 항목이면 산출물이 불필요하게 커진다).
+        doc["market_map"] = {r["code"]: r["market"] for r in rows
+                             if r.get("code") and r.get("market") in ("KOSPI", "KOSDAQ")}
+        print(f"[universe_feed] market_map {len(doc['market_map'])}종목 동봉.")
+    return doc
 
 
 def main() -> int:
@@ -124,7 +134,8 @@ def main() -> int:
     args = ap.parse_args()
 
     on_date = args.date or _yesterday_iso()
-    doc = build(on_date, args.n_mktcap, args.n_turnover, args.min_turnover, args.market)
+    doc = build(on_date, args.n_mktcap, args.n_turnover, args.min_turnover, args.market,
+                with_market_map=True)
     if doc is None:
         return 1
 

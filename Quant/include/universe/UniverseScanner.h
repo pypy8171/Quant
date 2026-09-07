@@ -67,6 +67,10 @@ struct DevScanCfg
     double score_w_trend    = 1.0;
     double score_w_pullback = 1.0;
     double score_w_supply   = 0.0; // 로거 데이터 확보 후 활성
+    // 변동성 페널티 — ATR(14)/종가의 횡단면 z를 점수에서 뺀다(같은 추세·눌림이면 덜 흔들리는 쪽).
+    //  1.0(동등)이면 변동성만으로 순위가 크게 뒤집혀 저변동 대형주로 책이 쏠린다. 0.5는 순위를
+    //  뒤집기보다 동점자를 가르는 정도로 작용한다. (회의 2026-09-07)
+    double score_w_vol      = 0.5;
     // ── 코스닥 참여(2026-08-19 strategist·data-sourcer 회의) ──────────────────
     //  기본 false: universe_scan.json에 코스닥("market"=="KOSDAQ") 종목이 섞여 있어도 전량 드롭
     //  → 코스피 동작을 오늘과 바이트 단위로 동일 유지(라이브 무위험). 코스닥 EOD 백테스트가 LAB
@@ -81,7 +85,10 @@ struct DevScanCfg
 // 시총 상위 ∪ 거래대금 상위 → 가격 필터 → (opt)정배열 프리필터. 티커 목록 반환.
 //  초기 등록·주기적 재스캔이 공용으로 호출(cfg 값 복사 캡처라 std::function 저장 안전).
 //  out_names(옵션)를 주면 등록 티커→종목명(hts_kor_isnm)을 채워 로그 라벨에 쓴다.
+//  out_scores(옵션)를 주면 등록 티커→종합점수를 채운다. 호출자가 이 점수로 비중 배수를
+//  만들고(ScoreWeight.h), 등록 순서가 곧 진입 우선순위가 된다.
 std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& cfg,
-                                       std::unordered_map<std::string, std::string>* out_names = nullptr);
+                                       std::unordered_map<std::string, std::string>* out_names = nullptr,
+                                       std::unordered_map<std::string, double>* out_scores = nullptr);
 
 } // namespace universe
