@@ -18,6 +18,7 @@
 | 백테스트 실행 상세(규칙변경·결과표·해석) | `research/BACKTEST_LOG.md` | `research/BACKTESTS.md` 카드, `research/README.md` 타임라인 |
 | 스터디 내용(방법·결과·종목원장) | `research/studies/<NN>/README.md` | `research/studies/README.md` 색인, `BACKTESTS.md` 카드 |
 | 전략 스펙·실증 | `strategies/<전략>/`(SPEC·live/) | `strategies/README.md` 표, 루트 `README.md` |
+| 장 종료 리뷰(코드·매매·주문 문제와 조치) | `docs/eod/YYYY-MM-DD.md` | `docs/eod/README.md` 목록, `docs/DEFERRED_ISSUES.md`·`docs/DECISIONS.md` 항목 |
 | 백테스트 규율 | `research/GUARDRAILS.md` | 각 study README, `bias-auditor` |
 
 ---
