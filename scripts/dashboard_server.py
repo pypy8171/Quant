@@ -238,25 +238,90 @@ def read_log_events(max_events=40):
     return {"events": events, "latest": latest}
 
 
-def read_trades_today(now=None):
+# 체결 원장에서 실현손익을 뽑는다. 엔진이 realized_pnl 컬럼을 남긴 행은 그 값을 쓰고,
+#  컬럼이 없던 시절 행은 원장의 매수·매도 체결로 평단을 굴려 재구성한다. 재구성분은
+#  전일 이월분처럼 장부에 매수 기록이 없는 매도를 계산할 수 없어 unknown으로 센다.
+COMMISSION_RATE = 0.00015  # 위탁수수료 0.015% (매수·매도 공통)
+SELL_TAX_RATE = 0.0018     # 증권거래세 0.18% (매도에만)
+
+
+def _accrue_realized(row, book, acc):
+    if (row.get("event") or "").strip() != "FILL":
+        return
+    try:
+        qty = int(float(row.get("fill_qty") or 0))
+        px = float(row.get("fill_price") or 0)
+    except (TypeError, ValueError):
+        return
+    if qty <= 0 or px <= 0:
+        return
+    ticker = (row.get("ticker") or "").strip()
+    side = (row.get("side") or "").strip().upper()
+
+    if side.startswith("B"):
+        held, avg = book.get(ticker, (0, 0.0))
+        book[ticker] = (held + qty, (avg * held + px * qty) / (held + qty))
+        return
+    if not side.startswith("S"):
+        return
+
+    pnl = None
+    col = (row.get("realized_pnl") or "").strip()
+    if col:
+        try:
+            pnl = float(col)
+        except ValueError:
+            pnl = None
+    held, avg = book.get(ticker, (0, 0.0))
+    if pnl is None:
+        if held > 0 and avg > 0:
+            pnl = (px - avg) * qty - px * qty * COMMISSION_RATE - px * qty * SELL_TAX_RATE
+        else:
+            acc["unknown"] += 1
+    book[ticker] = (max(0, held - qty), avg)
+
+    if pnl is None:
+        return
+    if pnl > 0:
+        acc["profit"] += pnl
+        acc["win"] += 1
+    elif pnl < 0:
+        acc["loss"] += pnl
+        acc["lose"] += 1
+    else:
+        acc["flat"] += 1
+
+
+def read_trades_today(now=None, seed_avg=None):
+    # seed_avg: 잔고의 종목별 평단. 원장에 매수 기록이 없는 매도(전일 이월분)의 평단을
+    #  메워준다. 매도는 평단을 바꾸지 않으므로 잔여 보유분 평단이 매도 당시 평단과 같다.
+    #  전량 매도돼 잔고에서 사라진 종목은 여전히 메울 수 없어 unknown으로 남는다.
     now = now or datetime.now(KST)
     d = logs_dir()
     path = d / f"trades_{now.strftime('%Y%m%d')}.csv"
     if not path.exists():
         return {"date": now.strftime("%Y%m%d"), "rows": [],
-                "note": f"당일 원장 없음 ({d})"}
+                "realized": None, "note": f"당일 원장 없음 ({d})"}
     try:
         # 화면에 쓰는 건 최근 40행뿐이다. 원장이 길어져도 메모리에 통째로 올리지
         # 않도록 deque(maxlen)로 흘려 읽는다. 총 행수는 헤더에 표시하므로 세면서 간다.
         total = 0
+        book = {}   # ticker -> [보유수량, 평단] — 매도 실현손익을 재구성하기 위한 장부
+        for tk, av in (seed_avg or {}).items():
+            book[tk] = (10 ** 9, av)   # 이월분: 수량은 충분히 크게 두고 평단만 쓴다
+        realized = {"profit": 0.0, "loss": 0.0, "net": 0.0,
+                    "win": 0, "lose": 0, "flat": 0, "unknown": 0}
         with open(path, encoding="utf-8") as f:
             recent = deque(maxlen=40)
             for row in csv.DictReader(f):
                 total += 1
                 recent.append(row)
-        return {"date": now.strftime("%Y%m%d"), "rows": list(recent)[::-1], "total": total}
+                _accrue_realized(row, book, realized)
+        realized["net"] = realized["profit"] + realized["loss"]
+        return {"date": now.strftime("%Y%m%d"), "rows": list(recent)[::-1],
+                "total": total, "realized": realized}
     except OSError as e:
-        return {"date": now.strftime("%Y%m%d"), "rows": [], "note": str(e)}
+        return {"date": now.strftime("%Y%m%d"), "rows": [], "realized": None, "note": str(e)}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -419,6 +484,16 @@ def build_criteria(cfg: dict):
 # 상태 집계
 # ─────────────────────────────────────────────────────────────────────────────
 def build_state(kis, quote, cfg, regime_path, uni_path):
+    _bal = _live_get("balance")
+    _seed = {}
+    for p in ((_bal or {}).get("positions") or []):
+        try:
+            av = float(p.get("avg") or 0)
+        except (TypeError, ValueError):
+            av = 0.0
+        tk = (p.get("ticker") or "").strip()
+        if tk and av > 0:
+            _seed[tk] = av
     return {
         "server_ts": datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S"),
         "account_no": _mask_acct(cfg.get("kis", {}).get("account_no", "")),
@@ -426,12 +501,12 @@ def build_state(kis, quote, cfg, regime_path, uni_path):
         "mode": cfg.get("mode"),
         "market": market_status(),
         "engine": engine_status(),
-        "account": _live_get("balance"),
+        "account": _bal,
         "regime": read_regime(regime_path),
         "universe": read_universe(uni_path),
         "criteria": build_criteria(cfg),
         "log": read_log_events(),
-        "trades": read_trades_today(),
+        "trades": read_trades_today(seed_avg=_seed),
         "ranking": _live_get("ranking"),
     }
 
@@ -554,7 +629,8 @@ small.err{color:var(--dn)}
 .chartwrap{padding:12px 16px 16px;position:relative}
 #chartcv{width:100%;height:380px;display:block}
 .chartinfo{color:var(--mut);font-size:11px;margin-top:6px;min-height:14px}
-.regime-comp{display:grid;grid-template-columns:1fr auto auto;gap:2px 10px;font-size:12px;margin-top:8px}
+.regime-comp{display:grid;grid-template-columns:1fr auto auto auto;gap:2px 10px;font-size:12px;margin-top:8px}
+.regime-comp .rp{font-variant-numeric:tabular-nums}
 .regime-comp .rn{color:var(--mut)}
 .tickrow td:first-child{color:var(--mut)}
 </style></head><body>
@@ -613,6 +689,10 @@ small.err{color:var(--dn)}
 const won=n=>n==null||isNaN(n)?'–':Math.round(n).toLocaleString('ko-KR');
 const pct=n=>n==null||isNaN(n)?'–':(n>=0?'+':'')+Number(n).toFixed(2)+'%';
 const cls=n=>n>0?'up':(n<0?'dn':'');
+const ipx=v=>{const n=Number(v);
+  if(!isFinite(n)||v===null||v===undefined) return '-';
+  return Math.abs(n)>=1000 ? n.toLocaleString('ko-KR',{maximumFractionDigits:0})
+                           : n.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2});};
 const eb=v=>String(v==null?'':v).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 function setDot(el,ok,txt){el.innerHTML='<span class="dot" style="background:'+(ok?'var(--up)':'var(--dn)')+'"></span>'+txt;}
 
@@ -648,6 +728,7 @@ async function tick(){
                  : (useRate==null?'–':useRate.toFixed(1)+'% / '+(capPct*100).toFixed(0)+'%');
     const capCls = (capPct&&useRate!=null)? (useRate>=capPct*100?'dn':(useRate>=capPct*80?'warnc':'up')) : '';
     const maxN=(((s.criteria||{}).risk||{}).max_concurrent_positions)||0;
+    const rz=(a.trades&&a.trades.realized)||{profit:0,loss:0,net:0,win:0,lose:0,unknown:0};
     document.getElementById('kpis').innerHTML=[
       ['총평가금액',won(sm.total_eval)+' 원',''],
       ['총매수금액(원가)',won(gross)+' 원',''],
@@ -657,6 +738,9 @@ async function tick(){
       ['평가손익',won(sm.total_pnl)+' 원',cls(sm.total_pnl)],
       ['총수익률',pct(sm.total_pnl_rate),cls(sm.total_pnl_rate)],
       ['보유 종목수',(a.positions?a.positions.length:0)+(maxN?' / '+maxN:'')+' 종목',''],
+      ['오늘 익절',won(rz.profit)+' 원'+(rz.win?' ('+rz.win+'건)':''),rz.profit>0?'up':''],
+      ['오늘 손절',won(rz.loss)+' 원'+(rz.lose?' ('+rz.lose+'건)':''),rz.loss<0?'dn':''],
+      ['오늘 실현손익',won(rz.net)+' 원'+(rz.unknown?' *'+rz.unknown+'건 평단미상':''),cls(rz.net)],
     ].map(k=>`<div class="kpi"><div class="l">${k[0]}</div><div class="v ${k[2]}">${k[1]}</div></div>`).join('');
   }
 
@@ -677,7 +761,7 @@ async function tick(){
     const rc=r.regime==='RISK_ON'?'up':(r.regime==='RISK_OFF'?'dn':'mut');
     let comp='';
     for(const k in (r.components||{})){const c=r.components[k];
-      comp+=`<div class="rn">${eb(c.label||k)}</div><div class="${cls(c.pct)}">${pct(c.pct)}</div><div class="mut">vote ${eb(c.vote)}</div>`;}
+      comp+=`<div class="rn">${eb(c.label||k)}</div><div class="rp">${ipx(c.price)}</div><div class="${cls(c.pct)}">${pct(c.pct)}</div><div class="mut">vote ${eb(c.vote)}</div>`;}
     rd.innerHTML=`
       <div><span class="pill ${rc}" style="background:var(--chip)">${eb(r.regime||'?')}</span>
         <span class="mut"> score ${eb(r.risk_score)}</span>

@@ -25,6 +25,7 @@ import re
 import sys
 from collections import Counter
 from datetime import datetime
+import os
 from pathlib import Path
 
 # Windows 콘솔(cp949)에서도 한글·기호(·—×) 깨짐/크래시 없이 출력
@@ -36,7 +37,9 @@ for _s in (sys.stdout, sys.stderr):
 
 _HERE = Path(__file__).resolve()
 _REPO = _HERE.parents[1]
-LOGS = _REPO / "logs"
+# 로그 폴더는 엔진 실행파일 기준으로 앵커되므로(빌드 폴더에서 띄우면 그쪽 logs/),
+#  QUANT_LOG_DIR로 덮어쓸 수 있게 둔다. 미지정이면 저장소 루트 logs/.
+LOGS = Path(os.environ.get("QUANT_LOG_DIR") or (_REPO / "logs"))
 LOGFILE = LOGS / "quant_trader.log"
 STATE = LOGS / ".watch_intraday_state.json"
 
