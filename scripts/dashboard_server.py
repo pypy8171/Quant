@@ -20,6 +20,7 @@
 import argparse
 import csv
 import io
+from collections import deque
 import json
 import os
 import re
@@ -245,9 +246,15 @@ def read_trades_today(now=None):
         return {"date": now.strftime("%Y%m%d"), "rows": [],
                 "note": f"당일 원장 없음 ({d})"}
     try:
+        # 화면에 쓰는 건 최근 40행뿐이다. 원장이 길어져도 메모리에 통째로 올리지
+        # 않도록 deque(maxlen)로 흘려 읽는다. 총 행수는 헤더에 표시하므로 세면서 간다.
+        total = 0
         with open(path, encoding="utf-8") as f:
-            rows = list(csv.DictReader(f))
-        return {"date": now.strftime("%Y%m%d"), "rows": rows[-40:][::-1], "total": len(rows)}
+            recent = deque(maxlen=40)
+            for row in csv.DictReader(f):
+                total += 1
+                recent.append(row)
+        return {"date": now.strftime("%Y%m%d"), "rows": list(recent)[::-1], "total": total}
     except OSError as e:
         return {"date": now.strftime("%Y%m%d"), "rows": [], "note": str(e)}
 
