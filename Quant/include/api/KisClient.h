@@ -55,10 +55,25 @@ public:
     const std::string& account_no() const { return cfg_.account_no; }
 
     // ── 국내 (KR) ──────────────────────────────────────────────────────────
-    std::vector<MarketData> get_daily_ohlcv(const std::string& ticker, int count);
+    // 일봉 조회. 기본값은 당일 봉을 뺀 '전일까지'다(docs/DECISIONS.md D-005).
+    //   KIS 응답의 output2[0]은 장중이면 오늘 진행 중 봉이고 그 종가가 실시간 현재가다.
+    //   이동평균에 넣으면 오늘 가격이 1/n 가중으로 섞여 지표가 스스로를 참조한다(SMA5는 1/5).
+    //   스냅샷을 하루 1회만 갱신하는 호출자에게는 그 값이 페치 시각에 동결되기까지 한다.
+    //   지표·앵커·게이트 용도는 전부 기본값(false)을 쓴다. 오늘 시세 자체가 필요한
+    //   경우(파이프라인에 당일 봉을 흘리는 데이터 스레드)에만 include_today=true.
+    std::vector<MarketData> get_daily_ohlcv(const std::string& ticker, int count,
+                                            bool include_today = false);
     // 당일 분봉 → interval_min 집계봉(기본 3분봉). FHKST03010200 역페이지네이션 후 1분봉 집계.
     //   반환: 최신→과거(result[0]=최신), 최대 count봉. interval_min=1이면 1분봉 그대로.
     std::vector<MarketData> get_minute_ohlcv(const std::string& ticker, int count, int interval_min = 3);
+    // 지정 날짜(과거일 포함)의 분봉 → interval_min 집계봉. TR FHKST03010230.
+    //   당일 분봉 TR은 날짜 인자가 없어 오늘에 갇힌다. 이쪽은 1콜에 1분봉 120개(=130분)를 준다.
+    //   end_hhmmss에서 과거로 역페이징. 반환: 최신→과거(result[0]=최신), 최대 count봉.
+    //   라이브 신호용이 아니라 과거 분봉 캐시·오프라인 백테스트 입력용이다(docs/DECISIONS.md D-004).
+    std::vector<MarketData> get_daily_minute_ohlcv(const std::string& ticker,
+                                                   const std::string& yyyymmdd,
+                                                   int count, int interval_min = 3,
+                                                   const std::string& end_hhmmss = "153000");
     double get_current_price(const std::string& ticker);
     Fundamentals get_fundamentals(const std::string& ticker);
     bool send_order(const OrderSignal& signal);

@@ -954,7 +954,9 @@ void Engine::data_thread_fn()
                     {
                         std::vector<MarketData> bars;
                         if (spec.market == Market::KR)
-                            bars = qc->get_daily_ohlcv(spec.ticker, 1);
+                            // 여기만 당일 봉이 목적이다(파이프라인에 오늘 시세를 흘린다).
+                            //  지표·앵커 용도의 다른 호출자는 전부 기본값(전일까지)을 쓴다.
+                            bars = qc->get_daily_ohlcv(spec.ticker, 1, /*include_today=*/true);
                         else
                             bars = qc->get_us_daily_ohlcv(spec.ticker, 1, spec.exchange);
 
