@@ -38,6 +38,26 @@ public:
         // ── 명목 사이징 백스톱 — 전략이 자본%로 사이징할 때의 상한/집중 제어(0=미적용) ──
         double max_notional_per_ticker  = 0.0;  // 종목당 최대 보유 명목(원). limit가로 평가. 0=수량 한도만
         int    max_concurrent_positions = 0;    // 동시 보유 종목 상한(새 종목 여는 BUY NEW에만). 0=미적용
+        // ── 점수 우선순위 바 — 슬롯이 찰수록 요구 랭크가 올라간다(false면 선착순, 기존 동작) ──
+        //  슬롯(max_concurrent_positions)은 종목 수보다 훨씬 적다(오늘 25 vs 등록 57). 바가 없으면
+        //  "존에 먼저 들어온 순서"가 슬롯을 가른다 — 점수를 매겨놓고 안 쓰는 셈이 된다.
+        //    허용 조건:  rank/total  ≤  1 − (open/slots) × decay(t)
+        //  빈 책(open=0)이면 우변 1.0이라 전부 통과하고, 마지막 한 칸은 최상위만 가져간다.
+        //  decay(t)는 장 마감까지 남은 시간 비율(09:00=1.0 → 15:00=0.0)로, 오후로 갈수록 바를
+        //  낮춘다. 이게 없으면 상위 종목을 기다리다 현금만 들고 하루가 끝나는 반대쪽 사고가 난다.
+        bool   entry_priority_enabled = false;
+        // ── 교체 진입(displacement) — 슬롯이 꽉 찼는데 더 높은 점수가 오면 최약체를 비운다 ──
+        //  이게 없으면 "먼저 도착해서 슬롯을 잡은 종목"이 하루 종일 자리를 지킨다. 점수를 매겨
+        //  순서를 정해봐야 25칸이 차는 순간부터 순서가 의미를 잃는다.
+        //  다만 교체는 공짜가 아니다 — 왕복 비용 0.195%(수수료 0.03% + 세금 0.18% 근사)에
+        //  피교체 종목의 사다리가 리셋된다. 그래서 아래 네 가지로 회전을 묶는다.
+        bool   displace_enabled       = false;
+        double displace_min_z_gap     = 0.5;  // 신규가 최약체보다 이만큼(σ) 높아야 교체. 잡음 교체 방지
+        int    displace_min_hold_sec  = 900;  // 방금 산 종목은 안 뺀다(15분). 사고 팔기 반복 차단
+        int    displace_cooldown_sec  = 1800; // 밀려난 종목의 재진입 금지 시간(30분). 핑퐁 차단
+        int    displace_max_per_day   = 5;    // 하루 교체 횟수 상한. 비용이 알파를 먹는 것을 막는 마지막 고삐
+        int    displace_slot_hold_sec = 300;  // 비운 슬롯을 수혜 종목에게 예약해 두는 시간(초).
+                                              //  3분봉 한 개 + 체결 지연을 덮을 만큼 잡는다
         // ── 포트폴리오 총노출 상한 — 모든 종목 보유·예약 명목 합이 자본의 이 비율을 넘으면 신규 매수 차단(0=미적용).
         //    종목당 상한(15%)×동시보유(10)=150% 같은 과노출을 총합 단에서 막는다(청산은 통과).
         double max_gross_exposure_pct   = 0.0;  // 예: 0.95 = 자본의 95%. equity_ 미주입(0)이면 자동 비활성
@@ -153,6 +173,39 @@ public:
         return entry_halt_.load();
     }
 
+    // 유니버스 스캔이 낸 종합 점수 랭크(1=최고)를 주입한다. 재스캔이 매번 덮어쓴다.
+    //  total은 랭크의 모집단 크기(등록 종목 수). 비어 있으면 우선순위 바는 동작하지 않는다.
+    //  z는 같은 점수의 표준화값 — 랭크는 "몇 번째"만 알려주고 "얼마나 더 좋은지"는 못 알려준다.
+    //  교체는 격차가 잡음보다 큰지를 봐야 하므로 z가 따로 필요하다.
+    void set_entry_priority(std::unordered_map<std::string, int> rank,
+                            std::unordered_map<std::string, double> z, int total)
+    {
+        std::lock_guard<std::mutex> lk(prio_mtx_);
+        entry_rank_  = std::move(rank);
+        entry_z_     = std::move(z);
+        entry_total_ = total;
+    }
+
+    // ── 교체 진입 ────────────────────────────────────────────────────────────
+    //  슬롯이 꽉 찬 상태에서 new_ticker가 들어오려 할 때, 비워 줄 최약체를 고른다.
+    //  고르기만 하고 주문은 내지 않는다 — 발주는 order_queue_ 단일 생산자인 전략 스레드 몫이다.
+    struct DisplacePlan
+    {
+        bool        ok = false;
+        std::string account;      // 비울 종목의 계좌
+        std::string ticker;       // 비울 종목
+        int         qty = 0;      // 매도할 수량(미체결 매도 제외)
+        double      avg_price = 0.0;
+        double      victim_z = 0.0;
+        double      new_z = 0.0;
+        std::string reason;       // 로그·원장에 남길 사유
+    };
+    DisplacePlan plan_displacement(const std::string& account, const std::string& new_ticker) const;
+    // 교체를 실제로 발주했을 때 호출 — 쿨다운·횟수·슬롯 예약을 기록한다.
+    void note_displacement(const DisplacePlan& plan, const std::string& beneficiary);
+    // 동시 보유 슬롯이 꽉 찼는가(신규 종목을 열 자리가 없는가).
+    bool slots_full() const;
+
     // ── PnL stale guard (B2) — 잔고 리컨사일 정체 시 신규 매수 정지 ──────────────
     // rest_price_feed 모드는 daily_pnl_을 잔고 리컨사일(총평가금 델타)로만 갱신한다. 잔고조회가
     // 연속 실패(12002 타임아웃 등)해 서킷브레이커가 리컨사일을 스킵하는 동안 daily_pnl_은 낡은
@@ -213,11 +266,23 @@ private:
     std::atomic<bool> pnl_stale_{false};   // 잔고 리컨사일 정체 → daily_pnl 미갱신, BUY NEW 보수 정지(B2)
     std::atomic<double> equity_{0.0};      // 총평가금 스냅샷(§3d 총노출 게이트 분모). 리컨사일이 갱신, check()가 락 없이 읽음
 
+    mutable std::mutex prio_mtx_;
+    std::unordered_map<std::string, int> entry_rank_; // ticker → 종합점수 랭크(1=최고)
+    int entry_total_ = 0;                             // 랭크 모집단 크기(등록 종목 수)
+    std::unordered_map<std::string, double> entry_z_; // ticker → 종합점수 z (교체 격차 판정용)
+
+    mutable std::mutex displace_mtx_;
+    std::unordered_map<std::string, TimePoint> displace_cooldown_; // 밀려난 종목 → 재진입 허용 시각
+    std::string slot_reserved_for_;      // 비운 슬롯을 쓸 종목(다른 종목이 가로채지 못하게)
+    TimePoint   slot_reserved_until_{};  // 예약 만료 시각
+    int         displace_count_ = 0;     // 당일 교체 횟수(reset_daily에서 0으로)
+
     mutable std::mutex positions_mtx_;
     std::unordered_map<std::string, int>    reserved_;    // account:ticker → 미체결 선점 수량 (BUY +, SELL -). 재주문 차단용
     std::unordered_map<std::string, double> reserved_px_; // account:ticker → 미체결 선점가(§3d 총노출 계산용). reserved_와 동일 생명주기로 정리
     std::unordered_map<std::string, int>    positions_;   // account:ticker → 실체결 순보유 수량 (양수=롱)
     std::unordered_map<std::string, double> avg_prices_;  // account:ticker → 매수 평균단가 (실체결 기준)
+    std::unordered_map<std::string, TimePoint> opened_at_; // account:ticker → 포지션이 0에서 열린 시각(교체 최소 보유 판정)
 
     mutable std::mutex pnl_mtx_;
     double daily_pnl_{0.0};

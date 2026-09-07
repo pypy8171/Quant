@@ -1077,7 +1077,7 @@ void Engine::strategy_thread_fn()
 {
     LOG_INFO("[StrategyThread] 시작");
 
-    auto push_signal = [&](const OrderSignal& sig)
+    auto raw_push = [&](const OrderSignal& sig)
     {
         ++signal_count_;
         LOG_INFO("[Strategy] 신호: [" + sig.strategy_id + "] " + ticker_label(sig.ticker) + " " +
@@ -1089,6 +1089,42 @@ void Engine::strategy_thread_fn()
 #endif
         while (!order_queue_.push(sig) && running_.load())
             std::this_thread::sleep_for(std::chrono::microseconds(100));
+    };
+
+    // 교체 진입 — 슬롯이 꽉 찬 상태에서 더 높은 점수의 신규 종목이 오면 최약체를 먼저 비운다.
+    //  비우고 끝내는 이유: 매도 체결은 비동기라 같은 틱에 매수를 붙이면 노출이 이중 계상된다.
+    //  대신 게이트가 빈 자리를 이 종목에게 예약해 두므로, 다음 봉에서 이 종목이 그 자리를 가져간다.
+    //  order_queue_ 단일 생산자 규약을 지키려면 발주는 반드시 이 스레드에서만 나가야 한다.
+    auto push_signal = [&](const OrderSignal& sig)
+    {
+        const auto& gcfg = order_gate_.config();
+        if (gcfg.displace_enabled && sig.side == OrderSide::BUY &&
+            sig.action == OrderAction::NEW &&
+            order_gate_.position(sig.account_id, sig.ticker) == 0 &&
+            order_gate_.reserved(sig.account_id, sig.ticker) == 0 &&
+            order_gate_.slots_full())
+        {
+            auto plan = order_gate_.plan_displacement(sig.account_id, sig.ticker);
+            if (plan.ok)
+            {
+                OrderSignal ev;
+                ev.ticker      = plan.ticker;
+                ev.account_id  = plan.account;
+                ev.side        = OrderSide::SELL;
+                ev.type        = OrderType::MARKET;
+                ev.quantity    = plan.qty;
+                ev.price       = 0.0;
+                ev.ref_price   = plan.avg_price; // 시장가 명목 백스톱이 우회되지 않게 평단을 stamp
+                ev.strategy_id = "DISPLACE";
+                ev.reason      = plan.reason;
+                LOG_INFO("[Displace] " + ticker_label(plan.ticker) + " 전량 매도 " +
+                         std::to_string(plan.qty) + "주 — " + plan.reason);
+                raw_push(ev);
+                order_gate_.note_displacement(plan, sig.ticker);
+                return; // 이번 봉의 매수는 흘린다. 다음 봉에 예약된 슬롯으로 들어온다.
+            }
+        }
+        raw_push(sig);
     };
 
     std::vector<OrderSignal> batch_buf; // MM 다건 발주 재사용 버퍼 (per-tick 할당 회피)

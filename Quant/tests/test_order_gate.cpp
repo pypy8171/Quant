@@ -241,6 +241,136 @@ void test_partial_fill_avg_price()
     PASS("partial_fill_avg_price");
 }
 
+// ─── 교체 진입 ───────────────────────────────────────────────────────────
+//  슬롯이 꽉 찬 뒤에도 더 높은 점수가 오면 최약체를 비운다. 비우지 못하는 조건들(격차 부족,
+//  최소 보유 미달, 점수 미상)이 실제로 막는지도 같이 본다.
+static OrderGate::Config displace_cfg()
+{
+    OrderGate::Config cfg;
+    cfg.max_concurrent_positions = 2;
+    cfg.max_qty_per_ticker       = 1000;
+    cfg.max_orders_per_min       = 1000;
+    cfg.max_orders_per_sec       = 1000;
+    cfg.displace_enabled         = true;
+    cfg.displace_min_z_gap       = 0.5;
+    cfg.displace_min_hold_sec    = 0; // 테스트에선 보유시간 조건을 끈다(별도 케이스에서 검증)
+    return cfg;
+}
+
+void test_displace_picks_weakest()
+{
+    OrderGate gate(displace_cfg());
+    gate.seed_position("", "A", 10, 1000.0);
+    gate.seed_position("", "B", 10, 1000.0);
+    gate.set_entry_priority({{"A", 1}, {"B", 2}, {"C", 3}},
+                            {{"A", 0.9}, {"B", -0.8}, {"C", 1.5}}, 3);
+
+    assert(gate.slots_full());
+    auto plan = gate.plan_displacement("", "C");
+    assert(plan.ok);
+    assert(plan.ticker == "B");   // z가 더 낮은 쪽
+    assert(plan.qty == 10);
+    PASS("displace_picks_weakest");
+}
+
+void test_displace_needs_score_gap()
+{
+    OrderGate gate(displace_cfg());
+    gate.seed_position("", "A", 10, 1000.0);
+    gate.seed_position("", "B", 10, 1000.0);
+    // C가 B보다 0.3σ 높을 뿐 — 임계 0.5σ 미달이라 교체하지 않는다.
+    gate.set_entry_priority({{"A", 1}, {"B", 2}, {"C", 3}},
+                            {{"A", 0.9}, {"B", 0.1}, {"C", 0.4}}, 3);
+    assert(!gate.plan_displacement("", "C").ok);
+    PASS("displace_needs_score_gap");
+}
+
+void test_displace_skips_unscored_holdings()
+{
+    OrderGate gate(displace_cfg());
+    gate.seed_position("", "A", 10, 1000.0);  // 점수 있음
+    gate.seed_position("", "Z", 10, 1000.0);  // 점수 없음(가디언 관리 보유분)
+    gate.set_entry_priority({{"A", 1}, {"C", 2}}, {{"A", 1.2}, {"C", 1.9}}, 2);
+    auto plan = gate.plan_displacement("", "C");
+    // Z는 후보가 아니고 A는 격차(0.7σ)가 임계를 넘으므로 A가 뽑혀야 한다.
+    assert(plan.ok);
+    assert(plan.ticker == "A");
+    PASS("displace_skips_unscored_holdings");
+}
+
+void test_displace_min_hold_blocks()
+{
+    auto cfg = displace_cfg();
+    cfg.displace_min_hold_sec = 3600; // 방금 산 종목은 못 뺀다
+    OrderGate gate(cfg);
+    std::string reason;
+    // 실제 매수 체결로 열어 opened_at_을 "지금"으로 만든다.
+    auto b1 = make_signal("A", OrderSide::BUY, 10);
+    assert(gate.check(b1, reason));
+    gate.on_fill_confirmed("", "A", OrderSide::BUY, 10, 1000.0);
+    auto b2 = make_signal("B", OrderSide::BUY, 10);
+    assert(gate.check(b2, reason));
+    gate.on_fill_confirmed("", "B", OrderSide::BUY, 10, 1000.0);
+
+    gate.set_entry_priority({{"A", 1}, {"B", 2}, {"C", 3}},
+                            {{"A", 0.9}, {"B", -0.8}, {"C", 1.5}}, 3);
+    assert(gate.slots_full());
+    assert(!gate.plan_displacement("", "C").ok); // 최소 보유 시간 미달
+    PASS("displace_min_hold_blocks");
+}
+
+void test_displace_reserves_slot_and_cooldown()
+{
+    OrderGate gate(displace_cfg());
+    gate.seed_position("", "A", 10, 1000.0);
+    gate.seed_position("", "B", 10, 1000.0);
+    gate.set_entry_priority({{"A", 1}, {"B", 2}, {"C", 3}, {"D", 4}},
+                            {{"A", 0.9}, {"B", -0.8}, {"C", 1.5}, {"D", 1.4}}, 4);
+
+    auto plan = gate.plan_displacement("", "C");
+    assert(plan.ok && plan.ticker == "B");
+    gate.note_displacement(plan, "C");
+
+    // B 전량 매도가 체결돼 슬롯이 하나 비었다.
+    gate.on_fill_confirmed("", "B", OrderSide::SELL, 10, 1000.0);
+    assert(!gate.slots_full());
+
+    std::string reason;
+    // 밀려난 B는 쿨다운으로 재진입 불가.
+    auto sb = make_signal("B", OrderSide::BUY, 1);
+    assert(!gate.check(sb, reason));
+    assert(reason.find("쿨다운") != std::string::npos);
+
+    // 비운 자리는 D가 아니라 C의 것이다.
+    auto sd = make_signal("D", OrderSide::BUY, 1);
+    assert(!gate.check(sd, reason));
+    assert(reason.find("예약") != std::string::npos);
+
+    auto sc = make_signal("C", OrderSide::BUY, 1);
+    assert(gate.check(sc, reason));
+
+    // C가 자리를 가져갔으므로 예약은 풀린다.
+    gate.on_fill_confirmed("", "C", OrderSide::BUY, 1, 1000.0);
+    PASS("displace_reserves_slot_and_cooldown");
+}
+
+void test_displace_daily_cap()
+{
+    auto cfg = displace_cfg();
+    cfg.displace_max_per_day = 1;
+    cfg.displace_slot_hold_sec = 0; // 슬롯 예약이 아니라 횟수 상한이 막는지를 본다
+    OrderGate gate(cfg);
+    gate.seed_position("", "A", 10, 1000.0);
+    gate.seed_position("", "B", 10, 1000.0);
+    gate.set_entry_priority({{"A", 1}, {"B", 2}, {"C", 3}},
+                            {{"A", 0.9}, {"B", -0.8}, {"C", 1.5}}, 3);
+    auto p1 = gate.plan_displacement("", "C");
+    assert(p1.ok);
+    gate.note_displacement(p1, "C");
+    assert(!gate.plan_displacement("", "C").ok); // 하루 1회 소진
+    PASS("displace_daily_cap");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -257,6 +387,12 @@ int main()
     test_dedup_does_not_consume_rate_slot();
     test_sell_clamps_position_at_zero();
     test_partial_fill_avg_price();
+    test_displace_picks_weakest();
+    test_displace_needs_score_gap();
+    test_displace_skips_unscored_holdings();
+    test_displace_min_hold_blocks();
+    test_displace_reserves_slot_and_cooldown();
+    test_displace_daily_cap();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

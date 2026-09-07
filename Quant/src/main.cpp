@@ -247,6 +247,15 @@ int main(int argc, char* argv[])
         rc.max_notional_per_ticker  = r.value("max_notional_per_ticker", rc.max_notional_per_ticker);
         rc.max_concurrent_positions = r.value("max_concurrent_positions", rc.max_concurrent_positions);
         rc.max_gross_exposure_pct   = r.value("max_gross_exposure_pct", rc.max_gross_exposure_pct);
+        // 슬롯 경합 시 점수 상위부터 채운다(선착순 금지). 스캐너가 랭크를 게이트에 주입한다.
+        rc.entry_priority_enabled   = r.value("entry_priority_enabled", rc.entry_priority_enabled);
+        // 슬롯이 꽉 찬 뒤에도 더 높은 점수가 오면 최약체를 비우고 자리를 넘긴다(교체 진입).
+        rc.displace_enabled         = r.value("displace_enabled", rc.displace_enabled);
+        rc.displace_min_z_gap       = r.value("displace_min_z_gap", rc.displace_min_z_gap);
+        rc.displace_min_hold_sec    = r.value("displace_min_hold_sec", rc.displace_min_hold_sec);
+        rc.displace_cooldown_sec    = r.value("displace_cooldown_sec", rc.displace_cooldown_sec);
+        rc.displace_max_per_day     = r.value("displace_max_per_day", rc.displace_max_per_day);
+        rc.displace_slot_hold_sec   = r.value("displace_slot_hold_sec", rc.displace_slot_hold_sec);
         engine.set_risk_config(rc);
         LOG_INFO("[Main] risk 한도: 종목당 " + std::to_string(rc.max_qty_per_ticker) + "주, 일손실 " +
                  std::to_string((long long)rc.daily_loss_limit) + "원, " +
