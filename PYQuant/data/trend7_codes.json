@@ -1,0 +1,30 @@
+{
+ "가온전선": {
+  "code": "000500",
+  "market": "KOSPI"
+ },
+ "두산퓨얼셀": {
+  "code": "336260",
+  "market": "KOSPI"
+ },
+ "한전기술": {
+  "code": "052690",
+  "market": "KOSPI"
+ },
+ "한미글로벌": {
+  "code": "053690",
+  "market": "KOSPI"
+ },
+ "티에스이": {
+  "code": "131290",
+  "market": "KOSDAQ"
+ },
+ "피에스케이홀딩스": {
+  "code": "031980",
+  "market": "KOSDAQ"
+ },
+ "로보스타": {
+  "code": "090360",
+  "market": "KOSDAQ"
+ }
+}

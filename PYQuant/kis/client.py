@@ -517,6 +517,83 @@ class KisClient:
         out = [rows[k] for k in sorted(rows.keys())]
         return out[-count:]
 
+    def get_past_minute_ohlcv(self, ticker: str, yyyymmdd: str,
+                              count: int = 400, end_hhmmss: str = "153000") -> list[dict]:
+        """지정 날짜(과거일 포함)의 1분봉. TR FHKST03010230 (inquire-time-dailychartprice).
+
+        get_minute_ohlcv가 쓰는 FHKST03010200은 날짜 인자가 없어 오늘에 갇힌다.
+        이쪽은 FID_INPUT_DATE_1로 과거 날짜를 받고 1콜에 120봉(=130분)을 준다.
+        하루치(09:00~15:30, 391분)는 4콜이면 찬다.
+
+        주의: 이 TR의 output1은 요청 날짜가 아니라 실시간 현재 스냅샷이라 쓰지 않는다.
+        C++ KisClient::get_daily_minute_ohlcv와 같은 TR·같은 역페이징 규칙이다.
+
+        반환: [{date, hms, time("HHMM"), open, high, low, close, volume}] 오래된→최신.
+        """
+        rows: dict[str, dict] = {}
+        hour1 = end_hhmmss if len(end_hhmmss) == 6 else "153000"
+        params = {
+            "FID_COND_MRKT_DIV_CODE":  "J",
+            "FID_INPUT_ISCD":          ticker,
+            "FID_INPUT_HOUR_1":        hour1,
+            "FID_INPUT_DATE_1":        yyyymmdd,
+            "FID_PW_DATA_INCU_YN":     "Y",
+            "FID_FAKE_TICK_INCU_YN":   "N",
+        }
+        for page in range(max(1, count // 110 + 2)):
+            # 페이지 간 페이싱. 안 쉬면 초당 한도에 걸려 빈 응답이 오고, 그게 "그날 데이터 끝"과
+            #  구분이 안 돼 하루치가 조용히 잘린다(09-03 실측: 120봉, 09-07 실측: 240봉).
+            #  빈 응답은 한도 초과인지 진짜 끝인지 구분할 수 없으므로 백오프를 늘려가며 세 번 더
+            #  두드려 본다. 세 번 다 비면 그때는 끝으로 본다.
+            if page:
+                time.sleep(0.12)
+            params["FID_INPUT_HOUR_1"] = hour1
+            items = []
+            for attempt, backoff in enumerate((0.0, 0.5, 1.5, 3.0)):
+                if backoff:
+                    time.sleep(backoff)
+                data = self._get(
+                    "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice",
+                    params, "FHKST03010230",
+                )
+                items = data.get("output2", []) or []
+                if items:
+                    break
+            if not items:
+                break
+            times = []
+            for it in items:
+                hms = it.get("stck_cntg_hour", "")
+                if not hms or not it.get("stck_prpr"):
+                    continue
+                times.append(hms)
+                if it.get("stck_bsop_date") != yyyymmdd:   # 요청 날짜 밖 행 방어
+                    continue
+                try:
+                    rows[hms] = {
+                        "date":   yyyymmdd,
+                        "hms":    hms,
+                        "time":   hms[:4],
+                        "open":   float(it.get("stck_oprc", 0) or 0),
+                        "high":   float(it.get("stck_hgpr", 0) or 0),
+                        "low":    float(it.get("stck_lwpr", 0) or 0),
+                        "close":  float(it.get("stck_prpr", 0) or 0),
+                        "volume": int(it.get("cntg_vol", 0) or 0),
+                    }
+                except (ValueError, TypeError):
+                    continue
+            if not times or len(rows) >= count:
+                break
+            earliest = min(times)
+            try:
+                nxt = int(earliest) - 100          # 1분(=HHMMSS 100) 이전으로
+            except ValueError:
+                break
+            if nxt < 90000:                        # 그날 장 시작 도달
+                break
+            hour1 = f"{nxt:06d}"
+        return [rows[k] for k in sorted(rows.keys())]
+
     # ── 거래대금 상위 랭킹 (대시보드 스냅샷용) ────────────────────────────────
     def get_volume_ranking(self, top_n: int = 30, by_value: bool = True) -> list[dict]:
         """국내주식 거래량/거래대금 순위 (TR FHPST01710000). 코스콤 실시간이 아닌
