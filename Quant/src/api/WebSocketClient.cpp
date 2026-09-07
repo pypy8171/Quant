@@ -974,6 +974,13 @@ void KisWebSocket::subscribe_spec(const WatchSpec& spec)
     }
 }
 
+int KisWebSocket::spec_channel_count(const WatchSpec& spec)
+{
+    if (spec.market == Market::KR || spec.is_future)
+        return spec.trade_only ? 1 : 2;
+    return 1; // 미국은 체결 한 채널
+}
+
 bool KisWebSocket::subscribe_incremental(const WatchSpec& spec)
 {
     {
@@ -986,7 +993,11 @@ bool KisWebSocket::subscribe_incremental(const WatchSpec& spec)
     }
     if (!connected_.load())
         return false; // 목록에만 넣어 둔다. 실제 구독은 connect()/재연결의 subscribe_all이 한다.
+    const int need = spec_channel_count(spec);
+    if (sub_used_.load() + need > kMaxWsSubs)
+        return false; // 상한 도달 — 시세는 REST 폴링으로 대체된다(체결통보 슬롯을 지킨다)
     subscribe_spec(spec);
+    sub_used_.fetch_add(need);
     return true;
 }
 
@@ -1001,22 +1012,39 @@ void KisWebSocket::subscribe_all()
 
     bool has_kr = false;
     for (const auto& spec : snapshot)
-    {
         if (!spec.is_future && spec.market == Market::KR)
             has_kr = true;
-        subscribe_spec(spec);
-    }
 
-    // 체결통보 구독 — 현물 hts_id가 명시된 경우에만 (비어있으면 건너뜀)
+    int used = 0;
+
+    // 체결통보를 시세보다 먼저 구독한다. 세션 구독 상한(kMaxWsSubs)을 넘으면 뒤에 오는 채널이
+    //  rt=1 MAX SUBSCRIBE OVER로 잘리는데, 시세가 잘리면 REST 폴링이 대신하지만 체결통보가
+    //  잘리면 OrderRouter가 체결을 못 받아 reserved_가 해제되지 않는다. 그러면 같은 체결이
+    //  positions_와 reserved_에 동시에 잡혀 총노출이 이중계상되고 신규 매수가 통째로 막힌다.
     if (has_kr && on_fill_ && !cfg_.hts_id.empty())
     {
         std::string fill_tr = cfg_.is_paper ? "H0STCNI9" : "H0STCNI0";
         send_subscribe(fill_tr, cfg_.hts_id);
+        ++used;
     }
     else if (has_kr && on_fill_ && cfg_.hts_id.empty())
     {
         LOG_WARN("[WS] hts_id 미설정 — 체결통보(H0STCNI9/0) 구독 건너뜀. 주문 실행은 정상 동작.");
     }
+
+    int skipped = 0;
+    for (const auto& spec : snapshot)
+    {
+        const int need = spec_channel_count(spec);
+        if (used + need > kMaxWsSubs) { ++skipped; continue; }
+        subscribe_spec(spec);
+        used += need;
+    }
+    sub_used_.store(used);
+
+    if (skipped > 0)
+        LOG_WARN("[WS] 구독 상한 " + std::to_string(kMaxWsSubs) + " 도달 — 시세 " +
+                 std::to_string(skipped) + "종목 구독 생략(REST 폴링으로 대체). 체결통보는 유지.");
 }
 
 void KisWebSocket::parse_message(const std::string& msg)

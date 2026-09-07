@@ -89,6 +89,12 @@ private:
     void subscribe_all();
     // spec 하나의 채널을 구독한다(현·선물·미국 분기 한 곳). subscribe_all과 증분 구독이 공유한다.
     void subscribe_spec(const WatchSpec& spec);
+    // spec 하나가 소비하는 구독 슬롯 수(호가+체결이면 2, trade_only면 1).
+    static int spec_channel_count(const WatchSpec& spec);
+    // KIS 세션 구독 상한. 문서상 41건이며, 넘기면 이후 구독이 rt=1 MAX SUBSCRIBE OVER로 잘린다.
+    static constexpr int kMaxWsSubs = 40;
+    // 현재 세션이 사용 중인 구독 슬롯 수(subscribe_all이 리셋, 증분 구독이 증가).
+    std::atomic<int> sub_used_{0};
     void recv_loop();
     void parse_message(const std::string& msg);
     void parse_orderbook(const std::vector<std::string>& f);
