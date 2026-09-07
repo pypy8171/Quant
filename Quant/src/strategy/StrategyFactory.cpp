@@ -11,12 +11,15 @@
 #include "strategy/SupplyDemandPullbackStrategy.h"
 #include "strategy/ThemeStrategy.h"
 #include "strategy/ValueContraryStrategy.h"
+#include "universe/ScoreWeight.h"
 #include "universe/UniverseScanner.h"
 #include "utils/Logger.h"
 #include <cstdlib>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
+#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -350,6 +353,16 @@ static void attach_holding_guardians(StrategyLoadCtx& ctx, const json& mh,
 }
 
 // ─── DEVIATION_SCALE ────────────────────────────────────────────────────────
+// 스캔이 매긴 종목별 비중 배수를 팩토리에 건네는 공유 상태.
+//  스캔(초기=메인 스레드, 재스캔=데이터 스레드)이 쓰고 팩토리가 읽으므로 뮤텍스로 감싼다.
+//  이미 등록된 전략의 배수는 갱신하지 않는다 — 사다리 도중에 예산이 바뀌면 남은 층 예산과
+//  평단이 어긋난다. 재스캔으로 새로 붙는 종목만 최신 배수를 받는다.
+struct DevScaleScoreState
+{
+    std::mutex                              mu;
+    std::unordered_map<std::string, double> mult;
+};
+
 static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
 {
     Engine& engine = ctx.engine;
@@ -365,6 +378,7 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
     base.dev_buy           = s.value("dev_buy_pct", 0.8);
     base.n_rungs           = s.value("n_rungs", 2);
     base.add_below_sma_only = s.value("add_below_sma_only", true); // 점진 진입: 물타기는 기준선 아래(눌림)에서만
+    base.cross_guard       = s.value("ladder_cross_guard", true);  // 사다리 층이 현재가를 넘지 않게 앵커 클램프(D-006)
     base.pullback_pct      = s.value("pullback_pct", 2.0);
     base.entry_upper_pct   = s.value("entry_upper_pct", 0.0);   // SMA20 위 진입 허용%(0=순수 눌림만)
     base.reprice_move_ticks = s.value("reprice_move_ticks", 2);
@@ -406,11 +420,19 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
     //  &engine 참조 캡처: factory는 engine에 저장(set_universe_rescan)되어 engine 생존 중에만
     //   호출되므로 참조 수명 안전. 스캔이 register_ticker_name으로 이름을 먼저 등록하므로
     //   여기서 조회해 전략에 주입 → 로그에 "티커(종목명)" 노출(id()·데이터키는 티커 그대로).
-    auto factory = [base, &engine](const std::string& ticker) -> std::unique_ptr<StrategyBase>
+    auto score_state = std::make_shared<DevScaleScoreState>();
+
+    auto factory = [base, &engine, score_state](const std::string& ticker) -> std::unique_ptr<StrategyBase>
     {
         DeviationScaleStrategy::Params dp = base;
         dp.ticker = ticker;
         dp.name   = engine.ticker_name(ticker);
+        {
+            std::lock_guard<std::mutex> lk(score_state->mu);
+            auto it = score_state->mult.find(ticker);
+            if (it != score_state->mult.end() && it->second > 0.0)
+                dp.size_mult = it->second;
+        }
         return std::make_unique<DeviationScaleStrategy>(std::move(dp));
     };
 
@@ -441,22 +463,68 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         sc.score_w_trend    = s.value("score_w_trend", 1.0);
         sc.score_w_pullback = s.value("score_w_pullback", 1.0);
         sc.score_w_supply   = s.value("score_w_supply", 0.0); // 수급 로거 데이터 확보 후 ablation
+        // 변동성은 감점 축 — 같은 추세·눌림이면 덜 흔들리는 쪽에 비중을 준다.
+        sc.score_w_vol      = s.value("score_w_vol", 0.5);
         int rescan_sec     = s.value("rescan_interval_sec", 600); // 주기적 재스캔 간격(초)
 
         // 유니버스 산출 콜백 — 초기 등록·주기적 재스캔 공용(cfg 값 복사 캡처).
         //  &engine 캡처의 수명 안전은 위 factory와 동일. 스캔 결과 종목명을 엔진 라벨 맵에 등록해 로그에 노출.
-        auto universe_fn = [sc, &engine, held](KisClient& c)
+        //  보유분 제외 필터는 초기 등록과 재스캔이 보는 잔고가 달라 호출자별로 쥌운다(아래 둘).
+        // 비중 배분 파라미터 — spread는 최상위/최하위 배수 폭, target_pct는 베이스 명목 총합 목표.
+        //  베이스 총합(base_pct x 슬롯)이 총노출 상한을 넘으면 매수가 무더기로 거부되므로
+        //  스캔이 매회 슬롯 수 기준으로 배수를 재정규화한다.
+        const double w_spread = s.value("weight_spread", 0.6);
+        const double w_target = s.value("weight_target_pct", 0.80);
+        const double w_base   = base.base_pct;
+
+        auto scan_fn = [sc, &engine, score_state, w_spread, w_target, w_base](KisClient& c)
         {
             std::unordered_map<std::string, std::string> nm;
-            auto ts = universe::scan_devscale(c, sc, &nm);
-            if (!held.empty()) // 보유분 제외 — 청산 가디언 전담(초기·재스캔 공용)
-            {
-                std::vector<std::string> keep;
-                for (auto& t : ts)
-                    if (!held.count(t)) keep.push_back(t);
-                ts.swap(keep);
-            }
+            std::unordered_map<std::string, double>      sco;
+            auto ts = universe::scan_devscale(c, sc, &nm, &sco);
             for (auto& kv : nm) engine.register_ticker_name(kv.first, kv.second);
+            // 점수의 두 가지 용도 — (a) 누가 먼저 슬롯을 차지하는가(랭크), (b) 얼마를 사는가(배수).
+            auto mult = universe::score_to_mult(sco, w_spread, w_target, w_base,
+                                                engine.risk_max_positions());
+            {
+                std::lock_guard<std::mutex> lk(score_state->mu);
+                // 팩토리는 전략 생성 시점에 한 번만 읽으므로, 여기서 값을 덮어써도
+                //  이미 사다리를 타는 전략의 예산은 흔들리지 않는다(신규 등록분에만 반영).
+                for (auto& kv : mult)
+                    score_state->mult[kv.first] = kv.second;
+            }
+            engine.set_entry_priority(universe::score_to_rank(sco), universe::score_to_z(sco),
+                                      static_cast<int>(sco.size()));
+            return ts;
+        };
+        auto drop_held = [](std::vector<std::string>& ts, const std::set<std::string>& h)
+        {
+            if (h.empty())
+                return;
+            std::vector<std::string> keep;
+            for (auto& t : ts)
+                if (!h.count(t)) keep.push_back(t);
+            ts.swap(keep);
+        };
+
+        // 초기 등록용 — load_strategies는 engine.start()(bootstrap_ledger 포함) 전에 돌아
+        //  OrderGate 원장이 아직 비어 있다. 기동 시 직접 조회한 잔고 스냅샷을 쓴다.
+        auto universe_init = [scan_fn, drop_held, held](KisClient& c)
+        {
+            auto ts = scan_fn(c);
+            drop_held(ts, held);
+            return ts;
+        };
+        // 주기적 재스캔용 — 매회 OrderGate 원장에서 현재 보유를 다시 읽는다. 가디언이 청산한
+        //  종목은 그 시점부터 다시 후보가 된다(기동 스냅샷 고정이 유니버스를 굳히던 문제).
+        //  이미 등록된 종목은 재스캔이 추가만 하므로 자기 보유분으로 등록이 풀리진 않는다.
+        auto universe_rescan = [scan_fn, drop_held, &engine](KisClient& c)
+        {
+            auto ts = scan_fn(c);
+            std::set<std::string> cur;
+            for (const auto& h : engine.held_positions())
+                cur.insert(h.ticker);
+            drop_held(ts, cur);
             return ts;
         };
 
@@ -473,7 +541,7 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
             }
             else
             {
-                auto tickers = universe_fn(scan_kis);
+                auto tickers = universe_init(scan_kis);
                 int  added   = 0;
                 for (const auto& t : tickers)
                 {
@@ -490,7 +558,7 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
             //  신규 티커만 런타임 add. 인증 실패해도 재스캔은 엔진 내부 시세 클라이언트로 시도.
             // 등록 총수 상한은 스캔 1회 상한(max_universe)과 같게 둔다 — 스캔은 매번 그만큼만
             //  고르는데 등록은 누적되므로, 상한이 없으면 총수가 그 값을 넘어 계속 는다.
-            engine.set_universe_rescan(universe_fn, factory, rescan_sec,
+            engine.set_universe_rescan(universe_rescan, factory, rescan_sec,
                                        static_cast<size_t>(sc.max_register));
             LOG_INFO("[Main] DEVSCALE 주기적 재스캔 활성: " + std::to_string(rescan_sec) + "초 간격");
         }

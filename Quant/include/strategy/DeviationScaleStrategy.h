@@ -3,6 +3,7 @@
 #include "core/TickSize.h"
 #include "strategy/StrategyBase.h"
 #include "utils/Logger.h"
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -51,12 +52,23 @@ public:
         //    자본을 알 수 없고(조회 실패) fallback_equity 도 0이면 아래 base_qty/step_qty 로 폴백.
         double base_pct       = 0.05;  // 존 진입 베이스 명목 = 자본의 5%
         double max_pct        = 0.10;  // 종목당 상한 명목 = 자본의 10%(물타기 포함)
+        // 종목별 비중 배수 — 유니버스 스캐너의 종합 점수(추세·눌림·변동성)에서 나온다.
+        //  베이스와 물타기 예산에 함께 곱해 종목당 명목 전체를 스케일한다. 1.0이면 균등(기본값)
+        //  이라 배선 전 동작이 바뀌지 않는다. 등록 시점에 고정하고 재스캔이 갱신하지 않는다 —
+        //  이미 포지션이 있는 종목의 사다리를 도중에 재산정하면 잔여 물타기 예산이 평단과 어긋난다.
+        double size_mult      = 1.0;
         double fallback_equity = 0.0;  // 잔고조회 실패 시 사용할 기준자본(원). 0이면 주수 폴백
         int    base_qty       = 10;    // (폴백) 존 진입 베이스 매수 수량
         int    step_qty       = 5;     // (폴백) 각 밴드(rung) 분할 수량
         int    sma_period     = 20;    // 3분봉 기준선 SMA 기간
         double dev_sell       = 1.5;   // 매도 밴드 이격도(%) — 층당 배수
         double dev_buy        = 0.8;   // 매수 밴드 이격도(%) — 층당 배수
+        // 교차 가드: 사다리 각 층이 현재가를 넘어가지 않도록 앵커를 현재가 쪽으로 클램프한다.
+        //  기준선이 현재가에서 멀어지면 한쪽 층 전체가 현재가를 넘어가 지정가가 아니라 즉시
+        //  체결되는 시장가가 된다(매수는 위, 매도는 아래). 사다리의 전제가 깨진다.
+        //  해당 층을 '건너뛰지' 않는다 — 건너뛰면 눌림 진입이나 익절이 통째로 사라진다.
+        //  매도는 max(sma,현재가), 매수는 min(sma,현재가) 기준으로 층을 다시 깐다.
+        bool   cross_guard    = true;  // docs/DECISIONS.md D-006
         int    n_rungs        = 2;     // 밴드 층수
         bool   add_below_sma_only = true; // 물타기(매수 밴드)를 현재가가 3분봉 기준선 아래(실제 눌림)일 때만 깐다.
                                           //  true=점진 진입: 활성 시 base만 → 진짜 눌림에서만 평단 낮춤(즉시 10% 만재 방지).
@@ -232,7 +244,21 @@ public:
 
         // ── 3분봉 기준선(스냅샷에서 이미 받음) ───────────────────────────────
         if (static_cast<int>(bars.size()) < p_.sma_period)
-            return; // 봉 부족 — 다음 하트비트 재시도
+        {
+            // 개장 직후엔 3분봉이 sma_period(20봉=60분)만큼 쌓이지 않아 여기서 매번 되돌아간다.
+            //  로그가 없으면 '존 활성인데 주문 0건'이 원인 불명으로 보인다(2026-09-07 실제 발생).
+            //  60초에 한 번만 남겨 개장 구간 로그가 넘치지 않게 한다.
+            const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       std::chrono::system_clock::now().time_since_epoch()).count();
+            if (now_ms - last_warm_log_ms_ >= 60000)
+            {
+                last_warm_log_ms_ = now_ms;
+                LOG_INFO("[" + id() + "] 봉 부족 — 대기 " + std::to_string(bars.size()) + "/" +
+                         std::to_string(p_.sma_period) + "봉(" + std::to_string(p_.interval_min) +
+                         "분) 현재가=" + fmt1(cur_px));
+            }
+            return;
+        }
         const double sma = sma_close(bars, p_.sma_period); // bars[0]=최신
         if (sma <= 0.0)
             return;
@@ -249,14 +275,26 @@ public:
         //  베이스=자본×base_pct(5%), 물타기 총예산=자본×(max_pct−base_pct)(5%)를 n_rungs로 분할.
         //  베이스+물타기 합 ≈ 자본×max_pct(10%) → OrderGate 명목캡과 정합(캡은 백스톱).
         const double eq            = equity_ > 0.0 ? equity_ : p_.fallback_equity;
-        const double base_notional = eq * p_.base_pct;
-        const double rung_budget   = eq * (p_.max_pct > p_.base_pct ? p_.max_pct - p_.base_pct : 0.0);
+        const double mult          = p_.size_mult > 0.0 ? p_.size_mult : 1.0;
+        const double base_notional = eq * p_.base_pct * mult;
+        const double rung_budget   = eq * (p_.max_pct > p_.base_pct ? p_.max_pct - p_.base_pct : 0.0) * mult;
         const double rung_notional = p_.n_rungs > 0 ? rung_budget / p_.n_rungs : 0.0;
+
+        // 사다리 앵커. 교차 가드가 켜져 있으면 각 방향 층이 현재가를 넘지 않도록 기준선을
+        //  현재가 쪽으로 당긴다. 이격이 벌어진 상태에서도 사다리 간격은 그대로 유지된다.
+        const bool   guard_on   = p_.cross_guard && cur_px > 0.0;
+        const double sell_anchor = guard_on ? (std::max)(sma, cur_px) : sma;
+        const double buy_anchor  = guard_on ? (std::min)(sma, cur_px) : sma;
 
         // 베이스: 무포지션이면 기준선 근처 지정가 매수(자본의 base_pct).
         if (pos <= 0)
         {
             double bp = round_to_tick(sma, OrderSide::BUY);
+            // 교차 가드: 기준선이 현재가 이상이면 이 지정가는 즉시 시장가로 체결된다.
+            //  베이스를 건너뛰면 add_below_sma_only가 노리는 눌림 진입에서 가장 큰 레그가
+            //  빠지므로, 억제 대신 현재가 한 틱 아래로 옮겨 지정가로 남긴다.
+            if (p_.cross_guard && cur_px > 0.0 && bp >= cur_px)
+                bp = round_to_tick(cur_px - krx::tick_size(cur_px), OrderSide::BUY);
             int    bq = qty_for(base_notional, bp);
             if (bq <= 0) bq = p_.base_qty;              // 자본 미상 폴백
             if (bp > 0.0 && bq > 0)
@@ -268,7 +306,7 @@ public:
         const int sell_per = p_.n_rungs > 0 ? (pos + p_.n_rungs - 1) / p_.n_rungs : pos; // ceil
         for (int i = 1; i <= p_.n_rungs && sell_avail > 0; ++i)
         {
-            double sp = round_to_tick(sma * (1.0 + p_.dev_sell * i / 100.0), OrderSide::SELL);
+            double sp = round_to_tick(sell_anchor * (1.0 + p_.dev_sell * i / 100.0), OrderSide::SELL);
             int q = sell_avail < sell_per ? sell_avail : sell_per;
             if (sp > 0.0 && q > 0)
             {
@@ -285,7 +323,7 @@ public:
         {
             for (int i = 1; i <= p_.n_rungs; ++i)
             {
-                double bp = round_to_tick(sma * (1.0 - p_.dev_buy * i / 100.0), OrderSide::BUY);
+                double bp = round_to_tick(buy_anchor * (1.0 - p_.dev_buy * i / 100.0), OrderSide::BUY);
                 int    rq = qty_for(rung_notional, bp);
                 if (rq <= 0) rq = p_.step_qty;              // 자본 미상 폴백
                 if (bp > 0.0 && rq > 0)
@@ -692,6 +730,7 @@ private:
     std::string daily_date_;               // 캐시 기준일(KST YYYYMMDD)
     double equity_ = 0.0;                   // 사이징 기준 자본(총평가금) 스냅샷 — 일별 갱신
     double last_sma_ = 0.0;                // 마지막 재호가 기준 SMA
+    int64_t last_warm_log_ms_ = 0;         // 봉 부족 로그 스로틀(60초)
     int    last_pos_ = -1;                  // 마지막 재구성 시 포지션(데드밴드 가드)
     std::string last_ladder_sig_;          // 마지막 발주 사다리 시그니처(no-change 가드)
     std::chrono::steady_clock::time_point last_work_{};   // 스로틀
