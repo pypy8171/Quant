@@ -1,12 +1,14 @@
 #include "ipc/OrderRouter.h"
 #include "api/KisErrorCodes.h"
 #include "utils/Logger.h"
+#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
+#include <vector>
 
 // ─── 내부 순번 ID 생성  "ORD-000001" ─────────────────────────────────────
 std::string OrderRouter::next_id()
@@ -170,7 +172,8 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& sig)
     // 모의투자는 정정취소가능조회(inquire-psbl-rvsecncl) TR을 미지원("없는 서비스 코드") →
     //  예약매도를 조회·취소할 방법이 없어 이 자가정리는 구조적으로 불가. 헛도는 실패 조회와
     //  오해 소지 로그("수동 확인 필요")를 피하려 정직하게 단락한다. 실계좌에선 정상 동작.
-    //  (애초에 익절·청산 매도를 매도가능분으로 클램프하므로 40240000 자체가 거의 안 난다.)
+    //  (2026-09-07 재확인: 대안으로 일별주문체결조회(VTTC8001R)를 붙여봤으나 모의 서버는
+    //   기간을 어떻게 주든 output1이 항상 0행이라 미체결을 열거할 수 없었다.)
     if (kis_.is_paper())
     {
         LOG_WARN("[OrderRouter] 청산차단 자가정리 스킵 " + sig.ticker +
@@ -254,7 +257,7 @@ void OrderRouter::record(const ManagedOrder& mo)
 //  호출되며 두 경로 모두 hist_mtx_ 보유 상태라 파일 쓰기가 직렬화된다(동시쓰기 없음).
 //  원장 쓰기 실패는 매매를 막지 않는다(best-effort — 조용히 반환).
 void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& mo,
-                                  int fill_qty, double fill_price)
+                                  int fill_qty, double fill_price, double realized_pnl)
 {
     const OrderSignal& sig = mo.signal;
 
@@ -291,14 +294,51 @@ void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& 
     // 실행 위치(cwd)와 무관하게 로그 폴더(main에서 고정)에 매매원장 append.
     fs::path path = Logger::instance().path_for(std::string("trades_") + dbuf + ".csv");
 
-    bool need_header = !fs::exists(path, ec);
+    static const std::string kHeader =
+        "ts_kst,event,order_id,odno,strategy,ticker,side,type,"
+        "order_qty,order_price,fill_qty,fill_price,status,reason,entry_reason,realized_pnl";
+
+    const bool need_header = !fs::exists(path, ec);
+
+    // 스키마 승격 — 같은 날 파일이 옛 헤더(realized_pnl 없음)면 새 컬럼을 붙여 한 번 재작성한다.
+    //  한 파일에 15열 헤더와 16열 데이터가 섞이면 판독기가 값을 어긋난 키로 읽는다.
+    if (!need_header)
+    {
+        std::ifstream in(path);
+        std::string first;
+        if (in && std::getline(in, first))
+        {
+            if (!first.empty() && first.back() == '\r') first.pop_back();
+            if (first != kHeader)
+            {
+                long add = static_cast<long>(std::count(kHeader.begin(), kHeader.end(), ',')) -
+                           static_cast<long>(std::count(first.begin(), first.end(), ','));
+                if (add < 0) add = 0;
+                std::vector<std::string> rows;
+                for (std::string ln; std::getline(in, ln); )
+                {
+                    if (!ln.empty() && ln.back() == '\r') ln.pop_back();
+                    if (!ln.empty())
+                        rows.push_back(ln + std::string(static_cast<size_t>(add), ','));
+                }
+                in.close();
+                std::ofstream out(path, std::ios::trunc);
+                if (out)
+                {
+                    out << kHeader << '\n';
+                    for (const auto& r : rows)
+                        out << r << '\n';
+                }
+            }
+        }
+    }
+
     std::ofstream f(path, std::ios::app);
     if (!f.is_open())
         return; // best-effort
 
     if (need_header)
-        f << "ts_kst,event,order_id,odno,strategy,ticker,side,type,"
-             "order_qty,order_price,fill_qty,fill_price,status,reason,entry_reason\n";
+        f << kHeader << '\n';
 
     // event 빈 문자열이면 상태 문자열을 사용
     std::string ev = event.empty() ? status_str(mo.status) : event;
@@ -328,7 +368,12 @@ void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& 
       << std::fixed << std::setprecision(2) << fill_price << ','
       << status_str(mo.status) << ','
       << reason << ','
-      << entry_reason << '\n';
+      << entry_reason << ',';
+    // 실현손익은 매도 체결에서만 의미가 있다. 매수·접수·거부 행은 빈 칸으로 둬서
+    //  0원 실현으로 오독되지 않게 한다.
+    if (event == "FILL" && sig.side == OrderSide::SELL)
+        f << std::fixed << std::setprecision(2) << realized_pnl;
+    f << '\n';
 }
 
 // ─── client_oid로 살아있는 주문 조회 (호출자가 hist_mtx_ 보유) ────────────
@@ -578,11 +623,20 @@ void OrderRouter::on_fill(const FillNotification& fn)
     std::string fill_key = std::string(dbuf) + ":" + fn.odno + ":" + fn.fill_time + ":" +
                            std::to_string(fn.filled_qty) + ":" +
                            std::to_string(static_cast<long long>(fn.filled_price * 100));
-    if (!seen_fills_.insert(fill_key).second)
-    {
-        LOG_WARN("[OrderRouter] 중복 체결통보 무시 ODNO=" + fn.odno + " time=" + fn.fill_time);
-        return;
-    }
+    // 이 키는 유일하지 않다. 같은 초에 같은 수량·단가로 나뉘어 체결되면 서로 다른 실체결이
+    //  같은 키를 갖는다. 2026-09-07 ODNO 0000014893(047050 BUY 91주)이 8건으로 분할체결되며
+    //  6/53/3/2/6/15/4/2주가 같은 초에 들어왔고, 마지막 2주가 앞선 2주와 같은 키라는 이유로
+    //  버려졌다(원장·포지션 2주 누락). 그래서 키를 집합 원소가 아니라 발생 횟수로 세고,
+    //  n번째 발생을 각각 별개 체결로 처리한다.
+    //  과체결 방어는 중복 키가 아니라 아래 "주문 잔량 상한"이 담당한다 — 통보가 재전송돼도
+    //  누적 체결은 주문수량을 넘을 수 없다.
+    const int seen = ++seen_fills_[fill_key];
+    if (seen > 1)
+        LOG_INFO("[OrderRouter] 동일키 분할체결 " + std::to_string(seen) + "회차 ODNO=" + fn.odno +
+                 " time=" + fn.fill_time + " " + std::to_string(fn.filled_qty) + "주");
+    // 이미 주문수량을 다 채운 주문의 추가 통보인지 구분한다. 이걸 아래 미매핑 경로로
+    //  흘려보내면 같은 체결이 포지션에 두 번 쌓인다(ODNO는 아는데 잔량만 없는 상태).
+    bool exhausted = false;
     for (auto& mo : history_)
     {
         if (mo.kis_order_no != fn.odno)
@@ -592,9 +646,21 @@ void OrderRouter::on_fill(const FillNotification& fn)
             continue;
         // 이미 전량 체결 완료된 주문은 재처리 방지
         if (mo.confirmed_qty >= mo.signal.quantity)
+        {
+            exhausted = true;
             continue;
+        }
 
-        mo.confirmed_qty += fn.filled_qty;
+        // 주문 잔량 상한 — 누적 체결이 주문수량을 넘지 못하게 클램프한다.
+        //  통보 재전송으로 같은 체결이 두 번 와도 과체결로 원장이 부풀지 않는다.
+        const int outstanding = mo.signal.quantity - mo.confirmed_qty;
+        const int apply_qty   = (fn.filled_qty > outstanding) ? outstanding : fn.filled_qty;
+        if (apply_qty < fn.filled_qty)
+            LOG_WARN("[OrderRouter] 주문잔량 초과 체결통보 — 잔량으로 클램프 [" + mo.order_id +
+                     "] ODNO=" + fn.odno + " 통보=" + std::to_string(fn.filled_qty) +
+                     "주 잔량=" + std::to_string(outstanding) + "주");
+
+        mo.confirmed_qty += apply_qty;
         mo.updated_at     = fn.timestamp;
         if (mo.confirmed_qty >= mo.signal.quantity)
             mo.status = OrderStatus::FILLED;
@@ -602,21 +668,22 @@ void OrderRouter::on_fill(const FillNotification& fn)
         LOG_INFO("[OrderRouter] 체결 확인 [" + mo.order_id + "] ODNO=" + fn.odno +
                  " " + fn.ticker +
                  (fn.side == OrderSide::BUY ? " BUY " : " SELL ") +
-                 std::to_string(fn.filled_qty) + "주 @" +
+                 std::to_string(apply_qty) + "주 @" +
                  std::to_string(static_cast<int>(fn.filled_price)) +
                  " (누적 " + std::to_string(mo.confirmed_qty) +
                  "/" + std::to_string(mo.signal.quantity) + "주)");
 
-        // 거래 원장 CSV — 실제 체결(부분/전량)을 한 줄로 영속화. mo.status는 여기서
-        //   이미 갱신됨(전량이면 FILLED). 이 체결 건의 수량/단가를 fill_qty/price로 기록.
-        write_trade_row("FILL", mo, fn.filled_qty, fn.filled_price);
 
         // 포지션 원장 갱신 (avg_price 재계산 + 실현손익) — 원주문의 계좌로 파티션.
         // 현재는 단일 CANO 전제라 ODNO가 유일 → mo.signal.account_id 매핑이 정확하다.
         // TODO(다계좌): 진짜 다중 CANO 라우팅 시 ODNO가 계좌별로 재사용되므로 체결 매칭 키를
         //   (odno + account) 또는 CANO별 H0STCNI 피드 분리로 확장해야 오적립을 막는다.
         auto result = gate_.on_fill_confirmed(mo.signal.account_id, fn.ticker, fn.side,
-                                              fn.filled_qty, fn.filled_price);
+                                              apply_qty, fn.filled_price);
+
+        // 거래 원장 CSV — 실제 체결(부분/전량)을 한 줄로 영속화. 실현손익을 같이 남기려고
+        //   gate_.on_fill_confirmed() 뒤에 쓴다(mo.status는 위에서 이미 갱신됨).
+        write_trade_row("FILL", mo, apply_qty, fn.filled_price, result.realized_pnl);
 #ifdef HAS_ZMQ
         if (zmq_)
             zmq_->publish_fill(fn, result.commission, result.tax,
@@ -625,8 +692,58 @@ void OrderRouter::on_fill(const FillNotification& fn)
 #endif
         return;
     }
-    LOG_WARN("[OrderRouter] 체결통보 매핑 실패 ODNO=" + fn.odno +
-             " (이미 처리됐거나 이력 범위 초과)");
+
+    if (exhausted)
+    {
+        LOG_WARN("[OrderRouter] 주문수량 충족 후 추가 체결통보 무시 ODNO=" + fn.odno +
+                 " " + fn.ticker + " " + std::to_string(fn.filled_qty) + "주 (통보 재전송 추정)");
+        return;
+    }
+
+    // ── ODNO 미매핑 체결 — 이 프로세스가 낸 주문이 아니다 ────────────────────
+    //  history_는 메모리에만 있어서 장중 재시작하면 이전 세션의 미체결 주문이 사라진다.
+    //  거래소 호가창에는 그 주문이 그대로 살아있으므로, 나중에 체결되면 여기로 떨어진다.
+    //  2026-09-07 ODNO 0000014893이 이 경우다 — 09:58 접수, 10:38 재시작, 11:07 91주 전량
+    //  체결이 통째로 버려져 원장·포지션이 91주(약 498만원) 어긋났다.
+    //  체결 자체는 실재하므로 버리지 않고 원장·포지션에 반영한다. 전략 귀속만 알 수 없어
+    //  strategy_id를 "ORPHAN"으로 남긴다(사후 분석에서 구분 가능).
+    //  선점(reserved_)은 이전 세션과 함께 사라졌다. on_fill_confirmed는 선점 해제를 전제로
+    //  reserved_를 깎으므로, 그대로 부르면 음수 선점이 생겨 이후 한도 계산이 왜곡된다.
+    //  같은 수량을 on_accept로 먼저 되살린 뒤 해제시켜 순변화를 0으로 맞춘다.
+    ManagedOrder orphan;
+    orphan.order_id           = next_id();
+    orphan.kis_order_no       = fn.odno;
+    orphan.status             = OrderStatus::FILLED;
+    orphan.confirmed_qty      = fn.filled_qty;
+    orphan.signal.strategy_id = "ORPHAN";
+    orphan.signal.ticker      = fn.ticker;
+    orphan.signal.side        = fn.side;
+    orphan.signal.type        = OrderType::LIMIT;
+    orphan.signal.quantity    = fn.filled_qty;
+    orphan.signal.price       = fn.filled_price;
+    orphan.signal.reason      = "이전 세션 주문 체결(ODNO 미매핑)";
+    orphan.submitted_at       = fn.timestamp;
+    orphan.updated_at         = fn.timestamp;
+
+    LOG_WARN("[OrderRouter] 미매핑 체결 원장 반영 [" + orphan.order_id + "] ODNO=" + fn.odno +
+             " " + fn.ticker + (fn.side == OrderSide::BUY ? " BUY " : " SELL ") +
+             std::to_string(fn.filled_qty) + "주 @" +
+             std::to_string(static_cast<int>(fn.filled_price)) +
+             " — 이전 세션 주문으로 추정(재시작 전 접수분)");
+
+    gate_.on_accept(orphan.signal.account_id, fn.ticker, fn.side,
+                    fn.filled_qty, fn.filled_price);
+    auto result = gate_.on_fill_confirmed(orphan.signal.account_id, fn.ticker, fn.side,
+                                          fn.filled_qty, fn.filled_price);
+    write_trade_row("FILL", orphan, fn.filled_qty, fn.filled_price, result.realized_pnl);
+#ifdef HAS_ZMQ
+    if (zmq_)
+        zmq_->publish_fill(fn, result.commission, result.tax,
+                           result.avg_price, result.net_qty,
+                           result.realized_pnl);
+#else
+    (void)result;
+#endif
 }
 
 // ─── 일별 리셋 (장 시작 시 Engine이 호출) ─────────────────────────────────

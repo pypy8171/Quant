@@ -204,8 +204,10 @@ void test_order_id_sequence()
     PASS("order_id_sequence");
 }
 
-// ─── 테스트 7: 중복 체결통보 무시 (C1 fix) ──────────────────────────────
-//   부분체결 중 동일 통보가 재수신돼도 confirmed_qty가 이중 반영되면 안 됨
+// ─── 테스트 7: 과체결 방어는 주문잔량 상한이 담당 ────────────────────────
+//   (odno,체결시각,수량,단가)는 유일하지 않다 — 같은 초에 같은 수량·단가로 나뉘어
+//   체결되면 서로 다른 실체결이 같은 키를 갖는다. 그래서 같은 키의 통보도 각각 반영하고,
+//   대신 누적 체결이 주문수량을 넘지 못하게 클램프해 과체결을 막는다.
 void test_duplicate_fill_ignored()
 {
     OrderGate         gate(relaxed_cfg());
@@ -228,19 +230,43 @@ void test_duplicate_fill_ignored()
     assert(h1[0].confirmed_qty == 5);
     assert(h1[0].status == OrderStatus::ACCEPTED);
 
-    // 동일 체결통보 중복 수신 → 무시되어야 함 (confirmed_qty 증가 X, FILLED 전환 X)
+    // 같은 키의 두 번째 통보 = 같은 초의 또 다른 5주 분할체결 → 반영되어 전량 체결
     router.on_fill(fn);
     auto h2 = router.recent(1);
-    assert(h2[0].confirmed_qty == 5);
-    assert(h2[0].status == OrderStatus::ACCEPTED);
+    assert(h2[0].confirmed_qty == 10);
+    assert(h2[0].status == OrderStatus::FILLED);
 
-    // 나머지 5주는 다른 체결(fill_time 상이) → 정상 처리되어 전량 체결
+    // 주문수량(10주)을 이미 채웠으므로 그 이상은 반영되지 않는다.
+    //  ODNO는 아는 주문이므로 미매핑(ORPHAN) 경로로 새어 포지션이 부풀어도 안 된다.
     fn.fill_time = "100005";
     router.on_fill(fn);
     auto h3 = router.recent(1);
     assert(h3[0].confirmed_qty == 10);
     assert(h3[0].status == OrderStatus::FILLED);
+    assert(gate.position("005930") == 10);  // 15주로 부풀지 않음
     PASS("duplicate_fill_ignored");
+}
+
+// ─── 테스트 7b: 미매핑 체결도 원장·포지션에 반영 ────────────────────────
+//   장중 재시작하면 이전 세션의 미체결 주문이 history_에서 사라진다. 거래소 호가창에는
+//   그대로 살아있으므로 나중에 체결통보가 들어오는데, 예전에는 통째로 버려져 원장이
+//   어긋났다(2026-09-07 047050 91주). 이제는 포지션에 반영하고, 선점이 없던 상태라
+//   reserved_가 음수로 내려가지 않아야 한다.
+void test_unmapped_fill_applied()
+{
+    OrderGate         gate(relaxed_cfg());
+    StubOrderExecutor stub(true, "K000555");
+    OrderRouter       router(gate, stub);
+
+    // 이 라우터가 낸 적 없는 ODNO의 체결통보
+    FillNotification fn;
+    fn.odno = "PREV-SESSION"; fn.ticker = "047050"; fn.side = OrderSide::BUY;
+    fn.filled_qty = 91; fn.filled_price = 54700.0; fn.fill_time = "110707";
+    router.on_fill(fn);
+
+    assert(gate.position("047050") == 91);  // 원장에 반영
+    assert(gate.reserved("047050") == 0);   // 없던 선점을 깎아 음수로 만들지 않음
+    PASS("unmapped_fill_applied");
 }
 
 // ─── 테스트 8: cross-day 중복방지 키 (V-4 fix) ────────────────────────────────────
@@ -428,6 +454,7 @@ int main()
     test_history_recent();
     test_order_id_sequence();
     test_duplicate_fill_ignored();
+    test_unmapped_fill_applied();
     test_cross_day_fill_not_deduped();
     test_cancel_releases_reserved();
     test_cancel_unknown_oid();

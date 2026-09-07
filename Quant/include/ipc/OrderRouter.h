@@ -77,8 +77,10 @@ private:
     // 거래 원장 CSV 적재 — 주문/체결을 logs/trades_YYYYMMDD.csv 에 한 줄씩 영속화.
     //   event가 빈 문자열이면 mo.status를 event로 사용(접수/거부/취소). 체결은 "FILL".
     //   호출자(record·on_fill)가 hist_mtx_ 보유 상태라 파일 쓰기가 직렬화된다.
+    //   realized_pnl은 매도 체결의 실현손익(수수료·세금 차감 후). 그 외 행은 빈 칸으로 남긴다.
     void        write_trade_row(const std::string& event, const ManagedOrder& mo,
-                                int fill_qty, double fill_price);
+                                int fill_qty, double fill_price,
+                                double realized_pnl = 0.0);
 
     // ── MM-1: 주문 생명주기 라우팅 ────────────────────────────────────────
     ManagedOrder new_route(const OrderSignal& sig);     // 기존 신규 주문 경로
@@ -101,7 +103,10 @@ private:
 
     mutable std::mutex       hist_mtx_;
     std::deque<ManagedOrder> history_;
-    std::unordered_set<std::string> seen_fills_; // 중복 제거: 처리한 체결통보 키 (hist_mtx_로 보호)
+    // 체결통보 키 → 그 키로 들어온 통보 횟수 (hist_mtx_로 보호).
+    //  같은 초·같은 수량·단가의 분할체결은 키가 겹치므로 집합이 아니라 횟수로 센다.
+    //  자세한 배경은 on_fill() 주석 참고.
+    std::unordered_map<std::string, int> seen_fills_;
     // MM-1: client_oid → order_id 존재 힌트 (hist_mtx_로 보호). 실제 ManagedOrder는
     //   history_ 스캔으로 해석(deque 요소는 pop_front로 소멸 가능 → 안정 핸들 아님).
     std::unordered_map<std::string, std::string> oid_index_;
