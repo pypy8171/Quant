@@ -1,18 +1,11 @@
 // tests/bench_feed_ingest.cpp
-// 시세 피드 수신·처리 부하테스트 ("feed ingest over TCP loopback")
+// 시세 피드 수신·처리 부하테스트 — 코스콤(KOSCOM)→증권사 시세 흐름을 실제 TCP loopback으로
+//  통과시켜, wire 송신 시각에서 주문 결정 시각까지를 네트워크 구간과 처리 구간으로 분해한다.
+//  실행 절차의 정본은 `docs/guides/LOAD_TEST_GUIDE.md` §2, 결과는
+//  `docs/reports/PIPELINE_LATENCY_REPORT.md`.
 //
-// 목적: 코스콤(KOSCOM) → 증권사 서버 시세 흐름을 재현한다.
-//   코스콤이 수백~수천 종목의 호가/체결을 밀어넣으면 서버는 매매 파이프라인(전략→주문)
-//   으로 흘린다. 이 하네스는 그 "수신+처리" 경로를 실제 TCP 소켓(loopback)으로 통과시켜,
-//   wire 송신 시각→주문 결정 시각의 end-to-end 지연을 네트워크·처리 구간으로 분해한다.
-//
-//   bench_market_firehose(자매 하네스)는 소켓 없이 프로세스 내부 처리단만 측정했다
-//   ("순수 처리 비용"). 이 하네스는 그 위에 커널 TCP 스택 왕복(recv)을 더한 경로를 잰다.
-//
-//   ⚠ 정직 경계 — loopback TCP는 실제 코스콤↔증권사 WAN/전용선이 아니다. 커널 네트워크
-//     스택(send→loopback→recv)·직렬화·프레이밍·밀림 처리는 통과하지만, 물리 회선 지연
-//     (수십~수백µs)은 이 머신에 없다. 즉 소켓 도착 후 주문 결정까지 + 동일 머신 TCP 스택
-//     비용을 측정한다. 실제 코스콤 데이터는 소량(~20종목)을 KIS WS로 병행 실증(별도).
+// [inv] 측정 범위 — loopback에는 물리 회선(WAN/전용선) 지연이 없다. 재는 것은 "동일 머신 TCP
+//   스택 비용 + 소켓 도착 후 주문 결정까지"다. 이 수치를 실 회선 지연으로 옮겨 적으면 안 된다.
 //
 // 토폴로지:
 //   [코스콤 emul] --TCP--> [수신 recv] → ob_q/td_q → strategy → order_q → order
@@ -23,14 +16,6 @@
 //   proc = order_ts - recv_ts     (수신 후 내부 처리단: 큐+전략+주문)
 //   e2e  = order_ts - send_ts     (전체)
 //
-// 모드:
-//   self  (기본) : 한 프로세스 안에서 수신 서버 스레드 + 코스콤 송신 스레드를 띄워
-//                  실 loopback 소켓으로 자체시험. 타임스탬프는 동일 clock이라 정합.
-//   serve       : 수신 서버만 실행(포트 listen). 다른 콘솔의 send를 기다림.
-//   send        : 코스콤 송신만 실행(host:port로 connect해 방출).
-//                  ※ 두 프로세스 분리 실행 시 steady_clock은 QPC 기반(부팅 기준
-//                    시스템 전역)이라 동일 머신이면 프로세스 간에도 정합.
-//
 // 사용법:
 //   bench_feed_ingest self  [--universe path] [--tickers N] [--rate MSGS/s]
 //                           [--duration SEC] [--ob-ratio R] [--zipf S] [--port P]
@@ -38,8 +23,10 @@
 //   bench_feed_ingest send  [--host H] [--port P] [--tickers N] [--universe path]
 //                           [--rate MSGS/s] [--duration SEC] [--ob-ratio R] [--zipf S]
 //   bench_feed_ingest sweep [--tickers N] [--start R] [--step R] [--max R] [--dwell SEC]
-//
 //   기본값: self --tickers 2600 --rate 200000 --duration 20 --ob-ratio 0.7 --zipf 1.0 --port 47001
+//
+//   serve/send를 두 콘솔로 나눠 돌려도 steady_clock은 QPC 기반(부팅 기준 시스템 전역)이라
+//   같은 머신이면 프로세스 간에도 타임스탬프가 정합이다.
 
 #include "core/RingBuffer.h"
 

@@ -1,26 +1,23 @@
 // tests/bench_intake.cpp
-// 멀티클라이언트 주문 인테이크 부하 벤치 (D2)
+// 멀티클라이언트 주문 인테이크 부하 벤치(D2) — N개 생산자(클라이언트)가 동시에 OrderSignal을
+//  push하고 단일 소비자(FEP)가 pop한다. 큐 종류(mpsc/mutex)와 소비자 처리지연(exec_delay_us)을
+//  바꿔가며 처리량(orders/sec)·전 구간(E2E) 지연(중앙값(p50)·상위 1%(p99)·상위 0.1%(p999))·
+//  backpressure·계좌 fairness를 측정한다.
 //
-//   N개 생산자(클라이언트)가 동시에 OrderSignal을 push → 단일 소비자(FEP)가 pop.
-//   큐 종류(mpsc/mutex)와 소비자 처리지연(exec_delay_us)을 바꿔가며
-//   처리량(orders/sec)·전 구간(E2E) 지연(중앙값(p50)·상위 1%(p99)·상위 0.1%(p999))·backpressure·계좌 fairness를 측정.
+// [inv] 측정 범위 — D2는 "큐 자체"를 격리 측정한다. 소비자는 실제 `OrderRouter::submit` 대신
+//   FEP 처리시간을 busy-wait로 시뮬레이션한다(exec_delay_us). 큐 비교(MPSC vs Mutex)가
+//   downstream 노이즈에 묻히지 않게 하기 위해서다. 실 OrderRouter·계좌별 원장 결합은 D3다.
 //
-//   ⚠ 이 단계(D2)는 "큐 자체"를 격리 측정한다. 소비자는 실제 OrderRouter::submit 대신
-//     FEP 처리시간을 busy-wait로 시뮬레이션한다(exec_delay_us). 실 OrderRouter·계좌별
-//     원장 결합은 D3에서. 큐 비교(MPSC vs Mutex)가 downstream 노이즈에 묻히지 않게 함.
+// [inv] 측정 관례 — 지연 시뮬레이션은 sleep 금지(Windows 부정확)라 busy-wait. 지연 샘플은
+//   소비자 단일 스레드에서만 수집한다(vector 다중 push는 UB). release 빌드로만 측정한다
+//   (debug/ASan 무의미). N이 물리코어를 넘으면 컨텍스트 스위칭이 지연을 지배하므로
+//   hardware_concurrency를 병기한다.
 //
-//   측정 원칙(개발계획 7장 함정 대응):
-//     - 지연 시뮬레이션은 sleep 금지(Windows 부정확) → busy-wait
-//     - 지연 샘플은 소비자 단일 스레드에서만 수집 (vector 다중 push는 UB)
-//     - release 빌드로만 측정 (debug/ASan 무의미)
-//     - N > 물리코어면 컨텍스트 스위칭이 지연 지배 → hardware_concurrency 병기
-//
-//   사용법: bench_intake [N_producers=8] [duration_sec=3] [mpsc|mutex] [exec_delay_us=0]
-//                        [capacity=65536] [rate_per_producer=0]
-//     rate_per_producer=0 → 풀스로틀(open-loop): 최대 처리량 측정용. 큐 포화 → 지연은
-//       "큐깊이/처리율" 백로그 지연이라 지연 수치는 무의미. 처리량(throughput)만 신뢰.
-//     rate_per_producer>0 → 목표 rate로 pacing(초당 건수): 정상 부하에서 E2E 지연 측정용.
-//       총 offered = N × rate. 처리능력 미만으로 걸면 큐가 얕게 유지돼 µs 단위 지연이 나온다.
+// 사용법: bench_intake [N_producers=8] [duration_sec=3] [mpsc|mutex] [exec_delay_us=0]
+//                      [capacity=65536] [rate_per_producer=0]
+//   rate_per_producer=0 → 풀스로틀(open-loop). 큐가 포화돼 지연은 "큐깊이/처리율" 백로그가
+//     되므로 처리량(throughput)만 신뢰한다. >0이면 목표 rate로 pacing(초당 건수)해 정상 부하의
+//     E2E 지연을 잰다(총 offered = N × rate). 처리능력 미만으로 걸면 큐가 얕게 유지된다.
 
 #include "core/MpscQueue.h"
 #include "core/MutexQueue.h"

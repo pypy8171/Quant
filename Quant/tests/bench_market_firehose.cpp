@@ -1,37 +1,30 @@
 // tests/bench_market_firehose.cpp
-// 전종목 규모 시세 파이프라인 부하테스트 ("market firehose")
+// 전종목 규모(~2,600) 시세 파이프라인 부하테스트 — 내부 3단 처리단의 전 구간(E2E) 지연 분포
+//  (중앙값(p50)·상위 1%(p99)·상위 0.1%(p999))와 최대 지속가능 처리량(throughput)을 실측한다.
+//  실행 절차의 정본은 `docs/guides/LOAD_TEST_GUIDE.md` §1, 결과는
+//  `docs/reports/PIPELINE_LATENCY_REPORT.md`.
 //
-// 목적: "최악지연(tail latency)을 다룬다"는 주장을 숫자로 바운드한다.
-//   KRX 상장 보통주 전종목(~2,600) 규모로 호가/체결을 팬아웃시켜, 내부 3-stage
-//   처리 파이프라인의 전 구간(E2E) 지연 분포(중앙값(p50)·상위 1%(p99)·상위 0.1%(p999))와 최대 지속가능 처리량(throughput)
-//   ("용량 천장")을 실측한다.
-//
-//   ⚠ 정직 경계 — 본 하네스는 내부 처리단만 측정한다. 실제 KIS REST/WS 네트워크 지연은
-//     빠져 있다. 프로덕션 end-to-end 지연은 무료 API 폴링 주기(초 단위)가 좌우하며, 그것이
-//     진짜 병목이다. 여기서 보려는 건 "처리단은 전종목 규모에서도 µs로 여유가 있다 →
-//     병목은 링버퍼가 아니라 피드다"라는 점이다.
+// [inv] 측정 범위 — 내부 처리단만 잰다. 실제 KIS REST/WS 네트워크 지연은 빠져 있고, 프로덕션
+//   end-to-end 지연은 무료 API 폴링 주기(초 단위)가 좌우한다. 이 하네스로 "지연을 개선했다"를
+//   주장할 수 없다. 보이는 것은 "처리단은 전종목 규모에서도 µs로 여유가 있다"까지다.
 //
 // 토폴로지 (Engine.cpp와 동일한 3-stage 락프리 파이프):
 //   ws_producer → [ob_q, td_q] → strategy_thread → order_q → order_thread
+//   종목별 메시지 rate는 Zipf(멱법칙) 배분 — 소수 대형주가 총 호가 팬아웃의 대부분을 차지하는
+//   실제 시장 구조 근사다(균등 분포는 비현실적). 티커는 universe_full.json의 실제 상장 코드를
+//   쓰고, 없으면 합성 6자리로 폴백한다.
 //
-// 현실성:
-//   - 종목별 메시지 rate를 Zipf(멱법칙)로 배분 — 소수 대형주가 총 호가 팬아웃의
-//     대부분을 차지하는 실제 시장 구조 근사(균등 분포는 비현실적).
-//   - 티커는 실제 상장 전종목 코드(universe_full.json)를 로드, 없으면 합성 6자리 폴백.
-//
-// 측정 관례 (bench_intake / test_pipeline_stress 계승):
-//   - pacing은 sleep 금지(Windows 부정확) → busy-wait.
-//   - 지연 샘플은 소비자 단독 스레드에서만 수집(스레드별 독립 vector = 안전).
-//   - reserve로 미리 잡아 측정 중 재할당(소비자 스톨) 차단.
-//   - 종료 후 드레인 구간 항목은 분위수(percentile) 오염원 → 카운트만, 샘플 제외.
-//   - release 빌드로만 유의미(debug/ASan은 무시). 빌드타입을 배너에 병기.
+// [inv] 측정 관례(bench_intake·test_pipeline_stress와 공통) — pacing은 sleep 금지(Windows
+//   부정확)라 busy-wait. 지연 샘플은 소비자 단독 스레드에서만 수집한다(스레드별 독립 vector).
+//   reserve로 미리 잡아 측정 중 재할당(소비자 스톨)을 막는다. 종료 후 드레인 구간 항목은
+//   분위수(percentile) 오염원이라 카운트만 하고 표본에서 뺀다. release 빌드로만 유의미하며
+//   (debug/ASan은 무시) 빌드타입을 배너에 병기한다.
 //
 // 사용법:
 //   bench_market_firehose load  [--universe path] [--tickers N] [--rate MSGS_PER_SEC]
 //                               [--duration SEC] [--ob-ratio R] [--zipf S]
 //   bench_market_firehose sweep [--universe path] [--tickers N]
 //                               [--start R] [--step R] [--max R] [--dwell SEC] [--zipf S]
-//
 //   기본값: load  --tickers 2600 --rate 200000 --duration 20 --ob-ratio 0.7 --zipf 1.0
 //           sweep --tickers 2600 --start 50000 --step 100000 --max 2000000 --dwell 4
 
