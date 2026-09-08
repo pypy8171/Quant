@@ -16,7 +16,7 @@
 | 약어 / 코드명 | 풀네임 | 정의 | 어원·주의 | 대표 위치 |
 |---|---|---|---|---|
 | **DevScale** / `DEVIATION_SCALE` | DeviationScaleStrategy | 일봉 정배열(SMA5>10>20>60)+눌림 존 게이트 안에서 3분봉 **이격도** 사다리로 지정가 분할매매 | dev = **deviation(이격도)**, development 아님. 시장가가 아니라 "기다리는" 지정가 예약 | `Quant/include/strategy/DeviationScaleStrategy.h:14` |
-| **ITB** | IntradayBreakout (v2) | 1분 버킷 채널 돌파 + 당일 시가앵커 기반 장중 자동매매 | 클래스명 `IntradayBreakoutStrategy`, `id()="ITB_"`. 세 글자 확장(In**t**raday **B**reakout)은 관례. 분봉 시점정합 재현 불가 → forward 실증만 | `Quant/include/strategy/IntradayBreakoutStrategy.h:11`, `strategies/README.md` |
+| **ITB** | IntradayBreakout (v2) | 1분 버킷 채널 돌파 + 당일 시가앵커 기반 장중 자동매매 | 클래스명 `IntradayBreakoutStrategy`, `id()="ITB_"`. 세 글자 확장(In**t**raday **B**reakout)은 관례. 한글 이름은 **장중돌파**. 로그·메모에 보이는 `1TB`는 같은 것을 잘못 적은 것이다(대문자 I를 숫자 1로 읽음). 용량 단위 TB와 무관. 분봉 시점정합 재현 불가 → forward 실증만 | `Quant/include/strategy/IntradayBreakoutStrategy.h:11`, `strategies/README.md` |
 | **MM** / MM-1 | MarketMakingStrategy | mid±half_spread_ticks 양방향 지정가를 걸고 시장이 움직이면 취소·재호가하는 미니 시장조성기 | MM = Market Making. CANCEL+NEW 방식(REPLACE 미사용), 재고 미인지(Phase 1) | `Quant/include/strategy/MarketMakingStrategy.h:10` |
 | **Momentum** | MomentumStrategy | N일 고점 돌파 매수 / N일 저점 이탈 청산 | 돈치안 채널 브레이크아웃(Donchian) | `Quant/include/strategy/MomentumStrategy.h:7` |
 | **SDP** | SupplyDemandPullbackStrategy | 외인·기관 쌍끌이 수급 선별 + 5일선 눌림목 진입(EOD 스윙 / INTRADAY 두 모드) | "쌍끌이" = 외인>0 AND 기관>0. look-ahead 방지로 당일 확정치 제외 | `Quant/include/strategy/SupplyDemandPullbackStrategy.h:18` |
@@ -79,6 +79,10 @@
 | **SOX** | 필라델피아 반도체지수 | 미국 반도체 지수(국내 반도체주 선행지표로 관찰) | 위기·SOX선행 전략 맥락 |
 | **VIX / VKOSPI** | 변동성지수 | 미국(VIX)·코스피(VKOSPI) 변동성지수 | 위험국면 관찰 |
 | **mrktCtg** | Market Category | data.go.kr 응답의 시장 구분 리터럴("KOSPI"/"KOSDAQ"/"KONEX") | 유니버스 시장 태깅 |
+| **NXT** | 넥스트레이드(Nextrade) | 2025-03 출범한 국내 대체거래소(ATS). 정규장 밖 프리(08:00~)·애프터(~20:00) 시간대가 있어 같은 종목이 KRX와 다른 가격을 가질 수 있다 | 지금 이 엔진은 KRX(`J`)만 보고 보낸다 |
+| **J / NX / UN** | KIS `FID_COND_MRKT_DIV_CODE` | 시세 조회의 시장 구분 — `J`=KRX, `NX`=NXT, `UN`=통합 | 이 저장소는 전부 `J`로 고정돼 있다(`Quant/src/api/KisClient.cpp`) |
+| **H0NX… / H0UN…** | KIS 실시간 NXT·통합 채널 | 호가 `H0NXASP0`/`H0UNASP0`, 체결 `H0NXCNT0`/`H0UNCNT0` | KRX 전용 `H0STASP0`/`H0STCNT0`와 짝. 미구독 상태 |
+| **SOR** | Smart Order Routing | 복수 시장(KRX·NXT) 중 유리한 곳으로 주문을 보내는 최선집행 라우팅 | 발주 시 `EXCG_ID_DVSN_CD`로 고른다. 현재 미사용(KRX 고정) |
 
 ---
 
