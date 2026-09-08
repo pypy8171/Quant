@@ -12,6 +12,8 @@
 //   7. SELL은 포지션 한도 미적용
 //   8. 중복 신호는 rate slot 소모 안 함 (C5 fix)
 //   9. SELL on_accept은 포지션 0 미만 방지 (C6 fix)
+//  17. 시장가 1주문 명목 백스톱 — BUY는 ref_price로 거부, SELL은 경고만 하고 통과,
+//      ref_price 없으면 검사 자체가 없음(게이트가 못 잡는 현행을 기록)
 
 #include "risk/OrderGate.h"
 #include <cassert>
@@ -36,7 +38,7 @@ static OrderSignal make_signal(const std::string& ticker, OrderSide side, int qt
 
 static void PASS(const std::string& name)
 {
-    std::cout << "[PASS] " << name << "\n";
+    std::cout << "[PASS] " << name << std::endl; // 뒤 테스트가 assert로 죽어도 여기까지는 남게 flush
 }
 
 // ─── 테스트 1: Kill switch ────────────────────────────────────────────────
@@ -289,7 +291,7 @@ void test_displace_skips_unscored_holdings()
 {
     OrderGate gate(displace_cfg());
     gate.seed_position("", "A", 10, 1000.0);  // 점수 있음
-    gate.seed_position("", "Z", 10, 1000.0);  // 점수 없음(가디언 관리 보유분)
+    gate.seed_position("", "Z", 10, 1000.0);  // 점수 없음(청산 관리 보유분)
     gate.set_entry_priority({{"A", 1}, {"C", 2}}, {{"A", 1.2}, {"C", 1.9}}, 2);
     auto plan = gate.plan_displacement("", "C");
     // Z는 후보가 아니고 A는 격차(0.7σ)가 임계를 넘으므로 A가 뽑혀야 한다.
@@ -371,6 +373,56 @@ void test_displace_daily_cap()
     PASS("displace_daily_cap");
 }
 
+// ─── 테스트 17: 시장가 명목 백스톱과 ref_price ────────────────────────────
+//   시장가는 price=0이라 eval_px가 ref_price로 떨어진다. 전략이 ref_price를 안 찍으면
+//   명목 검사 자체가 건너뛰어진다(현 설계). SELL은 청산 계열이라 초과해도 통과시킨다.
+static OrderSignal make_market(OrderSide side, int qty, double ref_price)
+{
+    auto s = make_signal("005930", side, qty);
+    s.type      = OrderType::MARKET;
+    s.price     = 0.0;
+    s.ref_price = ref_price;
+    return s;
+}
+
+static OrderGate::Config notional_cfg()
+{
+    OrderGate::Config cfg;
+    cfg.max_orders_per_min = 100;
+    cfg.max_orders_per_sec = 100;
+    cfg.dedup_window_sec   = 0.0;
+    cfg.max_qty_per_ticker = 100'000;
+    cfg.max_qty_per_order  = 10'000;
+    cfg.max_notional_per_order = 50'000'000.0;
+    return cfg;
+}
+
+void test_market_sell_ref_price_notional()
+{
+    OrderGate gate(notional_cfg());
+    std::string reason;
+    // 1,000주 × 100,000원 = 1억 > 5천만. SELL(청산)은 통과, BUY는 거부.
+    assert(gate.check(make_market(OrderSide::SELL, 1000, 100000.0), reason));
+    assert(!gate.check(make_market(OrderSide::BUY, 1000, 100000.0), reason));
+    assert(reason.find("명목") != std::string::npos);
+    // 참조가가 낮아 명목이 상한 안이면 BUY도 통과
+    assert(gate.check(make_market(OrderSide::BUY, 1000, 10000.0), reason));
+    PASS("market_sell_ref_price_notional");
+}
+
+void test_market_sell_without_ref_price_bypasses_notional()
+{
+    OrderGate gate(notional_cfg());
+    std::string reason;
+    // price=0, ref_price=0 → 평가가가 없어 명목 검사를 건너뛴다(수량 한도만). BUY도 통과가 현행이다.
+    assert(gate.check(make_market(OrderSide::SELL, 1000, 0.0), reason));
+    assert(gate.check(make_market(OrderSide::BUY, 1000, 0.0), reason));
+    // 수량 한도는 여전히 산다
+    assert(!gate.check(make_market(OrderSide::SELL, 10'001, 0.0), reason));
+    assert(reason.find("수량") != std::string::npos);
+    PASS("market_sell_without_ref_price_bypasses_notional");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -387,6 +439,8 @@ int main()
     test_dedup_does_not_consume_rate_slot();
     test_sell_clamps_position_at_zero();
     test_partial_fill_avg_price();
+    test_market_sell_ref_price_notional();
+    test_market_sell_without_ref_price_bypasses_notional();
     test_displace_picks_weakest();
     test_displace_needs_score_gap();
     test_displace_skips_unscored_holdings();

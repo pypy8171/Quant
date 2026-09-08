@@ -25,13 +25,50 @@
 
 using json = nlohmann::json;
 
+// ─── 활성 국면 부착 ─────────────────────────────────────────────────────────
+//  Engine은 직전 전략 하나에만 국면을 붙일 수 있다(set_last_active_regimes). 한 config 항목이
+//  N개를 등록하는 로더(유니버스·보유 전 종목)에서 N-1개가 빠지지 않도록, 추가 지점마다 붙인다.
+//  s_pending_regimes는 load_strategies가 로더를 부르는 동안만 유효하다(그 밖에서는 nullptr).
+static const std::vector<Regime>* s_pending_regimes = nullptr;
+
+static void add_gated(Engine& engine, std::unique_ptr<StrategyBase> strat)
+{
+    if (s_pending_regimes && strat)
+        strat->set_active_regimes(*s_pending_regimes);
+    engine.add_strategy(std::move(strat));
+}
+
+// 재스캔처럼 Engine이 나중에 factory를 직접 부르는 경로용 — 국면을 factory 안에 묶는다.
+static std::function<std::unique_ptr<StrategyBase>(const std::string&)>
+gate_factory(std::function<std::unique_ptr<StrategyBase>(const std::string&)> factory)
+{
+    if (!s_pending_regimes)
+        return factory;
+    std::vector<Regime> ar = *s_pending_regimes;
+    return [factory = std::move(factory), ar](const std::string& t) {
+        auto strat = factory(t);
+        if (strat)
+            strat->set_active_regimes(ar);
+        return strat;
+    };
+}
+
+// 필수 "ticker" 키. 없으면 예외로 기동이 죽는 대신 경고 후 그 항목만 건너뛴다.
+static bool require_ticker(const json& s, const char* type, std::string& out)
+{
+    out = s.value("ticker", std::string());
+    if (out.empty())
+        LOG_WARN(std::string("[Main] ") + type + " 설정에 ticker 없음 — 등록 건너뜀");
+    return !out.empty();
+}
+
 // ─── MA_CROSS ───────────────────────────────────────────────────────────────
 static void load_ma_cross(StrategyLoadCtx& ctx, const json& s)
 {
     Engine& engine = ctx.engine;
     int qty = s.value("quantity", 1);
-    int sp = s["short_period"].get<int>();
-    int lp = s["long_period"].get<int>();
+    int sp = s.value("short_period", 0);
+    int lp = s.value("long_period", 0);
 
     // calc_ma는 prices_(최대 lp개) 끝에서 sp/lp회 역참조한다. sp<1이거나 sp>=lp면
     // begin 이전 역참조(UB/크래시)가 되므로 등록을 건너뛴다.
@@ -63,7 +100,7 @@ static void load_ma_cross(StrategyLoadCtx& ctx, const json& s)
                     int hq           = std::atoi(h.value("hldg_qty", "0").c_str());
                     if (!code.empty() && hq > 0)
                     {
-                        engine.add_strategy(std::make_unique<MACrossStrategy>(
+                        add_gated(engine, std::make_unique<MACrossStrategy>(
                             code, sp, lp, hq, /*start_in_position=*/true));
                         LOG_INFO("[Main]   + MACross " + code + " 보유 " + std::to_string(hq) + "주 (in_position 시드)");
                         ++added;
@@ -76,8 +113,10 @@ static void load_ma_cross(StrategyLoadCtx& ctx, const json& s)
     }
     else
     {
-        engine.add_strategy(std::make_unique<MACrossStrategy>(
-            s["ticker"].get<std::string>(), sp, lp, qty));
+        std::string ticker;
+        if (!require_ticker(s, "MACross", ticker))
+            return;
+        add_gated(engine, std::make_unique<MACrossStrategy>(ticker, sp, lp, qty));
     }
 }
 
@@ -135,7 +174,7 @@ static void load_intraday_breakout(StrategyLoadCtx& ctx, const json& s)
                         /*avg_px=*/0.0, avg_loss_pct, seed_trail_pct, exit_near_avg_pct,
                         no_new_entry_hhmm, notional_per_position, /*day_open_px=*/c.day_open);
                     strat->set_name(c.name);
-                    engine.add_strategy(std::move(strat));
+                    add_gated(engine, std::move(strat));
                 }
             }
         }
@@ -169,7 +208,7 @@ static void load_intraday_breakout(StrategyLoadCtx& ctx, const json& s)
                             /*notional=*/0.0, /*day_open_px=*/0.0);
                         strat->set_name(pname);
                         engine.register_ticker_name(code, pname); // 로그 라벨(보유분 종목명)
-                        engine.add_strategy(std::move(strat));
+                        add_gated(engine, std::move(strat));
                         LOG_INFO("[Main]   + ITB " + code + " " + pname + " 보유 " + std::to_string(hq) +
                                  "주 (in_position 시드, 평단=" + std::to_string((long long)avg_px) + ")");
                         ++added;
@@ -181,8 +220,11 @@ static void load_intraday_breakout(StrategyLoadCtx& ctx, const json& s)
     }
     else
     {
-        engine.add_strategy(std::make_unique<IntradayBreakoutStrategy>(
-            s["ticker"].get<std::string>(), entry_qty, /*hold_qty=*/0, /*start_in_position=*/false,
+        std::string ticker;
+        if (!require_ticker(s, "ITB", ticker))
+            return;
+        add_gated(engine, std::make_unique<IntradayBreakoutStrategy>(
+            ticker, entry_qty, /*hold_qty=*/0, /*start_in_position=*/false,
             channel_min, eps, trail_pct, hard_pct, eod_hhmm, cooldown_sec,
             /*avg_px=*/0.0, avg_loss_pct, seed_trail_pct, exit_near_avg_pct,
             no_new_entry_hhmm, notional_per_position, /*day_open_px=*/0.0));
@@ -193,8 +235,10 @@ static void load_intraday_breakout(StrategyLoadCtx& ctx, const json& s)
 static void load_momentum(StrategyLoadCtx& ctx, const json& s)
 {
     int qty = s.value("quantity", 1);
-    ctx.engine.add_strategy(
-        std::make_unique<MomentumStrategy>(s["ticker"].get<std::string>(), s["period"].get<int>(), qty));
+    std::string ticker;
+    if (!require_ticker(s, "Momentum", ticker))
+        return;
+    add_gated(ctx.engine, std::make_unique<MomentumStrategy>(ticker, s.value("period", 20), qty));
 }
 
 // ─── VALUE_CONTRARY ─────────────────────────────────────────────────────────
@@ -206,17 +250,19 @@ static void load_value_contrary(StrategyLoadCtx& ctx, const json& s)
     std::string exchange = s.value("exchange", "");
     double pbr_max = s.value("pbr_max", 1.0);
     int eod_hhmm = s.value("eod_exit_hhmm", 1520);
-    ctx.engine.add_strategy(std::make_unique<ValueContraryStrategy>(market, exchange, pbr_max, qty, eod_hhmm));
+    add_gated(ctx.engine, std::make_unique<ValueContraryStrategy>(market, exchange, pbr_max, qty, eod_hhmm));
 }
 
 // ─── FIXED_INTERVAL ─────────────────────────────────────────────────────────
 static void load_fixed_interval(StrategyLoadCtx& ctx, const json& s)
 {
-    std::string ticker   = s["ticker"].get<std::string>();
+    std::string ticker;
+    if (!require_ticker(s, "FixedInterval", ticker))
+        return;
     int buy_qty          = s.value("buy_qty", 1);
     int sell_qty         = s.value("sell_qty", 1);
     int interval_sec     = s.value("interval_sec", 300);
-    ctx.engine.add_strategy(std::make_unique<FixedIntervalStrategy>(ticker, buy_qty, sell_qty, interval_sec));
+    add_gated(ctx.engine, std::make_unique<FixedIntervalStrategy>(ticker, buy_qty, sell_qty, interval_sec));
 }
 
 // ─── PRICE_TARGET ───────────────────────────────────────────────────────────
@@ -228,7 +274,9 @@ static void load_price_target(StrategyLoadCtx& ctx, const json& s)
         for (const auto& pt : s["price_targets"])
         {
             PriceTargetStrategy::PriceTarget t;
-            t.ticker       = pt["ticker"].get<std::string>();
+            t.ticker       = pt.value("ticker", std::string());
+            if (t.ticker.empty())
+                continue;
             t.buy_price    = pt.value("buy_price",  0.0);
             t.sell_price   = pt.value("sell_price", 0.0);
             t.quantity     = pt.value("quantity",   1);
@@ -242,14 +290,16 @@ static void load_price_target(StrategyLoadCtx& ctx, const json& s)
         for (const auto& lo : s["limit_orders"])
         {
             PriceTargetStrategy::LimitOrder l;
-            l.ticker   = lo["ticker"].get<std::string>();
+            l.ticker   = lo.value("ticker", std::string());
+            if (l.ticker.empty())
+                continue;
             l.side     = (lo.value("side", "BUY") == "SELL") ? OrderSide::SELL : OrderSide::BUY;
             l.price    = lo.value("price",    0.0);
             l.quantity = lo.value("quantity", 1);
             limit_orders.push_back(l);
         }
     }
-    ctx.engine.add_strategy(std::make_unique<PriceTargetStrategy>(
+    add_gated(ctx.engine, std::make_unique<PriceTargetStrategy>(
         std::move(price_targets), std::move(limit_orders)));
 }
 
@@ -273,22 +323,24 @@ static void load_supply_demand_pullback(StrategyLoadCtx& ctx, const json& s)
     sp.mode = (mode_str == "INTRADAY")
             ? SupplyDemandPullbackStrategy::EntryMode::INTRADAY
             : SupplyDemandPullbackStrategy::EntryMode::EOD;
-    ctx.engine.add_strategy(std::make_unique<SupplyDemandPullbackStrategy>(sp));
+    add_gated(ctx.engine, std::make_unique<SupplyDemandPullbackStrategy>(sp));
 }
 
 // ─── MARKET_MAKING ──────────────────────────────────────────────────────────
 static void load_market_making(StrategyLoadCtx& ctx, const json& s)
 {
-    std::string ticker      = s["ticker"].get<std::string>();
+    std::string ticker;
+    if (!require_ticker(s, "MarketMaking", ticker))
+        return;
     int mm_qty              = s.value("quantity", 1);
     int half_spread_ticks   = s.value("half_spread_ticks", 1);
     int requote_move_ticks  = s.value("requote_move_ticks", 1);
     int min_requote_ms      = s.value("min_requote_ms", 1000); // ≥1000 권장(초당 4건 rate 백스톱)
-    ctx.engine.add_strategy(std::make_unique<MarketMakingStrategy>(
+    add_gated(ctx.engine, std::make_unique<MarketMakingStrategy>(
         ticker, mm_qty, half_spread_ticks, requote_move_ticks, min_requote_ms));
 }
 
-// ─── 보유분 청산 가디언 (DEVIATION_SCALE 보조) ───────────────────────────────
+// ─── 보유분 청산 관리 (DEVIATION_SCALE 보조) ───────────────────────────────
 //  스캔 유니버스가 잡지 못한 잔고 보유분(아침에 산 물린분 등)마다 "청산 전용" ITB를
 //  붙인다. 신규진입은 no_new_entry_hhmm=1(항상 과거)로 영구 차단 → 오직 보호·청산만:
 //    seed_trail_pct(넓은 앵커 트레일) + exit_near_avg_pct(본전근처 반등청산)
@@ -306,11 +358,17 @@ static void attach_holding_guardians(StrategyLoadCtx& ctx, const json& mh,
     int    eod_hhmm           = mh.value("eod_exit_hhmm", 1600);     // 1600=장중 강제청산 안 함(보호만)
     int    channel_min        = mh.value("channel_min", 10);
     int    cooldown_sec       = mh.value("reentry_cooldown_sec", 60);
+    // 본전탈출 무장 깊이 — 평단 -arm%까지 실제로 밀려 본 적이 있어야 본전탈출이 켜진다.
+    //  이게 없으면 평단 -0.2%로 보유한 종목이 재기동 첫 틱에 전량 청산된다(그건 물린 게
+    //  아니라 그냥 본전이다). 부착유예는 재기동 첫 틱과 국면 배선 사이 경합을 막는다.
+    double arm_disp           = mh.value("exit_near_avg_arm_pct", 3.0);
+    double exit_arm_pct       = arm_disp / 100.0;
+    int    guard_warmup_sec   = mh.value("guard_warmup_sec", 60);
 
     KisClient bal_kis(ctx.kis_cfg);
     if (!bal_kis.authenticate())
     {
-        LOG_ERROR("[Main] manage_holdings: 잔고조회 인증 실패 — 청산 가디언 건너뜀");
+        LOG_ERROR("[Main] manage_holdings: 잔고조회 인증 실패 — 청산 관리 건너뜀");
         return;
     }
     nlohmann::json bal = bal_kis.get_balance();
@@ -339,23 +397,27 @@ static void attach_holding_guardians(StrategyLoadCtx& ctx, const json& mh,
             eod_hhmm, cooldown_sec, /*avg_px=*/av, avg_loss_pct,
             seed_trail_pct, exit_near_avg_pct, /*no_new_entry_hhmm=*/1,
             /*notional=*/0.0, /*day_open_px=*/0.0);
+        strat->set_exit_near_avg_arm(exit_arm_pct);
+        strat->set_guard_warmup_sec(guard_warmup_sec);
         strat->set_name(pname);
         engine.register_ticker_name(code, pname); // 로그 라벨(보유분 종목명)
-        engine.add_strategy(std::move(strat));
-        LOG_INFO("[Main]   + 청산가디언(ITB) " + code + " " + pname + " 보유 " +
+        engine.mark_guardian_ticker(code);        // 스캔 슬리브의 신규매수에서 제외
+        add_gated(engine, std::move(strat));
+        LOG_INFO("[Main]   + 청산 관리(ITB) " + code + " " + pname + " 보유 " +
                  std::to_string(hq) + "주 @평단 " + std::to_string((long long)av) +
                  " (trail=" + std::to_string(seed_trail_disp) + "% 본전탈출=" +
-                 std::to_string(exit_near_avg_disp) + "% eod=" + std::to_string(eod_hhmm) + ")");
+                 std::to_string(exit_near_avg_disp) + "%(무장 -" + std::to_string(arm_disp) + "%) 유예" +
+                 std::to_string(guard_warmup_sec) + "s eod=" + std::to_string(eod_hhmm) + ")");
         ++added;
     }
-    LOG_INFO("[Main] manage_holdings: 청산 가디언 " + std::to_string(added) +
+    LOG_INFO("[Main] manage_holdings: 청산 관리 " + std::to_string(added) +
              "종목 부착, 스캔중복 " + std::to_string(skipped) + "종목 스킵");
 }
 
 // ─── DEVIATION_SCALE ────────────────────────────────────────────────────────
 // 스캔이 매긴 종목별 비중 배수를 팩토리에 건네는 공유 상태.
 //  스캔(초기=메인 스레드, 재스캔=데이터 스레드)이 쓰고 팩토리가 읽으므로 뮤텍스로 감싼다.
-//  이미 등록된 전략의 배수는 갱신하지 않는다 — 사다리 도중에 예산이 바뀌면 남은 층 예산과
+//  이미 등록된 전략의 배수는 갱신하지 않는다 — 분할 매수 도중에 예산이 바뀌면 남은 층 예산과
 //  평단이 어긋난다. 재스캔으로 새로 붙는 종목만 최신 배수를 받는다.
 struct DevScaleScoreState
 {
@@ -378,23 +440,30 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
     base.dev_buy           = s.value("dev_buy_pct", 0.8);
     base.n_rungs           = s.value("n_rungs", 2);
     base.add_below_sma_only = s.value("add_below_sma_only", true); // 점진 진입: 물타기는 기준선 아래(눌림)에서만
-    base.cross_guard       = s.value("ladder_cross_guard", true);  // 사다리 층이 현재가를 넘지 않게 앵커 클램프(D-006)
+    // 개장 후 3분봉이 안 쌓인 구간(20봉×3분=60분)에 일봉 SMA20을 임시 기준선으로 쓴다.
+    //  false면 예전대로 봉이 찰 때까지 발주하지 않는다(개장~10:00 발주 0).
+    base.daily_basis_warmup = s.value("daily_basis_warmup", true);
+    base.cross_guard       = s.value("ladder_cross_guard", true);  // 분할 매수 층이 현재가를 넘지 않게 앵커 클램프(D-006)
     base.pullback_pct      = s.value("pullback_pct", 2.0);
     base.entry_upper_pct   = s.value("entry_upper_pct", 0.0);   // SMA20 위 진입 허용%(0=순수 눌림만)
     base.reprice_move_ticks = s.value("reprice_move_ticks", 2);
+    base.min_rebuild_sec    = s.value("min_rebuild_sec", 0);
+    base.id_prefix          = s.value("id_prefix", std::string("DEVSCALE"));
+    base.entry_lower_pct    = s.value("entry_lower_pct", 0.0);
+    base.anchor_on_price    = s.value("anchor_on_price", false);
     base.eod_hhmm          = s.value("eod_exit_hhmm", 1515);
     base.interval_min      = s.value("interval_min", 3);
     base.min_action_ms     = s.value("min_action_ms", 3000);
     base.daily_lookback    = s.value("daily_lookback", 70);
     base.account           = s.value("account", std::string());
 
-    // 스캔/단일로 실제 DeviationScale이 담당하는 티커 — 보유분 청산 가디언 중복 부착 방지.
+    // 스캔/단일로 실제 DeviationScale이 담당하는 티커 — 보유분 청산 관리 중복 부착 방지.
     std::set<std::string> covered;
 
-    // 이미 보유 중인 종목은 DeviationScale 신규 스캔에서 제외 → 청산 가디언이 전담(윈드다운).
-    //  시드/전일 물린 보유분에 DevScale 사다리 매수가 겹치면 종목당 명목상한(max_pct)을
+    // 이미 보유 중인 종목은 DeviationScale 신규 스캔에서 제외 → 청산 관리가 전담(윈드다운).
+    //  시드/전일 물린 보유분에 DevScale 분할 매수 매수가 겹치면 종목당 명목상한(max_pct)을
     //  초과해 CANCEL 거부·과주문이 난다(073240 사례). 보유분=guardian, 신규만=DevScale로 분리.
-    //  manage_holdings.enabled일 때만 적용(가디언이 있어야 보유분을 인수하므로).
+    //  manage_holdings.enabled일 때만 적용(청산 관리가 있어야 보유분을 인수하므로).
     std::set<std::string> held;
     if (s.contains("manage_holdings") && s["manage_holdings"].value("enabled", false))
     {
@@ -410,7 +479,7 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
                     if (!code.empty() && hq > 0) held.insert(code);
                 }
             LOG_INFO("[Main] DEVSCALE: 보유분 " + std::to_string(held.size()) +
-                     "종목 스캔 제외(청산 가디언 전담)");
+                     "종목 스캔 제외(청산 관리 전담)");
         }
         else
             LOG_WARN("[Main] DEVSCALE: 보유분 조회 인증 실패 — 스캔 제외 미적용(중복 위험)");
@@ -454,15 +523,29 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         sc.risk_off_idx_kosdaq = s.value("risk_off_index_pct_kosdaq", -0.015);  // 코스닥 지수 risk_off 임계(코스피보다 보수적)
         sc.require_aligned = s.value("require_aligned", true);  // 정배열 프리필터 on/off
         sc.align_probe_max = s.value("align_probe_max", 60);    // 정배열 검사 후보 상한(일봉 조회 비용 캡)
+        // 장중 일봉 재기동 점검 — 0이면 기존 동작(하루 한 번 조회 후 캐시 고정).
+        for (const auto& e : s.value("sector_codes", nlohmann::json::array()))
+            if (e.is_string()) sc.sector_codes.push_back(e.get<std::string>());
+        sc.sector_top_n   = s.value("sector_top_n", 10);
+        sc.sector_min_chg = s.value("sector_min_chg", 0.0);
+        sc.align_refresh_max = s.value("align_refresh_max", 0);
+        sc.align_refresh_sec = s.value("align_refresh_sec", 600);
+        // 후보 합집합(KIS 랭킹·업종 REST) 갱신 주기. 미지정이면 재스캔 주기와 같아
+        //  기존 동작(재스캔마다 새로 수집)이 유지된다.
+        sc.union_refresh_sec = s.value("union_refresh_sec", 0);
         sc.max_dev_pct     = s.value("max_dev_pct", 0.0);       // 과확장 컷(일봉 이격 상한, 0=비활성)
+        sc.min_dev_pct     = s.value("min_dev_pct", 0.0);       // 과확장 하한(추세확장 슬리브용, 0=비활성)
         sc.universe_file   = s.value("universe_file", std::string()); // data.go.kr 유니버스 피드(ETF-free·30행캡 우회), 비면 KIS 랭킹만
+        sc.prices_file     = s.value("prices_file", std::string());  // 전 종목 장중 시세 파일(네이버 벌크 사이드카)
+        sc.min_turnover    = s.value("min_turnover", 0.0);           // 거래대금 하한(원), 0=비활성
+        sc.full_market     = s.value("full_market", false);          // 후보 풀을 전 종목으로
         sc.align_daily_n   = base.daily_lookback;               // 정배열(SMA60) 판정용 일봉 개수(≥60)
         // 횡단면 스코어러(2026-08-09 회의 Task 4) — score_top_n>0이면 정배열 통과분을
         //  점수 랭킹해 상위 N만 등록(오너 원안 "점수 내고 5개"). 0=기존 동작(전체 등록).
         sc.score_top_n      = s.value("score_top_n", 0);
         sc.score_w_trend    = s.value("score_w_trend", 1.0);
         sc.score_w_pullback = s.value("score_w_pullback", 1.0);
-        sc.score_w_supply   = s.value("score_w_supply", 0.0); // 수급 로거 데이터 확보 후 ablation
+        sc.score_w_supply   = s.value("score_w_supply", 0.0); // 수급 로거 데이터 확보 후 제거실험
         // 변동성은 감점 축 — 같은 추세·눌림이면 덜 흔들리는 쪽에 비중을 준다.
         sc.score_w_vol      = s.value("score_w_vol", 0.5);
         int rescan_sec     = s.value("rescan_interval_sec", 600); // 주기적 재스캔 간격(초)
@@ -489,7 +572,7 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
             {
                 std::lock_guard<std::mutex> lk(score_state->mu);
                 // 팩토리는 전략 생성 시점에 한 번만 읽으므로, 여기서 값을 덮어써도
-                //  이미 사다리를 타는 전략의 예산은 흔들리지 않는다(신규 등록분에만 반영).
+                //  이미 분할 매수를 타는 전략의 예산은 흔들리지 않는다(신규 등록분에만 반영).
                 for (auto& kv : mult)
                     score_state->mult[kv.first] = kv.second;
             }
@@ -515,7 +598,7 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
             drop_held(ts, held);
             return ts;
         };
-        // 주기적 재스캔용 — 매회 OrderGate 원장에서 현재 보유를 다시 읽는다. 가디언이 청산한
+        // 주기적 재스캔용 — 매회 OrderGate 원장에서 현재 보유를 다시 읽는다. 청산 관리가 청산한
         //  종목은 그 시점부터 다시 후보가 된다(기동 스냅샷 고정이 유니버스를 굳히던 문제).
         //  이미 등록된 종목은 재스캔이 추가만 하므로 자기 보유분으로 등록이 풀리진 않는다.
         auto universe_rescan = [scan_fn, drop_held, &engine](KisClient& c)
@@ -545,12 +628,12 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
                 int  added   = 0;
                 for (const auto& t : tickers)
                 {
-                    engine.add_strategy(factory(t));
-                    covered.insert(t); // 청산 가디언 중복 부착 방지용
-                    LOG_INFO("[Main]   + DEVSCALE 초기 " + t);
+                    add_gated(engine, factory(t));
+                    covered.insert(t); // 청산 관리 중복 부착 방지용
+                    LOG_INFO("[Main]   + " + base.id_prefix + " 초기 " + t);
                     ++added;
                 }
-                LOG_INFO("[Main] DEVSCALE universe_from_scan: 초기 " + std::to_string(added) +
+                LOG_INFO("[Main] " + base.id_prefix + " universe_from_scan: 초기 " + std::to_string(added) +
                          "종목 등록 (각자 정배열+눌림 존 게이트로 자체 선별)");
             }
 
@@ -558,19 +641,21 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
             //  신규 티커만 런타임 add. 인증 실패해도 재스캔은 엔진 내부 시세 클라이언트로 시도.
             // 등록 총수 상한은 스캔 1회 상한(max_universe)과 같게 둔다 — 스캔은 매번 그만큼만
             //  고르는데 등록은 누적되므로, 상한이 없으면 총수가 그 값을 넘어 계속 는다.
-            engine.set_universe_rescan(universe_rescan, factory, rescan_sec,
+            engine.set_universe_rescan(universe_rescan, gate_factory(factory), rescan_sec,
                                        static_cast<size_t>(sc.max_register));
-            LOG_INFO("[Main] DEVSCALE 주기적 재스캔 활성: " + std::to_string(rescan_sec) + "초 간격");
+            LOG_INFO("[Main] " + base.id_prefix + " 주기적 재스캔 활성: " + std::to_string(rescan_sec) + "초 간격");
         }
     }
     else
     {
-        std::string t = s["ticker"].get<std::string>();
-        engine.add_strategy(factory(t));
+        std::string t;
+        if (!require_ticker(s, "DEVSCALE", t))
+            return;
+        add_gated(engine, factory(t));
         covered.insert(t);
     }
 
-    // 보유분 청산 가디언 — 스캔에 안 잡힌 잔고 보유분에 청산 전용 ITB 부착(옵션).
+    // 보유분 청산 관리 — 스캔에 안 잡힌 잔고 보유분에 청산 전용 ITB 부착(옵션).
     if (s.contains("manage_holdings") && s["manage_holdings"].value("enabled", false))
         attach_holding_guardians(ctx, s["manage_holdings"], covered);
 }
@@ -586,34 +671,32 @@ static void load_theme(StrategyLoadCtx& ctx, const json& s)
     double vol_surge     = s.value("volume_surge_mult", 2.0);
     bool inst_filter     = s.value("inst_filter", true);
     int eod_hhmm         = s.value("eod_exit_hhmm", 1520);
-    ctx.engine.add_strategy(std::make_unique<ThemeStrategy>(
+    add_gated(ctx.engine, std::make_unique<ThemeStrategy>(
         sector_codes, top_n, vol_surge, inst_filter, qty, eod_hhmm));
 }
 
-// ─── 전략-국면 매핑 공통 후처리 ─────────────────────────────────────────────
-//  config "active_regimes"(미지정 시 전 국면). 방금 추가된 전략에만 적용.
-static void apply_active_regimes(Engine& engine, const json& s, const std::string& type, size_t n_before)
+// ─── 전략-국면 매핑 ────────────────────────────────────────────────────────
+//  config "active_regimes"(미지정 시 전 국면)를 파싱한다. 적용은 add_gated/gate_factory가
+//  로더 실행 중 추가되는 전략 전부에 한다. 반환 false = 키 없음 또는 비어 있음(전 국면).
+static bool parse_active_regimes(const json& s, const std::string& type, std::vector<Regime>& ar)
 {
-    if (engine.strategy_count() > n_before && s.contains("active_regimes") && s["active_regimes"].is_array())
+    if (!s.contains("active_regimes") || !s["active_regimes"].is_array())
+        return false;
+    for (const auto& r : s["active_regimes"])
     {
-        std::vector<Regime> ar;
-        for (const auto& r : s["active_regimes"])
-        {
-            std::string rs = r.get<std::string>();
-            if (rs == "BULL")         ar.push_back(Regime::BULL);
-            else if (rs == "NEUTRAL") ar.push_back(Regime::NEUTRAL);
-            else if (rs == "BEAR")    ar.push_back(Regime::BEAR);
-            else LOG_WARN("[Main] " + type + " 알 수 없는 active_regimes 값: '" + rs +
-                          "' (BULL/NEUTRAL/BEAR만 유효) — 무시됨");   // G-2
-        }
-        if (!ar.empty())
-        {
-            engine.set_last_active_regimes(ar);
-            LOG_INFO("[Main] " + type + " 활성국면: " + std::to_string(ar.size()) + "개");
-        }
-        else   // G-2: 키는 있는데 파싱 결과가 비면 게이트가 조용히 무력화됨 → 경고
-            LOG_WARN("[Main] " + type + " active_regimes 파싱 결과 비어있음 — 전 국면 통과로 동작(게이트 무효)");
+        std::string rs = r.is_string() ? r.get<std::string>() : std::string();
+        if (rs == "BULL")         ar.push_back(Regime::BULL);
+        else if (rs == "NEUTRAL") ar.push_back(Regime::NEUTRAL);
+        else if (rs == "BEAR")    ar.push_back(Regime::BEAR);
+        else LOG_WARN("[Main] " + type + " 알 수 없는 active_regimes 값: '" + rs +
+                      "' (BULL/NEUTRAL/BEAR만 유효) — 무시됨");   // G-2
     }
+    if (ar.empty())   // G-2: 키는 있는데 파싱 결과가 비면 게이트가 조용히 무력화됨 → 경고
+    {
+        LOG_WARN("[Main] " + type + " active_regimes 파싱 결과 비어있음 — 전 국면 통과로 동작(게이트 무효)");
+        return false;
+    }
+    return true;
 }
 
 // ─── 디스패치 ───────────────────────────────────────────────────────────────
@@ -634,16 +717,22 @@ void load_strategies(StrategyLoadCtx& ctx, const json& strategies)
 
     for (auto& s : strategies)
     {
-        std::string type = s["type"];
+        std::string type = s.value("type", std::string());
         size_t n_before = ctx.engine.strategy_count();
 
         auto it = LOADERS.find(type);
         if (it == LOADERS.end())
         {
-            LOG_WARN("[Main] 알 수 없는 전략: " + type);
+            LOG_WARN("[Main] 알 수 없는 전략: '" + type + "'");
             continue;
         }
+        std::vector<Regime> ar;
+        const bool gated = parse_active_regimes(s, type, ar);
+        s_pending_regimes = gated ? &ar : nullptr;
         it->second(ctx, s);
-        apply_active_regimes(ctx.engine, s, type, n_before);
+        s_pending_regimes = nullptr;
+        if (gated && ctx.engine.strategy_count() > n_before)
+            LOG_INFO("[Main] " + type + " 활성국면: " + std::to_string(ar.size()) + "개 × 전략 " +
+                     std::to_string(ctx.engine.strategy_count() - n_before) + "개");
     }
 }

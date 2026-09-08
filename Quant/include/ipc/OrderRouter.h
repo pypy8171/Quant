@@ -7,6 +7,7 @@
 #endif
 #include <atomic>
 #include <deque>
+#include <thread>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -69,14 +70,37 @@ public:
     // ── 최근 N건 이력 조회 ────────────────────────────────────────────────
     std::vector<ManagedOrder> recent(int n = 20) const;
 
+    // ── 이전 세션이 남긴 미체결 주문 취소 (기동 시 1회) ─────────────────
+    //  재기동하면 history_가 비어 이전 세션 주문의 ODNO를 잊는다. 모의투자는
+    //  정정취소가능조회 TR이 없어 브로커에 미체결을 물어볼 수도 없다. 그래서
+    //  접수 때마다 살아있는 주문을 사이드카 파일에 적어 두고 여기서 읽어 취소한다.
+    //  방치하면 오전 분할 매수 지정가가 하루 종일 걸려 있으면서 (1) 주문가능현금을
+    //  묶고(40250000 도배) (2) 청산 관리가 청산한 직후 되사서 원치 않는 재진입을 만든다
+    //  (2026-09-08 047050: 13:07 청산 → 오전 ODNO 22814가 13:11 체결).
+    //  네트워크 왕복이 건당 3~5초라 85건이면 5분이다. 기동을 그만큼 막으면 장중
+    //  재기동이 사실상 불가능해지므로 취소는 별도 스레드로 돌린다. 사이드카 파일을
+    //  비우는 것만 동기로 끝낸다 — 스레드가 나중에 비우면 그 사이 현재 세션이 적어 둔
+    //  미체결 기록까지 같이 지워진다(그러면 다음 재기동이 오늘 주문을 잊는다).
+    //  KisClient는 토큰·레이트리밋을 뮤텍스로 직렬화해 스레드 공유를 전제로 한다.
+    void cancel_stale_orders_async();
+
+    // 취소 스레드를 세우고 기다린다(소멸자에서 호출). 중복 호출은 무해하다.
+    ~OrderRouter();
+
 private:
     std::string next_id();
     // 직전 KIS 주문/취소/정정 오류코드를 " [코드]" 꼬리표로 만든다(EGW00201 재시도 판별용). 없으면 "".
     std::string kis_err_suffix() const;
     void        record(const ManagedOrder& mo);
+    // 살아있는(ACCEPTED·미체결 잔량>0) 주문 목록을 사이드카 본문 문자열로 만든다.
+    //  호출자는 hist_mtx_를 보유해야 한다. 파일 쓰기는 write_open_orders_file이 락 밖에서 한다.
+    std::string snapshot_open_orders_locked() const;
+    // 사이드카 파일 덮어쓰기(io_mtx_). seq가 이미 쓴 것보다 오래됐으면 건너뛴다 —
+    //  락 밖에서 쓰므로 스냅샷 순서와 쓰기 순서가 뒤집힐 수 있다. 실패는 매매를 막지 않는다.
+    void        write_open_orders_file(const std::string& body, uint64_t seq);
     // 거래 원장 CSV 적재 — 주문/체결을 logs/trades_YYYYMMDD.csv 에 한 줄씩 영속화.
     //   event가 빈 문자열이면 mo.status를 event로 사용(접수/거부/취소). 체결은 "FILL".
-    //   호출자(record·on_fill)가 hist_mtx_ 보유 상태라 파일 쓰기가 직렬화된다.
+    //   파일 쓰기는 io_mtx_로 직렬화한다(hist_mtx_ 밖에서 호출 — 디스크가 원장 락을 잡지 않게).
     //   realized_pnl은 매도 체결의 실현손익(수수료·세금 차감 후). 그 외 행은 빈 칸으로 남긴다.
     void        write_trade_row(const std::string& event, const ManagedOrder& mo,
                                 int fill_qty, double fill_price,
@@ -107,9 +131,20 @@ private:
     //  같은 초·같은 수량·단가의 분할체결은 키가 겹치므로 집합이 아니라 횟수로 센다.
     //  자세한 배경은 on_fill() 주석 참고.
     std::unordered_map<std::string, int> seen_fills_;
+    // 미매핑(ORPHAN) 체결로 이미 반영한 키 (hist_mtx_로 보호). 미연결 주문은 주문수량을 모르니
+    //  잔량 클램프가 없어 같은 통보의 재전송을 이 키로만 막는다.
+    std::unordered_set<std::string> orphan_fill_keys_;
     // MM-1: client_oid → order_id 존재 힌트 (hist_mtx_로 보호). 실제 ManagedOrder는
     //   history_ 스캔으로 해석(deque 요소는 pop_front로 소멸 가능 → 안정 핸들 아님).
     std::unordered_map<std::string, std::string> oid_index_;
+    // 사이드카 스냅샷 번호. hist_mtx_ 아래에서 올리고, io_mtx_ 아래에서 "마지막으로 쓴 번호"와 비교한다.
+    uint64_t open_orders_seq_         = 0;
+    std::mutex io_mtx_;                       // 원장 CSV·사이드카 파일 쓰기 직렬화
+    uint64_t open_orders_written_seq_ = 0;    // io_mtx_ 보호
+
+    // 유령주문 취소 스레드. 종료가 몇 분씩 걸리지 않도록 매 건 전에 정지 플래그를 본다.
+    std::thread        stale_thr_;
+    std::atomic<bool>  stale_stop_{false};
 
     std::atomic<uint64_t> seq_{0};
     std::atomic<uint64_t> total_count_{0};

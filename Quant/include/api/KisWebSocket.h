@@ -59,6 +59,37 @@ public:
     // 반환: 구독 프레임을 실제로 보냈으면 true.
     bool subscribe_incremental(const WatchSpec& spec);
 
+    // 다건 프레임의 데이터부(^-구분 필드 전체)를 레코드 단위로 자른다. 순수 함수 — 단위 테스트 대상.
+    //  KIS 원문 스펙이 리포에 없어 채널별 절대 폭을 하드코딩하지 않고, 레코드 폭이 채널마다 고정이라는
+    //  성질만 써서 "총 필드 수 / count"로 폭을 복원한다. count<=1이거나 나누어떨어지지 않거나 폭이
+    //  min_fields 미만이면 빈 벡터 — 호출부는 기존 1건 경로로 떨어진다(보수적 실패).
+    static std::vector<std::vector<std::string>> split_records(
+        const std::vector<std::string>& fields, int count, size_t min_fields)
+    {
+        std::vector<std::vector<std::string>> out;
+        if (count <= 1 || fields.empty())
+        {
+            return out;
+        }
+        const size_t n = static_cast<size_t>(count);
+        if (fields.size() % n != 0)
+        {
+            return out;
+        }
+        const size_t width = fields.size() / n;
+        if (width < min_fields || width == 0)
+        {
+            return out;
+        }
+        out.reserve(n);
+        for (size_t r = 0; r < n; ++r)
+        {
+            out.emplace_back(fields.begin() + static_cast<std::ptrdiff_t>(r * width),
+                             fields.begin() + static_cast<std::ptrdiff_t>((r + 1) * width));
+        }
+        return out;
+    }
+
     bool is_connected() const
     {
         return connected_.load();
@@ -97,6 +128,12 @@ private:
     std::atomic<int> sub_used_{0};
     void recv_loop();
     void parse_message(const std::string& msg);
+    // 레코드 한 건을 tr_id에 맞는 파서로 보낸다(단건·다건 프레임이 공유).
+    void dispatch_record(const std::string& tr_id, const std::vector<std::string>& f);
+    // 채널별 파서가 요구하는 최소 필드 수(각 parse_*의 가드와 같은 값). 모르는 채널은 0.
+    static size_t min_fields_for(const std::string& tr_id);
+    // 다건 프레임을 자르지 못해 1건만 처리했을 때의 경고 횟수. 수신 스레드만 만진다.
+    int multi_rec_warned_ = 0;
     void parse_orderbook(const std::vector<std::string>& f);
     void parse_kr_trade(const std::vector<std::string>& f);
     void parse_us_trade(const std::vector<std::string>& f);

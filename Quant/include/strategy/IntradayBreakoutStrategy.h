@@ -23,9 +23,9 @@
 //        반등 청산 exit_near_avg_pct. 이미 -30% 물린 평단에 -3% 하드손절을 걸어 개장
 //        즉시 시장가 투매하는 자해(v1 결함)를 제거. 반등에 실어 던진다.
 //    (B) 신규 진입분: 타이트 트레일 trail_pct + 진입가 하드손절 hard_pct.
-//    공통: 평단손절(avg_loss_pct, 보통 0=비활성), EOD(eod_hhmm) 강제청산.
+//    공통: 평단손절(avg_loss_pct, 보통 0=비활성), 장 마감(eod_hhmm) 강제청산.
 //  [신규진입 금지]  no_new_entry_hhmm(>0이면 이 시각부터, 아니면 eod_hhmm) 이후 진입 금지
-//          — 마감 임박 진입은 트레일 발동 전 EOD 강제청산되므로.
+//          — 마감 임박 진입은 트레일 발동 전 장 마감 강제청산되므로.
 //
 //  안전장치: 재진입 쿨다운으로 청산 직후 재매수 폭주 방지. account_id 기본 "" → OrderGate
 //           원장 시드 키 일치(C-1). 신규 진입 후 position_is_seed_=false로 성격 전환.
@@ -60,6 +60,14 @@ public:
 
     // 표시명(종목명) — 로깅 전용. id()/dedup 키는 ticker 기반 유지.
     void set_name(std::string n) { name_ = std::move(n); }
+
+    // 본전탈출 무장 임계 — 이 깊이만큼 실제로 물려 본 적이 있어야 본전탈출이 켜진다.
+    //  0이면 무장 조건 없음(예전 동작). 재기동 직후 평단 -0.2% 보유분이 첫 틱에
+    //  전량 청산되던 사고가 여기서 나왔다 — 그건 "물린" 것이 아니라 그냥 본전이다.
+    void set_exit_near_avg_arm(double pct) { exit_near_avg_arm_pct_ = pct; }
+    // 부착 직후 보호구간 — 이 시간 동안은 청산 관리 청산을 내지 않는다. 재기동 첫 틱과
+    //  국면 배선(RegimeSelect) 적용 사이의 경합으로 투매가 나가는 것을 막는다.
+    void set_guard_warmup_sec(int s) { guard_warmup_sec_ = s; }
     std::string tag() const { return name_.empty() ? ticker_ : (ticker_ + " " + name_); }
 
     std::string describe() const override
@@ -90,7 +98,14 @@ public:
         position_is_seed_ = start_in_position_; // 기동 보유분 = 물린 시드분
         entry_px_ = 0.0;
         peak_ = 0.0;
+        trough_ = 0.0;
+        start_tp_ = std::chrono::steady_clock::now();
         have_cooldown_ = false;
+        exit_pending_ = false;
+        exit_retries_ = 0;
+        exit_backoff_sec_ = kExitBackoffFirstSec;
+        exit_next_retry_ = std::chrono::steady_clock::time_point{};
+        exit_why_.clear();
     }
 
     // 일봉 경로 미사용(라이브 소스는 WS 체결) — 순수가상 요건 충족용 no-op.
@@ -122,13 +137,24 @@ public:
         // ── 청산: 보유 중이면 매 틱 스탑 평가 (손실통제 우선) ──────────────
         if (in_position_ && hold_qty_ > 0)
         {
+            if (exit_pending_)
+                return exit_pending_tick(px, td.timestamp);
+
             if (px > peak_)
                 peak_ = px;
+            if (trough_ <= 0.0 || px < trough_)
+                trough_ = px;
+
+            // 부착 직후 보호구간. 첫 틱에 스탑을 평가하면 재기동이 곧 투매가 된다.
+            const bool warm =
+                guard_warmup_sec_ <= 0 ||
+                std::chrono::steady_clock::now() - start_tp_ >=
+                    std::chrono::seconds(guard_warmup_sec_);
 
             bool hit = false;
             const char* why = " (stop)";
 
-            if (position_is_seed_)
+            if (position_is_seed_ && warm)
             {
                 // (A) 물린 보유분: 고점 기준 넓은 트레일링 스탑 + 본전근처 반등 청산.
                 double strail = (seed_trail_pct_ > 0.0 ? seed_trail_pct_ : trail_pct_);
@@ -140,7 +166,10 @@ public:
                 }
                 else if (exit_near_avg_pct_ > 0.0 && avg_px_ > 0.0 &&
                          px < avg_px_ && // 상단 가드: 아직 물린(underwater) 상태에서만
-                         px >= avg_px_ * (1.0 - exit_near_avg_pct_))
+                         px >= avg_px_ * (1.0 - exit_near_avg_pct_) &&
+                         // 하단 무장: 실제로 arm%만큼 물려 본 적이 있어야 한다.
+                         (exit_near_avg_arm_pct_ <= 0.0 ||
+                          (trough_ > 0.0 && trough_ <= avg_px_ * (1.0 - exit_near_avg_arm_pct_))))
                 {
                     // 본전탈출 = "물린 보유분이 평단 근처까지 회복하면 재하락 전에 탈출".
                     //  밴드: avg*(1-pct) ≤ px < avg. 상단 가드(px<avg)가 없으면 평단 위(수익)
@@ -167,7 +196,7 @@ public:
             }
 
             // 평단 손절(opt-in, 보통 0=비활성) — 성격 무관 실제 손실률 초과 시 청산.
-            if (!hit && avg_loss_pct_ > 0.0 && avg_px_ > 0.0 && px <= avg_px_ * (1.0 - avg_loss_pct_))
+            if (!hit && warm && avg_loss_pct_ > 0.0 && avg_px_ > 0.0 && px <= avg_px_ * (1.0 - avg_loss_pct_))
             {
                 hit = true;
                 why = " (평단손절)";
@@ -177,16 +206,20 @@ public:
             if (hit || eod)
             {
                 if (eod && !hit)
-                    why = " (EOD)";
+                    why = " (장 마감)";
                 auto sig = make_signal(OrderSide::SELL, hold_qty_, px, td.timestamp,
                                        std::string("청산") + why);
                 LOG_INFO("[ITB] SELL " + tag() + " qty=" + std::to_string(hold_qty_) + " @" +
                          px_str(px) + why);
-                in_position_ = false;
-                hold_qty_ = 0;
-                position_is_seed_ = false;
-                cooldown_until_ = td.timestamp + std::chrono::seconds(cooldown_sec_);
-                have_cooldown_ = true;
+                // 신호는 큐에 들어갈 뿐 접수·체결을 보장하지 않는다. 여기서 상태를 지우면 게이트에
+                //  튕긴 포지션이 어느 청산 경로에도 다시 잡히지 않는다. 확정 포지션이 0이 될 때까지
+                //  보유 상태를 유지한 채 백오프 재발주한다(exit_pending_tick).
+                exit_pending_ = true;
+                exit_retries_ = 0;
+                exit_backoff_sec_ = kExitBackoffFirstSec;
+                exit_next_retry_ = std::chrono::steady_clock::now() +
+                                   std::chrono::seconds(exit_backoff_sec_);
+                exit_why_ = why;
                 return sig;
             }
         }
@@ -244,6 +277,55 @@ public:
     }
 
 private:
+    // 청산 대기 중 틱 처리. 원장(confirmed_position)이 0이면 해제, 줄었으면 잔량으로 갱신하고
+    //  백오프를 되돌린다. 아니면 백오프 창이 지났을 때 같은 수량을 재발주한다.
+    //  원장이 이 종목을 모르면(미시드) 0이 나와 곧바로 해제된다 — 예전 동작과 같다.
+    //  체결 뒤 남은 재발주는 게이트가 안 잡고 브로커가 거부하므로 횟수 상한으로 스팸을 끊는다.
+    std::optional<OrderSignal> exit_pending_tick(double px, std::chrono::system_clock::time_point ts)
+    {
+        const int pos = confirmed_position("", ticker_); // make_signal의 account_id=""와 같은 키
+        const auto now = std::chrono::steady_clock::now();
+        if (pos <= 0)
+        {
+            LOG_INFO("[ITB] 청산 확인 " + tag() + exit_why_ + " 재발주=" + std::to_string(exit_retries_));
+            in_position_ = false;
+            hold_qty_ = 0;
+            position_is_seed_ = false;
+            exit_pending_ = false;
+            cooldown_until_ = ts + std::chrono::seconds(cooldown_sec_);
+            have_cooldown_ = true;
+            return std::nullopt;
+        }
+        if (pos < hold_qty_)
+        {
+            LOG_INFO("[ITB] 부분 청산 " + tag() + " 잔량=" + std::to_string(pos) + "/" + std::to_string(hold_qty_));
+            hold_qty_ = pos;
+            exit_backoff_sec_ = kExitBackoffFirstSec;
+            exit_next_retry_ = now;
+        }
+        if (now < exit_next_retry_)
+            return std::nullopt;
+        if (exit_retries_ >= kExitMaxRetries)
+        {
+            if (exit_retries_ == kExitMaxRetries)
+            {
+                ++exit_retries_; // 한 번만 남기고 침묵
+                LOG_WARN("[ITB] 청산 재발주 상한 " + tag() + " qty=" + std::to_string(hold_qty_) +
+                         " — 원장 잔량이 남아 있다. 수동 확인 필요");
+            }
+            return std::nullopt;
+        }
+        ++exit_retries_;
+        auto sig = make_signal(OrderSide::SELL, hold_qty_, px, ts,
+                               "청산 재발주#" + std::to_string(exit_retries_) + exit_why_);
+        LOG_WARN("[ITB] SELL 재발주#" + std::to_string(exit_retries_) + " " + tag() + " qty=" +
+                 std::to_string(hold_qty_) + " @" + px_str(px) + exit_why_ + " 다음 " +
+                 std::to_string(exit_backoff_sec_) + "s");
+        exit_next_retry_ = now + std::chrono::seconds(exit_backoff_sec_);
+        exit_backoff_sec_ = std::min(exit_backoff_sec_ * 2, kExitBackoffMaxSec);
+        return sig;
+    }
+
     OrderSignal make_signal(OrderSide side, int qty, double px,
                             std::chrono::system_clock::time_point ts,
                             const std::string& reason = "")
@@ -293,6 +375,8 @@ private:
     // ── v2 ──
     double seed_trail_pct_ = 0.0;       // 물린분 고점 기준 트레일(넓게)
     double exit_near_avg_pct_ = 0.0;    // 물린분 본전탈출 임계(평단 -x% 이내 반등)
+    double exit_near_avg_arm_pct_ = 0.03; // 본전탈출 무장 깊이(평단 -x% 도달 이력 필요)
+    int    guard_warmup_sec_ = 60;      // 부착 직후 청산 유예(초)
     int no_new_entry_hhmm_ = 0;         // 신규진입 금지 시각(0→eod_hhmm)
     double notional_per_position_ = 0.0; // 종목당 명목(원)
     double day_open_px_ = 0.0;          // 당일 시가 앵커 주입
@@ -306,6 +390,18 @@ private:
     bool position_is_seed_ = false; // 현재 포지션이 물린 시드분인가(청산 로직 분기)
     double entry_px_ = 0.0;
     double peak_ = 0.0;
+    double trough_ = 0.0;              // 부착 이후 최저가 — 본전탈출 무장 판정용
+    std::chrono::steady_clock::time_point start_tp_{}; // on_start 시각(워밍업 기준)
     bool have_cooldown_ = false;
     std::chrono::system_clock::time_point cooldown_until_;
+
+    // ── 청산 대기(C-2): 확정 포지션 0 확인 전까지 보유 상태 유지 + 백오프 재발주 ──
+    static constexpr int kExitBackoffFirstSec = 2;
+    static constexpr int kExitBackoffMaxSec = 60;
+    static constexpr int kExitMaxRetries = 20;
+    bool exit_pending_ = false;
+    int exit_retries_ = 0;
+    int exit_backoff_sec_ = kExitBackoffFirstSec;
+    std::chrono::steady_clock::time_point exit_next_retry_{};
+    std::string exit_why_; // 최초 청산 사유(재발주 로그·reason에 그대로 싣는다)
 };

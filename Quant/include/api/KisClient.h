@@ -2,6 +2,7 @@
 #include "api/IOrderExecutor.h"
 #include "core/Types.h"
 #include <chrono>
+#include <cstdio>
 #include <functional>
 #include <mutex>
 #include <nlohmann/json.hpp>
@@ -15,12 +16,45 @@ struct KisConfig
     std::string app_secret;
     std::string account_no;
     std::string account_type; // "01"
-    std::string hts_id;       // H0STCNI0 구독 키 (미설정 시 account_no 사용)
+    std::string hts_id;       // H0STCNI0/9 체결통보 구독 키(HTS ID). 비어 있으면 구독을 건너뛴다 — account_no로 대체하지 않는다
     bool is_paper = false;
     // 일봉 캐시 유효시간(초). 0이면 캐시 끔. 일봉을 매 사이클 다시 받아야 하는 전략
     //  (MA_CROSS·MOMENTUM처럼 on_data로 도는 것)을 쓸 때는 짧게 두거나 0으로 끈다.
     int daily_cache_ttl_sec = 600;
 };
+
+// HHMMSS 문자열에서 minutes분을 빼 같은 형식으로 돌려준다. 자릿수 산술이 아니라 초로 바꿔 뺀다
+//  ("100000" - 1분 = "095900". 10진수 -100은 "099900"이라는 없는 시각을 만든다).
+//  형식이 아니거나 결과가 00:00:00 아래로 내려가면 빈 문자열.
+inline std::string kis_hhmmss_minus_minutes(const std::string& hhmmss, int minutes)
+{
+    if (hhmmss.size() != 6)
+    {
+        return "";
+    }
+    for (char c : hhmmss)
+    {
+        if (c < '0' || c > '9')
+        {
+            return "";
+        }
+    }
+    const int hh = (hhmmss[0] - '0') * 10 + (hhmmss[1] - '0');
+    const int mm = (hhmmss[2] - '0') * 10 + (hhmmss[3] - '0');
+    const int ss = (hhmmss[4] - '0') * 10 + (hhmmss[5] - '0');
+    if (hh > 23 || mm > 59 || ss > 59)
+    {
+        return "";
+    }
+    const long total = static_cast<long>(hh) * 3600 + mm * 60 + ss - static_cast<long>(minutes) * 60;
+    if (total < 0)
+    {
+        return "";
+    }
+    char buf[8];
+    std::snprintf(buf, sizeof(buf), "%02ld%02ld%02ld", total / 3600, (total / 60) % 60, total % 60);
+    return buf;
+}
 
 class KisClient : public IOrderExecutor
 {
@@ -28,7 +62,7 @@ public:
     explicit KisClient(const KisConfig& cfg);
     ~KisClient() override;
 
-    // 이 스레드의 조회를 재시도 없이 보낸다(빠른 실패). 공유 전략 스레드처럼 한 번의 왕복이
+    // 이 스레드의 조회를 재시도 없이 보낸다(재시도 없이 즉시 실패). 공유 전략 스레드처럼 한 번의 왕복이
     //  다른 종목 전체를 막는 자리에서 쓴다 — 3회 재시도 × 타임아웃이면 한 번의 조회가 스레드를
     //  수십 초 잡는다. 실패는 호출자가 보류(0)로 처리하고 다음 하트비트에 다시 온다.
     class FastFailScope

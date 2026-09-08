@@ -10,7 +10,7 @@
 //   ("순수 처리 비용"). 이 하네스는 그 위에 커널 TCP 스택 왕복(recv)을 더한 경로를 잰다.
 //
 //   ⚠ 정직 경계 — loopback TCP는 실제 코스콤↔증권사 WAN/전용선이 아니다. 커널 네트워크
-//     스택(send→loopback→recv)·직렬화·프레이밍·백프레셔는 통과하지만, 물리 회선 지연
+//     스택(send→loopback→recv)·직렬화·프레이밍·밀림 처리는 통과하지만, 물리 회선 지연
 //     (수십~수백µs)은 이 머신에 없다. 즉 소켓 도착 후 주문 결정까지 + 동일 머신 TCP 스택
 //     비용을 측정한다. 실제 코스콤 데이터는 소량(~20종목)을 KIS WS로 병행 실증(별도).
 //
@@ -274,7 +274,7 @@ struct Stats
     std::atomic<uint64_t> td_consumed{0};
     std::atomic<uint64_t> signals{0};
     std::atomic<uint64_t> orders{0};
-    std::atomic<uint64_t> ob_drops{0};     // 수신측 큐 백프레셔 드롭
+    std::atomic<uint64_t> ob_drops{0};     // 수신측 큐 밀림 처리 드롭
     std::atomic<uint64_t> td_drops{0};
     std::atomic<uint64_t> order_drops{0};
     std::atomic<uint64_t> ob_hwm{0};
@@ -297,7 +297,7 @@ static inline void bump_hwm(std::atomic<uint64_t>& hwm, uint64_t v)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 코스콤 송신기 — 연결된 소켓으로 Zipf 팬아웃을 offered rate로 방출(busy-wait pacing).
-//   blocking send_all → 수신측이 못 따라가면 TCP 흐름제어가 send를 지연시킴(백프레셔).
+//   blocking send_all → 수신측이 못 따라가면 TCP 흐름제어가 send를 지연시킴(밀림 처리).
 //   그 결과 achieved rate < offered면 소켓 경로가 천장에 닿은 것.
 // ─────────────────────────────────────────────────────────────────────────────
 static void koscom_send_fn(socket_t s,
@@ -775,7 +775,7 @@ static void print_run(const RunResult& r, int64_t offered)
     std::printf("signals/orders   : %llu / %llu  (order_q hwm %llu)\n",
                 (unsigned long long)r.signals, (unsigned long long)r.orders,
                 (unsigned long long)r.order_hwm);
-    std::printf("recv-q hwm ob/td : %llu / %llu   drops(백프레셔): %llu\n\n",
+    std::printf("recv-q hwm ob/td : %llu / %llu   drops(밀림 처리): %llu\n\n",
                 (unsigned long long)r.ob_hwm, (unsigned long long)r.td_hwm,
                 (unsigned long long)r.drops);
 

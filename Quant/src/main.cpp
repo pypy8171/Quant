@@ -40,26 +40,6 @@ static json load_config(const std::string& path)
     return json::parse(f);
 }
 
-// ─── 실행파일이 놓인 디렉터리 (cwd와 무관) ──────────────────────────────────
-//  로그·산출물을 실행 위치가 아니라 바이너리 기준으로 모으기 위한 앵커.
-//  Windows 한글 경로(예: C:\Users\...\) 대비 wide 버퍼로 받아 path로만 다룬다.
-static std::filesystem::path executable_dir()
-{
-#ifdef _WIN32
-    wchar_t buf[MAX_PATH];
-    DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
-    if (n == 0 || n >= MAX_PATH)
-        return std::filesystem::current_path();
-    return std::filesystem::path(std::wstring(buf, n)).parent_path();
-#else
-    std::error_code ec;
-    auto p = std::filesystem::read_symlink("/proc/self/exe", ec);
-    if (ec)
-        return std::filesystem::current_path();
-    return p.parent_path();
-#endif
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 //  main — 설정·인증 부트스트랩 후 모드별 실행으로 디스패치한다.
 //   · 관찰 모드(FEED/KR_TEST/US_TEST) → modes/Monitors.cpp
@@ -74,15 +54,8 @@ int main(int argc, char* argv[])
     GetConsoleMode(hOut, &dwMode);
     SetConsoleMode(hOut, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
 #endif
-    // 로그·산출물을 실행 위치(cwd)와 무관하게 한 폴더로 못박는다.
-    //  기본: 실행파일 옆 logs/  ·  QUANT_LOG_DIR 환경변수가 있으면 그 절대경로 우선.
-    //  (같은 바이너리를 어느 폴더에서 띄워도 trades/pnl_baseline/log가 흩어지지 않음)
-    std::filesystem::path log_base;
-    if (const char* env = std::getenv("QUANT_LOG_DIR"); env && *env)
-        log_base = std::filesystem::path(env);
-    else
-        log_base = executable_dir() / "logs";
-    Logger::instance().set_base_dir(log_base);
+    // 로그·산출물 기준 폴더는 Logger::default_base_dir()(QUANT_LOG_DIR > 실행파일 옆 logs/).
+    Logger::instance().set_base_dir(Logger::default_base_dir());
     Logger::instance().init(Logger::instance().path_for("quant_trader.log"), LogLevel::INFO);
     LOG_INFO("=== Quant Trader v2.0 ===");
 
@@ -171,6 +144,10 @@ int main(int argc, char* argv[])
     //  (entry_halt)를 켜고 풀리면 끈다. 빈 문자열(기본)이면 미가동 — 기존 동작 불변.
     engine.set_regime_file(cfg.value("regime_file", std::string()),
                            cfg.value("regime_stale_sec", kDefaultRegimeStaleSec));
+    // ZMQ 제어 채널(config "zmq_bind_addr"·"zmq_control_token"). 주소를 안 주면 127.0.0.1에
+    //  묶이고, 토큰이 비면 KILL 명령은 거부된다. 스레드 시작 전에만 유효하다.
+    engine.set_zmq_control(cfg.value("zmq_bind_addr", std::string()),
+                           cfg.value("zmq_control_token", std::string()));
     // G1: 국면→전략 자동선택 맵. config "regime_strategies": {"BULL":[id...], "NEUTRAL":[...], "BEAR":[...]}.
     //  id 항목이 '*'로 끝나면 접두 매칭(스캐너 동적 id: "DevScale_*"). 미지정이면 기존
     //  per-strategy active_regimes 방식 유지(하위호환). 지정 시 국면이 전략셋을 선택한다.
@@ -199,6 +176,64 @@ int main(int argc, char* argv[])
         LOG_INFO("[Main] 국면→전략 자동선택 맵 " + std::to_string(rmap.size()) +
                  "개 국면 적용(재평가 " + std::to_string(cfg.value("regime_reeval_sec", 300)) + "s)");
     }
+    // 국면 판정기(RegimeController) 파라미터. config "regime_tuning":
+    //  {"index_code":"0001","ma_long":200,"ma_mid":60,"ma_short":20,"ma_align3":120,
+    //   "score_bull_threshold":2,"score_bear_threshold":-2,"fail_fallback_n":3}
+    //  미지정이면 기본값 그대로(기존 동작 불변). 이 배선이 없던 동안 지수코드마저 하드코딩이라
+    //  코스닥 지수로 판정할 수단이 없었고, BULL/BEAR 분기를 실데이터로 태울 방법도 없었다
+    //  (docs/DEFERRED_ISSUES.md D-15).
+    if (cfg.contains("regime_tuning"))
+    {
+        const auto& rt = cfg["regime_tuning"];
+        const RegimeController::Config def;       // 기본값 스냅샷(오버라이드 판별·되돌림용)
+        RegimeController::Config rc;              // 기본값에서 시작해 준 항목만 덮어쓴다
+        rc.index_code      = rt.value("index_code",      rc.index_code);
+        rc.ma_long         = rt.value("ma_long",         rc.ma_long);
+        rc.ma_mid          = rt.value("ma_mid",          rc.ma_mid);
+        rc.ma_short        = rt.value("ma_short",        rc.ma_short);
+        rc.ma_align3       = rt.value("ma_align3",       rc.ma_align3);
+        rc.fail_fallback_n = rt.value("fail_fallback_n", rc.fail_fallback_n);
+
+        // 점수 임계값은 국면 판정을 통째로 뒤집는 스위치다(±2가 v0 2축의 만장일치 규칙).
+        //  검증·드릴 목적으로만 열어두고, 실계좌에서는 무시하고 기본값으로 되돌린다.
+        const int bull = rt.value("score_bull_threshold", def.score_bull_threshold);
+        const int bear = rt.value("score_bear_threshold", def.score_bear_threshold);
+        const bool overridden = (bull != def.score_bull_threshold) || (bear != def.score_bear_threshold);
+        if (overridden && !kis_cfg.is_paper)
+        {
+            LOG_ERROR("[Main] regime_tuning 점수 임계값 오버라이드는 실계좌에서 무시한다 "
+                      "(요청 bull=" + std::to_string(bull) + " bear=" + std::to_string(bear) +
+                      " → 기본 " + std::to_string(def.score_bull_threshold) + "/" +
+                      std::to_string(def.score_bear_threshold) + "). 모의계좌에서만 쓴다.");
+        }
+        else
+        {
+            rc.score_bull_threshold = bull;
+            rc.score_bear_threshold = bear;
+            if (overridden)
+                LOG_WARN("[Main] 국면 점수 임계값 오버라이드 — bull>=" + std::to_string(bull) +
+                         ", bear<=" + std::to_string(bear) + " (기본 " +
+                         std::to_string(def.score_bull_threshold) + "/" +
+                         std::to_string(def.score_bear_threshold) +
+                         "). 국면이 실제 시장과 다르게 판정되니 검증용으로만 둔다.");
+        }
+        // classify()는 BULL을 먼저 보므로 bull<=bear면 NEUTRAL이 도달 불능이 된다.
+        if (rc.score_bull_threshold <= rc.score_bear_threshold)
+        {
+            LOG_ERROR("[Main] regime_tuning: bull(" + std::to_string(rc.score_bull_threshold) +
+                      ") <= bear(" + std::to_string(rc.score_bear_threshold) +
+                      ") — NEUTRAL이 도달 불능이라 기본값으로 되돌린다.");
+            rc.score_bull_threshold = def.score_bull_threshold;
+            rc.score_bear_threshold = def.score_bear_threshold;
+        }
+        engine.set_regime_config(rc);
+        LOG_INFO("[Main] 국면 판정 파라미터 — 지수=" + rc.index_code +
+                 " ma(" + std::to_string(rc.ma_short) + "/" + std::to_string(rc.ma_mid) + "/" +
+                 std::to_string(rc.ma_align3) + "/" + std::to_string(rc.ma_long) + ")" +
+                 " 임계(bull>=" + std::to_string(rc.score_bull_threshold) +
+                 ", bear<=" + std::to_string(rc.score_bear_threshold) + ")" +
+                 " fail_fallback=" + std::to_string(rc.fail_fallback_n));
+    }
     // 기동 스모크 테스트 — 서버 실행 직후 지정 종목을 시장가 1주 매수해, 주문 경로 전체가
     //  살아있는지 최소 점검한다. config "startup_probe": {"ticker":"005930","qty":1}.
     //  없으면 미가동(기존 동작 불변).
@@ -209,7 +244,7 @@ int main(int argc, char* argv[])
         int         sp_qty    = sp.value("qty", 0);
         engine.set_startup_probe(sp_ticker, sp_qty);
         if (!sp_ticker.empty() && sp_qty > 0)
-            LOG_INFO("[Main] 기동 스모크 프로브 설정: " + sp_ticker + " 시장가 " +
+            LOG_INFO("[Main] 기동 기동 점검 설정: " + sp_ticker + " 시장가 " +
                      std::to_string(sp_qty) + "주 (모의계좌 주문경로 검증)");
     }
     // 시세 전용(실전 도메인) 키: 모의(openapivts)는 시세 REST가 HTTP 500이므로 시세만 실전으로 조회.
@@ -231,7 +266,7 @@ int main(int argc, char* argv[])
         LOG_INFO("[Main] 시세 전용 클라이언트(실전 도메인) 설정됨");
     }
 
-    // 위험 한도(risk) + 주문 페이싱 — config로 노출(없으면 OrderGate 기본값·페이싱 기본값 유지).
+    // 위험 한도(risk) + 주문 호출 간격 조절 — config로 노출(없으면 OrderGate 기본값·호출 간격 조절 기본값 유지).
     //  지정된 키만 기본값에서 덮어쓴다. 실제 돈 규율 튜닝을 재빌드 없이 하기 위함(S-1).
     if (cfg.contains("risk"))
     {
@@ -267,13 +302,13 @@ int main(int argc, char* argv[])
                      std::to_string(rc.max_concurrent_positions) + "종목");
         if (rc.max_gross_exposure_pct > 0.0)
             LOG_INFO("[Main] 총노출 상한: 자본의 " +
-                     std::to_string(rc.max_gross_exposure_pct) + " (리컨사일 총평가금 기준)");
+                     std::to_string(rc.max_gross_exposure_pct) + " (잔고 대조 총평가금 기준)");
 
-        // 주문 페이싱(C-2/W-3) — 버스트 청산 EGW00201 회피 + 거부 SELL 재시도.
+        // 주문 호출 간격 조절(C-2/W-3) — 버스트 청산 EGW00201 회피 + 거부 SELL 재시도.
         int pace_ms = r.value("order_min_interval_ms", 350);
         int max_ret = r.value("order_max_retries", 3);
         engine.set_order_pacing(pace_ms, max_ret);
-        LOG_INFO("[Main] 주문 페이싱: " + std::to_string(pace_ms) + "ms 간격, 청산 SELL 재시도 " +
+        LOG_INFO("[Main] 주문 호출 간격 조절: " + std::to_string(pace_ms) + "ms 간격, 청산 SELL 재시도 " +
                  std::to_string(max_ret) + "회");
     }
 

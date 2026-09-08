@@ -15,7 +15,7 @@
 #include <vector>
 
 // 선별 단계에서 종목마다 KIS REST를 연속 호출하므로 호출 사이에 짧게 쉰다
-// (초당 호출 한도(EGW00201) 회피용 페이싱 간격).
+// (초당 호출 한도(EGW00201) 회피용 호출 간격 조절 간격).
 namespace
 {
 constexpr int kSdpRestPacingMs = 60;

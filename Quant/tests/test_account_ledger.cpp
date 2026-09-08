@@ -160,6 +160,27 @@ void test_key_collision_safety()
     PASS("key_collision_safety");
 }
 
+// ─── 테스트 8: 평단 미상 SELL은 가짜 실현이익을 만들지 않는다 (C-1 회귀) ─────────
+//   원장이 종목을 모르면(재기동 후 미시드·미연결 체결) cur_avg=0이라 (price-0)*qty가 이익으로
+//   잡히고 daily_pnl이 부풀어 일일 손실컷이 무력화된다. 평단을 모르면 0 + basis_unknown.
+void test_sell_unknown_basis_no_fake_profit()
+{
+    OrderGate gate(relaxed_cfg());
+    auto r = gate.on_fill_confirmed("ACC1", "047050", OrderSide::SELL, 91, 54700.0);
+    assert(r.basis_unknown);
+    assert(r.realized_pnl == 0.0);
+    assert(gate.daily_pnl() == 0.0);             // 4,977,700원이 이익으로 적립되지 않음
+    assert(gate.position("ACC1", "047050") == 0); // 보유 초과 매도는 0으로 클램프(기존 동작)
+
+    // 평단을 아는 계좌는 그대로 계산된다 — 격리 확인
+    gate.on_fill_confirmed("ACC2", "047050", OrderSide::BUY, 10, 50000.0);
+    auto r2 = gate.on_fill_confirmed("ACC2", "047050", OrderSide::SELL, 10, 54700.0);
+    assert(!r2.basis_unknown);
+    assert(r2.realized_pnl > 0.0 && r2.realized_pnl < 47000.0); // 47,000원에서 수수료·세금 차감
+    assert(gate.daily_pnl() == r2.realized_pnl);
+    PASS("sell_unknown_basis_no_fake_profit");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -173,6 +194,7 @@ int main()
     test_dedup_account_isolation();
     test_reset_daily_isolation();
     test_key_collision_safety();
+    test_sell_unknown_basis_no_fake_profit();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

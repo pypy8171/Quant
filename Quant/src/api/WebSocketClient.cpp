@@ -676,59 +676,111 @@ static void ws_send_text_linux(int fd, const std::string& data)
     ::send(fd, frame.data(), frame.size(), 0);
 }
 
-// RFC 6455 프레임 수신 → 텍스트 반환 (빈 문자열 = 연결 종료/오류)
+// RFC 6455 프레임 수신 → 메시지 텍스트 반환 (빈 문자열 = 연결 종료/오류)
+//  FIN=0 프레임과 뒤따르는 continuation(0x0)을 한 메시지로 모은다 — Windows 경로의 UTF8_FRAGMENT
+//  누적과 같은 동작이어야 parse_message가 잘린 문자열을 받지 않는다. 제어 프레임(ping/pong)은
+//  분할 메시지 사이에 끼어들 수 있으므로 누적을 끊지 않는다. 재귀 대신 루프 — ping이 연속으로
+//  오면 스택이 자란다.
 static std::string ws_recv_frame_linux(int fd)
 {
-    uint8_t hdr[2];
-    if (!sock_recv_all(fd, hdr, 2))
-        return "";
-
-    uint8_t opcode = hdr[0] & 0x0F;
-    bool masked = (hdr[1] >> 7) & 1;
-    size_t len = hdr[1] & 0x7F;
-
-    if (len == 126)
+    // 손상된 길이 필드 하나로 거대 할당이 일어나지 않게 상한을 둔다. KIS 실시간 프레임은 KB 단위다.
+    constexpr uint64_t kMaxMessageBytes = uint64_t(1) << 20;
+    std::string message;
+    bool in_message = false;
+    while (true)
     {
-        uint8_t ext[2];
-        if (!sock_recv_all(fd, ext, 2))
+        uint8_t hdr[2];
+        if (!sock_recv_all(fd, hdr, 2))
+        {
             return "";
-        len = (size_t(ext[0]) << 8) | ext[1];
-    }
-    else if (len == 127)
-    {
-        uint8_t ext[8];
-        if (!sock_recv_all(fd, ext, 8))
+        }
+
+        const bool fin = (hdr[0] & 0x80) != 0;
+        const uint8_t opcode = hdr[0] & 0x0F;
+        const bool masked = ((hdr[1] >> 7) & 1) != 0;
+        uint64_t len = hdr[1] & 0x7F;
+
+        if (len == 126)
+        {
+            uint8_t ext[2];
+            if (!sock_recv_all(fd, ext, 2))
+            {
+                return "";
+            }
+            len = (uint64_t(ext[0]) << 8) | ext[1];
+        }
+        else if (len == 127)
+        {
+            uint8_t ext[8];
+            if (!sock_recv_all(fd, ext, 8))
+            {
+                return "";
+            }
+            len = 0;
+            for (int i = 0; i < 8; ++i)
+            {
+                len = (len << 8) | ext[i];
+            }
+        }
+        if (len > kMaxMessageBytes || message.size() + len > kMaxMessageBytes)
+        {
+            LOG_WARN("[WS] 프레임 길이 상한 초과 (" + std::to_string(len) + "B) — 연결을 끊고 재연결한다");
             return "";
-        len = 0;
-        for (int i = 0; i < 8; ++i)
-            len = (len << 8) | ext[i];
-    }
+        }
 
-    uint8_t mk[4]{};
-    if (masked && !sock_recv_all(fd, mk, 4))
-        return "";
+        uint8_t mk[4]{};
+        if (masked && !sock_recv_all(fd, mk, 4))
+        {
+            return "";
+        }
 
-    std::vector<uint8_t> payload(len);
-    if (len > 0 && !sock_recv_all(fd, payload.data(), len))
-        return "";
-    if (masked)
-        for (size_t i = 0; i < len; ++i)
-            payload[i] ^= mk[i % 4];
+        std::vector<uint8_t> payload(static_cast<size_t>(len));
+        if (len > 0 && !sock_recv_all(fd, payload.data(), static_cast<size_t>(len)))
+        {
+            return "";
+        }
+        if (masked)
+        {
+            for (size_t i = 0; i < payload.size(); ++i)
+            {
+                payload[i] ^= mk[i % 4];
+            }
+        }
 
-    if (opcode == 0x8)
-        return ""; // Close frame
-    if (opcode != 0x1 && opcode != 0x2 && opcode != 0x0)
-    {
-        // Ping(0x9) → Pong(0xA)
+        if (opcode == 0x8)
+        {
+            return ""; // Close frame
+        }
         if (opcode == 0x9)
         {
+            // Ping(0x9) → Pong(0xA). 제어 프레임 payload는 125B 이하라 1바이트 길이로 충분하다.
             std::vector<uint8_t> pong = {0x8A, uint8_t(0x80 | (len & 0x7F)), 0x00, 0x00, 0x00, 0x00};
             pong.insert(pong.end(), payload.begin(), payload.end());
             ::send(fd, pong.data(), pong.size(), 0);
+            continue;
         }
-        return ws_recv_frame_linux(fd); // 다음 프레임 수신
+        if (opcode == 0x1 || opcode == 0x2)
+        {
+            message.assign(payload.begin(), payload.end());
+            in_message = true;
+        }
+        else if (opcode == 0x0)
+        {
+            if (!in_message)
+            {
+                continue; // 시작 프레임 없는 continuation — 버린다
+            }
+            message.append(payload.begin(), payload.end());
+        }
+        else
+        {
+            continue; // pong(0xA)·예약 opcode — 메시지가 아니다
+        }
+        if (fin)
+        {
+            return message;
+        }
     }
-    return std::string(payload.begin(), payload.end());
 }
 
 // ─── Linux WebSocket 연결 ─────────────────────────────────────────────────
@@ -995,7 +1047,21 @@ bool KisWebSocket::subscribe_incremental(const WatchSpec& spec)
         return false; // 목록에만 넣어 둔다. 실제 구독은 connect()/재연결의 subscribe_all이 한다.
     const int need = spec_channel_count(spec);
     if (sub_used_.load() + need > kMaxWsSubs)
-        return false; // 상한 도달 — 시세는 REST 폴링으로 대체된다(체결통보 슬롯을 지킨다)
+    {
+        // 상한 도달 — 시세는 REST 폴링으로 대체된다(체결통보 슬롯을 지킨다).
+        // 목록에 남겨 두면 다음 재연결의 subscribe_all이 이 spec을 먼저 세어 뒤쪽 종목을 밀어내므로 되돌린다.
+        std::lock_guard<std::mutex> lk(specs_mtx_);
+        for (auto it = specs_.begin(); it != specs_.end(); ++it)
+        {
+            if (it->market == spec.market && it->exchange == spec.exchange &&
+                it->ticker == spec.ticker && it->is_future == spec.is_future)
+            {
+                specs_.erase(it);
+                break;
+            }
+        }
+        return false;
+    }
     subscribe_spec(spec);
     sub_used_.fetch_add(need);
     return true;
@@ -1141,18 +1207,93 @@ void KisWebSocket::parse_message(const std::string& msg)
 
     auto fields = split_str(data, '^');
 
+    // [wire] parts[2] = 이 프레임에 실린 레코드 수(COUNT). 1이면 기존 단건 경로 그대로.
+    //  COUNT>1인데 자르지 못하면(폭이 안 맞음) 첫 레코드만 처리하던 종전 동작을 유지하고 한 번만 경고한다.
+    int rec_count = 1;
+    try
+    {
+        rec_count = std::stoi(parts[2]);
+    }
+    catch (...)
+    {
+        rec_count = 1;
+    }
+    if (rec_count > 1)
+    {
+        auto recs = split_records(fields, rec_count, min_fields_for(tr_id));
+        if (!recs.empty())
+        {
+            for (const auto& rec : recs)
+            {
+                dispatch_record(tr_id, rec);
+            }
+            return;
+        }
+        if (multi_rec_warned_ < 1)
+        {
+            ++multi_rec_warned_;
+            LOG_WARN("[WS] 다건 프레임 분리 실패 tr_id=" + tr_id + " count=" + std::to_string(rec_count) +
+                     " fields=" + std::to_string(fields.size()) + " — 첫 레코드만 처리(이 경고는 1회만)");
+        }
+    }
+    dispatch_record(tr_id, fields);
+}
+
+size_t KisWebSocket::min_fields_for(const std::string& tr_id)
+{
     if (tr_id == "H0STASP0")
-        parse_orderbook(fields);
+    {
+        return 38;
+    }
+    if (tr_id == "H0STCNT0")
+    {
+        return 22;
+    }
+    if (tr_id == "H0IFASP0")
+    {
+        return 32;
+    }
+    if (tr_id == "H0IFCNT0")
+    {
+        return 19;
+    }
+    if (tr_id == "HDFSCNT0")
+    {
+        return 9;
+    }
+    if (tr_id == "H0STCNI0" || tr_id == "H0STCNI9")
+    {
+        return 14;
+    }
+    return 0;
+}
+
+void KisWebSocket::dispatch_record(const std::string& tr_id, const std::vector<std::string>& f)
+{
+    if (tr_id == "H0STASP0")
+    {
+        parse_orderbook(f);
+    }
     else if (tr_id == "H0STCNT0")
-        parse_kr_trade(fields);
+    {
+        parse_kr_trade(f);
+    }
     else if (tr_id == "H0IFASP0")
-        parse_fut_orderbook(fields);
+    {
+        parse_fut_orderbook(f);
+    }
     else if (tr_id == "H0IFCNT0")
-        parse_fut_trade(fields);
+    {
+        parse_fut_trade(f);
+    }
     else if (tr_id == "HDFSCNT0")
-        parse_us_trade(fields);
+    {
+        parse_us_trade(f);
+    }
     else if (tr_id == "H0STCNI0" || tr_id == "H0STCNI9")
-        parse_fill_notification(fields);
+    {
+        parse_fill_notification(f);
+    }
 }
 
 // ─── 호가 파싱 (H0STASP0) ────────────────────────────────────────────────
@@ -1388,7 +1529,20 @@ void KisWebSocket::parse_fill_notification(const std::vector<std::string>& f)
     FillNotification fn;
     fn.odno       = f[2];
     fn.ticker     = f[8];
-    fn.side       = (f[4] == "02") ? OrderSide::BUY : OrderSide::SELL;
+    // [wire] f[4] SELN_BYOV_CLS: 01=매도, 02=매수. 원장에 들어가는 값이라 그 밖은 기록하지 않고 버린다.
+    if (f[4] == "02")
+    {
+        fn.side = OrderSide::BUY;
+    }
+    else if (f[4] == "01")
+    {
+        fn.side = OrderSide::SELL;
+    }
+    else
+    {
+        LOG_WARN("[WS] H0STCNI 매매구분 알 수 없음 '" + f[4] + "' ODNO=" + fn.odno + " — 체결 무시");
+        return;
+    }
     fn.fill_time  = f[11];
     fn.timestamp  = std::chrono::system_clock::now();
     try

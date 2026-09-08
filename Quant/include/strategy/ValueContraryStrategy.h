@@ -10,7 +10,7 @@
 #include <vector>
 
 // 유니버스 종목마다 KIS REST를 연속 호출하므로 호출 사이에 짧게 쉰다
-// (초당 호출 한도(EGW00201) 회피용 페이싱 간격).
+// (초당 호출 한도(EGW00201) 회피용 호출 간격 조절 간격).
 namespace
 {
 constexpr int kValueContraryRestPacingMs = 200;
@@ -51,7 +51,7 @@ public:
     std::string describe() const override
     {
         return id() + " | PBR<=" + std::to_string(pbr_max_) + " | qty=" + std::to_string(quantity_) +
-               " | EOD=" + std::to_string(eod_exit_hhmm_);
+               " | 장 마감=" + std::to_string(eod_exit_hhmm_);
     }
 
     // ── 스크리닝 ──────────────────────────────────────────────────────────
@@ -209,7 +209,7 @@ private:
             sig.strategy_id = id();
             sig.timestamp = std::chrono::system_clock::now();
 
-            LOG_INFO("[ValueContrary] SELL(EOD): " + ticker + " @" + time_str);
+            LOG_INFO("[ValueContrary] SELL(장 마감): " + ticker + " @" + time_str);
             return sig;
         }
 

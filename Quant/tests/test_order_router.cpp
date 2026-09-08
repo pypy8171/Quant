@@ -269,6 +269,36 @@ void test_unmapped_fill_applied()
     PASS("unmapped_fill_applied");
 }
 
+// ─── 테스트 7c: 미매핑 체결의 재전송은 한 번만 반영 (W-6 회귀) ──────────────
+//   미연결은 history_에 없어 exhausted 판정이 못 잡고, 주문수량도 몰라 잔량 클램프도 없다.
+//   같은 키(거래일:odno:시각:수량:단가)의 2회차는 무시하고, 키가 다른 후속 분할체결은 반영한다.
+void test_unmapped_fill_duplicate_ignored()
+{
+    OrderGate         gate(relaxed_cfg());
+    StubOrderExecutor stub(true, "K000556");
+    OrderRouter       router(gate, stub);
+
+    FillNotification fn;
+    fn.odno = "PREV-SESSION"; fn.ticker = "047050"; fn.side = OrderSide::BUY;
+    fn.filled_qty = 91; fn.filled_price = 54700.0; fn.fill_time = "110707";
+    router.on_fill(fn);
+    router.on_fill(fn);                    // WS 재구독 재전송
+    assert(gate.position("047050") == 91); // 182로 부풀지 않음
+    assert(gate.reserved("047050") == 0);
+
+    fn.fill_time = "110709"; fn.filled_qty = 9; // 같은 주문의 다음 분할체결(키 다름)
+    router.on_fill(fn);
+    assert(gate.position("047050") == 100);
+
+    // 평단 미상 미연결 SELL — 실현이익을 만들지 않는다(C-1)
+    FillNotification s;
+    s.odno = "PREV-SELL"; s.ticker = "316140"; s.side = OrderSide::SELL;
+    s.filled_qty = 75; s.filled_price = 34050.0; s.fill_time = "093000";
+    router.on_fill(s);
+    assert(gate.daily_pnl() == 0.0);
+    PASS("unmapped_fill_duplicate_ignored");
+}
+
 // ─── 테스트 8: cross-day 중복방지 키 (V-4 fix) ────────────────────────────────────
 //   ODNO는 영업일 단위 재사용 + fill_time은 HHMMSS(날짜 없음). 다른 거래일의 동일
 //   (odno,fill_time,qty,price) 통보가 전일 체결로 오인돼 drop되면 실체결 누락 사고.
@@ -455,6 +485,7 @@ int main()
     test_order_id_sequence();
     test_duplicate_fill_ignored();
     test_unmapped_fill_applied();
+    test_unmapped_fill_duplicate_ignored();
     test_cross_day_fill_not_deduped();
     test_cancel_releases_reserved();
     test_cancel_unknown_oid();

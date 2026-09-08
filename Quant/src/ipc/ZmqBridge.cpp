@@ -12,7 +12,7 @@ using namespace std::chrono_literals;
 
 namespace
 {
-// 송신 큐 상한(백프레셔). 원장 정합에 직결되는 토픽(FILL/ORDER/SIGNAL)은 훨씬 크게 잡아
+// 송신 큐 상한(밀림 처리). 원장 정합에 직결되는 토픽(FILL/ORDER/SIGNAL)은 훨씬 크게 잡아
 // 구독자 지연에도 최대한 보존하고, 고빈도 TRADE/HEALTH는 작게 잡아 메모리 폭주를 막는다.
 constexpr size_t kCriticalQueueCap = 100000; // FILL/ORDER/SIGNAL 하드캡
 constexpr size_t kNormalQueueCap   = 1000;   // TRADE/HEALTH 하드캡
@@ -59,8 +59,8 @@ void ZmqBridge::thread_fn()
 
     try
     {
-        pub.bind("tcp://*:" + std::to_string(pub_port_));
-        rep.bind("tcp://*:" + std::to_string(rep_port_));
+        pub.bind("tcp://" + bind_addr_ + ":" + std::to_string(pub_port_));
+        rep.bind("tcp://" + bind_addr_ + ":" + std::to_string(rep_port_));
     }
     catch (const zmq::error_t& e)
     {
@@ -74,28 +74,35 @@ void ZmqBridge::thread_fn()
 
     while (running_.load())
     {
-        // 1. 송신 큐 소진
+        // 1. 송신 큐 소진 — 락 안에서는 스왑만 하고 전송은 락 밖에서(Logger writer와 같은 패턴).
+        //    락을 쥔 채 큐 상한(10만 건)까지 밀어내면 그동안 전략·주문·WS 콜백의 enqueue가 전부 선다.
+        std::queue<Msg> local;
         {
             std::lock_guard<std::mutex> lk(queue_mtx_);
-            while (!send_queue_.empty())
+            std::swap(local, send_queue_);
+        }
+        while (!local.empty())
+        {
+            auto& m = local.front();
+            // 멀티파트: frame1=topic, frame2=payload. 두 프레임 다 dontwait — 이 스레드가 REP 폴링도 맡아
+            //  전송에서 멈추면 명령 채널까지 같이 선다. PUB는 HWM에서 드롭이 정상 동작이다.
+            zmq::message_t t_frame(m.topic.size());
+            zmq::message_t p_frame(m.payload.size());
+            std::memcpy(t_frame.data(), m.topic.data(), m.topic.size());
+            std::memcpy(p_frame.data(), m.payload.data(), m.payload.size());
+            try
             {
-                auto& m = send_queue_.front();
-                // 멀티파트: frame1=topic, frame2=payload
-                zmq::message_t t_frame(m.topic.size());
-                zmq::message_t p_frame(m.payload.size());
-                std::memcpy(t_frame.data(), m.topic.data(), m.topic.size());
-                std::memcpy(p_frame.data(), m.payload.data(), m.payload.size());
-                try
-                {
-                    pub.send(t_frame, zmq::send_flags::sndmore);
+                if (pub.send(t_frame, zmq::send_flags::sndmore | zmq::send_flags::dontwait))
                     pub.send(p_frame, zmq::send_flags::dontwait);
-                }
-                catch (const zmq::error_t& e)
-                {
-                    LOG_WARN(std::string("[ZMQ] publish 실패 topic=") + m.topic + " : " + e.what());
-                }
-                send_queue_.pop();
+                else
+                    ++drop_count_;
             }
+            catch (const zmq::error_t& e)
+            {
+                ++drop_count_;
+                LOG_WARN(std::string("[ZMQ] publish 실패 topic=") + m.topic + " : " + e.what());
+            }
+            local.pop();
         }
 
         // 2. 명령 수신 (REP, kReplyPollTimeout 타임아웃)
@@ -108,8 +115,26 @@ void ZmqBridge::thread_fn()
                 rep.recv(req, zmq::recv_flags::none);
                 std::string cmd(static_cast<char*>(req.data()), req.size());
 
+                // KILL만 토큰을 요구한다: "KILL <token>". 토큰 미설정·불일치면 핸들러에 닿지 않는다.
+                //  REP는 요청마다 응답을 보내야 하므로 거부도 reply로 끝낸다.
                 std::string reply_str = "OK";
-                if (cmd_handler_)
+                bool        allowed   = true;
+                const auto  sp        = cmd.find(' ');
+                const std::string verb = cmd.substr(0, sp);
+                if (verb == "KILL")
+                {
+                    const std::string given = (sp == std::string::npos) ? std::string() : cmd.substr(sp + 1);
+                    if (control_token_.empty() || given != control_token_)
+                    {
+                        allowed   = false;
+                        reply_str = "DENIED";
+                        LOG_WARN(std::string("[ZMQ] KILL 거부 — ") +
+                                 (control_token_.empty() ? "zmq_control_token 미설정" : "토큰 불일치"));
+                    }
+                    else
+                        cmd = verb;
+                }
+                if (allowed && cmd_handler_)
                 {
                     try
                     {
@@ -163,6 +188,16 @@ static int64_t now_ms()
     return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
 
+// 3값 enum을 2분기로 접지 않는다 — CANCEL/REPLACE는 side==NONE으로도 여기까지 온다(W-11).
+static const char* side_str(OrderSide s)
+{
+    return s == OrderSide::BUY ? "BUY" : (s == OrderSide::SELL ? "SELL" : "NONE");
+}
+static const char* action_str(OrderAction a)
+{
+    return a == OrderAction::CANCEL ? "CANCEL" : (a == OrderAction::REPLACE ? "REPLACE" : "NEW");
+}
+
 void ZmqBridge::publish_trade(const TradeData& td)
 {
     json j;
@@ -181,10 +216,12 @@ void ZmqBridge::publish_signal(const OrderSignal& sig)
     j["ts"] = now_ms();
     j["strategy"] = sig.strategy_id;
     j["ticker"] = sig.ticker;
-    j["side"] = (sig.side == OrderSide::BUY ? "BUY" : "SELL");
+    j["side"] = side_str(sig.side);
+    j["action"] = action_str(sig.action);
     j["qty"] = sig.quantity;
     j["price"] = sig.price;
     j["market"] = (sig.market == Market::US ? "US" : "KR");
+    j["gated"] = false; // 게이트(OrderGate) 이전 발행 — 거부될 수 있다. 결과는 ORDER 토픽.
     enqueue("SIGNAL", j.dump());
 }
 
@@ -192,8 +229,10 @@ void ZmqBridge::publish_order(const OrderSignal& sig, bool ok)
 {
     json j;
     j["ts"] = now_ms();
+    j["strategy"] = sig.strategy_id;
     j["ticker"] = sig.ticker;
-    j["side"] = (sig.side == OrderSide::BUY ? "BUY" : "SELL");
+    j["side"] = side_str(sig.side);
+    j["action"] = action_str(sig.action);
     j["qty"] = sig.quantity;
     j["price"] = sig.price;
     j["ok"] = ok;
@@ -220,7 +259,7 @@ void ZmqBridge::publish_fill(const FillNotification& fn, double commission,
     j["ts"]           = now_ms();
     j["odno"]         = fn.odno;
     j["ticker"]       = fn.ticker;
-    j["side"]         = (fn.side == OrderSide::BUY ? "BUY" : "SELL");
+    j["side"]         = side_str(fn.side);
     j["filled_qty"]   = fn.filled_qty;
     j["filled_price"] = fn.filled_price;
     j["commission"]   = commission;

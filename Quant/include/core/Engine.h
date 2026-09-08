@@ -79,7 +79,7 @@ public:
         quote_kis_cfg_ = c;
         has_quote_kis_ = true;
     }
-    // 주문 페이싱/재시도 (C-2/W-3) — 버스트 청산이 초당한도로 튕겨 유실되는 것 방지.
+    // 주문 호출 간격 조절/재시도 (C-2/W-3) — 버스트 청산이 초당한도로 튕겨 유실되는 것 방지.
     //  min_interval_ms 간격으로만 발주(레이트리밋 하회), 거부된 청산 SELL은 order_thread
     //  로컬 큐로 dedup 창 밖에서 최대 max_retries회 재시도. 스레드 시작 전에만 호출.
     void set_order_pacing(int min_interval_ms, int max_retries)
@@ -116,10 +116,14 @@ public:
         std::function<std::unique_ptr<StrategyBase>(const std::string&)> factory,
         int interval_sec, size_t max_registered = 0)
     {
-        universe_fn_ = std::move(universe_fn);
-        strategy_factory_ = std::move(factory);
-        rescan_interval_sec_ = interval_sec;
-        max_registered_ = max_registered;
+        // 슬리브마다 한 번씩 부른다 — 덮어쓰지 않고 쌓는다. 예전에는 단일 슬롯이라
+        //  두 번째 호출이 첫 번째를 조용히 지웠다(먼저 건 재스캔이 사라짐).
+        RescanJob j;
+        j.universe_fn    = std::move(universe_fn);
+        j.factory        = std::move(factory);
+        j.interval_sec   = interval_sec;
+        j.max_registered = max_registered;
+        rescan_jobs_.push_back(std::move(j));
     }
     // ── G1: 국면→전략 자동선택 ──────────────────────────────────────────────
     // 국면(BULL/NEUTRAL/BEAR)별 활성 전략 id 목록(권위적 선택자). 스레드 시작 전에만.
@@ -136,8 +140,25 @@ public:
     {
         if (sec > 0) regime_reeval_interval_sec_ = sec;
     }
-    // 티커→종목명 매핑 등록/조회 (로그 가독성). 스캔·가디언 부착 스레드가 write,
+    // 국면 판정기 파라미터(지수코드·이평기간·점수 임계값). 스레드 시작 전에만.
+    //  미지정이면 RegimeController::Config 기본값 그대로라 기존 동작이 변하지 않는다.
+    void set_regime_config(RegimeController::Config c) { regime_cfg_ = c; }
+    // ZMQ 제어 채널. bind 주소 기본 127.0.0.1(모든 인터페이스 노출 금지), token이 비면 KILL은
+    //  거부된다(config `zmq_control_token`). 스레드 시작 전에만. HAS_ZMQ가 꺼진 빌드에선 무시.
+    void set_zmq_control(const std::string& bind_addr, const std::string& token)
+    {
+        if (!bind_addr.empty()) zmq_bind_addr_ = bind_addr;
+        zmq_control_token_ = token;
+    }
+    // 티커→종목명 매핑 등록/조회 (로그 가독성). 스캔·청산 관리 부착 스레드가 write,
     //  전략 스레드의 신호 로그가 read라 ticker_names_mu_로 보호.
+    // 청산 관리가 붙은 티커. 이 종목은 그날 스캔 슬리브의 신규매수 대상에서 뺀다.
+    //  청산 관리(청산 전용)과 스캔 전략(진입)이 같은 티커에 동시에 붙으면 한쪽이 턴 것을
+    //  다른 쪽이 곧바로 되사서 수수료만 나간다(2026-09-08 금호건설: 13:39:59 전량매도 →
+    //  13:40:12 재매수). 기동 시 단일스레드 구간에서만 채우고 전략 스레드는 읽기만 한다.
+    void mark_guardian_ticker(const std::string& ticker) { guardian_tickers_.insert(ticker); }
+    bool is_guardian_ticker(const std::string& t) const { return guardian_tickers_.count(t) > 0; }
+
     void register_ticker_name(const std::string& ticker, const std::string& name);
     // 이름이 있으면 "티커(종목명)", 없으면 티커 원문을 반환.
     std::string ticker_label(const std::string& ticker) const;
@@ -191,9 +212,9 @@ private:
     KisConfig kis_cfg_;
     int fetch_interval_sec_;
     bool bootstrap_ledger_ = false; // 기동 시 실계좌 보유분 원장 시드 여부(G5, opt-in)
-    std::string startup_probe_ticker_;  // 기동 스모크 프로브 종목(빈 문자열=미가동)
-    int         startup_probe_qty_ = 0; // 기동 스모크 프로브 수량(≤0=미가동)
-    bool        startup_probe_fired_ = false; // 프로브 1회성 발사 가드
+    std::string startup_probe_ticker_;  // 기동 기동 점검 종목(빈 문자열=미가동)
+    int         startup_probe_qty_ = 0; // 기동 기동 점검 수량(≤0=미가동)
+    bool        startup_probe_fired_ = false; // 기동 점검 1회성 발사 가드
     bool rest_price_feed_ = false;  // REST 현재가 폴링을 체결 피드로 사용(WS 우회, opt-in)
     // 지금 실제로 어느 피드로 도는지(런타임 상태). 기동 시 rest_price_feed_로 초기화하고,
     //  WS 모드에서 연결이 죽으면 control_thread가 true로 올려 폴링으로 낮춘다(WS 복귀 시 되돌림).
@@ -216,9 +237,9 @@ private:
     bool has_quote_kis_ = false;     // 시세 전용 클라이언트 사용 여부
     int order_min_interval_ms_ = 350; // 주문 간 최소 간격(ms) — 초당한도 회피(C-2/W-3)
     int order_max_retries_ = 3;       // 거부된 청산 SELL 재시도 횟수(C-2)
-    // C-1 리컨사일 상태(rest 모드 전용) — 당일 기준 총평가금 대비 델타로 daily_pnl_ 근사.
+    // C-1 잔고 대조 상태(rest 모드 전용) — 당일 기준 총평가금 대비 델타로 daily_pnl_ 근사.
     bool have_pnl_baseline_ = false;
-    double pnl_baseline_ = 0.0;       // 당일 첫 리컨사일 시 캡처한 총평가금(원)
+    double pnl_baseline_ = 0.0;       // 당일 첫 잔고 대조 시 캡처한 총평가금(원)
     // 잔고조회 서킷브레이커 — 모의/실서버 inquire-balance가 연속 타임아웃(12002)하면 GET 3회
     //  재시도로 사이클당 ~60s를 태우고 데이터 스레드를 정체시킨다. 실패 누적 시 지수 백오프로
     //  조회 자체를 건너뛰어 핫루프를 보호하고, 성공 시 즉시 복귀한다.
@@ -237,12 +258,20 @@ private:
     std::atomic<uint64_t> strat_version_{0};
 
     // 주기적 유니버스 재스캔 상태 (data_thread 전용)
-    size_t max_registered_ = 0; // 등록 전략 총수 상한(0=무제한)
-    std::function<std::vector<std::string>(KisClient&)> universe_fn_;
-    std::function<std::unique_ptr<StrategyBase>(const std::string&)> strategy_factory_;
-    int rescan_interval_sec_ = 0;                 // ≤0이면 재스캔 비활성
-    std::unordered_set<std::string> registered_tickers_; // 이미 등록된 KR 티커(중복 등록 방지)
-    std::chrono::steady_clock::time_point last_rescan_{};
+    // 슬리브 하나당 한 건. 상한(max_registered)은 그 슬리브가 등록한 수로만 센다
+    //  — 공유 카운트로 세면 한 슬리브가 다른 슬리브의 자리를 먹는다.
+    struct RescanJob
+    {
+        std::function<std::vector<std::string>(KisClient&)> universe_fn;
+        std::function<std::unique_ptr<StrategyBase>(const std::string&)> factory;
+        int    interval_sec   = 0;
+        size_t max_registered = 0;
+        size_t registered     = 0;
+        std::chrono::steady_clock::time_point last_run{};
+    };
+    std::vector<RescanJob> rescan_jobs_;
+    std::unordered_set<std::string> registered_tickers_; // 등록된 KR 티커(중복 방지, 슬리브 공유)
+    std::unordered_set<std::string> guardian_tickers_;  // 청산 관리 보유 티커(스캔 신규매수 제외)
 
     // G1: 국면→전략 자동선택 상태 (data_thread 전용)
     std::map<Regime, std::vector<std::string>> regime_strategies_; // 국면별 활성 전략 id(빈 항목=아무 전략도 활성 안 함)
@@ -273,10 +302,16 @@ private:
 
     OrderGate order_gate_;
     std::unique_ptr<OrderRouter> order_router_; // 주문 전처리·중계 레이어(증권업계 용어로 FEP, Front-End Processor). start() 이후 유효
+    RegimeController::Config regime_cfg_{};     // 국면 판정 파라미터(config 주입, 미지정=기본값)
     std::unique_ptr<RegimeController> regime_;  // 국면 메타레이어 (start() 이후 유효)
 
     // 전략에서 수집한 구독 스펙 (on_start 이후 확정)
+    //  data_thread(재스캔 등록)가 쓰고 control_thread(WS 재연결)가 읽는다 — watch_specs_mtx_로 보호.
     std::vector<WatchSpec> watch_specs_;
+    mutable std::mutex     watch_specs_mtx_;
+
+    std::string zmq_bind_addr_ = "127.0.0.1";
+    std::string zmq_control_token_;
 
     // 티커→종목명 라벨(로그 표시용). 여러 스레드가 접근해 ticker_names_mu_로 보호.
     std::unordered_map<std::string, std::string> ticker_names_;

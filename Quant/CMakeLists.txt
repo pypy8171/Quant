@@ -171,6 +171,11 @@ if(UNIX)
     target_link_libraries(test_order_router PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: WS 다건 프레임 분리·분봉 커서 시각 산술 (헤더만, KIS 불필요) ──
+add_executable(test_ws_frame tests/test_ws_frame.cpp)
+target_include_directories(test_ws_frame PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(test_ws_frame PRIVATE nlohmann_json::nlohmann_json)
+
 # ─── 테스트 타겟: RegimeController 점수/분류 단위 테스트 (KIS 불필요) ──────
 add_executable(test_regime tests/test_regime.cpp)
 target_include_directories(test_regime PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -251,6 +256,30 @@ target_include_directories(test_account_ledger PRIVATE
 if(UNIX)
     target_link_libraries(test_account_ledger PRIVATE pthread)
 endif()
+
+# ─── 테스트 타겟 공통: Release에서도 assert를 살린다 ──────────────────────
+#  Release 구성은 /DNDEBUG를 주므로 assert가 전부 사라진다. 그러면 테스트 바이너리가
+#  검증 대상을 호출하지도 않고 PASS만 찍는다(2026-09-08 리뷰에서 test_order_gate 18건이
+#  그 상태였다). 테스트 타깃에 한해 NDEBUG를 되돌린다 — 컴파일러가 /D 뒤에 오는 /U를
+#  나중에 처리하므로, 구성 플래그보다 뒤에 붙는 이 옵션이 이긴다.
+set(QUANT_ASSERT_TARGETS
+    test_order_gate
+    test_order_router
+    test_ws_frame
+    test_regime
+    test_ringbuffer
+    test_ringbuffer_stress
+    test_pipeline_stress
+    test_mpsc
+    test_account_ledger
+)
+foreach(_qt IN LISTS QUANT_ASSERT_TARGETS)
+    if(MSVC)
+        target_compile_options(${_qt} PRIVATE /UNDEBUG)
+    else()
+        target_compile_options(${_qt} PRIVATE -UNDEBUG)
+    endif()
+endforeach()
 
 # ─── 도구: 수동 주문(모의계좌) — 접수→체결 실증 ───────────────────────────
 add_executable(manual_order

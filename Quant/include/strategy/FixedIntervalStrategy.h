@@ -62,6 +62,7 @@ public:
         sig.ticker      = ticker_;
         sig.market      = Market::KR;
         sig.type        = OrderType::MARKET;
+        sig.ref_price   = td.price; // 시장가는 price=0 — 이 값이 없으면 1주문 명목 상한이 비어 버린다
         sig.strategy_id = id();
         sig.timestamp   = std::chrono::system_clock::now();
 

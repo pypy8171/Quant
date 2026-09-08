@@ -55,6 +55,20 @@ int main()
         RegimeController::compute_score(snap(true, false, false), cfg), cfg) == Regime::NEUTRAL);
     PASS("conservative_unanimous");
 
+    // ── 임계값 오버라이드 (D-15b 드릴 경로) ───────────────────────────────
+    // config "regime_tuning"으로 임계값을 낮추면 실제 시장 점수 그대로 BULL/BEAR에
+    //  도달한다. 2026-09-07 코스피 실측 score=1(혼조)이 이 두 설정의 기준점이다.
+    RegimeController::Config bull_th1 = cfg; bull_th1.score_bull_threshold = 1;
+    assert(RegimeController::classify(1, bull_th1) == Regime::BULL);
+    assert(RegimeController::classify(0, bull_th1) == Regime::NEUTRAL);
+
+    RegimeController::Config bear_th1 = cfg; bear_th1.score_bear_threshold = 1;
+    // classify()가 BULL을 먼저 보므로, bull은 기본 +2로 두어야 score=1이 BEAR로 떨어진다.
+    assert(bear_th1.score_bull_threshold == 2);
+    assert(RegimeController::classify(1, bear_th1) == Regime::BEAR);
+    assert(RegimeController::classify(2, bear_th1) == Regime::BULL);
+    PASS("threshold_override");
+
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

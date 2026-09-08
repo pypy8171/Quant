@@ -99,7 +99,7 @@ public:
 
     // OrderGate 확정 포지션 접근자 주입 — WS/REST 양모드 공용 원장 진실원천.
     // Engine::start()에서 order_gate_.position(account,ticker)로 바인딩. 미주입 시 0 반환.
-    // (체결콜백 부재 rest 모드에서도 리컨사일로 원장이 최신이라 이 값이 신뢰 가능)
+    // (체결콜백 부재 rest 모드에서도 잔고 대조로 원장이 최신이라 이 값이 신뢰 가능)
     void set_position_provider(std::function<int(const std::string&, const std::string&)> f)
     {
         position_provider_ = std::move(f);

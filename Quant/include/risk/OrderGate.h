@@ -21,7 +21,7 @@
 //   2b. fat-finger   — NEW 주문 1건의 수량/명목 상한(C-3, 시장가 대량주문 슬리피지 방어)
 //   3.  포지션 한도  — 종목당 최대 수량(3b 종목당 명목·3c 동시 보유 종목 상한·3d 포트폴리오 총노출 상한 포함), BUY만
 //   4.  일일 손실    — 일일 최대 손실 초과 시 신규 매수 거부
-//   4b. PnL stale    — 잔고 대조(리컨사일) 정체로 daily_pnl 미갱신 시 신규 매수 보수적 정지(B2)
+//   4b. PnL stale    — 잔고 대조(잔고 대조) 정체로 daily_pnl 미갱신 시 신규 매수 보수적 정지(B2)
 //   5.  중복 신호    — 동일 account:strategy:ticker:side 1초 이내 중복 거부
 //   6.  Rate limit   — 초당/분당 최대 주문수 초과 방지(중복 통과분만 카운터 소모)
 //
@@ -50,7 +50,7 @@ public:
         //  이게 없으면 "먼저 도착해서 슬롯을 잡은 종목"이 하루 종일 자리를 지킨다. 점수를 매겨
         //  순서를 정해봐야 25칸이 차는 순간부터 순서가 의미를 잃는다.
         //  다만 교체는 공짜가 아니다 — 왕복 비용 0.195%(수수료 0.03% + 세금 0.18% 근사)에
-        //  피교체 종목의 사다리가 리셋된다. 그래서 아래 네 가지로 회전을 묶는다.
+        //  피교체 종목의 분할 매수가 리셋된다. 그래서 아래 네 가지로 회전을 묶는다.
         bool   displace_enabled       = false;
         double displace_min_z_gap     = 0.5;  // 신규가 최약체보다 이만큼(σ) 높아야 교체. 잡음 교체 방지
         int    displace_min_hold_sec  = 900;  // 방금 산 종목은 안 뺀다(15분). 사고 팔기 반복 차단
@@ -85,6 +85,18 @@ public:
     // ── 주문 검증 (true = 통과, false = 거부) ──────────────────────────────
     bool check(const OrderSignal& sig, std::string& reject_reason);
 
+    // ── 한도 클램프 (BUY NEW 전용) ─────────────────────────────────────────
+    // 한도를 넘는 수량을 거부하는 대신 한도 안으로 줄여 돌려준다. 분할 매수 전략은 매 틱
+    // 같은 rung을 다시 내므로, 넘친다고 버리면 그 종목은 영원히 발주되지 않고 초당 주문
+    // 예산만 태운다. 줄여서라도 나가는 편이 의도(부분 진입)에 가깝다.
+    // 검사 대상은 수량·명목·포지션·총노출 한도뿐이다. 킬스위치·entry_halt·손실컷 같은
+    // "발주 자체를 막는" 게이트는 여기서 손대지 않는다 — 그건 check()가 그대로 거부한다.
+    // 반환 0 = 여유 없음(발주 불가). 정정·취소는 원본 수량을 그대로 돌려준다.
+    // SELL NEW는 매도가능수량(보유 - 미체결매도)으로 깎는다. 자기 익절 지정가가 자기
+    // 청산을 막아 KIS가 40240000으로 주문을 통째로 거부하면 한 주도 못 빠져나온다.
+    // 원장이 그 종목을 0으로 알고 있으면 손대지 않는다(과소 인식 방어).
+    int clamp_buy_qty(const OrderSignal& sig);
+
     // ── 상태 업데이트 ───────────────────────────────────────────────────────
     // KIS 접수(주문번호 ODNO 수신) 시 reserved_에 선점만 기록(실체결 원장 positions_는 불변).
     // check()는 positions_ + reserved_ 합산으로 한도를 보므로 미체결 주문이 과잉 주문을 차단한다.
@@ -100,7 +112,7 @@ public:
     // C-1: rest_price_feed 모드는 체결 콜백이 없어 daily_pnl_이 0에 고정되고, 그러면 §4의
     //  BUY 전용 손실컷이 동작하지 못한다.
     //  Engine이 잔고 재조회로 당일 기준선 대비 평가금 델타를 계산해 이 값으로 직접 덮어쓴다.
-    //  (add_realized_pnl은 누적, 이건 절대치 세팅 — 리컨사일 전용)
+    //  (add_realized_pnl은 누적, 이건 절대치 세팅 — 잔고 대조 전용)
     void set_daily_pnl(double pnl)
     {
         std::lock_guard<std::mutex> lk(pnl_mtx_);
@@ -108,19 +120,32 @@ public:
     }
 
     // ── 총노출 게이트용 자본 주입 (§3d) ──────────────────────────────────────
-    // 리컨사일 스레드가 총평가금(tot_evlu_amt) 갱신 시 호출. check()가 락 없이 읽도록 atomic.
+    // 잔고 대조 스레드가 총평가금(tot_evlu_amt) 갱신 시 호출. check()가 락 없이 읽도록 atomic.
     // 0이면 §3d 게이트 비활성(자본 미상 시 폴백 안전 — 종목당·동시보유 백스톱이 커버).
     void set_equity(double equity) { equity_.store(equity, std::memory_order_relaxed); }
     double equity() const { return equity_.load(std::memory_order_relaxed); }
+
+    // 주문가능현금(원). 잔고 대조가 output2에서 읽어 넣는다. 0=미주입(클램프 비활성).
+    //  총평가금(equity_)과 다르다 — 평가금이 1억이어도 미체결 지정가와 미결제 매수가
+    //  현금을 묶으면 살 수 없다. 이 값이 없으면 게이트가 그걸 모른 채 계속 발주하고
+    //  KIS가 40250000으로 전량 거부한다(2026-09-08 59건).
+    void set_available_cash(double v) { available_cash_.store(v, std::memory_order_relaxed); }
+    double available_cash() const { return available_cash_.load(std::memory_order_relaxed); }
 
     // ── 원장 부트스트랩 (G5) — 기동 시 실계좌 보유분을 원장에 시드 ─────────────
     // 체결이 아니므로 reserved_/daily_pnl_은 불변, positions_/avg_prices_만 설정.
     // on_fill_confirmed 재사용 금지(수수료·실현손익 오적립) → 전용 API.
     // 계좌키는 신호가 쓰는 account_id와 반드시 동일해야 조회된다(단일계좌는 account="").
-    void seed_position(const std::string& account, const std::string& ticker, int qty, double avg_price);
+    // sellable < 0 이면 "모름"으로 보고 보유수량을 그대로 쓴다.
+    void seed_position(const std::string& account, const std::string& ticker, int qty, double avg_price,
+                       int sellable);
+    void seed_position(const std::string& account, const std::string& ticker, int qty, double avg_price)
+    {
+        seed_position(account, ticker, qty, avg_price, -1);
+    }
     void seed_position(const std::string& ticker, int qty, double avg_price)
     {
-        seed_position(std::string(), ticker, qty, avg_price);
+        seed_position(std::string(), ticker, qty, avg_price, -1);
     }
 
     // ── 미체결 취소/정정 축소 시 선점 해제 (C5, MM-1) ─────────────────────
@@ -142,6 +167,9 @@ public:
         double commission   = 0.0; // 수수료 (0.015%)
         double tax          = 0.0; // 거래세 (매도 0.18%)
         double realized_pnl = 0.0; // 이번 체결 실현손익 (SELL만 양수)
+        // SELL인데 원장이 평단을 모를 때 true. 그 경우 realized_pnl은 0으로 두고 daily_pnl에도
+        //  더하지 않는다 — (price-0)*qty가 이익으로 잡히면 일일 손실컷이 무력화된다(C-1).
+        bool   basis_unknown = false;
     };
     FillResult on_fill_confirmed(const std::string& account, const std::string& ticker,
                                  OrderSide side, int qty, double price);
@@ -205,10 +233,12 @@ public:
     void note_displacement(const DisplacePlan& plan, const std::string& beneficiary);
     // 동시 보유 슬롯이 꽉 찼는가(신규 종목을 열 자리가 없는가).
     bool slots_full() const;
+    // 신규 종목을 열 여력이 없는가 — 자리(슬롯)와 예산(총노출) 중 하나만 막혀도 없다.
+    bool capacity_full() const;
 
-    // ── PnL stale guard (B2) — 잔고 리컨사일 정체 시 신규 매수 정지 ──────────────
-    // rest_price_feed 모드는 daily_pnl_을 잔고 리컨사일(총평가금 델타)로만 갱신한다. 잔고조회가
-    // 연속 실패(12002 타임아웃 등)해 서킷브레이커가 리컨사일을 스킵하는 동안 daily_pnl_은 낡은
+    // ── PnL stale guard (B2) — 잔고 대조 정체 시 신규 매수 정지 ──────────────
+    // rest_price_feed 모드는 daily_pnl_을 잔고 대조(총평가금 델타)로만 갱신한다. 잔고조회가
+    // 연속 실패(12002 타임아웃 등)해 서킷브레이커가 잔고 대조를 스킵하는 동안 daily_pnl_은 낡은
     // 값이라, 그 창에서 손실이 나도 §4 손실컷이 트립하지 못한다. Engine이 실패 스트릭이 임계를
     // 넘으면 이 플래그를 세워 BUY NEW만 보수적으로 차단(SELL 청산·취소는 통과 — entry_halt와 동일
     // 의미론). 잔고조회 복구 시 자동 해제. 손실컷을 대체하지 않고 "믿을 수 없는 창"만 보수 처리.
@@ -224,10 +254,10 @@ public:
     // ── 자정 리셋 (Engine 데이터 스레드가 장 시작 시 호출) ──────────────────
     void reset_daily();
 
-    // ── 선점(reserved_) 전면 초기화 — REST 리컨사일 전용 ────────────────────
+    // ── 선점(reserved_) 전면 초기화 — REST 잔고 대조 전용 ────────────────────
     // 체결피드(H0STCNI0)가 없는 rest_price_feed 모드는 on_fill_confirmed가 호출되지 않아
     // reserved_(미체결 선점)가 영구 누적된다(H-1 드리프트) → check()가 positions_+reserved_로
-    // 한도를 봐 정상 신호까지 과잉 차단. 잔고 리컨사일은 서버 확정 스냅샷이므로, 재동기 시점에
+    // 한도를 봐 정상 신호까지 과잉 차단. 잔고 대조는 서버 확정 스냅샷이므로, 재동기 시점에
     // reserved_를 통째로 비우고 실보유(positions_)만 신뢰한다. 잔고조회 성공 사이클에만 호출.
     void reset_reserved();
 
@@ -260,11 +290,17 @@ private:
         return std::to_string(account.size()) + ":" + account + ticker;
     }
 
+    // 선점 해제의 유일한 경로 — 취소 통보(on_cancel)와 체결 통보(on_fill_confirmed)가 함께 쓴다.
+    //  없는 선점은 손대지 않고, 과잉 해제는 0에서 멈춘다. 규칙이 두 곳에 갈라져 있으면 한쪽만
+    //  고쳐지므로 여기 하나만 둔다. 호출 전에 positions_mtx_를 잡아야 한다(내부에서 잡지 않음).
+    void release_reservation(const std::string& key, int delta);
+
     Config cfg_;
     std::atomic<bool> kill_switch_{false};
     std::atomic<bool> entry_halt_{false};  // 신규 진입(BUY NEW)만 정지, SELL 청산은 통과 — 국면 리스크용
-    std::atomic<bool> pnl_stale_{false};   // 잔고 리컨사일 정체 → daily_pnl 미갱신, BUY NEW 보수 정지(B2)
-    std::atomic<double> equity_{0.0};      // 총평가금 스냅샷(§3d 총노출 게이트 분모). 리컨사일이 갱신, check()가 락 없이 읽음
+    std::atomic<bool> pnl_stale_{false};   // 잔고 대조 정체 → daily_pnl 미갱신, BUY NEW 보수 정지(B2)
+    std::atomic<double> available_cash_{0.0}; // 주문가능현금 스냅샷. 잔고 대조가 갱신, clamp_buy_qty가 락 없이 읽음
+    std::atomic<double> equity_{0.0};      // 총평가금 스냅샷(§3d 총노출 게이트 분모). 잔고 대조가 갱신, check()가 락 없이 읽음
 
     mutable std::mutex prio_mtx_;
     std::unordered_map<std::string, int> entry_rank_; // ticker → 종합점수 랭크(1=최고)
@@ -281,7 +317,12 @@ private:
     std::unordered_map<std::string, int>    reserved_;    // account:ticker → 미체결 선점 수량 (BUY +, SELL -). 재주문 차단용
     std::unordered_map<std::string, double> reserved_px_; // account:ticker → 미체결 선점가(§3d 총노출 계산용). reserved_와 동일 생명주기로 정리
     std::unordered_map<std::string, int>    positions_;   // account:ticker → 실체결 순보유 수량 (양수=롱)
-    std::unordered_map<std::string, double> avg_prices_;  // account:ticker → 매수 평균단가 (실체결 기준)
+    std::unordered_map<std::string, double> avg_prices_;
+    // account:ticker -> 매도가능수량. 보유수량과 다르다: 기동 전 세션이 남긴 미체결 매도,
+    //  미결제분 때문에 KIS가 실제로 받아주는 매도 수량은 보유보다 적을 수 있다. 이걸 모르면
+    //  전량 청산이 40240000(주문가능분 없음)으로 통째 거부돼 한 주도 못 빠져나온다.
+    //  기동 시드에서 잔고의 ord_psbl_qty로 채우고, 이후 체결로 증감시킨다.
+    std::unordered_map<std::string, int>    sellable_;  // account:ticker → 매수 평균단가 (실체결 기준)
     std::unordered_map<std::string, TimePoint> opened_at_; // account:ticker → 포지션이 0에서 열린 시각(교체 최소 보유 판정)
 
     mutable std::mutex pnl_mtx_;

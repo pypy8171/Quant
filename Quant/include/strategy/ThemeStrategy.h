@@ -26,7 +26,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 // 스크리닝 단계에서 종목·업종마다 KIS REST를 연속 호출하므로 호출 사이에 짧게 쉰다
-// (초당 호출 한도(EGW00201) 회피용 페이싱 간격). 지수 조회가 더 길다.
+// (초당 호출 한도(EGW00201) 회피용 호출 간격 조절 간격). 지수 조회가 더 길다.
 namespace
 {
 constexpr int kThemeIndexPacingMs = 500; // 업종 지수 일봉 조회 후 대기
@@ -38,9 +38,13 @@ constexpr size_t kThemeMaxSurgeCandidates = 50; // 거래량 급증 후보 안�
 // 0005:화학  0006:의약품  0008:철강금속  0009:기계  0010:전기전자
 // 0011:의료정밀  0012:운수장비  0015:건설업  0022:서비스업
 static const std::vector<std::pair<std::string,std::string>> KOSPI_SECTORS = {
-    {"0005","화학"},{"0006","의약품"},{"0008","철강금속"},{"0009","기계"},
-    {"0010","전기전자"},{"0011","의료정밀"},{"0012","운수장비"},
-    {"0015","건설업"},{"0017","통신업"},{"0022","서비스업"}
+    // KRX 정본. 2026-09-08 구성종목으로 확증(직전 표는 이름이 밀려 있었다 — 0017을 "통신업"으로
+    //  불렀으나 구성은 한국전력·한국가스공사, 즉 전기가스업). 0022(은행)·0023은 폐지돼 지수 0.00.
+    {"0005","음식료품"},{"0006","섬유의복"},{"0007","종이목재"},{"0008","화학"},
+    {"0009","의약품"},{"0010","비금속광물"},{"0011","철강금속"},{"0012","기계"},
+    {"0013","전기전자"},{"0014","의료정밀"},{"0015","운수장비"},{"0016","유통업"},
+    {"0017","전기가스업"},{"0018","건설업"},{"0019","운수창고"},{"0020","통신업"},
+    {"0021","금융업"},{"0024","증권"},{"0025","보험"},{"0026","서비스업"}
 };
 
 class ThemeStrategy : public StrategyBase
@@ -72,7 +76,7 @@ public:
                " | vol_surge=" + std::to_string(static_cast<int>(volume_surge_mult_)) + "x" +
                " | inst=" + (inst_filter_ ? "Y" : "N") +
                " | qty=" + std::to_string(quantity_) +
-               " | EOD=" + std::to_string(eod_exit_hhmm_);
+               " | 장 마감=" + std::to_string(eod_exit_hhmm_);
     }
 
     std::vector<WatchSpec> get_watch_specs() const override
@@ -275,7 +279,7 @@ private:
             sig.strategy_id = id();
             sig.timestamp   = std::chrono::system_clock::now();
 
-            LOG_INFO("[ThemeStrategy] SELL(EOD): " + ticker + " @" + time_str);
+            LOG_INFO("[ThemeStrategy] SELL(장 마감): " + ticker + " @" + time_str);
             return sig;
         }
 

@@ -14,8 +14,9 @@
 // ZmqBridge  —  C++ 엔진과 Python 레이어 간 프로세스간 통신(IPC, Inter-Process Communication)
 //
 //  ZMQ(ZeroMQ) 소켓 두 개로 통신한다:
-//  PUB  tcp://*:5555  — 엔진이 발행(publish). 체결/시그널/주문/헬스를 구독자에게 단방향 송신.
-//  REP  tcp://*:5556  — Python이 명령 전송(KILL / STATUS / PAUSE / RESUME), 엔진이 응답(reply).
+//  PUB  tcp://127.0.0.1:5555  — 엔진이 발행(publish). 체결/시그널/주문/헬스를 구독자에게 단방향 송신.
+//  REP  tcp://127.0.0.1:5556  — Python이 명령 전송(KILL / STATUS / PAUSE / RESUME), 엔진이 응답(reply).
+//  bind 주소는 set_bind_address로 바꾼다. KILL은 "KILL <token>" 형식이어야 하고 token 미설정이면 거부.
 //
 //  ZMQ 소켓은 스레드 세이프하지 않아 전용 zmq_thread_에서만 사용한다.
 //  다른 스레드는 enqueue()로 메시지를 전달한다.
@@ -28,6 +29,11 @@ public:
 
     bool start();
     void stop();
+
+    // start() 전에만. 빈 주소는 무시한다.
+    void set_bind_address(std::string addr) { if (!addr.empty()) bind_addr_ = std::move(addr); }
+    // KILL 공유 토큰. 비어 있으면 KILL을 아예 받지 않는다 — 무인증 REQ 한 방으로 매매가 서는 것을 막는다.
+    void set_control_token(std::string token) { control_token_ = std::move(token); }
 
     // ── 이벤트 publish (스레드-안전: 내부 큐 경유) ──────────────────────────
     void publish_trade(const TradeData& td);
@@ -60,6 +66,8 @@ private:
 
     int pub_port_;
     int rep_port_;
+    std::string bind_addr_ = "127.0.0.1";
+    std::string control_token_;
 
     std::atomic<bool> running_{false};
     std::thread zmq_thread_;

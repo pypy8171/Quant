@@ -33,7 +33,7 @@ void Engine::add_strategy(std::unique_ptr<StrategyBase> strategy)
 
 // 런타임(장중) 전략 등록. start()의 초기화 루프와 동일한 준비를 하되, strategies_
 // push_back은 strat_mutex_ 하에 수행하고 strat_version_을 증가시켜 strategy_thread가
-// 스냅샷을 재구성하도록 한다. watch_specs_는 data_thread 전용이라 무락으로 추가한다.
+// 스냅샷을 재구성하도록 한다. watch_specs_는 control_thread가 재연결 때 읽으므로 watch_specs_mtx_로 감싼다.
 void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
 {
     if (!strategy)
@@ -62,7 +62,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     if (regime_)
         strategy->set_active(regime_->is_active_for(strategy->active_regimes()));
 
-    // 구독 스펙 추가 (data_thread 전용 → 무락).
+    // 구독 스펙 추가 (control_thread 재연결 읽기와 겹치므로 watch_specs_mtx_).
     //  REST 폴링 모드면 다음 폴링 사이클부터 현재가를 받는다. WS 모드는 connect()가 기동 때
     //  한 번만 돌아서, 여기서 늘어난 종목은 목록에 넣는 것만으로는 틱이 오지 않는다. 살아 있는
     //  연결에 증분 구독을 걸어 둔다. 이게 없으면 재스캔으로 등록된 전략이 on_data를 한 번도
@@ -72,18 +72,19 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
         if (spec.market == Market::KR)
             registered_tickers_.insert(spec.ticker);
         bool exists = false;
-        for (auto& w : watch_specs_)
-            if (w.market == spec.market && w.exchange == spec.exchange && w.ticker == spec.ticker)
-            {
-                exists = true;
-                break;
-            }
-        if (!exists)
         {
-            watch_specs_.push_back(spec);
-            if (ws_)
-                ws_->subscribe_incremental(spec);
+            std::lock_guard<std::mutex> wl(watch_specs_mtx_);
+            for (auto& w : watch_specs_)
+                if (w.market == spec.market && w.exchange == spec.exchange && w.ticker == spec.ticker)
+                {
+                    exists = true;
+                    break;
+                }
+            if (!exists)
+                watch_specs_.push_back(spec);
         }
+        if (!exists && ws_)
+            ws_->subscribe_incremental(spec);
     }
 
     {
@@ -157,54 +158,68 @@ void Engine::apply_regime_selection(Regime r, bool force_log)
 // 주기적 유니버스 재스캔 — universe_fn_으로 티커 목록을 산출해 미등록 종목만 런타임 등록.
 void Engine::maybe_rescan_universe()
 {
-    if (!universe_fn_ || !strategy_factory_)
+    if (rescan_jobs_.empty())
         return;
 
     KisClient* scan_kis = quote_kis_ ? quote_kis_.get() : kis_.get();
     if (!scan_kis)
         return;
 
-    std::vector<std::string> tickers;
-    try
+    const auto now_c = std::chrono::steady_clock::now();
+    for (auto& job : rescan_jobs_)
     {
-        tickers = universe_fn_(*scan_kis);
-    }
-    catch (const std::exception& e)
-    {
-        LOG_ERROR(std::string("[Engine] 유니버스 재스캔 예외: ") + e.what());
-        return;
-    }
-    catch (...)
-    {
-        LOG_ERROR("[Engine] 유니버스 재스캔 알 수 없는 예외");
-        return;
-    }
+        if (job.interval_sec <= 0 || !job.universe_fn || !job.factory)
+            continue;
+        if (job.last_run.time_since_epoch().count() != 0 &&
+            now_c - job.last_run < std::chrono::seconds(job.interval_sec))
+            continue;
+        job.last_run = now_c;
 
-    int added = 0;
-    bool capped = false;
-    for (auto& t : tickers)
-    {
-        if (t.empty() || registered_tickers_.count(t))
-            continue;
-        // 상한에 닿으면 더 등록하지 않는다. 해제 경로가 없어 한번 등록한 종목은 남으므로,
-        //  상한이 없으면 재스캔마다 조회량이 계단식으로 늘어난다.
-        if (max_registered_ > 0 && registered_tickers_.size() >= max_registered_)
+        std::vector<std::string> tickers;
+        try
         {
-            capped = true;
-            break;
+            tickers = job.universe_fn(*scan_kis);
         }
-        auto strat = strategy_factory_(t);
-        if (!strat)
+        catch (const std::exception& e)
+        {
+            LOG_ERROR(std::string("[Engine] 유니버스 재스캔 예외: ") + e.what());
             continue;
-        LOG_INFO("[Engine] 재스캔 신규 등록: " + strat->describe());
-        register_strategy_runtime(std::move(strat));
-        ++added;
+        }
+        catch (...)
+        {
+            LOG_ERROR("[Engine] 유니버스 재스캔 알 수 없는 예외");
+            continue;
+        }
+
+        int  added  = 0;
+        bool capped = false;
+        for (auto& t : tickers)
+        {
+            if (t.empty() || registered_tickers_.count(t))
+                continue;
+            // 상한에 닿으면 더 등록하지 않는다. 해제 경로가 없어 한번 등록한 종목은 남으므로,
+            //  상한이 없으면 재스캔마다 조회량이 계단식으로 늘어난다.
+            if (job.max_registered > 0 && job.registered >= job.max_registered)
+            {
+                capped = true;
+                break;
+            }
+            auto strat = job.factory(t);
+            if (!strat)
+                continue;
+            LOG_INFO("[Engine] 재스캔 신규 등록: " + strat->describe());
+            register_strategy_runtime(std::move(strat));
+            ++added;
+            ++job.registered;
+        }
+        if (added > 0 || capped)
+            LOG_INFO("[Engine] 유니버스 재스캔 완료: +" + std::to_string(added) +
+                     "종목 (이 슬리브 " + std::to_string(job.registered) + ", 전체 " +
+                     std::to_string(registered_tickers_.size()) + "종목)" +
+                     (capped ? " — 등록 상한 " + std::to_string(job.max_registered) +
+                                   " 도달, 신규 등록 중단"
+                             : ""));
     }
-    if (added > 0 || capped)
-        LOG_INFO("[Engine] 유니버스 재스캔 완료: +" + std::to_string(added) +
-                 "종목 (총 " + std::to_string(registered_tickers_.size()) + "종목)" +
-                 (capped ? " — 등록 상한 " + std::to_string(max_registered_) + " 도달, 신규 등록 중단"
-                         : ""));
 }
 
 void Engine::start()
@@ -216,6 +231,8 @@ void Engine::start()
 
 #ifdef HAS_ZMQ
     zmq_bridge_ = std::make_unique<ZmqBridge>();
+    zmq_bridge_->set_bind_address(zmq_bind_addr_);
+    zmq_bridge_->set_control_token(zmq_control_token_);
     zmq_bridge_->set_command_handler(
         [this](const std::string& cmd) -> std::string
         {
@@ -271,12 +288,19 @@ void Engine::start()
 #endif
     LOG_INFO("[Engine] OrderRouter (FEP) 초기화 완료");
 
+    // 이전 세션이 남긴 미체결 주문을 취소한다. 건당 왕복이 3~5초라 여기서 기다리면
+    //  기동이 몇 분씩 멈춘다 — 목록을 읽고 사이드카를 비우는 것만 여기서 하고 취소는
+    //  별도 스레드가 이어서 낸다. 잔고 시드가 이를 기다릴 필요는 없다: 미체결 취소는
+    //  보유수량을 바꾸지 않고 주문가능현금·매도가능수량만 푸는데 둘 다 주기 잔고 대조가
+    //  다시 읽는다.
+    order_router_->cancel_stale_orders_async();
+
     // G5: 실계좌 보유분을 원장에 시드 (스레드 시작 전, 단일스레드 구간)
     if (bootstrap_ledger_)
         bootstrap_ledger();
 
     // RegimeController (국면 메타레이어) 초기화
-    regime_ = std::make_unique<RegimeController>();
+    regime_ = std::make_unique<RegimeController>(regime_cfg_);
     // 업종 지수 일봉도 시세이므로 모의 도메인은 HTTP 500. 시세 전용 실전 클라이언트가
     //  있으면 그걸로 조회(없으면 모의로 폴백 → NEUTRAL 유지).
     regime_->set_kis(quote_kis_ ? quote_kis_.get() : kis_.get());
@@ -291,7 +315,7 @@ void Engine::start()
         s->set_kis(quote_kis_ ? quote_kis_.get() : kis_.get());
         // 잔고 조회는 시세 클라이언트가 아니라 계좌를 가진 주문 클라이언트로 한다.
         //  시세 전용 클라이언트에는 account_no가 없어 has_account()가 false가 되고,
-        //  그러면 매도가능수량이 항상 0으로 떨어져 익절·존이탈청산·EOD청산이 전부 발주되지 않는다.
+        //  그러면 매도가능수량이 항상 0으로 떨어져 익절·존이탈청산·장 마감청산이 전부 발주되지 않는다.
         s->set_account_kis(kis_.get());
         // D2: 확정 포지션 접근자 주입 — 전략이 OrderGate 원장(WS/REST 공용)을 진실원천으로 읽음.
         s->set_position_provider([this](const std::string& account, const std::string& ticker) {
@@ -380,7 +404,7 @@ void Engine::start()
 }
 
 // ─── 티커→종목명 라벨 (로그 가독성) ─────────────────────────────────────────
-//  스캔·가디언 부착 스레드가 write, 전략 스레드 신호 로그가 read라 뮤텍스로 보호.
+//  스캔·청산 관리 부착 스레드가 write, 전략 스레드 신호 로그가 read라 뮤텍스로 보호.
 void Engine::register_ticker_name(const std::string& ticker, const std::string& name)
 {
     if (name.empty()) return;
@@ -430,11 +454,16 @@ void Engine::bootstrap_ledger()
             double av = std::atof(h.value("pchs_avg_pric", "0").c_str());
             if (!code.empty() && q > 0)
             {
-                order_gate_.seed_position(std::string(), code, q, av);
-                register_ticker_name(code, pname); // 로그 라벨(초기 보유분 종목명)
-                // 진단: 주문가능수량(ord_psbl_qty)을 함께 남긴다 — 보유수량과 다르면(특히 0)
-                //  "잔고내역이 없습니다"(40240000) 매도거부의 근거(매도불가/미결제)를 규명.
+                // 주문가능수량(ord_psbl_qty)을 게이트에 함께 시드한다. 보유수량과 다르면(직전
+                //  세션이 남긴 미체결 매도·미결제분) 전량 청산이 40240000으로 통째 거부돼
+                //  한 주도 못 빠져나온다(09-08 047050 254주·381주 연속 거부). 필드가 없거나
+                //  파싱 실패면 -1을 넘겨 "모름"으로 두고 보유수량을 그대로 쓴다.
                 std::string psbl = h.value("ord_psbl_qty", std::string("(field없음)"));
+                int psbl_q = -1;
+                if (!psbl.empty() && psbl.find_first_not_of("0123456789 ") == std::string::npos)
+                    psbl_q = std::atoi(psbl.c_str());
+                order_gate_.seed_position(std::string(), code, q, av, psbl_q);
+                register_ticker_name(code, pname); // 로그 라벨(초기 보유분 종목명)
                 LOG_INFO("[Engine]   시드 " + code + " " + pname + " " + std::to_string(q) + "주 @평단 " +
                          std::to_string(static_cast<long long>(av)) + " 주문가능=" + psbl);
                 ++n;
@@ -448,7 +477,7 @@ void Engine::bootstrap_ledger()
     }
 }
 
-// ─── C-1: rest 모드 주기적 잔고 리컨사일 ────────────────────────────────────
+// ─── C-1: rest 모드 주기적 잔고 대조 ────────────────────────────────────
 //  rest_price_feed_ 모드는 체결콜백(OrderRouter::on_fill)이 미등록이라 positions_/
 //  daily_pnl_이 갱신되지 않는다(치명). 데이터 스레드가 매 사이클 잔고를 재조회해:
 //   1) output1 보유분으로 positions_/avg_prices_ 재동기(seed_position 덮어쓰기),
@@ -518,6 +547,22 @@ void Engine::reconcile_from_balance(bool resync_positions)
                 {
                     try { tot_eval = std::stod(s); have_eval = true; } catch (...) {}
                 }
+                // 주문가능현금 — 매수 클램프의 진짜 상한. 가수도정산금액(실질 주문가능)을
+                //  우선 쓰고 없으면 예수금총금액으로 떨어진다. 평가금과 달리 미체결 지정가와
+                //  미결제 매수로 묶인 몫이 빠져 있어야 40250000 도배를 막을 수 있다.
+                std::string cs = row->value("prvs_rcdl_excc_amt", "");
+                if (cs.empty())
+                    cs = row->value("dnca_tot_amt", "");
+                if (!cs.empty())
+                {
+                    try
+                    {
+                        const double cash = std::stod(cs);
+                        if (cash >= 0.0)
+                            order_gate_.set_available_cash(cash);
+                    }
+                    catch (...) {}
+                }
                 // 전일 총자산(없으면 순자산 폴백 없이 스킵) — 표시 전용.
                 std::string bs = row->value("bfdy_tot_asst_evlu_amt", "");
                 if (!bs.empty())
@@ -581,7 +626,7 @@ void Engine::reconcile_from_balance(bool resync_positions)
             double delta = tot_eval - pnl_baseline_;
             order_gate_.set_daily_pnl(delta); // 손실컷용(세션 앵커) — 리스크게이트 동작 유지
             order_gate_.set_equity(tot_eval); // 총노출 게이트(§3d) 분모 — 총평가금 스냅샷 갱신
-            LOG_INFO("[Engine] 리컨사일: 당일손익 " + std::to_string(static_cast<long long>(delta)) +
+            LOG_INFO("[Engine] 잔고 대조: 당일손익 " + std::to_string(static_cast<long long>(delta)) +
                      "원 (총평가 " + std::to_string(static_cast<long long>(tot_eval)) + ")");
             // 표시 전용: 전일종가 대비 진짜 당일손익 — launch 시점과 무관하게 정확·연속 누적.
             if (have_bfdy && bfdy_asset > 0.0)
@@ -595,7 +640,7 @@ void Engine::reconcile_from_balance(bool resync_positions)
     }
     catch (const std::exception& e)
     {
-        LOG_ERROR("[Engine] 리컨사일 예외: " + std::string(e.what()));
+        LOG_ERROR("[Engine] 잔고 대조 예외: " + std::string(e.what()));
     }
 
     // 서킷브레이커 갱신 — 성공 시 즉시 복귀, 실패 시 지수 백오프(1·2·4·8 사이클, 상한 8).
@@ -606,7 +651,7 @@ void Engine::reconcile_from_balance(bool resync_positions)
     if (responded)
     {
         if (reconcile_fail_streak_ > 0)
-            LOG_INFO("[Engine] 잔고조회 복구 — 리컨사일 정상화");
+            LOG_INFO("[Engine] 잔고조회 복구 — 잔고 대조 정상화");
         if (reconcile_fail_streak_ >= kPnlStaleStreak)
             LOG_INFO("[Engine] daily_pnl 신선도 복구 — 신규 진입 정지 해제(B2)");
         reconcile_fail_streak_ = 0;
@@ -620,7 +665,7 @@ void Engine::reconcile_from_balance(bool resync_positions)
         if (cap > 3) cap = 3;              // 백오프 상한: 2^3 = 8 사이클
         reconcile_skip_remaining_ = 1 << cap;
         LOG_WARN("[Engine] 잔고조회 실패(streak=" + std::to_string(reconcile_fail_streak_) +
-                 ", 12002 타임아웃 등) — 리컨사일 " + std::to_string(reconcile_skip_remaining_) +
+                 ", 12002 타임아웃 등) — 잔고 대조 " + std::to_string(reconcile_skip_remaining_) +
                  "사이클 백오프(핫루프 보호)");
         // 지속 정체 → daily_pnl 낡음: 신규 진입 보수 정지(SELL 청산은 통과). 임계 진입 시 1회 경고.
         if (reconcile_fail_streak_ == kPnlStaleStreak)
@@ -671,13 +716,16 @@ void Engine::data_thread_fn()
         bool market_now = is_any_market_open();
 
         // 장 시작 감지 → 일별 카운터 리셋 + 국면 판정
+        //  "어느 시장이든 닫힘→열림" 전이라 KR 09:00과 US 22:30(KST) 두 번 발화한다. 22:30 리셋은
+        //  그날 KR 손익 기록을 지우지만 그 시각 KR 주문은 나가지 않는다(W-9, 시장별 분리는 보류).
         if (market_now && !was_market_open)
         {
             order_gate_.reset_daily();
             if (order_router_)
                 order_router_->reset_daily();   // V-4: 중복방지 키 일별 정리(거래일 prefix와 함께 cross-day 충돌 차단)
             have_pnl_baseline_ = false; // C-1: 새 거래일 → 총평가금 기준선 재캡처
-            LOG_INFO("[DataThread] 장 시작 — OrderGate 일별 카운터 리셋");
+            LOG_INFO(std::string("[DataThread] 장 개장 전이(") + (is_kr_market_open() ? "KR" : "US") +
+                     ") — OrderGate 일별 카운터 리셋");
 
             // 국면 판정(장 시작) → 국면에 맞는 전략셋 선택·적용 (G1). 선택 결정은 로그로 기록.
             if (regime_)
@@ -698,7 +746,7 @@ void Engine::data_thread_fn()
         try
         {
             // 매크로 레짐 게이트: 사이드카가 쓴 regime.json → OrderGate entry_halt 토글.
-            //  재스캔/리컨사일과 같은 "사이클 1회" 계층. rest·일봉 모드 공통 경로라 두 모드 다 커버.
+            //  재스캔/잔고 대조와 같은 "사이클 1회" 계층. rest·일봉 모드 공통 경로라 두 모드 다 커버.
             poll_regime_file();
 
             // G1: 장중 국면 재평가 → 국면이 바뀌면 전략셋 동적 재선택(국면 전환 시 교체).
@@ -716,15 +764,11 @@ void Engine::data_thread_fn()
                 }
             }
 
-            // 주기적 유니버스 재스캔(동적 등록) — rescan_interval_sec_마다 신규 티커 런타임 추가.
-            if (rescan_interval_sec_ > 0)
+            // 주기적 유니버스 재스캔(동적 등록) — 슬리브별 주기는 각 job이 자체 판단한다.
+            if (!rescan_jobs_.empty())
             {
-                auto now_c = std::chrono::steady_clock::now();
-                if (last_rescan_.time_since_epoch().count() == 0 ||
-                    now_c - last_rescan_ >= std::chrono::seconds(rescan_interval_sec_))
                 {
                     maybe_rescan_universe();
-                    last_rescan_ = now_c;
                     // G1: 재스캔으로 새로 등록된 전략도 현재 국면 선택에 맞춰 즉시 게이팅
                     //  (기본 active_=true로 잘못된 국면에 진입하는 창을 닫는다). 국면 불변이라
                     //  force_log=false → 로그 노이즈 없음.
@@ -735,7 +779,7 @@ void Engine::data_thread_fn()
 
             const bool rest_now = rest_feed_active_.load(std::memory_order_relaxed);
 
-            // 매 사이클 잔고 리컨사일. 폴링 모드는 원장까지 덮어쓰고(체결콜백 부재 보완),
+            // 매 사이클 잔고 대조. 폴링 모드는 원장까지 덮어쓰고(체결콜백 부재 보완),
             //  WS 모드는 총평가금·일손익만 갱신한다. WS 모드에서 이걸 건너뛰면 equity가 0에
             //  머물러 총노출 게이트가 조용히 통과만 하고, 일간손실 한도의 기준값도 안 움직인다.
             reconcile_from_balance(/*resync_positions=*/rest_now);
@@ -807,17 +851,25 @@ void Engine::data_thread_fn()
                     KisClient* sqc = quote_kis_ ? quote_kis_.get() : kis_.get();
                     if (sqc && (sector_tick % 10) == 0) // 30s×10 ≈ 5분
                     {
+                        // KRX 정본 업종코드. 2026-09-08 구성종목으로 확증했다 — 직전 표는 이름이
+                        //  통째로 밀려 있어(0017을 "통신업"으로 불렀는데 실제 구성은 한국전력·
+                        //  한국가스공사·지역난방공사, 즉 전기가스업) 관측 로그가 매일 거짓말을 했다.
+                        //  0022(은행)·0023은 금융업 통합으로 폐지돼 지수가 0.00이라 뺐다.
+                        //  0001~0004(종합·대형·중형·소형주)는 업종이 아니라 규모별 집계라 뺀다.
                         static const std::vector<std::pair<std::string, std::string>> kSectors = {
-                            {"0005", "화학"},   {"0006", "의약품"},   {"0008", "철강금속"},
-                            {"0009", "기계"},   {"0010", "전기전자"}, {"0011", "의료정밀"},
-                            {"0012", "운수장비"}, {"0015", "건설업"},  {"0017", "통신업"},
-                            {"0022", "서비스업"}};
+                            {"0005", "음식료품"},   {"0006", "섬유의복"}, {"0007", "종이목재"},
+                            {"0008", "화학"},       {"0009", "의약품"},   {"0010", "비금속광물"},
+                            {"0011", "철강금속"},   {"0012", "기계"},     {"0013", "전기전자"},
+                            {"0014", "의료정밀"},   {"0015", "운수장비"}, {"0016", "유통업"},
+                            {"0017", "전기가스업"}, {"0018", "건설업"},   {"0019", "운수창고"},
+                            {"0020", "통신업"},     {"0021", "금융업"},   {"0024", "증권"},
+                            {"0025", "보험"},       {"0026", "서비스업"}};
 
                         struct SecRate { std::string name; double rate; double price; };
                         std::vector<SecRate> secs;
                         for (const auto& [code, name] : kSectors)
                         {
-                            std::this_thread::sleep_for(120ms); // rate limit 여유
+                            std::this_thread::sleep_for(100ms); // rate limit 여유(20업종×100ms=2초)
                             auto ip = sqc->get_index_price(code);
                             if (ip.price > 0.0)
                                 secs.push_back({name, ip.change_rate, ip.price});
@@ -975,7 +1027,28 @@ void Engine::data_thread_fn()
         {
             LOG_ERROR("[DataThread] 예외: " + std::string(e.what()));
         }
-        std::this_thread::sleep_for(std::chrono::seconds(fetch_interval_sec_));
+        // 사이클 tail 대기 — 재스캔 주기가 사이클보다 짧으면 그 간격으로 잘게 깨어난다.
+        //  maybe_rescan_universe()는 이 루프 안에서만 불리므로, 그냥 두면 재스캔 주기를
+        //  아무리 줄여도 fetch_interval_sec_ 단위로 반올림된다(30초 사이클 + 20초 재스캔 = 30초).
+        //  잔고 대조·REST 폴백 폴링은 KIS REST를 쓰므로 사이클 주기 그대로 두고,
+        //  일봉 캐시와 시세 파일만 보는 재스캔만 앞당긴다.
+        {
+            const int cycle = fetch_interval_sec_ > 0 ? fetch_interval_sec_ : 1;
+            int slice = cycle;
+            for (const auto& job : rescan_jobs_)
+                if (job.interval_sec > 0 && job.interval_sec < slice)
+                    slice = job.interval_sec;
+            if (slice < 1) slice = 1;
+            int slept = 0;
+            while (slept < cycle && running_.load(std::memory_order_acquire))
+            {
+                const int step = (slice < cycle - slept) ? slice : (cycle - slept);
+                std::this_thread::sleep_for(std::chrono::seconds(step));
+                slept += step;
+                if (slept < cycle)
+                    maybe_rescan_universe();   // 사이클 시작의 호출과 합쳐 재스캔 주기를 지킨다
+            }
+        }
 #ifdef HAS_ZMQ
         if (zmq_bridge_)
             zmq_bridge_->publish_health(data_count_.load(), signal_count_.load(), order_count_.load());
@@ -1102,7 +1175,7 @@ void Engine::strategy_thread_fn()
             sig.action == OrderAction::NEW &&
             order_gate_.position(sig.account_id, sig.ticker) == 0 &&
             order_gate_.reserved(sig.account_id, sig.ticker) == 0 &&
-            order_gate_.slots_full())
+            order_gate_.capacity_full())
         {
             auto plan = order_gate_.plan_displacement(sig.account_id, sig.ticker);
             if (plan.ok)
@@ -1129,7 +1202,7 @@ void Engine::strategy_thread_fn()
 
     std::vector<OrderSignal> batch_buf; // MM 다건 발주 재사용 버퍼 (per-tick 할당 회피)
 
-    // 기동 스모크 프로브 — 모의계좌 주문경로 검증용 1회성 시장가 매수(config startup_probe).
+    // 기동 기동 점검 — 모의계좌 주문경로 검증용 1회성 시장가 매수(config startup_probe).
     //  이 스레드가 order_queue_ 단일 생산자라 여기서 딱 1번 push하면 SPSC 위반 없음.
     if (!startup_probe_fired_ && !startup_probe_ticker_.empty() && startup_probe_qty_ > 0)
     {
@@ -1140,7 +1213,7 @@ void Engine::strategy_thread_fn()
         probe.quantity    = startup_probe_qty_;
         probe.price       = 0.0;
         probe.strategy_id = "STARTUP_PROBE";
-        LOG_INFO("[Engine] 기동 스모크 프로브 — " + probe.ticker + " 시장가 BUY " +
+        LOG_INFO("[Engine] 기동 기동 점검 — " + probe.ticker + " 시장가 BUY " +
                  std::to_string(probe.quantity) + "주 (모의계좌 주문경로 검증)");
         push_signal(probe);
         startup_probe_fired_ = true;
@@ -1149,11 +1222,40 @@ void Engine::strategy_thread_fn()
     // strategies_ 무락 순회용 StrategyBase* 스냅샷. data_thread의 재스캔 등록이
     // strat_version_을 올릴 때만 락 하에 재구성한다(틱마다 락 회피). 삭제는 없으므로
     // 스냅샷 포인터는 벡터 재할당 후에도 힙 객체를 유효하게 가리킨다.
+    // 국면 게이트 적용 지점. apply_regime_selection()이 set_active로 표시만 해 두고
+    //  틱 디스패치는 그 표시를 보지 않아, 국면-전략 자동선택이 실제로는 아무것도 막지
+    //  않았다(2026-09-08 확인). 신규매수만 막고 청산·취소·정정은 통과시킨다 —
+    //  entry_halt와 같은 규약이다. 비활성 전략이 보유분을 못 팔면 보호가 사라진다.
+    std::unordered_set<std::string> guard_block_logged;
+    auto emit_from = [&](StrategyBase* s, const OrderSignal& sig)
+    {
+        if (s && !s->is_active() && sig.action == OrderAction::NEW &&
+            sig.side == OrderSide::BUY)
+            return;
+        // 청산 관리가 맡은 티커는 스캔 슬리브가 새로 사지 않는다. 소유자를 하나로
+        //  두지 않으면 청산 관리가 턴 물량을 스캔 전략이 되사는 회전이 난다.
+        if (s && sig.action == OrderAction::NEW && sig.side == OrderSide::BUY &&
+            guardian_tickers_.count(sig.ticker) && s->id().rfind("ITB_", 0) != 0)
+        {
+            if (guard_block_logged.insert(sig.ticker).second)
+                LOG_INFO("[Engine] 청산 관리 보유종목 신규매수 차단 " + ticker_label(sig.ticker) +
+                         " (요청 " + s->id() + ") — 청산 소유권은 청산 관리에 있다");
+            return;
+        }
+        push_signal(sig);
+    };
+
     std::vector<StrategyBase*> snap;
     uint64_t seen_ver = static_cast<uint64_t>(-1);
 
     // G3 강제청산 재발주 스로틀 — dedup 윈도우(1s)보다 길게 잡아 재발주가 통과되게.
     auto last_liq_attempt = std::chrono::steady_clock::now();
+    // 기동 시 종목당 명목 한도 초과분 정리(1회). 재기동으로 미체결 분할 매수 기억이 사라지면
+    //  게이트가 보유를 0으로 보고 같은 층을 다시 깔아 한도를 넘겨 체결시킨다(09-08 047050:
+    //  한도 800만인데 명목 2,080만). 넘긴 채로 두면 다음 재기동에서 또 얹히므로, 시드가
+    //  끝난 뒤 초과분을 시장가로 덜어낸다. 전량 청산이 아니라 한도까지만 줄인다.
+    bool trim_done  = false;
+    auto trim_after = std::chrono::steady_clock::now() + std::chrono::seconds(20);
 
     while (running_.load(std::memory_order_acquire))
     {
@@ -1205,6 +1307,48 @@ void Engine::strategy_thread_fn()
             }
         }
 
+        // ── 종목당 명목 한도 초과분 정리 (기동 후 1회) ─────────────────────────
+        //  강제청산과 같은 스레드(단일 생산자)에서 낸다 — order_queue_ SPSC 준수.
+        if (!trim_done && std::chrono::steady_clock::now() >= trim_after)
+        {
+            trim_done = true;
+            const double cap_notional = order_gate_.config().max_notional_per_ticker;
+            if (cap_notional > 0.0)
+            {
+                for (const auto& h : order_gate_.snapshot_positions())
+                {
+                    if (h.qty <= 0 || h.avg_price <= 0.0)
+                        continue;
+                    const int cap_qty = static_cast<int>(cap_notional / h.avg_price);
+                    int excess = h.qty - cap_qty;
+                    if (excess <= 0)
+                        continue;
+                    // 이미 낸 미체결 매도만큼은 곧 줄어든다 — 중복으로 덜어내지 않는다.
+                    const int resv = order_gate_.reserved(h.account, h.ticker);
+                    if (resv < 0)
+                        excess -= -resv;
+                    if (excess <= 0)
+                        continue;
+                    OrderSignal s;
+                    s.ticker      = h.ticker;
+                    s.account_id  = h.account;
+                    s.side        = OrderSide::SELL;
+                    s.type        = OrderType::MARKET;
+                    s.quantity    = excess;
+                    s.price       = 0.0;
+                    s.ref_price   = h.avg_price; // 시장가 명목 백스톱용 참조가
+                    s.strategy_id = "LIMIT_TRIM";
+                    s.reason      = "종목당 명목 한도 초과분 정리 보유=" + std::to_string(h.qty) +
+                                    " 한도수량=" + std::to_string(cap_qty) +
+                                    " 평단=" + std::to_string(static_cast<long long>(h.avg_price));
+                    LOG_WARN("[Engine] 한도 초과분 정리 " + h.ticker + " " + std::to_string(h.qty) +
+                             "주 -> " + std::to_string(cap_qty) + "주 (매도 " +
+                             std::to_string(excess) + "주)");
+                    push_signal(s);
+                }
+            }
+        }
+
         bool did_work = false;
         try
         {
@@ -1215,7 +1359,7 @@ void Engine::strategy_thread_fn()
                 {
                     auto sig = s->on_order_book(*opt);
                     if (sig && sig->side != OrderSide::NONE)
-                        push_signal(*sig);
+                        emit_from(s, *sig);
 
                     // 다건 발주 경로 (MM 등) — 취소/정정 포함. 기본 no-op.
                     // CANCEL/REPLACE는 side가 NONE이어도 통과(생명주기 액션은 NONE 가드 우회).
@@ -1223,7 +1367,7 @@ void Engine::strategy_thread_fn()
                     s->on_order_book_batch(*opt, batch_buf);
                     for (auto& b : batch_buf)
                         if (b.action != OrderAction::NEW || b.side != OrderSide::NONE)
-                            push_signal(b);
+                            emit_from(s, b);
                 }
                 did_work = true;
             }
@@ -1235,7 +1379,7 @@ void Engine::strategy_thread_fn()
                 {
                     auto sig = s->on_trade(*opt);
                     if (sig && sig->side != OrderSide::NONE)
-                        push_signal(*sig);
+                        emit_from(s, *sig);
 
                     // 다건 발주 경로 (이격도 분할매매 등) — 체결틱/현재가 하트비트 구동.
                     // CANCEL/REPLACE는 side가 NONE이어도 통과(생명주기 액션은 NONE 가드 우회).
@@ -1243,7 +1387,7 @@ void Engine::strategy_thread_fn()
                     s->on_trade_batch(*opt, batch_buf);
                     for (auto& b : batch_buf)
                         if (b.action != OrderAction::NEW || b.side != OrderSide::NONE)
-                            push_signal(b);
+                            emit_from(s, b);
                 }
                 did_work = true;
             }
@@ -1255,7 +1399,7 @@ void Engine::strategy_thread_fn()
                 {
                     auto sig = s->on_data(*opt);
                     if (sig && sig->side != OrderSide::NONE)
-                        push_signal(*sig);
+                        emit_from(s, *sig);
                 }
                 did_work = true;
             }
@@ -1315,7 +1459,7 @@ void Engine::order_thread_fn()
             continue;
         }
 
-        // 페이싱 — 직전 발주 후 min_interval 경과 보장(초당한도 하회로 EGW00201 회피)
+        // 호출 간격 조절 — 직전 발주 후 min_interval 경과 보장(초당한도 하회로 EGW00201 회피)
         now = steady_clock::now();
         if (now - last_submit < min_interval)
             std::this_thread::sleep_for(min_interval - (now - last_submit));
@@ -1333,7 +1477,7 @@ void Engine::order_thread_fn()
             {
                 // 초당 거래건수 초과 — KIS가 '접수 전' 거부라 중복주문 위험 없음(빈-ODNO 모호성 없음).
                 //  모든 action(취소·정정·매수·매도)을 dedup 창 밖(retry_delay≥1.2s)으로 재예약해
-                //  유실 없이 자가치유한다. 예전엔 취소·매수가 드롭돼 고아 주문이 남고, 다음 사이클에
+                //  유실 없이 자가치유한다. 예전엔 취소·매수가 드롭돼 미연결 주문이 남고, 다음 사이클에
                 //  다시 처리되다 또 한도초과가 나는 악순환이었다. 간격은 짧게 두고, 한도에 부딪힐 때만 물러난다.
                 const std::string act = sig.action == OrderAction::CANCEL ? "CANCEL"
                                       : sig.action == OrderAction::REPLACE ? "REPLACE" : "NEW";
@@ -1493,7 +1637,12 @@ void Engine::control_thread_fn()
         LOG_WARN("[Control] WebSocket " + std::to_string(kStaleThresholdSec) +
                  "초 이상 시세 미수신 — 재연결 시도");
         ws_->disconnect();
-        if (ws_->connect(watch_specs_))
+        std::vector<WatchSpec> specs_copy;
+        {
+            std::lock_guard<std::mutex> wl(watch_specs_mtx_); // data_thread의 재스캔 push_back과 겹친다
+            specs_copy = watch_specs_;
+        }
+        if (ws_->connect(specs_copy))
         {
             LOG_INFO("[Control] WebSocket 재연결 성공");
             fail_streak = 0;

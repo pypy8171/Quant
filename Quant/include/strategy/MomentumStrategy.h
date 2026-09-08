@@ -28,7 +28,7 @@ public:
 
     std::string describe() const override
     {
-        return "Momentum(Donchian) | " + ticker_ + " | period=" + std::to_string(period_) +
+        return "Momentum(채널 돌파) | " + ticker_ + " | period=" + std::to_string(period_) +
                " qty=" + std::to_string(quantity_);
     }
 

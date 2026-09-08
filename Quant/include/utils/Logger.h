@@ -2,6 +2,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdlib>
 #include <deque>
 #include <filesystem>
 #include <fstream>
@@ -26,8 +27,14 @@ enum class LogLevel
 //   전용 writer 스레드가 담당한다. 동기 로깅은 디스크가 튀는 순간 최악 지연을 오염시키므로,
 //   최악 지연을 낮추려고 I/O를 hot path에서 분리했다.
 //
-//   백프레셔: 큐가 상한(kMaxQueue)을 넘으면 가장 오래된 레코드를 버리고 드롭 수를 센다.
+//   밀림 처리: 큐가 상한(kMaxQueue)을 넘으면 가장 오래된 레코드를 버리고 드롭 수를 센다.
 //   디스크가 오래 멈춰도 로깅이 메모리를 무한정 먹거나 hot path를 블로킹하지 않는다(운영 안전).
+#ifdef _WIN32
+// windows.h를 이 헤더에 넣으면 ERROR 매크로가 LogLevel::ERROR와 부딪힌다. SDK 선언과 같은 형으로 직접 선언.
+struct HINSTANCE__;
+extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameW(HINSTANCE__*, wchar_t*, unsigned long);
+#endif
+
 class Logger
 {
 public:
@@ -35,6 +42,33 @@ public:
     {
         static Logger inst;
         return inst;
+    }
+
+    // 실행파일이 놓인 디렉터리(cwd와 무관). 알 수 없으면 cwd.
+    static std::filesystem::path executable_dir()
+    {
+#ifdef _WIN32
+        wchar_t buf[4096];
+        unsigned long n = GetModuleFileNameW(nullptr, buf, 4096);
+        if (n == 0 || n >= 4096)
+            return std::filesystem::current_path();
+        return std::filesystem::path(std::wstring(buf, n)).parent_path();
+#else
+        std::error_code ec;
+        auto p = std::filesystem::read_symlink("/proc/self/exe", ec);
+        if (ec)
+            return std::filesystem::current_path();
+        return p.parent_path();
+#endif
+    }
+
+    // 로그·산출물 기준 디렉터리 기본값: QUANT_LOG_DIR 환경변수 > 실행파일 옆 logs/.
+    //  cwd 기준이면 테스트 바이너리를 repo 루트에서 돌릴 때 당일 원장(trades_*.csv)에 TEST 행이 섞인다.
+    static std::filesystem::path default_base_dir()
+    {
+        if (const char* env = std::getenv("QUANT_LOG_DIR"); env && *env)
+            return std::filesystem::path(env);
+        return executable_dir() / "logs";
     }
 
     void init(const std::filesystem::path& filepath, LogLevel min_level = LogLevel::INFO)
@@ -231,12 +265,12 @@ private:
     // 설정(파일 핸들·디렉터리)용 뮤텍스와 큐용 뮤텍스를 분리 — 설정 변경이 hot path 큐잉과 경쟁하지 않게.
     std::mutex cfg_mutex_;
     std::ofstream file_;
-    std::filesystem::path base_dir_{"logs"}; // set_base_dir 전 기본값(하위호환)
+    std::filesystem::path base_dir_{default_base_dir()}; // set_base_dir 전에도 실행파일 기준
 
     std::atomic<LogLevel> min_level_{LogLevel::INFO};
     std::atomic<bool> console_enabled_{true};
 
-    static constexpr size_t kMaxQueue = 100000; // 백프레셔 상한(초과 시 최오래 드롭)
+    static constexpr size_t kMaxQueue = 100000; // 밀림 처리 상한(초과 시 최오래 드롭)
     std::mutex q_mutex_;
     std::condition_variable q_cv_;
     std::condition_variable drained_cv_;
