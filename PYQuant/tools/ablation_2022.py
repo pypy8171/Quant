@@ -1,5 +1,5 @@
 """
-2022 폭락장 격리 절제실험(ablation) — regime 필터의 "위기 헤지" 가치를 정량화.
+2022 폭락장 격리 제거실험 — regime 필터의 "위기 헤지" 가치를 정량화.
 
 전진검증(walk-forward)는 OOS(표본외, 2023~26)가 전부 상승장이라 regime 가치를 발현 못 했다(드래그만 보임).
 여기서는 반대로 폭락장(2022, KOSPI ~-25%)만 떼서 regime ON vs OFF를 동일 조건으로 비교 →
@@ -34,7 +34,7 @@ def main() -> None:
         print("DATA_GO_KR_KEY 환경변수 필요. 중단."); return
     uni = select_universe(src, "datagokr", from_date="2022-01-01",
                           universe_size=200, kosdaq_size=100)
-    print(f"2022 폭락장 격리 ablation (유니버스 {len(uni)}종목, {FROM}~{TO})")
+    print(f"2022 폭락장 격리 제거실험 (유니버스 {len(uni)}종목, {FROM}~{TO})")
     print(f"베이스: top{BASE['top_n']}/rb{BASE['rebalance_every']}/lb{BASE['lookback']}/rgma{BASE['regime_ma']}")
     print("=" * 72)
     print(f"{'설정':<22} {'수익률%':>8} {'MDD%':>8} {'샤프':>7} {'현금화':>6}")

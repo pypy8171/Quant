@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from collections import Counter
@@ -44,7 +45,7 @@ def find_journal(ymd: str) -> str | None:
 def build_pnl(track: list, ymd: str):
     """일중 손익 폴링에서 시작·고점·저점·마감 네 지점만 남긴다.
 
-    폴링 전량을 그리면 리컨사일 노이즈가 곡선을 지배한다. 일지에 실제로 인용되는
+    폴링 전량을 그리면 잔고 대조 노이즈가 곡선을 지배한다. 일지에 실제로 인용되는
     값도 이 네 개뿐이라 여기에 맞춘다.
     """
     if not track:
@@ -62,7 +63,7 @@ def build_pnl(track: list, ymd: str):
             if floor_ - step <= g <= ceil_ + step]
     return {
         "title_html": (ymd[5:] + " 세션 당일손익 "
-                       "<span class=\"u\">KRW · 리컨사일 폴링에서 시작·고점·저점·마감 4점</span>"),
+                       "<span class=\"u\">KRW · 잔고 대조 폴링에서 시작·고점·저점·마감 4점</span>"),
         "series": series,
         "floor": floor_,
         "ceil": ceil_,
@@ -151,7 +152,7 @@ def build_entry(pack: dict) -> dict:
         verdict += ("당일 라운드트립 " + str(len(trips)) + "건 중 이익 " + str(wins)
                     + "건, 실현 총액 " + signed(realized) + "원(수수료·세금 제외). ")
     if close is not None:
-        verdict += "리컨사일 기준 종료 당일손익은 " + signed(close) + "원이다. "
+        verdict += "잔고 대조 기준 종료 당일손익은 " + signed(close) + "원이다. "
     verdict += "여기까지는 원장·로그에서 기계로 뽑은 사실이고, 원인과 다음 조치는 아래 항목에 사람이 적는다."
 
     logname = Path(pack.get("log_path") or "quant_trader.log").name
@@ -207,6 +208,16 @@ def merge(existing: dict, fresh: dict) -> dict:
     return out
 
 
+def _write_atomic(path: Path, text: str) -> None:
+    """임시 파일에 쓰고 os.replace로 바꿔 끼운다 — 도중에 죽어도 손글씨가 든 원본은 남는다."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", help="YYYY-MM-DD (기본: 오늘)")
@@ -217,6 +228,10 @@ def main() -> int:
     pack = eod_collect.build(ymd.replace("-", ""))
     fresh = build_entry(pack)
 
+    if not REVIEWS.exists():
+        # 사람이 쓴 해석이 같이 든 파일이다. 없다고 빈 파일을 새로 만들면 경로 착오를 덮는다.
+        print("[build_review_entry] reviews.json 없음: " + str(REVIEWS), file=sys.stderr)
+        return 1
     doc = json.loads(REVIEWS.read_text(encoding="utf-8"))
     reviews = doc.get("reviews", [])
     idx = next((i for i, r in enumerate(reviews) if r.get("id") == fresh["id"]), None)
@@ -233,7 +248,7 @@ def main() -> int:
         print("[build_review_entry] (dry) " + fresh["id"] + " " + action)
         return 0
 
-    REVIEWS.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    _write_atomic(REVIEWS, json.dumps(doc, ensure_ascii=False, indent=1) + "\n")
     print("[build_review_entry] " + fresh["id"] + " " + action
           + " · 인시던트 " + str(len(fresh.get("incidents", [])))
           + "건 · 손익점 " + str(len(fresh.get("pnl", {}).get("series", []))))

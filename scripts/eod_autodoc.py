@@ -32,7 +32,10 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 REPO = Path(__file__).resolve().parents[1]
-LOG_DIRS = [REPO / "Quant" / "build_win" / "logs", REPO / "logs", REPO / "Quant" / "logs"]
+sys.path.insert(0, str(REPO / "scripts"))
+import _logdir  # noqa: E402
+from log_patterns import PNL_RE  # noqa: E402
+
 JOURNAL_DIR = REPO / "strategies" / "DeviationScale" / "live"
 RUN_LOG = REPO / "logs" / "eod_autodoc.log"
 
@@ -44,7 +47,6 @@ SESSION_RE = re.compile(r"=== Quant Trader")
 SIZING_RE = re.compile(r"사이징 백스톱: 종목당 명목 (\d+)원, 동시보유 (\d+)종목")
 FUNNEL_RE = re.compile(r"정배열 프리필터: (.*)$")
 REGIME_RE = re.compile(r"국면=(\w+)")
-PNL_RE = re.compile(r"리컨사일: 당일손익 (-?\d+)원 \(총평가 (\d+)\)")
 NAME_RE = re.compile(r"(\d{6})\(([^)]{1,24})\)")
 NUM_RE = re.compile(r"\d")
 
@@ -54,23 +56,22 @@ WEEKDAY_KR = "월화수목금토일"
 # ─────────────────────────── 입력 찾기 ───────────────────────────
 
 def find_files(ymd_compact: str):
-    """그 날짜 원장이 있는 폴더 중 가장 최근에 쓰인 것을 고른다(=그날 실제 운영 경로)."""
-    best = None
-    for d in LOG_DIRS:
-        csvp = d / f"trades_{ymd_compact}.csv"
-        if not csvp.exists():
-            continue
-        mt = csvp.stat().st_mtime
-        if best is None or mt > best[0]:
-            log = d / "quant_trader.log"
-            best = (mt, log if log.exists() else None, csvp)
-    return (None, None) if best is None else (best[1], best[2])
+    """그 날짜 원장(행 수 최대, 동률이면 mtime 최신)과 그 옆의 로그. 규칙은 _logdir 하나다.
+
+    mtime으로 고르면 장 마감 뒤에 돌린 테스트 바이너리가 cwd 하위 logs/에 남긴 몇 줄짜리
+    원장이 실제 원장을 이긴다(2026-09-08, 561체결이 7체결로 덮일 뻔했다).
+    """
+    csvp = _logdir.find_ledger(ymd_compact)
+    if csvp is None:
+        return None, None
+    log = csvp.parent / "quant_trader.log"
+    return (log if log.exists() else None), csvp
 
 
 # ─────────────────────────── 로그 파싱 ───────────────────────────
 
 def scan_log(log: Path, ymd: str) -> dict:
-    """세션 경계와 그 세션의 설정·국면·깔때기를 묶어서 낸다.
+    """세션 경계와 그 세션의 설정·국면·단계별 통과율을 묶어서 낸다.
 
     세션마다 갈라 두는 이유: 장중에 코드·설정을 고치고 재기동하면 같은 날 안에서도
     동작이 갈린다. 하나로 뭉치면 그 차이가 시장 탓으로 오독된다.
@@ -206,7 +207,7 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
     add(f"# 라이브 모의 매매 일지 — {ymd} ({dow})")
     add("")
     add("> 환경: **KIS 모의계좌**(openapivts, is_paper=true). 시세·랭킹·지수는 실전 도메인 REST 폴링, 주문은 모의 발주.")
-    add("> 전략: **DeviationScale (DEVSCALE)** 정배열눌림 지정가 사다리 + **ITB** 청산 가디언(전일 보유분).")
+    add("> 전략: **DeviationScale (DEVSCALE)** 정배열눌림 지정가 분할 매수 + **ITB** 청산 관리(전일 보유분).")
     add(f"> 손익은 모의(가상) 기준. 로그 `{rel(log_path)}`, 원장 `{csv_path.name}`"
         f"({led.get('n_rows', 0)} 이벤트, {led.get('span', ('', ''))[0][11:19]}~{led.get('span', ('', ''))[1][11:19]}).")
     add("")
@@ -220,7 +221,7 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
     add("")
 
     # 1. 손익
-    add("## 1. 손익 추이 (리컨사일 폴링)")
+    add("## 1. 손익 추이 (잔고 대조 폴링)")
     add("")
     if pnl:
         lo = min(pnl, key=lambda x: x[1])
@@ -244,7 +245,7 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
             cell = f"**{signed(v)}원**" if tag else f"{signed(v)}원"
             add(f"| {hms[:5]}{tag} | {cell} | {won(eq)} |")
     else:
-        add("리컨사일 표본 없음 — 로그로 확인 불가.")
+        add("잔고 대조 표본 없음 — 로그로 확인 불가.")
     add("")
 
     # 2. 세션
@@ -258,7 +259,7 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
         add(f"국면이 세션에 따라 갈렸다({', '.join(sorted(regimes))}). 동작 차이의 원인을 "
             "국면과 코드 변경으로 나눠 봐야 한다.")
     add("")
-    add("| # | 시각 | 슬롯 | 종목당 명목 | 등록 | 국면 | 프리필터 깔때기 |")
+    add("| # | 시각 | 슬롯 | 종목당 명목 | 등록 | 국면 | 프리필터 단계별 통과율 |")
     add("|---|------|------|------|------|------|------|")
     for i, s in enumerate(sess, 1):
         cap = f"{won(s['cap'])}원" if s["cap"] else "—"
@@ -275,7 +276,7 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
     per = led.get("per", {})
     if per:
         add(f"실전략 체결 {sum(a['B'] + a['S'] for a in per.values())}건"
-            f"(기동 프로브·부하시험 {led.get('probe', 0)}건 제외), 종목 {len(per)}개.")
+            f"(기동 점검·부하시험 {led.get('probe', 0)}건 제외), 종목 {len(per)}개.")
         add("")
         add("| 종목 | 시각 | 매수 | 매도 | 매수 명목 | 매도 명목 | 실현 |")
         add("|---|---|---|---|---|---|---|")
@@ -374,6 +375,19 @@ def run_dashboard(ymd: str, dry: bool) -> list[str]:
     return body or [f"refresh_dashboard rc={r.returncode}"]
 
 
+def run_ledger_sync(dry: bool) -> list[str]:
+    """결정 원장 파생 문서 갱신. 매매 없는 날에도 결정은 쌓이므로 원장 유무와 무관하게 돈다."""
+    script = REPO / "scripts" / "sync_ledgers.py"
+    if not script.exists():
+        return []
+    if dry:
+        return ["원장 동기화 건너뜀(dry-run)"]
+    r = subprocess.run([sys.executable, str(script)], cwd=REPO,
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    out = (r.stdout or r.stderr).strip().splitlines()
+    return out[-1:] if out else ["원장 동기화: 출력 없음"]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", help="YYYY-MM-DD (기본: 오늘)")
@@ -386,6 +400,8 @@ def main() -> int:
     log_path, csv_path = find_files(compact)
 
     lines = [f"[{datetime.now():%Y-%m-%d %H:%M:%S}] eod_autodoc {ymd}"]
+    for l in run_ledger_sync(a.dry_run):
+        lines.append("  " + l)
     if csv_path is None:
         lines.append("  원장 없음 — 매매하지 않은 날로 보고 건너뜀")
         print("\n".join(lines))

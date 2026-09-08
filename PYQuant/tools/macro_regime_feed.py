@@ -7,7 +7,7 @@
   이 스크립트가 그 스위치를 계산해 regime.json 한 파일로 원자적 발행하면,
   C++ 엔진 데이터 스레드가 폴링 주기마다 읽어 OrderGate::set_entry_halt()를 토글한다.
 
-전송(MVP): ZMQ 대신 **원자적 파일 브리지**(tmp+os.replace).
+전송(MVP): ZMQ 대신 **원자적 파일 전달**(tmp+os.replace).
   이유 — 지금 C++(WinHTTP-only·무의존 빌드)에 libzmq를 새로 얹으면 빌드 리스크.
   파이프라인이 결정론적으로 검증된 뒤 ZMQ PUB/SUB로 업그레이드(목표 아키텍처).
   regime.json 스키마(=C++ 리더 계약)는 아래 build_regime() 반환부 주석 참조.
@@ -39,6 +39,13 @@ from pathlib import Path
 
 KST = timezone(timedelta(hours=9))
 
+# cp949 콘솔에서 ⚠️ 같은 이모지 출력이 UnicodeEncodeError로 기동 즉시 죽는다.
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 # ── 심볼 정의 (FinanceDataReader) — 간밤 미국 종가 기준 일일 게이트 ──────────
 #  vote_dir: 이 지표가 "오르면" 위험선호(+1)인지 위험회피(-1)인지.
 #    나스닥/S&P↑ → risk-on(+1). VIX↑ → risk-off(지표값↑이 위험이므로 -1).
@@ -66,7 +73,9 @@ THRESHOLDS = {
 # 종합 판정(검증 필요):
 #   risk_score = Σ(방향표). 음수일수록 위험회피.
 #   entry_halt = risk_score <= HALT_SCORE  (신규 진입 정지)
-#   force_liquidate = risk_score <= LIQ_SCORE (극단 — C++는 우선 로그만, 강제청산 배선은 후속)
+#   force_liquidate = risk_score <= LIQ_SCORE
+#   주의: 이 값이 true가 되면 C++ 전략 스레드가 보유 전량을 시장가로 매도한다(FORCE_LIQ,
+#   2초 간격 재발주). 로그만 찍는 값이 아니다. 임계값을 낮출 때 그 무게로 다룬다.
 HALT_SCORE = -3
 LIQ_SCORE  = -6
 
@@ -135,7 +144,8 @@ def build_regime(changes: dict) -> dict:
 
     C++ 리더 계약:
       entry_halt(bool)  → OrderGate::set_entry_halt(entry_halt) 로 그대로 토글.
-      force_liquidate(bool) → 극단 신호. 우선 로그만(강제청산 배선은 Task4 후속).
+      force_liquidate(bool) → 보유 전량 시장가 매도(FORCE_LIQ). strategy_thread가 체결될 때까지
+                          2초 간격으로 재발주한다. 가장 무거운 신호이므로 valid=false면 절대 true가 아니다.
       stale_after_sec   → C++는 (지금 - ts) > 이 값이면 파일을 신뢰하지 말 것(페일세이프).
                           권장: stale 시 halt를 새로 켜지 말고, 자신이 켠 halt만 유지/해제.
       valid(bool)       → 유효 지표가 부족하면 false. C++는 false면 게이트 변경 금지.

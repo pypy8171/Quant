@@ -126,18 +126,23 @@ def refresh(live_dates: list[str], backtest: bool, render: bool, dry: bool) -> t
     생성기는 마지막에 한 번만 돈다 — 날짜가 여럿이어도 산출물은 HTML 한 장이다.
     """
     lines: list[str] = []
-    rc = 0
+    # 앞 단계가 실패하면 여기서 멈춘다. 깨진 입력으로 생성기를 돌리면 잘못된 HTML이
+    # 그대로 발행되고, 이전 정상본을 덮는다.
+    steps: list[tuple[str, list[str]]] = []
     if live_dates:
-        rc |= _run(BACKFILL_LIVE, [], dry, lines)
-        for d in sorted(set(live_dates)):
-            rc |= _run(REVIEW_ENTRY, ["--date", d], dry, lines)
+        steps.append((BACKFILL_LIVE, []))
+        steps += [(REVIEW_ENTRY, ["--date", d]) for d in sorted(set(live_dates))]
     if backtest:
-        rc |= _run(BACKFILL_STUDIES, [], dry, lines)
-    if live_dates or backtest or render:
-        rc |= _run(BUILD_DASHBOARD, [], dry, lines)
-    else:
+        steps.append((BACKFILL_STUDIES, []))
+    if not (live_dates or backtest or render):
         lines.append("갱신할 것 없음")
-    return lines, rc
+        return lines, 0
+    for script, args in steps:
+        rc = _run(script, args, dry, lines)
+        if rc:
+            lines.append(f"중단 — {script} 실패(rc={rc}), 생성기를 돌리지 않음")
+            return lines, rc
+    return lines, _run(BUILD_DASHBOARD, [], dry, lines)
 
 
 def main() -> int:

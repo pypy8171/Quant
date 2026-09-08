@@ -1,11 +1,11 @@
 """
-수급 EOD 확정치 forward 적재 로거 (investor-flow forward PIT DB).
+수급 장 마감 확정치 forward 적재 로거 (investor-flow forward PIT DB).
 
 배경(2026-08-09 전략회의 결론):
   외인/기관 "종목별 장중 실시간 확정 순매수"는 무료로도 유료로도 구할 수 없다
-  (거래소가 장중 투자자구분을 원천 미제공 → 장중은 추정, 확정은 EOD). 그리고
+  (거래소가 장중 투자자구분을 원천 미제공 → 장중은 추정, 확정은 장 마감). 그리고
   "그때 그 시각의 수급"은 과거를 되사올 수 없다 → 오늘부터 직접 쌓지 않으면
-  이 데이터로 하는 검증(백테스트/ablation)은 영영 불가능하다.
+  이 데이터로 하는 검증(백테스트/제거실험)은 영영 불가능하다.
 
   이 스크립트는 매 거래일 장 마감 후(권장 18:10 KST 이후, KRX 확정 반영) 실행되어,
   거래대금/시총 상위 유니버스의 일별 투자자 순매수(FHKST01010900)를 append-only
@@ -129,7 +129,7 @@ def load_existing_index(path: Path) -> set:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="수급 EOD 확정치 forward 적재 로거")
+    ap = argparse.ArgumentParser(description="수급 장 마감 확정치 forward 적재 로거")
     ap.add_argument("tickers", nargs="*", help="특정 종목코드 (없으면 유니버스 자동)")
     ap.add_argument("--top", type=int, default=50, help="유니버스 상위 N (기본 50)")
     ap.add_argument("--volume-rank", action="store_true",

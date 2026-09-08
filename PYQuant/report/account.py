@@ -3,7 +3,7 @@
 
 데이터 소스 (하이브리드, ADR 참조):
   - 현재 계좌 현황·종목별 평가손익: KIS 잔고 API (항상 정확, SSOT)
-  - 원금추적·기간수익률:           로컬 DB account_snapshots (EOD 누적) + cash_flows
+  - 원금추적·기간수익률:           로컬 DB account_snapshots (장 마감 누적) + cash_flows
   - 거래내역(체결):                 로컬 DB fills (이 시스템이 낸 주문) — 수동매매는 미포함
 
 모의(account='paper')는 입출금이 없어 cash_flows가 비어 있음 — 원금=시작 평가금.
@@ -122,7 +122,7 @@ class AccountReport:
         if not self.db:
             print("  DB 미연결 — 스냅샷 기반 원금추적 불가 (현재 현황만 표시)")
         elif summ.get("snap_count", 0) < 1:
-            print("  스냅샷 없음 — `report --snapshot`으로 적재를 시작하세요 (EOD 1회 권장)")
+            print("  스냅샷 없음 — `report --snapshot`으로 적재를 시작하세요 (장 마감 1회 권장)")
         else:
             print(f"  스냅샷 {summ['snap_count']}개  "
                   f"({_fmt_dt(summ['begin_ts'])} ~ {_fmt_dt(summ['end_ts'])})")

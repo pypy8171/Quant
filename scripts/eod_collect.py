@@ -21,16 +21,15 @@ from datetime import datetime
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "scripts"))
+import _logdir  # noqa: E402
+from log_patterns import PNL_ONLY_RE as PNL_RE  # noqa: E402
 
 for _s in (sys.stdout, sys.stderr):
     try:
         _s.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):
         pass
-
-# 엔진은 실행 cwd 하위 logs/에 쓴다. 후보를 모두 보고 그 날짜 파일이 있는 것 중
-#  가장 최근에 쓰인 폴더를 고른다(=그날 실제 운영 경로).
-LOG_DIRS = [REPO / "Quant" / "build_win" / "logs", REPO / "logs", REPO / "Quant" / "logs"]
 
 SESSION_RE = re.compile(r"=== Quant Trader")
 LINE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\.\d+ \[(\w+)\s*\] (.*)$")
@@ -40,24 +39,17 @@ ITB_REG_RE = re.compile(r"전략 등록: ITB \| (\d{6}).*hold=(\d+)")
 SCAN_RE = re.compile(r"정배열 프리필터: .*등록=(\d+)")
 SIGNAL_RE = re.compile(r"신호: \[([^\]]+)\] (\d{6})\S* (BUY|SELL) (\d+)(?: \| 근거: (.*))?")
 ZONE_RE = re.compile(r"\[(DEVSCALE_\d{6})\] (\d{6})\(([^)]*)\) 존 판정 (\S+) .*이격=(-?[\d.]+)%")
-PNL_RE = re.compile(r"리컨사일: 당일손익 (-?\d+)원")
 # 숫자·ODNO를 지워 사유를 묶는다(같은 사유가 건마다 다른 문자열로 흩어지지 않게).
 NUM_RE = re.compile(r"\d{3,}")
 
 
 def find_files(date: str):
-    best = None
-    for d in LOG_DIRS:
-        csv = d / f"trades_{date}.csv"
-        log = d / "quant_trader.log"
-        if not csv.exists():
-            continue
-        mtime = csv.stat().st_mtime
-        if best is None or mtime > best[0]:
-            best = (mtime, log if log.exists() else None, csv)
-    if best is None:
+    """그 날짜 원장(행 수 최대, 동률이면 mtime 최신)과 그 옆의 로그. 규칙은 _logdir 하나다."""
+    csv = _logdir.find_ledger(date)
+    if csv is None:
         return None, None
-    return best[1], best[2]
+    log = csv.parent / "quant_trader.log"
+    return (log if log.exists() else None), csv
 
 
 def norm_reason(s: str) -> str:
@@ -176,7 +168,7 @@ def build(date: str) -> dict:
     log, csv = find_files(date)
     if csv is None:
         print("[eod_collect] " + date + " 원장을 찾지 못했습니다. 탐색: "
-              + ", ".join(str(d) for d in LOG_DIRS), file=sys.stderr)
+              + ", ".join(str(d) for d in _logdir.candidate_dirs()), file=sys.stderr)
         sys.exit(2)
     ymd = date[:4] + "-" + date[4:6] + "-" + date[6:]
     pack = {"date": ymd, "ledger_path": str(csv.relative_to(REPO)),

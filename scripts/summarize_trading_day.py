@@ -11,9 +11,11 @@
 import os, re, csv, sys, glob, collections
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LOG_DIRS = [os.path.join(REPO, "Quant", "build_win", "logs"),
-            os.path.join(REPO, "Quant", "logs"),
-            os.path.join(REPO, "logs")]
+sys.path.insert(0, os.path.join(REPO, "scripts"))
+import _logdir  # noqa: E402
+from log_patterns import PNL_RE  # noqa: E402
+
+LOG_DIRS = [str(d) for d in _logdir.candidate_dirs()]
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -31,15 +33,9 @@ def find_logs():
 
 
 def find_ledger(date):
-    key = "trades_" + date.replace("-", "") + ".csv"
-    best = None
-    for d in LOG_DIRS:
-        p = os.path.join(d, key)
-        if os.path.exists(p):
-            n = sum(1 for _ in open(p, encoding="utf-8-sig")) - 1
-            if best is None or n > best[1]:
-                best = (p, n)
-    return best
+    """(경로, 행 수) — 행 수 최대, 동률이면 mtime 최신. 규칙은 _logdir 하나다."""
+    c = _logdir.ledger_candidates(date)
+    return (str(c[0][0]), c[0][1]) if c else None
 
 
 def log_lines(date):
@@ -110,7 +106,7 @@ def summarize(date):
             print("  " + rs[0][:210])
 
         head("유니버스·전략 등록")
-        for kw in ("프리필터", "재스캔 완료", "청산 가디언", "전략 등록"):
+        for kw in ("프리필터", "재스캔 완료", "청산 관리", "전략 등록"):
             hits = [x for x in lines if kw in x]
             print("  [%s] %d건" % (kw, len(hits)))
             for h in hits[:3]:
@@ -127,10 +123,10 @@ def summarize(date):
         for k, v in collections.Counter(norm(x.split("] ", 2)[-1]) for x in errs).most_common(8):
             print("  %5d  %s" % (v, k))
 
-        head("당일손익 (리컨사일)")
+        head("당일손익 (잔고 대조)")
         pnl = []
         for l in lines:
-            m = re.search(r"리컨사일: 당일손익 (-?\d+)원 \(총평가 (\d+)\)", l)
+            m = PNL_RE.search(l)
             if m:
                 pnl.append((l[11:19], int(m.group(1)), int(m.group(2))))
         if pnl:
@@ -144,7 +140,7 @@ def summarize(date):
                 byh[t[:2]] = (t, v)
             print("  시간대별 마지막: " + " | ".join("%s %+d" % (v[0], v[1]) for v in byh.values()))
         else:
-            print("  리컨사일 기록 없음")
+            print("  잔고 대조 기록 없음")
         prev = [l for l in lines if "전일총자산" in l]
         if prev:
             print("  " + prev[-1][11:150])

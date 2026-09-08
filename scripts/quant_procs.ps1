@@ -4,25 +4,32 @@
 
 .DESCRIPTION
   Get-Process로 보면 powershell·python이 여러 줄 나오는데 어느 것이 매매용이고 어느 것이
-  죽었어야 할 잔재인지 구분되지 않는다. 여기서는 명령줄로 역할을 붙이고, 부모-자식을 한
+  죽었어야 할 남은 프로세스인지 구분되지 않는다. 여기서는 명령줄로 역할을 붙이고, 부모-자식을 한
   인스턴스로 묶어(py → python → python은 하나다) 역할별로 몇 개가 떠 있는지만 본다.
 
   판정은 넷이다.
     정상    역할당 인스턴스 1개
     중복    역할당 2개 이상 — 가장 최근에 뜬 것을 남기고 옛 것을 내린다(고치고 재기동한 흔적)
-    껍데기  -NoExit 창은 살아 있는데 그 안의 역할 프로세스가 죽은 것. 창만 남는다
+    빈 창  -NoExit 창은 살아 있는데 그 안의 역할 프로세스가 죽은 것. 창만 남는다
     없음    역할 프로세스가 하나도 없다
 
   트레이더(quant_trader)는 중복이어도 자동으로 죽이지 않는다. 두 프로세스가 같은 계좌에
   발주하면 원장이 깨지는데 어느 쪽이 진짜인지 스크립트가 알 수 없다. 보고만 한다.
 
+  -KillAll 은 판정과 무관하게 이 저장소가 띄운 것을 전부 내린다. 하루를 끝낼 때 쓴다. 이때는 어느
+  트레이더가 진짜인지 가릴 필요가 없으므로 트레이더도 같이 내리고, 오늘 상태파일의 phase 를
+  closed 로 적어 5분 주기 감시자가 되살리지 않게 한다(이 표시가 없으면 재부팅해도 장중에는
+  몇 분 안에 다시 떠 있다).
+
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1            # 현황만
-  powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -Reap      # 중복·껍데기 정리
+  powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -Reap      # 중복·빈 창 정리
+  powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -KillAll   # 전부 내리고 하루 종료
 #>
 [CmdletBinding()]
 param(
-  [switch]$Reap,            # 중복·껍데기를 실제로 내린다(없으면 현황만)
+  [switch]$Reap,            # 중복·빈 창을 실제로 내린다(없으면 현황만)
+  [switch]$KillAll,         # 역할 프로세스·quant 창을 전부 내리고 감시자 재기동을 막는다
   [switch]$IncludeTrader,   # 트레이더 중복도 정리 대상에 넣는다(기본 제외 — 원장 위험)
   [switch]$Quiet            # 표를 찍지 않고 정리 결과만
 )
@@ -38,7 +45,8 @@ $Roles = @(
   @{ role = "sidecar";   match = "macro_regime_feed.py" },
   @{ role = "dashboard"; match = "dashboard_server.py" },
   @{ role = "notify";    match = "notify_sidecar.py" },
-  @{ role = "universe";  match = "universe_feed.py" }
+  @{ role = "universe";  match = "universe_feed.py" },
+  @{ role = "prices";    match = "live_prices_feed.py" }
 )
 
 $all  = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine })
@@ -89,14 +97,17 @@ foreach ($t in $tagged) {
   if (-not $isChild) { $roots += $t }
 }
 
-# 껍데기 창 — Start-Window로 띄운 quant-* 제목의 -NoExit 셸인데 안의 역할 프로세스가 없다.
+# 빈 창 창 — Start-Window로 띄운 quant-* 제목의 -NoExit 셸인데 안의 역할 프로세스가 없다.
 $shells = @()
+$allShells = @()   # 안이 살아 있든 아니든 quant-* 창 전부 — KillAll 이 쓴다
 foreach ($p in $all) {
   if ($p.Name -ne "powershell.exe" -and $p.Name -ne "pwsh.exe") { continue }
   $pid_ = [int]$p.ProcessId
   if ($selfChain -contains $pid_) { continue }
   if ($p.CommandLine -notlike "*RawUI.WindowTitle='quant-*") { continue }
   if (Get-QRole $p.CommandLine) { continue }        # 역할이 직접 붙은 셸은 위에서 이미 잡혔다
+  $shellTitle = if ($p.CommandLine -match "WindowTitle='([^']+)'") { $Matches[1] } else { "quant-?" }
+  $allShells += [pscustomobject]@{ QPid = $pid_; Title = $shellTitle; Start = $p.CreationDate }
   $alive = @($tagged | Where-Object { $_.Anc -contains $pid_ })
   if ($alive.Count -eq 0) {
     $title = if ($p.CommandLine -match "WindowTitle='([^']+)'") { $Matches[1] } else { "quant-?" }
@@ -121,7 +132,7 @@ foreach ($g in @($roots | Group-Object Role)) {
   }
 }
 foreach ($s in $shells) {
-  $rows += [pscustomobject]@{ 역할 = "shell:$($s.Title)"; PID = $s.QPid; 자식 = 0; 기동 = $s.Start.ToString("HH:mm:ss"); 판정 = "껍데기" }
+  $rows += [pscustomobject]@{ 역할 = "shell:$($s.Title)"; PID = $s.QPid; 자식 = 0; 기동 = $s.Start.ToString("HH:mm:ss"); 판정 = "빈 창" }
 }
 foreach ($r in $Roles) {
   if (@($roots | Where-Object { $_.Role -eq $r.role }).Count -eq 0) {
@@ -133,6 +144,39 @@ if (-not $Quiet) {
   Write-Host ""
   Write-Host ("  Quant 프로세스 현황 " + (Get-Date -Format 'HH:mm:ss'))
   ($rows | Sort-Object 역할, 기동 | Format-Table -AutoSize | Out-String -Width 120) | Write-Host
+}
+
+# ─────────────── 전부 내리기 ───────────────
+if ($KillAll) {
+  $victims = @()
+  foreach ($t in $tagged)    { $victims += [pscustomobject]@{ Pid = $t.QPid; What = $t.Role } }
+  foreach ($s in $allShells) { $victims += [pscustomobject]@{ Pid = $s.QPid; What = "창 $($s.Title)" } }
+
+  $killed = 0
+  # 자식이 먼저 죽어야 부모 셸이 재기동 로직을 타지 않는다. 나중에 뜬 것부터 내린다.
+  foreach ($v in ($victims | Sort-Object Pid -Unique | Sort-Object { -$_.Pid })) {
+    try { Stop-Process -Id $v.Pid -Force -ErrorAction Stop; $killed++; Write-Host "  [종료] $($v.What) pid=$($v.Pid)" }
+    catch { }
+  }
+
+  # 감시자가 5분 뒤 되살리지 않도록 오늘 상태에 종료를 남긴다.
+  $repo   = Split-Path -Parent $PSScriptRoot
+  $status = Join-Path $repo "_private\_auto_trade_day.json"
+  if (Test-Path $status) {
+    try {
+      $st = Get-Content $status -Raw -Encoding UTF8 | ConvertFrom-Json
+      $st.phase   = "closed"
+      $st.updated = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss")
+      $st | ConvertTo-Json -Depth 6 | Set-Content $status -Encoding UTF8
+      Write-Host "  [표시] phase=closed — 오늘은 감시자가 되살리지 않는다."
+    } catch {
+      Write-Host "  [경고] 상태파일을 고치지 못했다: $($_.Exception.Message)" -ForegroundColor Yellow
+      Write-Host "         장중이면 5분 안에 다시 뜬다. 손으로 phase 를 closed 로 바꾼다: $status" -ForegroundColor Yellow
+    }
+  }
+
+  Write-Host "  종료 $killed 개."
+  exit 0
 }
 
 if (-not $Reap) { exit 0 }
@@ -150,7 +194,7 @@ foreach ($i in $dupRoots) {
   }
 }
 foreach ($s in $shells) {
-  try { Stop-Process -Id $s.QPid -Force -ErrorAction Stop; $killed++; Write-Host "  [정리] 껍데기 창 $($s.Title) pid=$($s.QPid)" } catch { }
+  try { Stop-Process -Id $s.QPid -Force -ErrorAction Stop; $killed++; Write-Host "  [정리] 빈 창 창 $($s.Title) pid=$($s.QPid)" } catch { }
 }
 Write-Host "  정리 $killed 개."
 exit 0

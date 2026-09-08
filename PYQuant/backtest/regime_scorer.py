@@ -1,6 +1,6 @@
-"""국면 스코어러 — C++ RegimeController(compute_score/classify) 미러 + 연속화·기울기·개장오버레이 애블레이션.
+"""국면 스코어러 — C++ RegimeController(compute_score/classify) 미러 + 연속화·기울기·개장오버레이 제거실험.
 
-이 모듈은 Track A(구조 국면) 애블레이션의 지적 핵심이다. C++ `Quant/include/core/RegimeController.h`
+이 모듈은 Track A(구조 국면) 제거실험의 지적 핵심이다. C++ `Quant/include/core/RegimeController.h`
 의 순수 로직(compute_score/classify)을 파이썬으로 1:1 미러링(변형 A)하고, 사용자 문제제기
 (①단조 ②일봉이라 5분 재평가 무의미 ③이산·과보수)를 겨냥해 연속화(B)·기울기(C)·SOX오버레이(D)로 확장한다.
 

@@ -138,7 +138,7 @@ def main() -> None:
     b_ret, b_mdd, b_sharpe = BacktestEngine._curve_stats(bench_curve)
     print("=" * 92)
     print(f"📊 통합 OOS(이어붙임): 전략 수익 {s_ret:+.1f}% 샤프 {s_sharpe:.2f} MDD -{s_mdd:.1f}%")
-    print(f"               벤치(등가중) 수익 {b_ret:+.1f}% 샤프 {b_sharpe:.2f} MDD -{b_mdd:.1f}%")
+    print(f"               벤치(동일가중) 수익 {b_ret:+.1f}% 샤프 {b_sharpe:.2f} MDD -{b_mdd:.1f}%")
     verdict = "✅ OOS도 벤치 초과(위험조정)" if s_sharpe > b_sharpe else "❌ OOS에서 벤치 미달 — 과적합 의심"
     print(f"   판정: {verdict}  (알파 {s_ret-b_ret:+.1f}%p)")
 

@@ -37,9 +37,13 @@ for _s in (sys.stdout, sys.stderr):
 
 _HERE = Path(__file__).resolve()
 _REPO = _HERE.parents[1]
-# 로그 폴더는 엔진 실행파일 기준으로 앵커되므로(빌드 폴더에서 띄우면 그쪽 logs/),
-#  QUANT_LOG_DIR로 덮어쓸 수 있게 둔다. 미지정이면 저장소 루트 logs/.
-LOGS = Path(os.environ.get("QUANT_LOG_DIR") or (_REPO / "logs"))
+sys.path.insert(0, str(_HERE.parent))
+import _logdir  # noqa: E402
+
+# 로그 폴더 규칙은 _logdir 하나다(QUANT_LOG_DIR > 가장 최근에 쓰인 quant_trader.log).
+#  예전에는 저장소 루트 logs/로 못박아, 빌드 폴더에서 돌던 엔진의 로그를 못 찾고도
+#  오류 없이 0만 출력했다(감시가 조용히 눈을 감았다).
+LOGS = _logdir.log_dir()
 LOGFILE = LOGS / "quant_trader.log"
 STATE = LOGS / ".watch_intraday_state.json"
 
@@ -58,6 +62,11 @@ _GATE_REASON = re.compile(r"→\s*(?P<reason>.+?)\s*$")
 
 def classify(rest: str, lvl: str):
     """한 줄(레벨 이후 본문)을 (category, detail) 로 분류. 관심 밖이면 None."""
+    # 체결이 아닌 체결통보 처리 결과 — fill로 세면 체결 수가 부풀어 원장과 어긋난다
+    if "중복 체결통보 무시" in rest:
+        return ("fill_dup", rest)
+    if "체결통보 매핑 실패" in rest:
+        return ("fill_unmapped", rest)
     # 체결 (주문접수보다 먼저 검사 — 둘 다 OrderRouter)
     if "체결 확인" in rest or ("체결" in rest and "통보" in rest):
         return ("fill", rest)
@@ -151,15 +160,18 @@ def watch():
     n_http = len(buckets.get("http_error", []))
     n_err = len(buckets.get("error", []))
     n_liq = len(buckets.get("liq_block", []))
+    n_unmapped = len(buckets.get("fill_unmapped", []))
 
-    # 유의미 판단: 주문·체결·거부·게이트·WS·에러·청산차단 중 하나라도 / HTTP 스파이크
-    significant = any([n_order, n_fill, n_kis, n_gate, n_ws, n_err, n_liq]) or n_http > HTTP_SPIKE
+    # 유의미 판단: 주문·체결·거부·게이트·WS·에러·청산차단·매핑실패 중 하나라도 / HTTP 스파이크
+    significant = (any([n_order, n_fill, n_kis, n_gate, n_ws, n_err, n_liq, n_unmapped])
+                   or n_http > HTTP_SPIKE)
     if not significant:
         return
 
     win = f"{t0[11:16]}–{t1[11:16]}" if t0 else "?"
     head = (f"[감시 {win}] 주문{n_order} 체결{n_fill} KIS거부{n_kis} "
-            f"게이트봉쇄{n_gate} WS재연결{n_ws} HTTP오류{n_http} ERROR{n_err}")
+            f"게이트봉쇄{n_gate} WS재연결{n_ws} HTTP오류{n_http} ERROR{n_err}"
+            + (f" 매핑실패{n_unmapped}" if n_unmapped else ""))
     out = [head]
     # 반드시 즉시 노출할 것: 청산차단·ERROR·KIS거부(사유 원문 샘플 최대 5)
     for cat, label in (("liq_block", "‼ 청산차단"), ("error", "✗ ERROR"),
@@ -210,7 +222,7 @@ def full(date: str | None, as_json: bool):
         "samples": {
             k: [d[:200] for d in v[:8]]
             for k, v in buckets.items()
-            if k in ("error", "kis_reject", "liq_block")
+            if k in ("error", "kis_reject", "liq_block", "fill_unmapped")
         },
     }
     if as_json:
@@ -221,6 +233,7 @@ def full(date: str | None, as_json: bool):
     print(f"── 로그 이벤트 요약 {summary['date']} ({t0} ~ {t1}) ──")
     order = [
         ("신호", "signal"), ("주문접수", "order"), ("체결", "fill"),
+        ("중복통보", "fill_dup"), ("매핑실패", "fill_unmapped"),
         ("KIS거부", "kis_reject"), ("게이트봉쇄", "gate_block"),
         ("WS재연결", "ws_reconnect"), ("HTTP오류", "http_error"),
         ("ERROR", "error"), ("청산차단", "liq_block"),

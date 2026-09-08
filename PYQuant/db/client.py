@@ -29,7 +29,7 @@ def _require(data: dict, *keys: str) -> None:
 
 def _exclusive_end(end):
     """기간 상한을 '그날 포함'으로 — 'YYYY-MM-DD'/date/datetime → 다음날(배타상한, `ts < %s` 용).
-    'ts <= 날짜'는 그날 00:00로 해석돼 EOD(장마감 후) 적재분을 누락시킨다 (C-1)."""
+    'ts <= 날짜'는 그날 00:00로 해석돼 장 마감(장마감 후) 적재분을 누락시킨다 (C-1)."""
     from datetime import date as _date, datetime as _dt, timedelta
     if isinstance(end, str):
         d = _dt.strptime(end[:10], "%Y-%m-%d").date()
@@ -222,7 +222,7 @@ class DbClient:
 
     def upsert_position(self, ticker: str, quantity: int,
                         avg_price: float, realized_pnl: float):
-        """포지션 원장 갱신 — 체결 후 또는 EOD 배치에서 호출."""
+        """포지션 원장 갱신 — 체결 후 또는 장 마감 배치에서 호출."""
         try:
             with self._conn.cursor() as cur:
                 cur.execute(

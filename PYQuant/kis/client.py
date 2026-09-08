@@ -541,7 +541,7 @@ class KisClient:
             "FID_FAKE_TICK_INCU_YN":   "N",
         }
         for page in range(max(1, count // 110 + 2)):
-            # 페이지 간 페이싱. 안 쉬면 초당 한도에 걸려 빈 응답이 오고, 그게 "그날 데이터 끝"과
+            # 페이지 간 호출 간격 조절. 안 쉬면 초당 한도에 걸려 빈 응답이 오고, 그게 "그날 데이터 끝"과
             #  구분이 안 돼 하루치가 조용히 잘린다(09-03 실측: 120봉, 09-07 실측: 240봉).
             #  빈 응답은 한도 초과인지 진짜 끝인지 구분할 수 없으므로 백오프를 늘려가며 세 번 더
             #  두드려 본다. 세 번 다 비면 그때는 끝으로 본다.
@@ -631,6 +631,19 @@ class KisClient:
             except (ValueError, TypeError):
                 continue
         return rows
+
+    def get_ticker_name(self, ticker: str) -> str:
+        """상품기본조회로 종목명 한 건. 유니버스 밖 종목의 이름을 채우는 데 쓴다.
+
+        모의 도메인에서는 막혀 있을 수 있으므로 호출부가 빈 문자열을 견뎌야 한다.
+        """
+        data = self._get(
+            "/uapi/domestic-stock/v1/quotations/search-info",
+            {"PDNO": ticker, "PRDT_TYPE_CD": "300"},
+            "CTPF1604R",
+        )
+        out = data.get("output", {}) or {}
+        return (out.get("prdt_abrv_name") or out.get("prdt_name") or "").strip()
 
     # ── 잔고 조회 ────────────────────────────────────────────────────────────
     def get_kr_balance(self) -> tuple[list[BalanceItem], AccountSummary]:

@@ -1,5 +1,5 @@
 """
-data.go.kr 금융위 주식시세정보 소스 검증 프로브.
+data.go.kr 금융위 주식시세정보 소스 검증 기동 점검.
 
 목적: DataGoKrSource가 (1) 인증, (2) per-ticker OHLCV, (3) point-in-time
 유니버스(과거 시총 상위) 를 제대로 받는지 한 번에 확인. 첫 응답의 원본 필드명도

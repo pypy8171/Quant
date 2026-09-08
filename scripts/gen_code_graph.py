@@ -12,10 +12,16 @@ Quant/include·Quant/src 를 스캔해 로컬 `#include "..."` 관계를 뽑아
     py scripts/gen_code_graph.py --json          # docs/code_graph.json 도 생성(에이전트 소비용)
     py scripts/gen_code_graph.py --impact core/Types.h
         # 이 헤더를 (직접/전이) include 하는 파일·모듈 = 재검증·재빌드 영향범위
+    py scripts/gen_code_graph.py --check         # 산출물(md·dot·json)이 낡았으면 exit 1
+
+C++ include 그래프 외에 Python import 그래프(PYQuant/**·scripts/*.py 내부 import만)와
+프로세스 경계 파일(regime.json·prices_live.json·trades_*.csv·universe*.json 등을 코드에서
+문자열로 찾아 읽는 쪽/쓰는 쪽)을 같은 문서의 별도 절과 json에 싣는다.
 
 Graphviz(dot)가 설치돼 있으면 docs/code_graph.dot 을 렌더링할 수 있다:
     dot -Tsvg docs/code_graph.dot -o docs/code_graph.svg
 """
+import ast
 import json
 import os
 import re
@@ -23,6 +29,12 @@ import sys
 from collections import defaultdict, deque
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
 SCAN_DIRS = [os.path.join(ROOT, "Quant", "include"), os.path.join(ROOT, "Quant", "src")]
 OUT_MD = os.path.join(ROOT, "docs", "CODE_GRAPH.md")
 OUT_DOT = os.path.join(ROOT, "docs", "code_graph.dot")
@@ -30,6 +42,23 @@ OUT_JSON = os.path.join(ROOT, "docs", "code_graph.json")
 
 INCLUDE_RE = re.compile(r'#\s*include\s+"([^"]+)"')
 MODULES = ["api", "core", "ipc", "modes", "risk", "strategy", "universe", "utils"]
+
+PY_ROOTS = [os.path.join(ROOT, "PYQuant"), os.path.join(ROOT, "scripts")]
+PY_SKIP_DIRS = {"__pycache__", "node_modules", ".git", "logs", "out", "_private"}
+# 프로세스 경계 파일. (표시 이름, 문자열 리터럴 정규식, 리터럴이 없을 때 잡는 식별자 정규식)
+# C++ 쪽은 경로가 config·Logger를 거쳐 오므로 식별자(regime_file_ 등)로 잡는다.
+BOUNDARY_FILES = [
+    ("regime.json", r"regime\.json", r"\bregime_file"),
+    ("prices_live.json", r"prices_live\.json", r"\bprices_live"),
+    ("trades_*.csv", r"trades_[^\"'\s]*\.csv", r"\"trades_\""),
+    ("universe*.json", r"universe[^\"'\s]*\.json", r"\buniverse_(?:file|path|scan_file)"),
+    ("open_orders.txt", r"open_orders\.(?:txt|tmp|json)", r"\bopen_orders_file"),
+    ("quant_trader.log", r"quant_trader\.log", None),
+    ("kis_token_*.json", r"kis_token[^\"'\s]*\.json", r"\bkis_token_"),
+]
+SELF = os.path.abspath(__file__)
+WRITE_HINTS = re.compile(r"ofstream|\bwrite|dump\(|to_csv|to_json|\bsave\b|rename|replace\(|\"[wa]b?\"|'[wa]b?'|Set-Content|Out-File|append")
+READ_HINTS = re.compile(r"ifstream|\bread|load\(|read_csv|read_json|read_text|\bopen\(|exists|stat\(|glob|\"r\"|'r'|getline|parse")
 
 
 def module_of(rel_path):
@@ -142,6 +171,165 @@ def print_impact(g, target):
     return 0
 
 
+# ----------------------------- Python import 그래프 -----------------------------
+
+def py_files():
+    """PYQuant/**·scripts/*.py. 가상환경·캐시(.으로 시작)는 건너뛴다."""
+    out = []
+    for base in PY_ROOTS:
+        if not os.path.isdir(base):
+            continue
+        for dirpath, dirs, names in os.walk(base):
+            dirs[:] = sorted(d for d in dirs if d not in PY_SKIP_DIRS and not d.startswith((".", "build_")))
+            if os.path.basename(base) == "scripts" and dirpath != base:
+                continue
+            for n in sorted(names):
+                if n.endswith(".py"):
+                    out.append(os.path.join(dirpath, n))
+    return out
+
+
+def py_label(f):
+    return os.path.relpath(f, ROOT).replace("\\", "/")
+
+
+def py_package(label):
+    """PYQuant/strategy/base.py -> PYQuant/strategy, scripts/x.py -> scripts."""
+    parts = label.split("/")
+    return "/".join(parts[:2]) if parts[0] == "PYQuant" and len(parts) > 2 else parts[0]
+
+
+def _is_script_module(top):
+    return os.path.exists(os.path.join(ROOT, "scripts", top + ".py"))
+
+
+def scan_python():
+    files = py_files()
+    labels = {f: py_label(f) for f in files}
+    # 내부 모듈 이름: PYQuant 바로 아래 패키지·모듈, scripts/*.py 의 stem
+    internal = set()
+    for lab in labels.values():
+        parts = lab.split("/")
+        if parts[0] == "PYQuant" and len(parts) >= 2:
+            internal.add(parts[1][:-3] if parts[1].endswith(".py") else parts[1])
+        elif parts[0] == "scripts":
+            internal.add(parts[1][:-3])
+    internal.discard("__init__")
+    edges = defaultdict(set)      # label -> {module string}
+    reverse = defaultdict(set)    # module string -> {label}
+    for f, lab in labels.items():
+        try:
+            with open(f, "r", encoding="utf-8-sig", errors="ignore") as fh:
+                tree = ast.parse(fh.read())
+        except (SyntaxError, ValueError, OSError):
+            continue
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                if node.level and node.level > 0:
+                    # 상대 import: 같은 패키지 기준으로 절대 이름을 만든다
+                    pkg = lab.split("/")[1:-1] if lab.startswith("PYQuant/") else []
+                    base = ".".join(pkg[:max(0, len(pkg) - node.level + 1)])
+                    names = [".".join(x for x in (base, node.module or "") if x)]
+                elif node.module:
+                    names = [node.module]
+            for n in names:
+                if n.startswith("PYQuant."):
+                    n = n[len("PYQuant."):]
+                top = n.split(".")[0]
+                if n and top in internal:
+                    edges[lab].add(n)
+                    reverse[n].add(lab)
+    pkg_edges = defaultdict(int)
+    for lab, mods in edges.items():
+        sp = py_package(lab)
+        for m in mods:
+            top = m.split(".")[0]
+            if lab.startswith("scripts/") and _is_script_module(top):
+                dp = "scripts"
+            elif os.path.exists(os.path.join(ROOT, "PYQuant", top + ".py")):
+                dp = "PYQuant"
+            else:
+                dp = "PYQuant/" + top
+            if dp != sp:
+                pkg_edges[(sp, dp)] += 1
+    return {
+        "files": sorted(labels.values()),
+        "edges": {k: sorted(v) for k, v in sorted(edges.items())},
+        "imported_by": {k: sorted(v) for k, v in sorted(reverse.items())},
+        "package_edges": [{"from": a, "to": b, "weight": w} for (a, b), w in sorted(pkg_edges.items())],
+    }
+
+
+# ----------------------------- 프로세스 경계 파일 -----------------------------
+
+def code_files_for_boundary():
+    out = []
+    for base in SCAN_DIRS:
+        for dirpath, _, names in os.walk(base):
+            for n in names:
+                if n.endswith((".h", ".hpp", ".cpp", ".cc")):
+                    out.append(os.path.join(dirpath, n))
+    out.extend(py_files())
+    return out
+
+
+def _classify(lines, idx, name_hint=None):
+    """리터럴이 있는 줄 ±3줄(상수에 담겼으면 그 상수를 쓰는 줄도)에서 읽기/쓰기 힌트를 본다."""
+    windows = [idx]
+    if name_hint:
+        pat = re.compile(r"\b" + re.escape(name_hint) + r"\b")
+        windows += [i for i, ln in enumerate(lines) if pat.search(ln) and i != idx]
+    modes = set()
+    for w in windows:
+        chunk = "\n".join(lines[max(0, w - 3): w + 4])
+        if WRITE_HINTS.search(chunk):
+            modes.add("write")
+        if READ_HINTS.search(chunk):
+            modes.add("read")
+    return modes
+
+
+def scan_boundary():
+    lit_re = re.compile(r"[\"']([^\"'\n]*?(" + "|".join(p for _, p, _ in BOUNDARY_FILES) + r"))[\"']")
+    idents = [(n, re.compile(ir)) for n, _, ir in BOUNDARY_FILES if ir]
+    # 줄 앞쪽의 대입 대상(첫 식별자) — 그 이름을 쓰는 줄도 힌트 창에 넣는다
+    assign_re = re.compile(r"^\s*(?:[\w:<>\[\]&*]+\s+)*([A-Za-z_]\w*)\s*=[^=]")
+    comment_re = re.compile(r"^\s*(//|#|\*|/\*)")
+    result = {name: {"readers": set(), "writers": set(), "mentions": set()} for name, _, _ in BOUNDARY_FILES}
+    for f in code_files_for_boundary():
+        if os.path.abspath(f) == SELF:
+            continue
+        try:
+            with open(f, "r", encoding="utf-8-sig", errors="ignore") as fh:
+                lines = fh.read().split("\n")
+        except OSError:
+            continue
+        lab = os.path.relpath(f, ROOT).replace("\\", "/")
+        for i, ln in enumerate(lines):
+            if comment_re.match(ln):
+                continue
+            hits = []
+            for m in lit_re.finditer(ln):
+                hits.append(next(n for n, p, _ in BOUNDARY_FILES if re.fullmatch(p, m.group(2))))
+            if not hits:
+                hits = [n for n, ir in idents if ir.search(ln)]
+            if not hits:
+                continue
+            am = assign_re.match(ln)
+            modes = _classify(lines, i, am.group(1) if am else None)
+            for name in set(hits):
+                result[name]["mentions"].add(lab)
+                if "write" in modes:
+                    result[name]["writers"].add(lab)
+                if "read" in modes:
+                    result[name]["readers"].add(lab)
+    return {n: {"writers": sorted(v["writers"]), "readers": sorted(v["readers"]),
+                "mentions": sorted(v["mentions"])} for n, v in result.items() if v["mentions"]}
+
+
 # ----------------------------- 렌더러 -----------------------------
 
 def render_mermaid_modules(g):
@@ -202,8 +390,41 @@ def hubs(g, top=8):
     return counts[:top]
 
 
-def to_json(g):
-    return {
+def render_mermaid_python(py):
+    lines = ["```mermaid", "graph LR"]
+    nodes = sorted({e["from"] for e in py["package_edges"]} | {e["to"] for e in py["package_edges"]})
+
+    def nid(x):
+        return "p_" + re.sub(r"[^0-9A-Za-z]", "_", x)
+
+    for n in nodes:
+        lines.append(f'  {nid(n)}["{n}"]')
+    for e in py["package_edges"]:
+        lbl = f"|{e['weight']}|" if e["weight"] > 1 else ""
+        lines.append(f"  {nid(e['from'])} -->{lbl} {nid(e['to'])}")
+    lines.append("```")
+    return "\n".join(lines)
+
+
+def render_python_table(py):
+    rows = ["| 파일 | 내부 import |", "|---|---|"]
+    for lab, mods in py["edges"].items():
+        rows.append(f"| `{lab}` | " + ", ".join(f"`{m}`" for m in mods) + " |")
+    return "\n".join(rows)
+
+
+def render_boundary_table(b):
+    rows = ["| 파일 | 쓰는 쪽 | 읽는 쪽 | 언급만 |", "|---|---|---|---|"]
+    for name, v in b.items():
+        only = sorted(set(v["mentions"]) - set(v["writers"]) - set(v["readers"]))
+        rows.append(f"| `{name}` | " + ", ".join(f"`{x}`" for x in v["writers"]) + " | "
+                    + ", ".join(f"`{x}`" for x in v["readers"]) + " | "
+                    + ", ".join(f"`{x}`" for x in only) + " |")
+    return "\n".join(rows)
+
+
+def to_json(g, py=None, boundary=None):
+    out = {
         "modules": g.mods,
         "module_edges": [{"from": s, "to": d, "weight": w}
                          for (s, d), w in sorted(g.mod_edges.items())],
@@ -212,9 +433,17 @@ def to_json(g):
         "included_by": {k: sorted(v) for k, v in sorted(g.reverse.items())},
         "hubs": [{"header": h, "in_degree": c} for h, c in hubs(g, top=20)],
     }
+    if py is not None:
+        out["python"] = py
+    if boundary is not None:
+        out["boundary_files"] = boundary
+    return out
 
 
-def write_docs(g, want_json):
+def build_outputs(g):
+    """md·dot·json 본문을 만든다. --check 는 이걸 파일과 비교만 한다."""
+    py = scan_python()
+    boundary = scan_boundary()
     md = []
     md.append("# 코드 의존 그래프 (Code Graph)")
     md.append("")
@@ -243,6 +472,21 @@ def write_docs(g, want_json):
     md.append("")
     md.append(render_mermaid_files(g))
     md.append("")
+    md.append("## Python import 그래프")
+    md.append("")
+    md.append("`PYQuant/**`·`scripts/*.py` 의 내부 import만(표준·서드파티 제외). 화살표는 패키지 단위, 숫자는 파일 쌍 수.")
+    md.append("")
+    md.append(render_mermaid_python(py))
+    md.append("")
+    md.append(render_python_table(py))
+    md.append("")
+    md.append("## 프로세스 경계 파일")
+    md.append("")
+    md.append("C++ 엔진·Python 사이드카·스크립트가 파일로 주고받는 지점. 코드의 문자열 리터럴에서 찾았고,")
+    md.append("읽기/쓰기는 리터럴 주변 줄의 힌트(ofstream·dump·read_text 등)로 분류했다. 힌트가 없으면 '언급만'.")
+    md.append("")
+    md.append(render_boundary_table(boundary))
+    md.append("")
     md.append("## 영향범위 질의 · 기계 소비")
     md.append("")
     md.append("편집·커밋 전 영향범위(재검증/재빌드 대상)를 파일 열지 않고 뽑는다:")
@@ -254,18 +498,49 @@ def write_docs(g, want_json):
     md.append("")
     md.append("`docs/code_graph.dot` 도 생성했다(Graphviz 설치 시 `dot -Tsvg docs/code_graph.dot -o docs/code_graph.svg`).")
     md.append("")
+    md_text = "\n".join(md) + "\n"
+    dot_text = render_dot(g) + "\n"
+    json_text = json.dumps(to_json(g, py, boundary), ensure_ascii=False, indent=2) + "\n"
+    return md_text, dot_text, json_text
 
+
+def _read_or_empty(path):
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            return f.read().replace("\r\n", "\n")
+    except OSError:
+        return ""
+
+
+def check_outputs(g):
+    """산출물이 지금 코드와 다르면 낡은 파일을 찍고 1."""
+    md_text, dot_text, json_text = build_outputs(g)
+    stale = []
+    for path, want in ((OUT_MD, md_text), (OUT_DOT, dot_text), (OUT_JSON, json_text)):
+        if _read_or_empty(path).rstrip("\n") != want.rstrip("\n"):
+            stale.append(os.path.relpath(path, ROOT))
+    if stale:
+        for p in stale:
+            print(f"[stale] {p}")
+        print("py scripts/gen_code_graph.py --json 으로 재생성")
+        return 1
+    print("[ok] code graph 최신")
+    return 0
+
+
+def write_docs(g, want_json):
+    md_text, dot_text, json_text = build_outputs(g)
     os.makedirs(os.path.dirname(OUT_MD), exist_ok=True)
     with open(OUT_MD, "w", encoding="utf-8") as f:
-        f.write("\n".join(md) + "\n")
+        f.write(md_text)
     with open(OUT_DOT, "w", encoding="utf-8") as f:
-        f.write(render_dot(g) + "\n")
+        f.write(dot_text)
     print(f"[ok] modules={len(g.mods)} module_edges={len(g.mod_edges)}")
     print(f"[ok] wrote {os.path.relpath(OUT_MD, ROOT)}")
     print(f"[ok] wrote {os.path.relpath(OUT_DOT, ROOT)}")
     if want_json:
         with open(OUT_JSON, "w", encoding="utf-8") as f:
-            json.dump(to_json(g), f, ensure_ascii=False, indent=2)
+            f.write(json_text)
         print(f"[ok] wrote {os.path.relpath(OUT_JSON, ROOT)}")
 
 
@@ -277,6 +552,8 @@ def main(argv):
             print("[err] --impact 뒤에 헤더 경로가 필요합니다. 예: --impact core/Types.h")
             return 2
         return print_impact(g, argv[i + 1].replace("\\", "/"))
+    if "--check" in argv:
+        return check_outputs(g)
     write_docs(g, want_json=("--json" in argv))
     return 0
 

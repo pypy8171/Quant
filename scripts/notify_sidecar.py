@@ -22,11 +22,13 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import csv
 import io
 import json
 import os
 import re
+import signal
 import sys
 import time
 import traceback
@@ -37,6 +39,9 @@ import requests
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "PYQuant"))
+sys.path.insert(0, str(REPO / "scripts"))
+import _logdir  # noqa: E402
+from log_patterns import PNL_ONLY_RE as DAILY_RE  # noqa: E402
 
 # 콘솔이 cp949면 이모지·em dash에서 죽는다. 출력만 UTF-8로 고정한다.
 for _s in (sys.stdout, sys.stderr):
@@ -48,37 +53,9 @@ for _s in (sys.stdout, sys.stderr):
 from kis.client import KisClient  # noqa: E402
 
 
-# ── 로그 디렉터리 (dashboard_server와 같은 규약: 최신 quant_trader.log를 가진 곳) ──────
-def _candidate_log_dirs():
-    cands = []
-    env = os.environ.get("QUANT_LOG_DIR")
-    if env:
-        cands.append(Path(env))
-    cands += [REPO / "Quant" / "build_win" / "logs", REPO / "logs", Path.cwd() / "logs"]
-    seen, out = set(), []
-    for c in cands:
-        try:
-            rc = c.resolve()
-        except OSError:
-            rc = c
-        if rc not in seen:
-            seen.add(rc)
-            out.append(c)
-    return out
-
-
+# ── 로그 디렉터리 (규칙은 _logdir 하나: QUANT_LOG_DIR > 최신 quant_trader.log를 가진 곳) ──
 def logs_dir(override):
-    if override:
-        return Path(override)
-    best, best_mt = None, -1.0
-    for c in _candidate_log_dirs():
-        try:
-            mt = (c / "quant_trader.log").stat().st_mtime
-        except OSError:
-            continue
-        if mt > best_mt:
-            best, best_mt = c, mt
-    return best or (REPO / "Quant" / "build_win" / "logs")
+    return Path(override) if override else _logdir.log_dir()
 
 
 # ── 수신처 어댑터 ──────────────────────────────────────────────────────────────
@@ -253,6 +230,12 @@ def _wide_rjust(s, width):
     return " " * max(0, width - _dispw(s)) + s
 
 
+try:
+    from dashboard_server import STRATEGY_LABEL
+except Exception:
+    STRATEGY_LABEL = {}
+
+
 def fmt_fill(row, names):
     side = (row.get("side") or "").upper()
     tkr = row.get("ticker") or ""
@@ -270,9 +253,14 @@ def fmt_fill(row, names):
     if side == "SELL" and pnl not in (None, "", "0"):
         lines.append("　실현손익 %s원" % _signed(pnl))
     strat = row.get("strategy") or ""
-    if strat:
+    if strat in STRATEGY_LABEL:
+        # 전략이 아닌 주문이라 "전략" 머리말을 붙이지 않는다.
+        lines.append("　%s" % STRATEGY_LABEL[strat])
+    elif strat:
         lines.append("　전략 %s" % strat)
     rsn = (row.get("entry_reason") or row.get("reason") or "").strip()
+    if rsn and STRATEGY_LABEL.get(strat, "") in rsn:
+        rsn = ""   # 라벨이 이미 같은 말을 했으면 두 번 쓰지 않는다.
     if rsn:
         lines.append("　%s" % rsn[:80])
     lines.append("　%s" % (row.get("ts_kst") or "")[-8:])
@@ -332,14 +320,15 @@ def fmt_positions(items, summ, daily_pnl, mode, cfg=None, realized=None, regime=
         head.append("당일손익(엔진)%13s 원" % _signed(daily_pnl))
 
     # 열 폭은 한 곳에서 정한다. 머리글도 같은 폭으로 만들어야 한글 종목명에서 어긋나지 않는다.
-    cols = [("종목", 15), ("수량", 7), ("평단", 10), ("현재", 10), ("손익", 12), ("수익률", 8)]
+    cols = [("종목", 15), ("수량", 7), ("평단", 10), ("현재", 10), ("평가금", 13),
+            ("손익", 12), ("수익률", 8)]
     ruler = sum(w for _, w in cols)
     body = ["", _wide_pad("종목", 15) + "".join(_wide_rjust(h, w) for h, w in cols[1:]),
             "─" * ruler]
     for b in pos:
-        body.append("%s%7s%10s%10s%12s%7.2f%%" % (
+        body.append("%s%7s%10s%10s%13s%12s%7.2f%%" % (
             _wide_pad(b.name or b.ticker, 15), _won(b.quantity), _won(b.avg_price),
-            _won(b.current_price), _signed(b.pnl), b.pnl_rate or 0.0))
+            _won(b.current_price), _won(b.eval_amount), _signed(b.pnl), b.pnl_rate or 0.0))
     if not pos:
         body.append("(보유 없음)")
 
@@ -360,7 +349,11 @@ def fmt_positions(items, summ, daily_pnl, mode, cfg=None, realized=None, regime=
 
 
 def load_universe_names(cfg):
-    """유니버스 스캔 파일의 ticker→종목명. 첫 체결부터 이름이 나오게 시드로 쓴다."""
+    """유니버스 스캔 파일의 ticker→종목명. 첫 체결부터 이름이 나오게 시드로 쓴다.
+
+    universe는 선정된 top-N만이라 랭킹축으로 들어온 종목이 빠진다. 같은 파일의
+    name_map(스냅샷 전 종목)을 먼저 깔고 그 위에 universe를 얹는다.
+    """
     strat = cfg.get("strategies") or [{}]
     rel = next((s.get("universe_file") for s in strat if s.get("universe_file")),
                "Quant/config/universe_scan.json")
@@ -369,15 +362,98 @@ def load_universe_names(cfg):
         d = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    return {u["ticker"]: u["name"] for u in (d.get("universe") or [])
-            if u.get("ticker") and u.get("name")}
+    names = {k: v for k, v in (d.get("name_map") or {}).items() if k and v}
+    names.update({u["ticker"]: u["name"] for u in (d.get("universe") or [])
+                  if u.get("ticker") and u.get("name")})
+    return names
 
 
-DAILY_RE = re.compile(r"리컨사일: 당일손익 (-?\d+)원")
+NAME_CACHE = REPO / "Quant" / "config" / "ticker_names.json"
+
+
+def load_name_cache():
+    """한 번 알아낸 이름은 파일에 남긴다. 재기동해도 다시 조회하지 않는다."""
+    try:
+        d = json.loads(NAME_CACHE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in d.items() if k and v} if isinstance(d, dict) else {}
+
+
+def save_name_cache(names):
+    try:
+        NAME_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = NAME_CACHE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(names, ensure_ascii=False, indent=1, sort_keys=True),
+                       encoding="utf-8")
+        os.replace(tmp, NAME_CACHE)
+    except OSError as e:
+        print("[warn] 이름 캐시 저장 실패: %s" % e, flush=True)
+
+
+_last_balance_lookup = [0.0]
+_learned = {}   # 스냅샷 밖에서 알아낸 이름만. 캐시 파일에는 이것만 남긴다.
+
+
+def ensure_name(names, missed, kis, ticker):
+    """유니버스 스냅샷에 없는 종목도 이름이 나오게 한다.
+
+    순서는 상품기본조회, 그다음 잔고조회다. 상품기본조회는 모의 도메인에서 막혀 있고
+    (`모의투자 TR 이 아닙니다`), 잔고조회는 방금 산 종목이면 이름을 들고 있다.
+    한 번 알아내면 캐시에 남겨 재기동 뒤에도 다시 묻지 않는다.
+
+    못 찾은 종목은 시각을 적어 두고 10분 뒤에만 다시 시도한다. 체결마다 되물으면
+    알림이 늦어지고 조회 한도를 갉아먹는다.
+    """
+    if not ticker or ticker in names:
+        return
+    if time.time() - missed.get(ticker, 0.0) < 600:
+        return
+    missed[ticker] = time.time()
+
+    nm = ""
+    try:
+        nm = kis.get_ticker_name(ticker)
+    except Exception as e:
+        print("[warn] 종목명 조회 실패 %s: %s" % (ticker, e), flush=True)
+
+    if not nm and time.time() - _last_balance_lookup[0] >= 30:
+        _last_balance_lookup[0] = time.time()
+        try:
+            items, _ = kis.get_kr_balance()
+            for b in items:
+                if b.ticker and b.name and b.ticker not in names:
+                    names[b.ticker] = b.name
+                    _learned[b.ticker] = b.name
+            nm = names.get(ticker, "")
+        except Exception as e:
+            print("[warn] 잔고로 이름 채우기 실패 %s: %s" % (ticker, e), flush=True)
+
+    if nm:
+        names[ticker] = nm
+        _learned[ticker] = nm
+        missed.pop(ticker, None)
+        save_name_cache(_learned)
+
+
+def trader_alive():
+    """quant_trader 생존 여부. 판정할 수 없으면 None을 준다(알림을 내지 않는다)."""
+    import subprocess
+    try:
+        if os.name == "nt":
+            r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq quant_trader.exe", "/NH"],
+                               capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", timeout=10)
+            return "quant_trader.exe" in (r.stdout or "")
+        r = subprocess.run(["pgrep", "-f", "quant_trader"], capture_output=True,
+                           text=True, timeout=10)
+        return r.returncode == 0
+    except Exception:
+        return None
 
 
 def read_daily_pnl(log_path):
-    """엔진이 자기 기준선으로 계산한 당일손익. 마지막 리컨사일 한 줄만 본다."""
+    """엔진이 자기 기준선으로 계산한 당일손익. 마지막 잔고 대조 한 줄만 본다."""
     try:
         with open(log_path, "rb") as f:
             f.seek(0, io.SEEK_END)
@@ -425,19 +501,23 @@ class TradeTail:
             self.pos = 0
         if size == self.pos:
             return []
-        with open(p, "r", encoding="utf-8", errors="replace", newline="") as f:
+        # pos는 바이트 오프셋이다. 텍스트 스트림에 seek하면 한글 reason이 낀 줄에서
+        # 문자 수와 바이트 수가 어긋나 줄 중간부터 읽는다 — 바이트로 읽고 나서 디코드한다.
+        with open(p, "rb") as f:
             if self.header is None:
-                self.header = next(csv.reader(f), None)
+                first = f.readline().decode("utf-8-sig", "replace")
+                self.header = next(csv.reader(io.StringIO(first)), None)
             f.seek(self.pos)
-            chunk = f.read()
+            raw = f.read()
             newpos = f.tell()
-        if not chunk.endswith("\n"):  # 쓰다 만 마지막 줄은 다음 폴링으로 미룬다
-            cut = chunk.rfind("\n")
+        if not raw.endswith(b"\n"):  # 쓰다 만 마지막 줄은 다음 폴링으로 미룬다
+            cut = raw.rfind(b"\n")
             if cut < 0:
                 return []
-            newpos -= len(chunk) - cut - 1
-            chunk = chunk[: cut + 1]
+            newpos -= len(raw) - cut - 1
+            raw = raw[: cut + 1]
         self.pos = newpos
+        chunk = raw.decode("utf-8", "replace").lstrip("\ufeff")
         out = []
         for rec in csv.reader(io.StringIO(chunk)):
             if not rec or rec[0] == "ts_kst":
@@ -481,14 +561,42 @@ def main():
     tail = TradeTail(ldir, args.replay_today)
     want = set(e.strip().upper() for e in args.events.split(",") if e.strip())
     names = load_universe_names(cfg)
-    print("[notify] logs=%s events=%s 요약주기=%.0fs 수신처=%s"
+    _learned.update(load_name_cache())
+    for tkr, nm in _learned.items():
+        names.setdefault(tkr, nm)
+    missed = {}
+    print("[notify] logs=%s events=%s 요약주기=%.0fs 수신처=%s 이름=%d종목"
           % (ldir, sorted(want), args.interval,
-             [t.name for t in fan.targets] or "콘솔"), flush=True)
+             [t.name for t in fan.targets] or "콘솔", len(names)), flush=True)
 
-    fan.send("🔔 알림 시작 [%s] %s — 체결 즉시 / 요약 %.0f분"
-             % (mode, datetime.now().strftime("%H:%M:%S"), args.interval / 60))
+    alive = trader_alive()
+    fan.send("🔔 알림 시작 [%s] %s — 체결 즉시 / 요약 %.0f분%s"
+             % (mode, datetime.now().strftime("%H:%M:%S"), args.interval / 60,
+                "" if alive is None else ("  ·  트레이더 %s" % ("가동 중" if alive else "정지"))))
+
+    # 스스로 내려갈 때는 한 번만 알린다. 강제 종료는 여기까지 오지 않으므로 트레이더 쪽은
+    #  프로세스 감시로 따로 본다.
+    said_bye = []
+
+    def farewell(why):
+        if said_bye:
+            return
+        said_bye.append(True)
+        fan.send("🔻 알림 종료 [%s] %s — %s"
+                 % (mode, datetime.now().strftime("%H:%M:%S"), why))
+
+    atexit.register(farewell, "프로세스 종료")
+    for signame in ("SIGINT", "SIGTERM", "SIGBREAK"):
+        sig = getattr(signal, signame, None)
+        if sig is None:
+            continue
+        try:
+            signal.signal(sig, lambda s, f, n=signame: (farewell("신호 %s" % n), sys.exit(0)))
+        except (ValueError, OSError):
+            pass
 
     last_summary = 0.0
+    last_alive_check = 0.0
     first = True
     while True:
         try:
@@ -496,6 +604,8 @@ def main():
             pending = [r for r in tail.poll()
                        if (r.get("event") or "").upper() in want]
             if pending:
+                for r in pending:
+                    ensure_name(names, missed, kis, r.get("ticker") or "")
                 # 같은 폴링에 여러 건이면 한 메시지로 묶는다(웹훅 레이트리밋 회피)
                 fan.send("\n\n".join(fmt_fill(r, names) for r in pending[:10]), "fill")
                 if len(pending) > 10:
@@ -518,9 +628,21 @@ def main():
                     print("[warn] 잔고 조회 실패: %s" % e, flush=True)
                     last_summary = time.time() - args.interval + 60
 
+            # 3) 트레이더 생사. 강제 종료돼도 알 수 있게 프로세스로 본다.
+            if time.time() - last_alive_check >= 15:
+                last_alive_check = time.time()
+                now = trader_alive()
+                if now is not None and alive is not None and now != alive:
+                    stamp = datetime.now().strftime("%H:%M:%S")
+                    fan.send(("🟢 트레이더 기동 [%s] %s" % (mode, stamp)) if now else
+                             ("🔴 트레이더 중단 [%s] %s — 주문이 나가지 않는다" % (mode, stamp)))
+                if now is not None:
+                    alive = now
+
             time.sleep(args.poll)
         except KeyboardInterrupt:
             print("[notify] 종료", flush=True)
+            farewell("Ctrl+C")
             return 0
         except Exception:
             traceback.print_exc()

@@ -488,7 +488,7 @@ def main():
                     help="국면 신호: breadth=유니버스 이평위 비율, index=지수 200MA(매끄러워 whipsaw 적음)")
     bp.add_argument("--regime-index", dest="regime_index", default="^KS11",
                     help="index 모드 지수 티커(yfinance): ^KS11 코스피, ^KQ11 코스닥, ^GSPC S&P, ^IXIC 나스닥")
-    bp.add_argument("--study",   default=None, help="스터디 ID(예: BT-01) — metrics.json 라벨")
+    bp.add_argument("--study",   default=None, help="스터디 ID(예: 모멘텀·국면필터 롤링검증(1~5년)) — metrics.json 라벨")
     bp.add_argument("--event",   default=None, help="이벤트/구간명(예: 2022bear) — metrics.json 라벨")
     bp.add_argument("--honesty", default="unlabeled",
                     choices=["robust", "honest_failure", "overfit_suspect", "unlabeled"],
@@ -518,7 +518,7 @@ def main():
     rp2.add_argument("--paper",    action="store_true", help="모의투자 계좌(config_paper.json) 대상")
     rp2.add_argument("--from",     dest="from_date", default=None, help="기간 시작 YYYY-MM-DD")
     rp2.add_argument("--to",       dest="to_date",   default=None, help="기간 종료 YYYY-MM-DD")
-    rp2.add_argument("--snapshot", action="store_true", help="현재 잔고를 스냅샷으로 적재 (EOD 1회 권장)")
+    rp2.add_argument("--snapshot", action="store_true", help="현재 잔고를 스냅샷으로 적재 (장 마감 1회 권장)")
     rp2.add_argument("--deposit",  type=float, default=None, help="입금액 기록 (실전)")
     rp2.add_argument("--withdraw", type=float, default=None, help="출금액 기록 (실전)")
     rp2.add_argument("--memo",     default=None, help="입출금 메모")

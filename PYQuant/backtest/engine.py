@@ -49,17 +49,17 @@ class BacktestResult:
     # ── 기간 ──
     start_date:    str = ""    # 첫 평가일
     end_date:      str = ""    # 마지막 평가일(최신 누적 시점)
-    # ── 벤치마크(등가중 유니버스 buy&hold) / 알파 ──
-    bench_return:  float = 0.0   # 등가중 buy&hold 수익률(%)
+    # ── 벤치마크(동일가중 유니버스 buy&hold) / 알파 ──
+    bench_return:  float = 0.0   # 동일가중 buy&hold 수익률(%)
     bench_mdd:     float = 0.0
     bench_sharpe:  float = 0.0
-    alpha:         float = 0.0   # 전략 - 등가중 벤치 (초과수익 %p)
+    alpha:         float = 0.0   # 전략 - 동일가중 벤치 (초과수익 %p)
     kodex_return:  float | None = None   # KODEX200 buy&hold 수익률(%), 데이터 없으면 None
     regime_off:    int = 0               # 시장국면 필터로 현금화한 리밸런싱 횟수
     # ── 일별 상태(데일리 export용) ──
     equity_dates:  list = None   # list[str]
     equity_curve:  list = None   # list[float] 전략
-    bench_curve:   list = None   # list[float] 등가중
+    bench_curve:   list = None   # list[float] 동일가중
     daily_cash:    list = None
     daily_npos:    list = None
     daily_holdings: list = None   # [[(ticker,qty,value),...] per day]
@@ -299,7 +299,7 @@ class BacktestEngine:
 
         self.strategy.on_stop()
 
-        # 벤치마크: 유니버스 등가중 buy&hold + KODEX200(069500) buy&hold — 알파/베타 분리용
+        # 벤치마크: 유니버스 동일가중 buy&hold + KODEX200(069500) buy&hold — 알파/베타 분리용
         self._bench_eq  = self._buyhold_equity(list(all_bars.keys()), all_dates, all_bars)
         kodex_bars = {}
         try:
@@ -314,7 +314,7 @@ class BacktestEngine:
 
     def _buyhold_equity(self, tickers: list[str], all_dates: list[str],
                         bars_by_ticker: dict) -> list[float] | None:
-        """초기자금을 종목들에 등가중 분배해 시작일 매수 후 보유. 일별 평가액 시계열 반환.
+        """초기자금을 종목들에 동일가중 분배해 시작일 매수 후 보유. 일별 평가액 시계열 반환.
         결측일/상폐 후엔 마지막 종가로 평가(전방채움). 벤치마크 비교용(비용 미반영 — 보수적)."""
         present = {t: bars for t in tickers
                    if (bars := bars_by_ticker.get(t)) }
@@ -496,7 +496,7 @@ class BacktestEngine:
         total_return = (final_equity - self.init_cash) / self.init_cash * 100
         _, mdd, sharpe = self._curve_stats(self._equity)
 
-        # 벤치마크(등가중 유니버스 buy&hold) 통계 + 알파
+        # 벤치마크(동일가중 유니버스 buy&hold) 통계 + 알파
         bench_eq = getattr(self, "_bench_eq", None)
         bench_return = bench_mdd = bench_sharpe = 0.0
         if bench_eq:

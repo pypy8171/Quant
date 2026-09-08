@@ -123,7 +123,7 @@ def build_bt11():
     # 벤치(동일가중 매수 후 보유) — 세 축 공통 풀이므로 횡단면모멘텀 동일가중(meta key "ew")의 bench_* 하나로 대표
     rows.append(bh_row_from_meta(c1["ew"], study_id="BT-11", window=win,
                                  source="11_signal_axes/cross_momentum_run_meta.json"))
-    # 횡단면 12-1 모멘텀(회의 코드 C1) — EW(headline) / VA(ablation)
+    # 횡단면 12-1 모멘텀(회의 코드 C1) — EW(headline) / VA(제거실험)
     e, t = ec("cross_momentum_equalweight")
     rows.append(row_from_meta(c1["ew"], study_id="BT-11", strategy="횡단면 모멘텀(동일가중)",
                               event="횡단면 12-1 모멘텀 · 동일가중", window=win,

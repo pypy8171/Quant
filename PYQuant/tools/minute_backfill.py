@@ -135,7 +135,7 @@ def main() -> int:
                     help="날짜별 PIT 유니버스 저장순서 상위 N종목(기본 40). 0이면 그날 풀 전체. "
                          "저장순서는 시총순이 앞이라 작은 N은 시총 상위를 뜻한다.")
     ap.add_argument("--tickers", default=None,
-                    help="PIT 유니버스 대신 고정 종목 목록(쉼표 구분). 프로브용.")
+                    help="PIT 유니버스 대신 고정 종목 목록(쉼표 구분). 기동 점검용.")
     ap.add_argument("--pairs", default=None,
                     help="(종목,날짜) 쌍 파일(JSONL 또는 JSON). 날짜별 대상 종목을 밖에서 "
                          "정한다 — PIT 절단의 선정 편향을 피하려면 이 모드를 쓴다.")

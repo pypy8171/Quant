@@ -23,6 +23,7 @@ param(
   [switch]$NoUniverse,
   [switch]$NoDashboard,
   [switch]$NoNotify,                 # 체결·포지션 메신저 알림 창을 띄우지 않는다
+  [switch]$NoPrices,                 # 전 종목 시세 파일 전달(네이버 벌크) 창을 띄우지 않는다
   [switch]$NoEod,                    # 마감 뒤 사실 문서·대시보드 갱신을 건너뛴다
   [switch]$DryRun
 )
@@ -154,7 +155,7 @@ function Start-Window([string]$title, [string]$cmd, [string]$probe = "") {
 }
 
 function Restore-Windows {
-  # 창(powershell)은 -NoExit라 안의 파이썬이 죽어도 남는다. 껍데기만 보면 살아 있는 줄 안다.
+  # 창(powershell)은 -NoExit라 안의 파이썬이 죽어도 남는다. 빈 창만 보면 살아 있는 줄 안다.
   # 그래서 파이썬 프로세스의 명령줄에서 스크립트 이름을 직접 찾는다.
   if ($DryRun -or $script:Windows.Count -eq 0) { return }
   $procs = @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='py.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue)
@@ -173,16 +174,16 @@ function Restore-Windows {
 # ─────────────── 사전 점검 ───────────────
 Say "자동매매 하루 루프 시작 — config=$Config until=$Until$(if($DryRun){' (dry-run)'})"
 
-# 지난 회차의 잔재를 먼저 치운다. Job Object는 워치독이 정상적으로 사라질 때만 자식을 내리는데,
+# 지난 회차의 남은 프로세스를 먼저 치운다. Job Object는 워치독이 정상적으로 사라질 때만 자식을 내리는데,
 # 강제 종료·리부트·워치독 없이 손으로 띄운 창은 그 경로를 타지 않는다. 그렇게 남은 사이드카·
-# 대시보드가 계속 폴링하면 REST 초당 한도를 같이 갉아먹고, 창만 남은 껍데기는 화면을 먹는다.
+# 대시보드가 계속 폴링하면 REST 초당 한도를 같이 갉아먹고, 창만 남은 빈 창은 화면을 먹는다.
 # 트레이더는 여기서 죽이지 않는다 — 바로 아래 duplicate_process 게이트가 사람 판단으로 처리한다.
 $reaper = Join-Path $PSScriptRoot "quant_procs.ps1"
 if ((Test-Path $reaper) -and -not $DryRun) {
   try {
     $out = & powershell -ExecutionPolicy Bypass -NoProfile -File $reaper -Reap -Quiet 2>&1
     foreach ($l in $out) { if ("$l".Trim()) { Say "  $l" } }
-  } catch { Say "잔재 정리 실패($($_.Exception.Message)) — 손으로 확인할 것." "WARN" }
+  } catch { Say "남은 프로세스 정리 실패($($_.Exception.Message)) — 손으로 확인할 것." "WARN" }
 }
 
 $dup = Get-Process quant_trader -ErrorAction SilentlyContinue
@@ -222,6 +223,7 @@ if (-not $NoUniverse)  {
     if ($LASTEXITCODE -ne 0) { Say "유니버스 스캔 실패(rc=$LASTEXITCODE) — 직전 스캔 파일로 진행한다." "WARN" }
   }
 }
+if (-not $NoPrices)    { Start-Window "quant-prices"    "& '$py' scripts\live_prices_feed.py" "live_prices_feed.py" }
 if (-not $NoDashboard) { Start-Window "quant-dashboard" "py scripts\dashboard_server.py" "dashboard_server.py" }
 if (-not $NoNotify)    { Start-Window "quant-notify"    "& '$py' scripts\notify_sidecar.py --config $Config --interval 1800" "notify_sidecar.py" }
 
@@ -229,19 +231,33 @@ if (-not $NoNotify)    { Start-Window "quant-notify"    "& '$py' scripts\notify_
 $deadline = [datetime]::ParseExact((Get-Date -Format "yyyy-MM-dd") + " " + $Until, "yyyy-MM-dd HH:mm", $null)
 if ((Get-Date) -ge $deadline) { Say "이미 $Until 을 지났다. 매매하지 않고 종료." "WARN"; Save-Status "past_deadline" $null; exit 0 }
 
-$shortRuns = 0     # 30초 미만 종료 연속 횟수. 크래시 루프로 계좌를 두들기지 않기 위한 브레이크.
+$shortRuns = 0     # 30초 미만 종료 연속 횟수. 크래시 루프로 계좌를 반복 호출하지 않기 위한 브레이크.
 while ((Get-Date) -lt $deadline) {
   $n = $script:Sessions.Count + 1
   Say "세션 #$n 기동 — $Exe $Config"
   if ($DryRun) { Say "  (dry) 트레이더 기동 생략, 루프 종료"; break }
 
+  # 직전 세션이 '이미 한 번 당한' 실패 유형을 다시 냈는지 본다. 재기동마다 확인하지 않으면
+  # 같은 결함으로 하루를 다 태운다(2026-09-08: 유령주문 재부활 85건, 재기동 투매 64건).
+  if ($script:LastStart) {
+    & py (Join-Path $Repo "scripts\check_runtime_health.py") --since $script:LastStart 2>&1 |
+      ForEach-Object { Say "  $_" }
+  }
+
   $t0 = Get-Date
+  $script:LastStart = $t0.ToString("HH:mm")
+  # 이전 세션이 남긴 미체결 주문 목록을 로그에서 복원해 사이드카에 채운다. 엔진이 기동하면서
+  # cancel_stale_orders()가 이 파일을 읽어 전부 취소한다 — 유령 지정가가 현금과 매도가능수량을
+  # 묶고, 청산 직후 되사서 전략을 뒤집는 것을 막는다(2026-09-08 미체결 85건 실측).
+  # 엔진이 스스로 쓰는 사이드카가 정상이면 이 복원은 같은 내용을 다시 쓸 뿐이라 무해하다.
+  & py (Join-Path $Repo "scripts\seed_open_orders.py") 2>&1 | ForEach-Object { Say "  $_" }
+
   # 트레이더도 잡에 넣는다. 워치독이 사라졌는데 엔진만 살아 있으면 아무도 감시하지 않는 채
   # 발주가 계속되고, 다음 기동은 중복 프로세스로 막힌다(duplicate_process). 같이 내리고
   # 감시자(auto_trade_guard.ps1)가 다시 띄우면 잔고 재시드가 포지션을 도로 잡는다.
   $p = Start-Process -FilePath $Exe -ArgumentList $Config -WorkingDirectory $Repo -PassThru -NoNewWindow
   if ($script:Job -ne [IntPtr]::Zero) {
-    if (-not [WinJob]::Add($script:Job, $p.Id)) { Say "  트레이더 pid=$($p.Id) 잡 편입 실패 — 워치독이 죽으면 고아로 남는다." "WARN" }
+    if (-not [WinJob]::Add($script:Job, $p.Id)) { Say "  트레이더 pid=$($p.Id) 잡 편입 실패 — 워치독이 죽으면 미연결으로 남는다." "WARN" }
   }
   Save-Status "running" @{ pid = $p.Id; session = $n }
   # WaitForExit로 통째로 막지 않는다. 트레이더를 기다리는 동안 부속 창 안의 파이썬이
@@ -280,6 +296,10 @@ if (-not $NoEod -and -not $DryRun) {
   Say "장 마감 정리 — eod_autodoc(일지 사실 구간 + 리뷰 항목 + 대시보드 재생성)"
   py scripts\eod_autodoc.py
   Say "eod_autodoc rc=$LASTEXITCODE"
+
+  # 하루 전체 건전성 점검. FAIL이 남았으면 그날 사후검토에서 먼저 다룰 항목이다.
+  Say "실행 건전성 점검(하루 전체)"
+  & py (Join-Path $Repo "scripts\check_runtime_health.py") 2>&1 | ForEach-Object { Say "  $_" }
 }
 
 # 잡 핸들이 닫히며 부속 창은 커널이 같이 내린다. 그래도 한 번 훑는 것은, 잡 편입에 실패했거나

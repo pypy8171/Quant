@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import posixpath
 import re
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -117,9 +118,24 @@ def check_coverage(tracked: set[str]) -> list[str]:
     return problems
 
 
+def check_ledgers() -> list[str]:
+    """결정 원장 파생 문서(STRATEGY_LAB §2-b·§3-d, PROJECT_FACTS 음성결과) 동기 상태.
+
+    이 검사는 sync_ledgers.py에 위임한다 — 생성 규칙을 두 곳에 두지 않기 위해서다.
+    """
+    script = os.path.join(REPO, "scripts", "sync_ledgers.py")
+    if not os.path.exists(script):
+        return []
+    r = subprocess.run([sys.executable, script, "--check"], cwd=REPO,
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode == 0:
+        return []
+    return [ln.strip() for ln in (r.stdout or r.stderr).splitlines() if ln.strip()]
+
+
 def main() -> int:
     tracked = tracked_files()
-    problems = check_links(tracked) + check_coverage(tracked)
+    problems = check_links(tracked) + check_coverage(tracked) + check_ledgers()
     if not problems:
         print("문서 드리프트 검사 통과 — 깨진 내부 링크 0, 색인 커버리지 정합.")
         return 0

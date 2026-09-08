@@ -19,7 +19,7 @@ def print_report(result: BacktestResult, names: dict | None = None):
     print(f"  승률       : {result.win_rate:.1f}%")
     # ── 벤치마크 대비 (알파 vs 베타 판정) ──
     print(f"  {'-'*56}")
-    print(f"  [벤치마크] 등가중 buy&hold: {result.bench_return:+.2f}% "
+    print(f"  [벤치마크] 동일가중 buy&hold: {result.bench_return:+.2f}% "
           f"(MDD -{result.bench_mdd:.2f}%, 샤프 {result.bench_sharpe:.2f})")
     if result.kodex_return is not None:
         print(f"             KODEX200 buy&hold: {result.kodex_return:+.2f}%")
@@ -231,10 +231,10 @@ def overlay_metric_row(*, study_id: str, strategy: str, benchmark: str,
                        base: dict, bh: dict, window: str = "",
                        start_date: str = "", end_date: str = "",
                        honesty_label: str = "robust", extra: dict | None = None) -> dict:
-    """계열 B(지수 익스포저 오버레이) 한 행 빌더 — BT-08/09의 curve_stats dict를
+    """계열 B(지수 익스포저 오버레이) 한 행 빌더 — 위기 인과 대응 5법/09의 curve_stats dict를
     quant.metrics/v1로 정규화. base/bh = {total,cagr,mdd(음수%),sharpe,calmar}.
     mdd를 양수 크기로 정규화(스키마 규약), win_rate/n_trades는 None(오버레이 무의미).
-    alpha(초과수익) = 전략 CAGR − BH CAGR(%p, 초과연율). 저자 규율상 결과는 정직 → 기본 robust."""
+    alpha(초과수익) = 전략 CAGR − 매수 후 보유 CAGR(%p, 초과연율). 저자 규율상 결과는 정직 → 기본 robust."""
     row = metrics_row(
         study_id=study_id, strategy=strategy, family="B_overlay", benchmark=benchmark,
         event="full_curve", window=window, start_date=start_date, end_date=end_date,

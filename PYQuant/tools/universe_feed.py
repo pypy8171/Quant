@@ -79,7 +79,7 @@ def build(on_date: str, n_mktcap: int, n_turnover: int,
             continue
         by_cap = sorted(pool, key=lambda r: r["mktcap"],   reverse=True)[:n_mktcap]
         by_val = sorted(pool, key=lambda r: r["turnover"], reverse=True)[:n_turnover]
-        # union — 시총순 먼저(프로브 우선), 이어 거래대금 상위 중 미포함 중형주. code 중복 제거.
+        # union — 시총순 먼저(기동 점검 우선), 이어 거래대금 상위 중 미포함 중형주. code 중복 제거.
         added = 0
         for r in by_cap + by_val:
             code = r["code"]
@@ -118,7 +118,13 @@ def build(on_date: str, n_mktcap: int, n_turnover: int,
         #  (246일 × 수천 항목이면 산출물이 불필요하게 커진다).
         doc["market_map"] = {r["code"]: r["market"] for r in rows
                              if r.get("code") and r.get("market") in ("KOSPI", "KOSDAQ")}
-        print(f"[universe_feed] market_map {len(doc['market_map'])}종목 동봉.")
+        # 전 종목 코드→종목명. 알림 사이드카가 체결 메시지에 이름을 붙이는 데 쓴다.
+        #  universe(top-N)에만 이름을 두면 랭킹축으로 들어온 종목이 코드로만 뜬다.
+        #  같은 스냅샷에 이미 있는 값이라 추가 조회가 없다.
+        doc["name_map"] = {r["code"]: r["name"] for r in rows
+                           if r.get("code") and r.get("name")}
+        print(f"[universe_feed] market_map {len(doc['market_map'])}종목 · "
+              f"name_map {len(doc['name_map'])}종목 동봉.")
     return doc
 
 

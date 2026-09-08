@@ -9,7 +9,7 @@
 
   사람이 일부러 멈춘 상태와 사고를 구분해야 한다. 그래서 오늘 날짜 상태파일
   _private/_auto_trade_day.json 의 phase 가 crash_loop·aborted·done·closed·past_deadline 이면
-  건드리지 않는다. 크래시 루프를 예약작업으로 되살리면 계좌만 두들긴다.
+  건드리지 않는다. 크래시 루프를 예약작업으로 되살리면 계좌만 반복 호출한다.
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts\auto_trade_guard.ps1

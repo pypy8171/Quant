@@ -34,6 +34,8 @@ from urllib.parse import urlparse, parse_qs
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "PYQuant"))    # kis.client / core.logger 해석용
+sys.path.insert(0, str(REPO / "scripts"))
+import _logdir  # noqa: E402
 
 try:
     from kis.client import KisClient, KisAuthError
@@ -52,40 +54,9 @@ KST = timezone(timedelta(hours=9))
 LOGS_OVERRIDE = None  # --logs 로 명시하면 항상 이걸 씀
 
 
-def _candidate_log_dirs():
-    cands = []
-    env = os.environ.get("QUANT_LOG_DIR")
-    if env:
-        cands.append(Path(env))
-    cands += [
-        REPO / "Quant" / "build_win" / "logs",   # 기본 exe 위치 옆 logs
-        REPO / "logs",
-        Path.cwd() / "logs",
-    ]
-    seen, out = set(), []
-    for c in cands:
-        try:
-            rc = c.resolve()
-        except OSError:
-            rc = c
-        if rc not in seen:
-            seen.add(rc)
-            out.append(c)
-    return out
-
-
 def logs_dir() -> Path:
-    if LOGS_OVERRIDE:
-        return Path(LOGS_OVERRIDE)
-    best, best_mt = None, -1.0
-    for c in _candidate_log_dirs():
-        try:
-            mt = (c / "quant_trader.log").stat().st_mtime
-        except OSError:
-            continue
-        if mt > best_mt:
-            best, best_mt = c, mt
-    return best or (REPO / "logs")
+    # 규칙은 _logdir 하나(QUANT_LOG_DIR > 최신 quant_trader.log를 가진 후보).
+    return Path(LOGS_OVERRIDE) if LOGS_OVERRIDE else _logdir.log_dir()
 
 
 def logfile() -> Path:
@@ -191,6 +162,56 @@ def tail_bytes(path: Path, nbytes: int) -> str:
         return ""
 
 
+_NAME_IN_LOG = re.compile(r"\b(\d{6})\(([^)]{1,30})\)")
+
+
+# 한 번 알아낸 이름은 세션 내내 들고 간다. 로그 출처가 tail이라 창이 밀리면 같은 종목의
+#  이름이 사라졌다 나타났다 했다(2026-09-08 장중, 145995가 이름 없이 표시). 유니버스 top-N에
+#  없고 보유도 아닌 종목은 로그에 `코드(이름)` 줄이 잡히는 순간에만 이름이 붙기 때문이다.
+_NAME_CACHE = {}
+_NAME_SEEDED = False
+
+
+def seed_name_cache():
+    """기동 시 1회, 로그 뒤쪽을 넓게 훑어 이름을 미리 담는다.
+
+    tick마다 보는 tail(400KB)에는 그 순간 조용한 종목의 이름 줄이 없을 수 있다. 캐시가
+    비어 있는 첫 화면에서 코드만 보이는 것을 막으려고, 기동 때만 더 넓게 한 번 읽는다.
+    """
+    global _NAME_SEEDED
+    if _NAME_SEEDED:
+        return
+    _NAME_SEEDED = True
+    try:
+        for tk, nm in _NAME_IN_LOG.findall(tail_bytes(logfile(), 16_000_000)):
+            _NAME_CACHE.setdefault(tk, nm)
+    except Exception:
+        pass
+
+
+def build_name_map(bal, uni, log_text=""):
+    """종목코드→종목명. 원장·이벤트 피드가 코드만 보여줘 매번 검색해야 했던 것을 없앤다.
+
+    세 출처를 겹쳐 쓴다(뒤가 우선): 유니버스 파일 → 로그의 `123456(이름)` → 잔고 보유분.
+    잔고를 마지막에 두는 것은 계좌가 실제로 들고 있는 종목의 표기를 정본으로 삼기 위해서다.
+    이번 tick에서 찾은 것은 _NAME_CACHE에 누적하고, 반환은 캐시 전체로 한다.
+    """
+    seed_name_cache()
+    names = {}
+    for row in (uni or {}).get("universe", []) or []:
+        tk, nm = row.get("ticker"), row.get("name")
+        if tk and nm:
+            names[tk] = nm
+    for tk, nm in _NAME_IN_LOG.findall(log_text or ""):
+        names[tk] = nm
+    for pos in (bal or {}).get("positions", []) or []:
+        tk, nm = pos.get("ticker"), pos.get("name")
+        if tk and nm:
+            names[tk] = nm
+    _NAME_CACHE.update(names)   # tick 안의 우선순위는 유지, tick 간에는 새로 찾은 쪽이 이긴다
+    return dict(_NAME_CACHE)
+
+
 def read_log_events(max_events=40):
     """콘솔 상당 이벤트 피드 + 헤더용 최신 상태(당일손익/국면선택/스캔)."""
     text = tail_bytes(logfile(), 400_000)
@@ -235,7 +256,7 @@ def read_log_events(max_events=40):
             events.append({"ts": hhmmss, "cat": cat, "msg": rest[:220]})
     events = events[-max_events:]
     events.reverse()  # 최신 먼저
-    return {"events": events, "latest": latest}
+    return {"events": events, "latest": latest, "_text": text}
 
 
 # 체결 원장에서 실현손익을 뽑는다. 엔진이 realized_pnl 컬럼을 남긴 행은 그 값을 쓰고,
@@ -298,7 +319,10 @@ def read_trades_today(now=None, seed_avg=None):
     #  전량 매도돼 잔고에서 사라진 종목은 여전히 메울 수 없어 unknown으로 남는다.
     now = now or datetime.now(KST)
     d = logs_dir()
+    # 같은 날짜 원장이 여러 폴더에 있으면 행 수 최대인 것(_logdir 규칙). --logs 지정 시엔 그 폴더만.
     path = d / f"trades_{now.strftime('%Y%m%d')}.csv"
+    if not LOGS_OVERRIDE:
+        path = _logdir.find_ledger(now.strftime("%Y%m%d")) or path
     if not path.exists():
         return {"date": now.strftime("%Y%m%d"), "rows": [],
                 "realized": None, "note": f"당일 원장 없음 ({d})"}
@@ -483,6 +507,16 @@ def build_criteria(cfg: dict):
 # ─────────────────────────────────────────────────────────────────────────────
 # 상태 집계
 # ─────────────────────────────────────────────────────────────────────────────
+# 원장 strategy 칸에 들어가지만 전략이 아닌 값들. 코드값 그대로 두면 무슨 주문인지 읽히지
+#  않으므로 표시할 때만 한국어로 바꾼다(원장·집계 키는 영문 그대로여야 과거 기록과 맞는다).
+#  notify_sidecar.py가 이 표를 그대로 import해서 쓴다 — 정의는 여기 하나뿐이다.
+STRATEGY_LABEL = {
+    "ORPHAN": "이전 세션 주문",
+    "STARTUP_PROBE": "기동 점검 주문",
+    "TEST": "테스트 주문",
+}
+
+
 def build_state(kis, quote, cfg, regime_path, uni_path):
     _bal = _live_get("balance")
     _seed = {}
@@ -494,6 +528,8 @@ def build_state(kis, quote, cfg, regime_path, uni_path):
         tk = (p.get("ticker") or "").strip()
         if tk and av > 0:
             _seed[tk] = av
+    _log = read_log_events()
+    _uni = read_universe(uni_path)
     return {
         "server_ts": datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S"),
         "account_no": _mask_acct(cfg.get("kis", {}).get("account_no", "")),
@@ -503,11 +539,13 @@ def build_state(kis, quote, cfg, regime_path, uni_path):
         "engine": engine_status(),
         "account": _bal,
         "regime": read_regime(regime_path),
-        "universe": read_universe(uni_path),
+        "universe": _uni,
         "criteria": build_criteria(cfg),
-        "log": read_log_events(),
+        "log": _log,
         "trades": read_trades_today(seed_avg=_seed),
         "ranking": _live_get("ranking"),
+        "names": build_name_map(_bal, _uni, _log.pop("_text", "")),
+        "labels": STRATEGY_LABEL,
     }
 
 
@@ -696,6 +734,18 @@ const ipx=v=>{const n=Number(v);
 const eb=v=>String(v==null?'':v).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 function setDot(el,ok,txt){el.innerHTML='<span class="dot" style="background:'+(ok?'var(--up)':'var(--dn)')+'"></span>'+txt;}
 
+// 종목코드→종목명. 코드만 보고 따로 검색해야 하던 것을 없앤다. 매 tick마다 s.names로 갱신된다.
+let NAMES={};
+const nmOf=tk=>NAMES[String(tk||'').trim()]||'';
+// 문장 속 6자리 코드에 이름을 붙인다. 이미 '코드(이름)' 형태면 건드리지 않는다.
+function withNames(msg){
+  return eb(msg).replace(/(\d{6})(\()?/g,(m,tk,paren)=>{
+    if(paren) return m;                 // 로그가 이미 이름을 달고 있다
+    const nm=nmOf(tk);
+    return nm? tk+'('+eb(nm)+')' : tk;
+  });
+}
+
 async function tick(){
   let s;
   try{ s=await (await fetch('/api/state',{cache:'no-store'})).json(); }
@@ -704,6 +754,7 @@ async function tick(){
   if(s.__error__){ conn.textContent='서버오류'; return; }
 
   document.getElementById('acct').textContent=s.account_no||'–';
+  NAMES=s.names||{};
   document.getElementById('ts').textContent=(s.server_ts||'').slice(11);
   const paper=document.getElementById('paper'); paper.innerHTML=(s.is_paper?'모의계좌':'실계좌')+' · '+eb(s.mode);
   setDot(document.getElementById('engine'), s.engine&&s.engine.alive, '엔진 '+(s.engine&&s.engine.alive?'가동중':'정지')+(s.engine&&s.engine.log_mtime?' ('+s.engine.log_mtime+')':''));
@@ -728,7 +779,7 @@ async function tick(){
                  : (useRate==null?'–':useRate.toFixed(1)+'% / '+(capPct*100).toFixed(0)+'%');
     const capCls = (capPct&&useRate!=null)? (useRate>=capPct*100?'dn':(useRate>=capPct*80?'warnc':'up')) : '';
     const maxN=(((s.criteria||{}).risk||{}).max_concurrent_positions)||0;
-    const rz=(a.trades&&a.trades.realized)||{profit:0,loss:0,net:0,win:0,lose:0,unknown:0};
+    const rz=(s.trades&&s.trades.realized)||{profit:0,loss:0,net:0,win:0,lose:0,unknown:0};
     document.getElementById('kpis').innerHTML=[
       ['총평가금액',won(sm.total_eval)+' 원',''],
       ['총매수금액(원가)',won(gross)+' 원',''],
@@ -808,9 +859,9 @@ async function tick(){
     ub.innerHTML=uni.map((x,i)=>`<tr class="tickrow clk" data-tk="${eb(x.ticker)}" data-nm="${eb(x.name)}"><td>${i+1}</td><td class="l">${eb(x.name)}</td><td class="l mut">${eb(x.ticker)}</td><td>${won(x.close)}</td><td class="l mut">${eb(x.market)}</td></tr>`).join('');
   }
 
-  // 이벤트 피드
+  // 이벤트 피드 — 코드만 있으면 종목명을 붙여준다(로그가 이미 '코드(이름)'이면 그대로 둔다)
   const fe=document.getElementById('feed'); const evs=(s.log&&s.log.events)||[];
-  fe.innerHTML= evs.length? evs.map(e=>`<div class="ev"><span class="t">${eb(e.ts)}</span><span class="tag t-${e.cat}">${eb(e.cat)}</span><span>${eb(e.msg)}</span></div>`).join('')
+  fe.innerHTML= evs.length? evs.map(e=>`<div class="ev"><span class="t">${eb(e.ts)}</span><span class="tag t-${e.cat}">${eb(e.cat)}</span><span>${withNames(e.msg)}</span></div>`).join('')
     : '<div class="mut">최근 이벤트 없음 (엔진 미가동이거나 조용)</div>';
 
   // 거래대금 상위
@@ -822,13 +873,13 @@ async function tick(){
   }
 
   // 원장
-  const t=s.trades||{}; document.getElementById('trdate').textContent=(t.date||'')+(t.total?(' · 총 '+t.total+'행'):'');
+  const SL=s.labels||{}; const t=s.trades||{}; document.getElementById('trdate').textContent=(t.date||'')+(t.total?(' · 총 '+t.total+'행'):'');
   const tb=document.querySelector('#trades tbody');
   tb.innerHTML=(t.rows&&t.rows.length)? t.rows.map(x=>{
     const side=(x.side||''); const sc=side==='BUY'?'up':(side==='SELL'?'dn':'');
     const tkc=/^\d{6}$/.test(x.ticker||'')?'clk':'';
-    return `<tr class="${tkc}" data-tk="${eb(x.ticker)}" data-nm="${eb(x.ticker)}"><td>${eb((x.ts_kst||'').slice(11,19))}</td><td class="l">${eb(x.event)}</td><td class="l mut">${eb(x.strategy)}</td>
-      <td class="l">${eb(x.ticker)}</td><td class="l ${sc}">${eb(side)}</td><td>${eb(x.order_qty)}</td><td>${eb(x.fill_qty)}</td>
+    return `<tr class="${tkc}" data-tk="${eb(x.ticker)}" data-nm="${eb(nmOf(x.ticker)||x.ticker)}"><td>${eb((x.ts_kst||'').slice(11,19))}</td><td class="l">${eb(x.event)}</td><td class="l mut">${eb(SL[x.strategy]||x.strategy||"")}</td>
+      <td class="l">${eb(x.ticker)}${nmOf(x.ticker)?' <span class="mut">'+eb(nmOf(x.ticker))+'</span>':''}</td><td class="l ${sc}">${eb(side)}</td><td>${eb(x.order_qty)}</td><td>${eb(x.fill_qty)}</td>
       <td>${won(x.fill_price)}</td><td class="l">${eb(x.status)}</td><td class="l mut">${eb(x.reason||x.entry_reason||'')}</td></tr>`;
   }).join('') : `<tr><td class="l mut" colspan="10">${eb(t.note||'당일 체결 없음')}</td></tr>`;
 }
