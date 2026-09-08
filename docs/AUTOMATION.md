@@ -49,6 +49,7 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 | `review-reminder.ps1` | Stop | 코드 변경 뒤 리뷰 누락을 상기 |
 | `eod-gate.ps1` | SessionStart | 사후검토가 밀린 거래일이 있으면 세션 시작에 알림 |
 | `cron-gate.ps1` | SessionStart | 예약작업이 예정 시각을 넘겨 안 돌았거나 `LastTaskResult≠0`이면 작업 이름·실패 시각·복구 커맨드를 알림 |
+| `dashboard-refresh.ps1` | Stop | 매매일지·백테스트가 `dashboard.html`보다 새것이면 리뷰 항목과 대시보드를 다시 만든다. 낡았는지는 수정시각으로 보므로 편집 도구·스크립트·다른 세션 어느 경로로 고쳤든 걸린다 |
 
 ## 4. 하루 무인 루프 — `/auto-trade-day`
 
@@ -189,11 +190,15 @@ scripts/eod_autodoc.py
   └─ PYQuant/dashboard/build_dashboard.py    → research/dashboard/dashboard.html
 ```
 
+16:05 예약 실행만이 아니라 장중에도 돈다. 매매일지나 백테스트를 쓰고 나면 Stop 훅이 대시보드와
+수정시각을 비교해 낡은 만큼만 다시 만든다. 손으로 돌릴 때는 `py scripts/refresh_dashboard.py --if-stale`.
+
 | 스크립트 | 역할 |
 |---|---|
 | `scripts/eod_collect.py` | 원장·로그에서 사실만 뽑는다(세션·거부 히스토그램·라운드트립·주문 공백) |
 | `scripts/build_review_entry.py` | 위 사실을 `quant.review/v1` 항목으로 만들어 리뷰 탭에 넣는다. 기존 항목의 해석 키(`axes`·`improvements`·`gate`)는 건드리지 않고, 항목에 `"locked": [...]`가 있으면 그 키도 제외한다. `incidents`는 목록을 새로 만들되 제목이 같은 항목의 `impact_html`(사람이 쓴 영향)은 옮겨 온다 |
 | `scripts/build_study_site.py` | `_private/주식_study/` 전체를 날짜별로 묶어 스터디 사이트 재생성 |
+| `scripts/refresh_dashboard.py` | 위 재생성 순서(라이브 백필·리뷰 항목·생성기)를 소유한다. `--if-stale`은 원천 파일이 산출물보다 새것일 때만 돈다. `eod_autodoc.py`와 Stop 훅이 모두 이 스크립트를 부르므로 절차가 한쪽만 고쳐져 갈라지지 않는다. 실행 기록은 `logs/refresh_dashboard.log` |
 | `scripts/check_docs.py` | 깨진 내부 링크·색인 누락 검사. exit 0이어야 문서 커밋 |
 
 해석을 채우는 커맨드는 `/eod-review`(사후검토 문서) → `/trade-log`(매매일지 해석) → `/dashboard-sync`(아티팩트 재발행)

@@ -23,6 +23,14 @@ from datetime import date as _date
 from datetime import datetime
 from pathlib import Path
 
+# 콘솔이 cp949(한글 Windows 기본)면 ✅ 같은 이모지 출력에서 UnicodeEncodeError로
+# 스크립트가 죽는다(예약작업 rc=267009의 원인). stdout/stderr를 UTF-8로 고정한다.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 REPO = Path(__file__).resolve().parents[1]
 LOG_DIRS = [REPO / "Quant" / "build_win" / "logs", REPO / "logs", REPO / "Quant" / "logs"]
 JOURNAL_DIR = REPO / "strategies" / "DeviationScale" / "live"
@@ -353,18 +361,17 @@ def write_journal(path: Path, body: str, dry: bool) -> str:
     return f"신규 생성 {path.name}"
 
 
-def run_dashboard(dry: bool) -> list[str]:
-    """대시보드는 생성기를 돌려야 바뀐다. 일지만 쓰고 끝내면 화면이 뒤처진다."""
-    out = []
-    for script in ("PYQuant/dashboard/backfill_live.py", "PYQuant/dashboard/build_dashboard.py"):
-        if dry:
-            out.append(f"(dry) {script}")
-            continue
-        r = subprocess.run([sys.executable, script], cwd=REPO,
-                           capture_output=True, text=True, encoding="utf-8", errors="replace")
-        tail = (r.stdout or r.stderr or "").strip().splitlines()
-        out.append(f"{script} rc={r.returncode} {tail[-1] if tail else ''}")
-    return out
+def run_dashboard(ymd: str, dry: bool) -> list[str]:
+    """재생성 절차는 scripts/refresh_dashboard.py가 소유한다.
+
+    순서(라이브 백필 · 리뷰 항목 · 생성기)를 여기에도 적어 두면 한쪽만 고쳐져 갈라진다.
+    16:05 예약 실행과 장중 자동 갱신이 같은 절차를 쓰게 하려고 그쪽으로 넘긴다.
+    """
+    args = ["--live", ymd] + (["--dry-run"] if dry else [])
+    r = subprocess.run([sys.executable, "scripts/refresh_dashboard.py", *args], cwd=REPO,
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    body = [l.strip() for l in (r.stdout or r.stderr or "").strip().splitlines()[1:] if l.strip()]
+    return body or [f"refresh_dashboard rc={r.returncode}"]
 
 
 def main() -> int:
@@ -395,7 +402,7 @@ def main() -> int:
                  f" · 거부 {led.get('events', Counter()).get('REJECTED', 0)} · 종목 {len(led.get('per', {}))}")
 
     if not a.no_dashboard:
-        for l in run_dashboard(a.dry_run):
+        for l in run_dashboard(ymd, a.dry_run):
             lines.append("  " + l)
 
     print("\n".join(lines))
