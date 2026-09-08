@@ -118,6 +118,29 @@ private:
     // 호출자는 반드시 hist_mtx_를 보유해야 한다. 반환 포인터는 lock 보유 동안만 유효.
     ManagedOrder* find_live_by_oid(const std::string& client_oid);
 
+    // ── ODNO → 주문 사유 기록 ────────────────────────────────────────────────
+    //  history_는 메모리에만 있어 재기동하면 이전 세션 주문의 ODNO를 잊는다. 그 주문이
+    //  나중에 체결되면 전략도 사유도 모르는 미매핑 체결로 들어가고, 주문수량을 모르니
+    //  잔량 클램프도 걸 수 없다. 접수 시점에 한 줄씩 파일로 남겨 재기동 뒤에도 같은
+    //  정보를 복원한다. 파일은 거래일별 append 전용이다 — open_orders.txt는 기동 때
+    //  통째로 지워지므로 거기에 얹으면 안 된다.
+    struct OrderReason
+    {
+        std::string ticker;
+        std::string strategy_id;
+        std::string reason;
+        OrderSide   side      = OrderSide::BUY;
+        int         quantity  = 0;
+        double      price     = 0.0;
+        double      ref_price = 0.0;
+    };
+    // 접수된 주문 한 건을 기록 파일에 덧붙인다(io_mtx_). record()가 락 밖에서 부른다.
+    void append_order_reason(const ManagedOrder& mo);
+    // 오늘자 기록 파일을 읽어 order_reasons_를 채운다. 첫 체결통보 때 1회.
+    //  호출자는 hist_mtx_를 보유해야 한다.
+    void load_order_reasons_locked();
+
+
     OrderGate&       gate_;
     IOrderExecutor&  kis_;
     OrderRouterConfig cfg_;
@@ -134,6 +157,10 @@ private:
     // 미매핑(ORPHAN) 체결로 이미 반영한 키 (hist_mtx_로 보호). 미연결 주문은 주문수량을 모르니
     //  잔량 클램프가 없어 같은 통보의 재전송을 이 키로만 막는다.
     std::unordered_set<std::string> orphan_fill_keys_;
+    // ODNO → 이전 세션이 남긴 주문 사유 (hist_mtx_로 보호). 파일에서 한 번 읽고,
+    //  되살린 주문은 지운다(같은 ODNO를 두 번 되살리지 않게).
+    std::unordered_map<std::string, OrderReason> order_reasons_;
+    bool order_reasons_loaded_ = false;
     // MM-1: client_oid → order_id 존재 힌트 (hist_mtx_로 보호). 실제 ManagedOrder는
     //   history_ 스캔으로 해석(deque 요소는 pop_front로 소멸 가능 → 안정 핸들 아님).
     std::unordered_map<std::string, std::string> oid_index_;

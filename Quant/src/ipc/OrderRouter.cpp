@@ -12,6 +12,23 @@
 #include <thread>
 #include <vector>
 
+// ─── 오늘 날짜 YYYYMMDD (로컬) ───────────────────────────────────────────
+//  날짜별 파일 이름에 쓴다. 원장 CSV가 쓰는 것과 같은 기준(로컬 시각)이다.
+static std::string today_ymd()
+{
+    std::time_t tt = std::time(nullptr);
+    std::tm     lt{};
+#ifdef _WIN32
+    localtime_s(&lt, &tt);
+#else
+    localtime_r(&tt, &lt);
+#endif
+    char buf[9];
+    std::strftime(buf, sizeof(buf), "%Y%m%d", &lt);
+    return std::string(buf);
+}
+
+
 // ─── 내부 순번 ID 생성  "ORD-000001" ─────────────────────────────────────
 std::string OrderRouter::next_id()
 {
@@ -317,7 +334,114 @@ void OrderRouter::record(const ManagedOrder& mo)
     //   event="" → mo.status 문자열(ACCEPTED/REJECTED/CANCELLED)이 event가 된다.
     write_trade_row("", mo, 0, 0.0);
     write_open_orders_file(open_orders, seq);
+    append_order_reason(mo);
 }
+
+// ─── ODNO → 주문 사유 기록 ────────────────────────────────────────────────
+//  형식: odno|ticker|side|수량|가격|기준가|전략|사유   (한 줄 한 주문, 헤더 없음)
+//  접수된 신규·정정 주문만 남긴다. 취소는 체결되지 않으므로 대상이 아니다.
+void OrderRouter::append_order_reason(const ManagedOrder& mo)
+{
+    if (mo.status != OrderStatus::ACCEPTED || mo.kis_order_no.empty() ||
+        mo.signal.action == OrderAction::CANCEL || mo.signal.quantity <= 0)
+    {
+        return;
+    }
+
+    // 구분자와 줄바꿈은 공백으로 바꾼다 — 사유 문구에 무엇이 들어와도 한 줄을 유지한다.
+    auto safe = [](std::string s)
+    {
+        for (char& c : s)
+        {
+            if (c == '|' || c == '\n' || c == '\r') c = ' ';
+        }
+        return s;
+    };
+
+    std::ostringstream line;
+    line << mo.kis_order_no << '|' << safe(mo.signal.ticker) << '|'
+         << (mo.signal.side == OrderSide::BUY ? "BUY" : "SELL") << '|'
+         << mo.signal.quantity << '|'
+         << static_cast<long long>(mo.signal.price) << '|'
+         << static_cast<long long>(mo.signal.ref_price) << '|'
+         << safe(mo.signal.strategy_id) << '|' << safe(mo.signal.reason) << '\n';
+
+    std::lock_guard<std::mutex> lk(io_mtx_);
+    std::ofstream out(Logger::instance().path_for("order_reasons_" + today_ymd() + ".txt"),
+                      std::ios::app);
+
+    if (out)
+    {
+        out << line.str();
+    }
+}
+
+void OrderRouter::load_order_reasons_locked()
+{
+    if (order_reasons_loaded_)
+    {
+        return;
+    }
+
+    order_reasons_loaded_ = true;
+    std::ifstream in(Logger::instance().path_for("order_reasons_" + today_ymd() + ".txt"));
+
+    if (!in)
+    {
+        return;
+    }
+
+    std::string line;
+    int n = 0;
+
+    while (std::getline(in, line))
+    {
+        std::vector<std::string> f;
+        std::string tok;
+        std::istringstream ss(line);
+
+        while (std::getline(ss, tok, '|'))
+        {
+            f.push_back(tok);
+        }
+
+        if (f.size() < 8 || f[0].empty())
+        {
+            continue;
+        }
+
+        OrderReason r;
+        r.ticker      = f[1];
+        r.side        = (f[2] == "SELL") ? OrderSide::SELL : OrderSide::BUY;
+        r.strategy_id = f[6];
+        r.reason      = f[7];
+
+        try
+        {
+            r.quantity  = std::stoi(f[3]);
+            r.price     = std::stod(f[4]);
+            r.ref_price = std::stod(f[5]);
+        }
+        catch (const std::exception&)
+        {
+            continue;   // 숫자가 깨진 줄은 버린다
+        }
+
+        if (r.quantity <= 0)
+        {
+            continue;
+        }
+
+        order_reasons_[f[0]] = r;   // 같은 ODNO가 여러 줄이면 마지막 것이 맞다
+        ++n;
+    }
+
+    if (n > 0)
+    {
+        LOG_INFO("[OrderRouter] 주문 사유 기록 " + std::to_string(n) + "건 복원");
+    }
+}
+
 
 // ─── 미체결 주문 사이드카 ─────────────────────────────────────────────────
 //  형식: odno|orgno|ticker|side|remaining  (한 줄 한 주문, 헤더 없음)
@@ -1003,6 +1127,61 @@ void OrderRouter::on_fill(const FillNotification& fn)
                  " time=" + fn.fill_time + " " + std::to_string(fn.filled_qty) + "주");
     }
 
+    // 재기동 복원 — 이전 세션이 낸 주문이면 접수 때 남긴 사유 기록에서 되살린다.
+    //  history_는 메모리라 재기동으로 비지만 기록 파일에는 ODNO·종목·수량·전략·사유가
+    //  그대로 있다. 되살려 history_에 넣으면 아래 매칭 루프가 잔량 클램프까지 평소대로
+    //  처리하므로, 전략 귀속을 잃는 미매핑 경로로 빠지지 않는다.
+    if (!fn.odno.empty())
+    {
+        load_order_reasons_locked();   // 첫 체결통보 때 1회만 파일을 읽는다
+        bool known = false;
+
+        for (const auto& mo : history_)
+        {
+            if (mo.kis_order_no == fn.odno)
+            {
+                known = true;
+                break;
+            }
+        }
+
+        auto jit = known ? order_reasons_.end() : order_reasons_.find(fn.odno);
+
+        if (jit != order_reasons_.end())
+        {
+            ManagedOrder rec;
+            rec.order_id           = next_id();
+            rec.kis_order_no       = fn.odno;
+            rec.status             = OrderStatus::ACCEPTED;
+            rec.confirmed_qty      = 0;
+            rec.signal.ticker      = jit->second.ticker;
+            rec.signal.side        = jit->second.side;
+            rec.signal.type        = OrderType::LIMIT;
+            rec.signal.quantity    = jit->second.quantity;
+            rec.signal.price       = jit->second.price;
+            rec.signal.ref_price   = jit->second.ref_price;
+            rec.signal.strategy_id = jit->second.strategy_id;
+            rec.signal.reason      = jit->second.reason;
+            rec.submitted_at       = fn.timestamp;
+            rec.updated_at         = fn.timestamp;
+            history_.push_back(rec);
+            // 선점(reserved_)은 이전 세션과 함께 사라졌다. 아래 체결 처리가
+            //  on_fill_confirmed로 선점을 깎으므로, 주문수량만큼 먼저 되살려 순변화를 맞춘다.
+            //  일부만 체결되고 나머지가 취소되면 그만큼 선점이 남는데, 주기 잔고 대조의
+            //  reset_reserved()가 실제 잔고로 되맞춘다.
+            gate_.on_accept(rec.signal.account_id, rec.signal.ticker, rec.signal.side,
+                            rec.signal.quantity,
+                            rec.signal.price > 0.0 ? rec.signal.price : rec.signal.ref_price);
+            LOG_INFO("[OrderRouter] 재기동 복원 [" + rec.order_id + "] ODNO=" + fn.odno + " " +
+                     rec.signal.ticker +
+                     (rec.signal.side == OrderSide::BUY ? " BUY " : " SELL ") +
+                     std::to_string(rec.signal.quantity) + "주 전략=" + rec.signal.strategy_id +
+                     " (주문 사유 기록에서 복구)");
+            order_reasons_.erase(jit);   // 같은 ODNO를 두 번 되살리지 않는다
+        }
+    }
+
+
     // 이미 주문수량을 다 채운 주문의 추가 통보인지 구분한다. 이걸 아래 미매핑 경로로
     //  흘려보내면 같은 체결이 포지션에 두 번 쌓인다(ODNO는 아는데 잔량만 없는 상태).
     bool exhausted = false;
@@ -1174,6 +1353,9 @@ void OrderRouter::reset_daily()
     seen_fills_.clear();
     orphan_fill_keys_.clear();
     oid_index_.clear(); // MM-1: client_oid 인덱스도 장 마감 정리 (당일 주문 장 마감 소멸과 정합)
+    // 사유 기록도 거래일이 바뀌면 다시 읽는다(파일이 날짜별이라 어제 것을 들고 있으면 안 된다).
+    order_reasons_.clear();
+    order_reasons_loaded_ = false;
 }
 
 // ─── 통계 ─────────────────────────────────────────────────────────────────

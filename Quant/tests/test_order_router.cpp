@@ -13,6 +13,8 @@
 #include "api/IOrderExecutor.h"
 #include "ipc/OrderRouter.h"
 #include "risk/OrderGate.h"
+#include "utils/Logger.h"
+#include <filesystem>
 #include <cassert>
 #include <chrono>
 #include <ctime>
@@ -475,12 +477,86 @@ void test_replace_reserves_new_qty()
     PASS("replace_reserves_new_qty");
 }
 
+// ─── 테스트 15: 재기동 복원 — 사유 기록으로 ODNO 귀속과 잔량 클램프 회복 ─────
+//   이전 세션이 낸 주문이 재기동 뒤에 체결되면, 예전엔 전략도 사유도 모르는 미매핑
+//   체결로 들어가고 주문수량을 몰라 잔량 클램프도 없었다. 접수 시점에 남긴 기록을
+//   읽어 주문을 되살리면 둘 다 복구된다.
+void test_reason_journal_restart_recovery()
+{
+    OrderSignal buy = make_signal("047050", OrderSide::BUY, 100);
+    buy.strategy_id = "DEVSCALE";
+    buy.reason      = "정배열 눌림 진입";
+
+    // 1차 세션 — 접수까지만 하고 끝난다(체결 전 재기동).
+    {
+        OrderGate         gate(relaxed_cfg());
+        StubOrderExecutor stub(true, "R000777");
+        OrderRouter       router(gate, stub);
+        auto mo = router.submit(buy);
+        assert(mo.status == OrderStatus::ACCEPTED);
+        assert(gate.reserved("047050") == 100);
+    }
+
+    // 2차 세션 — 메모리 이력이 빈 상태에서 같은 ODNO의 체결이 들어온다.
+    OrderGate         gate(relaxed_cfg());
+    StubOrderExecutor stub(true, "R000888");
+    OrderRouter       router(gate, stub);
+
+    FillNotification fn;
+    fn.odno = "R000777"; fn.ticker = "047050"; fn.side = OrderSide::BUY;
+    fn.filled_qty = 60; fn.filled_price = 54700.0; fn.fill_time = "110707";
+    router.on_fill(fn);
+
+    assert(gate.position("047050") == 60);
+    assert(gate.reserved("047050") == 40);   // 주문수량 100을 되살리고 60만 해제
+
+    // 전략 귀속이 ORPHAN이 아니라 원래 전략으로 남는다.
+    auto hist = router.recent(5);
+    bool found = false;
+
+    for (const auto& h : hist)
+    {
+        if (h.kis_order_no == "R000777")
+        {
+            found = true;
+            assert(h.signal.strategy_id == "DEVSCALE");
+            assert(h.signal.quantity == 100);
+        }
+    }
+
+    assert(found);
+
+    // 잔량 클램프 회복 — 남은 40주보다 많은 통보가 와도 100을 넘지 않는다.
+    fn.fill_time = "110709"; fn.filled_qty = 60;
+    router.on_fill(fn);
+    assert(gate.position("047050") == 100);
+
+    PASS("reason_journal_restart_recovery");
+}
+
+
 int main()
 {
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
     std::cout << "=== OrderRouter Unit Tests ===\n";
+    // 사유 기록 파일은 append 전용이라 지난 실행분이 남으면 결과가 달라진다. 먼저 지운다.
+    {
+        std::time_t tt = std::time(nullptr);
+        std::tm     lt{};
+#ifdef _WIN32
+        localtime_s(&lt, &tt);
+#else
+        localtime_r(&tt, &lt);
+#endif
+        char buf[9];
+        std::strftime(buf, sizeof(buf), "%Y%m%d", &lt);
+        std::error_code ec;
+        std::filesystem::remove(
+            Logger::instance().path_for(std::string("order_reasons_") + buf + ".txt"), ec);
+    }
+
     test_gate_rejected();
     test_kis_accepted();
     test_kis_failed();
@@ -496,6 +572,7 @@ int main()
     test_partial_fill_then_cancel();
     test_cancel_after_full_fill_selfheal();
     test_replace_reserves_new_qty();
+    test_reason_journal_restart_recovery();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }
