@@ -162,6 +162,15 @@ tr.bh td.c-strategy::after{content:" ·기준선";color:var(--faint);font-weight
 .card.j,.cards .card{display:block;text-decoration:none;color:inherit;background:var(--surface-2);
   border:1px solid var(--line);border-radius:12px;padding:13px 15px;transition:border-color .12s}
 .cards .card:hover{border-color:var(--accent)}
+.jcard{cursor:pointer}
+.jcard>summary{list-style:none;cursor:pointer}
+.jcard>summary::-webkit-details-marker{display:none}
+.jcard[open]{grid-column:1/-1;cursor:default}
+.jcard[open] .csumm{-webkit-line-clamp:unset;display:block}
+.jsrc{margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--faint)}
+.jbody{margin-top:6px;max-height:60vh;overflow:auto;white-space:pre-wrap;word-break:break-word;
+  font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--ink);
+  background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
 .chead{display:flex;gap:8px;align-items:center;margin-bottom:6px}
 .cdate{font-family:var(--mono);font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
 .ctitle{font-weight:700;font-size:13.5px;margin-bottom:5px;line-height:1.35}
@@ -309,8 +318,8 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 5px;bo
 
 <header class="head wrap">
   <h1>퀀트 매매 대시보드 <span class="v">quant.metrics/v1 · quant.live/v1 · quant.review/v1</span></h1>
-  <div class="gen">생성 2026-09-07 · 데이터 계약(정규화 스키마)만 렌더 · 계열·비교군 분리</div>
-  <div class="overview"><div class="stat"><b>94</b>백테스트행</div><div class="stat"><b>9</b>스터디</div><div class="stat"><b>2</b>계열</div><div class="stat"><b>14</b>매매일지</div><div class="stat"><b>13</b>주문로그일</div><div class="stat"><b>2</b>리뷰</div></div>
+  <div class="gen">생성 2026-09-08 · 데이터 계약(정규화 스키마)만 렌더 · 계열·비교군 분리</div>
+  <div class="overview"><div class="stat"><b>94</b>백테스트행</div><div class="stat"><b>9</b>스터디</div><div class="stat"><b>2</b>계열</div><div class="stat"><b>14</b>매매일지</div><div class="stat"><b>13</b>주문로그일</div><div class="stat"><b>3</b>리뷰</div></div>
   <div class="legend"><span class="lbl">정직성:</span><span class="badge b-robust" title="look-ahead 차단·비용·홀드아웃 등 방법론이 견고. 승패는 지표값이 말함.">견고</span><span class="badge b-honest_failure" title="비용을 반영하면 벤치(그냥 보유)를 이기지 못한 결과를 그대로 보고.">벤치 못 이김</span><span class="badge b-overfit_suspect" title="표본·자유도 대비 성과가 과함 — 신뢰 보류(소표본 포함).">과최적화 의심</span><span class="badge b-context_required" title="헤드라인 숫자가 오독을 부름(비참여·생존편향 등) — 캡션·짝 해석 필수.">맥락필수</span><span class="badge b-unlabeled" title="정직성 라벨 미지정.">미분류</span></div>
 </header>
 
@@ -337,19 +346,1243 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 5px;bo
 </div>
 
 <div class="panel" id="panel-live" role="tabpanel" aria-labelledby="tab-live" hidden>
-<section class="fam"><h2>라이브(모의) 매매 기록</h2><p class="fdesc">KIS 모의계좌(paper) 실증. 아래 <b>매매 일지</b>는 서술 원문 링크, <b>주문 로그</b>는 <code>logs/trades_*.csv</code> 일자별 롤업. 체결 열은 최종 상태가 체결인 주문 수이고, 실현손익은 여기서 집계하지 않는다. <span class="win">갱신 2026-09-07 17:05 · 일지 14건 · 원장 13일</span></p><div class="grp"><h3>매매 일지 <span class="win">(카드 클릭 = 원문 md, 로컬 열람 시)</span></h3><div class="cards"><a class="card" href="../../strategies/DeviationScale/live/2026-09-07.md"><div class="chead"><span class="cdate">2026-09-07</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-09-07 (월)</div><div class="csumm">종료 시점 당일손익 +211,982원(총평가 100,409,282원), 일중 고점 +451,177원(14:36), 일중 저점 -217,830원(10:01)이다.</div></a><a class="card" href="../../strategies/DeviationScale/live/2026-09-04.md"><div class="chead"><span class="cdate">2026-09-04</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-09-04 (금)</div><div class="csumm">전일 보유분 7종목을 ITB 청산 가디언이 모두 정리한 날이다. 12:13 세션에서 체결통보 구독이 붙은 뒤로는 원장에 체결이 71건 기록됐고, 그중 매도 36건은 전부 ITB 본전탈출 청산 체결이다. 종료 당일손익은 baseline 대비 -408,952원(전일총자산 대비 -222,692원, -0.22%)이고 일중 저점은 14:02의 -475,102원이다. 13:21부터는 일일 손실 한도(-300,000원)에 걸려 신규 진입이 7건 차단됐고 그 상태로 마감했다. 운영 마찰은 세 가지다. ① 09:22~12:09 세션에는 체결통보가 붙지 않아 그 구간 체결이 원장에 남지 않았다(미체결이 아니라 계측 공백). ② REST 조회량 급증으로 WARN 4,044건 중 3,863건이 WinHTTP HTTP 500 재시도였다. ③ &quot;초당 거래건수 초과&quot; 오류 13건이 그대로 빈 ODNO 거부 13건으로 이어졌다.</div></a><a class="card" href="../../strategies/DeviationScale/live/2026-09-03.md"><div class="chead"><span class="cdate">2026-09-03</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-09-03 (목)</div><div class="csumm">계좌 설정 오류로 오전 초반 4개 런이 빈 ODNO 거부로 끝났고, 09:33 교정 후 정상 발주로 넘어갔다. 종료 당일손익은 +15,919원(+0.016%)으로 사실상 본전이고, 일중 등락폭은 약 70만원이다(피크 +24만, 저점 -46만). DevScale 정배열눌림 지정가 사다리가 8종목에 26건 접수됐고 OrderGate가 동시보유·명목 한도로 177건 중 94건을 거부해 방어는 설계대로 작동했다. 운영 마찰은 세 가지가 남았다. ① 리컨사일 REST 조회 실패 49건이 daily_pnl 갱신 끊김을 유발해 B2 보수정지(신규매수 차단)가 2회 발동했다. ② DEVSCALE_084730 한 종목이 취소-재주문 churn 루프에 갇혀 거부 87건(접수 0)을 냈다. ③ 마감 시 3종목이 매도가능=0(잠김)이라 청산을 마치지 못하고 오버나이트로 이월됐다. 재기동은 13회(마감 직전 다발)로 운영 부담이 있었다.</div></a><a class="card" href="../../strategies/DeviationScale/live/2026-08-25.md"><div class="chead"><span class="cdate">2026-08-25</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-25 (월)</div><div class="csumm">가동은 반일(10:53~13:03)이고 원장 이벤트도 11건뿐이지만, 국면→전략 자동선택(G1)이 눈에 보이게 갈린 날이다. 10:53 기동에서는 `국면=NEUTRAL → 활성=[] 비활성=[DEVSCALE_207940, DEVSCALE_122260, ITB_005930, ITB_018260, ITB_161390]`으로 전략이 전부 비활성이라 두 시간 동안 신규 진입이 나가지 않았고, 13:01 재기동 뒤 13:02:20에는 같은 NEUTRAL에서 `활성=[DEVSCALE_207940, DEVSCALE_122260]`으로 바뀌면서 곧바로 지정가 사다리 4건이 나갔다. 종료 당일손익은 +108,793원, 전일대비로는 -145,737원이다.</div></a><a class="card" href="../../strategies/DeviationScale/live/2026-08-21.md"><div class="chead"><span class="cdate">2026-08-21</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-21 (금)</div><div class="csumm">09:37 늦게 기동했고 12:57:07에 로그가 끊겼다(사후검토에서 크래시로 판정). 기동 직후 ENTRY_HALT가 켜져(사이드카 regime=RISK_OFF score=-3) DevScale 신규 진입은 0건이고, 접수 3건은 기동 프로브 1건과 전일 물린 보유분 시장가 청산 2건이 전부다. 전일대비 -655,106원(전일총자산 67,380,989)으로 이 구간에서 가장 큰 하루 손실인데, 신규 매매가 없었으므로 대부분 보유분 시가평가(MTM) 변동이다.</div></a><a class="card" href="../../strategies/DeviationScale/live/2026-08-20.md"><div class="chead"><span class="cdate">2026-08-20</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-20 (목)</div><div class="csumm">전일대비 -154,050원(전일총자산 67,401,679). 일중 저점은 15:03 -317,260원이었고 마감 무렵 -203,600원으로 줄었다. 접수 35·거부 139·취소 22, 체결 이벤트 0건. 거부의 대부분은 게이트가 의도대로 막은 쪽이다 — 동시 보유 종목 한도 48건, 종목당 명목 한도 15건. 사다리는 093190에 집중됐고(접수 16건) 같은 호가 재구성으로 &quot;취소 대상 없음&quot; 64건이 뒤따랐다. 마감 구간에서 장 마감 청산이 매도가능=0(잠긴 수량·예약취소 대기)으로 20회 보류돼 청산을 마치지 못했다. 이 건은 다음 날 사후검토에서 P0로 잡힌다.</div></a><a class="card" href="../../strategies/DeviationScale/live/2026-08-19.md"><div class="chead"><span class="cdate">2026-08-19</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-19 (화)</div><div class="csumm">코스피가 실제로 -4~-6% 빠진 위험회피장에서 두 겹 게이트(스캐너 risk_off + ENTRY_HALT)가 DevScale 신규 진입을 차단했다. 체결은 0건이라 유의미한 신규 실증 데이터는 오늘도 얻지 못했다. 아침 물린 시드 청산과 halt 해제(11:45) 뒤 006340 지정가 사다리 진입 시도가 1건 있었으나, reconcile 원장상 신규 보유·평단 변화가 없어 미체결이거나 취소된 것으로 보인다. 최종 당일손익 -29,581원(전일대비 -152,811원)은 대부분 시드 2종목의 MTM이다. 시스템 쪽에선 13:03~13:06 balance 12002 타임아웃 스트릭이 재시도·백오프로 자동 복구됐고, 비정상은 장 마감 없이 13:39 조기 종료된 점 하나다. 오늘은 별도로 코스닥 매매 경로 개발과 용어 사전(GLOSSARY)을 커밋(`04bb6af`)했다.</div></a><a class="card" href="../../strategies/DeviationScale/live/2026-08-18.md"><div class="chead"><span class="cdate">2026-08-18</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-18 (월)</div><div class="csumm">유니버스에서 ETF가 자리를 차지하던 문제의 수정을 라이브에서 처음 확인했다. 후보 131·정배열 18·등록 18(옛빌드 15·0)로, &quot;상위권에 정배열이 0으로 나오는 건 이상하다&quot;던 지적이 사실로 확인됐다. data.go.kr 시총∪거래대금 유니버스 피드(125종목, ETF 미포함)가 4번째 축으로 정상 union됐고 정배열 프리필터가 처음으로 두 자릿수(18)를 냈다. 다만 DevScale 신규 진입은 오늘도 체결 0이다. 오후 세션에서 일일 손실 서킷(-504,481원 / 한도 -300,000원)이 신규 BUY 45건을 전량 차단했다. 이 손실은 DevScale이 아니라 아침에 물려 있던 레거시 보유분(대원전선 562주 등)을 ITB 가디언이 청산하며 확정된 MTM이 주된 원인이다(정상 방어 동작). 별도로 회의에서는 +20% 추격 밴드가 눌림 취지와 어긋난다고 보고, 상단을 +5%로 조이고 스캐너 컷을 0.05로 함께 조정하기로 결론냈다(수치 정당화 완료, 적용은 승인 대기).</div></a><a class="card" href="../../strategies/DeviationScale/live/2026-08-14.md"><div class="chead"><span class="cdate">2026-08-14</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-14 (목)</div><div class="csumm">엔진 크래시의 근본원인(토큰 레이스)을 규명·수정해 무중단 2시간 이상으로 되돌렸다. 오전 11:03 세션이 힙 손상으로 종료됐고, 조사해 보니 원인은 &quot;500 파싱 예외&quot;가 아니라 동기화 없이 공유되던 KisClient 토큰 상태의 데이터 레이스였다. 뮤텍스로 직렬화한 뒤 12:40 세션은 15:15까지 끊기지 않았다. 오후에는 모의 잔고조회가 매 사이클 타임아웃(12002)하면서 리컨사일이 조용히 멈추는 새 문제가 드러나 서킷브레이커로 방어했다. 이전 세션에서 &quot;완료&quot;로 기록됐던 `reserved_` 누수 수정(#1)이 실제로는 디스크에 없던 것을 발견해 처음부터 다시 구현했다. 발주는 활발했고(접수 ODNO 10건), 명목캡이 사다리 상단을 자르는 구조는 08-13에 이어 계속됐다.</div></a><a class="card" href="../../strategies/DeviationScale/live/2026-08-13.md"><div class="chead"><span class="cdate">2026-08-13</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-13 (수)</div><div class="csumm">KIS 서버측 HTTP 500이 세션 내내 다발로 이어졌다. GET 멱등 재시도(08-12 Fix1)가 대부분 흡수해 파이프라인은 버텼지만, 일부는 3/3을 소진해 실패했고 그만큼 일봉이 유실됐다(프리필터 데이터부족=1). ITB 005930 본전탈출 SELL 1건은 정상 집행됐다. DEVSCALE_006340은 명목 한도 초과 상태에서 사다리를 헛발주했고 게이트가 전량 차단했다. 과잉주문 자체는 막혔으나 조율 갭이 드러났다. 모의 당일손익(전일대비)은 −52k, −188k, −148k 구간으로 손실이 확대됐다.</div></a><a class="card" href="../../strategies/DeviationScale/live/2026-08-12.md"><div class="chead"><span class="cdate">2026-08-12</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-12 (화)</div><div class="csumm">주문 파이프라인 인프라를 안정화했다. 전날 하드킬이 남긴 청산 무한루프와 잘못된 클라이언트 잔고조회를 진단·수정해 실증으로 해소를 확인했다. 전략 신규 진입은 0건이다. 강세장이라 등록 5종목 전부 SMA20 대비 +19~+200% 확장 상태로 눌림밴드(−8%~0%)에 들지 않았다. 엄격한 눌림 게이트가 정상 작동한 결과다. 모의 당일손익 −5~7만원(대부분 시드 물린 분이 그대로 남음).</div></a><a class="card" href="../../strategies/DeviationScale/live/2026-08-11.md"><div class="chead"><span class="cdate">2026-08-11</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-11 (화)</div><div class="csumm">반나절(11:50~14:17)만 가동했고 종료 당일손익은 +82원(총평가 68,226,138)으로 사실상 무변동이다. 접수 106·거부 206·취소 96, 체결 이벤트 0건. 이 날의 본론은 매매가 아니라 오류다. ERROR 283건 중 &quot;모의투자 잔고내역이 없습니다&quot; 118건과 빈 ODNO 거부 117건이 대부분을 차지했고, 청산 SELL이 빈 ODNO로 튕겨 90회 재시도 예약됐다. &quot;청산차단 미해소 — 취소할 예약매도 없음/취소 실패(수동 확인 필요)&quot; 경고가 118회 나면서 073240 청산이 세션 내내 끝나지 않았다.</div></a><a class="card" href="../../strategies/DeviationScale/live/2026-08-10.md"><div class="chead"><span class="cdate">2026-08-10</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-10 (월)</div><div class="csumm">종료 당일손익 +162,171원(총평가 68,225,496), 피크 +290,070원(10:21), 저점 -175,000원(09:11). 세션은 하루 동안 9회 재기동했다. 원장이 12:52부터 기록돼 오전 발주(09:59 017650 사다리 등)는 로그에만 남았고, 그래서 이 날 손익을 원장만으로는 재구성할 수 없다. 오후는 458210 한 종목에 접수 196·취소 183·거부 144가 몰린 취소-재주문 churn이 대부분이다. 원장에 체결(FILL) 이벤트가 없어(체결통보 채널 미배선) 체결 여부는 리컨사일 손익 변동으로만 간접 확인된다.</div></a><a class="card" href="../../strategies/ITB/live/2026-08-07.md"><div class="chead"><span class="cdate">2026-08-07</span><span class="pill p-strat">ITB</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-07 (금)</div><div class="csumm">ITB v2(1분 버킷 채널 돌파 + 당일 시가앵커) — 지표 기반 자동매매. (S3만 FIXED_INTERVAL 강제매매)</div></a></div></div><div class="grp"><h3>주문 로그 요약 <span class="win">(접수=초록·취소=회색·거부=빨강)</span></h3><div class="tw"><table><thead><tr><th>일자</th><th>총주문</th><th>접수</th><th>취소</th><th>거부</th><th>체결</th><th>종목수</th><th>상태 비율</th><th>전략</th></tr></thead><tbody><tr><td class="k-left">2026-09-07</td><td class="k-int">601</td><td class="k-int"><span class="pos">224</span></td><td class="k-int"><span class="zero">43</span></td><td class="k-int"><span class="neg">258</span></td><td class="k-int"><span class="pos">76</span></td><td class="k-int">55</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:37.3%" title="accepted 224"></span><span class="seg zero" style="width:7.2%" title="cancelled 43"></span><span class="seg neg" style="width:42.9%" title="rejected 258"></span></span></td><td class="k-left cstrat">DEVSCALE_042500 68 · TEST 52 · ORPHAN 44</td></tr><tr><td class="k-left">2026-09-04</td><td class="k-int">397</td><td class="k-int"><span class="pos">192</span></td><td class="k-int"><span class="zero">49</span></td><td class="k-int"><span class="neg">135</span></td><td class="k-int"><span class="pos">21</span></td><td class="k-int">20</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:48.4%" title="accepted 192"></span><span class="seg zero" style="width:12.3%" title="cancelled 49"></span><span class="seg neg" style="width:34.0%" title="rejected 135"></span></span></td><td class="k-left cstrat">DEVSCALE_086790 80 · DEVSCALE_316140 37 · DEVSCALE_005490 32</td></tr><tr><td class="k-left">2026-09-03</td><td class="k-int">223</td><td class="k-int"><span class="pos">34</span></td><td class="k-int"><span class="zero">12</span></td><td class="k-int"><span class="neg">177</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">20</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:15.2%" title="accepted 34"></span><span class="seg zero" style="width:5.4%" title="cancelled 12"></span><span class="seg neg" style="width:79.4%" title="rejected 177"></span></span></td><td class="k-left cstrat">DEVSCALE_084730 87 · DEVSCALE_092790 34 · DEVSCALE_105560 28</td></tr><tr><td class="k-left">2026-08-25</td><td class="k-int">11</td><td class="k-int"><span class="pos">7</span></td><td class="k-int"><span class="zero">2</span></td><td class="k-int"><span class="neg">2</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">4</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:63.6%" title="accepted 7"></span><span class="seg zero" style="width:18.2%" title="cancelled 2"></span><span class="seg neg" style="width:18.2%" title="rejected 2"></span></span></td><td class="k-left cstrat">DEVSCALE_207940 7 · STARTUP_PROBE 2 · ITB_161390 1</td></tr><tr><td class="k-left">2026-08-21</td><td class="k-int">60</td><td class="k-int"><span class="pos">3</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int"><span class="neg">57</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">10</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:5.0%" title="accepted 3"></span><span class="seg neg" style="width:95.0%" title="rejected 57"></span></span></td><td class="k-left cstrat">DEVSCALE_007575 23 · DEVSCALE_096770 9 · DEVSCALE_475150 9</td></tr><tr><td class="k-left">2026-08-20</td><td class="k-int">196</td><td class="k-int"><span class="pos">35</span></td><td class="k-int"><span class="zero">22</span></td><td class="k-int"><span class="neg">139</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">13</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:17.9%" title="accepted 35"></span><span class="seg zero" style="width:11.2%" title="cancelled 22"></span><span class="seg neg" style="width:70.9%" title="rejected 139"></span></span></td><td class="k-left cstrat">DEVSCALE_093190 56 · DEVSCALE_007340 24 · DEVSCALE_011200 18</td></tr><tr><td class="k-left">2026-08-19</td><td class="k-int">37</td><td class="k-int"><span class="pos">7</span></td><td class="k-int"><span class="zero">1</span></td><td class="k-int"><span class="neg">29</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">7</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:18.9%" title="accepted 7"></span><span class="seg zero" style="width:2.7%" title="cancelled 1"></span><span class="seg neg" style="width:78.4%" title="rejected 29"></span></span></td><td class="k-left cstrat">DEVSCALE_006340 24 · DEVSCALE_161390 3 · DEVSCALE_000100 3</td></tr><tr><td class="k-left">2026-08-18</td><td class="k-int">119</td><td class="k-int"><span class="pos">15</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int"><span class="neg">104</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">19</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:12.6%" title="accepted 15"></span><span class="seg neg" style="width:87.4%" title="rejected 104"></span></span></td><td class="k-left cstrat">DEVSCALE_073240 20 · DEVSCALE_207940 6 · DEVSCALE_068270 6</td></tr><tr><td class="k-left">2026-08-14</td><td class="k-int">49</td><td class="k-int"><span class="pos">19</span></td><td class="k-int"><span class="zero">2</span></td><td class="k-int"><span class="neg">28</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">4</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:38.8%" title="accepted 19"></span><span class="seg zero" style="width:4.1%" title="cancelled 2"></span><span class="seg neg" style="width:57.1%" title="rejected 28"></span></span></td><td class="k-left cstrat">DEVSCALE_073240 22 · DEVSCALE_005180 12 · DEVSCALE_464240 10</td></tr><tr><td class="k-left">2026-08-13</td><td class="k-int">188</td><td class="k-int"><span class="pos">46</span></td><td class="k-int"><span class="zero">26</span></td><td class="k-int"><span class="neg">116</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">3</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:24.5%" title="accepted 46"></span><span class="seg zero" style="width:13.8%" title="cancelled 26"></span><span class="seg neg" style="width:61.7%" title="rejected 116"></span></span></td><td class="k-left cstrat">DEVSCALE_006340 103 · DEVSCALE_073240 76 · STARTUP_PROBE 7</td></tr><tr><td class="k-left">2026-08-12</td><td class="k-int">769</td><td class="k-int"><span class="pos">263</span></td><td class="k-int"><span class="zero">233</span></td><td class="k-int"><span class="neg">273</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">4</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:34.2%" title="accepted 263"></span><span class="seg zero" style="width:30.3%" title="cancelled 233"></span><span class="seg neg" style="width:35.5%" title="rejected 273"></span></span></td><td class="k-left cstrat">DEVSCALE_006340 290 · DEVSCALE_362320 260 · DEVSCALE_257720 217</td></tr><tr><td class="k-left">2026-08-11</td><td class="k-int">408</td><td class="k-int"><span class="pos">106</span></td><td class="k-int"><span class="zero">96</span></td><td class="k-int"><span class="neg">206</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">3</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:26.0%" title="accepted 106"></span><span class="seg zero" style="width:23.5%" title="cancelled 96"></span><span class="seg neg" style="width:50.5%" title="rejected 206"></span></span></td><td class="k-left cstrat">DEVSCALE_419890 246 · DEVSCALE_073240 161 · ITB_017650 1</td></tr><tr><td class="k-left">2026-08-10</td><td class="k-int">599</td><td class="k-int"><span class="pos">220</span></td><td class="k-int"><span class="zero">198</span></td><td class="k-int"><span class="neg">181</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">5</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:36.7%" title="accepted 220"></span><span class="seg zero" style="width:33.1%" title="cancelled 198"></span><span class="seg neg" style="width:30.2%" title="rejected 181"></span></span></td><td class="k-left cstrat">DEVSCALE_458210 523 · DEVSCALE_463290 63 · ITB_017650 8</td></tr></tbody></table></div></div></section>
+<section class="fam"><h2>라이브(모의) 매매 기록</h2><p class="fdesc">KIS 모의계좌(paper) 실증. 아래 <b>매매 일지</b>는 서술 원문 링크, <b>주문 로그</b>는 <code>logs/trades_*.csv</code> 일자별 롤업. 체결 열은 최종 상태가 체결인 주문 수이고, 실현손익은 여기서 집계하지 않는다. <span class="win">갱신 2026-09-07 20:42 · 일지 14건 · 원장 13일</span></p><div class="grp"><h3>매매 일지 <span class="win">(카드 클릭 = 원문 펼치기)</span></h3><div class="cards"><details class="card jcard"><summary><div class="chead"><span class="cdate">2026-09-07</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-09-07 (월)</div><div class="csumm">종료 시점 당일손익 +211,982원(총평가 100,409,282원), 일중 고점 +451,177원(14:36), 일중 저점 -217,830원(10:01)이다.</div></summary><div class="jsrc">strategies/DeviationScale/live/2026-09-07.md</div><pre class="jbody"># 라이브 모의 매매 일지 — 2026-09-07 (월)
+
+&gt; 환경: **KIS 모의계좌**(openapivts, is_paper=true). 시세·랭킹·지수는 실전 도메인 REST 폴링, 주문은 모의 발주.
+&gt; 전략: **DeviationScale (DEVSCALE)** 정배열눌림 지정가 사다리 + **ITB** 청산 가디언(전일 보유분).
+&gt; 손익은 모의(가상) 기준. 로그 `Quant/build_win/logs/quant_trader.log`(59535행~), 원장 `trades_20260907.csv`(601 이벤트, 08:55:26~15:53:37).
+&gt; 이 날의 특징은 매매 자체보다 **장중 10회 재기동**이다. 유니버스를 전면 개방한 뒤 드러난 결함을 그 자리에서 고치고 다시 띄우기를 반복했다.
+
+---
+
+## 1. 오늘의 한 줄 결과
+
+종료 시점 당일손익 **+211,982원**(총평가 100,409,282원), 일중 고점 +451,177원(14:36), 일중 저점 -217,830원(10:01)이다.
+오전은 전일 보유분을 ITB 가디언이 정리하는 구간이었고, 오후 14:01에 유니버스를 KOSPI+KOSDAQ 전종목으로 열면서
+등록 종목이 11개에서 59개로 늘었다. 그 직후 두 가지가 동시에 드러났다 — ① 총노출 한도 초과 거부 179건,
+② WebSocket 구독 40개 상한에 밀려 **체결통보가 아예 붙지 않는 상태**로 두 세션을 돌았다. 둘 다 당일 안에 원인을 잡았고,
+체결통보는 14:52 재기동으로 복구했다(구독 우선순위 변경). 총노출 쪽은 장 마감 후 점수 기반 비중 배분으로 고쳤다.
+
+---
+
+## 2. 세션 10회 — 무엇을 바꿨고 왜 바꿨나
+
+국면은 **10개 세션 전부 NEUTRAL**이었다. 아래 표의 동작 차이는 국면 전환이 아니라 **코드·설정 변경 때문**이다.
+이 구분을 하지 않으면 &quot;오후에 갑자기 거부가 늘었다&quot;를 시장 탓으로 오독하게 된다.
+
+| # | 시각 | 슬롯 | 후보 | 등록 | 국면 | 이 세션에서 바뀐 것 / 바꾼 이유 |
+|---|------|------|------|------|------|------|
+| 1 | 08:55 | 17 | 145 | 8 | NEUTRAL | 기동. 거래대금 상위 기반 유니버스, 전일 보유 11종목은 스캔 제외 후 ITB 가디언 부착 |
+| 2 | 09:26 | 17 | 128 | 7 | NEUTRAL | 재기동 |
+| 3 | 09:39 | 17 | 126 | 9 | NEUTRAL | 재기동 |
+| 4 | 10:37 | 17 | 134 | 11 | NEUTRAL | 재기동 |
+| 5 | 12:00 | 17 | 135 | 14 | NEUTRAL | 재기동 |
+| 6 | 12:06 | 17 | 135 | 14 | NEUTRAL | 재기동 |
+| 7 | 13:53 | 17 | 132 | 11 | NEUTRAL | 재기동. 이 세션까지 후보 풀은 130 내외 |
+| 8 | **14:01** | **25** | **724** | **59** | NEUTRAL | **유니버스 전면 개방(KOSPI+KOSDAQ 전종목) + 동시보유 17→25.** 거래대금 상위로 좁힌 풀은 커버리지가 좁다는 판단 |
+| 9 | 14:20 | 25 | 723 | 58 | NEUTRAL | **리츠 필터 추가.** S8에서 334890(이지스밸류플러스리츠)이 등록된 것을 보고 제외 규칙 추가(리츠드롭=1) |
+| 10 | 14:52 | 25 | 722 | 57 | NEUTRAL | **체결통보 WS 우선 구독.** S8·S9에서 체결통보가 붙지 않은 원인이 구독 상한임을 확인하고 순서를 뒤집음 |
+
+세션 8부터 일봉 조회가 724건으로 뛰었다(`일봉조회=724 캐시=0`). 프리필터 깔때기는 후보 724개에서
+데이터부족 23·과확장컷 112를 걸러 정배열 59개가 남고 그대로 59개가 등록됐다. 전종목을 열어도 정배열 조건을 통과하는 것은 8% 남짓이다.
+
+## 3. 수정 전 / 후 비교 — 세션 8이 분기점
+
+### (1) 총노출 한도 초과 거부: 0건 → 179건
+
+| 구간 | 슬롯 | 종목당 base_pct | 베이스 총합 | 총노출 상한 | 총노출 거부 |
+|---|---|---|---|---|---|
+| S1~S7 (~13:59) | 17 | 5% | 85% | 95% | **0건** |
+| S8~S10 (14:01~) | 25 | 5% | **125%** | 95% | **179건** (14시 154 · 15시 25) |
+
+슬롯만 17→25로 올리고 종목당 비중을 그대로 두면 베이스 총합이 상한을 넘는다. 게이트는 정상 동작했다 —
+`총노출 한도 초과 (99753288 &gt; 95390185)` 처럼 자본 대비로 정확히 막았다. 결함은 게이트가 아니라 **설정 조합**이었다.
+
+**조치(장 마감 후 반영, 내일부터 유효)**: 점수 기반 비중 배분. 종목별 z-점수 합성값으로 배수를 매기고,
+상위 슬롯 수만큼의 배수 합이 목표 총노출(80%)에 맞도록 매 스캔마다 재정규화한다. `base_pct` 5%→3.2%,
+`max_pct` 15%→6.4%, 종목당 명목 한도 1,500만→800만원. 배경은 [docs/DECISIONS.md](../../../docs/DECISIONS.md) D-018.
+
+### (2) 체결통보 유실: S8·S9 두 세션 공백
+
+유니버스를 열자 등록 종목이 59개가 되면서 WS 구독이 40개 상한에 걸렸다. 이때 체결통보(`H0STCNI9`)가 시세 구독에 밀려
+붙지 않았고, S8·S9 구간의 체결이 원장에 남지 않았다. S10에서 **체결통보를 먼저 구독하고 남는 자리에 시세를 채우도록**
+순서를 뒤집자 `구독 상한 40 도달 — 시세 22종목 구독 생략(REST 폴링으로 대체). 체결통보는 유지.` 로 바뀌었다.
+시세는 REST 폴링으로 대체할 수 있지만 체결통보는 대체 수단이 없다는 판단이다(D-016).
+
+복구 직후 14:58~15:13에 S8·S9 시절 주문의 체결통보가 뒤늦게 들어왔다. ODNO 매핑이 없으므로 **고아 체결 경로**로
+원장·포지션에 반영됐다(`이전 세션 주문 체결(ODNO 미매핑)`, 44건). 재기동이 라우터 기억을 비우더라도 잔고 재시드가
+실보유를 다시 읽으므로 정합은 복구되는 방향이다.
+
+### (3) 리츠 혼입: 1건 → 0건
+
+S8에서 334890(이지스밸류플러스리츠)이 정배열 조건을 통과해 등록됐다. 리츠는 배당 중심 자산이라
+&quot;정배열 눌림 후 되돌림&quot;이라는 이 전략의 전제와 가격 거동이 다르다. S9부터 제외 규칙을 넣어 `리츠드롭=1`로 걸렀다(D-015).
+
+## 4. 종목별 매수 사유 / 매도 사유
+
+체결 138건 = 실전략 74건 + 고아 체결 44건 + 기동 점검 주문·부하시험 20건(005930).
+매수는 전부 DevScale 정배열눌림, 매도는 전부 ITB 청산 가디언이다. **오늘 DevScale이 스스로 판 것은 없다** —
+매수한 종목은 그대로 들고 마감했다.
+
+### 매수 (DevScale 정배열눌림 사다리)
+
+진입 논리는 하나다. 일봉이 정배열(SMA20&gt;60&gt;120)인 종목이 3분봉 SMA20 아래로 눌렸을 때 지정가 사다리로 담는다.
+이격(현재가/일봉SMA20-1)이 클수록 되돌림 여지가 크다고 본다.
+
+| 종목 | 시각 | 체결 | 수량 | 명목 | 진입 근거 (이격 · 일봉SMA20 · 현재가) |
+|---|---|---|---|---|---|
+| 047050 포스코인터내셔널 | 09:57 | 4 | 272 | 14,914,400 | 이격 2.6% · SMA20 53,700 · 현재가 55,100 (고아 2건 포함) |
+| 373220 LG에너지솔루션 | 10:38~12:06 | 3 | 26 | 9,373,000 | 이격 0.2~0.3% · SMA20 360,250 · 현재가 361,000~361,250 |
+| 316140 우리금융지주 | 09:00 | 1 | 149 | 4,984,050 | 이격 0.7% · SMA20 33,314 · 현재가 33,550 |
+| 055550 신한지주 | 09:00~09:58 | 5 | 44 | 4,956,600 | 이격 4.8% · SMA20 107,460 · 현재가 112,600 |
+| 086790 하나금융지주 | 09:01 | 1 | 36 | 4,939,200 | 이격 4.1% · SMA20 132,125 · 현재가 137,500 |
+| 090430 아모레퍼시픽 | 10:43 | 3 | 35 | 4,910,500 | 이격 0.5% · SMA20 140,100 · 현재가 140,800 |
+| 005490 POSCO홀딩스 | 09:01~09:57 | 9 | 14 | 4,667,250 | 이격 0.9% · SMA20 330,575 · 현재가 333,500 |
+| 000810 삼성화재 | 09:00 | 1 | 7 | 4,599,000 | 이격 1.3% · SMA20 649,450 · 현재가 658,000 |
+| 005830 DB손해보험 | 09:57 | 8 | 18 | 3,434,500 | 이격 5.2% · SMA20 181,430 · 현재가 190,800 |
+| 001450 현대해상 | 09:59 | 1 | 67 | 3,383,500 | 이격 3.6% · SMA20 48,953 · 현재가 50,700 |
+| 499790 GS피앤엘 | 14:59 | 2 | 59 | 2,395,400 | 이격 **-3.6%** · SMA20 42,238 · 현재가 40,700 — 유일하게 일봉SMA20 아래에서 잡은 건 |
+| 006730 서부T&amp;D | 14:58 | 2 | 129 | 1,434,480 | 이격 2.4% · SMA20 10,868 · 현재가 11,130 |
+
+이격 부호를 보면 대부분 **일봉 SMA20 위**에서 샀다. 이름은 &quot;눌림&quot;이지만 실제로는 3분봉 기준 단기 눌림이고
+일봉 기준으로는 추세 추종에 가깝다. 이격 4~5%대(055550·086790·005830)는 과확장컷 문턱 바로 아래로,
+되돌림 폭보다 추세 이탈 위험이 큰 구간이다. 내일 점수 기반 비중이 붙으면 이런 종목의 배수가 낮아진다.
+
+**고아 체결(S8·S9 주문이 S10에서 뒤늦게 확인된 건)**: 011780 금호석유화학 6건 40주 5,020,000원,
+042500 링네트 10건 1,155주 5,018,475원, 263860 지니언스 25건 309주 4,680,230원, 047050 2건. 진입 사유는
+S8·S9 시점의 정배열눌림 신호였으나 그 세션 로그에 신호 라인이 남지 않아 이격 수치는 확인 불가다.
+
+### 매도 (ITB 청산 가디언)
+
+전일 보유분 정리다. 두 가지 규칙만 썼다. 본전탈출은 평단 회복 시점 청산, seed-trail은 고점 대비 추적 손절이다.
+
+| 종목 | 시각 | 체결 | 수량 | 명목 | 청산 사유 |
+|---|---|---|---|---|---|
+| 086790 하나금융지주 | 09:01~10:00 | 6 | 123 | 16,647,400 | 본전탈출 — 평단 회복 시점에 손실 확대 전 정리 |
+| 005490 POSCO홀딩스 | 09:57 | 1 | 24 | 8,040,000 | 본전탈출 |
+| 055550 신한지주 | 09:00~09:58 | 4 | 60 | 6,720,500 | seed-trail — 고점 대비 추적 손절선 이탈 |
+| 105560 KB금융 | 12:06 | 7 | 37 | 6,504,950 | 본전탈출 |
+| 161890 한국콜마 | 09:00 | 5 | 42 | 6,023,200 | 본전탈출 |
+| 316140 우리금융지주 | 09:00~13:45 | 4 | 174 | 5,846,600 | 본전탈출 3건 + 고아 매도 1건 |
+| 373220 LG에너지솔루션 | 10:38~12:06 | 2 | 13 | 4,681,500 | 본전탈출 |
+| 000810 삼성화재 | 10:52 | 1 | 7 | 4,613,000 | 본전탈출 |
+| 322000 HD현대에너지솔루션 | 09:15 | 5 | 25 | 3,463,900 | seed-trail |
+| 066970 엘앤에프 | 09:00 | 2 | 16 | 1,924,800 | 본전탈출 |
+
+같은 종목을 팔면서 사는 경우가 있다(055550·086790·005490·316140·373220·000810). 충돌이 아니라 **역할 분리**다.
+전일 보유분은 ITB 가디언이 정리하고, 같은 종목이 오늘 다시 정배열눌림 조건을 만족하면 DevScale이 새 사다리로 들어간다.
+다만 왕복 수수료가 두 번 나가므로 내일 이 중복을 계측할 필요가 있다.
+
+**실현손익 컬럼 주의**: 원장의 `realized_pnl` 컬럼은 오늘 전 행이 0이다. 이 컬럼을 쓰는 코드가
+15:31(장 마감 후)에야 링크됐기 때문이며, 실제 실현이 0이었다는 뜻이 아니다(D-017). 왕복 매칭으로 별도 계산하면
+**실현 40,000원 / 4쌍**이다 — 373220 3쌍(0 · -3,500 · -1,500원), 316140 1쌍(+45,000원).
+당일손익 +211,982원의 대부분은 평가손익이다.
+
+## 5. 손익 추이 (리컨사일 폴링)
+
+| 시각 | 당일손익 | 총평가 |
+|---|---|---|
+| 09:00 | 0원 | 100,197,300 |
+| 10:00 | -176,930원 | 100,020,370 |
+| 10:01 (저점) | **-217,830원** | 99,979,470 |
+| 11:00 | -76,120원 | 100,121,180 |
+| 12:01 | -24,632원 | 100,172,668 |
+| 13:00 | -14,921원 | 100,182,379 |
+| 14:03 | +222,822원 | 100,420,122 |
+| 14:36 (고점) | **+451,177원** | 100,648,477 |
+| 15:00 | +276,277원 | 100,473,577 |
+| 15:29 (종료) | **+211,982원** | 100,409,282 |
+
+오전 저점 이후 계속 회복해 14:36에 고점을 찍고 마감까지 되밀렸다. 유니버스 개방(14:01) 직후 구간이
+플러스 전환과 겹치지만, 그 시점에 실제로 신규 체결이 붙은 것은 14:57 이후라 **개방 효과로 볼 근거는 없다**.
+14시대 상승은 기존 보유분의 평가액 변동이다.
+
+## 6. 이벤트·거부 집계
+
+| 이벤트 | 건수 |
+|---|---|
+| ACCEPTED | 162 |
+| FILL | 138 |
+| REJECTED | 258 |
+| CANCELLED | 43 |
+
+방향은 BUY 455 / SELL 138 / 기타 8.
+
+| 거부 사유 | 건수 | 성격 |
+|---|---|---|
+| 총노출 한도 초과 | 179 | **설정 결함** — §3-(1) |
+| 취소 대상 없음 (이미 체결/취소/이력초과) | 35 | 정상 — 취소 요청과 체결의 경합 |
+| KIS API 거부 (빈 ODNO) | 15 | 대부분 `40240000`(모의 잔고내역 없음) |
+| 초당 거래건수 초과 `EGW00201` | 12 | **완화 필요** — 스캔 REST가 주문과 같은 레이트 버킷을 소비 |
+| 중복 신호 (1초 윈도우) | 7 | 정상 — 중복 방지 |
+| Rate limit 초과 (분당 20건) | 6 | 자체 제한 |
+| KILL_SWITCH 활성 | 4 | 부하 시험 잔재 |
+
+기타 경고: `WS 구독 상한 40 도달 — 시세 22종목 생략` 42회, WS 재연결 47회.
+
+## 7. 이슈 &amp; 조치
+
+| # | 이슈 | 상태 |
+|---|---|---|
+| 1 | 슬롯 25 × base_pct 5% = 125% &gt; 총노출 95% → 거부 179건 | **해소** — 점수 기반 비중 배분(D-018), 마감 후 반영 |
+| 2 | 유니버스 개방 시 WS 40 상한에 체결통보가 밀려 유실 | **해소** — 체결통보 우선 구독(D-016), 14:52 반영 |
+| 3 | 리츠가 정배열 필터를 통과 | **해소** — 리츠 제외(D-015), 14:20 반영 |
+| 4 | 원장 `realized_pnl`이 전 행 0 | **해소** — 컬럼 배선(D-017), 15:31 반영. 내일치부터 유효 |
+| 5 | 슬롯 만석이면 더 높은 점수 종목이 못 들어옴 | **해소** — 교체 진입(D-019), 마감 후 반영 |
+| 6 | `EGW00201` 초당 거래건수 초과 12건 | **미해소** — 스캔 조회 간격 60ms→150ms, 일봉 캐시 디스크 영속화 필요 |
+| 7 | WS 재연결 47회 | **관찰** — 승인키 재발급 경로는 해소됐으나 빈도가 여전함 |
+
+## 8. 내일(2026-09-08) 확인할 것
+
+1. **총노출 거부 0건인가** — 베이스 총합이 80%로 고정되는지 스캔 로그의 배수 합으로 확인.
+2. **점수 상위 종목의 비중이 실제로 큰가** — 등록 로그의 `base=` 수량이 점수 순으로 벌어지는지.
+3. **교체 진입이 발동하는가** — 슬롯 25 만석 상태에서 `[Displace]` 라인이 나오는지. 하루 5회 상한.
+4. **체결통보가 세션 내내 유지되는가** — 고아 체결 0건이 목표.
+5. 이격 4~5%대 진입(과확장컷 바로 아래)의 성과를 별도 집계.
+
+## 9. 코스피 +4.6%인데 왜 NEUTRAL이었나 (장 마감 후 확인)
+
+오늘 코스피는 6,687.21 → 6,995.39, **+4.61%**로 마감했다. 그런데 10개 세션 모두
+`[Regime] NEUTRAL score=1 (close=6687 ma200=6062 above200=Y 정배열=혼조)`을 찍었다. 버그는 아니었다.
+
+**(1) 국면은 오늘을 보지 않는다.** `RegimeController::evaluate()`는 당일 미완성봉을 빼고
+직전 확정봉으로 판정한다(`start = (ymd_of(bars[0]) == today) ? 1 : 0`). 그래서 오늘 판정의 입력은
+09-04 종가 6,687이다. 게다가 같은 거래일이면 캐시를 그대로 돌려주므로 10번 재기동해도 값이 같다.
+look-ahead를 막고 장중 국면이 펄럭이지 않게 하려는 의도된 설계다. 대신 **라벨은 어제를 서술한다.**
+
+**(2) 오늘 종가를 넣어도 NEUTRAL이다.** 09-07 확정치로 다시 계산하면
+
+| 항목 | 09-04(실제 판정 입력) | 09-07(내일 아침 입력) |
+|---|---|---|
+| 종가 | 6,687 | 6,995 |
+| ma20 | 6,691 | 6,728 |
+| ma60 | 7,225 | 7,212 |
+| ma120 | 6,960 | 6,973 |
+| ma200 | 6,063 | 6,077 |
+| 축1 200일선 | 위 (+1) | 위 (+1) |
+| 축2 배열 | ma20&lt;ma60, ma60&gt;ma120 → 혼조 (0) | 동일 → 혼조 (0) |
+| score / 국면 | 1 / NEUTRAL | 1 / NEUTRAL |
+
+BULL은 score +2, 즉 200일선 위 **그리고** ma20&gt;ma60&gt;ma120을 둘 다 요구한다. ma60(7,212)이
+ma20(6,728)보다 한참 위에 있어 정배열이 성립하지 않는다. 지수가 고점에서 크게 밀린 뒤라
+ma60이 아직 내려오는 중이고, ma20은 아래에서 올라오는 중이다. 오늘의 +4.6%는 그 낙폭 안에서의
+반등이지 추세 전환이 아니다 — 이 뜻에서 &quot;혼조&quot;라는 라벨 자체는 사실과 어긋나지 않는다.
+
+**(3) 분류기가 고장난 건 아니다.** 코스피 2005-01~2026-09(5,349거래일)에 같은 규칙을 적용하면
+BULL 41.6% · NEUTRAL 37.6% · BEAR 20.8%로 갈린다. 최근 400거래일만 보면 BULL이 290일이다.
+전환 이력은 2025-05-19 BULL → **2026-07-21 NEUTRAL**이고, 우리 라이브는 08-06에 시작했다.
+즉 국면이 바뀐 뒤에 매매를 시작해서 로그 15거래일이 전부 NEUTRAL인 것이다.
+
+**(4) 그래서 실제로 걸리는 문제는 따로 있다.** 라이브 15거래일 전부 NEUTRAL이므로
+`regime_strategies`의 BULL·BEAR 분기는 **한 번도 실행된 적이 없다**. 국면 자동선택은 지금까지
+상수 조회였고, BEAR의 `FORCE_LIQ` 경로는 라이브에서 미검증이다. ma20이 ma60을 넘으려면
+현 추세로 몇 주가 필요하니 당분간도 NEUTRAL이다. 분류기 임계값은 손대지 않는다
+(20년 분포에 이상이 없고, 근거는 하루치 체감이 아니라 백테스트여야 한다). 대신
+BULL/BEAR 분기를 강제 주입으로 한 번 돌려보는 검증을 별도로 잡는다.
+</pre></details><details class="card jcard"><summary><div class="chead"><span class="cdate">2026-09-04</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-09-04 (금)</div><div class="csumm">전일 보유분 7종목을 ITB 청산 가디언이 모두 정리한 날이다. 12:13 세션에서 체결통보 구독이 붙은 뒤로는 원장에 체결이 71건 기록됐고, 그중 매도 36건은 전부 ITB 본전탈출 청산 체결이다. 종료 당일손익은 baseline 대비 -408,952원(전일총자산 대비 -222,692원, -0.22%)이고 일중 저점은 14:02의 -475,102원이다. 13:21부터는 일일 손실 한도(-300,000원)에 걸려 신규 진입이 7건 차단됐고 그 상태로 마감했다. 운영 마찰은 세 가지다. ① 09:22~12:09 세션에는 체결통보가 붙지 않아 그 구간 체결이 원장에 남지 않았다(미체결이 아니라 계측 공백). ② REST 조회량 급증으로 WARN 4,044건 중 3,863건이 WinHTTP HTTP 500 재시도였다. ③ &quot;초당 거래건수 초과&quot; 오류 13건이 그대로 빈 ODNO 거부 13건으로 이어졌다.</div></summary><div class="jsrc">strategies/DeviationScale/live/2026-09-04.md</div><pre class="jbody"># 라이브 모의 매매 일지 — 2026-09-04 (금)
+
+&gt; 환경: **KIS 모의계좌**(openapivts, is_paper=true, CANO=502***75). 시세·랭킹·지수는 실전 도메인 REST 폴링, 주문은 모의로 발주. 12:13 세션부터 **체결통보 WebSocket(H0STCNI9)** 이 붙어 원장에 체결이 기록되기 시작했다.
+&gt; 전략: **DeviationScale (DEVSCALE)** 정배열눌림 지정가 사다리 + **ITB** 청산 가디언(전일 보유분 7종목).
+&gt; 손익은 모의(가상) 기준. baseline `pnl_baseline_20260904_50204275.txt`, 전일총자산 100,016,919원. 로그 `Quant/build_win/logs/quant_trader.log`(2026-09-04 구간 50886~59534행, 8,649행), 원장 `trades_20260904.csv`(397 이벤트).
+
+---
+
+## 1. 오늘의 한 줄 결과
+
+전일 보유분 7종목을 ITB 청산 가디언이 모두 정리한 날이다. 12:13 세션에서 체결통보 구독이 붙은 뒤로는 원장에 체결이 71건 기록됐고, 그중 매도 36건은 전부 ITB 본전탈출 청산 체결이다. 종료 당일손익은 baseline 대비 -408,952원(전일총자산 대비 -222,692원, -0.22%)이고 일중 저점은 14:02의 -475,102원이다. 13:21부터는 일일 손실 한도(-300,000원)에 걸려 신규 진입이 7건 차단됐고 그 상태로 마감했다. 운영 마찰은 세 가지다. ① 09:22~12:09 세션에는 체결통보가 붙지 않아 그 구간 체결이 원장에 남지 않았다(미체결이 아니라 계측 공백). ② REST 조회량 급증으로 WARN 4,044건 중 3,863건이 WinHTTP HTTP 500 재시도였다. ③ &quot;초당 거래건수 초과&quot; 오류 13건이 그대로 빈 ODNO 거부 13건으로 이어졌다.
+
+---
+
+## 2. 세션·유니버스
+
+- **모드 TRADE / 모의계좌**. 09:22:44 최초 기동 → 14:41:35 종료, 세션 6개(09:22, 10:18, 11:40, 12:09, 12:13, 12:40).
+- **국면**: 하루 종일 **NEUTRAL score=1**(close=6579, ma200=6049, 지수 200일선 위, 정배열=혼조). 전환 없음. 국면→전략 자동선택 맵이 재평가 300초 주기로 DEVSCALE 계열을 활성, ITB 계열을 비활성으로 유지했다.
+- **정배열 프리필터**: 후보 129 → ETF드롭 0 → 검사 129 → 정배열 8 → 데이터부족(&lt;60봉) 2 · 과확장컷 25 → **등록 8종목**. 전일 보유 7종목은 스캔에서 제외하고 청산 가디언 전담으로 부착했다.
+- **주기 재스캔 600초**: 09:33 +2(총 13) → 09:43 +2(15) → 09:54 +1(16). 재스캔으로 055550(신한지주) 등이 동적 등록됐다.
+
+## 3. 발주·청산 동작 (원장 이벤트 397건)
+
+| 이벤트 | 건수 | 비고 |
+|------|------|------|
+| ACCEPTED(접수) | 134 | |
+| REJECTED(거부) | 135 | |
+| CANCELLED(취소) | 49 | |
+| FILL(체결) | 79 | 실전략 71 + 부하테스트 6 + STARTUP_PROBE 2 |
+
+방향은 BUY 311 / SELL 82 / 기타 4, 종목 20개, 09:22:58~13:59:24 구간이다.
+
+**실전략 체결 71건**(12:13:43~13:59:24):
+
+| 방향 | 건수 | 체결 명목 | 내용 |
+|------|------|------|------|
+| BUY | 35 | 35,507,550원 | 전부 DevScale 정배열눌림진입 (이격 -0.5%~3.7%). 086790 12건 · 316140 11건 · 055550/090430/005490 각 3건 등 |
+| SELL | 36 | 34,256,600원 | 전부 ITB 청산(본전탈출). 000810·086790·005490·055550·316140·373220·066970·066570·018260·090430 |
+
+ITB 가디언은 09:23부터 청산 시장가를 냈지만 원장에 체결이 남는 것은 12:13:58 이후분부터다(§5-①). 12:13~13:59 사이에 전일 보유분이 순차 정리됐고, 마지막은 13:59:24 090430 청산 체결이다.
+
+**부하테스트 구분**: 10:45:22에 `TEST` 전략 이름으로 26건이 한꺼번에 들어왔다(005930·000660과 가상 티커 005931~005934). 부하 시험용 주입이며 실매매 집계에서 제외했다. 같은 시각 KILL_SWITCH 거부 2건도 이 시험의 산물이다.
+
+## 4. 손익 추이 (baseline 100,203,179원 기준, 리컨사일 폴링 366표본)
+
+| 시각 | 당일손익 | 총평가 |
+|------|------|------|
+| 09:23 | 0원 | 100,203,179 |
+| 09:59 | -245,486원 | 99,957,693 |
+| 10:42 | -27,719원 | 100,175,460 |
+| 11:59 | -102,394원 | 100,100,785 |
+| 12:59 | -219,575원 | 99,983,604 |
+| 13:59 | -458,277원 | 99,744,902 |
+| 14:02 (저점) | -475,102원 | 99,728,077 |
+| 14:41 (종료) | -408,952원 | 99,794,227 |
+
+전일총자산 100,016,919원 대비로는 -222,692원(-0.22%)이다. 오전에 한 번 본전 근처(-27,719원)까지 회복했다가 오후 들어 낙폭이 커졌다.
+
+## 5. 문제·진단 (심각도 순)
+
+### (1) 09:22~12:09 세션 체결 계측 공백 [수정 대상]
+
+체결통보 구독 `H0STCNI9`는 12:13:35에 처음 붙었고(&quot;체결통보 AES key/iv 확보&quot;), 그 이전 5개 세션에는 붙지 않았다. 따라서 09:23~12:09 구간의 ACCEPTED 주문은 체결 여부가 원장에 남지 않았다. 같은 종목(005490·055550·066570·373220)에 청산 주문이 재발행된 것도 세션 재기동으로 가디언이 다시 부착된 결과라 체결/미체결을 원장만으로는 가릴 수 없다. 손익 자체는 리컨사일 총평가로 추적되므로 금액에는 영향이 없지만, 체결 분석은 12:13 이후 구간으로 한정해야 한다.
+
+### (2) REST 조회량 급증과 HTTP 500 재시도 3,863건 [부분 해소]
+
+WARN 4,044건 중 대부분이 WinHTTP 재시도다. 분봉 `inquire-time-itemchartprice`가 재시도 1,113 + 원거부 964, 일봉 `inquire-daily-itemchartprice`가 836 + 214이다. 이날 DAILY_LOG에 기록한 호출량 축소(시간당 약 49,900회 → 약 1,500회) 작업의 배경이 이 구간이다.
+
+### (3) &quot;초당 거래건수 초과&quot; → 빈 ODNO 거부 13건 [완화 대상]
+
+ERROR 29건 중 13건이 `[KIS] 주문 오류: 초당 거래건수를 초과하였습니다.`이고, 같은 수의 `KIS 거부 (빈 ODNO) [EGW00201]`이 뒤따랐다. 10:19~12:42 사이에 몰려 있다. 발주 속도 제한이 없어 유량이 순간적으로 몰리면 주문이 통째로 버려진다.
+
+### (4) OrderGate 거부 135건은 대부분 정상 방어 [설계대로]
+
+| 사유 | 건수 |
+|------|------|
+| 동시 보유 종목 한도 초과 | 62 |
+| 취소 대상 없음(이미 체결/취소/이력초과) | 23 |
+| KIS 취소 거부(원주문 이미 체결/소멸) | 17 |
+| KIS API 거부(빈 ODNO) | 14 |
+| 일일 손실 한도 초과 | 7 |
+| 중복 신호(윈도우) | 5 |
+| 종목당 명목 한도 초과 | 5 |
+| KILL_SWITCH 활성 | 2 |
+
+동시 보유 한도는 09:57~12:26에 집중됐고, 한도 상향 전(5종목) 26건·상향 후(7·10종목) 36건이다.
+
+### (5) 일일 손실 한도 도달로 오후 진입 정지 [설계대로]
+
+13:21:57에 처음 `일일 손실 한도 초과(현재 -387,174원 / 한도 -300,000원)`로 거부됐고 13:55:04까지 7건이 차단됐다. 그 뒤로 신규 진입 없이 마감했다. 한도가 계좌 규모(1억) 대비 -0.3%로 좁아 오전 변동만으로도 오후 전체를 봉하는 효과가 나온다.
+
+## 6. 다음 세션 체크
+
+- 체결통보 구독을 기동 직후 배선해 세션마다 원장 체결이 남게 한다(§5-①).
+- 발주 유량 제한(초당 건수)을 넣어 빈 ODNO 손실을 없앤다(§5-③).
+- 일일 손실 한도 값이 계좌 규모에 맞는지 재검토한다(§5-⑤).
+</pre></details><details class="card jcard"><summary><div class="chead"><span class="cdate">2026-09-03</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-09-03 (목)</div><div class="csumm">계좌 설정 오류로 오전 초반 4개 런이 빈 ODNO 거부로 끝났고, 09:33 교정 후 정상 발주로 넘어갔다. 종료 당일손익은 +15,919원(+0.016%)으로 사실상 본전이고, 일중 등락폭은 약 70만원이다(피크 +24만, 저점 -46만). DevScale 정배열눌림 지정가 사다리가 8종목에 26건 접수됐고 OrderGate가 동시보유·명목 한도로 177건 중 94건을 거부해 방어는 설계대로 작동했다. 운영 마찰은 세 가지가 남았다. ① 리컨사일 REST 조회 실패 49건이 daily_pnl 갱신 끊김을 유발해 B2 보수정지(신규매수 차단)가 2회 발동했다. ② DEVSCALE_084730 한 종목이 취소-재주문 churn 루프에 갇혀 거부 87건(접수 0)을 냈다. ③ 마감 시 3종목이 매도가능=0(잠김)이라 청산을 마치지 못하고 오버나이트로 이월됐다. 재기동은 13회(마감 직전 다발)로 운영 부담이 있었다.</div></summary><div class="jsrc">strategies/DeviationScale/live/2026-09-03.md</div><pre class="jbody"># 라이브 모의 매매 일지 — 2026-09-03 (목)
+
+&gt; 환경: **KIS 모의계좌**(openapivts, is_paper=true, CANO=502***75). 시세/랭킹/지수는 실전 도메인(quote_kis) REST 폴링, 주문은 모의로 발주. **WebSocket 미사용** — 이 런은 시세·체결 모두 REST 폴링+리컨사일 구조.
+&gt; 전략: **DeviationScale (DEVSCALE)** 정배열눌림 지정가 사다리 + **ITB** 청산 가디언(전일 보유분). 일봉 정배열+눌림 존 게이트 + 3분봉 이격도(deviation) 분할매매.
+&gt; 손익은 모의(가상) 기준, 본계좌 전일총자산 100,000,000원. 로그 `Quant/build_win/logs/quant_trader.log`(2026-09-03 구간 42776~50885행), 원장 `trades_20260903.csv`(223 이벤트).
+
+---
+
+## 1. 오늘의 한 줄 결과
+
+계좌 설정 오류로 오전 초반 4개 런이 빈 ODNO 거부로 끝났고, 09:33 교정 후 정상 발주로 넘어갔다. 종료 당일손익은 +15,919원(+0.016%)으로 사실상 본전이고, 일중 등락폭은 약 70만원이다(피크 +24만, 저점 -46만). DevScale 정배열눌림 지정가 사다리가 8종목에 26건 접수됐고 OrderGate가 동시보유·명목 한도로 177건 중 94건을 거부해 방어는 설계대로 작동했다. 운영 마찰은 세 가지가 남았다. ① 리컨사일 REST 조회 실패 49건이 daily_pnl 갱신 끊김을 유발해 B2 보수정지(신규매수 차단)가 2회 발동했다. ② DEVSCALE_084730 한 종목이 취소-재주문 churn 루프에 갇혀 거부 87건(접수 0)을 냈다. ③ 마감 시 3종목이 매도가능=0(잠김)이라 청산을 마치지 못하고 오버나이트로 이월됐다. 재기동은 13회(마감 직전 다발)로 운영 부담이 있었다.
+
+---
+
+## 2. 세션·유니버스
+
+- **모드 TRADE / 모의계좌**(CANO=502***75). 09:08 최초 기동 → 15:11 마지막 재기동, **재기동 총 13회**.
+- **초반 4개 런 프로브 실패**: 09:08·09:16은 &quot;모의투자 주문이 불가한 계좌&quot;(×10), 09:18은 &quot;인증 계좌번호 불일치&quot;. 09:33 런부터 STARTUP_PROBE ACCEPTED(odno 0000011480). 본 매매는 09:56~14:50 런들이 수행.
+- baseline 파일 2개: `pnl_baseline_20260903.txt`=66,725,146(폐기된 초기 실패계좌), `pnl_baseline_20260903_&lt;계좌&gt;.txt`=100,000,180(본계좌). 계좌별 baseline 분리(오늘 커밋 대상 코드)가 이 오염을 막는다.
+- **국면**: 하루 종일 **NEUTRAL score=1** 고정(close=6562, ma200=6037, 지수 200일선 위, 정배열=혼조). 72회 동일 판정, 전환 없음.
+
+## 3. 발주·청산 동작 (원장 이벤트 223건)
+
+| 이벤트 | 건수 | 방향 |
+|------|------|------|
+| ACCEPTED(접수) | 34 | BUY 211 / SELL 12 (전체) |
+| REJECTED(거부) | 177 | |
+| CANCELLED(취소) | 12 | |
+| FILLED | 원장 스트림엔 0 | 체결은 리컨사일 총평가 변동으로만 추적(체결통보 WS 미사용) |
+
+접수 34건 entry_reason별:
+
+| 분류 | 건수 | 비고 |
+|------|------|------|
+| BUY 정배열눌림진입 (LIMIT, DevScale) | 26 | 8종목: 000810·005490·066570·092790·105560·322000·373220·419890 |
+| STARTUP_PROBE (005930 시장가 1주) | 5 | 주문경로 검증 프로브 |
+| SELL 청산(본전탈출) — ITB_005930 | 2 | 09:57·10:54 (@252,000/252,500) |
+| SELL 청산(seed-trail) — ITB_000810 | 1 | 14:24 (@689,500) |
+
+## 4. 손익 추이 (본계좌 100M 기준, 리컨사일 폴링)
+
+| 시점 | 당일손익(전일대비) | 총평가 |
+|------|------|------|
+| 피크 13:17:53 | **+241,907** | 100,241,907 |
+| 저점 14:28:07 | **-455,091** | 99,544,909 |
+| 마감 15:29:43 | **+15,919** | **100,015,919** |
+
+일중 등락 폭 약 70만원, 종료는 거의 본전(+15,919원, +0.016%). 09:09~09:16의 총평가 66.7M대 값은 폐기된 초기 실패계좌 것이라 제외.
+
+## 5. 문제·진단 (심각도 순)
+
+### (1) 초기 4개 런 빈 ODNO 거부 — 계좌 설정 오류 [해소됨]
+09:08·09:16 &quot;모의투자 불가 계좌&quot;, 09:18 &quot;계좌번호 불일치&quot;로 STARTUP_PROBE·ITB_018260 청산·DevScale 접수가 전부 빈 ODNO[40910000/IGW00002] 거부(12건). **전략 문제가 아니라 계좌 config 오류**이며 09:33 교정 후 사라졌다. 부수효과로 전일 보유 018260 28주를 깨진 런에서 청산하지 못했다(SELL 본전탈출 거부 8건은 전부 이 구간).
+
+### (2) 리컨사일 REST 실패 49건과 B2 보수정지 2회 [자동 방어·근인은 조회안정성]
+`inquire-balance`(vts 도메인) WinHTTP ReceiveResponse 간헐 실패가 49건 나면서 `daily_pnl 갱신 끊김(streak≥2)`이 2회(14:34·15:17) 발생했고, **B2 보수 정지**(신규 BUY 차단)가 발동한 뒤 15:28 갱신 재개로 해제됐다. 손실컷 신뢰 창 방어는 의도대로 동작했으나, 근인은 모의 도메인 밸런스 조회 안정성이다. 08-19의 balance 12002 타임아웃과 같은 계열이다(장애 복원력 사례).
+
+### (3) DEVSCALE_084730 churn 루프 [가드 점검 대상]
+84730 한 종목이 취소-재주문 churn에 갇혀 **거부 87건·접수 0**(취소대상 없음 42건 포함)을 냈다. 전체 거부 177건의 절반 가까이를 한 종목이 차지한다. 존이탈 미체결 취소와 재주문이 맞물린 결과로, 데드밴드/취소 레이스 가드 점검이 필요하다(08-12 churn 데드밴드 가드의 미흡분).
+
+### (4) 장 마감 청산 미완료와 오버나이트 이월 [H-1 계열]
+마감 시 373220(9주)·066570(16주)·005490(10주)이 `매도가능=0(잠긴, 예약취소/결제 대기)`로 청산이 보류됐고, 백오프 #1·#2를 반복한 뒤 **오버나이트로 이월**됐다. reserved/lock 드리프트(메모리 H-1 항목)와 같은 계열이다. 정상 장 마감 청산 완주는 이번에도 미검증.
+
+### (5) OrderGate 대량 거부는 정상 방어 [설계대로]
+거부 177건 중 동시보유 종목한도 초과 78건(max 5, 멀티슬라이스 체결이 캡을 6·7까지 밀어냄)과 종목당 명목한도 초과 16건(8.0~8.5M 지정가가 7.5M 캡 초과)은 OrderGate가 정상 작동한 결과다. 방어가 과하게 걸렸다기보다 사다리 슬라이스 설계와 캡의 상호작용에 가깝다.
+
+### (6) regime.json 갱신 지연 경고 2회 [사이드카 점검]
+`regime.json` 1264s·19232s 경과(&gt;600s)로 갱신 지연 경고가 2회 떴고, 매크로 사이드카 중단이 의심된다. 게이트 신규변경은 보류한다(현 halt 유지). 다음 세션에서 `macro_regime_feed.py` 갱신 여부를 확인한다.
+
+## 6. 다음 세션 체크
+
+- [ ] config 계좌 프로브를 기동 게이트로 — 빈 ODNO 거부 시 즉시 중단·경고(초반 4런 낭비 방지)
+- [ ] DEVSCALE_084730류 churn 가드 강화 — 존이탈 취소 후 재주문 최소간격/데드밴드 재점검
+- [ ] 장 마감 매도가능=0 잠김 3종목 청산 경로 — 예약취소 완료 대기 후 재시도 로직 검증(H-1)
+- [ ] 리컨사일 밸런스 조회 안정성 — vts 도메인 실패 49건 원인·재시도 파라미터 점검
+- [ ] `macro_regime_feed.py` 가동 후 regime.json 갱신 여부 확인
+</pre></details><details class="card jcard"><summary><div class="chead"><span class="cdate">2026-08-25</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-25 (월)</div><div class="csumm">가동은 반일(10:53~13:03)이고 원장 이벤트도 11건뿐이지만, 국면→전략 자동선택(G1)이 눈에 보이게 갈린 날이다. 10:53 기동에서는 `국면=NEUTRAL → 활성=[] 비활성=[DEVSCALE_207940, DEVSCALE_122260, ITB_005930, ITB_018260, ITB_161390]`으로 전략이 전부 비활성이라 두 시간 동안 신규 진입이 나가지 않았고, 13:01 재기동 뒤 13:02:20에는 같은 NEUTRAL에서 `활성=[DEVSCALE_207940, DEVSCALE_122260]`으로 바뀌면서 곧바로 지정가 사다리 4건이 나갔다. 종료 당일손익은 +108,793원, 전일대비로는 -145,737원이다.</div></summary><div class="jsrc">strategies/DeviationScale/live/2026-08-25.md</div><pre class="jbody"># 라이브 모의 매매 일지 — 2026-08-25 (월)
+
+&gt; 환경: **KIS 모의계좌**(openapivts, is_paper=true), 설정 `Quant/config/config_dev_paper.json`. 시세는 실전 도메인 조회.
+&gt; 전략: **DeviationScale (DEVSCALE)** 정배열눌림 지정가 사다리 + **ITB** 청산 가디언. 국면→전략 자동선택(3개 국면 맵, 재평가 300초) 적용.
+&gt; 손익은 모의(가상) 기준. 로그 `Quant/build_win/logs/quant_trader.log` 40776~42775행(2,000행, 10:53:27~13:03:44), 원장 `Quant/build_win/logs/trades_20260825.csv`(11 이벤트).
+&gt; 이 일지는 2026-09-06에 로그·원장 근거로 소급 작성했다.
+
+---
+
+## 1. 오늘의 한 줄 결과
+
+가동은 반일(10:53~13:03)이고 원장 이벤트도 11건뿐이지만, 국면→전략 자동선택(G1)이 눈에 보이게 갈린 날이다. 10:53 기동에서는 `국면=NEUTRAL → 활성=[] 비활성=[DEVSCALE_207940, DEVSCALE_122260, ITB_005930, ITB_018260, ITB_161390]`으로 전략이 전부 비활성이라 두 시간 동안 신규 진입이 나가지 않았고, 13:01 재기동 뒤 13:02:20에는 같은 NEUTRAL에서 `활성=[DEVSCALE_207940, DEVSCALE_122260]`으로 바뀌면서 곧바로 지정가 사다리 4건이 나갔다. 종료 당일손익은 +108,793원, 전일대비로는 -145,737원이다.
+
+---
+
+## 2. 세션·유니버스
+
+- **모드 TRADE / 모의계좌.** 세션 마커 2개(13:01:08, 13:01:53). 첫 런은 10:53 기동.
+- **국면**: NEUTRAL score=1 (close=6696, ma200=5942, 200일선 위, 정배열=혼조) 고정.
+- **정배열 프리필터 12회**: 후보 125~126 검사, 정배열=2, 과확장컷 16~17, 등록=2. 재스캔 편입은 0.
+- **유니버스 축**: data.go.kr 파일 123종목 → union 121. 시총랭킹 raw=30 → ETF 드롭 15·티커 드롭 7 → 생존 8. 거래대금 축 12·9종목.
+- 보유 2~3종목은 청산 가디언 전담으로 스캔 제외.
+- `DEVSCALE 스캔: 레짐 위험회피(코스피 하락)` 로 신규 유니버스 스킵 4회.
+
+## 3. 발주·청산 동작 (원장 11 이벤트)
+
+| 이벤트 | 건수 |
+|------|------|
+| ACCEPTED(접수) | 7 |
+| REJECTED(거부) | 2 |
+| CANCELLED(취소) | 2 |
+| FILL(체결) | 0 (원장 미기록) |
+
+| 시각 | 종목 | Side/수량 | 가격 | entry_reason |
+|------|------|-----------|------|------|
+| 10:53:44 | 005930 | BUY 1 | 시장가 | STARTUP_PROBE |
+| 11:44:58 | 161390 한국타이어앤테크놀로지 | SELL 75 | 66,500 시장가 | 청산 (본전탈출) |
+| 13:02:22 | 005930 | BUY 1 | 시장가 | STARTUP_PROBE |
+| 13:02:35 | 207940 | BUY 2 | 1,584,000 | 정배열눌림진입 이격=3.2% 일봉SMA20=1,534,800 |
+| 13:02:36 | 207940 | BUY 1 | 1,571,000 | 사다리 2단 |
+| 13:02:38 | 207940 | BUY 1 | 1,558,000 | 사다리 3단 |
+| 13:02:38 | 122260 | BUY 32 | 104,100 | 정배열눌림진입 이격=0.1% 일봉SMA20=104,043 |
+
+- 원장에 `entry_reason` 컬럼이 이 날부터 들어 있어 진입 근거를 원장만으로 확인할 수 있다. 이전 날짜 원장에는 없는 정보다.
+- 거부 2건은 모두 KIS 취소 거부(원주문 이미 체결/소멸 가능)다. 게이트 거부는 없었다.
+
+## 4. 손익 추이 (리컨사일 204회)
+
+- 시작 10:53:57 0원(기준선), 저점 11:51:54 **-34,977원**
+- 시간대별 마지막: 10:59 -9,500 | 11:59 +8,523 | 12:51 +78,273
+- 종료 13:03:43 **+108,793원**(총평가 66,699,146), 엔진 기록 전일대비 **-145,737원**(전일총자산 66,844,883)
+
+## 5. 문제·진단
+
+### (1) 첫 런에서 활성 전략 목록이 비었다 [주의]
+10:53 런은 국면 NEUTRAL 판정까지는 정상인데 매핑 결과가 `활성=[]`이라 등록된 5개 전략이 모두 비활성이었다. 같은 NEUTRAL에서 13:01 재기동 뒤에는 활성 목록이 채워졌으므로, 국면 판정이 아니라 국면→전략 맵 조회 쪽 문제로 보인다. 로그만으로 원인을 단정할 수는 없다. 두 시간 동안 진입 신호가 전부 차단됐다는 점에서 조용한 실패다.
+
+### (2) 반일 가동
+10:53 기동이라 오전 구간이 없다. 이 날 표본은 사실상 13:02 한 순간의 사다리 4건이다.
+
+### (3) 체결 계측 부재
+체결통보 미배선이라 사다리 4건의 체결 여부는 원장에 없다. 손익이 오후에 +78,273 → +108,793으로 올라간 것은 보유분 시가평가일 수 있어 신규 진입 성과와 분리되지 않는다.
+
+## 6. 이후 경과
+
+- 국면→전략 자동선택은 이후 설정 쪽 수정을 거쳐 09-03 런에서 정상 동작한다.
+- 체결 원장은 09-04부터 FILL 이벤트가 기록된다.
+</pre></details><details class="card jcard"><summary><div class="chead"><span class="cdate">2026-08-21</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-21 (금)</div><div class="csumm">09:37 늦게 기동했고 12:57:07에 로그가 끊겼다(사후검토에서 크래시로 판정). 기동 직후 ENTRY_HALT가 켜져(사이드카 regime=RISK_OFF score=-3) DevScale 신규 진입은 0건이고, 접수 3건은 기동 프로브 1건과 전일 물린 보유분 시장가 청산 2건이 전부다. 전일대비 -655,106원(전일총자산 67,380,989)으로 이 구간에서 가장 큰 하루 손실인데, 신규 매매가 없었으므로 대부분 보유분 시가평가(MTM) 변동이다.</div></summary><div class="jsrc">strategies/DeviationScale/live/2026-08-21.md</div><pre class="jbody"># 라이브 모의 매매 일지 — 2026-08-21 (금)
+
+&gt; 환경: **KIS 모의계좌**(openapivts, is_paper=true). 주문은 모의 발주.
+&gt; 전략: **DeviationScale (DEVSCALE)** + **ITB** 청산 가디언(전일 보유 5종목).
+&gt; 손익은 모의(가상) 기준. 로그 `Quant/build_win/logs/quant_trader.log` 36400~40775행(4,376행, 09:37:26~12:57:07), 원장 `Quant/build_win/logs/trades_20260821.csv`(60 이벤트).
+&gt; 같은 건 사후검토: [2026-08-21_postmortem_08-20_08-21.md](../reviews/2026-08-21_postmortem_08-20_08-21.md)
+&gt; 이 일지는 2026-09-06에 로그·원장 근거로 소급 작성했다.
+
+---
+
+## 1. 오늘의 한 줄 결과
+
+09:37 늦게 기동했고 12:57:07에 로그가 끊겼다(사후검토에서 크래시로 판정). 기동 직후 ENTRY_HALT가 켜져(사이드카 regime=RISK_OFF score=-3) DevScale 신규 진입은 0건이고, 접수 3건은 기동 프로브 1건과 전일 물린 보유분 시장가 청산 2건이 전부다. 전일대비 **-655,106원**(전일총자산 67,380,989)으로 이 구간에서 가장 큰 하루 손실인데, 신규 매매가 없었으므로 대부분 보유분 시가평가(MTM) 변동이다.
+
+---
+
+## 2. 세션·유니버스
+
+- **모드 TRADE / 모의계좌.** 09:37:26~12:57:07, 정상 종료 마커 없음.
+- **국면 판정 불일치**: 엔진 자체 판정은 NEUTRAL score=1 (close=6852, ma200=5915, 200일선 위)인데, 파일 브리지가 준 값은 RISK_OFF score=-3이라 09:37:50에 `ENTRY_HALT ON`이 걸렸다. 두 경로가 서로 다른 값을 보고 있었다.
+- **정배열 프리필터 21회**: 후보=135, 정배열 6~8, 과확장컷 12, 등록 6~8. 재스캔 2회로 12종목.
+- 전일 미청산 보유 5종목이 청산 가디언 전담으로 스캔에서 제외됐다(08-20 장 마감 실패의 결과).
+
+## 3. 발주·청산 동작 (원장 60 이벤트)
+
+| 이벤트 | 건수 |
+|------|------|
+| REJECTED(거부) | 57 |
+| ACCEPTED(접수) | 3 |
+| FILL(체결) | 0 (원장 미기록) |
+
+| 시각 | 종목 | Side/수량 | 가격 | 성격 |
+|------|------|-----------|------|------|
+| 09:37:49 | 005930 삼성전자 | BUY 1 | 시장가 | 기동 스모크 프로브 |
+| 09:45:32 | 011200 HMM | SELL 318 | 21,100 시장가 | ITB 시드 청산 |
+| 09:55:03 | 093190 IHQ | SELL 909 | 7,990 시장가 | ITB 시드 청산 |
+
+| 거부 사유 | 건수 |
+|------|------|
+| 취소 대상 없음(이미 체결/취소/이력초과) | 23 |
+| 동시 보유 종목 한도 초과 — 신규 종목 진입 정지 | 22 |
+| ENTRY_HALT 활성 — 신규 진입 정지(청산은 허용) | 12 |
+
+## 4. 손익 추이 (리컨사일 301회)
+
+- 시작 09:38:00 0원(기준선), 피크 09:44:51 **+156,430원**, 저점 10:08:39 **-153,816원**
+- 시간대별 마지막: 09:59 -71,316 | 10:59 -24,816 | 11:59 -21,816
+- 마지막 12:57:05 **+31,184원**(총평가 66,725,883), 엔진 기록 전일대비 **-655,106원**
+
+## 5. 문제·진단 (심각도 순)
+
+### (1) 12:57 비정상 종료 [심각]
+정상 셧다운·장 마감 청산 마커 없이 로그가 끊겼다. 청산 가디언의 장 마감 경로를 이번에도 관측하지 못했다. 사후검토에서 크래시로 판정했다.
+
+### (2) halt 판단과 엔진 국면 판정 불일치
+같은 시각 엔진은 NEUTRAL score=1, 파일 브리지는 RISK_OFF score=-3이었다. halt는 신규 매수만 막고 청산은 통과시키므로 위험 방향으로 틀린 건 아니지만, 두 경로의 근거가 다르면 사후 원인 추적이 어렵다.
+
+### (3) 동시 보유 한도 22건
+전일 미청산 보유 5종목이 자리를 차지한 상태라 신규 진입 여지가 처음부터 없었다. 08-20 장 마감 실패가 하루 뒤 기회 손실로 이어진 형태다.
+
+### (4) 체결 계측 부재
+체결통보 미배선. 시장가 청산 2건의 체결가·체결 시각도 원장에는 없다.
+
+## 6. 이후 경과
+
+이 날과 08-20을 묶어 에이전트 회의 사후검토를 남겼고(IMP-01~IMP-13), 개선안은 그 문서에서 관리한다: [2026-08-21_postmortem_08-20_08-21.md](../reviews/2026-08-21_postmortem_08-20_08-21.md)
+</pre></details><details class="card jcard"><summary><div class="chead"><span class="cdate">2026-08-20</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-20 (목)</div><div class="csumm">전일대비 -154,050원(전일총자산 67,401,679). 일중 저점은 15:03 -317,260원이었고 마감 무렵 -203,600원으로 줄었다. 접수 35·거부 139·취소 22, 체결 이벤트 0건. 거부의 대부분은 게이트가 의도대로 막은 쪽이다 — 동시 보유 종목 한도 48건, 종목당 명목 한도 15건. 사다리는 093190에 집중됐고(접수 16건) 같은 호가 재구성으로 &quot;취소 대상 없음&quot; 64건이 뒤따랐다. 마감 구간에서 장 마감 청산이 매도가능=0(잠긴 수량·예약취소 대기)으로 20회 보류돼 청산을 마치지 못했다. 이 건은 다음 날 사후검토에서 P0로 잡힌다.</div></summary><div class="jsrc">strategies/DeviationScale/live/2026-08-20.md</div><pre class="jbody"># 라이브 모의 매매 일지 — 2026-08-20 (목)
+
+&gt; 환경: **KIS 모의계좌**(openapivts, is_paper=true). 시세·랭킹·지수는 실전 도메인 조회, 주문은 모의로 발주.
+&gt; 전략: **DeviationScale (DEVSCALE)** 정배열눌림 지정가 사다리 + **ITB** 청산 가디언(전일 보유분).
+&gt; 손익은 모의(가상) 기준. 로그 `Quant/build_win/logs/quant_trader.log` 27386~36399행(9,014행, 08:40:37~15:27:45), 원장 `Quant/build_win/logs/trades_20260820.csv`(196 이벤트).
+&gt; 같은 날 사후검토: [2026-08-21_postmortem_08-20_08-21.md](../reviews/2026-08-21_postmortem_08-20_08-21.md)
+&gt; 이 일지는 2026-09-06에 로그·원장 근거로 소급 작성했다.
+
+---
+
+## 1. 오늘의 한 줄 결과
+
+전일대비 **-154,050원**(전일총자산 67,401,679). 일중 저점은 15:03 -317,260원이었고 마감 무렵 -203,600원으로 줄었다. 접수 35·거부 139·취소 22, 체결 이벤트 0건. 거부의 대부분은 게이트가 의도대로 막은 쪽이다 — 동시 보유 종목 한도 48건, 종목당 명목 한도 15건. 사다리는 093190에 집중됐고(접수 16건) 같은 호가 재구성으로 &quot;취소 대상 없음&quot; 64건이 뒤따랐다. 마감 구간에서 장 마감 청산이 매도가능=0(잠긴 수량·예약취소 대기)으로 20회 보류돼 청산을 마치지 못했다. 이 건은 다음 날 사후검토에서 P0로 잡힌다.
+
+---
+
+## 2. 세션·유니버스
+
+- **모드 TRADE / 모의계좌.** 08:40:37~15:27:45 단일 세션.
+- **국면**: NEUTRAL score=1 (close=6471, ma200=5901, 200일선 위, 정배열=혼조).
+- **정배열 프리필터 39회**: 후보 135~144 검사, 정배열 3~5, 과확장컷 17~19, 등록 3~5. 재스캔 7회로 유니버스 9종목까지 늘렸다.
+- 전일 보유 2종목은 스캔에서 제외하고 청산 가디언이 전담했다.
+
+## 3. 발주·청산 동작 (원장 196 이벤트)
+
+| 이벤트 | 건수 |
+|------|------|
+| REJECTED(거부) | 139 |
+| ACCEPTED(접수) | 35 |
+| CANCELLED(취소) | 22 |
+| FILL(체결) | 0 (원장 미기록) |
+
+접수 35건: STARTUP_PROBE 1(08:40:47 005930 시장가 1주) / ITB 청산 SELL 2 / DEVSCALE 지정가 BUY 32.
+
+| 시각 | 종목 | Side/수량 | 가격 | 성격 |
+|------|------|-----------|------|------|
+| 09:08:51 | 006340 대원전선 | SELL 359 | 14,100 시장가 | ITB 시드 청산 |
+| 09:55:28 | 005930 삼성전자 | SELL 1 | 263,750 시장가 | ITB 청산 |
+| 09:57~09:58 | 011200 / 018260 / 161390 | BUY 9건 | 지정가 | DevScale 사다리 |
+| 10:29~11:48 | 093190 | BUY 16건 | 8,450~8,250 | 사다리 재구성 반복 |
+| 12:15~13:42 | 011200 / 161390 / 018260 | BUY 4건 | 지정가 | 사다리 |
+
+| 거부 사유 | 건수 |
+|------|------|
+| 취소 대상 없음(이미 체결/취소/이력초과) | 64 |
+| 동시 보유 종목 한도 초과 — 신규 종목 진입 정지 | 48 |
+| 종목당 명목 한도 초과 | 15 |
+| KIS 취소 거부(원주문 이미 체결/소멸 가능) | 10 |
+| 기타(빈 ODNO·중복 신호) | 2 |
+
+## 4. 손익 추이 (리컨사일 555회)
+
+- 시작 09:01:30 0원(기준선), 피크 11:03:22 **+16,660원**
+- 시간대별 마지막: 09:59 -39,100 | 10:59 -6,930 | 11:59 -67,680 | 12:59 -121,050 | 13:59 -178,230 | 14:59 -287,220
+- 저점 15:03:47 **-317,260원**, 종료 15:15:37 **-203,600원**(총평가 67,247,629)
+- 엔진 기록 전일대비 **-154,050원**(전일총자산 67,401,679)
+
+## 5. 문제·진단 (심각도 순)
+
+### (1) 장 마감 청산 미완료 [심각]
+`EOD 청산 보류 — 매도가능=0(잠긴 N주, 예약취소/결제 대기) 백오프` 20회. 예약매도 취소가 끝나기 전에 청산을 시도해 매도가능 수량이 0으로 잡혔다. 보유가 다음 날로 넘어갔고, 08-21 시작 시 보유 5종목이 청산 가디언 전담으로 잡힌 것이 그 결과다.
+
+### (2) 동시 보유 한도로 신규 진입 정지 48회
+유니버스는 9종목까지 늘었는데 동시 보유 상한에 걸려 후반 신호가 대부분 거부됐다. 방어는 설계대로 동작했으나, 스캔을 계속 넓히면서 진입은 막히는 구성이라 스캔 비용만 늘어난다.
+
+### (3) HTTP 5xx 재시도 1,612건
+`inquire-*` 계열 GET 멱등 재시도가 WARN 1,612건. 전부 흡수됐지만 로그의 대부분을 차지해 다른 신호를 덮는다.
+
+### (4) 잔고 조회 ReceiveResponse 실패 26건
+ERROR 28건 중 26건이 `inquire-balance` 응답 수신 실패다. 리컨사일 간격이 그만큼 벌어졌다.
+
+### (5) 체결 계측 부재
+체결통보 미배선이라 사다리 32건 중 무엇이 체결됐는지 원장으로 판정할 수 없다. 손익 변동으로만 추정한다.
+
+## 6. 이후 경과
+
+개선 항목은 다음 날 사후검토 IMP-01~IMP-13으로 이관했다: [2026-08-21_postmortem_08-20_08-21.md](../reviews/2026-08-21_postmortem_08-20_08-21.md)
+</pre></details><details class="card jcard"><summary><div class="chead"><span class="cdate">2026-08-19</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-19 (화)</div><div class="csumm">코스피가 실제로 -4~-6% 빠진 위험회피장에서 두 겹 게이트(스캐너 risk_off + ENTRY_HALT)가 DevScale 신규 진입을 차단했다. 체결은 0건이라 유의미한 신규 실증 데이터는 오늘도 얻지 못했다. 아침 물린 시드 청산과 halt 해제(11:45) 뒤 006340 지정가 사다리 진입 시도가 1건 있었으나, reconcile 원장상 신규 보유·평단 변화가 없어 미체결이거나 취소된 것으로 보인다. 최종 당일손익 -29,581원(전일대비 -152,811원)은 대부분 시드 2종목의 MTM이다. 시스템 쪽에선 13:03~13:06 balance 12002 타임아웃 스트릭이 재시도·백오프로 자동 복구됐고, 비정상은 장 마감 없이 13:39 조기 종료된 점 하나다. 오늘은 별도로 코스닥 매매 경로 개발과 용어 사전(GLOSSARY)을 커밋(`04bb6af`)했다.</div></summary><div class="jsrc">strategies/DeviationScale/live/2026-08-19.md</div><pre class="jbody"># 라이브 모의 매매 일지 — 2026-08-19 (화)
+
+&gt; 환경: **KIS 모의계좌**(openapivts, is_paper=true). 시세/랭킹/지수는 실전 도메인(quote_kis) 조회, 주문은 모의로 발주.
+&gt; 전략: **DeviationScale (DEVSCALE)** + **ITB** 청산 가디언(물린 보유분). 일봉 정배열+눌림 존 게이트 + 3분봉 이격도 분할매매(지정가 예약 사다리).
+&gt; 손익은 모의(가상) 기준. 세션: 09:00:21 기동 → **13:39:53 조기 종료**(장 마감 미도달). 로그 `Quant/build_win/logs/quant_trader.log` line 23319~27385(4,067행).
+
+---
+
+## 1. 오늘의 한 줄 결과
+
+코스피가 실제로 -4~-6% 빠진 위험회피장에서 두 겹 게이트(스캐너 risk_off + ENTRY_HALT)가 DevScale 신규 진입을 차단했다. 체결은 0건이라 유의미한 신규 실증 데이터는 오늘도 얻지 못했다. 아침 물린 시드 청산과 halt 해제(11:45) 뒤 006340 지정가 사다리 진입 시도가 1건 있었으나, reconcile 원장상 신규 보유·평단 변화가 없어 **미체결이거나 취소된 것으로 보인다**. 최종 당일손익 -29,581원(전일대비 -152,811원)은 대부분 시드 2종목의 MTM이다. 시스템 쪽에선 13:03~13:06 balance 12002 타임아웃 스트릭이 재시도·백오프로 자동 복구됐고, 비정상은 장 마감 없이 13:39 조기 종료된 점 하나다. 오늘은 별도로 코스닥 매매 경로 개발과 용어 사전(GLOSSARY)을 커밋(`04bb6af`)했다.
+
+---
+
+## 2. 세션·유니버스 (위험회피 차단)
+
+- **모드 TRADE / 모의계좌**(CANO=****9928). 09:00:21 기동 → 13:39:53 조기 종료.
+- **정배열 프리필터:** 후보=135 검사=135 정배열=6 데이터부족(&lt;60봉)=2 과확장컷=15 등록=6. 보유 2종목(005930·011200)은 청산 가디언 전담으로 스캔 제외. WS 구독 7종목.
+- **재스캔 600초 활성.** 다만 매 스캔이 전부 `레짐 위험회피(코스피 -4~-6%)`로 신규 유니버스를 건너뛰어 하루 종일 신규 편입은 0이다. 스캐너 risk_off_index_pct=-0.02 게이트가 급락장을 감지한 정상 동작이다.
+- **존 판정:** 5개 DevScale 종목 상시 `정배열=Y`, 눌림밴드 -12%~+9% 내 이격 -3%~+4% 왕복. 진입 트리거 근접했으나 halt로 차단.
+
+## 3. 발주·청산 동작 (ODNO 기준, 접수 8건)
+
+| 시각 | 종목 | Side/수량 | ODNO | 성격 |
+|------|------|-----------|------|------|
+| 09:00:37 | 005930 삼성전자 | BUY 1 | 0000001858 | 기동 스모크 프로브(주문경로 검증) |
+| 09:02:27 | 011200 HMM | SELL 76 | 0000003359 | 시드 청산 |
+| 11:40:26 | 005930 삼성전자 | SELL 3 @249,250 | 0000023490 | ITB seed-trail 청산 |
+| 11:57:16 | 006340 대원전선 | BUY 239 | 0000025045 | DevScale 사다리 |
+| 11:57:17 | 006340 | BUY 121 | 0000025046 | (이후 취소 25084) |
+| 11:57:59 | 006340 | BUY 120 | 0000025086 | 사다리 |
+| 11:58:02 | 006340 | BUY 121 | 0000025089 | 사다리 |
+
+- **거부:** ENTRY_HALT 신규진입 차단 ~15건(09:57~11:18, 161390/021240/000100/377300/006340), 중복신호 1건(11:57:17 006340, 1초 윈도우), 취소거부 1건(&quot;모의투자 정정/취소할 수량이 없습니다&quot;), 사다리 재구성 churn 취소 다수.
+- **체결통보 원장 0건** — H0STCNI0(체결피드) 미배선이 08-14부터 이월(이 config는 `rest_price_feed=true`로 WS 세션 rt=9 반복을 우회하는 설계라, 체결·손익 추적 경로는 체결통보 채널이 아니라 reconcile 잔고폴링이다). 006340 지정가 사다리는 reconcile상 신규 보유·평단 변화가 없어 미체결이거나 취소된 것으로 보인다. 전 구간(E2E) 체결 다리는 오늘도 사실 판정이 안 된다.
+
+## 4. 손익 추이 (리컨사일 447회)
+
+- 시작 09:00:39 당일손익 **0원**(기준선, 총평가 67,426,490)
+- 저점 09:17 **-36,490원**, 이후 -13,000~-30,000원 밴드 등락
+- 마지막 13:39:51 **당일손익 -29,581원**(총평가 67,396,909)
+- **전일대비 최종 -152,811원**(전일총자산 67,549,720). 변동은 시드 2종목 시가평가(MTM) 위주.
+
+## 5. 문제·진단 (심각도 순)
+
+### (1) ENTRY_HALT — regime.json 갱신 지연 여부 점검 필요 [주의]
+기동 시 `regime.json 40876s 경과(사이드카 중단 의심)`로 halt가 유지됐고, **09:06:23 ENTRY_HALT ON**(RISK_OFF score=-4)에서 11:45:40 OFF(NEUTRAL score=-2)로 넘어갔다. 매크로 사이드카가 중단돼 갱신이 멈춘 파일로 halt가 켜졌을 가능성이 있어, 다음 세션에서 `macro_regime_feed.py` 가동과 regime.json 갱신 여부를 확인한다. 다만 스캐너 risk_off(코스피 -4~-6% 실측)가 독립적으로 신규 편입을 막고 있었으므로, halt가 갱신 지연 탓이었더라도 위험회피 판단 자체는 시장 상황과 맞았다.
+
+### (2) 체결 다리 미검증 이월 [목표1 최우선]
+접수 8건 ODNO 발급까지만 확인했다. 실제 체결 여부는 rest_price_feed 모드에서 reconcile로만 관측되는데 신규 보유 변화가 없어 006340 매수는 미체결이나 취소로 추정한다. **접수·체결·원장 반영으로 이어지는 전 구간(E2E) 다리는 08-14부터 계속 미검증이다.** (참고: `hts_id`는 config에 설정돼 있다. 문제는 hts_id 누락이 아니라 이 config의 체결피드 설계 선택이다.)
+
+### (3) balance 12002 타임아웃 스트릭 [자동 복구·정상]
+13:03:42~13:05:50 inquire-balance ERROR 6회(재시도 2/3·3/3, ~16초 백오프) 뒤 **13:06:05 &quot;잔고조회 복구 — 리컨사일 정상화&quot;** 로 자동 복구됐다. 스트릭은 약 2.5분. 재시도·백오프·streak 백오프 전부 설계대로 동작했다. 장애 복원력 사례로 기록해 둔다(목표2).
+
+### (4) HTTP 500 3분봉 폴링 만성 [방어 중]
+`inquire-time-itemchartprice` 500 종일 다발(전부 WARN, GET 멱등 재시도로 흡수). 상시 노이즈. 수급 랭킹 파싱 0행(`output&quot;:[]`) 반복 — 유니버스가 외인·기관 상위권 미포함(기존 알려진 제약).
+
+### (5) 장 마감 없이 13:39 조기 종료 [비정상]
+마지막 활동 13:39:53(HTTP 500 WARN) 후 로그가 끊겼다. 청산 가디언 eod=16:00 미도달, `종료`/셧다운/청산완료 마커도 없어 **수동 정지나 크래시로 보인다**. 청산 가디언 장 마감 동작을 검증할 기회는 놓쳤다.
+
+## 6. 다음 세션 체크
+
+- [ ] `macro_regime_feed.py` 가동 후 regime.json 갱신 여부 확인, halt가 갱신 지연 탓인지 실제 매크로 판단인지 검증
+- [ ] 위험회피가 아닌 날(코스피 정상)에 DevScale 신규 진입 트리거와 접수, **체결**(reconcile 보유 변화)까지 사실 판정 재시도
+- [ ] 조기 종료 원인 확인(수동/크래시), 정상 장 마감 청산 경로 1회 완주 관측
+- [ ] (개발) 하드코딩 개선 배치 #3 `.KS/.KQ`부터 착수해 코스닥 H8/H9 백테스트 가능화
+</pre></details><details class="card jcard"><summary><div class="chead"><span class="cdate">2026-08-18</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-18 (월)</div><div class="csumm">유니버스에서 ETF가 자리를 차지하던 문제의 수정을 라이브에서 처음 확인했다. 후보 131·정배열 18·등록 18(옛빌드 15·0)로, &quot;상위권에 정배열이 0으로 나오는 건 이상하다&quot;던 지적이 사실로 확인됐다. data.go.kr 시총∪거래대금 유니버스 피드(125종목, ETF 미포함)가 4번째 축으로 정상 union됐고 정배열 프리필터가 처음으로 두 자릿수(18)를 냈다. 다만 DevScale 신규 진입은 오늘도 체결 0이다. 오후 세션에서 일일 손실 서킷(-504,481원 / 한도 -300,000원)이 신규 BUY 45건을 전량 차단했다. 이 손실은 DevScale이 아니라 아침에 물려 있던 레거시 보유분(대원전선 562주 등)을 ITB 가디언이 청산하며 확정된 MTM이 주된 원인이다(정상 방어 동작). 별도로 회의에서는 +20% 추격 밴드가 눌림 취지와 어긋난다고 보고, 상단을 +5%로 조이고 스캐너 컷을 0.05로 함께 조정하기로 결론냈다(수치 정당화 완료, 적용은 승인 대기).</div></summary><div class="jsrc">strategies/DeviationScale/live/2026-08-18.md</div><pre class="jbody"># 라이브 모의 매매 일지 — 2026-08-18 (월)
+
+&gt; 환경: **KIS 모의계좌**(openapivts, is_paper=true). 시세/랭킹/지수는 실전 도메인(quote_kis) 조회, 주문은 모의로 발주.
+&gt; 전략: **DeviationScale (DEVSCALE)** + **ITB** 청산 가디언(물린 보유분). 일봉 정배열+눌림 존 게이트 + 3분봉 이격도 분할매매(지정가 예약 사다리).
+&gt; 손익은 모의(가상) 기준. 세션: 재기동 5회(09:02 / 09:24 / 10:52 / … / 14:57 신규 바이너리) → 15:15 장 마감·정지.
+
+---
+
+## 1. 오늘의 한 줄 결과
+
+유니버스에서 ETF가 자리를 차지하던 문제의 수정을 라이브에서 처음 확인했다. 후보 131·정배열 18·등록 18(옛빌드 15·0)로, &quot;상위권에 정배열이 0으로 나오는 건 이상하다&quot;던 지적이 사실로 확인됐다. data.go.kr 시총∪거래대금 유니버스 피드(125종목, ETF 미포함)가 4번째 축으로 정상 union됐고 정배열 프리필터가 처음으로 두 자릿수(18)를 냈다. 다만 **DevScale 신규 진입은 오늘도 체결 0**이다. 오후 세션에서 일일 손실 서킷(-504,481원 / 한도 -300,000원)이 신규 BUY 45건을 전량 차단했다. 이 손실은 DevScale이 아니라 아침에 물려 있던 레거시 보유분(대원전선 562주 등)을 ITB 가디언이 청산하며 확정된 MTM이 주된 원인이다(정상 방어 동작). 별도로 회의에서는 +20% 추격 밴드가 눌림 취지와 어긋난다고 보고, 상단을 +5%로 조이고 스캐너 컷을 0.05로 함께 조정하기로 결론냈다(수치 정당화 완료, 적용은 승인 대기).
+
+---
+
+## 2. 세션·유니버스 (수정 검증)
+
+- **재기동 5회.** 오전에는 스모크 프로브(005930 BUY 1) 세션들이 돌았고, 14:57에 data.go.kr 축을 반영한 신규 바이너리로 교체한 뒤 15:15 장 마감 정지.
+- **정배열 프리필터(신빌드):** 후보=131 검사=131 정배열=18 데이터부족=3 과확장컷=6 등록=18. (옛빌드 후보=15 정배열=0과 비교하면 뚜렷한 개선.)
+- **data.go.kr 축:** `기준일 20260814 · 파일 125종목 → 신규 125 union(중복 0)`. ETF/ETN을 구조적으로 서빙하지 않아, KIS 랭킹 3축에서 장중 ETF가 자리를 밀어내던 현상(시총축 드롭 13, 거래대금축 드롭 17)을 차단한다.
+- **존 판정 스냅샷(장 후반):** 정배열 종목이 넓게 활성 — 예: 004370 이격 +8.8%, 192820 +18.7%(눌림밴드 -12%~+24%). 문제는 096770 +10.2 / 010950 +11.4 / 005830 +11.4 / 003230 +10.0% 등 SMA20 한참 위 종목에도 진입 자격이 부여된다는 점이다. 눌림이라기보다 추격에 가깝다(§4-②, §5).
+
+## 3. 발주·청산 동작
+
+- **ITB 청산 가디언 발주 6건**(물린 레거시 보유분 정리):
+  | 시각 | 종목 | 수량 | 가격 | 트리거 |
+  |------|------|------|------|--------|
+  | 09:06 | 006340 대원전선 | 562 | 14,330 | seed-trail |
+  | 09:30 | 005180 빙그레 | 83 | 82,000 | seed-trail |
+  | 10:04 | 005930 삼성전자 | 2 | 282,000 | seed-trail |
+  | 10:52 | 005930 삼성전자 | 1 | 278,250 | 본전탈출 |
+  | 10:52 | 011200 HMM | 150 | 22,500 | 본전탈출 |
+  | 11:18 | 073240 금호타이어 | 838 | 7,810 | seed-trail |
+- **DevScale 조기 접수(오전, 서킷 발동 전):** 073240 BUY 209, 011200 BUY 150/76/76 등 ODNO 발급.
+- **체결통보 원장 0건** — H0STCNI0(체결피드) 미배선이 08-14부터 이월. 접수(ODNO)까지만 로그로 확인되고 실제 체결·평단 반영은 여전히 관측되지 않는다. 전 구간(E2E) 체결 다리는 오늘도 미검증.
+
+## 4. 문제·진단 (심각도 순)
+
+### (1) DevScale 신규 진입 체결 0 — 일일 손실 서킷 차단 [정상 방어]
+오후 세션 14:58부터 신규 BUY 45건이 전량 `일일 손실 한도 초과 (-504,481원 / 한도 -300,000원)`로 거부됐다. 원인은 DevScale 쪽이 아니다. 아침에 물려 있던 보유분(대원전선 562@평단15,452 → 14,330 청산 등)을 ITB가 정리하며 확정·MTM된 손실이 한도를 넘겨 신규 진입을 차단했다. 서킷은 의도대로 동작했으나, **레거시 보유분의 손실이 신규 전략의 슬롯을 잠그는 구조** 탓에 검증하려는 신규 진입을 못 켜는 부작용이 남는다. 유니버스 수정의 효과(정배열 18)는 신호까지만 확인됐고, 체결 다리는 이 서킷에 막혀 내일(카운터 리셋 후) 재확인이 필요하다.
+
+### (2) +20% 추격 밴드 — 눌림 취지와 어긋남 [회의 결론·적용 대기]
+진입 밴드 [−8%, +20%]는 평균 위로 아래보다 2.5배 넓은 **모멘텀 추격 밴드**다. 오늘 +10~11% 종목 4개(096770·010950·005830·003230)가 이 상단 여유로 자격을 얻었다. 3분봉 사다리는 분 단위 미세 되돌림이라 일봉 앵커 높이를 보정하지 못하므로(진입가 대비 손절선 ~−21%), 상단 쿠션은 일봉 존이 도맡는다. 조여야 한다(§5).
+
+### (3) KIS 실도메인 HTTP 500 다발 — 만성 [방어 중]
+일봉 차트TR(inquire-daily-itemchartprice) 500 다수(당일 라인의 ~21%). GET 멱등 재시도로 대체로 복구되나 600초 주기 재스캔마다 재발한다. 완화안은 **재스캔 시 당일 일봉 OHLCV 캐시**(추가 콜 0)로 500 다발을 줄이는 것(후속).
+
+### (4) 체결피드(H0STCNI0) 미배선 지속 [근본·이월]
+`hts_id` 설정, 체결통보 구독, `on_fill_confirmed` 배선이 여전히 미완이다. 이게 되어야 체결가·실현손익이 로그/원장에 실려 &quot;체결 0&quot;이 실제 미체결인지, 관측이 없는 것인지 구분된다.
+
+## 5. 회의 결론 — entry_upper_pct 수치 정당화 (적용 대기)
+
+전략가·데이터소서 병렬 회의 결과. **핵심 조정은 `entry_upper_pct 20→5`와 `max_dev_pct 0.20→0.05`의 동시 적용**이다(단위 함정: 전략은 퍼센트 5.0, 스캐너는 분수 0.05 — 같은 임계).
+
+- **+5%의 근거:** 눌림은 평균 대비 할인을 뜻한다. SMA20 위는 할인이 아니라 프리미엄이다. 정배열 종목의 얕은 눌림이 닿는 상단은 SMA5이고, 정배열 SMA5−SMA20 스프레드는 통상 +3~+6%이므로 +5%면 &quot;SMA5로의 눌림&quot;까지 담는 상한이 된다. 그 위는 추격에 가깝다.
+- **동반 조정의 이유:** 상단만 내리면 스캐너가 +6~+20% 종목을 계속 등록하고 존 게이트가 즉시 리젝해, 미체결 잔류 종목이 max_universe 슬롯을 차지한다. 스캐너 컷만 내리면 등록 후 급등한 종목을 전략이 여전히 추격한다. 그래서 둘을 함께 조정한다.
+- **오늘 사례 검증:** +5% 컷은 오늘 문제가 된 4종목(전부 +10~11%)만 걷어내고 +2~5%의 눌림은 남긴다. 커버리지 축소라기보다 저품질 고확장 진입만 골라 빼는 쪽에 가깝다.
+- **후속(v2):** 변동성 스케일 상단 `clamp(1.2×ATR20%, 3%, 8%)`은 ATR 코드·forward 관찰 뒤 도입. pullback 하단(−8, 유지선 −12%)이 깊은 리스크는 별건으로 후속.
+- **조건부 예외 지표(Task B):** &quot;하락채널 붕괴 뒤 리클레임, 이어서 앞 매물대 거래량 돌파&quot;(케이엔솔형)만 그 종목 한정 고확장 허용. 공유 술어 `detect_supply_break`를 스캐너·전략 양쪽에 배선하고, 일봉 구조 탐지기부터 케이엔솔+음성대조로 특이도를 검증한 뒤 forward. 데이터 판정은 이렇다. 일봉 해상도 proxy(직전 스윙고점/거래량가중 매물대)로는 백테스트가 되지만, 정밀 intraday 매물대는 과거 분봉이 없어 불가하다. 거래대금 축은 `Bar`에 `trPrc` 필드 1개 추가로 무료 확보한다(다음 데이터 작업).
+
+&gt; **적용 게이트:** 위 수치·배선은 사용자 승인 후 config/코드에 반영한다. 오늘은 결론만 확정했고 미적용이다.
+
+## 6. 손익 · 다음
+
+- **최종:** 총평가 67,544,420원 · 당일손익(장중 오픈대비) -491,581 · 전일대비 -544,961(전일총자산 68,089,381). 손실 대부분은 ITB의 레거시 물린분 청산 확정분.
+- **[내일] 카운터 리셋 후 체결 다리 재검증** — 일손실 서킷이 리셋되면 정배열 18 종목의 신규 진입이 접수를 거쳐 체결까지 도달하는지 확인(유니버스 수정을 확인할 지점).
+- **[승인 대기] entry_upper 20→5 / max_dev 0.20→0.05** 동반 적용 + rebuild.
+- **[후속] HTTP 500 완화** — 재스캔 시 당일 일봉 캐시.
+- **[근본] 체결피드(H0STCNI0) 배선** — 체결가·실현손익 원장화.
+- **[지표] detect_supply_break** — 케이엔솔 티커를 확정한 뒤 일봉 구조 탐지기 특이도 검증(§5).
+</pre></details><details class="card jcard"><summary><div class="chead"><span class="cdate">2026-08-14</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-14 (목)</div><div class="csumm">엔진 크래시의 근본원인(토큰 레이스)을 규명·수정해 무중단 2시간 이상으로 되돌렸다. 오전 11:03 세션이 힙 손상으로 종료됐고, 조사해 보니 원인은 &quot;500 파싱 예외&quot;가 아니라 동기화 없이 공유되던 KisClient 토큰 상태의 데이터 레이스였다. 뮤텍스로 직렬화한 뒤 12:40 세션은 15:15까지 끊기지 않았다. 오후에는 모의 잔고조회가 매 사이클 타임아웃(12002)하면서 리컨사일이 조용히 멈추는 새 문제가 드러나 서킷브레이커로 방어했다. 이전 세션에서 &quot;완료&quot;로 기록됐던 `reserved_` 누수 수정(#1)이 실제로는 디스크에 없던 것을 발견해 처음부터 다시 구현했다. 발주는 활발했고(접수 ODNO 10건), 명목캡이 사다리 상단을 자르는 구조는 08-13에 이어 계속됐다.</div></summary><div class="jsrc">strategies/DeviationScale/live/2026-08-14.md</div><pre class="jbody"># 라이브 모의 매매 일지 — 2026-08-14 (목)
+
+&gt; 환경: **KIS 모의계좌**(openapivts, is_paper=true). 시세/랭킹/지수는 실전 도메인(quote_kis) 조회, 주문은 모의로 발주.
+&gt; 전략: **DeviationScale (DEVSCALE)** + **ITB** 청산 가디언(005930). 일봉 정배열+눌림 존 게이트 + 3분봉 이격도 분할매매(지정가 예약 사다리).
+&gt; 손익은 모의(가상) 기준. 세션: 10:23 → **11:03 크래시** → 11:33 재기동 → 12:40 재기동(신규 바이너리) → 15:15 정지·재빌드.
+
+---
+
+## 1. 오늘의 한 줄 결과
+
+엔진 크래시의 근본원인(토큰 레이스)을 규명·수정해 무중단 2시간 이상으로 되돌렸다. 오전 11:03 세션이 힙 손상으로 종료됐고, 조사해 보니 원인은 &quot;500 파싱 예외&quot;가 아니라 **동기화 없이 공유되던 KisClient 토큰 상태의 데이터 레이스**였다. 뮤텍스로 직렬화한 뒤 12:40 세션은 15:15까지 끊기지 않았다. 오후에는 모의 잔고조회가 매 사이클 타임아웃(12002)하면서 리컨사일이 조용히 멈추는 새 문제가 드러나 서킷브레이커로 방어했다. 이전 세션에서 &quot;완료&quot;로 기록됐던 `reserved_` 누수 수정(#1)이 실제로는 디스크에 없던 것을 발견해 처음부터 다시 구현했다. 발주는 활발했고(접수 ODNO 10건), 명목캡이 사다리 상단을 자르는 구조는 08-13에 이어 계속됐다.
+
+---
+
+## 2. 세션·유니버스
+
+- 재기동 3회(10:23 / 11:33 / 12:40). **11:03 크래시**로 오전 세션이 끊겼고, 원인을 규명한 뒤 12:04에 신규 바이너리를 빌드해 12:40부터 안정됐다.
+- **정배열 프리필터**: 후보 20, 검사 20, 정배열 1, 등록 1(재스캔 동적 등록 동작).
+- **존 판정**(장중 스냅샷, ~14:40):
+  | 종목 | 일봉SMA20 | 현재가 | 이격 | 밴드 | 판정 |
+  |------|-----------|--------|------|------|------|
+  | 464240 | 52,289 | 52,365 | +0.1% | −12%~24% | **활성**(SMA 근접) |
+  | 005180(빙그레) | 68,090 | 81,700 | +20.0% | −12%~24% | **활성** |
+  | 073240(금호타이어) | 6,859 | 8,100 | +18.1% | −12%~24% | **활성** |
+  | 332570 | 7,875 | 10,630 | +35.0% | −8%~20% | **대기**(밴드 위) |
+
+## 3. 정상 동작 확인
+
+- **토큰 레이스 수정 검증** — 12:40 세션이 14:45까지 2시간 넘게 끊기지 않았다. &quot;토큰 갱신 시작&quot; 0회, 크래시 시그니처 재현 없음.
+- **종목명 표기 배선 완료** — 신호 로그가 `005180(빙그레)`·`073240(금호타이어)`·`005930(삼성전자)` 형태로 출력된다. 티커 단독 0건.
+- **발주 활발** — 접수 성공 ODNO 10건: 스모크 `005930 BUY 1`(ODNO=28530), `464240 BUY 65/32/33`, `005180 BUY 41/21/21`, `073240 BUY 213/215`, `005930 SELL 2`. WS 구독 6개 정상.
+- **qty=0 게이트 거부 0건** — place() 가드로 막았다(잔여 `BUY 0`은 사다리 *계획 로그*이고 발주는 아니다).
+- **사다리 안정** — 존 판정 286회 대비 재구성 40회(75분). 데드밴드 가드가 붙어 잦은 재구성은 없었다.
+
+## 4. 문제·진단 (심각도 순)
+
+### (1) 엔진 크래시 — 공유 KisClient 토큰 데이터 레이스 [해결]
+11:03 세션이 로그 중간 truncate와 함께 종료됐다. 조사해 보니 분봉 500 파싱 경로는 보호돼 있었고(비던지기 파서와 스레드 예외격리), 원인은 **전략·데이터 두 스레드가 같은 `quote_kis_` 인스턴스를 뮤텍스 없이 공유**하는 데 있었다. 토큰 재발급 순간 `authenticate()`가 `std::string access_token_`를 재기록하는 동안 다른 스레드가 Bearer 헤더로 그 문자열을 복사하면서 use-after-free와 힙 손상, segfault로 이어진 것으로 본다(로그 truncate와 부합). 대응으로 `token_mtx_`로 직렬화하고, `authenticate_locked()`를 분리해 데드락을 피했으며, `ensure_authenticated`를 double-checked로 두고, 헤더 조립 23곳을 `token()`(락 하 복사본)으로 치환했다.
+
+### (2) 모의 잔고조회 매 사이클 타임아웃(12002) — 리컨사일 중단 [해결]
+오후 14:40부터 `inquire-balance`(openavts:29443)가 매 폴링 GET 3회 전부 `ReceiveResponse 실패: 12002`(WinHTTP 타임아웃)로 끝났다. 그 결과 **리컨사일이 조용히 no-op**이 되면서 `reserved_` wipe·손실컷·포지션 재시드가 모두 동작하지 않았고, 재시도로 사이클당 ~60초를 소모했다(데이터 스레드 정체, 존 판정 주기 ~88s로 늘어남). 서버측 지연이라 응답을 앞당길 수는 없어, 리컨사일 서킷브레이커(연속 실패 시 지수 백오프 1·2·4·8 사이클로 조회 자체 스킵, 성공 시 즉시 복귀)로 핫루프를 보호했다.
+
+### (3) `reserved_` 누수 수정(#1)이 실제 미배포였음 [해결]
+이전 세션 요약엔 &quot;완료&quot;로 적혔으나 grep 결과는 0건이었다. OrderGate.h 선언, OrderGate.cpp 정의, on_cancel 하드닝, Engine 호출부가 **전부 디스크에 없었다**. 체결피드(H0STCNI0)가 없어 `reserved_`가 계속 쌓였고(H-1 드리프트), check()가 positions_+reserved_로 한도를 보면서 정상 신호까지 과하게 막혔다. 대응으로 `reset_reserved()`를 새로 구현하고, 리컨사일 성공 사이클마다 호출해 서버 확정 스냅샷 기준으로 선점을 비우며, on_cancel에 음수·과잉해제 가드를 넣었다.
+
+### (4) 명목캡 상단 절단 — 08-13에서 지속 [정책 확인 필요]
+`종목당 명목 한도 초과` 거부 4건(`15053500 &gt; 7500000` 005180, `8374080 &gt; 7500000` 073240). 이미 포지션이 쌓인 종목에서 추가 사다리 발을 7.5M 캡이 막았다. 백스톱 의도대로 동작하지만 **사다리 완성을 상단에서 자르는** 구조이기도 하다. 사고는 아니나 캡과 사다리 사이징 정책의 정합성은 다시 확인할 필요가 있다.
+
+### (5) KIS 실도메인 HTTP 500 다발 — 만성 [방어 중]
+시세 조회(inquire-price/time·daily-itemchartprice) 500건+. GET 멱등 재시도로 흡수되지만 발주 RTT는 늘어진다. 새로 생긴 이슈는 아니고, 재시도 상한과 선형 백오프로 억제하고 있다.
+
+## 5. 오늘 배포한 수정 (15:15 빌드)
+
+| 항목 | 상태 | 파일 |
+|------|------|------|
+| **#2 토큰 레이스** — KisClient 뮤텍스 직렬화 | 12:04 빌드·검증됨 | [KisClient.h](../../../Quant/include/api/KisClient.h) · [KisClient.cpp](../../../Quant/src/api/KisClient.cpp) |
+| **종목명 표기** — 신호/매매 로그 라벨 | 12:04 빌드·동작 | Engine · UniverseScanner · StrategyFactory |
+| **#4 qty=0 계단 억제** — place() 가드 | 12:04 빌드 | [DeviationScaleStrategy.h](../../../Quant/include/strategy/DeviationScaleStrategy.h) |
+| **#1 `reserved_` 누수** — reset_reserved + on_cancel 가드 + 리컨사일 호출 | 15:15 빌드 | [OrderGate.h](../../../Quant/include/risk/OrderGate.h) · [OrderGate.cpp](../../../Quant/src/risk/OrderGate.cpp) · [Engine.cpp](../../../Quant/src/core/Engine.cpp) |
+| **12002 리컨사일 서킷브레이커** — 지수 백오프 | 15:15 빌드 | [Engine.h](../../../Quant/include/core/Engine.h) · [Engine.cpp](../../../Quant/src/core/Engine.cpp) |
+| **#3 사이드카 루프 예외 격리** — 재빌드 불필요 | 다음 재기동 로드 | [macro_regime_feed.py](../../../PYQuant/tools/macro_regime_feed.py) |
+
+## 6. 미해결 / 다음
+
+- **[근본] 체결피드(H0STCNI0) 활성화** — `hts_id`를 설정하고 체결통보 구독으로 `on_fill_confirmed`를 배선한다. 이게 되면 `reserved_` 누수(#1)와 리컨사일 의존이 근본적으로 풀리고, 라이브 원장(AES 복호화) 경로도 로그로 확인할 수 있다.
+- **[정책] 명목캡 ↔ 사다리 사이징 정합** — 계단 생성 시 잔여 명목 한도를 인지해 초과분을 만들지 않을지(헛발주 제거), 캡을 올릴지 결정한다.
+- **[전략] 수급 역행 진입 억제** — 외인·기관 순매도 상위 종목은 눌림 존이어도 신규 계단을 보류할지 검토한다(08-13에서 이어짐).
+- **[추적] quote_kis 실도메인 5xx** — 만성적인 KIS 상태다. 재시도가 초당한도를 차지해 악순환이 될 여지가 있어 지켜본다.
+</pre></details><details class="card jcard"><summary><div class="chead"><span class="cdate">2026-08-13</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-13 (수)</div><div class="csumm">KIS 서버측 HTTP 500이 세션 내내 다발로 이어졌다. GET 멱등 재시도(08-12 Fix1)가 대부분 흡수해 파이프라인은 버텼지만, 일부는 3/3을 소진해 실패했고 그만큼 일봉이 유실됐다(프리필터 데이터부족=1). ITB 005930 본전탈출 SELL 1건은 정상 집행됐다. DEVSCALE_006340은 명목 한도 초과 상태에서 사다리를 헛발주했고 게이트가 전량 차단했다. 과잉주문 자체는 막혔으나 조율 갭이 드러났다. 모의 당일손익(전일대비)은 −52k, −188k, −148k 구간으로 손실이 확대됐다.</div></summary><div class="jsrc">strategies/DeviationScale/live/2026-08-13.md</div><pre class="jbody"># 라이브 모의 매매 일지 — 2026-08-13 (수)
+
+&gt; 환경: **KIS 모의계좌**(openapivts, is_paper=true). 시세/랭킹/지수는 실전 도메인(quote_kis) 조회, 주문은 모의로 발주.
+&gt; 전략: **DeviationScale (DEVSCALE)** 3종 + **ITB** 청산 가디언(005930). 일봉 정배열+눌림 존 게이트 + 3분봉 이격도 분할매매(지정가 예약 사다리).
+&gt; 손익은 모의(가상) 기준. 로그 구간: ~14:53까지 관측.
+
+---
+
+## 1. 오늘의 한 줄 결과
+
+KIS 서버측 HTTP 500이 세션 내내 다발로 이어졌다. GET 멱등 재시도(08-12 Fix1)가 대부분 흡수해 파이프라인은 버텼지만, 일부는 3/3을 소진해 실패했고 그만큼 일봉이 유실됐다(프리필터 데이터부족=1). ITB 005930 본전탈출 SELL 1건은 정상 집행됐다. **DEVSCALE_006340은 명목 한도 초과 상태에서 사다리를 헛발주**했고 게이트가 전량 차단했다. 과잉주문 자체는 막혔으나 조율 갭이 드러났다. 모의 당일손익(전일대비)은 −52k, −188k, −148k 구간으로 손실이 확대됐다.
+
+---
+
+## 2. 세션·유니버스
+
+- **정배열 프리필터**: 후보 17, 검사 17, 정배열 3, 데이터부족(&lt;60봉) 1, 등록 3.
+  - 등록: `002990`(금호건설) `006340`(대원전선) `073240`(금호타이어).
+- **존 판정**(장중 스냅샷):
+  | 종목 | 일봉SMA20 | 현재가 | 이격 | 밴드 | 판정 |
+  |------|-----------|--------|------|------|------|
+  | 002990 | 10,290 | ~14,700~15,220 | +41~48% | −8%~20% | **대기**(밴드 위) |
+  | 006340 | 13,422 | ~15,080~15,310 | +12~14% | −12%~24% | **활성** |
+  | 073240 | 6,738 | ~7,995~8,160 | +18~21% | −12%~24% | **활성** |
+- **수급추정**(관측): 매수상위 005930·073240 / **매도상위 006340(외인 −350k·기관 −255k)**·002990.
+
+## 3. 정상 동작 확인
+
+- **ITB 본전탈출 SELL** — 14:37 `005930 SELL 5 @266000 (본전탈출)`이 14:38 접수됐다(ODNO=0000036007, RTT 7.6s). 08-11 상단가드 정상.
+- **GET 멱등 재시도가 500 다발을 대부분 흡수** — 다수가 `재시도 2/3`에서 복구됐다. 세션이 버틴 주된 이유다.
+- **게이트 과대주문 차단** — 006340 명목 초과 BUY를 `거부`로 막았다(뚫림 없음).
+- `order_thread_fn` 재시도 큐(965–996)는 **청산 SELL과 EGW00201만** 재시도하므로 명목한도 `거부`는 재시도 대상이 아니다(중복주문 없음). 코드 의도대로 동작.
+
+## 4. 문제·진단 (심각도 순)
+
+### (1) KIS 서버측 HTTP 500 — 세션 전체에 다발
+`inquire-price`·`inquire-time-itemchartprice`·`inquire-index-price`·`inquire-daily-itemchartprice`가 거의 전부 500이었다. 대부분은 재시도로 복구했고, **일부는 3/3을 소진해 일봉을 못 채웠다**(프리필터 `데이터부족=1`). 주문 RTT도 7.6s로 늘어졌다. 우리 쪽 버그보다는 KIS 상태로 판단하나, 재시도가 초당한도를 차지해 악순환이 될 여지는 있다.
+
+### (2) DEVSCALE_006340 명목 한도 사다리 반복 — 조율 갭
+14:39:
+```
+신호: 006340 BUY 0        ← qty=0 무의미 신호
+신호: 006340 BUY 0
+신호: 006340 BUY 111
+신호: 006340 BUY 112
+취소 무시 — 취소 대상 없음 (B:1, B:2)
+거부 — 종목당 명목 한도 초과 (10222870 &gt; 7500000)
+거부 — 종목당 명목 한도 초과 (10157180 &gt; 7500000)
+```
+`pos=562 live=2` 상태에서 **보유분(562주 ~8.5M)만으로 명목캡 7.5M을 넘는데**, 사다리는 계속 BUY 111/112를 밀어 매번 거부됐다. 08-11 no-change 가드는 &quot;봉 미변경 억제&quot;라 이미 캡을 넘어 어차피 거부될 계단은 걸러내지 못한다. 게이트가 막아 사고는 없었지만 헛발주와 취소무시 로그가 쌓였다. `BUY 0`은 계단 하나가 qty=0으로 새어 나온 것이다.
+
+### (3) 하락 추세에 눌림 매수로 붙는 구조 (전략 관점)
+당일손익은 −52k에서 −188k로 손실이 확대됐다. **006340은 수급상 외인·기관 순매도 상위**인데 DEVSCALE는 562주를 들고 더 사려 했으니, 분산 구간에서 물타기를 한 셈이다. &quot;정배열 눌림&quot;이 하락 초입을 눌림으로 오판한 사례로 본다.
+
+## 5. 미해결 / 다음 (장 마감 후 수정)
+
+- **[Fix] DEVSCALE 계단 생성 시 게이트 명목캡 인지** — 계단 명목이 잔여 한도를 넘으면 신호를 내지 않게 하고(헛발주와 취소무시 제거) `qty&lt;=0` 계단 가드를 둔다. 대상은 [DeviationScaleStrategy.h](../../../Quant/include/strategy/DeviationScaleStrategy.h), [OrderGate.cpp](../../../Quant/src/risk/OrderGate.cpp).
+- **[관측] 일봉 500 소진 폴백** — 3/3 실패 종목은 직전 캐시를 유지하거나 backoff를 걸어 프리필터 탈락을 막는다.
+- **[전략] 수급 역행 진입 억제** — 외인·기관 순매도 상위 종목은 눌림 존이어도 신규 계단을 보류할지 검토한다.
+- **[추적] quote_kis HTTP 500** — 08-12에서 이어지는 실도메인 5xx가 남아 있다(별도 이슈).
+</pre></details><details class="card jcard"><summary><div class="chead"><span class="cdate">2026-08-12</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-12 (화)</div><div class="csumm">주문 파이프라인 인프라를 안정화했다. 전날 하드킬이 남긴 청산 무한루프와 잘못된 클라이언트 잔고조회를 진단·수정해 실증으로 해소를 확인했다. 전략 신규 진입은 0건이다. 강세장이라 등록 5종목 전부 SMA20 대비 +19~+200% 확장 상태로 눌림밴드(−8%~0%)에 들지 않았다. 엄격한 눌림 게이트가 정상 작동한 결과다. 모의 당일손익 −5~7만원(대부분 시드 물린 분이 그대로 남음).</div></summary><div class="jsrc">strategies/DeviationScale/live/2026-08-12.md</div><pre class="jbody"># 라이브 모의 매매 일지 — 2026-08-12 (화)
+
+&gt; 환경: **KIS 모의계좌**(openapivts, is_paper=true). 시세/랭킹/지수는 실전 도메인(quote_kis) 조회, 주문은 모의로 발주.
+&gt; 전략: **DeviationScale (DEVSCALE)** — 일봉 정배열+눌림 존 게이트 + 3분봉 이격도 분할매매(지정가 예약 사다리).
+&gt; config: `Quant/config/config_dev_paper.json` (pullback_pct 8.0, reprice_move_ticks 2, bootstrap_ledger_from_balance true).
+&gt; 손익은 모의(가상) 기준. 재생성 로그: `Quant/build_win/logs/quant_trader.log` (~15:05까지).
+
+---
+
+## 1. 오늘의 한 줄 결과
+
+주문 파이프라인 인프라를 안정화했다. 전날 하드킬이 남긴 청산 무한루프와 잘못된 클라이언트 잔고조회를 진단·수정해 실증으로 해소를 확인했다. **전략 신규 진입은 0건**이다. 강세장이라 등록 5종목 전부 SMA20 대비 +19~+200% 확장 상태로 눌림밴드(−8%~0%)에 들지 않았다. 엄격한 눌림 게이트가 정상 작동한 결과다. 모의 당일손익 −5~7만원(대부분 시드 물린 분이 그대로 남음).
+
+---
+
+## 2. 세션·유니버스
+
+- **정배열 프리필터**: 후보 23, 정배열 5, 데이터부족(&lt;60봉) 1~2, 등록 5.
+  - 등록: `006340`(대원전선) `226340`(?) `079650`(서산) `161890`(한국콜마) `257720`(실리콘투).
+- **부트스트랩 시드**(모의 보유분 원장 시드): 005930(1) 006340(15) 257720(55/주문가능45) 362320(55/주문가능45).
+- **청산 가디언(ITB)** 부착: 005930(삼성전자 1주 @254458), 362320(청담글로벌 55주 @5808) — 스캔 유니버스 밖 보유분 청산전용, 신규진입 차단.
+- **기동 스모크 프로브**: 005930 시장가 BUY 1주가 접수와 체결까지 끝났다(ODNO 0000034016, RTT 1855ms). 모의 주문경로(발주→체결→원장) 정상 확인.
+
+## 3. 전략 판정 (존 게이트)
+
+전 종목 하루 종일 **존 이탈(대기)** — 강세장이라 SMA20 위로 크게 확장:
+
+| 종목 | 일봉SMA20 | 현재가(장중) | 이격 | 판정 |
+|------|-----------|--------------|------|------|
+| 006340 | 13,319 | ~15,900 | +19.5% | 대기(밴드 위) |
+| 257720 | 36,855 | ~45,200 | +22.8% | 대기 |
+| 161890 | 103,175 | ~132,000 | +28% | 대기 |
+| 079650 | 4,297 | ~6,400 | +49% | 대기 |
+| 226340 | 3,039 | ~8,800 | +190%~+203% | 대기 |
+
+눌림밴드(−8%~0%)에 든 종목이 0이라 **신규 사다리 발주도 0건**이다. Fix4(부호 눌림게이트) 정상 작동을 확인했다. 강세장에선 눌린 종목이 드물고, 이는 엄격한 눌림 게이트의 의도된 결과로 본다.
+
+## 4. 발견·수정한 인프라 버그
+
+### (1) 청산 무한루프 (40240000 다발) — 수정·해소 확인
+- **증상**: 전날 세션 하드킬(PID 43604)이 KIS 모의서버에 고아 예약매도를 남겨 그 물량이 잠기면서 `주문가능 &lt; 보유` 상태가 됐다. 새 세션은 내부 예약맵이 비어 취소를 못 하고 시드 보유분을 전량 매도 시도해, 40240000(&quot;주문가능수량 없음&quot;)이 **30초마다 반복 발생**했다.
+- **수정**: 청산 SELL을 매도가능분으로 클램프하고 지수 백오프(30·60·120·240·480s, cap 300)를 걸었다. pos 감소 시 streak 리셋.
+- **실증**: 재기동 후 반복 발생이 사라졌고, `존 이탈 청산 보류 — 매도가능=0 (잠긴 N주) 백오프#1→#6`로 수 분 간격까지 벌어졌다. 발주 0.
+
+### (2) 잘못된 클라이언트 잔고조회 — 수정·해소 확인
+- **증상**: 전략의 `kis_`는 시세전용(quote) 클라이언트(계좌번호 없음, 실도메인)라 매도가능 조회가 `inquire-balance?CANO=&amp;`(빈 계좌)로 나갔고, 결과는 늘 0에 balance-500 노이즈만 남았다. 실패 시 fallback을 pos로 뒀다면 과잉매도가 재발할 여지가 있었다.
+- **수정**: `KisClient::has_account()` 가드로 계좌가 없으면 조회를 건너뛰고, 불확실할 때는 0을 반환해 과잉매도를 막았다.
+- **실증**: 재기동 후 15분간 `CANO=&amp;` balance-500이 **한 줄도 나오지 않았다**(이전 세션엔 존재). ✅
+
+### (3) HTTP 500 GET 멱등 재시도 (Fix1) — 작동 확인
+- quote_kis(실도메인)의 일봉/현재가 5xx가 몰려 &lt;60봉이 유실되던 문제에 멱등 GET 5xx 3회 재시도를 넣었다. 데이터부족은 6→1~2로 줄었다.
+
+## 5. 미해결 / 내일 확인
+
+- **잠긴 물량**(006340 15주·257720/362320 각 10주): 고아 예약매도는 장마감에 자동 해소되므로, 내일 개장 시 `주문가능=보유`로 회복되는지 확인한다. 안 풀리면 HTS에서 수동 취소.
+- **quote_kis HTTP 500**: `inquire-price`·`inquire-daily` 실도메인 5xx가 남아 있다(재시도로 실질 유실은 막지만 소음). 별도 이슈로 추적.
+- **당일손익 기준선**: 현재는 &quot;오늘 첫 실행 시점 총평가&quot; 앵커라 장중 첫 기동이면 전일대비가 아니다. 표시 전용 `당일손익(전일대비)` 라인을 추가했다(전일총자산 `bfdy_tot_asst_evlu_amt` 사용, 손실컷 동작은 그대로). 내일 실행 로그에서 이 줄이 나오는지 확인한다(안 뜨면 모의계좌가 필드를 주지 않는 것이므로 다른 경로를 찾는다).
+- Fix2(재구성 취소·재주문 반복(churn) 데드밴드): 존 진입 종목이 있어야 사다리가 서므로 오늘은 관측하지 못했다(진입 0).
+</pre></details><details class="card jcard"><summary><div class="chead"><span class="cdate">2026-08-11</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-11 (화)</div><div class="csumm">반나절(11:50~14:17)만 가동했고 종료 당일손익은 +82원(총평가 68,226,138)으로 사실상 무변동이다. 접수 106·거부 206·취소 96, 체결 이벤트 0건. 이 날의 본론은 매매가 아니라 오류다. ERROR 283건 중 &quot;모의투자 잔고내역이 없습니다&quot; 118건과 빈 ODNO 거부 117건이 대부분을 차지했고, 청산 SELL이 빈 ODNO로 튕겨 90회 재시도 예약됐다. &quot;청산차단 미해소 — 취소할 예약매도 없음/취소 실패(수동 확인 필요)&quot; 경고가 118회 나면서 073240 청산이 세션 내내 끝나지 않았다.</div></summary><div class="jsrc">strategies/DeviationScale/live/2026-08-11.md</div><pre class="jbody"># 라이브 모의 매매 일지 — 2026-08-11 (화)
+
+&gt; 환경: **KIS 모의계좌**(openapivts, is_paper=true). 주문은 모의 발주.
+&gt; 전략: **DeviationScale (DEVSCALE)** + **ITB** 청산 가디언.
+&gt; 손익은 모의(가상) 기준. 로그 `logs/quant_trader.log` 5895~8888행(2,994행, 11:50:46~14:17:19), 원장 `logs/trades_20260811.csv`(408 이벤트, 11:51:42~12:49:26).
+&gt; 이 일지는 2026-09-06에 로그·원장만 근거로 소급 작성했다.
+
+---
+
+## 1. 오늘의 한 줄 결과
+
+반나절(11:50~14:17)만 가동했고 종료 당일손익은 **+82원**(총평가 68,226,138)으로 사실상 무변동이다. 접수 106·거부 206·취소 96, 체결 이벤트 0건. 이 날의 본론은 매매가 아니라 오류다. ERROR 283건 중 &quot;모의투자 잔고내역이 없습니다&quot; 118건과 빈 ODNO 거부 117건이 대부분을 차지했고, 청산 SELL이 빈 ODNO로 튕겨 90회 재시도 예약됐다. &quot;청산차단 미해소 — 취소할 예약매도 없음/취소 실패(수동 확인 필요)&quot; 경고가 118회 나면서 073240 청산이 세션 내내 끝나지 않았다.
+
+---
+
+## 2. 세션·유니버스
+
+- **모드 TRADE / 모의계좌.** 세션 마커 2개(12:36:22, 14:17:19).
+- **국면**: NEUTRAL score=1 (close=6299, ma200=5816, 200일선 위, 정배열=혼조). 기동 시 `regime.json 85,477초 경과(&gt; 600s)` — 매크로 사이드카가 하루 넘게 멈춰 있어 게이트 신규 변경을 보류했다(현 halt 유지).
+- **정배열 프리필터 16회**: 후보=26 검사, 정배열 3~4, 등록 3~4. 재스캔 1회(총 4종목), 청산 가디언 1종목 부착.
+
+## 3. 발주·청산 동작 (원장 408 이벤트)
+
+| 이벤트 | 건수 |
+|------|------|
+| ACCEPTED(접수) | 106 |
+| REJECTED(거부) | 206 |
+| CANCELLED(취소) | 96 |
+| FILL(체결) | 0 (원장 미기록) |
+
+접수 106건: DEVSCALE_419890 BUY 94 / DEVSCALE_073240 BUY 8 · SELL 3 / ITB_017650 SELL 1.
+
+| 시각 | 종목 | Side/수량 | 가격 | 성격 |
+|------|------|-----------|------|------|
+| 11:53:14 | 017650 | SELL 8 | 9,780 | ITB 청산 |
+| 12:12:27 | 073240 | SELL 5 | 7,240 | 청산 |
+| 12:12:41 | 073240 | SELL 5 | 7,350 | 청산 |
+| 12:13:21 | 073240 | SELL 10 | 시장가 | 청산 |
+
+| 거부 사유 | 건수 |
+|------|------|
+| KIS API 거부(빈 ODNO) | 137 |
+| 중복 신호(윈도우 1초) | 29 |
+| 취소 대상 없음 | 24 |
+| KIS 취소 거부(원주문 이미 체결/소멸 가능) | 16 |
+
+## 4. 손익 추이 (리컨사일 209회)
+
+- 시작 11:51:36 0원, 저점 11:55:08 **-256원**, 피크 12:12:52 **+134원**, 종료 14:17:17 **+82원**(총평가 68,226,138).
+- 변동 폭이 수백 원대다. 접수는 106건이나 실제 포지션 변화로 이어진 건 없었던 것으로 본다.
+
+## 5. 문제·진단 (심각도 순)
+
+### (1) 청산 실패 루프 [심각]
+청산 SELL이 빈 ODNO로 거부 → 재시도 예약(90회) → &quot;청산차단 미해소&quot;(118회)가 반복됐다. 073240 매도가 완료되지 않은 채 세션이 끝났다. 청산 재시도가 성공 조건 없이 도는 구조라 경고만 쌓였다.
+
+### (2) 빈 ODNO 거부 137건 + &quot;모의투자 잔고내역이 없습니다&quot; 118건
+주문 응답에 주문번호가 비어 오는 상태가 반나절 내내 이어졌다. 모의 계좌 잔고 조회가 함께 실패하고 있어 계좌·잔고 상태 쪽 원인이 의심되나, 로그만으로 단정할 수 없다.
+
+### (3) 미체결 조회 &quot;없는 서비스 코드 입니다&quot; 107건
+모의 도메인이 지원하지 않는 API를 호출하고 있었다. 미체결 상태를 못 읽으니 취소·재시도 판단 근거도 없다.
+
+### (4) 419890 취소-재주문 churn
+접수 94·취소 87. 08-10과 같은 형태다.
+
+### (5) 가동 2.5시간
+장 시작에 맞춰 띄우지 못했다. 오전 구간 데이터가 없다.
+
+## 6. 이후 경과
+
+- 청산 재시도·장 마감 청산 문제는 08-20/08-21 사후검토에서 다시 P0로 잡힌다: [2026-08-21_postmortem_08-20_08-21.md](../reviews/2026-08-21_postmortem_08-20_08-21.md)
+</pre></details><details class="card jcard"><summary><div class="chead"><span class="cdate">2026-08-10</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-10 (월)</div><div class="csumm">종료 당일손익 +162,171원(총평가 68,225,496), 피크 +290,070원(10:21), 저점 -175,000원(09:11). 세션은 하루 동안 9회 재기동했다. 원장이 12:52부터 기록돼 오전 발주(09:59 017650 사다리 등)는 로그에만 남았고, 그래서 이 날 손익을 원장만으로는 재구성할 수 없다. 오후는 458210 한 종목에 접수 196·취소 183·거부 144가 몰린 취소-재주문 churn이 대부분이다. 원장에 체결(FILL) 이벤트가 없어(체결통보 채널 미배선) 체결 여부는 리컨사일 손익 변동으로만 간접 확인된다.</div></summary><div class="jsrc">strategies/DeviationScale/live/2026-08-10.md</div><pre class="jbody"># 라이브 모의 매매 일지 — 2026-08-10 (월)
+
+&gt; 환경: **KIS 모의계좌**(openapivts, is_paper=true). 시세·랭킹·지수는 실전 도메인 조회, 주문은 모의로 발주.
+&gt; 전략: **DeviationScale (DEVSCALE)** 정배열눌림 지정가 사다리 + **ITB** 청산 가디언.
+&gt; 손익은 모의(가상) 기준. 로그 `Quant/build_win/logs/quant_trader.log` 3895~5130행 + `logs/quant_trader.log` 75~5894행(합계 7,056행, 08:50:35~15:26:59), 원장 `logs/trades_20260810.csv`(599 이벤트).
+&gt; 이 일지는 2026-09-06에 로그·원장만 근거로 소급 작성했다. 당시 관찰 메모가 없어 해석은 최소로 둔다.
+
+---
+
+## 1. 오늘의 한 줄 결과
+
+종료 당일손익 **+162,171원**(총평가 68,225,496), 피크 +290,070원(10:21), 저점 -175,000원(09:11). 세션은 하루 동안 9회 재기동했다. 원장이 12:52부터 기록돼 오전 발주(09:59 017650 사다리 등)는 로그에만 남았고, 그래서 이 날 손익을 원장만으로는 재구성할 수 없다. 오후는 458210 한 종목에 접수 196·취소 183·거부 144가 몰린 취소-재주문 churn이 대부분이다. 원장에 체결(FILL) 이벤트가 없어(체결통보 채널 미배선) 체결 여부는 리컨사일 손익 변동으로만 간접 확인된다.
+
+---
+
+## 2. 세션·유니버스
+
+- **모드 TRADE / 모의계좌.** 08:50:35~15:26:59, `=== Quant Trader ===` 마커 9개(10:22·10:47·11:27·12:20·12:32·13:16·14:33·15:14·15:26).
+- **국면**: NEUTRAL score=1 (close=6258, ma200=5803, 200일선 위, 정배열=혼조). 10:31 지수 조회 실패로 직전 국면을 유지했다(확정봉 199/200). RegimeSelect 로그는 0회 — 이 시점 설정은 전략별 `active_regimes` 방식이다.
+- **정배열 프리필터 43회**: 후보 15~27 검사, 정배열=1, 등록=1 수준. 후보 풀이 지금(120~140종목)보다 훨씬 작았다.
+- 재스캔 5회(총 1~2종목), 청산 가디언 2회 부착(15:02·15:16).
+
+## 3. 발주·청산 동작 (원장 599 이벤트, 12:52~17:53)
+
+| 이벤트 | 건수 |
+|------|------|
+| ACCEPTED(접수) | 220 |
+| CANCELLED(취소) | 198 |
+| REJECTED(거부) | 181 |
+| FILL(체결) | 0 (원장 미기록) |
+
+접수 220건 내역: DEVSCALE_458210 BUY 196 / DEVSCALE_463290 BUY 21 / ITB_214450 SELL 1(15:02:41, 20주 @410,000) / TEST BUY 2.
+
+- 458210 사다리는 110,300 · 109,500 · 108,600 세 호가를 반복해서 다시 깔았다. 같은 가격 재발주가 취소 198건과 &quot;취소 대상 없음&quot; 68건, &quot;중복 신호&quot; 64건을 만들었다.
+- 17:51·17:53 TEST 4건은 장 마감 후 수동 점검이다. KILL_SWITCH 거부 뒤 접수로 남았고 매매 실적이 아니다.
+
+| 거부 사유 | 건수 |
+|------|------|
+| 취소 대상 없음(이미 체결/취소/이력초과) | 68 |
+| 중복 신호(윈도우 1초) | 64 |
+| KIS 취소 거부(원주문 이미 체결/소멸 가능) | 25 |
+| KIS API 거부(빈 ODNO) | 22 |
+| KILL_SWITCH 활성 | 2 |
+
+## 4. 손익 추이 (리컨사일 511회)
+
+- 시작 09:00:40 **0원**(기준선)
+- 저점 09:11:49 **-175,000원**, 피크 10:21:28 **+290,070원**
+- 시간대별 마지막: 09:59 +220,000 | 10:59 +30,160 | 11:59 +100,240 | 12:59 +110,320 | 13:59 +60,080 | 14:33 +130,080
+- 종료 15:26:28 **+162,171원**(총평가 68,225,496)
+
+## 5. 문제·진단
+
+### (1) 원장 기록 공백 — 오전 발주가 원장에 없다 [사실 재구성 제약]
+로그에는 09:59:24 `017650 BUY 10주 ODNO=0000014451`부터 주문 접수가 121행 남아 있는데, 원장 첫 줄은 12:52:41이다. 원장 기록이 중간 세션부터 시작돼 오전 구간이 통째로 빠졌다. 이 날 매매를 원장 단독으로 감사할 수 없다.
+
+### (2) 취소-재주문 churn
+458210 한 종목에서 접수 196·취소 183. 사다리 재구성 주기가 짧아 같은 호가를 지우고 다시 깔았다. 이후 09-03 일지에도 같은 형태(084730 거부 87건)가 다시 나온다.
+
+### (3) 주문 API 오류 82건
+&quot;모의투자 잔고내역이 없습니다&quot; 18, &quot;초당 거래건수를 초과하였습니다&quot; 15, 빈 ODNO 14, 취소 전송 실패 3. 발주 페이싱과 잔고조회 재시도가 아직 없던 시기의 오류 구성이다.
+
+### (4) 세션 9회 재기동
+운영 중 잦은 재기동으로 전략 상태(사다리·보유 매핑)가 반복 초기화됐다. 재기동 사유는 로그로 확인 불가.
+
+### (5) 체결 계측 부재
+체결통보(H0STCNI9) 미배선이라 접수·거부·취소만 원장에 남는다. 체결 다리는 이 날도 사실 판정이 안 된다.
+
+## 6. 이후 경과
+
+- 체결 원장은 09-04부터 FILL 이벤트가 기록된다(체결통보 복호화 배선 이후).
+- 사다리 churn과 명목·동시보유 한도 방어는 08-20 이후 OrderGate 거부 사유로 구분돼 나타난다.
+</pre></details><details class="card jcard"><summary><div class="chead"><span class="cdate">2026-08-07</span><span class="pill p-strat">ITB</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-08-07 (금)</div><div class="csumm">ITB v2(1분 버킷 채널 돌파 + 당일 시가앵커) — 지표 기반 자동매매. (S3만 FIXED_INTERVAL 강제매매)</div></summary><div class="jsrc">strategies/ITB/live/2026-08-07.md</div><pre class="jbody"># 라이브 모의 매매 일지 — 2026-08-07 (금)
+
+&gt; 환경: **KIS 모의계좌**(openapivts, is_paper=true). 시세/랭킹/지수는 실전 도메인 조회, 주문은 모의로 발주.
+&gt; 전략: **ITB v2**(1분 버킷 채널 돌파 + 당일 시가앵커) — 지표 기반 자동매매. (S3만 FIXED_INTERVAL 강제매매)
+&gt; 손익은 모의(가상) 기준. 원 단위 실현손익은 체결통보가 로그에 남은 건에 한해 확정.
+&gt; 재생성 기준 로그: `Quant/quant_trader.log` (10:53:16까지, 최신 append).
+
+---
+
+## 1. 세션 (오늘 5회 재시작)
+
+| # | 시작 | config / 성격 | 시드 | 스캔 | 체결통보(H0STCNI) | 비고 |
+|---|------|---------------|------|------|------|------|
+| S1 | 09:02 | ITB | 0 | 후보 19 중 **0** 등록 | — | Regime 지수 일봉 HTTP500 → 후보 0 → 즉시 재시작. 주문 없음 |
+| S2 | 09:06 | ITB | 0 | 6 (notional 700K) | — | 리컨사일 전 종료(warmup 중 재시작) → 주문 없음 |
+| S3 | 09:11 | **FIXED_INTERVAL** (config_paper) | — | — | **연결·구독·AES키·체결통보 완주** | 오늘 유일하게 체결통보까지 도달. ORD 001~015 |
+| S4 | 09:25 | ITB (앵커수정) | 2 | 6 (700K, 시가앵커 도입) | 없음(REST 폴링) | 지표 첫 진입(009150 돌파). ORD 001~003 |
+| S5 | 09:37 | ITB (notional 3M) | 3 | 6 (3.0M) | 없음(REST 폴링) | **지표 돌파 진입 다수**. 접수 24. 10:53까지 가동 |
+
+공통 risk: 종목당 500주, 일손실 −300,000원, 5/s·20/min, 주문 페이싱 300ms, 청산 SELL 재시도 3회.
+주의: S5 시드 006400 1주@463500는 오늘 주문 로그로 유래 확인 불가(전일 잔여 추정).
+**S4·S5는 &quot;WS 구독 N개&quot; 문구만 있고 실제 `[WS]` 로그(Approval/연결/SUBSCRIBE/체결통보)가 0건** — 오늘 `[WS]` 로그는 S3 구간(09:11~09:20)에만 존재.
+
+---
+
+## 2. 주문·체결 집계
+
+**오늘 총계: 접수 32건 / 체결확인 6건(=S3 전량) / KIS 거부 11건(S3 10 + S5 1) / OrderGate 거부 1건(중복).**
+ODNO·ORD 카운터는 세션별 리셋.
+
+### S3 (FIXED_INTERVAL, 09:11~) — 접수 5 / 체결 6 / 거부 10
+| ORD | 종목 | 방향/수량 | 가격 | RTT | 결과 |
+|-----|------|-----------|------|-----|------|
+| 001~010 | 402340·097230 | BUY/SELL | — | — | **KIS 거부(빈 ODNO)** 10연속 (09:11~09:14 개장 직후), SELL 재시도 소진 |
+| 011 | 402340 | BUY 1 | 979000 | 515ms | 체결 @979000 (ODNO 0000006461) |
+| 012 | 402340 | SELL 1 | 974000 | 203ms | 체결 @974000 (0000007049) |
+| 013 | 097230 | BUY 2 | 16610 | 129ms | 체결 @16610 (0000007082) |
+| 014 | 402340 | BUY 1 | 973000 | 1295ms | 체결 @973000 (0000007484) |
+| 015 | 097230 | SELL 2 | 16610 | 2610ms | 체결 @16610 (0000007722, 분할 1+1) |
+
+09:15부터 정상 접수로 자가복구. KIS 세부 거부코드는 로그 미기재(&quot;빈 ODNO&quot;만).
+
+### S4 (ITB 앵커수정, 09:25~) — 접수 3 / 체결확인 0(체결통보 미구독) / 거부 0
+| ORD | 종목 | 방향/수량 | 가격(신호) | RTT | 사유 |
+|-----|------|-----------|-----------|-----|------|
+| 001 | 097230 | SELL 2 | 16520 | 899ms | 본전탈출(시드) (0000009141) |
+| 002 | 402340 | SELL 1 | 971000 | 580ms | 본전탈출(시드) (0000009148) |
+| 003 | 009150 | BUY 1 | 1266000 | 1617ms | **돌파 hiN=1265000 (지표 진입)** (0000009741) |
+
+### S5 (ITB notional 3M, 09:37~10:53) — 접수 24 / 체결확인 0(체결통보 미구독) / KIS거부 1·OrderGate거부 1
+**전반 (09:37~09:54, 시각·RTT 확인분):**
+| 시각 | 종목 | 방향/수량 | 가격(신호) | RTT | 사유 | ODNO |
+|------|------|-----------|-----------|-----|------|------|
+| 09:37:27 | 006400 | SELL 1 | 462000 | 92ms | 본전탈출 | 0000011344 |
+| 09:37:28 | 009150 | SELL 1 | 1253000 | — | 초당한도 거부→재시도 | (빈 ODNO) |
+| 09:37:29 | 097230 | SELL 1 | 16540 | 1266ms | 본전탈출 | 0000011350 |
+| 09:37:30 | 009150 | SELL 1 | — | 93ms | 재시도 성공 | 0000011355 |
+| 09:44:09 | 006400 | **BUY 6** | 459000 | 2828ms | 돌파 hiN=456500 | 0000012612 |
+| 09:45:14 | 009150 | BUY 1 | 1258000 | 225ms | 돌파 hiN=1253000 | 0000012745 |
+| 09:47:29 | 010060 | **BUY 11** | 262500 | 117ms | 돌파 hiN=260000 | 0000013165 |
+| 09:48:04 | 006400 | BUY 1 | 463000 | 2131ms | 돌파 hiN=461500 | 0000013312 |
+| 09:51:35 | 010170 | **BUY 264** | 11340 | 2299ms | 돌파 hiN=11310 | 0000013913 |
+| 09:53:18 | 009150 | BUY 2 | 1262000 | 1984ms | 돌파 hiN=1257000 | 0000014244 |
+| 09:54:28 | 005930 | **BUY 12** | 235500 | 1061ms | 돌파 hiN=234750 | 0000014411 |
+
+**후반 (10:02~10:52, 신호시각 매핑 — 개별 RTT는 추출본에 일부만 존재):**
+| 시각 | 종목 | 방향/수량 | 가격(신호) | 사유 | ODNO |
+|------|------|-----------|-----------|------|------|
+| 10:02:13 | 097230 | BUY 1 | 16600 | 돌파 hiN=16570 | 0000015624 |
+| 10:03 | 010060 | SELL 11 | 257500 | **하드스톱** | 0000015819 |
+| 10:08 | 006400 | SELL 1 | 454000 | 하드스톱 | 0000016482 |
+| 10:18 | 009150 | SELL 1 | 1260500 | 트레일링 | 0000017850 |
+| 10:18 | 009150 | SELL 2 | 1260500 | 트레일링 | 0000017857 |
+| 10:19 | 006400 | SELL 6 | 449500 | 트레일링 | 0000017937 |
+| 10:22 | 005930 | SELL 12 | 230500 | 하드스톱 | 0000018612 |
+| 10:27:29 | 006400 | BUY 6 | 447500 | 돌파 hiN=446500 | 0000019317 |
+| 10:28:09 | 009150 | BUY 1 | 1264000 | 돌파 hiN=1255000 | 0000019463 |
+| 10:28:09 | 009150 | BUY 2 | 1264000 | 돌파(qty2 분할) | 0000019481 |
+| 10:39 | 009150 | SELL 1 | 1238000 | 하드스톱 | 0000021062 |
+| 10:39 | 097230 | SELL 1 | 16260 | 하드스톱 | 0000021063 |
+| 10:39 | 009150 | SELL 2 | 1238000 | 하드스톱 | 0000021066 |
+| 10:52 | 010170 | SELL 264 | 11140 | 트레일링 | 0000022457 |
+
+거부: 09:37 009150 초당한도 1건(재시도 해소), 별도 KIS 빈 ODNO 1건(009150), OrderGate 중복신호 1건(009150, 1.0초 윈도우).
+notional 3M 반영으로 수량이 의미있게 커짐(010170 264주, 005930 12주, 010060 11주 등).
+
+---
+
+## 3. 라운드트립 실현손익 (체결통보 양변 확인분 = S3만)
+
+| 종목 | 진입 | 청산 | 수량 | Gross(수수료·세금 제외) |
+|------|------|------|------|------|
+| 402340 SK스퀘어 | 979000 | 974000 | 1 | **−5,000원** |
+| 097230 HJ중공업 | 16610 | 16610 | 2 | **0원** |
+
+확정 왕복 Gross 합계 **−5,000원**. 미청산: 402340 BUY 1@973000(ORD-14).
+S4·S5는 체결통보를 받지 못해(H0STCNI 미구독) 원 단위 실현손익을 낼 수 없어 5항 리컨사일로 간접 표기한다.
+
+---
+
+## 4. 전략 신호 (지표 진입 vs 시드 청산)
+
+**지표 기반 신규진입(돌파 hiN=) — 총 11건:**
+- 09:29 009150 @1266000 (hiN 1265000) [S4]
+- 09:44 006400 @459000 (456500) / 09:45 009150 @1258000 (1253000) / 09:47 010060 @262500 (260000) / 09:48 006400 @463000 (461500) / 09:51 010170 @11340 (11310) / 09:53 009150 @1262000 (1257000) / 09:54 005930 @235500 (234750) [S5 전반]
+- 10:02 097230 @16600 (16570) / 10:27 006400 @447500 (446500) / 10:28 009150 @1264000 (1255000, qty1+qty2) [S5 후반]
+
+**시드/포지션 청산 — 구분별:**
+- 본전탈출 5건: 097230·402340 (09:25 S4) / 006400·009150·097230 (09:37 S5)
+- 하드스톱 6건: 010060@257500(10:03), 006400@454000(10:08), 005930@230500(10:22), 009150@1238000×2(10:39), 097230@16260(10:39)
+- 트레일링 4건: 009150@1260500×2(10:18), 006400@449500(10:19), 010170@11140(10:52)
+- seed-trail·장 마감: 0건 (seed_trail=0.0, 장 마감 1515 도달 전 로그 시점 마감)
+
+---
+
+## 5. 리컨사일 당일손익 추이 (모의 가상, 세션별 기준선 상이 — 누적 아님)
+
+- **S4** (기준 09:25 총평가 68,018,161): 0 → −2,151 → 09:31 저점 **−13,321** → 09:33 −8,321(재시작 직전). 범위 0 ~ −13,321.
+- **S5** (기준 09:37 총평가 68,006,260):
+  - 초반 −30,779(09:48) → 급반등 **고점 +122,801 (09:58:32, 총평가 68,129,061)**
+  - 10시 이후 지속 하락: −163,212(10:18) → −228,897(10:22) → **저점 −422,981 (10:52:38, 총평가 67,583,279)**
+  - 로그 종료 시점 **−419,981 (10:53:16, 총평가 67,586,279)**
+  - S5 진폭 +122,801 ~ −422,981 (약 54.6만원 스윙)
+
+단서: 리컨사일 당일손익은 총평가금 mark-to-market(미실현 포함)이고, 재시작마다 기준선이 리셋되므로 세션 간 합산은 되지 않는다. S5 −419,981은 확정 실현손익이 아니라 평가손익이다.
+
+---
+
+## 6. 이슈 &amp; 조치
+
+1. **ITB 세션 체결통보 부재(핵심 미해결)** — S4·S5는 `[WS]` 로그가 0건이다. WebSocket/체결통보(H0STCNI) 구독 자체가 실행되지 않아, 접수(ODNO)는 확인되나 체결 원장이 비어 원 단위 실현손익을 검증할 수 없다. 체결과 손익을 리컨사일 잔고폴링(추정)에만 의존한다. 실거래 안정성 관점에서 우선순위가 가장 높은 갭이다.
+2. **손실 한도 게이트 미연동 의심** — 리컨사일 저점 −422,981원이 설정 일손실 한도(−300,000원)를 초과했으나 kill-switch 트립 로그가 없다. 리컨사일(추정) 당일손익이 게이트에 연동되지 않았을 가능성이 있어 실거래 전 확인이 필요하다.
+3. **개장 직후 KIS 빈 ODNO 거부** — S3 09:11~09:14 10연속 거부 후 09:15 자가복구. 개장가/타이밍 이슈로 추정. 실거래 개장 진입 로직 점검 필요.
+4. **후반 RTT 급증** — 10시대 대형 주문에서 4,042·5,443·4,749ms 관측. 모의 FEP 지연 추정.
+5. **Regime 지수 일봉 HTTP500 반복** — S1은 이로 인해 후보가 0이 되어 재시작했다.
+
+---
+
+## 7. 실증 포인트
+
+- **지표 자동매매 실증(핵심)**: S4·S5에서 3분 채널 신고가 돌파 조건으로 11건의 자동 신규진입을 발주했다(ODNO 발번 확인). 룰 판정에서 신호, 접수로 이어지는 경로가 라이브에서 반복 작동했다. 청산도 본전탈출·하드스톱·트레일링 3종이 규칙대로 발동했다.
+- **체결통보 완주 왕복 실증(S3 한정)**: WS 연결 + H0STCNI 체결통보 구독 + AES 복호화 + 6건 체결확인(on_fill). 402340(979000→974000, −5,000원)·097230(16610→16610, 0원) 왕복 2건 실현. 오늘 로그로 끝까지 확인되는 체결 사이클은 이 구간뿐이다.
+- **RTT**: 접수 32건 min 71ms / max 5,443ms / 평균 ~1,567ms. 모의 FEP 지연 편차가 커서 동시 발주 시 초당한도 저촉을 유발한다.
+- **리스크·자동 해소**: KIS 거부 11건·OrderGate 중복 1건 모두 재시도나 중복차단으로 스스로 해소됐다. kill-switch·일손실한도 발동 로그는 없다(단, 리컨사일 −42만원과 게이트 미연동 의심은 이슈 2 참고).
+- **로그로 확인 불가한 항목**: S4·S5 개별 체결가·체결시각·부분체결·실현손익(순손익), KIS 거부 세부코드, S1·S2 손익, S5 시드 006400 유래, ZMQ FILL의 DB 영속화 흔적.
+</pre></details></div></div><div class="grp"><h3>주문 로그 요약 <span class="win">(접수=초록·취소=회색·거부=빨강)</span></h3><div class="tw"><table><thead><tr><th>일자</th><th>총주문</th><th>접수</th><th>취소</th><th>거부</th><th>체결</th><th>종목수</th><th>상태 비율</th><th>전략</th></tr></thead><tbody><tr><td class="k-left">2026-09-07</td><td class="k-int">601</td><td class="k-int"><span class="pos">224</span></td><td class="k-int"><span class="zero">43</span></td><td class="k-int"><span class="neg">258</span></td><td class="k-int"><span class="pos">76</span></td><td class="k-int">55</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:37.3%" title="accepted 224"></span><span class="seg zero" style="width:7.2%" title="cancelled 43"></span><span class="seg neg" style="width:42.9%" title="rejected 258"></span></span></td><td class="k-left cstrat">DEVSCALE_042500 68 · TEST 52 · ORPHAN 44</td></tr><tr><td class="k-left">2026-09-04</td><td class="k-int">397</td><td class="k-int"><span class="pos">192</span></td><td class="k-int"><span class="zero">49</span></td><td class="k-int"><span class="neg">135</span></td><td class="k-int"><span class="pos">21</span></td><td class="k-int">20</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:48.4%" title="accepted 192"></span><span class="seg zero" style="width:12.3%" title="cancelled 49"></span><span class="seg neg" style="width:34.0%" title="rejected 135"></span></span></td><td class="k-left cstrat">DEVSCALE_086790 80 · DEVSCALE_316140 37 · DEVSCALE_005490 32</td></tr><tr><td class="k-left">2026-09-03</td><td class="k-int">223</td><td class="k-int"><span class="pos">34</span></td><td class="k-int"><span class="zero">12</span></td><td class="k-int"><span class="neg">177</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">20</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:15.2%" title="accepted 34"></span><span class="seg zero" style="width:5.4%" title="cancelled 12"></span><span class="seg neg" style="width:79.4%" title="rejected 177"></span></span></td><td class="k-left cstrat">DEVSCALE_084730 87 · DEVSCALE_092790 34 · DEVSCALE_105560 28</td></tr><tr><td class="k-left">2026-08-25</td><td class="k-int">11</td><td class="k-int"><span class="pos">7</span></td><td class="k-int"><span class="zero">2</span></td><td class="k-int"><span class="neg">2</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">4</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:63.6%" title="accepted 7"></span><span class="seg zero" style="width:18.2%" title="cancelled 2"></span><span class="seg neg" style="width:18.2%" title="rejected 2"></span></span></td><td class="k-left cstrat">DEVSCALE_207940 7 · STARTUP_PROBE 2 · ITB_161390 1</td></tr><tr><td class="k-left">2026-08-21</td><td class="k-int">60</td><td class="k-int"><span class="pos">3</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int"><span class="neg">57</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">10</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:5.0%" title="accepted 3"></span><span class="seg neg" style="width:95.0%" title="rejected 57"></span></span></td><td class="k-left cstrat">DEVSCALE_007575 23 · DEVSCALE_096770 9 · DEVSCALE_475150 9</td></tr><tr><td class="k-left">2026-08-20</td><td class="k-int">196</td><td class="k-int"><span class="pos">35</span></td><td class="k-int"><span class="zero">22</span></td><td class="k-int"><span class="neg">139</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">13</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:17.9%" title="accepted 35"></span><span class="seg zero" style="width:11.2%" title="cancelled 22"></span><span class="seg neg" style="width:70.9%" title="rejected 139"></span></span></td><td class="k-left cstrat">DEVSCALE_093190 56 · DEVSCALE_007340 24 · DEVSCALE_011200 18</td></tr><tr><td class="k-left">2026-08-19</td><td class="k-int">37</td><td class="k-int"><span class="pos">7</span></td><td class="k-int"><span class="zero">1</span></td><td class="k-int"><span class="neg">29</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">7</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:18.9%" title="accepted 7"></span><span class="seg zero" style="width:2.7%" title="cancelled 1"></span><span class="seg neg" style="width:78.4%" title="rejected 29"></span></span></td><td class="k-left cstrat">DEVSCALE_006340 24 · DEVSCALE_161390 3 · DEVSCALE_000100 3</td></tr><tr><td class="k-left">2026-08-18</td><td class="k-int">119</td><td class="k-int"><span class="pos">15</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int"><span class="neg">104</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">19</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:12.6%" title="accepted 15"></span><span class="seg neg" style="width:87.4%" title="rejected 104"></span></span></td><td class="k-left cstrat">DEVSCALE_073240 20 · DEVSCALE_207940 6 · DEVSCALE_068270 6</td></tr><tr><td class="k-left">2026-08-14</td><td class="k-int">49</td><td class="k-int"><span class="pos">19</span></td><td class="k-int"><span class="zero">2</span></td><td class="k-int"><span class="neg">28</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">4</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:38.8%" title="accepted 19"></span><span class="seg zero" style="width:4.1%" title="cancelled 2"></span><span class="seg neg" style="width:57.1%" title="rejected 28"></span></span></td><td class="k-left cstrat">DEVSCALE_073240 22 · DEVSCALE_005180 12 · DEVSCALE_464240 10</td></tr><tr><td class="k-left">2026-08-13</td><td class="k-int">188</td><td class="k-int"><span class="pos">46</span></td><td class="k-int"><span class="zero">26</span></td><td class="k-int"><span class="neg">116</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">3</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:24.5%" title="accepted 46"></span><span class="seg zero" style="width:13.8%" title="cancelled 26"></span><span class="seg neg" style="width:61.7%" title="rejected 116"></span></span></td><td class="k-left cstrat">DEVSCALE_006340 103 · DEVSCALE_073240 76 · STARTUP_PROBE 7</td></tr><tr><td class="k-left">2026-08-12</td><td class="k-int">769</td><td class="k-int"><span class="pos">263</span></td><td class="k-int"><span class="zero">233</span></td><td class="k-int"><span class="neg">273</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">4</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:34.2%" title="accepted 263"></span><span class="seg zero" style="width:30.3%" title="cancelled 233"></span><span class="seg neg" style="width:35.5%" title="rejected 273"></span></span></td><td class="k-left cstrat">DEVSCALE_006340 290 · DEVSCALE_362320 260 · DEVSCALE_257720 217</td></tr><tr><td class="k-left">2026-08-11</td><td class="k-int">408</td><td class="k-int"><span class="pos">106</span></td><td class="k-int"><span class="zero">96</span></td><td class="k-int"><span class="neg">206</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">3</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:26.0%" title="accepted 106"></span><span class="seg zero" style="width:23.5%" title="cancelled 96"></span><span class="seg neg" style="width:50.5%" title="rejected 206"></span></span></td><td class="k-left cstrat">DEVSCALE_419890 246 · DEVSCALE_073240 161 · ITB_017650 1</td></tr><tr><td class="k-left">2026-08-10</td><td class="k-int">599</td><td class="k-int"><span class="pos">220</span></td><td class="k-int"><span class="zero">198</span></td><td class="k-int"><span class="neg">181</span></td><td class="k-int"><span class="zero">0</span></td><td class="k-int">5</td><td class="k-bar"><span class="stack"><span class="seg pos" style="width:36.7%" title="accepted 220"></span><span class="seg zero" style="width:33.1%" title="cancelled 198"></span><span class="seg neg" style="width:30.2%" title="rejected 181"></span></span></td><td class="k-left cstrat">DEVSCALE_458210 523 · DEVSCALE_463290 63 · ITB_017650 8</td></tr></tbody></table></div></div></section>
 </div>
 
 <div class="panel" id="panel-rv" role="tabpanel" aria-labelledby="tab-rv" hidden>
-<article class="review"><div class="rv-hero"><div class="eyebrow">세션 리뷰 · 09-03 · 매매일지 기반</div><h1 class="rv-h1">09-03 세션 정리 — 종료 본전, 운영 과제 3건</h1><p class="verdict">종료 당일손익 +15,919원(+0.016%)으로 거의 본전이고, 일중 등락은 약 70만원이다(피크 +241,907 / 저점 −455,091). DevScale 정배열눌림 지정가 사다리는 8종목에 26건 접수됐고, OrderGate가 동시보유·명목 한도로 대량 거부해 <b>한도 방어는 설계대로 동작했다</b>. 남은 과제는 운영 쪽 세 가지다. 리컨사일 조회 실패로 걸린 보수정지, 한 종목의 취소·재주문 반복, 장 마감에 매도가능=0으로 청산이 끝나지 않은 점. 셋 다 8월에 확인된 항목이 다시 나왔다.</p><div class="metaline"><span>근거 로그 <span class="mono">quant_trader.log</span> · 09-03 구간 <span class="mono">42,776~50,885</span>줄 · 원장 <span class="mono">223</span>이벤트</span><span>국면 <span class="mono">NEUTRAL 1</span> 종일고정 · 재기동 <span class="mono">13</span>회 · 접수 <span class="mono">34</span> / 거부 <span class="mono">177</span></span><span>계좌 <span class="mono">모의 502***75</span> · <span class="mono">rest_price_feed</span></span></div></div><div class="sec-h"><span class="n">02</span><h2>크리티컬 인시던트</h2><span class="rule"></span></div><div class="inc-grid"><div class="inc"><div class="tag"><span class="pill crit">OPS</span><span class="when">09-03 09:08~09:18</span></div><h3>초기 4개 런 빈 ODNO 거부 — 계좌 설정 오류</h3><p>STARTUP_PROBE·ITB 청산·DevScale 접수가 모두 빈 ODNO로 거부됐다. 09:08·09:16은 "모의투자 불가 계좌", 09:18은 "계좌번호 불일치"로, <b>전략이 아니라 계좌 설정 문제</b>다.</p><div class="ev">40910000/IGW00002 빈 ODNO 거부 12건
+<article class="review"><div class="rv-hero"><div class="eyebrow">세션 리뷰 · 09-07 · 원장/로그 자동 집계</div><h1 class="rv-h1">09-07 세션 정리 — 종료 +211,982원, 고점의 절반 반납</h1><p class="verdict">종료 당일손익 <b class="pos">+211,982</b>원. 일중 등락 약 67만원(저점 −217,830@10:01 → 고점 +451,177@14:36)이고 마감에 고점의 절반을 반납했다. 양변이 원장에 다 있는 라운드트립은 4건뿐이라 <b>실현 기준으로는 +40,000원</b>이며 나머지는 보유분 평가다. 오늘의 세 가지 문제는 모두 <b>유니버스를 전 종목으로 연 것(D-015)의 파생 효과</b>다 — 종목이 늘자 총노출 한도·WS 구독 상한·시세 호출량이 동시에 상한을 쳤다. 한도는 설계대로 막았고, 잘못된 것은 한도가 아니라 배분이었다.</p><div class="metaline"><span>근거 로그 <span class="mono">quant_trader.log</span> · 원장 <span class="mono">549</span>이벤트</span><span>재기동 <span class="mono">10</span>회 · 접수 <span class="mono">128</span> / 체결 <span class="mono">126</span> / 거부 <span class="mono">252</span></span><span>전략별 이벤트 <span class="mono">DEVSCALE_042500 56</span> · <span class="mono">ORPHAN 44</span> · <span class="mono">DEVSCALE_005830 23</span> · <span class="mono">DEVSCALE_055550 23</span></span></div></div><div class="sec-h"><span class="n">02</span><h2>크리티컬 인시던트</h2><span class="rule"></span></div><div class="inc-grid"><div class="inc"><div class="tag"><span class="pill crit">거부</span><span class="when">09-07 종일</span></div><h3>주문 거부 179건 — 총노출 한도 초과 (N &gt; N = 자본 N×0.95) — 신규 매수 정지(청산 허용)</h3><p>원장 REJECTED 사유 상위. 정규화 문구 <span class="mono">총노출 한도 초과 (N > N = 자본 N×0.95) — 신규 매수 정지(청산 허용)</span>.</p><div class="ev">Quant/build_win/logs/trades_20260907.csv · REJECTED 179건</div><div class="impact">오후 신규 진입이 사실상 막혔다. base_pct 5% × 슬롯 25 = 125%로 상한 95%를 구조적으로 넘는 배분이었고, 슬롯을 17에서 25로 늘린 14:01 이후 거부가 몰렸다. 한도는 설계대로 막았다 — 잘못된 것은 한도가 아니라 배분이다. 마감 후 점수 기반 비중으로 바꿨다(D-018, 3.2% × 25 = 80%). 효과는 다음 거래일 실측 전까지 추정이다.</div></div><div class="inc"><div class="tag"><span class="pill crit">거부</span><span class="when">09-07 종일</span></div><h3>주문 거부 13건 — KIS API 거부 (빈 ODNO) [N]</h3><p>원장 REJECTED 사유 상위. 정규화 문구 <span class="mono">KIS API 거부 (빈 ODNO) [N]</span>.</p><div class="ev">Quant/build_win/logs/trades_20260907.csv · REJECTED 13건</div><div class="impact">재기동 직후 구간에 몰렸다(계좌·토큰 초기화 경합). 해당 주문은 발주되지 않았고 다음 신호에서 재시도됐다. 09-03·09-04에도 있었고 아직 남아 있다.</div></div><div class="inc"><div class="tag"><span class="pill crit">거부</span><span class="when">09-07 종일</span></div><h3>주문 거부 12건 — 취소 대상 없음 (이미 체결/취소/이력초과) oid=DEVSCALE_N:B:1</h3><p>원장 REJECTED 사유 상위. 정규화 문구 <span class="mono">취소 대상 없음 (이미 체결/취소/이력초과) oid=DEVSCALE_N:B:1</span>.</p><div class="ev">Quant/build_win/logs/trades_20260907.csv · REJECTED 12건</div><div class="impact">사다리 취소가 이미 체결·취소된 주문을 향한 경우다. 원장 정합에는 영향이 없지만, 라우터가 자기 미체결 상태를 실제보다 오래 들고 있다는 신호다.</div></div><div class="inc"><div class="tag"><span class="pill crit">로그</span><span class="when">09-07 종일</span></div><h3>ERROR/WARN 768건 — [WinHTTP] HTTP N  url=https://openapi.koreainves</h3><p>로그 상위 경고. <span class="mono">[WinHTTP] HTTP N  url=https://openapi.koreainvestment.com:N/uapi/domestic-stock/</span>.</p><div class="ev">Quant/build_win/logs/quant_trader.log · 768건</div><div class="impact">실전 시세 도메인 호출 실패. 09-04에 넣은 토큰 버킷·재시도 억제가 있는데도 늘었다 — 유니버스를 전 종목으로 연 것(D-015)으로 프리페치 대상이 늘어난 것이 직접 원인으로 보인다. 시세 공백은 그 종목의 신호 판정을 그 주기만큼 건너뛰게 만든다. 모의 도메인 쪽은 113 + 77건으로 훨씬 적다(주문만 나가므로).</div></div><div class="inc"><div class="tag"><span class="pill crit">로그</span><span class="when">09-07 종일</span></div><h3>ERROR/WARN 745건 — [WinHTTP] HTTP N (초당 한도) — 재시도 2/3  url=https://</h3><p>로그 상위 경고. <span class="mono">[WinHTTP] HTTP N (초당 한도) — 재시도 2/3  url=https://openapi.koreainvestment.com:N/ua</span>.</p><div class="ev">Quant/build_win/logs/quant_trader.log · 745건</div><div class="impact">위 실패의 재시도분이다. 768 + 745 = 1,513건으로 09-04보다 늘었다. 버킷을 다시 잡을지 프리페치 대상을 좁힐지는 D-018 사이징 변경과 효과가 섞이지 않도록 다음 거래일 실측 후에 정한다.</div></div><div class="inc"><div class="tag"><span class="pill crit">로그</span><span class="when">09-07 종일</span></div><h3>ERROR/WARN 179건 — [OrderRouter] 거부 [ORD-N] N → 총노출 한도 초과 (N &gt; N = </h3><p>로그 상위 경고. <span class="mono">[OrderRouter] 거부 [ORD-N] N → 총노출 한도 초과 (N > N = 자본 N×0.95) — 신규 매수 정지(청산 허용)</span>.</p><div class="ev">Quant/build_win/logs/quant_trader.log · 179건</div><div class="impact">오후 신규 진입이 사실상 막혔다. base_pct 5% × 슬롯 25 = 125%로 상한 95%를 구조적으로 넘는 배분이었고, 슬롯을 17에서 25로 늘린 14:01 이후 거부가 몰렸다. 한도는 설계대로 막았다 — 잘못된 것은 한도가 아니라 배분이다. 마감 후 점수 기반 비중으로 바꿨다(D-018, 3.2% × 25 = 80%). 효과는 다음 거래일 실측 전까지 추정이다.</div></div><div class="inc"><div class="tag"><span class="pill crit">공백</span><span class="when">10:53~12:01</span></div><h3>주문 이벤트 공백 68.5분</h3><p>접수·체결·거부가 한 건도 없는 최장 구간. 신호 고갈인지 배관 정지인지는 로그로 갈라야 한다.</p><div class="ev">Quant/build_win/logs/trades_20260907.csv</div><div class="impact">10:37:45 세션이 12:00:40까지 살아 있었는데 10:53 이후 주문 이벤트가 없다. 프로세스가 죽은 게 아니라 살아서 아무 것도 하지 않은 구간이다. 신호 고갈인지 시세 폴링 정지인지 로그만으로는 갈리지 않아 DEFERRED_ISSUES로 넘겼다 — 재현되면 zone 판정 로그를 같이 본다.</div></div></div><div class="sec-h"><span class="n">03</span><h2>손익 · 레짐</h2><span class="rule"></span></div><div class="panel"><div class="card"><h3>09-07 세션 당일손익 <span class="u">KRW · 리컨사일 폴링에서 시작·고점·저점·마감 4점</span></h3><div class="chartwrap"><svg viewBox="0 0 640 200" role="img" aria-label="08-21 세션 손익"><defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent)" stop-opacity="0.22"/><stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs><line x1="54" y1="37.3" x2="626" y2="37.3" stroke="var(--grid)" stroke-width="1" /><text x="46" y="40.3" text-anchor="end" fill="var(--faint)" font-size="10" class="mono">400k</text><line x1="54" y1="78.0" x2="626" y2="78.0" stroke="var(--grid)" stroke-width="1" /><text x="46" y="81.0" text-anchor="end" fill="var(--faint)" font-size="10" class="mono">200k</text><line x1="54" y1="118.8" x2="626" y2="118.8" stroke="var(--ok)" stroke-width="1.4" stroke-dasharray="5 4"/><text x="46" y="121.8" text-anchor="end" fill="var(--ok)" font-size="10" class="mono">0k</text><line x1="54" y1="159.5" x2="626" y2="159.5" stroke="var(--grid)" stroke-width="1" /><text x="46" y="162.5" text-anchor="end" fill="var(--faint)" font-size="10" class="mono">-200k</text><path d="M 54.0 118.8 L 244.7 163.1 L 435.3 26.9 L 626.0 75.6 L 626.0 174.0 L 54.0 174.0 Z" fill="url(#g1)"/><path d="M 54.0 118.8 L 244.7 163.1 L 435.3 26.9 L 626.0 75.6" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="54.0" cy="118.8" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="54.0" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">09:00</text><circle cx="244.7" cy="163.1" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="244.7" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">10:01</text><circle cx="435.3" cy="26.9" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="435.3" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">14:36</text><circle cx="626.0" cy="75.6" r="4" fill="var(--ok)" stroke="var(--surface)" stroke-width="2"/><text x="626.0" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">15:29</text><text x="622.0" y="65.6" text-anchor="end" fill="var(--ok)" font-size="12" font-weight="600" class="mono">+211,982</text></svg></div><p class="cardnote">고점 <b class="pos">+451,177</b>@14:36 · 저점 <b class="neg">−217,830</b>@10:01 · 마감 <b>+211,982</b>@15:29. 폴링 536건 중 4점만 표시했다(연속 곡선 아님).</p></div><div class="pcol"></div></div><div class="sec-h"><span class="n">04</span><h2>6축 근거분석</h2><span class="rule"></span></div><div class="fgrid"><div class="fcard"><div class="top"><span class="ax">AXIS 1</span><span class="pill info">설계대로 막음</span></div><h3>한도와 사이징</h3><ul><li><span class="k des">DES</span><span>총노출 한도 초과 거부 179건 — 게이트는 설계대로 동작했다. 잘못된 것은 한도가 아니라 배분이다</span></li><li><span class="k bug">BUG</span><span>base_pct 5% × 슬롯 25 = 125%로 상한 95%를 구조적으로 초과. 슬롯을 17→25로 늘린 14:01 이후 거부가 몰렸다</span></li><li><span class="k des">DES</span><span>마감 후 점수 기반 비중으로 교정(D-018) — base 3.2% · max 6.4% · 종목당 8백만. 3.2%×25=80%</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 2</span><span class="pill crit">H-1 재발</span></div><h3>체결통보 경로</h3><ul><li><span class="k bug">BUG</span><span>WS 구독 상한 40을 시세가 먼저 차지해 세션 8~9에서 체결통보가 붙지 못함</span></li><li><span class="k bug">BUG</span><span>고아 체결 44건(원장 ORPHAN) — 14:58~15:13 리컨사일로 흡수, 진입 사유는 비어 있다</span></li><li><span class="k des">DES</span><span>14:52 체결통보 우선 구독으로 순서 변경(D-016). 다음 거래일이 첫 정상 관측 기회다</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 3</span><span class="pill warn">미확정</span></div><h3>호출량과 공백</h3><ul><li><span class="k bug">BUG</span><span>실전 시세 도메인 HTTP 실패 1,513건(768 + 재시도 745) — 09-04 대비 증가</span></li><li><span class="k unc">UNC</span><span>10:53~12:01 무주문 68.5분. 프로세스는 살아 있었다 — 신호 고갈과 폴링 정지가 갈리지 않는다</span></li><li><span class="k unc">UNC</span><span>양변 확인 라운드트립 4건 — 승률·기대값을 말할 표본이 아니다</span></li></ul></div></div><div class="sec-h"><span class="n">06</span><h2>개선안</h2><span class="rule"></span></div><p class="fdesc">다음 거래일 전까지. 근거는 docs/eod/2026-09-07.md</p><div class="lane"><div class="p0lane"><div class="lane-h p0"><span class="badge2">P0</span><span class="lh">오늘 고친 것을 실측으로 확인</span><span class="ct">2건 · 추정 상태</span></div><div class="imps"><div class="imp"><div class="h"><span class="id">S-01</span><span class="chip">리스크</span><span class="chip eff">S</span><h3>D-018 사이징으로 총노출 거부가 사라지는가</h3></div><p class="prob">base 5%×슬롯 25 = 125%로 상한 95%를 구조적으로 넘어 179건이 거부됐다.</p><p class="fix">점수 기반 비중으로 3.2%/6.4%·종목당 8백만으로 낮췄다(3.2%×25=80%). 코드 기준 추정이라 장중 실측이 필요하다.</p></div><div class="imp"><div class="h"><span class="id">S-02</span><span class="chip">정합</span><span class="chip eff">S</span><h3>체결통보 구독이 전 세션에서 붙는가</h3></div><p class="prob">WS 40구독 상한을 시세가 먼저 먹어 세션 8~9에서 체결통보가 굶었고 고아 체결 44건이 남았다.</p><p class="fix">14:52에 체결통보 우선 구독으로 순서 변경(D-016). 다음 거래일에 구독 수 로그를 함께 본다.</p></div></div></div><div class="p1lane"><div class="lane-h p1"><span class="badge2">P1</span><span class="lh">재현되면 자료를 잡을 것</span><span class="ct">2건</span></div><div class="imps"><div class="imp"><div class="h"><span class="id">S-03</span><span class="chip">관측성</span><span class="chip eff">M</span><h3>10:53~12:01형 무주문 68.5분</h3></div><p class="prob">프로세스는 살아 있었다(10:37 세션이 12:00까지 유지). 신호 고갈인지 시세 폴링 정지인지 갈리지 않는다.</p></div><div class="imp"><div class="h"><span class="id">S-04</span><span class="chip">배관</span><span class="chip eff">M</span><h3>시세 도메인 호출량 실측</h3></div><p class="prob">실전 도메인 HTTP 실패 1,513건(768 + 재시도 745)으로 09-04보다 늘었다. 프리페치 대상 증가가 직접 원인으로 보인다.</p></div></div></div><div class="p2lane"><div class="lane-h p2"><span class="badge2">P2</span><span class="lh">남아 있는 것</span><span class="ct">1건</span></div><div class="imps"><div class="imp"><div class="h"><span class="id">S-05</span><span class="chip">주문</span><span class="chip eff">S</span><h3>빈 ODNO 22건 · 취소 대상 없음 12건</h3></div><p class="prob">빈 ODNO는 재기동 직후 구간에 몰렸고(계좌·토큰 초기화 경합), 취소 대상 없음은 이미 체결된 사다리 주문을 향한 취소다.</p></div></div></div></div><div class="sec-h"><span class="n">07</span><h2>후속 게이트</h2><span class="rule"></span></div><div class="block"><ol class="gate"><li><span><b class="stop">실계좌 전환 게이트</b> — 오늘 고아 체결 44건이 나왔다. 체결통보 경로가 한 거래일 이상 무결하게 붙는 것을 보기 전에는 실계좌로 넘어가지 않는다.</span></li><li><span><b>파라미터 튜닝 보류 유지</b> — 라운드트립 4건으로 익절·손절선을 건드리지 않는다. 오늘 바꾼 것은 배분(D-018)뿐이고 그것도 한도 정합을 맞추기 위해서다.</span></li></ol></div><div class="rv-foot"><div>정리 문서 <span class="mono">strategies/DeviationScale/live/2026-09-07.md</span></div><div>근거 <span class="mono">Quant/build_win/logs/quant_trader.log</span></div></div></article><article class="review"><div class="rv-hero"><div class="eyebrow">세션 리뷰 · 09-03 · 매매일지 기반</div><h1 class="rv-h1">09-03 세션 정리 — 종료 본전, 운영 과제 3건</h1><p class="verdict">종료 당일손익 +15,919원(+0.016%)으로 거의 본전이고, 일중 등락은 약 70만원이다(피크 +241,907 / 저점 −455,091). DevScale 정배열눌림 지정가 사다리는 8종목에 26건 접수됐고, OrderGate가 동시보유·명목 한도로 대량 거부해 <b>한도 방어는 설계대로 동작했다</b>. 남은 과제는 운영 쪽 세 가지다. 리컨사일 조회 실패로 걸린 보수정지, 한 종목의 취소·재주문 반복, 장 마감에 매도가능=0으로 청산이 끝나지 않은 점. 셋 다 8월에 확인된 항목이 다시 나왔다.</p><div class="metaline"><span>근거 로그 <span class="mono">quant_trader.log</span> · 09-03 구간 <span class="mono">42,776~50,885</span>줄 · 원장 <span class="mono">223</span>이벤트</span><span>국면 <span class="mono">NEUTRAL 1</span> 종일고정 · 재기동 <span class="mono">13</span>회 · 접수 <span class="mono">34</span> / 거부 <span class="mono">177</span></span><span>계좌 <span class="mono">모의 502***75</span> · <span class="mono">rest_price_feed</span></span></div></div><div class="sec-h"><span class="n">02</span><h2>크리티컬 인시던트</h2><span class="rule"></span></div><div class="inc-grid"><div class="inc"><div class="tag"><span class="pill crit">OPS</span><span class="when">09-03 09:08~09:18</span></div><h3>초기 4개 런 빈 ODNO 거부 — 계좌 설정 오류</h3><p>STARTUP_PROBE·ITB 청산·DevScale 접수가 모두 빈 ODNO로 거부됐다. 09:08·09:16은 "모의투자 불가 계좌", 09:18은 "계좌번호 불일치"로, <b>전략이 아니라 계좌 설정 문제</b>다.</p><div class="ev">40910000/IGW00002 빈 ODNO 거부 12건
 09:33 STARTUP_PROBE ACCEPTED(odno 0000011480) 이후 해소
 baseline 값 섞임: 66,725,146(폐기계좌) vs 100,000,180(본계좌)</div><div class="impact">이 구간에서 전일 보유 018260 28주를 청산하지 못했다(SELL 본전탈출 거부 8건이 모두 여기). 계좌별 baseline 분리를 오늘 커밋해 값 섞임을 막았다.</div></div><div class="inc"><div class="tag"><span class="pill crit">이월</span><span class="when">09-03 15:2x 장 마감</span></div><h3>장 마감 매도가능=0으로 청산 미완료, 오버나이트 이월</h3><p>마감 시 373220(9주)·066570(16주)·005490(10주)이 <span class="mono">매도가능=0</span>(예약취소·결제 대기로 잠김)이어서 청산이 보류됐고, 백오프 #1·#2를 반복한 뒤 이월됐다. reserved/lock 드리프트(H-1)와 같은 계열이다.</p><div class="ev">[장 마감] 373220 청산 보류 — 매도가능=0 백오프#1
 066570·005490 동일 · #2 반복 후 미청산
-정상 장 마감 net-flat 완주는 이번에도 미검증</div><div class="impact">모의계좌는 당일 매수분을 당일 매도할 수 없어(익일 반영) 이 현상과 뒤섞인다. 청산 안정성 근거는 모의 장 마감 청산에서 얻기 어렵고, 실계좌 이관 전 확인할 항목으로 남긴다.</div></div></div><div class="sec-h"><span class="n">03</span><h2>손익 · 레짐</h2><span class="rule"></span></div><div class="panel"><div class="card"><h3>09-03 세션 당일손익 <span class="u">KRW · 리컨사일 기록 지점 3개(피크·저점·마감)</span></h3><div class="chartwrap"><svg viewBox="0 0 640 200" role="img" aria-label="08-21 세션 손익"><defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent)" stop-opacity="0.22"/><stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs><line x1="54" y1="74.2" x2="626" y2="74.2" stroke="var(--ok)" stroke-width="1.4" stroke-dasharray="5 4"/><text x="46" y="77.2" text-anchor="end" fill="var(--ok)" font-size="10" class="mono">0k</text><line x1="54" y1="35.1" x2="626" y2="35.1" stroke="var(--grid)" stroke-width="1" /><text x="46" y="38.1" text-anchor="end" fill="var(--faint)" font-size="10" class="mono">200k</text><line x1="54" y1="113.3" x2="626" y2="113.3" stroke="var(--grid)" stroke-width="1" /><text x="46" y="116.3" text-anchor="end" fill="var(--faint)" font-size="10" class="mono">-200k</text><line x1="54" y1="152.3" x2="626" y2="152.3" stroke="var(--grid)" stroke-width="1" /><text x="46" y="155.3" text-anchor="end" fill="var(--faint)" font-size="10" class="mono">-400k</text><path d="M 54.0 74.2 L 244.7 26.9 L 435.3 163.1 L 626.0 71.1 L 626.0 174.0 L 54.0 174.0 Z" fill="url(#g1)"/><path d="M 54.0 74.2 L 244.7 26.9 L 435.3 163.1 L 626.0 71.1" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="54.0" cy="74.2" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="54.0" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">09:56</text><circle cx="244.7" cy="26.9" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="244.7" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">13:17</text><circle cx="435.3" cy="163.1" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="435.3" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">14:28</text><circle cx="626.0" cy="71.1" r="4" fill="var(--ok)" stroke="var(--surface)" stroke-width="2"/><text x="626.0" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">15:29</text><text x="622.0" y="61.1" text-anchor="end" fill="var(--ok)" font-size="12" font-weight="600" class="mono">+15,919</text></svg></div><p class="cardnote">피크 <b class="pos">+241,907</b>@13:17 · 저점 <b class="neg">−455,091</b>@14:28 · 마감 <b>+15,919</b>@15:29(검은 점). 일중 등락 약 70만원, 종료는 거의 본전. 연속 폴링 값이 아니라 일지에 기록된 3개 지점만 표시했다.</p></div><div class="pcol"><div class="card"><h3>B2 보수정지 <span class="u">09-03 · 손익 갱신 끊김 기준(손실컷 아님)</span></h3><div class="tl"><div class="ev2"><span class="t">09:33</span><span class="d"><span class="s off"></span>정상 발주 개시 — STARTUP_PROBE ACCEPTED</span></div><div class="ev2"><span class="t">14:34</span><span class="d"><span class="s on"></span>B2 보수정지 <b>ON</b> — daily_pnl 갱신 끊김(연속 2회 이상)</span></div><div class="ev2"><span class="t">15:17</span><span class="d"><span class="s on"></span>갱신 끊김 재발 — 리컨사일 REST 실패 누적 49</span></div><div class="ev2"><span class="t">15:28</span><span class="d"><span class="s off"></span>갱신 재개로 해제</span></div></div></div></div></div><div class="sec-h"><span class="n">04</span><h2>6축 근거분석</h2><span class="rule"></span></div><div class="fgrid"><div class="fcard"><div class="top"><span class="ax">AXIS 1</span><span class="pill info">by-design 중심</span></div><h3>주문·체결 파이프라인</h3><ul><li><span class="k bug">BUG</span><span>DEVSCALE_084730 한 종목이 취소·재주문을 반복(churn) — 거부 87·접수 0(취소대상 없음 42 포함), 전체 거부 177의 절반 가까이</span></li><li><span class="k des">DES</span><span>FILLED 원장 스트림 0 — 체결은 리컨사일 총평가 변동으로만 추적(체결통보 WS 미사용)</span></li><li><span class="k des">DES</span><span>종목당 명목한도 8.0~8.5M 지정가가 7.5M 캡을 넘어 사다리 상단 슬라이스가 잘림(설계 상호작용)</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 2</span><span class="pill crit">H-1 재발</span></div><h3>장 마감 청산 미완료</h3><ul><li><span class="k bug">BUG</span><span>매도가능=0(잠김) 3종목, 백오프 #1·#2 후 오버나이트 이월</span></li><li><span class="k bug">BUG</span><span>reserved/lock 드리프트 — 예약취소 완료 대기 후 재시도 경로 미검증(H-1)</span></li><li><span class="k unc">UNC</span><span>모의계좌는 당일 매도가 안 돼 장 마감 net-flat 완주를 이번에도 관측하지 못함</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 3</span><span class="pill info">해소됨</span></div><h3>기동 · 계좌 설정</h3><ul><li><span class="k bug">BUG</span><span>초기 4개 런 빈 ODNO 거부 — 계좌 설정 오류(09:33 교정 후 해소)</span></li><li><span class="k des">DES</span><span>재기동 13회, 마감 직전에 몰림</span></li><li><span class="k des">DES</span><span>baseline 값 섞임(폐기계좌 66.7M) — 계좌별 baseline 분리로 차단</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 4</span><span class="pill warn">high</span></div><h3>리컨사일 안정성</h3><ul><li><span class="k bug">BUG</span><span>vts inquire-balance WinHTTP ReceiveResponse 간헐 실패 49건</span></li><li><span class="k des">DES</span><span>이로 인해 daily_pnl 갱신이 끊겨 B2 보수정지가 2회(14:34·15:17) 걸렸고 15:28 복구. 방어는 의도대로 동작</span></li><li><span class="k bug">BUG</span><span>근인은 모의 도메인 밸런스 조회 안정성 — 08-19 balance 12002 타임아웃과 같은 계열</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 5</span><span class="pill warn">점검</span></div><h3>국면 · 사이드카</h3><ul><li><span class="k des">DES</span><span>NEUTRAL score=1 종일 고정(72회 동일 판정, 전환 없음) — 정상</span></li><li><span class="k bug">BUG</span><span>regime.json 갱신 지연 경고 2회(1264초·19232초, 기준 600초) — 매크로 사이드카 중단 의심</span></li><li><span class="k des">DES</span><span>게이트 변경은 보류(현 halt 유지), 다음 세션에 macro_regime_feed.py 가동 여부 확인</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 6</span><span class="pill info">설계대로</span></div><h3>OrderGate 방어</h3><ul><li><span class="k des">DES</span><span>동시보유 종목한도 초과 78건(max 5, 멀티슬라이스 체결이 캡을 6·7까지 밀어냄)</span></li><li><span class="k des">DES</span><span>종목당 명목한도 초과 16건 — 정상 거부</span></li><li><span class="k des">DES</span><span>거부 177건 중 방어성 거부가 다수 — 사다리 슬라이스 설계와 캡의 상호작용</span></li></ul></div></div><div class="sec-h"><span class="n">06</span><h2>개선안</h2><span class="rule"></span></div><p class="fdesc">청산 배관, 기동 게이트, churn·조회 안정성, 사이드카 순</p><div class="lane"><div class="p0lane"><div class="lane-h p0"><span class="badge2">P0</span><span class="lh">다시 나온 청산 결함 — 닫히기 전 실계좌 금지</span><span class="ct">1건 · 장 마감 잠김</span></div><div class="imps"><div class="imp"><div class="h"><span class="id">N-02</span><span class="chip">리스크</span><span class="chip eff">M</span><h3>장 마감 매도가능=0 잠김 3종목 청산 경로 검증 (H-1)</h3></div><p class="prob">373220·066570·005490이 매도가능=0(예약취소·결제 대기)이어서 청산이 끝나지 않고 오버나이트로 이월됐다. 08-20/08-14 계열이 다시 나온 것이고 net-flat은 아직 미검증.</p><p class="fix">예약취소 완료를 확인한 뒤 재시도하는 상태머신(취소확인 대기→REQUERY→LIQUIDATING). 08-21 IMP-04·05와 같은 배관이며, 이번 세션이 그 근거를 하나 더 보탰다.</p></div></div></div><div class="p1lane"><div class="lane-h p1"><span class="badge2">P1</span><span class="lh">기동 게이트 · churn · 조회 안정성</span><span class="ct">3건</span></div><div class="imps"><div class="imp"><div class="h"><span class="id">N-01</span><span class="chip">관측성</span><span class="chip eff">S</span><h3>config 계좌 프로브를 기동 게이트로</h3></div><p class="prob">초반 4개 런이 빈 ODNO 거부만 받고 끝났다(09:08~09:18). STARTUP_PROBE가 빈 ODNO를 받으면 즉시 중단·경고하도록 해 낭비를 줄인다.</p></div><div class="imp"><div class="h"><span class="id">N-03</span><span class="chip">버그수정</span><span class="chip eff">S</span><h3>DEVSCALE_084730류 취소·재주문 반복 가드 강화</h3></div><p class="prob">존이탈 취소와 재주문이 맞물려 한 종목이 거부 87·접수 0을 기록했다. 08-12 churn 데드밴드 가드가 덜 잡은 부분으로, 취소 후 재주문 최소간격과 데드밴드를 다시 본다.</p></div><div class="imp"><div class="h"><span class="id">N-04</span><span class="chip">관측성</span><span class="chip eff">M</span><h3>리컨사일 vts 밸런스 조회 안정성</h3></div><p class="prob">inquire-balance 실패 49건으로 daily_pnl 갱신이 끊겨 B2 보수정지가 2회 걸렸다. 08-19 12002 계열이며 원인과 재시도 파라미터를 점검한다.</p></div></div></div><div class="p2lane"><div class="lane-h p2"><span class="badge2">P2</span><span class="lh">사이드카 점검 — 게이트 변경 없이</span><span class="ct">1건</span></div><div class="imps"><div class="imp"><div class="h"><span class="id">N-05</span><span class="chip">관측성</span><span class="chip eff">S</span><h3>macro_regime_feed.py 가동 여부 확인</h3></div><p class="prob">regime.json 갱신 지연 경고가 2회(1264초·19232초) 나와 매크로 사이드카 중단이 의심된다. 게이트 변경은 보류하고 사이드카 가동만 확인한다.</p></div></div></div></div><div class="sec-h"><span class="n">07</span><h2>후속 게이트</h2><span class="rule"></span></div><div class="block"><ol class="gate"><li><span><b class="stop">실계좌 전환 게이트</b> — 08-21 P0(IMP-01·02·03)에 장 마감 잠김 청산(N-02)이 다시 나온 근거를 더했다. 닫히기 전에는 실계좌 라이브를 하지 않는다.</span></li><li><span><b>net-flat 미검증</b> — 모의 장 마감 청산은 당일 매도가 안 돼 이번에도 청산 완주를 보지 못했다. 청산 안정성 근거는 모의계좌에서 취하지 않는다.</span></li><li><span><b>운영 쪽 항목</b> — 계좌 설정·취소재주문·조회 안정성은 전략 엣지와 무관하다. 파라미터 튜닝은 계속 보류하고 배관과 게이트만 손본다.</span></li></ol></div><div class="rv-foot"><div>정리 문서 <a href="../../strategies/DeviationScale/live/2026-09-03.md"><span class="mono">strategies/DeviationScale/live/2026-09-03.md</span></a></div><div>근거 <span class="mono">Quant/build_win/logs/quant_trader.log</span></div></div></article><article class="review"><div class="rv-hero"><div class="eyebrow">사후검토 · 08-20·08-21 · 3자 패널 회의</div><h1 class="rv-h1">장 마감 청산과 손실컷이<br>시세 이벤트 스레드에 얹혀 있다</h1><p class="verdict">심각 항목 두 건, 08-21 크래시로 장 마감 청산이 실행되지 않은 것과 08-20 매도가능=0으로 청산이 실패한 것은 뿌리가 같다. 장 마감 청산과 손실컷이 시세 이벤트 스레드 위에 얹혀 있어, 프로세스가 멈추거나 시세가 끊기면 안전망도 같이 멈춘다. <b>실계좌 전환 전 P0 3건을 닫아야 한다.</b></p><div class="metaline"><span>근거 로그 <span class="mono">quant_trader.log</span> · 08-20 <span class="mono">9,025</span>줄 · 08-21 <span class="mono">4,379</span>줄</span><span>분석 <span class="mono">6축</span> · 패널 <span class="mono">3</span> · 개선안 <span class="mono">13</span></span><span>계좌 <span class="mono">모의 501***28</span> · <span class="mono">rest_price_feed</span></span></div></div><div class="sec-h"><span class="n">01</span><h2>이틀 대비</h2><span class="rule"></span></div><div class="cmp"><div class="ch rowlbl">지표</div><div class="ch"><span class="day">08-20</span><span class="wk">수</span></div><div class="ch"><span class="day">08-21</span><span class="wk">목</span></div><div class="rl ">신규 매수 진입</div><div class="cell "><span class="big ">34</span><span class="note">093190×16 등 · 사다리 리프라이싱</span></div><div class="cell "><span class="big ">0</span><span class="note">BUY 신호 55건 발생, 접수 0</span></div><div class="rl ">체결 (추정)</div><div class="cell "><span class="big ">7</span><span class="note">명시 체결로그 0 — 잔고 역산</span></div><div class="cell "><span class="big ">0</span><span class="note">캐리오버 관리·probe만</span></div><div class="rl ">세션손익 최저</div><div class="cell "><span class="big neg">−317,260</span><span class="note">15:03:47 · 한도 −300k 초과</span></div><div class="cell "><span class="big neg">−153,816</span><span class="note">한도 내</span></div><div class="rl ">세션손익 종점</div><div class="cell "><span class="big neg">−203,600</span><span class="note">15:15 마감</span></div><div class="cell "><span class="big pos">+31,184</span><span class="note">12:57 크래시 시점</span></div><div class="rl ">장 마감 15:15 청산</div><div class="cell "><span class="big neg small">실패 · 매도가능=0</span><span class="note">백오프 #1~#5 전량 무발주</span></div><div class="cell "><span class="big neg small">미실행 · 프로세스 종료</span><span class="note">장 마감 3시간 전 종료</span></div><div class="rl row-last">결과</div><div class="cell row-last"><span class="big small">5종목 overnight 이월</span></div><div class="cell row-last"><span class="big small">018260·161390 2박 이월</span></div></div><div class="sec-h"><span class="n">02</span><h2>크리티컬 인시던트</h2><span class="rule"></span></div><div class="inc-grid"><div class="inc"><div class="tag"><span class="pill crit">심각</span><span class="when">08-21 12:57:07</span></div><h3>트레이더 크래시로 장 마감 미실행</h3><p>단일 세션(09:37~12:57, 재시작 0)이 업종 등락률 로깅 도중 <b>종료됐다</b>. 정상종료 절차도 <span class="mono">[ERROR]</span> 로그도 없다.</p><div class="ev">12:57:05 리컨사일 당일손익 +31,184
+정상 장 마감 net-flat 완주는 이번에도 미검증</div><div class="impact">모의계좌는 당일 매수분을 당일 매도할 수 없어(익일 반영) 이 현상과 뒤섞인다. 청산 안정성 근거는 모의 장 마감 청산에서 얻기 어렵고, 실계좌 이관 전 확인할 항목으로 남긴다.</div></div></div><div class="sec-h"><span class="n">03</span><h2>손익 · 레짐</h2><span class="rule"></span></div><div class="panel"><div class="card"><h3>09-03 세션 당일손익 <span class="u">KRW · 리컨사일 기록 지점 3개(피크·저점·마감)</span></h3><div class="chartwrap"><svg viewBox="0 0 640 200" role="img" aria-label="08-21 세션 손익"><defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent)" stop-opacity="0.22"/><stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs><line x1="54" y1="74.2" x2="626" y2="74.2" stroke="var(--ok)" stroke-width="1.4" stroke-dasharray="5 4"/><text x="46" y="77.2" text-anchor="end" fill="var(--ok)" font-size="10" class="mono">0k</text><line x1="54" y1="35.1" x2="626" y2="35.1" stroke="var(--grid)" stroke-width="1" /><text x="46" y="38.1" text-anchor="end" fill="var(--faint)" font-size="10" class="mono">200k</text><line x1="54" y1="113.3" x2="626" y2="113.3" stroke="var(--grid)" stroke-width="1" /><text x="46" y="116.3" text-anchor="end" fill="var(--faint)" font-size="10" class="mono">-200k</text><line x1="54" y1="152.3" x2="626" y2="152.3" stroke="var(--grid)" stroke-width="1" /><text x="46" y="155.3" text-anchor="end" fill="var(--faint)" font-size="10" class="mono">-400k</text><path d="M 54.0 74.2 L 244.7 26.9 L 435.3 163.1 L 626.0 71.1 L 626.0 174.0 L 54.0 174.0 Z" fill="url(#g1)"/><path d="M 54.0 74.2 L 244.7 26.9 L 435.3 163.1 L 626.0 71.1" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="54.0" cy="74.2" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="54.0" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">09:56</text><circle cx="244.7" cy="26.9" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="244.7" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">13:17</text><circle cx="435.3" cy="163.1" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="435.3" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">14:28</text><circle cx="626.0" cy="71.1" r="4" fill="var(--ok)" stroke="var(--surface)" stroke-width="2"/><text x="626.0" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">15:29</text><text x="622.0" y="61.1" text-anchor="end" fill="var(--ok)" font-size="12" font-weight="600" class="mono">+15,919</text></svg></div><p class="cardnote">피크 <b class="pos">+241,907</b>@13:17 · 저점 <b class="neg">−455,091</b>@14:28 · 마감 <b>+15,919</b>@15:29(검은 점). 일중 등락 약 70만원, 종료는 거의 본전. 연속 폴링 값이 아니라 일지에 기록된 3개 지점만 표시했다.</p></div><div class="pcol"><div class="card"><h3>B2 보수정지 <span class="u">09-03 · 손익 갱신 끊김 기준(손실컷 아님)</span></h3><div class="tl"><div class="ev2"><span class="t">09:33</span><span class="d"><span class="s off"></span>정상 발주 개시 — STARTUP_PROBE ACCEPTED</span></div><div class="ev2"><span class="t">14:34</span><span class="d"><span class="s on"></span>B2 보수정지 <b>ON</b> — daily_pnl 갱신 끊김(연속 2회 이상)</span></div><div class="ev2"><span class="t">15:17</span><span class="d"><span class="s on"></span>갱신 끊김 재발 — 리컨사일 REST 실패 누적 49</span></div><div class="ev2"><span class="t">15:28</span><span class="d"><span class="s off"></span>갱신 재개로 해제</span></div></div></div></div></div><div class="sec-h"><span class="n">04</span><h2>6축 근거분석</h2><span class="rule"></span></div><div class="fgrid"><div class="fcard"><div class="top"><span class="ax">AXIS 1</span><span class="pill info">by-design 중심</span></div><h3>주문·체결 파이프라인</h3><ul><li><span class="k bug">BUG</span><span>DEVSCALE_084730 한 종목이 취소·재주문을 반복(churn) — 거부 87·접수 0(취소대상 없음 42 포함), 전체 거부 177의 절반 가까이</span></li><li><span class="k des">DES</span><span>FILLED 원장 스트림 0 — 체결은 리컨사일 총평가 변동으로만 추적(체결통보 WS 미사용)</span></li><li><span class="k des">DES</span><span>종목당 명목한도 8.0~8.5M 지정가가 7.5M 캡을 넘어 사다리 상단 슬라이스가 잘림(설계 상호작용)</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 2</span><span class="pill crit">H-1 재발</span></div><h3>장 마감 청산 미완료</h3><ul><li><span class="k bug">BUG</span><span>매도가능=0(잠김) 3종목, 백오프 #1·#2 후 오버나이트 이월</span></li><li><span class="k bug">BUG</span><span>reserved/lock 드리프트 — 예약취소 완료 대기 후 재시도 경로 미검증(H-1)</span></li><li><span class="k unc">UNC</span><span>모의계좌는 당일 매도가 안 돼 장 마감 net-flat 완주를 이번에도 관측하지 못함</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 3</span><span class="pill info">해소됨</span></div><h3>기동 · 계좌 설정</h3><ul><li><span class="k bug">BUG</span><span>초기 4개 런 빈 ODNO 거부 — 계좌 설정 오류(09:33 교정 후 해소)</span></li><li><span class="k des">DES</span><span>재기동 13회, 마감 직전에 몰림</span></li><li><span class="k des">DES</span><span>baseline 값 섞임(폐기계좌 66.7M) — 계좌별 baseline 분리로 차단</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 4</span><span class="pill warn">high</span></div><h3>리컨사일 안정성</h3><ul><li><span class="k bug">BUG</span><span>vts inquire-balance WinHTTP ReceiveResponse 간헐 실패 49건</span></li><li><span class="k des">DES</span><span>이로 인해 daily_pnl 갱신이 끊겨 B2 보수정지가 2회(14:34·15:17) 걸렸고 15:28 복구. 방어는 의도대로 동작</span></li><li><span class="k bug">BUG</span><span>근인은 모의 도메인 밸런스 조회 안정성 — 08-19 balance 12002 타임아웃과 같은 계열</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 5</span><span class="pill warn">점검</span></div><h3>국면 · 사이드카</h3><ul><li><span class="k des">DES</span><span>NEUTRAL score=1 종일 고정(72회 동일 판정, 전환 없음) — 정상</span></li><li><span class="k bug">BUG</span><span>regime.json 갱신 지연 경고 2회(1264초·19232초, 기준 600초) — 매크로 사이드카 중단 의심</span></li><li><span class="k des">DES</span><span>게이트 변경은 보류(현 halt 유지), 다음 세션에 macro_regime_feed.py 가동 여부 확인</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 6</span><span class="pill info">설계대로</span></div><h3>OrderGate 방어</h3><ul><li><span class="k des">DES</span><span>동시보유 종목한도 초과 78건(max 5, 멀티슬라이스 체결이 캡을 6·7까지 밀어냄)</span></li><li><span class="k des">DES</span><span>종목당 명목한도 초과 16건 — 정상 거부</span></li><li><span class="k des">DES</span><span>거부 177건 중 방어성 거부가 다수 — 사다리 슬라이스 설계와 캡의 상호작용</span></li></ul></div></div><div class="sec-h"><span class="n">06</span><h2>개선안</h2><span class="rule"></span></div><p class="fdesc">청산 배관, 기동 게이트, churn·조회 안정성, 사이드카 순</p><div class="lane"><div class="p0lane"><div class="lane-h p0"><span class="badge2">P0</span><span class="lh">다시 나온 청산 결함 — 닫히기 전 실계좌 금지</span><span class="ct">1건 · 장 마감 잠김</span></div><div class="imps"><div class="imp"><div class="h"><span class="id">N-02</span><span class="chip">리스크</span><span class="chip eff">M</span><h3>장 마감 매도가능=0 잠김 3종목 청산 경로 검증 (H-1)</h3></div><p class="prob">373220·066570·005490이 매도가능=0(예약취소·결제 대기)이어서 청산이 끝나지 않고 오버나이트로 이월됐다. 08-20/08-14 계열이 다시 나온 것이고 net-flat은 아직 미검증.</p><p class="fix">예약취소 완료를 확인한 뒤 재시도하는 상태머신(취소확인 대기→REQUERY→LIQUIDATING). 08-21 IMP-04·05와 같은 배관이며, 이번 세션이 그 근거를 하나 더 보탰다.</p></div></div></div><div class="p1lane"><div class="lane-h p1"><span class="badge2">P1</span><span class="lh">기동 게이트 · churn · 조회 안정성</span><span class="ct">3건</span></div><div class="imps"><div class="imp"><div class="h"><span class="id">N-01</span><span class="chip">관측성</span><span class="chip eff">S</span><h3>config 계좌 프로브를 기동 게이트로</h3></div><p class="prob">초반 4개 런이 빈 ODNO 거부만 받고 끝났다(09:08~09:18). STARTUP_PROBE가 빈 ODNO를 받으면 즉시 중단·경고하도록 해 낭비를 줄인다.</p></div><div class="imp"><div class="h"><span class="id">N-03</span><span class="chip">버그수정</span><span class="chip eff">S</span><h3>DEVSCALE_084730류 취소·재주문 반복 가드 강화</h3></div><p class="prob">존이탈 취소와 재주문이 맞물려 한 종목이 거부 87·접수 0을 기록했다. 08-12 churn 데드밴드 가드가 덜 잡은 부분으로, 취소 후 재주문 최소간격과 데드밴드를 다시 본다.</p></div><div class="imp"><div class="h"><span class="id">N-04</span><span class="chip">관측성</span><span class="chip eff">M</span><h3>리컨사일 vts 밸런스 조회 안정성</h3></div><p class="prob">inquire-balance 실패 49건으로 daily_pnl 갱신이 끊겨 B2 보수정지가 2회 걸렸다. 08-19 12002 계열이며 원인과 재시도 파라미터를 점검한다.</p></div></div></div><div class="p2lane"><div class="lane-h p2"><span class="badge2">P2</span><span class="lh">사이드카 점검 — 게이트 변경 없이</span><span class="ct">1건</span></div><div class="imps"><div class="imp"><div class="h"><span class="id">N-05</span><span class="chip">관측성</span><span class="chip eff">S</span><h3>macro_regime_feed.py 가동 여부 확인</h3></div><p class="prob">regime.json 갱신 지연 경고가 2회(1264초·19232초) 나와 매크로 사이드카 중단이 의심된다. 게이트 변경은 보류하고 사이드카 가동만 확인한다.</p></div></div></div></div><div class="sec-h"><span class="n">07</span><h2>후속 게이트</h2><span class="rule"></span></div><div class="block"><ol class="gate"><li><span><b class="stop">실계좌 전환 게이트</b> — 08-21 P0(IMP-01·02·03)에 장 마감 잠김 청산(N-02)이 다시 나온 근거를 더했다. 닫히기 전에는 실계좌 라이브를 하지 않는다.</span></li><li><span><b>net-flat 미검증</b> — 모의 장 마감 청산은 당일 매도가 안 돼 이번에도 청산 완주를 보지 못했다. 청산 안정성 근거는 모의계좌에서 취하지 않는다.</span></li><li><span><b>운영 쪽 항목</b> — 계좌 설정·취소재주문·조회 안정성은 전략 엣지와 무관하다. 파라미터 튜닝은 계속 보류하고 배관과 게이트만 손본다.</span></li></ol></div><div class="rv-foot"><div>정리 문서 <span class="mono">strategies/DeviationScale/live/2026-09-03.md</span></div><div>근거 <span class="mono">Quant/build_win/logs/quant_trader.log</span></div></div></article><article class="review"><div class="rv-hero"><div class="eyebrow">사후검토 · 08-20·08-21 · 3자 패널 회의</div><h1 class="rv-h1">장 마감 청산과 손실컷이<br>시세 이벤트 스레드에 얹혀 있다</h1><p class="verdict">심각 항목 두 건, 08-21 크래시로 장 마감 청산이 실행되지 않은 것과 08-20 매도가능=0으로 청산이 실패한 것은 뿌리가 같다. 장 마감 청산과 손실컷이 시세 이벤트 스레드 위에 얹혀 있어, 프로세스가 멈추거나 시세가 끊기면 안전망도 같이 멈춘다. <b>실계좌 전환 전 P0 3건을 닫아야 한다.</b></p><div class="metaline"><span>근거 로그 <span class="mono">quant_trader.log</span> · 08-20 <span class="mono">9,025</span>줄 · 08-21 <span class="mono">4,379</span>줄</span><span>분석 <span class="mono">6축</span> · 패널 <span class="mono">3</span> · 개선안 <span class="mono">13</span></span><span>계좌 <span class="mono">모의 501***28</span> · <span class="mono">rest_price_feed</span></span></div></div><div class="sec-h"><span class="n">01</span><h2>이틀 대비</h2><span class="rule"></span></div><div class="cmp"><div class="ch rowlbl">지표</div><div class="ch"><span class="day">08-20</span><span class="wk">수</span></div><div class="ch"><span class="day">08-21</span><span class="wk">목</span></div><div class="rl ">신규 매수 진입</div><div class="cell "><span class="big ">34</span><span class="note">093190×16 등 · 사다리 리프라이싱</span></div><div class="cell "><span class="big ">0</span><span class="note">BUY 신호 55건 발생, 접수 0</span></div><div class="rl ">체결 (추정)</div><div class="cell "><span class="big ">7</span><span class="note">명시 체결로그 0 — 잔고 역산</span></div><div class="cell "><span class="big ">0</span><span class="note">캐리오버 관리·probe만</span></div><div class="rl ">세션손익 최저</div><div class="cell "><span class="big neg">−317,260</span><span class="note">15:03:47 · 한도 −300k 초과</span></div><div class="cell "><span class="big neg">−153,816</span><span class="note">한도 내</span></div><div class="rl ">세션손익 종점</div><div class="cell "><span class="big neg">−203,600</span><span class="note">15:15 마감</span></div><div class="cell "><span class="big pos">+31,184</span><span class="note">12:57 크래시 시점</span></div><div class="rl ">장 마감 15:15 청산</div><div class="cell "><span class="big neg small">실패 · 매도가능=0</span><span class="note">백오프 #1~#5 전량 무발주</span></div><div class="cell "><span class="big neg small">미실행 · 프로세스 종료</span><span class="note">장 마감 3시간 전 종료</span></div><div class="rl row-last">결과</div><div class="cell row-last"><span class="big small">5종목 overnight 이월</span></div><div class="cell row-last"><span class="big small">018260·161390 2박 이월</span></div></div><div class="sec-h"><span class="n">02</span><h2>크리티컬 인시던트</h2><span class="rule"></span></div><div class="inc-grid"><div class="inc"><div class="tag"><span class="pill crit">심각</span><span class="when">08-21 12:57:07</span></div><h3>트레이더 크래시로 장 마감 미실행</h3><p>단일 세션(09:37~12:57, 재시작 0)이 업종 등락률 로깅 도중 <b>종료됐다</b>. 정상종료 절차도 <span class="mono">[ERROR]</span> 로그도 없다.</p><div class="ev">12:57:05 리컨사일 당일손익 +31,184
 12:57:06 [수급추정] 매수상위 ★005930 …
 12:57:07 [섹터] ── 업종 등락률 ── ◀ 파일 절단(EOF)</div><div class="impact">근본원인은 로그만으로 규명되지 않는다(크래시 덤프·stderr 없음). 확인된 영향은 장 마감 미실행으로 캐리오버가 다시 이월된 것이다(08-20 실패분 위에 누적).</div></div><div class="inc"><div class="tag"><span class="pill crit">심각</span><span class="when">08-20 15:15~15:25</span></div><h3>장 마감 청산 실패 · 매도가능=0</h3><p><span class="mono">sellable_qty()=0</span>이면 시장가 청산 자체를 보류한다. 강제청산으로 넘어가는 경로가 없다(강제청산 로그 0건).</p><div class="ev">15:15:37 [DEVSCALE_011200] 장 마감 청산 보류
          — 매도가능=0 (잠긴 318주) 백오프#1
-… 018260·161390·093190 동일 · #2~#5 전량 실패</div><div class="impact">"잠김"은 모의계좌에서 당일 매수분을 당일 매도할 수 없어(익일 반영) 생긴다. 12002 조회실패도 같은 "잠김"으로 보여서, 장 마감 창에서 실제로 유효한 관측은 1회뿐이었다.</div></div></div><div class="sec-h"><span class="n">03</span><h2>손익 · 레짐</h2><span class="rule"></span></div><div class="panel"><div class="card"><h3>08-21 세션 당일손익 <span class="u">KRW · 리컨사일 샘플 11:00~12:57</span></h3><div class="chartwrap"><svg viewBox="0 0 640 200" role="img" aria-label="08-21 세션 손익"><defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent)" stop-opacity="0.22"/><stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs><line x1="54" y1="83.6" x2="626" y2="83.6" stroke="var(--ok)" stroke-width="1.4" stroke-dasharray="5 4"/><text x="46" y="86.6" text-anchor="end" fill="var(--ok)" font-size="10" class="mono">0k</text><line x1="54" y1="140.4" x2="626" y2="140.4" stroke="var(--grid)" stroke-width="1" /><text x="46" y="143.4" text-anchor="end" fill="var(--faint)" font-size="10" class="mono">-50k</text><line x1="54" y1="26.9" x2="626" y2="26.9" stroke="var(--grid)" stroke-width="1" /><text x="46" y="29.9" text-anchor="end" fill="var(--faint)" font-size="10" class="mono">50k</text><path d="M 54.0 103.3 L 135.7 154.4 L 217.4 116.9 L 299.1 149.8 L 380.9 67.0 L 462.6 101.6 L 544.3 36.3 L 626.0 48.3 L 626.0 174.0 L 54.0 174.0 Z" fill="url(#g1)"/><path d="M 54.0 103.3 L 135.7 154.4 L 217.4 116.9 L 299.1 149.8 L 380.9 67.0 L 462.6 101.6 L 544.3 36.3 L 626.0 48.3" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="54.0" cy="103.3" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="54.0" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">11:02</text><circle cx="135.7" cy="154.4" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="135.7" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">11:03</text><circle cx="217.4" cy="116.9" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="217.4" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">11:23</text><circle cx="299.1" cy="149.8" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="299.1" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">11:43</text><circle cx="380.9" cy="67.0" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="380.9" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">12:03</text><circle cx="462.6" cy="101.6" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="462.6" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">12:23</text><circle cx="544.3" cy="36.3" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="544.3" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">12:43</text><circle cx="626.0" cy="48.3" r="4" fill="var(--ok)" stroke="var(--surface)" stroke-width="2"/><text x="626.0" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">12:57</text><text x="622.0" y="38.3" text-anchor="end" fill="var(--ok)" font-size="12" font-weight="600" class="mono">+31,184</text></svg></div><p class="cardnote">최저 <b class="neg">−317,260</b> · 마감 −203,600(검은 선). 한도(주황)를 넘었는데 거부·청산 로그는 0건이다. 손실한도가 신규 BUY 사전점검에만 쓰이고 집행 액션이 없다.</p></div><div class="pcol"><div class="card"><h3>08-20 손실한도 돌파</h3><div class="breach"><div class="b0"><span class="num neg">−317,260</span><span class="lim">세션 최저 · 한도 −300k 초과</span></div><div class="bar"><div class="fill" style="width:88.1%"></div><div class="limline" style="left:83.3%"><span class="ll">한도 −300k</span></div><div class="close" style="left:56.6%"></div></div><small>최저 <b class="neg">−317,260</b> @15:03:47 · 마감 −203,600(검은 선). 한도(주황)를 초과했으나 거부·청산 로그 0건.</small></div></div><div class="card"><h3>entry_halt 토글 <span class="u">08-21 · 히스테리시스 부재</span></h3><div class="tl"><div class="ev2"><span class="t">09:37</span><span class="d"><span class="s on"></span>HALT <b>ON</b> — RISK_OFF score −3 (초기)</span></div><div class="ev2"><span class="t">10:22</span><span class="d"><span class="s off"></span>HALT OFF — NEUTRAL −2</span></div><div class="ev2"><span class="t">12:08</span><span class="d"><span class="s on"></span>HALT ON — −3</span></div><div class="ev2"><span class="t">12:14</span><span class="d"><span class="s off"></span>HALT OFF — −2</span></div><div class="ev2"><span class="t">12:41</span><span class="d"><span class="s on"></span>HALT ON — −3 <span class="faintnote">(2분53초 뒤 12:44 OFF)</span></span></div><div class="ev2"><span class="t">12:57</span><span class="d"><span class="s crash"></span>프로세스 크래시</span></div></div></div></div></div><div class="sec-h"><span class="n">04</span><h2>6축 근거분석</h2><span class="rule"></span></div><div class="fgrid"><div class="fcard"><div class="top"><span class="ax">AXIS 1</span><span class="pill info">by-design 중심</span></div><h3>주문·체결 파이프라인</h3><ul><li><span class="k des">DES</span><span>H0STCNI0 미배선 — 명시 체결 0건, 잔고 스냅샷 차이로만 역추정</span></li><li><span class="k des">DES</span><span>dev_buy 사다리 리프라이싱 루프(093190 20회+). 체결은 "취소 거부: 수량 없음"으로만 확인</span></li><li><span class="k bug">BUG</span><span>리컨사일 30초 폴링 + 12002 시 지수 백오프 최대 8사이클 실명</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 2</span><span class="pill crit">심각</span></div><h3>장 마감 청산 실패</h3><ul><li><span class="k bug">BUG</span><span>sellable=0 하드 클램프 — 강제청산 대체 경로 없음</span></li><li><span class="k bug">BUG</span><span>12002 조회실패도 "매도가능=0 잠김"으로 보임 — 유효 관측 1회</span></li><li><span class="k bug">BUG</span><span>read-before-cancel 레이스 — 취소로 푼 수량을 같은 틱에 못 봄</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 3</span><span class="pill crit">심각</span></div><h3>08-21 트레이더 크래시</h3><ul><li><span class="k bug">BUG</span><span>증상 없이 종료 — SEH(접근위반)는 catch(std::exception)이 못 잡음</span></li><li><span class="k unc">UNC</span><span>근본원인은 로그만으로 규명 불가 — 덤프·stderr 없음</span></li><li><span class="k bug">BUG</span><span>프로세스 감시·자동재시작·하트비트 경보 없음</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 4</span><span class="pill crit">갭</span></div><h3>손실한도 · 리스크게이트</h3><ul><li><span class="k bug">BUG</span><span>집행 액션 없음 — 신규 BUY만 막고 기보유는 그대로 둠</span></li><li><span class="k des">DES</span><span>per-order 사전점검 — 위반·주문 타이밍이 겹쳐야 흔적이 남음</span></li><li><span class="k des">DES</span><span>REST 총평가 폴링 노이즈(6분 새 +127k 스윙)로 기준점·확인틱이 필요</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 5</span><span class="pill warn">high</span></div><h3>레짐 · entry_halt 토글</h3><ul><li><span class="k bug">BUG</span><span>히스테리시스 없음 — 단일점 −3/−2 경계에서 5회 진동</span></li><li><span class="k bug">BUG</span><span>환율 vote가 −0.4% 경계서 +1↔0 진동(0.08%p). VIX·10Y vote 종일 고정</span></li><li><span class="k des">DES</span><span>사이드카 파일은 갱신 정상 · force_liq(−6) 미도달</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 6</span><span class="pill info">원인 재지목</span></div><h3>DevScale 진입 게이팅</h3><ul><li><span class="k des">DES</span><span>3중 게이트는 병목이 아님 — BUY 신호 55건 정상 발생</span></li><li><span class="k bug">BUG</span><span>실제 병목은 동시보유 5슬롯 포화(전일 청산실패 캐리오버가 선점)</span></li><li><span class="k bug">BUG</span><span>08-20(33)과 08-21(0)의 차이는 시작 시점 슬롯 여유에서 옴. 국면·게이트 때문이 아님</span></li></ul></div></div><div class="sec-h"><span class="n">05</span><h2>패널 이견 · 검증 한계</h2><span class="rule"></span></div><div class="two"><div class="block"><h3>주요 이견</h3><div class="dis"><div class="row2"><span class="q">손실한도 미로깅 성격</span><span class="j">구현 쪽은 P2(발동 대상 없음), 전략·리스크 쪽은 P0(집행 배선 없음)으로 갈렸다. 결론은 <b>집행 배선 P0 격상(IMP-03)</b>.</span></div><div class="row2"><span class="q">H0STCNI0 미배선</span><span class="j">설계대로이긴 하나 사이징 무결성이 깨진다(093190 7.58M > 캡 7.5M). 결론은 <b>정공법 P1(IMP-08), 캡 클램프 선행(IMP-06)</b>.</span></div><div class="row2"><span class="q">게이팅이 수익을 막는가</span><span class="j">전략 쪽 교정: 08-21 halt는 옳았다(세션 +31,184 마감). 결론은 <b>결함이 진입컷·사이징 쪽</b>이라는 것.</span></div></div></div><div class="block lim"><h3>모의계좌의 한계</h3><div class="limbody"><p>모의계좌는 당일 매수분을 당일 매도할 수 없어(익일 반영) DevScale·ITB의 전제인 <b>장 마감 net-flat</b>을 forward-test 할 수 없다.</p><p>08-20 청산 실패는 전략 결함과 모의계좌 특성이 뒤섞여 분리하기 어렵다. 청산 안정성 근거는 모의 장 마감 청산에서 취하지 않고, 강제청산 대체 경로는 실계좌 이관 전 조건으로만 요구한다(IMP-11).</p></div></div></div><div class="sec-h"><span class="n">06</span><h2>개선안</h2><span class="rule"></span></div><p class="fdesc">손실통제, 청산 배관, 관측성, 전략 재배치 순</p><div class="lane"><div class="p0lane"><div class="lane-h p0"><span class="badge2">P0</span><span class="lh">실계좌 전환 게이트 — 닫히기 전 라이브 금지</span><span class="ct">3건 · 벽시계·워치독·집행</span></div><div class="imps"><div class="imp"><div class="h"><span class="id">IMP-01</span><span class="chip">리스크</span><span class="chip eff">M</span><h3>장 마감 청산·손실컷을 시세 이벤트에서 떼어 독립 벽시계 타이머로 구동</h3></div><p class="prob">장 마감 청산이 <code>on_trade_batch</code>(td 도착)로만 트리거되고, td는 <code>data_thread_fn</code>이 공급한다. 크래시나 12002 정체가 나면 장 마감 청산이 돌지 않는다. 08-20·08-21 이월의 공통 원인이다.</p><p class="fix"><code>control_thread_fn</code>에 <code>kst_hhmm≥eod</code> 감시 가디언을 두고, 시세와 무관하게 청산 시그널을 <code>order_queue_</code>에 직접 push한다. 전략 장 마감 블록은 백업으로 남긴다.</p></div><div class="imp"><div class="h"><span class="id">IMP-02</span><span class="chip">관측성</span><span class="chip eff">M</span><h3>크래시 관측성(SEH를 C++ 예외로 변환) + 외부 워치독 자동 재기동</h3></div><p class="prob">12:57:07에 증상 없이 종료됐고 <code>[ERROR]</code>는 0건이다. 접근위반(SEH)은 <code>/EHsc</code>의 <code>catch(std::exception)</code>이 못 잡는다.</p><p class="fix">스레드 시작부에 <code>_set_se_translator</code> 또는 <code>__try/__except</code>를 두어 폴트 주소·스택을 남긴다. 외부 워치독이 exe 종료를 감지해 재기동하고, 부트스트랩 재시드 후 장 마감 가디언이 청산한다.</p></div><div class="imp"><div class="h"><span class="id">IMP-03</span><span class="chip">리스크</span><span class="chip eff">M</span><h3>손실한도 −300k 집행 배선 (신규 BUY 차단 + soft de-risk + 세션 진입예산)</h3></div><p class="prob">OrderGate 손실한도가 신규 BUY에만 적용되고 강제청산·kill로 넘어가는 단계가 없다. −317,260 시점에 차단도 경고도 없었다.</p><p class="fix"><code>daily_pnl_ ≤ −300k</code>이면 WARN 1회 + 기존 <code>set_entry_halt()</code> 재사용(신규 BUY 차단, SELL/CANCEL 통과) + 청산 모드로 장 마감 가디언 경로 연결. −180k 선제 soft halt.</p></div></div></div><div class="p1lane"><div class="lane-h p1"><span class="badge2">P1</span><span class="lh">청산 배관 정합 · 관측성 · 전략 재배치</span><span class="ct">8건</span></div><div class="imps"><div class="imp"><div class="h"><span class="id">IMP-04</span><span class="chip">리스크</span><span class="chip eff">M</span><h3>장 마감 강제청산 에스컬레이션 상태머신</h3></div><p class="prob">sellable 상태를 {N / 잠김 / 미상}으로 구분하고 marketable-limit 대체 경로를 둔다. 12002 실패가 잠김으로 보이는 것을 없애고, 15:20까지 미청산이면 심각 알림을 낸다.</p></div><div class="imp"><div class="h"><span class="id">IMP-05</span><span class="chip">버그수정</span><span class="chip eff">M</span><h3>취소 후 매도로 넘어가는 순차 상태머신</h3></div><p class="prob">CANCELLING→취소확인 대기→REQUERY→LIQUIDATING. read-before-cancel 레이스를 없앤다(최소수정은 1-tick 지연 플래그).</p></div><div class="imp"><div class="h"><span class="id">IMP-06</span><span class="chip">리스크</span><span class="chip eff">M</span><h3>확정잔고 기반 종목 명목 캡 클램프</h3></div><p class="prob">reserved_ 드리프트로 093190이 7.58M으로 캡 7.5M을 넘었다. 리컨사일 확정잔고 명목이 캡 이상이면 신규 BUY를 거부한다. IMP-08 전에 바로 쓸 수 있는 방어다.</p></div><div class="imp"><div class="h"><span class="id">IMP-07</span><span class="chip">리스크</span><span class="chip eff">S</span><h3>manage_holdings eod 1600을 1515로 정렬</h3></div><p class="prob">protect-only 1600이 캐리오버를 장중에 청산하지 않아 018260·161390이 2박 이월됐다. DevScale 본체 eod와 시각을 맞춘다.</p></div><div class="imp"><div class="h"><span class="id">IMP-08</span><span class="chip">버그수정</span><span class="chip eff">L</span><h3>H0STCNI0 체결통보 배선 / FILLED 전이</h3></div><p class="prob">ACCEPTED에서 벗어나지 못해 오래된 주문이 취소무시 64건을 냈다. 체결통보 웹소켓을 따로 배선하거나 reconcile로 on_fill 상태전이를 만든다.</p></div><div class="imp"><div class="h"><span class="id">IMP-09</span><span class="chip">버그수정</span><span class="chip eff">S</span><h3>Logger localtime 스레드안전 수정</h3></div><p class="prob">std::localtime을 lock 밖에서 호출해 4스레드 데이터레이스(UB)가 있다. localtime_s/r로 바꾸고 포맷을 lock 안으로 옮긴다.</p></div><div class="imp"><div class="h"><span class="id">IMP-10</span><span class="chip">관측성</span><span class="chip eff">M</span><h3>관측 모니터 예외격리 + 리컨사일 우선 처리</h3></div><p class="prob">수급·섹터·매크로가 data_thread에서 순차 실행돼 청산·손실컷이 낡은 스냅샷 위에서 판단한다. try/catch로 격리하고 리컨사일을 먼저 돌린다.</p></div><div class="imp"><div class="h"><span class="id">IMP-11</span><span class="chip">전략</span><span class="chip eff">M</span><h3>DevScale INTRADAY 실계좌 보류 + 눌림 필터 우선</h3></div><p class="prob">모의 장 마감 청산으로는 검증할 수 없다고 STRATEGY_LAB에 명시돼 있다. 실계좌 라이브는 보류하고, 백테스트 가능한 눌림 필터(dip-buy 장 마감 제거실험, 2022 홀드아웃 사전등록)로 옮긴다.</p></div></div></div><div class="p2lane"><div class="lane-h p2"><span class="badge2">P2</span><span class="lh">저비용 구조 방어 — 파라미터 튜닝 금지</span><span class="ct">2건</span></div><div class="imps"><div class="imp"><div class="h"><span class="id">IMP-12</span><span class="chip">전략</span><span class="chip eff">S</span><h3>entry_halt 히스테리시스(dwell + 확인카운터)</h3></div><p class="prob">−3 임계에서 5회 났던 진동을 억제한다. 최소 15분 dwell과 2연속 폴 확인 후 전환. regime 3-state 재설계는 보류목록에 둔다.</p></div><div class="imp"><div class="h"><span class="id">IMP-13</span><span class="chip">리스크</span><span class="chip eff">S</span><h3>사다리 회전 상한 가드</h3></div><p class="prob">종목당 세션 재호가·누적체결 명목 상한을 둔다(IMP-06과 공유). 값 튜닝 없이 구조적 상한만으로 093190 같은 반복 재주문을 통제한다.</p></div></div></div></div><div class="sec-h"><span class="n">07</span><h2>후속 게이트</h2><span class="rule"></span></div><div class="block"><ol class="gate"><li><span><b class="stop">실계좌 전환 게이트</b> — IMP-01·02·03(P0)이 닫히기 전에는 실계좌 라이브를 하지 않는다.</span></li><li><span><b>청산 배관 정합(P1)</b> — IMP-04·05·06·07로 장 마감 net-flat을 확인한다.</span></li><li><span><b>관측성·격리(P1)</b> — IMP-08·09·10.</span></li><li><span><b>전략 재배치(P1)</b> — IMP-11: DevScale INTRADAY는 보류하고 H7로 리서치를 옮긴다. LAB 합격 엣지가 0개인 동안 regime 개조와 파라미터 튜닝은 하지 않는다.</span></li></ol></div><div class="rv-foot"><div>정리 문서 <a href="../../strategies/DeviationScale/reviews/2026-08-21_postmortem_08-20_08-21.md"><span class="mono">strategies/DeviationScale/reviews/2026-08-21_postmortem_08-20_08-21.md</span></a></div><div>근거 <span class="mono">Quant/build_win/logs/quant_trader.log</span></div></div></article>
+… 018260·161390·093190 동일 · #2~#5 전량 실패</div><div class="impact">"잠김"은 모의계좌에서 당일 매수분을 당일 매도할 수 없어(익일 반영) 생긴다. 12002 조회실패도 같은 "잠김"으로 보여서, 장 마감 창에서 실제로 유효한 관측은 1회뿐이었다.</div></div></div><div class="sec-h"><span class="n">03</span><h2>손익 · 레짐</h2><span class="rule"></span></div><div class="panel"><div class="card"><h3>08-21 세션 당일손익 <span class="u">KRW · 리컨사일 샘플 11:00~12:57</span></h3><div class="chartwrap"><svg viewBox="0 0 640 200" role="img" aria-label="08-21 세션 손익"><defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent)" stop-opacity="0.22"/><stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs><line x1="54" y1="83.6" x2="626" y2="83.6" stroke="var(--ok)" stroke-width="1.4" stroke-dasharray="5 4"/><text x="46" y="86.6" text-anchor="end" fill="var(--ok)" font-size="10" class="mono">0k</text><line x1="54" y1="140.4" x2="626" y2="140.4" stroke="var(--grid)" stroke-width="1" /><text x="46" y="143.4" text-anchor="end" fill="var(--faint)" font-size="10" class="mono">-50k</text><line x1="54" y1="26.9" x2="626" y2="26.9" stroke="var(--grid)" stroke-width="1" /><text x="46" y="29.9" text-anchor="end" fill="var(--faint)" font-size="10" class="mono">50k</text><path d="M 54.0 103.3 L 135.7 154.4 L 217.4 116.9 L 299.1 149.8 L 380.9 67.0 L 462.6 101.6 L 544.3 36.3 L 626.0 48.3 L 626.0 174.0 L 54.0 174.0 Z" fill="url(#g1)"/><path d="M 54.0 103.3 L 135.7 154.4 L 217.4 116.9 L 299.1 149.8 L 380.9 67.0 L 462.6 101.6 L 544.3 36.3 L 626.0 48.3" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="54.0" cy="103.3" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="54.0" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">11:02</text><circle cx="135.7" cy="154.4" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="135.7" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">11:03</text><circle cx="217.4" cy="116.9" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="217.4" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">11:23</text><circle cx="299.1" cy="149.8" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="299.1" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">11:43</text><circle cx="380.9" cy="67.0" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="380.9" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">12:03</text><circle cx="462.6" cy="101.6" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="462.6" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">12:23</text><circle cx="544.3" cy="36.3" r="2.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="0"/><text x="544.3" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">12:43</text><circle cx="626.0" cy="48.3" r="4" fill="var(--ok)" stroke="var(--surface)" stroke-width="2"/><text x="626.0" y="191" text-anchor="middle" fill="var(--faint)" font-size="9.5" class="mono">12:57</text><text x="622.0" y="38.3" text-anchor="end" fill="var(--ok)" font-size="12" font-weight="600" class="mono">+31,184</text></svg></div><p class="cardnote">최저 <b class="neg">−317,260</b> · 마감 −203,600(검은 선). 한도(주황)를 넘었는데 거부·청산 로그는 0건이다. 손실한도가 신규 BUY 사전점검에만 쓰이고 집행 액션이 없다.</p></div><div class="pcol"><div class="card"><h3>08-20 손실한도 돌파</h3><div class="breach"><div class="b0"><span class="num neg">−317,260</span><span class="lim">세션 최저 · 한도 −300k 초과</span></div><div class="bar"><div class="fill" style="width:88.1%"></div><div class="limline" style="left:83.3%"><span class="ll">한도 −300k</span></div><div class="close" style="left:56.6%"></div></div><small>최저 <b class="neg">−317,260</b> @15:03:47 · 마감 −203,600(검은 선). 한도(주황)를 초과했으나 거부·청산 로그 0건.</small></div></div><div class="card"><h3>entry_halt 토글 <span class="u">08-21 · 히스테리시스 부재</span></h3><div class="tl"><div class="ev2"><span class="t">09:37</span><span class="d"><span class="s on"></span>HALT <b>ON</b> — RISK_OFF score −3 (초기)</span></div><div class="ev2"><span class="t">10:22</span><span class="d"><span class="s off"></span>HALT OFF — NEUTRAL −2</span></div><div class="ev2"><span class="t">12:08</span><span class="d"><span class="s on"></span>HALT ON — −3</span></div><div class="ev2"><span class="t">12:14</span><span class="d"><span class="s off"></span>HALT OFF — −2</span></div><div class="ev2"><span class="t">12:41</span><span class="d"><span class="s on"></span>HALT ON — −3 <span class="faintnote">(2분53초 뒤 12:44 OFF)</span></span></div><div class="ev2"><span class="t">12:57</span><span class="d"><span class="s crash"></span>프로세스 크래시</span></div></div></div></div></div><div class="sec-h"><span class="n">04</span><h2>6축 근거분석</h2><span class="rule"></span></div><div class="fgrid"><div class="fcard"><div class="top"><span class="ax">AXIS 1</span><span class="pill info">by-design 중심</span></div><h3>주문·체결 파이프라인</h3><ul><li><span class="k des">DES</span><span>H0STCNI0 미배선 — 명시 체결 0건, 잔고 스냅샷 차이로만 역추정</span></li><li><span class="k des">DES</span><span>dev_buy 사다리 리프라이싱 루프(093190 20회+). 체결은 "취소 거부: 수량 없음"으로만 확인</span></li><li><span class="k bug">BUG</span><span>리컨사일 30초 폴링 + 12002 시 지수 백오프 최대 8사이클 실명</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 2</span><span class="pill crit">심각</span></div><h3>장 마감 청산 실패</h3><ul><li><span class="k bug">BUG</span><span>sellable=0 하드 클램프 — 강제청산 대체 경로 없음</span></li><li><span class="k bug">BUG</span><span>12002 조회실패도 "매도가능=0 잠김"으로 보임 — 유효 관측 1회</span></li><li><span class="k bug">BUG</span><span>read-before-cancel 레이스 — 취소로 푼 수량을 같은 틱에 못 봄</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 3</span><span class="pill crit">심각</span></div><h3>08-21 트레이더 크래시</h3><ul><li><span class="k bug">BUG</span><span>증상 없이 종료 — SEH(접근위반)는 catch(std::exception)이 못 잡음</span></li><li><span class="k unc">UNC</span><span>근본원인은 로그만으로 규명 불가 — 덤프·stderr 없음</span></li><li><span class="k bug">BUG</span><span>프로세스 감시·자동재시작·하트비트 경보 없음</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 4</span><span class="pill crit">갭</span></div><h3>손실한도 · 리스크게이트</h3><ul><li><span class="k bug">BUG</span><span>집행 액션 없음 — 신규 BUY만 막고 기보유는 그대로 둠</span></li><li><span class="k des">DES</span><span>per-order 사전점검 — 위반·주문 타이밍이 겹쳐야 흔적이 남음</span></li><li><span class="k des">DES</span><span>REST 총평가 폴링 노이즈(6분 새 +127k 스윙)로 기준점·확인틱이 필요</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 5</span><span class="pill warn">high</span></div><h3>레짐 · entry_halt 토글</h3><ul><li><span class="k bug">BUG</span><span>히스테리시스 없음 — 단일점 −3/−2 경계에서 5회 진동</span></li><li><span class="k bug">BUG</span><span>환율 vote가 −0.4% 경계서 +1↔0 진동(0.08%p). VIX·10Y vote 종일 고정</span></li><li><span class="k des">DES</span><span>사이드카 파일은 갱신 정상 · force_liq(−6) 미도달</span></li></ul></div><div class="fcard"><div class="top"><span class="ax">AXIS 6</span><span class="pill info">원인 재지목</span></div><h3>DevScale 진입 게이팅</h3><ul><li><span class="k des">DES</span><span>3중 게이트는 병목이 아님 — BUY 신호 55건 정상 발생</span></li><li><span class="k bug">BUG</span><span>실제 병목은 동시보유 5슬롯 포화(전일 청산실패 캐리오버가 선점)</span></li><li><span class="k bug">BUG</span><span>08-20(33)과 08-21(0)의 차이는 시작 시점 슬롯 여유에서 옴. 국면·게이트 때문이 아님</span></li></ul></div></div><div class="sec-h"><span class="n">05</span><h2>패널 이견 · 검증 한계</h2><span class="rule"></span></div><div class="two"><div class="block"><h3>주요 이견</h3><div class="dis"><div class="row2"><span class="q">손실한도 미로깅 성격</span><span class="j">구현 쪽은 P2(발동 대상 없음), 전략·리스크 쪽은 P0(집행 배선 없음)으로 갈렸다. 결론은 <b>집행 배선 P0 격상(IMP-03)</b>.</span></div><div class="row2"><span class="q">H0STCNI0 미배선</span><span class="j">설계대로이긴 하나 사이징 무결성이 깨진다(093190 7.58M > 캡 7.5M). 결론은 <b>정공법 P1(IMP-08), 캡 클램프 선행(IMP-06)</b>.</span></div><div class="row2"><span class="q">게이팅이 수익을 막는가</span><span class="j">전략 쪽 교정: 08-21 halt는 옳았다(세션 +31,184 마감). 결론은 <b>결함이 진입컷·사이징 쪽</b>이라는 것.</span></div></div></div><div class="block lim"><h3>모의계좌의 한계</h3><div class="limbody"><p>모의계좌는 당일 매수분을 당일 매도할 수 없어(익일 반영) DevScale·ITB의 전제인 <b>장 마감 net-flat</b>을 forward-test 할 수 없다.</p><p>08-20 청산 실패는 전략 결함과 모의계좌 특성이 뒤섞여 분리하기 어렵다. 청산 안정성 근거는 모의 장 마감 청산에서 취하지 않고, 강제청산 대체 경로는 실계좌 이관 전 조건으로만 요구한다(IMP-11).</p></div></div></div><div class="sec-h"><span class="n">06</span><h2>개선안</h2><span class="rule"></span></div><p class="fdesc">손실통제, 청산 배관, 관측성, 전략 재배치 순</p><div class="lane"><div class="p0lane"><div class="lane-h p0"><span class="badge2">P0</span><span class="lh">실계좌 전환 게이트 — 닫히기 전 라이브 금지</span><span class="ct">3건 · 벽시계·워치독·집행</span></div><div class="imps"><div class="imp"><div class="h"><span class="id">IMP-01</span><span class="chip">리스크</span><span class="chip eff">M</span><h3>장 마감 청산·손실컷을 시세 이벤트에서 떼어 독립 벽시계 타이머로 구동</h3></div><p class="prob">장 마감 청산이 <code>on_trade_batch</code>(td 도착)로만 트리거되고, td는 <code>data_thread_fn</code>이 공급한다. 크래시나 12002 정체가 나면 장 마감 청산이 돌지 않는다. 08-20·08-21 이월의 공통 원인이다.</p><p class="fix"><code>control_thread_fn</code>에 <code>kst_hhmm≥eod</code> 감시 가디언을 두고, 시세와 무관하게 청산 시그널을 <code>order_queue_</code>에 직접 push한다. 전략 장 마감 블록은 백업으로 남긴다.</p></div><div class="imp"><div class="h"><span class="id">IMP-02</span><span class="chip">관측성</span><span class="chip eff">M</span><h3>크래시 관측성(SEH를 C++ 예외로 변환) + 외부 워치독 자동 재기동</h3></div><p class="prob">12:57:07에 증상 없이 종료됐고 <code>[ERROR]</code>는 0건이다. 접근위반(SEH)은 <code>/EHsc</code>의 <code>catch(std::exception)</code>이 못 잡는다.</p><p class="fix">스레드 시작부에 <code>_set_se_translator</code> 또는 <code>__try/__except</code>를 두어 폴트 주소·스택을 남긴다. 외부 워치독이 exe 종료를 감지해 재기동하고, 부트스트랩 재시드 후 장 마감 가디언이 청산한다.</p></div><div class="imp"><div class="h"><span class="id">IMP-03</span><span class="chip">리스크</span><span class="chip eff">M</span><h3>손실한도 −300k 집행 배선 (신규 BUY 차단 + soft de-risk + 세션 진입예산)</h3></div><p class="prob">OrderGate 손실한도가 신규 BUY에만 적용되고 강제청산·kill로 넘어가는 단계가 없다. −317,260 시점에 차단도 경고도 없었다.</p><p class="fix"><code>daily_pnl_ ≤ −300k</code>이면 WARN 1회 + 기존 <code>set_entry_halt()</code> 재사용(신규 BUY 차단, SELL/CANCEL 통과) + 청산 모드로 장 마감 가디언 경로 연결. −180k 선제 soft halt.</p></div></div></div><div class="p1lane"><div class="lane-h p1"><span class="badge2">P1</span><span class="lh">청산 배관 정합 · 관측성 · 전략 재배치</span><span class="ct">8건</span></div><div class="imps"><div class="imp"><div class="h"><span class="id">IMP-04</span><span class="chip">리스크</span><span class="chip eff">M</span><h3>장 마감 강제청산 에스컬레이션 상태머신</h3></div><p class="prob">sellable 상태를 {N / 잠김 / 미상}으로 구분하고 marketable-limit 대체 경로를 둔다. 12002 실패가 잠김으로 보이는 것을 없애고, 15:20까지 미청산이면 심각 알림을 낸다.</p></div><div class="imp"><div class="h"><span class="id">IMP-05</span><span class="chip">버그수정</span><span class="chip eff">M</span><h3>취소 후 매도로 넘어가는 순차 상태머신</h3></div><p class="prob">CANCELLING→취소확인 대기→REQUERY→LIQUIDATING. read-before-cancel 레이스를 없앤다(최소수정은 1-tick 지연 플래그).</p></div><div class="imp"><div class="h"><span class="id">IMP-06</span><span class="chip">리스크</span><span class="chip eff">M</span><h3>확정잔고 기반 종목 명목 캡 클램프</h3></div><p class="prob">reserved_ 드리프트로 093190이 7.58M으로 캡 7.5M을 넘었다. 리컨사일 확정잔고 명목이 캡 이상이면 신규 BUY를 거부한다. IMP-08 전에 바로 쓸 수 있는 방어다.</p></div><div class="imp"><div class="h"><span class="id">IMP-07</span><span class="chip">리스크</span><span class="chip eff">S</span><h3>manage_holdings eod 1600을 1515로 정렬</h3></div><p class="prob">protect-only 1600이 캐리오버를 장중에 청산하지 않아 018260·161390이 2박 이월됐다. DevScale 본체 eod와 시각을 맞춘다.</p></div><div class="imp"><div class="h"><span class="id">IMP-08</span><span class="chip">버그수정</span><span class="chip eff">L</span><h3>H0STCNI0 체결통보 배선 / FILLED 전이</h3></div><p class="prob">ACCEPTED에서 벗어나지 못해 오래된 주문이 취소무시 64건을 냈다. 체결통보 웹소켓을 따로 배선하거나 reconcile로 on_fill 상태전이를 만든다.</p></div><div class="imp"><div class="h"><span class="id">IMP-09</span><span class="chip">버그수정</span><span class="chip eff">S</span><h3>Logger localtime 스레드안전 수정</h3></div><p class="prob">std::localtime을 lock 밖에서 호출해 4스레드 데이터레이스(UB)가 있다. localtime_s/r로 바꾸고 포맷을 lock 안으로 옮긴다.</p></div><div class="imp"><div class="h"><span class="id">IMP-10</span><span class="chip">관측성</span><span class="chip eff">M</span><h3>관측 모니터 예외격리 + 리컨사일 우선 처리</h3></div><p class="prob">수급·섹터·매크로가 data_thread에서 순차 실행돼 청산·손실컷이 낡은 스냅샷 위에서 판단한다. try/catch로 격리하고 리컨사일을 먼저 돌린다.</p></div><div class="imp"><div class="h"><span class="id">IMP-11</span><span class="chip">전략</span><span class="chip eff">M</span><h3>DevScale INTRADAY 실계좌 보류 + 눌림 필터 우선</h3></div><p class="prob">모의 장 마감 청산으로는 검증할 수 없다고 STRATEGY_LAB에 명시돼 있다. 실계좌 라이브는 보류하고, 백테스트 가능한 눌림 필터(dip-buy 장 마감 제거실험, 2022 홀드아웃 사전등록)로 옮긴다.</p></div></div></div><div class="p2lane"><div class="lane-h p2"><span class="badge2">P2</span><span class="lh">저비용 구조 방어 — 파라미터 튜닝 금지</span><span class="ct">2건</span></div><div class="imps"><div class="imp"><div class="h"><span class="id">IMP-12</span><span class="chip">전략</span><span class="chip eff">S</span><h3>entry_halt 히스테리시스(dwell + 확인카운터)</h3></div><p class="prob">−3 임계에서 5회 났던 진동을 억제한다. 최소 15분 dwell과 2연속 폴 확인 후 전환. regime 3-state 재설계는 보류목록에 둔다.</p></div><div class="imp"><div class="h"><span class="id">IMP-13</span><span class="chip">리스크</span><span class="chip eff">S</span><h3>사다리 회전 상한 가드</h3></div><p class="prob">종목당 세션 재호가·누적체결 명목 상한을 둔다(IMP-06과 공유). 값 튜닝 없이 구조적 상한만으로 093190 같은 반복 재주문을 통제한다.</p></div></div></div></div><div class="sec-h"><span class="n">07</span><h2>후속 게이트</h2><span class="rule"></span></div><div class="block"><ol class="gate"><li><span><b class="stop">실계좌 전환 게이트</b> — IMP-01·02·03(P0)이 닫히기 전에는 실계좌 라이브를 하지 않는다.</span></li><li><span><b>청산 배관 정합(P1)</b> — IMP-04·05·06·07로 장 마감 net-flat을 확인한다.</span></li><li><span><b>관측성·격리(P1)</b> — IMP-08·09·10.</span></li><li><span><b>전략 재배치(P1)</b> — IMP-11: DevScale INTRADAY는 보류하고 H7로 리서치를 옮긴다. LAB 합격 엣지가 0개인 동안 regime 개조와 파라미터 튜닝은 하지 않는다.</span></li></ol></div><div class="rv-foot"><div>정리 문서 <span class="mono">strategies/DeviationScale/reviews/2026-08-21_postmortem_08-20_08-21.md</span></div><div>근거 <span class="mono">Quant/build_win/logs/quant_trader.log</span></div></div></article>
 </div>
 </div>
 

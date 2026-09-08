@@ -360,15 +360,28 @@ def render_live(live):
         cards = []
         for c in journals:
             summ = c.get("summary") or c.get("strat_line") or ""
-            href = "../../" + esc(c.get("path", ""))
-            cards.append(
-                f'<a class="card" href="{href}">'
-                f'<div class="chead"><span class="cdate">{esc(c.get("date",""))}</span>'
-                f'<span class="pill p-strat">{esc(c.get("strategy",""))}</span></div>'
-                f'<div class="ctitle">{esc(c.get("title",""))}</div>'
-                f'<div class="csumm">{esc(summ)}</div></a>')
+            rel = c.get("path", "")
+            # 원문을 상대링크로 걸면 로컬에서만 열린다. Artifact로 올리면 그 경로가 없어서
+            # not found가 뜬다(자체완결 원칙 위반). 그래서 md 본문을 카드 안에 심는다.
+            # <details>라 JS 없이도 펼쳐진다.
+            body = ""
+            try:
+                body = (_REPO / rel).read_text(encoding="utf-8") if rel else ""
+            except OSError:
+                body = ""
+            inner = (f'<summary>'
+                     f'<div class="chead"><span class="cdate">{esc(c.get("date",""))}</span>'
+                     f'<span class="pill p-strat">{esc(c.get("strategy",""))}</span></div>'
+                     f'<div class="ctitle">{esc(c.get("title",""))}</div>'
+                     f'<div class="csumm">{esc(summ)}</div></summary>')
+            if body:
+                inner += (f'<div class="jsrc">{esc(rel)}</div>'
+                          f'<pre class="jbody">{esc(body)}</pre>')
+            else:
+                inner += f'<div class="jsrc">원문을 찾지 못했다 — {esc(rel)}</div>'
+            cards.append(f'<details class="card jcard">{inner}</details>')
         out.append('<div class="grp"><h3>매매 일지 <span class="win">'
-                   '(카드 클릭 = 원문 md, 로컬 열람 시)</span></h3>'
+                   '(카드 클릭 = 원문 펼치기)</span></h3>'
                    f'<div class="cards">{"".join(cards)}</div></div>')
 
     # 주문 로그 롤업
@@ -661,8 +674,9 @@ def render_reviews(reviews):
         # footer of the review
         out.append(
             '<div class="rv-foot">'
-            f'<div>정리 문서 <a href="../../{esc(rv.get("doc_path",""))}">'
-            f'<span class="mono">{esc(rv.get("doc_path",""))}</span></a></div>'
+            # 링크가 아니라 경로 표기다. 상대링크는 Artifact에서 not found가 된다
+            # (바로 아래 근거 log_path와 같은 취급).
+            f'<div>정리 문서 <span class="mono">{esc(rv.get("doc_path",""))}</span></div>'
             f'<div>근거 <span class="mono">{esc(rv.get("log_path",""))}</span></div></div>')
         out.append('</article>')
     return "".join(out)
@@ -830,6 +844,15 @@ tr.bh td.c-strategy::after{content:" ·기준선";color:var(--faint);font-weight
 .card.j,.cards .card{display:block;text-decoration:none;color:inherit;background:var(--surface-2);
   border:1px solid var(--line);border-radius:12px;padding:13px 15px;transition:border-color .12s}
 .cards .card:hover{border-color:var(--accent)}
+.jcard{cursor:pointer}
+.jcard>summary{list-style:none;cursor:pointer}
+.jcard>summary::-webkit-details-marker{display:none}
+.jcard[open]{grid-column:1/-1;cursor:default}
+.jcard[open] .csumm{-webkit-line-clamp:unset;display:block}
+.jsrc{margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--faint)}
+.jbody{margin-top:6px;max-height:60vh;overflow:auto;white-space:pre-wrap;word-break:break-word;
+  font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--ink);
+  background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
 .chead{display:flex;gap:8px;align-items:center;margin-bottom:6px}
 .cdate{font-family:var(--mono);font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
 .ctitle{font-weight:700;font-size:13.5px;margin-bottom:5px;line-height:1.35}
