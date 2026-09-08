@@ -27,16 +27,23 @@ static Engine* g_engine = nullptr;
 void signal_handler(int)
 {
     g_running.store(false);
+
     if (g_engine)
+    {
         g_engine->stop();
+    }
 }
 
 // ─── 설정 파일 로드 ───────────────────────────────────────────────────────
 static json load_config(const std::string& path)
 {
     std::ifstream f(path);
+
     if (!f.is_open())
+    {
         throw std::runtime_error("설정 파일 없음: " + path);
+    }
+
     return json::parse(f);
 }
 
@@ -70,13 +77,19 @@ int main(int argc, char* argv[])
     for (int i = 1; i < argc; ++i)
     {
         std::string input_mode = argv[i];
+
         if (input_mode == "KR_TEST" || input_mode == "US_TEST" || input_mode == "FEED" || input_mode == "TRADE")
+        {
             mode_override = input_mode;
+        }
         else
+        {
             config_path = input_mode;
+        }
     }
 
     json cfg;
+
     try
     {
         cfg = load_config(config_path);
@@ -105,12 +118,19 @@ int main(int argc, char* argv[])
 
     // FEED 모드 전용 — TRADE 모드는 전략이 동적으로 종목 구성
     std::vector<std::string> tickers;
+
     if (cfg.contains("tickers"))
+    {
         tickers = cfg["tickers"].get<std::vector<std::string>>();
+    }
+
     // 국내 선물 실시간(H0IFCNT0/H0IFASP0). 실계좌 WS 도메인 전용이라 kis.is_paper=false 필요.
     std::vector<std::string> futures;
+
     if (cfg.contains("futures"))
+    {
         futures = cfg["futures"].get<std::vector<std::string>>();
+    }
 
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
@@ -121,11 +141,17 @@ int main(int argc, char* argv[])
     //  관찰용 모니터 모드 — 각자 자기 루프를 돌다 종료 (modes/Monitors.cpp)
     // ═══════════════════════════════════════════════════════════════════════
     if (mode == "FEED")
+    {
         return run_feed(kis_cfg, tickers, futures, g_running);
+    }
     else if (mode == "KR_TEST")
+    {
         return run_kr_test(kis_cfg, g_running);
+    }
     else if (mode == "US_TEST")
+    {
         return run_us_test(kis_cfg, g_running);
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     //  TRADE 모드: 전략 매매 엔진 (tickers 설정 불필요 — 전략이 동적으로 구성)
@@ -148,6 +174,7 @@ int main(int argc, char* argv[])
     //  묶이고, 토큰이 비면 KILL 명령은 거부된다. 스레드 시작 전에만 유효하다.
     engine.set_zmq_control(cfg.value("zmq_bind_addr", std::string()),
                            cfg.value("zmq_control_token", std::string()));
+
     // G1: 국면→전략 자동선택 맵. config "regime_strategies": {"BULL":[id...], "NEUTRAL":[...], "BEAR":[...]}.
     //  id 항목이 '*'로 끝나면 접두 매칭(스캐너 동적 id: "DevScale_*"). 미지정이면 기존
     //  per-strategy active_regimes 방식 유지(하위호환). 지정 시 국면이 전략셋을 선택한다.
@@ -155,27 +182,44 @@ int main(int argc, char* argv[])
     {
         auto to_regime = [](const std::string& k) -> Regime
         {
-            if (k == "BULL")    return Regime::BULL;
-            if (k == "BEAR")    return Regime::BEAR;
-            if (k == "NEUTRAL") return Regime::NEUTRAL;
+            if (k == "BULL")
+            {
+                return Regime::BULL;
+            }
+
+            if (k == "BEAR")
+            {
+                return Regime::BEAR;
+            }
+
+            if (k == "NEUTRAL")
+            {
+                return Regime::NEUTRAL;
+            }
+
             return Regime::UNKNOWN;
         };
         std::map<Regime, std::vector<std::string>> rmap;
+
         for (auto it = cfg["regime_strategies"].begin(); it != cfg["regime_strategies"].end(); ++it)
         {
             Regime r = to_regime(it.key());
+
             if (r == Regime::UNKNOWN)
             {
                 LOG_WARN("[Main] regime_strategies: 알 수 없는 국면 키 '" + it.key() + "' 무시");
                 continue;
             }
+
             rmap[r] = it.value().get<std::vector<std::string>>();
         }
+
         engine.set_regime_strategies(rmap);
         engine.set_regime_reeval_interval(cfg.value("regime_reeval_sec", 300));
         LOG_INFO("[Main] 국면→전략 자동선택 맵 " + std::to_string(rmap.size()) +
                  "개 국면 적용(재평가 " + std::to_string(cfg.value("regime_reeval_sec", 300)) + "s)");
     }
+
     // 국면 판정기(RegimeController) 파라미터. config "regime_tuning":
     //  {"index_code":"0001","ma_long":200,"ma_mid":60,"ma_short":20,"ma_align3":120,
     //   "score_bull_threshold":2,"score_bear_threshold":-2,"fail_fallback_n":3}
@@ -199,6 +243,7 @@ int main(int argc, char* argv[])
         const int bull = rt.value("score_bull_threshold", def.score_bull_threshold);
         const int bear = rt.value("score_bear_threshold", def.score_bear_threshold);
         const bool overridden = (bull != def.score_bull_threshold) || (bear != def.score_bear_threshold);
+
         if (overridden && !kis_cfg.is_paper)
         {
             LOG_ERROR("[Main] regime_tuning 점수 임계값 오버라이드는 실계좌에서 무시한다 "
@@ -210,13 +255,17 @@ int main(int argc, char* argv[])
         {
             rc.score_bull_threshold = bull;
             rc.score_bear_threshold = bear;
+
             if (overridden)
+            {
                 LOG_WARN("[Main] 국면 점수 임계값 오버라이드 — bull>=" + std::to_string(bull) +
                          ", bear<=" + std::to_string(bear) + " (기본 " +
                          std::to_string(def.score_bull_threshold) + "/" +
                          std::to_string(def.score_bear_threshold) +
                          "). 국면이 실제 시장과 다르게 판정되니 검증용으로만 둔다.");
+            }
         }
+
         // classify()는 BULL을 먼저 보므로 bull<=bear면 NEUTRAL이 도달 불능이 된다.
         if (rc.score_bull_threshold <= rc.score_bear_threshold)
         {
@@ -226,6 +275,7 @@ int main(int argc, char* argv[])
             rc.score_bull_threshold = def.score_bull_threshold;
             rc.score_bear_threshold = def.score_bear_threshold;
         }
+
         engine.set_regime_config(rc);
         LOG_INFO("[Main] 국면 판정 파라미터 — 지수=" + rc.index_code +
                  " ma(" + std::to_string(rc.ma_short) + "/" + std::to_string(rc.ma_mid) + "/" +
@@ -234,6 +284,7 @@ int main(int argc, char* argv[])
                  ", bear<=" + std::to_string(rc.score_bear_threshold) + ")" +
                  " fail_fallback=" + std::to_string(rc.fail_fallback_n));
     }
+
     // 기동 스모크 테스트 — 서버 실행 직후 지정 종목을 시장가 1주 매수해, 주문 경로 전체가
     //  살아있는지 최소 점검한다. config "startup_probe": {"ticker":"005930","qty":1}.
     //  없으면 미가동(기존 동작 불변).
@@ -243,14 +294,19 @@ int main(int argc, char* argv[])
         std::string sp_ticker = sp.value("ticker", std::string());
         int         sp_qty    = sp.value("qty", 0);
         engine.set_startup_probe(sp_ticker, sp_qty);
+
         if (!sp_ticker.empty() && sp_qty > 0)
+        {
             LOG_INFO("[Main] 기동 기동 점검 설정: " + sp_ticker + " 시장가 " +
                      std::to_string(sp_qty) + "주 (모의계좌 주문경로 검증)");
+        }
     }
+
     // 시세 전용(실전 도메인) 키: 모의(openapivts)는 시세 REST가 HTTP 500이므로 시세만 실전으로 조회.
     // 스캔 유니버스 분기(universe_from_scan)도 이 실전 키로 거래대금 랭킹/지수를 조회하므로 바깥 스코프로 보관.
     KisConfig quote_kis_cfg;
     bool has_quote_kis = false;
+
     if (cfg.contains("quote_kis"))
     {
         KisConfig q;
@@ -296,13 +352,19 @@ int main(int argc, char* argv[])
                  std::to_string((long long)rc.daily_loss_limit) + "원, " +
                  std::to_string(rc.max_orders_per_sec) + "/s·" +
                  std::to_string(rc.max_orders_per_min) + "/min");
+
         if (rc.max_notional_per_ticker > 0.0 || rc.max_concurrent_positions > 0)
+        {
             LOG_INFO("[Main] 사이징 백스톱: 종목당 명목 " +
                      std::to_string((long long)rc.max_notional_per_ticker) + "원, 동시보유 " +
                      std::to_string(rc.max_concurrent_positions) + "종목");
+        }
+
         if (rc.max_gross_exposure_pct > 0.0)
+        {
             LOG_INFO("[Main] 총노출 상한: 자본의 " +
                      std::to_string(rc.max_gross_exposure_pct) + " (잔고 대조 총평가금 기준)");
+        }
 
         // 주문 호출 간격 조절(C-2/W-3) — 버스트 청산 EGW00201 회피 + 거부 SELL 재시도.
         int pace_ms = r.value("order_min_interval_ms", 350);
@@ -317,8 +379,11 @@ int main(int argc, char* argv[])
     load_strategies(sctx, cfg["strategies"]);
 
     engine.start();
+
     while (engine.is_running())
+    {
         std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
 
     LOG_INFO("[Main] 프로그램 종료");
     return 0;

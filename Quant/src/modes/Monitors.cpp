@@ -32,19 +32,30 @@ static const std::map<std::string, std::string> TICKER_NAMES = {{"005380", "현�
 static std::string fmt_int_comma(long long v, int width, const std::string& empty)
 {
     if (v <= 0)
+    {
         return empty;
+    }
+
     std::string s = std::to_string(v);
     std::string r;
     int cnt = 0;
+
     for (int i = static_cast<int>(s.size()) - 1; i >= 0; --i)
     {
         if (cnt > 0 && cnt % 3 == 0)
+        {
             r = "," + r;
+        }
+
         r = s[i] + r;
         ++cnt;
     }
+
     while (static_cast<int>(r.size()) < width)
+    {
         r = " " + r;
+    }
+
     return r;
 }
 
@@ -54,7 +65,10 @@ static std::string fmt_qty(int64_t v)  { return fmt_int_comma(v, 7, "      -"); 
 static std::string fmt_time_hms(const std::string& t)
 {
     if (t.size() < 6)
+    {
         return "--:--:--";
+    }
+
     return t.substr(0, 2) + ":" + t.substr(2, 2) + ":" + t.substr(4, 2);
 }
 
@@ -62,9 +76,15 @@ static std::string fmt_time_hms(const std::string& t)
 static std::string dir_str(int d)
 {
     if (d == 1)
+    {
         return "\xE2\x96\xB2"; // UTF-8 ▲
+    }
+
     if (d == 5)
+    {
         return "\xE2\x96\xBC"; // UTF-8 ▼
+    }
+
     return "-";
 }
 
@@ -126,6 +146,7 @@ static void print_feed(const std::vector<std::string>& tickers, std::mutex& mtx,
         if (ob_it != ob_cache.end())
         {
             const auto& ob = ob_it->second;
+
             // 매도5↔매수1, 매도4↔매수2, ..., 매도1↔매수5
             for (int i = 4; i >= 0; --i)
             {
@@ -143,10 +164,14 @@ static void print_feed(const std::vector<std::string>& tickers, std::mutex& mtx,
         else
         {
             for (int i = 0; i < 5; ++i)
+            {
                 std::cout << "    (데이터 수신 대기...)                     \n";
+            }
         }
+
         std::cout << "\n";
     }
+
     std::cout.flush();
 }
 
@@ -177,8 +202,12 @@ int run_feed(const KisConfig& kis_cfg, const std::vector<std::string>& tickers,
         });
 
     std::vector<WatchSpec> specs;
+
     for (const auto& t : tickers)
+    {
         specs.push_back({t, Market::KR, ""});
+    }
+
     // 국내 선물 — H0IFCNT0 체결·H0IFASP0 호가. 실계좌 WS 도메인 전용(모의 미지원)이라
     // kis 블록이 is_paper=false여야 데이터가 온다.
     for (const auto& fcode : futures)
@@ -188,9 +217,12 @@ int run_feed(const KisConfig& kis_cfg, const std::vector<std::string>& tickers,
         fs.is_future = true;
         specs.push_back(fs);
     }
+
     if (kis_cfg.is_paper && !futures.empty())
+    {
         LOG_WARN("[Main] FEED에 선물 종목이 있으나 kis.is_paper=true — 선물 실시간은 모의 미지원이라 "
                  "데이터가 안 옵니다. 실계좌 키 config로 실행하세요.");
+    }
 
     // 화면 렌더용 통합 목록(현물 뒤에 선물). print_feed는 종목코드 키로 캐시를 찾으므로
     // 선물 코드도 그대로 표시된다.
@@ -198,6 +230,7 @@ int run_feed(const KisConfig& kis_cfg, const std::vector<std::string>& tickers,
     display.insert(display.end(), futures.begin(), futures.end());
 
     LOG_INFO("[Main] FEED 모드 — WebSocket 연결 시도");
+
     if (!ws.connect(specs))
     {
         LOG_ERROR("[Main] WebSocket 연결 실패");
@@ -241,6 +274,7 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
     auto utf8_trunc     = [](const std::string& s, int m) { return utf8::trunc(s, m); };
 
     KisClient kis(kis_cfg);
+
     if (!kis.authenticate())
     {
         LOG_ERROR("[KR_TEST] KIS 인증 실패");
@@ -266,10 +300,17 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
     auto calc_ma = [](const std::vector<MarketData>& bars, int period) -> double
     {
         if (static_cast<int>(bars.size()) < period)
+        {
             return 0.0;
+        }
+
         double sum = 0.0;
+
         for (int i = 0; i < period; ++i)
+        {
             sum += bars[i].close;
+        }
+
         return sum / period;
     };
 
@@ -277,12 +318,21 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
     auto fmt_cap = [](double v) -> std::string
     {
         if (v <= 0)
+        {
             return "    --";
+        }
+
         char buf[16];
+
         if (v >= 10000.0)
+        {
             snprintf(buf, sizeof(buf), "%.1f조", v / 10000.0);
+        }
         else
+        {
             snprintf(buf, sizeof(buf), "%.0f억", v);
+        }
+
         return buf;
     };
 
@@ -290,12 +340,21 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
     auto fmt_ma = [](double v) -> std::string
     {
         if (v <= 0)
+        {
             return "   --";
+        }
+
         char buf[16];
+
         if (v >= 1'000'000.0)
+        {
             snprintf(buf, sizeof(buf), "%.1fM", v / 1'000'000.0);
+        }
         else
+        {
             snprintf(buf, sizeof(buf), "%.0fK", v / 1'000.0);
+        }
+
         return buf;
     };
 
@@ -339,10 +398,16 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
 
     // 모든 종목 합쳐서 순서대로 로드
     std::vector<std::pair<std::string, std::string>> all_stocks;
+
     for (const auto& s : KR_TOP20)
+    {
         all_stocks.push_back(s);
+    }
+
     for (const auto& s : KR_WATCH)
+    {
         all_stocks.push_back(s);
+    }
 
     for (const auto& [code, name] : all_stocks)
     {
@@ -370,8 +435,10 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
             cache[code] = sp;
             display_order.push_back(code);
         }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
     }
+
     std::cout << "로딩 완료. WebSocket 연결 중...\n";
     std::cout.flush();
 
@@ -402,8 +469,12 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
 
                          std::lock_guard<std::mutex> lk(cache_mtx);
                          auto it = cache.find(td.ticker);
+
                          if (it == cache.end())
+                         {
                              return;
+                         }
+
                          auto& sp = it->second;
                          sp.price = td.price;
                          sp.direction = td.direction;
@@ -418,13 +489,19 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
     std::vector<WatchSpec> specs;
     {
         std::lock_guard<std::mutex> lk(cache_mtx);
+
         for (const auto& code : display_order)
+        {
             specs.push_back({code, Market::KR, "", true}); // trade_only: 구독 28개로 한도 절약
+        }
     }
 
     bool ws_ok = ws.connect(specs);
+
     if (!ws_ok)
+    {
         LOG_WARN("[KR_TEST] WebSocket 연결 실패 — REST 초기값으로만 표시");
+    }
 
     // ── [백그라운드] 지수 5초 폴링 ───────────────────────────────────────
     std::thread idx_poller(
@@ -435,18 +512,25 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
                 for (const auto& [code, name] : INDICES)
                 {
                     if (!running.load())
+                    {
                         break;
+                    }
+
                     auto ip = kis.get_index_price(code);
                     {
                         std::lock_guard<std::mutex> lk(idx_mtx);
                         idx_cache[code] = {ip, true};
                     }
+
                     std::this_thread::sleep_for(std::chrono::milliseconds(300));
                 }
+
                 // 지수 3종 조회(각 300ms) 뒤 약 4.7초 대기 → 폴링 주기 대략 5초.
                 // 종료 신호에 빨리 반응하도록 100ms 단위로 쪼갠다(47회 × 100ms = 4.7초).
                 for (int i = 0; i < 47 && running.load(); ++i)
+                {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
             }
         });
 
@@ -511,17 +595,21 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
                      ws_ok ? "[WS:연결]" : "[WS:끊김]");
             lines.push_back(h);
         }
+
         {
             std::string idx_line;
             std::lock_guard<std::mutex> ilk(idx_mtx);
+
             for (const auto& [code, name] : INDICES)
             {
                 auto it = idx_cache.find(code);
+
                 if (it == idx_cache.end() || !it->second.loaded)
                 {
                     idx_line += name + ":조회중  ";
                     continue;
                 }
+
                 const auto& ip = it->second.data;
                 // KIS 전일대비 부호(sign): 1=상한, 2=상승, 3=보합, 4=하한, 5=하락.
                 // 상승계열(1·2)=빨강↑, 하락계열(4·5)=파랑↓, 보합(3)=색 없음.
@@ -537,16 +625,19 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
                          ip.change, ip.change_rate, rst);
                 idx_line += seg;
             }
+
             lines.push_back(idx_line);
         }
 
         // ── KOSPI 상위 20 (구분선 + 헤더 각 1줄) ─────────────────────
         lines.push_back("\033[90m── KOSPI 시총 상위 20 " + std::string(50, '-') + "\033[0m");
         lines.push_back(" #  code    name            price         chg     chg%   PBR    PER     cap    MA5  MA10  MA20  MA60      time");
+
         for (size_t i = 0; i < KR_TOP20.size(); ++i)
         {
             const auto& code = KR_TOP20[i].first;
             auto it = snap.find(code);
+
             if (it == snap.end())
             {
                 char tmp[64];
@@ -561,10 +652,12 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
 
         // ── 관심 종목 (구분선만, 헤더 재사용) ────────────────────────
         lines.push_back("\033[90m── 관심 종목 " + std::string(59, '-') + "\033[0m");
+
         for (size_t i = 0; i < KR_WATCH.size(); ++i)
         {
             const auto& code = KR_WATCH[i].first;
             auto it = snap.find(code);
+
             if (it == snap.end())
             {
                 char tmp[64];
@@ -582,8 +675,12 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
 
         // ── 출력: 커서를 항상 화면 최상단으로 이동 후 덮어쓰기
         std::cout << "\033[H";
+
         for (const auto& line : lines)
+        {
             std::cout << line << "\033[K\n";
+        }
+
         std::cout << "\033[J";
         std::cout.flush();
 
@@ -594,7 +691,10 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
     }
 
     if (ws_ok)
+    {
         ws.disconnect();
+    }
+
     idx_poller.join();
     std::cout << "\033[?1049l"; // alternate screen 종료 → 원래 터미널 복원
     std::cout.flush();
@@ -622,6 +722,7 @@ int run_us_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
         {"GOOGL", "Alphabet"}, {"META", "Meta"},      {"TSLA", "Tesla"}};
 
     KisClient kis(kis_cfg);
+
     if (!kis.authenticate())
     {
         LOG_ERROR("[US_TEST] KIS 인증 실패");
@@ -654,7 +755,9 @@ int run_us_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
                 for (const auto& [sym, name] : M7)
                 {
                     if (!running.load())
+                    {
                         break;
+                    }
 
                     auto f = kis.get_us_fundamentals(sym, "NAS");
                     auto bars = kis.get_us_daily_ohlcv(sym, 5, "NAS");
@@ -676,6 +779,7 @@ int run_us_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
                         std::lock_guard<std::mutex> lk(cache_mtx);
                         cache[sym] = {f, bars, tbuf};
                     }
+
                     // KIS rate limit: 종목당 최소 200ms 간격
                     std::this_thread::sleep_for(std::chrono::milliseconds(200));
                 }
@@ -705,24 +809,33 @@ int run_us_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
         std::cout << "══════════ M7 미국주식 시세 [" << tbuf << "] ══════════\n";
         std::cout << std::fixed << std::setprecision(0);
         std::cout << "  국내 삼성전자: ";
+
         if (kr_px > 0)
+        {
             std::cout << kr_px << "원";
+        }
         else
+        {
             std::cout << "조회 중...";
+        }
+
         std::cout << "\n\n";
 
         std::lock_guard<std::mutex> lk(cache_mtx);
 
         bool any_ok = false;
+
         for (const auto& [sym, name] : M7)
         {
             auto it = cache.find(sym);
 
             std::cout << "  [" << name << " / " << sym << "]";
+
             if (it != cache.end())
             {
                 std::cout << "  갱신: " << it->second.updated;
             }
+
             std::cout << "\n";
 
             if (it == cache.end())
@@ -742,10 +855,17 @@ int run_us_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
                           << std::setprecision(2) << f.rate << "%"
                           << " (" << f.diff << ")\n"
                           << std::noshowpos;
+
                 if (f.open > 0.0)
+                {
                     std::cout << "    시가: $" << f.open << "  고가: $" << f.high << "  저가: $" << f.low << "\n";
+                }
+
                 if (f.pbid > 0.0 || f.pask > 0.0)
+                {
                     std::cout << "    매수호가: $" << f.pbid << "  매도호가: $" << f.pask << "\n";
+                }
+
                 std::cout << std::setprecision(1) << "    PER=" << f.per << "  PBR=" << f.pbr << "\n";
             }
             else
@@ -756,17 +876,26 @@ int run_us_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
             if (!bars.empty())
             {
                 std::cout << "    일봉:";
+
                 for (const auto& b : bars)
+                {
                     std::cout << "  $" << std::setprecision(2) << b.close;
+                }
+
                 if (bars.size() >= 4)
                 {
                     bool dec = bars[0].close < bars[1].close && bars[1].close < bars[2].close &&
                                bars[2].close < bars[3].close;
+
                     if (dec)
+                    {
                         std::cout << "  ※3일연속하락";
+                    }
                 }
+
                 std::cout << "\n";
             }
+
             std::cout << "\n";
         }
 

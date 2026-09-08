@@ -36,7 +36,9 @@ public:
         const size_t next = (head + 1) % capacity_;
 
         if (next == tail_.load(std::memory_order_acquire))
+        {
             return false; // 버퍼 가득 참
+        }
 
         buffer_[head] = item;
         head_.store(next, std::memory_order_release);
@@ -49,7 +51,9 @@ public:
         const size_t next = (head + 1) % capacity_;
 
         if (next == tail_.load(std::memory_order_acquire))
+        {
             return false;
+        }
 
         buffer_[head] = std::move(item);
         head_.store(next, std::memory_order_release);
@@ -62,7 +66,9 @@ public:
         const size_t tail = tail_.load(std::memory_order_relaxed);
 
         if (tail == head_.load(std::memory_order_acquire))
+        {
             return std::nullopt; // 버퍼 비어 있음
+        }
 
         T item = std::move(buffer_[tail]);
         tail_.store((tail + 1) % capacity_, std::memory_order_release);

@@ -25,6 +25,7 @@ public:
     {
         return emplace(item);
     }
+
     bool push(T&& item)
     {
         return emplace(std::move(item));
@@ -33,8 +34,12 @@ public:
     std::optional<T> pop()
     {
         std::lock_guard<std::mutex> lk(mtx_);
+
         if (q_.empty())
+        {
             return std::nullopt;
+        }
+
         T item = std::move(q_.front());
         q_.pop_front();
         return item;
@@ -61,8 +66,12 @@ private:
     template <typename U> bool emplace(U&& item)
     {
         std::lock_guard<std::mutex> lk(mtx_);
+
         if (q_.size() >= capacity_)
+        {
             return false; // bounded — MpscQueue의 가득 참과 동일 계약
+        }
+
         q_.push_back(std::forward<U>(item));
         return true;
     }

@@ -102,9 +102,20 @@ public:
 
     explicit DeviationScaleStrategy(Params p) : p_(std::move(p))
     {
-        if (p_.n_rungs < 1) p_.n_rungs = 1;
-        if (p_.sma_period < 2) p_.sma_period = 2;
-        if (p_.interval_min < 1) p_.interval_min = 1;
+        if (p_.n_rungs < 1)
+        {
+            p_.n_rungs = 1;
+        }
+
+        if (p_.sma_period < 2)
+        {
+            p_.sma_period = 2;
+        }
+
+        if (p_.interval_min < 1)
+        {
+            p_.interval_min = 1;
+        }
     }
 
     ~DeviationScaleStrategy() { stop_prefetch(); }
@@ -162,6 +173,7 @@ public:
             snap_bars_.clear();
             snap_bars_bucket_ = -1;
         }
+
         LOG_INFO("[" + id() + "] 시작 — " + describe());
         // set_kis()가 on_start 직전 호출됨(Engine start/재스캔 둘 다) → kis_ 확정. 여기서 프리페치 기동.
         stop_prefetch(); // joinable 스레드에 재대입하면 std::terminate — 재등록 경로 대비
@@ -178,9 +190,14 @@ public:
     void on_trade_batch(const TradeData& td, std::vector<OrderSignal>& out) override
     {
         if (td.ticker != p_.ticker)
+        {
             return;
+        }
+
         if (td.price > 0.0)
+        {
             last_px_ = td.price; // 시장가 청산의 명목 평가 기준가(ref_price). 장 마감 경로보다 먼저 갱신
+        }
 
         const int hhmm = kst_hhmm();
 
@@ -191,21 +208,32 @@ public:
             int pos = confirmed_position(p_.account, p_.ticker);
             const std::string tag = "장 마감(" + std::to_string(hhmm) + ")";
             emit_liquidation(out, pos, std::chrono::steady_clock::now(), tag); // 클램프+백오프(자체 로깅)
+
             if (cancelled && pos <= 0)
+            {
                 LOG_INFO("[" + id() + "] " + tag + " — 미체결 취소(보유 0)");
+            }
+
             return;
         }
 
         // ── 무거운 작업 스로틀(3분봉 조회·발주) ──────────────────────────────
         const auto now = std::chrono::steady_clock::now();
+
         if (last_work_.time_since_epoch().count() != 0 &&
             now - last_work_ < std::chrono::milliseconds(p_.min_action_ms))
+        {
             return;
+        }
+
         last_work_ = now;
 
         const double cur_px = td.price;
+
         if (cur_px <= 0.0)
+        {
             return;
+        }
 
         // ── 프리페치 스냅샷 스냅(일봉·자본·3분봉). 아직 준비 전이면 다음 하트비트 대기 ──
         //  무거운 REST는 프리페치 스레드가 미리 당겨둔다. 여기선 락을 짧게 잡고 복사만.
@@ -213,18 +241,25 @@ public:
         int bars_bucket = -1;
         {
             std::lock_guard<std::mutex> lk(snap_mtx_);
+
             if (snap_daily_.empty())
+            {
                 return; // 일봉 미준비 — 프리페치 대기
+            }
+
             daily_  = snap_daily_;
             equity_ = snap_equity_;
             bars    = snap_bars_;
             bars_bucket = snap_bars_bucket_;
         }
+
         // 진행 중인 봉(bars[0])의 종가를 방금 들어온 체결가로 덮는다. 프리페치가 봉 주기당
         //  한 번만 받으므로 그 사이의 가격 변화는 이 한 줄이 반영한다. 봉이 이미 넘어갔는데
         //  프리페치가 아직 안 왔으면(bucket 불일치) 덮지 않는다 — 마감된 봉의 종가를 고칠 순 없다.
         if (!bars.empty() && bars_bucket == kst_bar_bucket(p_.interval_min))
+        {
             bars[0].close = cur_px;
+        }
 
         // ── 일봉 존 판정(정배열 + SMA20 눌림) ────────────────────────────────
         const bool   aligned = is_aligned(daily_);
@@ -266,13 +301,18 @@ public:
             bool cancelled = cancel_all(out);
             int pos = confirmed_position(p_.account, p_.ticker);
             emit_liquidation(out, pos, now, "존 이탈"); // 클램프+백오프(자체 로깅)
+
             if (cancelled && pos <= 0)
+            {
                 LOG_INFO("[" + id() + "] 존 이탈 — 미체결 취소(보유 0)");
+            }
+
             return;
         }
 
         // ── 3분봉 기준선(스냅샷에서 이미 받음) ───────────────────────────────
         const bool warming = static_cast<int>(bars.size()) < p_.sma_period;
+
         if (warming && !p_.daily_basis_warmup)
         {
             // 개장 직후엔 3분봉이 sma_period(20봉=60분)만큼 쌓이지 않아 여기서 매번 되돌아간다.
@@ -280,6 +320,7 @@ public:
             //  60초에 한 번만 남겨 개장 구간 로그가 넘치지 않게 한다.
             const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                        std::chrono::system_clock::now().time_since_epoch()).count();
+
             if (now_ms - last_warm_log_ms_ >= 60000)
             {
                 last_warm_log_ms_ = now_ms;
@@ -287,16 +328,23 @@ public:
                          std::to_string(p_.sma_period) + "봉(" + std::to_string(p_.interval_min) +
                          "분) 현재가=" + fmt1(cur_px));
             }
+
             return;
         }
+
         // 워밍업 구간에는 일봉 SMA20(존 게이트가 이미 쓴 값)을 기준선으로 대신 쓴다.
         const double sma = warming ? d_s20 : sma_close(bars, p_.sma_period); // bars[0]=최신
+
         if (sma <= 0.0)
+        {
             return;
+        }
+
         if (warming)
         {
             const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                        std::chrono::system_clock::now().time_since_epoch()).count();
+
             if (now_ms - last_warm_log_ms_ >= 60000)
             {
                 last_warm_log_ms_ = now_ms;
@@ -305,6 +353,7 @@ public:
                          " 현재가=" + fmt1(cur_px));
             }
         }
+
         int pos = confirmed_position(p_.account, p_.ticker);
 
         // ── 목표 분할 매수 산출(발주 전) ─────────────────────────────────────────
@@ -337,24 +386,37 @@ public:
         if (pos <= 0)
         {
             double bp = round_to_tick(base_line, OrderSide::BUY);
+
             // 교차 가드: 기준선이 현재가 이상이면 이 지정가는 즉시 시장가로 체결된다.
             //  베이스를 건너뛰면 add_below_sma_only가 노리는 눌림 진입에서 가장 큰 레그가
             //  빠지므로, 억제 대신 현재가 한 틱 아래로 옮겨 지정가로 남긴다.
             if (p_.cross_guard && cur_px > 0.0 && bp >= cur_px)
+            {
                 bp = round_to_tick(cur_px - krx::tick_size(cur_px), OrderSide::BUY);
+            }
+
             int    bq = qty_for(base_notional, bp);
-            if (bq <= 0) bq = p_.base_qty;              // 자본 미상 폴백
+
+            if (bq <= 0)
+            {
+                bq = p_.base_qty;  // 자본 미상 폴백
+            }
+
             if (bp > 0.0 && bq > 0)
+            {
                 plan.push_back({OrderSide::BUY, bp, bq});
+            }
         }
 
         // 매도 밴드: 이격 +dev_sell%*i. 보유분을 n_rungs로 균등 분할(숏 방지).
         int sell_avail = pos;
         const int sell_per = p_.n_rungs > 0 ? (pos + p_.n_rungs - 1) / p_.n_rungs : pos; // ceil
+
         for (int i = 1; i <= p_.n_rungs && sell_avail > 0; ++i)
         {
             double sp = round_to_tick(sell_anchor * (1.0 + p_.dev_sell * i / 100.0), OrderSide::SELL);
             int q = sell_avail < sell_per ? sell_avail : sell_per;
+
             if (sp > 0.0 && q > 0)
             {
                 plan.push_back({OrderSide::SELL, sp, q});
@@ -376,9 +438,16 @@ public:
             {
                 double bp = round_to_tick(buy_anchor * (1.0 - p_.dev_buy * i / 100.0), OrderSide::BUY);
                 int    rq = qty_for(rung_notional, bp);
-                if (rq <= 0) rq = p_.step_qty;              // 자본 미상 폴백
+
+                if (rq <= 0)
+                {
+                    rq = p_.step_qty;  // 자본 미상 폴백
+                }
+
                 if (bp > 0.0 && rq > 0)
+                {
                     plan.push_back({OrderSide::BUY, bp, rq});
+                }
             }
         }
 
@@ -387,9 +456,13 @@ public:
         //    (b)가 핵심: SMA가 틱경계를 스치며 미세이동할 때마다 전량 취소·재발주해 매도 rung이
         //    체결 전에 취소되고 매수만 쌓여 pos가 편증하던 처닝을 차단(reprice_move_ticks 구현).
         std::string sig;
+
         for (const auto& r : plan)
+        {
             sig += std::string(r.side == OrderSide::BUY ? "B" : "S") + fmt1(r.price) +
                    "x" + std::to_string(r.qty) + "|";
+        }
+
         // G1 국면 게이트: 비활성 국면(regime→전략 자동선택에서 미선택)에선 매수(진입·물타기)
         //  rung을 깔지 않는다. 익절 매도·청산은 국면과 무관하게 유지(is_active 계약: 진입만 차단).
         //  active 상태를 시그니처에 접미 → 국면 플립 시 no-change 가드에 걸리지 않고 재구성되어
@@ -398,14 +471,20 @@ public:
         sig += entry_on ? "A1" : "A0";
         const double reprice_band = p_.reprice_move_ticks * tick_size(sma);
         const bool   sma_quiet    = last_sma_ > 0.0 && std::fabs(sma - last_sma_) < reprice_band;
+
         // (a) 계획 시그니처+pos가 직전과 동일하면 live 유무와 무관하게 스킵.
         //     매도가능=0이라 아무것도 못 깔아 live_가 빈 채로 남을 때(원장 보유↔매도가능 괴리)
         //     매 하트비트 재진입해 잔고조회를 난사하던 스핀을 차단. 체결로 pos가 바뀌면 즉시 재구성.
         // (b) 데드밴드(reprice 이내 미세이동)+pos 동일 스킵은 살아있는 분할 매수에만 적용.
         if (sig == last_ladder_sig_ && pos == last_pos_)
+        {
             return; // 동일 계획 → 유지(빈 계획 포함)
+        }
+
         if (!live_.empty() && sma_quiet && pos == last_pos_)
+        {
             return; // 데드밴드 내 미세이동 → 유지
+        }
 
         // (c) 재구성 최소 간격. (a)(b)는 둘 다 pos == last_pos_를 요구하므로, 부분체결이
         //     연달아 들어오는 종목은 체결마다 분할 매수를 통째로 헐고 다시 깐다. rung 2개면
@@ -418,8 +497,11 @@ public:
         {
             const auto since = std::chrono::duration_cast<std::chrono::seconds>(
                                    std::chrono::steady_clock::now() - last_rebuild_).count();
+
             if (since < p_.min_rebuild_sec)
+            {
                 return;
+            }
         }
 
         // ── 재구성: 기존 취소 후 신규 지정가 ──────────────────────────────────
@@ -437,20 +519,30 @@ public:
         const std::string buy_ctx  = entry_kind + " 이격=" + fmt1(s_dev) + "% 일봉SMA20=" +
                                      fmt1(d_s20) + " 현재가=" + fmt1(cur_px);
         int sell_room = -1;                          // -1=미조회(지연). 첫 매도 rung에서 1회 조회.
+
         for (const auto& r : plan)
         {
             if (r.side == OrderSide::SELL)
             {
                 if (sell_room < 0)
+                {
                     sell_room = sellable_qty();      // 안전 우선: 불확실하면 0(매도 보류)
+                }
+
                 int q = r.qty < sell_room ? r.qty : sell_room;
+
                 if (q <= 0)
+                {
                     continue;                        // 매도가능 소진/없음 → 이 rung 스킵
+                }
+
                 place(out, OrderSide::SELL, r.price, q, "익절밴드 지정가=" + fmt1(r.price));
                 sell_room -= q;
             }
             else if (entry_on)                       // G1: 비활성 국면이면 매수 rung 스킵(진입 차단)
+            {
                 place(out, r.side, r.price, r.qty, buy_ctx);
+            }
         }
 
         last_sma_ = sma;
@@ -467,17 +559,28 @@ private:
     static double sma_close(const std::vector<MarketData>& bars, int period)
     {
         if (static_cast<int>(bars.size()) < period || period <= 0)
+        {
             return 0.0;
+        }
+
         double s = 0.0;
+
         for (int i = 0; i < period; ++i)
+        {
             s += bars[i].close;
+        }
+
         return s / period;
     }
+
     // 일봉 정배열: SMA5>SMA10>SMA20>SMA60 (모두 확보돼야 판정).
     static bool is_aligned(const std::vector<MarketData>& daily)
     {
         if (static_cast<int>(daily.size()) < 60)
+        {
             return false;
+        }
+
         double s5  = sma_close(daily, 5);
         double s10 = sma_close(daily, 10);
         double s20 = sma_close(daily, 20);
@@ -501,6 +604,7 @@ private:
             const int hhmm = kst_hhmm();
             const int wday = kst_tm().tm_wday;
             const bool in_session = (wday >= 1 && wday <= 5) && hhmm >= 850 && hhmm <= 1535;
+
             if (kis_ && in_session)
             {
                 // 일봉·자본: 날짜 바뀌면 1회 갱신(장중엔 사실상 1일 1회).
@@ -510,9 +614,11 @@ private:
                     std::lock_guard<std::mutex> lk(snap_mtx_);
                     need_daily = snap_daily_.empty() || snap_daily_date_ != today;
                 }
+
                 if (need_daily)
                 {
                     auto d = kis_->get_daily_ohlcv(p_.ticker, p_.daily_lookback);
+
                     // 일봉이 비면(500·휴장) 스냅샷을 안 채우므로 need_daily가 참으로 남아
                     //  다음 주기에 또 온다. 그때 잔고까지 같이 부르면 한도 초과 상황에서
                     //  호출을 오히려 늘린다 — 일봉이 온 경우에만 잔고를 부른다.
@@ -525,6 +631,7 @@ private:
                         snap_equity_     = eq;
                     }
                 }
+
                 // 3분봉: 봉이 바뀔 때만 갱신한다. 이 조회는 페이지네이션이라 1회에 HTTP GET이
                 //  세 번 나가는데(당일 63분치 1분봉을 다시 받아 집계), 그중 마감된 봉은 불변이고
                 //  달라지는 건 진행 중인 봉 하나뿐이다. 그 하나는 아래 on_trade_batch가 들어오는
@@ -535,9 +642,11 @@ private:
                     std::lock_guard<std::mutex> lk(snap_mtx_);
                     need_bars = snap_bars_.empty() || snap_bars_bucket_ != bucket;
                 }
+
                 if (need_bars)
                 {
                     auto bars = kis_->get_minute_ohlcv(p_.ticker, p_.sma_period + 1, p_.interval_min);
+
                     if (!bars.empty())
                     {
                         std::lock_guard<std::mutex> lk(snap_mtx_);
@@ -546,19 +655,25 @@ private:
                     }
                 }
             }
+
             // min_action_ms를 50ms 조각으로 자며 stop 신호에 빠르게 반응.
             for (int slept = 0;
                  slept < p_.min_action_ms && !prefetch_stop_.load(std::memory_order_relaxed);
                  slept += 50)
+            {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
         }
     }
 
     void stop_prefetch()
     {
         prefetch_stop_.store(true, std::memory_order_relaxed);
+
         if (prefetch_thread_.joinable())
+        {
             prefetch_thread_.join();
+        }
     }
 
     // 사이징 기준 자본(총평가금) 조회. output2 tot_evlu_amt(없으면 nass_amt). 알 수 없으면 0.
@@ -567,34 +682,54 @@ private:
     {
         double eq = 0.0;
         KisClient* akis = account_kis();
+
         if (akis && akis->has_account())
         {
             try
             {
                 nlohmann::json bal = akis->get_balance();
                 const nlohmann::json* row = nullptr;
+
                 if (bal.contains("output2"))
                 {
                     const auto& o2 = bal["output2"];
-                    if (o2.is_array() && !o2.empty()) row = &o2[0];
-                    else if (o2.is_object())          row = &o2;
+
+                    if (o2.is_array() && !o2.empty())
+                    {
+                        row = &o2[0];
+                    }
+                    else if (o2.is_object())
+                    {
+                        row = &o2;
+                    }
                 }
+
                 if (row)
                 {
                     std::string s = row->value("tot_evlu_amt", std::string());
-                    if (s.empty()) s = row->value("nass_amt", std::string());
+
+                    if (s.empty())
+                    {
+                        s = row->value("nass_amt", std::string());
+                    }
+
                     if (!s.empty()) { try { eq = std::stod(s); } catch (...) {} }
                 }
             }
             catch (...) {}
         }
+
         return eq;
     }
 
     // 명목→수량(주). 가격/명목 유효하지 않으면 0(호출측이 폴백 결정).
     static int qty_for(double notional, double price)
     {
-        if (price <= 0.0 || notional <= 0.0) return 0;
+        if (price <= 0.0 || notional <= 0.0)
+        {
+            return 0;
+        }
+
         int q = static_cast<int>(std::floor(notional / price));
         return q > 0 ? q : 0;
     }
@@ -612,7 +747,10 @@ private:
                const std::string& reason = "")
     {
         if (qty <= 0)
+        {
             return; // qty=0 NEW 발주 억제 — 게이트 거부·로그 노이즈 원천 차단(SELL은 상위서도 클램프)
+        }
+
         std::string oid = next_oid(side == OrderSide::BUY ? "B" : "S");
         OrderSignal s;
         s.ticker      = p_.ticker;
@@ -635,7 +773,10 @@ private:
     bool cancel_all(std::vector<OrderSignal>& out)
     {
         if (live_.empty())
+        {
             return false;
+        }
+
         for (const auto& o : live_)
         {
             OrderSignal s;
@@ -651,6 +792,7 @@ private:
             s.timestamp       = std::chrono::system_clock::now();
             out.push_back(s);
         }
+
         live_.clear();
         return true;
     }
@@ -676,9 +818,15 @@ private:
     double liquidation_ref_price()
     {
         if (last_px_ > 0.0)
+        {
             return last_px_;
+        }
+
         if (last_avg_px_ > 0.0)
+        {
             return last_avg_px_;
+        }
+
         std::lock_guard<std::mutex> lk(snap_mtx_);
         return snap_bars_.empty() ? 0.0 : snap_bars_[0].close;
     }
@@ -695,19 +843,26 @@ private:
                           std::chrono::steady_clock::time_point now, const std::string& tag)
     {
         if (pos <= 0)
+        {
             return false;
+        }
+
         // 진행 판정: 직전 시도보다 pos가 줄었으면(부분체결) 백오프 리셋.
         if (liq_last_pos_ < 0 || pos < liq_last_pos_)
         {
             liq_fail_streak_ = 0;
             liq_next_ = std::chrono::steady_clock::time_point{};
         }
+
         if (liq_next_.time_since_epoch().count() != 0 && now < liq_next_)
+        {
             return false; // 백오프 창 내 — 재발주 스킵(스팸 차단)
+        }
 
         const int sellable = sellable_qty();             // 안전 우선: 불확실하면 0(보류)
         const int q = sellable > 0 ? (pos < sellable ? pos : sellable) : 0;
         bool emitted = false;
+
         if (q > 0)
         {
             out.push_back(make_market_sell(q, "청산:" + tag));
@@ -721,12 +876,23 @@ private:
                      std::to_string(pos) + "주, 예약취소/결제 대기) 백오프#" +
                      std::to_string(liq_fail_streak_ + 1));
         }
+
         liq_last_pos_ = pos;
         ++liq_fail_streak_;
         int shift = liq_fail_streak_ - 1;
-        if (shift > 4) shift = 4;
+
+        if (shift > 4)
+        {
+            shift = 4;
+        }
+
         long long ms = 30000LL << shift;                 // 30/60/120/240/480…
-        if (ms > 300000LL) ms = 300000LL;                // cap 5분
+
+        if (ms > 300000LL)
+        {
+            ms = 300000LL;  // cap 5분
+        }
+
         liq_next_ = now + std::chrono::milliseconds(ms);
         return emitted;
     }
@@ -739,8 +905,12 @@ private:
     int sellable_qty()
     {
         KisClient* akis = account_kis();
+
         if (!akis || !akis->has_account())
+        {
             return 0;
+        }
+
         try
         {
             // 이 조회는 공유 전략 스레드에서 동기로 돈다 — 재시도가 붙으면 한 종목의 잔고 조회가
@@ -749,18 +919,30 @@ private:
             //  실패는 아래 경로에서 0으로 떨어지고 다음 하트비트에 다시 온다.
             KisClient::FastFailScope ff;
             nlohmann::json bal = akis->get_balance();
+
             if (!bal.contains("output1") || !bal["output1"].is_array())
+            {
                 return 0;
+            }
+
             for (const auto& h : bal["output1"])
             {
                 if (h.value("pdno", std::string()) != p_.ticker)
+                {
                     continue;
+                }
+
                 try { last_avg_px_ = std::stod(h.value("pchs_avg_pric", std::string("0"))); } catch (...) {}
                 std::string p = h.value("ord_psbl_qty", std::string());
+
                 if (p.empty())
+                {
                     return 0;
+                }
+
                 try { return std::stoi(p); } catch (...) { return 0; }
             }
+
             return 0; // 잔고에 종목 없음 → 매도가능 0
         }
         catch (...)
@@ -781,19 +963,25 @@ private:
 #endif
         return tmv;
     }
+
     static int kst_hhmm()
     {
         struct tm k = kst_tm();
         return k.tm_hour * 100 + k.tm_min;
     }
+
     // 지금이 몇 번째 봉인가(KST). 날짜를 섞어 자정을 넘겨도 값이 겹치지 않게 한다.
     static int kst_bar_bucket(int interval_min)
     {
         if (interval_min < 1)
+        {
             interval_min = 1;
+        }
+
         struct tm k = kst_tm();
         return (k.tm_yday * 1440 + k.tm_hour * 60 + k.tm_min) / interval_min;
     }
+
     static std::string kst_ymd()
     {
         struct tm k = kst_tm();
@@ -801,6 +989,7 @@ private:
         std::strftime(buf, sizeof(buf), "%Y%m%d", &k);
         return std::string(buf);
     }
+
     static std::string fmt1(double v)
     {
         char b[32];

@@ -112,26 +112,34 @@ struct MockOrderSignal
 static std::vector<std::string> load_universe(const std::string& path, int fallback_n)
 {
     std::vector<std::string> out;
+
     if (!path.empty())
     {
         std::ifstream f(path);
+
         if (f)
         {
             std::string body((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
             // "codes" 배열 이후만 스캔(ticker 이름 등 다른 숫자 오염 방지). 없으면 전체 스캔.
             size_t start = body.find("\"codes\"");
             std::string scan = (start != std::string::npos) ? body.substr(start) : body;
+
             // 따옴표로 감싼 연속 6자리 숫자 토큰만 코드로 취급.
             for (size_t i = 0; i + 1 < scan.size(); ++i)
             {
                 if (scan[i] != '"')
+                {
                     continue;
+                }
+
                 size_t j = i + 1, digits = 0;
+
                 while (j < scan.size() && scan[j] >= '0' && scan[j] <= '9')
                 {
                     ++j;
                     ++digits;
                 }
+
                 if (digits == 6 && j < scan.size() && scan[j] == '"')
                 {
                     out.emplace_back(scan.substr(i + 1, 6));
@@ -140,9 +148,11 @@ static std::vector<std::string> load_universe(const std::string& path, int fallb
             }
         }
     }
+
     if (out.empty())
     {
         out.reserve(fallback_n);
+
         for (int i = 1; i <= fallback_n; ++i)
         {
             char buf[8];
@@ -150,6 +160,7 @@ static std::vector<std::string> load_universe(const std::string& path, int fallb
             out.emplace_back(buf);
         }
     }
+
     return out;
 }
 
@@ -165,15 +176,21 @@ struct ZipfPicker
     {
         cdf.resize(n);
         double acc = 0.0;
+
         for (size_t i = 0; i < n; ++i)
         {
             acc += 1.0 / std::pow(static_cast<double>(i + 1), s);
             cdf[i] = acc;
         }
+
         const double total = acc;
+
         for (auto& c : cdf)
+        {
             c /= total;
+        }
     }
+
     // u ∈ [0,1) → 종목 인덱스
     size_t pick(double u) const
     {
@@ -210,6 +227,7 @@ struct Stats
 static inline void bump_hwm(std::atomic<uint64_t>& hwm, uint64_t v)
 {
     uint64_t cur = hwm.load(std::memory_order_relaxed);
+
     while (v > cur && !hwm.compare_exchange_weak(cur, v, std::memory_order_relaxed))
     {
     }
@@ -241,12 +259,19 @@ static void producer_fn(RingBuffer<MockOrderBook>& ob_q,
     while (!stop.load(std::memory_order_relaxed))
     {
         const int64_t t = now_ns();
+
         if (t >= t_end)
+        {
             break;
+        }
+
         if (interval_ns > 0)
         {
             if (t < next_emit)
+            {
                 busy_wait_until_ns(next_emit);
+            }
+
             next_emit += interval_ns;
         }
 
@@ -259,6 +284,7 @@ static void producer_fn(RingBuffer<MockOrderBook>& ob_q,
             std::memcpy(ob.ticker, tickers[tk].c_str(), 7);
             ob.send_ts_ns = ts;
             ob.seq = seq++;
+
             for (int i = 0; i < 5; ++i)
             {
                 ob.ask_price[i] = 70000.0 + i * 10;
@@ -266,13 +292,16 @@ static void producer_fn(RingBuffer<MockOrderBook>& ob_q,
                 ob.bid_price[i] = 69990.0 - i * 10;
                 ob.bid_qty[i] = 100 * (i + 1);
             }
+
             if (ob_q.push(ob))
             {
                 st.ob_produced.fetch_add(1, std::memory_order_relaxed);
                 bump_hwm(st.ob_hwm, ob_q.size());
             }
             else
+            {
                 st.ob_drops.fetch_add(1, std::memory_order_relaxed);
+            }
         }
         else
         {
@@ -283,13 +312,16 @@ static void producer_fn(RingBuffer<MockOrderBook>& ob_q,
             td.price = 70000.0 + (seq % 100);
             td.quantity = 10 + (seq % 50);
             td.direction = (seq % 2) ? 1 : 5;
+
             if (td_q.push(td))
             {
                 st.td_produced.fetch_add(1, std::memory_order_relaxed);
                 bump_hwm(st.td_hwm, td_q.size());
             }
             else
+            {
                 st.td_drops.fetch_add(1, std::memory_order_relaxed);
+            }
         }
     }
 }
@@ -313,13 +345,22 @@ static void strategy_fn(RingBuffer<MockOrderBook>& ob_q,
         while (auto opt = ob_q.pop())
         {
             const int64_t t = now_ns();
+
             if (st.intake_to_strat_ns.size() < lat_cap)
+            {
                 st.intake_to_strat_ns.push_back(t - opt->send_ts_ns);
+            }
+
             st.ob_consumed.fetch_add(1, std::memory_order_relaxed);
             volatile double sink = 0.0;
+
             for (int i = 0; i < 5; ++i)
+            {
                 sink += opt->ask_price[i] - opt->bid_price[i];
+            }
+
             (void)sink;
+
             if (++obc % 100 == 0)
             {
                 MockOrderSignal sig{};
@@ -329,23 +370,32 @@ static void strategy_fn(RingBuffer<MockOrderBook>& ob_q,
                 sig.origin_seq = opt->seq;
                 sig.side = 0;
                 sig.quantity = 10;
+
                 if (order_q.push(sig))
                 {
                     st.signals.fetch_add(1, std::memory_order_relaxed);
                     bump_hwm(st.order_hwm, order_q.size());
                 }
                 else
+                {
                     st.order_drops.fetch_add(1, std::memory_order_relaxed);
+                }
             }
         }
+
         while (auto opt = td_q.pop())
         {
             const int64_t t = now_ns();
+
             if (st.intake_to_strat_ns.size() < lat_cap)
+            {
                 st.intake_to_strat_ns.push_back(t - opt->send_ts_ns);
+            }
+
             st.td_consumed.fetch_add(1, std::memory_order_relaxed);
             volatile double sink = opt->price * opt->quantity;
             (void)sink;
+
             if (++tdc % 200 == 0)
             {
                 MockOrderSignal sig{};
@@ -355,13 +405,16 @@ static void strategy_fn(RingBuffer<MockOrderBook>& ob_q,
                 sig.origin_seq = opt->seq;
                 sig.side = 1;
                 sig.quantity = 5;
+
                 if (order_q.push(sig))
                 {
                     st.signals.fetch_add(1, std::memory_order_relaxed);
                     bump_hwm(st.order_hwm, order_q.size());
                 }
                 else
+                {
                     st.order_drops.fetch_add(1, std::memory_order_relaxed);
+                }
             }
         }
     }
@@ -383,17 +436,28 @@ static void order_fn(RingBuffer<MockOrderSignal>& order_q,
     while (!stop.load(std::memory_order_relaxed) || !order_q.empty())
     {
         auto opt = order_q.pop();
+
         if (!opt)
+        {
             continue;
+        }
+
         const int64_t t = now_ns();
+
         // 측정창이 닫힌 뒤(드레인) 항목은 percentile 오염원 → 카운트만.
         if (measuring.load(std::memory_order_relaxed))
         {
             if (st.strat_to_order_ns.size() < lat_cap)
+            {
                 st.strat_to_order_ns.push_back(t - opt->strat_ts_ns);
+            }
+
             if (st.e2e_ns.size() < lat_cap)
+            {
                 st.e2e_ns.push_back(t - opt->send_ts_ns);
+            }
         }
+
         st.orders.fetch_add(1, std::memory_order_relaxed);
     }
 }
@@ -411,8 +475,12 @@ static Pctl percentiles(std::vector<int64_t>& v)
 {
     Pctl r;
     r.n = v.size();
+
     if (v.empty())
+    {
         return r;
+    }
+
     std::sort(v.begin(), v.end());
     auto at = [&](double p) {
         size_t i = static_cast<size_t>(p * (v.size() - 1));
@@ -428,12 +496,20 @@ static Pctl percentiles(std::vector<int64_t>& v)
 static std::string fmt_ns(int64_t n)
 {
     char b[32];
+
     if (n < 1000)
+    {
         std::snprintf(b, sizeof(b), "%lld ns", (long long)n);
+    }
     else if (n < 1'000'000)
+    {
         std::snprintf(b, sizeof(b), "%.2f us", n / 1000.0);
+    }
     else
+    {
         std::snprintf(b, sizeof(b), "%.2f ms", n / 1'000'000.0);
+    }
+
     return std::string(b);
 }
 
@@ -518,15 +594,22 @@ static RunResult run_once(const std::vector<std::string>& tickers,
 static std::string arg_str(int argc, char** argv, const char* key, const std::string& def)
 {
     for (int i = 2; i + 1 < argc; ++i)
+    {
         if (std::strcmp(argv[i], key) == 0)
+        {
             return argv[i + 1];
+        }
+    }
+
     return def;
 }
+
 static int64_t arg_i64(int argc, char** argv, const char* key, int64_t def)
 {
     std::string s = arg_str(argc, argv, key, "");
     return s.empty() ? def : std::atoll(s.c_str());
 }
+
 static double arg_dbl(int argc, char** argv, const char* key, double def)
 {
     std::string s = arg_str(argc, argv, key, "");
@@ -581,6 +664,7 @@ int main(int argc, char** argv)
         std::printf("%s\n", std::string(72, '-').c_str());
 
         int64_t ceiling = 0;
+
         for (int64_t rate = start; rate <= maxr; rate += step)
         {
             RunResult r = run_once(tickers, zipf, rate, ob_ratio, dwell, OB_CAP, TD_CAP, ORDER_CAP, LAT_CAP);
@@ -594,11 +678,17 @@ int main(int argc, char** argv)
                         (long long)r.e2e.p999, (long long)r.e2e.mx, (unsigned long long)r.drops,
                         r.lossless ? 1 : 0, (unsigned long long)r.ob_prod,
                         (unsigned long long)r.td_prod);
+
             if (r.lossless)
+            {
                 ceiling = rate;
+            }
             else
+            {
                 break; // 첫 드롭 발생 → 용량 천장 확정
+            }
         }
+
         std::printf("\n용량 천장 (최대 무손실 offered rate): %lld msg/sec\n", (long long)ceiling);
         return 0;
     }

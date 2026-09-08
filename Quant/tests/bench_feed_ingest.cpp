@@ -103,38 +103,50 @@ static void sock_startup()
     WSAStartup(MAKEWORD(2, 2), &w);
 #endif
 }
+
 static void sock_cleanup()
 {
 #ifdef _WIN32
     WSACleanup();
 #endif
 }
+
 static void sock_close(socket_t s)
 {
     if (s == kBadSock)
+    {
         return;
+    }
 #ifdef _WIN32
     closesocket(s);
 #else
     ::close(s);
 #endif
 }
+
 static void set_nodelay(socket_t s)
 {
     int one = 1;
     setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char*)&one, sizeof(one));
 }
+
 // 전량 송신(부분 송신 루프). 실패 시 false.
 static bool send_all(socket_t s, const char* p, size_t n)
 {
     size_t sent = 0;
+
     while (sent < n)
     {
         int r = ::send(s, p + sent, (int)(n - sent), 0);
+
         if (r <= 0)
+        {
             return false;
+        }
+
         sent += (size_t)r;
     }
+
     return true;
 }
 
@@ -197,24 +209,32 @@ struct MockOrderSignal
 static std::vector<std::string> load_universe(const std::string& path, int fallback_n)
 {
     std::vector<std::string> out;
+
     if (!path.empty())
     {
         std::ifstream f(path);
+
         if (f)
         {
             std::string body((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
             size_t start = body.find("\"codes\"");
             std::string scan = (start != std::string::npos) ? body.substr(start) : body;
+
             for (size_t i = 0; i + 1 < scan.size(); ++i)
             {
                 if (scan[i] != '"')
+                {
                     continue;
+                }
+
                 size_t j = i + 1, digits = 0;
+
                 while (j < scan.size() && scan[j] >= '0' && scan[j] <= '9')
                 {
                     ++j;
                     ++digits;
                 }
+
                 if (digits == 6 && j < scan.size() && scan[j] == '"')
                 {
                     out.emplace_back(scan.substr(i + 1, 6));
@@ -223,9 +243,11 @@ static std::vector<std::string> load_universe(const std::string& path, int fallb
             }
         }
     }
+
     if (out.empty())
     {
         out.reserve(fallback_n);
+
         for (int i = 1; i <= fallback_n; ++i)
         {
             char buf[8];
@@ -233,6 +255,7 @@ static std::vector<std::string> load_universe(const std::string& path, int fallb
             out.emplace_back(buf);
         }
     }
+
     return out;
 }
 
@@ -246,14 +269,19 @@ struct ZipfPicker
     {
         cdf.resize(n);
         double acc = 0.0;
+
         for (size_t i = 0; i < n; ++i)
         {
             acc += 1.0 / std::pow(static_cast<double>(i + 1), s);
             cdf[i] = acc;
         }
+
         for (auto& c : cdf)
+        {
             c /= acc;
+        }
     }
+
     size_t pick(double u) const
     {
         auto it = std::lower_bound(cdf.begin(), cdf.end(), u);
@@ -290,6 +318,7 @@ struct Stats
 static inline void bump_hwm(std::atomic<uint64_t>& hwm, uint64_t v)
 {
     uint64_t cur = hwm.load(std::memory_order_relaxed);
+
     while (v > cur && !hwm.compare_exchange_weak(cur, v, std::memory_order_relaxed))
     {
     }
@@ -320,13 +349,20 @@ static void koscom_send_fn(socket_t s,
     while (!stop.load(std::memory_order_relaxed))
     {
         if (now_ns() >= t_end)
+        {
             break;
+        }
+
         if (interval_ns > 0)
         {
             if (now_ns() < next_emit)
+            {
                 busy_wait_until_ns(next_emit);
+            }
+
             next_emit += interval_ns;
         }
+
         const size_t tk = zipf.pick(u01(rng));
         WireMsg m{};
         m.magic = kMagic;
@@ -334,6 +370,7 @@ static void koscom_send_fn(socket_t s,
         std::memcpy(m.ticker, tickers[tk].c_str(), 6);
         m.ticker[6] = '\0';
         m.seq = seq++;
+
         if (m.type == 0)
         {
             for (int i = 0; i < 5; ++i)
@@ -347,9 +384,14 @@ static void koscom_send_fn(socket_t s,
             m.px[0] = 70000.0 + (seq % 100);
             m.qty[0] = 10 + (seq % 50);
         }
+
         m.send_ts_ns = now_ns(); // 소켓 진입 직전 stamp
+
         if (!send_all(s, (const char*)&m, kRec))
+        {
             break; // 상대 종료
+        }
+
         st.wire_sent.fetch_add(1, std::memory_order_relaxed);
     }
 }
@@ -374,26 +416,36 @@ static void recv_fn(socket_t s,
     while (!stop.load(std::memory_order_relaxed))
     {
         int r = ::recv(s, buf.data() + have, (int)(buf.size() - have), 0);
+
         if (r <= 0)
+        {
             break; // 상대 종료 or 오류
+        }
+
         have += (size_t)r;
         st.bytes_recv.fetch_add((uint64_t)r, std::memory_order_relaxed);
 
         size_t off = 0;
+
         while (have - off >= kRec)
         {
             WireMsg m;
             std::memcpy(&m, buf.data() + off, kRec);
             off += kRec;
             const int64_t rts = now_ns();
+
             if (m.magic != kMagic)
             {
                 st.bad_magic.fetch_add(1, std::memory_order_relaxed);
                 continue;
             }
+
             st.wire_recv.fetch_add(1, std::memory_order_relaxed);
+
             if (measuring.load(std::memory_order_relaxed) && st.net_ns.size() < lat_cap)
+            {
                 st.net_ns.push_back(rts - m.send_ts_ns);
+            }
 
             if (m.type == 0)
             {
@@ -402,6 +454,7 @@ static void recv_fn(socket_t s,
                 ob.send_ts_ns = m.send_ts_ns;
                 ob.recv_ts_ns = rts;
                 ob.seq = m.seq;
+
                 for (int i = 0; i < 5; ++i)
                 {
                     ob.ask_price[i] = m.px[i];
@@ -409,10 +462,15 @@ static void recv_fn(socket_t s,
                     ob.bid_price[i] = m.px[i] - 20;
                     ob.bid_qty[i] = m.qty[i];
                 }
+
                 if (ob_q.push(ob))
+                {
                     bump_hwm(st.ob_hwm, ob_q.size());
+                }
                 else
+                {
                     st.ob_drops.fetch_add(1, std::memory_order_relaxed);
+                }
             }
             else
             {
@@ -423,14 +481,23 @@ static void recv_fn(socket_t s,
                 td.seq = m.seq;
                 td.price = m.px[0];
                 td.quantity = m.qty[0];
+
                 if (td_q.push(td))
+                {
                     bump_hwm(st.td_hwm, td_q.size());
+                }
                 else
+                {
                     st.td_drops.fetch_add(1, std::memory_order_relaxed);
+                }
             }
         }
+
         if (off > 0 && off < have)
+        {
             std::memmove(buf.data(), buf.data() + off, have - off);
+        }
+
         have -= off;
     }
 }
@@ -445,15 +512,21 @@ static void strategy_fn(RingBuffer<MockOrderBook>& ob_q,
                         std::atomic<bool>& stop)
 {
     uint64_t obc = 0, tdc = 0;
+
     while (!stop.load(std::memory_order_relaxed) || !ob_q.empty() || !td_q.empty())
     {
         while (auto opt = ob_q.pop())
         {
             st.ob_consumed.fetch_add(1, std::memory_order_relaxed);
             volatile double sink = 0.0;
+
             for (int i = 0; i < 5; ++i)
+            {
                 sink += opt->ask_price[i] - opt->bid_price[i];
+            }
+
             (void)sink;
+
             if (++obc % 100 == 0)
             {
                 MockOrderSignal sig{};
@@ -464,20 +537,25 @@ static void strategy_fn(RingBuffer<MockOrderBook>& ob_q,
                 sig.origin_seq = opt->seq;
                 sig.side = 0;
                 sig.quantity = 10;
+
                 if (order_q.push(sig))
                 {
                     st.signals.fetch_add(1, std::memory_order_relaxed);
                     bump_hwm(st.order_hwm, order_q.size());
                 }
                 else
+                {
                     st.order_drops.fetch_add(1, std::memory_order_relaxed);
+                }
             }
         }
+
         while (auto opt = td_q.pop())
         {
             st.td_consumed.fetch_add(1, std::memory_order_relaxed);
             volatile double sink = opt->price * opt->quantity;
             (void)sink;
+
             if (++tdc % 200 == 0)
             {
                 MockOrderSignal sig{};
@@ -488,13 +566,16 @@ static void strategy_fn(RingBuffer<MockOrderBook>& ob_q,
                 sig.origin_seq = opt->seq;
                 sig.side = 1;
                 sig.quantity = 5;
+
                 if (order_q.push(sig))
                 {
                     st.signals.fetch_add(1, std::memory_order_relaxed);
                     bump_hwm(st.order_hwm, order_q.size());
                 }
                 else
+                {
                     st.order_drops.fetch_add(1, std::memory_order_relaxed);
+                }
             }
         }
     }
@@ -511,19 +592,31 @@ static void order_fn(RingBuffer<MockOrderSignal>& order_q,
 {
     st.proc_ns.reserve(lat_cap);
     st.e2e_ns.reserve(lat_cap);
+
     while (!stop.load(std::memory_order_relaxed) || !order_q.empty())
     {
         auto opt = order_q.pop();
+
         if (!opt)
+        {
             continue;
+        }
+
         const int64_t t = now_ns();
+
         if (measuring.load(std::memory_order_relaxed))
         {
             if (st.proc_ns.size() < lat_cap)
+            {
                 st.proc_ns.push_back(t - opt->recv_ts_ns);
+            }
+
             if (st.e2e_ns.size() < lat_cap)
+            {
                 st.e2e_ns.push_back(t - opt->send_ts_ns);
+            }
         }
+
         st.orders.fetch_add(1, std::memory_order_relaxed);
     }
 }
@@ -540,8 +633,12 @@ static Pctl percentiles(std::vector<int64_t>& v)
 {
     Pctl r;
     r.n = v.size();
+
     if (v.empty())
+    {
         return r;
+    }
+
     std::sort(v.begin(), v.end());
     auto at = [&](double p) { return v[(size_t)(p * (v.size() - 1))]; };
     r.p50 = at(0.50);
@@ -550,17 +647,27 @@ static Pctl percentiles(std::vector<int64_t>& v)
     r.mx = v.back();
     return r;
 }
+
 static std::string fmt_ns(int64_t n)
 {
     char b[32];
+
     if (n < 1000)
+    {
         std::snprintf(b, sizeof(b), "%lld ns", (long long)n);
+    }
     else if (n < 1'000'000)
+    {
         std::snprintf(b, sizeof(b), "%.2f us", n / 1000.0);
+    }
     else
+    {
         std::snprintf(b, sizeof(b), "%.2f ms", n / 1'000'000.0);
+    }
+
     return std::string(b);
 }
+
 static const char* build_type()
 {
 #ifdef NDEBUG
@@ -576,40 +683,54 @@ static const char* build_type()
 static socket_t make_listener(uint16_t port)
 {
     socket_t ls = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
     if (ls == kBadSock)
+    {
         return kBadSock;
+    }
+
     int one = 1;
     setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, (const char*)&one, sizeof(one));
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port = htons(port);
+
     if (::bind(ls, (sockaddr*)&addr, sizeof(addr)) != 0)
     {
         sock_close(ls);
         return kBadSock;
     }
+
     if (::listen(ls, 1) != 0)
     {
         sock_close(ls);
         return kBadSock;
     }
+
     return ls;
 }
+
 static socket_t connect_to(const std::string& host, uint16_t port)
 {
     socket_t s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
     if (s == kBadSock)
+    {
         return kBadSock;
+    }
+
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     inet_pton(AF_INET, host.c_str(), &addr.sin_addr);
+
     if (::connect(s, (sockaddr*)&addr, sizeof(addr)) != 0)
     {
         sock_close(s);
         return kBadSock;
     }
+
     return s;
 }
 
@@ -654,6 +775,7 @@ static RunResult run_self(const std::vector<std::string>& tickers, const ZipfPic
 {
     RunResult rr;
     socket_t ls = make_listener(port);
+
     if (ls == kBadSock)
     {
         std::printf("[self] listener bind 실패 (port %u 사용중?)\n", port);
@@ -673,13 +795,19 @@ static RunResult run_self(const std::vector<std::string>& tickers, const ZipfPic
     std::thread t_acc([&] { conn = ::accept(ls, nullptr, nullptr); });
 
     socket_t cli = kBadSock;
+
     for (int tries = 0; tries < 200 && cli == kBadSock; ++tries)
     {
         cli = connect_to("127.0.0.1", port);
+
         if (cli == kBadSock)
+        {
             busy_wait_until_ns(now_ns() + 1'000'000); // 1ms 후 재시도
+        }
     }
+
     t_acc.join();
+
     if (conn == kBadSock || cli == kBadSock)
     {
         std::printf("[self] 연결 수립 실패\n");
@@ -688,6 +816,7 @@ static RunResult run_self(const std::vector<std::string>& tickers, const ZipfPic
         sock_close(conn);
         return rr;
     }
+
     set_nodelay(cli);
 
     const int64_t t0 = now_ns();
@@ -702,9 +831,22 @@ static RunResult run_self(const std::vector<std::string>& tickers, const ZipfPic
     busy_wait_until_ns(now_ns() + 50'000'000); // 50ms 드레인
     stop.store(true, std::memory_order_relaxed);
     sock_close(cli); // recv가 0을 받아 빠져나오게
-    if (t_recv.joinable()) t_recv.join();
-    if (t_str.joinable()) t_str.join();
-    if (t_ord.joinable()) t_ord.join();
+
+    if (t_recv.joinable())
+    {
+        t_recv.join();
+    }
+
+    if (t_str.joinable())
+    {
+        t_str.join();
+    }
+
+    if (t_ord.joinable())
+    {
+        t_ord.join();
+    }
+
     sock_close(conn);
     sock_close(ls);
 
@@ -733,15 +875,22 @@ static RunResult run_self(const std::vector<std::string>& tickers, const ZipfPic
 static std::string arg_str(int argc, char** argv, const char* key, const std::string& def)
 {
     for (int i = 2; i + 1 < argc; ++i)
+    {
         if (std::strcmp(argv[i], key) == 0)
+        {
             return argv[i + 1];
+        }
+    }
+
     return def;
 }
+
 static int64_t arg_i64(int argc, char** argv, const char* key, int64_t def)
 {
     std::string s = arg_str(argc, argv, key, "");
     return s.empty() ? def : std::atoll(s.c_str());
 }
+
 static double arg_dbl(int argc, char** argv, const char* key, double def)
 {
     std::string s = arg_str(argc, argv, key, "");
@@ -815,6 +964,7 @@ int main(int argc, char** argv)
     const size_t LAT_CAP = 1u << 23;
 
     int rc = 0;
+
     if (mode == "self")
     {
         const int64_t rate = arg_i64(argc, argv, "--rate", 200000);
@@ -841,6 +991,7 @@ int main(int argc, char** argv)
                     "offered/s", "achieved/s", "e2e_p50", "e2e_p99", "e2e_p999", "drops", "lossless");
         std::printf("%s\n", std::string(76, '-').c_str());
         int64_t ceiling = 0;
+
         for (int64_t rate = start; rate <= maxr; rate += step)
         {
             RunResult r = run_self(tickers, zipf, port, rate, ob_ratio, dwell,
@@ -853,11 +1004,17 @@ int main(int argc, char** argv)
                         (long long)rate, r.recv_rate, (long long)r.e2e.p50,
                         (long long)r.e2e.p99, (long long)r.e2e.p999,
                         (unsigned long long)r.drops, r.lossless ? 1 : 0);
+
             if (r.lossless)
+            {
                 ceiling = rate;
+            }
             else
+            {
                 break;
+            }
         }
+
         std::printf("\n용량 천장 (최대 무손실 offered rate): %lld msg/sec\n", (long long)ceiling);
     }
     else if (mode == "serve")
@@ -865,14 +1022,17 @@ int main(int argc, char** argv)
         // 수신 서버만: 다른 콘솔의 send를 기다렸다가 연결 종료 시 통계 출력.
         print_banner("serve", tickers, uni_path, ob_ratio, zipf_s);
         socket_t ls = make_listener(port);
+
         if (ls == kBadSock)
         {
             std::printf("[serve] bind 실패(port %u)\n", port);
             sock_cleanup();
             return 1;
         }
+
         std::printf("[serve] port %u 에서 코스콤(send) 대기중...\n", port);
         socket_t conn = ::accept(ls, nullptr, nullptr);
+
         if (conn == kBadSock)
         {
             std::printf("[serve] accept 실패\n");
@@ -880,6 +1040,7 @@ int main(int argc, char** argv)
             sock_cleanup();
             return 1;
         }
+
         std::printf("[serve] 연결 수립. 수신·처리 시작.\n\n");
 
         Stats st;
@@ -892,11 +1053,25 @@ int main(int argc, char** argv)
         const int64_t t0 = now_ns();
         run_receiver_pipeline(conn, st, stop, measuring, LAT_CAP, OB_CAP, TD_CAP, ORDER_CAP,
                               t_recv, t_str, t_ord, ob_q, td_q, order_q);
-        if (t_recv.joinable()) t_recv.join(); // 상대가 끊으면 recv가 반환
+
+        if (t_recv.joinable())
+        {
+            t_recv.join();  // 상대가 끊으면 recv가 반환
+        }
+
         measuring.store(false, std::memory_order_relaxed);
         stop.store(true, std::memory_order_relaxed);
-        if (t_str.joinable()) t_str.join();
-        if (t_ord.joinable()) t_ord.join();
+
+        if (t_str.joinable())
+        {
+            t_str.join();
+        }
+
+        if (t_ord.joinable())
+        {
+            t_ord.join();
+        }
+
         sock_close(conn);
         sock_close(ls);
 
@@ -927,12 +1102,14 @@ int main(int argc, char** argv)
         print_banner("send", tickers, uni_path, ob_ratio, zipf_s);
         std::printf("[send] %s:%u 로 연결 시도...\n", host.c_str(), port);
         socket_t s = connect_to(host, port);
+
         if (s == kBadSock)
         {
             std::printf("[send] 연결 실패 — serve가 먼저 떠 있어야 함.\n");
             sock_cleanup();
             return 1;
         }
+
         set_nodelay(s);
         std::printf("[send] 연결됨. %lld msg/s, %ds 방출.\n", (long long)rate, duration);
         Stats st;

@@ -74,6 +74,7 @@ public:
     OrderGate() : cfg_()
     {
     }
+
     explicit OrderGate(Config cfg) : cfg_(cfg)
     {
     }
@@ -108,6 +109,7 @@ public:
     {
         on_accept(std::string(), ticker, side, qty, price);
     }
+
     void add_realized_pnl(double pnl);  // SELL 체결 시 실현 손익 추가 (테스트에서도 사용)
     // C-1: rest_price_feed 모드는 체결 콜백이 없어 daily_pnl_이 0에 고정되고, 그러면 §4의
     //  BUY 전용 손실컷이 동작하지 못한다.
@@ -143,6 +145,7 @@ public:
     {
         seed_position(account, ticker, qty, avg_price, -1);
     }
+
     void seed_position(const std::string& ticker, int qty, double avg_price)
     {
         seed_position(std::string(), ticker, qty, avg_price, -1);
@@ -184,6 +187,7 @@ public:
     {
         kill_switch_.store(on);
     }
+
     bool is_killed() const
     {
         return kill_switch_.load();
@@ -196,6 +200,7 @@ public:
     {
         entry_halt_.store(on);
     }
+
     bool is_entry_halted() const
     {
         return entry_halt_.load();
@@ -246,6 +251,7 @@ public:
     {
         pnl_stale_.store(on);
     }
+
     bool is_pnl_stale() const
     {
         return pnl_stale_.load();

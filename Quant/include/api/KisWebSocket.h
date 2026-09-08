@@ -67,26 +67,34 @@ public:
         const std::vector<std::string>& fields, int count, size_t min_fields)
     {
         std::vector<std::vector<std::string>> out;
+
         if (count <= 1 || fields.empty())
         {
             return out;
         }
+
         const size_t n = static_cast<size_t>(count);
+
         if (fields.size() % n != 0)
         {
             return out;
         }
+
         const size_t width = fields.size() / n;
+
         if (width < min_fields || width == 0)
         {
             return out;
         }
+
         out.reserve(n);
+
         for (size_t r = 0; r < n; ++r)
         {
             out.emplace_back(fields.begin() + static_cast<std::ptrdiff_t>(r * width),
                              fields.begin() + static_cast<std::ptrdiff_t>((r + 1) * width));
         }
+
         return out;
     }
 
@@ -111,6 +119,7 @@ private:
             std::chrono::steady_clock::now().time_since_epoch().count(),
             std::memory_order_relaxed);
     }
+
     bool get_approval_key();
     void send_text(const std::string& msg);
     void send_subscribe(const std::string& tr_id, const std::string& tr_key);

@@ -12,7 +12,10 @@ constexpr int kSessionCloseHHMM = 1530;  // 15:30 정규장 종료
 inline int parse_hhmm(const std::string& t)
 {
     if (t.size() < 4)
+    {
         return 0;
+    }
+
     try
     {
         return std::stoi(t.substr(0, 2)) * 100 + std::stoi(t.substr(2, 2));
@@ -28,6 +31,7 @@ inline bool in_session(int hhmm)
 {
     return hhmm >= kSessionOpenHHMM && hhmm < kSessionCloseHHMM;
 }
+
 inline bool in_session_str(const std::string& t)
 {
     return in_session(parse_hhmm(t));

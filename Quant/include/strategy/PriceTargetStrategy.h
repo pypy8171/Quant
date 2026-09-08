@@ -48,28 +48,47 @@ public:
     std::string describe() const override
     {
         std::string s = "PRICE_TARGET";
+
         for (const auto& t : targets_)
+        {
             s += " | " + t.ticker + " B=" + std::to_string(static_cast<int>(t.buy_price)) +
                  " S=" + std::to_string(static_cast<int>(t.sell_price)) +
                  " qty=" + std::to_string(t.quantity);
+        }
+
         for (const auto& lo : limit_orders_)
+        {
             s += " | " + lo.ticker + " LMT@" + std::to_string(static_cast<int>(lo.price)) +
                  " x" + std::to_string(lo.quantity);
+        }
+
         return s;
     }
 
     std::vector<WatchSpec> get_watch_specs() const override
     {
         std::vector<WatchSpec> specs;
+
         for (const auto& t : targets_)
+        {
             specs.push_back({t.ticker, Market::KR, ""});
+        }
+
         for (const auto& lo : limit_orders_)
         {
             bool dup = false;
+
             for (const auto& t : targets_)
+            {
                 if (t.ticker == lo.ticker) { dup = true; break; }
-            if (!dup) specs.push_back({lo.ticker, Market::KR, ""});
+            }
+
+            if (!dup)
+            {
+                specs.push_back({lo.ticker, Market::KR, ""});
+            }
         }
+
         return specs;
     }
 
@@ -80,17 +99,23 @@ public:
         last_sell_.assign(targets_.size(), std::chrono::steady_clock::time_point{});
 
         LOG_INFO("[PriceTarget] 시작");
+
         for (const auto& t : targets_)
+        {
             LOG_INFO("  가격목표: " + t.ticker +
                      " BUY≤" + std::to_string(static_cast<int>(t.buy_price)) +
                      " SELL≥" + std::to_string(static_cast<int>(t.sell_price)) +
                      " qty=" + std::to_string(t.quantity) +
                      " cooldown=" + std::to_string(t.cooldown_sec) + "s");
+        }
+
         for (const auto& lo : limit_orders_)
+        {
             LOG_INFO("  예약지정가: " + lo.ticker +
                      (lo.side == OrderSide::BUY ? " BUY" : " SELL") +
                      " @" + std::to_string(static_cast<int>(lo.price)) +
                      " x" + std::to_string(lo.quantity));
+        }
     }
 
     std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
@@ -100,7 +125,11 @@ public:
     {
         // 지정가 예약 주문 먼저
         auto lo = check_limit_order(ob.ticker);
-        if (lo) return lo;
+
+        if (lo)
+        {
+            return lo;
+        }
 
         // 가격 목표 — 매도호가[0]을 현재가 대리로 사용
         double price = ob.asks[0].price > 0 ? ob.asks[0].price : ob.bids[0].price;
@@ -110,11 +139,18 @@ public:
     // 체결 이벤트 — 체결가 기준 가격 체크
     std::optional<OrderSignal> on_trade(const TradeData& td) override
     {
-        if (td.market != Market::KR) return std::nullopt;
+        if (td.market != Market::KR)
+        {
+            return std::nullopt;
+        }
 
         // 지정가 예약 주문 먼저
         auto lo = check_limit_order(td.ticker);
-        if (lo) return lo;
+
+        if (lo)
+        {
+            return lo;
+        }
 
         return check_price_target(td.ticker, td.price, td.time);
     }
@@ -130,8 +166,15 @@ private:
     {
         for (auto& lo : limit_orders_)
         {
-            if (lo.placed || lo.ticker != ticker) continue;
-            if (lo.side == OrderSide::BUY && !is_active()) continue;  // BUY 예약은 국면 게이트
+            if (lo.placed || lo.ticker != ticker)
+            {
+                continue;
+            }
+
+            if (lo.side == OrderSide::BUY && !is_active())
+            {
+                continue;  // BUY 예약은 국면 게이트
+            }
 
             lo.placed = true;
             OrderSignal sig;
@@ -150,6 +193,7 @@ private:
                      " x" + std::to_string(lo.quantity));
             return sig;
         }
+
         return std::nullopt;
     }
 
@@ -158,23 +202,35 @@ private:
                                                    double price,
                                                    const std::string& time_str)
     {
-        if (price <= 0) return std::nullopt;
+        if (price <= 0)
+        {
+            return std::nullopt;
+        }
 
         int hhmm = parse_hhmm(time_str);
-        if (!krx::in_session(hhmm)) return std::nullopt; // 09:00~15:30 정규장만(core/MarketSession.h)
+
+        if (!krx::in_session(hhmm))
+        {
+            return std::nullopt;  // 09:00~15:30 정규장만(core/MarketSession.h)
+        }
 
         auto now = std::chrono::steady_clock::now();
 
         for (size_t i = 0; i < targets_.size(); ++i)
         {
             auto& t = targets_[i];
-            if (t.ticker != ticker) continue;
+
+            if (t.ticker != ticker)
+            {
+                continue;
+            }
 
             // 매수 조건: 가격 ≤ buy_price (진입 — 국면 게이트)
             if (is_active() && t.buy_price > 0 && price <= t.buy_price)
             {
                 auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                                    now - last_buy_[i]).count();
+
                 if (elapsed >= t.cooldown_sec)
                 {
                     last_buy_[i] = now;
@@ -190,6 +246,7 @@ private:
             {
                 auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                                    now - last_sell_[i]).count();
+
                 if (elapsed >= t.cooldown_sec)
                 {
                     last_sell_[i] = now;
@@ -200,6 +257,7 @@ private:
                 }
             }
         }
+
         return std::nullopt;
     }
 
@@ -219,7 +277,11 @@ private:
 
     static int parse_hhmm(const std::string& t)
     {
-        if (t.size() < 4) return 0;
+        if (t.size() < 4)
+        {
+            return 0;
+        }
+
         try { return std::stoi(t.substr(0, 2)) * 100 + std::stoi(t.substr(2, 2)); }
         catch (...) { return 0; }
     }

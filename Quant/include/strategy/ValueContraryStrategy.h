@@ -71,6 +71,7 @@ public:
 
         // 1. Universe 조회
         std::vector<std::string> universe;
+
         if (market_ == Market::KR)
         {
             // KOSPI(J) + KOSDAQ(W) 합산
@@ -90,26 +91,38 @@ public:
         for (const auto& ticker : universe)
         {
             std::vector<MarketData> bars;
+
             if (market_ == Market::KR)
+            {
                 bars = kis_->get_daily_ohlcv(ticker, 5);
+            }
             else
+            {
                 bars = kis_->get_us_daily_ohlcv(ticker, 5, exchange_);
+            }
 
             // KIS 초당 거래건수 제한 — 매 호출 후 대기
             std::this_thread::sleep_for(std::chrono::milliseconds(kValueContraryRestPacingMs));
 
             // 오늘 미완성 bar 제거 (pre-market or 장 개시 전: volume=0)
             while (!bars.empty() && bars[0].volume == 0)
+            {
                 bars.erase(bars.begin());
+            }
 
             if ((int)bars.size() < 4)
+            {
                 continue;
+            }
 
             // bars[0]=최근 완성 거래일, bars[1~3]=그 이전 3일
             bool declining =
                 bars[0].close < bars[1].close && bars[1].close < bars[2].close && bars[2].close < bars[3].close;
+
             if (!declining)
+            {
                 continue;
+            }
 
             candidates_.insert(ticker);
             LOG_INFO("[ValueContrary] 후보: " + ticker + "  종가 " + std::to_string(bars[0].close) + " < " +
@@ -123,6 +136,7 @@ public:
     std::vector<WatchSpec> get_watch_specs() const override
     {
         std::vector<WatchSpec> specs;
+
         for (const auto& tk : candidates_)
         {
             WatchSpec s;
@@ -131,6 +145,7 @@ public:
             s.exchange = exchange_;
             specs.push_back(s);
         }
+
         return specs;
     }
 
@@ -144,7 +159,10 @@ public:
     std::optional<OrderSignal> on_order_book(const OrderBook& ob) override
     {
         if (market_ != Market::KR)
+        {
             return std::nullopt;
+        }
+
         double px = ob.asks[0].price > 0 ? ob.asks[0].price : ob.bids[0].price;
         return check_entry_exit(ob.ticker, ob.time, px);
     }
@@ -153,7 +171,10 @@ public:
     std::optional<OrderSignal> on_trade(const TradeData& td) override
     {
         if (td.market != market_)
+        {
             return std::nullopt;
+        }
+
         return check_entry_exit(td.ticker, td.time, td.price);
     }
 
@@ -169,8 +190,11 @@ private:
                                                 double ref_px)
     {
         int hhmm = parse_hhmm(time_str);
+
         if (!is_in_session(hhmm))
+        {
             return std::nullopt;
+        }
 
         // 진입: 후보이고 아직 매수 안 했으면 (국면 게이트 적용)
         if (is_active() && candidates_.count(ticker) && !buy_sent_.count(ticker))
@@ -220,7 +244,10 @@ private:
     static int parse_hhmm(const std::string& t)
     {
         if (t.size() < 4)
+        {
             return 0;
+        }
+
         try
         {
             return std::stoi(t.substr(0, 2)) * 100 + std::stoi(t.substr(2, 2));
@@ -235,7 +262,10 @@ private:
     bool is_in_session(int hhmm) const
     {
         if (market_ == Market::KR)
+        {
             return krx::in_session(hhmm); // 09:00~15:30 정규장(core/MarketSession.h)
+        }
+
         // 미국 정규장 KST: 22:30~익일 05:00
         return hhmm >= 2230 || hhmm < 500;
     }

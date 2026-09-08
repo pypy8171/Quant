@@ -33,7 +33,10 @@ ZmqBridge::~ZmqBridge()
 bool ZmqBridge::start()
 {
     if (running_.load())
+    {
         return true;
+    }
+
     running_.store(true);
     zmq_thread_ = std::thread(&ZmqBridge::thread_fn, this);
     LOG_INFO("[ZMQ] 브리지 시작 — PUB:" + std::to_string(pub_port_) + " REP:" + std::to_string(rep_port_));
@@ -43,10 +46,17 @@ bool ZmqBridge::start()
 void ZmqBridge::stop()
 {
     if (!running_.load())
+    {
         return;
+    }
+
     running_.store(false);
+
     if (zmq_thread_.joinable())
+    {
         zmq_thread_.join();
+    }
+
     LOG_INFO("[ZMQ] 브리지 종료");
 }
 
@@ -81,6 +91,7 @@ void ZmqBridge::thread_fn()
             std::lock_guard<std::mutex> lk(queue_mtx_);
             std::swap(local, send_queue_);
         }
+
         while (!local.empty())
         {
             auto& m = local.front();
@@ -90,18 +101,24 @@ void ZmqBridge::thread_fn()
             zmq::message_t p_frame(m.payload.size());
             std::memcpy(t_frame.data(), m.topic.data(), m.topic.size());
             std::memcpy(p_frame.data(), m.payload.data(), m.payload.size());
+
             try
             {
                 if (pub.send(t_frame, zmq::send_flags::sndmore | zmq::send_flags::dontwait))
+                {
                     pub.send(p_frame, zmq::send_flags::dontwait);
+                }
                 else
+                {
                     ++drop_count_;
+                }
             }
             catch (const zmq::error_t& e)
             {
                 ++drop_count_;
                 LOG_WARN(std::string("[ZMQ] publish 실패 topic=") + m.topic + " : " + e.what());
             }
+
             local.pop();
         }
 
@@ -109,6 +126,7 @@ void ZmqBridge::thread_fn()
         try
         {
             zmq::poll(items, 1, kReplyPollTimeout);
+
             if (items[0].revents & ZMQ_POLLIN)
             {
                 zmq::message_t req;
@@ -121,9 +139,11 @@ void ZmqBridge::thread_fn()
                 bool        allowed   = true;
                 const auto  sp        = cmd.find(' ');
                 const std::string verb = cmd.substr(0, sp);
+
                 if (verb == "KILL")
                 {
                     const std::string given = (sp == std::string::npos) ? std::string() : cmd.substr(sp + 1);
+
                     if (control_token_.empty() || given != control_token_)
                     {
                         allowed   = false;
@@ -132,8 +152,11 @@ void ZmqBridge::thread_fn()
                                  (control_token_.empty() ? "zmq_control_token 미설정" : "토큰 불일치"));
                     }
                     else
+                    {
                         cmd = verb;
+                    }
                 }
+
                 if (allowed && cmd_handler_)
                 {
                     try
@@ -153,7 +176,9 @@ void ZmqBridge::thread_fn()
         catch (const zmq::error_t& e)
         {
             if (e.num() != ETERM)
+            {
                 LOG_WARN(std::string("[ZMQ] poll 오류: ") + e.what());
+            }
         }
     }
 
@@ -170,15 +195,21 @@ void ZmqBridge::enqueue(std::string topic, std::string payload)
     // 고빈도 TRADE/HEALTH보다 훨씬 큰 하드캡까지 보존한다.
     const bool critical = (topic == "FILL" || topic == "ORDER" || topic == "SIGNAL");
     const size_t cap = critical ? kCriticalQueueCap : kNormalQueueCap;
+
     if (send_queue_.size() >= cap)
     {
         ++drop_count_;
+
         if (critical)
+        {
             LOG_ERROR("[ZMQ] 치명적 메시지 drop! topic=" + topic +
                       " queue=" + std::to_string(send_queue_.size()) +
                       " (구독자 다운 의심) — 원장 불일치 위험");
+        }
+
         return;
     }
+
     send_queue_.push({std::move(topic), std::move(payload)});
 }
 
@@ -193,6 +224,7 @@ static const char* side_str(OrderSide s)
 {
     return s == OrderSide::BUY ? "BUY" : (s == OrderSide::SELL ? "SELL" : "NONE");
 }
+
 static const char* action_str(OrderAction a)
 {
     return a == OrderAction::CANCEL ? "CANCEL" : (a == OrderAction::REPLACE ? "REPLACE" : "NEW");

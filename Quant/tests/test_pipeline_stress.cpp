@@ -36,11 +36,13 @@ static constexpr int N_TICKERS = 200;
 static std::vector<std::string> make_tickers() {
     std::vector<std::string> v;
     v.reserve(N_TICKERS);
+
     for (int i = 1; i <= N_TICKERS; ++i) {
         char buf[8];
         std::snprintf(buf, sizeof(buf), "%06d", i);
         v.emplace_back(buf);
     }
+
     return v;
 }
 
@@ -144,14 +146,22 @@ static void ws_producer_fn(RingBuffer<MockOrderBook>& ob_q,
             std::memcpy(ob.ticker, TICKERS[tk_idx].c_str(), 7);
             ob.send_ts_ns = now_ns;
             ob.seq = seq++;
+
             for (int i = 0; i < 5; ++i) {
                 ob.ask_price[i] = 70000.0 + i * 10;
                 ob.ask_qty[i] = 100 * (i + 1);
                 ob.bid_price[i] = 69990.0 - i * 10;
                 ob.bid_qty[i] = 100 * (i + 1);
             }
-            if (ob_q.push(ob)) stats.ob_produced.fetch_add(1, std::memory_order_relaxed);
-            else                stats.ob_drops.fetch_add(1, std::memory_order_relaxed);
+
+            if (ob_q.push(ob))
+            {
+                stats.ob_produced.fetch_add(1, std::memory_order_relaxed);
+            }
+            else
+            {
+                stats.ob_drops.fetch_add(1, std::memory_order_relaxed);
+            }
         }
         else {
             MockTradeData td{};
@@ -161,8 +171,15 @@ static void ws_producer_fn(RingBuffer<MockOrderBook>& ob_q,
             td.price = 70000.0 + (seq % 100);
             td.quantity = 10 + (seq % 50);
             td.direction = (seq % 2) ? 1 : 5;
-            if (td_q.push(td)) stats.td_produced.fetch_add(1, std::memory_order_relaxed);
-            else                stats.td_drops.fetch_add(1, std::memory_order_relaxed);
+
+            if (td_q.push(td))
+            {
+                stats.td_produced.fetch_add(1, std::memory_order_relaxed);
+            }
+            else
+            {
+                stats.td_drops.fetch_add(1, std::memory_order_relaxed);
+            }
         }
     }
 }
@@ -190,8 +207,12 @@ static void strategy_fn(RingBuffer<MockOrderBook>& ob_q,
         while (auto opt = ob_q.pop()) {
             stats.ob_consumed.fetch_add(1, std::memory_order_relaxed);
             volatile double sink = 0.0;
+
             for (int i = 0; i < 5; ++i)
+            {
                 sink += opt->ask_price[i] - opt->bid_price[i];
+            }
+
             (void)sink;
 
             if (++ob_counter % 100 == 0) {
@@ -201,11 +222,17 @@ static void strategy_fn(RingBuffer<MockOrderBook>& ob_q,
                 sig.origin_seq = opt->seq;
                 sig.side = 0;
                 sig.quantity = 10;
+
                 if (order_q.push(sig))
+                {
                     stats.signals_generated.fetch_add(1, std::memory_order_relaxed);
+                }
                 else
+                {
                     stats.order_drops.fetch_add(1, std::memory_order_relaxed);
+                }
             }
+
             did_work = true;
         }
 
@@ -221,11 +248,17 @@ static void strategy_fn(RingBuffer<MockOrderBook>& ob_q,
                 sig.origin_seq = opt->seq;
                 sig.side = 1;
                 sig.quantity = 5;
+
                 if (order_q.push(sig))
+                {
                     stats.signals_generated.fetch_add(1, std::memory_order_relaxed);
+                }
                 else
+                {
                     stats.order_drops.fetch_add(1, std::memory_order_relaxed);
+                }
             }
+
             did_work = true;
         }
 
@@ -243,6 +276,7 @@ static void order_fn(RingBuffer<MockOrderSignal>& order_q,
 {
     while (!stop_flag.load(std::memory_order_relaxed) || !order_q.empty()) {
         auto opt = order_q.pop();
+
         if (!opt) {
             continue;   // busy spin
         }
@@ -251,7 +285,11 @@ static void order_fn(RingBuffer<MockOrderSignal>& order_q,
         int64_t now_ns = std::chrono::duration_cast<ns>(
             clk::now().time_since_epoch()).count();
         int64_t latency = now_ns - opt->send_ts_ns;
-        if (latency >= 0) stats.e2e_latencies_ns.push_back(latency);
+
+        if (latency >= 0)
+        {
+            stats.e2e_latencies_ns.push_back(latency);
+        }
 
         stats.orders_processed.fetch_add(1, std::memory_order_relaxed);
     }
@@ -262,22 +300,36 @@ static void order_fn(RingBuffer<MockOrderSignal>& order_q,
 // ─────────────────────────────────────────────────────────────────────────────
 static void print_latency(std::vector<int64_t>& v, const char* label) {
     std::cout << label << " (count=" << v.size() << "):\n";
+
     if (v.empty()) { std::cout << "  (no samples)\n"; return; }
     std::sort(v.begin(), v.end());
 
     auto pct = [&](double p) {
         size_t idx = static_cast<size_t>(v.size() * p);
-        if (idx >= v.size()) idx = v.size() - 1;
+
+        if (idx >= v.size())
+        {
+            idx = v.size() - 1;
+        }
+
         return v[idx];
         };
     auto fmt = [](int64_t n) -> std::string {
         char buf[32];
+
         if (n < 1000)
+        {
             std::snprintf(buf, sizeof(buf), "%lld ns", (long long)n);
+        }
         else if (n < 1'000'000)
+        {
             std::snprintf(buf, sizeof(buf), "%lld us", (long long)(n / 1000));
+        }
         else
+        {
             std::snprintf(buf, sizeof(buf), "%lld ms", (long long)(n / 1'000'000));
+        }
+
         return std::string(buf);
         };
 
@@ -293,10 +345,15 @@ static void print_latency(std::vector<int64_t>& v, const char* label) {
 // ─────────────────────────────────────────────────────────────────────────────
 int main(int argc, char** argv) {
     int duration = (argc > 1) ? std::atoi(argv[1]) : 30;
-    if (duration < 1) duration = 30;
+
+    if (duration < 1)
+    {
+        duration = 30;
+    }
 
     std::string mode = (argc > 2) ? argv[2] : "normal";
     int OB_PER_TICKER, TD_PER_TICKER;
+
     if (mode == "burst") {
         OB_PER_TICKER = 20; TD_PER_TICKER = 50;
     }

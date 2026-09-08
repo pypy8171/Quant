@@ -1,5 +1,6 @@
 BasedOnStyle: Microsoft
 BreakBeforeBraces: Allman
+InsertBraces: true   # 한 문장 본문도 중괄호 (scripts/brace_style.py와 같은 규칙)
 IndentWidth: 4
 TabWidth: 4
 UseTab: Never

@@ -162,7 +162,9 @@ void test_stats_mixed()
 
     // 3건 성공
     for (int i = 0; i < 3; ++i)
+    {
         router.submit(make_signal("00593" + std::to_string(i), OrderSide::BUY));
+    }
 
     // kill switch 이후 1건 거부
     gate.set_kill_switch(true);
@@ -181,7 +183,9 @@ void test_history_recent()
     OrderRouter       router(gate, stub);
 
     for (int i = 0; i < 5; ++i)
+    {
         router.submit(make_signal("00593" + std::to_string(i), OrderSide::BUY));
+    }
 
     auto h = router.recent(3);
     assert(h.size() == 3);

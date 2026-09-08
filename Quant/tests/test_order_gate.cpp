@@ -103,12 +103,14 @@ void test_rate_limit_per_sec()
     OrderGate gate(cfg);
 
     std::string reason;
+
     // 3건 연속 통과
     for (int i = 0; i < 3; ++i)
     {
         auto sig = make_signal("00593" + std::to_string(i), OrderSide::BUY);
         assert(gate.check(sig, reason));
     }
+
     // 4번째 → 초당 한도 초과
     auto sig4 = make_signal("005934", OrderSide::BUY);
     assert(!gate.check(sig4, reason));

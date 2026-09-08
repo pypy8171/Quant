@@ -32,10 +32,17 @@ inline constexpr size_t kCacheLine = 64;
 inline size_t round_up_pow2(size_t n)
 {
     if (n < 2)
+    {
         n = 2;
+    }
+
     size_t p = 1;
+
     while (p < n)
+    {
         p <<= 1;
+    }
+
     return p;
 }
 } // namespace mpsc_detail
@@ -49,7 +56,9 @@ public:
     {
         // 초기 상태: i번 칸은 i번째 티켓을 기다린다 (seq == 그 칸을 채울 pos 값)
         for (size_t i = 0; i < buffer_.size(); ++i)
+        {
             buffer_[i].seq.store(i, std::memory_order_relaxed);
+        }
     }
 
     // 여러 생산자 스레드에서 동시 호출 가능
@@ -57,6 +66,7 @@ public:
     {
         return emplace(item);
     }
+
     bool push(T&& item)
     {
         return emplace(std::move(item));
@@ -71,7 +81,10 @@ public:
         const intptr_t diff = static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos + 1);
 
         if (diff < 0)
+        {
             return std::nullopt; // 이 칸이 아직 안 채워짐 = 큐 비어 있음
+        }
+
         // diff == 0 : 채워진 칸. (소비자 1개이므로 diff > 0 은 발생하지 않음)
 
         T item = std::move(cell.data);
@@ -111,7 +124,8 @@ private:
     {
         size_t pos = enqueue_pos_.load(std::memory_order_relaxed);
         Cell* cell;
-        for (;;)
+
+        while (true)
         {
             cell = &buffer_[pos & mask_];
             const size_t seq = cell->seq.load(std::memory_order_acquire);
@@ -121,7 +135,9 @@ private:
             {
                 // 이 칸이 비었고 정확히 내 차례 — 티켓(enqueue_pos_) 확정 시도
                 if (enqueue_pos_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed))
+                {
                     break; // 성공: 이 칸의 임자 확정. (실패 시 pos 최신값으로 갱신되어 재시도)
+                }
             }
             else if (diff < 0)
             {

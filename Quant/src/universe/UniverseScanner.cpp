@@ -88,6 +88,7 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& cfg)
     // 레짐 게이트: 코스피(0001) 당일 등락률이 risk_off 이하면 신규매수 유니버스 전면 스킵.
     auto kospi = scan_kis.get_index_price("0001");
     double idx_chg = kospi.change_rate / 100.0; // KIS는 % 단위
+
     if (idx_chg < cfg.risk_off_idx)
     {
         LOG_WARN("[Main] universe_from_scan: 레짐 위험회피(코스피 " +
@@ -98,34 +99,51 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& cfg)
 
     auto rank = scan_kis.fetch_value_ranking(cfg.scan_top_n, "J");
     int added = 0;
+
     for (const auto& r : rank)
     {
         if (added >= cfg.max_register)
+        {
             break;
+        }
+
         double chg = r.change_rate / 100.0; // % → 비율
+
         // 필터①: 등락률 밴드(강세 모멘텀, 급등 추격 배제)
         if (chg < cfg.chg_min || chg > cfg.chg_max)
+        {
             continue;
+        }
+
         // 필터②: 최소가(동전주·호가스프레드 배제)
         if (r.price < cfg.min_price)
+        {
             continue;
+        }
+
         // 필터③: 수급(opt) — 외국인 T-1 확정 순매수 > 0 (후보 소수에만 조회)
         if (cfg.sd_filter)
         {
             auto tr = scan_kis.get_investor_trend(r.ticker);
+
             if (tr.foreign_net <= 0)
             {
                 LOG_INFO("[Main]   - ITB 스캔 제외 " + r.ticker + " 외국인순매수<=0");
                 continue;
             }
         }
+
         // 통과 → 신규 진입 유니버스로 등록(당일 시가 앵커 주입).
         //  ⚠️ 앵커는 랭킹 스냅샷 현재가(r.price)가 아니라 실제 당일 시가여야 함.
         //  갭업일엔 스냅샷=장중 고점 근처라 앵커가 고점에 고정되어 돌파 진입이 영구 차단됨.
         //  inquire-price(FHKST01010100)의 stck_oprc로 진짜 시가를 조회, 0이면 r.price 폴백.
         double day_open = scan_kis.get_fundamentals(r.ticker).open;
+
         if (day_open <= 0.0)
+        {
             day_open = r.price;
+        }
+
         out.push_back({r.ticker, r.name, day_open});
         LOG_INFO("[Main]   + ITB 스캔 " + r.ticker + " " + r.name + " (등락 " +
                  std::to_string(r.change_rate) + "% 가격 " +
@@ -134,6 +152,7 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& cfg)
                  std::to_string((long long)r.trade_value) + ")");
         ++added;
     }
+
     LOG_INFO("[Main] universe_from_scan: 후보 " + std::to_string(rank.size()) +
              "종목 중 " + std::to_string(added) + "종목 등록");
     return out;
@@ -159,40 +178,60 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
     std::unordered_map<std::string, double> cand_px;
     std::unordered_map<std::string, double> cand_val;   // 누적 거래대금(원) — 유동성 하한용
     std::unordered_map<std::string, std::string> px_names;  // 시세 파일이 준 종목명
+
     // 전 종목 장중 시세 파일. 네이버 벌크를 묶어오므로 KIS 초당 한도를 쓰지 않고
     //  후보 전체의 현재가를 얻는다. 이게 있어야 정배열·이격을 매 재스캔마다 다시 판정한다.
     if (!cfg.prices_file.empty())
     {
         std::ifstream pf(cfg.prices_file);
-        if (!pf) LOG_WARN("[Main] 전 종목 시세 파일 없음(" + cfg.prices_file + ") — 랭킹 축 가격만 쓴다");
+
+        if (!pf)
+        {
+            LOG_WARN("[Main] 전 종목 시세 파일 없음(" + cfg.prices_file + ") — 랭킹 축 가격만 쓴다");
+        }
         else
         {
             try
             {
                 nlohmann::json pj; pf >> pj;
                 const auto pm = pj.value("prices", nlohmann::json::object());
+
                 for (auto it = pm.begin(); it != pm.end(); ++it)
                 {
                     const double px = it.value().value("px", 0.0);
-                    if (px <= 0.0) continue;
+
+                    if (px <= 0.0)
+                    {
+                        continue;
+                    }
+
                     cand_px[it.key()]  = px;
                     cand_val[it.key()] = it.value().value("val", 0.0);
                     const std::string nm = it.value().value("nm", std::string());
-                    if (!nm.empty()) px_names[it.key()] = nm;
+
+                    if (!nm.empty())
+                    {
+                        px_names[it.key()] = nm;
+                    }
                 }
+
                 const std::time_t age = std::time(nullptr) - (std::time_t)pj.value("ts", 0);
                 LOG_INFO("[Main] 전 종목 시세: " + std::to_string(cand_px.size()) +
                          "종목 (" + std::to_string((long long)age) + "초 전 갱신)");
+
                 // 이 파일이 멈추면 px_live가 전일 종가로 돌아가 정배열·이격 판정이
                 //  장 마감까지 얼어붙는다. 재스캔은 돈지만 결과가 같아 구분이 안 된다.
                 if (age > 600)
+                {
                     LOG_WARN("[Main] 전 종목 시세가 " + std::to_string((long long)age) +
                              "초 지났다 — 사이드카 확인 필요. 정배열 판정이 전일 종가로 고정된다");
+                }
             }
             catch (const std::exception& e)
             { LOG_WARN(std::string("[Main] 전 종목 시세 파일 파싱 실패: ") + e.what()); }
         }
     }
+
     bool have_market_map = false;
     auto label_name = [&](const std::string& t) -> std::string
     {
@@ -202,7 +241,12 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
     auto market_of = [&](const std::string& t) -> std::string
     {
         auto it = cand_market.find(t);
-        if (it != cand_market.end() && !it->second.empty()) return it->second;
+
+        if (it != cand_market.end() && !it->second.empty())
+        {
+            return it->second;
+        }
+
         return have_market_map ? std::string("UNKNOWN") : std::string("KOSPI");
     };
 
@@ -214,21 +258,33 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
     bool kospi_off   = kospi_chg < cfg.risk_off_idx;
     bool kosdaq_off  = false;
     double kosdaq_chg = 0.0;
+
     if (cfg.kosdaq_enabled)
     {
         kosdaq_chg = c.get_index_price("1001").change_rate / 100.0; // 코스닥 종합지수
         kosdaq_off = kosdaq_chg < cfg.risk_off_idx_kosdaq;
     }
+
     const bool kospi_pass  = !kospi_off;                                       // 코스피 종목 통과 가능?
     const bool kosdaq_pass = cfg.kosdaq_enabled && !kospi_off && !kosdaq_off;  // 코스닥 종목 통과 가능?(이중 AND)
     // 이 종목의 시장이 지금 신규진입 허용 상태인가.
     auto market_allows = [&](const std::string& t) -> bool
     {
         const std::string mk = market_of(t);
-        if (mk == "KOSDAQ")  return kosdaq_pass;
-        if (mk == "UNKNOWN") return kosdaq_pass; // 시장 미상 — 코스닥과 같은 보수 판정(닫혀 있으면 드롭)
+
+        if (mk == "KOSDAQ")
+        {
+            return kosdaq_pass;
+        }
+
+        if (mk == "UNKNOWN")
+        {
+            return kosdaq_pass;  // 시장 미상 — 코스닥과 같은 보수 판정(닫혀 있으면 드롭)
+        }
+
         return kospi_pass;
     };
+
     if (!kospi_pass && !kosdaq_pass)
     {
         // 모든 시장이 위험회피 → 후보 수집·일봉 기동 점검 전부 생략(기존 조기 스킵과 동일 비용).
@@ -260,12 +316,30 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
     {
         for (const auto& r : rank)
         {
-            if (r.price < cfg.min_price) continue;
-            if (cfg.max_price > 0.0 && r.price > cfg.max_price) continue;
+            if (r.price < cfg.min_price)
+            {
+                continue;
+            }
+
+            if (cfg.max_price > 0.0 && r.price > cfg.max_price)
+            {
+                continue;
+            }
+
             if (etf_filter::is_etf_like(r.name, kEtfPrefixes, kEtfTokens)) { ++etf_drop; continue; }
+
             if (etf_filter::is_reit_like(r.name, kReitSuffixes, kReitExacts)) { ++reit_drop; continue; }
-            if (r.price > 0.0) cand_px[r.ticker] = r.price;
-            if (!seen.insert(r.ticker).second) continue;
+
+            if (r.price > 0.0)
+            {
+                cand_px[r.ticker] = r.price;
+            }
+
+            if (!seen.insert(r.ticker).second)
+            {
+                continue;
+            }
+
             cand.push_back(r.ticker);
             cand_names[r.ticker] = r.name; // 종목명 보관(로그 라벨용)
         }
@@ -274,9 +348,11 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
     //  0이면 매 호출 새로 모은다(기존 동작).
     bool pool_hit = false;
     long long pool_age = 0;
+
     if (cfg.union_refresh_sec > 0)
     {
         std::lock_guard<std::mutex> lk(g_pool_mu);
+
         if (g_pool.ymd == ymd && !g_pool.cand.empty() &&
             std::time(nullptr) - g_pool.at < cfg.union_refresh_sec)
         {
@@ -290,6 +366,7 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
             pool_hit        = true;
         }
     }
+
     if (pool_hit)
     {
         // 현재가·거래대금은 시세 파일에서 방금 읽은 값을 쓴다. 랭킹 축이 실어오던
@@ -305,6 +382,7 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
         if (!cfg.universe_file.empty())
         {
             std::ifstream f(cfg.universe_file);
+
             if (!f)
             {
                 LOG_WARN("[Main] DEVSCALE 유니버스 파일 없음(" + cfg.universe_file +
@@ -317,33 +395,59 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
                     nlohmann::json j;
                     f >> j;
                     const std::string basDt = j.value("basDt", std::string());
+
                     // 전종목 코드→시장 사전(있으면). universe(top-N)보다 먼저 적재해, KIS 랭킹축
                     //  티커의 시장도 해석되게 한다 — 없으면 kosdaq_enabled 게이트가 그쪽으로 샌다.
                     if (j.contains("market_map") && j["market_map"].is_object())
                     {
                         for (auto it = j["market_map"].begin(); it != j["market_map"].end(); ++it)
-                            if (it.value().is_string()) cand_market[it.key()] = it.value().get<std::string>();
+                        {
+                            if (it.value().is_string())
+                            {
+                                cand_market[it.key()] = it.value().get<std::string>();
+                            }
+                        }
+
                         have_market_map = !cand_market.empty();
                     }
+
                     const auto arr = j.value("universe", nlohmann::json::array());
                     int added_file = 0, dup = 0;
+
                     for (const auto& e : arr)
                     {
                         const std::string t = e.value("ticker", std::string());
-                        if (t.empty()) continue;
+
+                        if (t.empty())
+                        {
+                            continue;
+                        }
+
                         const std::string nm = e.value("name", std::string());
+
                         if (etf_filter::is_etf_like(nm, kEtfPrefixes, kEtfTokens)) { ++etf_drop; continue; }
+
                         if (etf_filter::is_reit_like(nm, kReitSuffixes, kReitExacts)) { ++reit_drop; continue; }
                         const double px = e.value("close", 0.0);
+
                         // close(0=미제공)면 가격필터는 뒤 정배열 프리필터의 일봉이 대신 검증.
-                        if (px > 0.0 && px < cfg.min_price) continue;
-                        if (cfg.max_price > 0.0 && px > cfg.max_price) continue;
+                        if (px > 0.0 && px < cfg.min_price)
+                        {
+                            continue;
+                        }
+
+                        if (cfg.max_price > 0.0 && px > cfg.max_price)
+                        {
+                            continue;
+                        }
+
                         if (!seen.insert(t).second) { ++dup; continue; }
                         cand.push_back(t);
                         cand_names[t] = nm;
                         cand_market[t] = e.value("market", std::string()); // 시장별 risk_off 게이트용(없으면 KOSPI 간주)
                         ++added_file;
                     }
+
                     LOG_INFO("[Main] DEVSCALE data.go.kr 축(기준일 " + basDt + "): 파일 " +
                              std::to_string(arr.size()) + "종목 → 신규 " + std::to_string(added_file) +
                              " union (중복 " + std::to_string(dup) + ")");
@@ -355,6 +459,7 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
                 }
             }
         }
+
         take(c.fetch_kr_ranking(cfg.scan_top_n, "J"));          // 시총 상위
         take(c.fetch_value_ranking(cfg.value_top_n, "J", "3")); // 거래대금 상위
         // 랭킹 TR은 축마다 상위 30행 고정(연속조회 불가) → 정렬축을 하나 더 union해 풀을 넓힌다.
@@ -368,6 +473,7 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
         {
             const std::size_t before = cand.size();
             int sec_ok = 0, sec_weak = 0;
+
             for (const auto& sc : cfg.sector_codes)
             {
                 auto rows = c.fetch_sector_ranking(sc, cfg.sector_top_n);
@@ -375,17 +481,25 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
                 //  버스트로 먹는다(09-08: ranking/fluctuation HTTP 500 70건). 재스캔 주기가
                 //  600초라 2.6초→5.2초 지연은 무시할 만하다.
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                if (rows.empty()) continue;
+
+                if (rows.empty())
+                {
+                    continue;
+                }
+
                 ++sec_ok;
                 std::vector<KisClient::RankingStock> strong;
                 strong.reserve(rows.size());
+
                 for (const auto& r : rows)
                 {
                     if (r.change_rate < cfg.sector_min_chg) { ++sec_weak; continue; }
                     strong.push_back(r);
                 }
+
                 take(strong);
             }
+
             LOG_INFO("[Main] DEVSCALE 업종 등락률 축: " + std::to_string(sec_ok) + "/" +
                      std::to_string(cfg.sector_codes.size()) + "업종 응답, 신규 " +
                      std::to_string(cand.size() - before) + "종목 union (약세컷 " +
@@ -398,21 +512,44 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
         {
             const std::size_t before_fm = cand.size();
             int no_name = 0;
+
             for (const auto& kv : cand_market)
             {
                 const std::string& t = kv.first;
-                if (t.size() != 6) continue;
+
+                if (t.size() != 6)
+                {
+                    continue;
+                }
+
                 auto itn = px_names.find(t);
+
                 if (itn == px_names.end()) { ++no_name; continue; }
+
                 if (etf_filter::is_etf_like(itn->second, kEtfPrefixes, kEtfTokens)) { ++etf_drop; continue; }
+
                 if (etf_filter::is_reit_like(itn->second, kReitSuffixes, kReitExacts)) { ++reit_drop; continue; }
                 auto itp = cand_px.find(t);
-                if (itp == cand_px.end() || itp->second < cfg.min_price) continue;
-                if (cfg.max_price > 0.0 && itp->second > cfg.max_price) continue;
-                if (!seen.insert(t).second) continue;
+
+                if (itp == cand_px.end() || itp->second < cfg.min_price)
+                {
+                    continue;
+                }
+
+                if (cfg.max_price > 0.0 && itp->second > cfg.max_price)
+                {
+                    continue;
+                }
+
+                if (!seen.insert(t).second)
+                {
+                    continue;
+                }
+
                 cand.push_back(t);
                 cand_names[t] = itn->second;
             }
+
             LOG_INFO("[Main] 전 종목 확장: 신규 " + std::to_string(cand.size() - before_fm) +
                      "종목 union (시세없음 " + std::to_string(no_name) + ", 총 후보 " +
                      std::to_string(cand.size()) + ")");
@@ -437,11 +574,24 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
         // 프리필터 off — 기존 동작(후보 앞에서부터 max_register개).
         for (const auto& t : cand)
         {
-            if (!market_allows(t)) continue; // 시장 risk_off 게이트(코스닥 후보는 kosdaq_pass일 때만)
-            if ((int)out.size() >= cfg.max_register) break;
+            if (!market_allows(t))
+            {
+                continue;  // 시장 risk_off 게이트(코스닥 후보는 kosdaq_pass일 때만)
+            }
+
+            if ((int)out.size() >= cfg.max_register)
+            {
+                break;
+            }
+
             out.push_back(t);
-            if (out_names) (*out_names)[t] = label_name(t);
+
+            if (out_names)
+            {
+                (*out_names)[t] = label_name(t);
+            }
         }
+
         return out;
     }
 
@@ -468,53 +618,89 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
     //  그래서 "가장 오래 안 본 순"으로 예산(align_refresh_max)만큼만 다시 본다. 재스캔이 반복되면
     //  후보 전체를 순회하게 되고, 한 바퀴에 걸리는 시간은 후보수/예산 × 재스캔주기다.
     std::unordered_set<std::string> refresh_set;
+
     if (cfg.align_refresh_max > 0)
     {
         const std::time_t now_t = std::time(nullptr);
         std::vector<std::pair<std::time_t, std::string>> stale;
         {
             std::lock_guard<std::mutex> lk(g_probe_mu);
+
             for (const auto& t : cand)
             {
                 auto it = g_probe.find(t);
-                if (it == g_probe.end() || it->second.ymd != ymd) continue;   // 미조회분은 어차피 미스
-                if (now_t - it->second.at < cfg.align_refresh_sec) continue;  // 아직 신선하다
+
+                if (it == g_probe.end() || it->second.ymd != ymd)
+                {
+                    continue;  // 미조회분은 어차피 미스
+                }
+
+                if (now_t - it->second.at < cfg.align_refresh_sec)
+                {
+                    continue;  // 아직 신선하다
+                }
+
                 stale.emplace_back(it->second.at, t);
             }
         }
+
         std::sort(stale.begin(), stale.end(),
                   [](const std::pair<std::time_t, std::string>& a,
                      const std::pair<std::time_t, std::string>& b) { return a.first < b.first; });
         const size_t take = std::min<size_t>(stale.size(), (size_t)cfg.align_refresh_max);
-        for (size_t i = 0; i < take; ++i) refresh_set.insert(stale[i].second);
+
+        for (size_t i = 0; i < take; ++i)
+        {
+            refresh_set.insert(stale[i].second);
+        }
+
         if (!stale.empty())
+        {
             LOG_INFO("[Main] DEVSCALE 일봉 재기동 점검: 대상 " + std::to_string(stale.size()) +
                      "종목 중 " + std::to_string(take) + "건 (예산 " +
                      std::to_string(cfg.align_refresh_max) + ", 신선도 " +
                      std::to_string(cfg.align_refresh_sec) + "초)");
+        }
     }
+
     for (const auto& t : cand)
     {
-        if (!market_allows(t)) continue; // 시장 risk_off 게이트(코스닥 후보는 kosdaq_pass일 때만, 일봉 기동 점검 비용도 아낌)
+        if (!market_allows(t))
+        {
+            continue;  // 시장 risk_off 게이트(코스닥 후보는 kosdaq_pass일 때만, 일봉 기동 점검 비용도 아낌)
+        }
+
         // 유동성 하한 — 거래대금이 받침하지 못하는 종목은 체결이 안 되거나 슬리피지로 생익을 먹는다.
         //  시세 파일이 없어 거래대금을 모르는 후보는 통과시킨다(기존 동작 유지).
         if (cfg.min_turnover > 0.0)
         {
             auto itv = cand_val.find(t);
+
             if (itv != cand_val.end() && itv->second > 0.0 && itv->second < cfg.min_turnover)
             { ++illiquid; continue; }
         }
+
         // 스코어링 시엔 max_register 대신 align_probe_max까지 넓게 모아 랭킹(더 나은 상위 N).
-        if (cfg.score_top_n <= 0 && (int)passed.size() >= cfg.max_register) break;
+        if (cfg.score_top_n <= 0 && (int)passed.size() >= cfg.max_register)
+        {
+            break;
+        }
+
         DailyProbe pr;
         bool hit = false;
         {
             std::lock_guard<std::mutex> lk(g_probe_mu);
             auto it = g_probe.find(t);
+
             if (it != g_probe.end() && it->second.ymd == ymd &&
                 refresh_set.find(t) == refresh_set.end()) { pr = it->second; hit = true; }
         }
-        if (!hit && refresh_set.find(t) != refresh_set.end()) ++refreshed;
+
+        if (!hit && refresh_set.find(t) != refresh_set.end())
+        {
+            ++refreshed;
+        }
+
         if (!hit)
         {
             // 캐시 미스만 REST를 쓴다. 상한도 실제 조회 수(fetched)에만 건다.
@@ -524,17 +710,23 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
                          std::to_string(cfg.align_probe_max) + ") 도달 — 남은 후보는 다음 재스캔에서 채움");
                 break;
             }
+
             // 하루 첫 스캔은 수백 건이 연속으로 나간다. KIS 레이트 리밋 여유를 둔다
             //  (캐시 히트 경로에는 걸리지 않으므로 재스캔 지연에는 영향 없음).
             // 60ms에서는 초당한도(EGW00201) 거부가 09-08 하루 149건 났고 CANCEL뿐 아니라
             //  NEW에도 걸려 진입이 4초씩 밀렸다. 같은 날 주문 RTT p50이 09시 381ms에서
             //  10시 1870ms로 단조증가한 것도 계좌 단위 REST 누적 부하로 보여 150ms로 올린다.
-            if (fetched > 0) std::this_thread::sleep_for(std::chrono::milliseconds(150));
+            if (fetched > 0)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(150));
+            }
+
             auto d = c.get_daily_ohlcv(t, cfg.align_daily_n);
             ++fetched;
             pr.ymd  = ymd;
             pr.at   = std::time(nullptr);
             pr.bars = (int)d.size();
+
             if (pr.bars >= 60)
             {
                 auto sma = [&](int n) { double v = 0.0; for (int i = 0; i < n; ++i) v += d[i].close; return v / n; };
@@ -546,23 +738,40 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
                 //  d[0]이 최신이므로 d[i+1]이 i의 전일. 종가로 나눠 종목 간 비교 가능한 비율로 만든다.
                 double tr_sum = 0.0;
                 int    tr_n   = 0;
+
                 for (size_t i = 0; i + 1 < d.size() && tr_n < 14; ++i, ++tr_n)
                 {
                     const double prev_c = d[i + 1].close;
                     const double hi = d[i].high, lo = d[i].low;
                     double tr = hi - lo;
                     const double a = std::fabs(hi - prev_c), b = std::fabs(lo - prev_c);
-                    if (a > tr) tr = a;
-                    if (b > tr) tr = b;
+
+                    if (a > tr)
+                    {
+                        tr = a;
+                    }
+
+                    if (b > tr)
+                    {
+                        tr = b;
+                    }
+
                     tr_sum += tr;
                 }
+
                 pr.atr_pct = (tr_n > 0 && pr.close > 0.0) ? (tr_sum / tr_n) / pr.close : 0.0;
             }
+
             std::lock_guard<std::mutex> lk(g_probe_mu);
             g_probe[t] = pr;
         }
-        else ++cache_hit;
+        else
+        {
+            ++cache_hit;
+        }
+
         ++probed;
+
         if (pr.bars < 60) { ++short_bars; continue; }
         // 오늘 가격을 최신 봉으로 접어 넣어 SMA를 다시 계산한다. 일봉 캐시는
         //  include_today=false라 전일치에서 멈춰 있고, 그대로 쓰면 정배열 판정이
@@ -571,9 +780,15 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
         double px = pr.close;
         {
             auto itp = cand_px.find(t);
-            if (itp != cand_px.end() && itp->second > 0.0) px = itp->second;
+
+            if (itp != cand_px.end() && itp->second > 0.0)
+            {
+                px = itp->second;
+            }
         }
+
         double s5 = pr.s5, s10 = pr.s10, s20 = pr.s20, s60 = pr.s60;
+
         if (px > 0.0 && pr.r60 > 0.0)
         {
             s5  = (pr.s5  *  5 - pr.r5  + px) /  5.0;
@@ -581,21 +796,29 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
             s20 = (pr.s20 * 20 - pr.r20 + px) / 20.0;
             s60 = (pr.s60 * 60 - pr.r60 + px) / 60.0;
         }
-        if (!(s5 > s10 && s10 > s20 && s20 > s60)) continue;
+
+        if (!(s5 > s10 && s10 > s20 && s20 > s60))
+        {
+            continue;
+        }
+
         double trend = s60 > 0.0 ? (s5 - s60) / s60 : 0.0;   // 추세강도(정배열 기울기)
         double pull = s20 > 0.0 ? (px - s20) / s20 : 0.0;     // 눌림깊이(음수=SMA20 아래)
+
         // 과확장 컷 — 일봉 이격이 상한 초과면 제외(존 밴드 진입 불가한 폭등주 슬롯 낭비 방지).
         if (cfg.max_dev_pct > 0.0 && pull > cfg.max_dev_pct)
         {
             ++overext;
             continue;
         }
+
         // 과확장 하한 — 밴드 아래(덜 벌어진 종목)는 눌림 슬리브 몫이다.
         if (cfg.min_dev_pct > 0.0 && pull < cfg.min_dev_pct)
         {
             ++overext;
             continue;
         }
+
         passed.push_back({t, trend, pull, pr.atr_pct, 0.0});
         ++aligned_cnt;
     }
@@ -609,21 +832,46 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
         {
             const size_t n = passed.size();
             z.assign(n, 0.0);
-            if (n < 2) return;
+
+            if (n < 2)
+            {
+                return;
+            }
+
             double mean = 0.0;
-            for (const auto& f : passed) mean += f.*field;
+
+            for (const auto& f : passed)
+            {
+                mean += f.*field;
+            }
+
             mean /= static_cast<double>(n);
             double var = 0.0;
+
             for (const auto& f : passed) { const double d0 = f.*field - mean; var += d0 * d0; }
             var /= static_cast<double>(n);
             const double sd = std::sqrt(var);
+
             // 분산이 사실상 0이면(전 종목 동일) 정규화가 무의미 → 전부 0으로 두어 균등 폴백.
-            if (!(sd > 1e-12)) return;
+            if (!(sd > 1e-12))
+            {
+                return;
+            }
+
             for (size_t i = 0; i < n; ++i)
             {
                 double v = (passed[i].*field - mean) / sd;
-                if (v > 2.0) v = 2.0;
-                if (v < -2.0) v = -2.0;
+
+                if (v > 2.0)
+                {
+                    v = 2.0;
+                }
+
+                if (v < -2.0)
+                {
+                    v = -2.0;
+                }
+
                 z[i] = invert ? -v : v;
             }
         };
@@ -631,9 +879,12 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
         zscore(&Feat::trend, false, zt);
         zscore(&Feat::pull,  true,  zp);   // 눌림은 음수(SMA20 아래)일수록 좋다 → 부호 반전
         zscore(&Feat::vol,   false, zv);
+
         for (size_t i = 0; i < passed.size(); ++i)
+        {
             passed[i].score = cfg.score_w_trend * zt[i] + cfg.score_w_pullback * zp[i]
                             - cfg.score_w_vol * zv[i];
+        }
     }
 
     // 3단: 스코어 랭킹(옵션) — score_top_n>0이면 상위 N만, 아니면 통과 순서대로.
@@ -642,12 +893,22 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
         std::sort(passed.begin(), passed.end(),
                   [](const Feat& a, const Feat& b) { return a.score > b.score; });
         int take_n = (int)passed.size() < cfg.score_top_n ? (int)passed.size() : cfg.score_top_n;
+
         for (int i = 0; i < take_n; ++i)
         {
             out.push_back(passed[i].ticker);
-            if (out_names)  (*out_names)[passed[i].ticker]  = label_name(passed[i].ticker);
-            if (out_scores) (*out_scores)[passed[i].ticker] = passed[i].score;
+
+            if (out_names)
+            {
+                (*out_names)[passed[i].ticker]  = label_name(passed[i].ticker);
+            }
+
+            if (out_scores)
+            {
+                (*out_scores)[passed[i].ticker] = passed[i].score;
+            }
         }
+
         LOG_INFO("[Main] DEVSCALE 횡단면 스코어: 정배열통과=" + std::to_string(passed.size()) +
                  " → 상위 " + std::to_string(take_n) + " 선정 (w_trend=" +
                  std::to_string(cfg.score_w_trend) + " w_pull=" + std::to_string(cfg.score_w_pullback) +
@@ -659,13 +920,23 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
         //  여기서 안 정렬하면 유니버스 파일 순서(시총·거래대금)가 우선순위를 먹는다.
         std::sort(passed.begin(), passed.end(),
                   [](const Feat& a, const Feat& b) { return a.score > b.score; });
+
         for (const auto& p : passed)
         {
             out.push_back(p.ticker);
-            if (out_names)  (*out_names)[p.ticker]  = label_name(p.ticker);
-            if (out_scores) (*out_scores)[p.ticker] = p.score;
+
+            if (out_names)
+            {
+                (*out_names)[p.ticker]  = label_name(p.ticker);
+            }
+
+            if (out_scores)
+            {
+                (*out_scores)[p.ticker] = p.score;
+            }
         }
     }
+
     LOG_INFO("[Main] DEVSCALE 정배열 프리필터: 후보=" + std::to_string(cand.size()) +
              " ETF드롭=" + std::to_string(etf_drop) +
              " 리츠드롭=" + std::to_string(reit_drop) +

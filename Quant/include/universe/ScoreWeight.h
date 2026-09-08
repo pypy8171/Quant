@@ -33,18 +33,33 @@ score_to_mult(const std::unordered_map<std::string, double>& scores,
               double spread, double target_total_pct, double base_pct, int slots)
 {
     std::unordered_map<std::string, double> mult;
+
     if (scores.empty())
+    {
         return mult;
+    }
+
     for (const auto& kv : scores)
+    {
         mult[kv.first] = 1.0;
+    }
+
     if (!(spread > 0.0) || !(target_total_pct > 0.0) || !(base_pct > 0.0) || slots <= 0)
+    {
         return mult;
+    }
 
     const size_t n = scores.size();
     double mean = 0.0;
-    for (const auto& kv : scores) mean += kv.second;
+
+    for (const auto& kv : scores)
+    {
+        mean += kv.second;
+    }
+
     mean /= static_cast<double>(n);
     double var = 0.0;
+
     for (const auto& kv : scores) { const double d = kv.second - mean; var += d * d; }
     var /= static_cast<double>(n);
     const double sd = std::sqrt(var);
@@ -52,15 +67,18 @@ score_to_mult(const std::unordered_map<std::string, double>& scores,
     // 분산이 없으면(전 종목 동점) 차등이 의미 없다. 총합 정규화만 걸고 배수는 균등하게 둔다.
     std::vector<std::pair<std::string, double>> raw;
     raw.reserve(n);
+
     for (const auto& kv : scores)
     {
         double r = 1.0;
+
         if (sd > 1e-12)
         {
             double z = (kv.second - mean) / sd;
             z = std::max(-2.0, std::min(2.0, z));
             r = 1.0 + spread * z / 2.0;
         }
+
         raw.emplace_back(kv.first, r);
     }
 
@@ -70,13 +88,24 @@ score_to_mult(const std::unordered_map<std::string, double>& scores,
                  const std::pair<std::string, double>& b) { return a.second > b.second; });
     const size_t take = std::min(static_cast<size_t>(slots), raw.size());
     double sum_top = 0.0;
-    for (size_t i = 0; i < take; ++i) sum_top += raw[i].second;
+
+    for (size_t i = 0; i < take; ++i)
+    {
+        sum_top += raw[i].second;
+    }
+
     if (!(sum_top > 1e-12))
+    {
         return mult;
+    }
 
     const double scale = target_total_pct / (base_pct * sum_top);
+
     for (const auto& kv : raw)
+    {
         mult[kv.first] = kv.second * scale;
+    }
+
     return mult;
 }
 
@@ -86,22 +115,38 @@ inline std::unordered_map<std::string, double>
 score_to_z(const std::unordered_map<std::string, double>& scores)
 {
     std::unordered_map<std::string, double> out;
+
     if (scores.empty())
+    {
         return out;
+    }
+
     double mean = 0.0;
-    for (const auto& kv : scores) mean += kv.second;
+
+    for (const auto& kv : scores)
+    {
+        mean += kv.second;
+    }
+
     mean /= static_cast<double>(scores.size());
     double var = 0.0;
+
     for (const auto& kv : scores) { const double d = kv.second - mean; var += d * d; }
     var /= static_cast<double>(scores.size());
     const double sd = std::sqrt(var);
+
     for (const auto& kv : scores)
     {
         double v = 0.0;
+
         if (sd > 1e-12)
+        {
             v = std::max(-2.0, std::min(2.0, (kv.second - mean) / sd));
+        }
+
         out[kv.first] = v;
     }
+
     return out;
 }
 
@@ -115,8 +160,12 @@ score_to_rank(const std::unordered_map<std::string, double>& scores)
                  const std::pair<std::string, double>& b)
               { return a.second != b.second ? a.second > b.second : a.first < b.first; });
     std::unordered_map<std::string, int> rank;
+
     for (size_t i = 0; i < v.size(); ++i)
+    {
         rank[v[i].first] = static_cast<int>(i) + 1;
+    }
+
     return rank;
 }
 

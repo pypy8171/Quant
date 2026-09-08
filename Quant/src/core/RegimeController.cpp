@@ -62,13 +62,17 @@ RegimeSnapshot RegimeController::evaluate()
     //  실패한 판정(index_close=0)은 캐시하지 않아 다음 주기에 다시 시도한다.
     {
         std::lock_guard<std::mutex> lk(snap_mtx_);
+
         if (last_.date == today && last_.index_close > 0.0)
+        {
             return last_;
+        }
     }
 
     auto on_fail = [&](const std::string& why) -> RegimeSnapshot {
         ++fail_streak_;
         Regime out;
+
         if (fail_streak_ >= cfg_.fail_fallback_n)
         {
             out = Regime::NEUTRAL;   // 연속 N회 실패 → NEUTRAL fallback
@@ -78,12 +82,17 @@ RegimeSnapshot RegimeController::evaluate()
         else
         {
             out = current_.load();   // 직전 확정 국면 유지
+
             if (out == Regime::UNKNOWN)
+            {
                 out = Regime::NEUTRAL;   // 첫 실패 등 직전 국면 없음 → NEUTRAL 안전판 (W1)
+            }
+
             LOG_WARN("[Regime] 조회 실패(" + std::to_string(fail_streak_) + "/" +
                      std::to_string(cfg_.fail_fallback_n) + ") — 직전 국면 유지: " +
                      to_string(out) + " (" + why + ")");
         }
+
         current_.store(out);
         RegimeSnapshot s;
         s.date = today;
@@ -93,26 +102,40 @@ RegimeSnapshot RegimeController::evaluate()
             std::lock_guard<std::mutex> lk(snap_mtx_);
             last_ = s;
         }
+
         return s;
     };
 
     if (!kis_)
+    {
         return on_fail("KisClient 없음");
+    }
 
     // 200일선 + 당일봉 제외 버퍼 확보
     auto bars = kis_->get_index_daily_ohlcv(cfg_.index_code, cfg_.ma_long + 10);
+
     if (bars.empty())
+    {
         return on_fail("지수 일봉 응답 없음");
+    }
 
     // 당일 미완성봉(bars[0]) 제외 — 전일 확정봉 기준 (C4)
     int start = (ymd_of(bars[0].timestamp) == today) ? 1 : 0;
     int usable = static_cast<int>(bars.size()) - start;
+
     if (usable < cfg_.ma_long)
+    {
         return on_fail("확정봉 부족 " + std::to_string(usable) + "/" + std::to_string(cfg_.ma_long));
+    }
 
     auto sma = [&](int n) -> double {
         double sum = 0.0;
-        for (int i = start; i < start + n; ++i) sum += bars[i].close;
+
+        for (int i = start; i < start + n; ++i)
+        {
+            sum += bars[i].close;
+        }
+
         return sum / n;
     };
 
@@ -123,9 +146,13 @@ RegimeSnapshot RegimeController::evaluate()
     s.ma20  = sma(cfg_.ma_short);
     s.ma60  = sma(cfg_.ma_mid);
     s.ma120 = sma(cfg_.ma_align3);
+
     if (s.index_close <= 0.0 || s.ma200 <= 0.0 ||  // 과도기 비정상값 방어 (W3/S-1)
         s.ma20 <= 0.0 || s.ma60 <= 0.0 || s.ma120 <= 0.0)
+    {
         return on_fail("지수 종가/MA 비정상값(close=" + std::to_string(static_cast<int>(s.index_close)) + ")");
+    }
+
     s.above_ma200  = s.index_close > s.ma200;
     s.aligned_bull = (s.ma20 > s.ma60) && (s.ma60 > s.ma120);
     s.aligned_bear = (s.ma20 < s.ma60) && (s.ma60 < s.ma120);
@@ -139,6 +166,7 @@ RegimeSnapshot RegimeController::evaluate()
         std::lock_guard<std::mutex> lk(snap_mtx_);
         last_ = s;
     }
+
     LOG_INFO("[Regime] " + to_string(s.regime) + " score=" + std::to_string(s.score) +
              " (close=" + std::to_string(static_cast<int>(s.index_close)) +
              " ma200=" + std::to_string(static_cast<int>(s.ma200)) +
@@ -156,7 +184,14 @@ RegimeSnapshot RegimeController::last_snapshot() const
 bool RegimeController::is_active_for(const std::vector<Regime>& active) const
 {
     Regime cur = current_.load();
+
     for (Regime r : active)
-        if (r == cur) return true;
+    {
+        if (r == cur)
+        {
+            return true;
+        }
+    }
+
     return false;
 }

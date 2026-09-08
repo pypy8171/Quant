@@ -82,8 +82,12 @@ public:
     std::vector<WatchSpec> get_watch_specs() const override
     {
         std::vector<WatchSpec> specs;
+
         for (const auto& tk : candidates_)
+        {
             specs.push_back({tk, Market::KR, ""});
+        }
+
         return specs;
     }
 
@@ -102,12 +106,17 @@ public:
 
         // 스캔 대상 업종 결정
         std::vector<std::pair<std::string,std::string>> sectors;
+
         if (sector_codes_.empty())
+        {
             sectors = KOSPI_SECTORS;
+        }
         else
         {
             for (const auto& code : sector_codes_)
+            {
                 sectors.push_back({code, code});
+            }
         }
 
         // ── Step 1: 업종 5일 모멘텀 계산 ─────────────────────────────────
@@ -115,6 +124,7 @@ public:
                  std::to_string(sectors.size()) + "개 업종)");
 
         std::vector<std::pair<double,std::string>> momentum_rank; // <수익률, 코드>
+
         for (const auto& [code, name] : sectors)
         {
             auto bars = kis_->get_index_daily_ohlcv(code, 6);
@@ -125,6 +135,7 @@ public:
                 LOG_WARN("[ThemeStrategy] " + name + "(" + code + ") 일봉 부족");
                 continue;
             }
+
             // 최신이 bars[0], 과거가 bars[N-1]
             double ret = (bars[0].close - bars.back().close) / bars.back().close * 100.0;
             LOG_INFO("[ThemeStrategy] " + name + "(" + code + ") 5일 수익률: " +
@@ -138,14 +149,18 @@ public:
 
         int n = std::min(top_n_sectors_, static_cast<int>(momentum_rank.size()));
         LOG_INFO("[ThemeStrategy] Step1 완료 — 상위 " + std::to_string(n) + "개 업종 선택:");
+
         for (int i = 0; i < n; ++i)
+        {
             LOG_INFO("  [" + std::to_string(i+1) + "] " + momentum_rank[i].second +
                      " (" + std::to_string(momentum_rank[i].first).substr(0,6) + "%)");
+        }
 
         // ── Step 2: 업종 내 종목 스캔 + 거래량 급증 필터 ─────────────────
         LOG_INFO("[ThemeStrategy] Step2 — 거래량 급증 종목 스캔");
 
         std::vector<std::string> surge_candidates;
+
         for (int i = 0; i < n; ++i)
         {
             const std::string& sector_code = momentum_rank[i].second;
@@ -154,23 +169,37 @@ public:
 
             for (const auto& stock : ranked)
             {
-                if (surge_candidates.size() >= kThemeMaxSurgeCandidates) break; // 안전 상한
+                if (surge_candidates.size() >= kThemeMaxSurgeCandidates)
+                {
+                    break;  // 안전 상한
+                }
 
                 auto bars = kis_->get_daily_ohlcv(stock.ticker, 21);
                 std::this_thread::sleep_for(std::chrono::milliseconds(kThemeRestPacingMs));
 
-                if (bars.size() < 5) continue;
+                if (bars.size() < 5)
+                {
+                    continue;
+                }
 
                 // 20일 평균 거래량
                 double vol_sum = 0;
                 int vol_cnt = std::min(20, static_cast<int>(bars.size()) - 1);
+
                 for (int j = 1; j <= vol_cnt; ++j)
+                {
                     vol_sum += static_cast<double>(bars[j].volume);
+                }
+
                 double avg_vol = vol_sum / vol_cnt;
 
-                if (avg_vol <= 0) continue;
+                if (avg_vol <= 0)
+                {
+                    continue;
+                }
 
                 double surge = static_cast<double>(bars[0].volume) / avg_vol;
+
                 if (surge >= volume_surge_mult_)
                 {
                     LOG_INFO("[ThemeStrategy] 거래량 급증: " + stock.ticker +
@@ -180,6 +209,7 @@ public:
                 }
             }
         }
+
         LOG_INFO("[ThemeStrategy] Step2 완료 — 거래량 급증 " +
                  std::to_string(surge_candidates.size()) + "종목");
 
@@ -188,11 +218,14 @@ public:
         {
             // 필터 미적용 시 surge_candidates 바로 사용
             for (const auto& tk : surge_candidates)
+            {
                 candidates_.insert(tk);
+            }
         }
         else
         {
             LOG_INFO("[ThemeStrategy] Step3 — 수급 필터 (외국인+기관 동시 순매수)");
+
             for (const auto& tk : surge_candidates)
             {
                 auto trend = kis_->get_investor_trend(tk);
@@ -210,8 +243,11 @@ public:
 
         LOG_INFO("[ThemeStrategy] 최종 후보: " +
                  std::to_string(candidates_.size()) + "종목");
+
         for (const auto& tk : candidates_)
+        {
             LOG_INFO("  → " + tk);
+        }
     }
 
     std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
@@ -226,7 +262,11 @@ public:
     // 체결 이벤트 — 호가 보완
     std::optional<OrderSignal> on_trade(const TradeData& td) override
     {
-        if (td.market != Market::KR) return std::nullopt;
+        if (td.market != Market::KR)
+        {
+            return std::nullopt;
+        }
+
         return check_entry_exit(td.ticker, td.time, td.price);
     }
 
@@ -242,7 +282,11 @@ private:
                                                  double ref_px)
     {
         int hhmm = parse_hhmm(time_str);
-        if (!krx::in_session(hhmm)) return std::nullopt; // 09:00~15:30 정규장만(core/MarketSession.h)
+
+        if (!krx::in_session(hhmm))
+        {
+            return std::nullopt;  // 09:00~15:30 정규장만(core/MarketSession.h)
+        }
 
         // 진입: 후보이고 아직 매수 안 했으면 (국면 게이트 적용)
         if (is_active() && candidates_.count(ticker) && !buy_sent_.count(ticker))
@@ -288,7 +332,11 @@ private:
 
     static int parse_hhmm(const std::string& t)
     {
-        if (t.size() < 4) return 0;
+        if (t.size() < 4)
+        {
+            return 0;
+        }
+
         try { return std::stoi(t.substr(0, 2)) * 100 + std::stoi(t.substr(2, 2)); }
         catch (...) { return 0; }
     }

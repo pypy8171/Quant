@@ -78,15 +78,20 @@ public:
     void on_order_book_batch(const OrderBook& ob, std::vector<OrderSignal>& out) override
     {
         if (ob.ticker != ticker_ && !ob.ticker.empty())
+        {
             return;
+        }
 
         const double bid1 = ob.bids[0].price;
         const double ask1 = ob.asks[0].price;
+
         // 장전·비어있는 호가(구독 직후/휴장) → 견적 안 냄.
         // TODO(호가 소싱 폴백, 기본 비활성): bid1/ask1가 지속 0이면 kis_->get_current_price()로
         //   임시 mid 구성 가능하나 REST 저지연 아님 → 견적 억제가 원칙. config 플래그로만 노출 예정.
         if (bid1 <= 0.0 || ask1 <= 0.0 || ask1 < bid1)
+        {
             return;
+        }
 
         const double mid  = (bid1 + ask1) / 2.0;
         const double tick = tick_size(mid);
@@ -99,10 +104,15 @@ public:
         {
             // (a) 최소 간격 미달 → skip
             if (now - last_requote_ < min_requote_)
+            {
                 return;
+            }
+
             // (b) mid 이동이 requote_move_ticks 미만 → skip (폭주 방지)
             if (std::fabs(mid - last_mid_) < requote_move_ticks_ * tick)
+            {
                 return;
+            }
         }
 
         // ── 목표 견적가 (스프레드 보존: 매수 내림 / 매도 올림) ───────────────
@@ -110,8 +120,11 @@ public:
         const double raw_ask = mid + half_spread_ticks_ * tick;
         const double desired_bid = round_to_tick(raw_bid, OrderSide::BUY);
         const double desired_ask = round_to_tick(raw_ask, OrderSide::SELL);
+
         if (desired_bid <= 0.0 || desired_ask <= desired_bid)
+        {
             return; // 비정상 가격(교차/음수) → 이번 틱 skip
+        }
 
         // ── 기존 견적 취소 (있으면) ─────────────────────────────────────────
         if (!bid_oid_.empty())
@@ -119,6 +132,7 @@ public:
             out.push_back(make_cancel(bid_oid_, OrderSide::BUY));
             bid_oid_.clear();
         }
+
         if (!ask_oid_.empty())
         {
             out.push_back(make_cancel(ask_oid_, OrderSide::SELL));

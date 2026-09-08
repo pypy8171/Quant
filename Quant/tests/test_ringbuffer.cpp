@@ -16,19 +16,24 @@ static void test_spsc_correctness() {
 		for (int i = 0; i < N; ++i)
 		{
 			while (!rb.push(i))
+			{
 				std::this_thread::yield();
+			}
 		}
 		});
 
 	std::thread cons([&] {
 		int expected = 0;
+
 		while (expected < N) {
 			auto v = rb.pop();
+
 			if (!v)
 			{
 				std::this_thread::yield();
 				continue;
 			}
+
 			assert(*v == expected);
 			++expected;
 		}
@@ -49,20 +54,25 @@ static void test_throughput() {
 		for (int i = 0; i < N; ++i)
 		{
 			while (!rb.push(i))
+			{
 				std::this_thread::yield();
+			}
 		}
 		});
 
 	std::thread cons([&] {
 		int got = 0;
+
 		while (got < N)
 		{
 			auto v = rb.pop();
+
 			if (!v)
 			{
 				std::this_thread::yield();
 				continue;
 			}
+
 			++got;
 		}
 		});

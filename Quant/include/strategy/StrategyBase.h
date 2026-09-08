@@ -59,6 +59,7 @@ public:
     virtual void on_start()
     {
     }
+
     virtual void on_stop()
     {
     }
@@ -104,6 +105,7 @@ public:
     {
         position_provider_ = std::move(f);
     }
+
     int confirmed_position(const std::string& account, const std::string& ticker) const
     {
         return position_provider_ ? position_provider_(account, ticker) : 0;

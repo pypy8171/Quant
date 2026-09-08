@@ -44,7 +44,9 @@ public:
     std::optional<OrderSignal> on_data(const MarketData& data) override
     {
         if (data.ticker != ticker_)
+        {
             return std::nullopt;
+        }
 
         std::optional<OrderSignal> signal;
 
@@ -63,6 +65,7 @@ public:
                 in_position_ = true;
                 signal = make_signal(data, OrderSide::BUY);
             }
+
             // 저점 이탈 청산
             else if (in_position_ && data.close <= channel_low)
             {
@@ -74,6 +77,7 @@ public:
         // 판정 후 당일 바를 채널에 반영(다음 사이클용)
         highs_.push_back(data.high);
         lows_.push_back(data.low);
+
         if ((int)highs_.size() > period_)
         {
             highs_.pop_front();

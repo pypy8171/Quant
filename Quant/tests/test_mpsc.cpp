@@ -34,6 +34,7 @@ bool run_test(const char* name, int num_producers, int per_producer, size_t cap)
     // ── 생산자 N개: 각자 (producer_id, 0..M-1) 를 순서대로 push (가득 차면 재시도)
     std::vector<std::thread> producers;
     producers.reserve(num_producers);
+
     for (int p = 0; p < num_producers; ++p)
     {
         producers.emplace_back(
@@ -42,8 +43,11 @@ bool run_test(const char* name, int num_producers, int per_producer, size_t cap)
                 for (int i = 0; i < per_producer; ++i)
                 {
                     Msg m{p, i};
+
                     while (!q.push(m))
+                    {
                         std::this_thread::yield(); // backpressure: 가득 참 → 양보 후 재시도
+                    }
                 }
             });
     }
@@ -52,32 +56,50 @@ bool run_test(const char* name, int num_producers, int per_producer, size_t cap)
     std::vector<int> last_seq(num_producers, -1);
     long long received = 0;
     bool order_ok = true;
+
     while (received < total)
     {
         auto opt = q.pop();
+
         if (!opt)
         {
             std::this_thread::yield(); // 비어 있음 → 양보 후 재시도
             continue;
         }
+
         const Msg& m = *opt;
+
         if (m.producer < 0 || m.producer >= num_producers)
+        {
             order_ok = false; // 손상된 데이터
+        }
         else if (m.seq != last_seq[m.producer] + 1)
+        {
             order_ok = false; // 순번 역전/누락
+        }
         else
+        {
             last_seq[m.producer] = m.seq;
+        }
+
         ++received;
     }
 
     for (auto& t : producers)
+    {
         t.join();
+    }
 
     const bool count_ok = (received == total);
     bool complete = true;
+
     for (int p = 0; p < num_producers; ++p)
+    {
         if (last_seq[p] != per_producer - 1)
+        {
             complete = false;
+        }
+    }
 
     const bool pass = count_ok && order_ok && complete;
     std::printf("[%-14s] producers=%2d each=%d total=%lld received=%lld  order=%s complete=%s "

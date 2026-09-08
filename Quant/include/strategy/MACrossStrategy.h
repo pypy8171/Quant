@@ -54,14 +54,21 @@ public:
     std::optional<OrderSignal> on_data(const MarketData& data) override
     {
         if (data.ticker != ticker_)
+        {
             return std::nullopt;
+        }
 
         prices_.push_back(data.close);
+
         if ((int)prices_.size() > long_period_)
+        {
             prices_.pop_front();
+        }
 
         if ((int)prices_.size() < long_period_)
+        {
             return std::nullopt;
+        }
 
         double short_ma = calc_ma(short_period_);
         double long_ma = calc_ma(long_period_);
@@ -79,6 +86,7 @@ public:
                 signal = make_signal(data, OrderSide::BUY);
                 in_position_ = true;
             }
+
             // 데드크로스: 단기가 장기를 하향 돌파
             else if (in_position_ && prev_short_ma_ >= prev_long_ma_ && short_ma < long_ma)
             {
@@ -98,8 +106,12 @@ private:
     {
         auto it = prices_.end();
         double sum = 0.0;
+
         for (int i = 0; i < period; ++i)
+        {
             sum += *(--it);
+        }
+
         return sum / period;
     }
 

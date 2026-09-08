@@ -32,6 +32,7 @@ inline std::string kis_hhmmss_minus_minutes(const std::string& hhmmss, int minut
     {
         return "";
     }
+
     for (char c : hhmmss)
     {
         if (c < '0' || c > '9')
@@ -39,18 +40,23 @@ inline std::string kis_hhmmss_minus_minutes(const std::string& hhmmss, int minut
             return "";
         }
     }
+
     const int hh = (hhmmss[0] - '0') * 10 + (hhmmss[1] - '0');
     const int mm = (hhmmss[2] - '0') * 10 + (hhmmss[3] - '0');
     const int ss = (hhmmss[4] - '0') * 10 + (hhmmss[5] - '0');
+
     if (hh > 23 || mm > 59 || ss > 59)
     {
         return "";
     }
+
     const long total = static_cast<long>(hh) * 3600 + mm * 60 + ss - static_cast<long>(minutes) * 60;
+
     if (total < 0)
     {
         return "";
     }
+
     char buf[8];
     std::snprintf(buf, sizeof(buf), "%02ld%02ld%02ld", total / 3600, (total / 60) % 60, total % 60);
     return buf;
@@ -78,12 +84,14 @@ public:
         std::lock_guard<std::mutex> lk(token_mtx_);
         return !access_token_.empty();
     }
+
     // 계좌번호 보유 여부(주문/잔고 계좌). 시세전용(quote) 클라이언트는 account_no가 비어
     // 잔고·주문가능 조회가 불가 — 호출측 가드용.
     bool has_account() const
     {
         return !cfg_.account_no.empty();
     }
+
     // 주문/잔고 계좌번호(CANO). 당일손익 기준선을 계좌별로 분리 저장할 때 쓴다
     //  (같은 거래일에 계좌를 바꾸면 옛 기준선 재사용으로 당일손익이 오염되는 것 방지).
     const std::string& account_no() const { return cfg_.account_no; }

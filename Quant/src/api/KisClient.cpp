@@ -61,30 +61,47 @@ std::vector<std::string> load_str_list(const std::string& filename, const std::s
     std::string base = (dir && *dir) ? std::string(dir) : std::string("Quant/config");
     std::string path = base + "/" + filename;
     std::ifstream f(path);
+
     if (!f.is_open())
     {
         LOG_WARN(std::string("[KIS] ") + what + " 외부파일 없음(" + path + ") — 내장 기본값 " +
                  std::to_string(fallback.size()) + "개 사용");
         return fallback;
     }
+
     try
     {
         auto j = json::parse(f);
         const json* arr = nullptr;
+
         if (key.empty() && j.is_array())
+        {
             arr = &j;
+        }
         else if (!key.empty() && j.is_object() && j.contains(key) && j[key].is_array())
+        {
             arr = &j[key];
+        }
+
         std::vector<std::string> out;
+
         if (arr)
+        {
             for (const auto& e : *arr)
+            {
                 if (e.is_string())
+                {
                     out.push_back(e.get<std::string>());
+                }
+            }
+        }
+
         if (out.empty())
         {
             LOG_WARN(std::string("[KIS] ") + what + " 외부파일 형식오류/빈값(" + path + ") — 내장 기본값 사용");
             return fallback;
         }
+
         LOG_INFO(std::string("[KIS] ") + what + " 외부파일 로드 " + std::to_string(out.size()) + "개 (" + path + ")");
         return out;
     }
@@ -112,7 +129,10 @@ std::vector<std::string> load_str_list(const std::string& filename, const std::s
 static std::wstring to_wstring(const std::string& s)
 {
     if (s.empty())
+    {
         return {};
+    }
+
     int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
     std::wstring w(n - 1, L'\0');
     MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], n);
@@ -169,11 +189,13 @@ struct WinHttpConn
             WinHttpCloseHandle(connect);
             connect = nullptr;
         }
+
         if (session)
         {
             WinHttpCloseHandle(session);
             session = nullptr;
         }
+
         host.clear();
         port = 0;
     }
@@ -198,25 +220,32 @@ static bool http_nopool()
 static HINTERNET acquire_connection(const WinHttpResult& c)
 {
     if (t_conn.session && t_conn.connect && t_conn.host == c.host && t_conn.port == c.port)
+    {
         return t_conn.connect; // 워밍된 연결 재사용
+    }
 
     t_conn.reset(); // 최초 or 호스트 변경 → 재수립
 
     t_conn.session = WinHttpOpen(L"QuantTrader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
                                  WINHTTP_NO_PROXY_BYPASS, 0);
+
     if (!t_conn.session)
+    {
         return nullptr;
+    }
 
     // 명시적 타임아웃(ms): resolve/connect/send/receive. 기본값(무한대급)에서 하향해
     // 전송 계층 히컵이 스레드를 오래 잡지 않게 한다.
     WinHttpSetTimeouts(t_conn.session, 5000, 5000, 10000, 15000);
 
     t_conn.connect = WinHttpConnect(t_conn.session, c.host.c_str(), c.port, 0);
+
     if (!t_conn.connect)
     {
         t_conn.reset();
         return nullptr;
     }
+
     t_conn.host = c.host;
     t_conn.port = c.port;
     return t_conn.connect;
@@ -235,12 +264,16 @@ static std::string winhttp_request_once(const std::string& method, const std::st
     auto c = crack_url(url);
 
     HINTERNET hConnect = acquire_connection(c);
+
     if (!hConnect)
+    {
         return "";
+    }
 
     DWORD flags = c.https ? WINHTTP_FLAG_SECURE : 0;
     HINTERNET hReq = WinHttpOpenRequest(hConnect, to_wstring(method).c_str(), c.path.c_str(), nullptr,
                                         WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+
     if (!hReq)
     {
         t_conn.reset(); // 상주 연결이 상해 있을 수 있음 → 파기, 다음 호출서 재수립
@@ -255,6 +288,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
 
     LPVOID pBody = body.empty() ? nullptr : (LPVOID)body.c_str();
     DWORD cbBody = (DWORD)body.size();
+
     if (!WinHttpSendRequest(hReq, WINHTTP_NO_ADDITIONAL_HEADERS, 0, pBody, cbBody, cbBody, 0))
     {
         DWORD err = GetLastError();
@@ -265,6 +299,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
         t_conn.reset(); // 끊긴 keep-alive 가능 → 파기 후 재수립(GET이면 래퍼가 재시도)
         return "";
     }
+
     if (!WinHttpReceiveResponse(hReq, nullptr))
     {
         DWORD err = GetLastError();
@@ -275,6 +310,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
         t_conn.reset();
         return "";
     }
+
     // 여기 도달 = HTTP 응답 수신 성공(상태코드는 아래에서 확인). 전송 계층은 정상.
     transport_ok = true;
 
@@ -283,6 +319,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
     WinHttpQueryHeaders(hReq, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
                         &statusCode, &statusSize, WINHTTP_NO_HEADER_INDEX);
     status_code = (int)statusCode;
+
     if (statusCode >= 400)
     {
         char errbuf[32];
@@ -292,6 +329,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
 
     std::string response;
     DWORD avail = 0;
+
     while (WinHttpQueryDataAvailable(hReq, &avail) && avail > 0)
     {
         std::string chunk(avail, '\0');
@@ -301,8 +339,12 @@ static std::string winhttp_request_once(const std::string& method, const std::st
     }
 
     WinHttpCloseHandle(hReq); // hReq만 닫는다. hConnect/hSession은 상주(keep-alive 재사용).
+
     if (http_nopool())
+    {
         t_conn.reset(); // 측정용 스위치 — 풀링 도입 전 거동(요청마다 재수립) 재현
+    }
+
     return response;
 }
 
@@ -328,6 +370,7 @@ static std::string winhttp_request(const std::string& method, const std::string&
     const bool idempotent = (method == "GET");
     const int max_attempts = (idempotent && g_fastfail_depth == 0) ? kMaxGetAttempts : 1;
     std::string resp;
+
     for (int attempt = 1; attempt <= max_attempts; ++attempt)
     {
         bool transport_ok = false;
@@ -335,13 +378,21 @@ static std::string winhttp_request(const std::string& method, const std::string&
         resp = winhttp_request_once(method, url, headers, body, transport_ok, status);
         // 재시도 대상: 전송 실패(항상) 또는 조회(GET)의 5xx. 그 외(2xx/4xx)는 즉시 반환.
         const bool retryable = !transport_ok || (idempotent && status >= 500);
+
         if (!retryable)
+        {
             return resp;
+        }
+
         // 한도 초과가 확인되면 한 번만 더 시도하고 그친다. 부하가 원인인 실패에 재시도를
         //  겹치면 부하를 더 얹는다.
         const bool rate_limited = is_rate_limited(resp);
+
         if (rate_limited && attempt >= 2)
+        {
             return resp;
+        }
+
         if (attempt < max_attempts)
         {
             LOG_WARN("[WinHTTP] " + std::string(transport_ok ? "HTTP " + std::to_string(status) : "전송 실패") +
@@ -352,6 +403,7 @@ static std::string winhttp_request(const std::string& method, const std::string&
             Sleep(rate_limited ? 1100u : kRetryBackoffMsBase * attempt);
         }
     }
+
     return resp; // 재시도 소진 — 마지막 응답(빈 문자열 또는 5xx 바디)
 }
 
@@ -374,13 +426,19 @@ static std::string curl_request_once(const std::string& method, const std::strin
     transport_ok = false;
     status_code = 0;
     CURL* curl = curl_easy_init();
+
     if (!curl)
+    {
         return "";
+    }
 
     std::string response;
     curl_slist* hlist = nullptr;
+
     for (auto& h : headers)
+    {
         hlist = curl_slist_append(hlist, h.c_str());
+    }
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hlist);
@@ -395,8 +453,11 @@ static std::string curl_request_once(const std::string& method, const std::strin
     }
 
     CURLcode rc = curl_easy_perform(curl);
+
     if (rc != CURLE_OK)
+    {
         LOG_ERROR(std::string("[CURL] 요청 실패: ") + curl_easy_strerror(rc));
+    }
     else
     {
         transport_ok = true;
@@ -419,17 +480,26 @@ static std::string curl_request(const std::string& method, const std::string& ur
     const bool idempotent = (method == "GET");
     const int max_attempts = (idempotent && g_fastfail_depth == 0) ? kMaxGetAttempts : 1;
     std::string resp;
+
     for (int attempt = 1; attempt <= max_attempts; ++attempt)
     {
         bool transport_ok = false;
         int status = 0;
         resp = curl_request_once(method, url, headers, body, transport_ok, status);
         const bool retryable = !transport_ok || (idempotent && status >= 500);
+
         if (!retryable)
+        {
             return resp;
+        }
+
         const bool rate_limited = is_rate_limited(resp); // 한도 초과면 한 번만 더 시도
+
         if (rate_limited && attempt >= 2)
+        {
             return resp;
+        }
+
         if (attempt < max_attempts)
         {
             LOG_WARN("[CURL] " + std::string(transport_ok ? "HTTP " + std::to_string(status) : "전송 실패") +
@@ -440,6 +510,7 @@ static std::string curl_request(const std::string& method, const std::string& ur
                 std::chrono::milliseconds(rate_limited ? 1100 : kRetryBackoffMsBase * attempt));
         }
     }
+
     return resp;
 }
 #endif
@@ -478,6 +549,7 @@ void KisClient::ensure_authenticated()
     std::lock_guard<std::mutex> lk(token_mtx_);
     auto now = std::chrono::system_clock::now();
     auto margin = std::chrono::minutes(5);
+
     if (access_token_.empty() || now + margin >= token_expires_at_)
     {
         LOG_INFO("[KIS] 토큰 갱신 시작");
@@ -499,6 +571,7 @@ bool KisClient::authenticate_locked()
     std::string cache_path = token_cache_path(cfg_.app_key);
     {
         std::ifstream f(cache_path);
+
         if (f.is_open())
         {
             try
@@ -514,6 +587,7 @@ bool KisClient::authenticate_locked()
                     {
                     };
                     int y, mo, d, h, mi, s;
+
                     if (sscanf(expires.c_str(), "%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6)
                     {
                         tm_exp.tm_year = y - 1900;
@@ -525,6 +599,7 @@ bool KisClient::authenticate_locked()
                         tm_exp.tm_isdst = -1;
                         auto exp_t = std::mktime(&tm_exp);
                         auto now_t = std::time(nullptr);
+
                         // 만료 10분 전까지 사용
                         if (exp_t - now_t > 600)
                         {
@@ -568,6 +643,7 @@ bool KisClient::authenticate_locked()
             {
             };
             int y, mo, d, h, mi, s;
+
             if (sscanf(expires.c_str(), "%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6)
             {
                 tm_exp.tm_year = y - 1900;
@@ -592,8 +668,11 @@ bool KisClient::authenticate_locked()
         std::string tmp_path = cache_path + ".tmp";
         {
             std::ofstream cf(tmp_path);
+
             if (cf.is_open())
+            {
                 cf << cache_j.dump(2);
+            }
         }
 #ifdef _WIN32
         MoveFileExA(tmp_path.c_str(), cache_path.c_str(), MOVEFILE_REPLACE_EXISTING);
@@ -603,8 +682,10 @@ bool KisClient::authenticate_locked()
         // tmp를 fsync해 데이터를 디스크에 내린 뒤 rename (V-2).
         {
             int fd = ::open(tmp_path.c_str(), O_RDONLY);
+
             if (fd >= 0) { ::fsync(fd); ::close(fd); }
         }
+
         std::rename(tmp_path.c_str(), cache_path.c_str()); // POSIX atomic
 #endif
 
@@ -621,7 +702,9 @@ bool KisClient::authenticate_locked()
 std::vector<MarketData> KisClient::get_daily_ohlcv(const std::string& ticker, int count, bool include_today)
 {
     if (count <= 0)
+    {
         return {};
+    }
 
     // 캐시 키에 절단 여부를 넣는다. ticker만으로 키를 잡으면 절단본과 미절단본이 서로를
     //  덮어써서 호출자가 뭘 받을지 호출 순서에 달리게 된다(D-005).
@@ -633,6 +716,7 @@ std::vector<MarketData> KisClient::get_daily_ohlcv(const std::string& ticker, in
     {
         std::lock_guard<std::mutex> lk(daily_cache_mtx_);
         auto it = daily_cache_.find(ckey);
+
         if (it != daily_cache_.end() && it->second.requested >= count &&
             std::chrono::steady_clock::now() - it->second.at <
                 std::chrono::seconds(cfg_.daily_cache_ttl_sec))
@@ -640,8 +724,12 @@ std::vector<MarketData> KisClient::get_daily_ohlcv(const std::string& ticker, in
             size_t n = (std::min)(static_cast<size_t>(count), it->second.bars.size());
             std::vector<MarketData> hit(it->second.bars.begin(), it->second.bars.begin() + n);
             auto now = std::chrono::system_clock::now();
+
             for (auto& md : hit)
+            {
                 md.timestamp = now;
+            }
+
             return hit;
         }
     }
@@ -674,6 +762,7 @@ std::vector<MarketData> KisClient::get_daily_ohlcv(const std::string& ticker, in
 
     std::string resp = http_get(url, headers);
     std::vector<MarketData> result;
+
     if (resp.empty())
     {
         LOG_ERROR("[KIS] 일봉 조회 실패: " + ticker);
@@ -685,15 +774,22 @@ std::vector<MarketData> KisClient::get_daily_ohlcv(const std::string& ticker, in
         auto j = json::parse(resp);
         auto& arr = j["output2"];
         int fetched = 0;
+
         for (auto& item : arr)
         {
             if (fetched >= count)
+            {
                 break;
+            }
+
             // 당일 미완성 봉 절단(D-005). 응답에서 날짜로 거른다 — FID_INPUT_DATE_2를 전일로
             //  당기는 방식은 휴장·반차 캘린더가 필요해서 쓰지 않는다.
             //  드롭한 행은 fetched로 세지 않는다. 세면 봉이 하나 모자란다.
             if (!include_today && item.value("stck_bsop_date", std::string()) == d2)
+            {
                 continue;
+            }
+
             ++fetched;
             MarketData md;
             md.ticker = ticker;
@@ -735,8 +831,13 @@ double kis_num(const nlohmann::json& o, const std::string& k)
 // YYYYMMDD + HHMMSS → time_t (서버 TZ 독립: gmtime 계열로 통일, KST 오프셋은 호출 무관)
 time_t kis_parse_dt(const std::string& d, const std::string& t)
 {
-    if (d.size() != 8 || t.size() < 6) return 0;
+    if (d.size() != 8 || t.size() < 6)
+    {
+        return 0;
+    }
+
     struct tm tmv{};
+
     try {
         tmv.tm_year = std::stoi(d.substr(0, 4)) - 1900;
         tmv.tm_mon  = std::stoi(d.substr(4, 2)) - 1;
@@ -767,7 +868,11 @@ std::vector<MarketData> kis_aggregate_minutes(std::vector<KisRawMinute>& raws,
                                               int interval_min, int count)
 {
     std::vector<MarketData> result;
-    if (raws.empty()) return result;
+
+    if (raws.empty())
+    {
+        return result;
+    }
 
     std::sort(raws.begin(), raws.end(), [](const KisRawMinute& a, const KisRawMinute& b) {
         return a.date != b.date ? a.date < b.date : a.hour < b.hour;
@@ -775,12 +880,15 @@ std::vector<MarketData> kis_aggregate_minutes(std::vector<KisRawMinute>& raws,
 
     std::vector<MarketData> asc; // 과거→최신 집계봉
     std::string cur_key;
+
     for (const auto& r : raws)
     {
         int hh = 0, mm = 0;
+
         try { hh = std::stoi(r.hour.substr(0, 2)); mm = std::stoi(r.hour.substr(2, 2)); } catch (...) { continue; }
         int bucket = (hh * 60 + mm) / interval_min;        // 시계 정렬 버킷
         std::string key = r.date + ":" + std::to_string(bucket);
+
         if (key != cur_key)
         {
             MarketData md;
@@ -810,6 +918,7 @@ std::vector<MarketData> kis_aggregate_minutes(std::vector<KisRawMinute>& raws,
         md.bar_index = static_cast<int>(result.size()); // 0=최신
         result.push_back(md);
     }
+
     return result;
 }
 
@@ -824,15 +933,34 @@ std::string kis_parse_minute_page(const nlohmann::json& arr,
 {
     std::string page_earliest;
     added_out = 0;
+
     for (const auto& item : arr)
     {
         std::string d = item.value("stck_bsop_date", "");
         std::string t = item.value("stck_cntg_hour", "");
-        if (t.size() < 6) continue;
-        if (page_earliest.empty() || t < page_earliest) page_earliest = t;
-        if (!date_filter.empty() && d != date_filter) continue; // 요청 날짜 밖 행 방어
+
+        if (t.size() < 6)
+        {
+            continue;
+        }
+
+        if (page_earliest.empty() || t < page_earliest)
+        {
+            page_earliest = t;
+        }
+
+        if (!date_filter.empty() && d != date_filter)
+        {
+            continue;  // 요청 날짜 밖 행 방어
+        }
+
         std::string key = d + t;
-        if (!seen.insert(key).second) continue;                 // 중복
+
+        if (!seen.insert(key).second)
+        {
+            continue;  // 중복
+        }
+
         KisRawMinute r;
         r.date = d; r.hour = t;
         r.o = kis_num(item, "stck_oprc");
@@ -843,6 +971,7 @@ std::string kis_parse_minute_page(const nlohmann::json& arr,
         raws.push_back(r);
         ++added_out;
     }
+
     return page_earliest;
 }
 
@@ -852,8 +981,16 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
 {
     ensure_authenticated();
     std::vector<MarketData> result;
-    if (count <= 0) return result;
-    if (interval_min < 1) interval_min = 1;
+
+    if (count <= 0)
+    {
+        return result;
+    }
+
+    if (interval_min < 1)
+    {
+        interval_min = 1;
+    }
 
     // 기준시각: 현재 KST(장중)이면 지금, 장전/장후면 15:30에서 역조회.
     time_t now_kst = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + kKstOffsetSec;
@@ -866,7 +1003,11 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
     char hbuf[7];
     std::snprintf(hbuf, sizeof(hbuf), "%02d%02d%02d", ntm.tm_hour, ntm.tm_min, ntm.tm_sec);
     std::string hour = hbuf;
-    if (hour < "090000" || hour > "153000") hour = "153000";
+
+    if (hour < "090000" || hour > "153000")
+    {
+        hour = "153000";
+    }
 
     std::vector<std::string> hdrs = {
         "authorization: Bearer " + token(),
@@ -893,30 +1034,53 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
             "&FID_PW_DATA_INCU_YN=N";
 
         std::string resp = http_get(url, hdrs);
-        if (resp.empty()) break;
+
+        if (resp.empty())
+        {
+            break;
+        }
+
         auto j = json::parse(resp, nullptr, false);
-        if (j.is_discarded() || !j.contains("output2")) break;
+
+        if (j.is_discarded() || !j.contains("output2"))
+        {
+            break;
+        }
+
         auto& arr = j["output2"];
-        if (arr.empty()) break;
+
+        if (arr.empty())
+        {
+            break;
+        }
 
         int added = 0;
         std::string page_earliest = kis_parse_minute_page(arr, raws, seen, "", added);
-        if (page_earliest.empty()) break;
+
+        if (page_earliest.empty())
+        {
+            break;
+        }
+
         // 09:00 봉이 이번 페이지에 들어왔으면 더 앞은 없다. 커서는 1분 앞 시각이되 09:00 아래로는 내리지
         // 않는다(09:00 봉 하나만 남은 페이지를 놓치지 않으려고).
         if (page_earliest <= "090000")
         {
             break;
         }
+
         std::string prev = kis_hhmmss_minus_minutes(page_earliest, 1);
+
         if (prev.empty())
         {
             break;
         }
+
         if (prev < "090000")
         {
             prev = "090000";
         }
+
         hour = prev;
         std::this_thread::sleep_for(std::chrono::milliseconds(120)); // rate limit 여유
     }
@@ -935,8 +1099,16 @@ std::vector<MarketData> KisClient::get_daily_minute_ohlcv(const std::string& tic
 {
     ensure_authenticated();
     std::vector<MarketData> result;
-    if (count <= 0 || yyyymmdd.size() != 8) return result;
-    if (interval_min < 1) interval_min = 1;
+
+    if (count <= 0 || yyyymmdd.size() != 8)
+    {
+        return result;
+    }
+
+    if (interval_min < 1)
+    {
+        interval_min = 1;
+    }
 
     std::string hour = end_hhmmss.size() == 6 ? end_hhmmss : std::string("153000");
 
@@ -967,28 +1139,51 @@ std::vector<MarketData> KisClient::get_daily_minute_ohlcv(const std::string& tic
             "&FID_FAKE_TICK_INCU_YN=N";
 
         std::string resp = http_get(url, hdrs);
-        if (resp.empty()) break;
+
+        if (resp.empty())
+        {
+            break;
+        }
+
         auto j = json::parse(resp, nullptr, false);
-        if (j.is_discarded() || !j.contains("output2")) break;
+
+        if (j.is_discarded() || !j.contains("output2"))
+        {
+            break;
+        }
+
         auto& arr = j["output2"];
-        if (arr.empty()) break;
+
+        if (arr.empty())
+        {
+            break;
+        }
 
         int added = 0;
         std::string page_earliest = kis_parse_minute_page(arr, raws, seen, yyyymmdd, added);
-        if (page_earliest.empty()) break;
+
+        if (page_earliest.empty())
+        {
+            break;
+        }
+
         if (page_earliest <= "090000")
         {
             break; // 그날 장 시작에 도달
         }
+
         std::string prev = kis_hhmmss_minus_minutes(page_earliest, 1);
+
         if (prev.empty())
         {
             break;
         }
+
         if (prev < "090000")
         {
             prev = "090000";
         }
+
         hour = prev;
         std::this_thread::sleep_for(std::chrono::milliseconds(120));
     }
@@ -1005,8 +1200,11 @@ double KisClient::get_current_price(const std::string& ticker)
                                         "appsecret: " + cfg_.app_secret, "tr_id: FHKST01010100"};
 
     std::string resp = http_get(url, headers);
+
     if (resp.empty())
+    {
         return 0.0;
+    }
 
     try
     {
@@ -1031,8 +1229,11 @@ Fundamentals KisClient::get_fundamentals(const std::string& ticker)
     f.ticker = ticker;
 
     std::string resp = http_get(url, headers);
+
     if (resp.empty())
+    {
         return f;
+    }
 
     try
     {
@@ -1041,8 +1242,12 @@ Fundamentals KisClient::get_fundamentals(const std::string& ticker)
         auto parse_d = [&](const std::string& key) -> double
         {
             std::string s = out.value(key, "");
+
             if (s.empty())
+            {
                 return 0.0;
+            }
+
             try
             {
                 return std::stod(s);
@@ -1083,11 +1288,13 @@ static bool kis_parse_order_resp(const std::string& resp, json& j, const char* w
         LOG_ERROR(std::string("[KIS] ") + what + " 응답 파싱 실패: " + e.what() + " — " + resp.substr(0, 200));
         return false;
     }
+
     if (!j.is_object() || !j.contains("rt_cd") || !j["rt_cd"].is_string())
     {
         LOG_ERROR(std::string("[KIS] ") + what + " 응답에 rt_cd 없음 — " + resp.substr(0, 200));
         return false;
     }
+
     return true;
 }
 
@@ -1101,22 +1308,33 @@ bool KisClient::send_order(const OrderSignal& signal)
     {
         // 해외주식 주문: NAS/NYS
         if (signal.side == OrderSide::BUY)
+        {
             tr_id = cfg_.is_paper ? "VTTT1002U" : "TTTT1002U";
+        }
         else
+        {
             tr_id = cfg_.is_paper ? "VTTT1006U" : "TTTT1006U";
+        }
+
         url = base_url() + "/uapi/overseas-stock/v1/trading/order";
     }
     else
     {
         // 국내주식 현금 주문
         if (signal.side == OrderSide::BUY)
+        {
             tr_id = cfg_.is_paper ? "VTTC0802U" : "TTTC0802U";
+        }
         else
+        {
             tr_id = cfg_.is_paper ? "VTTC0801U" : "TTTC0801U";
+        }
+
         url = base_url() + "/uapi/domestic-stock/v1/trading/order-cash";
     }
 
     json body;
+
     if (is_us)
     {
         body = {{"CANO", cfg_.account_no},
@@ -1149,11 +1367,14 @@ bool KisClient::send_order(const OrderSignal& signal)
     }
 
     json j;
+
     if (!kis_parse_order_resp(resp, j, "send_order"))
     {
         return false;
     }
+
     bool ok = (j["rt_cd"].get<std::string>() == "0");
+
     if (ok)
     {
         LOG_INFO("[KIS] 주문 성공: " + signal.ticker + (signal.side == OrderSide::BUY ? " BUY " : " SELL ") +
@@ -1163,6 +1384,7 @@ bool KisClient::send_order(const OrderSignal& signal)
     {
         LOG_ERROR("[KIS] 주문 오류: " + j.value("msg1", std::string("")));
     }
+
     return ok;
 }
 
@@ -1187,17 +1409,22 @@ std::string KisClient::submit_order(const OrderSignal& signal)
     }
 
     json body;
+
     if (is_us)
+    {
         body = {{"CANO", cfg_.account_no}, {"ACNT_PRDT_CD", cfg_.account_type},
                 {"OVRS_EXCG_CD", signal.exchange}, {"PDNO", signal.ticker},
                 {"ORD_DVSN", "00"}, {"ORD_QTY", std::to_string(signal.quantity)},
                 {"OVRS_ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(signal.price) : "0"}};
+    }
     else
+    {
         body = {{"CANO", cfg_.account_no}, {"ACNT_PRDT_CD", cfg_.account_type},
                 {"PDNO", signal.ticker},
                 {"ORD_DVSN", signal.type == OrderType::MARKET ? "01" : "00"},
                 {"ORD_QTY", std::to_string(signal.quantity)},
                 {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string((int)signal.price) : "0"}};
+    }
 
     std::string resp = http_post(url,
         {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
@@ -1211,10 +1438,12 @@ std::string KisClient::submit_order(const OrderSignal& signal)
     }
 
     json j;
+
     if (!kis_parse_order_resp(resp, j, "submit_order"))
     {
         return "";
     }
+
     if (j["rt_cd"].get<std::string>() != "0")
     {
         LOG_ERROR("[KIS] 주문 오류: " + j.value("msg1", std::string("")));
@@ -1252,17 +1481,22 @@ OrderAck KisClient::submit_order_ack(const OrderSignal& signal)
     }
 
     json body;
+
     if (is_us)
+    {
         body = {{"CANO", cfg_.account_no}, {"ACNT_PRDT_CD", cfg_.account_type},
                 {"OVRS_EXCG_CD", signal.exchange}, {"PDNO", signal.ticker},
                 {"ORD_DVSN", "00"}, {"ORD_QTY", std::to_string(signal.quantity)},
                 {"OVRS_ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(signal.price) : "0"}};
+    }
     else
+    {
         body = {{"CANO", cfg_.account_no}, {"ACNT_PRDT_CD", cfg_.account_type},
                 {"PDNO", signal.ticker},
                 {"ORD_DVSN", signal.type == OrderType::MARKET ? "01" : "00"},
                 {"ORD_QTY", std::to_string(signal.quantity)},
                 {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string((int)signal.price) : "0"}};
+    }
 
     std::string resp = http_post(url,
         {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
@@ -1276,10 +1510,12 @@ OrderAck KisClient::submit_order_ack(const OrderSignal& signal)
     }
 
     json j;
+
     if (!kis_parse_order_resp(resp, j, "submit_order_ack"))
     {
         return OrderAck{};
     }
+
     if (j["rt_cd"].get<std::string>() != "0")
     {
         last_order_msg_cd_ = j.value("msg_cd", std::string(""));
@@ -1306,11 +1542,13 @@ std::string KisClient::cancel_order(const std::string& ticker, const std::string
                                     const std::string& krx_orgno, int qty, bool all_remaining)
 {
     last_order_msg_cd_.clear();
+
     if (orig_odno.empty())
     {
         LOG_ERROR("[KIS] cancel_order 원주문번호(ODNO) 없음 — " + ticker);
         return "";
     }
+
     std::string tr_id = cfg_.is_paper ? "VTTC0803U" : "TTTC0803U";
     std::string url   = base_url() + "/uapi/domestic-stock/v1/trading/order-rvsecncl";
 
@@ -1334,11 +1572,14 @@ std::string KisClient::cancel_order(const std::string& ticker, const std::string
         LOG_ERROR("[KIS] cancel_order 전송 실패: " + ticker + " ODNO=" + orig_odno);
         return "";
     }
+
     json j;
+
     if (!kis_parse_order_resp(resp, j, "cancel_order"))
     {
         return "";
     }
+
     if (j["rt_cd"].get<std::string>() != "0")
     {
         last_order_msg_cd_ = j.value("msg_cd", std::string(""));
@@ -1347,6 +1588,7 @@ std::string KisClient::cancel_order(const std::string& ticker, const std::string
                  j.value("msg1", std::string("")));
         return "";
     }
+
     std::string cancel_odno = j.value("output", json::object()).value("ODNO", "");
     LOG_INFO("[KIS] 취소 접수: " + ticker + " 원ODNO=" + orig_odno +
              " 취소ODNO=" + cancel_odno);
@@ -1357,11 +1599,13 @@ std::string KisClient::revise_order(const std::string& ticker, const std::string
                                     const std::string& krx_orgno, int new_qty, double new_price)
 {
     last_order_msg_cd_.clear();
+
     if (orig_odno.empty())
     {
         LOG_ERROR("[KIS] revise_order 원주문번호(ODNO) 없음 — " + ticker);
         return "";
     }
+
     std::string tr_id = cfg_.is_paper ? "VTTC0803U" : "TTTC0803U";
     std::string url   = base_url() + "/uapi/domestic-stock/v1/trading/order-rvsecncl";
 
@@ -1388,11 +1632,14 @@ std::string KisClient::revise_order(const std::string& ticker, const std::string
         LOG_ERROR("[KIS] revise_order 전송 실패: " + ticker + " ODNO=" + orig_odno);
         return "";
     }
+
     json j;
+
     if (!kis_parse_order_resp(resp, j, "revise_order"))
     {
         return "";
     }
+
     if (j["rt_cd"].get<std::string>() != "0")
     {
         last_order_msg_cd_ = j.value("msg_cd", std::string(""));
@@ -1400,6 +1647,7 @@ std::string KisClient::revise_order(const std::string& ticker, const std::string
                  j.value("msg1", std::string("")));
         return "";
     }
+
     // 정정 성공 시 새 ODNO 발급 → 반환 (호출부가 kis_order_no 갱신)
     std::string new_odno = j.value("output", json::object()).value("ODNO", "");
     LOG_INFO("[KIS] 정정 접수: " + ticker + " 원ODNO=" + orig_odno +
@@ -1421,13 +1669,17 @@ nlohmann::json KisClient::get_balance()
     auto rtrim = [](std::string s)
     {
         while (!s.empty() && (s.back() == ' ' || s.back() == '\t'))
+        {
             s.pop_back();
+        }
+
         return s;
     };
 
     nlohmann::json result;
     nlohmann::json out1 = nlohmann::json::array();
     std::string fk, nk, cont;
+
     for (int page = 0; page < 30; ++page) // 안전 상한(무한루프 방지)
     {
         std::string url = base_url() + "/uapi/domestic-stock/v1/trading/inquire-balance" +
@@ -1442,9 +1694,14 @@ nlohmann::json KisClient::get_balance()
                                             "tr_cont: " + cont};
 
         std::string resp = http_get(url, headers);
+
         if (resp.empty())
+        {
             break;
+        }
+
         nlohmann::json j;
+
         try
         {
             j = json::parse(resp);
@@ -1455,21 +1712,35 @@ nlohmann::json KisClient::get_balance()
         }
 
         if (page == 0)
+        {
             result = j; // output2(계좌요약)·최상위 필드는 첫 페이지 기준
+        }
+
         if (j.contains("output1") && j["output1"].is_array())
+        {
             for (auto& h : j["output1"])
+            {
                 out1.push_back(h);
+            }
+        }
 
         std::string nk_next = rtrim(j.value("ctx_area_nk100", ""));
+
         if (nk_next.empty())
+        {
             break; // 다음 페이지 없음
+        }
+
         fk = rtrim(j.value("ctx_area_fk100", ""));
         nk = nk_next;
         cont = "N";
     }
 
     if (result.is_null())
+    {
         return json::object();
+    }
+
     result["output1"] = out1;
     return result;
 }
@@ -1491,12 +1762,16 @@ std::vector<OpenOrder> KisClient::get_open_orders()
     auto rtrim = [](std::string s)
     {
         while (!s.empty() && (s.back() == ' ' || s.back() == '\t'))
+        {
             s.pop_back();
+        }
+
         return s;
     };
 
     std::vector<OpenOrder> result;
     std::string fk, nk, cont;
+
     for (int page = 0; page < 30; ++page) // 안전 상한(무한루프 방지)
     {
         std::string url = base_url() +
@@ -1511,9 +1786,14 @@ std::vector<OpenOrder> KisClient::get_open_orders()
                                             "tr_cont: " + cont};
 
         std::string resp = http_get(url, headers);
+
         if (resp.empty())
+        {
             break;
+        }
+
         nlohmann::json j;
+
         try
         {
             j = json::parse(resp);
@@ -1522,6 +1802,7 @@ std::vector<OpenOrder> KisClient::get_open_orders()
         {
             break;
         }
+
         if (j.value("rt_cd", std::string("")) != "0")
         {
             LOG_WARN("[KIS] 미체결 조회 오류: " + j.value("msg1", std::string("")));
@@ -1543,18 +1824,26 @@ std::vector<OpenOrder> KisClient::get_open_orders()
                 oo.side = (sb == "01") ? OrderSide::SELL
                         : (sb == "02") ? OrderSide::BUY
                                        : OrderSide::NONE;
+
                 if (!oo.ticker.empty() && oo.psbl_qty > 0)
+                {
                     result.push_back(oo);
+                }
             }
         }
 
         std::string nk_next = rtrim(j.value("ctx_area_nk100", ""));
+
         if (nk_next.empty())
+        {
             break; // 다음 페이지 없음
+        }
+
         fk = rtrim(j.value("ctx_area_fk100", ""));
         nk = nk_next;
         cont = "N";
     }
+
     return result;
 }
 
@@ -1574,12 +1863,13 @@ void KisClient::rate_limit_acquire(const std::string& url)
     const bool priority = url.find("/trading/") != std::string::npos;
     const double need = priority ? 1.0 : 2.0;
 
-    for(;;) // while (1)
+    while (true) // while (1)
     {
         double wait_sec = 0.0;
         {
             std::lock_guard<std::mutex> lk(rate_mtx_);
             auto now = std::chrono::steady_clock::now();
+
             if (rate_last_.time_since_epoch().count() == 0)
             {
                 rate_last_ = now;
@@ -1595,6 +1885,7 @@ void KisClient::rate_limit_acquire(const std::string& url)
                 rate_tokens_ -= 1.0;
                 return;
             }
+
             wait_sec = (need - rate_tokens_) / refill;
         }
         
@@ -1631,6 +1922,7 @@ static void kis_stamp_bearer(std::vector<std::string>& hdrs, const std::string& 
 std::string KisClient::http_get(const std::string& url, const std::vector<std::string>& headers)
 {
     auto hdrs = headers;
+
     // oauth2 토큰 발급 엔드포인트가 아닌 경우에만 자동 갱신 (재귀 방지)
     if (url.find("oauth2") == std::string::npos)
     {
@@ -1642,6 +1934,7 @@ std::string KisClient::http_get(const std::string& url, const std::vector<std::s
 
     // KIS API는 GET에도 Content-Type: application/json 요구
     bool has_ct = false;
+
     for (auto& h : hdrs)
     {
         if (h.find("Content-Type") != std::string::npos)
@@ -1673,6 +1966,7 @@ std::string KisClient::http_post(const std::string& url, const std::vector<std::
                                  const std::string& body)
 {
     auto hdrs = headers;
+
     if (url.find("oauth2") == std::string::npos)
     {
         ensure_authenticated();
@@ -1711,22 +2005,29 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
                                      "appsecret: " + cfg_.app_secret, "tr_id: FHPST01720000"};
 
     std::string resp = http_get(url, hdrs);
+
     if (resp.empty())
     {
         LOG_WARN("[KIS] 랭킹 조회 실패 (" + market_div + ")");
         return {};
     }
+
     LOG_DEBUG("[KIS] 랭킹 응답: " + resp.substr(0, 400));
 
     std::vector<RankingStock> result;
+
     try
     {
         auto j = json::parse(resp);
         auto safe_d = [](const nlohmann::json& o, const std::string& k) -> double
         {
             std::string s = o.value(k, "");
+
             if (s.empty())
+            {
                 return 0.0;
+            }
+
             try
             {
                 return std::stod(s);
@@ -1739,8 +2040,12 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
         auto safe_i = [](const nlohmann::json& o, const std::string& k) -> int64_t
         {
             std::string s = o.value(k, "");
+
             if (s.empty())
+            {
                 return 0;
+            }
+
             try
             {
                 return std::stoll(s);
@@ -1763,21 +2068,32 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
         auto is_normal_ticker = [](const std::string& t)
         {
             if (t.size() != 6)
+            {
                 return false;
+            }
+
             for (char c : t)
+            {
                 if (c < '0' || c > '9')
+                {
                     return false;
+                }
+            }
+
             return true;
         };
 
         // API 응답 키: "output" (단일 배열)
         auto& arr = j.contains("output2") ? j["output2"] : j["output"];
         int drop_etf = 0, drop_ticker = 0; // 진단: raw 행이 어디서 새는지 계측
+
         for (const auto& item : arr)
         {
             std::string name = item.value("hts_kor_isnm", "");
             std::string ticker = item.value("mksc_shrn_iscd", "");
+
             if (!is_normal_ticker(ticker)) { ++drop_ticker; continue; }
+
             if (is_etf_name(name)) { ++drop_etf; continue; }
 
             RankingStock s;
@@ -1791,6 +2107,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
             s.per = safe_d(item, "hts_per");
             result.push_back(s);
         }
+
         // 진단: raw 행수 vs 필터 후. raw가 ~30 고정이면 페이지네이션 필요, ETF드롭이 크면 API단 제외로 회복.
         LOG_INFO("[KIS] 시총랭킹 진단: raw=" + std::to_string(arr.size()) +
                  " ETF드롭=" + std::to_string(drop_etf) + " 티커드롭=" + std::to_string(drop_ticker) +
@@ -1803,9 +2120,14 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
 
         // count개로 자르고 순위 재부여
         if (static_cast<int>(result.size()) > count)
+        {
             result.resize(count);
+        }
+
         for (int i = 0; i < static_cast<int>(result.size()); ++i)
+        {
             result[i].rank = i + 1;
+        }
     }
     catch (const std::exception& e)
     {
@@ -1836,22 +2158,29 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
                                      "appsecret: " + cfg_.app_secret, "tr_id: FHPST01710000"};
 
     std::string resp = http_get(url, hdrs);
+
     if (resp.empty())
     {
         LOG_WARN("[KIS] 거래대금 랭킹 조회 실패 (" + market_div + ")");
         return {};
     }
+
     LOG_DEBUG("[KIS] 거래대금 랭킹 응답: " + resp.substr(0, 400));
 
     std::vector<RankingStock> result;
+
     try
     {
         auto j = json::parse(resp);
         auto safe_d = [](const nlohmann::json& o, const std::string& k) -> double
         {
             std::string s = o.value(k, "");
+
             if (s.empty())
+            {
                 return 0.0;
+            }
+
             try
             {
                 return std::stod(s);
@@ -1864,8 +2193,12 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
         auto safe_i = [](const nlohmann::json& o, const std::string& k) -> int64_t
         {
             std::string s = o.value(k, "");
+
             if (s.empty())
+            {
                 return 0;
+            }
+
             try
             {
                 return std::stoll(s);
@@ -1886,24 +2219,38 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
         auto is_normal_ticker = [](const std::string& t)
         {
             if (t.size() != 6)
+            {
                 return false;
+            }
+
             for (char c : t)
+            {
                 if (c < '0' || c > '9')
+                {
                     return false;
+                }
+            }
+
             return true;
         };
 
         // volume-rank 응답 배열 키: "output" (표준). output2도 방어적으로 수용.
         auto& arr = j.contains("output") ? j["output"] : j["output2"];
         int drop_etf = 0, drop_ticker = 0; // 진단: raw 행이 어디서 새는지 계측
+
         for (const auto& item : arr)
         {
             std::string name = item.value("hts_kor_isnm", "");
             // 티커 키가 mksc_shrn_iscd 또는 stck_shrn_iscd 둘 다 관측됨 → 양쪽 시도
             std::string ticker = item.value("mksc_shrn_iscd", "");
+
             if (ticker.empty())
+            {
                 ticker = item.value("stck_shrn_iscd", "");
+            }
+
             if (!is_normal_ticker(ticker)) { ++drop_ticker; continue; }
+
             if (is_etf_name(name)) { ++drop_etf; continue; }
 
             RankingStock s;
@@ -1916,6 +2263,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
             s.trade_value = safe_d(item, "acml_tr_pbmn"); // 누적 거래대금(원)
             result.push_back(s);
         }
+
         // 진단: raw 행수 vs 필터 후. raw가 ~30 고정이면 페이지네이션 필요, ETF드롭이 크면 API단 제외로 회복.
         LOG_INFO("[KIS] 거래대금랭킹 진단(축=" + blng_cls + "): raw=" + std::to_string(arr.size()) +
                  " ETF드롭=" + std::to_string(drop_etf) + " 티커드롭=" + std::to_string(drop_ticker) +
@@ -1924,13 +2272,20 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
         // 거래대금축(3)일 때만 acml_tr_pbmn 내림차순 재정렬. 다른 축(거래량0·거래증가율1)은
         // trade_value가 비어 있어 재정렬하면 순서가 망가지므로 API 순위 순서를 그대로 유지.
         if (blng_cls == "3")
+        {
             std::sort(result.begin(), result.end(),
                       [](const RankingStock& a, const RankingStock& b) { return a.trade_value > b.trade_value; });
+        }
 
         if (static_cast<int>(result.size()) > count)
+        {
             result.resize(count);
+        }
+
         for (int i = 0; i < static_cast<int>(result.size()); ++i)
+        {
             result[i].rank = i + 1;
+        }
     }
     catch (const std::exception& e)
     {
@@ -1960,6 +2315,7 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
                                      "appsecret: " + cfg_.app_secret, "tr_id: FHPTJ04400000"};
 
     std::string resp = http_get(url, hdrs);
+
     if (resp.empty())
     {
         LOG_WARN("[KIS] 당일 수급 랭킹 조회 실패 (sort=" + sort + " etc=" + etc_cls + ")");
@@ -1967,6 +2323,7 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
     }
 
     std::vector<EstInvestorFlow> result;
+
     try
     {
         auto j = json::parse(resp);
@@ -1974,25 +2331,40 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
         auto safe_i = [](const nlohmann::json& o, const std::string& k) -> int64_t
         {
             std::string s = o.value(k, "");
+
             if (s.empty())
+            {
                 return 0;
+            }
+
             try { return std::stoll(s); } catch (...) { return 0; }
         };
         auto safe_d = [](const nlohmann::json& o, const std::string& k) -> double
         {
             std::string s = o.value(k, "");
+
             if (s.empty())
+            {
                 return 0.0;
+            }
+
             try { return std::stod(s); } catch (...) { return 0.0; }
         };
 
         const nlohmann::json* arr = nullptr;
+
         if (j.contains("output"))
+        {
             arr = &j["output"];
+        }
         else if (j.contains("output1"))
+        {
             arr = &j["output1"];
+        }
         else if (j.contains("output2"))
+        {
             arr = &j["output2"];
+        }
 
         if (arr && arr->is_array())
         {
@@ -2000,20 +2372,29 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
             {
                 EstInvestorFlow f;
                 f.ticker = item.value("mksc_shrn_iscd", "");
+
                 if (f.ticker.empty())
+                {
                     f.ticker = item.value("stck_shrn_iscd", "");
+                }
+
                 f.name = item.value("hts_kor_isnm", "");
                 f.foreign_net_qty = safe_i(item, "frgn_ntby_qty");
                 f.inst_net_qty    = safe_i(item, "orgn_ntby_qty");
                 f.foreign_net_amt = safe_d(item, "frgn_ntby_tr_pbmn");
                 f.inst_net_amt    = safe_d(item, "orgn_ntby_tr_pbmn");
+
                 if (!f.ticker.empty())
+                {
                     result.push_back(std::move(f));
+                }
             }
         }
 
         if (result.empty())
+        {
             LOG_WARN("[KIS] 당일 수급 랭킹 파싱 0건 — 스키마 확인용 원문: " + resp.substr(0, 500));
+        }
     }
     catch (const std::exception& e)
     {
@@ -2038,6 +2419,7 @@ std::vector<std::string> KisClient::fetch_universe_by_pbr(double max_pbr, const 
                                      "appsecret: " + cfg_.app_secret, "tr_id: FHPST01720000"};
 
     std::string resp = http_get(url, hdrs);
+
     if (resp.empty())
     {
         LOG_WARN("[KIS] Universe 조회 실패 (" + market_div + ")");
@@ -2047,30 +2429,40 @@ std::vector<std::string> KisClient::fetch_universe_by_pbr(double max_pbr, const 
     LOG_DEBUG("[KIS] Universe(" + market_div + ") 응답: " + resp.substr(0, 300));
 
     std::vector<std::string> result;
+
     try
     {
         auto j = json::parse(resp);
         auto& arr2 = j.contains("output2") ? j["output2"] : j["output"];
+
         for (const auto& item : arr2)
         {
             std::string ticker = item.value("mksc_shrn_iscd", "");
+
             if (ticker.empty())
+            {
                 continue;
+            }
 
             // PBR 필터: 유효한 값이 있을 때만 적용 (0.00 = 데이터 없음 → 통과)
             std::string pbr_s = item.value("hts_pbr", "");
+
             if (!pbr_s.empty() && pbr_s != "0" && pbr_s != "0.00")
             {
                 try
                 {
                     double pbr = std::stod(pbr_s);
+
                     if (pbr > max_pbr)
+                    {
                         continue;
+                    }
                 }
                 catch (...)
                 {
                 }
             }
+
             result.push_back(ticker);
         }
     }
@@ -2097,22 +2489,27 @@ std::vector<MarketData> KisClient::get_us_daily_ohlcv(const std::string& ticker,
                                      "appsecret: " + cfg_.app_secret, "tr_id: HHDFS76240000", "custtype: P"};
 
     std::string resp = http_get(url, hdrs);
+
     if (resp.empty())
     {
         LOG_WARN("[KIS-US] OHLCV 응답 없음: " + ticker);
         return {};
     }
+
     LOG_DEBUG("[KIS-US] OHLCV 응답(" + ticker + "): " + resp.substr(0, 300));
 
     std::vector<MarketData> result;
+
     try
     {
         auto j = json::parse(resp);
+
         if (!j.contains("output2") || !j["output2"].is_array())
         {
             LOG_WARN("[KIS-US] output2 없음: " + ticker);
             return {};
         }
+
         for (const auto& item : j["output2"])
         {
             MarketData md;
@@ -2122,8 +2519,12 @@ std::vector<MarketData> KisClient::get_us_daily_ohlcv(const std::string& ticker,
             auto parse_d = [](const json& o, const std::string& k) -> double
             {
                 if (!o.contains(k))
+                {
                     return 0.0;
+                }
+
                 std::string s = o[k].is_string() ? o[k].get<std::string>() : o[k].dump();
+
                 try
                 {
                     return s.empty() ? 0.0 : std::stod(s);
@@ -2138,26 +2539,38 @@ std::vector<MarketData> KisClient::get_us_daily_ohlcv(const std::string& ticker,
             md.high = parse_d(item, "high");
             md.low = parse_d(item, "low");
             md.volume = 0;
+
             try
             {
                 std::string v = item.value("tvol", "0");
+
                 if (!v.empty())
+                {
                     md.volume = std::stoll(v);
+                }
             }
             catch (...)
             {
             }
+
             md.timestamp = std::chrono::system_clock::now();
+
             if (md.close > 0.0)
+            {
                 result.push_back(md);
+            }
+
             if ((int)result.size() >= count)
+            {
                 break;
+            }
         }
     }
     catch (const std::exception& e)
     {
         LOG_ERROR("[KIS-US] OHLCV 파싱 오류 " + ticker + ": " + e.what());
     }
+
     return result;
 }
 
@@ -2178,11 +2591,13 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
     f.ticker = ticker;
 
     std::string resp = http_get(url, hdrs);
+
     if (resp.empty())
     {
         LOG_WARN("[KIS-US] Fundamentals 응답 없음: " + ticker);
         return f;
     }
+
     LOG_DEBUG("[KIS-US] Fundamentals 응답(" + ticker + "): " + resp.substr(0, 300));
 
     try
@@ -2190,17 +2605,23 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
         auto j = json::parse(resp);
         // KIS 해외주식 현재가상세는 output1 키 사용
         const char* out_key = j.contains("output1") ? "output1" : j.contains("output") ? "output" : nullptr;
+
         if (!out_key)
         {
             LOG_WARN("[KIS-US] output 키 없음: " + ticker);
             return f;
         }
+
         const auto& out = j[out_key];
         auto parse_dbl = [&](const std::string& key) -> double
         {
             std::string s = out.value(key, "");
+
             if (s.empty())
+            {
                 return 0.0;
+            }
+
             try
             {
                 return std::stod(s);
@@ -2213,8 +2634,12 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
         auto parse_i64 = [&](const std::string& key) -> int64_t
         {
             std::string s = out.value(key, "");
+
             if (s.empty())
+            {
                 return 0;
+            }
+
             try
             {
                 return std::stoll(s);
@@ -2226,8 +2651,12 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
         };
         f.per = parse_dbl("per");
         f.pbr = parse_dbl("pbr");
+
         if (f.pbr == 0.0)
+        {
             f.pbr = parse_dbl("p_b_rate");
+        }
+
         f.last = parse_dbl("last");
         f.open = parse_dbl("open");
         f.high = parse_dbl("high");
@@ -2255,10 +2684,15 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
 bool KisClient::send_us_order(const OrderSignal& signal)
 {
     std::string tr_id;
+
     if (signal.side == OrderSide::BUY)
+    {
         tr_id = cfg_.is_paper ? "VTTT1002U" : "TTTT1002U";
+    }
     else
+    {
         tr_id = cfg_.is_paper ? "VTTT1006U" : "TTTT1006U";
+    }
 
     // KIS 해외주식 주문: 시장가 = ORD_DVSN "00", 가격 "0"
     json body = {{"CANO", cfg_.account_no},
@@ -2282,16 +2716,24 @@ bool KisClient::send_us_order(const OrderSignal& signal)
     }
 
     json j;
+
     if (!kis_parse_order_resp(resp, j, "send_us_order"))
     {
         return false;
     }
+
     bool ok = (j["rt_cd"].get<std::string>() == "0");
+
     if (ok)
+    {
         LOG_INFO("[KIS-US] 주문 성공: " + signal.ticker + (signal.side == OrderSide::BUY ? " BUY " : " SELL ") +
                  std::to_string(signal.quantity) + "주");
+    }
     else
+    {
         LOG_ERROR("[KIS-US] 주문 오류: " + j.value("msg1", "unknown"));
+    }
+
     return ok;
 }
 
@@ -2315,12 +2757,19 @@ std::vector<std::string> KisClient::fetch_us_universe_by_pbr(double max_pbr, con
         if (max_pbr > 0.0)
         {
             auto f = get_us_fundamentals(tk, exchange);
+
             // KIS가 pbr 미제공(0.0)이면 PBR 조건 무시, per로 대리 (per=0이면 pass)
             if (f.pbr > 0.0 && f.pbr > max_pbr)
+            {
                 continue;
+            }
+
             if (f.pbr == 0.0 && f.per > 0.0 && f.per > max_pbr * 10.0)
+            {
                 continue;
+            }
         }
+
         result.push_back(tk);
         // KIS 초당 거래건수 제한 회피 (1req/200ms)
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -2340,7 +2789,11 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
     // 1콜당 ~50봉만 오므로(라이브 확인), DATE_2를 과거로 밀며 count봉까지 누적한다.
     // (Python get_historical_ohlcv와 동일 패턴). 결과는 최신→과거(timestamp 내림차순) 정렬.
     std::vector<MarketData> result;
-    if (count <= 0) return result;
+
+    if (count <= 0)
+    {
+        return result;
+    }
 
     // 날짜 산술은 서버 로컬 TZ에 독립적이어야 한다(UTC 클라우드 등). gmtime/timegm으로
     // 통일하고, '오늘'은 KST(+9h) 기준으로 잡는다(KST 자정~오전 실행 시 최신봉 누락 방지).
@@ -2356,8 +2809,13 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
         return std::string(buf);
     };
     auto parse_ymd = [](const std::string& s) -> time_t {
-        if (s.size() != 8) return 0;
+        if (s.size() != 8)
+        {
+            return 0;
+        }
+
         struct tm tmv{};
+
         try {
             tmv.tm_year = std::stoi(s.substr(0, 4)) - 1900;
             tmv.tm_mon  = std::stoi(s.substr(4, 2)) - 1;
@@ -2402,19 +2860,39 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
         try
         {
             auto resp = http_get(url, hdrs);
-            if (resp.empty()) break;
+
+            if (resp.empty())
+            {
+                break;
+            }
+
             auto j = json::parse(resp, nullptr, false);
-            if (j.is_discarded() || !j.contains("output2")) break;
+
+            if (j.is_discarded() || !j.contains("output2"))
+            {
+                break;
+            }
+
             auto& arr = j["output2"];
-            if (arr.empty()) break;
+
+            if (arr.empty())
+            {
+                break;
+            }
 
             std::string page_oldest;
             int added = 0;
+
             for (const auto& item : arr)              // output2는 최신→과거 순
             {
                 std::string bd = item.value("stck_bsop_date", "");
+
                 // 페이지 경계 중복 방지: 이미 받은 범위(>= oldest_seen)는 스킵
-                if (!oldest_seen.empty() && !bd.empty() && bd >= oldest_seen) continue;
+                if (!oldest_seen.empty() && !bd.empty() && bd >= oldest_seen)
+                {
+                    continue;
+                }
+
                 MarketData d;
                 d.ticker = sector_code;
                 d.close  = sd(item, "bstp_nmix_prpr");
@@ -2422,18 +2900,39 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
                 d.high   = sd(item, "bstp_nmix_hgpr");
                 d.low    = sd(item, "bstp_nmix_lwpr");
                 d.volume = static_cast<int64_t>(sd(item, "acml_vol"));
+
                 if (!bd.empty())
+                {
                     d.timestamp = std::chrono::system_clock::from_time_t(parse_ymd(bd));
+                }
+
                 result.push_back(d);
                 ++added;
-                if (!bd.empty() && (page_oldest.empty() || bd < page_oldest)) page_oldest = bd;
-                if (static_cast<int>(result.size()) >= count) break;
+
+                if (!bd.empty() && (page_oldest.empty() || bd < page_oldest))
+                {
+                    page_oldest = bd;
+                }
+
+                if (static_cast<int>(result.size()) >= count)
+                {
+                    break;
+                }
             }
 
-            if (page_oldest.empty() || added == 0) break;   // 새 데이터 없음 → 종료
+            if (page_oldest.empty() || added == 0)
+            {
+                break;  // 새 데이터 없음 → 종료
+            }
+
             oldest_seen = page_oldest;
             time_t ot = parse_ymd(page_oldest);
-            if (ot == 0) break;
+
+            if (ot == 0)
+            {
+                break;
+            }
+
             end_t = ot - 86400;                              // 다음 윈도우: 최古일 -1일
         }
         catch (const std::exception& e)
@@ -2441,6 +2940,7 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
             LOG_WARN("[KIS] 업종 일봉(" + sector_code + ") 오류: " + e.what());
             break;
         }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(120)); // rate limit 여유
     }
 
@@ -2450,8 +2950,11 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
               [](const MarketData& a, const MarketData& b) { return a.timestamp > b.timestamp; });
 
     if (static_cast<int>(result.size()) < count)
+    {
         LOG_WARN("[KIS] 업종 일봉(" + sector_code + ") 요청 " + std::to_string(count) +
                  "봉 중 " + std::to_string(result.size()) + "봉만 수집 (페이지 한계/데이터 부족)");
+    }
+
     return result;
 }
 
@@ -2488,15 +2991,25 @@ std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
     };
 
     std::vector<RankingStock> result;
+
     try
     {
         auto resp = http_get(url, hdrs);
-        if (resp.empty()) return result;
+
+        if (resp.empty())
+        {
+            return result;
+        }
 
         LOG_DEBUG("[KIS] 업종 등락률 응답(" + sector_code + "): " + resp.substr(0, 300));
 
         auto j = json::parse(resp, nullptr, false);
-        if (j.is_discarded()) return result;
+
+        if (j.is_discarded())
+        {
+            return result;
+        }
+
         if (j.value("rt_cd", std::string("0")) != "0")
         {
             LOG_WARN("[KIS] 업종 등락률(" + sector_code + ") 거부: rt_cd=" +
@@ -2511,17 +3024,37 @@ std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
             try { return std::stoll(o.value(k, "0")); } catch (...) { return 0; }
         };
         auto is_normal_ticker = [](const std::string& t) {
-            if (t.size() != 6) return false;
-            for (char c : t) if (c < '0' || c > '9') return false;
+            if (t.size() != 6)
+            {
+                return false;
+            }
+
+            for (char c : t)
+            {
+                if (c < '0' || c > '9')
+                {
+                    return false;
+                }
+            }
+
             return true;
         };
 
         auto& arr = j.contains("output2") ? j["output2"] : j["output"];
+
         for (const auto& item : arr)
         {
             std::string ticker = item.value("mksc_shrn_iscd", "");
-            if (ticker.empty()) ticker = item.value("stck_shrn_iscd", "");
-            if (!is_normal_ticker(ticker)) continue;
+
+            if (ticker.empty())
+            {
+                ticker = item.value("stck_shrn_iscd", "");
+            }
+
+            if (!is_normal_ticker(ticker))
+            {
+                continue;
+            }
 
             RankingStock s;
             s.ticker      = ticker;
@@ -2531,19 +3064,24 @@ std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
             s.volume      = si(item, "acml_vol");
             result.push_back(s);
         }
+
         // 30행을 다 받아놓고 앞의 count행만 쓰면 그 업종 최고 상승주를 버린다(이미 지불한
         //  호출이다). API 정렬도 완전한 내림차순이 아니어서(09-08 실측 0019: 제주항공
         //  6.05 다음이 동양고속 2.09, 그다음이 진에어 4.53) 여기서 다시 정렬한 뒤 자른다.
         std::sort(result.begin(), result.end(),
                   [](const RankingStock& x, const RankingStock& y)
                   { return x.change_rate > y.change_rate; });
+
         if (static_cast<int>(result.size()) > count)
+        {
             result.resize(count);
+        }
     }
     catch (const std::exception& e)
     {
         LOG_WARN("[KIS] 업종 등락률(" + sector_code + ") 오류: " + e.what());
     }
+
     return result;
 }
 
@@ -2566,17 +3104,31 @@ KisClient::InvestorTrend KisClient::get_investor_trend(const std::string& ticker
 
     InvestorTrend result;
     result.ticker = ticker;
+
     try
     {
         auto resp = http_get(url, hdrs);
-        if (resp.empty()) return result;
+
+        if (resp.empty())
+        {
+            return result;
+        }
 
         auto j = json::parse(resp, nullptr, false);
-        if (j.is_discarded() || !j.contains("output")) return result;
+
+        if (j.is_discarded() || !j.contains("output"))
+        {
+            return result;
+        }
 
         // output 배열 최신(오늘) 데이터만 사용
         auto& arr = j["output"];
-        if (arr.empty()) return result;
+
+        if (arr.empty())
+        {
+            return result;
+        }
+
         const auto& latest = arr[0];
 
         auto si = [](const nlohmann::json& o, const std::string& k) -> int64_t {
@@ -2589,6 +3141,7 @@ KisClient::InvestorTrend KisClient::get_investor_trend(const std::string& ticker
     {
         LOG_WARN("[KIS] 투자자동향(" + ticker + ") 오류: " + e.what());
     }
+
     return result;
 }
 
@@ -2613,23 +3166,42 @@ std::vector<InvestorFlow> KisClient::get_investor_flow(const std::string& ticker
     };
 
     std::vector<InvestorFlow> result;
+
     try
     {
         auto resp = http_get(url, hdrs);
-        if (resp.empty()) return result;
+
+        if (resp.empty())
+        {
+            return result;
+        }
 
         auto j = json::parse(resp, nullptr, false);
-        if (j.is_discarded() || !j.contains("output")) return result;
+
+        if (j.is_discarded() || !j.contains("output"))
+        {
+            return result;
+        }
 
         auto si = [](const nlohmann::json& o, const std::string& k) -> int64_t {
             std::string s = o.value(k, "");
-            if (s.empty()) return 0;
+
+            if (s.empty())
+            {
+                return 0;
+            }
+
             // KIS 부호 있는 수치 문자열: 앞에 + / - 포함 가능
             try { return std::stoll(s); } catch (...) { return 0; }
         };
         auto sd = [](const nlohmann::json& o, const std::string& k) -> double {
             std::string s = o.value(k, "");
-            if (s.empty()) return 0.0;
+
+            if (s.empty())
+            {
+                return 0.0;
+            }
+
             try { return std::stod(s); } catch (...) { return 0.0; }
         };
 
@@ -2641,14 +3213,18 @@ std::vector<InvestorFlow> KisClient::get_investor_flow(const std::string& ticker
             f.inst_net    = si(row, "orgn_ntby_qty");
             f.indiv_net   = si(row, "prsn_ntby_qty");
             f.close       = sd(row, "stck_clpr");
+
             if (!f.date.empty())
+            {
                 result.push_back(std::move(f));
+            }
         }
     }
     catch (const std::exception& e)
     {
         LOG_WARN("[KIS] 투자자 시계열(" + ticker + ") 오류: " + e.what());
     }
+
     return result; // [0]=가장 최근, look-ahead 방지는 호출측 책임
 }
 
@@ -2675,8 +3251,11 @@ KisClient::IndexPrice KisClient::get_index_price(const std::string& ticker)
     {
         auto resp = http_get(url, headers);
         auto j = json::parse(resp, nullptr, false);
+
         if (j.is_discarded() || !j.contains("output"))
+        {
             return ip;
+        }
 
         auto& o = j["output"];
         auto sd = [&](const char* k) -> double
@@ -2693,6 +3272,7 @@ KisClient::IndexPrice KisClient::get_index_price(const std::string& ticker)
         ip.price = sd("bstp_nmix_prpr");
         ip.change = sd("bstp_nmix_prdy_vrss");
         ip.change_rate = sd("bstp_nmix_prdy_ctrt");
+
         try
         {
             ip.sign = std::stoi(o.value("prdy_vrss_sign", "3"));
@@ -2706,6 +3286,7 @@ KisClient::IndexPrice KisClient::get_index_price(const std::string& ticker)
     {
         LOG_WARN("[KIS] get_index_price(" + ticker + ") 실패: " + e.what());
     }
+
     return ip;
 }
 
@@ -2731,6 +3312,7 @@ KisClient::FuturePrice KisClient::get_future_price(const std::string& iscd, cons
     {
         auto resp = http_get(url, headers);
         auto j = json::parse(resp, nullptr, false);
+
         if (j.is_discarded())
         {
             LOG_WARN("[KIS] get_future_price(" + iscd + ") JSON 파싱 불가: " + resp.substr(0, 200));
@@ -2739,25 +3321,36 @@ KisClient::FuturePrice KisClient::get_future_price(const std::string& iscd, cons
 
         // 스키마 확정됨(2026-09-03). 첫 호출 1회 raw output 덤프 유지 — 스키마 변동/디버그 대비.
         static bool dumped = false;
+
         if (!dumped)
         {
             dumped = true;
             std::string dump;
+
             for (const char* key : {"output1", "output2", "output3", "output"})
+            {
                 if (j.contains(key))
+                {
                     dump += std::string(key) + "=" + j[key].dump() + "  ";
+                }
+            }
+
             LOG_INFO("[KIS] get_future_price RAW " + (dump.empty() ? resp.substr(0, 500) : dump));
         }
 
         // 시세를 담은 output 객체 탐색: 가격 필드(futs_prpr)를 가진 객체를 우선 확정,
         // 없으면 output2→output1→output 순서의 첫 객체.
         const json* o = nullptr;
+
         for (const char* key : {"output2", "output1", "output"})
         {
             if (j.contains(key) && j[key].is_object())
             {
                 if (!o)
+                {
                     o = &j[key];
+                }
+
                 if (j[key].contains("futs_prpr"))
                 {
                     o = &j[key];
@@ -2765,8 +3358,11 @@ KisClient::FuturePrice KisClient::get_future_price(const std::string& iscd, cons
                 }
             }
         }
+
         if (!o)
+        {
             return fp;
+        }
 
         auto sd = [&](const char* k) -> double {
             try { return std::stod((*o).value(k, "0")); } catch (...) { return 0.0; }
@@ -2778,6 +3374,7 @@ KisClient::FuturePrice KisClient::get_future_price(const std::string& iscd, cons
         fp.price         = sd("futs_prpr");
         fp.change        = sd("futs_prdy_vrss");
         fp.change_rate   = sd("futs_prdy_ctrt");
+
         try { fp.sign = std::stoi((*o).value("prdy_vrss_sign", "3")); } catch (...) { fp.sign = 3; }
         fp.open          = sd("futs_oprc");
         fp.high          = sd("futs_hgpr");
@@ -2790,6 +3387,7 @@ KisClient::FuturePrice KisClient::get_future_price(const std::string& iscd, cons
     {
         LOG_WARN("[KIS] get_future_price(" + iscd + ") 실패: " + e.what());
     }
+
     return fp;
 }
 
@@ -2813,11 +3411,13 @@ nlohmann::json KisClient::get_future_board(const std::string& market_cls, const 
     {
         auto resp = http_get(url, headers);
         auto j = json::parse(resp, nullptr, false);
+
         if (j.is_discarded())
         {
             LOG_WARN("[KIS] get_future_board JSON 파싱 불가: " + resp.substr(0, 200));
             return json::object();
         }
+
         return j;
     }
     catch (const std::exception& e)

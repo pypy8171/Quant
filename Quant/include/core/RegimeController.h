@@ -53,14 +53,31 @@ public:
     static int compute_score(const RegimeSnapshot& s, const Config& /*cfg*/)
     {
         int score = s.above_ma200 ? +1 : -1;            // 축1: 200일선
-        if (s.aligned_bull)      score += 1;            // 축2: 정배열/역배열/혼조
-        else if (s.aligned_bear) score -= 1;
+
+        if (s.aligned_bull)
+        {
+            score += 1;  // 축2: 정배열/역배열/혼조
+        }
+        else if (s.aligned_bear)
+        {
+            score -= 1;
+        }
+
         return score;
     }
+
     static Regime classify(int score, const Config& cfg)
     {
-        if (score >= cfg.score_bull_threshold) return Regime::BULL;
-        if (score <= cfg.score_bear_threshold) return Regime::BEAR;
+        if (score >= cfg.score_bull_threshold)
+        {
+            return Regime::BULL;
+        }
+
+        if (score <= cfg.score_bear_threshold)
+        {
+            return Regime::BEAR;
+        }
+
         return Regime::NEUTRAL;
     }
 

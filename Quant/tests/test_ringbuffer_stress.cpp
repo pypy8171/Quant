@@ -88,24 +88,29 @@ static void producer_fn(RingBuffer<MockOrderBook>& rb,
 			std::memcpy(ob.ticker, tk, 6);
 			ob.ticker[6] = '\0';
 			ob.seq = seq++;
+
 			for (int i = 0; i < 5; ++i) {
 				ob.ask_price[i] = 70000.0 + i * 10 + b;
 				ob.ask_qty[i] = 100 + i * 50;
 				ob.bid_price[i] = 69990.0 - i * 10 - b;
 				ob.bid_qty[i] = 100 + i * 50;
 			}
+
 			ob.send_ts_ns = std::chrono::duration_cast<ns>(
 				clk::now().time_since_epoch()).count();
 
 			// Push (가득 차면 재시도, 운영 환경에선 데이터 손실 옵션도 있음)
 			int retries = 0;
+
 			while (!rb.push(ob)) {
 				if (++retries > 1000) {
 					stats.push_failed.fetch_add(1, std::memory_order_relaxed);
 					break;
 				}
+
 				std::this_thread::yield();
 			}
+
 			stats.produced.fetch_add(1, std::memory_order_relaxed);
 		}
 
@@ -127,12 +132,36 @@ static void consumer_fn(RingBuffer<MockOrderBook>& rb,
 {
 	uint64_t expected_seq[6] = { 0, 0, 0, 0, 0, 0 };  // 종목별 seq
 	auto ticker_idx = [](const char* tk) -> int {
-		if (std::strcmp(tk, "005930") == 0) return 0;
-		if (std::strcmp(tk, "000660") == 0) return 1;
-		if (std::strcmp(tk, "005380") == 0) return 2;
-		if (std::strcmp(tk, "035720") == 0) return 3;
-		if (std::strcmp(tk, "051910") == 0) return 4;
-		if (std::strcmp(tk, "006400") == 0) return 5;
+		if (std::strcmp(tk, "005930") == 0)
+		{
+		    return 0;
+		}
+
+		if (std::strcmp(tk, "000660") == 0)
+		{
+		    return 1;
+		}
+
+		if (std::strcmp(tk, "005380") == 0)
+		{
+		    return 2;
+		}
+
+		if (std::strcmp(tk, "035720") == 0)
+		{
+		    return 3;
+		}
+
+		if (std::strcmp(tk, "051910") == 0)
+		{
+		    return 4;
+		}
+
+		if (std::strcmp(tk, "006400") == 0)
+		{
+		    return 5;
+		}
+
 		return -1;
 		};
 
@@ -140,6 +169,7 @@ static void consumer_fn(RingBuffer<MockOrderBook>& rb,
 
 	while (!stop_flag.load(std::memory_order_relaxed) || !rb.empty()) {
 		auto opt = rb.pop();
+
 		if (!opt) {
 			std::this_thread::sleep_for(std::chrono::microseconds(10));
 			continue;
@@ -149,7 +179,11 @@ static void consumer_fn(RingBuffer<MockOrderBook>& rb,
 		int64_t now_ns = std::chrono::duration_cast<ns>(
 			clk::now().time_since_epoch()).count();
 		int64_t latency = now_ns - opt->send_ts_ns;
-		if (latency >= 0) stats.latencies_ns.push_back(latency);
+
+		if (latency >= 0)
+		{
+		    stats.latencies_ns.push_back(latency);
+		}
 
 		// 데이터 무결성 (호가가 음수면 손상)
 		if (opt->ask_price[0] < 0 || opt->bid_price[0] < 0) {
@@ -160,10 +194,12 @@ static void consumer_fn(RingBuffer<MockOrderBook>& rb,
 
 		// 전략 계산 시뮬레이션 (간단한 work)
 		volatile double sink = 0.0;
+
 		for (int i = 0; i < 5; ++i) {
 			sink += opt->ask_price[i] * opt->ask_qty[i];
 			sink += opt->bid_price[i] * opt->bid_qty[i];
 		}
+
 		(void)sink;
 	}
 }
@@ -176,17 +212,29 @@ static void print_latency_stats(std::vector<int64_t>& v) {
 		std::cout << "  (no latency samples)\n";
 		return;
 	}
+
 	std::sort(v.begin(), v.end());
 	auto pct = [&](double p) {
 		size_t idx = static_cast<size_t>(v.size() * p);
+
 		if (idx >= v.size()) 
+		{
 			idx = v.size() - 1;
+		}
 
 		return v[idx];
 		};
 	auto fmt = [](int64_t ns) -> std::string {
-		if (ns < 1000)        return std::to_string(ns) + " ns";
-		if (ns < 1'000'000)   return std::to_string(ns / 1000) + " µs";
+		if (ns < 1000)
+		{
+		    return std::to_string(ns) + " ns";
+		}
+
+		if (ns < 1'000'000)
+		{
+		    return std::to_string(ns / 1000) + " µs";
+		}
+
 		return std::to_string(ns / 1'000'000) + " ms";
 		};
 	std::cout << "  p50:  " << fmt(pct(0.50)) << "\n"
@@ -203,8 +251,16 @@ static void print_latency_stats(std::vector<int64_t>& v) {
 // ─────────────────────────────────────────────────────────────────
 int main(int argc, char** argv) {
 	int duration = 30;
-	if (argc > 1) duration = std::atoi(argv[1]);
-	if (duration < 1) duration = 30;
+
+	if (argc > 1)
+	{
+	    duration = std::atoi(argv[1]);
+	}
+
+	if (duration < 1)
+	{
+	    duration = 30;
+	}
 
 	std::cout << "=== RingBuffer Stress Test ===\n";
 	std::cout << "Duration       : " << duration << " sec\n";

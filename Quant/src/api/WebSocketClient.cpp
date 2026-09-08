@@ -25,6 +25,7 @@ std::vector<std::string> KisWebSocket::split_str(const std::string& s, char deli
 {
     std::vector<std::string> out;
     std::string tok;
+
     for (char c : s)
     {
         if (c == delim)
@@ -37,6 +38,7 @@ std::vector<std::string> KisWebSocket::split_str(const std::string& s, char deli
             tok += c;
         }
     }
+
     out.push_back(tok);
     return out;
 }
@@ -48,25 +50,37 @@ std::string KisWebSocket::base64_decode(const std::string& in)
     static const std::string chars =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     int T[256];
+
     for (int i = 0; i < 256; ++i)
+    {
         T[i] = -1;
+    }
+
     for (int i = 0; i < 64; ++i)
+    {
         T[static_cast<unsigned char>(chars[i])] = i;
+    }
 
     std::string out;
     int val = 0, valb = -8;
+
     for (unsigned char c : in)
     {
         if (T[c] == -1) // '=' / 개행 / 공백 무시
+        {
             continue;
+        }
+
         val = (val << 6) + T[c];
         valb += 6;
+
         if (valb >= 0)
         {
             out.push_back(static_cast<char>((val >> valb) & 0xFF));
             valb -= 8;
         }
     }
+
     return out;
 }
 
@@ -77,14 +91,19 @@ std::string KisWebSocket::aes_cbc_decrypt(const std::string& cipher,
                                           const std::string& iv)
 {
     if (cipher.empty() || cipher.size() % 16 != 0 || key.size() != 32 || iv.size() != 16)
+    {
         return "";
+    }
 
     BCRYPT_ALG_HANDLE hAlg = nullptr;
     BCRYPT_KEY_HANDLE hKey = nullptr;
     std::string result;
 
     if (BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_AES_ALGORITHM, nullptr, 0) != 0)
+    {
         return "";
+    }
+
     BCryptSetProperty(hAlg, BCRYPT_CHAINING_MODE,
                       (PUCHAR)BCRYPT_CHAIN_MODE_CBC,
                       sizeof(BCRYPT_CHAIN_MODE_CBC), 0);
@@ -95,6 +114,7 @@ std::string KisWebSocket::aes_cbc_decrypt(const std::string& cipher,
         std::vector<UCHAR> ivbuf(iv.begin(), iv.begin() + 16); // BCrypt가 IV를 갱신하므로 복사
         std::string out(cipher.size(), '\0');
         ULONG outLen = 0;
+
         if (BCryptDecrypt(hKey,
                           (PUCHAR)cipher.data(), (ULONG)cipher.size(),
                           nullptr, ivbuf.data(), (ULONG)ivbuf.size(),
@@ -105,8 +125,16 @@ std::string KisWebSocket::aes_cbc_decrypt(const std::string& cipher,
         }
     }
 
-    if (hKey) BCryptDestroyKey(hKey);
-    if (hAlg) BCryptCloseAlgorithmProvider(hAlg, 0);
+    if (hKey)
+    {
+        BCryptDestroyKey(hKey);
+    }
+
+    if (hAlg)
+    {
+        BCryptCloseAlgorithmProvider(hAlg, 0);
+    }
+
     return result;
 }
 #else
@@ -116,11 +144,16 @@ std::string KisWebSocket::aes_cbc_decrypt(const std::string& cipher,
                                           const std::string& iv)
 {
     if (cipher.empty() || cipher.size() % 16 != 0 || key.size() != 32 || iv.size() != 16)
+    {
         return "";
+    }
 
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+
     if (!ctx)
+    {
         return "";
+    }
 
     std::string out(cipher.size() + 16, '\0');
     int len = 0, total = 0;
@@ -135,6 +168,7 @@ std::string KisWebSocket::aes_cbc_decrypt(const std::string& cipher,
             static_cast<int>(cipher.size())) == 1)
     {
         total = len;
+
         if (EVP_DecryptFinal_ex(ctx,
                 reinterpret_cast<unsigned char*>(&out[0]) + total, &len) == 1)
         {
@@ -159,7 +193,10 @@ std::string KisWebSocket::aes_cbc_decrypt(const std::string& cipher,
 std::wstring KisWebSocket::to_wide(const std::string& s)
 {
     if (s.empty())
+    {
         return {};
+    }
+
     int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
     std::wstring w(n - 1, L'\0');
     MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], n);
@@ -180,10 +217,14 @@ std::string KisWebSocket::http_post_json(const std::string& url, const std::stri
 
     HINTERNET hSess = WinHttpOpen(L"QuantTrader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
                                   WINHTTP_NO_PROXY_BYPASS, 0);
+
     if (!hSess)
+    {
         return "";
+    }
 
     HINTERNET hConn = WinHttpConnect(hSess, host, uc.nPort, 0);
+
     if (!hConn)
     {
         WinHttpCloseHandle(hSess);
@@ -193,6 +234,7 @@ std::string KisWebSocket::http_post_json(const std::string& url, const std::stri
     DWORD flags = (uc.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
     HINTERNET hReq =
         WinHttpOpenRequest(hConn, L"POST", path, nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+
     if (!hReq)
     {
         WinHttpCloseHandle(hConn);
@@ -207,9 +249,11 @@ std::string KisWebSocket::http_post_json(const std::string& url, const std::stri
               WinHttpReceiveResponse(hReq, nullptr);
 
     std::string resp;
+
     if (ok)
     {
         DWORD avail = 0;
+
         while (WinHttpQueryDataAvailable(hReq, &avail) && avail > 0)
         {
             std::string chunk(avail, '\0');
@@ -218,6 +262,7 @@ std::string KisWebSocket::http_post_json(const std::string& url, const std::stri
             resp.append(chunk, 0, read);
         }
     }
+
     WinHttpCloseHandle(hReq);
     WinHttpCloseHandle(hConn);
     WinHttpCloseHandle(hSess);
@@ -231,14 +276,18 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
         std::lock_guard<std::mutex> lk(specs_mtx_);
         specs_ = specs;
     }
+
     if (!get_approval_key())
+    {
         return false;
+    }
 
     const wchar_t* ws_host = L"ops.koreainvestment.com";
     INTERNET_PORT ws_port = cfg_.is_paper ? kWsPortPaper : kWsPortReal;
 
     hSession_ = WinHttpOpen(L"QuantTrader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
                             WINHTTP_NO_PROXY_BYPASS, 0);
+
     if (!hSession_)
     {
         LOG_ERROR("[WS] WinHttpOpen 실패");
@@ -246,6 +295,7 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
     }
 
     hConnect_ = WinHttpConnect(hSession_, ws_host, ws_port, 0);
+
     if (!hConnect_)
     {
         LOG_ERROR("[WS] WinHttpConnect 실패");
@@ -254,6 +304,7 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
 
     HINTERNET hReq =
         WinHttpOpenRequest(hConnect_, L"GET", L"/", nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, 0);
+
     if (!hReq)
     {
         LOG_ERROR("[WS] WinHttpOpenRequest 실패");
@@ -287,7 +338,10 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
     // 구 수신 스레드가 자체 종료(connected_=false)로 join되지 않은 채 남아 있을 수 있다.
     // joinable 상태에서 재대입하면 std::terminate → 재대입 전 반드시 reap.
     if (recv_thread_.joinable())
+    {
         recv_thread_.join();
+    }
+
     recv_thread_ = std::thread(&KisWebSocket::recv_loop, this);
     return true;
 }
@@ -295,8 +349,12 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
 void KisWebSocket::send_text(const std::string& msg)
 {
     std::lock_guard<std::mutex> lk(send_mtx_);
+
     if (!hWebSocket_)
+    {
         return;
+    }
+
     WinHttpWebSocketSend(hWebSocket_, WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE, (PVOID)msg.data(),
                          (DWORD)msg.size());
 }
@@ -326,14 +384,20 @@ void KisWebSocket::recv_loop()
             if (rc != ERROR_SUCCESS)
             {
                 if (connected_.load())
+                {
                     LOG_WARN("[WS] 수신 오류 (code=" + std::to_string(rc) + ") — 재연결 준비");
+                }
+
                 recv_ok = false;
                 break;
             }
 
             std::string chunk(reinterpret_cast<char*>(buf.data()), bytesRead);
+
             if (bufType == WINHTTP_WEB_SOCKET_UTF8_FRAGMENT_BUFFER_TYPE)
+            {
                 accumulated += chunk;
+            }
             else if (bufType == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE)
             {
                 accumulated += chunk;
@@ -348,7 +412,9 @@ void KisWebSocket::recv_loop()
             // 빠르게 재시도. 즉시 죽는 연결(=서버가 appkey 세션 미해제/off-hours abort)은
             // 지수적으로 물러서서 서버가 직전 세션을 놓을 시간을 준다.
             if (std::chrono::steady_clock::now() - conn_start > std::chrono::seconds(5))
+            {
                 retry_sec = 1;
+            }
 
             // ── 지수 백오프 재연결 ─────────────────────────────────────────
             LOG_WARN("[WS] " + std::to_string(retry_sec) + "초 후 재연결 시도");
@@ -360,6 +426,7 @@ void KisWebSocket::recv_loop()
             // 세션을 계속 붙잡아 다음 접속이 "ALREADY IN USE appkey"(rt=9)로 거부된다.
             {
                 std::lock_guard<std::mutex> lk(send_mtx_);
+
                 if (hWebSocket_)
                 {
                     WinHttpWebSocketClose(hWebSocket_, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0);
@@ -367,11 +434,13 @@ void KisWebSocket::recv_loop()
                     hWebSocket_ = nullptr;
                 }
             }
+
             if (hConnect_)
             {
                 WinHttpCloseHandle(hConnect_);
                 hConnect_ = nullptr;
             }
+
             if (hSession_)
             {
                 WinHttpCloseHandle(hSession_);
@@ -394,6 +463,7 @@ void KisWebSocket::recv_loop()
 
             hSession_ = WinHttpOpen(L"QuantTrader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
                                     WINHTTP_NO_PROXY_BYPASS, 0);
+
             if (!hSession_)
             {
                 LOG_ERROR("[WS] 재연결: WinHttpOpen 실패");
@@ -401,6 +471,7 @@ void KisWebSocket::recv_loop()
             }
 
             hConnect_ = WinHttpConnect(hSession_, ws_host, ws_port, 0);
+
             if (!hConnect_)
             {
                 WinHttpCloseHandle(hSession_);
@@ -411,6 +482,7 @@ void KisWebSocket::recv_loop()
 
             HINTERNET hReq = WinHttpOpenRequest(hConnect_, L"GET", L"/", nullptr, WINHTTP_NO_REFERER,
                                                 WINHTTP_DEFAULT_ACCEPT_TYPES, 0);
+
             if (!hReq)
             {
                 LOG_ERROR("[WS] 재연결: OpenRequest 실패");
@@ -418,6 +490,7 @@ void KisWebSocket::recv_loop()
             }
 
             WinHttpSetOption(hReq, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0);
+
             if (!WinHttpSendRequest(hReq, WINHTTP_NO_ADDITIONAL_HEADERS, 0, nullptr, 0, 0, 0) ||
                 !WinHttpReceiveResponse(hReq, nullptr))
             {
@@ -428,6 +501,7 @@ void KisWebSocket::recv_loop()
 
             HINTERNET hWs = WinHttpWebSocketCompleteUpgrade(hReq, 0);
             WinHttpCloseHandle(hReq);
+
             if (!hWs)
             {
                 LOG_ERROR("[WS] 재연결: CompleteUpgrade 실패");
@@ -461,10 +535,13 @@ void KisWebSocket::recv_loop()
 void KisWebSocket::disconnect()
 {
     if (!connected_.exchange(false))
+    {
         return;
+    }
 
     {
         std::lock_guard<std::mutex> lk(send_mtx_);
+
         if (hWebSocket_)
         {
             // graceful close 프레임을 먼저 보내 KIS가 approval_key 세션을 즉시 해제하게 한다.
@@ -476,13 +553,16 @@ void KisWebSocket::disconnect()
     }
 
     if (recv_thread_.joinable())
+    {
         recv_thread_.join();
+    }
 
     if (hConnect_)
     {
         WinHttpCloseHandle(hConnect_);
         hConnect_ = nullptr;
     }
+
     if (hSession_)
     {
         WinHttpCloseHandle(hSession_);
@@ -516,8 +596,11 @@ static size_t curl_write_cb(char* p, size_t sz, size_t nm, std::string* out)
 std::string KisWebSocket::http_post_json(const std::string& url, const std::string& body)
 {
     CURL* curl = curl_easy_init();
+
     if (!curl)
+    {
         return "";
+    }
 
     std::string resp;
     curl_slist* hdrs = nullptr;
@@ -532,8 +615,11 @@ std::string KisWebSocket::http_post_json(const std::string& url, const std::stri
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
 
     CURLcode rc = curl_easy_perform(curl);
+
     if (rc != CURLE_OK)
+    {
         LOG_ERROR(std::string("[WS] HTTP POST 오류: ") + curl_easy_strerror(rc));
+    }
 
     curl_slist_free_all(hdrs);
     curl_easy_cleanup(curl);
@@ -545,14 +631,20 @@ std::string KisWebSocket::http_post_json(const std::string& url, const std::stri
 static bool sock_recv_all(int fd, void* buf, size_t len)
 {
     auto* p = static_cast<char*>(buf);
+
     while (len > 0)
     {
         ssize_t n = ::recv(fd, p, len, 0);
+
         if (n <= 0)
+        {
             return false;
+        }
+
         p += n;
         len -= (size_t)n;
     }
+
     return true;
 }
 
@@ -566,6 +658,7 @@ static bool ws_tcp_connect(const std::string& host, int port, int& out_fd)
     hints.ai_socktype = SOCK_STREAM;
 
     int gai = getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res);
+
     if (gai != 0)
     {
         LOG_WARN(std::string("[WS] getaddrinfo 실패: ") + gai_strerror(gai));
@@ -573,17 +666,27 @@ static bool ws_tcp_connect(const std::string& host, int port, int& out_fd)
     }
 
     int fd = -1;
+
     for (auto* p = res; p; p = p->ai_next)
     {
         fd = ::socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+
         if (fd < 0)
+        {
             continue;
+        }
+
         if (::connect(fd, p->ai_addr, p->ai_addrlen) == 0)
+        {
             break;
+        }
+
         ::close(fd);
         fd = -1;
     }
+
     freeaddrinfo(res);
+
     if (fd < 0)
     {
         LOG_WARN("[WS] TCP connect 실패 (" + host + ":" + std::to_string(port) + "): " +
@@ -616,15 +719,24 @@ static bool ws_tcp_connect(const std::string& host, int port, int& out_fd)
     // 응답을 헤더 끝(\r\n\r\n)까지 읽기 (부분 수신 대비)
     std::string resp;
     char buf[1024];
+
     for (int i = 0; i < 8; ++i)
     {
         ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
+
         if (n <= 0)
+        {
             break;
+        }
+
         resp.append(buf, static_cast<size_t>(n));
+
         if (resp.find("\r\n\r\n") != std::string::npos)
+        {
             break;
+        }
     }
+
     if (resp.find("101") == std::string::npos)
     {
         LOG_WARN("[WS] 핸드셰이크 응답에 101 없음 (recv " + std::to_string(resp.size()) +
@@ -651,7 +763,9 @@ static void ws_send_text_linux(int fd, const std::string& data)
     frame.push_back(0x81); // FIN=1, opcode=1(Text)
 
     if (len <= 125)
+    {
         frame.push_back(uint8_t(0x80 | len));
+    }
     else if (len <= 65535)
     {
         frame.push_back(0x80 | 126);
@@ -661,8 +775,11 @@ static void ws_send_text_linux(int fd, const std::string& data)
     else
     {
         frame.push_back(0x80 | 127);
+
         for (int i = 7; i >= 0; --i)
+        {
             frame.push_back(uint8_t(len >> (8 * i)));
+        }
     }
 
     // 마스킹 키. RFC 6455는 프레임마다 새 난수 마스크를 요구하지만, 여기선 고정 키를 쓴다.
@@ -670,8 +787,11 @@ static void ws_send_text_linux(int fd, const std::string& data)
     // 않아 실동작에 무해하다. 규격 엄밀성을 맞추려면 프레임별 난수로 바꿔야 한다(보류 목록).
     const uint8_t mk[4] = {0x37, 0x1A, 0xC5, 0x4F};
     frame.insert(frame.end(), mk, mk + 4);
+
     for (size_t i = 0; i < len; ++i)
+    {
         frame.push_back(uint8_t(data[i]) ^ mk[i % 4]);
+    }
 
     ::send(fd, frame.data(), frame.size(), 0);
 }
@@ -687,9 +807,11 @@ static std::string ws_recv_frame_linux(int fd)
     constexpr uint64_t kMaxMessageBytes = uint64_t(1) << 20;
     std::string message;
     bool in_message = false;
+
     while (true)
     {
         uint8_t hdr[2];
+
         if (!sock_recv_all(fd, hdr, 2))
         {
             return "";
@@ -703,25 +825,31 @@ static std::string ws_recv_frame_linux(int fd)
         if (len == 126)
         {
             uint8_t ext[2];
+
             if (!sock_recv_all(fd, ext, 2))
             {
                 return "";
             }
+
             len = (uint64_t(ext[0]) << 8) | ext[1];
         }
         else if (len == 127)
         {
             uint8_t ext[8];
+
             if (!sock_recv_all(fd, ext, 8))
             {
                 return "";
             }
+
             len = 0;
+
             for (int i = 0; i < 8; ++i)
             {
                 len = (len << 8) | ext[i];
             }
         }
+
         if (len > kMaxMessageBytes || message.size() + len > kMaxMessageBytes)
         {
             LOG_WARN("[WS] 프레임 길이 상한 초과 (" + std::to_string(len) + "B) — 연결을 끊고 재연결한다");
@@ -729,16 +857,19 @@ static std::string ws_recv_frame_linux(int fd)
         }
 
         uint8_t mk[4]{};
+
         if (masked && !sock_recv_all(fd, mk, 4))
         {
             return "";
         }
 
         std::vector<uint8_t> payload(static_cast<size_t>(len));
+
         if (len > 0 && !sock_recv_all(fd, payload.data(), static_cast<size_t>(len)))
         {
             return "";
         }
+
         if (masked)
         {
             for (size_t i = 0; i < payload.size(); ++i)
@@ -751,6 +882,7 @@ static std::string ws_recv_frame_linux(int fd)
         {
             return ""; // Close frame
         }
+
         if (opcode == 0x9)
         {
             // Ping(0x9) → Pong(0xA). 제어 프레임 payload는 125B 이하라 1바이트 길이로 충분하다.
@@ -759,6 +891,7 @@ static std::string ws_recv_frame_linux(int fd)
             ::send(fd, pong.data(), pong.size(), 0);
             continue;
         }
+
         if (opcode == 0x1 || opcode == 0x2)
         {
             message.assign(payload.begin(), payload.end());
@@ -770,12 +903,14 @@ static std::string ws_recv_frame_linux(int fd)
             {
                 continue; // 시작 프레임 없는 continuation — 버린다
             }
+
             message.append(payload.begin(), payload.end());
         }
         else
         {
             continue; // pong(0xA)·예약 opcode — 메시지가 아니다
         }
+
         if (fin)
         {
             return message;
@@ -790,8 +925,11 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
         std::lock_guard<std::mutex> lk(specs_mtx_);
         specs_ = specs;
     }
+
     if (!get_approval_key())
+    {
         return false;
+    }
 
     std::string host = "ops.koreainvestment.com";
     int port = cfg_.is_paper ? kWsPortPaper : kWsPortReal;
@@ -810,7 +948,10 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
     // 구 수신 스레드가 자체 종료(connected_=false)로 join되지 않은 채 남아 있을 수 있다.
     // joinable 상태에서 재대입하면 std::terminate → 재대입 전 반드시 reap.
     if (recv_thread_.joinable())
+    {
         recv_thread_.join();
+    }
+
     recv_thread_ = std::thread(&KisWebSocket::recv_loop, this);
     return true;
 }
@@ -818,8 +959,12 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
 void KisWebSocket::send_text(const std::string& msg)
 {
     std::lock_guard<std::mutex> lk(send_mtx_);
+
     if (sock_fd_ < 0)
+    {
         return;
+    }
+
     ws_send_text_linux(sock_fd_, msg);
 }
 
@@ -841,16 +986,22 @@ void KisWebSocket::recv_loop()
         // 백오프는 연결 유지 시간으로 판단(메시지 기반 리셋은 재연결 직후 프레임에 매번
         // 리셋돼 폭주). Windows 경로와 동일 모델.
         const auto conn_start = std::chrono::steady_clock::now();
+
         while (connected_.load() && fd >= 0)
         {
             std::string frame = ws_recv_frame_linux(fd);
+
             if (frame.empty())
             {
                 if (connected_.load())
+                {
                     LOG_WARN("[WS] 수신 오류 또는 연결 종료 — 재연결 준비");
+                }
+
                 recv_ok = false;
                 break;
             }
+
             parse_message(frame);
         }
 
@@ -859,7 +1010,9 @@ void KisWebSocket::recv_loop()
             // 충분히 오래 유지된 연결이 끊긴 것이면 백오프 리셋 후 빠른 재시도,
             // 즉시 죽는 연결은 지수적으로 물러선다(서버 appkey 세션 해제 대기).
             if (std::chrono::steady_clock::now() - conn_start > std::chrono::seconds(5))
+            {
                 retry_sec = 1;
+            }
 
             // ── 지수 백오프 재연결 ─────────────────────────────────────────
             LOG_WARN("[WS] " + std::to_string(retry_sec) + "초 후 재연결 시도");
@@ -869,6 +1022,7 @@ void KisWebSocket::recv_loop()
             // 기존 소켓 정리
             {
                 std::lock_guard<std::mutex> lk(send_mtx_);
+
                 if (sock_fd_ >= 0)
                 {
                     ::close(sock_fd_);
@@ -887,6 +1041,7 @@ void KisWebSocket::recv_loop()
             std::string host = "ops.koreainvestment.com";
             int port = cfg_.is_paper ? kWsPortPaper : kWsPortReal;
             int new_fd = -1;
+
             if (!ws_tcp_connect(host, port, new_fd))
             {
                 LOG_ERROR("[WS] 재연결: TCP+WebSocket 연결 실패");
@@ -920,10 +1075,13 @@ void KisWebSocket::recv_loop()
 void KisWebSocket::disconnect()
 {
     if (!connected_.exchange(false))
+    {
         return;
+    }
 
     {
         std::lock_guard<std::mutex> lk(send_mtx_);
+
         if (sock_fd_ >= 0)
         {
             // W-1: close()는 다른 스레드가 recv() 블로킹 중일 때 깨운다는 보장이 없다(POSIX).
@@ -935,7 +1093,10 @@ void KisWebSocket::disconnect()
     }
 
     if (recv_thread_.joinable())
+    {
         recv_thread_.join();
+    }
+
     LOG_INFO("[WS] WebSocket 연결 해제 완료");
 }
 #endif
@@ -947,6 +1108,7 @@ void KisWebSocket::disconnect()
 KisWebSocket::KisWebSocket(const KisConfig& cfg) : cfg_(cfg)
 {
 }
+
 KisWebSocket::~KisWebSocket()
 {
     disconnect();
@@ -971,6 +1133,7 @@ bool KisWebSocket::get_approval_key()
     json req = {{"grant_type", "client_credentials"}, {"appkey", cfg_.app_key}, {"secretkey", cfg_.app_secret}};
 
     std::string resp = http_post_json(base + "/oauth2/Approval", req.dump());
+
     if (resp.empty())
     {
         LOG_ERROR("[WS] Approval key 요청 실패");
@@ -1009,13 +1172,19 @@ void KisWebSocket::subscribe_spec(const WatchSpec& spec)
     {
         // 국내 선물: tr_key = 선물 종목코드(예 101W09), 미국과 달리 exchange prefix 없음.
         if (!spec.trade_only)
+        {
             send_subscribe("H0IFASP0", spec.ticker);
+        }
+
         send_subscribe("H0IFCNT0", spec.ticker);
     }
     else if (spec.market == Market::KR)
     {
         if (!spec.trade_only)
+        {
             send_subscribe("H0STASP0", spec.ticker);
+        }
+
         send_subscribe("H0STCNT0", spec.ticker);
     }
     else
@@ -1029,7 +1198,10 @@ void KisWebSocket::subscribe_spec(const WatchSpec& spec)
 int KisWebSocket::spec_channel_count(const WatchSpec& spec)
 {
     if (spec.market == Market::KR || spec.is_future)
+    {
         return spec.trade_only ? 1 : 2;
+    }
+
     return 1; // 미국은 체결 한 채널
 }
 
@@ -1037,20 +1209,32 @@ bool KisWebSocket::subscribe_incremental(const WatchSpec& spec)
 {
     {
         std::lock_guard<std::mutex> lk(specs_mtx_);
+
         for (const auto& w : specs_)
+        {
             if (w.market == spec.market && w.exchange == spec.exchange &&
                 w.ticker == spec.ticker && w.is_future == spec.is_future)
+            {
                 return false; // 이미 구독 중
+            }
+        }
+
         specs_.push_back(spec);
     }
+
     if (!connected_.load())
+    {
         return false; // 목록에만 넣어 둔다. 실제 구독은 connect()/재연결의 subscribe_all이 한다.
+    }
+
     const int need = spec_channel_count(spec);
+
     if (sub_used_.load() + need > kMaxWsSubs)
     {
         // 상한 도달 — 시세는 REST 폴링으로 대체된다(체결통보 슬롯을 지킨다).
         // 목록에 남겨 두면 다음 재연결의 subscribe_all이 이 spec을 먼저 세어 뒤쪽 종목을 밀어내므로 되돌린다.
         std::lock_guard<std::mutex> lk(specs_mtx_);
+
         for (auto it = specs_.begin(); it != specs_.end(); ++it)
         {
             if (it->market == spec.market && it->exchange == spec.exchange &&
@@ -1060,8 +1244,10 @@ bool KisWebSocket::subscribe_incremental(const WatchSpec& spec)
                 break;
             }
         }
+
         return false;
     }
+
     subscribe_spec(spec);
     sub_used_.fetch_add(need);
     return true;
@@ -1077,9 +1263,14 @@ void KisWebSocket::subscribe_all()
     }
 
     bool has_kr = false;
+
     for (const auto& spec : snapshot)
+    {
         if (!spec.is_future && spec.market == Market::KR)
+        {
             has_kr = true;
+        }
+    }
 
     int used = 0;
 
@@ -1099,24 +1290,31 @@ void KisWebSocket::subscribe_all()
     }
 
     int skipped = 0;
+
     for (const auto& spec : snapshot)
     {
         const int need = spec_channel_count(spec);
+
         if (used + need > kMaxWsSubs) { ++skipped; continue; }
         subscribe_spec(spec);
         used += need;
     }
+
     sub_used_.store(used);
 
     if (skipped > 0)
+    {
         LOG_WARN("[WS] 구독 상한 " + std::to_string(kMaxWsSubs) + " 도달 — 시세 " +
                  std::to_string(skipped) + "종목 구독 생략(REST 폴링으로 대체). 체결통보는 유지.");
+    }
 }
 
 void KisWebSocket::parse_message(const std::string& msg)
 {
     if (msg.empty())
+    {
         return;
+    }
 
     on_message_received(); // 모든 수신 메시지에서 stale 타이머 리셋
 
@@ -1148,6 +1346,7 @@ void KisWebSocket::parse_message(const std::string& msg)
                     const auto& out = j["body"]["output"];
                     std::string k = out.value("key", "");
                     std::string v = out.value("iv", "");
+
                     // AES-256-CBC: key는 정확히 32바이트, iv는 16바이트여야 함.
                     // 길이가 다르면(서버 포맷 변경 등) 앞 N바이트만 써서 잘못된 키로
                     // 복호→쓰레기 평문이 원장에 들어가므로 등호 검증 후 거부 (C-2)
@@ -1171,13 +1370,17 @@ void KisWebSocket::parse_message(const std::string& msg)
         catch (...)
         {
         }
+
         return;
     }
 
     // 데이터 메시지: TYPE|TR_ID|COUNT|DATA (^-구분 필드)
     auto parts = split_str(msg, '|');
+
     if (parts.size() < 4)
+    {
         return;
+    }
 
     const std::string& tr_id = parts[1];
     std::string data = parts[3]; // 암호화 시 복호문으로 교체되므로 값 복사
@@ -1190,18 +1393,22 @@ void KisWebSocket::parse_message(const std::string& msg)
             LOG_WARN("[WS] 암호화 프레임 수신했으나 key/iv 미확보 — drop tr_id=" + tr_id);
             return;
         }
+
         std::string plain = aes_cbc_decrypt(base64_decode(data), aes_key_, aes_iv_);
+
         if (plain.empty())
         {
             LOG_WARN("[WS] 체결통보 복호화 실패 tr_id=" + tr_id);
             return;
         }
+
         // 복호 평문은 ^구분 다필드(체결통보 23필드). 너무 적으면 키 불일치/손상 의심 (C-1)
         if (split_str(plain, '^').size() < 14)
         {
             LOG_WARN("[WS] 체결통보 복호 평문 비정상(필드부족) — 키 불일치/손상 의심 tr_id=" + tr_id);
             return;
         }
+
         data = std::move(plain);
     }
 
@@ -1210,6 +1417,7 @@ void KisWebSocket::parse_message(const std::string& msg)
     // [wire] parts[2] = 이 프레임에 실린 레코드 수(COUNT). 1이면 기존 단건 경로 그대로.
     //  COUNT>1인데 자르지 못하면(폭이 안 맞음) 첫 레코드만 처리하던 종전 동작을 유지하고 한 번만 경고한다.
     int rec_count = 1;
+
     try
     {
         rec_count = std::stoi(parts[2]);
@@ -1218,17 +1426,21 @@ void KisWebSocket::parse_message(const std::string& msg)
     {
         rec_count = 1;
     }
+
     if (rec_count > 1)
     {
         auto recs = split_records(fields, rec_count, min_fields_for(tr_id));
+
         if (!recs.empty())
         {
             for (const auto& rec : recs)
             {
                 dispatch_record(tr_id, rec);
             }
+
             return;
         }
+
         if (multi_rec_warned_ < 1)
         {
             ++multi_rec_warned_;
@@ -1236,6 +1448,7 @@ void KisWebSocket::parse_message(const std::string& msg)
                      " fields=" + std::to_string(fields.size()) + " — 첫 레코드만 처리(이 경고는 1회만)");
         }
     }
+
     dispatch_record(tr_id, fields);
 }
 
@@ -1245,26 +1458,32 @@ size_t KisWebSocket::min_fields_for(const std::string& tr_id)
     {
         return 38;
     }
+
     if (tr_id == "H0STCNT0")
     {
         return 22;
     }
+
     if (tr_id == "H0IFASP0")
     {
         return 32;
     }
+
     if (tr_id == "H0IFCNT0")
     {
         return 19;
     }
+
     if (tr_id == "HDFSCNT0")
     {
         return 9;
     }
+
     if (tr_id == "H0STCNI0" || tr_id == "H0STCNI9")
     {
         return 14;
     }
+
     return 0;
 }
 
@@ -1314,12 +1533,17 @@ void KisWebSocket::parse_orderbook(const std::vector<std::string>& f)
 
     // 첫 수신 시 전체 필드 로그 (진단용)
     static std::set<std::string> first_logged;
+
     if (first_logged.find(f[0]) == first_logged.end())
     {
         first_logged.insert(f[0]);
         std::string dbg = "[WS] H0STASP0 첫 수신 [" + f[0] + "] 총 " + std::to_string(f.size()) + "필드:";
+
         for (size_t i = 0; i < f.size(); ++i)
+        {
             dbg += " [" + std::to_string(i) + "]=" + f[i];
+        }
+
         LOG_INFO(dbg);
     }
 
@@ -1345,7 +1569,9 @@ void KisWebSocket::parse_orderbook(const std::vector<std::string>& f)
     }
 
     if (on_orderbook_)
+    {
         on_orderbook_(ob);
+    }
 }
 
 // ─── 국내 체결 파싱 (H0STCNT0) ───────────────────────────────────────────
@@ -1353,15 +1579,22 @@ void KisWebSocket::parse_orderbook(const std::vector<std::string>& f)
 void KisWebSocket::parse_kr_trade(const std::vector<std::string>& f)
 {
     if (f.size() < 22)
+    {
         return;
+    }
 
     static std::set<std::string> first_logged;
+
     if (first_logged.find(f[0]) == first_logged.end())
     {
         first_logged.insert(f[0]);
         std::string dbg = "[WS] H0STCNT0 첫 수신 [" + f[0] + "] 총 " + std::to_string(f.size()) + "필드:";
+
         for (size_t i = 0; i < std::min(f.size(), size_t(13)); ++i)
+        {
             dbg += "\n  [" + std::to_string(i) + "]=" + f[i];
+        }
+
         LOG_INFO(dbg);
     }
 
@@ -1370,6 +1603,7 @@ void KisWebSocket::parse_kr_trade(const std::vector<std::string>& f)
     td.time = f[1];
     td.market = Market::KR;
     td.timestamp = std::chrono::system_clock::now();
+
     try
     {
         td.price = std::stod(f[2]);
@@ -1379,8 +1613,11 @@ void KisWebSocket::parse_kr_trade(const std::vector<std::string>& f)
     catch (...)
     {
     }
+
     if (on_trade_)
+    {
         on_trade_(td);
+    }
 }
 
 // ─── 미국 체결 파싱 (HDFSCNT0) ───────────────────────────────────────────
@@ -1389,15 +1626,22 @@ void KisWebSocket::parse_kr_trade(const std::vector<std::string>& f)
 void KisWebSocket::parse_us_trade(const std::vector<std::string>& f)
 {
     if (f.size() < 9)
+    {
         return;
+    }
 
     static std::set<std::string> first_us_logged;
+
     if (first_us_logged.find(f[0]) == first_us_logged.end())
     {
         first_us_logged.insert(f[0]);
         std::string dbg = "[WS] HDFSCNT0 첫 수신 [" + f[0] + "] 총 " + std::to_string(f.size()) + "필드:";
+
         for (size_t i = 0; i < std::min(f.size(), size_t(15)); ++i)
+        {
             dbg += "\n  [" + std::to_string(i) + "]=" + f[i];
+        }
+
         LOG_INFO(dbg);
     }
 
@@ -1406,6 +1650,7 @@ void KisWebSocket::parse_us_trade(const std::vector<std::string>& f)
     td.time = f[1];
     td.market = Market::US;
     td.timestamp = std::chrono::system_clock::now();
+
     try
     {
         td.price = std::stod(f[2]);
@@ -1417,8 +1662,11 @@ void KisWebSocket::parse_us_trade(const std::vector<std::string>& f)
     catch (...)
     {
     }
+
     if (on_trade_)
+    {
         on_trade_(td);
+    }
 }
 
 // ─── 국내 선물 체결 파싱 (H0IFCNT0) ──────────────────────────────────────
@@ -1429,15 +1677,22 @@ void KisWebSocket::parse_us_trade(const std::vector<std::string>& f)
 void KisWebSocket::parse_fut_trade(const std::vector<std::string>& f)
 {
     if (f.size() < 19)
+    {
         return;
+    }
 
     static std::set<std::string> first_logged;
+
     if (first_logged.find(f[0]) == first_logged.end())
     {
         first_logged.insert(f[0]);
         std::string dbg = "[WS] H0IFCNT0 첫 수신 [" + f[0] + "] 총 " + std::to_string(f.size()) + "필드:";
+
         for (size_t i = 0; i < std::min(f.size(), size_t(19)); ++i)
+        {
             dbg += "\n  [" + std::to_string(i) + "]=" + f[i];
+        }
+
         LOG_INFO(dbg);
     }
 
@@ -1446,6 +1701,7 @@ void KisWebSocket::parse_fut_trade(const std::vector<std::string>& f)
     td.time = f[1];
     td.market = Market::KR; // 선물도 국내 세션. TradeData엔 선물 플래그가 없어 소비 측은 종목코드로 현·선을 구분한다.
     td.timestamp = std::chrono::system_clock::now();
+
     try
     {
         td.price = std::stod(f[5]);     // futs_prpr 선물 현재가
@@ -1455,8 +1711,11 @@ void KisWebSocket::parse_fut_trade(const std::vector<std::string>& f)
     catch (...)
     {
     }
+
     if (on_trade_)
+    {
         on_trade_(td);
+    }
 }
 
 // ─── 국내 선물 호가 파싱 (H0IFASP0) ──────────────────────────────────────
@@ -1474,12 +1733,17 @@ void KisWebSocket::parse_fut_orderbook(const std::vector<std::string>& f)
     }
 
     static std::set<std::string> first_logged;
+
     if (first_logged.find(f[0]) == first_logged.end())
     {
         first_logged.insert(f[0]);
         std::string dbg = "[WS] H0IFASP0 첫 수신 [" + f[0] + "] 총 " + std::to_string(f.size()) + "필드:";
+
         for (size_t i = 0; i < f.size(); ++i)
+        {
             dbg += " [" + std::to_string(i) + "]=" + f[i];
+        }
+
         LOG_INFO(dbg);
     }
 
@@ -1503,7 +1767,9 @@ void KisWebSocket::parse_fut_orderbook(const std::vector<std::string>& f)
     }
 
     if (on_orderbook_)
+    {
         on_orderbook_(ob);
+    }
 }
 
 // ─── 체결통보 파싱 (H0STCNI0 실거래 / H0STCNI9 모의) ────────────────────
@@ -1518,17 +1784,27 @@ void KisWebSocket::parse_fill_notification(const std::vector<std::string>& f)
     {
         // 1~2필드: KIS 서버 제어 메시지(ack/heartbeat) — 정상 동작, DEBUG 수준
         if (f.size() > 2)
+        {
             LOG_WARN("[WS] H0STCNI 필드 부족: " + std::to_string(f.size()));
+        }
+
         return;
     }
+
     if (!on_fill_)     // 콜백 미등록 시 즉시 반환 (파싱 비용 절감)
+    {
         return;
+    }
+
     if (f[13] != "2")  // 접수/정정/취소/거부(1) 제외, 체결(2)만 처리
+    {
         return;
+    }
 
     FillNotification fn;
     fn.odno       = f[2];
     fn.ticker     = f[8];
+
     // [wire] f[4] SELN_BYOV_CLS: 01=매도, 02=매수. 원장에 들어가는 값이라 그 밖은 기록하지 않고 버린다.
     if (f[4] == "02")
     {
@@ -1543,8 +1819,10 @@ void KisWebSocket::parse_fill_notification(const std::vector<std::string>& f)
         LOG_WARN("[WS] H0STCNI 매매구분 알 수 없음 '" + f[4] + "' ODNO=" + fn.odno + " — 체결 무시");
         return;
     }
+
     fn.fill_time  = f[11];
     fn.timestamp  = std::chrono::system_clock::now();
+
     try
     {
         fn.filled_qty   = std::stoi(f[9]);

@@ -50,14 +50,22 @@ public:
 #ifdef _WIN32
         wchar_t buf[4096];
         unsigned long n = GetModuleFileNameW(nullptr, buf, 4096);
+
         if (n == 0 || n >= 4096)
+        {
             return std::filesystem::current_path();
+        }
+
         return std::filesystem::path(std::wstring(buf, n)).parent_path();
 #else
         std::error_code ec;
         auto p = std::filesystem::read_symlink("/proc/self/exe", ec);
+
         if (ec)
+        {
             return std::filesystem::current_path();
+        }
+
         return p.parent_path();
 #endif
     }
@@ -67,7 +75,10 @@ public:
     static std::filesystem::path default_base_dir()
     {
         if (const char* env = std::getenv("QUANT_LOG_DIR"); env && *env)
+        {
             return std::filesystem::path(env);
+        }
+
         return executable_dir() / "logs";
     }
 
@@ -78,8 +89,12 @@ public:
         // cwd 위치와 무관하게 로그가 한 폴더에 모인다. (Windows 한글 경로 대비 path로 open)
         std::error_code ec;
         auto parent = filepath.parent_path();
+
         if (!parent.empty())
+        {
             std::filesystem::create_directories(parent, ec);
+        }
+
         file_.open(filepath, std::ios::app);
         min_level_.store(min_level, std::memory_order_relaxed);
     }
@@ -91,11 +106,13 @@ public:
         std::lock_guard<std::mutex> lock(cfg_mutex_);
         base_dir_ = dir;
     }
+
     std::filesystem::path base_dir()
     {
         std::lock_guard<std::mutex> lock(cfg_mutex_);
         return base_dir_;
     }
+
     // 기준 디렉터리 하위 파일의 전체 경로(부모 폴더가 없으면 생성).
     std::filesystem::path path_for(const std::string& name)
     {
@@ -114,26 +131,32 @@ public:
     void log(LogLevel level, const std::string& msg)
     {
         if (level < min_level_.load(std::memory_order_relaxed))
+        {
             return;
+        }
 
         // hot path: 시각 스탬프만 찍고 큐에 넘긴다(포맷팅은 writer가 수행).
         Record rec{level, std::chrono::system_clock::now(), msg};
 
         {
             std::lock_guard<std::mutex> lock(q_mutex_);
+
             if (!running_)
             {
                 // 종료 중(writer 정지)에는 유실 방지를 위해 동기 폴백으로 기록.
                 write_locked(format(rec));
                 return;
             }
+
             if (queue_.size() >= kMaxQueue)
             {
                 queue_.pop_front(); // 가장 오래된 것 드롭 — 무한 증가·블로킹 방지
                 ++dropped_;
             }
+
             queue_.push_back(std::move(rec));
         }
+
         q_cv_.notify_one();
     }
 
@@ -141,14 +164,17 @@ public:
     {
         log(LogLevel::INFO, m);
     }
+
     void warn(const std::string& m)
     {
         log(LogLevel::WARN, m);
     }
+
     void error(const std::string& m)
     {
         log(LogLevel::ERROR, m);
     }
+
     void debug(const std::string& m)
     {
         log(LogLevel::DEBUG, m);
@@ -159,8 +185,11 @@ public:
     {
         std::unique_lock<std::mutex> lock(q_mutex_);
         drained_cv_.wait(lock, [this] { return queue_.empty() || !running_; });
+
         if (file_.is_open())
+        {
             file_.flush();
+        }
     }
 
 private:
@@ -183,35 +212,59 @@ private:
             std::lock_guard<std::mutex> lock(q_mutex_);
             running_ = false;
         }
+
         q_cv_.notify_all();
+
         if (writer_.joinable())
+        {
             writer_.join();
+        }
+
         // writer 정지 후 남은 레코드를 마지막으로 비운다(스레드 join으로 경쟁 없음).
         for (auto& rec : queue_)
+        {
             write_locked(format(rec));
+        }
+
         if (dropped_ > 0 && file_.is_open())
+        {
             file_ << "[Logger] 종료 시점 드롭된 로그 " << dropped_ << "건\n";
+        }
+
         if (file_.is_open())
+        {
             file_.flush();
+        }
     }
 
     void writer_loop()
     {
-        for (;;)
+        while (true)
         {
             std::deque<Record> batch;
             {
                 std::unique_lock<std::mutex> lock(q_mutex_);
                 q_cv_.wait(lock, [this] { return !queue_.empty() || !running_; });
+
                 if (!running_ && queue_.empty())
+                {
                     break;
+                }
+
                 batch.swap(queue_); // 한 번에 스왑 → 락 보유시간 최소화
             }
+
             // I/O는 락 밖에서(hot path의 enqueue를 막지 않음).
             for (auto& rec : batch)
+            {
                 write_unlocked(format(rec));
+            }
+
             if (file_.is_open())
+            {
                 file_.flush();
+            }
+
             drained_cv_.notify_all();
         }
     }
@@ -236,10 +289,16 @@ private:
     void write_unlocked(const std::string& line)
     {
         if (console_enabled_.load(std::memory_order_relaxed))
+        {
             std::cout << line << '\n';
+        }
+
         if (file_.is_open())
+        {
             file_ << line << '\n';
+        }
     }
+
     // 종료 경로의 동기 폴백에서 사용(q_mutex_ 보유 상태로 호출됨).
     void write_locked(const std::string& line)
     {
@@ -259,6 +318,7 @@ private:
         case LogLevel::ERROR:
             return "ERROR";
         }
+
         return "?????";
     }
 

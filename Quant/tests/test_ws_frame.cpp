@@ -10,6 +10,7 @@
 static std::vector<std::string> make_fields(int records, int width, const std::string& tag)
 {
     std::vector<std::string> out;
+
     for (int r = 0; r < records; ++r)
     {
         for (int i = 0; i < width; ++i)
@@ -17,6 +18,7 @@ static std::vector<std::string> make_fields(int records, int width, const std::s
             out.push_back(tag + std::to_string(r) + "_" + std::to_string(i));
         }
     }
+
     return out;
 }
 

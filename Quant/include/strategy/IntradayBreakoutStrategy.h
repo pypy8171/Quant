@@ -114,10 +114,17 @@ public:
     std::optional<OrderSignal> on_trade(const TradeData& td) override
     {
         if (td.ticker != ticker_)
+        {
             return std::nullopt;
+        }
+
         double px = td.price;
+
         if (px <= 0.0)
+        {
             return std::nullopt; // 방어: 잘못된 틱
+        }
+
         last_ = px;
 
         int hhmmss = parse_hhmmss(td.time);
@@ -127,6 +134,7 @@ public:
         if (anchor_px_ <= 0.0)
         {
             anchor_px_ = (day_open_px_ > 0.0 ? day_open_px_ : px);
+
             if (in_position_) // 보유분: 트레일은 현재가 기준(물린 평단 무시 → 개장 투매 방지)
             {
                 entry_px_ = px;
@@ -138,12 +146,19 @@ public:
         if (in_position_ && hold_qty_ > 0)
         {
             if (exit_pending_)
+            {
                 return exit_pending_tick(px, td.timestamp);
+            }
 
             if (px > peak_)
+            {
                 peak_ = px;
+            }
+
             if (trough_ <= 0.0 || px < trough_)
+            {
                 trough_ = px;
+            }
 
             // 부착 직후 보호구간. 첫 틱에 스탑을 평가하면 재기동이 곧 투매가 된다.
             const bool warm =
@@ -159,6 +174,7 @@ public:
                 // (A) 물린 보유분: 고점 기준 넓은 트레일링 스탑 + 본전근처 반등 청산.
                 double strail = (seed_trail_pct_ > 0.0 ? seed_trail_pct_ : trail_pct_);
                 double seed_trail_stop = peak_ * (1.0 - strail);
+
                 if (px <= seed_trail_stop)
                 {
                     hit = true;
@@ -183,6 +199,7 @@ public:
                 // (B) 신규 진입분: 타이트 트레일 + 진입가 하드손절.
                 double trail_stop = peak_ * (1.0 - trail_pct_);
                 double hard_stop = entry_px_ * (1.0 - hard_pct_);
+
                 if (px <= trail_stop)
                 {
                     hit = true;
@@ -203,10 +220,14 @@ public:
             }
 
             bool eod = hhmm >= eod_hhmm_;
+
             if (hit || eod)
             {
                 if (eod && !hit)
+                {
                     why = " (장 마감)";
+                }
+
                 auto sig = make_signal(OrderSide::SELL, hold_qty_, px, td.timestamp,
                                        std::string("청산") + why);
                 LOG_INFO("[ITB] SELL " + tag() + " qty=" + std::to_string(hold_qty_) + " @" +
@@ -231,6 +252,7 @@ public:
             cur_bucket_last_ = px;
             return std::nullopt;
         }
+
         if (hhmm == cur_hhmm_)
         {
             cur_bucket_last_ = px; // 같은 버킷: 종가 갱신만
@@ -247,12 +269,17 @@ public:
             bool cooldown_ok = !have_cooldown_ || td.timestamp >= cooldown_until_;
             int no_entry_hhmm = (no_new_entry_hhmm_ > 0 ? no_new_entry_hhmm_ : eod_hhmm_);
             bool session_ok = hhmm < no_entry_hhmm; // 마감 임박 신규진입 금지
+
             if (cooldown_ok && session_ok && bucket_close > hi_n &&
                 bucket_close > anchor_px_ * (1.0 + eps_))
             {
                 int qty = entry_qty_;
+
                 if (notional_per_position_ > 0.0 && bucket_close > 0.0)
+                {
                     qty = std::max(1, static_cast<int>(std::floor(notional_per_position_ / bucket_close)));
+                }
+
                 sig = make_signal(OrderSide::BUY, qty, bucket_close, td.timestamp,
                                   "채널돌파 종가=" + px_str(bucket_close) + ">hiN=" + px_str(hi_n) +
                                   " 앵커=" + px_str(anchor_px_));
@@ -268,8 +295,11 @@ public:
 
         // 채널 갱신(완성 버킷만 유지, 최근 N분)
         closes_.push_back(bucket_close);
+
         while (static_cast<int>(closes_.size()) > channel_min_)
+        {
             closes_.pop_front();
+        }
 
         cur_hhmm_ = hhmm;
         cur_bucket_last_ = px;
@@ -285,6 +315,7 @@ private:
     {
         const int pos = confirmed_position("", ticker_); // make_signal의 account_id=""와 같은 키
         const auto now = std::chrono::steady_clock::now();
+
         if (pos <= 0)
         {
             LOG_INFO("[ITB] 청산 확인 " + tag() + exit_why_ + " 재발주=" + std::to_string(exit_retries_));
@@ -296,6 +327,7 @@ private:
             have_cooldown_ = true;
             return std::nullopt;
         }
+
         if (pos < hold_qty_)
         {
             LOG_INFO("[ITB] 부분 청산 " + tag() + " 잔량=" + std::to_string(pos) + "/" + std::to_string(hold_qty_));
@@ -303,8 +335,12 @@ private:
             exit_backoff_sec_ = kExitBackoffFirstSec;
             exit_next_retry_ = now;
         }
+
         if (now < exit_next_retry_)
+        {
             return std::nullopt;
+        }
+
         if (exit_retries_ >= kExitMaxRetries)
         {
             if (exit_retries_ == kExitMaxRetries)
@@ -313,8 +349,10 @@ private:
                 LOG_WARN("[ITB] 청산 재발주 상한 " + tag() + " qty=" + std::to_string(hold_qty_) +
                          " — 원장 잔량이 남아 있다. 수동 확인 필요");
             }
+
             return std::nullopt;
         }
+
         ++exit_retries_;
         auto sig = make_signal(OrderSide::SELL, hold_qty_, px, ts,
                                "청산 재발주#" + std::to_string(exit_retries_) + exit_why_);
@@ -346,7 +384,10 @@ private:
     static int parse_hhmmss(const std::string& t)
     {
         if (t.size() < 6)
+        {
             return 0;
+        }
+
         try
         {
             return std::stoi(t.substr(0, 6));

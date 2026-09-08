@@ -26,11 +26,19 @@ inline bool is_etf_like(const std::string& name,
         //  한글은 UTF-8 선두바이트가 0x80 이상 — 접두사 직후가 한글이면 경계 불성립(보통주로 판정).
         if (!p.empty() && name.rfind(p, 0) == 0 &&
             (name.size() == p.size() || static_cast<unsigned char>(name[p.size()]) < 0x80))
+        {
             return true;
+        }
     }
+
     for (const auto& tk : tokens)
+    {
         if (!tk.empty() && name.find(tk) != std::string::npos) // 상품 토큰 부분일치(채권·액티브…)
+        {
             return true;
+        }
+    }
+
     return false;
 }
 
@@ -43,12 +51,22 @@ inline bool is_reit_like(const std::string& name,
                          const std::vector<std::string>& exacts)
 {
     for (const auto& sfx : suffixes)
+    {
         if (!sfx.empty() && name.size() >= sfx.size() &&
             name.compare(name.size() - sfx.size(), sfx.size(), sfx) == 0)
+        {
             return true;
+        }
+    }
+
     for (const auto& e : exacts)
+    {
         if (!e.empty() && name == e)
+        {
             return true;
+        }
+    }
+
     return false;
 }
 
@@ -96,17 +114,31 @@ inline std::vector<std::string> load_list(const std::string& filename,
     const char* dir = std::getenv("QUANT_CONFIG_DIR");
     std::string base = (dir && *dir) ? std::string(dir) : std::string("Quant/config");
     std::ifstream f(base + "/" + filename);
+
     if (!f.is_open())
+    {
         return fallback;
+    }
+
     try
     {
         auto j = nlohmann::json::parse(f);
+
         if (!j.is_array())
+        {
             return fallback;
+        }
+
         std::vector<std::string> out;
+
         for (const auto& e : j)
+        {
             if (e.is_string())
+            {
                 out.push_back(e.get<std::string>());
+            }
+        }
+
         return out.empty() ? fallback : out;
     }
     catch (...)

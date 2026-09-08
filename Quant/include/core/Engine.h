@@ -61,8 +61,13 @@ public:
     void set_regime_file(const std::string& path, int stale_sec = kDefaultRegimeStaleSec)
     {
         regime_file_ = path;
-        if (stale_sec > 0) regime_stale_sec_ = stale_sec;
+
+        if (stale_sec > 0)
+        {
+            regime_stale_sec_ = stale_sec;
+        }
     }
+
     // 기동 스모크 테스트(smoke test: 전원 켜서 최소한 도는지 보는 점검) — 서버 실행 직후 지정
     //  종목을 시장가로 딱 1회 매수해 주문 경로 전체(OrderRouter→체결통보→원장)가 살아있는지
     //  확인한다. qty≤0 또는 ticker 빈 문자열이면 미가동.
@@ -72,6 +77,7 @@ public:
         startup_probe_ticker_ = ticker;
         startup_probe_qty_    = qty;
     }
+
     // 시세 전용 클라이언트 설정(실전 도메인). KIS 모의(openapivts)는 시세 REST가 HTTP 500이라
     // 시세는 실전 키+실전 도메인으로 조회하고 주문만 모의로 낸다. rest_price_feed_ 폴링이 사용.
     void set_quote_kis_config(const KisConfig& c)
@@ -79,6 +85,7 @@ public:
         quote_kis_cfg_ = c;
         has_quote_kis_ = true;
     }
+
     // 주문 호출 간격 조절/재시도 (C-2/W-3) — 버스트 청산이 초당한도로 튕겨 유실되는 것 방지.
     //  min_interval_ms 간격으로만 발주(레이트리밋 하회), 거부된 청산 SELL은 order_thread
     //  로컬 큐로 dedup 창 밖에서 최대 max_retries회 재시도. 스레드 시작 전에만 호출.
@@ -87,6 +94,7 @@ public:
         order_min_interval_ms_ = min_interval_ms;
         order_max_retries_ = max_retries;
     }
+
     // OrderGate 위험 한도를 config로 주입(스레드 시작 전에만). 기본값은 OrderGate::Config.
     void set_risk_config(const OrderGate::Config& c) { order_gate_.set_config(c); }
     // 슬롯 수 조회 — 스캐너가 "베이스 총합이 목표 노출을 넘지 않도록" 배수를 정규화할 때 쓴다.
@@ -103,8 +111,12 @@ public:
     // 직전 추가된 전략에 활성 국면 설정 (main.cpp config 파싱용)
     void set_last_active_regimes(const std::vector<Regime>& r)
     {
-        if (!strategies_.empty()) strategies_.back()->set_active_regimes(r);
+        if (!strategies_.empty())
+        {
+            strategies_.back()->set_active_regimes(r);
+        }
     }
+
     // 주기적 유니버스 재스캔(동적 등록). universe_fn: 시세 클라이언트로 유니버스 티커 목록 산출.
     // factory: 티커 → 전략 인스턴스 생성. interval_sec: 재스캔 주기(초, ≤0이면 비활성).
     // data_thread가 interval_sec마다 universe_fn을 호출해 신규 티커만 런타임 등록한다.
@@ -125,6 +137,7 @@ public:
         j.max_registered = max_registered;
         rescan_jobs_.push_back(std::move(j));
     }
+
     // ── G1: 국면→전략 자동선택 ──────────────────────────────────────────────
     // 국면(BULL/NEUTRAL/BEAR)별 활성 전략 id 목록(권위적 선택자). 스레드 시작 전에만.
     //  현재 국면 목록에 든 전략만 활성, 나머지 비활성.
@@ -135,11 +148,16 @@ public:
         regime_strategies_ = std::move(m);
         has_regime_map_ = !regime_strategies_.empty();
     }
+
     // 장중 국면 재평가 주기(초, ≤0이면 기본 유지). 국면 변화 시 전략셋 동적 재선택.
     void set_regime_reeval_interval(int sec)
     {
-        if (sec > 0) regime_reeval_interval_sec_ = sec;
+        if (sec > 0)
+        {
+            regime_reeval_interval_sec_ = sec;
+        }
     }
+
     // 국면 판정기 파라미터(지수코드·이평기간·점수 임계값). 스레드 시작 전에만.
     //  미지정이면 RegimeController::Config 기본값 그대로라 기존 동작이 변하지 않는다.
     void set_regime_config(RegimeController::Config c) { regime_cfg_ = c; }
@@ -147,9 +165,14 @@ public:
     //  거부된다(config `zmq_control_token`). 스레드 시작 전에만. HAS_ZMQ가 꺼진 빌드에선 무시.
     void set_zmq_control(const std::string& bind_addr, const std::string& token)
     {
-        if (!bind_addr.empty()) zmq_bind_addr_ = bind_addr;
+        if (!bind_addr.empty())
+        {
+            zmq_bind_addr_ = bind_addr;
+        }
+
         zmq_control_token_ = token;
     }
+
     // 티커→종목명 매핑 등록/조회 (로그 가독성). 스캔·청산 관리 부착 스레드가 write,
     //  전략 스레드의 신호 로그가 read라 ticker_names_mu_로 보호.
     // 청산 관리가 붙은 티커. 이 종목은 그날 스캔 슬리브의 신규매수 대상에서 뺀다.

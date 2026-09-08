@@ -51,12 +51,23 @@ public:
     // 체결 이벤트마다 시간 체크
     std::optional<OrderSignal> on_trade(const TradeData& td) override
     {
-        if (td.ticker != ticker_) return std::nullopt;
-        if (!is_in_session(td.time)) return std::nullopt;
+        if (td.ticker != ticker_)
+        {
+            return std::nullopt;
+        }
+
+        if (!is_in_session(td.time))
+        {
+            return std::nullopt;
+        }
 
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_signal_).count();
-        if (elapsed < interval_sec_) return std::nullopt;
+
+        if (elapsed < interval_sec_)
+        {
+            return std::nullopt;
+        }
 
         OrderSignal sig;
         sig.ticker      = ticker_;
@@ -101,7 +112,11 @@ private:
     // HHMMSS → HHMM 정수
     static int parse_hhmm(const std::string& t)
     {
-        if (t.size() < 4) return 0;
+        if (t.size() < 4)
+        {
+            return 0;
+        }
+
         try { return std::stoi(t.substr(0, 2)) * 100 + std::stoi(t.substr(2, 2)); }
         catch (...) { return 0; }
     }

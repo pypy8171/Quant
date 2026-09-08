@@ -67,6 +67,7 @@ void test_limit_isolation()
         assert(gate.check(sig("ACC1", "005930", OrderSide::BUY, 1), r));
         gate.on_accept("ACC1", "005930", OrderSide::BUY, 1, 1000.0);
     }
+
     assert(gate.reserved("ACC1", "005930") == 100);
 
     // ACC1의 101번째 → 한도 초과 거부

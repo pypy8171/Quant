@@ -8,12 +8,36 @@ namespace krx
 {
 inline double tick_size(double price)
 {
-    if (price < 2000)   return 1;
-    if (price < 5000)   return 5;
-    if (price < 20000)  return 10;
-    if (price < 50000)  return 50;
-    if (price < 200000) return 100;
-    if (price < 500000) return 500;
+    if (price < 2000)
+    {
+        return 1;
+    }
+
+    if (price < 5000)
+    {
+        return 5;
+    }
+
+    if (price < 20000)
+    {
+        return 10;
+    }
+
+    if (price < 50000)
+    {
+        return 50;
+    }
+
+    if (price < 200000)
+    {
+        return 100;
+    }
+
+    if (price < 500000)
+    {
+        return 500;
+    }
+
     return 1000;
 }
 
@@ -21,8 +45,12 @@ inline double tick_size(double price)
 inline double round_to_tick(double p, OrderSide side)
 {
     const double t = tick_size(p);
+
     if (t <= 0.0)
+    {
         return p;
+    }
+
     return (side == OrderSide::BUY) ? std::floor(p / t) * t : std::ceil(p / t) * t;
 }
 } // namespace krx

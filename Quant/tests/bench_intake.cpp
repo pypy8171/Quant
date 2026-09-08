@@ -52,8 +52,12 @@ static inline int64_t now_ns()
 static inline void busy_wait_ns(int64_t dur_ns)
 {
     if (dur_ns <= 0)
+    {
         return;
+    }
+
     const int64_t end = now_ns() + dur_ns;
+
     while (now_ns() < end)
     {
         /* spin */
@@ -89,6 +93,7 @@ Result run(int N, double duration_sec, int64_t exec_delay_ns, size_t cap, double
     // ── 생산자 N개: 각자 계좌 태그(p)로 OrderSignal을 계속 밀어넣음(가득 차면 yield 재시도)
     std::vector<std::thread> producers;
     producers.reserve(N);
+
     for (int p = 0; p < N; ++p)
     {
         producers.emplace_back(
@@ -109,27 +114,37 @@ Result run(int N, double duration_sec, int64_t exec_delay_ns, size_t cap, double
                 int64_t next_emit = now_ns();
 
                 long long local = 0, retries = 0;
+
                 while (!stop.load(std::memory_order_relaxed))
                 {
                     if (interval_ns > 0)
                     {
                         const int64_t t = now_ns();
+
                         if (t < next_emit)
+                        {
                             busy_wait_ns(next_emit - t); // 스케줄 시각까지 대기
+                        }
+
                         next_emit += interval_ns;
                     }
+
                     IntakeMsg m;
                     m.sig = base;
                     m.account = p;
                     m.enqueue_ns = now_ns();
+
                     if (q.push(m))
+                    {
                         ++local;
+                    }
                     else
                     {
                         ++retries;
                         std::this_thread::yield(); // backpressure: 가득 참 → 양보 후 재시도
                     }
                 }
+
                 produced.fetch_add(local, std::memory_order_relaxed);
                 push_retries.fetch_add(retries, std::memory_order_relaxed);
             });
@@ -151,17 +166,26 @@ Result run(int N, double duration_sec, int64_t exec_delay_ns, size_t cap, double
     while (clk::now() < t_end)
     {
         auto opt = q.pop();
+
         if (!opt)
         {
             std::this_thread::yield();
             continue;
         }
+
         const int64_t latency = now_ns() - opt->enqueue_ns;
         busy_wait_ns(exec_delay_ns); // FEP 처리 시뮬레이션
+
         if (opt->account >= 0 && opt->account < N)
+        {
             ++per_account[opt->account];
+        }
+
         if (lat.size() < LAT_CAP)
+        {
             lat.push_back(latency);
+        }
+
         ++consumed;
     }
 
@@ -169,12 +193,19 @@ Result run(int N, double duration_sec, int64_t exec_delay_ns, size_t cap, double
     // 이 구간 항목은 측정창이 닫힌 뒤의 백로그라 지연이 크게 부풀어 있다. percentile을
     // 오염시키므로 lat에 넣지 않고 consumed만 카운트한다 (W-2).
     stop.store(true, std::memory_order_relaxed);
+
     for (auto& t : producers)
+    {
         t.join();
+    }
+
     while (auto opt = q.pop())
     {
         if (opt->account >= 0 && opt->account < N)
+        {
             ++per_account[opt->account];
+        }
+
         ++consumed;
     }
 
@@ -191,7 +222,10 @@ Result run(int N, double duration_sec, int64_t exec_delay_ns, size_t cap, double
 static double pct_us(std::vector<int64_t>& sorted, double p)
 {
     if (sorted.empty())
+    {
         return 0.0;
+    }
+
     size_t idx = static_cast<size_t>(p * (sorted.size() - 1));
     return sorted[idx] / 1000.0; // ns → µs
 }
@@ -200,16 +234,31 @@ static double pct_us(std::vector<int64_t>& sorted, double p)
 static double fairness_cv(const std::vector<long long>& v)
 {
     if (v.empty())
+    {
         return 0.0;
+    }
+
     double sum = 0;
+
     for (auto x : v)
+    {
         sum += static_cast<double>(x);
+    }
+
     double mean = sum / v.size();
+
     if (mean == 0)
+    {
         return 0.0;
+    }
+
     double var = 0;
+
     for (auto x : v)
+    {
         var += (x - mean) * (x - mean);
+    }
+
     var /= v.size();
     return std::sqrt(var) / mean;
 }
@@ -225,14 +274,21 @@ int main(int argc, char** argv)
     int64_t delay_ns = (argc > 4) ? static_cast<int64_t>(std::atoll(argv[4])) * 1000 : 0;
     size_t cap = (argc > 5) ? static_cast<size_t>(std::atoll(argv[5])) : 65536;
     double rate = (argc > 6) ? std::atof(argv[6]) : 0.0;
+
     if (N < 1)
+    {
         N = 1;
+    }
+
     // 두 큐가 동일 실용량을 갖도록 2^n로 정규화(최소 2) — 대조군 공정성 + cap=0 라이브락 방지 (W-3)
     cap = mpsc_detail::round_up_pow2(cap);
 
     Result r;
+
     if (qtype == "mutex")
+    {
         r = run<MutexQueue<IntakeMsg>>(N, duration, delay_ns, cap, rate);
+    }
     else
     {
         qtype = "mpsc";
@@ -248,11 +304,17 @@ int main(int argc, char** argv)
     std::printf("producers(N)   : %d  (hardware_concurrency=%u)\n", N, hw);
     std::printf("duration        : %.3f sec   capacity=%zu   exec_delay=%.1f us\n", r.dur_sec, cap,
                 delay_ns / 1000.0);
+
     if (rate > 0)
+    {
         std::printf("offered load    : %.0f/producer × %d = %.0f orders/sec (paced, 지연 측정 모드)\n",
                     rate, N, rate * N);
+    }
     else
+    {
         std::printf("offered load    : unlimited (풀스로틀, 처리량 측정 모드 — 지연은 백로그 지배)\n");
+    }
+
     std::printf("produced        : %lld\n", r.produced);
     std::printf("consumed        : %lld   (lost = produced-consumed = %lld)\n", r.consumed, lost);
     std::printf("throughput      : %.0f orders/sec\n", thr);

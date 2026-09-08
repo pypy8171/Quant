@@ -37,7 +37,9 @@ void Engine::add_strategy(std::unique_ptr<StrategyBase> strategy)
 void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
 {
     if (!strategy)
+    {
         return;
+    }
 
     // 런타임 등록 전략도 차트 조회는 실전 시세키로(분봉 모의 HTTP500 회피) — start()와 동일 패턴.
     strategy->set_kis(quote_kis_ ? quote_kis_.get() : kis_.get());
@@ -45,6 +47,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     strategy->set_position_provider([this](const std::string& account, const std::string& ticker) {
         return order_gate_.position(account, ticker);
     });
+
     try
     {
         strategy->on_start();
@@ -59,8 +62,11 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
         LOG_ERROR("[Engine] 재스캔 on_start 알 수 없는 예외 [" + strategy->id() + "] — 등록 건너뜀");
         return;
     }
+
     if (regime_)
+    {
         strategy->set_active(regime_->is_active_for(strategy->active_regimes()));
+    }
 
     // 구독 스펙 추가 (control_thread 재연결 읽기와 겹치므로 watch_specs_mtx_).
     //  REST 폴링 모드면 다음 폴링 사이클부터 현재가를 받는다. WS 모드는 connect()가 기동 때
@@ -70,21 +76,33 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     for (auto& spec : strategy->get_watch_specs())
     {
         if (spec.market == Market::KR)
+        {
             registered_tickers_.insert(spec.ticker);
+        }
+
         bool exists = false;
         {
             std::lock_guard<std::mutex> wl(watch_specs_mtx_);
+
             for (auto& w : watch_specs_)
+            {
                 if (w.market == spec.market && w.exchange == spec.exchange && w.ticker == spec.ticker)
                 {
                     exists = true;
                     break;
                 }
+            }
+
             if (!exists)
+            {
                 watch_specs_.push_back(spec);
+            }
         }
+
         if (!exists && ws_)
+        {
             ws_->subscribe_incremental(spec);
+        }
     }
 
     {
@@ -115,43 +133,60 @@ void Engine::apply_regime_selection(Regime r, bool force_log)
             if (!p.empty() && p.back() == '*')
             {
                 if (id.compare(0, p.size() - 1, p, 0, p.size() - 1) == 0)
+                {
                     return true;
+                }
             }
             else if (id == p)
             {
                 return true;
             }
         }
+
         return false;
     };
 
     const std::vector<std::string>* sel = nullptr;
+
     if (has_regime_map_)
     {
         auto it = regime_strategies_.find(r);
+
         if (it != regime_strategies_.end())
+        {
             sel = &it->second; // 없는 국면 키 = 아무 전략도 활성 안 함(전량 비활성)
+        }
     }
 
     auto append = [](std::string& csv, const std::string& id)
     { csv += csv.empty() ? id : ", " + id; };
 
     std::string active_ids, inactive_ids;
+
     for (auto& s : strategies_)
     {
         bool on;
+
         if (has_regime_map_)
+        {
             on = sel && matches(s->id(), *sel);
+        }
         else
+        {
             on = regime_ ? regime_->is_active_for(s->active_regimes()) : true;
+        }
+
         s->set_active(on);
         append(on ? active_ids : inactive_ids, s->id());
     }
 
     if (force_log || r != last_selected_regime_)
+    {
         LOG_INFO("[RegimeSelect] 국면=" + to_string(r) + " → 활성=[" + active_ids +
                  "] 비활성=[" + inactive_ids + "]" +
                  (has_regime_map_ ? "" : " (per-strategy 폴백)"));
+    }
+
     last_selected_regime_ = r;
 }
 
@@ -159,23 +194,36 @@ void Engine::apply_regime_selection(Regime r, bool force_log)
 void Engine::maybe_rescan_universe()
 {
     if (rescan_jobs_.empty())
+    {
         return;
+    }
 
     KisClient* scan_kis = quote_kis_ ? quote_kis_.get() : kis_.get();
+
     if (!scan_kis)
+    {
         return;
+    }
 
     const auto now_c = std::chrono::steady_clock::now();
+
     for (auto& job : rescan_jobs_)
     {
         if (job.interval_sec <= 0 || !job.universe_fn || !job.factory)
+        {
             continue;
+        }
+
         if (job.last_run.time_since_epoch().count() != 0 &&
             now_c - job.last_run < std::chrono::seconds(job.interval_sec))
+        {
             continue;
+        }
+
         job.last_run = now_c;
 
         std::vector<std::string> tickers;
+
         try
         {
             tickers = job.universe_fn(*scan_kis);
@@ -193,10 +241,14 @@ void Engine::maybe_rescan_universe()
 
         int  added  = 0;
         bool capped = false;
+
         for (auto& t : tickers)
         {
             if (t.empty() || registered_tickers_.count(t))
+            {
                 continue;
+            }
+
             // 상한에 닿으면 더 등록하지 않는다. 해제 경로가 없어 한번 등록한 종목은 남으므로,
             //  상한이 없으면 재스캔마다 조회량이 계단식으로 늘어난다.
             if (job.max_registered > 0 && job.registered >= job.max_registered)
@@ -204,28 +256,38 @@ void Engine::maybe_rescan_universe()
                 capped = true;
                 break;
             }
+
             auto strat = job.factory(t);
+
             if (!strat)
+            {
                 continue;
+            }
+
             LOG_INFO("[Engine] 재스캔 신규 등록: " + strat->describe());
             register_strategy_runtime(std::move(strat));
             ++added;
             ++job.registered;
         }
+
         if (added > 0 || capped)
+        {
             LOG_INFO("[Engine] 유니버스 재스캔 완료: +" + std::to_string(added) +
                      "종목 (이 슬리브 " + std::to_string(job.registered) + ", 전체 " +
                      std::to_string(registered_tickers_.size()) + "종목)" +
                      (capped ? " — 등록 상한 " + std::to_string(job.max_registered) +
                                    " 도달, 신규 등록 중단"
                              : ""));
+        }
     }
 }
 
 void Engine::start()
 {
     if (running_.load())
+    {
         return;
+    }
 
     LOG_INFO("[Engine] ── 퀀트 엔진 시작 ──────────────────────────────");
 
@@ -243,6 +305,7 @@ void Engine::start()
                 running_.store(false);
                 return "OK";
             }
+
             if (cmd == "STATUS")
             {
                 return "{\"running\":true"
@@ -250,12 +313,14 @@ void Engine::start()
                        std::to_string(data_count_.load()) + ",\"signal\":" + std::to_string(signal_count_.load()) +
                        ",\"order\":" + std::to_string(order_count_.load()) + "}";
             }
+
             return "UNKNOWN";
         });
     zmq_bridge_->start();
 #endif
 
     kis_ = std::make_unique<KisClient>(kis_cfg_);
+
     if (!kis_->authenticate())
     {
         LOG_ERROR("[Engine] KIS 인증 실패");
@@ -269,6 +334,7 @@ void Engine::start()
     if (has_quote_kis_)
     {
         quote_kis_ = std::make_unique<KisClient>(quote_kis_cfg_);
+
         if (!quote_kis_->authenticate())
         {
             LOG_ERROR("[Engine] 시세 클라이언트(실전) 인증 실패 — 모의 시세로 폴백(틱 없을 수 있음)");
@@ -297,7 +363,9 @@ void Engine::start()
 
     // G5: 실계좌 보유분을 원장에 시드 (스레드 시작 전, 단일스레드 구간)
     if (bootstrap_ledger_)
+    {
         bootstrap_ledger();
+    }
 
     // RegimeController (국면 메타레이어) 초기화
     regime_ = std::make_unique<RegimeController>(regime_cfg_);
@@ -321,6 +389,7 @@ void Engine::start()
         s->set_position_provider([this](const std::string& account, const std::string& ticker) {
             return order_gate_.position(account, ticker);
         });
+
         try
         {
             s->on_start();
@@ -339,23 +408,33 @@ void Engine::start()
     watch_specs_.clear();
     {
         std::unordered_set<std::string> seen;
+
         for (auto& s : strategies_)
         {
             for (auto& spec : s->get_watch_specs())
             {
                 std::string key = (spec.market == Market::US ? "US:" : "KR:") + spec.exchange + ":" + spec.ticker;
+
                 if (seen.insert(key).second)
+                {
                     watch_specs_.push_back(spec);
+                }
             }
         }
     }
+
     LOG_INFO("[Engine] WS 구독 종목: " + std::to_string(watch_specs_.size()) + "개");
 
     // 재스캔 중복 방지 시드 — 기동 유니버스에 이미 등록된 KR 티커 기록.
     registered_tickers_.clear();
+
     for (auto& spec : watch_specs_)
+    {
         if (spec.market == Market::KR)
+        {
             registered_tickers_.insert(spec.ticker);
+        }
+    }
 
     running_.store(true);
 
@@ -376,22 +455,30 @@ void Engine::start()
                                td_queue_.push(td);
 #ifdef HAS_ZMQ
                                if (zmq_bridge_)
+                               {
                                    zmq_bridge_->publish_trade(td);
+                               }
 #endif
                            });
         ws_->set_fill_callback([this](const FillNotification& fn)
                                {
                                    if (order_router_)
+                                   {
                                        order_router_->on_fill(fn);
+                                   }
                                });
+
         if (!ws_->connect(watch_specs_))
         {
             // 예전에는 경고만 남기고 넘어갔는데, 그러면 전략이 호가·체결을 하나도 못 받아
             //  매매가 조용히 멈춘다(폴링 경로가 꺼져 있으므로). 폴링으로 낮춰 계속 돈다.
             //  control_thread가 재연결을 계속 시도하고, 붙으면 WS로 되돌린다.
             LOG_ERROR("[Engine] WebSocket 최초 연결 실패");
+
             if (!activate_rest_fallback("최초 연결 실패"))
+            {
                 LOG_ERROR("[Engine] 폴링 폴백도 불가(시세 소스 없음) — 호가/체결 이벤트 없이 동작");
+            }
         }
     }
 
@@ -407,7 +494,11 @@ void Engine::start()
 //  스캔·청산 관리 부착 스레드가 write, 전략 스레드 신호 로그가 read라 뮤텍스로 보호.
 void Engine::register_ticker_name(const std::string& ticker, const std::string& name)
 {
-    if (name.empty()) return;
+    if (name.empty())
+    {
+        return;
+    }
+
     std::lock_guard<std::mutex> lk(ticker_names_mu_);
     ticker_names_[ticker] = name;
 }
@@ -416,8 +507,12 @@ std::string Engine::ticker_label(const std::string& ticker) const
 {
     std::lock_guard<std::mutex> lk(ticker_names_mu_);
     auto it = ticker_names_.find(ticker);
+
     if (it != ticker_names_.end() && !it->second.empty())
+    {
         return ticker + "(" + it->second + ")";
+    }
+
     return ticker;
 }
 
@@ -425,8 +520,12 @@ std::string Engine::ticker_name(const std::string& ticker) const
 {
     std::lock_guard<std::mutex> lk(ticker_names_mu_);
     auto it = ticker_names_.find(ticker);
+
     if (it != ticker_names_.end())
+    {
         return it->second;
+    }
+
     return std::string();
 }
 
@@ -440,18 +539,22 @@ void Engine::bootstrap_ledger()
     try
     {
         nlohmann::json bal = kis_->get_balance();
+
         if (!bal.contains("output1"))
         {
             LOG_WARN("[Engine] 원장 부트스트랩: 잔고 output1 없음 — 건너뜀");
             return;
         }
+
         int n = 0;
+
         for (auto& h : bal["output1"])
         {
             std::string code = h.value("pdno", "");
             std::string pname = h.value("prdt_name", "");
             int    q  = std::atoi(h.value("hldg_qty", "0").c_str());
             double av = std::atof(h.value("pchs_avg_pric", "0").c_str());
+
             if (!code.empty() && q > 0)
             {
                 // 주문가능수량(ord_psbl_qty)을 게이트에 함께 시드한다. 보유수량과 다르면(직전
@@ -460,8 +563,12 @@ void Engine::bootstrap_ledger()
                 //  파싱 실패면 -1을 넘겨 "모름"으로 두고 보유수량을 그대로 쓴다.
                 std::string psbl = h.value("ord_psbl_qty", std::string("(field없음)"));
                 int psbl_q = -1;
+
                 if (!psbl.empty() && psbl.find_first_not_of("0123456789 ") == std::string::npos)
+                {
                     psbl_q = std::atoi(psbl.c_str());
+                }
+
                 order_gate_.seed_position(std::string(), code, q, av, psbl_q);
                 register_ticker_name(code, pname); // 로그 라벨(초기 보유분 종목명)
                 LOG_INFO("[Engine]   시드 " + code + " " + pname + " " + std::to_string(q) + "주 @평단 " +
@@ -469,6 +576,7 @@ void Engine::bootstrap_ledger()
                 ++n;
             }
         }
+
         LOG_INFO("[Engine] 원장 부트스트랩 완료: " + std::to_string(n) + "종목 시드");
     }
     catch (const std::exception& e)
@@ -496,6 +604,7 @@ void Engine::reconcile_from_balance(bool resync_positions)
     }
 
     bool responded = false; // 잔고 응답을 실제 파싱했는가(서킷브레이커 판정용)
+
     try
     {
         nlohmann::json bal = kis_->get_balance();
@@ -504,6 +613,7 @@ void Engine::reconcile_from_balance(bool resync_positions)
         if (bal.contains("output1"))
         {
             responded = true;
+
             // 잔고는 서버 확정 스냅샷 → 미체결 선점(reserved_)을 통째로 비우고 실보유만 신뢰.
             //  체결피드(H0STCNI0) 부재로 누적된 H-1 드리프트(과잉 선점 → 정상신호 과잉차단)를
             //  동기화 시점마다 해소한다(#1). reset은 seed 재기록 전에 1회.
@@ -512,13 +622,17 @@ void Engine::reconcile_from_balance(bool resync_positions)
             if (resync_positions)
             {
                 order_gate_.reset_reserved();
+
                 for (auto& h : bal["output1"])
                 {
                     std::string code = h.value("pdno", "");
                     int    q  = std::atoi(h.value("hldg_qty", "0").c_str());
                     double av = std::atof(h.value("pchs_avg_pric", "0").c_str());
+
                     if (!code.empty() && q > 0)
+                    {
                         order_gate_.seed_position(std::string(), code, q, av);
+                    }
                 }
             }
         }
@@ -530,41 +644,62 @@ void Engine::reconcile_from_balance(bool resync_positions)
         //  "전일종가 대비 당일손익"을 정확히 찍기 위함. 손실컷 기준선(세션 앵커)과는 분리(리스크 동작 불변).
         double bfdy_asset = 0.0;
         bool have_bfdy = false;
+
         if (bal.contains("output2"))
         {
             const auto& o2 = bal["output2"];
             const nlohmann::json* row = nullptr;
+
             if (o2.is_array() && !o2.empty())
+            {
                 row = &o2[0];
+            }
             else if (o2.is_object())
+            {
                 row = &o2;
+            }
+
             if (row)
             {
                 std::string s = row->value("tot_evlu_amt", "");
+
                 if (s.empty())
+                {
                     s = row->value("nass_amt", ""); // 순자산금액 폴백
+                }
+
                 if (!s.empty())
                 {
                     try { tot_eval = std::stod(s); have_eval = true; } catch (...) {}
                 }
+
                 // 주문가능현금 — 매수 클램프의 진짜 상한. 가수도정산금액(실질 주문가능)을
                 //  우선 쓰고 없으면 예수금총금액으로 떨어진다. 평가금과 달리 미체결 지정가와
                 //  미결제 매수로 묶인 몫이 빠져 있어야 40250000 도배를 막을 수 있다.
                 std::string cs = row->value("prvs_rcdl_excc_amt", "");
+
                 if (cs.empty())
+                {
                     cs = row->value("dnca_tot_amt", "");
+                }
+
                 if (!cs.empty())
                 {
                     try
                     {
                         const double cash = std::stod(cs);
+
                         if (cash >= 0.0)
+                        {
                             order_gate_.set_available_cash(cash);
+                        }
                     }
                     catch (...) {}
                 }
+
                 // 전일 총자산(없으면 순자산 폴백 없이 스킵) — 표시 전용.
                 std::string bs = row->value("bfdy_tot_asst_evlu_amt", "");
+
                 if (!bs.empty())
                 {
                     try { bfdy_asset = std::stod(bs); have_bfdy = true; } catch (...) {}
@@ -594,7 +729,12 @@ void Engine::reconcile_from_balance(bool resync_positions)
                 //  옛 계좌 기준선을 재사용해 당일손익이 오염되는 것을 막는다(계좌 바뀌면 새로 캡처).
                 std::string acct = kis_ ? kis_->account_no() : std::string();
                 std::string bname = std::string("pnl_baseline_") + dbuf;
-                if (!acct.empty()) bname += "_" + acct;
+
+                if (!acct.empty())
+                {
+                    bname += "_" + acct;
+                }
+
                 bname += ".txt";
                 std::filesystem::path bpath = Logger::instance().path_for(bname);
 
@@ -602,9 +742,13 @@ void Engine::reconcile_from_balance(bool resync_positions)
                 bool from_file = false;
                 {
                     std::ifstream bf(bpath);
+
                     if (bf.is_open() && (bf >> file_base) && file_base > 0.0)
+                    {
                         from_file = true;
+                    }
                 }
+
                 if (from_file)
                 {
                     pnl_baseline_ = file_base;
@@ -616,18 +760,25 @@ void Engine::reconcile_from_balance(bool resync_positions)
                 {
                     pnl_baseline_ = tot_eval;
                     std::ofstream of(bpath, std::ios::trunc);
+
                     if (of.is_open())
+                    {
                         of << static_cast<long long>(pnl_baseline_) << "\n";
+                    }
+
                     LOG_INFO("[Engine] 기준선 신규 캡처+저장(" + std::string(dbuf) + "): 총평가금 " +
                              std::to_string(static_cast<long long>(tot_eval)) + "원");
                 }
+
                 have_pnl_baseline_ = true;
             }
+
             double delta = tot_eval - pnl_baseline_;
             order_gate_.set_daily_pnl(delta); // 손실컷용(세션 앵커) — 리스크게이트 동작 유지
             order_gate_.set_equity(tot_eval); // 총노출 게이트(§3d) 분모 — 총평가금 스냅샷 갱신
             LOG_INFO("[Engine] 잔고 대조: 당일손익 " + std::to_string(static_cast<long long>(delta)) +
                      "원 (총평가 " + std::to_string(static_cast<long long>(tot_eval)) + ")");
+
             // 표시 전용: 전일종가 대비 진짜 당일손익 — launch 시점과 무관하게 정확·연속 누적.
             if (have_bfdy && bfdy_asset > 0.0)
             {
@@ -648,12 +799,19 @@ void Engine::reconcile_from_balance(bool resync_positions)
     //      스트릭이 임계(2)를 넘으면 OrderGate.pnl_stale를 세워 그 창에서 BUY NEW를 보수 정지하고,
     //      복구되는 즉시 해제한다. 임계 2 = 단발 타임아웃(streak 1)엔 발동 않고 지속 정체만 잡음.
     static constexpr int kPnlStaleStreak = 2;
+
     if (responded)
     {
         if (reconcile_fail_streak_ > 0)
+        {
             LOG_INFO("[Engine] 잔고조회 복구 — 잔고 대조 정상화");
+        }
+
         if (reconcile_fail_streak_ >= kPnlStaleStreak)
+        {
             LOG_INFO("[Engine] daily_pnl 신선도 복구 — 신규 진입 정지 해제(B2)");
+        }
+
         reconcile_fail_streak_ = 0;
         reconcile_skip_remaining_ = 0;
         order_gate_.set_pnl_stale(false);
@@ -662,17 +820,28 @@ void Engine::reconcile_from_balance(bool resync_positions)
     {
         ++reconcile_fail_streak_;
         int cap = reconcile_fail_streak_ - 1;
-        if (cap > 3) cap = 3;              // 백오프 상한: 2^3 = 8 사이클
+
+        if (cap > 3)
+        {
+            cap = 3;  // 백오프 상한: 2^3 = 8 사이클
+        }
+
         reconcile_skip_remaining_ = 1 << cap;
         LOG_WARN("[Engine] 잔고조회 실패(streak=" + std::to_string(reconcile_fail_streak_) +
                  ", 12002 타임아웃 등) — 잔고 대조 " + std::to_string(reconcile_skip_remaining_) +
                  "사이클 백오프(핫루프 보호)");
+
         // 지속 정체 → daily_pnl 낡음: 신규 진입 보수 정지(SELL 청산은 통과). 임계 진입 시 1회 경고.
         if (reconcile_fail_streak_ == kPnlStaleStreak)
+        {
             LOG_WARN("[Engine] daily_pnl 신선도 상실(streak≥" + std::to_string(kPnlStaleStreak) +
                      ") — BUY NEW 보수 정지(B2), 손실컷 신뢰불가 창 방어");
+        }
+
         if (reconcile_fail_streak_ >= kPnlStaleStreak)
+        {
             order_gate_.set_pnl_stale(true);
+        }
     }
 }
 
@@ -680,26 +849,50 @@ void Engine::stop()
 {
     // exchange로 중복 호출 방지 — 이미 false면 즉시 반환
     if (!running_.exchange(false, std::memory_order_acq_rel))
+    {
         return;
+    }
 
     LOG_INFO("[Engine] 종료 시작");
 
     // 역순 join 권장: control → order → strategy → data
-    if (control_thread_.joinable())  control_thread_.join();
-    if (order_thread_.joinable())    order_thread_.join();
-    if (strategy_thread_.joinable()) strategy_thread_.join();
-    if (data_thread_.joinable())     data_thread_.join();
+    if (control_thread_.joinable())
+    {
+        control_thread_.join();
+    }
+
+    if (order_thread_.joinable())
+    {
+        order_thread_.join();
+    }
+
+    if (strategy_thread_.joinable())
+    {
+        strategy_thread_.join();
+    }
+
+    if (data_thread_.joinable())
+    {
+        data_thread_.join();
+    }
 
     if (ws_)
+    {
         ws_->disconnect();
+    }
 
 #ifdef HAS_ZMQ
     if (zmq_bridge_)
+    {
         zmq_bridge_->stop();
+    }
 #endif
 
     for (auto& s : strategies_)
+    {
         s->on_stop();
+    }
+
     print_stats();
     LOG_INFO("[Engine] 종료 완료");
 }
@@ -711,6 +904,7 @@ void Engine::data_thread_fn()
 {
     LOG_INFO("[DataThread] 시작");
     bool was_market_open = false;
+
     while (running_.load(std::memory_order_acquire))
     {
         bool market_now = is_any_market_open();
@@ -721,8 +915,12 @@ void Engine::data_thread_fn()
         if (market_now && !was_market_open)
         {
             order_gate_.reset_daily();
+
             if (order_router_)
+            {
                 order_router_->reset_daily();   // V-4: 중복방지 키 일별 정리(거래일 prefix와 함께 cross-day 충돌 차단)
+            }
+
             have_pnl_baseline_ = false; // C-1: 새 거래일 → 총평가금 기준선 재캡처
             LOG_INFO(std::string("[DataThread] 장 개장 전이(") + (is_kr_market_open() ? "KR" : "US") +
                      ") — OrderGate 일별 카운터 리셋");
@@ -735,6 +933,7 @@ void Engine::data_thread_fn()
                 last_regime_eval_ = std::chrono::steady_clock::now();
             }
         }
+
         was_market_open = market_now;
 
         if (!market_now)
@@ -755,6 +954,7 @@ void Engine::data_thread_fn()
             if (regime_ && regime_reeval_interval_sec_ > 0)
             {
                 auto now_r = std::chrono::steady_clock::now();
+
                 if (last_regime_eval_.time_since_epoch().count() == 0 ||
                     now_r - last_regime_eval_ >= std::chrono::seconds(regime_reeval_interval_sec_))
                 {
@@ -769,11 +969,14 @@ void Engine::data_thread_fn()
             {
                 {
                     maybe_rescan_universe();
+
                     // G1: 재스캔으로 새로 등록된 전략도 현재 국면 선택에 맞춰 즉시 게이팅
                     //  (기본 active_=true로 잘못된 국면에 진입하는 창을 닫는다). 국면 불변이라
                     //  force_log=false → 로그 노이즈 없음.
                     if (regime_ && last_selected_regime_ != Regime::UNKNOWN)
+                    {
                         apply_regime_selection(last_selected_regime_, /*force_log=*/false);
+                    }
                 }
             }
 
@@ -798,13 +1001,19 @@ void Engine::data_thread_fn()
                     //  30초일 때 10틱이면 약 5분마다다. 폴 간격을 바꾸면 실제 분 주기도 바뀐다.
                     constexpr int kEstFlowLogEveryNTicks = 10;
                     KisClient* eqc = quote_kis_ ? quote_kis_.get() : kis_.get();
+
                     if (eqc && (est_flow_tick % kEstFlowLogEveryNTicks) == 0)
                     {
                         // 우리 유니버스(watch) 티커 집합 — 교집합만 강조 로깅.
                         std::unordered_set<std::string> ours;
+
                         for (const auto& s : watch_specs_)
+                        {
                             if (s.market == Market::KR)
+                            {
                                 ours.insert(s.ticker);
+                            }
+                        }
 
                         auto buy_top  = eqc->fetch_est_investor_ranking("0000", "0", "0"); // 순매수 상위
                         std::this_thread::sleep_for(150ms);
@@ -817,11 +1026,16 @@ void Engine::data_thread_fn()
                                         const std::vector<KisClient::EstInvestorFlow>& v) -> int
                         {
                             int shown = 0;
+
                             for (const auto& f : v)
                             {
                                 if (ours.count(f.ticker) == 0)
+                                {
                                     continue; // 우리 종목만 로깅
+                                }
+
                                 int rank = 0;
+
                                 for (const auto& g : v) { ++rank; if (g.ticker == f.ticker) break; }
                                 LOG_INFO(std::string("[수급추정] ") + label + " ★" + f.ticker + " " +
                                          f.name + " (전체 " + std::to_string(rank) + "위)" +
@@ -830,15 +1044,20 @@ void Engine::data_thread_fn()
                                          " 외인금액=" + std::to_string((int64_t)f.foreign_net_amt));
                                 ++shown;
                             }
+
                             return shown;
                         };
                         LOG_INFO("[수급추정] 스냅샷(관측) 매수상위 " + std::to_string(buy_top.size()) +
                                  "행·매도상위 " + std::to_string(sell_top.size()) + "행 수신");
                         int nb = dump("매수상위", buy_top);
                         int ns = dump("매도상위", sell_top);
+
                         if (nb + ns == 0)
+                        {
                             LOG_INFO("[수급추정]   (우리 유니버스가 외인·기관 상위권 미포함)");
+                        }
                     }
+
                     ++est_flow_tick;
                 }
 
@@ -849,6 +1068,7 @@ void Engine::data_thread_fn()
                 {
                     static int sector_tick = 0;
                     KisClient* sqc = quote_kis_ ? quote_kis_.get() : kis_.get();
+
                     if (sqc && (sector_tick % 10) == 0) // 30s×10 ≈ 5분
                     {
                         // KRX 정본 업종코드. 2026-09-08 구성종목으로 확증했다 — 직전 표는 이름이
@@ -867,17 +1087,23 @@ void Engine::data_thread_fn()
 
                         struct SecRate { std::string name; double rate; double price; };
                         std::vector<SecRate> secs;
+
                         for (const auto& [code, name] : kSectors)
                         {
                             std::this_thread::sleep_for(100ms); // rate limit 여유(20업종×100ms=2초)
                             auto ip = sqc->get_index_price(code);
+
                             if (ip.price > 0.0)
+                            {
                                 secs.push_back({name, ip.change_rate, ip.price});
+                            }
                         }
+
                         std::sort(secs.begin(), secs.end(),
                                   [](const SecRate& a, const SecRate& b) { return a.rate > b.rate; });
 
                         LOG_INFO("[섹터] ── 업종 등락률(강→약, 관측용) ──");
+
                         for (const auto& s : secs)
                         {
                             char line[128];
@@ -886,6 +1112,7 @@ void Engine::data_thread_fn()
                             LOG_INFO(line);
                         }
                     }
+
                     ++sector_tick;
                 }
 
@@ -896,16 +1123,23 @@ void Engine::data_thread_fn()
                 //  regime.json 미존재(사이드카 미실행) 시 조용히 스킵. entry_halt 게이트와 독립.
                 {
                     static int macro_tick = 0;
+
                     if (!regime_file_.empty() && (macro_tick % 10) == 0) // 30s×10 ≈ 5분
                     {
                         std::error_code mec;
+
                         if (std::filesystem::exists(regime_file_, mec) && !mec)
                         {
                             try
                             {
                                 std::ifstream mf(regime_file_);
                                 nlohmann::json mj;
-                                if (mf) mf >> mj;
+
+                                if (mf)
+                                {
+                                    mf >> mj;
+                                }
+
                                 if (mj.contains("components"))
                                 {
                                     std::string reg = mj.value("regime", std::string("?"));
@@ -920,11 +1154,16 @@ void Engine::data_thread_fn()
                                         {"TNX10", "미국채10Y금리"},  {"ES_F", "S&P500선물"},
                                         {"VIX", "VIX"}};
                                     auto& comps = mj["components"];
+
                                     for (const auto& [key, label] : kMacro)
                                     {
                                         if (!comps.contains(key))
+                                        {
                                             continue;
+                                        }
+
                                         auto& c = comps[key];
+
                                         if (c.contains("pct") && !c["pct"].is_null())
                                         {
                                             double pct = c["pct"].get<double>();
@@ -955,6 +1194,7 @@ void Engine::data_thread_fn()
                                      "(macro_regime_feed.py) 실행 필요");
                         }
                     }
+
                     ++macro_tick;
                 }
 
@@ -966,17 +1206,25 @@ void Engine::data_thread_fn()
                 std::snprintf(hhmmss, sizeof(hhmmss), "%02d%02d%02d", kst.tm_hour, kst.tm_min,
                               kst.tm_sec);
                 KisClient* qc = quote_kis_ ? quote_kis_.get() : kis_.get();
+
                 for (const auto& spec : watch_specs_)
                 {
                     if (spec.market != Market::KR)
+                    {
                         continue;
+                    }
+
                     // 실전 도메인 시세는 초당 호출 한도(~20/s)가 있어, 수십 종목을 무간격으로
                     //  몰아치면 뒷종목이 HTTP 500(초당 한도)로 떨어진다. 종목 간 소량 슬립(150ms)으로
                     //  한도 밑에 깔아 전 종목이 매 사이클 틱을 받도록 한다(종목 수×150ms가 30초 사이클 안에 들게).
                     std::this_thread::sleep_for(150ms);
                     double px = qc->get_current_price(spec.ticker);
+
                     if (px <= 0.0)
+                    {
                         continue;
+                    }
+
                     TradeData td;
                     td.ticker = spec.ticker;
                     td.time = hhmmss;
@@ -985,8 +1233,12 @@ void Engine::data_thread_fn()
                     td.direction = 0;
                     td.market = Market::KR;
                     td.timestamp = std::chrono::system_clock::now();
+
                     while (!td_queue_.push(td) && running_.load(std::memory_order_acquire))
+                    {
                         std::this_thread::sleep_for(1ms);
+                    }
+
                     ++data_count_;
                 }
             }
@@ -996,6 +1248,7 @@ void Engine::data_thread_fn()
                 //  종목 수×사이클마다 500이 쌓여 로그가 그걸로 덮인다(3회 재시도까지 붙는다).
                 //  위 rest 분기와 같이 시세 클라이언트로 부른다.
                 KisClient* qc = quote_kis_ ? quote_kis_.get() : kis_.get();
+
                 // 일봉을 받아 쓰는 전략이 하나도 없으면 폴링 자체를 건너뛴다. DevScale·ITB처럼
                 //  호가·체결 이벤트로만 도는 구성에서는 이 루프가 종목 수만큼 차트 TR을 매 사이클
                 //  때리고 결과는 아무도 안 본다. 그 호출량이 초당 한도를 밀어 다른 조회(3분봉·현재가)까지
@@ -1005,19 +1258,31 @@ void Engine::data_thread_fn()
                     for (const auto& spec : watch_specs_)
                     {
                         std::vector<MarketData> bars;
+
                         if (spec.market == Market::KR)
+                        {
                             // 여기만 당일 봉이 목적이다(파이프라인에 오늘 시세를 흘린다).
                             //  지표·앵커 용도의 다른 호출자는 전부 기본값(전일까지)을 쓴다.
                             bars = qc->get_daily_ohlcv(spec.ticker, 1, /*include_today=*/true);
+                        }
                         else
+                        {
                             bars = qc->get_us_daily_ohlcv(spec.ticker, 1, spec.exchange);
+                        }
 
                         if (bars.empty())
+                        {
                             continue;
+                        }
+
                         auto& md = bars[0];
                         md.bar_index = static_cast<int>(data_count_.load());
+
                         while (!market_queue_.push(md) && running_.load(std::memory_order_acquire))
+                        {
                             std::this_thread::sleep_for(1ms);
+                        }
+
                         ++data_count_;
                     }
                 }
@@ -1027,6 +1292,7 @@ void Engine::data_thread_fn()
         {
             LOG_ERROR("[DataThread] 예외: " + std::string(e.what()));
         }
+
         // 사이클 tail 대기 — 재스캔 주기가 사이클보다 짧으면 그 간격으로 잘게 깨어난다.
         //  maybe_rescan_universe()는 이 루프 안에서만 불리므로, 그냥 두면 재스캔 주기를
         //  아무리 줄여도 fetch_interval_sec_ 단위로 반올림된다(30초 사이클 + 20초 재스캔 = 30초).
@@ -1035,25 +1301,42 @@ void Engine::data_thread_fn()
         {
             const int cycle = fetch_interval_sec_ > 0 ? fetch_interval_sec_ : 1;
             int slice = cycle;
+
             for (const auto& job : rescan_jobs_)
+            {
                 if (job.interval_sec > 0 && job.interval_sec < slice)
+                {
                     slice = job.interval_sec;
-            if (slice < 1) slice = 1;
+                }
+            }
+
+            if (slice < 1)
+            {
+                slice = 1;
+            }
+
             int slept = 0;
+
             while (slept < cycle && running_.load(std::memory_order_acquire))
             {
                 const int step = (slice < cycle - slept) ? slice : (cycle - slept);
                 std::this_thread::sleep_for(std::chrono::seconds(step));
                 slept += step;
+
                 if (slept < cycle)
+                {
                     maybe_rescan_universe();   // 사이클 시작의 호출과 합쳐 재스캔 주기를 지킨다
+                }
             }
         }
 #ifdef HAS_ZMQ
         if (zmq_bridge_)
+        {
             zmq_bridge_->publish_health(data_count_.load(), signal_count_.load(), order_count_.load());
+        }
 #endif
     }
+
     LOG_INFO("[DataThread] 종료");
 }
 
@@ -1067,18 +1350,25 @@ void Engine::data_thread_fn()
 void Engine::poll_regime_file()
 {
     if (regime_file_.empty())
+    {
         return; // 기능 미가동(기본)
+    }
 
     std::error_code ec;
+
     if (!std::filesystem::exists(regime_file_, ec) || ec)
+    {
         return; // 파일 없음 → 게이트 불변
+    }
 
     // 신선도: 사이드카가 죽어 파일이 오래되면 신뢰 불가 → halt를 새로 켜지 않는다.
     auto ftime = std::filesystem::last_write_time(regime_file_, ec);
+
     if (!ec)
     {
         auto age = std::chrono::duration_cast<std::chrono::seconds>(
                        std::filesystem::file_time_type::clock::now() - ftime).count();
+
         if (age > regime_stale_sec_)
         {
             if (!regime_stale_warned_)
@@ -1088,18 +1378,25 @@ void Engine::poll_regime_file()
                          "s) — 사이드카 중단 의심, 게이트 신규 변경 보류(현 halt 유지)");
                 regime_stale_warned_ = true;
             }
+
             return;
         }
+
         regime_stale_warned_ = false;
     }
 
     // 파싱 — 원자적 write라 정상은 완전한 json. 실패(부분/손상)는 조용히 무시.
     nlohmann::json j;
+
     try
     {
         std::ifstream f(regime_file_);
+
         if (!f)
+        {
             return;
+        }
+
         f >> j;
     }
     catch (const std::exception&)
@@ -1108,13 +1405,16 @@ void Engine::poll_regime_file()
     }
 
     if (!j.value("valid", false))
+    {
         return; // 사이드카가 데이터 부족으로 판정 보류 → 게이트 불변
+    }
 
     // ── force_liquidate: 청산 중엔 신규 진입도 반드시 정지(entry_halt에 OR) ────────
     bool liq = j.value("force_liquidate", false);
 
     // ── entry_halt 전이 시에만 set + 로그 (liq이면 강제 halt) ────────────────────
     bool halt = j.value("entry_halt", false) || liq;
+
     if (halt != regime_halt_on_)
     {
         order_gate_.set_entry_halt(halt);
@@ -1135,11 +1435,13 @@ void Engine::poll_regime_file()
                   "strategy_thread가 시장가 매도 발주");
         regime_liq_warned_ = true;
     }
+
     if (!liq && regime_liq_warned_)
     {
         LOG_WARN("[Regime] force_liquidate 해제 — 강제청산 중단");
         regime_liq_warned_ = false;
     }
+
     force_liquidate_.store(liq, std::memory_order_relaxed);
 }
 
@@ -1158,10 +1460,14 @@ void Engine::strategy_thread_fn()
                  (sig.reason.empty() ? "" : " | 근거: " + sig.reason));
 #ifdef HAS_ZMQ
         if (zmq_bridge_)
+        {
             zmq_bridge_->publish_signal(sig);
+        }
 #endif
         while (!order_queue_.push(sig) && running_.load())
+        {
             std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
     };
 
     // 교체 진입 — 슬롯이 꽉 찬 상태에서 더 높은 점수의 신규 종목이 오면 최약체를 먼저 비운다.
@@ -1171,6 +1477,7 @@ void Engine::strategy_thread_fn()
     auto push_signal = [&](const OrderSignal& sig)
     {
         const auto& gcfg = order_gate_.config();
+
         if (gcfg.displace_enabled && sig.side == OrderSide::BUY &&
             sig.action == OrderAction::NEW &&
             order_gate_.position(sig.account_id, sig.ticker) == 0 &&
@@ -1178,6 +1485,7 @@ void Engine::strategy_thread_fn()
             order_gate_.capacity_full())
         {
             auto plan = order_gate_.plan_displacement(sig.account_id, sig.ticker);
+
             if (plan.ok)
             {
                 OrderSignal ev;
@@ -1197,6 +1505,7 @@ void Engine::strategy_thread_fn()
                 return; // 이번 봉의 매수는 흘린다. 다음 봉에 예약된 슬롯으로 들어온다.
             }
         }
+
         raw_push(sig);
     };
 
@@ -1231,17 +1540,24 @@ void Engine::strategy_thread_fn()
     {
         if (s && !s->is_active() && sig.action == OrderAction::NEW &&
             sig.side == OrderSide::BUY)
+        {
             return;
+        }
+
         // 청산 관리가 맡은 티커는 스캔 슬리브가 새로 사지 않는다. 소유자를 하나로
         //  두지 않으면 청산 관리가 턴 물량을 스캔 전략이 되사는 회전이 난다.
         if (s && sig.action == OrderAction::NEW && sig.side == OrderSide::BUY &&
             guardian_tickers_.count(sig.ticker) && s->id().rfind("ITB_", 0) != 0)
         {
             if (guard_block_logged.insert(sig.ticker).second)
+            {
                 LOG_INFO("[Engine] 청산 관리 보유종목 신규매수 차단 " + ticker_label(sig.ticker) +
                          " (요청 " + s->id() + ") — 청산 소유권은 청산 관리에 있다");
+            }
+
             return;
         }
+
         push_signal(sig);
     };
 
@@ -1260,13 +1576,18 @@ void Engine::strategy_thread_fn()
     while (running_.load(std::memory_order_acquire))
     {
         uint64_t ver = strat_version_.load(std::memory_order_acquire);
+
         if (ver != seen_ver)
         {
             std::lock_guard<std::mutex> lk(strat_mutex_);
             snap.clear();
             snap.reserve(strategies_.size());
+
             for (auto& s : strategies_)
+            {
                 snap.push_back(s.get());
+            }
+
             seen_ver = ver;
         }
 
@@ -1278,16 +1599,22 @@ void Engine::strategy_thread_fn()
         if (force_liquidate_.load(std::memory_order_relaxed))
         {
             auto now = std::chrono::steady_clock::now();
+
             if (now - last_liq_attempt >= std::chrono::seconds(2))
             {
                 last_liq_attempt = now;
+
                 for (const auto& h : order_gate_.snapshot_positions())
                 {
                     int resv = order_gate_.reserved(h.account, h.ticker);
                     int sell_pending = (resv < 0) ? -resv : 0; // 이미 낸 미체결 매도
                     int sellable = h.qty - sell_pending;
+
                     if (sellable <= 0)
+                    {
                         continue;
+                    }
+
                     OrderSignal s;
                     s.ticker      = h.ticker;
                     s.account_id  = h.account;
@@ -1313,22 +1640,37 @@ void Engine::strategy_thread_fn()
         {
             trim_done = true;
             const double cap_notional = order_gate_.config().max_notional_per_ticker;
+
             if (cap_notional > 0.0)
             {
                 for (const auto& h : order_gate_.snapshot_positions())
                 {
                     if (h.qty <= 0 || h.avg_price <= 0.0)
+                    {
                         continue;
+                    }
+
                     const int cap_qty = static_cast<int>(cap_notional / h.avg_price);
                     int excess = h.qty - cap_qty;
+
                     if (excess <= 0)
+                    {
                         continue;
+                    }
+
                     // 이미 낸 미체결 매도만큼은 곧 줄어든다 — 중복으로 덜어내지 않는다.
                     const int resv = order_gate_.reserved(h.account, h.ticker);
+
                     if (resv < 0)
+                    {
                         excess -= -resv;
+                    }
+
                     if (excess <= 0)
+                    {
                         continue;
+                    }
+
                     OrderSignal s;
                     s.ticker      = h.ticker;
                     s.account_id  = h.account;
@@ -1350,6 +1692,7 @@ void Engine::strategy_thread_fn()
         }
 
         bool did_work = false;
+
         try
         {
             // 호가 (국내 — 고주파)
@@ -1358,17 +1701,26 @@ void Engine::strategy_thread_fn()
                 for (auto* s : snap)
                 {
                     auto sig = s->on_order_book(*opt);
+
                     if (sig && sig->side != OrderSide::NONE)
+                    {
                         emit_from(s, *sig);
+                    }
 
                     // 다건 발주 경로 (MM 등) — 취소/정정 포함. 기본 no-op.
                     // CANCEL/REPLACE는 side가 NONE이어도 통과(생명주기 액션은 NONE 가드 우회).
                     batch_buf.clear();
                     s->on_order_book_batch(*opt, batch_buf);
+
                     for (auto& b : batch_buf)
+                    {
                         if (b.action != OrderAction::NEW || b.side != OrderSide::NONE)
+                        {
                             emit_from(s, b);
+                        }
+                    }
                 }
+
                 did_work = true;
             }
 
@@ -1378,17 +1730,26 @@ void Engine::strategy_thread_fn()
                 for (auto* s : snap)
                 {
                     auto sig = s->on_trade(*opt);
+
                     if (sig && sig->side != OrderSide::NONE)
+                    {
                         emit_from(s, *sig);
+                    }
 
                     // 다건 발주 경로 (이격도 분할매매 등) — 체결틱/현재가 하트비트 구동.
                     // CANCEL/REPLACE는 side가 NONE이어도 통과(생명주기 액션은 NONE 가드 우회).
                     batch_buf.clear();
                     s->on_trade_batch(*opt, batch_buf);
+
                     for (auto& b : batch_buf)
+                    {
                         if (b.action != OrderAction::NEW || b.side != OrderSide::NONE)
+                        {
                             emit_from(s, b);
+                        }
+                    }
                 }
+
                 did_work = true;
             }
 
@@ -1398,9 +1759,13 @@ void Engine::strategy_thread_fn()
                 for (auto* s : snap)
                 {
                     auto sig = s->on_data(*opt);
+
                     if (sig && sig->side != OrderSide::NONE)
+                    {
                         emit_from(s, *sig);
+                    }
                 }
+
                 did_work = true;
             }
         }
@@ -1410,8 +1775,11 @@ void Engine::strategy_thread_fn()
         }
 
         if (!did_work)
+        {
             std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
     }
+
     LOG_INFO("[StrategyThread] 종료");
 }
 
@@ -1440,6 +1808,7 @@ void Engine::order_thread_fn()
         int attempts = 0;
         bool have = false;
         auto now = steady_clock::now();
+
         if (!retry_q.empty() && now >= retry_q.front().not_before)
         {
             sig = retry_q.front().sig;
@@ -1461,13 +1830,17 @@ void Engine::order_thread_fn()
 
         // 호출 간격 조절 — 직전 발주 후 min_interval 경과 보장(초당한도 하회로 EGW00201 회피)
         now = steady_clock::now();
+
         if (now - last_submit < min_interval)
+        {
             std::this_thread::sleep_for(min_interval - (now - last_submit));
+        }
 
         try
         {
             auto mo = order_router_->submit(sig);
             last_submit = steady_clock::now();
+
             if (mo.status == OrderStatus::ACCEPTED)
             {
                 ++order_count_;
@@ -1507,6 +1880,7 @@ void Engine::order_thread_fn()
             LOG_ERROR("[OrderThread] 예외: " + std::string(e.what()));
         }
     }
+
     LOG_INFO("[OrderThread] 종료");
 }
 
@@ -1528,9 +1902,15 @@ static struct tm utc_plus_hours(int offset_h)
 bool Engine::daily_bars_needed()
 {
     std::lock_guard<std::mutex> lk(strat_mutex_);
+
     for (const auto& s : strategies_)
+    {
         if (s && s->is_active() && s->wants_daily_bars())
+        {
             return true;
+        }
+    }
+
     return false;
 }
 
@@ -1538,8 +1918,12 @@ bool Engine::is_kr_market_open() const
 {
     // KST = UTC+9, gmtime + 9h offset으로 머신 TZ 무관하게 계산
     auto kst = utc_plus_hours(9);
+
     if (kst.tm_wday == 0 || kst.tm_wday == 6)
+    {
         return false;
+    }
+
     int m = kst.tm_hour * 60 + kst.tm_min;
     return m >= 540 && m < 930; // 09:00~15:30 KST
 }
@@ -1548,8 +1932,12 @@ bool Engine::is_kr_market_open() const
 bool Engine::is_us_market_open() const
 {
     auto kst = utc_plus_hours(9);
+
     if (kst.tm_wday == 0 || kst.tm_wday == 6)
+    {
         return false;
+    }
+
     int m = kst.tm_hour * 60 + kst.tm_min;
     // 미국 정규장(KST 22:30~익일 05:00): 하루 분(min) 기준으로 당일 1350~1439분 또는
     //  익일 0~299분(05:00 직전까지). 하루는 최대 1439분이라 1500분은 존재하지 않는다.
@@ -1577,12 +1965,16 @@ void Engine::print_stats() const
 bool Engine::activate_rest_fallback(const std::string& reason)
 {
     if (rest_price_feed_)
+    {
         return true; // 처음부터 폴링 — 낮출 것이 없다
+    }
 
     // 폴링이 쓸 시세 소스. 모의 도메인은 시세 REST가 HTTP 500이라 실전 시세 클라이언트가
     //  없고 주문계좌마저 모의면 낮춰봐야 틱이 안 나온다. 그때는 거짓 안심을 주지 않는다.
     if (!quote_kis_ && kis_cfg_.is_paper)
+    {
         return false;
+    }
 
     if (!rest_fallback_engaged_)
     {
@@ -1591,13 +1983,17 @@ bool Engine::activate_rest_fallback(const std::string& reason)
         LOG_ERROR("[Feed] WS → REST 폴링 폴백 (" + reason + ") — 틱 주기가 " +
                   std::to_string(fetch_interval_sec_) + "초로 떨어집니다. WS 복귀 시 자동 원복");
     }
+
     return true;
 }
 
 void Engine::deactivate_rest_fallback()
 {
     if (!rest_fallback_engaged_)
+    {
         return;
+    }
+
     rest_fallback_engaged_ = false;
     rest_feed_active_.store(rest_price_feed_, std::memory_order_relaxed);
     LOG_INFO("[Feed] WS 수신 정상 — REST 폴링 폴백 해제, 실시간 피드로 복귀");
@@ -1617,11 +2013,15 @@ void Engine::control_thread_fn()
         std::this_thread::sleep_for(std::chrono::seconds(kCheckIntervalSec));
 
         if (!ws_)
+        {
             continue;
+        }
 
         // 장 외 시간에는 stale이 정상 — 장 중에만 체크
         if (!is_any_market_open())
+        {
             continue;
+        }
 
         if (!ws_->is_stale(kStaleThresholdSec))
         {
@@ -1632,7 +2032,9 @@ void Engine::control_thread_fn()
 
         // 재연결 백오프: 실패가 누적될수록 재시도 간격을 늘려 KIS 측 연결한도 소진/스팸 방지
         if (std::chrono::steady_clock::now() < next_try)
+        {
             continue;
+        }
 
         LOG_WARN("[Control] WebSocket " + std::to_string(kStaleThresholdSec) +
                  "초 이상 시세 미수신 — 재연결 시도");
@@ -1642,6 +2044,7 @@ void Engine::control_thread_fn()
             std::lock_guard<std::mutex> wl(watch_specs_mtx_); // data_thread의 재스캔 push_back과 겹친다
             specs_copy = watch_specs_;
         }
+
         if (ws_->connect(specs_copy))
         {
             LOG_INFO("[Control] WebSocket 재연결 성공");
@@ -1654,6 +2057,7 @@ void Engine::control_thread_fn()
             next_try = std::chrono::steady_clock::now() + std::chrono::seconds(backoff);
             LOG_ERROR("[Control] WebSocket 재연결 실패(" + std::to_string(fail_streak) +
                       "회) — " + std::to_string(backoff) + "초 후 재시도");
+
             // 반복 실패 시에만 대응한다(1회 실패로 즉시 조치하면 순간 장애에도 흔들린다).
             //  먼저 REST 폴링으로 낮춰 매매를 이어가고, 그것마저 불가할 때 kill switch로 멈춘다.
             //  예전에는 곧장 kill switch였다 — 시세 경로가 하나 죽었다고 매매 전체를 세울 이유는 없다.
