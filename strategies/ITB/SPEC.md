@@ -16,13 +16,13 @@
 ### C-1 (치명): rest_price_feed 모드에서 원장이 死
 - 근거: `Engine.cpp:143` — `if (!rest_price_feed_ && !watch_specs_.empty())` 안에서만 WS 연결 + `set_fill_callback`. rest 모드면 **체결콜백 미등록** → `OrderRouter::on_fill` 영원히 미호출.
 - 결과: `daily_pnl_` 0 고정(`OrderGate.cpp:76` 손실컷 절대 미발동), `positions_`/`avg_prices_`/`reserved_` 갱신 안 됨.
-- 수정: rest 모드에서 **주기적 잔고 재조회(`get_balance`)로 원장 리컨사일** — `positions_`/`avg_prices_` 재동기 + 일중 평가금 델타로 daily-loss 근사. (완전한 fill 이벤트 합성은 후순위, 우선 리컨사일)
+- 수정: rest 모드에서 **주기적 잔고 재조회(`get_balance`)로 원장 잔고 대조** — `positions_`/`avg_prices_` 재동기 + 일중 평가금 델타로 daily-loss 근사. (완전한 fill 이벤트 합성은 후순위, 우선 잔고 대조)
 
 ### C-2 (치명): 청산 SELL이 튕기면 영구 방치
 - 근거: `IntradayBreakoutStrategy.h:117-124` — 스탑 히트 시 SELL 신호 반환 **전에** `in_position_=false; hold_qty_=0`. 거부되면 `OrderRouter::new_route`가 REJECTED 후 drop(재큐잉 없음, `OrderRouter.cpp:118-128`). C++엔 EGW00201 재시도 없음(Python `forward_trader.py`에만 존재).
 - 결과: 오늘 006800·042700이 초당한도로 튕겼고 그 종목은 손절 실패한 채 관리 이탈.
 - 수정:
-  1. **order_thread 페이싱**(`Engine.cpp:427-444`) — 주문 간 최소 간격 250ms(=4/s, 게이트 5/s 아래). 버스트 자체를 없앰.
+  1. **order_thread 호출 간격 조절**(`Engine.cpp:427-444`) — 주문 간 최소 간격 250ms(=4/s, 게이트 5/s 아래). 버스트 자체를 없앰.
   2. **거부된 청산 SELL 재무장** — 전략이 SELL 접수 확인 전까지 `in_position_` 유지하거나, OrderRouter가 rate-limit 거부 SELL을 재큐잉.
 
 ### C-3: 손익 기반 자동 킬스위치 없음
@@ -99,11 +99,11 @@
 ---
 
 ## §6. 구현 체크리스트 (파일 지점)
-- [ ] C-1: `Engine.cpp` rest 모드 잔고 리컨사일 훅
-- [ ] C-2: `Engine.cpp:427` order_thread 페이싱 + 거부 SELL 재무장
+- [ ] C-1: `Engine.cpp` rest 모드 잔고 대조 훅
+- [x] C-2: 전략 측 `exit_pending_` — 청산 신호 뒤 상태를 지우지 않고 `confirmed_position()`이 0이 될 때까지 백오프(2s→60s, 20회 상한) 재발주 (`IntradayBreakoutStrategy.h`)
 - [ ] C-3: 손익 킬스위치 (Engine 손익 모니터 → `set_kill_switch`)
 - [ ] volume-rank: `KisClient.h/.cpp` `fetch_value_ranking(FHPST01710000, FID_BLNG_CLS_CODE=3)`, RankingStock에 `trade_value` 추가
-- [ ] 스캔 분기: `main.cpp:~947` `universe_from_scan` 신설(필터→수급→레짐→등록 start_in_position=false, 150~200ms 페이싱)
+- [ ] 스캔 분기: `main.cpp:~947` `universe_from_scan` 신설(필터→수급→레짐→등록 start_in_position=false, 150~200ms 호출 간격 조절)
 - [ ] 전략: `IntradayBreakoutStrategy.h` day_open 앵커 주입, seed_trail_pct/exit_near_avg_pct 분기, no_new_entry_hhmm 분리, 명목→수량
 - [ ] risk 블록: `main.cpp` `"risk"` 파서 → `OrderGate::Config` 주입
 - [ ] `config_itb_paper.json` v2 파라미터 반영 + 빌드
