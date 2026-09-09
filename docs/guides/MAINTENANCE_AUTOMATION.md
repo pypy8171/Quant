@@ -6,7 +6,7 @@
 
 | 원인 | 사례 | 건수 비중 |
 |---|---|---|
-| 줄번호 앵커 | `main.cpp:184`, `Engine.cpp:349` — 편집 한 번에 전부 어긋남. 282건 전부 문서에 있고 227건이 `PIPELINE_A_to_Z.md` 한 곳 | 절반 이상 | <!-- drift-check: ok -->
+| 줄번호 참조 | `main.cpp:184`, `Engine.cpp:349` — 편집 한 번에 전부 어긋남. 282건 전부 문서에 있고 227건이 `PIPELINE_A_to_Z.md` 한 곳 | 절반 이상 | <!-- drift-check: ok -->
 | 손으로 센 개수 | 검사 11개→18, 커맨드 8→13, 에이전트 18→19, 훅 3→7, 테스트 5→11, 전략 13→16 | 다수 |
 | 손으로 그린 트리 | PROJECT_GUIDE 디렉터리 트리에 `modes/`·`universe/`·전략 8종 누락 | 소수·규모 큼 |
 | 생성기 미배선 | `gen_code_graph.py`는 사람이 기억해야 돌았다 | 1 |
@@ -24,8 +24,8 @@
    생성값은 백틱으로 감싸 평이화 스크럽에서 제외한다. `CLAUDE.md`에는 생성 블록을 두지 않는다(하네스 정본은 손으로 유지).
 2. **줄번호가 아니라 심볼로 가리킨다.** 문서와 주석은 `Engine.cpp::control_thread_fn`처럼 파일과 심볼을 쓴다.
    검사기는 경로가 존재하는지(없으면 실패), 심볼이 그 파일 또는 짝 파일(`X.h`↔`X.cpp`)에 있는지(없으면 경고만) grep으로 확인한다.
-   `파일:숫자` 형태의 새 앵커는 게이트에서 막되, 스냅샷 문서와 코드 펜스 안은 제외한다.
-   앵커를 나쁜 예시로 인용해야 하는 줄은 줄 끝에 `<!-- drift-check: ok -->`를 달아 그 줄만 뺀다.
+   `파일:숫자` 형태의 새 줄번호 참조는 게이트에서 막되, 스냅샷 문서와 코드 펜스 안은 제외한다.
+   줄번호를 나쁜 예시로 인용해야 하는 줄은 줄 끝에 `<!-- drift-check: ok -->`를 달아 그 줄만 뺀다.
 3. **주석은 왜·불변식·함정만 남긴다.** 무엇을 하는지는 코드가, 경위는 `docs/DECISIONS.md`의 D-NNN이 말한다.
    목록·개수를 주석에 적지 않고 정본 위치를 가리킨다. 규약은 이 문서 §4가 정본이다.
 4. **검사는 비용에 맞는 자리에 둔다.** 편집 훅은 밀리초, 커밋 게이트는 초, 장 마감 예약은 분, 주간은 제한 없음.
@@ -55,7 +55,7 @@
 |---|---|---|
 | `scripts/gen_facts.py` | 저장소를 세어 `docs/facts.json`을 만들고 표식 블록을 블록 범위로 치환한다. 항목: C++ 전략·전략 로더·Python 전략, OrderGate 거부 지점(`reject_reason =` 개수), 빌드 타깃·ctest 배선 여부, 커맨드·에이전트·스킬·훅(settings.json)·config 파일, 디렉터리 트리, config 키, 80줄 초과 함수. `_private/`·`logs/`·`out/`·`build_*/`는 제외하고 경로는 저장소 상대로만 찍는다 | PROJECT_FACTS.md, HARNESS.md, PROJECT_GUIDE.md, GLOSSARY.md, README.md, CODE_GRAPH_GUIDE.md |
 | `scripts/gen_code_graph.py` | C++ include 그래프(현행) + Python import 그래프 + 프로세스 경계 파일(regime.json·prices_live.json·trades_*.csv) | CODE_GRAPH.md, code_graph.json |
-| `scripts/check_code_refs.py` | 문서의 경로·`파일::심볼` 실재 검사, `파일:숫자` 앵커 신규 금지. 심볼 매칭은 `\b심볼\b`만 보고 시그니처·오버로드는 보지 않는다. `auto 이름 = [`(람다)·`#define 이름`도 정의로 인정 | docs-gate |
+| `scripts/check_code_refs.py` | 문서의 경로·`파일::심볼` 실재 검사, `파일:숫자` 줄번호 참조 신규 금지. 심볼 매칭은 `\b심볼\b`만 보고 시그니처·오버로드는 보지 않는다. `auto 이름 = [`(람다)·`#define 이름`도 정의로 인정 | docs-gate |
 | `scripts/check_plain_language.py` | 기존 + 코드 모드에서 `re.*(` 인자·dict 키·비교식 우변·키워드 인자 값 보호, `--fix`는 보호 줄을 건너뛰고 경고 | lexicon-gate, committer(승인 후) |
 | `scripts/log_patterns.py` | C++ 로그 문구 정규식의 단일 소유자. 구·신 문구 양쪽 허용 | eod_autodoc, eod_collect, notify_sidecar, summarize_trading_day, check_runtime_health |
 | `scripts/_logdir.py` | 로그·원장 폴더 해석 한 곳(`QUANT_LOG_DIR` 최우선, 원장은 행 수 최대 → 동률 mtime) | eod_autodoc, summarize, dashboard_server, parse_quant_log, analyze_slot_cost |
@@ -88,8 +88,8 @@
 ## 5. 에이전트 쪽 요구
 
 - 모든 에이전트는 개수·경로를 `docs/facts.json`이나 `PROJECT_FACTS.md`의 생성 블록에서 읽는다. 스스로 세지 않고 프롬프트에 박지 않는다.
-  현재 거부 지점 수를 프롬프트에 복제한 곳(backtest-runner·planner·reviewer·log-reader·harness-engineer)은 앵커 참조로 바꾼다.
-- 문서를 쓰는 에이전트(arch-doc·prep-doc·review-recorder·eod 계열)는 줄번호 앵커를 쓰지 않는다.
+  현재 거부 지점 수를 프롬프트에 복제한 곳(backtest-runner·planner·reviewer·log-reader·harness-engineer)은 정본 참조로 바꾼다.
+- 문서를 쓰는 에이전트(arch-doc·prep-doc·review-recorder·eod 계열)는 줄번호 참조를 쓰지 않는다.
 - committer는 커밋 전 `maintain.py --check`를 부른다(check_docs를 포함하므로 호출 하나로 대체). 스크럽 `--fix`는 자동으로 돌리지 않는다.
 - 테스트를 실행하는 에이전트(reviewer·dev-loop)는 반드시 임시 폴더에서 실행한다. 로거는 `QUANT_LOG_DIR` 미설정 시
   실행파일 기준 폴더에 쓰도록 바꿔 cwd 사고를 차단한다.
@@ -107,7 +107,7 @@
 
 0. 자본이 걸린 결함부터(리뷰 리포트 §치명): OrderGate 미등록 종목 손익, DevScale 시장가 매도 `ref_price` 누락, ITB 미연결 포지션, WS 다중 레코드.
 1. 스크럽 파괴 복구와 보호(원칙 5) — 지금 깨져 있다. `log_patterns.py` 신설.
-2. `_logdir.py`와 로거 앵커 — 원장 오염 경로 차단.
+2. `_logdir.py`와 로거 경로 고정 — 원장 오염 경로 차단.
 3. `check_code_refs.py` + docs-gate 분기(shadow 1주). 이 문서 자신이 첫 검사 대상이다.
 4. `gen_facts.py` + 표식 블록 6개 문서 — 개수 드리프트 종결. 에이전트 프롬프트의 복제 수치 제거.
 5. `gen_code_graph.py` Python 확장 + `maintain.py --daily` 16:05 배선(`eod_autodoc` 뒤).

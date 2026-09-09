@@ -16,7 +16,7 @@
 | 약어 / 코드명 | 풀네임 | 정의 | 어원·주의 | 대표 위치 |
 |---|---|---|---|---|
 | **DevScale** / `DEVIATION_SCALE` | DeviationScaleStrategy | 일봉 정배열(SMA5>10>20>60)+눌림 존 게이트 안에서 3분봉 **이격도** 사다리로 지정가 분할매매 | dev = **deviation(이격도)**, development 아님. 시장가가 아니라 "기다리는" 지정가 예약 | `Quant/include/strategy/DeviationScaleStrategy.h:14` |
-| **ITB** | IntradayBreakout (v2) | 1분 버킷 채널 돌파 + 당일 시가앵커 기반 장중 자동매매 | 클래스명 `IntradayBreakoutStrategy`, `id()="ITB_"`. 세 글자 확장(In**t**raday **B**reakout)은 관례. 한글 이름은 **장중돌파**. 로그·메모에 보이는 `1TB`는 같은 것을 잘못 적은 것이다(대문자 I를 숫자 1로 읽음). 용량 단위 TB와 무관. 분봉 시점정합 재현 불가 → forward 실증만 | `Quant/include/strategy/IntradayBreakoutStrategy.h:11`, `strategies/README.md` |
+| **ITB** | IntradayBreakout (v2) | 1분 버킷 채널 돌파 + 당일 시가 기준점 기반 장중 자동매매 | 클래스명 `IntradayBreakoutStrategy`, `id()="ITB_"`. 세 글자 확장(In**t**raday **B**reakout)은 관례. 한글 이름은 **장중돌파**. 로그·메모에 보이는 `1TB`는 같은 것을 잘못 적은 것이다(대문자 I를 숫자 1로 읽음). 용량 단위 TB와 무관. 분봉 시점정합 재현 불가 → forward 실증만 | `Quant/include/strategy/IntradayBreakoutStrategy.h::IntradayBreakoutStrategy`, `strategies/README.md` |
 | **MM** / MM-1 | MarketMakingStrategy | mid±half_spread_ticks 양방향 지정가를 걸고 시장이 움직이면 취소·재호가하는 미니 시장조성기 | MM = Market Making. CANCEL+NEW 방식(REPLACE 미사용), 재고 미인지(Phase 1) | `Quant/include/strategy/MarketMakingStrategy.h:10` |
 | **Momentum** | MomentumStrategy | N일 고점 돌파 매수 / N일 저점 이탈 청산 | 돈치안 채널 브레이크아웃(Donchian) | `Quant/include/strategy/MomentumStrategy.h:7` |
 | **SDP** | SupplyDemandPullbackStrategy | 외인·기관 쌍끌이 수급 선별 + 5일선 눌림목 진입(EOD 스윙 / INTRADAY 두 모드) | "쌍끌이" = 외인>0 AND 기관>0. look-ahead 방지로 당일 확정치 제외 | `Quant/include/strategy/SupplyDemandPullbackStrategy.h:18` |
@@ -121,7 +121,7 @@
 |---|---|---|---|
 | **Sharpe** | Sharpe ratio | 총변동 대비 위험조정수익 | 채택 게이트 지표 |
 | **Sortino** | Sortino ratio | 하방변동만 벌점한 위험조정수익 | — |
-| **MDD** | Max Drawdown | 최대 낙폭 | 채택 게이트의 1차 앵커 |
+| **MDD** | Max Drawdown | 최대 낙폭 | 채택 게이트의 1차 기준 |
 | **PF** | Profit Factor | 총이익 ÷ 총손실 | — |
 | **slippage** | 슬리피지 | 체결가와 기대가의 괴리(비용 가정) | 백테스트 비용모델 |
 | **OOS** | Out-Of-Sample | 표본외 검증 구간 | — |

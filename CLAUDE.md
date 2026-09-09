@@ -55,7 +55,7 @@ Linux는 `libcurl4-openssl-dev`가 필요합니다 (`sudo apt install libcurl4-o
 - `RingBuffer<T>`는 명시적 메모리 순서를 가진 `std::atomic`을 사용하는 SPSC(단일 생산자/단일 소비자) 락-프리 큐입니다.
 - 데이터 스레드는 `fetch_interval_sec`초마다 KIS REST를 폴링하며, 장 외 시간에는 건너뜁니다.
 - 전략 스레드는 등록된 전략 전체를 순회하며, `NONE`이 아닌 신호는 주문 큐에 push합니다.
-- 제어 스레드(`control_thread_fn`)는 파이프라인 밖에서 잔고 리컨사일·손익(daily_pnl) 갱신 상태 감시 등 주기 운영 작업을 담당합니다(갱신이 끊기면 OrderGate 보수정지 토글).
+- 제어 스레드(`control_thread_fn`)는 파이프라인 밖에서 잔고 대조·손익(daily_pnl) 갱신 상태 감시 등 주기 운영 작업을 담당합니다(갱신이 끊기면 OrderGate 보수정지 토글).
 
 ### 핵심 타입 (`Quant/include/core/Types.h`)
 
@@ -88,7 +88,7 @@ FEED 모드에서 사용합니다. REST로 approval key를 발급받고, `ops.ko
 
 싱글톤 `Logger`가 밀리초 단위 UTC 타임스탬프로 콘솔과 `logs/quant_trader.log`(cwd 하위 `logs/` 폴더에 고정, 부모 폴더는 자동 생성)에 기록합니다. 과거 로그는 `logs/archive/`에 보관합니다. 사용 매크로: `LOG_INFO()`, `LOG_WARN()`, `LOG_ERROR()`, `LOG_DEBUG()`.
 
-**비동기 구조**: 전략·주문 hot path는 레코드를 큐에 push만 하고 즉시 반환하며, 타임스탬프 포맷팅과 파일/콘솔 I/O는 전용 writer 스레드가 담당합니다(저지연은 평균 지연보다 최악 지연(tail latency)이 중요하다는 설계 의도로 디스크 플러시를 hot path에서 분리). 백프레셔: 큐가 상한(`kMaxQueue`)을 넘으면 가장 오래된 레코드를 드롭하고 드롭 수를 셉니다(운영 중 무한 증가·블로킹 방지). 종료·테스트 직전 정합 확인용 `flush()`를 제공합니다.
+**비동기 구조**: 전략·주문 hot path는 레코드를 큐에 push만 하고 즉시 반환하며, 타임스탬프 포맷팅과 파일/콘솔 I/O는 전용 writer 스레드가 담당합니다(저지연은 평균 지연보다 최악 지연(tail latency)이 중요하다는 설계 의도로 디스크 플러시를 hot path에서 분리). 밀림 처리: 큐가 상한(`kMaxQueue`)을 넘으면 가장 오래된 레코드를 드롭하고 드롭 수를 셉니다(운영 중 무한 증가·블로킹 방지). 종료·테스트 직전 정합 확인용 `flush()`를 제공합니다.
 
 ### 문서 동기화 (드리프트 방지)
 
@@ -97,6 +97,16 @@ FEED 모드에서 사용합니다. REST로 approval key를 발급받고, `ops.ko
 ```bash
 python scripts/check_docs.py   # exit 0 = 통과, 1 = 드리프트
 ```
+
+### 파일 지칭 규약 (전체 경로)
+
+`README.md`·`config.json`·`main.cpp`처럼 저장소에 같은 이름이 여럿인 파일이 많다. 파일을 지칭할 때는
+**저장소 루트 기준 전체 경로**를 쓴다. 대화 응답·문서·커밋 메시지 전부 해당한다.
+
+- 쓴다: `research/studies/12_base_breakout/README.md`, `Quant/config/universe_scan.json`
+- 쓰지 않는다: "README", "config 파일", "그 스터디 리드미"
+
+산출물(csv·parquet·로그)도 같다. 폴더만 말하고 파일명을 생략하지 않는다.
 
 ### 링크 허브 자동 갱신
 
@@ -170,7 +180,7 @@ py scripts/check_code_conventions.py --comment-only  # 주석 전용 커밋인�
 | 재기동 직후 확인 | 잔고 재시드 수량·평단, `OrderRouter (FEP) 초기화 완료`, 체결통보 매칭 1건 |
 
 재기동은 미체결 예약주문에 대한 라우터 기억(`history_`)을 지운다. 그 주문이 나중에 체결되면
-ODNO 미매핑 체결로 들어오는데, 지금은 고아 체결 경로가 원장·포지션에 반영한다(`OrderRouter::on_fill`).
+ODNO 미매핑 체결로 들어오는데, 지금은 미연결 체결 경로가 원장·포지션에 반영한다(`OrderRouter::on_fill`).
 잔고 재시드가 실제 보유수량을 다시 읽으므로 재기동 자체가 정합을 복구하는 방향이다.
 
 예외 — 이건 그대로 물어본다: config의 리스크 한도·계좌 전환(모의↔실계좌), 보유분 강제청산,

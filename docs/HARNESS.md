@@ -21,7 +21,18 @@
 
 ### ② 스킬/커맨드 — 도구
 
-`.claude/commands/` 아래 8개다: `/build` · `/dev-loop` · `/verify-backtest` · `/review-bundle` · `/review-apply` · `/strategy-debate` · `/trade-log` · `/daily`. 자연어나 슬래시로 호출하면 정해진 절차가 로드된다.
+`.claude/commands/`와 `.claude/skills/` 아래에 있다. 자연어나 슬래시로 호출하면 정해진 절차가 로드된다.
+개수와 목록은 `py scripts/gen_facts.py --apply`가 아래 표를 채운다.
+
+<!-- gen:harness-counts -->
+| 항목 | 개수 | 이름 |
+|---|---|---|
+| 커맨드 | `14` | `auto-trade-day`, `build`, `comment-diet`, `daily`, `dashboard-sync`, `dev-loop`, `eod-review`, `intraday-start`, `review-apply`, `review-bundle`, `strategy-debate`, `trade-log`, `verify-backtest`, `watch` |
+| 에이전트 | `19` | `arch-doc`, `backtest-runner`, `bias-auditor`, `claude-coach`, `committer`, `data-sourcer`, `harness-engineer`, `interviewer`, `intraday-analyst`, `log-reader`, `market-brief`, `perf-optimizer`, `planner`, `pm`, `prep-doc`, `quant-analyst`, `review-recorder`, `reviewer`, `strategist` |
+| 스킬 | `1` | `stock-study` |
+| 훅 파일 | `8` | `cron-gate.ps1`, `dashboard-refresh.ps1`, `docs-gate.ps1`, `eod-gate.ps1`, `lexicon-gate.ps1`, `output-gate.ps1`, `review-reminder.ps1`, `secret-gate.ps1` |
+| settings.json 훅 배선 | `8` | `PreToolUse:secret-gate.ps1`, `PreToolUse:docs-gate.ps1`, `PreToolUse:lexicon-gate.ps1`, `Stop:output-gate.ps1`, `Stop:review-reminder.ps1`, `Stop:dashboard-refresh.ps1`, `SessionStart:eod-gate.ps1`, `SessionStart:cron-gate.ps1` |
+<!-- /gen -->
 
 효과: 반복 절차의 재작성·재승인이 사라진다. `/build`는 `settings.local.json`에 15개 넘게 쌓여 있던 vcvars64+cmake 변형을 하나의 절차로 고정했다(한글 임시폴더 경로로 인한 링커 오류 `LNK1104` 회피 포함).
 
@@ -33,7 +44,7 @@ Notion 커넥터가 연결돼 있다. 개발로그와 장전 시황 브리핑을
 
 ### ④ 서브에이전트 — 분업
 
-18개다. 자연어 위임으로 전문 롤이 격리된 컨텍스트에서 실행되고 결론만 메인으로 돌아온다(파일 덤프가 메인 컨텍스트에 쌓이지 않아 토큰이 절약된다).
+자연어 위임으로 전문 롤이 격리된 컨텍스트에서 실행되고 결론만 메인으로 돌아온다(파일 덤프가 메인 컨텍스트에 쌓이지 않아 토큰이 절약된다).
 
 설계의 핵심은 "단일 답을 의심하는 구조"다. 에이전트 수를 늘리는 것이 목적이 아니라 서로 의심하게 만들어 여러 명을 한 명의 시니어처럼 굴린다. 백테스트 파이프라인이 대표적이다.
 
@@ -51,11 +62,26 @@ Notion 커넥터가 연결돼 있다. 개발로그와 장전 시황 브리핑을
 
 사람 판단에 의존하면 언젠가 새는 것을 코드로 막는 층이다. 모두 fail-open이다(파싱 실패·에러 시 exit 0으로 정상 워크플로우를 깨지 않는다).
 
-| 훅 | 이벤트 | 동작 |
+배선은 아래 표가 `.claude/settings.json`에서 그대로 뽑는다.
+
+<!-- gen:hooks -->
+| 이벤트 | matcher | 훅 파일 |
 |---|---|---|
-| `secret-gate.ps1` | PreToolUse | `git commit`/`push`를 가로채 스테이징 diff에서 실거래 키·계좌번호·개인정보 패턴을 스캔, 발견 시 exit 2로 차단 |
-| `docs-gate.ps1` | PreToolUse | 커밋에 `.md`가 포함되면 `scripts/check_docs.py`를 실행, 드리프트(exit 1)면 exit 2로 차단 |
-| `review-reminder.ps1` | Stop | `.cpp`/`.h`/`.py` 수정 시 매 응답 후 리뷰 권고 출력 |
+| `PreToolUse` | `Bash|PowerShell` | `secret-gate.ps1` |
+| `PreToolUse` | `Bash|PowerShell` | `docs-gate.ps1` |
+| `PreToolUse` | `Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell` | `lexicon-gate.ps1` |
+| `Stop` | `(전체)` | `output-gate.ps1` |
+| `Stop` | `(전체)` | `review-reminder.ps1` |
+| `Stop` | `(전체)` | `dashboard-refresh.ps1` |
+| `SessionStart` | `(전체)` | `eod-gate.ps1` |
+| `SessionStart` | `(전체)` | `cron-gate.ps1` |
+<!-- /gen -->
+
+하는 일은 이렇다. `secret-gate.ps1`은 `git commit`/`push`를 가로채 스테이징 diff에서 실거래 키·계좌번호·개인정보
+패턴을 스캔해 발견 시 차단한다. `docs-gate.ps1`은 커밋에 `.md`가 있으면 `scripts/check_docs.py`를 돌려
+드리프트면 차단한다. `lexicon-gate.ps1`은 쓰려는 본문을 `scripts/check_plain_language.py`로 검사한다.
+`output-gate.ps1`·`review-reminder.ps1`·`dashboard-refresh.ps1`은 응답 뒤, `eod-gate.ps1`·`cron-gate.ps1`은
+세션 시작 때 각각 점검 결과를 알린다.
 
 효과: 실거래 키 유출과 문서 드리프트가 사람의 주의력이 아니라 기계적으로 차단된다. 실거래 키가 저장소에 있는 1인 운영 환경에서 이 층의 가치가 크다. 배선은 `.claude/settings.json`의 `hooks`에 있다.
 
@@ -71,7 +97,7 @@ Notion 커넥터가 연결돼 있다. 개발로그와 장전 시황 브리핑을
 
 백테스트 결과를 결론으로 승격하기 전 재현성 게이트, 편향감사와 성과판정, 종합판결의 파이프라인을 강제한다. ④의 4-에이전트 분업이 여기서 돈다. 과최적화·미래정보·표본부족이 감사를 통과해야만 결론이 살아남는다(유죄 추정, 반증 책임은 백테스트에).
 
-### C. 런타임 자동화 루프 — regime.json 파일브리지
+### C. 런타임 자동화 루프 — regime.json 파일 전달
 
 사이드카 `PYQuant/tools/macro_regime_feed.py`가 매크로 국면을 판정해 `regime.json`을 주기 갱신하면, C++ 엔진이 이를 폴링해 `OrderGate::set_entry_halt`를 토글한다. 신규매수만 차단하고 청산은 통과시킨다. 프로세스 간 결합을 파일 하나로 느슨하게 유지하면서 급락 국면에서 신규 진입을 자동 차단한다. 파일이 오래되면(`regime_stale_sec` 초과) stale로 간주해 안전측으로 진입을 막는다.
 
@@ -92,7 +118,7 @@ Notion 커넥터가 연결돼 있다. 개발로그와 장전 시황 브리핑을
 | secret-gate / docs-gate 훅 | 실거래 키 유출·문서 드리프트 차단(운영 안정) | 사람 판단에 의존하지 않는 결정론적 백스톱 설계 |
 | dev-loop / verify-backtest | 검증 안 된 코드·엣지가 라이브로 못 감 | 테스트 게이트 없으면 루프 거부하는 규율 |
 | 4-에이전트 분업 | 낙관적 백테스트 결론을 걸러냄 | 단일 답을 의심하는 구조 |
-| regime.json 브리지 | 급락장 신규진입 자동 차단 | 락-프리 파이프라인과 파일브리지 프로세스 간 통신(IPC) |
+| regime.json 브리지 | 급락장 신규진입 자동 차단 | 락-프리 파이프라인과 파일 전달 프로세스 간 통신(IPC) |
 | 토큰 이코노미 표 | 개발 효율 | — |
 
 초점은 AI 성능 향상이 아니라, 실수·과신·유출을 줄이고 반복 작업을 자동화하는 데 있다. 실거래 키가 저장소에 있고 1인이 운영하므로, 게이트와 검증 루프의 값이 특히 크다.

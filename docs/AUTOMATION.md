@@ -17,6 +17,8 @@
 | `Quant EOD AutoDoc` | 평일 16:05 | `python scripts/eod_autodoc.py` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` · **결정 원장 파생 문서**(`sync_ledgers.py`) |
 | `claude_stock_study` | 평일 20:00 | `claude -p "/stock-study auto"` | `_private/주식_study/{날짜}_재무/` 7종목 · 저널 · 스터디 사이트 |
 | `claude_dashboard_sync` | 평일 20:40 | `claude -p "/dashboard-sync"` | 매매·스터디 아티팩트 재발행(같은 URL) |
+| `Quant Maintain Daily` | 평일 16:20 | `python scripts/maintain.py --daily` | `EOD AutoDoc`(16:05) 뒤. 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers`. 대시보드는 부르지 않는다 |
+| `Quant Maintain Weekly` | 금요일 20:50 | `python scripts/maintain.py --weekly` | `claude_dashboard_sync`(20:40) 뒤. 미참조 스크립트 · 에이전트 죽은 경로 · 부산물 용량 · 주석 밀도 · 훅 배선 양방향 검사 → `docs/reports/MAINTENANCE_WEEKLY.md` |
 
 확인·수정:
 
@@ -210,6 +212,12 @@ scripts/eod_autodoc.py
 | `scripts/refresh_dashboard.py` | 위 재생성 순서(라이브 백필·리뷰 항목·생성기)를 소유한다. `--if-stale`은 원천 파일이 산출물보다 새것일 때만 돈다. `eod_autodoc.py`와 Stop 훅이 모두 이 스크립트를 부르므로 절차가 한쪽만 고쳐져 갈라지지 않는다. 실행 기록은 `logs/refresh_dashboard.log` |
 | `scripts/check_docs.py` | 깨진 내부 링크·색인 누락 검사. exit 0이어야 문서 커밋 |
 | `scripts/check_code_conventions.py` | 스테이징된 코드 변경의 규약 검사 — 중괄호(`brace_style.py --check`), 없는 D-NNN 참조, 규약에 없는 주석 태그, 주석·코드 줄 성격 집계. `--comment-only`는 코드 줄이 섞였는지 본다. 밀도는 보지 않는다(정본 `docs/guides/MAINTENANCE_AUTOMATION.md` 4절이 밀도를 게이트로 걸지 말라고 정해 두었다) |
+| `scripts/maintain.py` | 위 검사기를 한 번에 돌리는 진입점. `--check`는 `check_docs` → `check_code_refs --diff-only` → `gen_facts --check` → `gen_code_graph --check` 순으로 묶어 표로 요약한다. `--weekly`는 파일별 주석 밀도와 태그 없는 긴 블록을 `docs/reports/MAINTENANCE_WEEKLY.md`에 남긴다 |
+| `scripts/check_code_refs.py` | 문서가 가리키는 코드 참조가 실재하는지 검사한다 — 경로, `파일::심볼`, 줄번호 참조. 줄번호 참조는 코드가 움직이면 조용히 어긋나므로 새로 추가된 줄에서 막고 `파일::심볼`로 쓰게 한다 |
+| `scripts/gen_facts.py` | 저장소를 세어 `docs/facts.json`을 만들고, 문서의 `<!-- gen:이름 -->` 블록을 그 값으로 채운다. 하네스 개수·훅 배선처럼 손으로 세면 반드시 어긋나는 숫자가 대상이다. KIS 토큰 캐시 파일명은 실 키 앞부분이 들어가므로 가려서 쓴다 |
+| `scripts/gen_code_graph.py` | 헤더 포함 관계로 모듈 그래프를 만들어 `docs/CODE_GRAPH.md`·`code_graph.dot`·`code_graph.json`을 생성한다. `--impact <파일>`은 그 파일을 고쳤을 때 재검증 대상을 파일을 열지 않고 뽑는다 |
+| `scripts/brace_style.py` | 중괄호와 블록 앞뒤 빈 줄을 기계적으로 맞춘다(`.clang-format`의 Allman·`InsertBraces`와 같은 규칙). 손으로 맞추지 않는다 |
+| `scripts/check_plain_language.py` | 쓰지 않기로 한 말을 검출·치환한다(`--fix`는 뒤 조사까지 맞춘다). 정본은 `docs/STYLE_GUIDE.md`, 게이트는 `lexicon-gate.ps1`과 `@committer` |
 
 해석을 채우는 커맨드는 `/eod-review`(사후검토 문서) → `/trade-log`(매매일지 해석) → `/dashboard-sync`(아티팩트 재발행)
 → `/stock-study`(종목 학습) → `/daily`(DAILY_LOG prepend) 순이다.

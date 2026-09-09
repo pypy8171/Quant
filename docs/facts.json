@@ -141,6 +141,7 @@
     "commands": [
       "auto-trade-day",
       "build",
+      "comment-diet",
       "daily",
       "dashboard-sync",
       "dev-loop",
@@ -188,7 +189,7 @@
       "secret-gate.ps1"
     ],
     "counts": {
-      "commands": 13,
+      "commands": 14,
       "agents": 19,
       "skills": 1,
       "hooks": 8,
@@ -330,6 +331,9 @@
     "strategies": {
       "DeviationScale": {},
       "ITB": {}
+    },
+    "tools": {
+      "zone_check": {}
     }
   },
   "long_functions": [

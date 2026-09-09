@@ -423,7 +423,9 @@ def splice(text: str, facts: dict) -> tuple[str, list[str], list[str]]:
             unknown.append(name)
             return m.group(0)
         body = "\n" + fn(facts) + "\n"
-        if m.group(3) != body:
+        # CRLF로 저장된 문서는 블록 본문의 개행도 CRLF다. 개행을 맞춰 비교하지 않으면
+        # --apply 직후에도 계속 낡음으로 잡혀 수렴하지 않는다.
+        if m.group(3).replace("\r\n", "\n") != body:
             stale.append(name)
         return m.group(1) + body + m.group(4)
 

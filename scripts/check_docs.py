@@ -73,7 +73,7 @@ def check_links(tracked: set[str]) -> list[str]:
                     continue
                 target = target.split("#", 1)[0].split("?", 1)[0]
                 if not target:
-                    continue  # 순수 앵커/쿼리
+                    continue  # 순수 링크 표식/쿼리
                 joined = posixpath.normpath(posixpath.join(base, target))
                 if target.endswith("/"):
                     if not is_dir_tracked(joined, tracked):

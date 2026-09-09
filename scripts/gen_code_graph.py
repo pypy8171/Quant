@@ -496,7 +496,11 @@ def build_outputs(g):
     md.append("py scripts/gen_code_graph.py --json   # docs/code_graph.json")
     md.append("```")
     md.append("")
-    md.append("`docs/code_graph.dot` 도 생성했다(Graphviz 설치 시 `dot -Tsvg docs/code_graph.dot -o docs/code_graph.svg`).")
+    md.append("`docs/code_graph.dot` 도 생성했다. Graphviz가 있으면 SVG로 렌더할 수 있다.")
+    md.append("")
+    md.append("```bash")
+    md.append("dot -Tsvg docs/code_graph.dot -o docs/code_graph.svg")
+    md.append("```")
     md.append("")
     md_text = "\n".join(md) + "\n"
     dot_text = render_dot(g) + "\n"

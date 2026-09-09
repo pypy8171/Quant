@@ -210,6 +210,11 @@ def dead_paths_in_claude() -> list[tuple[str, int, str]]:
     return out
 
 
+def mask_private(r: str) -> str:
+    """`_private/` 하위 이름은 리포트에 옮기지 않는다(git에 두지 않는 이름 노출 차단)."""
+    return "_private/…" if r.startswith("_private/") else r
+
+
 def dir_size(p: Path) -> int:
     total = 0
     if not p.exists():
@@ -364,7 +369,9 @@ def weekly() -> int:
 
     dead = dead_paths_in_claude()
     md += ["", "## 2. 에이전트·커맨드의 죽은 경로", ""]
-    md += [f"- [!] `{f}:{n}` → `{r}`" for f, n, r in dead] or ["- 없음"]
+    #  _private/ 아래 이름은 git에 남기지 않기로 한 것이다. 이 리포트는 추적 대상이므로
+    #  파일:줄만 남기고 대상 경로는 접두어까지만 적는다(고칠 위치는 그대로 짚힌다).
+    md += [f"- [!] `{f}:{n}` → `{mask_private(r)}`" for f, n, r in dead] or ["- 없음"]
     red += len(dead)
 
     md += ["", "## 3. 부산물 용량", "", "| 폴더 | 크기 |", "|---|---|"]

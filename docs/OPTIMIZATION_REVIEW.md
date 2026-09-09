@@ -13,7 +13,7 @@
 `bench_market_firehose` 실측이 E2E p50 300ns인데(파이프라인은 이미 충분히 빠르다), 라이브에서 발주가 늦는 이유는
 전략 스레드가 REST 응답을 기다리기 때문이다. 따라서 O1·O2가 최우선이고, 링버퍼·문자열 최적화(O4·O5)는 후순위다.
 
-구조 쪽에서는 `data_thread_fn()` 하나가 시세·리컨사일·관측 3종을 같은 `try{}` 안에서 돌리는 것이 가장 위험하다.
+구조 쪽에서는 `data_thread_fn()` 하나가 시세·잔고 대조·관측 3종을 같은 `try{}` 안에서 돌리는 것이 가장 위험하다.
 관측 코드의 예외가 그 사이클의 시세 수집을 통째로 건너뛴다.
 
 ---
@@ -34,7 +34,7 @@
 - 종목당 `sleep_for(150ms)` 후 `get_current_price()` — 40종목이면 한 바퀴에 6초 이상.
 - 섹터 10개에 `sleep_for(120ms)`, 수급추정에 `sleep_for(150ms)`가 추가로 붙는다.
 
-`KisClient`에는 이미 토큰버킷(`rate_limit_acquire`/`note_rate_limited`)이 있다. 고정 sleep은 그 위에 얹힌 이중 페이싱이다.
+`KisClient`에는 이미 토큰버킷(`rate_limit_acquire`/`note_rate_limited`)이 있다. 고정 sleep은 그 위에 얹힌 이중 호출 간격 조절이다.
 
 - 수정: 고정 sleep을 걷어내고 토큰버킷에만 맡긴다. 관측용 호출(섹터·수급·매크로)은 A1에서 분리한 스레드로 옮겨
   시세 경로와 예산을 나눈다.
@@ -61,7 +61,7 @@ client_oid, orig_client_oid, reason)를 갖는다. push마다 복사 대입이�
 - 수정: 최소한 `ticker`/`strategy_id`는 고정 길이 배열이나 인턴된 id로 바꾼다. `reason`은 코드 + 파라미터로 축약한다.
 - 이것도 O4와 같은 성격이라 O1·O2 이후에 본다.
 
-### O6. OrderGate 핫패스의 선형 스캔
+### O6. OrderGate 지연에 민감한 경로의 선형 스캔
 `Quant/src/risk/OrderGate.cpp` `check()`의 §3c(동시 보유 종목 수)·§3d(총노출)가 매 BUY마다
 `positions_`와 `reserved_` 전체를 `positions_mtx_` 아래서 훑는다. 거절 사유는 매번 `std::ostringstream`으로 만든다.
 `positions_.count(k) ? positions_[k] : 0`은 조회를 두 번 하고 비-const `operator[]`로 없는 키를 삽입할 여지도 있다.
@@ -81,13 +81,13 @@ client_oid, orig_client_oid, reason)를 갖는다. push마다 복사 대입이�
 ## 아키텍처 (A)
 
 ### A1. `data_thread_fn()`이 한 함수에 너무 많은 일을 담았다 — 관측 예외가 시세 수집을 멈춘다
-약 560줄 한 함수 안에 국면 폴링, 유니버스 재스캔, 잔고 리컨사일, 관측 3종(수급추정·섹터·매크로),
+약 560줄 한 함수 안에 국면 폴링, 유니버스 재스캔, 잔고 대조, 관측 3종(수급추정·섹터·매크로),
 REST 시세 폴링, 일봉 폴링이 모두 들어 있고 **하나의 `try{}`로 감싸여 있다**. 섹터 조회에서 예외가 나면
 그 사이클의 시세 수집이 통째로 건너뛰어진다.
 
 - 수정: 두 스레드로 나눈다.
   - `data_thread` — 시세·일봉만. 실패는 즉시 로깅하고 다음 종목으로.
-  - `ops_thread` — 리컨사일·국면·재스캔·관측. 각 블록이 자기 `try{}`를 갖는다.
+  - `ops_thread` — 잔고 대조·국면·재스캔·관측. 각 블록이 자기 `try{}`를 갖는다.
 - 이건 이 목록에서 **라이브 안정성 기여가 가장 큰 항목**이다.
 
 ### A2. Engine 설정 주입 세터가 11개다
@@ -136,7 +136,7 @@ CLAUDE.md는 아직 "테스트 스위트는 없습니다"라고 적혀 있는데
 - 수정: `quant_core` STATIC 라이브러리를 만들고 `quant_trader`와 테스트가 모두 링크한다.
 
 ### A10. 국면 축이 두 개인데 조정자가 없다
-`RegimeController`(지수 이평 기반 전략 집합 선택)와 `regime.json` 파일브리지(`set_entry_halt`)가 서로 모른다.
+`RegimeController`(지수 이평 기반 전략 집합 선택)와 `regime.json` 파일 전달(`set_entry_halt`)가 서로 모른다.
 문서에는 분리 의도가 적혀 있지만 코드에는 둘의 우선순위를 정하는 지점이 없다.
 
 - 수정: `RegimeState` 하나가 두 입력을 받아 최종 상태를 내도록 좁힌다. 지금 당장은 아니어도, 세 번째 축이 생기기 전에 한다.
@@ -155,7 +155,7 @@ C++ 2,588줄과 Python 657줄이 같은 API를 각자 구현한다. tr_id·필�
 
 ### R2. KST 시간 헬퍼 중복
 `DeviationScaleStrategy.h`의 `kst_tm`/`kst_hhmm`/`kst_bar_bucket`/`kst_ymd`와 `Engine.cpp`의 `utc_plus_hours()`가
-같은 일을 따로 한다. `Quant/include/utils/KstTime.h` 하나로 모은다.
+같은 일을 따로 한다. `utils/KstTime.h`(신설) 하나로 모은다.
 
 ### R3. 섹터 테이블 중복
 `Engine.cpp`의 인라인 `kSectors`가 `ThemeStrategy.h`의 `KOSPI_SECTORS`와 겹친다. 소스 주석도 중복임을 적어 두었다.

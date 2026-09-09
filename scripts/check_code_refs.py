@@ -4,16 +4,16 @@
 
   (a) 상대 경로 — 마크다운 링크와 백틱 안의 Quant/·PYQuant/·scripts/·docs/ 경로. 없으면 실패.
   (b) 파일.(cpp|h|py)::심볼 — 그 파일이나 짝 파일(X.h↔X.cpp)에 \\b심볼\\b이 있어야 한다. 없으면 경고.
-  (c) 파일.(cpp|h|py):숫자 — 줄번호 앵커. git diff 기준 새로 추가된 줄에서만 실패(--all이면 전부).
+  (c) 파일.(cpp|h|py):숫자 — 줄번호 참조. git diff 기준 새로 추가된 줄에서만 실패(--all이면 전부).
 
 코드 펜스 안, 머리에 <!-- drift-check: snapshot 표식이 있는 문서, 면제 경로는 건너뛴다.
-줄 끝에 <!-- drift-check: ok --> 를 달면 그 줄의 (c) 앵커 검사만 뺀다(앵커를 예시로 인용하는 줄).
+줄 끝에 <!-- drift-check: ok --> 를 달면 그 줄의 (c) 줄번호 검사만 뺀다(줄번호를 예시로 인용하는 줄).
 출력은 `파일:줄: 종류: 내용`. exit 0/1.
 
 사용:
     py scripts/check_code_refs.py [파일.md ...]   # 없으면 docs/**, README.md, CLAUDE.md, strategies/**
     py scripts/check_code_refs.py --diff-only       # 스테이징+워킹트리에서 바뀐 .md만
-    py scripts/check_code_refs.py --all             # 줄번호 앵커를 새 줄뿐 아니라 전부 보고
+    py scripts/check_code_refs.py --all             # 줄번호 참조를 새 줄뿐 아니라 전부 보고
 """
 from __future__ import annotations
 
@@ -197,7 +197,7 @@ def check_doc(doc: Path, idx: CodeIndex, report_all: bool) -> tuple[int, int]:
                 elif not idx.has_symbol(p, sym):
                     print(f"{rp}:{no}: symbol-missing: {fref}::{sym}")
                     warns += 1
-        # (c) 줄번호 앵커. 앵커를 나쁜 예시로 인용해야 하는 줄만 `<!-- drift-check: ok -->`로 뺀다.
+        # (c) 줄번호 참조. 줄번호를 나쁜 예시로 인용해야 하는 줄만 `<!-- drift-check: ok -->`로 뺀다.
         #     펜스 전체를 빼는 것과 달리 (a)·(b) 경로·심볼 검사는 그대로 받는다.
         for am in ([] if "drift-check: ok" in line else ANCHOR_RE.finditer(line)):
             if not report_all:
