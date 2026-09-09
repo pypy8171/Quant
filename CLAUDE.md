@@ -65,7 +65,9 @@ Linux는 `libcurl4-openssl-dev`가 필요합니다 (`sudo apt install libcurl4-o
 
 ### 국면(Regime) 대응
 
-`RegimeController`(`Quant/include/core/RegimeController.h`)가 장 시작 1회 지수 종가>200MA(±1)와 정배열/역배열(ma20·ma60·ma120, ±1)로 `score∈{-2..+2}`를 매겨 BULL/NEUTRAL/BEAR/UNKNOWN을 판정한다. config `"regime_strategies": {"BULL":[id…],"NEUTRAL":[…],"BEAR":[…]}`를 주면 국면이 전략 집합을 자동 선택하고(재평가 주기 `regime_reeval_sec`, 기본 300초), 지정하지 않으면 전략별 `active_regimes` 방식으로 하위호환한다. BEAR 등에서는 보유 전량을 시장가로 청산하는 `FORCE_LIQ` 신호를 낸다. 이와 별개로 매크로 사이드카(`macro_regime_feed.py`)가 쓰는 `regime.json` 파일브리지가 `OrderGate::set_entry_halt`(신규매수만 차단, 청산은 통과)를 토글한다(config `regime_file`·`regime_stale_sec`).
+`RegimeController`(`Quant/include/core/RegimeController.h`)가 장 시작 1회 지수 종가>200MA(±1)와 정배열/역배열(ma20·ma60·ma120, ±1)로 `score∈{-2..+2}`를 매겨 BULL/NEUTRAL/BEAR/UNKNOWN을 판정한다. config `"regime_strategies": {"BULL":[id…],"NEUTRAL":[…],"BEAR":[…]}`를 주면 국면이 전략 집합을 자동 선택하고(재평가 주기 `regime_reeval_sec`, 기본 300초), 지정하지 않으면 전략별 `active_regimes` 방식으로 하위호환한다. 판정 파라미터(지수코드·이평기간·점수 임계값)는 config `"regime_tuning"`으로 덮어쓸 수 있고, 임계값 오버라이드는 실계좌에서 무시된다.
+
+국면 축은 둘이고 하는 일이 다르다. **`RegimeController`는 전략 집합만 고른다 — 청산은 하지 않는다.** 보유 전량을 시장가로 청산하는 `FORCE_LIQ`는 다른 축, 즉 매크로 사이드카(`macro_regime_feed.py`)가 쓰는 `regime.json` 파일 전달이 낸다(config `regime_file`·`regime_stale_sec`). 이 파일의 `entry_halt`는 `OrderGate::set_entry_halt`(신규매수만 차단, 청산은 통과)를 토글하고, `force_liquidate`는 여기에 더해 strategy_thread가 보유 전량에 대해 `FORCE_LIQ` 시장가 매도를 2초 간격으로 재발주하게 한다. 드릴 절차는 [docs/guides/REGIME_DRILL_GUIDE.md](docs/guides/REGIME_DRILL_GUIDE.md).
 
 ### 전략 추가하기
 
@@ -96,12 +98,58 @@ FEED 모드에서 사용합니다. REST로 approval key를 발급받고, `ops.ko
 python scripts/check_docs.py   # exit 0 = 통과, 1 = 드리프트
 ```
 
+### 링크 허브 자동 갱신
+
+아티팩트를 새로 발행·재발행했거나, 복붙용 PowerShell 가이드(실행 절차·예약작업 시각)를 바꿨으면
+`_private/LINKS.md`를 **말하지 않아도** 같이 고친다. 링크와 절차가 흩어지면 다음에 찾는 비용이 커진다.
+`_private/`는 gitignore라 커밋 대상이 아니다. 저장소에 남기는 자동화 목록은 [docs/AUTOMATION.md](docs/AUTOMATION.md)가 소유한다.
+
 ### 문서 문체 규약 (AI 문체 회피)
 
 담백·겸손하게 쓴다. 수치·표·코드·링크·다이어그램은 바꾸지 않는다. 적용 범위는 설계 문서만이 아니라
 매매일지·사후검토·백테스트 일지·스터디 리포트·`research/dashboard/reviews.json`의 `*_html`·`DAILY_LOG.md`·
 `docs/` 산문과 커밋 메시지 전부다. 문서를 쓰거나 고치기 전에 정본을 읽는다: [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md)
 (과장·설교조 회피, 금지 표현과 대체어 표, 지표 약어 병기). `@committer` (d-2) 문체 스캔이 이 정본을 게이트로 쓴다.
+
+적용 범위에는 코드 주석과 로그 문구도 들어간다 — 화면과 로그에 그대로 나오기 때문이다. 게이트는 두 지점이다: 쓰는 순간 `.claude/hooks/lexicon-gate.ps1`(Write·Edit 본문 검사, 차단), 커밋 직전 `@committer` (d-2) 문체 스캔.
+
+```bash
+python scripts/check_plain_language.py          # 검출
+python scripts/check_plain_language.py --fix    # 치환(뒤 조사까지 맞춤)
+```
+
+### 코드 작업 규약 (주석·중괄호·커밋 분리)
+
+코드를 고치거나 주석을 쓰기 전에 정본을 읽는다: [docs/guides/MAINTENANCE_AUTOMATION.md](docs/guides/MAINTENANCE_AUTOMATION.md) 4절.
+주석은 위치마다 담을 것이 정해져 있다.
+
+| 위치 | 쓸 것 | 쓰지 않을 것 |
+|---|---|---|
+| 파일 머리 | 목적 한 줄, 스레드 소유권, 관련 D-NNN | 항목 목록·개수 — 정본 위치를 가리킨다 |
+| 함수 위 | 왜 따로 있는지, 호출 제약, 실패 시 동작 | 절차 서술 |
+| 멤버 옆 | 단위와 불변식 | 경위(D-NNN으로 보낸다) |
+| 블록 안 | 함정과 비자명한 결정 | 세 줄 넘는 태그 없는 설명 |
+
+태그는 다섯 개다: `// [inv]` 불변식 · `// [lock-order]` 락 순서·memory_order 근거 ·
+`// [wire]` 외부 프로토콜 필드·에러코드 · `// [why D-NNN]` 결정 참조 · `// [formula]` 수식·임계값 유도.
+
+주석을 지울 때는 세 단계를 지킨다.
+
+1. 지우기 전에 그 주장이 지금 코드와 맞는지 확인한다. 틀린 주석을 D-NNN으로 옮기면 오류가 정본이 된다.
+2. 삭제 줄의 숫자·식별자·ID가 각각 어디에 남는지 목록으로 보고한다. 남을 곳이 없으면 지우지 않는다.
+3. 코드 줄 diff는 0이어야 하고, 주석 정리 커밋은 기능 수정 커밋과 분리한다.
+
+중괄호는 Allman이고 한 줄 본문에도 붙인다(`.clang-format`의 `InsertBraces`). `}` 뒤와 제어문 앞에는 빈 줄을 하나 둔다.
+정리는 손으로 하지 말고 스크립트로 한다.
+
+```bash
+py scripts/brace_style.py                            # 중괄호·빈 줄 정리(인자 없으면 include/src/tests 전체)
+py scripts/check_code_conventions.py                 # 스테이징 변경의 중괄호·D-NNN·태그 검사
+py scripts/check_code_conventions.py --comment-only  # 주석 전용 커밋인지 검증(코드 줄 0)
+```
+
+주석 밀도는 게이트로 걸지 않는다. 파일별 밀도와 태그 없는 4줄 이상 블록은
+`py scripts/maintain.py --weekly`가 `docs/reports/MAINTENANCE_WEEKLY.md`에 표로 남긴다.
 
 ## 플랫폼 참고사항
 

@@ -14,7 +14,7 @@
 | 작업 이름 | 시각 | 실행 | 산출물 |
 |---|---|---|---|
 | `QuantAutoTradeGuard` | 평일 08:45부터 5분마다 7시간 | `powershell -File scripts/auto_trade_guard.ps1` | 워치독이 없으면 하루 루프 기동 (§4) |
-| `Quant EOD AutoDoc` | 평일 16:05 | `python scripts/eod_autodoc.py` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` |
+| `Quant EOD AutoDoc` | 평일 16:05 | `python scripts/eod_autodoc.py` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` · **결정 원장 파생 문서**(`sync_ledgers.py`) |
 | `claude_stock_study` | 평일 20:00 | `claude -p "/stock-study auto"` | `_private/주식_study/{날짜}_재무/` 7종목 · 저널 · 스터디 사이트 |
 | `claude_dashboard_sync` | 평일 20:40 | `claude -p "/dashboard-sync"` | 매매·스터디 아티팩트 재발행(같은 URL) |
 
@@ -45,7 +45,8 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 | 훅 | 시점 | 하는 일 |
 |---|---|---|
 | `secret-gate.ps1` | PreToolUse (Bash·PowerShell) | app_key·app_secret·계좌번호·개인 이름이 커밋 경로로 새는 것을 차단 |
-| `docs-gate.ps1` | PreToolUse (Bash·PowerShell) | 문서 커밋 전 `check_docs.py` 정합 확인 |
+| `docs-gate.ps1` | PreToolUse (Bash·PowerShell) | 문서 커밋 전 `check_docs.py` 정합 확인. 링크·색인에 더해 **결정 원장 파생 문서 드리프트**(`sync_ledgers.py --check`)도 여기서 막힌다 |
+| `lexicon-gate.ps1` | PreToolUse (Write·Edit) | 파일에 쓰려는 본문을 `check_plain_language.py --stdin`으로 검사해 쓰지 않기로 한 말(`고아`·`프로브`·`사다리`·`가디언` 등)이 들어가는 순간 막는다. 금지어를 설명하는 글은 본문에 `lexicon-ok` 표시로 통과 | <!-- lexicon-ok: 금지어를 예시로 인용하는 줄 -->
 | `review-reminder.ps1` | Stop | 코드 변경 뒤 리뷰 누락을 상기 |
 | `eod-gate.ps1` | SessionStart | 사후검토가 밀린 거래일이 있으면 세션 시작에 알림 |
 | `cron-gate.ps1` | SessionStart | 예약작업이 예정 시각을 넘겨 안 돌았거나 `LastTaskResult≠0`이면 작업 이름·실패 시각·복구 커맨드를 알림 |
@@ -57,7 +58,7 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 
 | 층 | 담당 | 하는 일 |
 |---|---|---|
-| 감시자 | `scripts/auto_trade_guard.ps1` | 평일 5분 주기 예약작업. 장중인데 워치독이 없으면 기동한다. 고아 트레이더가 남아 있으면 먼저 내린다 |
+| 감시자 | `scripts/auto_trade_guard.ps1` | 평일 5분 주기 예약작업. 장중인데 워치독이 없으면 기동한다. 남은 트레이더가 남아 있으면 먼저 내린다 |
 | 워치독 | `scripts/auto_trade_day.ps1` | 사전 점검(중복 프로세스·exe 갱신 여부·계좌 모드), 사이드카·유니버스·대시보드·알림 기동, 트레이더를 마감까지 감시·재기동, 마감 뒤 `eod_autodoc.py` 실행 |
 | 감독 | `.claude/commands/auto-trade-day.md` | 국면 판단, 증분 로그 감시, **무발주 감시**, 결함을 코드/상황으로 분류, 코드면 수정·재빌드, **이슈 대장 누적**, 마감 뒤 해석 문서 |
 
@@ -74,15 +75,15 @@ Windows에는 리눅스의 프로세스 그룹 cascade가 없다. 부모가 죽�
 워치독은 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 잡을 만들어 사이드카·유니버스·대시보드·알림 창과
 트레이더를 모두 여기에 넣는다. 잡 핸들을 쥔 워치독이 사라지는 순간 — 정상 종료든 강제 종료든 —
 커널이 나머지를 같이 내린다. 되살리는 쪽은 감시자다. 재기동하면 잔고 재시드가 실제 보유수량을 다시
-읽고 청산 가디언이 포지션을 다시 잡으므로, 끊긴 자리를 사람이 이을 필요가 없다.
+읽고 청산 관리가 포지션을 다시 잡으므로, 끊긴 자리를 사람이 이을 필요가 없다.
 
 감시자는 사고와 의도적 정지를 구분한다. 오늘 날짜 상태파일의 `phase`가 `crash_loop`·`aborted`·
-`done`·`closed`·`past_deadline`이면 손대지 않는다. 크래시 루프를 5분마다 되살리면 계좌만 두들긴다.
+`done`·`closed`·`past_deadline`이면 손대지 않는다. 크래시 루프를 5분마다 되살리면 계좌만 반복 호출한다.
 
 반대 방향, 즉 부속 창 안의 파이썬만 죽는 경우도 잡는다. 창은 `-NoExit`로 띄우므로 안의 스크립트가
-끝나도 껍데기는 남고, 창 목록만 보면 살아 있는 것처럼 보인다. 워치독은 트레이더를 기다리는 동안
+끝나도 빈 창은 남고, 창 목록만 보면 살아 있는 것처럼 보인다. 워치독은 트레이더를 기다리는 동안
 60초마다 `python`/`py` 프로세스의 명령줄을 훑어 등록된 스크립트 이름(`macro_regime_feed.py`,
-`dashboard_server.py`, `notify_sidecar.py`)이 있는지 확인하고, 없으면 남은 창을 내리고 같은 명령으로
+`dashboard_server.py`, `notify_sidecar.py`, `live_prices_feed.py`)이 있는지 확인하고, 없으면 남은 창을 내리고 같은 명령으로
 다시 띄운다. 기동 직후 45초는 아직 파이썬이 뜨는 중일 수 있어 건너뛴다. 알림 사이드카가 조용히
 사라진 것을 사람이 화면을 봐야 아는 상태를 없애기 위한 것이다.
 
@@ -92,7 +93,7 @@ powershell -ExecutionPolicy Bypass -File scripts\auto_trade_guard.ps1 -DryRun   
 powershell -ExecutionPolicy Bypass -File scripts\auto_trade_guard.ps1 -Uninstall
 ```
 
-### 잔재 정리 — `scripts/quant_procs.ps1`
+### 남은 프로세스 정리 — `scripts/quant_procs.ps1`
 
 잡은 워치독이 정상적으로 사라질 때만 동작한다. 강제 종료, 리부트, 워치독 없이 손으로 띄운 창은
 그 경로를 타지 않아서 사이드카나 대시보드가 두 벌씩 남는다. 남은 쪽도 계속 폴링하므로 REST 초당
@@ -101,12 +102,19 @@ powershell -ExecutionPolicy Bypass -File scripts\auto_trade_guard.ps1 -Uninstall
 
 이 스크립트는 명령줄로 역할을 붙이고, 부모-자식을 한 인스턴스로 묶어(`py → python → python`은
 하나다) 역할별 개수만 본다. 판정은 넷이다 — `정상` / `중복`(가장 최근에 뜬 것을 남긴다) /
-`껍데기`(역할 프로세스가 죽은 `quant-*` 창) / `없음`.
+`껍데기`(역할 프로세스가 죽은 `quant-*` 창) / `없음`. <!-- lexicon-ok: 금지어를 예시로 인용하는 줄 -->
 
-```powershell
+```powershell lexicon-ok
 powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1          # 현황만
 powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -Reap    # 중복·껍데기 정리
+powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -KillAll # 전부 내리고 하루 종료
 ```
+
+`-Reap`은 중복과 빈 창만 본다. 정상으로 떠 있는 것은 남기므로 하루를 끝낼 때 쓰는 스위치가 아니다.
+그 자리는 `-KillAll`이다. 판정과 무관하게 역할 프로세스와 `quant-*` 창을 전부 내리고 — 이때는 어느
+트레이더가 진짜인지 가릴 필요가 없어 트레이더도 같이 내린다 — 오늘 상태파일의 `phase`를 `closed`로
+적는다. 이 표시가 핵심이다. 감시자는 평일 08:45부터 5분마다 도므로, 표시 없이 프로세스만 죽이면
+장중에는 몇 분 안에 다시 떠 있고 재부팅으로도 풀리지 않는다.
 
 워치독이 기동 직전과 종료 직후에 `-Reap -Quiet`으로 이것을 부른다. 트레이더 중복은 정리하지 않고
 보고만 한다 — 두 프로세스가 같은 계좌에 발주하면 원장이 깨지는데 어느 쪽이 진짜인지 스크립트가
@@ -130,17 +138,18 @@ powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -Reap    # 중�
 옮기고, `미해결`만 개선 목록이 된다. 이 구분이 없으면 마감 뒤에 장중에 이미 고친 것을 다시 고친다.
 대장은 `_private/`라 커밋되지 않으므로, 남길 내용은 `docs/eod/YYYY-MM-DD.md`와 매매일지로 옮겨 적는다.
 
-> 무발주 감시를 의무로 올린 계기는 2026-09-08 오전이다. 사다리 기준선 미형성과 명목 한도 전량 거부가
+> 무발주 감시를 의무로 올린 계기는 2026-09-08 오전이다. 분할 매수 기준선 미형성과 명목 한도 전량 거부가
 > 겹쳐 한 시간 동안 한 주도 나가지 않았는데, 크래시가 없어 로그도 워치독도 조용했다.
 
 ## 5. 장중 상시 루프
 
 | 루프 | 주체 | 주기 | 하는 일 |
 |---|---|---|---|
-| 매크로 국면 파일브리지 | `PYQuant/tools/macro_regime_feed.py` | 상시 | `regime.json` 갱신 → 엔진이 `OrderGate::set_entry_halt` 토글(신규 매수만 차단, 청산은 통과) |
+| 매크로 국면 파일 전달 | `PYQuant/tools/macro_regime_feed.py` | 상시 | `regime.json` 갱신 → 엔진이 `OrderGate::set_entry_halt` 토글(신규 매수만 차단, 청산은 통과) |
 | 엔진 내부 국면 | `RegimeController` | `regime_reeval_sec`(기본 300초) | 국면별 전략 집합 자동 선택, BEAR에서 `FORCE_LIQ` |
-| 제어 스레드 | `Engine::control_thread_fn` | 상시 | 잔고 리컨사일·손익 갱신 감시, 끊기면 보수정지 |
+| 제어 스레드 | `Engine::control_thread_fn` | 상시 | 잔고 대조·손익 갱신 감시, 끊기면 보수정지 |
 | 증분 로그 감시 | `scripts/parse_quant_log.py --watch` | 15~20분 | 유의미한 창일 때만 출력. 조용하면 토큰 0 |
+| 전 종목 시세 파일 전달 | `scripts/live_prices_feed.py` | 20초(`PRICES_PERIOD_SEC`, D-028) | 네이버 벌크 시세를 100종목씩 묶어 받아 `Quant/config/prices_live.json`으로 떨군다. KIS REST 초당 한도와 무관해서 2,700종목을 20초 주기로 훑을 수 있다. `UniverseScanner`가 이 파일을 읽는다 |
 | 매매 알림 | `scripts/notify_sidecar.py` | 체결 즉시 / 요약 30분 | 당일 체결 원장 CSV를 증분으로 읽어 체결을 바로 보내고, 평단·손익 표는 KIS 잔고조회로 주기 발송 |
 
 ### 매매 알림 사이드카
@@ -200,6 +209,7 @@ scripts/eod_autodoc.py
 | `scripts/build_study_site.py` | `_private/주식_study/` 전체를 날짜별로 묶어 스터디 사이트 재생성 |
 | `scripts/refresh_dashboard.py` | 위 재생성 순서(라이브 백필·리뷰 항목·생성기)를 소유한다. `--if-stale`은 원천 파일이 산출물보다 새것일 때만 돈다. `eod_autodoc.py`와 Stop 훅이 모두 이 스크립트를 부르므로 절차가 한쪽만 고쳐져 갈라지지 않는다. 실행 기록은 `logs/refresh_dashboard.log` |
 | `scripts/check_docs.py` | 깨진 내부 링크·색인 누락 검사. exit 0이어야 문서 커밋 |
+| `scripts/check_code_conventions.py` | 스테이징된 코드 변경의 규약 검사 — 중괄호(`brace_style.py --check`), 없는 D-NNN 참조, 규약에 없는 주석 태그, 주석·코드 줄 성격 집계. `--comment-only`는 코드 줄이 섞였는지 본다. 밀도는 보지 않는다(정본 `docs/guides/MAINTENANCE_AUTOMATION.md` 4절이 밀도를 게이트로 걸지 말라고 정해 두었다) |
 
 해석을 채우는 커맨드는 `/eod-review`(사후검토 문서) → `/trade-log`(매매일지 해석) → `/dashboard-sync`(아티팩트 재발행)
 → `/stock-study`(종목 학습) → `/daily`(DAILY_LOG prepend) 순이다.
