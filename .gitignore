@@ -87,6 +87,7 @@ docs/RUNBOOK.html
 
 # 실행 로그·매매 원장 — 계좌/체결 정보가 들어가므로 절대 커밋 금지
 logs/
+logs_test/
 
 # 수집 캐시·시점데이터(PIT) — 재수집 가능, 로컬 전용
 PYQuant/.yf_cache/

@@ -19,6 +19,7 @@
 #include <chrono>
 #include <ctime>
 #include <iostream>
+#include <cstdlib>
 #include <string>
 #ifdef _WIN32
 #include <windows.h>
@@ -541,6 +542,16 @@ int main()
     SetConsoleOutputCP(CP_UTF8);
 #endif
     std::cout << "=== OrderRouter Unit Tests ===\n";
+
+    // 산출물을 라이브 원장과 갈라 둔다. 이 바이너리는 quant_trader.exe와 같은 build_win/에
+    //  놓이고 Logger 기준 폴더가 실행파일 옆 logs/라, 그대로 두면 같은 trades_YYYYMMDD.csv에
+    //  쓴다. 2026-09-09 원장 1364행 중 256행이 이렇게 섞였다(TEST 208 + 047050 48).
+    //  QUANT_LOG_DIR이 이미 있으면 그쪽을 존중한다 — 산출물을 모아 보는 쪽 뜻이 우선이다.
+    if (const char* env = std::getenv("QUANT_LOG_DIR"); !env || !*env)
+    {
+        Logger::instance().set_base_dir(Logger::executable_dir() / "logs_test");
+    }
+
     // 사유 기록 파일은 append 전용이라 지난 실행분이 남으면 결과가 달라진다. 먼저 지운다.
     {
         std::time_t tt = std::time(nullptr);
