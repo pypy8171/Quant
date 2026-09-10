@@ -210,12 +210,16 @@ class KisClient:
             "Content-Type":  "application/json",
         }
 
-    def _get(self, path: str, params: dict, tr_id: str) -> dict:
+    def _get(self, path: str, params: dict, tr_id: str, extra_headers: dict | None = None) -> dict:
+        """extra_headers는 연속조회(tr_cont) 같은 TR별 헤더를 얹을 때만 쓴다."""
         last = None
         for attempt in range(3):   # KIS(특히 모의) 지연 대비 재시도, 타임아웃 20s
             try:
+                h = self._headers(tr_id)
+                if extra_headers:
+                    h.update(extra_headers)
                 r = requests.get(self.base_url + path, params=params,
-                                 headers=self._headers(tr_id), timeout=20)
+                                 headers=h, timeout=20)
                 return r.json()
             except requests.RequestException as e:
                 last = e
@@ -648,29 +652,52 @@ class KisClient:
     # ── 잔고 조회 ────────────────────────────────────────────────────────────
     def get_kr_balance(self) -> tuple[list[BalanceItem], AccountSummary]:
         tr_id = "VTTC8434R" if self.is_paper else "TTTC8434R"
-        data = self._get(
-            "/uapi/domestic-stock/v1/trading/inquire-balance",
-            {
-                "CANO":                 self.account_no,
-                "ACNT_PRDT_CD":         self.account_type,
-                "AFHR_FLPR_YN":         "N",
-                "OFL_YN":               "",
-                "INQR_DVSN":            "02",
-                "UNPR_DVSN":            "01",
-                "FUND_STTL_ICLD_YN":    "N",
-                "FNCG_AMT_AUTO_RDPT_YN":"N",
-                "PRCS_DVSN":            "01",
-                "CTX_AREA_FK100":       "",
-                "CTX_AREA_NK100":       "",
-            },
-            tr_id,
-        )
+        # 연속조회: 잔고 output1은 한 페이지에 20종목까지만 온다. 더 있으면 응답의
+        #  ctx_area_nk100이 채워지므로 그걸 되넣고 tr_cont:N으로 다음 장을 받는다.
+        #  이 처리가 없으면 21번째부터가 통째로 빠져 보유 종목수·평가금이 적게 나온다
+        #  (09-09: 실보유 25인데 대시보드는 20으로 표시, 엔진의 25/25 한도 거부와 어긋남).
+        #  output2(계좌 요약)는 첫 장 것이 전체 합계라 그대로 쓴다.
+        data: dict = {}
+        rows: list[dict] = []
+        fk = nk = cont = ""
+        for _ in range(30):    # 안전 상한
+            page = self._get(
+                "/uapi/domestic-stock/v1/trading/inquire-balance",
+                {
+                    "CANO":                 self.account_no,
+                    "ACNT_PRDT_CD":         self.account_type,
+                    "AFHR_FLPR_YN":         "N",
+                    "OFL_YN":               "",
+                    "INQR_DVSN":            "02",
+                    "UNPR_DVSN":            "01",
+                    "FUND_STTL_ICLD_YN":    "N",
+                    "FNCG_AMT_AUTO_RDPT_YN":"N",
+                    "PRCS_DVSN":            "01",
+                    "CTX_AREA_FK100":       fk,
+                    "CTX_AREA_NK100":       nk,
+                },
+                tr_id,
+                {"tr_cont": cont} if cont else None,
+            )
+            if not page:
+                break
+            if not data:
+                data = page
+            rows.extend(page.get("output1", []) or [])
+            nk_next = (page.get("ctx_area_nk100") or "").rstrip()
+            if not nk_next:
+                break
+            fk, nk, cont = (page.get("ctx_area_fk100") or "").rstrip(), nk_next, "N"
+
         items: list[BalanceItem] = []
-        for item in data.get("output1", []):
+        seen: set[str] = set()
+        for item in rows:
             try:
                 qty = int(item.get("hldg_qty", 0) or 0)
-                if qty == 0:
+                code = item.get("pdno", "")
+                if qty == 0 or code in seen:
                     continue
+                seen.add(code)
                 items.append(BalanceItem(
                     ticker        = item.get("pdno", ""),
                     name          = item.get("prdt_name", ""),
