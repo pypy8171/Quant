@@ -492,6 +492,52 @@ struct DevScaleScoreState
     std::unordered_map<std::string, double> mult;
 };
 
+// 진입 우선순위 랭크는 슬리브 하나가 아니라 전 슬리브를 합쳐서 매겨야 한다. 슬리브마다
+//  set_entry_priority를 부르면 나중에 스캔한 쪽이 앞 슬리브의 랭크 맵을 통째로 덮어쓰고,
+//  랭크를 잃은 종목은 rank=0이 되어 우선순위 바를 건너뛴다. 두 슬리브가 20초 간격으로
+//  번갈아 스캔하는 지금 구성에서는 바가 절반만 작동하는 셈이었다.
+//  슬리브별 z는 각자의 풀 안에서 정규화된 값이라 슬리브를 넘는 비교는 근사다. 그래도
+//  랭크가 통째로 사라지는 것보다는 낫다.
+struct EntryPriorityMerger
+{
+    std::mutex                                                    mu;
+    std::map<std::string, std::unordered_map<std::string, double>> by_sleeve;
+};
+
+static EntryPriorityMerger& priority_merger()
+{
+    static EntryPriorityMerger m;
+    return m;
+}
+
+// 한 슬리브의 점수를 갱신하고, 전 슬리브를 합친 랭크를 엔진에 넣는다.
+static void publish_entry_priority(Engine& engine, const std::string& sleeve,
+                                   const std::unordered_map<std::string, double>& sco)
+{
+    std::unordered_map<std::string, double> merged;
+    {
+        std::lock_guard<std::mutex> lk(priority_merger().mu);
+        priority_merger().by_sleeve[sleeve] = sco;
+
+        for (const auto& sv : priority_merger().by_sleeve)
+        {
+            for (const auto& kv : sv.second)
+            {
+                auto it = merged.find(kv.first);
+
+                // 같은 종목이 두 슬리브에 올라오면 높은 점수를 남긴다.
+                if (it == merged.end() || kv.second > it->second)
+                {
+                    merged[kv.first] = kv.second;
+                }
+            }
+        }
+    }
+
+    engine.set_entry_priority(universe::score_to_rank(merged), universe::score_to_z(merged),
+                              static_cast<int>(merged.size()));
+}
+
 static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
 {
     Engine& engine = ctx.engine;
@@ -658,7 +704,8 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         const double w_target = s.value("weight_target_pct", 0.80);
         const double w_base   = base.base_pct;
 
-        auto scan_fn = [sc, &engine, score_state, w_spread, w_target, w_base](KisClient& c)
+        const std::string sleeve_id = base.id_prefix;
+        auto scan_fn = [sc, &engine, score_state, w_spread, w_target, w_base, sleeve_id](KisClient& c)
         {
             std::unordered_map<std::string, std::string> nm;
             std::unordered_map<std::string, double>      sco;
@@ -683,8 +730,7 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
                 }
             }
 
-            engine.set_entry_priority(universe::score_to_rank(sco), universe::score_to_z(sco),
-                                      static_cast<int>(sco.size()));
+            publish_entry_priority(engine, sleeve_id, sco);
             return ts;
         };
         auto drop_held = [](std::vector<std::string>& ts, const std::set<std::string>& h)
