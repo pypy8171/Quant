@@ -67,7 +67,7 @@ Linux는 `libcurl4-openssl-dev`가 필요합니다 (`sudo apt install libcurl4-o
 
 `RegimeController`(`Quant/include/core/RegimeController.h`)가 장 시작 1회 지수 종가>200MA(±1)와 정배열/역배열(ma20·ma60·ma120, ±1)로 `score∈{-2..+2}`를 매겨 BULL/NEUTRAL/BEAR/UNKNOWN을 판정한다. config `"regime_strategies": {"BULL":[id…],"NEUTRAL":[…],"BEAR":[…]}`를 주면 국면이 전략 집합을 자동 선택하고(재평가 주기 `regime_reeval_sec`, 기본 300초), 지정하지 않으면 전략별 `active_regimes` 방식으로 하위호환한다. 판정 파라미터(지수코드·이평기간·점수 임계값)는 config `"regime_tuning"`으로 덮어쓸 수 있고, 임계값 오버라이드는 실계좌에서 무시된다.
 
-국면 축은 둘이고 하는 일이 다르다. **`RegimeController`는 전략 집합만 고른다 — 청산은 하지 않는다.** 보유 전량을 시장가로 청산하는 `FORCE_LIQ`는 다른 축, 즉 매크로 사이드카(`macro_regime_feed.py`)가 쓰는 `regime.json` 파일 전달이 낸다(config `regime_file`·`regime_stale_sec`). 이 파일의 `entry_halt`는 `OrderGate::set_entry_halt`(신규매수만 차단, 청산은 통과)를 토글하고, `force_liquidate`는 여기에 더해 strategy_thread가 보유 전량에 대해 `FORCE_LIQ` 시장가 매도를 2초 간격으로 재발주하게 한다. 드릴 절차는 [docs/guides/REGIME_DRILL_GUIDE.md](docs/guides/REGIME_DRILL_GUIDE.md).
+국면 축은 둘이고 하는 일이 다르다. **`RegimeController`는 전략 집합만 고른다 — 청산은 하지 않는다.** 보유 전량을 시장가로 청산하는 `FORCE_LIQ`는 다른 축, 즉 매크로 보조 프로세스(`macro_regime_feed.py`)가 쓰는 `regime.json` 파일 전달이 낸다(config `regime_file`·`regime_stale_sec`). 이 파일의 `entry_halt`는 `OrderGate::set_entry_halt`(신규매수만 차단, 청산은 통과)를 토글하고, `force_liquidate`는 여기에 더해 strategy_thread가 보유 전량에 대해 `FORCE_LIQ` 시장가 매도를 2초 간격으로 재발주하게 한다. 드릴 절차는 [docs/guides/REGIME_DRILL_GUIDE.md](docs/guides/REGIME_DRILL_GUIDE.md).
 
 ### 전략 추가하기
 

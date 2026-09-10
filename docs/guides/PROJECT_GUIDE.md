@@ -150,7 +150,7 @@ Quant/                              ← 저장소 루트
 │   │   │   ├── MomentumStrategy.h  모멘텀 전략
 │   │   │   └── ValueContraryStrategy.h  저PBR 역추세 전략
 │   │   └── utils/
-│   │       ├── Logger.h            비동기 싱글톤 로거 (ms UTC·전용 writer 스레드·백프레셔·flush)
+│   │       ├── Logger.h            비동기 싱글톤 로거 (ms UTC·전용 writer 스레드·밀림 처리·flush)
 │   │       ├── Config.h            JSON 설정 파서
 │   │       ├── EtfFilter.h         종목명 기반 ETF/ETN 판별 (브랜드 접두사∪상품 토큰, config/etf_name_tokens.json)
 │   │       └── Timer.h             고분해능 타이머
@@ -201,7 +201,7 @@ Quant/                              ← 저장소 루트
 │   │   ├── __init__.py
 │   │   ├── engine.py               날짜별 시뮬레이션 (look-ahead bias 방지)
 │   │   ├── report.py               수익률·MDD·Sharpe·승률 출력
-│   │   └── regime_scorer.py        C++ RegimeController 미러 + 구조 국면 애블레이션 (Track A)
+│   │   └── regime_scorer.py        C++ RegimeController 미러 + 구조 국면 제거실험 (Track A)
 │   ├── tools/
 │   │   └── index_intraday_logger.py  장중 지수(0001/1001/2001) 30s append-only JSONL forward 적재 (Track B)
 │   ├── tests/

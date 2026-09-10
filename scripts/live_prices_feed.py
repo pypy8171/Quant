@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""전 종목(코스피+코스닥) 장중 시세 사이드카.
+"""전 종목(코스피+코스닥) 장중 시세 보조 프로세스.
 
 KIS REST는 초당 한도가 좁아 2,700종목을 2분마다 훑을 수 없다. 네이버 벌크 시세는
 한 번에 100종목을 묶어 주고 KIS 한도와 무관하므로, 여기서 받아 파일로 떨궈
@@ -80,7 +80,7 @@ def cycle(codes):
 
 def main():
     codes, _ = load_codes()
-    print('전 종목 시세 사이드카 시작: %d종목, %d초 주기 → %s' % (len(codes), PERIOD, OUT), flush=True)
+    print('전 종목 시세 보조 프로세스 시작: %d종목, %d초 주기 → %s' % (len(codes), PERIOD, OUT), flush=True)
     while True:
         t0 = time.time()
         prices, miss = cycle(codes)

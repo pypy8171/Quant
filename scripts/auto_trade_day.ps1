@@ -175,7 +175,7 @@ function Restore-Windows {
 Say "자동매매 하루 루프 시작 — config=$Config until=$Until$(if($DryRun){' (dry-run)'})"
 
 # 지난 회차의 남은 프로세스를 먼저 치운다. Job Object는 워치독이 정상적으로 사라질 때만 자식을 내리는데,
-# 강제 종료·리부트·워치독 없이 손으로 띄운 창은 그 경로를 타지 않는다. 그렇게 남은 사이드카·
+# 강제 종료·리부트·워치독 없이 손으로 띄운 창은 그 경로를 타지 않는다. 그렇게 남은 보조 프로세스·
 # 대시보드가 계속 폴링하면 REST 초당 한도를 같이 갉아먹고, 창만 남은 빈 창은 화면을 먹는다.
 # 트레이더는 여기서 죽이지 않는다 — 바로 아래 duplicate_process 게이트가 사람 판단으로 처리한다.
 $reaper = Join-Path $PSScriptRoot "quant_procs.ps1"
@@ -210,7 +210,7 @@ $paper = $true
 try { $paper = [bool](Get-Content $Config -Raw | ConvertFrom-Json).kis.is_paper } catch { }
 Say ("계좌 모드: {0}" -f $(if ($paper) { "모의(is_paper=true)" } else { "실계좌(is_paper=false)" })) $(if ($paper) { "INFO" } else { "WARN" })
 
-$py = if (Test-Path $VenvPy) { $VenvPy } else { Say "venv 없음 — 사이드카는 FDR 없이 UNKNOWN만 낸다." "WARN"; "py" }
+$py = if (Test-Path $VenvPy) { $VenvPy } else { Say "venv 없음 — 보조 프로세스는 FDR 없이 UNKNOWN만 낸다." "WARN"; "py" }
 
 Save-Status "starting" @{ paper = $paper }
 
@@ -246,10 +246,10 @@ while ((Get-Date) -lt $deadline) {
 
   $t0 = Get-Date
   $script:LastStart = $t0.ToString("HH:mm")
-  # 이전 세션이 남긴 미체결 주문 목록을 로그에서 복원해 사이드카에 채운다. 엔진이 기동하면서
+  # 이전 세션이 남긴 미체결 주문 목록을 로그에서 복원해 보조 프로세스에 채운다. 엔진이 기동하면서
   # cancel_stale_orders()가 이 파일을 읽어 전부 취소한다 — 유령 지정가가 현금과 매도가능수량을
   # 묶고, 청산 직후 되사서 전략을 뒤집는 것을 막는다(2026-09-08 미체결 85건 실측).
-  # 엔진이 스스로 쓰는 사이드카가 정상이면 이 복원은 같은 내용을 다시 쓸 뿐이라 무해하다.
+  # 엔진이 스스로 쓰는 보조 프로세스가 정상이면 이 복원은 같은 내용을 다시 쓸 뿐이라 무해하다.
   & py (Join-Path $Repo "scripts\seed_open_orders.py") 2>&1 | ForEach-Object { Say "  $_" }
 
   # 트레이더도 잡에 넣는다. 워치독이 사라졌는데 엔진만 살아 있으면 아무도 감시하지 않는 채
@@ -261,7 +261,7 @@ while ((Get-Date) -lt $deadline) {
   }
   Save-Status "running" @{ pid = $p.Id; session = $n }
   # WaitForExit로 통째로 막지 않는다. 트레이더를 기다리는 동안 부속 창 안의 파이썬이
-  # 죽었는지도 같이 본다 — 알림·국면 사이드카가 조용히 사라지는 것을 놓치지 않기 위해서다.
+  # 죽었는지도 같이 본다 — 알림·국면 보조 프로세스가 조용히 사라지는 것을 놓치지 않기 위해서다.
   while (-not $p.HasExited) {
     if ($p.WaitForExit(60000)) { break }
     Restore-Windows

@@ -1,6 +1,6 @@
 # HARNESS.md — 하네스·루프 엔지니어링
 
-이 문서는 이 저장소에서 Claude Code를 감싸는 자동화 층이 실제로 어떻게 동작하고 무슨 효과를 내는지 정리한다. 대상 파일은 대부분 `.claude/`(gitignore 로컬 전용) 아래에 있고, 스크립트·사이드카는 저장소에 있다.
+이 문서는 이 저장소에서 Claude Code를 감싸는 자동화 층이 실제로 어떻게 동작하고 무슨 효과를 내는지 정리한다. 대상 파일은 대부분 `.claude/`(gitignore 로컬 전용) 아래에 있고, 스크립트·보조 프로세스는 저장소에 있다.
 
 > **다이어그램 페이지**: 아래 구조를 SVG로 그린 공유용 페이지 — [퀀트 하네스 설계도](https://claude.ai/code/artifact/7b76a70f-c3f8-44d0-8d14-efeb3d1fd91d) (5레버 프레임·런타임 파이프라인·루프·효과표, 라이트/다크 대응)
 
@@ -99,7 +99,7 @@ Notion 커넥터가 연결돼 있다. 개발로그와 장전 시황 브리핑을
 
 ### C. 런타임 자동화 루프 — regime.json 파일 전달
 
-사이드카 `PYQuant/tools/macro_regime_feed.py`가 매크로 국면을 판정해 `regime.json`을 주기 갱신하면, C++ 엔진이 이를 폴링해 `OrderGate::set_entry_halt`를 토글한다. 신규매수만 차단하고 청산은 통과시킨다. 프로세스 간 결합을 파일 하나로 느슨하게 유지하면서 급락 국면에서 신규 진입을 자동 차단한다. 파일이 오래되면(`regime_stale_sec` 초과) stale로 간주해 안전측으로 진입을 막는다.
+보조 프로세스 `PYQuant/tools/macro_regime_feed.py`가 매크로 국면을 판정해 `regime.json`을 주기 갱신하면, C++ 엔진이 이를 폴링해 `OrderGate::set_entry_halt`를 토글한다. 신규매수만 차단하고 청산은 통과시킨다. 프로세스 간 결합을 파일 하나로 느슨하게 유지하면서 급락 국면에서 신규 진입을 자동 차단한다. 파일이 오래되면(`regime_stale_sec` 초과) stale로 간주해 안전측으로 진입을 막는다.
 
 ### D. 스케줄 루프 — 장전 시황 브리핑
 
@@ -149,7 +149,7 @@ ninja가 조용히 스킵한다).
 
 - 무엇이 언제 스스로 도는지(예약작업·루틴·마감 파이프라인)는 [docs/AUTOMATION.md](AUTOMATION.md)가 목록으로 소유한다. 여기서는 설계 의도만 다룬다.
 
-- `.claude/`(에이전트·커맨드·훅)는 gitignore 로컬 전용이다. 여기의 변경은 커밋되지 않고 VSCode 재시작 후 적용된다(훅은 즉시 적용). 스크립트·사이드카는 저장소에 있다.
+- `.claude/`(에이전트·커맨드·훅)는 gitignore 로컬 전용이다. 여기의 변경은 커밋되지 않고 VSCode 재시작 후 적용된다(훅은 즉시 적용). 스크립트·보조 프로세스는 저장소에 있다.
 - PowerShell 훅은 UTF-8 BOM으로 저장하고 한글 경로 리터럴을 피한다(`$PSScriptRoot`에서 repo 루트를 유도). PowerShell 5.1이 BOM 없는 UTF-8 한글을 시스템 코드페이지로 오독하기 때문이다.
 - 에이전트 개수·목록이 바뀌면 `.claude/AGENTS.md`의 빠른 참조 개수와 목록을 함께 갱신한다.
 - 이 문서를 저장소 색인에 넣을 때는 [docs/SYNC_MAP.md](SYNC_MAP.md)의 의존 표에 등록해 `scripts/check_docs.py` 게이트를 통과시킨다.

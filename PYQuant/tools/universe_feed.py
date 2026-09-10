@@ -118,7 +118,7 @@ def build(on_date: str, n_mktcap: int, n_turnover: int,
         #  (246일 × 수천 항목이면 산출물이 불필요하게 커진다).
         doc["market_map"] = {r["code"]: r["market"] for r in rows
                              if r.get("code") and r.get("market") in ("KOSPI", "KOSDAQ")}
-        # 전 종목 코드→종목명. 알림 사이드카가 체결 메시지에 이름을 붙이는 데 쓴다.
+        # 전 종목 코드→종목명. 알림 보조 프로세스가 체결 메시지에 이름을 붙이는 데 쓴다.
         #  universe(top-N)에만 이름을 두면 랭킹축으로 들어온 종목이 코드로만 뜬다.
         #  같은 스냅샷에 이미 있는 값이라 추가 조회가 없다.
         doc["name_map"] = {r["code"]: r["name"] for r in rows

@@ -9,7 +9,7 @@
 | 축 | 입력 | 하는 일 | 청산 |
 |---|---|---|---|
 | `RegimeController` | 코스피 지수 일봉 | 국면별로 활성 전략 집합을 고른다 | 안 한다 |
-| `regime.json` 파일 전달 | 매크로 사이드카 | `entry_halt`·`force_liquidate` | `force_liquidate`가 한다 |
+| `regime.json` 파일 전달 | 매크로 보조 프로세스 | `entry_halt`·`force_liquidate` | `force_liquidate`가 한다 |
 
 `RegimeController`가 BEAR를 내도 보유분은 청산되지 않는다. 진입만 막힌다.
 전량 청산은 `regime.json`의 `force_liquidate`뿐이다. 그래서 드릴도 둘로 나뉜다.
@@ -29,7 +29,7 @@
 
 ### 준비
 
-1. 매크로 사이드카(`macro_regime_feed.py`)를 **내린다**. 켜져 있으면 다음 주기에 `regime.json`을 덮어쓴다.
+1. 매크로 보조 프로세스(`macro_regime_feed.py`)를 **내린다**. 켜져 있으면 다음 주기에 `regime.json`을 덮어쓴다.
 2. 오전에 정상 매매로 보유 종목을 몇 개 만든다. 당일 매수분이 섞여야 D-11(매도가능수량 미클램프)이 함께 드러난다.
 
 ### 발동
@@ -67,7 +67,7 @@
 ```
 
 `[Regime] force_liquidate 해제` WARN이 뜨고 재발주가 멈추는지 본다.
-그 다음 사이드카를 다시 올린다.
+그 다음 보조 프로세스를 다시 올린다.
 
 > 파일이 갱신 끊김 한도를 넘기면 `poll_regime_file()`이 `force_liquidate_.store()` 전에 return하므로
 > 플래그가 직전 값(TRUE)에 머문다. 해제할 때도 반드시 새로 써야 한다.

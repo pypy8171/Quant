@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Track A 구조국면 애블레이션 하네스 — 국면 스코어러 4변형(A/B/C/D)을
+Track A 구조국면 제거실험 하네스 — 국면 스코어러 4변형(A/B/C/D)을
 6개 하락장 창에서 "지수 long/flat 타이밍 필터"로 결정론적 평가.
 
 무엇을 하나 (책임 경계):
@@ -387,7 +387,7 @@ def write_readme(rows: list[dict], chosen: dict, commit: str) -> None:
 def main() -> None:
     commit = _git_commit()
     print("=" * 68)
-    print(f"BT-10 Track A 국면 스코어러 애블레이션  (seed={SEED}, commit={commit})")
+    print(f"BT-10 Track A 국면 스코어러 제거실험  (seed={SEED}, commit={commit})")
     print(f"창 {len(WINDOWS)}개 · 변형 {VARIANTS} · 홀드아웃={HOLDOUT}")
     print("=" * 68)
 

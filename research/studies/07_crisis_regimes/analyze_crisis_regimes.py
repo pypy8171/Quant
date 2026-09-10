@@ -52,7 +52,7 @@ KRW_SYSTEMIC = 10.0     # krw_chg(%) >= 10 (원화 급락) → systemic
 ANNUAL = math.sqrt(252.0)
 RECOVERY_EXT_DAYS = 500  # 앵커창 이후 recovery 탐색용 달력일 여유(peak/trough 앵커는 창 내 고정)
 
-# ── 이벤트 카탈로그 (id, 원인, 대표지수, search_start_ym, search_end_ym, 보조지표) ──
+# ── 이벤트 목록 (id, 원인, 대표지수, search_start_ym, search_end_ym, 보조지표) ──
 # 대표지수 = 앵커계산 기준. search창 = 앵커 탐색범위(실제 peak/trough 는 데이터로 결정).
 EVENTS = [
     ("1929_great_crash",       "financial",      "^GSPC", "1929-06", "1933-06", []),

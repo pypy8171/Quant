@@ -209,8 +209,8 @@ def main():
     print(f"{'매도거래수':<18}{A['ntr']:>16}{B['ntr']:>20}")
     print(f"{'강제청산(상폐)':<18}{A['forced']:>16}{B['forced']:>20}")
     print("-" * 82)
-    print(f"[벤치 등가중BH] 수익률 {A['bench']:+.2f}%  MDD -{A['bench_mdd']:.2f}%  Sharpe {A['bench_sharpe']:.2f}")
-    print(f"[초과수익 α] A {A['alpha']:+.2f}%p  |  B {B['alpha']:+.2f}%p  (vs 등가중BH)")
+    print(f"[벤치 동일가중BH] 수익률 {A['bench']:+.2f}%  MDD -{A['bench_mdd']:.2f}%  Sharpe {A['bench_sharpe']:.2f}")
+    print(f"[초과수익 α] A {A['alpha']:+.2f}%p  |  B {B['alpha']:+.2f}%p  (vs 동일가중BH)")
 
     print("\n── 상폐/데이터종료 헤어컷 (i)마지막종가청산 vs (ii)회수0 ──")
     print(f"  {'':<12}{'강제청산건':>10}{'(i)총수익%':>12}{'(i)CAGR':>10}{'(i)MDD':>10}"

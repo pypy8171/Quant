@@ -482,7 +482,7 @@ def build_outputs(g):
     md.append("")
     md.append("## 프로세스 경계 파일")
     md.append("")
-    md.append("C++ 엔진·Python 사이드카·스크립트가 파일로 주고받는 지점. 코드의 문자열 리터럴에서 찾았고,")
+    md.append("C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 지점. 코드의 문자열 리터럴에서 찾았고,")
     md.append("읽기/쓰기는 리터럴 주변 줄의 힌트(ofstream·dump·read_text 등)로 분류했다. 힌트가 없으면 '언급만'.")
     md.append("")
     md.append(render_boundary_table(boundary))

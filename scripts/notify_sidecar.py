@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""매매 알림 사이드카 — 체결은 즉시, 포지션 요약은 주기적으로 메신저에 보낸다.
+"""매매 알림 보조 프로세스 — 체결은 즉시, 포지션 요약은 주기적으로 메신저에 보낸다.
 
 엔진(quant_trader)은 건드리지 않는다. 당일 체결 원장 CSV(logs/trades_YYYYMMDD.csv)를
 증분으로 따라 읽어 체결이 새로 적히면 바로 보내고, 평단·손익은 KIS 잔고조회로 따로 만든다.
@@ -171,7 +171,7 @@ def build_notifiers(quiet=False):
 
 
 class Fanout:
-    """수신처 하나가 죽어도 나머지는 보낸다. 알림 실패로 사이드카가 멈추지 않게."""
+    """수신처 하나가 죽어도 나머지는 보낸다. 알림 실패로 보조 프로세스가 멈추지 않게."""
 
     def __init__(self, targets, echo):
         self.targets = targets
@@ -281,7 +281,7 @@ def read_realized_today(items):
 
 
 def read_regime(cfg):
-    """매크로 사이드카가 쓰는 regime.json. 신규매수 차단·강제청산 상태를 같이 보여준다."""
+    """매크로 보조 프로세스가 쓰는 regime.json. 신규매수 차단·강제청산 상태를 같이 보여준다."""
     rel = cfg.get("regime_file") or "Quant/config/regime.json"
     try:
         return json.loads((REPO / rel).read_text(encoding="utf-8"))
@@ -527,7 +527,7 @@ class TradeTail:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="매매 알림 사이드카")
+    ap = argparse.ArgumentParser(description="매매 알림 보조 프로세스")
     ap.add_argument("--config", default="Quant/config/config_dev_paper.json")
     ap.add_argument("--interval", type=float, default=1800, help="포지션 요약 주기(초)")
     ap.add_argument("--poll", type=float, default=2.0, help="체결 원장 폴링 주기(초)")
@@ -547,7 +547,7 @@ def main():
 
     fan = Fanout(build_notifiers(quiet=False), args.echo)
     if args.test:
-        fan.send("🔔 알림 사이드카 테스트 [%s] %s"
+        fan.send("🔔 알림 보조 프로세스 테스트 [%s] %s"
                  % (mode, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         print("수신처 %d곳으로 전송 시도 완료" % len(fan.targets), flush=True)
         return 0

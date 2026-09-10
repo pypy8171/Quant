@@ -195,8 +195,8 @@ def main():
     print(f"  MDD -{S['mdd']:.2f}%   Calmar {S['calmar']:.2f}   승률 {S['win']:.1f}%")
     print(f"  turnover(연,proxy) {S['turnover']:.2f}   매수일수 {S['rebals']}   매도거래수 {S['ntr']}")
     print(f"  보유종목수 avg {S['npos_avg']:.1f} / max {S['npos_max']}   강제청산(상폐) {S['forced']}건")
-    print(f"  [벤치 등가중BH] {S['bench']:+.2f}%  MDD -{S['bench_mdd']:.2f}%  Sharpe {S['bench_sharpe']:.2f}")
-    print(f"  [초과수익 α] {S['alpha']:+.2f}%p (vs 등가중BH)")
+    print(f"  [벤치 동일가중BH] {S['bench']:+.2f}%  MDD -{S['bench_mdd']:.2f}%  Sharpe {S['bench_sharpe']:.2f}")
+    print(f"  [초과수익 α] {S['alpha']:+.2f}%p (vs 동일가중BH)")
 
     print("\n── 2022 홀드아웃 (동일 곡선 슬라이스, 튜닝 미접촉) ──")
     if hold:

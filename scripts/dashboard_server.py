@@ -5,7 +5,7 @@
 
 엔진(C++)을 재빌드하지 않고, 이미 존재하는 데이터 소스만 모아 브라우저에 실시간 표시한다:
   - 계좌/보유종목/평가손익/손실률 : KisClient.get_kr_balance() (엔진과 토큰 캐시 공유 → 충돌 없음)
-  - 국면(regime)                  : Quant/config/regime.json  (매크로 사이드카가 씀)
+  - 국면(regime)                  : Quant/config/regime.json  (매크로 보조 프로세스가 씀)
   - 매매 리스트(유니버스)          : Quant/config/universe_scan.json
   - 장중 매매 기준                 : config 전략/리스크 블록 (정적 서술)
   - 콘솔 이벤트(신호/주문/체결/거부): logs/quant_trader.log tail 분류

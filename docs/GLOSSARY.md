@@ -132,6 +132,10 @@
 | **regime_scorer** | 구조 국면 스코어러 | C++ `RegimeController`를 미러(변형 A)하고 연속화/기울기/오버레이로 확장한 Track A 애블레이션 | `PYQuant/backtest/regime_scorer.py`, study [10](../research/studies/10_regime_scorer/README.md) |
 | **index_intraday_logger** | 장중 지수 forward 로거 | 장중 지수(0001/1001/2001) 30s append-only JSONL 적재 — 지수 PIT 히스토리 부재로 백테스트 불가한 Track B의 유일 검증경로 | `PYQuant/tools/index_intraday_logger.py` |
 | **BT-NN** | Backtest #NN | 백테스트 일련번호(예: BT-08 위기대응, BT-09 위기전략 10종, BT-10 저점매수) | 상세는 research 허브 |
+| **IC** | Information Coefficient | 예측값과 실현수익의 순위상관 | 산문 첫 등장은 `순위상관(IC)`으로 병기한다 |
+| **MAE** | Maximum Adverse Excursion | 진입 후 청산까지 겪은 최대 미실현 손실폭 | 최대낙폭(MDD)과 다르다 — 이쪽은 거래 단위다 |
+| **mcap / mktcap** | market capitalization | 시가총액. 유니버스 산출물의 열 이름 | 열 이름은 그대로 두고 산문에서만 병기한다 |
+| **tv20 / vol20 / lo60** | — | 20일 평균 거래대금 / 20일 평균 거래량 / 60일 최저가 | 유니버스 스캔 산출물의 열 이름 |
 | **LAB** | STRATEGY_LAB | 전략 실험 가설·판정 카탈로그(로컬전용 문서) | GitHub 미포함 |
 
 > 계열 프리픽스(M=위기 대응법, N=신규 전략, O/C=위기 전략 후보, H=가설)의 개별 결론과 file:line은 리서치 허브·전략 폴더에서 확인한다. 확장 명문 정의가 코드/공개문서에 없는 라벨은 여기서 단정하지 않는다.

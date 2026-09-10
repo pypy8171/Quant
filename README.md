@@ -25,7 +25,7 @@
 
 - **RingBuffer** — 명시적 메모리 순서를 쓰는 단일생산자·단일소비자(SPSC) 락-프리 큐(스레드 간 배압).
 - **OrderGate** — 주문이 나가기 전 통과해야 하는 위험 검증 게이트(아래).
-- **국면(Regime) 자동전환** — `RegimeController`가 장 시작 지수 국면(BULL/NEUTRAL/BEAR)을 판정해 전략 집합을 자동 선택하고, 약세장에서 `FORCE_LIQ`로 강제청산한다(config `regime_strategies`). 매크로 사이드카(`regime.json`)는 별도로 신규매수만 막는 entry halt를 토글한다.
+- **국면(Regime) 자동전환** — `RegimeController`가 장 시작 지수 국면(BULL/NEUTRAL/BEAR)을 판정해 전략 집합을 자동 선택하고, 약세장에서 `FORCE_LIQ`로 강제청산한다(config `regime_strategies`). 매크로 보조 프로세스(`regime.json`)는 별도로 신규매수만 막는 entry halt를 토글한다.
 - 확장 구성(ZMQ IPC · TimescaleDB 적재 · Python 오퍼레이터)은 [PROJECT_GUIDE.md](docs/guides/PROJECT_GUIDE.md) 참조.
 
 ---
@@ -67,7 +67,7 @@
 ```
 Quant/          C++ 실매매 엔진 (Engine · OrderGate · OrderRouter · KIS 클라이언트 · 전략)
 PYQuant/        Python 백테스트·리서치·라이브 트레이더
-research/       백테스트 저널 · 카탈로그 · 하락장 이벤트 스터디
+research/       백테스트 저널 · 목록 · 하락장 이벤트 스터디
 strategies/     전략별 스펙(SPEC) · 실증 로그 · 백테스트 결과
 scripts/        운영 보조 스크립트
 ```

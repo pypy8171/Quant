@@ -69,7 +69,7 @@ def slice_metrics(res, y0, y1):
     d = _derived_metrics(sub)
     _, mdd, sharpe = BacktestEngine._curve_stats(sub)
     tr = (sub[-1] - sub[0]) / sub[0] * 100 if sub[0] > 0 else 0.0
-    # 벤치(등가중 BH) 동일 슬라이스
+    # 벤치(동일가중 BH) 동일 슬라이스
     bench = res.bench_curve
     btr = None
     if bench:
@@ -183,9 +183,9 @@ def main():
     print(f"{'매도거래수':<16}{ew['ntr']:>18}{va['ntr']:>20}")
     print(f"{'강제청산(상폐)':<16}{ew['forced']:>18}{va['forced']:>20}")
     print("-" * 78)
-    print(f"[벤치 등가중BH] 수익률 {ew['bench']:+.2f}%  MDD -{ew['bench_mdd']:.2f}%  Sharpe {ew['bench_sharpe']:.2f}")
+    print(f"[벤치 동일가중BH] 수익률 {ew['bench']:+.2f}%  MDD -{ew['bench_mdd']:.2f}%  Sharpe {ew['bench_sharpe']:.2f}")
     print(f"[KODEX200 BH] {ew['kodex']:+.2f}%" if ew['kodex'] is not None else "[KODEX200] 데이터없음")
-    print(f"[초과수익 α] EW {ew['alpha']:+.2f}%p  |  VA {va['alpha']:+.2f}%p  (vs 등가중BH)")
+    print(f"[초과수익 α] EW {ew['alpha']:+.2f}%p  |  VA {va['alpha']:+.2f}%p  (vs 동일가중BH)")
 
     print("\n── 2022 홀드아웃 (동일 곡선 슬라이스, 튜닝 미접촉) ──")
     for tag in ["EW", "VA"]:

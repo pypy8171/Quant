@@ -60,7 +60,7 @@ CB_COOL = 5                 # M4 냉각 거래일
 M5_TARGET_VOL = 0.15        # M5 목표 연율변동성
 ANNUAL = math.sqrt(252.0)
 
-# ── 이벤트 카탈로그(진단용 창). 대표지수 = 창내 max-dd 앵커 기준 ──────────────
+# ── 이벤트 목록(진단용 창). 대표지수 = 창내 max-dd 앵커 기준 ──────────────
 EVENTS = [
     ("1929_great_crash",       "financial",    "^GSPC", "1929-06-01", "1933-06-30"),
     ("1987_black_monday",      "structural",   "^GSPC", "1987-07-01", "1988-06-30"),
@@ -279,7 +279,7 @@ def expo_combo(closes, ret, vix, params):
 
 
 METHODS = [
-    ("BH",    "Buy&Hold(기준선)",              expo_bh,          "상시 100% 보유"),
+    ("BH",    "매수 후 보유(기준선)",              expo_bh,          "상시 100% 보유"),
     ("M1",    "200일선 추세게이트",             expo_m1_trend,    "C<200MA·기울기음전 → 현금"),
     ("M2",    "실현변동성 z-score 축소",        expo_m2_volz,     "vol z>1.5 → 50% 축소"),
     ("M3",    "VIX 게이트(2000+)",             expo_m3_vix,      "VIX≥25 반컷·≥30 전액컷"),

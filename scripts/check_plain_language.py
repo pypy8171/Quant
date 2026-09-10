@@ -22,7 +22,7 @@ docs/STYLE_GUIDE.md의 "반복 적발 표현" 표를 코드로 옮긴 것이다.
     이 자리를 바꾸면 과거 로그·metrics.json과 어긋나 파서가 조용히 0을 낸다(2026-09-08).
     --fix에서는 그런 자리를 [keep]으로 알리기만 한다.
   - 스캔 대상 .md 안에서도 인라인 코드(`...`)·코드펜스(```)·링크 URL의 (...) 부분은
-    마스킹해 건드리지 않는다(식별자·파일명·앵커 보호).
+    마스킹해 건드리지 않는다(식별자·파일명·줄번호 참조 보호).
 
 사용:
   python scripts/check_plain_language.py            # 검출만(드리프트 있으면 exit 1)
@@ -93,6 +93,13 @@ RULES = [
     (r"절제실험", "제거실험", "절제실험"),
     (r"채널\s*돌파\s*\(Donchian\)", "채널 돌파", "채널 돌파(Donchian)"),
     (r"Donchian", "채널 돌파", "Donchian(산문)"),
+    # ── 굳은 외래어 (2026-09-09) ────────────────────────────────────
+    # 약어는 여기서 잡지 않는다. 정본(docs/STYLE_GUIDE.md 17행)이 약어를 금지어가 아니라
+    #  "처음 등장 시 쉬운말(약어) 병기, 반복 등장은 약어만"으로 규정하기 때문이다.
+    #  정규식은 첫 등장과 반복을 못 가르므로 매 건을 잡게 되고(2026-09-11 측정: PIT 51건 중
+    #  대부분이 반복 등장), 그러면 게이트가 정본과 반대로 판정한다. 병기 표준어는
+    #  docs/GLOSSARY.md가 소유한다.
+    (r"사이드카", "보조 프로세스", "사이드카"),
     # ── 프로젝트 안에서만 통하던 말 → 밖에서도 읽히는 말 (2026-09-08) ──────────
     # 은유·별명으로 굳은 이름들이다. 처음 보는 사람이 뜻을 짐작할 수 없으면 쓰지 않는다.
     (r"고아\s*체결", "미연결 체결", "고아 체결"),
@@ -135,7 +142,8 @@ RULES = [
 # 주석이 바로 옆 식별자(enum EOD, DonchianBreakoutStrategy)를 부르는 경우라
 # 여기서 바꾸면 주석과 코드가 서로 다른 이름을 말하게 된다.
 CODE_SKIP_DESC = {"EOD", "Donchian(산문)", "BH(산문)", "B&H", "Buy&Hold",
-                  "ablation", "fail-fast", "H7"}
+                  "ablation", "fail-fast", "H7",
+                  "mcap", "mktcap", "tv20", "lo60", "vol20", "MAE", "PIT", "IC"}
 
 _COMPILED = [(re.compile(pat), rep, desc) for pat, rep, desc in RULES]
 
@@ -148,6 +156,9 @@ SCAN_GLOBS = [
     "research/**/*.md", "strategies/**/*.md", "docs/**/*.md",
     "README.md", "STRATEGIES.md", "ARCHITECTURE.md", "DECISIONS.md",
     "DAILY_LOG.md", "SESSION_HUB.md",
+    # 매 세션 컨텍스트에 통째로 들어가는 파일. 여기 말투가 그날 내 말투가 된다.
+    "CLAUDE.md", ".claude/*.md",
+    "research/**/*.py",
     "research/studies/PYTHON_학습노트.md", "Quant/CPP_학습노트.md",
     # 대시보드 데이터섬(사후검토·라이브 일지 산문 필드가 그대로 렌더됨)
     "research/dashboard/reviews.json", "research/dashboard/live.json",
@@ -250,21 +261,46 @@ def _fix_josa(text, phrase):
     return "".join(out) if i == 0 else text
 
 
-def _apply_line(line, code=False):
+def _detect_only(seg):
+    """치환하지 않고 적발만 한다. 인라인 코드와 코드블록 안을 볼 때 쓴다.
+
+    그 안은 명령·식별자·로그 원문이라 바꾸면 안 되지만, 금지어가 들어 있는지는
+    봐야 한다. 마스킹이 치환과 검출을 같이 막던 것이 백틱 우회의 원인이었다.
+    """
+    hits = []
+    for rx, rep, desc in _COMPILED:
+        # CODE_SKIP_DESC 면제는 파일 종류와 무관하게 여기서도 그대로 둔다. 이 집합은
+        #  "그 토큰이 곧 기계 이름"인 항목만 담는다(docs/eod 경로, Donchian 클래스명,
+        #  ablation 함수명). 백틱 안은 그 이름을 있는 그대로 인용하는 자리라 적발하면
+        #  전부 오탐이고, 피하려면 lexicon-ok를 문서마다 흩뿌려야 한다. 그 밖의 규칙은
+        #  여기서도 잡는다 — 로그 원문을 백틱으로 인용하며 금지어가 새는 자리다.
+        if desc in CODE_SKIP_DESC:
+            continue
+        if rx.search(seg):
+            hits.append(desc)
+    return hits
+
+
+def _apply_line(line, code=False, deep=True):
     """한 줄에 규칙 적용. (새 줄, [적발설명…]) 반환. 코드펜스 밖 줄에만 호출."""
     masked, store = _mask(line)
     hits = []
-    # 헤딩 접두어 "백테스트 NN ·" / "BT-NN ·" → 서술형(뒤에 이미 설명이 오므로 접두어만 제거)
-    mh = _ID_HEAD.match(masked)
-    if mh:
-        masked = _ID_HEAD.sub(r"\1", masked)
-        hits.append(f"헤딩 ID 접두어 제거(BT-{mh.group(2)})")
-    # 남은 BT-NN / 백테스트 NN 토큰 → 서술형 이름
-    def _name(m):
-        nn = m.group(1)
-        hits.append(f"BT-{nn}→{NAME_MAP.get(nn, '?')}")
-        return NAME_MAP.get(nn, m.group(0))
-    masked = _ID_TOKEN.sub(_name, masked)
+    # BT-NN은 산문에서만 편다. 코드 파일에서는 그 문자열이 study_id·metrics 키·판정
+    #  라벨이라(research/studies/*.py) 이름으로 펴면 조회가 조용히 빈 값을 낸다.
+    #  CODE_SKIP_DESC는 용어 규칙에만 걸려 있어 이 치환까지는 막지 못했다.
+    if not code:
+        # 헤딩 접두어 "백테스트 NN ·" / "BT-NN ·" → 서술형(뒤에 이미 설명이 오므로 접두어만 제거)
+        mh = _ID_HEAD.match(masked)
+        if mh:
+            masked = _ID_HEAD.sub(r"\1", masked)
+            hits.append(f"헤딩 ID 접두어 제거(BT-{mh.group(2)})")
+        # 남은 BT-NN / 백테스트 NN 토큰 → 서술형 이름
+        def _name(m):
+            nn = m.group(1)
+            hits.append(f"BT-{nn}→{NAME_MAP.get(nn, '?')}")
+            return NAME_MAP.get(nn, m.group(0))
+        masked = _ID_TOKEN.sub(_name, masked)
+
     # 용어 규칙
     for rx, rep, desc in _COMPILED:
         if code and desc in CODE_SKIP_DESC:
@@ -273,6 +309,12 @@ def _apply_line(line, code=False):
             masked = rx.sub(rep, masked)
             masked = _fix_josa(masked, rep)
             hits.append(desc)
+    # 마스킹해 둔 인라인 코드는 치환하지 않되 적발은 한다. 로그 원문을 백틱으로
+    #  인용하면서 금지어가 새는 자리다 — 그 로그 문구 자체가 규약 적용 범위다.
+    if deep:
+        for s in store:
+            if s.startswith("`"):
+                hits.extend(d + " (인라인 코드 안)" for d in _detect_only(s))
     return _unmask(masked, store), hits
 
 
@@ -368,18 +410,30 @@ def _protected_literal(line, a, b):
     return None
 
 
-def process(text, code=False):
+def process(text, code=False, deep=True):
     """전체 텍스트 처리. (새 텍스트, [(lineno, 설명)…], [(lineno, 보호 사유)…]) 반환.
 
     셋째 항목은 코드 모드에서 규칙에 걸렸지만 기계 키라 치환하지 않은 자리다.
     """
     out, findings, kept, in_fence, in_doc = [], [], [], False, False
+    fence_ok = False
     for i, line in enumerate(text.splitlines(keepends=False), 1):
         if not code and line.lstrip().startswith("```"):
+            if not in_fence:
+                # 여는 줄에 lexicon-ok를 달면 그 블록만 검사에서 뺀다.
+                #  금지어를 예시로 보여줘야 하는 블록(치환표·회피 사례)이 대상이다.
+                fence_ok = "lexicon-ok" in line
             in_fence = not in_fence
             out.append(line)
             continue
         if in_fence:
+            out.append(line)
+            if deep and not fence_ok:
+                findings.extend((i, d + " (코드블록 안)") for d in _detect_only(line))
+            continue
+        # 줄 단위 예외. 금지어 자체를 적어야 하는 줄에 쓴다(치환표, 금지어를 잡는
+        #  grep 패턴, 판정 라벨). 파일 전체를 여는 lexicon-ok보다 범위가 좁다.
+        if "lexicon-ok" in line:
             out.append(line)
             continue
         if code:
@@ -404,7 +458,7 @@ def process(text, code=False):
             buf.append(line[last:])
             new = "".join(buf)
         else:
-            new, hits = _apply_line(line)
+            new, hits = _apply_line(line, deep=deep)
         out.append(new)
         for h in hits:
             findings.append((i, h))
@@ -412,10 +466,10 @@ def process(text, code=False):
     return "\n".join(out) + trailing_nl, findings, kept
 
 
-def _run_stdin(code=False):
+def _run_stdin(code=False, deep=True):
     """파일로 쓰기 전의 본문을 그대로 받아 검사한다(쓰기 시점 훅용)."""
     data = sys.stdin.buffer.read().decode("utf-8", "replace")
-    _, findings, _ = process(data, code=code)
+    _, findings, _ = process(data, code=code, deep=deep)
     if not findings:
         return 0
     for ln, h in findings[:20]:
@@ -426,11 +480,14 @@ def _run_stdin(code=False):
 
 
 def main(argv):
+    # --loose: 인라인 코드·코드블록 안을 보지 않는다. 채팅 출력 검사용이다 —
+    #  로그 원문을 백틱으로 인용하는 건 증거 제시라 막으면 안 된다.
     if "--stdin" in argv:
-        return _run_stdin("--code" in argv)
+        return _run_stdin("--code" in argv, deep="--loose" not in argv)
     fix = "--fix" in argv
     paths = [a for a in argv if not a.startswith("--")]
     total = 0
+    manual = 0  # 보호 구역 적발 — 치환하면 명령·식별자가 깨지므로 사람이 고친다
     for f in _iter_files(paths):
         text = f.read_text(encoding="utf-8")
         new, findings, kept = process(text, code=f.suffix.lower() in CODE_EXT)
@@ -441,6 +498,7 @@ def main(argv):
         if not findings:
             continue
         total += len(findings)
+        manual += sum(1 for _, h in findings if h.endswith(" 안)"))
         if fix and new != text:
             f.write_text(new, encoding="utf-8")
             print(f"[fixed] {rel} — {len(findings)}건")
@@ -452,10 +510,18 @@ def main(argv):
                 print(f"          … 외 {len(findings) - 12}건")
     if fix:
         print(f"\n총 {total}건 처리. 재검증: python scripts/check_plain_language.py")
+
+        if manual:
+            print(f"이 중 {manual}건은 인라인 코드·코드블록 안이라 그대로 남았다. "
+                  f"직접 고치거나, 금지어를 보여줘야 하는 블록이면 여는 줄에 lexicon-ok를 단다.")
+
         return 0
     if total:
         print(f"\n드리프트 {total}건 — 평이화 필요(--fix로 자동 치환 후 검토). "
               f"정본: docs/STYLE_GUIDE.md")
+        if manual:
+            print(f"이 중 {manual}건은 인라인 코드·코드블록 안이라 --fix가 바꾸지 않는다. "
+                  f"직접 고치거나, 금지어를 보여줘야 하는 블록이면 여는 줄에 lexicon-ok를 단다.")
         return 1
     print("평이화 게이트 통과 — 적발 0건.")
     return 0

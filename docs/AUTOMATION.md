@@ -61,7 +61,7 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 | 층 | 담당 | 하는 일 |
 |---|---|---|
 | 감시자 | `scripts/auto_trade_guard.ps1` | 평일 5분 주기 예약작업. 장중인데 워치독이 없으면 기동한다. 남은 트레이더가 남아 있으면 먼저 내린다 |
-| 워치독 | `scripts/auto_trade_day.ps1` | 사전 점검(중복 프로세스·exe 갱신 여부·계좌 모드), 사이드카·유니버스·대시보드·알림 기동, 트레이더를 마감까지 감시·재기동, 마감 뒤 `eod_autodoc.py` 실행 |
+| 워치독 | `scripts/auto_trade_day.ps1` | 사전 점검(중복 프로세스·exe 갱신 여부·계좌 모드), 보조 프로세스·유니버스·대시보드·알림 기동, 트레이더를 마감까지 감시·재기동, 마감 뒤 `eod_autodoc.py` 실행 |
 | 감독 | `.claude/commands/auto-trade-day.md` | 국면 판단, 증분 로그 감시, **무발주 감시**, 결함을 코드/상황으로 분류, 코드면 수정·재빌드, **이슈 대장 누적**, 마감 뒤 해석 문서 |
 
 워치독 상태는 `_private/_auto_trade_day.json` 한 파일에 적힌다(`phase`·`sessions`·`history`). 로그 전체를
@@ -74,7 +74,7 @@ Windows에는 리눅스의 프로세스 그룹 cascade가 없다. 부모가 죽�
 사라지면 부속 창은 유휴 쉘로 떠 있고 트레이더는 아무도 감시하지 않는 채 계속 발주했다. 다음 기동은
 그 트레이더 때문에 `duplicate_process`로 막혔다.
 
-워치독은 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 잡을 만들어 사이드카·유니버스·대시보드·알림 창과
+워치독은 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 잡을 만들어 보조 프로세스·유니버스·대시보드·알림 창과
 트레이더를 모두 여기에 넣는다. 잡 핸들을 쥔 워치독이 사라지는 순간 — 정상 종료든 강제 종료든 —
 커널이 나머지를 같이 내린다. 되살리는 쪽은 감시자다. 재기동하면 잔고 재시드가 실제 보유수량을 다시
 읽고 청산 관리가 포지션을 다시 잡으므로, 끊긴 자리를 사람이 이을 필요가 없다.
@@ -86,7 +86,7 @@ Windows에는 리눅스의 프로세스 그룹 cascade가 없다. 부모가 죽�
 끝나도 빈 창은 남고, 창 목록만 보면 살아 있는 것처럼 보인다. 워치독은 트레이더를 기다리는 동안
 60초마다 `python`/`py` 프로세스의 명령줄을 훑어 등록된 스크립트 이름(`macro_regime_feed.py`,
 `dashboard_server.py`, `notify_sidecar.py`, `live_prices_feed.py`)이 있는지 확인하고, 없으면 남은 창을 내리고 같은 명령으로
-다시 띄운다. 기동 직후 45초는 아직 파이썬이 뜨는 중일 수 있어 건너뛴다. 알림 사이드카가 조용히
+다시 띄운다. 기동 직후 45초는 아직 파이썬이 뜨는 중일 수 있어 건너뛴다. 알림 보조 프로세스가 조용히
 사라진 것을 사람이 화면을 봐야 아는 상태를 없애기 위한 것이다.
 
 ```powershell
@@ -98,7 +98,7 @@ powershell -ExecutionPolicy Bypass -File scripts\auto_trade_guard.ps1 -Uninstall
 ### 남은 프로세스 정리 — `scripts/quant_procs.ps1`
 
 잡은 워치독이 정상적으로 사라질 때만 동작한다. 강제 종료, 리부트, 워치독 없이 손으로 띄운 창은
-그 경로를 타지 않아서 사이드카나 대시보드가 두 벌씩 남는다. 남은 쪽도 계속 폴링하므로 REST 초당
+그 경로를 타지 않아서 보조 프로세스나 대시보드가 두 벌씩 남는다. 남은 쪽도 계속 폴링하므로 REST 초당
 한도를 같이 갉아먹고, 안의 파이썬만 죽고 `-NoExit` 창만 남으면 화면과 메모리를 차지한 채 아무 일도
 하지 않는다. `Get-Process`로는 어느 powershell·python이 매매용인지 구분되지 않는다.
 
@@ -154,7 +154,7 @@ powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -KillAll # 전�
 | 전 종목 시세 파일 전달 | `scripts/live_prices_feed.py` | 20초(`PRICES_PERIOD_SEC`, D-028) | 네이버 벌크 시세를 100종목씩 묶어 받아 `Quant/config/prices_live.json`으로 떨군다. KIS REST 초당 한도와 무관해서 2,700종목을 20초 주기로 훑을 수 있다. `UniverseScanner`가 이 파일을 읽는다 |
 | 매매 알림 | `scripts/notify_sidecar.py` | 체결 즉시 / 요약 30분 | 당일 체결 원장 CSV를 증분으로 읽어 체결을 바로 보내고, 평단·손익 표는 KIS 잔고조회로 주기 발송 |
 
-### 매매 알림 사이드카
+### 매매 알림 보조 프로세스
 
 포지션 요약은 대시보드 계좌 현황과 같은 항목을 싣는다 — 총평가·총매수금액(원가)·가용현금(D+2)·
 예수금·총노출/한도·평가손익·보유 종목수/한도·오늘 익절·손절·실현손익·보유 종목표·국면. 실현손익은
@@ -165,7 +165,7 @@ powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -KillAll # 전�
 `-NoNotify`로 끈다.
 
 수신처는 `_private/notify.json`(gitignore)에 적는다. Discord 웹훅은 URL 하나로 끝나고 만료가 없다.
-카카오톡 '나에게 보내기'는 access token이 6시간이라 refresh token 갱신을 사이드카가 대신한다.
+카카오톡 '나에게 보내기'는 access token이 6시간이라 refresh token 갱신을 보조 프로세스가 대신한다.
 
 ```json
 {
