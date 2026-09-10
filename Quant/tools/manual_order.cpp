@@ -58,11 +58,13 @@ int main(int argc, char** argv)
 
     // ── config 로드 ──────────────────────────────────────────────────────────
     std::ifstream f(config_path);
+
     if (!f)
     {
         std::cerr << "[중단] config 못 엶: " << config_path << "\n";
         return 1;
     }
+
     json cfg = json::parse(f);
 
     KisConfig kc;
@@ -108,30 +110,51 @@ int main(int argc, char** argv)
 
     // ── [1] 인증 ─────────────────────────────────────────────────────────────
     KisClient kis(kc);
+
     if (!kis.authenticate())
     {
         std::cerr << "[중단] 인증 실패 (앱키/시크릿 확인)\n";
         return 3;
     }
+
     std::cout << "[1] 인증 완료\n";
 
     // ── [2] 리스크 게이트 (FEP 경로) ─────────────────────────────────────────
-    OrderGate gate; // 기본 config
+    // 게이트를 기본 생성만 하면 이 도구가 링크한 시점의 기본값을 그대로 쓴다. 그 값이
+    //  config와 어긋나면 정상 주문이 막힌다(09-09 15:07 강제청산에서 22주 매도가
+    //  "1주문 수량 한도 초과 (22 > 0)"으로 거부됐다). 운영자가 직접 내는 단발 주문이므로
+    //  주문 단위 한도만 config에서 실어 준다 — 보유·노출 한도는 엔진이 따로 본다.
+    OrderGate gate;
+    {
+        const json rj = cfg.value("risk", json::object());
+        OrderGate::Config gc;
+        gc.max_qty_per_order      = rj.value("max_qty_per_order", 10000);
+        gc.max_notional_per_order = rj.value("max_notional_per_order", 50000000.0);
+        gc.max_qty_per_ticker     = rj.value("max_qty_per_ticker", 4000);
+        gc.max_orders_per_min     = rj.value("max_orders_per_min", 20);
+        gc.max_orders_per_sec     = rj.value("max_orders_per_sec", 5);
+        gate.set_config(gc);
+    }
+
     std::string reason;
+
     if (!gate.check(sig, reason))
     {
         std::cerr << "[중단] OrderGate 거부: " << reason << "\n";
         return 4;
     }
+
     std::cout << "[2] OrderGate 통과\n";
 
     // ── [3] 접수 (submit_order → ODNO) ───────────────────────────────────────
     std::string odno = kis.submit_order(sig);
+
     if (odno.empty())
     {
         std::cerr << "[중단] 주문 접수 실패 (ODNO 없음 — 로그의 KIS msg 확인)\n";
         return 5;
     }
+
     gate.on_accept(sig.account_id, ticker, side, qty, price); // 미체결 선점(원장)
     std::cout << "[3] 접수 완료 — ODNO=" << odno << "\n";
 
@@ -139,12 +162,17 @@ int main(int argc, char** argv)
     //   시장가 주문은 장중이면 곧 체결된다. 지정가/장외 시간이면 미체결일 수 있음.
     std::cout << "[4] 체결 확인 (잔고 2초 간격 폴링, 최대 20초)...\n";
     bool seen = false;
+
     for (int i = 0; i < 10; ++i)
     {
         std::this_thread::sleep_for(std::chrono::seconds(2));
         json bal = kis.get_balance();
+
         if (!bal.contains("output1"))
+        {
             continue;
+        }
+
         for (auto& h : bal["output1"])
         {
             if (h.value("pdno", "") == ticker)
@@ -155,11 +183,17 @@ int main(int argc, char** argv)
                 seen = true;
             }
         }
+
         if (seen)
+        {
             break;
+        }
     }
+
     if (!seen)
+    {
         std::cout << "    (아직 보유수량에 안 잡힘 — 장외 시간/지정가 미체결이거나 매도로 청산됐을 수 있음)\n";
+    }
 
     std::cout << "=== 완료 ===\n";
     return 0;
