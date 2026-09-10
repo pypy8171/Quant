@@ -611,7 +611,7 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         sc.require_aligned = s.value("require_aligned", true);  // 정배열 프리필터 on/off
         sc.align_probe_max = s.value("align_probe_max", 60);    // 정배열 검사 후보 상한(일봉 조회 비용 캡)
 
-        // 장중 일봉 재기동 점검 — 0이면 기존 동작(하루 한 번 조회 후 캐시 고정).
+        // 장중 일봉 재조회 — 0이면 기존 동작(하루 한 번 조회 후 캐시 고정).
         for (const auto& e : s.value("sector_codes", nlohmann::json::array()))
         {
             if (e.is_string())
@@ -630,7 +630,7 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         sc.max_dev_pct     = s.value("max_dev_pct", 0.0);       // 과확장 컷(일봉 이격 상한, 0=비활성)
         sc.min_dev_pct     = s.value("min_dev_pct", 0.0);       // 과확장 하한(추세확장 슬리브용, 0=비활성)
         sc.universe_file   = s.value("universe_file", std::string()); // data.go.kr 유니버스 피드(ETF-free·30행캡 우회), 비면 KIS 랭킹만
-        sc.prices_file     = s.value("prices_file", std::string());  // 전 종목 장중 시세 파일(네이버 벌크 사이드카)
+        sc.prices_file     = s.value("prices_file", std::string());  // 전 종목 장중 시세 파일(네이버 벌크 보조 프로세스)
         sc.min_turnover    = s.value("min_turnover", 0.0);           // 거래대금 하한(원), 0=비활성
         sc.full_market     = s.value("full_market", false);          // 후보 풀을 전 종목으로
         sc.align_daily_n   = base.daily_lookback;               // 정배열(SMA60) 판정용 일봉 개수(≥60)
@@ -642,6 +642,10 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         sc.score_w_supply   = s.value("score_w_supply", 0.0); // 수급 로거 데이터 확보 후 제거실험
         // 변동성은 감점 축 — 같은 추세·눌림이면 덜 흔들리는 쪽에 비중을 준다.
         sc.score_w_vol      = s.value("score_w_vol", 0.5);
+        // 거래대금 축(기본 0=비활성). 켜면 같은 조건에서 두꺼운 종목이 위로 올라온다.
+        sc.score_w_liquidity = s.value("score_w_liquidity", 0.0);
+        // 정배열 마지막 조건(SMA20>SMA60)의 허용오차. 기본 0=기존 엄격 판정.
+        sc.align_ma_tol_pct  = s.value("align_ma_tol_pct", 0.0);
         int rescan_sec     = s.value("rescan_interval_sec", 600); // 주기적 재스캔 간격(초)
 
         // 유니버스 산출 콜백 — 초기 등록·주기적 재스캔 공용(cfg 값 복사 캡처).

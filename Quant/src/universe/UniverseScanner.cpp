@@ -43,10 +43,10 @@ struct DailyProbe
     //  s_n_live = (s_n*n - roll_n + px_live) / n — REST 없이 정배열을 장중 갱신한다.
     double r5 = 0.0, r10 = 0.0, r20 = 0.0, r60 = 0.0;
     double atr_pct = 0.0;                  // ATR(14)/종가. 정배열 판정용 일봉 재활용(추가 REST 0)
-    std::time_t at = 0;                    // 마지막 조회 시각. 장중 재기동 점검 순번을 이걸로 정한다
+    std::time_t at = 0;                    // 마지막 조회 시각. 장중 재조회 순번을 이걸로 정한다
 };
 
-// 일봉 요약 캐시. 스캔 스레드 하나가 쓰지만 재기동 점검 대상 선정과 조회가 같은 맵을
+// 일봉 요약 캐시. 스캔 스레드 하나가 쓰지만 재조회 대상 선정과 조회가 같은 맵을
 //  보므로 락으로 감싼다. 디스크 사본은 장중 재기동 대비다 — 메모리 캐시가 비면 후보
 //  수백 건의 일봉을 150ms 간격으로 다시 받아야 하고 그동안 발주 경로의 REST까지 밀린다.
 //  확정된 과거 일봉이라 같은 거래일 안에서는 그대로 재사용해도 된다. 파일은 거래일별로
@@ -196,7 +196,7 @@ public:
         map_[ticker] = pr;
     }
 
-    // 장중 재기동 점검 대상 고르기 — 판정 재료인 현재가는 장중 내내 변하지만 일봉 요약은
+    // 장중 재조회 대상 고르기 — 판정 재료인 현재가는 장중 내내 변하지만 일봉 요약은
     //  조회 시각에 묶여 있다. 날짜만 보고 히트시키면 기동 시각의 판정이 마감까지 얼어붙어
     //  재스캔이 같은 종목만 돌려준다. 그렇다고 매번 전량을 다시 조회할 수는 없다 — 3분봉
     //  폴링이 이미 REST 초당 한도를 쓰고 있어 수백 건을 더 얹으면 발주 경로까지 밀린다.
@@ -262,7 +262,8 @@ DailyProbeCache g_probe_cache;
 struct MarketQuote
 {
     double      px   = 0.0;   // 원, 장중 갱신
-    double      val  = 0.0;   // 누적 거래대금(원). 0=미제공
+    double      val  = 0.0;   // 당일 누적 거래대금(원). 0=미제공
+    double      vol  = 0.0;   // 당일 누적 거래량(주). 0=미제공
     std::string name;         // 시세 파일이 준 종목명. 비면 미제공
 };
 using QuoteTable = std::unordered_map<std::string, MarketQuote>;
@@ -459,6 +460,7 @@ void load_quote_table(const DevScanCfg& cfg, QuoteTable& q)
             MarketQuote& mq = q[it.key()];
             mq.px  = px;
             mq.val = num(it.value(), "val");
+            mq.vol = num(it.value(), "vol");
             const auto fn = it.value().find("nm");
 
             if (fn != it.value().end() && fn->is_string())
@@ -489,7 +491,7 @@ void load_quote_table(const DevScanCfg& cfg, QuoteTable& q)
         else if (age > 600)
         {
             LOG_WARN("[Main] 전 종목 시세가 " + std::to_string((long long)age) +
-                     "초 지났다 — 사이드카 확인 필요. 정배열 판정이 전일 종가로 고정된다");
+                     "초 지났다 — 보조 프로세스 확인 필요. 정배열 판정이 전일 종가로 고정된다");
         }
     }
     catch (const std::exception& e)
@@ -529,7 +531,7 @@ void take_ranking(const std::vector<KisClient::RankingStock>& rank, const DevSca
 }
 
 // data.go.kr 시총∪거래대금 유니버스 피드. KIS 30행캡·ETF 잠식을 우회한 개별주 깊은 풀이라
-//  후보 풀 맨 앞에 넣어 일봉 기동 점검 우선순위를 준다. 파일이 없으면 조용히 스킵한다(하위호환).
+//  후보 풀 맨 앞에 넣어 일봉 조회 우선순위를 준다. 파일이 없으면 조용히 스킵한다(하위호환).
 //  전종목 코드→시장 사전(market_map)을 top-N보다 먼저 적재해, KIS 랭킹축 티커의 시장도
 //  해석되게 한다 — 없으면 kosdaq_enabled 게이트가 그쪽으로 샌다.
 void take_universe_file(const DevScanCfg& cfg, CandidatePool& pool)
@@ -835,7 +837,7 @@ DailyProbe fetch_probe(KisClient& c, const DevScanCfg& cfg, const std::string& t
 struct Feat
 {
     std::string ticker;
-    double trend, pull, vol, score;
+    double trend, pull, vol, turnover, score;
 };
 
 struct ProbeStats
@@ -866,7 +868,7 @@ std::vector<Feat> probe_and_filter(KisClient& c, const DevScanCfg& cfg, const st
 
         if (stale_n > 0)
         {
-            LOG_INFO("[Main] DEVSCALE 일봉 재기동 점검: 대상 " + std::to_string(stale_n) +
+            LOG_INFO("[Main] DEVSCALE 일봉 재조회: 대상 " + std::to_string(stale_n) +
                      "종목 중 " + std::to_string(refresh_set.size()) + "건 (예산 " +
                      std::to_string(cfg.align_refresh_max) + ", 신선도 " +
                      std::to_string(cfg.align_refresh_sec) + "초)");
@@ -877,7 +879,7 @@ std::vector<Feat> probe_and_filter(KisClient& c, const DevScanCfg& cfg, const st
     {
         if (!gate.allows(pool.market_of(t)))
         {
-            continue;   // 시장 risk_off 게이트. 일봉 기동 점검 비용도 여기서 아낀다
+            continue;   // 시장 risk_off 게이트. 일봉 조회 비용도 여기서 아낀다
         }
 
         // 유동성 하한 — 거래대금이 받침하지 못하는 종목은 체결이 안 되거나 슬리피지로 손익을
@@ -955,12 +957,18 @@ std::vector<Feat> probe_and_filter(KisClient& c, const DevScanCfg& cfg, const st
         //  전일치에서 멈춰 있고, 그대로 쓰면 정배열 판정이 하루 종일 얼어붙어 재스캔이 같은 종목만
         //  돌려준다. 시세 표의 현재가를 쓰므로 REST 추가 없이 매 재스캔마다 다시 판정한다.
         double px = pr.close;
+        double turnover = 0.0;
         {
             auto itp = q.find(t);
 
-            if (itp != q.end() && itp->second.px > 0.0)
+            if (itp != q.end())
             {
-                px = itp->second.px;
+                if (itp->second.px > 0.0)
+                {
+                    px = itp->second.px;
+                }
+
+                turnover = itp->second.val;
             }
         }
 
@@ -993,7 +1001,7 @@ std::vector<Feat> probe_and_filter(KisClient& c, const DevScanCfg& cfg, const st
             continue;
         }
 
-        passed.push_back({t, trend, pull, pr.atr_pct, 0.0});
+        passed.push_back({t, trend, pull, pr.atr_pct, turnover, 0.0});
         ++st.aligned;
     }
 
@@ -1009,8 +1017,9 @@ std::vector<Feat> probe_and_filter(KisClient& c, const DevScanCfg& cfg, const st
 
 // 2.5단: 횡단면 정규화로 종합 점수 하나를 만든다. 이 점수가 등록 순서(=진입 우선순위)와
 //  종목별 비중 배수 두 가지를 모두 정한다.
-//  [formula] S = w_trend·z(추세) + w_pull·z(-눌림) - w_vol·z(변동성).
+//  [formula] S = w_trend·z(추세) + w_pull·z(-눌림) - w_vol·z(변동성) + w_liq·z(log 거래대금).
 //   변동성은 뺀다 — 추세·눌림이 같다면 덜 흔들리는 쪽이 낫다.
+//   거래대금은 더한다 — 같은 조건이면 두꺼운 쪽이 청산 슬리피지가 작다. 기본값 0(비활성)이다.
 void score_cross_section(const DevScanCfg& cfg, std::vector<Feat>& passed)
 {
     auto zscore = [&](double Feat::*field, bool invert, std::vector<double>& z)
@@ -1060,15 +1069,51 @@ void score_cross_section(const DevScanCfg& cfg, std::vector<Feat>& passed)
             z[i] = invert ? -v : v;
         }
     };
-    std::vector<double> zt, zp, zv;
+    std::vector<double> zt, zp, zv, zl;
     zscore(&Feat::trend, false, zt);
     zscore(&Feat::pull,  true,  zp);   // 눌림은 음수(SMA20 아래)일수록 좋아 부호를 뒤집는다
     zscore(&Feat::vol,   false, zv);
 
+    if (cfg.score_w_liquidity != 0.0)
+    {
+        // 거래대금은 자릿수 분포라 로그를 취해 z를 낸다. 원값 그대로면 대형주 한둘이 표준편차를
+        //  다 먹어 나머지가 한 점에 뭉친다.
+        std::vector<double> known;
+
+        for (const auto& f : passed)
+        {
+            if (f.turnover > 0.0)
+            {
+                known.push_back(std::log(f.turnover));
+            }
+        }
+
+        // 시세 파일이 거래대금을 안 준 종목은 중앙값으로 받쳐 중립(z≈0)에 둔다. 0을 그대로
+        //  로그로 넘기면 데이터 결측이 최하위 점수로 둔갑한다.
+        double fill = 0.0;
+
+        if (!known.empty())
+        {
+            std::sort(known.begin(), known.end());
+            fill = known[known.size() / 2];
+        }
+
+        for (auto& f : passed)
+        {
+            f.turnover = f.turnover > 0.0 ? std::log(f.turnover) : fill;
+        }
+
+        zscore(&Feat::turnover, false, zl);
+    }
+    else
+    {
+        zl.assign(passed.size(), 0.0);
+    }
+
     for (size_t i = 0; i < passed.size(); ++i)
     {
         passed[i].score = cfg.score_w_trend * zt[i] + cfg.score_w_pullback * zp[i]
-                        - cfg.score_w_vol * zv[i];
+                        - cfg.score_w_vol * zv[i] + cfg.score_w_liquidity * zl[i];
     }
 }
 
@@ -1112,6 +1157,7 @@ std::vector<std::string> rank_and_truncate(const DevScanCfg& cfg, std::vector<Fe
         LOG_INFO("[Main] DEVSCALE 횡단면 스코어: 정배열통과=" + std::to_string(passed.size()) +
                  " → 상위 " + std::to_string(take_n) + " 선정 (w_trend=" +
                  std::to_string(cfg.score_w_trend) + " w_pull=" + std::to_string(cfg.score_w_pullback) +
+                 " w_liq=" + std::to_string(cfg.score_w_liquidity) +
                  " w_supply=" + std::to_string(cfg.score_w_supply) + ")");
     }
 
@@ -1245,7 +1291,7 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
 
     if (gate.closed())
     {
-        // 모든 시장이 위험회피 상태다. 후보 수집·일봉 기동 점검을 전부 생략한다.
+        // 모든 시장이 위험회피 상태다. 후보 수집·일봉 조회를 전부 생략한다.
         LOG_WARN("[Main] DEVSCALE 스캔: 레짐 위험회피(코스피 " + std::to_string(gate.kospi_chg * 100.0) +
                  "%" + (cfg.kosdaq_enabled ? ", 코스닥 " + std::to_string(gate.kosdaq_chg * 100.0) + "%" : "") +
                  ") — 신규 유니버스 스킵");
@@ -1276,7 +1322,7 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
              " 리츠드롭=" + std::to_string(pool.reit_drop) +
              " 검사=" + std::to_string(st.probed) +
              " (일봉조회=" + std::to_string(st.fetched) +
-             " 재기동 점검=" + std::to_string(st.refreshed) +
+             " 재조회=" + std::to_string(st.refreshed) +
              " 캐시=" + std::to_string(st.cache_hit) + ")" +
              " 정배열=" + std::to_string(st.aligned) +
              " 역배열컷=" + std::to_string(st.misaligned) +

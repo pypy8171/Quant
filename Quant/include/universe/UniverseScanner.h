@@ -71,6 +71,9 @@ struct DevScanCfg
     double score_w_pullback = 1.0; // -(price-SMA20)/SMA20 의 z에 곱한다
     double score_w_supply   = 0.0; // 로거 데이터 확보 후 활성 (D-014)
     double score_w_vol      = 0.5; // ATR(14)/종가 z의 감점 가중
+    // 거래대금 축 — log(거래대금)의 z에 곱한다. 0=비활성(기존). 추세·눌림이 비슷하면 더 두꺼운
+    //  종목을 위로 올린다. 알파 축이 아니라 체결비용 축이다(얇은 종목의 청산 슬리피지 회피).
+    double score_w_liquidity = 0.0;
     bool   kosdaq_enabled      = false;  // [why D-030]
     double risk_off_idx_kosdaq = -0.015; // 분수, 코스닥 지수 risk_off 임계 [why D-030]
 };
