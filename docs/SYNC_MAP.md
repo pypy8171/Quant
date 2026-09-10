@@ -38,7 +38,10 @@
 | [`docs/STYLE_GUIDE.md`](STYLE_GUIDE.md) | 문서 문체 규약 정본(금지 표현과 대체어 표·지표 약어 병기·적용 범위) | 새 금지 표현 적발·적용 범위 변경 시 항목 추가. `CLAUDE.md` 요약과 `@committer` (d-2) 스캔이 이 파일을 가리킨다 |
 | [`docs/CODE_GRAPH.md`](CODE_GRAPH.md) (자동생성) | `Quant/include`·`src` 의 로컬 `#include` 관계 | 헤더 추가/이동·`#include` 변경 시 `py scripts/gen_code_graph.py` 재생성(손편집 금지). 사용법은 [가이드](guides/CODE_GRAPH_GUIDE.md) |
 | [`docs/reports/PIPELINE_LATENCY_REPORT.md`](reports/PIPELINE_LATENCY_REPORT.md) | 부하·지연 하네스 3종 결과·해석 | 하네스 인자/동작 변경·새 실측 시 수치·재현 명령 갱신 |
-| [`docs/HARNESS.md`](HARNESS.md) | `.claude/` 하네스(CLAUDE.md·커맨드·MCP·서브에이전트·훅)·루프·스크립트 사이드카 | 레버/루프·에이전트/커맨드/훅 개수·목록 변경 시 |
+| [`docs/HARNESS.md`](HARNESS.md) | `.claude/` 하네스(CLAUDE.md·커맨드·MCP·서브에이전트·훅)·루프·스크립트 보조 프로세스 | 레버/루프·에이전트/커맨드/훅 개수·목록 변경 시 |
+| `research/STRATEGY_LAB.md` §2-b·§3-d 실배선 (자동생성, 미추적 파일) | `docs/DECISIONS.md`의 `**원장**:` 줄 · `Quant/config/config_dev_paper.json` | 결정을 적을 때 `**원장**:` 한 줄을 같이 쓴다. 마커 구간은 손편집 금지 — `py scripts/sync_ledgers.py`가 생성하고 `check_docs.py`가 막는다 |
+| `.claude/PROJECT_FACTS.md` 음성 결과 (자동생성, gitignore 로컬전용) | `docs/DECISIONS.md`의 `**음성결과**:` 줄 | 같은 방식. 마커 밖의 손으로 쓴 항목은 그대로 남는다 |
+| [`docs/AUTOMATION.md`](AUTOMATION.md) | OS 예약작업·클라우드 루틴·훅·마감 문서 파이프라인 목록 | 예약작업 시각/추가·훅 추가·자동 생성 스크립트 추가 시 표에 행 추가 |
 | [`docs/design/DASHBOARD_SPEC.md`](design/DASHBOARD_SPEC.md) | `scripts/dashboard_server.py`·PYQuant 대시보드 API·데이터 계약 | 대시보드 구현·API·데이터소스 변경 시 |
 
 > `research/BACKTEST_LOG.md`는 **소스(소유자)**라 위 표의 "대표"가 아니다 — 다른 문서가 이걸 링크한다.

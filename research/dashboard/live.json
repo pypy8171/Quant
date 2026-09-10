@@ -1,7 +1,23 @@
 {
   "schema": "quant.live/v1",
-  "generated": "2026-09-09 00:07",
+  "generated": "2026-09-11 03:39",
   "journals": [
+    {
+      "date": "2026-09-10",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-09-10.md",
+      "title": "라이브 모의 매매 일지 — 2026-09-10 (목)",
+      "strat_line": "DeviationScale (DEVSCALE) 정배열눌림 지정가 분할 매수 + ITB 청산 관리(전일 보유분).",
+      "summary": ""
+    },
+    {
+      "date": "2026-09-09",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-09-09.md",
+      "title": "라이브 모의 매매 일지 — 2026-09-09 (수)",
+      "strat_line": "DeviationScale (DEVSCALE) 정배열눌림 지정가 분할 매수 + ITB 청산 관리(전일 보유분).",
+      "summary": ""
+    },
     {
       "date": "2026-09-08",
       "strategy": "DeviationScale",
@@ -48,7 +64,7 @@
       "path": "strategies/DeviationScale/live/2026-08-21.md",
       "title": "라이브 모의 매매 일지 — 2026-08-21 (금)",
       "strat_line": "DeviationScale (DEVSCALE) + ITB 청산 관리(전일 보유 5종목).",
-      "summary": "09:37 늦게 기동했고 12:57:07에 로그가 끊겼다(사후검토에서 크래시로 판정). 기동 직후 ENTRY_HALT가 켜져(사이드카 regime=RISK_OFF score=-3) DevScale 신규 진입은 0건이고, 접수 3건은 기동 점검 1건과 전일 물린 보유분 시장가 청산 2건이 전부다. 전일대비 -655,106원(전일총자산 67,380,989)으로 이 구간에서 가장 큰 하루 손실인데, 신규 매매가 없었으므로 대부분 보유분 시가평가(MTM) 변동이다."
+      "summary": "09:37 늦게 기동했고 12:57:07에 로그가 끊겼다(사후검토에서 크래시로 판정). 기동 직후 ENTRY_HALT가 켜져(보조 프로세스 regime=RISK_OFF score=-3) DevScale 신규 진입은 0건이고, 접수 3건은 기동 점검 1건과 전일 물린 보유분 시장가 청산 2건이 전부다. 전일대비 -655,106원(전일총자산 67,380,989)으로 이 구간에서 가장 큰 하루 손실인데, 신규 매매가 없었으므로 대부분 보유분 시가평가(MTM) 변동이다."
     },
     {
       "date": "2026-08-20",
@@ -127,26 +143,25 @@
     {
       "date": "2026-08-10",
       "path": "logs/trades_20260810.csv",
-      "total": 599,
+      "total": 595,
       "by_status": {
-        "ACCEPTED": 220,
+        "ACCEPTED": 218,
         "CANCELLED": 198,
-        "REJECTED": 181
+        "REJECTED": 179
       },
       "by_strategy": {
         "DEVSCALE_458210": 523,
         "DEVSCALE_463290": 63,
         "ITB_017650": 8,
-        "TEST": 4,
         "ITB_214450": 1
       },
       "by_side": {
-        "BUY": 590,
+        "BUY": 586,
         "SELL": 9
       },
-      "n_tickers": 5,
-      "accepted": 220,
-      "rejected": 181,
+      "n_tickers": 4,
+      "accepted": 218,
+      "rejected": 179,
       "cancelled": 198,
       "filled": 0,
       "fill_events": 0
@@ -471,12 +486,12 @@
     {
       "date": "2026-09-04",
       "path": "Quant/build_win/logs/trades_20260904.csv",
-      "total": 397,
+      "total": 371,
       "by_status": {
-        "ACCEPTED": 192,
-        "REJECTED": 135,
+        "ACCEPTED": 172,
+        "REJECTED": 132,
         "CANCELLED": 49,
-        "FILLED": 21
+        "FILLED": 18
       },
       "by_strategy": {
         "DEVSCALE_086790": 80,
@@ -484,7 +499,6 @@
         "DEVSCALE_005490": 32,
         "DEVSCALE_161890": 30,
         "DEVSCALE_373220": 27,
-        "TEST": 26,
         "DEVSCALE_055550": 24,
         "DEVSCALE_090430": 23,
         "DEVSCALE_000810": 13,
@@ -509,31 +523,30 @@
         "MM": 1
       },
       "by_side": {
-        "BUY": 311,
+        "BUY": 285,
         "SELL": 82,
         "NONE": 4
       },
-      "n_tickers": 20,
-      "accepted": 192,
-      "rejected": 135,
+      "n_tickers": 15,
+      "accepted": 172,
+      "rejected": 132,
       "cancelled": 49,
-      "filled": 21,
-      "fill_events": 79
+      "filled": 18,
+      "fill_events": 73
     },
     {
       "date": "2026-09-07",
       "path": "Quant/build_win/logs/trades_20260907.csv",
-      "total": 601,
+      "total": 547,
       "by_status": {
-        "REJECTED": 258,
-        "ACCEPTED": 224,
-        "FILLED": 76,
+        "REJECTED": 252,
+        "ACCEPTED": 184,
+        "FILLED": 68,
         "CANCELLED": 43
       },
       "by_strategy": {
         "DEVSCALE_042500": 68,
-        "TEST": 52,
-        "ORPHAN": 44,
+        "ORPHAN": 42,
         "DEVSCALE_005830": 32,
         "DEVSCALE_055550": 29,
         "DEVSCALE_005490": 24,
@@ -598,16 +611,16 @@
         "DEVSCALE_334890": 1
       },
       "by_side": {
-        "BUY": 455,
+        "BUY": 401,
         "SELL": 138,
         "NONE": 8
       },
-      "n_tickers": 55,
-      "accepted": 224,
-      "rejected": 258,
+      "n_tickers": 50,
+      "accepted": 184,
+      "rejected": 252,
       "cancelled": 43,
-      "filled": 76,
-      "fill_events": 138
+      "filled": 68,
+      "fill_events": 124
     },
     {
       "date": "2026-09-08",
@@ -698,6 +711,197 @@
       "cancelled": 208,
       "filled": 250,
       "fill_events": 561
+    },
+    {
+      "date": "2026-09-09",
+      "path": "Quant/build_win/logs/trades_20260909.csv",
+      "total": 1108,
+      "by_status": {
+        "REJECTED": 631,
+        "ACCEPTED": 299,
+        "FILLED": 117,
+        "CANCELLED": 61
+      },
+      "by_strategy": {
+        "TRENDX_010950": 77,
+        "ORPHAN": 59,
+        "DEVSCALE_441270": 59,
+        "TRENDX_108490": 58,
+        "DEVSCALE_138040": 43,
+        "TRENDX_096770": 41,
+        "TRENDX_033790": 40,
+        "DISPLACE": 39,
+        "DEVSCALE_055550": 37,
+        "STARTUP_PROBE": 34,
+        "DEVSCALE_417840": 33,
+        "": 32,
+        "DEVSCALE_025980": 32,
+        "TRENDX_403870": 29,
+        "DEVSCALE_086790": 27,
+        "ITB_002990": 27,
+        "DEVSCALE_021240": 26,
+        "TRENDX_036930": 25,
+        "TRENDX_003490": 24,
+        "DEVSCALE_005830": 23,
+        "ITB_005930": 23,
+        "ITB_086450": 22,
+        "DEVSCALE_001120": 22,
+        "DEVSCALE_088350": 21,
+        "DEVSCALE_066570": 18,
+        "DEVSCALE_047050": 17,
+        "DEVSCALE_294870": 17,
+        "DEVSCALE_232140": 15,
+        "DEVSCALE_003550": 13,
+        "TRENDX_034020": 13,
+        "ITB_138040": 12,
+        "DEVSCALE_086280": 12,
+        "ITB_126640": 11,
+        "DEVSCALE_377300": 11,
+        "DEVSCALE_030200": 10,
+        "ITB_088350": 10,
+        "ITB_001560": 10,
+        "TRENDX_047050": 10,
+        "MM": 8,
+        "DEVSCALE_022100": 8,
+        "DEVSCALE_007690": 8,
+        "ITB_018260": 7,
+        "ITB_008930": 6,
+        "ITB_002710": 6,
+        "DEVSCALE_071090": 5,
+        "ITB_047050": 4,
+        "DEVSCALE_443060": 4,
+        "DEVSCALE_000490": 3,
+        "ITB_007280": 2,
+        "DEVSCALE_004990": 2,
+        "TRENDX_083650": 2,
+        "TRENDX_047040": 2,
+        "TRENDX_000720": 2,
+        "TRENDX_459550": 2,
+        "DEVSCALE_096760": 1,
+        "DEVSCALE_234340": 1,
+        "DEVSCALE_003380": 1,
+        "ITB_033790": 1,
+        "DEVSCALE_017940": 1
+      },
+      "by_side": {
+        "BUY": 615,
+        "SELL": 461,
+        "NONE": 32
+      },
+      "n_tickers": 58,
+      "accepted": 299,
+      "rejected": 631,
+      "cancelled": 61,
+      "filled": 117,
+      "fill_events": 230
+    },
+    {
+      "date": "2026-09-10",
+      "path": "Quant/build_win/logs/trades_20260910.csv",
+      "total": 1118,
+      "by_status": {
+        "REJECTED": 829,
+        "ACCEPTED": 207,
+        "CANCELLED": 48,
+        "FILLED": 34
+      },
+      "by_strategy": {
+        "DEVSCALE_086280": 117,
+        "DEVSCALE_030200": 104,
+        "ITB_293490": 88,
+        "ITB_010950": 84,
+        "DEVSCALE_007660": 55,
+        "DEVSCALE_051910": 41,
+        "ITB_108490": 39,
+        "TRENDX_010950": 32,
+        "TRENDX_459550": 32,
+        "DEVSCALE_047770": 31,
+        "DEVSCALE_005935": 28,
+        "TRENDX_008930": 26,
+        "TRENDX_388050": 24,
+        "TRENDX_083650": 22,
+        "TRENDX_108490": 20,
+        "TRENDX_096770": 20,
+        "TRENDX_000720": 20,
+        "TRENDX_010170": 20,
+        "DEVSCALE_003380": 17,
+        "ITB_441270": 17,
+        "DEVSCALE_232140": 16,
+        "TRENDX_403870": 16,
+        "ITB_001120": 16,
+        "ITB_417840": 14,
+        "DEVSCALE_006910": 14,
+        "DEVSCALE_441270": 14,
+        "DEVSCALE_377300": 13,
+        "TRENDX_064550": 11,
+        "ITB_022100": 11,
+        "ITB_055550": 11,
+        "ITB_030200": 11,
+        "TRENDX_175330": 10,
+        "ITB_003550": 10,
+        "TRENDX_003490": 10,
+        "DEVSCALE_025980": 9,
+        "ITB_021240": 9,
+        "TRENDX_034020": 8,
+        "ITB_047050": 7,
+        "DEVSCALE_066570": 6,
+        "DEVSCALE_234340": 6,
+        "TRENDX_047050": 5,
+        "DEVSCALE_443060": 5,
+        "ITB_036930": 5,
+        "ITB_005830": 5,
+        "STARTUP_PROBE": 4,
+        "ITB_096770": 4,
+        "DEVSCALE_293490": 4,
+        "TRENDX_033790": 4,
+        "DEVSCALE_041510": 4,
+        "DISPLACE": 3,
+        "DEVSCALE_094480": 2,
+        "ITB_403870": 2,
+        "ITB_066570": 2,
+        "ITB_034020": 2,
+        "DEVSCALE_055550": 2,
+        "DEVSCALE_003550": 2,
+        "DEVSCALE_180640": 2,
+        "DEVSCALE_003470": 2
+      },
+      "by_side": {
+        "BUY": 647,
+        "SELL": 471
+      },
+      "n_tickers": 46,
+      "accepted": 207,
+      "rejected": 829,
+      "cancelled": 48,
+      "filled": 34,
+      "fill_events": 157
+    },
+    {
+      "date": "2026-09-11",
+      "path": "Quant/build_win/logs/trades_20260911.csv",
+      "total": 6,
+      "by_status": {
+        "CANCELLED": 2,
+        "REJECTED": 2,
+        "FILLED": 1,
+        "ACCEPTED": 1
+      },
+      "by_strategy": {
+        "": 4,
+        "ORPHAN": 1,
+        "MM": 1
+      },
+      "by_side": {
+        "NONE": 4,
+        "SELL": 1,
+        "BUY": 1
+      },
+      "n_tickers": 2,
+      "accepted": 1,
+      "rejected": 2,
+      "cancelled": 2,
+      "filled": 1,
+      "fill_events": 1
     }
   ]
 }

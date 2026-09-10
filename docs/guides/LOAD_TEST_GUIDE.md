@@ -12,7 +12,7 @@
 | `bench_feed_ingest` | 실 TCP(loopback) | 코스콤→서버 소켓 수신 경로(net/proc/e2e 분해) | 없음(합성, 전종목 규모) |
 | `feed_latency_probe` | 실 KIS WS | 실데이터로 수신콜백→주문결정 내부 지연 재확인 | **app_key당 ~40종목**(API 하드캡) |
 
-부하테스트의 규모는 앞의 둘(합성)이 담당한다. 라이브 프로브는 규모가 아니라 "합성이 낸 처리단 지연이 실데이터에서도 성립하는가"를 확인하는 용도다(장 중에만 틱이 있음).
+부하테스트의 규모는 앞의 둘(합성)이 담당한다. 라이브 지연 측정은 규모가 아니라 "합성이 낸 처리단 지연이 실데이터에서도 성립하는가"를 확인하는 용도다(장 중에만 틱이 있음).
 
 ## 0. 준비 — cmd(PowerShell) 열고 이동
 
@@ -72,6 +72,9 @@ cmake --build Quant/build_win --target bench_market_firehose bench_feed_ingest f
 40종목 하드캡은 app_key당 제약이라, 여러 세션(app_key)을 묶으면 넘을 수 있다. `--sessions creds.json`(JSON 배열 `[{app_key,app_secret,is_paper?,hts_id?}, …]`) 또는 `--configs a.json,b.json`(각 파일의 `"kis"` 블록을 세션 하나로)으로 세션을 여러 개 주면 `--per-session`(세션당 상한, 기본 체결전용 40/호가+체결 20) × 세션 수까지 구독한다:
 
 ```powershell
+# 전종목 덤프는 커밋되지 않는다 — 먼저 만든다
+py PYQuant\tools\full_universe_dump.py --out Quant\config\universe_full.json
+
 # 세션 파일로 300종목(다중 app_key)
 .\Quant\build_win\feed_latency_probe.exe --sessions Quant\config\creds.json --universe Quant\config\universe_full.json --count 300
 ```
@@ -99,7 +102,7 @@ cmake --build Quant/build_win --target bench_market_firehose bench_feed_ingest f
 
 ## 트레이더와 동시 실행
 
-장중 모의매매(quant_trader)와 병행하려면 **서로 다른 app_key**여야 WS 세션이 충돌하지 않는다. 트레이더는 모의키(`config_dev_paper.json`)로, 라이브 프로브는 실계좌 시세키(`config.json`, 구독만·주문 없음)로 나눠 돌린다. 합성 하네스 2종은 소켓/API를 안 쓰거나 loopback이라 아무 때나 병행 가능하다(같은 머신 CPU를 나눠 쓰므로 tail은 다소 넓어진다).
+장중 모의매매(quant_trader)와 병행하려면 **서로 다른 app_key**여야 WS 세션이 충돌하지 않는다. 트레이더는 모의키(`config_dev_paper.json`)로, 라이브 지연 측정은 실계좌 시세키(`config.json`, 구독만·주문 없음)로 나눠 돌린다. 합성 하네스 2종은 소켓/API를 안 쓰거나 loopback이라 아무 때나 병행 가능하다(같은 머신 CPU를 나눠 쓰므로 tail은 다소 넓어진다).
 
 ## 관련 문서
 

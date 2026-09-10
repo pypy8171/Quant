@@ -51,6 +51,7 @@ ws_producer → [ob_q, td_q] → strategy_thread → order_q → order_thread
 처리단이 병목이 되지 않도록 인터페이스를 미리 분리해 둔 것이 링버퍼의 목적이다.
 
 ### 부하 현실성
+- **유니버스 파일**: `Quant/config/universe_full.json`은 산출물이라 커밋하지 않는다. `py PYQuant/tools/full_universe_dump.py`로 먼저 만든다(아래 재현 절차 참고).
 - **종목 수**: 실제 상장 보통주 전종목 규모 2,600 (`--universe universe_full.json`로 실제
   코드 로드, 미제공 시 합성 폴백). ETF/ETN은 소스(getStockPriceInfo) 구조상 제외.
 - **불균등 팬아웃**: 종목별 메시지 rate를 Zipf(s=1.0)로 배분 — 소수 대형주가 총 호가
@@ -105,7 +106,7 @@ offered rate를 100k → 2.9M msg/sec로 계단 상승(스텝당 3s):
 매매 파이프라인에 흘리는 구조다. 이 경로를 재현하려고 자매 하네스
 [bench_feed_ingest.cpp](../../Quant/tests/bench_feed_ingest.cpp)를 만들었다:
 KOSCOM 에뮬레이터(송신) ↔ 수신 서버가 **실제 TCP loopback 소켓**으로 연결되어, 커널 TCP
-스택(send→recv)·직렬화·프레이밍·백프레셔를 실제로 통과한다(TCP_NODELAY=on, 108 bytes/msg).
+스택(send→recv)·직렬화·프레이밍·밀림 처리를 실제로 통과한다(TCP_NODELAY=on, 108 bytes/msg).
 
 > 측정 범위 주의: loopback은 물리 회선(WAN/전용선) 지연이 없다. 즉 "동일 머신 TCP 스택 비용 +
 > 수신 후 주문 결정까지"를 재는 것이지, 코스콤↔증권사 물리 지연은 아니다. 실 라이브 데이터는

@@ -97,3 +97,6 @@ PYQuant/data/minute/
 # config 백업·임시본(실키 포함 가능) — 확장자로 안 끝나는 이름도 막는다
 Quant/config/*.bak*
 Quant/config/config_*.json.*
+
+# 전종목 유니버스 덤프 — PYQuant/tools/full_universe_dump.py 산출물(재생성 가능)
+Quant/config/universe_full.json
