@@ -54,6 +54,10 @@ struct DevScanCfg
     int    union_refresh_sec = 0;    // 초, 후보 합집합 재수집 주기. 0=매 재스캔 새로 수집 [why D-028]
     double max_dev_pct     = 0.0;    // 이격 (price-SMA20)/SMA20 상한. 0=비활성 [why D-022]
     double min_dev_pct     = 0.0;    // 같은 이격의 하한. max와 짝지어 슬리브 밴드를 만든다 [why D-022]
+    // 정배열 마지막 조건(SMA20>SMA60)의 허용오차. 0=엄격(기존). tol을 주면 SMA20이 SMA60보다
+    //  tol만큼 아래인 종목까지 통과한다 — 3개월 이평이 아직 높은 낙폭 회복 구간을 열 때 쓴다.
+    //  1.0 이상이면 이 조건 자체가 사라져 3조건(SMA5>SMA10>SMA20)만 남는다.
+    double align_ma_tol_pct = 0.0;
     std::string universe_file;       // data.go.kr 시총∪거래대금 피드 경로. 비면 KIS 랭킹 축만 [why D-015]
     std::string prices_file;         // 전 종목 장중 시세 파일(`scripts/live_prices_feed.py` 산출) [why D-029]
     double min_turnover = 0.0;       // 원, 거래대금 하한. 0=비활성 [why D-029]

@@ -1,4 +1,5 @@
 #include "universe/UniverseScanner.h"
+#include "universe/MaAlign.h"
 #include "core/Types.h"
 #include "utils/EtfFilter.h"
 #include "utils/Logger.h"
@@ -842,12 +843,13 @@ struct ProbeStats
     int probed = 0, aligned = 0, short_bars = 0, overext = 0;
     int fetched = 0, cache_hit = 0, refreshed = 0;
     int illiquid = 0;         // 거래대금 하한 미달로 버린 수
+    int misaligned = 0;       // 정배열 조건 미충족으로 버린 수(진단용)
     int budget_skipped = 0;   // 일봉 조회 예산이 끝났고 캐시도 없어 판정 못 한 수
 };
 
 // 2단: 정배열 프리필터 — 후보를 일봉으로 검사해 정배열=Y(≥60봉)만 통과시킨다.
 //  데이터부족(신규상장 <60봉)은 여기서 자동 제외된다. 일봉 조회 비용은 align_probe_max로
-//  캡하되 캐시 히트는 예산을 쓰지 않는다. 정배열 규칙은 DeviationScaleStrategy::is_aligned와 같다.
+//  캡하되 캐시 히트는 예산을 쓰지 않는다. 정배열 규칙은 MaAlign.h의 quant::ma::aligned 하나를 전략과 같이 쓴다.
 std::vector<Feat> probe_and_filter(KisClient& c, const DevScanCfg& cfg, const std::string& ymd,
                                    const CandidatePool& pool, const QuoteTable& q,
                                    const MarketGate& gate, ProbeStats& st)
@@ -962,18 +964,15 @@ std::vector<Feat> probe_and_filter(KisClient& c, const DevScanCfg& cfg, const st
             }
         }
 
-        double s5 = pr.s5, s10 = pr.s10, s20 = pr.s20, s60 = pr.s60;
+        quant::ma::Smas prev;
+        prev.s5 = pr.s5; prev.s10 = pr.s10; prev.s20 = pr.s20; prev.s60 = pr.s60;
+        const quant::ma::Smas ma =
+            quant::ma::fold_today(prev, pr.r5, pr.r10, pr.r20, pr.r60, px);
+        const double s5 = ma.s5, s10 = ma.s10, s20 = ma.s20, s60 = ma.s60;
 
-        if (px > 0.0 && pr.r60 > 0.0)
+        if (!quant::ma::aligned(ma, cfg.align_ma_tol_pct))
         {
-            s5  = (pr.s5  *  5 - pr.r5  + px) /  5.0;
-            s10 = (pr.s10 * 10 - pr.r10 + px) / 10.0;
-            s20 = (pr.s20 * 20 - pr.r20 + px) / 20.0;
-            s60 = (pr.s60 * 60 - pr.r60 + px) / 60.0;
-        }
-
-        if (!(s5 > s10 && s10 > s20 && s20 > s60))
-        {
+            ++st.misaligned;
             continue;
         }
 
@@ -1280,6 +1279,7 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
              " 재기동 점검=" + std::to_string(st.refreshed) +
              " 캐시=" + std::to_string(st.cache_hit) + ")" +
              " 정배열=" + std::to_string(st.aligned) +
+             " 역배열컷=" + std::to_string(st.misaligned) +
              " 데이터부족(<60봉)=" + std::to_string(st.short_bars) +
              " 과확장컷=" + std::to_string(st.overext) +
              " 거래대금미달=" + std::to_string(st.illiquid) +

@@ -2,6 +2,7 @@
 #include "api/KisClient.h"
 #include "core/TickSize.h"
 #include "strategy/StrategyBase.h"
+#include "universe/MaAlign.h"
 #include "utils/Logger.h"
 #include <algorithm>
 #include <atomic>
@@ -76,6 +77,9 @@ public:
         double pullback_pct   = 2.0;   // 일봉 SMA20 눌림 허용폭(하단,%) — 존 진입 임계(SMA20 아래)
         double entry_upper_pct = 0.0;  // 진입 상단(SMA20 위 허용%). 0=SMA20 이하만(순수 눌림). >0이면 SMA20 위 그만큼까지 진입 허용(완만상승·소폭눌림 포착)
         double zone_hyst_pct  = 4.0;   // 존 히스테리시스 밴드(%) — 청산 임계 = pullback + 이 값
+        // 정배열 마지막 조건(SMA20>SMA60)의 허용오차. 스캐너 cfg.align_ma_tol_pct와 같은 값을
+        //  받아야 "등록은 됐는데 활성은 안 되는" 슬롯이 생기지 않는다.
+        double align_ma_tol_pct = 0.0;
         // 개장 직후 3분봉이 sma_period만큼 안 쌓인 구간(20봉×3분=60분)에서 분할 매수 기준선을
         //  일봉 SMA20으로 대신한다. 그 구간에도 일봉 존 게이트(정배열+눌림)는 이미 통과한 상태라
         //  판단 근거가 없는 게 아니라 기준선 하나가 없을 뿐이다. 기준선이 현재가에서 멀어도
@@ -153,6 +157,7 @@ public:
         last_rebuild_ = std::chrono::steady_clock::time_point{};
         last_ladder_sig_.clear();
         in_zone_ = false;
+        entry_closed_logged_ = false;
         liq_next_ = std::chrono::steady_clock::time_point{};
         liq_last_pos_ = -1;
         liq_fail_streak_ = 0;
@@ -262,8 +267,21 @@ public:
         }
 
         // ── 일봉 존 판정(정배열 + SMA20 눌림) ────────────────────────────────
-        const bool   aligned = is_aligned(daily_);
-        const double d_s20   = sma_close(daily_, 20);
+        // 오늘 현재가를 이동평균에 접어 넣는다. 접지 않으면 정배열도 SMA20도 하루 종일
+        //  전일 값이라, 장중에 이평이 깨져도 존은 활성으로 남고 이격만 움직인다.
+        //  스캐너(UniverseScanner)와 같은 식·같은 허용오차를 쓴다(MaAlign.h).
+        const quant::ma::Smas d_prev = daily_smas_prev(daily_);
+        const quant::ma::Smas d_ma   = daily_smas(daily_, cur_px);
+        // 축이 둘이다. 접은 정배열은 진입만 연다. 유지·청산은 전일 확정 정배열로 판정한다.
+        //  접은 값은 min_action_ms(3초)마다 뒤집힐 수 있는데 존 이탈에 붙은 행위가 보유 전량
+        //  시장가 매도다. 09-10 일봉 캐시(정배열 통과 128종목)로 재면 s5>s10이 73%에서 가장
+        //  먼저 깨지고, 정배열이 무너지는 장중 하락폭 5분위가 1.45%다 — 유니버스의 약 10%가
+        //  매일 "2~3% 밀리면 전량 매도, 되돌아오면 재매수"가 된다. 왕복마다 수수료·세금·
+        //  슬리피지가 실현손실로 남고, 지수 게이트에서 방금 없앤 떨림을 종목 단위로 되살린다.
+        //  청산은 되돌릴 수 없으니 느린 축에 맡긴다. [why D-033]
+        const bool   aligned      = d_ma.s60 > 0.0 && quant::ma::aligned(d_ma, p_.align_ma_tol_pct);
+        const bool   aligned_hold = d_prev.s60 > 0.0 && quant::ma::aligned(d_prev, p_.align_ma_tol_pct);
+        const double d_s20   = d_ma.s20;
         // 방향성 이격(부호 유지): +면 SMA20 위(확장추격), −면 아래(눌림). 절대값 금지.
         //  SMA20 미확보(≤0) 시 큰 양수 센티넬로 둬 존 상단 밖으로 밀어내 진입을 막는다.
         constexpr double kNoDataDeviationPct = 999.0;
@@ -279,7 +297,10 @@ public:
         const double low_th  = p_.entry_lower_pct > 0.0
                                    ? p_.entry_lower_pct - (in_zone_ ? p_.zone_hyst_pct : 0.0)
                                    : -down_th;
-        const bool   zone    = aligned && d_s20 > 0.0 && s_dev <= up_th && s_dev >= low_th;
+        const bool   band    = d_s20 > 0.0 && s_dev <= up_th && s_dev >= low_th;
+        const bool   zone    = aligned && band;          // 진입 게이트
+        // [inv] hold_zone은 zone보다 넓다(정배열 축이 느린 쪽). 좁아지면 청산이 진입보다 먼저 돈다.
+        const bool   hold_zone = aligned_hold && band;   // 유지 게이트 — 청산 판정
         in_zone_ = zone;
 
         // 존 판정 로그: 상태 변화 시 또는 60초마다 1회.
@@ -290,12 +311,13 @@ public:
                      " | 정배열=" + std::string(aligned ? "Y" : "N") +
                      " 일봉SMA20=" + fmt1(d_s20) + " 현재가=" + fmt1(cur_px) +
                      " 이격=" + fmt1(s_dev) + "% (진입밴드 " + fmt1(low_th) + "%~" + fmt1(up_th) +
-                     "%) 일봉수=" + std::to_string(daily_.size()));
+                     "%) 유지=" + std::string(hold_zone ? "Y" : "N") +
+                     " 일봉수=" + std::to_string(daily_.size()));
             last_zone_    = zone;
             zone_log_ts_  = now;
         }
 
-        if (!zone)
+        if (!hold_zone)
         {
             // 존 이탈 → 미체결 전부 취소 + 보유분 시장가 청산(매도가능분 클램프+백오프).
             bool cancelled = cancel_all(out);
@@ -309,6 +331,22 @@ public:
 
             return;
         }
+
+        if (!zone)
+        {
+            // 진입 축만 닫혔다. 미체결 매수는 거두되 보유는 그대로 둔다 — 장중에 이평이
+            //  깨졌다고 파는 대신 되돌아오면 그대로 이어간다. 청산은 위 hold_zone이 맡는다.
+            if (cancel_all(out) && !entry_closed_logged_)
+            {
+                LOG_INFO("[" + id() + "] " + disp() +
+                         " 진입 축 닫힘(장중 정배열) — 미체결 취소, 보유 유지");
+                entry_closed_logged_ = true;
+            }
+
+            return;
+        }
+
+        entry_closed_logged_ = false;
 
         // ── 3분봉 기준선(스냅샷에서 이미 받음) ───────────────────────────────
         const bool warming = static_cast<int>(bars.size()) < p_.sma_period;
@@ -573,19 +611,38 @@ private:
         return s / period;
     }
 
-    // 일봉 정배열: SMA5>SMA10>SMA20>SMA60 (모두 확보돼야 판정).
-    static bool is_aligned(const std::vector<MarketData>& daily)
+    // 전일까지의 일봉 이동평균에 오늘 현재가를 접어 넣어 돌려준다. 60봉 미만이면 s60=0인
+    //  빈 값이라 호출부가 정배열을 false로 떨어뜨린다(판정 자체를 못 하는 상태).
+    //  [why D-005] 일봉 조회가 당일 봉을 자르므로 여기서 오늘을 되살린다.
+    // 전일 확정 이동평균. 오늘 현재가를 접지 않아 세션 내내 상수다 — 청산처럼 되돌릴 수
+    //  없는 판정이 이쪽을 쓴다. 60봉 미만이면 전 필드 0을 돌려준다(호출자가 s60>0으로 거른다).
+    static quant::ma::Smas daily_smas_prev(const std::vector<MarketData>& daily)
     {
+        quant::ma::Smas prev;
+
         if (static_cast<int>(daily.size()) < 60)
         {
-            return false;
+            return prev;
         }
 
-        double s5  = sma_close(daily, 5);
-        double s10 = sma_close(daily, 10);
-        double s20 = sma_close(daily, 20);
-        double s60 = sma_close(daily, 60);
-        return s5 > s10 && s10 > s20 && s20 > s60;
+        prev.s5  = sma_close(daily, 5);
+        prev.s10 = sma_close(daily, 10);
+        prev.s20 = sma_close(daily, 20);
+        prev.s60 = sma_close(daily, 60);
+        return prev;
+    }
+
+    static quant::ma::Smas daily_smas(const std::vector<MarketData>& daily, double cur_px)
+    {
+        const quant::ma::Smas prev = daily_smas_prev(daily);
+
+        if (prev.s60 <= 0.0)
+        {
+            return prev;
+        }
+
+        return quant::ma::fold_today(prev, daily[4].close, daily[9].close,
+                                     daily[19].close, daily[59].close, cur_px);
     }
 
     // ── 프리페치: 무거운 REST(3분봉·일봉·잔고)를 공유 전략 스레드 밖에서 미리 당겨
@@ -1013,6 +1070,7 @@ private:
     std::chrono::steady_clock::time_point last_rebuild_{}; // 마지막 분할 매수 전면 재구성
     bool last_zone_ = false;                              // 마지막 존 상태(변화 로그용)
     bool in_zone_   = false;                              // 존 히스테리시스 상태(진입/청산 임계 전환)
+    bool entry_closed_logged_ = false;                    // 진입 축 닫힘 로그를 냈나(도배 방지)
     std::chrono::steady_clock::time_point zone_log_ts_{}; // 마지막 존 판정 로그 시각
     std::chrono::steady_clock::time_point liq_next_{};    // 청산 재시도 백오프 해제 시각
     int    liq_last_pos_    = -1;                          // 직전 청산시도 pos(진행 판정)

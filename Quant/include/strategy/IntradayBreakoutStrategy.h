@@ -228,9 +228,50 @@ public:
                     why = " (장 마감)";
                 }
 
-                auto sig = make_signal(OrderSide::SELL, hold_qty_, px, td.timestamp,
+                // 보유수량은 시드 이후 이 객체 안에서만 줄어든다. 재기동 전에 접수된 매도가
+                //  나중에 체결되면 그 통보는 미매핑 경로로 원장에만 반영되고 여기까지 오지 않아,
+                //  이미 판 수량을 또 판다(09-09 14:31 033790 — 14:15에 116주가 전량 체결됐는데
+                //  116주를 다시 내 [40240000] "모의투자 잔고내역이 없습니다"로 거부됐다).
+                //  발주 직전에 원장을 정본으로 한 번 맞춘다. 다만 원장 0을 "이미 팔렸다"로 읽으려면
+                //  그 보유를 원장이 한 번은 인정했어야 한다. rest_price_feed 구성에서 원장은
+                //  fetch_interval_sec(30초) 잔고 폴링으로만 갱신되므로, 방금 낸 매수는 최대 30초
+                //  동안 0으로 보인다. 그 창에서 손절이 걸리면 전략은 자기가 플랫이라 믿고, 실제
+                //  보유에는 트레일도 하드손절도 15:15 마감청산도 안 붙는다 — 판 걸 또 파는 것보다
+                //  산 걸 방치하는 쪽이 비싸다. exit_pending_tick은 SELL을 낸 뒤라 0이 "체결 완료"
+                //  지만, 여기는 내기 전이라 0이 "아직 안 보임"과 갈리지 않는다.
+                const int ledger_qty = confirmed_position("", ticker_);
+
+                if (hold_qty_ > 0 && ledger_qty >= hold_qty_)
+                {
+                    ledger_confirmed_ = true;
+                }
+
+                if (ledger_qty <= 0 && ledger_confirmed_)
+                {
+                    LOG_INFO("[ITB] 청산 생략 " + tag() + why + " — 원장 보유 0 (이미 청산됨)");
+                    in_position_ = false;
+                    hold_qty_ = 0;
+                    position_is_seed_ = false;
+                    exit_pending_ = false;
+                    cooldown_until_ = td.timestamp + std::chrono::seconds(cooldown_sec_);
+                    have_cooldown_ = true;
+                    return std::nullopt;
+                }
+
+                // 이번 발주 수량만 깎는다. 멤버를 깎으면 부분 반영된 원장(30초 폴링)이
+                //  hold_qty_를 영구히 내려앉히고 남은 수량은 어느 청산 경로에도 안 잡힌다.
+                //  잔량 정합은 exit_pending_tick이 매 틱 맞춘다.
+                const int sell_qty = ledger_qty > 0 ? std::min(hold_qty_, ledger_qty) : hold_qty_;
+
+                if (sell_qty < hold_qty_)
+                {
+                    LOG_INFO("[ITB] 청산 수량 보정 " + tag() + " " + std::to_string(hold_qty_) +
+                             " → " + std::to_string(sell_qty) + "주 (원장 기준, 보유 상태는 유지)");
+                }
+
+                auto sig = make_signal(OrderSide::SELL, sell_qty, px, td.timestamp,
                                        std::string("청산") + why);
-                LOG_INFO("[ITB] SELL " + tag() + " qty=" + std::to_string(hold_qty_) + " @" +
+                LOG_INFO("[ITB] SELL " + tag() + " qty=" + std::to_string(sell_qty) + " @" +
                          px_str(px) + why);
                 // 신호는 큐에 들어갈 뿐 접수·체결을 보장하지 않는다. 여기서 상태를 지우면 게이트에
                 //  튕긴 포지션이 어느 청산 경로에도 다시 잡히지 않는다. 확정 포지션이 0이 될 때까지
@@ -428,7 +469,8 @@ private:
     double anchor_px_ = 0.0; // 당일 앵커(시가 또는 첫 틱)
     double last_ = 0.0;
     bool in_position_ = false;
-    bool position_is_seed_ = false; // 현재 포지션이 물린 시드분인가(청산 로직 분기)
+    bool position_is_seed_ = false;
+    bool ledger_confirmed_ = false;   // [inv] 원장이 이 보유를 최소 1회 인정했나 // 현재 포지션이 물린 시드분인가(청산 로직 분기)
     double entry_px_ = 0.0;
     double peak_ = 0.0;
     double trough_ = 0.0;              // 부착 이후 최저가 — 본전탈출 무장 판정용

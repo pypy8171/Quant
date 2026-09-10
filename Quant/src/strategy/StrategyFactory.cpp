@@ -513,6 +513,10 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
     base.cross_guard       = s.value("ladder_cross_guard", true);  // 분할 매수 층이 현재가를 넘지 않게 앵커 클램프(D-006)
     base.pullback_pct      = s.value("pullback_pct", 2.0);
     base.entry_upper_pct   = s.value("entry_upper_pct", 0.0);   // SMA20 위 진입 허용%(0=순수 눌림만)
+    base.zone_hyst_pct     = s.value("zone_hyst_pct", 4.0);     // 존 유지 여유폭(%) — 경계 진동 방지
+    // 정배열 허용오차는 스캐너와 같은 값을 써야 등록·활성이 어긋나지 않아, 슬리브 설정에 없으면
+    //  아래 유니버스 스캔 블록과 같은 기본값(0=엄격)을 쓴다.
+    base.align_ma_tol_pct  = s.value("align_ma_tol_pct", 0.0);
     base.reprice_move_ticks = s.value("reprice_move_ticks", 2);
     base.min_rebuild_sec    = s.value("min_rebuild_sec", 0);
     base.id_prefix          = s.value("id_prefix", std::string("DEVSCALE"));
@@ -528,7 +532,7 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
     std::set<std::string> covered;
 
     // 이미 보유 중인 종목은 DeviationScale 신규 스캔에서 제외 → 청산 관리가 전담(윈드다운).
-    //  시드/전일 물린 보유분에 DevScale 분할 매수 매수가 겹치면 종목당 명목상한(max_pct)을
+    //  시드/전일 물린 보유분에 DevScale 분할 매수가 겹치면 종목당 명목상한(max_pct)을
     //  초과해 CANCEL 거부·과주문이 난다(073240 사례). 보유분=guardian, 신규만=DevScale로 분리.
     //  manage_holdings.enabled일 때만 적용(청산 관리가 있어야 보유분을 인수하므로).
     std::set<std::string> held;
