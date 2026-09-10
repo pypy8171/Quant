@@ -593,6 +593,10 @@ void Engine::bootstrap_ledger()
 //      → BUY-only 손실컷(§4)이 정상 작동(C-3의 신규매수 차단 의도 재무장).
 //  ⚠️ 절대 평가손익(evlu_pfls)이 아니라 "당일 기준선 델타"를 쓴다. 이미 -30% 물린
 //     미실현손실을 daily_pnl로 넣으면 개장 즉시 모든 신규매수가 막혀버리기 때문.
+// 잔고에 없는 원장 보유를 걷어내기 전에 두는 유예(초). 잔고 조회 왕복(수 초)보다 넉넉히 길게
+//  잡아, 방금 체결된 신규 보유가 아직 잔고에 안 보이는 것을 유령으로 오인하지 않게 한다.
+static constexpr int kPrunePositionAgeSec = 90;
+
 void Engine::reconcile_from_balance(bool resync_positions)
 {
     // 서킷브레이커: 잔고조회가 연속 실패 중이면 이번 사이클은 조회를 건너뛴다.
@@ -622,18 +626,61 @@ void Engine::reconcile_from_balance(bool resync_positions)
             if (resync_positions)
             {
                 order_gate_.reset_reserved();
+            }
 
-                for (auto& h : bal["output1"])
+            // 잔고에 있는 종목을 모으면서, 재동기 모드면 원장까지 덮어쓴다.
+            std::vector<std::string> held;
+
+            for (auto& h : bal["output1"])
+            {
+                std::string code = h.value("pdno", "");
+                int    q  = std::atoi(h.value("hldg_qty", "0").c_str());
+                double av = std::atof(h.value("pchs_avg_pric", "0").c_str());
+
+                if (code.empty() || q <= 0)
                 {
-                    std::string code = h.value("pdno", "");
-                    int    q  = std::atoi(h.value("hldg_qty", "0").c_str());
-                    double av = std::atof(h.value("pchs_avg_pric", "0").c_str());
-
-                    if (!code.empty() && q > 0)
-                    {
-                        order_gate_.seed_position(std::string(), code, q, av);
-                    }
+                    continue;
                 }
+
+                held.push_back(code);
+
+                if (resync_positions)
+                {
+                    order_gate_.seed_position(std::string(), code, q, av);
+                }
+            }
+
+            // 잔고에 없는데 원장에 남은 종목을 걷어낸다. 이 유령이 슬롯을 물고 있으면
+            //  실제 보유가 20인데 "동시 보유 종목 한도 초과 (25 >= 25)"가 난다(09-09 관측).
+            //  체결통보가 오는 WS 모드에서도 통보를 놓치면 같은 자리에 남으므로 두 모드 다 돈다.
+            //  갓 열린 포지션은 잔고 왕복이 체결보다 빨랐을 수 있어 남긴다.
+            //
+            // [inv] held가 비면 한 종목도 걷어내지 않는다. output1이 있는데 비어 있는 응답은
+            //  "보유가 없다"보다 "잔고를 못 받았다"일 때가 압도적으로 많다 — 초당 한도(EGW00201)나
+            //  일시 오류가 빈 배열로 돌아온다. 그걸 정본으로 믿고 지우면 원장이 통째로 날아가고,
+            //  엔진은 미보유로 읽어 같은 종목을 다시 산다(09-09 14:04, 재기동 직후 한도 폭주 중에
+            //  25종목 전부 정리됨). 진짜로 빈 계좌라면 걷어낼 것도 없으니 건너뛰어 잃는 것이 없다.
+            const auto gone = held.empty()
+                            ? std::vector<std::string>{}
+                            : order_gate_.prune_positions(held, kPrunePositionAgeSec);
+
+            if (held.empty())
+            {
+                LOG_WARN("[Engine] 잔고 대조: output1이 비어 유령 정리를 건너뛴다 "
+                         "(잔고 조회 실패로 본다 — 원장 유지)");
+            }
+
+            if (!gone.empty())
+            {
+                std::string list;
+
+                for (const auto& t : gone)
+                {
+                    list += (list.empty() ? "" : ",") + t;
+                }
+
+                LOG_WARN("[Engine] 잔고 대조: 잔고에 없는 원장 보유 " +
+                         std::to_string(gone.size()) + "종목 정리 (" + list + ")");
             }
         }
 

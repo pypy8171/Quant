@@ -347,6 +347,8 @@ int main(int argc, char* argv[])
         rc.displace_cooldown_sec    = r.value("displace_cooldown_sec", rc.displace_cooldown_sec);
         rc.displace_max_per_day     = r.value("displace_max_per_day", rc.displace_max_per_day);
         rc.displace_slot_hold_sec   = r.value("displace_slot_hold_sec", rc.displace_slot_hold_sec);
+        // 오늘 스캔에 안 잡힌 이월 보유분에 매길 점수. 0이면 그런 보유분은 교체 후보에서 빠진다.
+        rc.displace_unscored_z      = r.value("displace_unscored_z", rc.displace_unscored_z);
         engine.set_risk_config(rc);
         LOG_INFO("[Main] risk 한도: 종목당 " + std::to_string(rc.max_qty_per_ticker) + "주, 일손실 " +
                  std::to_string((long long)rc.daily_loss_limit) + "원, " +
