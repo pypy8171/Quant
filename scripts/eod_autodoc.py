@@ -34,7 +34,7 @@ for _stream in (sys.stdout, sys.stderr):
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 import _logdir  # noqa: E402
-from log_patterns import PNL_RE  # noqa: E402
+from log_patterns import PNL_RE, PREV_PNL_RE  # noqa: E402
 
 JOURNAL_DIR = REPO / "strategies" / "DeviationScale" / "live"
 RUN_LOG = REPO / "logs" / "eod_autodoc.log"
@@ -78,6 +78,7 @@ def scan_log(log: Path, ymd: str) -> dict:
     """
     sessions: list[dict] = []
     pnl: list[tuple[str, int, int]] = []
+    prev_pnl: list[tuple[str, int, int]] = []
     names: dict[str, str] = {}
     warns: Counter = Counter()
     cur: dict | None = None
@@ -117,11 +118,15 @@ def scan_log(log: Path, ymd: str) -> dict:
             if s:
                 pnl.append((hms, int(s[1]), int(s[2])))
 
+            s = PREV_PNL_RE.search(rest)
+            if s:
+                prev_pnl.append((hms, int(s[1]), int(s[2])))
+
             if lvl in ("WARN", "ERROR"):
                 warns[NUM_RE.sub("N", rest)[:80]] += 1
 
-    return {"sessions": sessions, "pnl": pnl, "names": names,
-            "warns": warns.most_common(10)}
+    return {"sessions": sessions, "pnl": pnl, "prev_pnl": prev_pnl,
+            "names": names, "warns": warns.most_common(10)}
 
 
 # ─────────────────────────── 원장 파싱 ───────────────────────────
@@ -200,6 +205,7 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
     names = log_facts["names"]
     sess = log_facts["sessions"]
     pnl = log_facts["pnl"]
+    prev_pnl = log_facts.get("prev_pnl") or []
 
     L: list[str] = []
     add = L.append
@@ -222,6 +228,16 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
 
     # 1. 손익
     add("## 1. 손익 추이 (잔고 대조 폴링)")
+    add("")
+    # 하루의 성과는 전일대비 줄로 적는다. 아래 표의 잔고 대조 값은 세션이 뜬 시점을 0으로
+    #  잡아 재기동마다 기준이 옮겨가고 간밤 갭이 빠진다 — 2026-09-10에 두 값의 부호가 갈렸다.
+    if prev_pnl:
+        last = prev_pnl[-1]
+        add(f"**전일대비 종료 손익 {signed(last[1])}원** (전일총자산 {won(last[2])}, "
+            f"{last[0][:5]} 기준). 아래 표는 세션 시작을 0으로 잡은 잔고 대조 카운터라 "
+            f"기준이 다르다.")
+    else:
+        add("전일대비 손익 줄이 로그에 없다 — 아래 표는 세션 기준 카운터다.")
     add("")
     if pnl:
         lo = min(pnl, key=lambda x: x[1])
@@ -409,7 +425,7 @@ def main() -> int:
         return 0
 
     led = scan_ledger(csv_path)
-    log_facts = ({"sessions": [], "pnl": [], "names": {}, "warns": []}
+    log_facts = ({"sessions": [], "pnl": [], "prev_pnl": [], "names": {}, "warns": []}
                  if log_path is None else scan_log(log_path, ymd))
 
     body = render(ymd, log_facts, led, log_path, csv_path)

@@ -23,7 +23,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import _logdir  # noqa: E402
-from log_patterns import PNL_ONLY_RE as PNL_RE  # noqa: E402
+from log_patterns import PNL_ONLY_RE as PNL_RE, PREV_PNL_RE  # noqa: E402
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -61,7 +61,7 @@ def scan_log(log: Path, ymd: str) -> dict:
     out: dict = {
         "sessions": [], "seed": [], "registered_dev": [], "registered_itb": [],
         "rescan_computed": [], "signals": [], "zone_last": {},
-        "errors": Counter(), "ws_reconnects": [], "pnl_track": [],
+        "errors": Counter(), "ws_reconnects": [], "pnl_track": [], "prev_pnl_track": [],
     }
     with log.open(encoding="utf-8", errors="replace") as f:
         for raw in f:
@@ -103,6 +103,12 @@ def scan_log(log: Path, ymd: str) -> dict:
                 out["errors"][norm_reason(rest)[:90]] += 1
             if "재연결 성공" in rest:
                 out["ws_reconnects"].append(hms)
+            # 전일 종가 대비 손익. 아래 잔고 대조 줄은 세션 시작을 0으로 잡아 재기동마다
+            #  기준이 옮겨가고 간밤 갭도 빠진다 — 하루의 성과는 이 줄로 읽는다. [why D-033]
+            s = PREV_PNL_RE.search(rest)
+            if s:
+                out["prev_pnl_track"].append({"at": hms, "pnl": int(s[1]), "equity": int(s[2])})
+
             s = PNL_RE.search(rest)
             if s:
                 out["pnl_track"].append({"at": hms, "pnl": int(s[1])})
@@ -114,6 +120,14 @@ def scan_ledger(csv: Path) -> dict:
     import csv as _csv
     rows = list(_csv.DictReader(csv.open(encoding="utf-8", errors="replace")))
     rows = [r for r in rows if r.get("strategy") != "TEST"]
+    # 테스트 바이너리가 라이브 원장에 남긴 행. strategy=TEST 로 걸리는 분과 달리 이쪽은
+    #  전략명이 실제 전략과 같아 위 필터를 통과한다. 지문은 Quant/tests/test_order_router.cpp가
+    #  박아 넣는 고정 주문번호 둘(R000777·PREV-SESSION)과 그 파일이 쓰는 종목 047050이다.
+    #  거르지 않으면 유령 라운드트립이 생긴다(09-09: 60건 +300,320원 → 58건 +188,720원).
+    #  바이너리 쪽은 산출물 폴더를 갈라 막았고, 이 필터는 이미 쓰인 원장을 위한 것이다.
+    rows = [r for r in rows
+            if not (r.get("ticker") == "047050"
+                    and r.get("odno") in ("R000777", "PREV-SESSION"))]
     ev = Counter(r["event"] for r in rows)
     rejects = Counter()
     for r in rows:
@@ -159,9 +173,24 @@ def scan_ledger(csv: Path) -> dict:
         gap = {"from": worst[0].strftime(fmt), "to": worst[1].strftime(fmt),
                "minutes": round((worst[1] - worst[0]).total_seconds() / 60, 1)}
 
+    # 실현은 두 가지고 서로 다른 것을 잰다. 한 줄에 섞어 쓰면 부호까지 갈린다.
+    #  realized_gross  — 당일 안에서 양변이 다 체결된 분만 FIFO로 짝지은 차익. 비용 제외.
+    #                    전일 이월분 매도는 진입가를 모르니 버린다(09-10 +15,700원).
+    #  realized_ledger — 원장 realized_pnl 열의 합. 증권사가 준 값이라 이월분 매도가 들어가고
+    #                    수수료·세금이 반영돼 있다(09-10 +396,026원, 09-09 −141,379원).
+    ledger_pnl = 0.0
+    for r in rows:
+        v = r.get("realized_pnl") or ""
+        if v not in ("", "0"):
+            try:
+                ledger_pnl += float(v)
+            except ValueError:
+                pass
+
     return {"rows": len(rows), "events": dict(ev), "rejects": rejects.most_common(15),
             "by_strategy": by_strat.most_common(), "roundtrips": trips,
-            "realized_gross": sum(t["gross"] for t in trips), "longest_order_gap": gap}
+            "realized_gross": sum(t["gross"] for t in trips),
+            "realized_ledger": round(ledger_pnl), "longest_order_gap": gap}
 
 
 def build(date: str) -> dict:
@@ -194,7 +223,9 @@ def to_md(p: dict) -> str:
          "- 로그: `" + str(p["log_path"]) + "`",
          "- 세션: " + str(len(lg.get("sessions", []))) + "회 " + str(lg.get("sessions", [])),
          "- 이벤트: " + str(L["events"]),
-         "- 실현(양변 체결 확인분): " + format(L["realized_gross"], ",") + "원 / "
+         "- 라운드트립 실현(당일 양변 확인분, 비용 제외): "
+         + format(L["realized_gross"], ",") + "원 / 원장 실현 열 합(이월분·비용 포함): "
+         + format(L.get("realized_ledger", 0), ",") + "원 / "
          + str(len(L["roundtrips"])) + "건",
          "- 최장 무주문 구간: " + str(L["longest_order_gap"]), ""]
     if lg.get("signal_counts"):

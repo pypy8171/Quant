@@ -65,6 +65,16 @@ def _rollup_one(p: Path, date: str):
     try:
         with open(p, encoding="utf-8-sig") as f:
             for r in csv.DictReader(f):
+                # 테스트 바이너리가 라이브 원장에 남긴 행은 세지 않는다. strategy=TEST 로 걸리는
+                #  분과 047050에 찍힌 고정 주문번호 둘(Quant/tests/test_order_router.cpp)이다.
+                #  scripts/eod_collect.py의 필터와 같은 지문을 쓴다 — 두 집계가 갈리면 안 된다.
+                if (r.get("strategy") or "").strip() == "TEST":
+                    continue
+
+                if ((r.get("ticker") or "").strip() == "047050"
+                        and (r.get("odno") or "").strip() in ("R000777", "PREV-SESSION")):
+                    continue
+
                 total += 1
                 status[(r.get("status") or "").strip()] += 1
                 event[(r.get("event") or "").strip()] += 1

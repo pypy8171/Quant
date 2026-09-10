@@ -133,6 +133,10 @@ def build_entry(pack: dict) -> dict:
     sessions = len(lg.get("sessions", []))
     track = lg.get("pnl_track", [])
     close = track[-1]["pnl"] if track else None
+    # 헤드라인에 쓰는 하루의 성과는 전일 종가 대비 줄이다. 아래 곡선(pnl)은 세션 시작을 0으로
+    #  잡은 잔고 대조 카운터라 재기동마다 기준이 옮겨간다 — 09-10에 부호까지 갈렸다. [why D-033]
+    ptrack = lg.get("prev_pnl_track", [])
+    prev_close = ptrack[-1]["pnl"] if ptrack else None
     # 전략 id는 종목별로 갈라진다(DEVSCALE_042500 …). 리뷰 라벨은 계열로 묶는다.
     fam = Counter()
     for sid, n in led.get("by_strategy", []):
@@ -143,16 +147,27 @@ def build_entry(pack: dict) -> dict:
     wins = sum(1 for t in trips if t["gross"] > 0)
 
     head = ymd[5:] + " 세션 정리 — "
-    head += ("종료 " + signed(close) + "원") if close is not None else "손익 기록 없음"
+    if prev_close is not None:
+        head += "전일대비 " + signed(prev_close) + "원"
+    elif close is not None:
+        head += "세션기준 " + signed(close) + "원"
+    else:
+        head += "손익 기록 없음"
 
     verdict = ("원장 " + str(led.get("rows", 0)) + "이벤트(접수 " + str(acc)
                + " · 체결 " + str(fills) + " · 거부 " + str(rej) + "), 재기동 "
                + str(sessions) + "회. ")
     if trips:
         verdict += ("당일 라운드트립 " + str(len(trips)) + "건 중 이익 " + str(wins)
-                    + "건, 실현 총액 " + signed(realized) + "원(수수료·세금 제외). ")
+                    + "건, 라운드트립 실현 " + signed(realized)
+                    + "원(당일 양변 확인분·비용 제외). ")
+    if prev_close is not None:
+        verdict += ("전일 종가 대비 종료 손익은 " + signed(prev_close) + "원이다. ")
     if close is not None:
-        verdict += "잔고 대조 기준 종료 당일손익은 " + signed(close) + "원이다. "
+        verdict += ("세션 시작을 0으로 잡은 잔고 대조 카운터로는 " + signed(close) + "원인데, "
+                    "재기동마다 기준이 옮겨가고 간밤 갭이 빠지므로 하루의 성과는 앞의 값으로 읽는다. "
+                    if prev_close is not None
+                    else "잔고 대조 기준 종료 당일손익은 " + signed(close) + "원이다. ")
     verdict += "여기까지는 원장·로그에서 기계로 뽑은 사실이고, 원인과 다음 조치는 아래 항목에 사람이 적는다."
 
     logname = Path(pack.get("log_path") or "quant_trader.log").name
