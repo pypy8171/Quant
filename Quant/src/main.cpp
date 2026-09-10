@@ -297,7 +297,7 @@ int main(int argc, char* argv[])
 
         if (!sp_ticker.empty() && sp_qty > 0)
         {
-            LOG_INFO("[Main] 기동 기동 점검 설정: " + sp_ticker + " 시장가 " +
+            LOG_INFO("[Main] 기동 점검 설정: " + sp_ticker + " 시장가 " +
                      std::to_string(sp_qty) + "주 (모의계좌 주문경로 검증)");
         }
     }

@@ -1509,8 +1509,19 @@ void Engine::strategy_thread_fn()
     auto raw_push = [&](const OrderSignal& sig)
     {
         ++signal_count_;
+
+        // 취소·정정은 수량이 0이라 side만 찍으면 "BUY 0"으로 나온다. 09-09에 그 줄을 보고
+        //  0주 매수 결함으로 오인해 한참 뒤졌다. 무엇을 하는 신호인지 앞에 적는다.
+        const char* act = (sig.action == OrderAction::CANCEL)  ? "취소 "
+                        : (sig.action == OrderAction::REPLACE) ? "정정 "
+                                                               : "";
+        const std::string tgt = sig.orig_client_oid.empty()
+                              ? std::string()
+                              : " 대상=" + sig.orig_client_oid;
+
         LOG_INFO("[Strategy] 신호: [" + sig.strategy_id + "] " + ticker_label(sig.ticker) + " " +
-                 (sig.side == OrderSide::BUY ? "BUY" : "SELL") + " " + std::to_string(sig.quantity) +
+                 act + (sig.side == OrderSide::BUY ? "BUY" : "SELL") + " " +
+                 std::to_string(sig.quantity) + tgt +
                  (sig.reason.empty() ? "" : " | 근거: " + sig.reason));
 #ifdef HAS_ZMQ
         if (zmq_bridge_)
@@ -1565,7 +1576,7 @@ void Engine::strategy_thread_fn()
 
     std::vector<OrderSignal> batch_buf; // MM 다건 발주 재사용 버퍼 (per-tick 할당 회피)
 
-    // 기동 기동 점검 — 모의계좌 주문경로 검증용 1회성 시장가 매수(config startup_probe).
+    // 기동 점검 — 모의계좌 주문경로 검증용 1회성 시장가 매수(config startup_probe).
     //  이 스레드가 order_queue_ 단일 생산자라 여기서 딱 1번 push하면 SPSC 위반 없음.
     if (!startup_probe_fired_ && !startup_probe_ticker_.empty() && startup_probe_qty_ > 0)
     {
@@ -1576,7 +1587,7 @@ void Engine::strategy_thread_fn()
         probe.quantity    = startup_probe_qty_;
         probe.price       = 0.0;
         probe.strategy_id = "STARTUP_PROBE";
-        LOG_INFO("[Engine] 기동 기동 점검 — " + probe.ticker + " 시장가 BUY " +
+        LOG_INFO("[Engine] 기동 점검 — " + probe.ticker + " 시장가 BUY " +
                  std::to_string(probe.quantity) + "주 (모의계좌 주문경로 검증)");
         push_signal(probe);
         startup_probe_fired_ = true;
@@ -1868,6 +1879,20 @@ void Engine::order_thread_fn()
             sig = retry_q.front().sig;
             attempts = retry_q.front().attempts;
             retry_q.pop_front();
+
+            // 청산이 이미 끝났으면 재시도를 버린다. 원주문이 체결되는 동안 예약된 청산 SELL
+            //  재시도가 큐에 남아 있다가, 보유가 0이 된 뒤에 발주돼 40240000(주문가능분 없음)으로
+            //  거부되곤 했다. 거부라 원장은 다치지 않지만 청산 한 건마다 오거부가 몇 줄씩 쌓여
+            //  진짜 거부를 덮는다. 재시도의 목적은 미청산분을 마저 파는 것이니 보유가 0이면 목적이
+            //  이미 달성된 것이다.
+            if (sig.action == OrderAction::NEW && sig.side == OrderSide::SELL &&
+                order_gate_.position(sig.account_id, sig.ticker) <= 0)
+            {
+                LOG_INFO("[OrderThread] 청산 완료 — 재시도 취소 " + sig.ticker + " " +
+                         std::to_string(sig.quantity) + "주");
+                continue;
+            }
+
             have = true;
         }
         else if (auto opt = order_queue_.pop())
@@ -1900,18 +1925,27 @@ void Engine::order_thread_fn()
                 ++order_count_;
             }
             else if (mo.status == OrderStatus::REJECTED && attempts < order_max_retries_ &&
-                     mo.reject_reason.find(kis_err::kRateLimit) != std::string::npos)
+                     (mo.reject_reason.find(kis_err::kRateLimit) != std::string::npos ||
+                      mo.reject_reason.rfind("Rate limit", 0) == 0))
             {
-                // 초당 거래건수 초과 — KIS가 '접수 전' 거부라 중복주문 위험 없음(빈-ODNO 모호성 없음).
-                //  모든 action(취소·정정·매수·매도)을 dedup 창 밖(retry_delay≥1.2s)으로 재예약해
-                //  유실 없이 자가치유한다. 예전엔 취소·매수가 드롭돼 미연결 주문이 남고, 다음 사이클에
-                //  다시 처리되다 또 한도초과가 나는 악순환이었다. 간격은 짧게 두고, 한도에 부딪힐 때만 물러난다.
+                // 유량 한도 거부 — KIS가 '접수 전' 거부라 중복주문 위험 없음(빈-ODNO 모호성 없음).
+                //  모든 action(취소·정정·매수·매도)을 dedup 창 밖으로 재예약해 유실 없이 자가치유한다.
+                //  예전엔 취소·매수가 드롭돼 미연결 주문이 남고, 다음 사이클에 다시 처리되다 또
+                //  한도초과가 나는 악순환이었다. 간격은 짧게 두고, 한도에 부딪힐 때만 물러난다.
+                // [wire] KIS 서버 거부는 EGW00201, OrderGate 자체 거부는 "Rate limit 초과 (…)" 문자열이라
+                //  둘을 같이 받는다. 앞엣것만 보던 동안 게이트 분당한도에 걸린 BUY가 조용히 드롭됐다.
                 const std::string act = sig.action == OrderAction::CANCEL ? "CANCEL"
                                       : sig.action == OrderAction::REPLACE ? "REPLACE" : "NEW";
-                retry_q.push_back({sig, attempts + 1, steady_clock::now() + retry_delay});
-                LOG_WARN("[OrderThread] 초당한도(EGW00201) 거부 → 재시도 예약 " + sig.ticker + " " +
-                         act + " (" + std::to_string(attempts + 1) + "/" +
-                         std::to_string(order_max_retries_) + ")");
+
+                // 분당 창은 비기까지 최대 60초다. 1.2초로 재예약하면 3회가 4초 안에 다 소진되고
+                //  결국 같은 드롭이 된다. 분당 거부만 20초로 물러나 3회가 창 하나를 덮게 한다.
+                const bool per_min = mo.reject_reason.find("분당") != std::string::npos;
+                const auto delay   = per_min ? milliseconds(20000) : retry_delay;
+
+                retry_q.push_back({sig, attempts + 1, steady_clock::now() + delay});
+                LOG_WARN("[OrderThread] 유량한도 거부 → 재시도 예약 " + sig.ticker + " " + act + " (" +
+                         std::to_string(attempts + 1) + "/" + std::to_string(order_max_retries_) +
+                         ") 이유=" + mo.reject_reason);
             }
             else if (mo.status == OrderStatus::REJECTED && sig.action == OrderAction::NEW &&
                      sig.side == OrderSide::SELL && attempts < order_max_retries_ &&

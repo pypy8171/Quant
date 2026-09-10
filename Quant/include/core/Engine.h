@@ -235,8 +235,8 @@ private:
     KisConfig kis_cfg_;
     int fetch_interval_sec_;
     bool bootstrap_ledger_ = false; // 기동 시 실계좌 보유분 원장 시드 여부(G5, opt-in)
-    std::string startup_probe_ticker_;  // 기동 기동 점검 종목(빈 문자열=미가동)
-    int         startup_probe_qty_ = 0; // 기동 기동 점검 수량(≤0=미가동)
+    std::string startup_probe_ticker_;  // 기동 점검 종목(빈 문자열=미가동)
+    int         startup_probe_qty_ = 0; // 기동 점검 수량(≤0=미가동)
     bool        startup_probe_fired_ = false; // 기동 점검 1회성 발사 가드
     bool rest_price_feed_ = false;  // REST 현재가 폴링을 체결 피드로 사용(WS 우회, opt-in)
     // 지금 실제로 어느 피드로 도는지(런타임 상태). 기동 시 rest_price_feed_로 초기화하고,
