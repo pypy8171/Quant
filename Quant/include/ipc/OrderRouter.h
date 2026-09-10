@@ -55,6 +55,12 @@ public:
     // ── 체결통보 수신 — ODNO로 이력 조회 후 FILLED 상태 갱신 ────────────
     void on_fill(const FillNotification& fn);
 
+    // 살아있는 주문이 없는데 게이트에 남은 선점을 푼다. 선점은 접수 때만 생기므로
+    //  라우터 이력이 정본이다. 모의투자는 미체결조회(inquire-psbl-rvsecncl)를 지원하지 않아
+    //  브로커에 물어볼 수가 없고, 통보를 한 번 놓치면 선점이 슬롯을 물고 하루를 간다.
+    //  주기 호출(잔고 대조와 같은 사이클) 전제. 반환값은 푼 종목 수.
+    int sweep_stale_reservations();
+
     // ── 일별 리셋 (장 시작) — 중복방지 키(seen_fills_) 정리 ───────────────────
     void reset_daily();
 
@@ -73,12 +79,12 @@ public:
     // ── 이전 세션이 남긴 미체결 주문 취소 (기동 시 1회) ─────────────────
     //  재기동하면 history_가 비어 이전 세션 주문의 ODNO를 잊는다. 모의투자는
     //  정정취소가능조회 TR이 없어 브로커에 미체결을 물어볼 수도 없다. 그래서
-    //  접수 때마다 살아있는 주문을 사이드카 파일에 적어 두고 여기서 읽어 취소한다.
+    //  접수 때마다 살아있는 주문을 부속 파일에 적어 두고 여기서 읽어 취소한다.
     //  방치하면 오전 분할 매수 지정가가 하루 종일 걸려 있으면서 (1) 주문가능현금을
     //  묶고(40250000 도배) (2) 청산 관리가 청산한 직후 되사서 원치 않는 재진입을 만든다
     //  (2026-09-08 047050: 13:07 청산 → 오전 ODNO 22814가 13:11 체결).
     //  네트워크 왕복이 건당 3~5초라 85건이면 5분이다. 기동을 그만큼 막으면 장중
-    //  재기동이 사실상 불가능해지므로 취소는 별도 스레드로 돌린다. 사이드카 파일을
+    //  재기동이 사실상 불가능해지므로 취소는 별도 스레드로 돌린다. 부속 파일을
     //  비우는 것만 동기로 끝낸다 — 스레드가 나중에 비우면 그 사이 현재 세션이 적어 둔
     //  미체결 기록까지 같이 지워진다(그러면 다음 재기동이 오늘 주문을 잊는다).
     //  KisClient는 토큰·레이트리밋을 뮤텍스로 직렬화해 스레드 공유를 전제로 한다.
@@ -92,10 +98,10 @@ private:
     // 직전 KIS 주문/취소/정정 오류코드를 " [코드]" 꼬리표로 만든다(EGW00201 재시도 판별용). 없으면 "".
     std::string kis_err_suffix() const;
     void        record(const ManagedOrder& mo);
-    // 살아있는(ACCEPTED·미체결 잔량>0) 주문 목록을 사이드카 본문 문자열로 만든다.
+    // 살아있는(ACCEPTED·미체결 잔량>0) 주문 목록을 부속 파일 본문 문자열로 만든다.
     //  호출자는 hist_mtx_를 보유해야 한다. 파일 쓰기는 write_open_orders_file이 락 밖에서 한다.
     std::string snapshot_open_orders_locked() const;
-    // 사이드카 파일 덮어쓰기(io_mtx_). seq가 이미 쓴 것보다 오래됐으면 건너뛴다 —
+    // 부속 파일 덮어쓰기(io_mtx_). seq가 이미 쓴 것보다 오래됐으면 건너뛴다 —
     //  락 밖에서 쓰므로 스냅샷 순서와 쓰기 순서가 뒤집힐 수 있다. 실패는 매매를 막지 않는다.
     void        write_open_orders_file(const std::string& body, uint64_t seq);
     // 거래 원장 CSV 적재 — 주문/체결을 logs/trades_YYYYMMDD.csv 에 한 줄씩 영속화.
@@ -164,9 +170,14 @@ private:
     // MM-1: client_oid → order_id 존재 힌트 (hist_mtx_로 보호). 실제 ManagedOrder는
     //   history_ 스캔으로 해석(deque 요소는 pop_front로 소멸 가능 → 안정 핸들 아님).
     std::unordered_map<std::string, std::string> oid_index_;
-    // 사이드카 스냅샷 번호. hist_mtx_ 아래에서 올리고, io_mtx_ 아래에서 "마지막으로 쓴 번호"와 비교한다.
+    // 취소가 "취소 대상 없음"으로 되돌아온 종목 → 그 시각 (hist_mtx_로 보호).
+    //  전략은 취소 결과를 보지 못한 채 재구성 주문을 이어 내므로, 원주문이 이미 체결돼
+    //  있었으면 대체 주문이 그대로 중복 매수가 된다(09-09 033790·108490 5건).
+    //  다음 재구성 주기까지 그 종목의 신규 주문을 짧게 막는다.
+    std::unordered_map<std::string, std::chrono::steady_clock::time_point> cancel_miss_;
+    // 부속 파일 스냅샷 번호. hist_mtx_ 아래에서 올리고, io_mtx_ 아래에서 "마지막으로 쓴 번호"와 비교한다.
     uint64_t open_orders_seq_         = 0;
-    std::mutex io_mtx_;                       // 원장 CSV·사이드카 파일 쓰기 직렬화
+    std::mutex io_mtx_;                       // 원장 CSV·부속 파일 쓰기 직렬화
     uint64_t open_orders_written_seq_ = 0;    // io_mtx_ 보호
 
     // 유령주문 취소 스레드. 종료가 몇 분씩 걸리지 않도록 매 건 전에 정지 플래그를 본다.

@@ -50,6 +50,11 @@ std::string OrderRouter::kis_err_suffix() const
 // ─── 주문 제출 — action에 따라 라우팅 (MM-1) ─────────────────────────────
 //  전 경로가 단일 order_thread에서만 실행된다(Engine::order_thread_fn) — OrderGate C6의
 //  단일생산자·단일소비자(SPSC) 불변 보존. 전략 스레드는 여기 진입하지 않는다.
+// 취소가 "취소 대상 없음"으로 되돌아온 뒤 그 종목의 신규 매수를 막아 두는 시간(초).
+//  전략의 재구성 주기(min_action_ms 3초 + 재조회)보다 길고, 존 이탈 청산을 늦출 만큼
+//  길지는 않은 값. 이 창 안에 들어온 매수는 원주문 체결분과 겹칠 수 있다.
+static constexpr int kCancelMissGuardSec = 10;
+
 ManagedOrder OrderRouter::submit(const OrderSignal& sig)
 {
     switch (sig.action)
@@ -98,6 +103,44 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
     mo.status       = OrderStatus::PENDING;
 
     ++total_count_;
+
+    // 방금 이 종목의 취소가 "취소 대상 없음"으로 되돌아왔다면, 원주문이 이미 체결됐을 수
+    //  있다. 전략은 그 결과를 보지 못한 채 대체 주문을 이어 내므로 그대로 두면 중복 매수가
+    //  된다. 다음 재구성 주기에 전략이 실제 보유수량을 다시 읽을 때까지만 막는다.
+    //  매도는 막지 않는다 — 노출을 줄이는 쪽이고, 늦추면 손실이 커진다.
+    if (sig.side == OrderSide::BUY)
+    {
+        bool blocked = false;
+        {
+            std::lock_guard<std::mutex> lk(hist_mtx_);
+            auto it = cancel_miss_.find(sig.ticker);
+
+            if (it != cancel_miss_.end())
+            {
+                const auto age = std::chrono::steady_clock::now() - it->second;
+
+                if (age < std::chrono::seconds(kCancelMissGuardSec))
+                {
+                    blocked = true;
+                }
+                else
+                {
+                    cancel_miss_.erase(it);
+                }
+            }
+        }
+
+        if (blocked)
+        {
+            mo.status        = OrderStatus::REJECTED;
+            mo.reject_reason = "직전 취소가 대상 없음 — 보유수량 재확인까지 보류";
+            ++rejected_count_;
+            LOG_WARN("[OrderRouter] 대체 주문 보류 [" + mo.order_id + "] " + sig.ticker +
+                     " " + mo.reject_reason);
+            record(mo);
+            return mo;
+        }
+    }
 
     // 1. OrderGate 검증
     std::string reject_reason;
@@ -230,28 +273,54 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
 //  내부 reserved_(이번 세션 것)엔 없으므로 gate_는 건드리지 않는다(포지션 정합은 체결통보로).
 OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& sig)
 {
-    // 모의투자는 정정취소가능조회(inquire-psbl-rvsecncl) TR을 미지원("없는 서비스 코드") →
-    //  예약매도를 조회·취소할 방법이 없어 이 자가정리는 구조적으로 불가. 헛도는 실패 조회와
-    //  오해 소지 로그("수동 확인 필요")를 피하려 정직하게 단락한다. 실계좌에선 정상 동작.
-    //  (2026-09-07 재확인: 대안으로 일별주문체결조회(VTTC8001R)를 붙여봤으나 모의 서버는
-    //   기간을 어떻게 주든 output1이 항상 0행이라 미체결을 열거할 수 없었다.)
-    if (kis_.is_paper())
-    {
-        LOG_WARN("[OrderRouter] 청산차단 자가정리 스킵 " + sig.ticker +
-                 " — 모의투자는 미체결조회 미지원(실계좌 전용 경로)");
-        return OrderAck{};
-    }
-
     std::vector<OpenOrder> opens;
 
-    try
+    // 모의투자는 정정취소가능조회(inquire-psbl-rvsecncl) TR을 미지원한다("없는 서비스 코드").
+    //  대안으로 일별주문체결조회(VTTC8001R)도 붙여봤으나 기간을 어떻게 주든 output1이 0행이라
+    //  미체결을 열거할 수 없었다(2026-09-07). 그래서 브로커 대신 라우터 이력을 정본으로 쓴다 —
+    //  접수됐는데 아직 다 안 채워진 이 종목의 매도가 곧 수량을 묶고 있는 예약매도다.
+    //  한계는 분명하다: 이번 세션이 낸 주문만 보인다. 이전 세션·수동 예약은 여전히 안 보이므로
+    //  그때는 아래 "취소할 예약매도 없음"으로 떨어진다. 그래도 통째로 단락하는 것보다 낫다.
+    if (kis_.is_paper())
     {
-        opens = kis_.get_open_orders();
+        std::lock_guard<std::mutex> lk(hist_mtx_);
+
+        for (const auto& mo : history_)
+        {
+            if (mo.status != OrderStatus::ACCEPTED || mo.signal.side != OrderSide::SELL ||
+                mo.signal.ticker != sig.ticker || mo.kis_order_no.empty())
+            {
+                continue;
+            }
+
+            const int outstanding = mo.signal.quantity - mo.confirmed_qty;
+
+            if (outstanding <= 0)
+            {
+                continue;
+            }
+
+            OpenOrder o;
+            o.ticker    = mo.signal.ticker;
+            o.odno      = mo.kis_order_no;
+            o.krx_orgno = mo.krx_orgno;
+            o.psbl_qty  = outstanding;
+            o.ord_unpr  = mo.signal.price;
+            o.side      = OrderSide::SELL;
+            opens.push_back(o);
+        }
     }
-    catch (const std::exception& e)
+    else
     {
-        LOG_WARN("[OrderRouter] 미체결 조회 예외 — " + std::string(e.what()));
-        return OrderAck{};
+        try
+        {
+            opens = kis_.get_open_orders();
+        }
+        catch (const std::exception& e)
+        {
+            LOG_WARN("[OrderRouter] 미체결 조회 예외 — " + std::string(e.what()));
+            return OrderAck{};
+        }
     }
 
     int cancelled = 0;
@@ -305,6 +374,51 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& sig)
     }
 }
 
+// ─── 유령 선점 정리 ───────────────────────────────────────────────────────
+//  게이트의 선점(reserved_)은 접수 때만 생기고 체결·취소 통보로만 풀린다. 통보를 한 번
+//  놓치면 그 선점이 슬롯을 물고 남아, 실제 보유가 한도에 못 미치는데 신규 진입이 막힌다
+//  (09-09: 보유 20인데 "25 >= 25" 거부). 라우터 이력에 살아있는 주문이 없으면 푼다.
+int OrderRouter::sweep_stale_reservations()
+{
+    std::vector<std::string> live;
+    {
+        std::lock_guard<std::mutex> lk(hist_mtx_);
+
+        // [inv] 이력이 비면 아무 것도 풀지 않는다. 선점은 접수 때만 생기고 접수는 이력에도
+        //  남으므로 정상적으로는 둘이 같이 비어 있다. 이력만 비는 경우(재기동 직후, 상한 초과로
+        //  잘려 나간 뒤)에 정본으로 믿으면 살아 있는 선점을 통째로 푼다.
+        if (history_.empty())
+        {
+            return 0;
+        }
+
+        for (const auto& mo : history_)
+        {
+            if (mo.status == OrderStatus::ACCEPTED && mo.confirmed_qty < mo.signal.quantity)
+            {
+                live.push_back(mo.signal.ticker);
+            }
+        }
+    }
+
+    const auto gone = gate_.prune_reservations(live);
+
+    if (!gone.empty())
+    {
+        std::string list;
+
+        for (const auto& t : gone)
+        {
+            list += (list.empty() ? "" : ",") + t;
+        }
+
+        LOG_WARN("[OrderRouter] 살아있는 주문 없는 선점 " + std::to_string(gone.size()) +
+                 "종목 해제 (" + list + ")");
+    }
+
+    return static_cast<int>(gone.size());
+}
+
 // ─── 이력 저장 (max_history 초과 시 체결 완료/거부된 것만 삭제) ───────────
 void OrderRouter::record(const ManagedOrder& mo)
 {
@@ -353,8 +467,12 @@ void OrderRouter::append_order_reason(const ManagedOrder& mo)
     {
         for (char& c : s)
         {
-            if (c == '|' || c == '\n' || c == '\r') c = ' ';
+            if (c == '|' || c == '\n' || c == '\r')
+            {
+                c = ' ';
+            }
         }
+
         return s;
     };
 
@@ -443,7 +561,7 @@ void OrderRouter::load_order_reasons_locked()
 }
 
 
-// ─── 미체결 주문 사이드카 ─────────────────────────────────────────────────
+// ─── 미체결 주문 부속 파일 ─────────────────────────────────────────────────
 //  형식: odno|orgno|ticker|side|remaining  (한 줄 한 주문, 헤더 없음)
 //  history_는 프로세스 메모리라 재기동으로 사라진다. 모의투자는 정정취소가능조회
 //  TR을 지원하지 않아 브로커에도 물어볼 수 없다. 그래서 살아있는 주문을 파일에
@@ -636,6 +754,15 @@ void OrderRouter::cancel_stale_orders_async()
                 ++cancelled;
                 LOG_INFO("[OrderRouter] 유령주문 취소 " + f[2] + " " + f[3] + " " +
                          std::to_string(qty) + "주 ODNO=" + f[0]);
+
+                // 취소로 브로커에서는 수량이 풀렸지만 게이트의 sellable_은 잔고 시드값
+                //  (ord_psbl_qty, 취소 전 스냅샷) 그대로다. 되돌리지 않으면 미체결이 없는데도
+                //  자기 청산이 막힌다 — 09-09 000215은 13:45 취소 뒤 16분간 "매도가능수량 0"으로
+                //  교체 진입이 네 번 무산됐다. 매도 취소만 해당한다(매수는 현금을 풀 뿐이다).
+                if (f[3] == "SELL")
+                {
+                    gate_.restore_sellable(std::string(), f[2], qty);
+                }
             }
             else
             {
@@ -864,9 +991,33 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& sig)
     OrderSide side = OrderSide::NONE;
     int outstanding = 0;
     bool found = false;
+    // 취소가 빗나갔을 때 "원주문이 이미 체결됐을 수 있나"를 같은 락 안에서 답해 둔다.
+    //  find_live_by_oid는 살아있는 주문만 보므로 !found는 세 경우를 뭉뚱그린다 —
+    //  체결됨 / 이미 취소됨 / 애초에 접수된 적 없음(REJECTED·이력 없음).
+    //  중복 매수 위험은 첫째에만 있다. [why D-033]
+    bool orig_may_have_filled = false;
     {
         std::lock_guard<std::mutex> lk(hist_mtx_);
         ManagedOrder* orig = find_live_by_oid(sig.orig_client_oid);
+
+        if (!orig && !sig.orig_client_oid.empty())
+        {
+            for (const auto& h : history_)
+            {
+                if (h.signal.client_oid != sig.orig_client_oid)
+                {
+                    continue;
+                }
+
+                if (h.status == OrderStatus::FILLED ||
+                    (h.status == OrderStatus::ACCEPTED && h.confirmed_qty > 0))
+                {
+                    orig_may_have_filled = true;
+                }
+
+                break;
+            }
+        }
 
         if (orig)
         {
@@ -890,7 +1041,21 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& sig)
         mo.status        = OrderStatus::REJECTED;
         mo.reject_reason = "취소 대상 없음 (이미 체결/취소/이력초과) oid=" + sig.orig_client_oid;
         ++rejected_count_;
-        LOG_WARN("[OrderRouter] 취소 무시 [" + mo.order_id + "] " + mo.reject_reason);
+
+        // 체결 흔적이 있을 때만 매수를 잠근다. 접수된 적 없는 oid(전략이 거부된 주문을
+        //  live로 들고 있는 경우)에도 잠그면 매 재구성 주기마다 취소 빗나감 → 매수 거부 →
+        //  거부된 oid가 다시 live로 → 다음 주기에 또 취소 빗나감으로 되돌아, 창이 계속
+        //  갱신되며 그 종목 매수가 영구히 막힌다. 2026-09-10 006910이 이 모양으로
+        //  보유 0인 채 57분간 한 주도 못 샀다(대체 주문 보류 176건). [why D-033]
+        //  이미 무장돼 있으면 시각을 갱신하지 않는다 — 창은 연장되지 않는다.
+        if (orig_may_have_filled)
+        {
+            std::lock_guard<std::mutex> lk(hist_mtx_);
+            cancel_miss_.emplace(sig.ticker, std::chrono::steady_clock::now());
+        }
+
+        LOG_WARN("[OrderRouter] 취소 무시 [" + mo.order_id + "] " + mo.reject_reason +
+                 (orig_may_have_filled ? " — 체결 가능성 있어 신규매수 보류" : ""));
         record(mo);
         return mo;
     }
@@ -1244,7 +1409,7 @@ void OrderRouter::on_fill(const FillNotification& fn)
 
         // 락 밖에서 쓰려고 복사한다 — mo는 history_ 원소라 record()의 축출로 참조가 죽을 수 있다.
         const ManagedOrder snap        = mo;
-        const std::string  open_orders = snapshot_open_orders_locked(); // 잔량이 줄었으니 사이드카를 다시 쓴다
+        const std::string  open_orders = snapshot_open_orders_locked(); // 잔량이 줄었으니 부속 파일을 다시 쓴다
         const uint64_t     seq         = ++open_orders_seq_;
         lk.unlock();
 
