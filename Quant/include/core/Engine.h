@@ -32,9 +32,14 @@
 //  WS 구독 목록은 on_start() 이후 전략의 get_watch_specs()로 동적 수집
 // ─────────────────────────────────────────────────────────────────────────────
 
-// regime.json 이 이 초(sec)보다 오래되면 사이드카가 죽은 것으로 보고 신뢰하지 않는다(페일세이프).
+// regime.json 이 이 초(sec)보다 오래되면 보조 프로세스가 죽은 것으로 보고 신뢰하지 않는다(페일세이프).
 // config "regime_stale_sec" 로 덮어쓸 수 있고, 미지정 시 이 기본값을 쓴다.
 inline constexpr int kDefaultRegimeStaleSec = 600;
+
+// 매크로 진입정지의 유효 시간(개장 후 분). 0이면 만료 없음(옛 동작).
+//  이 축의 입력 5개 중 4개가 간밤 미국 종가라 KST 장중 내내 상수다 — 회복을 관측할 수
+//  없는 신호에 장중 거부권을 계속 주지 않는다. [why D-033]
+inline constexpr int kDefaultRegimeHaltExpireMin = 60;
 
 class Engine
 {
@@ -53,11 +58,11 @@ public:
     // 폴링해 그 값을 TradeData(체결 틱)처럼 td_queue_에 넣고, WS 연결은 생략한다. ITB 전략이
     // 이 틱으로 구동된다(ITB = IntradayBreakoutStrategy, 장중 돌파 전략).
     void set_rest_price_feed(bool b) { rest_price_feed_ = b; }
-    // 매크로 레짐 사이드카 브리지(2026-08-09 회의 Task 3). Python macro_regime_feed.py가
+    // 매크로 레짐 보조 프로세스 브리지(2026-08-09 회의 Task 3). Python macro_regime_feed.py가
     // 원자적으로 쓰는 regime.json 경로를 지정하면, data_thread가 매 사이클 그 파일을 읽어
     // 시장이 위험하면 OrderGate 의 "신규매수 정지" 스위치(entry_halt)를 켜고, 풀리면 끈다
     // (매수만 막고 청산·매도는 그대로 통과). path 빈 문자열이면 기능 미가동(기본).
-    // stale_sec(기본 kDefaultRegimeStaleSec)보다 오래된 파일은 사이드카가 죽은 것으로 보고 무시한다.
+    // stale_sec(기본 kDefaultRegimeStaleSec)보다 오래된 파일은 보조 프로세스가 죽은 것으로 보고 무시한다.
     void set_regime_file(const std::string& path, int stale_sec = kDefaultRegimeStaleSec)
     {
         regime_file_ = path;
@@ -67,6 +72,12 @@ public:
             regime_stale_sec_ = stale_sec;
         }
     }
+
+    // 매크로 진입정지의 시간 상자. 개장 후 이 분수가 지나면 entry_halt를 스스로 풀고,
+    // 그날 매크로 축은 다시 halt를 걸지 못한다. 그 뒤 통제는 장중을 실제로 보는 축
+    // (UniverseScanner 코스피 게이트·종목 정배열)이 갖는다. force_liquidate는 대상이 아니다.
+    // 0 이하면 만료를 끈다. [why D-033]
+    void set_regime_halt_expire_min(int m) { regime_halt_expire_min_ = m; }
 
     // 기동 스모크 테스트(smoke test: 전원 켜서 최소한 도는지 보는 점검) — 서버 실행 직후 지정
     //  종목을 시장가로 딱 1회 매수해 주문 경로 전체(OrderRouter→체결통보→원장)가 살아있는지
@@ -209,6 +220,10 @@ private:
     //  다시 낼 수 있다). 이 갱신이 없으면 equity가 0에 머물러 총노출 게이트가 통과만 하게 된다.
     void reconcile_from_balance(bool resync_positions);
     void poll_regime_file();       // 매크로 레짐 파일 폴링 → OrderGate entry_halt 토글 (data_thread 전용)
+    // 시간 상자 판정만 답한다(개장 후 N분 경과?). halt를 어떻게 풀지는 호출자가 정한다 —
+    //  정상 경로·stale·무효 판정 세 자리에서 같은 기준을 쓰기 위해 따로 뺐다. [why D-033]
+    bool regime_halt_time_box_passed();
+    void log_regime_halt_expiry_once();
     void maybe_rescan_universe();  // 주기적 유니버스 재스캔 → 신규 티커 런타임 등록 (data_thread 전용)
     // G1: 현재 국면 r에 맞춰 전략별 active 플래그 재선택. 선택 결정을 로그로 기록(국면 변화
     //  또는 force_log 시). data_thread 전용(strategies_ 반복은 이 스레드에서만 mutate).
@@ -247,9 +262,12 @@ private:
     bool rest_fallback_engaged_ = false; // 폴백으로 낮춘 상태인가(control_thread 전용, 전이 로그·복귀 판정)
     // 매크로 레짐 브리지 상태(data_thread 전용) — regime.json → OrderGate entry_halt.
     std::string regime_file_;             // 빈 문자열이면 기능 미가동
-    int  regime_stale_sec_    = kDefaultRegimeStaleSec; // 이 초 이상 오래된 파일은 신뢰 안 함(사이드카 사망 감지)
+    int  regime_stale_sec_    = kDefaultRegimeStaleSec; // 이 초 이상 오래된 파일은 신뢰 안 함(보조 프로세스 사망 감지)
     bool regime_halt_on_      = false;    // 우리가 현재 건 halt 상태(전이 시에만 로그·set 호출)
     bool regime_stale_warned_ = false;    // stale 경고 1회화
+    int  regime_halt_expire_min_ = kDefaultRegimeHaltExpireMin; // 개장 후 분, 0 이하면 만료 없음
+    int  regime_halt_expire_yday_ = -1;   // [inv] 만료 상태를 하루 단위로 되돌리는 기준일(tm_yday)
+    bool regime_halt_expired_ = false;    // 오늘 이미 만료시켰나(로그 1회화 겸용)
     bool regime_liq_warned_   = false;    // force_liquidate 경고 1회화(전이 로그용)
     // G3: 극단 위험회피(force_liquidate=TRUE) 시 보유 전량 강제청산 요청 플래그.
     //  data_thread(poll_regime_file)가 set → strategy_thread(order_queue_ 단일 생산자)가

@@ -1,5 +1,5 @@
 """
-매크로 레짐 사이드카 — risk-on/off 게이트 프로듀서 (2026-08-09 전략회의 Task 3).
+매크로 레짐 보조 프로세스 — risk-on/off 게이트 프로듀서 (2026-08-09 전략회의 Task 3).
 
 목적:
   환율·미국채금리·나스닥선물·VIX 는 서로 상관 0.6~0.9인 "베타(시장 전체 방향)"라
@@ -76,7 +76,13 @@ THRESHOLDS = {
 #   force_liquidate = risk_score <= LIQ_SCORE
 #   주의: 이 값이 true가 되면 C++ 전략 스레드가 보유 전량을 시장가로 매도한다(FORCE_LIQ,
 #   2초 간격 재발주). 로그만 찍는 값이 아니다. 임계값을 낮출 때 그 무게로 다룬다.
-HALT_SCORE = -3
+# 09-10: -3은 5개 지표 중 3개만 음수여도 걸린다. 흔한 조정에서 하루 종일 진입이 막혀
+#         매도만 나가는 편향이 생겨 -4(4개 음수)로 낮췄다. 청산선(-6)은 그대로 둔다.
+# 이 -4는 잠정값이다. 근거는 관측 4거래일·토글 6회뿐이고(그중 진입이 실제로 있던 날은 09-10
+#  하루), 다년 재구성으로 검증하지 않았다. 재구성 시 look-ahead 함정 둘을 먼저 처리한다 —
+#  KST 당일에 보이는 미국 종가는 T-1 세션이고, USD/KRW 종가는 같은 세션이라 09:00 게이트로
+#  새어 들어간다. 검증 전까지 이 값을 확정된 임계로 인용하지 않는다. [why D-033]
+HALT_SCORE = -4
 LIQ_SCORE  = -6
 
 
@@ -206,11 +212,42 @@ def write_atomic(path: Path, obj: dict) -> None:
     os.replace(tmp, path)  # 원자적(같은 볼륨)
 
 
+def append_history(path: Path, obj: dict) -> None:
+    """사이클마다 한 줄씩 누적한다.
+
+    regime.json은 매 사이클 덮어써져 과거 점수가 남지 않는다. 09-10 사고를 되짚을 때
+    남아 있던 증거가 엔진 로그 4일치뿐이었던 것이 이 파일이 생긴 이유다. 임계값을
+    다시 정할 때 필요한 최소 단위(시각·점수·판정·지표별 등락률)만 적는다. [why D-033]
+
+    실패는 삼킨다 — 관측용 부산물이 보조 프로세스 본체를 멈추면 안 된다.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        row = {
+            "ts": obj.get("ts"),
+            "regime": obj.get("regime"),
+            "risk_score": obj.get("risk_score"),
+            "entry_halt": obj.get("entry_halt"),
+            "force_liquidate": obj.get("force_liquidate"),
+            "valid": obj.get("valid"),
+            "halt_score": HALT_SCORE,
+            "liq_score": LIQ_SCORE,
+            "pct": {k: v.get("pct") for k, v in (obj.get("components") or {}).items()},
+            "vote": {k: v.get("vote") for k, v in (obj.get("components") or {}).items()},
+        }
+        with open(path, "a", encoding="utf-8") as f:
+            print(json.dumps(row, ensure_ascii=False), file=f)
+    except Exception as e:  # noqa: BLE001
+        print(f"[WARN] 이력 append 실패: {type(e).__name__}: {e}", file=sys.stderr)
+
+
 def main() -> None:
-    ap = argparse.ArgumentParser(description="매크로 레짐 사이드카 (risk-on/off 게이트 프로듀서)")
+    ap = argparse.ArgumentParser(description="매크로 레짐 보조 프로세스 (risk-on/off 게이트 프로듀서)")
     ap.add_argument("--out", default=None, help="regime.json 경로 (기본 Quant/config/regime.json)")
     ap.add_argument("--interval", type=float, default=180.0, help="발행 주기(초, 기본 180=3분)")
     ap.add_argument("--once", action="store_true", help="1회 계산 후 종료(점검용)")
+    ap.add_argument("--history", default=None,
+                    help="이력 jsonl 경로 (기본 logs/regime_history.jsonl, 빈 문자열이면 끄기)")
     args = ap.parse_args()
 
     if args.out:
@@ -219,7 +256,16 @@ def main() -> None:
         # PYQuant/tools/ → repo 루트/Quant/config/regime.json
         out_path = Path(__file__).resolve().parents[2] / "Quant" / "config" / "regime.json"
 
-    print(f"매크로 레짐 사이드카 | 출력={out_path} | 주기={args.interval}s | once={args.once}")
+    # 이력은 저장소 기준 고정 경로다 — cwd가 달라도 한 파일에 모이게.
+    if args.history is None:
+        hist_path = Path(__file__).resolve().parents[2] / "logs" / "regime_history.jsonl"
+    elif args.history == "":
+        hist_path = None
+    else:
+        hist_path = Path(args.history)
+
+    print(f"매크로 레짐 보조 프로세스 | 출력={out_path} | 이력={hist_path or '끔'} | "
+          f"주기={args.interval}s | once={args.once}")
     print("⚠️ 임계값은 검증 필요 가정 — 라이브 관찰하며 보정(STRATEGIES.md 참조)")
 
     while True:
@@ -237,6 +283,8 @@ def main() -> None:
         except Exception as e:  # noqa: BLE001
             print(f"[WARN] 사이클 실패: {type(e).__name__}: {e} — 다음 주기 재시도", file=sys.stderr)
         if regime is not None:
+            if hist_path is not None:
+                append_history(hist_path, regime)
             comp = " ".join(
                 f"{k}={v['pct']}%({v['vote']:+d})" if v.get("pct") is not None else f"{k}=NA"
                 for k, v in regime["components"].items()

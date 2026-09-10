@@ -654,6 +654,10 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         sc.risk_off_idx    = s.value("risk_off_index_pct", -0.02);
         sc.kosdaq_enabled      = s.value("kosdaq_enabled", false);              // 코스닥 참여(기본 off, 백테스트 통과 후 개방)
         sc.risk_off_idx_kosdaq = s.value("risk_off_index_pct_kosdaq", -0.015);  // 코스닥 지수 risk_off 임계(코스피보다 보수적)
+        // 재개 임계와 최소 체류 — 차단 임계와 갈라 두어 경계 근처 토글을 없앤다. [why D-033]
+        sc.risk_off_idx_resume        = s.value("risk_off_resume_pct", -0.012);
+        sc.risk_off_idx_kosdaq_resume = s.value("risk_off_resume_pct_kosdaq", -0.009);
+        sc.risk_off_dwell_sec         = s.value("risk_off_dwell_sec", 600);
         sc.require_aligned = s.value("require_aligned", true);  // 정배열 프리필터 on/off
         sc.align_probe_max = s.value("align_probe_max", 60);    // 정배열 검사 후보 상한(일봉 조회 비용 캡)
 

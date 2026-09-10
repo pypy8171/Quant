@@ -991,7 +991,7 @@ void Engine::data_thread_fn()
 
         try
         {
-            // 매크로 레짐 게이트: 사이드카가 쓴 regime.json → OrderGate entry_halt 토글.
+            // 매크로 레짐 게이트: 보조 프로세스가 쓴 regime.json → OrderGate entry_halt 토글.
             //  재스캔/잔고 대조와 같은 "사이클 1회" 계층. rest·일봉 모드 공통 경로라 두 모드 다 커버.
             poll_regime_file();
 
@@ -1156,6 +1156,34 @@ void Engine::data_thread_fn()
                         std::sort(secs.begin(), secs.end(),
                                   [](const SecRate& a, const SecRate& b) { return a.rate > b.rate; });
 
+                        // 폭(breadth) 한 줄. 지수 등락률 하나로는 "지수는 빠졌는데 업종 절반이
+                        //  플러스"인 회복 초입과 전 업종이 같이 밀리는 진짜 위험회피를 구분할 수
+                        //  없다. 지금은 관측 전용이다 — 어떤 판정에도 쓰지 않는다. 회복일과
+                        //  데드캣을 사후에 갈라 볼 표본이 쌓이기 전에는 게이트로 승격하지 않는다.
+                        //  [why D-033]
+                        if (!secs.empty())
+                        {
+                            int up = 0;
+
+                            for (const auto& s : secs)
+                            {
+                                if (s.rate > 0.0)
+                                {
+                                    ++up;
+                                }
+                            }
+
+                            // 정렬이 끝난 뒤라 중앙값은 가운데 원소다(짝수면 두 값의 평균).
+                            const size_t n = secs.size();
+                            double med = (n % 2 == 1)
+                                             ? secs[n / 2].rate
+                                             : (secs[n / 2 - 1].rate + secs[n / 2].rate) / 2.0;
+                            char head[128];
+                            std::snprintf(head, sizeof(head),
+                                          "[섹터] 폭 %d/%zu 플러스, 중앙값 %+.2f%%", up, n, med);
+                            LOG_INFO(head);
+                        }
+
                         LOG_INFO("[섹터] ── 업종 등락률(강→약, 관측용) ──");
 
                         for (const auto& s : secs)
@@ -1171,10 +1199,12 @@ void Engine::data_thread_fn()
                 }
 
                 // ── 매크로 지표 모니터(관측용) ─────────────────────────────────────
-                //  환율·나스닥선물·미국채10Y금리는 도메스틱 KIS 밖 → 사이드카(macro_regime_feed.py)가
-                //  yfinance 심볼로 계산해 regime.json에 쓴 components를 그대로 로깅한다.
-                //  (선물은 한국 장중에도 살아있음 — 현물지수는 KST 장중 죽어 부적합. 금리는 ^TNX.)
-                //  regime.json 미존재(사이드카 미실행) 시 조용히 스킵. entry_halt 게이트와 독립.
+                //  환율·미국지수·미국채10Y금리는 도메스틱 KIS 밖 → 보조 프로세스(macro_regime_feed.py)가
+                //  FinanceDataReader로 계산해 regime.json에 쓴 components를 그대로 로깅한다.
+                //  키 이름은 NQ_F·ES_F지만 실제 소스는 현물지수 일봉(IXIC·US500)이다. 이 환경에서
+                //  yfinance가 전 심볼 실패해 2026-09-04에 FDR로 갈아탄 결과다. 그래서 5개 중 4개는
+                //  KST 09:00~15:30 내내 값이 고정된다 — 이 줄들을 장중 신호로 읽지 않는다. [why D-033]
+                //  regime.json 미존재(보조 프로세스 미실행) 시 조용히 스킵. entry_halt 게이트와 독립.
                 {
                     static int macro_tick = 0;
 
@@ -1244,7 +1274,7 @@ void Engine::data_thread_fn()
                         }
                         else if (macro_tick == 0)
                         {
-                            LOG_INFO("[매크로] regime.json 없음 — 매크로 표시엔 사이드카"
+                            LOG_INFO("[매크로] regime.json 없음 — 매크로 표시엔 보조 프로세스"
                                      "(macro_regime_feed.py) 실행 필요");
                         }
                     }
@@ -1401,11 +1431,63 @@ void Engine::data_thread_fn()
 //  판정보류(valid=false)/stale이면 게이트를 새로 켜지 않는다(유지가 실패안전).
 //  매크로 risk-off 오버레이 축(G2): entry_halt·force_liquidate(강제청산)를 건다.
 //  RegimeController의 전략선택 축과는 별개 관심사 — 선택 축은 apply_regime_selection() 참조.
+// 시간 상자가 지났는지만 답한다. 매크로 축의 지표 5개 중 4개(IXIC·US500·VIX·DGS10)는 간밤
+//  미국 종가라 KST 09:00~15:30 내내 값이 안 변한다. 회복을 볼 수 없는 신호가 장중 거부권을 계속
+//  쥐면 2026-09-10처럼 지수가 되돌아온 뒤에도 4시간 동안 청산만 나간다. 만료 뒤 통제는 장중을
+//  실제로 보는 축(UniverseScanner 코스피 게이트·종목 정배열)이 갖는다.
+//  호출자는 둘이다 — poll_regime_file 진입부의 해제와, 정상 판정에서 halt를 켜지 않는 판정. [why D-033]
+bool Engine::regime_halt_time_box_passed()
+{
+    if (regime_halt_expire_min_ <= 0)
+    {
+        return false;   // 기능 끔
+    }
+
+    struct tm kst = utc_plus_hours(9);
+
+    if (kst.tm_yday != regime_halt_expire_yday_)
+    {
+        regime_halt_expire_yday_ = kst.tm_yday;
+        regime_halt_expired_     = false;
+    }
+
+    // 09:00~15:30을 분으로 편 값(is_kr_market_open과 같은 기준). 개장 전은 음수라 안 걸린다.
+    const int after_open = kst.tm_hour * 60 + kst.tm_min - 540;
+    return after_open >= regime_halt_expire_min_ && after_open < 390;
+}
+
+// 만료 로그는 하루 한 번이면 된다. 폴링 주기마다 같은 줄이 쌓이면 로그가 못 쓰게 된다.
+void Engine::log_regime_halt_expiry_once()
+{
+    if (regime_halt_expired_)
+    {
+        return;
+    }
+
+    LOG_WARN("[Regime] 매크로 진입정지 만료 — 개장 후 " +
+             std::to_string(regime_halt_expire_min_) +
+             "분 경과. 이 축은 장중 갱신되지 않으므로 오늘 남은 시간의 신규진입 판단은 "
+             "유니버스 지수 게이트와 종목 정배열에 맡긴다");
+    regime_halt_expired_ = true;
+}
+
 void Engine::poll_regime_file()
 {
     if (regime_file_.empty())
     {
         return; // 기능 미가동(기본)
+    }
+
+    // 시간 상자는 파일을 읽기 전에, 한 곳에서 집행한다. 이 아래로는 halt를 건 채 빠져나가는
+    //  경로가 다섯이다(파일 없음·stale·열기 실패·파싱 예외·판정 보류). 보조 프로세스가 죽는
+    //  가장 흔한 모양이 파일 삭제와 쓰기 중 잘림인데, 분기마다 같은 해제를 적으면 한 곳은
+    //  빠지고 그날 halt가 안 풀린다 — 그게 09-10의 실패 모양이었다.
+    //  force_liquidate 중에는 풀지 않는다(극단 위험회피를 시계로 풀지 않는다). [why D-033]
+    if (regime_halt_on_ && !regime_liq_warned_ && regime_halt_time_box_passed())
+    {
+        log_regime_halt_expiry_once();
+        order_gate_.set_entry_halt(false);
+        regime_halt_on_ = false;
     }
 
     std::error_code ec;
@@ -1415,7 +1497,7 @@ void Engine::poll_regime_file()
         return; // 파일 없음 → 게이트 불변
     }
 
-    // 신선도: 사이드카가 죽어 파일이 오래되면 신뢰 불가 → halt를 새로 켜지 않는다.
+    // 신선도: 보조 프로세스가 죽어 파일이 오래되면 신뢰 불가 → halt를 새로 켜지 않는다.
     auto ftime = std::filesystem::last_write_time(regime_file_, ec);
 
     if (!ec)
@@ -1429,11 +1511,11 @@ void Engine::poll_regime_file()
             {
                 LOG_WARN("[Regime] regime.json " + std::to_string(age) + "s 경과(> " +
                          std::to_string(regime_stale_sec_) +
-                         "s) — 사이드카 중단 의심, 게이트 신규 변경 보류(현 halt 유지)");
+                         "s) — 보조 프로세스 중단 의심, 게이트 신규 변경 보류(현 halt 유지)");
                 regime_stale_warned_ = true;
             }
 
-            return;
+            return;   // 해제는 진입부에서 이미 집행했다
         }
 
         regime_stale_warned_ = false;
@@ -1460,7 +1542,7 @@ void Engine::poll_regime_file()
 
     if (!j.value("valid", false))
     {
-        return; // 사이드카가 데이터 부족으로 판정 보류 → 게이트 불변
+        return; // 보조 프로세스가 데이터 부족으로 판정 보류 → 게이트 불변(해제는 진입부에서 집행)
     }
 
     // ── force_liquidate: 청산 중엔 신규 진입도 반드시 정지(entry_halt에 OR) ────────
@@ -1468,6 +1550,14 @@ void Engine::poll_regime_file()
 
     // ── entry_halt 전이 시에만 set + 로그 (liq이면 강제 halt) ────────────────────
     bool halt = j.value("entry_halt", false) || liq;
+
+    // 시간 상자: 개장 후 N분이 지나면 매크로 축의 진입정지를 스스로 만료시킨다.
+    //  force_liquidate는 만료 대상이 아니다 — 극단 위험회피를 시계로 풀지 않는다. [why D-033]
+    if (halt && !liq && regime_halt_time_box_passed())
+    {
+        log_regime_halt_expiry_once();
+        halt = false;
+    }
 
     if (halt != regime_halt_on_)
     {

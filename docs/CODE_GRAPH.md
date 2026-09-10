@@ -20,12 +20,12 @@ graph LR
   utils[utils]
   api -->|3| core
   api -->|3| utils
-  core -->|3| api
+  core -->|4| api
   core -->|2| ipc
   core --> risk
   core --> strategy
   core -->|2| utils
-  ipc --> api
+  ipc -->|2| api
   ipc -->|2| core
   ipc --> risk
   ipc -->|2| utils
@@ -39,8 +39,8 @@ graph LR
   modes -->|2| utils
   risk --> core
   strategy -->|5| api
-  strategy -->|4| core
-  strategy --> universe
+  strategy -->|10| core
+  strategy -->|3| universe
   strategy -->|8| utils
   universe --> api
   universe --> core
@@ -55,13 +55,13 @@ graph LR
 | 헤더 | 유입 수 |
 |---|---|
 | `utils/Logger.h` | 17 |
-| `core/Types.h` | 13 |
+| `core/Types.h` | 14 |
 | `api/KisClient.h` | 12 |
 | `strategy/StrategyBase.h` | 11 |
+| `core/MarketSession.h` | 4 |
 | `ipc/ZmqBridge.h` | 4 |
 | `api/KisWebSocket.h` | 3 |
 | `core/Engine.h` | 3 |
-| `risk/OrderGate.h` | 3 |
 
 ## 파일 단위 상세
 
@@ -81,6 +81,7 @@ graph LR
     n_core_Engine_h["core/Engine.h"]
     n_core_RegimeController_cpp["core/RegimeController.cpp"]
     n_core_RegimeController_h["core/RegimeController.h"]
+    n_core_TickSize_h["core/TickSize.h"]
   end
   subgraph ipc
     n_ipc_OrderRouter_cpp["ipc/OrderRouter.cpp"]
@@ -128,6 +129,7 @@ graph LR
   n_api_KisWebSocket_h --> n_core_Types_h
   n_api_WebSocketClient_cpp --> n_api_KisWebSocket_h
   n_api_WebSocketClient_cpp --> n_utils_Logger_h
+  n_core_Engine_cpp --> n_api_KisErrorCodes_h
   n_core_Engine_cpp --> n_core_Engine_h
   n_core_Engine_cpp --> n_utils_Logger_h
   n_core_Engine_h --> n_api_KisClient_h
@@ -143,6 +145,8 @@ graph LR
   n_core_RegimeController_cpp --> n_core_RegimeController_h
   n_core_RegimeController_cpp --> n_utils_Logger_h
   n_core_RegimeController_h --> n_core_Types_h
+  n_core_TickSize_h --> n_core_Types_h
+  n_ipc_OrderRouter_cpp --> n_api_KisErrorCodes_h
   n_ipc_OrderRouter_cpp --> n_ipc_OrderRouter_h
   n_ipc_OrderRouter_cpp --> n_utils_Logger_h
   n_ipc_OrderRouter_h --> n_api_IOrderExecutor_h
@@ -167,15 +171,20 @@ graph LR
   n_risk_OrderGate_cpp --> n_risk_OrderGate_h
   n_risk_OrderGate_h --> n_core_Types_h
   n_strategy_DeviationScaleStrategy_h --> n_api_KisClient_h
+  n_strategy_DeviationScaleStrategy_h --> n_core_TickSize_h
   n_strategy_DeviationScaleStrategy_h --> n_strategy_StrategyBase_h
+  n_strategy_DeviationScaleStrategy_h --> n_universe_MaAlign_h
   n_strategy_DeviationScaleStrategy_h --> n_utils_Logger_h
+  n_strategy_FixedIntervalStrategy_h --> n_core_MarketSession_h
   n_strategy_FixedIntervalStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_FixedIntervalStrategy_h --> n_utils_Logger_h
   n_strategy_IntradayBreakoutStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_IntradayBreakoutStrategy_h --> n_utils_Logger_h
   n_strategy_MACrossStrategy_h --> n_strategy_StrategyBase_h
+  n_strategy_MarketMakingStrategy_h --> n_core_TickSize_h
   n_strategy_MarketMakingStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_MomentumStrategy_h --> n_strategy_StrategyBase_h
+  n_strategy_PriceTargetStrategy_h --> n_core_MarketSession_h
   n_strategy_PriceTargetStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_PriceTargetStrategy_h --> n_utils_Logger_h
   n_strategy_StrategyBase_h --> n_core_Types_h
@@ -192,6 +201,7 @@ graph LR
   n_strategy_StrategyFactory_cpp --> n_strategy_SupplyDemandPullbackStrategy_h
   n_strategy_StrategyFactory_cpp --> n_strategy_ThemeStrategy_h
   n_strategy_StrategyFactory_cpp --> n_strategy_ValueContraryStrategy_h
+  n_strategy_StrategyFactory_cpp --> n_universe_ScoreWeight_h
   n_strategy_StrategyFactory_cpp --> n_universe_UniverseScanner_h
   n_strategy_StrategyFactory_cpp --> n_utils_Logger_h
   n_strategy_StrategyFactory_h --> n_api_KisClient_h
@@ -200,17 +210,147 @@ graph LR
   n_strategy_SupplyDemandPullbackStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_SupplyDemandPullbackStrategy_h --> n_utils_Logger_h
   n_strategy_ThemeStrategy_h --> n_api_KisClient_h
+  n_strategy_ThemeStrategy_h --> n_core_MarketSession_h
   n_strategy_ThemeStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_ThemeStrategy_h --> n_utils_Logger_h
   n_strategy_ValueContraryStrategy_h --> n_api_KisClient_h
+  n_strategy_ValueContraryStrategy_h --> n_core_MarketSession_h
   n_strategy_ValueContraryStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_ValueContraryStrategy_h --> n_utils_Logger_h
   n_universe_UniverseScanner_cpp --> n_core_Types_h
+  n_universe_UniverseScanner_cpp --> n_universe_MaAlign_h
   n_universe_UniverseScanner_cpp --> n_universe_UniverseScanner_h
   n_universe_UniverseScanner_cpp --> n_utils_EtfFilter_h
   n_universe_UniverseScanner_cpp --> n_utils_Logger_h
   n_universe_UniverseScanner_h --> n_api_KisClient_h
 ```
+
+## Python import 그래프
+
+`PYQuant/**`·`scripts/*.py` 의 내부 import만(표준·서드파티 제외). 화살표는 패키지 단위, 숫자는 파일 쌍 수.
+
+```mermaid
+graph LR
+  p_PYQuant["PYQuant"]
+  p_PYQuant_backtest["PYQuant/backtest"]
+  p_PYQuant_core["PYQuant/core"]
+  p_PYQuant_dashboard["PYQuant/dashboard"]
+  p_PYQuant_data["PYQuant/data"]
+  p_PYQuant_db["PYQuant/db"]
+  p_PYQuant_ipc["PYQuant/ipc"]
+  p_PYQuant_kis["PYQuant/kis"]
+  p_PYQuant_live["PYQuant/live"]
+  p_PYQuant_report["PYQuant/report"]
+  p_PYQuant_strategy["PYQuant/strategy"]
+  p_PYQuant_tests["PYQuant/tests"]
+  p_PYQuant_tools["PYQuant/tools"]
+  p_scripts["scripts"]
+  p_PYQuant -->|2| p_PYQuant_backtest
+  p_PYQuant --> p_PYQuant_core
+  p_PYQuant -->|4| p_PYQuant_data
+  p_PYQuant --> p_PYQuant_db
+  p_PYQuant -->|2| p_PYQuant_ipc
+  p_PYQuant --> p_PYQuant_kis
+  p_PYQuant -->|2| p_PYQuant_live
+  p_PYQuant --> p_PYQuant_report
+  p_PYQuant -->|5| p_PYQuant_strategy
+  p_PYQuant_backtest --> p_PYQuant_data
+  p_PYQuant_backtest --> p_PYQuant_kis
+  p_PYQuant_backtest --> p_PYQuant_strategy
+  p_PYQuant_dashboard --> p_PYQuant_backtest
+  p_PYQuant_data -->|4| p_PYQuant_kis
+  p_PYQuant_db --> p_PYQuant_core
+  p_PYQuant_ipc -->|2| p_PYQuant_core
+  p_PYQuant_kis --> p_PYQuant_core
+  p_PYQuant_live --> p_PYQuant
+  p_PYQuant_live --> p_PYQuant_backtest
+  p_PYQuant_live -->|2| p_PYQuant_kis
+  p_PYQuant_live --> p_PYQuant_strategy
+  p_PYQuant_strategy -->|6| p_PYQuant_kis
+  p_PYQuant_tests -->|3| p_PYQuant_backtest
+  p_PYQuant_tests -->|2| p_PYQuant_data
+  p_PYQuant_tests -->|3| p_PYQuant_kis
+  p_PYQuant_tests -->|4| p_PYQuant_strategy
+  p_PYQuant_tools -->|5| p_PYQuant
+  p_PYQuant_tools --> p_PYQuant_backtest
+  p_PYQuant_tools -->|6| p_PYQuant_data
+  p_PYQuant_tools -->|7| p_PYQuant_kis
+  p_scripts --> p_PYQuant_backtest
+  p_scripts -->|2| p_PYQuant_kis
+```
+
+| 파일 | 내부 import |
+|---|---|
+| `PYQuant/backtest/engine.py` | `data.index_source`, `kis.client`, `strategy.base` |
+| `PYQuant/backtest/report.py` | `backtest.engine` |
+| `PYQuant/dashboard/backfill_series_a.py` | `backtest.report` |
+| `PYQuant/data/datagokr_source.py` | `kis.client` |
+| `PYQuant/data/index_source.py` | `kis.client` |
+| `PYQuant/data/krx_source.py` | `kis.client` |
+| `PYQuant/data/universe_kospi.py` | `data.krx_source` |
+| `PYQuant/data/yfinance_source.py` | `data.universe_kospi`, `kis.client` |
+| `PYQuant/db/client.py` | `core.logger` |
+| `PYQuant/ipc/operator.py` | `core.logger` |
+| `PYQuant/ipc/subscriber.py` | `core.logger` |
+| `PYQuant/kis/client.py` | `core.logger` |
+| `PYQuant/live/forward_trader.py` | `backtest.engine`, `kis.client`, `main` |
+| `PYQuant/live/trader.py` | `kis.client`, `strategy.base` |
+| `PYQuant/main.py` | `backtest.engine`, `backtest.report`, `core.logger`, `data.datagokr_source`, `data.krx_source`, `data.universe_kospi`, `data.yfinance_source`, `db.client`, `ipc.operator`, `ipc.subscriber`, `kis.client`, `live.forward_trader`, `live.trader`, `report.account`, `strategy.cross_momentum`, `strategy.mean_reversion`, `strategy.strategy_a`, `strategy.supply_demand_rank`, `strategy.value_contrary` |
+| `PYQuant/strategy/base.py` | `kis.client` |
+| `PYQuant/strategy/cross_momentum.py` | `kis.client`, `strategy.base` |
+| `PYQuant/strategy/donchian_breakout.py` | `strategy.base` |
+| `PYQuant/strategy/indicators.py` | `kis.client` |
+| `PYQuant/strategy/mean_reversion.py` | `strategy.base`, `strategy.indicators` |
+| `PYQuant/strategy/strategy_a.py` | `kis.client`, `strategy.base`, `strategy.indicators` |
+| `PYQuant/strategy/supply_demand_rank.py` | `kis.client`, `strategy.base` |
+| `PYQuant/strategy/value_contrary.py` | `kis.client`, `strategy.base` |
+| `PYQuant/tests/test_adjust_splits.py` | `data.datagokr_source` |
+| `PYQuant/tests/test_backtest_engine.py` | `backtest.engine`, `data.krx_source`, `kis.client`, `strategy.supply_demand_rank`, `strategy.value_contrary` |
+| `PYQuant/tests/test_indicators.py` | `kis.client`, `strategy.indicators` |
+| `PYQuant/tests/test_metrics.py` | `backtest.metrics` |
+| `PYQuant/tests/test_regime_scorer.py` | `backtest.regime_scorer` |
+| `PYQuant/tests/test_strategy_a.py` | `kis.client`, `strategy.strategy_a` |
+| `PYQuant/tools/ablation_2022.py` | `main` |
+| `PYQuant/tools/check_investor_api.py` | `kis.client` |
+| `PYQuant/tools/full_universe_dump.py` | `data.datagokr_source` |
+| `PYQuant/tools/fullperiod_validate.py` | `data.datagokr_source`, `main`, `tools.month_start_sweep` |
+| `PYQuant/tools/index_intraday_logger.py` | `kis.client` |
+| `PYQuant/tools/investor_flow_logger.py` | `kis.client` |
+| `PYQuant/tools/minute_backfill.py` | `kis.client` |
+| `PYQuant/tools/month_start_sweep.py` | `data.datagokr_source`, `main` |
+| `PYQuant/tools/nxt_divergence_probe.py` | `kis.client` |
+| `PYQuant/tools/pit_universe_backfill.py` | `kis.client`, `tools.universe_feed` |
+| `PYQuant/tools/probe_adjusted.py` | `data.datagokr_source` |
+| `PYQuant/tools/probe_datagokr.py` | `data.datagokr_source` |
+| `PYQuant/tools/probe_kis_investor.py` | `kis.client` |
+| `PYQuant/tools/sweep.py` | `main` |
+| `PYQuant/tools/universe_feed.py` | `data.datagokr_source` |
+| `PYQuant/tools/walkforward.py` | `backtest.engine`, `main` |
+| `scripts/analyze_slot_cost.py` | `_logdir` |
+| `scripts/backfill_studies.py` | `backtest.report` |
+| `scripts/build_review_entry.py` | `eod_collect` |
+| `scripts/check_runtime_health.py` | `_logdir`, `log_patterns` |
+| `scripts/dashboard_server.py` | `_logdir`, `kis.client` |
+| `scripts/eod_autodoc.py` | `_logdir`, `log_patterns` |
+| `scripts/eod_collect.py` | `_logdir`, `log_patterns` |
+| `scripts/notify_sidecar.py` | `_logdir`, `dashboard_server`, `kis.client`, `log_patterns` |
+| `scripts/parse_quant_log.py` | `_logdir` |
+| `scripts/summarize_trading_day.py` | `_logdir`, `log_patterns` |
+
+## 프로세스 경계 파일
+
+C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 지점. 코드의 문자열 리터럴에서 찾았고,
+읽기/쓰기는 리터럴 주변 줄의 힌트(ofstream·dump·read_text 등)로 분류했다. 힌트가 없으면 '언급만'.
+
+| 파일 | 쓰는 쪽 | 읽는 쪽 | 언급만 |
+|---|---|---|---|
+| `regime.json` | `PYQuant/tools/macro_regime_feed.py` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/Engine.cpp`, `scripts/dashboard_server.py`, `scripts/notify_sidecar.py` | `Quant/include/core/Engine.h`, `Quant/src/main.cpp` |
+| `prices_live.json` | `scripts/live_prices_feed.py` | `scripts/live_prices_feed.py` |  |
+| `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp` | `PYQuant/dashboard/backfill_live.py`, `Quant/src/ipc/OrderRouter.cpp`, `scripts/parse_quant_log.py` | `scripts/_logdir.py`, `scripts/notify_sidecar.py` |
+| `universe*.json` |  | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/nxt_divergence_probe.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseScanner.cpp`, `scripts/live_prices_feed.py`, `scripts/notify_sidecar.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisClient.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |
+| `open_orders.txt` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` |  |
+| `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/build_review_entry.py`, `scripts/summarize_trading_day.py` | `scripts/_logdir.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/eod_autodoc.py`, `scripts/eod_collect.py`, `scripts/extract_swap_counterfactual.py`, `scripts/notify_sidecar.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `Quant/src/main.cpp` |
+| `kis_token_*.json` |  | `scripts/gen_facts.py` | `PYQuant/kis/client.py`, `Quant/src/api/KisClient.cpp` |
 
 ## 영향범위 질의 · 기계 소비
 
@@ -221,5 +361,9 @@ py scripts/gen_code_graph.py --impact core/Types.h
 py scripts/gen_code_graph.py --json   # docs/code_graph.json
 ```
 
-`docs/code_graph.dot` 도 생성했다(Graphviz 설치 시 `dot -Tsvg docs/code_graph.dot -o docs/code_graph.svg`).
+`docs/code_graph.dot` 도 생성했다. Graphviz가 있으면 SVG로 렌더할 수 있다.
+
+```bash
+dot -Tsvg docs/code_graph.dot -o docs/code_graph.svg
+```
 

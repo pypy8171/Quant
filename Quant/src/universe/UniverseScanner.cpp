@@ -321,13 +321,116 @@ struct CandidatePool
 CandidatePool g_pool;
 std::mutex    g_pool_mu;
 
+// 지수 게이트의 래치. 축(코스피·코스닥)마다 현재 차단 여부와 마지막 전환 시각을 들고 있는다.
+//  재스캔 스레드가 유일한 호출자지만 g_pool과 같은 규약으로 뮤텍스를 둔다.
+//  [inv] 프로세스 전역이라 슬리브 여럿이 같은 래치를 공유한다. 슬리브마다 임계가 다르면
+//   먼저 발화한 쪽 판정이 나머지에도 걸린다 — 임계가 갈리는 순간 1회 경고한다. [why D-033]
+struct IdxGateLatch
+{
+    bool off = false;                              // [inv] 현재 차단 상태(래치된 값)
+    bool primed = false;                           // [inv] since가 유효한가 — 첫 전환 전에는 false
+    std::chrono::steady_clock::time_point since{}; // 마지막 전환 시각
+    double seen_trip = 0.0;                        // 직전 호출이 준 차단 임계(공유 감지용)
+    double seen_resume = 0.0;                      // 직전 호출이 준 재개 임계
+    bool cfg_warned = false;                       // 설정 경고를 이미 냈나(도배 방지)
+};
+
+IdxGateLatch g_kospi_latch;
+IdxGateLatch g_kosdaq_latch;
+std::mutex   g_idx_latch_mu;
+
+// 히스테리시스 한 축. 등락률이 trip 아래로 내려가면 차단, resume 위로 올라오면 재개하고,
+//  그 사이 중립대에서는 직전 상태를 유지한다. 차단 임계 하나로 20초마다 다시 재던 옛 판정은
+//  지수가 경계를 오갈 때 게이트도 같이 떨었다(2026-08-21 최소 2분 53초 간격 토글).
+//  observed=false는 조회 실패다 — 판정도 타이머도 건드리지 않는다. 반환은 "지금 차단인가".
+//  [why D-033]
+bool latch_risk_off(IdxGateLatch& st, double chg, bool observed, double trip, double resume,
+                    int dwell_sec, const char* label)
+{
+    // 관측 실패에는 판정하지 않는다. KisClient::get_index_price는 응답 파싱이 어긋나면
+    //  (EGW00201 초당한도·HTTP 오류) 로그 없이 change_rate=0.0을 돌려준다. 0.0은 언제나
+    //  "재개" 쪽으로만 틀리고, 그 오판이 래치를 풀면 체류가 그 상태를 dwell초 고정한다.
+    //  지수 급락 구간은 초당한도가 가장 잘 터지는 구간이라 이 오판과 상관이 있다.
+    if (!observed)
+    {
+        return st.off;
+    }
+
+    // resume이 trip보다 낮으면 히스테리시스가 뒤집힌다 — 설정 실수는 옛 동작(단일 임계)으로 접는다.
+    if (resume < trip)
+    {
+        if (!st.cfg_warned)
+        {
+            LOG_WARN(std::string("[Universe] ") + label + " 지수 게이트 재개 임계가 차단 임계보다 낮다"
+                     " — 히스테리시스를 끄고 단일 임계로 판정한다 (차단 " +
+                     std::to_string(trip * 100.0) + "% / 재개 " + std::to_string(resume * 100.0) + "%)");
+            st.cfg_warned = true;
+        }
+
+        resume = trip;
+    }
+    else if (st.primed && !st.cfg_warned &&
+             (st.seen_trip != trip || st.seen_resume != resume))
+    {
+        // 래치는 프로세스 전역이고 슬리브마다 cfg가 따로 온다. 임계가 갈리면 먼저 발화한 쪽
+        //  판정이 나머지 슬리브에도 그대로 걸린다는 뜻이라 한 번 알린다.
+        LOG_WARN(std::string("[Universe] ") + label + " 지수 게이트 임계가 슬리브마다 다르다"
+                 " — 래치는 전역이라 먼저 발화한 판정이 공유된다");
+        st.cfg_warned = true;
+    }
+
+    st.seen_trip   = trip;
+    st.seen_resume = resume;
+
+    bool want = st.off;
+
+    if (chg < trip)
+    {
+        want = true;
+    }
+    else if (chg >= resume)
+    {
+        want = false;
+    }
+
+    if (want == st.off)
+    {
+        return st.off;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+
+    // 체류는 재개 방향에만 건다. 08-21의 문제는 재개 쪽 떨림이었지 차단 지연이 아니었고,
+    //  안전 게이트는 닫는 쪽이 언제나 즉시여야 한다.
+    if (dwell_sec > 0 && st.primed && !want)
+    {
+        const auto held =
+            std::chrono::duration_cast<std::chrono::seconds>(now - st.since).count();
+
+        if (held < static_cast<long long>(dwell_sec))
+        {
+            return st.off;   // 체류 미달 — 이번 재스캔은 직전 상태를 그대로 쓴다
+        }
+    }
+
+    st.off    = want;
+    st.primed = true;
+    st.since  = now;
+    LOG_WARN(std::string("[Universe] ") + label + " 지수 게이트 " + (want ? "차단" : "재개") +
+             " — 등락률 " + std::to_string(chg * 100.0) + "%, 차단 " +
+             std::to_string(trip * 100.0) + "% / 재개 " + std::to_string(resume * 100.0) + "%");
+    return st.off;
+}
+
 // 시장별 risk_off 게이트(2026-08-19 회의). 코스피 급락은 전이 회피를 위해 코스피·코스닥
 //  신규진입 모두에 영향을 준다(코스닥은 하루 늦게 따라오는 전이 지연이 잦다).
 //  코스닥 종목은 이중 AND — 코스피 정상 AND 코스닥 정상일 때만 통과.
 struct MarketGate
 {
     double kospi_chg  = 0.0;
-    double kosdaq_chg = 0.0;
+    double kosdaq_chg = 0.0;   // [inv] kosdaq_enabled=false면 미관측이라 0.0 — 표시에 쓰지 않는다
+    bool   kospi_obs  = false; // [inv] 이번 조회가 성공했나. false면 chg는 의미 없다 [why D-033]
+    bool   kosdaq_obs = false;
     bool   kospi_pass  = false;
     bool   kosdaq_pass = false;
 
@@ -346,17 +449,35 @@ struct MarketGate
 };
 
 // 지수 등락률 조회 2콜. kosdaq_enabled=false면 코스닥 지수 조회조차 생략한다.
+//  판정은 래치를 거친다(히스테리시스·최소 체류) — 시세 조회를 먼저 끝내고 락을 잡는다.
+//  [lock-order] g_idx_latch_mu는 REST 호출 밖에서만 잡는다. g_pool_mu와 겹치지 않는다.
 MarketGate build_market_gate(KisClient& c, const DevScanCfg& cfg)
 {
     MarketGate g;
-    g.kospi_chg = c.get_index_price("0001").change_rate / 100.0;   // [wire] KIS는 % 단위
-    const bool kospi_off = g.kospi_chg < cfg.risk_off_idx;
+    // [wire] 조회가 어긋나면 KisClient가 로그 없이 IndexPrice{}를 돌려준다 — price>0이 관측
+    //  성공의 유일한 표식이다. 지수 평보합도 price는 양수라 오탐이 없다.
+    const auto kospi = c.get_index_price("0001");
+    g.kospi_obs = kospi.price > 0.0;
+    g.kospi_chg = kospi.change_rate / 100.0;   // [wire] KIS는 % 단위
+
+    if (cfg.kosdaq_enabled)
+    {
+        const auto kosdaq = c.get_index_price("1001");   // [wire] 코스닥 종합지수
+        g.kosdaq_obs = kosdaq.price > 0.0;
+        g.kosdaq_chg = kosdaq.change_rate / 100.0;
+    }
+
+    std::lock_guard<std::mutex> lk(g_idx_latch_mu);
+    const bool kospi_off = latch_risk_off(g_kospi_latch, g.kospi_chg, g.kospi_obs,
+                                          cfg.risk_off_idx, cfg.risk_off_idx_resume,
+                                          cfg.risk_off_dwell_sec, "코스피");
     bool kosdaq_off = false;
 
     if (cfg.kosdaq_enabled)
     {
-        g.kosdaq_chg = c.get_index_price("1001").change_rate / 100.0;   // [wire] 코스닥 종합지수
-        kosdaq_off   = g.kosdaq_chg < cfg.risk_off_idx_kosdaq;
+        kosdaq_off = latch_risk_off(g_kosdaq_latch, g.kosdaq_chg, g.kosdaq_obs,
+                                    cfg.risk_off_idx_kosdaq, cfg.risk_off_idx_kosdaq_resume,
+                                    cfg.risk_off_dwell_sec, "코스닥");
     }
 
     g.kospi_pass  = !kospi_off;
@@ -1202,8 +1323,20 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& cfg)
     std::vector<ItbCandidate> out;
 
     // 레짐 게이트: 코스피(0001) 당일 등락률이 risk_off 이하면 신규매수 유니버스 전면 스킵.
+    //  히스테리시스는 여기 필요 없다 — scan_itb는 기동 시 1회만 불리고 재스캔 잡에 안 붙어
+    //  20초 토글이 구조적으로 안 생긴다. 관측 유효성은 다르다. [why D-033]
     auto kospi = scan_kis.get_index_price("0001");
     double idx_chg = kospi.change_rate / 100.0; // KIS는 % 단위
+
+    // [wire] 조회가 어긋나면 KisClient가 로그 없이 IndexPrice{}를 준다 — price>0이 관측
+    //  성공의 유일한 표식이다. 0.0을 그대로 믿으면 게이트가 언제나 "통과"로 틀리는데,
+    //  급락장 재기동은 EGW00201(초당 한도)이 가장 잘 터지는 조합이라 그 오판이
+    //  "코스피 −3%인데 신규매수 유니버스 전면 등록"이 된다. 1회성 게이트라 닫는 쪽이 싸다.
+    if (kospi.price <= 0.0)
+    {
+        LOG_WARN("[Main] universe_from_scan: 코스피 지수 조회 실패 — 신규매수 유니버스 미등록");
+        return out;
+    }
 
     if (idx_chg < cfg.risk_off_idx)
     {

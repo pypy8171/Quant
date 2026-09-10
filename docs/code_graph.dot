@@ -12,12 +12,12 @@ digraph code_graph {
   "utils";
   "api" -> "core" [label="3"];
   "api" -> "utils" [label="3"];
-  "core" -> "api" [label="3"];
+  "core" -> "api" [label="4"];
   "core" -> "ipc" [label="2"];
   "core" -> "risk" [label="1"];
   "core" -> "strategy" [label="1"];
   "core" -> "utils" [label="2"];
-  "ipc" -> "api" [label="1"];
+  "ipc" -> "api" [label="2"];
   "ipc" -> "core" [label="2"];
   "ipc" -> "risk" [label="1"];
   "ipc" -> "utils" [label="2"];
@@ -31,8 +31,8 @@ digraph code_graph {
   "modes" -> "utils" [label="2"];
   "risk" -> "core" [label="1"];
   "strategy" -> "api" [label="5"];
-  "strategy" -> "core" [label="4"];
-  "strategy" -> "universe" [label="1"];
+  "strategy" -> "core" [label="10"];
+  "strategy" -> "universe" [label="3"];
   "strategy" -> "utils" [label="8"];
   "universe" -> "api" [label="1"];
   "universe" -> "core" [label="1"];

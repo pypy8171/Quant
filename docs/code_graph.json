@@ -19,12 +19,12 @@
     {
       "from": "api",
       "to": "utils",
-      "weight": 2
+      "weight": 3
     },
     {
       "from": "core",
       "to": "api",
-      "weight": 3
+      "weight": 4
     },
     {
       "from": "core",
@@ -49,7 +49,7 @@
     {
       "from": "ipc",
       "to": "api",
-      "weight": 1
+      "weight": 2
     },
     {
       "from": "ipc",
@@ -119,12 +119,12 @@
     {
       "from": "strategy",
       "to": "core",
-      "weight": 4
+      "weight": 10
     },
     {
       "from": "strategy",
       "to": "universe",
-      "weight": 1
+      "weight": 3
     },
     {
       "from": "strategy",
@@ -144,18 +144,21 @@
     {
       "from": "universe",
       "to": "utils",
-      "weight": 1
+      "weight": 2
     }
   ],
   "file_module": {
     "api/IOrderExecutor.h": "api",
     "api/KisClient.h": "api",
+    "api/KisErrorCodes.h": "api",
     "api/KisWebSocket.h": "api",
     "core/Engine.h": "core",
+    "core/MarketSession.h": "core",
     "core/MpscQueue.h": "core",
     "core/MutexQueue.h": "core",
     "core/RegimeController.h": "core",
     "core/RingBuffer.h": "core",
+    "core/TickSize.h": "core",
     "core/Types.h": "core",
     "ipc/OrderRouter.h": "ipc",
     "ipc/ZmqBridge.h": "ipc",
@@ -173,7 +176,10 @@
     "strategy/SupplyDemandPullbackStrategy.h": "strategy",
     "strategy/ThemeStrategy.h": "strategy",
     "strategy/ValueContraryStrategy.h": "strategy",
+    "universe/MaAlign.h": "universe",
+    "universe/ScoreWeight.h": "universe",
     "universe/UniverseScanner.h": "universe",
+    "utils/EtfFilter.h": "utils",
     "utils/Logger.h": "utils",
     "utils/Utf8.h": "utils",
     "main.cpp": "main",
@@ -201,6 +207,7 @@
     ],
     "api/KisClient.cpp": [
       "api/KisClient.h",
+      "utils/EtfFilter.h",
       "utils/Logger.h"
     ],
     "api/KisClient.h": [
@@ -216,6 +223,7 @@
       "utils/Logger.h"
     ],
     "core/Engine.cpp": [
+      "api/KisErrorCodes.h",
       "core/Engine.h",
       "utils/Logger.h"
     ],
@@ -238,7 +246,11 @@
     "core/RegimeController.h": [
       "core/Types.h"
     ],
+    "core/TickSize.h": [
+      "core/Types.h"
+    ],
     "ipc/OrderRouter.cpp": [
+      "api/KisErrorCodes.h",
       "ipc/OrderRouter.h",
       "utils/Logger.h"
     ],
@@ -281,10 +293,13 @@
     ],
     "strategy/DeviationScaleStrategy.h": [
       "api/KisClient.h",
+      "core/TickSize.h",
       "strategy/StrategyBase.h",
+      "universe/MaAlign.h",
       "utils/Logger.h"
     ],
     "strategy/FixedIntervalStrategy.h": [
+      "core/MarketSession.h",
       "strategy/StrategyBase.h",
       "utils/Logger.h"
     ],
@@ -296,12 +311,14 @@
       "strategy/StrategyBase.h"
     ],
     "strategy/MarketMakingStrategy.h": [
+      "core/TickSize.h",
       "strategy/StrategyBase.h"
     ],
     "strategy/MomentumStrategy.h": [
       "strategy/StrategyBase.h"
     ],
     "strategy/PriceTargetStrategy.h": [
+      "core/MarketSession.h",
       "strategy/StrategyBase.h",
       "utils/Logger.h"
     ],
@@ -322,6 +339,7 @@
       "strategy/SupplyDemandPullbackStrategy.h",
       "strategy/ThemeStrategy.h",
       "strategy/ValueContraryStrategy.h",
+      "universe/ScoreWeight.h",
       "universe/UniverseScanner.h",
       "utils/Logger.h"
     ],
@@ -336,17 +354,21 @@
     ],
     "strategy/ThemeStrategy.h": [
       "api/KisClient.h",
+      "core/MarketSession.h",
       "strategy/StrategyBase.h",
       "utils/Logger.h"
     ],
     "strategy/ValueContraryStrategy.h": [
       "api/KisClient.h",
+      "core/MarketSession.h",
       "strategy/StrategyBase.h",
       "utils/Logger.h"
     ],
     "universe/UniverseScanner.cpp": [
       "core/Types.h",
+      "universe/MaAlign.h",
       "universe/UniverseScanner.h",
+      "utils/EtfFilter.h",
       "utils/Logger.h"
     ],
     "universe/UniverseScanner.h": [
@@ -372,6 +394,10 @@
       "strategy/ValueContraryStrategy.h",
       "universe/UniverseScanner.h"
     ],
+    "api/KisErrorCodes.h": [
+      "core/Engine.cpp",
+      "ipc/OrderRouter.cpp"
+    ],
     "api/KisWebSocket.h": [
       "api/WebSocketClient.cpp",
       "core/Engine.h",
@@ -382,6 +408,12 @@
       "main.cpp",
       "strategy/StrategyFactory.cpp"
     ],
+    "core/MarketSession.h": [
+      "strategy/FixedIntervalStrategy.h",
+      "strategy/PriceTargetStrategy.h",
+      "strategy/ThemeStrategy.h",
+      "strategy/ValueContraryStrategy.h"
+    ],
     "core/RegimeController.h": [
       "core/Engine.h",
       "core/RegimeController.cpp"
@@ -389,12 +421,17 @@
     "core/RingBuffer.h": [
       "core/Engine.h"
     ],
+    "core/TickSize.h": [
+      "strategy/DeviationScaleStrategy.h",
+      "strategy/MarketMakingStrategy.h"
+    ],
     "core/Types.h": [
       "api/IOrderExecutor.h",
       "api/KisClient.h",
       "api/KisWebSocket.h",
       "core/Engine.h",
       "core/RegimeController.h",
+      "core/TickSize.h",
       "ipc/OrderRouter.h",
       "ipc/ZmqBridge.h",
       "modes/Monitors.cpp",
@@ -470,8 +507,19 @@
     "strategy/ValueContraryStrategy.h": [
       "strategy/StrategyFactory.cpp"
     ],
+    "universe/MaAlign.h": [
+      "strategy/DeviationScaleStrategy.h",
+      "universe/UniverseScanner.cpp"
+    ],
+    "universe/ScoreWeight.h": [
+      "strategy/StrategyFactory.cpp"
+    ],
     "universe/UniverseScanner.h": [
       "strategy/StrategyFactory.cpp",
+      "universe/UniverseScanner.cpp"
+    ],
+    "utils/EtfFilter.h": [
+      "api/KisClient.cpp",
       "universe/UniverseScanner.cpp"
     ],
     "utils/Logger.h": [
@@ -504,7 +552,7 @@
     },
     {
       "header": "core/Types.h",
-      "in_degree": 13
+      "in_degree": 14
     },
     {
       "header": "api/KisClient.h",
@@ -513,6 +561,10 @@
     {
       "header": "strategy/StrategyBase.h",
       "in_degree": 11
+    },
+    {
+      "header": "core/MarketSession.h",
+      "in_degree": 4
     },
     {
       "header": "ipc/ZmqBridge.h",
@@ -535,7 +587,15 @@
       "in_degree": 2
     },
     {
+      "header": "api/KisErrorCodes.h",
+      "in_degree": 2
+    },
+    {
       "header": "core/RegimeController.h",
+      "in_degree": 2
+    },
+    {
+      "header": "core/TickSize.h",
       "in_degree": 2
     },
     {
@@ -551,32 +611,797 @@
       "in_degree": 2
     },
     {
+      "header": "universe/MaAlign.h",
+      "in_degree": 2
+    },
+    {
       "header": "universe/UniverseScanner.h",
+      "in_degree": 2
+    },
+    {
+      "header": "utils/EtfFilter.h",
       "in_degree": 2
     },
     {
       "header": "core/RingBuffer.h",
       "in_degree": 1
-    },
-    {
-      "header": "strategy/DeviationScaleStrategy.h",
-      "in_degree": 1
-    },
-    {
-      "header": "strategy/FixedIntervalStrategy.h",
-      "in_degree": 1
-    },
-    {
-      "header": "strategy/IntradayBreakoutStrategy.h",
-      "in_degree": 1
-    },
-    {
-      "header": "strategy/MACrossStrategy.h",
-      "in_degree": 1
-    },
-    {
-      "header": "strategy/MarketMakingStrategy.h",
-      "in_degree": 1
     }
-  ]
+  ],
+  "python": {
+    "files": [
+      "PYQuant/backtest/__init__.py",
+      "PYQuant/backtest/engine.py",
+      "PYQuant/backtest/metrics.py",
+      "PYQuant/backtest/regime_scorer.py",
+      "PYQuant/backtest/report.py",
+      "PYQuant/core/__init__.py",
+      "PYQuant/core/logger.py",
+      "PYQuant/dashboard/backfill_live.py",
+      "PYQuant/dashboard/backfill_series_a.py",
+      "PYQuant/dashboard/build_dashboard.py",
+      "PYQuant/data/__init__.py",
+      "PYQuant/data/asof.py",
+      "PYQuant/data/datagokr_source.py",
+      "PYQuant/data/index_source.py",
+      "PYQuant/data/krx_source.py",
+      "PYQuant/data/universe_kospi.py",
+      "PYQuant/data/yfinance_source.py",
+      "PYQuant/db/__init__.py",
+      "PYQuant/db/client.py",
+      "PYQuant/ipc/__init__.py",
+      "PYQuant/ipc/operator.py",
+      "PYQuant/ipc/subscriber.py",
+      "PYQuant/kis/__init__.py",
+      "PYQuant/kis/client.py",
+      "PYQuant/live/__init__.py",
+      "PYQuant/live/forward_trader.py",
+      "PYQuant/live/trader.py",
+      "PYQuant/main.py",
+      "PYQuant/report/__init__.py",
+      "PYQuant/report/account.py",
+      "PYQuant/strategy/__init__.py",
+      "PYQuant/strategy/base.py",
+      "PYQuant/strategy/cross_momentum.py",
+      "PYQuant/strategy/donchian_breakout.py",
+      "PYQuant/strategy/indicators.py",
+      "PYQuant/strategy/mean_reversion.py",
+      "PYQuant/strategy/strategy_a.py",
+      "PYQuant/strategy/supply_demand_rank.py",
+      "PYQuant/strategy/value_contrary.py",
+      "PYQuant/tests/__init__.py",
+      "PYQuant/tests/test_adjust_splits.py",
+      "PYQuant/tests/test_backtest_engine.py",
+      "PYQuant/tests/test_indicators.py",
+      "PYQuant/tests/test_metrics.py",
+      "PYQuant/tests/test_regime_scorer.py",
+      "PYQuant/tests/test_strategy_a.py",
+      "PYQuant/tools/__init__.py",
+      "PYQuant/tools/ablation_2022.py",
+      "PYQuant/tools/check_investor_api.py",
+      "PYQuant/tools/check_pykrx.py",
+      "PYQuant/tools/check_pykrx_flow.py",
+      "PYQuant/tools/full_universe_dump.py",
+      "PYQuant/tools/fullperiod_validate.py",
+      "PYQuant/tools/index_intraday_logger.py",
+      "PYQuant/tools/investor_flow_logger.py",
+      "PYQuant/tools/log_report.py",
+      "PYQuant/tools/macro_regime_feed.py",
+      "PYQuant/tools/minute_backfill.py",
+      "PYQuant/tools/month_start_sweep.py",
+      "PYQuant/tools/nxt_divergence_probe.py",
+      "PYQuant/tools/pit_universe_backfill.py",
+      "PYQuant/tools/probe_adjusted.py",
+      "PYQuant/tools/probe_datagokr.py",
+      "PYQuant/tools/probe_kis_investor.py",
+      "PYQuant/tools/sweep.py",
+      "PYQuant/tools/universe_feed.py",
+      "PYQuant/tools/walkforward.py",
+      "scripts/_logdir.py",
+      "scripts/analyze_slot_cost.py",
+      "scripts/backfill_studies.py",
+      "scripts/brace_style.py",
+      "scripts/build_review_entry.py",
+      "scripts/build_study_site.py",
+      "scripts/check_backtest.py",
+      "scripts/check_code_conventions.py",
+      "scripts/check_code_refs.py",
+      "scripts/check_docs.py",
+      "scripts/check_plain_language.py",
+      "scripts/check_runtime_health.py",
+      "scripts/dashboard_server.py",
+      "scripts/eod_autodoc.py",
+      "scripts/eod_collect.py",
+      "scripts/extract_swap_counterfactual.py",
+      "scripts/gen_code_graph.py",
+      "scripts/gen_facts.py",
+      "scripts/live_prices_feed.py",
+      "scripts/log_patterns.py",
+      "scripts/maintain.py",
+      "scripts/notify_sidecar.py",
+      "scripts/parse_quant_log.py",
+      "scripts/refresh_dashboard.py",
+      "scripts/seed_open_orders.py",
+      "scripts/summarize_trading_day.py",
+      "scripts/sync_ledgers.py"
+    ],
+    "edges": {
+      "PYQuant/backtest/engine.py": [
+        "data.index_source",
+        "kis.client",
+        "strategy.base"
+      ],
+      "PYQuant/backtest/report.py": [
+        "backtest.engine"
+      ],
+      "PYQuant/dashboard/backfill_series_a.py": [
+        "backtest.report"
+      ],
+      "PYQuant/data/datagokr_source.py": [
+        "kis.client"
+      ],
+      "PYQuant/data/index_source.py": [
+        "kis.client"
+      ],
+      "PYQuant/data/krx_source.py": [
+        "kis.client"
+      ],
+      "PYQuant/data/universe_kospi.py": [
+        "data.krx_source"
+      ],
+      "PYQuant/data/yfinance_source.py": [
+        "data.universe_kospi",
+        "kis.client"
+      ],
+      "PYQuant/db/client.py": [
+        "core.logger"
+      ],
+      "PYQuant/ipc/operator.py": [
+        "core.logger"
+      ],
+      "PYQuant/ipc/subscriber.py": [
+        "core.logger"
+      ],
+      "PYQuant/kis/client.py": [
+        "core.logger"
+      ],
+      "PYQuant/live/forward_trader.py": [
+        "backtest.engine",
+        "kis.client",
+        "main"
+      ],
+      "PYQuant/live/trader.py": [
+        "kis.client",
+        "strategy.base"
+      ],
+      "PYQuant/main.py": [
+        "backtest.engine",
+        "backtest.report",
+        "core.logger",
+        "data.datagokr_source",
+        "data.krx_source",
+        "data.universe_kospi",
+        "data.yfinance_source",
+        "db.client",
+        "ipc.operator",
+        "ipc.subscriber",
+        "kis.client",
+        "live.forward_trader",
+        "live.trader",
+        "report.account",
+        "strategy.cross_momentum",
+        "strategy.mean_reversion",
+        "strategy.strategy_a",
+        "strategy.supply_demand_rank",
+        "strategy.value_contrary"
+      ],
+      "PYQuant/strategy/base.py": [
+        "kis.client"
+      ],
+      "PYQuant/strategy/cross_momentum.py": [
+        "kis.client",
+        "strategy.base"
+      ],
+      "PYQuant/strategy/donchian_breakout.py": [
+        "strategy.base"
+      ],
+      "PYQuant/strategy/indicators.py": [
+        "kis.client"
+      ],
+      "PYQuant/strategy/mean_reversion.py": [
+        "strategy.base",
+        "strategy.indicators"
+      ],
+      "PYQuant/strategy/strategy_a.py": [
+        "kis.client",
+        "strategy.base",
+        "strategy.indicators"
+      ],
+      "PYQuant/strategy/supply_demand_rank.py": [
+        "kis.client",
+        "strategy.base"
+      ],
+      "PYQuant/strategy/value_contrary.py": [
+        "kis.client",
+        "strategy.base"
+      ],
+      "PYQuant/tests/test_adjust_splits.py": [
+        "data.datagokr_source"
+      ],
+      "PYQuant/tests/test_backtest_engine.py": [
+        "backtest.engine",
+        "data.krx_source",
+        "kis.client",
+        "strategy.supply_demand_rank",
+        "strategy.value_contrary"
+      ],
+      "PYQuant/tests/test_indicators.py": [
+        "kis.client",
+        "strategy.indicators"
+      ],
+      "PYQuant/tests/test_metrics.py": [
+        "backtest.metrics"
+      ],
+      "PYQuant/tests/test_regime_scorer.py": [
+        "backtest.regime_scorer"
+      ],
+      "PYQuant/tests/test_strategy_a.py": [
+        "kis.client",
+        "strategy.strategy_a"
+      ],
+      "PYQuant/tools/ablation_2022.py": [
+        "main"
+      ],
+      "PYQuant/tools/check_investor_api.py": [
+        "kis.client"
+      ],
+      "PYQuant/tools/full_universe_dump.py": [
+        "data.datagokr_source"
+      ],
+      "PYQuant/tools/fullperiod_validate.py": [
+        "data.datagokr_source",
+        "main",
+        "tools.month_start_sweep"
+      ],
+      "PYQuant/tools/index_intraday_logger.py": [
+        "kis.client"
+      ],
+      "PYQuant/tools/investor_flow_logger.py": [
+        "kis.client"
+      ],
+      "PYQuant/tools/minute_backfill.py": [
+        "kis.client"
+      ],
+      "PYQuant/tools/month_start_sweep.py": [
+        "data.datagokr_source",
+        "main"
+      ],
+      "PYQuant/tools/nxt_divergence_probe.py": [
+        "kis.client"
+      ],
+      "PYQuant/tools/pit_universe_backfill.py": [
+        "kis.client",
+        "tools.universe_feed"
+      ],
+      "PYQuant/tools/probe_adjusted.py": [
+        "data.datagokr_source"
+      ],
+      "PYQuant/tools/probe_datagokr.py": [
+        "data.datagokr_source"
+      ],
+      "PYQuant/tools/probe_kis_investor.py": [
+        "kis.client"
+      ],
+      "PYQuant/tools/sweep.py": [
+        "main"
+      ],
+      "PYQuant/tools/universe_feed.py": [
+        "data.datagokr_source"
+      ],
+      "PYQuant/tools/walkforward.py": [
+        "backtest.engine",
+        "main"
+      ],
+      "scripts/analyze_slot_cost.py": [
+        "_logdir"
+      ],
+      "scripts/backfill_studies.py": [
+        "backtest.report"
+      ],
+      "scripts/build_review_entry.py": [
+        "eod_collect"
+      ],
+      "scripts/check_runtime_health.py": [
+        "_logdir",
+        "log_patterns"
+      ],
+      "scripts/dashboard_server.py": [
+        "_logdir",
+        "kis.client"
+      ],
+      "scripts/eod_autodoc.py": [
+        "_logdir",
+        "log_patterns"
+      ],
+      "scripts/eod_collect.py": [
+        "_logdir",
+        "log_patterns"
+      ],
+      "scripts/notify_sidecar.py": [
+        "_logdir",
+        "dashboard_server",
+        "kis.client",
+        "log_patterns"
+      ],
+      "scripts/parse_quant_log.py": [
+        "_logdir"
+      ],
+      "scripts/summarize_trading_day.py": [
+        "_logdir",
+        "log_patterns"
+      ]
+    },
+    "imported_by": {
+      "_logdir": [
+        "scripts/analyze_slot_cost.py",
+        "scripts/check_runtime_health.py",
+        "scripts/dashboard_server.py",
+        "scripts/eod_autodoc.py",
+        "scripts/eod_collect.py",
+        "scripts/notify_sidecar.py",
+        "scripts/parse_quant_log.py",
+        "scripts/summarize_trading_day.py"
+      ],
+      "backtest.engine": [
+        "PYQuant/backtest/report.py",
+        "PYQuant/live/forward_trader.py",
+        "PYQuant/main.py",
+        "PYQuant/tests/test_backtest_engine.py",
+        "PYQuant/tools/walkforward.py"
+      ],
+      "backtest.metrics": [
+        "PYQuant/tests/test_metrics.py"
+      ],
+      "backtest.regime_scorer": [
+        "PYQuant/tests/test_regime_scorer.py"
+      ],
+      "backtest.report": [
+        "PYQuant/dashboard/backfill_series_a.py",
+        "PYQuant/main.py",
+        "scripts/backfill_studies.py"
+      ],
+      "core.logger": [
+        "PYQuant/db/client.py",
+        "PYQuant/ipc/operator.py",
+        "PYQuant/ipc/subscriber.py",
+        "PYQuant/kis/client.py",
+        "PYQuant/main.py"
+      ],
+      "dashboard_server": [
+        "scripts/notify_sidecar.py"
+      ],
+      "data.datagokr_source": [
+        "PYQuant/main.py",
+        "PYQuant/tests/test_adjust_splits.py",
+        "PYQuant/tools/full_universe_dump.py",
+        "PYQuant/tools/fullperiod_validate.py",
+        "PYQuant/tools/month_start_sweep.py",
+        "PYQuant/tools/probe_adjusted.py",
+        "PYQuant/tools/probe_datagokr.py",
+        "PYQuant/tools/universe_feed.py"
+      ],
+      "data.index_source": [
+        "PYQuant/backtest/engine.py"
+      ],
+      "data.krx_source": [
+        "PYQuant/data/universe_kospi.py",
+        "PYQuant/main.py",
+        "PYQuant/tests/test_backtest_engine.py"
+      ],
+      "data.universe_kospi": [
+        "PYQuant/data/yfinance_source.py",
+        "PYQuant/main.py"
+      ],
+      "data.yfinance_source": [
+        "PYQuant/main.py"
+      ],
+      "db.client": [
+        "PYQuant/main.py"
+      ],
+      "eod_collect": [
+        "scripts/build_review_entry.py"
+      ],
+      "ipc.operator": [
+        "PYQuant/main.py"
+      ],
+      "ipc.subscriber": [
+        "PYQuant/main.py"
+      ],
+      "kis.client": [
+        "PYQuant/backtest/engine.py",
+        "PYQuant/data/datagokr_source.py",
+        "PYQuant/data/index_source.py",
+        "PYQuant/data/krx_source.py",
+        "PYQuant/data/yfinance_source.py",
+        "PYQuant/live/forward_trader.py",
+        "PYQuant/live/trader.py",
+        "PYQuant/main.py",
+        "PYQuant/strategy/base.py",
+        "PYQuant/strategy/cross_momentum.py",
+        "PYQuant/strategy/indicators.py",
+        "PYQuant/strategy/strategy_a.py",
+        "PYQuant/strategy/supply_demand_rank.py",
+        "PYQuant/strategy/value_contrary.py",
+        "PYQuant/tests/test_backtest_engine.py",
+        "PYQuant/tests/test_indicators.py",
+        "PYQuant/tests/test_strategy_a.py",
+        "PYQuant/tools/check_investor_api.py",
+        "PYQuant/tools/index_intraday_logger.py",
+        "PYQuant/tools/investor_flow_logger.py",
+        "PYQuant/tools/minute_backfill.py",
+        "PYQuant/tools/nxt_divergence_probe.py",
+        "PYQuant/tools/pit_universe_backfill.py",
+        "PYQuant/tools/probe_kis_investor.py",
+        "scripts/dashboard_server.py",
+        "scripts/notify_sidecar.py"
+      ],
+      "live.forward_trader": [
+        "PYQuant/main.py"
+      ],
+      "live.trader": [
+        "PYQuant/main.py"
+      ],
+      "log_patterns": [
+        "scripts/check_runtime_health.py",
+        "scripts/eod_autodoc.py",
+        "scripts/eod_collect.py",
+        "scripts/notify_sidecar.py",
+        "scripts/summarize_trading_day.py"
+      ],
+      "main": [
+        "PYQuant/live/forward_trader.py",
+        "PYQuant/tools/ablation_2022.py",
+        "PYQuant/tools/fullperiod_validate.py",
+        "PYQuant/tools/month_start_sweep.py",
+        "PYQuant/tools/sweep.py",
+        "PYQuant/tools/walkforward.py"
+      ],
+      "report.account": [
+        "PYQuant/main.py"
+      ],
+      "strategy.base": [
+        "PYQuant/backtest/engine.py",
+        "PYQuant/live/trader.py",
+        "PYQuant/strategy/cross_momentum.py",
+        "PYQuant/strategy/donchian_breakout.py",
+        "PYQuant/strategy/mean_reversion.py",
+        "PYQuant/strategy/strategy_a.py",
+        "PYQuant/strategy/supply_demand_rank.py",
+        "PYQuant/strategy/value_contrary.py"
+      ],
+      "strategy.cross_momentum": [
+        "PYQuant/main.py"
+      ],
+      "strategy.indicators": [
+        "PYQuant/strategy/mean_reversion.py",
+        "PYQuant/strategy/strategy_a.py",
+        "PYQuant/tests/test_indicators.py"
+      ],
+      "strategy.mean_reversion": [
+        "PYQuant/main.py"
+      ],
+      "strategy.strategy_a": [
+        "PYQuant/main.py",
+        "PYQuant/tests/test_strategy_a.py"
+      ],
+      "strategy.supply_demand_rank": [
+        "PYQuant/main.py",
+        "PYQuant/tests/test_backtest_engine.py"
+      ],
+      "strategy.value_contrary": [
+        "PYQuant/main.py",
+        "PYQuant/tests/test_backtest_engine.py"
+      ],
+      "tools.month_start_sweep": [
+        "PYQuant/tools/fullperiod_validate.py"
+      ],
+      "tools.universe_feed": [
+        "PYQuant/tools/pit_universe_backfill.py"
+      ]
+    },
+    "package_edges": [
+      {
+        "from": "PYQuant",
+        "to": "PYQuant/backtest",
+        "weight": 2
+      },
+      {
+        "from": "PYQuant",
+        "to": "PYQuant/core",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant",
+        "to": "PYQuant/data",
+        "weight": 4
+      },
+      {
+        "from": "PYQuant",
+        "to": "PYQuant/db",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant",
+        "to": "PYQuant/ipc",
+        "weight": 2
+      },
+      {
+        "from": "PYQuant",
+        "to": "PYQuant/kis",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant",
+        "to": "PYQuant/live",
+        "weight": 2
+      },
+      {
+        "from": "PYQuant",
+        "to": "PYQuant/report",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant",
+        "to": "PYQuant/strategy",
+        "weight": 5
+      },
+      {
+        "from": "PYQuant/backtest",
+        "to": "PYQuant/data",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant/backtest",
+        "to": "PYQuant/kis",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant/backtest",
+        "to": "PYQuant/strategy",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant/dashboard",
+        "to": "PYQuant/backtest",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant/data",
+        "to": "PYQuant/kis",
+        "weight": 4
+      },
+      {
+        "from": "PYQuant/db",
+        "to": "PYQuant/core",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant/ipc",
+        "to": "PYQuant/core",
+        "weight": 2
+      },
+      {
+        "from": "PYQuant/kis",
+        "to": "PYQuant/core",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant/live",
+        "to": "PYQuant",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant/live",
+        "to": "PYQuant/backtest",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant/live",
+        "to": "PYQuant/kis",
+        "weight": 2
+      },
+      {
+        "from": "PYQuant/live",
+        "to": "PYQuant/strategy",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant/strategy",
+        "to": "PYQuant/kis",
+        "weight": 6
+      },
+      {
+        "from": "PYQuant/tests",
+        "to": "PYQuant/backtest",
+        "weight": 3
+      },
+      {
+        "from": "PYQuant/tests",
+        "to": "PYQuant/data",
+        "weight": 2
+      },
+      {
+        "from": "PYQuant/tests",
+        "to": "PYQuant/kis",
+        "weight": 3
+      },
+      {
+        "from": "PYQuant/tests",
+        "to": "PYQuant/strategy",
+        "weight": 4
+      },
+      {
+        "from": "PYQuant/tools",
+        "to": "PYQuant",
+        "weight": 5
+      },
+      {
+        "from": "PYQuant/tools",
+        "to": "PYQuant/backtest",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant/tools",
+        "to": "PYQuant/data",
+        "weight": 6
+      },
+      {
+        "from": "PYQuant/tools",
+        "to": "PYQuant/kis",
+        "weight": 7
+      },
+      {
+        "from": "scripts",
+        "to": "PYQuant/backtest",
+        "weight": 1
+      },
+      {
+        "from": "scripts",
+        "to": "PYQuant/kis",
+        "weight": 2
+      }
+    ]
+  },
+  "boundary_files": {
+    "regime.json": {
+      "writers": [
+        "PYQuant/tools/macro_regime_feed.py"
+      ],
+      "readers": [
+        "PYQuant/tools/macro_regime_feed.py",
+        "Quant/src/core/Engine.cpp",
+        "scripts/dashboard_server.py",
+        "scripts/notify_sidecar.py"
+      ],
+      "mentions": [
+        "PYQuant/tools/macro_regime_feed.py",
+        "Quant/include/core/Engine.h",
+        "Quant/src/core/Engine.cpp",
+        "Quant/src/main.cpp",
+        "scripts/dashboard_server.py",
+        "scripts/notify_sidecar.py"
+      ]
+    },
+    "prices_live.json": {
+      "writers": [
+        "scripts/live_prices_feed.py"
+      ],
+      "readers": [
+        "scripts/live_prices_feed.py"
+      ],
+      "mentions": [
+        "scripts/live_prices_feed.py"
+      ]
+    },
+    "trades_*.csv": {
+      "writers": [
+        "Quant/src/ipc/OrderRouter.cpp"
+      ],
+      "readers": [
+        "PYQuant/dashboard/backfill_live.py",
+        "Quant/src/ipc/OrderRouter.cpp",
+        "scripts/parse_quant_log.py"
+      ],
+      "mentions": [
+        "PYQuant/dashboard/backfill_live.py",
+        "Quant/src/ipc/OrderRouter.cpp",
+        "scripts/_logdir.py",
+        "scripts/notify_sidecar.py",
+        "scripts/parse_quant_log.py"
+      ]
+    },
+    "universe*.json": {
+      "writers": [],
+      "readers": [
+        "PYQuant/main.py",
+        "PYQuant/tools/full_universe_dump.py",
+        "PYQuant/tools/nxt_divergence_probe.py",
+        "PYQuant/tools/universe_feed.py",
+        "Quant/src/universe/UniverseScanner.cpp",
+        "scripts/live_prices_feed.py",
+        "scripts/notify_sidecar.py"
+      ],
+      "mentions": [
+        "PYQuant/main.py",
+        "PYQuant/tools/full_universe_dump.py",
+        "PYQuant/tools/nxt_divergence_probe.py",
+        "PYQuant/tools/universe_feed.py",
+        "Quant/include/universe/UniverseScanner.h",
+        "Quant/src/api/KisClient.cpp",
+        "Quant/src/strategy/StrategyFactory.cpp",
+        "Quant/src/universe/UniverseScanner.cpp",
+        "scripts/dashboard_server.py",
+        "scripts/live_prices_feed.py",
+        "scripts/notify_sidecar.py"
+      ]
+    },
+    "open_orders.txt": {
+      "writers": [
+        "Quant/src/ipc/OrderRouter.cpp",
+        "scripts/seed_open_orders.py"
+      ],
+      "readers": [
+        "Quant/src/ipc/OrderRouter.cpp",
+        "scripts/seed_open_orders.py"
+      ],
+      "mentions": [
+        "Quant/src/ipc/OrderRouter.cpp",
+        "scripts/seed_open_orders.py"
+      ]
+    },
+    "quant_trader.log": {
+      "writers": [
+        "PYQuant/tools/log_report.py",
+        "scripts/build_review_entry.py",
+        "scripts/summarize_trading_day.py"
+      ],
+      "readers": [
+        "scripts/_logdir.py",
+        "scripts/check_runtime_health.py",
+        "scripts/dashboard_server.py",
+        "scripts/eod_autodoc.py",
+        "scripts/eod_collect.py",
+        "scripts/extract_swap_counterfactual.py",
+        "scripts/notify_sidecar.py",
+        "scripts/parse_quant_log.py",
+        "scripts/seed_open_orders.py",
+        "scripts/summarize_trading_day.py"
+      ],
+      "mentions": [
+        "PYQuant/tools/log_report.py",
+        "Quant/src/main.cpp",
+        "scripts/_logdir.py",
+        "scripts/build_review_entry.py",
+        "scripts/check_runtime_health.py",
+        "scripts/dashboard_server.py",
+        "scripts/eod_autodoc.py",
+        "scripts/eod_collect.py",
+        "scripts/extract_swap_counterfactual.py",
+        "scripts/notify_sidecar.py",
+        "scripts/parse_quant_log.py",
+        "scripts/seed_open_orders.py",
+        "scripts/summarize_trading_day.py"
+      ]
+    },
+    "kis_token_*.json": {
+      "writers": [],
+      "readers": [
+        "scripts/gen_facts.py"
+      ],
+      "mentions": [
+        "PYQuant/kis/client.py",
+        "Quant/src/api/KisClient.cpp",
+        "scripts/gen_facts.py"
+      ]
+    }
+  }
 }

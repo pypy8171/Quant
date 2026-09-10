@@ -165,11 +165,13 @@ int main(int argc, char* argv[])
     // WS 세션이 rt_cd=9(ALREADY IN USE) 로 폭주할 때의 우회책. REST 현재가를 주기적으로 폴링해
     //  실시간 체결 틱처럼 전략에 먹인다. ITB(IntradayBreakoutStrategy, 장중 돌파)가 이 틱으로 돈다.
     engine.set_rest_price_feed(cfg.value("rest_price_feed", false));
-    // 매크로 레짐 사이드카 브리지(2026-08-09 회의): Python macro_regime_feed.py가 쓰는 regime.json
+    // 매크로 레짐 보조 프로세스 브리지(2026-08-09 회의): Python macro_regime_feed.py가 쓰는 regime.json
     //  경로. 지정 시 data_thread가 매 사이클 읽어, 시장이 위험하면 OrderGate 의 신규매수 정지 스위치
     //  (entry_halt)를 켜고 풀리면 끈다. 빈 문자열(기본)이면 미가동 — 기존 동작 불변.
     engine.set_regime_file(cfg.value("regime_file", std::string()),
                            cfg.value("regime_stale_sec", kDefaultRegimeStaleSec));
+    engine.set_regime_halt_expire_min(
+        cfg.value("regime_halt_expire_min", kDefaultRegimeHaltExpireMin));
     // ZMQ 제어 채널(config "zmq_bind_addr"·"zmq_control_token"). 주소를 안 주면 127.0.0.1에
     //  묶이고, 토큰이 비면 KILL 명령은 거부된다. 스레드 시작 전에만 유효하다.
     engine.set_zmq_control(cfg.value("zmq_bind_addr", std::string()),

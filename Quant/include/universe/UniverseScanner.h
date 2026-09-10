@@ -76,6 +76,13 @@ struct DevScanCfg
     double score_w_liquidity = 0.0;
     bool   kosdaq_enabled      = false;  // [why D-030]
     double risk_off_idx_kosdaq = -0.015; // 분수, 코스닥 지수 risk_off 임계 [why D-030]
+    // 지수 게이트의 재개 임계와 최소 체류. 차단 임계 하나로만 매 재스캔(20초) 판정하면 지수가
+    //  경계를 오갈 때 게이트가 같이 떤다(2026-08-21에 2분 53초 간격 토글). 차단은 risk_off_idx,
+    //  재개는 이 값 위로 올라와야 풀리고, 상태를 바꾼 뒤 dwell 초 동안은 다시 바꾸지 않는다.
+    //  [inv] resume >= risk_off_idx 여야 히스테리시스가 성립한다(같으면 옛 동작).
+    double risk_off_idx_resume        = -0.012; // 분수, 코스피 재개 임계 [why D-033]
+    double risk_off_idx_kosdaq_resume = -0.009; // 분수, 코스닥 재개 임계 [why D-033]
+    int    risk_off_dwell_sec         = 600;    // 초, 상태 변경 후 최소 체류. 0=끄기 [why D-033]
 };
 
 // 초기 등록·주기적 재스캔이 공용으로 호출한다(cfg는 값 복사 캡처라 std::function 저장이 안전).
