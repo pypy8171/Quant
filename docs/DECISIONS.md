@@ -1616,7 +1616,7 @@ push, 무토큰 읽기 전용, 비루프백 무토큰 bind 거부, 같은 포트
 출력에 `DGS2`·`HY` 행과 `10Y-2Y +40bp` note. score·valid_count는 그대로(−4·5).
 
 ### D-045 Logger 큐를 뮤텍스·deque에서 MPSC 링으로 바꾸고, writer는 "잔다"고 알린 때만 깨운다 (2026-09-11)
-**상태**: 채택 (`Quant/tests/test_logger.cpp`의 ctest 등록은 `Quant/CMakeLists.txt`가 D-043 작업 중이라 그 커밋 뒤)
+**상태**: 채택 (`Quant/tests/test_logger.cpp` ctest 등록은 1a13134)
 
 **결정**: 셋이다.
 
@@ -1652,3 +1652,48 @@ L3). `MpscQueue`는 테스트까지 있었는데 쓰는 곳이 없었다.
 1스레드 평균 140→70ns, 4스레드 평균 740→120ns, p99 7.4µs→0.4µs, p99.9 50µs→0.6µs.
 `docs/reports/PIPELINE_LATENCY_REPORT.md` 결과 ⑤. `ctest --preset x64-release` 13/13(Logger를 링크하는
 테스트 포함). 실행 중 `quant_trader`는 재빌드하지 않았다.
+
+### D-048 KisClient 구현을 도메인별 7파일로 나누고 인증 헤더는 한 함수로 모은다 (2026-09-11)
+**상태**: 채택 (공개 API의 `nlohmann::json` 제거는 뒤로 — 아래)
+
+**결정**: 둘이다.
+
+1. `Quant/src/api/KisClient.cpp`(3,373줄)를 없애고 같은 폴더의 7파일로 나눈다. 공개 헤더
+   `Quant/include/api/KisClient.h`와 클래스는 그대로다 — 옮긴 것은 정의뿐이고 호출부는 바뀌지 않는다.
+
+   | 파일 | 담는 것 | 줄 |
+   |---|---|---:|
+   | `KisTransport.cpp` | 플랫폼 HTTP(WinHTTP/libcurl)·재시도·초당 한도·`auth_headers` | 565 |
+   | `KisAuth.cpp` | 생성자, 토큰 발급·캐시·재발급 | 193 |
+   | `KisMarket.cpp` | 국내·해외 주식 일봉·분봉·현재가·펀더멘털 | 762 |
+   | `KisIndex.cpp` | 지수·업종 일봉, 투자자 수급, 지수 현재값, 선물 시세·전광판 | 490 |
+   | `KisOrder.cpp` | 국내·해외 주문 발주·정정·취소, 응답 파서 | 372 |
+   | `KisAccount.cpp` | 잔고·미체결(연속조회) | 201 |
+   | `KisUniverse.cpp` | 순위 조회·PBR 필터·폴백 리스트 | 736 |
+
+   구현 파일끼리만 쓰는 include·`using json`·`kKstOffsetSec`는 `Quant/src/api/KisClientInternal.h`에 둔다.
+   `Quant/include/`에 넣지 않는 것은 공개 헤더가 아니기 때문이다. `Quant/CMakeLists.txt`는 `KIS_CLIENT_SOURCES`
+   한 목록을 `quant_trader`와 도구 4개(`manual_order`·`feed_latency_probe`·`future_quote_probe`·`bench_rest_pool`)가
+   같이 쓴다.
+2. 인증 헤더 네 줄(`authorization`·`appkey`·`appsecret`·`tr_id`)은 `KisClient::auth_headers(tr_id, {extra})`
+   하나로 만든다. 25곳에 같은 블록이 있었고, 호출별로 다른 항목(`Content-Type`·`tr_cont`·`custtype`)만
+   `initializer_list`로 덧붙인다. bearer는 예전처럼 `http_get`/`http_post`가 인증 확인 뒤 최신 토큰으로 다시
+   찍으므로(`kis_stamp_bearer`) 동작은 같다.
+
+**배경**: 한 파일에 전송·인증·시세·주문·잔고·유니버스가 다 있어 어느 한 곳을 고쳐도 3,373줄 파일 전체가
+다시 컴파일됐고, 주문 경로를 리뷰하려면 시세 코드 사이를 건너다녀야 했다. 헤더 블록 25벌은 `appsecret` 철자
+하나가 어긋나도 그 호출만 401이 나는 구조였다. `_private/code_upgrade/CPP_LEVEL_AUDIT.md` C-7.
+
+**대안 비교**:
+
+| 안 | 판정 |
+|---|---|
+| 클래스도 나눈다(`KisTransport`·`KisMarketApi`… 조합) | 미룸. 호출부(`Engine.cpp`·`StrategyFactory.cpp`·도구)가 전부 바뀌는데 그 파일들은 다른 작업 중이다. 파일 분할만으로 컴파일 단위와 읽는 단위는 갈라진다 |
+| 공개 API에서 `nlohmann::json` 제거(`get_balance`·`get_future_board`) | 미룸. 같은 이유 — 반환형을 바꾸면 `Engine.cpp`가 따라 바뀐다. 다음 단계 |
+| 응답 봉투를 `Result<T>`로 통일 | 미룸. 주문은 D-039로 `OrderAck` 한 값이 됐고, 조회는 예외·빈 값 반환이 섞여 있다. 호출부와 같이 바꿔야 한다 |
+| 6파일(지수를 시세에 합침) | 기각. 시세 파일이 1,250줄이 된다. 선물·수급은 주식 시세와 호출 주기도 다르다 |
+| `auth_headers`를 자유 함수로 | 기각. `token()`·`cfg_`가 private이다 |
+
+**확인 방법**: 코드 본문은 그대로 옮겼다 — 바뀐 줄은 헤더 블록 25곳의 치환, `kKstOffsetSec` 이동, 각 파일의
+include뿐이다(분할 직전 작업본은 HEAD와 바이트 동일). Release 전체 빌드(도구 4개 포함) 통과,
+`ctest --preset x64-release` 14/14. 실행 중 `quant_trader`는 재빌드하지 않았다.

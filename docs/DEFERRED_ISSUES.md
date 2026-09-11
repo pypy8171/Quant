@@ -10,7 +10,7 @@
 ## 주문 경로 (KIS 클라이언트 · OrderRouter)
 
 ### D-1. revise_order가 부분수량 정정을 못 한다 (QTY_ALL_ORD_YN="Y" 고정)
-- 위치: [KisClient.cpp:1082-1087](../Quant/src/api/KisClient.cpp#L1082)
+- 위치: [Quant/src/api/KisOrder.cpp:276-281](../Quant/src/api/KisOrder.cpp#L276)
 - 현상: 정정 전문에 `ORD_QTY`(정정 수량)를 실어 보내지만 `QTY_ALL_ORD_YN="Y"`가 함께 나가서
   KIS가 잔량 전체를 정정한다. `ORD_QTY` 값은 사실상 무시된다.
 - 미룬 이유: 현재 정정 사용처는 전량 재입력뿐이라 잔량 전체 정정으로 충분하다.
@@ -31,13 +31,13 @@
 - 재개 조건: 진짜 다중 CANO 라우팅을 넣을 때 매칭 키를 (CANO, ODNO)로 확장한다.
 
 ### D-4. 해외 정정/취소 미구현
-- 위치: [KisClient.cpp:1016](../Quant/src/api/KisClient.cpp#L1016)
+- 위치: [Quant/src/api/KisOrder.cpp:202](../Quant/src/api/KisOrder.cpp#L202)
 - 현상: 정정/취소는 국내 현금 주문 전용이다. 해외 주문은 tr_id·URL이 달라 아직 없다.
 - 미룬 이유: 현재 주문 경로는 국내 위주다.
 - 재개 조건: 해외 주문을 실제로 낼 때 별도 tr_id/URL로 구현한다.
 
 ### D-5. submit_order와 submit_order_ack의 본문 중복
-- 위치: [KisClient.cpp:890](../Quant/src/api/KisClient.cpp#L890), [KisClient.cpp:951](../Quant/src/api/KisClient.cpp#L951)
+- 위치: [Quant/src/api/KisOrder.cpp:36](../Quant/src/api/KisOrder.cpp#L36), [Quant/src/api/KisOrder.cpp:129](../Quant/src/api/KisOrder.cpp#L129)
 - 현상: 두 함수가 본문·tr_id를 거의 그대로 복제한다. `submit_order_ack`가 응답에서
   조직번호까지 더 캡처하는 점만 다르다.
 - 미룬 이유: 동작은 정확하고, 지금 리팩터해도 기능 변화가 없다.

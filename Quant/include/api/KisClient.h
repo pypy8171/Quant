@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdio>
 #include <functional>
+#include <initializer_list>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -257,6 +258,9 @@ public:
 private:
     std::string http_get(const std::string& url, const std::vector<std::string>& headers);
     std::string http_post(const std::string& url, const std::vector<std::string>& headers, const std::string& body);
+    // 인증 헤더 네 줄(bearer·appkey·appsecret·tr_id) + 호출별 추가 항목. 구현 파일 전부가 쓴다. [why D-048]
+    std::vector<std::string> auth_headers(const std::string& tr_id,
+                                          std::initializer_list<std::string> extra = {}) const;
 
     // 토큰 만료 5분 전이면 자동 재발급 (token_mtx_ 하에서 authenticate_locked 호출)
     void ensure_authenticated();

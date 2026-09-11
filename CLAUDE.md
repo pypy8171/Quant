@@ -82,9 +82,9 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 3. `main.cpp`에서 `engine.add_strategy(std::make_unique<YourStrategy>(...))` 로 등록합니다.
 4. 필요하면 `"strategies"` 아래에 설정 항목을 추가하고 `main.cpp`의 전략 로딩 블록에서 파싱합니다.
 
-### KIS API 클라이언트 (`Quant/src/api/KisClient.cpp`)
+### KIS API 클라이언트 (`Quant/include/api/KisClient.h`, 구현은 `Quant/src/api/Kis*.cpp` 7파일)
 
-플랫폼별 분기: Windows는 WinHTTP, Linux는 libcurl. OAuth2 토큰 발급과 bearer 토큰 캐싱을 처리합니다. 주요 메서드: `authenticate()`, `get_ohlcv()`, `get_current_price()`, `send_order()`, 국내 선물 시세 `get_future_price()`(단일 시세)·`get_future_board()`(전광판, 그릭스 포함).
+클래스는 하나고 구현이 도메인별로 나뉩니다(D-048): `KisTransport.cpp`(플랫폼별 HTTP — Windows는 WinHTTP, Linux는 libcurl — 재시도·초당 한도·공용 인증 헤더 `auth_headers()`), `KisAuth.cpp`(OAuth2 토큰 발급·캐시), `KisMarket.cpp`(주식 시세), `KisIndex.cpp`(지수·수급·선물), `KisOrder.cpp`(주문), `KisAccount.cpp`(잔고·미체결), `KisUniverse.cpp`(순위·유니버스). 구현끼리만 쓰는 include·상수는 `Quant/src/api/KisClientInternal.h`. 주요 메서드: `authenticate()`, `get_ohlcv()`, `get_current_price()`, `send_order()`, 국내 선물 시세 `get_future_price()`(단일 시세)·`get_future_board()`(전광판, 그릭스 포함). 새 REST 호출은 인증 헤더 네 줄을 손으로 쓰지 말고 `auth_headers(tr_id, {추가 항목})`을 씁니다.
 
 ### WebSocket 클라이언트 (`Quant/include/api/KisWebSocket.h`)
 

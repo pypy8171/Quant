@@ -83,6 +83,17 @@ else()
 endif()
 
 # ─── 소스 파일 ────────────────────────────────────────────────────────────
+# KisClient 구현은 도메인별 7파일이다(D-048). 도구·벤치 타깃도 이 목록을 그대로 쓴다.
+set(KIS_CLIENT_SOURCES
+  src/api/KisTransport.cpp
+  src/api/KisAuth.cpp
+  src/api/KisMarket.cpp
+  src/api/KisIndex.cpp
+  src/api/KisOrder.cpp
+  src/api/KisAccount.cpp
+  src/api/KisUniverse.cpp
+)
+
 set(SOURCES
   src/main.cpp
   src/modes/Monitors.cpp
@@ -91,7 +102,7 @@ set(SOURCES
   src/core/Engine.cpp
   src/core/RegimeController.cpp
   src/core/RingBuffer.cpp
-  src/api/KisClient.cpp
+  ${KIS_CLIENT_SOURCES}
   src/api/WebSocketClient.cpp
   src/strategy/StrategyBase.cpp
   src/strategy/MACrossStrategy.cpp
@@ -350,7 +361,7 @@ endforeach()
 # ─── 도구: 수동 주문(모의계좌) — 접수→체결 실증 ───────────────────────────
 add_executable(manual_order
     tools/manual_order.cpp
-    src/api/KisClient.cpp
+    ${KIS_CLIENT_SOURCES}
     src/risk/OrderGate.cpp
     src/utils/Logger.cpp
 )
@@ -375,7 +386,7 @@ endif()
 add_executable(feed_latency_probe
     tools/feed_latency_probe.cpp
     src/api/WebSocketClient.cpp
-    src/api/KisClient.cpp
+    ${KIS_CLIENT_SOURCES}
     src/utils/Logger.cpp
 )
 target_include_directories(feed_latency_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -389,7 +400,7 @@ endif()
 # ─── 도구: 국내 선물 시세 조회 프로브 (파생 배선 1단계 — REST inquire-price) ──
 add_executable(future_quote_probe
     tools/future_quote_probe.cpp
-    src/api/KisClient.cpp
+    ${KIS_CLIENT_SOURCES}
     src/utils/Logger.cpp
 )
 target_include_directories(future_quote_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -403,7 +414,7 @@ endif()
 # ─── 벤치: REST 커넥션 풀링(P-2) 효과 — 조회 왕복 지연 분포, QUANT_HTTP_NOPOOL로 A/B ──
 add_executable(bench_rest_pool
     tools/bench_rest_pool.cpp
-    src/api/KisClient.cpp
+    ${KIS_CLIENT_SOURCES}
     src/utils/Logger.cpp
 )
 target_include_directories(bench_rest_pool PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

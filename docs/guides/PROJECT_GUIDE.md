@@ -160,7 +160,14 @@ Quant/                              ← 저장소 루트
 │   ├── src/
 │   │   ├── main.cpp                진입점 + FEED / KR_TEST / US_TEST / TRADE 모드
 │   │   ├── api/
-│   │   │   ├── KisClient.cpp       플랫폼별 HTTP (WinHTTP↔libcurl)
+│   │   │   ├── KisClientInternal.h 구현 파일 공용 include·상수 (공개 헤더 아님)
+│   │   │   ├── KisTransport.cpp    플랫폼별 HTTP (WinHTTP↔libcurl)·재시도·초당 한도·인증 헤더
+│   │   │   ├── KisAuth.cpp         OAuth2 토큰 발급·캐시
+│   │   │   ├── KisMarket.cpp       주식 일봉·분봉·현재가·펀더멘털
+│   │   │   ├── KisIndex.cpp        지수·수급·선물 시세
+│   │   │   ├── KisOrder.cpp        주문 발주·정정·취소
+│   │   │   ├── KisAccount.cpp      잔고·미체결
+│   │   │   ├── KisUniverse.cpp     순위 조회·유니버스 후보
 │   │   │   └── WebSocketClient.cpp WebSocket 연결·파싱 (국내/해외)
 │   │   ├── core/
 │   │   │   ├── Engine.cpp          4-스레드 라이프사이클

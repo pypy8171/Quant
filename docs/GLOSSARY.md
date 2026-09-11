@@ -80,7 +80,7 @@
 | **VIX / VKOSPI** | 변동성지수 | 미국(VIX)·코스피(VKOSPI) 변동성지수 | 위험국면 관찰 |
 | **mrktCtg** | Market Category | data.go.kr 응답의 시장 구분 리터럴("KOSPI"/"KOSDAQ"/"KONEX") | 유니버스 시장 태깅 |
 | **NXT** | 넥스트레이드(Nextrade) | 2025-03 출범한 국내 대체거래소(ATS). 정규장 밖 프리(08:00~)·애프터(~20:00) 시간대가 있어 같은 종목이 KRX와 다른 가격을 가질 수 있다 | 지금 이 엔진은 KRX(`J`)만 보고 보낸다 |
-| **J / NX / UN** | KIS `FID_COND_MRKT_DIV_CODE` | 시세 조회의 시장 구분 — `J`=KRX, `NX`=NXT, `UN`=통합 | 이 저장소는 전부 `J`로 고정돼 있다(`Quant/src/api/KisClient.cpp`) |
+| **J / NX / UN** | KIS `FID_COND_MRKT_DIV_CODE` | 시세 조회의 시장 구분 — `J`=KRX, `NX`=NXT, `UN`=통합 | 이 저장소는 전부 `J`로 고정돼 있다(`Quant/src/api/KisMarket.cpp`) |
 | **H0NX… / H0UN…** | KIS 실시간 NXT·통합 채널 | 호가 `H0NXASP0`/`H0UNASP0`, 체결 `H0NXCNT0`/`H0UNCNT0` | KRX 전용 `H0STASP0`/`H0STCNT0`와 짝. 미구독 상태 |
 | **SOR** | Smart Order Routing | 복수 시장(KRX·NXT) 중 유리한 곳으로 주문을 보내는 최선집행 라우팅 | 발주 시 `EXCG_ID_DVSN_CD`로 고른다. 현재 미사용(KRX 고정) |
 
