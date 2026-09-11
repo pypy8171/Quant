@@ -2089,3 +2089,40 @@ REST 대체 틱(D-053 7항)도 이 정체 뒤에 갇혀 15:22:00에야 한꺼번
 붙고, 이어서 "예약매도 취소" 재발주 접수 또는 "취소할 예약매도 없음" 거부, 보유가 없으면 "보유수량 0 — 매도
 불가"가 온다. 15:15 마감 청산 신호 사이 간격이 초 단위가 아니라 밀리초 단위다(3항 뒤). WS 상한 넘침 종목의
 REST 대체 틱이 15:22가 아니라 데이터 주기(`fetch_interval_sec`) 안에 전략에 닿는다.
+
+### D-056 체결통보 처리를 WS 수신 스레드에서 떼어 전용 스레드로 보낸다 (2026-09-11)
+**상태**: 채택 (`wt/c2`, ctest 16/16. 실행 중 `quant_trader`는 바꾸지 않았다 — 수신 경로라 다음 장 시작 전 재기동부터)
+
+**배경**: `KisWebSocket`의 수신 스레드는 호가·체결 틱을 파싱해 큐에 넣는 것 말고도, 체결통보(H0STCNI0)가
+오면 `OrderRouter::on_fill`을 그 자리에서 불렀다. `on_fill`은 `hist_mtx_`를 잡고 `history_`를 선형 탐색하고
+원장을 갱신한 뒤 `trades_YYYYMMDD.csv`·`open_orders`를 열고 쓰고 닫는다(감사 L1). 그 동안 전 종목 틱이
+소켓 버퍼에 쌓인다. 체결이 몰리는 09:00 직후와 15:15 마감 청산 때가 정확히 틱도 가장 몰리는 시각이다.
+같은 스레드는 운영단말 방송(`OpsServer::broadcast`)도 했다.
+
+**결정**: 수신 스레드는 `FillNotification`을 SPSC `RingBuffer<FillNotification> fill_queue_{1024}`에 넣고
+바로 돌아간다. 소비자는 새 `fill_thread_fn`이다 — 원장 반영(`on_fill`)과 운영단말 방송을 여기서 한다.
+
+1. 큐가 가득 차면 기다리지 않고 버리고 `fill_dropped_`를 올린다. 1024건이 밀렸다는 것은 소비자가 멈춘
+   것이고, 거기서 수신 스레드가 기다리면 틱까지 같이 선다. 버린 건은 잔고 대조(`control_thread`,
+   D-038 RECONCILE 행)가 원장에 메운다 — 이 백스톱이 있어서 "드롭"을 고를 수 있었다.
+2. 소비자는 큐가 비면 condvar에서 자고 수신 스레드가 깨운다. `Logger`(D-045)와 같은 방식이다 —
+   "잔다" 플래그 store → seq_cst fence → 큐 확인, 생산자는 push → fence → 플래그 load. 처음에는 주문 스레드처럼
+   `sleep_for(1ms)` 폴링으로 짰는데 `test_pipeline_stress`에서 push→소비가 p50 8ms·max 15ms로 나왔다(Windows
+   타이머 해상도). condvar로 바꾸니 p50 9µs·max 64µs. 신호가 새는 경우와 종료는 `wait_for` 100ms 상한이 받는다.
+3. `stop()`은 WS를 끊은 **뒤에** `fill_thread_`를 join한다. `disconnect()`가 수신 스레드를 join하므로 그 뒤로
+   push가 없고, 소비자는 `running_`이 내려가도 큐가 빌 때까지 돈다 — 종료 직전 도착한 통보를 잃지 않는다.
+4. `on_fill`이 던지면 소비자 스레드가 죽어 이후 체결이 전부 큐에 쌓인다. 건마다 try로 잡아 로그만 남기고
+   다음 건으로 간다(수신 스레드에서 직접 부르던 때는 예외가 소켓 루프까지 올라갔다).
+
+| 버린 대안 | 이유 |
+|---|---|
+| 주문 스레드가 `fill_queue_`도 소비(PLAN 원안) | 기각. 주문 스레드는 KIS 발주(REST 수십~수백 ms)와 발주 간격 대기에 묶여 있는 시간이 길다. 그 뒤에 선 체결이 원장에 늦게 들어가면 다음 SELL의 보유 수량 판단이 그만큼 낡는다. 스레드 하나가 늘지만 체결은 하루 수백 건이라 비용은 없다 |
+| 큐가 가득 차면 수신 스레드가 짧게(예: 50ms) 기다렸다가 버리기 | 기각. 기다리는 동안 틱이 서는 것이 이 결정으로 없애려는 바로 그 현상이다. 1024건 밀림은 대기로 풀리는 상황이 아니다 |
+| 소비자를 `sleep_for(1ms)` 폴링으로(주문 스레드와 같은 모양) | 기각. 실측 8~15ms. 코드 모양이 같은 것보다 체결이 원장에 닿는 시각이 앞선다 |
+| CSV·open_orders 쓰기를 Logger식 비동기 writer로(감사 L2, PLAN C-3 후반) | 보류. 파일 쓰기가 수신 스레드에서 빠진 지금, 남는 비용은 주문 스레드의 주문당 ofstream 3회(REST 왕복의 1% 안팎)와 fill_thread의 체결당 쓰기다. 둘 다 틱 경로가 아니다. 주문 스레드 지연을 재서 파일 쓰기가 보이면 그때 한다 |
+
+**확인 방법**: `ctest --preset x64-release` 16/16. `test_pipeline_stress 3 burst`에서 `Fill produced/consumed/
+dropped 85/85/0`, `Fill latency p50 9us max 64us`. 라이브에서는 재기동 뒤 `logs/quant_trader.log`에
+`[FillThread] 시작`이 뜨고 체결통보 줄이 그대로 `[OrderRouter]` 체결 처리로 이어지며, 종료 시 `[FillThread] 종료
+(드롭 0건)`. `[Engine] 체결통보 큐 가득 참`이 한 번이라도 보이면 소비자가 멈춘 것이니 그 앞 `[FillThread]` 예외
+줄을 본다. 감사 L1 행 해결, L6은 D-055 2항(`rest_td_queue_`)으로 이미 해결.

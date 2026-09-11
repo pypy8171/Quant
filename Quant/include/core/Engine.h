@@ -17,6 +17,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <condition_variable>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -231,6 +232,7 @@ private:
     void poll_ws_overflow();   // WS 상한 넘침 종목 재구독·REST 대체(data_thread 전용)
     void strategy_thread_fn();
     void order_thread_fn();
+    void fill_thread_fn();     // 체결통보 소비(fill_queue_ → OrderRouter::on_fill → ops 방송). WS 수신 스레드에서 뗀 것 [why D-056]
     void control_thread_fn(); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
     bool bootstrap_ledger();  // G5: get_balance → OrderGate.seed_position (스레드 시작 전 1회). 실패=false → 기동 중단
     // 주기적 잔고 재조회 → positions_/daily_pnl_/총평가금 재동기.
@@ -369,10 +371,19 @@ private:
     // WS 상한에 밀린 종목의 REST 대체 틱. td_queue_는 WS 콜백 스레드가 생산자라 데이터 스레드가
     //  같이 넣으면 SPSC가 깨진다(두 생산자가 같은 슬롯에 쓰고 head를 한 칸만 올린다). [why D-053]
     RingBuffer<TradeData> rest_td_queue_{1024};
+    // 체결통보. WS 수신 스레드는 여기 push만 하고 원장 반영(OrderRouter::on_fill)은 fill_thread가 한다 —
+    //  체결 하나 처리(hist_mtx_·CSV 쓰기) 동안 전 종목 틱 수신이 멈추지 않게. [why D-056]
+    RingBuffer<FillNotification> fill_queue_{1024};
+    std::atomic<uint64_t> fill_dropped_{0};   // fill_queue_ 가득 차 버린 체결통보 수. 0이 아니면 잔고 대조가 원장을 메운다
+    // fill_thread 깨우기 — Logger writer와 같은 방식(D-045). 1ms 폴링은 Windows 타이머 해상도 때문에 실측 8~15ms 늦었다.
+    std::mutex              fill_wake_mtx_;
+    std::condition_variable fill_wake_cv_;
+    std::atomic<bool>       fill_sleeping_{false};   // fill_thread가 fill_wake_cv_에서 자는 중(WS 콜백이 notify 여부 결정)
 
     std::thread data_thread_;
     std::thread strategy_thread_;
     std::thread order_thread_;
+    std::thread fill_thread_;
     std::thread control_thread_;
 
     std::atomic<bool> running_{false};

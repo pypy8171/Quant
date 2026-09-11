@@ -42,7 +42,7 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 `Quant/config/config.json`의 `"mode"` 값으로 제어합니다:
 
 - **`"FEED"`** — KIS WebSocket에 연결하여 실시간 호가·체결 데이터를 1초마다 콘솔에 표시합니다. 주문 없이 연결 상태와 인증 정보를 검증할 때 사용합니다. 최상위 config `"tickers"`(국내 현물)와 함께 `"futures"`(국내 선물 코드 배열)를 주면 선물 실시간도 같이 구독·표시합니다. 선물은 실계좌 WS 도메인 전용이라 `is_paper=true`면 경고만 내고 건너뜁니다.
-- **`"TRADE"`** — 4-스레드 엔진(3-스레드 파이프라인 + 제어 스레드)을 실행하고 장 중(평일 09:00–15:30 KST)에 실제 주문을 냅니다.
+- **`"TRADE"`** — 5-스레드 엔진(3-스레드 파이프라인 + 체결 소비 + 제어 스레드)을 실행하고 장 중(평일 09:00–15:30 KST)에 실제 주문을 냅니다.
 
 `config.json`에는 현재 **실거래 인증 정보**(`app_key`, `app_secret`, 실계좌 번호)가 저장되어 있습니다. 모의투자 엔드포인트(`openapivts.koreainvestment.com:29443`)로 전환하려면 `"is_paper": true`로 설정하세요.
 
@@ -50,7 +50,7 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 
 ### 스레드 모델
 
-엔진은 락-프리 파이프라인 3-스레드(데이터→전략→주문)에 제어 스레드 하나를 더해 총 네 개의 스레드를 실행합니다:
+엔진은 락-프리 파이프라인 3-스레드(데이터→전략→주문)에 체결 소비 스레드와 제어 스레드를 더해 총 다섯 개의 스레드를 실행합니다:
 
 ```
 [데이터 스레드]  →  market_queue_ (RingBuffer)  →  [전략 스레드]  →  order_queue_ (RingBuffer)  →  [주문 스레드]
@@ -61,6 +61,7 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 - `RingBuffer<T>`는 명시적 메모리 순서를 가진 `std::atomic`을 사용하는 SPSC(단일 생산자/단일 소비자) 락-프리 큐입니다.
 - 데이터 스레드는 `fetch_interval_sec`초마다 KIS REST를 폴링하며, 장 외 시간에는 건너뜁니다.
 - 전략 스레드는 등록된 전략 전체를 순회하며, `NONE`이 아닌 신호는 주문 큐에 push합니다.
+- 체결 소비 스레드(`fill_thread_fn`, D-056)는 WS 수신 스레드가 `fill_queue_`(SPSC)에 넣은 체결통보를 받아 `OrderRouter::on_fill`(원장 반영·CSV)과 운영단말 방송을 합니다. 수신 스레드는 push만 하므로 체결 처리 동안 틱이 서지 않습니다. 큐가 비면 condvar에서 자고 생산자가 깨웁니다(Logger와 같은 방식).
 - 제어 스레드(`control_thread_fn`)는 파이프라인 밖에서 잔고 대조·손익(daily_pnl) 갱신 상태 감시 등 주기 운영 작업을 담당합니다(갱신이 끊기면 OrderGate 보수정지 토글).
 - 대사 단계 귀속(D-038): 전략 스레드가 신호마다 `OrderSignal.seq`를 단조 stamp하고 라우터가 원장 CSV 전 행에 같은 번호를 남깁니다. 잔고 대조는 덮어쓰기·정리 전 원장 값으로 `core/ReconcilePlan.h`(순수 함수)가 어긋난 종목만 골라 `RECONCILE` 행(`OVERWRITE|PRUNE|KEEP`)을 씁니다.
 

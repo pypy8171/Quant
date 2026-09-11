@@ -1,6 +1,6 @@
 # Quant Trading System — 프로젝트 가이드
 
-> 최종 업데이트: 2026-09-03 (4-스레드 엔진 = 3-스레드 파이프라인 + 제어 스레드. ZMQ IPC·FEP는 목표 아키텍처이며 현 C++ 엔진 탑재 범위는 ARCHITECTURE.md 기준)
+> 최종 업데이트: 2026-09-11 (5-스레드 엔진 = 3-스레드 파이프라인 + 체결 소비 + 제어 스레드, D-056. ZMQ IPC·FEP는 목표 아키텍처이며 현 C++ 엔진 탑재 범위는 ARCHITECTURE.md 기준)
 
 ---
 
@@ -73,7 +73,7 @@
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 스레드 모델 (C++ Engine 내부 — 4-스레드)
+### 스레드 모델 (C++ Engine 내부 — 5-스레드)
 
 ```
 [Data Thread]
@@ -86,6 +86,11 @@
 [WebSocket recv_thread_ — KisWebSocket 내부]
   H0STASP0 → ob_queue_[4096]
   H0STCNT0 / HDFSCNT0 → td_queue_[4096] + ZMQ publish_trade
+  H0STCNI0/9 체결통보 → fill_queue_[1024] (push만, 가득 차면 드롭 계수. D-056)
+
+[Fill Thread]
+  fill_queue_ 소비 → OrderRouter::on_fill (원장·CSV) → OpsServer::broadcast(FILL)
+  큐가 비면 condvar에서 자고 WS 수신 스레드가 깨운다
 
 [Strategy Thread]
   우선순위: ob_queue_ > td_queue_ > market_queue_ (고주파 → 저주파)
@@ -138,7 +143,7 @@ Quant/                              ← 저장소 루트
 │   │   │   ├── KisWsDecode.h       실시간 채널 레코드 → 구조체 (헤더 전용 순수 함수, test_ws_decode)
 │   │   │   └── KisWebSocket.h      실시간 체결·호가 WebSocket + stale 감지
 │   │   ├── core/
-│   │   │   ├── Engine.h            4-스레드 트레이딩 엔진 (+국면→전략 자동선택·강제청산)
+│   │   │   ├── Engine.h            5-스레드 트레이딩 엔진 (+국면→전략 자동선택·강제청산)
 │   │   │   ├── ReconcilePlan.h     잔고 대조 차이 계산 → RECONCILE 행 (헤더 전용 순수 함수, test_reconcile_plan)
 │   │   │   ├── RegimeController.h  장시작 국면 판정 (200MA·정배열 → BULL/NEUTRAL/BEAR)
 │   │   │   ├── RingBuffer.h        SPSC 락-프리 큐 (cache-line 분리)
@@ -176,7 +181,7 @@ Quant/                              ← 저장소 루트
 │   │   │   ├── WsSocketWin.cpp     WinHTTP 소켓·BCrypt (Windows에서만 링크)
 │   │   │   └── WsSocketPosix.cpp   POSIX 소켓·RFC 6455·libcurl·OpenSSL (Linux에서만 링크)
 │   │   ├── core/
-│   │   │   ├── Engine.cpp          4-스레드 라이프사이클
+│   │   │   ├── Engine.cpp          5-스레드 라이프사이클
 │   │   │   └── RingBuffer.cpp
 │   │   ├── ipc/
 │   │   │   ├── OpsServer.cpp       운영단말 서버 구현 (accept·프레임 처리·push)
@@ -258,7 +263,7 @@ Quant/                              ← 저장소 루트
 | `KR_TEST` | KOSPI 상위 20 + 관심종목 실시간 시세. WS 체결 수신 + ZMQ publish. 주문 없음. Docker 기본값. |
 | `FEED` | WebSocket 호가+체결 5단계 콘솔 표시. 연결·인증 검증용. |
 | `US_TEST` | M7(AAPL·MSFT·NVDA 등) REST 시세 반복 조회. 장 외 시간에도 동작. |
-| `TRADE` | 4-스레드 Engine 실행. 전략 신호 → OrderGate → KIS 실주문. |
+| `TRADE` | 5-스레드 Engine 실행. 전략 신호 → OrderGate → KIS 실주문. |
 
 ---
 

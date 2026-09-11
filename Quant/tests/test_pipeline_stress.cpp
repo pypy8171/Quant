@@ -4,6 +4,7 @@
 // 시뮬레이션 구조:
 //   WS recv_thread → ob_queue_/td_queue_ → strategy_thread
 //                                        → order_queue_ → order_thread
+//                 → fill_queue_ → fill_thread            (체결통보, D-056 — 소비자는 condvar로 잠들고 생산자가 깨운다)
 //
 // Engine.cpp의 실제 3-stage 큐 파이프를 mock 데이터로 재현 테스트.
 // Windows Sleep 부정확성 회피를 위해 busy-wait 기반 rate limiting 사용.
@@ -12,6 +13,8 @@
 //   mode: "normal" (기본, 3,000 msg/sec) | "burst" (14,000 msg/sec)
 
 #include "core/RingBuffer.h"
+#include <condition_variable>
+#include <mutex>
 #include <thread>
 #include <atomic>
 #include <chrono>
@@ -68,6 +71,14 @@ struct MockTradeData {
     int      direction;
 };
 
+struct MockFill {
+    char     ticker[8];
+    int64_t  send_ts_ns;
+    uint64_t seq;
+    int      quantity;
+    double   price;
+};
+
 struct MockOrderSignal {
     char     ticker[8];
     int64_t  send_ts_ns;
@@ -98,11 +109,20 @@ struct PipelineStats {
     std::atomic<uint64_t> ob_drops{ 0 };
     std::atomic<uint64_t> td_drops{ 0 };
     std::atomic<uint64_t> order_drops{ 0 };
+    std::atomic<uint64_t> fill_produced{ 0 };
+    std::atomic<uint64_t> fill_consumed{ 0 };
+    std::atomic<uint64_t> fill_drops{ 0 };
+    // fill_thread 깨우기(Engine::fill_wake_*와 같은 방식)
+    std::mutex              fill_wake_mtx;
+    std::condition_variable fill_wake_cv;
+    std::atomic<bool>       fill_sleeping{ false };
 
     // 전 구간(E2E) latency: producer push → order_thread 처리 완료
     // NOTE: order_thread 단독 producer. 다른 스레드 추가 시 mutex 또는
     //       per-thread vector 후 합산 필요 (현재 std::vector는 thread-safe 아님)
     std::vector<int64_t> e2e_latencies_ns;
+    // 체결 경로 latency: WS push → fill_thread 처리. fill_thread 단독 writer.
+    std::vector<int64_t> fill_latencies_ns;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -111,6 +131,7 @@ struct PipelineStats {
 // ─────────────────────────────────────────────────────────────────────────────
 static void ws_producer_fn(RingBuffer<MockOrderBook>& ob_q,
     RingBuffer<MockTradeData>& td_q,
+    RingBuffer<MockFill>& fill_q,
     PipelineStats& stats,
     std::atomic<bool>& stop_flag,
     int duration_sec,
@@ -131,6 +152,7 @@ static void ws_producer_fn(RingBuffer<MockOrderBook>& ob_q,
     auto deadline = clk::now() + std::chrono::seconds(duration_sec);
     auto next_send = clk::now();
     uint64_t seq = 0;
+    uint64_t fill_seq = 0;
 
     while (!stop_flag.load(std::memory_order_relaxed) && clk::now() < deadline) {
         busy_wait_until(next_send);
@@ -140,6 +162,32 @@ static void ws_producer_fn(RingBuffer<MockOrderBook>& ob_q,
         bool    is_ob = (type_dist(rng) < ob_rate);
         int64_t now_ns = std::chrono::duration_cast<ns>(
             clk::now().time_since_epoch()).count();
+
+        // 체결통보는 같은 수신 스레드가 시세 사이에 끼워 넣는다(실물과 같은 단일 생산자). 시세 500건당 1건 —
+        //  실장(하루 수백 건)보다 훨씬 잦게 넣어 소비자 폴링이 밀리는지 본다.
+        if (seq % 500 == 0) {
+            MockFill f{};
+            std::memcpy(f.ticker, TICKERS[tk_idx].c_str(), 7);
+            f.send_ts_ns = now_ns;
+            f.seq = fill_seq++;
+            f.quantity = 1 + (int)(fill_seq % 10);
+            f.price = 70000.0;
+
+            if (fill_q.push(f))
+            {
+                stats.fill_produced.fetch_add(1, std::memory_order_relaxed);
+                std::atomic_thread_fence(std::memory_order_seq_cst);
+
+                if (stats.fill_sleeping.load(std::memory_order_relaxed))
+                {
+                    stats.fill_wake_cv.notify_one();
+                }
+            }
+            else
+            {
+                stats.fill_drops.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
 
         if (is_ob) {
             MockOrderBook ob{};
@@ -296,6 +344,43 @@ static void order_fn(RingBuffer<MockOrderSignal>& order_q,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Fill Thread 시뮬레이션 — Engine::fill_thread_fn과 같은 condvar 잠들기·깨우기. 원장 반영 비용은 넣지 않는다.
+// ─────────────────────────────────────────────────────────────────────────────
+static void fill_fn(RingBuffer<MockFill>& fill_q,
+    PipelineStats& stats,
+    std::atomic<bool>& stop_flag)
+{
+    while (!stop_flag.load(std::memory_order_relaxed) || !fill_q.empty()) {
+        auto opt = fill_q.pop();
+
+        if (!opt) {
+            std::unique_lock<std::mutex> lk(stats.fill_wake_mtx);
+            stats.fill_sleeping.store(true, std::memory_order_relaxed);
+            std::atomic_thread_fence(std::memory_order_seq_cst);
+
+            if (fill_q.empty() && !stop_flag.load(std::memory_order_relaxed))
+            {
+                stats.fill_wake_cv.wait_for(lk, std::chrono::milliseconds(100));
+            }
+
+            stats.fill_sleeping.store(false, std::memory_order_relaxed);
+            continue;
+        }
+
+        int64_t now_ns = std::chrono::duration_cast<ns>(
+            clk::now().time_since_epoch()).count();
+        int64_t latency = now_ns - opt->send_ts_ns;
+
+        if (latency >= 0)
+        {
+            stats.fill_latencies_ns.push_back(latency);
+        }
+
+        stats.fill_consumed.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Latency 분위수 출력
 // ─────────────────────────────────────────────────────────────────────────────
 static void print_latency(std::vector<int64_t>& v, const char* label) {
@@ -364,6 +449,7 @@ int main(int argc, char** argv) {
     std::cout << "=== Pipeline E2E Stress Test ===\n";
     std::cout << "Duration       : " << duration << " sec\n";
     std::cout << "Topology       : WS_producer -> [ob_q, td_q] -> strategy -> order_q -> order_thread\n";
+    std::cout << "                 WS_producer -> fill_q -> fill_thread (1 fill / 500 msg)\n";
     std::cout << "Tickers        : " << N_TICKERS << "\n";
     std::cout << "Mode           : " << mode << "\n";
     std::cout << "OB rate        : " << OB_PER_TICKER << " msg/sec/ticker (total "
@@ -375,19 +461,22 @@ int main(int argc, char** argv) {
     RingBuffer<MockOrderBook>   ob_q(16384);
     RingBuffer<MockTradeData>   td_q(16384);
     RingBuffer<MockOrderSignal> order_q(1024);
+    RingBuffer<MockFill>        fill_q(1024);   // Engine::fill_queue_와 같은 깊이
 
     PipelineStats stats;
     stats.e2e_latencies_ns.reserve(500'000);
+    stats.fill_latencies_ns.reserve(10'000);
     std::atomic<bool> stop_flag{ false };
 
     auto t0 = clk::now();
 
-    std::thread t_ws(ws_producer_fn, std::ref(ob_q), std::ref(td_q),
+    std::thread t_ws(ws_producer_fn, std::ref(ob_q), std::ref(td_q), std::ref(fill_q),
         std::ref(stats), std::ref(stop_flag), duration,
         OB_PER_TICKER, TD_PER_TICKER);
     std::thread t_strat(strategy_fn, std::ref(ob_q), std::ref(td_q),
         std::ref(order_q), std::ref(stats), std::ref(stop_flag));
     std::thread t_ord(order_fn, std::ref(order_q), std::ref(stats), std::ref(stop_flag));
+    std::thread t_fill(fill_fn, std::ref(fill_q), std::ref(stats), std::ref(stop_flag));
 
     // 진행 상황 5초마다 출력
     while (clk::now() - t0 < std::chrono::seconds(duration)) {
@@ -401,6 +490,8 @@ int main(int argc, char** argv) {
             << "/" << stats.td_drops.load()
             << " | sig " << stats.signals_generated.load()
             << " | ord " << stats.orders_processed.load()
+            << " | fill " << stats.fill_produced.load() << "/" << stats.fill_consumed.load()
+            << "/" << stats.fill_drops.load()
             << " | qsize ob=" << (stats.ob_produced.load() - stats.ob_consumed.load())
             << " td=" << (stats.td_produced.load() - stats.td_consumed.load())
             << "\n";
@@ -410,6 +501,7 @@ int main(int argc, char** argv) {
     stop_flag.store(true);
     t_strat.join();
     t_ord.join();
+    t_fill.join();
 
     auto t1 = clk::now();
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
@@ -427,18 +519,25 @@ int main(int argc, char** argv) {
     std::cout << "Order generated/processed/dropped : "
         << stats.signals_generated.load() << " / "
         << stats.orders_processed.load() << " / "
-        << stats.order_drops.load() << "\n\n";
+        << stats.order_drops.load() << "\n";
+    std::cout << "Fill  produced/consumed/dropped : "
+        << stats.fill_produced.load() << " / "
+        << stats.fill_consumed.load() << " / "
+        << stats.fill_drops.load() << "\n\n";
 
     print_latency(stats.e2e_latencies_ns, "E2E latency (input -> order_thread)");
+    print_latency(stats.fill_latencies_ns, "Fill latency (ws -> fill_thread, condvar wake)");
 
     bool ok = (stats.ob_drops.load() == 0)
         && (stats.td_drops.load() == 0)
         && (stats.order_drops.load() == 0)
         && (stats.ob_produced.load() == stats.ob_consumed.load())
         && (stats.td_produced.load() == stats.td_consumed.load())
-        && (stats.signals_generated.load() == stats.orders_processed.load());
+        && (stats.signals_generated.load() == stats.orders_processed.load())
+        && (stats.fill_drops.load() == 0)
+        && (stats.fill_produced.load() == stats.fill_consumed.load());
 
     std::cout << "\n[" << (ok ? "PASS" : "FAIL")
-        << "] no drops, no order backlog\n";
+        << "] no drops, no order/fill backlog\n";
     return ok ? 0 : 1;
 }

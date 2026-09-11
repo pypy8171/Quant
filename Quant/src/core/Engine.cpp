@@ -642,22 +642,24 @@ void Engine::start()
                            });
         ws_->set_fill_callback([this](const FillNotification& fn)
                                {
-                                   if (order_router_)
+                                   // 수신 스레드는 큐에 넣고 바로 돌아간다. 가득 찼으면(1024건 밀림 = 소비자가 멈춘 것)
+                                   //  기다리지 않고 버린다 — 여기서 대기하면 전 종목 틱이 같이 선다. 버린 건은
+                                   //  잔고 대조(control_thread)가 원장에 메운다. [why D-056]
+                                   if (!fill_queue_.push(fn))
                                    {
-                                       order_router_->on_fill(fn);
+                                       const auto n = fill_dropped_.fetch_add(1, std::memory_order_relaxed) + 1;
+                                       LOG_ERROR("[Engine] 체결통보 큐 가득 참 — 드롭 " + fn.ticker + " ODNO=" + fn.odno +
+                                                 " (누적 " + std::to_string(n) + "건)");
+                                       return;
                                    }
 
-                                   if (ops_server_)
+                                   // [lock-order] push(release) → seq_cst fence → sleeping 읽기. fill_thread는 sleeping 쓰기 →
+                                   //  fence → 큐 확인. 양쪽 다 store-fence-load라 둘 중 하나는 상대 store를 본다(Logger와 동일).
+                                   std::atomic_thread_fence(std::memory_order_seq_cst);
+
+                                   if (fill_sleeping_.load(std::memory_order_relaxed))
                                    {
-                                       ops_server_->broadcast(
-                                           ops::OpsMsg::FILL,
-                                           nlohmann::json{{"odno", fn.odno},
-                                                          {"ticker", fn.ticker},
-                                                          {"side", fn.side == OrderSide::BUY ? "BUY" : "SELL"},
-                                                          {"qty", fn.filled_qty},
-                                                          {"price", fn.filled_price},
-                                                          {"time", fn.fill_time}}
-                                               .dump());
+                                       fill_wake_cv_.notify_one();
                                    }
                                });
 
@@ -678,6 +680,7 @@ void Engine::start()
     data_thread_ = std::thread(&Engine::data_thread_fn, this);
     strategy_thread_ = std::thread(&Engine::strategy_thread_fn, this);
     order_thread_ = std::thread(&Engine::order_thread_fn, this);
+    fill_thread_ = std::thread(&Engine::fill_thread_fn, this);
     control_thread_ = std::thread(&Engine::control_thread_fn, this);
 
     LOG_INFO("[Engine] 모든 스레드 시작 완료");
@@ -1198,7 +1201,7 @@ void Engine::stop()
 
     LOG_INFO("[Engine] 종료 시작");
 
-    // 역순 join 권장: control → order → strategy → data
+    // 역순 join 권장: control → order → strategy → data. fill_thread는 WS를 끊은 뒤에 join한다(아래).
     if (control_thread_.joinable())
     {
         control_thread_.join();
@@ -1222,6 +1225,12 @@ void Engine::stop()
     if (ws_)
     {
         ws_->disconnect();
+    }
+
+    // disconnect()가 수신 스레드를 join하므로 이 뒤로는 push가 없다. fill_thread는 큐가 빌 때까지 돌고 끝난다.
+    if (fill_thread_.joinable())
+    {
+        fill_thread_.join();
     }
 
 #ifdef HAS_ZMQ
@@ -2754,6 +2763,65 @@ void Engine::order_thread_fn()
     }
 
     LOG_INFO("[OrderThread] 종료");
+}
+
+// 체결통보 소비 전용 스레드. 주문 스레드에 얹지 않은 이유: 주문 스레드는 KIS 발주(REST, 수십~수백 ms)와 발주 간격
+//  대기에 묶여 있는 시간이 길어, 그 뒤에 선 체결이 원장에 늦게 들어가고 다음 SELL의 보유 수량 판단이 그만큼 낡는다.
+//  큐가 비면 condvar에서 자고 WS 콜백이 깨운다 — 1ms 폴링은 Windows에서 실측 8~15ms 늦었다(test_pipeline_stress).
+//  on_fill이 던지면 스레드가 죽어 이후 체결이 전부 큐에 쌓이므로 건마다 잡아 로그로 남긴다. [why D-056]
+void Engine::fill_thread_fn()
+{
+    LOG_INFO("[FillThread] 시작");
+
+    // running_이 내려간 뒤에도 큐를 비운다 — stop()이 WS를 끊은 다음 join하므로 남은 통보가 여기서 빠진다.
+    while (running_.load(std::memory_order_acquire) || !fill_queue_.empty())
+    {
+        auto opt = fill_queue_.pop();
+
+        if (!opt)
+        {
+            // "잔다"를 먼저 알리고 큐를 다시 본 뒤 잔다(WS 콜백의 fence 짝). 신호가 새는 경우와 종료를 상한이 받는다.
+            std::unique_lock<std::mutex> lk(fill_wake_mtx_);
+            fill_sleeping_.store(true, std::memory_order_relaxed);
+            std::atomic_thread_fence(std::memory_order_seq_cst);
+
+            if (fill_queue_.empty() && running_.load(std::memory_order_acquire))
+            {
+                fill_wake_cv_.wait_for(lk, 100ms);
+            }
+
+            fill_sleeping_.store(false, std::memory_order_relaxed);
+            continue;
+        }
+
+        const FillNotification& fn = *opt;
+
+        try
+        {
+            if (order_router_)
+            {
+                order_router_->on_fill(fn);
+            }
+
+            if (ops_server_)
+            {
+                ops_server_->broadcast(ops::OpsMsg::FILL,
+                                       nlohmann::json{{"odno", fn.odno},
+                                                      {"ticker", fn.ticker},
+                                                      {"side", fn.side == OrderSide::BUY ? "BUY" : "SELL"},
+                                                      {"qty", fn.filled_qty},
+                                                      {"price", fn.filled_price},
+                                                      {"time", fn.fill_time}}
+                                           .dump());
+            }
+        }
+        catch (const std::exception& e)
+        {
+            LOG_ERROR("[FillThread] 체결 반영 예외 " + fn.ticker + " ODNO=" + fn.odno + ": " + e.what());
+        }
+    }
+
+    LOG_INFO("[FillThread] 종료 (드롭 " + std::to_string(fill_dropped_.load(std::memory_order_relaxed)) + "건)");
 }
 
 // ─── 장 시간 체크 (UTC 기반 → 머신 TZ 무관) ─────────────────────────────
