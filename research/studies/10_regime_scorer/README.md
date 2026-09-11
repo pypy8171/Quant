@@ -46,6 +46,13 @@
 ## 6. 결론 (Verdict)
 - **미판정(보류).** 연속화(B/C)가 이산(A)보다 하락장 타이밍이 나아 보이나, 승격 판정은 편향감사(`@bias-auditor`) + 엣지·통계 유의성(`@quant-analyst`) + 2022 홀드아웃 독립확인을 거친 뒤에만 내린다. 개장 오버레이(D)는 현 배선에서 채택 후보 아님(churn).
 
+## 6-1. 후속 — A-1 v0 라벨 forward 수익 분리력 순열검정 (+ A-2 라벨 품질표)
+- [`A1_REPORT.md`](A1_REPORT.md) · [`a1_results.tsv`](a1_results.tsv) · 스크립트 [`a1_permutation.py`](a1_permutation.py) — 결정일 D 종가 라벨 vs open[D+1]→open[D+21] 수익, 에피소드 블록 셔플 1,000회(seed=20260911), 2022 홀드아웃 부호만.
+- 결과(2026-09-11): H=20 본검정 평균차 +0.27%p, 부호가 가설과 반대(BEAR 판정 뒤 20일이 조금 높음), 블록 순열 p단측 0.61(2022 제외 6,841봉, BEAR 1,513일 / 45에피소드). 감도(1997-98·2008 제외)도 전부 양의 부호·유의 없음. 2008에서만 BEAR 뒤 20일이 나빴고(−2.0%) 1997-98·2000은 저점 뒤 반등을 BEAR로 안고 있었다(A-2 해제 lag 17~47일).
+- 편향 감사(`@bias-auditor`, 2026-09-11): 통과. look-ahead 없음(라벨은 D 종가까지, fwd는 D+1 시가 기준, 꼬리 H+1 버림), 블록 셔플이 BEAR 일수·run 길이를 보존(귀무 sd가 일별 셔플의 4.5배), 부호는 BEAR 조건부 평균(+1.28% vs +1.01%) 직접 재계산으로 일치, 라벨 7,305봉 독립 재구성 일치. 기록 2건 — 셔플 뒤 인접 같은 라벨 블록이 병합돼 p가 약간 보수적(판정 영향 없음), 결정일 2021-12 21봉의 fwd 창이 2022에 걸침(0.3%, 다음 판에 제외). 단측 5% 검출 한계 약 1.6%p.
+- 판정 문구: "음성 확정"이 아니라 **이 검출력(약 1.6%p)에서 분리력 검출 실패**. 이 검정에서 배정 튜닝의 근거는 없다. 로스터 승격 조건(A-3)은 그대로 보류. `A1_REPORT.md`의 "무의미"는 회의 사전등록 문구다.
+- 입력 parquet(`PYQuant/.index_cache/idx__KS11_1996-01-01_2026-08-15_adj.parquet`, gitignore) md5 앞자리 `8667eef48164`. `a1_results.tsv`의 `commit=`은 실행 시점 HEAD라 스크립트 자체의 커밋보다 하나 앞이다.
+
 ## 7. 재현 정보
 - 스크립트: [`ablate.py`](ablate.py)(하네스) · 스코어러 `PYQuant/backtest/regime_scorer.py`(미수정 import) · 패리티 `PYQuant/tests/test_regime_scorer.py`.
 - seed=0 · commit=66bdfaf · source=`IndexSource(.index_cache)` · index=`^KS11`/`^SOX`/`^VIX` · warmup_cal_days=450 · holdout=2022bear · exec=decide-on-close(D)/execute-next-open(D+1).
