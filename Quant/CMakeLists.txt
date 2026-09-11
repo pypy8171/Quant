@@ -307,6 +307,15 @@ if(UNIX)
     target_link_libraries(bench_intake PRIVATE pthread)
 endif()
 
+# ─── 벤치 타겟: OrderGate 원장 읽기 vs 쓰기 스레드 경합 (감사 L4, D-058) ────
+add_executable(bench_gate_contention tests/bench_gate_contention.cpp src/risk/OrderGate.cpp)
+target_include_directories(bench_gate_contention PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(bench_gate_contention PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟: 계좌별 원장 파티셔닝 검증 (D3) ──────────────────────────
 add_executable(test_account_ledger tests/test_account_ledger.cpp src/risk/OrderGate.cpp)
 target_include_directories(test_account_ledger PRIVATE

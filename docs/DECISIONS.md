@@ -2154,3 +2154,42 @@ dropped 85/85/0`, `Fill latency p50 9us max 64us`. 라이브에서는 재기동 
 **확인 방법**: `ctest --preset x64-release` 16/16(`test_order_gate`·`test_account_ledger` 포함).
 `Quant/src/risk/OrderGate.cpp`에 `split_pos_key`·`stoi`·`substr`이 남아 있지 않다(`grep`). 라이브에서는 재기동 뒤
 `prune_positions`(잔고 대조 PRUNE 행)·displace 교체·`FORCE_LIQ` 스냅샷이 종전과 같은 계좌·티커로 나오는지 본다.
+
+### D-058 OrderGate 원장 락(L4)·종목명 락(L5)은 재고 그대로 둔다 (2026-09-11)
+**상태**: 채택 (`wt/c2`. 코드 변경은 벤치 `Quant/tests/bench_gate_contention.cpp` 추가뿐, 엔진 동작 불변)
+
+**배경**: 감사(`CPP_LEVEL_AUDIT.md` 2절)는 `OrderGate::positions_mtx_`를 전략·체결·데이터·운영단말 네 스레드가
+경합하는 락(L4)으로, `Engine::ticker_names_mu_`를 "등록 시 1회 쓰기라 필요 없는 락"(L5)으로 적었다. PLAN C-6은
+전략 스레드가 읽는 포지션을 `shared_ptr<const PositionsView>` 스왑으로 바꾸고 `ticker_names_mu_`를 없애는 안이었다.
+바꾸기 전에 두 가지를 확인했다.
+
+1. 전략 스레드는 틱마다 `confirmed_position`(→`position`)과 `sellable_qty`(→`sellable_view`)로 원장을 읽는다
+   (`Quant/include/strategy/DeviationScaleStrategy.h::on_trade_batch` · `::sellable_qty`). 이 읽기가 다른 스레드의 쓰기에 얼마나 막히는지 잰 적이 없었다.
+2. `ticker_names_`는 기동 때만 쓰는 것이 아니다. 유니버스 재스캔(`maybe_rescan_universe`, 데이터 스레드)이
+   `register_ticker_name`을 장중에 다시 부른다(`Quant/src/strategy/StrategyFactory.cpp`의 `scan_fn` 람다). 감사 L5의 전제가 틀렸다 — 락은 필요하다.
+   다만 읽는 쪽(`ticker_label`)은 신호당 한 번이지 틱당이 아니다.
+
+**결정**: 둘 다 뮤텍스를 그대로 둔다. 근거는 `bench_gate_contention`(원장 40슬롯, 읽기 스레드 하나가 틱당 읽기
+두 번을 반복, 쓰기 스레드 셋이 체결 초당 N건·잔고 대조 M ms·스냅샷 K ms):
+
+| 조건 | 읽기 p50 | p99 | p999 | 처리량 |
+|---|---|---|---|---|
+| 기준선(쓰기 없음) | 100ns | 200ns | 200ns | 5.3M reads/s |
+| 체결 1000/s · 대조 100ms · 스냅샷 200ms (라이브의 10~600배) | 100ns | 200ns | 300ns | 5.2M/s |
+| 체결 5000/s · 대조 20ms · 스냅샷 50ms | 100ns | 200ns | 800ns | 5.1M/s |
+
+max는 기준선에서도 0.2~2.3ms가 나온다 — 스케줄러 선점이지 락이 아니다(쓰기 없는 경우가 더 클 때도 있다). 라이브
+체결은 하루 수백 건, 대조는 60초라 벤치는 그보다 두세 자리 무거운 부하다. 그래도 p999가 1µs 안이면 틱 간격
+(수백 µs~ms)과 E2E p50 300ns 기준으로 바꿀 것이 없다. `steady_clock` 눈금이 100ns라 p50=100ns는 "한 눈금"이다.
+
+| 버린 대안 | 이유 |
+|---|---|
+| 전략 스레드 읽기를 `shared_ptr<const PositionsView>` 스왑으로(PLAN C-6 원안) | 기각. 쓰기마다 원장 7개 맵을 복사해 다시 발행해야 하고, C++17의 `std::atomic_load(shared_ptr)`는 MSVC에서 스핀락이라 락이 없어지는 것도 아니다. 측정에 없는 이득에 복잡도를 더한다 |
+| `std::shared_mutex`로 읽기 병렬화 | 기각. 읽기끼리는 지금도 100ns라 막히는 시간이 없고, 쓰기(체결·대조)는 어차피 배타다. 락 하나가 두 종류가 되면 `check`(읽고 쓰는 경로)의 락 승격 문제가 생긴다 |
+| `ticker_names_mu_` 제거, 등록 시 전략에 라벨 저장 | 기각. 재스캔이 장중에 이름을 갱신하므로 전략에 박아 두면 라벨이 낡는다. 읽기가 신호당 한 번이라 락 비용이 문제였던 적이 없다 |
+| `pnl_mtx_` → `atomic<double>` | 기각. C++17 `atomic<double>`에는 `fetch_add`가 없어 CAS 루프가 되고, 읽기는 BUY 검사당 한 번이다 |
+| `dedup_mtx_` 이중 획득 합치기 | 기각. 사이에 `rate_mtx_` 검사가 있어 합치면 락 두 개를 겹쳐 잡게 된다. `dedup_mtx_`는 사실상 전략 스레드만 잡아 경합이 없다 |
+
+**확인 방법**: `cmake --build out/build/x64-release --target bench_gate_contention` 뒤
+`bench_gate_contention 3 1000 100 200`. 기준선과 부하 행의 p999 차이가 1µs를 넘으면 이 결정을 다시 본다.
+감사 L4·L5 행은 "재고 그대로"로 닫고, C-6은 여기서 마무리한다.
