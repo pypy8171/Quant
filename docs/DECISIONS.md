@@ -1514,3 +1514,49 @@ x64-release` 11/11. 실행 중 `quant_trader`는 재빌드하지 않았다 — �
 읽어 첫 실행에 실패했고, 벡터를 잡아 두는 형태로 고쳤다. `Quant/tests/test_ringbuffer.cpp`에 용량 올림·
 가득 참·마스크 경계 케이스를 더했다. `ctest --preset x64-release` 13/13. 실행 중 `quant_trader`는 재빌드하지
 않았다(주문·수신 경로는 장 종료 후 재기동).
+
+### D-043 운영단말 채널 — 엔진에 TCP 서버를 두고 수동 주문·조회·킬스위치를 단말에 연다 (2026-09-11)
+**상태**: 채택 (서버·콘솔 단말·테스트 완료, MFC 단말은 진행 중)
+
+**결정**: 엔진(`quant_trader`)이 `OpsServer`(`Quant/include/ipc/OpsServer.h`)로 TCP 포트를 하나 열고,
+단말은 8바이트 헤더 + JSON 본문 프레임(`Quant/include/ipc/OpsProtocol.h`)으로 붙는다. 단말이 낼 수 있는 것은
+상태·포지션 조회, 종목 지정 수동 매도/매수, 킬스위치다. 수동 주문은 전략 신호와 같은 길을 간다 —
+`manual_inbox_`(MPSC) → strategy_thread의 `drain_manual_inbox` → `OrderSignal{strategy_id="MANUAL"}` →
+`OrderGate` → `OrderRouter` → 원장. 결과(`ORDER_RESULT`)와 체결(`FILL`)은 인증된 단말 전부에 push한다.
+bind 주소·포트·토큰은 config(`ops_bind_addr`·`ops_port`·`ops_token`)로 정하고, 기본은 `127.0.0.1`이다.
+루프백 밖 주소에 토큰 없이 열려고 하면 서버가 뜨지 않는다. 토큰이 없으면 조회만 허용한다.
+검증 단말은 C++ 콘솔(`Quant/tools/ops_client.cpp`)이고, 다음 단계는 같은 프로토콜 헤더를 쓰는 MFC 단말이다.
+
+**배경**: 대시보드는 `live.json`을 읽는 정적 페이지라 엔진으로 돌아가는 길이 없었고, 보유 종목을 골라
+직접 팔 수단이 없었다. `Quant/tools/manual_order.cpp`는 KIS에 직접 쏘는 독립 도구라 게이트·원장·reserved를
+비켜 간다 — 돌고 있는 엔진과 정합이 깨진다. 별도 요구로, 증권사 주문 시스템에서 흔한 "단말(C++/MFC) ↔
+서버 소켓 통신" 구성을 이 프로젝트 안에서 실제로 돌려 보고 싶었다.
+
+**대안 비교**:
+
+| 안 | 판정 |
+|---|---|
+| 기존 ZMQ 브리지(`ZmqBridge`)에 명령 채널을 얹기 | 기각. 두 빌드 모두 `HAS_ZMQ`가 꺼져 있고(`ZMQ_LIB-NOTFOUND`), MFC 단말에 libzmq 의존을 끌고 가야 한다. 프레이밍을 직접 쥐는 것이 이 작업의 목적과도 맞다 |
+| 파일 드롭(`regime.json`처럼 폴링) | 기각. 응답·체결 push가 없어 단말이 결과를 알 수 없고, 주문 dedup·인증을 파일로 하기 어렵다 |
+| 대시보드 서버(`scripts/dashboard_server.py`)에 REST를 붙이고 엔진과 파일로 잇기 | 기각. 결국 엔진에 인테이크가 필요하고, 한 홉이 더 늘어난다 |
+| 소켓 스레드가 `order_queue_`에 직접 push | 기각. `order_queue_`는 SPSC라 생산자는 strategy_thread 하나여야 한다. FORCE_LIQ와 같은 패턴(요청을 큐에 두고 strategy_thread가 신호로 바꾼다)으로 맞췄다 |
+| 텍스트 줄 프로토콜(`\n` 구분) | 기각. 본문에 JSON이 들어가고 길이 상한(1 MiB)·버전 필드를 두려면 고정 헤더가 단순하다. 부분 수신 처리는 `FrameReader` 하나로 끝난다 |
+| 서버를 항상 `0.0.0.0`으로 열기 | 기각. 주문·킬이 나가는 채널을 인증 없이 LAN에 두지 않는다. 대신 주소를 config로 두고, 비루프백은 토큰 필수로 했다. 원격 운영은 아래 남은 위험으로 남긴다 |
+| 검증 단말을 Python으로 | 기각. 서버·단말·테스트를 전부 C++로 맞춰 프로토콜 헤더 하나를 세 곳(서버·콘솔·MFC)이 공유하게 했다 |
+| Windows에서 `SO_REUSEADDR` | 기각. Windows는 같은 포트에 두 번째 listen도 허용해 엔진이 둘 떠도 둘 다 7100을 잡고 아무도 모른다(09-11 실제로 있었다). `SO_EXCLUSIVEADDRUSE`로 바꿔 두 번째 기동의 bind가 실패하고 ERROR 로그가 남게 했다 |
+
+**근거**: 수동 주문이 전략 주문과 같은 게이트·라우터·원장을 지나야 reserved·명목 한도·킬스위치가 그대로 적용된다.
+소켓 I/O를 전용 스레드 하나에 두고 `select()`로 돌리면 hot path(전략·주문 스레드)에 블로킹 호출이 들어가지
+않는다 — 다른 스레드는 `broadcast()`로 큐에 넣기만 한다. 매도 가능 수량은 strategy_thread에서
+`OrderGate::reserved`를 빼고 계산하므로 대기 중 매도와 겹치는 주문은 인테이크에서 거절된다.
+
+**확인 방법**: `Quant/tests/test_ops_protocol.cpp` 7건(한 바이트씩 오는 부분 수신, 프레임 두 개 반, 매직·버전·
+길이 상한 위반), `Quant/tests/test_ops_server.cpp` 7건(실제 TCP 루프백 — HELLO 순서, 토큰 불일치, 정상 왕복,
+push, 무토큰 읽기 전용, 비루프백 무토큰 bind 거부, 같은 포트 이중 bind 거부). 둘 다 ctest 등록,
+`ctest --preset x64-release` 13/13. 모의 엔진에 `ops_client sell 066570 1`을 보내 `[MANUAL]` 신호 →
+게이트 → KIS 접수(ODNO 0000023135) → 체결통보 @199,100 → 원장 반영까지 로그로 확인했다.
+
+**남은 위험**: 토큰은 평문이고 전송도 평문이다 — 원격 운영(비루프백 bind)을 실제로 하려면 TLS나 SSH 터널,
+그리고 접속 허용 IP 목록이 먼저다. 단말 쪽 재연결·하트비트 누락 감지는 MFC 단말에서 구현한다.
+`ORDER_RESULT`는 게이트·라우터 응답까지만이고 체결은 `FILL`을 따로 봐야 한다(단말이 cid→ODNO를 이어 맞춘다).
+서버 push 큐는 연결마다 4 MiB 상한이고 넘으면 그 연결을 끊는다 — 느린 단말은 재접속으로 스냅샷을 다시 받는다.

@@ -228,6 +228,10 @@ int main(int argc, char* argv[])
     //  묶이고, 토큰이 비면 KILL 명령은 거부된다. 스레드 시작 전에만 유효하다.
     engine.set_zmq_control(cfg.value("zmq_bind_addr", std::string()),
                            cfg.value("zmq_control_token", std::string()));
+    // 운영단말 TCP 채널(config "ops_bind_addr"·"ops_port"·"ops_token"). port를 안 주면 열지 않는다.
+    //  주소 기본 127.0.0.1, 루프백 밖으로 열 때는 토큰이 있어야 서버가 뜬다.
+    engine.set_ops_control(cfg.value("ops_bind_addr", std::string()), cfg.value("ops_port", 0),
+                           cfg.value("ops_token", std::string()));
 
     // G1: 국면→전략 자동선택 맵. config "regime_strategies": {"BULL":[id...], "NEUTRAL":[...], "BEAR":[...]}.
     //  id 항목이 '*'로 끝나면 접두 매칭(스캐너 동적 id: "DevScale_*"). 미지정이면 기존

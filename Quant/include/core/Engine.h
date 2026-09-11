@@ -10,6 +10,8 @@
 #include "ipc/ZmqBridge.h"
 #endif
 #include "ipc/OrderRouter.h"
+#include "ipc/OpsServer.h"
+#include "core/MpscQueue.h"
 #include <atomic>
 #include <chrono>
 #include <functional>
@@ -192,6 +194,15 @@ public:
         zmq_control_token_ = token;
     }
 
+    // 운영단말 TCP 채널(config `ops_bind_addr`·`ops_port`·`ops_token`). port 0이면 열지 않는다.
+    //  스레드 시작 전에만. 루프백이 아닌 주소는 token이 있어야 서버가 뜬다(OpsServer::start).
+    void set_ops_control(const std::string& bind_addr, int port, const std::string& token)
+    {
+        ops_bind_addr_ = bind_addr;
+        ops_port_      = port;
+        ops_token_     = token;
+    }
+
     // 티커→종목명 매핑 등록/조회 (로그 가독성). 스캔·청산 관리 부착 스레드가 write,
     //  전략 스레드의 신호 로그가 read라 ticker_names_mu_로 보호.
     // 청산 관리가 붙은 티커. 이 종목은 그날 스캔 슬리브의 신규매수 대상에서 뺀다.
@@ -364,6 +375,22 @@ private:
 #ifdef HAS_ZMQ
     std::unique_ptr<ZmqBridge> zmq_bridge_;
 #endif
+
+    // 운영단말 서버와 수동주문 인테이크. 서버 스레드가 push, strategy_thread(order_queue_ 단일
+    //  생산자)가 pop해 OrderSignal(strategy_id="MANUAL")로 바꿔 게이트·원장을 그대로 지난다.
+    //  FORCE_LIQ와 같은 이유로 소켓 스레드가 order_queue_에 직접 넣지 않는다. [why D-043]
+    std::unique_ptr<OpsServer>      ops_server_;
+    MpscQueue<OpsOrderReq>          manual_inbox_{256};
+    std::string                     ops_bind_addr_;
+    int                             ops_port_ = 0;
+    std::string                     ops_token_;
+    std::mutex                      manual_cid_mtx_;
+    std::unordered_set<std::string> manual_cids_; // 재전송 중복 차단(세션 내)
+    void        start_ops_server();
+    std::string ops_status_json() const;
+    std::string ops_positions_json() const;
+    // strategy_thread 전용. emit은 그 스레드의 push_signal(단일 생산자 경로).
+    void        drain_manual_inbox(const std::function<void(const OrderSignal&)>& emit);
 
     std::atomic<uint64_t> data_count_{0};
     std::atomic<uint64_t> signal_count_{0};

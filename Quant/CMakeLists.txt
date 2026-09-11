@@ -102,7 +102,7 @@ set(SOURCES
   src/utils/Timer.cpp
 )
 
-list(APPEND SOURCES src/ipc/OrderRouter.cpp)
+list(APPEND SOURCES src/ipc/OrderRouter.cpp src/ipc/OpsServer.cpp)
 
 if(ZMQ_FOUND)
   list(APPEND SOURCES src/ipc/ZmqBridge.cpp)
@@ -133,6 +133,7 @@ else()
       nlohmann_json::nlohmann_json
       winhttp
       bcrypt
+      ws2_32
     )
 endif()
 
@@ -189,6 +190,19 @@ target_link_libraries(test_ws_frame PRIVATE nlohmann_json::nlohmann_json)
 # WS 채널 디코더(api/KisWsDecode.h)와 정규장 시각 판정 — 헤더 전용이라 링크 없음
 add_executable(test_ws_decode tests/test_ws_decode.cpp)
 target_include_directories(test_ws_decode PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# 운영단말 서버 소켓 왕복 — 실제 TCP 루프백(17100), Logger 링크
+add_executable(test_ops_server tests/test_ops_server.cpp src/ipc/OpsServer.cpp src/utils/Logger.cpp)
+target_include_directories(test_ops_server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(test_ops_server PRIVATE nlohmann_json::nlohmann_json pthread)
+else()
+    target_link_libraries(test_ops_server PRIVATE nlohmann_json::nlohmann_json ws2_32)
+endif()
+
+# 운영단말 프레이밍(ipc/OpsProtocol.h) — 헤더 전용, 부분 수신·규약 위반 케이스
+add_executable(test_ops_protocol tests/test_ops_protocol.cpp)
+target_include_directories(test_ops_protocol PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 add_executable(test_market_session tests/test_market_session.cpp)
 target_include_directories(test_market_session PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -285,6 +299,8 @@ set(QUANT_ASSERT_TARGETS
     test_ws_frame
     test_ws_decode
     test_market_session
+    test_ops_protocol
+    test_ops_server
     test_regime
     test_ringbuffer
     test_ringbuffer_stress
@@ -334,6 +350,15 @@ if(UNIX)
         CURL::libcurl OpenSSL::Crypto nlohmann_json::nlohmann_json pthread stdc++fs)
 else()
     target_link_libraries(manual_order PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
+endif()
+
+# ─── 도구: 운영단말 콘솔 클라이언트 — OpsServer 왕복 검증·최소 단말 (D-043) ──
+add_executable(ops_client tools/ops_client.cpp)
+target_include_directories(ops_client PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(ops_client PRIVATE nlohmann_json::nlohmann_json)
+else()
+    target_link_libraries(ops_client PRIVATE nlohmann_json::nlohmann_json ws2_32)
 endif()
 
 # ─── 도구: 실 KIS 실시간 시세 수신·처리 지연 프로브 (bench_feed_ingest 자매 실증) ──

@@ -504,6 +504,7 @@ void Engine::start()
     order_router_ = std::make_unique<OrderRouter>(order_gate_, *kis_);
 #endif
     LOG_INFO("[Engine] OrderRouter (FEP) 초기화 완료");
+    start_ops_server();
 
     // 이전 세션이 남긴 미체결 주문을 취소한다. 건당 왕복이 3~5초라 여기서 기다리면
     //  기동이 몇 분씩 멈춘다 — 목록을 읽고 부속 파일을 비우는 것만 여기서 하고 취소는
@@ -619,6 +620,19 @@ void Engine::start()
                                    if (order_router_)
                                    {
                                        order_router_->on_fill(fn);
+                                   }
+
+                                   if (ops_server_)
+                                   {
+                                       ops_server_->broadcast(
+                                           ops::OpsMsg::FILL,
+                                           nlohmann::json{{"odno", fn.odno},
+                                                          {"ticker", fn.ticker},
+                                                          {"side", fn.side == OrderSide::BUY ? "BUY" : "SELL"},
+                                                          {"qty", fn.filled_qty},
+                                                          {"price", fn.filled_price},
+                                                          {"time", fn.fill_time}}
+                                               .dump());
                                    }
                                });
 
@@ -1107,6 +1121,11 @@ void Engine::stop()
         zmq_bridge_->stop();
     }
 #endif
+
+    if (ops_server_)
+    {
+        ops_server_->stop();
+    }
 
     for (auto& s : strategies_)
     {
@@ -1952,6 +1971,9 @@ void Engine::strategy_thread_fn()
         //  매도)만큼 차감해 오버셀 방지, 잔량이 남는 한 재발주(G3-2 좌초 방지).
         //  entry_halt가 함께 켜져 SELL만 통과(check §1b). 대량은 fat-finger/레이트리밋에
         //  일부 막힐 수 있으나 다음 주기에 잔량 재시도된다.
+        // 운영단말 수동주문 — 소켓 스레드가 넣은 요청을 여기서 OrderSignal로 바꾼다(단일 생산자).
+        drain_manual_inbox(push_signal);
+
         if (force_liquidate_.load(std::memory_order_relaxed))
         {
             auto now = std::chrono::steady_clock::now();
@@ -2261,6 +2283,24 @@ void Engine::order_thread_fn()
                 last_submit = steady_clock::now();
             }
 
+            if (ops_server_)
+            {
+                // 게이트·브로커를 지난 최종 결과. 단말은 cid로 자기 ORDER_ACK와 잇고, 전략 주문도
+                //  같은 채널로 보여 운영 화면이 자동매매를 함께 본다.
+                ops_server_->broadcast(ops::OpsMsg::ORDER_RESULT,
+                                       nlohmann::json{{"cid", sig.client_oid},
+                                                      {"order_id", mo.order_id},
+                                                      {"odno", mo.kis_order_no},
+                                                      {"strategy", sig.strategy_id},
+                                                      {"ticker", sig.ticker},
+                                                      {"side", sig.side == OrderSide::BUY ? "BUY" : "SELL"},
+                                                      {"qty", sig.quantity},
+                                                      {"price", sig.price},
+                                                      {"ok", mo.status == OrderStatus::ACCEPTED},
+                                                      {"msg", mo.reject_reason}}
+                                           .dump());
+            }
+
             if (mo.status == OrderStatus::ACCEPTED)
             {
                 ++order_count_;
@@ -2499,5 +2539,198 @@ void Engine::control_thread_fn()
                 }
             }
         }
+    }
+}
+
+// ─── 운영단말(OpsServer) 배선 ─────────────────────────────────────────────
+//  서버 스레드에서 불리는 콜백은 큐에 넣거나 스냅샷을 읽기만 한다. 주문은 strategy_thread가
+//  drain_manual_inbox에서 OrderSignal로 바꿔 push_signal로 낸다. [why D-043]
+
+void Engine::start_ops_server()
+{
+    if (ops_port_ <= 0)
+    {
+        return;
+    }
+
+    ops_server_ = std::make_unique<OpsServer>();
+    ops_server_->set_bind(ops_bind_addr_, ops_port_);
+    ops_server_->set_token(ops_token_);
+    ops_server_->set_paper(kis_cfg_.is_paper);
+    ops_server_->set_status_provider([this] { return ops_status_json(); });
+    ops_server_->set_positions_provider([this] { return ops_positions_json(); });
+    ops_server_->set_kill_handler(
+        [this]
+        {
+            LOG_WARN("[Ops] KILL — 신규 주문 차단 + 엔진 종료");
+            order_gate_.set_kill_switch(true);
+            running_.store(false);
+        });
+    ops_server_->set_order_handler(
+        [this](const OpsOrderReq& r) -> std::string
+        {
+            if (r.cid.empty() || r.cid.size() > 64)
+            {
+                return "cid는 1~64자";
+            }
+
+            if (r.ticker.size() != 6 || !std::all_of(r.ticker.begin(), r.ticker.end(), ::isdigit))
+            {
+                return "ticker는 6자리 숫자";
+            }
+
+            if (r.side != "SELL" && r.side != "BUY")
+            {
+                return "side는 SELL|BUY";
+            }
+
+            if (r.qty <= 0 || r.qty > 100000)
+            {
+                return "qty 범위 1~100000";
+            }
+
+            if (r.price < 0.0 || r.ref_price < 0.0)
+            {
+                return "가격은 0 이상";
+            }
+
+            {
+                std::lock_guard<std::mutex> lk(manual_cid_mtx_);
+
+                if (!manual_cids_.insert(r.cid).second)
+                {
+                    return "중복 cid — 이미 접수";
+                }
+            }
+
+            if (!manual_inbox_.push(r))
+            {
+                std::lock_guard<std::mutex> lk(manual_cid_mtx_);
+                manual_cids_.erase(r.cid);
+                return "수동주문 인테이크 가득 참";
+            }
+
+            return std::string();
+        });
+
+    if (!ops_server_->start())
+    {
+        ops_server_.reset();
+    }
+}
+
+std::string Engine::ops_status_json() const
+{
+    return nlohmann::json{{"running", running_.load()},
+                          {"data", data_count_.load()},
+                          {"signal", signal_count_.load()},
+                          {"order", order_count_.load()},
+                          {"kill", order_gate_.is_killed()},
+                          {"entry_halt", order_gate_.is_entry_halted()},
+                          {"force_liq", force_liquidate_.load(std::memory_order_relaxed)},
+                          {"paper", kis_cfg_.is_paper},
+                          {"strategies", strategies_.size()}}
+        .dump();
+}
+
+std::string Engine::ops_positions_json() const
+{
+    nlohmann::json arr = nlohmann::json::array();
+
+    for (const auto& h : order_gate_.snapshot_positions())
+    {
+        arr.push_back({{"account", h.account},
+                       {"ticker", h.ticker},
+                       {"name", ticker_name(h.ticker)},
+                       {"qty", h.qty},
+                       {"avg_price", h.avg_price},
+                       {"reserved", order_gate_.reserved(h.account, h.ticker)}});
+    }
+
+    return nlohmann::json{{"positions", arr}}.dump();
+}
+
+void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& emit)
+{
+    while (auto req = manual_inbox_.pop())
+    {
+        const OpsOrderReq& r = *req;
+        std::string reject;
+        double      ref = r.ref_price;
+
+        if (r.side == "SELL")
+        {
+            // 보유−미체결매도 범위 안에서만. 초과분을 브로커까지 보내면 40240000 거부로 재시도만 돈다.
+            int held = 0;
+            double avg = 0.0;
+
+            for (const auto& h : order_gate_.snapshot_positions())
+            {
+                if (h.ticker == r.ticker && h.account == r.account)
+                {
+                    held = h.qty;
+                    avg  = h.avg_price;
+                    break;
+                }
+            }
+
+            const int resv         = order_gate_.reserved(r.account, r.ticker);
+            const int sell_pending = (resv < 0) ? -resv : 0;
+            const int sellable     = held - sell_pending;
+
+            if (sellable <= 0)
+            {
+                reject = "매도가능 0 (보유=" + std::to_string(held) + " 미체결매도=" + std::to_string(sell_pending) + ")";
+            }
+            else if (r.qty > sellable)
+            {
+                reject = "매도가능 " + std::to_string(sellable) + " 초과 요청 " + std::to_string(r.qty);
+            }
+
+            if (ref <= 0.0)
+            {
+                ref = avg;
+            }
+        }
+
+        if (!reject.empty())
+        {
+            LOG_WARN("[Ops] 수동주문 거부 cid=" + r.cid + " " + r.ticker + " " + r.side + " " + std::to_string(r.qty) +
+                     " — " + reject);
+
+            if (ops_server_)
+            {
+                ops_server_->broadcast(ops::OpsMsg::ORDER_RESULT,
+                                       nlohmann::json{{"cid", r.cid},
+                                                      {"order_id", ""},
+                                                      {"odno", ""},
+                                                      {"strategy", "MANUAL"},
+                                                      {"ticker", r.ticker},
+                                                      {"side", r.side},
+                                                      {"qty", r.qty},
+                                                      {"price", r.price},
+                                                      {"ok", false},
+                                                      {"msg", reject}}
+                                           .dump());
+            }
+
+            continue;
+        }
+
+        OrderSignal s;
+        s.ticker      = r.ticker;
+        s.account_id  = r.account;
+        s.side        = r.side == "SELL" ? OrderSide::SELL : OrderSide::BUY;
+        s.type        = r.price > 0.0 ? OrderType::LIMIT : OrderType::MARKET;
+        s.quantity    = r.qty;
+        s.price       = r.price;
+        s.ref_price   = ref;
+        s.strategy_id = "MANUAL";
+        s.client_oid  = r.cid;
+        s.reason      = "운영단말 수동주문 cid=" + r.cid;
+        s.timestamp   = std::chrono::system_clock::now();
+        LOG_INFO("[Ops] 수동주문 → 게이트 cid=" + r.cid + " " + r.ticker + " " + r.side + " " + std::to_string(r.qty) +
+                 (r.price > 0.0 ? " @" + std::to_string(static_cast<long long>(r.price)) : " 시장가"));
+        emit(s);
     }
 }

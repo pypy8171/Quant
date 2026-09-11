@@ -103,6 +103,7 @@
 [Control Thread]
   5초 주기: 장 중에서만 WS stale 감지 (30초 미수신 → kill switch)
   ZmqBridge 전용 zmq_thread_가 REP 소켓 처리 (KILL/STATUS 명령)
+  OpsServer 전용 srv_thread_가 운영단말 TCP 처리 (조회·수동주문 인테이크·KILL, D-043)
 ```
 
 ### 사용 기술 스택
@@ -140,6 +141,8 @@ Quant/                              ← 저장소 루트
 │   │   │   ├── RingBuffer.h        SPSC 락-프리 큐 (cache-line 분리)
 │   │   │   └── Types.h             MarketData, OrderSignal(+ref_price), Regime/RegimeSnapshot 등
 │   │   ├── ipc/
+│   │   │   ├── OpsProtocol.h       운영단말 프레이밍 (헤더 전용, 단말과 공유)
+│   │   │   ├── OpsServer.h         운영단말 TCP 서버 (select 단일 스레드, 토큰 인증)
 │   │   │   ├── OrderRouter.h       FEP 레이어 (주문 라우팅·이력·통계)
 │   │   │   └── ZmqBridge.h         ZMQ PUB/REP 브리지 (HAS_ZMQ 시 활성)
 │   │   ├── risk/
@@ -163,6 +166,7 @@ Quant/                              ← 저장소 루트
 │   │   │   ├── Engine.cpp          4-스레드 라이프사이클
 │   │   │   └── RingBuffer.cpp
 │   │   ├── ipc/
+│   │   │   ├── OpsServer.cpp       운영단말 서버 구현 (accept·프레임 처리·push)
 │   │   │   ├── OrderRouter.cpp     submit / record / stats 구현
 │   │   │   └── ZmqBridge.cpp       전용 zmq_thread_ + 송신 큐 (HAS_ZMQ)
 │   │   ├── risk/
@@ -224,6 +228,7 @@ Quant/                              ← 저장소 루트
 ├── docker-compose.yml              4개 서비스 (engine/python/recorder/tsdb)
 ├── ARCHITECTURE.md                 전체 아키텍처 상세 리뷰
 ├── CODE_REVIEW.md                  코드 리뷰 (버그·설계·개선 항목)
+├── docs/guides/OPS_TERMINAL.md     운영단말 채널 — 프로토콜·설정·ops_client 사용법
 ├── docs/guides/PROJECT_GUIDE.md    이 파일
 └── CLAUDE.md                       AI 어시스턴트용 빌드·실행 가이드
 ```
