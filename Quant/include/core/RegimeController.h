@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-class KisClient;
+class IMarketDataSource;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RegimeController — 시장 국면(BULL/NEUTRAL/BEAR)을 장 시작 1회 수치 판정.
@@ -17,7 +17,8 @@ class KisClient;
 //
 //  - evaluate()는 장 시작 1회만(장중 재폴링 금지). 당일 미완성봉 제외, 전일 확정봉 기준.
 //  - 조회 실패 시 직전 국면 유지, 연속 fail_fallback_n회 실패 시 NEUTRAL fallback.
-//  - compute_score/classify는 KIS 없이 단위 테스트 가능한 순수 함수.
+//  - compute_score/classify는 KIS 없이 단위 테스트 가능한 순수 함수. evaluate()는 IMarketDataSource로 지수
+//    일봉을 받으므로 가짜 소스로 시험한다(D-066).
 // ─────────────────────────────────────────────────────────────────────────────
 class RegimeController
 {
@@ -43,7 +44,7 @@ public:
     // 판정 스냅샷을 뮤텍스로 지킨다 — 복사 대상이 아니다.
     RegimeController(const RegimeController&)            = delete;
     RegimeController& operator=(const RegimeController&) = delete;
-    void set_kis(KisClient* k) { kis_ = k; }
+    void set_source(IMarketDataSource* s) { source_ = s; } // 지수 일봉을 읽을 곳. 라이브는 KisClient
 
     // ⚠ 계약: evaluate()는 data_thread에서 장 시작 1회만 호출(단일 호출자). fail_streak_가
     //   비원자적이라 다중 스레드/재호출 시 fallback 카운팅이 깨진다 (W2). 재폴링 금지.
@@ -86,7 +87,7 @@ public:
 
 private:
     Config cfg_;
-    KisClient* kis_ = nullptr;                  // non-owning (Engine 수명관리)
+    IMarketDataSource* source_ = nullptr;       // non-owning (Engine 수명관리)
     std::atomic<Regime> current_{Regime::UNKNOWN};
     mutable std::mutex snap_mtx_;
     RegimeSnapshot last_;

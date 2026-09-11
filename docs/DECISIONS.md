@@ -2537,3 +2537,40 @@ action 불문 되쏘되 분당 한도는 20초로 물러남, 청산 SELL은 4024
 
 **확인 방법**: `ctest --preset x64-release` 21/21, `test_order_pacer` 44건. 라이브에서는 재기동 뒤 `[OrderThread]`
 로그 세 문구가 종전과 같은 자리에 나오는지, 유량 한도 거부 뒤 1.2초(분당이면 20초) 지나 같은 종목이 다시 나가는지 본다.
+
+### D-066 시세·봉 읽기를 IMarketDataSource 뒤로 — 국면 판정기의 evaluate()를 가짜 소스로 시험한다 (2026-09-12)
+**상태**: 채택 (`wt/c2`, ctest 21/21 — `test_regime`에 evaluate() 4묶음 추가. 실행 중 `quant_trader`는 바꾸지
+않았다 — 동작 변화가 없는 타입 변경이라 다음 재기동에 자연히 실린다)
+
+**배경**: 주문은 D-039부터 `IOrderExecutor` 뒤에 있어 라우터를 가짜 실행기로 시험하지만, 시세는 그렇지 않았다.
+`RegimeController`가 `KisClient*`를 직접 쥐어 `evaluate()`(당일 미완성봉 제외, 확정봉 부족·비정상값 방어,
+연속 실패 fallback, 같은 날 캐시)는 라이브 KIS 없이는 한 줄도 돌릴 수 없었고, `test_regime`은 순수 함수
+`compute_score`·`classify`만 검사했다. 전략·스캔·폴러도 같은 포인터를 쥔다.
+
+**결정**:
+- `Quant/include/api/IMarketDataSource.h`: 읽기 전용 시세·봉 여섯 개 — `get_current_price`, `get_daily_ohlcv`,
+  `get_minute_ohlcv`, `get_index_daily_ohlcv`, `get_index_price`, `get_us_daily_ohlcv`. `IndexPrice` 구조체는
+  `KisClient` 안에서 이 헤더로 나왔고 `KisClient::IndexPrice`는 별칭으로 남아 호출부(`Monitors.cpp`)가 그대로다.
+  주문(`IOrderExecutor`)·잔고·순위·수급 조회는 넣지 않는다 — 인터페이스는 "누가 뭘 묻는가"로 자르고, 순위·수급은
+  묻는 곳이 전략 셋뿐이라 다음 소비자가 생길 때 따로 자른다.
+- `KisClient`가 `IOrderExecutor`와 함께 이 인터페이스를 구현한다(여섯 메서드에 `override`).
+- `RegimeController::set_source(IMarketDataSource*)`(구 `set_kis`)로 지수 일봉을 받는다. Engine 호출부는 한 줄이다.
+- `Quant/tests/test_regime.cpp`: 가짜 소스 `FakeSource`(지수 일봉만 돌려주고 호출 횟수를 센다)로 소스 없음 →
+  NEUTRAL 안전판, 상승 계열 BULL(오늘봉에 이상값을 넣어 제외를 확인, ma20/60/120/200 값 일치, 같은 날 두 번째 호출은
+  캐시라 소스 호출 1회), 하락 계열 BEAR·수평 계열 NEUTRAL(-1), 빈 응답·확정봉 부족은 캐시되지 않아 다시 묻고 성공
+  뒤 캐시. 시험용 봉의 오늘 시각은 `today_kst()`와 같은 식(now+9h의 UTC 날짜)으로 만든다. 테스트가
+  `RegimeController.cpp`·`Logger.cpp`를 링크한다(종전 헤더만).
+
+전략의 `set_kis(KisClient*)`는 이번에 바꾸지 않았다. 다섯 전략 중 셋이 순위·유니버스·수급(`fetch_kr_ranking`,
+`fetch_universe_by_pbr`, `get_investor_flow` 등)까지 부르므로 시세 인터페이스만으로는 못 갈아탄다. 시세만 쓰는
+`DeviationScale`·`MarketMaking`부터 옮기는 것은 별도 결정이다.
+
+| 버린 대안 | 이유 |
+|---|---|
+| `KisClient`의 시세·순위·수급·잔고를 한 인터페이스(열한 개+)로 | 기각. 가짜 소스가 열한 개를 구현해야 하고 소비자 대부분이 한둘만 쓴다. 묻는 것 기준으로 자른다 |
+| 순위·유니버스·수급을 두 번째 인터페이스로 같이 | 보류. 소비자가 전략 셋뿐이고 지금 그것들을 가짜로 시험할 계획이 없다. 필요할 때 자른다 |
+| `RegimeController`에 `std::function<vector<MarketData>(code,count)>` 주입(D-062 `PriceFn`처럼) | 기각. 폴러는 묻는 게 현재가 하나였다. 시세 인터페이스는 전략·스캔·폴러가 같이 쓸 것이라 타입 하나가 낫다 |
+| `IndexPrice`를 `KisClient` 안에 두고 인터페이스가 `KisClient.h`를 include | 기각. 인터페이스가 구현 헤더에 매달리면 테스트가 `KisClient` 선언(→ `KisResult`·`KisTypes`)을 끌어온다 |
+
+**확인 방법**: `ctest --preset x64-release` 21/21, `test_regime`의 `[PASS] evaluate_*` 네 줄. 라이브에서는 재기동
+뒤 `[Regime] BULL/NEUTRAL/BEAR score=…` 로그가 종전과 같은 자리에 나오면 된다.

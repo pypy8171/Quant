@@ -290,8 +290,8 @@ add_executable(test_regime_bridge tests/test_regime_bridge.cpp)
 target_include_directories(test_regime_bridge PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(test_regime_bridge PRIVATE nlohmann_json::nlohmann_json)
 
-# ─── 테스트 타겟: RegimeController 점수/분류 단위 테스트 (KIS 불필요) ──────
-add_executable(test_regime tests/test_regime.cpp)
+# ─── 테스트 타겟: RegimeController 점수/분류·evaluate() 단위 테스트 (KIS 불필요 — 가짜 시세 소스) ──
+add_executable(test_regime tests/test_regime.cpp src/core/RegimeController.cpp src/utils/Logger.cpp)
 target_include_directories(test_regime PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(UNIX)
     target_link_libraries(test_regime PRIVATE pthread)

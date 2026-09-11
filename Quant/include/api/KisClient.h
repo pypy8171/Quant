@@ -1,4 +1,5 @@
 #pragma once
+#include "api/IMarketDataSource.h"
 #include "api/IOrderExecutor.h"
 #include "api/KisResult.h"
 #include "api/KisTypes.h"
@@ -64,7 +65,7 @@ inline std::string kis_hhmmss_minus_minutes(const std::string& hhmmss, int minut
     return buf;
 }
 
-class KisClient : public IOrderExecutor
+class KisClient : public IOrderExecutor, public IMarketDataSource
 {
 public:
     explicit KisClient(const KisConfig& cfg);
@@ -110,14 +111,14 @@ public:
     //   경우(파이프라인에 당일 봉을 흘리는 데이터 스레드)에만 include_today=true.
     //   100봉을 넘는 count는 날짜창을 뒤로 넘겨 이어 받는다(ceil(count/100)콜).
     std::vector<MarketData> get_daily_ohlcv(const std::string& ticker, int count,
-                                            bool include_today = false);
+                                            bool include_today = false) override;
     // 주봉 조회. 같은 TR(FID_PERIOD_DIV_CODE=W). 기본값은 진행 중인 이번 주를 뺀 '지난주까지'.
     //   반환 순서·캐시 규약은 일봉과 같다(캐시 키에 주기가 들어가 서로 섞이지 않는다).
     std::vector<MarketData> get_weekly_ohlcv(const std::string& ticker, int count,
                                              bool include_this_week = false);
     // 당일 분봉 → interval_min 집계봉(기본 3분봉). FHKST03010200 역페이지네이션 후 1분봉 집계.
     //   반환: 최신→과거(result[0]=최신), 최대 count봉. interval_min=1이면 1분봉 그대로.
-    std::vector<MarketData> get_minute_ohlcv(const std::string& ticker, int count, int interval_min = 3);
+    std::vector<MarketData> get_minute_ohlcv(const std::string& ticker, int count, int interval_min = 3) override;
     // 지정 날짜(과거일 포함)의 분봉 → interval_min 집계봉. TR FHKST03010230.
     //   당일 분봉 TR은 날짜 인자가 없어 오늘에 갇힌다. 이쪽은 1콜에 1분봉 120개(=130분)를 준다.
     //   end_hhmmss에서 과거로 역페이징. 반환: 최신→과거(result[0]=최신), 최대 count봉.
@@ -126,7 +127,7 @@ public:
                                                    const std::string& yyyymmdd,
                                                    int count, int interval_min = 3,
                                                    const std::string& end_hhmmss = "153000");
-    double get_current_price(const std::string& ticker);
+    double get_current_price(const std::string& ticker) override;
     Fundamentals get_fundamentals(const std::string& ticker);
     bool send_order(const OrderSignal& signal);
     // 주문 3메서드는 단일 order_thread에서만 호출된다. 실패 사유는 반환값 err_code에 있다(D-039).
@@ -146,16 +147,9 @@ public:
     //  없는 원장 보유를 걷어내므로 반쪽 목록은 빈 목록보다 위험하다. [why D-059]
     [[nodiscard]] KisResult<AccountBalance> get_balance();
 
-    // 지수 현재값 (코스피 "0001", 코스닥 "1001", KOSPI200 "2001")
-    struct IndexPrice
-    {
-        std::string ticker;
-        double price = 0.0;
-        double change = 0.0;
-        double change_rate = 0.0;
-        int sign = 3; // 1=상한 2=상승 3=보합 4=하한 5=하락
-    };
-    IndexPrice get_index_price(const std::string& ticker);
+    // 지수 현재값. 구조체는 api/IMarketDataSource.h로 옮겼고 KisClient::IndexPrice 이름은 그대로 통한다.
+    using IndexPrice = ::IndexPrice;
+    IndexPrice get_index_price(const std::string& ticker) override;
 
     // ── 파생 (선물·옵션) ────────────────────────────────────────────────────
     // 국내 선물/옵션 현재가 — inquire-price (거래ID tr_id=FHMIF10000000).
@@ -216,7 +210,7 @@ public:
     std::vector<std::string> fetch_universe_by_pbr(double max_pbr, const std::string& market_div = "J");
 
     // 업종 지수 일봉 (sector_code: 코스피 업종 "0001"~"0026" 등)
-    std::vector<MarketData> get_index_daily_ohlcv(const std::string& sector_code, int count = 6);
+    std::vector<MarketData> get_index_daily_ohlcv(const std::string& sector_code, int count = 6) override;
 
     // 업종별 등락률 순위 — 업종 내 상승 종목 스캔
     std::vector<RankingStock> fetch_sector_ranking(const std::string& sector_code, int count = 30);
@@ -258,7 +252,7 @@ public:
     // ── 해외 (US) ──────────────────────────────────────────────────────────
     // exchange: "NAS"(NASDAQ), "NYS"(NYSE)
     std::vector<MarketData> get_us_daily_ohlcv(const std::string& ticker, int count,
-                                               const std::string& exchange = "NAS");
+                                               const std::string& exchange = "NAS") override;
     Fundamentals get_us_fundamentals(const std::string& ticker, const std::string& exchange = "NAS");
     bool send_us_order(const OrderSignal& signal);
 

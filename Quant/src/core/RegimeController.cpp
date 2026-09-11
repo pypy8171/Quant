@@ -1,5 +1,5 @@
 #include "core/RegimeController.h"
-#include "api/KisClient.h"
+#include "api/IMarketDataSource.h"
 #include "utils/Logger.h"
 #include <chrono>
 #include <ctime>
@@ -106,13 +106,13 @@ RegimeSnapshot RegimeController::evaluate()
         return s;
     };
 
-    if (!kis_)
+    if (!source_)
     {
-        return on_fail("KisClient 없음");
+        return on_fail("시세 소스 없음");
     }
 
     // 200일선 + 당일봉 제외 버퍼 확보
-    auto bars = kis_->get_index_daily_ohlcv(cfg_.index_code, cfg_.ma_long + 10);
+    auto bars = source_->get_index_daily_ohlcv(cfg_.index_code, cfg_.ma_long + 10);
 
     if (bars.empty())
     {

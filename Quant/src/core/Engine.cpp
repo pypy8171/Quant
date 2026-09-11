@@ -542,7 +542,7 @@ void Engine::start()
     regime_ = std::make_unique<RegimeController>(regime_cfg_);
     // 업종 지수 일봉도 시세이므로 모의 도메인은 HTTP 500. 시세 전용 실전 클라이언트가
     //  있으면 그걸로 조회(없으면 모의로 폴백 → NEUTRAL 유지).
-    regime_->set_kis(quote_kis_ ? quote_kis_.get() : kis_.get());
+    regime_->set_source(quote_kis_ ? quote_kis_.get() : kis_.get());
     LOG_INFO("[Engine] RegimeController 초기화 완료");
 
     // 전략 초기화 (시세 클라이언트 주입 → on_start 내부에서 Universe 조회)
