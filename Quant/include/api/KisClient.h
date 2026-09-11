@@ -67,6 +67,9 @@ class KisClient : public IOrderExecutor
 public:
     explicit KisClient(const KisConfig& cfg);
     ~KisClient() override;
+    // 토큰·레이트리밋 뮤텍스를 소유한다 — 사본은 같은 계좌를 한도 밖에서 두 번 두드린다.
+    KisClient(const KisClient&)            = delete;
+    KisClient& operator=(const KisClient&) = delete;
 
     // 이 스레드의 조회를 재시도 없이 보낸다(재시도 없이 즉시 실패). 공유 전략 스레드처럼 한 번의 왕복이
     //  다른 종목 전체를 막는 자리에서 쓴다 — 3회 재시도 × 타임아웃이면 한 번의 조회가 스레드를
@@ -119,22 +122,18 @@ public:
     double get_current_price(const std::string& ticker);
     Fundamentals get_fundamentals(const std::string& ticker);
     bool send_order(const OrderSignal& signal);
-    // FEP: 주문 제출 — KIS 접수번호(ODNO) 반환, 실패 시 빈 문자열
-    std::string submit_order(const OrderSignal& signal) override;
+    // 주문 3메서드는 단일 order_thread에서만 호출된다. 실패 사유는 반환값 err_code에 있다(D-039).
     // MM-1: 신규 주문 + KRX 조직번호(정정/취소용) 캡처
-    OrderAck submit_order_ack(const OrderSignal& signal) override;
-    // MM-1: 국내 미체결 취소 (order-rvsecncl). 성공 시 취소접수 ODNO, 실패 시 ""
-    std::string cancel_order(const std::string& ticker, const std::string& orig_odno,
-                             const std::string& krx_orgno, int qty, bool all_remaining) override;
-    // MM-1: 국내 정정 (order-rvsecncl). 성공 시 새 ODNO(정정접수번호), 실패 시 ""
-    std::string revise_order(const std::string& ticker, const std::string& orig_odno,
-                             const std::string& krx_orgno, int new_qty, double new_price) override;
-    // 직전 주문/취소/정정의 KIS 오류코드(msg_cd). 성공 시 "". EGW00201(초당한도) 적응재시도 판별용.
-    //  주문 3메서드는 단일 order_thread에서만 호출되므로 락 없이 안전(단일 기록자·판독자).
-    std::string last_order_error_code() const override { return last_order_msg_cd_; }
-    bool is_paper() const override { return cfg_.is_paper; }
+    [[nodiscard]] OrderAck submit_order_ack(const OrderSignal& signal) override;
+    // MM-1: 국내 미체결 취소 (order-rvsecncl). 성공 시 odno=취소접수번호
+    [[nodiscard]] OrderAck cancel_order(const std::string& ticker, const std::string& orig_odno,
+                                        const std::string& krx_orgno, int qty, bool all_remaining) override;
+    // MM-1: 국내 정정 (order-rvsecncl). 성공 시 odno=새 ODNO(정정접수번호)
+    [[nodiscard]] OrderAck revise_order(const std::string& ticker, const std::string& orig_odno,
+                                        const std::string& krx_orgno, int new_qty, double new_price) override;
+    [[nodiscard]] bool is_paper() const noexcept override { return cfg_.is_paper; }
     // 미체결(정정취소 가능) 예약주문 조회 — inquire-psbl-rvsecncl (모의 VTTC0084R / 실전 TTTC0084R)
-    std::vector<OpenOrder> get_open_orders() override;
+    [[nodiscard]] std::vector<OpenOrder> get_open_orders() override;
     nlohmann::json get_balance();
 
     // 지수 현재값 (코스피 "0001", 코스닥 "1001", KOSPI200 "2001")
@@ -310,5 +309,4 @@ private:
 
     std::string access_token_;
     std::chrono::system_clock::time_point token_expires_at_;
-    std::string last_order_msg_cd_; // 직전 주문/취소/정정 KIS 오류코드(msg_cd), 성공 시 "" — order_thread 전용
 };

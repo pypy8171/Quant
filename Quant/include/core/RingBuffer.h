@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <new>
 #include <optional>
+#include <type_traits>
 #include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -29,8 +30,13 @@ public:
     {
     }
 
-    // 생산자 스레드에서 호출
-    bool push(const T& item)
+    // 원자 인덱스 한 쌍이 한 큐를 뜻한다 — 사본은 다른 큐이면서 같은 이름을 갖게 된다.
+    RingBuffer(const RingBuffer&)            = delete;
+    RingBuffer& operator=(const RingBuffer&) = delete;
+
+    // 생산자 스레드에서 호출. false는 "가득 참"이라 버리면 메시지가 조용히 사라진다.
+    //  T의 복사·이동이 던지지 않을 때만 noexcept — MarketData는 std::string을 품어 조건부다.
+    [[nodiscard]] bool push(const T& item) noexcept(std::is_nothrow_copy_constructible_v<T>)
     {
         const size_t head = head_.load(std::memory_order_relaxed);
         const size_t next = (head + 1) % capacity_;
@@ -45,7 +51,7 @@ public:
         return true;
     }
 
-    bool push(T&& item)
+    [[nodiscard]] bool push(T&& item) noexcept(std::is_nothrow_move_constructible_v<T>)
     {
         const size_t head = head_.load(std::memory_order_relaxed);
         const size_t next = (head + 1) % capacity_;
@@ -61,7 +67,7 @@ public:
     }
 
     // 소비자 스레드에서 호출
-    std::optional<T> pop()
+    [[nodiscard]] std::optional<T> pop()
     {
         const size_t tail = tail_.load(std::memory_order_relaxed);
 
@@ -75,13 +81,13 @@ public:
         return item;
     }
 
-    bool empty() const
+    [[nodiscard]] bool empty() const noexcept
     {
         return head_.load(std::memory_order_acquire) == tail_.load(std::memory_order_acquire);
     }
 
     // 두 atomic을 별도로 읽으므로 순간적인 근사치만 반환 (SPSC 특성상 실사용 무방)
-    size_t size() const
+    [[nodiscard]] size_t size() const noexcept
     {
         const size_t head = head_.load(std::memory_order_acquire);
         const size_t tail = tail_.load(std::memory_order_acquire);

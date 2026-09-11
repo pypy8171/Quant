@@ -40,11 +40,10 @@ std::string OrderRouter::next_id()
 
 // ─── 거부 사유에 KIS 오류코드 꼬리표 부착 ───────────────────────────────
 //  order_thread가 EGW00201(초당 거래건수 초과)을 문자열로 판별해 적응적 재시도를 걸 수 있게,
-//  KIS가 준 msg_cd를 " [코드]" 형태로 reject_reason 끝에 붙인다. 코드 없으면 빈 문자열.
-std::string OrderRouter::kis_err_suffix() const
+//  응답의 err_code를 " [코드]" 형태로 reject_reason 끝에 붙인다. 코드 없으면 빈 문자열.
+std::string OrderRouter::kis_err_suffix(const OrderAck& ack)
 {
-    std::string ec = kis_.last_order_error_code();
-    return ec.empty() ? std::string() : (" [" + ec + "]");
+    return ack.err_code.empty() ? std::string() : (" [" + ack.err_code + "]");
 }
 
 // ─── 주문 제출 — action에 따라 라우팅 (MM-1) ─────────────────────────────
@@ -205,12 +204,11 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
     // 청산차단 자가정리 — SELL이 "주문가능분 없음"(40240000)으로 막히면, 그 종목의
     //  미체결 예약매도(이전 세션/수동 예약이 보유수량을 묶은 것)를 조회·취소하고 시장가로 1회
     //  재시도한다. 성공하면 아래 접수 블록이 그대로 처리(odno/ack가 재시도 결과로 갱신됨).
-    if (odno.empty() && sig.side == OrderSide::SELL &&
-        kis_.last_order_error_code() == kis_err::kNoSellableQty)
+    if (!ack.ok() && sig.side == OrderSide::SELL && ack.err_code == kis_err::kNoSellableQty)
     {
         OrderAck rack = reconcile_blocked_sell(sig);
 
-        if (!rack.odno.empty())
+        if (rack.ok())
         {
             ack  = rack;
             odno = rack.odno;
@@ -252,7 +250,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
     else
     {
         mo.status        = OrderStatus::REJECTED;
-        mo.reject_reason = "KIS API 거부 (빈 ODNO)" + kis_err_suffix();
+        mo.reject_reason = "KIS API 거부 (빈 ODNO)" + kis_err_suffix(ack);
         ++rejected_count_;
         LOG_ERROR("[OrderRouter] KIS 거부 [" + mo.order_id + "] " + sig.ticker + mo.reject_reason);
 #ifdef HAS_ZMQ
@@ -322,7 +320,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& sig)
         catch (const std::exception& e)
         {
             LOG_WARN("[OrderRouter] 미체결 조회 예외 — " + std::string(e.what()));
-            return OrderAck{};
+            return OrderAck::fail(kis_err::kTransport);
         }
     }
 
@@ -338,7 +336,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& sig)
         LOG_WARN("[OrderRouter] 청산차단 해소 " + sig.ticker + " 예약매도 " +
                  std::to_string(o.psbl_qty) + "주 ODNO=" + o.odno + " @" +
                  std::to_string(static_cast<int>(o.ord_unpr)) + " → 취소 시도");
-        std::string cxl;
+        OrderAck cxl;
 
         try
         {
@@ -351,7 +349,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& sig)
             continue;
         }
 
-        if (cxl.empty())
+        if (!cxl.ok())
         {
             continue;
         }
@@ -404,7 +402,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& sig)
     {
         LOG_WARN("[OrderRouter] 청산차단 미해소 " + sig.ticker +
                  " — 취소할 예약매도 없음/취소 실패 (수동 확인 필요)");
-        return OrderAck{};
+        return OrderAck::fail(kis_err::kNoSellableQty); // 원인은 그대로 — 호출부가 거부 사유로 남긴다
     }
 
     LOG_INFO("[OrderRouter] 예약매도 " + std::to_string(cancelled) + "건 취소 완료 → " +
@@ -418,7 +416,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& sig)
     catch (const std::exception& e)
     {
         LOG_ERROR("[OrderRouter] 청산 재매도 예외 " + sig.ticker + " — " + std::string(e.what()));
-        return OrderAck{};
+        return OrderAck::fail(kis_err::kTransport);
     }
 }
 
@@ -822,8 +820,8 @@ void OrderRouter::cancel_stale_orders_async()
                 continue;
             }
 
-            std::string res;
-            bool rate_limited = false;
+            OrderAck res;
+            bool     rate_limited = false;
 
             // 한도 거부(EGW00201)는 "이미 종료"가 아니다. 같은 분기로 흘리면 유령 예약이 KIS에
             //  남은 채 전략이 같은 종목을 새로 깔아 체결 시 이중 포지션이 된다(09-11 09:17~09:18
@@ -841,7 +839,7 @@ void OrderRouter::cancel_stale_orders_async()
                     break;
                 }
 
-                rate_limited = res.empty() && kis_.last_order_error_code() == "EGW00201";
+                rate_limited = !res.ok() && res.err_code == kis_err::kRateLimit;
 
                 if (!rate_limited || stale_stop_.load(std::memory_order_relaxed))
                 {
@@ -859,7 +857,7 @@ void OrderRouter::cancel_stale_orders_async()
                 continue;
             }
 
-            if (!res.empty())
+            if (res.ok())
             {
                 ++cancelled;
                 LOG_INFO("[OrderRouter] 유령주문 취소 " + f[2] + " " + f[3] + " " +
@@ -1273,12 +1271,12 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& sig)
     }
 
     // 2) KIS 취소 (lock 밖)
-    std::string cancel_odno;
+    OrderAck cxl;
 
     try
     {
         ++kis_calls_;
-        cancel_odno = kis_.cancel_order(ticker, kis_order_no, krx_orgno, outstanding, /*all_remaining=*/true);
+        cxl = kis_.cancel_order(ticker, kis_order_no, krx_orgno, outstanding, /*all_remaining=*/true);
     }
     catch (const std::exception& e)
     {
@@ -1290,11 +1288,11 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& sig)
         return mo;
     }
 
-    if (cancel_odno.empty())
+    if (!cxl.ok())
     {
         // KIS 거부(이미 체결/취소 등) → reserved 미변경. 체결이 먼저면 체결 경로가 이미 해제함.
         mo.status        = OrderStatus::REJECTED;
-        mo.reject_reason = "KIS 취소 거부(원주문 이미 체결/소멸 가능)" + kis_err_suffix();
+        mo.reject_reason = "KIS 취소 거부(원주문 이미 체결/소멸 가능)" + kis_err_suffix(cxl);
         ++rejected_count_;
         LOG_WARN("[OrderRouter] 취소 거부 [" + mo.order_id + "] " + ticker +
                  " 원oid=" + sig.orig_client_oid);
@@ -1331,11 +1329,11 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& sig)
     }
 
     mo.status       = OrderStatus::CANCELLED; // 취소 요청 자체는 성공 접수
-    mo.kis_order_no = cancel_odno;
+    mo.kis_order_no = cxl.odno;
     mo.updated_at   = std::chrono::system_clock::now();
     ++accepted_count_;
     LOG_INFO("[OrderRouter] 취소 접수 [" + mo.order_id + "] " + ticker +
-             " 원oid=" + sig.orig_client_oid + " 취소ODNO=" + cancel_odno);
+             " 원oid=" + sig.orig_client_oid + " 취소ODNO=" + cxl.odno);
     record(mo);
     return mo;
 }
@@ -1394,12 +1392,12 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& sig)
 
     int new_qty = (sig.quantity > 0) ? sig.quantity : outstanding;
 
-    std::string new_odno;
+    OrderAck rev;
 
     try
     {
         ++kis_calls_;
-        new_odno = kis_.revise_order(ticker, kis_order_no, krx_orgno, new_qty, sig.price);
+        rev = kis_.revise_order(ticker, kis_order_no, krx_orgno, new_qty, sig.price);
     }
     catch (const std::exception& e)
     {
@@ -1411,10 +1409,10 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& sig)
         return mo;
     }
 
-    if (new_odno.empty())
+    if (!rev.ok())
     {
         mo.status        = OrderStatus::REJECTED;
-        mo.reject_reason = "KIS 정정 거부(원주문 이미 체결/소멸 가능)" + kis_err_suffix();
+        mo.reject_reason = "KIS 정정 거부(원주문 이미 체결/소멸 가능)" + kis_err_suffix(rev);
         ++rejected_count_;
         LOG_WARN("[OrderRouter] 정정 거부 [" + mo.order_id + "] " + ticker +
                  " 원oid=" + sig.orig_client_oid);
@@ -1458,13 +1456,13 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& sig)
     }
 
     mo.status       = OrderStatus::ACCEPTED;
-    mo.kis_order_no = new_odno;
+    mo.kis_order_no = rev.odno;
     mo.krx_orgno    = krx_orgno; // 정정 응답의 조직번호를 미파싱해 원 조직번호를 승계(통상 동일). TODO: 응답서 재캡처
     mo.signal.side  = side;      // NONE 방지: 원주문 side 승계
     mo.updated_at   = std::chrono::system_clock::now();
     ++accepted_count_;
     LOG_INFO("[OrderRouter] 정정 접수 [" + mo.order_id + "] " + ticker +
-             " 원oid=" + sig.orig_client_oid + " 새ODNO=" + new_odno +
+             " 원oid=" + sig.orig_client_oid + " 새ODNO=" + rev.odno +
              " qty=" + std::to_string(new_qty) + " @" + std::to_string((int)sig.price));
     record(mo);
     return mo;

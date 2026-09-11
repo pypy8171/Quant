@@ -189,7 +189,7 @@ private:
     std::optional<OrderSignal> check_entry_exit(const std::string& ticker, const std::string& time_str,
                                                 double ref_px)
     {
-        int hhmm = parse_hhmm(time_str);
+        int hhmm = krx::parse_hhmm(time_str);
 
         if (!is_in_session(hhmm))
         {
@@ -238,24 +238,6 @@ private:
         }
 
         return std::nullopt;
-    }
-
-    // time_str: HHMMSS → HHMM 정수
-    static int parse_hhmm(const std::string& t)
-    {
-        if (t.size() < 4)
-        {
-            return 0;
-        }
-
-        try
-        {
-            return std::stoi(t.substr(0, 2)) * 100 + std::stoi(t.substr(2, 2));
-        }
-        catch (...)
-        {
-            return 0;
-        }
     }
 
     // 장 세션 내 여부 (KST 기준)

@@ -46,6 +46,9 @@ class Engine
 public:
     Engine(KisConfig kis_cfg, int fetch_interval_sec = 60);
     ~Engine();
+    // 스레드·뮤텍스를 소유한다 — 복사는 원본과 사본이 같은 자원을 두 번 닫는 길이라 막는다.
+    Engine(const Engine&)            = delete;
+    Engine& operator=(const Engine&) = delete;
 
     void add_strategy(std::unique_ptr<StrategyBase> strategy);
     // 기동 시(bootstrap) 실계좌 잔고를 내부 장부의 초기값으로 채운다(G5).

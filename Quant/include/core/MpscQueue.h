@@ -61,19 +61,22 @@ public:
         }
     }
 
+    MpscQueue(const MpscQueue&)            = delete;
+    MpscQueue& operator=(const MpscQueue&) = delete;
+
     // 여러 생산자 스레드에서 동시 호출 가능
-    bool push(const T& item)
+    [[nodiscard]] bool push(const T& item)
     {
         return emplace(item);
     }
 
-    bool push(T&& item)
+    [[nodiscard]] bool push(T&& item)
     {
         return emplace(std::move(item));
     }
 
     // 단일 소비자 스레드에서만 호출
-    std::optional<T> pop()
+    [[nodiscard]] std::optional<T> pop()
     {
         const size_t pos = dequeue_pos_.load(std::memory_order_relaxed);
         Cell& cell = buffer_[pos & mask_];
@@ -94,14 +97,14 @@ public:
         return item;
     }
 
-    bool empty() const
+    [[nodiscard]] bool empty() const noexcept
     {
         return enqueue_pos_.load(std::memory_order_acquire) ==
                dequeue_pos_.load(std::memory_order_acquire);
     }
 
     // enqueue/dequeue를 별도로 읽으므로 근사치 (실사용 무방)
-    size_t size() const
+    [[nodiscard]] size_t size() const noexcept
     {
         const size_t enq = enqueue_pos_.load(std::memory_order_acquire);
         const size_t deq = dequeue_pos_.load(std::memory_order_acquire);

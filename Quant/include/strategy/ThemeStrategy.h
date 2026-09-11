@@ -281,7 +281,7 @@ private:
                                                  const std::string& time_str,
                                                  double ref_px)
     {
-        int hhmm = parse_hhmm(time_str);
+        int hhmm = krx::parse_hhmm(time_str);
 
         if (!krx::in_session(hhmm))
         {
@@ -328,17 +328,6 @@ private:
         }
 
         return std::nullopt;
-    }
-
-    static int parse_hhmm(const std::string& t)
-    {
-        if (t.size() < 4)
-        {
-            return 0;
-        }
-
-        try { return std::stoi(t.substr(0, 2)) * 100 + std::stoi(t.substr(2, 2)); }
-        catch (...) { return 0; }
     }
 
     std::vector<std::string>          sector_codes_;

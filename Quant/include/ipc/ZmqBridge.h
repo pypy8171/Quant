@@ -26,6 +26,9 @@ class ZmqBridge
 public:
     explicit ZmqBridge(int pub_port = 5555, int rep_port = 5556);
     ~ZmqBridge();
+    // 스레드·뮤텍스를 소유한다 — 복사는 원본과 사본이 같은 자원을 두 번 닫는 길이라 막는다.
+    ZmqBridge(const ZmqBridge&)            = delete;
+    ZmqBridge& operator=(const ZmqBridge&) = delete;
 
     bool start();
     void stop();

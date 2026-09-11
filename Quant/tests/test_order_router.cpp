@@ -50,42 +50,34 @@ struct StubOrderExecutor : IOrderExecutor
     {
     }
 
-    std::string submit_order(const OrderSignal&) override
+    bool is_paper() const noexcept override { return paper; }
+
+    OrderAck submit_order_ack(const OrderSignal&) override
     {
         ++call_count;
 
         if (fail_next > 0)
         {
             --fail_next;
-            return "";
+            return OrderAck::fail(err_code.empty() ? std::string("E_TEST") : err_code);
         }
 
-        return succeed ? odno : "";
+        return succeed ? OrderAck{odno, orgno, std::string()} : OrderAck::fail("E_TEST");
     }
 
-    bool        is_paper() const override { return paper; }
-    std::string last_order_error_code() const override { return err_code; }
-
-    // 기존 call_count 계약 유지를 위해 submit_order를 내부 호출 + 조직번호만 덧붙임
-    OrderAck submit_order_ack(const OrderSignal& sig) override
-    {
-        std::string o = submit_order(sig);
-        return OrderAck{o, o.empty() ? std::string() : orgno};
-    }
-
-    std::string cancel_order(const std::string&, const std::string&, const std::string&,
-                             int qty, bool) override
+    OrderAck cancel_order(const std::string&, const std::string&, const std::string&,
+                          int qty, bool) override
     {
         ++cancel_calls;
         last_cancel_qty = qty;
-        return cancel_ok ? std::string("C000000001") : std::string();
+        return cancel_ok ? OrderAck{"C000000001", std::string(), std::string()} : OrderAck::fail("E_TEST");
     }
 
-    std::string revise_order(const std::string&, const std::string&, const std::string&,
-                             int, double) override
+    OrderAck revise_order(const std::string&, const std::string&, const std::string&,
+                          int, double) override
     {
         ++revise_calls;
-        return revise_ok ? std::string("R000000001") : std::string();
+        return revise_ok ? OrderAck{"R000000001", std::string(), std::string()} : OrderAck::fail("E_TEST");
     }
 };
 
@@ -240,12 +232,12 @@ void test_stats_mixed()
     // 3건 성공
     for (int i = 0; i < 3; ++i)
     {
-        router.submit(make_signal("00593" + std::to_string(i), OrderSide::BUY));
+        (void)router.submit(make_signal("00593" + std::to_string(i), OrderSide::BUY));
     }
 
     // kill switch 이후 1건 거부
     gate.set_kill_switch(true);
-    router.submit(make_signal("005934", OrderSide::BUY));
+    (void)router.submit(make_signal("005934", OrderSide::BUY));
 
     auto s = router.stats();
     assert(s.total == 4 && s.accepted == 3 && s.rejected == 1);
@@ -261,7 +253,7 @@ void test_history_recent()
 
     for (int i = 0; i < 5; ++i)
     {
-        router.submit(make_signal("00593" + std::to_string(i), OrderSide::BUY));
+        (void)router.submit(make_signal("00593" + std::to_string(i), OrderSide::BUY));
     }
 
     auto h = router.recent(3);
@@ -295,7 +287,7 @@ void test_duplicate_fill_ignored()
     StubOrderExecutor stub(true, "K000077");
     OrderRouter       router(gate, stub);
 
-    router.submit(make_signal("005930", OrderSide::BUY, 10)); // ACCEPTED, ODNO=K000077
+    (void)router.submit(make_signal("005930", OrderSide::BUY, 10)); // ACCEPTED, ODNO=K000077
 
     // 부분체결 5주 통보
     FillNotification fn;
@@ -389,7 +381,7 @@ void test_cross_day_fill_not_deduped()
     OrderGate         gate(relaxed_cfg());
     StubOrderExecutor stub(true, "K000077");
     OrderRouter       router(gate, stub);
-    router.submit(make_signal("005930", OrderSide::BUY, 10));
+    (void)router.submit(make_signal("005930", OrderSide::BUY, 10));
 
     auto mk_ts = [](int y, int mo, int d) {
         std::tm t{}; t.tm_year = y - 1900; t.tm_mon = mo - 1; t.tm_mday = d;
@@ -469,7 +461,7 @@ void test_partial_fill_then_cancel()
 
     OrderSignal buy = make_signal("005930", OrderSide::BUY, 10);
     buy.client_oid  = "MM:B:1";
-    router.submit(buy);
+    (void)router.submit(buy);
     assert(gate.reserved("005930") == 10);
 
     FillNotification fn;
@@ -501,7 +493,7 @@ void test_cancel_after_full_fill_selfheal()
 
     OrderSignal buy = make_signal("005930", OrderSide::BUY, 10);
     buy.client_oid  = "MM:B:1";
-    router.submit(buy);
+    (void)router.submit(buy);
 
     FillNotification fn;
     fn.odno = "K000444"; fn.ticker = "005930"; fn.side = OrderSide::BUY;
@@ -533,7 +525,7 @@ void test_replace_reserves_new_qty()
 
     OrderSignal buy = make_signal("005930", OrderSide::BUY, 10);
     buy.client_oid  = "MM:B:1";
-    router.submit(buy);
+    (void)router.submit(buy);
     assert(gate.reserved("005930") == 10);
 
     OrderSignal rep;
@@ -619,7 +611,7 @@ void test_reconcile_row_written()
     StubOrderExecutor stub(true, "K000201");
     OrderRouter       router(gate, stub);
 
-    router.submit(make_signal("005930", OrderSide::BUY, 10)); // ACCEPTED, 미체결 → live_orders=1
+    (void)router.submit(make_signal("005930", OrderSide::BUY, 10)); // ACCEPTED, 미체결 → live_orders=1
 
     OrderRouter::ReconcileNote n;
     n.ticker     = "005930";
@@ -674,7 +666,7 @@ void test_seq_propagates_to_rows()
     assert(fill[1] == "FILL" && fill[16] == "77");
 
     // 미부여(0)는 빈 칸으로 남는다 — 0이 진짜 순번으로 읽히지 않게.
-    router.submit(make_signal("005930", OrderSide::BUY, 1));
+    (void)router.submit(make_signal("005930", OrderSide::BUY, 1));
     auto last = split_csv(tail_trade_rows(1)[0]);
     assert(last[1] == "ACCEPTED" && last[16].empty());
     PASS("seq_propagates_to_rows");

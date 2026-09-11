@@ -109,21 +109,9 @@ private:
     Phase phase_ = Phase::BUY;
     std::chrono::steady_clock::time_point last_signal_{};
 
-    // HHMMSS → HHMM 정수
-    static int parse_hhmm(const std::string& t)
-    {
-        if (t.size() < 4)
-        {
-            return 0;
-        }
-
-        try { return std::stoi(t.substr(0, 2)) * 100 + std::stoi(t.substr(2, 2)); }
-        catch (...) { return 0; }
-    }
-
     bool is_in_session(const std::string& time_str) const
     {
-        int hhmm = parse_hhmm(time_str);
+        int hhmm = krx::parse_hhmm(time_str);
         return krx::in_session(hhmm); // 09:00~15:30 정규장 창(core/MarketSession.h)
     }
 };

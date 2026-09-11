@@ -44,6 +44,9 @@ public:
 
     explicit KisWebSocket(const KisConfig& cfg);
     ~KisWebSocket();
+    // 스레드·뮤텍스를 소유한다 — 복사는 원본과 사본이 같은 자원을 두 번 닫는 길이라 막는다.
+    KisWebSocket(const KisWebSocket&)            = delete;
+    KisWebSocket& operator=(const KisWebSocket&) = delete;
 
     void set_callbacks(OrderBookCb on_ob, TradeCb on_trade);
     void set_fill_callback(FillCb on_fill);

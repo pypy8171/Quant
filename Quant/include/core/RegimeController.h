@@ -40,6 +40,9 @@ public:
     // default 생성자 분리 + Config 인자 생성자로 회피 (MSVC/GCC 공통 컴파일).
     RegimeController() = default;
     explicit RegimeController(Config cfg) : cfg_(cfg) {}
+    // 판정 스냅샷을 뮤텍스로 지킨다 — 복사 대상이 아니다.
+    RegimeController(const RegimeController&)            = delete;
+    RegimeController& operator=(const RegimeController&) = delete;
     void set_kis(KisClient* k) { kis_ = k; }
 
     // ⚠ 계약: evaluate()는 data_thread에서 장 시작 1회만 호출(단일 호출자). fail_streak_가

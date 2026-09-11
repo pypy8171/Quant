@@ -25,7 +25,7 @@
 //    OrderGate::check()   — Kill switch / Rate / 포지션 / 중복 검증
 //       │ PASS
 //       ▼
-//    KisClient::submit_order() — KIS API 전송 → ODNO 수신
+//    KisClient::submit_order_ack() — KIS API 전송 → ODNO·조직번호 수신(실패면 err_code)
 //       │
 //       ├─ 성공 → ACCEPTED,  ZMQ publish_order(ok=true)
 //       └─ 실패 → REJECTED,  ZMQ publish_order(ok=false)
@@ -51,7 +51,7 @@ public:
 #endif
 
     // ── 주문 제출 — 검증 → KIS 전송 → 상태 기록 ─────────────────────────
-    ManagedOrder submit(const OrderSignal& sig);
+    [[nodiscard]] ManagedOrder submit(const OrderSignal& sig);
 
     // ── 체결통보 수신 — ODNO로 이력 조회 후 FILLED 상태 갱신 ────────────
     void on_fill(const FillNotification& fn);
@@ -119,11 +119,14 @@ public:
 
     // 취소 스레드를 세우고 기다린다(소멸자에서 호출). 중복 호출은 무해하다.
     ~OrderRouter();
+    // 스레드·뮤텍스를 소유한다 — 복사는 원본과 사본이 같은 자원을 두 번 닫는 길이라 막는다.
+    OrderRouter(const OrderRouter&)            = delete;
+    OrderRouter& operator=(const OrderRouter&) = delete;
 
 private:
     std::string next_id();
     // 직전 KIS 주문/취소/정정 오류코드를 " [코드]" 꼬리표로 만든다(EGW00201 재시도 판별용). 없으면 "".
-    std::string kis_err_suffix() const;
+    static std::string kis_err_suffix(const OrderAck& ack);
     void        record(const ManagedOrder& mo);
     // 살아있는(ACCEPTED·미체결 잔량>0) 주문 목록을 부속 파일 본문 문자열로 만든다.
     //  호출자는 hist_mtx_를 보유해야 한다. 파일 쓰기는 write_open_orders_file이 락 밖에서 한다.
@@ -149,13 +152,13 @@ private:
 
     // ── MM-1: 주문 생명주기 라우팅 ────────────────────────────────────────
     ManagedOrder new_route(const OrderSignal& sig);     // 기존 신규 주문 경로
-    ManagedOrder cancel_route(const OrderSignal& sig);  // action=CANCEL
-    ManagedOrder replace_route(const OrderSignal& sig); // action=REPLACE(정정)
+    [[nodiscard]] ManagedOrder cancel_route(const OrderSignal& sig);  // action=CANCEL
+    [[nodiscard]] ManagedOrder replace_route(const OrderSignal& sig); // action=REPLACE(정정)
     // SELL이 40240000(주문가능분 없음)으로 막히면: 그 종목의 미체결 예약매도를 조회·취소하고
     //  시장가 매도를 1회 재시도한다(장중 자가 청산 정리). 성공 시 odno 채운 OrderAck,
     //  예약 없음/취소 실패 시 빈 ack. 이전 세션·수동 예약이 보유수량을 묶은 경우를 해소.
     //  취소한 예약이 이번 세션 주문이면 history_를 CANCELLED로 닫고 게이트 선점을 푼다(C-2).
-    OrderAck reconcile_blocked_sell(const OrderSignal& sig);
+    [[nodiscard]] OrderAck reconcile_blocked_sell(const OrderSignal& sig);
     // client_oid로 아직 살아있는(ACCEPTED, 미체결 잔량>0) 주문을 history_에서 찾는다.
     // 호출자는 반드시 hist_mtx_를 보유해야 한다. 반환 포인터는 lock 보유 동안만 유효.
     ManagedOrder* find_live_by_oid(const std::string& client_oid);

@@ -44,6 +44,10 @@ public:
         return inst;
     }
 
+    // 싱글톤 — 사본이 생기면 writer 스레드와 큐가 둘이 된다.
+    Logger(const Logger&)            = delete;
+    Logger& operator=(const Logger&) = delete;
+
     // 실행파일이 놓인 디렉터리(cwd와 무관). 알 수 없으면 cwd.
     static std::filesystem::path executable_dir()
     {

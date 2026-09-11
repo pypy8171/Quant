@@ -9,8 +9,11 @@
 
 #include "core/Types.h"
 
+#include <charconv>
 #include <chrono>
+#include <cstdlib>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace kis_ws
@@ -36,45 +39,82 @@ constexpr size_t kMinFieldsFill         = 14; // CNTG_YN = f[13]
 namespace detail
 {
 
-// stod/stoll/stoi를 예외 없는 형태로 감싼다. 실패면 out을 건드리지 않고 false.
-// C-4에서 std::from_chars로 바꿀 자리 — 호출자는 이 함수만 본다.
-inline bool to_double(const std::string& s, double& out)
+// 숫자 필드 변환. 예외 없이 실패를 bool로 돌려주고, 실패면 out을 건드리지 않는다.
+// 문자열 전체가 숫자여야 한다("215000abc"·"1,000"은 실패) — 전문의 한 칸이 밀리면 앞자리만
+//  숫자로 읽혀 값이 조용히 어긋나는 것을 막는다(D-039). 앞의 '+'는 허용한다(KIS 부호 표기).
+// std::from_chars는 로케일·예외·할당이 없다. 부동소수 지원이 없는 표준 라이브러리(GCC 10 이하)는
+//  strtod로 대신하되 같은 "전부 소비" 규칙을 지킨다.
+inline const char* number_begin(const std::string& s) noexcept
 {
-    try
-    {
-        out = std::stod(s);
-        return true;
-    }
-    catch (...)
-    {
-        return false;
-    }
+    return (!s.empty() && s[0] == '+') ? s.data() + 1 : s.data();
 }
 
-inline bool to_i64(const std::string& s, int64_t& out)
+inline bool to_double(const std::string& s, double& out) noexcept
 {
-    try
-    {
-        out = std::stoll(s);
-        return true;
-    }
-    catch (...)
+    const char* b = number_begin(s);
+    const char* e = s.data() + s.size();
+
+    if (b == e)
     {
         return false;
     }
+
+#if defined(__cpp_lib_to_chars)
+    double v = 0.0;
+    auto   r = std::from_chars(b, e, v);
+
+    if (r.ec != std::errc() || r.ptr != e)
+    {
+        return false;
+    }
+
+    out = v;
+    return true;
+#else
+    // strtod는 앞 공백을 건너뛰고 로케일을 본다 — KIS 전문은 ASCII 숫자만 오므로 끝 포인터만 확인한다.
+    char*  end = nullptr;
+    double v   = std::strtod(b, &end);
+
+    if (end != e)
+    {
+        return false;
+    }
+
+    out = v;
+    return true;
+#endif
 }
 
-inline bool to_int(const std::string& s, int& out)
+template <typename Int> inline bool to_integer(const std::string& s, Int& out) noexcept
 {
-    try
-    {
-        out = std::stoi(s);
-        return true;
-    }
-    catch (...)
+    const char* b = number_begin(s);
+    const char* e = s.data() + s.size();
+
+    if (b == e)
     {
         return false;
     }
+
+    Int  v = 0;
+    auto r = std::from_chars(b, e, v);
+
+    if (r.ec != std::errc() || r.ptr != e)
+    {
+        return false;
+    }
+
+    out = v;
+    return true;
+}
+
+inline bool to_i64(const std::string& s, int64_t& out) noexcept
+{
+    return to_integer<int64_t>(s, out);
+}
+
+inline bool to_int(const std::string& s, int& out) noexcept
+{
+    return to_integer<int>(s, out);
 }
 
 // 5단계 호가 블록. 현물·선물이 시작 위치만 다르고 배열 규칙은 같다.

@@ -121,12 +121,19 @@ static void test_kr_trade()
     assert(kis_ws::decode_kr_trade(f, partial) == Decode::kBadNumber);
     assert(partial.price == 0.0 && partial.quantity == 37 && partial.direction == 5);
 
-    // stoi/stod의 관대함: 앞부분만 숫자면 통과한다. C-4(from_chars)에서 엄격해질 자리.
+    // 전체가 숫자여야 한다 — "215000abc"·"1,000"은 앞자리만 읽지 않고 kBadNumber(D-039).
+    //  한 칸이 밀린 전문이 그럴듯한 값으로 통과하는 것을 막는다.
     f[2] = "215000abc";
     f[12] = "1,000";
-    TradeData lenient;
-    assert(kis_ws::decode_kr_trade(f, lenient) == Decode::kOk);
-    assert(lenient.price == 215000.0 && lenient.quantity == 1);
+    TradeData strict;
+    assert(kis_ws::decode_kr_trade(f, strict) == Decode::kBadNumber);
+
+    // 앞의 '+'는 KIS 부호 표기라 허용한다.
+    f[2] = "+215000";
+    f[12] = "1000";
+    TradeData signed_ok;
+    assert(kis_ws::decode_kr_trade(f, signed_ok) == Decode::kOk);
+    assert(signed_ok.price == 215000.0 && signed_ok.quantity == 1000);
 
     f.resize(21);
     assert(kis_ws::decode_kr_trade(f, bad) == Decode::kShort);

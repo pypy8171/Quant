@@ -21,17 +21,20 @@ public:
     {
     }
 
-    bool push(const T& item)
+    MutexQueue(const MutexQueue&)            = delete;
+    MutexQueue& operator=(const MutexQueue&) = delete;
+
+    [[nodiscard]] bool push(const T& item)
     {
         return emplace(item);
     }
 
-    bool push(T&& item)
+    [[nodiscard]] bool push(T&& item)
     {
         return emplace(std::move(item));
     }
 
-    std::optional<T> pop()
+    [[nodiscard]] std::optional<T> pop()
     {
         std::lock_guard<std::mutex> lk(mtx_);
 
@@ -45,13 +48,13 @@ public:
         return item;
     }
 
-    bool empty() const
+    [[nodiscard]] bool empty() const
     {
         std::lock_guard<std::mutex> lk(mtx_);
         return q_.empty();
     }
 
-    size_t size() const
+    [[nodiscard]] size_t size() const
     {
         std::lock_guard<std::mutex> lk(mtx_);
         return q_.size();

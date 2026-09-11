@@ -1435,3 +1435,44 @@ CSV 쓰기는 `append_trade_line` 한 곳으로 모았다(헤더 정본 `kTradeH
 취소 뒤 재매도 8 접수 → 원주문 CANCELLED, 선점 −8 유지, CANCELLED 행이 ACCEPTED 행 앞). `ctest --preset
 x64-release` 11/11. 실행 중 `quant_trader`는 재빌드하지 않았다 — 다음 재기동부터 `seq` 열이 붙고 같은 날 파일은
 헤더 승격으로 맞춘다.
+
+### D-039 주문 결과는 한 값에 담고, 숫자 필드는 전부 소비했을 때만 받는다 — 계약 표현 정리 (2026-09-11)
+**상태**: 채택 (`Quant/src/core/Engine.cpp`·`Quant/include/risk/OrderGate.h`는 D-036 커밋 뒤 같은 번호로 잇는다)
+
+**결정**: 넷이다.
+
+1. `IOrderExecutor`의 주문·취소·정정은 모두 `OrderAck{odno, krx_orgno, err_code}`를 돌려준다. `ok()`는
+   `!odno.empty()`이고, 실패면 `err_code`가 비지 않는다(KIS `msg_cd`, 응답이 없거나 못 읽으면
+   `kis_err::kTransport`, `rt_cd≠0`인데 `msg_cd`가 없으면 `kUnknown`). 빈 문자열을 돌려주고 사유는
+   `last_order_error_code()`로 따로 묻던 부채널과, 본문이 같은 사본이던 `submit_order(string)`은 지운다.
+   `submit_order_ack`가 순수 가상이고 `[[nodiscard]]`다 — 접수 여부를 모른 채 넘어가는 경로가 컴파일 때 드러난다.
+2. 스레드·뮤텍스를 소유한 클래스(`Engine`·`KisWebSocket`·`OrderRouter`·`ZmqBridge`·`Logger`·`KisClient`·
+   `RegimeController`·큐 3종)는 복사 생성·대입을 `= delete`한다. 큐 3종의 `push`/`pop`은 `[[nodiscard]]`이고
+   `RingBuffer::push`는 `T`의 복사·이동이 던지지 않을 때만 `noexcept`다(`MarketData`는 `std::string`을 품어 조건부).
+   `OrderRouter::submit`·`cancel_route`·`replace_route`·`reconcile_blocked_sell`도 `[[nodiscard]]`다.
+3. `kis_ws::detail::to_double/to_i64/to_int`는 `std::from_chars`로 바꾸고 문자열 전체를 소비했을 때만 성공한다.
+   `"215000abc"`·`"1,000"`은 실패(`kBadNumber`), 앞의 `'+'`는 KIS 부호 표기라 허용한다. 부동소수 `from_chars`가
+   없는 표준 라이브러리(GCC 10 이하)는 `strtod`로 대신하되 같은 규칙을 지킨다.
+4. 전략 4종(`FixedInterval`·`PriceTarget`·`Theme`·`ValueContrary`)에 각각 있던 `parse_hhmm` 사본을 지우고
+   `krx::parse_hhmm`(`Quant/include/core/MarketSession.h`)을 부른다.
+
+**배경**: 접수 실패가 빈 문자열이고 사유는 `KisClient` 멤버 `last_order_msg_cd_`에 남아 호출부가 두 번
+물었다. `OrderRouter`는 `kis_.last_order_error_code()`를 세 곳에서 읽었고, 그 값은 "직전 호출"에 묶여 있어
+호출 순서가 바뀌면 다른 주문의 사유가 붙는다. `submit_order`와 `submit_order_ack`는 60줄이 같은 사본이라 한쪽만
+고치면 갈라진다. 큐의 `push` 결과를 버리면 가득 찬 큐에서 메시지가 조용히 사라지는데 컴파일러가 아무 말도 하지
+않았다. `stod`는 `"215000abc"`를 215000으로 받아 전문 한 칸이 밀린 레코드가 그럴듯한 값으로 통과했다
+(`_private/code_upgrade/CPP_LEVEL_AUDIT.md` 4절).
+
+**대안 비교**:
+
+| 안 | 판정 |
+|---|---|
+| `std::optional<std::string>` 반환 + 부채널 유지 | 기각. 실패 사유가 여전히 다른 곳에 있어 호출부가 두 값을 맞춰 읽어야 한다 |
+| `std::variant<Ack, Error>` / `expected` | 기각. C++17에 `expected`가 없고 `variant` 방문은 호출부를 길게 만든다. 필드 셋짜리 구조체에 `ok()` 하나로 충분하다 |
+| `[[nodiscard]]`를 `Engine.cpp`까지 한 번에 | 보류. `Engine.cpp`는 D-036이 쥐고 있다. 그 커밋 뒤 WS 콜백의 `ob_queue_.push`·`td_queue_.push`(606·609행) 버림 두 곳을 드롭 카운터로 바꾼다 — 지금은 경고 C4834 두 건으로 남아 있다 |
+| `to_*`를 예외 없는 `strtod`만으로 | 기각. `strtod`는 앞 공백을 건너뛰고 로케일을 본다. `from_chars`는 셋 다 없고 할당도 없다 |
+
+**확인 방법**: `Quant/tests/test_ws_decode.cpp`가 `"215000abc"`·`"1,000"`을 `kBadNumber`로, `"+215000"`을
+`kOk`로 고정한다. `Quant/tests/test_order_router.cpp` 스텁은 `OrderAck::fail(err_code)`로 실패를 내고
+`blocked_sell_releases_reservation`이 `40240000` 경로를 그대로 통과한다. `ctest --preset x64-release` 11/11.
+`Quant/tools/manual_order.cpp`는 `ack.err_code`를 화면에 찍는다. 실행 중 `quant_trader`는 재빌드하지 않았다.

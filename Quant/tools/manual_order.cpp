@@ -2,7 +2,7 @@
 // 수동 주문 도구 — 사람이 직접 주문을 넣어 접수→체결을 확인한다.
 //
 //   전략 자동주문이 아니라 DMA 클라이언트 한 명(=사람)이 주문을 인테이크에 넣는
-//   실제(비벤치) 경로. OrderGate(리스크) → KIS submit_order(접수, ODNO) →
+//   실제(비벤치) 경로. OrderGate(리스크) → KIS submit_order_ack(접수, ODNO) →
 //   get_balance 폴링(체결=보유수량 변화)까지 한 흐름으로 확인한다.
 //
 //   안전: is_paper=true(모의계좌)에서만 실행된다. 실거래 config면 즉시 중단.
@@ -146,14 +146,16 @@ int main(int argc, char** argv)
 
     std::cout << "[2] OrderGate 통과\n";
 
-    // ── [3] 접수 (submit_order → ODNO) ───────────────────────────────────────
-    std::string odno = kis.submit_order(sig);
+    // ── [3] 접수 (submit_order_ack → ODNO) ───────────────────────────────────────
+    const OrderAck ack = kis.submit_order_ack(sig);
 
-    if (odno.empty())
+    if (!ack.ok())
     {
-        std::cerr << "[중단] 주문 접수 실패 (ODNO 없음 — 로그의 KIS msg 확인)\n";
+        std::cerr << "[중단] 주문 접수 실패 [" << ack.err_code << "] (로그의 KIS msg 확인)\n";
         return 5;
     }
+
+    const std::string& odno = ack.odno;
 
     gate.on_accept(sig.account_id, ticker, side, qty, price); // 미체결 선점(원장)
     std::cout << "[3] 접수 완료 — ODNO=" << odno << "\n";
