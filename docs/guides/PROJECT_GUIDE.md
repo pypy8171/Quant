@@ -134,6 +134,8 @@ Quant/                              ← 저장소 루트
 │   │   ├── api/
 │   │   │   ├── IOrderExecutor.h    주문 실행 추상 인터페이스 (테스트 격리용)
 │   │   │   ├── KisClient.h         REST API (인증·OHLCV·주문·지수·국내선물 시세 get_future_price/board)
+│   │   │   ├── KisRestDecode.h     REST 분봉 응답 → 집계봉 (헤더 전용 순수 함수, test_kis_decode)
+│   │   │   ├── KisWsDecode.h       실시간 채널 레코드 → 구조체 (헤더 전용 순수 함수, test_ws_decode)
 │   │   │   └── KisWebSocket.h      실시간 체결·호가 WebSocket + stale 감지
 │   │   ├── core/
 │   │   │   ├── Engine.h            4-스레드 트레이딩 엔진 (+국면→전략 자동선택·강제청산)
@@ -194,6 +196,7 @@ Quant/                              ← 저장소 루트
 │   ├── tests/
 │   │   ├── test_order_gate.cpp     OrderGate 단위 테스트
 │   │   ├── test_order_router.cpp   OrderRouter 통합 테스트 (6/6 PASS, StubExecutor)
+│   │   ├── test_kis_decode.cpp     REST 분봉 디코더 (숫자·시각·페이지 병합·집계)
 │   │   ├── test_ringbuffer.cpp     RingBuffer 기본 동작 검증
 │   │   ├── test_ringbuffer_stress.cpp  SPSC 부하 테스트
 │   │   └── test_pipeline_stress.cpp    E2E 파이프라인 부하 테스트

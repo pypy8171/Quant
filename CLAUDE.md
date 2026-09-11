@@ -29,9 +29,9 @@ cmake --build Quant/build
 
 Linux는 `libcurl4-openssl-dev`가 필요합니다 (`sudo apt install libcurl4-openssl-dev`). Windows는 네이티브 WinHTTP를 사용하므로 nlohmann/json(CMake FetchContent로 자동 다운로드) 외에 추가 의존성이 없습니다.
 
-단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다(원장·게이트·라우터·큐·WS 디코더·정규장 시각·운영단말 프로토콜/서버·비동기 로거 등 14개).
+단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다(원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·운영단말 프로토콜/서버·비동기 로거 등 15개).
 ```bash
-cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_market_session test_regime test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_mpsc test_account_ledger test_ops_protocol test_ops_server test_logger
+cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_market_session test_regime test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_mpsc test_account_ledger test_ops_protocol test_ops_server test_logger
 ctest --preset x64-release          # 저장소 루트에서. 스트레스 2종은 3초로 줄여 돈다
 ctest --test-dir Quant/build_win    # 수동 Ninja 레이아웃일 때
 ```
@@ -84,7 +84,7 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 
 ### KIS API 클라이언트 (`Quant/include/api/KisClient.h`, 구현은 `Quant/src/api/Kis*.cpp` 7파일)
 
-클래스는 하나고 구현이 도메인별로 나뉩니다(D-048): `KisTransport.cpp`(플랫폼별 HTTP — Windows는 WinHTTP, Linux는 libcurl — 재시도·초당 한도·공용 인증 헤더 `auth_headers()`), `KisAuth.cpp`(OAuth2 토큰 발급·캐시), `KisMarket.cpp`(주식 시세), `KisIndex.cpp`(지수·수급·선물), `KisOrder.cpp`(주문), `KisAccount.cpp`(잔고·미체결), `KisUniverse.cpp`(순위·유니버스). 구현끼리만 쓰는 include·상수는 `Quant/src/api/KisClientInternal.h`. 주요 메서드: `authenticate()`, `get_ohlcv()`, `get_current_price()`, `send_order()`, 국내 선물 시세 `get_future_price()`(단일 시세)·`get_future_board()`(전광판, 그릭스 포함). 새 REST 호출은 인증 헤더 네 줄을 손으로 쓰지 말고 `auth_headers(tr_id, {추가 항목})`을 씁니다.
+클래스는 하나고 구현이 도메인별로 나뉩니다(D-048): `KisTransport.cpp`(플랫폼별 HTTP — Windows는 WinHTTP, Linux는 libcurl — 재시도·초당 한도·공용 인증 헤더 `auth_headers()`), `KisAuth.cpp`(OAuth2 토큰 발급·캐시), `KisMarket.cpp`(주식 시세 — 분봉 페이지 병합·집계는 순수 함수 헤더 `Quant/include/api/KisRestDecode.h`, D-051), `KisIndex.cpp`(지수·수급·선물), `KisOrder.cpp`(주문), `KisAccount.cpp`(잔고·미체결), `KisUniverse.cpp`(순위·유니버스). 구현끼리만 쓰는 include·상수는 `Quant/src/api/KisClientInternal.h`. 주요 메서드: `authenticate()`, `get_ohlcv()`, `get_current_price()`, `send_order()`, 국내 선물 시세 `get_future_price()`(단일 시세)·`get_future_board()`(전광판, 그릭스 포함). 새 REST 호출은 인증 헤더 네 줄을 손으로 쓰지 말고 `auth_headers(tr_id, {추가 항목})`을 씁니다.
 
 ### WebSocket 클라이언트 (`Quant/include/api/KisWebSocket.h`, 구현은 `Quant/src/api/WebSocketClient.cpp` + `WsSocketWin.cpp`/`WsSocketPosix.cpp`)
 

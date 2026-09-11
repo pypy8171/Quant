@@ -210,6 +210,11 @@ target_link_libraries(test_ws_frame PRIVATE nlohmann_json::nlohmann_json)
 add_executable(test_ws_decode tests/test_ws_decode.cpp)
 target_include_directories(test_ws_decode PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# KIS REST 분봉 디코더(api/KisRestDecode.h) — 헤더 전용, nlohmann만 (D-051)
+add_executable(test_kis_decode tests/test_kis_decode.cpp)
+target_include_directories(test_kis_decode PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(test_kis_decode PRIVATE nlohmann_json::nlohmann_json)
+
 # 운영단말 서버 소켓 왕복 — 실제 TCP 루프백(17100), Logger 링크
 add_executable(test_ops_server tests/test_ops_server.cpp src/ipc/OpsServer.cpp src/utils/Logger.cpp)
 target_include_directories(test_ops_server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -326,6 +331,7 @@ set(QUANT_ASSERT_TARGETS
     test_order_router
     test_ws_frame
     test_ws_decode
+    test_kis_decode
     test_market_session
     test_ops_protocol
     test_ops_server

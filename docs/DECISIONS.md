@@ -1778,3 +1778,37 @@ Linux 경로는 여기에 더해 모든 `send`에 `MSG_NOSIGNAL`을 붙이고(�
 **확인 방법**: Windows Release 전체 빌드(도구 4개 포함) 통과, `ctest --preset x64-release` 14/14. 실행 중
 `quant_trader`는 재빌드·재기동하지 않았다(장중). Linux 파일은 옮긴 본문을 줄 단위로 대조했을 뿐 컴파일하지 않았다 —
 다음 Linux 빌드에서 `-DQUANT_TSAN=ON`으로 `disconnect()`와 수신 스레드의 경합을 같이 본다.
+
+### D-051 KIS REST 분봉 파서를 순수 함수 헤더로 꺼내 ctest에 올린다 (2026-09-11)
+**상태**: 채택
+
+**결정**: `Quant/src/api/KisMarket.cpp` 익명 네임스페이스에 있던 분봉 파서 네 개(`kis_num`·`kis_parse_dt`·
+`kis_parse_minute_page`·`kis_aggregate_minutes`)와 `KisRawMinute`를 `Quant/include/api/KisRestDecode.h`의
+`kis_rest` 네임스페이스로 옮긴다(`num`·`parse_dt`·`parse_minute_page`·`aggregate_minutes`·`RawMinute`). 헤더
+전용·순수 함수라 로그·HTTP·인증에 기대지 않고, `Quant/tests/test_kis_decode.cpp`(39건)가 `KisClient`를 링크하지
+않고 직접 부른다. ctest는 15개가 된다. 반환형·호출 시그니처는 그대로고, `KisMarket.cpp`는 157줄이 줄어 두 호출부
+(`get_minute_ohlcv`·`get_minute_ohlcv_on`)만 `kis_rest::`로 바뀐다.
+
+옮기면서 바뀐 것은 하나다. `aggregate_minutes`가 `interval_min <= 0`·`count <= 0`이면 빈 벡터를 돌려준다 — 전에는
+`interval_min` 0이 0으로 나누기였다. 호출부는 config에서 온 양수만 넘기므로 운영 동작은 같다.
+
+테스트가 고정하는 것: 숫자 필드의 빈 값·비숫자·비문자열 값 → 0, `parse_dt`의 UTC 벽시계 해석(서버 TZ 무관)과
+자릿수 검사, 페이지 병합의 경계 중복 제거·날짜 필터·역페이징 커서(필터·중복과 무관하게 페이지의 가장 이른 시각),
+interval 집계의 OHLC 병합·거래량 합·정렬(입력 순서 무관)·`bar_index` 0=최신·`count` 상한·날짜 경계.
+
+**배경**: `_private/code_upgrade/CPP_LEVEL_AUDIT.md` 6절 "무테스트 영역: KisClient JSON 파서". 익명 네임스페이스에
+있어 테스트가 닿을 수 없었고, 분봉 페이지 병합은 실전 데이터로만 검증돼 있었다(역페이징 커서가 필터된 행을 무시하면
+같은 페이지를 반복 요청하는 함정이 있다 — 이번 테스트 `p3`가 그것을 고정한다). D-048로 파일이 갈린 뒤에도 익명 ns는
+그대로였다(C-7d).
+
+**대안 비교**:
+
+| 안 | 판정 |
+|---|---|
+| `KisClientInternal.h`에 두고 테스트가 `src/api`를 include | 기각. 그 헤더는 `Logger`·`KisClient.h`를 끌어와 테스트가 링크 없이 못 돈다 |
+| `KisClient`의 private static으로 두고 테스트를 friend로 | 기각. 순수 함수가 클래스 상태를 쓰지 않는데 클래스에 묶는 이유가 없다 |
+| `.cpp`로 분리(헤더 선언만) | 미룸. 함수 넷 200줄이라 헤더 전용이 `KisWsDecode.h`와 같은 형태다. 포함처가 늘면 그때 |
+| `KisUniverse.cpp` 익명 ns 파서까지 같이 | 미룸. 그쪽은 순위 응답 → 후보 구조체라 `Quant/include/api/KisClient.h` 반환형과 엮인다(C-7 (a) 후반) |
+
+**확인 방법**: `test_kis_decode` 39/39, `ctest --preset x64-release` 15/15, Release 전체 빌드 통과. 실행 중
+`quant_trader`는 재빌드·재기동하지 않았다(장중, 분봉 경로는 동작 동일).
