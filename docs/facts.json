@@ -122,9 +122,16 @@
       "test_order_router",
       "test_ws_frame",
       "test_ws_decode",
+      "test_kis_decode",
       "test_ops_server",
       "test_ops_protocol",
       "test_market_session",
+      "test_reconcile_plan",
+      "test_ledger_reconciler",
+      "test_data_poller",
+      "test_signal_dispatcher",
+      "test_order_pacer",
+      "test_regime_bridge",
       "test_regime",
       "test_ringbuffer",
       "test_ringbuffer_stress",
@@ -133,6 +140,7 @@
       "bench_feed_ingest",
       "test_mpsc",
       "bench_intake",
+      "bench_gate_contention",
       "test_account_ledger",
       "test_logger",
       "manual_order",
@@ -316,6 +324,7 @@
       "ipc": {},
       "kis": {},
       "live": {},
+      "naver": {},
       "report": {},
       "strategy": {},
       "tests": {},
@@ -345,100 +354,94 @@
   },
   "long_functions": [
     {
-      "file": "Quant/src/core/Engine.cpp",
-      "symbol": "Engine::strategy_thread_fn",
-      "lines": 489,
-      "start": 1811
+      "file": "Quant/include/strategy/DeviationScaleStrategy.h",
+      "symbol": "on_trade_batch",
+      "lines": 512,
+      "start": 249
     },
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::data_thread_fn",
-      "lines": 476,
-      "start": 1166
+      "lines": 484,
+      "start": 840
     },
     {
       "file": "Quant/src/risk/OrderGate.cpp",
       "symbol": "OrderGate::check",
       "lines": 451,
-      "start": 227
-    },
-    {
-      "file": "Quant/include/strategy/DeviationScaleStrategy.h",
-      "symbol": "on_trade_batch",
-      "lines": 407,
-      "start": 199
+      "start": 228
     },
     {
       "file": "Quant/src/main.cpp",
       "symbol": "main",
       "lines": 349,
-      "start": 102
+      "start": 112
     },
     {
       "file": "Quant/src/strategy/StrategyFactory.cpp",
       "symbol": "load_deviation_scale",
-      "lines": 342,
-      "start": 572
+      "lines": 347,
+      "start": 561
     },
     {
       "file": "Quant/src/core/Engine.cpp",
-      "symbol": "Engine::reconcile_from_balance",
-      "lines": 317,
-      "start": 787
+      "symbol": "Engine::start",
+      "lines": 274,
+      "start": 429
+    },
+    {
+      "file": "Quant/src/core/Engine.cpp",
+      "symbol": "Engine::strategy_thread_fn",
+      "lines": 265,
+      "start": 1491
+    },
+    {
+      "file": "Quant/include/strategy/IntradayBreakoutStrategy.h",
+      "symbol": "on_trade",
+      "lines": 259,
+      "start": 122
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::on_fill",
       "lines": 251,
-      "start": 1474
-    },
-    {
-      "file": "Quant/include/strategy/IntradayBreakoutStrategy.h",
-      "symbol": "on_trade",
-      "lines": 235,
-      "start": 118
-    },
-    {
-      "file": "Quant/src/core/Engine.cpp",
-      "symbol": "Engine::start",
-      "lines": 224,
-      "start": 436
+      "start": 1547
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::new_route",
-      "lines": 198,
+      "lines": 230,
       "start": 71
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::cancel_stale_orders_async",
       "lines": 191,
-      "start": 713
+      "start": 786
+    },
+    {
+      "file": "Quant/src/ipc/OrderRouter.cpp",
+      "symbol": "OrderRouter::reconcile_blocked_sell",
+      "lines": 188,
+      "start": 309
     },
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::maybe_rescan_universe",
       "lines": 186,
-      "start": 212
-    },
-    {
-      "file": "Quant/src/api/KisClient.cpp",
-      "symbol": "KisClient::get_index_daily_ohlcv",
-      "lines": 176,
-      "start": 2729
+      "start": 205
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::cancel_route",
       "lines": 174,
-      "start": 1168
+      "start": 1241
     },
     {
-      "file": "Quant/src/api/WebSocketClient.cpp",
-      "symbol": "KisWebSocket::recv_loop",
-      "lines": 172,
-      "start": 340
+      "file": "Quant/src/api/KisIndex.cpp",
+      "symbol": "KisClient::get_index_daily_ohlcv",
+      "lines": 171,
+      "start": 7
     },
     {
       "file": "PYQuant/dashboard/build_dashboard.py",
@@ -450,7 +453,7 @@
       "file": "Quant/src/risk/OrderGate.cpp",
       "symbol": "OrderGate::clamp_buy_qty",
       "lines": 168,
-      "start": 58
+      "start": 59
     },
     {
       "file": "Quant/include/strategy/ThemeStrategy.h",
@@ -465,10 +468,10 @@
       "start": 202
     },
     {
-      "file": "Quant/src/ipc/OrderRouter.cpp",
-      "symbol": "OrderRouter::reconcile_blocked_sell",
-      "lines": 147,
-      "start": 277
+      "file": "PYQuant/backtest/devscale_replay.py",
+      "symbol": "replay_day",
+      "lines": 148,
+      "start": 154
     },
     {
       "file": "PYQuant/backtest/engine.py",
@@ -477,28 +480,22 @@
       "start": 168
     },
     {
-      "file": "Quant/src/core/Engine.cpp",
-      "symbol": "Engine::order_thread_fn",
-      "lines": 146,
-      "start": 2302
-    },
-    {
-      "file": "Quant/src/api/KisClient.cpp",
-      "symbol": "KisClient::fetch_kr_ranking",
-      "lines": 144,
-      "start": 1941
-    },
-    {
       "file": "PYQuant/main.py",
       "symbol": "main",
       "lines": 143,
       "start": 439
     },
     {
+      "file": "Quant/src/api/KisUniverse.cpp",
+      "symbol": "KisClient::fetch_kr_ranking",
+      "lines": 143,
+      "start": 94
+    },
+    {
       "file": "Quant/src/api/WebSocketClient.cpp",
       "symbol": "KisWebSocket::parse_message",
       "lines": 143,
-      "start": 1290
+      "start": 516
     },
     {
       "file": "Quant/src/ipc/OpsServer.cpp",
@@ -507,10 +504,10 @@
       "start": 215
     },
     {
-      "file": "Quant/src/api/KisClient.cpp",
+      "file": "Quant/src/api/KisAuth.cpp",
       "symbol": "KisClient::authenticate_locked",
       "lines": 133,
-      "start": 569
+      "start": 61
     },
     {
       "file": "scripts/summarize_trading_day.py",
@@ -525,10 +522,16 @@
       "start": 64
     },
     {
+      "file": "Quant/src/api/WsSocketPosix.cpp",
+      "symbol": "ws_recv_frame_linux",
+      "lines": 123,
+      "start": 205
+    },
+    {
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::replace_route",
       "lines": 123,
-      "start": 1349
+      "start": 1422
     },
     {
       "file": "Quant/src/core/RegimeController.cpp",
@@ -543,34 +546,16 @@
       "start": 457
     },
     {
-      "file": "Quant/src/strategy/StrategyFactory.cpp",
-      "symbol": "load_intraday_breakout",
-      "lines": 121,
-      "start": 154
-    },
-    {
       "file": "scripts/notify_sidecar.py",
       "symbol": "main",
       "lines": 121,
       "start": 529
     },
     {
-      "file": "Quant/src/api/KisClient.cpp",
-      "symbol": "KisClient::get_daily_ohlcv",
-      "lines": 120,
-      "start": 703
-    },
-    {
-      "file": "Quant/src/core/Engine.cpp",
-      "symbol": "Engine::poll_regime_file",
+      "file": "Quant/src/strategy/StrategyFactory.cpp",
+      "symbol": "load_intraday_breakout",
       "lines": 117,
-      "start": 1690
-    },
-    {
-      "file": "Quant/src/api/WebSocketClient.cpp",
-      "symbol": "ws_recv_frame_linux",
-      "lines": 116,
-      "start": 782
+      "start": 152
     },
     {
       "file": "PYQuant/live/forward_trader.py",
@@ -579,16 +564,16 @@
       "start": 151
     },
     {
-      "file": "Quant/src/api/KisClient.cpp",
-      "symbol": "KisClient::get_minute_ohlcv",
-      "lines": 110,
-      "start": 981
-    },
-    {
       "file": "PYQuant/tools/walkforward.py",
       "symbol": "main",
       "lines": 107,
       "start": 50
+    },
+    {
+      "file": "Quant/src/core/LedgerReconciler.cpp",
+      "symbol": "LedgerReconciler::resync_holdings",
+      "lines": 107,
+      "start": 83
     },
     {
       "file": "scripts/check_runtime_health.py",
@@ -597,16 +582,22 @@
       "start": 52
     },
     {
-      "file": "Quant/src/api/WebSocketClient.cpp",
-      "symbol": "KisWebSocket::recv_loop",
+      "file": "Quant/src/api/KisMarket.cpp",
+      "symbol": "KisClient::get_minute_ohlcv",
+      "lines": 105,
+      "start": 210
+    },
+    {
+      "file": "Quant/src/api/WsSocketPosix.cpp",
+      "symbol": "ws_tcp_connect",
       "lines": 103,
-      "start": 949
+      "start": 52
     },
     {
       "file": "Quant/src/api/WebSocketClient.cpp",
-      "symbol": "ws_tcp_connect",
-      "lines": 103,
-      "start": 630
+      "symbol": "KisWebSocket::recv_loop",
+      "lines": 101,
+      "start": 125
     },
     {
       "file": "Quant/include/strategy/SupplyDemandPullbackStrategy.h",
@@ -615,34 +606,16 @@
       "start": 94
     },
     {
-      "file": "Quant/src/api/KisClient.cpp",
-      "symbol": "KisClient::get_future_price",
-      "lines": 100,
-      "start": 3238
-    },
-    {
-      "file": "Quant/src/api/KisClient.cpp",
-      "symbol": "KisClient::get_balance",
-      "lines": 98,
-      "start": 1594
-    },
-    {
       "file": "Quant/src/universe/UniverseScanner.cpp",
       "symbol": "scan_itb",
       "lines": 97,
-      "start": 1322
-    },
-    {
-      "file": "Quant/src/api/KisClient.cpp",
-      "symbol": "KisClient::get_us_fundamentals",
-      "lines": 96,
-      "start": 2527
+      "start": 1375
     },
     {
       "file": "Quant/src/universe/UniverseScanner.cpp",
       "symbol": "score_cross_section",
       "lines": 96,
-      "start": 1145
+      "start": 1198
     },
     {
       "file": "PYQuant/tools/log_report.py",
@@ -651,10 +624,22 @@
       "start": 450
     },
     {
-      "file": "Quant/src/api/KisClient.cpp",
-      "symbol": "KisClient::get_open_orders",
+      "file": "Quant/src/api/KisMarket.cpp",
+      "symbol": "KisClient::get_us_fundamentals",
       "lines": 95,
-      "start": 1699
+      "start": 601
+    },
+    {
+      "file": "Quant/src/api/KisIndex.cpp",
+      "symbol": "KisClient::get_future_price",
+      "lines": 94,
+      "start": 368
+    },
+    {
+      "file": "Quant/src/core/LedgerReconciler.cpp",
+      "symbol": "LedgerReconciler::reconcile",
+      "lines": 94,
+      "start": 253
     },
     {
       "file": "PYQuant/tools/minute_backfill.py",
@@ -663,10 +648,22 @@
       "start": 130
     },
     {
-      "file": "Quant/src/api/KisClient.cpp",
+      "file": "Quant/src/api/KisAccount.cpp",
+      "symbol": "KisClient::get_open_orders",
+      "lines": 92,
+      "start": 89
+    },
+    {
+      "file": "Quant/src/api/KisMarket.cpp",
       "symbol": "KisClient::get_us_daily_ohlcv",
-      "lines": 93,
-      "start": 2428
+      "lines": 92,
+      "start": 503
+    },
+    {
+      "file": "Quant/src/core/Engine.cpp",
+      "symbol": "Engine::drain_manual_inbox",
+      "lines": 90,
+      "start": 2200
     },
     {
       "file": "PYQuant/tools/log_report.py",
@@ -675,34 +672,40 @@
       "start": 158
     },
     {
-      "file": "Quant/src/api/KisClient.cpp",
-      "symbol": "KisClient::send_order",
-      "lines": 89,
-      "start": 1309
-    },
-    {
       "file": "Quant/src/universe/UniverseScanner.cpp",
       "symbol": "load_quote_table",
       "lines": 89,
-      "start": 535
+      "start": 552
+    },
+    {
+      "file": "Quant/src/api/KisOrder.cpp",
+      "symbol": "KisClient::send_order",
+      "lines": 88,
+      "start": 36
+    },
+    {
+      "file": "Quant/src/core/Engine.cpp",
+      "symbol": "Engine::register_strategy_runtime",
+      "lines": 88,
+      "start": 36
     },
     {
       "file": "Quant/src/universe/UniverseScanner.cpp",
       "symbol": "take_universe_file",
       "lines": 87,
-      "start": 659
+      "start": 676
     },
     {
       "file": "Quant/src/core/Engine.cpp",
-      "symbol": "Engine::drain_manual_inbox",
+      "symbol": "Engine::order_thread_fn",
       "lines": 84,
-      "start": 2746
+      "start": 1758
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::append_trade_line",
       "lines": 83,
-      "start": 943
+      "start": 1016
     },
     {
       "file": "PYQuant/tools/universe_feed.py",
