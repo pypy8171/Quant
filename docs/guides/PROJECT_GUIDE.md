@@ -168,7 +168,10 @@ Quant/                              ← 저장소 루트
 │   │   │   ├── KisOrder.cpp        주문 발주·정정·취소
 │   │   │   ├── KisAccount.cpp      잔고·미체결
 │   │   │   ├── KisUniverse.cpp     순위 조회·유니버스 후보
-│   │   │   └── WebSocketClient.cpp WebSocket 연결·파싱 (국내/해외)
+│   │   │   ├── WebSocketClient.cpp WebSocket 연결·재연결·구독·파싱 (플랫폼 코드 없음, D-049)
+│   │   │   ├── WsSocket.h          소켓 인터페이스 + 플랫폼 함수 선언(POST·AES)
+│   │   │   ├── WsSocketWin.cpp     WinHTTP 소켓·BCrypt (Windows에서만 링크)
+│   │   │   └── WsSocketPosix.cpp   POSIX 소켓·RFC 6455·libcurl·OpenSSL (Linux에서만 링크)
 │   │   ├── core/
 │   │   │   ├── Engine.cpp          4-스레드 라이프사이클
 │   │   │   └── RingBuffer.cpp

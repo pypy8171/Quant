@@ -94,6 +94,14 @@ set(KIS_CLIENT_SOURCES
   src/api/KisUniverse.cpp
 )
 
+# 실시간 WS 클라이언트. 소켓 계층은 플랫폼당 한 파일만 링크한다(D-049).
+set(KIS_WS_SOURCES src/api/WebSocketClient.cpp)
+if(WIN32)
+  list(APPEND KIS_WS_SOURCES src/api/WsSocketWin.cpp)
+else()
+  list(APPEND KIS_WS_SOURCES src/api/WsSocketPosix.cpp)
+endif()
+
 set(SOURCES
   src/main.cpp
   src/modes/Monitors.cpp
@@ -103,7 +111,7 @@ set(SOURCES
   src/core/RegimeController.cpp
   src/core/RingBuffer.cpp
   ${KIS_CLIENT_SOURCES}
-  src/api/WebSocketClient.cpp
+  ${KIS_WS_SOURCES}
   src/strategy/StrategyBase.cpp
   src/strategy/MACrossStrategy.cpp
   src/strategy/MomentumStrategy.cpp
@@ -385,7 +393,7 @@ endif()
 # ─── 도구: 실 KIS 실시간 시세 수신·처리 지연 프로브 (bench_feed_ingest 자매 실증) ──
 add_executable(feed_latency_probe
     tools/feed_latency_probe.cpp
-    src/api/WebSocketClient.cpp
+    ${KIS_WS_SOURCES}
     ${KIS_CLIENT_SOURCES}
     src/utils/Logger.cpp
 )

@@ -46,14 +46,14 @@
 ## WebSocket 파서
 
 ### D-6. 미국 체결(HDFSCNT0) 방향 필드 f[20] 미검증
-- 위치: [WebSocketClient.cpp:1209-1211](../Quant/src/api/WebSocketClient.cpp#L1209)
+- 위치: [WebSocketClient.cpp:742](../Quant/src/api/WebSocketClient.cpp#L742)
 - 현상: `f[20]`을 매수/매도 방향으로 가정해 `direction`에 넣는다. 실제 전문 필드 순서를
   실데이터로 확인하지 못했다.
 - 미룬 이유: 미국 체결 경로는 아직 실사용 전이다.
 - 재개 조건: 미국 실시간을 붙일 때 실전문으로 필드 인덱스를 확정한다.
 
 ### D-7. WebSocket 마스킹 키/nonce 고정값 (RFC 6455 이탈)
-- 위치: [WebSocketClient.cpp:603](../Quant/src/api/WebSocketClient.cpp#L603)
+- 위치: [WsSocketPosix.cpp:109](../Quant/src/api/WsSocketPosix.cpp#L109)
 - 현상: `Sec-WebSocket-Key`를 예시 상수(`dGhlIHNhbXBsZSBub25jZQ==`)로 고정해 보낸다. RFC 6455는
   클라이언트가 매 연결 임의 nonce를 생성하도록 한다. KIS 서버가 이를 검증하지 않아 연결은 된다.
 - 미룬 이유: KIS 상대로는 동작에 문제가 없다.

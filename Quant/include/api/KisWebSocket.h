@@ -3,26 +3,17 @@
 #include "api/KisWsDecode.h"
 #include "core/Types.h"
 #include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
 
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#include <winhttp.h>
-#ifdef ERROR
-#undef ERROR
-#endif
-#endif
+class WsSocket; // 플랫폼 소켓(Quant/src/api/WsSocket.h). 이 헤더는 플랫폼 헤더를 끌어오지 않는다. [why D-049]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // KisWebSocket  —  국내 + 미국 실시간 WebSocket
@@ -36,6 +27,9 @@
 //   ws.set_callbacks(on_ob, on_trade);
 //   ws.connect(specs);   // WatchSpec 리스트로 KR/US 혼합 구독
 //   ws.disconnect();
+//
+// 스레드: recv_loop 스레드가 소켓을 소유하고 재연결·백오프·구독 복원을 한다(플랫폼 공통 한 벌).
+//   소켓 열기·닫기·프레임 송수신은 WsSocket 구현(WinHTTP / POSIX)이 맡는다. [why D-049]
 // ─────────────────────────────────────────────────────────────────────────────
 class KisWebSocket
 {
@@ -125,14 +119,8 @@ private:
     void parse_fut_orderbook(kis_ws::Fields f); // H0IFASP0 선물 호가
     void parse_fill_notification(kis_ws::Fields f);
 
-    // 체결통보(H0STCNI) 복호화 — base64 + AES-256-CBC (플랫폼별 구현)
+    // 체결통보(H0STCNI) 복호화 — base64는 여기, AES-256-CBC는 플랫폼별(ws_platform::aes_cbc_decrypt)
     static std::string base64_decode(const std::string& in);
-    static std::string aes_cbc_decrypt(const std::string& cipher,
-                                       const std::string& key,
-                                       const std::string& iv);
-
-    static std::wstring to_wide(const std::string& s);
-    static std::string http_post_json(const std::string& url, const std::string& body);
 
     KisConfig cfg_;
     std::string approval_key_; // KIS 실시간 WS 접속 승인키 (REST로 발급, 세션 내 재사용)
@@ -148,17 +136,12 @@ private:
         std::chrono::steady_clock::now().time_since_epoch().count()
     };
     std::thread recv_thread_;
+    // sock_ 교체·close와 send_text를 갈라 놓는다. recv_message는 락 없이 블로킹한다(close가 깨운다).
     std::mutex send_mtx_;
+    // [inv] recv_loop 스레드만 바꾼다. connect()는 스레드를 띄우기 전, disconnect()는 join한 뒤에 만진다.
+    std::unique_ptr<WsSocket> sock_;
 
     OrderBookCb on_orderbook_;
     TradeCb     on_trade_;
     FillCb      on_fill_;
-
-#ifdef _WIN32
-    HINTERNET hSession_ = nullptr;
-    HINTERNET hConnect_ = nullptr;
-    HINTERNET hWebSocket_ = nullptr;
-#else
-    int sock_fd_ = -1;
-#endif
 };

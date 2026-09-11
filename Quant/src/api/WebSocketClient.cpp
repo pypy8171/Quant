@@ -1,19 +1,20 @@
+// api/WebSocketClient.cpp — KIS 실시간 WebSocket 클라이언트의 플랫폼 독립 부분.
+//  연결·재연결·백오프·구독 복원·프레임 파싱이 한 벌이고, 소켓 자체는 WsSocket(WsSocketWin/WsSocketPosix)이 맡는다.
+//  스레드: recv_loop 전용 스레드가 sock_를 소유하고 바꾼다. data_thread는 send_text(send_mtx_)만 지난다. [why D-049]
 #include "api/KisWebSocket.h"
+#include "WsSocket.h"
 #include "api/KisWsDecode.h"
 #include "utils/Logger.h"
+#include <algorithm>
+#include <chrono>
 #include <nlohmann/json.hpp>
 #include <sstream>
-
-// 체결통보(H0STCNI) AES-256-CBC 복호화용
-#ifdef _WIN32
-#include <bcrypt.h>
-#else
-#include <openssl/evp.h>
-#endif
+#include <thread>
 
 using json = nlohmann::json;
 
-// KIS 실시간 WebSocket 포트 — 모의투자와 실계좌가 다르다(도메인은 동일 ops.koreainvestment.com).
+// KIS 실시간 WebSocket 접속점 — 모의투자와 실계좌는 포트만 다르다.
+static constexpr const char* kWsHost = "ops.koreainvestment.com";
 static constexpr int kWsPortPaper = 31000; // 모의투자
 static constexpr int kWsPortReal  = 21000; // 실계좌
 
@@ -23,6 +24,7 @@ static constexpr int kWsPortReal  = 21000; // 실계좌
 
 // ─── 체결통보 복호화 (KIS H0STCNI: base64 → AES-256-CBC) ────────────────────
 // 시세 채널은 평문이나 체결통보는 암호화 전송. key/iv는 구독 응답 body.output에서 획득.
+// AES 본체는 플랫폼별(ws_platform::aes_cbc_decrypt).
 std::string KisWebSocket::base64_decode(const std::string& in)
 {
     static const std::string chars =
@@ -62,192 +64,10 @@ std::string KisWebSocket::base64_decode(const std::string& in)
     return out;
 }
 
-#ifdef _WIN32
-// Windows: BCrypt(CNG) — AES-256-CBC, PKCS7 패딩 제거
-std::string KisWebSocket::aes_cbc_decrypt(const std::string& cipher,
-                                          const std::string& key,
-                                          const std::string& iv)
-{
-    if (cipher.empty() || cipher.size() % 16 != 0 || key.size() != 32 || iv.size() != 16)
-    {
-        return "";
-    }
-
-    BCRYPT_ALG_HANDLE hAlg = nullptr;
-    BCRYPT_KEY_HANDLE hKey = nullptr;
-    std::string result;
-
-    if (BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_AES_ALGORITHM, nullptr, 0) != 0)
-    {
-        return "";
-    }
-
-    BCryptSetProperty(hAlg, BCRYPT_CHAINING_MODE,
-                      (PUCHAR)BCRYPT_CHAIN_MODE_CBC,
-                      sizeof(BCRYPT_CHAIN_MODE_CBC), 0);
-
-    if (BCryptGenerateSymmetricKey(hAlg, &hKey, nullptr, 0,
-                                   (PUCHAR)key.data(), 32, 0) == 0)
-    {
-        std::vector<UCHAR> ivbuf(iv.begin(), iv.begin() + 16); // BCrypt가 IV를 갱신하므로 복사
-        std::string out(cipher.size(), '\0');
-        ULONG outLen = 0;
-
-        if (BCryptDecrypt(hKey,
-                          (PUCHAR)cipher.data(), (ULONG)cipher.size(),
-                          nullptr, ivbuf.data(), (ULONG)ivbuf.size(),
-                          (PUCHAR)&out[0], (ULONG)out.size(), &outLen,
-                          BCRYPT_BLOCK_PADDING) == 0)
-        {
-            result.assign(out.data(), outLen);
-        }
-    }
-
-    if (hKey)
-    {
-        BCryptDestroyKey(hKey);
-    }
-
-    if (hAlg)
-    {
-        BCryptCloseAlgorithmProvider(hAlg, 0);
-    }
-
-    return result;
-}
-#else
-// Linux: OpenSSL EVP — AES-256-CBC, PKCS7 패딩 제거(DecryptFinal)
-std::string KisWebSocket::aes_cbc_decrypt(const std::string& cipher,
-                                          const std::string& key,
-                                          const std::string& iv)
-{
-    if (cipher.empty() || cipher.size() % 16 != 0 || key.size() != 32 || iv.size() != 16)
-    {
-        return "";
-    }
-
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-
-    if (!ctx)
-    {
-        return "";
-    }
-
-    std::string out(cipher.size() + 16, '\0');
-    int len = 0, total = 0;
-    std::string result;
-
-    if (EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr,
-            reinterpret_cast<const unsigned char*>(key.data()),
-            reinterpret_cast<const unsigned char*>(iv.data())) == 1 &&
-        EVP_DecryptUpdate(ctx,
-            reinterpret_cast<unsigned char*>(&out[0]), &len,
-            reinterpret_cast<const unsigned char*>(cipher.data()),
-            static_cast<int>(cipher.size())) == 1)
-    {
-        total = len;
-
-        if (EVP_DecryptFinal_ex(ctx,
-                reinterpret_cast<unsigned char*>(&out[0]) + total, &len) == 1)
-        {
-            total += len;
-            result.assign(out.data(), total);
-        }
-    }
-
-    EVP_CIPHER_CTX_free(ctx);
-    return result;
-}
-#endif
-
 // ═══════════════════════════════════════════════════════════════════════════
-//  플랫폼별 구현
+//  연결 · 수신 스레드 · 재연결
 // ═══════════════════════════════════════════════════════════════════════════
 
-#ifdef _WIN32
-// ─── Windows: WinHTTP ───────────────────────────────────────────────────────
-#pragma comment(lib, "winhttp.lib")
-
-std::wstring KisWebSocket::to_wide(const std::string& s)
-{
-    if (s.empty())
-    {
-        return {};
-    }
-
-    int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring w(n - 1, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], n);
-    return w;
-}
-
-std::string KisWebSocket::http_post_json(const std::string& url, const std::string& body)
-{
-    std::wstring wurl = to_wide(url);
-    wchar_t host[512]{}, path[4096]{};
-    URL_COMPONENTS uc{};
-    uc.dwStructSize = sizeof(uc);
-    uc.lpszHostName = host;
-    uc.dwHostNameLength = (DWORD)std::size(host);
-    uc.lpszUrlPath = path;
-    uc.dwUrlPathLength = (DWORD)std::size(path);
-    WinHttpCrackUrl(wurl.c_str(), 0, 0, &uc);
-
-    HINTERNET hSess = WinHttpOpen(L"QuantTrader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
-                                  WINHTTP_NO_PROXY_BYPASS, 0);
-
-    if (!hSess)
-    {
-        return "";
-    }
-
-    HINTERNET hConn = WinHttpConnect(hSess, host, uc.nPort, 0);
-
-    if (!hConn)
-    {
-        WinHttpCloseHandle(hSess);
-        return "";
-    }
-
-    DWORD flags = (uc.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
-    HINTERNET hReq =
-        WinHttpOpenRequest(hConn, L"POST", path, nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
-
-    if (!hReq)
-    {
-        WinHttpCloseHandle(hConn);
-        WinHttpCloseHandle(hSess);
-        return "";
-    }
-
-    WinHttpAddRequestHeaders(hReq, L"Content-Type: application/json\r\n", (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
-
-    bool ok = WinHttpSendRequest(hReq, WINHTTP_NO_ADDITIONAL_HEADERS, 0, (LPVOID)body.c_str(), (DWORD)body.size(),
-                                 (DWORD)body.size(), 0) &&
-              WinHttpReceiveResponse(hReq, nullptr);
-
-    std::string resp;
-
-    if (ok)
-    {
-        DWORD avail = 0;
-
-        while (WinHttpQueryDataAvailable(hReq, &avail) && avail > 0)
-        {
-            std::string chunk(avail, '\0');
-            DWORD read = 0;
-            WinHttpReadData(hReq, &chunk[0], avail, &read);
-            resp.append(chunk, 0, read);
-        }
-    }
-
-    WinHttpCloseHandle(hReq);
-    WinHttpCloseHandle(hConn);
-    WinHttpCloseHandle(hSess);
-    return resp;
-}
-
-// ─── Windows WebSocket 연결 ──────────────────────────────────────────────────
 bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
 {
     {
@@ -260,52 +80,25 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
         return false;
     }
 
-    const wchar_t* ws_host = L"ops.koreainvestment.com";
-    INTERNET_PORT ws_port = cfg_.is_paper ? kWsPortPaper : kWsPortReal;
+    const int port = cfg_.is_paper ? kWsPortPaper : kWsPortReal;
+    auto sock = ws_platform::make_socket();
 
-    hSession_ = WinHttpOpen(L"QuantTrader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
-                            WINHTTP_NO_PROXY_BYPASS, 0);
-
-    if (!hSession_)
+    if (!sock->open(kWsHost, port))
     {
-        LOG_ERROR("[WS] WinHttpOpen 실패");
+        LOG_ERROR("[WS] WebSocket 연결 실패: " + std::string(kWsHost) + ":" + std::to_string(port));
         return false;
     }
 
-    hConnect_ = WinHttpConnect(hSession_, ws_host, ws_port, 0);
-
-    if (!hConnect_)
+    // 구 수신 스레드가 자체 종료(connected_=false)로 join되지 않은 채 남아 있을 수 있다.
+    // joinable 상태에서 재대입하면 std::terminate → 재대입 전 반드시 reap. sock_도 그 스레드가 만지므로 그 뒤에 바꾼다.
+    if (recv_thread_.joinable())
     {
-        LOG_ERROR("[WS] WinHttpConnect 실패");
-        return false;
+        recv_thread_.join();
     }
 
-    HINTERNET hReq =
-        WinHttpOpenRequest(hConnect_, L"GET", L"/", nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, 0);
-
-    if (!hReq)
     {
-        LOG_ERROR("[WS] WinHttpOpenRequest 실패");
-        return false;
-    }
-
-    WinHttpSetOption(hReq, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0);
-
-    if (!WinHttpSendRequest(hReq, WINHTTP_NO_ADDITIONAL_HEADERS, 0, nullptr, 0, 0, 0) ||
-        !WinHttpReceiveResponse(hReq, nullptr))
-    {
-        LOG_ERROR("[WS] WebSocket 업그레이드 요청 실패: " + std::to_string(GetLastError()));
-        WinHttpCloseHandle(hReq);
-        return false;
-    }
-
-    hWebSocket_ = WinHttpWebSocketCompleteUpgrade(hReq, 0);
-    WinHttpCloseHandle(hReq);
-
-    if (!hWebSocket_)
-    {
-        LOG_ERROR("[WS] WinHttpWebSocketCompleteUpgrade 실패: " + std::to_string(GetLastError()));
-        return false;
+        std::lock_guard<std::mutex> lk(send_mtx_);
+        sock_ = std::move(sock);
     }
 
     LOG_INFO(std::string("[WS] WebSocket 연결 성공 (") + (cfg_.is_paper ? "모의투자" : "실거래") + ")");
@@ -313,13 +106,6 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
 
     subscribe_all();
 
-    // 구 수신 스레드가 자체 종료(connected_=false)로 join되지 않은 채 남아 있을 수 있다.
-    // joinable 상태에서 재대입하면 std::terminate → 재대입 전 반드시 reap.
-    if (recv_thread_.joinable())
-    {
-        recv_thread_.join();
-    }
-
     recv_thread_ = std::thread(&KisWebSocket::recv_loop, this);
     return true;
 }
@@ -328,722 +114,110 @@ void KisWebSocket::send_text(const std::string& msg)
 {
     std::lock_guard<std::mutex> lk(send_mtx_);
 
-    if (!hWebSocket_)
+    if (sock_)
     {
-        return;
+        sock_->send_text(msg);
     }
-
-    WinHttpWebSocketSend(hWebSocket_, WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE, (PVOID)msg.data(),
-                         (DWORD)msg.size());
 }
 
+// [inv] sock_는 이 스레드가 바꾼다. connect()는 스레드를 띄우기 전, disconnect()는 join한 뒤에만 만지므로
+//       여기서 락 없이 읽어도 된다. data_thread의 send_text와는 교체·close를 send_mtx_ 아래서 해서 갈린다.
 void KisWebSocket::recv_loop()
 {
     LOG_INFO("[WS] 수신 스레드 시작");
-    std::vector<BYTE> buf(128 * 1024);
+    std::string msg;
     int retry_sec = 1;
 
     while (connected_.load())
     {
-        // ── 수신 루프 ───────────────────────────────────────────────────────
-        std::string accumulated;
-        bool recv_ok = true;
         // 백오프는 "메시지 수신"이 아니라 "연결 유지 시간"으로 판단한다. 재연결 직후
         // 구독응답/에러프레임(ALREADY IN USE)이 곧바로 수신되면 메시지 기반 리셋은
         // 백오프를 매번 1초로 되돌려 폭주한다. 연결이 얼마나 살아있었는지로 구분한다.
         const auto conn_start = std::chrono::steady_clock::now();
 
-        while (connected_.load())
+        while (connected_.load() && sock_ && sock_->recv_message(msg))
         {
-            DWORD bytesRead = 0;
-            WINHTTP_WEB_SOCKET_BUFFER_TYPE bufType{};
-            DWORD rc = WinHttpWebSocketReceive(hWebSocket_, buf.data(), (DWORD)buf.size(), &bytesRead, &bufType);
-
-            if (rc != ERROR_SUCCESS)
-            {
-                if (connected_.load())
-                {
-                    LOG_WARN("[WS] 수신 오류 (code=" + std::to_string(rc) + ") — 재연결 준비");
-                }
-
-                recv_ok = false;
-                break;
-            }
-
-            std::string chunk(reinterpret_cast<char*>(buf.data()), bytesRead);
-
-            if (bufType == WINHTTP_WEB_SOCKET_UTF8_FRAGMENT_BUFFER_TYPE)
-            {
-                accumulated += chunk;
-            }
-            else if (bufType == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE)
-            {
-                accumulated += chunk;
-                parse_message(accumulated);
-                accumulated.clear();
-            }
+            parse_message(msg);
         }
 
-        if (!recv_ok && connected_.load())
-        {
-            // 충분히 오래(≥5s) 유지된 연결이 끊긴 것이면 일시 장애로 보고 백오프 리셋 후
-            // 빠르게 재시도. 즉시 죽는 연결(=서버가 appkey 세션 미해제/off-hours abort)은
-            // 지수적으로 물러서서 서버가 직전 세션을 놓을 시간을 준다.
-            if (std::chrono::steady_clock::now() - conn_start > std::chrono::seconds(5))
-            {
-                retry_sec = 1;
-            }
-
-            // ── 지수 백오프 재연결 ─────────────────────────────────────────
-            LOG_WARN("[WS] " + std::to_string(retry_sec) + "초 후 재연결 시도");
-            std::this_thread::sleep_for(std::chrono::seconds(retry_sec));
-            retry_sec = std::min(retry_sec * 2, 30);
-
-            // 기존 핸들 정리 — WS close 프레임을 먼저 보내 KIS가 이 approval_key 세션을
-            // 즉시 해제하게 한다. 이걸 생략하고 핸들만 닫으면(WinHttpCloseHandle) KIS는
-            // 세션을 계속 붙잡아 다음 접속이 "ALREADY IN USE appkey"(rt=9)로 거부된다.
-            {
-                std::lock_guard<std::mutex> lk(send_mtx_);
-
-                if (hWebSocket_)
-                {
-                    WinHttpWebSocketClose(hWebSocket_, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0);
-                    WinHttpCloseHandle(hWebSocket_);
-                    hWebSocket_ = nullptr;
-                }
-            }
-
-            if (hConnect_)
-            {
-                WinHttpCloseHandle(hConnect_);
-                hConnect_ = nullptr;
-            }
-
-            if (hSession_)
-            {
-                WinHttpCloseHandle(hSession_);
-                hSession_ = nullptr;
-            }
-
-            // Approval key 재사용: 재연결마다 신규 발급하면 KIS가 직전 세션의 appkey를
-            // 아직 해제하지 않은 상태에서 새 키로 접속 → "ALREADY IN USE appkey"(rt=9)
-            // 충돌이 반복돼 재연결 폭주가 된다. 최초 연결의 approval_key_를 유지하고,
-            // 비어있을 때만(발급 실패 이력 등) 재발급한다.
-            if (approval_key_.empty() && !get_approval_key())
-            {
-                LOG_ERROR("[WS] approval key 발급 실패");
-                continue;
-            }
-
-            // WinHTTP 재연결
-            const wchar_t* ws_host = L"ops.koreainvestment.com";
-            INTERNET_PORT ws_port = cfg_.is_paper ? kWsPortPaper : kWsPortReal;
-
-            hSession_ = WinHttpOpen(L"QuantTrader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
-                                    WINHTTP_NO_PROXY_BYPASS, 0);
-
-            if (!hSession_)
-            {
-                LOG_ERROR("[WS] 재연결: WinHttpOpen 실패");
-                continue;
-            }
-
-            hConnect_ = WinHttpConnect(hSession_, ws_host, ws_port, 0);
-
-            if (!hConnect_)
-            {
-                WinHttpCloseHandle(hSession_);
-                hSession_ = nullptr;
-                LOG_ERROR("[WS] 재연결: WinHttpConnect 실패");
-                continue;
-            }
-
-            HINTERNET hReq = WinHttpOpenRequest(hConnect_, L"GET", L"/", nullptr, WINHTTP_NO_REFERER,
-                                                WINHTTP_DEFAULT_ACCEPT_TYPES, 0);
-
-            if (!hReq)
-            {
-                LOG_ERROR("[WS] 재연결: OpenRequest 실패");
-                continue;
-            }
-
-            WinHttpSetOption(hReq, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0);
-
-            if (!WinHttpSendRequest(hReq, WINHTTP_NO_ADDITIONAL_HEADERS, 0, nullptr, 0, 0, 0) ||
-                !WinHttpReceiveResponse(hReq, nullptr))
-            {
-                WinHttpCloseHandle(hReq);
-                LOG_ERROR("[WS] 재연결: 업그레이드 실패: " + std::to_string(GetLastError()));
-                continue;
-            }
-
-            HINTERNET hWs = WinHttpWebSocketCompleteUpgrade(hReq, 0);
-            WinHttpCloseHandle(hReq);
-
-            if (!hWs)
-            {
-                LOG_ERROR("[WS] 재연결: CompleteUpgrade 실패");
-                continue;
-            }
-
-            {
-                std::lock_guard<std::mutex> lk(send_mtx_);
-                hWebSocket_ = hWs;
-            }
-
-            // 재연결: 옛 연결의 체결통보 key/iv는 무효 — 새 구독응답 도착 전까지
-            // 암호프레임을 drop해 stale 키 복호를 막는다 (C-3)
-            aes_key_.clear();
-            aes_iv_.clear();
-
-            // 채널 재구독 — 최초 연결과 동일 경로(subscribe_all). trade_only·선물 분기가
-            // 한 곳에 모여 있어 재연결에서도 동일하게 복원된다.
-            subscribe_all();
-            LOG_INFO("[WS] 재연결 성공");
-            // 여기서 retry_sec을 리셋하지 않는다. '재연결 성공'은 소켓 업그레이드 성공일
-            // 뿐, 직후 곧바로 끊기는(ALREADY IN USE) 경우 백오프가 매번 1초로 되돌아가
-            // 폭주한다. 백오프 리셋은 연결이 실제로 ≥5s 유지됐을 때만(위 uptime 판정).
-        }
-    }
-
-    connected_.store(false);
-    LOG_INFO("[WS] 수신 스레드 종료");
-}
-
-void KisWebSocket::disconnect()
-{
-    if (!connected_.exchange(false))
-    {
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> lk(send_mtx_);
-
-        if (hWebSocket_)
-        {
-            // graceful close 프레임을 먼저 보내 KIS가 approval_key 세션을 즉시 해제하게 한다.
-            // (생략 시 다음 실행이 "ALREADY IN USE appkey" rt=9로 거부됨)
-            WinHttpWebSocketClose(hWebSocket_, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0);
-            WinHttpCloseHandle(hWebSocket_);
-            hWebSocket_ = nullptr;
-        }
-    }
-
-    if (recv_thread_.joinable())
-    {
-        recv_thread_.join();
-    }
-
-    if (hConnect_)
-    {
-        WinHttpCloseHandle(hConnect_);
-        hConnect_ = nullptr;
-    }
-
-    if (hSession_)
-    {
-        WinHttpCloseHandle(hSession_);
-        hSession_ = nullptr;
-    }
-
-    LOG_INFO("[WS] WebSocket 연결 해제 완료");
-}
-
-#else
-// ─── Linux: libcurl (HTTP) + POSIX socket (WebSocket) ─────────────────────
-#include <cerrno>
-#include <cstring>
-#include <curl/curl.h>
-#include <netdb.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
-
-std::wstring KisWebSocket::to_wide(const std::string&)
-{
-    return {};
-}
-
-static size_t curl_write_cb(char* p, size_t sz, size_t nm, std::string* out)
-{
-    out->append(p, sz * nm);
-    return sz * nm;
-}
-
-std::string KisWebSocket::http_post_json(const std::string& url, const std::string& body)
-{
-    CURL* curl = curl_easy_init();
-
-    if (!curl)
-    {
-        return "";
-    }
-
-    std::string resp;
-    curl_slist* hdrs = nullptr;
-    hdrs = curl_slist_append(hdrs, "Content-Type: application/json");
-
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hdrs);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-
-    CURLcode rc = curl_easy_perform(curl);
-
-    if (rc != CURLE_OK)
-    {
-        LOG_ERROR(std::string("[WS] HTTP POST 오류: ") + curl_easy_strerror(rc));
-    }
-
-    curl_slist_free_all(hdrs);
-    curl_easy_cleanup(curl);
-    return resp;
-}
-
-// ─── POSIX socket 헬퍼 ────────────────────────────────────────────────────
-
-static bool sock_recv_all(int fd, void* buf, size_t len)
-{
-    auto* p = static_cast<char*>(buf);
-
-    while (len > 0)
-    {
-        ssize_t n = ::recv(fd, p, len, 0);
-
-        if (n <= 0)
-        {
-            return false;
-        }
-
-        p += n;
-        len -= (size_t)n;
-    }
-
-    return true;
-}
-
-// RFC 6455 WebSocket TCP 연결 + HTTP Upgrade 핸드셰이크
-static bool ws_tcp_connect(const std::string& host, int port, int& out_fd)
-{
-    // AF_INET(IPv4) 강제: AF_UNSPEC면 getaddrinfo가 IPv6를 먼저 줄 수 있고,
-    // Docker에서 IPv6 connect는 성공하나 KIS WS가 IPv6 핸드셰이크에 무응답 → recv 실패.
-    struct addrinfo hints{}, *res = nullptr;
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-
-    int gai = getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res);
-
-    if (gai != 0)
-    {
-        LOG_WARN(std::string("[WS] getaddrinfo 실패: ") + gai_strerror(gai));
-        return false;
-    }
-
-    int fd = -1;
-
-    for (auto* p = res; p; p = p->ai_next)
-    {
-        fd = ::socket(p->ai_family, p->ai_socktype, p->ai_protocol);
-
-        if (fd < 0)
-        {
-            continue;
-        }
-
-        if (::connect(fd, p->ai_addr, p->ai_addrlen) == 0)
+        if (!connected_.load())
         {
             break;
         }
 
-        ::close(fd);
-        fd = -1;
-    }
-
-    freeaddrinfo(res);
-
-    if (fd < 0)
-    {
-        LOG_WARN("[WS] TCP connect 실패 (" + host + ":" + std::to_string(port) + "): " +
-                 std::strerror(errno));
-        return false;
-    }
-
-    // 핸드셰이크 응답 수신 타임아웃 (무응답 시 무한대기 방지)
-    struct timeval tv{};
-    tv.tv_sec = 5;
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-
-    // HTTP/1.1 Upgrade 핸드셰이크
-    std::string req = "GET / HTTP/1.1\r\n"
-                      "Host: " +
-                      host + ":" + std::to_string(port) +
-                      "\r\n"
-                      "Upgrade: websocket\r\n"
-                      "Connection: Upgrade\r\n"
-                      "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-                      "Sec-WebSocket-Version: 13\r\n\r\n";
-
-    if (::send(fd, req.c_str(), req.size(), 0) < 0)
-    {
-        LOG_WARN(std::string("[WS] 핸드셰이크 send 실패: ") + std::strerror(errno));
-        ::close(fd);
-        return false;
-    }
-
-    // 응답을 헤더 끝(\r\n\r\n)까지 읽기 (부분 수신 대비)
-    std::string resp;
-    char buf[1024];
-
-    for (int i = 0; i < 8; ++i)
-    {
-        ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
-
-        if (n <= 0)
+        if (sock_)
         {
-            break;
+            LOG_WARN("[WS] 수신 오류 (" + sock_->last_error() + ") — 재연결 준비");
         }
 
-        resp.append(buf, static_cast<size_t>(n));
-
-        if (resp.find("\r\n\r\n") != std::string::npos)
+        // 충분히 오래(≥5s) 유지된 연결이 끊긴 것이면 일시 장애로 보고 백오프 리셋 후
+        // 빠르게 재시도. 즉시 죽는 연결(=서버가 appkey 세션 미해제/off-hours abort)은
+        // 지수적으로 물러서서 서버가 직전 세션을 놓을 시간을 준다. 직전 재연결이 실패해
+        // sock_가 비어 있으면 conn_start가 방금이라 리셋되지 않는다 — 의도한 동작.
+        if (std::chrono::steady_clock::now() - conn_start > std::chrono::seconds(5))
         {
-            break;
-        }
-    }
-
-    if (resp.find("101") == std::string::npos)
-    {
-        LOG_WARN("[WS] 핸드셰이크 응답에 101 없음 (recv " + std::to_string(resp.size()) +
-                 "B): " + resp.substr(0, 120));
-        ::close(fd);
-        return false;
-    }
-
-    // 핸드셰이크 후 데이터 수신은 블로킹(타임아웃 해제) — recv_loop/disconnect가 관리
-    tv.tv_sec = 0;
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-
-    out_fd = fd;
-    return true;
-}
-
-// RFC 6455 텍스트 프레임 송신 (client→server, MASK=1 필수)
-static void ws_send_text_linux(int fd, const std::string& data)
-{
-    size_t len = data.size();
-    std::vector<uint8_t> frame;
-    frame.reserve(6 + len);
-
-    frame.push_back(0x81); // FIN=1, opcode=1(Text)
-
-    if (len <= 125)
-    {
-        frame.push_back(uint8_t(0x80 | len));
-    }
-    else if (len <= 65535)
-    {
-        frame.push_back(0x80 | 126);
-        frame.push_back(uint8_t(len >> 8));
-        frame.push_back(uint8_t(len));
-    }
-    else
-    {
-        frame.push_back(0x80 | 127);
-
-        for (int i = 7; i >= 0; --i)
-        {
-            frame.push_back(uint8_t(len >> (8 * i)));
-        }
-    }
-
-    // 마스킹 키. RFC 6455는 프레임마다 새 난수 마스크를 요구하지만, 여기선 고정 키를 쓴다.
-    // WS 마스킹은 보안이 아니라 프록시 캐시 오염 방지용 XOR 난독화라 KIS 서버는 값을 검증하지
-    // 않아 실동작에 무해하다. 규격 엄밀성을 맞추려면 프레임별 난수로 바꿔야 한다(보류 목록).
-    const uint8_t mk[4] = {0x37, 0x1A, 0xC5, 0x4F};
-    frame.insert(frame.end(), mk, mk + 4);
-
-    for (size_t i = 0; i < len; ++i)
-    {
-        frame.push_back(uint8_t(data[i]) ^ mk[i % 4]);
-    }
-
-    ::send(fd, frame.data(), frame.size(), 0);
-}
-
-// RFC 6455 프레임 수신 → 메시지 텍스트 반환 (빈 문자열 = 연결 종료/오류)
-//  FIN=0 프레임과 뒤따르는 continuation(0x0)을 한 메시지로 모은다 — Windows 경로의 UTF8_FRAGMENT
-//  누적과 같은 동작이어야 parse_message가 잘린 문자열을 받지 않는다. 제어 프레임(ping/pong)은
-//  분할 메시지 사이에 끼어들 수 있으므로 누적을 끊지 않는다. 재귀 대신 루프 — ping이 연속으로
-//  오면 스택이 자란다.
-static std::string ws_recv_frame_linux(int fd)
-{
-    // 손상된 길이 필드 하나로 거대 할당이 일어나지 않게 상한을 둔다. KIS 실시간 프레임은 KB 단위다.
-    constexpr uint64_t kMaxMessageBytes = uint64_t(1) << 20;
-    std::string message;
-    bool in_message = false;
-
-    while (true)
-    {
-        uint8_t hdr[2];
-
-        if (!sock_recv_all(fd, hdr, 2))
-        {
-            return "";
+            retry_sec = 1;
         }
 
-        const bool fin = (hdr[0] & 0x80) != 0;
-        const uint8_t opcode = hdr[0] & 0x0F;
-        const bool masked = ((hdr[1] >> 7) & 1) != 0;
-        uint64_t len = hdr[1] & 0x7F;
-
-        if (len == 126)
-        {
-            uint8_t ext[2];
-
-            if (!sock_recv_all(fd, ext, 2))
-            {
-                return "";
-            }
-
-            len = (uint64_t(ext[0]) << 8) | ext[1];
-        }
-        else if (len == 127)
-        {
-            uint8_t ext[8];
-
-            if (!sock_recv_all(fd, ext, 8))
-            {
-                return "";
-            }
-
-            len = 0;
-
-            for (int i = 0; i < 8; ++i)
-            {
-                len = (len << 8) | ext[i];
-            }
-        }
-
-        if (len > kMaxMessageBytes || message.size() + len > kMaxMessageBytes)
-        {
-            LOG_WARN("[WS] 프레임 길이 상한 초과 (" + std::to_string(len) + "B) — 연결을 끊고 재연결한다");
-            return "";
-        }
-
-        uint8_t mk[4]{};
-
-        if (masked && !sock_recv_all(fd, mk, 4))
-        {
-            return "";
-        }
-
-        std::vector<uint8_t> payload(static_cast<size_t>(len));
-
-        if (len > 0 && !sock_recv_all(fd, payload.data(), static_cast<size_t>(len)))
-        {
-            return "";
-        }
-
-        if (masked)
-        {
-            for (size_t i = 0; i < payload.size(); ++i)
-            {
-                payload[i] ^= mk[i % 4];
-            }
-        }
-
-        if (opcode == 0x8)
-        {
-            return ""; // Close frame
-        }
-
-        if (opcode == 0x9)
-        {
-            // Ping(0x9) → Pong(0xA). 제어 프레임 payload는 125B 이하라 1바이트 길이로 충분하다.
-            std::vector<uint8_t> pong = {0x8A, uint8_t(0x80 | (len & 0x7F)), 0x00, 0x00, 0x00, 0x00};
-            pong.insert(pong.end(), payload.begin(), payload.end());
-            ::send(fd, pong.data(), pong.size(), 0);
-            continue;
-        }
-
-        if (opcode == 0x1 || opcode == 0x2)
-        {
-            message.assign(payload.begin(), payload.end());
-            in_message = true;
-        }
-        else if (opcode == 0x0)
-        {
-            if (!in_message)
-            {
-                continue; // 시작 프레임 없는 continuation — 버린다
-            }
-
-            message.append(payload.begin(), payload.end());
-        }
-        else
-        {
-            continue; // pong(0xA)·예약 opcode — 메시지가 아니다
-        }
-
-        if (fin)
-        {
-            return message;
-        }
-    }
-}
-
-// ─── Linux WebSocket 연결 ─────────────────────────────────────────────────
-bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
-{
-    {
-        std::lock_guard<std::mutex> lk(specs_mtx_);
-        specs_ = specs;
-    }
-
-    if (!get_approval_key())
-    {
-        return false;
-    }
-
-    std::string host = "ops.koreainvestment.com";
-    int port = cfg_.is_paper ? kWsPortPaper : kWsPortReal;
-
-    if (!ws_tcp_connect(host, port, sock_fd_))
-    {
-        LOG_ERROR("[WS] TCP+WebSocket 연결 실패: " + host + ":" + std::to_string(port));
-        return false;
-    }
-
-    LOG_INFO(std::string("[WS] WebSocket 연결 성공 (Linux, ") + (cfg_.is_paper ? "모의투자" : "실거래") + ")");
-    connected_.store(true);
-
-    subscribe_all();
-
-    // 구 수신 스레드가 자체 종료(connected_=false)로 join되지 않은 채 남아 있을 수 있다.
-    // joinable 상태에서 재대입하면 std::terminate → 재대입 전 반드시 reap.
-    if (recv_thread_.joinable())
-    {
-        recv_thread_.join();
-    }
-
-    recv_thread_ = std::thread(&KisWebSocket::recv_loop, this);
-    return true;
-}
-
-void KisWebSocket::send_text(const std::string& msg)
-{
-    std::lock_guard<std::mutex> lk(send_mtx_);
-
-    if (sock_fd_ < 0)
-    {
-        return;
-    }
-
-    ws_send_text_linux(sock_fd_, msg);
-}
-
-void KisWebSocket::recv_loop()
-{
-    LOG_INFO("[WS] 수신 스레드 시작");
-    int retry_sec = 1;
-
-    while (connected_.load())
-    {
-        // ── 수신 루프 ───────────────────────────────────────────────────────
-        int fd;
+        // 기존 소켓은 자기 전에 닫는다 — close 프레임이 먼저 가야 KIS가 이 approval_key 세션을
+        // 놓고, 백오프로 자는 시간이 그 해제 대기가 된다. 핸들만 닫으면 세션이 남아
+        // 다음 접속이 "ALREADY IN USE appkey"(rt=9)로 거부된다.
         {
             std::lock_guard<std::mutex> lk(send_mtx_);
-            fd = sock_fd_;
+
+            if (sock_)
+            {
+                sock_->close();
+            }
+
+            sock_.reset();
         }
 
-        bool recv_ok = true;
-        // 백오프는 연결 유지 시간으로 판단(메시지 기반 리셋은 재연결 직후 프레임에 매번
-        // 리셋돼 폭주). Windows 경로와 동일 모델.
-        const auto conn_start = std::chrono::steady_clock::now();
+        // ── 지수 백오프 재연결 ─────────────────────────────────────────
+        LOG_WARN("[WS] " + std::to_string(retry_sec) + "초 후 재연결 시도");
+        std::this_thread::sleep_for(std::chrono::seconds(retry_sec));
+        retry_sec = std::min(retry_sec * 2, 30);
 
-        while (connected_.load() && fd >= 0)
+        if (!connected_.load())
         {
-            std::string frame = ws_recv_frame_linux(fd);
-
-            if (frame.empty())
-            {
-                if (connected_.load())
-                {
-                    LOG_WARN("[WS] 수신 오류 또는 연결 종료 — 재연결 준비");
-                }
-
-                recv_ok = false;
-                break;
-            }
-
-            parse_message(frame);
+            break; // 자는 동안 disconnect()가 왔다 — 새로 붙지 않는다
         }
 
-        if (!recv_ok && connected_.load())
+        // Approval key 재사용: 재연결마다 신규 발급하면 KIS가 직전 세션의 appkey를
+        // 아직 해제하지 않은 상태에서 새 키로 접속 → "ALREADY IN USE appkey"(rt=9)
+        // 충돌이 반복돼 재연결 폭주가 된다. 최초 연결의 approval_key_를 유지하고,
+        // 비어있을 때만(발급 실패 이력 등) 재발급한다.
+        if (approval_key_.empty() && !get_approval_key())
         {
-            // 충분히 오래 유지된 연결이 끊긴 것이면 백오프 리셋 후 빠른 재시도,
-            // 즉시 죽는 연결은 지수적으로 물러선다(서버 appkey 세션 해제 대기).
-            if (std::chrono::steady_clock::now() - conn_start > std::chrono::seconds(5))
-            {
-                retry_sec = 1;
-            }
-
-            // ── 지수 백오프 재연결 ─────────────────────────────────────────
-            LOG_WARN("[WS] " + std::to_string(retry_sec) + "초 후 재연결 시도");
-            std::this_thread::sleep_for(std::chrono::seconds(retry_sec));
-            retry_sec = std::min(retry_sec * 2, 30);
-
-            // 기존 소켓 정리
-            {
-                std::lock_guard<std::mutex> lk(send_mtx_);
-
-                if (sock_fd_ >= 0)
-                {
-                    ::close(sock_fd_);
-                    sock_fd_ = -1;
-                }
-            }
-
-            // Approval key 재사용(재연결마다 신규 발급 시 appkey 세션 충돌 → 폭주).
-            // Windows 경로와 동일: 비어있을 때만 재발급.
-            if (approval_key_.empty() && !get_approval_key())
-            {
-                LOG_ERROR("[WS] approval key 발급 실패");
-                continue;
-            }
-
-            std::string host = "ops.koreainvestment.com";
-            int port = cfg_.is_paper ? kWsPortPaper : kWsPortReal;
-            int new_fd = -1;
-
-            if (!ws_tcp_connect(host, port, new_fd))
-            {
-                LOG_ERROR("[WS] 재연결: TCP+WebSocket 연결 실패");
-                continue;
-            }
-
-            {
-                std::lock_guard<std::mutex> lk(send_mtx_);
-                sock_fd_ = new_fd;
-            }
-
-            // 재연결: 옛 연결의 체결통보 key/iv는 무효 — 새 구독응답 도착 전까지
-            // 암호프레임을 drop해 stale 키 복호를 막는다 (C-3)
-            aes_key_.clear();
-            aes_iv_.clear();
-
-            // 채널 재구독 — 최초 연결과 동일 경로(subscribe_all). trade_only·선물 분기가
-            // 한 곳에 모여 있어 재연결에서도 동일하게 복원된다.
-            subscribe_all();
-            LOG_INFO("[WS] 재연결 성공");
-            // 여기서 retry_sec을 리셋하지 않는다. '재연결 성공'은 소켓 업그레이드 성공일
-            // 뿐, 직후 곧바로 끊기는(ALREADY IN USE) 경우 백오프가 매번 1초로 되돌아가
-            // 폭주한다. 백오프 리셋은 연결이 실제로 ≥5s 유지됐을 때만(위 uptime 판정).
+            LOG_ERROR("[WS] approval key 발급 실패");
+            continue;
         }
+
+        auto fresh = ws_platform::make_socket();
+
+        if (!fresh->open(kWsHost, cfg_.is_paper ? kWsPortPaper : kWsPortReal))
+        {
+            LOG_ERROR("[WS] 재연결: WebSocket 연결 실패");
+            continue;
+        }
+
+        {
+            std::lock_guard<std::mutex> lk(send_mtx_);
+            sock_ = std::move(fresh);
+        }
+
+        // 재연결: 옛 연결의 체결통보 key/iv는 무효 — 새 구독응답 도착 전까지
+        // 암호프레임을 drop해 stale 키 복호를 막는다 (C-3)
+        aes_key_.clear();
+        aes_iv_.clear();
+
+        // 채널 재구독 — 최초 연결과 동일 경로(subscribe_all). trade_only·선물 분기가
+        // 한 곳에 모여 있어 재연결에서도 동일하게 복원된다.
+        subscribe_all();
+        LOG_INFO("[WS] 재연결 성공");
+        // 여기서 retry_sec을 리셋하지 않는다. '재연결 성공'은 소켓 업그레이드 성공일
+        // 뿐, 직후 곧바로 끊기는(ALREADY IN USE) 경우 백오프가 매번 1초로 되돌아가
+        // 폭주한다. 백오프 리셋은 연결이 실제로 ≥5s 유지됐을 때만(위 uptime 판정).
     }
 
     connected_.store(false);
@@ -1060,13 +234,11 @@ void KisWebSocket::disconnect()
     {
         std::lock_guard<std::mutex> lk(send_mtx_);
 
-        if (sock_fd_ >= 0)
+        if (sock_)
         {
-            // W-1: close()는 다른 스레드가 recv() 블로킹 중일 때 깨운다는 보장이 없다(POSIX).
-            // shutdown(SHUT_RDWR)은 블로킹된 recv를 즉시 깨워 half-open 교착(join 무한대기)을 막는다.
-            ::shutdown(sock_fd_, SHUT_RDWR);
-            ::close(sock_fd_);
-            sock_fd_ = -1;
+            // graceful close 프레임을 먼저 보내 KIS가 approval_key 세션을 즉시 해제하게 한다.
+            // (생략 시 다음 실행이 "ALREADY IN USE appkey" rt=9로 거부됨) 블로킹 중인 수신도 여기서 깨어난다.
+            sock_->close();
         }
     }
 
@@ -1075,9 +247,13 @@ void KisWebSocket::disconnect()
         recv_thread_.join();
     }
 
+    {
+        std::lock_guard<std::mutex> lk(send_mtx_);
+        sock_.reset(); // 소켓이 쥔 나머지 자원(WinHTTP 세션·커넥션 핸들)까지 놓는다
+    }
+
     LOG_INFO("[WS] WebSocket 연결 해제 완료");
 }
-#endif
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  공통 KisWebSocket 구현 (플랫폼 독립)
@@ -1110,7 +286,7 @@ bool KisWebSocket::get_approval_key()
 
     json req = {{"grant_type", "client_credentials"}, {"appkey", cfg_.app_key}, {"secretkey", cfg_.app_secret}};
 
-    std::string resp = http_post_json(base + "/oauth2/Approval", req.dump());
+    std::string resp = ws_platform::http_post_json(base + "/oauth2/Approval", req.dump());
 
     if (resp.empty())
     {
@@ -1374,7 +550,7 @@ void KisWebSocket::parse_message(const std::string& msg)
             return;
         }
 
-        plain = aes_cbc_decrypt(base64_decode(std::string(data)), aes_key_, aes_iv_);
+        plain = ws_platform::aes_cbc_decrypt(base64_decode(std::string(data)), aes_key_, aes_iv_);
 
         if (plain.empty())
         {

@@ -22,6 +22,10 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+// Engine.h 경유로 windows.h를 처음 여는 헤더다 — min/max 매크로가 std::min/std::max를 깨지 않게 한다. [why D-049]
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <winsock2.h>
 // wingdi.h의 ERROR 매크로가 Logger::Level::ERROR를 깨뜨린다 — KisWebSocket.h와 같은 처리.
 #ifdef ERROR

@@ -17,7 +17,17 @@
 #include <nlohmann/json.hpp>
 
 #ifdef _WIN32
+// KisWebSocket.h가 windows.h를 끌어오던 때의 조건(LEAN_AND_MEAN·NOMINMAX·ERROR 해제)을 여기서 직접 맞춘다. [why D-049]
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
+#ifdef ERROR
+#undef ERROR // wingdi.h — LogLevel::ERROR와 부딪힌다
+#endif
 #endif
 
 using json = nlohmann::json;

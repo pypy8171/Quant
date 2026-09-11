@@ -1697,3 +1697,54 @@ L3). `MpscQueue`는 테스트까지 있었는데 쓰는 곳이 없었다.
 **확인 방법**: 코드 본문은 그대로 옮겼다 — 바뀐 줄은 헤더 블록 25곳의 치환, `kKstOffsetSec` 이동, 각 파일의
 include뿐이다(분할 직전 작업본은 HEAD와 바이트 동일). Release 전체 빌드(도구 4개 포함) 통과,
 `ctest --preset x64-release` 14/14. 실행 중 `quant_trader`는 재빌드하지 않았다.
+
+### D-049 실시간 WebSocket의 소켓 계층을 `WsSocket` 인터페이스로 갈라 재연결 루프를 한 벌로 만든다 (2026-09-11)
+**상태**: 채택 (Linux 경로는 빌드·실행 확인 없음 — 아래)
+
+**결정**: `Quant/src/api/WebSocketClient.cpp`(1,669줄)에 플랫폼별로 두 벌 있던 `connect`·`send_text`·`recv_loop`·
+`disconnect`를 한 벌로 줄이고, 플랫폼이 다른 부분만 소켓 인터페이스 뒤로 보낸다.
+
+| 파일 | 담는 것 | 줄 |
+|---|---|---:|
+| `Quant/src/api/WsSocket.h` | `WsSocket`(open·send_text·recv_message·close·is_open·last_error) + `ws_platform::{make_socket, http_post_json, aes_cbc_decrypt}` | 37 |
+| `Quant/src/api/WsSocketWin.cpp` | WinHTTP 구현, `to_wide`, WinHTTP POST, BCrypt AES | 337 |
+| `Quant/src/api/WsSocketPosix.cpp` | POSIX 소켓 + RFC 6455 프레이밍 구현, libcurl POST, OpenSSL AES | 487 |
+| `Quant/src/api/WebSocketClient.cpp` | 연결·재연결·백오프·구독·파싱 — 플랫폼 코드 없음 | 845 |
+
+`Quant/CMakeLists.txt`는 `KIS_WS_SOURCES`로 플랫폼당 한 파일만 링크한다. 공개 헤더 `Quant/include/api/KisWebSocket.h`는
+`<windows.h>`·`<winhttp.h>`를 더는 끌어오지 않고 `std::unique_ptr<WsSocket>` 하나를 든다. 그 헤더에 기대 `windows.h`를
+얻던 `Quant/src/main.cpp`·`Quant/src/modes/Monitors.cpp`·`Quant/tools/feed_latency_probe.cpp`는 같은 조건
+(`WIN32_LEAN_AND_MEAN`·`NOMINMAX`·`ERROR` 해제)으로 직접 넣고, `Quant/include/ipc/OpsServer.h`는 `NOMINMAX`를 더했다
+— `Engine.h` 경유로 `windows.h`를 처음 여는 자리가 됐기 때문이다.
+
+재연결 루프의 규칙은 그대로다: 연결이 5초 이상 살았을 때만 백오프 리셋, 1→30초 지수 백오프, 재연결 성공에서는
+리셋하지 않음, `approval_key_`는 비었을 때만 재발급, 소켓 교체는 `send_mtx_` 아래서, 재연결 뒤 `aes_key_`/`aes_iv_`
+비우고 `subscribe_all()`. 바뀐 것은 셋이다.
+
+1. 옛 소켓을 자기 전에 닫는다(전에는 잔 뒤에 닫았다). close 프레임이 먼저 가야 KIS가 approval_key 세션을 놓고,
+   백오프로 자는 시간이 그 해제 대기가 된다.
+2. 자는 동안 `disconnect()`가 오면 새로 붙지 않는다(전에는 붙고 나서 종료했다).
+3. 소켓 핸들(`HINTERNET`·fd)은 `std::atomic`이다. `close()`(호출 스레드)와 `recv_message`(수신 스레드)가 같이 보는데,
+   전에는 평범한 멤버를 뮤텍스 없이 읽었다.
+
+Linux 경로는 여기에 더해 모든 `send`에 `MSG_NOSIGNAL`을 붙이고(죽은 소켓에 쓰면 SIGPIPE로 프로세스가 죽는다),
+`close()`가 close 프레임(0x88)을 보낸 뒤 `shutdown(SHUT_RDWR)`한다(Windows와 같은 이유).
+
+**배경**: `recv_loop`가 Windows·Linux에 170줄씩 두 벌이었다. 백오프 리셋 조건·approval_key 재사용·`subscribe_all()`
+같은 규칙을 고칠 때마다 두 곳을 같이 고쳐야 했고, 실제로 재연결 시 선물 채널 누락(`subscribe_all` 도입 전)처럼 한쪽만
+고쳐진 이력이 있다. 공개 헤더가 `<windows.h>`를 끌어와 `Engine.h`를 포함하는 모든 파일이 Win32 매크로를 물려받았다.
+`_private/code_upgrade/CPP_LEVEL_AUDIT.md` C-7 (b).
+
+**대안 비교**:
+
+| 안 | 판정 |
+|---|---|
+| 한 파일 안에서 `#ifdef`로 소켓 함수만 가르기 | 기각. `recv_loop`는 하나가 되지만 헤더는 여전히 `<windows.h>`를 든다(핸들 멤버 때문) |
+| 두 플랫폼 파일을 다 컴파일하고 파일 전체를 `#ifdef`로 감싸기 | 기각. 다른 플랫폼에서 빈 번역 단위가 남는다. CMake `if(WIN32)` 선택이 같은 일을 더 분명히 한다 |
+| `recv_message`가 오류를 직접 로그하기 | 기각. `disconnect()`로 깨어난 것과 진짜 오류를 소켓은 구분 못 한다(`connected_`는 루프 것). `last_error()`로 돌려주고 루프가 판단 |
+| 소켓 인터페이스를 `Quant/include/api`에 공개 | 기각. 호출자는 `KisWebSocket` 하나뿐이다. `KisClientInternal.h`와 같은 이유로 `src/api`에 둔다 |
+| Boost.Beast 등 외부 WS 라이브러리 | 미룸. 의존성 추가는 별도 결정이다. 인터페이스가 생겼으니 구현 교체는 이 파일 둘로 끝난다 |
+
+**확인 방법**: Windows Release 전체 빌드(도구 4개 포함) 통과, `ctest --preset x64-release` 14/14. 실행 중
+`quant_trader`는 재빌드·재기동하지 않았다(장중). Linux 파일은 옮긴 본문을 줄 단위로 대조했을 뿐 컴파일하지 않았다 —
+다음 Linux 빌드에서 `-DQUANT_TSAN=ON`으로 `disconnect()`와 수신 스레드의 경합을 같이 본다.
