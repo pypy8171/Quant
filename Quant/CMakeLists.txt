@@ -235,6 +235,11 @@ target_include_directories(test_market_session PRIVATE ${CMAKE_CURRENT_SOURCE_DI
 add_executable(test_reconcile_plan tests/test_reconcile_plan.cpp)
 target_include_directories(test_reconcile_plan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# 매크로 국면 파일 브리지(core/RegimeFileBridge.h) — 헤더 전용, 파일·로그 없음 (D-060)
+add_executable(test_regime_bridge tests/test_regime_bridge.cpp)
+target_include_directories(test_regime_bridge PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(test_regime_bridge PRIVATE nlohmann_json::nlohmann_json)
+
 # ─── 테스트 타겟: RegimeController 점수/분류 단위 테스트 (KIS 불필요) ──────
 add_executable(test_regime tests/test_regime.cpp)
 target_include_directories(test_regime PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -350,6 +355,7 @@ set(QUANT_ASSERT_TARGETS
     test_ops_protocol
     test_ops_server
     test_regime
+    test_regime_bridge
     test_ringbuffer
     test_ringbuffer_stress
     test_pipeline_stress

@@ -2243,3 +2243,49 @@ max는 기준선에서도 0.2~2.3ms가 나온다 — 스케줄러 선점이지 �
 **확인 방법**: `ctest --preset x64-release` 16/16, `test_kis_decode` 68건. `Quant/include/api/KisClient.h`에 `json`이
 없다(`grep`). 라이브에서는 재기동 뒤 기동 시드 행(`[Engine]   시드 …`)과 잔고 대조 PRUNE·RECONCILE 행이 종전과 같은
 종목·수량으로 나오는지, 한도 초과 때 `잔고 대조: 조회 실패(EGW00201 …)` 한 줄이 찍히고 원장이 유지되는지 본다.
+
+### D-060 매크로 국면 파일 판정기를 Engine에서 상태기계 헤더로 뗀다 — C-7 (c) 1단계 (2026-09-12)
+**상태**: 채택 (`wt/c2`, ctest 17/17 — `test_regime_bridge` 31건 신설. 실행 중 `quant_trader`는 바꾸지 않았다 —
+data_thread 경로라 다음 장 시작 전 재기동부터)
+
+**배경**: `Quant/src/core/Engine.cpp`는 3,159줄에 스레드 다섯 개의 본문과 그 사이 상태를 다 들고 있다.
+C-7 (c)는 이걸 책임 단위로 나누는 일인데, 한 번에 다섯 조각을 떼면 한 커밋이 너무 커 회귀를 찾기 어렵다.
+가장 바깥부터 뗀다 — 다른 스레드와 공유하는 상태가 적고 판정 규칙이 이미 사고 이력(09-10 halt 미해제, D-033)을
+가진 곳. `poll_regime_file`과 시간 상자 두 함수(170줄)가 그것이다. 이 논리는 지금까지 단위 테스트가 없었다:
+파일 시스템과 `Logger`와 `OrderGate`에 묶여 있어서 "개장 후 60분에 풀리는가", "파일이 사라져도 풀리는가",
+"청산 중엔 안 풀리는가"를 라이브 드릴로만 확인했다(`docs/guides/REGIME_DRILL_GUIDE.md`).
+
+**결정**:
+- `Quant/include/core/RegimeFileBridge.h`(헤더 전용, `regime_bridge` 네임스페이스): 관측값(`Observation` —
+  `kMissing`/`kStale`/`kUnreadable`/`kFresh` + `Snapshot`)과 KST 시각(`KstClock{yday, minutes_after_open}`)을
+  받아 `Outcome`을 돌려주는 `RegimeFileBridge::step`. `Outcome`의 `entry_halt`·`force_liquidate`는
+  `std::optional<bool>` — 값이 없으면 "그대로 둔다". 파일 없음·stale·무효 때 `force_liquidate_` 플래그가
+  이전 값을 유지하는 것이 이 표현으로 드러난다(종전에는 `return`의 위치가 그 뜻을 숨겼다).
+- 로그는 헤더가 찍지 않는다. `Outcome`이 "지금이 1회 로그 시점이다"(`log_expiry`·`log_stale`·
+  `log_halt_transition`·`log_liq_on/off`)를 알리고 문구는 `Engine::poll_regime_file`이 붙인다 — 1회화 판정을
+  시험하면서 `Logger`를 링크하지 않기 위해서다.
+- 파일 I/O는 `Engine.cpp`의 정적 함수 `observe_regime_file`로 남는다. `parse_snapshot`은 키 형이 틀리면
+  (`"true"` 문자열 등) 예외 대신 기본값을 준다 — 종전에는 `json::value`가 `type_error`를 던져 data_thread의
+  바깥 `catch`까지 올라갔다.
+- 상태 8개(`regime_halt_on_`·`regime_stale_warned_`·`regime_halt_expire_min_`·`regime_halt_expire_yday_`·
+  `regime_halt_expired_`·`regime_liq_warned_`·`regime_stale_sec_`)와 `kDefaultRegime*` 상수가 헤더로 갔다.
+  `Engine`에는 경로(`regime_file_`, 매크로 5분 로그도 읽는다)와 브리지 인스턴스만 남는다. 공개 setter
+  (`set_regime_file`·`set_regime_halt_expire_min`)와 `main.cpp` 배선은 그대로다.
+- `Quant/tests/test_regime_bridge.cpp` 31건: 전이 1회 로그, stale 1회 경고와 신선 파일 뒤 재무장, 파일 없음·
+  손상·`valid=false` 때 게이트·플래그 불변, 시간 상자(59분 유지·60분 해제·하루 리셋·파일 없어도 해제·파장 뒤·
+  개장 전 무효), `force_liquidate`가 시간 상자를 이기는 것, 형 불량 JSON.
+
+동작 차이는 하나다. 진입부 해제(halt→false)와 본문 전이(→true)가 같은 폴링에 겹치면 종전은
+`set_entry_halt(false)` 뒤 `set_entry_halt(true)`를 연달아 불렀고, 지금은 최종값 한 번이다. 끝 상태는 같다.
+
+| 버린 대안 | 이유 |
+|---|---|
+| 다섯 조각(`DataPoller`·`LedgerReconciler`·`RegimeFileBridge`·`SignalDispatcher`·`OrderPacer`)을 한 커밋에 | 기각. `strategy_thread_fn` 515줄·`data_thread_fn` 527줄은 `strat_mutex_`·`last_px_`·재스캔과 얽혀 있어 한 번에 옮기면 diff에서 회귀를 못 읽는다. 조각마다 커밋·D-NNN |
+| 브리지가 `OrderGate&`와 `std::atomic<bool>&`를 받아 직접 적용 | 기각. 테스트가 `OrderGate.cpp`를 링크해야 하고, "그대로 둔다"가 호출 안 함으로만 남아 시험하기 어렵다. `optional` 결과가 그 사실을 값으로 든다 |
+| 로그 문구까지 헤더로 | 기각. 헤더가 `Logger`를 끌어오면 테스트가 파일 로거를 띄운다. 1회화 규칙(무엇을 언제)만 헤더가 갖고 문구(어떻게)는 Engine이 갖는다 |
+| 파일 읽기도 헤더로(`observe` 인라인) | 기각. `<filesystem>`·`<fstream>`을 순수 헤더에 넣을 이유가 없고, 테스트는 관측값을 직접 만든다 |
+| `KstClock` 대신 `std::chrono::time_point` | 기각. 판정에 필요한 건 tm_yday와 개장 후 분 둘뿐이라 시각 변환을 헤더에 되풀이할 이유가 없다. `utc_plus_hours`는 Engine에 남는다 |
+
+**확인 방법**: `ctest --preset x64-release` 17/17, `test_regime_bridge` 31건. 드릴 절차의 관측 항목 1·2
+(`docs/guides/REGIME_DRILL_GUIDE.md`)가 그대로 성립하는지 다음 드릴 때 본다. 라이브에서는 재기동 뒤
+`[Regime] 신규진입 정지/재개` 줄이 전이마다 한 번, `매크로 진입정지 만료`가 하루 한 번인지 본다.

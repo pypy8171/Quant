@@ -29,9 +29,9 @@ cmake --build Quant/build
 
 Linux는 `libcurl4-openssl-dev`가 필요합니다 (`sudo apt install libcurl4-openssl-dev`). Windows는 네이티브 WinHTTP를 사용하므로 nlohmann/json(CMake FetchContent로 자동 다운로드) 외에 추가 의존성이 없습니다.
 
-단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다(원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·잔고 대조 계산·운영단말 프로토콜/서버·비동기 로거 등 16개).
+단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다(원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·잔고 대조 계산·운영단말 프로토콜/서버·비동기 로거·매크로 국면 파일 판정기 등 17개).
 ```bash
-cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_market_session test_reconcile_plan test_regime test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_mpsc test_account_ledger test_ops_protocol test_ops_server test_logger
+cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_market_session test_reconcile_plan test_regime test_regime_bridge test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_mpsc test_account_ledger test_ops_protocol test_ops_server test_logger
 ctest --preset x64-release          # 저장소 루트에서. 스트레스 2종은 3초로 줄여 돈다
 ctest --test-dir Quant/build_win    # 수동 Ninja 레이아웃일 때
 ```
@@ -75,7 +75,7 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 
 `RegimeController`(`Quant/include/core/RegimeController.h`)가 장 시작 1회 지수 종가>200MA(±1)와 정배열/역배열(ma20·ma60·ma120, ±1)로 `score∈{-2..+2}`를 매겨 BULL/NEUTRAL/BEAR/UNKNOWN을 판정한다. config `"regime_strategies": {"BULL":[id…],"NEUTRAL":[…],"BEAR":[…]}`를 주면 국면이 전략 집합을 자동 선택하고(재평가 주기 `regime_reeval_sec`, 기본 300초), 지정하지 않으면 전략별 `active_regimes` 방식으로 하위호환한다. 판정 파라미터(지수코드·이평기간·점수 임계값)는 config `"regime_tuning"`으로 덮어쓸 수 있고, 임계값 오버라이드는 실계좌에서 무시된다.
 
-국면 축은 둘이고 하는 일이 다르다. **`RegimeController`는 전략 집합만 고른다 — 청산은 하지 않는다.** 보유 전량을 시장가로 청산하는 `FORCE_LIQ`는 다른 축, 즉 매크로 보조 프로세스(`macro_regime_feed.py`)가 쓰는 `regime.json` 파일 전달이 낸다(config `regime_file`·`regime_stale_sec`). 이 파일의 `entry_halt`는 `OrderGate::set_entry_halt`(신규매수만 차단, 청산은 통과)를 토글하고, `force_liquidate`는 여기에 더해 strategy_thread가 보유 전량에 대해 `FORCE_LIQ` 시장가 매도를 2초 간격으로 재발주하게 한다. 드릴 절차는 [docs/guides/REGIME_DRILL_GUIDE.md](docs/guides/REGIME_DRILL_GUIDE.md).
+국면 축은 둘이고 하는 일이 다르다. **`RegimeController`는 전략 집합만 고른다 — 청산은 하지 않는다.** 보유 전량을 시장가로 청산하는 `FORCE_LIQ`는 다른 축, 즉 매크로 보조 프로세스(`macro_regime_feed.py`)가 쓰는 `regime.json` 파일 전달이 낸다(config `regime_file`·`regime_stale_sec`). 이 파일의 `entry_halt`는 `OrderGate::set_entry_halt`(신규매수만 차단, 청산은 통과)를 토글하고, `force_liquidate`는 여기에 더해 strategy_thread가 보유 전량에 대해 `FORCE_LIQ` 시장가 매도를 2초 간격으로 재발주하게 한다. 파일의 갱신 지연(stale)·개장 후 만료(시간 상자)·1회 로그 판정은 `Quant/include/core/RegimeFileBridge.h`의 상태기계가 맡고 `Engine::poll_regime_file`은 파일 읽기와 적용만 한다(D-060, `test_regime_bridge`). 드릴 절차는 [docs/guides/REGIME_DRILL_GUIDE.md](docs/guides/REGIME_DRILL_GUIDE.md).
 
 ### 전략 추가하기
 

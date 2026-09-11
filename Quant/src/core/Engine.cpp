@@ -1842,46 +1842,7 @@ void Engine::data_thread_fn()
 //  판정보류(valid=false)/stale이면 게이트를 새로 켜지 않는다(유지가 실패안전).
 //  매크로 risk-off 오버레이 축(G2): entry_halt·force_liquidate(강제청산)를 건다.
 //  RegimeController의 전략선택 축과는 별개 관심사 — 선택 축은 apply_regime_selection() 참조.
-// 시간 상자가 지났는지만 답한다. 매크로 축의 지표 5개 중 4개(IXIC·US500·VIX·DGS10)는 간밤
-//  미국 종가라 KST 09:00~15:30 내내 값이 안 변한다. 회복을 볼 수 없는 신호가 장중 거부권을 계속
-//  쥐면 2026-09-10처럼 지수가 되돌아온 뒤에도 4시간 동안 청산만 나간다. 만료 뒤 통제는 장중을
-//  실제로 보는 축(UniverseScanner 코스피 게이트·종목 정배열)이 갖는다.
-//  호출자는 둘이다 — poll_regime_file 진입부의 해제와, 정상 판정에서 halt를 켜지 않는 판정. [why D-033]
-bool Engine::regime_halt_time_box_passed()
-{
-    if (regime_halt_expire_min_ <= 0)
-    {
-        return false;   // 기능 끔
-    }
-
-    struct tm kst = utc_plus_hours(9);
-
-    if (kst.tm_yday != regime_halt_expire_yday_)
-    {
-        regime_halt_expire_yday_ = kst.tm_yday;
-        regime_halt_expired_     = false;
-    }
-
-    // 09:00~15:30을 분으로 편 값(is_kr_market_open과 같은 기준). 개장 전은 음수라 안 걸린다.
-    const int after_open = kst.tm_hour * 60 + kst.tm_min - 540;
-    return after_open >= regime_halt_expire_min_ && after_open < 390;
-}
-
-// 만료 로그는 하루 한 번이면 된다. 폴링 주기마다 같은 줄이 쌓이면 로그가 못 쓰게 된다.
-void Engine::log_regime_halt_expiry_once()
-{
-    if (regime_halt_expired_)
-    {
-        return;
-    }
-
-    LOG_WARN("[Regime] 매크로 진입정지 만료 — 개장 후 " +
-             std::to_string(regime_halt_expire_min_) +
-             "분 경과. 이 축은 장중 갱신되지 않으므로 오늘 남은 시간의 신규진입 판단은 "
-             "유니버스 지수 게이트와 종목 정배열에 맡긴다");
-    regime_halt_expired_ = true;
-}
-
+//  판정(stale·시간 상자·1회 로그)은 core/RegimeFileBridge.h의 상태기계가 맡는다. [why D-060]
 // 스캔 스레드가 슬리브마다 부른다(20초 간격). 파일은 임시 이름으로 쓰고 바꿔치기해
 //  대시보드가 반쯤 쓰인 JSON을 읽지 않게 한다. 쓰기 실패는 매매와 무관하므로 경고만 남긴다.
 void Engine::set_entry_priority(std::unordered_map<std::string, int> rank,
@@ -1927,6 +1888,57 @@ void Engine::set_entry_priority(std::unordered_map<std::string, int> rank,
     }
 }
 
+// 파일 관측만 한다(존재·나이·파싱). 판정은 RegimeFileBridge::step이 하고, 여기서는 그 결과를
+//  OrderGate·force_liquidate_에 옮기고 로그 문구를 붙인다. 원자적 write라 정상은 완전한 json이고
+//  부분/손상은 kUnreadable로 조용히 넘긴다.
+static regime_bridge::Observation observe_regime_file(const std::string& path, int stale_sec)
+{
+    regime_bridge::Observation o;
+    std::error_code ec;
+
+    if (!std::filesystem::exists(path, ec) || ec)
+    {
+        return o; // kMissing
+    }
+
+    // 갱신 지연: 보조 프로세스가 죽어 파일이 오래되면 신뢰 불가. 수정 시각을 못 읽으면 나이를 모르니 갱신된 것으로 본다.
+    auto ftime = std::filesystem::last_write_time(path, ec);
+
+    if (!ec)
+    {
+        o.age_sec = std::chrono::duration_cast<std::chrono::seconds>(
+                        std::filesystem::file_time_type::clock::now() - ftime).count();
+
+        if (o.age_sec > stale_sec)
+        {
+            o.state = regime_bridge::FileState::kStale;
+            return o;
+        }
+    }
+
+    o.state = regime_bridge::FileState::kUnreadable;
+
+    try
+    {
+        std::ifstream f(path);
+
+        if (!f)
+        {
+            return o;
+        }
+
+        nlohmann::json j;
+        f >> j;
+        o.snap  = regime_bridge::parse_snapshot(j);
+        o.state = regime_bridge::FileState::kFresh;
+    }
+    catch (const std::exception&)
+    {
+    }
+
+    return o;
+}
+
 void Engine::poll_regime_file()
 {
     if (regime_file_.empty())
@@ -1934,115 +1946,56 @@ void Engine::poll_regime_file()
         return; // 기능 미가동(기본)
     }
 
-    // 시간 상자는 파일을 읽기 전에, 한 곳에서 집행한다. 이 아래로는 halt를 건 채 빠져나가는
-    //  경로가 다섯이다(파일 없음·stale·열기 실패·파싱 예외·판정 보류). 보조 프로세스가 죽는
-    //  가장 흔한 모양이 파일 삭제와 쓰기 중 잘림인데, 분기마다 같은 해제를 적으면 한 곳은
-    //  빠지고 그날 halt가 안 풀린다 — 그게 09-10의 실패 모양이었다.
-    //  force_liquidate 중에는 풀지 않는다(극단 위험회피를 시계로 풀지 않는다). [why D-033]
-    if (regime_halt_on_ && !regime_liq_warned_ && regime_halt_time_box_passed())
+    const regime_bridge::Observation obs = observe_regime_file(regime_file_, regime_bridge_.stale_sec());
+    const struct tm kst = utc_plus_hours(9);
+    // 09:00~15:30을 분으로 편 값(is_kr_market_open과 같은 기준). 개장 전은 음수라 안 걸린다.
+    const regime_bridge::KstClock clk{kst.tm_yday, kst.tm_hour * 60 + kst.tm_min - 540};
+    const regime_bridge::Outcome  out = regime_bridge_.step(obs, clk);
+
+    if (out.log_expiry)
     {
-        log_regime_halt_expiry_once();
-        order_gate_.set_entry_halt(false);
-        regime_halt_on_ = false;
+        LOG_WARN("[Regime] 매크로 진입정지 만료 — 개장 후 " + std::to_string(clk.minutes_after_open) +
+                 "분 경과. 이 축은 장중 갱신되지 않으므로 오늘 남은 시간의 신규진입 판단은 "
+                 "유니버스 지수 게이트와 종목 정배열에 맡긴다");
     }
 
-    std::error_code ec;
-
-    if (!std::filesystem::exists(regime_file_, ec) || ec)
+    if (out.log_stale)
     {
-        return; // 파일 없음 → 게이트 불변
+        LOG_WARN("[Regime] regime.json " + std::to_string(obs.age_sec) + "s 경과(> " +
+                 std::to_string(regime_bridge_.stale_sec()) +
+                 "s) — 보조 프로세스 중단 의심, 게이트 신규 변경 보류(현 halt 유지)");
     }
 
-    // 신선도: 보조 프로세스가 죽어 파일이 오래되면 신뢰 불가 → halt를 새로 켜지 않는다.
-    auto ftime = std::filesystem::last_write_time(regime_file_, ec);
-
-    if (!ec)
+    // set_entry_halt는 이 함수가 유일 호출자라 소유권이 단순하다.
+    if (out.entry_halt)
     {
-        auto age = std::chrono::duration_cast<std::chrono::seconds>(
-                       std::filesystem::file_time_type::clock::now() - ftime).count();
-
-        if (age > regime_stale_sec_)
-        {
-            if (!regime_stale_warned_)
-            {
-                LOG_WARN("[Regime] regime.json " + std::to_string(age) + "s 경과(> " +
-                         std::to_string(regime_stale_sec_) +
-                         "s) — 보조 프로세스 중단 의심, 게이트 신규 변경 보류(현 halt 유지)");
-                regime_stale_warned_ = true;
-            }
-
-            return;   // 해제는 진입부에서 이미 집행했다
-        }
-
-        regime_stale_warned_ = false;
+        order_gate_.set_entry_halt(*out.entry_halt);
     }
 
-    // 파싱 — 원자적 write라 정상은 완전한 json. 실패(부분/손상)는 조용히 무시.
-    nlohmann::json j;
-
-    try
+    if (out.log_halt_transition)
     {
-        std::ifstream f(regime_file_);
-
-        if (!f)
-        {
-            return;
-        }
-
-        f >> j;
-    }
-    catch (const std::exception&)
-    {
-        return;
-    }
-
-    if (!j.value("valid", false))
-    {
-        return; // 보조 프로세스가 데이터 부족으로 판정 보류 → 게이트 불변(해제는 진입부에서 집행)
-    }
-
-    // ── force_liquidate: 청산 중엔 신규 진입도 반드시 정지(entry_halt에 OR) ────────
-    bool liq = j.value("force_liquidate", false);
-
-    // ── entry_halt 전이 시에만 set + 로그 (liq이면 강제 halt) ────────────────────
-    bool halt = j.value("entry_halt", false) || liq;
-
-    // 시간 상자: 개장 후 N분이 지나면 매크로 축의 진입정지를 스스로 만료시킨다.
-    //  force_liquidate는 만료 대상이 아니다 — 극단 위험회피를 시계로 풀지 않는다. [why D-033]
-    if (halt && !liq && regime_halt_time_box_passed())
-    {
-        log_regime_halt_expiry_once();
-        halt = false;
-    }
-
-    if (halt != regime_halt_on_)
-    {
-        order_gate_.set_entry_halt(halt);
-        regime_halt_on_ = halt;
-        std::string reg = j.value("regime", std::string("?"));
-        int score = j.value("risk_score", 0);
         LOG_WARN(std::string("[Regime] 신규진입 ") +
-                 (halt ? "정지(ENTRY_HALT ON)" : "재개(ENTRY_HALT OFF)") +
-                 " — regime=" + reg + " score=" + std::to_string(score));
+                 (*out.entry_halt ? "정지(ENTRY_HALT ON)" : "재개(ENTRY_HALT OFF)") +
+                 " — regime=" + obs.snap.regime + " score=" + std::to_string(obs.snap.risk_score));
     }
 
-    // ── force_liquidate 배선(G3): 전이 시 플래그를 세워 strategy_thread가 전량 청산 ──
-    //  실제 매도는 order_queue_ 단일 생산자인 strategy_thread에서만 낸다(SPSC 준수).
-    //  여기(data_thread)는 원자 플래그만 토글하고 1회 로그만 남긴다.
-    if (liq && !regime_liq_warned_)
+    // force_liquidate 배선(G3): 플래그만 세우고 실제 매도는 order_queue_ 단일 생산자인
+    //  strategy_thread가 낸다(SPSC 준수). 여기(data_thread)는 원자 플래그 토글과 1회 로그뿐이다.
+    if (out.log_liq_on)
     {
         LOG_ERROR("[Regime] force_liquidate=TRUE (극단 위험회피) — 보유 전량 강제청산 요청, "
                   "strategy_thread가 시장가 매도 발주");
-        regime_liq_warned_ = true;
     }
 
-    if (!liq && regime_liq_warned_)
+    if (out.log_liq_off)
     {
         LOG_WARN("[Regime] force_liquidate 해제 — 강제청산 중단");
-        regime_liq_warned_ = false;
     }
 
-    force_liquidate_.store(liq, std::memory_order_relaxed);
+    if (out.force_liquidate)
+    {
+        force_liquidate_.store(*out.force_liquidate, std::memory_order_relaxed);
+    }
 }
 
 // ─── 전략 처리 스레드 ─────────────────────────────────────────────────────

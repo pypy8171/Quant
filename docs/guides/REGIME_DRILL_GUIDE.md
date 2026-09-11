@@ -45,8 +45,8 @@
 
 | # | 확인할 것 | 코드 위치 |
 |---|---|---|
-| 1 | `[Regime] force_liquidate=TRUE` ERROR가 **1회만** | [Engine.cpp::poll_regime_file](../../Quant/src/core/Engine.cpp) |
-| 2 | `entry_halt`가 OR로 함께 켜지는가 | [Engine.cpp::poll_regime_file](../../Quant/src/core/Engine.cpp) |
+| 1 | `[Regime] force_liquidate=TRUE` ERROR가 **1회만** | [RegimeFileBridge.h::step](../../Quant/include/core/RegimeFileBridge.h) `log_liq_on`, 문구는 [Engine.cpp::poll_regime_file](../../Quant/src/core/Engine.cpp) |
+| 2 | `entry_halt`가 OR로 함께 켜지는가 | [RegimeFileBridge.h::step](../../Quant/include/core/RegimeFileBridge.h) — `test_regime_bridge`가 고정 |
 | 3 | 보유 종목마다 SELL/MARKET, 수량 = 보유 − 미체결매도 | [Engine.cpp::strategy_thread_fn](../../Quant/src/core/Engine.cpp) |
 | 4 | `ref_price`에 평단이 stamp되는가 | [Engine.cpp::strategy_thread_fn](../../Quant/src/core/Engine.cpp) |
 | 5 | 게이트가 SELL을 통과시키는가(BUY만 차단) | [OrderGate.cpp::check](../../Quant/src/risk/OrderGate.cpp) |
