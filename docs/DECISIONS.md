@@ -1349,3 +1349,40 @@ USD/KRW는 동일 세션이라 종가를 쓰면 그날 09:00 게이트에 미래
 
 **확인 방법**: 재기동 직후 `초당 한도` 경고와 `EGW00201` 건수, `취소 불요` 로그가 INFO로 남는지,
 `open_orders.txt`가 유령주문 정리 중에도 이번 세션 줄을 잃지 않는지.
+
+### D-037 테스트를 ctest에 묶고, WS 채널 파서는 헤더 전용 순수 함수로 꺼내 테스트한다 (2026-09-11)
+**상태**: 채택
+
+**결정**: 넷이다.
+
+1. `Quant/tests/`의 실행형 테스트 11개를 `enable_testing()`/`add_test()`로 등록한다. 루트 `CMakePresets.json`에
+   `testPresets`(x64-debug·x64-release)를 둬 `ctest --preset x64-release` 한 줄로 돈다. 스트레스 두 개는 3초 인자로
+   돌리고, 벤치 3종은 측정용이라 등록하지 않는다. 테스트는 빌드 폴더 아래 `test_run/`에서 실행한다(`logs/`를 만든다).
+2. Linux는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 있다. ASAN과 같이 못 켜므로 옵션이 켜지면
+   ASAN을 뺀다. MSVC는 TSAN이 없어 옵션이 비어 있다.
+3. `KisWebSocket`의 채널 파서 6종(현물 호가·체결, 선물 호가·체결, 미국 체결, 체결통보)은 필드 위치·최소 길이·숫자
+   변환을 `Quant/include/api/KisWsDecode.h`의 `kis_ws::decode_*`로 옮긴다. 헤더 전용이고 로그·소켓·암호 의존이
+   없어 테스트가 플랫폼 링크 없이 부른다. 결과는 `Decode{kOk,kShort,kSkip,kBadSide,kBadNumber}`로 돌려주고,
+   버릴지 흘릴지는 `parse_*`(진단 로그·콜백 호출만 남음)가 정한다 — 호가·체결은 옛 동작대로 `kBadNumber`도
+   흘리고, 체결통보는 버린다.
+4. `MarketSession`(`parse_hhmm`·`in_session`) 경계값 테스트를 둔다. `CLAUDE.md`의 "테스트 스위트는 없습니다"는
+   틀린 문장이라 교체한다.
+
+**배경**: 테스트 12파일·어서션 약 200개가 있는데 등록이 없어 손으로 하나씩 돌렸고, 문서는 없다고 적혀 있었다.
+뒤에 오는 정합·락·문자열 작업이 파서·큐·원장을 건드리므로 회귀를 잡을 배선이 먼저 필요했다. 채널 파서는
+`WebSocketClient.cpp` 안에 진단 로그와 섞여 있어 WinHTTP/BCrypt 없이는 부를 수 없었다.
+
+**대안 비교**:
+
+| 안 | 판정 |
+|---|---|
+| GoogleTest/Catch2 도입 | 보류. 수제 assert 11개를 옮기는 비용이 지금은 값이 없다. 케이스가 늘어 픽스처가 필요해지면 그때 |
+| 파서를 `static` 자유 함수로 두고 `friend` 테스트 | 기각. 테스트가 WebSocketClient.cpp 전체를 링크해야 한다 |
+| `parse_*`가 `kBadNumber` 레코드를 바로 버리기 | 보류. 옛 동작을 바꾸는 결정이라 C-4(계약 표현)에서 `from_chars`와 같이 정한다 |
+| 벤치 3종도 ctest에 등록 | 기각. 측정값은 통과/실패가 아니다. `docs/reports/PIPELINE_LATENCY_REPORT.md`가 갖는다 |
+
+옮기면서 하나 달라진 것: 옛 호가 파서는 단계 하나의 가격 변환이 실패하면 같은 단계의 잔량도 건너뛰었다(try 블록이
+단계 단위). 새 디코더는 칸마다 독립이라 잔량은 읽는다. 테스트가 이 동작을 고정한다.
+
+**확인 방법**: `ctest --preset x64-release` 11/11 통과(13.4초). FEED 모드에서 `첫 수신` 로그 형식과 체결통보
+`체결 무시`/`파싱 오류` WARN이 전과 같은지.

@@ -1,4 +1,5 @@
 #include "api/KisWebSocket.h"
+#include "api/KisWsDecode.h"
 #include "utils/Logger.h"
 #include <nlohmann/json.hpp>
 #include <set>
@@ -1515,58 +1516,49 @@ void KisWebSocket::dispatch_record(const std::string& tr_id, const std::vector<s
     }
 }
 
-// ─── 호가 파싱 (H0STASP0) ────────────────────────────────────────────────
-// KIS H0STASP0 실제 필드 구조 (10단계):
-//  [0]종목코드 [1]시간 [2]시간구분
-//  [3-12]  ASKP1-10   매도호가 10단계
-//  [13-22] BIDP1-10   매수호가 10단계
-//  [23-32] ASKP_RSQN1-10 매도호가잔량
-//  [33-42] BIDP_RSQN1-10 매수호가잔량
-//  → 5단계만 사용: asks[i] = f[3+i]/f[23+i], bids[i] = f[13+i]/f[33+i]
+// ─── 채널 파서 ─────────────────────────────────────────────────────────
+// 필드 위치·최소 길이·숫자 변환은 api/KisWsDecode.h(헤더 전용, 테스트 대상)가 갖는다.
+// 여기는 진단 로그와 콜백 호출만 남긴다. [why D-037]
+
+// 채널별 첫 수신 레코드를 한 번만 통째로 찍는다. 전문 필드 순서를 실데이터로 확인하는 용도라
+// 종목마다 한 줄이면 충분하다. max_fields=0이면 전 필드.
+static void log_first_record(std::set<std::string>& seen, const char* channel,
+                             const std::vector<std::string>& f, size_t max_fields, const char* sep)
+{
+    if (seen.find(f[0]) != seen.end())
+    {
+        return;
+    }
+
+    seen.insert(f[0]);
+    std::string dbg = std::string("[WS] ") + channel + " 첫 수신 [" + f[0] + "] 총 " +
+                      std::to_string(f.size()) + "필드:";
+    const size_t n = (max_fields == 0) ? f.size() : std::min(f.size(), max_fields);
+
+    for (size_t i = 0; i < n; ++i)
+    {
+        dbg += sep + std::string("[") + std::to_string(i) + "]=" + f[i];
+    }
+
+    LOG_INFO(dbg);
+}
+
+// 호가·체결은 숫자 하나가 비어도 흘려보낸다(kBadNumber → 0으로 남긴 채 콜백). 이 관대함은
+// 옛 동작을 그대로 옮긴 것이고, 버릴지는 C-4에서 정한다.
 void KisWebSocket::parse_orderbook(const std::vector<std::string>& f)
 {
-    if (f.size() < 38)
-    { // BIDP_RSQN5 = f[37]
-        LOG_WARN("[WS] H0STASP0 필드 부족: " + std::to_string(f.size()) + " (38 필요)");
+    static std::set<std::string> first_logged;
+    OrderBook ob;
+    const auto rc = kis_ws::decode_orderbook(f, ob);
+
+    if (rc == kis_ws::Decode::kShort)
+    {
+        LOG_WARN("[WS] H0STASP0 필드 부족: " + std::to_string(f.size()) + " (" +
+                 std::to_string(kis_ws::kMinFieldsOrderbook) + " 필요)");
         return;
     }
 
-    // 첫 수신 시 전체 필드 로그 (진단용)
-    static std::set<std::string> first_logged;
-
-    if (first_logged.find(f[0]) == first_logged.end())
-    {
-        first_logged.insert(f[0]);
-        std::string dbg = "[WS] H0STASP0 첫 수신 [" + f[0] + "] 총 " + std::to_string(f.size()) + "필드:";
-
-        for (size_t i = 0; i < f.size(); ++i)
-        {
-            dbg += " [" + std::to_string(i) + "]=" + f[i];
-        }
-
-        LOG_INFO(dbg);
-    }
-
-    OrderBook ob;
-    ob.ticker = f[0];
-    ob.time = f[1];
-    ob.timestamp = std::chrono::system_clock::now();
-
-    
-    for (int i = 0; i < 5; ++i)
-    {
-        try
-        {
-            // 필드 기준을 ENUM으로 처리하는게 가독성 좋아보임 추후 변경때도 편할듯
-            ob.asks[i].price = std::stod(f[3 + i]);      // ASKP1-5  [3-7]
-            ob.asks[i].quantity = std::stoll(f[23 + i]); // ASKP_RSQN1-5  [23-27]
-            ob.bids[i].price = std::stod(f[13 + i]);     // BIDP1-5  [13-17]
-            ob.bids[i].quantity = std::stoll(f[33 + i]); // BIDP_RSQN1-5  [33-37]
-        }
-        catch (...)
-        {
-        }
-    }
+    log_first_record(first_logged, "H0STASP0", f, 0, " ");
 
     if (on_orderbook_)
     {
@@ -1574,45 +1566,17 @@ void KisWebSocket::parse_orderbook(const std::vector<std::string>& f)
     }
 }
 
-// ─── 국내 체결 파싱 (H0STCNT0) ───────────────────────────────────────────
-// [0]종목코드 [1]체결시간 [2]현재가 [12]체결량 [21]체결구분(1=매수,5=매도)
 void KisWebSocket::parse_kr_trade(const std::vector<std::string>& f)
 {
-    if (f.size() < 22)
+    static std::set<std::string> first_logged;
+    TradeData td;
+
+    if (kis_ws::decode_kr_trade(f, td) == kis_ws::Decode::kShort)
     {
         return;
     }
 
-    static std::set<std::string> first_logged;
-
-    if (first_logged.find(f[0]) == first_logged.end())
-    {
-        first_logged.insert(f[0]);
-        std::string dbg = "[WS] H0STCNT0 첫 수신 [" + f[0] + "] 총 " + std::to_string(f.size()) + "필드:";
-
-        for (size_t i = 0; i < std::min(f.size(), size_t(13)); ++i)
-        {
-            dbg += "\n  [" + std::to_string(i) + "]=" + f[i];
-        }
-
-        LOG_INFO(dbg);
-    }
-
-    TradeData td;
-    td.ticker = f[0];
-    td.time = f[1];
-    td.market = Market::KR;
-    td.timestamp = std::chrono::system_clock::now();
-
-    try
-    {
-        td.price = std::stod(f[2]);
-        td.quantity = std::stoll(f[12]);
-        td.direction = std::stoi(f[21]);
-    }
-    catch (...)
-    {
-    }
+    log_first_record(first_logged, "H0STCNT0", f, 13, "\n  ");
 
     if (on_trade_)
     {
@@ -1620,48 +1584,18 @@ void KisWebSocket::parse_kr_trade(const std::vector<std::string>& f)
     }
 }
 
-// ─── 미국 체결 파싱 (HDFSCNT0) ───────────────────────────────────────────
-// tr_key 형식: "NAS|AAPL" → ticker = "AAPL"
-// [0]종목코드 [1]체결시간(KST) [2]현재가 [8]체결량 [?]방향
+// tr_key 형식: "NAS|AAPL" → ticker = "AAPL". 방향 필드 f[20]은 실데이터 미검증(보류 목록).
 void KisWebSocket::parse_us_trade(const std::vector<std::string>& f)
 {
-    if (f.size() < 9)
+    static std::set<std::string> first_us_logged;
+    TradeData td;
+
+    if (kis_ws::decode_us_trade(f, td) == kis_ws::Decode::kShort)
     {
         return;
     }
 
-    static std::set<std::string> first_us_logged;
-
-    if (first_us_logged.find(f[0]) == first_us_logged.end())
-    {
-        first_us_logged.insert(f[0]);
-        std::string dbg = "[WS] HDFSCNT0 첫 수신 [" + f[0] + "] 총 " + std::to_string(f.size()) + "필드:";
-
-        for (size_t i = 0; i < std::min(f.size(), size_t(15)); ++i)
-        {
-            dbg += "\n  [" + std::to_string(i) + "]=" + f[i];
-        }
-
-        LOG_INFO(dbg);
-    }
-
-    TradeData td;
-    td.ticker = f[0];
-    td.time = f[1];
-    td.market = Market::US;
-    td.timestamp = std::chrono::system_clock::now();
-
-    try
-    {
-        td.price = std::stod(f[2]);
-        td.quantity = std::stoll(f[8]);
-        // f[20]이 매수/매도 방향 필드라고 가정한다. 미국 체결(HDFSCNT0) 전문 필드 순서를
-        // 실데이터로 확정하지 못해 아직 미검증이다 — 확인 전까지 방향값은 신뢰하지 말 것(보류 목록).
-        td.direction = (f.size() > 20) ? std::stoi(f[20]) : 0;
-    }
-    catch (...)
-    {
-    }
+    log_first_record(first_us_logged, "HDFSCNT0", f, 15, "\n  ");
 
     if (on_trade_)
     {
@@ -1669,48 +1603,18 @@ void KisWebSocket::parse_us_trade(const std::vector<std::string>& f)
     }
 }
 
-// ─── 국내 선물 체결 파싱 (H0IFCNT0) ──────────────────────────────────────
-// KIS 공식 예제(open-trading-api index_futures_realtime_conclusion) 기준 50필드:
-//  [0]종목코드 [1]체결시각 [5]현재가 [9]단위체결량 [10]누적거래량 [18]미결제약정
-//  현물 H0STCNT0과 달리 틱 단위 매수/매도 구분 코드(cntg_cls_code)가 없다 —
-//  방향은 채널이 안 주므로 0으로 둔다(여기선 앞 19필드만 파싱·검증한다).
+// 선물 체결엔 매수/매도 구분 코드가 없어 direction=0으로 나간다.
 void KisWebSocket::parse_fut_trade(const std::vector<std::string>& f)
 {
-    if (f.size() < 19)
+    static std::set<std::string> first_logged;
+    TradeData td;
+
+    if (kis_ws::decode_fut_trade(f, td) == kis_ws::Decode::kShort)
     {
         return;
     }
 
-    static std::set<std::string> first_logged;
-
-    if (first_logged.find(f[0]) == first_logged.end())
-    {
-        first_logged.insert(f[0]);
-        std::string dbg = "[WS] H0IFCNT0 첫 수신 [" + f[0] + "] 총 " + std::to_string(f.size()) + "필드:";
-
-        for (size_t i = 0; i < std::min(f.size(), size_t(19)); ++i)
-        {
-            dbg += "\n  [" + std::to_string(i) + "]=" + f[i];
-        }
-
-        LOG_INFO(dbg);
-    }
-
-    TradeData td;
-    td.ticker = f[0];
-    td.time = f[1];
-    td.market = Market::KR; // 선물도 국내 세션. TradeData엔 선물 플래그가 없어 소비 측은 종목코드로 현·선을 구분한다.
-    td.timestamp = std::chrono::system_clock::now();
-
-    try
-    {
-        td.price = std::stod(f[5]);     // futs_prpr 선물 현재가
-        td.quantity = std::stoll(f[9]); // last_cnqn 단위체결량
-        // direction: 선물 체결 채널엔 단일 방향 코드가 없어 미설정(0).
-    }
-    catch (...)
-    {
-    }
+    log_first_record(first_logged, "H0IFCNT0", f, 19, "\n  ");
 
     if (on_trade_)
     {
@@ -1718,53 +1622,20 @@ void KisWebSocket::parse_fut_trade(const std::vector<std::string>& f)
     }
 }
 
-// ─── 국내 선물 호가 파싱 (H0IFASP0) ──────────────────────────────────────
-// KIS 공식 예제(index_futures_realtime_quote) 기준 5단계 38필드. 현물과 배열이 다르다:
-//  [0]종목코드 [1]시각
-//  [2-6]  매도호가1-5   [7-11] 매수호가1-5   (가격 블록)
-//  [12-21] 호가건수      ← 가격과 잔량 사이에 건수 블록이 끼어 있음(현물 감각과 다름)
-//  [22-26] 매도잔량1-5  [27-31] 매수잔량1-5
 void KisWebSocket::parse_fut_orderbook(const std::vector<std::string>& f)
 {
-    if (f.size() < 32)
-    { // 매수잔량5 = f[31]
-        LOG_WARN("[WS] H0IFASP0 필드 부족: " + std::to_string(f.size()) + " (32 필요)");
+    static std::set<std::string> first_logged;
+    OrderBook ob;
+    const auto rc = kis_ws::decode_fut_orderbook(f, ob);
+
+    if (rc == kis_ws::Decode::kShort)
+    {
+        LOG_WARN("[WS] H0IFASP0 필드 부족: " + std::to_string(f.size()) + " (" +
+                 std::to_string(kis_ws::kMinFieldsFutOrderbook) + " 필요)");
         return;
     }
 
-    static std::set<std::string> first_logged;
-
-    if (first_logged.find(f[0]) == first_logged.end())
-    {
-        first_logged.insert(f[0]);
-        std::string dbg = "[WS] H0IFASP0 첫 수신 [" + f[0] + "] 총 " + std::to_string(f.size()) + "필드:";
-
-        for (size_t i = 0; i < f.size(); ++i)
-        {
-            dbg += " [" + std::to_string(i) + "]=" + f[i];
-        }
-
-        LOG_INFO(dbg);
-    }
-
-    OrderBook ob;
-    ob.ticker = f[0];
-    ob.time = f[1];
-    ob.timestamp = std::chrono::system_clock::now();
-
-    for (int i = 0; i < 5; ++i)
-    {
-        try
-        {
-            ob.asks[i].price = std::stod(f[2 + i]);      // futs_askp1-5  [2-6]
-            ob.asks[i].quantity = std::stoll(f[22 + i]); // askp_rsqn1-5  [22-26]
-            ob.bids[i].price = std::stod(f[7 + i]);      // futs_bidp1-5  [7-11]
-            ob.bids[i].quantity = std::stoll(f[27 + i]); // bidp_rsqn1-5  [27-31]
-        }
-        catch (...)
-        {
-        }
-    }
+    log_first_record(first_logged, "H0IFASP0", f, 0, " ");
 
     if (on_orderbook_)
     {
@@ -1772,17 +1643,12 @@ void KisWebSocket::parse_fut_orderbook(const std::vector<std::string>& f)
     }
 }
 
-// ─── 체결통보 파싱 (H0STCNI0 실거래 / H0STCNI9 모의) ────────────────────
-// 주요 필드:
-//  [2]ODER_NO(주문번호)  [4]SELN_BYOV_CLS(01=매도,02=매수)
-//  [8]STCK_SHRN_ISCD(종목코드)  [9]CNTG_QTY(체결수량)
-//  [10]CNTG_UNPR(체결단가)  [11]STCK_CNTG_HOUR(HHMMSS)
-//  [13]CNTG_YN(1=주문/정정/취소/거부 접수통보, 2=체결통보) — 모의 실측 확인
+// 체결통보는 원장에 들어가므로 관대하지 않다 — 읽지 못한 레코드는 버리고 WARN을 남긴다.
 void KisWebSocket::parse_fill_notification(const std::vector<std::string>& f)
 {
-    if (f.size() < 14)
+    if (f.size() < kis_ws::kMinFieldsFill)
     {
-        // 1~2필드: KIS 서버 제어 메시지(ack/heartbeat) — 정상 동작, DEBUG 수준
+        // 1~2필드: KIS 서버 제어 메시지(ack/heartbeat) — 정상 동작이라 조용히 넘긴다
         if (f.size() > 2)
         {
             LOG_WARN("[WS] H0STCNI 필드 부족: " + std::to_string(f.size()));
@@ -1791,46 +1657,27 @@ void KisWebSocket::parse_fill_notification(const std::vector<std::string>& f)
         return;
     }
 
-    if (!on_fill_)     // 콜백 미등록 시 즉시 반환 (파싱 비용 절감)
-    {
-        return;
-    }
-
-    if (f[13] != "2")  // 접수/정정/취소/거부(1) 제외, 체결(2)만 처리
+    if (!on_fill_) // 콜백 미등록 시 즉시 반환 (파싱 비용 절감)
     {
         return;
     }
 
     FillNotification fn;
-    fn.odno       = f[2];
-    fn.ticker     = f[8];
 
-    // [wire] f[4] SELN_BYOV_CLS: 01=매도, 02=매수. 원장에 들어가는 값이라 그 밖은 기록하지 않고 버린다.
-    if (f[4] == "02")
+    switch (kis_ws::decode_fill(f, fn))
     {
-        fn.side = OrderSide::BUY;
-    }
-    else if (f[4] == "01")
-    {
-        fn.side = OrderSide::SELL;
-    }
-    else
-    {
-        LOG_WARN("[WS] H0STCNI 매매구분 알 수 없음 '" + f[4] + "' ODNO=" + fn.odno + " — 체결 무시");
+    case kis_ws::Decode::kOk:
+        break;
+
+    case kis_ws::Decode::kBadSide:
+        LOG_WARN("[WS] H0STCNI 매매구분 알 수 없음 '" + f[4] + "' ODNO=" + f[2] + " — 체결 무시");
         return;
-    }
 
-    fn.fill_time  = f[11];
-    fn.timestamp  = std::chrono::system_clock::now();
-
-    try
-    {
-        fn.filled_qty   = std::stoi(f[9]);
-        fn.filled_price = std::stod(f[10]);
-    }
-    catch (...)
-    {
+    case kis_ws::Decode::kBadNumber:
         LOG_WARN("[WS] H0STCNI0 수량/단가 파싱 오류 ODNO=" + fn.odno);
+        return;
+
+    default: // kSkip: 접수/정정/취소/거부 통보(CNTG_YN=1), kShort는 위에서 걸렀다
         return;
     }
 

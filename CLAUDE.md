@@ -29,7 +29,13 @@ cmake --build Quant/build
 
 Linux는 `libcurl4-openssl-dev`가 필요합니다 (`sudo apt install libcurl4-openssl-dev`). Windows는 네이티브 WinHTTP를 사용하므로 nlohmann/json(CMake FetchContent로 자동 다운로드) 외에 추가 의존성이 없습니다.
 
-테스트 스위트는 없습니다. 검증은 **FEED** 모드로 실행하여 실시간 출력을 확인하는 방식으로 합니다.
+단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다(원장·게이트·라우터·큐·WS 디코더·정규장 시각 등 11개).
+```bash
+cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_market_session test_regime test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_mpsc test_account_ledger
+ctest --preset x64-release          # 저장소 루트에서. 스트레스 2종은 3초로 줄여 돈다
+ctest --test-dir Quant/build_win    # 수동 Ninja 레이아웃일 때
+```
+Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 있습니다(ASAN과 배타). 실계좌 연결 검증은 **FEED** 모드로 실행하여 실시간 출력을 확인합니다.
 
 ## 실행 모드
 

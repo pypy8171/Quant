@@ -10,9 +10,17 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
  
 # ─── 컴파일 옵션 ──────────────────────────────────────────────────────────
+# QUANT_TSAN=ON: Debug를 ThreadSanitizer로 만든다(ASAN과 같이 못 켜므로 ASAN을 뺀다).
+# 큐·RCU·락 순서 검증용. -O1은 TSAN 권장 최저 최적화. Linux 전용, MSVC는 지원 없음.
+option(QUANT_TSAN "Debug 빌드를 ThreadSanitizer로 (Linux)" OFF)
 if(UNIX)
     set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
-    set(CMAKE_CXX_FLAGS_DEBUG   "-g -fsanitize=address")
+    if(QUANT_TSAN)
+        set(CMAKE_CXX_FLAGS_DEBUG "-g -O1 -fsanitize=thread")
+        add_link_options(-fsanitize=thread)
+    else()
+        set(CMAKE_CXX_FLAGS_DEBUG "-g -fsanitize=address")
+    endif()
     add_compile_options(-Wall -Wextra -Wpedantic)
 else()
     # MSVC: UTF-8 소스 인식, deprecated 함수 경고 억제, WinHTTP 최소 대상 버전
@@ -176,6 +184,13 @@ add_executable(test_ws_frame tests/test_ws_frame.cpp)
 target_include_directories(test_ws_frame PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(test_ws_frame PRIVATE nlohmann_json::nlohmann_json)
 
+# WS 채널 디코더(api/KisWsDecode.h)와 정규장 시각 판정 — 헤더 전용이라 링크 없음
+add_executable(test_ws_decode tests/test_ws_decode.cpp)
+target_include_directories(test_ws_decode PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+add_executable(test_market_session tests/test_market_session.cpp)
+target_include_directories(test_market_session PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # ─── 테스트 타겟: RegimeController 점수/분류 단위 테스트 (KIS 불필요) ──────
 add_executable(test_regime tests/test_regime.cpp)
 target_include_directories(test_regime PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -266,6 +281,8 @@ set(QUANT_ASSERT_TARGETS
     test_order_gate
     test_order_router
     test_ws_frame
+    test_ws_decode
+    test_market_session
     test_regime
     test_ringbuffer
     test_ringbuffer_stress
@@ -279,6 +296,24 @@ foreach(_qt IN LISTS QUANT_ASSERT_TARGETS)
     else()
         target_compile_options(${_qt} PRIVATE -UNDEBUG)
     endif()
+endforeach()
+
+# ─── ctest 등록 ───────────────────────────────────────────────────────────
+# `ctest --preset x64-release`(저장소 루트) 또는 `ctest --test-dir Quant/build_win`.
+# 스트레스 두 개는 3초로 줄여 돌린다(운영 검증은 실행파일을 직접 길게). 벤치 3종은 측정용이라
+# 등록하지 않는다. 테스트가 logs/를 만들므로 빌드 폴더 아래 test_run/에서 실행한다.
+enable_testing()
+set(QUANT_TEST_RUN_DIR ${CMAKE_CURRENT_BINARY_DIR}/test_run)
+file(MAKE_DIRECTORY ${QUANT_TEST_RUN_DIR})
+foreach(_qt IN LISTS QUANT_ASSERT_TARGETS)
+    if(_qt STREQUAL "test_ringbuffer_stress")
+        add_test(NAME ${_qt} COMMAND ${_qt} 3 WORKING_DIRECTORY ${QUANT_TEST_RUN_DIR})
+    elseif(_qt STREQUAL "test_pipeline_stress")
+        add_test(NAME ${_qt} COMMAND ${_qt} 3 normal WORKING_DIRECTORY ${QUANT_TEST_RUN_DIR})
+    else()
+        add_test(NAME ${_qt} COMMAND ${_qt} WORKING_DIRECTORY ${QUANT_TEST_RUN_DIR})
+    endif()
+    set_tests_properties(${_qt} PROPERTIES TIMEOUT 120)
 endforeach()
 
 # ─── 도구: 수동 주문(모의계좌) — 접수→체결 실증 ───────────────────────────

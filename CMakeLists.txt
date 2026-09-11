@@ -11,5 +11,8 @@ endif()
 
 project ("Quant")
 
+# ctest가 루트 빌드 폴더에서 하위 테스트를 찾게 한다(`ctest --preset x64-release`).
+enable_testing()
+
 # 하위 프로젝트를 포함합니다.
 add_subdirectory ("Quant")
