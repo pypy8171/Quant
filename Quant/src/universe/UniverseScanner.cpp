@@ -337,6 +337,7 @@ struct IdxGateLatch
 
 IdxGateLatch g_kospi_latch;
 IdxGateLatch g_kosdaq_latch;
+IdxGateLatch g_itb_kospi_latch;   // ITB 슬리브 전용 — 임계가 DevScale과 달라 래치를 나눈다
 std::mutex   g_idx_latch_mu;
 
 // 히스테리시스 한 축. 등락률이 trip 아래로 내려가면 차단, resume 위로 올라오면 재개하고,
@@ -1323,8 +1324,9 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& cfg)
     std::vector<ItbCandidate> out;
 
     // 레짐 게이트: 코스피(0001) 당일 등락률이 risk_off 이하면 신규매수 유니버스 전면 스킵.
-    //  히스테리시스는 여기 필요 없다 — scan_itb는 기동 시 1회만 불리고 재스캔 잡에 안 붙어
-    //  20초 토글이 구조적으로 안 생긴다. 관측 유효성은 다르다. [why D-033]
+    //  판정은 DevScale과 같은 래치(latch_risk_off)로 하되 래치 객체는 따로 둔다 — 임계가
+    //  다른 슬리브가 한 래치를 나눠 쓰면 먼저 발화한 쪽 판정이 다른 쪽에 걸린다. 지금은 기동 시
+    //  1회 호출이라 체류·재개가 작동할 일이 없고, 재스캔 잡이 붙는 날 그대로 살아난다. [why D-033]
     auto kospi = scan_kis.get_index_price("0001");
     double idx_chg = kospi.change_rate / 100.0; // KIS는 % 단위
 
@@ -1338,11 +1340,19 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& cfg)
         return out;
     }
 
-    if (idx_chg < cfg.risk_off_idx)
+    bool risk_off = false;
+    {
+        std::lock_guard<std::mutex> lk(g_idx_latch_mu);
+        risk_off = latch_risk_off(g_itb_kospi_latch, idx_chg, /*observed=*/true, cfg.risk_off_idx,
+                                  cfg.risk_off_idx_resume, cfg.risk_off_dwell_sec, "코스피(ITB)");
+    }
+
+    if (risk_off)
     {
         LOG_WARN("[Main] universe_from_scan: 레짐 위험회피(코스피 " +
-                 std::to_string(kospi.change_rate) + "% < " +
-                 std::to_string(cfg.risk_off_idx * 100.0) + "%) — 신규매수 유니버스 미등록");
+                 std::to_string(kospi.change_rate) + "%, 차단 " +
+                 std::to_string(cfg.risk_off_idx * 100.0) + "% / 재개 " +
+                 std::to_string(cfg.risk_off_idx_resume * 100.0) + "%) — 신규매수 유니버스 미등록");
         return out;
     }
 

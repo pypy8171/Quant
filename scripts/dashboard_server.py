@@ -560,8 +560,25 @@ class Handler(BaseHTTPRequestHandler):
     kis = None
     quote = None
     cfg = None
+    cfg_path = None
+    cfg_mtime = 0.0
     regime_path = None
     uni_path = None
+
+    # /api/state의 criteria(한도 등)는 config에서 읽는다. 기동 때 한 번만 읽으면 config를 고쳐도
+    #  재기동 전까지 옛 값이 화면에 남는다(09-11 25→40 반영 안 됨). mtime이 바뀐 때만 다시 읽고,
+    #  파싱 실패면 마지막 정상본을 유지한다. 인증 정보(kis)는 기동 시점 것을 그대로 쓴다.
+    @classmethod
+    def current_cfg(cls):
+        try:
+            m = os.path.getmtime(cls.cfg_path)
+            if m != cls.cfg_mtime:
+                with open(cls.cfg_path, encoding="utf-8") as f:
+                    cls.cfg = json.load(f)
+                cls.cfg_mtime = m
+        except Exception:
+            pass
+        return cls.cfg
 
     def log_message(self, *a):
         pass  # 콘솔 조용히
@@ -582,7 +599,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/api/state"):
             try:
-                state = build_state(self.kis, self.quote, self.cfg, self.regime_path, self.uni_path)
+                state = build_state(self.kis, self.quote, self.current_cfg(), self.regime_path, self.uni_path)
                 body = json.dumps(state, ensure_ascii=False).encode("utf-8")
             except Exception as e:
                 body = json.dumps({"__error__": str(e)}, ensure_ascii=False).encode("utf-8")
@@ -1035,6 +1052,8 @@ def main():
     uni_path = REPO / uni_rel
 
     Handler.kis, Handler.quote, Handler.cfg = kis, quote, cfg
+    Handler.cfg_path = cfg_path
+    Handler.cfg_mtime = os.path.getmtime(cfg_path)
     Handler.regime_path, Handler.uni_path = regime_path, uni_path
 
     # 잔고·랭킹은 백그라운드로 수집 → HTTP 요청 스레드가 KIS 지연에 물리지 않음

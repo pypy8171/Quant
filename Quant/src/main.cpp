@@ -5,6 +5,8 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstdio>
+#include <exception>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -33,6 +35,51 @@ void signal_handler(int)
         g_engine->stop();
     }
 }
+
+// ─── 조용한 죽음 방지 ─────────────────────────────────────────────────────
+//  Logger는 비동기라 abort()·미처리 예외로 죽으면 마지막 줄들이 파일에 닿지 못한다.
+//  09-11 08:53·09:14 두 번, 로그 한 줄·종료코드·덤프 없이 프로세스가 사라졌다.
+//  종료 직전에 사유 한 줄을 남기고 flush한 뒤에 죽는다 — 원인 분석은 그 다음 일이다.
+static void log_and_die(const std::string& why)
+{
+    LOG_ERROR("[Main] 비정상 종료: " + why);
+    Logger::instance().flush();
+    std::_Exit(3);
+}
+
+static void on_terminate()
+{
+    std::string why = "std::terminate";
+
+    try
+    {
+        if (auto ep = std::current_exception())
+        {
+            std::rethrow_exception(ep);
+        }
+    }
+    catch (const std::exception& e)
+    {
+        why += " — " + std::string(e.what());
+    }
+    catch (...)
+    {
+        why += " — 비표준 예외";
+    }
+
+    log_and_die(why);
+}
+
+#ifdef _WIN32
+static LONG WINAPI on_seh(EXCEPTION_POINTERS* ep)
+{
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "SEH 0x%08lX",
+                  ep && ep->ExceptionRecord ? ep->ExceptionRecord->ExceptionCode : 0UL);
+    log_and_die(buf);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif
 
 // ─── 설정 파일 로드 ───────────────────────────────────────────────────────
 static json load_config(const std::string& path)
@@ -134,6 +181,11 @@ int main(int argc, char* argv[])
 
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
+    std::signal(SIGABRT, [](int) { log_and_die("SIGABRT"); });
+    std::set_terminate(on_terminate);
+#ifdef _WIN32
+    SetUnhandledExceptionFilter(on_seh);
+#endif
 
     std::string mode = cfg.value("mode", "FEED");
 

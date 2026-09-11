@@ -367,7 +367,7 @@ void test_cancel_releases_reserved()
     PASS("cancel_releases_reserved");
 }
 
-// ─── 테스트 10: 존재하지 않는 oid 취소 → REJECTED, KIS 미호출 ────────────────
+// ─── 테스트 10: 존재하지 않는 oid 취소 → CANCELLED(취소할 것 없음), KIS 미호출 ─────
 void test_cancel_unknown_oid()
 {
     OrderGate         gate(relaxed_cfg());
@@ -380,7 +380,8 @@ void test_cancel_unknown_oid()
     cancel.orig_client_oid = "NOPE";
     auto cm = router.submit(cancel);
 
-    assert(cm.status == OrderStatus::REJECTED);
+    assert(cm.status == OrderStatus::CANCELLED); // 거부가 아니라 끝난 상태 — 거부 통계에 안 들어간다
+    assert(router.stats().rejected == 0);
     assert(stub.cancel_calls == 0);
     PASS("cancel_unknown_oid");
 }
@@ -441,7 +442,8 @@ void test_cancel_after_full_fill_selfheal()
     cancel.orig_client_oid = "MM:B:1";
     auto cm = router.submit(cancel);
 
-    assert(cm.status == OrderStatus::REJECTED); // 이미 FILLED → 취소 대상 없음
+    assert(cm.status == OrderStatus::CANCELLED); // 이미 FILLED → 취소 대상 없음(거부가 아니라 끝난 상태)
+    assert(cm.reject_reason.find("이미 체결") != std::string::npos);
     assert(stub.cancel_calls == 0);
     assert(gate.reserved("005930") == 0);       // 이중해제 없음
     assert(gate.position("005930") == 10);

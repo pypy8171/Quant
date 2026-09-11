@@ -84,6 +84,10 @@ THRESHOLDS = {
 #  새어 들어간다. 검증 전까지 이 값을 확정된 임계로 인용하지 않는다. [why D-033]
 HALT_SCORE = -4
 LIQ_SCORE  = -6
+# 드릴용 덮어쓰기. 하락장에서 진입 경로를 시험하려고 halt를 잠시 끌 때 상수를 고치지 않고
+#  환경변수로 내린다(예: QUANT_HALT_SCORE=-99). 청산선은 따로 QUANT_LIQ_SCORE.
+HALT_SCORE = int(os.environ.get("QUANT_HALT_SCORE", HALT_SCORE))
+LIQ_SCORE  = int(os.environ.get("QUANT_LIQ_SCORE", LIQ_SCORE))
 
 
 def now_kst_iso() -> str:

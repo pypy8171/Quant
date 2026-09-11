@@ -31,6 +31,14 @@ using json = nlohmann::json;
 //  s_pending_regimes는 load_strategies가 로더를 부르는 동안만 유효하다(그 밖에서는 nullptr).
 static const std::vector<Regime>* s_pending_regimes = nullptr;
 
+// 보유분 청산 관리 부착은 슬리브 하나가 아니라 전 슬리브가 등록된 뒤에 한 번만 한다.
+//  s_scan_covered는 모든 DEVIATION_SCALE 슬리브가 담당하는 티커의 합집합이고, 청산 관리 설정은
+//  마지막으로 manage_holdings.enabled를 켠 슬리브의 것을 쓴다(현재 구성은 하나만 켠다).
+static std::set<std::string> s_scan_covered;
+static json                  s_pending_guardians;
+static bool                  s_guard_gated = false;
+static std::vector<Regime>   s_guard_regimes;
+
 static void add_gated(Engine& engine, std::unique_ptr<StrategyBase> strat)
 {
     if (s_pending_regimes && strat)
@@ -172,6 +180,8 @@ static void load_intraday_breakout(StrategyLoadCtx& ctx, const json& s)
         sc.min_price    = s.value("min_price", 3000.0);
         sc.sd_filter    = s.value("sd_filter", true);
         sc.risk_off_idx = s.value("risk_off_index_pct", -0.01);
+        sc.risk_off_idx_resume = s.value("risk_off_resume_pct", sc.risk_off_idx);
+        sc.risk_off_dwell_sec  = s.value("risk_off_dwell_sec", 0);
         sc.max_register = s.value("max_concurrent_positions", 3) * 2; // 후보는 상한의 2배까지 등록(경쟁)
 
         if (!ctx.has_quote_kis)
@@ -697,6 +707,8 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         // 정배열 마지막 조건(SMA20>SMA60)의 허용오차. 기본 0=기존 엄격 판정.
         sc.align_ma_tol_pct  = s.value("align_ma_tol_pct", 0.0);
         int rescan_sec     = s.value("rescan_interval_sec", 600); // 주기적 재스캔 간격(초)
+        // 스캔에서 이만큼 연속으로 빠진 종목의 전략을 뗀다(보유·선점 없을 때만). 0=안 뗌.
+        int drop_after_sec = s.value("rescan_drop_after_sec", 1800);
 
         // 유니버스 산출 콜백 — 초기 등록·주기적 재스캔 공용(cfg 값 복사 캡처).
         //  &engine 캡처의 수명 안전은 위 factory와 동일. 스캔 결과 종목명을 엔진 라벨 맵에 등록해 로그에 노출.
@@ -812,12 +824,14 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
             }
 
             // 주기적 재스캔 등록(동적) — data_thread가 rescan_sec마다 universe_fn을 재호출해
-            //  신규 티커만 런타임 add. 인증 실패해도 재스캔은 엔진 내부 시세 클라이언트로 시도.
-            // 등록 총수 상한은 스캔 1회 상한(max_universe)과 같게 둔다 — 스캔은 매번 그만큼만
-            //  고르는데 등록은 누적되므로, 상한이 없으면 총수가 그 값을 넘어 계속 는다.
+            //  신규 티커를 런타임 add하고, drop_after_sec 이상 빠져 있는 티커는 뗀다.
+            //  인증 실패해도 재스캔은 엔진 내부 시세 클라이언트로 시도.
+            // 등록 총수 상한은 스캔 1회 상한(max_universe)과 같게 둔다 — 해제가 느리게 따라오므로
+            //  상한이 없으면 총수가 그 값을 넘어 는다.
             engine.set_universe_rescan(universe_rescan, gate_factory(factory), rescan_sec,
-                                       static_cast<size_t>(sc.max_register));
-            LOG_INFO("[Main] " + base.id_prefix + " 주기적 재스캔 활성: " + std::to_string(rescan_sec) + "초 간격");
+                                       static_cast<size_t>(sc.max_register), drop_after_sec);
+            LOG_INFO("[Main] " + base.id_prefix + " 주기적 재스캔 활성: " + std::to_string(rescan_sec) +
+                     "초 간격, 이탈 해제 " + std::to_string(drop_after_sec) + "초");
         }
     }
     else
@@ -834,9 +848,17 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
     }
 
     // 보유분 청산 관리 — 스캔에 안 잡힌 잔고 보유분에 청산 전용 ITB 부착(옵션).
+    //  여기서 바로 붙이지 않고 전 슬리브 로드가 끝난 뒤에 붙인다. 이 슬리브의 covered만 보면
+    //  뒤에 로드되는 슬리브(TRENDX)가 방금 산 종목이 "스캔 밖 보유분"으로 보여 청산 관리가
+    //  겹쳐 붙고, 그 청산 관리의 seed-trail 매도가 슬리브의 잔여 매도와 같은 주식을 두고
+    //  경합한다(09-11 09:26~ ITB_112610·267250·014530 매도가능수량 0 거부 반복).
+    s_scan_covered.insert(covered.begin(), covered.end());
+
     if (s.contains("manage_holdings") && s["manage_holdings"].value("enabled", false))
     {
-        attach_holding_guardians(ctx, s["manage_holdings"], covered);
+        s_pending_guardians = s["manage_holdings"];
+        s_guard_gated       = (s_pending_regimes != nullptr);
+        s_guard_regimes     = s_guard_gated ? *s_pending_regimes : std::vector<Regime>{};
     }
 }
 
@@ -941,5 +963,14 @@ void load_strategies(StrategyLoadCtx& ctx, const json& strategies)
             LOG_INFO("[Main] " + type + " 활성국면: " + std::to_string(ar.size()) + "개 × 전략 " +
                      std::to_string(ctx.engine.strategy_count() - n_before) + "개");
         }
+    }
+
+    // 전 슬리브의 초기 유니버스가 확정된 뒤에야 "스캔 밖 보유분"을 가릴 수 있다.
+    if (!s_pending_guardians.is_null())
+    {
+        s_pending_regimes = s_guard_gated ? &s_guard_regimes : nullptr;
+        attach_holding_guardians(ctx, s_pending_guardians, s_scan_covered);
+        s_pending_regimes = nullptr;
+        s_pending_guardians = json();
     }
 }

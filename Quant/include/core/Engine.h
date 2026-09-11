@@ -83,6 +83,8 @@ public:
     //  종목을 시장가로 딱 1회 매수해 주문 경로 전체(OrderRouter→체결통보→원장)가 살아있는지
     //  확인한다. qty≤0 또는 ticker 빈 문자열이면 미가동.
     //  strategy_thread가 order_queue_의 단일 생산자이므로 그 스레드 진입 시 1회만 push한다.
+    //  하루 한 번만 낸다(logs/startup_probe_YYYYMMDD 표식) — 재기동마다 내면 점검 주식이 쌓인다
+    //  (2026-09-09 재기동 13회 → 005930 13주). 체결이 확인되면 같은 수량을 바로 되판다.
     void set_startup_probe(const std::string& ticker, int qty)
     {
         startup_probe_ticker_ = ticker;
@@ -131,13 +133,15 @@ public:
     // 주기적 유니버스 재스캔(동적 등록). universe_fn: 시세 클라이언트로 유니버스 티커 목록 산출.
     // factory: 티커 → 전략 인스턴스 생성. interval_sec: 재스캔 주기(초, ≤0이면 비활성).
     // data_thread가 interval_sec마다 universe_fn을 호출해 신규 티커만 런타임 등록한다.
-    // max_registered: 등록 전략 총수 상한(0이면 무제한). 재스캔은 추가만 하고 해제 경로가 없어,
-    //  구성이 바뀔 때마다 등록 수가 단조 증가한다. 등록 하나당 프리페치 스레드와 실시간 구독이
-    //  영구히 붙으므로 상한을 두지 않으면 하루가 갈수록 조회량이 늘어난다.
+    // max_registered: 등록 전략 총수 상한(0이면 무제한). 등록 하나당 프리페치 스레드와 실시간
+    //  구독이 붙으므로 상한이 없으면 하루가 갈수록 조회량이 늘어난다.
+    // drop_after_sec: 스캔 결과에서 이만큼 연속으로 빠져 있는 종목의 전략을 뗀다(≤0이면 안 뗌).
+    //  보유·미체결 선점이 있는 종목은 빠져 있어도 안 뗀다. 20초 재스캔에 한 번 빠졌다고 떼면
+    //  등록(차트 조회)과 해제가 도는 회전이 나므로 유지 시간을 둔다.
     void set_universe_rescan(
         std::function<std::vector<std::string>(KisClient&)> universe_fn,
         std::function<std::unique_ptr<StrategyBase>(const std::string&)> factory,
-        int interval_sec, size_t max_registered = 0)
+        int interval_sec, size_t max_registered = 0, int drop_after_sec = 0)
     {
         // 슬리브마다 한 번씩 부른다 — 덮어쓰지 않고 쌓는다. 예전에는 단일 슬롯이라
         //  두 번째 호출이 첫 번째를 조용히 지웠다(먼저 건 재스캔이 사라짐).
@@ -146,6 +150,7 @@ public:
         j.factory        = std::move(factory);
         j.interval_sec   = interval_sec;
         j.max_registered = max_registered;
+        j.drop_after_sec = drop_after_sec;
         rescan_jobs_.push_back(std::move(j));
     }
 
@@ -212,7 +217,7 @@ private:
     void strategy_thread_fn();
     void order_thread_fn();
     void control_thread_fn(); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
-    void bootstrap_ledger();  // G5: get_balance → OrderGate.seed_position (스레드 시작 전 1회)
+    bool bootstrap_ledger();  // G5: get_balance → OrderGate.seed_position (스레드 시작 전 1회). 실패=false → 기동 중단
     // 주기적 잔고 재조회 → positions_/daily_pnl_/총평가금 재동기.
     //  resync_positions=true(폴링 모드)면 미체결 선점(reserved_)을 비우고 실보유로 원장을 덮어쓴다.
     //  체결통보가 오는 WS 모드에서는 원장이 이미 체결로 갱신되고 reserved_에는 살아 있는 지정가
@@ -224,7 +229,12 @@ private:
     //  정상 경로·stale·무효 판정 세 자리에서 같은 기준을 쓰기 위해 따로 뺐다. [why D-033]
     bool regime_halt_time_box_passed();
     void log_regime_halt_expiry_once();
-    void maybe_rescan_universe();  // 주기적 유니버스 재스캔 → 신규 티커 런타임 등록 (data_thread 전용)
+    void maybe_rescan_universe();  // 주기적 유니버스 재스캔 → 신규 티커 런타임 등록·이탈 티커 해제 (data_thread 전용)
+    // 전략 해제는 두 단계다. 뗄 때는 strategies_에서 빼고 retired_로 옮기며 버전을 올린다 —
+    //  strategy_thread의 옛 스냅샷이 아직 그 포인터를 들고 있을 수 있어서 바로 지우지 않는다.
+    //  strategy_thread가 새 스냅샷을 만든 뒤(strat_seen_version_ ≥ 뗀 시점 버전) on_stop·파기한다.
+    //  force=true는 종료 경로(strategy_thread 합류 뒤)에서 전부 비운다.
+    void reap_retired(bool force);
     // G1: 현재 국면 r에 맞춰 전략별 active 플래그 재선택. 선택 결정을 로그로 기록(국면 변화
     //  또는 force_log 시). data_thread 전용(strategies_ 반복은 이 스레드에서만 mutate).
     void apply_regime_selection(Regime r, bool force_log);
@@ -253,6 +263,10 @@ private:
     std::string startup_probe_ticker_;  // 기동 점검 종목(빈 문자열=미가동)
     int         startup_probe_qty_ = 0; // 기동 점검 수량(≤0=미가동)
     bool        startup_probe_fired_ = false; // 기동 점검 1회성 발사 가드
+    // 되팔기 상태(strategy_thread 전용). base=발사 직전 보유수량, 그 위로 qty만큼 늘면 체결로 본다.
+    bool        startup_probe_settled_ = true;  // 되팔기 끝났거나 할 일 없음
+    int         startup_probe_base_qty_ = 0;
+    std::chrono::steady_clock::time_point startup_probe_fired_at_{};
     bool rest_price_feed_ = false;  // REST 현재가 폴링을 체결 피드로 사용(WS 우회, opt-in)
     // 지금 실제로 어느 피드로 도는지(런타임 상태). 기동 시 rest_price_feed_로 초기화하고,
     //  WS 모드에서 연결이 죽으면 control_thread가 true로 올려 폴링으로 낮춘다(WS 복귀 시 되돌림).
@@ -297,6 +311,14 @@ private:
     // 스냅샷을 재구성(무락 순회), data_thread는 재스캔 등록 시 락+version 증가.
     std::mutex strat_mutex_;
     std::atomic<uint64_t> strat_version_{0};
+    std::atomic<uint64_t> strat_seen_version_{0}; // strategy_thread가 마지막으로 스냅샷에 반영한 버전
+    // 뗀 전략 대기열(data_thread 전용). ver=뗀 직후의 strat_version_.
+    struct Retired
+    {
+        std::unique_ptr<StrategyBase> strategy;
+        uint64_t                      ver = 0;
+    };
+    std::vector<Retired> retired_;
 
     // 주기적 유니버스 재스캔 상태 (data_thread 전용)
     // 슬리브 하나당 한 건. 상한(max_registered)은 그 슬리브가 등록한 수로만 센다
@@ -308,7 +330,10 @@ private:
         int    interval_sec   = 0;
         size_t max_registered = 0;
         size_t registered     = 0;
+        int    drop_after_sec = 0;
         std::chrono::steady_clock::time_point last_run{};
+        std::unordered_map<std::string, StrategyBase*> owned; // 이 슬리브가 등록한 티커 → 전략(해제 대상 식별)
+        std::unordered_map<std::string, std::chrono::steady_clock::time_point> absent_since; // 스캔에서 빠진 시각
     };
     std::vector<RescanJob> rescan_jobs_;
     std::unordered_set<std::string> registered_tickers_; // 등록된 KR 티커(중복 방지, 슬리브 공유)

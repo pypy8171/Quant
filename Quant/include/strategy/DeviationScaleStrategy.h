@@ -505,7 +505,10 @@ public:
         //  rung을 깔지 않는다. 익절 매도·청산은 국면과 무관하게 유지(is_active 계약: 진입만 차단).
         //  active 상태를 시그니처에 접미 → 국면 플립 시 no-change 가드에 걸리지 않고 재구성되어
         //  기존 매수 예약이 cancel_all로 취소된다(플립 후 매수만 잔존하는 구멍 차단).
-        const bool entry_on = is_active();
+        //  신규매수 차단(entry_halt)도 같은 축이다 — 게이트가 거부만 하면 계획이 안 바뀌어
+        //  차단 해제 뒤에도 매수 rung이 돌아오지 않았다. 차단 중엔 매수 rung을 걷고(취소),
+        //  풀리면 시그니처가 바뀌어 다시 깐다. 떨림은 D-033 체류가 막는다. [why D-033]
+        const bool entry_on = is_active() && !entry_halted();
         sig += entry_on ? "A1" : "A0";
         const double reprice_band = p_.reprice_move_ticks * tick_size(sma);
         const bool   sma_quiet    = last_sma_ > 0.0 && std::fabs(sma - last_sma_) < reprice_band;
@@ -735,8 +738,23 @@ private:
 
     // 사이징 기준 자본(총평가금) 조회. output2 tot_evlu_amt(없으면 nass_amt). 알 수 없으면 0.
     //  프리페치 스레드에서 호출(읽기전용). 폴백(fallback_equity) 적용은 호출측(on_trade_batch, line eq).
+    // 총평가금은 계좌 하나의 값이라 종목마다 다시 부를 이유가 없다. 전략 스레드가 종목 수만큼
+    //  있어 기동 직후 같은 잔고 조회가 40건 동시에 나갔고, 모의 키 2건/초 한도를 주문까지
+    //  끌어내렸다(09-11 09:18 EGW00201). 프로세스 공용으로 하루 한 번만 부르고, 실패(0)는
+    //  캐시하지 않아 다음 종목이 다시 시도한다. 뮤텍스를 조회 동안 잡아 동시 진입도 한 번으로 접는다.
     double fetch_equity()
     {
+        static std::mutex  s_mu;
+        static std::string s_ymd;
+        static double      s_eq = 0.0;
+        std::lock_guard<std::mutex> lk(s_mu);
+        const std::string today = kst_ymd();
+
+        if (s_ymd == today && s_eq > 0.0)
+        {
+            return s_eq;
+        }
+
         double eq = 0.0;
         KisClient* akis = account_kis();
 
@@ -774,6 +792,12 @@ private:
                 }
             }
             catch (...) {}
+        }
+
+        if (eq > 0.0)
+        {
+            s_ymd = today;
+            s_eq  = eq;
         }
 
         return eq;

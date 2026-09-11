@@ -15,6 +15,22 @@
 
 using namespace std::chrono_literals;
 
+// 오늘 날짜 YYYYMMDD(KST). 날짜별 표식 파일 이름에 쓴다 — 손익 기준선 파일과 같은 기준이다.
+static std::string today_ymd()
+{
+    constexpr int kKstOffsetSec = 9 * 3600;
+    time_t        kt = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + kKstOffsetSec;
+    struct tm     ktm{};
+#ifdef _WIN32
+    gmtime_s(&ktm, &kt);
+#else
+    gmtime_r(&kt, &ktm);
+#endif
+    char buf[9];
+    std::strftime(buf, sizeof(buf), "%Y%m%d", &ktm);
+    return std::string(buf);
+}
+
 Engine::Engine(KisConfig kis_cfg, int fetch_interval_sec)
     : kis_cfg_(std::move(kis_cfg)), fetch_interval_sec_(fetch_interval_sec)
 {
@@ -47,6 +63,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     strategy->set_position_provider([this](const std::string& account, const std::string& ticker) {
         return order_gate_.position(account, ticker);
     });
+    strategy->set_entry_halt_provider([this] { return order_gate_.is_entry_halted(); });
 
     try
     {
@@ -190,9 +207,12 @@ void Engine::apply_regime_selection(Regime r, bool force_log)
     last_selected_regime_ = r;
 }
 
-// 주기적 유니버스 재스캔 — universe_fn_으로 티커 목록을 산출해 미등록 종목만 런타임 등록.
+// 주기적 유니버스 재스캔 — universe_fn_으로 티커 목록을 산출해 미등록 종목은 런타임 등록하고,
+//  drop_after_sec 이상 연속으로 빠져 있는 종목(보유·선점 없음)은 뗀다.
 void Engine::maybe_rescan_universe()
 {
+    reap_retired(/*force=*/false);
+
     if (rescan_jobs_.empty())
     {
         return;
@@ -265,9 +285,16 @@ void Engine::maybe_rescan_universe()
             }
 
             LOG_INFO("[Engine] 재스캔 신규 등록: " + strat->describe());
+            StrategyBase* raw = strat.get();
             register_strategy_runtime(std::move(strat));
-            ++added;
-            ++job.registered;
+
+            // on_start 예외로 등록이 거부됐으면 registered_tickers_에 안 들어간다.
+            if (registered_tickers_.count(t))
+            {
+                job.owned[t] = raw;
+                ++added;
+                ++job.registered;
+            }
         }
 
         if (added > 0 || capped)
@@ -279,7 +306,131 @@ void Engine::maybe_rescan_universe()
                                    " 도달, 신규 등록 중단"
                              : ""));
         }
+
+        if (job.drop_after_sec <= 0)
+        {
+            continue;
+        }
+
+        // 해제 판정. universe_fn은 보유 종목을 결과에서 이미 빼고 주므로(drop_held) 빠져 있다는
+        //  것만으로는 이탈이 아니다 — 보유·선점을 원장에서 다시 보고, 있으면 시계를 지운다.
+        std::unordered_set<std::string> in_scan(tickers.begin(), tickers.end());
+        std::unordered_set<std::string> held;
+
+        for (const auto& h : order_gate_.snapshot_positions())
+        {
+            if (h.qty != 0 || order_gate_.reserved(h.account, h.ticker) != 0)
+            {
+                held.insert(h.ticker);
+            }
+        }
+
+        std::vector<std::string> drop;
+
+        for (const auto& [t, ptr] : job.owned)
+        {
+            if (in_scan.count(t) || held.count(t) || order_gate_.reserved(t) != 0)
+            {
+                job.absent_since.erase(t);
+                continue;
+            }
+
+            auto it = job.absent_since.find(t);
+
+            if (it == job.absent_since.end())
+            {
+                job.absent_since.emplace(t, now_c);
+                continue;
+            }
+
+            if (now_c - it->second >= std::chrono::seconds(job.drop_after_sec))
+            {
+                drop.push_back(t);
+            }
+        }
+
+        for (const auto& t : drop)
+        {
+            StrategyBase* ptr = job.owned[t];
+            // 옛 스냅샷이 새 스냅샷으로 바뀔 때까지 틱은 계속 온다 — 그 사이 신규매수만 막는다.
+            ptr->set_active(false);
+            std::unique_ptr<StrategyBase> victim;
+            uint64_t ver = 0;
+            {
+                std::lock_guard<std::mutex> lk(strat_mutex_);
+                auto sit = std::find_if(strategies_.begin(), strategies_.end(),
+                                        [ptr](const std::unique_ptr<StrategyBase>& s) { return s.get() == ptr; });
+
+                if (sit != strategies_.end())
+                {
+                    victim = std::move(*sit);
+                    strategies_.erase(sit);
+                }
+
+                ver = strat_version_.fetch_add(1, std::memory_order_release) + 1;
+            }
+
+            if (victim)
+            {
+                LOG_INFO("[Engine] 재스캔 이탈 해제: " + victim->describe() + " — " +
+                         std::to_string(job.drop_after_sec) + "초 이상 유니버스 밖, 보유·선점 없음");
+                retired_.push_back(Retired{std::move(victim), ver});
+            }
+
+            registered_tickers_.erase(t);
+            job.owned.erase(t);
+            job.absent_since.erase(t);
+
+            if (job.registered > 0)
+            {
+                --job.registered;
+            }
+        }
+
+        if (!drop.empty())
+        {
+            LOG_INFO("[Engine] 유니버스 재스캔 해제: -" + std::to_string(drop.size()) +
+                     "종목 (이 슬리브 " + std::to_string(job.registered) + ", 전체 " +
+                     std::to_string(registered_tickers_.size()) + "종목)");
+        }
     }
+}
+
+void Engine::reap_retired(bool force)
+{
+    if (retired_.empty())
+    {
+        return;
+    }
+
+    const uint64_t seen = strat_seen_version_.load(std::memory_order_acquire);
+    auto           keep = retired_.begin();
+
+    for (auto it = retired_.begin(); it != retired_.end(); ++it)
+    {
+        if (!force && it->ver > seen)
+        {
+            *keep++ = std::move(*it);
+            continue;
+        }
+
+        try
+        {
+            it->strategy->on_stop();
+        }
+        catch (const std::exception& e)
+        {
+            LOG_ERROR("[Engine] 해제 전략 on_stop 예외 [" + it->strategy->id() + "]: " + e.what());
+        }
+        catch (...)
+        {
+            LOG_ERROR("[Engine] 해제 전략 on_stop 알 수 없는 예외 [" + it->strategy->id() + "]");
+        }
+
+        it->strategy.reset();
+    }
+
+    retired_.erase(keep, retired_.end());
 }
 
 void Engine::start()
@@ -362,9 +513,11 @@ void Engine::start()
     order_router_->cancel_stale_orders_async();
 
     // G5: 실계좌 보유분을 원장에 시드 (스레드 시작 전, 단일스레드 구간)
-    if (bootstrap_ledger_)
+    if (bootstrap_ledger_ && !bootstrap_ledger())
     {
-        bootstrap_ledger();
+        // running_이 아직 false라 main 루프가 바로 빠지고, 감시자가 5초 뒤 다시 띄운다.
+        LOG_ERROR("[Engine] 원장 없이 기동하지 않는다 — 프로세스 종료");
+        return;
     }
 
     // RegimeController (국면 메타레이어) 초기화
@@ -389,6 +542,7 @@ void Engine::start()
         s->set_position_provider([this](const std::string& account, const std::string& ticker) {
             return order_gate_.position(account, ticker);
         });
+        s->set_entry_halt_provider([this] { return order_gate_.is_entry_halted(); });
 
         try
         {
@@ -534,16 +688,33 @@ std::string Engine::ticker_name(const std::string& ticker) const
 //  계좌키는 account=""(전략 신호의 기본 account_id와 일치, C-1). 평단까지 시드해야
 //  매도 실현손익·일일손실 한도가 실제와 정합(C-2). reset_daily가 positions_/avg_prices_를
 //  보존하므로 장 시작 리셋 후에도 유지 — 프로세스 기동당 1회면 충분.
-void Engine::bootstrap_ledger()
+bool Engine::bootstrap_ledger()
 {
     try
     {
-        nlohmann::json bal = kis_->get_balance();
+        nlohmann::json bal;
+
+        // 기동 직후는 유령주문 취소·유니버스 스캔과 같은 초 안에 겹쳐 한도(초당 5건)에 자주
+        //  걸린다. 실패를 "보유 0"으로 읽고 넘어가면 빈 원장으로 매매한다(09-11 09:17 사례).
+        //  잠깐 쉬고 다시 묻는다. 끝내 못 읽으면 기동을 접는 게 맞다 — 감시자가 다시 띄운다.
+        for (int attempt = 0; attempt < 5; ++attempt)
+        {
+            bal = kis_->get_balance();
+
+            if (bal.contains("output1"))
+            {
+                break;
+            }
+
+            LOG_WARN("[Engine] 원장 부트스트랩: 잔고 응답 없음 — 재시도 " +
+                     std::to_string(attempt + 1) + "/5");
+            std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+        }
 
         if (!bal.contains("output1"))
         {
-            LOG_WARN("[Engine] 원장 부트스트랩: 잔고 output1 없음 — 건너뜀");
-            return;
+            LOG_ERROR("[Engine] 원장 부트스트랩: 잔고를 끝내 못 읽음 — 기동 중단");
+            return false;
         }
 
         int n = 0;
@@ -578,10 +749,12 @@ void Engine::bootstrap_ledger()
         }
 
         LOG_INFO("[Engine] 원장 부트스트랩 완료: " + std::to_string(n) + "종목 시드");
+        return true;
     }
     catch (const std::exception& e)
     {
         LOG_ERROR("[Engine] 원장 부트스트랩 예외: " + std::string(e.what()));
+        return false;
     }
 }
 
@@ -940,6 +1113,7 @@ void Engine::stop()
         s->on_stop();
     }
 
+    reap_retired(/*force=*/true);
     print_stats();
     LOG_INFO("[Engine] 종료 완료");
 }
@@ -1668,24 +1842,49 @@ void Engine::strategy_thread_fn()
 
     // 기동 점검 — 모의계좌 주문경로 검증용 1회성 시장가 매수(config startup_probe).
     //  이 스레드가 order_queue_ 단일 생산자라 여기서 딱 1번 push하면 SPSC 위반 없음.
+    //  하루 한 번만 — 표식 파일이 있으면 재기동에서는 건너뛴다. 체결이 확인되면 되판다(아래 루프).
     if (!startup_probe_fired_ && !startup_probe_ticker_.empty() && startup_probe_qty_ > 0)
     {
-        OrderSignal probe;
-        probe.ticker      = startup_probe_ticker_;
-        probe.side        = OrderSide::BUY;
-        probe.type        = OrderType::MARKET;
-        probe.quantity    = startup_probe_qty_;
-        probe.price       = 0.0;
-        probe.strategy_id = "STARTUP_PROBE";
-        LOG_INFO("[Engine] 기동 점검 — " + probe.ticker + " 시장가 BUY " +
-                 std::to_string(probe.quantity) + "주 (모의계좌 주문경로 검증)");
-        push_signal(probe);
         startup_probe_fired_ = true;
+        const auto marker = Logger::instance().path_for("startup_probe_" + today_ymd());
+        std::error_code ec;
+
+        if (std::filesystem::exists(marker, ec))
+        {
+            LOG_INFO("[Engine] 기동 점검 — 오늘 이미 냈다(" + marker.filename().string() + "), 건너뜀");
+        }
+        else
+        {
+            std::ofstream(marker) << "fired\n";
+            int base = 0;
+
+            for (const auto& h : order_gate_.snapshot_positions())
+            {
+                if (h.ticker == startup_probe_ticker_)
+                {
+                    base += h.qty;
+                }
+            }
+
+            OrderSignal probe;
+            probe.ticker      = startup_probe_ticker_;
+            probe.side        = OrderSide::BUY;
+            probe.type        = OrderType::MARKET;
+            probe.quantity    = startup_probe_qty_;
+            probe.price       = 0.0;
+            probe.strategy_id = "STARTUP_PROBE";
+            LOG_INFO("[Engine] 기동 점검 — " + probe.ticker + " 시장가 BUY " +
+                     std::to_string(probe.quantity) + "주 (모의계좌 주문경로 검증, 체결되면 되판다)");
+            push_signal(probe);
+            startup_probe_base_qty_ = base;
+            startup_probe_fired_at_ = std::chrono::steady_clock::now();
+            startup_probe_settled_  = false;
+        }
     }
 
-    // strategies_ 무락 순회용 StrategyBase* 스냅샷. data_thread의 재스캔 등록이
-    // strat_version_을 올릴 때만 락 하에 재구성한다(틱마다 락 회피). 삭제는 없으므로
-    // 스냅샷 포인터는 벡터 재할당 후에도 힙 객체를 유효하게 가리킨다.
+    // strategies_ 무락 순회용 StrategyBase* 스냅샷. data_thread의 재스캔 등록·해제가
+    // strat_version_을 올릴 때만 락 하에 재구성한다(틱마다 락 회피). 뗀 전략은 retired_가
+    // 붙들고 있어 재구성 전의 옛 포인터도 유효하다(reap_retired가 seen 버전을 보고 파기).
     // 국면 게이트 적용 지점. apply_regime_selection()이 set_active로 표시만 해 두고
     //  틱 디스패치는 그 표시를 보지 않아, 국면-전략 자동선택이 실제로는 아무것도 막지
     //  않았다(2026-09-08 확인). 신규매수만 막고 청산·취소·정정은 통과시킨다 —
@@ -1744,6 +1943,8 @@ void Engine::strategy_thread_fn()
             }
 
             seen_ver = ver;
+            // 뗀 전략은 이 시점부터 스냅샷에 없다. data_thread는 이 값을 보고 파기한다.
+            strat_seen_version_.store(ver, std::memory_order_release);
         }
 
         // ── G3 강제청산: force_liquidate 동안 매 주기(≤2s) 보유 전량 시장가 매도 ──
@@ -1791,6 +1992,50 @@ void Engine::strategy_thread_fn()
 
         // ── 종목당 명목 한도 초과분 정리 (기동 후 1회) ─────────────────────────
         //  강제청산과 같은 스레드(단일 생산자)에서 낸다 — order_queue_ SPSC 준수.
+        // 기동 점검 되팔기 — 보유가 base+qty 이상이면 체결로 보고 같은 수량을 시장가로 판다.
+        //  체결통보를 직접 보지 않고 원장 수량으로 판정한다(원장이 진실원천). 120초 안에 안 늘면
+        //  접수 거부·미체결로 보고 포기한다 — 그때는 다음 기동에서 표식 때문에 다시 내지도 않는다.
+        if (!startup_probe_settled_)
+        {
+            const auto  now_p = std::chrono::steady_clock::now();
+            int         qty   = 0;
+            std::string account;
+
+            for (const auto& h : order_gate_.snapshot_positions())
+            {
+                if (h.ticker == startup_probe_ticker_)
+                {
+                    qty += h.qty;
+                    account = h.account;
+                }
+            }
+
+            if (qty >= startup_probe_base_qty_ + startup_probe_qty_)
+            {
+                OrderSignal back;
+                back.ticker      = startup_probe_ticker_;
+                back.account_id  = account;
+                back.side        = OrderSide::SELL;
+                back.type        = OrderType::MARKET;
+                back.quantity    = startup_probe_qty_;
+                back.price       = 0.0;
+                back.ref_price   = order_gate_.avg_price(account, startup_probe_ticker_);
+                back.strategy_id = "STARTUP_PROBE";
+                back.reason      = "기동 점검 되팔기";
+                LOG_INFO("[Engine] 기동 점검 체결 확인(보유 " + std::to_string(startup_probe_base_qty_) +
+                         "→" + std::to_string(qty) + ") — " + back.ticker + " 시장가 SELL " +
+                         std::to_string(back.quantity) + "주로 되판다");
+                push_signal(back);
+                startup_probe_settled_ = true;
+            }
+            else if (now_p - startup_probe_fired_at_ > std::chrono::seconds(120))
+            {
+                LOG_WARN("[Engine] 기동 점검 120초 안에 체결 확인 못 함(보유 " + std::to_string(qty) +
+                         ") — 되팔기 생략");
+                startup_probe_settled_ = true;
+            }
+        }
+
         if (!trim_done && std::chrono::steady_clock::now() >= trim_after)
         {
             trim_done = true;
@@ -1997,7 +2242,7 @@ void Engine::order_thread_fn()
             continue;
         }
 
-        // 호출 간격 조절 — 직전 발주 후 min_interval 경과 보장(초당한도 하회로 EGW00201 회피)
+        // 호출 간격 조절 — 직전 KIS 발주 후 min_interval 경과 보장(초당한도 하회로 EGW00201 회피)
         now = steady_clock::now();
 
         if (now - last_submit < min_interval)
@@ -2007,8 +2252,14 @@ void Engine::order_thread_fn()
 
         try
         {
+            // 간격은 KIS를 실제로 부른 뒤에만 센다. 로컬 거부(게이트·ENTRY_HALT)는 한도와 무관하다.
+            const uint64_t calls_before = order_router_->kis_calls();
             auto mo = order_router_->submit(sig);
-            last_submit = steady_clock::now();
+
+            if (order_router_->kis_calls() != calls_before)
+            {
+                last_submit = steady_clock::now();
+            }
 
             if (mo.status == OrderStatus::ACCEPTED)
             {

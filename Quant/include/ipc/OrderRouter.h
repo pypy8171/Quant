@@ -5,6 +5,7 @@
 #ifdef HAS_ZMQ
 #include "ipc/ZmqBridge.h"
 #endif
+#include <array>
 #include <atomic>
 #include <deque>
 #include <thread>
@@ -73,6 +74,14 @@ public:
     };
     Stats stats() const;
 
+    // KIS 주문 API(신규·취소·정정)를 실제로 부른 누적 횟수. 주문 스레드가 submit 전후 값을 비교해
+    //  발주 간격(order_min_interval_ms)을 실제 호출 뒤에만 건다 — 게이트·ENTRY_HALT의 로컬 거부는
+    //  KIS에 안 나가는데도 같은 간격을 먹어 재기동 직후 거부 62건이 31초를 삼켰다(09-10 12:58).
+    uint64_t kis_calls() const
+    {
+        return kis_calls_.load(std::memory_order_relaxed);
+    }
+
     // ── 최근 N건 이력 조회 ────────────────────────────────────────────────
     std::vector<ManagedOrder> recent(int n = 20) const;
 
@@ -104,6 +113,9 @@ private:
     // 부속 파일 덮어쓰기(io_mtx_). seq가 이미 쓴 것보다 오래됐으면 건너뛴다 —
     //  락 밖에서 쓰므로 스냅샷 순서와 쓰기 순서가 뒤집힐 수 있다. 실패는 매매를 막지 않는다.
     void        write_open_orders_file(const std::string& body, uint64_t seq);
+    // 스냅샷을 새로 떠서 부속 파일을 다시 쓴다(hist_mtx_를 잠깐 잡고, 쓰기는 밖에서).
+    //  이전 세션 줄(carry_rows_)이 정리될 때마다 취소 스레드가 부른다.
+    void        rewrite_open_orders();
     // 거래 원장 CSV 적재 — 주문/체결을 logs/trades_YYYYMMDD.csv 에 한 줄씩 영속화.
     //   event가 빈 문자열이면 mo.status를 event로 사용(접수/거부/취소). 체결은 "FILL".
     //   파일 쓰기는 io_mtx_로 직렬화한다(hist_mtx_ 밖에서 호출 — 디스크가 원장 락을 잡지 않게).
@@ -177,6 +189,12 @@ private:
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> cancel_miss_;
     // 부속 파일 스냅샷 번호. hist_mtx_ 아래에서 올리고, io_mtx_ 아래에서 "마지막으로 쓴 번호"와 비교한다.
     uint64_t open_orders_seq_         = 0;
+    // 이전 세션에서 넘어온 미체결 줄(odno|orgno|ticker|side|remaining). 취소 스레드가 한 건씩 정리한다.
+    //  스냅샷이 history_만 보면 취소를 못 마친 줄(한도 거부·종료 중단·크래시)이 이번 세션 첫 기록에서
+    //  파일에서 사라지고 다음 재기동은 그 주문을 모른다. 정리될 때까지 스냅샷에 같이 실린다.
+    //  [lock-order] hist_mtx_ → carry_mtx_. 취소 스레드는 carry_mtx_를 단독으로만 잡는다.
+    std::vector<std::array<std::string, 5>> carry_rows_;
+    mutable std::mutex                      carry_mtx_;
     std::mutex io_mtx_;                       // 원장 CSV·부속 파일 쓰기 직렬화
     uint64_t open_orders_written_seq_ = 0;    // io_mtx_ 보호
 
@@ -188,4 +206,5 @@ private:
     std::atomic<uint64_t> total_count_{0};
     std::atomic<uint64_t> accepted_count_{0};
     std::atomic<uint64_t> rejected_count_{0};
+    std::atomic<uint64_t> kis_calls_{0};      // [inv] 6곳의 kis_ 주문 호출 직전에만 올린다
 };

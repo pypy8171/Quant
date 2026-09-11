@@ -22,6 +22,10 @@ struct ItbScanCfg
     double min_price    = 3000.0;
     bool   sd_filter    = true;
     double risk_off_idx = -0.01;
+    // 재개 임계·체류는 DevScale 쪽(ScanCfg)과 같은 뜻이다. 기본값은 차단 임계와 같고 체류 0이라
+    //  옛 단일 임계 동작과 같다 — 값을 가르는 것은 config 몫이다. [inv] resume >= risk_off_idx
+    double risk_off_idx_resume = -0.01;
+    int    risk_off_dwell_sec  = 0;
     int    max_register = 6;
 };
 

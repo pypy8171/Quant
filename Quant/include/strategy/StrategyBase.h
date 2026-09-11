@@ -111,6 +111,20 @@ public:
         return position_provider_ ? position_provider_(account, ticker) : 0;
     }
 
+    // 신규매수 차단(OrderGate::is_entry_halted) 접근자 주입 — Engine이 바인딩한다.
+    //  게이트는 라우터 앞에서 매수를 거부하지만 전략은 그걸 모르고 같은 계획을 유지하므로,
+    //  차단이 풀려도 분할 매수를 다시 깔지 않았다(09-10 결함 C). 전략이 계획 단계에서 읽게 한다.
+    //  미주입이면 false = 차단 없음.
+    void set_entry_halt_provider(std::function<bool()> f)
+    {
+        entry_halt_provider_ = std::move(f);
+    }
+
+    bool entry_halted() const
+    {
+        return entry_halt_provider_ ? entry_halt_provider_() : false;
+    }
+
 protected:
     // 잔고·매도가능수량·총평가금을 조회할 클라이언트. 주입됐으면 그쪽, 아니면 시세 클라이언트.
     //  (호출측은 지금까지처럼 has_account()로 한 번 더 확인한다.)
@@ -122,6 +136,7 @@ protected:
     KisClient* kis_ = nullptr;         // non-owning; lifetime guaranteed by Engine
     KisClient* account_kis_ = nullptr; // non-owning; 계좌 조회용(미주입 시 kis_ 사용)
     std::function<int(const std::string&, const std::string&)> position_provider_; // 결제완료 확정 포지션(D2=결제일 T+2)
+    std::function<bool()> entry_halt_provider_; // 신규매수 차단 여부(OrderGate). 미주입=false
     std::atomic<bool> active_{true};   // 국면 게이트(Engine이 설정). 기본 true=통과 (G-1)
     std::vector<Regime> active_regimes_ = {Regime::BULL, Regime::NEUTRAL, Regime::BEAR};
 };

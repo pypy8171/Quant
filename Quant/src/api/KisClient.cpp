@@ -1711,6 +1711,18 @@ nlohmann::json KisClient::get_balance()
             break;
         }
 
+        // [wire] 한도 초과(EGW00201)나 서버 오류 본문은 rt_cd≠"0"에 output1이 빈 배열이다. 이걸
+        //  정상 응답처럼 돌려주면 호출자가 "보유 0종목"으로 읽어 원장을 비운 채 매매한다
+        //  (09-11 09:17 재기동 시드 0건 → 3분간 빈 원장). 첫 페이지 실패는 빈 객체로 돌려
+        //  호출자가 재시도하게 하고, 뒤 페이지 실패는 부분 목록으로 진행하지 않고 끊는다.
+        if (j.value("rt_cd", "") != "0")
+        {
+            LOG_WARN("[KIS] 잔고 조회 응답 오류(page=" + std::to_string(page) + ") " +
+                     j.value("msg_cd", "") + " " + j.value("msg1", ""));
+            result = json();
+            break;
+        }
+
         if (page == 0)
         {
             result = j; // output2(계좌요약)·최상위 필드는 첫 페이지 기준
