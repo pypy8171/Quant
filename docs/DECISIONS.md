@@ -1424,7 +1424,7 @@ stoi/stod의 관대함("215000abc"→215000, "1,000"→1)도 한 케이스로 �
 `체결 무시`/`파싱 오류` WARN이 전과 같은지.
 
 ### D-038 대사 단계를 원장에 남긴다 — 신호 순번 열, RECONCILE 행, 청산차단 취소의 선점 해제 (2026-09-11)
-**상태**: 채택 (라우터·CSV·테스트 반영, Engine 배선은 D-036 커밋 뒤 같은 번호로 잇는다)
+**상태**: 채택 (라우터·CSV·테스트 반영. Engine 배선은 같은 날 저녁 `wt/c2`에서 이었다 — 아래 "Engine 배선" 단락)
 
 **결정**: 셋이다.
 
@@ -1457,6 +1457,31 @@ CSV 쓰기는 `append_trade_line` 한 곳으로 모았다(헤더 정본 `kTradeH
 한 번 재작성). `write_trade_row`와 `record_reconcile`은 줄만 만든다. Engine 쪽(전략 스레드 stamp,
 `reconcile_from_balance`의 `record_reconcile` 호출)은 다른 세션이 `Quant/src/core/Engine.cpp`에 D-036을 쥐고 있어
 그 커밋 뒤에 붙인다 — 그때까지 라이브 CSV의 `seq`는 빈 칸이고 RECONCILE 행은 나오지 않는다.
+
+**Engine 배선** (같은 날 저녁, worktree `wt/c2`): D-036이 저녁까지 착지하지 않아 HEAD에서 가지를 따고 나중에
+그 위로 얹기로 했다. 배선은 둘이다.
+
+1. `strategy_thread_fn`의 `raw_push`가 신호를 큐에 넣기 전에 `sig.seq = ++signal_seq_`를 찍는다. `signal_seq_`는
+   전략 스레드만 만지므로(`order_queue_` 단일 생산자) atomic이 아니다. `signal_count_`(통계용 atomic)를 겸용하지
+   않은 이유: 둘은 뜻이 다르고, 통계 카운터를 나중에 다른 스레드가 올리게 되면 순번이 건너뛴다.
+2. 잔고 대조의 차이 계산은 `Quant/include/core/ReconcilePlan.h`의 순수 함수 `reconcile::plan(ledger, broker,
+   resync, pruned, note)`로 뺐다. `reconcile_from_balance`는 `output1`을 읽자마자 `snapshot_positions()`로 원장을
+   떠 두고(덮어쓴 뒤에 재면 항상 일치로 나온다), `seed_position`·`prune_positions`가 끝난 뒤 그 스냅샷과 브로커
+   목록으로 `plan()`을 불러 어긋난 종목만 `record_reconcile`에 넘긴다. 일치 종목은 행을 만들지 않는다 — 보유
+   40종목이 대조 주기마다 40행이면 체결 행이 묻힌다. 평단 차이는 1원 미만이면 일치로 본다(브로커 `pchs_avg_pric`은
+   소수 넷째 자리, 원장은 정수 체결가 가중평균). `held`가 비면(잔고를 못 받은 것으로 보는 경우) 정리와 같이 대조도
+   건너뛴다 — 전 종목이 "브로커 0"으로 찍히면 오독한다. `OrderRouter::ReconcileNote`는 `reconcile::Row`의 별칭이
+   됐다(필드·호출부 불변). 모드는 `note`에 `mode=REST`/`mode=WS`로 남는다.
+
+| 버린 대안 | 이유 |
+|---|---|
+| 일치 종목도 KEEP 행으로 남겨 "대조가 돌았다"는 흔적을 두기 | 기각. 40행/주기가 체결 행을 덮는다. 대조가 돌았다는 사실은 로그의 `[Engine] 잔고 대조` 줄이 이미 남긴다 |
+| 차이 계산을 Engine 안에 두고 Engine 통합 테스트로 확인 | 기각. Engine은 KisClient·큐·스레드를 다 물고 있어 원장≠잔고 4갈래를 결정적으로 돌릴 수 없다. 순수 함수로 빼면 링크 없이 돈다(D-051과 같은 방식) |
+
+`Quant/tests/test_reconcile_plan.cpp`(ctest 16번째)가 일치→행 없음, 수량 어긋남 REST→OVERWRITE/WS→KEEP, 평단만
+1원 어긋남→행, 원장에만 있는 종목의 PRUNE/KEEP과 브로커에만 있는 종목의 OVERWRITE(원장 0), 브로커 qty≤0·빈
+티커 무시를 고정한다. `ctest --preset x64-release` 16/16. 실행 중 `quant_trader`는 바꾸지 않았다 — 주문·수신
+경로라 다음 장 시작 전 재기동부터 `seq` 열과 RECONCILE 행이 붙는다.
 
 **확인 방법**: `Quant/tests/test_order_router.cpp`에 셋 — `reconcile_row_written`(17열·live_orders=1·diff_qty=-3),
 `seq_propagates_to_rows`(77이 접수·체결 행에, 0은 빈 칸), `blocked_sell_releases_reservation`(모의 경로: 예약 8

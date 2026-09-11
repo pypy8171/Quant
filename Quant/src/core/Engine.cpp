@@ -1,5 +1,6 @@
 #include "core/Engine.h"
 #include "api/KisErrorCodes.h"
+#include "core/ReconcilePlan.h"
 #include "utils/Logger.h"
 #include <algorithm>
 #include <chrono>
@@ -859,6 +860,16 @@ void Engine::reconcile_from_balance(bool resync_positions)
         {
             responded = true;
 
+            // 대조 행은 덮어쓰기·정리 "전" 원장 값으로 남긴다 — 덮어쓴 뒤에 재면 항상 일치로 나온다. [why D-038]
+            std::vector<reconcile::Held> ledger_before;
+
+            for (const auto& hp : order_gate_.snapshot_positions())
+            {
+                ledger_before.push_back(reconcile::Held{hp.ticker, hp.qty, hp.avg_price});
+            }
+
+            std::vector<reconcile::Held> broker_now;
+
             // 잔고는 서버 확정 스냅샷 → 미체결 선점(reserved_)을 통째로 비우고 실보유만 신뢰.
             //  체결피드(H0STCNI0) 부재로 누적된 H-1 드리프트(과잉 선점 → 정상신호 과잉차단)를
             //  동기화 시점마다 해소한다(#1). reset은 seed 재기록 전에 1회.
@@ -884,6 +895,7 @@ void Engine::reconcile_from_balance(bool resync_positions)
                 }
 
                 held.push_back(code);
+                broker_now.push_back(reconcile::Held{code, q, av});
 
                 if (resync_positions)
                 {
@@ -945,6 +957,26 @@ void Engine::reconcile_from_balance(bool resync_positions)
 
                 LOG_WARN("[Engine] 잔고 대조: 잔고에 없는 원장 보유 " +
                          std::to_string(gone.size()) + "종목 정리 (" + list + ")");
+            }
+
+            // 어긋난 종목만 RECONCILE 행으로 원장 CSV에 남긴다(일치는 행 없음). held가 비면 잔고를 못 받은
+            //  것이라 위에서 정리를 건너뛰었듯 대조도 건너뛴다 — 전 종목 "브로커 0"으로 찍히면 오독한다.
+            if (!held.empty() && order_router_)
+            {
+                const auto rows = reconcile::plan(ledger_before, broker_now, resync_positions, gone,
+                                                  resync_positions ? "mode=REST" : "mode=WS");
+
+                for (const auto& r : rows)
+                {
+                    order_router_->record_reconcile(r);
+                }
+
+                if (!rows.empty())
+                {
+                    LOG_WARN("[Engine] 잔고 대조: 원장≠잔고 " + std::to_string(rows.size()) +
+                             "종목 → trades CSV RECONCILE 행 (" +
+                             (resync_positions ? "REST 모드, 잔고로 덮어씀" : "WS 모드, 원장 유지") + ")");
+                }
             }
         }
 
@@ -2066,9 +2098,14 @@ void Engine::strategy_thread_fn()
 {
     LOG_INFO("[StrategyThread] 시작");
 
-    auto raw_push = [&](const OrderSignal& sig)
+    auto raw_push = [&](const OrderSignal& in)
     {
         ++signal_count_;
+
+        // 전략이 만든 순간의 순번을 찍는다. 게이트 거부·큐 드롭·접수·체결 행이 전부 이 번호를 물고 가서
+        //  어긋난 건이 어느 단계에서 벌어졌는지 CSV에서 따라갈 수 있다. [why D-038]
+        OrderSignal sig = in;
+        sig.seq = ++signal_seq_;
 
         // 취소·정정은 수량이 0이라 side만 찍으면 "BUY 0"으로 나온다. 09-09에 그 줄을 보고
         //  0주 매수 결함으로 오인해 한참 뒤졌다. 무엇을 하는 신호인지 앞에 적는다.

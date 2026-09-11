@@ -231,6 +231,10 @@ target_include_directories(test_ops_protocol PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
 add_executable(test_market_session tests/test_market_session.cpp)
 target_include_directories(test_market_session PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# 잔고 대조 차이 계산(core/ReconcilePlan.h) — 헤더 전용, 링크 없음 (D-038)
+add_executable(test_reconcile_plan tests/test_reconcile_plan.cpp)
+target_include_directories(test_reconcile_plan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # ─── 테스트 타겟: RegimeController 점수/분류 단위 테스트 (KIS 불필요) ──────
 add_executable(test_regime tests/test_regime.cpp)
 target_include_directories(test_regime PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -333,6 +337,7 @@ set(QUANT_ASSERT_TARGETS
     test_ws_decode
     test_kis_decode
     test_market_session
+    test_reconcile_plan
     test_ops_protocol
     test_ops_server
     test_regime

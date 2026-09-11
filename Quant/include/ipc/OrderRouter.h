@@ -1,5 +1,6 @@
 #pragma once
 #include "core/Types.h"
+#include "core/ReconcilePlan.h"
 #include "risk/OrderGate.h"
 #include "api/IOrderExecutor.h"
 #ifdef HAS_ZMQ
@@ -62,16 +63,7 @@ public:
     //  reason에 그 종목의 살아있는 주문 수(live_orders)를 적는다 — 미체결이 있으면 불일치가
     //  체결 지연일 수 있어 사람이 어느 단계인지 가를 근거가 된다. 덮어쓰기·정리(action이 KEEP이
     //  아닌 것)는 LOG_WARN도 낸다. 원장 자체는 바꾸지 않는다(그건 OrderGate 몫).
-    struct ReconcileNote
-    {
-        std::string ticker;
-        int         ledger_qty = 0;
-        int         broker_qty = 0;
-        double      ledger_avg = 0.0;
-        double      broker_avg = 0.0;
-        std::string action;      // "OVERWRITE" | "PRUNE" | "KEEP"
-        std::string note;        // 자유 문구(대조 모드 등). 콤마는 공백으로 바뀐다.
-    };
+    using ReconcileNote = reconcile::Row;   // 필드는 core/ReconcilePlan.h. Engine의 plan() 결과를 그대로 받는다
     void record_reconcile(const ReconcileNote& n);
 
     // 살아있는 주문이 없는데 게이트에 남은 선점을 푼다. 선점은 접수 때만 생기므로

@@ -139,6 +139,7 @@ Quant/                              ← 저장소 루트
 │   │   │   └── KisWebSocket.h      실시간 체결·호가 WebSocket + stale 감지
 │   │   ├── core/
 │   │   │   ├── Engine.h            4-스레드 트레이딩 엔진 (+국면→전략 자동선택·강제청산)
+│   │   │   ├── ReconcilePlan.h     잔고 대조 차이 계산 → RECONCILE 행 (헤더 전용 순수 함수, test_reconcile_plan)
 │   │   │   ├── RegimeController.h  장시작 국면 판정 (200MA·정배열 → BULL/NEUTRAL/BEAR)
 │   │   │   ├── RingBuffer.h        SPSC 락-프리 큐 (cache-line 분리)
 │   │   │   └── Types.h             MarketData, OrderSignal(+ref_price), Regime/RegimeSnapshot 등
@@ -197,6 +198,7 @@ Quant/                              ← 저장소 루트
 │   │   ├── test_order_gate.cpp     OrderGate 단위 테스트
 │   │   ├── test_order_router.cpp   OrderRouter 통합 테스트 (6/6 PASS, StubExecutor)
 │   │   ├── test_kis_decode.cpp     REST 분봉 디코더 (숫자·시각·페이지 병합·집계)
+│   │   ├── test_reconcile_plan.cpp 잔고 대조 차이 계산 (원장≠잔고 4갈래·일치는 행 없음)
 │   │   ├── test_ringbuffer.cpp     RingBuffer 기본 동작 검증
 │   │   ├── test_ringbuffer_stress.cpp  SPSC 부하 테스트
 │   │   └── test_pipeline_stress.cpp    E2E 파이프라인 부하 테스트
