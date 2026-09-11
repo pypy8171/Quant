@@ -385,7 +385,8 @@ bool KisWebSocket::subscribe_incremental(const WatchSpec& spec)
 
     if (sub_used_.load() + need > kMaxWsSubs)
     {
-        // 상한 도달 — 시세는 REST 폴링으로 대체된다(체결통보 슬롯을 지킨다).
+        // 상한 도달 — 여기서는 구독만 거른다(체결통보 슬롯을 지킨다). 시세 대체는 Engine이
+        //  has_spec()==false를 보고 ws_overflow_specs_로 REST 폴링을 돈다.
         // 목록에 남겨 두면 다음 재연결의 subscribe_all이 이 spec을 먼저 세어 뒤쪽 종목을 밀어내므로 되돌린다.
         std::lock_guard<std::mutex> lk(specs_mtx_);
 
@@ -405,6 +406,22 @@ bool KisWebSocket::subscribe_incremental(const WatchSpec& spec)
     subscribe_spec(spec);
     sub_used_.fetch_add(need);
     return true;
+}
+
+bool KisWebSocket::has_spec(const WatchSpec& spec) const
+{
+    std::lock_guard<std::mutex> lk(specs_mtx_);
+
+    for (const auto& w : specs_)
+    {
+        if (w.market == spec.market && w.exchange == spec.exchange &&
+            w.ticker == spec.ticker && w.is_future == spec.is_future)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void KisWebSocket::subscribe_all()
@@ -443,24 +460,57 @@ void KisWebSocket::subscribe_all()
         LOG_WARN("[WS] hts_id 미설정 — 체결통보(H0STCNI9/0) 구독 건너뜀. 주문 실행은 정상 동작.");
     }
 
-    int skipped = 0;
+    std::vector<WatchSpec> skipped;
 
     for (const auto& spec : snapshot)
     {
         const int need = spec_channel_count(spec);
 
-        if (used + need > kMaxWsSubs) { ++skipped; continue; }
+        if (used + need > kMaxWsSubs)
+        {
+            skipped.push_back(spec);
+            continue;
+        }
+
         subscribe_spec(spec);
         used += need;
     }
 
     sub_used_.store(used);
 
-    if (skipped > 0)
+    if (!skipped.empty())
     {
+        // 밀린 종목은 목록에서도 빼고 넘침 목록에 둔다 — subscribe_incremental의 상한 처리와 같은
+        //  규약이다. 목록에 남기면 has_spec()이 true라 Engine이 REST 대체를 걸지 않아 이 종목은
+        //  틱 없이 조용히 매매하지 않는다(09-11 청산 관리 시드 13종목, 465770 −6%에도 무반응).
+        std::lock_guard<std::mutex> lk(specs_mtx_);
+
+        for (const auto& spec : skipped)
+        {
+            for (auto it = specs_.begin(); it != specs_.end(); ++it)
+            {
+                if (it->market == spec.market && it->exchange == spec.exchange &&
+                    it->ticker == spec.ticker && it->is_future == spec.is_future)
+                {
+                    specs_.erase(it);
+                    break;
+                }
+            }
+
+            overflow_specs_.push_back(spec);
+        }
+
         LOG_WARN("[WS] 구독 상한 " + std::to_string(kMaxWsSubs) + " 도달 — 시세 " +
-                 std::to_string(skipped) + "종목 구독 생략(REST 폴링으로 대체). 체결통보는 유지.");
+                 std::to_string(skipped.size()) + "종목 구독 생략(REST 폴링으로 대체). 체결통보는 유지.");
     }
+}
+
+std::vector<WatchSpec> KisWebSocket::take_overflow_specs()
+{
+    std::lock_guard<std::mutex> lk(specs_mtx_);
+    std::vector<WatchSpec> out;
+    out.swap(overflow_specs_);
+    return out;
 }
 
 void KisWebSocket::parse_message(const std::string& msg)

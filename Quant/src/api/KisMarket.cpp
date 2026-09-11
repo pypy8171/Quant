@@ -5,14 +5,28 @@
 
 std::vector<MarketData> KisClient::get_daily_ohlcv(const std::string& ticker, int count, bool include_today)
 {
+    return get_chart_ohlcv(ticker, count, include_today, 'D');
+}
+
+std::vector<MarketData> KisClient::get_weekly_ohlcv(const std::string& ticker, int count, bool include_this_week)
+{
+    return get_chart_ohlcv(ticker, count, include_this_week, 'W');
+}
+
+// 일봉·주봉 공통. FHKST03010100은 날짜창 하나에 최대 100행을 돌려주므로 100을 넘는 요청은
+//  가장 오래된 행의 전날을 새 종료일로 두고 뒤로 넘긴다(역페이지네이션). 페이지가 비거나
+//  같은 날짜에서 멈추면 더 없는 것으로 보고 끝낸다.
+std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, int count, bool include_current,
+                                                   char period)
+{
     if (count <= 0)
     {
         return {};
     }
 
-    // 캐시 키에 절단 여부를 넣는다. ticker만으로 키를 잡으면 절단본과 미절단본이 서로를
+    // 캐시 키에 절단 여부와 주기를 넣는다. ticker만으로 키를 잡으면 절단본과 미절단본이 서로를
     //  덮어써서 호출자가 뭘 받을지 호출 순서에 달리게 된다(D-005).
-    const std::string ckey = ticker + (include_today ? "|T" : "|F");
+    const std::string ckey = ticker + "|" + period + (include_current ? "|T" : "|F");
 
     // 캐시 조회 — 유효시간 안이고 요청한 만큼 담겨 있으면 그대로 쓴다. 최신봉이 앞이라
     //  더 짧은 요청은 앞에서 잘라 답한다. timestamp는 받아온 시각이라 지금으로 다시 찍는다.
@@ -39,7 +53,6 @@ std::vector<MarketData> KisClient::get_daily_ohlcv(const std::string& ticker, in
     }
 
     // G1 수정: 날짜 하드코딩(19000101~99991231)은 모의서버 500 → 유한창(오늘−N일 ~ 오늘, KST).
-    //   1콜 ~100봉이면 충분(정배열/추세 판정 60~120일). count>≈100은 페이지네이션 미구현(초기 단일콜).
     auto fmt_date = [](time_t t) -> std::string {
         struct tm tmv{};
 #ifdef _WIN32
@@ -51,63 +64,134 @@ std::vector<MarketData> KisClient::get_daily_ohlcv(const std::string& ticker, in
         std::strftime(buf, sizeof(buf), "%Y%m%d", &tmv);
         return std::string(buf);
     };
-    time_t end_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + kKstOffsetSec; // KST 오늘
-    // count 거래일 확보를 위해 달력일 여유(주말·휴일 감안 1.7배 + 헤드룸 10일), 최소 30일.
-    int window_days = (std::max)(30, static_cast<int>(count * 1.7) + 10); // (): windows.h max 매크로 회피
-    std::string d2 = fmt_date(end_t);
-    std::string d1 = fmt_date(end_t - static_cast<time_t>(window_days) * 86400);
-
-    std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice" +
-                      "?FID_COND_MRKT_DIV_CODE=J" + "&FID_INPUT_ISCD=" + ticker + "&FID_INPUT_DATE_1=" + d1 +
-                      "&FID_INPUT_DATE_2=" + d2 + "&FID_PERIOD_DIV_CODE=D" + "&FID_ORG_ADJ_PRC=0";
-
-    std::vector<std::string> headers = auth_headers("FHKST03010100");
-
-    std::string resp = http_get(url, headers);
-    std::vector<MarketData> result;
-
-    if (resp.empty())
-    {
-        LOG_ERROR("[KIS] 일봉 조회 실패: " + ticker);
-        return result;
-    }
-
-    try
-    {
-        auto j = json::parse(resp);
-        auto& arr = j["output2"];
-        int fetched = 0;
-
-        for (auto& item : arr)
+    auto parse_date = [](const std::string& ymd) -> time_t {
+        if (ymd.size() != 8)
         {
-            if (fetched >= count)
-            {
-                break;
-            }
-
-            // 당일 미완성 봉 절단(D-005). 응답에서 날짜로 거른다 — FID_INPUT_DATE_2를 전일로
-            //  당기는 방식은 휴장·반차 캘린더가 필요해서 쓰지 않는다.
-            //  드롭한 행은 fetched로 세지 않는다. 세면 봉이 하나 모자란다.
-            if (!include_today && item.value("stck_bsop_date", std::string()) == d2)
-            {
-                continue;
-            }
-
-            ++fetched;
-            MarketData md;
-            md.ticker = ticker;
-            md.close = std::stod(item["stck_clpr"].get<std::string>());
-            md.open = std::stod(item["stck_oprc"].get<std::string>());
-            md.high = std::stod(item["stck_hgpr"].get<std::string>());
-            md.low = std::stod(item["stck_lwpr"].get<std::string>());
-            md.volume = std::stoll(item["acml_vol"].get<std::string>());
-            md.timestamp = std::chrono::system_clock::now();
-            result.push_back(md);
+            return 0;
         }
-    }
-    catch (const std::exception& e)
+
+        struct tm tmv{};
+        tmv.tm_year = std::stoi(ymd.substr(0, 4)) - 1900;
+        tmv.tm_mon  = std::stoi(ymd.substr(4, 2)) - 1;
+        tmv.tm_mday = std::stoi(ymd.substr(6, 2));
+        // 달력 계산만 필요하다(KST 자정 기준 초). 로컬 TZ에 안 걸리게 UTC로 만든다.
+#ifdef _WIN32
+        return _mkgmtime(&tmv);
+#else
+        return timegm(&tmv);
+#endif
+    };
+
+    const time_t end_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + kKstOffsetSec; // KST 오늘
+    const std::string today = fmt_date(end_t);
+    // 주봉 절단 기준: 이번 주 월요일(응답의 stck_bsop_date는 주 시작일). 월요일 이후 행은 진행 중 봉이다.
+    std::string week_start;
     {
-        LOG_ERROR(std::string("[KIS] 일봉 파싱 오류: ") + e.what());
+        struct tm tmv{};
+#ifdef _WIN32
+        gmtime_s(&tmv, &end_t);
+#else
+        gmtime_r(&end_t, &tmv);
+#endif
+        const int back = (tmv.tm_wday + 6) % 7; // 월=0 … 일=6
+        week_start = fmt_date(end_t - static_cast<time_t>(back) * 86400);
+    }
+
+    // 한 페이지에 담을 봉 수와 달력일 여유. 거래일→달력일 1.7배 + 헤드룸 10일(최소 30일), 주봉은 ×7.
+    constexpr int kPageBars = 100;
+    const int page_bars   = (std::min)(count, kPageBars);
+    const int cal_per_bar = period == 'W' ? 7 : 1;
+    const int window_days = (std::max)(30, static_cast<int>(page_bars * 1.7 * cal_per_bar) + 10);
+    const int max_pages   = (count + kPageBars - 1) / kPageBars + 1;
+
+    std::vector<MarketData> result;
+    time_t page_end = end_t;
+    std::string last_oldest;
+
+    for (int page = 0; page < max_pages && static_cast<int>(result.size()) < count; ++page)
+    {
+        const std::string d2 = fmt_date(page_end);
+        const std::string d1 = fmt_date(page_end - static_cast<time_t>(window_days) * 86400);
+
+        std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice" +
+                          "?FID_COND_MRKT_DIV_CODE=J" + "&FID_INPUT_ISCD=" + ticker + "&FID_INPUT_DATE_1=" + d1 +
+                          "&FID_INPUT_DATE_2=" + d2 + "&FID_PERIOD_DIV_CODE=" + period + "&FID_ORG_ADJ_PRC=0";
+
+        std::vector<std::string> headers = auth_headers("FHKST03010100");
+        std::string resp = http_get(url, headers);
+
+        if (resp.empty())
+        {
+            LOG_ERROR(std::string("[KIS] ") + (period == 'W' ? "주봉" : "일봉") + " 조회 실패: " + ticker +
+                      (page > 0 ? " (페이지 " + std::to_string(page + 1) + ")" : ""));
+            break;
+        }
+
+        std::string oldest;
+        int rows = 0;
+
+        try
+        {
+            auto j = json::parse(resp);
+            auto& arr = j["output2"];
+
+            for (auto& item : arr)
+            {
+                if (static_cast<int>(result.size()) >= count)
+                {
+                    break;
+                }
+
+                const std::string ymd = item.value("stck_bsop_date", std::string());
+
+                if (ymd.empty())
+                {
+                    continue;
+                }
+
+                ++rows;
+                oldest = ymd; // 응답은 최신→과거라 마지막으로 본 날짜가 가장 오래된 행
+
+                // 진행 중 봉 절단(D-005). 응답에서 날짜로 거른다 — FID_INPUT_DATE_2를 전일로
+                //  당기는 방식은 휴장·반차 캘린더가 필요해서 쓰지 않는다.
+                //  일봉은 오늘 행, 주봉은 이번 주 월요일 이후 행이다. 드롭한 행은 봉 수로 세지 않는다.
+                if (!include_current && (period == 'W' ? ymd >= week_start : ymd == today))
+                {
+                    continue;
+                }
+
+                MarketData md;
+                md.ticker = ticker;
+                md.close = std::stod(item["stck_clpr"].get<std::string>());
+                md.open = std::stod(item["stck_oprc"].get<std::string>());
+                md.high = std::stod(item["stck_hgpr"].get<std::string>());
+                md.low = std::stod(item["stck_lwpr"].get<std::string>());
+                md.volume = std::stoll(item["acml_vol"].get<std::string>());
+                md.timestamp = std::chrono::system_clock::now();
+                result.push_back(md);
+            }
+        }
+        catch (const std::exception& e)
+        {
+            LOG_ERROR(std::string("[KIS] 일봉 파싱 오류: ") + e.what());
+            break;
+        }
+
+        // 다음 페이지: 가장 오래된 행의 전날부터 뒤로. 행이 없거나 날짜가 안 움직이면 끝.
+        if (rows == 0 || oldest.empty() || oldest == last_oldest)
+        {
+            break;
+        }
+
+        const time_t oldest_t = parse_date(oldest);
+
+        if (oldest_t <= 0)
+        {
+            break;
+        }
+
+        last_oldest = oldest;
+        page_end = oldest_t - 86400;
     }
 
     // 빈 결과는 캐시하지 않는다(일시적 500·파싱 실패를 TTL 동안 굳히지 않기 위해).
@@ -399,6 +483,11 @@ Fundamentals KisClient::get_fundamentals(const std::string& ticker)
         f.pbr        = parse_d("pbr");
         f.per        = parse_d("per");
         f.market_cap = parse_d("hts_avls"); // 시가총액 (억원)
+        // [wire] FHKST01010100 output: w52_hgpr=52주 최고가, w52_hgpr_vrss_prpr_ctrt=현재가의 52주고가
+        //  대비 등락률(%, 고가 아래면 음수), bstp_kor_isnm=업종명(한글). 저항 판단·업종 분산용.
+        f.w52_high          = parse_d("w52_hgpr");
+        f.w52_high_dist_pct = parse_d("w52_hgpr_vrss_prpr_ctrt");
+        f.sector_name       = out.value("bstp_kor_isnm", std::string());
     }
     catch (...)
     {

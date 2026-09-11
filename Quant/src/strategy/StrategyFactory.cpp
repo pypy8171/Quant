@@ -500,7 +500,28 @@ struct DevScaleScoreState
 {
     std::mutex                              mu;
     std::unordered_map<std::string, double> mult;
+    std::unordered_map<std::string, double> krw; // 종목당 명목 총액(원). 원 사이징이 켜진 슬리브만 채운다
 };
+
+// 점수 z → 종목당 명목(원). z≤0은 바닥, z≥cap_z는 천장, 사이는 직선.
+//  [formula] krw = floor + (cap − floor) × clamp(z / cap_z, 0, 1)
+//  천장은 "풀 안에서 확실히 강하다"(z)만 본다. 절대 산포 조건(모두 비슷한 장에서는 천장을 닫는
+//  것)은 점수 이력이 쌓인 뒤 붙인다 — 지금은 이력이 없어 임계를 정할 근거가 없다.
+static std::unordered_map<std::string, double>
+score_to_krw(const std::unordered_map<std::string, double>& scores,
+             double floor_krw, double cap_krw, double cap_z)
+{
+    std::unordered_map<std::string, double> out;
+    auto z = universe::score_to_z(scores);
+
+    for (const auto& kv : z)
+    {
+        double f = cap_z > 0.0 ? (std::max)(0.0, (std::min)(1.0, kv.second / cap_z)) : 0.0;
+        out[kv.first] = floor_krw + (cap_krw - floor_krw) * f;
+    }
+
+    return out;
+}
 
 // 진입 우선순위 랭크는 슬리브 하나가 아니라 전 슬리브를 합쳐서 매겨야 한다. 슬리브마다
 //  set_entry_priority를 부르면 나중에 스캔한 쪽이 앞 슬리브의 랭크 맵을 통째로 덮어쓰고,
@@ -578,6 +599,13 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
     base.id_prefix          = s.value("id_prefix", std::string("DEVSCALE"));
     base.entry_lower_pct    = s.value("entry_lower_pct", 0.0);
     base.anchor_on_price    = s.value("anchor_on_price", false);
+    base.buy_rungs          = s.value("buy_rungs", -1);
+    base.stop_loss_pct      = s.value("stop_loss_pct", 0.0);
+    base.trail_sma_exit     = s.value("trail_sma_exit", false);
+    base.trail_sma_tol_pct  = s.value("trail_sma_tol_pct", 1.0);
+    base.stop_cooldown_sec  = s.value("stop_cooldown_sec", 900);
+    base.sell_anchor_avg    = s.value("sell_anchor_avg", false);
+    base.prefetch_jitter_pct = s.value("prefetch_jitter_pct", 50);
     base.eod_hhmm          = s.value("eod_exit_hhmm", 1515);
     base.interval_min      = s.value("interval_min", 3);
     base.min_action_ms     = s.value("min_action_ms", 3000);
@@ -642,6 +670,13 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
             if (it != score_state->mult.end() && it->second > 0.0)
             {
                 dp.size_mult = it->second;
+            }
+
+            auto ik = score_state->krw.find(ticker);
+
+            if (ik != score_state->krw.end() && ik->second > 0.0)
+            {
+                dp.notional_krw = ik->second;
             }
         }
 
@@ -719,9 +754,23 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         const double w_spread = s.value("weight_spread", 0.6);
         const double w_target = s.value("weight_target_pct", 0.80);
         const double w_base   = base.base_pct;
+        // 원 단위 사이징 — 둘 다 0보다 크면 자본%·정규화 배수 대신 이 구간을 쓴다(D-036).
+        const double krw_floor = s.value("notional_floor_krw", 0.0);
+        const double krw_cap   = s.value("notional_cap_krw", 0.0);
+        const double krw_cap_z = s.value("notional_cap_z", 1.5);
+        const bool   krw_on    = krw_floor > 0.0 && krw_cap >= krw_floor;
+
+        if (krw_on)
+        {
+            LOG_INFO("[Main] " + base.id_prefix + " 원 사이징: 종목당 " +
+                     std::to_string(static_cast<long long>(krw_floor)) + "~" +
+                     std::to_string(static_cast<long long>(krw_cap)) + "원, 천장 z>=" +
+                     std::to_string(krw_cap_z));
+        }
 
         const std::string sleeve_id = base.id_prefix;
-        auto scan_fn = [sc, &engine, score_state, w_spread, w_target, w_base, sleeve_id](KisClient& c)
+        auto scan_fn = [sc, &engine, score_state, w_spread, w_target, w_base, sleeve_id,
+                        krw_on, krw_floor, krw_cap, krw_cap_z](KisClient& c)
         {
             std::unordered_map<std::string, std::string> nm;
             std::unordered_map<std::string, double>      sco;
@@ -743,6 +792,14 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
                 for (auto& kv : mult)
                 {
                     score_state->mult[kv.first] = kv.second;
+                }
+
+                if (krw_on)
+                {
+                    for (auto& kv : score_to_krw(sco, krw_floor, krw_cap, krw_cap_z))
+                    {
+                        score_state->krw[kv.first] = kv.second;
+                    }
                 }
             }
 

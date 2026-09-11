@@ -228,6 +228,7 @@ public:
 
 private:
     void data_thread_fn();
+    void poll_ws_overflow();   // WS 상한 넘침 종목 재구독·REST 대체(data_thread 전용)
     void strategy_thread_fn();
     void order_thread_fn();
     void control_thread_fn(); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
@@ -364,6 +365,9 @@ private:
     RingBuffer<OrderSignal> order_queue_{256};
     RingBuffer<OrderBook> ob_queue_{4096}; // 호가 (국내)
     RingBuffer<TradeData> td_queue_{4096}; // 체결 (미국 + 국내)
+    // WS 상한에 밀린 종목의 REST 대체 틱. td_queue_는 WS 콜백 스레드가 생산자라 데이터 스레드가
+    //  같이 넣으면 SPSC가 깨진다(두 생산자가 같은 슬롯에 쓰고 head를 한 칸만 올린다). [why D-053]
+    RingBuffer<TradeData> rest_td_queue_{1024};
 
     std::thread data_thread_;
     std::thread strategy_thread_;
@@ -405,6 +409,9 @@ private:
     //  data_thread(재스캔 등록)가 쓰고 control_thread(WS 재연결)가 읽는다 — watch_specs_mtx_로 보호.
     std::vector<WatchSpec> watch_specs_;
     mutable std::mutex     watch_specs_mtx_;
+    // WS 구독 상한(kMaxWsSubs)에 밀려 틱을 못 받는 종목. data_thread가 매 사이클 재구독을
+    //  시도하고, 안 되면 REST 현재가로 TradeData를 흘린다. watch_specs_mtx_로 같이 보호.
+    std::vector<WatchSpec> ws_overflow_specs_;
 
     std::string zmq_bind_addr_ = "127.0.0.1";
     std::string zmq_control_token_;

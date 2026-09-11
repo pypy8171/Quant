@@ -256,6 +256,9 @@ while ((Get-Date) -lt $deadline) {
   # 발주가 계속되고, 다음 기동은 중복 프로세스로 막힌다(duplicate_process). 같이 내리고
   # 감시자(auto_trade_guard.ps1)가 다시 띄우면 잔고 재시드가 포지션을 도로 잡는다.
   $p = Start-Process -FilePath $Exe -ArgumentList $Config -WorkingDirectory $Repo -PassThru -NoNewWindow
+  # Process.ExitCode는 종료 전에 Handle을 한 번 만져 둔 객체에서만 채워진다. 안 만지면 아래
+  # 세션 기록·크래시 루프 판정(last_exit)이 전부 null을 본다.
+  $null = $p.Handle
   if ($script:Job -ne [IntPtr]::Zero) {
     if (-not [WinJob]::Add($script:Job, $p.Id)) { Say "  트레이더 pid=$($p.Id) 잡 편입 실패 — 워치독이 죽으면 미연결으로 남는다." "WARN" }
   }

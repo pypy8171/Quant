@@ -118,7 +118,16 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
 
         if (!exists && ws_)
         {
-            ws_->subscribe_incremental(spec);
+            // false 자체는 정상일 수 있다(연결 전·이미 구독). 목록에서까지 빠졌으면 구독 상한에
+            //  밀린 것이고, 그대로 두면 이 종목은 틱 없이 조용히 매매하지 않는다(09-11 실측:
+            //  40 초과 종목 체결 0건). 넘침 목록에 넣어 data_thread가 REST로 대신 흘린다.
+            if (!ws_->subscribe_incremental(spec) && !ws_->has_spec(spec))
+            {
+                std::lock_guard<std::mutex> lk(watch_specs_mtx_);
+                ws_overflow_specs_.push_back(spec);
+                LOG_WARN("[Engine] WS 구독 상한 — " + spec.ticker + " 시세는 REST 폴링으로 대체(넘침 " +
+                         std::to_string(ws_overflow_specs_.size()) + "종목)");
+            }
         }
     }
 
@@ -1139,6 +1148,123 @@ void Engine::stop()
 
 static struct tm utc_plus_hours(int offset_h); // KST 계산용(정의는 하단)
 
+// WS 상한에 밀린 종목의 시세 대체. 먼저 재구독을 시도하고(드롭으로 슬롯이 비었을 수 있다),
+//  안 되면 REST 현재가를 TradeData로 흘린다 — rest 분기와 같은 모양이라 전략은 구분하지 못한다.
+//  rest 분기가 도는 사이클에는 부르지 않는다(그쪽이 이미 전 종목을 폴링한다).
+void Engine::poll_ws_overflow()
+{
+    if (!ws_)
+    {
+        return;
+    }
+
+    std::vector<WatchSpec> pending;
+    {
+        // 최초 연결·재연결에서 상한에 밀린 종목도 여기로 합친다 — 재스캔 등록분만 챙기면
+        //  기동 시 뒤쪽에 선 종목(청산 관리 시드)이 틱을 영영 못 받는다.
+        auto from_ws = ws_->take_overflow_specs();
+        std::lock_guard<std::mutex> lk(watch_specs_mtx_);
+
+        for (const auto& spec : from_ws)
+        {
+            bool dup = false;
+
+            for (const auto& w : ws_overflow_specs_)
+            {
+                if (w.ticker == spec.ticker && w.market == spec.market && w.is_future == spec.is_future)
+                {
+                    dup = true;
+                    break;
+                }
+            }
+
+            if (!dup)
+            {
+                ws_overflow_specs_.push_back(spec);
+                LOG_WARN("[Engine] WS 구독 상한 — " + spec.ticker + " 시세는 REST 폴링으로 대체(넘침 " +
+                         std::to_string(ws_overflow_specs_.size()) + "종목)");
+            }
+        }
+
+        pending = ws_overflow_specs_;
+    }
+
+    if (pending.empty())
+    {
+        return;
+    }
+
+    struct tm kst = utc_plus_hours(9);
+    char hhmmss[8];
+    std::snprintf(hhmmss, sizeof(hhmmss), "%02d%02d%02d", kst.tm_hour, kst.tm_min, kst.tm_sec);
+    KisClient* qc = quote_kis_ ? quote_kis_.get() : kis_.get();
+
+    for (const auto& spec : pending)
+    {
+        if (ws_->subscribe_incremental(spec))
+        {
+            std::lock_guard<std::mutex> lk(watch_specs_mtx_);
+
+            for (auto it = ws_overflow_specs_.begin(); it != ws_overflow_specs_.end(); ++it)
+            {
+                if (it->ticker == spec.ticker && it->market == spec.market && it->is_future == spec.is_future)
+                {
+                    ws_overflow_specs_.erase(it);
+                    break;
+                }
+            }
+
+            LOG_INFO("[Engine] WS 슬롯 확보 — " + spec.ticker + " 구독 복귀");
+            continue;
+        }
+
+        if (spec.market != Market::KR || !qc)
+        {
+            continue;
+        }
+
+        std::this_thread::sleep_for(150ms);  // 초당 호출 한도 밑에 깔기(rest 분기와 같은 간격)
+        const double px = qc->get_current_price(spec.ticker);
+
+        // 종목당 첫 성공·첫 실패만 남긴다 — 대체 경로가 실제로 틱을 흘리는지 로그로 확인할 수 있어야 한다.
+        //  데이터 스레드만 부르므로 함수 정적 집합으로 충분하다.
+        static std::unordered_set<std::string> rest_seen;
+        static std::unordered_set<std::string> rest_failed;
+
+        if (px <= 0.0)
+        {
+            if (rest_failed.insert(spec.ticker).second)
+            {
+                LOG_WARN("[Engine] REST 대체 시세 실패 " + spec.ticker + " — 현재가 0(응답 없음/파싱 실패)");
+            }
+
+            continue;
+        }
+
+        if (rest_seen.insert(spec.ticker).second)
+        {
+            LOG_INFO("[Engine] REST 대체 시세 첫 수신 " + spec.ticker + " px=" + std::to_string(px));
+        }
+
+        TradeData td;
+        td.ticker = spec.ticker;
+        td.time = hhmmss;
+        td.price = px;
+        td.quantity = 0;
+        td.direction = 0;
+        td.market = Market::KR;
+        td.timestamp = std::chrono::system_clock::now();
+
+        // [lock-order] 데이터 스레드는 td_queue_의 생산자가 아니다 — 전용 SPSC 큐로 보낸다.
+        while (!rest_td_queue_.push(td) && running_.load(std::memory_order_acquire))
+        {
+            std::this_thread::sleep_for(1ms);
+        }
+
+        ++data_count_;
+    }
+}
+
 // ─── 데이터 수집 스레드 ───────────────────────────────────────────────────
 void Engine::data_thread_fn()
 {
@@ -1563,6 +1689,8 @@ void Engine::data_thread_fn()
                         ++data_count_;
                     }
                 }
+
+                poll_ws_overflow();
             }
         }
         catch (const std::exception& e)
@@ -1917,15 +2045,19 @@ void Engine::strategy_thread_fn()
             return;
         }
 
-        // 청산 관리가 맡은 티커는 스캔 슬리브가 새로 사지 않는다. 소유자를 하나로
-        //  두지 않으면 청산 관리가 턴 물량을 스캔 전략이 되사는 회전이 난다.
-        if (s && sig.action == OrderAction::NEW && sig.side == OrderSide::BUY &&
+        // 청산 관리가 맡은 티커는 스캔 슬리브가 새로 사지도, 팔지도 않는다. 소유자를 하나로
+        //  두지 않으면 청산 관리가 턴 물량을 스캔 전략이 되사는 회전이 나고, 매도가 둘에서
+        //  나가면 같은 보유분에 두 장의 매도가 걸린다(sellable_qty 클램프가 있어도 순서에
+        //  따라 한쪽이 0을 받아 분할 주문을 3초마다 되감는다). 취소·정정은 통과한다 — 이미 낸
+        //  주문을 거두는 길까지 막으면 미체결이 미연결 주문이 된다.
+        if (s && sig.action == OrderAction::NEW &&
             guardian_tickers_.count(sig.ticker) && s->id().rfind("ITB_", 0) != 0)
         {
             if (guard_block_logged.insert(sig.ticker).second)
             {
-                LOG_INFO("[Engine] 청산 관리 보유종목 신규매수 차단 " + ticker_label(sig.ticker) +
-                         " (요청 " + s->id() + ") — 청산 소유권은 청산 관리에 있다");
+                LOG_INFO("[Engine] 청산 관리 보유종목 신규 " +
+                         std::string(sig.side == OrderSide::BUY ? "매수" : "매도") + " 차단 " +
+                         ticker_label(sig.ticker) + " (요청 " + s->id() + ") — 매매 소유권은 청산 관리에 있다");
             }
 
             return;
@@ -2146,8 +2278,20 @@ void Engine::strategy_thread_fn()
                 did_work = true;
             }
 
-            // 체결 (미국 + 국내)
-            while (auto opt = td_queue_.pop())
+            // 체결 (미국 + 국내) — WS 콜백 큐가 비면 데이터 스레드의 REST 대체 틱 큐를 본다.
+            auto pop_trade = [this]() -> std::optional<TradeData>
+            {
+                auto r = td_queue_.pop();
+
+                if (!r)
+                {
+                    r = rest_td_queue_.pop();
+                }
+
+                return r;
+            };
+
+            while (auto opt = pop_trade())
             {
                 for (auto* s : snap)
                 {

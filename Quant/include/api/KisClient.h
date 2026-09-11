@@ -107,8 +107,13 @@ public:
     //   스냅샷을 하루 1회만 갱신하는 호출자에게는 그 값이 페치 시각에 동결되기까지 한다.
     //   지표·앵커·게이트 용도는 전부 기본값(false)을 쓴다. 오늘 시세 자체가 필요한
     //   경우(파이프라인에 당일 봉을 흘리는 데이터 스레드)에만 include_today=true.
+    //   100봉을 넘는 count는 날짜창을 뒤로 넘겨 이어 받는다(ceil(count/100)콜).
     std::vector<MarketData> get_daily_ohlcv(const std::string& ticker, int count,
                                             bool include_today = false);
+    // 주봉 조회. 같은 TR(FID_PERIOD_DIV_CODE=W). 기본값은 진행 중인 이번 주를 뺀 '지난주까지'.
+    //   반환 순서·캐시 규약은 일봉과 같다(캐시 키에 주기가 들어가 서로 섞이지 않는다).
+    std::vector<MarketData> get_weekly_ohlcv(const std::string& ticker, int count,
+                                             bool include_this_week = false);
     // 당일 분봉 → interval_min 집계봉(기본 3분봉). FHKST03010200 역페이지네이션 후 1분봉 집계.
     //   반환: 최신→과거(result[0]=최신), 최대 count봉. interval_min=1이면 1분봉 그대로.
     std::vector<MarketData> get_minute_ohlcv(const std::string& ticker, int count, int interval_min = 3);
@@ -285,6 +290,10 @@ private:
     // 공유하며 재발급 시 동시 읽기/쓰기가 발생 → token_mtx_로 직렬화(비재귀). 진입점은
     // authenticate()/ensure_authenticated()/token()/is_authenticated() 넷 모두 각자 독립 획득.
     mutable std::mutex token_mtx_;
+
+    // 일봉·주봉 공통 조회(페이지네이션·절단·캐시). period='D'|'W'.
+    std::vector<MarketData> get_chart_ohlcv(const std::string& ticker, int count, bool include_current,
+                                            char period);
 
     // 일봉 캐시 — 같은 종목의 일봉을 유니버스 스캐너·데이터 스레드·전략 프리페치가 겹쳐 부른다.
     //  120봉 추세 판정은 몇 분 사이에 결론이 달라지지 않으므로 TTL 안에서는 받아둔 것을 다시 쓴다.

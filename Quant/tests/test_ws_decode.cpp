@@ -111,12 +111,24 @@ static void test_kr_trade()
     f[1] = "101500";
     f[2] = "215000";
     f[12] = "37";
+    f[13] = "1234567";
+    f[18] = "123.45";
     f[21] = "5";
     TradeData td;
     assert(kis_ws::decode_kr_trade(V(f), td) == Decode::kOk);
     assert(td.ticker == "000660" && td.time == "101500");
     assert(td.price == 215000.0 && td.quantity == 37 && td.direction == 5);
     assert(td.market == Market::KR);
+    assert(td.acml_volume == 1234567 && td.strength == 123.45);
+
+    // 보조 필드(누적거래량·체결강도)는 비거나 깨져도 kOk — 0으로 둔다.
+    f[13] = "";
+    f[18] = "n/a";
+    TradeData aux;
+    assert(kis_ws::decode_kr_trade(V(f), aux) == Decode::kOk);
+    assert(aux.acml_volume == 0 && aux.strength == 0.0);
+    f[13] = "1234567";
+    f[18] = "123.45";
 
     f[21] = "x";
     TradeData bad;

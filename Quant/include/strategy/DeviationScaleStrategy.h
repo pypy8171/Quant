@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -21,11 +22,16 @@
 //
 //  아이디어:
 //   • "매매할 자리"는 일봉에서 정한다: 정배열(SMA5>10>20>60) AND 현재가가 일봉 SMA20
-//     ±pullback_pct 이내(눌림목). 이 조건이 참일 때만 오실레이션을 켠다(존 활성).
+//     대비 이격 밴드 안. 밴드는 슬리브가 정한다 — 눌림(DEVSCALE)은 −pullback_pct~+entry_upper_pct,
+//     추세확장(TRENDX)은 +entry_lower_pct~+entry_upper_pct(SMA20 위 구간). 존 유지는 진입보다
+//     zone_hyst_pct만큼 넓다. 이 조건이 참일 때만 오실레이션을 켠다(존 활성).
 //   • 자리 안에서는 3분봉 SMA를 기준선으로 삼아:
 //       - 존 진입 시 무포지션이면 목표수량 절반(base_qty)을 기준선 근처 지정가로 베이스 매수.
 //       - 이격도가 위로 벌어지는 지점(+dev_sell%·n_rungs층)에 지정가 매도(분할 익절).
-//       - 평균으로 되돌아오는 지점(−dev_buy%·n_rungs층)에 지정가 매수(재진입).
+//       - 평균으로 되돌아오는 지점(−dev_buy%·buy_rungs층)에 지정가 매수(재진입). buy_rungs=0이면
+//         되돌림 매수(물타기)를 깔지 않는다 — 추세확장 슬리브의 기본이다.
+//   • 청산: 존 이탈(유지 게이트) · 평단 대비 stop_loss_pct 하드 스탑 · 3분봉 기준선 이탈
+//     트레일(옵션) · eod_hhmm 장 마감. 스탑·트레일 뒤에는 stop_cooldown_sec 동안 재진입을 막는다.
 //   • 시장가가 아니라 지정가 예약을 미리 걸어 "기다리는" 매매. 3분봉이 갱신되거나 SMA가
 //     reprice_move_ticks 이상 이동하면 미체결 분할 매수를 CANCEL+NEW로 재호가(MM-1 패턴).
 //
@@ -58,6 +64,10 @@ public:
         //  이라 배선 전 동작이 바뀌지 않는다. 등록 시점에 고정하고 재스캔이 갱신하지 않는다 —
         //  이미 포지션이 있는 종목의 분할 매수를 도중에 재산정하면 잔여 물타기 예산이 평단과 어긋난다.
         double size_mult      = 1.0;
+        // 종목당 명목 총액(원). 0보다 크면 자본%·size_mult 대신 이 금액을 베이스+물타기로 나눈다
+        //  (비율은 base_pct:max_pct 그대로). 점수 z를 바닥~천장 원 구간에 대응시킨 값이 들어온다.
+        //  [why D-036] 자본%×정규화 배수는 종목당 20만~60만원이 나와 자본이 아니라 슬롯이 먼저 마른다.
+        double notional_krw   = 0.0;
         double fallback_equity = 0.0;  // 잔고조회 실패 시 사용할 기준자본(원). 0이면 주수 폴백
         int    base_qty       = 10;    // (폴백) 존 진입 베이스 매수 수량
         int    step_qty       = 5;     // (폴백) 각 밴드(rung) 분할 수량
@@ -83,10 +93,11 @@ public:
         // 개장 직후 3분봉이 sma_period만큼 안 쌓인 구간(20봉×3분=60분)에서 분할 매수 기준선을
         //  일봉 SMA20으로 대신한다. 그 구간에도 일봉 존 게이트(정배열+눌림)는 이미 통과한 상태라
         //  판단 근거가 없는 게 아니라 기준선 하나가 없을 뿐이다. 기준선이 현재가에서 멀어도
-        //  cross_guard가 앵커를 현재가로 클램프하고 add_below_sma_only가 물타기를 막는다.
+        //  cross_guard가 앵커를 현재가로 클램프하고, 워밍업 중에는 add_below_sma_only 값과
+        //  무관하게 물타기 분할 매수를 잠근다(분할 주문 구성부 `!warming`). 베이스 매수·익절 매도는 나간다.
         bool   daily_basis_warmup = true;
         int    reprice_move_ticks = 2; // SMA가 이만큼(틱) 이동하면 재호가
-        int    min_rebuild_sec = 0;    // 분할 매수 전면 재구성 최소 간격(0=제한 없음)
+        int    min_rebuild_sec = 0;    // 분할 매수 전면 재구성 최소 간격(0=제한 없음). 첫 구성 뒤부터 적용
         // ── TRENDX(추세확장) 슬리브용. 전부 기본값이 기존 눌림 동작이다. ──
         //  id_prefix: 같은 클래스를 두 슬리브로 돌릴 때 전략 id를 가른다(regime_strategies
         //   매칭 키이자 로그 식별자). 유니버스가 이격 밴드로 상호배타라 티커는 겹치지 않는다.
@@ -97,9 +108,30 @@ public:
         //  anchor_on_price: 분할 매수 앵커를 SMA20이 아니라 현재가로 잡는다. 이격이 벌어진
         //   종목은 SMA20 앵커로 깔면 매수층이 시장가에서 5~30% 아래에 놓여 영원히 안 붙는다.
         bool   anchor_on_price = false;
+        //  buy_rungs: 되돌림 매수(물타기) 층수. -1이면 n_rungs와 같다(기존 동작), 0이면 베이스
+        //   매수만 내고 하방 분할 매수를 깔지 않는다. 방향성 이격 게이트에서 하방 분할 매수는 추세
+        //   반전에 그대로 노출된다 — 09-08~11 원장에서 매수 수량의 89%가 미청산으로 남았다.
+        int    buy_rungs = -1;
+        //  stop_loss_pct: >0이면 잔고 평단 대비 이만큼(%) 아래에서 미체결 취소+시장가 청산.
+        //   [inv] 기준은 진입봉 저가가 아니라 평단이다 — 재기동해도 잔고 조회로 되살아나는 값이다.
+        double stop_loss_pct = 0.0;
+        //  trail_sma_exit: 보유 중 현재가가 3분봉 기준선의 trail_sma_tol_pct(%) 아래로 내려오면
+        //   청산한다. 워밍업(기준선=일봉 SMA20) 구간에는 보지 않는다.
+        bool   trail_sma_exit = false;
+        double trail_sma_tol_pct = 1.0;
+        //  stop_cooldown_sec: 스탑·트레일 청산 뒤 이 시간 동안 분할 매수를 깔지 않는다. 존이
+        //   그대로 열려 있으면 다음 하트비트에 베이스 매수가 도로 나가 같은 자리를 되산다.
+        int    stop_cooldown_sec = 900;
+        //  sell_anchor_avg: 분할 익절 앵커를 현재가가 아니라 잔고 평단으로 둔다. 현재가 앵커는
+        //   목표가가 값을 따라 올라가 8초 안의 급등에서만 붙는다. 평단 기준이면 +dev_sell%가
+        //   진입 대비 익절이 된다. 목표가가 이미 현재가 아래면 현재가에 지정가를 낸다.
+        bool   sell_anchor_avg = false;
+        //  prefetch_jitter_pct: 봉 경계 직후 분봉 조회를 종목별로 흩는다(봉 길이의 0~이 비율,
+        //   티커 해시로 고정). 50종목이 같은 초에 조회하면 초당 한도(20)에 걸려 뒤쪽이 HTTP 500이다.
+        int    prefetch_jitter_pct = 50;
         int    eod_hhmm       = 1515;  // 이 시각(KST HHMM) 이후 전량 취소+청산
         int    interval_min   = 3;     // 집계봉 간격(분)
-        int    min_action_ms  = 3000;  // 무거운 작업(3분봉 조회+발주) 최소 간격
+        int    min_action_ms  = 3000;  // on_trade_batch 판단·발주 스로틀 겸 프리페치 루프 주기(분봉 REST는 프리페치 스레드가 당긴다)
         int    daily_lookback = 70;    // 일봉 조회 개수(SMA60 판정 위해 ≥60)
         std::string account;           // 원장 계좌키(단일계좌는 "")
     };
@@ -110,6 +142,17 @@ public:
         {
             p_.n_rungs = 1;
         }
+
+        if (p_.buy_rungs < 0)
+        {
+            p_.buy_rungs = p_.n_rungs;
+        }
+
+        // [formula] 지터 = hash(티커) mod (봉 길이 × 비율). 같은 종목은 매번 같은 지연을 받아
+        //  조회 순서가 재현된다.
+        const int jit_pct = (std::max)(0, (std::min)(100, p_.prefetch_jitter_pct));
+        const int span    = (std::max)(1, p_.interval_min * 60 * jit_pct / 100);
+        prefetch_jitter_sec_ = static_cast<int>(std::hash<std::string>{}(p_.ticker) % static_cast<size_t>(span));
 
         if (p_.sma_period < 2)
         {
@@ -134,10 +177,17 @@ public:
 
     std::string describe() const override
     {
-        return "DeviationScale | " + disp() + " | base=" + std::to_string(p_.base_qty) +
-               " step=" + std::to_string(p_.step_qty) + " sma=" + std::to_string(p_.sma_period) +
-               "(3m) dev_sell=" + fmt1(p_.dev_sell) + "% dev_buy=" + fmt1(p_.dev_buy) +
-               "% rungs=" + std::to_string(p_.n_rungs) + " pullback=" + fmt1(p_.pullback_pct) + "%";
+        // 사이징은 자본×base_pct(또는 notional_krw) 우선, base_qty/step_qty는 폴백이다.
+        return "DeviationScale | " + disp() + " | base_pct=" + fmt1(p_.base_pct * 100.0) +
+               "% max_pct=" + fmt1(p_.max_pct * 100.0) + "% (fallback qty " + std::to_string(p_.base_qty) +
+               "/" + std::to_string(p_.step_qty) + ") sma=" + std::to_string(p_.sma_period) +
+               "(" + std::to_string(p_.interval_min) + "m) dev_sell=" + fmt1(p_.dev_sell) +
+               "% dev_buy=" + fmt1(p_.dev_buy) + "% rungs=" + std::to_string(p_.n_rungs) +
+               "/buy" + std::to_string(p_.buy_rungs) + " zone=" + fmt1(-p_.pullback_pct) +
+               "~+" + fmt1(p_.entry_upper_pct) + "%" +
+               (p_.entry_lower_pct > 0.0 ? " lower=+" + fmt1(p_.entry_lower_pct) + "%" : "") +
+               (p_.stop_loss_pct > 0.0 ? " stop=-" + fmt1(p_.stop_loss_pct) + "%" : "") +
+               (p_.trail_sma_exit ? " trail" : "") + (p_.sell_anchor_avg ? " sell@avg" : "");
     }
 
     // 현재가 하트비트만 필요 → trade_only=true(호가 구독 절약). rest 모드에선 DataThread가 주입.
@@ -152,7 +202,7 @@ public:
     void on_start() override
     {
         live_.clear();
-        last_sma_ = 0.0;
+        last_anchor_ = 0.0;
         last_pos_ = -1;
         last_rebuild_ = std::chrono::steady_clock::time_point{};
         last_ladder_sig_.clear();
@@ -332,6 +382,34 @@ public:
             return;
         }
 
+        // ── 하드 스탑: 평단 대비 stop_loss_pct 아래면 존 상태와 무관하게 청산 ─────────
+        //  유지 게이트가 진입보다 넓어(히스테리시스) 존 안에서도 평단에서 크게 밀릴 수 있다.
+        //  평단은 sellable_qty()가 잔고 조회 때 채운다. 재기동 직후 첫 재구성 전에는 0이라
+        //  보유가 있으면 60초에 한 번 직접 채운다(REST 1회).
+        if (p_.stop_loss_pct > 0.0)
+        {
+            const int pos = confirmed_position(p_.account, p_.ticker);
+
+            if (pos > 0 && last_avg_px_ <= 0.0 &&
+                (avg_query_ts_ == std::chrono::steady_clock::time_point{} ||
+                 now - avg_query_ts_ >= std::chrono::seconds(60)))
+            {
+                avg_query_ts_ = now;
+                (void)sellable_qty();
+            }
+
+            if (pos > 0 && last_avg_px_ > 0.0 &&
+                cur_px <= last_avg_px_ * (1.0 - p_.stop_loss_pct / 100.0))
+            {
+                cancel_all(out);
+                const std::string tag = "손절(평단 " + fmt1(last_avg_px_) + " -" + fmt1(p_.stop_loss_pct) + "%)";
+                // 스탑은 지수 백오프 상한을 30초로 둔다 — 5분 보류는 손절이 아니다.
+                emit_liquidation(out, pos, now, tag, /*max_backoff_ms=*/30000);
+                stop_cooldown_until_ = now + std::chrono::seconds(p_.stop_cooldown_sec);
+                return;
+            }
+        }
+
         if (!zone)
         {
             // 진입 축만 닫혔다. 미체결 매수는 거두되 보유는 그대로 둔다 — 장중에 이평이
@@ -378,6 +456,21 @@ public:
             return;
         }
 
+        // ── 트레일: 3분봉 기준선 아래로 tol만큼 내려오면 청산(워밍업 제외) ────────────
+        if (p_.trail_sma_exit && !warming &&
+            cur_px < sma * (1.0 - p_.trail_sma_tol_pct / 100.0))
+        {
+            const int pos = confirmed_position(p_.account, p_.ticker);
+
+            if (pos > 0)
+            {
+                cancel_all(out);
+                emit_liquidation(out, pos, now, "3분봉 기준선 이탈(" + fmt1(sma) + ")", /*max_backoff_ms=*/30000);
+                stop_cooldown_until_ = now + std::chrono::seconds(p_.stop_cooldown_sec);
+                return;
+            }
+        }
+
         if (warming)
         {
             const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -406,9 +499,13 @@ public:
         //  베이스+물타기 합 ≈ 자본×max_pct(10%) → OrderGate 명목캡과 정합(캡은 백스톱).
         const double eq            = equity_ > 0.0 ? equity_ : p_.fallback_equity;
         const double mult          = p_.size_mult > 0.0 ? p_.size_mult : 1.0;
-        const double base_notional = eq * p_.base_pct * mult;
-        const double rung_budget   = eq * (p_.max_pct > p_.base_pct ? p_.max_pct - p_.base_pct : 0.0) * mult;
-        const double rung_notional = p_.n_rungs > 0 ? rung_budget / p_.n_rungs : 0.0;
+        // 원 단위 총액이 주어지면 그 금액을 base_pct:max_pct 비율로 베이스·물타기에 나눈다.
+        const double base_share    = p_.max_pct > p_.base_pct ? p_.base_pct / p_.max_pct : 1.0;
+        const double base_notional = p_.notional_krw > 0.0 ? p_.notional_krw * base_share
+                                                            : eq * p_.base_pct * mult;
+        const double rung_budget   = p_.notional_krw > 0.0 ? p_.notional_krw - base_notional
+                                                            : eq * (p_.max_pct > p_.base_pct ? p_.max_pct - p_.base_pct : 0.0) * mult;
+        const double rung_notional = p_.buy_rungs > 0 ? rung_budget / p_.buy_rungs : 0.0;
 
         // 분할 매수 앵커. 교차 가드가 켜져 있으면 각 방향 층이 현재가를 넘지 않도록 기준선을
         //  현재가 쪽으로 당긴다. 이격이 벌어진 상태에서도 분할 매수 간격은 그대로 유지된다.
@@ -447,12 +544,22 @@ public:
         }
 
         // 매도 밴드: 이격 +dev_sell%*i. 보유분을 n_rungs로 균등 분할(숏 방지).
+        //  sell_anchor_avg면 앵커가 평단이다. 목표가가 현재가 아래면(이미 목표 초과) 현재가에
+        //  낸다 — 지정가로 남되 다음 체결에 붙는다.
         int sell_avail = pos;
         const int sell_per = p_.n_rungs > 0 ? (pos + p_.n_rungs - 1) / p_.n_rungs : pos; // ceil
+        const bool   avg_anchor = p_.sell_anchor_avg && last_avg_px_ > 0.0;
+        const double sell_base  = avg_anchor ? last_avg_px_ : sell_anchor;
 
         for (int i = 1; i <= p_.n_rungs && sell_avail > 0; ++i)
         {
-            double sp = round_to_tick(sell_anchor * (1.0 + p_.dev_sell * i / 100.0), OrderSide::SELL);
+            double sp = round_to_tick(sell_base * (1.0 + p_.dev_sell * i / 100.0), OrderSide::SELL);
+
+            if (avg_anchor && cur_px > 0.0 && sp <= cur_px)
+            {
+                sp = round_to_tick(cur_px, OrderSide::SELL);
+            }
+
             int q = sell_avail < sell_per ? sell_avail : sell_per;
 
             if (sp > 0.0 && q > 0)
@@ -462,17 +569,20 @@ public:
             }
         }
 
-        // 매수 밴드(물타기): 이격 −dev_buy%*i. rung당 자본의 rung_notional. 종목당 상한은 OrderGate가 캡.
+        // 매수 밴드(물타기): 이격 −dev_buy%*i, buy_rungs층. rung당 자본의 rung_notional. 종목당 상한은 OrderGate가 캡.
         //  점진 진입: add_below_sma_only면 현재가가 3분봉 기준선 아래(실제 눌림)일 때만 물타기를 깐다.
         //  → 활성 즉시 base+물타기를 한꺼번에 예약해 1분 만에 10% 만재되던 성격을 제거. 기준선 위/근처에선
         //    base(+익절 매도레그)만 유지하고, 진짜 눌림이 와야 평단을 낮춘다.
+        //  추세확장 슬리브(anchor_on_price)는 add_below_sma_only=false로 돌린다 — 이격이 벌어진
+        //   구간에서 "기준선 아래"는 거의 안 오므로 켜 두면 분할 매수가 영영 안 깔린다. 그 슬리브의
+        //   하방 분할 매수 자체는 buy_rungs=0으로 끈다(2026-09-11 회의 §1-4).
         // 워밍업(기준선=일봉SMA20) 구간에는 물타기를 잠근다. 존 진입 조건이 이격 -pullback_pct~
         //  +entry_upper_pct라 `cur_px < 일봉SMA20`이 거의 항상 참이 되어, 3분봉 기준선이 뜻하던
         //  "단기 눌림에서만 추가"가 사실상 상시 개방으로 바뀐다. 변동성이 가장 큰 첫 60분에
         //  base와 물타기가 한꺼번에 나가는 것을 막는다(base 진입과 익절 매도는 그대로 둔다).
         if ((!p_.add_below_sma_only || cur_px < sma) && !warming)
         {
-            for (int i = 1; i <= p_.n_rungs; ++i)
+            for (int i = 1; i <= p_.buy_rungs; ++i)
             {
                 double bp = round_to_tick(buy_anchor * (1.0 - p_.dev_buy * i / 100.0), OrderSide::BUY);
                 int    rq = qty_for(rung_notional, bp);
@@ -508,10 +618,16 @@ public:
         //  신규매수 차단(entry_halt)도 같은 축이다 — 게이트가 거부만 하면 계획이 안 바뀌어
         //  차단 해제 뒤에도 매수 rung이 돌아오지 않았다. 차단 중엔 매수 rung을 걷고(취소),
         //  풀리면 시그니처가 바뀌어 다시 깐다. 떨림은 D-033 체류가 막는다. [why D-033]
-        const bool entry_on = is_active() && !entry_halted();
+        //  스탑·트레일 뒤 쿨다운도 같은 축이다 — 존이 열려 있어도 분할 매수를 걷는다.
+        const bool cooling  = stop_cooldown_until_ != std::chrono::steady_clock::time_point{} && now < stop_cooldown_until_;
+        const bool entry_on = is_active() && !entry_halted() && !cooling;
         sig += entry_on ? "A1" : "A0";
-        const double reprice_band = p_.reprice_move_ticks * tick_size(sma);
-        const bool   sma_quiet    = last_sma_ > 0.0 && std::fabs(sma - last_sma_) < reprice_band;
+        // 데드밴드는 분할 주문 앵커 기준이다. 현재가 앵커(anchor_on_price)에서 SMA로 재면 값이
+        //  틱마다 바뀌는데 데드밴드는 조용하다고 판정해 (b)가 걸리지 않았다(09-11 TRENDX 재구성
+        //  669회 vs DEVSCALE 160회).
+        const double anchor_ref   = p_.anchor_on_price ? base_line : sma;
+        const double reprice_band = p_.reprice_move_ticks * tick_size(anchor_ref);
+        const bool   sma_quiet    = last_anchor_ > 0.0 && std::fabs(anchor_ref - last_anchor_) < reprice_band;
 
         // (a) 계획 시그니처+pos가 직전과 동일하면 live 유무와 무관하게 스킵.
         //     매도가능=0이라 아무것도 못 깔아 live_가 빈 채로 남을 때(원장 보유↔매도가능 괴리)
@@ -533,7 +649,9 @@ public:
         //     한 종목이 독점한다(09-08 12:31~12:36 016610 단독 84건 = 전체의 8할).
         //     여기서 막아도 기존 rung은 살아 있으므로 체결 기회를 잃지 않는다. 잠깐 크기가
         //     낡은 채로 유지될 뿐이다. 청산(emit_liquidation)은 이 경로를 타지 않는다.
-        if (p_.min_rebuild_sec > 0 && !live_.empty() &&
+        //     live_가 비어 있어도 적용한다 — 매도가능=0으로 아무것도 못 깔면 live_가 빈 채
+        //     남는데, 그때 이 가드를 건너뛰면 하트비트(3초)마다 재구성·잔고조회가 돈다.
+        if (p_.min_rebuild_sec > 0 &&
             last_rebuild_ != std::chrono::steady_clock::time_point{})
         {
             const auto since = std::chrono::duration_cast<std::chrono::seconds>(
@@ -557,8 +675,49 @@ public:
         //  이격 +23.8%가 "정배열눌림진입"으로 남아 눌림목이 아닌데 왜 샀냐는 질문이 나왔다).
         const std::string entry_kind = p_.entry_lower_pct > 0.0 ? "정배열추세확장진입"
                                                                 : "정배열눌림진입";
+        // 진입 문맥 스탬프(2026-09-11 회의 §3·§5): 체결강도(CTTR)·20일 평균 대비 누적거래량
+        //  배율·직전 250봉 고가 대비 거리. 나중에 "저항 아래서 샀나"를 원장에서 바로 대조한다.
+        //  REST 폴링 틱은 strength/acml_volume이 0이라 그때는 찍지 않는다.
+        std::string entry_ctx;
+        {
+            double vol20 = 0.0, hi250 = 0.0;
+            const size_t nv = (std::min)(daily_.size(), static_cast<size_t>(20));
+
+            for (size_t i = 0; i < nv; ++i)
+            {
+                vol20 += static_cast<double>(daily_[i].volume);
+            }
+
+            vol20 = nv > 0 ? vol20 / static_cast<double>(nv) : 0.0;
+
+            for (const auto& b : daily_)
+            {
+                hi250 = (std::max)(hi250, b.high);
+            }
+
+            if (td.strength > 0.0)
+            {
+                entry_ctx += " 체결강도=" + fmt1(td.strength);
+            }
+
+            if (td.acml_volume > 0 && vol20 > 0.0)
+            {
+                entry_ctx += " 누적거래량/20일평균=" + fmt1(static_cast<double>(td.acml_volume) / vol20);
+            }
+
+            if (hi250 > 0.0)
+            {
+                entry_ctx += " 250봉고가대비=" + fmt1((cur_px - hi250) / hi250 * 100.0) + "%";
+            }
+
+            if (p_.stop_loss_pct > 0.0)
+            {
+                entry_ctx += " 손절=-" + fmt1(p_.stop_loss_pct) + "%";
+            }
+        }
+
         const std::string buy_ctx  = entry_kind + " 이격=" + fmt1(s_dev) + "% 일봉SMA20=" +
-                                     fmt1(d_s20) + " 현재가=" + fmt1(cur_px);
+                                     fmt1(d_s20) + " 현재가=" + fmt1(cur_px) + entry_ctx;
         int sell_room = -1;                          // -1=미조회(지연). 첫 매도 rung에서 1회 조회.
 
         for (const auto& r : plan)
@@ -586,13 +745,14 @@ public:
             }
         }
 
-        last_sma_ = sma;
+        last_anchor_ = anchor_ref;
         last_ladder_sig_ = sig;
         last_pos_ = pos;
         last_rebuild_ = std::chrono::steady_clock::now();
         LOG_INFO("[" + id() + "] 분할 매수 재구성 sma=" + fmt1(sma) +
                  std::string(warming ? "(일봉)" : "") + " px=" + fmt1(cur_px) +
-                 " pos=" + std::to_string(pos) + " live=" + std::to_string(live_.size()));
+                 " pos=" + std::to_string(pos) + " live=" + std::to_string(live_.size()) +
+                 " 명목=" + std::to_string(static_cast<long long>(base_notional + rung_budget)) + "원");
     }
 
 private:
@@ -701,6 +861,14 @@ private:
                 {
                     std::lock_guard<std::mutex> lk(snap_mtx_);
                     need_bars = snap_bars_.empty() || snap_bars_bucket_ != bucket;
+
+                    // 봉 경계 직후 종목별 지터만큼 미룬다(첫 스냅샷은 바로). 진행 중인 봉은
+                    //  on_trade_batch의 체결가 덮어쓰기가 채우므로 늦게 받아도 SMA는 같다.
+                    if (need_bars && !snap_bars_.empty() &&
+                        kst_sec_into_bucket(p_.interval_min) < prefetch_jitter_sec_)
+                    {
+                        need_bars = false;
+                    }
                 }
 
                 if (need_bars)
@@ -921,7 +1089,8 @@ private:
     //  (2) 시도 후 진행(pos 감소) 없으면 30·60·120·240·480s(cap 300s) 지수 백오프.
     //  반환: 시장가 매도를 실제로 out에 넣었으면 true.
     bool emit_liquidation(std::vector<OrderSignal>& out, int pos,
-                          std::chrono::steady_clock::time_point now, const std::string& tag)
+                          std::chrono::steady_clock::time_point now, const std::string& tag,
+                          long long max_backoff_ms = 300000)
     {
         if (pos <= 0)
         {
@@ -969,9 +1138,9 @@ private:
 
         long long ms = 30000LL << shift;                 // 30/60/120/240/480…
 
-        if (ms > 300000LL)
+        if (ms > max_backoff_ms)
         {
-            ms = 300000LL;  // cap 5분
+            ms = max_backoff_ms;  // cap 기본 5분, 스탑 경로는 30초
         }
 
         liq_next_ = now + std::chrono::milliseconds(ms);
@@ -1063,6 +1232,18 @@ private:
         return (k.tm_yday * 1440 + k.tm_hour * 60 + k.tm_min) / interval_min;
     }
 
+    // 현재 봉이 시작한 뒤 흐른 초(KST). 프리페치 지터 판정용.
+    static int kst_sec_into_bucket(int interval_min)
+    {
+        if (interval_min < 1)
+        {
+            interval_min = 1;
+        }
+
+        struct tm k = kst_tm();
+        return ((k.tm_hour * 60 + k.tm_min) % interval_min) * 60 + k.tm_sec;
+    }
+
     static std::string kst_ymd()
     {
         struct tm k = kst_tm();
@@ -1084,7 +1265,7 @@ private:
     std::vector<Live> live_;               // 현재 live로 낙관하는 예약들
     std::vector<MarketData> daily_;        // 일봉 캐시(정배열/눌림 판정)
     double equity_ = 0.0;                   // 사이징 기준 자본(총평가금) 스냅샷 — 일별 갱신
-    double last_sma_ = 0.0;                // 마지막 재호가 기준 SMA
+    double last_anchor_ = 0.0;             // 마지막 재구성의 분할 주문 앵커(SMA 또는 현재가) — 데드밴드 기준
     double last_px_ = 0.0;                 // 직전 체결가 — 시장가 청산 ref_price
     double last_avg_px_ = 0.0;             // 잔고 평단(sellable_qty가 갱신) — ref_price 폴백
     int64_t last_warm_log_ms_ = 0;         // 봉 부족 로그 스로틀(60초)
@@ -1099,6 +1280,9 @@ private:
     std::chrono::steady_clock::time_point liq_next_{};    // 청산 재시도 백오프 해제 시각
     int    liq_last_pos_    = -1;                          // 직전 청산시도 pos(진행 판정)
     int    liq_fail_streak_ = 0;                           // 연속 미진행 횟수(백오프 지수)
+    std::chrono::steady_clock::time_point stop_cooldown_until_{}; // 스탑·트레일 뒤 분할 매수 재개 시각
+    std::chrono::steady_clock::time_point avg_query_ts_{};        // 평단 직접 조회 스로틀(60초)
+    int    prefetch_jitter_sec_ = 0;                       // 봉 경계 뒤 분봉 조회 지연(초, 티커 해시)
     uint64_t seq_ = 0;
 
     // ── 프리페치(무거운 REST를 공유 전략 스레드 밖으로) ──────────────────────

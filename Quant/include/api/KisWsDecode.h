@@ -247,7 +247,8 @@ inline Decode decode_orderbook(Fields f, OrderBook& ob)
 }
 
 // ─── 국내 현물 체결 (H0STCNT0) ───────────────────────────────────────────
-// [wire] [0]종목코드 [1]체결시간 [2]현재가 [12]체결량 [21]체결구분(1=매수,5=매도)
+// [wire] [0]종목코드 [1]체결시간 [2]현재가 [12]체결량 [13]누적거래량 [18]체결강도(CTTR)
+//        [21]체결구분(1=매수,5=매도). 13·18은 보조 필드라 숫자가 아니어도 실패로 치지 않는다(0).
 inline Decode decode_kr_trade(Fields f, TradeData& td)
 {
     if (f.size() < kMinFieldsKrTrade)
@@ -262,6 +263,17 @@ inline Decode decode_kr_trade(Fields f, TradeData& td)
     bool ok = detail::to_double(f[2], td.price);
     ok &= detail::to_i64(f[12], td.quantity);
     ok &= detail::to_int(f[21], td.direction);
+
+    if (!detail::to_i64(f[13], td.acml_volume))
+    {
+        td.acml_volume = 0;
+    }
+
+    if (!detail::to_double(f[18], td.strength))
+    {
+        td.strength = 0.0;
+    }
+
     return ok ? Decode::kOk : Decode::kBadNumber;
 }
 

@@ -140,6 +140,9 @@ struct TradeData
     int direction = 0; // 1=매수, 5=매도
     Market market = Market::KR;
     std::chrono::system_clock::time_point timestamp;
+    // 아래 둘은 국내 현물 체결(H0STCNT0)에만 있다. REST 폴링·선물·미국 틱은 0.
+    double  strength = 0.0;   // 체결강도(CTTR, %) — 100 위면 매수 체결이 우세
+    int64_t acml_volume = 0;  // 당일 누적 거래량
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -215,6 +218,9 @@ struct Fundamentals
     double diff = 0.0;         // 전일 대비
     double rate = 0.0;         // 등락율(%)
     double market_cap = 0.0;   // 시가총액 (억원)
+    double w52_high = 0.0;          // 52주 최고가(원). 0=미제공
+    double w52_high_dist_pct = 0.0; // 현재가의 52주고가 대비 등락률(%, 고가 아래면 음수)
+    std::string sector_name;        // 업종명(KIS bstp_kor_isnm). 업종 분산·상관 캡용
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -44,6 +44,11 @@ struct DailyProbe
     double r5 = 0.0, r10 = 0.0, r20 = 0.0, r60 = 0.0;
     double atr_pct = 0.0;                  // ATR(14)/종가. 정배열 판정용 일봉 재활용(추가 REST 0)
     std::time_t at = 0;                    // 마지막 조회 시각. 장중 재조회 순번을 이걸로 정한다
+    // 저항·거래량 축(2026-09-11 회의 §3). 봉이 모자라면 있는 만큼으로 잰다. 0=미산출.
+    double hi250    = 0.0;                 // 확보 봉 안 최고가(align_daily_n=250이면 52주 고가)
+    double pivot_hi = 0.0;                 // 최근 스윙 고점 — 좌우 5봉보다 높은 고가 중 가장 최근(당일 제외)
+    double avg_vol20 = 0.0;                // 20일 평균 거래량(주). 장중 누적거래량 배율의 분모
+    double close21  = 0.0;                 // 21봉 전 종가(≈1개월 수익률 분모)
 };
 
 // 일봉 요약 캐시. 스캔 스레드 하나가 쓰지만 재조회 대상 선정과 조회가 같은 맵을
@@ -86,6 +91,7 @@ public:
 
             for (auto it = j.begin(); it != j.end(); ++it)
             {
+                // 12칸은 구버전 파일이다 — 뒤 4칸(저항·거래량 축)은 0으로 두고 그대로 쓴다.
                 if (!it.value().is_array() || it.value().size() < 12)
                 {
                     continue;
@@ -106,6 +112,15 @@ public:
                 pr.r60     = a[9].get<double>();
                 pr.atr_pct = a[10].get<double>();
                 pr.at      = (std::time_t)a[11].get<long long>();
+
+                if (a.size() >= 16)
+                {
+                    pr.hi250     = a[12].get<double>();
+                    pr.pivot_hi  = a[13].get<double>();
+                    pr.avg_vol20 = a[14].get<double>();
+                    pr.close21   = a[15].get<double>();
+                }
+
                 map_[it.key()] = pr;
                 ++n;
             }
@@ -125,7 +140,8 @@ public:
     // 쓰다 만 파일을 다음 기동이 읽지 않도록 임시 파일에 쓰고 바꿔치운다.
     void save_today(const std::string& ymd) const
     {
-        // [wire] 값 순서: bars, s5, s10, s20, s60, close, r5, r10, r20, r60, atr_pct, at
+        // [wire] 값 순서: bars, s5, s10, s20, s60, close, r5, r10, r20, r60, atr_pct, at,
+        //  hi250, pivot_hi, avg_vol20, close21 (뒤 4칸은 나중에 붙었다 — 읽을 때 없어도 된다)
         nlohmann::json j = nlohmann::json::object();
         {
             std::lock_guard<std::mutex> lk(mu_);
@@ -141,7 +157,8 @@ public:
 
                 j[kv.first] = nlohmann::json::array({pr.bars, pr.s5, pr.s10, pr.s20, pr.s60,
                                                      pr.close, pr.r5, pr.r10, pr.r20, pr.r60,
-                                                     pr.atr_pct, (long long)pr.at});
+                                                     pr.atr_pct, (long long)pr.at,
+                                                     pr.hi250, pr.pivot_hi, pr.avg_vol20, pr.close21});
             }
         }
 
@@ -950,6 +967,42 @@ DailyProbe fetch_probe(KisClient& c, const DevScanCfg& cfg, const std::string& t
     }
 
     pr.atr_pct = (tr_n > 0 && pr.close > 0.0) ? (tr_sum / tr_n) / pr.close : 0.0;
+
+    // 저항·거래량 축. 일봉은 전일까지(include_today=false)라 d[0]이 전일이다.
+    for (const auto& b : d)
+    {
+        if (b.high > pr.hi250)
+        {
+            pr.hi250 = b.high;
+        }
+    }
+
+    // [formula] 스윙 고점 = 좌우 5봉의 고가보다 모두 높은 봉. 가장 최근 것 하나만 쓴다.
+    for (size_t i = 5; i + 5 < d.size(); ++i)
+    {
+        bool peak = true;
+
+        for (size_t k = 1; k <= 5 && peak; ++k)
+        {
+            peak = d[i].high > d[i - k].high && d[i].high > d[i + k].high;
+        }
+
+        if (peak)
+        {
+            pr.pivot_hi = d[i].high;
+            break;
+        }
+    }
+
+    double vol_sum = 0.0;
+
+    for (int i = 0; i < 20; ++i)
+    {
+        vol_sum += static_cast<double>(d[i].volume);
+    }
+
+    pr.avg_vol20 = vol_sum / 20.0;
+    pr.close21   = d.size() > 21 ? d[21].close : 0.0;
     return pr;
 }
 
@@ -1193,7 +1246,7 @@ void score_cross_section(const DevScanCfg& cfg, std::vector<Feat>& passed)
     };
     std::vector<double> zt, zp, zv, zl;
     zscore(&Feat::trend, false, zt);
-    zscore(&Feat::pull,  true,  zp);   // 눌림은 음수(SMA20 아래)일수록 좋아 부호를 뒤집는다
+    zscore(&Feat::pull,  true,  zp);   // 눌림은 음수(SMA20 아래)일수록 좋아 부호를 뒤집는다. 추세확장 슬리브(min_dev_pct>0)에선 전부 양수라 "덜 벌어진 쪽 우대"(과확장 감점)로 작동한다
     zscore(&Feat::vol,   false, zv);
 
     if (cfg.score_w_liquidity != 0.0)
@@ -1280,7 +1333,7 @@ std::vector<std::string> rank_and_truncate(const DevScanCfg& cfg, std::vector<Fe
                  " → 상위 " + std::to_string(take_n) + " 선정 (w_trend=" +
                  std::to_string(cfg.score_w_trend) + " w_pull=" + std::to_string(cfg.score_w_pullback) +
                  " w_liq=" + std::to_string(cfg.score_w_liquidity) +
-                 " w_supply=" + std::to_string(cfg.score_w_supply) + ")");
+                 " w_supply=" + std::to_string(cfg.score_w_supply) + "(미적용) w_vol=" + std::to_string(cfg.score_w_vol) + ")");
     }
 
     return out;

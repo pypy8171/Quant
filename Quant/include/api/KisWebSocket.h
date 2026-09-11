@@ -55,8 +55,17 @@ public:
     //  아무것도 하지 않는다(중복 구독은 등록 한도만 갉아먹는다).
     //  연결 전이면 목록에만 넣고 실제 구독은 connect()가 한다.
     //  data_thread에서 호출하고 specs_는 연결 스레드가 읽으므로 specs_mtx_로 보호한다.
-    // 반환: 구독 프레임을 실제로 보냈으면 true.
+    // 반환: 구독 프레임을 실제로 보냈으면 true. false는 세 경우다 — 이미 목록에 있음,
+    //  연결 전(목록에 남겨 connect()가 구독), 구독 상한(목록에서도 뺀다). 호출자는 has_spec()으로
+    //  앞 둘과 마지막을 가른다: 목록에 없으면 이 종목은 WS 틱을 영영 못 받는다.
     bool subscribe_incremental(const WatchSpec& spec);
+
+    // spec이 구독 목록(specs_)에 있는지. 상한으로 밀려난 종목의 REST 대체 판정용.
+    bool has_spec(const WatchSpec& spec) const;
+
+    // 연결·재연결의 subscribe_all이 상한으로 거른 종목을 넘겨주고 비운다(한 번 가져가면 끝).
+    //  Engine이 data_thread 사이클마다 가져가 REST 대체 목록에 합친다.
+    std::vector<WatchSpec> take_overflow_specs();
 
     // 다건 프레임 분리는 kis_ws::split_records(api/KisWsDecode.h). 여기 이름은 테스트·호출부 호환용.
     static kis_ws::Records split_records(kis_ws::Fields fields, int count, size_t min_fields) noexcept
@@ -127,7 +136,8 @@ private:
     std::string aes_key_; // 체결통보 복호화 키 (구독 응답에서 획득)
     std::string aes_iv_;  // 체결통보 복호화 IV
     std::vector<WatchSpec> specs_;
-    // specs_ 보호 — 연결 스레드가 읽고(subscribe_all) data_thread가 쓴다(subscribe_incremental).
+    std::vector<WatchSpec> overflow_specs_; // subscribe_all이 상한으로 거른 종목 — Engine이 가져간다
+    // specs_·overflow_specs_ 보호 — 연결 스레드가 읽고(subscribe_all) data_thread가 쓴다(subscribe_incremental).
     mutable std::mutex specs_mtx_;
 
     std::atomic<bool>    connected_{false};
