@@ -239,6 +239,7 @@ private:
     //  주문이 잡혀 있으므로, false로 불러 총평가금·일손익만 갱신한다(선점을 지우면 같은 주문을
     //  다시 낼 수 있다). 이 갱신이 없으면 equity가 0에 머물러 총노출 게이트가 통과만 하게 된다.
     void reconcile_from_balance(bool resync_positions);
+    StrategyBase::SellableInfo ledger_sellable(const std::string& account, const std::string& ticker) const;
     void poll_regime_file();       // 매크로 레짐 파일 폴링 → OrderGate entry_halt 토글 (data_thread 전용)
     // 시간 상자 판정만 답한다(개장 후 N분 경과?). halt를 어떻게 풀지는 호출자가 정한다 —
     //  정상 경로·stale·무효 판정 세 자리에서 같은 기준을 쓰기 위해 따로 뺐다. [why D-033]
@@ -397,6 +398,7 @@ private:
     void        drain_manual_inbox(const std::function<void(const OrderSignal&)>& emit);
 
     std::atomic<uint64_t> data_count_{0};
+    std::atomic<uint64_t> td_drop_count_{0}; // WS 체결 큐 가득으로 버린 틱 수 [why D-055]
     std::atomic<uint64_t> signal_count_{0};
     std::atomic<uint64_t> order_count_{0};
 

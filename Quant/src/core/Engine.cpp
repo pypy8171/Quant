@@ -64,6 +64,9 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
         return order_gate_.position(account, ticker);
     });
     strategy->set_entry_halt_provider([this] { return order_gate_.is_entry_halted(); });
+    strategy->set_sellable_provider([this](const std::string& account, const std::string& ticker) {
+        return ledger_sellable(account, ticker);
+    });
 
     try
     {
@@ -553,6 +556,9 @@ void Engine::start()
             return order_gate_.position(account, ticker);
         });
         s->set_entry_halt_provider([this] { return order_gate_.is_entry_halted(); });
+        s->set_sellable_provider([this](const std::string& account, const std::string& ticker) {
+            return ledger_sellable(account, ticker);
+        });
 
         try
         {
@@ -616,7 +622,16 @@ void Engine::start()
         ws_->set_callbacks([this](const OrderBook& ob) { ob_queue_.push(ob); },
                            [this](const TradeData& td)
                            {
-                               td_queue_.push(td);
+                               // 전략 스레드가 멈추면 큐가 차고 틱이 여기서 사라진다 — 세어 두고
+                               //  넘침이 시작될 때 한 번 남긴다(09-11 15:15 잔고 조회 정체). [why D-055]
+                               if (!td_queue_.push(td))
+                               {
+                                   if (td_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
+                                   {
+                                       LOG_WARN("[WS] 체결 큐 가득 — 틱 폐기 시작 " + td.ticker +
+                                                " (전략 스레드 정체 의심)");
+                                   }
+                               }
 #ifdef HAS_ZMQ
                                if (zmq_bridge_)
                                {
@@ -810,6 +825,18 @@ bool Engine::bootstrap_ledger()
 // 잔고에 없는 원장 보유를 걷어내기 전에 두는 유예(초). 잔고 조회 왕복(수 초)보다 넉넉히 길게
 //  잡아, 방금 체결된 신규 보유가 아직 잔고에 안 보이는 것을 유령으로 오인하지 않게 한다.
 static constexpr int kPrunePositionAgeSec = 90;
+
+// 전략에 주는 매도가능수량. 게이트 clamp와 같은 식(psbl_cap - pending)이라 전략이 낸 수량이 게이트에서
+//  다시 잘리지 않는다. psbl_cap은 잔고 대조(refresh_sellable)가 매 사이클 맞춘다. [why D-055]
+StrategyBase::SellableInfo Engine::ledger_sellable(const std::string& account, const std::string& ticker) const
+{
+    const auto v = order_gate_.sellable_view(account, ticker);
+    StrategyBase::SellableInfo r;
+    const int room = v.psbl_cap - v.pending;
+    r.sellable = room > 0 ? room : 0;
+    r.avg_px   = order_gate_.avg_price(account, ticker);
+    return r;
+}
 
 void Engine::reconcile_from_balance(bool resync_positions)
 {

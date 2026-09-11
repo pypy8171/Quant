@@ -1154,6 +1154,17 @@ private:
     //  - 조회 실패(예외·output1 없음)·잔고에 종목 없음·필드 없음 → 0 (다음 백오프에 재시도).
     int sellable_qty()
     {
+        // 원장 접근자가 주입돼 있으면 그것으로 끝낸다 — 전략 스레드에서 REST를 부르지 않는다. [why D-055]
+        if (const auto led = ledger_sellable(p_.account, p_.ticker))
+        {
+            if (led->avg_px > 0.0)
+            {
+                last_avg_px_ = led->avg_px;
+            }
+
+            return led->sellable;
+        }
+
         KisClient* akis = account_kis();
 
         if (!akis || !akis->has_account())
@@ -1163,10 +1174,8 @@ private:
 
         try
         {
-            // 이 조회는 공유 전략 스레드에서 동기로 돈다 — 재시도가 붙으면 한 종목의 잔고 조회가
-            //  다른 종목 전부의 발주를 수십 초 막는다. 원장 최신성 때문에 비동기화는 하지 않고
-            //  (스냅샷이 낡으면 매도가능을 0으로 봐야 해서 청산이 막힌다) 재시도만 뗀다.
-            //  실패는 아래 경로에서 0으로 떨어지고 다음 하트비트에 다시 온다.
+            // 접근자 미주입(단독 실행·테스트) 경로. 공유 전략 스레드에서 동기로 돌므로 재시도만 뗀다 —
+            //  실패는 아래에서 0으로 떨어지고 다음 하트비트에 다시 온다.
             KisClient::FastFailScope ff;
             nlohmann::json bal = akis->get_balance();
 

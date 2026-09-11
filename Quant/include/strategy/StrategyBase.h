@@ -125,6 +125,31 @@ public:
         return entry_halt_provider_ ? entry_halt_provider_() : false;
     }
 
+    // 매도가능수량·평단 접근자 주입 — OrderGate 원장 기준(잔고 대조가 맞춘 주문가능분에서 이 세션의
+    //  미체결 매도를 뺀 값). 전략 스레드가 잔고 REST를 동기로 부르면 한 종목의 조회(13~16초)가
+    //  다른 전략 전부를 막고 체결 큐가 넘친다(09-11 15:15~15:22). [why D-055]
+    //  미주입이면 nullopt — 호출측이 기존 동기 조회로 되돌아간다.
+    struct SellableInfo
+    {
+        int    sellable = 0;   // 주
+        double avg_px   = 0.0; // 원, 0=원장에 없음
+    };
+
+    void set_sellable_provider(std::function<SellableInfo(const std::string&, const std::string&)> f)
+    {
+        sellable_provider_ = std::move(f);
+    }
+
+    std::optional<SellableInfo> ledger_sellable(const std::string& account, const std::string& ticker) const
+    {
+        if (!sellable_provider_)
+        {
+            return std::nullopt;
+        }
+
+        return sellable_provider_(account, ticker);
+    }
+
 protected:
     // 잔고·매도가능수량·총평가금을 조회할 클라이언트. 주입됐으면 그쪽, 아니면 시세 클라이언트.
     //  (호출측은 지금까지처럼 has_account()로 한 번 더 확인한다.)
@@ -137,6 +162,7 @@ protected:
     KisClient* account_kis_ = nullptr; // non-owning; 계좌 조회용(미주입 시 kis_ 사용)
     std::function<int(const std::string&, const std::string&)> position_provider_; // 결제완료 확정 포지션(D2=결제일 T+2)
     std::function<bool()> entry_halt_provider_; // 신규매수 차단 여부(OrderGate). 미주입=false
+    std::function<SellableInfo(const std::string&, const std::string&)> sellable_provider_; // 원장 매도가능·평단
     std::atomic<bool> active_{true};   // 국면 게이트(Engine이 설정). 기본 true=통과 (G-1)
     std::vector<Regime> active_regimes_ = {Regime::BULL, Regime::NEUTRAL, Regime::BEAR};
 };
