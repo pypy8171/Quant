@@ -636,6 +636,76 @@ class KisClient:
                 continue
         return rows
 
+    # ── 시장 단위 수급·프로그램·선물 (대시보드 국면 카드용, raw output 반환) ───────
+    #  셋 다 시세 REST라 실전 도메인 전용(quote_kis). 응답 키는 2026-09-11 라이브 점검으로 확정.
+    #  파싱은 호출자가 한다 — 대시보드 한 곳만 쓰고 키가 많아 여기서 구조체로 굳히지 않는다.
+    def get_investor_time_by_market(self, iscd: str = "999", iscd2: str = "S001") -> list[dict]:
+        """시장별 투자자매매동향(시세) — TR FHPTJ04030000, HTS [0403] 상단 표.
+        장중 잠정치. 행마다 frgn/orgn/prsn_ntby_tr_pbmn(순매수 대금) 등이 온다.
+        인자 의미는 KIS 문서에 없고 공식 예제 값(999·S001)뿐이라 check_market_flow.py로 확인한다."""
+        data = self._get(
+            "/uapi/domestic-stock/v1/quotations/inquire-investor-time-by-market",
+            {"FID_INPUT_ISCD": iscd, "FID_INPUT_ISCD_2": iscd2},
+            "FHPTJ04030000",
+        )
+        out = data.get("output", [])
+        return out if isinstance(out, list) else [out]
+
+    def get_investor_daily_by_market(self, iscd: str = "0001", date: str = "") -> list[dict]:
+        """시장별 투자자매매동향(일별) — TR FHPTJ04040000. iscd 0001=코스피 1001=코스닥.
+        output[0]이 당일 잠정 행(stck_bsop_date). frgn/orgn/prsn_ntby_tr_pbmn 단위 백만원.
+        업종코드 두 자리(FID_INPUT_ISCD·FID_INPUT_ISCD_2)가 같아야 값이 온다 — 다르면 전부 0.
+        시세 TR FHPTJ04030000(999/S001)은 코스피 합계와 안 맞아 쓰지 않는다(D-044)."""
+        date = date or datetime.now().strftime("%Y%m%d")
+        mkt = "KSQ" if iscd == "1001" else "KSP"
+        data = self._get(
+            "/uapi/domestic-stock/v1/quotations/inquire-investor-daily-by-market",
+            {"FID_COND_MRKT_DIV_CODE": "U", "FID_INPUT_ISCD": iscd, "FID_INPUT_DATE_1": date,
+             "FID_INPUT_ISCD_1": mkt, "FID_INPUT_DATE_2": date, "FID_INPUT_ISCD_2": iscd},
+            "FHPTJ04040000",
+        )
+        out = data.get("output", [])
+        return out if isinstance(out, list) else [out]
+
+    def get_program_trade_today(self, mrkt_cls: str = "K", mrkt_div: str = "J") -> list[dict]:
+        """프로그램매매 종합현황(시간) — TR FHPPG04600101. mrkt_cls K=코스피 Q=코스닥.
+        행마다 whol_smtn_ntby_tr_pbmn(전체 순매수 대금)·stck_clpr 등. 첫 행이 최신 시각."""
+        data = self._get(
+            "/uapi/domestic-stock/v1/quotations/comp-program-trade-today",
+            {"FID_COND_MRKT_DIV_CODE": mrkt_div, "FID_MRKT_CLS_CODE": mrkt_cls,
+             "FID_SCTN_CLS_CODE": "", "FID_INPUT_ISCD": "", "FID_COND_MRKT_DIV_CODE1": "",
+             "FID_INPUT_HOUR_1": ""},
+            "FHPPG04600101",
+        )
+        out = data.get("output", [])
+        return out if isinstance(out, list) else [out]
+
+    def get_future_board(self, market_cls: str = "MKI", market_div: str = "F") -> list[dict]:
+        """선물 전광판 — TR FHPIF05030200. C++ KisClient::get_future_board 미러.
+        MKI=KOSPI200 지수선물. 최근월물 코드(futs_shrn_iscd)를 고르는 데 쓴다."""
+        data = self._get(
+            "/uapi/domestic-futureoption/v1/quotations/display-board-futures",
+            {"FID_COND_MRKT_DIV_CODE": market_div, "FID_COND_SCR_DIV_CODE": "20503",
+             "FID_COND_MRKT_CLS_CODE": market_cls},
+            "FHPIF05030200",
+        )
+        for key in ("output1", "output2", "output"):
+            out = data.get(key)
+            if isinstance(out, list) and out:
+                return out
+        return []
+
+    def get_future_price(self, iscd: str, market_div: str = "F") -> dict:
+        """국내 선물 현재가 — TR FHMIF10000000. C++ KisClient::get_future_price 미러.
+        output1(계약 시세: futs_prpr·futs_prdy_ctrt·basis·hts_otst_stpl_qty·futs_last_tr_date)과
+        output2/3(기초지수)을 {"output1":…, "output2":…, "output3":…}로 그대로 돌려준다."""
+        data = self._get(
+            "/uapi/domestic-futureoption/v1/quotations/inquire-price",
+            {"FID_COND_MRKT_DIV_CODE": market_div, "FID_INPUT_ISCD": iscd},
+            "FHMIF10000000",
+        )
+        return {k: data.get(k) for k in ("output1", "output2", "output3") if k in data}
+
     def get_ticker_name(self, ticker: str) -> str:
         """상품기본조회로 종목명 한 건. 유니버스 밖 종목의 이름을 채우는 데 쓴다.
 

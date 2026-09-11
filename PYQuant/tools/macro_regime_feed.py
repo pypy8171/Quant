@@ -18,6 +18,8 @@
   오히려 더 잘 정의된다. yfinance는 이 환경에서 Yahoo 크럼 SSL 차단으로 전 심볼 no_data라
   폐기하고(2026-09-04 확인), FDR로 교체했다:
     US500(S&P500) IXIC(나스닥) VIX / USD/KRW / FRED:DGS10(10Y 국채금리, %).
+  참고(표 없음): FRED:DGS30(30Y) FRED:DGS2(2Y) FRED:BAMLH0A0HYM2(HY 스프레드) FRED:DCOILWTICO(WTI).
+  수준 평가는 assess_levels().
   FDR는 소스별 라우팅(naver·stooq·FRED)이라 Yahoo 단일 장애에 덜 취약하다.
 
 ⚠️ 임계값은 전부 **검증 필요 가정**(STRATEGIES.md 회의 §검증 필요 가정 3).
@@ -58,6 +60,17 @@ SYMBOLS = {
     "TNX10": {"fdr": "FRED:DGS10", "vote_dir": -1, "label": "10Y 미국채금리"},
     "VIX":   {"fdr": "VIX",        "vote_dir": -1, "label": "VIX"},
     "USDKRW":{"fdr": "USD/KRW",    "vote_dir": -1, "label": "USD/KRW"},
+}
+
+# 참고 지표 — 표를 내지 않고 valid_count에도 들어가지 않는다. 패널에 수치와 수준 평가만 보인다.
+#  게이트 지표로 승격하려면 SYMBOLS·THRESHOLDS로 옮기고 halt/liq 임계를 같이 다시 정한다.
+#  FRED 일별 시리즈라 KST 기준 1~2일 늦다. 코스피·코스닥 장중값은 FDR에 당일 행이 없어
+#  대시보드가 KIS 지수 현재가로 따로 붙인다(scripts/dashboard_server.py).
+INFO_SYMBOLS = {
+    "TYX30": {"fdr": "FRED:DGS30",         "label": "30Y 미국채금리"},
+    "DGS2":  {"fdr": "FRED:DGS2",          "label": "2Y 미국채금리"},
+    "HY":    {"fdr": "FRED:BAMLH0A0HYM2",  "label": "미국 하이일드 스프레드"},
+    "WTI":   {"fdr": "FRED:DCOILWTICO",    "label": "WTI 유가"},
 }
 
 # 지표별 % 변화 임계(검증 필요) — |chg| 가 warn 이상이면 방향표 1표, strong 이상이면 2표.
@@ -149,6 +162,84 @@ def vote_for(key: str, pct: float) -> tuple[int, int]:
     return direction * strength, strength
 
 
+# [formula] 수준 경계. 일간 등락 표(THRESHOLDS)와 달리 절대 수준이라 며칠씩 켜져 있다.
+#  게이트가 아니라 설명용이다. 근거는 통상 인용되는 구간이지 이 시스템에서 검증한 값이 아니다.
+#   30Y/10Y 5.0%·4.5%: 장기 할인율이 주식 밸류에이션을 누르기 시작한다고 보는 통상 구간.
+#   VIX 20/30: 경계/공포 구간. USD/KRW 1350/1400: 원화 약세·외국인 이탈 압력이 커지는 구간.
+#   WTI 90/100: 인플레·금리 경로에 다시 부담을 주는 구간.
+#   HY 스프레드(ICE BofA US High Yield OAS, %p) 4.0/5.0: 신용 스트레스가 주식보다 먼저 드러나는 축.
+#     장기 중앙값이 4%대라 3 아래는 완화, 5 위는 위험회피 국면으로 읽는다.
+#   10Y−2Y: 0 아래면 역전(경기 둔화 신호로 통용), 커브 자체는 표 없이 note로만 남긴다.
+LEVELS = {
+    "TYX30":  [(5.0, "5% 위. 장기 할인율 부담이 큰 구간"), (4.5, "4.5~5%. 고점권")],
+    "TNX10":  [(4.5, "4.5% 위. 고점권"), (4.0, "4~4.5%")],
+    "VIX":    [(30.0, "30 위. 공포 구간"), (20.0, "20~30. 경계 구간"), (15.0, "15~20. 보통")],
+    "USDKRW": [(1400.0, "1400 위. 원화 약세 경계"), (1350.0, "1350~1400. 약세 구간")],
+    "WTI":    [(100.0, "100달러 위. 인플레 재점화 우려"), (90.0, "90~100달러. 부담 구간")],
+    "HY":     [(5.0, "5%p 위. 신용 스트레스 확대"), (4.0, "4~5%p. 확대 조짐"), (3.0, "3~4%p. 보통"), (0.0, "3%p 아래. 신용 시장 평온")],
+    "DGS2":   [(4.5, "4.5% 위. 긴축 기대 유지"), (4.0, "4~4.5%")],
+}
+# 종합 경고에 세는 경계(지표당 1개). 이 개수만 세지 점수에는 더하지 않는다.
+WARN_LEVEL = {"TYX30": 5.0, "TNX10": 4.5, "VIX": 20.0, "USDKRW": 1400.0, "WTI": 90.0, "HY": 4.0}
+
+
+def assess_levels(components: dict, score: int) -> dict:
+    """절대 수준 기준으로 지표별 note와 종합 한 줄을 만든다. 게이트(score)는 건드리지 않는다.
+
+    반환: {"flags": [label…], "summary": str}. 각 component에는 "note"를 채워 넣는다.
+    """
+    flags = []
+    for key, bands in LEVELS.items():
+        c = components.get(key)
+        if not c or c.get("price") is None:
+            continue
+        price = c["price"]
+        note = ""
+        for lo, text in bands:
+            if price >= lo:
+                note = text
+                break
+        # 금리는 %등락보다 bp가 읽기 쉽다. pct와 price로 전일값을 되살려 bp를 붙인다.
+        if key in ("TYX30", "TNX10", "DGS2") and c.get("pct") is not None:
+            prev = price / (1 + c["pct"] / 100.0)
+            bp = (price - prev) * 100.0
+            if abs(bp) >= 5:
+                note = (note + " · " if note else "") + f"전일비 {bp:+.0f}bp"
+        if note:
+            c["note"] = note
+        if key in WARN_LEVEL and price >= WARN_LEVEL[key]:
+            flags.append(c["label"])
+
+    t30 = (components.get("TYX30") or {}).get("price")
+    t10 = (components.get("TNX10") or {}).get("price")
+    if t30 is not None and t10 is not None:
+        spread = t30 - t10
+        c = components["TYX30"]
+        add = f"30Y-10Y {spread * 100:+.0f}bp"
+        if spread >= 0.5:
+            add += " (장기 프리미엄 확대)"
+        elif spread <= 0.0:
+            add += " (역전 근접)"
+        c["note"] = (c.get("note", "") + " · " if c.get("note") else "") + add
+
+    t2 = (components.get("DGS2") or {}).get("price")
+    if t10 is not None and t2 is not None:
+        spread = t10 - t2
+        c = components["DGS2"]
+        add = f"10Y-2Y {spread * 100:+.0f}bp" + (" (역전)" if spread < 0 else "")
+        c["note"] = (c.get("note", "") + " · " if c.get("note") else "") + add
+
+    n = len(flags)
+    if n >= 3:
+        judge = "수준 부담이 겹쳐 있다. 신규 진입은 비중을 줄이고, 청산은 score 기준을 따른다"
+    elif n >= 1:
+        judge = "부담 요인이 있다. 당일 방향은 등락 표(score)로 본다"
+    else:
+        judge = "수준 경고 없음. 당일 등락 표(score)로 본다"
+    summary = f"수준 경고 {n}/{len(WARN_LEVEL)}" + (f" ({', '.join(flags)})" if flags else "") +               f" · 등락 score {score:+d} · {judge}"
+    return {"flags": flags, "summary": summary}
+
+
 def build_regime(changes: dict) -> dict:
     """지표 변화 → 레짐 판정. 반환 dict 가 곧 regime.json 스키마(=C++ 리더 계약).
 
@@ -174,6 +265,19 @@ def build_regime(changes: dict) -> dict:
         valid_count += 1
         components[key] = {"label": meta["label"], "pct": round(pct, 3), "vote": vote,
                            "price": ch.get("price")}
+
+    # 참고 지표는 표 0·tier=info로 넣는다. 아래 valid 계산은 SYMBOLS 개수만 본다.
+    for key, meta in INFO_SYMBOLS.items():
+        ch = changes.get(key, {})
+        pct = ch.get("pct")
+        if pct is None:
+            components[key] = {"label": meta["label"], "pct": None, "vote": 0, "tier": "info",
+                               "err": ch.get("err")}
+            continue
+        components[key] = {"label": meta["label"], "pct": round(pct, 3), "vote": 0, "tier": "info",
+                           "price": ch.get("price")}
+
+    assessment = assess_levels(components, score)
 
     # 유효 지표 절반 미만이면 판정 보류(valid=false) — 데이터 공백에 게이트 오작동 방지.
     valid = valid_count >= max(1, (len(SYMBOLS) + 1) // 2)
@@ -201,6 +305,7 @@ def build_regime(changes: dict) -> dict:
         "stale_after_sec": 600,
         "thresholds": {"halt_score": HALT_SCORE, "liq_score": LIQ_SCORE},
         "components": components,
+        "assessment": assessment,
         "source": "FinanceDataReader",
     }
 
@@ -278,7 +383,7 @@ def main() -> None:
         #  build/write 레벨 throw는 여기서 잡아 다음 주기에 재시도한다.
         regime = None
         try:
-            changes = fetch_changes(SYMBOLS)
+            changes = fetch_changes({**SYMBOLS, **INFO_SYMBOLS})
             regime = build_regime(changes)
             write_atomic(out_path, regime)
         except KeyboardInterrupt:
@@ -295,6 +400,7 @@ def main() -> None:
             )
             print(f"[{regime['ts']}] regime={regime['regime']} score={regime['risk_score']} "
                   f"halt={regime['entry_halt']} liq={regime['force_liquidate']} | {comp}")
+            print(f"    {regime['assessment']['summary']}")
         if args.once:
             break
         try:

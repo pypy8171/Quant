@@ -6,6 +6,11 @@
 엔진(C++)을 재빌드하지 않고, 이미 존재하는 데이터 소스만 모아 브라우저에 실시간 표시한다:
   - 계좌/보유종목/평가손익/손실률 : KisClient.get_kr_balance() (엔진과 토큰 캐시 공유 → 충돌 없음)
   - 국면(regime)                  : Quant/config/regime.json  (매크로 보조 프로세스가 씀)
+  - 국내 지수 현재가(코스피·코스닥·KOSPI200) : KisClient.get_index_price() — regime.json은 간밤 종가
+                                     기준이라 장중 국내 지수는 여기서 따로 붙인다
+  - 투자자별·프로그램 순매수, KOSPI200 최근월 선물 : KisClient.get_investor_daily_by_market()
+                                     get_program_trade_today() get_future_board()/get_future_price()
+                                     실전 도메인 시세 키(quote_kis) 전용, 30초 주기
   - 매매 리스트(유니버스)          : Quant/config/universe_scan.json
   - 장중 매매 기준                 : config 전략/리스크 블록 (정적 서술)
   - 콘솔 이벤트(신호/주문/체결/거부): logs/quant_trader.log tail 분류
@@ -137,6 +142,18 @@ def read_regime(regime_path: Path):
         return j
     except (OSError, json.JSONDecodeError) as e:
         return {"__error__": f"regime.json 없음/파싱실패: {e}"}
+
+
+def read_entry_scores():
+    """엔진이 스캔마다 남기는 진입 점수표(로그 폴더 entry_scores.json). 보유 종목 카드가
+    점수순 정렬에 쓴다. 파일이 없으면(엔진 미기동·구버전) 빈 표를 돌려 카드는 잔고순으로 남는다."""
+    path = logs_dir() / "entry_scores.json"
+    try:
+        j = json.loads(path.read_text(encoding="utf-8"))
+        j["_age_sec"] = round(time.time() - path.stat().st_mtime, 1)
+        return j
+    except (OSError, json.JSONDecodeError) as e:
+        return {"__error__": f"entry_scores.json 없음/파싱실패: {e}", "scores": {}}
 
 
 def read_universe(uni_path: Path):
@@ -410,16 +427,106 @@ def _fetch_balance(kis: KisClient):
     }
 
 
-def _warm_loop(kis: KisClient, quote: KisClient, interval=5.0):
+# 국내 지수 코드(FID_INPUT_ISCD, 업종 U). 패널 표시 순서 그대로.
+KR_INDEX = [("0001", "코스피"), ("1001", "코스닥"), ("2001", "KOSPI200")]
+
+
+def _fetch_kr_index(quote: KisClient):
+    """지수 세 개를 한 번에. 하나가 실패해도 나머지는 싣고, 전부 실패면 예외로 올려 stale 표식."""
+    rows = []
+    for code, label in KR_INDEX:
+        try:
+            ip = quote.get_index_price(code)
+            rows.append({"code": code, "label": label, "price": ip.price if ip.ok else None,
+                         "pct": ip.change_rate if ip.ok else None})
+        except Exception as e:  # noqa: BLE001 — 지수 하나 실패가 나머지를 막지 않게
+            rows.append({"code": code, "label": label, "price": None, "pct": None, "err": str(e)})
+    if all(r["price"] is None for r in rows):
+        raise RuntimeError("지수 조회 실패: " + "; ".join(r.get("err", "") for r in rows))
+    return {"rows": rows}
+
+
+def _num(v, scale=1.0):
+    try:
+        return round(float(v) / scale, 2)
+    except (TypeError, ValueError):
+        return None
+
+
+# 시장 단위 수급·프로그램·선물. 시장별 코드 = (업종코드, 프로그램 시장구분, 라벨). [why D-044]
+KR_FLOW_MARKETS = [("0001", "K", "코스피"), ("1001", "Q", "코스닥")]
+
+
+def _fetch_kr_flow(quote: KisClient):
+    """투자자별 순매수(일별 TR 당일 잠정행)·프로그램 순매수(시간 TR 최신행)·KOSPI200 최근월 선물.
+    KIS 응답은 백만원이라 억원으로 나눠 싣는다(/100). 세 묶음 중 하나가 실패해도 나머지는 싣고,
+    전부 실패면 예외로 올려 stale 표식."""
+    out, errs = {"investor": [], "program": [], "future": None}, []
+    for code, pcls, label in KR_FLOW_MARKETS:
+        try:
+            rows = quote.get_investor_daily_by_market(code)
+            r = rows[0] if rows else {}
+            out["investor"].append({"label": label, "date": r.get("stck_bsop_date"),
+                                    "frgn": _num(r.get("frgn_ntby_tr_pbmn"), 100),
+                                    "orgn": _num(r.get("orgn_ntby_tr_pbmn"), 100),
+                                    "prsn": _num(r.get("prsn_ntby_tr_pbmn"), 100)})
+        except Exception as e:  # noqa: BLE001
+            errs.append(f"수급 {label}: {e}")
+        try:
+            rows = quote.get_program_trade_today(pcls)
+            r = rows[0] if rows else {}
+            out["program"].append({"label": label, "hour": r.get("bsop_hour"),
+                                   "whol": _num(r.get("whol_smtn_ntby_tr_pbmn"), 100),
+                                   "arbt": _num(r.get("arbt_smtn_ntby_tr_pbmn"), 100),
+                                   "nabt": _num(r.get("nabt_smtn_ntby_tr_pbmn"), 100)})
+        except Exception as e:  # noqa: BLE001
+            errs.append(f"프로그램 {label}: {e}")
+    try:
+        # K2I 전광판은 만기 오름차순이라 첫 행이 최근월물. 기초지수(output3)는 선물 현재가 응답에 같이 온다.
+        board = quote.get_future_board("K2I")
+        if not board:
+            raise RuntimeError("K2I 전광판 빈 응답")
+        front = board[0]
+        fp = quote.get_future_price(front["futs_shrn_iscd"])
+        o1, o3 = fp.get("output1") or {}, fp.get("output3") or {}
+        out["future"] = {"code": front.get("futs_shrn_iscd"), "name": front.get("hts_kor_isnm"),
+                         "price": _num(o1.get("futs_prpr")), "pct": _num(o1.get("futs_prdy_ctrt")),
+                         "basis": _num(o1.get("mrkt_basis")), "dprt": _num(o1.get("dprt")),
+                         "theo": _num(o1.get("hts_thpr")), "oi": _num(o1.get("hts_otst_stpl_qty")),
+                         "oi_chg": _num(o1.get("otst_stpl_qty_icdc")),
+                         "expiry": o1.get("futs_last_tr_date"), "days": o1.get("hts_rmnn_dynu"),
+                         "k200": _num(o3.get("bstp_nmix_prpr"))}
+    except Exception as e:  # noqa: BLE001
+        errs.append(f"선물: {e}")
+    if not out["investor"] and not out["program"] and out["future"] is None:
+        raise RuntimeError("; ".join(errs))
+    if errs:
+        out["partial"] = "; ".join(errs)
+    return out
+
+
+def _warm_loop(kis: KisClient, quote: KisClient, interval=5.0, flow_every=6):
+    tick = 0
     while True:
         try:
             _live_set("balance", _fetch_balance(kis))
         except Exception as e:
             _live_err("balance", str(e))
         try:
+            _live_set("kr_index", _fetch_kr_index(quote))
+        except Exception as e:
+            _live_err("kr_index", str(e))
+        try:
             _live_set("ranking", {"rows": quote.get_volume_ranking(top_n=25)})
         except Exception as e:
             _live_err("ranking", str(e))
+        # 수급·프로그램·선물은 REST 6회(약 30초)라 매 주기 돌리지 않는다. 잠정치 갱신도 그 정도 간격이다.
+        if tick % flow_every == 0:
+            try:
+                _live_set("kr_flow", _fetch_kr_flow(quote))
+            except Exception as e:
+                _live_err("kr_flow", str(e))
+        tick += 1
         time.sleep(interval)
 
 
@@ -539,7 +646,10 @@ def build_state(kis, quote, cfg, regime_path, uni_path):
         "engine": engine_status(),
         "account": _bal,
         "regime": read_regime(regime_path),
+        "kr_index": _live_get("kr_index"),
+        "kr_flow": _live_get("kr_flow"),
         "universe": _uni,
+        "entry_scores": read_entry_scores(),
         "criteria": build_criteria(cfg),
         "log": _log,
         "trades": read_trades_today(seed_avg=_seed),
@@ -659,6 +769,9 @@ th{color:var(--mut);font-weight:600;position:sticky;top:0;background:var(--panel
 td.l,th.l{text-align:left}
 .up{color:var(--up)}.dn{color:var(--dn)}.mut{color:var(--mut)}
 .scroll{max-height:340px;overflow:auto}
+/* 보유 종목은 옆 국면 카드 높이만큼 채우고 넘칠 때만 스크롤. 절대 배치라 표 길이가 행 높이를 키우지 않는다. */
+.card.fill{position:relative;min-height:340px}
+.card.fill .scroll{position:absolute;top:38px;left:14px;right:14px;bottom:12px;max-height:none}
 .feed{max-height:360px;overflow:auto;font-family:'Cascadia Code',Consolas,monospace;font-size:11.5px}
 .ev{display:flex;gap:8px;padding:3px 0;border-bottom:1px dashed var(--bd)}
 .ev .t{color:var(--mut);flex:0 0 62px}
@@ -687,6 +800,9 @@ small.err{color:var(--dn)}
 .regime-comp{display:grid;grid-template-columns:1fr auto auto auto;gap:2px 10px;font-size:12px;margin-top:8px}
 .regime-comp .rp{font-variant-numeric:tabular-nums}
 .regime-comp .rn{color:var(--mut)}
+.regime-comp .note{grid-column:1/-1;color:var(--mut);font-size:11px;margin:-2px 0 4px 8px}
+.regime-comp .sec{grid-column:1/-1;color:var(--mut);font-size:11px;margin-top:6px;border-top:1px solid var(--chip);padding-top:4px}
+.regime-sum{font-size:12px;margin-top:8px;line-height:1.4}
 .tickrow td:first-child{color:var(--mut)}
 </style></head><body>
 <header>
@@ -703,8 +819,8 @@ small.err{color:var(--dn)}
 <div class="grid">
   <div class="card col12"><h2>계좌 현황</h2><div class="kpis" id="kpis"></div><div class="muted" id="acctnote"></div></div>
 
-  <div class="card col8"><h2>보유 종목 (평가손익)</h2><div class="scroll"><table id="pos">
-    <thead><tr><th class="l">종목</th><th class="l">코드</th><th>수량</th><th>평단</th><th>현재가</th><th>평가금</th><th>손익</th><th>손익률</th></tr></thead>
+  <div class="card col8 fill"><h2>보유 종목 (점수순 · 평가손익)</h2><div class="scroll"><table id="pos">
+    <thead><tr><th>순위</th><th>점수 z</th><th class="l">종목</th><th class="l">코드</th><th>수량</th><th>평단</th><th>현재가</th><th>평가금</th><th>손익</th><th>손익률</th></tr></thead>
     <tbody></tbody></table></div></div>
 
   <div class="card col4"><h2>국면 (Regime)</h2><div id="regime"></div></div>
@@ -814,12 +930,19 @@ async function tick(){
 
   // 보유종목
   const pb=document.querySelector('#pos tbody');
-  const pos=(a.positions)||[];
+  // 점수는 엔진 entry_scores.json(스캔마다 갱신). 점수 없는 종목은 교체 진입에서 unscored_z로
+  //  취급되어 먼저 밀려나므로 맨 아래에 둔다. [why D-047]
+  const es=s.entry_scores||{}; const sc=es.scores||{}; const tot=es.total||0;
+  const pos=((a.positions)||[]).map(p=>{const e=sc[p.ticker]; return Object.assign({},p,{_rank:e?e.rank:null,_z:e?e.z:null});})
+    .sort((x,y)=>{ if(x._z==null&&y._z==null) return 0; if(x._z==null) return 1; if(y._z==null) return -1; return y._z-x._z; });
+  const zs=v=>v==null?'<span class="mut">점수 없음</span>':(v>=0?'+':'')+Number(v).toFixed(2)+'σ';
+  const zc=v=>v==null?'dn':(v>0?'up':(v<0?'dn':''));
   pb.innerHTML= pos.length? pos.map(p=>`<tr class="clk" data-tk="${eb(p.ticker)}" data-nm="${eb(p.name)}">
+    <td class="mut">${p._rank!=null?p._rank+(tot?'/'+tot:''):'–'}</td><td class="${zc(p._z)}">${zs(p._z)}</td>
     <td class="l">${eb(p.name)}</td><td class="l mut">${eb(p.ticker)}</td>
     <td>${won(p.qty)}</td><td>${won(p.avg)}</td><td>${won(p.cur)}</td><td>${won(p.eval)}</td>
     <td class="${cls(p.pnl)}">${won(p.pnl)}</td><td class="${cls(p.pnl_rate)}">${pct(p.pnl_rate)}</td></tr>`).join('')
-    : '<tr><td class="l mut" colspan="8">보유 종목 없음</td></tr>';
+    : '<tr><td class="l mut" colspan="10">보유 종목 없음</td></tr>';
 
   // 국면
   const r=s.regime||{}; const rd=document.getElementById('regime');
@@ -827,9 +950,48 @@ async function tick(){
   else{
     const halt=r.entry_halt, liq=r.force_liquidate, stale=r._stale;
     const rc=r.regime==='RISK_ON'?'up':(r.regime==='RISK_OFF'?'dn':'mut');
-    let comp='';
-    for(const k in (r.components||{})){const c=r.components[k];
-      comp+=`<div class="rn">${eb(c.label||k)}</div><div class="rp">${ipx(c.price)}</div><div class="${cls(c.pct)}">${pct(c.pct)}</div><div class="mut">vote ${eb(c.vote)}</div>`;}
+    // 국내 지수(KIS 실시간)는 regime.json과 별도 수집이라 앞에 붙인다. pct는 전일 종가 대비.
+    const ki=s.kr_index||{}; let comp='';
+    if(ki.__error__){ comp+=`<div class="sec">국내 지수 — ${eb(ki.__error__)}</div>`; }
+    else{
+      comp+=`<div class="sec">국내 지수 (KIS 실시간${ki._stale_err?' · 지연 '+eb(ki._stale_age)+'s':''})</div>`;
+      for(const c of (ki.rows||[])){
+        comp+=`<div class="rn">${eb(c.label)}</div><div class="rp">${ipx(c.price)}</div><div class="${cls(c.pct)}">${pct(c.pct)}</div><div class="mut">현물</div>`;}
+    }
+    // 국내 수급·프로그램·선물(KIS 실시간, 억원). 외인 선물 순매수는 REST 경로가 없어 미확정. [why D-044]
+    const kf=s.kr_flow||{}; const sgn=v=>v==null?'—':(v>0?'+':'')+Math.round(v).toLocaleString();
+    const wcl=v=>v==null?'mut':(v>0?'up':(v<0?'dn':'mut'));
+    const cell3=(a,b,c)=>`<div class="rp ${wcl(a)}">${sgn(a)}</div><div class="rp ${wcl(b)}">${sgn(b)}</div><div class="rp ${wcl(c)}">${sgn(c)}</div>`;
+    const hhmm=h=>h?String(h).slice(0,2)+':'+String(h).slice(2,4):'';
+    const fx2=v=>v==null?'—':Number(v).toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2});
+    if(kf.__error__){ comp+=`<div class="sec">국내 수급·선물 — ${eb(kf.__error__)}</div>`; }
+    else{
+      comp+=`<div class="sec">투자자 순매수 (당일 잠정 · 억원${kf._stale_err?' · 지연 '+eb(kf._stale_age)+'s':''})</div>`;
+      comp+=`<div class="rn"></div><div class="mut">외인</div><div class="mut">기관</div><div class="mut">개인</div>`;
+      for(const r of (kf.investor||[])){ comp+=`<div class="rn">${eb(r.label)}</div>`+cell3(r.frgn,r.orgn,r.prsn); }
+      const p0=(kf.program||[])[0];
+      comp+=`<div class="sec">프로그램 순매수 (억원${p0&&p0.hour?' · '+eb(hhmm(p0.hour)):''})</div>`;
+      comp+=`<div class="rn"></div><div class="mut">전체</div><div class="mut">차익</div><div class="mut">비차익</div>`;
+      for(const r of (kf.program||[])){ comp+=`<div class="rn">${eb(r.label)}</div>`+cell3(r.whol,r.arbt,r.nabt); }
+      const f=kf.future;
+      if(f){
+        comp+=`<div class="sec">KOSPI200 선물 최근월 (${eb(f.name||f.code||'')} · 만기 ${eb(f.expiry||'?')} · 잔존 ${eb(f.days||'?')}일)</div>`;
+        comp+=`<div class="rn">선물가</div><div class="rp">${fx2(f.price)}</div><div class="${cls(f.pct)}">${pct(f.pct)}</div><div class="mut">현물 ${fx2(f.k200)}</div>`;
+        comp+=`<div class="rn">시장 베이시스</div><div class="rp ${wcl(f.basis)}">${f.basis==null?'—':f.basis.toFixed(2)}</div><div class="${wcl(f.dprt)}">${f.dprt==null?'—':'괴리 '+f.dprt.toFixed(2)+'%'}</div><div class="mut">이론가 ${fx2(f.theo)}</div>`;
+        comp+=`<div class="rn">미결제약정</div><div class="rp">${f.oi==null?'—':Math.round(f.oi).toLocaleString()}</div><div class="${wcl(f.oi_chg)}">${f.oi_chg==null?'—':(f.oi_chg>0?'+':'')+Math.round(f.oi_chg).toLocaleString()}</div><div class="mut">외인 선물 순매수 미확정</div>`;
+        if(f.basis!=null){ comp+=`<div class="note">${eb(f.basis<0?'백워데이션(선물이 현물 아래). 헤지 매도·약세 기대가 실린 상태':(f.basis>1?'콘탱고 확대. 차익 매수 유입 여지':'베이시스 중립'))}</div>`; }
+      }
+      if(kf.partial){ comp+=`<div class="note">일부 실패: ${eb(kf.partial)}</div>`; }
+    }
+    // 간밤 해외(regime.json). tier=info는 표를 내지 않는 참고 지표. note는 절대 수준 평가.
+    const comps=r.components||{}; const gate=[], info=[];
+    for(const k in comps){ (comps[k].tier==='info'?info:gate).push(comps[k]); }
+    const row=(c,tag)=>`<div class="rn">${eb(c.label||'')}</div><div class="rp">${ipx(c.price)}</div><div class="${cls(c.pct)}">${pct(c.pct)}</div><div class="mut">${tag}</div>`
+      +(c.note?`<div class="note">${eb(c.note)}</div>`:'');
+    comp+=`<div class="sec">간밤 해외 (전일 종가 대비 · 표결)</div>`;
+    for(const c of gate){ comp+=row(c,'vote '+eb(c.vote)); }
+    if(info.length){ comp+=`<div class="sec">참고 (표 없음)</div>`; for(const c of info){ comp+=row(c,'참고'); } }
+    const sum=(r.assessment||{}).summary;
     rd.innerHTML=`
       <div><span class="pill ${rc}" style="background:var(--chip)">${eb(r.regime||'?')}</span>
         <span class="mut"> score ${eb(r.risk_score)}</span>
@@ -838,6 +1000,7 @@ async function tick(){
         신규매수: <b class="${halt?'bad':'up'}">${halt?'차단(entry_halt)':'허용'}</b><br>
         강제청산: <b class="${liq?'bad':''}">${liq?'ON(force_liquidate)':'off'}</b>
       </div>
+      ${sum?`<div class="regime-sum">${eb(sum)}</div>`:''}
       <div class="regime-comp">${comp}</div>
       <div class="muted">기준 halt≤${eb((r.thresholds||{}).halt_score)} · liq≤${eb((r.thresholds||{}).liq_score)} · ${eb(r.ts||'')}</div>`;
   }
