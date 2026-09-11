@@ -238,7 +238,7 @@ void SignalDispatcher::flush_held(Clock::time_point now)
 void SignalDispatcher::force_liquidate(Clock::time_point now)
 {
     // entry_halt가 함께 켜져 SELL만 통과한다. 대량은 fat-finger·초당 한도에 일부 막힐 수 있으나 다음 주기에
-    //  잔량이 다시 나간다(G3-2 좌초 방지).
+    //  잔량이 다시 나가 미완료로 남지 않는다(G3-2).
     if (now - last_liq_ < liq_interval_)
     {
         return;

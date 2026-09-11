@@ -241,7 +241,7 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
     }
 
     // 1b. Entry halt — 신규 진입(BUY NEW)만 차단. SELL 청산·취소(CANCEL/REPLACE)는 통과시켜
-    //     지수 급락 시 "신규정지 + 보유분 청산"이 게이트에서 좌초되지 않게 한다(C-2).
+    //     지수 급락 시 "신규정지 + 보유분 청산"이 게이트에서 미완료로 남지 않게 한다(C-2).
     //     kill_switch_(전방향)와 분리된 국면 리스크 플래그.
     if (entry_halt_.load() && sig.side == OrderSide::BUY && sig.action == OrderAction::NEW)
     {
