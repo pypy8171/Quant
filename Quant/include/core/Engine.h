@@ -4,6 +4,7 @@
 #include "core/DataPoller.h"
 #include "core/LedgerReconciler.h"
 #include "core/RingBuffer.h"
+#include "core/SignalDispatcher.h"
 #include "core/RegimeController.h"
 #include "core/RegimeFileBridge.h"
 #include "core/Types.h"
@@ -382,8 +383,7 @@ private:
 
     std::atomic<uint64_t> data_count_{0};
     std::atomic<uint64_t> td_drop_count_{0}; // WS 체결 큐 가득으로 버린 틱 수 [why D-055]
-    std::atomic<uint64_t> signal_count_{0};
-    uint64_t signal_seq_ = 0;   // strategy_thread 전용(order_queue_ 단일 생산자라 atomic 불필요). 신호에 stamp하는 단조 순번, 0은 미부여 [why D-038]
+    std::atomic<uint64_t> signal_count_{0}; // 신호 순번 자체는 strategy_thread의 SignalDispatcher가 찍는다 [why D-063]
     std::atomic<uint64_t> order_count_{0};
 
     OrderGate order_gate_;

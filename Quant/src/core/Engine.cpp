@@ -1483,146 +1483,28 @@ void Engine::strategy_thread_fn()
 {
     LOG_INFO("[StrategyThread] 시작");
 
-    auto raw_push = [&](const OrderSignal& in)
-    {
-        ++signal_count_;
-
-        // 전략이 만든 순간의 순번을 찍는다. 게이트 거부·큐 드롭·접수·체결 행이 전부 이 번호를 물고 가서
-        //  어긋난 건이 어느 단계에서 벌어졌는지 CSV에서 따라갈 수 있다. [why D-038]
-        OrderSignal sig = in;
-        sig.seq = ++signal_seq_;
-
-        // 취소·정정은 수량이 0이라 side만 찍으면 "BUY 0"으로 나온다. 09-09에 그 줄을 보고
-        //  0주 매수 결함으로 오인해 한참 뒤졌다. 무엇을 하는 신호인지 앞에 적는다.
-        const char* act = (sig.action == OrderAction::CANCEL)  ? "취소 "
-                        : (sig.action == OrderAction::REPLACE) ? "정정 "
-                                                               : "";
-        const std::string tgt = sig.orig_client_oid.empty()
-                              ? std::string()
-                              : " 대상=" + sig.orig_client_oid;
-
-        LOG_INFO("[Strategy] 신호: [" + sig.strategy_id + "] " + ticker_label(sig.ticker) + " " +
-                 act + (sig.side == OrderSide::BUY ? "BUY" : "SELL") + " " +
-                 std::to_string(sig.quantity) + tgt +
-                 (sig.reason.empty() ? "" : " | 근거: " + sig.reason));
+    // 신호 순번·교체 보류·차단 로그는 이 스레드 소유라 디스패처를 여기에 둔다. 싱크가 order_queue_에 넣는 유일한
+    //  자리 — 단일 생산자 규약은 이 람다가 이 스레드에서만 불린다는 데 기댄다. [why D-063]
+    SignalDispatcher dispatcher(
+        order_gate_,
+        [this](const OrderSignal& sig)
+        {
+            ++signal_count_;
 #ifdef HAS_ZMQ
-        if (zmq_bridge_)
-        {
-            zmq_bridge_->publish_signal(sig);
-        }
+            if (zmq_bridge_)
+            {
+                zmq_bridge_->publish_signal(sig);
+            }
 #endif
-        while (!order_queue_.push(sig) && running_.load())
-        {
-            std::this_thread::sleep_for(std::chrono::microseconds(100));
-        }
-    };
-
-    // 교체 진입 — 슬롯이 꽉 찬 상태에서 더 높은 점수의 신규 종목이 오면 최약체를 먼저 비운다.
-    //  비우고 끝내는 이유: 매도 체결은 비동기라 같은 틱에 매수를 붙이면 노출이 이중 계상된다.
-    //  게이트가 빈 자리를 이 종목에게 예약해 두고, 매수 신호는 이 스레드가 들고 있다가 자리가
-    //  나면 낸다. 흘리기만 하면 안 되는 이유: 전략은 자기 예약이 살아 있다고 낙관하므로(계획
-    //  시그니처 가드) 게이트 거부를 모르고 다시 내지 않는다. 그러면 예약된 슬롯이
-    //  displace_slot_hold_sec 동안 비어 있다가 만료되고, 그동안 다른 종목까지 "예약분" 거부를
-    //  받는다(09-11 10:05 322000: 교체 매도 뒤 매수는 40>=40 거부, 5분간 아무도 못 삼).
-    //  order_queue_ 단일 생산자 규약을 지키려면 발주는 반드시 이 스레드에서만 나가야 한다.
-    std::vector<OrderSignal> displace_held;        // 수혜 종목의 매수 신호(rung 전부)
-    std::string              displace_held_ticker;
-    auto                     displace_held_until = std::chrono::steady_clock::time_point{};
-
-    auto push_signal = [&](const OrderSignal& sig)
-    {
-        const auto& gcfg   = order_gate_.config();
-        const bool  buy_new = sig.side == OrderSide::BUY && sig.action == OrderAction::NEW;
-
-        if (!displace_held_ticker.empty() && sig.ticker == displace_held_ticker)
-        {
-            if (sig.action == OrderAction::CANCEL)
+            while (!order_queue_.push(sig) && running_.load())
             {
-                displace_held.clear(); // 전략이 분할 매수를 다시 깐다 — 새 rung이 뒤따른다
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
             }
-            else if (buy_new && std::chrono::steady_clock::now() < displace_held_until &&
-                     order_gate_.capacity_full())
-            {
-                displace_held.push_back(sig); // 아직 자리가 안 났다 — 같은 분할 매수의 다음 rung
-                return;
-            }
-        }
-
-        if (gcfg.displace_enabled && buy_new &&
-            order_gate_.position(sig.account_id, sig.ticker) == 0 &&
-            order_gate_.reserved(sig.account_id, sig.ticker) == 0 &&
-            order_gate_.capacity_full())
-        {
-            auto plan = order_gate_.plan_displacement(sig.account_id, sig.ticker);
-
-            if (plan.ok)
-            {
-                OrderSignal ev;
-                ev.ticker      = plan.ticker;
-                ev.account_id  = plan.account;
-                ev.side        = OrderSide::SELL;
-                ev.type        = OrderType::MARKET;
-                ev.quantity    = plan.qty;
-                ev.price       = 0.0;
-                ev.ref_price   = plan.avg_price; // 시장가 명목 백스톱이 우회되지 않게 평단을 stamp
-                ev.strategy_id = "DISPLACE";
-                ev.reason      = plan.reason;
-                LOG_INFO("[Displace] " + ticker_label(plan.ticker) + " 전량 매도 " +
-                         std::to_string(plan.qty) + "주 — " + plan.reason);
-                raw_push(ev);
-                order_gate_.note_displacement(plan, sig.ticker);
-                displace_held.clear();
-                displace_held_ticker = sig.ticker;
-                displace_held_until  = std::chrono::steady_clock::now() +
-                                       std::chrono::seconds(gcfg.displace_slot_hold_sec > 0
-                                                            ? gcfg.displace_slot_hold_sec : 120);
-                displace_held.push_back(sig); // 매도 체결로 자리가 나면 루프 머리에서 낸다
-                return;
-            }
-        }
-
-        raw_push(sig);
-    };
-
-    // 교체 매도가 체결돼 자리가 났으면 들고 있던 수혜 종목 매수를 낸다. 예약 시한이 지나면 버린다 —
-    //  그 뒤엔 게이트 예약도 풀려 있어 전략의 다음 재구성이 보통 경로로 들어온다.
-    auto flush_displace_held = [&]()
-    {
-        if (displace_held_ticker.empty())
-        {
-            return;
-        }
-
-        const auto now = std::chrono::steady_clock::now();
-
-        if (now >= displace_held_until)
-        {
-            if (!displace_held.empty())
-            {
-                LOG_WARN("[Displace] 보류 매수 만료 " + ticker_label(displace_held_ticker) + " " +
-                         std::to_string(displace_held.size()) + "건 — 자리가 안 나 버린다");
-            }
-
-            displace_held.clear();
-            displace_held_ticker.clear();
-            return;
-        }
-
-        if (displace_held.empty() || order_gate_.capacity_full())
-        {
-            return;
-        }
-
-        LOG_INFO("[Displace] 자리가 나 보류 매수 " + std::to_string(displace_held.size()) + "건 발주 " +
-                 ticker_label(displace_held_ticker));
-
-        for (const auto& s : displace_held)
-        {
-            raw_push(s);
-        }
-
-        displace_held.clear();
-    };
+        },
+        std::chrono::steady_clock::now());
+    dispatcher.set_label([this](const std::string& t) { return ticker_label(t); });
+    dispatcher.set_guardian([this](const std::string& t) { return guardian_tickers_.count(t) > 0; });
+    auto push_signal = [&](const OrderSignal& sig) { dispatcher.submit(sig); };
 
     std::vector<OrderSignal> batch_buf; // MM 다건 발주 재사용 버퍼 (per-tick 할당 회피)
 
@@ -1671,51 +1553,11 @@ void Engine::strategy_thread_fn()
     // strategies_ 무락 순회용 StrategyBase* 스냅샷. data_thread의 재스캔 등록·해제가
     // strat_version_을 올릴 때만 락 하에 재구성한다(틱마다 락 회피). 뗀 전략은 retired_가
     // 붙들고 있어 재구성 전의 옛 포인터도 유효하다(reap_retired가 seen 버전을 보고 파기).
-    // 국면 게이트 적용 지점. apply_regime_selection()이 set_active로 표시만 해 두고
-    //  틱 디스패치는 그 표시를 보지 않아, 국면-전략 자동선택이 실제로는 아무것도 막지
-    //  않았다(2026-09-08 확인). 신규매수만 막고 청산·취소·정정은 통과시킨다 —
-    //  entry_halt와 같은 규약이다. 비활성 전략이 보유분을 못 팔면 보호가 사라진다.
-    std::unordered_set<std::string> guard_block_logged;
-    auto emit_from = [&](StrategyBase* s, const OrderSignal& sig)
-    {
-        if (s && !s->is_active() && sig.action == OrderAction::NEW &&
-            sig.side == OrderSide::BUY)
-        {
-            return;
-        }
-
-        // 청산 관리가 맡은 티커는 스캔 슬리브가 새로 사지도, 팔지도 않는다. 소유자를 하나로
-        //  두지 않으면 청산 관리가 턴 물량을 스캔 전략이 되사는 회전이 나고, 매도가 둘에서
-        //  나가면 같은 보유분에 두 장의 매도가 걸린다(sellable_qty 클램프가 있어도 순서에
-        //  따라 한쪽이 0을 받아 분할 주문을 3초마다 되감는다). 취소·정정은 통과한다 — 이미 낸
-        //  주문을 거두는 길까지 막으면 미체결이 미연결 주문이 된다.
-        if (s && sig.action == OrderAction::NEW &&
-            guardian_tickers_.count(sig.ticker) && s->id().rfind("ITB_", 0) != 0)
-        {
-            if (guard_block_logged.insert(sig.ticker).second)
-            {
-                LOG_INFO("[Engine] 청산 관리 보유종목 신규 " +
-                         std::string(sig.side == OrderSide::BUY ? "매수" : "매도") + " 차단 " +
-                         ticker_label(sig.ticker) + " (요청 " + s->id() + ") — 매매 소유권은 청산 관리에 있다");
-            }
-
-            return;
-        }
-
-        push_signal(sig);
-    };
+    // 국면 게이트(비활성 전략의 신규 매수)와 청산 관리 티커 차단은 디스패처가 한다.
+    auto emit_from = [&](StrategyBase* s, const OrderSignal& sig) { dispatcher.from_strategy(s->is_active(), s->id(), sig); };
 
     std::vector<StrategyBase*> snap;
     uint64_t seen_ver = static_cast<uint64_t>(-1);
-
-    // G3 강제청산 재발주 스로틀 — dedup 윈도우(1s)보다 길게 잡아 재발주가 통과되게.
-    auto last_liq_attempt = std::chrono::steady_clock::now();
-    // 기동 시 종목당 명목 한도 초과분 정리(1회). 재기동으로 미체결 분할 매수 기억이 사라지면
-    //  게이트가 보유를 0으로 보고 같은 층을 다시 깔아 한도를 넘겨 체결시킨다(09-08 047050:
-    //  한도 800만인데 명목 2,080만). 넘긴 채로 두면 다음 재기동에서 또 얹히므로, 시드가
-    //  끝난 뒤 초과분을 시장가로 덜어낸다. 전량 청산이 아니라 한도까지만 줄인다.
-    bool trim_done  = false;
-    auto trim_after = std::chrono::steady_clock::now() + std::chrono::seconds(20);
 
     while (running_.load(std::memory_order_acquire))
     {
@@ -1737,56 +1579,18 @@ void Engine::strategy_thread_fn()
             strat_seen_version_.store(ver, std::memory_order_release);
         }
 
-        flush_displace_held();
+        const auto loop_now = std::chrono::steady_clock::now();
+        dispatcher.flush_held(loop_now);
 
-        // ── G3 강제청산: force_liquidate 동안 매 주기(≤2s) 보유 전량 시장가 매도 ──
-        //  order_queue_ 단일 생산자(이 스레드)에서만 발주 → SPSC 준수. reserved(미체결
-        //  매도)만큼 차감해 오버셀 방지, 잔량이 남는 한 재발주(G3-2 좌초 방지).
-        //  entry_halt가 함께 켜져 SELL만 통과(check §1b). 대량은 fat-finger/레이트리밋에
-        //  일부 막힐 수 있으나 다음 주기에 잔량 재시도된다.
         // 운영단말 수동주문 — 소켓 스레드가 넣은 요청을 여기서 OrderSignal로 바꾼다(단일 생산자).
         drain_manual_inbox(push_signal);
 
+        // G3 강제청산 — force_liquidate 동안 보유 전량(미체결 매도 제외) 시장가 매도를 2초마다 다시 낸다.
         if (force_liquidate_.load(std::memory_order_relaxed))
         {
-            auto now = std::chrono::steady_clock::now();
-
-            if (now - last_liq_attempt >= std::chrono::seconds(2))
-            {
-                last_liq_attempt = now;
-
-                for (const auto& h : order_gate_.snapshot_positions())
-                {
-                    int resv = order_gate_.reserved(h.account, h.ticker);
-                    int sell_pending = (resv < 0) ? -resv : 0; // 이미 낸 미체결 매도
-                    int sellable = h.qty - sell_pending;
-
-                    if (sellable <= 0)
-                    {
-                        continue;
-                    }
-
-                    OrderSignal s;
-                    s.ticker      = h.ticker;
-                    s.account_id  = h.account;
-                    s.side        = OrderSide::SELL;
-                    s.type        = OrderType::MARKET;
-                    s.quantity    = sellable;
-                    s.price       = 0.0;
-                    // 시장가라 price=0 → 게이트 명목 백스톱이 우회되지 않도록 매입평단을 참조가로
-                    // stamp(라이브 현재가가 없는 경로라 평단이 최선의 근사). fat-finger 명목 한도가
-                    // 급락장 대량 강제청산에도 걸리게 한다.
-                    s.ref_price   = h.avg_price;
-                    s.strategy_id = "FORCE_LIQ";
-                    s.reason      = "강제청산(force_liquidate) 보유=" + std::to_string(h.qty) +
-                                    " 미체결매도=" + std::to_string(sell_pending);
-                    push_signal(s);
-                }
-            }
+            dispatcher.force_liquidate(loop_now);
         }
 
-        // ── 종목당 명목 한도 초과분 정리 (기동 후 1회) ─────────────────────────
-        //  강제청산과 같은 스레드(단일 생산자)에서 낸다 — order_queue_ SPSC 준수.
         // 기동 점검 되팔기 — 보유가 base+qty 이상이면 체결로 보고 같은 수량을 시장가로 판다.
         //  체결통보를 직접 보지 않고 원장 수량으로 판정한다(원장이 진실원천). 120초 안에 안 늘면
         //  접수 거부·미체결로 보고 포기한다 — 그때는 다음 기동에서 표식 때문에 다시 내지도 않는다.
@@ -1831,60 +1635,8 @@ void Engine::strategy_thread_fn()
             }
         }
 
-        if (!trim_done && std::chrono::steady_clock::now() >= trim_after)
-        {
-            trim_done = true;
-            const double cap_notional = order_gate_.config().max_notional_per_ticker;
-
-            if (cap_notional > 0.0)
-            {
-                for (const auto& h : order_gate_.snapshot_positions())
-                {
-                    if (h.qty <= 0 || h.avg_price <= 0.0)
-                    {
-                        continue;
-                    }
-
-                    const int cap_qty = static_cast<int>(cap_notional / h.avg_price);
-                    int excess = h.qty - cap_qty;
-
-                    if (excess <= 0)
-                    {
-                        continue;
-                    }
-
-                    // 이미 낸 미체결 매도만큼은 곧 줄어든다 — 중복으로 덜어내지 않는다.
-                    const int resv = order_gate_.reserved(h.account, h.ticker);
-
-                    if (resv < 0)
-                    {
-                        excess -= -resv;
-                    }
-
-                    if (excess <= 0)
-                    {
-                        continue;
-                    }
-
-                    OrderSignal s;
-                    s.ticker      = h.ticker;
-                    s.account_id  = h.account;
-                    s.side        = OrderSide::SELL;
-                    s.type        = OrderType::MARKET;
-                    s.quantity    = excess;
-                    s.price       = 0.0;
-                    s.ref_price   = h.avg_price; // 시장가 명목 백스톱용 참조가
-                    s.strategy_id = "LIMIT_TRIM";
-                    s.reason      = "종목당 명목 한도 초과분 정리 보유=" + std::to_string(h.qty) +
-                                    " 한도수량=" + std::to_string(cap_qty) +
-                                    " 평단=" + std::to_string(static_cast<long long>(h.avg_price));
-                    LOG_WARN("[Engine] 한도 초과분 정리 " + h.ticker + " " + std::to_string(h.qty) +
-                             "주 -> " + std::to_string(cap_qty) + "주 (매도 " +
-                             std::to_string(excess) + "주)");
-                    push_signal(s);
-                }
-            }
-        }
+        // 종목당 명목 한도 초과분 정리 — 기동 20초 뒤(잔고 시드가 끝난 뒤) 한 번.
+        dispatcher.trim_excess_once(loop_now);
 
         bool did_work = false;
 

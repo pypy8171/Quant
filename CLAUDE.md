@@ -29,9 +29,9 @@ cmake --build Quant/build
 
 Linux는 `libcurl4-openssl-dev`가 필요합니다 (`sudo apt install libcurl4-openssl-dev`). Windows는 네이티브 WinHTTP를 사용하므로 nlohmann/json(CMake FetchContent로 자동 다운로드) 외에 추가 의존성이 없습니다.
 
-단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다(원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·잔고 대조 계산·잔고 대조기·REST 현재가 폴러·운영단말 프로토콜/서버·비동기 로거·매크로 국면 파일 판정기 등 19개).
+단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다(원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·잔고 대조 계산·잔고 대조기·REST 현재가 폴러·신호 디스패처·운영단말 프로토콜/서버·비동기 로거·매크로 국면 파일 판정기 등 20개).
 ```bash
-cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_regime test_regime_bridge test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_mpsc test_account_ledger test_ops_protocol test_ops_server test_logger
+cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_regime test_regime_bridge test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_mpsc test_account_ledger test_ops_protocol test_ops_server test_logger
 ctest --preset x64-release          # 저장소 루트에서. 스트레스 2종은 3초로 줄여 돈다
 ctest --test-dir Quant/build_win    # 수동 Ninja 레이아웃일 때
 ```
@@ -60,7 +60,7 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 
 - `RingBuffer<T>`는 명시적 메모리 순서를 가진 `std::atomic`을 사용하는 SPSC(단일 생산자/단일 소비자) 락-프리 큐입니다.
 - 데이터 스레드는 `fetch_interval_sec`초마다 KIS REST를 폴링하며, 장 외 시간에는 건너뜁니다. REST 현재가 폴링(폴링 모드 유니버스·WS 구독 상한 넘침 대체·틱 끊긴 보유 보충)은 `Quant/include/core/DataPoller.h`의 `DataPoller`가 맡고, 폴러의 틱은 데이터 스레드 전용 `rest_td_queue_`로 갑니다(D-062, `test_data_poller`). KST 시각 변환은 `Quant/include/core/KstTime.h`.
-- 전략 스레드는 등록된 전략 전체를 순회하며, `NONE`이 아닌 신호는 주문 큐에 push합니다.
+- 전략 스레드는 등록된 전략 전체를 순회하며, `NONE`이 아닌 신호는 주문 큐에 push합니다. 신호가 큐에 가기 전의 판단 — 순번 stamp, 비활성 전략·청산 관리 보유 종목의 신규 차단, 슬롯이 찬 상태의 교체 진입(최약체 매도 뒤 매수 보류), 강제청산 재발주 스로틀, 기동 뒤 한도 초과분 정리 — 는 `Quant/include/core/SignalDispatcher.h`의 `SignalDispatcher`가 맡습니다(전략 스레드의 지역 객체, D-063, `test_signal_dispatcher`).
 - 체결 소비 스레드(`fill_thread_fn`, D-056)는 WS 수신 스레드가 `fill_queue_`(SPSC)에 넣은 체결통보를 받아 `OrderRouter::on_fill`(원장 반영·CSV)과 운영단말 방송을 합니다. 수신 스레드는 push만 하므로 체결 처리 동안 틱이 서지 않습니다. 큐가 비면 condvar에서 자고 생산자가 깨웁니다(Logger와 같은 방식).
 - 제어 스레드(`control_thread_fn`)는 파이프라인 밖에서 잔고 대조·손익(daily_pnl) 갱신 상태 감시 등 주기 운영 작업을 담당합니다(갱신이 끊기면 OrderGate 보수정지 토글).
 - 잔고 → 원장 대조(기동 시드·주기 대조·당일 손익 기준선 파일·잔고조회 서킷브레이커)는 `Quant/include/core/LedgerReconciler.h`의 `LedgerReconciler`가 맡습니다. 브로커 호출·대조 행 기록·종목명 등록을 `std::function`으로 받아 `Engine`은 배선만 하고, 테스트는 KIS 없이 `OrderGate`만 링크합니다(D-061, `test_ledger_reconciler`).
