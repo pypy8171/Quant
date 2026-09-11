@@ -91,8 +91,8 @@ py PYQuant\tools\full_universe_dump.py --out Quant\config\universe_full.json
 | `--zipf S` | 0=균등, 1=대형주 편중(현실 근사) | `--zipf 1.5` |
 | `--ob-ratio R` | 호가:체결 비율 | `--ob-ratio 0.8` |
 | sweep `--start/--step/--max/--dwell` | 스윕 시작·증가폭·상한·스텝당 초 | `--max 5000000 --dwell 4` |
-| probe `--count/--per-session/--trade-only` | 구독 종목 상한 / 세션당 상한 / 체결전용 여부 | `--count 40 --trade-only 1` |
-| probe `--sessions/--configs` | 다중 app_key 세션(40캡 초과) — JSON 배열 / config `"kis"` 블록 쉼표목록 | `--sessions creds.json` |
+| `feed_latency_probe` `--count/--per-session/--trade-only` | 구독 종목 상한 / 세션당 상한 / 체결전용 여부 | `--count 40 --trade-only 1` |
+| `feed_latency_probe` `--sessions/--configs` | 다중 app_key 세션(40캡 초과) — JSON 배열 / config `"kis"` 블록 쉼표목록 | `--sessions creds.json` |
 
 ## 읽는 법
 

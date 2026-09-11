@@ -34,7 +34,7 @@ load_series = bt08.load_series                                # build_ctx 가 �
 TODAY = as_of().isoformat()
 STALE_CAP_DAYS = 7          # 신호 정체 상한(달력일). 초과 → NA(중립)
 
-# 신호 데이터 소스(달력 시작·가용범위 — probe로 실측):
+# 신호 데이터 소스(달력 시작·가용범위 — 점검으로 실측):
 #   ^VIX 1990 · ^TNX 1985(raw%) · CL=F 2000-08 · DX-Y.NYB 1985 · KRW=X 2003-12 · ^SOX 1994-05
 SIGNAL_TICKERS = {
     "gspc": "^GSPC", "ixic": "^IXIC", "vix": "^VIX", "tnx": "^TNX",
