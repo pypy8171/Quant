@@ -31,7 +31,7 @@
     "honesty_label": "robust",
     "equity_csv_path": "",
     "trades_csv_path": "",
-    "label": "Buy&Hold(기준선)",
+    "label": "매수 후 보유(기준선)",
     "mdd_red": 0.0,
     "give": 0.0,
     "defense_eff": "—"
@@ -290,7 +290,7 @@
     "honesty_label": "robust",
     "equity_csv_path": "",
     "trades_csv_path": "",
-    "label": "Buy&Hold(기준선)",
+    "label": "매수 후 보유(기준선)",
     "mdd_red": 0.0,
     "give": 0.0,
     "defense_eff": "—"

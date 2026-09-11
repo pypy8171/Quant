@@ -65,7 +65,7 @@ def write_readme(bms, results, sweeps, readme_path):
         r = results[bm["name"]]
         bh = r["bh"]
         L.append(f"\n## 1차 지표 — 단일 연결곡선 · {bm['name']} ({bm['span']}, {bm['nbars']}봉)\n")
-        L.append(f"> Buy&Hold: 연복리(CAGR) {fmt(bh['cagr'],2)}% · 최대낙폭(MDD) {fmt(bh['mdd'])}% · "
+        L.append(f"> 매수 후 보유: 연복리(CAGR) {fmt(bh['cagr'],2)}% · 최대낙폭(MDD) {fmt(bh['mdd'])}% · "
                  f"샤프(위험조정수익) {fmt(bh['sharpe'],2)} · **Calmar {fmt(bh['calmar'],2)}**\n")
         L.append("| 전략 | 구분 | CAGR% | MDD% | Sharpe | **Calmar** | 낙폭축소%p | 초과CAGR%p | 활성% | 토글 |")
         L.append("|---|---|---|---|---|---|---|---|---|---|")
