@@ -2494,3 +2494,46 @@ D-013 −0.089R과의 직접 비교 — D-013 표의 "월 동일가중 초과"�
 
 **확인 방법**: `py research/studies/13_trendx_gate/run_trendx_gate.py --no-pairs` 40초 → `results.tsv`의 `excess_r`·`excess_mw`·`excess_tw`
 세 열. `--sma-prev`는 SMA 한 칸 지연 감도(합산 −0.015, t=−0.97).
+
+### D-065 발주 간격·거부 재시도를 Engine에서 OrderPacer로 뗀다 — C-7 (c) 5단계 (2026-09-12)
+**상태**: 채택 (`wt/c2`, ctest 21/21 — `test_order_pacer` 44건 신설. 실행 중 `quant_trader`는 바꾸지 않았다 —
+order_thread 경로라 다음 장 시작 전 재기동부터)
+
+**배경**: `order_thread_fn`(150줄)은 큐에서 신호를 꺼내 라우터에 넘기는 사이에 세 가지 판단을 끼워 넣고 있었다 —
+직전 KIS 호출 뒤 최소 간격 대기(초당 한도 EGW00201 회피, 로컬 거부는 세지 않음), 거부 결과의 분류(유량 한도는
+action 불문 되쏘되 분당 한도는 20초로 물러남, 청산 SELL은 40240000을 빼고 되쏨, BUY는 빈-ODNO 중복 위험으로
+제외), 재시도 버퍼의 만기·횟수·청산 완료 폐기. `order_queue_`가 SPSC라 되밀 수 없어 이 버퍼가 스레드 지역
+`std::deque`로 살았고, 조건 여섯 개가 `else if` 사슬에 있어 어느 것도 단위 테스트가 없었다. "게이트 분당한도에
+걸린 BUY가 조용히 드롭됐다"와 "청산 뒤 남은 재시도가 40240000으로 거부 로그를 쌓았다"는 둘 다 이
+사슬의 결함이었고 라이브 로그로만 잡았다.
+
+**결정**:
+- `Quant/include/core/OrderPacer.h` + `Quant/src/core/OrderPacer.cpp`: `OrderPacer(Config{min_interval_ms,
+  max_retries}, now)`가 `take_due_retry(now)`(만기된 재시도 중 목적이 남은 것 하나 — 청산 SELL은 보유 0이면 버림),
+  `wait_before_send(now)`(간격까지 남은 시간), `note_sent(now)`(KIS를 실제로 부른 뒤), `on_rejected(pending, status,
+  reason, now)`(재시도 예약)를 든다. 보유 수량은 `PositionFn`으로 받는다 — 디스패처(D-063)가 `OrderGate&`를
+  직접 받은 것과 달리 여기서 게이트에 묻는 건 `position` 하나라 함수가 가볍고, 테스트가 `Logger`만 링크한다.
+- 거부 분류는 순수 함수 `pacing::classify(sig, attempts, max_retries, status, reason, retry_delay)`
+  → `RetryPlan{kind, delay}`. 재시도 지연은 `max(min_interval, 1200ms)`(dedup 창 위)이고 조절기가 계산해
+  `retry_delay()`로 보인다.
+- 조절기는 `order_thread_fn`의 지역 객체다(D-063과 같은 기준 — 만드는 곳과 쓰는 곳이 같은 스레드). Engine 루프는
+  "재시도 → 새 큐 → 간격 대기 → 라우터 → 결과 보고" 다섯 줄로 남고, 운영단말 `ORDER_RESULT` 방송과
+  `order_count_`는 Engine에 있다.
+- `Quant/tests/test_order_pacer.cpp` 44건: 분류(접수·횟수 소진·EGW00201·"Rate limit" 머리 일치·분당 20초·
+  청산 SELL·40240000 제외·BUY/취소 제외), 간격(첫 주문 무대기·부분 경과·재시도 지연 하한), 재시도 버퍼(만기 전
+  없음·attempts 증가·FIFO 만기·분당 건이 앞을 막음·청산 완료 폐기·횟수 소진). `Engine.cpp` 2,342 → 2,280줄,
+  `Engine.cpp`에서 `api/KisErrorCodes.h`·`<deque>` include가 빠졌다.
+
+동작은 같다. 로그 문구(`[OrderThread] 유량한도 거부 → 재시도 예약 …`, `청산 SELL 거부 → …`, `청산 완료 — 재시도
+취소 …`)도 그대로라 `scripts/parse_quant_log.py`가 보는 줄이 바뀌지 않는다. 한 가지 미세한 차이: 종전엔 큐가 비었을
+때 `steady_clock::now()`를 두 번 불렀는데 이제 한 번이다.
+
+| 버린 대안 | 이유 |
+|---|---|
+| 조절기가 `order_queue_`와 라우터까지 안고 루프 전체를 든다 | 기각. 그러면 테스트가 `OrderRouter`(→ `KisClient`·`OrderGate`)를 링크해야 한다. 조절기는 "언제 낼지·되쏠지"만 알고 "어디로"는 Engine이 안다 |
+| `OrderGate&`를 직접 받는다(D-063처럼) | 기각. 쓰는 건 `position` 하나다. 함수 하나면 테스트에서 보유를 정수 하나로 바꿔 청산 완료 폐기를 검사한다 |
+| 재시도 큐를 만기 순 우선순위 큐로 | 기각. 종전 FIFO를 유지한다 — 분당 거부(20초)가 앞에 있으면 뒤의 1.2초 건도 기다리는 것은 종전과 같고, 그 사이 새 큐는 계속 처리된다. 순서를 바꾸면 동작 차이가 생기는데 지금 그 차이가 필요하다는 근거가 없다 |
+| 라우터의 `ManagedOrder`를 그대로 받는다 | 기각. 조절기가 보는 건 `status`·`reject_reason` 둘이라 값으로 받으면 헤더가 `ipc/OrderRouter.h`를 모른다 |
+
+**확인 방법**: `ctest --preset x64-release` 21/21, `test_order_pacer` 44건. 라이브에서는 재기동 뒤 `[OrderThread]`
+로그 세 문구가 종전과 같은 자리에 나오는지, 유량 한도 거부 뒤 1.2초(분당이면 20초) 지나 같은 종목이 다시 나가는지 본다.

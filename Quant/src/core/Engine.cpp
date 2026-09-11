@@ -1,11 +1,9 @@
 #include "core/Engine.h"
-#include "api/KisErrorCodes.h"
 #include "core/ReconcilePlan.h"
 #include "utils/Logger.h"
 #include <algorithm>
 #include <chrono>
 #include <ctime>
-#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -1749,68 +1747,39 @@ void Engine::strategy_thread_fn()
 void Engine::order_thread_fn()
 {
     using std::chrono::steady_clock;
-    using std::chrono::milliseconds;
     LOG_INFO("[OrderThread] 시작");
 
-    // 로컬 재시도 큐 — order_queue_는 SPSC(생산자=전략 스레드)라 order_thread가 되밀면
-    //  불변식이 깨진다. 거부된 청산 SELL만 이 전용 버퍼로 재시도한다.
-    //  BUY는 제외: 빈-ODNO 응답이 실제로는 접수됐을 수 있어 재시도가 중복주문을 낳을 위험(C-2 주석).
-    struct Retry { OrderSignal sig; int attempts; steady_clock::time_point not_before; };
-    std::deque<Retry> retry_q;
-
-    const auto min_interval = milliseconds(order_min_interval_ms_);
-    // 재시도 지연은 dedup 창(기본 1s) 위 — 그 이하로 되쏘면 게이트 dedup(§5)에 또 막힌다.
-    const auto retry_delay = milliseconds(std::max(order_min_interval_ms_, 1200));
-    auto last_submit = steady_clock::now() - min_interval;
+    // 발주 간격과 거부 재시도는 이 스레드 소유라 조절기를 여기에 둔다. order_queue_는 SPSC(생산자=전략 스레드)라
+    //  되밀 수 없어 재시도는 조절기의 전용 버퍼에 산다. [why D-065]
+    OrderPacer pacer({order_min_interval_ms_, order_max_retries_}, steady_clock::now());
+    pacer.set_position([this](const std::string& a, const std::string& t) { return order_gate_.position(a, t); });
 
     while (running_.load(std::memory_order_acquire))
     {
         // 발주 대상 선택: 만기된 재시도분 우선, 없으면 신규 큐
-        OrderSignal sig;
-        int attempts = 0;
-        bool have = false;
-        auto now = steady_clock::now();
+        std::optional<OrderPacer::Pending> next = pacer.take_due_retry(steady_clock::now());
 
-        if (!retry_q.empty() && now >= retry_q.front().not_before)
+        if (!next)
         {
-            sig = retry_q.front().sig;
-            attempts = retry_q.front().attempts;
-            retry_q.pop_front();
-
-            // 청산이 이미 끝났으면 재시도를 버린다. 원주문이 체결되는 동안 예약된 청산 SELL
-            //  재시도가 큐에 남아 있다가, 보유가 0이 된 뒤에 발주돼 40240000(주문가능분 없음)으로
-            //  거부되곤 했다. 거부라 원장은 다치지 않지만 청산 한 건마다 오거부가 몇 줄씩 쌓여
-            //  진짜 거부를 덮는다. 재시도의 목적은 미청산분을 마저 파는 것이니 보유가 0이면 목적이
-            //  이미 달성된 것이다.
-            if (sig.action == OrderAction::NEW && sig.side == OrderSide::SELL &&
-                order_gate_.position(sig.account_id, sig.ticker) <= 0)
+            if (auto opt = order_queue_.pop())
             {
-                LOG_INFO("[OrderThread] 청산 완료 — 재시도 취소 " + sig.ticker + " " +
-                         std::to_string(sig.quantity) + "주");
-                continue;
+                next = OrderPacer::Pending{*opt, 0};
             }
-
-            have = true;
-        }
-        else if (auto opt = order_queue_.pop())
-        {
-            sig = *opt;
-            have = true;
         }
 
-        if (!have)
+        if (!next)
         {
             std::this_thread::sleep_for(1ms);
             continue;
         }
 
         // 호출 간격 조절 — 직전 KIS 발주 후 min_interval 경과 보장(초당한도 하회로 EGW00201 회피)
-        now = steady_clock::now();
-
-        if (now - last_submit < min_interval)
+        if (const auto wait = pacer.wait_before_send(steady_clock::now()); wait > steady_clock::duration::zero())
         {
-            std::this_thread::sleep_for(min_interval - (now - last_submit));
+            std::this_thread::sleep_for(wait);
         }
+
+        const OrderSignal& sig = next->sig;
 
         try
         {
@@ -1820,7 +1789,7 @@ void Engine::order_thread_fn()
 
             if (order_router_->kis_calls() != calls_before)
             {
-                last_submit = steady_clock::now();
+                pacer.note_sent(steady_clock::now());
             }
 
             if (ops_server_)
@@ -1845,47 +1814,14 @@ void Engine::order_thread_fn()
             {
                 ++order_count_;
             }
-            else if (mo.status == OrderStatus::REJECTED && attempts < order_max_retries_ &&
-                     (mo.reject_reason.find(kis_err::kRateLimit) != std::string::npos ||
-                      mo.reject_reason.rfind("Rate limit", 0) == 0))
+            else
             {
-                // 유량 한도 거부 — KIS가 '접수 전' 거부라 중복주문 위험 없음(빈-ODNO 모호성 없음).
-                //  모든 action(취소·정정·매수·매도)을 dedup 창 밖으로 재예약해 유실 없이 자가치유한다.
-                //  예전엔 취소·매수가 드롭돼 미연결 주문이 남고, 다음 사이클에 다시 처리되다 또
-                //  한도초과가 나는 악순환이었다. 간격은 짧게 두고, 한도에 부딪힐 때만 물러난다.
-                // [wire] KIS 서버 거부는 EGW00201, OrderGate 자체 거부는 "Rate limit 초과 (…)" 문자열이라
-                //  둘을 같이 받는다. 앞엣것만 보던 동안 게이트 분당한도에 걸린 BUY가 조용히 드롭됐다.
-                const std::string act = sig.action == OrderAction::CANCEL ? "CANCEL"
-                                      : sig.action == OrderAction::REPLACE ? "REPLACE" : "NEW";
-
-                // 분당 창은 비기까지 최대 60초다. 1.2초로 재예약하면 3회가 4초 안에 다 소진되고
-                //  결국 같은 드롭이 된다. 분당 거부만 20초로 물러나 3회가 창 하나를 덮게 한다.
-                const bool per_min = mo.reject_reason.find("분당") != std::string::npos;
-                const auto delay   = per_min ? milliseconds(20000) : retry_delay;
-
-                retry_q.push_back({sig, attempts + 1, steady_clock::now() + delay});
-                LOG_WARN("[OrderThread] 유량한도 거부 → 재시도 예약 " + sig.ticker + " " + act + " (" +
-                         std::to_string(attempts + 1) + "/" + std::to_string(order_max_retries_) +
-                         ") 이유=" + mo.reject_reason);
-            }
-            else if (mo.status == OrderStatus::REJECTED && sig.action == OrderAction::NEW &&
-                     sig.side == OrderSide::SELL && attempts < order_max_retries_ &&
-                     mo.reject_reason.find(kis_err::kNoSellableQty) == std::string::npos)
-            {
-                // 청산 SELL 유실 방지(C-2) — dedup 창 밖에서 재시도 예약.
-                //  단 40240000(주문가능분 없음)은 제외: 보유수량이 예약매도/미결제로 묶인 '지속성'
-                //  조건이라 그냥 되쏘면 매번 같은 거부다. 유일 해법(예약매도 취소→시장가 재매도)은
-                //  new_route의 reconcile_blocked_sell이 이미 인라인으로 1회 시도했으므로,
-                //  여기서 또 재시도하면 reconcile만 중복 실행하고 결국 같은 거부가 반복된다.
-                retry_q.push_back({sig, attempts + 1, steady_clock::now() + retry_delay});
-                LOG_WARN("[OrderThread] 청산 SELL 거부 → 재시도 예약 " + sig.ticker + " (" +
-                         std::to_string(attempts + 1) + "/" + std::to_string(order_max_retries_) +
-                         ") 이유=" + mo.reject_reason);
+                pacer.on_rejected(*next, mo.status, mo.reject_reason, steady_clock::now());
             }
         }
         catch (const std::exception& e)
         {
-            last_submit = steady_clock::now();
+            pacer.note_sent(steady_clock::now());
             LOG_ERROR("[OrderThread] 예외: " + std::string(e.what()));
         }
     }

@@ -4,6 +4,7 @@
 #include "core/DataPoller.h"
 #include "core/LedgerReconciler.h"
 #include "core/RingBuffer.h"
+#include "core/OrderPacer.h"
 #include "core/SignalDispatcher.h"
 #include "core/RegimeController.h"
 #include "core/RegimeFileBridge.h"
@@ -283,8 +284,8 @@ private:
     std::atomic<bool> force_liquidate_{false};
     KisConfig quote_kis_cfg_;        // 시세 전용(실전 도메인) 설정
     bool has_quote_kis_ = false;     // 시세 전용 클라이언트 사용 여부
-    int order_min_interval_ms_ = 350; // 주문 간 최소 간격(ms) — 초당한도 회피(C-2/W-3)
-    int order_max_retries_ = 3;       // 거부된 청산 SELL 재시도 횟수(C-2)
+    int order_min_interval_ms_ = 350; // 주문 간 최소 간격(ms) — order_thread의 OrderPacer가 쓴다 [why D-065]
+    int order_max_retries_ = 3;       // 거부된 주문의 재시도 횟수(C-2)
     // 잔고 → 원장 대조기(기동 시드·주기 대조·손익 기준선·서킷브레이커). start()에서 kis_·order_router_ 뒤에
     //  만들고 data_thread만 부른다. [why D-061]
     std::unique_ptr<LedgerReconciler> ledger_;

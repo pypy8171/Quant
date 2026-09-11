@@ -111,6 +111,7 @@ set(SOURCES
   src/core/LedgerReconciler.cpp
   src/core/DataPoller.cpp
   src/core/SignalDispatcher.cpp
+  src/core/OrderPacer.cpp
   src/core/RegimeController.cpp
   src/core/RingBuffer.cpp
   ${KIS_CLIENT_SOURCES}
@@ -273,6 +274,17 @@ if(UNIX)
     target_link_libraries(test_signal_dispatcher PRIVATE pthread)
 endif()
 
+# 발주 조절기(core/OrderPacer) — 보유 수량 조회는 std::function 대역, Logger만 링크 (D-065)
+add_executable(test_order_pacer
+    tests/test_order_pacer.cpp
+    src/core/OrderPacer.cpp
+    src/utils/Logger.cpp
+)
+target_include_directories(test_order_pacer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(test_order_pacer PRIVATE pthread)
+endif()
+
 # 매크로 국면 파일 브리지(core/RegimeFileBridge.h) — 헤더 전용, 파일·로그 없음 (D-060)
 add_executable(test_regime_bridge tests/test_regime_bridge.cpp)
 target_include_directories(test_regime_bridge PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -393,6 +405,7 @@ set(QUANT_ASSERT_TARGETS
     test_ledger_reconciler
     test_data_poller
     test_signal_dispatcher
+    test_order_pacer
     test_ops_protocol
     test_ops_server
     test_regime
