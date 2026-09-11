@@ -113,6 +113,21 @@ static void test_kr_trade()
     assert(kis_ws::decode_kr_trade(f, bad) == Decode::kBadNumber);
     assert(bad.price == 215000.0 && bad.direction == 0);
 
+    // 칸별 실패: 앞 칸(가격)이 깨져도 뒤 칸(수량·방향)은 읽는다. 구 파서는 첫 실패에서 멈춰
+    // 수량·방향이 0이었다 — D-037이 바꾼 동작이라 여기서 고정한다.
+    f[2] = "";
+    f[21] = "5";
+    TradeData partial;
+    assert(kis_ws::decode_kr_trade(f, partial) == Decode::kBadNumber);
+    assert(partial.price == 0.0 && partial.quantity == 37 && partial.direction == 5);
+
+    // stoi/stod의 관대함: 앞부분만 숫자면 통과한다. C-4(from_chars)에서 엄격해질 자리.
+    f[2] = "215000abc";
+    f[12] = "1,000";
+    TradeData lenient;
+    assert(kis_ws::decode_kr_trade(f, lenient) == Decode::kOk);
+    assert(lenient.price == 215000.0 && lenient.quantity == 1);
+
     f.resize(21);
     assert(kis_ws::decode_kr_trade(f, bad) == Decode::kShort);
 }
@@ -135,6 +150,11 @@ static void test_us_trade()
     TradeData td2;
     assert(kis_ws::decode_us_trade(g, td2) == Decode::kOk);
     assert(td2.direction == 1);
+
+    g[20] = "x";
+    TradeData td3;
+    assert(kis_ws::decode_us_trade(g, td3) == Decode::kBadNumber);
+    assert(td3.price == 1.0 && td3.quantity == 2 && td3.direction == 0);
 
     g.resize(8);
     assert(kis_ws::decode_us_trade(g, td2) == Decode::kShort);

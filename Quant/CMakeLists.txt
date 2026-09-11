@@ -17,7 +17,9 @@ if(UNIX)
     set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
     if(QUANT_TSAN)
         set(CMAKE_CXX_FLAGS_DEBUG "-g -O1 -fsanitize=thread")
-        add_link_options(-fsanitize=thread)
+        # 링크 옵션을 Debug에만 건다. 구성 무관으로 걸면 Release에서 계측 없이 런타임만
+        # 링크돼 "TSAN 통과"로 오인한다.
+        add_link_options($<$<CONFIG:Debug>:-fsanitize=thread>)
     else()
         set(CMAKE_CXX_FLAGS_DEBUG "-g -fsanitize=address")
     endif()
@@ -301,7 +303,9 @@ endforeach()
 # ─── ctest 등록 ───────────────────────────────────────────────────────────
 # `ctest --preset x64-release`(저장소 루트) 또는 `ctest --test-dir Quant/build_win`.
 # 스트레스 두 개는 3초로 줄여 돌린다(운영 검증은 실행파일을 직접 길게). 벤치 3종은 측정용이라
-# 등록하지 않는다. 테스트가 logs/를 만들므로 빌드 폴더 아래 test_run/에서 실행한다.
+# 등록하지 않는다. 산출물(logs/·trades_*.csv)은 실행파일 옆이 아니라 QUANT_LOG_DIR을 따르므로
+# 빌드 폴더 아래 test_run/logs로 고정한다 — 셸에 운영 QUANT_LOG_DIR이 잡혀 있으면 테스트가
+# 라이브 원장에 행을 섞는다(09-09 오염 재현 경로).
 enable_testing()
 set(QUANT_TEST_RUN_DIR ${CMAKE_CURRENT_BINARY_DIR}/test_run)
 file(MAKE_DIRECTORY ${QUANT_TEST_RUN_DIR})
@@ -313,7 +317,8 @@ foreach(_qt IN LISTS QUANT_ASSERT_TARGETS)
     else()
         add_test(NAME ${_qt} COMMAND ${_qt} WORKING_DIRECTORY ${QUANT_TEST_RUN_DIR})
     endif()
-    set_tests_properties(${_qt} PROPERTIES TIMEOUT 120)
+    set_tests_properties(${_qt} PROPERTIES TIMEOUT 120
+        ENVIRONMENT "QUANT_LOG_DIR=${QUANT_TEST_RUN_DIR}/logs")
 endforeach()
 
 # ─── 도구: 수동 주문(모의계좌) — 접수→체결 실증 ───────────────────────────

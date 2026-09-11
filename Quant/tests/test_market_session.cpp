@@ -19,6 +19,9 @@ int main()
     assert(parse_hhmm("930") == 0);
     assert(parse_hhmm("ab12") == 0);
     assert(parse_hhmm("09:3") == 0);
+    assert(parse_hhmm("1a30") == 0);   // stoi였다면 130
+    assert(parse_hhmm("+930") == 0);   // stoi였다면 930 — 장중으로 오판
+    assert(parse_hhmm(" 930") == 0);
 
     // in_session: 09:00 포함, 15:30 제외.
     assert(!in_session(kSessionOpenHHMM - 1));

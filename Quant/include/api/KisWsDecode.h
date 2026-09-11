@@ -97,7 +97,8 @@ inline bool fill_levels(const std::vector<std::string>& f, size_t ask_p, size_t 
 } // namespace detail
 
 // ─── 국내 현물 호가 (H0STASP0) ───────────────────────────────────────────
-// [wire] [0]종목코드 [1]시각 [3-7]매도호가1-5 [13-17]매수호가1-5 [23-27]매도잔량1-5 [33-37]매수잔량1-5
+// [wire] [0]종목코드 [1]시각 [2]시간구분 [3-12]매도호가1-10 [13-22]매수호가1-10 [23-32]매도잔량1-10 [33-42]매수잔량1-10.
+//        전문은 10단계, 여기서는 앞 5단계만 쓴다(asks[i]=f[3+i]/f[23+i], bids[i]=f[13+i]/f[33+i]).
 inline Decode decode_orderbook(const std::vector<std::string>& f, OrderBook& ob)
 {
     if (f.size() < kMinFieldsOrderbook)
@@ -156,7 +157,7 @@ inline Decode decode_us_trade(const std::vector<std::string>& f, TradeData& td)
 }
 
 // ─── 국내 선물 체결 (H0IFCNT0) ───────────────────────────────────────────
-// [wire] [0]종목코드 [1]체결시각 [5]현재가 [9]단위체결량. 방향 코드가 없어 direction=0.
+// [wire] [0]종목코드 [1]체결시각 [5]현재가 [9]단위체결량 [10]누적거래량 [18]미결제약정. 방향 코드가 없어 direction=0.
 inline Decode decode_fut_trade(const std::vector<std::string>& f, TradeData& td)
 {
     if (f.size() < kMinFieldsFutTrade)
@@ -190,7 +191,8 @@ inline Decode decode_fut_orderbook(const std::vector<std::string>& f, OrderBook&
 }
 
 // ─── 체결통보 (H0STCNI0 실거래 / H0STCNI9 모의) ──────────────────────────
-// [wire] [2]ODER_NO [4]SELN_BYOV_CLS(01=매도,02=매수) [8]종목코드 [9]체결수량 [10]체결단가
+// [wire] [2]ODER_NO [4]SELN_BYOV_CLS(01=매도,02=매수) [8]STCK_SHRN_ISCD [9]CNTG_QTY [10]CNTG_UNPR
+//        [11]STCK_CNTG_HOUR [13]CNTG_YN(1=접수/정정/취소/거부 통보, 2=체결 — 모의 실측 확인)
 //        [11]체결시각(HHMMSS) [13]CNTG_YN(1=접수/정정/취소/거부 통보, 2=체결통보)
 // 체결통보(2)만 kOk. 원장에 들어가는 값이라 매매구분·수량·단가 어느 하나라도 못 읽으면 채우지 않는다.
 inline Decode decode_fill(const std::vector<std::string>& f, FillNotification& fn)
