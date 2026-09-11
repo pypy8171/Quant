@@ -27,8 +27,10 @@ import csv
 import io
 from collections import deque
 import json
+import math
 import os
 import re
+import statistics
 import sys
 import time
 import threading
@@ -505,6 +507,95 @@ def _fetch_kr_flow(quote: KisClient):
     return out
 
 
+# 섹터 카드에 싣는 업종·테마 지수. 코드는 PYQuant/tools/check_sector_index.py 훑기(2026-09-11)에서 이름이
+#  돌아온 것만 골랐다. 코스닥 1005~1018은 코스피 업종과 같은 값이 돌아와(별칭) 뺐다. [why D-050]
+KR_SECTOR_GROUPS = [
+    ("코스피 업종", [f"{n:04d}" for n in range(5, 31)]),
+    ("코스닥 업종", ["1006", "1009", "1010", "1011", "1013", "1014", "1015"]
+                  + [f"{n:04d}" for n in range(1019, 1034)]),
+    ("KRX 테마", ["1046", "1047", "1050", "1052", "1053", "1055", "1056", "1057", "1058",
+               "1061", "1062", "1063", "1064", "1065"]),
+]
+SECTOR_VOL_DAYS = 20
+
+
+def _sector_stats(idx: dict) -> dict | None:
+    """지수 하나의 변동성 통계. 완성된 봉(당일 제외)으로 일간 로그수익률 표준편차를 재고,
+    당일 등락을 그 σ로 나눈 z가 '평소 대비 오늘 움직임'이다. [formula] 연율 = σ_일 × √252."""
+    bars = idx.get("bars") or []
+    if not idx.get("name") or idx.get("price", 0) <= 0 or len(bars) < 6:
+        return None
+    today = datetime.now(KST).strftime("%Y%m%d")
+    done = [b for b in bars if b["date"] != today]
+    closes = [b["close"] for b in done][-(SECTOR_VOL_DAYS + 1):]
+    rets = [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes)) if closes[i - 1] > 0]
+    sd = statistics.pstdev(rets) * 100 if len(rets) >= 5 else None
+    pct = idx.get("pct") or 0.0
+    prev = idx.get("prev") or (done[-1]["close"] if done else 0)
+    rng = (idx["high"] - idx["low"]) / prev * 100 if prev > 0 and idx.get("high", 0) > 0 else None
+    r5 = (idx["price"] / done[-5]["close"] - 1) * 100 if len(done) >= 5 and done[-5]["close"] > 0 else None
+    # 당일 진폭도 σ로 재면 "오늘 얼마나 흔들렸나"가 된다(방향 무관).
+    return {"code": idx["code"], "name": idx["name"], "price": round(idx["price"], 2),
+            "pct": round(pct, 2), "r5": _num(r5), "vol": _num(sd * math.sqrt(252)) if sd else None,
+            "sd": _num(sd), "z": _num(pct / sd) if sd else None, "rng": _num(rng),
+            "rng_z": _num(rng / sd) if (sd and rng is not None) else None, "n": len(rets)}
+
+
+def _fetch_kr_sectors(quote: KisClient):
+    """업종별 REST 1회씩(약 60회·8초). 하나가 실패해도 나머지는 싣고, 전부 비면 예외로 stale 표식."""
+    groups, errs = [], []
+    for label, codes in KR_SECTOR_GROUPS:
+        rows = []
+        for code in codes:
+            try:
+                st = _sector_stats(quote.get_index_daily(code))
+                if st:
+                    rows.append(st)
+            except Exception as e:  # noqa: BLE001 — 업종 하나 실패가 카드 전체를 막지 않게
+                errs.append(f"{code}: {e}")
+            time.sleep(0.06)
+        groups.append({"label": label, "rows": rows})
+    if not any(g["rows"] for g in groups):
+        raise RuntimeError("; ".join(errs) or "업종 응답 없음")
+    out = {"groups": groups, "days": SECTOR_VOL_DAYS,
+           "asof": datetime.now(KST).strftime("%H:%M")}
+    if errs:
+        out["partial"] = f"{len(errs)}개 업종 실패"
+    return out
+
+
+SECTOR_MEMBER_TTL = 300.0
+_SECTOR_MEMBERS: dict = {}          # code → {"ts", "val"}. HTTP 스레드가 만지므로 LIVE_LOCK으로 감싼다.
+_KRX_THEME_CODES = set(KR_SECTOR_GROUPS[2][1])
+
+
+def sector_members(quote: KisClient, code: str) -> dict:
+    """업종 대표 종목(시총 상위 10). 클릭할 때만 부르고 5분 캐시. KRX 테마는 구성종목 조회 경로가
+    없어 빈 목록에 안내만 싣는다."""
+    if code in _KRX_THEME_CODES:
+        return {"code": code, "rows": [], "note": "KRX 테마 지수는 KIS 순위 TR에 구성종목이 오지 않는다"}
+    with LIVE_LOCK:
+        cur = _SECTOR_MEMBERS.get(code)
+        if cur and time.time() - cur["ts"] < SECTOR_MEMBER_TTL:
+            return cur["val"]
+    rows = quote.get_market_cap_ranking(code, top_n=10)
+    val = {"code": code, "rows": rows, "asof": datetime.now(KST).strftime("%H:%M")}
+    if rows:
+        with LIVE_LOCK:
+            _SECTOR_MEMBERS[code] = {"ts": time.time(), "val": val}
+    return val
+
+
+def _sector_loop(quote: KisClient, interval=300.0):
+    """섹터 변동성은 5분 주기면 충분하고 호출이 많아 워밍 루프와 스레드를 나눈다."""
+    while True:
+        try:
+            _live_set("kr_sector", _fetch_kr_sectors(quote))
+        except Exception as e:
+            _live_err("kr_sector", str(e))
+        time.sleep(interval)
+
+
 def _warm_loop(kis: KisClient, quote: KisClient, interval=5.0, flow_every=6):
     tick = 0
     while True:
@@ -648,6 +739,7 @@ def build_state(kis, quote, cfg, regime_path, uni_path):
         "regime": read_regime(regime_path),
         "kr_index": _live_get("kr_index"),
         "kr_flow": _live_get("kr_flow"),
+        "kr_sector": _live_get("kr_sector"),
         "universe": _uni,
         "entry_scores": read_entry_scores(),
         "criteria": build_criteria(cfg),
@@ -714,6 +806,18 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 body = json.dumps({"__error__": str(e)}, ensure_ascii=False).encode("utf-8")
             self._send(200, "application/json; charset=utf-8", body)
+        elif self.path.startswith("/api/sector"):
+            q = parse_qs(urlparse(self.path).query)
+            code = (q.get("code", [""])[0] or "").strip()
+            if not re.fullmatch(r"\d{4}", code):
+                self._send(400, "application/json; charset=utf-8",
+                           json.dumps({"__error__": "code는 4자리 업종코드"}, ensure_ascii=False).encode("utf-8"))
+                return
+            try:
+                body = json.dumps(sector_members(self.quote, code), ensure_ascii=False).encode("utf-8")
+            except Exception as e:
+                body = json.dumps({"__error__": str(e)}, ensure_ascii=False).encode("utf-8")
+            self._send(200, "application/json; charset=utf-8", body)
         elif self.path.startswith("/api/chart"):
             q = parse_qs(urlparse(self.path).query)
             ticker = (q.get("ticker", [""])[0] or "").strip()
@@ -769,6 +873,9 @@ th{color:var(--mut);font-weight:600;position:sticky;top:0;background:var(--panel
 td.l,th.l{text-align:left}
 .up{color:var(--up)}.dn{color:var(--dn)}.mut{color:var(--mut)}
 .scroll{max-height:340px;overflow:auto}
+.sec-scroll{max-height:560px}.sec-h{color:var(--mut);font-size:11px;background:var(--panel2)}.sec-hot{font-weight:700}
+.sec-d td{padding:0 8px 8px 24px;border-bottom:1px solid var(--bd)}.sec-d table{font-size:11px}.sec-d td td,.sec-d th{padding:2px 6px;border:0}.sec-d th{position:static}
+#secsort,#secgrp{background:var(--panel2);color:var(--fg);border:1px solid var(--bd);border-radius:6px;font-size:11px}
 /* 보유 종목은 옆 국면 카드 높이만큼 채우고 넘칠 때만 스크롤. 절대 배치라 표 길이가 행 높이를 키우지 않는다. */
 .card.fill{position:relative;min-height:340px}
 .card.fill .scroll{position:absolute;top:38px;left:14px;right:14px;bottom:12px;max-height:none}
@@ -841,6 +948,13 @@ small.err{color:var(--dn)}
     <thead><tr><th>#</th><th class="l">종목</th><th>현재가</th><th>등락%</th><th>거래대금</th></tr></thead>
     <tbody></tbody></table></div></div>
 
+  <div class="card col6"><h2>섹터 변동성 <span class="mut" id="secnote"></span>
+    <span class="mut" style="float:right"><select id="secgrp"><option value="">전체</option><option value="0">코스피</option><option value="1">코스닥</option><option value="2">KRX 테마</option></select>
+      정렬: <select id="secsort"><option value="pct">당일%</option><option value="z">z</option><option value="vol">20일σ</option><option value="rng">진폭</option><option value="r5">5일%</option></select> · 행 클릭 → 시총 상위 10</span></h2>
+    <div class="scroll sec-scroll"><table id="sector">
+    <thead><tr><th>#</th><th class="l">업종</th><th class="l">시장</th><th>현재</th><th>당일%</th><th>5일%</th><th>20일σ<span class="mut">연율</span></th><th>진폭%</th><th>z</th></tr></thead>
+    <tbody></tbody></table></div></div>
+
   <div class="card col12"><h2>당일 체결 원장 <span class="mut" id="trdate"></span> <span class="mut" style="float:right">행 클릭 → 차트</span></h2><div class="scroll"><table id="trades">
     <thead><tr><th>시각</th><th class="l">이벤트</th><th class="l">전략</th><th class="l">종목</th><th class="l">방향</th><th>주문</th><th>체결</th><th>체결가</th><th class="l">상태</th><th class="l">사유</th></tr></thead>
     <tbody></tbody></table></div></div>
@@ -879,6 +993,26 @@ function withNames(msg){
   });
 }
 
+document.getElementById('secsort').addEventListener('change',renderSector);
+document.getElementById('secgrp').addEventListener('change',renderSector);
+let lastSector={};
+function renderSector(){
+  // 섹터 변동성 — 60여 업종을 선택한 열 기준으로 한 순위표에 세운다(그룹 필터 선택 가능).
+  //  z는 당일 등락/20일 일간σ. 열린 업종(secOpen)은 아래에 시총 상위 10을 붙이고, 3초 재렌더에도 유지한다.
+  const ks=lastSector; const sb=document.querySelector('#sector tbody'); const sn=document.getElementById('secnote');
+  if(ks.__error__){ sb.innerHTML='<tr><td class="l err" colspan="9">업종 조회 실패: '+eb(ks.__error__)+'</td></tr>'; sn.textContent=''; }
+  else{
+    const key=document.getElementById('secsort').value; const grp=document.getElementById('secgrp').value;
+    const f2=v=>v==null?'—':Number(v).toFixed(2); const fz=v=>v==null?'—':(v>0?'+':'')+Number(v).toFixed(1)+'σ';
+    const zc=v=>v==null?'mut':(Math.abs(v)>=2?'sec-hot':'');
+    const GL=['코스피','코스닥','KRX'];
+    sn.textContent=(ks.asof?'· '+ks.asof+' 기준':'')+(ks.days?' · σ는 '+ks.days+'일 로그수익률':'')+(ks.partial?' · '+ks.partial:'')+(ks._stale_err?' · 갱신 지연':'');
+    const rows=[]; (ks.groups||[]).forEach((g,gi)=>{ if(grp===''||grp===String(gi)) g.rows.forEach(r=>rows.push({...r,g:GL[gi]})); });
+    rows.sort((a,b)=>(b[key]??-1e9)-(a[key]??-1e9));
+    sb.innerHTML=rows.length? rows.map((r,i)=>`<tr class="clk sec-row${secOpen.has(r.code)?' sec-on':''}" data-sec="${eb(r.code)}"><td>${i+1}</td><td class="l">${eb(r.name)}</td><td class="l mut">${r.g}</td><td>${f2(r.price)}</td><td class="${cls(r.pct)}">${pct(r.pct)}</td><td class="${cls(r.r5)}">${pct(r.r5)}</td><td>${r.vol==null?'—':f2(r.vol)+'%'}</td><td>${r.rng==null?'—':f2(r.rng)+'%'}</td><td class="${cls(r.z)} ${zc(r.z)}">${fz(r.z)}</td></tr>`+(secOpen.has(r.code)?secDetailRow(r.code):'')).join('')
+      : '<tr><td class="l mut" colspan="9">데이터 없음</td></tr>';
+  }
+}
 async function tick(){
   let s;
   try{ s=await (await fetch('/api/state',{cache:'no-store'})).json(); }
@@ -1052,6 +1186,8 @@ async function tick(){
       : '<tr><td class="l mut" colspan="5">데이터 없음</td></tr>';
   }
 
+  lastSector=s.kr_sector||{}; renderSector();
+
   // 원장
   const SL=s.labels||{}; const t=s.trades||{}; document.getElementById('trdate').textContent=(t.date||'')+(t.total?(' · 총 '+t.total+'행'):'');
   const tb=document.querySelector('#trades tbody');
@@ -1066,9 +1202,33 @@ async function tick(){
 // ── 차트 모달 ──────────────────────────────────────────────────────────────
 let curTk='', curNm='', curTf='D';
 const bg=document.getElementById('modalbg');
+// 섹터 대표 종목: 열린 업종 코드 집합과 받아 둔 응답. 종목 행을 누르면 차트가 열린다(tr.clk data-tk).
+const secOpen=new Set(); const secCache={};
+function secDetailRow(code){
+  const d=secCache[code];
+  let inner;
+  if(!d) inner='<span class="mut">불러오는 중…</span>';
+  else if(d.__error__) inner='<span class="err">조회 실패: '+eb(d.__error__)+'</span>';
+  else if(!d.rows||!d.rows.length) inner='<span class="mut">'+eb(d.note||'구성 종목 없음')+'</span>';
+  else inner='<table><thead><tr><th>#</th><th class="l">종목</th><th>현재가</th><th>등락%</th><th>시총</th></tr></thead><tbody>'+
+    d.rows.map(x=>`<tr class="clk" data-tk="${eb(x.ticker)}" data-nm="${eb(x.name)}"><td>${x.rank}</td><td class="l">${eb(x.name)}</td><td>${won(x.price)}</td><td class="${cls(x.change_rate)}">${pct(x.change_rate)}</td><td>${x.market_cap>=10000?(x.market_cap/10000).toFixed(1)+'조':won(x.market_cap)+'억'}</td></tr>`).join('')+
+    '</tbody></table>'+(d.asof?'<span class="mut">시총 상위 10 · '+eb(d.asof)+'</span>':'');
+  return `<tr class="sec-d"><td colspan="9">${inner}</td></tr>`;
+}
+async function toggleSector(code){
+  if(secOpen.has(code)){ secOpen.delete(code); renderSector(); return; }
+  secOpen.add(code); renderSector();
+  if(!secCache[code]){
+    try{ secCache[code]=await (await fetch('/api/sector?code='+code,{cache:'no-store'})).json(); }
+    catch(e){ secCache[code]={__error__:String(e)}; }
+    renderSector();
+  }
+}
 document.addEventListener('click', e=>{
   const tr=e.target.closest('tr.clk');
-  if(tr && tr.dataset.tk){ openChart(tr.dataset.tk, tr.dataset.nm||tr.dataset.tk); }
+  if(!tr) return;
+  if(tr.dataset.tk){ openChart(tr.dataset.tk, tr.dataset.nm||tr.dataset.tk); }
+  else if(tr.dataset.sec){ toggleSector(tr.dataset.sec); }
 });
 document.getElementById('mx').onclick=()=>bg.classList.remove('on');
 bg.onclick=e=>{ if(e.target===bg) bg.classList.remove('on'); };
@@ -1221,6 +1381,7 @@ def main():
 
     # 잔고·랭킹은 백그라운드로 수집 → HTTP 요청 스레드가 KIS 지연에 물리지 않음
     threading.Thread(target=_warm_loop, args=(kis, quote), daemon=True).start()
+    threading.Thread(target=_sector_loop, args=(quote,), daemon=True).start()
 
     print(f"[대시보드] config={cfg_path.name} 계좌={_mask_acct(k['account_no'])} "
           f"모의={k.get('is_paper')}", flush=True)
@@ -1228,6 +1389,10 @@ def main():
     print(f"[대시보드] logs={logs_dir()}  (원장·엔진로그 추적 위치)", flush=True)
     print(f"[대시보드] http://{args.host}:{args.port}  (3초 폴링, Ctrl+C 종료)", flush=True)
 
+    # Windows에서는 http.server 기본값 allow_reuse_address=True(SO_REUSEADDR)가 같은 포트의 이중 bind를
+    # 막지 않아, 재기동 때 옛 서버가 남아 있으면 새 서버가 나란히 떠서 응답이 섞인다(09-11 실측: 리스너 셋).
+    # 배타 bind로 두 번째 기동이 즉시 죽게 한다. 포트 이어받기가 필요하면 옛 프로세스를 먼저 내린다.
+    ThreadingHTTPServer.allow_reuse_address = False
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     try:
         srv.serve_forever()

@@ -8,7 +8,7 @@ import stat
 import time
 import requests
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -295,6 +295,66 @@ class KisClient:
             ip.sign = 3
         ip.ok = ip.price > 0
         return ip
+
+    # ── 업종 지수 일봉 + 현재 스냅샷 (섹터 변동성용) ───────────────────────
+    def get_index_daily(self, code: str, days: int = 45) -> dict:
+        """업종·테마 지수 하나의 일봉(오래된→최신)과 현재 스냅샷. C++ get_index_daily_ohlcv와 같은
+        TR(FHKUP03500100)인데 output1에 업종명·현재가·전일대비가 같이 오므로 섹터 카드는 이 한 호출로 끝낸다.
+        [wire] 업종 구분별 전체시세(FHPUP02110000)는 실전 시세키로 output2가 비어 와서 쓰지 않는다
+        (check_sector_index.py로 확인, 2026-09-11). 응답 첫 봉은 당일(장중이면 미완성)이다.
+        살아 있는 코드는 check_sector_index.py 훑기 결과를 따른다 — 코스피 0005~0030, 코스닥 1019~1033 등."""
+        d2 = datetime.now().strftime("%Y%m%d")
+        d1 = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+        data = self._get(
+            "/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice",
+            {"FID_COND_MRKT_DIV_CODE": "U", "FID_INPUT_ISCD": code,
+             "FID_INPUT_DATE_1": d1, "FID_INPUT_DATE_2": d2, "FID_PERIOD_DIV_CODE": "D"},
+            "FHKUP03500100",
+        )
+        o1 = data.get("output1", {}) or {}
+        def f(o, k):
+            try:
+                return float(o.get(k, 0) or 0)
+            except (ValueError, TypeError):
+                return 0.0
+        bars = []
+        for r in reversed(data.get("output2", []) or []):
+            c = f(r, "bstp_nmix_prpr")
+            if c > 0:
+                bars.append({"date": r.get("stck_bsop_date", ""), "close": c,
+                             "open": f(r, "bstp_nmix_oprc"), "high": f(r, "bstp_nmix_hgpr"),
+                             "low": f(r, "bstp_nmix_lwpr"), "value": f(r, "acml_tr_pbmn")})
+        return {"code": code, "name": (o1.get("hts_kor_isnm") or "").strip(),
+                "price": f(o1, "bstp_nmix_prpr"), "pct": f(o1, "bstp_nmix_prdy_ctrt"),
+                "prev": f(o1, "prdy_nmix"), "high": f(o1, "bstp_nmix_hgpr"),
+                "low": f(o1, "bstp_nmix_lwpr"), "value": f(o1, "acml_tr_pbmn"), "bars": bars}
+
+    # ── 시가총액 순위 (업종 코드로 좁힐 수 있다 — 섹터 대표 종목용) ────────────
+    def get_market_cap_ranking(self, iscd: str = "0000", top_n: int = 10) -> list[dict]:
+        """국내주식 시가총액 상위 (TR FHPST01740000). iscd가 업종 코드(0013·1024 등)면 그 업종 안에서만
+        순위가 온다 — 2026-09-11 실전 시세키로 확인. KRX 테마(1046~1065)는 빈 목록이 온다.
+        반환: [{rank, ticker, name, price, change_rate, market_cap}] (market_cap=억원)."""
+        data = self._get(
+            "/uapi/domestic-stock/v1/ranking/market-cap",
+            {"FID_COND_MRKT_DIV_CODE": "J", "FID_COND_SCR_DIV_CODE": "20174", "FID_INPUT_ISCD": iscd,
+             "FID_DIV_CLS_CODE": "0", "FID_TRGT_CLS_CODE": "0", "FID_TRGT_EXLS_CLS_CODE": "0",
+             "FID_INPUT_PRICE_1": "", "FID_INPUT_PRICE_2": "", "FID_VOL_CNT": ""},
+            "FHPST01740000",
+        )
+        rows: list[dict] = []
+        for item in (data.get("output") or [])[:top_n]:
+            try:
+                rows.append({
+                    "rank":        int(item.get("data_rank", 0) or len(rows) + 1),
+                    "ticker":      item.get("mksc_shrn_iscd", ""),
+                    "name":        item.get("hts_kor_isnm", ""),
+                    "price":       float(item.get("stck_prpr", 0) or 0),
+                    "change_rate": float(item.get("prdy_ctrt", 0) or 0),
+                    "market_cap":  float(item.get("stck_avls", 0) or 0),
+                })
+            except (ValueError, TypeError):
+                continue
+        return rows
 
     # ── 최근 일봉 OHLCV (최근 ~30봉, 라이브용) ─────────────────────────────
     def get_daily_ohlcv(self, ticker: str, count: int = 30) -> list[Bar]:
