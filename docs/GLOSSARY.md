@@ -48,7 +48,7 @@
 | **FORCE_LIQ** | BEAR 등에서 보유 전량을 시장가로 청산하는 강제청산 신호 | `strategy_id="FORCE_LIQ"`. 시장가라 명목 백스톱 우회 방지로 평단을 `ref_price`에 stamp | `Quant/src/core/Engine.cpp` |
 | **UniverseScanner** | 시총·거래대금·등락률 필터로 매매 유니버스를 스캔(scan_devscale / scan_itb) | 정배열 프로브·수급 필터 포함 | `Quant/include/universe/UniverseScanner.h:16` |
 | **StrategyFactory** | config를 읽어 전략 인스턴스를 생성·등록하는 팩토리 | main.cpp에서 분리된 전략 로딩 계층 | `Quant/src/strategy/StrategyFactory.cpp` |
-| **Logger** | 비동기 싱글톤 로거(ms UTC 타임스탬프, 콘솔 + `logs/quant_trader.log`) | hot path는 큐 push만·전용 writer 스레드가 I/O(꼬리 지연(tail) 억제). 백프레셔(kMaxQueue 초과 시 드롭+드롭카운트)·`flush()`. LOG_INFO/WARN/ERROR/DEBUG 매크로 | `Quant/include/utils/Logger.h` |
+| **Logger** | 비동기 싱글톤 로거(ms UTC 타임스탬프, 콘솔 + `logs/quant_trader.log`) | hot path는 큐 push만·전용 writer 스레드가 I/O(꼬리 지연(tail) 억제). 큐는 `MpscQueue<Record>` 65,536슬롯(D-045), 가득 차면 새 레코드 드롭+`dropped()`·`flush()`. LOG_INFO/WARN/ERROR/DEBUG 매크로 | `Quant/include/utils/Logger.h` |
 | **bootstrap_ledger** | 기동 시 실계좌 보유분을 OrderGate 원장에 시드(매도수량·평단·손실한도 정합) | config `bootstrap_ledger_from_balance` | `Quant/src/main.cpp` |
 | **manage_holdings** | 스캔 유니버스 밖 잔고 보유분에 "청산 전용" 가디언을 부착(신규진입 영구차단) | config `manage_holdings` 블록 | `Quant/config` 전략 블록 |
 | **ZmqBridge / OrderRouter(IPC)** | ZeroMQ 기반 프로세스 간 시세·주문 중계(선택 구성) | Python 오퍼레이터 연동 | `Quant/src/ipc/ZmqBridge.cpp` |

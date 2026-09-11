@@ -29,9 +29,9 @@ cmake --build Quant/build
 
 Linux는 `libcurl4-openssl-dev`가 필요합니다 (`sudo apt install libcurl4-openssl-dev`). Windows는 네이티브 WinHTTP를 사용하므로 nlohmann/json(CMake FetchContent로 자동 다운로드) 외에 추가 의존성이 없습니다.
 
-단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다(원장·게이트·라우터·큐·WS 디코더·정규장 시각·운영단말 프로토콜/서버 등 13개).
+단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다(원장·게이트·라우터·큐·WS 디코더·정규장 시각·운영단말 프로토콜/서버·비동기 로거 등 14개).
 ```bash
-cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_market_session test_regime test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_mpsc test_account_ledger test_ops_protocol test_ops_server
+cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_market_session test_regime test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_mpsc test_account_ledger test_ops_protocol test_ops_server test_logger
 ctest --preset x64-release          # 저장소 루트에서. 스트레스 2종은 3초로 줄여 돈다
 ctest --test-dir Quant/build_win    # 수동 Ninja 레이아웃일 때
 ```
@@ -94,7 +94,7 @@ FEED 모드에서 사용합니다. REST로 approval key를 발급받고, `ops.ko
 
 싱글톤 `Logger`가 밀리초 단위 UTC 타임스탬프로 콘솔과 `logs/quant_trader.log`(cwd 하위 `logs/` 폴더에 고정, 부모 폴더는 자동 생성)에 기록합니다. 과거 로그는 `logs/archive/`에 보관합니다. 사용 매크로: `LOG_INFO()`, `LOG_WARN()`, `LOG_ERROR()`, `LOG_DEBUG()`.
 
-**비동기 구조**: 전략·주문 hot path는 레코드를 큐에 push만 하고 즉시 반환하며, 타임스탬프 포맷팅과 파일/콘솔 I/O는 전용 writer 스레드가 담당합니다(저지연은 평균 지연보다 최악 지연(tail latency)이 중요하다는 설계 의도로 디스크 플러시를 hot path에서 분리). 밀림 처리: 큐가 상한(`kMaxQueue`)을 넘으면 가장 오래된 레코드를 드롭하고 드롭 수를 셉니다(운영 중 무한 증가·블로킹 방지). 종료·테스트 직전 정합 확인용 `flush()`를 제공합니다.
+**비동기 구조**: 전략·주문 hot path는 레코드를 큐에 push만 하고 즉시 반환하며, 타임스탬프 포맷팅과 파일/콘솔 I/O는 전용 writer 스레드가 담당합니다(저지연은 평균 지연보다 최악 지연(tail latency)이 중요하다는 설계 의도로 디스크 플러시를 hot path에서 분리). 큐는 락 없는 `MpscQueue<Record>`(65,536슬롯)이고 writer는 큐가 비면 condvar에서 자며 생산자는 writer가 "잔다"고 표시한 때만 깨웁니다(D-045). 밀림 처리: 큐가 가득 차면 새 레코드를 드롭하고 `dropped()`로 셉니다(hot path 블로킹 방지). 종료·테스트 직전 정합 확인용 `flush()`를 제공합니다.
 
 ### 문서 동기화 (드리프트 방지)
 

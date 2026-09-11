@@ -288,6 +288,15 @@ if(UNIX)
     target_link_libraries(test_account_ledger PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: 비동기 Logger MPSC 큐·flush 계약 (D-045) ───────────────
+add_executable(test_logger tests/test_logger.cpp)
+target_include_directories(test_logger PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_logger PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟 공통: Release에서도 assert를 살린다 ──────────────────────
 #  Release 구성은 /DNDEBUG를 주므로 assert가 전부 사라진다. 그러면 테스트 바이너리가
 #  검증 대상을 호출하지도 않고 PASS만 찍는다(2026-09-08 리뷰에서 test_order_gate 18건이
@@ -307,6 +316,7 @@ set(QUANT_ASSERT_TARGETS
     test_pipeline_stress
     test_mpsc
     test_account_ledger
+    test_logger
 )
 foreach(_qt IN LISTS QUANT_ASSERT_TARGETS)
     if(MSVC)
