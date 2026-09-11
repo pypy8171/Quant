@@ -119,9 +119,9 @@ public:
     //  위험 config는 전략 로딩보다 먼저 주입되므로(main.cpp) 이 시점에 이미 유효하다.
     int risk_max_positions() const { return order_gate_.config().max_concurrent_positions; }
     // 점수 랭크를 게이트에 주입 — 슬롯이 꽉 차갈수록 상위 점수만 통과시킨다.
+    //  같은 표를 로그 폴더 entry_scores.json에도 남겨 대시보드가 보유 종목을 점수순으로 보인다. [why D-047]
     void set_entry_priority(std::unordered_map<std::string, int> rank,
-                            std::unordered_map<std::string, double> z, int total)
-    { order_gate_.set_entry_priority(std::move(rank), std::move(z), total); }
+                            std::unordered_map<std::string, double> z, int total);
     // 현재 보유(롱) 원장 스냅샷 — 유니버스 재스캔의 "보유분 제외"가 매회 최신 잔고를 보게 한다.
     //  기동 시 1회 조회한 잔고를 계속 쓰면 청산된 종목이 세션 내내 후보에서 빠진다.
     std::vector<OrderGate::HeldPos> held_positions() const { return order_gate_.snapshot_positions(); }

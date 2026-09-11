@@ -145,13 +145,35 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
 
     // 1. OrderGate 검증
     std::string reject_reason;
+    std::string odno;
+    OrderAck    ack;
+    bool        freed = false;
 
     if (sell_no_qty)
     {
-        reject_reason = "매도가능수량 0 (미체결 매도·미결제분) — 발주 생략";
+        // 왜 0인지 남기고, 이 프로세스가 아는 예약매도(이번 세션 이력·이전 세션 부속 파일)를 취소해
+        //  수량을 풀어 본다. 거부만 하고 끝내면 예약매도가 브로커에 남은 채 청산이 하루 종일 막힌다
+        //  (09-11 014530: 09:17 익절 지정가 118주가 취소 한도거부로 잔존, 이후 재기동 8회 내내 거부).
+        //  풀리면 그 자리에서 재발주한 접수로 이어간다. [why D-055]
+        const auto v = gate_.sellable_view(sig.account_id, sig.ticker);
+        LOG_WARN("[OrderRouter] 매도가능수량 0 " + sig.ticker + " — 원장 보유 " + std::to_string(v.held) +
+                 "주, 잔고 주문가능 " + std::to_string(v.psbl_cap) + "주, 이 세션 미체결 매도 " +
+                 std::to_string(v.pending) + "주 → 예약매도 취소 시도");
+        OrderAck rack = reconcile_blocked_sell(sig);
+
+        if (rack.ok())
+        {
+            ack   = rack;
+            odno  = rack.odno;
+            freed = true;
+        }
+        else
+        {
+            reject_reason = "매도가능수량 0 (미체결 매도·미결제분) — 취소할 예약매도 없음, 발주 생략";
+        }
     }
 
-    if (!reject_reason.empty() || !gate_.check(sig, reject_reason))
+    if (!reject_reason.empty() || (!freed && !gate_.check(sig, reject_reason)))
     {
         mo.status        = OrderStatus::REJECTED;
         mo.reject_reason = reject_reason;
@@ -171,16 +193,18 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
     // 2. KIS 주문 전송 (submit_order_ack로 ODNO + KRX 조직번호 캡처 — 정정/취소 준비)
     //    접수 왕복지연(RTT)을 재서 접수 로그에 남긴다 → log_report.py가 중앙값(p50)·상위 1%(p99) 집계.
     mo.status = OrderStatus::SUBMITTED;
-    std::string odno;
-    OrderAck ack;
     const auto t_send = std::chrono::steady_clock::now();
     long rtt_ms = 0;
 
     try
     {
-        ++kis_calls_;
-        ack  = kis_.submit_order_ack(sig);
-        odno = ack.odno;
+        if (!freed) // 예약매도 취소 뒤 재발주가 이미 접수됐으면 그 결과를 쓴다
+        {
+            ++kis_calls_;
+            ack  = kis_.submit_order_ack(sig);
+            odno = ack.odno;
+        }
+
         rtt_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                      std::chrono::steady_clock::now() - t_send)
                      .count();
@@ -208,6 +232,14 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
     //  재시도한다. 성공하면 아래 접수 블록이 그대로 처리(odno/ack가 재시도 결과로 갱신됨).
     if (!ack.ok() && sig.side == OrderSide::SELL && ack.err_code == kis_err::kNoSellableQty)
     {
+        const auto v = gate_.sellable_view(sig.account_id, sig.ticker);
+
+        if (v.held <= 0)
+        {
+            // 게이트는 원장이 모르는 종목을 자르지 않고 KIS에 넘긴다 — 그 거부가 여기로 온다.
+            LOG_WARN("[OrderRouter] 보유수량 0(원장 기준) " + sig.ticker + " — 매도 불가, KIS도 주문가능분 없음으로 거부");
+        }
+
         OrderAck rack = reconcile_blocked_sell(sig);
 
         if (rack.ok())
@@ -312,6 +344,27 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& sig)
             o.side      = OrderSide::SELL;
             opens.push_back(o);
         }
+
+        // 이전 세션이 남긴 미체결(부속 파일)도 후보다 — 기동 스윕이 아직 못 지웠거나 한도 거부로
+        //  남긴 줄이 이 종목의 수량을 묶고 있을 수 있다. 취소되면 아래에서 줄을 지운다.
+        std::lock_guard<std::mutex> ck(carry_mtx_);
+
+        for (const auto& f : carry_rows_)
+        {
+            if (f[2] != sig.ticker || f[3] != "SELL")
+            {
+                continue;
+            }
+
+            OpenOrder o;
+            o.ticker    = f[2];
+            o.odno      = f[0];
+            o.krx_orgno = f[1];
+
+            try { o.psbl_qty = std::stoi(f[4]); } catch (...) { continue; }
+            o.side      = OrderSide::SELL;
+            opens.push_back(o);
+        }
     }
     else
     {
@@ -397,6 +450,26 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& sig)
         if (found)
         {
             write_trade_row("", closed, 0, 0.0);
+        }
+        else
+        {
+            // 이전 세션 줄 — 부속 파일에서 빼고, 취소로 풀린 수량을 게이트에 되돌린다(스윕과 같은 처리).
+            bool carried = false;
+            {
+                std::lock_guard<std::mutex> ck(carry_mtx_);
+                const auto before = carry_rows_.size();
+                carry_rows_.erase(std::remove_if(carry_rows_.begin(), carry_rows_.end(),
+                                                 [&o](const std::array<std::string, 5>& r) { return r[0] == o.odno; }),
+                                  carry_rows_.end());
+                carried = carry_rows_.size() != before;
+            }
+
+            if (carried)
+            {
+                rewrite_open_orders();
+            }
+
+            gate_.restore_sellable(sig.account_id, sig.ticker, o.psbl_qty);
         }
     }
 

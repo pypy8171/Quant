@@ -1,4 +1,5 @@
 #pragma once
+#include "strategy/SeedPeakStore.h"
 #include "strategy/StrategyBase.h"
 #include "utils/Logger.h"
 #include <algorithm>
@@ -96,8 +97,15 @@ public:
         last_ = 0.0;
         in_position_ = start_in_position_;
         position_is_seed_ = start_in_position_; // 기동 보유분 = 물린 시드분
+        // 시드분은 잔고에서 읽어 온 것이라 원장이 이미 인정한 보유다. false로 두면 교체 진입이
+        //  이 종목을 먼저 팔았을 때 원장 0을 "아직 안 보임"으로 읽고 없는 21주를 또 판다
+        //  (09-11 001820, KIS 40240000 거부). [why D-046]
+        ledger_confirmed_ = start_in_position_;
         entry_px_ = 0.0;
         peak_ = 0.0;
+        // 시드분은 당일 저장 고점을 이어받는다 — 재기동마다 첫 틱으로 다시 잡으면 트레일이 무력화된다. [why D-052]
+        saved_peak_ = position_is_seed_ ? SeedPeakStore::load(ticker_) : 0.0;
+        last_saved_peak_ = saved_peak_;
         trough_ = 0.0;
         start_tp_ = std::chrono::steady_clock::now();
         have_cooldown_ = false;
@@ -139,6 +147,21 @@ public:
             {
                 entry_px_ = px;
                 peak_ = px;
+
+                if (position_is_seed_ && saved_peak_ > px)
+                {
+                    peak_ = saved_peak_;
+                    LOG_INFO("[ITB] 시드 고점 복원 " + tag() + " peak=" + px_str(peak_) +
+                             " (첫 틱 " + px_str(px) + ")");
+                }
+                else if (position_is_seed_)
+                {
+                    LOG_INFO("[ITB] 시드 앵커 " + tag() + " 첫 틱 " + px_str(px) + " (저장 고점 없음)");
+                    // 첫 틱이 곧 고점이면 그것도 남긴다 — 미끄러지기만 하는 종목은 새 고점이 없어
+                    //  저장 기회가 없고, 다음 재기동이 다시 첫 틱으로 앵커를 내린다.
+                    SeedPeakStore::save(ticker_, peak_);
+                    last_saved_peak_ = peak_;
+                }
             }
         }
 
@@ -153,6 +176,13 @@ public:
             if (px > peak_)
             {
                 peak_ = px;
+
+                // 시드 고점 저장은 0.1% 이상 올랐을 때만 — 틱마다 파일을 쓰지 않는다.
+                if (position_is_seed_ && peak_ >= last_saved_peak_ * 1.001)
+                {
+                    SeedPeakStore::save(ticker_, peak_);
+                    last_saved_peak_ = peak_;
+                }
             }
 
             if (trough_ <= 0.0 || px < trough_)
@@ -252,6 +282,7 @@ public:
                     in_position_ = false;
                     hold_qty_ = 0;
                     position_is_seed_ = false;
+                    SeedPeakStore::erase(ticker_);
                     exit_pending_ = false;
                     cooldown_until_ = td.timestamp + std::chrono::seconds(cooldown_sec_);
                     have_cooldown_ = true;
@@ -328,6 +359,7 @@ public:
                          px_str(bucket_close) + " (돌파 hiN=" + px_str(hi_n) + ")");
                 in_position_ = true;
                 position_is_seed_ = false; // 신규 진입분 — 타이트 스탑 적용
+                SeedPeakStore::erase(ticker_);
                 hold_qty_ = qty;
                 entry_px_ = bucket_close;
                 peak_ = bucket_close;
@@ -363,6 +395,7 @@ private:
             in_position_ = false;
             hold_qty_ = 0;
             position_is_seed_ = false;
+            SeedPeakStore::erase(ticker_);
             exit_pending_ = false;
             cooldown_until_ = ts + std::chrono::seconds(cooldown_sec_);
             have_cooldown_ = true;
@@ -473,6 +506,8 @@ private:
     bool ledger_confirmed_ = false;   // [inv] 원장이 이 보유를 최소 1회 인정했나 // 현재 포지션이 물린 시드분인가(청산 로직 분기)
     double entry_px_ = 0.0;
     double peak_ = 0.0;
+    double saved_peak_ = 0.0;      // 부착 시 seed_peaks.json에서 읽은 당일 고점(없으면 0)
+    double last_saved_peak_ = 0.0; // 마지막으로 파일에 남긴 고점 — 0.1% 이상 오를 때만 다시 쓴다
     double trough_ = 0.0;              // 부착 이후 최저가 — 본전탈출 무장 판정용
     std::chrono::steady_clock::time_point start_tp_{}; // on_start 시각(워밍업 기준)
     bool have_cooldown_ = false;

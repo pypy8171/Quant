@@ -15,8 +15,10 @@
 //  OrderRouter가 on_accept()·add_realized_pnl()로 내부 상태를 갱신한다.
 //  검사 항목과 그 실행 순서의 정본은 `OrderGate.cpp::check` 하나다 — 목록을 여기에 복사하지 않는다.
 //
-// [lock-order] 각 뮤텍스는 항상 독립 스코프에서만 획득한다(중첩 락 없음). 중첩이 필요해지면
-//   선언 순서 positions→pnl→rate→dedup를 따른다.
+// [lock-order] check()는 positions_mtx_ 안에서 displace_mtx_·prio_mtx_를 잡는다(교체 후보·우선순위
+//   판정이 보유 스냅샷과 같은 시점이어야 해서). 그러므로 순서는 positions → {displace, prio}이고,
+//   displace·prio를 쥔 채 positions를 잡는 경로는 두지 않는다(plan_displacement는 비중첩).
+//   pnl·rate·dedup은 독립 스코프에서만 획득한다.
 // ─────────────────────────────────────────────────────────────────────────────
 class OrderGate
 {
@@ -25,7 +27,7 @@ public:
     {
         int max_qty_per_ticker  = 100;          // 종목당 최대 보유 수량(BUY 누적) — fat-finger 백스톱
         // ── 명목 사이징 백스톱 — 전략이 자본%로 사이징할 때의 상한/집중 제어(0=미적용) ──
-        double max_notional_per_ticker  = 0.0;  // 종목당 최대 보유 명목(원). limit가로 평가. 0=수량 한도만
+        double max_notional_per_ticker  = 0.0;  // 종목당 최대 보유 명목(원). 지정가=price, 시장가=ref_price로 평가. 0=수량 한도만
         int    max_concurrent_positions = 0;    // 동시 보유 종목 상한(새 종목 여는 BUY NEW에만). 0=미적용
         // ── 점수 우선순위 바 — 슬롯이 찰수록 요구 랭크가 올라간다. false면 선착순(기존 동작) ──
         //  [formula] rank/total ≤ 1 − (open/slots) × decay(t). decay(t)는 장 마감까지 남은 시간
@@ -273,6 +275,28 @@ public:
     //  보유수량을 넘지 않게 자른다. 원장이 모르는 종목이면 아무 것도 하지 않는다.
     void restore_sellable(const std::string& account, const std::string& ticker, int qty);
 
+    // 매도가능수량이 0으로 잘린 이유를 로그에 남길 조각. 원장 보유·잔고 주문가능(시드/대조값)·
+    //  이 세션 미체결 매도(선점). 원장이 모르는 종목이면 held=0이고 나머지도 0이다.
+    struct SellableView
+    {
+        int held     = 0;
+        int psbl_cap = 0;
+        int pending  = 0;
+    };
+
+    SellableView sellable_view(const std::string& account, const std::string& ticker) const;
+
+    // 잔고 대조마다 KIS ord_psbl_qty로 매도가능수량을 다시 맞춘다. 기동 시드는 유령주문 취소가
+    //  끝나기 전에 읽혀 0으로 박힐 수 있고(09-11 10:18 12종목), 체결통보 모드는 잔고 재동기를
+    //  건너뛰어 그 0이 하루 종일 남아 익절·청산이 "매도가능수량 0"으로 막혔다(000720).
+    //  KIS 값은 이 세션의 미체결 매도까지 뺀 수라 되더해 둔다 — clamp가 그만큼 다시 빼기 때문이다.
+    void refresh_sellable(const std::string& account, const std::string& ticker, int ord_psbl_qty);
+    // 체결통보(WS) 모드 잔고 대조에서 원장 수량 > 잔고 수량인 종목을 놓친 매도 체결로 보고 맞춘다.
+    //  조건: 차이가 미체결 매도(reserved_<0) 이내이고, 같은 잔고 수량이 두 번 연속 관측될 때만
+    //  (잔고 왕복이 통보보다 빠른 순간의 경합 회피). 맞춘 수량을 돌려주고 아니면 0.
+    //  09-11 11:00 재연결 사이에 248170 매도 52주 통보가 빠져 18분간 유령 52주가 슬롯을 물었다.
+    int absorb_missed_sell(const std::string& account, const std::string& ticker, int balance_qty);
+
     // ── 조회 ─────────────────────────────────────────────────────────────────
     // 계좌 지정 버전(주 경로) + account="" 하위호환(단일 계좌).
     int    position(const std::string& account, const std::string& ticker) const;
@@ -323,6 +347,7 @@ private:
     std::unordered_map<std::string, TimePoint> displace_cooldown_; // 밀려난 종목 → 재진입 허용 시각
     std::string slot_reserved_for_;      // 비운 슬롯을 쓸 종목(다른 종목이 가로채지 못하게)
     TimePoint   slot_reserved_until_{};  // 예약 만료 시각
+    mutable std::unordered_map<std::string, std::string> displace_decline_; // 신규 종목 → 직전 교체 거절 사유(거부 문구용)
     int         displace_count_ = 0;     // 당일 교체 횟수(reset_daily에서 0으로)
 
     mutable std::mutex positions_mtx_;
@@ -334,7 +359,8 @@ private:
     //  미결제분 때문에 KIS가 실제로 받아주는 매도 수량은 보유보다 적을 수 있다. 이걸 모르면
     //  전량 청산이 40240000(주문가능분 없음)으로 통째 거부돼 한 주도 못 빠져나온다.
     //  기동 시드에서 잔고의 ord_psbl_qty로 채우고, 이후 체결로 증감시킨다.
-    std::unordered_map<std::string, int>    sellable_;  // account:ticker → 매수 평균단가 (실체결 기준)
+    std::unordered_map<std::string, int>    sellable_;  // account:ticker → 매도가능수량(주)
+    std::unordered_map<std::string, int>    missed_sell_seen_; // account:ticker → 직전 대조에서 본 잔고 수량(2회 연속 확인용)
     std::unordered_map<std::string, TimePoint> opened_at_; // account:ticker → 포지션이 0에서 열린 시각(교체 최소 보유 판정)
 
     mutable std::mutex pnl_mtx_;

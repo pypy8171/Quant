@@ -361,7 +361,32 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
                 std::ostringstream ss;
                 ss << "동시 보유 종목 한도 초과 (" << open << " >= "
                    << cfg_.max_concurrent_positions << ", 실보유 " << held
-                   << " 선점만 " << (open - held) << ") — 신규 종목 진입 정지";
+                   << " 선점만 " << (open - held) << ")";
+
+                // 교체 진입이 켜져 있으면 여기 오는 BUY는 교체 판정에서 떨어진 것이다. 그 사유를
+                //  같이 적지 않으면 한도 문구만 남아 "교체가 안 도는 것"으로 읽힌다(09-11 11:21).
+                std::string decline;
+                {
+                    // [lock-order] positions_mtx_ → displace_mtx_. 반대 순서로 겹쳐 잡는 곳은 없다
+                    //  (plan_displacement·note_displacement는 displace_mtx_를 단독 구간으로만 쓴다).
+                    std::lock_guard<std::mutex> dl(displace_mtx_);
+                    auto di = displace_decline_.find(sig.ticker);
+
+                    if (di != displace_decline_.end())
+                    {
+                        decline = di->second;
+                    }
+                }
+
+                if (!decline.empty())
+                {
+                    ss << " — 교체 보류: " << decline;
+                }
+                else
+                {
+                    ss << " — 신규 종목 진입 정지";
+                }
+
                 reject_reason = ss.str();
                 return false;
             }
@@ -580,8 +605,14 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
     //    중복이 아니다. (같은 side 반복은 여전히 dedup — 기존 전략 동작 불변)
     //    스탬프(last_signal_)는 6절 rate 통과 뒤에 찍는다 — rate로 거부된 신호가 dedup 창을
     //    소모하면 창 안의 정당한 재시도까지 "중복"으로 막힌다(W-2).
+    //    지정가는 가격까지 키에 넣는다 — 분할 매수는 같은 종목·같은 방향의 rung 여러 개를 한 틱에
+    //    내는데, 주문 스레드가 1초 안에 연달아 처리하면 두 번째 rung부터 "중복"으로 잘렸다
+    //    (09-11 10:04 232140 BUY 42@11790·42@11690 둘 다 거부). 같은 가격 반복만 중복이다.
     const std::string dedup_key = sig.account_id + ":" + sig.strategy_id + ":" + sig.ticker + ":" +
-                                  std::to_string(static_cast<int>(sig.side));
+                                  std::to_string(static_cast<int>(sig.side)) +
+                                  (sig.type == OrderType::LIMIT
+                                       ? ":" + std::to_string(static_cast<long long>(sig.price))
+                                       : std::string());
     {
         auto now = Clock::now();
         std::lock_guard<std::mutex> lk(dedup_mtx_);
@@ -841,6 +872,109 @@ void OrderGate::restore_sellable(const std::string& account, const std::string& 
     sellable_[k] = (restored > pit->second) ? pit->second : restored;
 }
 
+OrderGate::SellableView OrderGate::sellable_view(const std::string& account, const std::string& ticker) const
+{
+    SellableView v;
+    std::lock_guard<std::mutex> lk(positions_mtx_);
+    const std::string k = make_key(account, ticker);
+    auto pit = positions_.find(k);
+
+    if (pit == positions_.end() || pit->second <= 0)
+    {
+        return v;
+    }
+
+    v.held     = pit->second;
+    v.psbl_cap = v.held;
+    auto sit = sellable_.find(k);
+
+    if (sit != sellable_.end() && sit->second < v.psbl_cap)
+    {
+        v.psbl_cap = sit->second;
+    }
+
+    auto rit = reserved_.find(k);
+    v.pending = (rit != reserved_.end() && rit->second < 0) ? -rit->second : 0;
+    return v;
+}
+
+void OrderGate::refresh_sellable(const std::string& account, const std::string& ticker, int ord_psbl_qty)
+{
+    if (ord_psbl_qty < 0)
+    {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lk(positions_mtx_);
+    const std::string k = make_key(account, ticker);
+    auto pit = positions_.find(k);
+
+    if (pit == positions_.end() || pit->second <= 0)
+    {
+        return;
+    }
+
+    auto rit = reserved_.find(k);
+    const int sell_pending = (rit != reserved_.end() && rit->second < 0) ? -rit->second : 0;
+    const int sellable     = ord_psbl_qty + sell_pending;
+    sellable_[k] = (sellable > pit->second) ? pit->second : sellable;
+}
+
+int OrderGate::absorb_missed_sell(const std::string& account, const std::string& ticker, int balance_qty)
+{
+    if (balance_qty < 0)
+    {
+        return 0;
+    }
+
+    std::lock_guard<std::mutex> lk(positions_mtx_);
+    const std::string k = make_key(account, ticker);
+    auto pit = positions_.find(k);
+
+    if (pit == positions_.end() || pit->second <= balance_qty)
+    {
+        missed_sell_seen_.erase(k);
+        return 0;
+    }
+
+    const int diff = pit->second - balance_qty;
+    auto rit = reserved_.find(k);
+    const int sell_pending = (rit != reserved_.end() && rit->second < 0) ? -rit->second : 0;
+
+    // 미체결 매도보다 큰 차이는 놓친 체결로 설명되지 않는다 — 손대지 않고 로그 관찰에 맡긴다.
+    if (diff > sell_pending)
+    {
+        missed_sell_seen_.erase(k);
+        return 0;
+    }
+
+    auto seen = missed_sell_seen_.find(k);
+
+    if (seen == missed_sell_seen_.end() || seen->second != balance_qty)
+    {
+        missed_sell_seen_[k] = balance_qty; // 첫 관측 — 다음 대조에서 같으면 맞춘다
+        return 0;
+    }
+
+    missed_sell_seen_.erase(k);
+    pit->second = balance_qty;
+    rit->second += diff;
+
+    if (rit->second == 0)
+    {
+        reserved_.erase(rit);
+    }
+
+    auto si = sellable_.find(k);
+
+    if (si != sellable_.end() && si->second > balance_qty)
+    {
+        si->second = balance_qty;
+    }
+
+    return diff;
+}
+
 // ─── 실현 손익 누적 ─────────────────────────────────────────────────────────
 void OrderGate::add_realized_pnl(double pnl)
 {
@@ -966,6 +1100,7 @@ OrderGate::FillResult OrderGate::on_fill_confirmed(
 // ─── 교체 진입 ──────────────────────────────────────────────────────────────
 //  슬롯이 꽉 찼을 때 "먼저 온 순서"가 하루 종일 자리를 지키는 것을 막는다.
 //  락 순서: prio_mtx_ → displace_mtx_ → positions_mtx_ 를 겹치지 않고 차례로 잡는다
+//  (check()의 한도 거부 문구만 positions_mtx_ 안에서 displace_mtx_를 읽는다 — 역순 중첩 금지)
 //  (헤더의 중첩 금지 규약 유지 — 각 구간에서 필요한 값만 복사해 나온다).
 bool OrderGate::slots_full() const
 {
@@ -1055,6 +1190,15 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
 {
     DisplacePlan plan;
 
+    // 거절 사유는 한 곳에서 기록한다(뒤의 거부 문구가 읽는다). 락 안에서는 부르지 않는다.
+    auto decline = [&](const std::string& why) -> DisplacePlan
+    {
+        plan.reason = why;
+        std::lock_guard<std::mutex> lk(displace_mtx_);
+        displace_decline_[new_ticker] = why;
+        return plan;
+    };
+
     if (!cfg_.displace_enabled || cfg_.max_concurrent_positions <= 0)
     {
         return plan;
@@ -1071,32 +1215,44 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
 
     if (zn == z.end())
     {
-        return plan;
+        return decline("신규 종목 점수 없음");
     }
 
     plan.new_z = zn->second;
 
     // (2) 당일 교체 횟수·슬롯 예약 상태. 이미 비워 둔 슬롯이 있으면 또 비우지 않는다.
     const auto now = Clock::now();
+    std::string why;
     {
         std::lock_guard<std::mutex> lk(displace_mtx_);
 
         if (cfg_.displace_max_per_day > 0 && displace_count_ >= cfg_.displace_max_per_day)
         {
-            return plan;
+            why = "당일 교체 횟수 " + std::to_string(displace_count_) + "/" +
+                  std::to_string(cfg_.displace_max_per_day) + " 소진";
         }
-
-        if (!slot_reserved_for_.empty() && now < slot_reserved_until_)
+        else if (!slot_reserved_for_.empty() && now < slot_reserved_until_)
         {
-            return plan; // 직전 교체로 비운 자리가 아직 안 찼다
+            // 직전 교체로 비운 자리가 아직 안 찼다
+            const auto left = std::chrono::duration_cast<std::chrono::seconds>(slot_reserved_until_ - now).count();
+            why = "비운 자리를 " + slot_reserved_for_ + "가 쓰는 중(" + std::to_string(left) + "초 남음)";
         }
-
-        auto cd = displace_cooldown_.find(new_ticker);
-
-        if (cd != displace_cooldown_.end() && now < cd->second)
+        else
         {
-            return plan; // 방금 밀려난 종목이 곧장 되돌아오는 핑퐁 차단
+            auto cd = displace_cooldown_.find(new_ticker);
+
+            if (cd != displace_cooldown_.end() && now < cd->second)
+            {
+                // 방금 밀려난 종목이 곧장 되돌아오는 핑퐁 차단
+                const auto left = std::chrono::duration_cast<std::chrono::seconds>(cd->second - now).count();
+                why = "밀려난 종목 재진입 대기(" + std::to_string(left) + "초 남음)";
+            }
         }
+    }
+
+    if (!why.empty())
+    {
+        return decline(why);
     }
 
     // (3) 보유분 중 최약체. 점수를 아는 종목만 대상 — 스캔 유니버스 밖 보유분(청산 관리,
@@ -1202,13 +1358,25 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
 
         if (best_key.empty())
         {
-            return plan;
+            why = "내보낼 보유 종목 없음(전부 최소 보유 미달·매도 중·매도 불가)";
         }
-
-        if (plan.new_z - worst_z < cfg_.displace_min_z_gap)
+        else if (plan.new_z - worst_z < cfg_.displace_min_z_gap)
         {
-            return plan; // 격차가 잡음 수준이면 비용만 나간다
+            // 격차가 잡음 수준이면 비용만 나간다
+            std::ostringstream ws;
+            ws << "점수 격차 " << std::fixed << std::setprecision(2) << (plan.new_z - worst_z)
+               << "σ < " << cfg_.displace_min_z_gap << "σ (최약체 z=" << worst_z << ")";
+            why = ws.str();
         }
+    }
+
+    if (!why.empty())
+    {
+        return decline(why);
+    }
+
+    {
+        std::lock_guard<std::mutex> lk(positions_mtx_);
 
         auto colon = best_key.find(':');
         int  n     = std::stoi(best_key.substr(0, colon));
@@ -1233,7 +1401,7 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
 
     if (plan.qty <= 0)
     {
-        return plan;
+        return decline("최약체 " + plan.ticker + " 매도 가능 수량 0");
     }
 
     (void)account; // 계좌는 피교체 종목 쪽에서 복원한다(신호 계좌와 다를 수 있음)
@@ -1244,6 +1412,11 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
        << (plan.new_z - plan.victim_z) << "σ 높아 슬롯을 넘긴다";
     plan.reason = ss.str();
     plan.ok = true;
+    {
+        std::lock_guard<std::mutex> lk(displace_mtx_);
+        displace_decline_.erase(new_ticker);
+    }
+
     return plan;
 }
 

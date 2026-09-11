@@ -862,6 +862,29 @@ void Engine::reconcile_from_balance(bool resync_positions)
                 {
                     order_gate_.seed_position(std::string(), code, q, av);
                 }
+
+                // 매도가능수량은 재동기 모드와 무관하게 매번 맞춘다(기동 시드 0 고착 해소).
+                const std::string psbl = h.value("ord_psbl_qty", "");
+
+                if (!psbl.empty() && psbl.find_first_not_of("0123456789 ") == std::string::npos)
+                {
+                    order_gate_.refresh_sellable(std::string(), code, std::atoi(psbl.c_str()));
+                }
+
+                // 체결통보 모드는 원장을 덮어쓰지 않는다. 대신 재연결 사이에 빠진 매도 체결만
+                //  잔고로 되메운다 — 두 번 연속 같은 부족분이 보이고 미체결 매도 이내일 때.
+                //  (09-11 11:00 WS 끊김 4초에 248170 매도 52주 통보 유실 → 18분 유령 보유)
+                if (!resync_positions)
+                {
+                    const int absorbed = order_gate_.absorb_missed_sell(std::string(), code, q);
+
+                    if (absorbed > 0)
+                    {
+                        LOG_WARN("[Engine] 잔고 대조: " + code + " 원장이 잔고보다 " +
+                                 std::to_string(absorbed) + "주 많아 놓친 매도 체결로 보고 " +
+                                 std::to_string(q) + "주로 맞춘다");
+                    }
+                }
             }
 
             // 잔고에 없는데 원장에 남은 종목을 걷어낸다. 이 유령이 슬롯을 물고 있으면
@@ -1846,6 +1869,51 @@ void Engine::log_regime_halt_expiry_once()
     regime_halt_expired_ = true;
 }
 
+// 스캔 스레드가 슬리브마다 부른다(20초 간격). 파일은 임시 이름으로 쓰고 바꿔치기해
+//  대시보드가 반쯤 쓰인 JSON을 읽지 않게 한다. 쓰기 실패는 매매와 무관하므로 경고만 남긴다.
+void Engine::set_entry_priority(std::unordered_map<std::string, int> rank,
+                                std::unordered_map<std::string, double> z, int total)
+{
+    nlohmann::json scores = nlohmann::json::object();
+
+    for (const auto& kv : rank)
+    {
+        auto zit = z.find(kv.first);
+        scores[kv.first] = {{"rank", kv.second}, {"z", zit == z.end() ? 0.0 : zit->second}};
+    }
+
+    order_gate_.set_entry_priority(std::move(rank), std::move(z), total);
+
+    static std::mutex file_mtx; // 두 슬리브가 겹쳐 불러도 파일은 한 번에 하나만 쓴다
+    std::lock_guard<std::mutex> lk(file_mtx);
+    const auto path = Logger::instance().base_dir() / "entry_scores.json";
+    const auto tmp  = Logger::instance().base_dir() / "entry_scores.json.tmp";
+    std::error_code ec;
+    {
+        std::ofstream of(tmp, std::ios::trunc);
+
+        if (!of.is_open())
+        {
+            LOG_WARN("[Engine] entry_scores.json 쓰기 실패: " + tmp.string());
+            return;
+        }
+
+        const auto now = std::chrono::system_clock::now();
+        of << nlohmann::json{{"ts", std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count()},
+                             {"total", total},
+                             {"unscored_z", order_gate_.config().displace_unscored_z},
+                             {"scores", std::move(scores)}}
+                  .dump();
+    }
+
+    std::filesystem::rename(tmp, path, ec);
+
+    if (ec)
+    {
+        LOG_WARN("[Engine] entry_scores.json 교체 실패: " + ec.message());
+    }
+}
+
 void Engine::poll_regime_file()
 {
     if (regime_file_.empty())
@@ -2002,14 +2070,36 @@ void Engine::strategy_thread_fn()
 
     // 교체 진입 — 슬롯이 꽉 찬 상태에서 더 높은 점수의 신규 종목이 오면 최약체를 먼저 비운다.
     //  비우고 끝내는 이유: 매도 체결은 비동기라 같은 틱에 매수를 붙이면 노출이 이중 계상된다.
-    //  대신 게이트가 빈 자리를 이 종목에게 예약해 두므로, 다음 봉에서 이 종목이 그 자리를 가져간다.
+    //  게이트가 빈 자리를 이 종목에게 예약해 두고, 매수 신호는 이 스레드가 들고 있다가 자리가
+    //  나면 낸다. 흘리기만 하면 안 되는 이유: 전략은 자기 예약이 살아 있다고 낙관하므로(계획
+    //  시그니처 가드) 게이트 거부를 모르고 다시 내지 않는다. 그러면 예약된 슬롯이
+    //  displace_slot_hold_sec 동안 비어 있다가 만료되고, 그동안 다른 종목까지 "예약분" 거부를
+    //  받는다(09-11 10:05 322000: 교체 매도 뒤 매수는 40>=40 거부, 5분간 아무도 못 삼).
     //  order_queue_ 단일 생산자 규약을 지키려면 발주는 반드시 이 스레드에서만 나가야 한다.
+    std::vector<OrderSignal> displace_held;        // 수혜 종목의 매수 신호(rung 전부)
+    std::string              displace_held_ticker;
+    auto                     displace_held_until = std::chrono::steady_clock::time_point{};
+
     auto push_signal = [&](const OrderSignal& sig)
     {
-        const auto& gcfg = order_gate_.config();
+        const auto& gcfg   = order_gate_.config();
+        const bool  buy_new = sig.side == OrderSide::BUY && sig.action == OrderAction::NEW;
 
-        if (gcfg.displace_enabled && sig.side == OrderSide::BUY &&
-            sig.action == OrderAction::NEW &&
+        if (!displace_held_ticker.empty() && sig.ticker == displace_held_ticker)
+        {
+            if (sig.action == OrderAction::CANCEL)
+            {
+                displace_held.clear(); // 전략이 분할 매수를 다시 깐다 — 새 rung이 뒤따른다
+            }
+            else if (buy_new && std::chrono::steady_clock::now() < displace_held_until &&
+                     order_gate_.capacity_full())
+            {
+                displace_held.push_back(sig); // 아직 자리가 안 났다 — 같은 분할 매수의 다음 rung
+                return;
+            }
+        }
+
+        if (gcfg.displace_enabled && buy_new &&
             order_gate_.position(sig.account_id, sig.ticker) == 0 &&
             order_gate_.reserved(sig.account_id, sig.ticker) == 0 &&
             order_gate_.capacity_full())
@@ -2032,11 +2122,57 @@ void Engine::strategy_thread_fn()
                          std::to_string(plan.qty) + "주 — " + plan.reason);
                 raw_push(ev);
                 order_gate_.note_displacement(plan, sig.ticker);
-                return; // 이번 봉의 매수는 흘린다. 다음 봉에 예약된 슬롯으로 들어온다.
+                displace_held.clear();
+                displace_held_ticker = sig.ticker;
+                displace_held_until  = std::chrono::steady_clock::now() +
+                                       std::chrono::seconds(gcfg.displace_slot_hold_sec > 0
+                                                            ? gcfg.displace_slot_hold_sec : 120);
+                displace_held.push_back(sig); // 매도 체결로 자리가 나면 루프 머리에서 낸다
+                return;
             }
         }
 
         raw_push(sig);
+    };
+
+    // 교체 매도가 체결돼 자리가 났으면 들고 있던 수혜 종목 매수를 낸다. 예약 시한이 지나면 버린다 —
+    //  그 뒤엔 게이트 예약도 풀려 있어 전략의 다음 재구성이 보통 경로로 들어온다.
+    auto flush_displace_held = [&]()
+    {
+        if (displace_held_ticker.empty())
+        {
+            return;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+
+        if (now >= displace_held_until)
+        {
+            if (!displace_held.empty())
+            {
+                LOG_WARN("[Displace] 보류 매수 만료 " + ticker_label(displace_held_ticker) + " " +
+                         std::to_string(displace_held.size()) + "건 — 자리가 안 나 버린다");
+            }
+
+            displace_held.clear();
+            displace_held_ticker.clear();
+            return;
+        }
+
+        if (displace_held.empty() || order_gate_.capacity_full())
+        {
+            return;
+        }
+
+        LOG_INFO("[Displace] 자리가 나 보류 매수 " + std::to_string(displace_held.size()) + "건 발주 " +
+                 ticker_label(displace_held_ticker));
+
+        for (const auto& s : displace_held)
+        {
+            raw_push(s);
+        }
+
+        displace_held.clear();
     };
 
     std::vector<OrderSignal> batch_buf; // MM 다건 발주 재사용 버퍼 (per-tick 할당 회피)
@@ -2151,6 +2287,8 @@ void Engine::strategy_thread_fn()
             // 뗀 전략은 이 시점부터 스냅샷에 없다. data_thread는 이 값을 보고 파기한다.
             strat_seen_version_.store(ver, std::memory_order_release);
         }
+
+        flush_displace_held();
 
         // ── G3 강제청산: force_liquidate 동안 매 주기(≤2s) 보유 전량 시장가 매도 ──
         //  order_queue_ 단일 생산자(이 스레드)에서만 발주 → SPSC 준수. reserved(미체결
