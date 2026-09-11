@@ -150,7 +150,7 @@ void test_reset_daily_isolation()
 
 // ─── 테스트 7: make_key 구분자 충돌 안전 (W-1 회귀) ──────────────────────────
 //   나이브 'account:ticker'면 ("A","B:C")와 ("A:B","C")가 "A:B:C"로 충돌한다.
-//   길이접두 키는 두 파티션을 분리해야 한다.
+//   두 필드를 따로 든 PosKey(D-057, 그 전엔 길이접두 문자열)는 두 파티션을 분리해야 한다.
 void test_key_collision_safety()
 {
     OrderGate gate(relaxed_cfg());

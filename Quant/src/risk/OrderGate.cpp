@@ -70,7 +70,7 @@ int OrderGate::clamp_buy_qty(const OrderSignal& sig)
     if (sig.side == OrderSide::SELL && sig.action == OrderAction::NEW && q > 0)
     {
         std::lock_guard<std::mutex> lk(positions_mtx_);
-        const std::string k = make_key(sig.account_id, sig.ticker);
+        const PosKey k = make_key(sig.account_id, sig.ticker);
         auto pit = positions_.find(k);
 
         if (pit == positions_.end() || pit->second <= 0)
@@ -127,7 +127,7 @@ int OrderGate::clamp_buy_qty(const OrderSignal& sig)
 
     {
         std::lock_guard<std::mutex> lk(positions_mtx_);
-        const std::string k = make_key(sig.account_id, sig.ticker);
+        const PosKey k = make_key(sig.account_id, sig.ticker);
         auto pit = positions_.find(k);
         auto rit = reserved_.find(k);
         const int cur_qty = (pit != positions_.end() ? pit->second : 0) +
@@ -297,7 +297,7 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
     if (sig.side == OrderSide::BUY)
     {
         std::lock_guard<std::mutex> lk(positions_mtx_);
-        const std::string k = make_key(sig.account_id, sig.ticker);
+        const PosKey k = make_key(sig.account_id, sig.ticker);
         int filled = positions_.count(k) ? positions_[k] : 0;
         int resv   = reserved_.count(k)  ? reserved_[k]  : 0;
         int cur_qty = filled + resv;
@@ -483,7 +483,7 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
                             // positions_/reserved_는 계좌 합성키를 쓴다(make_key). entry_rank_는
                             //  순수 티커라 그대로 조회하면 언제나 미보유로 잡혀 유효 랭크가
                             //  전체 랭크와 같아진다.
-                            const std::string hk = make_key(sig.account_id, kv.first);
+                            const PosKey hk = make_key(sig.account_id, kv.first);
                             auto ip = positions_.find(hk);
                             auto ir = reserved_.find(hk);
                             const bool taken = (ip != positions_.end() && ip->second > 0) ||
@@ -681,7 +681,7 @@ void OrderGate::on_accept(const std::string& account, const std::string& ticker,
                           OrderSide side, int qty, double price)
 {
     std::lock_guard<std::mutex> lk(positions_mtx_);
-    const std::string k = make_key(account, ticker);
+    const PosKey k = make_key(account, ticker);
     int delta = (side == OrderSide::BUY) ? qty : -qty;  // BUY 선점 +, SELL 선점 -
     int next  = (reserved_.count(k) ? reserved_[k] : 0) + delta;
 
@@ -708,7 +708,7 @@ void OrderGate::on_accept(const std::string& account, const std::string& ticker,
 //  on_cancel에만 가드가 있고 on_fill_confirmed에는 없어, 선점을 잡은 적 없는 포지션의 체결이
 //  없던 선점을 만들어 냈다. delta는 해제 방향(BUY 선점 +는 -qty, SELL 선점 -는 +qty).
 //  호출자가 positions_mtx_를 이미 쥐고 있다고 가정한다(여기서 다시 잡지 않는다).
-void OrderGate::release_reservation(const std::string& key, int delta)
+void OrderGate::release_reservation(const PosKey& key, int delta)
 {
     // 잔고 대조가 reserved_를 비운 뒤 온 통보는 대상이 이미 없으므로 아무 것도 하지 않는다.
     //  (없는 키를 갱신하면 부호가 뒤집힌 선점이 생겨 이후 한도·슬롯 계산이 왜곡됨)
@@ -760,33 +760,6 @@ void OrderGate::reset_reserved()
 }
 
 // ─── 유령 슬롯 정리 ─────────────────────────────────────────────────────────
-//  키(make_key="<len>:<account><ticker>")에서 (account,ticker)를 복원한다. 예상 밖 키는
-//  건드리지 않는다 — 정리하다 멀쩡한 원장을 지우는 쪽이 더 비싸다.
-static bool split_pos_key(const std::string& key, std::string& account, std::string& ticker)
-{
-    auto colon = key.find(':');
-
-    if (colon == std::string::npos)
-    {
-        return false;
-    }
-
-    int n = 0;
-
-    try { n = std::stoi(key.substr(0, colon)); }
-    catch (...) { return false; }
-    const std::string rest = key.substr(colon + 1);
-
-    if (n < 0 || static_cast<size_t>(n) > rest.size())
-    {
-        return false;
-    }
-
-    account = rest.substr(0, n);
-    ticker  = rest.substr(n);
-    return true;
-}
-
 std::vector<std::string> OrderGate::prune_positions(const std::vector<std::string>& live_tickers,
                                                     int min_age_sec)
 {
@@ -797,9 +770,9 @@ std::vector<std::string> OrderGate::prune_positions(const std::vector<std::strin
 
     for (auto it = positions_.begin(); it != positions_.end();)
     {
-        std::string acct, tkr;
+        const std::string& tkr = it->first.ticker;
 
-        if (it->second <= 0 || !split_pos_key(it->first, acct, tkr) || live.count(tkr))
+        if (it->second <= 0 || live.count(tkr))
         {
             ++it;
             continue;
@@ -834,9 +807,9 @@ std::vector<std::string> OrderGate::prune_reservations(const std::vector<std::st
 
     for (auto it = reserved_.begin(); it != reserved_.end();)
     {
-        std::string acct, tkr;
+        const std::string& tkr = it->first.ticker;
 
-        if (!split_pos_key(it->first, acct, tkr) || live.count(tkr))
+        if (live.count(tkr))
         {
             ++it;
             continue;
@@ -858,7 +831,7 @@ void OrderGate::restore_sellable(const std::string& account, const std::string& 
     }
 
     std::lock_guard<std::mutex> lk(positions_mtx_);
-    const std::string k = make_key(account, ticker);
+    const PosKey k = make_key(account, ticker);
     auto pit = positions_.find(k);
 
     if (pit == positions_.end() || pit->second <= 0)
@@ -876,7 +849,7 @@ OrderGate::SellableView OrderGate::sellable_view(const std::string& account, con
 {
     SellableView v;
     std::lock_guard<std::mutex> lk(positions_mtx_);
-    const std::string k = make_key(account, ticker);
+    const PosKey k = make_key(account, ticker);
     auto pit = positions_.find(k);
 
     if (pit == positions_.end() || pit->second <= 0)
@@ -906,7 +879,7 @@ void OrderGate::refresh_sellable(const std::string& account, const std::string& 
     }
 
     std::lock_guard<std::mutex> lk(positions_mtx_);
-    const std::string k = make_key(account, ticker);
+    const PosKey k = make_key(account, ticker);
     auto pit = positions_.find(k);
 
     if (pit == positions_.end() || pit->second <= 0)
@@ -928,7 +901,7 @@ int OrderGate::absorb_missed_sell(const std::string& account, const std::string&
     }
 
     std::lock_guard<std::mutex> lk(positions_mtx_);
-    const std::string k = make_key(account, ticker);
+    const PosKey k = make_key(account, ticker);
     auto pit = positions_.find(k);
 
     if (pit == positions_.end() || pit->second <= balance_qty)
@@ -994,7 +967,7 @@ void OrderGate::seed_position(const std::string& account, const std::string& tic
     }
 
     std::lock_guard<std::mutex> lk(positions_mtx_);
-    const std::string k = make_key(account, ticker);
+    const PosKey k = make_key(account, ticker);
     positions_[k]  = qty;
     avg_prices_[k] = avg;
     // 매도가능수량. 모르면(-1) 보유수량으로 둔다 - 모르는 것을 0으로 두면 정당한 청산이 막힌다.
@@ -1014,7 +987,7 @@ OrderGate::FillResult OrderGate::on_fill_confirmed(
 
     {
         std::lock_guard<std::mutex> lk(positions_mtx_);
-        const std::string k = make_key(account, ticker);
+        const PosKey k = make_key(account, ticker);
         int pre_qty    = positions_.count(k) ? positions_[k] : 0; // 체결 전 실보유
         double cur_avg = avg_prices_.count(k) ? avg_prices_[k] : 0.0;
 
@@ -1257,8 +1230,8 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
 
     // (3) 보유분 중 최약체. 점수를 아는 종목만 대상 — 스캔 유니버스 밖 보유분(청산 관리,
     //     전일 물린 물량)은 이 판정의 모집단이 아니다. 점수가 없는 것과 낮은 것은 다르다.
-    std::string best_key;
-    double      worst_z = 0.0;
+    PosKey best_key;
+    double worst_z = 0.0;
     {
         std::lock_guard<std::mutex> lk(positions_mtx_);
 
@@ -1269,25 +1242,8 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
                 continue;
             }
 
-            const std::string& key = kv.first;
-            auto colon = key.find(':');
-
-            if (colon == std::string::npos)
-            {
-                continue;
-            }
-
-            int n = 0;
-
-            try { n = std::stoi(key.substr(0, colon)); } catch (...) { continue; }
-            const std::string rest = key.substr(colon + 1);
-
-            if (n < 0 || static_cast<size_t>(n) > rest.size())
-            {
-                continue;
-            }
-
-            const std::string tk = rest.substr(n);
+            const PosKey&      key = kv.first;
+            const std::string& tk  = key.ticker;
 
             if (tk == new_ticker)
             {
@@ -1349,14 +1305,14 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
                 continue;
             }
 
-            if (best_key.empty() || cand_z < worst_z)
+            if (best_key.ticker.empty() || cand_z < worst_z)
             {
                 best_key = key;
                 worst_z  = cand_z;
             }
         }
 
-        if (best_key.empty())
+        if (best_key.ticker.empty())
         {
             why = "내보낼 보유 종목 없음(전부 최소 보유 미달·매도 중·매도 불가)";
         }
@@ -1378,11 +1334,8 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
     {
         std::lock_guard<std::mutex> lk(positions_mtx_);
 
-        auto colon = best_key.find(':');
-        int  n     = std::stoi(best_key.substr(0, colon));
-        const std::string rest = best_key.substr(colon + 1);
-        plan.account = rest.substr(0, n);
-        plan.ticker  = rest.substr(n);
+        plan.account = best_key.account;
+        plan.ticker  = best_key.ticker;
         auto pit = positions_.find(best_key);
         auto rv  = reserved_.find(best_key);
         const int sell_pending = (rv != reserved_.end() && rv->second < 0) ? -rv->second : 0;
@@ -1511,9 +1464,6 @@ double OrderGate::daily_pnl() const
 }
 
 // ─── 보유 포지션 스냅샷 (G3 강제청산) ────────────────────────────────────────
-//  make_key = to_string(account.size()) + ":" + account + ticker 를 역파싱.
-//  ':' 앞의 정수 n = account 길이 → 뒤 문자열의 앞 n자 = account, 나머지 = ticker.
-//  파싱 실패(예상 밖 키)는 방어적으로 스킵한다.
 std::vector<OrderGate::HeldPos> OrderGate::snapshot_positions() const
 {
     std::vector<HeldPos> out;
@@ -1527,28 +1477,10 @@ std::vector<OrderGate::HeldPos> OrderGate::snapshot_positions() const
             continue; // 롱 보유분만 청산 대상
         }
 
-        const std::string& key = kv.first;
-        auto colon = key.find(':');
-
-        if (colon == std::string::npos)
-        {
-            continue;
-        }
-
-        int n = 0;
-
-        try { n = std::stoi(key.substr(0, colon)); }
-        catch (...) { continue; }
-        const std::string rest = key.substr(colon + 1);
-
-        if (n < 0 || static_cast<size_t>(n) > rest.size())
-        {
-            continue;
-        }
-
+        const PosKey& key = kv.first;
         HeldPos h;
-        h.account = rest.substr(0, n);
-        h.ticker  = rest.substr(n);
+        h.account = key.account;
+        h.ticker  = key.ticker;
         h.qty     = kv.second;
         auto ap = avg_prices_.find(key);
         h.avg_price = (ap != avg_prices_.end()) ? ap->second : 0.0;

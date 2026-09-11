@@ -2126,3 +2126,31 @@ dropped 85/85/0`, `Fill latency p50 9us max 64us`. 라이브에서는 재기동 
 `[FillThread] 시작`이 뜨고 체결통보 줄이 그대로 `[OrderRouter]` 체결 처리로 이어지며, 종료 시 `[FillThread] 종료
 (드롭 0건)`. `[Engine] 체결통보 큐 가득 참`이 한 번이라도 보이면 소비자가 멈춘 것이니 그 앞 `[FillThread]` 예외
 줄을 본다. 감사 L1 행 해결, L6은 D-055 2항(`rest_td_queue_`)으로 이미 해결.
+
+### D-057 OrderGate 원장 키를 길이접두 문자열에서 `PosKey{account, ticker}`로 바꾼다 (2026-09-11)
+**상태**: 채택 (`wt/c2`, ctest 16/16. 실행 중 `quant_trader`는 바꾸지 않았다 — 주문 경로라 다음 장 시작 전 재기동부터)
+
+**배경**: `OrderGate`의 계좌별 원장 7개(`positions_`·`reserved_`·`reserved_px_`·`avg_prices_`·`sellable_`·
+`missed_sell_seen_`·`opened_at_`)는 `make_key(account, ticker)`가 만든 `"<len>:<account><ticker>"` 문자열을 키로
+썼다. 길이 접두는 구분자 충돌(W-1, `("A","B:C")`와 `("A:B","C")`)을 피하려는 것이었는데, 그 대가로 키에서
+`(account, ticker)`를 되찾는 역파싱이 세 곳(`split_pos_key`, 교체 판정 루프, `snapshot_positions`)에 같은
+모양으로 복제돼 있었고 각각 `find(':')`·`stoi`·`substr` 2회로 문자열을 셋 더 만들었다. 주문 한 건에 `make_key`가
+4~6회 불리고 키 하나가 20자 안팎이라 SSO를 넘겨 매번 힙 할당이 났다(감사 3절 "주문당" 행).
+
+**결정**: 키를 두 필드를 그대로 든 `struct PosKey { std::string account, ticker; }`로 바꾸고 `PosKeyHash`(두
+`std::hash<std::string>`을 boost `hash_combine` 모양으로 섞음)로 `unordered_map`에 넣는다. `make_key` 이름과 호출
+지점 15곳은 그대로 두고 반환형만 바꿨다. 역파싱 세 곳은 `.account`/`.ticker` 읽기로 대체하고 지웠다(`-74`줄).
+`release_reservation`은 `const PosKey&`를 받는다. 티커(6자)·계좌(10~11자)는 SSO 안이라 `PosKey` 생성은 할당이
+없고, 문자열 연결이 사라져 주문당 힙 할당 4~6회가 0이 됐다. W-1 회귀 테스트(`test_account_ledger` 테스트 7)는
+그대로 통과한다 — 필드가 분리돼 있으니 충돌이 구조적으로 불가능하다.
+
+| 버린 대안 | 이유 |
+|---|---|
+| `struct {account_idx, sym}` 정수 쌍(PLAN C-5 원안 — `SymbolTable` 인터닝) | 보류. 전역 인터닝 테이블이 생기면 `OrderGate`가 `Engine`의 등록 순서에 묶이고 테스트마다 테이블을 세워야 한다. 지금 병목이 아닌 곳(주문당 수 회 조회, E2E p50 300ns는 수신·전략 단)에 결합을 더하는 값이 없다. 정수 키의 이점(캐시 줄 하나에 키가 들어감)은 원장 크기가 보유 40슬롯이라 재기 어렵다 |
+| 큐 원소(`TradeData`·`OrderBook`·`OrderSignal`)의 `std::string`을 `SymbolId`+`char[8]`로 | 보류(C-5c). 티커 6자·시각 HHMMSS 6자·계좌 11자가 전부 SSO(MSVC 15자) 안이라 큐 복사에 힙이 없다. `static_assert(is_trivially_copyable_v)`를 붙이려면 `OrderSignal`의 문자열 7개를 전부 걷어내야 하는데 그 이득(memcpy 복사)은 지금 측정에 나타나지 않는다. 큐 복사 지연이 프로파일에 보이면 그때 |
+| 길이접두 문자열을 두고 역파싱만 `split_pos_key` 한 곳으로 모으기 | 기각. 복제는 없어지지만 파싱 자체와 할당은 남는다. 키가 구조체면 파싱할 것이 없다 |
+| `std::pair<std::string, std::string>` + 직접 해시 | 기각. 필드 이름(`.account`·`.ticker`)이 `.first`·`.second`보다 읽는 쪽에 낫고, 해시 구조체는 어차피 써야 한다 |
+
+**확인 방법**: `ctest --preset x64-release` 16/16(`test_order_gate`·`test_account_ledger` 포함).
+`Quant/src/risk/OrderGate.cpp`에 `split_pos_key`·`stoi`·`substr`이 남아 있지 않다(`grep`). 라이브에서는 재기동 뒤
+`prune_positions`(잔고 대조 PRUNE 행)·displace 교체·`FORCE_LIQ` 스냅샷이 종전과 같은 계좌·티커로 나오는지 본다.

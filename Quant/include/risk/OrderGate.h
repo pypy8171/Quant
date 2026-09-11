@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -308,7 +309,6 @@ public:
     double daily_pnl() const;
 
     // ── 보유 포지션 스냅샷 (G3 강제청산) — net>0 실보유분만 락 하 복사 반환 ──────
-    //  합성키(make_key = "<len>:<account><ticker>")를 역파싱해 (account,ticker)를 복원한다.
     //  data_thread가 아닌 strategy_thread(order_queue_ 단일 생산자)가 force_liquidate 시
     //  이 목록으로 전량 시장가 매도를 발주한다.
     struct HeldPos { std::string account; std::string ticker; int qty; double avg_price; };
@@ -318,18 +318,43 @@ private:
     using Clock = std::chrono::steady_clock;
     using TimePoint = Clock::time_point;
 
-    // 원장 파티션 키 — 계좌별 독립. account_id는 외부(법인/DMA) 입력이 될 수 있어
-    // 단순 구분자('account:ticker')는 "A"+"B:C"와 "A:B"+"C"가 충돌한다(US 영문 티커·
-    // 외부 계좌ID에 ':' 가능). account 길이를 접두해 모호성을 제거한다(주입 안전).
-    static std::string make_key(const std::string& account, const std::string& ticker)
+    // 원장 파티션 키 — 계좌별 독립. 두 필드를 따로 들어 "A"+"B:C"와 "A:B"+"C"가 섞이지 않고(W-1),
+    //  키에서 (account,ticker)를 되찾는 파싱이 없다. 문자열 하나로 합치던 때는 역파싱이 정리·교체·
+    //  스냅샷 세 곳에 복제돼 있었고 키 하나 만들 때마다 힙 할당이 났다. [why D-057]
+    struct PosKey
     {
-        return std::to_string(account.size()) + ":" + account + ticker;
+        std::string account;
+        std::string ticker;
+
+        bool operator==(const PosKey& o) const
+        {
+            return account == o.account && ticker == o.ticker;
+        }
+    };
+
+    struct PosKeyHash
+    {
+        size_t operator()(const PosKey& k) const
+        {
+            // boost::hash_combine 모양. 두 필드를 xor만 하면 (a,b)와 (b,a)가 같은 버킷에 간다.
+            const size_t h1 = std::hash<std::string>{}(k.account);
+            const size_t h2 = std::hash<std::string>{}(k.ticker);
+            return h1 ^ (h2 + 0x9e3779b9u + (h1 << 6) + (h1 >> 2));
+        }
+    };
+
+    template <class V>
+    using PosMap = std::unordered_map<PosKey, V, PosKeyHash>;
+
+    static PosKey make_key(const std::string& account, const std::string& ticker)
+    {
+        return PosKey{account, ticker};
     }
 
     // 선점 해제의 유일한 경로 — 취소 통보(on_cancel)와 체결 통보(on_fill_confirmed)가 함께 쓴다.
     //  없는 선점은 손대지 않고, 과잉 해제는 0에서 멈춘다. 규칙이 두 곳에 갈라져 있으면 한쪽만
     //  고쳐지므로 여기 하나만 둔다. 호출 전에 positions_mtx_를 잡아야 한다(내부에서 잡지 않음).
-    void release_reservation(const std::string& key, int delta);
+    void release_reservation(const PosKey& key, int delta);
 
     Config cfg_;
     std::atomic<bool> kill_switch_{false};
@@ -351,17 +376,17 @@ private:
     int         displace_count_ = 0;     // 당일 교체 횟수(reset_daily에서 0으로)
 
     mutable std::mutex positions_mtx_;
-    std::unordered_map<std::string, int>    reserved_;    // account:ticker → 미체결 선점 수량 (BUY +, SELL -). 재주문 차단용
-    std::unordered_map<std::string, double> reserved_px_; // account:ticker → 미체결 선점가(§3d 총노출 계산용). reserved_와 동일 생명주기로 정리
-    std::unordered_map<std::string, int>    positions_;   // account:ticker → 실체결 순보유 수량 (양수=롱)
-    std::unordered_map<std::string, double> avg_prices_;
+    PosMap<int>    reserved_;    // (account,ticker) → 미체결 선점 수량 (BUY +, SELL -). 재주문 차단용
+    PosMap<double> reserved_px_; // (account,ticker) → 미체결 선점가(§3d 총노출 계산용). reserved_와 동일 생명주기로 정리
+    PosMap<int>    positions_;   // (account,ticker) → 실체결 순보유 수량 (양수=롱)
+    PosMap<double> avg_prices_;
     // account:ticker -> 매도가능수량. 보유수량과 다르다: 기동 전 세션이 남긴 미체결 매도,
     //  미결제분 때문에 KIS가 실제로 받아주는 매도 수량은 보유보다 적을 수 있다. 이걸 모르면
     //  전량 청산이 40240000(주문가능분 없음)으로 통째 거부돼 한 주도 못 빠져나온다.
     //  기동 시드에서 잔고의 ord_psbl_qty로 채우고, 이후 체결로 증감시킨다.
-    std::unordered_map<std::string, int>    sellable_;  // account:ticker → 매도가능수량(주)
-    std::unordered_map<std::string, int>    missed_sell_seen_; // account:ticker → 직전 대조에서 본 잔고 수량(2회 연속 확인용)
-    std::unordered_map<std::string, TimePoint> opened_at_; // account:ticker → 포지션이 0에서 열린 시각(교체 최소 보유 판정)
+    PosMap<int>       sellable_;         // (account,ticker) → 매도가능수량(주)
+    PosMap<int>       missed_sell_seen_; // (account,ticker) → 직전 대조에서 본 잔고 수량(2회 연속 확인용)
+    PosMap<TimePoint> opened_at_;        // (account,ticker) → 포지션이 0에서 열린 시각(교체 최소 보유 판정)
 
     mutable std::mutex pnl_mtx_;
     double daily_pnl_{0.0};
