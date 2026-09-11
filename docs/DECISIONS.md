@@ -1394,3 +1394,44 @@ stoi/stod의 관대함("215000abc"→215000, "1,000"→1)도 한 케이스로 �
 
 **확인 방법**: `ctest --preset x64-release` 11/11 통과(13.4초). FEED 모드에서 `첫 수신` 로그 형식과 체결통보
 `체결 무시`/`파싱 오류` WARN이 전과 같은지.
+
+### D-038 대사 단계를 원장에 남긴다 — 신호 순번 열, RECONCILE 행, 청산차단 취소의 선점 해제 (2026-09-11)
+**상태**: 채택 (라우터·CSV·테스트 반영, Engine 배선은 D-036 커밋 뒤 같은 번호로 잇는다)
+
+**결정**: 셋이다.
+
+1. `OrderSignal`에 `seq`(uint64, 0=미부여)를 둔다. 전략 스레드가 신호를 만들 때 단조 증가로 stamp하고
+   `ManagedOrder`를 거쳐 `logs/trades_YYYYMMDD.csv`의 모든 행(접수·거부·체결·취소)에 마지막 열 `seq`로 남는다.
+   0은 빈 칸으로 쓴다 — 재기동 전 주문의 체결처럼 순번이 없는 행이 "0번"으로 읽히지 않게.
+2. `OrderRouter::record_reconcile(ReconcileNote)`를 두고 `Engine::reconcile_from_balance`가 덮어쓰기·정리
+   **전에** 종목별 `ledger_qty/broker_qty/ledger_avg/broker_avg/action(OVERWRITE|PRUNE|KEEP)`을 넘긴다. 라우터는
+   그 종목의 살아있는 주문 수(`history_` ACCEPTED·미체결 잔량>0)를 세어 `RECONCILE` 행(`order_qty`=원장,
+   `fill_qty`=브로커, `reason`=`live_orders=N diff_qty=<브로커−원장> [note]`)을 쓰고 KEEP이 아니면 LOG_WARN한다.
+3. `reconcile_blocked_sell`이 취소한 예약매도가 이번 세션 주문이면 `history_`를 CANCELLED로 닫고
+   `gate_.on_cancel`로 미체결 잔량만큼 선점을 풀고 CANCELLED 행을 남긴다. 이전 세션·수동 예약은 `history_`에
+   없으므로 전과 같이 게이트를 건드리지 않는다.
+
+**배경**: "어긋난 건은 기록을 남겨 어느 단계에서 벌어졌는지 확인할 수 있게"라는 서술과 달리 수량·평단 불일치는
+감지 자체가 없었다. REST 모드는 `seed_position`으로 조용히 덮어쓰고 WS 모드는 잔고에 없는 종목만 지웠다. 체결
+행과 신호를 잇는 키도 없어 어느 신호가 어느 체결이 됐는지 CSV만으로는 못 좇았다. 청산차단 해소 경로는 취소한
+주문의 선점을 남겨 스윕 때까지 한도 계산을 조였다(`_private/code_upgrade/CPP_LEVEL_AUDIT.md` 8절).
+
+**대안 비교**:
+
+| 안 | 판정 |
+|---|---|
+| `seq`를 `order_id`(ORD-NNNNNN)로 대신 | 기각. order_id는 라우터가 접수 시 붙이므로 게이트 거부·큐 드롭된 신호에는 없다. 전략이 만든 순간의 번호여야 "어느 단계"가 보인다 |
+| RECONCILE을 `quant_trader.log`에만 | 기각. 원장 판독기(Python)가 체결·잔고를 한 파일에서 대조해야 한다. 로그는 WARN으로 병행 |
+| CSV `seq` 열을 중간에 삽입 | 기각. 스키마 승격이 옛 행 끝에 빈 칸을 붙이는 방식이라 중간 삽입은 기존 값을 엉뚱한 열로 민다. 열은 끝에만 더한다 |
+| 취소한 예약의 선점을 스윕에 맡김 | 기각(옛 동작). 재매도가 접수되면 취소분+재매도분이 겹쳐 선점이 두 배로 잡혔다 |
+
+CSV 쓰기는 `append_trade_line` 한 곳으로 모았다(헤더 정본 `kTradeHeader`, 같은 날 옛 헤더 파일은 빈 열을 붙여
+한 번 재작성). `write_trade_row`와 `record_reconcile`은 줄만 만든다. Engine 쪽(전략 스레드 stamp,
+`reconcile_from_balance`의 `record_reconcile` 호출)은 다른 세션이 `Quant/src/core/Engine.cpp`에 D-036을 쥐고 있어
+그 커밋 뒤에 붙인다 — 그때까지 라이브 CSV의 `seq`는 빈 칸이고 RECONCILE 행은 나오지 않는다.
+
+**확인 방법**: `Quant/tests/test_order_router.cpp`에 셋 — `reconcile_row_written`(17열·live_orders=1·diff_qty=-3),
+`seq_propagates_to_rows`(77이 접수·체결 행에, 0은 빈 칸), `blocked_sell_releases_reservation`(모의 경로: 예약 8
+취소 뒤 재매도 8 접수 → 원주문 CANCELLED, 선점 −8 유지, CANCELLED 행이 ACCEPTED 행 앞). `ctest --preset
+x64-release` 11/11. 실행 중 `quant_trader`는 재빌드하지 않았다 — 다음 재기동부터 `seq` 열이 붙고 같은 날 파일은
+헤더 승격으로 맞춘다.

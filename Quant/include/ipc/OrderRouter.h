@@ -56,6 +56,24 @@ public:
     // ── 체결통보 수신 — ODNO로 이력 조회 후 FILLED 상태 갱신 ────────────
     void on_fill(const FillNotification& fn);
 
+    // ── 잔고 대조 기록 (C-2) ────────────────────────────────────────────────
+    //  Engine이 브로커 잔고와 원장을 비교한 결과를 원장 CSV에 `RECONCILE` 행으로 남긴다.
+    //  order_qty/order_price=원장 수량·평단, fill_qty/fill_price=브로커 수량·평단, status=action,
+    //  reason에 그 종목의 살아있는 주문 수(live_orders)를 적는다 — 미체결이 있으면 불일치가
+    //  체결 지연일 수 있어 사람이 어느 단계인지 가를 근거가 된다. 덮어쓰기·정리(action이 KEEP이
+    //  아닌 것)는 LOG_WARN도 낸다. 원장 자체는 바꾸지 않는다(그건 OrderGate 몫).
+    struct ReconcileNote
+    {
+        std::string ticker;
+        int         ledger_qty = 0;
+        int         broker_qty = 0;
+        double      ledger_avg = 0.0;
+        double      broker_avg = 0.0;
+        std::string action;      // "OVERWRITE" | "PRUNE" | "KEEP"
+        std::string note;        // 자유 문구(대조 모드 등). 콤마는 공백으로 바뀐다.
+    };
+    void record_reconcile(const ReconcileNote& n);
+
     // 살아있는 주문이 없는데 게이트에 남은 선점을 푼다. 선점은 접수 때만 생기므로
     //  라우터 이력이 정본이다. 모의투자는 미체결조회(inquire-psbl-rvsecncl)를 지원하지 않아
     //  브로커에 물어볼 수가 없고, 통보를 한 번 놓치면 선점이 슬롯을 물고 하루를 간다.
@@ -123,6 +141,11 @@ private:
     void        write_trade_row(const std::string& event, const ManagedOrder& mo,
                                 int fill_qty, double fill_price,
                                 double realized_pnl = 0.0);
+    // 원장 CSV에 한 줄을 덧붙인다(io_mtx_). 파일이 없으면 헤더를 쓰고, 옛 헤더면 열을 맞춰
+    //  한 번 재작성한다. write_trade_row·record_reconcile이 줄을 만들어 여기로 보낸다.
+    void        append_trade_line(const std::string& line);
+    // 원장 CSV 시각 열 — 날짜 파일명(YYYYMMDD)과 행 시각("YYYY-MM-DD HH:MM:SS")을 같이 만든다.
+    static void trade_row_timestamp(char (&dbuf)[9], char (&tbuf)[20]);
 
     // ── MM-1: 주문 생명주기 라우팅 ────────────────────────────────────────
     ManagedOrder new_route(const OrderSignal& sig);     // 기존 신규 주문 경로
@@ -131,6 +154,7 @@ private:
     // SELL이 40240000(주문가능분 없음)으로 막히면: 그 종목의 미체결 예약매도를 조회·취소하고
     //  시장가 매도를 1회 재시도한다(장중 자가 청산 정리). 성공 시 odno 채운 OrderAck,
     //  예약 없음/취소 실패 시 빈 ack. 이전 세션·수동 예약이 보유수량을 묶은 경우를 해소.
+    //  취소한 예약이 이번 세션 주문이면 history_를 CANCELLED로 닫고 게이트 선점을 푼다(C-2).
     OrderAck reconcile_blocked_sell(const OrderSignal& sig);
     // client_oid로 아직 살아있는(ACCEPTED, 미체결 잔량>0) 주문을 history_에서 찾는다.
     // 호출자는 반드시 hist_mtx_를 보유해야 한다. 반환 포인터는 lock 보유 동안만 유효.

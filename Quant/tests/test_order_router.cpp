@@ -20,7 +20,9 @@
 #include <ctime>
 #include <iostream>
 #include <cstdlib>
+#include <fstream>
 #include <string>
+#include <vector>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -38,6 +40,10 @@ struct StubOrderExecutor : IOrderExecutor
     int         cancel_calls = 0;
     int         revise_calls = 0;
     int         last_cancel_qty = -1;         // 마지막 취소에 전달된 qty(잔량 재계산 검증)
+    // C-2 청산차단 경로 — 다음 fail_next건은 err_code로 실패, 그 뒤 성공
+    bool        paper     = false;
+    int         fail_next = 0;
+    std::string err_code;
 
     explicit StubOrderExecutor(bool s, std::string o = "A000000042")
         : succeed(s), odno(std::move(o))
@@ -47,8 +53,18 @@ struct StubOrderExecutor : IOrderExecutor
     std::string submit_order(const OrderSignal&) override
     {
         ++call_count;
+
+        if (fail_next > 0)
+        {
+            --fail_next;
+            return "";
+        }
+
         return succeed ? odno : "";
     }
+
+    bool        is_paper() const override { return paper; }
+    std::string last_order_error_code() const override { return err_code; }
 
     // 기존 call_count 계약 유지를 위해 submit_order를 내부 호출 + 조직번호만 덧붙임
     OrderAck submit_order_ack(const OrderSignal& sig) override
@@ -93,6 +109,64 @@ static OrderGate::Config relaxed_cfg()
     c.max_orders_per_sec = 100;
     c.dedup_window_sec   = 0.0;
     return c;
+}
+
+// 오늘 원장 CSV의 마지막 n줄(헤더 제외). 행 검증용.
+static std::vector<std::string> tail_trade_rows(size_t n)
+{
+    std::time_t tt = std::time(nullptr);
+    std::tm     lt{};
+#ifdef _WIN32
+    localtime_s(&lt, &tt);
+#else
+    localtime_r(&tt, &lt);
+#endif
+    char buf[9];
+    std::strftime(buf, sizeof(buf), "%Y%m%d", &lt);
+    std::ifstream in(Logger::instance().path_for(std::string("trades_") + buf + ".csv"));
+    std::vector<std::string> rows;
+
+    for (std::string ln; std::getline(in, ln); )
+    {
+        if (!ln.empty() && ln.back() == '\r')
+        {
+            ln.pop_back();
+        }
+
+        if (!ln.empty() && ln.rfind("ts_kst,", 0) != 0)
+        {
+            rows.push_back(ln);
+        }
+    }
+
+    if (rows.size() > n)
+    {
+        rows.erase(rows.begin(), rows.end() - static_cast<long>(n));
+    }
+
+    return rows;
+}
+
+static std::vector<std::string> split_csv(const std::string& ln)
+{
+    std::vector<std::string> out;
+    std::string cur;
+
+    for (char c : ln)
+    {
+        if (c == ',')
+        {
+            out.push_back(cur);
+            cur.clear();
+        }
+        else
+        {
+            cur += c;
+        }
+    }
+
+    out.push_back(cur);
+    return out;
 }
 
 static void PASS(const std::string& name)
@@ -538,6 +612,129 @@ void test_reason_journal_restart_recovery()
 }
 
 
+// ─── C-2: 잔고 대조 행 — RECONCILE 행이 원장·브로커 수량과 살아있는 주문 수를 남긴다 ──────
+void test_reconcile_row_written()
+{
+    OrderGate         gate(relaxed_cfg());
+    StubOrderExecutor stub(true, "K000201");
+    OrderRouter       router(gate, stub);
+
+    router.submit(make_signal("005930", OrderSide::BUY, 10)); // ACCEPTED, 미체결 → live_orders=1
+
+    OrderRouter::ReconcileNote n;
+    n.ticker     = "005930";
+    n.ledger_qty = 10;
+    n.broker_qty = 7;
+    n.ledger_avg = 75000.0;
+    n.broker_avg = 74900.0;
+    n.action     = "OVERWRITE";
+    n.note       = "mode=REST";
+    router.record_reconcile(n);
+
+    auto rows = tail_trade_rows(1);
+    assert(rows.size() == 1);
+    auto c = split_csv(rows[0]);
+    assert(c.size() == 17);              // 헤더 열 수와 같다(seq까지)
+    assert(c[1] == "RECONCILE");
+    assert(c[5] == "005930");
+    assert(c[8] == "10" && c[10] == "7"); // order_qty=원장, fill_qty=브로커
+    assert(c[12] == "OVERWRITE");
+    assert(c[13] == "live_orders=1 diff_qty=-3 mode=REST");
+    assert(c[16].empty());               // seq 빈 칸
+    PASS("reconcile_row_written");
+}
+
+// ─── C-2: seq 전파 — 전략이 stamp한 순번이 접수 행과 체결 행에 그대로 남는다 ────────────
+void test_seq_propagates_to_rows()
+{
+    OrderGate         gate(relaxed_cfg());
+    StubOrderExecutor stub(true, "K000202");
+    OrderRouter       router(gate, stub);
+
+    OrderSignal sig = make_signal("005930", OrderSide::BUY, 3);
+    sig.seq         = 77;
+    auto mo         = router.submit(sig);
+    assert(mo.status == OrderStatus::ACCEPTED);
+    assert(mo.signal.seq == 77);
+
+    FillNotification fn;
+    fn.odno         = "K000202";
+    fn.ticker       = "005930";
+    fn.side         = OrderSide::BUY;
+    fn.filled_qty   = 3;
+    fn.filled_price = 75000.0;
+    fn.fill_time    = "100100";
+    router.on_fill(fn);
+
+    auto rows = tail_trade_rows(2);
+    assert(rows.size() == 2);
+    auto acc  = split_csv(rows[0]);
+    auto fill = split_csv(rows[1]);
+    assert(acc[1] == "ACCEPTED" && acc[16] == "77");
+    assert(fill[1] == "FILL" && fill[16] == "77");
+
+    // 미부여(0)는 빈 칸으로 남는다 — 0이 진짜 순번으로 읽히지 않게.
+    router.submit(make_signal("005930", OrderSide::BUY, 1));
+    auto last = split_csv(tail_trade_rows(1)[0]);
+    assert(last[1] == "ACCEPTED" && last[16].empty());
+    PASS("seq_propagates_to_rows");
+}
+
+// ─── C-2: 청산차단 해소 — 이번 세션 예약매도를 취소하면 CANCELLED로 닫고 선점을 푼다 ───────
+//   모의투자 경로(is_paper): 미체결을 KIS가 아니라 history_에서 찾는다. 취소 뒤 재매도가
+//   접수되면 그 선점만 남아야 한다(취소분 8 + 재매도 8 = 16이 아니라 8).
+void test_blocked_sell_releases_reservation()
+{
+    OrderGate         gate(relaxed_cfg());
+    StubOrderExecutor stub(true, "K000301");
+    OrderRouter       router(gate, stub);
+    stub.paper = true;
+
+    // 원장에 포지션을 심지 않는다 — 심으면 게이트 SELL 클램프가 미체결매도를 빼고 0주로 깎아
+    //  KIS까지 가지 않는다. 이 경로는 원장이 종목을 모르는(재기동 직후·WS 모드) 상황이 대상이다.
+
+    OrderSignal resv = make_signal("005930", OrderSide::SELL, 8);
+    resv.type        = OrderType::LIMIT;
+    resv.price       = 80000.0;
+    resv.client_oid  = "RESV:1";
+    auto r1          = router.submit(resv);
+    assert(r1.status == OrderStatus::ACCEPTED);
+    assert(gate.reserved("005930") == -8);       // 매도 선점(부호는 게이트 규약)
+
+    // 시장가 청산이 40240000으로 막힘 → 예약매도 취소 → 재매도 접수
+    stub.odno      = "K000302";
+    stub.fail_next = 1;
+    stub.err_code  = "40240000";
+    OrderSignal liq = make_signal("005930", OrderSide::SELL, 8);
+    liq.type        = OrderType::MARKET;
+    liq.price       = 0.0;
+    liq.ref_price   = 75000.0;
+    auto r2         = router.submit(liq);
+    assert(r2.status == OrderStatus::ACCEPTED);
+    assert(r2.kis_order_no == "K000302");
+    assert(stub.cancel_calls == 1 && stub.last_cancel_qty == 8);
+
+    // 원주문은 CANCELLED, 선점은 재매도분만
+    bool orig_cancelled = false;
+
+    for (const auto& h : router.recent(10))
+    {
+        if (h.kis_order_no == "K000301")
+        {
+            orig_cancelled = (h.status == OrderStatus::CANCELLED);
+        }
+    }
+
+    assert(orig_cancelled);
+    assert(gate.reserved("005930") == -8);
+
+    // 원장에 CANCELLED 행이 남는다(재매도 ACCEPTED 행 앞).
+    auto rows = tail_trade_rows(2);
+    assert(split_csv(rows[0])[1] == "CANCELLED" && split_csv(rows[0])[3] == "K000301");
+    assert(split_csv(rows[1])[1] == "ACCEPTED" && split_csv(rows[1])[3] == "K000302");
+    PASS("blocked_sell_releases_reservation");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -586,6 +783,9 @@ int main()
     test_cancel_after_full_fill_selfheal();
     test_replace_reserves_new_qty();
     test_reason_journal_restart_recovery();
+    test_reconcile_row_written();
+    test_seq_propagates_to_rows();
+    test_blocked_sell_releases_reservation();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

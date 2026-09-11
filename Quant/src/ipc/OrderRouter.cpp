@@ -270,8 +270,10 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
 // ─── 청산차단 자가정리 — 예약매도 취소 후 시장가 재매도 (장중) ─────────────
 //  전제: SELL이 40240000(주문가능분 없음)으로 막힌 직후 호출. 그 종목의 미체결 예약매도가
 //  보유수량을 묶어 ord_psbl_qty=0이 된 상황을 KIS 미체결 조회로 규명하고, 예약을 취소해
-//  수량을 풀어준 뒤 시장가 매도를 1회 재시도한다. 취소 대상은 이전 세션/수동 예약일 수 있어
-//  내부 reserved_(이번 세션 것)엔 없으므로 gate_는 건드리지 않는다(포지션 정합은 체결통보로).
+//  수량을 풀어준 뒤 시장가 매도를 1회 재시도한다. 취소한 예약이 이번 세션 주문(history_에
+//  ODNO가 있음)이면 CANCELLED로 닫고 게이트 선점(reserved_)을 풀어 원장 행을 남긴다 — 그러지
+//  않으면 선점이 스윕 때까지 남아 한도 계산을 조인다(C-2). 이전 세션·수동 예약은 history_에
+//  없으므로 gate_를 건드리지 않는다(포지션 정합은 체결통보로).
 OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& sig)
 {
     std::vector<OpenOrder> opens;
@@ -349,9 +351,52 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& sig)
             continue;
         }
 
-        if (!cxl.empty())
+        if (cxl.empty())
         {
-            ++cancelled;
+            continue;
+        }
+
+        ++cancelled;
+
+        // 이번 세션 주문이면 이력·선점을 같이 정리한다. 잠금 순서 hist_→gate는 cancel_route와 같다.
+        ManagedOrder closed;
+        bool         found   = false;
+        int          release = 0;
+        {
+            std::lock_guard<std::mutex> lk(hist_mtx_);
+
+            for (auto& mo : history_)
+            {
+                if (mo.status != OrderStatus::ACCEPTED || mo.kis_order_no != o.odno)
+                {
+                    continue;
+                }
+
+                release = mo.signal.quantity - mo.confirmed_qty;
+
+                if (release < 0)
+                {
+                    release = 0;
+                }
+
+                mo.status        = OrderStatus::CANCELLED;
+                mo.reject_reason = "청산차단 해소 취소";
+                mo.updated_at    = std::chrono::system_clock::now();
+                closed           = mo;
+                found            = true;
+                oid_index_.erase(mo.signal.client_oid);
+                break;
+            }
+
+            if (release > 0)
+            {
+                gate_.on_cancel(closed.signal.account_id, closed.signal.ticker, OrderSide::SELL, release);
+            }
+        }
+
+        if (found)
+        {
+            write_trade_row("", closed, 0, 0.0);
         }
     }
 
@@ -858,16 +903,32 @@ void OrderRouter::cancel_stale_orders_async()
 }
 
 // ─── 거래 원장 CSV 적재 ───────────────────────────────────────────────────
-//  실행 로그(quant_trader.log)와 별개로 매수·매도·거부·체결을 구조적으로 남긴다.
-//  logs/trades_YYYYMMDD.csv 에 한 줄씩 append(날짜별 파일). record()·on_fill()에서만
-//  호출되며 io_mtx_로 직렬화된다(hist_mtx_ 밖 — 동시쓰기 없음).
+//  실행 로그(quant_trader.log)와 별개로 매수·매도·거부·체결·잔고 대조를 구조적으로 남긴다.
+//  logs/trades_YYYYMMDD.csv 에 한 줄씩 append(날짜별 파일). record()·on_fill()·record_reconcile()
+//  이 줄을 만들고 append_trade_line이 io_mtx_로 직렬화해 쓴다(hist_mtx_ 밖 — 동시쓰기 없음).
 //  원장 쓰기 실패는 매매를 막지 않는다(best-effort — 조용히 반환).
-void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& mo,
-                                  int fill_qty, double fill_price, double realized_pnl)
-{
-    std::lock_guard<std::mutex> io_lk(io_mtx_);
-    const OrderSignal& sig = mo.signal;
+//  열 정본은 kTradeHeader 하나다. 열을 더할 때는 끝에 붙인다 — 스키마 승격이 옛 파일 행 끝에 빈 칸을
+//  덧붙이는 방식이라 중간 삽입은 기존 행의 값을 엉뚱한 열로 밀어낸다. Python 판독기는 열 이름으로 읽는다.
+static const std::string kTradeHeader =
+    "ts_kst,event,order_id,odno,strategy,ticker,side,type,"
+    "order_qty,order_price,fill_qty,fill_price,status,reason,entry_reason,realized_pnl,seq";
 
+// CSV 깨짐 방지: 콤마/개행 공백 치환
+static std::string csv_safe(std::string s)
+{
+    for (char& c : s)
+    {
+        if (c == ',' || c == '\n' || c == '\r')
+        {
+            c = ' ';
+        }
+    }
+
+    return s;
+}
+
+void OrderRouter::trade_row_timestamp(char (&dbuf)[9], char (&tbuf)[20])
+{
     std::time_t tt = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
     std::tm lt{};
 #ifdef _WIN32
@@ -875,39 +936,25 @@ void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& 
 #else
     localtime_r(&tt, &lt);
 #endif
-    char dbuf[9], tbuf[20];
     std::strftime(dbuf, sizeof(dbuf), "%Y%m%d", &lt);
     std::strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", &lt);
+}
 
-    auto side_str = [](OrderSide s) {
-        return s == OrderSide::BUY ? "BUY" : (s == OrderSide::SELL ? "SELL" : "NONE");
-    };
-    auto type_str = [](OrderType t) { return t == OrderType::LIMIT ? "LIMIT" : "MARKET"; };
-    auto status_str = [](OrderStatus st) -> const char* {
-        switch (st)
-        {
-        case OrderStatus::PENDING:   return "PENDING";
-        case OrderStatus::SUBMITTED: return "SUBMITTED";
-        case OrderStatus::ACCEPTED:  return "ACCEPTED";
-        case OrderStatus::REJECTED:  return "REJECTED";
-        case OrderStatus::FILLED:    return "FILLED";
-        case OrderStatus::CANCELLED: return "CANCELLED";
-        default:                     return "?";
-        }
-    };
+void OrderRouter::append_trade_line(const std::string& line)
+{
+    std::lock_guard<std::mutex> io_lk(io_mtx_);
+
+    char dbuf[9], tbuf[20];
+    trade_row_timestamp(dbuf, tbuf);
 
     namespace fs = std::filesystem;
     std::error_code ec;
     // 실행 위치(cwd)와 무관하게 로그 폴더(main에서 고정)에 매매원장 append.
     fs::path path = Logger::instance().path_for(std::string("trades_") + dbuf + ".csv");
 
-    static const std::string kHeader =
-        "ts_kst,event,order_id,odno,strategy,ticker,side,type,"
-        "order_qty,order_price,fill_qty,fill_price,status,reason,entry_reason,realized_pnl";
-
     const bool need_header = !fs::exists(path, ec);
 
-    // 스키마 승격 — 같은 날 파일이 옛 헤더(realized_pnl 없음)면 새 컬럼을 붙여 한 번 재작성한다.
+    // 스키마 승격 — 같은 날 파일이 옛 헤더(열이 적음)면 새 열을 붙여 한 번 재작성한다.
     //  한 파일에 15열 헤더와 16열 데이터가 섞이면 판독기가 값을 어긋난 키로 읽는다.
     if (!need_header)
     {
@@ -921,9 +968,9 @@ void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& 
                 first.pop_back();
             }
 
-            if (first != kHeader)
+            if (first != kTradeHeader)
             {
-                long add = static_cast<long>(std::count(kHeader.begin(), kHeader.end(), ',')) -
+                long add = static_cast<long>(std::count(kTradeHeader.begin(), kTradeHeader.end(), ',')) -
                            static_cast<long>(std::count(first.begin(), first.end(), ','));
 
                 if (add < 0)
@@ -951,7 +998,7 @@ void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& 
 
                 if (out)
                 {
-                    out << kHeader << '\n';
+                    out << kTradeHeader << '\n';
 
                     for (const auto& r : rows)
                     {
@@ -971,30 +1018,42 @@ void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& 
 
     if (need_header)
     {
-        f << kHeader << '\n';
+        f << kTradeHeader << '\n';
     }
+
+    f << tbuf << ',' << line << '\n';
+}
+
+void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& mo,
+                                  int fill_qty, double fill_price, double realized_pnl)
+{
+    const OrderSignal& sig = mo.signal;
+
+    auto side_str = [](OrderSide s) {
+        return s == OrderSide::BUY ? "BUY" : (s == OrderSide::SELL ? "SELL" : "NONE");
+    };
+    auto type_str = [](OrderType t) { return t == OrderType::LIMIT ? "LIMIT" : "MARKET"; };
+    auto status_str = [](OrderStatus st) -> const char* {
+        switch (st)
+        {
+        case OrderStatus::PENDING:   return "PENDING";
+        case OrderStatus::SUBMITTED: return "SUBMITTED";
+        case OrderStatus::ACCEPTED:  return "ACCEPTED";
+        case OrderStatus::REJECTED:  return "REJECTED";
+        case OrderStatus::FILLED:    return "FILLED";
+        case OrderStatus::CANCELLED: return "CANCELLED";
+        default:                     return "?";
+        }
+    };
 
     // event 빈 문자열이면 상태 문자열을 사용
     std::string ev = event.empty() ? status_str(mo.status) : event;
-    // CSV 깨짐 방지: 콤마/개행 공백 치환
-    auto csv_safe = [](std::string s)
-    {
-        for (char& c : s)
-        {
-            if (c == ',' || c == '\n' || c == '\r')
-            {
-                c = ' ';
-            }
-        }
-
-        return s;
-    };
     // reason = 거부/봉쇄 사유(OrderGate·KIS), entry_reason = 진입 판단 근거(전략, G4) — 분리 컬럼.
     std::string reason       = csv_safe(mo.reject_reason);
     std::string entry_reason = csv_safe(sig.reason);
 
-    f << tbuf << ','
-      << ev << ','
+    std::ostringstream f;
+    f << ev << ','
       << mo.order_id << ','
       << mo.kis_order_no << ','
       << sig.strategy_id << ','
@@ -1016,7 +1075,63 @@ void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& 
         f << std::fixed << std::setprecision(2) << realized_pnl;
     }
 
-    f << '\n';
+    // seq는 전략 스레드가 stamp한 신호 순번(C-2). 미부여(0)는 빈 칸 — 재기동 전 주문의 체결 등.
+    f << ',';
+
+    if (sig.seq != 0)
+    {
+        f << sig.seq;
+    }
+
+    append_trade_line(f.str());
+}
+
+// ─── 잔고 대조 기록 (C-2) ─────────────────────────────────────────────────
+//  live_orders는 history_에서 센다(hist_mtx_). 파일 쓰기는 락 밖.
+void OrderRouter::record_reconcile(const ReconcileNote& n)
+{
+    int live_orders = 0;
+    {
+        std::lock_guard<std::mutex> lk(hist_mtx_);
+
+        for (const auto& mo : history_)
+        {
+            if (mo.status == OrderStatus::ACCEPTED && mo.signal.ticker == n.ticker &&
+                mo.signal.quantity - mo.confirmed_qty > 0)
+            {
+                ++live_orders;
+            }
+        }
+    }
+
+    std::ostringstream reason;
+    reason << "live_orders=" << live_orders << " diff_qty=" << (n.broker_qty - n.ledger_qty);
+
+    if (!n.note.empty())
+    {
+        reason << ' ' << csv_safe(n.note);
+    }
+
+    if (n.action != "KEEP")
+    {
+        LOG_WARN("[OrderRouter] 잔고 대조 " + n.ticker + " 원장 " + std::to_string(n.ledger_qty) +
+                 "주@" + std::to_string(static_cast<long long>(n.ledger_avg)) + " vs 브로커 " +
+                 std::to_string(n.broker_qty) + "주@" +
+                 std::to_string(static_cast<long long>(n.broker_avg)) + " → " + n.action + " (" +
+                 reason.str() + ")");
+    }
+
+    std::ostringstream f;
+    f << "RECONCILE" << ",,,,"            // order_id, odno, strategy 빈 칸
+      << n.ticker << ",NONE,,"            // side, type 빈 칸
+      << n.ledger_qty << ','
+      << std::fixed << std::setprecision(2) << n.ledger_avg << ','
+      << n.broker_qty << ','
+      << std::fixed << std::setprecision(2) << n.broker_avg << ','
+      << csv_safe(n.action) << ','
+      << reason.str() << ",,,";           // entry_reason, realized_pnl, seq 빈 칸
+
+    append_trade_line(f.str());
 }
 
 // ─── client_oid로 살아있는 주문 조회 (호출자가 hist_mtx_ 보유) ────────────
