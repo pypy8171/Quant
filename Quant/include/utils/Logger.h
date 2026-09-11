@@ -1,9 +1,11 @@
 #pragma once
+#include "core/MpscQueue.h"
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <cstdlib>
-#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -27,8 +29,13 @@ enum class LogLevel
 //   전용 writer 스레드가 담당한다. 동기 로깅은 디스크가 튀는 순간 최악 지연을 오염시키므로,
 //   최악 지연을 낮추려고 I/O를 hot path에서 분리했다.
 //
-//   밀림 처리: 큐가 상한(kMaxQueue)을 넘으면 가장 오래된 레코드를 버리고 드롭 수를 센다.
+//   큐는 락 없는 MPSC(`MpscQueue`, Vyukov)다. 호출 스레드는 CAS 한 번으로 칸을 예약하고 레코드를
+//   옮겨 놓는다 — 뮤텍스를 잡지 않는다. writer는 큐가 비면 yield 몇 번 뒤 condvar에서 잔다. 깨우기는
+//   writer가 "잔다"고 표시해 둔 때만 notify를 부르므로, 연속 기록 중 hot path는 원자 load 하나다. [why D-045]
+//
+//   밀림 처리: 큐(kQueueCapacity 슬롯)가 가득 차면 새 레코드를 버리고 드롭 수를 센다.
 //   디스크가 오래 멈춰도 로깅이 메모리를 무한정 먹거나 hot path를 블로킹하지 않는다(운영 안전).
+//   [inv] 로그를 부르는 스레드는 Logger 소멸(정적 소멸) 전에 join돼 있어야 한다. 소멸 뒤 호출은 미정의.
 #ifdef _WIN32
 // windows.h를 이 헤더에 넣으면 ERROR 매크로가 LogLevel::ERROR와 부딪힌다. SDK 선언과 같은 형으로 직접 선언.
 struct HINSTANCE__;
@@ -139,29 +146,22 @@ public:
             return;
         }
 
-        // hot path: 시각 스탬프만 찍고 큐에 넘긴다(포맷팅은 writer가 수행).
-        Record rec{level, std::chrono::system_clock::now(), msg};
+        // hot path: 시각 스탬프만 찍고 큐에 넘긴다(포맷팅은 writer가 수행). 락 없음.
+        Record rec{level, std::chrono::system_clock::now(), msg, nullptr};
 
+        if (!running_.load(std::memory_order_acquire))
         {
-            std::lock_guard<std::mutex> lock(q_mutex_);
-
-            if (!running_)
-            {
-                // 종료 중(writer 정지)에는 유실 방지를 위해 동기 폴백으로 기록.
-                write_locked(format(rec));
-                return;
-            }
-
-            if (queue_.size() >= kMaxQueue)
-            {
-                queue_.pop_front(); // 가장 오래된 것 드롭 — 무한 증가·블로킹 방지
-                ++dropped_;
-            }
-
-            queue_.push_back(std::move(rec));
+            // 종료 중(writer 정지)에는 동기 폴백. 늦은 호출자끼리의 file_ 경쟁만 cfg_mutex_로 막는다.
+            std::lock_guard<std::mutex> lock(cfg_mutex_);
+            write_unlocked(format(rec));
+            return;
         }
 
-        q_cv_.notify_one();
+        if (!enqueue(std::move(rec)))
+        {
+            // 가득 참 — 새 레코드를 버린다. MPSC는 생산자 쪽에서 가장 오래된 칸을 뺄 수 없다.
+            dropped_.fetch_add(1, std::memory_order_relaxed);
+        }
     }
 
     void info(const std::string& m)
@@ -184,16 +184,41 @@ public:
         log(LogLevel::DEBUG, m);
     }
 
-    // 큐에 쌓인 레코드가 모두 파일/콘솔에 반영될 때까지 블로킹(테스트·종료 직전 정합 확인용).
+    // 이 호출 전에 반환된 log()가 모두 파일/콘솔에 반영될 때까지 블로킹(테스트·종료 직전 정합 확인용).
+    // 표식 레코드를 큐에 넣고 writer가 그 칸에 닿기를 기다린다. 큐는 티켓 순으로 소비되므로 표식보다
+    // 앞 티켓(= 먼저 반환된 log)은 표식 처리 시점에 전부 기록돼 있다.
     void flush()
     {
-        std::unique_lock<std::mutex> lock(q_mutex_);
-        drained_cv_.wait(lock, [this] { return queue_.empty() || !running_; });
-
-        if (file_.is_open())
+        if (!running_.load(std::memory_order_acquire))
         {
-            file_.flush();
+            std::lock_guard<std::mutex> lock(cfg_mutex_);
+
+            if (file_.is_open())
+            {
+                file_.flush();
+            }
+
+            return;
         }
+
+        std::atomic<bool> done{false};
+
+        while (!enqueue(Record{LogLevel::DEBUG, {}, {}, &done}))
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1)); // 가득 참 — writer가 비울 때까지
+        }
+
+        // [inv] 표식은 writer 또는 소멸자 배수(drain)가 반드시 처리하므로 기다림은 끝난다.
+        while (!done.load(std::memory_order_acquire))
+        {
+            std::this_thread::yield();
+        }
+    }
+
+    // 가득 차서 버린 레코드 수(운영 중 관측용).
+    [[nodiscard]] uint64_t dropped() const noexcept
+    {
+        return dropped_.load(std::memory_order_relaxed);
     }
 
 private:
@@ -202,37 +227,58 @@ private:
         LogLevel level;
         std::chrono::system_clock::time_point ts;
         std::string msg;
+        std::atomic<bool>* flush_mark; // flush()의 표식. 아니면 nullptr
     };
 
     Logger()
     {
-        running_ = true;
+        running_.store(true, std::memory_order_release);
         writer_ = std::thread(&Logger::writer_loop, this);
+    }
+
+    // 큐에 넣고, writer가 자고 있으면 깨운다. 실패(가득 참)면 false.
+    // [lock-order] push(release) → seq_cst fence → sleeping 읽기. writer 쪽은 sleeping 쓰기 → fence → 큐 확인.
+    //  양쪽 다 store-fence-load라 둘 중 하나는 상대 store를 본다 — 넣었는데 아무도 안 깨우는 경우가 없다.
+    //  notify는 wake_mtx_ 없이 부른다. writer가 잠들기 직전이면 신호가 새지만 wait_for 상한이 받는다.
+    bool enqueue(Record&& rec)
+    {
+        if (!queue_.push(std::move(rec)))
+        {
+            return false;
+        }
+
+        std::atomic_thread_fence(std::memory_order_seq_cst);
+
+        if (writer_sleeping_.load(std::memory_order_relaxed))
+        {
+            wake_cv_.notify_one();
+        }
+
+        return true;
     }
 
     ~Logger()
     {
-        {
-            std::lock_guard<std::mutex> lock(q_mutex_);
-            running_ = false;
-        }
-
-        q_cv_.notify_all();
+        running_.store(false, std::memory_order_release);
+        std::atomic_thread_fence(std::memory_order_seq_cst);
+        wake_cv_.notify_one();
 
         if (writer_.joinable())
         {
             writer_.join();
         }
 
-        // writer 정지 후 남은 레코드를 마지막으로 비운다(스레드 join으로 경쟁 없음).
-        for (auto& rec : queue_)
+        // writer가 마지막 pop 뒤에 들어온 레코드를 비운다. join 뒤라 이 스레드가 유일한 소비자다.
+        while (auto rec = queue_.pop())
         {
-            write_locked(format(rec));
+            consume(*rec);
         }
 
-        if (dropped_ > 0 && file_.is_open())
+        const uint64_t dropped = dropped_.load(std::memory_order_relaxed);
+
+        if (dropped > 0 && file_.is_open())
         {
-            file_ << "[Logger] 종료 시점 드롭된 로그 " << dropped_ << "건\n";
+            file_ << "[Logger] 종료 시점 드롭된 로그 " << dropped << "건\n";
         }
 
         if (file_.is_open())
@@ -241,36 +287,82 @@ private:
         }
     }
 
+    // writer 스레드 단독. 큐가 비면 yield 몇 번 뒤 condvar에서 잔다 — 로그는 지연보다 hot path 비간섭이 우선이다.
     void writer_loop()
     {
+        int idle = 0;
+        size_t since_flush = 0;
+
         while (true)
         {
-            std::deque<Record> batch;
-            {
-                std::unique_lock<std::mutex> lock(q_mutex_);
-                q_cv_.wait(lock, [this] { return !queue_.empty() || !running_; });
+            auto rec = queue_.pop();
 
-                if (!running_ && queue_.empty())
+            if (!rec)
+            {
+                if (!running_.load(std::memory_order_acquire))
                 {
-                    break;
+                    break; // 이 뒤에 들어온 건 소멸자가 비운다
                 }
 
-                batch.swap(queue_); // 한 번에 스왑 → 락 보유시간 최소화
+                if (since_flush > 0 && file_.is_open())
+                {
+                    file_.flush(); // 한산해진 순간 한 번
+                    since_flush = 0;
+                }
+
+                if (++idle < kIdleSpins)
+                {
+                    std::this_thread::yield();
+                }
+                else
+                {
+                    sleep_until_work();
+                }
+
+                continue;
             }
 
-            // I/O는 락 밖에서(hot path의 enqueue를 막지 않음).
-            for (auto& rec : batch)
+            idle = 0;
+            consume(*rec);
+
+            if (++since_flush >= kFlushEvery && file_.is_open())
             {
-                write_unlocked(format(rec));
+                file_.flush(); // 폭주 중에도 tail -f가 볼 수 있게
+                since_flush = 0;
             }
+        }
+    }
 
+    // "잔다"를 먼저 알리고 큐를 다시 본 뒤 잔다(enqueue의 fence 짝). 신호가 새는 경우를 대비해 상한을 둔다.
+    void sleep_until_work()
+    {
+        std::unique_lock<std::mutex> lock(wake_mtx_);
+        writer_sleeping_.store(true, std::memory_order_relaxed);
+        std::atomic_thread_fence(std::memory_order_seq_cst);
+
+        if (queue_.empty() && running_.load(std::memory_order_acquire))
+        {
+            wake_cv_.wait_for(lock, kSleepCap);
+        }
+
+        writer_sleeping_.store(false, std::memory_order_relaxed);
+    }
+
+    // 레코드 하나 처리 — 표식이면 파일을 비우고 신호, 아니면 기록. 소비자 스레드(writer 또는 소멸자)만 부른다.
+    void consume(const Record& rec)
+    {
+        if (rec.flush_mark != nullptr)
+        {
             if (file_.is_open())
             {
                 file_.flush();
             }
 
-            drained_cv_.notify_all();
+            rec.flush_mark->store(true, std::memory_order_release);
+            return;
         }
+
+        write_unlocked(format(rec));
     }
 
     std::string format(const Record& rec) const
@@ -303,12 +395,6 @@ private:
         }
     }
 
-    // 종료 경로의 동기 폴백에서 사용(q_mutex_ 보유 상태로 호출됨).
-    void write_locked(const std::string& line)
-    {
-        write_unlocked(line);
-    }
-
     static const char* level_str(LogLevel l)
     {
         switch (l)
@@ -334,13 +420,16 @@ private:
     std::atomic<LogLevel> min_level_{LogLevel::INFO};
     std::atomic<bool> console_enabled_{true};
 
-    static constexpr size_t kMaxQueue = 100000; // 밀림 처리 상한(초과 시 최오래 드롭)
-    std::mutex q_mutex_;
-    std::condition_variable q_cv_;
-    std::condition_variable drained_cv_;
-    std::deque<Record> queue_;
-    bool running_ = false;
-    size_t dropped_ = 0;
+    static constexpr size_t kQueueCapacity = 1u << 16; // 슬롯 수(2의 거듭제곱). 가득 차면 새 레코드 드롭
+    static constexpr int kIdleSpins = 64;              // 빈 큐에서 yield 횟수, 넘으면 condvar 잠
+    static constexpr std::chrono::milliseconds kSleepCap{10}; // 신호가 샜을 때 최대 잠
+    static constexpr size_t kFlushEvery = 256;         // 연속 기록 중 파일 flush 간격(레코드 수)
+    MpscQueue<Record> queue_{kQueueCapacity};
+    std::atomic<bool> running_{false};
+    std::atomic<uint64_t> dropped_{0};
+    std::atomic<bool> writer_sleeping_{false}; // writer가 wake_cv_에서 자는 중(생산자가 notify 여부 결정)
+    std::mutex wake_mtx_;                      // writer만 잡는다. 생산자는 notify만 부른다
+    std::condition_variable wake_cv_;
     std::thread writer_;
 };
 
