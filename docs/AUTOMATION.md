@@ -16,7 +16,7 @@
 | `QuantAutoTradeGuard` | 평일 08:45부터 5분마다 7시간 | `powershell -File scripts/auto_trade_guard.ps1` | 워치독이 없으면 하루 루프 기동 (§4) |
 | `Quant EOD AutoDoc` | 평일 16:05 | `python scripts/eod_autodoc.py` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` · **결정 원장 파생 문서**(`sync_ledgers.py`) |
 | `claude_stock_study` | 평일 20:00 | `claude -p "/stock-study auto"` | `_private/주식_study/{날짜}_재무/` 7종목 · 저널 · 스터디 사이트 |
-| `claude_dashboard_sync` | 평일 20:40 | `claude -p "/dashboard-sync"` | 매매·스터디 아티팩트 재발행(같은 URL) |
+| `claude_dashboard_sync` | 평일 20:40 | `claude -p "/dashboard-sync"` | 대시보드·스터디 사이트 HTML 재생성. 아티팩트 재발행은 헤드리스 `claude -p`에 Artifact 도구가 없어 못 한다 — 대화 세션에서 `/dashboard-sync`를 불러 같은 URL로 올린다 |
 | `Quant Maintain Daily` | 평일 16:20 | `python scripts/maintain.py --daily` | `EOD AutoDoc`(16:05) 뒤. 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers`. 대시보드는 부르지 않는다 |
 | `Quant Maintain Weekly` | 금요일 20:50 | `python scripts/maintain.py --weekly` | `claude_dashboard_sync`(20:40) 뒤. 미참조 스크립트 · 에이전트 죽은 경로 · 부산물 용량 · 주석 밀도 · 훅 배선 양방향 검사 → `docs/reports/MAINTENANCE_WEEKLY.md` |
 | `Quant Minute Backfill` | 평일 16:40 | `python scripts/eod_minute_backfill.py` | 아침 스캔 `Quant/config/universe_scan.json`을 `PYQuant/data/pit_universe/<오늘>.json`으로 옮기고 그날 유니버스 전체의 1분봉을 `PYQuant/data/minute/`에 쌓는다(`PYQuant/tools/minute_backfill.py --top-n 0`, 약 260종목×4콜). 15:45 전엔 돌지 않는다(반쪽 파일이 그날치를 건너뛰게 만든다). 대시보드 차트가 같은 파일을 읽는다 |
@@ -231,7 +231,7 @@ scripts/eod_autodoc.py
 | 증상 | 먼저 볼 것 |
 |---|---|
 | 대시보드가 어제에 머물러 있다 | `Quant EOD AutoDoc`의 마지막 결과 → `logs/eod_autodoc.log` |
-| 아티팩트만 낡았다 | 세션 시작 `[CRON]` 알림을 먼저 본다(`cron-gate.ps1`). 원인 문자열은 `_private/_cron_dashboard.log` |
+| 아티팩트만 낡았다 | 예약작업은 HTML만 다시 만들고 아티팩트는 못 올린다(헤드리스에 Artifact 도구 없음, 09-12 rc=267009). 대화 세션에서 `/dashboard-sync`로 재발행한다. 다른 실패면 세션 시작 `[CRON]` 알림(`cron-gate.ps1`)과 `_private/_cron_dashboard.log` |
 | 스터디가 리포트만 있고 저널이 없다 | 중도 중단. `/stock-study`를 다시 부르면 새 종목을 고르지 않고 빠진 산출물만 채운다 |
 | 예약작업이 `LastTaskResult=1` | 세션 사용량 한도를 먼저 의심한다(`_private/_cron_dashboard.log`) |
 | 트레이더가 계속 죽는다 | `_private/_auto_trade_day.json`의 `history`에서 종료 코드·지속 시간 |
