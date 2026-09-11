@@ -14,27 +14,27 @@
     {
       "from": "api",
       "to": "core",
-      "weight": 3
+      "weight": 6
     },
     {
       "from": "api",
       "to": "utils",
-      "weight": 3
+      "weight": 5
     },
     {
       "from": "core",
       "to": "api",
-      "weight": 4
+      "weight": 6
     },
     {
       "from": "core",
       "to": "ipc",
-      "weight": 2
+      "weight": 3
     },
     {
       "from": "core",
       "to": "risk",
-      "weight": 1
+      "weight": 4
     },
     {
       "from": "core",
@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 2
+      "weight": 6
     },
     {
       "from": "ipc",
@@ -54,7 +54,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 2
+      "weight": 3
     },
     {
       "from": "ipc",
@@ -64,7 +64,7 @@
     {
       "from": "ipc",
       "to": "utils",
-      "weight": 2
+      "weight": 3
     },
     {
       "from": "main",
@@ -129,7 +129,7 @@
     {
       "from": "strategy",
       "to": "utils",
-      "weight": 8
+      "weight": 9
     },
     {
       "from": "universe",
@@ -145,24 +145,44 @@
       "from": "universe",
       "to": "utils",
       "weight": 2
+    },
+    {
+      "from": "utils",
+      "to": "core",
+      "weight": 1
     }
   ],
   "file_module": {
+    "api/IMarketDataSource.h": "api",
     "api/IOrderExecutor.h": "api",
     "api/KisClient.h": "api",
     "api/KisErrorCodes.h": "api",
+    "api/KisRestDecode.h": "api",
+    "api/KisResult.h": "api",
+    "api/KisTypes.h": "api",
     "api/KisWebSocket.h": "api",
+    "api/KisWsDecode.h": "api",
+    "core/DataPoller.h": "core",
     "core/Engine.h": "core",
+    "core/KstTime.h": "core",
+    "core/LedgerReconciler.h": "core",
     "core/MarketSession.h": "core",
     "core/MpscQueue.h": "core",
     "core/MutexQueue.h": "core",
+    "core/OrderPacer.h": "core",
+    "core/ReconcilePlan.h": "core",
     "core/RegimeController.h": "core",
+    "core/RegimeFileBridge.h": "core",
     "core/RingBuffer.h": "core",
+    "core/SignalDispatcher.h": "core",
     "core/TickSize.h": "core",
     "core/Types.h": "core",
+    "ipc/OpsProtocol.h": "ipc",
+    "ipc/OpsServer.h": "ipc",
     "ipc/OrderRouter.h": "ipc",
     "ipc/ZmqBridge.h": "ipc",
     "modes/Monitors.h": "modes",
+    "risk/GateReasons.h": "risk",
     "risk/OrderGate.h": "risk",
     "strategy/DeviationScaleStrategy.h": "strategy",
     "strategy/FixedIntervalStrategy.h": "strategy",
@@ -171,6 +191,7 @@
     "strategy/MarketMakingStrategy.h": "strategy",
     "strategy/MomentumStrategy.h": "strategy",
     "strategy/PriceTargetStrategy.h": "strategy",
+    "strategy/SeedPeakStore.h": "strategy",
     "strategy/StrategyBase.h": "strategy",
     "strategy/StrategyFactory.h": "strategy",
     "strategy/SupplyDemandPullbackStrategy.h": "strategy",
@@ -183,11 +204,26 @@
     "utils/Logger.h": "utils",
     "utils/Utf8.h": "utils",
     "main.cpp": "main",
-    "api/KisClient.cpp": "api",
+    "api/KisAccount.cpp": "api",
+    "api/KisAuth.cpp": "api",
+    "api/KisClientInternal.h": "api",
+    "api/KisIndex.cpp": "api",
+    "api/KisMarket.cpp": "api",
+    "api/KisOrder.cpp": "api",
+    "api/KisTransport.cpp": "api",
+    "api/KisUniverse.cpp": "api",
     "api/WebSocketClient.cpp": "api",
+    "api/WsSocket.h": "api",
+    "api/WsSocketPosix.cpp": "api",
+    "api/WsSocketWin.cpp": "api",
+    "core/DataPoller.cpp": "core",
     "core/Engine.cpp": "core",
+    "core/LedgerReconciler.cpp": "core",
+    "core/OrderPacer.cpp": "core",
     "core/RegimeController.cpp": "core",
     "core/RingBuffer.cpp": "core",
+    "core/SignalDispatcher.cpp": "core",
+    "ipc/OpsServer.cpp": "ipc",
     "ipc/OrderRouter.cpp": "ipc",
     "ipc/ZmqBridge.cpp": "ipc",
     "modes/Monitors.cpp": "modes",
@@ -202,52 +238,133 @@
     "utils/Timer.cpp": "utils"
   },
   "file_includes": {
+    "api/IMarketDataSource.h": [
+      "core/Types.h"
+    ],
     "api/IOrderExecutor.h": [
       "core/Types.h"
     ],
-    "api/KisClient.cpp": [
+    "api/KisAccount.cpp": [
+      "api/KisRestDecode.h"
+    ],
+    "api/KisClient.h": [
+      "api/IMarketDataSource.h",
+      "api/IOrderExecutor.h",
+      "api/KisResult.h",
+      "api/KisTypes.h",
+      "core/Types.h"
+    ],
+    "api/KisClientInternal.h": [
       "api/KisClient.h",
+      "api/KisErrorCodes.h",
       "utils/EtfFilter.h",
       "utils/Logger.h"
     ],
-    "api/KisClient.h": [
-      "api/IOrderExecutor.h",
+    "api/KisIndex.cpp": [
+      "api/KisRestDecode.h"
+    ],
+    "api/KisMarket.cpp": [
+      "api/KisRestDecode.h"
+    ],
+    "api/KisRestDecode.h": [
+      "api/KisTypes.h",
       "core/Types.h"
     ],
     "api/KisWebSocket.h": [
       "api/KisClient.h",
+      "api/KisWsDecode.h",
+      "core/Types.h"
+    ],
+    "api/KisWsDecode.h": [
       "core/Types.h"
     ],
     "api/WebSocketClient.cpp": [
       "api/KisWebSocket.h",
+      "api/KisWsDecode.h",
       "utils/Logger.h"
     ],
+    "api/WsSocketPosix.cpp": [
+      "utils/Logger.h"
+    ],
+    "api/WsSocketWin.cpp": [
+      "utils/Logger.h"
+    ],
+    "core/DataPoller.cpp": [
+      "core/DataPoller.h",
+      "core/KstTime.h",
+      "utils/Logger.h"
+    ],
+    "core/DataPoller.h": [
+      "core/Types.h"
+    ],
     "core/Engine.cpp": [
-      "api/KisErrorCodes.h",
       "core/Engine.h",
+      "core/ReconcilePlan.h",
       "utils/Logger.h"
     ],
     "core/Engine.h": [
       "api/KisClient.h",
       "api/KisWebSocket.h",
+      "core/DataPoller.h",
+      "core/LedgerReconciler.h",
+      "core/MpscQueue.h",
+      "core/OrderPacer.h",
       "core/RegimeController.h",
+      "core/RegimeFileBridge.h",
       "core/RingBuffer.h",
+      "core/SignalDispatcher.h",
       "core/Types.h",
+      "ipc/OpsServer.h",
       "ipc/OrderRouter.h",
       "ipc/ZmqBridge.h",
       "risk/OrderGate.h",
       "strategy/StrategyBase.h"
     ],
+    "core/LedgerReconciler.cpp": [
+      "core/LedgerReconciler.h",
+      "utils/Logger.h"
+    ],
+    "core/LedgerReconciler.h": [
+      "api/KisResult.h",
+      "api/KisTypes.h",
+      "core/KstTime.h",
+      "core/ReconcilePlan.h",
+      "risk/OrderGate.h"
+    ],
+    "core/OrderPacer.cpp": [
+      "api/KisErrorCodes.h",
+      "core/OrderPacer.h",
+      "risk/GateReasons.h",
+      "utils/Logger.h"
+    ],
+    "core/OrderPacer.h": [
+      "core/Types.h"
+    ],
     "core/RegimeController.cpp": [
-      "api/KisClient.h",
+      "api/IMarketDataSource.h",
       "core/RegimeController.h",
       "utils/Logger.h"
     ],
     "core/RegimeController.h": [
       "core/Types.h"
     ],
+    "core/SignalDispatcher.cpp": [
+      "core/SignalDispatcher.h",
+      "utils/Logger.h"
+    ],
+    "core/SignalDispatcher.h": [
+      "core/Types.h",
+      "risk/OrderGate.h"
+    ],
     "core/TickSize.h": [
       "core/Types.h"
+    ],
+    "ipc/OpsServer.cpp": [
+      "ipc/OpsServer.h",
+      "utils/Logger.h"
+    ],
+    "ipc/OpsServer.h": [
+      "ipc/OpsProtocol.h"
     ],
     "ipc/OrderRouter.cpp": [
       "api/KisErrorCodes.h",
@@ -256,6 +373,7 @@
     ],
     "ipc/OrderRouter.h": [
       "api/IOrderExecutor.h",
+      "core/ReconcilePlan.h",
       "core/Types.h",
       "ipc/ZmqBridge.h",
       "risk/OrderGate.h"
@@ -286,6 +404,7 @@
       "api/KisClient.h"
     ],
     "risk/OrderGate.cpp": [
+      "risk/GateReasons.h",
       "risk/OrderGate.h"
     ],
     "risk/OrderGate.h": [
@@ -304,6 +423,7 @@
       "utils/Logger.h"
     ],
     "strategy/IntradayBreakoutStrategy.h": [
+      "strategy/SeedPeakStore.h",
       "strategy/StrategyBase.h",
       "utils/Logger.h"
     ],
@@ -320,6 +440,9 @@
     "strategy/PriceTargetStrategy.h": [
       "core/MarketSession.h",
       "strategy/StrategyBase.h",
+      "utils/Logger.h"
+    ],
+    "strategy/SeedPeakStore.h": [
       "utils/Logger.h"
     ],
     "strategy/StrategyBase.h": [
@@ -373,18 +496,24 @@
     ],
     "universe/UniverseScanner.h": [
       "api/KisClient.h"
+    ],
+    "utils/Logger.h": [
+      "core/MpscQueue.h"
     ]
   },
   "included_by": {
+    "api/IMarketDataSource.h": [
+      "api/KisClient.h",
+      "core/RegimeController.cpp"
+    ],
     "api/IOrderExecutor.h": [
       "api/KisClient.h",
       "ipc/OrderRouter.h"
     ],
     "api/KisClient.h": [
-      "api/KisClient.cpp",
+      "api/KisClientInternal.h",
       "api/KisWebSocket.h",
       "core/Engine.h",
-      "core/RegimeController.cpp",
       "modes/Monitors.cpp",
       "modes/Monitors.h",
       "strategy/DeviationScaleStrategy.h",
@@ -395,18 +524,49 @@
       "universe/UniverseScanner.h"
     ],
     "api/KisErrorCodes.h": [
-      "core/Engine.cpp",
+      "api/KisClientInternal.h",
+      "core/OrderPacer.cpp",
       "ipc/OrderRouter.cpp"
+    ],
+    "api/KisRestDecode.h": [
+      "api/KisAccount.cpp",
+      "api/KisIndex.cpp",
+      "api/KisMarket.cpp"
+    ],
+    "api/KisResult.h": [
+      "api/KisClient.h",
+      "core/LedgerReconciler.h"
+    ],
+    "api/KisTypes.h": [
+      "api/KisClient.h",
+      "api/KisRestDecode.h",
+      "core/LedgerReconciler.h"
     ],
     "api/KisWebSocket.h": [
       "api/WebSocketClient.cpp",
       "core/Engine.h",
       "modes/Monitors.cpp"
     ],
+    "api/KisWsDecode.h": [
+      "api/KisWebSocket.h",
+      "api/WebSocketClient.cpp"
+    ],
+    "core/DataPoller.h": [
+      "core/DataPoller.cpp",
+      "core/Engine.h"
+    ],
     "core/Engine.h": [
       "core/Engine.cpp",
       "main.cpp",
       "strategy/StrategyFactory.cpp"
+    ],
+    "core/KstTime.h": [
+      "core/DataPoller.cpp",
+      "core/LedgerReconciler.h"
+    ],
+    "core/LedgerReconciler.h": [
+      "core/Engine.h",
+      "core/LedgerReconciler.cpp"
     ],
     "core/MarketSession.h": [
       "strategy/FixedIntervalStrategy.h",
@@ -414,23 +574,49 @@
       "strategy/ThemeStrategy.h",
       "strategy/ValueContraryStrategy.h"
     ],
+    "core/MpscQueue.h": [
+      "core/Engine.h",
+      "utils/Logger.h"
+    ],
+    "core/OrderPacer.h": [
+      "core/Engine.h",
+      "core/OrderPacer.cpp"
+    ],
+    "core/ReconcilePlan.h": [
+      "core/Engine.cpp",
+      "core/LedgerReconciler.h",
+      "ipc/OrderRouter.h"
+    ],
     "core/RegimeController.h": [
       "core/Engine.h",
       "core/RegimeController.cpp"
     ],
+    "core/RegimeFileBridge.h": [
+      "core/Engine.h"
+    ],
     "core/RingBuffer.h": [
       "core/Engine.h"
+    ],
+    "core/SignalDispatcher.h": [
+      "core/Engine.h",
+      "core/SignalDispatcher.cpp"
     ],
     "core/TickSize.h": [
       "strategy/DeviationScaleStrategy.h",
       "strategy/MarketMakingStrategy.h"
     ],
     "core/Types.h": [
+      "api/IMarketDataSource.h",
       "api/IOrderExecutor.h",
       "api/KisClient.h",
+      "api/KisRestDecode.h",
       "api/KisWebSocket.h",
+      "api/KisWsDecode.h",
+      "core/DataPoller.h",
       "core/Engine.h",
+      "core/OrderPacer.h",
       "core/RegimeController.h",
+      "core/SignalDispatcher.h",
       "core/TickSize.h",
       "ipc/OrderRouter.h",
       "ipc/ZmqBridge.h",
@@ -440,6 +626,13 @@
       "strategy/StrategyFactory.cpp",
       "strategy/SupplyDemandPullbackStrategy.h",
       "universe/UniverseScanner.cpp"
+    ],
+    "ipc/OpsProtocol.h": [
+      "ipc/OpsServer.h"
+    ],
+    "ipc/OpsServer.h": [
+      "core/Engine.h",
+      "ipc/OpsServer.cpp"
     ],
     "ipc/OrderRouter.h": [
       "core/Engine.h",
@@ -455,8 +648,14 @@
       "main.cpp",
       "modes/Monitors.cpp"
     ],
+    "risk/GateReasons.h": [
+      "core/OrderPacer.cpp",
+      "risk/OrderGate.cpp"
+    ],
     "risk/OrderGate.h": [
       "core/Engine.h",
+      "core/LedgerReconciler.h",
+      "core/SignalDispatcher.h",
       "ipc/OrderRouter.h",
       "risk/OrderGate.cpp"
     ],
@@ -480,6 +679,9 @@
     ],
     "strategy/PriceTargetStrategy.h": [
       "strategy/StrategyFactory.cpp"
+    ],
+    "strategy/SeedPeakStore.h": [
+      "strategy/IntradayBreakoutStrategy.h"
     ],
     "strategy/StrategyBase.h": [
       "core/Engine.h",
@@ -519,14 +721,21 @@
       "universe/UniverseScanner.cpp"
     ],
     "utils/EtfFilter.h": [
-      "api/KisClient.cpp",
+      "api/KisClientInternal.h",
       "universe/UniverseScanner.cpp"
     ],
     "utils/Logger.h": [
-      "api/KisClient.cpp",
+      "api/KisClientInternal.h",
       "api/WebSocketClient.cpp",
+      "api/WsSocketPosix.cpp",
+      "api/WsSocketWin.cpp",
+      "core/DataPoller.cpp",
       "core/Engine.cpp",
+      "core/LedgerReconciler.cpp",
+      "core/OrderPacer.cpp",
       "core/RegimeController.cpp",
+      "core/SignalDispatcher.cpp",
+      "ipc/OpsServer.cpp",
       "ipc/OrderRouter.cpp",
       "ipc/ZmqBridge.cpp",
       "main.cpp",
@@ -535,6 +744,7 @@
       "strategy/FixedIntervalStrategy.h",
       "strategy/IntradayBreakoutStrategy.h",
       "strategy/PriceTargetStrategy.h",
+      "strategy/SeedPeakStore.h",
       "strategy/StrategyFactory.cpp",
       "strategy/SupplyDemandPullbackStrategy.h",
       "strategy/ThemeStrategy.h",
@@ -548,19 +758,23 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 17
+      "in_degree": 25
     },
     {
       "header": "core/Types.h",
-      "in_degree": 14
+      "in_degree": 20
     },
     {
       "header": "api/KisClient.h",
-      "in_degree": 12
+      "in_degree": 11
     },
     {
       "header": "strategy/StrategyBase.h",
       "in_degree": 11
+    },
+    {
+      "header": "risk/OrderGate.h",
+      "in_degree": 5
     },
     {
       "header": "core/MarketSession.h",
@@ -571,6 +785,18 @@
       "in_degree": 4
     },
     {
+      "header": "api/KisErrorCodes.h",
+      "in_degree": 3
+    },
+    {
+      "header": "api/KisRestDecode.h",
+      "in_degree": 3
+    },
+    {
+      "header": "api/KisTypes.h",
+      "in_degree": 3
+    },
+    {
       "header": "api/KisWebSocket.h",
       "in_degree": 3
     },
@@ -579,57 +805,42 @@
       "in_degree": 3
     },
     {
-      "header": "risk/OrderGate.h",
+      "header": "core/ReconcilePlan.h",
       "in_degree": 3
+    },
+    {
+      "header": "api/IMarketDataSource.h",
+      "in_degree": 2
     },
     {
       "header": "api/IOrderExecutor.h",
       "in_degree": 2
     },
     {
-      "header": "api/KisErrorCodes.h",
+      "header": "api/KisResult.h",
       "in_degree": 2
     },
     {
-      "header": "core/RegimeController.h",
+      "header": "api/KisWsDecode.h",
       "in_degree": 2
     },
     {
-      "header": "core/TickSize.h",
+      "header": "core/DataPoller.h",
       "in_degree": 2
     },
     {
-      "header": "ipc/OrderRouter.h",
+      "header": "core/KstTime.h",
       "in_degree": 2
     },
     {
-      "header": "modes/Monitors.h",
+      "header": "core/LedgerReconciler.h",
       "in_degree": 2
-    },
-    {
-      "header": "strategy/StrategyFactory.h",
-      "in_degree": 2
-    },
-    {
-      "header": "universe/MaAlign.h",
-      "in_degree": 2
-    },
-    {
-      "header": "universe/UniverseScanner.h",
-      "in_degree": 2
-    },
-    {
-      "header": "utils/EtfFilter.h",
-      "in_degree": 2
-    },
-    {
-      "header": "core/RingBuffer.h",
-      "in_degree": 1
     }
   ],
   "python": {
     "files": [
       "PYQuant/backtest/__init__.py",
+      "PYQuant/backtest/devscale_replay.py",
       "PYQuant/backtest/engine.py",
       "PYQuant/backtest/metrics.py",
       "PYQuant/backtest/regime_scorer.py",
@@ -657,6 +868,8 @@
       "PYQuant/live/forward_trader.py",
       "PYQuant/live/trader.py",
       "PYQuant/main.py",
+      "PYQuant/naver/__init__.py",
+      "PYQuant/naver/theme.py",
       "PYQuant/report/__init__.py",
       "PYQuant/report/account.py",
       "PYQuant/strategy/__init__.py",
@@ -678,8 +891,11 @@
       "PYQuant/tools/__init__.py",
       "PYQuant/tools/ablation_2022.py",
       "PYQuant/tools/check_investor_api.py",
+      "PYQuant/tools/check_market_flow.py",
       "PYQuant/tools/check_pykrx.py",
       "PYQuant/tools/check_pykrx_flow.py",
+      "PYQuant/tools/check_sector_index.py",
+      "PYQuant/tools/fetch_naver_themes.py",
       "PYQuant/tools/full_universe_dump.py",
       "PYQuant/tools/fullperiod_validate.py",
       "PYQuant/tools/index_intraday_logger.py",
@@ -711,6 +927,7 @@
       "scripts/dashboard_server.py",
       "scripts/eod_autodoc.py",
       "scripts/eod_collect.py",
+      "scripts/eod_minute_backfill.py",
       "scripts/extract_swap_counterfactual.py",
       "scripts/gen_code_graph.py",
       "scripts/gen_facts.py",
@@ -725,6 +942,9 @@
       "scripts/sync_ledgers.py"
     ],
     "edges": {
+      "PYQuant/backtest/devscale_replay.py": [
+        "backtest.engine"
+      ],
       "PYQuant/backtest/engine.py": [
         "data.index_source",
         "kis.client",
@@ -854,6 +1074,15 @@
       "PYQuant/tools/check_investor_api.py": [
         "kis.client"
       ],
+      "PYQuant/tools/check_market_flow.py": [
+        "kis.client"
+      ],
+      "PYQuant/tools/check_sector_index.py": [
+        "kis.client"
+      ],
+      "PYQuant/tools/fetch_naver_themes.py": [
+        "naver.theme"
+      ],
       "PYQuant/tools/full_universe_dump.py": [
         "data.datagokr_source"
       ],
@@ -916,7 +1145,8 @@
       ],
       "scripts/dashboard_server.py": [
         "_logdir",
-        "kis.client"
+        "kis.client",
+        "naver.theme"
       ],
       "scripts/eod_autodoc.py": [
         "_logdir",
@@ -952,6 +1182,7 @@
         "scripts/summarize_trading_day.py"
       ],
       "backtest.engine": [
+        "PYQuant/backtest/devscale_replay.py",
         "PYQuant/backtest/report.py",
         "PYQuant/live/forward_trader.py",
         "PYQuant/main.py",
@@ -1035,6 +1266,8 @@
         "PYQuant/tests/test_indicators.py",
         "PYQuant/tests/test_strategy_a.py",
         "PYQuant/tools/check_investor_api.py",
+        "PYQuant/tools/check_market_flow.py",
+        "PYQuant/tools/check_sector_index.py",
         "PYQuant/tools/index_intraday_logger.py",
         "PYQuant/tools/investor_flow_logger.py",
         "PYQuant/tools/minute_backfill.py",
@@ -1064,6 +1297,10 @@
         "PYQuant/tools/month_start_sweep.py",
         "PYQuant/tools/sweep.py",
         "PYQuant/tools/walkforward.py"
+      ],
+      "naver.theme": [
+        "PYQuant/tools/fetch_naver_themes.py",
+        "scripts/dashboard_server.py"
       ],
       "report.account": [
         "PYQuant/main.py"
@@ -1257,7 +1494,12 @@
       {
         "from": "PYQuant/tools",
         "to": "PYQuant/kis",
-        "weight": 7
+        "weight": 9
+      },
+      {
+        "from": "PYQuant/tools",
+        "to": "PYQuant/naver",
+        "weight": 1
       },
       {
         "from": "scripts",
@@ -1268,6 +1510,11 @@
         "from": "scripts",
         "to": "PYQuant/kis",
         "weight": 2
+      },
+      {
+        "from": "scripts",
+        "to": "PYQuant/naver",
+        "weight": 1
       }
     ]
   },
@@ -1327,6 +1574,7 @@
         "PYQuant/tools/nxt_divergence_probe.py",
         "PYQuant/tools/universe_feed.py",
         "Quant/src/universe/UniverseScanner.cpp",
+        "scripts/eod_minute_backfill.py",
         "scripts/live_prices_feed.py",
         "scripts/notify_sidecar.py"
       ],
@@ -1336,10 +1584,11 @@
         "PYQuant/tools/nxt_divergence_probe.py",
         "PYQuant/tools/universe_feed.py",
         "Quant/include/universe/UniverseScanner.h",
-        "Quant/src/api/KisClient.cpp",
+        "Quant/src/api/KisUniverse.cpp",
         "Quant/src/strategy/StrategyFactory.cpp",
         "Quant/src/universe/UniverseScanner.cpp",
         "scripts/dashboard_server.py",
+        "scripts/eod_minute_backfill.py",
         "scripts/live_prices_feed.py",
         "scripts/notify_sidecar.py"
       ]
@@ -1399,7 +1648,7 @@
       ],
       "mentions": [
         "PYQuant/kis/client.py",
-        "Quant/src/api/KisClient.cpp",
+        "Quant/src/api/KisAuth.cpp",
         "scripts/gen_facts.py"
       ]
     }

@@ -18,17 +18,17 @@ graph LR
   risk[risk]
   ipc[ipc]
   utils[utils]
-  api -->|3| core
-  api -->|3| utils
-  core -->|4| api
-  core -->|2| ipc
-  core --> risk
+  api -->|6| core
+  api -->|5| utils
+  core -->|6| api
+  core -->|3| ipc
+  core -->|4| risk
   core --> strategy
-  core -->|2| utils
+  core -->|6| utils
   ipc -->|2| api
-  ipc -->|2| core
+  ipc -->|3| core
   ipc --> risk
-  ipc -->|2| utils
+  ipc -->|3| utils
   main --> core
   main --> modes
   main --> strategy
@@ -41,10 +41,11 @@ graph LR
   strategy -->|5| api
   strategy -->|10| core
   strategy -->|3| universe
-  strategy -->|8| utils
+  strategy -->|9| utils
   universe --> api
   universe --> core
   universe -->|2| utils
+  utils --> core
 ```
 
 ## 공용 허브 헤더 (재빌드 팬아웃)
@@ -54,14 +55,14 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `utils/Logger.h` | 17 |
-| `core/Types.h` | 14 |
-| `api/KisClient.h` | 12 |
+| `utils/Logger.h` | 25 |
+| `core/Types.h` | 20 |
+| `api/KisClient.h` | 11 |
 | `strategy/StrategyBase.h` | 11 |
+| `risk/OrderGate.h` | 5 |
 | `core/MarketSession.h` | 4 |
 | `ipc/ZmqBridge.h` | 4 |
-| `api/KisWebSocket.h` | 3 |
-| `core/Engine.h` | 3 |
+| `api/KisErrorCodes.h` | 3 |
 
 ## 파일 단위 상세
 
@@ -70,20 +71,38 @@ graph LR
 ```mermaid
 graph LR
   subgraph api
+    n_api_IMarketDataSource_h["api/IMarketDataSource.h"]
     n_api_IOrderExecutor_h["api/IOrderExecutor.h"]
-    n_api_KisClient_cpp["api/KisClient.cpp"]
+    n_api_KisAccount_cpp["api/KisAccount.cpp"]
     n_api_KisClient_h["api/KisClient.h"]
+    n_api_KisClientInternal_h["api/KisClientInternal.h"]
+    n_api_KisIndex_cpp["api/KisIndex.cpp"]
+    n_api_KisMarket_cpp["api/KisMarket.cpp"]
+    n_api_KisRestDecode_h["api/KisRestDecode.h"]
     n_api_KisWebSocket_h["api/KisWebSocket.h"]
+    n_api_KisWsDecode_h["api/KisWsDecode.h"]
     n_api_WebSocketClient_cpp["api/WebSocketClient.cpp"]
+    n_api_WsSocketPosix_cpp["api/WsSocketPosix.cpp"]
+    n_api_WsSocketWin_cpp["api/WsSocketWin.cpp"]
   end
   subgraph core
+    n_core_DataPoller_cpp["core/DataPoller.cpp"]
+    n_core_DataPoller_h["core/DataPoller.h"]
     n_core_Engine_cpp["core/Engine.cpp"]
     n_core_Engine_h["core/Engine.h"]
+    n_core_LedgerReconciler_cpp["core/LedgerReconciler.cpp"]
+    n_core_LedgerReconciler_h["core/LedgerReconciler.h"]
+    n_core_OrderPacer_cpp["core/OrderPacer.cpp"]
+    n_core_OrderPacer_h["core/OrderPacer.h"]
     n_core_RegimeController_cpp["core/RegimeController.cpp"]
     n_core_RegimeController_h["core/RegimeController.h"]
+    n_core_SignalDispatcher_cpp["core/SignalDispatcher.cpp"]
+    n_core_SignalDispatcher_h["core/SignalDispatcher.h"]
     n_core_TickSize_h["core/TickSize.h"]
   end
   subgraph ipc
+    n_ipc_OpsServer_cpp["ipc/OpsServer.cpp"]
+    n_ipc_OpsServer_h["ipc/OpsServer.h"]
     n_ipc_OrderRouter_cpp["ipc/OrderRouter.cpp"]
     n_ipc_OrderRouter_h["ipc/OrderRouter.h"]
     n_ipc_ZmqBridge_cpp["ipc/ZmqBridge.cpp"]
@@ -108,6 +127,7 @@ graph LR
     n_strategy_MarketMakingStrategy_h["strategy/MarketMakingStrategy.h"]
     n_strategy_MomentumStrategy_h["strategy/MomentumStrategy.h"]
     n_strategy_PriceTargetStrategy_h["strategy/PriceTargetStrategy.h"]
+    n_strategy_SeedPeakStore_h["strategy/SeedPeakStore.h"]
     n_strategy_StrategyBase_h["strategy/StrategyBase.h"]
     n_strategy_StrategyFactory_cpp["strategy/StrategyFactory.cpp"]
     n_strategy_StrategyFactory_h["strategy/StrategyFactory.h"]
@@ -119,37 +139,86 @@ graph LR
     n_universe_UniverseScanner_cpp["universe/UniverseScanner.cpp"]
     n_universe_UniverseScanner_h["universe/UniverseScanner.h"]
   end
+  subgraph utils
+    n_utils_Logger_h["utils/Logger.h"]
+  end
+  n_api_IMarketDataSource_h --> n_core_Types_h
   n_api_IOrderExecutor_h --> n_core_Types_h
-  n_api_KisClient_cpp --> n_api_KisClient_h
-  n_api_KisClient_cpp --> n_utils_EtfFilter_h
-  n_api_KisClient_cpp --> n_utils_Logger_h
+  n_api_KisAccount_cpp --> n_api_KisRestDecode_h
+  n_api_KisClient_h --> n_api_IMarketDataSource_h
   n_api_KisClient_h --> n_api_IOrderExecutor_h
+  n_api_KisClient_h --> n_api_KisResult_h
+  n_api_KisClient_h --> n_api_KisTypes_h
   n_api_KisClient_h --> n_core_Types_h
+  n_api_KisClientInternal_h --> n_api_KisClient_h
+  n_api_KisClientInternal_h --> n_api_KisErrorCodes_h
+  n_api_KisClientInternal_h --> n_utils_EtfFilter_h
+  n_api_KisClientInternal_h --> n_utils_Logger_h
+  n_api_KisIndex_cpp --> n_api_KisRestDecode_h
+  n_api_KisMarket_cpp --> n_api_KisRestDecode_h
+  n_api_KisRestDecode_h --> n_api_KisTypes_h
+  n_api_KisRestDecode_h --> n_core_Types_h
   n_api_KisWebSocket_h --> n_api_KisClient_h
+  n_api_KisWebSocket_h --> n_api_KisWsDecode_h
   n_api_KisWebSocket_h --> n_core_Types_h
+  n_api_KisWsDecode_h --> n_core_Types_h
   n_api_WebSocketClient_cpp --> n_api_KisWebSocket_h
+  n_api_WebSocketClient_cpp --> n_api_KisWsDecode_h
   n_api_WebSocketClient_cpp --> n_utils_Logger_h
-  n_core_Engine_cpp --> n_api_KisErrorCodes_h
+  n_api_WsSocketPosix_cpp --> n_utils_Logger_h
+  n_api_WsSocketWin_cpp --> n_utils_Logger_h
+  n_core_DataPoller_cpp --> n_core_DataPoller_h
+  n_core_DataPoller_cpp --> n_core_KstTime_h
+  n_core_DataPoller_cpp --> n_utils_Logger_h
+  n_core_DataPoller_h --> n_core_Types_h
   n_core_Engine_cpp --> n_core_Engine_h
+  n_core_Engine_cpp --> n_core_ReconcilePlan_h
   n_core_Engine_cpp --> n_utils_Logger_h
   n_core_Engine_h --> n_api_KisClient_h
   n_core_Engine_h --> n_api_KisWebSocket_h
+  n_core_Engine_h --> n_core_DataPoller_h
+  n_core_Engine_h --> n_core_LedgerReconciler_h
+  n_core_Engine_h --> n_core_MpscQueue_h
+  n_core_Engine_h --> n_core_OrderPacer_h
   n_core_Engine_h --> n_core_RegimeController_h
+  n_core_Engine_h --> n_core_RegimeFileBridge_h
   n_core_Engine_h --> n_core_RingBuffer_h
+  n_core_Engine_h --> n_core_SignalDispatcher_h
   n_core_Engine_h --> n_core_Types_h
+  n_core_Engine_h --> n_ipc_OpsServer_h
   n_core_Engine_h --> n_ipc_OrderRouter_h
   n_core_Engine_h --> n_ipc_ZmqBridge_h
   n_core_Engine_h --> n_risk_OrderGate_h
   n_core_Engine_h --> n_strategy_StrategyBase_h
-  n_core_RegimeController_cpp --> n_api_KisClient_h
+  n_core_LedgerReconciler_cpp --> n_core_LedgerReconciler_h
+  n_core_LedgerReconciler_cpp --> n_utils_Logger_h
+  n_core_LedgerReconciler_h --> n_api_KisResult_h
+  n_core_LedgerReconciler_h --> n_api_KisTypes_h
+  n_core_LedgerReconciler_h --> n_core_KstTime_h
+  n_core_LedgerReconciler_h --> n_core_ReconcilePlan_h
+  n_core_LedgerReconciler_h --> n_risk_OrderGate_h
+  n_core_OrderPacer_cpp --> n_api_KisErrorCodes_h
+  n_core_OrderPacer_cpp --> n_core_OrderPacer_h
+  n_core_OrderPacer_cpp --> n_risk_GateReasons_h
+  n_core_OrderPacer_cpp --> n_utils_Logger_h
+  n_core_OrderPacer_h --> n_core_Types_h
+  n_core_RegimeController_cpp --> n_api_IMarketDataSource_h
   n_core_RegimeController_cpp --> n_core_RegimeController_h
   n_core_RegimeController_cpp --> n_utils_Logger_h
   n_core_RegimeController_h --> n_core_Types_h
+  n_core_SignalDispatcher_cpp --> n_core_SignalDispatcher_h
+  n_core_SignalDispatcher_cpp --> n_utils_Logger_h
+  n_core_SignalDispatcher_h --> n_core_Types_h
+  n_core_SignalDispatcher_h --> n_risk_OrderGate_h
   n_core_TickSize_h --> n_core_Types_h
+  n_ipc_OpsServer_cpp --> n_ipc_OpsServer_h
+  n_ipc_OpsServer_cpp --> n_utils_Logger_h
+  n_ipc_OpsServer_h --> n_ipc_OpsProtocol_h
   n_ipc_OrderRouter_cpp --> n_api_KisErrorCodes_h
   n_ipc_OrderRouter_cpp --> n_ipc_OrderRouter_h
   n_ipc_OrderRouter_cpp --> n_utils_Logger_h
   n_ipc_OrderRouter_h --> n_api_IOrderExecutor_h
+  n_ipc_OrderRouter_h --> n_core_ReconcilePlan_h
   n_ipc_OrderRouter_h --> n_core_Types_h
   n_ipc_OrderRouter_h --> n_ipc_ZmqBridge_h
   n_ipc_OrderRouter_h --> n_risk_OrderGate_h
@@ -168,6 +237,7 @@ graph LR
   n_modes_Monitors_cpp --> n_utils_Logger_h
   n_modes_Monitors_cpp --> n_utils_Utf8_h
   n_modes_Monitors_h --> n_api_KisClient_h
+  n_risk_OrderGate_cpp --> n_risk_GateReasons_h
   n_risk_OrderGate_cpp --> n_risk_OrderGate_h
   n_risk_OrderGate_h --> n_core_Types_h
   n_strategy_DeviationScaleStrategy_h --> n_api_KisClient_h
@@ -178,6 +248,7 @@ graph LR
   n_strategy_FixedIntervalStrategy_h --> n_core_MarketSession_h
   n_strategy_FixedIntervalStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_FixedIntervalStrategy_h --> n_utils_Logger_h
+  n_strategy_IntradayBreakoutStrategy_h --> n_strategy_SeedPeakStore_h
   n_strategy_IntradayBreakoutStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_IntradayBreakoutStrategy_h --> n_utils_Logger_h
   n_strategy_MACrossStrategy_h --> n_strategy_StrategyBase_h
@@ -187,6 +258,7 @@ graph LR
   n_strategy_PriceTargetStrategy_h --> n_core_MarketSession_h
   n_strategy_PriceTargetStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_PriceTargetStrategy_h --> n_utils_Logger_h
+  n_strategy_SeedPeakStore_h --> n_utils_Logger_h
   n_strategy_StrategyBase_h --> n_core_Types_h
   n_strategy_StrategyFactory_cpp --> n_core_Engine_h
   n_strategy_StrategyFactory_cpp --> n_core_Types_h
@@ -223,6 +295,7 @@ graph LR
   n_universe_UniverseScanner_cpp --> n_utils_EtfFilter_h
   n_universe_UniverseScanner_cpp --> n_utils_Logger_h
   n_universe_UniverseScanner_h --> n_api_KisClient_h
+  n_utils_Logger_h --> n_core_MpscQueue_h
 ```
 
 ## Python import 그래프
@@ -240,6 +313,7 @@ graph LR
   p_PYQuant_ipc["PYQuant/ipc"]
   p_PYQuant_kis["PYQuant/kis"]
   p_PYQuant_live["PYQuant/live"]
+  p_PYQuant_naver["PYQuant/naver"]
   p_PYQuant_report["PYQuant/report"]
   p_PYQuant_strategy["PYQuant/strategy"]
   p_PYQuant_tests["PYQuant/tests"]
@@ -274,13 +348,16 @@ graph LR
   p_PYQuant_tools -->|5| p_PYQuant
   p_PYQuant_tools --> p_PYQuant_backtest
   p_PYQuant_tools -->|6| p_PYQuant_data
-  p_PYQuant_tools -->|7| p_PYQuant_kis
+  p_PYQuant_tools -->|9| p_PYQuant_kis
+  p_PYQuant_tools --> p_PYQuant_naver
   p_scripts --> p_PYQuant_backtest
   p_scripts -->|2| p_PYQuant_kis
+  p_scripts --> p_PYQuant_naver
 ```
 
 | 파일 | 내부 import |
 |---|---|
+| `PYQuant/backtest/devscale_replay.py` | `backtest.engine` |
 | `PYQuant/backtest/engine.py` | `data.index_source`, `kis.client`, `strategy.base` |
 | `PYQuant/backtest/report.py` | `backtest.engine` |
 | `PYQuant/dashboard/backfill_series_a.py` | `backtest.report` |
@@ -312,6 +389,9 @@ graph LR
 | `PYQuant/tests/test_strategy_a.py` | `kis.client`, `strategy.strategy_a` |
 | `PYQuant/tools/ablation_2022.py` | `main` |
 | `PYQuant/tools/check_investor_api.py` | `kis.client` |
+| `PYQuant/tools/check_market_flow.py` | `kis.client` |
+| `PYQuant/tools/check_sector_index.py` | `kis.client` |
+| `PYQuant/tools/fetch_naver_themes.py` | `naver.theme` |
 | `PYQuant/tools/full_universe_dump.py` | `data.datagokr_source` |
 | `PYQuant/tools/fullperiod_validate.py` | `data.datagokr_source`, `main`, `tools.month_start_sweep` |
 | `PYQuant/tools/index_intraday_logger.py` | `kis.client` |
@@ -330,7 +410,7 @@ graph LR
 | `scripts/backfill_studies.py` | `backtest.report` |
 | `scripts/build_review_entry.py` | `eod_collect` |
 | `scripts/check_runtime_health.py` | `_logdir`, `log_patterns` |
-| `scripts/dashboard_server.py` | `_logdir`, `kis.client` |
+| `scripts/dashboard_server.py` | `_logdir`, `kis.client`, `naver.theme` |
 | `scripts/eod_autodoc.py` | `_logdir`, `log_patterns` |
 | `scripts/eod_collect.py` | `_logdir`, `log_patterns` |
 | `scripts/notify_sidecar.py` | `_logdir`, `dashboard_server`, `kis.client`, `log_patterns` |
@@ -347,10 +427,10 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 | `regime.json` | `PYQuant/tools/macro_regime_feed.py` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/Engine.cpp`, `scripts/dashboard_server.py`, `scripts/notify_sidecar.py` | `Quant/include/core/Engine.h`, `Quant/src/main.cpp` |
 | `prices_live.json` | `scripts/live_prices_feed.py` | `scripts/live_prices_feed.py` |  |
 | `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp` | `PYQuant/dashboard/backfill_live.py`, `Quant/src/ipc/OrderRouter.cpp`, `scripts/parse_quant_log.py` | `scripts/_logdir.py`, `scripts/notify_sidecar.py` |
-| `universe*.json` |  | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/nxt_divergence_probe.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseScanner.cpp`, `scripts/live_prices_feed.py`, `scripts/notify_sidecar.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisClient.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |
+| `universe*.json` |  | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/nxt_divergence_probe.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseScanner.cpp`, `scripts/eod_minute_backfill.py`, `scripts/live_prices_feed.py`, `scripts/notify_sidecar.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |
 | `open_orders.txt` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` |  |
 | `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/build_review_entry.py`, `scripts/summarize_trading_day.py` | `scripts/_logdir.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/eod_autodoc.py`, `scripts/eod_collect.py`, `scripts/extract_swap_counterfactual.py`, `scripts/notify_sidecar.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `Quant/src/main.cpp` |
-| `kis_token_*.json` |  | `scripts/gen_facts.py` | `PYQuant/kis/client.py`, `Quant/src/api/KisClient.cpp` |
+| `kis_token_*.json` |  | `scripts/gen_facts.py` | `PYQuant/kis/client.py`, `Quant/src/api/KisAuth.cpp` |
 
 ## 영향범위 질의 · 기계 소비
 
