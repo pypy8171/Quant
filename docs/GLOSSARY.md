@@ -63,7 +63,7 @@
 |---|---|---|---|
 | **OHLCV** | Open/High/Low/Close/Volume | 시가·고가·저가·종가·거래량 봉 데이터 | 표준 봉 5요소 |
 | **SMA** | Simple Moving Average | 단순이동평균(SMA5>10>20>60 정배열 게이트의 기준선) | dev(이격도)의 기준 |
-| **PIT** | Point-In-Time | 그 시점에 실제로 알 수 있던 값만 사용(미래참조 방지) | 3분봉 PIT 재현 불가로 DevScale 백테스트 제외 |
+| **PIT** | Point-In-Time | 그 시점에 실제로 알 수 있던 값만 사용(미래참조 방지) | 산문 첫 등장은 `시점정합(PIT)`으로 병기. 3분봉 PIT 재현 불가로 DevScale 백테스트 제외 |
 | **look-ahead** | look-ahead bias | 미래 정보 누설 편향 | 결정은 당일 종가, 체결은 다음봉 시가로 방지 |
 | **survivorship** | survivorship bias | 생존편향 — 살아남은 종목만 유니버스에 남아 성과가 부풀려지는 편향 | 정적 유니버스 백테스트의 상시 주의 |
 | **approval key** | WebSocket approval key | KIS 실시간 WS 접속용 승인키(REST로 발급) | OAuth 토큰과 별개. 재연결 반복 시 재발급 이슈 |
@@ -122,6 +122,8 @@
 | **Sharpe** | Sharpe ratio | 총변동 대비 위험조정수익 | 채택 게이트 지표 |
 | **Sortino** | Sortino ratio | 하방변동만 벌점한 위험조정수익 | — |
 | **MDD** | Max Drawdown | 최대 낙폭 | 채택 게이트의 1차 기준 |
+| **MTM** | Mark-To-Market | 시가평가 — 미청산 보유를 현재가로 평가한 손익 | 산문 첫 등장은 `시가평가(MTM)`. 실현손익만 보면 손절 0건 구조에서 부호가 승자 쪽으로 기운다 |
+| **BH / FDR** | Benjamini-Hochberg / False Discovery Rate | 다중검정 보정 — 여러 셀을 동시에 검정할 때 오발견율을 q 이하로 묶는 절차 | 산문 첫 등장은 `다중검정 보정(BH, 오발견율 FDR)`. 탐색 격자에만 쓰고 주검정은 보정 없이 1셀 |
 | **PF** | Profit Factor | 총이익 ÷ 총손실 | — |
 | **slippage** | 슬리피지 | 체결가와 기대가의 괴리(비용 가정) | 백테스트 비용모델 |
 | **OOS** | Out-Of-Sample | 표본외 검증 구간 | — |

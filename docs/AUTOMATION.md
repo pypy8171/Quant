@@ -29,7 +29,10 @@ schtasks /change /tn claude_stock_study /st 20:00
 ```
 
 > 20:00·20:40은 원래 16:00·16:20이었다. 2026-09-07에 두 작업이 모두 세션 사용량 한도(17시 리셋)에 걸려
-> 실패했다(`LastTaskResult=1`). 한도 리셋 뒤로 옮겼다. 순수 파이썬인 `Quant EOD AutoDoc`은 한도와 무관해
+> 실패했다(`LastTaskResult=1`). 한도 리셋 뒤로 옮겼다. 2026-09-08~09-11에는 예약작업이 부르는 npm 전역 CLI가 구버전(2.1.162)이라
+> `400 does not support this model`로 실패하고 작업이 Disabled로 남았다. 편집기 확장의 클로드와 npm CLI는 따로 갱신되므로,
+> `LastTaskResult=1`이면 `_private/주식_study/_cron_run.log` 끝을 보고 버전이면 `npm i -g @anthropic-ai/claude-code@latest` 뒤
+> `Enable-ScheduledTask`로 되살린다. 순수 파이썬인 `Quant EOD AutoDoc`은 한도와 무관해
 > 16:05에 그대로 둔다.
 
 ## 2. 클라우드 루틴 (Claude)
