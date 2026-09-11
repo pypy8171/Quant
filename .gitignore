@@ -93,6 +93,7 @@ logs_test/
 PYQuant/.yf_cache/
 PYQuant/data/pit_universe/
 PYQuant/data/minute/
+PYQuant/data/themes/
 
 # config 백업·임시본(실키 포함 가능) — 확장자로 안 끝나는 이름도 막는다
 Quant/config/*.bak*

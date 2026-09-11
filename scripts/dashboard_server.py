@@ -596,6 +596,85 @@ def _sector_loop(quote: KisClient, interval=300.0):
         time.sleep(interval)
 
 
+# ── 테마(인포스탁 분류, 네이버 증권 경유) [why D-054] ─────────────────────────────
+# 목록(266개 당일 등락률·상승/하락 수)은 60초마다, 구성 종목은 클릭할 때만 받아 5분 캐시한다.
+# 종목→테마 역색인은 일일 스냅샷 PYQuant/data/themes/latest.json(fetch_naver_themes.py)에서 읽는다.
+try:
+    from naver.theme import fetch_theme_list, fetch_theme_members
+except Exception as e:                        # pragma: no cover
+    fetch_theme_list = fetch_theme_members = None
+    print(f"[경고] PYQuant/naver/theme.py 임포트 실패 — 테마 카드 없이 간다: {e}", file=sys.stderr)
+
+THEME_SNAPSHOT = REPO / "PYQuant" / "data" / "themes" / "latest.json"
+THEME_MEMBER_TTL = 300.0
+_THEME_MEMBERS: dict = {}           # no → {"ts", "val"}. LIVE_LOCK으로 감싼다.
+_THEME_INDEX = {"mtime": 0.0, "by_ticker": {}, "asof": ""}
+
+
+def _load_theme_index():
+    """스냅샷 파일(5MB)은 mtime이 바뀔 때만 다시 읽는다. 없으면 빈 색인 — 카드가 '스냅샷 없음'을 보인다."""
+    try:
+        st = THEME_SNAPSHOT.stat()
+    except OSError:
+        return
+    if st.st_mtime == _THEME_INDEX["mtime"]:
+        return
+    d = json.loads(THEME_SNAPSHOT.read_text(encoding="utf-8"))
+    _THEME_INDEX.update(mtime=st.st_mtime, by_ticker=d.get("by_ticker") or {}, asof=d.get("asof", ""))
+
+
+def holding_themes(bal) -> dict:
+    """보유 종목이 어느 테마에 몰렸는지. 테마별 보유 종목 수와 이름, 스냅샷에 없는 종목(ETF 등) 목록.
+    by_no는 테마 순위표의 '보유' 열이 쓴다(테마 번호 → 보유 종목 수)."""
+    _load_theme_index()
+    idx = _THEME_INDEX["by_ticker"]
+    cnt: dict = {}
+    untagged = []
+    for p in ((bal or {}).get("positions") or []):
+        tk = (p.get("ticker") or "").strip()
+        if not tk:
+            continue
+        hits = idx.get(tk)
+        if not hits:
+            untagged.append(p.get("name") or tk)
+            continue
+        for t in hits:
+            c = cnt.setdefault(t["no"], {"no": t["no"], "name": t["name"], "n": 0, "names": []})
+            c["n"] += 1
+            c["names"].append(p.get("name") or tk)
+    rows = sorted(cnt.values(), key=lambda c: (-c["n"], c["name"]))
+    return {"asof": _THEME_INDEX["asof"], "rows": [r for r in rows if r["n"] >= 2][:40],
+            "by_no": {str(r["no"]): r["n"] for r in rows}, "untagged": untagged,
+            "n_pos": sum(1 for p in ((bal or {}).get("positions") or []) if (p.get("ticker") or "").strip())}
+
+
+def theme_members(no: str) -> dict:
+    """테마 구성 종목(등락률순)과 종목별 편입 사유. 클릭할 때만 부르고 5분 캐시."""
+    if fetch_theme_members is None:
+        return {"no": no, "rows": [], "note": "naver.theme 모듈 없음"}
+    with LIVE_LOCK:
+        cur = _THEME_MEMBERS.get(no)
+        if cur and time.time() - cur["ts"] < THEME_MEMBER_TTL:
+            return cur["val"]
+    val = fetch_theme_members(int(no))
+    val["asof"] = datetime.now(KST).strftime("%H:%M")
+    if val.get("rows"):
+        with LIVE_LOCK:
+            _THEME_MEMBERS[no] = {"ts": time.time(), "val": val}
+    return val
+
+
+def _theme_loop(interval=60.0):
+    """테마 목록 3회 호출. 네이버 쪽 형식이 바뀌면 오류를 남기고 옛 값에 갱신 지연 표시가 붙는다."""
+    while True:
+        try:
+            rows = fetch_theme_list()
+            _live_set("kr_theme", {"rows": rows, "asof": datetime.now(KST).strftime("%H:%M")})
+        except Exception as e:
+            _live_err("kr_theme", str(e))
+        time.sleep(interval)
+
+
 def _warm_loop(kis: KisClient, quote: KisClient, interval=5.0, flow_every=6):
     tick = 0
     while True:
@@ -740,6 +819,8 @@ def build_state(kis, quote, cfg, regime_path, uni_path):
         "kr_index": _live_get("kr_index"),
         "kr_flow": _live_get("kr_flow"),
         "kr_sector": _live_get("kr_sector"),
+        "kr_theme": _live_get("kr_theme"),
+        "holding_themes": holding_themes(_bal),
         "universe": _uni,
         "entry_scores": read_entry_scores(),
         "criteria": build_criteria(cfg),
@@ -818,6 +899,18 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 body = json.dumps({"__error__": str(e)}, ensure_ascii=False).encode("utf-8")
             self._send(200, "application/json; charset=utf-8", body)
+        elif self.path.startswith("/api/theme"):
+            q = parse_qs(urlparse(self.path).query)
+            no = (q.get("no", [""])[0] or "").strip()
+            if not re.fullmatch(r"\d{1,6}", no):
+                self._send(400, "application/json; charset=utf-8",
+                           json.dumps({"__error__": "no는 테마 번호"}, ensure_ascii=False).encode("utf-8"))
+                return
+            try:
+                body = json.dumps(theme_members(no), ensure_ascii=False).encode("utf-8")
+            except Exception as e:
+                body = json.dumps({"__error__": str(e)}, ensure_ascii=False).encode("utf-8")
+            self._send(200, "application/json; charset=utf-8", body)
         elif self.path.startswith("/api/chart"):
             q = parse_qs(urlparse(self.path).query)
             ticker = (q.get("ticker", [""])[0] or "").strip()
@@ -875,7 +968,8 @@ td.l,th.l{text-align:left}
 .scroll{max-height:340px;overflow:auto}
 .sec-scroll{max-height:560px}.sec-h{color:var(--mut);font-size:11px;background:var(--panel2)}.sec-hot{font-weight:700}
 .sec-d td{padding:0 8px 8px 24px;border-bottom:1px solid var(--bd)}.sec-d table{font-size:11px}.sec-d td td,.sec-d th{padding:2px 6px;border:0}.sec-d th{position:static}
-#secsort,#secgrp{background:var(--panel2);color:var(--fg);border:1px solid var(--bd);border-radius:6px;font-size:11px}
+.th-rs{color:var(--mut);font-size:10px;max-width:420px;white-space:normal}
+#secsort,#secgrp,#thsort{background:var(--panel2);color:var(--fg);border:1px solid var(--bd);border-radius:6px;font-size:11px}
 /* 보유 종목은 옆 국면 카드 높이만큼 채우고 넘칠 때만 스크롤. 절대 배치라 표 길이가 행 높이를 키우지 않는다. */
 .card.fill{position:relative;min-height:340px}
 .card.fill .scroll{position:absolute;top:38px;left:14px;right:14px;bottom:12px;max-height:none}
@@ -955,6 +1049,17 @@ small.err{color:var(--dn)}
     <thead><tr><th>#</th><th class="l">업종</th><th class="l">시장</th><th>현재</th><th>당일%</th><th>5일%</th><th>20일σ<span class="mut">연율</span></th><th>진폭%</th><th>z</th></tr></thead>
     <tbody></tbody></table></div></div>
 
+  <div class="card col6"><h2>테마 순위 <span class="mut" id="thnote"></span>
+    <span class="mut" style="float:right">정렬: <select id="thsort"><option value="pct">당일%</option><option value="breadth">상승 비율</option><option value="hold">보유</option></select> · 행 클릭 → 구성 종목</span></h2>
+    <div class="scroll sec-scroll"><table id="theme">
+    <thead><tr><th>#</th><th class="l">테마</th><th>당일%</th><th>상승/하락</th><th>종목</th><th>보유</th></tr></thead>
+    <tbody></tbody></table></div></div>
+
+  <div class="card col6"><h2>보유 종목 테마 분포 <span class="mut" id="htnote"></span></h2>
+    <div class="scroll sec-scroll"><table id="htheme">
+    <thead><tr><th class="l">테마</th><th>보유</th><th class="l">종목</th></tr></thead>
+    <tbody></tbody></table></div></div>
+
   <div class="card col12"><h2>당일 체결 원장 <span class="mut" id="trdate"></span> <span class="mut" style="float:right">행 클릭 → 차트</span></h2><div class="scroll"><table id="trades">
     <thead><tr><th>시각</th><th class="l">이벤트</th><th class="l">전략</th><th class="l">종목</th><th class="l">방향</th><th>주문</th><th>체결</th><th>체결가</th><th class="l">상태</th><th class="l">사유</th></tr></thead>
     <tbody></tbody></table></div></div>
@@ -995,6 +1100,28 @@ function withNames(msg){
 
 document.getElementById('secsort').addEventListener('change',renderSector);
 document.getElementById('secgrp').addEventListener('change',renderSector);
+document.getElementById('thsort').addEventListener('change',renderTheme);
+let lastTheme={}, lastHT={};
+// 테마 순위 — 266개를 당일 등락률(구성 종목 단순평균)로 세운다. 소형주 상한가 하나가 평균을 끌어올리므로
+//  상승/하락 종목 수를 같이 보인다. '보유'는 일일 스냅샷 역색인으로 센 보유 종목 수.
+function renderTheme(){
+  const ks=lastTheme; const tb=document.querySelector('#theme tbody'); const tn=document.getElementById('thnote');
+  if(ks.__error__){ tb.innerHTML='<tr><td class="l err" colspan="6">테마 조회 실패: '+eb(ks.__error__)+'</td></tr>'; tn.textContent=''; return; }
+  const key=document.getElementById('thsort').value; const byNo=(lastHT.by_no||{});
+  const rows=(ks.rows||[]).map(r=>({...r, breadth:r.count?r.rise/r.count:0, hold:byNo[String(r.no)]||0}));
+  rows.sort((a,b)=>(b[key]??-1e9)-(a[key]??-1e9) || (b.pct??-1e9)-(a.pct??-1e9));
+  tn.textContent=(ks.asof?'· '+ks.asof+' 기준 · '+rows.length+'개':'')+(ks._stale_err?' · 갱신 지연':'');
+  tb.innerHTML=rows.length? rows.map((r,i)=>`<tr class="clk" data-th="${r.no}"><td>${i+1}</td><td class="l">${eb(r.name)}</td><td class="${cls(r.pct)}">${pct(r.pct)}</td><td><span class="up">${r.rise}</span><span class="mut">/</span><span class="dn">${r.fall}</span></td><td class="mut">${r.count}</td><td>${r.hold||''}</td></tr>`+(thOpen.has(String(r.no))?thDetailRow(String(r.no)):'')).join('')
+    : '<tr><td class="l mut" colspan="6">데이터 없음</td></tr>';
+}
+function renderHT(){
+  const h=lastHT; const tb=document.querySelector('#htheme tbody'); const tn=document.getElementById('htnote');
+  if(!h.asof){ tb.innerHTML='<tr><td class="l mut" colspan="3">스냅샷 없음 — py -X utf8 PYQuant/tools/fetch_naver_themes.py</td></tr>'; tn.textContent=''; return; }
+  tn.textContent='· 스냅샷 '+h.asof.slice(0,10)+' · 보유 '+(h.n_pos||0)+'종목 · 2종목 이상 겹친 테마만';
+  let html=(h.rows||[]).map(r=>`<tr class="clk" data-th="${r.no}"><td class="l">${eb(r.name)}</td><td>${r.n}</td><td class="l mut th-rs">${eb(r.names.join(' · '))}</td></tr>`).join('');
+  if((h.untagged||[]).length) html+=`<tr><td class="l mut">테마 없음</td><td class="mut">${h.untagged.length}</td><td class="l mut th-rs">${eb(h.untagged.join(' · '))}</td></tr>`;
+  tb.innerHTML=html||'<tr><td class="l mut" colspan="3">겹치는 테마 없음</td></tr>';
+}
 let lastSector={};
 function renderSector(){
   // 섹터 변동성 — 60여 업종을 선택한 열 기준으로 한 순위표에 세운다(그룹 필터 선택 가능).
@@ -1187,6 +1314,7 @@ async function tick(){
   }
 
   lastSector=s.kr_sector||{}; renderSector();
+  lastTheme=s.kr_theme||{}; lastHT=s.holding_themes||{}; renderTheme(); renderHT();
 
   // 원장
   const SL=s.labels||{}; const t=s.trades||{}; document.getElementById('trdate').textContent=(t.date||'')+(t.total?(' · 총 '+t.total+'행'):'');
@@ -1215,6 +1343,30 @@ function secDetailRow(code){
     '</tbody></table>'+(d.asof?'<span class="mut">시총 상위 10 · '+eb(d.asof)+'</span>':'');
   return `<tr class="sec-d"><td colspan="9">${inner}</td></tr>`;
 }
+// 테마 구성 종목: 등락률순 + 편입 사유(인포스탁 한 줄). 보유 분포 카드의 행도 같은 토글을 쓴다.
+const thOpen=new Set(); const thCache={};
+function thDetailRow(no){
+  const d=thCache[no];
+  let inner;
+  if(!d) inner='<span class="mut">불러오는 중…</span>';
+  else if(d.__error__) inner='<span class="err">조회 실패: '+eb(d.__error__)+'</span>';
+  else if(!d.rows||!d.rows.length) inner='<span class="mut">'+eb(d.note||'구성 종목 없음')+'</span>';
+  else inner=(d.description?'<div class="th-rs" style="max-width:none;margin:2px 0 6px">'+eb(d.description)+'</div>':'')+
+    '<table><thead><tr><th>#</th><th class="l">종목</th><th>현재가</th><th>등락%</th><th>거래대금</th><th class="l">편입 사유</th></tr></thead><tbody>'+
+    d.rows.map((x,i)=>`<tr class="clk" data-tk="${eb(x.ticker)}" data-nm="${eb(x.name)}"><td>${i+1}</td><td class="l">${eb(x.name)}</td><td>${won(x.price)}</td><td class="${cls(x.change_rate)}">${pct(x.change_rate)}</td><td>${x.value==null?'—':won(x.value)+'억'}</td><td class="l th-rs">${eb(x.reason)}</td></tr>`).join('')+
+    '</tbody></table>'+(d.asof?'<span class="mut">'+eb(d.asof)+' 기준</span>':'');
+  return `<tr class="sec-d"><td colspan="6">${inner}</td></tr>`;
+}
+async function toggleTheme(no){
+  if(thOpen.has(no)){ thOpen.delete(no); renderTheme(); return; }
+  thOpen.add(no); renderTheme();
+  document.getElementById('theme').closest('.card').scrollIntoView({block:'nearest'});
+  if(!thCache[no]){
+    try{ thCache[no]=await (await fetch('/api/theme?no='+no,{cache:'no-store'})).json(); }
+    catch(e){ thCache[no]={__error__:String(e)}; }
+    renderTheme();
+  }
+}
 async function toggleSector(code){
   if(secOpen.has(code)){ secOpen.delete(code); renderSector(); return; }
   secOpen.add(code); renderSector();
@@ -1229,6 +1381,7 @@ document.addEventListener('click', e=>{
   if(!tr) return;
   if(tr.dataset.tk){ openChart(tr.dataset.tk, tr.dataset.nm||tr.dataset.tk); }
   else if(tr.dataset.sec){ toggleSector(tr.dataset.sec); }
+  else if(tr.dataset.th){ toggleTheme(tr.dataset.th); }
 });
 document.getElementById('mx').onclick=()=>bg.classList.remove('on');
 bg.onclick=e=>{ if(e.target===bg) bg.classList.remove('on'); };
@@ -1382,6 +1535,8 @@ def main():
     # 잔고·랭킹은 백그라운드로 수집 → HTTP 요청 스레드가 KIS 지연에 물리지 않음
     threading.Thread(target=_warm_loop, args=(kis, quote), daemon=True).start()
     threading.Thread(target=_sector_loop, args=(quote,), daemon=True).start()
+    if fetch_theme_list is not None:
+        threading.Thread(target=_theme_loop, daemon=True).start()
 
     print(f"[대시보드] config={cfg_path.name} 계좌={_mask_acct(k['account_no'])} "
           f"모의={k.get('is_paper')}", flush=True)
