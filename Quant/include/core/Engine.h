@@ -384,6 +384,7 @@ private:
 
     std::atomic<uint64_t> data_count_{0};
     std::atomic<uint64_t> td_drop_count_{0}; // WS 체결 큐 가득으로 버린 틱 수 [why D-055]
+    std::atomic<uint64_t> ob_drop_count_{0}; // WS 호가 큐 가득으로 버린 호가 수 [why D-067]
     std::atomic<uint64_t> signal_count_{0}; // 신호 순번 자체는 strategy_thread의 SignalDispatcher가 찍는다 [why D-063]
     std::atomic<uint64_t> order_count_{0};
 

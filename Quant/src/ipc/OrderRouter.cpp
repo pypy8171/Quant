@@ -194,7 +194,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
     //    접수 왕복지연(RTT)을 재서 접수 로그에 남긴다 → log_report.py가 중앙값(p50)·상위 1%(p99) 집계.
     mo.status = OrderStatus::SUBMITTED;
     const auto t_send = std::chrono::steady_clock::now();
-    long rtt_ms = 0;
+    std::chrono::milliseconds::rep rtt_ms = 0; // count()의 타입 그대로 — MSVC는 long long이라 long이면 잘린다(C4244)
 
     try
     {

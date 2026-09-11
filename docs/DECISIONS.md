@@ -2574,3 +2574,34 @@ action 불문 되쏘되 분당 한도는 20초로 물러남, 청산 SELL은 4024
 
 **확인 방법**: `ctest --preset x64-release` 21/21, `test_regime`의 `[PASS] evaluate_*` 네 줄. 라이브에서는 재기동
 뒤 `[Regime] BULL/NEUTRAL/BEAR score=…` 로그가 종전과 같은 자리에 나오면 된다.
+
+### D-067 계약 표현 잔여 — 거부 사유 문자열을 한 곳에, 호가 큐 드롭 카운터, 복사 금지 둘 (2026-09-12)
+**상태**: 채택 (`wt/c2`, ctest 21/21, MSVC 경고 0. 실행 중 `quant_trader`는 바꾸지 않았다 — 동작 변화 없음)
+
+**배경**: D-039가 남긴 네 가지가 전부 `Quant/src/core/Engine.cpp` 소유권 때문에 미뤄져 있었다(C-4). Engine 분할
+(D-060~D-065)로 그 자리가 각자 파일로 나와 이제 손댈 수 있다.
+1. 유량 한도 거부를 알아보는 쪽(`pacing::classify`)이 `"Rate limit"`·`"분당"` 문자열을 제 손으로 들고 있었고, 만드는
+   쪽(`OrderGate::check`)도 따로 들고 있었다. 한쪽이 문구를 고치면 재시도가 조용히 죽는다 — 실제로 KIS 코드만 보던
+   동안 게이트 분당한도 BUY가 드롭된 적이 있다(D-065 배경).
+2. WS 호가 콜백의 `ob_queue_.push(ob)` 결과 버림(C4834). 체결 쪽은 D-055에서 드롭 카운터를 달았는데 호가는 그대로였다.
+3. `OrderGate`·`DeviationScaleStrategy`에 복사 금지가 없었다(D-036 파일이라 그 커밋 뒤로 미룸). 둘 다 뮤텍스(전략은
+   스레드까지)를 안고 있어 암묵적으로 복사가 안 되지만, 왜 안 되는지가 선언에 없었다.
+4. `OrderRouter.cpp`의 `long rtt_ms = duration.count()` — MSVC에서 `long long`→`long` 잘림 경고(C4244).
+
+**결정**:
+- `Quant/include/risk/GateReasons.h`(`namespace gate_reason`): `kRateLimit`("Rate limit 초과")·`kPerMinute`·`kPerSecond`
+  상수와 `rate_limit(per_minute, limit)`(문장 조립)·`is_rate_limit(reason)`·`is_per_minute(reason)`. `OrderGate.cpp`가
+  조립하고 `OrderPacer.cpp`가 읽는다. 문장은 그대로다(로그·운영단말 `ORDER_RESULT`·`parse_quant_log.py` 불변).
+  `test_order_pacer`가 `gate_reason::rate_limit(true, 40) == "Rate limit 초과 (분당 40건)"`으로 문장을 고정한다(45건).
+- 호가 콜백에 `ob_drop_count_`와 첫 넘침 1회 로그(`[WS] 호가 큐 가득 — 호가 폐기 시작 …`) — 체결과 같은 규칙.
+- `OrderGate`·`DeviationScaleStrategy`에 복사 생성·대입 `= delete`와 이유 한 줄.
+- `rtt_ms`는 `std::chrono::milliseconds::rep`.
+
+| 버린 대안 | 이유 |
+|---|---|
+| 거부 사유를 `enum class RejectCode`로 구조화해 `ManagedOrder`에 실어 보낸다 | 보류. 사유는 로그·운영단말에 그대로 나가는 문장이고 운영단말 프로토콜(D-043)이 문자열이라, enum을 더하면 두 채널을 같이 유지해야 한다. 지금 필요한 건 "두 곳이 같은 문자열을 본다"이고 그건 상수 한 곳으로 충분하다 |
+| 호가 드롭은 세지 않고 `(void)` 캐스트로 경고만 끈다 | 기각. 체결 큐 넘침을 세어 둔 것이 09-11 정체를 잡았다. 호가도 같은 큐 규칙이다 |
+| `GateReasons.h`를 `OrderGate.h` 안 정적 멤버로 | 기각. `OrderPacer`가 `OrderGate.h`를 include하면 테스트가 게이트 선언(→ `<deque>`·`<atomic>`·PosMap)을 끌어온다. 계약만 든 헤더가 가볍다 |
+
+**확인 방법**: `ctest --preset x64-release` 21/21, `test_order_pacer` 45건, 빌드 경고 0. 라이브에서는 유량 한도 거부
+로그 문장이 종전과 같고, 호가 큐가 찼을 때 `[WS] 호가 큐 가득` 한 줄이 처음 한 번 나오는지 본다.

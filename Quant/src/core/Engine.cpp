@@ -624,7 +624,18 @@ void Engine::start()
     if (!rest_price_feed_ && !watch_specs_.empty())
     {
         ws_ = std::make_unique<KisWebSocket>(kis_cfg_);
-        ws_->set_callbacks([this](const OrderBook& ob) { ob_queue_.push(ob); },
+        ws_->set_callbacks([this](const OrderBook& ob)
+                           {
+                               // 호가도 체결과 같은 규칙 — 버린 수를 세고 넘침이 시작될 때 한 번 남긴다.
+                               if (!ob_queue_.push(ob))
+                               {
+                                   if (ob_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
+                                   {
+                                       LOG_WARN("[WS] 호가 큐 가득 — 호가 폐기 시작 " + ob.ticker +
+                                                " (전략 스레드 정체 의심)");
+                                   }
+                               }
+                           },
                            [this](const TradeData& td)
                            {
                                // 전략 스레드가 멈추면 큐가 차고 틱이 여기서 사라진다 — 세어 두고

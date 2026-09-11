@@ -1,6 +1,7 @@
 // 발주 조절기 구현 — order_thread 전용. 재시도 규칙은 pacing::classify 하나에 있다. [why D-065]
 #include "core/OrderPacer.h"
 #include "api/KisErrorCodes.h"
+#include "risk/GateReasons.h"
 #include "utils/Logger.h"
 
 #include <algorithm>
@@ -18,11 +19,11 @@ RetryPlan classify(const OrderSignal& sig, int attempts, int max_retries, OrderS
     // 유량 한도 거부 — KIS가 '접수 전' 거부라 중복주문 위험 없음(빈-ODNO 모호성 없음). 모든 action(취소·정정·
     //  매수·매도)을 dedup 창 밖으로 재예약해 유실 없이 자가치유한다. 예전엔 취소·매수가 드롭돼 미연결 주문이 남고,
     //  다음 사이클에 다시 처리되다 또 한도초과가 나는 악순환이었다. 간격은 짧게 두고, 한도에 부딪힐 때만 물러난다.
-    // [wire] KIS 서버 거부는 EGW00201, OrderGate 자체 거부는 "Rate limit 초과 (…)" 문자열이라 둘을 같이 받는다.
+    // [wire] KIS 서버 거부는 EGW00201, OrderGate 자체 거부는 gate_reason::kRateLimit 머리의 문장이라 둘을 같이 받는다.
     //  앞엣것만 보던 동안 게이트 분당한도에 걸린 BUY가 조용히 드롭됐다.
-    if (reject_reason.find(kis_err::kRateLimit) != std::string::npos || reject_reason.rfind("Rate limit", 0) == 0)
+    if (reject_reason.find(kis_err::kRateLimit) != std::string::npos || gate_reason::is_rate_limit(reject_reason))
     {
-        const bool per_min = reject_reason.find("분당") != std::string::npos;
+        const bool per_min = gate_reason::is_per_minute(reject_reason);
         return {Retry::RATE_LIMIT, per_min ? std::chrono::milliseconds(20000) : retry_delay};
     }
 

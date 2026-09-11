@@ -70,6 +70,10 @@ public:
     {
     }
 
+    // 뮤텍스·원자값·유량 창을 안고 있고 Engine이 한 개를 소유한다 — 복사 대상이 아니다.
+    OrderGate(const OrderGate&)            = delete;
+    OrderGate& operator=(const OrderGate&) = delete;
+
     // 위험 한도 주입 — 반드시 order_thread 시작 전에만 호출(cfg_는 check()에서 락 없이 읽힘).
     void set_config(const Config& cfg) { cfg_ = cfg; }
     const Config& config() const { return cfg_; }

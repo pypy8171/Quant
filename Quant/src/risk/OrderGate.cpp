@@ -1,4 +1,5 @@
 #include "risk/OrderGate.h"
+#include "risk/GateReasons.h"
 #include <ctime>
 #include <iomanip>
 #include <iostream>
@@ -645,7 +646,7 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
 
         if (static_cast<int>(order_times_sec_.size()) >= cfg_.max_orders_per_sec)
         {
-            reject_reason = "Rate limit 초과 (초당 " + std::to_string(cfg_.max_orders_per_sec) + "건)";
+            reject_reason = gate_reason::rate_limit(false, cfg_.max_orders_per_sec);
             return false;
         }
 
@@ -659,7 +660,7 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
 
         if (static_cast<int>(order_times_min_.size()) >= cfg_.max_orders_per_min)
         {
-            reject_reason = "Rate limit 초과 (분당 " + std::to_string(cfg_.max_orders_per_min) + "건)";
+            reject_reason = gate_reason::rate_limit(true, cfg_.max_orders_per_min);
             return false;
         }
 

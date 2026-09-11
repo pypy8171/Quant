@@ -3,6 +3,7 @@
 //  고정한다. Logger만 링크한다. 관련 결정: C-2(청산 SELL 재시도), D-065(분리).
 // 빌드: cmake --build <dir> --target test_order_pacer
 #include "core/OrderPacer.h"
+#include "risk/GateReasons.h"
 #include "utils/Logger.h"
 
 #include <cstdlib>
@@ -55,10 +56,11 @@ int test_classify()
     // 유량 한도 — KIS EGW00201과 게이트 "Rate limit …" 둘 다, action 불문
     auto p = pacing::classify(cxl, 0, 3, OrderStatus::REJECTED, "EGW00201 초당 거래건수 초과", kDelay);
     CHECK(p.kind == Retry::RATE_LIMIT && p.delay == kDelay);
-    p = pacing::classify(buy, 2, 3, OrderStatus::REJECTED, "Rate limit 초과 (초당 5)", kDelay);
+    p = pacing::classify(buy, 2, 3, OrderStatus::REJECTED, gate_reason::rate_limit(false, 5), kDelay);
     CHECK(p.kind == Retry::RATE_LIMIT && p.delay == kDelay);
-    // 분당 한도는 20초로 물러난다
-    p = pacing::classify(buy, 0, 3, OrderStatus::REJECTED, "Rate limit 초과 (분당 40)", kDelay);
+    // 분당 한도는 20초로 물러난다. 게이트가 만드는 문장 그대로다(계약은 risk/GateReasons.h 한 곳)
+    CHECK(gate_reason::rate_limit(true, 40) == "Rate limit 초과 (분당 40건)");
+    p = pacing::classify(buy, 0, 3, OrderStatus::REJECTED, gate_reason::rate_limit(true, 40), kDelay);
     CHECK(p.kind == Retry::RATE_LIMIT && p.delay == milliseconds(20000));
     // "Rate limit"은 문자열 머리에 있을 때만 게이트 거부다
     CHECK(pacing::classify(buy, 0, 3, OrderStatus::REJECTED, "기타 Rate limit", kDelay).kind == Retry::NONE);

@@ -165,6 +165,10 @@ public:
         }
     }
 
+    // 프리페치 스레드·스냅샷 뮤텍스를 안고 있다 — 복사 대상이 아니다.
+    DeviationScaleStrategy(const DeviationScaleStrategy&)            = delete;
+    DeviationScaleStrategy& operator=(const DeviationScaleStrategy&) = delete;
+
     ~DeviationScaleStrategy() { stop_prefetch(); }
 
     std::string id() const override { return p_.id_prefix + "_" + p_.ticker; }
