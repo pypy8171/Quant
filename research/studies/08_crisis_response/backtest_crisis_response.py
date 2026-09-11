@@ -5,7 +5,7 @@
 
 목적: "이벤트를 모르는 상태에서(hindsight 금지) t-1 종가까지의 정보만으로 대응했다면
       손실을 얼마나 덜 봤을까"를 지수레벨 익스포저 토글로 인과 검증한다.
-      strategist↔reviewer 논의(2026-08-16) 후 확정한 5개 대응법 + 기준선(Buy&Hold) + 조합.
+      strategist↔reviewer 논의(2026-08-16) 후 확정한 5개 대응법 + 기준선(매수 후 보유) + 조합.
 
 절대 경계(BT-07 계승):
  1. 엔진(PYQuant/backtest/engine.py)·yfinance_source.py 절대 미수정.
@@ -580,7 +580,7 @@ def write_readme(bms, results, sweeps):
         r = results[bm["name"]]
         bh = r["bh"]
         L.append(f"\n## 1차 지표 — 단일 연결곡선 · {bm['name']} ({bm['span']}, {bm['nbars']}봉)\n")
-        L.append(f"> Buy&Hold 기준: 총수익 {fmt(bh['total'])}% · 연복리(CAGR) {fmt(bh['cagr'],2)}% · "
+        L.append(f"> 매수 후 보유 기준: 총수익 {fmt(bh['total'])}% · 연복리(CAGR) {fmt(bh['cagr'],2)}% · "
                  f"최대낙폭(MDD) {fmt(bh['mdd'])}% · Sharpe {fmt(bh['sharpe'],2)} · Calmar {fmt(bh['calmar'],2)}\n")
         L.append("| 대응법 | CAGR% | MDD% | Sharpe | **Calmar** | 낙폭축소%p | CAGR반납%p/yr | 방어효율 | 토글수 |")
         L.append("|---|---|---|---|---|---|---|---|---|")
