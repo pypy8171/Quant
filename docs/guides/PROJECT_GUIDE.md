@@ -242,6 +242,7 @@ Quant/                              ← 저장소 루트
 ├── ARCHITECTURE.md                 전체 아키텍처 상세 리뷰
 ├── CODE_REVIEW.md                  코드 리뷰 (버그·설계·개선 항목)
 ├── docs/guides/OPS_TERMINAL.md     운영단말 채널 — 프로토콜·설정·ops_client 사용법
+├── docs/guides/MFC_TERMINAL.md     MFC 운영단말 ops_terminal — 빌드 조건·화면·스레드 모델·이력
 ├── docs/guides/PROJECT_GUIDE.md    이 파일
 └── CLAUDE.md                       AI 어시스턴트용 빌드·실행 가이드
 ```

@@ -11,6 +11,7 @@
 | `Quant/include/ipc/OpsServer.h`, `Quant/src/ipc/OpsServer.cpp` | 서버. 소켓 전부를 전용 스레드 하나가 `select()`로 다룬다 |
 | `Quant/src/core/Engine.cpp` (`start_ops_server`·`drain_manual_inbox`·`ops_*_json`) | 엔진 쪽 배선 — 수동 주문을 strategy_thread에서 `OrderSignal`로 바꾼다 |
 | `Quant/tools/ops_client.cpp` | C++ 콘솔 단말. 왕복 검증·운영용 |
+| `Quant/tools/ops_terminal/` | MFC 대화상자 단말. `OpsLink.*`(소켓 작업자 스레드)·`OpsTerminalDlg.*`(화면)·`OpsTerminal.rc`(레이아웃) |
 | `Quant/tests/test_ops_protocol.cpp`, `Quant/tests/test_ops_server.cpp` | ctest 등록 테스트 |
 
 ## 1. 설정
@@ -30,7 +31,7 @@
 | `ops_token` | 빈 문자열 | HELLO의 `token`과 같아야 주문·KILL을 받는다. 비어 있으면 누구나 붙되 조회만 된다 |
 
 루프백이 아닌 주소(`0.0.0.0`, LAN IP)에 토큰 없이 열려고 하면 서버가 뜨지 않고 ERROR 로그를 남긴다.
-토큰은 평문으로 오간다 — 원격에서 쓰려면 3절 "남은 일"을 먼저 본다.
+토큰은 평문으로 오간다 — 원격에서 쓰려면 6절 "남은 일"을 먼저 본다.
 
 기동 로그에 다음 줄이 있으면 열린 것이다.
 
@@ -70,7 +71,7 @@ Windows에서는 `SO_EXCLUSIVEADDRUSE`로 잡으므로 엔진이 이미 하나 �
 | 0x10 | STATUS_REQ | 단말→서버 | `{}` |
 | 0x11 | STATUS | 서버→단말 | `{"running","data","signal","order","kill","entry_halt","force_liq","paper","strategies"}` |
 | 0x12 | POS_REQ | 단말→서버 | `{}` |
-| 0x13 | POSITIONS | 서버→단말 | `{"positions":[{"account","ticker","name","qty","avg_price","reserved"}]}` — 요청 응답이자, 내용이 바뀌면 1초 주기로 push |
+| 0x13 | POSITIONS | 서버→단말 | `{"positions":[{"account","ticker","name","qty","avg_price","reserved","last"}]}` — 요청 응답이자, 내용이 바뀌면 1초 주기로 push. `reserved`는 부호 있는 미체결 수량: 매도 음수, 매수 양수. `last`는 엔진이 마지막으로 본 체결가(틱이 없던 종목은 0) |
 | 0x20 | ORDER_REQ | 단말→서버 | `{"cid":"…","ticker":"005930","side":"SELL"|"BUY","qty":1,"price":0,"ref_price":0,"account":""}` |
 | 0x21 | ORDER_ACK | 서버→단말 | `{"cid","accepted":bool,"msg"}` — 인테이크 적재 여부. 게이트·브로커 결과가 아니다 |
 | 0x22 | ORDER_RESULT | 서버→전체 | `{"cid","order_id","odno","strategy","ticker","side","qty","price","ok":bool,"msg"}` — 게이트·라우터 결과 |
@@ -131,7 +132,17 @@ cd C:\Users\<사용자>\source\repos\Quant
 [WS] 체결통보 ODNO=0000023135 066570 SELL 1주 @199100
 ```
 
-## 4. 테스트
+## 4. MFC 단말 `ops_terminal`
+
+포지션 표에서 종목을 골라 파는 대화상자 단말. 같은 `OpsProtocol.h`를 쓴다. 빌드 조건(MFC 구성 요소)·실행·화면·
+스레드 모델·MFC 함정·변경 이력은 [docs/guides/MFC_TERMINAL.md](MFC_TERMINAL.md)가 정본이다.
+
+```powershell
+cmake --build out/build/x64-release --target ops_terminal
+out\build\x64-release\Quant\ops_terminal.exe --token <config의 ops_token>
+```
+
+## 5. 테스트
 
 ```powershell
 cmake --build out/build/x64-release --target test_ops_protocol test_ops_server
@@ -140,11 +151,11 @@ ctest --preset x64-release -R ops
 
 `test_ops_server`는 127.0.0.1:17100을 실제로 열고 붙는다. 다른 프로세스가 그 포트를 쓰고 있으면 실패한다.
 
-## 5. 남은 일
+## 6. 남은 일
 
+- **미체결 취소.** 단말에서 낸 지정가가 안 걸리면 취소할 길이 없다(엔진 `OrderAction::CANCEL`은 전략 경로만 쓴다).
+  ORDER_REQ에 `action:"cancel"`+`odno`를 얹고 단말에 미체결 표·취소 버튼을 두는 일.
+- **MANUAL 매도 재시도.** `OrderThread`는 "청산 SELL" 거부를 3회 재시도하는데 MANUAL도 이 경로를 탄다. 운영자가
+  잘못 넣은 지정가(40270000 상/하한가 오류)도 세 번 나간다. MANUAL은 1회로 끊는 쪽이 맞다.
 - **원격 bind.** 지금은 비루프백 주소 + 토큰이면 서버가 뜨지만 토큰·본문이 평문이다. LAN 밖에서 쓰려면
   SSH 터널이나 TLS(스트림 위에 프레임을 그대로 얹을 수 있다)와 접속 허용 IP 목록을 먼저 넣는다.
-- **MFC 단말.** 같은 `OpsProtocol.h`로 붙는 대화상자 단말 — 포지션 목록, 주문 폼, 로그, 연결 상태, 킬 버튼.
-  소켓은 작업자 스레드가 잡고 `PostMessage`로 UI 스레드에 넘긴다. 재연결 backoff와 하트비트(PING/PONG) 누락 감지는
-  단말 쪽 몫이다.
-- cid→ODNO 대응. `ORDER_RESULT`에 둘이 같이 오므로 단말이 표에 붙여 두면 뒤에 오는 `FILL`(ODNO만 있음)을 이어 맞출 수 있다.

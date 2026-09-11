@@ -419,4 +419,18 @@ private:
     // 티커→종목명 라벨(로그 표시용). 여러 스레드가 접근해 ticker_names_mu_로 보호.
     std::unordered_map<std::string, std::string> ticker_names_;
     mutable std::mutex ticker_names_mu_;
+
+    // 종목별 최근 체결가(원 단위)와 받은 시각. 전략 스레드가 td_queue_를 비우며 쓰고, 데이터 스레드가
+    //  틱이 끊긴 보유 종목을 REST로 보충하고, OpsServer 스레드가 POSITIONS 현재가·수동주문 ref_price로
+    //  읽는다 — last_px_mu_로 보호. 틱이 없던 종목은 0.
+    struct LastPx
+    {
+        double                                px = 0.0;
+        std::chrono::steady_clock::time_point at{};
+    };
+
+    std::unordered_map<std::string, LastPx> last_px_;
+    mutable std::mutex                      last_px_mu_;
+    double                                  last_px(const std::string& ticker) const;
+    void                                    set_last_px(const std::string& ticker, double px);
 };

@@ -179,13 +179,14 @@ bool connect_to(Conn& c, const std::string& host, int port)
 
 void print_positions(const json& j)
 {
-    std::cout << "account  ticker  name              qty  avg_price  reserved\n";
+    std::cout << "account  ticker  name              qty  avg_price  reserved  last\n";
 
     for (const auto& p : j.value("positions", json::array()))
     {
         std::cout << (p.value("account", std::string()).empty() ? "-" : p.value("account", std::string())) << "  "
                   << p.value("ticker", std::string()) << "  " << p.value("name", std::string()) << "  "
-                  << p.value("qty", 0) << "  " << p.value("avg_price", 0.0) << "  " << p.value("reserved", 0) << "\n";
+                  << p.value("qty", 0) << "  " << p.value("avg_price", 0.0) << "  " << p.value("reserved", 0) << "  "
+                  << p.value("last", 0.0) << "\n";
     }
 }
 

@@ -43,6 +43,7 @@
 | `.claude/PROJECT_FACTS.md` 음성 결과 (자동생성, gitignore 로컬전용) | `docs/DECISIONS.md`의 `**음성결과**:` 줄 | 같은 방식. 마커 밖의 손으로 쓴 항목은 그대로 남는다 |
 | [`docs/AUTOMATION.md`](AUTOMATION.md) | OS 예약작업·클라우드 루틴·훅·마감 문서 파이프라인 목록 | 예약작업 시각/추가·훅 추가·자동 생성 스크립트 추가 시 표에 행 추가 |
 | [`docs/design/DASHBOARD_SPEC.md`](design/DASHBOARD_SPEC.md) | `scripts/dashboard_server.py`·PYQuant 대시보드 API·데이터 계약 | 대시보드 구현·API·데이터소스 변경 시 |
+| [`docs/guides/MFC_TERMINAL.md`](guides/MFC_TERMINAL.md) | `Quant/tools/ops_terminal/` 파일·화면·스레드 모델·빌드 조건·이력 | MFC 단말 코드 변경 시 해당 절 + 이력 한 줄. 실행 방법 변경은 `_private/LINKS.md`도 |
 
 > `research/BACKTEST_LOG.md`는 **소스(소유자)**라 위 표의 "대표"가 아니다 — 다른 문서가 이걸 링크한다.
 > `STRATEGY_LAB.md`·`ARCHITECTURE.md` 등 gitignore 개인문서는 GitHub에 없으므로 색인에서 **하드링크하지 말 것**(텍스트+"로컬전용" 표기만).

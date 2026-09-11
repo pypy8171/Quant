@@ -680,6 +680,24 @@ void Engine::register_ticker_name(const std::string& ticker, const std::string& 
     ticker_names_[ticker] = name;
 }
 
+double Engine::last_px(const std::string& ticker) const
+{
+    std::lock_guard<std::mutex> lk(last_px_mu_);
+    auto it = last_px_.find(ticker);
+    return it == last_px_.end() ? 0.0 : it->second.px;
+}
+
+void Engine::set_last_px(const std::string& ticker, double px)
+{
+    if (px <= 0.0)
+    {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lk(last_px_mu_);
+    last_px_[ticker] = LastPx{px, std::chrono::steady_clock::now()};
+}
+
 std::string Engine::ticker_label(const std::string& ticker) const
 {
     std::lock_guard<std::mutex> lk(ticker_names_mu_);
@@ -1358,6 +1376,42 @@ void Engine::data_thread_fn()
             if (order_router_)
             {
                 order_router_->sweep_stale_reservations();
+            }
+
+            // 틱이 끊긴 보유 종목은 REST 현재가로 보충한다 — 운영단말 현재가가 비어 있던 원인(09-11)은
+            //  둘이었다: 유니버스 밖 보유(구독 자체가 없음)와 WS 구독 상한에 밀린 종목. 구독 여부를 따지지
+            //  않고 "최근 틱이 없다"로만 고르면 둘 다 잡힌다. 전략이 볼 일은 없으니 td_queue_에는 넣지 않는다.
+            //  모의 도메인 초당 한도가 낮아 300ms 간격.
+            {
+                std::vector<std::string> stale;
+                const auto               cutoff = std::chrono::steady_clock::now() - std::chrono::seconds(60);
+
+                {
+                    std::lock_guard<std::mutex> lk(last_px_mu_);
+
+                    for (const auto& h : order_gate_.snapshot_positions())
+                    {
+                        auto it = last_px_.find(h.ticker);
+
+                        if (h.qty > 0 && (it == last_px_.end() || it->second.at < cutoff))
+                        {
+                            stale.push_back(h.ticker);
+                        }
+                    }
+                }
+
+                KisClient* qc = quote_kis_ ? quote_kis_.get() : kis_.get();
+
+                for (const auto& ticker : stale)
+                {
+                    if (!running_.load(std::memory_order_acquire))
+                    {
+                        break;
+                    }
+
+                    std::this_thread::sleep_for(300ms);
+                    set_last_px(ticker, qc->get_current_price(ticker));
+                }
             }
 
             if (rest_now)
@@ -2293,6 +2347,9 @@ void Engine::strategy_thread_fn()
 
             while (auto opt = pop_trade())
             {
+                // 운영단말 현재가용 캐시. 틱마다 짧은 락 한 번 — 전략 호출보다 훨씬 싸다.
+                set_last_px(opt->ticker, opt->price);
+
                 for (auto* s : snap)
                 {
                     auto sig = s->on_trade(*opt);
@@ -2788,7 +2845,8 @@ std::string Engine::ops_positions_json() const
                        {"name", ticker_name(h.ticker)},
                        {"qty", h.qty},
                        {"avg_price", h.avg_price},
-                       {"reserved", order_gate_.reserved(h.account, h.ticker)}});
+                       {"reserved", order_gate_.reserved(h.account, h.ticker)},
+                       {"last", last_px(h.ticker)}});
     }
 
     return nlohmann::json{{"positions", arr}}.dump();
@@ -2801,6 +2859,12 @@ void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& e
         const OpsOrderReq& r = *req;
         std::string reject;
         double      ref = r.ref_price;
+
+        // 단말이 기준가를 안 찍었으면 엔진의 최근 체결가로 채운다 — 시장가 명목 한도가 0으로 새지 않게.
+        if (ref <= 0.0)
+        {
+            ref = last_px(r.ticker);
+        }
 
         if (r.side == "SELL")
         {

@@ -104,6 +104,9 @@ FEED 모드에서 사용합니다. REST로 approval key를 발급받고, `ops.ko
 python scripts/check_docs.py   # exit 0 = 통과, 1 = 드리프트
 ```
 
+MFC 단말(`Quant/tools/ops_terminal/`)을 고쳤으면 [docs/guides/MFC_TERMINAL.md](docs/guides/MFC_TERMINAL.md)를
+같은 커밋에서 갱신한다(8절 체크리스트). 실행 인자·산출물 경로·접속 방법이 바뀌면 `_private/LINKS.md` 운영단말 행도 고친다.
+
 ### 파일 지칭 규약 (전체 경로)
 
 `README.md`·`config.json`·`main.cpp`처럼 저장소에 같은 이름이 여럿인 파일이 많다. 파일을 지칭할 때는

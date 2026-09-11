@@ -37,7 +37,7 @@ enum class OpsMsg : uint8_t
     STATUS_REQ   = 0x10, // c→s {}
     STATUS       = 0x11, // s→c {"running","data","signal","order","kill","entry_halt","force_liq"}
     POS_REQ      = 0x12, // c→s {}
-    POSITIONS    = 0x13, // s→c {"positions":[{account,ticker,name,qty,avg_price,reserved}]} — 변경 시 push도 한다
+    POSITIONS    = 0x13, // s→c {"positions":[{account,ticker,name,qty,avg_price,reserved,last}]} — 변경 시 push도 한다. reserved: 미체결 매도 음수·매수 양수, last: 최근 체결가(틱 없으면 0)
     ORDER_REQ    = 0x20, // c→s {"cid","ticker","side","qty","price","ref_price"}
     ORDER_ACK    = 0x21, // s→c {"cid","accepted","msg"} — 인테이크 적재 여부(게이트 통과 아님)
     ORDER_RESULT = 0x22, // s→c {"cid","order_id","strategy","ticker","side","qty","ok","msg"} — 게이트·브로커 결과

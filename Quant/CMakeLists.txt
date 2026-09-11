@@ -396,6 +396,40 @@ else()
     target_link_libraries(ops_client PRIVATE nlohmann_json::nlohmann_json ws2_32)
 endif()
 
+# ─── 도구: 운영단말 MFC 씬 클라이언트 (D-043 3단계) ───────────────────────
+# MFC가 설치된 MSVC에서만 만든다. VCToolsInstallDir는 VS 개발셸에서 잡히고, 아니면 알려진 경로를 뒤진다.
+if(MSVC)
+    find_path(QUANT_MFC_INC afxwin.h
+        PATHS "$ENV{VCToolsInstallDir}/atlmfc/include"
+              "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/atlmfc/include"
+        NO_DEFAULT_PATH)
+    if(QUANT_MFC_INC)
+        set(QUANT_OPS_TERMINAL_DEFAULT ON)
+    else()
+        set(QUANT_OPS_TERMINAL_DEFAULT OFF)
+    endif()
+    option(QUANT_OPS_TERMINAL "MFC 운영단말(ops_terminal) 빌드" ${QUANT_OPS_TERMINAL_DEFAULT})
+    if(QUANT_OPS_TERMINAL AND QUANT_MFC_INC)
+        set(CMAKE_MFC_FLAG 2)
+        add_executable(ops_terminal WIN32
+            tools/ops_terminal/OpsTerminal.cpp
+            tools/ops_terminal/OpsTerminalDlg.cpp
+            tools/ops_terminal/OpsLink.cpp
+            tools/ops_terminal/OpsTerminal.rc
+        )
+        target_include_directories(ops_terminal PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/ops_terminal)
+        # 유니코드 MFC는 진입점이 wWinMainCRTStartup이다 — 빼면 _WinMain@16 미해결로 링크가 실패한다.
+        target_compile_definitions(ops_terminal PRIVATE _AFXDLL UNICODE _UNICODE)
+        target_link_options(ops_terminal PRIVATE /ENTRY:wWinMainCRTStartup)
+        target_link_libraries(ops_terminal PRIVATE nlohmann_json::nlohmann_json ws2_32)
+        message(STATUS "ops_terminal(MFC) 빌드 대상에 포함: ${QUANT_MFC_INC}")
+    else()
+        message(STATUS "ops_terminal(MFC) 건너뜀 — afxwin.h 없음 또는 QUANT_OPS_TERMINAL=OFF")
+    endif()
+endif()
+
 # ─── 도구: 실 KIS 실시간 시세 수신·처리 지연 프로브 (bench_feed_ingest 자매 실증) ──
 add_executable(feed_latency_probe
     tools/feed_latency_probe.cpp
