@@ -7,6 +7,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <cstdio>
 #include <iomanip>
 #include <sstream>
 #include <thread>
@@ -32,10 +33,11 @@ static std::string today_ymd()
 // ─── 내부 순번 ID 생성  "ORD-000001" ─────────────────────────────────────
 std::string OrderRouter::next_id()
 {
-    uint64_t n = ++seq_;
-    std::ostringstream ss;
-    ss << "ORD-" << std::setfill('0') << std::setw(6) << n;
-    return ss.str();
+    // 주문마다 부르는 곳이라 스트림 대신 고정 버퍼로 만든다(D-042). 6자리를 넘으면 자릿수만 늘어난다.
+    const unsigned long long n = ++seq_;
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "ORD-%06llu", n);
+    return std::string(buf);
 }
 
 // ─── 거부 사유에 KIS 오류코드 꼬리표 부착 ───────────────────────────────

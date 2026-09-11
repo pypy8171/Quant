@@ -5,7 +5,16 @@
 #include <cassert>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <vector>
+
+// split_records는 뷰(kis_ws::Fields)를 받는다(D-042). 벡터를 만들고 호출 직전에 뷰로 바꾼다.
+struct V
+{
+    std::vector<std::string_view> v;
+    V(const std::vector<std::string>& f) : v(f.begin(), f.end()) {}
+    operator kis_ws::Fields() const { return kis_ws::Fields(v); }
+};
 
 static std::vector<std::string> make_fields(int records, int width, const std::string& tag)
 {
@@ -26,13 +35,16 @@ int main()
 {
     // ── split_records ─────────────────────────────────────────────────────
     // count<=1 은 자를 것이 없다 — 빈 벡터(호출부는 단건 경로).
-    assert(KisWebSocket::split_records(make_fields(1, 22, "a"), 1, 22).empty());
-    assert(KisWebSocket::split_records(make_fields(1, 22, "a"), 0, 22).empty());
-    assert(KisWebSocket::split_records({}, 2, 22).empty());
+    assert(KisWebSocket::split_records(V(make_fields(1, 22, "a")), 1, 22).empty());
+    assert(KisWebSocket::split_records(V(make_fields(1, 22, "a")), 0, 22).empty());
+    assert(KisWebSocket::split_records(V({}), 2, 22).empty());
 
     // 2×22 필드, count=2 → 22폭 레코드 둘. 순서와 경계가 보존된다.
     {
-        auto recs = KisWebSocket::split_records(make_fields(2, 22, "t"), 2, 22);
+        // 뷰는 원문 벡터가 살아 있는 동안만 유효하다 — recs를 쓰는 동안 f를 잡아 둔다.
+        const auto f = make_fields(2, 22, "t");
+        const V v(f);
+        auto recs = KisWebSocket::split_records(v, 2, 22);
         assert(recs.size() == 2);
         assert(recs[0].size() == 22 && recs[1].size() == 22);
         assert(recs[0][0] == "t0_0" && recs[0][21] == "t0_21");
@@ -41,19 +53,21 @@ int main()
 
     // 3×46 (실측에 가까운 체결 폭), count=3 → 셋.
     {
-        auto recs = KisWebSocket::split_records(make_fields(3, 46, "c"), 3, 22);
+        const auto f = make_fields(3, 46, "c");
+        const V v(f);
+        auto recs = KisWebSocket::split_records(v, 3, 22);
         assert(recs.size() == 3);
         assert(recs[2][45] == "c2_45");
     }
 
     // 나누어떨어지지 않으면 자르지 않는다(45필드 / 2).
-    assert(KisWebSocket::split_records(make_fields(1, 45, "x"), 2, 22).empty());
+    assert(KisWebSocket::split_records(V(make_fields(1, 45, "x")), 2, 22).empty());
 
     // 폭이 채널 최소 미만이면 자르지 않는다(3×5=15필드를 count=3으로 나누면 폭 5 < 22).
-    assert(KisWebSocket::split_records(make_fields(3, 5, "s"), 3, 22).empty());
+    assert(KisWebSocket::split_records(V(make_fields(3, 5, "s")), 3, 22).empty());
 
     // 최소 폭이 0인 알 수 없는 채널도 나누어떨어지기만 하면 자른다.
-    assert(KisWebSocket::split_records(make_fields(2, 7, "u"), 2, 0).size() == 2);
+    assert(KisWebSocket::split_records(V(make_fields(2, 7, "u")), 2, 0).size() == 2);
 
     // ── kis_hhmmss_minus_minutes ──────────────────────────────────────────
     assert(kis_hhmmss_minus_minutes("100000", 1) == "095900"); // 10진수 -100이면 "099900"이 나오던 사례

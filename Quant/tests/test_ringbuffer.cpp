@@ -8,6 +8,43 @@
 #include <chrono>
 #include <iostream>
 
+// 2의 거듭제곱 올림과 가득 참·비어 있음 경계. 카운터가 감싸지 않으므로 슬롯 전부를 쓴다(D-042).
+static void test_pow2_capacity() {
+	RingBuffer<int> a(1000);
+	assert(a.capacity() == 1024);
+	RingBuffer<int> b(1024);
+	assert(b.capacity() == 1024);
+	RingBuffer<int> c(1);
+	assert(c.capacity() == 1);
+	assert(c.push(7));
+	assert(!c.push(8));
+	assert(c.size() == 1);
+	auto v = c.pop();
+	assert(v && *v == 7);
+	assert(!c.pop());
+	assert(c.empty());
+
+	RingBuffer<int> d(4);
+
+	for (int i = 0; i < 4; ++i) {
+		assert(d.push(i));
+	}
+
+	assert(!d.push(99));
+	assert(d.size() == 4);
+
+	// 한 바퀴 넘겨 마스크 경계를 지난 뒤에도 순서가 유지되는지
+	for (int round = 0; round < 3; ++round) {
+		for (int i = 0; i < 4; ++i) {
+			auto x = d.pop();
+			assert(x && *x == round * 4 + i);
+			assert(d.push(round * 4 + i + 4));
+		}
+	}
+
+	std::cout << "[PASS] pow2 capacity / boundary\n";
+}
+
 static void test_spsc_correctness() {
 	RingBuffer<int> rb(1024);
 	constexpr int N = 1'000'000;
@@ -89,6 +126,7 @@ static void test_throughput() {
 }
 
 int main() {
+	test_pow2_capacity();
 	std::cout << "=== RingBuffer Tests ===\n";
 	test_spsc_correctness();
 	test_throughput();

@@ -10,6 +10,8 @@
 // RingBuffer<T>  —  단일생산자·단일소비자(SPSC) Lock-Free Ring Buffer
 //   - mutex 없이 동작, Windows/Linux 공통(std::atomic 표준)
 //   - 퀀트 엔진: 시세 수신 스레드(Producer) → 전략 처리 스레드(Consumer)
+//   - 용량은 2의 거듭제곱으로 올림하고 인덱스는 마스크로 얻는다(나눗셈 없음). head·tail은 감싸지 않는
+//     누적 카운터라 슬롯 하나를 비워 두지 않는다. [why D-042]
 // ─────────────────────────────────────────────────────────────────────────────
 
 // std::hardware_destructive_interference_size는 C++17이지만
@@ -23,10 +25,9 @@ inline constexpr size_t kCacheLine = 64;
 template <typename T> class RingBuffer
 {
 public:
+    // capacity 이상인 가장 작은 2의 거듭제곱만큼 슬롯을 잡는다(1024 → 1024, 1000 → 1024).
     explicit RingBuffer(size_t capacity)
-        : capacity_(capacity + 1) // 슬롯 1개는 full/empty 구분용
-          ,
-          buffer_(capacity + 1), head_(0), tail_(0)
+        : capacity_(round_up_pow2(capacity)), mask_(capacity_ - 1), buffer_(capacity_), head_(0), tail_(0)
     {
     }
 
@@ -38,31 +39,31 @@ public:
     //  T의 복사·이동이 던지지 않을 때만 noexcept — MarketData는 std::string을 품어 조건부다.
     [[nodiscard]] bool push(const T& item) noexcept(std::is_nothrow_copy_constructible_v<T>)
     {
+        // [lock-order] head_는 생산자만 쓰므로 relaxed로 읽고, tail_은 소비자의 release와 짝인 acquire.
+        //  head - tail은 size_t 모듈러 산술이라 카운터가 넘쳐도 차이는 맞다.
         const size_t head = head_.load(std::memory_order_relaxed);
-        const size_t next = (head + 1) % capacity_;
 
-        if (next == tail_.load(std::memory_order_acquire))
+        if (head - tail_.load(std::memory_order_acquire) == capacity_)
         {
             return false; // 버퍼 가득 참
         }
 
-        buffer_[head] = item;
-        head_.store(next, std::memory_order_release);
+        buffer_[head & mask_] = item;
+        head_.store(head + 1, std::memory_order_release);
         return true;
     }
 
     [[nodiscard]] bool push(T&& item) noexcept(std::is_nothrow_move_constructible_v<T>)
     {
         const size_t head = head_.load(std::memory_order_relaxed);
-        const size_t next = (head + 1) % capacity_;
 
-        if (next == tail_.load(std::memory_order_acquire))
+        if (head - tail_.load(std::memory_order_acquire) == capacity_)
         {
             return false;
         }
 
-        buffer_[head] = std::move(item);
-        head_.store(next, std::memory_order_release);
+        buffer_[head & mask_] = std::move(item);
+        head_.store(head + 1, std::memory_order_release);
         return true;
     }
 
@@ -76,8 +77,8 @@ public:
             return std::nullopt; // 버퍼 비어 있음
         }
 
-        T item = std::move(buffer_[tail]);
-        tail_.store((tail + 1) % capacity_, std::memory_order_release);
+        T item = std::move(buffer_[tail & mask_]);
+        tail_.store(tail + 1, std::memory_order_release);
         return item;
     }
 
@@ -91,16 +92,30 @@ public:
     {
         const size_t head = head_.load(std::memory_order_acquire);
         const size_t tail = tail_.load(std::memory_order_acquire);
-        return (head >= tail) ? (head - tail) : (capacity_ - tail + head);
+        return head - tail;
     }
 
-    size_t capacity() const
+    // 실제 슬롯 수(2의 거듭제곱). 생성자에 준 값보다 클 수 있다.
+    [[nodiscard]] size_t capacity() const noexcept
     {
-        return capacity_ - 1;
+        return capacity_;
     }
 
 private:
+    static constexpr size_t round_up_pow2(size_t n) noexcept
+    {
+        size_t p = 1;
+
+        while (p < n)
+        {
+            p <<= 1;
+        }
+
+        return p;
+    }
+
     const size_t capacity_;
+    const size_t mask_;
     std::vector<T> buffer_;
 
     // head_: producer만 씀, tail_: consumer만 씀

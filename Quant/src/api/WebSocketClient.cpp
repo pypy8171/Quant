@@ -2,7 +2,6 @@
 #include "api/KisWsDecode.h"
 #include "utils/Logger.h"
 #include <nlohmann/json.hpp>
-#include <set>
 #include <sstream>
 
 // 체결통보(H0STCNI) AES-256-CBC 복호화용
@@ -21,28 +20,6 @@ static constexpr int kWsPortReal  = 21000; // 실계좌
 // ═══════════════════════════════════════════════════════════════════════════
 //  공통 유틸
 // ═══════════════════════════════════════════════════════════════════════════
-
-std::vector<std::string> KisWebSocket::split_str(const std::string& s, char delim)
-{
-    std::vector<std::string> out;
-    std::string tok;
-
-    for (char c : s)
-    {
-        if (c == delim)
-        {
-            out.push_back(tok);
-            tok.clear();
-        }
-        else
-        {
-            tok += c;
-        }
-    }
-
-    out.push_back(tok);
-    return out;
-}
 
 // ─── 체결통보 복호화 (KIS H0STCNI: base64 → AES-256-CBC) ────────────────────
 // 시세 채널은 평문이나 체결통보는 암호화 전송. key/iv는 구독 응답 body.output에서 획득.
@@ -1375,68 +1352,68 @@ void KisWebSocket::parse_message(const std::string& msg)
         return;
     }
 
-    // 데이터 메시지: TYPE|TR_ID|COUNT|DATA (^-구분 필드)
-    auto parts = split_str(msg, '|');
+    // 데이터 메시지: TYPE|TR_ID|COUNT|DATA (^-구분 필드). parts_·fields_는 msg를 가리키는 뷰라
+    //  msg보다 오래 살지 않는다 — 콜백은 이 함수 안에서 끝난다.
+    kis_ws::split_fields(msg, '|', parts_);
 
-    if (parts.size() < 4)
+    if (parts_.size() < 4)
     {
         return;
     }
 
-    const std::string& tr_id = parts[1];
-    std::string data = parts[3]; // 암호화 시 복호문으로 교체되므로 값 복사
+    const std::string_view tr_id = parts_[1];
+    std::string_view data = parts_[3];
+    std::string plain; // 암호화 프레임의 복호문. data가 이쪽을 가리키게 되므로 같은 범위에 둔다
 
     // 암호화 프레임(체결통보 H0STCNI): parts[0]=="1" → base64 + AES-256-CBC 복호화
-    if (parts[0] == "1")
+    if (parts_[0] == "1")
     {
         if (aes_key_.empty() || aes_iv_.empty())
         {
-            LOG_WARN("[WS] 암호화 프레임 수신했으나 key/iv 미확보 — drop tr_id=" + tr_id);
+            LOG_WARN("[WS] 암호화 프레임 수신했으나 key/iv 미확보 — drop tr_id=" + std::string(tr_id));
             return;
         }
 
-        std::string plain = aes_cbc_decrypt(base64_decode(data), aes_key_, aes_iv_);
+        plain = aes_cbc_decrypt(base64_decode(std::string(data)), aes_key_, aes_iv_);
 
         if (plain.empty())
         {
-            LOG_WARN("[WS] 체결통보 복호화 실패 tr_id=" + tr_id);
+            LOG_WARN("[WS] 체결통보 복호화 실패 tr_id=" + std::string(tr_id));
             return;
         }
 
-        // 복호 평문은 ^구분 다필드(체결통보 23필드). 너무 적으면 키 불일치/손상 의심 (C-1)
-        if (split_str(plain, '^').size() < 14)
-        {
-            LOG_WARN("[WS] 체결통보 복호 평문 비정상(필드부족) — 키 불일치/손상 의심 tr_id=" + tr_id);
-            return;
-        }
-
-        data = std::move(plain);
+        data = plain;
     }
 
-    auto fields = split_str(data, '^');
+    kis_ws::split_fields(data, '^', fields_);
 
-    // [wire] parts[2] = 이 프레임에 실린 레코드 수(COUNT). 1이면 기존 단건 경로 그대로.
+    // 복호 평문은 ^구분 다필드(체결통보 23필드). 너무 적으면 키 불일치/손상 의심 (C-1)
+    if (!plain.empty() && fields_.size() < kis_ws::kMinFieldsFill)
+    {
+        LOG_WARN("[WS] 체결통보 복호 평문 비정상(필드부족) — 키 불일치/손상 의심 tr_id=" + std::string(tr_id));
+        return;
+    }
+
+    const kis_ws::Fields fields(fields_);
+
+    // [wire] parts[2] = 이 프레임에 실린 레코드 수(COUNT). 1이면 기존 단건 경로 그대로. 못 읽으면 1.
     //  COUNT>1인데 자르지 못하면(폭이 안 맞음) 첫 레코드만 처리하던 종전 동작을 유지하고 한 번만 경고한다.
     int rec_count = 1;
 
-    try
-    {
-        rec_count = std::stoi(parts[2]);
-    }
-    catch (...)
+    if (!kis_ws::detail::to_int(parts_[2], rec_count))
     {
         rec_count = 1;
     }
 
     if (rec_count > 1)
     {
-        auto recs = split_records(fields, rec_count, min_fields_for(tr_id));
+        const auto recs = kis_ws::split_records(fields, rec_count, min_fields_for(tr_id));
 
         if (!recs.empty())
         {
-            for (const auto& rec : recs)
+            for (size_t r = 0; r < recs.size(); ++r)
             {
-                dispatch_record(tr_id, rec);
+                dispatch_record(tr_id, recs[r]);
             }
 
             return;
@@ -1445,15 +1422,16 @@ void KisWebSocket::parse_message(const std::string& msg)
         if (multi_rec_warned_ < 1)
         {
             ++multi_rec_warned_;
-            LOG_WARN("[WS] 다건 프레임 분리 실패 tr_id=" + tr_id + " count=" + std::to_string(rec_count) +
-                     " fields=" + std::to_string(fields.size()) + " — 첫 레코드만 처리(이 경고는 1회만)");
+            LOG_WARN("[WS] 다건 프레임 분리 실패 tr_id=" + std::string(tr_id) + " count=" +
+                     std::to_string(rec_count) + " fields=" + std::to_string(fields.size()) +
+                     " — 첫 레코드만 처리(이 경고는 1회만)");
         }
     }
 
     dispatch_record(tr_id, fields);
 }
 
-size_t KisWebSocket::min_fields_for(const std::string& tr_id)
+size_t KisWebSocket::min_fields_for(std::string_view tr_id) noexcept
 {
     if (tr_id == "H0STASP0")
     {
@@ -1488,7 +1466,7 @@ size_t KisWebSocket::min_fields_for(const std::string& tr_id)
     return 0;
 }
 
-void KisWebSocket::dispatch_record(const std::string& tr_id, const std::vector<std::string>& f)
+void KisWebSocket::dispatch_record(std::string_view tr_id, kis_ws::Fields f)
 {
     if (tr_id == "H0STASP0")
     {
@@ -1521,23 +1499,24 @@ void KisWebSocket::dispatch_record(const std::string& tr_id, const std::vector<s
 // 여기는 진단 로그와 콜백 호출만 남긴다. [why D-037]
 
 // 채널별 첫 수신 레코드를 한 번만 통째로 찍는다. 전문 필드 순서를 실데이터로 확인하는 용도라
-// 종목마다 한 줄이면 충분하다. max_fields=0이면 전 필드.
-static void log_first_record(std::set<std::string>& seen, const char* channel,
-                             const std::vector<std::string>& f, size_t max_fields, const char* sep)
+// 채널당 한 줄이면 충분하다(종목마다 찍던 set 조회를 틱 경로에서 뺐다, D-042). max_fields=0이면 전 필드.
+static void log_first_record(bool& logged, const char* channel, kis_ws::Fields f, size_t max_fields,
+                             const char* sep)
 {
-    if (seen.find(f[0]) != seen.end())
+    if (logged)
     {
         return;
     }
 
-    seen.insert(f[0]);
-    std::string dbg = std::string("[WS] ") + channel + " 첫 수신 [" + f[0] + "] 총 " +
+    logged = true;
+    std::string dbg = std::string("[WS] ") + channel + " 첫 수신 [" + std::string(f[0]) + "] 총 " +
                       std::to_string(f.size()) + "필드:";
     const size_t n = (max_fields == 0) ? f.size() : std::min(f.size(), max_fields);
 
     for (size_t i = 0; i < n; ++i)
     {
-        dbg += sep + std::string("[") + std::to_string(i) + "]=" + f[i];
+        dbg += sep + std::string("[") + std::to_string(i) + "]=";
+        dbg.append(f[i].data(), f[i].size());
     }
 
     LOG_INFO(dbg);
@@ -1545,9 +1524,9 @@ static void log_first_record(std::set<std::string>& seen, const char* channel,
 
 // 호가·체결은 숫자 하나가 비어도 흘려보낸다(kBadNumber → 0으로 남긴 채 콜백). 이 관대함은
 // 옛 동작을 그대로 옮긴 것이고, 버릴지는 C-4에서 정한다.
-void KisWebSocket::parse_orderbook(const std::vector<std::string>& f)
+void KisWebSocket::parse_orderbook(kis_ws::Fields f)
 {
-    static std::set<std::string> first_logged;
+    static bool first_logged = false;
     OrderBook ob;
     const auto rc = kis_ws::decode_orderbook(f, ob);
 
@@ -1566,9 +1545,9 @@ void KisWebSocket::parse_orderbook(const std::vector<std::string>& f)
     }
 }
 
-void KisWebSocket::parse_kr_trade(const std::vector<std::string>& f)
+void KisWebSocket::parse_kr_trade(kis_ws::Fields f)
 {
-    static std::set<std::string> first_logged;
+    static bool first_logged = false;
     TradeData td;
 
     if (kis_ws::decode_kr_trade(f, td) == kis_ws::Decode::kShort)
@@ -1585,9 +1564,9 @@ void KisWebSocket::parse_kr_trade(const std::vector<std::string>& f)
 }
 
 // tr_key 형식: "NAS|AAPL" → ticker = "AAPL". 방향 필드 f[20]은 실데이터 미검증(보류 목록).
-void KisWebSocket::parse_us_trade(const std::vector<std::string>& f)
+void KisWebSocket::parse_us_trade(kis_ws::Fields f)
 {
-    static std::set<std::string> first_us_logged;
+    static bool first_us_logged = false;
     TradeData td;
 
     if (kis_ws::decode_us_trade(f, td) == kis_ws::Decode::kShort)
@@ -1604,9 +1583,9 @@ void KisWebSocket::parse_us_trade(const std::vector<std::string>& f)
 }
 
 // 선물 체결엔 매수/매도 구분 코드가 없어 direction=0으로 나간다.
-void KisWebSocket::parse_fut_trade(const std::vector<std::string>& f)
+void KisWebSocket::parse_fut_trade(kis_ws::Fields f)
 {
-    static std::set<std::string> first_logged;
+    static bool first_logged = false;
     TradeData td;
 
     if (kis_ws::decode_fut_trade(f, td) == kis_ws::Decode::kShort)
@@ -1622,9 +1601,9 @@ void KisWebSocket::parse_fut_trade(const std::vector<std::string>& f)
     }
 }
 
-void KisWebSocket::parse_fut_orderbook(const std::vector<std::string>& f)
+void KisWebSocket::parse_fut_orderbook(kis_ws::Fields f)
 {
-    static std::set<std::string> first_logged;
+    static bool first_logged = false;
     OrderBook ob;
     const auto rc = kis_ws::decode_fut_orderbook(f, ob);
 
@@ -1644,7 +1623,7 @@ void KisWebSocket::parse_fut_orderbook(const std::vector<std::string>& f)
 }
 
 // 체결통보는 원장에 들어가므로 관대하지 않다 — 읽지 못한 레코드는 버리고 WARN을 남긴다.
-void KisWebSocket::parse_fill_notification(const std::vector<std::string>& f)
+void KisWebSocket::parse_fill_notification(kis_ws::Fields f)
 {
     if (f.size() < kis_ws::kMinFieldsFill)
     {
@@ -1670,7 +1649,8 @@ void KisWebSocket::parse_fill_notification(const std::vector<std::string>& f)
         break;
 
     case kis_ws::Decode::kBadSide:
-        LOG_WARN("[WS] H0STCNI 매매구분 알 수 없음 '" + f[4] + "' ODNO=" + f[2] + " — 체결 무시");
+        LOG_WARN("[WS] H0STCNI 매매구분 알 수 없음 '" + std::string(f[4]) + "' ODNO=" + std::string(f[2]) +
+                 " — 체결 무시");
         return;
 
     case kis_ws::Decode::kBadNumber:

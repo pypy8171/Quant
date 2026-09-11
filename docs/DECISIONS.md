@@ -1476,3 +1476,41 @@ x64-release` 11/11. 실행 중 `quant_trader`는 재빌드하지 않았다 — �
 `kOk`로 고정한다. `Quant/tests/test_order_router.cpp` 스텁은 `OrderAck::fail(err_code)`로 실패를 내고
 `blocked_sell_releases_reservation`이 `40240000` 경로를 그대로 통과한다. `ctest --preset x64-release` 11/11.
 `Quant/tools/manual_order.cpp`는 `ack.err_code`를 화면에 찍는다. 실행 중 `quant_trader`는 재빌드하지 않았다.
+
+### D-042 WS 프레임은 원문을 가리키는 뷰로 나누고, 링버퍼 인덱스는 마스크로 얻는다 — 수신단 할당 제거 (2026-09-11)
+**상태**: 채택 (`Quant/src/core/Engine.cpp`·`OrderGate` 쪽 종목 ID 인터닝·키 구조체는 D-036 커밋 뒤 C-5 후반으로 잇는다)
+
+**결정**: 넷이다.
+
+1. `KisWebSocket::parse_message`는 프레임을 `std::string` 벡터로 자르지 않는다. `kis_ws::split_fields`가
+   원문 `msg`를 가리키는 `string_view` 벡터(`parts_`·`fields_`, 수신 스레드 소유, 용량 재사용)를 채우고,
+   디코더 6종은 `kis_ws::Fields{data, count}`(16바이트 뷰)를 받는다. 다건 프레임은 `kis_ws::Records`가
+   구간만 가리킨다 — 레코드마다 벡터를 만들지 않는다. 뷰는 `msg`가 사는 함수 범위 안에서만 쓰고, 복호
+   평문은 같은 범위의 `plain`에 둔다.
+2. 채널별 "첫 수신" 진단 로그는 종목마다가 아니라 채널마다 한 번이다. 틱마다 `std::set<std::string>`을
+   찾던 조회가 빠진다. 전문 필드 순서를 실데이터로 확인하는 용도라 채널당 한 줄이면 족하다.
+3. `RingBuffer`는 용량을 2의 거듭제곱으로 올리고(`1024→1024`, `1000→1024`) 인덱스를 `& mask_`로 얻는다.
+   `head_`·`tail_`은 감싸지 않는 누적 카운터라 full/empty 구분용 빈 슬롯이 없고, `size()`는 `head - tail`
+   하나다. `capacity()`는 실제 슬롯 수를 돌려준다.
+4. `OrderRouter::next_id`는 `ostringstream` 대신 고정 버퍼 `snprintf`다. 주문마다 부르는 곳이다.
+
+**배경**: 호가 프레임 한 장(59필드)이 `split_str` 두 번으로 `std::string` 60여 개를 만들었고 토큰은 문자
+단위 `+=`로 자랐다. `COUNT`는 `stoi`+`try/catch`였다. 링버퍼는 `% capacity_` 나눗셈이 push·pop마다 있었다
+(`_private/code_upgrade/CPP_LEVEL_AUDIT.md` 3절·7절).
+
+**대안 비교**:
+
+| 안 | 판정 |
+|---|---|
+| `std::vector<std::string>`을 두고 `reserve`만 | 기각. 토큰 문자열 자체의 할당이 남는다(SSO를 넘는 필드가 있고, 벡터 재사용도 요소 소멸을 부른다) |
+| 디코더를 컨테이너 템플릿으로 | 기각. 테스트가 `vector<string>`으로 부르는 편의를 위해 헤더에 템플릿을 두면 계약이 흐려진다. 테스트 쪽 어댑터 `V` 한 줄로 충분하다 |
+| 뷰 벡터를 함수 지역 변수로 | 기각. 프레임마다 벡터 할당이 다시 생긴다. 수신 스레드 하나만 만지므로 멤버가 맞다 |
+| 링버퍼 용량을 사용자가 준 값 그대로 두고 나눗셈 유지 | 기각. 엔진의 큐 4개는 이미 2의 거듭제곱(1024·256·4096·4096)이라 올림으로 커지는 곳이 없다 |
+| 종목 ID 인터닝(`SymbolId`)까지 한 번에 | 보류. `TradeData`·`OrderBook`에 ID를 실으려면 `Engine.cpp`·전략 등록·`OrderGate` 키가 같이 바뀌어야 하고 그 파일들은 D-036이 쥐고 있다 |
+
+**확인 방법**: 같은 59필드 호가 프레임을 30만 번 자르고 디코드하는 마이크로벤치(임시 파일, 리포 밖)에서
+프레임당 4,440ns → 690ns(6.4배), 체크섬 동일. `docs/reports/PIPELINE_LATENCY_REPORT.md` 결과 ④.
+`Quant/tests/test_ws_frame.cpp`는 뷰의 수명 함정을 그대로 드러냈다 — 임시 벡터에서 만든 뷰를 식 밖에서
+읽어 첫 실행에 실패했고, 벡터를 잡아 두는 형태로 고쳤다. `Quant/tests/test_ringbuffer.cpp`에 용량 올림·
+가득 참·마스크 경계 케이스를 더했다. `ctest --preset x64-release` 13/13. 실행 중 `quant_trader`는 재빌드하지
+않았다(주문·수신 경로는 장 종료 후 재기동).

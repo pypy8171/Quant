@@ -1,10 +1,12 @@
 #pragma once
 #include "api/KisClient.h"
+#include "api/KisWsDecode.h"
 #include "core/Types.h"
 #include <atomic>
 #include <functional>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -62,43 +64,10 @@ public:
     // 반환: 구독 프레임을 실제로 보냈으면 true.
     bool subscribe_incremental(const WatchSpec& spec);
 
-    // 다건 프레임의 데이터부(^-구분 필드 전체)를 레코드 단위로 자른다. 순수 함수 — 단위 테스트 대상.
-    //  KIS 원문 스펙이 리포에 없어 채널별 절대 폭을 하드코딩하지 않고, 레코드 폭이 채널마다 고정이라는
-    //  성질만 써서 "총 필드 수 / count"로 폭을 복원한다. count<=1이거나 나누어떨어지지 않거나 폭이
-    //  min_fields 미만이면 빈 벡터 — 호출부는 기존 1건 경로로 떨어진다(보수적 실패).
-    static std::vector<std::vector<std::string>> split_records(
-        const std::vector<std::string>& fields, int count, size_t min_fields)
+    // 다건 프레임 분리는 kis_ws::split_records(api/KisWsDecode.h). 여기 이름은 테스트·호출부 호환용.
+    static kis_ws::Records split_records(kis_ws::Fields fields, int count, size_t min_fields) noexcept
     {
-        std::vector<std::vector<std::string>> out;
-
-        if (count <= 1 || fields.empty())
-        {
-            return out;
-        }
-
-        const size_t n = static_cast<size_t>(count);
-
-        if (fields.size() % n != 0)
-        {
-            return out;
-        }
-
-        const size_t width = fields.size() / n;
-
-        if (width < min_fields || width == 0)
-        {
-            return out;
-        }
-
-        out.reserve(n);
-
-        for (size_t r = 0; r < n; ++r)
-        {
-            out.emplace_back(fields.begin() + static_cast<std::ptrdiff_t>(r * width),
-                             fields.begin() + static_cast<std::ptrdiff_t>((r + 1) * width));
-        }
-
-        return out;
+        return kis_ws::split_records(fields, count, min_fields);
     }
 
     bool is_connected() const
@@ -141,17 +110,20 @@ private:
     void recv_loop();
     void parse_message(const std::string& msg);
     // 레코드 한 건을 tr_id에 맞는 파서로 보낸다(단건·다건 프레임이 공유).
-    void dispatch_record(const std::string& tr_id, const std::vector<std::string>& f);
+    void dispatch_record(std::string_view tr_id, kis_ws::Fields f);
     // 채널별 파서가 요구하는 최소 필드 수(각 parse_*의 가드와 같은 값). 모르는 채널은 0.
-    static size_t min_fields_for(const std::string& tr_id);
+    static size_t min_fields_for(std::string_view tr_id) noexcept;
+    // 프레임 분해 뷰 벡터. 수신 스레드만 만지고 용량을 재사용해 정상 상태에서 할당이 없다. [why D-042]
+    std::vector<std::string_view> parts_;
+    std::vector<std::string_view> fields_;
     // 다건 프레임을 자르지 못해 1건만 처리했을 때의 경고 횟수. 수신 스레드만 만진다.
     int multi_rec_warned_ = 0;
-    void parse_orderbook(const std::vector<std::string>& f);
-    void parse_kr_trade(const std::vector<std::string>& f);
-    void parse_us_trade(const std::vector<std::string>& f);
-    void parse_fut_trade(const std::vector<std::string>& f);     // H0IFCNT0 선물 체결
-    void parse_fut_orderbook(const std::vector<std::string>& f); // H0IFASP0 선물 호가
-    void parse_fill_notification(const std::vector<std::string>& f);
+    void parse_orderbook(kis_ws::Fields f);
+    void parse_kr_trade(kis_ws::Fields f);
+    void parse_us_trade(kis_ws::Fields f);
+    void parse_fut_trade(kis_ws::Fields f);     // H0IFCNT0 선물 체결
+    void parse_fut_orderbook(kis_ws::Fields f); // H0IFASP0 선물 호가
+    void parse_fill_notification(kis_ws::Fields f);
 
     // 체결통보(H0STCNI) 복호화 — base64 + AES-256-CBC (플랫폼별 구현)
     static std::string base64_decode(const std::string& in);
@@ -159,7 +131,6 @@ private:
                                        const std::string& key,
                                        const std::string& iv);
 
-    static std::vector<std::string> split_str(const std::string& s, char delim);
     static std::wstring to_wide(const std::string& s);
     static std::string http_post_json(const std::string& url, const std::string& body);
 
