@@ -930,33 +930,11 @@ private:
         {
             try
             {
-                nlohmann::json bal = akis->get_balance();
-                const nlohmann::json* row = nullptr;
+                const KisResult<AccountBalance> bal = akis->get_balance();
 
-                if (bal.contains("output2"))
+                if (bal && bal->total_eval_amt)
                 {
-                    const auto& o2 = bal["output2"];
-
-                    if (o2.is_array() && !o2.empty())
-                    {
-                        row = &o2[0];
-                    }
-                    else if (o2.is_object())
-                    {
-                        row = &o2;
-                    }
-                }
-
-                if (row)
-                {
-                    std::string s = row->value("tot_evlu_amt", std::string());
-
-                    if (s.empty())
-                    {
-                        s = row->value("nass_amt", std::string());
-                    }
-
-                    if (!s.empty()) { try { eq = std::stod(s); } catch (...) {} }
+                    eq = *bal->total_eval_amt;
                 }
             }
             catch (...) {}
@@ -1177,29 +1155,22 @@ private:
             // 접근자 미주입(단독 실행·테스트) 경로. 공유 전략 스레드에서 동기로 돌므로 재시도만 뗀다 —
             //  실패는 아래에서 0으로 떨어지고 다음 하트비트에 다시 온다.
             KisClient::FastFailScope ff;
-            nlohmann::json bal = akis->get_balance();
+            const KisResult<AccountBalance> bal = akis->get_balance();
 
-            if (!bal.contains("output1") || !bal["output1"].is_array())
+            if (!bal)
             {
                 return 0;
             }
 
-            for (const auto& h : bal["output1"])
+            for (const Holding& h : bal->holdings)
             {
-                if (h.value("pdno", std::string()) != p_.ticker)
+                if (h.ticker != p_.ticker)
                 {
                     continue;
                 }
 
-                try { last_avg_px_ = std::stod(h.value("pchs_avg_pric", std::string("0"))); } catch (...) {}
-                std::string p = h.value("ord_psbl_qty", std::string());
-
-                if (p.empty())
-                {
-                    return 0;
-                }
-
-                try { return std::stoi(p); } catch (...) { return 0; }
+                last_avg_px_ = h.avg_price;
+                return h.sellable_qty.value_or(0);
             }
 
             return 0; // 잔고에 종목 없음 → 매도가능 0

@@ -1,6 +1,7 @@
 // api/KisIndex.cpp — 지수·업종 일봉, 투자자 매매동향·수급, 지수 현재값, 국내 선물 시세·전광판.
 //  [why D-048] 파일 분할 경위.
 #include "KisClientInternal.h"
+#include "api/KisRestDecode.h"
 
 // ─── 업종 지수 일봉 ──────────────────────────────────────────────────────────
 std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sector_code, int count)
@@ -459,8 +460,10 @@ KisClient::FuturePrice KisClient::get_future_price(const std::string& iscd, cons
     return fp;
 }
 
-nlohmann::json KisClient::get_future_board(const std::string& market_cls, const std::string& market_div)
+KisResult<std::vector<FutureContract>> KisClient::get_future_board(const std::string& market_cls,
+                                                                   const std::string& market_div)
 {
+    using R = KisResult<std::vector<FutureContract>>;
     ensure_authenticated();
 
     std::string url = base_url() + "/uapi/domestic-futureoption/v1/quotations/display-board-futures"
@@ -477,14 +480,29 @@ nlohmann::json KisClient::get_future_board(const std::string& market_cls, const 
         if (j.is_discarded())
         {
             LOG_WARN("[KIS] get_future_board JSON 파싱 불가: " + resp.substr(0, 200));
-            return json::object();
+            return R::fail("parse", resp.substr(0, 200));
         }
 
-        return j;
+        if (j.value("rt_cd", "0") != "0")
+        {
+            LOG_WARN("[KIS] get_future_board 응답 오류 " + j.value("msg_cd", "") + " " + j.value("msg1", ""));
+            return R::fail(j.value("msg_cd", "rt_cd"), j.value("msg1", ""));
+        }
+
+        // 스키마 변동 대비: 프로세스당 첫 응답 한 번은 raw를 남긴다(get_future_price와 같은 규칙).
+        static bool dumped = false;
+
+        if (!dumped)
+        {
+            dumped = true;
+            LOG_INFO("[KIS] get_future_board RAW " + resp.substr(0, 500));
+        }
+
+        return R::ok(kis_rest::decode_future_board(j));
     }
     catch (const std::exception& e)
     {
         LOG_WARN(std::string("[KIS] get_future_board 실패: ") + e.what());
-        return json::object();
+        return R::fail("transport", e.what());
     }
 }

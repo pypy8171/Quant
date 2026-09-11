@@ -1,7 +1,9 @@
-// KIS REST 분봉 디코더(api/KisRestDecode.h) 단위 테스트. 숫자 필드 실패 처리·시각 변환·페이지 병합(중복·날짜
-// 필터·커서)·interval 집계(OHLC 병합·정렬·bar_index·count 상한)를 고정한다. 헤더 전용이라 HTTP·인증 링크 없이 돈다.
-// 관련 결정: D-051.
+// KIS REST 디코더(api/KisRestDecode.h) 단위 테스트. 분봉: 숫자 필드 실패 처리·시각 변환·페이지 병합(중복·날짜
+// 필터·커서)·interval 집계(OHLC 병합·정렬·bar_index·count 상한). 잔고: 행 필터·주문가능수량 "모름"·요약 폴백·
+// 배열/객체 output2. 전광판: 키 후보 순서·빈 코드. 헤더 전용이라 HTTP·인증 링크 없이 돈다.
+// 관련 결정: D-051(분봉), D-059(잔고·전광판·KisResult).
 #include "api/KisRestDecode.h"
+#include "api/KisResult.h"
 
 #include <cassert>
 #include <iostream>
@@ -149,11 +151,110 @@ int test_aggregate()
     return 0;
 }
 
+int test_opt_num()
+{
+    json o = {{"a", "12.5"}, {"b", ""}, {"c", "x"}, {"d", 3}};
+    CHECK(kis_rest::opt_num(o, "a") && *kis_rest::opt_num(o, "a") == 12.5);
+    CHECK(!kis_rest::opt_num(o, "b"));       // 빈 문자열은 "없음" — num()의 0과 다르다
+    CHECK(!kis_rest::opt_num(o, "c"));
+    CHECK(!kis_rest::opt_num(o, "d"));       // 문자열이 아닌 값
+    CHECK(!kis_rest::opt_num(o, "missing"));
+    return 0;
+}
+
+int test_decode_holding()
+{
+    json h = {{"pdno", "005930"}, {"prdt_name", "삼성전자"}, {"hldg_qty", "12"}, {"pchs_avg_pric", "71000.0000"},
+              {"ord_psbl_qty", "10 "}, {"evlu_pfls_amt", "-1200"}};
+    Holding r = kis_rest::decode_holding(h);
+    CHECK(r.ticker == "005930" && r.name == "삼성전자" && r.qty == 12 && r.avg_price == 71000.0);
+    CHECK(r.eval_pnl == -1200.0);
+    CHECK(r.sellable_qty && *r.sellable_qty == 10); // 꼬리 공백 허용
+
+    // ord_psbl_qty 없음·숫자 아님 → 비어 있음("모름"). 0은 "매도 가능 0주"로 남는다.
+    CHECK(!kis_rest::decode_holding(json{{"pdno", "1"}, {"hldg_qty", "1"}}).sellable_qty);
+    CHECK(!kis_rest::decode_holding(json{{"pdno", "1"}, {"hldg_qty", "1"}, {"ord_psbl_qty", "n/a"}}).sellable_qty);
+    Holding z = kis_rest::decode_holding(json{{"pdno", "1"}, {"hldg_qty", "1"}, {"ord_psbl_qty", "0"}});
+    CHECK(z.sellable_qty && *z.sellable_qty == 0);
+    return 0;
+}
+
+int test_decode_balance_page()
+{
+    // 1페이지: 보유 2행 + 0주 행(매도 완료 뒤 남은 것) + pdno 없는 행 → 2행만. output2는 배열.
+    json p1 = {{"rt_cd", "0"},
+               {"output1", json::array({json{{"pdno", "005930"}, {"hldg_qty", "5"}, {"pchs_avg_pric", "70000"}},
+                                        json{{"pdno", "000660"}, {"hldg_qty", "3"}, {"pchs_avg_pric", "200000"}},
+                                        json{{"pdno", "035420"}, {"hldg_qty", "0"}, {"pchs_avg_pric", "1"}},
+                                        json{{"hldg_qty", "9"}}})},
+               {"output2", json::array({json{{"tot_evlu_amt", "1500000"}, {"prvs_rcdl_excc_amt", "300000"},
+                                             {"dnca_tot_amt", "999"}, {"bfdy_tot_asst_evlu_amt", "1490000"}}})}};
+    AccountBalance b;
+    kis_rest::decode_balance_page(p1, b, /*first_page=*/true);
+    CHECK(b.holdings.size() == 2 && b.holdings[0].ticker == "005930" && b.holdings[1].qty == 3);
+    CHECK(b.total_eval_amt && *b.total_eval_amt == 1500000.0);
+    CHECK(b.available_cash && *b.available_cash == 300000.0); // 가수도정산금 우선
+    CHECK(b.prev_day_total_asset && *b.prev_day_total_asset == 1490000.0);
+
+    // 2페이지: 보유 누적, output2는 첫 페이지 것을 유지(덮어쓰지 않는다).
+    json p2 = {{"output1", json::array({json{{"pdno", "051910"}, {"hldg_qty", "1"}, {"pchs_avg_pric", "5"}}})},
+               {"output2", json::array({json{{"tot_evlu_amt", "1"}}})}};
+    kis_rest::decode_balance_page(p2, b, /*first_page=*/false);
+    CHECK(b.holdings.size() == 3 && b.holdings[2].ticker == "051910");
+    CHECK(*b.total_eval_amt == 1500000.0);
+
+    // output2가 객체이고 tot_evlu_amt가 비면 nass_amt, 가수도정산금이 비면 예수금으로.
+    json p3 = {{"output1", json::array()},
+               {"output2", json{{"tot_evlu_amt", ""}, {"nass_amt", "77"}, {"dnca_tot_amt", "5"}}}};
+    AccountBalance c;
+    kis_rest::decode_balance_page(p3, c, true);
+    CHECK(c.holdings.empty());
+    CHECK(c.total_eval_amt && *c.total_eval_amt == 77.0);
+    CHECK(c.available_cash && *c.available_cash == 5.0);
+    CHECK(!c.prev_day_total_asset);
+
+    // output1·output2 둘 다 없음(한도 초과 본문 모양) → 아무것도 채우지 않는다.
+    AccountBalance d;
+    kis_rest::decode_balance_page(json{{"rt_cd", "1"}, {"msg_cd", "EGW00201"}}, d, true);
+    CHECK(d.holdings.empty() && !d.total_eval_amt && !d.available_cash);
+    return 0;
+}
+
+int test_decode_future_board()
+{
+    // output1이 비어 있으면 output2, 그것도 없으면 output. 코드 없는 행은 버린다.
+    json j = {{"output1", json::array()},
+              {"output2", json::array({json{{"futs_shrn_iscd", "101W09"}, {"hts_kor_isnm", "KOSPI200 F 202609"}},
+                                       json{{"hts_kor_isnm", "코드 없음"}},
+                                       json{{"futs_shrn_iscd", "101WC0"}, {"hts_kor_isnm", "KOSPI200 F 202612"}}})},
+              {"output", json::array({json{{"futs_shrn_iscd", "ZZZ"}}})}};
+    auto rows = kis_rest::decode_future_board(j);
+    CHECK(rows.size() == 2 && rows[0].iscd == "101W09" && rows[1].iscd == "101WC0");
+    CHECK(rows[0].name == "KOSPI200 F 202609");
+    CHECK(kis_rest::decode_future_board(json::object()).empty());
+    CHECK(kis_rest::decode_future_board(json{{"output1", "not-an-array"}}).empty());
+    return 0;
+}
+
+int test_kis_result()
+{
+    // 봉투: 실패는 bool false·error_text, 성공은 값 접근. 실패 봉투의 값은 기본 생성값이라 비어 있다.
+    KisResult<AccountBalance> f = KisResult<AccountBalance>::fail("EGW00201", "초당 거래건수 초과");
+    CHECK(!f && !f.ok() && f.error().code == "EGW00201" && f.error_text() == "EGW00201 초당 거래건수 초과");
+    CHECK(f->holdings.empty());
+    AccountBalance b;
+    b.holdings.push_back(Holding{"005930", "삼성전자", 1, 70000.0, 0.0, std::nullopt});
+    KisResult<AccountBalance> o = KisResult<AccountBalance>::ok(std::move(b));
+    CHECK(o && o.error_text().empty() && o->holdings.size() == 1 && (*o).holdings[0].ticker == "005930");
+    return 0;
+}
+
 } // namespace
 
 int main()
 {
-    if (test_num() || test_parse_dt() || test_parse_minute_page() || test_aggregate())
+    if (test_num() || test_parse_dt() || test_parse_minute_page() || test_aggregate() || test_opt_num() ||
+        test_decode_holding() || test_decode_balance_page() || test_decode_future_board() || test_kis_result())
     {
         return 1;
     }

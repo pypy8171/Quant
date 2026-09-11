@@ -744,7 +744,7 @@ std::string Engine::ticker_name(const std::string& ticker) const
 }
 
 // ─── G5: 실계좌 보유분 원장 부트스트랩 ──────────────────────────────────────
-//  get_balance output1의 pdno/hldg_qty/pchs_avg_pric를 OrderGate.seed_position으로 시드.
+//  get_balance 보유 행(ticker/qty/avg_price)을 OrderGate.seed_position으로 시드.
 //  계좌키는 account=""(전략 신호의 기본 account_id와 일치, C-1). 평단까지 시드해야
 //  매도 실현손익·일일손실 한도가 실제와 정합(C-2). reset_daily가 positions_/avg_prices_를
 //  보존하므로 장 시작 리셋 후에도 유지 — 프로세스 기동당 1회면 충분.
@@ -752,7 +752,7 @@ bool Engine::bootstrap_ledger()
 {
     try
     {
-        nlohmann::json bal;
+        KisResult<AccountBalance> bal = KisResult<AccountBalance>::fail("init", "");
 
         // 기동 직후는 유령주문 취소·유니버스 스캔과 같은 초 안에 겹쳐 한도(초당 5건)에 자주
         //  걸린다. 실패를 "보유 0"으로 읽고 넘어가면 빈 원장으로 매매한다(09-11 09:17 사례).
@@ -761,17 +761,17 @@ bool Engine::bootstrap_ledger()
         {
             bal = kis_->get_balance();
 
-            if (bal.contains("output1"))
+            if (bal)
             {
                 break;
             }
 
-            LOG_WARN("[Engine] 원장 부트스트랩: 잔고 응답 없음 — 재시도 " +
+            LOG_WARN("[Engine] 원장 부트스트랩: 잔고 실패(" + bal.error_text() + ") — 재시도 " +
                      std::to_string(attempt + 1) + "/5");
             std::this_thread::sleep_for(std::chrono::milliseconds(1500));
         }
 
-        if (!bal.contains("output1"))
+        if (!bal)
         {
             LOG_ERROR("[Engine] 원장 부트스트랩: 잔고를 끝내 못 읽음 — 기동 중단");
             return false;
@@ -779,33 +779,19 @@ bool Engine::bootstrap_ledger()
 
         int n = 0;
 
-        for (auto& h : bal["output1"])
+        for (const Holding& h : bal->holdings)
         {
-            std::string code = h.value("pdno", "");
-            std::string pname = h.value("prdt_name", "");
-            int    q  = std::atoi(h.value("hldg_qty", "0").c_str());
-            double av = std::atof(h.value("pchs_avg_pric", "0").c_str());
-
-            if (!code.empty() && q > 0)
-            {
-                // 주문가능수량(ord_psbl_qty)을 게이트에 함께 시드한다. 보유수량과 다르면(직전
-                //  세션이 남긴 미체결 매도·미결제분) 전량 청산이 40240000으로 통째 거부돼
-                //  한 주도 못 빠져나온다(09-08 047050 254주·381주 연속 거부). 필드가 없거나
-                //  파싱 실패면 -1을 넘겨 "모름"으로 두고 보유수량을 그대로 쓴다.
-                std::string psbl = h.value("ord_psbl_qty", std::string("(field없음)"));
-                int psbl_q = -1;
-
-                if (!psbl.empty() && psbl.find_first_not_of("0123456789 ") == std::string::npos)
-                {
-                    psbl_q = std::atoi(psbl.c_str());
-                }
-
-                order_gate_.seed_position(std::string(), code, q, av, psbl_q);
-                register_ticker_name(code, pname); // 로그 라벨(초기 보유분 종목명)
-                LOG_INFO("[Engine]   시드 " + code + " " + pname + " " + std::to_string(q) + "주 @평단 " +
-                         std::to_string(static_cast<long long>(av)) + " 주문가능=" + psbl);
-                ++n;
-            }
+            // 주문가능수량(ord_psbl_qty)을 게이트에 함께 시드한다. 보유수량과 다르면(직전
+            //  세션이 남긴 미체결 매도·미결제분) 전량 청산이 40240000으로 통째 거부돼
+            //  한 주도 못 빠져나온다(09-08 047050 254주·381주 연속 거부). 필드가 없거나
+            //  파싱 실패면 -1을 넘겨 "모름"으로 두고 보유수량을 그대로 쓴다.
+            const int psbl_q = h.sellable_qty.value_or(-1);
+            order_gate_.seed_position(std::string(), h.ticker, h.qty, h.avg_price, psbl_q);
+            register_ticker_name(h.ticker, h.name); // 로그 라벨(초기 보유분 종목명)
+            LOG_INFO("[Engine]   시드 " + h.ticker + " " + h.name + " " + std::to_string(h.qty) + "주 @평단 " +
+                     std::to_string(static_cast<long long>(h.avg_price)) + " 주문가능=" +
+                     (h.sellable_qty ? std::to_string(*h.sellable_qty) : std::string("(field없음)")));
+            ++n;
         }
 
         LOG_INFO("[Engine] 원장 부트스트랩 완료: " + std::to_string(n) + "종목 시드");
@@ -856,10 +842,15 @@ void Engine::reconcile_from_balance(bool resync_positions)
 
     try
     {
-        nlohmann::json bal = kis_->get_balance();
+        const KisResult<AccountBalance> bal = kis_->get_balance();
+
+        if (!bal)
+        {
+            LOG_WARN("[Engine] 잔고 대조: 조회 실패(" + bal.error_text() + ")");
+        }
 
         // 1) 보유분 재동기 — 실체결 원장을 실제 잔고로 강제 일치.
-        if (bal.contains("output1"))
+        if (bal)
         {
             responded = true;
 
@@ -886,17 +877,11 @@ void Engine::reconcile_from_balance(bool resync_positions)
             // 잔고에 있는 종목을 모으면서, 재동기 모드면 원장까지 덮어쓴다.
             std::vector<std::string> held;
 
-            for (auto& h : bal["output1"])
+            for (const Holding& h : bal->holdings)
             {
-                std::string code = h.value("pdno", "");
-                int    q  = std::atoi(h.value("hldg_qty", "0").c_str());
-                double av = std::atof(h.value("pchs_avg_pric", "0").c_str());
-
-                if (code.empty() || q <= 0)
-                {
-                    continue;
-                }
-
+                const std::string& code = h.ticker;
+                const int    q  = h.qty;
+                const double av = h.avg_price;
                 held.push_back(code);
                 broker_now.push_back(reconcile::Held{code, q, av});
 
@@ -906,11 +891,9 @@ void Engine::reconcile_from_balance(bool resync_positions)
                 }
 
                 // 매도가능수량은 재동기 모드와 무관하게 매번 맞춘다(기동 시드 0 고착 해소).
-                const std::string psbl = h.value("ord_psbl_qty", "");
-
-                if (!psbl.empty() && psbl.find_first_not_of("0123456789 ") == std::string::npos)
+                if (h.sellable_qty)
                 {
-                    order_gate_.refresh_sellable(std::string(), code, std::atoi(psbl.c_str()));
+                    order_gate_.refresh_sellable(std::string(), code, *h.sellable_qty);
                 }
 
                 // 체결통보 모드는 원장을 덮어쓰지 않는다. 대신 재연결 사이에 빠진 매도 체결만
@@ -934,11 +917,11 @@ void Engine::reconcile_from_balance(bool resync_positions)
             //  체결통보가 오는 WS 모드에서도 통보를 놓치면 같은 자리에 남으므로 두 모드 다 돈다.
             //  갓 열린 포지션은 잔고 왕복이 체결보다 빨랐을 수 있어 남긴다.
             //
-            // [inv] held가 비면 한 종목도 걷어내지 않는다. output1이 있는데 비어 있는 응답은
-            //  "보유가 없다"보다 "잔고를 못 받았다"일 때가 압도적으로 많다 — 초당 한도(EGW00201)나
-            //  일시 오류가 빈 배열로 돌아온다. 그걸 정본으로 믿고 지우면 원장이 통째로 날아가고,
-            //  엔진은 미보유로 읽어 같은 종목을 다시 산다(09-09 14:04, 재기동 직후 한도 폭주 중에
-            //  25종목 전부 정리됨). 진짜로 빈 계좌라면 걷어낼 것도 없으니 건너뛰어 잃는 것이 없다.
+            // [inv] held가 비면 한 종목도 걷어내지 않는다. 초당 한도(EGW00201)·전송 실패는 D-059부터
+            //  fail 봉투로 걸러져 여기 오지 않지만, rt_cd="0"에 빈 output1로 오는 일시 오류가 없다고 장담할
+            //  수 없어 가드는 남긴다. 빈 응답을 정본으로 믿고 지우면 원장이 통째로 날아가고 엔진은 미보유로
+            //  읽어 같은 종목을 다시 산다(09-09 14:04, 재기동 직후 한도 폭주 중에 25종목 전부 정리됨).
+            //  진짜로 빈 계좌라면 걷어낼 것도 없으니 건너뛰어 잃는 것이 없다.
             const auto gone = held.empty()
                             ? std::vector<std::string>{}
                             : order_gate_.prune_positions(held, kPrunePositionAgeSec);
@@ -983,7 +966,7 @@ void Engine::reconcile_from_balance(bool resync_positions)
             }
         }
 
-        // 2) 당일 총평가금 델타 → daily_pnl_. output2는 배열 또는 객체로 올 수 있어 양쪽 수용.
+        // 2) 당일 총평가금 델타 → daily_pnl_. 요약 필드의 부재는 optional이 든다(디코더가 배열/객체 양쪽 수용).
         double tot_eval = 0.0;
         bool have_eval = false;
         // 표시 전용: 전일 총자산(bfdy_tot_asst_evlu_amt) 대비 오늘 손익 — launch 시점과 무관하게
@@ -991,65 +974,27 @@ void Engine::reconcile_from_balance(bool resync_positions)
         double bfdy_asset = 0.0;
         bool have_bfdy = false;
 
-        if (bal.contains("output2"))
+        if (bal)
         {
-            const auto& o2 = bal["output2"];
-            const nlohmann::json* row = nullptr;
-
-            if (o2.is_array() && !o2.empty())
+            if (bal->total_eval_amt)
             {
-                row = &o2[0];
-            }
-            else if (o2.is_object())
-            {
-                row = &o2;
+                tot_eval  = *bal->total_eval_amt;
+                have_eval = true;
             }
 
-            if (row)
+            // 주문가능현금 — 매수 클램프의 진짜 상한. 가수도정산금액(실질 주문가능)을
+            //  우선 쓰고 없으면 예수금총금액으로 떨어진다. 평가금과 달리 미체결 지정가와
+            //  미결제 매수로 묶인 몫이 빠져 있어야 40250000 도배를 막을 수 있다.
+            if (bal->available_cash && *bal->available_cash >= 0.0)
             {
-                std::string s = row->value("tot_evlu_amt", "");
+                order_gate_.set_available_cash(*bal->available_cash);
+            }
 
-                if (s.empty())
-                {
-                    s = row->value("nass_amt", ""); // 순자산금액 폴백
-                }
-
-                if (!s.empty())
-                {
-                    try { tot_eval = std::stod(s); have_eval = true; } catch (...) {}
-                }
-
-                // 주문가능현금 — 매수 클램프의 진짜 상한. 가수도정산금액(실질 주문가능)을
-                //  우선 쓰고 없으면 예수금총금액으로 떨어진다. 평가금과 달리 미체결 지정가와
-                //  미결제 매수로 묶인 몫이 빠져 있어야 40250000 도배를 막을 수 있다.
-                std::string cs = row->value("prvs_rcdl_excc_amt", "");
-
-                if (cs.empty())
-                {
-                    cs = row->value("dnca_tot_amt", "");
-                }
-
-                if (!cs.empty())
-                {
-                    try
-                    {
-                        const double cash = std::stod(cs);
-
-                        if (cash >= 0.0)
-                        {
-                            order_gate_.set_available_cash(cash);
-                        }
-                    }
-                    catch (...) {}
-                }
-
-                // 전일 총자산(없으면 순자산 폴백 없이 스킵) — 표시 전용.
-                std::string bs = row->value("bfdy_tot_asst_evlu_amt", "");
-
-                if (!bs.empty())
-                {
-                    try { bfdy_asset = std::stod(bs); have_bfdy = true; } catch (...) {}
-                }
+            // 전일 총자산(없으면 순자산 폴백 없이 스킵) — 표시 전용.
+            if (bal->prev_day_total_asset)
+            {
+                bfdy_asset = *bal->prev_day_total_asset;
+                have_bfdy  = true;
             }
         }
 

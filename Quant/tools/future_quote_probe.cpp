@@ -45,11 +45,13 @@ int main(int argc, char** argv)
     const std::string mrkt = (argc > 3) ? argv[3] : "F";
 
     std::ifstream f(config_path);
+
     if (!f)
     {
         std::cerr << "[중단] config 못 엶: " << config_path << "\n";
         return 1;
     }
+
     json cfg = json::parse(f);
 
     // 시세키 선택: quote_kis(실전 시세) 우선, 없으면 kis.
@@ -66,26 +68,42 @@ int main(int argc, char** argv)
     std::cout << "config=" << config_path << "  키블록=" << block
               << "  is_paper=" << (kc.is_paper ? "true" : "false") << "\n";
     std::cout << "iscd=" << iscd << "  market_div=" << mrkt << "\n";
+
     if (kc.is_paper)
+    {
         std::cout << "[경고] is_paper=true 시세키 — 모의 도메인은 시세 REST 미지원이라 HTTP500이 예상됩니다.\n"
                      "       config에 실전 quote_kis 블록을 두거나 실전 config를 쓰세요.\n";
+    }
 
     KisClient kis(kc);
+
     if (!kis.authenticate())
     {
         std::cerr << "[중단] 인증 실패 (앱키/시크릿 확인)\n";
         return 3;
     }
+
     std::cout << "[1] 인증 완료\n";
 
     // iscd=="list" → 선물 전광판 조회(현재 거래가능 계약 목록·코드). 최근월물 코드 확보용.
     if (iscd == "list")
     {
         std::string cls = (mrkt == "F") ? "MKI" : mrkt; // 3번째 인자를 market_cls로 재사용 가능
-        json board = kis.get_future_board(cls);
+        const KisResult<std::vector<FutureContract>> board = kis.get_future_board(cls);
         std::cout << "[2] 선물 전광판 (market_cls=" << cls << ")\n";
-        std::cout << board.dump(2) << "\n";
-        std::cout << "=== 완료 (output 배열에서 계약코드 필드를 찾아 그 값을 iscd로 재실행) ===\n";
+
+        if (!board)
+        {
+            std::cerr << "[중단] 전광판 조회 실패: " << board.error_text() << "\n";
+            return 4;
+        }
+
+        for (const FutureContract& c : *board)
+        {
+            std::cout << "    " << c.iscd << "  " << c.name << "\n";
+        }
+
+        std::cout << "=== 완료 (첫 행이 최근월물 — 그 코드를 iscd로 재실행. raw는 로그의 'get_future_board RAW') ===\n";
         return 0;
     }
 

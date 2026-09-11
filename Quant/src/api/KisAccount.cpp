@@ -1,11 +1,12 @@
 // api/KisAccount.cpp — 잔고·미체결 조회(연속조회 tr_cont 포함). 원장 재시드·대사가 읽는다.
 //  [why D-048] 파일 분할 경위.
 #include "KisClientInternal.h"
+#include "api/KisRestDecode.h"
 
 // ─── 잔고 조회 (체결 확인용) — inquire-balance ────────────────────────────
-//  output1 = 보유종목 배열(pdno·hldg_qty·pchs_avg_pric), output2 = 계좌 요약.
-//  체결 후 보유수량 변화로 체결을 확인한다. (모의: VTTC8434R / 실거래: TTTC8434R)
-nlohmann::json KisClient::get_balance()
+//  output1 = 보유종목 배열(pdno·hldg_qty·pchs_avg_pric), output2 = 계좌 요약. 필드 해석은
+//  kis_rest::decode_balance_page가 소유한다. (모의: VTTC8434R / 실거래: TTTC8434R)
+KisResult<AccountBalance> KisClient::get_balance()
 {
     std::string tr_id = cfg_.is_paper ? "VTTC8434R" : "TTTC8434R";
 
@@ -23,8 +24,7 @@ nlohmann::json KisClient::get_balance()
         return s;
     };
 
-    nlohmann::json result;
-    nlohmann::json out1 = nlohmann::json::array();
+    AccountBalance bal;
     std::string fk, nk, cont;
 
     for (int page = 0; page < 30; ++page) // 안전 상한(무한루프 방지)
@@ -39,46 +39,31 @@ nlohmann::json KisClient::get_balance()
 
         std::string resp = http_get(url, headers);
 
+        // [inv] 어느 페이지든 못 받으면 전체가 실패다. 2페이지째가 빠진 부분 목록을 성공으로 돌려주면 호출자의
+        //  유령 정리(prune_positions)가 그 페이지의 실보유를 걷어낸다 — 빈 목록 가드로는 못 잡는 구멍.
         if (resp.empty())
         {
-            break;
+            return KisResult<AccountBalance>::fail("transport", "잔고 응답 없음(page=" + std::to_string(page) + ")");
         }
 
-        nlohmann::json j;
+        nlohmann::json j = json::parse(resp, nullptr, false);
 
-        try
+        if (j.is_discarded())
         {
-            j = json::parse(resp);
-        }
-        catch (...)
-        {
-            break;
+            return KisResult<AccountBalance>::fail("parse", "잔고 JSON 파싱 불가(page=" + std::to_string(page) + ")");
         }
 
         // [wire] 한도 초과(EGW00201)나 서버 오류 본문은 rt_cd≠"0"에 output1이 빈 배열이다. 이걸
         //  정상 응답처럼 돌려주면 호출자가 "보유 0종목"으로 읽어 원장을 비운 채 매매한다
-        //  (09-11 09:17 재기동 시드 0건 → 3분간 빈 원장). 첫 페이지 실패는 빈 객체로 돌려
-        //  호출자가 재시도하게 하고, 뒤 페이지 실패는 부분 목록으로 진행하지 않고 끊는다.
+        //  (09-11 09:17 재기동 시드 0건 → 3분간 빈 원장).
         if (j.value("rt_cd", "") != "0")
         {
             LOG_WARN("[KIS] 잔고 조회 응답 오류(page=" + std::to_string(page) + ") " +
                      j.value("msg_cd", "") + " " + j.value("msg1", ""));
-            result = json();
-            break;
+            return KisResult<AccountBalance>::fail(j.value("msg_cd", "rt_cd"), j.value("msg1", ""));
         }
 
-        if (page == 0)
-        {
-            result = j; // output2(계좌요약)·최상위 필드는 첫 페이지 기준
-        }
-
-        if (j.contains("output1") && j["output1"].is_array())
-        {
-            for (auto& h : j["output1"])
-            {
-                out1.push_back(h);
-            }
-        }
+        kis_rest::decode_balance_page(j, bal, page == 0);
 
         std::string nk_next = rtrim(j.value("ctx_area_nk100", ""));
 
@@ -92,13 +77,7 @@ nlohmann::json KisClient::get_balance()
         cont = "N";
     }
 
-    if (result.is_null())
-    {
-        return json::object();
-    }
-
-    result["output1"] = out1;
-    return result;
+    return KisResult<AccountBalance>::ok(std::move(bal));
 }
 
 // ─── 미체결(정정취소 가능) 예약주문 조회 — inquire-psbl-rvsecncl ─────────────

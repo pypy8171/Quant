@@ -1,12 +1,13 @@
 #pragma once
 #include "api/IOrderExecutor.h"
+#include "api/KisResult.h"
+#include "api/KisTypes.h"
 #include "core/Types.h"
 #include <chrono>
 #include <cstdio>
 #include <functional>
 #include <initializer_list>
 #include <mutex>
-#include <nlohmann/json.hpp>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -140,7 +141,10 @@ public:
     [[nodiscard]] bool is_paper() const noexcept override { return cfg_.is_paper; }
     // 미체결(정정취소 가능) 예약주문 조회 — inquire-psbl-rvsecncl (모의 VTTC0084R / 실전 TTTC0084R)
     [[nodiscard]] std::vector<OpenOrder> get_open_orders() override;
-    nlohmann::json get_balance();
+    // 잔고 — inquire-balance(모의 VTTC8434R / 실전 TTTC8434R). 연속조회로 보유 전 페이지를 합친다.
+    //  실패(전송·파싱·rt_cd≠0, 어느 페이지든)는 fail 봉투로 돌려주고 부분 목록은 내지 않는다 — 호출자가 잔고에
+    //  없는 원장 보유를 걷어내므로 반쪽 목록은 빈 목록보다 위험하다. [why D-059]
+    [[nodiscard]] KisResult<AccountBalance> get_balance();
 
     // 지수 현재값 (코스피 "0001", 코스닥 "1001", KOSPI200 "2001")
     struct IndexPrice
@@ -179,10 +183,11 @@ public:
     FuturePrice get_future_price(const std::string& iscd, const std::string& market_div = "F");
 
     // 선물 전광판 — display-board-futures (tr_id FHPIF05030200). 현재 거래가능 선물 계약 목록.
-    //   market_cls = FID_COND_MRKT_CLS_CODE("MKI"=KOSPI200 지수선물 등). raw json 반환.
-    //   inquire-price에 넣을 최근월물 코드(FID_INPUT_ISCD) 확보용. 실전 도메인 전용.
-    nlohmann::json get_future_board(const std::string& market_cls = "MKI",
-                                    const std::string& market_div = "F");
+    //   market_cls = FID_COND_MRKT_CLS_CODE("MKI"=KOSPI200 지수선물 등). 만기 오름차순 계약 목록 — 첫 행이
+    //   최근월물이고 그 iscd를 inquire-price의 FID_INPUT_ISCD로 넣는다. 실전 도메인 전용. 첫 호출 1회 raw를
+    //   로그로 남긴다(스키마 변동 대비).
+    [[nodiscard]] KisResult<std::vector<FutureContract>> get_future_board(const std::string& market_cls = "MKI",
+                                                                         const std::string& market_div = "F");
 
     // 시가총액 순위 — 현재가·등락률 포함 전체 데이터
     struct RankingStock

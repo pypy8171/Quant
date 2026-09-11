@@ -2193,3 +2193,53 @@ max는 기준선에서도 0.2~2.3ms가 나온다 — 스케줄러 선점이지 �
 **확인 방법**: `cmake --build out/build/x64-release --target bench_gate_contention` 뒤
 `bench_gate_contention 3 1000 100 200`. 기준선과 부하 행의 p999 차이가 1µs를 넘으면 이 결정을 다시 본다.
 감사 L4·L5 행은 "재고 그대로"로 닫고, C-6은 여기서 마무리한다.
+
+### D-059 KisClient 공개 API에서 `nlohmann::json`을 걷어내고 잔고·전광판을 `KisResult<T>` 봉투로 돌려준다 (2026-09-12)
+**상태**: 채택 (`wt/c2`, ctest 16/16 — `test_kis_decode` 39→68건. 실행 중 `quant_trader`는 바꾸지 않았다 — 잔고 대조·
+기동 시드 경로라 다음 장 시작 전 재기동부터)
+
+**배경**: `KisClient`의 공개 메서드 가운데 `get_balance`·`get_future_board` 둘이 `nlohmann::json`을 그대로 돌려줬다
+(D-048 분할 때 "호출부가 같이 바뀐다"며 미룬 것). 그 결과 세 가지가 호출자마다 복제돼 있었다.
+
+1. 응답 필드 해석 — `pdno`·`hldg_qty`·`pchs_avg_pric`·`ord_psbl_qty` 문자열→숫자 변환과 `output2`가 배열/객체 양쪽으로
+   오는 처리가 `Engine.cpp` 2곳, `StrategyFactory.cpp` 4곳, `DeviationScaleStrategy.h` 2곳, 도구 1곳에 같은 모양으로.
+2. 실패 판정 — "요청이 실패했다"를 `bal.contains("output1")`로 추측했다. 한도 초과(EGW00201)는 `rt_cd≠"0"`에 빈
+   `output1`로 오므로 `get_balance`가 빈 객체로 바꿔 주는 규약(09-11 09:17 뒤 추가)에 호출자 전부가 암묵적으로 기댔다.
+3. 부분 목록 — 연속조회 2페이지째가 전송 실패하면 1페이지만 든 "성공"이 돌아갔다. 호출자의 유령 정리
+   (`prune_positions`)는 잔고에 없는 원장 보유를 걷어내므로, 이 반쪽 목록은 빈 목록(가드 있음)보다 위험했다.
+   실제로 난 적은 없지만 40슬롯이면 페이지가 둘이라 조건은 매일 성립한다.
+
+**결정**:
+- 봉투 `KisResult<T>`(`Quant/include/api/KisResult.h`): `ok(T)`/`fail(code,msg)` 정적 생성, `explicit operator bool`,
+  `->`/`*`/`value()`, `error()`·`error_text()`. 클래스에 `[[nodiscard]]`. `KisError{code,msg}`의 code는 KIS `msg_cd`
+  (EGW00201 등)이고 전송·파싱 실패는 `"transport"`·`"parse"`.
+- 값 타입(`Quant/include/api/KisTypes.h`): `Holding{ticker,name,qty,avg_price,eval_pnl,optional<int> sellable_qty}`,
+  `AccountBalance{holdings, optional<double> total_eval_amt·available_cash·prev_day_total_asset}`,
+  `FutureContract{iscd,name}`. 필드 부재는 `std::optional`로 든다 — `ord_psbl_qty`를 못 읽은 것과 0주는 다르고
+  (09-08 40240000 연속 거부), 요약 금액 0원과 필드 없음도 다르다.
+- 디코더는 `Quant/include/api/KisRestDecode.h`(D-051 분봉 디코더 옆)에 순수 함수로: `opt_num`·`decode_holding`·
+  `decode_balance_page(json, AccountBalance&, first_page)`·`decode_future_board`. `test_kis_decode`가 행 필터(0주·pdno
+  없음)·"모름" 판정·요약 폴백(`nass_amt`·`dnca_tot_amt`)·배열/객체 `output2`·전광판 키 후보 순서를 고정한다.
+- `get_balance`는 어느 페이지든 전송·파싱·`rt_cd≠"0"`이면 `fail`을 돌려주고 부분 목록을 내지 않는다.
+  `get_future_board`는 `rt_cd`를 새로 보고, 첫 호출 raw 500자를 로그로 남긴다(`get_future_price`와 같은 규칙 —
+  도구가 raw를 찍던 것을 대신한다).
+- `KisClient.h`에서 `<nlohmann/json.hpp>`가 빠졌다. 구현 파일은 `KisClientInternal.h`로, `StrategyFactory`는 자기
+  헤더로 이미 받고 있어 include 추가는 없었다.
+
+호출자 쪽 동작 변화는 둘뿐이다. (1) 잔고 대조·기동 시드의 실패 로그에 `error_text()`(코드+메시지)가 붙는다.
+(2) 부분 목록이 실패가 된다 — 대조는 그 사이클을 건너뛰고 서킷브레이커 streak가 하나 오른다(종전 규칙).
+`[inv] held가 비면 걷어내지 않는다` 가드는 남겼다: 한도 초과는 이제 봉투가 거르지만, `rt_cd="0"`에 빈 `output1`로
+오는 일시 오류가 없다고 장담할 수 없다.
+
+| 버린 대안 | 이유 |
+|---|---|
+| `std::optional<AccountBalance>` 반환 | 기각. 실패 이유가 사라진다. 한도 초과(재시도)와 인증 실패(기동 중단)는 호출자가 다르게 다뤄야 하는데 `nullopt` 하나로는 못 가른다 |
+| 예외로 실패 전달 | 기각. 데이터 스레드가 매 사이클 부르는 경로에 예외를 흐름 제어로 쓰면 `catch (...)`가 호출자마다 다시 생긴다(지금 `DeviationScaleStrategy.h`가 그 모양). 값으로 돌려주면 `if (!bal)` 한 줄이다 |
+| `std::variant<T, KisError>` | 기각. `std::visit`·`std::get_if`가 호출부를 길게 만들고, `explicit bool`·`->`가 주는 `if (auto r = …) r->…` 꼴이 안 나온다. C++23 `std::expected`가 오면 그때 별칭으로 바꾼다 |
+| 값 타입을 `KisClient` 안 중첩 구조체로(`IndexPrice`·`FuturePrice`처럼) | 기각. 디코더 헤더가 `KisClient.h`를 끌어와야 하고 테스트가 HTTP 계층 선언까지 본다. 기존 중첩 구조체를 옮기는 건 이 결정 범위 밖 |
+| `get_open_orders`·`fetch_kr_ranking` 등 나머지 `std::vector` 반환도 봉투로 | 보류. "빈 목록 = 실패"의 같은 모호함이 있지만 호출자가 빈 목록을 실패로 다뤄도 원장을 건드리지 않는다. 잔고가 먼저였던 이유는 유령 정리다 |
+| `KisUniverse.cpp` 순위 파서를 디코더 헤더로 | 보류(C-7 (a) 잔여). 이 커밋은 공개 API 형식에 한정했다 |
+
+**확인 방법**: `ctest --preset x64-release` 16/16, `test_kis_decode` 68건. `Quant/include/api/KisClient.h`에 `json`이
+없다(`grep`). 라이브에서는 재기동 뒤 기동 시드 행(`[Engine]   시드 …`)과 잔고 대조 PRUNE·RECONCILE 행이 종전과 같은
+종목·수량으로 나오는지, 한도 초과 때 `잔고 대조: 조회 실패(EGW00201 …)` 한 줄이 찍히고 원장이 유지되는지 본다.

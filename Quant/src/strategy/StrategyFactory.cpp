@@ -113,23 +113,21 @@ static void load_ma_cross(StrategyLoadCtx& ctx, const json& s)
         }
         else
         {
-            nlohmann::json bal = bal_kis.get_balance();
+            const KisResult<AccountBalance> bal = bal_kis.get_balance();
             int added = 0;
 
-            if (bal.contains("output1"))
+            if (!bal)
             {
-                for (auto& h : bal["output1"])
+                LOG_WARN("[Main] universe_from_balance: 잔고 조회 실패(" + bal.error_text() + ")");
+            }
+            else
+            {
+                for (const Holding& h : bal->holdings)
                 {
-                    std::string code = h.value("pdno", "");
-                    int hq           = std::atoi(h.value("hldg_qty", "0").c_str());
-
-                    if (!code.empty() && hq > 0)
-                    {
-                        add_gated(engine, std::make_unique<MACrossStrategy>(
-                            code, sp, lp, hq, /*start_in_position=*/true));
-                        LOG_INFO("[Main]   + MACross " + code + " 보유 " + std::to_string(hq) + "주 (in_position 시드)");
-                        ++added;
-                    }
+                    add_gated(engine, std::make_unique<MACrossStrategy>(
+                        h.ticker, sp, lp, h.qty, /*start_in_position=*/true));
+                    LOG_INFO("[Main]   + MACross " + h.ticker + " 보유 " + std::to_string(h.qty) + "주 (in_position 시드)");
+                    ++added;
                 }
             }
 
@@ -224,32 +222,28 @@ static void load_intraday_breakout(StrategyLoadCtx& ctx, const json& s)
         }
         else
         {
-            nlohmann::json bal = bal_kis.get_balance();
+            const KisResult<AccountBalance> bal = bal_kis.get_balance();
             int added = 0;
 
-            if (bal.contains("output1"))
+            if (!bal)
             {
-                for (auto& h : bal["output1"])
+                LOG_WARN("[Main] ITB universe_from_balance: 잔고 조회 실패(" + bal.error_text() + ")");
+            }
+            else
+            {
+                for (const Holding& h : bal->holdings)
                 {
-                    std::string code = h.value("pdno", "");
-                    std::string pname = h.value("prdt_name", "");
-                    int hq           = std::atoi(h.value("hldg_qty", "0").c_str());
-                    double avg_px    = std::atof(h.value("pchs_avg_pric", "0").c_str());
-
-                    if (!code.empty() && hq > 0)
-                    {
-                        auto strat = std::make_unique<IntradayBreakoutStrategy>(
-                            code, entry_qty, hq, /*start_in_position=*/true, channel_min, eps,
-                            trail_pct, hard_pct, eod_hhmm, cooldown_sec, avg_px, avg_loss_pct,
-                            seed_trail_pct, exit_near_avg_pct, no_new_entry_hhmm,
-                            /*notional=*/0.0, /*day_open_px=*/0.0);
-                        strat->set_name(pname);
-                        engine.register_ticker_name(code, pname); // 로그 라벨(보유분 종목명)
-                        add_gated(engine, std::move(strat));
-                        LOG_INFO("[Main]   + ITB " + code + " " + pname + " 보유 " + std::to_string(hq) +
-                                 "주 (in_position 시드, 평단=" + std::to_string((long long)avg_px) + ")");
-                        ++added;
-                    }
+                    auto strat = std::make_unique<IntradayBreakoutStrategy>(
+                        h.ticker, entry_qty, h.qty, /*start_in_position=*/true, channel_min, eps,
+                        trail_pct, hard_pct, eod_hhmm, cooldown_sec, h.avg_price, avg_loss_pct,
+                        seed_trail_pct, exit_near_avg_pct, no_new_entry_hhmm,
+                        /*notional=*/0.0, /*day_open_px=*/0.0);
+                    strat->set_name(h.name);
+                    engine.register_ticker_name(h.ticker, h.name); // 로그 라벨(보유분 종목명)
+                    add_gated(engine, std::move(strat));
+                    LOG_INFO("[Main]   + ITB " + h.ticker + " " + h.name + " 보유 " + std::to_string(h.qty) +
+                             "주 (in_position 시드, 평단=" + std::to_string((long long)h.avg_price) + ")");
+                    ++added;
                 }
             }
 
@@ -439,27 +433,22 @@ static void attach_holding_guardians(StrategyLoadCtx& ctx, const json& mh,
         return;
     }
 
-    nlohmann::json bal = bal_kis.get_balance();
+    const KisResult<AccountBalance> bal = bal_kis.get_balance();
 
-    if (!bal.contains("output1"))
+    if (!bal)
     {
-        LOG_WARN("[Main] manage_holdings: 잔고 output1 없음 — 부착할 보유분 없음");
+        LOG_WARN("[Main] manage_holdings: 잔고 조회 실패(" + bal.error_text() + ") — 부착할 보유분 없음");
         return;
     }
 
     int added = 0, skipped = 0;
 
-    for (auto& h : bal["output1"])
+    for (const Holding& h : bal->holdings)
     {
-        std::string code  = h.value("pdno", "");
-        std::string pname = h.value("prdt_name", "");
-        int    hq = std::atoi(h.value("hldg_qty", "0").c_str());
-        double av = std::atof(h.value("pchs_avg_pric", "0").c_str());
-
-        if (code.empty() || hq <= 0)
-        {
-            continue;
-        }
+        const std::string& code  = h.ticker;
+        const std::string& pname = h.name;
+        const int    hq = h.qty;
+        const double av = h.avg_price;
 
         if (covered.count(code)) // 스캔 전략이 이미 담당 → 이중 부착 방지
         {
@@ -627,19 +616,17 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
 
         if (held_kis.authenticate())
         {
-            nlohmann::json bal = held_kis.get_balance();
+            const KisResult<AccountBalance> bal = held_kis.get_balance();
 
-            if (bal.contains("output1"))
+            if (!bal)
             {
-                for (auto& h : bal["output1"])
+                LOG_WARN("[Main] DEVSCALE: 보유분 조회 실패(" + bal.error_text() + ") — 스캔 제외 미적용(중복 위험)");
+            }
+            else
+            {
+                for (const Holding& h : bal->holdings)
                 {
-                    std::string code = h.value("pdno", "");
-                    int hq = std::atoi(h.value("hldg_qty", "0").c_str());
-
-                    if (!code.empty() && hq > 0)
-                    {
-                        held.insert(code);
-                    }
+                    held.insert(h.ticker);
                 }
             }
 

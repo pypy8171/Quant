@@ -168,20 +168,20 @@ int main(int argc, char** argv)
     for (int i = 0; i < 10; ++i)
     {
         std::this_thread::sleep_for(std::chrono::seconds(2));
-        json bal = kis.get_balance();
+        const KisResult<AccountBalance> bal = kis.get_balance();
 
-        if (!bal.contains("output1"))
+        if (!bal)
         {
+            std::cout << "    [" << (i + 1) * 2 << "s] 잔고 조회 실패(" << bal.error_text() << ")\n";
             continue;
         }
 
-        for (auto& h : bal["output1"])
+        for (const Holding& h : bal->holdings)
         {
-            if (h.value("pdno", "") == ticker)
+            if (h.ticker == ticker)
             {
-                std::cout << "    [" << (i + 1) * 2 << "s] 보유수량=" << h.value("hldg_qty", "0")
-                          << "  매입평균=" << h.value("pchs_avg_pric", "0")
-                          << "  평가손익=" << h.value("evlu_pfls_amt", "0") << "\n";
+                std::cout << "    [" << (i + 1) * 2 << "s] 보유수량=" << h.qty << "  매입평균=" << h.avg_price
+                          << "  평가손익=" << h.eval_pnl << "\n";
                 seen = true;
             }
         }
