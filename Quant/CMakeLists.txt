@@ -109,6 +109,7 @@ set(SOURCES
   src/strategy/StrategyFactory.cpp
   src/core/Engine.cpp
   src/core/LedgerReconciler.cpp
+  src/core/DataPoller.cpp
   src/core/RegimeController.cpp
   src/core/RingBuffer.cpp
   ${KIS_CLIENT_SOURCES}
@@ -248,6 +249,17 @@ if(UNIX)
     target_link_libraries(test_ledger_reconciler PRIVATE pthread)
 endif()
 
+# REST 현재가 폴러(core/DataPoller) — 브로커·큐·WS 재구독은 std::function 대역, Logger만 링크 (D-062)
+add_executable(test_data_poller
+    tests/test_data_poller.cpp
+    src/core/DataPoller.cpp
+    src/utils/Logger.cpp
+)
+target_include_directories(test_data_poller PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(test_data_poller PRIVATE pthread)
+endif()
+
 # 매크로 국면 파일 브리지(core/RegimeFileBridge.h) — 헤더 전용, 파일·로그 없음 (D-060)
 add_executable(test_regime_bridge tests/test_regime_bridge.cpp)
 target_include_directories(test_regime_bridge PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -366,6 +378,7 @@ set(QUANT_ASSERT_TARGETS
     test_market_session
     test_reconcile_plan
     test_ledger_reconciler
+    test_data_poller
     test_ops_protocol
     test_ops_server
     test_regime

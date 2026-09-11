@@ -5,6 +5,7 @@
 //  브로커 호출·대조 행 기록·종목명 등록은 std::function으로 받아 KIS 없이 시험한다. [why D-061]
 #include "api/KisResult.h"
 #include "api/KisTypes.h"
+#include "core/KstTime.h"
 #include "core/ReconcilePlan.h"
 #include "risk/OrderGate.h"
 
@@ -101,17 +102,7 @@ private:
 // UTC 초 → KST 거래일 YYYYMMDD. 손익 기준선 파일과 날짜별 표식 파일이 같은 기준을 쓴다.
 inline std::string kst_ymd(std::time_t now_utc)
 {
-    constexpr int kKstOffsetSec = 9 * 3600;
-    std::time_t   kt = now_utc + kKstOffsetSec;
-    struct tm     ktm{};
-#ifdef _WIN32
-    gmtime_s(&ktm, &kt);
-#else
-    gmtime_r(&kt, &ktm);
-#endif
-    char buf[9];
-    std::strftime(buf, sizeof(buf), "%Y%m%d", &ktm);
-    return std::string(buf);
+    return kst::ymd(now_utc);
 }
 
 // 기준선 파일명. 계좌번호를 넣어 같은 거래일에 계좌를 갈아끼면(모의계좌 재발급 등) 옛 계좌 기준선을

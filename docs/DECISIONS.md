@@ -2342,3 +2342,60 @@ C-7 (c)는 이걸 책임 단위로 나누는 일인데, 한 번에 다섯 조각
 `원장 부트스트랩 완료: n종목 시드`, 첫 대조에서 `기준선 파일 재사용` 또는 `기준선 신규 캡처+저장`, 이후
 `잔고 대조: 당일손익`이 `fetch_interval_sec`마다 찍히는지 본다. 잔고 실패가 이어지면 `잔고조회 실패(streak=2…)`
 다음 줄에 `daily_pnl 갱신 끊김`이 한 번만 나오는지 본다.
+
+### D-062 REST 현재가 폴러를 Engine에서 DataPoller로 뗀다 — C-7 (c) 3단계 (2026-09-12)
+**상태**: 채택 (`wt/c2`, ctest 19/19 — `test_data_poller` 24건 신설. 실행 중 `quant_trader`는 바꾸지 않았다 —
+`start()`·data_thread 경로라 다음 장 시작 전 재기동부터)
+
+**배경**: D-061 뒤 `Quant/src/core/Engine.cpp`는 2,722줄이고 `data_thread_fn`이 527줄이다. 그 안에서 브로커
+REST 현재가를 부르는 자리가 셋이다 — 폴링 모드의 유니버스 폴링, WS 구독 상한에 밀린 종목의 재구독·REST 대체
+(`poll_ws_overflow`, 115줄), 틱이 끊긴 보유 종목의 현재가 보충. 셋 다 같은 일(간격을 두고 `get_current_price`를
+부르고 `TradeData`를 만든다)을 세 벌로 쓰고 있었고, 종목당 1회 로그 집합은 함수 정적이었다. 유니버스 폴링은
+`td_queue_`에 넣고 넘침 대체는 `rest_td_queue_`에 넣어 큐가 갈렸는데, `td_queue_`의 생산자는 WS 콜백 스레드라
+WS 폴백 중 WS가 되살아나면 SPSC 큐에 생산자가 둘이 되는 구멍이 있었다(D-053이 넘침 경로만 막았다). 단위 테스트는
+없었다 — `KisClient`·`KisWebSocket`·큐에 묶여 있어서다.
+
+**결정**:
+- `Quant/include/core/DataPoller.h` + `Quant/src/core/DataPoller.cpp`: `DataPoller(QuoteFn, TickSink)`가
+  `poll_universe(specs, now_utc)`, `add_overflow(spec)`·`poll_overflow(from_ws, resub, now_utc)`, `top_up(tickers,
+  on_px)`를 든다. 현재가 조회(`QuoteFn = std::function<double(const std::string&)>`), 틱 배출(`TickSink`), WS
+  재구독(`ResubscribeFn`), 종료 플래그(`KeepGoingFn`)는 함수로 받는다 — 폴러는 `KisClient`도 `KisWebSocket`도
+  큐도 모른다. 테스트는 `Logger.cpp`만 링크한다.
+- 순수한 부분은 헤더의 `poller` 네임스페이스로: 같은 구독 판정 `same_spec`, REST 틱 생성 `make_tick`, 틱 끊긴
+  보유 선택 `select_stale(held, last_seen, cutoff)`. `last_seen`은 `optional<time_point>`를 돌려주는 함수라
+  `Engine`이 `last_px_mu_`를 잡은 채 한 번에 넘긴다.
+- KST 분해는 `Quant/include/core/KstTime.h`의 `kst::to_tm`·`kst::ymd`·`kst::hhmmss`로 모았다. `ledger::kst_ymd`는
+  `kst::ymd` 위임이 됐다(`gmtime_s`/`gmtime_r` ifdef가 한 곳). `Engine.cpp`의 `utc_plus_hours`는 장 시간 판정과
+  국면 파일 판정이 아직 쓰므로 그대로 둔다 — 그쪽은 다음 조각에서.
+- `Engine`에는 `std::unique_ptr<DataPoller> poller_` 하나가 남는다. `start()`가 `ledger_` 다음에 만들고(시세는
+  `quote_kis_`가 있으면 그쪽, 싱크는 `rest_td_queue_`, 종료 플래그는 `running_`), `register_strategy_runtime`이
+  넘침을 `add_overflow`로 넣고, data_thread가 `top_up`·`poll_universe`·`poll_overflow`를 부른다.
+  `Engine.cpp` 2,722 → 2,590줄.
+- `Quant/tests/test_data_poller.cpp` 24건: KST 변환(자정 경계), `same_spec`·`make_tick`·`select_stale`, 유니버스
+  폴링이 US를 건너뛰고 현재가 0은 틱을 안 흘리며 종료 플래그에 끊기는지, 넘침 등록의 중복과 선물 채널 구분,
+  WS에서 온 넘침 합치기, 재구독 성공은 목록에서 빠지고 실패만 REST 틱, 보충은 0도 그대로 넘기는지.
+
+동작 차이는 셋이고 매매 판단은 바뀌지 않는다. (1) 폴링 모드의 유니버스 틱이 `td_queue_`가 아니라 `rest_td_queue_`로
+간다 — 전략 스레드는 `pop_trade`로 두 큐를 다 비우므로 받는 쪽은 같고, 위의 두 생산자 구멍이 닫힌다. (2) 넘침 목록이
+`watch_specs_mtx_` 밖으로 나온다 — 쓰는 곳이 `register_strategy_runtime`(data_thread의 재스캔)과 data_thread 본문뿐이라
+락이 지키던 것이 없었다(`[inv]` data_thread 전용). (3) 유니버스 폴링이 종목마다 종료 플래그를 본다 — 종전엔 사이클
+끝까지 돌았다(40종목 × 150ms = 6초 지연 종료).
+
+| 버린 대안 | 이유 |
+|---|---|
+| 폴러가 `KisClient&`·`KisWebSocket&`를 받는다 | 기각. D-061과 같은 이유 — 테스트가 7파일+WinHTTP·WS 소켓을 링크하고 초당 한도·넘침을 재현하려면 서버가 필요하다. 현재가 한 줄·재구독 한 줄은 `std::function`이 맞다 |
+| 폴러가 `RingBuffer<TradeData>&`를 받는다 | 기각. 큐가 가득 찼을 때 기다림(`running_` 확인)이 `Engine` 몫이고, 테스트는 벡터에 받는 편이 검사하기 쉽다 |
+| 수급·섹터·매크로 관측 적재도 같이 | 기각. 그 셋(약 240줄)은 브로커 호출은 같지만 틱을 흘리지 않고 파일에 쓰며 사이클 카운터가 함수 정적이다 — 다른 소유·다른 출력이라 별도 조각(`ObservationMonitor`)으로 |
+| `maybe_rescan_universe`도 같이 | 기각. 재스캔은 전략 등록·`strat_mutex_`·`ws_` 재구독을 건드리는 전략 수명 관리라 폴링이 아니다 |
+| 넘침 목록을 `watch_specs_mtx_` 아래 그대로 | 기각. 읽고 쓰는 스레드가 하나뿐이라 락은 "보호받는 것처럼 보이는" 비용만 남긴다. 스레드 소유를 주석 `[inv]`로 적는 편이 맞다 |
+| 유니버스 틱을 종전대로 `td_queue_`에 | 기각. 폴백 중 WS가 되살아나면 SPSC 생산자가 둘이 된다. `rest_td_queue_`는 이미 데이터 스레드 전용 생산자 큐다 |
+
+**확인 방법**: `ctest --preset x64-release` 19/19, `test_data_poller` 24건. 라이브에서는 WS 모드 재기동 뒤
+넘침이 있으면 `WS 구독 상한 — … REST 폴링으로 대체(넘침 n종목)` 다음에 `REST 대체 시세 첫 수신 … px=`가 종목당
+한 번 나오는지, `WS 슬롯 확보 — … 구독 복귀`가 뜨면 그 종목의 REST 로그가 더 안 나오는지 본다. 폴링 모드면
+`data_count_`(운영단말 상태)가 사이클마다 유니버스 수만큼 오르는지 본다.
+
+같은 커밋에서 두 가지를 같이 고쳤다. `scripts/brace_style.py`가 매크로의 `} while (0)` 꼬리(`;` 없음)를 제어문으로
+보고 다음 문장을 중괄호로 감싸던 것 — D-061 커밋의 `Quant/tests/test_ledger_reconciler.cpp`가 이 때문에 컴파일되지
+않는 상태로 들어갔다(테스트 실행 뒤에 스크립트를 돌렸다). 스크립트는 그 꼬리를 건너뛰고, 테스트 파일은 원래대로
+돌렸다. 앞으로 스크립트는 빌드 전에 돌린다.

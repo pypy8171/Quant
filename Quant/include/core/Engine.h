@@ -1,6 +1,7 @@
 #pragma once
 #include "api/KisClient.h"
 #include "api/KisWebSocket.h"
+#include "core/DataPoller.h"
 #include "core/LedgerReconciler.h"
 #include "core/RingBuffer.h"
 #include "core/RegimeController.h"
@@ -219,7 +220,6 @@ public:
 
 private:
     void data_thread_fn();
-    void poll_ws_overflow();   // WS 상한 넘침 종목 재구독·REST 대체(data_thread 전용)
     void strategy_thread_fn();
     void order_thread_fn();
     void fill_thread_fn();     // 체결통보 소비(fill_queue_ → OrderRouter::on_fill → ops 방송). WS 수신 스레드에서 뗀 것 [why D-056]
@@ -287,6 +287,9 @@ private:
     // 잔고 → 원장 대조기(기동 시드·주기 대조·손익 기준선·서킷브레이커). start()에서 kis_·order_router_ 뒤에
     //  만들고 data_thread만 부른다. [why D-061]
     std::unique_ptr<LedgerReconciler> ledger_;
+    // REST 현재가 폴러(폴링 모드 유니버스·WS 넘침 대체·보유 보충). start()에서 kis_ 뒤에 만들고
+    //  data_thread만 부른다 — 넘침 목록이 여기로 옮겨가며 watch_specs_mtx_ 보호에서 빠졌다. [why D-062]
+    std::unique_ptr<DataPoller> poller_;
 
     std::unique_ptr<KisClient> kis_;
     // 시세 전용(실전 도메인). WS 모드에서도 폴백이 쓸 수 있어야 하므로 config에 블록이 있으면 항상 만든다.
@@ -392,9 +395,6 @@ private:
     //  data_thread(재스캔 등록)가 쓰고 control_thread(WS 재연결)가 읽는다 — watch_specs_mtx_로 보호.
     std::vector<WatchSpec> watch_specs_;
     mutable std::mutex     watch_specs_mtx_;
-    // WS 구독 상한(kMaxWsSubs)에 밀려 틱을 못 받는 종목. data_thread가 매 사이클 재구독을
-    //  시도하고, 안 되면 REST 현재가로 TradeData를 흘린다. watch_specs_mtx_로 같이 보호.
-    std::vector<WatchSpec> ws_overflow_specs_;
 
     std::string zmq_bind_addr_ = "127.0.0.1";
     std::string zmq_control_token_;

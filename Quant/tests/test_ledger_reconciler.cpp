@@ -26,11 +26,9 @@ int g_checks = 0;
             return 1;                                                                      \
         }                                                                                  \
     } while (0)
-    {
 
 // 2027-01-15 08:00 UTC = KST 17:00 같은 날. 기준선 파일 날짜를 고정한다.
 constexpr std::time_t kT0 = 1800000000;
-    }
 
 Holding hold(const char* t, int q, double av, std::optional<int> psbl = std::nullopt)
 {

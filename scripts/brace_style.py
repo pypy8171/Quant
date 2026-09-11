@@ -230,6 +230,10 @@ class Fixer:
             rest = split_code_comment(self.lines[j])[0][k + 1:].strip()
             if rest.startswith("{") or rest == ";":
                 return
+            # `} while (0)` 뒤에 `;`가 없으면 매크로의 do-while 꼬리다(호출부가 `;`를 붙인다).
+            #  제어문으로 보면 다음 문장을 중괄호로 감싸 파일을 깨뜨린다(09-12 test_ledger_reconciler 실측).
+            if m.group("pre") and m.group("kw") == "while" and not rest:
+                return
             if rest:
                 if m.group("kw") == "switch":
                     return

@@ -109,12 +109,10 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
             // false 자체는 정상일 수 있다(연결 전·이미 구독). 목록에서까지 빠졌으면 구독 상한에
             //  밀린 것이고, 그대로 두면 이 종목은 틱 없이 조용히 매매하지 않는다(09-11 실측:
             //  40 초과 종목 체결 0건). 넘침 목록에 넣어 data_thread가 REST로 대신 흘린다.
-            if (!ws_->subscribe_incremental(spec) && !ws_->has_spec(spec))
+            if (!ws_->subscribe_incremental(spec) && !ws_->has_spec(spec) && poller_->add_overflow(spec))
             {
-                std::lock_guard<std::mutex> lk(watch_specs_mtx_);
-                ws_overflow_specs_.push_back(spec);
                 LOG_WARN("[Engine] WS 구독 상한 — " + spec.ticker + " 시세는 REST 폴링으로 대체(넘침 " +
-                         std::to_string(ws_overflow_specs_.size()) + "종목)");
+                         std::to_string(poller_->overflow_count()) + "종목)");
             }
         }
     }
@@ -517,6 +515,23 @@ void Engine::start()
     ledger_->set_name_sink([this](const std::string& t, const std::string& n) { register_ticker_name(t, n); });
     ledger_->set_reconcile_sink([this](const reconcile::Row& r) { order_router_->record_reconcile(r); });
 
+    // REST 현재가 폴러. 시세는 시세 전용 클라이언트가 있으면 그쪽(실전 도메인 초당 한도가 높다). [why D-062]
+    //  [lock-order] 데이터 스레드는 td_queue_의 생산자가 아니다 — 폴러의 틱은 전용 SPSC 큐 rest_td_queue_로 간다.
+    poller_ = std::make_unique<DataPoller>(
+        [this](const std::string& ticker)
+        {
+            KisClient* qc = quote_kis_ ? quote_kis_.get() : kis_.get();
+            return qc ? qc->get_current_price(ticker) : 0.0;
+        },
+        [this](const TradeData& td)
+        {
+            while (!rest_td_queue_.push(td) && running_.load(std::memory_order_acquire))
+            {
+                std::this_thread::sleep_for(1ms);
+            }
+        });
+    poller_->set_keep_going([this] { return running_.load(std::memory_order_acquire); });
+
     // G5: 실계좌 보유분을 원장에 시드 (스레드 시작 전, 단일스레드 구간)
     if (bootstrap_ledger_ && !ledger_->bootstrap())
     {
@@ -812,123 +827,6 @@ void Engine::stop()
 
 static struct tm utc_plus_hours(int offset_h); // KST 계산용(정의는 하단)
 
-// WS 상한에 밀린 종목의 시세 대체. 먼저 재구독을 시도하고(드롭으로 슬롯이 비었을 수 있다),
-//  안 되면 REST 현재가를 TradeData로 흘린다 — rest 분기와 같은 모양이라 전략은 구분하지 못한다.
-//  rest 분기가 도는 사이클에는 부르지 않는다(그쪽이 이미 전 종목을 폴링한다).
-void Engine::poll_ws_overflow()
-{
-    if (!ws_)
-    {
-        return;
-    }
-
-    std::vector<WatchSpec> pending;
-    {
-        // 최초 연결·재연결에서 상한에 밀린 종목도 여기로 합친다 — 재스캔 등록분만 챙기면
-        //  기동 시 뒤쪽에 선 종목(청산 관리 시드)이 틱을 영영 못 받는다.
-        auto from_ws = ws_->take_overflow_specs();
-        std::lock_guard<std::mutex> lk(watch_specs_mtx_);
-
-        for (const auto& spec : from_ws)
-        {
-            bool dup = false;
-
-            for (const auto& w : ws_overflow_specs_)
-            {
-                if (w.ticker == spec.ticker && w.market == spec.market && w.is_future == spec.is_future)
-                {
-                    dup = true;
-                    break;
-                }
-            }
-
-            if (!dup)
-            {
-                ws_overflow_specs_.push_back(spec);
-                LOG_WARN("[Engine] WS 구독 상한 — " + spec.ticker + " 시세는 REST 폴링으로 대체(넘침 " +
-                         std::to_string(ws_overflow_specs_.size()) + "종목)");
-            }
-        }
-
-        pending = ws_overflow_specs_;
-    }
-
-    if (pending.empty())
-    {
-        return;
-    }
-
-    struct tm kst = utc_plus_hours(9);
-    char hhmmss[8];
-    std::snprintf(hhmmss, sizeof(hhmmss), "%02d%02d%02d", kst.tm_hour, kst.tm_min, kst.tm_sec);
-    KisClient* qc = quote_kis_ ? quote_kis_.get() : kis_.get();
-
-    for (const auto& spec : pending)
-    {
-        if (ws_->subscribe_incremental(spec))
-        {
-            std::lock_guard<std::mutex> lk(watch_specs_mtx_);
-
-            for (auto it = ws_overflow_specs_.begin(); it != ws_overflow_specs_.end(); ++it)
-            {
-                if (it->ticker == spec.ticker && it->market == spec.market && it->is_future == spec.is_future)
-                {
-                    ws_overflow_specs_.erase(it);
-                    break;
-                }
-            }
-
-            LOG_INFO("[Engine] WS 슬롯 확보 — " + spec.ticker + " 구독 복귀");
-            continue;
-        }
-
-        if (spec.market != Market::KR || !qc)
-        {
-            continue;
-        }
-
-        std::this_thread::sleep_for(150ms);  // 초당 호출 한도 밑에 깔기(rest 분기와 같은 간격)
-        const double px = qc->get_current_price(spec.ticker);
-
-        // 종목당 첫 성공·첫 실패만 남긴다 — 대체 경로가 실제로 틱을 흘리는지 로그로 확인할 수 있어야 한다.
-        //  데이터 스레드만 부르므로 함수 정적 집합으로 충분하다.
-        static std::unordered_set<std::string> rest_seen;
-        static std::unordered_set<std::string> rest_failed;
-
-        if (px <= 0.0)
-        {
-            if (rest_failed.insert(spec.ticker).second)
-            {
-                LOG_WARN("[Engine] REST 대체 시세 실패 " + spec.ticker + " — 현재가 0(응답 없음/파싱 실패)");
-            }
-
-            continue;
-        }
-
-        if (rest_seen.insert(spec.ticker).second)
-        {
-            LOG_INFO("[Engine] REST 대체 시세 첫 수신 " + spec.ticker + " px=" + std::to_string(px));
-        }
-
-        TradeData td;
-        td.ticker = spec.ticker;
-        td.time = hhmmss;
-        td.price = px;
-        td.quantity = 0;
-        td.direction = 0;
-        td.market = Market::KR;
-        td.timestamp = std::chrono::system_clock::now();
-
-        // [lock-order] 데이터 스레드는 td_queue_의 생산자가 아니다 — 전용 SPSC 큐로 보낸다.
-        while (!rest_td_queue_.push(td) && running_.load(std::memory_order_acquire))
-        {
-            std::this_thread::sleep_for(1ms);
-        }
-
-        ++data_count_;
-    }
-}
-
 // ─── 데이터 수집 스레드 ───────────────────────────────────────────────────
 void Engine::data_thread_fn()
 {
@@ -1029,35 +927,36 @@ void Engine::data_thread_fn()
             //  않고 "최근 틱이 없다"로만 고르면 둘 다 잡힌다. 전략이 볼 일은 없으니 td_queue_에는 넣지 않는다.
             //  모의 도메인 초당 한도가 낮아 300ms 간격.
             {
-                std::vector<std::string> stale;
-                const auto               cutoff = std::chrono::steady_clock::now() - std::chrono::seconds(60);
+                std::vector<std::string> held;
 
+                for (const auto& h : order_gate_.snapshot_positions())
+                {
+                    if (h.qty > 0)
+                    {
+                        held.push_back(h.ticker);
+                    }
+                }
+
+                std::vector<std::string> stale;
                 {
                     std::lock_guard<std::mutex> lk(last_px_mu_);
-
-                    for (const auto& h : order_gate_.snapshot_positions())
-                    {
-                        auto it = last_px_.find(h.ticker);
-
-                        if (h.qty > 0 && (it == last_px_.end() || it->second.at < cutoff))
+                    stale = poller::select_stale(
+                        held,
+                        [this](const std::string& t) -> std::optional<std::chrono::steady_clock::time_point>
                         {
-                            stale.push_back(h.ticker);
-                        }
-                    }
+                            auto it = last_px_.find(t);
+
+                            if (it == last_px_.end())
+                            {
+                                return std::nullopt;
+                            }
+
+                            return it->second.at;
+                        },
+                        std::chrono::steady_clock::now() - std::chrono::seconds(60));
                 }
 
-                KisClient* qc = quote_kis_ ? quote_kis_.get() : kis_.get();
-
-                for (const auto& ticker : stale)
-                {
-                    if (!running_.load(std::memory_order_acquire))
-                    {
-                        break;
-                    }
-
-                    std::this_thread::sleep_for(300ms);
-                    set_last_px(ticker, qc->get_current_price(ticker));
-                }
+                poller_->top_up(stale, [this](const std::string& t, double px) { set_last_px(t, px); });
             }
 
             if (rest_now)
@@ -1301,49 +1200,11 @@ void Engine::data_thread_fn()
                     ++macro_tick;
                 }
 
-                // REST 현재가 폴링 → TradeData로 td_queue_에 주입(WS on_trade 경로 대체).
-                //  깨진 일봉(G1/G2) 대신 살아있는 get_current_price를 쓰고, ITB는 이 틱으로
-                //  1분 버킷 채널을 구성/스탑 평가한다. KST HHMMSS를 time에 채워 넣는다.
-                struct tm kst = utc_plus_hours(9);
-                char hhmmss[8];
-                std::snprintf(hhmmss, sizeof(hhmmss), "%02d%02d%02d", kst.tm_hour, kst.tm_min,
-                              kst.tm_sec);
-                KisClient* qc = quote_kis_ ? quote_kis_.get() : kis_.get();
-
-                for (const auto& spec : watch_specs_)
-                {
-                    if (spec.market != Market::KR)
-                    {
-                        continue;
-                    }
-
-                    // 실전 도메인 시세는 초당 호출 한도(~20/s)가 있어, 수십 종목을 무간격으로
-                    //  몰아치면 뒷종목이 HTTP 500(초당 한도)로 떨어진다. 종목 간 소량 슬립(150ms)으로
-                    //  한도 밑에 깔아 전 종목이 매 사이클 틱을 받도록 한다(종목 수×150ms가 30초 사이클 안에 들게).
-                    std::this_thread::sleep_for(150ms);
-                    double px = qc->get_current_price(spec.ticker);
-
-                    if (px <= 0.0)
-                    {
-                        continue;
-                    }
-
-                    TradeData td;
-                    td.ticker = spec.ticker;
-                    td.time = hhmmss;
-                    td.price = px;
-                    td.quantity = 0;
-                    td.direction = 0;
-                    td.market = Market::KR;
-                    td.timestamp = std::chrono::system_clock::now();
-
-                    while (!td_queue_.push(td) && running_.load(std::memory_order_acquire))
-                    {
-                        std::this_thread::sleep_for(1ms);
-                    }
-
-                    ++data_count_;
-                }
+                // REST 현재가 폴링 → TradeData(WS on_trade 경로 대체). 깨진 일봉(G1/G2) 대신 살아있는
+                //  get_current_price를 쓰고, ITB는 이 틱으로 1분 버킷 채널을 구성/스탑 평가한다.
+                //  종전엔 td_queue_에 넣었는데, WS 폴백 중 WS가 되살아나면 생산자가 둘이 됐다 — 폴러의
+                //  싱크는 rest_td_queue_라 그 경우가 없다. [why D-062]
+                data_count_ += poller_->poll_universe(watch_specs_, std::time(nullptr));
             }
             else
             {
@@ -1390,7 +1251,14 @@ void Engine::data_thread_fn()
                     }
                 }
 
-                poll_ws_overflow();
+                // WS 상한에 밀린 종목 — 재구독을 먼저 시도하고(드롭으로 슬롯이 비었을 수 있다) 안 되면 REST로.
+                //  rest 분기가 도는 사이클에는 부르지 않는다(그쪽이 이미 전 종목을 폴링한다).
+                if (ws_)
+                {
+                    data_count_ += poller_->poll_overflow(
+                        ws_->take_overflow_specs(), [this](const WatchSpec& s) { return ws_->subscribe_incremental(s); },
+                        std::time(nullptr));
+                }
             }
         }
         catch (const std::exception& e)
