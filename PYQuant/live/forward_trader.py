@@ -172,7 +172,7 @@ class ForwardTrader:
         # stale 가드 — 최신 데이터가 너무 오래됐으면 경고
         gap = (date.today() - date.fromisoformat(asof)).days
         if gap > 5:
-            print(f"⚠️ 최신 데이터({asof})가 {gap}일 지남 — 신선도 점검 필요")
+            print(f"⚠️ 최신 데이터({asof})가 {gap}일 지남 — 최신 여부 점검 필요")
 
         # 2. 리밸런싱 데이 판정(거래일 카운터)
         last_rb = state.get("last_rebalance_date")

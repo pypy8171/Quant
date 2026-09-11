@@ -625,7 +625,7 @@ void load_quote_table(const DevScanCfg& cfg, QuoteTable& q)
         //  얼어붙는다. 재스캔은 돌지만 결과가 같아 구분이 안 된다.
         if (ts <= 0)
         {
-            LOG_WARN("[Main] 전 종목 시세 파일에 갱신 시각(ts)이 없다 — 신선도 확인 불가");
+            LOG_WARN("[Main] 전 종목 시세 파일에 갱신 시각(ts)이 없다 — 최신 여부 확인 불가");
         }
         else if (age > 600)
         {
@@ -1045,7 +1045,7 @@ std::vector<Feat> probe_and_filter(KisClient& c, const DevScanCfg& cfg, const st
         {
             LOG_INFO("[Main] DEVSCALE 일봉 재조회: 대상 " + std::to_string(stale_n) +
                      "종목 중 " + std::to_string(refresh_set.size()) + "건 (예산 " +
-                     std::to_string(cfg.align_refresh_max) + ", 신선도 " +
+                     std::to_string(cfg.align_refresh_max) + ", 재조회 기준 " +
                      std::to_string(cfg.align_refresh_sec) + "초)");
         }
     }
