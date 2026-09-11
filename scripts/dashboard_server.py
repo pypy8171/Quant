@@ -727,23 +727,181 @@ def _resample(bars: list, n: int) -> list:
     return out
 
 
+# 차트 로컬 캐시. 일봉·주봉은 PYQuant/data/{daily,weekly}/<ticker>.parquet에 쌓고, 분봉은
+#  마감 뒤 백필(PYQuant/data/minute/<ticker>/<YYYYMMDD>.parquet, 하루치 완본)이 있으면 그것을 읽고
+#  없으면 장중 증분본 PYQuant/data/minute_live/(같은 스키마)에 쌓는다. 장중본을 백필 경로에 쓰면
+#  백필이 "이미 받았다"고 보고 그날을 건너뛰어 반쪽 파일이 굳는다. KIS에는 마지막 봉 이후 증분만 묻는다. 처음 보는 종목의 일봉은 .datagokr_cache의 과거분으로
+#  먼저 채운다. 파일 쓰기는 tmp→os.replace라 21:00 백필과 겹쳐도 반쪽 파일이 남지 않는다.
+_DATA_DIR = REPO / "PYQuant" / "data"
+_DGK_DIR = REPO / "PYQuant" / ".datagokr_cache"
+_CHART_KEYS = ("open", "high", "low", "close", "volume")
+_CHART_IO_LOCK = threading.Lock()
+
+
+def _parquet_read(path: Path) -> list:
+    try:
+        import pandas as pd
+        if not path.exists():
+            return []
+        return pd.read_parquet(path).to_dict("records")
+    except Exception:
+        return []
+
+
+def _parquet_write(path: Path, rows: list):
+    if not rows:
+        return
+    try:
+        import pandas as pd
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp.parquet")
+        with _CHART_IO_LOCK:
+            pd.DataFrame(rows).to_parquet(tmp, index=False)
+            os.replace(tmp, path)
+    except Exception as e:
+        print(f"[chart-cache] 쓰기 실패 {path}: {e}", file=sys.stderr)
+
+
+def _merge_bars(local: list, fresh: list, key: str) -> list:
+    """키(date/hms) 기준 합치기. 같은 키는 KIS 쪽(fresh)이 이긴다 — 진행 중 봉 갱신용."""
+    d = {str(r[key]): r for r in local if r.get(key)}
+    for r in fresh:
+        if r.get(key):
+            d[str(r[key])] = r
+    return [d[k] for k in sorted(d)]
+
+
+def _bar_rows(rows: list, key: str) -> list:
+    """직렬화 가능한 순수 dict 열로 정리(넘파이 스칼라 → 파이썬 스칼라)."""
+    out = []
+    for r in rows:
+        try:
+            b = {key: str(r[key])}
+            for k in _CHART_KEYS:
+                v = r.get(k, 0)
+                b[k] = int(v) if k == "volume" else float(v)
+            out.append(b)
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+def _seed_daily_from_datagokr(ticker: str) -> list:
+    """data.go.kr 캐시(ohlcv_<ticker>_<start>_<end>.parquet) 중 가장 늦게 끝나는 파일로 일봉을 시드한다."""
+    cands = sorted(_DGK_DIR.glob(f"ohlcv_{ticker}_*.parquet"), key=lambda p: p.stem.split("_")[-1])
+    if not cands:
+        return []
+    return _bar_rows(_parquet_read(cands[-1]), "date")
+
+
+def _local_chart_dw(quote: KisClient, ticker: str, period: str, count: int) -> list:
+    """일봉('D')/주봉('W')을 로컬 우선으로. 반환 [{date, open, high, low, close, volume}] 오래된→최신, 최근 count개."""
+    path = _DATA_DIR / ("daily" if period == "D" else "weekly") / f"{ticker}.parquet"
+    local = _bar_rows(_parquet_read(path), "date")
+    if not local and period == "D":
+        local = _seed_daily_from_datagokr(ticker)
+    now = datetime.now(KST)
+    today = now.strftime("%Y-%m-%d")
+    last = local[-1]["date"] if local else ""
+    # 증분 폭: 마지막 봉부터 오늘까지의 달력일을 봉 수로 환산(일봉 5/7, 주봉 1/7) + 여유 3.
+    #  겹치는 봉은 병합에서 KIS 값으로 덮인다. 로컬이 비었거나 너무 오래됐으면 count 전부.
+    if last:
+        try:
+            gap_days = (now.date() - datetime.strptime(last, "%Y-%m-%d").date()).days
+        except ValueError:
+            gap_days = 10 ** 6
+        need = (gap_days * 5 // 7 + 3) if period == "D" else (gap_days // 7 + 3)
+    else:
+        need = count
+    fetch_n = min(count, max(need, 1))
+    # 장 밖(16:00 이후·주말)이고 로컬 마지막 봉이 직전 거래일이면 REST를 아예 안 부른다.
+    #  휴장일은 모르므로 그날은 한 번 더 묻고 끝난다(빈 증분).
+    skip = False
+    if last and period == "D":
+        wd = now.weekday()
+        last_biz = now.date() - timedelta(days={5: 1, 6: 2}.get(wd, 0))
+        if wd >= 5 or now.hour >= 16:
+            skip = last >= last_biz.strftime("%Y-%m-%d")
+        elif now.hour < 9:
+            skip = last >= (last_biz - timedelta(days=1 if wd else 3)).strftime("%Y-%m-%d")
+    if len(local) < count and last and last < today:
+        skip = False   # 히스토리가 짧으면 채우러 간다
+        fetch_n = count
+    if skip:
+        return local[-count:]
+    fresh = _bar_rows(quote.get_chart_ohlcv(ticker, period, fetch_n), "date")
+    if fresh:
+        merged = _merge_bars(local, fresh, "date")
+        if merged != local:
+            _parquet_write(path, merged)
+        local = merged
+    return local[-count:]
+
+
+def _local_minute_today(quote: KisClient, ticker: str, count: int) -> list:
+    """당일 1분봉을 로컬 파일과 합쳐 돌려준다. 장중엔 마지막 로컬 봉 이후 분수만큼만 KIS에 묻는다."""
+    now = datetime.now(KST)
+    ymd = now.strftime("%Y%m%d")
+    done = _DATA_DIR / "minute" / ticker / f"{ymd}.parquet"       # 마감 뒤 백필 완본
+    path = _DATA_DIR / "minute_live" / ticker / f"{ymd}.parquet"   # 장중 증분본
+    raw = _parquet_read(done)
+    if raw:
+        path = done
+    else:
+        raw = _parquet_read(path)
+    local = []
+    for r in raw:
+        try:
+            hms = str(r.get("hms") or (str(r.get("time", "")) + "00"))
+            b = {"date": ymd, "hms": hms, "time": hms[:4]}
+            for k in _CHART_KEYS:
+                v = r.get(k, 0)
+                b[k] = int(v) if k == "volume" else float(v)
+            local.append(b)
+        except (TypeError, ValueError):
+            continue
+    local.sort(key=lambda b: b["hms"])
+    last_hms = local[-1]["hms"] if local else ""
+    hm = now.hour * 60 + now.minute
+    market = 9 * 60 <= hm <= 15 * 60 + 40 and now.weekday() < 5
+    # 장 끝난 뒤 로컬이 마감 근처(15:20 이후)까지 있으면 그날치는 끝난 것으로 본다(백필 산출물 재사용).
+    if not market and last_hms >= "152000":
+        return local[-count:]
+    if not market and not local and (hm < 9 * 60 or now.weekday() >= 5):
+        return []
+    need = count
+    if last_hms:
+        try:
+            elapsed = hm - (int(last_hms[:2]) * 60 + int(last_hms[2:4]))
+        except ValueError:
+            elapsed = count
+        need = max(2, min(count, elapsed + 2))
+    fresh = quote.get_minute_ohlcv(ticker, need)
+    fresh = [dict(b, date=ymd) for b in fresh if b.get("hms")]
+    if fresh:
+        merged = _merge_bars(local, fresh, "hms")
+        if merged != local:
+            _parquet_write(path, merged)
+        local = merged
+    return local[-count:]
+
+
 def build_chart(quote: KisClient, ticker: str, tf: str):
     tf = (tf or "D").upper()
     ttl = 60.0 if tf in ("D", "W") else 20.0
-    # bars는 이평 워밍업분까지 포함해 넉넉히 주고, 화면에는 뒤쪽 show개만 그린다.
-    # (240이평을 첫 표시봉부터 그리려면 그 앞에 240봉이 더 있어야 한다)
+
     def _fetch():
         if tf == "D":
-            bars = quote.get_chart_ohlcv(ticker, "D", 380)
+            bars = _local_chart_dw(quote, ticker, "D", 380)
             return {"tf": "D", "label": "일봉", "bars": bars, "x": "date", "show": 140}
         if tf == "W":
-            bars = quote.get_chart_ohlcv(ticker, "W", 300)
+            bars = _local_chart_dw(quote, ticker, "W", 300)
             return {"tf": "W", "label": "주봉", "bars": bars, "x": "date", "show": 80}
         n = 5 if tf == "5" else 3
-        raw = quote.get_minute_ohlcv(ticker, 300)
+        raw = _local_minute_today(quote, ticker, 300)
         bars = _resample(raw, n)
-        # 분봉은 당일치만 받으므로 워밍업 여분이 없다. 전부 표시하고, 데이터가 모자란 장기이평은 클라이언트가 건너뛴다.
         return {"tf": tf, "label": f"{n}분봉", "bars": bars, "x": "time", "show": len(bars)}
+
     return CACHE.get_or(f"chart:{ticker}:{tf}", ttl, _fetch)
 
 

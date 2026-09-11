@@ -19,6 +19,7 @@
 | `claude_dashboard_sync` | 평일 20:40 | `claude -p "/dashboard-sync"` | 매매·스터디 아티팩트 재발행(같은 URL) |
 | `Quant Maintain Daily` | 평일 16:20 | `python scripts/maintain.py --daily` | `EOD AutoDoc`(16:05) 뒤. 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers`. 대시보드는 부르지 않는다 |
 | `Quant Maintain Weekly` | 금요일 20:50 | `python scripts/maintain.py --weekly` | `claude_dashboard_sync`(20:40) 뒤. 미참조 스크립트 · 에이전트 죽은 경로 · 부산물 용량 · 주석 밀도 · 훅 배선 양방향 검사 → `docs/reports/MAINTENANCE_WEEKLY.md` |
+| `Quant Minute Backfill` | 평일 16:40 | `python scripts/eod_minute_backfill.py` | 아침 스캔 `Quant/config/universe_scan.json`을 `PYQuant/data/pit_universe/<오늘>.json`으로 옮기고 그날 유니버스 전체의 1분봉을 `PYQuant/data/minute/`에 쌓는다(`PYQuant/tools/minute_backfill.py --top-n 0`, 약 260종목×4콜). 15:45 전엔 돌지 않는다(반쪽 파일이 그날치를 건너뛰게 만든다). 대시보드 차트가 같은 파일을 읽는다 |
 
 확인·수정:
 
