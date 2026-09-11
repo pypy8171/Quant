@@ -192,6 +192,26 @@ ODNO 미매핑 체결로 들어오는데, 지금은 미연결 체결 경로가 �
 예외 — 이건 그대로 물어본다: config의 리스크 한도·계좌 전환(모의↔실계좌), 보유분 강제청산,
 git 커밋·푸시(`@committer` 승인 게이트).
 
+## 다중 세션 — 세션당 git worktree
+
+세션 여럿이 같은 작업 트리를 만지면 한쪽의 미완성 편집이 다른 쪽 빌드·테스트·커밋에 섞인다(09-11 실측:
+동시 세션 3개가 `Quant/src/core/Engine.cpp`·`docs/DECISIONS.md`를 같이 건드려 diff 소유가 불분명해짐).
+규칙은 하나다 — **코드를 바꾸는 세션은 자기 worktree에서 일한다.**
+
+```bash
+git worktree add ../Quant-wt-<주제> -b wt/<주제>      # 세션 시작 시 1회
+git worktree list                                      # 누가 어디를 잡고 있는지
+git worktree remove ../Quant-wt-<주제>                 # 머지 뒤 정리
+```
+
+- **메인 트리(`Quant/`)는 트레이더 배포 세션 하나만** 쓴다. `Quant/build_win/quant_trader.exe` 교체·감시견 재기동·
+  `Quant/config/*.json` 수정은 이 세션만 한다. 다른 세션은 worktree에서 빌드해 ctest까지만 돌리고, exe 교체는 메인 세션에
+  넘긴다(교체 절차는 메모리 `project_trader_watchdog_owner`).
+- 문서만 고치는 세션은 메인 트리도 가능하되, 같은 파일을 두 세션이 열지 않는다(`git status --porcelain`으로 먼저 본다).
+- 예약 작업(`_private/_cron/*_task.md`)은 메인 트리에서 돌고 `research/`·`_private/`만 쓴다. 코드 세션은 그 시각에
+  `research/STRATEGY_LAB.md`를 건드리지 않는다.
+- worktree는 `Quant/build_win/`을 공유하지 않는다 — 빌드 산출물은 worktree마다 새로 만든다(`$env:TEMP=C:uild_tmp` 회피는 동일).
+
 ## 토큰 이코노미 (매 작업 적용)
 
 **원칙: 같은 결과가 나온다면 최소 토큰으로.** 작업을 시작하기 전에 해당 유형의 체크 항목을 적용한다.
