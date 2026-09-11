@@ -1,6 +1,7 @@
 #pragma once
 #include "api/KisClient.h"
 #include "api/KisWebSocket.h"
+#include "core/LedgerReconciler.h"
 #include "core/RingBuffer.h"
 #include "core/RegimeController.h"
 #include "core/RegimeFileBridge.h"
@@ -223,13 +224,6 @@ private:
     void order_thread_fn();
     void fill_thread_fn();     // 체결통보 소비(fill_queue_ → OrderRouter::on_fill → ops 방송). WS 수신 스레드에서 뗀 것 [why D-056]
     void control_thread_fn(); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
-    bool bootstrap_ledger();  // G5: get_balance → OrderGate.seed_position (스레드 시작 전 1회). 실패=false → 기동 중단
-    // 주기적 잔고 재조회 → positions_/daily_pnl_/총평가금 재동기.
-    //  resync_positions=true(폴링 모드)면 미체결 선점(reserved_)을 비우고 실보유로 원장을 덮어쓴다.
-    //  체결통보가 오는 WS 모드에서는 원장이 이미 체결로 갱신되고 reserved_에는 살아 있는 지정가
-    //  주문이 잡혀 있으므로, false로 불러 총평가금·일손익만 갱신한다(선점을 지우면 같은 주문을
-    //  다시 낼 수 있다). 이 갱신이 없으면 equity가 0에 머물러 총노출 게이트가 통과만 하게 된다.
-    void reconcile_from_balance(bool resync_positions);
     StrategyBase::SellableInfo ledger_sellable(const std::string& account, const std::string& ticker) const;
     // 매크로 레짐 파일 읽기 → RegimeFileBridge 판정 → OrderGate entry_halt·force_liquidate_ 적용 (data_thread 전용)
     void poll_regime_file();
@@ -290,14 +284,9 @@ private:
     bool has_quote_kis_ = false;     // 시세 전용 클라이언트 사용 여부
     int order_min_interval_ms_ = 350; // 주문 간 최소 간격(ms) — 초당한도 회피(C-2/W-3)
     int order_max_retries_ = 3;       // 거부된 청산 SELL 재시도 횟수(C-2)
-    // C-1 잔고 대조 상태(rest 모드 전용) — 당일 기준 총평가금 대비 델타로 daily_pnl_ 근사.
-    bool have_pnl_baseline_ = false;
-    double pnl_baseline_ = 0.0;       // 당일 첫 잔고 대조 시 캡처한 총평가금(원)
-    // 잔고조회 서킷브레이커 — 모의/실서버 inquire-balance가 연속 타임아웃(12002)하면 GET 3회
-    //  재시도로 사이클당 ~60s를 태우고 데이터 스레드를 정체시킨다. 실패 누적 시 지수 백오프로
-    //  조회 자체를 건너뛰어 핫루프를 보호하고, 성공 시 즉시 복귀한다.
-    int reconcile_fail_streak_ = 0;   // 연속 실패 수(성공 시 0)
-    int reconcile_skip_remaining_ = 0; // 남은 스킵 사이클 수(>0이면 조회 생략)
+    // 잔고 → 원장 대조기(기동 시드·주기 대조·손익 기준선·서킷브레이커). start()에서 kis_·order_router_ 뒤에
+    //  만들고 data_thread만 부른다. [why D-061]
+    std::unique_ptr<LedgerReconciler> ledger_;
 
     std::unique_ptr<KisClient> kis_;
     // 시세 전용(실전 도메인). WS 모드에서도 폴백이 쓸 수 있어야 하므로 config에 블록이 있으면 항상 만든다.

@@ -2289,3 +2289,56 @@ C-7 (c)는 이걸 책임 단위로 나누는 일인데, 한 번에 다섯 조각
 **확인 방법**: `ctest --preset x64-release` 17/17, `test_regime_bridge` 31건. 드릴 절차의 관측 항목 1·2
 (`docs/guides/REGIME_DRILL_GUIDE.md`)가 그대로 성립하는지 다음 드릴 때 본다. 라이브에서는 재기동 뒤
 `[Regime] 신규진입 정지/재개` 줄이 전이마다 한 번, `매크로 진입정지 만료`가 하루 한 번인지 본다.
+
+### D-061 잔고 대조기를 Engine에서 LedgerReconciler로 뗀다 — C-7 (c) 2단계 (2026-09-12)
+**상태**: 채택 (`wt/c2`, ctest 18/18 — `test_ledger_reconciler` 43건 신설. 실행 중 `quant_trader`는 바꾸지 않았다 —
+`start()`·data_thread 경로라 다음 장 시작 전 재기동부터)
+
+**배경**: D-060으로 국면 파일 판정을 뗀 뒤 `Quant/src/core/Engine.cpp`는 3,112줄. 다음으로 바깥에 있는 덩어리가
+잔고 → 원장 대조다 — `bootstrap_ledger`(70줄)와 `reconcile_from_balance`(308줄)에 손익 기준선·서킷브레이커 상태
+네 개가 `Engine` 멤버로 붙어 있었다. 이 경로는 사고 이력이 가장 많다(09-09 빈 output1로 25종목 정리, 09-11 빈
+원장 기동, 12002 타임아웃 정체)인데 단위 테스트는 대조 행 계산(`reconcile::plan`, D-038)에만 있고 "빈 잔고면
+정리를 건너뛰는가", "두 번 연속 실패해야 pnl_stale인가", "재시작해도 당일 기준선을 파일에서 잇는가"는 라이브
+로그로만 확인했다. `KisClient`·`OrderRouter`·`Logger`에 묶여 있어서다.
+
+**결정**:
+- `Quant/include/core/LedgerReconciler.h` + `Quant/src/core/LedgerReconciler.cpp`: `LedgerReconciler(OrderGate&,
+  FetchBalance)`가 기동 시드 `bootstrap(attempts, retry_delay)`, 주기 대조 `reconcile(resync_positions, now_utc)`,
+  새 거래일 `new_trading_day()`를 든다. 브로커 호출(`FetchBalance = std::function<KisResult<AccountBalance>()>`),
+  종목명 등록(`NameSink`), 대조 행 기록(`ReconcileSink`)은 함수로 받는다 — 대조기는 `KisClient`도 `OrderRouter`도
+  모른다. 테스트는 `OrderGate.cpp`·`Logger.cpp`만 링크한다.
+- 순수한 부분은 헤더의 `ledger` 네임스페이스로: 서킷브레이커 `ReconcileBreaker`(`take_skip`·`on_result(responded)
+  → BreakerOutcome`), KST 거래일 `kst_ymd(time_t)`, 기준선 파일명 `baseline_file_name(ymd, account)`, 상수
+  `kPrunePositionAgeSec`·`kPnlStaleStreak`. `BreakerOutcome.pnl_stale`은 `std::optional<bool>` — D-060과 같은
+  표현으로 "게이트를 건드리지 않는다"를 값으로 든다. 로그 시점(`log_recovered`·`log_stale_off`·`log_backoff`·
+  `log_stale_on`)도 결과로 돌려주고 문구는 `.cpp`가 붙인다.
+- 기준선 디렉터리는 `set_baseline_dir`로 주입한다(`Engine`은 `Logger::instance().base_dir()`). 비어 있으면
+  파일 없이 메모리에만 캡처한다 — 시험용이지만 라이브에서도 파일 쓰기 실패가 대조를 막지 않는 것은 종전과 같다.
+  `now_utc`는 호출자가 넘긴다 — 파일 날짜를 테스트가 고정하기 위해서다.
+- `Engine`에는 `std::unique_ptr<LedgerReconciler> ledger_` 하나가 남는다. `start()`가 `kis_`·`order_router_` 뒤에
+  만들고, data_thread가 `new_trading_day()`·`reconcile(rest_now, now)`를 부른다. `ledger_sellable`(전략에 주는
+  매도가능수량)은 `OrderGate` 접근자라 `Engine`에 그대로 둔다. `today_ymd`(날짜별 표식 파일)는 `ledger::kst_ymd`로
+  합쳤다.
+- `Quant/tests/test_ledger_reconciler.cpp` 43건: 브레이커 백오프 1·2·4·8 상한과 streak 2에서 1회 stale 로그, 날짜
+  경계(UTC 23:00 = KST 다음날), 기동 5회 전부 실패 → false·2회 실패 뒤 성공 → 시드(주문가능 모름은 보유수량),
+  REST 모드 덮어쓰기와 OVERWRITE 행·기준선 파일 저장·같은 날 새 인스턴스의 파일 재사용·새 거래일 재캡처·유령
+  PRUNE 행·빈 output1 때 원장 유지와 행 없음, WS 모드 원장 유지와 KEEP 행·매도가능 갱신, 연속 실패의 스킵 수와
+  `pnl_stale` 전이·복구.
+
+동작 차이는 셋이고 매매 판단은 바뀌지 않는다. (1) 부트스트랩 재시도 로그가 `n/5` 고정에서 `n/attempts`가 된다.
+(2) `daily_pnl 신선도 복구/상실` 로그 문구가 `daily_pnl 갱신 복구/갱신 끊김`으로 바뀐다(문체 규약). (3) 기준선
+파일 경로가 `Logger::path_for`에서 주입된 디렉터리 + `create_directories`로 바뀐다 — 같은 폴더, 같은 이름이다.
+
+| 버린 대안 | 이유 |
+|---|---|
+| 대조기가 `KisClient&`를 받아 직접 `get_balance()` | 기각. 테스트가 `KisClient` 7파일과 WinHTTP를 링크하고, 실패 응답을 만들려면 서버가 필요하다. `std::function` 하나면 테스트가 응답을 직접 만든다 |
+| 대조기가 `OrderRouter&`를 받아 `record_reconcile` | 기각. `OrderRouter`는 FEP·체결 원장 CSV를 끌고 온다. 대조 행은 "무엇을 남길지"만 대조기 몫이고 "어디에"는 호출자 몫이다 |
+| 서킷브레이커까지 `.cpp`에 | 기각. 상태 둘·분기 셋의 순수 상태기계라 헤더에 두면 `Logger` 없이 백오프 표를 시험한다. `optional<bool>` 결과가 "안 건드림"을 값으로 든다 |
+| 헤더 전용(D-060처럼) | 기각. 파일 I/O·`sleep_for`·로그 문구가 있어 순수하지 않다. 순수한 부분만 헤더로 가르고 나머지는 `.cpp` |
+| `ledger_sellable`도 같이 | 기각. `OrderGate::sellable_view` 한 줄 위임이라 옮길 논리가 없고, 전략 스레드가 부르는 경로라 대조기의 스레드 소유(data_thread)와 어긋난다 |
+| `now`를 대조기가 `std::time(nullptr)`로 직접 | 기각. 기준선 파일 이름이 날짜라 테스트가 날짜를 고정하지 못한다. 호출자 한 줄이 싸다 |
+
+**확인 방법**: `ctest --preset x64-release` 18/18, `test_ledger_reconciler` 43건. 라이브에서는 재기동 뒤
+`원장 부트스트랩 완료: n종목 시드`, 첫 대조에서 `기준선 파일 재사용` 또는 `기준선 신규 캡처+저장`, 이후
+`잔고 대조: 당일손익`이 `fetch_interval_sec`마다 찍히는지 본다. 잔고 실패가 이어지면 `잔고조회 실패(streak=2…)`
+다음 줄에 `daily_pnl 갱신 끊김`이 한 번만 나오는지 본다.

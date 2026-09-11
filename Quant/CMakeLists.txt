@@ -108,6 +108,7 @@ set(SOURCES
   src/universe/UniverseScanner.cpp
   src/strategy/StrategyFactory.cpp
   src/core/Engine.cpp
+  src/core/LedgerReconciler.cpp
   src/core/RegimeController.cpp
   src/core/RingBuffer.cpp
   ${KIS_CLIENT_SOURCES}
@@ -235,6 +236,18 @@ target_include_directories(test_market_session PRIVATE ${CMAKE_CURRENT_SOURCE_DI
 add_executable(test_reconcile_plan tests/test_reconcile_plan.cpp)
 target_include_directories(test_reconcile_plan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# 잔고 → 원장 대조기(core/LedgerReconciler) — 브로커는 std::function 대역, OrderGate·Logger 링크 (D-061)
+add_executable(test_ledger_reconciler
+    tests/test_ledger_reconciler.cpp
+    src/core/LedgerReconciler.cpp
+    src/risk/OrderGate.cpp
+    src/utils/Logger.cpp
+)
+target_include_directories(test_ledger_reconciler PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(test_ledger_reconciler PRIVATE pthread)
+endif()
+
 # 매크로 국면 파일 브리지(core/RegimeFileBridge.h) — 헤더 전용, 파일·로그 없음 (D-060)
 add_executable(test_regime_bridge tests/test_regime_bridge.cpp)
 target_include_directories(test_regime_bridge PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -352,6 +365,7 @@ set(QUANT_ASSERT_TARGETS
     test_kis_decode
     test_market_session
     test_reconcile_plan
+    test_ledger_reconciler
     test_ops_protocol
     test_ops_server
     test_regime
