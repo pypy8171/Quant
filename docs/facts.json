@@ -251,6 +251,7 @@
       "dashboard-refresh.ps1",
       "docs-gate.ps1",
       "eod-gate.ps1",
+      "file-index-gate.ps1",
       "lexicon-gate.ps1",
       "output-gate.ps1",
       "review-reminder.ps1",
@@ -261,8 +262,8 @@
       "commands": 15,
       "agents": 19,
       "skills": 1,
-      "hooks": 9,
-      "hook_wirings": 9
+      "hooks": 10,
+      "hook_wirings": 10
     },
     "settings_hooks": [
       {
@@ -294,6 +295,12 @@
         "matcher": "",
         "hook_file": "sync-gate.ps1",
         "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\sync-gate.ps1"
+      },
+      {
+        "event": "Stop",
+        "matcher": "",
+        "hook_file": "file-index-gate.ps1",
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\file-index-gate.ps1"
       },
       {
         "event": "Stop",
@@ -424,7 +431,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::data_thread_fn",
       "lines": 488,
-      "start": 1118
+      "start": 1129
     },
     {
       "file": "Quant/src/risk/OrderGate.cpp",
@@ -435,7 +442,7 @@
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::start",
-      "lines": 412,
+      "lines": 423,
       "start": 528
     },
     {
@@ -484,7 +491,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::strategy_thread_fn",
       "lines": 191,
-      "start": 1773
+      "start": 1784
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
@@ -550,7 +557,7 @@
       "file": "Quant/src/api/WebSocketClient.cpp",
       "symbol": "KisWebSocket::parse_message",
       "lines": 143,
-      "start": 519
+      "start": 527
     },
     {
       "file": "Quant/src/api/KisIndex.cpp",
@@ -586,7 +593,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::shard_thread_fn",
       "lines": 126,
-      "start": 1965
+      "start": 1976
     },
     {
       "file": "Quant/src/ipc/ZmqBridge.cpp",
@@ -634,7 +641,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::control_thread_fn",
       "lines": 109,
-      "start": 2351
+      "start": 2362
     },
     {
       "file": "PYQuant/tools/walkforward.py",
@@ -664,13 +671,13 @@
       "file": "Quant/src/api/WebSocketClient.cpp",
       "symbol": "KisWebSocket::recv_loop",
       "lines": 101,
-      "start": 126
+      "start": 134
     },
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::order_thread_fn",
       "lines": 101,
-      "start": 2093
+      "start": 2104
     },
     {
       "file": "Quant/include/strategy/SupplyDemandPullbackStrategy.h",
@@ -760,7 +767,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::drain_manual_inbox",
       "lines": 90,
-      "start": 2571
+      "start": 2582
     },
     {
       "file": "PYQuant/tools/log_report.py",
