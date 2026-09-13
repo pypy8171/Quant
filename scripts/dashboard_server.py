@@ -597,16 +597,17 @@ def _sector_loop(quote: KisClient, interval=300.0):
 
 
 # ── 테마(인포스탁 분류, 네이버 증권 경유) [why D-054] ─────────────────────────────
-# 목록(266개 당일 등락률·상승/하락 수)은 60초마다, 구성 종목은 클릭할 때만 받아 5분 캐시한다.
-# 종목→테마 역색인은 일일 스냅샷 PYQuant/data/themes/latest.json(fetch_naver_themes.py)에서 읽는다.
+# 목록(266개 당일 등락률·상승/하락 수)은 20초마다, 구성 종목은 펼친 테마만 20초마다 받는다(닫힌 테마는 부르지 않는다).
+# 종목→테마 역색인(편입표)은 하루 안에 바뀌지 않아 서버가 하루 한 번 전부 받아 PYQuant/data/themes/latest.json에
+# 두고 읽는다(_theme_snapshot_loop). 손으로는 fetch_naver_themes.py가 같은 파일을 쓴다.
 try:
-    from naver.theme import fetch_theme_list, fetch_theme_members
+    from naver.theme import fetch_theme_list, fetch_theme_members, fetch_all as fetch_all_themes
 except Exception as e:                        # pragma: no cover
-    fetch_theme_list = fetch_theme_members = None
+    fetch_theme_list = fetch_theme_members = fetch_all_themes = None
     print(f"[경고] PYQuant/naver/theme.py 임포트 실패 — 테마 카드 없이 간다: {e}", file=sys.stderr)
 
 THEME_SNAPSHOT = REPO / "PYQuant" / "data" / "themes" / "latest.json"
-THEME_MEMBER_TTL = 300.0
+THEME_MEMBER_TTL = 20.0
 _THEME_MEMBERS: dict = {}           # no → {"ts", "val"}. LIVE_LOCK으로 감싼다.
 _THEME_INDEX = {"mtime": 0.0, "by_ticker": {}, "asof": ""}
 
@@ -649,7 +650,7 @@ def holding_themes(bal) -> dict:
 
 
 def theme_members(no: str) -> dict:
-    """테마 구성 종목(등락률순)과 종목별 편입 사유. 클릭할 때만 부르고 5분 캐시."""
+    """테마 구성 종목(등락률순)과 종목별 편입 사유. 펼친 테마만 부르고 20초 캐시(창 여럿이 같은 테마를 펼쳐도 호출 1회)."""
     if fetch_theme_members is None:
         return {"no": no, "rows": [], "note": "naver.theme 모듈 없음"}
     with LIVE_LOCK:
@@ -664,7 +665,7 @@ def theme_members(no: str) -> dict:
     return val
 
 
-def _theme_loop(interval=60.0):
+def _theme_loop(interval=20.0):
     """테마 목록 3회 호출. 네이버 쪽 형식이 바뀌면 오류를 남기고 옛 값에 갱신 지연 표시가 붙는다."""
     while True:
         try:
@@ -673,6 +674,30 @@ def _theme_loop(interval=60.0):
         except Exception as e:
             _live_err("kr_theme", str(e))
         time.sleep(interval)
+
+
+def _theme_snapshot_loop(hour=8, minute=30):
+    """편입표 전체(약 270회 호출, 30초)를 기동 때 latest.json이 오늘 것이 아니면 한 번, 이후 매일 hour:minute에 받는다.
+    임시 파일에 쓰고 바꿔치기해 _load_theme_index가 쓰다 만 파일을 읽지 않게 한다. 실패하면 옛 파일로 버틴다."""
+    while True:
+        now = datetime.now(KST)
+        _load_theme_index()
+        if _THEME_INDEX["asof"][:10] != now.strftime("%Y-%m-%d"):
+            try:
+                snap = fetch_all_themes()
+                body = json.dumps(snap, ensure_ascii=False, indent=0)
+                THEME_SNAPSHOT.parent.mkdir(parents=True, exist_ok=True)
+                tmp = THEME_SNAPSHOT.with_suffix(".tmp")
+                tmp.write_text(body, encoding="utf-8")
+                tmp.replace(THEME_SNAPSHOT)
+                (THEME_SNAPSHOT.parent / f"{snap['asof'][:10]}.json").write_text(body, encoding="utf-8")
+                print(f"[테마 편입표] {snap['asof']} 테마 {len(snap['themes'])}개 · 종목 {len(snap['by_ticker'])}개", file=sys.stderr)
+            except Exception as e:
+                _live_err("theme_snapshot", str(e))
+        nxt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if nxt <= now:
+            nxt += timedelta(days=1)
+        time.sleep(max(60.0, (nxt - now).total_seconds()))
 
 
 def _warm_loop(kis: KisClient, quote: KisClient, interval=5.0, flow_every=6):
@@ -1515,16 +1540,19 @@ function thDetailRow(no){
     '</tbody></table>'+(d.asof?'<span class="mut">'+eb(d.asof)+' 기준</span>':'');
   return `<tr class="sec-d"><td colspan="6">${inner}</td></tr>`;
 }
+async function loadTheme(no){
+  try{ thCache[no]=await (await fetch('/api/theme?no='+no,{cache:'no-store'})).json(); }
+  catch(e){ thCache[no]={__error__:String(e)}; }
+  renderTheme();
+}
 async function toggleTheme(no){
   if(thOpen.has(no)){ thOpen.delete(no); renderTheme(); return; }
   thOpen.add(no); renderTheme();
   document.getElementById('theme').closest('.card').scrollIntoView({block:'nearest'});
-  if(!thCache[no]){
-    try{ thCache[no]=await (await fetch('/api/theme?no='+no,{cache:'no-store'})).json(); }
-    catch(e){ thCache[no]={__error__:String(e)}; }
-    renderTheme();
-  }
+  if(!thCache[no]) await loadTheme(no);
 }
+// 펼친 테마의 구성 종목은 목록과 같은 20초 주기로 다시 받는다 — 닫힌 테마는 부르지 않는다.
+setInterval(()=>{ thOpen.forEach(no=>loadTheme(no)); }, 20000);
 async function toggleSector(code){
   if(secOpen.has(code)){ secOpen.delete(code); renderSector(); return; }
   secOpen.add(code); renderSector();
@@ -1695,6 +1723,7 @@ def main():
     threading.Thread(target=_sector_loop, args=(quote,), daemon=True).start()
     if fetch_theme_list is not None:
         threading.Thread(target=_theme_loop, daemon=True).start()
+        threading.Thread(target=_theme_snapshot_loop, daemon=True).start()
 
     print(f"[대시보드] config={cfg_path.name} 계좌={_mask_acct(k['account_no'])} "
           f"모의={k.get('is_paper')}", flush=True)
