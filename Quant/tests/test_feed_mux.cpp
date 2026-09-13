@@ -352,6 +352,42 @@ int main()
         CHECK(mux.is_stale(10));
     }
 
+    // 3b. 멈춘 소스만 다시 잇는다 — 살아 있는 소스는 끊지 않고 종목도 그대로, 멈춘 소스는 자기 배정 종목으로 다시 붙는다.
+    //     배정이 없던 새 종목은 다시 잇는 소스에 붙는다. 전부 멈췄으면 전부 다시 잇는다.
+    {
+        auto  a  = std::make_unique<FakeSource>(40);
+        auto  b  = std::make_unique<FakeSource>(40);
+        auto* pa = a.get();
+        auto* pb = b.get();
+        std::vector<std::unique_ptr<feed::IFeedSource>> srcs;
+        srcs.push_back(std::move(a));
+        srcs.push_back(std::move(b));
+        feed::FeedMux mux(std::move(srcs), 64);
+        Sink          sink;
+        attach(mux, sink);
+        const std::vector<WatchSpec> four{spec("A"), spec("B"), spec("C"), spec("D")};
+        CHECK(mux.connect(four));
+        CHECK(pa->spec_count() == 2 && pb->spec_count() == 2);
+        CHECK(mux.source_of(spec("B")) == std::optional<size_t>(1) && mux.source_of(spec("D")) == std::optional<size_t>(1));
+
+        pb->stale = true;
+        std::vector<WatchSpec> five = four;
+        five.push_back(spec("E")); // 재스캔이 더한 새 종목 — 배정이 없다
+        CHECK(mux.reconnect_stale(five, 10));
+        CHECK(pa->disconnects == 0 && pa->spec_count() == 2);
+        CHECK(pb->disconnects == 1 && pb->spec_count() == 3);
+        CHECK(pb->has_spec(spec("B")) && pb->has_spec(spec("D")) && pb->has_spec(spec("E")));
+        CHECK(mux.source_of(spec("E")) == std::optional<size_t>(1));
+        pb->stale = false;
+        CHECK(!mux.is_stale(10));
+
+        pa->stale = true;
+        pb->stale = true;
+        CHECK(mux.reconnect_stale(five, 10));
+        CHECK(pa->disconnects == 1 && pb->disconnects == 2);
+        CHECK(pa->spec_count() + pb->spec_count() == 5);
+    }
+
     // 4. 링이 차면 버리고 센다 — 콜백이 막혀 있는 동안 링 용량보다 많이 쏜다.
     {
         auto a  = std::make_unique<FakeSource>(40);

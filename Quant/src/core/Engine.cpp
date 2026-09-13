@@ -2456,14 +2456,14 @@ void Engine::control_thread_fn(std::stop_token st)
 
         LOG_WARN("[Control] WebSocket " + std::to_string(feed_sup_.config().stale_sec) +
                  "초 이상 시세 미수신 — 재연결 시도");
-        ws_->disconnect();
         std::vector<WatchSpec> specs_copy;
         {
             std::lock_guard<std::mutex> wl(watch_specs_mtx_); // data_thread의 재스캔 push_back과 겹친다
             specs_copy = watch_specs_;
         }
 
-        const bool ok    = ws_->connect(specs_copy);
+        // 소켓이 여럿이면 멈춘 것만 다시 잇는다 — 살아 있는 소켓의 종목은 그 사이에도 틱이 흐른다. 하나면 끊고 다시 잇는 것.
+        const bool ok    = ws_->reconnect_stale(specs_copy, feed_sup_.config().stale_sec);
         const auto after = feed_sup_.on_reconnect(ok, std::chrono::steady_clock::now());
 
         if (ok)

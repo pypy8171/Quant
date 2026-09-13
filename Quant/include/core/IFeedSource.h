@@ -53,6 +53,15 @@ public:
     virtual bool is_connected() const = 0;
     // threshold_sec 이상 메시지가 없으면 true. Engine 제어 스레드가 재연결 판단에 쓴다.
     virtual bool is_stale(int threshold_sec) const = 0;
+
+    // 멈춘 연결을 다시 잇는다. specs는 지금 봐야 할 종목 전체(재스캔 추가분 포함). 소켓 하나면 끊고 specs로 다시 잇는
+    //  것이고, 소켓 여럿을 묶은 소스는 멈춘 것만 자기 종목으로 다시 잇는다(FeedMux) — 살아 있는 소켓의 틱은 그 사이에도
+    //  흐른다. 다시 이은 연결이 전부 성공하면 true. 제어 스레드만 부른다. [why D-071]
+    virtual bool reconnect_stale(const std::vector<WatchSpec>& specs, int /*threshold_sec*/)
+    {
+        disconnect();
+        return connect(specs);
+    }
 };
 
 } // namespace feed

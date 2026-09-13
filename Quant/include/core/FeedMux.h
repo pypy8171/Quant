@@ -258,7 +258,7 @@ public:
         return false;
     }
 
-    // 소스 하나라도 끊겼거나 멈췄으면 stale — Engine이 전체를 다시 잇는다. 소스 단위 재연결은 다음 조각.
+    // 소스 하나라도 끊겼거나 멈췄으면 stale — 어느 것인지는 reconnect_stale이 다시 가려 그것만 잇는다.
     bool is_stale(int threshold_sec) const override
     {
         for (const auto& s : sources_)
@@ -270,6 +270,78 @@ public:
         }
 
         return false;
+    }
+
+    // 멈췄거나 끊긴 소스만 자기 배정 종목으로 다시 잇는다. 배정이 없는 종목(넘침 회수분 등)은 다시 잇는 소스에 돌아가며
+    //  붙인다. 전부 멈췄으면(또는 멈춘 것이 없는데 불렸으면) 기본 동작 — 전부 끊고 전부 다시 — 과 같다.
+    //  실패한 소스는 끊긴 채 남아 다음 판정에서 다시 멈춘 것으로 잡힌다.
+    bool reconnect_stale(const std::vector<WatchSpec>& specs, int threshold_sec) override
+    {
+        std::vector<bool> dead(sources_.size(), false);
+        size_t            dead_n = 0;
+
+        for (size_t i = 0; i < sources_.size(); ++i)
+        {
+            if (!sources_[i]->is_connected() || sources_[i]->is_stale(threshold_sec))
+            {
+                dead[i] = true;
+                ++dead_n;
+            }
+        }
+
+        if (dead_n == 0 || dead_n == sources_.size())
+        {
+            disconnect();
+            return connect(specs);
+        }
+
+        std::vector<std::vector<WatchSpec>> per_source(sources_.size());
+        {
+            std::lock_guard<std::mutex> lk(assign_mtx_);
+            size_t                      next = 0;
+
+            for (const auto& s : specs)
+            {
+                const auto it = assign_.find(key(s));
+                size_t     idx;
+
+                if (it != assign_.end())
+                {
+                    idx = it->second;
+                }
+                else
+                {
+                    idx = next++ % sources_.size();
+
+                    while (!dead[idx])
+                    {
+                        idx = (idx + 1) % sources_.size();
+                    }
+
+                    assign_.emplace(key(s), idx);
+                }
+
+                if (dead[idx])
+                {
+                    per_source[idx].push_back(s);
+                }
+            }
+        }
+
+        bool ok = true;
+
+        for (size_t i = 0; i < sources_.size(); ++i)
+        {
+            if (!dead[i])
+            {
+                continue;
+            }
+
+            sources_[i]->disconnect();
+            ok = sources_[i]->connect(per_source[i]) && ok;
+        }
+
+        return ok;
     }
 
     [[nodiscard]] size_t source_count() const noexcept
