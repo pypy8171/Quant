@@ -161,10 +161,13 @@ public:
     // drop_after_sec: 스캔 결과에서 이만큼 연속으로 빠져 있는 종목의 전략을 뗀다(≤0이면 안 뗌).
     //  보유·미체결 선점이 있는 종목은 빠져 있어도 안 뗀다. 20초 재스캔에 한 번 빠졌다고 떼면
     //  등록(차트 조회)과 해제가 도는 회전이 나므로 유지 시간을 둔다.
+    // block_after_sec: 같은 시계로 이만큼 빠져 있으면 떼기 전에 신규매수부터 막는다(≤0이면 안 막음).
+    //  return_confirm: 막힌 종목이 다시 보여도 이 횟수 연속이어야 푼다. 판정은 core/UniverseExit.h [why D-077].
     void set_universe_rescan(
         std::function<std::vector<std::string>(KisClient&)> universe_fn,
         std::function<std::unique_ptr<StrategyBase>(const std::string&)> factory,
-        int interval_sec, size_t max_registered = 0, int drop_after_sec = 0)
+        int interval_sec, size_t max_registered = 0, int drop_after_sec = 0,
+        int block_after_sec = 0, int return_confirm = 2)
     {
         // 슬리브마다 한 번씩 부른다 — 덮어쓰지 않고 쌓는다. 예전에는 단일 슬롯이라
         //  두 번째 호출이 첫 번째를 조용히 지웠다(먼저 건 재스캔이 사라짐).
@@ -174,8 +177,15 @@ public:
         j.interval_sec   = interval_sec;
         j.max_registered = max_registered;
         j.drop_after_sec = drop_after_sec;
+        j.block_after_sec = block_after_sec;
+        j.return_confirm  = return_confirm;
         rescan_jobs_.push_back(std::move(j));
     }
+
+    // 기동 때 add_strategy로 넣은 유니버스 종목을 마지막 set_universe_rescan 슬리브의 소유로 잡는다.
+    //  재스캔이 등록한 종목만 소유로 두면 기동 종목은 하루 종일 차단·해제 밖이라 순위에서 밀려도 남는다.
+    //  스레드 시작 전에만, set_universe_rescan 바로 뒤에 부른다 [why D-077].
+    void seed_universe_rescan(const std::vector<std::string>& tickers);
 
     // ── G1: 국면→전략 자동선택 ──────────────────────────────────────────────
     // 국면(BULL/NEUTRAL/BEAR)별 활성 전략 id 목록(권위적 선택자). 스레드 시작 전에만.
@@ -356,9 +366,14 @@ private:
         size_t max_registered = 0;
         size_t registered     = 0;
         int    drop_after_sec = 0;
+        int    block_after_sec = 0;
+        int    return_confirm  = 2;
+        bool   empty_scan_warned = false; // 빈 스캔 결과 WARN은 연속 구간당 한 번
         std::chrono::steady_clock::time_point last_run{};
-        std::unordered_map<std::string, StrategyBase*> owned; // 이 슬리브가 등록한 티커 → 전략(해제 대상 식별)
-        std::unordered_map<std::string, std::chrono::steady_clock::time_point> absent_since; // 스캔에서 빠진 시각
+        std::unordered_map<std::string, StrategyBase*> owned; // 이 슬리브가 소유한 티커 → 전략(차단·해제 대상)
+        // 연속 부재 시계 — 마지막으로 보인 스캔 시각. 첫 부재 스캔에서 직전 스캔 시각으로 놓는다.
+        std::unordered_map<std::string, std::chrono::steady_clock::time_point> absent_since;
+        std::unordered_map<std::string, int> present_streak; // 차단 중 연속 present 스캔 수(복귀 확인)
     };
     std::vector<RescanJob> rescan_jobs_;
     std::unordered_set<std::string> registered_tickers_; // 등록된 KR 티커(중복 방지, 슬리브 공유)

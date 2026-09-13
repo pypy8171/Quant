@@ -1,4 +1,5 @@
 #include "core/Engine.h"
+#include "core/UniverseExit.h"
 #include "core/KstTime.h"
 #include "core/LatencyTrace.h"
 #include "core/ReconcilePlan.h"
@@ -213,8 +214,34 @@ void Engine::apply_regime_selection(Regime r, bool force_log)
     last_selected_regime_ = r;
 }
 
+// 기동 유니버스를 마지막 재스캔 슬리브의 소유로 — 스레드 시작 전 호출 전용(strategies_를 락 없이 읽는다).
+void Engine::seed_universe_rescan(const std::vector<std::string>& tickers)
+{
+    if (rescan_jobs_.empty() || tickers.empty())
+    {
+        return;
+    }
+
+    auto& job = rescan_jobs_.back();
+    std::unordered_set<std::string> want(tickers.begin(), tickers.end());
+
+    for (auto& s : strategies_)
+    {
+        for (const auto& spec : s->get_watch_specs())
+        {
+            if (spec.market == Market::KR && want.count(spec.ticker) && !job.owned.count(spec.ticker))
+            {
+                job.owned[spec.ticker] = s.get();
+                ++job.registered;   // 상한은 소유 수로 센다 — 떼면 줄어드는 자리에 기동 종목도 든다
+            }
+        }
+    }
+
+    LOG_INFO("[Engine] 재스캔 소유 시드: " + std::to_string(job.owned.size()) + "종목 (기동 유니버스)");
+}
+
 // 주기적 유니버스 재스캔 — universe_fn_으로 티커 목록을 산출해 미등록 종목은 런타임 등록하고,
-//  drop_after_sec 이상 연속으로 빠져 있는 종목(보유·선점 없음)은 뗀다.
+//  소유 종목이 스캔에서 연속으로 빠지면 block_after_sec에 신규매수를 막고 drop_after_sec에 뗀다(보유·선점 없을 때만).
 void Engine::maybe_rescan_universe()
 {
     reap_retired(/*force=*/false);
@@ -246,6 +273,8 @@ void Engine::maybe_rescan_universe()
             continue;
         }
 
+        // 첫 부재 스캔의 시계 원점 — 직전 스캔(마지막으로 보인 때)이다. 첫 실행이면 지금.
+        const auto prev_run = job.last_run.time_since_epoch().count() != 0 ? job.last_run : now_c;
         job.last_run = now_c;
 
         std::vector<std::string> tickers;
@@ -313,13 +342,29 @@ void Engine::maybe_rescan_universe()
                              : ""));
         }
 
-        if (job.drop_after_sec <= 0)
+        if (job.drop_after_sec <= 0 && job.block_after_sec <= 0)
         {
             continue;
         }
 
-        // 해제 판정. universe_fn은 보유 종목을 결과에서 이미 빼고 주므로(drop_held) 빠져 있다는
-        //  것만으로는 이탈이 아니다 — 보유·선점을 원장에서 다시 보고, 있으면 시계를 지운다.
+        // 빈 결과는 이탈 근거가 아니다 — 스캐너는 지수 조회 실패·위험회피 때 예외 대신 빈 목록을 돌려준다.
+        //  그대로 부재로 세면 한 번의 실패에 소유 전부가 차단·해제된다. 시계도 세우지 않고 건너뛴다.
+        if (tickers.empty() && !job.owned.empty())
+        {
+            if (!job.empty_scan_warned)
+            {
+                LOG_WARN("[Engine] 유니버스 재스캔 결과 없음 — 이탈 판정 건너뜀(소유 " +
+                         std::to_string(job.owned.size()) + "종목, 다음 결과까지 유지)");
+                job.empty_scan_warned = true;
+            }
+
+            continue;
+        }
+
+        job.empty_scan_warned = false;
+
+        // 이탈 판정. universe_fn은 보유 종목을 결과에서 이미 빼고 주므로(drop_held) 빠져 있다는
+        //  것만으로는 이탈이 아니다 — 보유·선점을 원장에서 다시 보고, 있으면 present로 친다.
         std::unordered_set<std::string> in_scan(tickers.begin(), tickers.end());
         std::unordered_set<std::string> held;
 
@@ -331,27 +376,59 @@ void Engine::maybe_rescan_universe()
             }
         }
 
+        const universe_exit::Thresholds th{job.block_after_sec, job.drop_after_sec, job.return_confirm};
         std::vector<std::string> drop;
 
         for (const auto& [t, ptr] : job.owned)
         {
-            if (in_scan.count(t) || held.count(t) || order_gate_.reserved(t) != 0)
+            // 시계는 하나(연속 부재), 임계값은 둘 — block_after_sec에 신규매수를 막고 drop_after_sec에 뗀다.
+            //  복귀는 present가 return_confirm회 연속일 때만 — 경계 종목이 한 번 보이자마자 풀리면 사고팔기를
+            //  반복한다. 보유 종목은 스캔 결과에서 빠져 오므로(drop_held) 보유를 이탈로 보지 않는다 —
+            //  분할 매수 추가는 전략 자신의 정배열 게이트가 판단한다 [why D-077].
+            const bool present = in_scan.count(t) || held.count(t) || order_gate_.reserved(t) != 0;
+
+            if (present)
             {
                 job.absent_since.erase(t);
+
+                if (!ptr->in_universe())
+                {
+                    const int streak = ++job.present_streak[t];
+
+                    if (universe_exit::judge_return(streak, th, /*in_universe=*/false))
+                    {
+                        ptr->set_in_universe(true);
+                        job.present_streak.erase(t);
+                        LOG_INFO("[Engine] 유니버스 복귀 → 신규매수 허용: " + ptr->describe() + " (present " +
+                                 std::to_string(streak) + "회 연속)");
+                    }
+                }
+
                 continue;
             }
 
+            job.present_streak.erase(t);
             auto it = job.absent_since.find(t);
 
             if (it == job.absent_since.end())
             {
-                job.absent_since.emplace(t, now_c);
-                continue;
+                it = job.absent_since.emplace(t, prev_run).first;
             }
 
-            if (now_c - it->second >= std::chrono::seconds(job.drop_after_sec))
+            const auto absent_sec = std::chrono::duration_cast<std::chrono::seconds>(now_c - it->second).count();
+
+            switch (universe_exit::judge_absent(absent_sec, th, ptr->in_universe()))
             {
+            case universe_exit::Absent::BLOCK:
+                ptr->set_in_universe(false);
+                LOG_INFO("[Engine] 유니버스 이탈 → 신규매수 차단: " + ptr->describe() + " (" +
+                         std::to_string(absent_sec) + "초 부재, 해제는 " + std::to_string(job.drop_after_sec) + "초)");
+                break;
+            case universe_exit::Absent::DROP:
                 drop.push_back(t);
+                break;
+            case universe_exit::Absent::KEEP:
+                break;
             }
         }
 
@@ -386,6 +463,7 @@ void Engine::maybe_rescan_universe()
             registered_tickers_.erase(t);
             job.owned.erase(t);
             job.absent_since.erase(t);
+            job.present_streak.erase(t);
 
             if (job.registered > 0)
             {

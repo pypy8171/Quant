@@ -147,6 +147,7 @@ Quant/                              ← 저장소 루트
 │   │   │   ├── ReconcilePlan.h     잔고 대조 차이 계산 → RECONCILE 행 (헤더 전용 순수 함수, test_reconcile_plan)
 │   │   │   ├── RegimeController.h  국면 판정 (200MA·정배열 → BULL/NEUTRAL/BEAR, 지수 현재값을 오늘 봉으로 접어 5분 재판정)
 │   │   │   ├── RingBuffer.h        SPSC 락-프리 큐 (cache-line 분리)
+│   │   │   ├── UniverseExit.h      재스캔 이탈·복귀 판정 (연속 부재 → 차단·해제, present 연속 → 복귀; 헤더 전용 순수 함수)
 │   │   │   └── Types.h             MarketData, OrderSignal(+ref_price), Regime/RegimeSnapshot 등
 │   │   ├── ipc/
 │   │   │   ├── OpsProtocol.h       운영단말 프레이밍 (헤더 전용, 단말과 공유)

@@ -1,6 +1,7 @@
 #include "strategy/StrategyFactory.h"
 #include "core/Engine.h"
 #include "core/Types.h"
+#include "core/UniverseExit.h"
 #include "strategy/DeviationScaleStrategy.h"
 #include "strategy/FixedIntervalStrategy.h"
 #include "strategy/IntradayBreakoutStrategy.h"
@@ -732,6 +733,16 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         int rescan_sec     = s.value("rescan_interval_sec", 600); // 주기적 재스캔 간격(초)
         // 스캔에서 이만큼 연속으로 빠진 종목의 전략을 뗀다(보유·선점 없을 때만). 0=안 뗌.
         int drop_after_sec = s.value("rescan_drop_after_sec", 1800);
+        // 같은 시계로 이만큼 빠지면 떼기 전에 신규매수부터 막는다. 0=안 막음(기본 — 실제 값은 config가 준다).
+        //  복귀는 present 스캔이 return_confirm회 연속일 때만. 판정은 core/UniverseExit.h [why D-077].
+        int block_after_sec = universe_exit::clamp_block(s.value("rescan_block_after_sec", 0), drop_after_sec);
+        int return_confirm  = s.value("rescan_return_confirm", 2);
+
+        if (block_after_sec != s.value("rescan_block_after_sec", 0))
+        {
+            LOG_WARN("[Main] rescan_block_after_sec " + std::to_string(s.value("rescan_block_after_sec", 0)) +
+                     "이 rescan_drop_after_sec " + std::to_string(drop_after_sec) + "보다 커서 해제 시각에 맞춘다");
+        }
 
         // 유니버스 산출 콜백 — 초기 등록·주기적 재스캔 공용(cfg 값 복사 캡처).
         //  &engine 캡처의 수명 안전은 위 factory와 동일. 스캔 결과 종목명을 엔진 라벨 맵에 등록해 로그에 노출.
@@ -839,6 +850,8 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
             return ts;
         };
 
+        std::vector<std::string> seeded; // 기동 등록 종목 — 재스캔 슬리브의 소유로 넘겨 차단·해제 대상에 넣는다
+
         if (!ctx.has_quote_kis)
         {
             LOG_ERROR("[Main] DEVSCALE universe_from_scan: quote_kis(실전 시세 키) 미설정 — 스캔 불가, 건너뜀");
@@ -860,6 +873,7 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
                 {
                     add_gated(engine, factory(t));
                     covered.insert(t); // 청산 관리 중복 부착 방지용
+                    seeded.push_back(t);
                     LOG_INFO("[Main]   + " + base.id_prefix + " 초기 " + t);
                     ++added;
                 }
@@ -874,9 +888,12 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
             // 등록 총수 상한은 스캔 1회 상한(max_universe)과 같게 둔다 — 해제가 느리게 따라오므로
             //  상한이 없으면 총수가 그 값을 넘어 는다.
             engine.set_universe_rescan(universe_rescan, gate_factory(factory), rescan_sec,
-                                       static_cast<size_t>(sc.max_register), drop_after_sec);
+                                       static_cast<size_t>(sc.max_register), drop_after_sec, block_after_sec,
+                                       return_confirm);
+            engine.seed_universe_rescan(seeded);
             LOG_INFO("[Main] " + base.id_prefix + " 주기적 재스캔 활성: " + std::to_string(rescan_sec) +
-                     "초 간격, 이탈 해제 " + std::to_string(drop_after_sec) + "초");
+                     "초 간격, 이탈 차단 " + std::to_string(block_after_sec) + "초(복귀 확인 " +
+                     std::to_string(return_confirm) + "회), 해제 " + std::to_string(drop_after_sec) + "초");
         }
     }
     else

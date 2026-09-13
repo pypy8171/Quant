@@ -1,9 +1,12 @@
 // 신호 디스패처(core/SignalDispatcher.h) 단위 테스트. 주문 큐·ZMQ·종목 표기·청산 관리 여부를 std::function으로
 //  대신해 Engine 없이 순번 부여, 비활성 전략·청산 관리 티커 차단, 교체 진입의 매도-보류-발주·만료·취소, 강제청산
-//  잔량 계산과 스로틀, 한도 초과분 정리의 1회성을 고정한다. OrderGate·Logger를 링크한다.
-//  관련 결정: D-019(교체 진입), D-038(순번), D-063(분리).
+//  잔량 계산과 스로틀, 한도 초과분 정리의 1회성, 전략 활성 플래그(국면·유니버스 AND), 유니버스 이탈·복귀 판정
+//  (core/UniverseExit.h)을 고정한다. OrderGate·Logger를 링크한다.
+//  관련 결정: D-019(교체 진입), D-038(순번), D-063(분리), D-077(유니버스 이탈).
 // 빌드: cmake --build <dir> --target test_signal_dispatcher
 #include "core/SignalDispatcher.h"
+#include "core/UniverseExit.h"
+#include "strategy/StrategyBase.h"
 #include "utils/Logger.h"
 
 #include <cstdlib>
@@ -123,6 +126,54 @@ int test_strategy_gate()
     // 청산 관리 밖 티커는 어느 전략이든 통과.
     r.d.from_strategy(true, "DEV_1", sig("H", OrderSide::BUY, 1));
     CHECK(r.out.size() == 5);
+
+    // 전략이 디스패처에 주는 active는 국면 축과 유니버스 축의 AND다 — 어느 한쪽이 닫히면 신규매수가 막힌다 (D-077).
+    struct Stub : StrategyBase
+    {
+        std::string id() const override { return "S"; }
+        std::string describe() const override { return "S"; }
+        std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
+    } st;
+    CHECK(st.is_active() && st.in_universe());
+    st.set_in_universe(false);
+    CHECK(!st.is_active());
+    st.set_active(false);
+    st.set_in_universe(true);
+    CHECK(!st.is_active() && st.in_universe());
+    st.set_active(true);
+    CHECK(st.is_active());
+    return 0;
+}
+
+// 유니버스 이탈은 시계 하나에 임계값 둘 — 차단(block)이 먼저, 해제(drop)가 뒤. 복귀는 present 연속 횟수로 (D-077).
+int test_universe_exit_judge()
+{
+    using namespace universe_exit;
+    const Thresholds th{40, 600, 2};
+    // 부재 20초(첫 부재 스캔)는 아무것도 아니고, 40초(둘째 연속 부재)에 차단, 600초에 해제.
+    CHECK(judge_absent(0, th, true) == Absent::KEEP);
+    CHECK(judge_absent(20, th, true) == Absent::KEEP);
+    CHECK(judge_absent(40, th, true) == Absent::BLOCK);
+    CHECK(judge_absent(599, th, true) == Absent::BLOCK);
+    CHECK(judge_absent(600, th, true) == Absent::DROP);
+    // 이미 차단된 종목에 BLOCK을 다시 내지 않는다 — 로그가 20초마다 반복되지 않게.
+    CHECK(judge_absent(40, th, false) == Absent::KEEP);
+    CHECK(judge_absent(599, th, false) == Absent::KEEP);
+    CHECK(judge_absent(600, th, false) == Absent::DROP);
+    // block≤0이면 차단 없이 해제만, drop≤0이면 해제 없이 차단만.
+    CHECK(judge_absent(1000, Thresholds{0, 600, 2}, true) == Absent::DROP);
+    CHECK(judge_absent(300, Thresholds{0, 600, 2}, true) == Absent::KEEP);
+    CHECK(judge_absent(1000, Thresholds{40, 0, 2}, true) == Absent::BLOCK);
+    CHECK(judge_absent(1000, Thresholds{40, 0, 2}, false) == Absent::KEEP);
+    // 복귀: 차단 중 present 2회 연속에 푼다. 열려 있는 종목은 판정 대상이 아니다. confirm≤1은 1회.
+    CHECK(!judge_return(1, th, false));
+    CHECK(judge_return(2, th, false));
+    CHECK(!judge_return(5, th, true));
+    CHECK(judge_return(1, Thresholds{40, 600, 0}, false));
+    // 차단이 해제보다 늦으면 해제 시각에 맞춘다. drop이 꺼져 있으면 그대로 둔다.
+    CHECK(clamp_block(900, 600) == 600);
+    CHECK(clamp_block(40, 600) == 40);
+    CHECK(clamp_block(900, 0) == 900);
     return 0;
 }
 
@@ -298,7 +349,7 @@ int main()
         Logger::instance().set_base_dir(Logger::executable_dir() / "logs_test");
     }
 
-    if (test_stamp() || test_strategy_gate() || test_displace_hold_and_release() ||
+    if (test_stamp() || test_strategy_gate() || test_universe_exit_judge() || test_displace_hold_and_release() ||
         test_displace_cancel_and_expiry() || test_force_liq_orders() || test_trim_orders() ||
         test_force_liq_throttle() || test_trim_once())
     {

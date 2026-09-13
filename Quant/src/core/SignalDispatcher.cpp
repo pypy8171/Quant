@@ -119,7 +119,7 @@ void SignalDispatcher::emit(const OrderSignal& in)
 
 void SignalDispatcher::from_strategy(bool active, const std::string& strategy_id, const OrderSignal& sig)
 {
-    // 국면 게이트 적용 지점. apply_regime_selection()이 set_active로 표시만 해 두고 여기서 보지 않으면
+    // 국면·유니버스 게이트 적용 지점(active = 국면 축 AND 유니버스 축, D-077). set_active로 표시만 해 두고 여기서 보지 않으면
     //  국면-전략 자동선택이 아무것도 막지 않는다(2026-09-08 확인). 비활성 전략이 보유분을 못 팔면 보호가 사라진다.
     if (!active && sig.action == OrderAction::NEW && sig.side == OrderSide::BUY)
     {

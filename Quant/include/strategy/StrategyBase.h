@@ -76,10 +76,17 @@ public:
     std::vector<Regime> active_regimes() const { return active_regimes_; }
     void set_active_regimes(std::vector<Regime> r) { active_regimes_ = std::move(r); }
 
-    // Engine이 장시작 국면 판정 후 설정 (현재 국면 ∈ active_regimes 이면 true).
-    // 진입 분기에서 is_active() 체크 → 비활성 국면 진입 차단(청산은 무관). 기본 true(국면 모를 때 통과).
+    // 신규 진입 게이트 두 축. 진입 분기에서 is_active()를 보고 막는다(청산은 무관). 둘 다 기본 true.
+    //  - active_: Engine이 국면 판정 뒤 설정(현재 국면 ∈ active_regimes). 재스캔 뒤 재적용된다.
+    //  - in_universe_: 재스캔 결과에 이 종목이 있는지. 빠지면 그 주기부터 신규매수를 막고, 돌아오면 푼다.
+    //    국면 재적용이 active_만 다시 쓰므로 축을 따로 둔다 [why D-077].
     void set_active(bool a) { active_.store(a, std::memory_order_relaxed); }
-    bool is_active() const { return active_.load(std::memory_order_relaxed); }
+    void set_in_universe(bool u) { in_universe_.store(u, std::memory_order_relaxed); }
+    bool in_universe() const { return in_universe_.load(std::memory_order_relaxed); }
+    bool is_active() const
+    {
+        return active_.load(std::memory_order_relaxed) && in_universe_.load(std::memory_order_relaxed);
+    }
 
     // Engine이 unique_ptr<KisClient>로 수명을 관리한다.
     // set_kis()는 Engine::start() 내부에서만 호출되며, 전략 소멸 전에 Engine이 먼저 종료된다.
@@ -190,6 +197,7 @@ protected:
     std::function<bool()> entry_halt_provider_; // 신규매수 차단 여부(OrderGate). 미주입=false
     std::function<SellableInfo(const std::string&, const std::string&)> sellable_provider_; // 원장 매도가능·평단
     SymbolResolver symbol_resolver_; // 종목 문자열 → id(SymbolTable::intern). 미주입=kNone
-    std::atomic<bool> active_{true};   // 국면 게이트(Engine이 설정). 기본 true=통과 (G-1)
+    std::atomic<bool> active_{true};      // 국면 게이트(Engine이 설정). 기본 true=통과 (G-1)
+    std::atomic<bool> in_universe_{true}; // 유니버스 재스캔 게이트(Engine이 설정). 미등록 전략은 늘 true
     std::vector<Regime> active_regimes_ = {Regime::BULL, Regime::NEUTRAL, Regime::BEAR};
 };
