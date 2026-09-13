@@ -399,8 +399,12 @@ return Balance{...};                            // 성공 반환(암묵 변환)
 auto total = fetch_page(1).and_then(merge_next).transform(to_summary).or_else(log_and_default);
 ```
 
-`Quant/include/api/KisResult.h`의 `ok()`·`fail()`·`operator bool`·`*`·`->`·`error()`가 1:1로 대응하고,
-실패 경로의 `T value_{}` 기본 생성이 없어진다. `error_text()`는 자유 함수로 남긴다.
+`Quant/include/api/KisResult.h`는 이제 `template <class T> using KisResult = std::expected<T, KisError>` 별칭이다.
+`operator bool`·`*`·`->`·`error()`는 그대로고, 손 봉투에 있던 정적 `ok(v)`·`fail(code, msg)`는 별칭에 둘 수 없어
+성공은 `return v;`(암묵 변환), 실패는 `return kis_fail(code, msg);`(`std::unexpected<KisError>`)로 쓴다. `ok()` 멤버는
+`has_value()`다. `error_text()`는 자유 함수 `error_text(r)`로 남겼다. 달라지는 것 하나 — 실패 봉투에 값이 없다.
+예전 봉투는 실패 상태에서 `r->holdings`가 기본 생성값(빈 벡터)을 돌려줬지만 `expected`에서는 정의되지 않는다.
+호출부 9곳은 전부 `if (!bal) { ...; return; }` 뒤에서만 값을 읽고 있었고, `test_kis_decode`의 그 검사 한 줄만 지웠다.
 
 `std::optional`에도 C++23에서 같은 `transform/and_then/or_else`가 들어왔다. `Quant/include/core/RegimeFileBridge.h`의
 `std::optional<bool> entry_halt`를 `if (o.entry_halt) gate.set_entry_halt(*o.entry_halt)` 대신
@@ -480,7 +484,7 @@ x86에서 store가 같은 mov라 지연은 같지만 sink 뜻이 흐려져 쓰�
 | 3 `std::format` | `OrderGate.cpp` 거부 사유·중복 키, `OrderRouter.cpp` CSV 행·로그 | `snprintf` 버퍼 크기·`%d`/`%ld` 형식 불일치가 컴파일 오류로. 문장이 한 줄에 보인다 | 거부 사유는 거부된 신호에만 만들어지므로 hot path 밖. `OrderGate.cpp`의 `dedup_key` 조립은 신호마다 일어나므로 재야 한다 — `snprintf`보다 느리면 그 한 곳은 `format_to`+고정 버퍼로 | `bench_gate_contention` 전후, 거부 문장 바이트 동일 검사(`test_order_gate`) — 완료: 코드 2파일 +95/−157(`<sstream>`·`<iomanip>`·`<cstdio>` include 제거), ctest 23, `bench_gate_contention` p50 100ns·p99 200ns 같음. `dedup_key`는 같은 키 200만 회로 재서 연결 105ns, `format_to` 152ns(reserve 145ns)라 연결로 남겼다 |
 | 4 `<chrono>` 달력 | `KstTime.h`, `OrderRouter.cpp` `today_ymd`, `OrderGate.cpp`, `KisRestDecode.h` `parse_dt` | `localtime`(머신 TZ)과 `gmtime+9h`(KST 고정)가 섞인 것을 한 벌로 — Docker `TZ` 설정이나 Windows 시간대가 달라도 원장 날짜가 같다. 날짜 산술을 `year_month_day`로 | 같음 | `test_market_session` 확장(TZ가 UTC·KST·PST일 때 같은 결과), 원장 CSV 날짜 열 diff — 완료: 코드 14파일 +194/−241. `gmtime`·`localtime`·`_mkgmtime`·`strftime`의 `#ifdef` 쌍 13곳이 `kst::`(`wall`·`date`·`time_of_day`·`to_tm`·`ymd`·`hhmmss`·`datetime`·`utc_date`·`decompose`) 한 벌로 갔다. 범위를 표보다 넓혔다 — `Engine.cpp` `utc_plus_hours`, `RegimeController.cpp` `ymd_of`·`today_kst`, `KisIndex.cpp`·`KisMarket.cpp`의 `fmt_date`·`parse_date`·`parse_ymd` 람다, `SeedPeakStore.h`·`SupplyDemandPullbackStrategy.h`·`UniverseScanner.cpp`의 `localtime` 날짜. 남긴 곳: `Monitors.cpp`(FEED 화면의 로컬 시각 표시라 로컬이 맞다), `DeviationScaleStrategy.h` 1312행 KST 헬퍼(quant-3e의 주기 정합 작업 뒤). 달라지는 것 둘 — `parse_dt`는 달력에 없는 날짜(13월·2월 30일)를 0으로 돌린다(`_mkgmtime`은 정규화했다). 원장 CSV 파일명·행 시각, `order_reasons_` 파일명, `SeedPeakStore`·`UniverseScanner`·`SupplyDemandPullback` 날짜가 머신 로컬에서 KST 고정으로 바뀐다 — 이 머신(KST)에서는 같은 값이고, TZ가 다른 머신에서는 이제야 원장 날짜가 거래일과 같다. ctest 24, `test_market_session`이 `_putenv_s("TZ")`로 UTC·KST·PST를 돌며 `ymd`·`hhmmss`·`to_tm`(`tm_wday`·`tm_yday`)이 같은 값인지 본다 |
 | 5 `jthread` | `OrderRouter.cpp` stale 스레드, `DeviationScaleStrategy.h` 프리페치 | 정지 깃발·`join` 누락·소멸 순서 실수 클래스 제거. 소멸자가 정지 요청과 join을 한다 | 같음 | 종료 경로 반복 100회(기동→정지) 교착 0, ctest — 완료: 코드 9파일. `Engine` 다섯 스레드·`OrderRouter` stale·`KisWebSocket` recv·`Logger` writer가 `jthread`+`stop_token`. `stale_stop_` 삭제, `Engine::request_shutdown` 신설(KILL 두 곳이 부른다), `WakeGate` `stop_token` 오버로드·`sync::sleep_unless_stopped`. 남긴 곳: `DeviationScaleStrategy.h` 프리페치(quant-3e 주기 정합 작업 뒤). 기동→정지 반복은 KIS 없이 못 돌려 `test_wake_gate` 6~8번(정지 요청이 cap·sleep 전에 깨움, 이미 정지면 안 잠)으로 대신, ctest 24 |
-| 6 `std::expected` | `KisResult.h` | 손 봉투 유지보수 종료, `and_then`/`or_else` 체이닝, 실패 경로의 `T value_{}` 기본 생성이 사라져 잔고·전광판 값 타입이 기본 생성자를 요구하지 않는다 | 같음 | `test_kis_decode`·`test_ledger_reconciler` 무수정 통과가 목표 |
+| 6 `std::expected` | `KisResult.h` | 손 봉투 유지보수 종료, `and_then`/`or_else` 체이닝, 실패 경로의 `T value_{}` 기본 생성이 사라져 잔고·전광판 값 타입이 기본 생성자를 요구하지 않는다 | 같음 | `test_kis_decode`·`test_ledger_reconciler` 무수정 통과가 목표 — 완료: 코드 10파일 +56/−90. `KisResult<T>`는 `std::expected<T, KisError>` 별칭, `kis_fail(code, msg)`·자유 함수 `error_text(r)`. 호출부(`KisAccount.cpp`·`KisIndex.cpp`·`LedgerReconciler.cpp`·`StrategyFactory.cpp`·`tools/` 2개)는 `::ok`·`::fail`·`.error_text()` 자리만 바뀜. 테스트는 무수정이 아니라 `::ok/::fail` 생성 4곳과 "실패 봉투의 `->`가 빈 값" 검사 1줄을 고쳤다(그 검사는 `expected`에서 정의되지 않는 동작). 같은 커밋에 5단계에서 미뤘던 `DeviationScaleStrategy.h` 프리페치 `jthread`(`prefetch_stop_` 삭제, 50ms 조각 sleep → `sleep_unless_stopped`)와 4단계에서 미뤘던 같은 파일 KST 헬퍼(`gmtime` `#ifdef` → `kst::to_tm`·`kst::ymd`)도 넣었다. ctest 24 |
 | 7 `atomic::wait` | `Logger.h` writer, `Engine.cpp` 체결 스레드 | mutex+condvar 쌍이 atomic 하나로. 생산자의 `notify` 비용(락 없음)과 깨우는 지연이 줄 수 있다 | 줄 가능성 — 재서 정한다 | `bench_logger` 깨우기 p99, `test_logger`·`test_pipeline_stress` |
 
 하지 않는 것(모듈·코루틴·`atomic_ref`)의 이유는 16절과 D-070 표.

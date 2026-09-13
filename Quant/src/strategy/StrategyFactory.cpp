@@ -118,7 +118,7 @@ static void load_ma_cross(StrategyLoadCtx& ctx, const json& s)
 
             if (!bal)
             {
-                LOG_WARN("[Main] universe_from_balance: 잔고 조회 실패(" + bal.error_text() + ")");
+                LOG_WARN("[Main] universe_from_balance: 잔고 조회 실패(" + error_text(bal) + ")");
             }
             else
             {
@@ -227,7 +227,7 @@ static void load_intraday_breakout(StrategyLoadCtx& ctx, const json& s)
 
             if (!bal)
             {
-                LOG_WARN("[Main] ITB universe_from_balance: 잔고 조회 실패(" + bal.error_text() + ")");
+                LOG_WARN("[Main] ITB universe_from_balance: 잔고 조회 실패(" + error_text(bal) + ")");
             }
             else
             {
@@ -437,7 +437,7 @@ static void attach_holding_guardians(StrategyLoadCtx& ctx, const json& mh,
 
     if (!bal)
     {
-        LOG_WARN("[Main] manage_holdings: 잔고 조회 실패(" + bal.error_text() + ") — 부착할 보유분 없음");
+        LOG_WARN("[Main] manage_holdings: 잔고 조회 실패(" + error_text(bal) + ") — 부착할 보유분 없음");
         return;
     }
 
@@ -621,7 +621,7 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
 
             if (!bal)
             {
-                LOG_WARN("[Main] DEVSCALE: 보유분 조회 실패(" + bal.error_text() + ") — 스캔 제외 미적용(중복 위험)");
+                LOG_WARN("[Main] DEVSCALE: 보유분 조회 실패(" + error_text(bal) + ") — 스캔 제외 미적용(중복 위험)");
             }
             else
             {

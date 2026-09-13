@@ -94,7 +94,7 @@ int main(int argc, char** argv)
 
         if (!board)
         {
-            std::cerr << "[중단] 전광판 조회 실패: " << board.error_text() << "\n";
+            std::cerr << "[중단] 전광판 조회 실패: " << error_text(board) << "\n";
             return 4;
         }
 

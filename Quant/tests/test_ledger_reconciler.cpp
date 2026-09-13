@@ -49,12 +49,12 @@ KisResult<AccountBalance> ok_balance(std::vector<Holding> hs, double tot_eval, d
     b.total_eval_amt       = tot_eval;
     b.available_cash       = cash;
     b.prev_day_total_asset = prev;
-    return KisResult<AccountBalance>::ok(std::move(b));
+    return b;
 }
 
 KisResult<AccountBalance> fail_balance()
 {
-    return KisResult<AccountBalance>::fail("EGW00201", "초당 거래건수 초과");
+    return kis_fail("EGW00201", "초당 거래건수 초과");
 }
 
 std::filesystem::path baseline_dir()

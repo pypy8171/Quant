@@ -4,6 +4,7 @@
 #include "core/DataPoller.h"
 #include "core/KstTime.h"
 #include "core/TickSize.h"
+#include "core/WakeGate.h"
 #include "strategy/StrategyBase.h"
 #include "universe/MaAlign.h"
 #include "utils/Logger.h"
@@ -16,6 +17,7 @@
 #include <ctime>
 #include <functional>
 #include <mutex>
+#include <stop_token>
 #include <string>
 #include <thread>
 #include <vector>
@@ -264,9 +266,8 @@ public:
 
         LOG_INFO("[" + id() + "] 시작 — " + describe());
         // set_kis()가 on_start 직전 호출됨(Engine start/재스캔 둘 다) → kis_ 확정. 여기서 프리페치 기동.
-        stop_prefetch(); // joinable 스레드에 재대입하면 std::terminate — 재등록 경로 대비
-        prefetch_stop_.store(false, std::memory_order_relaxed);
-        prefetch_thread_ = std::thread([this] { prefetch_loop(); });
+        stop_prefetch(); // 재등록 경로 대비 — 이전 스레드의 정지·join을 여기서 끝낸다
+        prefetch_thread_ = std::jthread([this](std::stop_token st) { prefetch_loop(st); });
     }
 
     void on_stop() override
@@ -941,9 +942,9 @@ private:
     //    종목의 느린 REST가 전 전략을 막던 head-of-line 블로킹을 없앤다. 발주·매도가능
     //    (sellable_qty)은 원장 최신성을 위해 동기 유지. 여기서 부르는 KIS 메서드는 전부
     //    읽기전용(get_daily_ohlcv·get_minute_ohlcv·get_balance, 동시호출 감사 완료).
-    void prefetch_loop()
+    void prefetch_loop(std::stop_token st)
     {
-        while (!prefetch_stop_.load(std::memory_order_relaxed))
+        while (!st.stop_requested())
         {
             // 장 밖에서는 받아봐야 같은 응답이다. KIS 분봉은 기준시각을 15:30으로 클램프하므로
             //  (KisClient.cpp) 장 마감 후엔 종일 같은 봉을 다시 받고, 그 호출이 초당 한도를
@@ -1024,19 +1025,17 @@ private:
                 }
             }
 
-            // min_action_ms를 50ms 조각으로 자며 stop 신호에 빠르게 반응.
-            for (int slept = 0;
-                 slept < p_.min_action_ms && !prefetch_stop_.load(std::memory_order_relaxed);
-                 slept += 50)
+            // min_action_ms를 자되 정지 요청이 오면 바로 깬다.
+            if (!sync::sleep_unless_stopped(st, std::chrono::milliseconds(p_.min_action_ms)))
             {
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                break;
             }
         }
     }
 
     void stop_prefetch()
     {
-        prefetch_stop_.store(true, std::memory_order_relaxed);
+        prefetch_thread_.request_stop();
 
         if (prefetch_thread_.joinable())
         {
@@ -1321,17 +1320,10 @@ private:
         }
     }
 
-    // ── KST 시각 헬퍼(서버 TZ 독립: gmtime + 9h) ─────────────────────────────
+    // ── KST 시각 헬퍼(서버 TZ 독립: core/KstTime.h) ─────────────────────────
     static struct tm kst_tm()
     {
-        time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + 9 * 3600;
-        struct tm tmv{};
-#ifdef _WIN32
-        gmtime_s(&tmv, &t);
-#else
-        gmtime_r(&t, &tmv);
-#endif
-        return tmv;
+        return kst::to_tm(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
     }
 
     static int kst_hhmm()
@@ -1366,10 +1358,7 @@ private:
 
     static std::string kst_ymd()
     {
-        struct tm k = kst_tm();
-        char buf[9];
-        std::strftime(buf, sizeof(buf), "%Y%m%d", &k);
-        return std::string(buf);
+        return kst::ymd(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
     }
 
     static std::string fmt1(double v)
@@ -1406,8 +1395,7 @@ private:
     uint64_t seq_ = 0;
 
     // ── 프리페치(무거운 REST를 공유 전략 스레드 밖으로) ──────────────────────
-    std::thread             prefetch_thread_;
-    std::atomic<bool>       prefetch_stop_{false};
+    std::jthread            prefetch_thread_;   // 정지는 stop_token, join은 stop_prefetch()가 명시(멤버 소멸 순서 앞)
     std::mutex              snap_mtx_;               // 아래 snap_* 보호
     std::vector<MarketData> snap_daily_;             // 일봉 스냅샷
     std::string             snap_daily_date_;        // 스냅샷 기준일(KST YYYYMMDD)

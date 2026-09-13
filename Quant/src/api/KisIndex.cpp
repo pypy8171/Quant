@@ -434,7 +434,6 @@ KisClient::FuturePrice KisClient::get_future_price(const std::string& iscd, cons
 KisResult<std::vector<FutureContract>> KisClient::get_future_board(const std::string& market_cls,
                                                                    const std::string& market_div)
 {
-    using R = KisResult<std::vector<FutureContract>>;
     ensure_authenticated();
 
     std::string url = base_url() + "/uapi/domestic-futureoption/v1/quotations/display-board-futures"
@@ -451,13 +450,13 @@ KisResult<std::vector<FutureContract>> KisClient::get_future_board(const std::st
         if (j.is_discarded())
         {
             LOG_WARN("[KIS] get_future_board JSON 파싱 불가: " + resp.substr(0, 200));
-            return R::fail("parse", resp.substr(0, 200));
+            return kis_fail("parse", resp.substr(0, 200));
         }
 
         if (j.value("rt_cd", "0") != "0")
         {
             LOG_WARN("[KIS] get_future_board 응답 오류 " + j.value("msg_cd", "") + " " + j.value("msg1", ""));
-            return R::fail(j.value("msg_cd", "rt_cd"), j.value("msg1", ""));
+            return kis_fail(j.value("msg_cd", "rt_cd"), j.value("msg1", ""));
         }
 
         // 스키마 변동 대비: 프로세스당 첫 응답 한 번은 raw를 남긴다(get_future_price와 같은 규칙).
@@ -469,11 +468,11 @@ KisResult<std::vector<FutureContract>> KisClient::get_future_board(const std::st
             LOG_INFO("[KIS] get_future_board RAW " + resp.substr(0, 500));
         }
 
-        return R::ok(kis_rest::decode_future_board(j));
+        return kis_rest::decode_future_board(j);
     }
     catch (const std::exception& e)
     {
         LOG_WARN(std::string("[KIS] get_future_board 실패: ") + e.what());
-        return R::fail("transport", e.what());
+        return kis_fail("transport", e.what());
     }
 }

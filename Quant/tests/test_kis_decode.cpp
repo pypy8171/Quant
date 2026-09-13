@@ -242,14 +242,16 @@ int test_decode_future_board()
 
 int test_kis_result()
 {
-    // 봉투: 실패는 bool false·error_text, 성공은 값 접근. 실패 봉투의 값은 기본 생성값이라 비어 있다.
-    KisResult<AccountBalance> f = KisResult<AccountBalance>::fail("EGW00201", "초당 거래건수 초과");
-    CHECK(!f && !f.ok() && f.error().code == "EGW00201" && f.error_text() == "EGW00201 초당 거래건수 초과");
-    CHECK(f->holdings.empty());
+    // 봉투(std::expected): 실패는 bool false·error_text, 성공은 값 접근. 실패 봉투에는 값이 없다.
+    KisResult<AccountBalance> f = kis_fail("EGW00201", "초당 거래건수 초과");
+    CHECK(!f && !f.has_value() && f.error().code == "EGW00201" && error_text(f) == "EGW00201 초당 거래건수 초과");
     AccountBalance b;
     b.holdings.push_back(Holding{"005930", "삼성전자", 1, 70000.0, 0.0, std::nullopt});
-    KisResult<AccountBalance> o = KisResult<AccountBalance>::ok(std::move(b));
-    CHECK(o && o.error_text().empty() && o->holdings.size() == 1 && (*o).holdings[0].ticker == "005930");
+    KisResult<AccountBalance> o = std::move(b);
+    CHECK(o && error_text(o).empty() && o->holdings.size() == 1 && (*o).holdings[0].ticker == "005930");
+    // 실패 → 값 대입으로 성공 봉투가 된다(LedgerReconciler 부트스트랩의 "init" 실패 → 재시도 루프 대입).
+    f = AccountBalance{};
+    CHECK(f.has_value() && f->holdings.empty());
     return 0;
 }
 

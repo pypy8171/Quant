@@ -21,7 +21,7 @@ bool LedgerReconciler::bootstrap(int attempts, std::chrono::milliseconds retry_d
 {
     try
     {
-        KisResult<AccountBalance> bal = KisResult<AccountBalance>::fail("init", "");
+        KisResult<AccountBalance> bal = kis_fail("init", "");
 
         for (int attempt = 0; attempt < attempts; ++attempt)
         {
@@ -32,7 +32,7 @@ bool LedgerReconciler::bootstrap(int attempts, std::chrono::milliseconds retry_d
                 break;
             }
 
-            LOG_WARN("[Engine] 원장 부트스트랩: 잔고 실패(" + bal.error_text() + ") — 재시도 " +
+            LOG_WARN("[Engine] 원장 부트스트랩: 잔고 실패(" + error_text(bal) + ") — 재시도 " +
                      std::to_string(attempt + 1) + "/" + std::to_string(attempts));
 
             if (retry_delay.count() > 0)
@@ -296,7 +296,7 @@ void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)
 
         if (!bal)
         {
-            LOG_WARN("[Engine] 잔고 대조: 조회 실패(" + bal.error_text() + ")");
+            LOG_WARN("[Engine] 잔고 대조: 조회 실패(" + error_text(bal) + ")");
         }
         else
         {

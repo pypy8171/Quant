@@ -172,7 +172,7 @@ int main(int argc, char** argv)
 
         if (!bal)
         {
-            std::cout << "    [" << (i + 1) * 2 << "s] 잔고 조회 실패(" << bal.error_text() << ")\n";
+            std::cout << "    [" << (i + 1) * 2 << "s] 잔고 조회 실패(" << error_text(bal) << ")\n";
             continue;
         }
 

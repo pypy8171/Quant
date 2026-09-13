@@ -43,14 +43,14 @@ KisResult<AccountBalance> KisClient::get_balance()
         //  유령 정리(prune_positions)가 그 페이지의 실보유를 걷어낸다 — 빈 목록 가드로는 못 잡는 구멍.
         if (resp.empty())
         {
-            return KisResult<AccountBalance>::fail("transport", "잔고 응답 없음(page=" + std::to_string(page) + ")");
+            return kis_fail("transport", "잔고 응답 없음(page=" + std::to_string(page) + ")");
         }
 
         nlohmann::json j = json::parse(resp, nullptr, false);
 
         if (j.is_discarded())
         {
-            return KisResult<AccountBalance>::fail("parse", "잔고 JSON 파싱 불가(page=" + std::to_string(page) + ")");
+            return kis_fail("parse", "잔고 JSON 파싱 불가(page=" + std::to_string(page) + ")");
         }
 
         // [wire] 한도 초과(EGW00201)나 서버 오류 본문은 rt_cd≠"0"에 output1이 빈 배열이다. 이걸
@@ -60,7 +60,7 @@ KisResult<AccountBalance> KisClient::get_balance()
         {
             LOG_WARN("[KIS] 잔고 조회 응답 오류(page=" + std::to_string(page) + ") " +
                      j.value("msg_cd", "") + " " + j.value("msg1", ""));
-            return KisResult<AccountBalance>::fail(j.value("msg_cd", "rt_cd"), j.value("msg1", ""));
+            return kis_fail(j.value("msg_cd", "rt_cd"), j.value("msg1", ""));
         }
 
         kis_rest::decode_balance_page(j, bal, page == 0);
@@ -77,7 +77,7 @@ KisResult<AccountBalance> KisClient::get_balance()
         cont = "N";
     }
 
-    return KisResult<AccountBalance>::ok(std::move(bal));
+    return bal;
 }
 
 // ─── 미체결(정정취소 가능) 예약주문 조회 — inquire-psbl-rvsecncl ─────────────
