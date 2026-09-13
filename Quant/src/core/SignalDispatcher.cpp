@@ -1,5 +1,6 @@
 // 신호 디스패처 구현 — strategy_thread 전용. 큐에 넣는 자리는 emit 하나다. [why D-063]
 #include "core/SignalDispatcher.h"
+#include "core/LatencyTrace.h"
 #include "utils/Logger.h"
 
 namespace dispatch
@@ -111,6 +112,7 @@ void SignalDispatcher::emit(const OrderSignal& in)
 {
     OrderSignal sig = in;
     sig.seq         = ++seq_;
+    sig.t_signal_ns = trace::now_ns();
     LOG_INFO("[Strategy] 신호: " + dispatch::describe(sig, label(sig.ticker)));
     sink_(sig);
 }

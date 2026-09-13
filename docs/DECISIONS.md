@@ -2835,7 +2835,12 @@ KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 
   `timeBeginPeriod(1)` RAII를 첫 문장으로 잡는다(quant_trader만 `winmm` 링크).
 - 고수위: `RingBuffer::high_water()`(생산자 relaxed 비교 하나) + 제어 스레드가 1분마다 `[큐 고수위]` 한 줄(개장 여부 무관).
 - ctest 23/23 (`test_wake_gate` 추가, `test_ringbuffer`에 고수위 케이스).
-- 남은 Phase 0·1: `OrderSignal.seq` 구간 시각 CSV, `LOG_DEBUG` 레벨 가드(C-3), 단말 미접속 시 `ORDER_RESULT` JSON 생략(O-3).
+- Phase 0·1 잔여(둘째 커밋): 구간 시각 CSV `logs/latency_trace.csv`(`Quant/include/core/LatencyTrace.h`, `test_latency_trace`) —
+  수신 스레드가 `TradeData.recv_ns`, 디스패처가 `OrderSignal.t_signal_ns`(seq stamp 지점), 전략 스레드가 처리 중 틱의
+  `t_tick_ns`, 주문 스레드가 pop·`submit` 반환 시각을 더해 첫 시도 한 줄(재시도는 pop 시각이 첫 시도 것이라 뺀다). 봉·호가
+  경로 신호는 tick 구간 -1. `LOG_DEBUG`는 `Logger::enabled(DEBUG)` 가드로 인자 문자열을 만들지 않는다(C-3). `ORDER_RESULT`·
+  `FILL` 방송은 `client_count() > 0`일 때만 JSON을 만든다(O-3). ctest 24/24.
+- Phase 2 다음: `SymbolId`/`SymbolTable`(A-2·C-1·O-2·C-2).
 
 ### D-072 틱 집계 봉의 기저를 1분으로 두고 판단 봉은 resample로 만든다 — REST 분봉 timestamp는 진짜 UTC (2026-09-13)
 **상태**: 채택 (`wt/bars-1m`, `test_bar_aggregator` 131·`test_kis_decode` 68 통과, 라이브는 09-14 장부터 `bar_source` 기본 `ws`)

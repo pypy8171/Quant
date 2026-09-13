@@ -93,6 +93,11 @@ struct OrderSignal
     // 로그 타임라인 재구성 없이 "왜 샀나"를 조인 가능. reject_reason(거부사유)과 별개.
     std::string reason;
 
+    // ── 구간 시각 (steady_clock ns, 0=안 찍음) — 틱 수신·신호 생성 시각. 주문 스레드가 pop·완료 시각을 더해
+    //  logs/latency_trace.csv 한 줄로 남긴다(core/LatencyTrace.h). [why D-071]
+    int64_t t_tick_ns   = 0;
+    int64_t t_signal_ns = 0;
+
     // ── 신호 순번 (C-2) — 전략 스레드가 신호를 만들 때 단조 증가로 stamp. 0=미부여 ────────
     // 게이트 거부·라우터 접수·체결·원장 CSV(`seq` 열)가 이 번호를 그대로 물고 가므로
     // 한 신호의 경로를 ODNO 없이도 잇는다(재기동 전 접수된 주문의 체결은 ODNO만 있어 0).
@@ -143,6 +148,8 @@ struct TradeData
     // 아래 둘은 국내 현물 체결(H0STCNT0)에만 있다. REST 폴링·선물·미국 틱은 0.
     double  strength = 0.0;   // 체결강도(CTTR, %) — 100 위면 매수 체결이 우세
     int64_t acml_volume = 0;  // 당일 누적 거래량
+    // 수신 스레드가 이 틱을 받은 steady_clock ns. 구간 지연 측정의 출발점이고 0은 "안 찍음"(REST 대체 틱). [why D-071]
+    int64_t recv_ns = 0;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

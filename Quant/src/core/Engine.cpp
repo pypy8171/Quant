@@ -1,4 +1,5 @@
 #include "core/Engine.h"
+#include "core/LatencyTrace.h"
 #include "core/ReconcilePlan.h"
 #include "utils/Logger.h"
 #include <algorithm>
@@ -643,11 +644,15 @@ void Engine::start()
 
                                strat_wake_.notify();
                            },
-                           [this](const TradeData& td)
+                           [this](const TradeData& in)
                            {
+                               // push가 어차피 한 번 복사하므로 여기서 복사해 수신 시각을 찍고 move로 넣는다.
+                               TradeData td = in;
+                               td.recv_ns   = trace::now_ns();
+
                                // 전략 스레드가 멈추면 큐가 차고 틱이 여기서 사라진다 — 세어 두고
                                //  넘침이 시작될 때 한 번 남긴다(09-11 15:15 잔고 조회 정체). [why D-055]
-                               if (!td_queue_.push(td))
+                               if (!td_queue_.push(std::move(td)))
                                {
                                    if (td_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
                                    {
@@ -1580,7 +1585,14 @@ void Engine::strategy_thread_fn()
     // strat_version_을 올릴 때만 락 하에 재구성한다(틱마다 락 회피). 뗀 전략은 retired_가
     // 붙들고 있어 재구성 전의 옛 포인터도 유효하다(reap_retired가 seen 버전을 보고 파기).
     // 국면 게이트(비활성 전략의 신규 매수)와 청산 관리 티커 차단은 디스패처가 한다.
-    auto emit_from = [&](StrategyBase* s, const OrderSignal& sig) { dispatcher.from_strategy(s->is_active(), s->id(), sig); };
+    // 지금 처리 중인 틱의 수신 시각. 봉·호가 경로는 0으로 두어 CSV에서 -1(측정 불가)로 남는다.
+    int64_t cur_tick_ns = 0;
+    auto emit_from = [&](StrategyBase* s, const OrderSignal& sig)
+    {
+        OrderSignal st = sig;
+        st.t_tick_ns   = cur_tick_ns;
+        dispatcher.from_strategy(s->is_active(), s->id(), st);
+    };
 
     std::vector<StrategyBase*> snap;
     uint64_t seen_ver = static_cast<uint64_t>(-1);
@@ -1716,6 +1728,7 @@ void Engine::strategy_thread_fn()
 
             while (auto opt = pop_trade())
             {
+                cur_tick_ns = opt->recv_ns;
                 // 운영단말 현재가용 캐시. 틱마다 짧은 락 한 번 — 전략 호출보다 훨씬 싸다.
                 set_last_px(opt->ticker, opt->price);
 
@@ -1808,16 +1821,21 @@ void Engine::order_thread_fn()
     OrderPacer pacer({order_min_interval_ms_, order_max_retries_}, steady_clock::now());
     pacer.set_position([this](const std::string& a, const std::string& t) { return order_gate_.position(a, t); });
 
+    // 구간 지연 CSV. 이 스레드만 쓰므로 지역 객체로 두고, 첫 주문 때 파일을 연다. [why D-071]
+    trace::LatencyTrace lat_trace(Logger::instance().path_for("latency_trace.csv"));
+
     while (running_.load(std::memory_order_acquire))
     {
         // 발주 대상 선택: 만기된 재시도분 우선, 없으면 신규 큐
         std::optional<OrderPacer::Pending> next = pacer.take_due_retry(steady_clock::now());
+        int64_t                            pop_ns = 0;
 
         if (!next)
         {
             if (auto opt = order_queue_.pop())
             {
-                next = OrderPacer::Pending{*opt, 0};
+                next   = OrderPacer::Pending{*opt, 0};
+                pop_ns = trace::now_ns();
             }
         }
 
@@ -1845,13 +1863,23 @@ void Engine::order_thread_fn()
             // 간격은 KIS를 실제로 부른 뒤에만 센다. 로컬 거부(게이트·ENTRY_HALT)는 한도와 무관하다.
             const uint64_t calls_before = order_router_->kis_calls();
             auto mo = order_router_->submit(sig);
+            const bool kis_called = order_router_->kis_calls() != calls_before;
 
-            if (order_router_->kis_calls() != calls_before)
+            if (kis_called)
             {
                 pacer.note_sent(steady_clock::now());
             }
 
-            if (ops_server_)
+            // 재시도 건은 pop 시각이 첫 시도 것이라 구간이 부풀지 않게 첫 시도만 남긴다.
+            if (next->attempts == 0)
+            {
+                lat_trace.record(sig, trace::Marks{sig.t_tick_ns, sig.t_signal_ns, pop_ns, trace::now_ns()}, kis_called,
+                                 mo.status == OrderStatus::ACCEPTED);
+            }
+
+            // 단말이 없으면 JSON 직렬화를 건너뛴다 — 주문 스레드 hot path에서 받는 이 없는 문자열을 만들지 않는다.
+            //  client_count()는 뮤텍스 한 번이지만 직렬화보다 싸다. [why D-071]
+            if (ops_server_ && ops_server_->client_count() > 0)
             {
                 // 게이트·브로커를 지난 최종 결과. 단말은 cid로 자기 ORDER_ACK와 잇고, 전략 주문도
                 //  같은 채널로 보여 운영 화면이 자동매매를 함께 본다.
@@ -1917,7 +1945,7 @@ void Engine::fill_thread_fn()
                 order_router_->on_fill(fn);
             }
 
-            if (ops_server_)
+            if (ops_server_ && ops_server_->client_count() > 0)
             {
                 ops_server_->broadcast(ops::OpsMsg::FILL,
                                        nlohmann::json{{"odno", fn.odno},

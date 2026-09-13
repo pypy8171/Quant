@@ -116,6 +116,13 @@ public:
         min_level_.store(min_level, std::memory_order_relaxed);
     }
 
+    // 매크로가 인자 문자열을 만들기 전에 묻는다. DEBUG 줄은 KIS 응답 본문 substr·봉 닫힘 포맷처럼 결합 비용이 있는데
+    //  기본 임계값 INFO에서는 그 문자열이 만들어진 뒤 log()에서 버려지고 있었다. [why D-071]
+    [[nodiscard]] bool enabled(LogLevel level) const noexcept
+    {
+        return level >= min_level_.load(std::memory_order_relaxed);
+    }
+
     // 실행 위치(cwd)와 무관하게 로그·산출물을 한 곳에 모으기 위한 기준 디렉터리.
     // main에서 실행파일 기준 절대경로로 한 번 고정한다(미설정 시 cwd 하위 "logs").
     void set_base_dir(const std::filesystem::path& dir)
@@ -442,4 +449,12 @@ private:
 #define LOG_INFO(msg) Logger::instance().info(msg)
 #define LOG_WARN(msg) Logger::instance().warn(msg)
 #define LOG_ERROR(msg) Logger::instance().error(msg)
-#define LOG_DEBUG(msg) Logger::instance().debug(msg)
+// DEBUG만 가드한다 — 인자는 임계값을 넘을 때만 평가되므로 부작용 있는 식을 넣지 않는다.
+#define LOG_DEBUG(msg)                                                                                                 \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (Logger::instance().enabled(LogLevel::DEBUG))                                                               \
+        {                                                                                                              \
+            Logger::instance().debug(msg);                                                                             \
+        }                                                                                                              \
+    } while (0)

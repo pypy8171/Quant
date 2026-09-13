@@ -361,6 +361,10 @@ if(UNIX)
     target_link_libraries(test_wake_gate PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: LatencyTrace 구간 계산·CSV 행·머리글 1회 (헤더 전용, D-071) ──
+add_executable(test_latency_trace tests/test_latency_trace.cpp)
+target_include_directories(test_latency_trace PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # ─── 테스트 타겟: MPSC/Mutex 큐 정확성 검증 (멀티클라이언트 인테이크 D1) ──
 add_executable(test_mpsc tests/test_mpsc.cpp)
 target_include_directories(test_mpsc PRIVATE
@@ -441,6 +445,7 @@ set(QUANT_ASSERT_TARGETS
     test_pipeline_stress
     test_mpsc
     test_wake_gate
+    test_latency_trace
     test_account_ledger
     test_logger
 )
