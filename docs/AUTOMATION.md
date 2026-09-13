@@ -15,7 +15,7 @@
 |---|---|---|---|
 | `QuantAutoTradeGuard` | 평일 08:45부터 5분마다 7시간 | `powershell -File scripts/auto_trade_guard.ps1` | 워치독이 없으면 하루 루프 기동 (§4) |
 | `Quant EOD AutoDoc` | 평일 16:05 | `python scripts/eod_autodoc.py` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` · **결정 원장 파생 문서**(`sync_ledgers.py`) |
-| `claude_stock_study` | 평일 20:00 | `claude -p "/stock-study auto"` | `_private/주식_study/{날짜}_재무/` 7종목 · 저널 · 스터디 사이트 |
+| `claude_stock_study` | 평일 20:00 | `claude -p "/stock-study auto"` | `_private/주식_study/{날짜}_재무/` 3종목 · 저널 · 스터디 사이트 |
 | `claude_dashboard_sync` | 평일 20:40 | `claude -p "/dashboard-sync"` | 대시보드·스터디 사이트 HTML 재생성. 아티팩트 재발행은 헤드리스 `claude -p`에 Artifact 도구가 없어 못 한다 — 대화 세션에서 `/dashboard-sync`를 불러 같은 URL로 올린다 |
 | `Quant Maintain Daily` | 평일 16:20 | `python scripts/maintain.py --daily` | `EOD AutoDoc`(16:05) 뒤. 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers`. 대시보드는 부르지 않는다 |
 | `Quant Maintain Weekly` | 금요일 20:50 | `python scripts/maintain.py --weekly` | `claude_dashboard_sync`(20:40) 뒤. 미참조 스크립트 · 에이전트 죽은 경로 · 부산물 용량 · 주석 밀도 · 훅 배선 양방향 검사 → `docs/reports/MAINTENANCE_WEEKLY.md` |
