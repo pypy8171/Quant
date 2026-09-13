@@ -3025,6 +3025,26 @@ KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 
   든다. `SymbolTable::lookup(sym)`으로 문자열을 아예 안 싣기 — 시험·리플레이·FEED 화면이 테이블 없이 구조체만 들고
   다니고, 테이블은 락 아래라 화면 갱신마다 락을 잡게 된다. 구조체 안 16B가 싸다.
 
+**Phase 4 앞 단계 첫 조각 (2026-09-13)** — 수신 N × 전략 샤드 M의 SPSC 행렬을 조각으로 둔다:
+
+- `shard::Matrix<T>`(`Quant/include/core/ShardMatrix.h`). 셀 [n][m]이 `RingBuffer` 하나고 생산자 n(소켓 하나를 읽는 수신
+  스레드)이 `shard_of(sym, M)`으로 고른 열에 push, 소비자 m(전략 샤드)이 자기 열을 라운드로빈으로 pop한다(원칙 5 —
+  MPSC 하나보다 N×M SPSC를 먼저). 종목은 소켓 하나에만 있으니(FeedMux) 한 종목은 셀 하나만 지나 순서가 지켜진다(원칙 2).
+  `shard_of`는 곱셈 해시 — id는 촘촘한 정수라 나머지만으로도 고르지만 현물 뒤 선물·재스캔 신규처럼 몰리는 구간을 섞는다.
+  깨우기·넘침 카운트는 배선 몫이다(push가 false면 가득 찬 것, 수신 스레드는 기다리지 않는다, 원칙 3).
+- 측정(`test_shard_matrix` 5절, 원칙 7, 논리 코어 16, Release): 같은 총량 96만 건을 1×1은 소비자당 17ns/건·전체 16ms,
+  2×2는 31ns/건·15ms, 4×4는 45ns/건·11ms. 항목 하나의 비용은 N이 늘수록 오른다(생산자가 M개 셀에 흩뿌리고 소비자가
+  N개 셀을 훑는다). 행렬이 주는 것은 전략 계산(라우터 뒤 `on_trade`)을 M으로 나누는 것이지 큐 자체의 속도가 아니다 —
+  큐는 애초에 병목이 아니었다(`bench_hot_path` 실측, `docs/reports/PIPELINE_LATENCY_REPORT.md` 결과 ⑥ run3·배경 부하 33%:
+  다중 소켓에서 지배 비용은 FeedMux 홉 p50 3~4.6us·p99 10~12us, mux 스레드가 5ms `wait_for`에서 자다 틱마다 condvar로
+  깨는 값. 행렬은 수신 스레드가 셀에 바로 넣으므로 이 홉이 없다).
+- 다음 조각이 배선이다: `Engine`의 `td_queue_`·`ob_queue_`를 행렬로, 전략 스레드 본문을 샤드 함수로, `SignalDispatcher`
+  (슬롯·교체·강제청산 같은 종목 횡단 상태)를 단일 시퀀서인 주문 스레드 쪽으로 옮기고 샤드→주문은 생산자가 M이라
+  `MpscQueue`(원칙 4·5). `BarAggregator`는 종목 키라 샤드마다 하나씩 두면 된다.
+- 버린 것: 소비자마다 `MpscQueue` 하나(N 생산자가 한 큐에) — 생산자 CAS 경합이 N에 비례하고, 지금 `MpscQueue`는 로거용이라
+  가득 참을 드롭으로 푼다. 행렬 안에 `WakeGate`를 두기 — 샤드 스레드의 유휴 정책(200us yield 뒤 잠들기)은 배선이 정하고
+  행렬은 큐만 맡는 편이 시험이 단순하다.
+
 ### D-072 틱 집계 봉의 기저를 1분으로 두고 판단 봉은 resample로 만든다 — REST 분봉 timestamp는 진짜 UTC (2026-09-13)
 **상태**: 채택 (`wt/bars-1m`, `test_bar_aggregator` 131·`test_kis_decode` 68 통과, 라이브는 09-14 장부터 `bar_source` 기본 `ws`)
 

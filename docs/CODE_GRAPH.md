@@ -39,7 +39,7 @@ graph LR
   modes -->|2| utils
   risk -->|2| core
   strategy -->|5| api
-  strategy -->|16| core
+  strategy -->|17| core
   strategy -->|3| universe
   strategy -->|9| utils
   universe --> api
@@ -103,6 +103,7 @@ graph LR
     n_core_RegimeController_cpp["core/RegimeController.cpp"]
     n_core_RegimeController_h["core/RegimeController.h"]
     n_core_ReplaySource_h["core/ReplaySource.h"]
+    n_core_ShardMatrix_h["core/ShardMatrix.h"]
     n_core_SignalDispatcher_cpp["core/SignalDispatcher.cpp"]
     n_core_SignalDispatcher_h["core/SignalDispatcher.h"]
     n_core_StrategyRouter_h["core/StrategyRouter.h"]
@@ -192,6 +193,7 @@ graph LR
   n_core_Engine_cpp --> n_core_KstTime_h
   n_core_Engine_cpp --> n_core_LatencyTrace_h
   n_core_Engine_cpp --> n_core_ReconcilePlan_h
+  n_core_Engine_cpp --> n_core_UniverseExit_h
   n_core_Engine_cpp --> n_utils_Logger_h
   n_core_Engine_h --> n_api_KisClient_h
   n_core_Engine_h --> n_api_KisWebSocket_h
@@ -247,6 +249,8 @@ graph LR
   n_core_RegimeController_h --> n_core_Types_h
   n_core_ReplaySource_h --> n_core_IFeedSource_h
   n_core_ReplaySource_h --> n_core_TickCapture_h
+  n_core_ShardMatrix_h --> n_core_RingBuffer_h
+  n_core_ShardMatrix_h --> n_core_SymbolTable_h
   n_core_SignalDispatcher_cpp --> n_core_LatencyTrace_h
   n_core_SignalDispatcher_cpp --> n_core_SignalDispatcher_h
   n_core_SignalDispatcher_cpp --> n_utils_Logger_h
@@ -320,6 +324,7 @@ graph LR
   n_strategy_StrategyBase_h --> n_core_Types_h
   n_strategy_StrategyFactory_cpp --> n_core_Engine_h
   n_strategy_StrategyFactory_cpp --> n_core_Types_h
+  n_strategy_StrategyFactory_cpp --> n_core_UniverseExit_h
   n_strategy_StrategyFactory_cpp --> n_strategy_DeviationScaleStrategy_h
   n_strategy_StrategyFactory_cpp --> n_strategy_FixedIntervalStrategy_h
   n_strategy_StrategyFactory_cpp --> n_strategy_IntradayBreakoutStrategy_h

@@ -393,6 +393,13 @@ if(UNIX)
     target_link_libraries(test_feed_mux PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: 수신 N × 전략 샤드 M SPSC 행렬(종목 해시 샤딩·라운드로빈·종목 안 순서) + 처리량 측정 (헤더 전용, D-071) ──
+add_executable(test_shard_matrix tests/test_shard_matrix.cpp)
+target_include_directories(test_shard_matrix PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(test_shard_matrix PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟: 종목 id → 전략 라우팅(전부 받는 전략·테이블 가득 참·재구성) + 틱당 시간 측정 (헤더 전용, D-071) ──
 add_executable(test_strategy_router tests/test_strategy_router.cpp)
 target_include_directories(test_strategy_router PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -501,6 +508,7 @@ set(QUANT_ASSERT_TARGETS
     test_replay_source
     test_paper_executor
     test_feed_mux
+    test_shard_matrix
     test_strategy_router
     test_account_ledger
     test_logger
