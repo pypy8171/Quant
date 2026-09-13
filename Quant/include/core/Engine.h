@@ -91,7 +91,7 @@ public:
 
     // 피드 소스를 직접 준다 — 그러면 start()가 KisClient를 만들지 않는다(인증·토큰 갱신·계좌번호·잔고 조회 없음).
     //  주문·잔고는 리플레이와 같은 PaperExecutor(현금 cash)가 받고, 시세·차트 REST가 필요한 경로는 소스 없음으로 건너뛴다.
-    //  가짜 피드로 Engine 한 바퀴를 KIS·소켓 없이 시험하는 자리. 스레드 시작 전에만. [why D-071]
+    //  시험용 시세로 Engine 한 바퀴를 KIS·소켓 없이 시험하는 자리. 스레드 시작 전에만. [why D-071]
     void set_feed_source(std::unique_ptr<feed::IFeedSource> src, double cash)
     {
         feed_override_ = std::move(src);
@@ -102,6 +102,10 @@ public:
     uint64_t data_count() const { return data_count_.load(std::memory_order_relaxed); }
     uint64_t signal_count() const { return signal_count_.load(std::memory_order_relaxed); }
     uint64_t order_count() const { return order_count_.load(std::memory_order_relaxed); }
+
+    // start()가 실제로 잡은 수신 레인(행)·전략 샤드(열) 수 — config와 다를 수 있다(걸치는 전략이 있으면 샤드 1). 기동 뒤에만 뜻이 있다.
+    uint32_t ws_lanes() const { return ws_lanes_; }
+    uint32_t shard_count() const { return static_cast<uint32_t>(shards_.size()); }
 
     // 매크로 레짐 보조 프로세스 브리지(2026-08-09 회의 Task 3). Python macro_regime_feed.py가
     // 원자적으로 쓰는 regime.json 경로를 지정하면, data_thread가 매 사이클 그 파일을 읽어

@@ -397,7 +397,7 @@ if(UNIX)
     target_link_libraries(test_feed_mux PRIVATE pthread)
 endif()
 
-# ─── 테스트 타깃: Engine 한 바퀴 — 가짜 피드를 주입해 KIS·소켓 없이 틱→샤드→전략→주문→모의 체결→원장을 돈다 (D-071) ──
+# ─── 테스트 타깃: Engine 한 바퀴 — 시험용 시세를 주입해 KIS·소켓 없이 틱→샤드→전략→주문→모의 체결→원장을 돈다, 레인 1×샤드 1과 2×2 (D-071) ──
 add_executable(test_engine tests/test_engine.cpp)
 target_link_libraries(test_engine PRIVATE quant_engine)
 
