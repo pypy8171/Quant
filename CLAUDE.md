@@ -234,6 +234,22 @@ git worktree remove ../Quant-wt-<주제>                 # 머지 뒤 정리
   `research/STRATEGY_LAB.md`를 건드리지 않는다.
 - worktree는 `Quant/build_win/`을 공유하지 않는다 — 빌드 산출물은 worktree마다 새로 만든다(`$env:TEMP=C:uild_tmp` 회피는 동일).
 
+### 세션끼리 순서·충돌을 알아서 정리한다 (상시)
+
+코드 세션이 둘 이상이면 사용자에게 묻지 않고 세션끼리 순서를 정하고 충돌을 피한다. 작업은 한 단계로 끝나지 않고 이어지므로
+이 절차도 상시다. 상태는 현황판 `_private/SESSION_CLAIMS.md`(gitignore, 메인 트리)에 두고, 통보는 `ListAgents`로 이름을 확인해
+지목해서 보낸다(브로드캐스트 금지).
+
+1. 세션 시작·새 단계 시작 때 현황판을 읽고 자기 줄(세션 이름·브랜치·D-NNN·파일 목록)을 적는다. 없으면 만든다. 남의 줄은 고치지 않는다.
+2. 머지 큐 순서대로만 main에 넣는다. `git rebase main` → 전체 ctest → `git merge --ff-only`를 한 세션씩. "머지 시작"·"머지 완료 <sha>"를
+   나머지 코드 세션에 보낸다. 순서를 바꾸려면 앞뒤 세션에 먼저 말한다. 푸시는 사용자가 말할 때만.
+3. 남이 잡은 파일을 만져야 하면 그 세션에 먼저 묻는다. 공용 파일(`Quant/src/core/Engine.cpp`·`Quant/include/core/Engine.h`·
+   `CLAUDE.md`·`docs/DECISIONS.md`·`Quant/CMakeLists.txt`)은 줄 단위 최소 편집 — `docs/DECISIONS.md`는 꼬리에 자기 절만,
+   `CLAUDE.md`는 자기 줄만 고치고 행 번호를 알린다.
+4. `py scripts/brace_style.py`는 인자 없이 돌리지 않는다(전체가 바뀌어 남의 diff에 섞인다). 자기 파일만 지정한다.
+5. D-NNN은 현황판에 먼저 적고 쓴다.
+6. 한 단계가 머지되면 다음 단계를 큐 끝에 붙이고 이어간다. 사용자 승인은 커밋(`@committer` 게이트)만 받는다.
+
 ## 토큰 이코노미 (매 작업 적용)
 
 **원칙: 같은 결과가 나온다면 최소 토큰으로.** 작업을 시작하기 전에 해당 유형의 체크 항목을 적용한다.
