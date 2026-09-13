@@ -1,5 +1,6 @@
 #include "core/RegimeController.h"
 #include "api/IMarketDataSource.h"
+#include "core/KstTime.h"
 #include "utils/Logger.h"
 #include <chrono>
 #include <ctime>
@@ -18,36 +19,16 @@ std::string to_string(Regime r)
 
 namespace
 {
-constexpr int kKstOffsetSec = 9 * 3600; // KST = UTC+9
-
-// time_point → "YYYYMMDD" (UTC 고정 — 서버 TZ 독립)
+// time_point → "YYYYMMDD" (UTC 날짜). 지수 일봉의 timestamp는 그 날짜의 UTC 정오다(KisIndex.cpp).
 std::string ymd_of(std::chrono::system_clock::time_point tp)
 {
-    time_t t = std::chrono::system_clock::to_time_t(tp);
-    struct tm tmv{};
-#ifdef _WIN32
-    gmtime_s(&tmv, &t);
-#else
-    gmtime_r(&t, &tmv);
-#endif
-    char buf[9];
-    std::strftime(buf, sizeof(buf), "%Y%m%d", &tmv);
-    return std::string(buf);
+    return kst::format_ymd(std::chrono::year_month_day{std::chrono::floor<std::chrono::days>(tp)});
 }
 
 // KST 기준 오늘 "YYYYMMDD"
 std::string today_kst()
 {
-    time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + kKstOffsetSec;
-    struct tm tmv{};
-#ifdef _WIN32
-    gmtime_s(&tmv, &t);
-#else
-    gmtime_r(&t, &tmv);
-#endif
-    char buf[9];
-    std::strftime(buf, sizeof(buf), "%Y%m%d", &tmv);
-    return std::string(buf);
+    return kst::ymd(std::time(nullptr));
 }
 } // namespace
 

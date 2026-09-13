@@ -139,8 +139,8 @@ private:
     // 원장 CSV에 한 줄을 덧붙인다(io_mtx_). 파일이 없으면 헤더를 쓰고, 옛 헤더면 열을 맞춰
     //  한 번 재작성한다. write_trade_row·record_reconcile이 줄을 만들어 여기로 보낸다.
     void        append_trade_line(const std::string& line);
-    // 원장 CSV 시각 열 — 날짜 파일명(YYYYMMDD)과 행 시각("YYYY-MM-DD HH:MM:SS")을 같이 만든다.
-    static void trade_row_timestamp(char (&dbuf)[9], char (&tbuf)[20]);
+    // 원장 CSV 시각 열 — 날짜 파일명(YYYYMMDD)과 행 시각("YYYY-MM-DD HH:MM:SS")을 같이 만든다. KST 고정.
+    static void trade_row_timestamp(std::string& date, std::string& stamp);
 
     // ── MM-1: 주문 생명주기 라우팅 ────────────────────────────────────────
     ManagedOrder new_route(const OrderSignal& sig);     // 기존 신규 주문 경로

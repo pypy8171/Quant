@@ -60,6 +60,9 @@ int test_parse_dt()
     CHECK(kis_rest::parse_dt("2026091", "090000") == 0);   // 날짜 자릿수 부족
     CHECK(kis_rest::parse_dt("2026ab11", "090000") == 0);  // 숫자 아님
     CHECK(kis_rest::parse_dt("20260911", "09000099") != 0); // 6자 넘는 꼬리는 무시
+    CHECK(kis_rest::parse_dt("20261301", "090000") == 0);   // 달력에 없는 날짜 — _mkgmtime은 정규화했고 chrono는 0
+    CHECK(kis_rest::parse_dt("20260230", "090000") == 0);
+    CHECK(kis_rest::parse_dt("20240229", "000000") == static_cast<time_t>(1709164800)); // 윤년
     return 0;
 }
 

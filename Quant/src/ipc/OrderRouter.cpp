@@ -1,5 +1,6 @@
 #include "ipc/OrderRouter.h"
 #include "api/KisErrorCodes.h"
+#include "core/KstTime.h"
 #include "utils/Logger.h"
 #include <algorithm>
 #include <array>
@@ -12,20 +13,11 @@
 #include <thread>
 #include <vector>
 
-// ─── 오늘 날짜 YYYYMMDD (로컬) ───────────────────────────────────────────
-//  날짜별 파일 이름에 쓴다. 원장 CSV가 쓰는 것과 같은 기준(로컬 시각)이다.
+// ─── 오늘 날짜 YYYYMMDD (KST) ────────────────────────────────────────────
+//  날짜별 파일 이름에 쓴다. 원장 CSV 파일명·행 시각과 같은 기준(KST 고정, 머신 TZ 무관)이다. [why D-070]
 static std::string today_ymd()
 {
-    std::time_t tt = std::time(nullptr);
-    std::tm     lt{};
-#ifdef _WIN32
-    localtime_s(&lt, &tt);
-#else
-    localtime_r(&tt, &lt);
-#endif
-    char buf[9];
-    std::strftime(buf, sizeof(buf), "%Y%m%d", &lt);
-    return std::string(buf);
+    return kst::ymd(std::time(nullptr));
 }
 
 
@@ -986,24 +978,18 @@ static std::string csv_safe(std::string s)
     return s;
 }
 
-void OrderRouter::trade_row_timestamp(char (&dbuf)[9], char (&tbuf)[20])
+void OrderRouter::trade_row_timestamp(std::string& date, std::string& stamp)
 {
-    std::time_t tt = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    std::tm lt{};
-#ifdef _WIN32
-    localtime_s(&lt, &tt);
-#else
-    localtime_r(&tt, &lt);
-#endif
-    std::strftime(dbuf, sizeof(dbuf), "%Y%m%d", &lt);
-    std::strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", &lt);
+    const std::time_t tt = std::time(nullptr);
+    date  = kst::ymd(tt);
+    stamp = kst::datetime(tt);
 }
 
 void OrderRouter::append_trade_line(const std::string& line)
 {
     std::lock_guard<std::mutex> io_lk(io_mtx_);
 
-    char dbuf[9], tbuf[20];
+    std::string dbuf, tbuf;
     trade_row_timestamp(dbuf, tbuf);
 
     namespace fs = std::filesystem;
@@ -1516,17 +1502,8 @@ void OrderRouter::on_fill(const FillNotification& fn)
     // H0STCNI0 전문에 체결고유번호가 없어 odno+체결시각+수량+단가를 조합 키로 사용.
     // ODNO는 영업일 단위 재사용되고 fill_time은 HHMMSS(날짜 없음)라, 거래일(수신일)을
     // prefix로 붙여, 서로 다른 날의 동일키 충돌로 실체결을 오인해 drop하는 일을 막는다 (V-4).
-    std::time_t tt = std::chrono::system_clock::to_time_t(fn.timestamp);
-    std::tm lt{};
-#ifdef _WIN32
-    localtime_s(&lt, &tt);
-#else
-    localtime_r(&tt, &lt);
-#endif
-    char dbuf[9];
-    std::strftime(dbuf, sizeof(dbuf), "%Y%m%d", &lt);
-    std::string fill_key = std::format("{}:{}:{}:{}:{}", dbuf, fn.odno, fn.fill_time, fn.filled_qty,
-                                       static_cast<long long>(fn.filled_price * 100));
+    std::string fill_key = std::format("{}:{}:{}:{}:{}", kst::ymd(std::chrono::system_clock::to_time_t(fn.timestamp)),
+                                       fn.odno, fn.fill_time, fn.filled_qty, static_cast<long long>(fn.filled_price * 100));
     // 이 키는 유일하지 않다. 같은 초에 같은 수량·단가로 나뉘어 체결되면 서로 다른 실체결이
     //  같은 키를 갖는다. 2026-09-07 ODNO 0000014893(047050 BUY 91주)이 8건으로 분할체결되며
     //  6/53/3/2/6/15/4/2주가 같은 초에 들어왔고, 마지막 2주가 앞선 2주와 같은 키라는 이유로

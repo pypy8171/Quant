@@ -1,5 +1,6 @@
 #pragma once
 #include "api/KisClient.h"
+#include "core/KstTime.h"
 #include "core/Types.h"
 #include "strategy/StrategyBase.h"
 #include "utils/Logger.h"
@@ -435,16 +436,7 @@ private:
 
     static std::string today_yyyymmdd()
     {
-        std::time_t t = std::time(nullptr);
-        std::tm tmv{};
-#ifdef _WIN32
-        localtime_s(&tmv, &t);
-#else
-        localtime_r(&t, &tmv);
-#endif
-        char buf[9];
-        std::strftime(buf, sizeof(buf), "%Y%m%d", &tmv);
-        return buf;
+        return kst::ymd(std::time(nullptr));
     }
 
     static bool past_hhmm(const std::string& hhmm)
@@ -454,15 +446,9 @@ private:
             return false;
         }
 
-        std::time_t t = std::time(nullptr);
-        std::tm tmv{};
-#ifdef _WIN32
-        localtime_s(&tmv, &t);
-#else
-        localtime_r(&t, &tmv);
-#endif
-        int now    = tmv.tm_hour * 100 + tmv.tm_min;
-        int target = std::stoi(hhmm.substr(0, 2)) * 100 + std::stoi(hhmm.substr(2, 2));
+        const auto tod    = kst::time_of_day(std::time(nullptr));
+        const int  now    = static_cast<int>(tod.hours().count() * 100 + tod.minutes().count());
+        const int  target = std::stoi(hhmm.substr(0, 2)) * 100 + std::stoi(hhmm.substr(2, 2));
         return now >= target;
     }
 

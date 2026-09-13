@@ -53,47 +53,16 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
     }
 
     // G1 수정: 날짜 하드코딩(19000101~99991231)은 모의서버 500 → 유한창(오늘−N일 ~ 오늘, KST).
-    auto fmt_date = [](time_t t) -> std::string {
-        struct tm tmv{};
-#ifdef _WIN32
-        gmtime_s(&tmv, &t);
-#else
-        gmtime_r(&t, &tmv);
-#endif
-        char buf[9];
-        std::strftime(buf, sizeof(buf), "%Y%m%d", &tmv);
-        return std::string(buf);
-    };
-    auto parse_date = [](const std::string& ymd) -> time_t {
-        if (ymd.size() != 8)
-        {
-            return 0;
-        }
-
-        struct tm tmv{};
-        tmv.tm_year = std::stoi(ymd.substr(0, 4)) - 1900;
-        tmv.tm_mon  = std::stoi(ymd.substr(4, 2)) - 1;
-        tmv.tm_mday = std::stoi(ymd.substr(6, 2));
-        // 달력 계산만 필요하다(KST 자정 기준 초). 로컬 TZ에 안 걸리게 UTC로 만든다.
-#ifdef _WIN32
-        return _mkgmtime(&tmv);
-#else
-        return timegm(&tmv);
-#endif
-    };
+    //  조회창의 초는 KST 자리값을 UTC로 읽은 값(parse_dt와 같은 눈금)이라 옮기지 않고 날짜로 찍는다.
+    auto fmt_date   = [](time_t t) -> std::string { return kst::format_ymd(kst::utc_date(t)); };
+    auto parse_date = [](const std::string& ymd) -> time_t { return kis_rest::parse_dt(ymd, "000000"); };
 
     const time_t end_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + kKstOffsetSec; // KST 오늘
     const std::string today = fmt_date(end_t);
     // 주봉 절단 기준: 이번 주 월요일(응답의 stck_bsop_date는 주 시작일). 월요일 이후 행은 진행 중 봉이다.
     std::string week_start;
     {
-        struct tm tmv{};
-#ifdef _WIN32
-        gmtime_s(&tmv, &end_t);
-#else
-        gmtime_r(&end_t, &tmv);
-#endif
-        const int back = (tmv.tm_wday + 6) % 7; // 월=0 … 일=6
+        const int back = (kst::decompose(std::chrono::sys_seconds{std::chrono::seconds{end_t}}).tm_wday + 6) % 7; // 월=0 … 일=6
         week_start = fmt_date(end_t - static_cast<time_t>(back) * 86400);
     }
 
@@ -223,16 +192,7 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
     }
 
     // 기준시각: 현재 KST(장중)이면 지금, 장전/장후면 15:30에서 역조회.
-    time_t now_kst = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + kKstOffsetSec;
-    struct tm ntm{};
-#ifdef _WIN32
-    gmtime_s(&ntm, &now_kst);
-#else
-    gmtime_r(&now_kst, &ntm);
-#endif
-    char hbuf[7];
-    std::snprintf(hbuf, sizeof(hbuf), "%02d%02d%02d", ntm.tm_hour, ntm.tm_min, ntm.tm_sec);
-    std::string hour = hbuf;
+    std::string hour = kst::hhmmss(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
 
     if (hour < "090000" || hour > "153000")
     {

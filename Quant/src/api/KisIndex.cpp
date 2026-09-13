@@ -18,39 +18,11 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
         return result;
     }
 
-    // 날짜 산술은 서버 로컬 TZ에 독립적이어야 한다(UTC 클라우드 등). gmtime/timegm으로
-    // 통일하고, '오늘'은 KST(+9h) 기준으로 잡는다(KST 자정~오전 실행 시 최신봉 누락 방지).
-    auto fmt_date = [](time_t t) -> std::string {
-        struct tm tmv{};
-#ifdef _WIN32
-        gmtime_s(&tmv, &t);
-#else
-        gmtime_r(&t, &tmv);
-#endif
-        char buf[9];
-        std::strftime(buf, sizeof(buf), "%Y%m%d", &tmv);
-        return std::string(buf);
-    };
-    auto parse_ymd = [](const std::string& s) -> time_t {
-        if (s.size() != 8)
-        {
-            return 0;
-        }
-
-        struct tm tmv{};
-
-        try {
-            tmv.tm_year = std::stoi(s.substr(0, 4)) - 1900;
-            tmv.tm_mon  = std::stoi(s.substr(4, 2)) - 1;
-            tmv.tm_mday = std::stoi(s.substr(6, 2));
-            tmv.tm_hour = 12; // 정오 기준 — 경계 회피
-        } catch (...) { return 0; }
-#ifdef _WIN32
-        return _mkgmtime(&tmv);
-#else
-        return timegm(&tmv);
-#endif
-    };
+    // 조회창의 초는 KST 자리값을 UTC로 읽은 값이라 옮기지 않고 날짜로 찍는다. '오늘'은 KST 기준
+    //  (KST 자정~오전 실행 시 최신봉 누락 방지). 서버 TZ와 무관하다.
+    auto fmt_date = [](time_t t) -> std::string { return kst::format_ymd(kst::utc_date(t)); };
+    // 일봉 timestamp는 그 날짜의 UTC 정오 — 날짜 경계 회피. RegimeController::ymd_of가 같은 기준으로 읽는다.
+    auto parse_ymd = [](const std::string& s) -> time_t { return kis_rest::parse_dt(s, "120000"); };
     auto sd = [](const nlohmann::json& o, const std::string& k) -> double {
         try { return std::stod(o.value(k, "0")); } catch (...) { return 0.0; }
     };

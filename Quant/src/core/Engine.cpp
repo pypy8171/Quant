@@ -1,4 +1,5 @@
 #include "core/Engine.h"
+#include "core/KstTime.h"
 #include "core/LatencyTrace.h"
 #include "core/ReconcilePlan.h"
 #include "utils/Logger.h"
@@ -843,8 +844,6 @@ void Engine::stop()
     LOG_INFO("[Engine] 종료 완료");
 }
 
-static struct tm utc_plus_hours(int offset_h); // KST 계산용(정의는 하단)
-
 // ─── 데이터 수집 스레드 ───────────────────────────────────────────────────
 void Engine::data_thread_fn()
 {
@@ -1443,7 +1442,7 @@ void Engine::poll_regime_file()
     }
 
     const regime_bridge::Observation obs = observe_regime_file(regime_file_, regime_bridge_.stale_sec());
-    const struct tm kst = utc_plus_hours(9);
+    const struct tm kst = ::kst::to_tm(std::time(nullptr));
     // 09:00~15:30을 분으로 편 값(is_kr_market_open과 같은 기준). 개장 전은 음수라 안 걸린다.
     const regime_bridge::KstClock clk{kst.tm_yday, kst.tm_hour * 60 + kst.tm_min - 540};
     const regime_bridge::Outcome  out = regime_bridge_.step(obs, clk);
@@ -1966,21 +1965,7 @@ void Engine::fill_thread_fn()
     LOG_INFO("[FillThread] 종료 (드롭 " + std::to_string(fill_dropped_.load(std::memory_order_relaxed)) + "건)");
 }
 
-// ─── 장 시간 체크 (UTC 기반 → 머신 TZ 무관) ─────────────────────────────
-static struct tm utc_plus_hours(int offset_h)
-{
-    auto now = std::chrono::system_clock::now();
-    auto t   = std::chrono::system_clock::to_time_t(now);
-    t += static_cast<time_t>(offset_h) * 3600;
-    struct tm tm_out{};
-#ifdef _WIN32
-    gmtime_s(&tm_out, &t);
-#else
-    gmtime_r(&t, &tm_out);
-#endif
-    return tm_out;
-}
-
+// ─── 장 시간 체크 (kst::to_tm — 머신 TZ 무관) ───────────────────────────
 bool Engine::daily_bars_needed()
 {
     std::lock_guard<std::mutex> lk(strat_mutex_);
@@ -1998,8 +1983,7 @@ bool Engine::daily_bars_needed()
 
 bool Engine::is_kr_market_open() const
 {
-    // KST = UTC+9, gmtime + 9h offset으로 머신 TZ 무관하게 계산
-    auto kst = utc_plus_hours(9);
+    const auto kst = ::kst::to_tm(std::time(nullptr));
 
     if (kst.tm_wday == 0 || kst.tm_wday == 6)
     {
@@ -2013,7 +1997,7 @@ bool Engine::is_kr_market_open() const
 // 미국 정규장: ET 09:30~16:00 = KST 22:30~05:00 (다음날)
 bool Engine::is_us_market_open() const
 {
-    auto kst = utc_plus_hours(9);
+    const auto kst = ::kst::to_tm(std::time(nullptr));
 
     if (kst.tm_wday == 0 || kst.tm_wday == 6)
     {

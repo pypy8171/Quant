@@ -1,4 +1,5 @@
 #pragma once
+#include "core/KstTime.h"
 #include "utils/Logger.h"
 #include <ctime>
 #include <filesystem>
@@ -22,16 +23,7 @@ class SeedPeakStore
 public:
     static std::string today_yyyymmdd()
     {
-        std::time_t t = std::time(nullptr);
-        std::tm tmv{};
-#ifdef _WIN32
-        localtime_s(&tmv, &t);
-#else
-        localtime_r(&t, &tmv);
-#endif
-        char buf[9];
-        std::strftime(buf, sizeof(buf), "%Y%m%d", &tmv);
-        return buf;
+        return kst::ymd(std::time(nullptr));
     }
 
     // 당일 저장분이 있으면 고점, 없거나 날짜가 다르면 0.

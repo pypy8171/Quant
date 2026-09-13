@@ -1,5 +1,6 @@
 #include "universe/UniverseScanner.h"
 #include "universe/MaAlign.h"
+#include "core/KstTime.h"
 #include "core/Types.h"
 #include "utils/EtfFilter.h"
 #include "utils/Logger.h"
@@ -531,18 +532,10 @@ bool excluded_by_name(const std::string& nm, int& etf_drop, int& reit_drop)
     return false;
 }
 
+// 거래일 YYYYMMDD — KST 고정(머신 TZ 무관). 이름은 호출부와 맞춰 둔다.
 std::string local_ymd()
 {
-    std::time_t t = std::time(nullptr);
-    std::tm tm{};
-#ifdef _WIN32
-    localtime_s(&tm, &t);
-#else
-    localtime_r(&t, &tm);
-#endif
-    char buf[16];
-    std::snprintf(buf, sizeof(buf), "%04d%02d%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
-    return std::string(buf);
+    return kst::ymd(std::time(nullptr));
 }
 
 // 전 종목 장중 시세 파일. 네이버 벌크를 묶어오므로 KIS 초당 한도를 쓰지 않고 후보 전체의

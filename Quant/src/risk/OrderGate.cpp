@@ -1,5 +1,6 @@
 #include "risk/OrderGate.h"
 #include "risk/GateReasons.h"
+#include "core/KstTime.h"
 #include <ctime>
 #include <format>
 #include <iostream>
@@ -21,14 +22,8 @@ constexpr int kSessionBarEndMin = 15 * 60; // 15:00 KST — 이후로는 바 없
 
 double session_remaining_ratio()
 {
-    std::time_t t = std::time(nullptr);
-    std::tm lt{};
-#ifdef _WIN32
-    localtime_s(&lt, &t);
-#else
-    localtime_r(&t, &lt);
-#endif
-    const int now_min = lt.tm_hour * 60 + lt.tm_min;
+    const auto t       = kst::time_of_day(std::time(nullptr));
+    const int  now_min = static_cast<int>(t.hours().count() * 60 + t.minutes().count());
 
     if (now_min <= kSessionOpenMin)
     {

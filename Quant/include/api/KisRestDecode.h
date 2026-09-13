@@ -40,8 +40,8 @@ inline double num(const nlohmann::json& o, const std::string& k)
     }
 }
 
-// YYYYMMDD + HHMMSS → time_t. 서버 TZ와 무관하게 gmtime 계열로 통일한다 — KST 오프셋은 호출자가 안 다룬다.
-//  형식이 아니면 0.
+// YYYYMMDD + HHMMSS → time_t. 자리값을 UTC로 읽는다 — KST 오프셋은 호출자가 뺀다. 서버 TZ와 무관하다.
+//  형식이 아니거나 달력에 없는 날짜(13월·2월 30일)면 0.
 inline time_t parse_dt(const std::string& d, const std::string& t)
 {
     if (d.size() != 8 || t.size() < 6)
@@ -49,27 +49,27 @@ inline time_t parse_dt(const std::string& d, const std::string& t)
         return 0;
     }
 
-    struct tm tmv{};
+    using namespace std::chrono;
+    year_month_day ymd;
+    seconds        tod;
 
     try
     {
-        tmv.tm_year = std::stoi(d.substr(0, 4)) - 1900;
-        tmv.tm_mon = std::stoi(d.substr(4, 2)) - 1;
-        tmv.tm_mday = std::stoi(d.substr(6, 2));
-        tmv.tm_hour = std::stoi(t.substr(0, 2));
-        tmv.tm_min = std::stoi(t.substr(2, 2));
-        tmv.tm_sec = std::stoi(t.substr(4, 2));
+        ymd = year{std::stoi(d.substr(0, 4))} / month{static_cast<unsigned>(std::stoi(d.substr(4, 2)))} /
+              day{static_cast<unsigned>(std::stoi(d.substr(6, 2)))};
+        tod = hours{std::stoi(t.substr(0, 2))} + minutes{std::stoi(t.substr(2, 2))} + seconds{std::stoi(t.substr(4, 2))};
     }
     catch (...)
     {
         return 0;
     }
 
-#ifdef _WIN32
-    return _mkgmtime(&tmv);
-#else
-    return timegm(&tmv);
-#endif
+    if (!ymd.ok())
+    {
+        return 0;
+    }
+
+    return static_cast<time_t>((sys_days{ymd} + tod).time_since_epoch().count());
 }
 
 // 1분봉 원본 한 행.
