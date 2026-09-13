@@ -130,6 +130,7 @@
       "test_ledger_reconciler",
       "test_data_poller",
       "test_signal_dispatcher",
+      "test_bar_aggregator",
       "test_order_pacer",
       "test_regime_bridge",
       "test_regime",
@@ -356,8 +357,8 @@
     {
       "file": "Quant/include/strategy/DeviationScaleStrategy.h",
       "symbol": "on_trade_batch",
-      "lines": 512,
-      "start": 249
+      "lines": 584,
+      "start": 275
     },
     {
       "file": "Quant/src/core/Engine.cpp",
@@ -374,13 +375,13 @@
     {
       "file": "Quant/src/main.cpp",
       "symbol": "main",
-      "lines": 349,
+      "lines": 356,
       "start": 112
     },
     {
       "file": "Quant/src/strategy/StrategyFactory.cpp",
       "symbol": "load_deviation_scale",
-      "lines": 347,
+      "lines": 348,
       "start": 561
     },
     {
@@ -672,6 +673,12 @@
       "start": 158
     },
     {
+      "file": "Quant/include/strategy/DeviationScaleStrategy.h",
+      "symbol": "prefetch_loop",
+      "lines": 89,
+      "start": 918
+    },
+    {
       "file": "Quant/src/universe/UniverseScanner.cpp",
       "symbol": "load_quote_table",
       "lines": 89,
@@ -694,6 +701,12 @@
       "symbol": "take_universe_file",
       "lines": 87,
       "start": 676
+    },
+    {
+      "file": "Quant/src/core/BarAggregator.cpp",
+      "symbol": "BarAggregator::on_tick",
+      "lines": 85,
+      "start": 117
     },
     {
       "file": "Quant/src/core/Engine.cpp",
