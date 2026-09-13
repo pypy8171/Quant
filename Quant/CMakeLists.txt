@@ -434,6 +434,13 @@ if(UNIX)
     target_link_libraries(bench_wake_gate PRIVATE pthread)
 endif()
 
+# ─── 벤치 타겟: 09-13 hot path 조각 항목별 옛/새 비교 (D-071 측정 근거, 헤더 전용) ────
+add_executable(bench_hot_path tests/bench_hot_path.cpp)
+target_include_directories(bench_hot_path PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(bench_hot_path PRIVATE pthread)
+endif()
+
 # ─── 벤치 타겟: OrderGate 원장 읽기 vs 쓰기 스레드 경합 (감사 L4, D-058) ────
 add_executable(bench_gate_contention tests/bench_gate_contention.cpp src/risk/OrderGate.cpp)
 target_include_directories(bench_gate_contention PRIVATE

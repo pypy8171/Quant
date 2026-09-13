@@ -184,6 +184,59 @@ recv_ts`(수신 후 처리단), `e2e = order_ts − send_ts`(전체).
 경합이 있을 때 꼬리가 줄었다. 1스레드에서도 p99.9가 수십 µs에서 300ns로 내려온 것은 condvar `notify_one`이
 빠진 몫이다. 최대값(수십~수백 µs)은 양쪽 다 OS 스케줄링이라 표에 넣지 않았다.
 
+## 결과 ⑥ — 09-13 hot path 조각 항목별 옛/새 (D-071)
+
+09-13에 들어간 변경은 대부분 "틱 한 건당 몇십 ns"짜리 조각이라 위 ①~③의 E2E 하네스로는 보이지 않는다
+(그 하네스는 `RingBuffer`만 쓰는 합성이다). 조각마다 옛 구현을 벤치 안에 그대로 재현해 새 구현과 같은
+입력으로 쟀다. 하네스는 [Quant/tests/bench_hot_path.cpp](../../Quant/tests/bench_hot_path.cpp), 실행 절차는
+[LOAD_TEST_GUIDE.md §4](../guides/LOAD_TEST_GUIDE.md). 종목 2,600개를 LCG로 섞어 접근하고, 시각은
+`steady_clock`(눈금 100ns)이다. 아래 수치는 다른 작업이 CPU를 33% 쓰는 상태에서 뽑은 1회분이라 꼬리(p99 이상)는
+그날 머신 상태를 반영한다. 꼬리를 볼 때는 다른 작업이 없는 머신에서 다시 뽑는다.
+
+**틱당 고정 비용 조각(평균 ns/호출, 4~5는 문자열 → 정수 id).**
+
+| 조각 | 옛 구현 | 새 구현 | 옛 ns | 새 ns |
+|---|---|---|---:|---:|
+| 시각 디코드 | `time` 문자열 싣고 소비자 4곳이 `stoi(substr)`·`parse_hhmm` | `parse_hhmmss` 한 번, 소비자는 `/100` | 36.2 | 3.8 |
+| 현재가 캐시 쓰기(틱마다) | `mutex` + `unordered_map<string,…>` | `atomic<double>[id]` relaxed | 42.8 | 18.3 |
+| 현재가 캐시 읽기(단말·발주 기준가) | 위와 같음 | 위와 같음 | 22.6 | 1.1 |
+| 전략 디스패치, 전략 4개 | 전부 방문해 `sym` 비교 후 반환 | `Router::for_each(id)` | 13.9 | 9.5 |
+| 전략 디스패치, 전략 40개 | 위와 같음 | 위와 같음 | 69.7 | 9.5 |
+| 전략 디스패치, 전략 400개 | 위와 같음 | 위와 같음 | 627.9 | 12.3 |
+| 전략 상태 조회+갱신 | `unordered_map<string,State>` | `unordered_map<SymbolId,State>` | 19.4 | 9.8 |
+| 전략 상태 조회+갱신 | 위와 같음 | `vector<State>[id]` | 19.4 | 1.4 |
+| "내 종목인가" | `std::string !=` | `uint32_t !=` | 5.5 | 1.3 |
+
+참고로 같은 벤치에서 `split_fields` 46필드는 76ns, `decode_kr_trade` 전체는 100ns다. 시각 디코드는 그 안의 4%였고,
+정수로 바꾼 뒤 남은 건 3.8ns다 — "틱마다 파싱하면 부하가 아닌가"는 방향이 반대다. 문자열을 실어 보내면 소비자마다
+`substr`(할당)과 `stoi`를 다시 하므로, 한 번 파싱해 정수로 싣는 쪽이 싸다.
+
+남은 문자열 비용은 `SymbolTable::intern(td.ticker)` **28.8ns/틱**이다(수신 콜백이 매 틱 해시 조회). eb1e010이 틱 구조체의
+`std::string`을 고정 배열 `sym::Ticker`로 바꿔 링 복사는 memcpy가 됐지만 이 조회는 남아 있다 — 디코더가 id를 직접
+찍는 후속이 없앨 값이다.
+
+**핸드오프 조각(스레드 경계).** 전 시장 목표율 100k/s로 투입률을 맞춘 줄과 최대속도 줄을 나눠 쟀다 — 최대속도는 큐잉을
+재는 것이고 투입률을 맞춘 줄이 실제 운영에 가깝다.
+
+| 조각 | 조건 | 결과 |
+|---|---|---|
+| `TickCapture::on_trade`(수신 콜백 안) | 100k/s 투입률, 40만 틱 | **152.8 ns/틱**, 드롭 0, 기록 스레드 100k건/s |
+| 위와 같음 | 최대속도 | 48.3 ns/틱, 링 65,536이 ~3ms 만에 차서 235,331 드롭, 기록 4.0M건/s |
+| `FeedMux` 홉(소스 스레드 emit → mux 콜백) | 소스 1·2·4개, 합계 100k/s | p50 **3.0~4.6 µs**, p99 10~12 µs, 드롭 0 |
+| 위와 같음 | 소스 1개, 최대속도(13.3M건/s) | p50 2.2 ms(큐잉), 드롭 0 |
+| 연쇄: split+decode → intern → 링 push → pop → 캐시 → Router → on_trade(40전략) | 100k/s 투입률, 30만 틱 | p50 **200 ns**, p99 500 ns, p999 24 µs |
+| 위와 같음 | 최대속도, 100만 틱 | **2.50M 틱/s**(틱당 400ns), p50 200ns, p99 300ns, p999 7.3 µs |
+
+읽을 것 두 가지.
+
+- 캡처 `on_trade`가 100k/s 투입률에서 더 비싼 것(153 vs 48ns)은 기록 스레드가 틱 사이에 잠들어 매번 깨워야 해서다.
+  최대속도에서는 기록 스레드가 깨어 있어 push만 남는다. 100k/s에서 드롭 0이므로 기록 상한은 문제가 아니고,
+  수신 콜백 153ns가 부담이면 깨우기 빈도를 줄이는 쪽이 다음 손질이다.
+- `FeedMux` 홉 p50 3~4.6µs는 같은 이유다 — mux 스레드가 `wait_for(5ms)`에서 자고 있어 틱마다 condvar 깨우기가
+  든다. 소켓 하나일 때는 이 홉이 없으므로(엔진이 소켓을 직접 본다) 다중 소켓 구성에서만 붙는 값이다. 연쇄가
+  200ns인 것과 견주면 이 홉이 다중 소켓의 지배 비용이고, mux 루프가 잠들기 전에 잠깐 spin하는 것이 후보다.
+  4소스 최대속도 줄(표 밖)의 드롭 400,507은 생산자 4개가 코어를 다 잡은 상태의 큐잉이라 운영 조건이 아니다.
+
 ## 해석: 중앙값과 tail
 
 - 파이프라인 자체의 처리 비용은 sub-µs다(p50=100~300ns: 링버퍼 통과 + 전략 계산). 전종목
@@ -219,6 +272,10 @@ Quant/build_win/bench_feed_ingest.exe self  --tickers 2600 --rate 100000 --durat
 Quant/build_win/bench_feed_ingest.exe sweep --tickers 2600 --start 50000 --step 100000 --max 800000 --dwell 3
 #   두 콘솔 분리 실행(코스콤/서버):  서버측> bench_feed_ingest serve --port 47001
 #                                    코스콤측> bench_feed_ingest send --host 127.0.0.1 --port 47001 --rate 100000 --duration 10
+
+# ⑥ 09-13 hot path 조각 옛/새 (인자 없음, 다른 작업 없는 머신에서)
+cmake --build Quant/build_win --target bench_hot_path
+Quant/build_win/bench_hot_path.exe
 
 # 실 라이브 데이터 병행 실증 (반드시 장 중 09:00–15:30 KST)
 cmake --build Quant/build_win --target feed_latency_probe

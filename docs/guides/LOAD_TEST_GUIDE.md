@@ -4,13 +4,14 @@
 > 결과 해석과 측정 배경은 [PIPELINE_LATENCY_REPORT.md](../reports/PIPELINE_LATENCY_REPORT.md)에 있다.
 > 지표 약어는 [GLOSSARY.md](../GLOSSARY.md) 성능·지연 섹션 참조: 중앙값(p50)·상위 1%(p99)·상위 0.1%(p999)·전 구간(E2E).
 
-## 하네스 3종 — 무엇을 재나
+## 하네스 — 무엇을 재나
 
 | 하네스 | 소켓 | 재는 것 | 규모 상한 |
 |---|---|---|---|
 | `bench_market_firehose` | 없음 | 내부 3단 처리단(링버퍼→전략→주문) 지연·처리량 | 없음(합성, 전종목 규모) |
 | `bench_feed_ingest` | 실 TCP(loopback) | 코스콤→서버 소켓 수신 경로(net/proc/e2e 분해) | 없음(합성, 전종목 규모) |
 | `feed_latency_probe` | 실 KIS WS | 실데이터로 수신콜백→주문결정 내부 지연 재확인 | **app_key당 ~40종목**(API 하드캡) |
+| `bench_hot_path` | 없음 | 09-13 hot path 조각(시각 디코드·현재가 캐시·라우터·상태 키·캡처·FeedMux 홉·연쇄)의 옛/새 A/B | 없음(합성, 종목 2,600개 고정) |
 
 부하테스트의 규모는 앞의 둘(합성)이 담당한다. 라이브 지연 측정은 규모가 아니라 "합성이 낸 처리단 지연이 실데이터에서도 성립하는가"를 확인하는 용도다(장 중에만 틱이 있음).
 
@@ -24,7 +25,7 @@ Set-Location "$env:USERPROFILE\source\repos\Quant"
 
 ```powershell
 $env:TEMP="C:\build_tmp"
-cmake --build Quant/build_win --target bench_market_firehose bench_feed_ingest feed_latency_probe
+cmake --build Quant/build_win --target bench_market_firehose bench_feed_ingest feed_latency_probe bench_hot_path
 ```
 
 ## 1. 처리단 부하 (소켓 없음) — bench_market_firehose
@@ -80,6 +81,26 @@ py PYQuant\tools\full_universe_dump.py --out Quant\config\universe_full.json
 ```
 
 이 정도 나오면 정상(실측): drop 0, 관측 msg rate 수십 msg/s, 내부지연 중앙값(p50)=100ns.
+
+## 4. hot path 조각 옛/새 비교 — bench_hot_path
+
+09-13에 들어간 조각들(정수 `hhmmss`·id 배열 현재가 캐시·`strat::Router`·`SymbolId` 키·`TickCapture`·`FeedMux`)을
+항목별로 옛 구현과 나란히 잰다. 위 세 하네스는 이 조각들을 지나지 않는다.
+
+```powershell
+.\Quant\build_win\bench_hot_path.exe > logs\bench_hot_path.txt
+Get-Content logs\bench_hot_path.txt
+```
+
+인자는 없다. 7절로 나뉘어 1~4절은 ns/호출, 5~7절은 스레드 경계(캡처 기록 스레드·mux 스레드·전략 스레드)를
+100k/s 투입률 맞춤과 최대속도 두 줄로 찍는다. 다음을 지킨다.
+
+- **Release로만**(`build_win`은 Release다). Debug 수치는 비교 대상이 아니다.
+- **다른 작업이 없는 머신에서.** 6·7절의 p99 이상은 스케줄러가 정한다. 돌리기 전 `Get-Counter '\Processor(_Total)\% Processor Time'`이
+  10% 아래인지 본다. 장중 트레이더와 같이 돌리면 트레이더 꼬리도 넓어진다.
+- 5절은 `%TEMP%`에 캡처 파일을 쓰고 끝에 지운다. 디스크가 느리면 "기록 건/s"가 내려간다.
+- 이 정도 나오면 정상(09-13 실측, 배경 부하 33%): 시각 디코드 36→4ns, 전략 40개 디스패치 70→10ns, 연쇄 p50 200ns,
+  최대속도 2.5M 틱/s, 100k/s 투입률에서 캡처·mux 드롭 0. 결과 표는 리포트 결과 ⑥.
 
 ## 노브 — 수치 바꿔가며 보기
 
