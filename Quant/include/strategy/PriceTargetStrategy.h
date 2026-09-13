@@ -133,7 +133,7 @@ public:
 
         // 가격 목표 — 매도호가[0]을 현재가 대리로 사용
         double price = ob.asks[0].price > 0 ? ob.asks[0].price : ob.bids[0].price;
-        return check_price_target(ob.ticker, price, ob.time);
+        return check_price_target(ob.ticker, price, ob.hhmmss);
     }
 
     // 체결 이벤트 — 체결가 기준 가격 체크
@@ -152,7 +152,7 @@ public:
             return lo;
         }
 
-        return check_price_target(td.ticker, td.price, td.time);
+        return check_price_target(td.ticker, td.price, td.hhmmss);
     }
 
     void on_stop() override
@@ -200,14 +200,14 @@ private:
     // ── 가격 목표 도달 시 시장가 주문 ────────────────────────────────────
     std::optional<OrderSignal> check_price_target(const std::string& ticker,
                                                    double price,
-                                                   const std::string& time_str)
+                                                   int32_t hhmmss)
     {
         if (price <= 0)
         {
             return std::nullopt;
         }
 
-        int hhmm = krx::parse_hhmm(time_str);
+        int hhmm = hhmmss / 100;
 
         if (!krx::in_session(hhmm))
         {

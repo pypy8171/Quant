@@ -72,6 +72,10 @@ enum class OrderAction
 struct OrderSignal
 {
     std::string ticker;
+    // 종목 id. 전략 스레드가 신호를 큐에 넣기 전에 ticker로 찍는다(emit_from). 0이면 배선이 빠진 경로.
+    //  남은 문자열(ticker·strategy_id·client_oid·reason)은 신호가 틱보다 훨씬 드물고 KIS 전문·원장 CSV가
+    //  문자열을 요구해 그대로 둔다 — 링 복사 비용은 test_strategy_router 5번이 잰다. [why D-071]
+    sym::SymbolId sym = sym::kNone;
     OrderSide side = OrderSide::NONE;
     OrderType type = OrderType::MARKET;
     int quantity = 0;
@@ -131,7 +135,7 @@ struct OrderBook
 {
     std::string   ticker;
     sym::SymbolId sym = sym::kNone; // 수신 스레드가 SymbolTable로 찍는다. 0이면 배선이 빠진 경로. [why D-071]
-    std::string   time;
+    int32_t       hhmmss = 0;       // KST 호가 시각 정수(093001 → 93001). 0이면 모름. 디코더가 한 번 파싱한다. [why D-071]
     OrderBookLevel asks[5];
     OrderBookLevel bids[5];
     std::chrono::system_clock::time_point timestamp;
@@ -144,7 +148,7 @@ struct TradeData
 {
     std::string   ticker;
     sym::SymbolId sym = sym::kNone; // 수신·폴러 스레드가 SymbolTable로 찍는다. 0이면 배선이 빠진 경로. [why D-071]
-    std::string   time;
+    int32_t       hhmmss = 0;       // KST 체결 시각 정수(093001 → 93001). 0이면 모름. 디코더가 한 번 파싱한다. [why D-071]
     double price = 0.0;
     int64_t quantity = 0;
     int direction = 0; // 1=매수, 5=매도

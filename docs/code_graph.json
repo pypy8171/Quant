@@ -14,7 +14,7 @@
     {
       "from": "api",
       "to": "core",
-      "weight": 9
+      "weight": 10
     },
     {
       "from": "api",
@@ -94,7 +94,7 @@
     {
       "from": "modes",
       "to": "core",
-      "weight": 1
+      "weight": 2
     },
     {
       "from": "modes",
@@ -289,6 +289,7 @@
       "core/Types.h"
     ],
     "api/KisWsDecode.h": [
+      "core/MarketSession.h",
       "core/Types.h"
     ],
     "api/WebSocketClient.cpp": [
@@ -387,6 +388,7 @@
       "api/KisErrorCodes.h",
       "api/KisResult.h",
       "api/KisTypes.h",
+      "core/MarketSession.h",
       "core/Types.h"
     ],
     "core/RegimeController.cpp": [
@@ -416,6 +418,7 @@
       "strategy/StrategyBase.h"
     ],
     "core/TickCapture.h": [
+      "core/MarketSession.h",
       "core/RingBuffer.h",
       "core/Types.h",
       "core/WakeGate.h"
@@ -463,6 +466,7 @@
     "modes/Monitors.cpp": [
       "api/KisClient.h",
       "api/KisWebSocket.h",
+      "core/MarketSession.h",
       "core/Types.h",
       "ipc/ZmqBridge.h",
       "modes/Monitors.h",
@@ -677,6 +681,10 @@
       "core/LedgerReconciler.cpp"
     ],
     "core/MarketSession.h": [
+      "api/KisWsDecode.h",
+      "core/PaperExecutor.h",
+      "core/TickCapture.h",
+      "modes/Monitors.cpp",
       "strategy/FixedIntervalStrategy.h",
       "strategy/PriceTargetStrategy.h",
       "strategy/ThemeStrategy.h",
@@ -920,6 +928,10 @@
       "in_degree": 11
     },
     {
+      "header": "core/MarketSession.h",
+      "in_degree": 8
+    },
+    {
       "header": "core/WakeGate.h",
       "in_degree": 6
     },
@@ -933,10 +945,6 @@
     },
     {
       "header": "api/KisTypes.h",
-      "in_degree": 4
-    },
-    {
-      "header": "core/MarketSession.h",
       "in_degree": 4
     },
     {

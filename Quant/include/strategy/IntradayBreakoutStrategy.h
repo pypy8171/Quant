@@ -14,7 +14,7 @@
 //  협의체(전략·아키텍처·데이터·리스크) 확정 스펙(strategies/ITB/SPEC.md §2).
 //  입력은 오직 WS/REST 체결 틱(on_trade) — 깨진 REST 일봉 경로(G1/G2)를 우회한다.
 //
-//  [입력]  국내 실시간 체결 채널(H0STCNT0) 틱을 on_trade(TradeData)로 받는다. td.price=현재가, td.time=HHMMSS.
+//  [입력]  국내 실시간 체결 채널(H0STCNT0) 틱을 on_trade(TradeData)로 받는다. td.price=현재가, td.hhmmss=HHMMSS 정수.
 //  [진입]  1분 버킷 종가가 최근 N분 채널 고점을 상향 돌파 + 당일 앵커 대비 +eps 위
 //          → 시장가 신규 매수. 버킷 마감 시에만 평가(틱 노이즈/휩쏘 억제).
 //          수량은 notional_per_position>0이면 floor(명목/현재가), 아니면 entry_qty 고정.
@@ -135,7 +135,7 @@ public:
 
         last_ = px;
 
-        int hhmmss = parse_hhmmss(td.time);
+        int hhmmss = td.hhmmss;
         int hhmm = hhmmss / 100;
 
         // 당일 앵커 — day_open 주입 우선, 아니면 첫 유효 틱. 신규 돌파 기준가.
@@ -453,23 +453,6 @@ private:
         s.reason = reason; // G4: 판단 근거(돌파/청산 사유)를 신호에 실어 영속
         s.timestamp = ts;
         return s; // account_id="" (기본) — OrderGate 원장 시드 계좌키와 일치(C-1)
-    }
-
-    static int parse_hhmmss(const std::string& t)
-    {
-        if (t.size() < 6)
-        {
-            return 0;
-        }
-
-        try
-        {
-            return std::stoi(t.substr(0, 6));
-        }
-        catch (...)
-        {
-            return 0;
-        }
     }
 
     static std::string px_str(double v) { return std::to_string(static_cast<long long>(std::llround(v))); }

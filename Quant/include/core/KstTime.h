@@ -79,6 +79,13 @@ inline std::string hhmmss(std::time_t now_utc)
     return std::format("{:02}{:02}{:02}", t.hours().count(), t.minutes().count(), t.seconds().count());
 }
 
+// 틱 시각 HHMMSS 정수(TradeData.hhmmss). REST 대체 틱·시계 닫힘이 WS 틱과 같은 값을 갖게 한다. [why D-071]
+inline int32_t hhmmss_int(std::time_t now_utc)
+{
+    const auto t = time_of_day(now_utc);
+    return static_cast<int32_t>(t.hours().count() * 10000 + t.minutes().count() * 100 + t.seconds().count());
+}
+
 // 원장 CSV 행 시각 "YYYY-MM-DD HH:MM:SS".
 inline std::string datetime(std::time_t now_utc)
 {

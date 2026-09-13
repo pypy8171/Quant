@@ -735,7 +735,7 @@ void Engine::start()
                                // 모의 체결은 틱 스레드에서 — 체결통보 큐의 생산자가 이 스레드 하나로 남는다.
                                if (paper_)
                                {
-                                   paper_->on_tick(in.ticker, in.price, in.time);
+                                   paper_->on_tick(in.ticker, in.price, in.hhmmss);
                                }
 
                                // 전략 스레드가 멈추면 큐가 차고 틱이 여기서 사라진다 — 세어 두고
@@ -1716,6 +1716,13 @@ void Engine::strategy_thread_fn(std::stop_token st)
     {
         OrderSignal st = sig;
         st.t_tick_ns   = cur_tick_ns;
+
+        // 전략이 안 찍었으면 여기서 한 번. 신호 종목이 지금 틱과 다를 수 있어(테마·청산) 틱 id를 그대로 쓰지 않는다.
+        if (st.sym == sym::kNone)
+        {
+            st.sym = symbols_.intern(st.ticker);
+        }
+
         dispatcher.from_strategy(s->is_active(), s->id(), st);
     };
 

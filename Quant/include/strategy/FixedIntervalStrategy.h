@@ -56,7 +56,7 @@ public:
             return std::nullopt;
         }
 
-        if (!is_in_session(td.time))
+        if (!is_in_session(td.hhmmss))
         {
             return std::nullopt;
         }
@@ -109,9 +109,8 @@ private:
     Phase phase_ = Phase::BUY;
     std::chrono::steady_clock::time_point last_signal_{};
 
-    bool is_in_session(const std::string& time_str) const
+    bool is_in_session(int32_t hhmmss) const
     {
-        int hhmm = krx::parse_hhmm(time_str);
-        return krx::in_session(hhmm); // 09:00~15:30 정규장 창(core/MarketSession.h)
+        return krx::in_session(hhmmss / 100); // 09:00~15:30 정규장 창(core/MarketSession.h)
     }
 };

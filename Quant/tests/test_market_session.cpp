@@ -37,6 +37,9 @@ void check_kst_fixed()
         assert(kst::ymd(kOpen - 9 * 3600) == "20260911"); // 00:00:00 KST — 날짜 경계
         assert(kst::ymd(kOpen - 9 * 3600 - 1) == "20260910");
         assert(kst::hhmmss(kOpen - 9 * 3600 - 1) == "235959");
+        assert(kst::hhmmss_int(kOpen) == 90000);
+        assert(kst::hhmmss_int(kOpen - 1) == 85959);
+        assert(kst::hhmmss_int(kOpen - 9 * 3600 - 1) == 235959);
 
         const struct tm t = kst::to_tm(kOpen);
         assert(t.tm_year == 126 && t.tm_mon == 8 && t.tm_mday == 11);
@@ -81,6 +84,18 @@ int main()
     assert(parse_hhmm("1a30") == 0);   // stoi였다면 130
     assert(parse_hhmm("+930") == 0);   // stoi였다면 930 — 장중으로 오판
     assert(parse_hhmm(" 930") == 0);
+
+    // parse_hhmmss: 여섯 자리 숫자만. 뒤에 붙은 글자는 무시, 앞이 짧거나 숫자가 아니면 0.
+    assert(parse_hhmmss("093001") == 93001);
+    assert(parse_hhmmss("000000") == 0);
+    assert(parse_hhmmss("153000123") == 153000);
+    assert(parse_hhmmss("09300") == 0);
+    assert(parse_hhmmss("09300a") == 0);
+    assert(parse_hhmmss("") == 0);
+    assert(hhmmss_str(93001) == "093001");
+    assert(hhmmss_str(0) == "000000");
+    assert(hhmmss_str(235959) == "235959");
+    assert(parse_hhmmss(hhmmss_str(153000)) == 153000);
 
     // in_session: 09:00 포함, 15:30 제외.
     assert(!in_session(kSessionOpenHHMM - 1));

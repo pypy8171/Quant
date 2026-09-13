@@ -1,5 +1,7 @@
 #pragma once
+#include <cstdint>
 #include <string>
+#include <string_view>
 
 // KRX 정규장 세션 경계 (HHMM 정수) — 여러 전략이 같은 09:00~15:30 창을 각자 복사해
 // 쓰던 것을 한 곳으로 모은다. 파장(15:30) 이후 시간외/동시호가는 제외.
@@ -38,5 +40,44 @@ inline bool in_session(int hhmm)
 inline bool in_session_str(const std::string& t)
 {
     return in_session(parse_hhmm(t));
+}
+
+// "HHMMSS" 여섯 자리를 정수로("093001" → 93001). 여섯 자리 숫자가 아니면 0 — 틱은 디코더가 한 번만 부르고
+//  소비자는 정수만 본다(원칙 6). 뒤에 더 붙은 글자(밀리초 등)는 무시한다. [why D-071]
+inline int32_t parse_hhmmss(std::string_view t)
+{
+    if (t.size() < 6)
+    {
+        return 0;
+    }
+
+    int32_t v = 0;
+
+    for (int i = 0; i < 6; ++i)
+    {
+        if (t[i] < '0' || t[i] > '9')
+        {
+            return 0;
+        }
+
+        v = v * 10 + (t[i] - '0');
+    }
+
+    return v;
+}
+
+// 정수 HHMMSS를 여섯 자리 문자열로(93001 → "093001"). 화면·CSV·캡처 파일용 — hot path에서 부르지 않는다.
+inline std::string hhmmss_str(int32_t hhmmss)
+{
+    char buf[7];
+
+    for (int i = 5; i >= 0; --i)
+    {
+        buf[i] = static_cast<char>('0' + hhmmss % 10);
+        hhmmss /= 10;
+    }
+
+    buf[6] = '\0';
+    return std::string(buf);
 }
 } // namespace krx

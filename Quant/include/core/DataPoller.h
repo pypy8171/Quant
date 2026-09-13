@@ -22,12 +22,12 @@ inline bool same_spec(const WatchSpec& a, const WatchSpec& b)
 }
 
 // REST 현재가 한 건을 WS 체결 틱과 같은 모양으로. quantity·direction·strength는 REST에 없어 0이다.
-inline TradeData make_tick(const std::string& ticker, double px, const std::string& hhmmss,
+inline TradeData make_tick(const std::string& ticker, double px, int32_t hhmmss,
                            std::chrono::system_clock::time_point ts)
 {
     TradeData td;
     td.ticker    = ticker;
-    td.time      = hhmmss;
+    td.hhmmss    = hhmmss;
     td.price     = px;
     td.quantity  = 0;
     td.direction = 0;

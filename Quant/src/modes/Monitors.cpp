@@ -1,6 +1,7 @@
 #include "modes/Monitors.h"
 #include "api/KisClient.h"
 #include "api/KisWebSocket.h"
+#include "core/MarketSession.h"
 #include "core/Types.h"
 #include "utils/Logger.h"
 #include "utils/Utf8.h"
@@ -72,13 +73,14 @@ static std::string fmt_int_comma(long long v, int width, const std::string& empt
 static std::string fmt_price(double v) { return fmt_int_comma(static_cast<long long>(v), 8, "       -"); }
 static std::string fmt_qty(int64_t v)  { return fmt_int_comma(v, 7, "      -"); }
 
-static std::string fmt_time_hms(const std::string& t)
+static std::string fmt_time_hms(int32_t hhmmss)
 {
-    if (t.size() < 6)
+    if (hhmmss <= 0)
     {
         return "--:--:--";
     }
 
+    const std::string t = krx::hhmmss_str(hhmmss);
     return t.substr(0, 2) + ":" + t.substr(2, 2) + ":" + t.substr(4, 2);
 }
 
@@ -143,7 +145,7 @@ static void print_feed(const std::vector<std::string>& tickers, std::mutex& mtx,
         {
             trade_px = td_it->second.price;
             trade_dir = td_it->second.direction;
-            trade_t = fmt_time_hms(td_it->second.time);
+            trade_t = fmt_time_hms(td_it->second.hhmmss);
         }
 
         // 종목 헤더

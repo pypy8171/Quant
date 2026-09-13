@@ -72,7 +72,7 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@5a22219 Quant/src/core/Engine.cpp@2aa296a Quant/include/core/DataPoller.h@516a53a Quant/include/core/SignalDispatcher.h@46685e0 Quant/include/core/OrderPacer.h@e69b52f Quant/include/core/LedgerReconciler.h@1d4cf8e Quant/include/core/WakeGate.h@1f37917 Quant/include/core/BarAggregator.h@5957319 Quant/include/core/LatencyTrace.h@4810be1 Quant/include/core/ReconcilePlan.h@74e6157 -->
+<!-- sync: Quant/include/core/Engine.h@5a22219 Quant/src/core/Engine.cpp@6a4c9c7 Quant/include/core/DataPoller.h@af7c1d6 Quant/include/core/SignalDispatcher.h@46685e0 Quant/include/core/OrderPacer.h@e69b52f Quant/include/core/LedgerReconciler.h@1d4cf8e Quant/include/core/WakeGate.h@1f37917 Quant/include/core/BarAggregator.h@6c61b25 Quant/include/core/LatencyTrace.h@4810be1 Quant/include/core/ReconcilePlan.h@74e6157 -->
 엔진은 락-프리 파이프라인 3-스레드(데이터→전략→주문)에 체결 소비 스레드와 제어 스레드를 더해 총 다섯 개의 스레드를 실행합니다:
 
 ```
@@ -82,7 +82,7 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 ```
 
 - `RingBuffer<T>`는 명시적 메모리 순서를 가진 `std::atomic`을 사용하는 SPSC(단일 생산자/단일 소비자) 락-프리 큐입니다.
-- 데이터 스레드는 `fetch_interval_sec`초마다 KIS REST를 폴링하며, 장 외 시간에는 건너뜁니다. REST 현재가 폴링(폴링 모드 유니버스·WS 구독 상한 넘침 대체·틱 끊긴 보유 보충)은 `Quant/include/core/DataPoller.h`의 `DataPoller`가 맡고, 폴러의 틱은 데이터 스레드 전용 `rest_td_queue_`로 갑니다(D-062, `test_data_poller`). KST 시각 변환은 `Quant/include/core/KstTime.h`.
+- 데이터 스레드는 `fetch_interval_sec`초마다 KIS REST를 폴링하며, 장 외 시간에는 건너뜁니다. REST 현재가 폴링(폴링 모드 유니버스·WS 구독 상한 넘침 대체·틱 끊긴 보유 보충)은 `Quant/include/core/DataPoller.h`의 `DataPoller`가 맡고, 폴러의 틱은 데이터 스레드 전용 `rest_td_queue_`로 갑니다(D-062, `test_data_poller`). KST 시각 변환은 `Quant/include/core/KstTime.h`. 틱·호가의 시각은 정수 HHMMSS(`hhmmss`, 093001 → 93001)다 — 디코더가 `krx::parse_hhmmss`(`Quant/include/core/MarketSession.h`)로 한 번 읽고 폴러는 `kst::hhmmss_int`로 만들며, 문자열은 화면·캡처 파일에서만 `krx::hhmmss_str`로 되돌린다(D-071).
 - 전략 스레드는 틱의 종목 id로 그 종목을 보는 전략만 방문하며(`Quant/include/core/StrategyRouter.h`의 `strat::Router`, 구독 종목을 안 밝힌 전략은 전부 받는다, D-071, `test_strategy_router`), `NONE`이 아닌 신호는 주문 큐에 push합니다. 신호가 큐에 가기 전의 판단 — 순번 stamp, 비활성 전략·청산 관리 보유 종목의 신규 차단, 슬롯이 찬 상태의 교체 진입(최약체 매도 뒤 매수 보류), 강제청산 재발주 스로틀, 기동 뒤 한도 초과분 정리 — 는 `Quant/include/core/SignalDispatcher.h`의 `SignalDispatcher`가 맡습니다(전략 스레드의 지역 객체, D-063, `test_signal_dispatcher`). DeviationScale의 3분봉은 config `bar_source`로 고른다 — `"ws"`(기본)는 전략 스레드가 체결 틱을 `Quant/include/core/BarAggregator.h`의 `bars::BarAggregator`로 1분봉에 모으고 판단 직전 `bars::resample`로 `interval_min` 봉을 만든다(REST 1분봉은 시드·폴백, REST 대체 틱이 오면 REST 봉으로 되돌아간다, 판단은 언제나 interval_min 봉, 틱이 없어도 판단 직전 `close_stale`이 지난 분 봉을 시계로 닫는다, D-068·D-069·D-072·D-074, `test_bar_aggregator`), `"rest"`는 REST 3분봉을 그대로 쓴다.
 - 체결 소비 스레드(`fill_thread_fn`, D-056)는 WS 수신 스레드가 `fill_queue_`(SPSC)에 넣은 체결통보를 받아 `OrderRouter::on_fill`(원장 반영·CSV)과 운영단말 방송을 합니다. 수신 스레드는 push만 하므로 체결 처리 동안 틱이 서지 않습니다. 큐가 비면 condvar에서 자고 생산자가 깨웁니다(Logger와 같은 방식). 이 깨우기는 `Quant/include/core/WakeGate.h`의 `sync::WakeGate` 한 조각이고 전략·주문 스레드의 유휴도 같은 조각을 씁니다 — 전략은 200us yield 뒤 잠들고, 주문은 재시도 만기까지 `wait_until`합니다(D-071, `test_wake_gate`). `Quant/src/main.cpp`가 `timeBeginPeriod(1)`을 잡아 sleep 격자를 15.6ms에서 2ms로 내리며, `RingBuffer::high_water()`를 제어 스레드가 1분마다 `[큐 고수위]`로 남깁니다. 신호 하나의 구간 지연(틱 수신→신호→pop→라우터 반환)은 주문 스레드가 `Quant/include/core/LatencyTrace.h`로 `logs/latency_trace.csv`에 한 줄씩 남깁니다(`test_latency_trace`).
 - 주문 스레드는 큐에서 꺼낸 신호를 `OrderRouter`에 넘깁니다. 직전 KIS 호출 뒤 최소 간격 대기, 거부의 재시도 분류(유량 한도는 action 불문, 청산 SELL은 40240000 제외, BUY 제외), 재시도 버퍼의 만기·청산 완료 폐기는 `Quant/include/core/OrderPacer.h`의 `OrderPacer`가 맡습니다(주문 스레드의 지역 객체, D-065, `test_order_pacer`). 게이트가 만들고 조절기가 읽는 유량 한도 거부 문장은 `Quant/include/risk/GateReasons.h` 한 곳이 정의합니다(D-067).
@@ -92,8 +92,8 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 
 ### 핵심 타입 (`Quant/include/core/Types.h`)
 
-<!-- sync: Quant/include/core/Types.h@3f5e482 -->
-`MarketData`(OHLCV + bar_index), `OrderSignal`(side/type/qty/price/**ref_price** + strategy_id), `Position`, `OrderBook`(5단계 호가, 채널 `H0STASP0`/선물 `H0IFASP0`), `TradeData`(실시간 체결, 채널 `H0STCNT0`/선물 `H0IFCNT0`), `WatchSpec`(FEED 구독 종목 명세 — `is_future` 플래그로 현·선 채널 선택), `Regime`(enum: BULL/NEUTRAL/BEAR/UNKNOWN), `RegimeSnapshot`(장 시작 국면 판정 결과 — score·200MA·정배열/역배열·지수 이평 분해).
+<!-- sync: Quant/include/core/Types.h@ba5b236 -->
+`MarketData`(OHLCV + bar_index), `OrderSignal`(side/type/qty/price/**ref_price** + strategy_id, 종목 id `sym`은 전략 스레드가 큐에 넣기 전에 찍는다), `Position`, `OrderBook`(5단계 호가, 채널 `H0STASP0`/선물 `H0IFASP0`), `TradeData`(실시간 체결, 채널 `H0STCNT0`/선물 `H0IFCNT0`; 호가·체결 모두 종목 id `sym`과 정수 시각 `hhmmss`를 든다, D-071), `WatchSpec`(FEED 구독 종목 명세 — `is_future` 플래그로 현·선 채널 선택), `Regime`(enum: BULL/NEUTRAL/BEAR/UNKNOWN), `RegimeSnapshot`(장 시작 국면 판정 결과 — score·200MA·정배열/역배열·지수 이평 분해).
 
 > `OrderSignal.ref_price`는 시장가(price=0) 주문의 명목 한도 평가 기준가다. 지정가는 `price`로 명목을 재지만 시장가는 `price`가 0이라 이 값이 없으면 명목 백스톱이 우회된다(특히 급락장 강제청산의 시장가 전량매도). 발주 측이 직전 현재가/평단을 stamp한다.
 

@@ -3,6 +3,7 @@
 //  스레드: on_trade/on_book은 생산자 하나(WS 수신 스레드)만 부른다. TickReader는 단일 스레드용.
 #pragma once
 
+#include "core/MarketSession.h"
 #include "core/RingBuffer.h"
 #include "core/Types.h"
 #include "core/WakeGate.h"
@@ -90,13 +91,25 @@ inline void put_str(char* dst, size_t cap, const std::string& s)
     dst[n] = '\0';
 }
 
-inline void fill_common(Common& c, const std::string& ticker, const std::string& time, uint32_t sym, Market market,
+// 파일 형식은 그대로 "HHMMSS" 문자다(정수화 전 캡처와 호환). 여섯 자리를 손으로 찍는다 — 수신 스레드라 할당이 없다.
+inline void put_hhmmss(char* dst, int32_t hhmmss)
+{
+    for (int i = 5; i >= 0; --i)
+    {
+        dst[i] = static_cast<char>('0' + hhmmss % 10);
+        hhmmss /= 10;
+    }
+
+    dst[6] = '\0';
+}
+
+inline void fill_common(Common& c, const std::string& ticker, int32_t hhmmss, uint32_t sym, Market market,
                         int direction, int64_t recv_ns, std::chrono::system_clock::time_point ts)
 {
     c.recv_ns = recv_ns;
     c.wall_us = wall_us_of(ts);
     put_str(c.ticker, kTickerMax, ticker);
-    put_str(c.time, kTimeMax, time);
+    put_hhmmss(c.time, hhmmss);
     c.sym       = sym;
     c.market    = static_cast<uint8_t>(market);
     c.direction = static_cast<uint8_t>(direction);
@@ -105,7 +118,7 @@ inline void fill_common(Common& c, const std::string& ticker, const std::string&
 inline TradeBody to_body(const TradeData& td)
 {
     TradeBody b;
-    fill_common(b.c, td.ticker, td.time, td.sym, td.market, td.direction, td.recv_ns, td.timestamp);
+    fill_common(b.c, td.ticker, td.hhmmss, td.sym, td.market, td.direction, td.recv_ns, td.timestamp);
     b.price       = td.price;
     b.quantity    = td.quantity;
     b.strength    = td.strength;
@@ -116,7 +129,7 @@ inline TradeBody to_body(const TradeData& td)
 inline BookBody to_body(const OrderBook& ob, int64_t recv_ns)
 {
     BookBody b;
-    fill_common(b.c, ob.ticker, ob.time, ob.sym, Market::KR, 0, recv_ns, ob.timestamp);
+    fill_common(b.c, ob.ticker, ob.hhmmss, ob.sym, Market::KR, 0, recv_ns, ob.timestamp);
     std::memcpy(b.asks, ob.asks, sizeof(b.asks));
     std::memcpy(b.bids, ob.bids, sizeof(b.bids));
     return b;
@@ -126,7 +139,7 @@ inline TradeData to_trade(const TradeBody& b)
 {
     TradeData td;
     td.ticker      = b.c.ticker;
-    td.time        = b.c.time;
+    td.hhmmss      = krx::parse_hhmmss(b.c.time);
     td.sym         = b.c.sym;
     td.market      = static_cast<Market>(b.c.market);
     td.direction   = b.c.direction;
@@ -143,7 +156,7 @@ inline OrderBook to_book(const BookBody& b)
 {
     OrderBook ob;
     ob.ticker    = b.c.ticker;
-    ob.time      = b.c.time;
+    ob.hhmmss    = krx::parse_hhmmss(b.c.time);
     ob.sym       = b.c.sym;
     ob.timestamp = std::chrono::system_clock::time_point(std::chrono::microseconds(b.c.wall_us));
     std::memcpy(ob.asks, b.asks, sizeof(ob.asks));

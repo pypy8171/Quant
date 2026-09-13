@@ -29,7 +29,7 @@ TradeData make_trade(int i, int64_t recv_ns)
 {
     TradeData td;
     td.ticker    = i % 2 == 0 ? "005930" : "000660";
-    td.time      = "090100";
+    td.hhmmss    = 90100;
     td.price     = 70000.0 + i;
     td.quantity  = 10 + i;
     td.direction = 1;
@@ -43,7 +43,7 @@ OrderBook make_book(int i)
 {
     OrderBook ob;
     ob.ticker = "005930";
-    ob.time   = "090100";
+    ob.hhmmss = 90100;
 
     for (int k = 0; k < 5; ++k)
     {

@@ -43,7 +43,7 @@ TradeData tick(const std::string& hhmmss, double px, int64_t qty, int64_t acml, 
 {
     TradeData td;
     td.ticker      = ticker;
-    td.time        = hhmmss;
+    td.hhmmss      = std::stoi(hhmmss);
     td.price       = px;
     td.quantity    = qty;
     td.acml_volume = acml;
@@ -73,25 +73,25 @@ int main()
     using bars::BarAggregator;
     using bars::BarSlot;
 
-    // ── slot_of: 시계 정렬, 장 밖, 여섯 자리 아님 ────────────────────────────────
+    // ── slot_of: 시계 정렬, 장 밖, 시각 0(모름) ────────────────────────────────
     {
-        const BarSlot a = bars::slot_of("090000", utc_of("090000"), 3, 900, 1530);
-        const BarSlot b = bars::slot_of("090259", utc_of("090259"), 3, 900, 1530);
-        const BarSlot c = bars::slot_of("090300", utc_of("090300"), 3, 900, 1530);
+        const BarSlot a = bars::slot_of(90000, utc_of("090000"), 3, 900, 1530);
+        const BarSlot b = bars::slot_of(90259, utc_of("090259"), 3, 900, 1530);
+        const BarSlot c = bars::slot_of(90300, utc_of("090300"), 3, 900, 1530);
         CHECK(a.valid() && a == b && b != c && a < c);
         CHECK(a.bucket == (9 * 60) / 3 && c.bucket == a.bucket + 1);
-        CHECK(!bars::slot_of("085959", utc_of("085959"), 3, 900, 1530).valid());   // 동시호가 전
-        CHECK(bars::slot_of("153000", utc_of("153000"), 3, 900, 1530).valid());    // 마감 동시호가 체결
-        CHECK(!bars::slot_of("153100", utc_of("153100"), 3, 900, 1530).valid());   // 장 뒤
-        CHECK(!bars::slot_of("154000", utc_of("154000"), 3, 900, 1530).valid());   // 시간외
-        CHECK(!bars::slot_of("990000", utc_of("090000"), 3, 900, 1530).valid());   // 깨진 시각
-        CHECK(!bars::slot_of("090000", utc_of("090000"), 0, 900, 1530).valid());   // 간격 0
-        // 여섯 자리가 아니면 수신 시각의 KST 분을 쓴다 — REST 대체 틱.
-        const BarSlot r = bars::slot_of("", utc_of("100130"), 3, 900, 1530);
+        CHECK(!bars::slot_of(85959, utc_of("085959"), 3, 900, 1530).valid());   // 동시호가 전
+        CHECK(bars::slot_of(153000, utc_of("153000"), 3, 900, 1530).valid());    // 마감 동시호가 체결
+        CHECK(!bars::slot_of(153100, utc_of("153100"), 3, 900, 1530).valid());   // 장 뒤
+        CHECK(!bars::slot_of(154000, utc_of("154000"), 3, 900, 1530).valid());   // 시간외
+        CHECK(!bars::slot_of(990000, utc_of("090000"), 3, 900, 1530).valid());   // 깨진 시각
+        CHECK(!bars::slot_of(90000, utc_of("090000"), 0, 900, 1530).valid());   // 간격 0
+        // 시각이 0(모름)이면 수신 시각의 KST 분을 쓴다 — REST 대체 틱.
+        const BarSlot r = bars::slot_of(0, utc_of("100130"), 3, 900, 1530);
         CHECK(r.valid() && r.bucket == (10 * 60 + 1) / 3);
         // 자정 단조: 다음날 09:00 자리는 오늘 15:30 자리보다 크다.
-        const BarSlot today_last = bars::slot_of("153000", utc_of("153000"), 3, 900, 1530);
-        const BarSlot tomorrow   = bars::slot_of("090000", utc_of("090000") + 86400, 3, 900, 1530);
+        const BarSlot today_last = bars::slot_of(153000, utc_of("153000"), 3, 900, 1530);
+        const BarSlot tomorrow   = bars::slot_of(90000, utc_of("090000") + 86400, 3, 900, 1530);
         CHECK(today_last < tomorrow && tomorrow.day == today_last.day + 1);
         // 봉 시작 시각은 버킷의 첫 분.
         const auto st = std::chrono::system_clock::to_time_t(bars::slot_start(b, utc_of("090259"), 3));

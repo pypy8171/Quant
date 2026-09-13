@@ -62,7 +62,7 @@ static void test_orderbook()
     put_levels(f, 3, 23, 13, 33);
     OrderBook ob;
     assert(kis_ws::decode_orderbook(V(f), ob) == Decode::kOk);
-    assert(ob.ticker == "005930" && ob.time == "093001");
+    assert(ob.ticker == "005930" && ob.hhmmss == 93001);
     check_levels(ob);
 
     // 37필드면 마지막 잔량이 없다 — 구조체를 건드리지 않는다.
@@ -116,7 +116,7 @@ static void test_kr_trade()
     f[21] = "5";
     TradeData td;
     assert(kis_ws::decode_kr_trade(V(f), td) == Decode::kOk);
-    assert(td.ticker == "000660" && td.time == "101500");
+    assert(td.ticker == "000660" && td.hhmmss == 101500);
     assert(td.price == 215000.0 && td.quantity == 37 && td.direction == 5);
     assert(td.market == Market::KR);
     assert(td.acml_volume == 1234567 && td.strength == 123.45);

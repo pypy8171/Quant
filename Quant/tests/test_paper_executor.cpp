@@ -50,9 +50,9 @@ int main()
         const auto ack = ex.submit_order_ack(sig("005930", OrderSide::BUY, 10, 0.0, 70000.0));
         CHECK(ack.ok() && ack.odno == "P000000001" && ack.krx_orgno == "PAPER");
         CHECK(fills.empty() && ex.open_count() == 1);
-        ex.on_tick("000660", 100000.0, "090100"); // 다른 종목 틱은 무관
+        ex.on_tick("000660", 100000.0, 90100); // 다른 종목 틱은 무관
         CHECK(fills.empty());
-        ex.on_tick("005930", 70100.0, "090101");
+        ex.on_tick("005930", 70100.0, 90101);
         CHECK(fills.size() == 1 && fills[0].odno == "P000000001" && fills[0].filled_qty == 10);
         CHECK(near(fills[0].filled_price, 70100.0) && fills[0].fill_time == "090101" &&
               fills[0].side == OrderSide::BUY);
@@ -68,14 +68,14 @@ int main()
     {
         const auto ack = ex.submit_order_ack(sig("005930", OrderSide::SELL, 4, 71000.0));
         CHECK(ack.ok());
-        ex.on_tick("005930", 70500.0, "090200");
+        ex.on_tick("005930", 70500.0, 90200);
         CHECK(fills.size() == 1);
         const auto b = ex.balance();
         CHECK(b.has_value() && b->holdings[0].sellable_qty && *b->holdings[0].sellable_qty == 6);
         const auto opens = ex.get_open_orders();
         CHECK(opens.size() == 1 && opens[0].odno == ack.odno && opens[0].psbl_qty == 4 &&
               opens[0].side == OrderSide::SELL);
-        ex.on_tick("005930", 71200.0, "090300");
+        ex.on_tick("005930", 71200.0, 90300);
         CHECK(fills.size() == 2 && fills[1].side == OrderSide::SELL && near(fills[1].filled_price, 71200.0));
         CHECK(near(ex.cash(), 1'000'000.0 - 701'000.0 + 4 * 71200.0));
     }
@@ -112,7 +112,7 @@ int main()
         CHECK(ex.get_open_orders()[0].odno == rev.odno && ex.get_open_orders()[0].psbl_qty == 3);
         const auto gone = ex.cancel_order("005930", a.odno, "PAPER", 0, true);
         CHECK(!gone.ok() && gone.err_code == "E_PAPER_NO_ORDER");
-        ex.on_tick("005930", 70000.0, "090400");
+        ex.on_tick("005930", 70000.0, 90400);
         CHECK(fills.size() == 3 && fills[2].odno == rev.odno && fills[2].filled_qty == 3);
         const auto b = ex.balance();
         CHECK(b.has_value() && b->holdings.size() == 1 && b->holdings[0].qty == 3);
@@ -122,7 +122,7 @@ int main()
     {
         const auto a = ex.submit_order_ack(sig("005930", OrderSide::SELL, 3, 0.0, 70000.0));
         CHECK(a.ok());
-        ex.on_tick("005930", 69000.0, "090500");
+        ex.on_tick("005930", 69000.0, 90500);
         const auto b = ex.balance();
         CHECK(b.has_value() && b->holdings.empty());
         CHECK(ex.is_paper());

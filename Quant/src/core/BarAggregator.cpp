@@ -5,37 +5,18 @@
 #include "core/KstTime.h"
 
 #include <algorithm>
-#include <cctype>
 
 namespace bars
 {
 namespace
 {
-bool six_digits(const std::string& s)
-{
-    if (s.size() != 6)
-    {
-        return false;
-    }
-
-    for (char c : s)
-    {
-        if (!std::isdigit(static_cast<unsigned char>(c)))
-        {
-            return false;
-        }
-    }
-
-    return true;
-}
-
 int64_t day_key(const struct tm& t)
 {
     return static_cast<int64_t>(t.tm_year) * 400 + t.tm_yday;
 }
 } // namespace
 
-BarSlot slot_of(const std::string& hhmmss, std::time_t recv_utc, int interval_min, int open_hhmm, int close_hhmm)
+BarSlot slot_of(int32_t hhmmss, std::time_t recv_utc, int interval_min, int open_hhmm, int close_hhmm)
 {
     BarSlot out;
 
@@ -48,10 +29,10 @@ BarSlot slot_of(const std::string& hhmmss, std::time_t recv_utc, int interval_mi
     int             hh = k.tm_hour;
     int             mm = k.tm_min;
 
-    if (six_digits(hhmmss))
+    if (hhmmss > 0)
     {
-        hh = (hhmmss[0] - '0') * 10 + (hhmmss[1] - '0');
-        mm = (hhmmss[2] - '0') * 10 + (hhmmss[3] - '0');
+        hh = hhmmss / 10000;
+        mm = hhmmss / 100 % 100;
     }
 
     const int hhmm = hh * 100 + mm;
@@ -190,7 +171,7 @@ int BarAggregator::close_stale(const std::string& ticker, std::time_t now_utc)
     }
 
     // 장 시간 필터는 걸지 않는다 — 15:31의 시계가 15:30 봉을 닫아야 한다. hhmmss가 비어 있으니 now의 KST 분이 자리다.
-    const BarSlot now_slot = slot_of(std::string(), now_utc, cfg_.interval_min, 0, 2359);
+    const BarSlot now_slot = slot_of(0, now_utc, cfg_.interval_min, 0, 2359);
 
     if (!now_slot.valid() || !(it->second.live.slot < now_slot))
     {
@@ -218,7 +199,7 @@ bool BarAggregator::on_tick(const TradeData& td)
     }
 
     const std::time_t recv = std::chrono::system_clock::to_time_t(td.timestamp);
-    const BarSlot     slot = slot_of(td.time, recv, cfg_.interval_min, cfg_.session_open, cfg_.session_close);
+    const BarSlot     slot = slot_of(td.hhmmss, recv, cfg_.interval_min, cfg_.session_open, cfg_.session_close);
 
     if (!slot.valid())
     {
@@ -316,7 +297,7 @@ int BarAggregator::seed(const std::string& ticker, const std::vector<MarketData>
         }
 
         // REST 봉의 timestamp는 버킷의 마지막 1분 시각이라 같은 버킷에 든다. 장 시간 필터는 시드에 걸지 않는다.
-        const BarSlot slot = slot_of(kst::hhmmss(ts), ts, cfg_.interval_min, 0, 2359);
+        const BarSlot slot = slot_of(kst::hhmmss_int(ts), ts, cfg_.interval_min, 0, 2359);
 
         if (!slot.valid())
         {

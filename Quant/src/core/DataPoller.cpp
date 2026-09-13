@@ -10,8 +10,8 @@ DataPoller::DataPoller(QuoteFn quote, TickSink sink) : quote_(std::move(quote)),
 
 int DataPoller::poll_universe(const std::vector<WatchSpec>& specs, std::time_t now_utc)
 {
-    const std::string hhmmss = kst::hhmmss(now_utc);
-    int               n      = 0;
+    const int32_t hhmmss = kst::hhmmss_int(now_utc);
+    int           n      = 0;
 
     for (const auto& spec : specs)
     {
@@ -76,7 +76,7 @@ int DataPoller::poll_overflow(const std::vector<WatchSpec>& from_ws, const Resub
         return 0;
     }
 
-    const std::string      hhmmss  = kst::hhmmss(now_utc);
+    const int32_t          hhmmss  = kst::hhmmss_int(now_utc);
     const auto             pending = overflow_; // 재구독 성공이 목록을 줄이므로 복사본을 돈다
     int                    n       = 0;
 

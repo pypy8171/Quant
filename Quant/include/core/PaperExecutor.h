@@ -7,6 +7,7 @@
 #include "api/KisErrorCodes.h"
 #include "api/KisResult.h"
 #include "api/KisTypes.h"
+#include "core/MarketSession.h"
 #include "core/Types.h"
 
 #include <atomic>
@@ -136,7 +137,7 @@ public:
 
     // 피드 스레드가 틱마다 부른다. 그 종목의 대기 주문을 접수 순서대로 보고 조건이 맞으면 체결·통보한다.
     //  콜백은 락을 놓고 부른다(콜백이 큐 push라 짧지만 락 안에서 남의 코드를 부르지 않는다).
-    void on_tick(const std::string& ticker, double px, const std::string& hhmmss)
+    void on_tick(const std::string& ticker, double px, int32_t hhmmss)
     {
         std::vector<FillNotification> fills;
         FillCb                        cb;
@@ -168,7 +169,7 @@ public:
                 fn.side         = p->sig.side;
                 fn.filled_qty   = p->sig.quantity;
                 fn.filled_price = px;
-                fn.fill_time    = hhmmss;
+                fn.fill_time    = krx::hhmmss_str(hhmmss);
                 fn.timestamp    = std::chrono::system_clock::now();
                 fills.push_back(std::move(fn));
                 p = list.erase(p);

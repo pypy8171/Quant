@@ -29,7 +29,7 @@ struct BarSlot
 
 // 틱 → 봉 자리. 분은 hhmmss(거래소 체결 시각)에서, 날짜는 recv_utc의 KST 거래일에서 온다. hhmmss가 여섯 자리가
 //  아니면(REST 대체 틱) 수신 시각의 KST 분을 쓴다. 장 밖(open_hhmm 전·close_hhmm 뒤)이면 valid()가 거짓.
-BarSlot slot_of(const std::string& hhmmss, std::time_t recv_utc, int interval_min, int open_hhmm, int close_hhmm);
+BarSlot slot_of(int32_t hhmmss, std::time_t recv_utc, int interval_min, int open_hhmm, int close_hhmm);
 
 // 봉 시작 시각(UTC). MarketData.timestamp에 넣는다 — REST 봉의 timestamp가 봉의 마지막 1분 시각이라 뜻이 조금
 //  다르지만, 전략은 timestamp를 판단에 쓰지 않는다.

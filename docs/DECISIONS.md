@@ -2962,6 +2962,26 @@ KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 
   함수 추가 — `get_watch_specs()`가 이미 그 정보고 인터페이스를 늘릴 이유가 없다. 라우팅 벡터를 `unordered_map` —
   id가 조밀한 정수라 벡터 인덱스가 맞다. 남은 Phase 2: `OrderSignal` 문자열 제거, 시각 정수화.
 
+**Phase 2 잔여 둘째 조각 (2026-09-13)** — 틱 시각을 정수로, 신호에 종목 id를:
+
+- `TradeData.time`·`OrderBook.time`은 `"093001"` 문자열이었고 소비자마다 다시 읽었다 — `BarAggregator::slot_of`는
+  여섯 자리 검사 뒤 `stoi` 두 번, `IntradayBreakout`·`PriceTarget`·`Theme`·`ValueContrary`는 저마다 `substr`·`stoi`로
+  HHMM을 만들었고, 폴러는 `kst::hhmmss`로 문자열을 만들어 넣었다. 틱마다 힙 문자열 하나와 파싱 서너 번이다.
+  이제 `int32_t hhmmss`(093001 → 93001, 0=모름)다. 디코더(`api/KisWsDecode.h`)가 `krx::parse_hhmmss`로 한 번만 읽고,
+  폴러는 `kst::hhmmss_int`로 정수를 만들며, 소비자는 `/100`·`/10000`으로 자른다. 문자열이 필요한 자리 — FEED 화면
+  (`modes/Monitors.cpp`), 모의 체결 시각(`PaperExecutor`), 캡처 파일 — 만 `krx::hhmmss_str`로 되돌린다. 캡처 파일의
+  `char time[8]`은 그대로라 옛 캡처를 그대로 리플레이한다(`put_hhmmss`가 할당 없이 여섯 자리를 쓴다).
+- `OrderSignal`에 `sym`을 더했다. 전략이 안 찍으면 `emit_from`이 `symbols_.intern(ticker)`로 한 번 찍는다 — 신호
+  종목이 지금 틱과 다를 수 있어(테마·강제청산) 틱 id를 그대로 쓰지 않는다. 문자열 필드(`ticker`·`strategy_id`·
+  `client_oid`·`reason` 등)는 남긴다: 측정(`test_strategy_router` 5번) 신호 하나가 링을 push 복사·pop 이동으로 지나는
+  데 108ns(304B, 문자열 4개 채움). 신호는 틱보다 두세 자리 드물고 KIS 주문 전문·원장 CSV·운영단말이 문자열을
+  요구하므로 여기서 지우면 주문 스레드가 다시 만든다 — 자리만 옮기는 일이다.
+- `Quant/tests/test_market_session.cpp`: `parse_hhmmss`(정상·밀리초 꼬리·짧음·글자 섞임)와 `hhmmss_str` 왕복,
+  `kst::hhmmss_int` 자정 경계. 디코더·폴러·집계기·캡처·리플레이·모의 체결기 시험은 정수 시각으로 바꿨다. ctest 30/30.
+- 버린 것: `std::chrono` 시각으로 통일 — 전략이 보는 건 KST 벽시계 HHMM이라 정수 HHMMSS가 변환 없이 맞는다.
+  `OrderSignal` 문자열 전부 제거(id·enum·고정 배열로) — 위 측정대로 자리만 옮긴다. 남은 hot path 문자열은
+  `TradeData.ticker`(전략들이 ticker 키로 상태를 든다)와 `MarketData.ticker` — 전략 상태를 id 키로 바꾸는 조각에서 같이 뺀다.
+
 ### D-072 틱 집계 봉의 기저를 1분으로 두고 판단 봉은 resample로 만든다 — REST 분봉 timestamp는 진짜 UTC (2026-09-13)
 **상태**: 채택 (`wt/bars-1m`, `test_bar_aggregator` 131·`test_kis_decode` 68 통과, 라이브는 09-14 장부터 `bar_source` 기본 `ws`)
 

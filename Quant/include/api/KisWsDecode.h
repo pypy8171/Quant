@@ -10,6 +10,7 @@
 // 실데이터 확인은 parse_*의 `첫 수신` 로그로 한다. 숫자 변환 실패는 0으로 남기고 kBadNumber를 돌려준다 —
 // 버릴지 흘릴지는 호출자가 정한다(현재 호가·체결은 흘리고, 체결통보는 버린다).
 
+#include "core/MarketSession.h"
 #include "core/Types.h"
 
 #include <charconv>
@@ -230,7 +231,7 @@ inline Decode decode_orderbook(Fields f, OrderBook& ob)
     }
 
     ob.ticker = f[0];
-    ob.time = f[1];
+    ob.hhmmss = krx::parse_hhmmss(f[1]);
     ob.timestamp = std::chrono::system_clock::now();
     return detail::fill_levels(f, 3, 23, 13, 33, ob) ? Decode::kOk : Decode::kBadNumber;
 }
@@ -246,7 +247,7 @@ inline Decode decode_kr_trade(Fields f, TradeData& td)
     }
 
     td.ticker = f[0];
-    td.time = f[1];
+    td.hhmmss = krx::parse_hhmmss(f[1]);
     td.market = Market::KR;
     td.timestamp = std::chrono::system_clock::now();
     bool ok = detail::to_double(f[2], td.price);
@@ -276,7 +277,7 @@ inline Decode decode_us_trade(Fields f, TradeData& td)
     }
 
     td.ticker = f[0];
-    td.time = f[1];
+    td.hhmmss = krx::parse_hhmmss(f[1]);
     td.market = Market::US;
     td.timestamp = std::chrono::system_clock::now();
     bool ok = detail::to_double(f[2], td.price);
@@ -301,7 +302,7 @@ inline Decode decode_fut_trade(Fields f, TradeData& td)
     }
 
     td.ticker = f[0];
-    td.time = f[1];
+    td.hhmmss = krx::parse_hhmmss(f[1]);
     td.market = Market::KR; // 선물도 국내 세션. 소비 측은 종목코드로 현·선을 구분한다.
     td.direction = 0;
     td.timestamp = std::chrono::system_clock::now();
@@ -320,7 +321,7 @@ inline Decode decode_fut_orderbook(Fields f, OrderBook& ob)
     }
 
     ob.ticker = f[0];
-    ob.time = f[1];
+    ob.hhmmss = krx::parse_hhmmss(f[1]);
     ob.timestamp = std::chrono::system_clock::now();
     return detail::fill_levels(f, 2, 22, 7, 27, ob) ? Decode::kOk : Decode::kBadNumber;
 }

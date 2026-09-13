@@ -28,7 +28,7 @@ TradeData make_trade(int i)
     TradeData td;
     td.ticker      = i % 2 == 0 ? "005930" : "000660";
     td.sym         = static_cast<sym::SymbolId>(i % 2 + 1);
-    td.time        = "0901" + std::to_string(100 + i).substr(1); // 0901ii
+    td.hhmmss      = 90100 + i; // 0901ii
     td.price       = 70000.0 + i;
     td.quantity    = 10 + i;
     td.direction   = i % 2 == 0 ? 1 : 5;
@@ -45,7 +45,7 @@ OrderBook make_book(int i)
     OrderBook ob;
     ob.ticker    = "005930";
     ob.sym       = 1;
-    ob.time      = "090100";
+    ob.hhmmss    = 90100;
     ob.timestamp = std::chrono::system_clock::time_point(std::chrono::microseconds(1'700'000'000'000'000LL + i));
 
     for (int k = 0; k < 5; ++k)
@@ -86,14 +86,14 @@ int main()
 
         CHECK(rd.next(r) && r.kind == feed::kKindTrade);
         const TradeData t0 = feed::to_trade(r.trade);
-        CHECK(t0.ticker == "005930" && t0.sym == 1 && t0.time == "090100");
+        CHECK(t0.ticker == "005930" && t0.sym == 1 && t0.hhmmss == 90100);
         CHECK(t0.price == 70000.0 && t0.quantity == 10 && t0.direction == 1 && t0.market == Market::KR);
         CHECK(t0.strength == 100.5 && t0.acml_volume == 1000 && t0.recv_ns == 5'000'000);
         CHECK(t0.timestamp == make_trade(0).timestamp);
 
         CHECK(rd.next(r) && r.kind == feed::kKindBook);
         const OrderBook b0 = feed::to_book(r.book);
-        CHECK(b0.ticker == "005930" && b0.sym == 1 && b0.time == "090100");
+        CHECK(b0.ticker == "005930" && b0.sym == 1 && b0.hhmmss == 90100);
         CHECK(b0.asks[4].price == 70500.0 && b0.asks[4].quantity == 104);
         CHECK(b0.bids[0].price == 70000.0 && b0.bids[0].quantity == 200);
         CHECK(r.book.c.recv_ns == 7'000'000);

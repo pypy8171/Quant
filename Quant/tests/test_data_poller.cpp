@@ -54,8 +54,8 @@ int test_pure()
     CHECK(!poller::same_spec(spec("A"), spec("A", Market::KR, true)));
 
     const auto ts = std::chrono::system_clock::now();
-    const auto td = poller::make_tick("005930", 71000.0, "093001", ts);
-    CHECK(td.ticker == "005930" && td.price == 71000.0 && td.time == "093001" && td.quantity == 0 &&
+    const auto td = poller::make_tick("005930", 71000.0, 93001, ts);
+    CHECK(td.ticker == "005930" && td.price == 71000.0 && td.hhmmss == 93001 && td.quantity == 0 &&
           td.direction == 0 && td.market == Market::KR && td.timestamp == ts && td.strength == 0.0);
 
     // 틱 없음·오래됨은 고르고, 신선한 것은 남긴다.
@@ -97,7 +97,7 @@ int test_universe()
     // US spec은 건너뛰고, 현재가 0은 틱을 안 흘린다. 시각은 KST HHMMSS.
     const int n = p.poll_universe({spec("A"), spec("US1", Market::US), spec("B"), spec("C")}, kT0);
     CHECK(n == 2 && asked.size() == 3 && out.size() == 2);
-    CHECK(out[0].ticker == "A" && out[0].price == 100.0 && out[0].time == "170000");
+    CHECK(out[0].ticker == "A" && out[0].price == 100.0 && out[0].hhmmss == 170000);
     CHECK(out[1].ticker == "C" && out[1].price == 300.0);
 
     // 종료 플래그가 내려가면 첫 종목 전에 끊는다.
@@ -135,7 +135,7 @@ int test_overflow()
     };
     int n = p.poll_overflow({spec("A"), spec("B")}, never, kT0); // A·A(선물)은 100, B는 0
     CHECK(p.overflow_count() == 3 && resub_calls == 3);
-    CHECK(n == 2 && out.size() == 2 && out[0].ticker == "A" && out[0].time == "170000" && out[1].ticker == "A");
+    CHECK(n == 2 && out.size() == 2 && out[0].ticker == "A" && out[0].hhmmss == 170000 && out[1].ticker == "A");
     CHECK(asked.size() == 3); // A·A(선물)·B — 선물도 market은 KR이라 REST를 물어본다(종전과 같다)
 
     // A만 재구독 성공 → 목록에서 빠지고 REST도 안 물어본다. B가 살아나면 틱이 나온다.

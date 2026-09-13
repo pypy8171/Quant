@@ -164,7 +164,7 @@ public:
         }
 
         double px = ob.asks[0].price > 0 ? ob.asks[0].price : ob.bids[0].price;
-        return check_entry_exit(ob.ticker, ob.time, px);
+        return check_entry_exit(ob.ticker, ob.hhmmss, px);
     }
 
     // ── 체결 이벤트 (미국 + 국내) ─────────────────────────────────────────
@@ -175,7 +175,7 @@ public:
             return std::nullopt;
         }
 
-        return check_entry_exit(td.ticker, td.time, td.price);
+        return check_entry_exit(td.ticker, td.hhmmss, td.price);
     }
 
     void on_stop() override
@@ -186,10 +186,10 @@ public:
 
 private:
     // 진입·청산 공통 로직
-    std::optional<OrderSignal> check_entry_exit(const std::string& ticker, const std::string& time_str,
+    std::optional<OrderSignal> check_entry_exit(const std::string& ticker, int32_t hhmmss,
                                                 double ref_px)
     {
-        int hhmm = krx::parse_hhmm(time_str);
+        int hhmm = hhmmss / 100;
 
         if (!is_in_session(hhmm))
         {
@@ -213,7 +213,7 @@ private:
             sig.strategy_id = id();
             sig.timestamp = std::chrono::system_clock::now();
 
-            LOG_INFO("[ValueContrary] BUY: " + ticker + " @" + time_str);
+            LOG_INFO("[ValueContrary] BUY: " + ticker + " @" + krx::hhmmss_str(hhmmss));
             return sig;
         }
 
@@ -233,7 +233,7 @@ private:
             sig.strategy_id = id();
             sig.timestamp = std::chrono::system_clock::now();
 
-            LOG_INFO("[ValueContrary] SELL(장 마감): " + ticker + " @" + time_str);
+            LOG_INFO("[ValueContrary] SELL(장 마감): " + ticker + " @" + krx::hhmmss_str(hhmmss));
             return sig;
         }
 

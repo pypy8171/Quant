@@ -257,7 +257,7 @@ public:
     std::optional<OrderSignal> on_order_book(const OrderBook& ob) override
     {
         double px = ob.asks[0].price > 0 ? ob.asks[0].price : ob.bids[0].price;
-        return check_entry_exit(ob.ticker, ob.time, px);
+        return check_entry_exit(ob.ticker, ob.hhmmss, px);
     }
 
     // 체결 이벤트 — 호가 보완
@@ -268,7 +268,7 @@ public:
             return std::nullopt;
         }
 
-        return check_entry_exit(td.ticker, td.time, td.price);
+        return check_entry_exit(td.ticker, td.hhmmss, td.price);
     }
 
     void on_stop() override
@@ -279,10 +279,10 @@ public:
 
 private:
     std::optional<OrderSignal> check_entry_exit(const std::string& ticker,
-                                                 const std::string& time_str,
+                                                 int32_t hhmmss,
                                                  double ref_px)
     {
-        int hhmm = krx::parse_hhmm(time_str);
+        int hhmm = hhmmss / 100;
 
         if (!krx::in_session(hhmm))
         {
@@ -305,7 +305,7 @@ private:
             sig.strategy_id = id();
             sig.timestamp   = std::chrono::system_clock::now();
 
-            LOG_INFO("[ThemeStrategy] BUY: " + ticker + " @" + time_str);
+            LOG_INFO("[ThemeStrategy] BUY: " + ticker + " @" + krx::hhmmss_str(hhmmss));
             return sig;
         }
 
@@ -324,7 +324,7 @@ private:
             sig.strategy_id = id();
             sig.timestamp   = std::chrono::system_clock::now();
 
-            LOG_INFO("[ThemeStrategy] SELL(장 마감): " + ticker + " @" + time_str);
+            LOG_INFO("[ThemeStrategy] SELL(장 마감): " + ticker + " @" + krx::hhmmss_str(hhmmss));
             return sig;
         }
 

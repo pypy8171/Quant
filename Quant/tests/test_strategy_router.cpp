@@ -1,6 +1,8 @@
 // StrategyRouter 단위 테스트 — 종목 id 라우팅, 구독 미표기 전략의 전부 수신, 테이블 가득 참 대체, 중복 제거, 재구성.
-//  끝에 전략 40개 × 틱 20만 건으로 "전부 순회 + 문자열 비교"와 라우터의 틱당 시간을 재서 찍는다(단정하지 않음).
+//  끝에 전략 40개 × 틱 20만 건으로 "전부 순회 + 문자열 비교"와 라우터의 틱당 시간을 재서 찍고, 문자열이 남은
+//  OrderSignal이 링을 지나는 신호당 시간도 같이 찍는다(단정하지 않음).
 // 빌드: cmake --build <dir> --target test_strategy_router
+#include "core/RingBuffer.h"
 #include "core/StrategyRouter.h"
 #include "core/SymbolTable.h"
 
@@ -213,6 +215,41 @@ int main()
         const auto ns_all = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count() / kTicks;
         const auto ns_rt  = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count() / kTicks;
         std::cout << "  틱당 전부 순회 " << ns_all << "ns, 라우터 " << ns_rt << "ns (전략 " << kStrats << "개)\n";
+    }
+
+    // 5. 측정(원칙 7). 문자열 필드가 남은 OrderSignal을 신호 링(push 복사 → pop 이동)으로 10만 건 보내는 신호당 시간.
+    //  신호는 틱보다 훨씬 드물어 이 값이 틱당 라우터 시간의 수십 배여도 hot path에 안 보인다 — 문자열을 남긴 근거.
+    {
+        constexpr int kSignals = 100'000;
+        RingBuffer<OrderSignal> ring(1024);
+
+        OrderSignal sig;
+        sig.ticker      = "005930";
+        sig.sym         = 1;
+        sig.side        = OrderSide::BUY;
+        sig.quantity    = 10;
+        sig.strategy_id = "deviation_scale";
+        sig.client_oid  = "ds-20260913-000001";
+        sig.reason      = "ma20>ma60>ma120, dev -3.1%";
+
+        int         popped = 0;
+        const auto  t0     = std::chrono::steady_clock::now();
+
+        for (int n = 0; n < kSignals; ++n)
+        {
+            sig.seq = static_cast<uint64_t>(n);
+            CHECK(ring.push(sig));
+
+            if (auto o = ring.pop())
+            {
+                popped += o->sym == 1 ? 1 : 0;
+            }
+        }
+
+        const auto t1 = std::chrono::steady_clock::now();
+        CHECK(popped == kSignals);
+        const auto ns_sig = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count() / kSignals;
+        std::cout << "  신호당 OrderSignal 링 push+pop " << ns_sig << "ns (문자열 4개, " << sizeof(OrderSignal) << "B)\n";
     }
 
     std::cout << "test_strategy_router: " << g_checks << " checks passed\n";

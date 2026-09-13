@@ -18,7 +18,7 @@ graph LR
   risk[risk]
   ipc[ipc]
   utils[utils]
-  api -->|9| core
+  api -->|10| core
   api -->|5| utils
   core -->|10| api
   core -->|3| ipc
@@ -34,7 +34,7 @@ graph LR
   main --> strategy
   main --> utils
   modes -->|3| api
-  modes --> core
+  modes -->|2| core
   modes --> ipc
   modes -->|2| utils
   risk -->|2| core
@@ -60,9 +60,9 @@ graph LR
 | `core/KstTime.h` | 12 |
 | `strategy/StrategyBase.h` | 12 |
 | `api/KisClient.h` | 11 |
+| `core/MarketSession.h` | 8 |
 | `core/WakeGate.h` | 6 |
 | `risk/OrderGate.h` | 5 |
-| `api/KisErrorCodes.h` | 4 |
 
 ## 파일 단위 상세
 
@@ -173,6 +173,7 @@ graph LR
   n_api_KisWebSocket_h --> n_api_KisWsDecode_h
   n_api_KisWebSocket_h --> n_core_IFeedSource_h
   n_api_KisWebSocket_h --> n_core_Types_h
+  n_api_KisWsDecode_h --> n_core_MarketSession_h
   n_api_KisWsDecode_h --> n_core_Types_h
   n_api_WebSocketClient_cpp --> n_api_KisWebSocket_h
   n_api_WebSocketClient_cpp --> n_api_KisWsDecode_h
@@ -237,6 +238,7 @@ graph LR
   n_core_PaperExecutor_h --> n_api_KisErrorCodes_h
   n_core_PaperExecutor_h --> n_api_KisResult_h
   n_core_PaperExecutor_h --> n_api_KisTypes_h
+  n_core_PaperExecutor_h --> n_core_MarketSession_h
   n_core_PaperExecutor_h --> n_core_Types_h
   n_core_RegimeController_cpp --> n_api_IMarketDataSource_h
   n_core_RegimeController_cpp --> n_core_KstTime_h
@@ -252,6 +254,7 @@ graph LR
   n_core_SignalDispatcher_h --> n_risk_OrderGate_h
   n_core_StrategyRouter_h --> n_core_SymbolTable_h
   n_core_StrategyRouter_h --> n_strategy_StrategyBase_h
+  n_core_TickCapture_h --> n_core_MarketSession_h
   n_core_TickCapture_h --> n_core_RingBuffer_h
   n_core_TickCapture_h --> n_core_Types_h
   n_core_TickCapture_h --> n_core_WakeGate_h
@@ -279,6 +282,7 @@ graph LR
   n_main_cpp --> n_utils_Logger_h
   n_modes_Monitors_cpp --> n_api_KisClient_h
   n_modes_Monitors_cpp --> n_api_KisWebSocket_h
+  n_modes_Monitors_cpp --> n_core_MarketSession_h
   n_modes_Monitors_cpp --> n_core_Types_h
   n_modes_Monitors_cpp --> n_ipc_ZmqBridge_h
   n_modes_Monitors_cpp --> n_modes_Monitors_h
