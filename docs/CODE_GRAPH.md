@@ -56,7 +56,7 @@ graph LR
 | 헤더 | 유입 수 |
 |---|---|
 | `utils/Logger.h` | 25 |
-| `core/Types.h` | 20 |
+| `core/Types.h` | 21 |
 | `api/KisClient.h` | 11 |
 | `strategy/StrategyBase.h` | 11 |
 | `risk/OrderGate.h` | 5 |
@@ -86,6 +86,8 @@ graph LR
     n_api_WsSocketWin_cpp["api/WsSocketWin.cpp"]
   end
   subgraph core
+    n_core_BarAggregator_cpp["core/BarAggregator.cpp"]
+    n_core_BarAggregator_h["core/BarAggregator.h"]
     n_core_DataPoller_cpp["core/DataPoller.cpp"]
     n_core_DataPoller_h["core/DataPoller.h"]
     n_core_Engine_cpp["core/Engine.cpp"]
@@ -167,6 +169,9 @@ graph LR
   n_api_WebSocketClient_cpp --> n_utils_Logger_h
   n_api_WsSocketPosix_cpp --> n_utils_Logger_h
   n_api_WsSocketWin_cpp --> n_utils_Logger_h
+  n_core_BarAggregator_cpp --> n_core_BarAggregator_h
+  n_core_BarAggregator_cpp --> n_core_KstTime_h
+  n_core_BarAggregator_h --> n_core_Types_h
   n_core_DataPoller_cpp --> n_core_DataPoller_h
   n_core_DataPoller_cpp --> n_core_KstTime_h
   n_core_DataPoller_cpp --> n_utils_Logger_h

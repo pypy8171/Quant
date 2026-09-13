@@ -29,9 +29,9 @@ cmake --build Quant/build
 
 Linux는 `libcurl4-openssl-dev`가 필요합니다 (`sudo apt install libcurl4-openssl-dev`). Windows는 네이티브 WinHTTP를 사용하므로 nlohmann/json(CMake FetchContent로 자동 다운로드) 외에 추가 의존성이 없습니다.
 
-단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다(원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·잔고 대조 계산·잔고 대조기·REST 현재가 폴러·신호 디스패처·발주 조절기·운영단말 프로토콜/서버·비동기 로거·매크로 국면 파일 판정기 등 21개).
+단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다(원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·잔고 대조 계산·잔고 대조기·REST 현재가 폴러·신호 디스패처·발주 조절기·운영단말 프로토콜/서버·비동기 로거·매크로 국면 파일 판정기·N분봉 집계기 등 22개).
 ```bash
-cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_order_pacer test_regime test_regime_bridge test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_mpsc test_account_ledger test_ops_protocol test_ops_server test_logger
+cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_order_pacer test_bar_aggregator test_regime test_regime_bridge test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_mpsc test_account_ledger test_ops_protocol test_ops_server test_logger
 ctest --preset x64-release          # 저장소 루트에서. 스트레스 2종은 3초로 줄여 돈다
 ctest --test-dir Quant/build_win    # 수동 Ninja 레이아웃일 때
 ```

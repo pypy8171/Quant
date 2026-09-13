@@ -274,6 +274,13 @@ if(UNIX)
     target_link_libraries(test_signal_dispatcher PRIVATE pthread)
 endif()
 
+# N분봉 집계기(core/BarAggregator) — 틱을 봉으로 모으는 순수 조각, 의존 없음 (D-068)
+add_executable(test_bar_aggregator
+    tests/test_bar_aggregator.cpp
+    src/core/BarAggregator.cpp
+)
+target_include_directories(test_bar_aggregator PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # 발주 조절기(core/OrderPacer) — 보유 수량 조회는 std::function 대역, Logger만 링크 (D-065)
 add_executable(test_order_pacer
     tests/test_order_pacer.cpp
@@ -406,6 +413,7 @@ set(QUANT_ASSERT_TARGETS
     test_data_poller
     test_signal_dispatcher
     test_order_pacer
+    test_bar_aggregator
     test_ops_protocol
     test_ops_server
     test_regime

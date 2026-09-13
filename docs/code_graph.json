@@ -162,6 +162,7 @@
     "api/KisTypes.h": "api",
     "api/KisWebSocket.h": "api",
     "api/KisWsDecode.h": "api",
+    "core/BarAggregator.h": "core",
     "core/DataPoller.h": "core",
     "core/Engine.h": "core",
     "core/KstTime.h": "core",
@@ -216,6 +217,7 @@
     "api/WsSocket.h": "api",
     "api/WsSocketPosix.cpp": "api",
     "api/WsSocketWin.cpp": "api",
+    "core/BarAggregator.cpp": "core",
     "core/DataPoller.cpp": "core",
     "core/Engine.cpp": "core",
     "core/LedgerReconciler.cpp": "core",
@@ -288,6 +290,13 @@
     ],
     "api/WsSocketWin.cpp": [
       "utils/Logger.h"
+    ],
+    "core/BarAggregator.cpp": [
+      "core/BarAggregator.h",
+      "core/KstTime.h"
+    ],
+    "core/BarAggregator.h": [
+      "core/Types.h"
     ],
     "core/DataPoller.cpp": [
       "core/DataPoller.h",
@@ -551,6 +560,9 @@
       "api/KisWebSocket.h",
       "api/WebSocketClient.cpp"
     ],
+    "core/BarAggregator.h": [
+      "core/BarAggregator.cpp"
+    ],
     "core/DataPoller.h": [
       "core/DataPoller.cpp",
       "core/Engine.h"
@@ -561,6 +573,7 @@
       "strategy/StrategyFactory.cpp"
     ],
     "core/KstTime.h": [
+      "core/BarAggregator.cpp",
       "core/DataPoller.cpp",
       "core/LedgerReconciler.h"
     ],
@@ -612,6 +625,7 @@
       "api/KisRestDecode.h",
       "api/KisWebSocket.h",
       "api/KisWsDecode.h",
+      "core/BarAggregator.h",
       "core/DataPoller.h",
       "core/Engine.h",
       "core/OrderPacer.h",
@@ -762,7 +776,7 @@
     },
     {
       "header": "core/Types.h",
-      "in_degree": 20
+      "in_degree": 21
     },
     {
       "header": "api/KisClient.h",
@@ -805,6 +819,10 @@
       "in_degree": 3
     },
     {
+      "header": "core/KstTime.h",
+      "in_degree": 3
+    },
+    {
       "header": "core/ReconcilePlan.h",
       "in_degree": 3
     },
@@ -826,10 +844,6 @@
     },
     {
       "header": "core/DataPoller.h",
-      "in_degree": 2
-    },
-    {
-      "header": "core/KstTime.h",
       "in_degree": 2
     },
     {
