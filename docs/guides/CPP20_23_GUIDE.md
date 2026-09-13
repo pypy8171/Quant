@@ -258,6 +258,15 @@ for (;;) {
 `notify_one`"이다. 위 순번 카운터로 바꾸면 `wake_mtx_`·`wake_cv_`·`writer_sleeping_`·fence 둘이 없어진다.
 D-045 실측(120ns, p99 0.4µs)이 기준선이라 바꾼 뒤 `test_logger`·`test_pipeline_stress`를 다시 잰다. 적용 순서 마지막.
 
+재 봤고 바꾸지 않았다(7단계). `Quant/tests/bench_wake_gate.cpp`가 `WakeGate`(mutex+`condition_variable_any`)와 위 순번
+카운터를 같은 왕복(소비자가 잠든 것을 확인 → push+notify → pop까지)으로 2,000회씩 6쌍 잰 값 — 깨우기 지연 condvar
+p50 3.9~5.2us/p99 10.6~13.3us, atomic p50 3.7~5.1us/p99 9.2~17.6us. 생산자 `notify` 비용은 둘 다 p50 1.3us(소비자가
+자고 있을 때, 커널 깨우기 한 번). Windows에서는 조건변수도 `WaitOnAddress` 계열 위에 있어 같은 시스템 호출이고, 차이는
+실행 간 잡음보다 작다. 결정적인 것은 시간 제한 — `atomic::wait`에는 없고, `WakeGate`를 쓰는 세 곳(전략 10ms cap, 주문
+재시도 deadline, 체결 100ms cap)과 Logger writer(cap)는 전부 만기가 필요하다. 만기를 살리려면 별도 타이머 스레드나
+플랫폼 `WaitOnAddress(timeout)`이 있어야 해 표준 안에서는 얻는 게 없다. C++26의 시간 제한 있는 atomic 대기(P2643)가
+MSVC에 들어오면 다시 잰다.
+
 ---
 
 ## 6. 문자열 — `starts_with` · `ends_with`(20) · `contains`(23)
@@ -485,6 +494,6 @@ x86에서 store가 같은 mov라 지연은 같지만 sink 뜻이 흐려져 쓰�
 | 4 `<chrono>` 달력 | `KstTime.h`, `OrderRouter.cpp` `today_ymd`, `OrderGate.cpp`, `KisRestDecode.h` `parse_dt` | `localtime`(머신 TZ)과 `gmtime+9h`(KST 고정)가 섞인 것을 한 벌로 — Docker `TZ` 설정이나 Windows 시간대가 달라도 원장 날짜가 같다. 날짜 산술을 `year_month_day`로 | 같음 | `test_market_session` 확장(TZ가 UTC·KST·PST일 때 같은 결과), 원장 CSV 날짜 열 diff — 완료: 코드 14파일 +194/−241. `gmtime`·`localtime`·`_mkgmtime`·`strftime`의 `#ifdef` 쌍 13곳이 `kst::`(`wall`·`date`·`time_of_day`·`to_tm`·`ymd`·`hhmmss`·`datetime`·`utc_date`·`decompose`) 한 벌로 갔다. 범위를 표보다 넓혔다 — `Engine.cpp` `utc_plus_hours`, `RegimeController.cpp` `ymd_of`·`today_kst`, `KisIndex.cpp`·`KisMarket.cpp`의 `fmt_date`·`parse_date`·`parse_ymd` 람다, `SeedPeakStore.h`·`SupplyDemandPullbackStrategy.h`·`UniverseScanner.cpp`의 `localtime` 날짜. 남긴 곳: `Monitors.cpp`(FEED 화면의 로컬 시각 표시라 로컬이 맞다), `DeviationScaleStrategy.h` 1312행 KST 헬퍼(quant-3e의 주기 정합 작업 뒤). 달라지는 것 둘 — `parse_dt`는 달력에 없는 날짜(13월·2월 30일)를 0으로 돌린다(`_mkgmtime`은 정규화했다). 원장 CSV 파일명·행 시각, `order_reasons_` 파일명, `SeedPeakStore`·`UniverseScanner`·`SupplyDemandPullback` 날짜가 머신 로컬에서 KST 고정으로 바뀐다 — 이 머신(KST)에서는 같은 값이고, TZ가 다른 머신에서는 이제야 원장 날짜가 거래일과 같다. ctest 24, `test_market_session`이 `_putenv_s("TZ")`로 UTC·KST·PST를 돌며 `ymd`·`hhmmss`·`to_tm`(`tm_wday`·`tm_yday`)이 같은 값인지 본다 |
 | 5 `jthread` | `OrderRouter.cpp` stale 스레드, `DeviationScaleStrategy.h` 프리페치 | 정지 깃발·`join` 누락·소멸 순서 실수 클래스 제거. 소멸자가 정지 요청과 join을 한다 | 같음 | 종료 경로 반복 100회(기동→정지) 교착 0, ctest — 완료: 코드 9파일. `Engine` 다섯 스레드·`OrderRouter` stale·`KisWebSocket` recv·`Logger` writer가 `jthread`+`stop_token`. `stale_stop_` 삭제, `Engine::request_shutdown` 신설(KILL 두 곳이 부른다), `WakeGate` `stop_token` 오버로드·`sync::sleep_unless_stopped`. 남긴 곳: `DeviationScaleStrategy.h` 프리페치(quant-3e 주기 정합 작업 뒤). 기동→정지 반복은 KIS 없이 못 돌려 `test_wake_gate` 6~8번(정지 요청이 cap·sleep 전에 깨움, 이미 정지면 안 잠)으로 대신, ctest 24 |
 | 6 `std::expected` | `KisResult.h` | 손 봉투 유지보수 종료, `and_then`/`or_else` 체이닝, 실패 경로의 `T value_{}` 기본 생성이 사라져 잔고·전광판 값 타입이 기본 생성자를 요구하지 않는다 | 같음 | `test_kis_decode`·`test_ledger_reconciler` 무수정 통과가 목표 — 완료: 코드 10파일 +56/−90. `KisResult<T>`는 `std::expected<T, KisError>` 별칭, `kis_fail(code, msg)`·자유 함수 `error_text(r)`. 호출부(`KisAccount.cpp`·`KisIndex.cpp`·`LedgerReconciler.cpp`·`StrategyFactory.cpp`·`tools/` 2개)는 `::ok`·`::fail`·`.error_text()` 자리만 바뀜. 테스트는 무수정이 아니라 `::ok/::fail` 생성 4곳과 "실패 봉투의 `->`가 빈 값" 검사 1줄을 고쳤다(그 검사는 `expected`에서 정의되지 않는 동작). 같은 커밋에 5단계에서 미뤘던 `DeviationScaleStrategy.h` 프리페치 `jthread`(`prefetch_stop_` 삭제, 50ms 조각 sleep → `sleep_unless_stopped`)와 4단계에서 미뤘던 같은 파일 KST 헬퍼(`gmtime` `#ifdef` → `kst::to_tm`·`kst::ymd`)도 넣었다. ctest 24 |
-| 7 `atomic::wait` | `Logger.h` writer, `Engine.cpp` 체결 스레드 | mutex+condvar 쌍이 atomic 하나로. 생산자의 `notify` 비용(락 없음)과 깨우는 지연이 줄 수 있다 | 줄 가능성 — 재서 정한다 | `bench_logger` 깨우기 p99, `test_logger`·`test_pipeline_stress` |
+| 7 `atomic::wait` | `Logger.h` writer, `Engine.cpp` 체결 스레드 | mutex+condvar 쌍이 atomic 하나로. 생산자의 `notify` 비용(락 없음)과 깨우는 지연이 줄 수 있다 | 줄 가능성 — 재서 정한다 | `bench_logger` 깨우기 p99, `test_logger`·`test_pipeline_stress` — 재고 안 바꿈: `Quant/tests/bench_wake_gate.cpp`(새 벤치 타깃) 6쌍 실측이 깨우기 p50 같음(3.7~5.2us), p99 잡음 안(condvar 10.6~13.3 vs atomic 9.2~17.6us), `notify` 비용 같음(1.3us). `atomic::wait`에 시간 제한이 없어 cap·deadline이 필요한 호출부 4곳에 쓸 수도 없다. 자세히는 5절 끝. `WakeGate.h`·`Logger.h` 코드 변경 0 |
 
 하지 않는 것(모듈·코루틴·`atomic_ref`)의 이유는 16절과 D-070 표.
