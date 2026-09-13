@@ -12,6 +12,7 @@
 #include "core/ReplaySource.h"
 #include "core/PaperExecutor.h"
 #include "core/FeedMux.h"
+#include "core/StrategyRouter.h"
 #include "core/RegimeController.h"
 #include "core/RegimeFileBridge.h"
 #include "core/Types.h"

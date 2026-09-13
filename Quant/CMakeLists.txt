@@ -393,6 +393,10 @@ if(UNIX)
     target_link_libraries(test_feed_mux PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: 종목 id → 전략 라우팅(전부 받는 전략·테이블 가득 참·재구성) + 틱당 시간 측정 (헤더 전용, D-071) ──
+add_executable(test_strategy_router tests/test_strategy_router.cpp)
+target_include_directories(test_strategy_router PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # ─── 테스트 타겟: LatencyTrace 구간 계산·CSV 행·머리글 1회 (헤더 전용, D-071) ──
 add_executable(test_latency_trace tests/test_latency_trace.cpp)
 target_include_directories(test_latency_trace PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -490,6 +494,7 @@ set(QUANT_ASSERT_TARGETS
     test_replay_source
     test_paper_executor
     test_feed_mux
+    test_strategy_router
     test_account_ledger
     test_logger
 )

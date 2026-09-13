@@ -23,7 +23,7 @@ graph LR
   core -->|10| api
   core -->|3| ipc
   core -->|4| risk
-  core --> strategy
+  core -->|2| strategy
   core -->|6| utils
   ipc -->|2| api
   ipc -->|5| core
@@ -58,8 +58,8 @@ graph LR
 | `core/Types.h` | 26 |
 | `utils/Logger.h` | 25 |
 | `core/KstTime.h` | 12 |
+| `strategy/StrategyBase.h` | 12 |
 | `api/KisClient.h` | 11 |
-| `strategy/StrategyBase.h` | 11 |
 | `core/WakeGate.h` | 6 |
 | `risk/OrderGate.h` | 5 |
 | `api/KisErrorCodes.h` | 4 |
@@ -105,6 +105,7 @@ graph LR
     n_core_ReplaySource_h["core/ReplaySource.h"]
     n_core_SignalDispatcher_cpp["core/SignalDispatcher.cpp"]
     n_core_SignalDispatcher_h["core/SignalDispatcher.h"]
+    n_core_StrategyRouter_h["core/StrategyRouter.h"]
     n_core_TickCapture_h["core/TickCapture.h"]
     n_core_TickSize_h["core/TickSize.h"]
     n_core_Types_h["core/Types.h"]
@@ -204,6 +205,7 @@ graph LR
   n_core_Engine_h --> n_core_ReplaySource_h
   n_core_Engine_h --> n_core_RingBuffer_h
   n_core_Engine_h --> n_core_SignalDispatcher_h
+  n_core_Engine_h --> n_core_StrategyRouter_h
   n_core_Engine_h --> n_core_SymbolTable_h
   n_core_Engine_h --> n_core_TickCapture_h
   n_core_Engine_h --> n_core_Types_h
@@ -248,6 +250,8 @@ graph LR
   n_core_SignalDispatcher_cpp --> n_utils_Logger_h
   n_core_SignalDispatcher_h --> n_core_Types_h
   n_core_SignalDispatcher_h --> n_risk_OrderGate_h
+  n_core_StrategyRouter_h --> n_core_SymbolTable_h
+  n_core_StrategyRouter_h --> n_strategy_StrategyBase_h
   n_core_TickCapture_h --> n_core_RingBuffer_h
   n_core_TickCapture_h --> n_core_Types_h
   n_core_TickCapture_h --> n_core_WakeGate_h

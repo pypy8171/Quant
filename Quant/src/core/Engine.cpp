@@ -1377,6 +1377,7 @@ void Engine::data_thread_fn(std::stop_token st)
 
                         auto& md = bars[0];
                         md.bar_index = static_cast<int>(data_count_.load());
+                        md.sym       = symbols_.intern(md.ticker);
 
                         while (!market_queue_.push(md) && !st.stop_requested())
                         {
@@ -1721,6 +1722,9 @@ void Engine::strategy_thread_fn(std::stop_token st)
     std::vector<StrategyBase*> snap;
     uint64_t seen_ver = static_cast<uint64_t>(-1);
 
+    // 종목 id → 보는 전략들. 스냅샷과 같이 재구성한다 — 틱마다 전략 전부를 돌지 않는다(원칙 6). [why D-071]
+    strat::Router router;
+
     // 유휴 전이: 마지막 일 뒤 이 시간은 yield로 돌고, 넘기면 strat_wake_에서 잔다. [why D-071]
     constexpr auto kStratSpinBudget = std::chrono::microseconds(200);
     std::chrono::steady_clock::time_point idle_since{};
@@ -1740,6 +1744,9 @@ void Engine::strategy_thread_fn(std::stop_token st)
                 snap.push_back(s.get());
             }
 
+            router.rebuild(snap, [this](const std::string& t) { return symbols_.intern(t); });
+            LOG_INFO("[StrategyThread] 라우팅 재구성: 전략 " + std::to_string(snap.size()) + "개, 종목 배정 " +
+                     std::to_string(router.routes()) + "건, 전부 받는 전략 " + std::to_string(router.all_count()) + "개");
             seen_ver = ver;
             // 뗀 전략은 이 시점부터 스냅샷에 없다. data_thread는 이 값을 보고 파기한다.
             strat_seen_version_.store(ver, std::memory_order_release);
@@ -1811,7 +1818,7 @@ void Engine::strategy_thread_fn(std::stop_token st)
             // 호가 (국내 — 고주파)
             while (auto opt = ob_queue_.pop())
             {
-                for (auto* s : snap)
+                router.for_each(opt->sym, [&](StrategyBase* s)
                 {
                     auto sig = s->on_order_book(*opt);
 
@@ -1832,7 +1839,7 @@ void Engine::strategy_thread_fn(std::stop_token st)
                             emit_from(s, b);
                         }
                     }
-                }
+                });
 
                 did_work = true;
             }
@@ -1853,10 +1860,12 @@ void Engine::strategy_thread_fn(std::stop_token st)
             while (auto opt = pop_trade())
             {
                 cur_tick_ns = opt->recv_ns;
-                // 운영단말 현재가용 캐시 — id 배열에 relaxed store 둘. 생산자가 id를 안 찍었으면 문자열로 등록한다.
-                set_last_px(opt->sym != sym::kNone ? opt->sym : symbols_.intern(opt->ticker), opt->price);
+                // 생산자가 id를 안 찍었으면 문자열로 등록한다(리플레이·옛 경로). 캐시와 라우팅이 같은 id를 쓴다.
+                const sym::SymbolId id = opt->sym != sym::kNone ? opt->sym : symbols_.intern(opt->ticker);
+                // 운영단말 현재가용 캐시 — id 배열에 relaxed store 둘.
+                set_last_px(id, opt->price);
 
-                for (auto* s : snap)
+                router.for_each(id, [&](StrategyBase* s)
                 {
                     auto sig = s->on_trade(*opt);
 
@@ -1877,7 +1886,7 @@ void Engine::strategy_thread_fn(std::stop_token st)
                             emit_from(s, b);
                         }
                     }
-                }
+                });
 
                 did_work = true;
             }
@@ -1885,7 +1894,7 @@ void Engine::strategy_thread_fn(std::stop_token st)
             // 일봉
             if (auto opt = market_queue_.pop())
             {
-                for (auto* s : snap)
+                router.for_each(opt->sym, [&](StrategyBase* s)
                 {
                     auto sig = s->on_data(*opt);
 
@@ -1893,7 +1902,7 @@ void Engine::strategy_thread_fn(std::stop_token st)
                     {
                         emit_from(s, *sig);
                     }
-                }
+                });
 
                 did_work = true;
             }

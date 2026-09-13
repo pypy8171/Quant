@@ -2944,6 +2944,24 @@ KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 
   Phase 3는 여기까지(캡처·리플레이·모의 체결·mux). 다음은 Phase 2 잔여(`MarketData.sym`, 디스패치 id 벡터,
   `OrderSignal` 문자열 제거, 시각 정수화)와 Phase 4 프로세스 분리.
 
+**Phase 2 잔여 첫 조각 (2026-09-13)** — 종목 id로 전략에 보내는 디스패치 벡터:
+
+- 전략 스레드는 틱·호가·일봉마다 등록된 전략 전부를 돌았고, 전략마다 `td.ticker != ticker_` 문자열 비교로 자기
+  종목이 아니면 돌아섰다. 40종목이면 틱 하나에 40번 비교·39번 헛걸음이다. `strat::Router`(`Quant/include/core/StrategyRouter.h`)가
+  `get_watch_specs()`의 종목을 `SymbolTable`로 id로 바꿔 id → 전략 목록 벡터를 만들고, 전략 스레드는 틱의 `sym`으로
+  그 종목을 보는 전략만 방문한다(원칙 6). 구독 종목을 안 밝힌 전략(빈 `get_watch_specs`, 예: 일봉 모드의
+  `SupplyDemandPullback`)은 전부 받는다 — 오늘과 같다. 테이블이 차서 `kNone`이 나온 전략도 전부 받는 쪽으로 보낸다.
+  재구성은 전략 목록이 바뀔 때(`strat_version_`)만 스냅샷과 같이 하므로 hot path에 문자열이 없다. 일봉 `MarketData`에도
+  `sym`을 더해 데이터 스레드가 찍는다.
+- 측정(`test_strategy_router` 4번): 전략 40개(종목 하나씩)에 틱 20만 건 — 전부 순회 256ns/틱, 라우터 9ns/틱(Release,
+  이 머신). 전략 수에 비례하던 비용이 그 종목을 보는 전략 수에 비례한다.
+- `Quant/tests/test_strategy_router.cpp`: 두 종목 전략·한 종목 전략·구독 미표기 전략의 방문 순서, 모르는 id·`kNone`은
+  전부 받는 전략만, 같은 종목 두 번 적어도 한 번, 재구성 뒤 옛 배정 소거, 테이블 가득 참 대체, 두 방식의 hit 수 일치.
+  ctest 30/30.
+- 버린 것: 전략 안 문자열 비교를 `sym` 비교로만 바꾸기 — 여전히 전략 전부를 돈다. `StrategyBase`에 "받을 종목" 가상
+  함수 추가 — `get_watch_specs()`가 이미 그 정보고 인터페이스를 늘릴 이유가 없다. 라우팅 벡터를 `unordered_map` —
+  id가 조밀한 정수라 벡터 인덱스가 맞다. 남은 Phase 2: `OrderSignal` 문자열 제거, 시각 정수화.
+
 ### D-072 틱 집계 봉의 기저를 1분으로 두고 판단 봉은 resample로 만든다 — REST 분봉 timestamp는 진짜 UTC (2026-09-13)
 **상태**: 채택 (`wt/bars-1m`, `test_bar_aggregator` 131·`test_kis_decode` 68 통과, 라이브는 09-14 장부터 `bar_source` 기본 `ws`)
 

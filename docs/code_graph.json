@@ -39,7 +39,7 @@
     {
       "from": "core",
       "to": "strategy",
-      "weight": 1
+      "weight": 2
     },
     {
       "from": "core",
@@ -181,6 +181,7 @@
     "core/ReplaySource.h": "core",
     "core/RingBuffer.h": "core",
     "core/SignalDispatcher.h": "core",
+    "core/StrategyRouter.h": "core",
     "core/SymbolTable.h": "core",
     "core/TickCapture.h": "core",
     "core/TickSize.h": "core",
@@ -338,6 +339,7 @@
       "core/ReplaySource.h",
       "core/RingBuffer.h",
       "core/SignalDispatcher.h",
+      "core/StrategyRouter.h",
       "core/SymbolTable.h",
       "core/TickCapture.h",
       "core/Types.h",
@@ -408,6 +410,10 @@
     "core/SignalDispatcher.h": [
       "core/Types.h",
       "risk/OrderGate.h"
+    ],
+    "core/StrategyRouter.h": [
+      "core/SymbolTable.h",
+      "strategy/StrategyBase.h"
     ],
     "core/TickCapture.h": [
       "core/RingBuffer.h",
@@ -711,8 +717,12 @@
       "core/Engine.h",
       "core/SignalDispatcher.cpp"
     ],
+    "core/StrategyRouter.h": [
+      "core/Engine.h"
+    ],
     "core/SymbolTable.h": [
       "core/Engine.h",
+      "core/StrategyRouter.h",
       "core/Types.h"
     ],
     "core/TickCapture.h": [
@@ -817,6 +827,7 @@
     ],
     "strategy/StrategyBase.h": [
       "core/Engine.h",
+      "core/StrategyRouter.h",
       "strategy/DeviationScaleStrategy.h",
       "strategy/FixedIntervalStrategy.h",
       "strategy/IntradayBreakoutStrategy.h",
@@ -901,11 +912,11 @@
       "in_degree": 12
     },
     {
-      "header": "api/KisClient.h",
-      "in_degree": 11
+      "header": "strategy/StrategyBase.h",
+      "in_degree": 12
     },
     {
-      "header": "strategy/StrategyBase.h",
+      "header": "api/KisClient.h",
       "in_degree": 11
     },
     {

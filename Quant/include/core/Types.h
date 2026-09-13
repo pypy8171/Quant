@@ -40,6 +40,7 @@ struct MarketData
     Market market = Market::KR;
     std::chrono::system_clock::time_point timestamp; // 수신 시각 (KIS REST 응답 처리 시점, 거래소 체결 시각과 다를 수 있음)
     int bar_index = 0;
+    sym::SymbolId sym = sym::kNone; // 데이터 스레드가 SymbolTable로 찍는다. 0이면 배선이 빠진 경로. [why D-071]
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
