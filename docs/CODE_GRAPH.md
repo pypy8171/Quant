@@ -200,6 +200,7 @@ graph LR
   n_core_Engine_h --> n_api_KisWebSocket_h
   n_core_Engine_h --> n_core_DataPoller_h
   n_core_Engine_h --> n_core_FeedMux_h
+  n_core_Engine_h --> n_core_FeedSupervisor_h
   n_core_Engine_h --> n_core_LedgerReconciler_h
   n_core_Engine_h --> n_core_MpscQueue_h
   n_core_Engine_h --> n_core_OrderPacer_h

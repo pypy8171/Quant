@@ -2370,11 +2370,7 @@ void Engine::deactivate_rest_fallback()
 void Engine::control_thread_fn(std::stop_token st)
 {
     using namespace std::chrono_literals;
-    constexpr int kStaleThresholdSec = 30;
-    constexpr int kCheckIntervalSec  = 5;
-
-    int fail_streak = 0;
-    auto next_try = std::chrono::steady_clock::now();
+    constexpr int kCheckIntervalSec = 5;
     // 큐 고수위는 장 외에도 찍는다 — 큐 크기가 맞는지의 근거가 되므로 WS 유무·개장 여부와 무관하다. [why D-071]
     constexpr int kHighWaterEvery = 12; // 5초 × 12 = 1분
     int hw_tick = 0;
@@ -2421,26 +2417,23 @@ void Engine::control_thread_fn(std::stop_token st)
             continue;
         }
 
-        // 장 외 시간에는 stale이 정상 — 장 중에만 체크
-        if (!is_any_market_open())
-        {
-            continue;
-        }
+        // 장 외 시간에는 stale이 정상 — 장 중에만 묻는다. 전이 판정은 감독기, 소켓·폴백 적용은 여기. [why D-071]
+        const bool market_open = is_any_market_open();
+        const bool stale       = market_open && ws_->is_stale(feed_sup_.config().stale_sec);
+        const auto step        = feed_sup_.observe(market_open, stale, std::chrono::steady_clock::now());
 
-        if (!ws_->is_stale(kStaleThresholdSec))
+        if (step == feed::Supervisor::Step::kHealthy)
         {
-            fail_streak = 0;   // 정상 수신 → 백오프 리셋
             deactivate_rest_fallback(); // 폴백으로 낮춰 뒀다면 WS로 되돌린다(전이 시에만 동작)
             continue;
         }
 
-        // 재연결 백오프: 실패가 누적될수록 재시도 간격을 늘려 KIS 측 연결한도 소진/스팸 방지
-        if (std::chrono::steady_clock::now() < next_try)
+        if (step != feed::Supervisor::Step::kReconnect)
         {
             continue;
         }
 
-        LOG_WARN("[Control] WebSocket " + std::to_string(kStaleThresholdSec) +
+        LOG_WARN("[Control] WebSocket " + std::to_string(feed_sup_.config().stale_sec) +
                  "초 이상 시세 미수신 — 재연결 시도");
         ws_->disconnect();
         std::vector<WatchSpec> specs_copy;
@@ -2449,29 +2442,27 @@ void Engine::control_thread_fn(std::stop_token st)
             specs_copy = watch_specs_;
         }
 
-        if (ws_->connect(specs_copy))
+        const bool ok    = ws_->connect(specs_copy);
+        const auto after = feed_sup_.on_reconnect(ok, std::chrono::steady_clock::now());
+
+        if (ok)
         {
             LOG_INFO("[Control] WebSocket 재연결 성공");
-            fail_streak = 0;
+            continue;
         }
-        else
-        {
-            ++fail_streak;
-            int backoff = std::min(30 * fail_streak, 300);   // 30s → ... → 최대 300s
-            next_try = std::chrono::steady_clock::now() + std::chrono::seconds(backoff);
-            LOG_ERROR("[Control] WebSocket 재연결 실패(" + std::to_string(fail_streak) +
-                      "회) — " + std::to_string(backoff) + "초 후 재시도");
 
-            // 반복 실패 시에만 대응한다(1회 실패로 즉시 조치하면 순간 장애에도 흔들린다).
-            //  먼저 REST 폴링으로 낮춰 매매를 이어가고, 그것마저 불가할 때 kill switch로 멈춘다.
-            //  예전에는 곧장 kill switch였다 — 시세 경로가 하나 죽었다고 매매 전체를 세울 이유는 없다.
-            if (fail_streak >= 3 && !rest_fallback_engaged_)
+        LOG_ERROR("[Control] WebSocket 재연결 실패(" + std::to_string(feed_sup_.fail_streak()) + "회) — " +
+                  std::to_string(feed_sup_.last_backoff_sec()) + "초 후 재시도");
+
+        // 반복 실패 시에만 대응한다(1회 실패로 즉시 조치하면 순간 장애에도 흔들린다).
+        //  먼저 REST 폴링으로 낮춰 매매를 이어가고, 그것마저 불가할 때 kill switch로 멈춘다.
+        //  예전에는 곧장 kill switch였다 — 시세 경로가 하나 죽었다고 매매 전체를 세울 이유는 없다.
+        if (after == feed::Supervisor::After::kFallback)
+        {
+            if (!activate_rest_fallback("재연결 " + std::to_string(feed_sup_.fail_streak()) + "회 실패"))
             {
-                if (!activate_rest_fallback("재연결 " + std::to_string(fail_streak) + "회 실패"))
-                {
-                    LOG_ERROR("[Control] 폴링 폴백 불가(시세 소스 없음) — kill switch 작동");
-                    order_gate_.set_kill_switch(true);
-                }
+                LOG_ERROR("[Control] 폴링 폴백 불가(시세 소스 없음) — kill switch 작동");
+                order_gate_.set_kill_switch(true);
             }
         }
     }

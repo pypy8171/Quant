@@ -166,6 +166,7 @@
     "core/DataPoller.h": "core",
     "core/Engine.h": "core",
     "core/FeedMux.h": "core",
+    "core/FeedSupervisor.h": "core",
     "core/IFeedSource.h": "core",
     "core/KstTime.h": "core",
     "core/LatencyTrace.h": "core",
@@ -335,6 +336,7 @@
       "api/KisWebSocket.h",
       "core/DataPoller.h",
       "core/FeedMux.h",
+      "core/FeedSupervisor.h",
       "core/LedgerReconciler.h",
       "core/MpscQueue.h",
       "core/OrderPacer.h",
@@ -669,6 +671,9 @@
       "strategy/StrategyFactory.cpp"
     ],
     "core/FeedMux.h": [
+      "core/Engine.h"
+    ],
+    "core/FeedSupervisor.h": [
       "core/Engine.h"
     ],
     "core/IFeedSource.h": [
@@ -1116,6 +1121,7 @@
       "scripts/eod_collect.py",
       "scripts/eod_minute_backfill.py",
       "scripts/extract_swap_counterfactual.py",
+      "scripts/file_index.py",
       "scripts/gen_code_graph.py",
       "scripts/gen_facts.py",
       "scripts/live_prices_feed.py",

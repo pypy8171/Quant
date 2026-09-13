@@ -12,6 +12,7 @@
 #include "core/ReplaySource.h"
 #include "core/PaperExecutor.h"
 #include "core/FeedMux.h"
+#include "core/FeedSupervisor.h"
 #include "core/StrategyRouter.h"
 #include "core/StrategyShard.h"
 #include "core/RegimeController.h"
@@ -315,6 +316,7 @@ private:
     //  구분해야 복귀 여부를 판단할 수 있어서다. control_thread write / data_thread read.
     std::atomic<bool> rest_feed_active_{false};
     bool rest_fallback_engaged_ = false; // 폴백으로 낮춘 상태인가(control_thread 전용, 전이 로그·복귀 판정)
+    feed::Supervisor feed_sup_; // WS stale→재연결 백오프→폴백 요구 판정(control_thread 전용) [why D-071]
     // 매크로 레짐 브리지(data_thread 전용) — regime.json → OrderGate entry_halt. 상태기계는 헤더에, 파일 I/O·로그는 여기.
     std::string                      regime_file_;   // 빈 문자열이면 기능 미가동
     regime_bridge::RegimeFileBridge  regime_bridge_; // stale·시간 상자·1회 로그 판정 [why D-060]

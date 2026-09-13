@@ -3121,6 +3121,25 @@ Engine 콜백(FeedMux 스레드를 지난 뒤)이 찍었고 호가는 캡처 시
   이유가 없다. 소켓 객체를 먼저 만들어 `lanes()`로 행 수를 읽기 — `ws_` 생성이 캡처·콜백 배선과 한 블록이라 옮기면
   diff가 커서, 같은 조건을 config로 센다.
 
+**Phase 3 잔여 — WS 피드 감독기 `FeedSupervisor` (2026-09-13)** — 제어 스레드에 박혀 있던 시세 미수신(stale)→재연결→
+백오프→REST 폴백 전이의 판정을 `Quant/include/core/FeedSupervisor.h`의 `feed::Supervisor`로 뗐다. 제어 스레드는 장중 여부와
+`is_stale`을 관찰로 넣고 답(`kIdle`·`kHealthy`·`kWaitBackoff`·`kReconnect`)에 따라 소켓을 부르며, 재연결 결과를 돌려주면
+연속 실패가 문턱에 닿는 한 번만 `kFallback`을 받는다. 폴백 적용·불가 시 kill switch·로그는 그대로 Engine이다.
+
+- 왜: D-071 Phase 3 표의 마지막 항목(전이 전수 시험)이다. 지금까지 이 전이는 5초 주기 스레드 안의 지역 변수
+  (`fail_streak`·`next_try`)라 시계·소켓 없이 시험할 수 없었고, 백오프 상한·폴백 문턱이 바뀌면 장중 실측으로만 확인됐다.
+  `RegimeFileBridge`(D-060)와 같은 꼴 — 관찰을 받고 판정만 답하는 헤더 전용 상태기계, control_thread 전용이라 동기화 없음.
+- 동작은 전과 같다: 장 외 무시, 정상 수신이면 누적 0, 첫 stale은 바로 재연결, 실패 n회째 30×n초(상한 300초) 뒤 재시도,
+  연속 3회 실패에 폴백 요구. 한 가지 정리 — 전에는 폴백이 걸리지 않은 채 3회 이상 실패할 때마다 `activate_rest_fallback`을
+  다시 불렀는데(불가면 kill switch를 반복 설정), 지금은 문턱에 닿는 첫 실패에서 한 번만 요구한다. 결과는 같다(둘 다 멱등).
+  정상 수신으로 누적이 지워진 뒤 다시 문턱에 닿으면 다시 요구한다.
+- `SupervisorConfig`(stale 30·step 30·max 300·문턱 3)는 아직 config로 열지 않았다 — 값을 바꿀 근거(실측)가 없다(원칙 7).
+- 시험: `test_feed_supervisor` 7절 — 장 외 무시, 첫 stale 즉시, 실패 12회의 간격 표(30…300 상한), 문턱 한 번만·복귀 뒤 재무장,
+  연결 성공이 재시도 시각을 미루지 않음, 장 외를 지나도 누적·시각 유지.
+- 버린 것: 레인별 감독(소켓 하나만 죽었을 때 그 소켓만 재연결) — `FeedMux::is_stale`이 "하나라도"로 답하고 `connect`가
+  전체를 다시 붙이는 지금 인터페이스에서는 감독기가 레인을 알 길이 없다. 소켓 수가 셋을 넘어 전체 재연결 비용이 보일 때
+  `IFeedSource`에 레인 단위 stale·reconnect를 열고 감독기를 레인마다 하나로 늘린다.
+
 ### D-072 틱 집계 봉의 기저를 1분으로 두고 판단 봉은 resample로 만든다 — REST 분봉 timestamp는 진짜 UTC (2026-09-13)
 **상태**: 채택 (`wt/bars-1m`, `test_bar_aggregator` 131·`test_kis_decode` 68 통과, 라이브는 09-14 장부터 `bar_source` 기본 `ws`)
 
