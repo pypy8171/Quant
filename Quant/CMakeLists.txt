@@ -103,8 +103,8 @@ else()
   list(APPEND KIS_WS_SOURCES src/api/WsSocketPosix.cpp)
 endif()
 
-set(SOURCES
-  src/main.cpp
+# main.cpp를 뺀 전부가 엔진 라이브러리다 — quant_trader와 test_engine이 같은 오브젝트를 링크한다(D-071).
+set(ENGINE_SOURCES
   src/modes/Monitors.cpp
   src/universe/UniverseScanner.cpp
   src/strategy/StrategyFactory.cpp
@@ -127,25 +127,25 @@ set(SOURCES
   src/utils/Timer.cpp
 )
 
-list(APPEND SOURCES src/ipc/OrderRouter.cpp src/ipc/OpsServer.cpp)
+list(APPEND ENGINE_SOURCES src/ipc/OrderRouter.cpp src/ipc/OpsServer.cpp)
 
 if(ZMQ_FOUND)
-  list(APPEND SOURCES src/ipc/ZmqBridge.cpp)
+  list(APPEND ENGINE_SOURCES src/ipc/ZmqBridge.cpp)
 endif()
- 
-# ─── 실행 파일 ────────────────────────────────────────────────────────────
-add_executable(quant_trader ${SOURCES})
- 
-target_include_directories(quant_trader PRIVATE
+
+# ─── 엔진 라이브러리 ────────────────────────────────
+add_library(quant_engine STATIC ${ENGINE_SOURCES})
+
+target_include_directories(quant_engine PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 if(ZMQ_FOUND)
-  target_include_directories(quant_trader PRIVATE ${ZMQ_INC} ${cppzmq_SOURCE_DIR})
+  target_include_directories(quant_engine PUBLIC ${ZMQ_INC} ${cppzmq_SOURCE_DIR})
 endif()
 
 if(UNIX)
-    target_link_libraries(quant_trader PRIVATE
+    target_link_libraries(quant_engine PUBLIC
       CURL::libcurl
       OpenSSL::Crypto
       nlohmann_json::nlohmann_json
@@ -154,7 +154,7 @@ if(UNIX)
     )
 else()
     # Windows: WinHTTP/BCrypt는 Windows SDK 내장 (별도 설치 불필요)
-    target_link_libraries(quant_trader PRIVATE
+    target_link_libraries(quant_engine PUBLIC
       nlohmann_json::nlohmann_json
       winhttp
       bcrypt
@@ -164,8 +164,12 @@ else()
 endif()
 
 if(ZMQ_FOUND)
-  target_link_libraries(quant_trader PRIVATE ${ZMQ_LIB})
+  target_link_libraries(quant_engine PUBLIC ${ZMQ_LIB})
 endif()
+
+# ─── 실행 파일 ──────────────────────────────────────
+add_executable(quant_trader src/main.cpp)
+target_link_libraries(quant_trader PRIVATE quant_engine)
  
 # ─── config 파일 처리 (파일이 없으면 스킵 — Docker 빌드 시 volume으로 주입) ──
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/config/config.json)
@@ -393,6 +397,10 @@ if(UNIX)
     target_link_libraries(test_feed_mux PRIVATE pthread)
 endif()
 
+# ─── 테스트 타깃: Engine 한 바퀴 — 가짜 피드를 주입해 KIS·소켓 없이 틱→샤드→전략→주문→모의 체결→원장을 돈다 (D-071) ──
+add_executable(test_engine tests/test_engine.cpp)
+target_link_libraries(test_engine PRIVATE quant_engine)
+
 # ─── 테스트 타깃: WS 피드 감독기 — stale→재연결 백오프(step×n, 상한)→폴백 요구 한 번·복귀 재무장 (헤더 전용, D-071) ──
 add_executable(test_feed_supervisor tests/test_feed_supervisor.cpp)
 target_include_directories(test_feed_supervisor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -520,6 +528,7 @@ set(QUANT_ASSERT_TARGETS
     test_paper_executor
     test_feed_mux
     test_feed_supervisor
+    test_engine
     test_shard_matrix
     test_strategy_shard
     test_strategy_router

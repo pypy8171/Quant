@@ -146,6 +146,7 @@
       "test_paper_executor",
       "test_feed_mux",
       "test_feed_supervisor",
+      "test_engine",
       "test_shard_matrix",
       "test_strategy_shard",
       "test_strategy_router",
@@ -196,6 +197,7 @@
       "test_paper_executor",
       "test_feed_mux",
       "test_feed_supervisor",
+      "test_engine",
       "test_shard_matrix",
       "test_strategy_shard",
       "test_strategy_router",
@@ -204,7 +206,7 @@
       "test_account_ledger",
       "test_logger"
     ],
-    "count": 33
+    "count": 34
   },
   "harness": {
     "commands": [

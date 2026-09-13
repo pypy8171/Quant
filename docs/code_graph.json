@@ -1122,6 +1122,7 @@
       "scripts/eod_minute_backfill.py",
       "scripts/extract_swap_counterfactual.py",
       "scripts/file_index.py",
+      "scripts/gen_code_flow.py",
       "scripts/gen_code_graph.py",
       "scripts/gen_facts.py",
       "scripts/live_prices_feed.py",

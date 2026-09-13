@@ -558,8 +558,9 @@ void Engine::start()
 
     // [inv] WS 레인 수 = 소켓 수 — 아래 ws_ 생성과 같은 조건(리플레이·소켓 하나면 1, feed_keys가 있으면 1+N)이라
     //  ws_->lanes()와 같다. 소켓을 만들기 전에 행 수가 필요해 config로 센다.
-    ws_lanes_ = (replay_file_.empty() && !extra_feed_cfgs_.empty()) ? static_cast<uint32_t>(extra_feed_cfgs_.size() + 1)
-                                                                    : 1u;
+    ws_lanes_ = feed_override_ ? feed_override_->lanes()
+                : (replay_file_.empty() && !extra_feed_cfgs_.empty()) ? static_cast<uint32_t>(extra_feed_cfgs_.size() + 1)
+                                                                      : 1u;
     data_row_ = ws_lanes_;
     ob_mx_.reshape(ws_lanes_, shard_count, 4096);
     td_mx_.reshape(ws_lanes_ + 1, shard_count, 4096);
@@ -601,35 +602,45 @@ void Engine::start()
     zmq_bridge_->start();
 #endif
 
-    kis_ = std::make_unique<KisClient>(kis_cfg_);
+    // 피드를 직접 받았으면 브로커 없이 돈다 — kis_는 비고, 아래 KIS를 보는 경로는 전부 null을 "소스 없음"으로 다룬다. [why D-071]
+    const bool offline = feed_override_ != nullptr;
 
-    if (!kis_->authenticate())
+    if (offline)
     {
-        LOG_ERROR("[Engine] KIS 인증 실패");
-        return;
+        LOG_INFO("[Engine] 피드 주입 — KIS 없이 기동(주문·잔고는 모의 체결기)");
+    }
+    else
+    {
+        kis_ = std::make_unique<KisClient>(kis_cfg_);
+
+        if (!kis_->authenticate())
+        {
+            LOG_ERROR("[Engine] KIS 인증 실패");
+            return;
+        }
+
+        // 시세 전용 클라이언트(실전 도메인) — 모의 시세 REST가 HTTP 500이므로 시세만 실전으로 조회.
+        //  실패해도 kis_(모의)로 폴백하되, 모의 시세는 500이라 사실상 틱이 안 나옴을 경고.
+        //  WS 모드에서도 만들어 둔다: WS가 죽어 폴링으로 낮출 때 쓸 시세 소스가 그때 가서는 없으면
+        //  폴백이 무의미해진다(모의 도메인으로 폴링하면 500만 쌓인다).
+        if (has_quote_kis_)
+        {
+            quote_kis_ = std::make_unique<KisClient>(quote_kis_cfg_);
+
+            if (!quote_kis_->authenticate())
+            {
+                LOG_ERROR("[Engine] 시세 클라이언트(실전) 인증 실패 — 모의 시세로 폴백(틱 없을 수 있음)");
+                quote_kis_.reset();
+            }
+            else
+            {
+                LOG_INFO("[Engine] 시세 클라이언트(실전 도메인) 인증 완료 — 현재가 폴링 소스");
+            }
+        }
     }
 
-    // 시세 전용 클라이언트(실전 도메인) — 모의 시세 REST가 HTTP 500이므로 시세만 실전으로 조회.
-    //  실패해도 kis_(모의)로 폴백하되, 모의 시세는 500이라 사실상 틱이 안 나옴을 경고.
-    //  WS 모드에서도 만들어 둔다: WS가 죽어 폴링으로 낮출 때 쓸 시세 소스가 그때 가서는 없으면
-    //  폴백이 무의미해진다(모의 도메인으로 폴링하면 500만 쌓인다).
-    if (has_quote_kis_)
-    {
-        quote_kis_ = std::make_unique<KisClient>(quote_kis_cfg_);
-
-        if (!quote_kis_->authenticate())
-        {
-            LOG_ERROR("[Engine] 시세 클라이언트(실전) 인증 실패 — 모의 시세로 폴백(틱 없을 수 있음)");
-            quote_kis_.reset();
-        }
-        else
-        {
-            LOG_INFO("[Engine] 시세 클라이언트(실전 도메인) 인증 완료 — 현재가 폴링 소스");
-        }
-    }
-
-    // 리플레이면 주문·잔고는 모의 체결기가 받는다. 인증·유니버스·봉 시드는 그대로 KIS(모의 계좌)다. [why D-071]
-    if (!replay_file_.empty())
+    // 리플레이·피드 주입이면 주문·잔고는 모의 체결기가 받는다. 리플레이의 인증·유니버스·봉 시드는 그대로 KIS(모의 계좌)다. [why D-071]
+    if (!replay_file_.empty() || offline)
     {
         paper_ = std::make_unique<feed::PaperExecutor>(replay_cash_);
         LOG_INFO("[Engine] 모의 체결기: 현금 " + std::to_string(static_cast<long long>(replay_cash_)) + "원");
@@ -656,7 +667,7 @@ void Engine::start()
     // 잔고 → 원장 대조기. 브로커·라우터·종목명은 함수로 넘겨 대조기가 KisClient·OrderRouter를 모르게 한다. [why D-061]
     ledger_ = std::make_unique<LedgerReconciler>(order_gate_,
                                                  [this] { return paper_ ? paper_->balance() : kis_->get_balance(); });
-    ledger_->set_account_no(kis_->account_no());
+    ledger_->set_account_no(kis_ ? kis_->account_no() : std::string("PAPER"));
     ledger_->set_baseline_dir(Logger::instance().base_dir()); // 실행 위치와 무관하게 로그 폴더와 같은 곳
     ledger_->set_name_sink([this](const std::string& t, const std::string& n) { register_ticker_name(t, n); });
     ledger_->set_reconcile_sink([this](const reconcile::Row& r) { order_router_->record_reconcile(r); });
@@ -778,7 +789,12 @@ void Engine::start()
     //  주문은 REST(order_thread_fn)로 나가므로 매매에는 영향 없음(체결통보 on_fill만 없음).
     if (!rest_price_feed_ && !watch_specs_.empty())
     {
-        if (!replay_file_.empty())
+        if (feed_override_)
+        {
+            ws_ = std::move(feed_override_);
+            LOG_INFO("[Engine] 주입된 피드 소스(레인 " + std::to_string(ws_->lanes()) + "개)");
+        }
+        else if (!replay_file_.empty())
         {
             ws_ = std::make_unique<feed::ReplaySource>(replay_file_, replay_speed_);
             LOG_INFO("[Engine] 리플레이 소스: " + replay_file_ + " (speed " + std::to_string(replay_speed_) + ")");
@@ -876,7 +892,7 @@ void Engine::start()
                                }
 
                                // 모의 체결은 틱 스레드에서 — 체결통보 큐의 생산자가 이 스레드 하나로 남는다
-                               //  (paper_는 리플레이 전용이고 리플레이는 레인 하나다).
+                               //  (paper_는 리플레이·피드 주입 전용이고 둘 다 레인 하나다).
                                if (paper_)
                                {
                                    paper_->on_tick(in.ticker, in.price, in.hhmmss);
@@ -1172,7 +1188,7 @@ void Engine::data_thread_fn(std::stop_token st)
 
         if (!market_now)
         {
-            std::this_thread::sleep_for(60s);
+            sync::sleep_unless_stopped(st, 60s); // 정지 요청이면 바로 깬다 — 장 외 종료가 60초를 기다리지 않는다
             continue;
         }
 
@@ -1519,7 +1535,7 @@ void Engine::data_thread_fn(std::stop_token st)
                 //  호가·체결 이벤트로만 도는 구성에서는 이 루프가 종목 수만큼 차트 TR을 매 사이클
                 //  때리고 결과는 아무도 안 본다. 그 호출량이 초당 한도를 밀어 다른 조회(3분봉·현재가)까지
                 //  500으로 떨어뜨린다. 전략 집합은 국면 전환으로 바뀌므로 매 사이클 다시 확인한다.
-                if (daily_bars_needed())
+                if (qc && daily_bars_needed())
                 {
                     for (const auto& spec : watch_specs_)
                     {
@@ -2339,7 +2355,8 @@ bool Engine::activate_rest_fallback(const std::string& reason)
 
     // 폴링이 쓸 시세 소스. 모의 도메인은 시세 REST가 HTTP 500이라 실전 시세 클라이언트가
     //  없고 주문계좌마저 모의면 낮춰봐야 틱이 안 나온다. 그때는 거짓 안심을 주지 않는다.
-    if (!quote_kis_ && kis_cfg_.is_paper)
+    //  브로커 없는 기동(피드 주입)도 같다 — 낮출 REST가 없다.
+    if (!kis_ || (!quote_kis_ && kis_cfg_.is_paper))
     {
         return false;
     }
@@ -2402,9 +2419,13 @@ void Engine::control_thread_fn(std::stop_token st)
         if (++token_tick >= kTokenEvery)
         {
             token_tick = 0;
+
             // 만료 30분 전에 여기서 미리 갱신한다. 발급 왕복을 파이프라인 밖 스레드가 떠안아야
             //  전략·데이터 스레드의 http_get이 5분 margin에 걸리지 않는다. [why D-073]
-            kis_->refresh_token(std::chrono::minutes(30));
+            if (kis_)
+            {
+                kis_->refresh_token(std::chrono::minutes(30));
+            }
 
             if (quote_kis_)
             {
