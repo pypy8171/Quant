@@ -59,6 +59,12 @@ public:
         return cell(producer, shard_of(sym, consumers_)).push(v);
     }
 
+    // 종목이 가는 열. 생산자가 push 뒤 그 샤드만 깨우거나 호가·체결 두 행렬에 같은 열로 넣을 때 쓴다.
+    [[nodiscard]] uint32_t consumer_of(sym::SymbolId sym) const noexcept
+    {
+        return shard_of(sym, consumers_);
+    }
+
     // 샤드를 호출자가 이미 안다면(같은 종목의 호가·체결을 같은 곳으로) 여기로.
     [[nodiscard]] bool push_to(uint32_t producer, uint32_t consumer, const T& v)
     {

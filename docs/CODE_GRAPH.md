@@ -23,7 +23,7 @@ graph LR
   core -->|10| api
   core -->|3| ipc
   core -->|4| risk
-  core -->|2| strategy
+  core -->|3| strategy
   core -->|6| utils
   ipc -->|2| api
   ipc -->|5| core
@@ -55,14 +55,14 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 26 |
+| `core/Types.h` | 27 |
 | `utils/Logger.h` | 25 |
+| `strategy/StrategyBase.h` | 13 |
 | `core/KstTime.h` | 12 |
-| `strategy/StrategyBase.h` | 12 |
 | `api/KisClient.h` | 11 |
 | `core/MarketSession.h` | 8 |
-| `core/WakeGate.h` | 6 |
-| `risk/OrderGate.h` | 5 |
+| `core/WakeGate.h` | 7 |
+| `core/SymbolTable.h` | 5 |
 
 ## 파일 단위 상세
 
@@ -107,6 +107,7 @@ graph LR
     n_core_SignalDispatcher_cpp["core/SignalDispatcher.cpp"]
     n_core_SignalDispatcher_h["core/SignalDispatcher.h"]
     n_core_StrategyRouter_h["core/StrategyRouter.h"]
+    n_core_StrategyShard_h["core/StrategyShard.h"]
     n_core_TickCapture_h["core/TickCapture.h"]
     n_core_TickSize_h["core/TickSize.h"]
     n_core_Types_h["core/Types.h"]
@@ -209,6 +210,7 @@ graph LR
   n_core_Engine_h --> n_core_RingBuffer_h
   n_core_Engine_h --> n_core_SignalDispatcher_h
   n_core_Engine_h --> n_core_StrategyRouter_h
+  n_core_Engine_h --> n_core_StrategyShard_h
   n_core_Engine_h --> n_core_SymbolTable_h
   n_core_Engine_h --> n_core_TickCapture_h
   n_core_Engine_h --> n_core_Types_h
@@ -258,6 +260,12 @@ graph LR
   n_core_SignalDispatcher_h --> n_risk_OrderGate_h
   n_core_StrategyRouter_h --> n_core_SymbolTable_h
   n_core_StrategyRouter_h --> n_strategy_StrategyBase_h
+  n_core_StrategyShard_h --> n_core_ShardMatrix_h
+  n_core_StrategyShard_h --> n_core_StrategyRouter_h
+  n_core_StrategyShard_h --> n_core_SymbolTable_h
+  n_core_StrategyShard_h --> n_core_Types_h
+  n_core_StrategyShard_h --> n_core_WakeGate_h
+  n_core_StrategyShard_h --> n_strategy_StrategyBase_h
   n_core_TickCapture_h --> n_core_MarketSession_h
   n_core_TickCapture_h --> n_core_RingBuffer_h
   n_core_TickCapture_h --> n_core_Types_h

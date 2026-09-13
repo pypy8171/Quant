@@ -400,6 +400,13 @@ if(UNIX)
     target_link_libraries(test_shard_matrix PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: StrategyShard 열 비우기·샤드별 전략 집합 라우팅·샤드 1/2/4 측정 (헤더 전용, D-071) ──
+add_executable(test_strategy_shard tests/test_strategy_shard.cpp)
+target_include_directories(test_strategy_shard PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(test_strategy_shard PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟: 종목 id → 전략 라우팅(전부 받는 전략·테이블 가득 참·재구성) + 틱당 시간 측정 (헤더 전용, D-071) ──
 add_executable(test_strategy_router tests/test_strategy_router.cpp)
 target_include_directories(test_strategy_router PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -509,6 +516,7 @@ set(QUANT_ASSERT_TARGETS
     test_paper_executor
     test_feed_mux
     test_shard_matrix
+    test_strategy_shard
     test_strategy_router
     test_account_ledger
     test_logger

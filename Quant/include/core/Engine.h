@@ -13,6 +13,7 @@
 #include "core/PaperExecutor.h"
 #include "core/FeedMux.h"
 #include "core/StrategyRouter.h"
+#include "core/StrategyShard.h"
 #include "core/RegimeController.h"
 #include "core/RegimeFileBridge.h"
 #include "core/Types.h"
@@ -41,8 +42,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Engine  —  퀀트 트레이딩 엔진
 //
-//  [데이터 스레드]  KIS REST 일봉 폴링   → market_queue_
-//  [전략 스레드]    ob_queue_ + td_queue_ + market_queue_ → order_queue_
+//  [데이터 스레드]  KIS REST 일봉·대체 틱   → bars_mx_·td_mx_ (행렬의 데이터 스레드 행)
+//  [샤드 스레드 m]  ob_mx_ + td_mx_ + bars_mx_ 열 m → 전략 → shard_out_
+//  [전략 스레드]    shard_out_ + 수동주문 → 디스패처(순번·슬롯·교체) → order_queue_
 //  [주문 스레드]    order_queue_ → KIS REST 주문 (KR/US 자동 분기)
 //
 //  WS 구독 목록은 on_start() 이후 전략의 get_watch_specs()로 동적 수집
@@ -65,7 +67,7 @@ public:
     void set_bootstrap_ledger(bool b) { bootstrap_ledger_ = b; }
     // 실시간 체결가는 원래 WebSocket으로 받지만, WS 세션이 rt_cd=9(ALREADY IN USE, 중복접속)로
     // 폭주할 때의 우회책이다. true면 DataThread가 REST get_current_price(현재가 조회)를 주기적으로
-    // 폴링해 그 값을 TradeData(체결 틱)처럼 td_queue_에 넣고, WS 연결은 생략한다. ITB 전략이
+    // 폴링해 그 값을 TradeData(체결 틱)처럼 td_mx_의 데이터 스레드 행에 넣고, WS 연결은 생략한다. ITB 전략이
     // 이 틱으로 구동된다(ITB = IntradayBreakoutStrategy, 장중 돌파 전략).
     void set_rest_price_feed(bool b) { rest_price_feed_ = b; }
     // WS 틱·호가 캡처 폴더(빈 문자열이면 끔). 기동마다 ticks_<UTC시각>.bin 하나. REST 대체 틱은 raw 피드가
@@ -258,6 +260,7 @@ private:
     // 다섯 스레드는 stop_token으로 정지를 본다. running_은 엔진 밖(main 루프·KILL 핸들러·폴러)이 읽는 깃발 [why D-070]
     void data_thread_fn(std::stop_token st);
     void strategy_thread_fn(std::stop_token st);
+    void shard_thread_fn(std::stop_token st, uint32_t m); // 행렬 열 m을 비워 전략을 돌리고 신호를 shard_out_에 넣는다 [why D-071]
     void order_thread_fn(std::stop_token st);
     void fill_thread_fn(std::stop_token st);     // 체결통보 소비(fill_queue_ → OrderRouter::on_fill → ops 방송). WS 수신 스레드에서 뗀 것 [why D-056]
     void control_thread_fn(std::stop_token st); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
@@ -387,13 +390,20 @@ private:
     long long last_regime_bucket_ = -1;           // 마지막으로 평가한 KST 벽시계 버킷(sec_of_day / 주기), -1=미평가
     long long regime_bucket_now() const;
 
-    RingBuffer<MarketData> market_queue_{1024};
+    // 수신 N × 전략 샤드 M 링 행렬. 셀 하나의 생산자는 스레드 하나다 — 체결은 WS 콜백 스레드 행과 데이터 스레드 행
+    //  (REST 대체 틱)을 따로 둔다(D-053이 두 큐로 풀던 것을 행으로 푼다). 열은 종목 해시(원칙 2). 샤드 M은 전략 집합을
+    //  샤드마다 복제하기 전까지 1이다 — 전략 객체를 두 샤드 스레드가 만지면 안 된다. [why D-071]
+    static constexpr uint32_t kProducerWs = 0, kProducerData = 1;
+    static constexpr uint32_t kStrategyShards = 1;
+    shard::Matrix<OrderBook>  ob_mx_{1, kStrategyShards, 4096};   // 호가 (국내) — WS 행만
+    shard::Matrix<TradeData>  td_mx_{2, kStrategyShards, 4096};   // 체결 (미국 + 국내) — WS 행 + 데이터 스레드 행
+    shard::Matrix<MarketData> bars_mx_{1, kStrategyShards, 1024}; // 일봉 — 데이터 스레드 행(index 0)만
+    std::vector<std::unique_ptr<strat::Shard>> shards_;           // 열 m을 비우는 샤드. start()가 만든다
+    std::vector<std::jthread>                  shard_threads_;
+    // 샤드 → 전략(디스패치) 스레드. 생산자가 M이라 MPSC(원칙 5). 가득 차면 버리고 센다 — order_dropped_와 같은 규칙.
+    MpscQueue<strat::Emitted> shard_out_{4096};
+    std::atomic<uint64_t>     shard_dropped_{0};
     RingBuffer<OrderSignal> order_queue_{1024}; // 주문 스레드가 KIS 왕복에 묶이는 몇 초를 받는다 [why D-073]
-    RingBuffer<OrderBook> ob_queue_{4096}; // 호가 (국내)
-    RingBuffer<TradeData> td_queue_{4096}; // 체결 (미국 + 국내)
-    // WS 상한에 밀린 종목의 REST 대체 틱. td_queue_는 WS 콜백 스레드가 생산자라 데이터 스레드가
-    //  같이 넣으면 SPSC가 깨진다(두 생산자가 같은 슬롯에 쓰고 head를 한 칸만 올린다). [why D-053]
-    RingBuffer<TradeData> rest_td_queue_{1024};
     // 체결통보. WS 수신 스레드는 여기 push만 하고 원장 반영(OrderRouter::on_fill)은 fill_thread가 한다 —
     //  체결 하나 처리(hist_mtx_·CSV 쓰기) 동안 전 종목 틱 수신이 멈추지 않게. [why D-056]
     RingBuffer<FillNotification> fill_queue_{1024};
@@ -402,7 +412,7 @@ private:
     // 소비자 깨우기 — 생산자가 push 뒤 notify, 소비자는 큐가 비면 잔다. 1ms 폴링은 Windows 타이머 격자 때문에
     //  실측 p50 15.6ms였다(bench_sleep_res). [why D-071]
     sync::WakeGate fill_wake_;  // fill_thread ← WS 수신 스레드
-    sync::WakeGate strat_wake_; // strategy_thread ← WS 수신·데이터·운영단말 스레드
+    sync::WakeGate strat_wake_; // strategy_thread ← 샤드·운영단말 스레드. 샤드 자신의 게이트는 Shard::wake()
     sync::WakeGate order_wake_; // order_thread ← strategy_thread
 
     std::jthread data_thread_;

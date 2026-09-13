@@ -526,6 +526,16 @@ void Engine::start()
 
     LOG_INFO("[Engine] ── 퀀트 엔진 시작 ──────────────────────────────");
 
+    // 샤드는 WS 콜백·데이터 스레드가 push 뒤 깨우므로 소켓을 열기 전에 만든다. 스레드는 아래에서 같이 띄운다.
+    //  stop() 뒤 다시 start()하면 옛 샤드(스레드는 join 뒤)를 버리고 새로 만든다.
+    shard_threads_.clear();
+    shards_.clear();
+
+    for (uint32_t m = 0; m < kStrategyShards; ++m)
+    {
+        shards_.push_back(std::make_unique<strat::Shard>(m, strat::ShardQueues{ob_mx_, td_mx_, bars_mx_}));
+    }
+
 #ifdef HAS_ZMQ
     zmq_bridge_ = std::make_unique<ZmqBridge>();
     zmq_bridge_->set_bind_address(zmq_bind_addr_);
@@ -615,7 +625,7 @@ void Engine::start()
     ledger_->set_reconcile_sink([this](const reconcile::Row& r) { order_router_->record_reconcile(r); });
 
     // REST 현재가 폴러. 시세는 시세 전용 클라이언트가 있으면 그쪽(실전 도메인 초당 한도가 높다). [why D-062]
-    //  [lock-order] 데이터 스레드는 td_queue_의 생산자가 아니다 — 폴러의 틱은 전용 SPSC 큐 rest_td_queue_로 간다.
+    //  [lock-order] 데이터 스레드는 td_mx_의 WS 행에 넣지 않는다 — 폴러의 틱은 자기 행(kProducerData)으로 간다.
     poller_ = std::make_unique<DataPoller>(
         [this](const std::string& ticker)
         {
@@ -626,13 +636,14 @@ void Engine::start()
         {
             TradeData td = in;
             td.sym       = symbols_.intern(td.ticker);
+            const auto m = td_mx_.consumer_of(td.sym);
 
-            while (!rest_td_queue_.push(std::move(td)) && running_.load(std::memory_order_acquire))
+            while (!td_mx_.push_to(kProducerData, m, td) && running_.load(std::memory_order_acquire))
             {
                 std::this_thread::sleep_for(1ms);
             }
 
-            strat_wake_.notify();
+            shards_[m]->wake().notify();
         });
     poller_->set_keep_going([this] { return running_.load(std::memory_order_acquire); });
 
@@ -787,18 +798,20 @@ void Engine::start()
                                }
 
                                // 호가도 체결과 같은 규칙 — 버린 수를 세고 넘침이 시작될 때 한 번 남긴다.
-                               if (!ob_queue_.push(std::move(ob)))
+                               const auto m = ob_mx_.consumer_of(ob.sym);
+
+                               if (!ob_mx_.push_to(kProducerWs, m, ob))
                                {
                                    if (ob_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
                                    {
                                        LOG_WARN("[WS] 호가 큐 가득 — 호가 폐기 시작 " + in.ticker.str() +
-                                                " (전략 스레드 정체 의심)");
+                                                " (샤드 스레드 정체 의심)");
                                    }
 
                                    return;
                                }
 
-                               strat_wake_.notify();
+                               shards_[m]->wake().notify();
                            },
                            [this](const TradeData& in)
                            {
@@ -820,18 +833,20 @@ void Engine::start()
 
                                // 전략 스레드가 멈추면 큐가 차고 틱이 여기서 사라진다 — 세어 두고
                                //  넘침이 시작될 때 한 번 남긴다(09-11 15:15 잔고 조회 정체). [why D-055]
-                               if (!td_queue_.push(std::move(td)))
+                               const auto m = td_mx_.consumer_of(td.sym);
+
+                               if (!td_mx_.push_to(kProducerWs, m, td))
                                {
                                    if (td_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
                                    {
                                        LOG_WARN("[WS] 체결 큐 가득 — 틱 폐기 시작 " + in.ticker.str() +
-                                                " (전략 스레드 정체 의심)");
+                                                " (샤드 스레드 정체 의심)");
                                    }
 
                                    return;
                                }
 
-                               strat_wake_.notify();
+                               shards_[m]->wake().notify();
 #ifdef HAS_ZMQ
                                if (zmq_bridge_)
                                {
@@ -877,6 +892,12 @@ void Engine::start()
 
     // jthread는 stop_token을 첫 인자로 넣으므로 멤버 함수 포인터(this가 첫 인자)는 람다로 감싼다.
     data_thread_     = std::jthread([this](std::stop_token st) { data_thread_fn(st); });
+
+    for (uint32_t m = 0; m < kStrategyShards; ++m)
+    {
+        shard_threads_.emplace_back([this, m](std::stop_token st) { shard_thread_fn(st, m); });
+    }
+
     strategy_thread_ = std::jthread([this](std::stop_token st) { strategy_thread_fn(st); });
     order_thread_    = std::jthread([this](std::stop_token st) { order_thread_fn(st); });
     fill_thread_     = std::jthread([this](std::stop_token st) { fill_thread_fn(st); });
@@ -977,6 +998,11 @@ void Engine::request_shutdown()
     {
         t->request_stop(); // WakeGate의 stop_token 대기와 sleep_unless_stopped가 여기서 깬다
     }
+
+    for (auto& t : shard_threads_)
+    {
+        t.request_stop();
+    }
 }
 
 void Engine::stop()
@@ -1002,6 +1028,15 @@ void Engine::stop()
     if (order_thread_.joinable())
     {
         order_thread_.join();
+    }
+
+    // 샤드가 먼저 — 샤드가 넣던 봉투를 전략 스레드가 비운 뒤 선다.
+    for (auto& t : shard_threads_)
+    {
+        if (t.joinable())
+        {
+            t.join();
+        }
     }
 
     if (strategy_thread_.joinable())
@@ -1418,8 +1453,8 @@ void Engine::data_thread_fn(std::stop_token st)
 
                 // REST 현재가 폴링 → TradeData(WS on_trade 경로 대체). 깨진 일봉(G1/G2) 대신 살아있는
                 //  get_current_price를 쓰고, ITB는 이 틱으로 1분 버킷 채널을 구성/스탑 평가한다.
-                //  종전엔 td_queue_에 넣었는데, WS 폴백 중 WS가 되살아나면 생산자가 둘이 됐다 — 폴러의
-                //  싱크는 rest_td_queue_라 그 경우가 없다. [why D-062]
+                //  종전엔 WS와 같은 큐에 넣었는데, WS 폴백 중 WS가 되살아나면 생산자가 둘이 됐다 — 폴러의
+                //  싱크는 행렬의 데이터 스레드 행이라 그 경우가 없다. [why D-062]
                 data_count_ += poller_->poll_universe(watch_specs_, std::time(nullptr));
             }
             else
@@ -1458,13 +1493,14 @@ void Engine::data_thread_fn(std::stop_token st)
                         auto& md = bars[0];
                         md.bar_index = static_cast<int>(data_count_.load());
                         md.sym       = symbols_.intern(md.ticker);
+                        const auto m = bars_mx_.consumer_of(md.sym);
 
-                        while (!market_queue_.push(md) && !st.stop_requested())
+                        while (!bars_mx_.push_to(0, m, md) && !st.stop_requested())
                         {
                             std::this_thread::sleep_for(1ms);
                         }
 
-                        strat_wake_.notify();
+                        shards_[m]->wake().notify();
                         ++data_count_;
                     }
                 }
@@ -1742,8 +1778,6 @@ void Engine::strategy_thread_fn(std::stop_token st)
     dispatcher.set_guardian([this](const std::string& t) { return guardian_tickers_.count(t) > 0; });
     auto push_signal = [&](const OrderSignal& sig) { dispatcher.submit(sig); };
 
-    std::vector<OrderSignal> batch_buf; // MM 다건 발주 재사용 버퍼 (per-tick 할당 회피)
-
     // 기동 점검 — 모의계좌 주문경로 검증용 1회성 시장가 매수(config startup_probe).
     //  이 스레드가 order_queue_ 단일 생산자라 여기서 딱 1번 push하면 SPSC 위반 없음.
     //  하루 한 번만 — 표식 파일이 있으면 재기동에서는 건너뛴다. 체결이 확인되면 되판다(아래 루프).
@@ -1786,59 +1820,14 @@ void Engine::strategy_thread_fn(std::stop_token st)
         }
     }
 
-    // strategies_ 무락 순회용 StrategyBase* 스냅샷. data_thread의 재스캔 등록·해제가
-    // strat_version_을 올릴 때만 락 하에 재구성한다(틱마다 락 회피). 뗀 전략은 retired_가
-    // 붙들고 있어 재구성 전의 옛 포인터도 유효하다(reap_retired가 seen 버전을 보고 파기).
-    // 국면 게이트(비활성 전략의 신규 매수)와 청산 관리 티커 차단은 디스패처가 한다.
-    // 지금 처리 중인 틱의 수신 시각. 봉·호가 경로는 0으로 두어 CSV에서 -1(측정 불가)로 남는다.
-    int64_t cur_tick_ns = 0;
-    auto emit_from = [&](StrategyBase* s, const OrderSignal& sig)
-    {
-        OrderSignal st = sig;
-        st.t_tick_ns   = cur_tick_ns;
-
-        // 전략이 안 찍었으면 여기서 한 번. 신호 종목이 지금 틱과 다를 수 있어(테마·청산) 틱 id를 그대로 쓰지 않는다.
-        if (st.sym == sym::kNone)
-        {
-            st.sym = symbols_.intern(st.ticker);
-        }
-
-        dispatcher.from_strategy(s->is_active(), s->id(), st);
-    };
-
-    std::vector<StrategyBase*> snap;
-    uint64_t seen_ver = static_cast<uint64_t>(-1);
-
-    // 종목 id → 보는 전략들. 스냅샷과 같이 재구성한다 — 틱마다 전략 전부를 돌지 않는다(원칙 6). [why D-071]
-    strat::Router router;
-
+    // 틱은 샤드 스레드가 돌린다(shard_thread_fn). 여기는 샤드가 보낸 봉투와 수동주문을 디스패처 한 곳으로 모아
+    //  순번·슬롯·교체·강제청산 같은 종목 횡단 판단을 한 스레드에서 한다(원칙 4). [why D-071]
     // 유휴 전이: 마지막 일 뒤 이 시간은 yield로 돌고, 넘기면 strat_wake_에서 잔다. [why D-071]
     constexpr auto kStratSpinBudget = std::chrono::microseconds(200);
     std::chrono::steady_clock::time_point idle_since{};
 
     while (!st.stop_requested())
     {
-        uint64_t ver = strat_version_.load(std::memory_order_acquire);
-
-        if (ver != seen_ver)
-        {
-            std::lock_guard<std::mutex> lk(strat_mutex_);
-            snap.clear();
-            snap.reserve(strategies_.size());
-
-            for (auto& s : strategies_)
-            {
-                snap.push_back(s.get());
-            }
-
-            router.rebuild(snap, [this](const std::string& t) { return symbols_.intern(t); });
-            LOG_INFO("[StrategyThread] 라우팅 재구성: 전략 " + std::to_string(snap.size()) + "개, 종목 배정 " +
-                     std::to_string(router.routes()) + "건, 전부 받는 전략 " + std::to_string(router.all_count()) + "개");
-            seen_ver = ver;
-            // 뗀 전략은 이 시점부터 스냅샷에 없다. data_thread는 이 값을 보고 파기한다.
-            strat_seen_version_.store(ver, std::memory_order_release);
-        }
-
         const auto loop_now = std::chrono::steady_clock::now();
         dispatcher.flush_held(loop_now);
 
@@ -1902,96 +1891,10 @@ void Engine::strategy_thread_fn(std::stop_token st)
 
         try
         {
-            // 호가 (국내 — 고주파)
-            while (auto opt = ob_queue_.pop())
+            // 샤드가 보낸 신호 봉투 — 국면 게이트(비활성 전략의 신규 매수)와 청산 관리 티커 차단은 디스패처가 한다.
+            while (auto e = shard_out_.pop())
             {
-                router.for_each(opt->sym, [&](StrategyBase* s)
-                {
-                    auto sig = s->on_order_book(*opt);
-
-                    if (sig && sig->side != OrderSide::NONE)
-                    {
-                        emit_from(s, *sig);
-                    }
-
-                    // 다건 발주 경로 (MM 등) — 취소/정정 포함. 기본 no-op.
-                    // CANCEL/REPLACE는 side가 NONE이어도 통과(생명주기 액션은 NONE 가드 우회).
-                    batch_buf.clear();
-                    s->on_order_book_batch(*opt, batch_buf);
-
-                    for (auto& b : batch_buf)
-                    {
-                        if (b.action != OrderAction::NEW || b.side != OrderSide::NONE)
-                        {
-                            emit_from(s, b);
-                        }
-                    }
-                });
-
-                did_work = true;
-            }
-
-            // 체결 (미국 + 국내) — WS 콜백 큐가 비면 데이터 스레드의 REST 대체 틱 큐를 본다.
-            auto pop_trade = [this]() -> std::optional<TradeData>
-            {
-                auto r = td_queue_.pop();
-
-                if (!r)
-                {
-                    r = rest_td_queue_.pop();
-                }
-
-                return r;
-            };
-
-            while (auto opt = pop_trade())
-            {
-                cur_tick_ns = opt->recv_ns;
-                // 생산자가 id를 안 찍었으면 문자열로 등록한다(리플레이·옛 경로). 캐시와 라우팅이 같은 id를 쓴다.
-                const sym::SymbolId id = opt->sym != sym::kNone ? opt->sym : symbols_.intern(opt->ticker);
-                opt->sym               = id; // 전략은 td.sym으로만 비교한다 — 여기서 한 번 채운다
-                // 운영단말 현재가용 캐시 — id 배열에 relaxed store 둘.
-                set_last_px(id, opt->price);
-
-                router.for_each(id, [&](StrategyBase* s)
-                {
-                    auto sig = s->on_trade(*opt);
-
-                    if (sig && sig->side != OrderSide::NONE)
-                    {
-                        emit_from(s, *sig);
-                    }
-
-                    // 다건 발주 경로 (이격도 분할매매 등) — 체결틱/현재가 하트비트 구동.
-                    // CANCEL/REPLACE는 side가 NONE이어도 통과(생명주기 액션은 NONE 가드 우회).
-                    batch_buf.clear();
-                    s->on_trade_batch(*opt, batch_buf);
-
-                    for (auto& b : batch_buf)
-                    {
-                        if (b.action != OrderAction::NEW || b.side != OrderSide::NONE)
-                        {
-                            emit_from(s, b);
-                        }
-                    }
-                });
-
-                did_work = true;
-            }
-
-            // 일봉
-            if (auto opt = market_queue_.pop())
-            {
-                router.for_each(opt->sym, [&](StrategyBase* s)
-                {
-                    auto sig = s->on_data(*opt);
-
-                    if (sig && sig->side != OrderSide::NONE)
-                    {
-                        emit_from(s, *sig);
-                    }
-                });
-
+                dispatcher.from_strategy(e->active, e->strategy_id, e->sig);
                 did_work = true;
             }
         }
@@ -2021,14 +1924,132 @@ void Engine::strategy_thread_fn(std::stop_token st)
             continue;
         }
 
-        strat_wake_.wait_for(10ms, st, [this]
-        {
-            return market_queue_.empty() && ob_queue_.empty() && td_queue_.empty() && rest_td_queue_.empty() &&
-                   manual_inbox_.empty();
-        });
+        strat_wake_.wait_for(10ms, st, [this] { return shard_out_.empty() && manual_inbox_.empty(); });
     }
 
     LOG_INFO("[StrategyThread] 종료");
+}
+
+void Engine::shard_thread_fn(std::stop_token st, uint32_t m)
+{
+    auto& shard = *shards_[m];
+    LOG_INFO("[Shard " + std::to_string(m) + "] 시작");
+
+    // strategies_ 무락 순회용 StrategyBase* 스냅샷. data_thread의 재스캔 등록·해제가
+    // strat_version_을 올릴 때만 락 하에 재구성한다(틱마다 락 회피). 뗀 전략은 retired_가
+    // 붙들고 있어 재구성 전의 옛 포인터도 유효하다(reap_retired가 seen 버전을 보고 파기).
+    std::vector<StrategyBase*> snap;
+    uint64_t                   seen_ver = static_cast<uint64_t>(-1);
+    const auto                 sym_of   = [this](std::string_view t) { return symbols_.intern(t); };
+
+    // 신호 봉투 — 전략 상태(active·id)는 여기서 읽는다. 전략 스레드는 전략 객체를 보지 않는다.
+    //  tick_ns는 체결 경로만 0이 아니다 — 봉·호가는 CSV에서 -1(측정 불가)로 남는다.
+    const auto emit = [this, m](StrategyBase* s, const OrderSignal& sig, int64_t tick_ns)
+    {
+        strat::Emitted e;
+        e.sig           = sig;
+        e.sig.t_tick_ns = tick_ns;
+
+        // 전략이 안 찍었으면 여기서 한 번. 신호 종목이 지금 틱과 다를 수 있어(테마·청산) 틱 id를 그대로 쓰지 않는다.
+        if (e.sig.sym == sym::kNone)
+        {
+            e.sig.sym = symbols_.intern(e.sig.ticker);
+        }
+
+        e.strategy_id = s->id();
+        e.active      = s->is_active();
+
+        // 전략 스레드가 정체돼 봉투 큐가 찬 상태 — 기다리면 이 샤드의 틱이 밀린다. 신호를 버리고 센다(D-073과 같은 규칙).
+        if (!shard_out_.push(std::move(e)))
+        {
+            const auto n = shard_dropped_.fetch_add(1, std::memory_order_relaxed) + 1;
+
+            if (n == 1 || n % 100 == 0)
+            {
+                LOG_WARN("[Shard " + std::to_string(m) + "] 봉투 큐 가득 — 신호 버림 " + sig.ticker + " (누적 " +
+                         std::to_string(n) + ")");
+            }
+
+            return;
+        }
+
+        strat_wake_.notify();
+    };
+    // 운영단말 현재가용 캐시 — id 배열에 relaxed store 둘. 종목은 샤드 하나만 지나므로 쓰는 스레드도 하나다.
+    const auto on_price = [this](sym::SymbolId id, double px) { set_last_px(id, px); };
+
+    // 유휴 전이: 전략 스레드와 같은 정책 — 200us yield 뒤 자기 게이트에서 잔다. [why D-071]
+    constexpr auto                        kSpinBudget = std::chrono::microseconds(200);
+    std::chrono::steady_clock::time_point idle_since{};
+
+    while (!st.stop_requested())
+    {
+        const uint64_t ver = strat_version_.load(std::memory_order_acquire);
+
+        if (ver != seen_ver)
+        {
+            {
+                std::lock_guard<std::mutex> lk(strat_mutex_);
+                snap.clear();
+                snap.reserve(strategies_.size());
+
+                for (auto& s : strategies_)
+                {
+                    snap.push_back(s.get());
+                }
+
+                shard.rebuild(snap, ver, sym_of);
+            }
+
+            LOG_INFO("[Shard " + std::to_string(m) + "] 라우팅 재구성: 전략 " + std::to_string(snap.size()) +
+                     "개, 종목 배정 " + std::to_string(shard.router().routes()) + "건, 전부 받는 전략 " +
+                     std::to_string(shard.router().all_count()) + "개");
+            seen_ver = ver;
+            // 뗀 전략은 모든 샤드가 새 스냅샷을 본 뒤에야 파기한다 — 가장 뒤처진 샤드의 버전을 알린다.
+            uint64_t min_seen = ver;
+
+            for (const auto& other : shards_)
+            {
+                min_seen = std::min(min_seen, other->seen_version());
+            }
+
+            strat_seen_version_.store(min_seen, std::memory_order_release);
+        }
+
+        bool did_work = false;
+
+        try
+        {
+            did_work = shard.step(emit, on_price, sym_of);
+        }
+        catch (const std::exception& e)
+        {
+            LOG_ERROR("[Shard " + std::to_string(m) + "] 예외: " + std::string(e.what()));
+        }
+
+        if (did_work)
+        {
+            idle_since = std::chrono::steady_clock::time_point{};
+            continue;
+        }
+
+        const auto now_i = std::chrono::steady_clock::now();
+
+        if (idle_since == std::chrono::steady_clock::time_point{})
+        {
+            idle_since = now_i;
+        }
+
+        if (now_i - idle_since < kSpinBudget)
+        {
+            std::this_thread::yield();
+            continue;
+        }
+
+        shard.wake().wait_for(10ms, st, [&shard] { return shard.empty(); });
+    }
+
+    LOG_INFO("[Shard " + std::to_string(m) + "] 종료");
 }
 
 // ─── 주문 실행 스레드 ─────────────────────────────────────────────────────
@@ -2310,11 +2331,16 @@ void Engine::control_thread_fn(std::stop_token st)
         if (++hw_tick >= kHighWaterEvery)
         {
             hw_tick = 0;
-            LOG_INFO("[큐 고수위] market=" + std::to_string(market_queue_.high_water()) + "/" +
-                     std::to_string(market_queue_.capacity()) + " ob=" + std::to_string(ob_queue_.high_water()) + "/" +
-                     std::to_string(ob_queue_.capacity()) + " td=" + std::to_string(td_queue_.high_water()) + "/" +
-                     std::to_string(td_queue_.capacity()) + " rest_td=" + std::to_string(rest_td_queue_.high_water()) +
-                     "/" + std::to_string(rest_td_queue_.capacity()) + " order=" +
+            std::string shard_hw; // 샤드마다 세 열 가운데 가장 높았던 셀
+
+            for (const auto& sh : shards_)
+            {
+                shard_hw += (shard_hw.empty() ? "" : ",") + std::to_string(sh->high_water());
+            }
+
+            LOG_INFO("[큐 고수위] shard=" + shard_hw + "/4096 shard_out=" + std::to_string(shard_out_.size()) + "/" +
+                     std::to_string(shard_out_.capacity()) + " shard_dropped=" +
+                     std::to_string(shard_dropped_.load(std::memory_order_relaxed)) + " order=" +
                      std::to_string(order_queue_.high_water()) + "/" + std::to_string(order_queue_.capacity()) +
                      " fill=" + std::to_string(fill_queue_.high_water()) + "/" + std::to_string(fill_queue_.capacity()) +
                      " fill_dropped=" + std::to_string(fill_dropped_.load(std::memory_order_relaxed)) +

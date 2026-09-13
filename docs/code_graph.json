@@ -39,7 +39,7 @@
     {
       "from": "core",
       "to": "strategy",
-      "weight": 2
+      "weight": 3
     },
     {
       "from": "core",
@@ -183,6 +183,7 @@
     "core/ShardMatrix.h": "core",
     "core/SignalDispatcher.h": "core",
     "core/StrategyRouter.h": "core",
+    "core/StrategyShard.h": "core",
     "core/SymbolTable.h": "core",
     "core/TickCapture.h": "core",
     "core/TickSize.h": "core",
@@ -344,6 +345,7 @@
       "core/RingBuffer.h",
       "core/SignalDispatcher.h",
       "core/StrategyRouter.h",
+      "core/StrategyShard.h",
       "core/SymbolTable.h",
       "core/TickCapture.h",
       "core/Types.h",
@@ -422,6 +424,14 @@
     ],
     "core/StrategyRouter.h": [
       "core/SymbolTable.h",
+      "strategy/StrategyBase.h"
+    ],
+    "core/StrategyShard.h": [
+      "core/ShardMatrix.h",
+      "core/StrategyRouter.h",
+      "core/SymbolTable.h",
+      "core/Types.h",
+      "core/WakeGate.h",
       "strategy/StrategyBase.h"
     ],
     "core/TickCapture.h": [
@@ -730,17 +740,25 @@
       "core/ShardMatrix.h",
       "core/TickCapture.h"
     ],
+    "core/ShardMatrix.h": [
+      "core/StrategyShard.h"
+    ],
     "core/SignalDispatcher.h": [
       "core/Engine.h",
       "core/SignalDispatcher.cpp"
     ],
     "core/StrategyRouter.h": [
+      "core/Engine.h",
+      "core/StrategyShard.h"
+    ],
+    "core/StrategyShard.h": [
       "core/Engine.h"
     ],
     "core/SymbolTable.h": [
       "core/Engine.h",
       "core/ShardMatrix.h",
       "core/StrategyRouter.h",
+      "core/StrategyShard.h",
       "core/Types.h"
     ],
     "core/TickCapture.h": [
@@ -768,6 +786,7 @@
       "core/PaperExecutor.h",
       "core/RegimeController.h",
       "core/SignalDispatcher.h",
+      "core/StrategyShard.h",
       "core/TickCapture.h",
       "core/TickSize.h",
       "ipc/OrderRouter.h",
@@ -787,6 +806,7 @@
       "api/WebSocketClient.cpp",
       "core/Engine.h",
       "core/FeedMux.h",
+      "core/StrategyShard.h",
       "core/TickCapture.h",
       "ipc/OrderRouter.cpp",
       "strategy/DeviationScaleStrategy.h"
@@ -850,6 +870,7 @@
     "strategy/StrategyBase.h": [
       "core/Engine.h",
       "core/StrategyRouter.h",
+      "core/StrategyShard.h",
       "strategy/DeviationScaleStrategy.h",
       "strategy/FixedIntervalStrategy.h",
       "strategy/IntradayBreakoutStrategy.h",
@@ -923,18 +944,18 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 26
+      "in_degree": 27
     },
     {
       "header": "utils/Logger.h",
       "in_degree": 25
     },
     {
-      "header": "core/KstTime.h",
-      "in_degree": 12
+      "header": "strategy/StrategyBase.h",
+      "in_degree": 13
     },
     {
-      "header": "strategy/StrategyBase.h",
+      "header": "core/KstTime.h",
       "in_degree": 12
     },
     {
@@ -947,7 +968,11 @@
     },
     {
       "header": "core/WakeGate.h",
-      "in_degree": 6
+      "in_degree": 7
+    },
+    {
+      "header": "core/SymbolTable.h",
+      "in_degree": 5
     },
     {
       "header": "risk/OrderGate.h",
@@ -963,10 +988,6 @@
     },
     {
       "header": "core/RingBuffer.h",
-      "in_degree": 4
-    },
-    {
-      "header": "core/SymbolTable.h",
       "in_degree": 4
     },
     {

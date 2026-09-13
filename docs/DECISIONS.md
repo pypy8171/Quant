@@ -3045,6 +3045,26 @@ KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 
   가득 참을 드롭으로 푼다. 행렬 안에 `WakeGate`를 두기 — 샤드 스레드의 유휴 정책(200us yield 뒤 잠들기)은 배선이 정하고
   행렬은 큐만 맡는 편이 시험이 단순하다.
 
+**Phase 4 앞 단계 둘째 조각 (2026-09-13)** — 전략 샤드를 조각으로 두고 엔진의 틱 큐를 행렬로 배선한다(샤드 M=1):
+
+- `strat::Shard`(`Quant/include/core/StrategyShard.h`). 호가·체결·봉 세 행렬의 열 m을 `Router`로 비우고 신호를 봉투
+  `strat::Emitted{sig, strategy_id, active}`로 싱크에 넘긴다. 전략 상태(active·id)는 샤드 스레드가 읽어 봉투에 담는다 —
+  디스패치 스레드는 전략 객체를 보지 않는다. 샤드마다 `WakeGate` 하나, 라우팅 재구성 버전을 `seen_version()`으로 알린다.
+- 배선(`Engine`): `market_queue_`·`ob_queue_`·`td_queue_`·`rest_td_queue_`가 행렬 셋(`bars_mx_` 1×M, `ob_mx_` 1×M,
+  `td_mx_` 2×M)이 됐다. D-053이 두 큐로 풀던 "WS 콜백과 데이터 스레드가 같은 체결 큐의 생산자가 된다"를 행렬의 행 둘
+  (`kProducerWs`·`kProducerData`)로 푼다. 생산자는 `consumer_of(sym)`으로 열을 고르고 push 뒤 그 샤드만 깨운다. 샤드 스레드
+  `shard_thread_fn(m)`이 열 m을 비워 `MpscQueue<Emitted> shard_out_`(생산자가 M, 원칙 5)에 넣고, 옛 전략 스레드는 디스패치
+  스레드가 돼 봉투와 수동주문을 `SignalDispatcher`로 모은다. 봉투 큐가 차면 신호를 버리고 센다(`shard_dropped_`, D-073과
+  같은 규칙). 뗀 전략은 모든 샤드가 새 스냅샷을 본 뒤 파기한다(`strat_seen_version_`은 샤드 버전의 최소).
+- 측정(`test_strategy_shard` 3절, 원칙 7, 논리 코어 16, Release): 종목 240 × 1,000틱, 틱당 xorshift 300바퀴(약 450ns)를
+  샤드 1개 103~111ms, 2개 52~54ms, 4개 26~28ms — 전략 계산이 샤드 수로 나뉜다. 첫 조각의 행렬 측정이 못 보여 준 값이다.
+- 첫 조각의 "디스패처를 주문 스레드 쪽으로"는 하지 않았다. 주문 스레드는 KIS REST 왕복(수백 ms~수 초)에 묶이는 스레드라
+  거기에 디스패처를 두면 신호 판단이 발주 뒤에 줄을 선다. 디스패처는 자기 스레드(디스패치)에 남고 샤드→디스패치 홉이
+  하나 는다 — 그 지연은 latency_trace의 틱 수신→신호 구간에 그대로 잡힌다.
+- 미룬 것 둘. 샤드 M>1은 전략 객체가 공유라 샤드마다 전략 집합을 복제해야 한다(`kStrategyShards = 1` 고정, 다음 조각이
+  복제와 config 키). 수신 N>1(FeedMux 없이 소켓마다 셀에 직접 push)은 `TickCapture`가 SPSC고 `PaperExecutor::on_tick`이
+  `fill_queue_`의 생산자라 WS 콜백이 한 스레드여야 한다 — FeedMux를 레인 모드로 바꾸는 조각이 먼저다.
+
 ### D-072 틱 집계 봉의 기저를 1분으로 두고 판단 봉은 resample로 만든다 — REST 분봉 timestamp는 진짜 UTC (2026-09-13)
 **상태**: 채택 (`wt/bars-1m`, `test_bar_aggregator` 131·`test_kis_decode` 68 통과, 라이브는 09-14 장부터 `bar_source` 기본 `ws`)
 
