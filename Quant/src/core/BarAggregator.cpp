@@ -161,9 +161,9 @@ int BarAggregator::close_stale(std::time_t now_utc)
     return n;
 }
 
-int BarAggregator::close_stale(const std::string& ticker, std::time_t now_utc)
+int BarAggregator::close_stale(sym::SymbolId sym, std::time_t now_utc)
 {
-    auto it = series_.find(ticker);
+    auto it = series_.find(sym);
 
     if (it == series_.end() || !it->second.live.active)
     {
@@ -193,7 +193,7 @@ void BarAggregator::trim(Series& s)
 
 bool BarAggregator::on_tick(const TradeData& td)
 {
-    if (td.price <= 0.0 || td.ticker.empty())
+    if (td.price <= 0.0 || td.sym == sym::kNone)
     {
         return false;
     }
@@ -206,7 +206,12 @@ bool BarAggregator::on_tick(const TradeData& td)
         return false;
     }
 
-    Series& s = series_[td.ticker];
+    Series& s = series_[td.sym];
+
+    if (s.ticker.empty())
+    {
+        s.ticker = td.ticker;
+    }
 
     if (s.live.active && slot < s.live.slot)
     {
@@ -251,7 +256,8 @@ bool BarAggregator::on_tick(const TradeData& td)
         }
 
         md               = MarketData{};
-        md.ticker        = td.ticker;
+        md.ticker        = s.ticker;
+        md.sym           = td.sym;
         md.market        = td.market;
         md.open = md.high = md.low = md.close = td.price;
         md.volume        = td.quantity;
@@ -277,15 +283,20 @@ bool BarAggregator::on_tick(const TradeData& td)
     return true;
 }
 
-int BarAggregator::seed(const std::string& ticker, const std::vector<MarketData>& rest_bars)
+int BarAggregator::seed(sym::SymbolId sym, const std::vector<MarketData>& rest_bars)
 {
-    if (ticker.empty() || rest_bars.empty())
+    if (sym == sym::kNone || rest_bars.empty())
     {
         return 0;
     }
 
-    Series& s     = series_[ticker];
+    Series& s     = series_[sym];
     int     added = 0;
+
+    if (s.ticker.empty())
+    {
+        s.ticker = rest_bars.front().ticker;
+    }
 
     for (const MarketData& rb : rest_bars)
     {
@@ -347,7 +358,8 @@ int BarAggregator::seed(const std::string& ticker, const std::vector<MarketData>
 
     for (size_t i = 0; i < s.closed.size(); ++i)
     {
-        s.closed[i].ticker    = ticker;
+        s.closed[i].ticker    = s.ticker;
+        s.closed[i].sym       = sym;
         s.closed[i].bar_index = 0; // snapshot이 다시 매긴다
     }
 
@@ -355,10 +367,10 @@ int BarAggregator::seed(const std::string& ticker, const std::vector<MarketData>
     return added;
 }
 
-std::vector<MarketData> BarAggregator::snapshot(const std::string& ticker, int max_count) const
+std::vector<MarketData> BarAggregator::snapshot(sym::SymbolId sym, int max_count) const
 {
     std::vector<MarketData> out;
-    const auto              it = series_.find(ticker);
+    const auto              it = series_.find(sym);
 
     if (it == series_.end())
     {
@@ -392,15 +404,15 @@ std::vector<MarketData> BarAggregator::snapshot(const std::string& ticker, int m
     return out;
 }
 
-int BarAggregator::closed_count(const std::string& ticker) const
+int BarAggregator::closed_count(sym::SymbolId sym) const
 {
-    const auto it = series_.find(ticker);
+    const auto it = series_.find(sym);
     return it == series_.end() ? 0 : static_cast<int>(it->second.closed.size());
 }
 
-BarSlot BarAggregator::current_slot(const std::string& ticker) const
+BarSlot BarAggregator::current_slot(sym::SymbolId sym) const
 {
-    const auto it = series_.find(ticker);
+    const auto it = series_.find(sym);
 
     if (it == series_.end() || !it->second.live.active)
     {
@@ -410,8 +422,8 @@ BarSlot BarAggregator::current_slot(const std::string& ticker) const
     return it->second.live.slot;
 }
 
-void BarAggregator::clear(const std::string& ticker)
+void BarAggregator::clear(sym::SymbolId sym)
 {
-    series_.erase(ticker);
+    series_.erase(sym);
 }
 } // namespace bars

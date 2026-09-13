@@ -21,7 +21,8 @@ class PriceTargetStrategy : public StrategyBase
 public:
     struct PriceTarget
     {
-        std::string ticker;
+        std::string   ticker;
+        sym::SymbolId sym = sym::kNone; // on_start에서 ticker로 한 번 채운다 — 틱 비교는 이 값
         double      buy_price    = 0;  // 이 가격 이하면 매수 (0=비활성)
         double      sell_price   = 0;  // 이 가격 이상이면 매도 (0=비활성)
         int         quantity     = 1;
@@ -30,7 +31,8 @@ public:
 
     struct LimitOrder
     {
-        std::string ticker;
+        std::string   ticker;
+        sym::SymbolId sym = sym::kNone; // 위와 같다
         OrderSide   side     = OrderSide::BUY;
         double      price    = 0;
         int         quantity = 1;
@@ -94,6 +96,16 @@ public:
 
     void on_start() override
     {
+        for (auto& t : targets_)
+        {
+            t.sym = symbol_of(t.ticker);
+        }
+
+        for (auto& lo : limit_orders_)
+        {
+            lo.sym = symbol_of(lo.ticker);
+        }
+
         // last_buy/sell 타임포인트 초기화
         last_buy_.assign(targets_.size(), std::chrono::steady_clock::time_point{});
         last_sell_.assign(targets_.size(), std::chrono::steady_clock::time_point{});
@@ -124,7 +136,7 @@ public:
     std::optional<OrderSignal> on_order_book(const OrderBook& ob) override
     {
         // 지정가 예약 주문 먼저
-        auto lo = check_limit_order(ob.ticker);
+        auto lo = check_limit_order(ob.sym, ob.ticker);
 
         if (lo)
         {
@@ -133,7 +145,7 @@ public:
 
         // 가격 목표 — 매도호가[0]을 현재가 대리로 사용
         double price = ob.asks[0].price > 0 ? ob.asks[0].price : ob.bids[0].price;
-        return check_price_target(ob.ticker, price, ob.hhmmss);
+        return check_price_target(ob.sym, ob.ticker, price, ob.hhmmss);
     }
 
     // 체결 이벤트 — 체결가 기준 가격 체크
@@ -145,14 +157,14 @@ public:
         }
 
         // 지정가 예약 주문 먼저
-        auto lo = check_limit_order(td.ticker);
+        auto lo = check_limit_order(td.sym, td.ticker);
 
         if (lo)
         {
             return lo;
         }
 
-        return check_price_target(td.ticker, td.price, td.hhmmss);
+        return check_price_target(td.sym, td.ticker, td.price, td.hhmmss);
     }
 
     void on_stop() override
@@ -162,11 +174,11 @@ public:
 
 private:
     // ── 예약 지정가 주문 (1회) ────────────────────────────────────────────
-    std::optional<OrderSignal> check_limit_order(const std::string& ticker)
+    std::optional<OrderSignal> check_limit_order(sym::SymbolId sym, const std::string& ticker)
     {
         for (auto& lo : limit_orders_)
         {
-            if (lo.placed || lo.ticker != ticker)
+            if (lo.placed || !same_symbol(lo.sym, lo.ticker, sym, ticker))
             {
                 continue;
             }
@@ -179,6 +191,7 @@ private:
             lo.placed = true;
             OrderSignal sig;
             sig.ticker      = lo.ticker;
+            sig.sym         = lo.sym;
             sig.side        = lo.side;
             sig.type        = OrderType::LIMIT;
             sig.price       = lo.price;
@@ -198,7 +211,8 @@ private:
     }
 
     // ── 가격 목표 도달 시 시장가 주문 ────────────────────────────────────
-    std::optional<OrderSignal> check_price_target(const std::string& ticker,
+    std::optional<OrderSignal> check_price_target(sym::SymbolId sym,
+                                                   const std::string& ticker,
                                                    double price,
                                                    int32_t hhmmss)
     {
@@ -220,7 +234,7 @@ private:
         {
             auto& t = targets_[i];
 
-            if (t.ticker != ticker)
+            if (!same_symbol(t.sym, t.ticker, sym, ticker))
             {
                 continue;
             }
@@ -265,6 +279,7 @@ private:
     {
         OrderSignal sig;
         sig.ticker      = t.ticker;
+        sig.sym         = t.sym;
         sig.side        = side;
         sig.type        = OrderType::MARKET;
         sig.quantity    = t.quantity;

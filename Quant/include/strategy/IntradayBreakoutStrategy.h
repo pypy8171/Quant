@@ -90,6 +90,7 @@ public:
 
     void on_start() override
     {
+        sym_ = symbol_of(ticker_);
         closes_.clear();
         cur_hhmm_ = -1;
         cur_bucket_last_ = 0.0;
@@ -121,7 +122,7 @@ public:
 
     std::optional<OrderSignal> on_trade(const TradeData& td) override
     {
-        if (td.ticker != ticker_)
+        if (!same_symbol(sym_, ticker_, td.sym, td.ticker))
         {
             return std::nullopt;
         }
@@ -444,6 +445,7 @@ private:
     {
         OrderSignal s;
         s.ticker = ticker_;
+        s.sym    = sym_;
         s.side = side;
         s.type = OrderType::MARKET;
         s.quantity = qty;
@@ -458,6 +460,7 @@ private:
     static std::string px_str(double v) { return std::to_string(static_cast<long long>(std::llround(v))); }
 
     std::string ticker_;
+    sym::SymbolId sym_ = sym::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
     std::string name_; // 표시명(로깅 전용)
     int entry_qty_;   // 신규 돌파 진입 수량(명목 미지정 시 고정)
     int hold_qty_;    // 현재 보유수량(시드분 또는 진입분) — 매도 전량 기준

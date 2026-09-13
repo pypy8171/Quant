@@ -36,6 +36,7 @@ public:
 
     void on_start() override
     {
+        sym_ = symbol_of(ticker_);
         last_signal_ = std::chrono::steady_clock::now() -
                        std::chrono::seconds(interval_sec_); // 즉시 첫 신호 허용
         phase_ = Phase::BUY;
@@ -51,7 +52,7 @@ public:
     // 체결 이벤트마다 시간 체크
     std::optional<OrderSignal> on_trade(const TradeData& td) override
     {
-        if (td.ticker != ticker_)
+        if (!same_symbol(sym_, ticker_, td.sym, td.ticker))
         {
             return std::nullopt;
         }
@@ -71,6 +72,7 @@ public:
 
         OrderSignal sig;
         sig.ticker      = ticker_;
+        sig.sym         = sym_;
         sig.market      = Market::KR;
         sig.type        = OrderType::MARKET;
         sig.ref_price   = td.price; // 시장가는 price=0 — 이 값이 없으면 1주문 명목 상한이 비어 버린다
@@ -105,6 +107,7 @@ private:
     enum class Phase { BUY, SELL };
 
     std::string ticker_;
+    sym::SymbolId sym_ = sym::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
     int buy_qty_, sell_qty_, interval_sec_;
     Phase phase_ = Phase::BUY;
     std::chrono::steady_clock::time_point last_signal_{};

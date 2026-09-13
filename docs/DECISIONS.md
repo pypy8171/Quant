@@ -2985,6 +2985,27 @@ KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 
   `OrderSignal` 문자열 전부 제거(id·enum·고정 배열로) — 위 측정대로 자리만 옮긴다. 남은 hot path 문자열은
   `TradeData.ticker`(전략들이 ticker 키로 상태를 든다)와 `MarketData.ticker` — 전략 상태를 id 키로 바꾸는 조각에서 같이 뺀다.
 
+**Phase 2 잔여 셋째 조각 (2026-09-13)** — 전략 상태를 종목 id 키로:
+
+- 전략 헤더 열 개가 틱마다 `td.ticker != ticker_` 문자열 비교를 하거나 `unordered_set<std::string>`·`unordered_map<std::string, …>`을
+  종목 키로 찾았고, `bars::BarAggregator`도 `series_`를 문자열로 찾았다. 이제 `StrategyBase`가 `set_symbol_resolver`
+  (Engine이 `SymbolTable::intern`을 넣는다)와 `symbol_of()`를 두고, 전략은 `on_start`에서 자기 종목·후보를 id로 한 번 받아 둔다
+  (`sym_`, `pending_`·`buy_sent_`·`sell_sent_`·`cand_set_`·`closes_`·`ref_ma5_`·`held_`, `PriceTarget.sym`·`LimitOrder.sym`).
+  틱 비교는 `same_symbol(sym_, ticker_, td.sym, td.ticker)` — 둘 다 id면 정수, 한쪽이 `kNone`이면 문자열로 되돌아간다
+  (주입 전·시험). 전략 스레드의 체결 루프는 id를 구한 뒤 `opt->sym`에 되찍어 전략이 언제나 유효한 id를 본다. 신호는
+  전략이 `sig.sym`을 찍고 `emit_from`의 intern 폴백은 남긴다(테마·강제청산처럼 틱과 다른 종목의 신호).
+- `BarAggregator`는 `unordered_map<SymbolId, Series>`고 API 전부(`seed`·`snapshot`·`closed_count`·`current_slot`·
+  `close_stale`·`clear`)가 id를 받는다. 닫힌 봉의 `MarketData.ticker`는 `Series.ticker`(첫 틱·시드에서 한 번)에서 싣고
+  `sym`도 같이 찍는다. `td.sym == kNone`인 틱은 버린다(가격 0과 같은 취급).
+- 측정(`test_bar_aggregator` 끝, 원칙 7): 한 종목 틱 100만 건을 같은 분에 넣는 `on_tick` 틱당 문자열 키 28ns → id 키 25ns.
+  여섯 자리 문자열 해시는 원래 싸서 이 조각의 이득은 틱당 몇 ns가 아니라 종목 수에 무관한 상수 비교와 hot path의
+  문자열 없음(원칙 6)이다 — 2,500종목 라우팅에서 문자열 set 조회가 남아 있으면 그쪽이 병목이 된다.
+- 문자열 필드 자체(`TradeData.ticker`·`MarketData.ticker`·전략의 `candidates_` 벡터)는 남는다: 구독 스펙·REST 호출·로그·
+  닫힌 봉이 문자열을 요구한다. 틱 구조체에서 문자열을 빼는 일은 캡처 파일 형식과 함께 다음 조각이다.
+- 버린 것: `OrderGate` 포지션 키(`PosKey{account,ticker}`) id화 — 락 아래 주문 경로라 틱 hot path가 아니고 계좌 문자열이
+  같이 든다, 따로 잰 뒤 결정. 전략마다 resolver 없이 `SymbolTable&`을 직접 주입 — 전략 헤더가 테이블 수명에 묶이고
+  시험이 테이블을 만들어야 해서 `std::function` 한 개로 뒀다(다른 provider와 같은 모양, 기동 때만 부른다).
+
 ### D-072 틱 집계 봉의 기저를 1분으로 두고 판단 봉은 resample로 만든다 — REST 분봉 timestamp는 진짜 UTC (2026-09-13)
 **상태**: 채택 (`wt/bars-1m`, `test_bar_aggregator` 131·`test_kis_decode` 68 통과, 라이브는 09-14 장부터 `bar_source` 기본 `ws`)
 

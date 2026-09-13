@@ -230,6 +230,7 @@ public:
 
     void on_start() override
     {
+        sym_ = symbol_of(p_.ticker); // 집계기 키·틱 비교·신호 도장 — 여기서 한 번
         live_.clear();
         last_anchor_ = 0.0;
         last_pos_ = -1;
@@ -278,7 +279,7 @@ public:
         //  이 전략을 안 부른다(엔진 종료 뒤이거나 재스캔이 뗀 뒤). [why D-074]
         if (ws_bars_)
         {
-            agg_.close_stale(p_.ticker, std::time(nullptr));
+            agg_.close_stale(sym_, std::time(nullptr));
         }
 
         LOG_INFO("[" + id() + "] 종료");
@@ -286,7 +287,7 @@ public:
 
     void on_trade_batch(const TradeData& td, std::vector<OrderSignal>& out) override
     {
-        if (td.ticker != p_.ticker)
+        if (!same_symbol(sym_, p_.ticker, td.sym, td.ticker))
         {
             return;
         }
@@ -382,7 +383,7 @@ public:
 
             if (agg_day_ != today)
             {
-                agg_.clear(p_.ticker);
+                agg_.clear(sym_);
                 agg_day_        = today;
                 reseed_pending_ = true;
             }
@@ -391,15 +392,15 @@ public:
             //  폴백 동안 못 본 분·구독 뒤 늦게 붙은 종목의 앞 분이 여기서 메워진다.
             if (!bars.empty() && bars_version != seeded_version_)
             {
-                const int  before = agg_.closed_count(p_.ticker);
-                const int  added  = agg_.seed(p_.ticker, bars);
+                const int  before = agg_.closed_count(sym_);
+                const int  added  = agg_.seed(sym_, bars);
                 const bool first  = seeded_version_ == 0;
                 seeded_version_   = bars_version;
                 reseed_pending_   = false;
                 const std::string line = "[" + id() + "] 봉 시드 src=" + (local_bars ? "ws" : "rest") +
                                          " REST " + std::to_string(bars.size()) + "봉, 새 " + std::to_string(added) +
-                                         ", 닫힌 " + std::to_string(agg_.closed_count(p_.ticker)) + "(전 " + std::to_string(before) + ")" +
-                                         ", 진행 " + (agg_.current_slot(p_.ticker).valid() ? "있음" : "없음");
+                                         ", 닫힌 " + std::to_string(agg_.closed_count(sym_)) + "(전 " + std::to_string(before) + ")" +
+                                         ", 진행 " + (agg_.current_slot(sym_).valid() ? "있음" : "없음");
 
                 // 첫 시드·전환 뒤 시드만 INFO — 워밍업 동안 봉마다 오는 시드는 DEBUG로 내린다.
                 if (first || added > 0)
@@ -414,11 +415,11 @@ public:
 
             // 분이 지난 진행 봉은 시계로 닫는다 — WS 틱은 on_tick이 이미 닫았고, REST 대체 틱 동안 남은 로컬
             //  진행 봉이 여기서 확정된다. 틱 수신 시각이 시계다(체결 시각은 hhmmss뿐이라 날짜가 없다). [why D-074]
-            agg_.close_stale(p_.ticker, std::chrono::system_clock::to_time_t(td.timestamp));
+            agg_.close_stale(sym_, std::chrono::system_clock::to_time_t(td.timestamp));
 
             // 판단 봉은 1분봉을 interval_min으로 접은 것이다 — 틱이 살아 있으면 집계기 스냅샷([0]=진행 중 분),
             //  REST 대체 틱이면 REST 1분봉. 두 길이 같은 resample을 지나므로 자리·계산이 같다. [why D-072]
-            const std::vector<MarketData> local = bars::resample(agg_.snapshot(p_.ticker, 0), p_.interval_min,
+            const std::vector<MarketData> local = bars::resample(agg_.snapshot(sym_, 0), p_.interval_min,
                                                                  p_.sma_period + 1);
 
             // 다음 REST 조회를 받을지 프리페치 스레드에 알린다. 워밍업(SMA 창 + 진행 봉)이 끝나고 틱이 살아 있으면
@@ -1120,6 +1121,7 @@ private:
         std::string oid = next_oid(side == OrderSide::BUY ? "B" : "S");
         OrderSignal s;
         s.ticker      = p_.ticker;
+        s.sym         = sym_;
         s.side        = side;
         s.type        = OrderType::LIMIT;
         s.quantity    = qty;
@@ -1147,6 +1149,7 @@ private:
         {
             OrderSignal s;
             s.ticker          = p_.ticker;
+            s.sym             = sym_;
             s.side            = o.side;
             s.type            = OrderType::LIMIT;
             s.quantity        = 0;
@@ -1167,6 +1170,7 @@ private:
     {
         OrderSignal s;
         s.ticker      = p_.ticker;
+        s.sym         = sym_;
         s.side        = OrderSide::SELL;
         s.type        = OrderType::MARKET;
         s.quantity    = qty;
@@ -1415,6 +1419,7 @@ private:
     }
 
     bars::BarAggregator agg_;
+    sym::SymbolId sym_ = sym::kNone;     // p_.ticker의 id — on_start에서 한 번. 집계기는 이 키로만 찾는다
     bool        ws_bars_        = false; // bar_source=="ws"
     bool        ws_live_        = false; // 마지막 틱이 WS 체결 틱이었나(REST 대체 틱이면 REST 봉으로 판단)
     bool        reseed_pending_ = true;  // 출처 전환·날짜 변경 뒤 REST 시드를 한 번 더 받아야 한다

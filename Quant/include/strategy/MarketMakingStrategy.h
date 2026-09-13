@@ -68,6 +68,7 @@ public:
 
     void on_start() override
     {
+        sym_ = symbol_of(ticker_);
         bid_oid_.clear();
         ask_oid_.clear();
         last_mid_ = 0.0;
@@ -77,7 +78,7 @@ public:
 
     void on_order_book_batch(const OrderBook& ob, std::vector<OrderSignal>& out) override
     {
-        if (ob.ticker != ticker_ && !ob.ticker.empty())
+        if (!ob.ticker.empty() && !same_symbol(sym_, ticker_, ob.sym, ob.ticker))
         {
             return;
         }
@@ -163,6 +164,7 @@ private:
     {
         OrderSignal s;
         s.ticker      = ticker_;
+        s.sym         = sym_;
         s.side        = side;
         s.type        = OrderType::LIMIT;
         s.quantity    = qty_;
@@ -179,6 +181,7 @@ private:
     {
         OrderSignal s;
         s.ticker         = ticker_;
+        s.sym            = sym_;
         s.side           = side; // 참고용(취소 라우팅은 원주문 정보 사용). Engine NONE 가드는 action으로 우회.
         s.type           = OrderType::LIMIT;
         s.quantity       = 0;
@@ -191,6 +194,7 @@ private:
     }
 
     std::string ticker_;
+    sym::SymbolId sym_ = sym::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
     int qty_;
     int half_spread_ticks_;
     int requote_move_ticks_;

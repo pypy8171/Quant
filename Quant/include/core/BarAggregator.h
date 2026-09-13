@@ -1,5 +1,6 @@
 #pragma once
-// WS 체결 틱을 종목별 N분봉으로 모은다. 버킷은 REST 집계(KisRestDecode.h aggregate_minutes)와 같은 시계 정렬이고,
+// WS 체결 틱을 종목별 N분봉으로 모은다. 종목은 SymbolId로 든다 — 틱마다 문자열 해시를 하지 않는다(원칙 6, D-071).
+//  버킷은 REST 집계(KisRestDecode.h aggregate_minutes)와 같은 시계 정렬이고,
 //  스냅샷 배치도 같다([0]=최신, bar_index 0=최신). 주인은 전략(전략 스레드에서만 부른다) — 락이 없다.
 //  Engine·KIS·Logger에 의존하지 않는다. [why D-068]
 //  전략은 기저를 1분으로 두고 resample()로 3분·5분을 만든다 — 틱을 바로 N분에 넣지 않는다. [why D-072]
@@ -61,29 +62,29 @@ public:
 
     void set_sink(BarSink f) { sink_ = std::move(f); }
 
-    // 틱 한 개. 장 밖·가격 0·자리를 못 정하면 버리고 false. 앞 봉을 닫았으면 sink가 그 안에서 불린다.
+    // 틱 한 개. 장 밖·가격 0·id 없음(sym==kNone)·자리를 못 정하면 버리고 false. 앞 봉을 닫았으면 sink가 그 안에서 불린다.
     bool on_tick(const TradeData& td);
 
     // REST 봉([0]=최신)을 한 번 넣는다. 닫힌 자리는 REST가 이기고, 진행 중 자리는 합치고(시가 REST·고저 max/min·
     //  종가 로컬·거래량 큰 쪽), 로컬에 없는 자리는 채운다. 돌아오는 값은 새로 들어간 봉 수.
-    int seed(const std::string& ticker, const std::vector<MarketData>& rest_bars);
+    int seed(sym::SymbolId sym, const std::vector<MarketData>& rest_bars);
 
     // [0]=진행 중 봉(있으면), 그 뒤 닫힌 봉 최신→과거. max_count를 넘기지 않는다(0이면 전부).
-    std::vector<MarketData> snapshot(const std::string& ticker, int max_count = 0) const;
+    std::vector<MarketData> snapshot(sym::SymbolId sym, int max_count = 0) const;
 
     // 닫힌 봉 수(진행 중 제외). 워밍업 판정용.
-    int closed_count(const std::string& ticker) const;
+    int closed_count(sym::SymbolId sym) const;
 
     // 진행 중 봉의 자리. 없으면 valid()가 거짓.
-    BarSlot current_slot(const std::string& ticker) const;
+    BarSlot current_slot(sym::SymbolId sym) const;
 
     // 시계로 닫는다 — now_utc의 KST 분이 진행 중 봉의 자리를 지났으면 그 봉을 닫고 sink를 부른다. 다음 버킷
     //  첫 틱만 봉을 닫으면 틱이 뜸한 종목과 마감 동시호가 뒤 마지막 봉은 확정이 늦거나 안 된다. 돌아오는 값은
     //  닫은 봉 수. 한 종목만 보는 꼴은 그 종목이 없으면 0. [why D-074]
     int close_stale(std::time_t now_utc);
-    int close_stale(const std::string& ticker, std::time_t now_utc);
+    int close_stale(sym::SymbolId sym, std::time_t now_utc);
 
-    void clear(const std::string& ticker);
+    void clear(sym::SymbolId sym);
     const Config& config() const { return cfg_; }
 
 private:
@@ -97,6 +98,7 @@ private:
 
     struct Series
     {
+        std::string            ticker; // 닫힌 봉에 실을 문자열 — 첫 틱·시드에서 한 번 받는다
         std::deque<MarketData> closed; // [0]=최신
         std::deque<BarSlot>    slots;  // closed와 같은 순서
         Live                   live;
@@ -107,6 +109,6 @@ private:
 
     Config                                  cfg_;
     BarSink                                 sink_;
-    std::unordered_map<std::string, Series> series_;
+    std::unordered_map<sym::SymbolId, Series> series_;
 };
 } // namespace bars

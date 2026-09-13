@@ -245,6 +245,14 @@ public:
         LOG_INFO("[ThemeStrategy] 최종 후보: " +
                  std::to_string(candidates_.size()) + "종목");
 
+        // 틱 경로는 id로만 본다 — 후보 문자열은 구독 스펙·로그용으로 남긴다.
+        pending_.clear();
+
+        for (const auto& tk : candidates_)
+        {
+            pending_.insert(symbol_of(tk));
+        }
+
         for (const auto& tk : candidates_)
         {
             LOG_INFO("  → " + tk);
@@ -257,7 +265,7 @@ public:
     std::optional<OrderSignal> on_order_book(const OrderBook& ob) override
     {
         double px = ob.asks[0].price > 0 ? ob.asks[0].price : ob.bids[0].price;
-        return check_entry_exit(ob.ticker, ob.hhmmss, px);
+        return check_entry_exit(ob.sym, ob.ticker, ob.hhmmss, px);
     }
 
     // 체결 이벤트 — 호가 보완
@@ -268,7 +276,7 @@ public:
             return std::nullopt;
         }
 
-        return check_entry_exit(td.ticker, td.hhmmss, td.price);
+        return check_entry_exit(td.sym, td.ticker, td.hhmmss, td.price);
     }
 
     void on_stop() override
@@ -278,7 +286,8 @@ public:
     }
 
 private:
-    std::optional<OrderSignal> check_entry_exit(const std::string& ticker,
+    std::optional<OrderSignal> check_entry_exit(sym::SymbolId sym,
+                                                 const std::string& ticker,
                                                  int32_t hhmmss,
                                                  double ref_px)
     {
@@ -289,14 +298,21 @@ private:
             return std::nullopt;  // 09:00~15:30 정규장만(core/MarketSession.h)
         }
 
-        // 진입: 후보이고 아직 매수 안 했으면 (국면 게이트 적용)
-        if (is_active() && candidates_.count(ticker) && !buy_sent_.count(ticker))
+        if (sym == sym::kNone)
         {
-            buy_sent_.insert(ticker);
+            sym = symbol_of(ticker); // id 없이 온 틱(옛 경로) — 찍힌 게 정상이라 여기는 드물다
+        }
+
+        // 진입: 후보이고 아직 매수 안 했으면 (국면 게이트 적용)
+        if (is_active() && pending_.count(sym) && !buy_sent_.count(sym))
+        {
+            buy_sent_.insert(sym);
+            pending_.erase(sym);
             candidates_.erase(ticker);
 
             OrderSignal sig;
             sig.ticker      = ticker;
+            sig.sym         = sym;
             sig.side        = OrderSide::BUY;
             sig.type        = OrderType::MARKET;
             sig.quantity    = quantity_;
@@ -310,12 +326,13 @@ private:
         }
 
         // 청산: 매수했고, 아직 청산 안 했고, 청산 시각 도달
-        if (buy_sent_.count(ticker) && !sell_sent_.count(ticker) && hhmm >= eod_exit_hhmm_)
+        if (buy_sent_.count(sym) && !sell_sent_.count(sym) && hhmm >= eod_exit_hhmm_)
         {
-            sell_sent_.insert(ticker);
+            sell_sent_.insert(sym);
 
             OrderSignal sig;
             sig.ticker      = ticker;
+            sig.sym         = sym;
             sig.side        = OrderSide::SELL;
             sig.type        = OrderType::MARKET;
             sig.quantity    = quantity_;
@@ -338,7 +355,8 @@ private:
     int                               quantity_;
     int                               eod_exit_hhmm_;
 
-    std::unordered_set<std::string>   candidates_;
-    std::unordered_set<std::string>   buy_sent_;
-    std::unordered_set<std::string>   sell_sent_;
+    std::unordered_set<std::string>   candidates_; // 문자열 — 구독 스펙·로그. 틱 경로는 아래 id 집합만 본다
+    std::unordered_set<sym::SymbolId> pending_;    // 매수 대기 후보 id
+    std::unordered_set<sym::SymbolId> buy_sent_;
+    std::unordered_set<sym::SymbolId> sell_sent_;
 };

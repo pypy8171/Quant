@@ -4,6 +4,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 class KisClient;
@@ -150,7 +151,32 @@ public:
         return sellable_provider_(account, ticker);
     }
 
+    // 종목 문자열 → 정수 id. Engine이 SymbolTable::intern을 넣는다 — 전략은 기동·설정 때 한 번 받아 두고
+    //  틱에서는 td.sym과 정수로만 비교한다(원칙 6, D-071). 미주입이면 kNone — 아래 same_symbol이 문자열로 되돌아간다.
+    using SymbolResolver = std::function<sym::SymbolId(std::string_view)>;
+
+    void set_symbol_resolver(SymbolResolver f)
+    {
+        symbol_resolver_ = std::move(f);
+    }
+
 protected:
+    sym::SymbolId symbol_of(std::string_view ticker) const
+    {
+        return symbol_resolver_ ? symbol_resolver_(ticker) : sym::kNone;
+    }
+
+    // 틱이 내 종목인가. 둘 다 id가 있으면 정수 비교, 한쪽이라도 kNone(주입 전·시험)이면 문자열.
+    static bool same_symbol(sym::SymbolId a, std::string_view a_ticker, sym::SymbolId b, std::string_view b_ticker)
+    {
+        if (a != sym::kNone && b != sym::kNone)
+        {
+            return a == b;
+        }
+
+        return a_ticker == b_ticker;
+    }
+
     // 잔고·매도가능수량·총평가금을 조회할 클라이언트. 주입됐으면 그쪽, 아니면 시세 클라이언트.
     //  (호출측은 지금까지처럼 has_account()로 한 번 더 확인한다.)
     KisClient* account_kis() const
@@ -163,6 +189,7 @@ protected:
     std::function<int(const std::string&, const std::string&)> position_provider_; // 결제완료 확정 포지션(D2=결제일 T+2)
     std::function<bool()> entry_halt_provider_; // 신규매수 차단 여부(OrderGate). 미주입=false
     std::function<SellableInfo(const std::string&, const std::string&)> sellable_provider_; // 원장 매도가능·평단
+    SymbolResolver symbol_resolver_; // 종목 문자열 → id(SymbolTable::intern). 미주입=kNone
     std::atomic<bool> active_{true};   // 국면 게이트(Engine이 설정). 기본 true=통과 (G-1)
     std::vector<Regime> active_regimes_ = {Regime::BULL, Regime::NEUTRAL, Regime::BEAR};
 };

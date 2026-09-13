@@ -55,6 +55,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     strategy->set_sellable_provider([this](const std::string& account, const std::string& ticker) {
         return ledger_sellable(account, ticker);
     });
+    strategy->set_symbol_resolver([this](std::string_view ticker) { return symbols_.intern(ticker); });
 
     try
     {
@@ -591,6 +592,7 @@ void Engine::start()
         s->set_sellable_provider([this](const std::string& account, const std::string& ticker) {
             return ledger_sellable(account, ticker);
         });
+        s->set_symbol_resolver([this](std::string_view ticker) { return symbols_.intern(ticker); });
 
         try
         {
@@ -1869,6 +1871,7 @@ void Engine::strategy_thread_fn(std::stop_token st)
                 cur_tick_ns = opt->recv_ns;
                 // 생산자가 id를 안 찍었으면 문자열로 등록한다(리플레이·옛 경로). 캐시와 라우팅이 같은 id를 쓴다.
                 const sym::SymbolId id = opt->sym != sym::kNone ? opt->sym : symbols_.intern(opt->ticker);
+                opt->sym               = id; // 전략은 td.sym으로만 비교한다 — 여기서 한 번 채운다
                 // 운영단말 현재가용 캐시 — id 배열에 relaxed store 둘.
                 set_last_px(id, opt->price);
 

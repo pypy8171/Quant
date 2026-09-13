@@ -42,6 +42,7 @@ public:
 
     void on_start() override
     {
+        sym_ = symbol_of(ticker_);
         prices_.clear();
         prev_short_ma_ = 0.0;
         prev_long_ma_ = 0.0;
@@ -53,7 +54,7 @@ public:
 
     std::optional<OrderSignal> on_data(const MarketData& data) override
     {
-        if (data.ticker != ticker_)
+        if (!same_symbol(sym_, ticker_, data.sym, data.ticker))
         {
             return std::nullopt;
         }
@@ -119,6 +120,7 @@ private:
     {
         OrderSignal s;
         s.ticker = ticker_;
+        s.sym    = sym_;
         s.side = side;
         s.type = OrderType::MARKET;
         s.quantity = quantity_;
@@ -129,6 +131,7 @@ private:
     }
 
     std::string ticker_;
+    sym::SymbolId sym_ = sym::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
     int short_period_;
     int long_period_;
     int quantity_;
