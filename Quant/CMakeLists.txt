@@ -375,6 +375,13 @@ if(UNIX)
     target_link_libraries(test_tick_capture PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: ReplaySource 순서 보존·종목 필터·속도·도중 정지 (헤더 전용, D-071) ──
+add_executable(test_replay_source tests/test_replay_source.cpp)
+target_include_directories(test_replay_source PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(test_replay_source PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟: LatencyTrace 구간 계산·CSV 행·머리글 1회 (헤더 전용, D-071) ──
 add_executable(test_latency_trace tests/test_latency_trace.cpp)
 target_include_directories(test_latency_trace PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -469,6 +476,7 @@ set(QUANT_ASSERT_TARGETS
     test_latency_trace
     test_symbol_table
     test_tick_capture
+    test_replay_source
     test_account_ledger
     test_logger
 )

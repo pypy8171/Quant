@@ -2882,6 +2882,28 @@ KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 
   때마다 크기를 정해야 하고 이어 쓰기가 번거롭다. 남은 Phase 3: 캡처 파일을 읽어 같은 콜백으로 재생하는 `IFeedSource`
   리플레이 소스, WS·리플레이·REST 폴러를 한 인터페이스 뒤에 두는 `FeedMux`.
 
+**Phase 3 둘째 조각 (2026-09-13)** — 피드 소스 인터페이스와 캡처 리플레이:
+
+- `feed::IFeedSource`(`Quant/include/core/IFeedSource.h`): `Engine`이 WS에서 실제로 쓰던 여덟 가지 — 콜백 등록,
+  체결통보 등록, `connect`/`disconnect`, 증분 구독·`has_spec`·상한 넘침 목록, `is_connected`/`is_stale` — 를 순수 가상으로
+  뽑았다. `KisWebSocket`이 이를 상속하고(`override` 표시만, 본문 변화 없음), `Engine::ws_`의 타입이
+  `unique_ptr<feed::IFeedSource>`로 바뀌었다. 호출부 이름은 그대로 둔다.
+- `feed::ReplaySource`(`Quant/include/core/ReplaySource.h`): `TickReader`로 캡처 파일을 읽어 재생 스레드(jthread) 하나가
+  `to_trade`/`to_book`으로 되돌린 구조체를 같은 콜백에 넘긴다. WS 수신 스레드 자리이므로 `Engine` 쪽은 콜백 안에서
+  `sym` 부여·캡처·push를 그대로 한다. `speed`는 `recv_ns` 차이로 재는데 0이면 쉬지 않고, 1이면 캡처 간격, 10이면
+  열 배 빠르게. 잠은 50ms 단위로 잘라 정지 요청에 바로 응답하고 2ms 아래 간격은 건너뛴다(sleep 격자). 종목 필터는
+  `connect(specs)`의 ticker 집합(비면 전 종목). `is_stale`은 항상 false — 파일이 끝나면 `finished()`지 재연결 대상이
+  아니다. 체결통보는 없다(주문 경로는 REST 라우터가 그대로 낸다).
+- 배선: config `replay_file`(비우면 WS)·`replay_speed`(기본 1.0). `Quant/src/main.cpp`는 실계좌(`kis.is_paper=false`)면
+  리플레이를 열지 않고 기동을 끊는다 — 파이프라인 뒤의 주문 경로가 살아 있어 과거 틱으로 실주문이 나갈 수 있기 때문이다.
+  리플레이 중에는 `capture_dir`가 있어도 캡처를 열지 않는다(같은 틱이 두 파일에 남는다).
+- `Quant/tests/test_replay_source.cpp`: 순서 보존(체결 4·호가 1), 종목 필터로 2/3 분리, 속도 1.0은 캡처 간격 300ms를
+  지키고 10.0은 200ms 안, 재생 도중 `disconnect`가 500ms 안에 돌아오고 `finished()`는 false, 없는 파일, 증분 구독
+  중복. ctest 27/27.
+- 버린 것: 리플레이를 `Engine` 밖 별도 실행 파일로 두기 — 전략·디스패처·게이트를 다시 배선해야 하고 라이브와 다른
+  경로가 된다. 지금 방식은 WS 소켓만 파일로 바꾼 것이라 나머지 파이프라인이 라이브와 같다. 남은 Phase 3: 리플레이
+  결과를 모의 체결로 닫는 페이퍼 실행기(`IOrderExecutor` 구현)와 `FeedMux`(WS 여러 소켓·REST 폴러 통합, 원칙 1·5).
+
 ### D-072 틱 집계 봉의 기저를 1분으로 두고 판단 봉은 resample로 만든다 — REST 분봉 timestamp는 진짜 UTC (2026-09-13)
 **상태**: 채택 (`wt/bars-1m`, `test_bar_aggregator` 131·`test_kis_decode` 68 통과, 라이브는 09-14 장부터 `bar_source` 기본 `ws`)
 

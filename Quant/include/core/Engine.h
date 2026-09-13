@@ -9,6 +9,7 @@
 #include "core/SignalDispatcher.h"
 #include "core/SymbolTable.h"
 #include "core/TickCapture.h"
+#include "core/ReplaySource.h"
 #include "core/RegimeController.h"
 #include "core/RegimeFileBridge.h"
 #include "core/Types.h"
@@ -67,6 +68,14 @@ public:
     // WS 틱·호가 캡처 폴더(빈 문자열이면 끔). 기동마다 ticks_<UTC시각>.bin 하나. REST 대체 틱은 raw 피드가
     //  아니라 캡처하지 않는다. [why D-071]
     void set_capture_dir(const std::string& dir) { capture_dir_ = dir; }
+    // 캡처 파일 리플레이(빈 문자열이면 WS). WS 자리에 ReplaySource가 들어가 같은 콜백으로 틱·호가를 되돌린다.
+    //  speed 0은 최대 속도, 1은 캡처 간격. 실계좌 거부는 main.cpp가 한다. [why D-071]
+    void set_replay(const std::string& file, double speed)
+    {
+        replay_file_  = file;
+        replay_speed_ = speed;
+    }
+
     // 매크로 레짐 보조 프로세스 브리지(2026-08-09 회의 Task 3). Python macro_regime_feed.py가
     // 원자적으로 쓰는 regime.json 경로를 지정하면, data_thread가 매 사이클 그 파일을 읽어
     // 시장이 위험하면 OrderGate 의 "신규매수 정지" 스위치(entry_halt)를 켜고, 풀리면 끈다
@@ -305,7 +314,9 @@ private:
     std::unique_ptr<KisClient> kis_;
     // 시세 전용(실전 도메인). WS 모드에서도 폴백이 쓸 수 있어야 하므로 config에 블록이 있으면 항상 만든다.
     std::unique_ptr<KisClient> quote_kis_;
-    std::unique_ptr<KisWebSocket> ws_;
+    std::unique_ptr<feed::IFeedSource> ws_; // KisWebSocket 또는 ReplaySource. 이름은 호출부 호환용.
+    std::string                   replay_file_;
+    double                        replay_speed_ = 0.0;
     std::string                   capture_dir_;
     std::unique_ptr<feed::TickCapture> capture_; // WS 수신 스레드만 on_*를 부른다(단일 생산자)
 

@@ -640,9 +640,18 @@ void Engine::start()
     //  주문은 REST(order_thread_fn)로 나가므로 매매에는 영향 없음(체결통보 on_fill만 없음).
     if (!rest_price_feed_ && !watch_specs_.empty())
     {
-        ws_ = std::make_unique<KisWebSocket>(kis_cfg_);
+        if (!replay_file_.empty())
+        {
+            ws_ = std::make_unique<feed::ReplaySource>(replay_file_, replay_speed_);
+            LOG_INFO("[Engine] 리플레이 소스: " + replay_file_ + " (speed " + std::to_string(replay_speed_) + ")");
+        }
+        else
+        {
+            ws_ = std::make_unique<KisWebSocket>(kis_cfg_);
+        }
 
-        if (!capture_dir_.empty())
+        // 리플레이를 다시 캡처하면 같은 틱이 두 파일에 남으므로 캡처는 WS일 때만 연다.
+        if (!capture_dir_.empty() && replay_file_.empty())
         {
             // 파일명은 UTC 기동 시각 — 재기동이 같은 파일에 이어 쓰지 않도록.
             const auto now_s = std::chrono::duration_cast<std::chrono::seconds>(

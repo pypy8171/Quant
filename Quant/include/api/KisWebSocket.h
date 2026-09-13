@@ -1,6 +1,7 @@
 #pragma once
 #include "api/KisClient.h"
 #include "api/KisWsDecode.h"
+#include "core/IFeedSource.h"
 #include "core/Types.h"
 #include <atomic>
 #include <chrono>
@@ -32,23 +33,19 @@ class WsSocket; // 플랫폼 소켓(Quant/src/api/WsSocket.h). 이 헤더는 플
 // 스레드: recv_loop 스레드가 소켓을 소유하고 재연결·백오프·구독 복원을 한다(플랫폼 공통 한 벌).
 //   소켓 열기·닫기·프레임 송수신은 WsSocket 구현(WinHTTP / POSIX)이 맡는다. [why D-049]
 // ─────────────────────────────────────────────────────────────────────────────
-class KisWebSocket
+class KisWebSocket final : public feed::IFeedSource
 {
 public:
-    using OrderBookCb = std::function<void(const OrderBook&)>;
-    using TradeCb     = std::function<void(const TradeData&)>;
-    using FillCb      = std::function<void(const FillNotification&)>;
-
     explicit KisWebSocket(const KisConfig& cfg);
-    ~KisWebSocket();
+    ~KisWebSocket() override;
     // 스레드·뮤텍스를 소유한다 — 복사는 원본과 사본이 같은 자원을 두 번 닫는 길이라 막는다.
     KisWebSocket(const KisWebSocket&)            = delete;
     KisWebSocket& operator=(const KisWebSocket&) = delete;
 
-    void set_callbacks(OrderBookCb on_ob, TradeCb on_trade);
-    void set_fill_callback(FillCb on_fill);
-    bool connect(const std::vector<WatchSpec>& specs);
-    void disconnect();
+    void set_callbacks(OrderBookCb on_ob, TradeCb on_trade) override;
+    void set_fill_callback(FillCb on_fill) override;
+    bool connect(const std::vector<WatchSpec>& specs) override;
+    void disconnect() override;
 
     // 연결을 유지한 채 종목 하나를 더 구독한다(장중 유니버스 재스캔으로 늘어난 종목용).
     //  connect()는 최초 1회만 도는데, 재스캔으로 등록된 전략의 WatchSpec은 그때 목록에 없었다.
@@ -59,14 +56,14 @@ public:
     // 반환: 구독 프레임을 실제로 보냈으면 true. false는 세 경우다 — 이미 목록에 있음,
     //  연결 전(목록에 남겨 connect()가 구독), 구독 상한(목록에서도 뺀다). 호출자는 has_spec()으로
     //  앞 둘과 마지막을 가른다: 목록에 없으면 이 종목은 WS 틱을 영영 못 받는다.
-    bool subscribe_incremental(const WatchSpec& spec);
+    bool subscribe_incremental(const WatchSpec& spec) override;
 
     // spec이 구독 목록(specs_)에 있는지. 상한으로 밀려난 종목의 REST 대체 판정용.
-    bool has_spec(const WatchSpec& spec) const;
+    bool has_spec(const WatchSpec& spec) const override;
 
     // 연결·재연결의 subscribe_all이 상한으로 거른 종목을 넘겨주고 비운다(한 번 가져가면 끝).
     //  Engine이 data_thread 사이클마다 가져가 REST 대체 목록에 합친다.
-    std::vector<WatchSpec> take_overflow_specs();
+    std::vector<WatchSpec> take_overflow_specs() override;
 
     // 다건 프레임 분리는 kis_ws::split_records(api/KisWsDecode.h). 여기 이름은 테스트·호출부 호환용.
     static kis_ws::Records split_records(kis_ws::Fields fields, int count, size_t min_fields) noexcept
@@ -74,13 +71,13 @@ public:
         return kis_ws::split_records(fields, count, min_fields);
     }
 
-    bool is_connected() const
+    bool is_connected() const override
     {
         return connected_.load();
     }
 
     // 임계 시간(초) 이상 메시지 미수신 시 true — 장 중 호출할 것
-    bool is_stale(int threshold_sec = 30) const
+    bool is_stale(int threshold_sec) const override
     {
         auto now_ns  = std::chrono::steady_clock::now().time_since_epoch().count();
         auto last_ns = last_message_ns_.load(std::memory_order_relaxed);
