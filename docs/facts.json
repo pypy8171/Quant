@@ -424,7 +424,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::data_thread_fn",
       "lines": 488,
-      "start": 1086
+      "start": 1118
     },
     {
       "file": "Quant/src/risk/OrderGate.cpp",
@@ -433,16 +433,16 @@
       "start": 222
     },
     {
-      "file": "Quant/src/main.cpp",
-      "symbol": "main",
-      "lines": 390,
-      "start": 139
-    },
-    {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::start",
-      "lines": 388,
-      "start": 520
+      "lines": 412,
+      "start": 528
+    },
+    {
+      "file": "Quant/src/main.cpp",
+      "symbol": "main",
+      "lines": 392,
+      "start": 139
     },
     {
       "file": "Quant/src/strategy/StrategyFactory.cpp",
@@ -460,7 +460,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::maybe_rescan_universe",
       "lines": 237,
-      "start": 245
+      "start": 253
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
@@ -484,7 +484,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::strategy_thread_fn",
       "lines": 191,
-      "start": 1741
+      "start": 1773
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
@@ -583,6 +583,12 @@
       "start": 71
     },
     {
+      "file": "Quant/src/core/Engine.cpp",
+      "symbol": "Engine::shard_thread_fn",
+      "lines": 126,
+      "start": 1965
+    },
+    {
       "file": "Quant/src/ipc/ZmqBridge.cpp",
       "symbol": "ZmqBridge::thread_fn",
       "lines": 125,
@@ -599,12 +605,6 @@
       "symbol": "OrderRouter::replace_route",
       "lines": 123,
       "start": 1370
-    },
-    {
-      "file": "Quant/src/core/Engine.cpp",
-      "symbol": "Engine::shard_thread_fn",
-      "lines": 121,
-      "start": 1933
     },
     {
       "file": "Quant/src/ipc/OpsServer.cpp",
@@ -634,7 +634,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::control_thread_fn",
       "lines": 109,
-      "start": 2314
+      "start": 2351
     },
     {
       "file": "PYQuant/tools/walkforward.py",
@@ -670,7 +670,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::order_thread_fn",
       "lines": 101,
-      "start": 2056
+      "start": 2093
     },
     {
       "file": "Quant/include/strategy/SupplyDemandPullbackStrategy.h",
@@ -683,6 +683,12 @@
       "symbol": "LedgerReconciler::reconcile",
       "lines": 100,
       "start": 277
+    },
+    {
+      "file": "Quant/src/core/Engine.cpp",
+      "symbol": "Engine::register_strategy_runtime",
+      "lines": 97,
+      "start": 42
     },
     {
       "file": "Quant/src/universe/UniverseScanner.cpp",
@@ -754,19 +760,13 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::drain_manual_inbox",
       "lines": 90,
-      "start": 2534
+      "start": 2571
     },
     {
       "file": "PYQuant/tools/log_report.py",
       "symbol": "parse",
       "lines": 89,
       "start": 158
-    },
-    {
-      "file": "Quant/src/core/Engine.cpp",
-      "symbol": "Engine::register_strategy_runtime",
-      "lines": 89,
-      "start": 42
     },
     {
       "file": "Quant/src/universe/UniverseScanner.cpp",
