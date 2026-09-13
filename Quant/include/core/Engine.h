@@ -73,6 +73,8 @@ public:
     // WS 틱·호가 캡처 폴더(빈 문자열이면 끔). 기동마다 ticks_<UTC시각>.bin 하나. REST 대체 틱은 raw 피드가
     //  아니라 캡처하지 않는다. [why D-071]
     void set_capture_dir(const std::string& dir) { capture_dir_ = dir; }
+    // 전략 샤드 수(config `strategy_shards`, 기본 1). 스레드 시작 전에만. 전략 하나가 여러 샤드에 걸치면 start()가 1로 내린다.
+    void set_strategy_shards(uint32_t m) { strategy_shards_ = m == 0 ? 1u : m; }
     // WS 소켓을 하나 더 연다(KIS는 app_key당 실시간 1세션이라 키가 하나 더 있어야 한다). 하나라도 있으면 기본 키와
     //  함께 FeedMux로 묶여 종목이 소켓들에 나뉜다 — 구독 상한(kMaxWsSubs)이 소켓 수만큼 는다. 리플레이 중엔 무시. [why D-071]
     void add_feed_config(const KisConfig& c) { extra_feed_cfgs_.push_back(c); }
@@ -391,13 +393,13 @@ private:
     long long regime_bucket_now() const;
 
     // 수신 N × 전략 샤드 M 링 행렬. 셀 하나의 생산자는 스레드 하나다 — 체결은 WS 콜백 스레드 행과 데이터 스레드 행
-    //  (REST 대체 틱)을 따로 둔다(D-053이 두 큐로 풀던 것을 행으로 푼다). 열은 종목 해시(원칙 2). 샤드 M은 전략 집합을
-    //  샤드마다 복제하기 전까지 1이다 — 전략 객체를 두 샤드 스레드가 만지면 안 된다. [why D-071]
+    //  (REST 대체 틱)을 따로 둔다(D-053이 두 큐로 풀던 것을 행으로 푼다). 열은 종목 해시(원칙 2). 전략은 자기 종목의 열
+    //  하나가 맡는다(strat::owner_shard) — 전략 객체를 두 샤드 스레드가 만지면 안 된다. [why D-071]
     static constexpr uint32_t kProducerWs = 0, kProducerData = 1;
-    static constexpr uint32_t kStrategyShards = 1;
-    shard::Matrix<OrderBook>  ob_mx_{1, kStrategyShards, 4096};   // 호가 (국내) — WS 행만
-    shard::Matrix<TradeData>  td_mx_{2, kStrategyShards, 4096};   // 체결 (미국 + 국내) — WS 행 + 데이터 스레드 행
-    shard::Matrix<MarketData> bars_mx_{1, kStrategyShards, 1024}; // 일봉 — 데이터 스레드 행(index 0)만
+    uint32_t                  strategy_shards_ = 1;    // config. start()가 열 수로 쓴다(걸치는 전략이 있으면 1)
+    shard::Matrix<OrderBook>  ob_mx_{1, 1, 4096};   // 호가 (국내) — WS 행만. 열 수는 start()의 reshape
+    shard::Matrix<TradeData>  td_mx_{2, 1, 4096};   // 체결 (미국 + 국내) — WS 행 + 데이터 스레드 행
+    shard::Matrix<MarketData> bars_mx_{1, 1, 1024}; // 일봉 — 데이터 스레드 행(index 0)만
     std::vector<std::unique_ptr<strat::Shard>> shards_;           // 열 m을 비우는 샤드. start()가 만든다
     std::vector<std::jthread>                  shard_threads_;
     // 샤드 → 전략(디스패치) 스레드. 생산자가 M이라 MPSC(원칙 5). 가득 차면 버리고 센다 — order_dropped_와 같은 규칙.

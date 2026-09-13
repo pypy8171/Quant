@@ -15,12 +15,54 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace strat
 {
+// 전략을 맡을 샤드. 구독 종목이 전부 한 열로 해시되면 그 열, 아니면(종목이 여러 열에 걸치거나 구독을 안 밝혔거나
+//  아직 id가 없으면) 없음 — 그 전략은 샤드 둘이 같이 만지게 되므로 M>1로 띄우면 안 된다. M이 1이면 언제나 0.
+//  종목마다 전략 하나인 지금 전략(DevScale_*·ITB_*)은 전부 한 열이다. [why D-071]
+template <typename SymOf>
+std::optional<uint32_t> owner_shard(const StrategyBase& s, uint32_t shards, SymOf&& sym_of)
+{
+    if (shards <= 1)
+    {
+        return 0u;
+    }
+
+    const auto              specs = s.get_watch_specs();
+    std::optional<uint32_t> owner;
+
+    if (specs.empty())
+    {
+        return std::nullopt;
+    }
+
+    for (const auto& sp : specs)
+    {
+        const sym::SymbolId id = sym_of(sp.ticker);
+
+        if (id == sym::kNone)
+        {
+            return std::nullopt;
+        }
+
+        const uint32_t m = shard::shard_of(id, shards);
+
+        if (owner && *owner != m)
+        {
+            return std::nullopt;
+        }
+
+        owner = m;
+    }
+
+    return owner;
+}
+
 // 샤드가 디스패치 스레드로 보내는 봉투. 게이트 판단에 필요한 전략 상태를 샤드 스레드에서 읽어 같이 싣는다 —
 //  디스패치 스레드는 전략 객체를 보지 않는다.
 struct Emitted

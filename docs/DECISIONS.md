@@ -3067,6 +3067,22 @@ KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 
   복제와 config 키). 수신 N>1(FeedMux 없이 소켓마다 셀에 직접 push)은 `TickCapture`가 SPSC고 `PaperExecutor::on_tick`이
   `fill_queue_`의 생산자라 WS 콜백이 한 스레드여야 한다 — FeedMux를 레인 모드로 바꾸는 조각이 먼저다.
 
+**Phase 4 앞 단계 셋째 조각 (2026-09-13)** — 샤드 M을 config로 연다(`strategy_shards`, 기본 1). 전략은 복제하지 않고
+샤드 하나가 소유한다:
+
+- 소유 규칙 `strat::owner_shard(전략, M, sym_of)`(`Quant/include/core/StrategyShard.h`): 전략이 밝힌 구독 종목이 전부 한
+  열로 해시되면 그 열이 주인, 열이 갈리거나 구독을 안 밝혔거나 id를 못 받으면 없음. M=1이면 언제나 0. 샤드 스레드 m의
+  라우팅 스냅샷은 주인이 m인 전략만 담는다 — 다른 열의 전략은 그 샤드에 틱이 오지 않으니 라우터에 둘 이유가 없다.
+  지금 라이브 전략(DevScale_*·ITB_*)은 종목마다 전략 하나라 전부 한 열이다.
+- 걸치는 전략이 있을 때: `start()`는 그 전략 id를 경고로 남기고 M=1로 돌린다(config를 거부하지 않고 안전한 쪽으로).
+  런타임 등록(`register_strategy_runtime`, 재스캔 신규 종목)은 M>1에서 주인이 없으면 등록을 거부하고 오류 로그를 남긴다 —
+  샤드 둘이 같은 전략 객체를 만지는 것보다 등록 실패가 낫다. 행렬 셋은 `Matrix::reshape`로 start()에서 열 수를 받는다
+  (스레드 시작 전, `test_shard_matrix` 6절).
+- 버린 대안 — 둘째 조각이 적어 둔 "전략 집합을 샤드마다 복제". 전략마다 상태(보유·평단·봉 집계·슬롯 캡)가 있어 복제하면
+  같은 종목에 전략 M개가 생기고 `max_positions` 같은 전략별 캡이 M배가 된다. 종목마다 전략 하나인 지금 구조에서는 소유로
+  충분하고, 여러 종목을 한 전략이 보는 경우(Momentum·Theme 같은 옛 전략)는 M=1로 두면 된다.
+- 시험: `test_strategy_shard` 4절(주인 판정 여덟 경우). 측정은 둘째 조각 3절 값이 그대로다(103→52→27ms).
+
 ### D-072 틱 집계 봉의 기저를 1분으로 두고 판단 봉은 resample로 만든다 — REST 분봉 timestamp는 진짜 UTC (2026-09-13)
 **상태**: 채택 (`wt/bars-1m`, `test_bar_aggregator` 131·`test_kis_decode` 68 통과, 라이브는 09-14 장부터 `bar_source` 기본 `ws`)
 

@@ -1,5 +1,5 @@
 // ShardMatrix 단위 테스트 — 종목 해시 샤딩의 균형, 셀 가득 참, 라운드로빈, N 생산자 × M 소비자에서 종목 안 순서 보존,
-//  1×1·2×2·4×4 처리량 측정(원칙 7).
+//  1×1·2×2·4×4 처리량 측정(원칙 7), 기동 전 reshape.
 // 빌드: cmake --build <dir> --target test_shard_matrix
 #include "core/ShardMatrix.h"
 #include "core/Types.h"
@@ -277,6 +277,29 @@ int main()
             std::cout << "[측정] " << k << "x" << k << " 소비자당 " << (240u * 4000u / k) << "건: " << r.ns_per
                       << "ns/건, 전체 " << r.wall_ms << "ms\n";
         }
+    }
+
+    // 6. reshape — 1×1로 만든 행렬을 config가 정한 2×3으로 다시 잡는다. 셀은 새로 만들어지고(옛 항목은 버린다) 열 선택은
+    //  새 열 수로 간다. 스레드가 없을 때만 부른다는 제약은 호출 쪽 몫이다.
+    {
+        shard::Matrix<Item> mx(1, 1, 8);
+        CHECK(mx.push_to(0, 0, Item{5, 0}));
+        mx.reshape(2, 3, 4);
+        CHECK(mx.producers() == 2 && mx.consumers() == 3);
+        CHECK(mx.empty(0) && mx.empty(1) && mx.empty(2));
+
+        for (sym::SymbolId sym = 1; sym <= 30; ++sym)
+        {
+            CHECK(mx.consumer_of(sym) == shard::shard_of(sym, 3));
+        }
+
+        const auto m = mx.consumer_of(9);
+        CHECK(mx.push_to(1, m, Item{9, 0}));
+        CHECK(mx.push_to(1, m, Item{9, 1}));
+        const auto a = mx.pop(m);
+        const auto b = mx.pop(m);
+        CHECK(a && b && a->seq == 0 && b->seq == 1);
+        CHECK(!mx.pop(m));
     }
 
     std::cout << "test_shard_matrix: " << g_checks << " checks passed\n";

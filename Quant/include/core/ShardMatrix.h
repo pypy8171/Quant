@@ -43,6 +43,22 @@ public:
     Matrix(const Matrix&)            = delete;
     Matrix& operator=(const Matrix&) = delete;
 
+    // 크기를 다시 잡는다 — 셀을 전부 버리고 새로 만든다. 생산자·소비자 스레드가 하나도 없을 때만(기동 전 config 반영).
+    void reshape(uint32_t producers, uint32_t consumers, size_t capacity)
+    {
+        producers_ = producers;
+        consumers_ = consumers;
+        cells_.clear();
+        cells_.reserve(static_cast<size_t>(producers) * consumers);
+
+        for (size_t i = 0; i < static_cast<size_t>(producers) * consumers; ++i)
+        {
+            cells_.push_back(std::make_unique<RingBuffer<T>>(capacity));
+        }
+
+        cursors_.assign(consumers, Cursor{});
+    }
+
     [[nodiscard]] uint32_t producers() const noexcept
     {
         return producers_;

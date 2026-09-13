@@ -430,6 +430,48 @@ int main()
         }
     }
 
+    // 4. owner_shard — 전략이 어느 샤드 것인가. M=1이면 언제나 0. 종목 하나면 그 종목의 열, 여럿이 같은 열이면 그 열,
+    //  열이 갈리거나 구독을 안 밝혔거나 id를 못 받으면 없음(M>1로 띄우면 안 되는 전략).
+    {
+        std::vector<std::string> same, split;
+        const uint32_t           M   = 4;
+        const auto               m0  = shard::shard_of(table.intern("A00001"), M);
+        same.push_back("A00001");
+
+        for (int i = 2; i < 40 && (same.size() < 3 || split.size() < 2); ++i)
+        {
+            const std::string t  = "A000" + std::to_string(10 + i);
+            const auto        mm = shard::shard_of(table.intern(t), M);
+
+            if (mm == m0 && same.size() < 3)
+            {
+                same.push_back(t);
+            }
+            else if (mm != m0 && split.size() < 2)
+            {
+                split.push_back(t);
+            }
+        }
+
+        CHECK(same.size() == 3 && split.size() == 2);
+        FakeStrategy one("one", {same[0]});
+        FakeStrategy three("three", same);
+        FakeStrategy spanning("spanning", {same[0], split[0]});
+        FakeStrategy all("all", {});
+        const auto   lookup = [&](std::string_view t) { return table.lookup(t); };
+
+        CHECK(strat::owner_shard(one, 1, sym_of) == std::optional<uint32_t>(0u));
+        CHECK(strat::owner_shard(spanning, 1, sym_of) == std::optional<uint32_t>(0u));
+        CHECK(strat::owner_shard(all, 1, sym_of) == std::optional<uint32_t>(0u));
+        CHECK(strat::owner_shard(one, M, sym_of) == std::optional<uint32_t>(m0));
+        CHECK(strat::owner_shard(three, M, sym_of) == std::optional<uint32_t>(m0));
+        CHECK(!strat::owner_shard(spanning, M, sym_of));
+        CHECK(!strat::owner_shard(all, M, sym_of));
+        FakeStrategy unknown("unknown", {"Z99999"});
+        CHECK(!strat::owner_shard(unknown, M, lookup));
+        CHECK(strat::owner_shard(unknown, M, sym_of).has_value());
+    }
+
     std::cout << "test_strategy_shard: " << g_checks << " checks passed\n";
     return 0;
 }

@@ -264,6 +264,8 @@ int main(int argc, char* argv[])
     engine.set_rest_price_feed(cfg.value("rest_price_feed", false));
     // WS 틱·호가 raw 캡처 폴더(D-071 원칙 8). 비우면 끈다. 리플레이 백테스트의 입력.
     engine.set_capture_dir(cfg.value("capture_dir", std::string()));
+    // 전략 샤드 수(D-071 원칙 2). 종목 해시로 열을 나눠 전략 계산을 샤드 스레드 M개가 나눈다. 기본 1.
+    engine.set_strategy_shards(cfg.value("strategy_shards", 1u));
 
     // 추가 WS 세션 키(D-071 원칙 1). 기본 kis 키와 함께 소켓을 여럿 열어 구독 상한을 소켓 수만큼 늘린다.
     //  계좌·모의 여부는 기본 키와 같고 app_key·app_secret만 다르다. 체결통보(hts_id)는 기본 키만 받는다.

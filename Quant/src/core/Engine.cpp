@@ -46,6 +46,14 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
         return;
     }
 
+    if (shards_.size() > 1 && !strat::owner_shard(*strategy, static_cast<uint32_t>(shards_.size()),
+                                                  [this](std::string_view t) { return symbols_.intern(t); }))
+    {
+        LOG_ERROR("[Engine] 런타임 전략 등록 거부 — " + strategy->id() + "의 종목이 여러 샤드에 걸친다(샤드 " +
+                  std::to_string(shards_.size()) + "개)");
+        return;
+    }
+
     // 런타임 등록 전략도 차트 조회는 실전 시세키로(분봉 모의 HTTP500 회피) — start()와 동일 패턴.
     strategy->set_kis(quote_kis_ ? quote_kis_.get() : kis_.get());
     strategy->set_account_kis(kis_.get()); // 잔고·매도가능수량은 계좌를 가진 주문 클라이언트로
@@ -530,11 +538,35 @@ void Engine::start()
     //  stop() 뒤 다시 start()하면 옛 샤드(스레드는 join 뒤)를 버리고 새로 만든다.
     shard_threads_.clear();
     shards_.clear();
+    uint32_t shard_count = strategy_shards_;
 
-    for (uint32_t m = 0; m < kStrategyShards; ++m)
+    // 한 전략의 종목이 여러 열에 걸치면 샤드 둘이 그 전략을 같이 만진다 — 그 config는 받지 않고 1로 돌린다.
+    //  기동 전략은 아직 id가 없어 여기서 intern한다(on_start의 symbol_of와 같은 테이블).
+    if (shard_count > 1)
+    {
+        for (const auto& st : strategies_)
+        {
+            if (!strat::owner_shard(*st, shard_count, [this](std::string_view t) { return symbols_.intern(t); }))
+            {
+                LOG_WARN("[Engine] strategy_shards=" + std::to_string(shard_count) + " 무시 — 전략 " + st->id() +
+                         "의 종목이 여러 샤드에 걸친다(또는 구독 종목 없음). 샤드 1개로 돈다");
+                shard_count = 1;
+                break;
+            }
+        }
+    }
+
+    ob_mx_.reshape(1, shard_count, 4096);
+    td_mx_.reshape(2, shard_count, 4096);
+    bars_mx_.reshape(1, shard_count, 1024);
+
+    for (uint32_t m = 0; m < shard_count; ++m)
     {
         shards_.push_back(std::make_unique<strat::Shard>(m, strat::ShardQueues{ob_mx_, td_mx_, bars_mx_}));
     }
+
+    LOG_INFO("[Engine] 전략 샤드 " + std::to_string(shard_count) + "개 (config strategy_shards=" +
+             std::to_string(strategy_shards_) + ")");
 
 #ifdef HAS_ZMQ
     zmq_bridge_ = std::make_unique<ZmqBridge>();
@@ -893,7 +925,7 @@ void Engine::start()
     // jthread는 stop_token을 첫 인자로 넣으므로 멤버 함수 포인터(this가 첫 인자)는 람다로 감싼다.
     data_thread_     = std::jthread([this](std::stop_token st) { data_thread_fn(st); });
 
-    for (uint32_t m = 0; m < kStrategyShards; ++m)
+    for (uint32_t m = 0; m < static_cast<uint32_t>(shards_.size()); ++m)
     {
         shard_threads_.emplace_back([this, m](std::stop_token st) { shard_thread_fn(st, m); });
     }
@@ -1992,10 +2024,15 @@ void Engine::shard_thread_fn(std::stop_token st, uint32_t m)
                 std::lock_guard<std::mutex> lk(strat_mutex_);
                 snap.clear();
                 snap.reserve(strategies_.size());
+                const auto shard_count = static_cast<uint32_t>(shards_.size());
 
+                // 자기 열의 전략만 — 다른 열의 전략은 이 샤드에 틱이 오지 않으니 라우터에 둘 이유가 없다. M=1이면 전부.
                 for (auto& s : strategies_)
                 {
-                    snap.push_back(s.get());
+                    if (strat::owner_shard(*s, shard_count, sym_of).value_or(0u) == m)
+                    {
+                        snap.push_back(s.get());
+                    }
                 }
 
                 shard.rebuild(snap, ver, sym_of);
