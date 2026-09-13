@@ -3,6 +3,7 @@
 // 배열/객체 output2. 전광판: 키 후보 순서·빈 코드. 헤더 전용이라 HTTP·인증 링크 없이 돈다.
 // 관련 결정: D-051(분봉), D-059(잔고·전광판·KisResult).
 #include "api/KisRestDecode.h"
+#include "core/KstTime.h"
 #include "api/KisResult.h"
 
 #include <cassert>
@@ -120,7 +121,7 @@ int test_aggregate()
     // bars[0] = 최신 버킷 09:03~09:05: open=첫 봉 open, high=max, low=min, close=마지막 close, volume=합.
     CHECK(bars[0].open == 110 && bars[0].high == 130 && bars[0].low == 109 && bars[0].close == 128);
     CHECK(bars[0].volume == 18);
-    CHECK(bars[0].timestamp == std::chrono::system_clock::from_time_t(kis_rest::parse_dt("20260911", "090500")));
+    CHECK(bars[0].timestamp == std::chrono::system_clock::from_time_t(kis_rest::parse_dt("20260911", "090500") - kst::kOffsetSec)); // 진짜 UTC(D-072)
     // bars[1] = 09:00~09:02
     CHECK(bars[1].open == 100 && bars[1].high == 112 && bars[1].low == 98 && bars[1].close == 110);
     CHECK(bars[1].volume == 6);

@@ -10,6 +10,7 @@
 //  둘을 구분할 신호가 응답에 없어서다.
 
 #include "api/KisTypes.h"
+#include "core/KstTime.h"
 #include "core/Types.h"
 
 #include <algorithm>
@@ -82,6 +83,8 @@ struct RawMinute
 // 1분봉 원본 → interval_min 집계봉. 반환은 최신→과거(result[0]=최신, bar_index 0=최신), 최대 count봉.
 //  raws는 정렬을 위해 제자리에서 바뀐다. 두 분봉 TR이 같은 집계를 쓰므로 한 곳에 둔다.
 //  버킷은 시계 정렬((hh*60+mm)/interval_min)이라 09:00 기준 3분봉은 09:00·09:03·… 으로 떨어진다.
+//  timestamp는 버킷 마지막 1분의 진짜 UTC다(KST 라벨 − 9h). 일봉(now)·체결 틱과 같은 축이어야 집계기 시드와
+//  resample이 KST 분을 바로 읽는다 — 라벨을 UTC처럼 두면 시드 자리가 9시간 밀려 틱이 전부 버려진다. [why D-072]
 inline std::vector<MarketData> aggregate_minutes(std::vector<RawMinute>& raws, const std::string& ticker,
                                                  int interval_min, int count)
 {
@@ -126,7 +129,7 @@ inline std::vector<MarketData> aggregate_minutes(std::vector<RawMinute>& raws, c
             md.low = r.l;
             md.close = r.c;
             md.volume = r.v;
-            md.timestamp = std::chrono::system_clock::from_time_t(parse_dt(r.date, r.hour));
+            md.timestamp = std::chrono::system_clock::from_time_t(parse_dt(r.date, r.hour) - kst::kOffsetSec);
             asc.push_back(md);
             cur_key = key;
         }
@@ -137,7 +140,7 @@ inline std::vector<MarketData> aggregate_minutes(std::vector<RawMinute>& raws, c
             md.low = (std::min)(md.low, r.l);
             md.close = r.c; // 버킷 내 최신 마감
             md.volume += r.v;
-            md.timestamp = std::chrono::system_clock::from_time_t(parse_dt(r.date, r.hour));
+            md.timestamp = std::chrono::system_clock::from_time_t(parse_dt(r.date, r.hour) - kst::kOffsetSec);
         }
     }
 
