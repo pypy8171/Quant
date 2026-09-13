@@ -1,4 +1,5 @@
-// api/KisAuth.cpp — OAuth2 토큰 발급·캐시·만료 전 재발급. token_mtx_ 아래에서만 access_token_을 쓴다.
+// api/KisAuth.cpp — OAuth2 토큰 발급·캐시·만료 전 재발급. access_token_은 token_mtx_ 아래에서만 읽고 쓰고,
+//  발급 HTTP 왕복은 refresh_mtx_만 쥔 채 돈다. [why D-073]
 //  [why D-048] 파일 분할 경위.
 #include "KisClientInternal.h"
 #ifdef _WIN32
@@ -35,30 +36,54 @@ static std::string token_cache_path(const std::string& app_key)
     return prefix + "kis_token_" + app_key.substr(0, 8) + ".json";
 }
 
+bool KisClient::token_expiring(std::chrono::seconds margin) const
+{
+    std::lock_guard<std::mutex> lk(token_mtx_);
+    return access_token_.empty() || std::chrono::system_clock::now() + margin >= token_expires_at_;
+}
+
+void KisClient::set_token(std::string token, std::chrono::system_clock::time_point expires_at)
+{
+    std::lock_guard<std::mutex> lk(token_mtx_);
+    access_token_     = std::move(token);
+    token_expires_at_ = expires_at;
+}
+
 void KisClient::ensure_authenticated()
 {
-    // 락을 먼저 잡고 만료를 재확인(double-checked) → 여러 스레드가 만료창에 동시 진입해도
-    // 첫 스레드만 발급하고 나머지는 갱신된 만료시각을 보고 건너뜀(thundering-herd 제거).
-    std::lock_guard<std::mutex> lk(token_mtx_);
-    auto now = std::chrono::system_clock::now();
-    auto margin = std::chrono::minutes(5);
-
-    if (access_token_.empty() || now + margin >= token_expires_at_)
+    if (!token_expiring(std::chrono::minutes(5)))
     {
-        LOG_INFO("[KIS] 토큰 갱신 시작");
-        authenticate_locked();
+        return;
     }
+
+    LOG_INFO("[KIS] 토큰 갱신 시작");
+    refresh_token(std::chrono::minutes(5));
 }
 
-// public 진입점 — 기동 시 직접 호출(단일 스레드)에도 안전하도록 락을 잡고 위임.
+bool KisClient::refresh_token(std::chrono::seconds margin)
+{
+    // [lock-order] refresh_mtx_ → token_mtx_. 발급은 refresh_mtx_가 직렬화하고, 안에서 만료를 다시 봐
+    //  만료창에 같이 들어온 스레드는 첫 발급 뒤 건너뛴다. HTTP 왕복(수백 ms~수 초) 동안 token_mtx_는
+    //  잡지 않으므로 다른 스레드의 token()·헤더 조립은 옛 토큰으로 바로 나간다 — 옛 토큰은 margin 안까지
+    //  유효하다. 예전엔 token_mtx_를 왕복 내내 쥐어 그 사이 전략·데이터·주문 스레드가 전부 섰다. [why D-073]
+    std::lock_guard<std::mutex> rl(refresh_mtx_);
+
+    if (!token_expiring(margin))
+    {
+        return true;
+    }
+
+    return issue_token();
+}
+
 bool KisClient::authenticate()
 {
-    std::lock_guard<std::mutex> lk(token_mtx_);
-    return authenticate_locked();
+    std::lock_guard<std::mutex> rl(refresh_mtx_);
+    return issue_token();
 }
 
-// token_mtx_를 이미 쥔 상태에서만 호출 — 내부에서 다시 락을 잡지 않는다(비재귀 뮤텍스).
-bool KisClient::authenticate_locked()
+// refresh_mtx_를 쥔 상태에서만 호출. token_mtx_는 set_token 안에서만 잠깐 잡는다.
+bool KisClient::issue_token()
 {
     // ── 캐시 파일에 유효한 토큰이 있으면 재사용 ──────────────────────────
     std::string cache_path = token_cache_path(cfg_.app_key);
@@ -96,8 +121,7 @@ bool KisClient::authenticate_locked()
                         // 만료 10분 전까지 사용
                         if (exp_t - now_t > 600)
                         {
-                            access_token_ = token;
-                            token_expires_at_ = std::chrono::system_clock::from_time_t(exp_t);
+                            set_token(token, std::chrono::system_clock::from_time_t(exp_t));
                             LOG_INFO("[KIS] 캐시 토큰 재사용 (만료: " + expires + ")");
                             return true;
                         }
@@ -125,10 +149,11 @@ bool KisClient::authenticate_locked()
     try
     {
         auto j = json::parse(resp);
-        access_token_ = j["access_token"].get<std::string>();
+        const std::string token = j["access_token"].get<std::string>();
 
         // 만료 시각 저장 (KIS 응답 필드: access_token_token_expired)
         std::string expires = j.value("access_token_token_expired", "");
+        std::chrono::system_clock::time_point expires_at;
 
         // 인메모리 만료 시각 설정
         {
@@ -146,18 +171,20 @@ bool KisClient::authenticate_locked()
                 tm_exp.tm_min = mi;
                 tm_exp.tm_sec = s;
                 tm_exp.tm_isdst = -1;
-                token_expires_at_ = std::chrono::system_clock::from_time_t(std::mktime(&tm_exp));
+                expires_at = std::chrono::system_clock::from_time_t(std::mktime(&tm_exp));
             }
             else
             {
                 // 파싱 실패 시 24시간 후로 설정
-                token_expires_at_ = std::chrono::system_clock::now() + std::chrono::hours(24);
+                expires_at = std::chrono::system_clock::now() + std::chrono::hours(24);
             }
         }
 
+        set_token(token, expires_at);
+
         // 캐시 파일에 저장 — temp 작성 후 atomic rename (C-2).
         // 읽는 쪽(Python balance)이 스트리밍 중인 truncated JSON을 보지 않게 한다.
-        json cache_j = {{"access_token", access_token_}, {"expires_at", expires}};
+        json cache_j = {{"access_token", token}, {"expires_at", expires}};
         std::string tmp_path = cache_path + ".tmp";
         {
             std::ofstream cf(tmp_path);

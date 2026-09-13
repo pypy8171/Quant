@@ -1509,9 +1509,20 @@ void Engine::strategy_thread_fn()
                 zmq_bridge_->publish_signal(sig);
             }
 #endif
-            while (!order_queue_.push(sig) && running_.load())
+            if (!order_queue_.push(sig))
             {
-                std::this_thread::sleep_for(std::chrono::microseconds(100));
+                // 주문 스레드가 KIS 왕복에 묶여 큐가 찬 상태. 여기서 빌 때까지 돌면 전략 스레드가 서고 그 뒤로
+                //  호가·체결 큐까지 밀려 판단이 옛 틱으로 흐른다 — 신호를 버리고 센다. 잃는 것은 신호 하나고
+                //  조건이 남아 있으면 다음 틱·봉이 다시 만든다(FORCE_LIQ는 2초마다 재발주). [why D-073]
+                const auto n = order_dropped_.fetch_add(1, std::memory_order_relaxed) + 1;
+
+                if (n == 1 || n % 100 == 0)
+                {
+                    LOG_WARN("[전략] 주문 큐 가득 — 신호 버림 " + sig.ticker + " " +
+                             (sig.side == OrderSide::BUY ? "BUY" : "SELL") + " (누적 " + std::to_string(n) + ")");
+                }
+
+                return;
             }
 
             order_wake_.notify();
@@ -2053,6 +2064,8 @@ void Engine::control_thread_fn()
     // 큐 고수위는 장 외에도 찍는다 — 큐 크기가 맞는지의 근거가 되므로 WS 유무·개장 여부와 무관하다. [why D-071]
     constexpr int kHighWaterEvery = 12; // 5초 × 12 = 1분
     int hw_tick = 0;
+    constexpr int kTokenEvery = 60; // 5초 × 60 = 5분
+    int token_tick = 0;
 
     while (running_.load(std::memory_order_acquire))
     {
@@ -2068,7 +2081,21 @@ void Engine::control_thread_fn()
                      "/" + std::to_string(rest_td_queue_.capacity()) + " order=" +
                      std::to_string(order_queue_.high_water()) + "/" + std::to_string(order_queue_.capacity()) +
                      " fill=" + std::to_string(fill_queue_.high_water()) + "/" + std::to_string(fill_queue_.capacity()) +
-                     " fill_dropped=" + std::to_string(fill_dropped_.load(std::memory_order_relaxed)));
+                     " fill_dropped=" + std::to_string(fill_dropped_.load(std::memory_order_relaxed)) +
+                     " order_dropped=" + std::to_string(order_dropped_.load(std::memory_order_relaxed)));
+        }
+
+        if (++token_tick >= kTokenEvery)
+        {
+            token_tick = 0;
+            // 만료 30분 전에 여기서 미리 갱신한다. 발급 왕복을 파이프라인 밖 스레드가 떠안아야
+            //  전략·데이터 스레드의 http_get이 5분 margin에 걸리지 않는다. [why D-073]
+            kis_->refresh_token(std::chrono::minutes(30));
+
+            if (quote_kis_)
+            {
+                quote_kis_->refresh_token(std::chrono::minutes(30));
+            }
         }
 
         if (!ws_)

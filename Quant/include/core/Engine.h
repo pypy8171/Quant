@@ -340,7 +340,7 @@ private:
     std::chrono::steady_clock::time_point last_regime_eval_{};
 
     RingBuffer<MarketData> market_queue_{1024};
-    RingBuffer<OrderSignal> order_queue_{256};
+    RingBuffer<OrderSignal> order_queue_{1024}; // 주문 스레드가 KIS 왕복에 묶이는 몇 초를 받는다 [why D-073]
     RingBuffer<OrderBook> ob_queue_{4096}; // 호가 (국내)
     RingBuffer<TradeData> td_queue_{4096}; // 체결 (미국 + 국내)
     // WS 상한에 밀린 종목의 REST 대체 틱. td_queue_는 WS 콜백 스레드가 생산자라 데이터 스레드가
@@ -350,6 +350,7 @@ private:
     //  체결 하나 처리(hist_mtx_·CSV 쓰기) 동안 전 종목 틱 수신이 멈추지 않게. [why D-056]
     RingBuffer<FillNotification> fill_queue_{1024};
     std::atomic<uint64_t> fill_dropped_{0};   // fill_queue_ 가득 차 버린 체결통보 수. 0이 아니면 잔고 대조가 원장을 메운다
+    std::atomic<uint64_t> order_dropped_{0};  // order_queue_ 가득 차 버린 신호 수. [큐 고수위] 줄에 같이 찍힌다
     // 소비자 깨우기 — 생산자가 push 뒤 notify, 소비자는 큐가 비면 잔다. 1ms 폴링은 Windows 타이머 격자 때문에
     //  실측 p50 15.6ms였다(bench_sleep_res). [why D-071]
     sync::WakeGate fill_wake_;  // fill_thread ← WS 수신 스레드

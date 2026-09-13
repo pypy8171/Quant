@@ -85,6 +85,9 @@ public:
     };
 
     bool authenticate();
+    // 만료 margin 안이면 재발급, 아니면 아무 것도 안 한다. 제어 스레드가 넉넉한 margin(30분)으로 주기 호출해
+    //  전략·데이터 스레드의 http_get이 5분 margin에 걸려 발급 왕복을 떠안는 일을 없앤다. [why D-073]
+    bool refresh_token(std::chrono::seconds margin);
     bool is_authenticated() const
     {
         std::lock_guard<std::mutex> lk(token_mtx_);
@@ -266,10 +269,13 @@ private:
     std::vector<std::string> auth_headers(const std::string& tr_id,
                                           std::initializer_list<std::string> extra = {}) const;
 
-    // 토큰 만료 5분 전이면 자동 재발급 (token_mtx_ 하에서 authenticate_locked 호출)
+    // 토큰 만료 5분 전이면 자동 재발급 — http_get/http_post가 요청마다 부른다(refresh_token(5분)).
     void ensure_authenticated();
-    // 실제 발급/캐시로직 — token_mtx_를 이미 쥔 상태에서만 호출(락 없음). 데드락 방지 분리.
-    bool authenticate_locked();
+    // 실제 발급/캐시 로직 — refresh_mtx_를 쥔 상태에서만 호출. 토큰 쓰기는 set_token으로만.
+    bool issue_token();
+    // 만료 margin 안인지 — token_mtx_를 이 검사 동안만 잡는다.
+    bool token_expiring(std::chrono::seconds margin) const;
+    void set_token(std::string token, std::chrono::system_clock::time_point expires_at);
     // 현재 토큰의 락-보호 스냅샷 복사본. 헤더 조립 시 access_token_ 직접 참조 대신 사용
     // — authenticate가 std::string을 재기록하는 순간 다른 스레드가 복사하다 힙 손상되던 레이스 차단.
     std::string token() const
@@ -285,10 +291,11 @@ private:
     }
 
     KisConfig cfg_;
-    // 토큰 상태(access_token_/token_expires_at_)는 전략·데이터 스레드가 같은 인스턴스를
-    // 공유하며 재발급 시 동시 읽기/쓰기가 발생 → token_mtx_로 직렬화(비재귀). 진입점은
-    // authenticate()/ensure_authenticated()/token()/is_authenticated() 넷 모두 각자 독립 획득.
+    // 토큰 상태(access_token_/token_expires_at_)는 전략·데이터·주문·제어 스레드가 같은 인스턴스를 공유한다.
+    //  token_mtx_는 그 두 멤버의 읽기·쓰기만 지키고(몇 줄), 발급 HTTP 왕복은 refresh_mtx_가 직렬화한다.
+    //  [lock-order] refresh_mtx_ → token_mtx_. [why D-073]
     mutable std::mutex token_mtx_;
+    std::mutex         refresh_mtx_;
 
     // 일봉·주봉 공통 조회(페이지네이션·절단·캐시). period='D'|'W'.
     std::vector<MarketData> get_chart_ohlcv(const std::string& ticker, int count, bool include_current,
