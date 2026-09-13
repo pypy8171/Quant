@@ -296,9 +296,11 @@ int main()
         const auto id = table.intern("005930");
 
         OrderBook b;
-        b.sym    = id;
-        b.ticker = sym::Ticker("005930");
+        b.sym     = id;
+        b.ticker  = sym::Ticker("005930");
+        b.recv_ns = 7;
         CHECK(ob.push(0, id, b));
+        b.recv_ns = 8;
         CHECK(ob.push(0, id, b));
         TradeData t = make_td(sym::kNone, "005930", 0, 70000.0, 55);
         CHECK(td.push_to(0, 0, t));
@@ -315,8 +317,8 @@ int main()
             order.push_back((sig.action == OrderAction::CANCEL ? "C" : "B") + std::to_string(tick_ns));
         };
         CHECK(s.step(emit, [&](sym::SymbolId got, double px) { priced += (got == id && px == 70000.0) ? 1 : 0; }, sym_of));
-        // 호가 2건 → CANCEL 둘(tick 0), 체결 1건 → BUY(tick 55), 봉 하나.
-        CHECK(order.size() == 3 && order[0] == "C0" && order[1] == "C0" && order[2] == "B55");
+        // 호가 2건 → CANCEL 둘(tick은 호가의 recv_ns 7·8), 체결 1건 → BUY(tick 55), 봉 하나.
+        CHECK(order.size() == 3 && order[0] == "C7" && order[1] == "C8" && order[2] == "B55");
         CHECK(all.books == 2 && all.trades == 1 && all.bars == 1 && priced == 1);
         CHECK(all.seen.size() == 1 && all.seen[0].first == id); // kNone이 id로 채워졌다
         CHECK(!s.empty());                                        // 봉 하나 남았다

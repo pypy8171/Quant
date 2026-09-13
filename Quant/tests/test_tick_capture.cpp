@@ -48,6 +48,7 @@ OrderBook make_book(int i)
     ob.ticker    = "005930";
     ob.sym       = 1;
     ob.hhmmss    = 90100;
+    ob.recv_ns   = 7'000'000 + i; // 수신 스레드가 찍은 값이 캡처에 그대로 남는다
     ob.timestamp = std::chrono::system_clock::time_point(std::chrono::microseconds(1'700'000'000'000'000LL + i));
 
     for (int k = 0; k < 5; ++k)
@@ -71,10 +72,10 @@ int main()
         feed::TickCapture cap(path);
         CHECK(cap.ok());
         cap.on_trade(make_trade(0));
-        cap.on_book(make_book(0), 7'000'000);
+        cap.on_book(make_book(0));
         cap.on_trade(make_trade(1));
         cap.on_trade(make_trade(2));
-        cap.on_book(make_book(1), 7'000'001);
+        cap.on_book(make_book(1));
         cap.flush();
         CHECK(cap.written() == 5);
         CHECK(cap.dropped() == 0);
@@ -98,7 +99,7 @@ int main()
         CHECK(b0.ticker == "005930" && b0.sym == 1 && b0.hhmmss == 90100);
         CHECK(b0.asks[4].price == 70500.0 && b0.asks[4].quantity == 104);
         CHECK(b0.bids[0].price == 70000.0 && b0.bids[0].quantity == 200);
-        CHECK(r.book.c.recv_ns == 7'000'000);
+        CHECK(r.book.c.recv_ns == 7'000'000 && b0.recv_ns == 7'000'000);
         CHECK(b0.timestamp == make_book(0).timestamp);
 
         CHECK(rd.next(r) && r.kind == feed::kKindTrade && feed::to_trade(r.trade).ticker == "000660");

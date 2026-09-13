@@ -34,7 +34,7 @@ constexpr size_t  kTimeMax       = 8;  // HHMMSS
 
 struct Common
 {
-    int64_t  recv_ns = 0; // 수신 스레드 steady_clock ns (TradeData.recv_ns). 호가는 캡처 시각.
+    int64_t  recv_ns = 0; // 수신 스레드 steady_clock ns (TradeData.recv_ns·OrderBook.recv_ns).
     int64_t  wall_us = 0; // system_clock us — 리플레이의 timestamp 복원용
     char     ticker[kTickerMax] = {};
     char     time[kTimeMax]     = {};
@@ -126,10 +126,10 @@ inline TradeBody to_body(const TradeData& td)
     return b;
 }
 
-inline BookBody to_body(const OrderBook& ob, int64_t recv_ns)
+inline BookBody to_body(const OrderBook& ob)
 {
     BookBody b;
-    fill_common(b.c, ob.ticker, ob.hhmmss, ob.sym, Market::KR, 0, recv_ns, ob.timestamp);
+    fill_common(b.c, ob.ticker, ob.hhmmss, ob.sym, Market::KR, 0, ob.recv_ns, ob.timestamp);
     std::memcpy(b.asks, ob.asks, sizeof(b.asks));
     std::memcpy(b.bids, ob.bids, sizeof(b.bids));
     return b;
@@ -158,6 +158,7 @@ inline OrderBook to_book(const BookBody& b)
     ob.ticker    = b.c.ticker;
     ob.hhmmss    = krx::parse_hhmmss(b.c.time);
     ob.sym       = b.c.sym;
+    ob.recv_ns   = b.c.recv_ns;
     ob.timestamp = std::chrono::system_clock::time_point(std::chrono::microseconds(b.c.wall_us));
     std::memcpy(ob.asks, b.asks, sizeof(ob.asks));
     std::memcpy(ob.bids, b.bids, sizeof(ob.bids));
@@ -231,7 +232,7 @@ public:
         enqueue(std::move(r));
     }
 
-    void on_book(const OrderBook& ob, int64_t recv_ns) noexcept
+    void on_book(const OrderBook& ob) noexcept
     {
         if (fp_ == nullptr)
         {
@@ -240,7 +241,7 @@ public:
 
         Record r;
         r.kind = kKindBook;
-        r.book = to_body(ob, recv_ns);
+        r.book = to_body(ob);
         enqueue(std::move(r));
     }
 

@@ -156,16 +156,22 @@ private:
                 break;
             }
 
+            // 캡처 때 recv_ns는 위 간격 계산에만 쓰고, 내보내는 틱에는 이 프로세스 시계를 찍는다 — 구간 지연 CSV가
+            //  옛 시계와 지금 시계를 빼는 일이 없게. [why D-071]
             if (r.kind == kKindTrade)
             {
                 if (on_trade_)
                 {
-                    on_trade_(to_trade(r.trade));
+                    TradeData td = to_trade(r.trade);
+                    td.recv_ns   = now_ns();
+                    on_trade_(td);
                 }
             }
             else if (on_ob_)
             {
-                on_ob_(to_book(r.book));
+                OrderBook ob = to_book(r.book);
+                ob.recv_ns   = now_ns();
+                on_ob_(ob);
             }
 
             played_.fetch_add(1, std::memory_order_relaxed);
@@ -203,6 +209,12 @@ private:
 
     std::filesystem::path file_;
     double                speed_;
+    static int64_t now_ns()
+    {
+        using namespace std::chrono;
+        return duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count();
+    }
+
     OrderBookCb           on_ob_;
     TradeCb               on_trade_;
 

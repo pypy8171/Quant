@@ -140,6 +140,9 @@ struct OrderBook
     OrderBookLevel asks[5];
     OrderBookLevel bids[5];
     std::chrono::system_clock::time_point timestamp;
+    // 수신 스레드가 디코드 직후 찍는 steady_clock ns. 체결(TradeData.recv_ns)과 같은 시계라 채널이 달라도 도착 순서를
+    //  하나로 되돌릴 수 있다. 0은 "안 찍음". [why D-071]
+    int64_t recv_ns = 0;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -158,7 +161,8 @@ struct TradeData
     // 아래 둘은 국내 현물 체결(H0STCNT0)에만 있다. REST 폴링·선물·미국 틱은 0.
     double  strength = 0.0;   // 체결강도(CTTR, %) — 100 위면 매수 체결이 우세
     int64_t acml_volume = 0;  // 당일 누적 거래량
-    // 수신 스레드가 이 틱을 받은 steady_clock ns. 구간 지연 측정의 출발점이고 0은 "안 찍음"(REST 대체 틱). [why D-071]
+    // 수신 스레드가 디코드 직후 찍는 steady_clock ns(호가 OrderBook.recv_ns와 같은 시계). 구간 지연 측정의 출발점이고
+    //  0은 "안 찍음"(REST 대체 틱). [why D-071]
     int64_t recv_ns = 0;
 };
 

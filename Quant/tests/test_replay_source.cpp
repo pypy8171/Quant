@@ -42,8 +42,9 @@ TradeData make_trade(int i, int64_t recv_ns)
 OrderBook make_book(int i)
 {
     OrderBook ob;
-    ob.ticker = "005930";
-    ob.hhmmss = 90100;
+    ob.ticker  = "005930";
+    ob.hhmmss  = 90100;
+    ob.recv_ns = 1'050'000'000;
 
     for (int k = 0; k < 5; ++k)
     {
@@ -89,7 +90,7 @@ int main()
         feed::TickCapture cap(path);
         CHECK(cap.ok());
         cap.on_trade(make_trade(0, 1'000'000'000));
-        cap.on_book(make_book(0), 1'050'000'000);
+        cap.on_book(make_book(0));
         cap.on_trade(make_trade(1, 1'100'000'000));
         cap.on_trade(make_trade(2, 1'200'000'000));
         cap.on_trade(make_trade(3, 1'300'000'000));

@@ -19,6 +19,14 @@ static constexpr const char* kWsHost = "ops.koreainvestment.com";
 static constexpr int kWsPortPaper = 31000; // 모의투자
 static constexpr int kWsPortReal  = 21000; // 실계좌
 
+// 수신 시각. 소켓 읽기 스레드가 디코드 직후 찍는다 — 호가·체결이 같은 시계를 쓰므로 뒤 단계(mux·샤드)가 도착 순서를
+//  되돌릴 수 있다. 구간 지연 CSV의 출발점도 이 값이다. [why D-071]
+static int64_t recv_now_ns()
+{
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  공통 유틸
 // ═══════════════════════════════════════════════════════════════════════════
@@ -766,6 +774,8 @@ void KisWebSocket::parse_orderbook(kis_ws::Fields f)
         return;
     }
 
+    ob.recv_ns = recv_now_ns();
+
     log_first_record(first_logged, "H0STASP0", f, 0, " ");
 
     if (on_orderbook_)
@@ -783,6 +793,8 @@ void KisWebSocket::parse_kr_trade(kis_ws::Fields f)
     {
         return;
     }
+
+    td.recv_ns = recv_now_ns();
 
     log_first_record(first_logged, "H0STCNT0", f, 13, "\n  ");
 
@@ -803,6 +815,8 @@ void KisWebSocket::parse_us_trade(kis_ws::Fields f)
         return;
     }
 
+    td.recv_ns = recv_now_ns();
+
     log_first_record(first_us_logged, "HDFSCNT0", f, 15, "\n  ");
 
     if (on_trade_)
@@ -821,6 +835,8 @@ void KisWebSocket::parse_fut_trade(kis_ws::Fields f)
     {
         return;
     }
+
+    td.recv_ns = recv_now_ns();
 
     log_first_record(first_logged, "H0IFCNT0", f, 19, "\n  ");
 
@@ -842,6 +858,8 @@ void KisWebSocket::parse_fut_orderbook(kis_ws::Fields f)
                  std::to_string(kis_ws::kMinFieldsFutOrderbook) + " 필요)");
         return;
     }
+
+    ob.recv_ns = recv_now_ns();
 
     log_first_record(first_logged, "H0IFASP0", f, 0, " ");
 

@@ -824,9 +824,15 @@ void Engine::start()
                                OrderBook ob = in;
                                ob.sym       = symbols_.intern(ob.ticker);
 
+                               // 수신 스레드가 디코드 시점에 찍은 값을 지킨다. 안 찍힌 소스만 여기서 찍는다.
+                               if (ob.recv_ns == 0)
+                               {
+                                   ob.recv_ns = trace::now_ns();
+                               }
+
                                if (capture_)
                                {
-                                   capture_->on_book(ob, trace::now_ns());
+                                   capture_->on_book(ob);
                                }
 
                                // 호가도 체결과 같은 규칙 — 버린 수를 세고 넘침이 시작될 때 한 번 남긴다.
@@ -847,10 +853,15 @@ void Engine::start()
                            },
                            [this](const TradeData& in)
                            {
-                               // push가 어차피 한 번 복사하므로 여기서 복사해 수신 시각을 찍고 move로 넣는다.
+                               // push가 어차피 한 번 복사하므로 여기서 복사해 id를 찍고 move로 넣는다. 수신 시각은
+                               //  수신 스레드가 디코드 시점에 찍은 값을 지키고, 안 찍힌 소스만 여기서 찍는다.
                                TradeData td = in;
-                               td.recv_ns   = trace::now_ns();
                                td.sym       = symbols_.intern(td.ticker);
+
+                               if (td.recv_ns == 0)
+                               {
+                                   td.recv_ns = trace::now_ns();
+                               }
 
                                if (capture_)
                                {

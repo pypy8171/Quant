@@ -161,7 +161,7 @@ public:
                 {
                     if (b.action != OrderAction::NEW || b.side != OrderSide::NONE)
                     {
-                        emit(s, b, int64_t{0});
+                        emit(s, b, opt->recv_ns);
                     }
                 }
             });

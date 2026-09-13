@@ -3083,6 +3083,23 @@ KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 
   충분하고, 여러 종목을 한 전략이 보는 경우(Momentum·Theme 같은 옛 전략)는 M=1로 두면 된다.
 - 시험: `test_strategy_shard` 4절(주인 판정 여덟 경우). 측정은 둘째 조각 3절 값이 그대로다(103→52→27ms).
 
+**Phase 2 조각 — 수신 시각 (2026-09-13)** — 호가 `OrderBook`에도 `recv_ns`를 두고, 체결·호가 모두 소켓 읽기 스레드가
+디코드 직후 `steady_clock`으로 찍는다(`Quant/src/api/WebSocketClient.cpp`의 parse_* 다섯 곳). 전에는 체결만, 그것도
+Engine 콜백(FeedMux 스레드를 지난 뒤)이 찍었고 호가는 캡처 시각을 따로 받았다.
+
+- 왜 디코드 시점인가: 호가와 체결은 채널이 달라 다른 소켓·다른 mux 링을 지날 수 있다. 같은 종목의 호가와 체결이 어느 순서로
+  도착했는지는 두 채널이 같은 시계로 같은 지점(디코드 직후)에 찍은 값으로만 되돌릴 수 있다. Engine 콜백에서 찍으면 mux 링에
+  머문 시간이 섞여 순서가 뒤집힌다. 샤드가 두 큐 머리를 이 시각으로 병합하는 것은 필요할 때 별도 조각 — 지금 전략은 호가와
+  체결을 따로 받으므로 순서 병합 없이 값만 싣는다.
+- Engine 콜백은 출처가 찍은 값을 지키고 0일 때만 찍는다 — 옛 캡처 파일·시험용 가짜 소스가 그 경로다. `ReplaySource`는
+  캡처의 `recv_ns`를 간격 계산에만 쓰고 내보내는 틱에는 이 프로세스 시계를 찍는다(구간 지연 CSV가 옛 시계와 지금 시계를
+  빼지 않게). REST 대체 틱은 그대로 0. 캡처 `on_book(ob)`는 호가 자신의 값을 쓰고 `to_book`이 되돌린다(캡처 형식은
+  그대로 — `Common.recv_ns` 자리에 들어간다). 샤드의 호가 신호 봉투도 0 대신 호가의 `recv_ns`를 싣는다.
+- 시험: `test_tick_capture`(호가 recv_ns 왕복)·`test_replay_source`·`test_strategy_shard` 3절(호가 봉투 tick 7·8).
+  소켓 읽기 스레드의 스탬프 자체는 `KisWebSocket`이 단위 시험 밖이라 값이 0이 아닌지 FEED 화면·`latency_trace.csv`로 본다.
+- 버린 것: `uint64`(현황판 초안) — `TradeData.recv_ns`·`LatencyTrace`가 이미 `int64`라 차이 계산에 부호가 있는 쪽을 유지.
+  `KisWsDecode.h` 순수 함수 안에서 찍기 — 디코더는 시계 없이 시험되는 순수 함수라 호출자(소켓 스레드)가 찍는다.
+
 ### D-072 틱 집계 봉의 기저를 1분으로 두고 판단 봉은 resample로 만든다 — REST 분봉 timestamp는 진짜 UTC (2026-09-13)
 **상태**: 채택 (`wt/bars-1m`, `test_bar_aggregator` 131·`test_kis_decode` 68 통과, 라이브는 09-14 장부터 `bar_source` 기본 `ws`)
 
