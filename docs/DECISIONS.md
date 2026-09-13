@@ -3100,6 +3100,27 @@ Engine 콜백(FeedMux 스레드를 지난 뒤)이 찍었고 호가는 캡처 시
 - 버린 것: `uint64`(현황판 초안) — `TradeData.recv_ns`·`LatencyTrace`가 이미 `int64`라 차이 계산에 부호가 있는 쪽을 유지.
   `KisWsDecode.h` 순수 함수 안에서 찍기 — 디코더는 시계 없이 시험되는 순수 함수라 호출자(소켓 스레드)가 찍는다.
 
+**Phase 4 앞 단계 넷째 조각 — 수신 N>1, FeedMux 레인 모드 (2026-09-13)** — 소켓이 여럿일 때 `FeedMux`가 mux 스레드
+하나로 모으지 않고, 소켓 i의 수신 스레드가 레인 i를 달고 Engine 콜백을 직접 부른다. Engine은 행렬을 `ob_mx_(N, M)`·
+`td_mx_(N+1, M)`으로 잡고 레인 i가 행 i에, 데이터 스레드가 행 N에 넣는다. 수신 스레드가 실제로 N개가 된 첫 조각이다.
+
+- 왜: 셋째 조각까지 행렬은 N행을 받을 수 있었지만 생산자는 mux 스레드 하나였다 — 소켓 셋을 스레드 하나가 링 셋을
+  돌며 비우면 그 스레드가 소켓 셋의 병목이고 링 hop이 하나 더 있다. 소비자가 N행 행렬이라 생산자를 모을 이유가 없다
+  (원칙 1·5). `IFeedSource`에 `lanes()`(기본 1)와 레인 번호를 다는 `set_lane_callbacks`(기본은 레인 0 하나로
+  `set_callbacks`에 얹음)를 두어 `KisWebSocket`·`ReplaySource`는 그대로고 `FeedMux`만 덮어쓴다. mux 모드(`set_callbacks`)는
+  남긴다 — 소비자가 하나여야 하는 쪽(시험·단일 큐)용.
+- SPSC였던 두 큐: 틱 캡처 `TickCapture`의 큐는 `RingBuffer`에서 `MpscQueue`로(같은 API, 생산자가 레인 수만큼, 원칙 5).
+  체결통보 `fill_queue_`는 첫 소스 스레드 하나만 부르므로(FeedMux가 첫 소스에만 등록) SPSC 그대로. 모의 체결기
+  `paper_`는 리플레이 전용이고 리플레이는 레인 하나라 SPSC가 깨지지 않는다.
+- 행 수는 소켓을 만들기 전에 필요해 config로 센다(리플레이·소켓 하나면 1, `feed_keys`가 있으면 1+N) — `ws_` 생성과 같은
+  조건이라 `ws_->lanes()`와 같다는 것이 불변식이다. 데이터 스레드 행은 상수 1 대신 `data_row_ = ws_lanes_`.
+- 시험: `test_feed_mux` 6절(레인 모드 — 소스 i가 쏜 이벤트가 그 스레드에서 레인 i로 오고 링·mux 스레드를 안 거친다,
+  체결통보는 첫 소스 스레드에서, 기본 구현은 `lanes()`=1·레인 0), `test_tick_capture` 8절(스레드 4개 500건씩 동시 push,
+  쓴 수 2000 = 파일 레코드 수).
+- 버린 것: 캡처 큐를 레인당 하나로(N개 SPSC + 기록 스레드가 돌며 비움) — MpscQueue가 이미 있고 드롭인이라 큐를 늘릴
+  이유가 없다. 소켓 객체를 먼저 만들어 `lanes()`로 행 수를 읽기 — `ws_` 생성이 캡처·콜백 배선과 한 블록이라 옮기면
+  diff가 커서, 같은 조건을 config로 센다.
+
 ### D-072 틱 집계 봉의 기저를 1분으로 두고 판단 봉은 resample로 만든다 — REST 분봉 timestamp는 진짜 UTC (2026-09-13)
 **상태**: 채택 (`wt/bars-1m`, `test_bar_aggregator` 131·`test_kis_decode` 68 통과, 라이브는 09-14 장부터 `bar_source` 기본 `ws`)
 

@@ -436,7 +436,7 @@
     ],
     "core/TickCapture.h": [
       "core/MarketSession.h",
-      "core/RingBuffer.h",
+      "core/MpscQueue.h",
       "core/Types.h",
       "core/WakeGate.h"
     ],
@@ -710,6 +710,7 @@
     ],
     "core/MpscQueue.h": [
       "core/Engine.h",
+      "core/TickCapture.h",
       "utils/Logger.h"
     ],
     "core/OrderPacer.h": [
@@ -737,8 +738,7 @@
     "core/RingBuffer.h": [
       "core/Engine.h",
       "core/FeedMux.h",
-      "core/ShardMatrix.h",
-      "core/TickCapture.h"
+      "core/ShardMatrix.h"
     ],
     "core/ShardMatrix.h": [
       "core/StrategyShard.h"
@@ -987,10 +987,6 @@
       "in_degree": 4
     },
     {
-      "header": "core/RingBuffer.h",
-      "in_degree": 4
-    },
-    {
       "header": "ipc/ZmqBridge.h",
       "in_degree": 4
     },
@@ -1020,6 +1016,10 @@
     },
     {
       "header": "core/IFeedSource.h",
+      "in_degree": 3
+    },
+    {
+      "header": "core/MpscQueue.h",
       "in_degree": 3
     }
   ],

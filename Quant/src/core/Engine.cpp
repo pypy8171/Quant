@@ -556,8 +556,13 @@ void Engine::start()
         }
     }
 
-    ob_mx_.reshape(1, shard_count, 4096);
-    td_mx_.reshape(2, shard_count, 4096);
+    // [inv] WS 레인 수 = 소켓 수 — 아래 ws_ 생성과 같은 조건(리플레이·소켓 하나면 1, feed_keys가 있으면 1+N)이라
+    //  ws_->lanes()와 같다. 소켓을 만들기 전에 행 수가 필요해 config로 센다.
+    ws_lanes_ = (replay_file_.empty() && !extra_feed_cfgs_.empty()) ? static_cast<uint32_t>(extra_feed_cfgs_.size() + 1)
+                                                                    : 1u;
+    data_row_ = ws_lanes_;
+    ob_mx_.reshape(ws_lanes_, shard_count, 4096);
+    td_mx_.reshape(ws_lanes_ + 1, shard_count, 4096);
     bars_mx_.reshape(1, shard_count, 1024);
 
     for (uint32_t m = 0; m < shard_count; ++m)
@@ -657,7 +662,7 @@ void Engine::start()
     ledger_->set_reconcile_sink([this](const reconcile::Row& r) { order_router_->record_reconcile(r); });
 
     // REST 현재가 폴러. 시세는 시세 전용 클라이언트가 있으면 그쪽(실전 도메인 초당 한도가 높다). [why D-062]
-    //  [lock-order] 데이터 스레드는 td_mx_의 WS 행에 넣지 않는다 — 폴러의 틱은 자기 행(kProducerData)으로 간다.
+    //  [lock-order] 데이터 스레드는 td_mx_의 WS 레인 행에 넣지 않는다 — 폴러의 틱은 자기 행(data_row_)으로 간다.
     poller_ = std::make_unique<DataPoller>(
         [this](const std::string& ticker)
         {
@@ -670,7 +675,7 @@ void Engine::start()
             td.sym       = symbols_.intern(td.ticker);
             const auto m = td_mx_.consumer_of(td.sym);
 
-            while (!td_mx_.push_to(kProducerData, m, td) && running_.load(std::memory_order_acquire))
+            while (!td_mx_.push_to(data_row_, m, td) && running_.load(std::memory_order_acquire))
             {
                 std::this_thread::sleep_for(1ms);
             }
@@ -784,8 +789,8 @@ void Engine::start()
         }
         else
         {
-            // 소켓 여럿 — 첫 소스가 기본 키다(체결통보는 첫 소스만 받는다). 소켓이 하나면 FeedMux를 끼우지 않는다:
-            //  링 한 번 더 거치는 hop이 소켓 하나에선 얻는 게 없다.
+            // 소켓 여럿 — 첫 소스가 기본 키다(체결통보는 첫 소스만 받는다). 레인 모드라 소켓 i의 수신 스레드가
+            //  행렬의 행 i에 직접 넣는다(mux 스레드 없음). 소켓이 하나면 FeedMux를 끼우지 않는다.
             std::vector<std::unique_ptr<feed::IFeedSource>> socks;
             socks.push_back(std::make_unique<KisWebSocket>(kis_cfg_));
 
@@ -795,7 +800,8 @@ void Engine::start()
             }
 
             ws_ = std::make_unique<feed::FeedMux>(std::move(socks));
-            LOG_INFO("[Engine] WS 소켓 " + std::to_string(extra_feed_cfgs_.size() + 1) + "개를 FeedMux로 묶는다");
+            LOG_INFO("[Engine] WS 소켓 " + std::to_string(extra_feed_cfgs_.size() + 1) + "개를 FeedMux 레인 " +
+                     std::to_string(ws_lanes_) + "개로 묶는다");
         }
 
         // 리플레이를 다시 캡처하면 같은 틱이 두 파일에 남으므로 캡처는 WS일 때만 연다.
@@ -819,7 +825,8 @@ void Engine::start()
             }
         }
 
-        ws_->set_callbacks([this](const OrderBook& in)
+        // 레인 = 이 콜백을 부르는 수신 스레드 번호 = 행렬의 행. 한 행은 그 스레드만 넣는다(SPSC 셀, 원칙 5).
+        ws_->set_lane_callbacks([this](uint32_t lane, const OrderBook& in)
                            {
                                OrderBook ob = in;
                                ob.sym       = symbols_.intern(ob.ticker);
@@ -838,7 +845,7 @@ void Engine::start()
                                // 호가도 체결과 같은 규칙 — 버린 수를 세고 넘침이 시작될 때 한 번 남긴다.
                                const auto m = ob_mx_.consumer_of(ob.sym);
 
-                               if (!ob_mx_.push_to(kProducerWs, m, ob))
+                               if (!ob_mx_.push_to(lane, m, ob))
                                {
                                    if (ob_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
                                    {
@@ -851,7 +858,7 @@ void Engine::start()
 
                                shards_[m]->wake().notify();
                            },
-                           [this](const TradeData& in)
+                           [this](uint32_t lane, const TradeData& in)
                            {
                                // push가 어차피 한 번 복사하므로 여기서 복사해 id를 찍고 move로 넣는다. 수신 시각은
                                //  수신 스레드가 디코드 시점에 찍은 값을 지키고, 안 찍힌 소스만 여기서 찍는다.
@@ -868,7 +875,8 @@ void Engine::start()
                                    capture_->on_trade(td);
                                }
 
-                               // 모의 체결은 틱 스레드에서 — 체결통보 큐의 생산자가 이 스레드 하나로 남는다.
+                               // 모의 체결은 틱 스레드에서 — 체결통보 큐의 생산자가 이 스레드 하나로 남는다
+                               //  (paper_는 리플레이 전용이고 리플레이는 레인 하나다).
                                if (paper_)
                                {
                                    paper_->on_tick(in.ticker, in.price, in.hhmmss);
@@ -878,7 +886,7 @@ void Engine::start()
                                //  넘침이 시작될 때 한 번 남긴다(09-11 15:15 잔고 조회 정체). [why D-055]
                                const auto m = td_mx_.consumer_of(td.sym);
 
-                               if (!td_mx_.push_to(kProducerWs, m, td))
+                               if (!td_mx_.push_to(lane, m, td))
                                {
                                    if (td_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
                                    {

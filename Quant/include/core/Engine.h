@@ -344,7 +344,7 @@ private:
     double                        replay_cash_  = 0.0;
     std::unique_ptr<feed::PaperExecutor> paper_; // 리플레이일 때만. OrderRouter·대조기가 kis_ 대신 본다
     std::string                   capture_dir_;
-    std::unique_ptr<feed::TickCapture> capture_; // WS 수신 스레드만 on_*를 부른다(단일 생산자)
+    std::unique_ptr<feed::TickCapture> capture_; // WS 수신 스레드(레인마다 하나)가 on_*를 부른다 — 큐는 MPSC
 
     std::vector<std::unique_ptr<StrategyBase>> strategies_;
     // strategies_ 동시성 보호: strategy_thread는 strat_version_ 변경 시에만 StrategyBase*
@@ -392,13 +392,14 @@ private:
     long long last_regime_bucket_ = -1;           // 마지막으로 평가한 KST 벽시계 버킷(sec_of_day / 주기), -1=미평가
     long long regime_bucket_now() const;
 
-    // 수신 N × 전략 샤드 M 링 행렬. 셀 하나의 생산자는 스레드 하나다 — 체결은 WS 콜백 스레드 행과 데이터 스레드 행
-    //  (REST 대체 틱)을 따로 둔다(D-053이 두 큐로 풀던 것을 행으로 푼다). 열은 종목 해시(원칙 2). 전략은 자기 종목의 열
-    //  하나가 맡는다(strat::owner_shard) — 전략 객체를 두 샤드 스레드가 만지면 안 된다. [why D-071]
-    static constexpr uint32_t kProducerWs = 0, kProducerData = 1;
+    // 수신 N × 전략 샤드 M 링 행렬. 셀 하나의 생산자는 스레드 하나다 — WS 레인 i(소켓 i의 수신 스레드)는 행 i, 체결은
+    //  데이터 스레드 행(REST 대체 틱, 행 data_row_)을 더 둔다(D-053이 두 큐로 풀던 것을 행으로 푼다). 열은 종목 해시
+    //  (원칙 2). 전략은 자기 종목의 열 하나가 맡는다(strat::owner_shard) — 전략 객체를 두 샤드 스레드가 만지면 안 된다. [why D-071]
+    uint32_t                  ws_lanes_        = 1;    // WS 수신 스레드(레인) 수 = 소켓 수. start()가 행 수로 쓴다
+    uint32_t                  data_row_        = 1;    // td_mx_의 데이터 스레드 행 = ws_lanes_
     uint32_t                  strategy_shards_ = 1;    // config. start()가 열 수로 쓴다(걸치는 전략이 있으면 1)
-    shard::Matrix<OrderBook>  ob_mx_{1, 1, 4096};   // 호가 (국내) — WS 행만. 열 수는 start()의 reshape
-    shard::Matrix<TradeData>  td_mx_{2, 1, 4096};   // 체결 (미국 + 국내) — WS 행 + 데이터 스레드 행
+    shard::Matrix<OrderBook>  ob_mx_{1, 1, 4096};   // 호가 (국내) — WS 레인 행 N. 행·열 수는 start()의 reshape
+    shard::Matrix<TradeData>  td_mx_{2, 1, 4096};   // 체결 (미국 + 국내) — WS 레인 행 N + 데이터 스레드 행
     shard::Matrix<MarketData> bars_mx_{1, 1, 1024}; // 일봉 — 데이터 스레드 행(index 0)만
     std::vector<std::unique_ptr<strat::Shard>> shards_;           // 열 m을 비우는 샤드. start()가 만든다
     std::vector<std::jthread>                  shard_threads_;

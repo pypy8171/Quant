@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace
@@ -221,6 +222,48 @@ int main()
                   << " MarketData=" << sizeof(MarketData) << " | 링 push+pop " << ns(t0, t1) / kN << "ns/틱 | 캡처 decode "
                   << ns(t1, t2) / kN << "ns/틱 (sink " << sink << ' ' << acc << ")\n";
     }
+
+    // 8. 생산자 여럿(FeedMux 레인) — 스레드 4개가 500건씩 동시에 넣어도 쓴 수 + 버린 수 = 2000이고 파일도 그만큼이다.
+    {
+        {
+            feed::TickCapture        cap(path, 4096);
+            std::vector<std::thread> ths;
+
+            for (int t = 0; t < 4; ++t)
+            {
+                ths.emplace_back(
+                    [&cap, t]
+                    {
+                        for (int i = 0; i < 500; ++i)
+                        {
+                            cap.on_trade(make_trade(t * 500 + i));
+                        }
+                    });
+            }
+
+            for (auto& th : ths)
+            {
+                th.join();
+            }
+
+            cap.flush();
+            CHECK(cap.written() + cap.dropped() == 2000);
+            CHECK(cap.written() == 2000);
+        }
+
+        feed::TickReader rd(path);
+        feed::Record     r;
+        size_t           n = 0;
+
+        while (rd.next(r))
+        {
+            ++n;
+        }
+
+        CHECK(n == 2000);
+    }
+
+    std::filesystem::remove(path);
 
     std::cout << "test_tick_capture: " << g_checks << " checks passed\n";
     return 0;

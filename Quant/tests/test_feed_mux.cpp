@@ -11,6 +11,7 @@
 #include <set>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace
@@ -392,6 +393,81 @@ int main()
     {
         feed::FeedMux mux({}, 64);
         CHECK(!mux.connect({spec("A")}) && mux.source_count() == 0);
+    }
+
+    // 6. 레인 모드: 소스 i가 쏜 이벤트는 그 스레드에서 레인 i를 달고 바로 온다 — mux 스레드도 링도 안 거친다.
+    //    체결통보는 첫 소스만, 역시 그 스레드에서. 소스 하나짜리 기본 구현은 lanes()=1, 레인 0.
+    {
+        auto  a  = std::make_unique<FakeSource>(40);
+        auto  b  = std::make_unique<FakeSource>(40);
+        auto* pa = a.get();
+        auto* pb = b.get();
+        std::vector<std::unique_ptr<feed::IFeedSource>> srcs;
+        srcs.push_back(std::move(a));
+        srcs.push_back(std::move(b));
+        feed::FeedMux mux(std::move(srcs), 64);
+        CHECK(mux.lanes() == 2);
+
+        std::mutex                        mtx;
+        std::vector<std::pair<uint32_t, std::thread::id>> seen; // (레인, 부른 스레드)
+        std::vector<std::string>          tickers;
+        std::atomic<int>                  fills{0};
+        std::thread::id                   fill_thread;
+        mux.set_lane_callbacks(
+            [&](uint32_t lane, const OrderBook& ob)
+            {
+                std::lock_guard<std::mutex> lk(mtx);
+                seen.emplace_back(lane, std::this_thread::get_id());
+                tickers.push_back(ob.ticker.str());
+            },
+            [&](uint32_t lane, const TradeData& td)
+            {
+                std::lock_guard<std::mutex> lk(mtx);
+                seen.emplace_back(lane, std::this_thread::get_id());
+                tickers.push_back(td.ticker.str());
+            });
+        mux.set_fill_callback(
+            [&](const FillNotification&)
+            {
+                fill_thread = std::this_thread::get_id();
+                fills.fetch_add(1);
+            });
+        CHECK(mux.connect({spec("A"), spec("B")}));
+
+        std::thread ta([pa] { for (int i = 0; i < 300; ++i) { pa->emit_trade("A", 1 + i); } pa->emit_book("A"); });
+        std::thread tb([pb] { for (int i = 0; i < 300; ++i) { pb->emit_trade("B", 1 + i); } });
+        const auto id_a = ta.get_id();
+        const auto id_b = tb.get_id();
+        ta.join();
+        tb.join();
+
+        // join 뒤라 더 올 게 없다 — 링이 없으니 기다릴 것도 없다.
+        bool lanes_ok = seen.size() == 601;
+
+        for (size_t i = 0; i < seen.size() && lanes_ok; ++i)
+        {
+            const bool from_a = seen[i].second == id_a;
+            lanes_ok          = (from_a || seen[i].second == id_b) && seen[i].first == (from_a ? 0u : 1u) &&
+                       tickers[i] == (from_a ? "A" : "B");
+        }
+
+        CHECK(lanes_ok);
+        CHECK(mux.dropped() == 0 && mux.high_water(0) == 0 && mux.high_water(1) == 0);
+
+        bool        fill_sent = false;
+        std::thread tf([pa, &fill_sent] { fill_sent = pa->emit_fill("F1"); });
+        const auto id_f = tf.get_id();
+        tf.join();
+        CHECK(fill_sent && fills.load() == 1 && fill_thread == id_f);
+        CHECK(!pb->emit_fill("F2") && fills.load() == 1);
+
+        FakeSource one(4);
+        uint32_t   got_lane = 9;
+        CHECK(one.lanes() == 1);
+        one.set_lane_callbacks([&](uint32_t lane, const OrderBook&) { got_lane = lane; },
+                               [&](uint32_t lane, const TradeData&) { got_lane = lane; });
+        one.emit_trade("Z", 1.0);
+        CHECK(got_lane == 0);
     }
 
     std::cout << "test_feed_mux: " << g_checks << " checks passed\n";

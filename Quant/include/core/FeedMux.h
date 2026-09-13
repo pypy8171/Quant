@@ -1,8 +1,11 @@
 // 피드 소스 여러 개를 한 IFeedSource로 묶는다 — Engine은 소켓이 몇 개든 하나만 본다. 소켓마다 수신 스레드가 따로
-//  돌고(원칙 1), 종목은 한 소스에만 배정되며(원칙 2), 소스당 SPSC 링 하나를 mux 스레드 하나가 돌아가며 비워
-//  Engine 콜백을 부른다(원칙 5 — N×1 SPSC 행렬, Engine 쪽 생산자는 여전히 하나). 소켓이 하나면 끼우지 않는다.
-// 스레드: 소스의 수신 스레드가 push, mux 스레드가 pop·콜백. connect/subscribe는 Engine의 제어·데이터 스레드.
-//  체결통보는 첫 소스만 넘긴다 — KIS는 세션마다 같은 통보를 보내므로 둘 이상 받으면 원장이 두 번 센다. [why D-071]
+//  돌고(원칙 1), 종목은 한 소스에만 배정된다(원칙 2). 콜백 전달은 두 모드다 — 레인 모드(set_lane_callbacks)는 소스 i의
+//  수신 스레드가 레인 i를 달고 Engine 콜백을 직접 부른다(Engine의 N행 행렬이 소비자라 생산자를 모을 이유가 없다, 원칙 5).
+//  mux 모드(set_callbacks)는 소스당 SPSC 링 하나를 mux 스레드 하나가 돌아가며 비워 콜백을 부른다 — 소비자가 하나여야
+//  하는 쪽(시험·단일 큐)만 쓴다. 소켓이 하나면 끼우지 않는다.
+// 스레드: 레인 모드는 소스의 수신 스레드가 콜백까지. mux 모드는 수신 스레드가 push, mux 스레드가 pop·콜백.
+//  connect/subscribe는 Engine의 제어·데이터 스레드. 체결통보는 첫 소스만 넘긴다 — KIS는 세션마다 같은 통보를
+//  보내므로 둘 이상 받으면 원장이 두 번 센다. 레인 모드에서도 첫 소스 스레드 하나만 부르므로 통보 큐는 SPSC로 남는다. [why D-071]
 #pragma once
 #include "core/IFeedSource.h"
 #include "core/RingBuffer.h"
@@ -53,11 +56,33 @@ public:
     FeedMux(const FeedMux&)            = delete;
     FeedMux& operator=(const FeedMux&) = delete;
 
-    // 소스마다 "자기 링에 push" 콜백을 등록하고 mux 스레드를 띄운다. Engine 콜백은 mux 스레드에서만 불린다.
+    uint32_t lanes() const override
+    {
+        return static_cast<uint32_t>(sources_.size());
+    }
+
+    // 레인 모드 — 소스 i의 수신 스레드가 레인 i를 달고 Engine 콜백을 직접 부른다. 링·mux 스레드를 거치지 않는다.
+    //  set_callbacks와 같이 쓰지 않는다(나중에 부른 쪽이 소스 콜백을 덮는다).
+    void set_lane_callbacks(LaneOrderBookCb on_ob, LaneTradeCb on_trade) override
+    {
+        lane_ob_    = std::move(on_ob);
+        lane_trade_ = std::move(on_trade);
+        lane_mode_  = true;
+
+        for (size_t i = 0; i < sources_.size(); ++i)
+        {
+            const uint32_t lane = static_cast<uint32_t>(i);
+            sources_[i]->set_callbacks([this, lane](const OrderBook& ob) { lane_ob_(lane, ob); },
+                                       [this, lane](const TradeData& td) { lane_trade_(lane, td); });
+        }
+    }
+
+    // mux 모드 — 소스마다 "자기 링에 push" 콜백을 등록하고 mux 스레드를 띄운다. Engine 콜백은 mux 스레드에서만 불린다.
     void set_callbacks(OrderBookCb on_ob, TradeCb on_trade) override
     {
-        on_ob_    = std::move(on_ob);
-        on_trade_ = std::move(on_trade);
+        on_ob_     = std::move(on_ob);
+        on_trade_  = std::move(on_trade);
+        lane_mode_ = false;
 
         for (size_t i = 0; i < sources_.size(); ++i)
         {
@@ -78,8 +103,19 @@ public:
 
         if (!sources_.empty())
         {
+            // 모드는 부르는 시점에 본다 — set_callbacks/set_lane_callbacks와 등록 순서에 매이지 않게.
             Lane* lane = lanes_[0].get();
-            sources_[0]->set_fill_callback([this, lane](const FillNotification& fn) { enqueue(*lane, Event{fn}); });
+            sources_[0]->set_fill_callback(
+                [this, lane](const FillNotification& fn)
+                {
+                    if (lane_mode_)
+                    {
+                        on_fill_(fn);
+                        return;
+                    }
+
+                    enqueue(*lane, Event{fn});
+                });
         }
     }
 
@@ -380,9 +416,12 @@ private:
     std::vector<std::unique_ptr<IFeedSource>> sources_;
     std::vector<std::unique_ptr<Lane>>        lanes_; // sources_와 같은 index
 
-    OrderBookCb on_ob_;
-    TradeCb     on_trade_;
-    FillCb      on_fill_;
+    OrderBookCb     on_ob_;    // mux 모드
+    TradeCb         on_trade_; // mux 모드
+    LaneOrderBookCb lane_ob_;    // 레인 모드
+    LaneTradeCb     lane_trade_; // 레인 모드
+    FillCb          on_fill_;
+    bool            lane_mode_ = false; // 수신 스레드가 돌기 전(connect 전)에 정해진다
 
     mutable std::mutex                      assign_mtx_;
     std::unordered_map<std::string, size_t> assign_; // key(spec) → 소스 index. 한 종목은 한 소스에만

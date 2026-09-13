@@ -1,9 +1,12 @@
 // 실시간 피드 소스 인터페이스 — Engine이 호가·체결·체결통보를 받는 창구. KIS WebSocket과 캡처 파일 리플레이가 구현한다.
-// 스레드: 구현이 자기 수신 스레드에서 콜백을 부른다. Engine은 콜백 안에서 push만 한다(원칙 3). [why D-071]
+// 스레드: 구현이 자기 수신 스레드에서 콜백을 부른다 — 레인 i의 콜백은 스레드 하나만 부른다(lanes()). Engine은 콜백 안에서
+//  push만 한다(원칙 3). [why D-071]
 #pragma once
 #include "core/Types.h"
 
+#include <cstdint>
 #include <functional>
+#include <utility>
 #include <vector>
 
 namespace feed
@@ -15,10 +18,26 @@ public:
     using OrderBookCb = std::function<void(const OrderBook&)>;
     using TradeCb     = std::function<void(const TradeData&)>;
     using FillCb      = std::function<void(const FillNotification&)>;
+    // 레인 번호가 붙은 콜백 — 첫 인자가 이 이벤트를 부르는 수신 스레드의 번호(0 ≤ lane < lanes()).
+    using LaneOrderBookCb = std::function<void(uint32_t, const OrderBook&)>;
+    using LaneTradeCb     = std::function<void(uint32_t, const TradeData&)>;
 
     virtual ~IFeedSource() = default;
 
     virtual void set_callbacks(OrderBookCb on_ob, TradeCb on_trade) = 0;
+
+    // 수신 스레드(레인) 수. Engine이 링 행렬의 행 수로 쓴다(원칙 5 — 레인마다 자기 행, 생산자 하나). 소켓 하나면 1.
+    virtual uint32_t lanes() const
+    {
+        return 1;
+    }
+
+    // 레인 번호를 달아 부르는 콜백. 기본은 레인 0 하나로 set_callbacks에 얹는다 — 소켓 여럿을 묶는 구현만 덮어쓴다.
+    virtual void set_lane_callbacks(LaneOrderBookCb on_ob, LaneTradeCb on_trade)
+    {
+        set_callbacks([cb = std::move(on_ob)](const OrderBook& ob) { cb(0, ob); },
+                      [cb = std::move(on_trade)](const TradeData& td) { cb(0, td); });
+    }
 
     // 체결통보가 없는 소스(리플레이)는 등록을 무시한다 — 주문은 어차피 REST 라우터가 낸다.
     virtual void set_fill_callback(FillCb) {}

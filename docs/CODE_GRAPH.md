@@ -267,7 +267,7 @@ graph LR
   n_core_StrategyShard_h --> n_core_WakeGate_h
   n_core_StrategyShard_h --> n_strategy_StrategyBase_h
   n_core_TickCapture_h --> n_core_MarketSession_h
-  n_core_TickCapture_h --> n_core_RingBuffer_h
+  n_core_TickCapture_h --> n_core_MpscQueue_h
   n_core_TickCapture_h --> n_core_Types_h
   n_core_TickCapture_h --> n_core_WakeGate_h
   n_core_TickSize_h --> n_core_Types_h
