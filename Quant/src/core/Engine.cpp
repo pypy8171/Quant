@@ -791,7 +791,7 @@ void Engine::start()
                                {
                                    if (ob_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
                                    {
-                                       LOG_WARN("[WS] 호가 큐 가득 — 호가 폐기 시작 " + in.ticker +
+                                       LOG_WARN("[WS] 호가 큐 가득 — 호가 폐기 시작 " + in.ticker.str() +
                                                 " (전략 스레드 정체 의심)");
                                    }
 
@@ -824,7 +824,7 @@ void Engine::start()
                                {
                                    if (td_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
                                    {
-                                       LOG_WARN("[WS] 체결 큐 가득 — 틱 폐기 시작 " + in.ticker +
+                                       LOG_WARN("[WS] 체결 큐 가득 — 틱 폐기 시작 " + in.ticker.str() +
                                                 " (전략 스레드 정체 의심)");
                                    }
 

@@ -84,7 +84,7 @@ inline int64_t wall_us_of(std::chrono::system_clock::time_point tp)
     return std::chrono::duration_cast<std::chrono::microseconds>(tp.time_since_epoch()).count();
 }
 
-inline void put_str(char* dst, size_t cap, const std::string& s)
+inline void put_str(char* dst, size_t cap, std::string_view s)
 {
     const size_t n = s.size() < cap - 1 ? s.size() : cap - 1;
     std::memcpy(dst, s.data(), n);
@@ -103,7 +103,7 @@ inline void put_hhmmss(char* dst, int32_t hhmmss)
     dst[6] = '\0';
 }
 
-inline void fill_common(Common& c, const std::string& ticker, int32_t hhmmss, uint32_t sym, Market market,
+inline void fill_common(Common& c, std::string_view ticker, int32_t hhmmss, uint32_t sym, Market market,
                         int direction, int64_t recv_ns, std::chrono::system_clock::time_point ts)
 {
     c.recv_ns = recv_ns;

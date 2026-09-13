@@ -17,6 +17,7 @@
 #include <functional>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -137,10 +138,12 @@ public:
 
     // 피드 스레드가 틱마다 부른다. 그 종목의 대기 주문을 접수 순서대로 보고 조건이 맞으면 체결·통보한다.
     //  콜백은 락을 놓고 부른다(콜백이 큐 push라 짧지만 락 안에서 남의 코드를 부르지 않는다).
-    void on_tick(const std::string& ticker, double px, int32_t hhmmss)
+    //  종목은 고정 배열 틱에서 오므로 string_view로 받고, 맵 키가 필요할 때만 문자열을 만든다(15자 이하라 SSO).
+    void on_tick(std::string_view ticker_sv, double px, int32_t hhmmss)
     {
         std::vector<FillNotification> fills;
         FillCb                        cb;
+        const std::string             ticker(ticker_sv);
 
         {
             std::lock_guard<std::mutex> lk(mtx_);

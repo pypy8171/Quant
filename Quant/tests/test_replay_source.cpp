@@ -72,9 +72,9 @@ struct Seen
 
 void hook(feed::ReplaySource& src, Seen& seen)
 {
-    src.set_callbacks([&seen](const OrderBook& ob) { seen.order.push_back("B:" + ob.ticker); },
+    src.set_callbacks([&seen](const OrderBook& ob) { seen.order.push_back("B:" + ob.ticker.str()); },
                       [&seen](const TradeData& td)
-                      { seen.order.push_back("T:" + td.ticker + ":" + std::to_string(static_cast<int>(td.price))); });
+                      { seen.order.push_back("T:" + td.ticker.str() + ":" + std::to_string(static_cast<int>(td.price))); });
 }
 
 } // namespace

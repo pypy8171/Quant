@@ -205,12 +205,12 @@ int run_feed(const KisConfig& kis_cfg, const std::vector<std::string>& tickers,
         [&](const OrderBook& ob)
         {
             std::lock_guard<std::mutex> lk(cache_mtx);
-            ob_cache[ob.ticker] = ob;
+            ob_cache[ob.ticker.str()] = ob;
         },
         [&](const TradeData& td)
         {
             std::lock_guard<std::mutex> lk(cache_mtx);
-            td_cache[td.ticker] = td;
+            td_cache[td.ticker.str()] = td;
         });
 
     std::vector<WatchSpec> specs;
@@ -480,7 +480,7 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
                          std::strftime(tbuf, sizeof(tbuf), "%H:%M:%S", &tmi);
 
                          std::lock_guard<std::mutex> lk(cache_mtx);
-                         auto it = cache.find(td.ticker);
+                         auto it = cache.find(td.ticker.str());
 
                          if (it == cache.end())
                          {

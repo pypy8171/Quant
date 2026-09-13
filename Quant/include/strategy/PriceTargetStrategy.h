@@ -174,7 +174,7 @@ public:
 
 private:
     // ── 예약 지정가 주문 (1회) ────────────────────────────────────────────
-    std::optional<OrderSignal> check_limit_order(sym::SymbolId sym, const std::string& ticker)
+    std::optional<OrderSignal> check_limit_order(sym::SymbolId sym, std::string_view ticker)
     {
         for (auto& lo : limit_orders_)
         {
@@ -212,7 +212,7 @@ private:
 
     // ── 가격 목표 도달 시 시장가 주문 ────────────────────────────────────
     std::optional<OrderSignal> check_price_target(sym::SymbolId sym,
-                                                   const std::string& ticker,
+                                                   std::string_view ticker,
                                                    double price,
                                                    int32_t hhmmss)
     {
@@ -248,7 +248,7 @@ private:
                 if (elapsed >= t.cooldown_sec)
                 {
                     last_buy_[i] = now;
-                    LOG_INFO("[PriceTarget] BUY 조건 충족: " + ticker +
+                    LOG_INFO("[PriceTarget] BUY 조건 충족: " + std::string(ticker) +
                              " @" + std::to_string(static_cast<int>(price)) +
                              " (목표≤" + std::to_string(static_cast<int>(t.buy_price)) + ")");
                     return make_signal(t, OrderSide::BUY, price);
@@ -264,7 +264,7 @@ private:
                 if (elapsed >= t.cooldown_sec)
                 {
                     last_sell_[i] = now;
-                    LOG_INFO("[PriceTarget] SELL 조건 충족: " + ticker +
+                    LOG_INFO("[PriceTarget] SELL 조건 충족: " + std::string(ticker) +
                              " @" + std::to_string(static_cast<int>(price)) +
                              " (목표≥" + std::to_string(static_cast<int>(t.sell_price)) + ")");
                     return make_signal(t, OrderSide::SELL, price);

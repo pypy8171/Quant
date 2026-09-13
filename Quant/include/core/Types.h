@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <string>
+#include <type_traits>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 시장 구분
@@ -31,7 +32,7 @@ struct WatchSpec
 // ─────────────────────────────────────────────────────────────────────────────
 struct MarketData
 {
-    std::string ticker;
+    sym::Ticker ticker; // 고정 배열 — 링을 memcpy로 지난다. 문자열은 ticker.str(). [why D-071]
     double close = 0.0;
     double open = 0.0;
     double high = 0.0;
@@ -133,7 +134,7 @@ struct OrderBookLevel
 
 struct OrderBook
 {
-    std::string   ticker;
+    sym::Ticker   ticker;           // 고정 배열 — 링을 memcpy로 지난다. 문자열은 ticker.str(). [why D-071]
     sym::SymbolId sym = sym::kNone; // 수신 스레드가 SymbolTable로 찍는다. 0이면 배선이 빠진 경로. [why D-071]
     int32_t       hhmmss = 0;       // KST 호가 시각 정수(093001 → 93001). 0이면 모름. 디코더가 한 번 파싱한다. [why D-071]
     OrderBookLevel asks[5];
@@ -146,7 +147,7 @@ struct OrderBook
 // ─────────────────────────────────────────────────────────────────────────────
 struct TradeData
 {
-    std::string   ticker;
+    sym::Ticker   ticker;           // 고정 배열 — 링을 memcpy로 지난다. 문자열은 ticker.str(). [why D-071]
     sym::SymbolId sym = sym::kNone; // 수신·폴러 스레드가 SymbolTable로 찍는다. 0이면 배선이 빠진 경로. [why D-071]
     int32_t       hhmmss = 0;       // KST 체결 시각 정수(093001 → 93001). 0이면 모름. 디코더가 한 번 파싱한다. [why D-071]
     double price = 0.0;
@@ -160,6 +161,10 @@ struct TradeData
     // 수신 스레드가 이 틱을 받은 steady_clock ns. 구간 지연 측정의 출발점이고 0은 "안 찍음"(REST 대체 틱). [why D-071]
     int64_t recv_ns = 0;
 };
+
+// [inv] 틱·호가·봉은 trivially copyable — 링 push/pop이 memcpy고 문자열 할당이 hot path에 없다. [why D-071]
+static_assert(std::is_trivially_copyable_v<TradeData> && std::is_trivially_copyable_v<OrderBook> &&
+              std::is_trivially_copyable_v<MarketData>);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 체결통보 (H0STCNI0 실거래 / H0STCNI9 모의투자)

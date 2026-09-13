@@ -194,7 +194,7 @@ public:
 
 private:
     // 진입·청산 공통 로직
-    std::optional<OrderSignal> check_entry_exit(sym::SymbolId sym, const std::string& ticker, int32_t hhmmss,
+    std::optional<OrderSignal> check_entry_exit(sym::SymbolId sym, std::string_view ticker, int32_t hhmmss,
                                                 double ref_px)
     {
         int hhmm = hhmmss / 100;
@@ -214,7 +214,7 @@ private:
         {
             buy_sent_.insert(sym);
             pending_.erase(sym);
-            candidates_.erase(ticker);
+            candidates_.erase(std::string(ticker));
 
             OrderSignal sig;
             sig.ticker = ticker;
@@ -228,7 +228,7 @@ private:
             sig.strategy_id = id();
             sig.timestamp = std::chrono::system_clock::now();
 
-            LOG_INFO("[ValueContrary] BUY: " + ticker + " @" + krx::hhmmss_str(hhmmss));
+            LOG_INFO("[ValueContrary] BUY: " + std::string(ticker) + " @" + krx::hhmmss_str(hhmmss));
             return sig;
         }
 
@@ -249,7 +249,7 @@ private:
             sig.strategy_id = id();
             sig.timestamp = std::chrono::system_clock::now();
 
-            LOG_INFO("[ValueContrary] SELL(장 마감): " + ticker + " @" + krx::hhmmss_str(hhmmss));
+            LOG_INFO("[ValueContrary] SELL(장 마감): " + std::string(ticker) + " @" + krx::hhmmss_str(hhmmss));
             return sig;
         }
 

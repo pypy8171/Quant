@@ -424,7 +424,7 @@ private:
         }
     }
 
-    OrderSignal make_signal(sym::SymbolId sid, const std::string& tk, OrderSide side, double price) const
+    OrderSignal make_signal(sym::SymbolId sid, std::string_view tk, OrderSide side, double price) const
     {
         OrderSignal sig;
         sig.ticker      = tk;

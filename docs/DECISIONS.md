@@ -3006,6 +3006,25 @@ KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 
   같이 든다, 따로 잰 뒤 결정. 전략마다 resolver 없이 `SymbolTable&`을 직접 주입 — 전략 헤더가 테이블 수명에 묶이고
   시험이 테이블을 만들어야 해서 `std::function` 한 개로 뒀다(다른 provider와 같은 모양, 기동 때만 부른다).
 
+**Phase 2 잔여 넷째 조각 (2026-09-13)** — 틱·호가·봉 구조체에서 `std::string`을 뺀다:
+
+- `TradeData`·`OrderBook`·`MarketData`의 `ticker`가 `sym::Ticker`(`Quant/include/core/SymbolTable.h`, 15자 고정 배열 + 길이
+  1바이트 = 16B)다. 세 구조체는 이제 trivially copyable이고 `Types.h`의 `static_assert`가 그것을 지킨다 — 링 push/pop이
+  memcpy로 내려가고 hot path에서 문자열 생성자·소멸자가 사라진다(원칙 6). `Ticker`는 `string_view`로는 암시적으로 바뀌지만
+  `std::string`으로는 바뀌지 않는다 — 문자열이 필요한 곳(로그·화면 캐시·REST)이 `.str()`을 부르게 해서 할당이 컴파일에서
+  보이게 했다. 생성자는 `string_view` 하나만 받는다(`const char*`·`std::string`이 따로 있으면 `t == "005930"`이 모호하다).
+- 캡처 파일 형식은 그대로다(`feed::Common`이 이미 `char[12]`, `kFormatVersion` 유지). `fill_common`·`put_str`은 `string_view`를
+  받고, 전략 헬퍼(`check_price_target`·`check_limit_order`·`check_entry_exit`·`make_signal`)도 `string_view`로 받아 신호를
+  낼 때만 문자열을 만든다. `PaperExecutor::on_tick`은 `string_view`를 받고 맵 키 문자열을 한 번 만든다(15자 이하라 SSO).
+- 측정(`test_tick_capture` 끝, 원칙 7, Release): `sizeof(TradeData)` 96B에서 80B(`OrderBook` 208에서 192, `MarketData` 96에서 80),
+  링 push+pop 틱당 13ns에서 3ns, 캡처 블록에서 `TradeData` 되돌리기 11ns에서 6ns.
+- 남는 문자열: `OrderSignal`·`FillNotification`·`Position`·`WatchSpec`(신호·체결통보는 틱보다 훨씬 드물고 KIS 전문과 원장
+  CSV가 문자열을 요구한다), `BarAggregator::Series.ticker`(종목당 하나, 닫힌 봉에 복사할 때만). Phase 2 잔여는 이것으로
+  닫고 다음은 Phase 4(프로세스 분리)의 앞 단계인 수신 스레드 N개·전략 샤드 M개 배선이다.
+- 버린 것: `std::array<char, 8>`만 두고 길이는 `strlen` — 미국 티커·선물 코드가 8자를 넘을 수 있고 `view()`마다 `strlen`이
+  든다. `SymbolTable::lookup(sym)`으로 문자열을 아예 안 싣기 — 시험·리플레이·FEED 화면이 테이블 없이 구조체만 들고
+  다니고, 테이블은 락 아래라 화면 갱신마다 락을 잡게 된다. 구조체 안 16B가 싸다.
+
 ### D-072 틱 집계 봉의 기저를 1분으로 두고 판단 봉은 resample로 만든다 — REST 분봉 timestamp는 진짜 UTC (2026-09-13)
 **상태**: 채택 (`wt/bars-1m`, `test_bar_aggregator` 131·`test_kis_decode` 68 통과, 라이브는 09-14 장부터 `bar_source` 기본 `ws`)
 

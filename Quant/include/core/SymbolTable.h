@@ -4,7 +4,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <functional>
+#include <ostream>
 #include <mutex>
 #include <shared_mutex>
 #include <string>
@@ -19,6 +21,81 @@ using SymbolId = uint32_t;
 
 // 0은 "아직 id를 안 받았다". 기본 초기화된 TradeData·OrderBook이 이 값이라 배선이 빠진 경로가 드러난다.
 constexpr SymbolId kNone = 0;
+
+// 틱·호가·봉 구조체가 드는 종목 코드 — std::string 대신 고정 배열이라 구조체가 trivially copyable이고 링 복사가
+//  memcpy다. 문자열이 필요한 곳(로그·REST·캡처 파일·화면)은 view()·str()로 꺼낸다. 최대 15자, 넘치면 잘린다
+//  (KIS 현물 6·선물 8·미국 티커). 암시적으로 string_view가 되지만 std::string은 되지 않는다 — hot path에서
+//  할당이 생기면 컴파일이 막히게. [why D-071]
+struct Ticker
+{
+    static constexpr size_t kMax = 15;
+
+    char    data[kMax] = {};
+    uint8_t len        = 0;
+
+    constexpr Ticker() = default;
+
+    // string_view 하나만 받는다(const char*·std::string은 그 뒤에 선다) — 두 갈래를 두면 `t == "005930"`이 모호해진다.
+    Ticker(std::string_view s)
+    {
+        assign(s);
+    }
+
+    void assign(std::string_view s)
+    {
+        len = static_cast<uint8_t>(s.size() < kMax ? s.size() : kMax);
+        std::memcpy(data, s.data(), len);
+        std::memset(data + len, 0, kMax - len);
+    }
+
+    Ticker& operator=(std::string_view s)
+    {
+        assign(s);
+        return *this;
+    }
+
+    [[nodiscard]] std::string_view view() const
+    {
+        return {data, len};
+    }
+
+    [[nodiscard]] std::string str() const
+    {
+        return std::string(data, len);
+    }
+
+    [[nodiscard]] bool empty() const
+    {
+        return len == 0;
+    }
+
+    [[nodiscard]] size_t size() const
+    {
+        return len;
+    }
+
+    operator std::string_view() const
+    {
+        return view();
+    }
+
+    friend bool operator==(const Ticker& a, const Ticker& b)
+    {
+        return a.len == b.len && std::memcmp(a.data, b.data, a.len) == 0;
+    }
+
+    friend bool operator==(const Ticker& a, std::string_view b)
+    {
+        return a.view() == b;
+    }
+
+    friend std::ostream& operator<<(std::ostream& os, const Ticker& t)
+    {
+        return os << t.view();
+    }
+};
+
+static_assert(sizeof(Ticker) == 16);
 
 class SymbolTable
 {

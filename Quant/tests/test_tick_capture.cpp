@@ -1,7 +1,9 @@
 // TickCapture/TickReader 단위 테스트 — 왕복 필드 보존, 이어 쓰기(머리 한 번), 잘린 꼬리, 없는 파일, 큐 넘침 계수.
 // 빌드: cmake --build <dir> --target test_tick_capture
+#include "core/RingBuffer.h"
 #include "core/TickCapture.h"
 
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
@@ -183,6 +185,40 @@ int main()
             cap.on_trade(make_trade(0));
             CHECK(cap.written() == 0);
         }
+    }
+
+    // 7. 측정(원칙 7) — 틱 구조체 크기와, 틱 한 건이 링을 지나는 비용·캡처 블록에서 되돌리는 비용.
+    //  종목 코드가 std::string이던 때(2026-09-13, Release): TradeData 96B·링 13ns·decode 11ns. sym::Ticker 고정 배열로
+    //  바꾼 뒤: 80B·3ns·6ns. 구조체가 trivially copyable이 돼 링 복사가 memcpy로 내려간 몫이다.
+    {
+        constexpr int kN = 1'000'000;
+        RingBuffer<TradeData> ring(1024);
+        const TradeData src = make_trade(0);
+        auto t0 = std::chrono::steady_clock::now();
+        double sink = 0.0;
+
+        for (int i = 0; i < kN; ++i)
+        {
+            (void)ring.push(src);
+            auto got = ring.pop();
+            sink += got ? got->price : 0.0;
+        }
+
+        auto t1 = std::chrono::steady_clock::now();
+        const feed::TradeBody blk = feed::to_body(src);
+        int64_t acc = 0;
+
+        for (int i = 0; i < kN; ++i)
+        {
+            TradeData td = feed::to_trade(blk);
+            acc += td.quantity + static_cast<int64_t>(td.ticker.size());
+        }
+
+        auto t2 = std::chrono::steady_clock::now();
+        const auto ns = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::nanoseconds>(b - a).count(); };
+        std::cout << "[측정] sizeof TradeData=" << sizeof(TradeData) << " OrderBook=" << sizeof(OrderBook)
+                  << " MarketData=" << sizeof(MarketData) << " | 링 push+pop " << ns(t0, t1) / kN << "ns/틱 | 캡처 decode "
+                  << ns(t1, t2) / kN << "ns/틱 (sink " << sink << ' ' << acc << ")\n";
     }
 
     std::cout << "test_tick_capture: " << g_checks << " checks passed\n";
