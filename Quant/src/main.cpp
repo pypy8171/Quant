@@ -262,6 +262,8 @@ int main(int argc, char* argv[])
     // WS 세션이 rt_cd=9(ALREADY IN USE) 로 폭주할 때의 우회책. REST 현재가를 주기적으로 폴링해
     //  실시간 체결 틱처럼 전략에 먹인다. ITB(IntradayBreakoutStrategy, 장중 돌파)가 이 틱으로 돈다.
     engine.set_rest_price_feed(cfg.value("rest_price_feed", false));
+    // WS 틱·호가 raw 캡처 폴더(D-071 원칙 8). 비우면 끈다. 리플레이 백테스트의 입력.
+    engine.set_capture_dir(cfg.value("capture_dir", std::string()));
     // 매크로 레짐 보조 프로세스 브리지(2026-08-09 회의): Python macro_regime_feed.py가 쓰는 regime.json
     //  경로. 지정 시 data_thread가 매 사이클 읽어, 시장이 위험하면 OrderGate 의 신규매수 정지 스위치
     //  (entry_halt)를 켜고 풀리면 끈다. 빈 문자열(기본)이면 미가동 — 기존 동작 불변.

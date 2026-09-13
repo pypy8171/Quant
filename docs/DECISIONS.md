@@ -2862,6 +2862,26 @@ KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 
   다른 세션 소유 파일이라 뒤로), `OrderSignal`의 문자열 제거(C-2, 신호 경로는 원칙 6 예외라 후순위), `time` 문자열의
   정수화.
 
+**Phase 3 첫 조각 (2026-09-13)** — 원칙 8, WS 틱·호가 raw 캡처:
+
+- `feed::TickCapture`/`feed::TickReader`(`Quant/include/core/TickCapture.h`, 헤더 전용). WS 수신 스레드가 콜백에서
+  `on_trade`/`on_book`을 부르면 POD 레코드를 SPSC `RingBuffer`(기본 65,536)에 넣고 바로 돌아온다. 기록 스레드 하나가
+  꺼내 `fwrite`하고, 큐가 비면 `fflush` 뒤 `WakeGate`에서 잔다. 큐가 차면 레코드를 버리고 `dropped()`로 센다 — 캡처가
+  수신 스레드를 세우면 안 되기 때문이다(비동기 로거와 같은 선택, D-045). `flush()`는 종료·시험용으로 넣은 수와 쓴 수+버린 수가
+  같아질 때까지 기다린다.
+- 파일 형식 v1: 머리 16바이트(`QTCAP\0`·버전·기동 UTC ms), 레코드는 `uint16 길이 + uint8 종류(1 체결/2 호가) + uint8 버전 + 본문`.
+  본문은 `Common` 48바이트(recv_ns·wall_us·ticker[12]·time[8]·sym·market·direction)에 체결은 price·quantity·strength·
+  acml_volume(80바이트), 호가는 `asks[5]`·`bids[5]`(208바이트). `static_assert`로 크기를 못박아 필드가 늘면 버전을 올린다.
+  파일이 비어 있을 때만 머리를 쓰므로 같은 파일에 이어 쓸 수 있고, 리더는 잘린 꼬리·모르는 종류에서 멈춘다.
+- 배선: config `capture_dir`(비우면 끔). `Engine`은 WS 클라이언트를 만든 뒤 `capture_dir/ticks_<UTC초>.bin`을 열고
+  호가·체결 콜백에서 `sym`을 찍은 다음 캡처에 넘긴다. REST 대체 틱은 raw 피드가 아니라 캡처하지 않는다. 파일을 못 열면
+  경고 한 줄 남기고 캡처 없이 간다.
+- `Quant/tests/test_tick_capture.cpp`: 왕복 필드 보존(체결 3·호가 2), 이어 쓰기 뒤 6개, 꼬리 10바이트 절단 뒤 5개,
+  없는 파일·다른 머리, 큐 상한 4에 6개 넣어 쓴 수+버린 수=6, 못 여는 경로. ctest 26/26.
+- 버린 것: 텍스트(CSV) 캡처 — 기록량이 두세 배고 리플레이 파서가 hot path 문자열을 다시 끌어온다. mmap 링 파일 — 기동
+  때마다 크기를 정해야 하고 이어 쓰기가 번거롭다. 남은 Phase 3: 캡처 파일을 읽어 같은 콜백으로 재생하는 `IFeedSource`
+  리플레이 소스, WS·리플레이·REST 폴러를 한 인터페이스 뒤에 두는 `FeedMux`.
+
 ### D-072 틱 집계 봉의 기저를 1분으로 두고 판단 봉은 resample로 만든다 — REST 분봉 timestamp는 진짜 UTC (2026-09-13)
 **상태**: 채택 (`wt/bars-1m`, `test_bar_aggregator` 131·`test_kis_decode` 68 통과, 라이브는 09-14 장부터 `bar_source` 기본 `ws`)
 

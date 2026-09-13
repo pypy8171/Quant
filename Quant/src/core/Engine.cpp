@@ -641,17 +641,43 @@ void Engine::start()
     if (!rest_price_feed_ && !watch_specs_.empty())
     {
         ws_ = std::make_unique<KisWebSocket>(kis_cfg_);
+
+        if (!capture_dir_.empty())
+        {
+            // 파일명은 UTC 기동 시각 — 재기동이 같은 파일에 이어 쓰지 않도록.
+            const auto now_s = std::chrono::duration_cast<std::chrono::seconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+            const std::filesystem::path file =
+                std::filesystem::path(capture_dir_) / ("ticks_" + std::to_string(now_s) + ".bin");
+            capture_ = std::make_unique<feed::TickCapture>(file);
+
+            if (capture_->ok())
+            {
+                LOG_INFO("[Engine] 틱 캡처 시작: " + file.string());
+            }
+            else
+            {
+                LOG_WARN("[Engine] 틱 캡처 파일을 열지 못해 캡처 없이 간다: " + file.string());
+            }
+        }
+
         ws_->set_callbacks([this](const OrderBook& in)
                            {
                                OrderBook ob = in;
                                ob.sym       = symbols_.intern(ob.ticker);
+
+                               if (capture_)
+                               {
+                                   capture_->on_book(ob, trace::now_ns());
+                               }
 
                                // 호가도 체결과 같은 규칙 — 버린 수를 세고 넘침이 시작될 때 한 번 남긴다.
                                if (!ob_queue_.push(std::move(ob)))
                                {
                                    if (ob_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
                                    {
-                                       LOG_WARN("[WS] 호가 큐 가득 — 호가 폐기 시작 " + ob.ticker +
+                                       LOG_WARN("[WS] 호가 큐 가득 — 호가 폐기 시작 " + in.ticker +
                                                 " (전략 스레드 정체 의심)");
                                    }
 
@@ -667,13 +693,18 @@ void Engine::start()
                                td.recv_ns   = trace::now_ns();
                                td.sym       = symbols_.intern(td.ticker);
 
+                               if (capture_)
+                               {
+                                   capture_->on_trade(td);
+                               }
+
                                // 전략 스레드가 멈추면 큐가 차고 틱이 여기서 사라진다 — 세어 두고
                                //  넘침이 시작될 때 한 번 남긴다(09-11 15:15 잔고 조회 정체). [why D-055]
                                if (!td_queue_.push(std::move(td)))
                                {
                                    if (td_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
                                    {
-                                       LOG_WARN("[WS] 체결 큐 가득 — 틱 폐기 시작 " + td.ticker +
+                                       LOG_WARN("[WS] 체결 큐 가득 — 틱 폐기 시작 " + in.ticker +
                                                 " (전략 스레드 정체 의심)");
                                    }
 

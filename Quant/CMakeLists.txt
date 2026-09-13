@@ -368,6 +368,13 @@ if(UNIX)
     target_link_libraries(test_symbol_table PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: TickCapture 왕복·이어 쓰기·잘린 꼬리·큐 넘침 (헤더 전용, D-071) ──
+add_executable(test_tick_capture tests/test_tick_capture.cpp)
+target_include_directories(test_tick_capture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(test_tick_capture PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟: LatencyTrace 구간 계산·CSV 행·머리글 1회 (헤더 전용, D-071) ──
 add_executable(test_latency_trace tests/test_latency_trace.cpp)
 target_include_directories(test_latency_trace PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -454,6 +461,7 @@ set(QUANT_ASSERT_TARGETS
     test_wake_gate
     test_latency_trace
     test_symbol_table
+    test_tick_capture
     test_account_ledger
     test_logger
 )

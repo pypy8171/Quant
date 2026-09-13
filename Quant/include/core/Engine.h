@@ -8,6 +8,7 @@
 #include "core/OrderPacer.h"
 #include "core/SignalDispatcher.h"
 #include "core/SymbolTable.h"
+#include "core/TickCapture.h"
 #include "core/RegimeController.h"
 #include "core/RegimeFileBridge.h"
 #include "core/Types.h"
@@ -63,6 +64,9 @@ public:
     // 폴링해 그 값을 TradeData(체결 틱)처럼 td_queue_에 넣고, WS 연결은 생략한다. ITB 전략이
     // 이 틱으로 구동된다(ITB = IntradayBreakoutStrategy, 장중 돌파 전략).
     void set_rest_price_feed(bool b) { rest_price_feed_ = b; }
+    // WS 틱·호가 캡처 폴더(빈 문자열이면 끔). 기동마다 ticks_<UTC시각>.bin 하나. REST 대체 틱은 raw 피드가
+    //  아니라 캡처하지 않는다. [why D-071]
+    void set_capture_dir(const std::string& dir) { capture_dir_ = dir; }
     // 매크로 레짐 보조 프로세스 브리지(2026-08-09 회의 Task 3). Python macro_regime_feed.py가
     // 원자적으로 쓰는 regime.json 경로를 지정하면, data_thread가 매 사이클 그 파일을 읽어
     // 시장이 위험하면 OrderGate 의 "신규매수 정지" 스위치(entry_halt)를 켜고, 풀리면 끈다
@@ -302,6 +306,8 @@ private:
     // 시세 전용(실전 도메인). WS 모드에서도 폴백이 쓸 수 있어야 하므로 config에 블록이 있으면 항상 만든다.
     std::unique_ptr<KisClient> quote_kis_;
     std::unique_ptr<KisWebSocket> ws_;
+    std::string                   capture_dir_;
+    std::unique_ptr<feed::TickCapture> capture_; // WS 수신 스레드만 on_*를 부른다(단일 생산자)
 
     std::vector<std::unique_ptr<StrategyBase>> strategies_;
     // strategies_ 동시성 보호: strategy_thread는 strat_version_ 변경 시에만 StrategyBase*
