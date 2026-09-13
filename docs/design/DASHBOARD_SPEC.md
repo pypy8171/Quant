@@ -131,6 +131,34 @@ python research/studies/09_crisis_strategies/backtest_crisis_strategies.py # →
 
 ---
 
+## 3-1. 데이터 계약 ③ — 장전 브리핑 `docs/premarket/YYYY-MM-DD.md`
+
+아침 시황 브리핑은 JSON이 아니라 마크다운 문서 그대로가 계약이다. 사람이 읽는 문서가 정본이고 대시보드는
+그 머리 표만 파싱한다(`PYQuant/dashboard/build_dashboard.py`의 `load_premarket`). 파일명은 실제 발행일(KST)이다.
+
+```markdown
+# 장전 시황 브리핑 — YYYY-MM-DD (요일)
+
+> 발행 경위 인용문(선택). 대시보드 카드 위에 메모로 실린다.
+
+| 항목 | 값 |
+|---|---|
+| 발행 | YYYY-MM-DD HH:MM KST |
+| 본문 기준일 | YYYY-MM-DD |
+| 스탠스 | 관망 · 보수 · 선별 중 하나 |
+| 국면 결론 | 한 줄 |
+
+## 1. … ~ ## 5. …   ← 절 제목·본문은 그대로 카드 본문이 된다(문단·불릿·인용·볼드·코드·링크만 렌더)
+```
+
+- 표의 네 항목 이름은 바꾸지 않는다. 없는 항목은 빈 칸으로 실린다.
+- 스탠스 → 색: 관망 `--info`, 보수 `--warn`, 선별 `--ok`. 그 밖의 값은 무채색.
+- **장전 브리핑** 탭은 요약표(발행일·기준일·스탠스·결론) 뒤에 날짜별 `<details>` 카드를 최신순으로 두고 첫 장만 펼친다.
+- 갱신 경로는 리뷰와 같다 — `scripts/refresh_dashboard.py`가 `docs/premarket/*.md`를 감시 목록에 넣고 바뀌면 생성기만 다시 돈다(`--if-stale`).
+- 목록·형식 정본은 `docs/premarket/README.md`.
+
+---
+
 ## 4. 3-Phase 로드맵
 
 | Phase | 내용 | 인프라 | 상태 |

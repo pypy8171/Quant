@@ -7,6 +7,7 @@
   · 백테스트: `research/studies/**/metrics.json`(계열 B 배열)·`*_metrics.json`(단일객체) — quant.metrics/v1
   · 라이브   : `research/dashboard/live.json`(quant.live/v1) — trades CSV 롤업 + 매매일지 카드
   · 리뷰     : `research/dashboard/reviews.json`(quant.review/v1) — 실증 사후검토(post-mortem)
+  · 장전     : `docs/premarket/YYYY-MM-DD.md` — 아침 시황 브리핑(머리 `| 항목 | 값 |` 표 + `## ` 절)
 지표·라이브 요약 산출은 producer가 담당:
   PYQuant/dashboard/backfill_series_a.py  (계열 A: BACKTEST_LOG·06 TSV → metrics.json)
   PYQuant/dashboard/backfill_live.py       (logs/trades·strategies live md → live.json)
@@ -28,6 +29,7 @@ JS 없이도 표·차트·리뷰가 보이도록 서버측(파이썬) 렌더(스
 """
 import html
 import json
+import re
 import sys
 from datetime import date
 from pathlib import Path
@@ -52,6 +54,7 @@ STUDIES = _REPO / "research" / "studies"
 OUT_DIR = _REPO / "research" / "dashboard"
 LIVE_JSON = OUT_DIR / "live.json"
 REVIEWS_JSON = OUT_DIR / "reviews.json"
+PREMARKET_DIR = _REPO / "docs" / "premarket"
 OUT_HTML = OUT_DIR / "dashboard.html"
 
 HONESTY = {
@@ -111,6 +114,144 @@ def load_reviews():
 
 
 # ── 포매팅 헬퍼 ───────────────────────────────────────────────────────────────
+
+# ── 장전 브리핑(docs/premarket) ───────────────────────────────────────────────
+_PM_META_KEYS = ("발행", "본문 기준일", "스탠스", "국면 결론")
+_PM_STANCE = {"관망": "info", "보수": "warn", "선별": "ok"}
+_PM_WEEKDAY = "월화수목금토일"
+
+
+def load_premarket():
+    """docs/premarket/YYYY-MM-DD.md 전부를 최신순으로 읽는다.
+
+    문서 형식은 docs/premarket/README.md가 정한다 — 머리 표에서 메타 네 항목을 뽑고,
+    `## ` 절을 순서대로 담는다. 표 앞의 인용문(`>`)은 발행 경위 메모로 함께 싣는다.
+    """
+    items = []
+    for f in sorted(PREMARKET_DIR.glob("????-??-??.md"), reverse=True):
+        try:
+            txt = f.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            print(f"  ! {f.name} 읽기 실패: {e}", file=sys.stderr)
+            continue
+        meta, head, sections, cur = {}, [], [], None
+        for line in txt.splitlines():
+            if line.startswith("## "):
+                cur = [line[3:].strip(), []]
+                sections.append(cur)
+            elif cur is None:
+                head.append(line)
+            else:
+                cur[1].append(line)
+        for line in head:
+            m = re.fullmatch(r"\|\s*([^|]+?)\s*\|\s*(.+?)\s*\|", line.strip())
+            if m and m.group(1) in _PM_META_KEYS and m.group(1) not in meta:
+                meta[m.group(1)] = m.group(2)
+        note = " ".join(l[1:].strip() for l in head if l.startswith(">"))
+        d = f.stem
+        try:
+            wk = _PM_WEEKDAY[date.fromisoformat(d).weekday()]
+        except ValueError:
+            wk = ""
+        items.append({
+            "date": d, "wk": wk, "file": f.relative_to(_REPO).as_posix(),
+            "published": meta.get("발행", ""), "basis": meta.get("본문 기준일", ""),
+            "stance": meta.get("스탠스", ""), "conclusion": meta.get("국면 결론", ""),
+            "note": note, "sections": sections,
+        })
+    return items
+
+
+def _md_inline(s):
+    """볼드·코드·링크만. 브리핑 본문은 그 이상을 쓰지 않는다."""
+    s = esc(s)
+    s = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s)
+    s = re.sub(r"`(.+?)`", r"<code>\1</code>", s)
+    s = re.sub(r"&lt;(https?://[^&]+)&gt;",
+               r'<a href="\1" target="_blank" rel="noopener">\1</a>', s)
+    s = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)",
+               r'<a href="\2" target="_blank" rel="noopener">\1</a>', s)
+    s = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", s)   # 상대 링크는 대시보드에서 못 여니 글자만
+    return s
+
+
+def _md_block(lines):
+    """문단·불릿·인용만 있는 마크다운 조각을 HTML로."""
+    out, para, ul = [], [], []
+
+    def flush_para():
+        if para:
+            out.append(f"<p>{_md_inline(' '.join(para))}</p>")
+            para.clear()
+
+    def flush_ul():
+        if ul:
+            out.append("<ul>" + "".join(f"<li>{_md_inline(x)}</li>" for x in ul) + "</ul>")
+            ul.clear()
+
+    for raw in lines:
+        line = raw.rstrip()
+        if line.startswith("- "):
+            flush_para()
+            ul.append(line[2:])
+        elif not line.strip():
+            flush_para()
+            flush_ul()
+        elif line.startswith(">"):
+            flush_para()
+            flush_ul()
+            out.append(f'<blockquote>{_md_inline(line[1:].strip())}</blockquote>')
+        else:
+            flush_ul()
+            para.append(line.strip())
+    flush_para()
+    flush_ul()
+    return "".join(out)
+
+
+def _stance_pill(stance):
+    cls = _PM_STANCE.get(stance, "")
+    return f'<span class="pill pm-{cls}">{esc(stance or "—")}</span>'
+
+
+def render_premarket(items):
+    if not items:
+        return ('<section class="fam"><h2>장전 시황 브리핑</h2>'
+                '<p class="empty">브리핑이 없습니다. '
+                '<code>docs/premarket/YYYY-MM-DD.md</code>에 두면 실립니다.</p></section>')
+    rows = []
+    for it in items:
+        basis = it["basis"][5:] if len(it["basis"]) == 10 else it["basis"]
+        rows.append(
+            "<tr>"
+            f'<td class="mono"><a href="#pm-{esc(it["date"])}">{esc(it["date"])}</a> ({esc(it["wk"])})</td>'
+            f'<td class="mono">{esc(basis)}</td>'
+            f'<td>{_stance_pill(it["stance"])}</td>'
+            f'<td class="pm-concl">{esc(it["conclusion"])}</td>'
+            "</tr>")
+    out = ['<section class="fam"><h2>장전 시황 브리핑 '
+           f'<span class="sub">{len(items)}건 · 평일 08:30 KST 루틴 · 정성 판단, 실제 국면은 엔진이 따로 판정</span></h2>',
+           '<div class="tw"><table class="pm-tbl"><thead><tr>'
+           '<th>발행일</th><th>기준일</th><th>스탠스</th><th>결론 한 줄</th></tr></thead>'
+           '<tbody>' + "".join(rows) + '</tbody></table></div></section>']
+    for i, it in enumerate(items):
+        secs = "".join(
+            f"<h3>{_md_inline(title)}</h3>{_md_block(body)}" for title, body in it["sections"])
+        note = f'<div class="pm-note">{_md_inline(it["note"])}</div>' if it["note"] else ""
+        out.append(
+            f'<details class="pm" id="pm-{esc(it["date"])}"{" open" if i == 0 else ""}>'
+            '<summary>'
+            f'<span class="cdate">{esc(it["date"])} ({esc(it["wk"])})</span>'
+            f'{_stance_pill(it["stance"])}'
+            f'<span class="pm-sum">{esc(it["conclusion"])}</span>'
+            f'<span class="pm-pub">{esc(it["published"])}</span>'
+            '</summary>'
+            f'{note}<div class="pm-body">{secs}</div>'
+            f'<div class="jsrc">{esc(it["file"])}</div>'
+            '</details>')
+    return "".join(out)
+
+
 def esc(v):
     return html.escape(str(v), quote=True)
 
@@ -683,7 +824,7 @@ def render_reviews(reviews):
 
 
 # ── 렌더 ──────────────────────────────────────────────────────────────────────
-def render(rows, live, reviews):
+def render(rows, live, reviews, premarket):
     n_studies = len({r.get("study_id", "") for r in rows if r.get("study_id")})
     n_fam = len({r.get("family", "A_portfolio") for r in rows})
     over = (f'<div class="stat"><b>{len(rows)}</b>백테스트행</div>'
@@ -691,7 +832,8 @@ def render(rows, live, reviews):
             f'<div class="stat"><b>{n_fam}</b>계열</div>'
             f'<div class="stat"><b>{len(live.get("journals",[]))}</b>매매일지</div>'
             f'<div class="stat"><b>{len(live.get("order_log",[]))}</b>주문로그일</div>'
-            f'<div class="stat"><b>{len(reviews)}</b>리뷰</div>')
+            f'<div class="stat"><b>{len(reviews)}</b>리뷰</div>'
+            f'<div class="stat"><b>{len(premarket)}</b>장전 브리핑</div>')
     legend = "".join(
         f'<span class="badge b-{esc(k)}" title="{esc(v[1])}">{esc(v[0])}</span>'
         for k, v in HONESTY.items())
@@ -704,6 +846,7 @@ def render(rows, live, reviews):
         "@@BACKTEST@@": render_backtest(rows),
         "@@LIVE@@": render_live(live),
         "@@REVIEWS@@": render_reviews(reviews),
+        "@@PREMARKET@@": render_premarket(premarket),
         "@@DATA@@": html.escape(json.dumps(rows, ensure_ascii=False), quote=True),
     }
     for k, v in repl.items():
@@ -867,6 +1010,28 @@ td.cstrat{color:var(--muted);font-size:11.5px}
 .notes li{margin:3px 0}
 code{background:var(--surface-2);border:1px solid var(--line);padding:1px 5px;border-radius:5px;font-size:11.5px;font-family:var(--mono)}
 
+/* ============ 장전 브리핑 ============ */
+section.fam h2 .sub{color:var(--faint);font-weight:400;font-size:12px;margin-left:8px}
+.pm-tbl{margin-top:8px}
+.pm-tbl td.pm-concl{font-size:12.5px;color:var(--muted);line-height:1.45;white-space:normal}
+.pm-tbl td.mono a{color:var(--ink);text-decoration:none;border-bottom:1px dotted var(--faint)}
+.pill.pm-info{background:var(--info-bg);color:var(--info)}
+.pill.pm-warn{background:var(--warn-bg);color:var(--warn)}
+.pill.pm-ok{background:var(--ok-bg);color:var(--ok)}
+.pm{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin-top:12px;box-shadow:var(--shadow)}
+.pm>summary{list-style:none;cursor:pointer;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+.pm>summary::-webkit-details-marker{display:none}
+.pm .pm-sum{flex:1 1 40ch;font-size:13px;color:var(--ink);line-height:1.45}
+.pm .pm-pub{font-family:var(--mono);font-size:11px;color:var(--faint);white-space:nowrap}
+.pm-note{margin-top:10px;padding:8px 12px;border-left:3px solid var(--accent);background:var(--surface-2);
+  font-size:12px;color:var(--muted);line-height:1.55}
+.pm-body{margin-top:8px;max-width:78ch;font-size:13.5px;line-height:1.7;color:var(--ink)}
+.pm-body h3{font-size:14px;margin:18px 0 6px;color:var(--ink)}
+.pm-body p{margin:0 0 10px}
+.pm-body ul{margin:0 0 10px;padding-left:20px}
+.pm-body li{margin:4px 0}
+.pm-body blockquote{margin:0 0 10px;padding-left:12px;border-left:3px solid var(--line);color:var(--muted)}
+
 /* ============ 리뷰 (사후검토) ============ */
 .review{padding:6px 0 10px}
 .review + .review{margin-top:20px;border-top:1px solid var(--line);padding-top:24px}
@@ -1010,6 +1175,7 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 5px;bo
   <button class="tab-btn" role="tab" id="tab-bt" aria-controls="panel-bt" aria-selected="true">백테스트</button>
   <button class="tab-btn" role="tab" id="tab-live" aria-controls="panel-live" aria-selected="false">라이브 매매</button>
   <button class="tab-btn" role="tab" id="tab-rv" aria-controls="panel-rv" aria-selected="false">리뷰</button>
+  <button class="tab-btn" role="tab" id="tab-pm" aria-controls="panel-pm" aria-selected="false">장전 브리핑</button>
 </div>
 
 <div class="panel" id="panel-bt" role="tabpanel" aria-labelledby="tab-bt">
@@ -1033,6 +1199,10 @@ code{background:var(--surface-2);border:1px solid var(--line);padding:1px 5px;bo
 
 <div class="panel" id="panel-rv" role="tabpanel" aria-labelledby="tab-rv" hidden>
 @@REVIEWS@@
+</div>
+
+<div class="panel" id="panel-pm" role="tabpanel" aria-labelledby="tab-pm" hidden>
+@@PREMARKET@@
 </div>
 </div>
 
@@ -1109,9 +1279,10 @@ def main():
     rows = discover(STUDIES)
     live = load_live()
     reviews = load_reviews()
+    premarket = load_premarket()
     if not rows:
         print("! metrics.json을 찾지 못했습니다.", file=sys.stderr)
-    OUT_HTML.write_text(render(rows, live, reviews), encoding="utf-8")
+    OUT_HTML.write_text(render(rows, live, reviews, premarket), encoding="utf-8")
     fams = {}
     for r in rows:
         f = r.get("family", "A_portfolio")
@@ -1119,7 +1290,7 @@ def main():
     print(f"✅ 대시보드 생성: {OUT_HTML}")
     print(f"   백테스트 {len(rows)}행 · 계열 {dict(fams)} · "
           f"라이브 일지 {len(live.get('journals',[]))}·주문 {len(live.get('order_log',[]))} · "
-          f"리뷰 {len(reviews)}")
+          f"리뷰 {len(reviews)} · 장전 브리핑 {len(premarket)}")
 
 
 if __name__ == "__main__":

@@ -39,7 +39,7 @@ schtasks /change /tn claude_stock_study /st 20:00
 
 | 루틴 | 시각 | 내용 |
 |---|---|---|
-| 장전 시황 브리핑 | 평일 08:30 KST | `market-brief` 결과를 세션으로 전달. 링크는 `_private/LINKS.md` |
+| 장전 시황 브리핑 | 평일 08:30 KST | `market-brief` 결과를 세션으로 전달(발행은 08:42~08:45쯤). 정본은 `docs/premarket/YYYY-MM-DD.md`(노션은 09-11분까지). 루틴 프롬프트에 KST 날짜가 없어 제목·본문이 하루 늦는 결함이 있다 — `docs/premarket/README.md`. 링크는 `_private/LINKS.md` |
 
 PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이 저장소 파일을 만들지는 않는다.
 
@@ -206,8 +206,8 @@ scripts/eod_autodoc.py
   └─ PYQuant/dashboard/build_dashboard.py    → research/dashboard/dashboard.html
 ```
 
-16:05 예약 실행만이 아니라 장중에도 돈다. 매매일지나 백테스트를 쓰고 나면 Stop 훅이 대시보드와
-수정시각을 비교해 낡은 만큼만 다시 만든다. 손으로 돌릴 때는 `py scripts/refresh_dashboard.py --if-stale`.
+16:05 예약 실행만이 아니라 장중에도 돈다. 매매일지·백테스트·장전 브리핑(`docs/premarket/`)을 쓰고 나면 Stop 훅이
+대시보드와 수정시각을 비교해 낡은 만큼만 다시 만든다(브리핑은 생성기만 다시 돈다). 손으로 돌릴 때는 `py scripts/refresh_dashboard.py --if-stale`.
 
 | 스크립트 | 역할 |
 |---|---|

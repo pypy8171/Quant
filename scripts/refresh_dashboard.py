@@ -63,6 +63,8 @@ def classify(path: str) -> dict:
         out["live"] = [ymd]
     elif re.fullmatch(r"docs/eod/\d{4}-\d{2}-\d{2}\.md", p) and ymd:
         out["live"] = [ymd]
+    elif re.fullmatch(r"docs/premarket/\d{4}-\d{2}-\d{2}\.md", p):
+        out["render"] = True
     elif p.startswith("research/studies/"):
         out["backtest"] = True
     elif p in ("research/dashboard/live.json", "research/dashboard/reviews.json"):
@@ -75,6 +77,7 @@ def watched() -> list[Path]:
     out: list[Path] = []
     out += sorted((REPO / "strategies").glob("*/live/*.md"))
     out += sorted((REPO / "docs" / "eod").glob("*.md"))
+    out += sorted((REPO / "docs" / "premarket").glob("????-??-??.md"))
     out += sorted((REPO / "research" / "studies").rglob("metrics.json"))
     for n in ("live.json", "reviews.json"):
         f = REPO / "research" / "dashboard" / n
