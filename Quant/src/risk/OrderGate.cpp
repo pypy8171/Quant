@@ -1,9 +1,8 @@
 #include "risk/OrderGate.h"
 #include "risk/GateReasons.h"
 #include <ctime>
-#include <iomanip>
+#include <format>
 #include <iostream>
-#include <sstream>
 #include <unordered_set>
 
 using Clock = std::chrono::steady_clock;
@@ -256,15 +255,13 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
     {
         if (sig.quantity <= 0)
         {
-            reject_reason = "잘못된 주문 수량 (" + std::to_string(sig.quantity) + ")";
+            reject_reason = std::format("잘못된 주문 수량 ({})", sig.quantity);
             return false;
         }
 
         if (sig.quantity > cfg_.max_qty_per_order)
         {
-            std::ostringstream ss;
-            ss << "1주문 수량 한도 초과 (" << sig.quantity << " > " << cfg_.max_qty_per_order << ")";
-            reject_reason = ss.str();
+            reject_reason = std::format("1주문 수량 한도 초과 ({} > {})", sig.quantity, cfg_.max_qty_per_order);
             return false;
         }
 
@@ -274,20 +271,20 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
 
         if (eval_px > 0.0 && eval_px * sig.quantity > cfg_.max_notional_per_order)
         {
-            std::ostringstream ss;
-            ss << "1주문 명목 한도 초과 (" << static_cast<long long>(eval_px * sig.quantity) << " > "
-               << static_cast<long long>(cfg_.max_notional_per_order)
-               << (sig.price > 0.0 ? ")" : ", 시장가 참조평가)");
+            const std::string ss = std::format("1주문 명목 한도 초과 ({} > {}{}",
+                                               static_cast<long long>(eval_px * sig.quantity),
+                                               static_cast<long long>(cfg_.max_notional_per_order),
+                                               sig.price > 0.0 ? ")" : ", 시장가 참조평가)");
 
             // SELL은 청산 계열이라 거부하지 않는다 — 정당한 청산을 막는 쪽이 대량 매도보다 위험하다.
             //  (수량 한도는 위에서 이미 걸렸다.) 이 파일은 Logger를 안 쓰므로 stderr 한 줄.
             if (sig.side == OrderSide::SELL)
             {
-                std::cerr << "[OrderGate] WARN " << sig.ticker << " SELL " << ss.str() << " — 청산이라 통과\n";
+                std::cerr << "[OrderGate] WARN " << sig.ticker << " SELL " << ss << " — 청산이라 통과\n";
             }
             else
             {
-                reject_reason = ss.str();
+                reject_reason = ss;
                 return false;
             }
         }
@@ -305,9 +302,7 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
 
         if (cur_qty + sig.quantity > cfg_.max_qty_per_ticker)
         {
-            std::ostringstream ss;
-            ss << "포지션 한도 초과 (" << cur_qty << "+" << sig.quantity << " > " << cfg_.max_qty_per_ticker << ")";
-            reject_reason = ss.str();
+            reject_reason = std::format("포지션 한도 초과 ({}+{} > {})", cur_qty, sig.quantity, cfg_.max_qty_per_ticker);
             return false;
         }
 
@@ -318,11 +313,9 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
         if (cfg_.max_notional_per_ticker > 0.0 && eval_px > 0.0 &&
             (cur_qty + sig.quantity) * eval_px > cfg_.max_notional_per_ticker)
         {
-            std::ostringstream ss;
-            ss << "종목당 명목 한도 초과 ("
-               << static_cast<long long>((cur_qty + sig.quantity) * eval_px) << " > "
-               << static_cast<long long>(cfg_.max_notional_per_ticker) << ")";
-            reject_reason = ss.str();
+            reject_reason = std::format("종목당 명목 한도 초과 ({} > {})",
+                                        static_cast<long long>((cur_qty + sig.quantity) * eval_px),
+                                        static_cast<long long>(cfg_.max_notional_per_ticker));
             return false;
         }
 
@@ -359,10 +352,8 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
 
             if (open >= static_cast<size_t>(cfg_.max_concurrent_positions))
             {
-                std::ostringstream ss;
-                ss << "동시 보유 종목 한도 초과 (" << open << " >= "
-                   << cfg_.max_concurrent_positions << ", 실보유 " << held
-                   << " 선점만 " << (open - held) << ")";
+                std::string ss = std::format("동시 보유 종목 한도 초과 ({} >= {}, 실보유 {} 선점만 {})",
+                                             open, cfg_.max_concurrent_positions, held, open - held);
 
                 // 교체 진입이 켜져 있으면 여기 오는 BUY는 교체 판정에서 떨어진 것이다. 그 사유를
                 //  같이 적지 않으면 한도 문구만 남아 "교체가 안 도는 것"으로 읽힌다(09-11 11:21).
@@ -381,14 +372,14 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
 
                 if (!decline.empty())
                 {
-                    ss << " — 교체 보류: " << decline;
+                    ss += " — 교체 보류: " + decline;
                 }
                 else
                 {
-                    ss << " — 신규 종목 진입 정지";
+                    ss += " — 신규 종목 진입 정지";
                 }
 
-                reject_reason = ss.str();
+                reject_reason = std::move(ss);
                 return false;
             }
 
@@ -515,13 +506,9 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
 
                     if (quant > bar)
                     {
-                        std::ostringstream ss;
-                        ss << "점수 우선순위 미달 (랭크 " << rank << " 유효 " << eff_rank
-                           << "/" << pool
-                           << " = " << std::fixed << std::setprecision(2) << quant
-                           << " > 기준 " << bar << ", 슬롯 " << open << "/"
-                           << cfg_.max_concurrent_positions << ") — 더 높은 점수 종목을 위해 보류";
-                        reject_reason = ss.str();
+                        reject_reason = std::format("점수 우선순위 미달 (랭크 {} 유효 {}/{} = {:.2f} > 기준 {:.2f}, 슬롯 {}/{}) — 더 높은 점수 종목을 위해 보류",
+                                                    rank, eff_rank, pool, quant, bar, open,
+                                                    cfg_.max_concurrent_positions);
                         return false;
                     }
                 }
@@ -565,11 +552,9 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
 
             if (next_gross > cap)
             {
-                std::ostringstream ss;
-                ss << "총노출 한도 초과 (" << static_cast<long long>(next_gross) << " > "
-                   << static_cast<long long>(cap) << " = 자본 " << static_cast<long long>(equity)
-                   << "×" << cfg_.max_gross_exposure_pct << ") — 신규 매수 정지(청산 허용)";
-                reject_reason = ss.str();
+                reject_reason = std::format("총노출 한도 초과 ({} > {} = 자본 {}×{:g}) — 신규 매수 정지(청산 허용)",
+                                            static_cast<long long>(next_gross), static_cast<long long>(cap),
+                                            static_cast<long long>(equity), cfg_.max_gross_exposure_pct);
                 return false;
             }
         }
@@ -583,10 +568,8 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
 
         if (daily_pnl_ <= cfg_.daily_loss_limit)
         {
-            std::ostringstream ss;
-            ss << "일일 손실 한도 초과 (현재 " << static_cast<int>(daily_pnl_) << "원 / 한도 "
-               << static_cast<int>(cfg_.daily_loss_limit) << "원)";
-            reject_reason = ss.str();
+            reject_reason = std::format("일일 손실 한도 초과 (현재 {}원 / 한도 {}원)",
+                                        static_cast<int>(daily_pnl_), static_cast<int>(cfg_.daily_loss_limit));
             return false;
         }
     }
@@ -609,11 +592,14 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
     //    지정가는 가격까지 키에 넣는다 — 분할 매수는 같은 종목·같은 방향의 rung 여러 개를 한 틱에
     //    내는데, 주문 스레드가 1초 안에 연달아 처리하면 두 번째 rung부터 "중복"으로 잘렸다
     //    (09-11 10:04 232140 BUY 42@11790·42@11690 둘 다 거부). 같은 가격 반복만 중복이다.
+    //    [why D-070] 신호마다 만드는 키라 std::format으로 바꾸지 않았다 — 같은 키를 200만 회 만들어
+    //    연결 105ns, format 152ns(reserve+format_to도 145ns). 재는 법은 docs/guides/CPP20_23_GUIDE.md 17-1.
     const std::string dedup_key = sig.account_id + ":" + sig.strategy_id + ":" + sig.ticker + ":" +
                                   std::to_string(static_cast<int>(sig.side)) +
                                   (sig.type == OrderType::LIMIT
                                        ? ":" + std::to_string(static_cast<long long>(sig.price))
                                        : std::string());
+
     {
         auto now = Clock::now();
         std::lock_guard<std::mutex> lk(dedup_mtx_);
@@ -625,7 +611,7 @@ bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)
 
             if (elapsed < cfg_.dedup_window_sec)
             {
-                reject_reason = "중복 신호 (윈도우 " + std::to_string(cfg_.dedup_window_sec) + "초)";
+                reject_reason = std::format("중복 신호 (윈도우 {}초)", cfg_.dedup_window_sec);
                 return false;
             }
         }
@@ -1202,14 +1188,13 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
 
         if (cfg_.displace_max_per_day > 0 && displace_count_ >= cfg_.displace_max_per_day)
         {
-            why = "당일 교체 횟수 " + std::to_string(displace_count_) + "/" +
-                  std::to_string(cfg_.displace_max_per_day) + " 소진";
+            why = std::format("당일 교체 횟수 {}/{} 소진", displace_count_, cfg_.displace_max_per_day);
         }
         else if (!slot_reserved_for_.empty() && now < slot_reserved_until_)
         {
             // 직전 교체로 비운 자리가 아직 안 찼다
             const auto left = std::chrono::duration_cast<std::chrono::seconds>(slot_reserved_until_ - now).count();
-            why = "비운 자리를 " + slot_reserved_for_ + "가 쓰는 중(" + std::to_string(left) + "초 남음)";
+            why = std::format("비운 자리를 {}가 쓰는 중({}초 남음)", slot_reserved_for_, left);
         }
         else
         {
@@ -1219,7 +1204,7 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
             {
                 // 방금 밀려난 종목이 곧장 되돌아오는 핑퐁 차단
                 const auto left = std::chrono::duration_cast<std::chrono::seconds>(cd->second - now).count();
-                why = "밀려난 종목 재진입 대기(" + std::to_string(left) + "초 남음)";
+                why = std::format("밀려난 종목 재진입 대기({}초 남음)", left);
             }
         }
     }
@@ -1320,10 +1305,8 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
         else if (plan.new_z - worst_z < cfg_.displace_min_z_gap)
         {
             // 격차가 잡음 수준이면 비용만 나간다
-            std::ostringstream ws;
-            ws << "점수 격차 " << std::fixed << std::setprecision(2) << (plan.new_z - worst_z)
-               << "σ < " << cfg_.displace_min_z_gap << "σ (최약체 z=" << worst_z << ")";
-            why = ws.str();
+            why = std::format("점수 격차 {:.2f}σ < {:.2f}σ (최약체 z={:.2f})",
+                              plan.new_z - worst_z, cfg_.displace_min_z_gap, worst_z);
         }
     }
 
@@ -1360,11 +1343,8 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
 
     (void)account; // 계좌는 피교체 종목 쪽에서 복원한다(신호 계좌와 다를 수 있음)
     plan.victim_z = worst_z;
-    std::ostringstream ss;
-    ss << "교체 진입 — " << new_ticker << "(z=" << std::fixed << std::setprecision(2) << plan.new_z
-       << ")가 " << plan.ticker << "(z=" << plan.victim_z << ")보다 "
-       << (plan.new_z - plan.victim_z) << "σ 높아 슬롯을 넘긴다";
-    plan.reason = ss.str();
+    plan.reason = std::format("교체 진입 — {}(z={:.2f})가 {}(z={:.2f})보다 {:.2f}σ 높아 슬롯을 넘긴다",
+                              new_ticker, plan.new_z, plan.ticker, plan.victim_z, plan.new_z - plan.victim_z);
     plan.ok = true;
     {
         std::lock_guard<std::mutex> lk(displace_mtx_);
