@@ -36,6 +36,13 @@ inline TradeData make_tick(const std::string& ticker, double px, const std::stri
     return td;
 }
 
+// 이 틱이 make_tick이 만든 REST 대체 틱인가. WS 체결 틱은 체결량이 항상 1주 이상이고 REST 현재가에는
+//  체결량·누적량이 없다 — 봉 집계기가 REST 틱을 거르고 REST 봉으로 되돌아가는 판정에 쓴다. [why D-069]
+inline bool is_rest_tick(const TradeData& td)
+{
+    return td.quantity == 0 && td.acml_volume == 0;
+}
+
 // 틱이 끊긴 종목 고르기 — last_seen이 비었거나(틱 없음) cutoff보다 오래됐으면 고른다. 구독 여부는 따지지
 //  않는다: 유니버스 밖 보유(구독 없음)와 WS 상한에 밀린 종목(구독 실패)을 한 조건으로 다 잡기 위해서다.
 using LastSeenFn = std::function<std::optional<std::chrono::steady_clock::time_point>(const std::string&)>;

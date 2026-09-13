@@ -31,7 +31,7 @@ digraph code_graph {
   "modes" -> "utils" [label="2"];
   "risk" -> "core" [label="1"];
   "strategy" -> "api" [label="5"];
-  "strategy" -> "core" [label="10"];
+  "strategy" -> "core" [label="12"];
   "strategy" -> "universe" [label="3"];
   "strategy" -> "utils" [label="9"];
   "universe" -> "api" [label="1"];

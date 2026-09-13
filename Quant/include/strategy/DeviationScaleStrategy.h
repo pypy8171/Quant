@@ -1,5 +1,7 @@
 #pragma once
 #include "api/KisClient.h"
+#include "core/BarAggregator.h"
+#include "core/DataPoller.h"
 #include "core/TickSize.h"
 #include "strategy/StrategyBase.h"
 #include "universe/MaAlign.h"
@@ -36,7 +38,9 @@
 //     reprice_move_ticks 이상 이동하면 미체결 분할 매수를 CANCEL+NEW로 재호가(MM-1 패턴).
 //
 //  구동: rest_price_feed 모드에서 DataThread가 매 사이클 현재가를 TradeData로 주입 →
-//        on_trade_batch가 하트비트로 호출된다(WS 불필요). 3분봉/일봉은 kis_로 자가조회.
+//        on_trade_batch가 하트비트로 호출된다(WS 불필요). 일봉은 kis_로 자가조회(프리페치 스레드).
+//        3분봉은 bar_source로 고른다 — "rest"는 프리페치 스레드가 봉마다 REST를 다시 받고, "ws"는
+//        전략 스레드가 체결 틱을 BarAggregator로 모은다(REST 봉은 시드·폴백, D-068·D-069).
 //
 //  포지션 진실원천: OrderGate 확정 포지션(confirmed_position). 체결콜백 부재(rest)에도
 //        잔고 대조로 원장이 최신이라 신뢰 가능 → 별도 on_fill 불필요.
@@ -129,6 +133,10 @@ public:
         //  prefetch_jitter_pct: 봉 경계 직후 분봉 조회를 종목별로 흩는다(봉 길이의 0~이 비율,
         //   티커 해시로 고정). 50종목이 같은 초에 조회하면 초당 한도(20)에 걸려 뒤쪽이 HTTP 500이다.
         int    prefetch_jitter_pct = 50;
+        //  bar_source: 3분봉을 어디서 받나. "rest"는 프리페치 스레드가 봉마다 REST 분봉을 다시 받고,
+        //   "ws"는 전략 스레드가 체결 틱을 직접 봉으로 모은다(BarAggregator). REST 봉은 시드와 폴백으로
+        //   남는다 — 틱이 REST 대체 모양이면(WS 폴백·구독 상한 넘침) 그 종목은 REST 봉으로 되돌아간다. [why D-069]
+        std::string bar_source = "rest";
         int    eod_hhmm       = 1515;  // 이 시각(KST HHMM) 이후 전량 취소+청산
         int    interval_min   = 3;     // 집계봉 간격(분)
         int    min_action_ms  = 3000;  // on_trade_batch 판단·발주 스로틀 겸 프리페치 루프 주기(분봉 REST는 프리페치 스레드가 당긴다)
@@ -136,8 +144,16 @@ public:
         std::string account;           // 원장 계좌키(단일계좌는 "")
     };
 
-    explicit DeviationScaleStrategy(Params p) : p_(std::move(p))
+    explicit DeviationScaleStrategy(Params p) : p_(std::move(p)), agg_(agg_config(p_))
     {
+        ws_bars_ = (p_.bar_source == "ws");
+
+        // 닫힌 봉 한 줄 — 봉마다 종목마다 나오므로 DEBUG. 시드 결과와 같이 보면 REST 봉과 어디가 다른지 드러난다.
+        agg_.set_sink([this](const MarketData& md) {
+            LOG_DEBUG("[" + id() + "] 봉 닫힘 src=ws o=" + fmt1(md.open) + " h=" + fmt1(md.high) +
+                      " l=" + fmt1(md.low) + " c=" + fmt1(md.close) + " v=" + std::to_string(md.volume));
+        });
+
         if (p_.n_rungs < 1)
         {
             p_.n_rungs = 1;
@@ -185,7 +201,8 @@ public:
         return "DeviationScale | " + disp() + " | base_pct=" + fmt1(p_.base_pct * 100.0) +
                "% max_pct=" + fmt1(p_.max_pct * 100.0) + "% (fallback qty " + std::to_string(p_.base_qty) +
                "/" + std::to_string(p_.step_qty) + ") sma=" + std::to_string(p_.sma_period) +
-               "(" + std::to_string(p_.interval_min) + "m) dev_sell=" + fmt1(p_.dev_sell) +
+               "(" + std::to_string(p_.interval_min) + "m src=" + (ws_bars_ ? "ws" : "rest") +
+               ") dev_sell=" + fmt1(p_.dev_sell) +
                "% dev_buy=" + fmt1(p_.dev_buy) + "% rungs=" + std::to_string(p_.n_rungs) +
                "/buy" + std::to_string(p_.buy_rungs) + " zone=" + fmt1(-p_.pullback_pct) +
                "~+" + fmt1(p_.entry_upper_pct) + "%" +
@@ -224,6 +241,12 @@ public:
         last_warm_log_ms_ = 0;
         last_px_ = 0.0;
         last_avg_px_ = 0.0;
+        // 집계기 이력은 지우지 않는다(재등록 경로에서 같은 날이면 그대로 쓸 수 있다). 날짜가 바뀌었으면
+        //  on_trade_batch의 날짜 검사가 비운다. 시드는 다시 받는다.
+        seeded_version_ = 0;
+        ws_live_        = false;
+        reseed_pending_ = true;
+        seed_wanted_.store(true, std::memory_order_relaxed);
         {
             std::lock_guard<std::mutex> lk(snap_mtx_);
             snap_daily_.clear();
@@ -256,6 +279,27 @@ public:
         if (td.price > 0.0)
         {
             last_px_ = td.price; // 시장가 청산의 명목 평가 기준가(ref_price). 장 마감 경로보다 먼저 갱신
+        }
+
+        // ── 봉 집계: 스로틀 앞이다 — 모든 틱을 먹어야 고가·저가·거래량이 맞다 ──────────
+        //  REST 대체 틱(폴백·구독 상한 넘침)은 넣지 않는다. 체결량이 없어 봉이 비고, 주기가 초 단위라
+        //  고저가 빠진다. 그동안은 REST 봉을 쓰고, WS 틱이 돌아오면 REST로 다시 시드해 빈 자리를 메운다.
+        if (ws_bars_)
+        {
+            const bool live = !poller::is_rest_tick(td);
+
+            if (live != ws_live_)
+            {
+                ws_live_        = live;
+                reseed_pending_ = true;
+                LOG_INFO("[" + id() + "] 봉 출처 전환 src=" + (live ? "ws" : "rest") +
+                         (live ? " — 체결 틱을 봉으로 모은다, REST 봉은 시드" : " — REST 대체 틱, REST 봉으로 판단"));
+            }
+
+            if (live)
+            {
+                agg_.on_tick(td);
+            }
         }
 
         const int hhmm = kst_hhmm();
@@ -297,7 +341,8 @@ public:
         // ── 프리페치 스냅샷 스냅(일봉·자본·3분봉). 아직 준비 전이면 다음 하트비트 대기 ──
         //  무거운 REST는 프리페치 스레드가 미리 당겨둔다. 여기선 락을 짧게 잡고 복사만.
         std::vector<MarketData> bars;
-        int bars_bucket = -1;
+        int      bars_bucket  = -1;
+        uint64_t bars_version = 0;
         {
             std::lock_guard<std::mutex> lk(snap_mtx_);
 
@@ -309,13 +354,63 @@ public:
             daily_  = snap_daily_;
             equity_ = snap_equity_;
             bars    = snap_bars_;
-            bars_bucket = snap_bars_bucket_;
+            bars_bucket  = snap_bars_bucket_;
+            bars_version = snap_bars_version_;
+        }
+
+        const bool local_bars = ws_bars_ && ws_live_;
+
+        if (ws_bars_)
+        {
+            // 날짜가 바뀌면 집계기를 비운다 — REST 분봉은 당일치만 돌려주므로 어제 봉이 SMA에 섞이면 뜻이 다르다.
+            const std::string today = kst_ymd();
+
+            if (agg_day_ != today)
+            {
+                agg_.clear(p_.ticker);
+                agg_day_        = today;
+                reseed_pending_ = true;
+            }
+
+            // 새 REST 스냅샷은 한 번만 시드한다. 닫힌 자리는 REST가 이기고 빈 자리는 채워지므로,
+            //  폴백 동안 못 본 봉·구독 뒤 늦게 붙은 종목의 앞 봉이 여기서 메워진다.
+            if (!bars.empty() && bars_version != seeded_version_)
+            {
+                const int  before = agg_.closed_count(p_.ticker);
+                const int  added  = agg_.seed(p_.ticker, bars);
+                const bool first  = seeded_version_ == 0;
+                seeded_version_   = bars_version;
+                reseed_pending_   = false;
+                const std::string line = "[" + id() + "] 봉 시드 src=" + (local_bars ? "ws" : "rest") +
+                                         " REST " + std::to_string(bars.size()) + "봉, 새 " + std::to_string(added) +
+                                         ", 닫힌 " + std::to_string(agg_.closed_count(p_.ticker)) + "(전 " + std::to_string(before) + ")" +
+                                         ", 진행 " + (agg_.current_slot(p_.ticker).valid() ? "있음" : "없음");
+
+                // 첫 시드·전환 뒤 시드만 INFO — 워밍업 동안 봉마다 오는 시드는 DEBUG로 내린다.
+                if (first || added > 0)
+                {
+                    LOG_INFO(line);
+                }
+                else
+                {
+                    LOG_DEBUG(line);
+                }
+            }
+
+            // 다음 REST 조회를 받을지 프리페치 스레드에 알린다. 워밍업이 끝나고 틱이 살아 있으면 REST는 쉰다.
+            const bool want_seed = !ws_live_ || reseed_pending_ || agg_.closed_count(p_.ticker) < p_.sma_period;
+            seed_wanted_.store(want_seed, std::memory_order_relaxed);
+
+            if (local_bars)
+            {
+                bars = agg_.snapshot(p_.ticker, p_.sma_period + 1); // [0]=진행 중 봉, 종가는 이미 방금 틱
+            }
         }
 
         // 진행 중인 봉(bars[0])의 종가를 방금 들어온 체결가로 덮는다. 프리페치가 봉 주기당
         //  한 번만 받으므로 그 사이의 가격 변화는 이 한 줄이 반영한다. 봉이 이미 넘어갔는데
         //  프리페치가 아직 안 왔으면(bucket 불일치) 덮지 않는다 — 마감된 봉의 종가를 고칠 순 없다.
-        if (!bars.empty() && bars_bucket == kst_bar_bucket(p_.interval_min))
+        if (!local_bars && !bars.empty() && bars_bucket == kst_bar_bucket(p_.interval_min))
         {
             bars[0].close = cur_px;
         }
@@ -754,7 +849,7 @@ public:
         last_pos_ = pos;
         last_rebuild_ = std::chrono::steady_clock::now();
         LOG_INFO("[" + id() + "] 분할 매수 재구성 sma=" + fmt1(sma) +
-                 std::string(warming ? "(일봉)" : "") + " px=" + fmt1(cur_px) +
+                 std::string(warming ? "(일봉)" : "") + " src=" + (local_bars ? "ws" : "rest") + " px=" + fmt1(cur_px) +
                  " pos=" + std::to_string(pos) + " live=" + std::to_string(live_.size()) +
                  " 명목=" + std::to_string(static_cast<long long>(base_notional + rung_budget)) + "원");
     }
@@ -860,11 +955,19 @@ private:
                 //  세 번 나가는데(당일 63분치 1분봉을 다시 받아 집계), 그중 마감된 봉은 불변이고
                 //  달라지는 건 진행 중인 봉 하나뿐이다. 그 하나는 아래 on_trade_batch가 들어오는
                 //  체결 틱으로 덮으므로 SMA 값은 같게 유지되면서 조회는 봉 주기당 1회로 준다.
+                //  bar_source=ws면 이 조회는 시드용이다 — 첫 스냅샷, 그리고 전략 스레드가 원할 때(워밍업·
+                //  REST 대체 틱·출처 전환 뒤)만 봉마다 한 번 받고, 틱이 살아 있고 봉이 찼으면 쉰다.
                 const int bucket = kst_bar_bucket(p_.interval_min);
                 bool need_bars;
                 {
                     std::lock_guard<std::mutex> lk(snap_mtx_);
                     need_bars = snap_bars_.empty() || snap_bars_bucket_ != bucket;
+
+                    if (need_bars && ws_bars_ && !snap_bars_.empty() &&
+                        !seed_wanted_.load(std::memory_order_relaxed))
+                    {
+                        need_bars = false;
+                    }
 
                     // 봉 경계 직후 종목별 지터만큼 미룬다(첫 스냅샷은 바로). 진행 중인 봉은
                     //  on_trade_batch의 체결가 덮어쓰기가 채우므로 늦게 받아도 SMA는 같다.
@@ -884,6 +987,7 @@ private:
                         std::lock_guard<std::mutex> lk(snap_mtx_);
                         snap_bars_        = std::move(bars);
                         snap_bars_bucket_ = bucket;
+                        ++snap_bars_version_;
                     }
                 }
             }
@@ -1278,4 +1382,22 @@ private:
     double                  snap_equity_ = 0.0;      // 자본 스냅샷(raw, 폴백 미적용)
     std::vector<MarketData> snap_bars_;              // 3분봉 스냅샷
     int snap_bars_bucket_ = -1;                      // 그 스냅샷을 받은 봉 번호(kst_bar_bucket)
+    uint64_t snap_bars_version_ = 0;                 // 받을 때마다 +1 — 전략 스레드가 새 스냅샷만 시드한다
+
+    // ── 틱 집계 봉(bar_source=ws). 집계기·아래 상태는 전략 스레드만 만진다. [why D-069] ──
+    static bars::BarAggregator::Config agg_config(const Params& p)
+    {
+        bars::BarAggregator::Config c;
+        c.interval_min = p.interval_min;
+        c.keep         = (std::max)(64, p.sma_period + 2);
+        return c;
+    }
+
+    bars::BarAggregator agg_;
+    bool        ws_bars_        = false; // bar_source=="ws"
+    bool        ws_live_        = false; // 마지막 틱이 WS 체결 틱이었나(REST 대체 틱이면 REST 봉으로 판단)
+    bool        reseed_pending_ = true;  // 출처 전환·날짜 변경 뒤 REST 시드를 한 번 더 받아야 한다
+    uint64_t    seeded_version_ = 0;     // 마지막으로 시드한 snap_bars_version_
+    std::string agg_day_;                // 집계기에 든 봉의 KST 날짜 — 바뀌면 비운다
+    std::atomic<bool> seed_wanted_{true}; // 전략 스레드가 프리페치 스레드에 "다음 봉에 REST 시드를 받아 달라"
 };

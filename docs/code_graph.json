@@ -119,7 +119,7 @@
     {
       "from": "strategy",
       "to": "core",
-      "weight": 10
+      "weight": 12
     },
     {
       "from": "strategy",
@@ -421,6 +421,8 @@
     ],
     "strategy/DeviationScaleStrategy.h": [
       "api/KisClient.h",
+      "core/BarAggregator.h",
+      "core/DataPoller.h",
       "core/TickSize.h",
       "strategy/StrategyBase.h",
       "universe/MaAlign.h",
@@ -561,11 +563,13 @@
       "api/WebSocketClient.cpp"
     ],
     "core/BarAggregator.h": [
-      "core/BarAggregator.cpp"
+      "core/BarAggregator.cpp",
+      "strategy/DeviationScaleStrategy.h"
     ],
     "core/DataPoller.h": [
       "core/DataPoller.cpp",
-      "core/Engine.h"
+      "core/Engine.h",
+      "strategy/DeviationScaleStrategy.h"
     ],
     "core/Engine.h": [
       "core/Engine.cpp",
@@ -815,6 +819,10 @@
       "in_degree": 3
     },
     {
+      "header": "core/DataPoller.h",
+      "in_degree": 3
+    },
+    {
       "header": "core/Engine.h",
       "in_degree": 3
     },
@@ -843,11 +851,7 @@
       "in_degree": 2
     },
     {
-      "header": "core/DataPoller.h",
-      "in_degree": 2
-    },
-    {
-      "header": "core/LedgerReconciler.h",
+      "header": "core/BarAggregator.h",
       "in_degree": 2
     }
   ],

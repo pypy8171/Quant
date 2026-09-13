@@ -39,7 +39,7 @@ graph LR
   modes -->|2| utils
   risk --> core
   strategy -->|5| api
-  strategy -->|10| core
+  strategy -->|12| core
   strategy -->|3| universe
   strategy -->|9| utils
   universe --> api
@@ -246,6 +246,8 @@ graph LR
   n_risk_OrderGate_cpp --> n_risk_OrderGate_h
   n_risk_OrderGate_h --> n_core_Types_h
   n_strategy_DeviationScaleStrategy_h --> n_api_KisClient_h
+  n_strategy_DeviationScaleStrategy_h --> n_core_BarAggregator_h
+  n_strategy_DeviationScaleStrategy_h --> n_core_DataPoller_h
   n_strategy_DeviationScaleStrategy_h --> n_core_TickSize_h
   n_strategy_DeviationScaleStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_DeviationScaleStrategy_h --> n_universe_MaAlign_h

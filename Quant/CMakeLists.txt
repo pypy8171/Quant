@@ -110,6 +110,7 @@ set(SOURCES
   src/core/Engine.cpp
   src/core/LedgerReconciler.cpp
   src/core/DataPoller.cpp
+  src/core/BarAggregator.cpp
   src/core/SignalDispatcher.cpp
   src/core/OrderPacer.cpp
   src/core/RegimeController.cpp
