@@ -10,6 +10,7 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <stop_token>
 #include <thread>
 #include <vector>
 
@@ -110,7 +111,7 @@ private:
     static constexpr int kMaxWsSubs = 40;
     // 현재 세션이 사용 중인 구독 슬롯 수(subscribe_all이 리셋, 증분 구독이 증가).
     std::atomic<int> sub_used_{0};
-    void recv_loop();
+    void recv_loop(std::stop_token st);
     void parse_message(const std::string& msg);
     // 레코드 한 건을 tr_id에 맞는 파서로 보낸다(단건·다건 프레임이 공유).
     void dispatch_record(std::string_view tr_id, kis_ws::Fields f);
@@ -145,7 +146,7 @@ private:
     std::atomic<int64_t> last_message_ns_{
         std::chrono::steady_clock::now().time_since_epoch().count()
     };
-    std::thread recv_thread_;
+    std::jthread recv_thread_;
     // sock_ 교체·close와 send_text를 갈라 놓는다. recv_message는 락 없이 블로킹한다(close가 깨운다).
     std::mutex send_mtx_;
     // [inv] recv_loop 스레드만 바꾼다. connect()는 스레드를 띄우기 전, disconnect()는 join한 뒤에 만진다.

@@ -9,6 +9,7 @@
 #include <array>
 #include <atomic>
 #include <deque>
+#include <stop_token>
 #include <thread>
 #include <mutex>
 #include <string>
@@ -217,9 +218,8 @@ private:
     std::mutex io_mtx_;                       // 원장 CSV·부속 파일 쓰기 직렬화
     uint64_t open_orders_written_seq_ = 0;    // io_mtx_ 보호
 
-    // 유령주문 취소 스레드. 종료가 몇 분씩 걸리지 않도록 매 건 전에 정지 플래그를 본다.
-    std::thread        stale_thr_;
-    std::atomic<bool>  stale_stop_{false};
+    // 유령주문 취소 스레드. 종료가 몇 분씩 걸리지 않도록 매 건 전에 stop_token을 본다.
+    std::jthread       stale_thr_;
 
     std::atomic<uint64_t> seq_{0};
     std::atomic<uint64_t> total_count_{0};

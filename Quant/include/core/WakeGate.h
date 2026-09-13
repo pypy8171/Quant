@@ -6,6 +6,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <stop_token>
 
 namespace sync
 {
@@ -63,15 +64,58 @@ public:
         sleeping_.store(false, std::memory_order_relaxed);
     }
 
+    // jthread 소비자용 — 정지 요청(request_stop)이 오면 cap 전에 깬다. still_idle에 정지 깃발을 넣을 필요가 없다.
+    //  condition_variable_any의 stop_token 오버로드는 정지 콜백으로 notify를 걸어 준다 [why D-070].
+    template <typename Rep, typename Period, typename Pred>
+    void wait_for(std::chrono::duration<Rep, Period> cap, std::stop_token st, Pred still_idle)
+    {
+        std::unique_lock<std::mutex> lk(mtx_);
+        sleeping_.store(true, std::memory_order_relaxed);
+        std::atomic_thread_fence(std::memory_order_seq_cst);
+
+        if (still_idle())
+        {
+            cv_.wait_for(lk, st, cap, [&] { return !still_idle(); });
+        }
+
+        sleeping_.store(false, std::memory_order_relaxed);
+    }
+
+    template <typename Clock, typename Dur, typename Pred>
+    void wait_until(std::chrono::time_point<Clock, Dur> deadline, std::stop_token st, Pred still_idle)
+    {
+        std::unique_lock<std::mutex> lk(mtx_);
+        sleeping_.store(true, std::memory_order_relaxed);
+        std::atomic_thread_fence(std::memory_order_seq_cst);
+
+        if (still_idle())
+        {
+            cv_.wait_until(lk, st, deadline, [&] { return !still_idle(); });
+        }
+
+        sleeping_.store(false, std::memory_order_relaxed);
+    }
+
     bool sleeping() const
     {
         return sleeping_.load(std::memory_order_relaxed);
     }
 
 private:
-    std::mutex              mtx_;
-    std::condition_variable cv_;
-    std::atomic<bool>       sleeping_{false};
+    std::mutex                  mtx_;
+    std::condition_variable_any cv_; // stop_token 오버로드는 _any에만 있다
+    std::atomic<bool>           sleeping_{false};
 };
+
+// 정지 요청이 오면 바로 깨는 sleep. 다 잤으면 true, 정지 요청으로 깼으면 false.
+//  "잘게 끊어 자면서 깃발을 본다"(100ms×N)와 "정지가 sleep 만기까지 기다린다"(제어 5초·WS 백오프 30초)를 둘 다 대신한다.
+template <typename Rep, typename Period>
+bool sleep_unless_stopped(std::stop_token st, std::chrono::duration<Rep, Period> d)
+{
+    std::mutex                   m;
+    std::condition_variable_any  cv;
+    std::unique_lock<std::mutex> lk(m);
+    return !cv.wait_for(lk, st, d, [&] { return st.stop_requested(); });
+}
 
 } // namespace sync

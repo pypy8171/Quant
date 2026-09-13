@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include "core/WakeGate.h"
 #include <ctime>
 #include <filesystem>
 #include <format>
@@ -753,7 +754,8 @@ void OrderRouter::write_open_orders_file(const std::string& body, uint64_t seq)
 // ─── 이전 세션이 남긴 미체결 주문 취소 (기동 시 1회) ──────────────────────
 OrderRouter::~OrderRouter()
 {
-    stale_stop_.store(true, std::memory_order_relaxed);
+    // jthread 소멸자가 같은 일을 하지만 그건 멤버 소멸 순서 안에서다 — 스레드가 쓰는 멤버가 먼저 죽지 않게 여기서 회수한다.
+    stale_thr_.request_stop();
 
     if (stale_thr_.joinable())
     {
@@ -851,13 +853,13 @@ void OrderRouter::cancel_stale_orders_async()
     // 취소는 건당 왕복 3~5초다. 기동 경로에서 돌리면 장중 재기동이 5분씩 멈춘다.
     //  잔고 시드는 이 스레드를 기다리지 않아도 된다 — 미체결 취소는 보유수량을 바꾸지
     //  않고 주문가능현금·매도가능수량만 푸는데, 둘 다 주기 잔고 대조가 다시 읽는다.
-    stale_thr_ = std::thread([this, rows]()
+    stale_thr_ = std::jthread([this, rows](std::stop_token st)
     {
         int cancelled = 0;
 
         for (const auto& f : rows)
         {
-            if (stale_stop_.load(std::memory_order_relaxed))
+            if (st.stop_requested())
             {
                 LOG_WARN("[OrderRouter] 유령주문 취소 중단(종료 요청) — 남은 " +
                          std::to_string(rows.size() - static_cast<size_t>(cancelled)) + "건");
@@ -894,7 +896,7 @@ void OrderRouter::cancel_stale_orders_async()
 
                 rate_limited = !res.ok() && res.err_code == kis_err::kRateLimit;
 
-                if (!rate_limited || stale_stop_.load(std::memory_order_relaxed))
+                if (!rate_limited || st.stop_requested())
                 {
                     break;
                 }
@@ -941,12 +943,8 @@ void OrderRouter::cancel_stale_orders_async()
 
             rewrite_open_orders();
 
-            // 초당 거래건수 상한(EGW00201)에 걸리지 않게 간격을 둔다. 종료 요청에 몇 분씩
-            //  붙들리지 않도록 잘게 끊어 자면서 플래그를 본다.
-            for (int i = 0; i < 4 && !stale_stop_.load(std::memory_order_relaxed); ++i)
-            {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
+            // 초당 거래건수 상한(EGW00201)에 걸리지 않게 간격을 둔다. 정지 요청이 오면 바로 깬다.
+            sync::sleep_unless_stopped(st, std::chrono::milliseconds(400));
         }
 
         LOG_INFO("[OrderRouter] 이전 세션 미체결 정리 완료: " + std::to_string(cancelled) + "건 취소 접수");

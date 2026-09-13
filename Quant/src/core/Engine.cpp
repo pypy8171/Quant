@@ -456,7 +456,7 @@ void Engine::start()
             {
                 LOG_WARN("[ZMQ] KILL 명령 수신 — 신규 주문 차단 + 엔진 종료");
                 order_gate_.set_kill_switch(true);
-                running_.store(false);
+                request_shutdown();
                 return "OK";
             }
 
@@ -709,11 +709,12 @@ void Engine::start()
         }
     }
 
-    data_thread_ = std::thread(&Engine::data_thread_fn, this);
-    strategy_thread_ = std::thread(&Engine::strategy_thread_fn, this);
-    order_thread_ = std::thread(&Engine::order_thread_fn, this);
-    fill_thread_ = std::thread(&Engine::fill_thread_fn, this);
-    control_thread_ = std::thread(&Engine::control_thread_fn, this);
+    // jthread는 stop_token을 첫 인자로 넣으므로 멤버 함수 포인터(this가 첫 인자)는 람다로 감싼다.
+    data_thread_     = std::jthread([this](std::stop_token st) { data_thread_fn(st); });
+    strategy_thread_ = std::jthread([this](std::stop_token st) { strategy_thread_fn(st); });
+    order_thread_    = std::jthread([this](std::stop_token st) { order_thread_fn(st); });
+    fill_thread_     = std::jthread([this](std::stop_token st) { fill_thread_fn(st); });
+    control_thread_  = std::jthread([this](std::stop_token st) { control_thread_fn(st); });
 
     LOG_INFO("[Engine] 모든 스레드 시작 완료");
 }
@@ -787,10 +788,24 @@ StrategyBase::SellableInfo Engine::ledger_sellable(const std::string& account, c
     return r;
 }
 
+void Engine::request_shutdown()
+{
+    running_.store(false, std::memory_order_release);
+
+    for (std::jthread* t : {&data_thread_, &strategy_thread_, &order_thread_, &fill_thread_, &control_thread_})
+    {
+        t->request_stop(); // WakeGate의 stop_token 대기와 sleep_unless_stopped가 여기서 깬다
+    }
+}
+
 void Engine::stop()
 {
-    // exchange로 중복 호출 방지 — 이미 false면 즉시 반환
-    if (!running_.exchange(false, std::memory_order_acq_rel))
+    // 정지 요청과 회수를 나눈다. KILL이 먼저 running_을 내렸어도 join은 여기서 한다 — 예전엔 running_ exchange로
+    //  조기 반환해 KILL 뒤 소멸 경로가 join 없이 std::thread를 부쉈다(joinable이면 terminate). 회수는 한 번만: 두 번째
+    //  호출은 joinable이 없어 돌아간다.
+    request_shutdown();
+
+    if (!data_thread_.joinable())
     {
         return;
     }
@@ -852,12 +867,12 @@ void Engine::stop()
 }
 
 // ─── 데이터 수집 스레드 ───────────────────────────────────────────────────
-void Engine::data_thread_fn()
+void Engine::data_thread_fn(std::stop_token st)
 {
     LOG_INFO("[DataThread] 시작");
     bool was_market_open = false;
 
-    while (running_.load(std::memory_order_acquire))
+    while (!st.stop_requested())
     {
         bool market_now = is_any_market_open();
 
@@ -1266,7 +1281,7 @@ void Engine::data_thread_fn()
                         auto& md = bars[0];
                         md.bar_index = static_cast<int>(data_count_.load());
 
-                        while (!market_queue_.push(md) && running_.load(std::memory_order_acquire))
+                        while (!market_queue_.push(md) && !st.stop_requested())
                         {
                             std::this_thread::sleep_for(1ms);
                         }
@@ -1315,10 +1330,15 @@ void Engine::data_thread_fn()
 
             int slept = 0;
 
-            while (slept < cycle && running_.load(std::memory_order_acquire))
+            while (slept < cycle && !st.stop_requested())
             {
                 const int step = (slice < cycle - slept) ? slice : (cycle - slept);
-                std::this_thread::sleep_for(std::chrono::seconds(step));
+
+                if (!sync::sleep_unless_stopped(st, std::chrono::seconds(step)))
+                {
+                    break;
+                }
+
                 slept += step;
 
                 if (slept < cycle)
@@ -1504,7 +1524,7 @@ void Engine::poll_regime_file()
 // ─── 전략 처리 스레드 ─────────────────────────────────────────────────────
 // ob_queue_(호가) → td_queue_(체결) → market_queue_(일봉) 순 우선처리
 // 아이들 시 100µs 슬립 → 저지연 유지
-void Engine::strategy_thread_fn()
+void Engine::strategy_thread_fn(std::stop_token st)
 {
     LOG_INFO("[StrategyThread] 시작");
 
@@ -1608,7 +1628,7 @@ void Engine::strategy_thread_fn()
     constexpr auto kStratSpinBudget = std::chrono::microseconds(200);
     std::chrono::steady_clock::time_point idle_since{};
 
-    while (running_.load(std::memory_order_acquire))
+    while (!st.stop_requested())
     {
         uint64_t ver = strat_version_.load(std::memory_order_acquire);
 
@@ -1807,10 +1827,10 @@ void Engine::strategy_thread_fn()
             continue;
         }
 
-        strat_wake_.wait_for(10ms, [this]
+        strat_wake_.wait_for(10ms, st, [this]
         {
             return market_queue_.empty() && ob_queue_.empty() && td_queue_.empty() && rest_td_queue_.empty() &&
-                   manual_inbox_.empty() && running_.load(std::memory_order_acquire);
+                   manual_inbox_.empty();
         });
     }
 
@@ -1818,7 +1838,7 @@ void Engine::strategy_thread_fn()
 }
 
 // ─── 주문 실행 스레드 ─────────────────────────────────────────────────────
-void Engine::order_thread_fn()
+void Engine::order_thread_fn(std::stop_token st)
 {
     using std::chrono::steady_clock;
     LOG_INFO("[OrderThread] 시작");
@@ -1831,7 +1851,7 @@ void Engine::order_thread_fn()
     // 구간 지연 CSV. 이 스레드만 쓰므로 지역 객체로 두고, 첫 주문 때 파일을 연다. [why D-071]
     trace::LatencyTrace lat_trace(Logger::instance().path_for("latency_trace.csv"));
 
-    while (running_.load(std::memory_order_acquire))
+    while (!st.stop_requested())
     {
         // 발주 대상 선택: 만기된 재시도분 우선, 없으면 신규 큐
         std::optional<OrderPacer::Pending> next = pacer.take_due_retry(steady_clock::now());
@@ -1850,10 +1870,7 @@ void Engine::order_thread_fn()
         {
             // 재시도 만기가 있으면 그 시각까지, 없으면 100ms 상한(종료 확인). 신규 신호는 전략 스레드의 notify가 깨운다.
             const auto deadline = pacer.next_retry_at().value_or(steady_clock::now() + 100ms);
-            order_wake_.wait_until(deadline, [this]
-            {
-                return order_queue_.empty() && running_.load(std::memory_order_acquire);
-            });
+            order_wake_.wait_until(deadline, st, [this] { return order_queue_.empty(); });
             continue;
         }
 
@@ -1927,19 +1944,19 @@ void Engine::order_thread_fn()
 //  대기에 묶여 있는 시간이 길어, 그 뒤에 선 체결이 원장에 늦게 들어가고 다음 SELL의 보유 수량 판단이 그만큼 낡는다.
 //  큐가 비면 condvar에서 자고 WS 콜백이 깨운다 — 1ms 폴링은 Windows에서 실측 8~15ms 늦었다(test_pipeline_stress).
 //  on_fill이 던지면 스레드가 죽어 이후 체결이 전부 큐에 쌓이므로 건마다 잡아 로그로 남긴다. [why D-056]
-void Engine::fill_thread_fn()
+void Engine::fill_thread_fn(std::stop_token st)
 {
     LOG_INFO("[FillThread] 시작");
 
-    // running_이 내려간 뒤에도 큐를 비운다 — stop()이 WS를 끊은 다음 join하므로 남은 통보가 여기서 빠진다.
-    while (running_.load(std::memory_order_acquire) || !fill_queue_.empty())
+    // 정지 요청 뒤에도 큐를 비운다 — stop()이 WS를 끊은 다음 join하므로 남은 통보가 여기서 빠진다.
+    while (!st.stop_requested() || !fill_queue_.empty())
     {
         auto opt = fill_queue_.pop();
 
         if (!opt)
         {
-            // 상한 100ms는 종료 확인용이다. 깨우는 것은 WS 콜백의 notify.
-            fill_wake_.wait_for(100ms, [this] { return fill_queue_.empty() && running_.load(std::memory_order_acquire); });
+            // 상한 100ms는 신호가 샐 때의 보험이다. 깨우는 것은 WS 콜백의 notify와 정지 요청.
+            fill_wake_.wait_for(100ms, st, [this] { return fill_queue_.empty(); });
             continue;
         }
 
@@ -2079,7 +2096,7 @@ void Engine::deactivate_rest_fallback()
     LOG_INFO("[Feed] WS 수신 정상 — REST 폴링 폴백 해제, 실시간 피드로 복귀");
 }
 
-void Engine::control_thread_fn()
+void Engine::control_thread_fn(std::stop_token st)
 {
     using namespace std::chrono_literals;
     constexpr int kStaleThresholdSec = 30;
@@ -2093,9 +2110,8 @@ void Engine::control_thread_fn()
     constexpr int kTokenEvery = 60; // 5초 × 60 = 5분
     int token_tick = 0;
 
-    while (running_.load(std::memory_order_acquire))
+    while (sync::sleep_unless_stopped(st, std::chrono::seconds(kCheckIntervalSec)))
     {
-        std::this_thread::sleep_for(std::chrono::seconds(kCheckIntervalSec));
 
         if (++hw_tick >= kHighWaterEvery)
         {
@@ -2207,7 +2223,7 @@ void Engine::start_ops_server()
         {
             LOG_WARN("[Ops] KILL — 신규 주문 차단 + 엔진 종료");
             order_gate_.set_kill_switch(true);
-            running_.store(false);
+            request_shutdown();
         });
     ops_server_->set_order_handler(
         [this](const OpsOrderReq& r) -> std::string

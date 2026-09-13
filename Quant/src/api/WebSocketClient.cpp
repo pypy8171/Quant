@@ -4,6 +4,7 @@
 #include "api/KisWebSocket.h"
 #include "WsSocket.h"
 #include "api/KisWsDecode.h"
+#include "core/WakeGate.h"
 #include "utils/Logger.h"
 #include <algorithm>
 #include <chrono>
@@ -106,7 +107,7 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specs)
 
     subscribe_all();
 
-    recv_thread_ = std::thread(&KisWebSocket::recv_loop, this);
+    recv_thread_ = std::jthread([this](std::stop_token st) { recv_loop(st); });
     return true;
 }
 
@@ -122,7 +123,7 @@ void KisWebSocket::send_text(const std::string& msg)
 
 // [inv] sock_는 이 스레드가 바꾼다. connect()는 스레드를 띄우기 전, disconnect()는 join한 뒤에만 만지므로
 //       여기서 락 없이 읽어도 된다. data_thread의 send_text와는 교체·close를 send_mtx_ 아래서 해서 갈린다.
-void KisWebSocket::recv_loop()
+void KisWebSocket::recv_loop(std::stop_token st)
 {
     LOG_INFO("[WS] 수신 스레드 시작");
     std::string msg;
@@ -175,10 +176,10 @@ void KisWebSocket::recv_loop()
 
         // ── 지수 백오프 재연결 ─────────────────────────────────────────
         LOG_WARN("[WS] " + std::to_string(retry_sec) + "초 후 재연결 시도");
-        std::this_thread::sleep_for(std::chrono::seconds(retry_sec));
+        sync::sleep_unless_stopped(st, std::chrono::seconds(retry_sec));
         retry_sec = std::min(retry_sec * 2, 30);
 
-        if (!connected_.load())
+        if (!connected_.load() || st.stop_requested())
         {
             break; // 자는 동안 disconnect()가 왔다 — 새로 붙지 않는다
         }
@@ -241,6 +242,8 @@ void KisWebSocket::disconnect()
             sock_->close();
         }
     }
+
+    recv_thread_.request_stop(); // 백오프 sleep 중이면 여기서 깬다
 
     if (recv_thread_.joinable())
     {

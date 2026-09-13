@@ -1,4 +1,5 @@
-// WakeGate 단위 테스트 — 생산자 notify가 소비자를 상한(cap) 전에 깨우는지, 신호 유실이 없는지, 만기 시각이 지켜지는지.
+// WakeGate 단위 테스트 — 생산자 notify가 소비자를 상한(cap) 전에 깨우는지, 신호 유실이 없는지, 만기 시각이 지켜지는지,
+//  정지 요청(stop_token)이 cap·sleep 만기 전에 깨우는지.
 // 빌드: cmake --build <dir> --target test_wake_gate
 #include "core/RingBuffer.h"
 #include "core/WakeGate.h"
@@ -8,6 +9,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <stop_token>
 #include <thread>
 #include <vector>
 
@@ -187,6 +189,53 @@ int main()
         g.notify();
         consumer.join();
         CHECK(consumed.load() == kProducers * kPerProducer);
+    }
+
+    // 6. stop_token 오버로드 — 정지 요청이 오면 cap(2s) 전에 깬다. 정지가 이미 요청돼 있으면 자지 않는다.
+    {
+        sync::WakeGate   g;
+        std::stop_source src;
+        const auto       t0 = Clock::now();
+        std::jthread     stopper([&] { std::this_thread::sleep_for(50ms); src.request_stop(); });
+        g.wait_for(2s, src.get_token(), [] { return true; });
+        const auto woke = Clock::now() - t0;
+        CHECK(woke >= 40ms);
+        CHECK(woke < 1s);
+        CHECK(!g.sleeping());
+
+        const auto t1 = Clock::now();
+        g.wait_for(2s, src.get_token(), [] { return true; }); // 이미 정지 요청됨
+        CHECK(Clock::now() - t1 < 200ms);
+
+        const auto t2 = Clock::now();
+        g.wait_until(Clock::now() + 2s, src.get_token(), [] { return true; });
+        CHECK(Clock::now() - t2 < 200ms);
+    }
+
+    // 7. 정지 요청 없이 push+notify만으로도 stop_token 오버로드가 깬다(기존 경로와 같은 동작).
+    {
+        sync::WakeGate      g;
+        std::stop_source    src;
+        std::atomic<bool>   ready{false};
+        const auto          t0 = Clock::now();
+        std::jthread        producer([&] { std::this_thread::sleep_for(30ms); ready.store(true, std::memory_order_release); g.notify(); });
+        g.wait_for(2s, src.get_token(), [&] { return !ready.load(std::memory_order_acquire); });
+        CHECK(Clock::now() - t0 < 1s);
+        CHECK(ready.load());
+    }
+
+    // 8. sleep_unless_stopped — 다 자면 true, 정지 요청이면 만기 전에 false.
+    {
+        std::stop_source src;
+        const auto       t0 = Clock::now();
+        CHECK(sync::sleep_unless_stopped(src.get_token(), 30ms));
+        CHECK(Clock::now() - t0 >= 25ms);
+
+        std::jthread stopper([&] { std::this_thread::sleep_for(50ms); src.request_stop(); });
+        const auto   t1 = Clock::now();
+        CHECK(!sync::sleep_unless_stopped(src.get_token(), 5s));
+        CHECK(Clock::now() - t1 < 1s);
+        CHECK(!sync::sleep_unless_stopped(src.get_token(), 5s)); // 이미 정지 — 바로 false
     }
 
     std::cout << "test_wake_gate: " << g_checks << " checks passed\n";

@@ -162,8 +162,28 @@ stale_thread_ = std::jthread([this, rows](std::stop_token st) { for (auto& r : r
 ```
 
 `Quant/include/strategy/DeviationScaleStrategy.h`의 프리페치 스레드(`prefetch_stop_` 리셋 뒤 재기동)도 같다.
-`Engine`의 다섯 스레드는 `running_`을 다른 곳(상태 JSON·WS 콜백·폴러 keep_going)도 읽으므로 플래그는 두고
-`jthread`로 join만 자동화한다. 종료 순서(제어→주문→전략→데이터, 체결은 WS 끊은 뒤)는 지금처럼 명시한다.
+`Engine`의 다섯 스레드는 `running_`을 다른 곳(상태 JSON·WS 콜백·폴러 keep_going)도 읽으므로 그 깃발은 두되, 스레드
+함수의 루프와 대기는 `stop_token`으로 본다. 정지 요청(`request_shutdown`: `running_` 내리고 다섯 `request_stop`)과 회수
+(`stop`의 join)를 나눴다 — KILL 핸들러가 먼저 `running_`을 내리면 예전 `stop()`은 `exchange`로 조기 반환해 join 없이
+소멸자로 갔다. 종료 순서(제어→주문→전략→데이터, 체결은 WS 끊은 뒤)는 지금처럼 명시한다.
+
+두 가지 함정.
+
+- `std::jthread(&Engine::data_thread_fn, this)`는 안 된다. jthread는 `stop_token`을 **첫** 인자로 넣으므로 멤버 함수
+  포인터(첫 인자가 `this`)와 순서가 어긋난다. 람다로 감싼다.
+
+  ```cpp
+  data_thread_ = std::jthread([this](std::stop_token st) { data_thread_fn(st); });
+  ```
+
+- `jthread` 멤버의 소멸자 join은 멤버 소멸 순서 안에서 돈다. 스레드가 쓰는 멤버가 `jthread`보다 뒤에 선언돼 있으면
+  그 멤버가 먼저 죽는다. `OrderRouter` 소멸자가 `request_stop()`+`join()`을 손으로 남긴 이유다.
+
+대기 쪽은 `Quant/include/core/WakeGate.h`가 맡는다. `cv_`를 `condition_variable_any`로 바꾸고 `wait_for`·`wait_until`에
+`stop_token` 오버로드를 두어, `still_idle`에 정지 깃발을 넣지 않아도 `request_stop()`이 cap 전에 깨운다. 같은 헤더의
+`sync::sleep_unless_stopped(st, d)`는 "100ms씩 끊어 자며 깃발 확인"(라우터 유령주문 취소)과 "정지가 sleep 만기까지
+기다림"(제어 스레드 5초, WS 백오프 최대 30초, Logger writer)을 둘 다 대신한다. `condition_variable_any`의 비용은
+`test_wake_gate` 4번 실측으로 봤다 — 전 p50 5.8us/p99 11.7us, 후 6회 p50 3.8~5.1us/p99 10.6~18.2us, 잡음 안이다.
 
 ---
 
@@ -459,7 +479,7 @@ x86에서 store가 같은 mov라 지연은 같지만 sink 뜻이 흐려져 쓰�
 | 2 위험 0 치환 | `KisWsDecode.h` `Fields` → `span`, `rfind(x,0)==0` → `starts_with` 6곳, `RingBuffer`·`MpscQueue` 2^k 루프 → `bit_ceil`, `PosKey` `== default`, 단일 키 정렬 9곳 → `ranges::sort`+투영 | 손 구현 삭제, 정렬 람다의 `a.x > b.x` 오타 자리(멤버 포인터 하나로), 비교 연산자 누락 클래스 제거 | 같음(모두 인라인·constexpr) | 삭제 줄 수, ctest, `bench_market_firehose` 전후 — 완료: 코드 14파일 +48/−73, ctest 22, E2E p50 300ns·p99 9.5us(1단계와 같음). AES `span<…,32>`·`FrameReader` span은 4절 끝의 이유로 미적용 |
 | 3 `std::format` | `OrderGate.cpp` 거부 사유·중복 키, `OrderRouter.cpp` CSV 행·로그 | `snprintf` 버퍼 크기·`%d`/`%ld` 형식 불일치가 컴파일 오류로. 문장이 한 줄에 보인다 | 거부 사유는 거부된 신호에만 만들어지므로 hot path 밖. `OrderGate.cpp`의 `dedup_key` 조립은 신호마다 일어나므로 재야 한다 — `snprintf`보다 느리면 그 한 곳은 `format_to`+고정 버퍼로 | `bench_gate_contention` 전후, 거부 문장 바이트 동일 검사(`test_order_gate`) — 완료: 코드 2파일 +95/−157(`<sstream>`·`<iomanip>`·`<cstdio>` include 제거), ctest 23, `bench_gate_contention` p50 100ns·p99 200ns 같음. `dedup_key`는 같은 키 200만 회로 재서 연결 105ns, `format_to` 152ns(reserve 145ns)라 연결로 남겼다 |
 | 4 `<chrono>` 달력 | `KstTime.h`, `OrderRouter.cpp` `today_ymd`, `OrderGate.cpp`, `KisRestDecode.h` `parse_dt` | `localtime`(머신 TZ)과 `gmtime+9h`(KST 고정)가 섞인 것을 한 벌로 — Docker `TZ` 설정이나 Windows 시간대가 달라도 원장 날짜가 같다. 날짜 산술을 `year_month_day`로 | 같음 | `test_market_session` 확장(TZ가 UTC·KST·PST일 때 같은 결과), 원장 CSV 날짜 열 diff — 완료: 코드 14파일 +194/−241. `gmtime`·`localtime`·`_mkgmtime`·`strftime`의 `#ifdef` 쌍 13곳이 `kst::`(`wall`·`date`·`time_of_day`·`to_tm`·`ymd`·`hhmmss`·`datetime`·`utc_date`·`decompose`) 한 벌로 갔다. 범위를 표보다 넓혔다 — `Engine.cpp` `utc_plus_hours`, `RegimeController.cpp` `ymd_of`·`today_kst`, `KisIndex.cpp`·`KisMarket.cpp`의 `fmt_date`·`parse_date`·`parse_ymd` 람다, `SeedPeakStore.h`·`SupplyDemandPullbackStrategy.h`·`UniverseScanner.cpp`의 `localtime` 날짜. 남긴 곳: `Monitors.cpp`(FEED 화면의 로컬 시각 표시라 로컬이 맞다), `DeviationScaleStrategy.h` 1312행 KST 헬퍼(quant-3e의 주기 정합 작업 뒤). 달라지는 것 둘 — `parse_dt`는 달력에 없는 날짜(13월·2월 30일)를 0으로 돌린다(`_mkgmtime`은 정규화했다). 원장 CSV 파일명·행 시각, `order_reasons_` 파일명, `SeedPeakStore`·`UniverseScanner`·`SupplyDemandPullback` 날짜가 머신 로컬에서 KST 고정으로 바뀐다 — 이 머신(KST)에서는 같은 값이고, TZ가 다른 머신에서는 이제야 원장 날짜가 거래일과 같다. ctest 24, `test_market_session`이 `_putenv_s("TZ")`로 UTC·KST·PST를 돌며 `ymd`·`hhmmss`·`to_tm`(`tm_wday`·`tm_yday`)이 같은 값인지 본다 |
-| 5 `jthread` | `OrderRouter.cpp` stale 스레드, `DeviationScaleStrategy.h` 프리페치 | 정지 깃발·`join` 누락·소멸 순서 실수 클래스 제거. 소멸자가 정지 요청과 join을 한다 | 같음 | 종료 경로 반복 100회(기동→정지) 교착 0, ctest |
+| 5 `jthread` | `OrderRouter.cpp` stale 스레드, `DeviationScaleStrategy.h` 프리페치 | 정지 깃발·`join` 누락·소멸 순서 실수 클래스 제거. 소멸자가 정지 요청과 join을 한다 | 같음 | 종료 경로 반복 100회(기동→정지) 교착 0, ctest — 완료: 코드 9파일. `Engine` 다섯 스레드·`OrderRouter` stale·`KisWebSocket` recv·`Logger` writer가 `jthread`+`stop_token`. `stale_stop_` 삭제, `Engine::request_shutdown` 신설(KILL 두 곳이 부른다), `WakeGate` `stop_token` 오버로드·`sync::sleep_unless_stopped`. 남긴 곳: `DeviationScaleStrategy.h` 프리페치(quant-3e 주기 정합 작업 뒤). 기동→정지 반복은 KIS 없이 못 돌려 `test_wake_gate` 6~8번(정지 요청이 cap·sleep 전에 깨움, 이미 정지면 안 잠)으로 대신, ctest 24 |
 | 6 `std::expected` | `KisResult.h` | 손 봉투 유지보수 종료, `and_then`/`or_else` 체이닝, 실패 경로의 `T value_{}` 기본 생성이 사라져 잔고·전광판 값 타입이 기본 생성자를 요구하지 않는다 | 같음 | `test_kis_decode`·`test_ledger_reconciler` 무수정 통과가 목표 |
 | 7 `atomic::wait` | `Logger.h` writer, `Engine.cpp` 체결 스레드 | mutex+condvar 쌍이 atomic 하나로. 생산자의 `notify` 비용(락 없음)과 깨우는 지연이 줄 수 있다 | 줄 가능성 — 재서 정한다 | `bench_logger` 깨우기 p99, `test_logger`·`test_pipeline_stress` |
 

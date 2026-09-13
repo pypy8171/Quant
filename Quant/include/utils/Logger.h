@@ -13,6 +13,7 @@
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <stop_token>
 #include <thread>
 
 enum class LogLevel
@@ -246,7 +247,7 @@ private:
     Logger()
     {
         running_.store(true, std::memory_order_release);
-        writer_ = std::thread(&Logger::writer_loop, this);
+        writer_ = std::jthread([this](std::stop_token st) { writer_loop(st); });
     }
 
     // 큐에 넣고, writer가 자고 있으면 깨운다. 실패(가득 참)면 false.
@@ -272,9 +273,8 @@ private:
 
     ~Logger()
     {
-        running_.store(false, std::memory_order_release);
-        std::atomic_thread_fence(std::memory_order_seq_cst);
-        wake_cv_.notify_one();
+        running_.store(false, std::memory_order_release); // 이 뒤의 enqueue는 거절
+        writer_.request_stop();                            // 자고 있으면 stop_token 대기가 여기서 깬다
 
         if (writer_.joinable())
         {
@@ -301,7 +301,7 @@ private:
     }
 
     // writer 스레드 단독. 큐가 비면 yield 몇 번 뒤 condvar에서 잔다 — 로그는 지연보다 hot path 비간섭이 우선이다.
-    void writer_loop()
+    void writer_loop(std::stop_token st)
     {
         int idle = 0;
         size_t since_flush = 0;
@@ -312,7 +312,7 @@ private:
 
             if (!rec)
             {
-                if (!running_.load(std::memory_order_acquire))
+                if (st.stop_requested())
                 {
                     break; // 이 뒤에 들어온 건 소멸자가 비운다
                 }
@@ -329,7 +329,7 @@ private:
                 }
                 else
                 {
-                    sleep_until_work();
+                    sleep_until_work(st);
                 }
 
                 continue;
@@ -347,15 +347,15 @@ private:
     }
 
     // "잔다"를 먼저 알리고 큐를 다시 본 뒤 잔다(enqueue의 fence 짝). 신호가 새는 경우를 대비해 상한을 둔다.
-    void sleep_until_work()
+    void sleep_until_work(std::stop_token st)
     {
         std::unique_lock<std::mutex> lock(wake_mtx_);
         writer_sleeping_.store(true, std::memory_order_relaxed);
         std::atomic_thread_fence(std::memory_order_seq_cst);
 
-        if (queue_.empty() && running_.load(std::memory_order_acquire))
+        if (queue_.empty() && !st.stop_requested())
         {
-            wake_cv_.wait_for(lock, kSleepCap);
+            wake_cv_.wait_for(lock, st, kSleepCap, [this] { return !queue_.empty(); });
         }
 
         writer_sleeping_.store(false, std::memory_order_relaxed);
@@ -442,8 +442,8 @@ private:
     std::atomic<uint64_t> dropped_{0};
     std::atomic<bool> writer_sleeping_{false}; // writer가 wake_cv_에서 자는 중(생산자가 notify 여부 결정)
     std::mutex wake_mtx_;                      // writer만 잡는다. 생산자는 notify만 부른다
-    std::condition_variable wake_cv_;
-    std::thread writer_;
+    std::condition_variable_any wake_cv_;      // stop_token 대기는 _any에만 있다
+    std::jthread writer_;
 };
 
 #define LOG_INFO(msg) Logger::instance().info(msg)
