@@ -18,15 +18,15 @@ graph LR
   risk[risk]
   ipc[ipc]
   utils[utils]
-  api -->|6| core
+  api -->|9| core
   api -->|5| utils
-  core -->|6| api
+  core -->|10| api
   core -->|3| ipc
   core -->|4| risk
   core --> strategy
   core -->|6| utils
   ipc -->|2| api
-  ipc -->|3| core
+  ipc -->|5| core
   ipc --> risk
   ipc -->|3| utils
   main --> core
@@ -37,13 +37,13 @@ graph LR
   modes --> core
   modes --> ipc
   modes -->|2| utils
-  risk --> core
+  risk -->|2| core
   strategy -->|5| api
-  strategy -->|13| core
+  strategy -->|16| core
   strategy -->|3| universe
   strategy -->|9| utils
   universe --> api
-  universe --> core
+  universe -->|2| core
   universe -->|2| utils
   utils --> core
 ```
@@ -55,14 +55,14 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
+| `core/Types.h` | 26 |
 | `utils/Logger.h` | 25 |
-| `core/Types.h` | 21 |
+| `core/KstTime.h` | 12 |
 | `api/KisClient.h` | 11 |
 | `strategy/StrategyBase.h` | 11 |
+| `core/WakeGate.h` | 6 |
 | `risk/OrderGate.h` | 5 |
-| `core/KstTime.h` | 4 |
-| `core/MarketSession.h` | 4 |
-| `ipc/ZmqBridge.h` | 4 |
+| `api/KisErrorCodes.h` | 4 |
 
 ## 파일 단위 상세
 
@@ -92,15 +92,22 @@ graph LR
     n_core_DataPoller_h["core/DataPoller.h"]
     n_core_Engine_cpp["core/Engine.cpp"]
     n_core_Engine_h["core/Engine.h"]
+    n_core_FeedMux_h["core/FeedMux.h"]
+    n_core_IFeedSource_h["core/IFeedSource.h"]
+    n_core_LatencyTrace_h["core/LatencyTrace.h"]
     n_core_LedgerReconciler_cpp["core/LedgerReconciler.cpp"]
     n_core_LedgerReconciler_h["core/LedgerReconciler.h"]
     n_core_OrderPacer_cpp["core/OrderPacer.cpp"]
     n_core_OrderPacer_h["core/OrderPacer.h"]
+    n_core_PaperExecutor_h["core/PaperExecutor.h"]
     n_core_RegimeController_cpp["core/RegimeController.cpp"]
     n_core_RegimeController_h["core/RegimeController.h"]
+    n_core_ReplaySource_h["core/ReplaySource.h"]
     n_core_SignalDispatcher_cpp["core/SignalDispatcher.cpp"]
     n_core_SignalDispatcher_h["core/SignalDispatcher.h"]
+    n_core_TickCapture_h["core/TickCapture.h"]
     n_core_TickSize_h["core/TickSize.h"]
+    n_core_Types_h["core/Types.h"]
   end
   subgraph ipc
     n_ipc_OpsServer_cpp["ipc/OpsServer.cpp"]
@@ -159,13 +166,16 @@ graph LR
   n_api_KisIndex_cpp --> n_api_KisRestDecode_h
   n_api_KisMarket_cpp --> n_api_KisRestDecode_h
   n_api_KisRestDecode_h --> n_api_KisTypes_h
+  n_api_KisRestDecode_h --> n_core_KstTime_h
   n_api_KisRestDecode_h --> n_core_Types_h
   n_api_KisWebSocket_h --> n_api_KisClient_h
   n_api_KisWebSocket_h --> n_api_KisWsDecode_h
+  n_api_KisWebSocket_h --> n_core_IFeedSource_h
   n_api_KisWebSocket_h --> n_core_Types_h
   n_api_KisWsDecode_h --> n_core_Types_h
   n_api_WebSocketClient_cpp --> n_api_KisWebSocket_h
   n_api_WebSocketClient_cpp --> n_api_KisWsDecode_h
+  n_api_WebSocketClient_cpp --> n_core_WakeGate_h
   n_api_WebSocketClient_cpp --> n_utils_Logger_h
   n_api_WsSocketPosix_cpp --> n_utils_Logger_h
   n_api_WsSocketWin_cpp --> n_utils_Logger_h
@@ -177,24 +187,38 @@ graph LR
   n_core_DataPoller_cpp --> n_utils_Logger_h
   n_core_DataPoller_h --> n_core_Types_h
   n_core_Engine_cpp --> n_core_Engine_h
+  n_core_Engine_cpp --> n_core_KstTime_h
+  n_core_Engine_cpp --> n_core_LatencyTrace_h
   n_core_Engine_cpp --> n_core_ReconcilePlan_h
   n_core_Engine_cpp --> n_utils_Logger_h
   n_core_Engine_h --> n_api_KisClient_h
   n_core_Engine_h --> n_api_KisWebSocket_h
   n_core_Engine_h --> n_core_DataPoller_h
+  n_core_Engine_h --> n_core_FeedMux_h
   n_core_Engine_h --> n_core_LedgerReconciler_h
   n_core_Engine_h --> n_core_MpscQueue_h
   n_core_Engine_h --> n_core_OrderPacer_h
+  n_core_Engine_h --> n_core_PaperExecutor_h
   n_core_Engine_h --> n_core_RegimeController_h
   n_core_Engine_h --> n_core_RegimeFileBridge_h
+  n_core_Engine_h --> n_core_ReplaySource_h
   n_core_Engine_h --> n_core_RingBuffer_h
   n_core_Engine_h --> n_core_SignalDispatcher_h
+  n_core_Engine_h --> n_core_SymbolTable_h
+  n_core_Engine_h --> n_core_TickCapture_h
   n_core_Engine_h --> n_core_Types_h
+  n_core_Engine_h --> n_core_WakeGate_h
   n_core_Engine_h --> n_ipc_OpsServer_h
   n_core_Engine_h --> n_ipc_OrderRouter_h
   n_core_Engine_h --> n_ipc_ZmqBridge_h
   n_core_Engine_h --> n_risk_OrderGate_h
   n_core_Engine_h --> n_strategy_StrategyBase_h
+  n_core_FeedMux_h --> n_core_IFeedSource_h
+  n_core_FeedMux_h --> n_core_RingBuffer_h
+  n_core_FeedMux_h --> n_core_Types_h
+  n_core_FeedMux_h --> n_core_WakeGate_h
+  n_core_IFeedSource_h --> n_core_Types_h
+  n_core_LatencyTrace_h --> n_core_Types_h
   n_core_LedgerReconciler_cpp --> n_core_LedgerReconciler_h
   n_core_LedgerReconciler_cpp --> n_utils_Logger_h
   n_core_LedgerReconciler_h --> n_api_KisResult_h
@@ -207,19 +231,34 @@ graph LR
   n_core_OrderPacer_cpp --> n_risk_GateReasons_h
   n_core_OrderPacer_cpp --> n_utils_Logger_h
   n_core_OrderPacer_h --> n_core_Types_h
+  n_core_PaperExecutor_h --> n_api_IOrderExecutor_h
+  n_core_PaperExecutor_h --> n_api_KisErrorCodes_h
+  n_core_PaperExecutor_h --> n_api_KisResult_h
+  n_core_PaperExecutor_h --> n_api_KisTypes_h
+  n_core_PaperExecutor_h --> n_core_Types_h
   n_core_RegimeController_cpp --> n_api_IMarketDataSource_h
+  n_core_RegimeController_cpp --> n_core_KstTime_h
   n_core_RegimeController_cpp --> n_core_RegimeController_h
   n_core_RegimeController_cpp --> n_utils_Logger_h
   n_core_RegimeController_h --> n_core_Types_h
+  n_core_ReplaySource_h --> n_core_IFeedSource_h
+  n_core_ReplaySource_h --> n_core_TickCapture_h
+  n_core_SignalDispatcher_cpp --> n_core_LatencyTrace_h
   n_core_SignalDispatcher_cpp --> n_core_SignalDispatcher_h
   n_core_SignalDispatcher_cpp --> n_utils_Logger_h
   n_core_SignalDispatcher_h --> n_core_Types_h
   n_core_SignalDispatcher_h --> n_risk_OrderGate_h
+  n_core_TickCapture_h --> n_core_RingBuffer_h
+  n_core_TickCapture_h --> n_core_Types_h
+  n_core_TickCapture_h --> n_core_WakeGate_h
   n_core_TickSize_h --> n_core_Types_h
+  n_core_Types_h --> n_core_SymbolTable_h
   n_ipc_OpsServer_cpp --> n_ipc_OpsServer_h
   n_ipc_OpsServer_cpp --> n_utils_Logger_h
   n_ipc_OpsServer_h --> n_ipc_OpsProtocol_h
   n_ipc_OrderRouter_cpp --> n_api_KisErrorCodes_h
+  n_ipc_OrderRouter_cpp --> n_core_KstTime_h
+  n_ipc_OrderRouter_cpp --> n_core_WakeGate_h
   n_ipc_OrderRouter_cpp --> n_ipc_OrderRouter_h
   n_ipc_OrderRouter_cpp --> n_utils_Logger_h
   n_ipc_OrderRouter_h --> n_api_IOrderExecutor_h
@@ -242,6 +281,7 @@ graph LR
   n_modes_Monitors_cpp --> n_utils_Logger_h
   n_modes_Monitors_cpp --> n_utils_Utf8_h
   n_modes_Monitors_h --> n_api_KisClient_h
+  n_risk_OrderGate_cpp --> n_core_KstTime_h
   n_risk_OrderGate_cpp --> n_risk_GateReasons_h
   n_risk_OrderGate_cpp --> n_risk_OrderGate_h
   n_risk_OrderGate_h --> n_core_Types_h
@@ -250,6 +290,7 @@ graph LR
   n_strategy_DeviationScaleStrategy_h --> n_core_DataPoller_h
   n_strategy_DeviationScaleStrategy_h --> n_core_KstTime_h
   n_strategy_DeviationScaleStrategy_h --> n_core_TickSize_h
+  n_strategy_DeviationScaleStrategy_h --> n_core_WakeGate_h
   n_strategy_DeviationScaleStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_DeviationScaleStrategy_h --> n_universe_MaAlign_h
   n_strategy_DeviationScaleStrategy_h --> n_utils_Logger_h
@@ -266,6 +307,7 @@ graph LR
   n_strategy_PriceTargetStrategy_h --> n_core_MarketSession_h
   n_strategy_PriceTargetStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_PriceTargetStrategy_h --> n_utils_Logger_h
+  n_strategy_SeedPeakStore_h --> n_core_KstTime_h
   n_strategy_SeedPeakStore_h --> n_utils_Logger_h
   n_strategy_StrategyBase_h --> n_core_Types_h
   n_strategy_StrategyFactory_cpp --> n_core_Engine_h
@@ -286,6 +328,7 @@ graph LR
   n_strategy_StrategyFactory_cpp --> n_utils_Logger_h
   n_strategy_StrategyFactory_h --> n_api_KisClient_h
   n_strategy_SupplyDemandPullbackStrategy_h --> n_api_KisClient_h
+  n_strategy_SupplyDemandPullbackStrategy_h --> n_core_KstTime_h
   n_strategy_SupplyDemandPullbackStrategy_h --> n_core_Types_h
   n_strategy_SupplyDemandPullbackStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_SupplyDemandPullbackStrategy_h --> n_utils_Logger_h
@@ -297,6 +340,7 @@ graph LR
   n_strategy_ValueContraryStrategy_h --> n_core_MarketSession_h
   n_strategy_ValueContraryStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_ValueContraryStrategy_h --> n_utils_Logger_h
+  n_universe_UniverseScanner_cpp --> n_core_KstTime_h
   n_universe_UniverseScanner_cpp --> n_core_Types_h
   n_universe_UniverseScanner_cpp --> n_universe_MaAlign_h
   n_universe_UniverseScanner_cpp --> n_universe_UniverseScanner_h

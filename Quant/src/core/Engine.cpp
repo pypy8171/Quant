@@ -655,9 +655,24 @@ void Engine::start()
             ws_ = std::make_unique<feed::ReplaySource>(replay_file_, replay_speed_);
             LOG_INFO("[Engine] 리플레이 소스: " + replay_file_ + " (speed " + std::to_string(replay_speed_) + ")");
         }
-        else
+        else if (extra_feed_cfgs_.empty())
         {
             ws_ = std::make_unique<KisWebSocket>(kis_cfg_);
+        }
+        else
+        {
+            // 소켓 여럿 — 첫 소스가 기본 키다(체결통보는 첫 소스만 받는다). 소켓이 하나면 FeedMux를 끼우지 않는다:
+            //  링 한 번 더 거치는 hop이 소켓 하나에선 얻는 게 없다.
+            std::vector<std::unique_ptr<feed::IFeedSource>> socks;
+            socks.push_back(std::make_unique<KisWebSocket>(kis_cfg_));
+
+            for (const auto& c : extra_feed_cfgs_)
+            {
+                socks.push_back(std::make_unique<KisWebSocket>(c));
+            }
+
+            ws_ = std::make_unique<feed::FeedMux>(std::move(socks));
+            LOG_INFO("[Engine] WS 소켓 " + std::to_string(extra_feed_cfgs_.size() + 1) + "개를 FeedMux로 묶는다");
         }
 
         // 리플레이를 다시 캡처하면 같은 틱이 두 파일에 남으므로 캡처는 WS일 때만 연다.

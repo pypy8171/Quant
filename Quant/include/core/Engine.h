@@ -11,6 +11,7 @@
 #include "core/TickCapture.h"
 #include "core/ReplaySource.h"
 #include "core/PaperExecutor.h"
+#include "core/FeedMux.h"
 #include "core/RegimeController.h"
 #include "core/RegimeFileBridge.h"
 #include "core/Types.h"
@@ -69,6 +70,9 @@ public:
     // WS 틱·호가 캡처 폴더(빈 문자열이면 끔). 기동마다 ticks_<UTC시각>.bin 하나. REST 대체 틱은 raw 피드가
     //  아니라 캡처하지 않는다. [why D-071]
     void set_capture_dir(const std::string& dir) { capture_dir_ = dir; }
+    // WS 소켓을 하나 더 연다(KIS는 app_key당 실시간 1세션이라 키가 하나 더 있어야 한다). 하나라도 있으면 기본 키와
+    //  함께 FeedMux로 묶여 종목이 소켓들에 나뉜다 — 구독 상한(kMaxWsSubs)이 소켓 수만큼 는다. 리플레이 중엔 무시. [why D-071]
+    void add_feed_config(const KisConfig& c) { extra_feed_cfgs_.push_back(c); }
     // 캡처 파일 리플레이(빈 문자열이면 WS). WS 자리에 ReplaySource가 들어가 같은 콜백으로 틱·호가를 되돌린다.
     //  speed 0은 최대 속도, 1은 캡처 간격. 주문은 KIS 대신 PaperExecutor(현금 cash)가 다음 틱에 체결한다.
     //  실계좌 거부는 main.cpp가 한다. [why D-071]
@@ -317,7 +321,8 @@ private:
     std::unique_ptr<KisClient> kis_;
     // 시세 전용(실전 도메인). WS 모드에서도 폴백이 쓸 수 있어야 하므로 config에 블록이 있으면 항상 만든다.
     std::unique_ptr<KisClient> quote_kis_;
-    std::unique_ptr<feed::IFeedSource> ws_; // KisWebSocket 또는 ReplaySource. 이름은 호출부 호환용.
+    std::unique_ptr<feed::IFeedSource> ws_; // KisWebSocket·FeedMux(소켓 여럿) 또는 ReplaySource. 이름은 호출부 호환용.
+    std::vector<KisConfig>             extra_feed_cfgs_; // 추가 WS 세션 키. 비면 소켓 하나(FeedMux 없음)
     std::string                   replay_file_;
     double                        replay_speed_ = 0.0;
     double                        replay_cash_  = 0.0;

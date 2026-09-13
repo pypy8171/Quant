@@ -264,6 +264,18 @@ int main(int argc, char* argv[])
     engine.set_rest_price_feed(cfg.value("rest_price_feed", false));
     // WS 틱·호가 raw 캡처 폴더(D-071 원칙 8). 비우면 끈다. 리플레이 백테스트의 입력.
     engine.set_capture_dir(cfg.value("capture_dir", std::string()));
+
+    // 추가 WS 세션 키(D-071 원칙 1). 기본 kis 키와 함께 소켓을 여럿 열어 구독 상한을 소켓 수만큼 늘린다.
+    //  계좌·모의 여부는 기본 키와 같고 app_key·app_secret만 다르다. 체결통보(hts_id)는 기본 키만 받는다.
+    for (const auto& k : cfg.value("feed_keys", json::array()))
+    {
+        KisConfig c   = kis_cfg;
+        c.app_key     = k.at("app_key").get<std::string>();
+        c.app_secret  = k.at("app_secret").get<std::string>();
+        c.hts_id.clear();
+        engine.add_feed_config(c);
+    }
+
     // 캡처 파일 리플레이(D-071 원칙 8). WS 대신 파일을 틀어 같은 파이프라인을 돌린다.
     //  주문 경로가 그대로 살아 있으므로 실계좌에서는 열지 않는다 — 모의 계좌로만.
     {

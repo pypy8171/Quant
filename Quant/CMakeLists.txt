@@ -386,6 +386,13 @@ endif()
 add_executable(test_paper_executor tests/test_paper_executor.cpp)
 target_include_directories(test_paper_executor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# ─── 테스트 타겟: FeedMux 종목 배정·소스별 스레드 → mux 스레드 하나·증분/넘침·체결통보 첫 소스 (헤더 전용, D-071) ──
+add_executable(test_feed_mux tests/test_feed_mux.cpp)
+target_include_directories(test_feed_mux PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(test_feed_mux PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟: LatencyTrace 구간 계산·CSV 행·머리글 1회 (헤더 전용, D-071) ──
 add_executable(test_latency_trace tests/test_latency_trace.cpp)
 target_include_directories(test_latency_trace PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -482,6 +489,7 @@ set(QUANT_ASSERT_TARGETS
     test_tick_capture
     test_replay_source
     test_paper_executor
+    test_feed_mux
     test_account_ledger
     test_logger
 )

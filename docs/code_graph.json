@@ -14,7 +14,7 @@
     {
       "from": "api",
       "to": "core",
-      "weight": 6
+      "weight": 9
     },
     {
       "from": "api",
@@ -24,7 +24,7 @@
     {
       "from": "core",
       "to": "api",
-      "weight": 6
+      "weight": 10
     },
     {
       "from": "core",
@@ -54,7 +54,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 3
+      "weight": 5
     },
     {
       "from": "ipc",
@@ -109,7 +109,7 @@
     {
       "from": "risk",
       "to": "core",
-      "weight": 1
+      "weight": 2
     },
     {
       "from": "strategy",
@@ -119,7 +119,7 @@
     {
       "from": "strategy",
       "to": "core",
-      "weight": 13
+      "weight": 16
     },
     {
       "from": "strategy",
@@ -139,7 +139,7 @@
     {
       "from": "universe",
       "to": "core",
-      "weight": 1
+      "weight": 2
     },
     {
       "from": "universe",
@@ -165,19 +165,27 @@
     "core/BarAggregator.h": "core",
     "core/DataPoller.h": "core",
     "core/Engine.h": "core",
+    "core/FeedMux.h": "core",
+    "core/IFeedSource.h": "core",
     "core/KstTime.h": "core",
+    "core/LatencyTrace.h": "core",
     "core/LedgerReconciler.h": "core",
     "core/MarketSession.h": "core",
     "core/MpscQueue.h": "core",
     "core/MutexQueue.h": "core",
     "core/OrderPacer.h": "core",
+    "core/PaperExecutor.h": "core",
     "core/ReconcilePlan.h": "core",
     "core/RegimeController.h": "core",
     "core/RegimeFileBridge.h": "core",
+    "core/ReplaySource.h": "core",
     "core/RingBuffer.h": "core",
     "core/SignalDispatcher.h": "core",
+    "core/SymbolTable.h": "core",
+    "core/TickCapture.h": "core",
     "core/TickSize.h": "core",
     "core/Types.h": "core",
+    "core/WakeGate.h": "core",
     "ipc/OpsProtocol.h": "ipc",
     "ipc/OpsServer.h": "ipc",
     "ipc/OrderRouter.h": "ipc",
@@ -270,11 +278,13 @@
     ],
     "api/KisRestDecode.h": [
       "api/KisTypes.h",
+      "core/KstTime.h",
       "core/Types.h"
     ],
     "api/KisWebSocket.h": [
       "api/KisClient.h",
       "api/KisWsDecode.h",
+      "core/IFeedSource.h",
       "core/Types.h"
     ],
     "api/KisWsDecode.h": [
@@ -283,6 +293,7 @@
     "api/WebSocketClient.cpp": [
       "api/KisWebSocket.h",
       "api/KisWsDecode.h",
+      "core/WakeGate.h",
       "utils/Logger.h"
     ],
     "api/WsSocketPosix.cpp": [
@@ -308,6 +319,8 @@
     ],
     "core/Engine.cpp": [
       "core/Engine.h",
+      "core/KstTime.h",
+      "core/LatencyTrace.h",
       "core/ReconcilePlan.h",
       "utils/Logger.h"
     ],
@@ -315,19 +328,37 @@
       "api/KisClient.h",
       "api/KisWebSocket.h",
       "core/DataPoller.h",
+      "core/FeedMux.h",
       "core/LedgerReconciler.h",
       "core/MpscQueue.h",
       "core/OrderPacer.h",
+      "core/PaperExecutor.h",
       "core/RegimeController.h",
       "core/RegimeFileBridge.h",
+      "core/ReplaySource.h",
       "core/RingBuffer.h",
       "core/SignalDispatcher.h",
+      "core/SymbolTable.h",
+      "core/TickCapture.h",
       "core/Types.h",
+      "core/WakeGate.h",
       "ipc/OpsServer.h",
       "ipc/OrderRouter.h",
       "ipc/ZmqBridge.h",
       "risk/OrderGate.h",
       "strategy/StrategyBase.h"
+    ],
+    "core/FeedMux.h": [
+      "core/IFeedSource.h",
+      "core/RingBuffer.h",
+      "core/Types.h",
+      "core/WakeGate.h"
+    ],
+    "core/IFeedSource.h": [
+      "core/Types.h"
+    ],
+    "core/LatencyTrace.h": [
+      "core/Types.h"
     ],
     "core/LedgerReconciler.cpp": [
       "core/LedgerReconciler.h",
@@ -349,15 +380,28 @@
     "core/OrderPacer.h": [
       "core/Types.h"
     ],
+    "core/PaperExecutor.h": [
+      "api/IOrderExecutor.h",
+      "api/KisErrorCodes.h",
+      "api/KisResult.h",
+      "api/KisTypes.h",
+      "core/Types.h"
+    ],
     "core/RegimeController.cpp": [
       "api/IMarketDataSource.h",
+      "core/KstTime.h",
       "core/RegimeController.h",
       "utils/Logger.h"
     ],
     "core/RegimeController.h": [
       "core/Types.h"
     ],
+    "core/ReplaySource.h": [
+      "core/IFeedSource.h",
+      "core/TickCapture.h"
+    ],
     "core/SignalDispatcher.cpp": [
+      "core/LatencyTrace.h",
       "core/SignalDispatcher.h",
       "utils/Logger.h"
     ],
@@ -365,8 +409,16 @@
       "core/Types.h",
       "risk/OrderGate.h"
     ],
+    "core/TickCapture.h": [
+      "core/RingBuffer.h",
+      "core/Types.h",
+      "core/WakeGate.h"
+    ],
     "core/TickSize.h": [
       "core/Types.h"
+    ],
+    "core/Types.h": [
+      "core/SymbolTable.h"
     ],
     "ipc/OpsServer.cpp": [
       "ipc/OpsServer.h",
@@ -377,6 +429,8 @@
     ],
     "ipc/OrderRouter.cpp": [
       "api/KisErrorCodes.h",
+      "core/KstTime.h",
+      "core/WakeGate.h",
       "ipc/OrderRouter.h",
       "utils/Logger.h"
     ],
@@ -413,6 +467,7 @@
       "api/KisClient.h"
     ],
     "risk/OrderGate.cpp": [
+      "core/KstTime.h",
       "risk/GateReasons.h",
       "risk/OrderGate.h"
     ],
@@ -425,6 +480,7 @@
       "core/DataPoller.h",
       "core/KstTime.h",
       "core/TickSize.h",
+      "core/WakeGate.h",
       "strategy/StrategyBase.h",
       "universe/MaAlign.h",
       "utils/Logger.h"
@@ -455,6 +511,7 @@
       "utils/Logger.h"
     ],
     "strategy/SeedPeakStore.h": [
+      "core/KstTime.h",
       "utils/Logger.h"
     ],
     "strategy/StrategyBase.h": [
@@ -483,6 +540,7 @@
     ],
     "strategy/SupplyDemandPullbackStrategy.h": [
       "api/KisClient.h",
+      "core/KstTime.h",
       "core/Types.h",
       "strategy/StrategyBase.h",
       "utils/Logger.h"
@@ -500,6 +558,7 @@
       "utils/Logger.h"
     ],
     "universe/UniverseScanner.cpp": [
+      "core/KstTime.h",
       "core/Types.h",
       "universe/MaAlign.h",
       "universe/UniverseScanner.h",
@@ -520,6 +579,7 @@
     ],
     "api/IOrderExecutor.h": [
       "api/KisClient.h",
+      "core/PaperExecutor.h",
       "ipc/OrderRouter.h"
     ],
     "api/KisClient.h": [
@@ -538,6 +598,7 @@
     "api/KisErrorCodes.h": [
       "api/KisClientInternal.h",
       "core/OrderPacer.cpp",
+      "core/PaperExecutor.h",
       "ipc/OrderRouter.cpp"
     ],
     "api/KisRestDecode.h": [
@@ -547,12 +608,14 @@
     ],
     "api/KisResult.h": [
       "api/KisClient.h",
-      "core/LedgerReconciler.h"
+      "core/LedgerReconciler.h",
+      "core/PaperExecutor.h"
     ],
     "api/KisTypes.h": [
       "api/KisClient.h",
       "api/KisRestDecode.h",
-      "core/LedgerReconciler.h"
+      "core/LedgerReconciler.h",
+      "core/PaperExecutor.h"
     ],
     "api/KisWebSocket.h": [
       "api/WebSocketClient.cpp",
@@ -577,11 +640,31 @@
       "main.cpp",
       "strategy/StrategyFactory.cpp"
     ],
+    "core/FeedMux.h": [
+      "core/Engine.h"
+    ],
+    "core/IFeedSource.h": [
+      "api/KisWebSocket.h",
+      "core/FeedMux.h",
+      "core/ReplaySource.h"
+    ],
     "core/KstTime.h": [
+      "api/KisRestDecode.h",
       "core/BarAggregator.cpp",
       "core/DataPoller.cpp",
+      "core/Engine.cpp",
       "core/LedgerReconciler.h",
-      "strategy/DeviationScaleStrategy.h"
+      "core/RegimeController.cpp",
+      "ipc/OrderRouter.cpp",
+      "risk/OrderGate.cpp",
+      "strategy/DeviationScaleStrategy.h",
+      "strategy/SeedPeakStore.h",
+      "strategy/SupplyDemandPullbackStrategy.h",
+      "universe/UniverseScanner.cpp"
+    ],
+    "core/LatencyTrace.h": [
+      "core/Engine.cpp",
+      "core/SignalDispatcher.cpp"
     ],
     "core/LedgerReconciler.h": [
       "core/Engine.h",
@@ -601,6 +684,9 @@
       "core/Engine.h",
       "core/OrderPacer.cpp"
     ],
+    "core/PaperExecutor.h": [
+      "core/Engine.h"
+    ],
     "core/ReconcilePlan.h": [
       "core/Engine.cpp",
       "core/LedgerReconciler.h",
@@ -613,12 +699,25 @@
     "core/RegimeFileBridge.h": [
       "core/Engine.h"
     ],
-    "core/RingBuffer.h": [
+    "core/ReplaySource.h": [
       "core/Engine.h"
+    ],
+    "core/RingBuffer.h": [
+      "core/Engine.h",
+      "core/FeedMux.h",
+      "core/TickCapture.h"
     ],
     "core/SignalDispatcher.h": [
       "core/Engine.h",
       "core/SignalDispatcher.cpp"
+    ],
+    "core/SymbolTable.h": [
+      "core/Engine.h",
+      "core/Types.h"
+    ],
+    "core/TickCapture.h": [
+      "core/Engine.h",
+      "core/ReplaySource.h"
     ],
     "core/TickSize.h": [
       "strategy/DeviationScaleStrategy.h",
@@ -634,9 +733,14 @@
       "core/BarAggregator.h",
       "core/DataPoller.h",
       "core/Engine.h",
+      "core/FeedMux.h",
+      "core/IFeedSource.h",
+      "core/LatencyTrace.h",
       "core/OrderPacer.h",
+      "core/PaperExecutor.h",
       "core/RegimeController.h",
       "core/SignalDispatcher.h",
+      "core/TickCapture.h",
       "core/TickSize.h",
       "ipc/OrderRouter.h",
       "ipc/ZmqBridge.h",
@@ -646,6 +750,14 @@
       "strategy/StrategyFactory.cpp",
       "strategy/SupplyDemandPullbackStrategy.h",
       "universe/UniverseScanner.cpp"
+    ],
+    "core/WakeGate.h": [
+      "api/WebSocketClient.cpp",
+      "core/Engine.h",
+      "core/FeedMux.h",
+      "core/TickCapture.h",
+      "ipc/OrderRouter.cpp",
+      "strategy/DeviationScaleStrategy.h"
     ],
     "ipc/OpsProtocol.h": [
       "ipc/OpsServer.h"
@@ -777,12 +889,16 @@
   },
   "hubs": [
     {
+      "header": "core/Types.h",
+      "in_degree": 26
+    },
+    {
       "header": "utils/Logger.h",
       "in_degree": 25
     },
     {
-      "header": "core/Types.h",
-      "in_degree": 21
+      "header": "core/KstTime.h",
+      "in_degree": 12
     },
     {
       "header": "api/KisClient.h",
@@ -793,11 +909,19 @@
       "in_degree": 11
     },
     {
+      "header": "core/WakeGate.h",
+      "in_degree": 6
+    },
+    {
       "header": "risk/OrderGate.h",
       "in_degree": 5
     },
     {
-      "header": "core/KstTime.h",
+      "header": "api/KisErrorCodes.h",
+      "in_degree": 4
+    },
+    {
+      "header": "api/KisTypes.h",
       "in_degree": 4
     },
     {
@@ -809,7 +933,7 @@
       "in_degree": 4
     },
     {
-      "header": "api/KisErrorCodes.h",
+      "header": "api/IOrderExecutor.h",
       "in_degree": 3
     },
     {
@@ -817,7 +941,7 @@
       "in_degree": 3
     },
     {
-      "header": "api/KisTypes.h",
+      "header": "api/KisResult.h",
       "in_degree": 3
     },
     {
@@ -833,28 +957,16 @@
       "in_degree": 3
     },
     {
+      "header": "core/IFeedSource.h",
+      "in_degree": 3
+    },
+    {
       "header": "core/ReconcilePlan.h",
       "in_degree": 3
     },
     {
-      "header": "api/IMarketDataSource.h",
-      "in_degree": 2
-    },
-    {
-      "header": "api/IOrderExecutor.h",
-      "in_degree": 2
-    },
-    {
-      "header": "api/KisResult.h",
-      "in_degree": 2
-    },
-    {
-      "header": "api/KisWsDecode.h",
-      "in_degree": 2
-    },
-    {
-      "header": "core/BarAggregator.h",
-      "in_degree": 2
+      "header": "core/RingBuffer.h",
+      "in_degree": 3
     }
   ],
   "python": {
@@ -960,6 +1072,7 @@
       "scripts/refresh_dashboard.py",
       "scripts/seed_open_orders.py",
       "scripts/summarize_trading_day.py",
+      "scripts/sync_impact.py",
       "scripts/sync_ledgers.py"
     ],
     "edges": {
