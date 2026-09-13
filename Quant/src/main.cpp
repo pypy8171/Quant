@@ -277,7 +277,7 @@ int main(int argc, char* argv[])
                 return 1;
             }
 
-            engine.set_replay(replay_file, cfg.value("replay_speed", 1.0));
+            engine.set_replay(replay_file, cfg.value("replay_speed", 1.0), cfg.value("replay_cash", 100'000'000.0));
         }
     }
 

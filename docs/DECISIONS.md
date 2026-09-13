@@ -2904,6 +2904,23 @@ KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 
   경로가 된다. 지금 방식은 WS 소켓만 파일로 바꾼 것이라 나머지 파이프라인이 라이브와 같다. 남은 Phase 3: 리플레이
   결과를 모의 체결로 닫는 페이퍼 실행기(`IOrderExecutor` 구현)와 `FeedMux`(WS 여러 소켓·REST 폴러 통합, 원칙 1·5).
 
+**Phase 3 셋째 조각 (2026-09-13)** — 리플레이의 주문 경로를 모의 체결기로 닫는다:
+
+- `feed::PaperExecutor`(`Quant/include/core/PaperExecutor.h`): `IOrderExecutor` 구현. 리플레이일 때 `Engine`이
+  `OrderRouter`에 `KisClient` 대신 넣고, 잔고 대조기의 `FetchBalance`도 이 장부(`balance()`)로 바꾼다 — 안 바꾸면
+  주기 대조가 KIS 모의 계좌 잔고와 비교해 리플레이 포지션을 `PRUNE`한다. 인증·유니버스·봉 시드는 그대로 KIS다.
+- 체결 규칙: 접수 시점엔 체결하지 않고 그 종목의 **다음 틱**에 체결한다. 시장가는 틱 가격, 지정가는 가격이 닿을 때
+  (매수 `px ≤ 지정가`, 매도 `px ≥ 지정가`) 틱 가격으로. 체결통보는 `on_tick`(피드 스레드)에서만 나가므로
+  `fill_queue_`(SPSC)의 생산자가 주문 스레드와 둘이 되지 않는다. 거부는 KIS와 같은 코드를 쓴다 — 보유 초과 매도
+  `40240000`(대기 매도 포함), 현금 초과 매수 `E_PAPER_CASH`(대기 매수 명목 포함). 취소·정정·`get_open_orders`는 대기
+  목록을 그대로 본다. `is_paper()`는 true — 라우터의 정정취소가능조회 경로를 건너뛴다(모의 계좌와 같은 분기).
+- 배선: config `replay_cash`(기본 1억). `Engine::set_replay(file, speed, cash)`. 틱 콜백에서 `paper_->on_tick` 한 줄.
+- `Quant/tests/test_paper_executor.cpp`: 다음 틱 체결(다른 종목 틱은 무관)·지정가 대기와 매도가능수량 감소·거부 3종·
+  대기 매수 명목 선점·부분 취소/정정/없는 주문·전량 매도 뒤 장부 제거. ctest 28/28.
+- 버린 것: 접수 즉시 체결 — 주문 스레드가 통보 생산자가 돼 SPSC가 깨지고, 라이브(접수→통보 지연)와도 다르다.
+  호가 기반 체결(최우선 매도호가에 매수) — 캡처에 호가가 있을 때만 되고 첫 조각은 체결 틱만으로 충분하다. 남은
+  Phase 3: `FeedMux`.
+
 ### D-072 틱 집계 봉의 기저를 1분으로 두고 판단 봉은 resample로 만든다 — REST 분봉 timestamp는 진짜 UTC (2026-09-13)
 **상태**: 채택 (`wt/bars-1m`, `test_bar_aggregator` 131·`test_kis_decode` 68 통과, 라이브는 09-14 장부터 `bar_source` 기본 `ws`)
 

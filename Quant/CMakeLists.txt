@@ -382,6 +382,10 @@ if(UNIX)
     target_link_libraries(test_replay_source PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: PaperExecutor 다음 틱 체결·지정가 대기·한도 거부·취소/정정 (헤더 전용, D-071) ──
+add_executable(test_paper_executor tests/test_paper_executor.cpp)
+target_include_directories(test_paper_executor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # ─── 테스트 타겟: LatencyTrace 구간 계산·CSV 행·머리글 1회 (헤더 전용, D-071) ──
 add_executable(test_latency_trace tests/test_latency_trace.cpp)
 target_include_directories(test_latency_trace PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -477,6 +481,7 @@ set(QUANT_ASSERT_TARGETS
     test_symbol_table
     test_tick_capture
     test_replay_source
+    test_paper_executor
     test_account_ledger
     test_logger
 )

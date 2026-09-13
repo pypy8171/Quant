@@ -502,11 +502,20 @@ void Engine::start()
         }
     }
 
+    // 리플레이면 주문·잔고는 모의 체결기가 받는다. 인증·유니버스·봉 시드는 그대로 KIS(모의 계좌)다. [why D-071]
+    if (!replay_file_.empty())
+    {
+        paper_ = std::make_unique<feed::PaperExecutor>(replay_cash_);
+        LOG_INFO("[Engine] 모의 체결기: 현금 " + std::to_string(static_cast<long long>(replay_cash_)) + "원");
+    }
+
+    IOrderExecutor& executor = paper_ ? static_cast<IOrderExecutor&>(*paper_) : *kis_;
+
     // FEP OrderRouter 초기화
 #ifdef HAS_ZMQ
-    order_router_ = std::make_unique<OrderRouter>(order_gate_, *kis_, zmq_bridge_.get());
+    order_router_ = std::make_unique<OrderRouter>(order_gate_, executor, zmq_bridge_.get());
 #else
-    order_router_ = std::make_unique<OrderRouter>(order_gate_, *kis_);
+    order_router_ = std::make_unique<OrderRouter>(order_gate_, executor);
 #endif
     LOG_INFO("[Engine] OrderRouter (FEP) 초기화 완료");
     start_ops_server();
@@ -519,7 +528,8 @@ void Engine::start()
     order_router_->cancel_stale_orders_async();
 
     // 잔고 → 원장 대조기. 브로커·라우터·종목명은 함수로 넘겨 대조기가 KisClient·OrderRouter를 모르게 한다. [why D-061]
-    ledger_ = std::make_unique<LedgerReconciler>(order_gate_, [this] { return kis_->get_balance(); });
+    ledger_ = std::make_unique<LedgerReconciler>(order_gate_,
+                                                 [this] { return paper_ ? paper_->balance() : kis_->get_balance(); });
     ledger_->set_account_no(kis_->account_no());
     ledger_->set_baseline_dir(Logger::instance().base_dir()); // 실행 위치와 무관하게 로그 폴더와 같은 곳
     ledger_->set_name_sink([this](const std::string& t, const std::string& n) { register_ticker_name(t, n); });
@@ -707,6 +717,12 @@ void Engine::start()
                                    capture_->on_trade(td);
                                }
 
+                               // 모의 체결은 틱 스레드에서 — 체결통보 큐의 생산자가 이 스레드 하나로 남는다.
+                               if (paper_)
+                               {
+                                   paper_->on_tick(in.ticker, in.price, in.time);
+                               }
+
                                // 전략 스레드가 멈추면 큐가 차고 틱이 여기서 사라진다 — 세어 두고
                                //  넘침이 시작될 때 한 번 남긴다(09-11 15:15 잔고 조회 정체). [why D-055]
                                if (!td_queue_.push(std::move(td)))
@@ -728,7 +744,7 @@ void Engine::start()
                                }
 #endif
                            });
-        ws_->set_fill_callback([this](const FillNotification& fn)
+        auto push_fill = [this](const FillNotification& fn)
                                {
                                    // 수신 스레드는 큐에 넣고 바로 돌아간다. 가득 찼으면(1024건 밀림 = 소비자가 멈춘 것)
                                    //  기다리지 않고 버린다 — 여기서 대기하면 전 종목 틱이 같이 선다. 버린 건은
@@ -742,7 +758,13 @@ void Engine::start()
                                    }
 
                                    fill_wake_.notify();
-                               });
+                               };
+        ws_->set_fill_callback(push_fill);
+
+        if (paper_)
+        {
+            paper_->set_fill_callback(push_fill);
+        }
 
         if (!ws_->connect(watch_specs_))
         {

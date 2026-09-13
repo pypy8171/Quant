@@ -30,13 +30,13 @@ cmake --build Quant/build
 Linux는 `libcurl4-openssl-dev`가 필요합니다 (`sudo apt install libcurl4-openssl-dev`). Windows는 네이티브 WinHTTP를 사용하므로 nlohmann/json(CMake FetchContent로 자동 다운로드) 외에 추가 의존성이 없습니다.
 
 <!-- gen:test-targets -->
-단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다 — 실행 타깃 `27`개.
+단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다 — 실행 타깃 `28`개.
 
 ```bash
-cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_ops_server test_ops_protocol test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_bar_aggregator test_order_pacer test_regime_bridge test_regime test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_wake_gate test_symbol_table test_tick_capture test_replay_source test_latency_trace test_mpsc test_account_ledger test_logger
+cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_ops_server test_ops_protocol test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_bar_aggregator test_order_pacer test_regime_bridge test_regime test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_wake_gate test_symbol_table test_tick_capture test_replay_source test_paper_executor test_latency_trace test_mpsc test_account_ledger test_logger
 ```
 <!-- /gen -->
-테스트 이름은 각각 원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·잔고 대조 계산·잔고 대조기·REST 현재가 폴러·신호 디스패처·발주 조절기·운영단말 프로토콜/서버·비동기 로거·매크로 국면 파일 판정기·N분봉 집계기·소비자 깨우기 조각·구간 지연 CSV·종목 id 테이블·틱 캡처·캡처 리플레이 소스를 가리킨다.
+테스트 이름은 각각 원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·잔고 대조 계산·잔고 대조기·REST 현재가 폴러·신호 디스패처·발주 조절기·운영단말 프로토콜/서버·비동기 로거·매크로 국면 파일 판정기·N분봉 집계기·소비자 깨우기 조각·구간 지연 CSV·종목 id 테이블·틱 캡처·캡처 리플레이 소스·모의 체결기를 가리킨다.
 
 ```bash
 ctest --preset x64-release          # 저장소 루트에서. 스트레스 2종은 3초로 줄여 돈다
@@ -72,7 +72,7 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@c5b7ccc Quant/src/core/Engine.cpp@3d5157c Quant/include/core/DataPoller.h@516a53a Quant/include/core/SignalDispatcher.h@46685e0 Quant/include/core/OrderPacer.h@e69b52f Quant/include/core/LedgerReconciler.h@1d4cf8e Quant/include/core/WakeGate.h@1f37917 Quant/include/core/BarAggregator.h@5957319 Quant/include/core/LatencyTrace.h@4810be1 Quant/include/core/ReconcilePlan.h@74e6157 -->
+<!-- sync: Quant/include/core/Engine.h@dacf6b8 Quant/src/core/Engine.cpp@3a8d452 Quant/include/core/DataPoller.h@516a53a Quant/include/core/SignalDispatcher.h@46685e0 Quant/include/core/OrderPacer.h@e69b52f Quant/include/core/LedgerReconciler.h@1d4cf8e Quant/include/core/WakeGate.h@1f37917 Quant/include/core/BarAggregator.h@5957319 Quant/include/core/LatencyTrace.h@4810be1 Quant/include/core/ReconcilePlan.h@74e6157 -->
 엔진은 락-프리 파이프라인 3-스레드(데이터→전략→주문)에 체결 소비 스레드와 제어 스레드를 더해 총 다섯 개의 스레드를 실행합니다:
 
 ```
