@@ -25,30 +25,50 @@
 
 ## 2. 의존 표 — 자식이 바뀌면 이 대표 파일을 갱신하라
 
-| 대표(색인) 파일 | 색인/요약하는 소스 | 갱신 트리거 |
-|---|---|---|
-| 루트 [`README.md`](../README.md) | research 허브·strategies 허브·아키텍처·OrderGate | 결론(regime 판정 등)·구조 변경 시 요약 1줄 동기화 |
-| [`research/README.md`](../research/README.md) (허브) | BACKTESTS·BACKTEST_LOG·studies/·GUARDRAILS·RESEARCH_COUNCIL·BACKTEST_FLOW·_TEMPLATE | 새 문서 추가·계열 결론 변경 시 지도표·타임라인 갱신 |
-| [`research/BACKTESTS.md`](../research/BACKTESTS.md) | studies 01~06 README, BACKTEST_LOG 실행#, runs/ | 계열 A 새 실행 시 목록 한 줄 추가 |
-| [`research/studies/README.md`](../research/studies/README.md) | studies `<NN>/README.md` (A:01·02·03·06 / B:07·08·09) | 새 스터디 폴더 추가 시 해당 계열 섹션에 등재 |
-| [`strategies/README.md`](../strategies/README.md) | `strategies/<전략>/SPEC·live/` | 새 전략 폴더·새 SPEC 추가 시 표에 행 추가 |
-| [`CLAUDE.md`](../CLAUDE.md) | 빌드 명령·스레드 모델·핵심 타입·문체 규약 요약 | 빌드/아키텍처 코드 변경 시. 문체 규약 본문은 `docs/STYLE_GUIDE.md`가 소유 |
-| [`docs/guides/PROJECT_GUIDE.md`](guides/PROJECT_GUIDE.md) | 디렉터리 구조·기술스택·코드 파일 링크 | 파일 이동/리네임 시 링크 재검 |
-| [`docs/GLOSSARY.md`](GLOSSARY.md) | 전략·인프라·데이터·설정 약어 사전 | 새 전략/개념 추가·약어 신설 시 항목 추가 |
-| [`docs/STYLE_GUIDE.md`](STYLE_GUIDE.md) | 문서 문체 규약 정본(금지 표현과 대체어 표·지표 약어 병기·적용 범위) | 새 금지 표현 적발·적용 범위 변경 시 항목 추가. `CLAUDE.md` 요약과 `@committer` (d-2) 스캔이 이 파일을 가리킨다 |
-| [`docs/CODE_GRAPH.md`](CODE_GRAPH.md) (자동생성) | `Quant/include`·`src` 의 로컬 `#include` 관계 | 헤더 추가/이동·`#include` 변경 시 `py scripts/gen_code_graph.py` 재생성(손편집 금지). 사용법은 [가이드](guides/CODE_GRAPH_GUIDE.md) |
-| [`docs/reports/PIPELINE_LATENCY_REPORT.md`](reports/PIPELINE_LATENCY_REPORT.md) | 부하·지연 하네스 3종 결과·해석 | 하네스 인자/동작 변경·새 실측 시 수치·재현 명령 갱신 |
-| [`docs/HARNESS.md`](HARNESS.md) | `.claude/` 하네스(CLAUDE.md·커맨드·MCP·서브에이전트·훅)·루프·스크립트 보조 프로세스 | 레버/루프·에이전트/커맨드/훅 개수·목록 변경 시 |
-| `research/STRATEGY_LAB.md` §2-b·§3-d 실배선 (자동생성, 미추적 파일) | `docs/DECISIONS.md`의 `**원장**:` 줄 · `Quant/config/config_dev_paper.json` | 결정을 적을 때 `**원장**:` 한 줄을 같이 쓴다. 마커 구간은 손편집 금지 — `py scripts/sync_ledgers.py`가 생성하고 `check_docs.py`가 막는다 |
-| `.claude/PROJECT_FACTS.md` 음성 결과 (자동생성, gitignore 로컬전용) | `docs/DECISIONS.md`의 `**음성결과**:` 줄 | 같은 방식. 마커 밖의 손으로 쓴 항목은 그대로 남는다 |
-| [`docs/AUTOMATION.md`](AUTOMATION.md) | OS 예약작업·클라우드 루틴·훅·마감 문서 파이프라인 목록 | 예약작업 시각/추가·훅 추가·자동 생성 스크립트 추가 시 표에 행 추가 |
-| [`docs/design/DASHBOARD_SPEC.md`](design/DASHBOARD_SPEC.md) | `scripts/dashboard_server.py`·PYQuant 대시보드 API·데이터 계약 | 대시보드 구현·API·데이터소스 변경 시 |
-| [`docs/guides/MFC_TERMINAL.md`](guides/MFC_TERMINAL.md) | `Quant/tools/ops_terminal/` 파일·화면·스레드 모델·빌드 조건·이력 | MFC 단말 코드 변경 시 해당 절 + 이력 한 줄. 실행 방법 변경은 `_private/LINKS.md`도 |
+정본은 [`docs/sync_map.toml`](sync_map.toml)이고 아래 표는 `py scripts/sync_impact.py --render`가 만든다(마커 안 손편집 금지).
+"검사" 열이 누가 낡음을 확정하는지다 — **자동**은 기계가 재생성하고, **도장**은 문서 안 `<!-- sync: 경로@해시 -->`가
+소스 버전을 기억해 바뀐 문단만 집어내며, **힌트**는 매핑만 있어 같은 소스 버전에 한 번 알려준다.
+
+<!-- sync-map:rules -->
+| 소스(바뀌면) | 대표 문서(봐라) | 검사 | 맞출 것 |
+|---|---|---|---|
+| `Quant/CMakeLists.txt`, `Quant/tests/test_*.cpp` | `CLAUDE.md#빌드 명령어` | 자동(gen 블록) | 테스트 타깃 목록·개수는 gen:test-targets 블록이 채운다 |
+| `Quant/include/strategy/*.h`, `Quant/src/strategy/StrategyFactory.cpp`, `PYQuant/strategy/*.py` | `README.md`, `docs/guides/PROJECT_GUIDE.md`, `.claude/PROJECT_FACTS.md` | 자동(gen 블록) | 전략 클래스·로더 표는 gen:cpp-strategies / gen:py-strategies 블록 |
+| `.claude/commands/*.md`, `.claude/agents/*.md`, `.claude/skills/**`, `.claude/hooks/*.ps1`, `.claude/settings.json` | `docs/HARNESS.md`, `docs/AUTOMATION.md#훅` | 자동(gen 블록) | 개수·훅 배선표는 gen:harness-counts / gen:hooks 블록. 훅이 하는 일 설명 문단은 stamp |
+| `Quant/include/**/*.h`, `Quant/src/**/*.cpp` | `docs/CODE_GRAPH.md` | 자동(명령) `py scripts/gen_code_graph.py --check` | #include 그래프는 손편집 금지, 재생성 |
+| `docs/DECISIONS.md`, `Quant/config/config_dev_paper.json` | `research/STRATEGY_LAB.md`, `.claude/PROJECT_FACTS.md` | 자동(명령) `py scripts/sync_ledgers.py --check` | **원장**:·**음성결과**: 줄에서 마커 구간 생성 |
+| `Quant/include/core/*.h`, `Quant/src/core/*.cpp`, `Quant/src/main.cpp` | `CLAUDE.md#아키텍처`, `docs/guides/PROJECT_GUIDE.md` | 도장 | 스레드 모델·모듈 책임 요약 문단. 헤더의 공개 역할이 바뀌면 문단을 고치고 --restamp |
+| `Quant/include/api/*.h`, `Quant/src/api/*.cpp` | `CLAUDE.md#KIS API 클라이언트`, `CLAUDE.md#WebSocket 클라이언트` | 도장 | 파일 분할·인터페이스·채널 목록 요약 |
+| `Quant/include/risk/*.h`, `Quant/src/risk/*.cpp` | `README.md`, `docs/GLOSSARY.md` | 도장 | OrderGate 거부 사유·한도 설명. 거부 지점 개수는 gen:ordergate-rejects |
+| `Quant/tools/ops_terminal/**` | `docs/guides/MFC_TERMINAL.md`, `_private/LINKS.md` | 도장 | 화면·스레드 모델·빌드 조건 절 + 이력 한 줄. 실행 방법이 바뀌면 LINKS.md 운영단말 행 |
+| `scripts/dashboard_server.py`, `PYQuant/dashboard/**` | `docs/design/DASHBOARD_SPEC.md` | 도장 | API·데이터 계약 |
+| `scripts/*.py`, `scripts/*.ps1` | `docs/AUTOMATION.md#스크립트`, `docs/SYNC_MAP.md` | 힌트 | 새 스크립트는 AUTOMATION.md 표에 행. 검사기·생성기면 SYNC_MAP.md에도 |
+| `research/studies/*/README.md` | `research/studies/README.md`, `research/BACKTESTS.md`, `research/README.md` | 자동(명령) `py scripts/check_docs.py` | 색인 등재는 check_docs가 잡는다. 요지 1줄·타임라인 서사는 사람 |
+| `strategies/*/SPEC.md`, `strategies/*/live/*.md` | `strategies/README.md`, `README.md` | 힌트 | 표에 SPEC·실증·검증경로 행 |
+| `docs/STYLE_GUIDE.md` | `CLAUDE.md#문서 문체 규약`, `.claude/hooks/lexicon-gate.ps1`, `scripts/check_plain_language.py` | 힌트 | 금지 표현을 추가했으면 게이트 두 곳의 사전도 |
+| `docs/sync_map.toml`, `scripts/sync_impact.py`, `scripts/gen_facts.py` | `docs/SYNC_MAP.md`, `docs/AUTOMATION.md#스크립트`, `docs/HARNESS.md` | 자동(명령) `py scripts/sync_impact.py --render --check` | SYNC_MAP.md §2 표는 이 파일에서 생성 |
+<!-- /sync-map:rules -->
 
 > `research/BACKTEST_LOG.md`는 **소스(소유자)**라 위 표의 "대표"가 아니다 — 다른 문서가 이걸 링크한다.
 > `STRATEGY_LAB.md`·`ARCHITECTURE.md` 등 gitignore 개인문서는 GitHub에 없으므로 색인에서 **하드링크하지 말 것**(텍스트+"로컬전용" 표기만).
 
 ---
+
+## 2-b. 도장(stamp) — 요약 문단이 어느 소스 버전을 보고 쓴 것인지
+
+요약 문단 위에 한 줄을 둔다.
+
+```md
+<!-- sync: Quant/include/core/OrderPacer.h@3f2a91c Quant/tests/test_order_pacer.cpp@ab12cd3 -->
+주문 스레드는 … `OrderPacer`가 맡습니다(D-065).
+```
+
+해시는 그 파일의 git blob 해시 앞 7자다. 소스가 바뀌면 `py scripts/sync_impact.py --diff`가 그 도장을 `[stale]`로 찍고
+Stop 훅(`sync-gate.ps1`)이 턴을 되돌린다. 문단을 고친 뒤 `--restamp 문서.md`로 도장을 갱신한다. 해시를 비워 두면
+(`<!-- sync: 경로 -->`) 첫 검사에서 낡음으로 잡히고 `--restamp`가 채운다.
+
+새 요약 문단을 쓸 때는 이 순서로 묻는다 — **생성할 수 있나(gen 블록) → 없으면 도장을 찍나 → 둘 다 아니면 링크만 하나.**
+동기화 대상은 늘리지 않는 쪽이 맞다.
 
 ## 3. 커밋 전 체크리스트 (스크립트가 못 잡는 의미적 최신성)
 
@@ -60,13 +80,18 @@
 - [ ] **결론이 바뀜**(예: regime 유효성 재판정, 지표 채택) → 루트 `README`·`research/README`의 요약 문구를 **함께** 고쳤나.
 - [ ] **파일 이동/리네임** → `python scripts/check_docs.py` 통과 확인(깨진 상대링크 0).
 - [ ] **헤더 추가/이동·`#include` 변경** → `py scripts/gen_code_graph.py` 재생성으로 `docs/CODE_GRAPH.md`·`code_graph.dot`(+ 필요시 `--json`) 최신화.
+- [ ] **도장 낡음 `[stale]`** → 문단을 고치고 `--restamp`. 낡은 도장이 남아 있으면 커밋이 막힌다.
 
 ---
 
 ## 4. 사용
 
 ```bash
-python scripts/check_docs.py   # exit 0 = 통과, 1 = 드리프트(항목별 출력)
+py scripts/sync_impact.py --diff --fix   # 바뀐 파일 → 낡은 gen 블록 치환·도장·힌트 (Stop 훅이 이걸 돌린다)
+py scripts/sync_impact.py --restamp CLAUDE.md
+python scripts/check_docs.py             # exit 0 = 통과, 1 = 드리프트(항목별 출력)
 ```
 
-`@committer`는 문서를 포함한 커밋 전 이 스크립트를 실행하고, 실패 시 커밋을 멈추고 보고한다.
+두 지점에서 돈다. 턴이 끝날 때 `.claude/hooks/sync-gate.ps1`(Stop)이 `--diff --fix`를 돌려 낡은 것이 있으면 되돌리고,
+커밋 직전 `.claude/hooks/docs-gate.ps1`(PreToolUse)이 코드·문서 어느 쪽이 스테이징돼도 같은 검사로 막는다.
+`@committer`도 커밋 전 `check_docs`를 실행하고, 실패 시 커밋을 멈추고 보고한다.

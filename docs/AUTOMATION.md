@@ -51,8 +51,9 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 | 훅 | 시점 | 하는 일 |
 |---|---|---|
 | `secret-gate.ps1` | PreToolUse (Bash·PowerShell) | app_key·app_secret·계좌번호·개인 이름이 커밋 경로로 새는 것을 차단 |
-| `docs-gate.ps1` | PreToolUse (Bash·PowerShell) | 문서 커밋 전 `check_docs.py` 정합 확인. 링크·색인에 더해 **결정 원장 파생 문서 드리프트**(`sync_ledgers.py --check`)도 여기서 막힌다 |
+| `docs-gate.ps1` | PreToolUse (Bash·PowerShell) | 커밋 전 `sync_impact.py --diff`로 낡은 도장·gen 블록·재생성 실패를 막고(D-075), 문서가 있으면 `check_docs.py` 정합 확인. 링크·색인에 더해 **결정 원장 파생 문서 드리프트**(`sync_ledgers.py --check`)도 여기서 막힌다 |
 | `lexicon-gate.ps1` | PreToolUse (Write·Edit) | 파일에 쓰려는 본문을 `check_plain_language.py --stdin`으로 검사해 쓰지 않기로 한 말(`고아`·`프로브`·`사다리`·`가디언` 등)이 들어가는 순간 막는다. 금지어를 설명하는 글은 본문에 `lexicon-ok` 표시로 통과 | <!-- lexicon-ok: 금지어를 예시로 인용하는 줄 -->
+| `sync-gate.ps1` | Stop | 턴이 끝날 때 `sync_impact.py --diff --fix` — 낡은 gen 블록은 치환하고, 낡은 도장·재생성 실패·새 힌트가 있으면 턴을 되돌려 그 자리에서 고치게 한다(D-075) |
 | `review-reminder.ps1` | Stop | 코드 변경 뒤 리뷰 누락을 상기 |
 | `eod-gate.ps1` | SessionStart | 사후검토가 밀린 거래일이 있으면 세션 시작에 알림 |
 | `cron-gate.ps1` | SessionStart | 예약작업이 예정 시각을 넘겨 안 돌았거나 `LastTaskResult≠0`이면 작업 이름·실패 시각·복구 커맨드를 알림 |
@@ -215,8 +216,9 @@ scripts/eod_autodoc.py
 | `scripts/build_study_site.py` | `_private/주식_study/` 전체를 날짜별로 묶어 스터디 사이트 재생성 |
 | `scripts/refresh_dashboard.py` | 위 재생성 순서(라이브 백필·리뷰 항목·생성기)를 소유한다. `--if-stale`은 원천 파일이 산출물보다 새것일 때만 돈다. `eod_autodoc.py`와 Stop 훅이 모두 이 스크립트를 부르므로 절차가 한쪽만 고쳐져 갈라지지 않는다. 실행 기록은 `logs/refresh_dashboard.log` |
 | `scripts/check_docs.py` | 깨진 내부 링크·색인 누락 검사. exit 0이어야 문서 커밋 |
+| `scripts/sync_impact.py` | 바뀐 파일을 `docs/sync_map.toml`의 규칙과 대조해 봐야 할 문서를 찍고, 문서 안 `<!-- sync: 경로@해시 -->` 도장으로 낡은 문단을 집어낸다. `--fix`는 gen 블록 치환, `--restamp`는 도장 갱신, `--render`는 `docs/SYNC_MAP.md` §2 표 생성. Stop 훅과 커밋 훅이 부른다(D-075) |
 | `scripts/check_code_conventions.py` | 스테이징된 코드 변경의 규약 검사 — 중괄호(`brace_style.py --check`), 없는 D-NNN 참조, 규약에 없는 주석 태그, 주석·코드 줄 성격 집계. `--comment-only`는 코드 줄이 섞였는지 본다. 밀도는 보지 않는다(정본 `docs/guides/MAINTENANCE_AUTOMATION.md` 4절이 밀도를 게이트로 걸지 말라고 정해 두었다) |
-| `scripts/maintain.py` | 위 검사기를 한 번에 돌리는 진입점. `--check`는 `check_docs` → `check_code_refs --diff-only` → `gen_facts --check` → `gen_code_graph --check` 순으로 묶어 표로 요약한다. `--weekly`는 파일별 주석 밀도와 태그 없는 긴 블록을 `docs/reports/MAINTENANCE_WEEKLY.md`에 남긴다 |
+| `scripts/maintain.py` | 위 검사기를 한 번에 돌리는 진입점. `--check`는 `check_docs` → `check_code_refs --diff-only` → `gen_facts --check` → `gen_code_graph --check` → `sync_impact --stamps` 순으로 묶어 표로 요약한다. `--weekly`는 파일별 주석 밀도와 태그 없는 긴 블록을 `docs/reports/MAINTENANCE_WEEKLY.md`에 남긴다 |
 | `scripts/check_code_refs.py` | 문서가 가리키는 코드 참조가 실재하는지 검사한다 — 경로, `파일::심볼`, 줄번호 참조. 줄번호 참조는 코드가 움직이면 조용히 어긋나므로 새로 추가된 줄에서 막고 `파일::심볼`로 쓰게 한다 |
 | `scripts/gen_facts.py` | 저장소를 세어 `docs/facts.json`을 만들고, 문서의 `<!-- gen:이름 -->` 블록을 그 값으로 채운다. 하네스 개수·훅 배선처럼 손으로 세면 반드시 어긋나는 숫자가 대상이다. KIS 토큰 캐시 파일명은 실 키 앞부분이 들어가므로 가려서 쓴다 |
 | `scripts/gen_code_graph.py` | 헤더 포함 관계로 모듈 그래프를 만들어 `docs/CODE_GRAPH.md`·`code_graph.dot`·`code_graph.json`을 생성한다. `--impact <파일>`은 그 파일을 고쳤을 때 재검증 대상을 파일을 열지 않고 뽑는다 |

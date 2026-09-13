@@ -30,8 +30,8 @@
 | 커맨드 | `14` | `auto-trade-day`, `build`, `comment-diet`, `daily`, `dashboard-sync`, `dev-loop`, `eod-review`, `intraday-start`, `review-apply`, `review-bundle`, `strategy-debate`, `trade-log`, `verify-backtest`, `watch` |
 | 에이전트 | `19` | `arch-doc`, `backtest-runner`, `bias-auditor`, `claude-coach`, `committer`, `data-sourcer`, `harness-engineer`, `interviewer`, `intraday-analyst`, `log-reader`, `market-brief`, `perf-optimizer`, `planner`, `pm`, `prep-doc`, `quant-analyst`, `review-recorder`, `reviewer`, `strategist` |
 | 스킬 | `1` | `stock-study` |
-| 훅 파일 | `8` | `cron-gate.ps1`, `dashboard-refresh.ps1`, `docs-gate.ps1`, `eod-gate.ps1`, `lexicon-gate.ps1`, `output-gate.ps1`, `review-reminder.ps1`, `secret-gate.ps1` |
-| settings.json 훅 배선 | `8` | `PreToolUse:secret-gate.ps1`, `PreToolUse:docs-gate.ps1`, `PreToolUse:lexicon-gate.ps1`, `Stop:output-gate.ps1`, `Stop:review-reminder.ps1`, `Stop:dashboard-refresh.ps1`, `SessionStart:eod-gate.ps1`, `SessionStart:cron-gate.ps1` |
+| 훅 파일 | `9` | `cron-gate.ps1`, `dashboard-refresh.ps1`, `docs-gate.ps1`, `eod-gate.ps1`, `lexicon-gate.ps1`, `output-gate.ps1`, `review-reminder.ps1`, `secret-gate.ps1`, `sync-gate.ps1` |
+| settings.json 훅 배선 | `9` | `PreToolUse:secret-gate.ps1`, `PreToolUse:docs-gate.ps1`, `PreToolUse:lexicon-gate.ps1`, `Stop:output-gate.ps1`, `Stop:sync-gate.ps1`, `Stop:review-reminder.ps1`, `Stop:dashboard-refresh.ps1`, `SessionStart:eod-gate.ps1`, `SessionStart:cron-gate.ps1` |
 <!-- /gen -->
 
 효과: 반복 절차의 재작성·재승인이 사라진다. `/build`는 `settings.local.json`에 15개 넘게 쌓여 있던 vcvars64+cmake 변형을 하나의 절차로 고정했다(한글 임시폴더 경로로 인한 링커 오류 `LNK1104` 회피 포함).
@@ -71,6 +71,7 @@ Notion 커넥터가 연결돼 있다. 개발로그와 장전 시황 브리핑을
 | `PreToolUse` | `Bash|PowerShell` | `docs-gate.ps1` |
 | `PreToolUse` | `Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell` | `lexicon-gate.ps1` |
 | `Stop` | `(전체)` | `output-gate.ps1` |
+| `Stop` | `(전체)` | `sync-gate.ps1` |
 | `Stop` | `(전체)` | `review-reminder.ps1` |
 | `Stop` | `(전체)` | `dashboard-refresh.ps1` |
 | `SessionStart` | `(전체)` | `eod-gate.ps1` |
@@ -78,8 +79,10 @@ Notion 커넥터가 연결돼 있다. 개발로그와 장전 시황 브리핑을
 <!-- /gen -->
 
 하는 일은 이렇다. `secret-gate.ps1`은 `git commit`/`push`를 가로채 스테이징 diff에서 실거래 키·계좌번호·개인정보
-패턴을 스캔해 발견 시 차단한다. `docs-gate.ps1`은 커밋에 `.md`가 있으면 `scripts/check_docs.py`를 돌려
-드리프트면 차단한다. `lexicon-gate.ps1`은 쓰려는 본문을 `scripts/check_plain_language.py`로 검사한다.
+패턴을 스캔해 발견 시 차단한다. `docs-gate.ps1`은 커밋 전 `scripts/sync_impact.py`로 낡은 도장·gen 블록을 막고, `.md`가 있으면
+`scripts/check_docs.py`를 돌려 드리프트면 차단한다. `lexicon-gate.ps1`은 쓰려는 본문을 `scripts/check_plain_language.py`로 검사한다.
+`sync-gate.ps1`은 턴이 끝날 때 `sync_impact.py --diff --fix`를 돌려 낡은 gen 블록은 치환하고, 낡은 도장·힌트가 있으면
+턴을 되돌려 그 자리에서 고치게 한다(D-075, 정본 [docs/SYNC_MAP.md](SYNC_MAP.md)).
 `output-gate.ps1`·`review-reminder.ps1`·`dashboard-refresh.ps1`은 응답 뒤, `eod-gate.ps1`·`cron-gate.ps1`은
 세션 시작 때 각각 점검 결과를 알린다.
 

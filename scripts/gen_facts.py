@@ -28,6 +28,7 @@ TOKEN_NAME_RE = re.compile(r"kis_token_[A-Za-z0-9]+\.json")
 
 # 표식 블록을 둘 수 있는 문서. 블록이 없으면 건너뛴다.
 TARGET_DOCS = [
+    "CLAUDE.md",
     ".claude/PROJECT_FACTS.md",
     "docs/HARNESS.md",
     "docs/guides/PROJECT_GUIDE.md",
@@ -120,6 +121,13 @@ def build_targets() -> dict:
     names = re.findall(r"add_executable\(\s*(\w+)", text)
     ctest = bool(re.search(r"\benable_testing\s*\(", text) or re.search(r"\badd_test\s*\(", text))
     return {"file": "Quant/CMakeLists.txt", "targets": names, "ctest_wired": ctest}
+
+
+def test_targets() -> dict:
+    """CMakeLists의 test_* 실행 타깃. CLAUDE.md의 빌드 줄과 개수가 여기서 나온다."""
+    b = build_targets()
+    tests = [t for t in b["targets"] if t.startswith("test_")]
+    return {"file": b["file"], "targets": tests, "count": len(tests)}
 
 
 def harness() -> dict:
@@ -309,6 +317,7 @@ def collect() -> dict:
         "py_strategies": py_strategies(),
         "ordergate_rejects": ordergate_rejects(),
         "build_targets": build_targets(),
+        "test_targets": test_targets(),
         "harness": harness(),
         "configs": configs(),
         "config_keys": config_keys(),
@@ -363,6 +372,13 @@ def r_build_targets(f: dict) -> str:
             + ", ".join(bt(t) for t in b["targets"]) + f"\n\nctest 배선: {bt(ctest)}")
 
 
+def r_test_targets(f: dict) -> str:
+    t = f["test_targets"]
+    head = f"단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다 — 실행 타깃 {bt(t['count'])}개."
+    cmd = "cmake --build out/build/x64-release --target " + " ".join(t["targets"])
+    return head + "\n\n```bash\n" + cmd + "\n```"
+
+
 def r_dir_tree(f: dict) -> str:
     rows = []
 
@@ -403,6 +419,7 @@ RENDERERS = {
     "cpp-strategies": r_cpp_strategies,
     "py-strategies": r_py_strategies,
     "build-targets": r_build_targets,
+    "test-targets": r_test_targets,
     "dir-tree": r_dir_tree,
     "config-keys": r_config_keys,
     "long-functions": r_long_functions,

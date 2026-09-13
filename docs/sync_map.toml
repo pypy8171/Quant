@@ -1,0 +1,108 @@
+# sync_map.toml — 소스가 바뀌면 같이 봐야 할 대표 문서 (기계용, D-075)
+#
+# docs/SYNC_MAP.md §2 표의 기계 형식이다. scripts/sync_impact.py가 읽어
+# "바뀐 파일 → 봐야 할 문서"를 찍는다. 표를 손으로 둘 다 고치지 말고 여기만 고친다 —
+# SYNC_MAP.md §2는 `py scripts/sync_impact.py --render`가 만든다.
+#
+# 항목:
+#   src   = 바뀌면 트리거되는 파일 glob 목록 (저장소 루트 기준, ** 허용)
+#   deps  = 봐야 할 대표 문서. "파일#절"은 절 이름 힌트
+#   check = "gen"     : deps의 <!-- gen: --> 블록으로 자동 재생성된다 (사람 판단 없음)
+#           "script"  : cmd 명령이 재생성·검사한다
+#           "stamp"   : deps 안의 <!-- sync: --> 도장이 낡음을 잡는다 (판단은 사람)
+#           "hint"    : 매핑만 있고 검사 수단이 없다 — 힌트 1회 보고
+#   note  = 무엇을 맞춰야 하는지 한 줄
+
+[[rule]]
+src = ["Quant/CMakeLists.txt", "Quant/tests/test_*.cpp"]
+deps = ["CLAUDE.md#빌드 명령어"]
+check = "gen"
+note = "테스트 타깃 목록·개수는 gen:test-targets 블록이 채운다"
+
+[[rule]]
+src = ["Quant/include/strategy/*.h", "Quant/src/strategy/StrategyFactory.cpp", "PYQuant/strategy/*.py"]
+deps = ["README.md", "docs/guides/PROJECT_GUIDE.md", ".claude/PROJECT_FACTS.md"]
+check = "gen"
+note = "전략 클래스·로더 표는 gen:cpp-strategies / gen:py-strategies 블록"
+
+[[rule]]
+src = [".claude/commands/*.md", ".claude/agents/*.md", ".claude/skills/**", ".claude/hooks/*.ps1", ".claude/settings.json"]
+deps = ["docs/HARNESS.md", "docs/AUTOMATION.md#훅"]
+check = "gen"
+note = "개수·훅 배선표는 gen:harness-counts / gen:hooks 블록. 훅이 하는 일 설명 문단은 stamp"
+
+[[rule]]
+src = ["Quant/include/**/*.h", "Quant/src/**/*.cpp"]
+deps = ["docs/CODE_GRAPH.md"]
+check = "script"
+cmd = "py scripts/gen_code_graph.py --check"
+note = "#include 그래프는 손편집 금지, 재생성"
+
+[[rule]]
+src = ["docs/DECISIONS.md", "Quant/config/config_dev_paper.json"]
+deps = ["research/STRATEGY_LAB.md", ".claude/PROJECT_FACTS.md"]
+check = "script"
+cmd = "py scripts/sync_ledgers.py --check"
+note = "**원장**:·**음성결과**: 줄에서 마커 구간 생성"
+
+[[rule]]
+src = ["Quant/include/core/*.h", "Quant/src/core/*.cpp", "Quant/src/main.cpp"]
+deps = ["CLAUDE.md#아키텍처", "docs/guides/PROJECT_GUIDE.md"]
+check = "stamp"
+note = "스레드 모델·모듈 책임 요약 문단. 헤더의 공개 역할이 바뀌면 문단을 고치고 --restamp"
+
+[[rule]]
+src = ["Quant/include/api/*.h", "Quant/src/api/*.cpp"]
+deps = ["CLAUDE.md#KIS API 클라이언트", "CLAUDE.md#WebSocket 클라이언트"]
+check = "stamp"
+note = "파일 분할·인터페이스·채널 목록 요약"
+
+[[rule]]
+src = ["Quant/include/risk/*.h", "Quant/src/risk/*.cpp"]
+deps = ["README.md", "docs/GLOSSARY.md"]
+check = "stamp"
+note = "OrderGate 거부 사유·한도 설명. 거부 지점 개수는 gen:ordergate-rejects"
+
+[[rule]]
+src = ["Quant/tools/ops_terminal/**"]
+deps = ["docs/guides/MFC_TERMINAL.md", "_private/LINKS.md"]
+check = "stamp"
+note = "화면·스레드 모델·빌드 조건 절 + 이력 한 줄. 실행 방법이 바뀌면 LINKS.md 운영단말 행"
+
+[[rule]]
+src = ["scripts/dashboard_server.py", "PYQuant/dashboard/**"]
+deps = ["docs/design/DASHBOARD_SPEC.md"]
+check = "stamp"
+note = "API·데이터 계약"
+
+[[rule]]
+src = ["scripts/*.py", "scripts/*.ps1"]
+deps = ["docs/AUTOMATION.md#스크립트", "docs/SYNC_MAP.md"]
+check = "hint"
+note = "새 스크립트는 AUTOMATION.md 표에 행. 검사기·생성기면 SYNC_MAP.md에도"
+
+[[rule]]
+src = ["research/studies/*/README.md"]
+deps = ["research/studies/README.md", "research/BACKTESTS.md", "research/README.md"]
+check = "script"
+cmd = "py scripts/check_docs.py"
+note = "색인 등재는 check_docs가 잡는다. 요지 1줄·타임라인 서사는 사람"
+
+[[rule]]
+src = ["strategies/*/SPEC.md", "strategies/*/live/*.md"]
+deps = ["strategies/README.md", "README.md"]
+check = "hint"
+note = "표에 SPEC·실증·검증경로 행"
+
+[[rule]]
+src = ["docs/STYLE_GUIDE.md"]
+deps = ["CLAUDE.md#문서 문체 규약", ".claude/hooks/lexicon-gate.ps1", "scripts/check_plain_language.py"]
+check = "hint"
+note = "금지 표현을 추가했으면 게이트 두 곳의 사전도"
+
+[[rule]]
+src = ["docs/sync_map.toml", "scripts/sync_impact.py", "scripts/gen_facts.py"]
+deps = ["docs/SYNC_MAP.md", "docs/AUTOMATION.md#스크립트", "docs/HARNESS.md"]
+check = "script"
+cmd = "py scripts/sync_impact.py --render --check"
+note = "SYNC_MAP.md §2 표는 이 파일에서 생성"
