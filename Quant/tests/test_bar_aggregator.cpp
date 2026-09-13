@@ -316,6 +316,34 @@ int main()
         CHECK(rr.size() == 2 && rr[0].open == 1 && rr[0].close == 2 && rr[0].volume == 2 && rr[1].open == 9);
     }
 
+    // ── 시계 확정(close_stale): 다음 틱 없이도 분이 지나면 닫힌다 ──────────────────────────────── [D-074]
+    {
+        bars::BarAggregator agg(bars::BarAggregator::Config{1, 64, 900, 1530});
+        std::vector<MarketData> closed;
+        agg.set_sink([&](const MarketData& md) { closed.push_back(md); });
+        CHECK(agg.on_tick(tick("152959", 100.0, 1, 1)));
+        CHECK(agg.on_tick(tick("153000", 101.0, 2, 3))); // 마감 동시호가 체결 → 15:29 닫힘, 15:30 진행
+        CHECK(closed.size() == 1 && agg.current_slot("005930").bucket == 15 * 60 + 30);
+        CHECK(agg.close_stale("005930", utc_of("153030")) == 0); // 같은 분 — 아직
+        CHECK(agg.close_stale("없는종목", utc_of("153100")) == 0);
+        CHECK(agg.close_stale("005930", utc_of("153100")) == 1); // 15:31 시계가 15:30 봉을 닫는다(장 필터 무관)
+        CHECK(closed.size() == 2 && closed[1].close == 101.0 && closed[1].volume == 2);
+        CHECK(!agg.current_slot("005930").valid() && agg.closed_count("005930") == 2);
+        CHECK(agg.close_stale(utc_of("153200")) == 0); // 진행 봉이 없으면 0
+        // 전체 꼴: 두 종목의 진행 봉을 한 번에. 아직 안 지난 종목은 남는다.
+        CHECK(agg.on_tick(tick("100000", 50.0, 1, 1, "000660")));
+        CHECK(agg.on_tick(tick("100100", 60.0, 1, 1, "035420"))); // 005930은 15:30이 닫혀 있어 과거 틱을 안 받는다
+        CHECK(agg.close_stale(utc_of("100100")) == 1); // 000660(10:00)만 — 035420은 10:01 진행 중
+        CHECK(agg.close_stale(utc_of("100200")) == 1);
+        CHECK(closed.size() == 4 && closed[2].ticker == "000660" && closed[3].ticker == "035420");
+        // 시계로 닫은 분에 늦은 틱이 오면 그 봉을 다시 열어 이어 붙인다(시드가 닫아 둔 자리와 같은 규칙) —
+        //  틱 하나를 버리는 것보다 고저·거래량이 맞는 쪽이 낫고, 다음 시계·틱이 다시 닫는다. sink는 두 번 온다.
+        CHECK(agg.on_tick(tick("100159", 61.0, 1, 2, "035420")));
+        CHECK(agg.current_slot("035420").bucket == 10 * 60 + 1 && agg.closed_count("035420") == 0);
+        CHECK(agg.close_stale("035420", utc_of("100200")) == 1);
+        CHECK(closed.size() == 5 && closed[4].close == 61.0 && closed[4].high == 61.0 && closed[4].volume == 2);
+    }
+
     std::cout << "test_bar_aggregator: " << g_checks << " checks passed\n";
     return 0;
 }

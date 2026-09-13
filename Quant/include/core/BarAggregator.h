@@ -53,7 +53,7 @@ public:
         int session_close   = 1530; // 이 HHMM 뒤의 틱은 버린다(15:30:xx 마감 동시호가는 든다)
     };
 
-    using BarSink = std::function<void(const MarketData&)>; // 닫힌 봉 한 개 — 다음 버킷 첫 틱이 닫는다
+    using BarSink = std::function<void(const MarketData&)>; // 닫힌 봉 한 개 — 다음 버킷 첫 틱이나 close_stale이 닫는다
 
     explicit BarAggregator(Config cfg);
     BarAggregator(const BarAggregator&)            = delete; // 종목별 이력을 든다 — 전략 스레드에 하나
@@ -76,6 +76,12 @@ public:
 
     // 진행 중 봉의 자리. 없으면 valid()가 거짓.
     BarSlot current_slot(const std::string& ticker) const;
+
+    // 시계로 닫는다 — now_utc의 KST 분이 진행 중 봉의 자리를 지났으면 그 봉을 닫고 sink를 부른다. 다음 버킷
+    //  첫 틱만 봉을 닫으면 틱이 뜸한 종목과 마감 동시호가 뒤 마지막 봉은 확정이 늦거나 안 된다. 돌아오는 값은
+    //  닫은 봉 수. 한 종목만 보는 꼴은 그 종목이 없으면 0. [why D-074]
+    int close_stale(std::time_t now_utc);
+    int close_stale(const std::string& ticker, std::time_t now_utc);
 
     void clear(const std::string& ticker);
     const Config& config() const { return cfg_; }

@@ -272,6 +272,14 @@ public:
     void on_stop() override
     {
         stop_prefetch();
+
+        // 마지막 진행 봉(마감 동시호가 뒤엔 다음 틱이 없다)을 시계로 닫아 비교표에 남긴다. 전략 스레드는 이미
+        //  이 전략을 안 부른다(엔진 종료 뒤이거나 재스캔이 뗀 뒤). [why D-074]
+        if (ws_bars_)
+        {
+            agg_.close_stale(p_.ticker, std::time(nullptr));
+        }
+
         LOG_INFO("[" + id() + "] 종료");
     }
 
@@ -402,6 +410,10 @@ public:
                     LOG_DEBUG(line);
                 }
             }
+
+            // 분이 지난 진행 봉은 시계로 닫는다 — WS 틱은 on_tick이 이미 닫았고, REST 대체 틱 동안 남은 로컬
+            //  진행 봉이 여기서 확정된다. 틱 수신 시각이 시계다(체결 시각은 hhmmss뿐이라 날짜가 없다). [why D-074]
+            agg_.close_stale(p_.ticker, std::chrono::system_clock::to_time_t(td.timestamp));
 
             // 판단 봉은 1분봉을 interval_min으로 접은 것이다 — 틱이 살아 있으면 집계기 스냅샷([0]=진행 중 분),
             //  REST 대체 틱이면 REST 1분봉. 두 길이 같은 resample을 지나므로 자리·계산이 같다. [why D-072]

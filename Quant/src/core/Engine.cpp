@@ -125,6 +125,13 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     }
 }
 
+// 국면 재평가 버킷 — KST 하루 초를 재평가 주기로 나눈 번호. 번호가 바뀌는 순간이 벽시계 경계다. [why D-074]
+long long Engine::regime_bucket_now() const
+{
+    const int sec = ::kst::sec_of_day(std::time(nullptr));
+    return regime_reeval_interval_sec_ > 0 ? sec / regime_reeval_interval_sec_ : 0;
+}
+
 // G1: 국면 r에 맞춰 전략 활성셋을 재선택한다.
 //  has_regime_map_이면 국면별 id 목록이 권위적 선택자('*' 접두 매칭으로 스캐너 동적 id 포함),
 //  아니면 기존 per-strategy active_regimes 폴백. 선택 결정(활성/비활성 목록)은 국면 변화 또는
@@ -875,7 +882,7 @@ void Engine::data_thread_fn()
             {
                 auto snap = regime_->evaluate();   // 내부에서 [Regime] 로그
                 apply_regime_selection(snap.regime, /*force_log=*/true);
-                last_regime_eval_ = std::chrono::steady_clock::now();
+                last_regime_bucket_ = regime_bucket_now();
             }
         }
 
@@ -896,16 +903,17 @@ void Engine::data_thread_fn()
             // G1: 장중 국면 재평가 → 국면이 바뀌면 전략셋 동적 재선택(국면 전환 시 교체).
             //  일봉 기반 국면 신호라 장중 변화는 드물지만, 재평가로 국면 전이를 놓치지 않는다.
             //  RegimeController::evaluate()는 이 data_thread 단일 호출자라 재호출 계약 위반 없음.
+            //  평가 시점은 기동 시각 경과가 아니라 KST 벽시계 버킷 경계다 — 기동 시각에 따라 위상이
+            //  달라지면 regime.json 갱신(3분)·유니버스 재스캔과 어긋난 채 하루 종일 간다. [why D-074]
             if (regime_ && regime_reeval_interval_sec_ > 0)
             {
-                auto now_r = std::chrono::steady_clock::now();
+                const long long bucket = regime_bucket_now();
 
-                if (last_regime_eval_.time_since_epoch().count() == 0 ||
-                    now_r - last_regime_eval_ >= std::chrono::seconds(regime_reeval_interval_sec_))
+                if (bucket != last_regime_bucket_)
                 {
                     auto snap = regime_->evaluate();
                     apply_regime_selection(snap.regime, /*force_log=*/false); // 변화 시에만 로그
-                    last_regime_eval_ = now_r;
+                    last_regime_bucket_ = bucket;
                 }
             }
 
@@ -1942,6 +1950,12 @@ void Engine::fill_thread_fn()
             if (order_router_)
             {
                 order_router_->on_fill(fn);
+            }
+
+            // 체결 직후 몇 초는 잔고 대조를 미룬다 — 잔고 스냅샷이 체결을 따라오기 전이다. [why D-074]
+            if (ledger_)
+            {
+                ledger_->note_fill(std::time(nullptr));
             }
 
             if (ops_server_ && ops_server_->client_count() > 0)

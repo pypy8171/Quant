@@ -337,7 +337,8 @@ private:
     bool has_regime_map_ = false;                 // false면 per-strategy active_regimes 폴백
     Regime last_selected_regime_ = Regime::UNKNOWN; // 직전 선택 국면(변화 감지→재선택·로그)
     int regime_reeval_interval_sec_ = 300;        // 장중 국면 재평가 주기(초)
-    std::chrono::steady_clock::time_point last_regime_eval_{};
+    long long last_regime_bucket_ = -1;           // 마지막으로 평가한 KST 벽시계 버킷(sec_of_day / 주기), -1=미평가
+    long long regime_bucket_now() const;
 
     RingBuffer<MarketData> market_queue_{1024};
     RingBuffer<OrderSignal> order_queue_{1024}; // 주문 스레드가 KIS 왕복에 묶이는 몇 초를 받는다 [why D-073]

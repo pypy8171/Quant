@@ -88,4 +88,11 @@ inline std::string datetime(std::time_t now_utc)
                        static_cast<unsigned>(d.month()), static_cast<unsigned>(d.day()), t.hours().count(),
                        t.minutes().count(), t.seconds().count());
 }
+
+// KST 자정부터 흐른 초 [0, 86400). 벽시계 경계(정각·5분)에 맞춘 주기 작업이 쓴다.
+inline int sec_of_day(std::time_t now_utc)
+{
+    const struct tm t = to_tm(now_utc);
+    return t.tm_hour * 3600 + t.tm_min * 60 + t.tm_sec;
+}
 } // namespace kst

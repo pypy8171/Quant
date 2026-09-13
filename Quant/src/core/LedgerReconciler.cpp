@@ -250,8 +250,38 @@ void LedgerReconciler::capture_baseline(double tot_eval, std::time_t now_utc)
 //  재동기, 2) output2 총평가금(tot_evlu_amt)의 당일 기준선 대비 델타를 daily_pnl_로 세팅한다.
 //  절대 평가손익(evlu_pfls)이 아니라 "당일 기준선 델타"를 쓴다 — 이미 -30% 물린 미실현손실을
 //  daily_pnl로 넣으면 개장 즉시 모든 신규매수가 막힌다.
+bool LedgerReconciler::defer_after_fill(std::time_t now_utc)
+{
+    const long long last_fill = last_fill_utc_.load(std::memory_order_relaxed);
+
+    if (last_fill <= 0 || post_fill_defer_sec_ <= 0 || now_utc - static_cast<std::time_t>(last_fill) >= post_fill_defer_sec_)
+    {
+        defer_since_ = 0;
+        return false;
+    }
+
+    if (defer_since_ == 0)
+    {
+        defer_since_ = now_utc;
+    }
+
+    if (now_utc - defer_since_ >= post_fill_defer_max_sec_)
+    {
+        defer_since_ = now_utc; // 체결이 계속 이어진다 — 상한마다 한 번은 돈다
+        return false;
+    }
+
+    return true;
+}
+
 void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)
 {
+    if (defer_after_fill(now_utc))
+    {
+        LOG_DEBUG("[Engine] 잔고 대조: 체결 직후라 미룬다");
+        return;
+    }
+
     // 서킷브레이커: 잔고조회가 연속 실패 중이면 이번 사이클은 조회를 건너뛴다.
     if (breaker_.take_skip())
     {

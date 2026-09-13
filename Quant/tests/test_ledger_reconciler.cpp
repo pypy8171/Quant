@@ -219,6 +219,46 @@ int test_reconcile_ws()
     return 0;
 }
 
+// 체결 직후 유예: 체결 뒤 defer초 안의 대조는 조회 없이 미루고, 체결이 이어지면 max마다 한 번은 돈다. [D-074]
+int test_reconcile_post_fill_defer()
+{
+    OrderGate gate;
+    int       calls = 0;
+    LedgerReconciler r(gate, [&] {
+        ++calls;
+        return ok_balance({hold("A", 8, 100.0, 8)}, 1000000.0);
+    });
+    r.set_post_fill_defer(5, 30);
+
+    r.reconcile(false, kT0); // 체결 이력 없음 — 돈다
+    CHECK(calls == 1);
+    r.note_fill(kT0 + 10);
+    r.reconcile(false, kT0 + 11); // 체결 1초 뒤 — 미룬다
+    r.reconcile(false, kT0 + 14); // 4초 뒤 — 아직
+    CHECK(calls == 1);
+    r.reconcile(false, kT0 + 15); // 5초 — 돈다
+    CHECK(calls == 2);
+
+    // 체결이 3초마다 이어진다: 30초 상한마다 한 번은 돈다.
+    std::time_t t = kT0 + 100;
+
+    for (int i = 0; i < 20; ++i, t += 3)
+    {
+        r.note_fill(t);
+        r.reconcile(false, t + 1);
+    }
+
+    CHECK(calls == 3); // 101에서 유예 시작 → 131에서 한 번(다음은 161인데 체결은 157에서 끝난다)
+    r.reconcile(false, t + 10); // 마지막 체결에서 5초 넘음 — 돈다
+    CHECK(calls == 4);
+    // 유예 0이면 끈 것과 같다.
+    r.set_post_fill_defer(0, 30);
+    r.note_fill(t + 20);
+    r.reconcile(false, t + 21);
+    CHECK(calls == 5);
+    return 0;
+}
+
 int test_reconcile_failure()
 {
     OrderGate gate;
@@ -255,7 +295,7 @@ int main()
     }
 
     if (test_breaker() || test_names() || test_bootstrap() || test_reconcile_rest() || test_reconcile_ws() ||
-        test_reconcile_failure())
+        test_reconcile_post_fill_defer() || test_reconcile_failure())
     {
         return 1;
     }

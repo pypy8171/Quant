@@ -1,4 +1,5 @@
-// N분봉 집계기 — 전략 스레드 소유, 락 없음. 확정은 다음 버킷 첫 틱이 한다(타이머 없음). [why D-068]
+// N분봉 집계기 — 전략 스레드 소유, 락 없음. 확정은 다음 버킷 첫 틱이 하고, 틱이 없으면 호출자가 시계로
+//  close_stale을 부른다(집계기 안에 타이머는 없다). [why D-068] [why D-074]
 #include "core/BarAggregator.h"
 
 #include "core/KstTime.h"
@@ -165,6 +166,39 @@ void BarAggregator::close_live(Series& s)
     {
         sink_(s.closed.front());
     }
+}
+
+int BarAggregator::close_stale(std::time_t now_utc)
+{
+    int n = 0;
+
+    for (auto& kv : series_)
+    {
+        n += close_stale(kv.first, now_utc);
+    }
+
+    return n;
+}
+
+int BarAggregator::close_stale(const std::string& ticker, std::time_t now_utc)
+{
+    auto it = series_.find(ticker);
+
+    if (it == series_.end() || !it->second.live.active)
+    {
+        return 0;
+    }
+
+    // 장 시간 필터는 걸지 않는다 — 15:31의 시계가 15:30 봉을 닫아야 한다. hhmmss가 비어 있으니 now의 KST 분이 자리다.
+    const BarSlot now_slot = slot_of(std::string(), now_utc, cfg_.interval_min, 0, 2359);
+
+    if (!now_slot.valid() || !(it->second.live.slot < now_slot))
+    {
+        return 0;
+    }
+
+    close_live(it->second);
+    return 1;
 }
 
 void BarAggregator::trim(Series& s)

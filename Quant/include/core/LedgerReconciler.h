@@ -9,6 +9,7 @@
 #include "core/ReconcilePlan.h"
 #include "risk/OrderGate.h"
 
+#include <atomic>
 #include <chrono>
 #include <ctime>
 #include <filesystem>
@@ -21,6 +22,12 @@ namespace ledger
 // 잔고에 없는 원장 보유를 걷어내기 전에 두는 유예(초). 잔고 조회 왕복(수 초)보다 넉넉히 길게
 //  잡아, 방금 체결된 신규 보유가 아직 잔고에 안 보이는 것을 유령으로 오인하지 않게 한다.
 inline constexpr int kPrunePositionAgeSec = 90;
+
+// 체결통보 직후 이만큼(초)은 주기 대조를 미룬다. 잔고 스냅샷은 체결보다 몇 초 늦게 따라와, 그 사이에 대조가
+//  돌면 방금 산 수량의 매도가능이 0으로 덮이고(refresh_sellable) 방금 판 수량이 "놓친 매도"로 보인다. 체결이
+//  이어지면 상한(Max)까지만 미루고 그 뒤엔 돈다 — 손익·총평가 갱신이 끊기면 손실컷 기준이 멈춘다. [why D-074]
+inline constexpr int kPostFillDeferSec    = 5;
+inline constexpr int kPostFillDeferMaxSec = 30;
 
 // 잔고조회가 이 횟수 연속 실패하면 daily_pnl이 낡은 것으로 보고 BUY NEW를 보수 정지한다(B2).
 //  2 = 단발 타임아웃(streak 1)엔 발동 않고 지속 정체만 잡는다.
@@ -134,6 +141,10 @@ public:
     void set_account_no(std::string acct) { account_no_ = std::move(acct); }
     void set_baseline_dir(std::filesystem::path dir) { baseline_dir_ = std::move(dir); }
     void set_prune_age_sec(int s) { prune_age_sec_ = s; }
+    void set_post_fill_defer(int sec, int max_sec) { post_fill_defer_sec_ = sec; post_fill_defer_max_sec_ = max_sec; }
+
+    // 체결통보 시각. 체결 소비 스레드가 부르고 reconcile(제어 스레드)이 읽는다 — 이 값만 원자적이다.
+    void note_fill(std::time_t now_utc) { last_fill_utc_.store(static_cast<long long>(now_utc), std::memory_order_relaxed); }
 
     // G5: 잔고 보유 행(ticker/qty/avg_price/주문가능)을 OrderGate.seed_position으로 시드. 실패=false → 기동 중단.
     //  기동 직후는 유령주문 취소·유니버스 스캔과 같은 초 안에 겹쳐 한도(초당 5건)에 자주 걸리므로
@@ -144,6 +155,9 @@ public:
     //  체결통보가 오는 WS 모드에서는 원장이 이미 체결로 갱신되고 reserved_에는 살아 있는 지정가 주문이
     //  잡혀 있으므로 false로 불러 총평가금·일손익·매도가능수량만 갱신한다. now_utc는 기준선 파일 날짜용.
     void reconcile(bool resync_positions, std::time_t now_utc);
+
+    // 이번 대조를 체결 직후라서 미루는가. reconcile이 먼저 묻고, 미뤘으면 조회를 안 한다(서킷브레이커 집계 밖).
+    bool defer_after_fill(std::time_t now_utc);
 
     // 새 거래일 — 총평가금 기준선을 다음 대조에서 다시 캡처한다.
     void new_trading_day() { have_baseline_ = false; }
@@ -163,6 +177,10 @@ private:
     std::string   account_no_;
     std::filesystem::path baseline_dir_;      // 비어 있으면 기준선을 영속하지 않는다(시험용)
     int    prune_age_sec_ = ledger::kPrunePositionAgeSec;
+    int    post_fill_defer_sec_     = ledger::kPostFillDeferSec;
+    int    post_fill_defer_max_sec_ = ledger::kPostFillDeferMaxSec;
+    std::atomic<long long> last_fill_utc_{0};
+    std::time_t defer_since_ = 0;             // 연속으로 미루기 시작한 시각(0=안 미루는 중)
     bool   have_baseline_ = false;
     double baseline_      = 0.0;              // 당일 첫 대조 시 캡처한 총평가금(원) — 손실컷 세션 앵커
     ledger::ReconcileBreaker breaker_;
