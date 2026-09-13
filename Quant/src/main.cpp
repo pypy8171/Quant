@@ -25,9 +25,36 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <timeapi.h>
 #ifdef ERROR
 #undef ERROR // wingdi.h — LogLevel::ERROR와 부딪힌다
 #endif
+
+namespace
+{
+
+// 프로세스 타이머 격자를 1ms로. 기본 15.6ms에서는 sleep_for(1ms)·(100us)가 실측 p50 15.6ms였고 1ms로 내리면 2ms다
+//  (bench_sleep_res). 큐 소비자는 notify로 깨우지만(WakeGate) 발주 간격·재시도·데이터 폴링의 sleep은 이 격자를 탄다.
+//  Windows 10 2004+에서는 이 프로세스에만 적용된다. 종료 시 되돌린다. [why D-071]
+struct TimerResolution
+{
+    bool ok = false;
+
+    TimerResolution()
+    {
+        ok = (timeBeginPeriod(1) == TIMERR_NOERROR);
+    }
+
+    ~TimerResolution()
+    {
+        if (ok)
+        {
+            timeEndPeriod(1);
+        }
+    }
+};
+
+} // namespace
 #endif
 
 using json = nlohmann::json;
@@ -112,6 +139,7 @@ static json load_config(const std::string& path)
 int main(int argc, char* argv[])
 {
 #ifdef _WIN32
+    TimerResolution timer_res;
     SetConsoleOutputCP(CP_UTF8);
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     DWORD dwMode = 0;

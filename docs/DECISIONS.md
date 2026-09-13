@@ -2759,3 +2759,80 @@ Linux는 Ubuntu 22.04의 GCC 11이 `<format>`·`expected`·`ranges::to`·tzdb를
 **확인 방법**: 1단계는 `C:\build_tmp\wt_cpp23_build`에서 Ninja Release 빌드(경고 0)와 ctest 22/22. 이후 단계는
 같은 빌드 디렉터리에서 `bench_ringbuffer`·`bench_market_firehose`·`bench_logger` 앞뒤 비교표를 커밋 메시지에 남긴다.
 Linux는 Dockerfile 빌드 1회로 GCC 14 경로를 확인한다(사용자가 돌린다).
+
+---
+
+### D-071 설계 목표를 "전 시장 실시간 수신 구조"로 정한다 — 채널당 수신 스레드·심볼 샤딩·단일 주문 시퀀서, 안에서 먼저 (2026-09-13)
+**상태**: 채택 (목표·원칙·단계). 코드는 Phase 0부터 `wt/feed`에서 단계마다 커밋.
+
+**결정**: 엔진의 설계 목표를 KIS 41종목 WS에서 **전 시장 실시간 피드(코스콤 UDP 멀티캐스트급, 2,500+종목·초당 수십만 건)를
+받을 수 있는 구조**로 바꾼다. 현재 구조 유지는 목표가 아니다 — 바꿔서 나아지면 바꾼다(기록 원칙 1항). 프로세스 분리(피드
+프로세스 + 전략 프로세스)는 뒤로 미루고 `quant_trader` 안에서 인터페이스와 큐 구조를 먼저 잡는다.
+
+**배경**: 현재는 소켓 하나(KIS WS)를 스레드 하나가 읽어 SPSC 파이프라인(데이터→전략→주문)에 넣는다. 이 워크로드에서는
+병목이 없다 — `bench_market_firehose` E2E p50 300ns·2.9M msg/s, 한도는 KIS 유량(REST 20/s·WS 1세션 41구독)이다. 그러나
+KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 전 시장 피드는 채널이 여럿(시장별 호가·체결·파생)이라 소켓
+하나의 가정이 깨진다. 별도 리뷰(2026-09-13, 외부 AI)가 짚은 확장 병목도 같은 자리다 — 틱마다 전략 전체 순회(`Engine.cpp`
+1657·1701·1730행), hot path 구조체의 `std::string` 티커(TradeData 112B·OrderBook 232B, non-trivially-copyable),
+`set_last_px`의 뮤텍스+문자열 해시, RingBuffer의 매 push `tail_` acquire.
+
+**원칙** (앞으로의 설계·리뷰 판단 기준, `CLAUDE.md` "설계 목표와 원칙" 절이 요약을 갖는다):
+1. **IO 병렬성은 소켓 수에서 온다.** 소켓 하나는 스레드 하나가 읽는다. "IO 스레드 풀이 소켓 하나를 나눠 읽는" 구조는
+   하지 않는다 — TCP·멀티캐스트 채널의 순서는 읽는 쪽이 하나여야 지켜진다.
+2. **순서 보장 단위는 종목이다.** 채널 간 순서는 지키지 않는다. 종목 해시로 샤딩하면 종목별 순서와 전략 상태 독립성이 같이
+   보장된다.
+3. **수신 스레드는 얇게.** 읽기·최소 디코드·push까지만. 파싱 비용이 커지면 스레드를 늘리지 않고 소비자 쪽으로 옮긴다.
+4. **리스크·주문은 단일 시퀀서.** `OrderGate`·원장은 공유 상태라 샤딩하지 않는다. 앞단(수신 N·전략 샤드 M)만 늘린다.
+5. **큐는 생산자 수로 고른다.** 생산자 하나면 `RingBuffer`(SPSC), 여럿이면 `MpscQueue`. N×M SPSC 행렬을 MPSC 하나보다
+   먼저 검토한다(경합 0).
+6. **hot path에 문자열 없음.** 종목은 기동 시 심볼 테이블로 정수 id를 받고 틱·호가·전략 디스패치·현재가 캐시는 id 배열
+   인덱스로 간다. 문자열은 주문 신호·로그·CSV처럼 신호 단위 경로에만 남긴다.
+7. **측정 없이 손대지 않는다.** 큐 고수위·`seq` 기반 구간 시각·타이머 해상도 실측이 최적화의 전제다. 리뷰의 추정치는
+   실측으로 대체한 뒤 채택 여부를 정한다.
+8. **틱은 캡처한다.** 전 시장 raw 틱의 append-only 캡처가 리플레이 백테스트(DevScale PIT 3분봉 재현 불가 문제)의 입력이다.
+
+**단계** (단계마다 세션 하나·커밋 하나, ctest·`bench_*` 앞뒤 비교로 닫는다):
+
+| Phase | 내용 | 리뷰 항목 |
+|---|---|---|
+| 0 측정 | `RingBuffer` 고수위 카운터와 제어 스레드 주기 로그 · `OrderSignal.seq`에 구간 시각(ws_recv→push→pop→signal→gate→http) 얹어 장 마감 CSV · Windows 타이머 해상도 실측(`sleep_for(1ms)` 1,000회) | §8 |
+| 1 싼 지연 | `timeBeginPeriod(1)` RAII(실측이 격자를 보일 때) · `order_thread` 유휴를 Logger식 condvar로(재시도 만기는 `wait_until`) · `LOG_DEBUG` 레벨 가드 · 단말 미접속 시 `ORDER_RESULT` JSON 생략 | P-1·P-2·C-3·O-3 |
+| 2 확장 전제 | `SymbolId(uint32)`+`SymbolTable`(문자열↔id, 기동·재스캔 시 등록) → `TradeData`·`OrderBook`·`MarketData` 티커를 id로, `time`을 정수로(trivially copyable) · 전략 디스패치를 id별 벡터로 · `last_px_`를 `atomic<double>` 배열로 · `RingBuffer` 생산자·소비자 캐시 인덱스 | A-2·C-1·O-2·C-2 |
+| 3 구조 | `IFeedSource`(KIS WS를 첫 구현체) · `FeedMux`(N개 SPSC를 소비자가 도는 fan-in, 소스 추가=큐 추가) · `FeedSupervisor` 순수 상태기계(stale·재연결·폴백 전이 전수 테스트) · 틱 캡처 스레드 · Engine 단위 테스트 | A-1·O-4 |
+| 4 확장 | 피드 프로세스 분리(ZMQ pub/sub, 지연이 문제면 공유메모리 SPMC) · 코스콤 UDP 소스(계약·회선 확인 뒤) 또는 증권사 WS 여러 개 fan-in · 전략 샤드 M>1(고수위 실측 뒤) · 코어 핀·격리(측정 뒤) | §5 |
+
+**대안 비교**:
+
+| 대안 | 판정 |
+|---|---|
+| IO 스레드 풀(IOCP/epoll 워커 N)이 소켓들을 나눠 읽고 로직은 스레드별 | 기각. 소켓이 수천 개일 때(게임서버) 맞는 형태다. 피드는 채널 수십 개라 채널당 스레드가 단순하고 순서가 지켜진다 |
+| 수신 N → MPSC 하나 → 전략 | 보류. 동작은 하지만 생산자 경합이 생긴다. N×M SPSC 행렬이 먼저, 큐 수가 문제 되면 그때 |
+| 전략 샤딩을 지금 | 기각. 고수위 실측이 없다. 샤딩은 원장·게이트를 공유 상태로 만들어 락을 부른다 — 필요가 증명된 뒤 |
+| 프로세스 분리를 첫 단계에 | 기각(사용자 결정). 인터페이스가 잡히면 경계는 나중에 그어도 비용이 작다. 지금 나누면 ZMQ 직렬화·프로세스 수명 관리가 인터페이스보다 먼저 와서 순서가 뒤집힌다 |
+| `char[8]` 고정폭 티커(리뷰 C-1) | 반쪽으로 판정. 캐시라인은 줄지만 디스패치·현재가 캐시가 여전히 해시다. 정수 id면 배열 인덱스라 세 항목이 한 번에 풀린다 |
+| `OrderGate::try_reserve/release`(리뷰 A-3) | 보류. 원칙 4로 게이트는 단일 호출자를 유지하므로 원자 예약이 필요 없다. 락 순서 문서화만 한다 |
+| 코어 핀·`isolcpus`(리뷰 §5) | 보류. 측정 도구 없이 하면 효과를 증명할 수 없고 개발 노트북에서는 손해다 |
+| libcurl 핸들 상주(리뷰 P-3) | 보류. WinHTTP 풀링 실측(450표본)이 지연 이득 없음이었다. Linux 배포가 실제가 될 때 벤치와 같이 |
+
+**근거**: 원칙 1·2·4는 LMAX·거래소 피드 핸들러의 표준 배치다. 지금 코드가 이미 그 1×1 특수 케이스(`ob_queue_`·`td_queue_`·
+`rest_td_queue_` fan-in, 단일 주문 스레드, D-055·D-056)라 확장이 자연스럽다. Phase 2가 Phase 3보다 앞인 이유는 정수 id가
+없으면 `FeedMux`·샤딩·캡처 전부 문자열을 들고 다녀 다시 고치게 되기 때문이다.
+
+**남은 위험**: 코스콤 직접 수신은 개인 계약·회선·월 비용 조건을 아직 확인하지 않았다 — Phase 3까지는 이 사실과 무관하게
+필요하고, Phase 4의 소스 선택만 바뀐다. Phase 0 실측이 "격자 없음"이나 "고수위 0"으로 나오면 Phase 1·2의 일부는 기대 효과
+없이 구조 정리만 남는다 — 그래도 Phase 3의 전제라 진행한다.
+
+**Phase 0·1 결과 (2026-09-13, `wt/feed` 첫 커밋)**:
+
+- 타이머 격자 실측(`Quant/tests/bench_sleep_res.cpp`, 1,000회): 기본 상태에서 `sleep_for(100us)`·`sleep_for(1ms)`·
+  `cv.wait_for(1ms)` 모두 p50 ≈ 15.6ms. `timeBeginPeriod(1)` 뒤 ≈ 2ms. 전략 스레드의 "100us 유휴"는 실제로 15.6ms였다.
+- 깨우기 조각 `sync::WakeGate`(`Quant/include/core/WakeGate.h`): sleeping 깃발 + seq_cst fence + condvar. notify는 락
+  안에서 한다(재확인과 wait 사이의 유실 방지). `Quant/tests/test_wake_gate.cpp` 1,000회 왕복 실측 p50 5.8us · p99 11.7us ·
+  max 156us — 격자와 무관하다. 생산자 4개 동시 notify 2,000건 유실 0.
+- 배선: 전략 스레드는 200us yield 뒤 `strat_wake_`(cap 10ms), 주문 스레드는 `order_wake_.wait_until(재시도 만기 또는 +100ms)`
+  (`OrderPacer::next_retry_at`), 체결 스레드는 `fill_wake_`(cap 100ms). 생산자 쪽 notify는 `market_queue_`·`ob_queue_`·
+  `td_queue_`·`rest_td_queue_`·`manual_inbox_`·`order_queue_`·`fill_queue_` push 뒤 각 한 줄. `Quant/src/main.cpp`가
+  `timeBeginPeriod(1)` RAII를 첫 문장으로 잡는다(quant_trader만 `winmm` 링크).
+- 고수위: `RingBuffer::high_water()`(생산자 relaxed 비교 하나) + 제어 스레드가 1분마다 `[큐 고수위]` 한 줄(개장 여부 무관).
+- ctest 23/23 (`test_wake_gate` 추가, `test_ringbuffer`에 고수위 케이스).
+- 남은 Phase 0·1: `OrderSignal.seq` 구간 시각 CSV, `LOG_DEBUG` 레벨 가드(C-3), 단말 미접속 시 `ORDER_RESULT` JSON 생략(O-3).

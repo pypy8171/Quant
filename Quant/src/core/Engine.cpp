@@ -528,6 +528,8 @@ void Engine::start()
             {
                 std::this_thread::sleep_for(1ms);
             }
+
+            strat_wake_.notify();
         });
     poller_->set_keep_going([this] { return running_.load(std::memory_order_acquire); });
 
@@ -635,7 +637,11 @@ void Engine::start()
                                        LOG_WARN("[WS] 호가 큐 가득 — 호가 폐기 시작 " + ob.ticker +
                                                 " (전략 스레드 정체 의심)");
                                    }
+
+                                   return;
                                }
+
+                               strat_wake_.notify();
                            },
                            [this](const TradeData& td)
                            {
@@ -648,7 +654,11 @@ void Engine::start()
                                        LOG_WARN("[WS] 체결 큐 가득 — 틱 폐기 시작 " + td.ticker +
                                                 " (전략 스레드 정체 의심)");
                                    }
+
+                                   return;
                                }
+
+                               strat_wake_.notify();
 #ifdef HAS_ZMQ
                                if (zmq_bridge_)
                                {
@@ -669,14 +679,7 @@ void Engine::start()
                                        return;
                                    }
 
-                                   // [lock-order] push(release) → seq_cst fence → sleeping 읽기. fill_thread는 sleeping 쓰기 →
-                                   //  fence → 큐 확인. 양쪽 다 store-fence-load라 둘 중 하나는 상대 store를 본다(Logger와 동일).
-                                   std::atomic_thread_fence(std::memory_order_seq_cst);
-
-                                   if (fill_sleeping_.load(std::memory_order_relaxed))
-                                   {
-                                       fill_wake_cv_.notify_one();
-                                   }
+                                   fill_wake_.notify();
                                });
 
         if (!ws_->connect(watch_specs_))
@@ -1256,6 +1259,7 @@ void Engine::data_thread_fn()
                             std::this_thread::sleep_for(1ms);
                         }
 
+                        strat_wake_.notify();
                         ++data_count_;
                     }
                 }
@@ -1509,6 +1513,8 @@ void Engine::strategy_thread_fn()
             {
                 std::this_thread::sleep_for(std::chrono::microseconds(100));
             }
+
+            order_wake_.notify();
         },
         std::chrono::steady_clock::now());
     dispatcher.set_label([this](const std::string& t) { return ticker_label(t); });
@@ -1567,6 +1573,10 @@ void Engine::strategy_thread_fn()
 
     std::vector<StrategyBase*> snap;
     uint64_t seen_ver = static_cast<uint64_t>(-1);
+
+    // 유휴 전이: 마지막 일 뒤 이 시간은 yield로 돌고, 넘기면 strat_wake_에서 잔다. [why D-071]
+    constexpr auto kStratSpinBudget = std::chrono::microseconds(200);
+    std::chrono::steady_clock::time_point idle_since{};
 
     while (running_.load(std::memory_order_acquire))
     {
@@ -1745,10 +1755,32 @@ void Engine::strategy_thread_fn()
             LOG_ERROR("[StrategyThread] 예외: " + std::string(e.what()));
         }
 
-        if (!did_work)
+        if (did_work)
         {
-            std::this_thread::sleep_for(std::chrono::microseconds(100));
+            idle_since = std::chrono::steady_clock::time_point{};
+            continue;
         }
+
+        // 유휴: 짧게 돌다가 잔다. 틱이 몰리는 구간은 spin 안에서 받고, 조용하면 생산자 notify로 깬다.
+        //  상한 10ms는 flush_held·강제청산 2초 주기 같은 시각 기반 작업의 해상도다(예전 100us sleep이 실측 15.6ms였다).
+        const auto now_i = std::chrono::steady_clock::now();
+
+        if (idle_since == std::chrono::steady_clock::time_point{})
+        {
+            idle_since = now_i;
+        }
+
+        if (now_i - idle_since < kStratSpinBudget)
+        {
+            std::this_thread::yield();
+            continue;
+        }
+
+        strat_wake_.wait_for(10ms, [this]
+        {
+            return market_queue_.empty() && ob_queue_.empty() && td_queue_.empty() && rest_td_queue_.empty() &&
+                   manual_inbox_.empty() && running_.load(std::memory_order_acquire);
+        });
     }
 
     LOG_INFO("[StrategyThread] 종료");
@@ -1780,7 +1812,12 @@ void Engine::order_thread_fn()
 
         if (!next)
         {
-            std::this_thread::sleep_for(1ms);
+            // 재시도 만기가 있으면 그 시각까지, 없으면 100ms 상한(종료 확인). 신규 신호는 전략 스레드의 notify가 깨운다.
+            const auto deadline = pacer.next_retry_at().value_or(steady_clock::now() + 100ms);
+            order_wake_.wait_until(deadline, [this]
+            {
+                return order_queue_.empty() && running_.load(std::memory_order_acquire);
+            });
             continue;
         }
 
@@ -1855,17 +1892,8 @@ void Engine::fill_thread_fn()
 
         if (!opt)
         {
-            // "잔다"를 먼저 알리고 큐를 다시 본 뒤 잔다(WS 콜백의 fence 짝). 신호가 새는 경우와 종료를 상한이 받는다.
-            std::unique_lock<std::mutex> lk(fill_wake_mtx_);
-            fill_sleeping_.store(true, std::memory_order_relaxed);
-            std::atomic_thread_fence(std::memory_order_seq_cst);
-
-            if (fill_queue_.empty() && running_.load(std::memory_order_acquire))
-            {
-                fill_wake_cv_.wait_for(lk, 100ms);
-            }
-
-            fill_sleeping_.store(false, std::memory_order_relaxed);
+            // 상한 100ms는 종료 확인용이다. 깨우는 것은 WS 콜백의 notify.
+            fill_wake_.wait_for(100ms, [this] { return fill_queue_.empty() && running_.load(std::memory_order_acquire); });
             continue;
         }
 
@@ -2022,10 +2050,26 @@ void Engine::control_thread_fn()
 
     int fail_streak = 0;
     auto next_try = std::chrono::steady_clock::now();
+    // 큐 고수위는 장 외에도 찍는다 — 큐 크기가 맞는지의 근거가 되므로 WS 유무·개장 여부와 무관하다. [why D-071]
+    constexpr int kHighWaterEvery = 12; // 5초 × 12 = 1분
+    int hw_tick = 0;
 
     while (running_.load(std::memory_order_acquire))
     {
         std::this_thread::sleep_for(std::chrono::seconds(kCheckIntervalSec));
+
+        if (++hw_tick >= kHighWaterEvery)
+        {
+            hw_tick = 0;
+            LOG_INFO("[큐 고수위] market=" + std::to_string(market_queue_.high_water()) + "/" +
+                     std::to_string(market_queue_.capacity()) + " ob=" + std::to_string(ob_queue_.high_water()) + "/" +
+                     std::to_string(ob_queue_.capacity()) + " td=" + std::to_string(td_queue_.high_water()) + "/" +
+                     std::to_string(td_queue_.capacity()) + " rest_td=" + std::to_string(rest_td_queue_.high_water()) +
+                     "/" + std::to_string(rest_td_queue_.capacity()) + " order=" +
+                     std::to_string(order_queue_.high_water()) + "/" + std::to_string(order_queue_.capacity()) +
+                     " fill=" + std::to_string(fill_queue_.high_water()) + "/" + std::to_string(fill_queue_.capacity()) +
+                     " fill_dropped=" + std::to_string(fill_dropped_.load(std::memory_order_relaxed)));
+        }
 
         if (!ws_)
         {
@@ -2156,6 +2200,7 @@ void Engine::start_ops_server()
                 return "수동주문 인테이크 가득 참";
             }
 
+            strat_wake_.notify();
             return std::string();
         });
 

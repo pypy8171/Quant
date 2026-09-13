@@ -45,6 +45,29 @@ static void test_pow2_capacity() {
 	std::cout << "[PASS] pow2 capacity / boundary\n";
 }
 
+// 고수위는 가득 찼던 4에서 더 오르지 않고, 비운 뒤에도 내려가지 않는다(기동 뒤 최댓값).
+static void test_high_water() {
+	RingBuffer<int> q(4);
+	assert(q.high_water() == 0);
+	assert(q.push(1));
+	assert(q.high_water() == 1);
+	assert(q.pop());
+	assert(q.push(2));
+	assert(q.high_water() == 1);
+
+	for (int i = 0; i < 3; ++i) {
+		assert(q.push(i));
+	}
+
+	assert(q.high_water() == 4);
+
+	while (q.pop()) {
+	}
+
+	assert(q.high_water() == 4);
+	std::cout << "[PASS] high water\n";
+}
+
 static void test_spsc_correctness() {
 	RingBuffer<int> rb(1024);
 	constexpr int N = 1'000'000;
@@ -127,6 +150,7 @@ static void test_throughput() {
 
 int main() {
 	test_pow2_capacity();
+	test_high_water();
 	std::cout << "=== RingBuffer Tests ===\n";
 	test_spsc_correctness();
 	test_throughput();

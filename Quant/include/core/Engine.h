@@ -4,6 +4,7 @@
 #include "core/DataPoller.h"
 #include "core/LedgerReconciler.h"
 #include "core/RingBuffer.h"
+#include "core/WakeGate.h"
 #include "core/OrderPacer.h"
 #include "core/SignalDispatcher.h"
 #include "core/RegimeController.h"
@@ -349,10 +350,11 @@ private:
     //  체결 하나 처리(hist_mtx_·CSV 쓰기) 동안 전 종목 틱 수신이 멈추지 않게. [why D-056]
     RingBuffer<FillNotification> fill_queue_{1024};
     std::atomic<uint64_t> fill_dropped_{0};   // fill_queue_ 가득 차 버린 체결통보 수. 0이 아니면 잔고 대조가 원장을 메운다
-    // fill_thread 깨우기 — Logger writer와 같은 방식(D-045). 1ms 폴링은 Windows 타이머 해상도 때문에 실측 8~15ms 늦었다.
-    std::mutex              fill_wake_mtx_;
-    std::condition_variable fill_wake_cv_;
-    std::atomic<bool>       fill_sleeping_{false};   // fill_thread가 fill_wake_cv_에서 자는 중(WS 콜백이 notify 여부 결정)
+    // 소비자 깨우기 — 생산자가 push 뒤 notify, 소비자는 큐가 비면 잔다. 1ms 폴링은 Windows 타이머 격자 때문에
+    //  실측 p50 15.6ms였다(bench_sleep_res). [why D-071]
+    sync::WakeGate fill_wake_;  // fill_thread ← WS 수신 스레드
+    sync::WakeGate strat_wake_; // strategy_thread ← WS 수신·데이터·운영단말 스레드
+    sync::WakeGate order_wake_; // order_thread ← strategy_thread
 
     std::thread data_thread_;
     std::thread strategy_thread_;

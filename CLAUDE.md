@@ -29,9 +29,9 @@ cmake --build Quant/build
 
 Linux는 `libcurl4-openssl-dev`가 필요합니다 (`sudo apt install libcurl4-openssl-dev`). Windows는 네이티브 WinHTTP를 사용하므로 nlohmann/json(CMake FetchContent로 자동 다운로드) 외에 추가 의존성이 없습니다.
 
-단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다(원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·잔고 대조 계산·잔고 대조기·REST 현재가 폴러·신호 디스패처·발주 조절기·운영단말 프로토콜/서버·비동기 로거·매크로 국면 파일 판정기·N분봉 집계기 등 22개).
+단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다(원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·잔고 대조 계산·잔고 대조기·REST 현재가 폴러·신호 디스패처·발주 조절기·운영단말 프로토콜/서버·비동기 로거·매크로 국면 파일 판정기·N분봉 집계기·소비자 깨우기 조각 등 23개).
 ```bash
-cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_order_pacer test_bar_aggregator test_regime test_regime_bridge test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_mpsc test_account_ledger test_ops_protocol test_ops_server test_logger
+cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_order_pacer test_bar_aggregator test_regime test_regime_bridge test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_mpsc test_account_ledger test_ops_protocol test_ops_server test_logger test_wake_gate
 ctest --preset x64-release          # 저장소 루트에서. 스트레스 2종은 3초로 줄여 돈다
 ctest --test-dir Quant/build_win    # 수동 Ninja 레이아웃일 때
 ```
@@ -45,6 +45,21 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 - **`"TRADE"`** — 5-스레드 엔진(3-스레드 파이프라인 + 체결 소비 + 제어 스레드)을 실행하고 장 중(평일 09:00–15:30 KST)에 실제 주문을 냅니다.
 
 `config.json`에는 현재 **실거래 인증 정보**(`app_key`, `app_secret`, 실계좌 번호)가 저장되어 있습니다. 모의투자 엔드포인트(`openapivts.koreainvestment.com:29443`)로 전환하려면 `"is_paper": true`로 설정하세요.
+
+## 설계 목표와 원칙 (D-071)
+
+목표는 **전 시장 실시간 피드(코스콤급, 2,500+종목·초당 수십만 건)를 받을 수 있는 구조**다. KIS 41종목은 그 구조의
+1×1 특수 케이스일 뿐이고, 현재 구조 유지는 목표가 아니다 — 바꿔서 나아지면 바꾼다. 설계·리뷰·리팩터 판단은 아래 원칙으로 한다.
+단계와 버린 대안은 [docs/DECISIONS.md](docs/DECISIONS.md) D-071.
+
+1. **IO 병렬성은 소켓 수에서 온다.** 소켓 하나는 스레드 하나가 읽는다. 스레드 풀이 소켓 하나를 나눠 읽는 구조는 하지 않는다.
+2. **순서 보장 단위는 종목이다.** 채널 간 순서는 지키지 않고, 종목 해시로 샤딩한다.
+3. **수신 스레드는 얇게.** 읽기·최소 디코드·push까지. 파싱이 무거워지면 소비자로 옮긴다.
+4. **리스크·주문은 단일 시퀀서.** `OrderGate`·원장은 샤딩하지 않는다. 앞단(수신 N·전략 샤드 M)만 늘린다.
+5. **큐는 생산자 수로 고른다.** 생산자 하나면 `RingBuffer`, 여럿이면 `MpscQueue`. N×M SPSC 행렬을 MPSC 하나보다 먼저 검토한다.
+6. **hot path에 문자열 없음.** 종목은 기동 시 정수 id를 받고 틱·호가·디스패치·현재가 캐시는 id 배열 인덱스로 간다.
+7. **측정 없이 손대지 않는다.** 큐 고수위·`seq` 구간 시각·타이머 해상도 실측이 최적화의 전제다.
+8. **틱은 캡처한다.** raw 틱 append-only 캡처가 리플레이 백테스트의 입력이다.
 
 ## 아키텍처
 
@@ -61,7 +76,7 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 - `RingBuffer<T>`는 명시적 메모리 순서를 가진 `std::atomic`을 사용하는 SPSC(단일 생산자/단일 소비자) 락-프리 큐입니다.
 - 데이터 스레드는 `fetch_interval_sec`초마다 KIS REST를 폴링하며, 장 외 시간에는 건너뜁니다. REST 현재가 폴링(폴링 모드 유니버스·WS 구독 상한 넘침 대체·틱 끊긴 보유 보충)은 `Quant/include/core/DataPoller.h`의 `DataPoller`가 맡고, 폴러의 틱은 데이터 스레드 전용 `rest_td_queue_`로 갑니다(D-062, `test_data_poller`). KST 시각 변환은 `Quant/include/core/KstTime.h`.
 - 전략 스레드는 등록된 전략 전체를 순회하며, `NONE`이 아닌 신호는 주문 큐에 push합니다. 신호가 큐에 가기 전의 판단 — 순번 stamp, 비활성 전략·청산 관리 보유 종목의 신규 차단, 슬롯이 찬 상태의 교체 진입(최약체 매도 뒤 매수 보류), 강제청산 재발주 스로틀, 기동 뒤 한도 초과분 정리 — 는 `Quant/include/core/SignalDispatcher.h`의 `SignalDispatcher`가 맡습니다(전략 스레드의 지역 객체, D-063, `test_signal_dispatcher`). DeviationScale의 3분봉은 config `bar_source`로 고른다 — `"rest"`(기본)는 REST 3분봉, `"ws"`는 전략 스레드가 체결 틱을 `Quant/include/core/BarAggregator.h`의 `bars::BarAggregator`로 모으고 REST 봉은 시드·폴백에만 쓴다(REST 대체 틱이 오면 REST 봉으로 되돌아간다, D-068·D-069, `test_bar_aggregator`).
-- 체결 소비 스레드(`fill_thread_fn`, D-056)는 WS 수신 스레드가 `fill_queue_`(SPSC)에 넣은 체결통보를 받아 `OrderRouter::on_fill`(원장 반영·CSV)과 운영단말 방송을 합니다. 수신 스레드는 push만 하므로 체결 처리 동안 틱이 서지 않습니다. 큐가 비면 condvar에서 자고 생산자가 깨웁니다(Logger와 같은 방식).
+- 체결 소비 스레드(`fill_thread_fn`, D-056)는 WS 수신 스레드가 `fill_queue_`(SPSC)에 넣은 체결통보를 받아 `OrderRouter::on_fill`(원장 반영·CSV)과 운영단말 방송을 합니다. 수신 스레드는 push만 하므로 체결 처리 동안 틱이 서지 않습니다. 큐가 비면 condvar에서 자고 생산자가 깨웁니다(Logger와 같은 방식). 이 깨우기는 `Quant/include/core/WakeGate.h`의 `sync::WakeGate` 한 조각이고 전략·주문 스레드의 유휴도 같은 조각을 씁니다 — 전략은 200us yield 뒤 잠들고, 주문은 재시도 만기까지 `wait_until`합니다(D-071, `test_wake_gate`). `Quant/src/main.cpp`가 `timeBeginPeriod(1)`을 잡아 sleep 격자를 15.6ms에서 2ms로 내리며, `RingBuffer::high_water()`를 제어 스레드가 1분마다 `[큐 고수위]`로 남깁니다.
 - 주문 스레드는 큐에서 꺼낸 신호를 `OrderRouter`에 넘깁니다. 직전 KIS 호출 뒤 최소 간격 대기, 거부의 재시도 분류(유량 한도는 action 불문, 청산 SELL은 40240000 제외, BUY 제외), 재시도 버퍼의 만기·청산 완료 폐기는 `Quant/include/core/OrderPacer.h`의 `OrderPacer`가 맡습니다(주문 스레드의 지역 객체, D-065, `test_order_pacer`). 게이트가 만들고 조절기가 읽는 유량 한도 거부 문장은 `Quant/include/risk/GateReasons.h` 한 곳이 정의합니다(D-067).
 - 제어 스레드(`control_thread_fn`)는 파이프라인 밖에서 잔고 대조·손익(daily_pnl) 갱신 상태 감시 등 주기 운영 작업을 담당합니다(갱신이 끊기면 OrderGate 보수정지 토글).
 - 잔고 → 원장 대조(기동 시드·주기 대조·당일 손익 기준선 파일·잔고조회 서킷브레이커)는 `Quant/include/core/LedgerReconciler.h`의 `LedgerReconciler`가 맡습니다. 브로커 호출·대조 행 기록·종목명 등록을 `std::function`으로 받아 `Engine`은 배선만 하고, 테스트는 KIS 없이 `OrderGate`만 링크합니다(D-061, `test_ledger_reconciler`).

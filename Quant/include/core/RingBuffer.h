@@ -51,6 +51,7 @@ public:
 
         buffer_[head & mask_] = item;
         head_.store(head + 1, std::memory_order_release);
+        note_depth(head + 1 - tail_.load(std::memory_order_relaxed));
         return true;
     }
 
@@ -65,6 +66,7 @@ public:
 
         buffer_[head & mask_] = std::move(item);
         head_.store(head + 1, std::memory_order_release);
+        note_depth(head + 1 - tail_.load(std::memory_order_relaxed));
         return true;
     }
 
@@ -102,15 +104,33 @@ public:
         return capacity_;
     }
 
+    // 기동 뒤 가장 깊었던 순간의 원소 수. 어느 스레드에서나 읽는다 — 큐 크기가 맞는지, 소비자가 밀리는지
+    //  실측으로 볼 때 쓴다. [why D-071]
+    [[nodiscard]] size_t high_water() const noexcept
+    {
+        return high_water_.load(std::memory_order_relaxed);
+    }
+
 private:
     static constexpr size_t round_up_pow2(size_t n) noexcept
     {
         return std::bit_ceil(n);
     }
 
+    // 생산자만 쓴다(push 직후). 비교 한 번뿐이라 hot path 비용은 relaxed load 하나다. 소비자가 그 사이에 뺐으면
+    //  실제보다 작게 잡히는데, 상한을 재는 용도라 그쪽 오차는 받아들인다.
+    void note_depth(size_t depth) noexcept
+    {
+        if (depth > high_water_.load(std::memory_order_relaxed))
+        {
+            high_water_.store(depth, std::memory_order_relaxed);
+        }
+    }
+
     const size_t capacity_;
     const size_t mask_;
     std::vector<T> buffer_;
+    std::atomic<size_t> high_water_{0};
 
     // head_: producer만 씀, tail_: consumer만 씀
     // 같은 cache line에 있으면 false sharing 발생 → 각각 독립 라인으로 분리

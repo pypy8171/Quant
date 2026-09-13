@@ -62,6 +62,17 @@ public:
     //  nullopt면 호출자가 새 신호 큐를 본다.
     std::optional<Pending> take_due_retry(Clock::time_point now);
 
+    // 가장 이른 재시도 만기. 재시도가 없으면 nullopt — 주문 스레드가 그때까지 자도 되는 시각이다.
+    std::optional<Clock::time_point> next_retry_at() const
+    {
+        if (retry_q_.empty())
+        {
+            return std::nullopt;
+        }
+
+        return retry_q_.front().not_before;
+    }
+
     // 직전 KIS 호출 뒤 min_interval을 채우기까지 남은 시간. 0이면 바로 낸다.
     Clock::duration wait_before_send(Clock::time_point now) const;
 

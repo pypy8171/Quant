@@ -159,6 +159,7 @@ else()
       winhttp
       bcrypt
       ws2_32
+      winmm
     )
 endif()
 
@@ -353,6 +354,13 @@ else()
     target_link_libraries(bench_feed_ingest PRIVATE ws2_32)
 endif()
 
+# ─── 테스트 타겟: WakeGate 깨우기 유실·만기 (헤더 전용, D-071) ──
+add_executable(test_wake_gate tests/test_wake_gate.cpp)
+target_include_directories(test_wake_gate PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(test_wake_gate PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟: MPSC/Mutex 큐 정확성 검증 (멀티클라이언트 인테이크 D1) ──
 add_executable(test_mpsc tests/test_mpsc.cpp)
 target_include_directories(test_mpsc PRIVATE
@@ -369,6 +377,14 @@ target_include_directories(bench_intake PRIVATE
 )
 if(UNIX)
     target_link_libraries(bench_intake PRIVATE pthread)
+endif()
+
+# ─── 벤치 타겟: 유휴 대기 해상도 (sleep_for·condvar, Windows 타이머 격자, D-071 Phase 0) ────
+add_executable(bench_sleep_res tests/bench_sleep_res.cpp)
+if(WIN32)
+    target_link_libraries(bench_sleep_res PRIVATE winmm)
+elseif(UNIX)
+    target_link_libraries(bench_sleep_res PRIVATE pthread)
 endif()
 
 # ─── 벤치 타겟: OrderGate 원장 읽기 vs 쓰기 스레드 경합 (감사 L4, D-058) ────
@@ -424,6 +440,7 @@ set(QUANT_ASSERT_TARGETS
     test_ringbuffer_stress
     test_pipeline_stress
     test_mpsc
+    test_wake_gate
     test_account_ledger
     test_logger
 )
