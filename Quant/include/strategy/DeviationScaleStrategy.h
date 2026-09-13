@@ -40,8 +40,9 @@
 //
 //  구동: rest_price_feed 모드에서 DataThread가 매 사이클 현재가를 TradeData로 주입 →
 //        on_trade_batch가 하트비트로 호출된다(WS 불필요). 일봉은 kis_로 자가조회(프리페치 스레드).
-//        3분봉은 bar_source로 고른다 — "rest"는 프리페치 스레드가 봉마다 REST를 다시 받고, "ws"는
-//        전략 스레드가 체결 틱을 BarAggregator로 모은다(REST 봉은 시드·폴백, D-068·D-069).
+//        3분봉은 bar_source로 고른다 — "rest"는 프리페치 스레드가 봉마다 REST를 다시 받고, "ws"(기본)는
+//        전략 스레드가 체결 틱을 BarAggregator로 1분봉에 모으고 resample로 interval_min 봉을 만든다
+//        (REST 1분봉은 시드·폴백, D-068·D-069·D-072). 판단은 언제나 interval_min 봉으로 한다 — 1분봉은 기저일 뿐이다.
 //
 //  포지션 진실원천: OrderGate 확정 포지션(confirmed_position). 체결콜백 부재(rest)에도
 //        잔고 대조로 원장이 최신이라 신뢰 가능 → 별도 on_fill 불필요.
@@ -134,10 +135,11 @@ public:
         //  prefetch_jitter_pct: 봉 경계 직후 분봉 조회를 종목별로 흩는다(봉 길이의 0~이 비율,
         //   티커 해시로 고정). 50종목이 같은 초에 조회하면 초당 한도(20)에 걸려 뒤쪽이 HTTP 500이다.
         int    prefetch_jitter_pct = 50;
-        //  bar_source: 3분봉을 어디서 받나. "rest"는 프리페치 스레드가 봉마다 REST 분봉을 다시 받고,
-        //   "ws"는 전략 스레드가 체결 틱을 직접 봉으로 모은다(BarAggregator). REST 봉은 시드와 폴백으로
-        //   남는다 — 틱이 REST 대체 모양이면(WS 폴백·구독 상한 넘침) 그 종목은 REST 봉으로 되돌아간다. [why D-069]
-        std::string bar_source = "rest";
+        //  bar_source: interval_min 봉을 어디서 받나. "rest"는 프리페치 스레드가 봉마다 REST 분봉을 다시 받고,
+        //   "ws"(기본)는 전략 스레드가 체결 틱을 1분봉으로 모아(BarAggregator) resample로 접는다. REST 1분봉은
+        //   시드와 폴백으로 남는다 — 틱이 REST 대체 모양이면(WS 폴백·구독 상한 넘침) 그 종목은 REST 봉으로
+        //   되돌아간다. [why D-069] [why D-072]
+        std::string bar_source = "ws";
         int    eod_hhmm       = 1515;  // 이 시각(KST HHMM) 이후 전량 취소+청산
         int    interval_min   = 3;     // 집계봉 간격(분)
         int    min_action_ms  = 3000;  // on_trade_batch 판단·발주 스로틀 겸 프리페치 루프 주기(분봉 REST는 프리페치 스레드가 당긴다)
@@ -149,7 +151,8 @@ public:
     {
         ws_bars_ = (p_.bar_source == "ws");
 
-        // 닫힌 봉 한 줄 — 봉마다 종목마다 나오므로 DEBUG. 시드 결과와 같이 보면 REST 봉과 어디가 다른지 드러난다.
+        // 닫힌 1분봉 한 줄 — 분마다 종목마다 나오므로 DEBUG. 비교표(compare_ws_bars.py)가 이 줄을 REST 1분봉과
+        //  같은 규칙으로 접어 interval_min 봉끼리 견준다.
         agg_.set_sink([this](const MarketData& md) {
             LOG_DEBUG("[" + id() + "] 봉 닫힘 src=ws t=" +
                       kst::hhmmss(std::chrono::system_clock::to_time_t(md.timestamp)).substr(0, 4) +
@@ -375,8 +378,8 @@ public:
                 reseed_pending_ = true;
             }
 
-            // 새 REST 스냅샷은 한 번만 시드한다. 닫힌 자리는 REST가 이기고 빈 자리는 채워지므로,
-            //  폴백 동안 못 본 봉·구독 뒤 늦게 붙은 종목의 앞 봉이 여기서 메워진다.
+            // 새 REST 스냅샷(1분봉)은 한 번만 시드한다. 닫힌 자리는 REST가 이기고 빈 자리는 채워지므로,
+            //  폴백 동안 못 본 분·구독 뒤 늦게 붙은 종목의 앞 분이 여기서 메워진다.
             if (!bars.empty() && bars_version != seeded_version_)
             {
                 const int  before = agg_.closed_count(p_.ticker);
@@ -400,13 +403,24 @@ public:
                 }
             }
 
-            // 다음 REST 조회를 받을지 프리페치 스레드에 알린다. 워밍업이 끝나고 틱이 살아 있으면 REST는 쉰다.
-            const bool want_seed = !ws_live_ || reseed_pending_ || agg_.closed_count(p_.ticker) < p_.sma_period;
+            // 판단 봉은 1분봉을 interval_min으로 접은 것이다 — 틱이 살아 있으면 집계기 스냅샷([0]=진행 중 분),
+            //  REST 대체 틱이면 REST 1분봉. 두 길이 같은 resample을 지나므로 자리·계산이 같다. [why D-072]
+            const std::vector<MarketData> local = bars::resample(agg_.snapshot(p_.ticker, 0), p_.interval_min,
+                                                                 p_.sma_period + 1);
+
+            // 다음 REST 조회를 받을지 프리페치 스레드에 알린다. 워밍업(SMA 창 + 진행 봉)이 끝나고 틱이 살아 있으면
+            //  REST는 쉰다.
+            const bool want_seed = !ws_live_ || reseed_pending_ ||
+                                   static_cast<int>(local.size()) < p_.sma_period + 1;
             seed_wanted_.store(want_seed, std::memory_order_relaxed);
 
             if (local_bars)
             {
-                bars = agg_.snapshot(p_.ticker, p_.sma_period + 1); // [0]=진행 중 봉, 종가는 이미 방금 틱
+                bars = local; // 종가는 이미 방금 틱
+            }
+            else
+            {
+                bars = bars::resample(bars, p_.interval_min, p_.sma_period + 1);
             }
         }
 
@@ -959,7 +973,8 @@ private:
                 //  달라지는 건 진행 중인 봉 하나뿐이다. 그 하나는 아래 on_trade_batch가 들어오는
                 //  체결 틱으로 덮으므로 SMA 값은 같게 유지되면서 조회는 봉 주기당 1회로 준다.
                 //  bar_source=ws면 이 조회는 시드용이다 — 첫 스냅샷, 그리고 전략 스레드가 원할 때(워밍업·
-                //  REST 대체 틱·출처 전환 뒤)만 봉마다 한 번 받고, 틱이 살아 있고 봉이 찼으면 쉰다.
+                //  REST 대체 틱·출처 전환 뒤)만 봉마다 한 번 받고, 틱이 살아 있고 봉이 찼으면 쉰다. 이때는
+                //  1분봉 그대로 받는다(같은 63분치·같은 GET 수) — 접는 건 전략 스레드의 resample이다. [why D-072]
                 const int bucket = kst_bar_bucket(p_.interval_min);
                 bool need_bars;
                 {
@@ -983,7 +998,9 @@ private:
 
                 if (need_bars)
                 {
-                    auto bars = kis_->get_minute_ohlcv(p_.ticker, p_.sma_period + 1, p_.interval_min);
+                    auto bars = ws_bars_
+                                    ? kis_->get_minute_ohlcv(p_.ticker, (p_.sma_period + 1) * p_.interval_min, 1)
+                                    : kis_->get_minute_ohlcv(p_.ticker, p_.sma_period + 1, p_.interval_min);
 
                     if (!bars.empty())
                     {
@@ -1388,11 +1405,12 @@ private:
     uint64_t snap_bars_version_ = 0;                 // 받을 때마다 +1 — 전략 스레드가 새 스냅샷만 시드한다
 
     // ── 틱 집계 봉(bar_source=ws). 집계기·아래 상태는 전략 스레드만 만진다. [why D-069] ──
+    //  기저는 1분이다 — interval_min 봉은 판단 직전 resample이 만든다. keep은 SMA 창을 1분으로 편 길이. [why D-072]
     static bars::BarAggregator::Config agg_config(const Params& p)
     {
         bars::BarAggregator::Config c;
-        c.interval_min = p.interval_min;
-        c.keep         = (std::max)(64, p.sma_period + 2);
+        c.interval_min = 1;
+        c.keep         = (std::max)(64, (p.sma_period + 2) * (std::max)(1, p.interval_min));
         return c;
     }
 

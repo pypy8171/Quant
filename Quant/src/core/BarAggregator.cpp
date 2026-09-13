@@ -73,6 +73,68 @@ std::chrono::system_clock::time_point slot_start(const BarSlot& s, std::time_t r
     return std::chrono::system_clock::from_time_t(bar_start);
 }
 
+std::vector<MarketData> resample(const std::vector<MarketData>& bars_1m, int interval_min, int max_count)
+{
+    std::vector<MarketData> out;
+
+    if (bars_1m.empty())
+    {
+        return out;
+    }
+
+    const size_t want = max_count > 0 ? static_cast<size_t>(max_count) : bars_1m.size();
+
+    if (interval_min <= 1)
+    {
+        out.assign(bars_1m.begin(), bars_1m.begin() + static_cast<std::ptrdiff_t>((std::min)(want, bars_1m.size())));
+
+        for (size_t i = 0; i < out.size(); ++i)
+        {
+            out[i].bar_index = static_cast<int>(i);
+        }
+
+        return out;
+    }
+
+    // 과거→최신으로 걸으며 같은 자리를 접는다. 자리는 봉 timestamp의 KST 분에서 온다 — 집계기 1분봉(자리 시작
+    //  시각)과 REST 1분봉(그 분의 라벨) 모두 같은 분을 가리킨다.
+    std::vector<MarketData> asc;
+    BarSlot                 cur;
+
+    for (auto it = bars_1m.rbegin(); it != bars_1m.rend(); ++it)
+    {
+        const std::time_t ts = std::chrono::system_clock::to_time_t(it->timestamp);
+        const struct tm   k  = kst::to_tm(ts);
+        BarSlot           slot;
+        slot.day    = day_key(k);
+        slot.bucket = (k.tm_hour * 60 + k.tm_min) / interval_min;
+
+        if (asc.empty() || slot != cur)
+        {
+            asc.push_back(*it);
+            cur = slot;
+            continue;
+        }
+
+        MarketData& md = asc.back();
+        md.high        = (std::max)(md.high, it->high); // (): windows.h max 매크로 회피
+        md.low         = (std::min)(md.low, it->low);
+        md.close       = it->close;
+        md.volume += it->volume;
+        md.timestamp = it->timestamp;
+    }
+
+    out.reserve((std::min)(want, asc.size()));
+
+    for (auto it = asc.rbegin(); it != asc.rend() && out.size() < want; ++it)
+    {
+        out.push_back(*it);
+        out.back().bar_index = static_cast<int>(out.size() - 1);
+    }
+
+    return out;
+}
+
 BarAggregator::BarAggregator(Config cfg) : cfg_(cfg)
 {
     if (cfg_.interval_min < 1)

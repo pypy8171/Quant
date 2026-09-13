@@ -595,7 +595,7 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
     base.stop_cooldown_sec  = s.value("stop_cooldown_sec", 900);
     base.sell_anchor_avg    = s.value("sell_anchor_avg", false);
     base.prefetch_jitter_pct = s.value("prefetch_jitter_pct", 50);
-    base.bar_source        = s.value("bar_source", std::string("rest")); // "rest"|"ws" (D-069)
+    base.bar_source        = s.value("bar_source", std::string("ws"));   // "ws"(기본)|"rest" (D-069·D-072)
     base.eod_hhmm          = s.value("eod_exit_hhmm", 1515);
     base.interval_min      = s.value("interval_min", 3);
     base.min_action_ms     = s.value("min_action_ms", 3000);

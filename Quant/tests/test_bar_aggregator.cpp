@@ -1,7 +1,8 @@
 // N분봉 집계기(core/BarAggregator.h) 단위 테스트. 버킷 정렬(REST aggregate_minutes와 같은 식)·자정 단조·빈 구간
 //  건너뜀·장 밖 틱 폐기·누적 거래량 차와 qty 합산 뒷걸음·시드 병합(닫힌 봉 REST 우선, 진행 봉 합침, 빈 자리
-//  채움)·keep 상한·bar_index 0=최신·닫힘 콜백을 고정한다. KIS·Engine·Logger 없이 링크한다.
-//  관련 결정: D-068.
+//  채움)·keep 상한·bar_index 0=최신·닫힘 콜백, 그리고 1분 기저를 N분으로 접는 resample이 직접 집계와 같음을
+//  고정한다. KIS·Engine·Logger 없이 링크한다.
+//  관련 결정: D-068·D-072.
 // 빌드: cmake --build <dir> --target test_bar_aggregator
 #include "core/BarAggregator.h"
 #include "core/KstTime.h"
@@ -261,6 +262,58 @@ int main()
         CHECK(agg.closed_count("005930") == 1);
         auto snap = agg.snapshot("005930");
         CHECK(snap[0].close == 20.0 && snap[1].close == 10.0);
+    }
+
+    // ── resample: 1분 기저 → 3분. 틱을 바로 3분에 넣은 집계기와 봉이 같아야 한다 (D-072) ──
+    {
+        BarAggregator::Config c1;
+        c1.interval_min = 1;
+        BarAggregator::Config c3;
+        c3.interval_min = 3;
+        BarAggregator one(c1), three(c3);
+        // 09:00~09:07 사이 매 분 두 틱. 09:04는 비워 두어 빈 분이 버킷 안에 있어도 접힌다.
+        const char* mins[] = {"0900", "0901", "0902", "0903", "0905", "0906", "0907"};
+        int         acml   = 0;
+
+        for (int i = 0; i < 7; ++i)
+        {
+            const std::string m  = mins[i];
+            const double      px = 100.0 + i;
+            acml += 5;
+            CHECK(one.on_tick(tick(m + "10", px + 0.5, 5, acml)));
+            CHECK(three.on_tick(tick(m + "10", px + 0.5, 5, acml)));
+            acml += 7;
+            CHECK(one.on_tick(tick(m + "40", px, 7, acml)));
+            CHECK(three.on_tick(tick(m + "40", px, 7, acml)));
+        }
+
+        const auto s1 = one.snapshot("005930");
+        CHECK(s1.size() == 7); // 진행 중 09:07 + 닫힌 6
+        const auto r3 = bars::resample(s1, 3);
+        const auto d3 = three.snapshot("005930");
+        CHECK(r3.size() == 3 && d3.size() == 3); // 09:06(진행 중)·09:03·09:00
+
+        for (size_t i = 0; i < 3; ++i)
+        {
+            CHECK(r3[i].open == d3[i].open && r3[i].high == d3[i].high && r3[i].low == d3[i].low &&
+                  r3[i].close == d3[i].close && r3[i].volume == d3[i].volume);
+            CHECK(r3[i].bar_index == static_cast<int>(i));
+        }
+
+        CHECK(r3[2].open == 100.5 && r3[2].close == 102.0 && r3[2].high == 102.5 && r3[2].low == 100.0);
+        CHECK(r3[1].volume == 24); // 09:03·09:05 두 분(09:04 없음) × 12
+        // timestamp는 버킷 마지막 분(aggregate_minutes와 같다).
+        CHECK(std::chrono::system_clock::to_time_t(r3[1].timestamp) == utc_of("090500"));
+        // max_count는 최신부터 자른다. interval 1은 복사·bar_index 재부여.
+        CHECK(bars::resample(s1, 3, 2).size() == 2 && bars::resample(s1, 3, 2)[1].close == r3[1].close);
+        const auto same = bars::resample(s1, 1, 4);
+        CHECK(same.size() == 4 && same[3].close == s1[3].close && same[3].bar_index == 3);
+        CHECK(bars::resample({}, 3).empty());
+        // REST 1분봉(진짜 UTC timestamp)을 접어도 같은 자리에 떨어진다.
+        std::vector<MarketData> rest = {rest_bar("090100", 1, 2, 1, 2, 1), rest_bar("090000", 1, 1, 1, 1, 1),
+                                        rest_bar("085900", 9, 9, 9, 9, 1)};
+        const auto rr = bars::resample(rest, 3);
+        CHECK(rr.size() == 2 && rr[0].open == 1 && rr[0].close == 2 && rr[0].volume == 2 && rr[1].open == 9);
     }
 
     std::cout << "test_bar_aggregator: " << g_checks << " checks passed\n";

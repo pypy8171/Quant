@@ -2,6 +2,7 @@
 // WS 체결 틱을 종목별 N분봉으로 모은다. 버킷은 REST 집계(KisRestDecode.h aggregate_minutes)와 같은 시계 정렬이고,
 //  스냅샷 배치도 같다([0]=최신, bar_index 0=최신). 주인은 전략(전략 스레드에서만 부른다) — 락이 없다.
 //  Engine·KIS·Logger에 의존하지 않는다. [why D-068]
+//  전략은 기저를 1분으로 두고 resample()로 3분·5분을 만든다 — 틱을 바로 N분에 넣지 않는다. [why D-072]
 #include "core/Types.h"
 
 #include <cstdint>
@@ -33,6 +34,13 @@ BarSlot slot_of(const std::string& hhmmss, std::time_t recv_utc, int interval_mi
 // 봉 시작 시각(UTC). MarketData.timestamp에 넣는다 — REST 봉의 timestamp가 봉의 마지막 1분 시각이라 뜻이 조금
 //  다르지만, 전략은 timestamp를 판단에 쓰지 않는다.
 std::chrono::system_clock::time_point slot_start(const BarSlot& s, std::time_t recv_utc, int interval_min);
+
+// 1분봉([0]=최신, 출처 불문 — 집계기 스냅샷이든 REST 1분봉이든)을 interval_min 봉으로 접는다. 버킷은
+//  slot_of·aggregate_minutes와 같은 시계 정렬이라 REST N분봉과 자리가 같다. 시가=버킷 첫 분, 종가=마지막 분,
+//  고저 max/min, 거래량 합, timestamp=버킷 마지막 분(aggregate_minutes와 같다). 반환은 [0]=최신·bar_index 재부여,
+//  max_count까지(0이면 전부). 1분봉 하나만 든 버킷도 낸다 — 진행 중 봉이 그렇다. interval_min<=1이면 복사.
+//  [why D-072]
+std::vector<MarketData> resample(const std::vector<MarketData>& bars_1m, int interval_min, int max_count = 0);
 
 class BarAggregator
 {

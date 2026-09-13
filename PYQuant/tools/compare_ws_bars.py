@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""WS 틱 집계 3분봉(로그의 `봉 닫힘 src=ws` DEBUG 줄)과 KIS REST 1분봉을 3분으로 모은 봉을 하루치 비교한다.
+"""WS 틱 집계 1분봉(로그의 `봉 닫힘 src=ws` DEBUG 줄)과 KIS REST 1분봉을 각각 같은 규칙으로 N분(기본 3)으로 접어
+하루치 비교한다. 로컬 줄은 D-072부터 1분봉이다 — 접는 규칙은 C++ resample·aggregate_minutes와 같다.
 
   P-1 3단계 실측(D-068·D-069). 트레이더를 `bar_source: "ws"`, `log_level: "DEBUG"`로 하루 돌린 뒤 장 마감 후에 돌린다.
   REST 쪽은 과거일 1분봉 TR(FHKST03010230)이라 며칠 뒤에 돌려도 같은 값이 온다.
 
 사용:
   py PYQuant/tools/compare_ws_bars.py --date 2026-09-14 [--log logs/quant_trader.log]
-      [--config Quant/config/config_dev_paper.json] [--tickers 005930,000660] [--sma 20] [--out 파일.md]
+      [--config Quant/config/config_dev_paper.json] [--tickers 005930,000660] [--sma 20] [--interval 3] [--out 파일.md]
   py PYQuant/tools/compare_ws_bars.py --selftest     # 파서·집계·비교만 가짜 자료로 확인(REST 안 부름)
 
 표가 답하는 것:
@@ -98,9 +99,11 @@ def sma_series(bars: dict[str, dict], period: int) -> dict[str, float]:
     return out
 
 
-def compare_ticker(ticker: str, local: dict[str, dict], rest_rows: list[dict], sma: int) -> tuple[list[str], dict]:
-    rest = aggregate(rest_rows, 3, 0)
-    rest_shift = aggregate(rest_rows, 3, -1)
+def compare_ticker(ticker: str, local_1m: dict[str, dict], rest_rows: list[dict], sma: int,
+                   interval: int = 3) -> tuple[list[str], dict]:
+    local = aggregate([{"time": k, **v} for k, v in sorted(local_1m.items())], interval, 0)
+    rest = aggregate(rest_rows, interval, 0)
+    rest_shift = aggregate(rest_rows, interval, -1)
     keys = sorted(set(local) | set(rest))
     lines = [f"### {ticker}", "",
              "| 봉(KST) | 로컬 O/H/L/C/V | REST O/H/L/C/V | 차이 |", "|---|---|---|---|"]
@@ -156,7 +159,9 @@ def summary_row(ticker: str, s: dict) -> str:
 
 
 def selftest() -> int:
-    log = ("2026-09-14 00:03:01.123 [DEBUG] [DEVSCALE_005930] 봉 닫힘 src=ws t=0900 o=100 h=105 l=99 c=104 v=300\n"
+    log = ("2026-09-14 00:01:00.123 [DEBUG] [DEVSCALE_005930] 봉 닫힘 src=ws t=0900 o=100 h=101 l=99 c=101 v=100\n"
+           "2026-09-14 00:02:00.001 [DEBUG] [DEVSCALE_005930] 봉 닫힘 src=ws t=0901 o=101 h=105 l=101 c=103 v=100\n"
+           "2026-09-14 00:03:00.001 [DEBUG] [DEVSCALE_005930] 봉 닫힘 src=ws t=0902 o=103 h=104 l=102 c=104 v=100\n"
            "2026-09-14 00:06:00.001 [DEBUG] [DEVSCALE_005930] 봉 닫힘 src=ws t=0903 o=104 h=106 l=103 c=105 v=200\n"
            "2026-09-13 06:00:00.000 [DEBUG] [DEVSCALE_005930] 봉 닫힘 src=ws t=0900 o=1 h=1 l=1 c=1 v=1\n")
     p = Path(__file__).resolve().parent / "_compare_ws_bars_selftest.log"
@@ -165,8 +170,8 @@ def selftest() -> int:
         local = parse_local(p, "2026-09-14")
     finally:
         p.unlink()
-    assert list(local) == ["005930"] and sorted(local["005930"]) == ["0900", "0903"], local
-    assert local["005930"]["0900"]["close"] == 104.0  # 09-13 06:00 UTC 줄은 KST 09-13이라 걸러진다
+    assert list(local) == ["005930"] and sorted(local["005930"]) == ["0900", "0901", "0902", "0903"], local
+    assert local["005930"]["0900"]["close"] == 101.0  # 09-13 06:00 UTC 줄은 KST 09-13이라 걸러진다
     rows = [{"time": "0900", "open": 100, "high": 101, "low": 99, "close": 101, "volume": 100},
             {"time": "0901", "open": 101, "high": 105, "low": 101, "close": 103, "volume": 100},
             {"time": "0902", "open": 103, "high": 104, "low": 102, "close": 104, "volume": 100},
@@ -191,6 +196,7 @@ def main() -> int:
     ap.add_argument("--config", default="Quant/config/config_dev_paper.json")
     ap.add_argument("--tickers", default="", help="쉼표 구분. 비우면 로그에 나온 종목 전부")
     ap.add_argument("--sma", type=int, default=20)
+    ap.add_argument("--interval", type=int, default=3, help="접을 봉 길이(분). 전략 interval_min과 같게")
     ap.add_argument("--out", default="")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
@@ -221,7 +227,7 @@ def main() -> int:
             "|---|---|---|---|---|---|---|---|---|"]
     for t in tickers:
         rows = c.get_past_minute_ohlcv(t, ymd)
-        lines, st = compare_ticker(t, local_all.get(t, {}), rows, a.sma)
+        lines, st = compare_ticker(t, local_all.get(t, {}), rows, a.sma, a.interval)
         body += lines
         summ.append(summary_row(t, st))
     text = "\n".join(summ + [""] + body)

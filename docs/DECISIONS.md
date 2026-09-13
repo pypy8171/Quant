@@ -2836,3 +2836,45 @@ KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 
 - 고수위: `RingBuffer::high_water()`(생산자 relaxed 비교 하나) + 제어 스레드가 1분마다 `[큐 고수위]` 한 줄(개장 여부 무관).
 - ctest 23/23 (`test_wake_gate` 추가, `test_ringbuffer`에 고수위 케이스).
 - 남은 Phase 0·1: `OrderSignal.seq` 구간 시각 CSV, `LOG_DEBUG` 레벨 가드(C-3), 단말 미접속 시 `ORDER_RESULT` JSON 생략(O-3).
+
+### D-072 틱 집계 봉의 기저를 1분으로 두고 판단 봉은 resample로 만든다 — REST 분봉 timestamp는 진짜 UTC (2026-09-13)
+**상태**: 채택 (`wt/bars-1m`, `test_bar_aggregator` 131·`test_kis_decode` 68 통과, 라이브는 09-14 장부터 `bar_source` 기본 `ws`)
+
+**배경**: D-068의 `BarAggregator`는 틱을 바로 `interval_min`(3분) 자리에 넣었다. 전략마다·간격마다 집계기가 따로 생겨
+5분봉 전략을 붙이면 같은 종목 틱을 두 번 먹고, REST 시드가 진행 중 3분 자리와 합칠 때 "시가 REST·고저 max/min·종가
+로컬·거래량 큰 쪽"으로 근사해야 했다. 1분이 REST와 맞닿는 가장 고운 단위다(초봉은 틱이 불규칙해 대부분 비고 REST에
+없어 시드·비교가 끊긴다). 시드 경로를 다시 읽다가 D-068의 결함을 찾았다 — `aggregate_minutes`가 `parse_dt`(KST 라벨을
+gmtime으로 읽은 값)를 timestamp에 그대로 넣어, `seed()`의 `kst::hhmmss(ts)`가 9시간을 더해 09:00 봉을 18:00 자리에
+닫아 두었다. 닫힌 자리보다 오래된 틱은 버리므로 실 REST로 시드한 뒤에는 틱이 전부 버려진다. 시험은 진짜 UTC로 봉을
+만들어 이를 못 봤고, `bar_source=ws`는 아직 라이브를 돈 적이 없어 드러나지 않았다.
+
+**결정**:
+- 집계기는 그대로 N분 범용이되, DeviationScale은 `interval_min=1`로 만들고(`agg_config`), 판단 직전
+  `bars::resample(1분봉, interval_min, sma_period+1)`로 접는다. 틱이 살아 있으면 집계기 스냅샷, REST 대체 틱이면 REST
+  1분봉 — 두 길이 같은 함수를 지나므로 자리·계산이 같다. 판단은 언제나 `interval_min` 봉이다. 1분봉으로 판단하는 경로는
+  없다(`warming`·`sma_close`가 받는 `bars`는 resample 결과).
+- `resample`은 순수 함수(`core/BarAggregator.h`). 버킷은 `slot_of`·`aggregate_minutes`와 같은 `(hh*60+mm)/N`, 시가=
+  첫 분·종가=마지막 분·고저 max/min·거래량 합·timestamp=마지막 분. 1분 경계가 N분 경계 안에 포개지고 OHLCV가
+  max/min/sum이라 틱→N분 직접 집계와 결과가 같다(시험이 두 집계기를 나란히 돌려 고정).
+- `ws` 시드는 `get_minute_ohlcv(ticker, (sma_period+1)*interval_min, 1)` — 같은 63분치·같은 GET 수다. `rest`는 그대로.
+- `aggregate_minutes`의 timestamp를 `parse_dt(...) − kst::kOffsetSec`(진짜 UTC)로 고친다. 일봉(`now`)·체결 틱과 같은 축.
+  `parse_dt` 자체의 의미는 안 바꾼다(C++23 4단계가 `year_month_day`로 옮길 때 반환 의미만 지키면 된다).
+- `bar_source` 기본값을 `rest`→`ws`. config에 키가 없는 실계좌·모의 모두 09-14 장부터 틱 집계로 돈다. 되돌리려면
+  전략 블록에 `"bar_source": "rest"`.
+- 비교표 `PYQuant/tools/compare_ws_bars.py`는 로컬 `봉 닫힘` 줄이 1분봉이므로 로컬·REST를 같은 `aggregate()`로
+  접어 견준다(`--interval`, 기본 3).
+- `keep`은 `(sma_period+2)*interval_min`(최소 64). 닫힌 1분봉 sink 로그는 분마다 나오므로 DEBUG 그대로.
+
+**버린 대안**:
+| 대안 | 이유 |
+|---|---|
+| 1초봉 기저 | 기각. 틱이 불규칙해 대부분 비고 REST 초봉이 없어 시드·폴백·비교표가 끊긴다 |
+| 틱→3분 직접 집계 유지 + 5분은 별도 집계기 | 기각. 종목당 집계기 수가 전략·간격 수만큼 늘고 시드 근사가 남는다 |
+| 집계기를 전략 밖(전략 스레드 지역, 종목당 하나)으로 빼서 공유 | 보류. 방향은 맞지만 범위가 커서 분리 커밋. 지금은 전략 하나뿐이라 문제가 없다 |
+| 시드에서만 −9h 보정(REST 봉 timestamp 규약 유지) | 기각. 같은 벡터에 두 규약이 섞여 `resample`이 출처를 물어야 한다. 원인 자리에서 고친다 |
+| 2700종목 1분봉 저장을 엔진에서 | 기각. WS 구독 상한 밖 종목의 틱은 엔진에 오지 않는다. 연구용 전 종목 1분봉은 장 마감 뒤 보조 프로세스(과거일 분봉 TR 또는 네이버 fchart) 일이다 |
+
+**확인 방법**: `C:\build_tmp\wt_bars1m`에서 `test_bar_aggregator`(직접 3분 집계 = 1분 집계 resample, REST 1분봉
+resample 자리 일치)·`test_kis_decode`(timestamp −9h). 09-14 장은 `log_level: "DEBUG"`로 돌리고 마감 뒤
+`py PYQuant/tools/compare_ws_bars.py --date 2026-09-14`로 OHLC 일치율·SMA 차이를 본다. 기동 로그에서 `봉 시드 src=ws
+… 새 N` 뒤 `봉 닫힘 src=ws`가 분마다 이어지면 시드 자리 결함이 닫힌 것이다.
