@@ -98,4 +98,4 @@ cmake --build Quant/build
 
 ## 기술 스택
 
-C++17 · CMake/Ninja · WinHTTP(Windows)/libcurl(Linux) · nlohmann/json · 자체 SPSC RingBuffer · ZeroMQ(선택) · Python 3.11 · TimescaleDB(선택) · Docker
+C++23(MSVC 14.44 / GCC 14, D-070) · CMake/Ninja · WinHTTP(Windows)/libcurl(Linux) · nlohmann/json · 자체 SPSC RingBuffer · ZeroMQ(선택) · Python 3.11 · TimescaleDB(선택) · Docker

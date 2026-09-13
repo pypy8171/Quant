@@ -196,8 +196,8 @@ static void consumer_fn(RingBuffer<MockOrderBook>& rb,
 		volatile double sink = 0.0;
 
 		for (int i = 0; i < 5; ++i) {
-			sink += opt->ask_price[i] * opt->ask_qty[i];
-			sink += opt->bid_price[i] * opt->bid_qty[i];
+			sink = sink + opt->ask_price[i] * opt->ask_qty[i];
+			sink = sink + opt->bid_price[i] * opt->bid_qty[i];
 		}
 
 		(void)sink;

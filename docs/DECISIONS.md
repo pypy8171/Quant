@@ -2718,3 +2718,44 @@ REST 현재가 폴링으로 낮추는데(`rest_fallback_engaged_`, `DataPoller::
 한 종목군에 `bar_source: "ws"`를 주고 하루 돌려 `src=ws` 로그의 봉 시드·닫힘·기준선을 같은 날 REST 봉과 비교한다
 (OHLCV·SMA 표, 차이 원인은 빈 봉·빠진 틱·1분봉 라벨 뜻). 지연 문구는 D-068 그대로 — "봉 확정을 전략이 아는 시점이
 경계 뒤 수 초~90초에서 틱 도착 즉시(ms)로". 비교 도구는 `PYQuant/tools/compare_ws_bars.py` — 로그의 봉 닫힘 줄(DEBUG, config `log_level: "DEBUG"`로 하루만 연다)과 KIS 과거 1분봉(FHKST03010230)을 3분으로 모은 것을 종목별 표로 맞춘다. 1분봉 라벨이 분의 시작인지 끝인지는 라벨을 1분 당긴 집계와 시가·종가 일치율을 견줘 판정한다.
+
+### D-070 언어 표준을 C++17에서 C++23으로 올린다 — 툴체인 먼저, 문법 적용은 위험 낮은 순으로 (2026-09-13)
+**상태**: 1단계 채택 (`wt/cpp23`, 표준·CMake·Dockerfile·MFC 한 줄, MSVC 14.44 Release 빌드 경고 0, ctest 22/22)
+
+**배경**: 프로젝트는 C++17로 시작했고 툴체인은 그 뒤로 두 세대가 지났다. Windows는 VS 2022 17.14(MSVC 14.44)가
+C++23 라이브러리 대부분(`<format>`·`<print>`·`std::expected`·`<chrono>` 달력·`jthread`·`atomic::wait`)을 갖췄고,
+Linux는 Ubuntu 22.04의 GCC 11이 `<format>`·`expected`·`ranges::to`·tzdb를 못 준다. 코드에는 표준이 이미 해결한 손
+구현이 여럿이다 — `KisWsDecode.h`의 `Fields`(span 손 구현), `KstTime.h`의 gmtime+9h 달력, `OrderRouter`·`OrderGate`의
+`snprintf`/`ostringstream` 문자열 조립, 정지 깃발+`thread`+`condition_variable` 세 벌, `RingBuffer.h`·`MpscQueue.h`의
+2의 거듭제곱 루프, `PosKey`의 손 `operator==`, `bench_*`의 `volatile` 싱크(C++20에서 복합 대입이 폐기).
+
+**결정**:
+- `CMAKE_CXX_STANDARD 23`, `cmake_minimum_required 3.20`(23 값을 아는 최소 버전). 20이 아니라 23인 이유: 20만으로는
+  `std::expected`·`std::print`·`ranges::to`·`to_underlying`·`if consteval`을 못 쓰고, 컴파일러 요구는 둘이 같다
+  (GCC 14·MSVC 14.44).
+- `Quant/Dockerfile`은 두 스테이지 모두 `ubuntu:24.04`, 빌더는 `g++-14`를 `CMAKE_CXX_COMPILER`로 지정. GCC 12+의
+  `hardware_destructive_interference_size` 경고는 `-Wno-interference-size`로 끈다(값은 큐 헤더가 64로 고정 분기한다).
+- Windows 소스 수정은 한 줄이다. `OpsTerminalDlg.cpp`의 조건식 `cond ? L"리터럴" : CString`이 C++20의 조건식 형식 규칙
+  강화로 C2445가 나서 리터럴을 `CString(...)`으로 감쌌다. 엔진·테스트·벤치는 수정 없이 통과했다.
+- VS는 2022에 머문다. 필요한 기능이 전부 17.14 안에 있고, 2026으로 올리면 CMake 프리셋·`build_win` 절차·감시견의
+  개발셸 경로가 같이 바뀐다. 얻는 것이 없다.
+- 문법 적용 순서는 `docs/guides/CPP20_23_GUIDE.md` 17절. 1단계(이 커밋) 툴체인+`volatile` 싱크(`+=`를 `= sink +`로, 읽기·쓰기 횟수 동일) → 2단계 의미 변화 없는
+  치환(`span`·`starts_with`/`contains`·`bit_ceil`·`operator== = default`·`ranges::sort`·지정 초기화·`using enum`) →
+  3단계 `std::format`(문자열 조립) → 4단계 `<chrono>` 달력(`KstTime`·`today_ymd`·`parse_dt`) → 5단계 `jthread`/`stop_token`
+  → 6단계 `KisResult`를 `std::expected` 위에 → 7단계 `atomic::wait`로 Logger·체결 스레드 condvar 대체. 단계마다 커밋을
+  나누고 ctest·`bench_*` 비교로 닫는다. 지연 경로(RingBuffer push/pop, WS 디코더)는 벤치가 같거나 낫지 않으면 되돌린다.
+- 같은 워크트리 시각에 `wt/p1`(D-068·D-069)이 먼저 main에 들어갔고 `wt/cpp23`은 그 위로 rebase했다. 겹친 파일은
+  `Logger.h`뿐이고 자동 병합됐다.
+
+**버린 대안**:
+| 대안 | 이유 |
+|---|---|
+| C++20에서 멈춘다 | 기각. 컴파일러 요구가 23과 같은데 `expected`·`print`·`ranges::to`를 못 쓴다 |
+| 모듈(`import std;`) | 보류. CMake 3.28+·Ninja 1.11+·MSVC 전용에 가깝고 빌드 시간 이득이 이 규모(수십 TU)에서는 작다 |
+| 코루틴으로 WS 수신·재연결 | 보류. 스레드 모델(D-056 등)이 조각마다 소유권을 정해 두었고 코루틴은 그 경계를 흐린다. 실행기 없이 쓰면 콜백보다 읽기 어렵다 |
+| `std::atomic_ref`·`std::latch`·`std::barrier` | 보류. 지금 코드에 자리가 없다. 테스트 스레드 동기화가 필요해지면 `latch`부터 |
+| Dockerfile을 22.04에 두고 GCC 13 PPA | 기각. PPA 의존이 늘고 `libstdc++` 13은 `<print>`·tzdb가 빠진다. 24.04 기본 저장소의 g++-14가 깔끔하다 |
+
+**확인 방법**: 1단계는 `C:\build_tmp\wt_cpp23_build`에서 Ninja Release 빌드(경고 0)와 ctest 22/22. 이후 단계는
+같은 빌드 디렉터리에서 `bench_ringbuffer`·`bench_market_firehose`·`bench_logger` 앞뒤 비교표를 커밋 메시지에 남긴다.
+Linux는 Dockerfile 빌드 1회로 GCC 14 경로를 확인한다(사용자가 돌린다).

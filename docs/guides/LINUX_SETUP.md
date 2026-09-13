@@ -1,8 +1,8 @@
-# Linux 빌드 및 실행 가이드 (WSL2 Ubuntu 22.04)
+# Linux 빌드 및 실행 가이드 (WSL2 Ubuntu 24.04)
 
 ## 환경
 
-- WSL2 Ubuntu 22.04
+- WSL2 Ubuntu 24.04 — C++23(D-070)이라 GCC 14가 필요하다. 22.04의 기본 GCC 11은 `<format>`·`std::expected`를 주지 않는다
 - Windows 파일은 `/mnt/c/...` 로 직접 접근 가능 → 클론 불필요
 
 ---
@@ -32,6 +32,7 @@ cd /mnt/c/Users/PYH/source/repos/Quant
 sudo apt update
 sudo apt install -y \
     build-essential \
+    g++-14 \
     cmake \
     ninja-build \
     libcurl4-openssl-dev
@@ -47,6 +48,7 @@ sudo apt install -y libzmq3-dev
 ```bash
 # 프로젝트 루트에서
 cmake -DCMAKE_BUILD_TYPE=Release -G Ninja \
+      -DCMAKE_CXX_COMPILER=g++-14 \
       -B Quant/build \
       -S Quant
 
@@ -196,7 +198,7 @@ WSL2 홈으로 복사 후 빌드:
 ```bash
 cp -r /mnt/c/Users/PYH/source/repos/Quant ~/Quant
 cd ~/Quant
-cmake -DCMAKE_BUILD_TYPE=Release -G Ninja -B Quant/build -S Quant
+cmake -DCMAKE_BUILD_TYPE=Release -G Ninja -DCMAKE_CXX_COMPILER=g++-14 -B Quant/build -S Quant
 cmake --build Quant/build -j$(nproc)
 ```
 

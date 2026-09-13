@@ -509,7 +509,7 @@ static void strategy_fn(RingBuffer<MockOrderBook>& ob_q,
 
             for (int i = 0; i < 5; ++i)
             {
-                sink += opt->ask_price[i] - opt->bid_price[i];
+                sink = sink + opt->ask_price[i] - opt->bid_price[i];
             }
 
             (void)sink;

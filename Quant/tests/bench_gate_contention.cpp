@@ -85,8 +85,8 @@ Result run_reader(const OrderGate& gate, const std::string& acct, double duratio
     {
         const std::string t = tkr(i % kSlots);
         const auto t0 = clk::now();
-        sink += gate.position(acct, t);
-        sink += gate.sellable_view(acct, t).psbl_cap;
+        sink = sink + gate.position(acct, t);
+        sink = sink + gate.sellable_view(acct, t).psbl_cap;
         const auto t1 = clk::now();
         r.lat_ns.push_back(std::chrono::duration_cast<ns>(t1 - t0).count());
         ++r.reads;

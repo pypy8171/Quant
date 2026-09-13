@@ -1,7 +1,7 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.20)
 project(QuantTrader VERSION 1.0.0 LANGUAGES CXX)
  
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
  
 # ─── 빌드 타입 기본값 ──────────────────────────────────────────────────────
@@ -23,7 +23,8 @@ if(UNIX)
     else()
         set(CMAKE_CXX_FLAGS_DEBUG "-g -fsanitize=address")
     endif()
-    add_compile_options(-Wall -Wextra -Wpedantic)
+    # GCC 12+는 hardware_destructive_interference_size 사용에 경고를 낸다. 값은 큐 헤더가 64로 고정 분기한다.
+    add_compile_options(-Wall -Wextra -Wpedantic -Wno-interference-size)
 else()
     # MSVC: UTF-8 소스 인식, deprecated 함수 경고 억제, WinHTTP 최소 대상 버전
     add_compile_options(/utf-8)

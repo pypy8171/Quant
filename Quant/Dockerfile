@@ -1,10 +1,10 @@
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
-FROM ubuntu:22.04 AS builder
+FROM ubuntu:24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    cmake ninja-build g++ git ca-certificates \
+    cmake ninja-build g++-14 git ca-certificates \
     libcurl4-openssl-dev \
     libssl-dev \
     libzmq3-dev \
@@ -15,12 +15,13 @@ COPY Quant/ .
 
 RUN cmake -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_COMPILER=g++-14 \
         -B build \
         -S . \
     && cmake --build build --target quant_trader -j$(nproc)
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=Asia/Seoul

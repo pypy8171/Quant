@@ -684,7 +684,7 @@ void OpsTerminalDlg::place_order(const char* side)
 
     by_cid_[cid] = PendingOrder{to_utf8(ticker), side, qty};
     log(L"[주문] 전송 " + from_utf8(cid) + L" " + ticker + (sell ? L" SELL " : L" BUY ") + fmt_qty(qty) +
-        (price == 0 ? L" 시장가" : L" @" + fmt_price(price)));
+        (price == 0 ? CString(L" 시장가") : L" @" + fmt_price(price)));  // C++20 조건식은 양쪽 형식이 같아야 한다
 }
 
 void OpsTerminalDlg::log(const CString& line)
