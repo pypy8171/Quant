@@ -60,7 +60,7 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 
 - `RingBuffer<T>`는 명시적 메모리 순서를 가진 `std::atomic`을 사용하는 SPSC(단일 생산자/단일 소비자) 락-프리 큐입니다.
 - 데이터 스레드는 `fetch_interval_sec`초마다 KIS REST를 폴링하며, 장 외 시간에는 건너뜁니다. REST 현재가 폴링(폴링 모드 유니버스·WS 구독 상한 넘침 대체·틱 끊긴 보유 보충)은 `Quant/include/core/DataPoller.h`의 `DataPoller`가 맡고, 폴러의 틱은 데이터 스레드 전용 `rest_td_queue_`로 갑니다(D-062, `test_data_poller`). KST 시각 변환은 `Quant/include/core/KstTime.h`.
-- 전략 스레드는 등록된 전략 전체를 순회하며, `NONE`이 아닌 신호는 주문 큐에 push합니다. 신호가 큐에 가기 전의 판단 — 순번 stamp, 비활성 전략·청산 관리 보유 종목의 신규 차단, 슬롯이 찬 상태의 교체 진입(최약체 매도 뒤 매수 보류), 강제청산 재발주 스로틀, 기동 뒤 한도 초과분 정리 — 는 `Quant/include/core/SignalDispatcher.h`의 `SignalDispatcher`가 맡습니다(전략 스레드의 지역 객체, D-063, `test_signal_dispatcher`).
+- 전략 스레드는 등록된 전략 전체를 순회하며, `NONE`이 아닌 신호는 주문 큐에 push합니다. 신호가 큐에 가기 전의 판단 — 순번 stamp, 비활성 전략·청산 관리 보유 종목의 신규 차단, 슬롯이 찬 상태의 교체 진입(최약체 매도 뒤 매수 보류), 강제청산 재발주 스로틀, 기동 뒤 한도 초과분 정리 — 는 `Quant/include/core/SignalDispatcher.h`의 `SignalDispatcher`가 맡습니다(전략 스레드의 지역 객체, D-063, `test_signal_dispatcher`). DeviationScale의 3분봉은 config `bar_source`로 고른다 — `"rest"`(기본)는 REST 3분봉, `"ws"`는 전략 스레드가 체결 틱을 `Quant/include/core/BarAggregator.h`의 `bars::BarAggregator`로 모으고 REST 봉은 시드·폴백에만 쓴다(REST 대체 틱이 오면 REST 봉으로 되돌아간다, D-068·D-069, `test_bar_aggregator`).
 - 체결 소비 스레드(`fill_thread_fn`, D-056)는 WS 수신 스레드가 `fill_queue_`(SPSC)에 넣은 체결통보를 받아 `OrderRouter::on_fill`(원장 반영·CSV)과 운영단말 방송을 합니다. 수신 스레드는 push만 하므로 체결 처리 동안 틱이 서지 않습니다. 큐가 비면 condvar에서 자고 생산자가 깨웁니다(Logger와 같은 방식).
 - 주문 스레드는 큐에서 꺼낸 신호를 `OrderRouter`에 넘깁니다. 직전 KIS 호출 뒤 최소 간격 대기, 거부의 재시도 분류(유량 한도는 action 불문, 청산 SELL은 40240000 제외, BUY 제외), 재시도 버퍼의 만기·청산 완료 폐기는 `Quant/include/core/OrderPacer.h`의 `OrderPacer`가 맡습니다(주문 스레드의 지역 객체, D-065, `test_order_pacer`). 게이트가 만들고 조절기가 읽는 유량 한도 거부 문장은 `Quant/include/risk/GateReasons.h` 한 곳이 정의합니다(D-067).
 - 제어 스레드(`control_thread_fn`)는 파이프라인 밖에서 잔고 대조·손익(daily_pnl) 갱신 상태 감시 등 주기 운영 작업을 담당합니다(갱신이 끊기면 OrderGate 보수정지 토글).
@@ -96,7 +96,7 @@ FEED 모드에서 사용합니다. REST로 approval key를 발급받고, `ops.ko
 
 ### 로깅
 
-싱글톤 `Logger`가 밀리초 단위 UTC 타임스탬프로 콘솔과 `logs/quant_trader.log`(cwd 하위 `logs/` 폴더에 고정, 부모 폴더는 자동 생성)에 기록합니다. 과거 로그는 `logs/archive/`에 보관합니다. 사용 매크로: `LOG_INFO()`, `LOG_WARN()`, `LOG_ERROR()`, `LOG_DEBUG()`.
+싱글톤 `Logger`가 밀리초 단위 UTC 타임스탬프로 콘솔과 `logs/quant_trader.log`(cwd 하위 `logs/` 폴더에 고정, 부모 폴더는 자동 생성)에 기록합니다. 과거 로그는 `logs/archive/`에 보관합니다. 사용 매크로: `LOG_INFO()`, `LOG_WARN()`, `LOG_ERROR()`, `LOG_DEBUG()`. 기본 임계값은 INFO이고 config `"log_level": "DEBUG"`가 봉 닫힘(D-069)·KIS 응답 본문 같은 DEBUG 줄을 연다 — 비교표를 뽑는 날만 켠다(`PYQuant/tools/compare_ws_bars.py`).
 
 **비동기 구조**: 전략·주문 hot path는 레코드를 큐에 push만 하고 즉시 반환하며, 타임스탬프 포맷팅과 파일/콘솔 I/O는 전용 writer 스레드가 담당합니다(저지연은 평균 지연보다 최악 지연(tail latency)이 중요하다는 설계 의도로 디스크 플러시를 hot path에서 분리). 큐는 락 없는 `MpscQueue<Record>`(65,536슬롯)이고 writer는 큐가 비면 condvar에서 자며 생산자는 writer가 "잔다"고 표시한 때만 깨웁니다(D-045). 밀림 처리: 큐가 가득 차면 새 레코드를 드롭하고 `dropped()`로 셉니다(hot path 블로킹 방지). 종료·테스트 직전 정합 확인용 `flush()`를 제공합니다.
 

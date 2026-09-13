@@ -2,6 +2,7 @@
 #include "api/KisClient.h"
 #include "core/BarAggregator.h"
 #include "core/DataPoller.h"
+#include "core/KstTime.h"
 #include "core/TickSize.h"
 #include "strategy/StrategyBase.h"
 #include "universe/MaAlign.h"
@@ -150,8 +151,10 @@ public:
 
         // 닫힌 봉 한 줄 — 봉마다 종목마다 나오므로 DEBUG. 시드 결과와 같이 보면 REST 봉과 어디가 다른지 드러난다.
         agg_.set_sink([this](const MarketData& md) {
-            LOG_DEBUG("[" + id() + "] 봉 닫힘 src=ws o=" + fmt1(md.open) + " h=" + fmt1(md.high) +
-                      " l=" + fmt1(md.low) + " c=" + fmt1(md.close) + " v=" + std::to_string(md.volume));
+            LOG_DEBUG("[" + id() + "] 봉 닫힘 src=ws t=" +
+                      kst::hhmmss(std::chrono::system_clock::to_time_t(md.timestamp)).substr(0, 4) +
+                      " o=" + fmt1(md.open) + " h=" + fmt1(md.high) + " l=" + fmt1(md.low) +
+                      " c=" + fmt1(md.close) + " v=" + std::to_string(md.volume));
         });
 
         if (p_.n_rungs < 1)

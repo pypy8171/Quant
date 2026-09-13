@@ -110,6 +110,12 @@ public:
         min_level_.store(min_level, std::memory_order_relaxed);
     }
 
+    // 기동 뒤 임계값만 바꾼다(config "log_level"). 봉 닫힘처럼 하루 한 번 켜 보는 DEBUG 줄을 위해 있다.
+    void set_min_level(LogLevel min_level)
+    {
+        min_level_.store(min_level, std::memory_order_relaxed);
+    }
+
     // 실행 위치(cwd)와 무관하게 로그·산출물을 한 곳에 모으기 위한 기준 디렉터리.
     // main에서 실행파일 기준 절대경로로 한 번 고정한다(미설정 시 cwd 하위 "logs").
     void set_base_dir(const std::filesystem::path& dir)

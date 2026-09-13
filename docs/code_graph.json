@@ -119,7 +119,7 @@
     {
       "from": "strategy",
       "to": "core",
-      "weight": 12
+      "weight": 13
     },
     {
       "from": "strategy",
@@ -423,6 +423,7 @@
       "api/KisClient.h",
       "core/BarAggregator.h",
       "core/DataPoller.h",
+      "core/KstTime.h",
       "core/TickSize.h",
       "strategy/StrategyBase.h",
       "universe/MaAlign.h",
@@ -579,7 +580,8 @@
     "core/KstTime.h": [
       "core/BarAggregator.cpp",
       "core/DataPoller.cpp",
-      "core/LedgerReconciler.h"
+      "core/LedgerReconciler.h",
+      "strategy/DeviationScaleStrategy.h"
     ],
     "core/LedgerReconciler.h": [
       "core/Engine.h",
@@ -795,6 +797,10 @@
       "in_degree": 5
     },
     {
+      "header": "core/KstTime.h",
+      "in_degree": 4
+    },
+    {
       "header": "core/MarketSession.h",
       "in_degree": 4
     },
@@ -824,10 +830,6 @@
     },
     {
       "header": "core/Engine.h",
-      "in_degree": 3
-    },
-    {
-      "header": "core/KstTime.h",
       "in_degree": 3
     },
     {
@@ -913,6 +915,7 @@
       "PYQuant/tools/check_pykrx.py",
       "PYQuant/tools/check_pykrx_flow.py",
       "PYQuant/tools/check_sector_index.py",
+      "PYQuant/tools/compare_ws_bars.py",
       "PYQuant/tools/fetch_naver_themes.py",
       "PYQuant/tools/full_universe_dump.py",
       "PYQuant/tools/fullperiod_validate.py",
@@ -1096,6 +1099,9 @@
         "kis.client"
       ],
       "PYQuant/tools/check_sector_index.py": [
+        "kis.client"
+      ],
+      "PYQuant/tools/compare_ws_bars.py": [
         "kis.client"
       ],
       "PYQuant/tools/fetch_naver_themes.py": [
@@ -1286,6 +1292,7 @@
         "PYQuant/tools/check_investor_api.py",
         "PYQuant/tools/check_market_flow.py",
         "PYQuant/tools/check_sector_index.py",
+        "PYQuant/tools/compare_ws_bars.py",
         "PYQuant/tools/index_intraday_logger.py",
         "PYQuant/tools/investor_flow_logger.py",
         "PYQuant/tools/minute_backfill.py",
@@ -1512,7 +1519,7 @@
       {
         "from": "PYQuant/tools",
         "to": "PYQuant/kis",
-        "weight": 9
+        "weight": 10
       },
       {
         "from": "PYQuant/tools",
@@ -1632,6 +1639,7 @@
         "scripts/summarize_trading_day.py"
       ],
       "readers": [
+        "PYQuant/tools/compare_ws_bars.py",
         "scripts/_logdir.py",
         "scripts/check_runtime_health.py",
         "scripts/dashboard_server.py",
@@ -1644,6 +1652,7 @@
         "scripts/summarize_trading_day.py"
       ],
       "mentions": [
+        "PYQuant/tools/compare_ws_bars.py",
         "PYQuant/tools/log_report.py",
         "Quant/src/main.cpp",
         "scripts/_logdir.py",

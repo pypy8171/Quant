@@ -164,6 +164,13 @@ int main(int argc, char* argv[])
         LOG_INFO("[Main] 모드 오버라이드: " + mode_override);
     }
 
+    // 로그 임계값: 기본 INFO. "DEBUG"는 봉 닫힘(D-069)·KIS 응답 본문 같은 줄을 연다 — 비교표 뽑는 날만 켠다.
+    if (cfg.value("log_level", std::string("INFO")) == "DEBUG")
+    {
+        Logger::instance().set_min_level(LogLevel::DEBUG);
+        LOG_INFO("[Main] 로그 임계값 DEBUG (config log_level)");
+    }
+
     // KIS 설정
     KisConfig kis_cfg;
     kis_cfg.app_key      = cfg["kis"]["app_key"];

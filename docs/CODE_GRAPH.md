@@ -39,7 +39,7 @@ graph LR
   modes -->|2| utils
   risk --> core
   strategy -->|5| api
-  strategy -->|12| core
+  strategy -->|13| core
   strategy -->|3| universe
   strategy -->|9| utils
   universe --> api
@@ -60,9 +60,9 @@ graph LR
 | `api/KisClient.h` | 11 |
 | `strategy/StrategyBase.h` | 11 |
 | `risk/OrderGate.h` | 5 |
+| `core/KstTime.h` | 4 |
 | `core/MarketSession.h` | 4 |
 | `ipc/ZmqBridge.h` | 4 |
-| `api/KisErrorCodes.h` | 3 |
 
 ## 파일 단위 상세
 
@@ -248,6 +248,7 @@ graph LR
   n_strategy_DeviationScaleStrategy_h --> n_api_KisClient_h
   n_strategy_DeviationScaleStrategy_h --> n_core_BarAggregator_h
   n_strategy_DeviationScaleStrategy_h --> n_core_DataPoller_h
+  n_strategy_DeviationScaleStrategy_h --> n_core_KstTime_h
   n_strategy_DeviationScaleStrategy_h --> n_core_TickSize_h
   n_strategy_DeviationScaleStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_DeviationScaleStrategy_h --> n_universe_MaAlign_h
@@ -355,7 +356,7 @@ graph LR
   p_PYQuant_tools -->|5| p_PYQuant
   p_PYQuant_tools --> p_PYQuant_backtest
   p_PYQuant_tools -->|6| p_PYQuant_data
-  p_PYQuant_tools -->|9| p_PYQuant_kis
+  p_PYQuant_tools -->|10| p_PYQuant_kis
   p_PYQuant_tools --> p_PYQuant_naver
   p_scripts --> p_PYQuant_backtest
   p_scripts -->|2| p_PYQuant_kis
@@ -398,6 +399,7 @@ graph LR
 | `PYQuant/tools/check_investor_api.py` | `kis.client` |
 | `PYQuant/tools/check_market_flow.py` | `kis.client` |
 | `PYQuant/tools/check_sector_index.py` | `kis.client` |
+| `PYQuant/tools/compare_ws_bars.py` | `kis.client` |
 | `PYQuant/tools/fetch_naver_themes.py` | `naver.theme` |
 | `PYQuant/tools/full_universe_dump.py` | `data.datagokr_source` |
 | `PYQuant/tools/fullperiod_validate.py` | `data.datagokr_source`, `main`, `tools.month_start_sweep` |
@@ -436,7 +438,7 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 | `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp` | `PYQuant/dashboard/backfill_live.py`, `Quant/src/ipc/OrderRouter.cpp`, `scripts/parse_quant_log.py` | `scripts/_logdir.py`, `scripts/notify_sidecar.py` |
 | `universe*.json` |  | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/nxt_divergence_probe.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseScanner.cpp`, `scripts/eod_minute_backfill.py`, `scripts/live_prices_feed.py`, `scripts/notify_sidecar.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |
 | `open_orders.txt` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` |  |
-| `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/build_review_entry.py`, `scripts/summarize_trading_day.py` | `scripts/_logdir.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/eod_autodoc.py`, `scripts/eod_collect.py`, `scripts/extract_swap_counterfactual.py`, `scripts/notify_sidecar.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `Quant/src/main.cpp` |
+| `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/build_review_entry.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `scripts/_logdir.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/eod_autodoc.py`, `scripts/eod_collect.py`, `scripts/extract_swap_counterfactual.py`, `scripts/notify_sidecar.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `Quant/src/main.cpp` |
 | `kis_token_*.json` |  | `scripts/gen_facts.py` | `PYQuant/kis/client.py`, `Quant/src/api/KisAuth.cpp` |
 
 ## 영향범위 질의 · 기계 소비
