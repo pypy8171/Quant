@@ -25,6 +25,7 @@ param(
   [switch]$NoNotify,                 # 체결·포지션 메신저 알림 창을 띄우지 않는다
   [switch]$NoPrices,                 # 전 종목 시세 파일 전달(네이버 벌크) 창을 띄우지 않는다
   [switch]$NoEod,                    # 마감 뒤 사실 문서·대시보드 갱신을 건너뛴다
+  [switch]$NoBuild,                  # 기동 전 재빌드를 건너뛴다(exe를 손으로 바꾼 날). 이때는 소스가 exe보다 새면 중단
   [switch]$DryRun
 )
 
@@ -196,12 +197,41 @@ if ($dup) {
 if (-not (Test-Path $Exe))     { Say "실행파일 없음: $Exe — /build 먼저." "ERROR"; Save-Status "aborted" @{ error = "no_exe" }; exit 2 }
 if (-not (Test-Path $Config))  { Say "config 없음: $Config" "ERROR"; Save-Status "aborted" @{ error = "no_config" }; exit 2 }
 
-$src = Get-ChildItem -Recurse -File "Quant\src", "Quant\include" -ErrorAction SilentlyContinue |
-       Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if ($src -and $src.LastWriteTime -gt (Get-Item $Exe).LastWriteTime) {
-  Say "소스가 exe보다 새것이다($($src.Name)). 낡은 바이너리로 매매하지 않는다 — /build 후 다시." "ERROR"
-  Save-Status "aborted" @{ error = "stale_exe"; newer = $src.Name }
-  exit 2
+# 낡은 바이너리로 매매하지 않는다. 예전엔 소스가 exe보다 새면 중단하고 사람이 /build를 돌렸는데,
+# 그 사이 매매가 안 됐다. 이제 기동 전에 한 번 빌드한다(증분이라 바뀐 게 없으면 몇 초).
+# 실패하면 옛 exe가 남아 있어도 매매하지 않는다. 장중 재기동에는 빌드가 없다 — 여기 한 번뿐이다.
+$head  = (git rev-parse --short HEAD 2>$null)
+$dirty = @(git status --porcelain Quant\src Quant\include 2>$null).Count
+if ($dirty -gt 0) { Say "메인 트리에 미커밋 소스 변경 $dirty 건 — 그대로 빌드에 들어간다." "WARN" }
+if ($NoBuild) {
+  $src = Get-ChildItem -Recurse -File "Quant\src", "Quant\include" -ErrorAction SilentlyContinue |
+         Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  if ($src -and $src.LastWriteTime -gt (Get-Item $Exe).LastWriteTime) {
+    Say "소스가 exe보다 새것이다($($src.Name)). -NoBuild라 빌드하지 않는다 — /build 후 다시." "ERROR"
+    Save-Status "aborted" @{ error = "stale_exe"; newer = $src.Name; head = $head }
+    exit 2
+  }
+} elseif ($DryRun) {
+  Say "  (dry) 재빌드 생략"
+} else {
+  # /build 커맨드와 같은 배선 — 한글 %TEMP%의 LNK1104 회피, vcvars64로 MSVC 환경, cmake는 절대경로.
+  if (-not (Test-Path C:\build_tmp)) { New-Item -ItemType Directory -Force C:\build_tmp | Out-Null }
+  $env:TEMP = 'C:\build_tmp'; $env:TMP = 'C:\build_tmp'
+  $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+  $cmake  = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+  Say "재빌드 시작 — HEAD $head, 타깃 quant_trader"
+  $t0 = Get-Date
+  $out = cmd /c "`"$vcvars`" >nul 2>&1 && `"$cmake`" --build Quant\build_win --target quant_trader 2>&1"
+  $rc = $LASTEXITCODE
+  $out | ForEach-Object { Add-Content -Path $RunLog -Value "    $_" -Encoding utf8 }
+  $secs = [int]((Get-Date) - $t0).TotalSeconds
+  if ($rc -ne 0) {
+    $why = ($out | Where-Object { $_ -match 'error|FAILED|LNK' } | Select-Object -First 3) -join ' | '
+    Say "재빌드 실패(rc=$rc, ${secs}s) — $why" "ERROR"
+    Save-Status "aborted" @{ error = "build_failed"; head = $head; rc = $rc; detail = $why }
+    exit 2
+  }
+  Say "재빌드 완료(${secs}s) — exe $((Get-Item $Exe).LastWriteTime.ToString('MM-dd HH:mm'))"
 }
 
 # 주문이 나가는 계좌는 kis 블록이다. 최상위나 quote_kis(시세 전용)의 is_paper를 보면
@@ -212,7 +242,7 @@ Say ("계좌 모드: {0}" -f $(if ($paper) { "모의(is_paper=true)" } else { "�
 
 $py = if (Test-Path $VenvPy) { $VenvPy } else { Say "venv 없음 — 보조 프로세스는 FDR 없이 UNKNOWN만 낸다." "WARN"; "py" }
 
-Save-Status "starting" @{ paper = $paper }
+Save-Status "starting" @{ paper = $paper; head = $head; dirty = $dirty }
 
 # ─────────────── 부속 창 ───────────────
 if (-not $NoSidecar)   { Start-Window "quant-sidecar"   "& '$py' PYQuant\tools\macro_regime_feed.py --interval 180 --out Quant\config\regime.json" "macro_regime_feed.py" }
