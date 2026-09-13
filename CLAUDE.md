@@ -113,12 +113,12 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 
 ### KIS API 클라이언트 (`Quant/include/api/KisClient.h`, 구현은 `Quant/src/api/Kis*.cpp` 7파일)
 
-<!-- sync: Quant/include/api/KisClient.h@7afb789 Quant/include/api/KisResult.h@b3f6df8 Quant/include/api/KisTypes.h@eb484d4 Quant/include/api/KisRestDecode.h@befd452 Quant/include/api/IOrderExecutor.h@93966a9 Quant/include/api/IMarketDataSource.h@c3ce6fd -->
+<!-- sync: Quant/include/api/KisClient.h@7afb789 Quant/include/api/KisResult.h@b3f6df8 Quant/include/api/KisTypes.h@eb484d4 Quant/include/api/KisRestDecode.h@befd452 Quant/include/api/IOrderExecutor.h@67a8e7c Quant/include/api/IMarketDataSource.h@c3ce6fd -->
 클래스는 하나고 구현이 도메인별로 나뉩니다(D-048): `KisTransport.cpp`(플랫폼별 HTTP — Windows는 WinHTTP, Linux는 libcurl — 재시도·초당 한도·공용 인증 헤더 `auth_headers()`), `KisAuth.cpp`(OAuth2 토큰 발급·캐시), `KisMarket.cpp`(주식 시세 — 분봉 페이지 병합·집계는 순수 함수 헤더 `Quant/include/api/KisRestDecode.h`, D-051), `KisIndex.cpp`(지수·수급·선물), `KisOrder.cpp`(주문), `KisAccount.cpp`(잔고·미체결), `KisUniverse.cpp`(순위·유니버스). 구현끼리만 쓰는 include·상수는 `Quant/src/api/KisClientInternal.h`. 주요 메서드: `authenticate()`, `get_ohlcv()`, `get_current_price()`, `send_order()`, 국내 선물 시세 `get_future_price()`(단일 시세)·`get_future_board()`(전광판, 그릭스 포함). 새 REST 호출은 인증 헤더 네 줄을 손으로 쓰지 말고 `auth_headers(tr_id, {추가 항목})`을 씁니다. 공개 헤더는 `nlohmann::json`을 내보내지 않습니다 — 잔고 `get_balance()`·전광판 `get_future_board()`는 `KisResult<T>`(`Quant/include/api/KisResult.h`, 실패 코드 동반) 봉투에 값 타입(`Quant/include/api/KisTypes.h`)을 담아 돌려주고, 응답 필드 해석은 `Quant/include/api/KisRestDecode.h`의 순수 함수가 맡습니다(D-059). 인터페이스는 둘을 구현합니다 — 주문 `IOrderExecutor`(`Quant/include/api/IOrderExecutor.h`, D-039)와 읽기 전용 시세·봉 `IMarketDataSource`(`Quant/include/api/IMarketDataSource.h`, D-066 — 현재가·일봉·분봉·지수 일봉·지수 현재값·해외 일봉). 순위·수급·잔고는 인터페이스 밖입니다.
 
 ### WebSocket 클라이언트 (`Quant/include/api/KisWebSocket.h`, 구현은 `Quant/src/api/WebSocketClient.cpp` + `WsSocketWin.cpp`/`WsSocketPosix.cpp`)
 
-<!-- sync: Quant/include/api/KisWebSocket.h@a02c9cc Quant/src/api/WebSocketClient.cpp@9c9d5bb Quant/src/api/WsSocket.h@8ddd2cd -->
+<!-- sync: Quant/include/api/KisWebSocket.h@a02c9cc Quant/src/api/WebSocketClient.cpp@9c9d5bb Quant/src/api/WsSocket.h@1e59078 -->
 FEED 모드에서 사용합니다. REST로 approval key를 발급받고, `ops.koreainvestment.com:31000`(모의) 또는 `:21000`(실거래)에 연결한 뒤 구독한 채널의 파싱된 구조체를 등록된 콜백으로 전달합니다. 구독 채널은 종목당 `WatchSpec`으로 정하며, 국내 현물 호가 `H0STASP0`·체결 `H0STCNT0`, 국내 선물 호가 `H0IFASP0`·체결 `H0IFCNT0`(`WatchSpec.is_future=true`로 선택), 미국 체결 `HDFSCNT0`을 지원합니다. 선물 체결에는 매수/매도 방향 코드가 없어 `direction`을 0으로 둡니다. 최초 연결·재연결 경로에 흩어져 있던 구독 하드코딩은 `subscribe_all()` 한 곳으로 통합되어, 재연결 시 선물 채널이 누락되던 불일치를 없앴습니다. 국내 선물 실시간은 실계좌 WS 도메인 전용이라 모의(`is_paper=true`)에서는 지원되지 않습니다. 소켓 계층은 `Quant/src/api/WsSocket.h`의 `WsSocket` 인터페이스 뒤에 있고(D-049) 플랫폼당 한 파일만 링크되므로, 연결·재연결·백오프·구독은 `WebSocketClient.cpp`에 플랫폼 코드 없이 한 벌입니다. 공개 헤더는 `<windows.h>`를 끌어오지 않습니다. 엔진은 소켓을 `feed::IFeedSource`(`Quant/include/core/IFeedSource.h`)로만 보며, config `feed_keys`로 세션 키를 더 주면 `Quant/include/core/FeedMux.h`의 `feed::FeedMux`가 소켓 여럿을 한 소스로 묶어(종목은 한 소켓에만, 소켓당 SPSC 링을 mux 스레드 하나가 비움, 체결통보는 첫 소켓만) 구독 상한이 소켓 수만큼 늡니다(D-071, `test_feed_mux`).
 
 ### 로깅
@@ -268,6 +268,17 @@ git worktree remove ../Quant-wt-<주제>                 # 머지 뒤 정리
 4. `py scripts/brace_style.py`는 인자 없이 돌리지 않는다(전체가 바뀌어 남의 diff에 섞인다). 자기 파일만 지정한다.
 5. D-NNN은 현황판에 먼저 적고 쓴다.
 6. 한 단계가 머지되면 다음 단계를 큐 끝에 붙이고 이어간다. 사용자 승인은 커밋(`@committer` 게이트)만 받는다.
+
+### 교통정리 — 하루 끝에 한 세션이 취합한다 (주기)
+
+세션이 여럿이면 완료 행·인계 파일·머지된 브랜치·주인 없는 worktree가 쌓이고, 어느 세션도 남의 것을 치우지 않으니 아무도 치우지 않는다
+(09-13 실측: 머지 큐 22행 중 완료 20, 인계 파일 6개, 09-11 detached worktree 하나가 이틀 남음). 그래서 **교통정리는 코드 작업과
+별개의 역할**이고, 하루 끝(또는 머지 큐 완료 행이 8개를 넘으면) 세션 하나가 `/triage`로 맡는다. 판정은 `scripts/session_triage.py`가
+하고(main 미푸시·worktree 앞뒤·머지된 브랜치·현황판 완료/진행·죽은 세션·인계 파일 나이·배포 exe 뒤처짐), 절차는
+`.claude/commands/triage.md`. 교통정리 세션만 남의 완료 행을 `_private/archive/`로 옮길 수 있다 — 옮기기 전에 진행 중인 세션에
+"현황판 동결"을 지목해서 알리고, 끝나면 "압축 완료"를 보낸다. 되돌릴 수 있는 것(머지된 브랜치 삭제·인계 파일 보관·주인 없는 트리 패치 보관)은
+스크립트가 하고, 되돌리기 어려운 것(worktree 제거·푸시·exe 교체·주인 없는 브랜치 처분)은 보고서에 적어 사용자에게 넘긴다.
+하루 요약은 `DAILY_LOG.md` 머리에 D-NNN별로 붙이고, 세션 이름이 든 상세는 `_private/TRIAGE_<날짜>.md`에만 둔다.
 
 ## 토큰 이코노미 (매 작업 적용)
 

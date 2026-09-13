@@ -27,7 +27,7 @@
 <!-- gen:harness-counts -->
 | 항목 | 개수 | 이름 |
 |---|---|---|
-| 커맨드 | `14` | `auto-trade-day`, `build`, `comment-diet`, `daily`, `dashboard-sync`, `dev-loop`, `eod-review`, `intraday-start`, `review-apply`, `review-bundle`, `strategy-debate`, `trade-log`, `verify-backtest`, `watch` |
+| 커맨드 | `15` | `auto-trade-day`, `build`, `comment-diet`, `daily`, `dashboard-sync`, `dev-loop`, `eod-review`, `intraday-start`, `review-apply`, `review-bundle`, `strategy-debate`, `trade-log`, `triage`, `verify-backtest`, `watch` |
 | 에이전트 | `19` | `arch-doc`, `backtest-runner`, `bias-auditor`, `claude-coach`, `committer`, `data-sourcer`, `harness-engineer`, `interviewer`, `intraday-analyst`, `log-reader`, `market-brief`, `perf-optimizer`, `planner`, `pm`, `prep-doc`, `quant-analyst`, `review-recorder`, `reviewer`, `strategist` |
 | 스킬 | `1` | `stock-study` |
 | 훅 파일 | `9` | `cron-gate.ps1`, `dashboard-refresh.ps1`, `docs-gate.ps1`, `eod-gate.ps1`, `lexicon-gate.ps1`, `output-gate.ps1`, `review-reminder.ps1`, `secret-gate.ps1`, `sync-gate.ps1` |
