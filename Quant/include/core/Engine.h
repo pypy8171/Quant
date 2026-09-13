@@ -80,8 +80,8 @@ public:
     //  함께 FeedMux로 묶여 종목이 소켓들에 나뉜다 — 구독 상한(kMaxWsSubs)이 소켓 수만큼 는다. 리플레이 중엔 무시. [why D-071]
     void add_feed_config(const KisConfig& c) { extra_feed_cfgs_.push_back(c); }
     // 캡처 파일 리플레이(빈 문자열이면 WS). WS 자리에 ReplaySource가 들어가 같은 콜백으로 틱·호가를 되돌린다.
-    //  speed 0은 최대 속도, 1은 캡처 간격. 주문은 KIS 대신 PaperExecutor(현금 cash)가 다음 틱에 체결한다.
-    //  실계좌 거부는 main.cpp가 한다. [why D-071]
+    //  speed 0은 최대 속도, 1은 캡처 간격. set_feed_source와 같이 KisClient를 만들지 않는다 — 인증·계좌 없이 파일과
+    //  config tickers만으로 뜨고, 주문은 PaperExecutor(현금 cash)가 다음 틱에 체결한다. [why D-071]
     void set_replay(const std::string& file, double speed, double cash)
     {
         replay_file_  = file;

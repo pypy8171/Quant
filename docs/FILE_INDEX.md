@@ -347,7 +347,7 @@
 - [test_account_ledger.cpp](../Quant/tests/test_account_ledger.cpp) — 계좌별 원장 파티셔닝(다계좌 독립성) 단위 테스트
 - [test_bar_aggregator.cpp](../Quant/tests/test_bar_aggregator.cpp) — N분봉 집계기 단위 테스트(D-068·D-072)
 - [test_data_poller.cpp](../Quant/tests/test_data_poller.cpp) — REST 현재가 폴러 단위 테스트(D-053·D-062)
-- [test_engine.cpp](../Quant/tests/test_engine.cpp) — Engine 한 바퀴 단위 테스트(시험용 시세 주입, KIS·소켓 없이 틱→주문→모의 체결→원장, 레인 1×샤드 1과 2×2)
+- [test_engine.cpp](../Quant/tests/test_engine.cpp) — Engine 한 바퀴 단위 테스트(시험용 시세 주입, KIS·소켓 없이 틱→주문→모의 체결→원장, 레인 1×샤드 1과 2×2, 캡처 파일 리플레이는 KIS 없이)
 - [test_feed_mux.cpp](../Quant/tests/test_feed_mux.cpp) — 다중 소켓 피드 묶음(FeedMux) 단위 테스트
 - [test_feed_supervisor.cpp](../Quant/tests/test_feed_supervisor.cpp) — WS 피드 감독기 단위 테스트
 - [test_kis_decode.cpp](../Quant/tests/test_kis_decode.cpp) — KIS REST 응답 디코더 단위 테스트(분봉·잔고·전광판, D-051·D-059)

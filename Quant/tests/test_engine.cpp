@@ -6,12 +6,14 @@
 #include "core/Engine.h"
 #include "core/IFeedSource.h"
 #include "core/ShardMatrix.h"
+#include "core/TickCapture.h"
 #include "strategy/StrategyBase.h"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -279,6 +281,79 @@ int run_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& ti
     CHECK(std::chrono::steady_clock::now() - t0 < 10s);
     return 0;
 }
+
+// 캡처 파일을 틀어 같은 한 바퀴를 돈다 — set_replay만으로 KIS 없이 뜨는지. 첫 틱 70000이 매수 신호를 내고 뒤따르는
+//  70100 틱 중 하나가 시장가를 체결시킨다. 캡처 간격 20ms·speed 1이라 주문이 큐를 지나는 사이에도 틱이 계속 온다.
+int run_replay_case()
+{
+    using namespace std::chrono_literals;
+    std::cout << "case replay\n";
+    const auto path = std::filesystem::temp_directory_path() / "quant_test_engine_replay.bin";
+    std::filesystem::remove(path);
+    {
+        feed::TickCapture cap(path);
+        CHECK(cap.ok());
+
+        for (int i = 0; i < 100; ++i)
+        {
+            TradeData td;
+            td.ticker.assign("005930");
+            td.price     = i == 0 ? 70000.0 : 70100.0;
+            td.quantity  = 10;
+            td.direction = 1;
+            td.hhmmss    = 93001 + i;
+            td.recv_ns   = 1'000'000'000LL + static_cast<int64_t>(i) * 20'000'000LL;
+            cap.on_trade(td);
+        }
+
+        cap.flush();
+        CHECK(cap.written() == 100);
+    }
+
+    Engine eng(KisConfig{});
+    auto   st_owned = std::make_unique<BuyOnce>("005930");
+    auto*  st       = st_owned.get();
+    eng.add_strategy(std::move(st_owned));
+    eng.set_replay(path.string(), 1.0, 1'000'000.0);
+    eng.start();
+
+    // 1. KIS 없이 떴고 레인은 하나다.
+    CHECK(eng.is_running());
+    CHECK(eng.ws_lanes() == 1);
+
+    // 2. 캡처가 흐르는 동안 주문 1건이 접수되고 다음 틱에 체결돼 보유 1주·평단 70100이 잡힌다.
+    std::vector<OrderGate::HeldPos> held;
+    const auto                      deadline = std::chrono::steady_clock::now() + 8s;
+
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        held = eng.held_positions();
+
+        if (!held.empty())
+        {
+            break;
+        }
+
+        std::this_thread::sleep_for(10ms);
+    }
+
+    CHECK(eng.order_count() == 1);
+    CHECK(st->ticks_seen.load() >= 2);
+    CHECK(held.size() == 1);
+
+    if (held.size() == 1)
+    {
+        CHECK(held[0].ticker == "005930");
+        CHECK(held[0].qty == 1);
+        CHECK(held[0].avg_price > 70099.0 && held[0].avg_price < 70101.0);
+    }
+
+    CHECK(eng.signal_count() == 1);
+    eng.stop();
+    CHECK(!eng.is_running());
+    std::filesystem::remove(path);
+    return 0;
+}
 } // namespace
 
 int main()
@@ -289,6 +364,11 @@ int main()
     }
 
     if (const int rc = run_case(2, 2, {"005930", "000660"}); rc != 0)
+    {
+        return rc;
+    }
+
+    if (const int rc = run_replay_case(); rc != 0)
     {
         return rc;
     }

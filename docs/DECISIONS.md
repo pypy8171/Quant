@@ -3183,6 +3183,16 @@ true였고 제어 스레드가 `disconnect()`+`connect(전체)`를 했다. 살�
 - 하지 않은 것: 소스마다 감독기 하나(백오프를 소스별로) — 실패가 소스별로 갈리는 실측이 없어 하나로 둔다. 소켓 수를
   코어·부하로 정하는 것(원칙 1)은 그 다음.
 
+**원칙 8 — 리플레이는 KIS 없이 돈다 (2026-09-14)** — `replay_file`은 소스만 `ReplaySource`였고 인증·계좌번호·잔고 조회·
+유니버스·봉 시드는 그대로 KIS라 모의 계좌 키가 있어야 캡처를 틀 수 있었다(`Quant/src/main.cpp`가 `is_paper=false`면 막았다).
+피드 주입(위 다섯째 앞 조각)이 `kis_` null을 "소스 없음"으로 다루는 경로를 이미 다 열었으므로 리플레이도 같은 오프라인 판정에
+넣었다 — `start()`의 `offline`이 `feed_override_ || !replay_file_.empty()`. KisClient를 만들지 않으니 실주문 경로가 없고
+main.cpp의 `is_paper` 강제는 뗐다. 종목은 config `tickers`(전략 구독)뿐이고 유니버스 스캔·REST 1분봉 시드는 없다 — 봉은
+틱 집계기가 캡처 틱으로 만든다. `test_engine` 셋째 케이스: 캡처 100틱(첫 틱 70000, 뒤 99틱 70100, 20ms 간격)을
+`set_replay(파일, 1.0, 현금)`으로 틀어 KIS 없이 뜨고 주문 1건이 다음 틱에 체결돼 보유 1주·평단 70100. 46 checks, ctest 34/34.
+- 하지 않은 것: 캡처에 봉 시드(REST 1분봉)·유니버스를 같이 담는 것 — 지금 리플레이는 기동 시점 `tickers`로 종목이 고정이라
+  재스캔이 있는 전략(DevScale)은 캡처 당시 유니버스를 config로 옮겨 적어야 한다. 캡처 v2에서 본다.
+
 ### D-072 틱 집계 봉의 기저를 1분으로 두고 판단 봉은 resample로 만든다 — REST 분봉 timestamp는 진짜 UTC (2026-09-13)
 **상태**: 채택 (`wt/bars-1m`, `test_bar_aggregator` 131·`test_kis_decode` 68 통과, 라이브는 09-14 장부터 `bar_source` 기본 `ws`)
 

@@ -278,19 +278,13 @@ int main(int argc, char* argv[])
         engine.add_feed_config(c);
     }
 
-    // 캡처 파일 리플레이(D-071 원칙 8). WS 대신 파일을 틀어 같은 파이프라인을 돌린다.
-    //  주문 경로가 그대로 살아 있으므로 실계좌에서는 열지 않는다 — 모의 계좌로만.
+    // 캡처 파일 리플레이(D-071 원칙 8). WS 대신 파일을 틀어 같은 파이프라인을 돌린다. Engine이 KisClient를 만들지 않으므로
+    //  app_key·계좌가 없어도 되고 실주문 경로도 없다 — 종목은 config tickers, 주문은 모의 체결기.
     {
         const std::string replay_file = cfg.value("replay_file", std::string());
 
         if (!replay_file.empty())
         {
-            if (!kis_cfg.is_paper)
-            {
-                LOG_ERROR("[Main] replay_file은 모의 계좌(kis.is_paper=true)에서만 연다. 기동 중단.");
-                return 1;
-            }
-
             engine.set_replay(replay_file, cfg.value("replay_speed", 1.0), cfg.value("replay_cash", 100'000'000.0));
         }
     }

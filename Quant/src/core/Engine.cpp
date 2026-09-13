@@ -602,12 +602,14 @@ void Engine::start()
     zmq_bridge_->start();
 #endif
 
-    // 피드를 직접 받았으면 브로커 없이 돈다 — kis_는 비고, 아래 KIS를 보는 경로는 전부 null을 "소스 없음"으로 다룬다. [why D-071]
-    const bool offline = feed_override_ != nullptr;
+    // 피드를 직접 받았거나 캡처 파일을 트는 것이면 브로커 없이 돈다 — kis_는 비고, 아래 KIS를 보는 경로는 전부 null을
+    //  "소스 없음"으로 다룬다. 리플레이의 종목은 config tickers(전략 구독)뿐이고 유니버스 스캔·REST 봉 시드는 없다. [why D-071]
+    const bool offline = feed_override_ != nullptr || !replay_file_.empty();
 
     if (offline)
     {
-        LOG_INFO("[Engine] 피드 주입 — KIS 없이 기동(주문·잔고는 모의 체결기)");
+        LOG_INFO(std::string("[Engine] ") + (feed_override_ ? "피드 주입" : "리플레이") +
+                 " — KIS 없이 기동(주문·잔고는 모의 체결기)");
     }
     else
     {
@@ -639,8 +641,8 @@ void Engine::start()
         }
     }
 
-    // 리플레이·피드 주입이면 주문·잔고는 모의 체결기가 받는다. 리플레이의 인증·유니버스·봉 시드는 그대로 KIS(모의 계좌)다. [why D-071]
-    if (!replay_file_.empty() || offline)
+    // KIS가 없으면 주문·잔고는 모의 체결기가 받는다. [why D-071]
+    if (offline)
     {
         paper_ = std::make_unique<feed::PaperExecutor>(replay_cash_);
         LOG_INFO("[Engine] 모의 체결기: 현금 " + std::to_string(static_cast<long long>(replay_cash_)) + "원");
