@@ -145,7 +145,7 @@ Quant/                              ← 저장소 루트
 │   │   ├── core/
 │   │   │   ├── Engine.h            5-스레드 트레이딩 엔진 (+국면→전략 자동선택·강제청산)
 │   │   │   ├── ReconcilePlan.h     잔고 대조 차이 계산 → RECONCILE 행 (헤더 전용 순수 함수, test_reconcile_plan)
-│   │   │   ├── RegimeController.h  장시작 국면 판정 (200MA·정배열 → BULL/NEUTRAL/BEAR)
+│   │   │   ├── RegimeController.h  국면 판정 (200MA·정배열 → BULL/NEUTRAL/BEAR, 지수 현재값을 오늘 봉으로 접어 5분 재판정)
 │   │   │   ├── RingBuffer.h        SPSC 락-프리 큐 (cache-line 분리)
 │   │   │   └── Types.h             MarketData, OrderSignal(+ref_price), Regime/RegimeSnapshot 등
 │   │   ├── ipc/

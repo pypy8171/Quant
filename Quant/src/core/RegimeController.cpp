@@ -32,19 +32,18 @@ std::string today_kst()
 }
 } // namespace
 
-// ─── 장 시작 1회 국면 판정 ──────────────────────────────────────────────────
+// ─── 국면 판정 ───────────────────────────────────────────────────────────────
 RegimeSnapshot RegimeController::evaluate()
 {
     const std::string today = today_kst();
-
-    // 같은 거래일에 이미 판정했으면 그대로 돌려준다. 아래 판정은 당일 미완성봉을 빼고
-    //  전일 확정봉만 쓰므로(start 계산) 장중에는 입력이 상수다 — 다시 받아도 결과가 같다.
-    //  지수 일봉은 1회 조회가 GET 5회(날짜창을 밀며 누적)라 재평가 주기마다 그만큼이 그냥 나간다.
-    //  실패한 판정(index_close=0)은 캐시하지 않아 다음 주기에 다시 시도한다.
+    bool last_ok = false;   // 오늘 이미 성공한 판정이 있어야 "전환"이고, 그때만 확인 횟수를 센다
     {
         std::lock_guard<std::mutex> lk(snap_mtx_);
+        last_ok = (last_.date == today && last_.index_close > 0.0);
 
-        if (last_.date == today && last_.index_close > 0.0)
+        // fold_today가 꺼져 있으면 입력이 전일 확정봉뿐이라 장중에 상수다 — 같은 날 성공 판정은 그대로 돌려준다.
+        //  실패한 판정(index_close=0)은 캐시하지 않아 다음 주기에 다시 시도한다.
+        if (!cfg_.fold_today && last_.date == today && last_.index_close > 0.0)
         {
             return last_;
         }
@@ -92,29 +91,58 @@ RegimeSnapshot RegimeController::evaluate()
         return on_fail("시세 소스 없음");
     }
 
-    // 200일선 + 당일봉 제외 버퍼 확보
-    auto bars = source_->get_index_daily_ohlcv(cfg_.index_code, cfg_.ma_long + 10);
-
-    if (bars.empty())
+    // 확정 일봉은 하루 한 번만 받는다 — 1회 조회가 GET 5회(날짜창을 밀며 누적)라 재평가마다 받으면 그만큼이 그냥 나간다.
+    //  장중에 바뀌는 건 오늘 봉 하나뿐이고 그건 아래서 지수 현재값으로 접는다.
+    if (day_bars_date_ != today || day_bars_.empty())
     {
-        return on_fail("지수 일봉 응답 없음");
+        auto bars = source_->get_index_daily_ohlcv(cfg_.index_code, cfg_.ma_long + 10);
+
+        if (bars.empty())
+        {
+            return on_fail("지수 일봉 응답 없음");
+        }
+
+        day_bars_      = std::move(bars);
+        day_bars_date_ = today;
     }
 
-    // 당일 미완성봉(bars[0]) 제외 — 전일 확정봉 기준 (C4)
-    int start = (ymd_of(bars[0].timestamp) == today) ? 1 : 0;
-    int usable = static_cast<int>(bars.size()) - start;
+    const auto& bars = day_bars_;
 
-    if (usable < cfg_.ma_long)
+    // 당일봉(bars[0])은 REST 일봉 응답의 미완성 값을 쓰지 않는다. fold_today면 지수 현재값으로 오늘 봉을 만들어
+    //  맨 앞에 두고, 아니면 전일 확정봉까지만 본다 [why D-076].
+    const int start = (ymd_of(bars[0].timestamp) == today) ? 1 : 0;
+    std::vector<double> closes;   // [0]=가장 최근(오늘 또는 전일) → 과거
+    closes.reserve(bars.size() + 1);
+
+    if (cfg_.fold_today)
     {
-        return on_fail("확정봉 부족 " + std::to_string(usable) + "/" + std::to_string(cfg_.ma_long));
+        const IndexPrice ip = source_->get_index_price(cfg_.index_code);
+
+        if (ip.price <= 0.0)
+        {
+            return on_fail("지수 현재값 없음");
+        }
+
+        closes.push_back(ip.price);
+    }
+
+    for (std::size_t i = static_cast<std::size_t>(start); i < bars.size(); ++i)
+    {
+        closes.push_back(bars[i].close);
+    }
+
+    if (static_cast<int>(closes.size()) < cfg_.ma_long)
+    {
+        day_bars_.clear();   // 짧은 응답은 캐시하지 않는다 — 다음 주기에 다시 받는다
+        return on_fail("확정봉 부족 " + std::to_string(closes.size()) + "/" + std::to_string(cfg_.ma_long));
     }
 
     auto sma = [&](int n) -> double {
         double sum = 0.0;
 
-        for (int i = start; i < start + n; ++i)
+        for (int i = 0; i < n; ++i)
         {
-            sum += bars[i].close;
+            sum += closes[static_cast<std::size_t>(i)];
         }
 
         return sum / n;
@@ -122,7 +150,7 @@ RegimeSnapshot RegimeController::evaluate()
 
     RegimeSnapshot s;
     s.date        = today;
-    s.index_close = bars[start].close;                  // 가장 최근 확정 종가
+    s.index_close = closes[0];                  // fold_today면 지수 현재값, 아니면 가장 최근 확정 종가
     s.ma200 = sma(cfg_.ma_long);
     s.ma20  = sma(cfg_.ma_short);
     s.ma60  = sma(cfg_.ma_mid);
@@ -140,19 +168,61 @@ RegimeSnapshot RegimeController::evaluate()
     s.score  = compute_score(s, cfg_);
     s.regime = classify(s.score, cfg_);
     s.timestamp = std::chrono::system_clock::now();
-
     fail_streak_ = 0;
+
+    // 장중 전환 확인. 오늘 봉을 접으면 지수가 이평 근처에서 흔들릴 때 판정이 주기마다 뒤집힐 수 있다 —
+    //  다른 국면이 confirm_n회 연속일 때만 바꾼다. 그날 첫 성공 판정(실패 뒤 복구 포함)과 fold_today가 꺼진 경우는
+    //  바로 확정한다.
+    const Regime cur = current_.load();
+    const Regime raw = s.regime;
+
+    if (cfg_.fold_today && last_ok && cur != Regime::UNKNOWN && raw != cur)
+    {
+        if (raw == pending_)
+        {
+            ++pending_n_;
+        }
+        else
+        {
+            pending_   = raw;
+            pending_n_ = 1;
+        }
+
+        if (pending_n_ < cfg_.confirm_n)
+        {
+            s.regime = cur;   // 보류 — 점수는 그대로 남기고 국면만 직전 값
+            LOG_INFO("[Regime] 전환 보류 " + to_string(cur) + "→" + to_string(raw) + " (" +
+                     std::to_string(pending_n_) + "/" + std::to_string(cfg_.confirm_n) + ", score=" +
+                     std::to_string(s.score) + " close=" + std::to_string(static_cast<int>(s.index_close)) + ")");
+        }
+        else
+        {
+            pending_   = Regime::UNKNOWN;
+            pending_n_ = 0;
+        }
+    }
+    else
+    {
+        pending_   = Regime::UNKNOWN;
+        pending_n_ = 0;
+    }
+
     current_.store(s.regime);
     {
         std::lock_guard<std::mutex> lk(snap_mtx_);
         last_ = s;
     }
 
-    LOG_INFO("[Regime] " + to_string(s.regime) + " score=" + std::to_string(s.score) +
-             " (close=" + std::to_string(static_cast<int>(s.index_close)) +
-             " ma200=" + std::to_string(static_cast<int>(s.ma200)) +
-             " above200=" + (s.above_ma200 ? "Y" : "N") +
-             " 정배열=" + (s.aligned_bull ? "Y" : (s.aligned_bear ? "역배열" : "혼조")) + ")");
+    if (s.regime == raw)
+    {
+        LOG_INFO("[Regime] " + to_string(s.regime) + " score=" + std::to_string(s.score) +
+                 " (close=" + std::to_string(static_cast<int>(s.index_close)) +
+                 (cfg_.fold_today ? " 당일접음" : " 전일확정") +
+                 " ma200=" + std::to_string(static_cast<int>(s.ma200)) +
+                 " above200=" + (s.above_ma200 ? "Y" : "N") +
+                 " 정배열=" + (s.aligned_bull ? "Y" : (s.aligned_bear ? "역배열" : "혼조")) + ")");
+    }
+
     return s;
 }
 

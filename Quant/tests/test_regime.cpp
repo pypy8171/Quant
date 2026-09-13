@@ -1,5 +1,5 @@
 // RegimeController 단위 테스트 (KIS 불필요) — 점수/분류 순수 함수와, 가짜 시세 소스(IMarketDataSource)를 꽂은
-//  evaluate()의 당일봉 제외·확정봉 부족·실패 재시도·같은 날 캐시. 관련 결정: D-066.
+//  evaluate()의 당일봉 접기·확인 전환·확정봉 부족·실패 재시도·일봉 하루 1회 캐시. 관련 결정: D-066·D-076.
 // 빌드: cmake --build <dir> --target test_regime
 //
 // v0 규칙: 축1(지수>200일선 ±1) + 축2(정배열+1/역배열-1/혼조0) → score ∈ {-2..+2}
@@ -27,11 +27,13 @@ static RegimeSnapshot snap(bool above200, bool bull, bool bear)
 
 static void PASS(const std::string& n) { std::cout << "[PASS] " << n << "\n"; }
 
-// 지수 일봉만 돌려주는 가짜 소스. 나머지는 쓰이지 않는다.
+// 지수 일봉과 지수 현재값만 돌려주는 가짜 소스. 나머지는 쓰이지 않는다.
 struct FakeSource : IMarketDataSource
 {
     std::vector<MarketData> bars;
-    int                     calls = 0;
+    int                     calls    = 0;   // 일봉 조회 횟수
+    double                  index_px = 0.0; // 지수 현재값(0이면 조회 실패)
+    int                     px_calls = 0;
 
     double get_current_price(const std::string&) override { return 0.0; }
     std::vector<MarketData> get_daily_ohlcv(const std::string&, int, bool) override { return {}; }
@@ -42,7 +44,15 @@ struct FakeSource : IMarketDataSource
         return bars;
     }
 
-    IndexPrice get_index_price(const std::string&) override { return {}; }
+    IndexPrice get_index_price(const std::string& t) override
+    {
+        ++px_calls;
+        IndexPrice p;
+        p.ticker = t;
+        p.price  = index_px;
+        return p;
+    }
+
     std::vector<MarketData> get_us_daily_ohlcv(const std::string&, int, const std::string&) override { return {}; }
 };
 
@@ -127,29 +137,74 @@ int main()
         PASS("evaluate_no_source");
     }
 
-    // 상승 계열(최신이 가장 높다): 오늘봉을 빼고 close=998 > ma200=799, ma20>ma60>ma120 → BULL
+    // fold_today(기본): bars[0]=오늘 미완성봉은 버리고 지수 현재값 1000을 오늘 봉으로 접는다.
+    //  closes=[1000, 998, 996, …] → close=1000 > ma200=801, ma20=981>ma60=941>ma120=881 → BULL
     {
         FakeSource src;
         src.bars = series(211, 1000.0, -2.0);
-        src.bars[0].close = 1.0; // 오늘 미완성봉은 이상값이어도 판정에 들어가지 않아야 한다
+        src.bars[0].close = 1.0; // REST 응답의 오늘봉은 이상값이어도 판정에 들어가지 않아야 한다
+        src.index_px = 1000.0;
         RegimeController rc;
+        rc.set_source(&src);
+        auto s = rc.evaluate();
+        assert(s.regime == Regime::BULL && s.score == 2);
+        assert(s.index_close == 1000.0 && s.ma200 == 801.0 && s.ma20 == 981.0 && s.ma60 == 941.0 &&
+               s.ma120 == 881.0);
+        assert(s.above_ma200 && s.aligned_bull && !s.aligned_bear);
+        assert(rc.current() == Regime::BULL);
+        assert(src.calls == 1 && src.px_calls == 1);
+        // 같은 날 두 번째 호출: 확정 일봉은 캐시, 지수 현재값만 다시 묻는다
+        auto s2 = rc.evaluate();
+        assert(s2.regime == Regime::BULL && src.calls == 1 && src.px_calls == 2);
+        PASS("evaluate_fold_today_bull_daily_cached");
+
+        // 장중 전환 확인: 지수가 200일선 아래로 → raw NEUTRAL(-1+1=0). 1회째는 보류(BULL 유지), 2회째 확정
+        src.index_px = 1.0;
+        auto h1 = rc.evaluate();
+        assert(h1.regime == Regime::BULL && h1.score == 0 && rc.current() == Regime::BULL);
+        auto h2 = rc.evaluate();
+        assert(h2.regime == Regime::NEUTRAL && rc.current() == Regime::NEUTRAL);
+        // 확정 뒤 되돌아감도 같은 규칙: BULL 1회는 보류
+        src.index_px = 1000.0;
+        auto b1 = rc.evaluate();
+        assert(b1.regime == Regime::NEUTRAL && b1.score == 2);
+        // 연속이 끊기면 카운트가 초기화된다: BULL(1) → NEUTRAL(원래대로, 보류 없음) → BULL(1) 여전히 보류
+        src.index_px = 1.0;
+        auto n1 = rc.evaluate();
+        assert(n1.regime == Regime::NEUTRAL);
+        src.index_px = 1000.0;
+        auto b2 = rc.evaluate();
+        assert(b2.regime == Regime::NEUTRAL && rc.current() == Regime::NEUTRAL);
+        auto b3 = rc.evaluate();
+        assert(b3.regime == Regime::BULL && rc.current() == Regime::BULL);
+        assert(src.calls == 1); // 하루 종일 일봉은 한 번
+        PASS("evaluate_confirm_n_switch");
+    }
+
+    // fold_today=false: 옛 동작 — 오늘봉을 빼고 전일 확정봉 998로 판정, 같은 날은 캐시(소스를 다시 부르지 않는다)
+    {
+        FakeSource src;
+        src.bars = series(211, 1000.0, -2.0);
+        src.bars[0].close = 1.0;
+        RegimeController::Config nofold = cfg;
+        nofold.fold_today = false;
+        RegimeController rc(nofold);
         rc.set_source(&src);
         auto s = rc.evaluate();
         assert(s.regime == Regime::BULL && s.score == 2);
         assert(s.index_close == 998.0 && s.ma200 == 799.0 && s.ma20 == 979.0 && s.ma60 == 939.0 &&
                s.ma120 == 879.0);
-        assert(s.above_ma200 && s.aligned_bull && !s.aligned_bear);
-        assert(rc.current() == Regime::BULL);
-        // 같은 날 두 번째 호출은 캐시 — 소스를 다시 부르지 않는다
+        assert(src.px_calls == 0);
         auto s2 = rc.evaluate();
-        assert(s2.regime == Regime::BULL && src.calls == 1);
-        PASS("evaluate_bull_today_excluded_cached");
+        assert(s2.regime == Regime::BULL && src.calls == 1 && src.px_calls == 0);
+        PASS("evaluate_nofold_legacy_cached");
     }
 
-    // 하락 계열: close=402 < ma200=601, 역배열 → BEAR. 수평 계열: 종가=ma200(초과 아님)·혼조 → -1 → NEUTRAL
+    // 하락 계열: 현재값 400 < ma200=601, 역배열 → BEAR. 수평 계열: 종가=ma200(초과 아님)·혼조 → -1 → NEUTRAL
     {
         FakeSource src;
         src.bars = series(211, 400.0, +2.0);
+        src.index_px = 400.0;
         RegimeController rc;
         rc.set_source(&src);
         auto s = rc.evaluate();
@@ -157,6 +212,7 @@ int main()
 
         FakeSource flat;
         flat.bars = series(211, 500.0, 0.0);
+        flat.index_px = 500.0;
         RegimeController rc2;
         rc2.set_source(&flat);
         auto f = rc2.evaluate();
@@ -164,19 +220,25 @@ int main()
         PASS("evaluate_bear_and_flat");
     }
 
-    // 실패(빈 응답·확정봉 부족)는 캐시되지 않아 다음 호출이 다시 묻고, 성공하면 그때부터 캐시된다
+    // 실패(빈 응답·확정봉 부족·지수 현재값 없음)는 캐시되지 않아 다음 호출이 다시 묻고, 성공하면 일봉만 캐시된다.
+    //  실패 뒤 첫 성공은 확인 없이 바로 확정한다.
     {
         FakeSource src;
+        src.index_px = 1000.0;
         RegimeController rc;
         rc.set_source(&src);
         auto s = rc.evaluate();
         assert(s.regime == Regime::NEUTRAL && s.index_close == 0.0 && src.calls == 1);
-        src.bars = series(150, 1000.0, -2.0); // 오늘봉 빼면 149 < 200
+        src.bars = series(150, 1000.0, -2.0); // 오늘봉 빼고 현재값 더해도 150 < 200
         s = rc.evaluate();
         assert(s.regime == Regime::NEUTRAL && s.index_close == 0.0 && src.calls == 2);
         src.bars = series(211, 1000.0, -2.0);
+        src.index_px = 0.0; // 일봉은 왔지만 현재값 조회 실패
         s = rc.evaluate();
-        assert(s.regime == Regime::BULL && src.calls == 3);
+        assert(s.regime == Regime::NEUTRAL && s.index_close == 0.0 && src.calls == 3);
+        src.index_px = 1000.0;
+        s = rc.evaluate();
+        assert(s.regime == Regime::BULL && src.calls == 3); // 일봉은 직전 호출에서 캐시됨
         s = rc.evaluate();
         assert(s.regime == Regime::BULL && src.calls == 3);
         PASS("evaluate_fail_retry_then_cache");
