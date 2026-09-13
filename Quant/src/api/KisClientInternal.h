@@ -8,6 +8,7 @@
 #include "utils/EtfFilter.h"
 #include "utils/Logger.h"
 #include <algorithm>
+#include <functional>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>

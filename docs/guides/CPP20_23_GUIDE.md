@@ -204,6 +204,11 @@ std::string aes_cbc_decrypt(std::span<const std::byte> cipher, std::span<const s
 
 `Quant/include/ipc/OpsProtocol.h` `FrameReader::feed(const uint8_t*, size_t)`도 같은 교체다.
 
+2단계에서는 `Fields`만 바꿨다. AES 키·IV는 config에서 읽은 `std::string`이라 길이가 런타임 값이고,
+고정 길이 span으로 받아도 호출 지점에서 `std::string` → `span<…,32>` 변환에 같은 길이 검사가 다시
+필요하다 — 검사가 옮겨질 뿐 사라지지 않는다. `FrameReader::feed`는 MFC 단말까지 호출자가 바뀌어
+치환 범위를 넘는다. 둘 다 그 코드를 다른 이유로 만질 때 같이 한다.
+
 ---
 
 ## 5. `std::atomic<T>::wait / notify_one` — 잠들기와 깨우기
@@ -435,9 +440,27 @@ x86에서 store가 같은 mov라 지연은 같지만 sink 뜻이 흐려져 쓰�
 ## 17. 적용 순서(D-070)
 
 1. 표준 23·CMake 3.20·Dockerfile 24.04, 벤치 `volatile` sink를 `sink = sink + x`로. 빌드·ctest 22·벤치 1회로 기준선.
-2. 위험 0 묶음: `span`, `starts_with/contains`, `bit_ceil`, `PosKey == default`, `ranges::sort`, 지정 초기화, `using enum`.
+2. 위험 0 묶음: `span`, `starts_with/contains`, `bit_ceil`, `PosKey == default`, `ranges::sort`. 지정 초기화·`using enum`은
+   바꿀 자리가 없어 새 코드에서만 쓴다.
 3. `std::format` — 게이트·라우터부터. `bench_gate_contention`·`bench_market_firehose` 전·후 비교.
 4. `<chrono>` 달력 — `parse_dt`·`ymd_of` 통합, `localtime` 두 곳을 `kst::`로.
 5. `jthread` — 교과서 2곳 먼저, Engine은 join만.
 6. `KisResult` → `std::expected`.
 7. `atomic::wait` — 마지막. 스트레스 테스트 반복 뒤.
+
+### 17-1. 단계마다 무엇이 좋아지는가 — 이득이 없으면 그 단계는 하지 않는다
+
+표준을 올리는 것 자체는 이득이 아니다. 1단계는 뒤 단계를 가능하게 하는 발판이고 동작·성능은 그대로다
+(벤치 E2E p50 300ns, C++17과 같다). 단계마다 기대 이득과 재는 방법을 적어 두고, 재서 이득이 없으면 되돌린다.
+
+| 단계 | 바뀌는 자리 | 무엇이 좋아지는가 | 성능 | 재는 방법 |
+|---|---|---|---|---|
+| 1 툴체인 | CMake·Dockerfile·MFC 1줄 | 컴파일러 진단이 두 세대 앞으로(C2445가 실제 형식 불일치 하나를 잡았다). GCC 14의 `-Wvolatile`·`-Wdeprecated` | 같음 | 경고 0, ctest 22, 벤치 동일 — 완료 |
+| 2 위험 0 치환 | `KisWsDecode.h` `Fields` → `span`, `rfind(x,0)==0` → `starts_with` 6곳, `RingBuffer`·`MpscQueue` 2^k 루프 → `bit_ceil`, `PosKey` `== default`, 단일 키 정렬 9곳 → `ranges::sort`+투영 | 손 구현 삭제, 정렬 람다의 `a.x > b.x` 오타 자리(멤버 포인터 하나로), 비교 연산자 누락 클래스 제거 | 같음(모두 인라인·constexpr) | 삭제 줄 수, ctest, `bench_market_firehose` 전후 — 완료: 코드 14파일 +48/−73, ctest 22, E2E p50 300ns·p99 9.5us(1단계와 같음). AES `span<…,32>`·`FrameReader` span은 4절 끝의 이유로 미적용 |
+| 3 `std::format` | `OrderGate.cpp` 거부 사유·중복 키, `OrderRouter.cpp` CSV 행·로그 | `snprintf` 버퍼 크기·`%d`/`%ld` 형식 불일치가 컴파일 오류로. 문장이 한 줄에 보인다 | 거부 사유는 거부된 신호에만 만들어지므로 hot path 밖. `OrderGate.cpp`의 `dedup_key` 조립은 신호마다 일어나므로 재야 한다 — `snprintf`보다 느리면 그 한 곳은 `format_to`+고정 버퍼로 | `bench_gate_contention` 전후, 거부 문장 바이트 동일 검사(`test_order_gate`) |
+| 4 `<chrono>` 달력 | `KstTime.h`, `OrderRouter.cpp` `today_ymd`, `OrderGate.cpp`, `KisRestDecode.h` `parse_dt` | `localtime`(머신 TZ)과 `gmtime+9h`(KST 고정)가 섞인 것을 한 벌로 — Docker `TZ` 설정이나 Windows 시간대가 달라도 원장 날짜가 같다. 날짜 산술을 `year_month_day`로 | 같음 | `test_market_session` 확장(TZ가 UTC·KST·PST일 때 같은 결과), 원장 CSV 날짜 열 diff |
+| 5 `jthread` | `OrderRouter.cpp` stale 스레드, `DeviationScaleStrategy.h` 프리페치 | 정지 깃발·`join` 누락·소멸 순서 실수 클래스 제거. 소멸자가 정지 요청과 join을 한다 | 같음 | 종료 경로 반복 100회(기동→정지) 교착 0, ctest |
+| 6 `std::expected` | `KisResult.h` | 손 봉투 유지보수 종료, `and_then`/`or_else` 체이닝, 실패 경로의 `T value_{}` 기본 생성이 사라져 잔고·전광판 값 타입이 기본 생성자를 요구하지 않는다 | 같음 | `test_kis_decode`·`test_ledger_reconciler` 무수정 통과가 목표 |
+| 7 `atomic::wait` | `Logger.h` writer, `Engine.cpp` 체결 스레드 | mutex+condvar 쌍이 atomic 하나로. 생산자의 `notify` 비용(락 없음)과 깨우는 지연이 줄 수 있다 | 줄 가능성 — 재서 정한다 | `bench_logger` 깨우기 p99, `test_logger`·`test_pipeline_stress` |
+
+하지 않는 것(모듈·코루틴·`atomic_ref`)의 이유는 16절과 D-070 표.

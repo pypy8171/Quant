@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <functional>
 #include <cmath>
 #include <string>
 #include <unordered_map>
@@ -83,9 +84,7 @@ score_to_mult(const std::unordered_map<std::string, double>& scores,
     }
 
     // 상위 slots개의 raw 합으로 정규화(내림차순 정렬 후 앞에서 slots개).
-    std::sort(raw.begin(), raw.end(),
-              [](const std::pair<std::string, double>& a,
-                 const std::pair<std::string, double>& b) { return a.second > b.second; });
+    std::ranges::sort(raw, std::ranges::greater{}, &std::pair<std::string, double>::second);
     const size_t take = std::min(static_cast<size_t>(slots), raw.size());
     double sum_top = 0.0;
 

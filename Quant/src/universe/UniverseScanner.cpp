@@ -4,6 +4,7 @@
 #include "utils/EtfFilter.h"
 #include "utils/Logger.h"
 #include <algorithm>
+#include <functional>
 #include <chrono>
 #include <cmath>
 #include <ctime>
@@ -247,9 +248,7 @@ public:
             }
         }
 
-        std::sort(stale.begin(), stale.end(),
-                  [](const std::pair<std::time_t, std::string>& a,
-                     const std::pair<std::time_t, std::string>& b) { return a.first < b.first; });
+        std::ranges::sort(stale, {}, &std::pair<std::time_t, std::string>::first);
         considered = stale.size();
         const std::size_t take = std::min<std::size_t>(stale.size(), (std::size_t)budget);
         std::unordered_set<std::string> out;
@@ -1300,8 +1299,7 @@ std::vector<std::string> rank_and_truncate(const DevScanCfg& cfg, std::vector<Fe
                                            std::unordered_map<std::string, std::string>* out_names,
                                            std::unordered_map<std::string, double>* out_scores)
 {
-    std::sort(passed.begin(), passed.end(),
-              [](const Feat& a, const Feat& b) { return a.score > b.score; });
+    std::ranges::sort(passed, std::ranges::greater{}, &Feat::score);
     std::size_t take_n = passed.size();
 
     if (cfg.score_top_n > 0 && (std::size_t)cfg.score_top_n < take_n)

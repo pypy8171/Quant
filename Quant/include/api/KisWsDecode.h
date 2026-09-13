@@ -16,6 +16,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -25,19 +26,7 @@ namespace kis_ws
 {
 
 // 레코드 한 건의 필드 목록. 뷰 벡터의 구간을 가리키기만 한다(소유 없음, 16바이트, 값 전달).
-struct Fields
-{
-    const std::string_view* data = nullptr;
-    size_t count = 0;
-
-    Fields() = default;
-    Fields(const std::string_view* d, size_t n) noexcept : data(d), count(n) {}
-    Fields(const std::vector<std::string_view>& v) noexcept : data(v.data()), count(v.size()) {}
-
-    [[nodiscard]] size_t size() const noexcept { return count; }
-    [[nodiscard]] bool empty() const noexcept { return count == 0; }
-    std::string_view operator[](size_t i) const noexcept { return data[i]; }
-};
+using Fields = std::span<const std::string_view>;
 
 // delim으로 나눠 out에 뷰를 채운다. out은 비운 뒤 재사용하므로 용량이 잡힌 뒤로는 할당이 없다.
 //  빈 토큰도 자리로 남기고 마지막 토큰은 delim 없이 끝나도 넣는다("a^^b" → {"a","","b"}).
@@ -70,7 +59,7 @@ struct Records
 
     [[nodiscard]] size_t size() const noexcept { return count; }
     [[nodiscard]] bool empty() const noexcept { return count == 0; }
-    Fields operator[](size_t r) const noexcept { return Fields(all.data + r * width, width); }
+    Fields operator[](size_t r) const noexcept { return all.subspan(r * width, width); }
 };
 
 inline Records split_records(Fields fields, int count, size_t min_fields) noexcept

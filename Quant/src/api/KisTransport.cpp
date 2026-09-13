@@ -475,7 +475,7 @@ static void kis_stamp_bearer(std::vector<std::string>& hdrs, const std::string& 
 {
     for (auto& h : hdrs)
     {
-        if (h.rfind("authorization:", 0) == 0 || h.rfind("Authorization:", 0) == 0)
+        if (h.starts_with("authorization:") || h.starts_with("Authorization:"))
         {
             h = "authorization: Bearer " + tok;
             return;

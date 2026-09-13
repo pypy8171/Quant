@@ -128,7 +128,7 @@ void SignalDispatcher::from_strategy(bool active, const std::string& strategy_id
     //  턴 물량을 스캔 전략이 되사는 회전이 나고, 매도가 둘에서 나가면 같은 보유분에 두 장의 매도가 걸린다
     //  (sellable_qty 클램프가 있어도 순서에 따라 한쪽이 0을 받아 분할 주문을 3초마다 되감는다). 취소·정정은
     //  통과한다 — 이미 낸 주문을 거두는 길까지 막으면 미체결이 미연결 주문이 된다.
-    if (sig.action == OrderAction::NEW && guardian_ && guardian_(sig.ticker) && strategy_id.rfind("ITB_", 0) != 0)
+    if (sig.action == OrderAction::NEW && guardian_ && guardian_(sig.ticker) && !strategy_id.starts_with("ITB_"))
     {
         if (guard_logged_.insert(sig.ticker).second)
         {

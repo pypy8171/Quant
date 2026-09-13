@@ -164,8 +164,7 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
 
     // 호출자(ThemeStrategy: bars[0]=최신)·MA 계산이 정렬에 의존 → KIS 응답 순서와
     // 무관하게 최신→과거(timestamp 내림차순)로 명시 보장.
-    std::sort(result.begin(), result.end(),
-              [](const MarketData& a, const MarketData& b) { return a.timestamp > b.timestamp; });
+    std::ranges::sort(result, std::ranges::greater{}, &MarketData::timestamp);
 
     if (static_cast<int>(result.size()) < count)
     {

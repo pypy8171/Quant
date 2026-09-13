@@ -24,7 +24,7 @@ inline bool is_etf_like(const std::string& name,
         //  ETF로 본다. KIS 종목명은 브랜드 뒤에 공백/숫자가 온다("KODEX 200","KIWOOM 단기채권…").
         //  경계 없이 전방일치만 하면 한글이 바로 붙는 보통주를 오드롭한다(예: "파워"→파워로직스 037030).
         //  한글은 UTF-8 선두바이트가 0x80 이상 — 접두사 직후가 한글이면 경계 불성립(보통주로 판정).
-        if (!p.empty() && name.rfind(p, 0) == 0 &&
+        if (!p.empty() && name.starts_with(p) &&
             (name.size() == p.size() || static_cast<unsigned char>(name[p.size()]) < 0x80))
         {
             return true;

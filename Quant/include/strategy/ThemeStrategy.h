@@ -4,6 +4,7 @@
 #include "strategy/StrategyBase.h"
 #include "utils/Logger.h"
 #include <algorithm>
+#include <functional>
 #include <chrono>
 #include <string>
 #include <thread>
@@ -144,8 +145,8 @@ public:
         }
 
         // 수익률 내림차순 정렬 → 상위 N개 선택
-        std::sort(momentum_rank.begin(), momentum_rank.end(),
-                  [](const auto& a, const auto& b) { return a.first > b.first; });
+        std::ranges::sort(momentum_rank, std::ranges::greater{},
+                          [](const auto& e) { return e.first; });
 
         int n = std::min(top_n_sectors_, static_cast<int>(momentum_rank.size()));
         LOG_INFO("[ThemeStrategy] Step1 완료 — 상위 " + std::to_string(n) + "개 업종 선택:");

@@ -115,7 +115,7 @@
 
 | 영역 | 기술 |
 |------|------|
-| C++ 빌드 | CMake 3.16+, Ninja, GCC(Linux) / MSVC(Windows) |
+| C++ 빌드 | C++23, CMake 3.20+, Ninja, GCC 14(Linux) / MSVC 14.44(Windows, VS 2022 17.14+) — D-070 |
 | HTTP (C++) | WinHTTP (Windows) / libcurl (Linux) |
 | WebSocket (C++) | KIS WebSocket (`ops.koreainvestment.com`) |
 | JSON | nlohmann/json (FetchContent 자동 다운로드) |
@@ -124,7 +124,7 @@
 | Python | 3.11, requests, pyzmq, psycopg2-binary |
 | 데이터베이스 | TimescaleDB (PostgreSQL 16 확장) |
 | 컨테이너 | Docker + Docker Compose |
-| OS | Windows 11 (개발), Ubuntu 22.04 (Docker 런타임) |
+| OS | Windows 11 (개발), Ubuntu 24.04 (Docker 런타임) |
 
 ---
 
@@ -502,7 +502,7 @@ cmake --build Quant/build_win
 **요구사항:** Docker Engine + Docker Compose Plugin
 
 ```bash
-# Docker 설치 (Ubuntu 22.04)
+# Docker 설치 (Ubuntu 24.04)
 sudo apt update && sudo apt install -y ca-certificates curl
 sudo install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
@@ -524,8 +524,8 @@ docker compose up -d
 
 **Linux 로컬 빌드 (Docker 없이):**
 ```bash
-sudo apt install -y cmake ninja-build g++ libcurl4-openssl-dev libzmq3-dev
-cmake -DCMAKE_BUILD_TYPE=Release -B Quant/build -S Quant
+sudo apt install -y cmake ninja-build g++-14 libcurl4-openssl-dev libzmq3-dev
+cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14 -B Quant/build -S Quant
 cmake --build Quant/build
 ./Quant/build/quant_trader Quant/config/config.json KR_TEST
 ```

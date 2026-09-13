@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -29,21 +30,9 @@ inline constexpr size_t kCacheLine = 64;
 #endif
 
 // 용량을 2의 거듭제곱으로 올림 → pos & mask 로 modulo 대체 (최소 2)
-inline size_t round_up_pow2(size_t n)
+inline constexpr size_t round_up_pow2(size_t n) noexcept
 {
-    if (n < 2)
-    {
-        n = 2;
-    }
-
-    size_t p = 1;
-
-    while (p < n)
-    {
-        p <<= 1;
-    }
-
-    return p;
+    return std::bit_ceil(n < 2 ? size_t{2} : n);
 }
 } // namespace mpsc_detail
 

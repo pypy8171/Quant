@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include <bit>
 #include <cstddef>
 #include <new>
 #include <optional>
@@ -104,14 +105,7 @@ public:
 private:
     static constexpr size_t round_up_pow2(size_t n) noexcept
     {
-        size_t p = 1;
-
-        while (p < n)
-        {
-            p <<= 1;
-        }
-
-        return p;
+        return std::bit_ceil(n);
     }
 
     const size_t capacity_;

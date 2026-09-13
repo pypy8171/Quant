@@ -5,7 +5,7 @@
 
 namespace gate_reason
 {
-// 유량 한도 거부의 머리. 분류기는 rfind(kRateLimit, 0) == 0으로 게이트 거부를 알아본다.
+// 유량 한도 거부의 머리. 분류기는 starts_with(kRateLimit)로 게이트 거부를 알아본다.
 inline constexpr char kRateLimit[] = "Rate limit 초과";
 // 분당 한도 표시 — 창이 비기까지 최대 60초라 재시도 지연을 길게 잡는 신호.
 inline constexpr char kPerMinute[] = "분당";
@@ -20,7 +20,7 @@ inline std::string rate_limit(bool per_minute, int limit)
 
 inline bool is_rate_limit(const std::string& reason)
 {
-    return reason.rfind(kRateLimit, 0) == 0;
+    return reason.starts_with(kRateLimit);
 }
 
 inline bool is_per_minute(const std::string& reason)

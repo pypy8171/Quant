@@ -211,9 +211,8 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
                  " 생존=" + std::to_string(result.size()) + " (요청 count=" + std::to_string(count) + ")");
 
         // API 정렬 기준이 불명확하므로 거래대금(가격×거래량) 내림차순 정렬 — 시가총액 대용
-        std::sort(result.begin(), result.end(),
-                  [](const RankingStock& a, const RankingStock& b)
-                  { return (a.price * static_cast<double>(a.volume)) > (b.price * static_cast<double>(b.volume)); });
+        std::ranges::sort(result, std::ranges::greater{},
+                          [](const RankingStock& s) { return s.price * static_cast<double>(s.volume); });
 
         // count개로 자르고 순위 재부여
         if (static_cast<int>(result.size()) > count)
@@ -369,8 +368,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
         // trade_value가 비어 있어 재정렬하면 순서가 망가지므로 API 순위 순서를 그대로 유지.
         if (blng_cls == "3")
         {
-            std::sort(result.begin(), result.end(),
-                      [](const RankingStock& a, const RankingStock& b) { return a.trade_value > b.trade_value; });
+            std::ranges::sort(result, std::ranges::greater{}, &RankingStock::trade_value);
         }
 
         if (static_cast<int>(result.size()) > count)
@@ -718,9 +716,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
         // 30행을 다 받아놓고 앞의 count행만 쓰면 그 업종 최고 상승주를 버린다(이미 지불한
         //  호출이다). API 정렬도 완전한 내림차순이 아니어서(09-08 실측 0019: 제주항공
         //  6.05 다음이 동양고속 2.09, 그다음이 진에어 4.53) 여기서 다시 정렬한 뒤 자른다.
-        std::sort(result.begin(), result.end(),
-                  [](const RankingStock& x, const RankingStock& y)
-                  { return x.change_rate > y.change_rate; });
+        std::ranges::sort(result, std::ranges::greater{}, &RankingStock::change_rate);
 
         if (static_cast<int>(result.size()) > count)
         {

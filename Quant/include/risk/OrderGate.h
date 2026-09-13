@@ -330,10 +330,7 @@ private:
         std::string account;
         std::string ticker;
 
-        bool operator==(const PosKey& o) const
-        {
-            return account == o.account && ticker == o.ticker;
-        }
+        bool operator==(const PosKey&) const = default;
     };
 
     struct PosKeyHash

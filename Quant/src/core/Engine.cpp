@@ -2,6 +2,7 @@
 #include "core/ReconcilePlan.h"
 #include "utils/Logger.h"
 #include <algorithm>
+#include <functional>
 #include <chrono>
 #include <ctime>
 #include <filesystem>
@@ -142,7 +143,7 @@ void Engine::apply_regime_selection(Regime r, bool force_log)
         {
             if (!p.empty() && p.back() == '*')
             {
-                if (id.compare(0, p.size() - 1, p, 0, p.size() - 1) == 0)
+                if (id.starts_with(std::string_view(p).substr(0, p.size() - 1)))
                 {
                     return true;
                 }
@@ -1080,8 +1081,7 @@ void Engine::data_thread_fn()
                             }
                         }
 
-                        std::sort(secs.begin(), secs.end(),
-                                  [](const SecRate& a, const SecRate& b) { return a.rate > b.rate; });
+                        std::ranges::sort(secs, std::ranges::greater{}, &SecRate::rate);
 
                         // 폭(breadth) 한 줄. 지수 등락률 하나로는 "지수는 빠졌는데 업종 절반이
                         //  플러스"인 회복 초입과 전 업종이 같이 밀리는 진짜 위험회피를 구분할 수
