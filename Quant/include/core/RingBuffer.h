@@ -75,9 +75,16 @@ public:
     {
         const size_t tail = tail_.load(std::memory_order_relaxed);
 
-        if (tail == head_.load(std::memory_order_acquire))
+        // 생산자가 쓰는 head_ 캐시라인은 비어 보일 때만 읽는다. 채워진 구간은 캐시로 돌아 pop당 공유 라인 접근이
+        //  tail_ store 하나로 준다. 생산자 쪽은 고수위 계산에 정확한 tail이 필요해 캐시하지 않는다. [why D-071]
+        if (tail == head_cache_)
         {
-            return std::nullopt; // 버퍼 비어 있음
+            head_cache_ = head_.load(std::memory_order_acquire);
+
+            if (tail == head_cache_)
+            {
+                return std::nullopt; // 버퍼 비어 있음
+            }
         }
 
         T item = std::move(buffer_[tail & mask_]);
@@ -136,4 +143,5 @@ private:
     // 같은 cache line에 있으면 false sharing 발생 → 각각 독립 라인으로 분리
     alignas(kCacheLine) std::atomic<size_t> head_;
     alignas(kCacheLine) std::atomic<size_t> tail_;
+    size_t                                  head_cache_ = 0; // 소비자 전용, tail_와 같은 라인
 };

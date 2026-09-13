@@ -30,13 +30,13 @@ cmake --build Quant/build
 Linux는 `libcurl4-openssl-dev`가 필요합니다 (`sudo apt install libcurl4-openssl-dev`). Windows는 네이티브 WinHTTP를 사용하므로 nlohmann/json(CMake FetchContent로 자동 다운로드) 외에 추가 의존성이 없습니다.
 
 <!-- gen:test-targets -->
-단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다 — 실행 타깃 `24`개.
+단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다 — 실행 타깃 `25`개.
 
 ```bash
-cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_ops_server test_ops_protocol test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_bar_aggregator test_order_pacer test_regime_bridge test_regime test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_wake_gate test_latency_trace test_mpsc test_account_ledger test_logger
+cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_ops_server test_ops_protocol test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_bar_aggregator test_order_pacer test_regime_bridge test_regime test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_wake_gate test_symbol_table test_latency_trace test_mpsc test_account_ledger test_logger
 ```
 <!-- /gen -->
-테스트 이름은 각각 원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·잔고 대조 계산·잔고 대조기·REST 현재가 폴러·신호 디스패처·발주 조절기·운영단말 프로토콜/서버·비동기 로거·매크로 국면 파일 판정기·N분봉 집계기·소비자 깨우기 조각·구간 지연 CSV를 가리킨다.
+테스트 이름은 각각 원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·잔고 대조 계산·잔고 대조기·REST 현재가 폴러·신호 디스패처·발주 조절기·운영단말 프로토콜/서버·비동기 로거·매크로 국면 파일 판정기·N분봉 집계기·소비자 깨우기 조각·구간 지연 CSV·종목 id 테이블을 가리킨다.
 
 ```bash
 ctest --preset x64-release          # 저장소 루트에서. 스트레스 2종은 3초로 줄여 돈다
@@ -72,7 +72,7 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@ee699e6 Quant/src/core/Engine.cpp@8cf1987 Quant/include/core/DataPoller.h@516a53a Quant/include/core/SignalDispatcher.h@46685e0 Quant/include/core/OrderPacer.h@e69b52f Quant/include/core/LedgerReconciler.h@1c00506 Quant/include/core/WakeGate.h@b3cd13f Quant/include/core/BarAggregator.h@d275776 Quant/include/core/LatencyTrace.h@4810be1 Quant/include/core/ReconcilePlan.h@74e6157 -->
+<!-- sync: Quant/include/core/Engine.h@4625abd Quant/src/core/Engine.cpp@d2a3821 Quant/include/core/DataPoller.h@516a53a Quant/include/core/SignalDispatcher.h@46685e0 Quant/include/core/OrderPacer.h@e69b52f Quant/include/core/LedgerReconciler.h@1d4cf8e Quant/include/core/WakeGate.h@1f37917 Quant/include/core/BarAggregator.h@5957319 Quant/include/core/LatencyTrace.h@4810be1 Quant/include/core/ReconcilePlan.h@74e6157 -->
 엔진은 락-프리 파이프라인 3-스레드(데이터→전략→주문)에 체결 소비 스레드와 제어 스레드를 더해 총 다섯 개의 스레드를 실행합니다:
 
 ```
@@ -92,7 +92,7 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 
 ### 핵심 타입 (`Quant/include/core/Types.h`)
 
-<!-- sync: Quant/include/core/Types.h@a3afaa2 -->
+<!-- sync: Quant/include/core/Types.h@a715e44 -->
 `MarketData`(OHLCV + bar_index), `OrderSignal`(side/type/qty/price/**ref_price** + strategy_id), `Position`, `OrderBook`(5단계 호가, 채널 `H0STASP0`/선물 `H0IFASP0`), `TradeData`(실시간 체결, 채널 `H0STCNT0`/선물 `H0IFCNT0`), `WatchSpec`(FEED 구독 종목 명세 — `is_future` 플래그로 현·선 채널 선택), `Regime`(enum: BULL/NEUTRAL/BEAR/UNKNOWN), `RegimeSnapshot`(장 시작 국면 판정 결과 — score·200MA·정배열/역배열·지수 이평 분해).
 
 > `OrderSignal.ref_price`는 시장가(price=0) 주문의 명목 한도 평가 기준가다. 지정가는 `price`로 명목을 재지만 시장가는 `price`가 0이라 이 값이 없으면 명목 백스톱이 우회된다(특히 급락장 강제청산의 시장가 전량매도). 발주 측이 직전 현재가/평단을 stamp한다.
@@ -113,17 +113,17 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 
 ### KIS API 클라이언트 (`Quant/include/api/KisClient.h`, 구현은 `Quant/src/api/Kis*.cpp` 7파일)
 
-<!-- sync: Quant/include/api/KisClient.h@7afb789 Quant/include/api/KisResult.h@3bbca42 Quant/include/api/KisTypes.h@eb484d4 Quant/include/api/KisRestDecode.h@befd452 Quant/include/api/IOrderExecutor.h@67a8e7c Quant/include/api/IMarketDataSource.h@c3ce6fd -->
+<!-- sync: Quant/include/api/KisClient.h@7afb789 Quant/include/api/KisResult.h@3bbca42 Quant/include/api/KisTypes.h@eb484d4 Quant/include/api/KisRestDecode.h@befd452 Quant/include/api/IOrderExecutor.h@93966a9 Quant/include/api/IMarketDataSource.h@c3ce6fd -->
 클래스는 하나고 구현이 도메인별로 나뉩니다(D-048): `KisTransport.cpp`(플랫폼별 HTTP — Windows는 WinHTTP, Linux는 libcurl — 재시도·초당 한도·공용 인증 헤더 `auth_headers()`), `KisAuth.cpp`(OAuth2 토큰 발급·캐시), `KisMarket.cpp`(주식 시세 — 분봉 페이지 병합·집계는 순수 함수 헤더 `Quant/include/api/KisRestDecode.h`, D-051), `KisIndex.cpp`(지수·수급·선물), `KisOrder.cpp`(주문), `KisAccount.cpp`(잔고·미체결), `KisUniverse.cpp`(순위·유니버스). 구현끼리만 쓰는 include·상수는 `Quant/src/api/KisClientInternal.h`. 주요 메서드: `authenticate()`, `get_ohlcv()`, `get_current_price()`, `send_order()`, 국내 선물 시세 `get_future_price()`(단일 시세)·`get_future_board()`(전광판, 그릭스 포함). 새 REST 호출은 인증 헤더 네 줄을 손으로 쓰지 말고 `auth_headers(tr_id, {추가 항목})`을 씁니다. 공개 헤더는 `nlohmann::json`을 내보내지 않습니다 — 잔고 `get_balance()`·전광판 `get_future_board()`는 `KisResult<T>`(`Quant/include/api/KisResult.h`, 실패 코드 동반) 봉투에 값 타입(`Quant/include/api/KisTypes.h`)을 담아 돌려주고, 응답 필드 해석은 `Quant/include/api/KisRestDecode.h`의 순수 함수가 맡습니다(D-059). 인터페이스는 둘을 구현합니다 — 주문 `IOrderExecutor`(`Quant/include/api/IOrderExecutor.h`, D-039)와 읽기 전용 시세·봉 `IMarketDataSource`(`Quant/include/api/IMarketDataSource.h`, D-066 — 현재가·일봉·분봉·지수 일봉·지수 현재값·해외 일봉). 순위·수급·잔고는 인터페이스 밖입니다.
 
 ### WebSocket 클라이언트 (`Quant/include/api/KisWebSocket.h`, 구현은 `Quant/src/api/WebSocketClient.cpp` + `WsSocketWin.cpp`/`WsSocketPosix.cpp`)
 
-<!-- sync: Quant/include/api/KisWebSocket.h@591c11f Quant/src/api/WebSocketClient.cpp@ea270c4 Quant/src/api/WsSocket.h@1e59078 -->
+<!-- sync: Quant/include/api/KisWebSocket.h@6399c4b Quant/src/api/WebSocketClient.cpp@9c9d5bb Quant/src/api/WsSocket.h@8ddd2cd -->
 FEED 모드에서 사용합니다. REST로 approval key를 발급받고, `ops.koreainvestment.com:31000`(모의) 또는 `:21000`(실거래)에 연결한 뒤 구독한 채널의 파싱된 구조체를 등록된 콜백으로 전달합니다. 구독 채널은 종목당 `WatchSpec`으로 정하며, 국내 현물 호가 `H0STASP0`·체결 `H0STCNT0`, 국내 선물 호가 `H0IFASP0`·체결 `H0IFCNT0`(`WatchSpec.is_future=true`로 선택), 미국 체결 `HDFSCNT0`을 지원합니다. 선물 체결에는 매수/매도 방향 코드가 없어 `direction`을 0으로 둡니다. 최초 연결·재연결 경로에 흩어져 있던 구독 하드코딩은 `subscribe_all()` 한 곳으로 통합되어, 재연결 시 선물 채널이 누락되던 불일치를 없앴습니다. 국내 선물 실시간은 실계좌 WS 도메인 전용이라 모의(`is_paper=true`)에서는 지원되지 않습니다. 소켓 계층은 `Quant/src/api/WsSocket.h`의 `WsSocket` 인터페이스 뒤에 있고(D-049) 플랫폼당 한 파일만 링크되므로, 연결·재연결·백오프·구독은 `WebSocketClient.cpp`에 플랫폼 코드 없이 한 벌입니다. 공개 헤더는 `<windows.h>`를 끌어오지 않습니다.
 
 ### 로깅
 
-<!-- sync: Quant/include/utils/Logger.h@a8b36fc -->
+<!-- sync: Quant/include/utils/Logger.h@46bc275 -->
 싱글톤 `Logger`가 밀리초 단위 UTC 타임스탬프로 콘솔과 `logs/quant_trader.log`(cwd 하위 `logs/` 폴더에 고정, 부모 폴더는 자동 생성)에 기록합니다. 과거 로그는 `logs/archive/`에 보관합니다. 사용 매크로: `LOG_INFO()`, `LOG_WARN()`, `LOG_ERROR()`, `LOG_DEBUG()`. 기본 임계값은 INFO이고 config `"log_level": "DEBUG"`가 봉 닫힘(D-069)·KIS 응답 본문 같은 DEBUG 줄을 연다 — 비교표를 뽑는 날만 켠다(`PYQuant/tools/compare_ws_bars.py`).
 
 **비동기 구조**: 전략·주문 hot path는 레코드를 큐에 push만 하고 즉시 반환하며, 타임스탬프 포맷팅과 파일/콘솔 I/O는 전용 writer 스레드가 담당합니다(저지연은 평균 지연보다 최악 지연(tail latency)이 중요하다는 설계 의도로 디스크 플러시를 hot path에서 분리). 큐는 락 없는 `MpscQueue<Record>`(65,536슬롯)이고 writer는 큐가 비면 condvar에서 자며 생산자는 writer가 "잔다"고 표시한 때만 깨웁니다(D-045). 밀림 처리: 큐가 가득 차면 새 레코드를 드롭하고 `dropped()`로 셉니다(hot path 블로킹 방지). 종료·테스트 직전 정합 확인용 `flush()`를 제공합니다.

@@ -1,4 +1,6 @@
 #pragma once
+#include "core/SymbolTable.h"
+
 #include <chrono>
 #include <cstdint>
 #include <string>
@@ -126,8 +128,9 @@ struct OrderBookLevel
 
 struct OrderBook
 {
-    std::string ticker;
-    std::string time;
+    std::string   ticker;
+    sym::SymbolId sym = sym::kNone; // 수신 스레드가 SymbolTable로 찍는다. 0이면 배선이 빠진 경로. [why D-071]
+    std::string   time;
     OrderBookLevel asks[5];
     OrderBookLevel bids[5];
     std::chrono::system_clock::time_point timestamp;
@@ -138,8 +141,9 @@ struct OrderBook
 // ─────────────────────────────────────────────────────────────────────────────
 struct TradeData
 {
-    std::string ticker;
-    std::string time;
+    std::string   ticker;
+    sym::SymbolId sym = sym::kNone; // 수신·폴러 스레드가 SymbolTable로 찍는다. 0이면 배선이 빠진 경로. [why D-071]
+    std::string   time;
     double price = 0.0;
     int64_t quantity = 0;
     int direction = 0; // 1=매수, 5=매도

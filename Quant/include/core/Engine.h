@@ -7,6 +7,7 @@
 #include "core/WakeGate.h"
 #include "core/OrderPacer.h"
 #include "core/SignalDispatcher.h"
+#include "core/SymbolTable.h"
 #include "core/RegimeController.h"
 #include "core/RegimeFileBridge.h"
 #include "core/Types.h"
@@ -412,17 +413,19 @@ private:
     std::unordered_map<std::string, std::string> ticker_names_;
     mutable std::mutex ticker_names_mu_;
 
-    // 종목별 최근 체결가(원 단위)와 받은 시각. 전략 스레드가 td_queue_를 비우며 쓰고, 데이터 스레드가
-    //  틱이 끊긴 보유 종목을 REST로 보충하고, OpsServer 스레드가 POSITIONS 현재가·수동주문 ref_price로
-    //  읽는다 — last_px_mu_로 보호. 틱이 없던 종목은 0.
-    struct LastPx
-    {
-        double                                px = 0.0;
-        std::chrono::steady_clock::time_point at{};
-    };
+    // 종목 문자열 ↔ 정수 id. 수신·폴러 스레드가 틱·호가에 id를 찍고 아래 현재가 캐시가 그 id로 인덱스한다.
+    //  처음 보는 종목은 그 자리에서 등록되므로 기동 시 채울 필요가 없다. [why D-071]
+    sym::SymbolTable symbols_;
 
-    std::unordered_map<std::string, LastPx> last_px_;
-    mutable std::mutex                      last_px_mu_;
+    // 종목별 최근 체결가(원 단위)와 받은 시각(steady_clock ns), id 인덱스 배열. 전략 스레드가 td_queue_를 비우며
+    //  쓰고, 데이터 스레드가 틱이 끊긴 보유 종목을 REST로 보충하고, OpsServer 스레드가 POSITIONS 현재가·수동주문
+    //  ref_price로 읽는다. 원소가 atomic이라 락이 없고, px와 at은 따로 읽혀 순간 어긋날 수 있다(둘 다 감시용).
+    //  틱이 없던 종목은 0.
+    std::unique_ptr<std::atomic<double>[]>  last_px_arr_;
+    std::unique_ptr<std::atomic<int64_t>[]> last_px_at_ns_;
+    double                                  last_px(sym::SymbolId id) const noexcept;
     double                                  last_px(const std::string& ticker) const;
+    int64_t                                 last_px_at_ns(const std::string& ticker) const;
+    void                                    set_last_px(sym::SymbolId id, double px) noexcept;
     void                                    set_last_px(const std::string& ticker, double px);
 };

@@ -2840,7 +2840,27 @@ KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 
   `t_tick_ns`, 주문 스레드가 pop·`submit` 반환 시각을 더해 첫 시도 한 줄(재시도는 pop 시각이 첫 시도 것이라 뺀다). 봉·호가
   경로 신호는 tick 구간 -1. `LOG_DEBUG`는 `Logger::enabled(DEBUG)` 가드로 인자 문자열을 만들지 않는다(C-3). `ORDER_RESULT`·
   `FILL` 방송은 `client_count() > 0`일 때만 JSON을 만든다(O-3). ctest 24/24.
-- Phase 2 다음: `SymbolId`/`SymbolTable`(A-2·C-1·O-2·C-2).
+
+**Phase 2 첫 조각 (2026-09-13)** — 종목 정수 id와 id 인덱스 현재가 캐시:
+
+- `sym::SymbolTable`(`Quant/include/core/SymbolTable.h`): `SymbolId = uint32_t`, 0은 "안 찍음"(`kNone`), 1부터 등록 순.
+  읽기는 shared 락, 삽입만 배타 락(찾고 나서 다시 확인). 상한(기본 8,192)이 차면 `kNone`을 돌려주고 호출 쪽은 문자열
+  경로로 간다. 기동 시 채우지 않고 처음 보는 종목에서 등록한다 — 재스캔·수동주문 종목이 늘어도 배선이 없다.
+  `Quant/tests/test_symbol_table.cpp`: 순서·재조회·상한·스레드 4개 동시 등록 200종목 일관성.
+- `TradeData.sym`·`OrderBook.sym`: WS 수신 스레드(체결·호가 콜백)와 REST 폴러 콜백이 `symbols_.intern`으로 찍는다.
+  `MarketData`는 이번 조각에서 뺐다(데이터 스레드 push 지점이 다른 세션의 주기 정합 작업 범위와 겹친다).
+- 현재가 캐시(C-1): `unordered_map<string, LastPx> + mutex`를 `atomic<double>[]`·`atomic<int64_t>[]`(steady ns) id 배열
+  둘로 바꿨다. 전략 스레드는 틱마다 relaxed store 둘, 데이터 스레드의 틱 끊김 판정은 `last_px_at_ns`로 락 없이 읽는다.
+  px와 at이 따로 읽혀 순간 어긋날 수 있는데 둘 다 감시·표시용이라 받아들였다. 문자열 접근자(`last_px(ticker)`)는
+  운영단말·수동주문용으로 남기고 안에서 `lookup`한다.
+- `RingBuffer::pop`의 소비자 쪽 `head_` 캐시(O-2): 비어 보일 때만 생산자 라인을 읽는다. 생산자 쪽은 캐시하지 않았다 —
+  `high_water()`가 정확한 tail을 요구한다. 실측(`bench_market_firehose load` 20초 200k msg/s, 세션 3개가 같이 빌드하는
+  16코어): 전·후 모두 drop 0, p50 100ns/300ns(intake→strategy/E2E) 동일. 고수위·p999는 전 1,465/613·118us·1.34ms,
+  후 391/168·101us·440us — 다만 후 재실행 두 번이 2,800/1,154·6.7ms·16ms(빌드 병행)·911·325us·363us로 흔들려
+  이 부하에서는 효과가 소음 아래다. 비용이 `size_t` 하나라 두되, 이득 주장은 하지 않는다.
+- ctest 25/25. 남은 Phase 2: `MarketData.sym`(주기 정합 작업 머지 뒤), 전략 디스패치의 종목 id 벡터(A-2, `StrategyBase`는
+  다른 세션 소유 파일이라 뒤로), `OrderSignal`의 문자열 제거(C-2, 신호 경로는 원칙 6 예외라 후순위), `time` 문자열의
+  정수화.
 
 ### D-072 틱 집계 봉의 기저를 1분으로 두고 판단 봉은 resample로 만든다 — REST 분봉 timestamp는 진짜 UTC (2026-09-13)
 **상태**: 채택 (`wt/bars-1m`, `test_bar_aggregator` 131·`test_kis_decode` 68 통과, 라이브는 09-14 장부터 `bar_source` 기본 `ws`)

@@ -18,7 +18,9 @@
 using namespace std::chrono_literals;
 
 Engine::Engine(KisConfig kis_cfg, int fetch_interval_sec)
-    : kis_cfg_(std::move(kis_cfg)), fetch_interval_sec_(fetch_interval_sec)
+    : kis_cfg_(std::move(kis_cfg)), fetch_interval_sec_(fetch_interval_sec),
+      last_px_arr_(std::make_unique<std::atomic<double>[]>(symbols_.capacity())),
+      last_px_at_ns_(std::make_unique<std::atomic<int64_t>[]>(symbols_.capacity()))
 {
 }
 
@@ -531,9 +533,12 @@ void Engine::start()
             KisClient* qc = quote_kis_ ? quote_kis_.get() : kis_.get();
             return qc ? qc->get_current_price(ticker) : 0.0;
         },
-        [this](const TradeData& td)
+        [this](const TradeData& in)
         {
-            while (!rest_td_queue_.push(td) && running_.load(std::memory_order_acquire))
+            TradeData td = in;
+            td.sym       = symbols_.intern(td.ticker);
+
+            while (!rest_td_queue_.push(std::move(td)) && running_.load(std::memory_order_acquire))
             {
                 std::this_thread::sleep_for(1ms);
             }
@@ -636,10 +641,13 @@ void Engine::start()
     if (!rest_price_feed_ && !watch_specs_.empty())
     {
         ws_ = std::make_unique<KisWebSocket>(kis_cfg_);
-        ws_->set_callbacks([this](const OrderBook& ob)
+        ws_->set_callbacks([this](const OrderBook& in)
                            {
+                               OrderBook ob = in;
+                               ob.sym       = symbols_.intern(ob.ticker);
+
                                // 호가도 체결과 같은 규칙 — 버린 수를 세고 넘침이 시작될 때 한 번 남긴다.
-                               if (!ob_queue_.push(ob))
+                               if (!ob_queue_.push(std::move(ob)))
                                {
                                    if (ob_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
                                    {
@@ -657,6 +665,7 @@ void Engine::start()
                                // push가 어차피 한 번 복사하므로 여기서 복사해 수신 시각을 찍고 move로 넣는다.
                                TradeData td = in;
                                td.recv_ns   = trace::now_ns();
+                               td.sym       = symbols_.intern(td.ticker);
 
                                // 전략 스레드가 멈추면 큐가 차고 틱이 여기서 사라진다 — 세어 두고
                                //  넘침이 시작될 때 한 번 남긴다(09-11 15:15 잔고 조회 정체). [why D-055]
@@ -732,22 +741,37 @@ void Engine::register_ticker_name(const std::string& ticker, const std::string& 
     ticker_names_[ticker] = name;
 }
 
-double Engine::last_px(const std::string& ticker) const
+double Engine::last_px(sym::SymbolId id) const noexcept
 {
-    std::lock_guard<std::mutex> lk(last_px_mu_);
-    auto it = last_px_.find(ticker);
-    return it == last_px_.end() ? 0.0 : it->second.px;
+    return id < symbols_.capacity() ? last_px_arr_[id].load(std::memory_order_relaxed) : 0.0;
 }
 
-void Engine::set_last_px(const std::string& ticker, double px)
+double Engine::last_px(const std::string& ticker) const
 {
-    if (px <= 0.0)
+    return last_px(symbols_.lookup(ticker));
+}
+
+int64_t Engine::last_px_at_ns(const std::string& ticker) const
+{
+    const auto id = symbols_.lookup(ticker);
+    return id < symbols_.capacity() ? last_px_at_ns_[id].load(std::memory_order_relaxed) : 0;
+}
+
+void Engine::set_last_px(sym::SymbolId id, double px) noexcept
+{
+    // id 0(미배선)과 상한 밖은 버린다 — 캐시가 틀리는 것보다 비는 쪽이 낫다.
+    if (px <= 0.0 || id == sym::kNone || id >= symbols_.capacity())
     {
         return;
     }
 
-    std::lock_guard<std::mutex> lk(last_px_mu_);
-    last_px_[ticker] = LastPx{px, std::chrono::steady_clock::now()};
+    last_px_arr_[id].store(px, std::memory_order_relaxed);
+    last_px_at_ns_[id].store(trace::now_ns(), std::memory_order_relaxed);
+}
+
+void Engine::set_last_px(const std::string& ticker, double px)
+{
+    set_last_px(symbols_.intern(ticker), px);
 }
 
 std::string Engine::ticker_label(const std::string& ticker) const
@@ -977,24 +1001,20 @@ void Engine::data_thread_fn(std::stop_token st)
                     }
                 }
 
-                std::vector<std::string> stale;
-                {
-                    std::lock_guard<std::mutex> lk(last_px_mu_);
-                    stale = poller::select_stale(
-                        held,
-                        [this](const std::string& t) -> std::optional<std::chrono::steady_clock::time_point>
+                std::vector<std::string> stale = poller::select_stale(
+                    held,
+                    [this](const std::string& t) -> std::optional<std::chrono::steady_clock::time_point>
+                    {
+                        const int64_t at_ns = last_px_at_ns(t);
+
+                        if (at_ns == 0)
                         {
-                            auto it = last_px_.find(t);
+                            return std::nullopt;
+                        }
 
-                            if (it == last_px_.end())
-                            {
-                                return std::nullopt;
-                            }
-
-                            return it->second.at;
-                        },
-                        std::chrono::steady_clock::now() - std::chrono::seconds(60));
-                }
+                        return std::chrono::steady_clock::time_point(std::chrono::nanoseconds(at_ns));
+                    },
+                    std::chrono::steady_clock::now() - std::chrono::seconds(60));
 
                 poller_->top_up(stale, [this](const std::string& t, double px) { set_last_px(t, px); });
             }
@@ -1756,8 +1776,8 @@ void Engine::strategy_thread_fn(std::stop_token st)
             while (auto opt = pop_trade())
             {
                 cur_tick_ns = opt->recv_ns;
-                // 운영단말 현재가용 캐시. 틱마다 짧은 락 한 번 — 전략 호출보다 훨씬 싸다.
-                set_last_px(opt->ticker, opt->price);
+                // 운영단말 현재가용 캐시 — id 배열에 relaxed store 둘. 생산자가 id를 안 찍었으면 문자열로 등록한다.
+                set_last_px(opt->sym != sym::kNone ? opt->sym : symbols_.intern(opt->ticker), opt->price);
 
                 for (auto* s : snap)
                 {
