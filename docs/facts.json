@@ -145,6 +145,7 @@
       "test_replay_source",
       "test_paper_executor",
       "test_feed_mux",
+      "test_feed_supervisor",
       "test_shard_matrix",
       "test_strategy_shard",
       "test_strategy_router",
@@ -194,6 +195,7 @@
       "test_replay_source",
       "test_paper_executor",
       "test_feed_mux",
+      "test_feed_supervisor",
       "test_shard_matrix",
       "test_strategy_shard",
       "test_strategy_router",
@@ -202,7 +204,7 @@
       "test_account_ledger",
       "test_logger"
     ],
-    "count": 32
+    "count": 33
   },
   "harness": {
     "commands": [
@@ -431,7 +433,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::data_thread_fn",
       "lines": 488,
-      "start": 1129
+      "start": 1137
     },
     {
       "file": "Quant/src/risk/OrderGate.cpp",
@@ -442,7 +444,7 @@
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::start",
-      "lines": 423,
+      "lines": 431,
       "start": 528
     },
     {
@@ -491,7 +493,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::strategy_thread_fn",
       "lines": 191,
-      "start": 1784
+      "start": 1792
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
@@ -593,7 +595,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::shard_thread_fn",
       "lines": 126,
-      "start": 1976
+      "start": 1984
     },
     {
       "file": "Quant/src/ipc/ZmqBridge.cpp",
@@ -638,12 +640,6 @@
       "start": 151
     },
     {
-      "file": "Quant/src/core/Engine.cpp",
-      "symbol": "Engine::control_thread_fn",
-      "lines": 109,
-      "start": 2362
-    },
-    {
       "file": "PYQuant/tools/walkforward.py",
       "symbol": "main",
       "lines": 107,
@@ -677,13 +673,19 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::order_thread_fn",
       "lines": 101,
-      "start": 2104
+      "start": 2112
     },
     {
       "file": "Quant/include/strategy/SupplyDemandPullbackStrategy.h",
       "symbol": "on_start",
       "lines": 100,
       "start": 95
+    },
+    {
+      "file": "Quant/src/core/Engine.cpp",
+      "symbol": "Engine::control_thread_fn",
+      "lines": 100,
+      "start": 2370
     },
     {
       "file": "Quant/src/core/LedgerReconciler.cpp",
@@ -767,7 +769,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::drain_manual_inbox",
       "lines": 90,
-      "start": 2582
+      "start": 2581
     },
     {
       "file": "PYQuant/tools/log_report.py",
@@ -780,6 +782,12 @@
       "symbol": "load_quote_table",
       "lines": 89,
       "start": 544
+    },
+    {
+      "file": "scripts/gen_code_flow.py",
+      "symbol": "render",
+      "lines": 89,
+      "start": 130
     },
     {
       "file": "Quant/src/api/KisOrder.cpp",

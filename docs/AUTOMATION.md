@@ -223,6 +223,7 @@ scripts/eod_autodoc.py
 | `scripts/check_code_refs.py` | 문서가 가리키는 코드 참조가 실재하는지 검사한다 — 경로, `파일::심볼`, 줄번호 참조. 줄번호 참조는 코드가 움직이면 조용히 어긋나므로 새로 추가된 줄에서 막고 `파일::심볼`로 쓰게 한다 |
 | `scripts/gen_facts.py` | 저장소를 세어 `docs/facts.json`을 만들고, 문서의 `<!-- gen:이름 -->` 블록을 그 값으로 채운다. 하네스 개수·훅 배선처럼 손으로 세면 반드시 어긋나는 숫자가 대상이다. KIS 토큰 캐시 파일명은 실 키 앞부분이 들어가므로 가려서 쓴다 |
 | `scripts/gen_code_graph.py` | 헤더 포함 관계로 모듈 그래프를 만들어 `docs/CODE_GRAPH.md`·`code_graph.dot`·`code_graph.json`을 생성한다. `--impact <파일>`은 그 파일을 고쳤을 때 재검증 대상을 파일을 열지 않고 뽑는다 |
+| `scripts/gen_code_flow.py` | `docs/code_flow.toml`(읽는 순서·심볼·볼 것)에서 `docs/CODE_FLOW.md`를 만든다. 줄 번호·시그니처는 소스에서 찾아 채우므로 코드가 옮겨가도 링크가 따라가고, 심볼이 사라지면 `--check`가 exit 1로 막아 명세를 고치게 한다. sync-gate가 `fix_cmd`로 턴 끝마다 재생성한다(D-078) |
 | `scripts/brace_style.py` | 중괄호와 블록 앞뒤 빈 줄을 기계적으로 맞춘다(`.clang-format`의 Allman·`InsertBraces`와 같은 규칙). 손으로 맞추지 않는다 |
 | `scripts/check_plain_language.py` | 쓰지 않기로 한 말을 검출·치환한다(`--fix`는 뒤 조사까지 맞춘다). 정본은 `docs/STYLE_GUIDE.md`, 게이트는 `lexicon-gate.ps1`과 `@committer` |
 | `scripts/session_triage.py` | 코드 세션 여럿이 하루 동안 남긴 상태(미푸시·worktree·브랜치·현황판 `_private/SESSION_CLAIMS.md`·인계 파일·배포 exe 뒤에 쌓인 C++ 커밋)를 한 보고서로 모은다. 되돌릴 수 있는 정리만 옵션으로 한다 — `--prune-branches`(main에 들어간 브랜치 `-d`)·`--archive-handoffs`·`--orphan-patch`. worktree 제거·푸시·exe 교체는 하지 않는다. 절차는 `/triage`(로컬 커맨드), 규칙은 CLAUDE.md 다중 세션 절 |

@@ -10,10 +10,10 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 81개
 - [Quant](#quant) — 165개
-- [docs](#docs) — 45개
+- [docs](#docs) — 47개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 134개
-- [scripts](#scripts) — 38개
+- [scripts](#scripts) — 39개
 - [strategies](#strategies) — 23개
 - [tools](#tools) — 3개
 
@@ -407,6 +407,7 @@
 ### docs/
 
 - [AUTOMATION.md](AUTOMATION.md) — 예약 자동화 작업 목록
+- [CODE_FLOW.md](CODE_FLOW.md) — 실시간 매매 코드 흐름 읽는 순서(생성물, 심볼 줄 링크·시그니처·테스트, D-078)
 - [CODE_GRAPH.md](CODE_GRAPH.md) — 모듈 의존 그래프 자동생성 문서
 - [DECISIONS.md](DECISIONS.md) — 설계 결정 원장(D-NNN)
 - [DEFERRED_ISSUES.md](DEFERRED_ISSUES.md) — 보류된 코드 이슈 목록
@@ -417,6 +418,7 @@
 - [REALTIME_READINESS_REVIEW.md](REALTIME_READINESS_REVIEW.md) — 외부 리뷰 항목 검증 문서
 - [STYLE_GUIDE.md](STYLE_GUIDE.md) — 문서 문체 규칙집
 - [SYNC_MAP.md](SYNC_MAP.md) — 문서 동기화·드리프트 방지 지도
+- [code_flow.toml](code_flow.toml) — CODE_FLOW.md의 정본 명세 — 단계·걸음·심볼·볼 것(줄 번호 없음)
 - [code_graph.dot](code_graph.dot) — 모듈 의존 그래프(Graphviz)
 - [code_graph.json](code_graph.json) — 모듈 의존 그래프(JSON)
 - [facts.json](facts.json) — 저장소 사실 자동집계 DB
@@ -701,6 +703,7 @@
 - [eod_minute_backfill.py](../scripts/eod_minute_backfill.py) — 장 마감 후 분봉 백필 스크립트
 - [extract_swap_counterfactual.py](../scripts/extract_swap_counterfactual.py) — 슬롯 교체 가정 비교 표본 추출 스크립트
 - [file_index.py](../scripts/file_index.py) — 파일 색인 두 개를 트리와 맞추는 생성·검사 스크립트(Stop 훅·커밋 게이트)
+- [gen_code_flow.py](../scripts/gen_code_flow.py) — code_flow.toml의 심볼을 소스에서 찾아 CODE_FLOW.md 생성, --check는 누락·낡음이면 exit 1
 - [gen_code_graph.py](../scripts/gen_code_graph.py) — 코드 의존 그래프 생성 스크립트
 - [gen_facts.py](../scripts/gen_facts.py) — 저장소 사실 집계 스크립트
 - [live_prices_feed.py](../scripts/live_prices_feed.py) — 전종목 실시간 시세 보조 프로세스

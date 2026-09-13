@@ -223,9 +223,10 @@ def main() -> int:
     rep = diff_report(pub_files, known_pub, rows_pub) + diff_report(priv_files, known_priv, rows_priv)
 
     if not args.check:
-        (REPO / PUB_INDEX).write_text(render(rows_pub, PUB_INDEX, "파일 색인", INTRO_PUB), encoding="utf-8")
+        # LF 고정 — 기본값(CRLF)으로 쓰면 커밋된 LF 블롭과 어긋나 재생성마다 git status 에 M 이 뜬다.
+        (REPO / PUB_INDEX).write_text(render(rows_pub, PUB_INDEX, "파일 색인", INTRO_PUB), encoding="utf-8", newline="\n")
         if (REPO / PRIV_ROOT).is_dir():
-            (REPO / PRIV_INDEX).write_text(render(rows_priv, PRIV_INDEX, "_private 파일 색인", INTRO_PRIV), encoding="utf-8")
+            (REPO / PRIV_INDEX).write_text(render(rows_priv, PRIV_INDEX, "_private 파일 색인", INTRO_PRIV), encoding="utf-8", newline="\n")
 
     blocking = rep if args.check else [r for r in rep if r.startswith(("[new]", "[todo]"))]
     if rep:

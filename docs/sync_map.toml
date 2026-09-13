@@ -7,6 +7,7 @@
 # 항목:
 #   src   = 바뀌면 트리거되는 파일 glob 목록 (저장소 루트 기준, ** 허용)
 #   deps  = 봐야 할 대표 문서. "파일#절"은 절 이름 힌트
+#   fix_cmd = (script만, 선택) --fix 때 cmd 대신 돌리는 재생성 명령. 성공하면 막지 않는다
 #   check = "gen"     : deps의 <!-- gen: --> 블록으로 자동 재생성된다 (사람 판단 없음)
 #           "script"  : cmd 명령이 재생성·검사한다
 #           "stamp"   : deps 안의 <!-- sync: --> 도장이 낡음을 잡는다 (판단은 사람)
@@ -37,6 +38,14 @@ deps = ["docs/CODE_GRAPH.md"]
 check = "script"
 cmd = "py scripts/gen_code_graph.py --check"
 note = "#include 그래프는 손편집 금지, 재생성"
+
+[[rule]]
+src = ["Quant/include/**/*.h", "Quant/src/**/*.cpp", "docs/code_flow.toml", "scripts/gen_code_flow.py"]
+deps = ["docs/CODE_FLOW.md"]
+check = "script"
+cmd = "py scripts/gen_code_flow.py --check"
+fix_cmd = "py scripts/gen_code_flow.py"
+note = "코드 흐름 문서의 줄 링크·시그니처는 재생성(fix_cmd). 심볼이 사라지면 code_flow.toml의 sym을 고친다"
 
 [[rule]]
 src = ["docs/DECISIONS.md", "Quant/config/config_dev_paper.json"]

@@ -245,9 +245,12 @@ def diff_report(fix: bool, state_path: Path | None) -> int:
     hits = match_rules(rules, files)
     need_gen = True  # 블록을 손으로 고친 경우도 잡아야 하므로 매핑과 무관하게 본다. 싸다.
     cmds: dict[str, list[str]] = {}
+    fixers: dict[str, str] = {}  # cmd → fix_cmd. --fix 때는 검사 대신 재생성을 돌린다(gen 블록과 같은 대우, D-078)
     for r, hit in hits:
         if r["check"] == "script":
             cmds.setdefault(r["cmd"], []).extend(hit)
+            if r.get("fix_cmd"):
+                fixers[r["cmd"]] = r["fix_cmd"]
 
     # gen 블록: 낡으면 --fix 때 치환, 아니면 막는다
     if need_gen:
@@ -259,7 +262,13 @@ def diff_report(fix: bool, state_path: Path | None) -> int:
 
     # 재생성·검사 명령
     for cmd, hit in cmds.items():
-        code, text = run_cmd(cmd)
+        if fix and cmd in fixers:
+            code, text = run_cmd(fixers[cmd])
+            if code == 0:
+                out.append(f"[script] `{fixers[cmd]}` 재생성함 (트리거: {', '.join(sorted(set(hit))[:4])})")
+                continue
+        else:
+            code, text = run_cmd(cmd)
         if code != 0:
             blocking = True
             tail = "\n".join("    " + t for t in text.splitlines()[-6:])

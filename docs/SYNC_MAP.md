@@ -37,6 +37,7 @@
 | `Quant/include/strategy/*.h`, `Quant/src/strategy/StrategyFactory.cpp`, `PYQuant/strategy/*.py` | `README.md`, `docs/guides/PROJECT_GUIDE.md`, `.claude/PROJECT_FACTS.md` | 자동(gen 블록) | 전략 클래스·로더 표는 gen:cpp-strategies / gen:py-strategies 블록 |
 | `.claude/commands/*.md`, `.claude/agents/*.md`, `.claude/skills/**`, `.claude/hooks/*.ps1`, `.claude/settings.json` | `docs/HARNESS.md`, `docs/AUTOMATION.md#훅` | 자동(gen 블록) | 개수·훅 배선표는 gen:harness-counts / gen:hooks 블록. 훅이 하는 일 설명 문단은 stamp |
 | `Quant/include/**/*.h`, `Quant/src/**/*.cpp` | `docs/CODE_GRAPH.md` | 자동(명령) `py scripts/gen_code_graph.py --check` | #include 그래프는 손편집 금지, 재생성 |
+| `Quant/include/**/*.h`, `Quant/src/**/*.cpp`, `docs/code_flow.toml`, `scripts/gen_code_flow.py` | `docs/CODE_FLOW.md` | 자동(명령) `py scripts/gen_code_flow.py --check` | 코드 흐름 문서의 줄 링크·시그니처는 재생성(fix_cmd). 심볼이 사라지면 code_flow.toml의 sym을 고친다 |
 | `docs/DECISIONS.md`, `Quant/config/config_dev_paper.json` | `research/STRATEGY_LAB.md`, `.claude/PROJECT_FACTS.md` | 자동(명령) `py scripts/sync_ledgers.py --check` | **원장**:·**음성결과**: 줄에서 마커 구간 생성 |
 | `Quant/include/core/*.h`, `Quant/src/core/*.cpp`, `Quant/src/main.cpp` | `CLAUDE.md#아키텍처`, `docs/guides/PROJECT_GUIDE.md` | 도장 | 스레드 모델·모듈 책임 요약 문단. 헤더의 공개 역할이 바뀌면 문단을 고치고 --restamp |
 | `Quant/include/api/*.h`, `Quant/src/api/*.cpp` | `CLAUDE.md#KIS API 클라이언트`, `CLAUDE.md#WebSocket 클라이언트` | 도장 | 파일 분할·인터페이스·채널 목록 요약 |

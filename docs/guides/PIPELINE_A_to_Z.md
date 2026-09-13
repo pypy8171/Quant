@@ -1,5 +1,7 @@
 # PIPELINE A-to-Z — 코드 레벨 파이프라인 흐름 문서
 
+> 지금 코드의 심볼 위치와 읽는 순서는 생성물 [docs/CODE_FLOW.md](../CODE_FLOW.md)가 정본이다(D-078). 이 문서는 큐 하나짜리 시절의 변환 서사로 남겨 둔다.
+
 이 문서는 C++ 퀀트 트레이딩 엔진(`Quant/`)의 **TRADE 모드 실행 경로**를 파일·함수 단위로 추적한다. 모든 주장에는 `파일::심볼` 근거가 달려 있으며, 데이터가 큐/콜백을 넘을 때 "무엇이 무엇으로 변환되는가"를 명시한다.
 
 > 이 문서를 쓴 뒤 코드가 옮겨간 곳이 있다. 전략 로딩은 `Quant/src/main.cpp`에서 `Quant/src/strategy/StrategyFactory.cpp`로, 관찰 모드(FEED·KR_TEST·US_TEST) 화면은 `Quant/src/modes/Monitors.cpp`로 분리됐고, `Logger`는 writer 스레드를 둔 비동기 구조가 됐다. 심볼 참조는 옮겨간 곳으로 맞췄으나 11절과 13절의 서술 일부는 아직 분리 이전 구조를 설명한다.
