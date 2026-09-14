@@ -454,7 +454,7 @@ def main(argv: list[str]) -> int:
     facts = collect()
     if not check:
         OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
-        OUT_JSON.write_text(json.dumps(facts, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        OUT_JSON.write_text(json.dumps(facts, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
         print(f"[ok] wrote {rel(OUT_JSON)}")
     rc = 0
     for d in TARGET_DOCS:
