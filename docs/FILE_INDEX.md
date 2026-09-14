@@ -10,7 +10,7 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 81개
 - [Quant](#quant) — 166개
-- [docs](#docs) — 51개
+- [docs](#docs) — 52개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 134개
 - [scripts](#scripts) — 44개
@@ -441,6 +441,7 @@
 - [2026-09-09.md](eod/2026-09-09.md) — 09-09 매매 사후검토(테스트 빌드 원장 오염)
 - [2026-09-10.md](eod/2026-09-10.md) — 09-10 매매 사후검토(진입정지·매크로 게이트)
 - [2026-09-11.md](eod/2026-09-11.md) — 09-11 매매 사후검토(동기 잔고조회 지연)
+- [2026-09-14.md](eod/2026-09-14.md) — 09-14 매매 사후검토
 - [README.md](eod/README.md) — 장 마감 리뷰 색인
 
 ### docs/guides/

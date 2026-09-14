@@ -3,6 +3,284 @@
   "_comment": "실증 사후검토(post-mortem) 데이터 계약. build_dashboard.py render_reviews()가 이 파일만 읽어 '리뷰' 탭을 렌더한다. *_html 필드는 신뢰된 인라인 HTML(작성자=본인), 그 외는 이스케이프. 새 리뷰는 reviews 배열에 append.",
   "reviews": [
     {
+      "id": "2026-09-14_session_review",
+      "strategy": "TRENDX · DEVSCALE",
+      "eyebrow": "세션 리뷰 · 09-14 · 원장/로그 자동 집계",
+      "headline_html": "09-14 세션 정리 — 전일대비 −1,400,300원",
+      "verdict_html": "원장 2319이벤트(접수 619 · 체결 708 · 거부 486), 재기동 9회. 당일 라운드트립 481건 중 이익 198건, 라운드트립 실현 −94,055원(당일 양변 확인분·비용 제외). 전일 종가 대비 종료 손익은 −1,400,300원이다. 세션 시작을 0으로 잡은 잔고 대조 카운터로는 −253,315원인데, 재기동마다 기준이 옮겨가고 간밤 갭이 빠지므로 하루의 성과는 앞의 값으로 읽는다. 여기까지는 원장·로그에서 기계로 뽑은 사실이고, 원인과 다음 조치는 아래 항목에 사람이 적는다.",
+      "meta_html": [
+        "근거 로그 <span class=\"mono\">quant_trader.log</span> · 원장 <span class=\"mono\">2319</span>이벤트",
+        "재기동 <span class=\"mono\">9</span>회 · 접수 <span class=\"mono\">619</span> / 체결 <span class=\"mono\">708</span> / 거부 <span class=\"mono\">486</span>",
+        "전략별 이벤트 <span class=\"mono\">DISPLACE 150</span> · <span class=\"mono\">TRENDX_010170 61</span> · <span class=\"mono\">TRENDX_459550 55</span> · <span class=\"mono\">DEVSCALE_003380 54</span>"
+      ],
+      "doc_path": "strategies/DeviationScale/live/2026-09-14.md",
+      "log_path": "Quant/build_win/logs/quant_trader.log",
+      "incidents": [
+        {
+          "sev": "거부",
+          "when": "09-14 종일",
+          "title": "주문 거부 82건 — Rate limit 초과 (분당 20건)",
+          "desc_html": "원장 REJECTED 사유 상위. 정규화 문구 <span class=\"mono\">Rate limit 초과 (분당 20건)</span>.",
+          "evidence": "Quant/build_win/logs/trades_20260914.csv · REJECTED 82건",
+          "impact_html": ""
+        },
+        {
+          "sev": "거부",
+          "when": "09-14 종일",
+          "title": "주문 거부 58건 — KIS API 거부 (빈 ODNO) [EGWN]",
+          "desc_html": "원장 REJECTED 사유 상위. 정규화 문구 <span class=\"mono\">KIS API 거부 (빈 ODNO) [EGWN]</span>.",
+          "evidence": "Quant/build_win/logs/trades_20260914.csv · REJECTED 58건",
+          "impact_html": ""
+        },
+        {
+          "sev": "거부",
+          "when": "09-14 종일",
+          "title": "주문 거부 43건 — KIS API 거부 (빈 ODNO) [N]",
+          "desc_html": "원장 REJECTED 사유 상위. 정규화 문구 <span class=\"mono\">KIS API 거부 (빈 ODNO) [N]</span>.",
+          "evidence": "Quant/build_win/logs/trades_20260914.csv · REJECTED 43건",
+          "impact_html": ""
+        },
+        {
+          "sev": "로그",
+          "when": "09-14 종일",
+          "title": "ERROR/WARN 504건 — [WinHTTP] HTTP N (초당 한도) — 재시도 2/3  url=https://",
+          "desc_html": "로그 상위 경고. <span class=\"mono\">[WinHTTP] HTTP N (초당 한도) — 재시도 2/3  url=https://openapi.koreainvestment.com:N/ua</span>.",
+          "evidence": "Quant/build_win/logs/quant_trader.log · 504건",
+          "impact_html": ""
+        },
+        {
+          "sev": "로그",
+          "when": "09-14 종일",
+          "title": "ERROR/WARN 345건 — [WinHTTP] HTTP N  url=https://openapi.koreainves",
+          "desc_html": "로그 상위 경고. <span class=\"mono\">[WinHTTP] HTTP N  url=https://openapi.koreainvestment.com:N/uapi/domestic-stock/</span>.",
+          "evidence": "Quant/build_win/logs/quant_trader.log · 345건",
+          "impact_html": ""
+        },
+        {
+          "sev": "로그",
+          "when": "09-14 종일",
+          "title": "ERROR/WARN 168건 — [WinHTTP] HTTP N  url=https://openapivts.koreain",
+          "desc_html": "로그 상위 경고. <span class=\"mono\">[WinHTTP] HTTP N  url=https://openapivts.koreainvestment.com:N/uapi/domestic-sto</span>.",
+          "evidence": "Quant/build_win/logs/quant_trader.log · 168건",
+          "impact_html": ""
+        },
+        {
+          "sev": "공백",
+          "when": "08:13~09:00",
+          "title": "주문 이벤트 공백 46.3분",
+          "desc_html": "접수·체결·거부가 한 건도 없는 최장 구간. 신호 고갈인지 배관 정지인지는 로그로 갈라야 한다.",
+          "evidence": "Quant/build_win/logs/trades_20260914.csv",
+          "impact_html": ""
+        }
+      ],
+      "pnl": {
+        "title_html": "09-14 세션 당일손익 <span class=\"u\">KRW · 잔고 대조 폴링에서 시작·고점·저점·마감 4점</span>",
+        "series": [
+          {
+            "t": "09:01",
+            "v": 0
+          },
+          {
+            "t": "09:09",
+            "v": 637442
+          },
+          {
+            "t": "14:25",
+            "v": -311725
+          },
+          {
+            "t": "15:29",
+            "v": -253315
+          }
+        ],
+        "floor": -311725,
+        "ceil": 637442,
+        "gridlines": [
+          600000,
+          300000,
+          0,
+          -300000,
+          -600000
+        ],
+        "last_label": "세션손익",
+        "note_html": "고점 <b class=\"pos\">+637,442</b>@09:09 · 저점 <b class=\"neg\">−311,725</b>@14:25 · 마감 <b>−253,315</b>@15:29. 폴링 481건 중 4점만 표시했다(연속 곡선 아님)."
+      },
+      "axes": [
+        {
+          "n": "AXIS 1",
+          "title": "마감 청산이 취소를 먼저 내 매도가 0으로 깎이고 같은 매도가 큐에 겹쳤다",
+          "tag": "오늘의 본질",
+          "tag_cls": "crit",
+          "items": [
+            {
+              "kind": "bug",
+              "text_html": "15:20 청산이 예약 익절 취소를 먼저 내고 매도를 냈다. 취소가 아직 발주 큐에 있는 동안 전략 쪽 매도가능이 0으로 보여 30초씩 기다렸고, 그 사이 같은 매도가 큐에 쌓였다 — <span class=\"mono\">036930 SELL 9</span>가 15:15:01·15:15:31·15:16:31 세 번. 15:20 창 SELL 접수 92·체결 54·거부 59, 15:40 정리 매도는 장종료(<span class=\"mono\">40580000</span>) 거부 34건"
+            },
+            {
+              "kind": "bug",
+              "text_html": "15:00 수동 정리 3건 중 2건이 운영단말에서 <span class=\"mono\">매도가능 0 (보유=5 미체결매도=5)</span>로 사전 거부돼 라우터의 예약취소 경로에 닿지 못했다. 096770은 취소 성공 뒤 재매도가 <span class=\"mono\">EGW00201</span>에 걸렸는데 사유가 \"취소할 예약매도 없음\"으로 남고 재시도 3회가 전부 매도가능 0 — 취소로 풀린 수량을 게이트 시드값에 되돌리지 않았다"
+            },
+            {
+              "kind": "des",
+              "text_html": "조치 — D-082. 매도를 먼저 전량으로 내고 취소는 뒤에(<span class=\"mono\">emit_liquidation(clamp_sellable=false)</span>). 라우터는 같은 종목·전략의 미체결 시장가 매도가 120초 안에 있으면 재발주를 <span class=\"mono\">중복 생략</span>, 예약매도가 묶은 수량은 취소 뒤 전량 재발주, 취소로 풀린 수량은 <span class=\"mono\">restore_sellable</span>. 운영단말 SELL은 보유 범위면 라우터로. <span class=\"mono\">eod_exit_hhmm</span> 1505. 커밋 14d015a·2b17ef4"
+            }
+          ]
+        },
+        {
+          "n": "AXIS 2",
+          "title": "하락장 손실은 이월 보유분에서 났고 첫 매수는 1주만 남았다",
+          "tag": "고칠 것 확정",
+          "tag_cls": "info",
+          "items": [
+            {
+              "kind": "bug",
+              "text_html": "당일 양변 gross −94,055원 대비 전일 종가 기준 −1,400,300원. 차이는 전일 이월분 매도다. 이월분 손절 기준이 당일 고점 트레일뿐이라 갭다운을 못 잘랐다. 레짐 위험회피(코스피 −3%대)로 신규 스캔은 48회 스킵했으니 전략은 규칙대로 돌았다"
+            },
+            {
+              "kind": "bug",
+              "text_html": "375500 09:00:00 첫 매수 1/16 체결 → 09:00:10 잔량 취소 → 익절 1주만 남음. 096770 13:10 같은 경로. 13:57 096770 BUY 6 두 번은 물타기 두 층(@134,900·@133,800)이지 중복이 아니다"
+            },
+            {
+              "kind": "des",
+              "text_html": "조치 — 이월분 평단 하드스톱 조합안(평단 −4%·09:15 이후·1분봉 종가 3개 확인·부착 때 −15% 초과 보유 제외)을 <span class=\"mono\">manage_holdings.seed_hard_*</span>로 넣고 켰다. 파라미터는 틱 캡처로 갭일 되돌림 분포를 본 뒤 확정(D-082). 첫 매수 잔량은 목표 수량을 기억해 같은 자리에 다시 깔고 평가금 25만 원 아래는 시장가 정리(D-081, 73a9afe)"
+            }
+          ]
+        },
+        {
+          "n": "AXIS 3",
+          "title": "입력 데이터가 하루 이틀 늦었다 — 유니버스·거시 투표·기동 점검",
+          "tag": "고칠 것 확정",
+          "tag_cls": "info",
+          "items": [
+            {
+              "kind": "bug",
+              "text_html": "data.go.kr 축이 하루 종일 <span class=\"mono\">기준일 20260911</span>(이틀 전). 보안주 3종·라온시큐어가 후보 풀에 없었다. 거시 투표는 FDR 전일 종가끼리 비교라 RISK_ON을 냈는데 실제 나스닥 선물 −1.32%"
+            },
+            {
+              "kind": "bug",
+              "text_html": "08:11 기동 점검 주문이 <span class=\"mono\">모의투자 장시작전</span>으로 거부돼 점검이 안 됐다. 장중 재빌드·재기동 8회(09:33~13:05)마다 잔고 재시드·프리페치가 붙어 초당 한도를 더 밀었다 — <span class=\"mono\">EGW00201</span> 유량한도 82·빈 ODNO 58·취소 거부 47"
+            },
+            {
+              "kind": "des",
+              "text_html": "조치 — 유니버스 값은 네이버 실행 시점 시세(3688529), 거시 투표는 Yahoo 선물 현재가 우선(b1f550f), 기동 점검은 09:00~15:20 안에서만(beeda79). 09-11 <span class=\"mono\">std::terminate</span> 원인(시그널 스레드 join 뒤 재-join)도 고쳤다(8060b2f). 취소 전용 레인은 안 만든다 — 초당 한도는 취소에도 걸려 처리량이 안 는다"
+            }
+          ]
+        }
+      ],
+      "improvements": {
+        "section_sub": "다음 거래일(09-15) 전까지. 근거는 docs/eod/2026-09-14.md · docs/DECISIONS.md D-079~D-082 · strategies/DeviationScale/live/2026-09-14.md",
+        "lanes": [
+          {
+            "prio": "P0",
+            "title": "마감 청산 순서·중복 차단 — D-082 (반영 완료, 09-15 확인)",
+            "count_note": "3건",
+            "items": [
+              {
+                "id": "T-01",
+                "cat": "전략",
+                "eff": "S",
+                "title": "마감 청산은 매도 먼저, 취소는 뒤에",
+                "prob_html": "취소가 큐에 있는 동안 매도가능이 0으로 보여 30초 대기·중복 발주.",
+                "fix_html": "<span class=\"mono\">DeviationScaleStrategy.h</span> 마감 블록 순서를 바꾸고 전략 쪽 클램프를 끈다. <span class=\"mono\">eod_exit_hhmm</span> 1505. 14d015a"
+              },
+              {
+                "id": "T-02",
+                "cat": "라우터",
+                "eff": "M",
+                "title": "같은 시장가 매도 120초 중복 차단·예약매도 취소 뒤 전량 재발주",
+                "prob_html": "라우터에 같은 청산의 중복을 거를 곳이 없었고, 짧은 매도가능은 잘라서 냈다.",
+                "fix_html": "<span class=\"mono\">kDupMarketSellGuardSec</span>=120, 미체결 매도가 원인이면 취소 뒤 전량, 취소 못 찾으면 잘라서. 14d015a"
+              },
+              {
+                "id": "T-03",
+                "cat": "라우터",
+                "eff": "S",
+                "title": "취소 뒤 재매도 실패 사유에 KIS 코드, 풀린 수량 되돌림",
+                "prob_html": "096770 재시도 3회가 전부 매도가능 0으로 헛돌았다.",
+                "fix_html": "<span class=\"mono\">restore_sellable</span> 호출, 운영단말 SELL은 보유 범위면 통과. 2b17ef4"
+              }
+            ]
+          },
+          {
+            "prio": "P1",
+            "title": "이월분 손절·첫 매수 잔량·입력 데이터 지연 (반영 완료)",
+            "count_note": "4건",
+            "items": [
+              {
+                "id": "T-04",
+                "cat": "전략",
+                "eff": "M",
+                "title": "이월분 평단 하드스톱 조합안",
+                "prob_html": "갭다운 이월분을 당일 고점 트레일만으로 못 잘랐다.",
+                "fix_html": "<span class=\"mono\">seed_hard_pct</span> 4 · 09:15 이후 · 1분봉 3개 · −15% 초과 제외. 파라미터는 틱 캡처 분포로 확정. 14d015a"
+              },
+              {
+                "id": "T-05",
+                "cat": "전략",
+                "eff": "S",
+                "title": "첫 매수 부분체결 잔량 재발주·먼지 정리",
+                "prob_html": "1주 체결 뒤 잔량 취소로 익절 1주만 남았다.",
+                "fix_html": "<span class=\"mono\">base_target_qty_</span>·<span class=\"mono\">peak_pos_</span> 기억, <span class=\"mono\">dust_krw</span> 25만 원. 73a9afe"
+              },
+              {
+                "id": "T-06",
+                "cat": "데이터",
+                "eff": "M",
+                "title": "유니버스 값·거시 투표를 실행 시점 시세로",
+                "prob_html": "이틀 전 기준 유니버스, 전일 종가 거시 투표.",
+                "fix_html": "네이버 벌크 시세·Yahoo 선물 현재가. 3688529·b1f550f"
+              },
+              {
+                "id": "T-07",
+                "cat": "엔진",
+                "eff": "S",
+                "title": "기동 점검 시각·종료 경로",
+                "prob_html": "08시 점검은 장 전 거부, 09-11 terminate는 이중 join.",
+                "fix_html": "09:00~15:20 안에서만, <span class=\"mono\">request_shutdown()</span>·미니덤프. beeda79·8060b2f"
+              }
+            ]
+          },
+          {
+            "prio": "P2",
+            "title": "측정 먼저",
+            "count_note": "2건",
+            "items": [
+              {
+                "id": "T-08",
+                "cat": "측정",
+                "eff": "M",
+                "title": "갭일 되돌림 분포로 seed_hard 파라미터 확정",
+                "prob_html": "−4%·3봉은 판단값이다.",
+                "fix_html": "틱 캡처(원칙 8)로 이월분 갭일 09:00~10:00 되돌림 분포를 재 본다."
+              },
+              {
+                "id": "T-09",
+                "cat": "측정",
+                "eff": "S",
+                "title": "WS 재연결 21회 원인",
+                "prob_html": "09-11은 0회였다.",
+                "fix_html": "09-15 로그와 비교, 같으면 항목으로 올린다."
+              }
+            ]
+          }
+        ]
+      },
+      "gate": [
+        {
+          "html": "<b class=\"stop\">실계좌 전환 게이트 유지</b> — 마감 청산이 15:20 안에 다 못 나간 날이다. 09-15 장에서 15:05 청산이 15:20 안에 전부 체결되고 <span class=\"mono\">중복 생략</span>·<span class=\"mono\">취소 불요</span> 줄이 D-082 확인 방법대로 남는 것을 한 번 본다."
+        },
+        {
+          "html": "<b>재기동은 묶어서</b> — 장중 재빌드 8회가 초당 한도를 더 밀었다. 결함 수정은 한 번에 모아 배포한다."
+        },
+        {
+          "html": "<b>이월분 하드스톱은 켠 채 관찰</b> — <span class=\"mono\">평단 하드스톱</span> 줄이 09:15 전에 없는지, 걸린 종목의 실제 되돌림을 본 뒤 파라미터를 손댄다."
+        },
+        {
+          "html": "<b>슬롯 30 유지</b> — D-079. 이월 보유 36이 줄어야 교체가 풀린다. 매매비용이 실현손익의 6배라 회전을 늘리는 쪽은 안 간다."
+        }
+      ]
+    },
+    {
       "id": "2026-09-11_session_review",
       "strategy": "TRENDX · DEVSCALE",
       "eyebrow": "세션 리뷰 · 09-11 · 원장/로그 자동 집계",
