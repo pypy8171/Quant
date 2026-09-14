@@ -1,8 +1,10 @@
 """data.go.kr 시총∪거래대금 top-N 유니버스 피드 → Quant/config/universe_scan.json.
 
 C++ DeviationScale 스캐너의 4번째 후보 축(ETF-free·KIS 30행캡 우회)을 채운다.
-장 전 하루 1회 실행 권장. T-1 스냅샷 기반(당일치는 익일 13시 갱신)이나 유니버스
-선정엔 무관 — 시총·거래대금 랭킹은 일 단위로 안정적이고, 정배열도 어차피 일봉 기준.
+data.go.kr 스냅샷은 종목 목록(코드·이름·시장, ETF 없음)만 쓰고, 시총·거래대금·종가는 네이버 벌크
+시세(polling API, marketValueFullRaw·accumulatedTradingValueRaw)에서 실행 시점 값으로 받는다.
+data.go.kr 는 전영업일 시세를 당일 오전 늦게 올려 08시 스캔이 이틀 전 기준을 받았고(09-14 실측), 그
+기준일로 하루를 보내면 전날·오늘 급등한 종목이 후보 풀에서 빠진다. 장중에는 감시견이 30분마다 다시 돌린다.
 
 핵심 이점(data-sourcer 실측 확인):
   • getStockPriceInfo(금융위 주식시세정보)는 ETF/ETN을 구조적으로 서빙 안 함
@@ -24,6 +26,8 @@ import argparse
 import json
 import os
 import sys
+import time
+import urllib.request
 from datetime import date as _date, timedelta
 from pathlib import Path
 
@@ -45,29 +49,59 @@ def _yesterday_iso() -> str:
     return d.isoformat()
 
 
-def _load_live_turnover(path: str | None, min_hhmm: str = "0930") -> tuple[dict[str, float], str]:
-    """네이버 벌크 시세 파일(scripts/live_prices_feed.py 산출)의 당일 누적 거래대금.
-    data.go.kr는 전영업일 시세를 당일 오전 늦게 올려 08시 스캔이 T-2를 받는다(09-14 실측).
-    장중에는 오늘 거래대금이 그날 강한 종목을 가장 잘 가리키므로, 파일이 오늘 것이고
-    개장 30분이 지났으면 거래대금 축을 이 값으로 바꾼다. 시총 축은 그대로 data.go.kr다."""
-    if not path:
-        return {}, ""
+_NAVER_URL = "https://polling.finance.naver.com/api/realtime/domestic/stock/"
+_NAVER_UA  = {"User-Agent": "Mozilla/5.0"}
+_NAVER_CHUNK = 100
+
+
+def _prev_weekday_ymd() -> str:
+    d = _date.today() - timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d.strftime("%Y%m%d")
+
+
+def _num(v) -> float:
     try:
-        doc = json.loads(Path(path).read_text(encoding="utf-8"))
-    except Exception:
-        return {}, ""
-    ts = doc.get("ts", 0)
-    hhmm = str(doc.get("hhmm", ""))
-    if _date.fromtimestamp(ts) != _date.today() or hhmm < min_hhmm:
-        return {}, ""
-    out = {code: float(v.get("val", 0.0) or 0.0)
-           for code, v in (doc.get("prices") or {}).items() if isinstance(v, dict)}
-    return out, hhmm
+        return float(str(v).replace(",", ""))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def fetch_naver_live(codes: list[str]) -> dict[str, dict]:
+    """네이버 벌크 시세 — 코드별 {px, mcap, val}. 100종목씩 한 요청, 전 시장 2,700종목이면 요청 27개.
+    장중에는 현재가·당일 누적 거래대금·현재 시총이고, 장 전에는 직전 종가 기준 값이다.
+    scripts/live_prices_feed.py 와 같은 엔드포인트인데, 그 파일은 이 스캔이 만든 코드 목록으로 돌아
+    (08시 첫 스캔 때는 아직 없다) 여기서 직접 받는다. 실패한 청크는 건너뛴다(그 종목은 data.go.kr 값 유지)."""
+    out: dict[str, dict] = {}
+    miss = 0
+    for i in range(0, len(codes), _NAVER_CHUNK):
+        part = codes[i:i + _NAVER_CHUNK]
+        try:
+            req = urllib.request.Request(_NAVER_URL + ",".join(part), headers=_NAVER_UA)
+            with urllib.request.urlopen(req, timeout=10) as r:
+                rows = json.loads(r.read().decode("utf-8")).get("datas", [])
+        except Exception as e:  # noqa: BLE001 — 청크 하나 실패가 스캔을 멈추면 안 된다
+            miss += len(part)
+            print(f"[universe_feed] 네이버 청크 {i // _NAVER_CHUNK} 실패: {e}", file=sys.stderr)
+            time.sleep(0.5)
+            continue
+        for r in rows:
+            code = r.get("itemCode")
+            px = _num(r.get("closePriceRaw"))
+            if not code or px <= 0:
+                continue
+            out[code] = {"px": px,
+                         "mcap": _num(r.get("marketValueFullRaw")),
+                         "val": _num(r.get("accumulatedTradingValueRaw"))}
+    if miss:
+        print(f"[universe_feed] 네이버 시세 누락 {miss}종목(청크 실패).", file=sys.stderr)
+    return out
 
 
 def build(on_date: str, n_mktcap: int, n_turnover: int,
           min_turnover: float = 1e9, market: str = "KOSPI",
-          with_market_map: bool = False, live_prices: str | None = None) -> dict | None:
+          with_market_map: bool = False, use_live: bool = True) -> dict | None:
     # market="ALL"이면 코스피·코스닥 각각 시총∪거래대금 top-N을 뽑아 union한다(시장별 균형 —
     # 코스피 대형주가 코스닥 슬롯을 잠식하지 않도록 시장을 나눠 각자 상위 N을 확보). datagokr
     # _snapshot은 시장 무관 전종목을 한 번에 서빙하므로 시장 수와 무관하게 API 비용 동일.
@@ -86,15 +120,35 @@ def build(on_date: str, n_mktcap: int, n_turnover: int,
     cached = sorted(p.stem.split("_", 1)[1] for p in src._cache.glob("univ_*.parquet"))
     served = max((d for d in cached if len(d) == 8 and d <= req_ymd), default=req_ymd)
 
-    live_val, live_hhmm = _load_live_turnover(live_prices)
-    if live_val:
-        hit = 0
+    # 시총·거래대금·종가를 네이버 실행 시점 값으로 바꾼다. 거래대금이 절반 넘게 0이면(장 전에 누적치가
+    #  아직 없는 경우) 거래대금 축만 data.go.kr 로 두는데, 그 기준일이 직전 평일보다 오래됐으면 이틀 전
+    #  랭킹으로 유니버스를 만드는 것이라 실패로 친다 — 감시견이 직전 파일을 유지하고 30분 뒤 다시 돈다.
+    live_hhmm = time.strftime("%H%M")
+    mcap_src = val_src = f"data.go.kr {served}"
+    if use_live:
+        live = fetch_naver_live([r["code"] for r in rows if r.get("code")])
+        n_cap = n_val = 0
         for r in rows:
-            v = live_val.get(r.get("code", ""))
-            if v is not None and v > 0.0:
-                r["turnover"] = v
-                hit += 1
-        print(f"[universe_feed] 거래대금 축을 당일 {live_hhmm} 누적치로 교체({hit}종목, 시총 축은 {served} 기준 유지).")
+            v = live.get(r.get("code", ""))
+            if not v:
+                continue
+            r["close"] = v["px"]
+            if v["mcap"] > 0.0:
+                r["mktcap"] = v["mcap"]
+                n_cap += 1
+            if v["val"] > 0.0:
+                r["turnover"] = v["val"]
+                n_val += 1
+        if n_cap >= len(rows) // 2:
+            mcap_src = f"naver-live {live_hhmm}"
+        if n_val >= len(rows) // 2:
+            val_src = f"naver-live {live_hhmm}"
+        print(f"[universe_feed] 네이버 시세 {len(live)}/{len(rows)}종목 — 시총 {n_cap}·거래대금 {n_val} 교체 "
+              f"(시총 축 {mcap_src}, 거래대금 축 {val_src}).")
+    if val_src.startswith("data.go.kr") and served < _prev_weekday_ymd():
+        print(f"[universe_feed] 거래대금 축이 data.go.kr {served} 기준(직전 평일 {_prev_weekday_ymd()} 미만) — "
+              f"이틀 전 랭킹으로는 만들지 않는다. 직전 파일 유지.", file=sys.stderr)
+        return None
 
     markets = ["KOSPI", "KOSDAQ"] if market == "ALL" else [market]
     seen: set[str] = set()
@@ -139,7 +193,9 @@ def build(on_date: str, n_mktcap: int, n_turnover: int,
         "market":   market,
         "basDt":    served,
         "requested_date": on_date,
-        "turnover_source": (f"naver-live {live_hhmm}" if live_val else f"data.go.kr {served}"),
+        "mktcap_source":   mcap_src,
+        "turnover_source": val_src,
+        "scanned_at":      time.strftime("%Y-%m-%d %H:%M:%S"),
         "count":    len(universe),
         "universe": universe,
     }
@@ -169,13 +225,13 @@ def main() -> int:
     ap.add_argument("--market", default="KOSPI", choices=["KOSPI", "KOSDAQ", "ALL"],
                     help="유니버스 시장(기본 KOSPI). ALL=코스피·코스닥 각각 top-N union, 종목별 market 태그 부여.")
     ap.add_argument("--out", default=str(_OUT_PATH), help="출력 JSON 경로")
-    ap.add_argument("--live-prices", default=None,
-                    help="네이버 벌크 시세 파일(prices_live.json). 오늘 것이고 09:30 이후면 거래대금 축을 당일 누적치로 바꾼다.")
+    ap.add_argument("--no-live", action="store_true",
+                    help="네이버 시세로 시총·거래대금을 바꾸지 않고 data.go.kr 스냅샷 값만 쓴다(백필·점검용).")
     args = ap.parse_args()
 
     on_date = args.date or _yesterday_iso()
     doc = build(on_date, args.n_mktcap, args.n_turnover, args.min_turnover, args.market,
-                with_market_map=True, live_prices=args.live_prices)
+                with_market_map=True, use_live=not args.no_live)
     if doc is None:
         return 1
 
@@ -186,7 +242,8 @@ def main() -> int:
     tmp = out.with_suffix(out.suffix + ".tmp")
     tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, out)
-    print(f"[universe_feed] 기록 완료 → {out} ({doc['count']}종목, 기준일 {doc['basDt']}, 거래대금 축 {doc['turnover_source']})")
+    print(f"[universe_feed] 기록 완료 → {out} ({doc['count']}종목, 목록 기준일 {doc['basDt']}, "
+          f"시총 축 {doc['mktcap_source']}, 거래대금 축 {doc['turnover_source']})")
     return 0
 
 
