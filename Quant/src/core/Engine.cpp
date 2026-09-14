@@ -1850,44 +1850,46 @@ void Engine::strategy_thread_fn(std::stop_token st)
     // 기동 점검 — 모의계좌 주문경로 검증용 1회성 시장가 매수(config startup_probe).
     //  이 스레드가 order_queue_ 단일 생산자라 여기서 딱 1번 push하면 SPSC 위반 없음.
     //  하루 한 번만 — 표식 파일이 있으면 재기동에서는 건너뛴다. 체결이 확인되면 되판다(아래 루프).
-    if (!startup_probe_fired_ && !startup_probe_ticker_.empty() && startup_probe_qty_ > 0)
+    //  장 전(09:00 전)에는 내지 않는다 — 08:5x 기동에서 시장가가 40570000(장전 거부)으로 튕겼는데 표식은
+    //  남아 그날 점검이 없었다(09-14). 루프에서 09:00 이 되면 낸다. 120초 안에 체결이 없으면(거부·미체결)
+    //  표식을 지워 다음 기동에서 다시 낸다.
+    const auto startup_probe_marker = Logger::instance().path_for("startup_probe_" + ledger::kst_ymd(std::time(nullptr)));
+    auto fire_startup_probe = [&]()
     {
         startup_probe_fired_ = true;
-        const auto marker = Logger::instance().path_for("startup_probe_" + ledger::kst_ymd(std::time(nullptr)));
         std::error_code ec;
 
-        if (std::filesystem::exists(marker, ec))
+        if (std::filesystem::exists(startup_probe_marker, ec))
         {
-            LOG_INFO("[Engine] 기동 점검 — 오늘 이미 냈다(" + marker.filename().string() + "), 건너뜀");
+            LOG_INFO("[Engine] 기동 점검 — 오늘 이미 냈다(" + startup_probe_marker.filename().string() + "), 건너뜀");
+            return;
         }
-        else
-        {
-            std::ofstream(marker) << "fired\n";
-            int base = 0;
 
-            for (const auto& h : order_gate_.snapshot_positions())
+        std::ofstream(startup_probe_marker) << "fired\n";
+        int base = 0;
+
+        for (const auto& h : order_gate_.snapshot_positions())
+        {
+            if (h.ticker == startup_probe_ticker_)
             {
-                if (h.ticker == startup_probe_ticker_)
-                {
-                    base += h.qty;
-                }
+                base += h.qty;
             }
-
-            OrderSignal probe;
-            probe.ticker      = startup_probe_ticker_;
-            probe.side        = OrderSide::BUY;
-            probe.type        = OrderType::MARKET;
-            probe.quantity    = startup_probe_qty_;
-            probe.price       = 0.0;
-            probe.strategy_id = "STARTUP_PROBE";
-            LOG_INFO("[Engine] 기동 점검 — " + probe.ticker + " 시장가 BUY " +
-                     std::to_string(probe.quantity) + "주 (모의계좌 주문경로 검증, 체결되면 되판다)");
-            push_signal(probe);
-            startup_probe_base_qty_ = base;
-            startup_probe_fired_at_ = std::chrono::steady_clock::now();
-            startup_probe_settled_  = false;
         }
-    }
+
+        OrderSignal probe;
+        probe.ticker      = startup_probe_ticker_;
+        probe.side        = OrderSide::BUY;
+        probe.type        = OrderType::MARKET;
+        probe.quantity    = startup_probe_qty_;
+        probe.price       = 0.0;
+        probe.strategy_id = "STARTUP_PROBE";
+        LOG_INFO("[Engine] 기동 점검 — " + probe.ticker + " 시장가 BUY " +
+                 std::to_string(probe.quantity) + "주 (모의계좌 주문경로 검증, 체결되면 되판다)");
+        push_signal(probe);
+        startup_probe_base_qty_ = base;
+        startup_probe_fired_at_ = std::chrono::steady_clock::now();
+        startup_probe_settled_  = false;
+    };
 
     // 틱은 샤드 스레드가 돌린다(shard_thread_fn). 여기는 샤드가 보낸 봉투와 수동주문을 디스패처 한 곳으로 모아
     //  순번·슬롯·교체·강제청산 같은 종목 횡단 판단을 한 스레드에서 한다(원칙 4). [why D-071]
@@ -1909,9 +1911,20 @@ void Engine::strategy_thread_fn(std::stop_token st)
             dispatcher.force_liquidate(loop_now);
         }
 
+        // 기동 점검 — 09:00~15:20 KST 안에서만 낸다. 그 전 기동은 루프가 09:00 을 넘길 때 낸다.
+        if (!startup_probe_fired_ && !startup_probe_ticker_.empty() && startup_probe_qty_ > 0)
+        {
+            const int32_t hhmmss = kst::hhmmss_int(std::time(nullptr));
+
+            if (hhmmss >= 90000 && hhmmss < 152000)
+            {
+                fire_startup_probe();
+            }
+        }
+
         // 기동 점검 되팔기 — 보유가 base+qty 이상이면 체결로 보고 같은 수량을 시장가로 판다.
         //  체결통보를 직접 보지 않고 원장 수량으로 판정한다(원장이 진실원천). 120초 안에 안 늘면
-        //  접수 거부·미체결로 보고 포기한다 — 그때는 다음 기동에서 표식 때문에 다시 내지도 않는다.
+        //  접수 거부·미체결로 보고 포기하고 표식을 지운다 — 다음 기동에서 다시 낸다.
         if (!startup_probe_settled_)
         {
             const auto  now_p = std::chrono::steady_clock::now();
@@ -1947,8 +1960,10 @@ void Engine::strategy_thread_fn(std::stop_token st)
             }
             else if (now_p - startup_probe_fired_at_ > std::chrono::seconds(120))
             {
+                std::error_code ec;
+                std::filesystem::remove(startup_probe_marker, ec);
                 LOG_WARN("[Engine] 기동 점검 120초 안에 체결 확인 못 함(보유 " + std::to_string(qty) +
-                         ") — 되팔기 생략");
+                         ") — 되팔기 생략, 표식을 지워 다음 기동에서 다시 낸다");
                 startup_probe_settled_ = true;
             }
         }
