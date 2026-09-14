@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import date as _date, timedelta
 from pathlib import Path
@@ -44,9 +45,29 @@ def _yesterday_iso() -> str:
     return d.isoformat()
 
 
+def _load_live_turnover(path: str | None, min_hhmm: str = "0930") -> tuple[dict[str, float], str]:
+    """네이버 벌크 시세 파일(scripts/live_prices_feed.py 산출)의 당일 누적 거래대금.
+    data.go.kr는 전영업일 시세를 당일 오전 늦게 올려 08시 스캔이 T-2를 받는다(09-14 실측).
+    장중에는 오늘 거래대금이 그날 강한 종목을 가장 잘 가리키므로, 파일이 오늘 것이고
+    개장 30분이 지났으면 거래대금 축을 이 값으로 바꾼다. 시총 축은 그대로 data.go.kr다."""
+    if not path:
+        return {}, ""
+    try:
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return {}, ""
+    ts = doc.get("ts", 0)
+    hhmm = str(doc.get("hhmm", ""))
+    if _date.fromtimestamp(ts) != _date.today() or hhmm < min_hhmm:
+        return {}, ""
+    out = {code: float(v.get("val", 0.0) or 0.0)
+           for code, v in (doc.get("prices") or {}).items() if isinstance(v, dict)}
+    return out, hhmm
+
+
 def build(on_date: str, n_mktcap: int, n_turnover: int,
           min_turnover: float = 1e9, market: str = "KOSPI",
-          with_market_map: bool = False) -> dict | None:
+          with_market_map: bool = False, live_prices: str | None = None) -> dict | None:
     # market="ALL"이면 코스피·코스닥 각각 시총∪거래대금 top-N을 뽑아 union한다(시장별 균형 —
     # 코스피 대형주가 코스닥 슬롯을 잠식하지 않도록 시장을 나눠 각자 상위 N을 확보). datagokr
     # _snapshot은 시장 무관 전종목을 한 번에 서빙하므로 시장 수와 무관하게 API 비용 동일.
@@ -64,6 +85,16 @@ def build(on_date: str, n_mktcap: int, n_turnover: int,
     req_ymd = on_date.replace("-", "")
     cached = sorted(p.stem.split("_", 1)[1] for p in src._cache.glob("univ_*.parquet"))
     served = max((d for d in cached if len(d) == 8 and d <= req_ymd), default=req_ymd)
+
+    live_val, live_hhmm = _load_live_turnover(live_prices)
+    if live_val:
+        hit = 0
+        for r in rows:
+            v = live_val.get(r.get("code", ""))
+            if v is not None and v > 0.0:
+                r["turnover"] = v
+                hit += 1
+        print(f"[universe_feed] 거래대금 축을 당일 {live_hhmm} 누적치로 교체({hit}종목, 시총 축은 {served} 기준 유지).")
 
     markets = ["KOSPI", "KOSDAQ"] if market == "ALL" else [market]
     seen: set[str] = set()
@@ -108,6 +139,7 @@ def build(on_date: str, n_mktcap: int, n_turnover: int,
         "market":   market,
         "basDt":    served,
         "requested_date": on_date,
+        "turnover_source": (f"naver-live {live_hhmm}" if live_val else f"data.go.kr {served}"),
         "count":    len(universe),
         "universe": universe,
     }
@@ -137,18 +169,24 @@ def main() -> int:
     ap.add_argument("--market", default="KOSPI", choices=["KOSPI", "KOSDAQ", "ALL"],
                     help="유니버스 시장(기본 KOSPI). ALL=코스피·코스닥 각각 top-N union, 종목별 market 태그 부여.")
     ap.add_argument("--out", default=str(_OUT_PATH), help="출력 JSON 경로")
+    ap.add_argument("--live-prices", default=None,
+                    help="네이버 벌크 시세 파일(prices_live.json). 오늘 것이고 09:30 이후면 거래대금 축을 당일 누적치로 바꾼다.")
     args = ap.parse_args()
 
     on_date = args.date or _yesterday_iso()
     doc = build(on_date, args.n_mktcap, args.n_turnover, args.min_turnover, args.market,
-                with_market_map=True)
+                with_market_map=True, live_prices=args.live_prices)
     if doc is None:
         return 1
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[universe_feed] 기록 완료 → {out} ({doc['count']}종목)")
+    # 엔진이 union_refresh_sec마다 이 파일을 다시 읽으므로 반쯤 쓰인 파일이 보이면 안 된다 —
+    #  임시 파일에 다 쓴 뒤 한 번에 바꿔 넣는다(os.replace는 같은 볼륨에서 원자적).
+    tmp = out.with_suffix(out.suffix + ".tmp")
+    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, out)
+    print(f"[universe_feed] 기록 완료 → {out} ({doc['count']}종목, 기준일 {doc['basDt']}, 거래대금 축 {doc['turnover_source']})")
     return 0
 
 

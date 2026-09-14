@@ -172,6 +172,36 @@ function Restore-Windows {
   }
 }
 
+# data.go.kr는 전영업일 시세를 당일 오전 늦게(실측 10~12시) 올린다. 08시 스캔은 그래서 T-2 기준일을
+#  받고, 그 파일이 하루 종일 남으면 전날 급등한 종목이 후보 풀에서 빠진다(09-14 실측: 월요일 08:11 스캔이
+#  09-10 기준). 엔진은 union_refresh_sec마다 파일을 다시 읽으므로, 기준일이 직전 평일에 닿을 때까지
+#  30분마다 스캔을 다시 돌려 파일만 바꿔 두면 된다. 휴장일이면 하루 종일 같은 파일을 다시 쓰고 끝난다.
+$script:UnivNext = Get-Date
+function Refresh-Universe {
+  if ($DryRun -or $NoUniverse -or (Get-Date) -lt $script:UnivNext) { return }
+  $script:UnivNext = (Get-Date).AddMinutes(30)
+  $want = (Get-Date).Date.AddDays(-1)
+  while ($want.DayOfWeek -in 'Saturday','Sunday') { $want = $want.AddDays(-1) }
+  $wantYmd = $want.ToString("yyyyMMdd")
+  $have = ""
+  try {
+    $m = [regex]::Match((Get-Content Quant\config\universe_scan.json -Raw -Encoding UTF8), '"basDt":\s*"(\d{8})"')
+    if ($m.Success) { $have = $m.Groups[1].Value }
+  } catch { }
+  # 거래대금 축은 09:30부터 네이버 벌크 시세의 당일 누적치로 바꾼다(universe_feed --live-prices). 기준일이
+  #  T-2인 채 하루를 보내면 금요일·오늘 급등한 종목이 풀에 없는데(09-14 실측: 보안주 3종·라온시큐어 누락),
+  #  당일 거래대금이면 그날 강한 종목이 바로 들어온다. 그래서 기준일이 닿아도 장중에는 30분마다 다시 쓴다.
+  $hhmm = (Get-Date).ToString("HHmm")
+  $live = ($hhmm -ge "0930" -and $hhmm -lt "1530")
+  if (-not $live -and $have -ge $wantYmd) { return }
+  $why = if ($live) { "거래대금 축을 당일 $hhmm 누적치로" } else { "기준일 $have < 직전 평일 $wantYmd" }
+  Say "유니버스 스캔을 다시 돌린다($why, 30분 뒤 재확인)."
+  $args = @("PYQuant\tools\universe_feed.py", "--market", "ALL", "--out", "Quant\config\universe_scan.json")
+  if ($live) { $args += @("--live-prices", "Quant\config\prices_live.json") }
+  & $py @args
+  if ($LASTEXITCODE -ne 0) { Say "유니버스 재스캔 실패(rc=$LASTEXITCODE) — 직전 파일 유지." "WARN" }
+}
+
 # ─────────────── 사전 점검 ───────────────
 Say "자동매매 하루 루프 시작 — config=$Config until=$Until$(if($DryRun){' (dry-run)'})"
 
@@ -298,6 +328,7 @@ while ((Get-Date) -lt $deadline) {
   while (-not $p.HasExited) {
     if ($p.WaitForExit(60000)) { break }
     Restore-Windows
+    Refresh-Universe
   }
   $secs = [int]((Get-Date) - $t0).TotalSeconds
 
