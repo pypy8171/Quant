@@ -13,7 +13,7 @@
 - [docs](#docs) — 50개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 134개
-- [scripts](#scripts) — 42개
+- [scripts](#scripts) — 43개
 - [strategies](#strategies) — 23개
 - [tools](#tools) — 3개
 
@@ -720,6 +720,7 @@
 - [quant_procs.ps1](../scripts/quant_procs.ps1) — 실행 프로세스 점검·정리 스크립트
 - [refresh_dashboard.py](../scripts/refresh_dashboard.py) — 대시보드·리뷰 재생성 스크립트
 - [seed_open_orders.py](../scripts/seed_open_orders.py) — 미체결 주문 상태 복구 스크립트
+- [session_board.py](../scripts/session_board.py) — 살아 있는 Claude 세션의 현황판(이름·브랜치·문맥 K/%·턴·압축·마지막 요청·현황판 줄·인계 파일)을 `_private/session_board.json`·`.html`로 쓴다. `--skeleton`은 인계 파일 뼈대, `--due`는 인계 시점 판정(훅용)
 - [session_triage.py](../scripts/session_triage.py) — 다중 세션 현황 취합 스크립트
 - [start.sh](../scripts/start.sh) — Docker Compose 기동 스크립트
 - [stop.sh](../scripts/stop.sh) — Docker Compose 종료 스크립트
