@@ -33,7 +33,7 @@
 <!-- sync-map:rules -->
 | 소스(바뀌면) | 대표 문서(봐라) | 검사 | 맞출 것 |
 |---|---|---|---|
-| `Quant/CMakeLists.txt`, `Quant/tests/test_*.cpp` | `CLAUDE.md#빌드 명령어` | 자동(gen 블록) | 테스트 타깃 목록·개수는 gen:test-targets 블록이 채운다 |
+| `Quant/CMakeLists.txt`, `Quant/tests/test_*.cpp` | `docs/guides/PROJECT_GUIDE.md#단위 테스트` | 자동(gen 블록) | 테스트 타깃 목록·개수는 gen:test-targets 블록이 채운다 |
 | `Quant/include/strategy/*.h`, `Quant/src/strategy/StrategyFactory.cpp`, `PYQuant/strategy/*.py` | `README.md`, `docs/guides/PROJECT_GUIDE.md`, `.claude/PROJECT_FACTS.md` | 자동(gen 블록) | 전략 클래스·로더 표는 gen:cpp-strategies / gen:py-strategies 블록 |
 | `.claude/commands/*.md`, `.claude/agents/*.md`, `.claude/skills/**`, `.claude/hooks/*.ps1`, `.claude/settings.json` | `docs/HARNESS.md`, `docs/AUTOMATION.md#훅` | 자동(gen 블록) | 개수·훅 배선표는 gen:harness-counts / gen:hooks 블록. 훅이 하는 일 설명 문단은 stamp |
 | `Quant/include/**/*.h`, `Quant/src/**/*.cpp` | `docs/CODE_GRAPH.md` | 자동(명령) `py scripts/gen_code_graph.py --check` | #include 그래프는 손편집 금지, 재생성 |

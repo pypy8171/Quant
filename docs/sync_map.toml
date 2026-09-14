@@ -16,7 +16,7 @@
 
 [[rule]]
 src = ["Quant/CMakeLists.txt", "Quant/tests/test_*.cpp"]
-deps = ["CLAUDE.md#빌드 명령어"]
+deps = ["docs/guides/PROJECT_GUIDE.md#단위 테스트"]
 check = "gen"
 note = "테스트 타깃 목록·개수는 gen:test-targets 블록이 채운다"
 
