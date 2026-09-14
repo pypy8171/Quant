@@ -412,6 +412,7 @@
 - [CODE_GRAPH.md](CODE_GRAPH.md) — 모듈 의존 그래프 자동생성 문서
 - [DECISIONS.md](DECISIONS.md) — 설계 결정 원장(D-NNN)
 - [DEFERRED_ISSUES.md](DEFERRED_ISSUES.md) — 보류된 코드 이슈 목록
+- [ENGINE_ARCHITECTURE.md](ENGINE_ARCHITECTURE.md) — 엔진 아키텍처 요약(스레드 모델·핵심 타입·국면·KIS·WebSocket·로깅), CLAUDE.md에서 옮김, sync 도장 보유
 - [FILE_INDEX.md](FILE_INDEX.md) — 이 파일 — 저장소 전체 파일 한 줄 색인(`scripts/file_index.py`가 생성)
 - [GLOSSARY.md](GLOSSARY.md) — 전략 약어 용어집
 - [HARNESS.md](HARNESS.md) — 하네스·루프 엔지니어링 문서

@@ -39,8 +39,8 @@
 | `Quant/include/**/*.h`, `Quant/src/**/*.cpp` | `docs/CODE_GRAPH.md` | 자동(명령) `py scripts/gen_code_graph.py --check` | #include 그래프는 손편집 금지, 재생성 |
 | `Quant/include/**/*.h`, `Quant/src/**/*.cpp`, `docs/code_flow.toml`, `scripts/gen_code_flow.py` | `docs/CODE_FLOW.md` | 자동(명령) `py scripts/gen_code_flow.py --check` | 코드 흐름 문서의 줄 링크·시그니처는 재생성(fix_cmd). 심볼이 사라지면 code_flow.toml의 sym을 고친다 |
 | `docs/DECISIONS.md`, `Quant/config/config_dev_paper.json` | `research/STRATEGY_LAB.md`, `.claude/PROJECT_FACTS.md` | 자동(명령) `py scripts/sync_ledgers.py --check` | **원장**:·**음성결과**: 줄에서 마커 구간 생성 |
-| `Quant/include/core/*.h`, `Quant/src/core/*.cpp`, `Quant/src/main.cpp` | `CLAUDE.md#아키텍처`, `docs/guides/PROJECT_GUIDE.md` | 도장 | 스레드 모델·모듈 책임 요약 문단. 헤더의 공개 역할이 바뀌면 문단을 고치고 --restamp |
-| `Quant/include/api/*.h`, `Quant/src/api/*.cpp` | `CLAUDE.md#KIS API 클라이언트`, `CLAUDE.md#WebSocket 클라이언트` | 도장 | 파일 분할·인터페이스·채널 목록 요약 |
+| `Quant/include/core/*.h`, `Quant/src/core/*.cpp`, `Quant/src/main.cpp` | `docs/ENGINE_ARCHITECTURE.md#아키텍처`, `docs/guides/PROJECT_GUIDE.md` | 도장 | 스레드 모델·모듈 책임 요약 문단. 헤더의 공개 역할이 바뀌면 문단을 고치고 --restamp |
+| `Quant/include/api/*.h`, `Quant/src/api/*.cpp` | `docs/ENGINE_ARCHITECTURE.md#KIS API 클라이언트`, `docs/ENGINE_ARCHITECTURE.md#WebSocket 클라이언트` | 도장 | 파일 분할·인터페이스·채널 목록 요약 |
 | `Quant/include/risk/*.h`, `Quant/src/risk/*.cpp` | `README.md`, `docs/GLOSSARY.md` | 도장 | OrderGate 거부 사유·한도 설명. 거부 지점 개수는 gen:ordergate-rejects |
 | `Quant/tools/ops_terminal/**` | `docs/guides/MFC_TERMINAL.md`, `_private/LINKS.md` | 도장 | 화면·스레드 모델·빌드 조건 절 + 이력 한 줄. 실행 방법이 바뀌면 LINKS.md 운영단말 행 |
 | `scripts/dashboard_server.py`, `PYQuant/dashboard/**` | `docs/design/DASHBOARD_SPEC.md` | 도장 | API·데이터 계약 |
