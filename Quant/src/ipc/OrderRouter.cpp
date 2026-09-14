@@ -154,9 +154,15 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
             odno  = rack.odno;
             freed = true;
         }
-        else
+        else if (rack.err_code == kis_err::kNoSellableQty)
         {
             reject_reason = "매도가능수량 0 (미체결 매도·미결제분) — 취소할 예약매도 없음, 발주 생략";
+        }
+        else
+        {
+            // 예약매도는 취소됐는데 재매도가 거부(유량한도·전송 실패)된 것 — 수량은 풀렸으니 재시도가 낸다.
+            //  09-14 15:00 096770: 취소 뒤 재매도가 EGW00201 에 걸렸는데 "취소할 예약매도 없음"으로 남아 원인을 잘못 짚었다.
+            reject_reason = "예약매도 취소 뒤 재매도 실패 [" + rack.err_code + "] — 재시도 대상";
         }
     }
 
@@ -432,6 +438,10 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& sig)
 
         if (found)
         {
+            // 선점(reserved_)만 풀면 잔고 시드값 sellable_(취소 전 스냅샷, 주문가능 0)이 그대로라 다음 매도도 0으로
+            //  깎인다 — 09-14 15:00 096770 은 익절 취소 뒤 재매도가 유량한도에 막히자 재시도 3회가 전부 "매도가능 0".
+            //  취소로 브로커에서 풀린 수량만큼 되돌린다(이전 세션 줄과 같은 처리).
+            gate_.restore_sellable(closed.signal.account_id, closed.signal.ticker, release);
             write_trade_row("", closed, 0, 0.0);
         }
         else

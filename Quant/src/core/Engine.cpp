@@ -2632,7 +2632,10 @@ void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& e
 
         if (r.side == "SELL")
         {
-            // 보유−미체결매도 범위 안에서만. 초과분을 브로커까지 보내면 40240000 거부로 재시도만 돈다.
+            // 보유 범위 안에서만 — 보유가 없거나 보유를 넘는 요청은 여기서 끊는다. 매도가능(보유−미체결매도)이 0인
+            //  것은 거부하지 않고 라우터로 보낸다 — 라우터가 그 종목의 예약매도를 취소해 수량을 풀고 다시 낸다
+            //  (청산차단 자가정리). 예전엔 여기서 "매도가능 0"으로 끊어 그 길에 닿지 못했다(09-14 15:00 먼지 정리
+            //  3건 중 2건이 예약 익절 때문에 거부). [why D-082]
             int held = 0;
             double avg = 0.0;
 
@@ -2646,17 +2649,13 @@ void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& e
                 }
             }
 
-            const int resv         = order_gate_.reserved(r.account, r.ticker);
-            const int sell_pending = (resv < 0) ? -resv : 0;
-            const int sellable     = held - sell_pending;
-
-            if (sellable <= 0)
+            if (held <= 0)
             {
-                reject = "매도가능 0 (보유=" + std::to_string(held) + " 미체결매도=" + std::to_string(sell_pending) + ")";
+                reject = "보유 없음";
             }
-            else if (r.qty > sellable)
+            else if (r.qty > held)
             {
-                reject = "매도가능 " + std::to_string(sellable) + " 초과 요청 " + std::to_string(r.qty);
+                reject = "보유 " + std::to_string(held) + " 초과 요청 " + std::to_string(r.qty);
             }
 
             if (ref <= 0.0)
