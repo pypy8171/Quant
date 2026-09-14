@@ -28,6 +28,11 @@ schtasks /query /tn claude_stock_study /v /fo list | Select-String "다음 실�
 schtasks /change /tn claude_stock_study /st 20:00
 ```
 
+> **2026-09-14~09-18 정지.** 토큰 사용량을 줄이려고 클로드를 부르는 셋 — `claude_stock_study`·`claude_dashboard_sync`
+> (둘 다 `Disable-ScheduledTask`)과 2절의 장전 시황 브리핑 루틴(enabled=false) — 을 금요일까지 껐다. 순수 파이썬 작업은
+> 그대로 돌고 `Quant Maintain Daily`는 이날 처음 Enable했다. 복구는 `Enable-ScheduledTask -TaskName claude_stock_study`,
+> `Enable-ScheduledTask -TaskName claude_dashboard_sync`, 루틴은 `/schedule`에서 켠다.
+
 > 20:00·20:40은 원래 16:00·16:20이었다. 2026-09-07에 두 작업이 모두 세션 사용량 한도(17시 리셋)에 걸려
 > 실패했다(`LastTaskResult=1`). 한도 리셋 뒤로 옮겼다. 2026-09-08~09-11에는 예약작업이 부르는 npm 전역 CLI가 구버전(2.1.162)이라
 > `400 does not support this model`로 실패하고 작업이 Disabled로 남았다. 편집기 확장의 클로드와 npm CLI는 따로 갱신되므로,
