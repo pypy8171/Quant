@@ -143,37 +143,19 @@ python scripts/check_plain_language.py --fix    # 치환(뒤 조사까지 맞춤
 
 ### 코드 작업 규약 (주석·중괄호·커밋 분리)
 
-코드를 고치거나 주석을 쓰기 전에 정본을 읽는다: [docs/guides/MAINTENANCE_AUTOMATION.md](docs/guides/MAINTENANCE_AUTOMATION.md) 4절.
-주석은 위치마다 담을 것이 정해져 있다.
-
-| 위치 | 쓸 것 | 쓰지 않을 것 |
-|---|---|---|
-| 파일 머리 | 목적 한 줄, 스레드 소유권, 관련 D-NNN | 항목 목록·개수 — 정본 위치를 가리킨다 |
-| 함수 위 | 왜 따로 있는지, 호출 제약, 실패 시 동작 | 절차 서술 |
-| 멤버 옆 | 단위와 불변식 | 경위(D-NNN으로 보낸다) |
-| 블록 안 | 함정과 비자명한 결정 | 세 줄 넘는 태그 없는 설명 |
-
-태그는 다섯 개다: `// [inv]` 불변식 · `// [lock-order]` 락 순서·memory_order 근거 ·
-`// [wire]` 외부 프로토콜 필드·에러코드 · `// [why D-NNN]` 결정 참조 · `// [formula]` 수식·임계값 유도.
-
-주석을 지울 때는 세 단계를 지킨다.
-
-1. 지우기 전에 그 주장이 지금 코드와 맞는지 확인한다. 틀린 주석을 D-NNN으로 옮기면 오류가 정본이 된다.
-2. 삭제 줄의 숫자·식별자·ID가 각각 어디에 남는지 목록으로 보고한다. 남을 곳이 없으면 지우지 않는다.
-3. 코드 줄 diff는 0이어야 하고, 주석 정리 커밋은 기능 수정 커밋과 분리한다.
+주석은 위치별로 담을 것이 정해져 있고(파일 머리·함수 위·멤버 옆·블록 안), 태그는 다섯 개(`[inv]`·`[lock-order]`·`[wire]`·
+`[why D-NNN]`·`[formula]`), 주석을 지울 때는 3단계(지금 코드와 맞는지 확인 → 삭제 줄의 숫자·식별자가 남는 곳을 목록으로 보고 →
+코드 줄 diff 0·기능 커밋과 분리)를 지킨다. 정본은 [docs/guides/MAINTENANCE_AUTOMATION.md](docs/guides/MAINTENANCE_AUTOMATION.md) 4절 —
+코드를 고치거나 주석을 쓰기 전에 읽는다.
 
 중괄호는 Allman이고 한 줄 본문에도 붙인다(`.clang-format`의 `InsertBraces`). `}` 뒤와 제어문 앞에는 빈 줄을 하나 둔다.
-정리는 손으로 하지 말고 스크립트로 한다.
+정리는 손으로 하지 말고 스크립트로 한다(인자 없이 돌리면 전체가 바뀌어 남의 diff에 섞이니 자기 파일만 지정).
 
 ```bash
-py scripts/brace_style.py                            # 중괄호·빈 줄 정리(인자 없으면 include/src/tests 전체)
+py scripts/brace_style.py <파일...>                  # 중괄호·빈 줄 정리
 py scripts/check_code_conventions.py                 # 스테이징 변경의 중괄호·D-NNN·태그 검사
 py scripts/check_code_conventions.py --comment-only  # 주석 전용 커밋인지 검증(코드 줄 0)
 ```
-
-주석 밀도는 게이트로 걸지 않는다. 파일별 밀도와 태그 없는 4줄 이상 블록은
-`py scripts/maintain.py --weekly`가 `docs/reports/MAINTENANCE_WEEKLY.md`에 표로 남긴다.
-
 ## 플랫폼 참고사항
 
 - Windows 빌드 플래그: `/utf-8`, `-D_WIN32_WINNT=0x0A00`(Windows 10+), `-D_CRT_SECURE_NO_WARNINGS`. FEED 화면 출력에는 ANSI 이스케이프 시퀀스와 `SetConsoleOutputCP(CP_UTF8)`를 사용합니다.
@@ -201,65 +183,23 @@ git 커밋·푸시(커밋명·파일 목록 승인 게이트).
 
 ## 다중 세션 — 세션당 git worktree
 
-세션 여럿이 같은 작업 트리를 만지면 한쪽의 미완성 편집이 다른 쪽 빌드·테스트·커밋에 섞인다(09-11 실측:
-동시 세션 3개가 `Quant/src/core/Engine.cpp`·`docs/DECISIONS.md`를 같이 건드려 diff 소유가 불분명해짐).
-규칙은 하나다 — **코드를 바꾸는 세션은 자기 worktree에서 일한다.**
+절차 정본은 [docs/guides/MULTI_SESSION.md](docs/guides/MULTI_SESSION.md)(worktree 명령·현황판 줄 쓰기·머지 큐·교통정리). 규칙만 적는다.
 
-```bash
-git worktree add ../Quant-wt-<주제> -b wt/<주제>      # 세션 시작 시 1회
-git worktree list                                      # 누가 어디를 잡고 있는지
-git worktree remove ../Quant-wt-<주제>                 # 머지 뒤 정리
-```
-
-- **메인 트리(`Quant/`)는 트레이더 배포 세션 하나만** 쓴다. `Quant/build_win/quant_trader.exe` 교체·감시견 재기동·
-  `Quant/config/*.json` 수정은 이 세션만 한다. 다른 세션은 worktree에서 빌드해 ctest까지만 돌리고, exe 교체는 메인 세션에
-  넘긴다(교체 절차는 메모리 `project_trader_watchdog_owner`).
-- 문서만 고치는 세션은 메인 트리도 가능하되, 같은 파일을 두 세션이 열지 않는다(`git status --porcelain`으로 먼저 본다).
-- 예약 작업(`_private/_cron/*_task.md`)은 메인 트리에서 돌고 `research/`·`_private/`만 쓴다. 코드 세션은 그 시각에
-  `research/STRATEGY_LAB.md`를 건드리지 않는다.
-- worktree는 `Quant/build_win/`을 공유하지 않는다 — 빌드 산출물은 worktree마다 새로 만든다(`$env:TEMP=C:uild_tmp` 회피는 동일).
-
-### 세션끼리 순서·충돌을 알아서 정리한다 (상시)
-
-코드 세션이 둘 이상이면 사용자에게 묻지 않고 세션끼리 순서를 정하고 충돌을 피한다. 작업은 한 단계로 끝나지 않고 이어지므로
-이 절차도 상시다. 상태는 현황판 `_private/SESSION_CLAIMS.md`(gitignore, 메인 트리)에 두고, 통보는 `ListAgents`로 이름을 확인해
-지목해서 보낸다(브로드캐스트 금지).
-
-1. 세션 시작·새 단계 시작 때 현황판을 읽고 자기 줄(세션 이름·브랜치·D-NNN·파일 목록)을 적는다. 없으면 만든다. 남의 줄은 고치지 않는다.
-2. 머지 큐 순서대로만 main에 넣는다. `git rebase main` → 전체 ctest → `git merge --ff-only`를 한 세션씩. "머지 시작"·"머지 완료 <sha>"를
-   나머지 코드 세션에 보낸다. 순서를 바꾸려면 앞뒤 세션에 먼저 말한다. 푸시는 사용자가 말할 때만.
-3. 남이 잡은 파일을 만져야 하면 그 세션에 먼저 묻는다. 공용 파일(`Quant/src/core/Engine.cpp`·`Quant/include/core/Engine.h`·
-   `CLAUDE.md`·`docs/DECISIONS.md`·`Quant/CMakeLists.txt`)은 줄 단위 최소 편집 — `docs/DECISIONS.md`는 꼬리에 자기 절만,
-   `CLAUDE.md`는 자기 줄만 고치고 행 번호를 알린다.
-4. `py scripts/brace_style.py`는 인자 없이 돌리지 않는다(전체가 바뀌어 남의 diff에 섞인다). 자기 파일만 지정한다.
-5. D-NNN은 현황판에 먼저 적고 쓴다.
-6. 한 단계가 머지되면 다음 단계를 큐 끝에 붙이고 이어간다. 사용자 승인은 커밋(커밋명 승인 게이트)만 받는다.
-
-### 교통정리 — 하루 끝에 한 세션이 취합한다 (주기)
-
-세션이 여럿이면 완료 행·인계 파일·머지된 브랜치·주인 없는 worktree가 쌓이고, 어느 세션도 남의 것을 치우지 않으니 아무도 치우지 않는다
-(09-13 실측: 머지 큐 22행 중 완료 20, 인계 파일 6개, 09-11 detached worktree 하나가 이틀 남음). 그래서 **교통정리는 코드 작업과
-별개의 역할**이고, 하루 끝(또는 머지 큐 완료 행이 8개를 넘으면) 세션 하나가 `/triage`로 맡는다. 판정은 `scripts/session_triage.py`가
-하고(main 미푸시·worktree 앞뒤·머지된 브랜치·현황판 완료/진행·죽은 세션·인계 파일 나이·배포 exe 뒤처짐), 절차는
-`.claude/commands/triage.md`. 교통정리 세션만 남의 완료 행을 `_private/archive/`로 옮길 수 있다 — 옮기기 전에 진행 중인 세션에
-"현황판 동결"을 지목해서 알리고, 끝나면 "압축 완료"를 보낸다. 되돌릴 수 있는 것(머지된 브랜치 삭제·인계 파일 보관·주인 없는 트리 패치 보관)은
-스크립트가 하고, 되돌리기 어려운 것(worktree 제거·푸시·exe 교체·주인 없는 브랜치 처분)은 보고서에 적어 사용자에게 넘긴다.
-하루 요약은 `DAILY_LOG.md` 머리에 D-NNN별로 붙이고, 세션 이름이 든 상세는 `_private/TRIAGE_<날짜>.md`에만 둔다.
-
+- **코드를 바꾸는 세션은 자기 worktree에서 일한다**(`git worktree add ../Quant-wt-<주제> -b wt/<주제>`). 메인 트리 `Quant/`는 트레이더
+  배포 세션 하나만 쓴다 — exe 교체·감시견 재기동·`Quant/config/*.json` 수정은 그 세션 몫(메모리 `project_trader_watchdog_owner`).
+- 세션 시작·새 단계마다 현황판 `_private/SESSION_CLAIMS.md`에 자기 줄(세션 이름·브랜치·D-NNN·파일)을 적고, 남의 줄은 고치지 않는다.
+  머지는 큐 순서대로 `git rebase main` → 전체 ctest → `git merge --ff-only`, "머지 시작/완료"는 `ListAgents`로 이름을 확인해 지목해 보낸다
+  (브로드캐스트 금지). 푸시는 사용자가 말할 때만.
+- 남이 잡은 파일은 먼저 묻고, 공용 파일(`Quant/src/core/Engine.cpp`·`Quant/include/core/Engine.h`·`CLAUDE.md`·`docs/DECISIONS.md`·
+  `Quant/CMakeLists.txt`)은 줄 단위 최소 편집. `py scripts/brace_style.py`는 자기 파일만 지정한다.
+- 교통정리(`/triage`, 판정 `scripts/session_triage.py`)는 사용자가 하루 끝에 시킬 때만 한 세션이 맡는다. 되돌리기 어려운 것
+  (worktree 제거·푸시·exe 교체)은 보고서로 사용자에게 넘긴다.
 ## 토큰 이코노미 (매 작업 적용)
 
-**원칙: 같은 결과가 나온다면 최소 토큰으로.** 작업을 시작하기 전에 해당 유형의 체크 항목을 적용한다.
+**같은 결과가 나온다면 최소 토큰으로.** 상세 표와 근거는 개인 메모리 `feedback_token_economy`.
 
-| 작업 유형 | 시작 전 적용 |
-|---|---|
-| **파일 편집** | Edit/Write **직후 재-Read 금지**(하네스가 파일 상태 추적, 실패 시 에러). 이미 읽은 파일 재조회 금지. 같은 파일을 세 번째 읽게 되면 그 자리에서 필요한 범위를 넓혀 한 번에 읽는다. 단 Edit이 아닌 경로(빌드·생성기 산출물, `sed`/스크립트 편집, git 체크아웃·rebase, 서브에이전트·사용자 편집)로 바뀐 파일은 상태 추적이 안 되므로 확인한다 — 이때도 전체를 다시 읽지 말고 `git diff -U2 <파일>`·`grep -n`으로 바뀐 줄만 본다 |
-| **코드·파일 탐색** | 여러 파일/디렉터리를 훑어야 하면 `Explore`/서브에이전트 위임 → **결론만** 수신(파일 덤프를 메인 컨텍스트에 쌓지 않음). 파일·심볼·값이 이미 특정된 단일 사실은 직접 조회. 심볼 위치는 Grep으로 먼저 특정하고 그 범위만 Read — 대형 파일(Engine.cpp·main.cpp·dashboard_server.py급)은 통째로 읽지 말고 `offset`/`limit` 지정 |
-| **명령 실행** | git은 `--porcelain`/`-s`, 로그·grep은 `head`/`tail`·범위 제한. 큰 diff·파일·트리 통째 덤프 금지(필요한 줄만) |
-| **다중 조회** | 서로 독립인 조회는 **한 메시지에 병렬 tool 호출**로 묶어 왕복 최소화 |
-| **서브에이전트 위임** | 예상 실패·예외를 **첫 호출에 포함**해 재질의 왕복을 줄인다(예: 원격 main 세탁 갈라짐 → `git rebase --onto origin/main <parent> HEAD`) |
-| **백그라운드 작업** | 폴링·sleep 루프 금지 — 완료 알림으로 재호출됨 |
-| **응답 작성** | 결론부터, 짧게. 이미 내린 결정 재설명·안 할 옵션 나열·중복 요약 금지 |
-| **검증** | 바뀐 범위만 재검증. 같은 확인 두 번 금지 |
-| **세션 운영** | 작업 단위가 바뀌면 세션을 분리한다(`/clear`). 초반에 쌓인 토큰은 남은 턴 수만큼 재전송되므로, 긴 단일 세션이 가장 큰 낭비 요인이다(68세션 실측: 세션당 평균 216턴·요청당 약 102K 토큰) |
-
-> 상세·근거는 개인 메모리 `feedback_token_economy`. 이 표는 프로젝트 개발 시 매 작업의 사전 체크리스트로 참조한다.
+- 편집: Edit/Write 직후 재-Read 금지, 읽은 파일 재조회 금지. Edit 밖 경로(스크립트·rebase·서브에이전트)로 바뀐 파일은 `git diff -U2`·`grep -n`으로 바뀐 줄만.
+- 탐색: 여러 파일을 훑어야 하면 서브에이전트에 위임해 결론만 받는다. 대형 파일은 Grep으로 위치를 잡고 `offset`/`limit`로 그 범위만.
+- 명령: git은 `--porcelain`/`-s`, 로그·grep은 `head`/`tail`. 독립 조회는 한 메시지에 병렬. 백그라운드 폴링·sleep 금지.
+- 응답: 결론부터 짧게. 내린 결정 재설명·안 할 옵션 나열 금지. 검증은 바뀐 범위만.
+- 세션: 작업 단위가 바뀌면 `/clear`. 초반 토큰은 남은 턴마다 재전송되므로 긴 단일 세션이 가장 큰 낭비다.

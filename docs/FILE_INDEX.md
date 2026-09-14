@@ -451,6 +451,7 @@
 - [LOAD_TEST_GUIDE.md](guides/LOAD_TEST_GUIDE.md) — 부하·지연 테스트 가이드
 - [MAINTENANCE_AUTOMATION.md](guides/MAINTENANCE_AUTOMATION.md) — 유지보수 자동화 원칙 문서
 - [MFC_TERMINAL.md](guides/MFC_TERMINAL.md) — MFC 운영단말 가이드
+- [MULTI_SESSION.md](guides/MULTI_SESSION.md) — 다중 세션 운영 절차 정본(worktree·현황판·머지 큐·교통정리), CLAUDE.md 다중 세션 절의 원본
 - [OPS_TERMINAL.md](guides/OPS_TERMINAL.md) — 운영단말 TCP 채널 가이드
 - [PIPELINE_A_to_Z.md](guides/PIPELINE_A_to_Z.md) — 코드 파이프라인 추적 문서
 - [PROJECT_GUIDE.md](guides/PROJECT_GUIDE.md) — 프로젝트 전반 가이드
