@@ -45,19 +45,19 @@ bool ZmqBridge::start()
 
 void ZmqBridge::stop()
 {
-    if (!running_.load())
-    {
-        return;
-    }
-
-    running_.store(false);
+    // running_ 과 관계없이 joinable 이면 거둔다 — bind 실패 경로는 스레드가 running_ 을 스스로 내려서,
+    //  예전 `if (!running_) return` 은 joinable 인 std::thread 를 그대로 부쉈다(std::terminate).
+    const bool was_running = running_.exchange(false);
 
     if (zmq_thread_.joinable())
     {
         zmq_thread_.join();
     }
 
-    LOG_INFO("[ZMQ] 브리지 종료");
+    if (was_running)
+    {
+        LOG_INFO("[ZMQ] 브리지 종료");
+    }
 }
 
 // ─── 스레드 본체 (ZMQ 소켓은 이 스레드에서만 사용) ─────────────────────────

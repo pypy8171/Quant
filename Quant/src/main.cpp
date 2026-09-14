@@ -64,13 +64,16 @@ using json = nlohmann::json;
 static std::atomic<bool> g_running{true};
 static Engine* g_engine = nullptr;
 
+// 시그널 스레드는 정지 요청만 한다. 예전엔 여기서 stop()(join 전부)을 돌렸는데, running_이 내려가자마자 main이
+//  루프를 빠져 Engine을 부수기 시작해 두 스레드가 같은 jthread를 join했다(09-11 15:32 `프로그램 종료` 0.03초 뒤
+//  std::terminate, 사유 없음). join은 main 스레드의 stop() 한 곳만.
 void signal_handler(int)
 {
     g_running.store(false);
 
     if (g_engine)
     {
-        g_engine->stop();
+        g_engine->request_shutdown();
     }
 }
 
@@ -85,9 +88,42 @@ static void log_and_die(const std::string& why)
     std::_Exit(3);
 }
 
+#ifdef _WIN32
+// 로그 옆에 미니덤프를 남기고 사유에 붙일 꼬리를 돌려준다. SEH 와 std::terminate 둘 다 쓴다 — terminate 는
+//  예외 정보가 없어도 부른 스레드의 스택이 덤프에 남는다(09-11 terminate 는 사유 한 줄뿐이라 위치를 못 찾았다).
+//  덤프는 스택·스레드·모듈만(MiniDumpWithIndirectlyReferencedMemory) — 힙 전체는 수백 MB라 뺀다.
+static std::string write_minidump(const char* tag, EXCEPTION_POINTERS* ep)
+{
+    try
+    {
+        const auto dir  = Logger::default_base_dir();
+        const auto path = dir / (std::string(tag) + "_" + std::to_string(GetCurrentProcessId()) + ".dmp");
+        HANDLE h = CreateFileW(path.wstring().c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                               FILE_ATTRIBUTE_NORMAL, nullptr);
+
+        if (h == INVALID_HANDLE_VALUE)
+        {
+            return " dump 실패 err=" + std::to_string(GetLastError());
+        }
+
+        MINIDUMP_EXCEPTION_INFORMATION mei{GetCurrentThreadId(), ep, FALSE};
+        const BOOL ok = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), h,
+                                          static_cast<MINIDUMP_TYPE>(MiniDumpWithIndirectlyReferencedMemory |
+                                                                     MiniDumpWithThreadInfo),
+                                          ep ? &mei : nullptr, nullptr, nullptr);
+        CloseHandle(h);
+        return ok ? " dump=" + path.string() : " dump 실패 err=" + std::to_string(GetLastError());
+    }
+    catch (...)
+    {
+        return " dump 실패(예외)";
+    }
+}
+#endif
+
 static void on_terminate()
 {
-    std::string why = "std::terminate";
+    std::string why = "std::terminate tid=" + std::to_string(std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
     try
     {
@@ -105,13 +141,15 @@ static void on_terminate()
         why += " — 비표준 예외";
     }
 
+#ifdef _WIN32
+    why += write_minidump("terminate", nullptr);
+#endif
     log_and_die(why);
 }
 
 #ifdef _WIN32
 // 코드 한 줄("SEH 0xC0000005")만으로는 어느 스레드의 어느 명령인지 알 수 없다(09-14 09:46 실측 —
 //  재스캔 직후 접근 위반, 위치 불명). 사유에 주소·스레드를 붙이고 로그 옆에 미니덤프를 남긴다.
-//  덤프는 스택·스레드·모듈만(MiniDumpWithIndirectlyReferencedMemory) — 힙 전체는 수백 MB라 뺀다.
 static LONG WINAPI on_seh(EXCEPTION_POINTERS* ep)
 {
     const auto* rec = ep ? ep->ExceptionRecord : nullptr;
@@ -120,30 +158,7 @@ static LONG WINAPI on_seh(EXCEPTION_POINTERS* ep)
                   rec ? rec->ExceptionCode : 0UL, rec ? rec->ExceptionAddress : nullptr,
                   GetCurrentThreadId());
     std::string why = buf;
-
-    try
-    {
-        const auto dir  = Logger::default_base_dir();
-        const auto path = dir / ("crash_" + std::to_string(GetCurrentProcessId()) + ".dmp");
-        HANDLE h = CreateFileW(path.wstring().c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                               FILE_ATTRIBUTE_NORMAL, nullptr);
-
-        if (h != INVALID_HANDLE_VALUE)
-        {
-            MINIDUMP_EXCEPTION_INFORMATION mei{GetCurrentThreadId(), ep, FALSE};
-            const BOOL ok = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), h,
-                                              static_cast<MINIDUMP_TYPE>(MiniDumpWithIndirectlyReferencedMemory |
-                                                                         MiniDumpWithThreadInfo),
-                                              ep ? &mei : nullptr, nullptr, nullptr);
-            CloseHandle(h);
-            why += ok ? " dump=" + path.string() : " dump 실패 err=" + std::to_string(GetLastError());
-        }
-    }
-    catch (...)
-    {
-        why += " dump 실패(예외)";
-    }
-
+    why += write_minidump("crash", ep);
     log_and_die(why);
     return EXCEPTION_EXECUTE_HANDLER;
 }
@@ -550,6 +565,9 @@ int main(int argc, char* argv[])
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
+    // join 은 여기 한 곳 — 시그널·KILL 핸들러는 request_shutdown() 만 한다(위 signal_handler 주석).
+    engine.stop();
+    g_engine = nullptr;
     LOG_INFO("[Main] 프로그램 종료");
     return 0;
 }

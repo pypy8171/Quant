@@ -277,6 +277,8 @@ public:
         return running_.load();
     }
 
+    void request_shutdown();                     // running_ 내리고 다섯 스레드에 정지 요청. KILL 핸들러·시그널 핸들러·stop()이 부른다. join은 stop()만
+
 private:
     // 다섯 스레드는 stop_token으로 정지를 본다. running_은 엔진 밖(main 루프·KILL 핸들러·폴러)이 읽는 깃발 [why D-070]
     void data_thread_fn(std::stop_token st);
@@ -285,7 +287,6 @@ private:
     void order_thread_fn(std::stop_token st);
     void fill_thread_fn(std::stop_token st);     // 체결통보 소비(fill_queue_ → OrderRouter::on_fill → ops 방송). WS 수신 스레드에서 뗀 것 [why D-056]
     void control_thread_fn(std::stop_token st); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
-    void request_shutdown();                     // running_ 내리고 다섯 스레드에 정지 요청. KILL 핸들러·stop()이 부른다. join은 stop()만
     StrategyBase::SellableInfo ledger_sellable(const std::string& account, const std::string& ticker) const;
     // 매크로 레짐 파일 읽기 → RegimeFileBridge 판정 → OrderGate entry_halt·force_liquidate_ 적용 (data_thread 전용)
     void poll_regime_file();
