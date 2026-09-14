@@ -2,7 +2,7 @@
 
 세션 여럿이 같은 저장소에서 코드를 바꿀 때의 절차 정본. `CLAUDE.md`의 "다중 세션" 절은 이 문서의 요약이고,
 판정 스크립트는 `scripts/session_triage.py`, 교통정리 절차는 `.claude/commands/triage.md`(로컬), 세션 현황판은
-`scripts/session_board.py`(웹 `/sessions`), 인계 절차는 `.claude/commands/handoff.md`(로컬)다.
+`scripts/session_board.py`(웹 `http://127.0.0.1:8788/sessions`, 세션이 열려 있는 동안 `scripts/session_board_server.py`가 내준다), 인계 절차는 `.claude/commands/handoff.md`(로컬)다.
 
 ## 다중 세션 — 세션당 git worktree
 

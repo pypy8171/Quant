@@ -1134,6 +1134,7 @@
       "scripts/refresh_dashboard.py",
       "scripts/seed_open_orders.py",
       "scripts/session_board.py",
+      "scripts/session_board_server.py",
       "scripts/session_triage.py",
       "scripts/summarize_trading_day.py",
       "scripts/sync_impact.py",
@@ -1368,6 +1369,9 @@
       "scripts/parse_quant_log.py": [
         "_logdir"
       ],
+      "scripts/session_board_server.py": [
+        "session_board"
+      ],
       "scripts/summarize_trading_day.py": [
         "_logdir",
         "log_patterns"
@@ -1508,6 +1512,9 @@
       ],
       "report.account": [
         "PYQuant/main.py"
+      ],
+      "session_board": [
+        "scripts/session_board_server.py"
       ],
       "strategy.base": [
         "PYQuant/backtest/engine.py",

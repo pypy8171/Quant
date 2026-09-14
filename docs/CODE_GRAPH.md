@@ -490,6 +490,7 @@ graph LR
 | `scripts/eod_collect.py` | `_logdir`, `log_patterns` |
 | `scripts/notify_sidecar.py` | `_logdir`, `dashboard_server`, `kis.client`, `log_patterns` |
 | `scripts/parse_quant_log.py` | `_logdir` |
+| `scripts/session_board_server.py` | `session_board` |
 | `scripts/summarize_trading_day.py` | `_logdir`, `log_patterns` |
 
 ## 프로세스 경계 파일
