@@ -10,10 +10,10 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 81개
 - [Quant](#quant) — 166개
-- [docs](#docs) — 47개
+- [docs](#docs) — 50개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 134개
-- [scripts](#scripts) — 39개
+- [scripts](#scripts) — 41개
 - [strategies](#strategies) — 23개
 - [tools](#tools) — 3개
 
@@ -410,6 +410,7 @@
 - [AUTOMATION.md](AUTOMATION.md) — 예약 자동화 작업 목록
 - [CODE_FLOW.md](CODE_FLOW.md) — 실시간 매매 코드 흐름 읽는 순서(생성물, 심볼 줄 링크·시그니처·테스트, D-078)
 - [CODE_GRAPH.md](CODE_GRAPH.md) — 모듈 의존 그래프 자동생성 문서
+- [DATA_SOURCES.md](DATA_SOURCES.md) — 데이터 출처 표(data.go.kr·네이버·KIS REST/WS·FDR이 각각 무엇을 얼마나 주는지, 유니버스가 만들어지는 순서, 키)
 - [DECISIONS.md](DECISIONS.md) — 설계 결정 원장(D-NNN)
 - [DEFERRED_ISSUES.md](DEFERRED_ISSUES.md) — 보류된 코드 이슈 목록
 - [ENGINE_ARCHITECTURE.md](ENGINE_ARCHITECTURE.md) — 엔진 아키텍처 요약(스레드 모델·핵심 타입·국면·KIS·WebSocket·로깅), CLAUDE.md에서 옮김, sync 도장 보유
