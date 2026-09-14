@@ -329,10 +329,15 @@ public:
         // ── 장 마감 안전장치: 전량 취소 + 시장가 청산 ────────────────────────────
         if (hhmm >= p_.eod_hhmm)
         {
-            bool cancelled = cancel_all(out);
+            // 매도 먼저, 취소는 뒤 — 취소 N건이 발주 스레드 큐 앞을 차지하면 매도가 그 뒤에서 기다린다
+            //  (09-14 15:15 청산 신호 41건 중 접수 3건, 6종목 1,120만원 이월). 전략 쪽 매도가능 클램프(잔고 조회
+            //  1회, 09-11 마감엔 종목당 13초)도 건너뛴다 — 예약 익절이 묶은 수량은 라우터가 그 자리에서 취소하고
+            //  전량을 낸다(청산차단 자가정리). 뒤따르는 취소는 라우터가 "취소 불요"로 닫는다. [why D-082]
             int pos = confirmed_position(p_.account, p_.ticker);
             const std::string tag = "장 마감(" + std::to_string(hhmm) + ")";
-            emit_liquidation(out, pos, std::chrono::steady_clock::now(), tag); // 클램프+백오프(자체 로깅)
+            emit_liquidation(out, pos, std::chrono::steady_clock::now(), tag, /*max_backoff_ms=*/300000,
+                             /*clamp_sellable=*/false); // 백오프(자체 로깅)
+            bool cancelled = cancel_all(out);
 
             if (cancelled && pos <= 0)
             {
@@ -1280,9 +1285,10 @@ private:
     //  초과분 미발주(과매도·이중주문 위험 0, 브로커 상태 기준이라 체결지연에도 자기교정).
     //  (2) 시도 후 진행(pos 감소) 없으면 30·60·120·240·480s(cap 300s) 지수 백오프.
     //  반환: 시장가 매도를 실제로 out에 넣었으면 true.
+    //  clamp_sellable=false 면 잔고 조회 없이 pos 전량을 낸다 — 라우터의 게이트 클램프·자가정리에 맡긴다(장 마감).
     bool emit_liquidation(std::vector<OrderSignal>& out, int pos,
                           std::chrono::steady_clock::time_point now, const std::string& tag,
-                          long long max_backoff_ms = 300000)
+                          long long max_backoff_ms = 300000, bool clamp_sellable = true)
     {
         if (pos <= 0)
         {
@@ -1301,7 +1307,7 @@ private:
             return false; // 백오프 창 내 — 재발주 스킵(스팸 차단)
         }
 
-        const int sellable = sellable_qty();             // 안전 우선: 불확실하면 0(보류)
+        const int sellable = clamp_sellable ? sellable_qty() : pos; // 안전 우선: 불확실하면 0(보류)
         const int q = sellable > 0 ? (pos < sellable ? pos : sellable) : 0;
         bool emitted = false;
 

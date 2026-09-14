@@ -44,6 +44,10 @@ std::string OrderRouter::kis_err_suffix(const OrderAck& ack)
 //  전략의 재구성 주기(min_action_ms 3초 + 재조회)보다 길고, 존 이탈 청산을 늦출 만큼
 //  길지는 않은 값. 이 창 안에 들어온 매수는 원주문 체결분과 겹칠 수 있다.
 static constexpr int kCancelMissGuardSec = 10;
+// 같은 종목·같은 전략의 시장가 매도가 접수된 뒤 체결 통보가 아직 없을 때, 같은 매도를 다시 KIS로 보내지 않는 시간(초).
+//  발주 스레드가 밀리면 통보까지 몇 분이 걸릴 수 있어 전략 백오프(30초)보다 길게 잡는다. 지나면 통보를 잃은
+//  것으로 보고 놓아준다 — 그 뒤는 게이트 선점 클램프·자가정리가 막는다.
+static constexpr int kDupMarketSellGuardSec = 120;
 
 ManagedOrder OrderRouter::submit(const OrderSignal& sig)
 {
@@ -76,6 +80,14 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
         //  그대로 통과시키고, KIS가 주문을 통째로 40240000(모의투자 잔고내역이 없습니다)으로
         //  거부한다 — 한 주도 못 빠져나오면서 초당 주문 예산만 태운다(09-08 001450 105주·
         //  086450 486주·047050 254주/381주가 모두 이 경로로 전량 거부됐다).
+        sell_no_qty = true;
+    }
+    else if (allowed > 0 && allowed < sig.quantity && sig.side == OrderSide::SELL &&
+             gate_.sellable_view(sig.account_id, sig.ticker).pending > 0)
+    {
+        // 매도가능이 모자란 이유가 이 세션의 예약매도(익절 지정가)라면 잘라 내지 않고, 그 예약을 취소해
+        //  수량을 풀고 전량을 낸다 — 아래 sell_no_qty 와 같은 길. 잘라 내면 나머지는 전략이 취소를 낸 뒤
+        //  다음 백오프(30초 뒤)에야 나간다(09-14 15:15 012210 115주 중 100주만, 나머지는 15:16 뒤). [why D-082]
         sell_no_qty = true;
     }
     else if (allowed > 0 && allowed < sig.quantity)
@@ -131,6 +143,50 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
         }
     }
 
+    // 같은 청산의 중복 발주 차단 — 시장가 매도가 접수돼 아직 체결 통보가 없는데(발주 스레드가 밀리면 몇 분)
+    //  전략이 백오프마다 같은 매도를 다시 낸다(09-14 15:15 036930 SELL 9 가 30초·60초 뒤 두 번 더 큐에 쌓임).
+    //  라우터 이력에 같은 종목·같은 전략의 시장가 매도가 미체결 잔량을 들고 살아 있으면 KIS 로 보내지 않는다.
+    //  KIS 호출이 없으니 발주 스레드 예산을 안 쓴다. [why D-082]
+    if (sig.side == OrderSide::SELL && sig.action == OrderAction::NEW && sig.type == OrderType::MARKET)
+    {
+        std::string dup;
+        {
+            std::lock_guard<std::mutex> lk(hist_mtx_);
+            const auto now_sc = std::chrono::system_clock::now();
+
+            for (const auto& h : history_)
+            {
+                if (h.signal.ticker != sig.ticker || h.signal.strategy_id != sig.strategy_id ||
+                    h.signal.side != OrderSide::SELL || h.signal.type != OrderType::MARKET ||
+                    h.signal.action != OrderAction::NEW)
+                {
+                    continue;
+                }
+
+                if ((h.status != OrderStatus::ACCEPTED && h.status != OrderStatus::SUBMITTED) ||
+                    h.confirmed_qty >= h.signal.quantity ||
+                    now_sc - h.submitted_at > std::chrono::seconds(kDupMarketSellGuardSec))
+                {
+                    continue;
+                }
+
+                dup = h.order_id + " 미체결 " + std::to_string(h.signal.quantity - h.confirmed_qty) + "주";
+                break;
+            }
+        }
+
+        if (!dup.empty())
+        {
+            mo.status        = OrderStatus::REJECTED;
+            mo.reject_reason = "같은 시장가 매도 진행 중 [" + dup + "] — 중복 발주 생략";
+            ++rejected_count_;
+            LOG_INFO("[OrderRouter] 중복 생략 [" + mo.order_id + "] " + sig.ticker + " " +
+                     std::to_string(sig.quantity) + "주 → " + mo.reject_reason);
+            record(mo);
+            return mo;
+        }
+    }
+
     // 1. OrderGate 검증
     std::string reject_reason;
     std::string odno;
@@ -144,8 +200,8 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
         //  (09-11 014530: 09:17 익절 지정가 118주가 취소 한도거부로 잔존, 이후 재기동 8회 내내 거부).
         //  풀리면 그 자리에서 재발주한 접수로 이어간다. [why D-055]
         const auto v = gate_.sellable_view(sig.account_id, sig.ticker);
-        LOG_WARN(std::format("[OrderRouter] 매도가능수량 0 {} — 원장 보유 {}주, 잔고 주문가능 {}주, 이 세션 미체결 매도 {}주 → 예약매도 취소 시도",
-                             sig.ticker, v.held, v.psbl_cap, v.pending));
+        LOG_WARN(std::format("[OrderRouter] 매도가능 {}/{}주 {} — 원장 보유 {}주, 잔고 주문가능 {}주, 이 세션 미체결 매도 {}주 → 예약매도 취소 시도",
+                             allowed, sig.quantity, sig.ticker, v.held, v.psbl_cap, v.pending));
         OrderAck rack = reconcile_blocked_sell(sig);
 
         if (rack.ok())
@@ -153,6 +209,13 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
             ack   = rack;
             odno  = rack.odno;
             freed = true;
+        }
+        else if (rack.err_code == kis_err::kNoSellableQty && allowed > 0)
+        {
+            // 취소할 예약매도를 못 찾았지만 일부는 나갈 수 있다 — 잘라서라도 낸다(예전 클램프 경로).
+            LOG_INFO(std::format("[OrderRouter] 한도 클램프 {} {}주 → {}주 (예약매도 취소 불발)", sig.ticker, sig.quantity, allowed));
+            sig.quantity = allowed;
+            mo.signal    = sig;
         }
         else if (rack.err_code == kis_err::kNoSellableQty)
         {

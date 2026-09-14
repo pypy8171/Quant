@@ -425,6 +425,12 @@ static void attach_holding_guardians(StrategyLoadCtx& ctx, const json& mh,
     double arm_disp           = mh.value("exit_near_avg_arm_pct", 3.0);
     double exit_arm_pct       = arm_disp / 100.0;
     int    guard_warmup_sec   = mh.value("guard_warmup_sec", 60);
+    // 이월분 평단 하드스톱 조합안(D-082): 평단 −seed_hard_pct(%) + seed_hard_from_hhmm 이후 + 1분봉 종가
+    //  seed_hard_confirm_bars 연속 확인. seed_hard_skip_pct(%)보다 깊게 물린 구형 보유는 제외. 0=비활성.
+    double seed_hard_pct      = mh.value("seed_hard_pct", 0.0) / 100.0;
+    double seed_hard_skip_pct = mh.value("seed_hard_skip_pct", 15.0) / 100.0;
+    int    seed_hard_from     = mh.value("seed_hard_from_hhmm", 915);
+    int    seed_hard_bars     = mh.value("seed_hard_confirm_bars", 3);
 
     KisClient bal_kis(ctx.kis_cfg);
 
@@ -465,6 +471,7 @@ static void attach_holding_guardians(StrategyLoadCtx& ctx, const json& mh,
             /*notional=*/0.0, /*day_open_px=*/0.0);
         strat->set_exit_near_avg_arm(exit_arm_pct);
         strat->set_guard_warmup_sec(guard_warmup_sec);
+        strat->set_seed_hard_stop(seed_hard_pct, seed_hard_skip_pct, seed_hard_from, seed_hard_bars);
         strat->set_name(pname);
         engine.register_ticker_name(code, pname); // 로그 라벨(보유분 종목명)
         engine.mark_guardian_ticker(code);        // 스캔 슬리브의 신규매수에서 제외

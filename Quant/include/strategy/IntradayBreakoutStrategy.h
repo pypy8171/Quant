@@ -69,6 +69,16 @@ public:
     // 부착 직후 보호구간 — 이 시간 동안은 청산 관리 청산을 내지 않는다. 재기동 첫 틱과
     //  국면 배선(RegimeSelect) 적용 사이의 경합으로 투매가 나가는 것을 막는다.
     void set_guard_warmup_sec(int s) { guard_warmup_sec_ = s; }
+    // 이월 보유분 평단 하드스톱(조합안) — 평단 −hard_pct 아래를 완성 1분봉 종가 confirm_bars 개가 연속 확인하고
+    //  from_hhmm 이후일 때만. 부착 때 이미 skip_pct 넘게 물린 구형 보유는 대상에서 뺀다(개장 투매 방지). [why D-082]
+    void set_seed_hard_stop(double hard_pct, double skip_pct, int from_hhmm, int confirm_bars)
+    {
+        seed_hard_pct_          = hard_pct;
+        seed_hard_skip_pct_     = skip_pct;
+        seed_hard_from_hhmm_    = from_hhmm;
+        seed_hard_confirm_bars_ = confirm_bars;
+    }
+
     std::string tag() const { return name_.empty() ? ticker_ : (ticker_ + " " + name_); }
 
     std::string describe() const override
@@ -206,10 +216,45 @@ public:
                 double strail = (seed_trail_pct_ > 0.0 ? seed_trail_pct_ : trail_pct_);
                 double seed_trail_stop = peak_ * (1.0 - strail);
 
+                // 평단 하드스톱 — 당일 기준(고점 트레일)만으로는 매수가 대비 손실이 커지는 이월분을 못 자른다.
+                //  갭일 첫 틱에 던지지 않게 세 가지로 묶는다: 시각(from_hhmm), 1분봉 종가 연속 확인(confirm_bars),
+                //  부착 때 이미 깊게 물린 구형 보유 제외(skip_pct). 파라미터는 판단값 — 갭일 되돌림 분포를 재 본
+                //  뒤 확정한다. [why D-082]
+                if (seed_hard_pct_ > 0.0 && avg_px_ > 0.0 && !seed_hard_checked_)
+                {
+                    seed_hard_checked_  = true;
+                    seed_hard_excluded_ = seed_hard_skip_pct_ > 0.0 && px <= avg_px_ * (1.0 - seed_hard_skip_pct_);
+
+                    if (seed_hard_excluded_)
+                    {
+                        LOG_INFO("[ITB] 평단 하드스톱 제외 " + tag() + " — 부착 때 평단 " + px_str(avg_px_) + " 대비 " +
+                                 std::to_string(static_cast<int>((px / avg_px_ - 1.0) * 100.0)) + "% (기준 -" +
+                                 std::to_string(static_cast<int>(seed_hard_skip_pct_ * 100.0)) + "% 초과)");
+                    }
+                }
+
+                const double seed_hard_stop = avg_px_ * (1.0 - seed_hard_pct_);
+                bool seed_hard_hit = seed_hard_pct_ > 0.0 && avg_px_ > 0.0 && !seed_hard_excluded_ &&
+                                     hhmm >= seed_hard_from_hhmm_ && px <= seed_hard_stop &&
+                                     static_cast<int>(closes_.size()) >= seed_hard_confirm_bars_;
+
+                for (int i = 1; seed_hard_hit && i <= seed_hard_confirm_bars_; ++i)
+                {
+                    if (closes_[closes_.size() - i] > seed_hard_stop)
+                    {
+                        seed_hard_hit = false;
+                    }
+                }
+
                 if (px <= seed_trail_stop)
                 {
                     hit = true;
                     why = " (seed-trail)";
+                }
+                else if (seed_hard_hit)
+                {
+                    hit = true;
+                    why = " (평단 하드스톱)";
                 }
                 else if (exit_near_avg_pct_ > 0.0 && avg_px_ > 0.0 &&
                          px < avg_px_ && // 상단 가드: 아직 물린(underwater) 상태에서만
@@ -478,6 +523,12 @@ private:
     double exit_near_avg_pct_ = 0.0;    // 물린분 본전탈출 임계(평단 -x% 이내 반등)
     double exit_near_avg_arm_pct_ = 0.03; // 본전탈출 무장 깊이(평단 -x% 도달 이력 필요)
     int    guard_warmup_sec_ = 60;      // 부착 직후 청산 유예(초)
+    double seed_hard_pct_ = 0.0;        // 이월분 평단 하드스톱(0=비활성)
+    double seed_hard_skip_pct_ = 0.15;  // 부착 때 이보다 깊게 물린 보유는 하드스톱 대상 제외
+    int    seed_hard_from_hhmm_ = 915;  // 하드스톱 판정 시작 시각(KST HHMM)
+    int    seed_hard_confirm_bars_ = 3; // 완성 1분봉 종가 연속 확인 개수
+    bool   seed_hard_checked_ = false;  // 부착 뒤 첫 판정에서 제외 여부를 정했나
+    bool   seed_hard_excluded_ = false; // 구형 보유라 하드스톱 대상에서 뺐나
     int no_new_entry_hhmm_ = 0;         // 신규진입 금지 시각(0→eod_hhmm)
     double notional_per_position_ = 0.0; // 종목당 명목(원)
     double day_open_px_ = 0.0;          // 당일 시가 앵커 주입
