@@ -96,4 +96,4 @@ python scripts/check_docs.py             # exit 0 = 통과, 1 = 드리프트(항
 
 두 지점에서 돈다. 턴이 끝날 때 `.claude/hooks/sync-gate.ps1`(Stop)이 `--diff --fix`를 돌려 낡은 것이 있으면 되돌리고,
 커밋 직전 `.claude/hooks/docs-gate.ps1`(PreToolUse)이 코드·문서 어느 쪽이 스테이징돼도 같은 검사로 막는다.
-`@committer`도 커밋 전 `check_docs`를 실행하고, 실패 시 커밋을 멈추고 보고한다.
+`scripts/commit_gate.py`도 커밋 전 `check_docs`를 실행하고, 실패 시 커밋을 멈추고 보고한다.

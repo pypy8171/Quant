@@ -13,7 +13,7 @@
 - [docs](#docs) — 50개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 134개
-- [scripts](#scripts) — 41개
+- [scripts](#scripts) — 42개
 - [strategies](#strategies) — 23개
 - [tools](#tools) — 3개
 
@@ -701,6 +701,7 @@
 - [check_docs.py](../scripts/check_docs.py) — 문서 링크·색인 검사 스크립트
 - [check_plain_language.py](../scripts/check_plain_language.py) — 문체 담백성 검사 스크립트
 - [check_runtime_health.py](../scripts/check_runtime_health.py) — 실행 로그 장애 패턴 검사 스크립트
+- [commit_gate.py](../scripts/commit_gate.py) — 커밋 직전 게이트(보안·문체·문서·코드 규약·재현성·커밋명 형식을 한 번에), `py scripts/commit_gate.py --msg-file <파일>`
 - [dashboard_server.py](../scripts/dashboard_server.py) — 모의매매 대시보드 서버
 - [eod_autodoc.py](../scripts/eod_autodoc.py) — 장 마감 매매일지 자동생성 스크립트
 - [eod_collect.py](../scripts/eod_collect.py) — 장 마감 사실 수집 스크립트

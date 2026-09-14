@@ -98,6 +98,19 @@ python scripts/check_docs.py   # exit 0 = 통과, 1 = 드리프트
 MFC 단말(`Quant/tools/ops_terminal/`)을 고쳤으면 [docs/guides/MFC_TERMINAL.md](docs/guides/MFC_TERMINAL.md)를
 같은 커밋에서 갱신한다(8절 체크리스트). 실행 인자·산출물 경로·접속 방법이 바뀌면 `_private/LINKS.md` 운영단말 행도 고친다.
 
+### 커밋 절차 (게이트 스크립트 → 승인 → 직접 커밋)
+
+커밋은 서브에이전트에 맡기지 않고 메인 세션이 한다(09-14: `@committer` 1건당 약 1M 토큰 실측). 순서는 고정이다.
+
+1. 커밋 단위별로 파일을 스테이징하고 `py scripts/commit_gate.py --msg-file <메시지 파일>`을 돌린다 — 보안(시크릿·개인정보·
+   비공개 단어 `_private/gate_words.txt`)·문체·문서 드리프트·코드 규약·재현성·커밋명 형식을 한 번에 본다. `[차단]`은 고치기 전엔 커밋하지 않고,
+   `[확인]`은 통과/고침 판정을 계획에 적는다.
+2. 응답에 커밋명과 파일 목록을 그대로 적어 보여주고 사용자 승인을 받는다. "커밋"이라는 한마디는 이 단계를 시작하라는 뜻이다.
+3. 승인 뒤 `git commit`. 푸시는 사용자가 말할 때만. `.claude/hooks/secret-gate.ps1`이 "같은 스테이징 트리에서 게이트가 통과했는가"
+   (`.claude/commit-gate.state`)를 확인해 게이트를 건너뛴 커밋을 막고, `docs-gate.ps1`이 문서 검사를 한 번 더 한다. 스테이징을 바꿨으면 게이트를 다시 돌린다.
+
+`@committer`는 히스토리 세탁·force-push·헝크 분할처럼 무거운 경우에만 위임한다.
+
 ### 파일 지칭 규약 (전체 경로)
 
 `README.md`·`config.json`·`main.cpp`처럼 저장소에 같은 이름이 여럿인 파일이 많다. 파일을 지칭할 때는
@@ -119,9 +132,9 @@ MFC 단말(`Quant/tools/ops_terminal/`)을 고쳤으면 [docs/guides/MFC_TERMINA
 담백·겸손하게 쓴다. 수치·표·코드·링크·다이어그램은 바꾸지 않는다. 적용 범위는 설계 문서만이 아니라
 매매일지·사후검토·백테스트 일지·스터디 리포트·`research/dashboard/reviews.json`의 `*_html`·`DAILY_LOG.md`·
 `docs/` 산문과 커밋 메시지 전부다. 문서를 쓰거나 고치기 전에 정본을 읽는다: [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md)
-(과장·설교조 회피, 금지 표현과 대체어 표, 지표 약어 병기). `@committer` (d-2) 문체 스캔이 이 정본을 게이트로 쓴다.
+(과장·설교조 회피, 금지 표현과 대체어 표, 지표 약어 병기). `scripts/commit_gate.py` 문체 검사가 이 정본을 게이트로 쓴다.
 
-적용 범위에는 코드 주석과 로그 문구도 들어간다 — 화면과 로그에 그대로 나오기 때문이다. 게이트는 두 지점이다: 쓰는 순간 `.claude/hooks/lexicon-gate.ps1`(Write·Edit 본문 검사, 차단), 커밋 직전 `@committer` (d-2) 문체 스캔.
+적용 범위에는 코드 주석과 로그 문구도 들어간다 — 화면과 로그에 그대로 나오기 때문이다. 게이트는 두 지점이다: 쓰는 순간 `.claude/hooks/lexicon-gate.ps1`(Write·Edit 본문 검사, 차단), 커밋 직전 `scripts/commit_gate.py`.
 
 ```bash
 python scripts/check_plain_language.py          # 검출
@@ -184,7 +197,7 @@ ODNO 미매핑 체결로 들어오는데, 지금은 미연결 체결 경로가 �
 잔고 재시드가 실제 보유수량을 다시 읽으므로 재기동 자체가 정합을 복구하는 방향이다.
 
 예외 — 이건 그대로 물어본다: config의 리스크 한도·계좌 전환(모의↔실계좌), 보유분 강제청산,
-git 커밋·푸시(`@committer` 승인 게이트).
+git 커밋·푸시(커밋명·파일 목록 승인 게이트).
 
 ## 다중 세션 — 세션당 git worktree
 
@@ -220,7 +233,7 @@ git worktree remove ../Quant-wt-<주제>                 # 머지 뒤 정리
    `CLAUDE.md`는 자기 줄만 고치고 행 번호를 알린다.
 4. `py scripts/brace_style.py`는 인자 없이 돌리지 않는다(전체가 바뀌어 남의 diff에 섞인다). 자기 파일만 지정한다.
 5. D-NNN은 현황판에 먼저 적고 쓴다.
-6. 한 단계가 머지되면 다음 단계를 큐 끝에 붙이고 이어간다. 사용자 승인은 커밋(`@committer` 게이트)만 받는다.
+6. 한 단계가 머지되면 다음 단계를 큐 끝에 붙이고 이어간다. 사용자 승인은 커밋(커밋명 승인 게이트)만 받는다.
 
 ### 교통정리 — 하루 끝에 한 세션이 취합한다 (주기)
 

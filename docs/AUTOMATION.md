@@ -220,6 +220,7 @@ scripts/eod_autodoc.py
 | `scripts/trade_costs.py` | 체결 원장 `logs/trades_YYYYMMDD.csv`의 날짜별·종목별 매매 비용(수수료·거래세, 요율은 인자)과 실현손익(`realized_pnl` 열)을 `logs/trade_costs.json`에 누적하고 표로 낸다. 거래 빈도와 손익의 경계를 보는 용도. `py scripts/trade_costs.py --days 7` |
 | `scripts/check_docs.py` | 깨진 내부 링크·색인 누락 검사. exit 0이어야 문서 커밋 |
 | `scripts/sync_impact.py` | 바뀐 파일을 `docs/sync_map.toml`의 규칙과 대조해 봐야 할 문서를 찍고, 문서 안 `<!-- sync: 경로@해시 -->` 도장으로 낡은 문단을 집어낸다. `--fix`는 gen 블록 치환, `--restamp`는 도장 갱신, `--render`는 `docs/SYNC_MAP.md` §2 표 생성. Stop 훅과 커밋 훅이 부른다(D-075) |
+| `scripts/commit_gate.py` | 커밋 직전 게이트 — 스테이징 diff의 보안(시크릿·개인정보·비공개 단어)·문체·문서 드리프트·코드 규약·재현성과 커밋 메시지 형식(`--msg-file`)을 한 번에 본다. 0 통과·1 차단·3 사람 판단 남음. 돌 때마다 규칙별 견본으로 자기 시험을 하고, 통과하면 `.claude/commit-gate.state`에 스테이징 트리 해시를 적어 `secret-gate.ps1` 훅이 게이트를 건너뛴 커밋을 막게 한다. 비공개 단어 목록은 `_private/gate_words.txt`에서 읽는다(없으면 차단) |
 | `scripts/check_code_conventions.py` | 스테이징된 코드 변경의 규약 검사 — 중괄호(`brace_style.py --check`), 없는 D-NNN 참조, 규약에 없는 주석 태그, 주석·코드 줄 성격 집계. `--comment-only`는 코드 줄이 섞였는지 본다. 밀도는 보지 않는다(정본 `docs/guides/MAINTENANCE_AUTOMATION.md` 4절이 밀도를 게이트로 걸지 말라고 정해 두었다) |
 | `scripts/maintain.py` | 위 검사기를 한 번에 돌리는 진입점. `--check`는 `check_docs` → `check_code_refs --diff-only` → `gen_facts --check` → `gen_code_graph --check` → `sync_impact --stamps` 순으로 묶어 표로 요약한다. `--weekly`는 파일별 주석 밀도와 태그 없는 긴 블록을 `docs/reports/MAINTENANCE_WEEKLY.md`에 남긴다 |
 | `scripts/check_code_refs.py` | 문서가 가리키는 코드 참조가 실재하는지 검사한다 — 경로, `파일::심볼`, 줄번호 참조. 줄번호 참조는 코드가 움직이면 조용히 어긋나므로 새로 추가된 줄에서 막고 `파일::심볼`로 쓰게 한다 |
@@ -247,4 +248,4 @@ scripts/eod_autodoc.py
 
 - 예약작업 실패의 **자동 복구** — `cron-gate.ps1`이 알리기까지다. 다시 돌리는 것은 사람이 커맨드를 부른다.
 - 유니버스 장중 주기 재스캔 — 기동 시 1회만 돈다.
-- 커밋·푸시 — `@committer` 승인 게이트를 일부러 유지한다. 자동화 대상이 아니다.
+- 커밋·푸시 — 커밋명·파일 목록 승인 게이트를 일부러 유지한다. 검사는 `scripts/commit_gate.py`가 하고 `git commit`은 승인 뒤 메인 세션이 친다.
