@@ -176,10 +176,12 @@
   종목당 1채널로 낮추는 안을 먼저 재본다 — DevScale은 체결가만 쓰므로 호가가 필요한지부터 확인한다.
   (2) 그래도 넘치면 보유·상위 후보만 실시간에 두고 나머지는 폴링을 명시적으로 받아들인다.
 
-## 국면 (RegimeController)
+## 국면 (RegimeController — 2026-09-14 D-085로 삭제, 아래는 기록용)
 
 ### D-15. BULL·BEAR 분기가 라이브에서 한 번도 실행된 적 없다
-- 위치: [RegimeController.cpp:56](../Quant/src/core/RegimeController.cpp#L56),
+- 종결(2026-09-14): D-15b의 대상 `RegimeController`를 지웠다(D-085). 전략 선택 분기는 `regime.json` 라벨이 하고,
+  그 검증은 `test_regime_bridge`(라벨→선택 전이)가 맡는다. D-15a(강제청산 드릴)만 남는다.
+- 위치: `RegimeController.cpp:56`(지웠다, D-085),
   국면별 전략 선택은 config `regime_strategies`.
 - 현상: 라이브 로그가 있는 15거래일(2026-08-06~09-07) 전부 `NEUTRAL score=1
   (above200=Y, 정배열=혼조)`이다. 코스피는 2026-07-21에 BULL에서 NEUTRAL로 바뀌었고

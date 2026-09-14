@@ -215,7 +215,6 @@
 - [OrderPacer.h](../Quant/include/core/OrderPacer.h) — 발주 조절기 — 간격·재시도 분류(D-065)
 - [PaperExecutor.h](../Quant/include/core/PaperExecutor.h) — 리플레이용 모의 체결기(D-071)
 - [ReconcilePlan.h](../Quant/include/core/ReconcilePlan.h) — 잔고 대조 차이 계산 순수 함수(D-038)
-- [RegimeController.h](../Quant/include/core/RegimeController.h) — 지수 일봉 기반 시장 국면(BULL/BEAR) 판정기(D-076)
 - [RegimeFileBridge.h](../Quant/include/core/RegimeFileBridge.h) — 매크로 국면 파일 → 진입정지·강제청산 상태기계(D-060)
 - [ReplaySource.h](../Quant/include/core/ReplaySource.h) — 캡처 파일 리플레이 피드 소스(D-071)
 - [RingBuffer.h](../Quant/include/core/RingBuffer.h) — SPSC 락프리 링버퍼
@@ -300,7 +299,6 @@
 - [Engine.cpp](../Quant/src/core/Engine.cpp) — 엔진 본체 구현 — 생성자·전략 등록·파이프라인
 - [LedgerReconciler.cpp](../Quant/src/core/LedgerReconciler.cpp) — 잔고 대조기 구현 — 원장 부트스트랩(D-061)
 - [OrderPacer.cpp](../Quant/src/core/OrderPacer.cpp) — 발주 조절기 구현 — 재시도 분류(D-065)
-- [RegimeController.cpp](../Quant/src/core/RegimeController.cpp) — 국면 판정기 구현 — 지수 일봉 채점
 - [RingBuffer.cpp](../Quant/src/core/RingBuffer.cpp) — 빈 구현 파일 — 템플릿 헤더 전용
 - [SignalDispatcher.cpp](../Quant/src/core/SignalDispatcher.cpp) — 신호 디스패처 구현 — 강제청산·한도 정리 신호 생성(D-063)
 
@@ -364,7 +362,6 @@
 - [test_paper_executor.cpp](../Quant/tests/test_paper_executor.cpp) — 모의 체결기 단위 테스트(다음틱 체결·취소·정정)
 - [test_pipeline_stress.cpp](../Quant/tests/test_pipeline_stress.cpp) — 파이프라인 E2E 부하 테스트(WS수신-전략-주문-체결)
 - [test_reconcile_plan.cpp](../Quant/tests/test_reconcile_plan.cpp) — 잔고 대조 차이 계산 순수 함수 단위 테스트(D-038)
-- [test_regime.cpp](../Quant/tests/test_regime.cpp) — RegimeController 국면 판정 단위 테스트(D-066·D-076)
 - [test_regime_bridge.cpp](../Quant/tests/test_regime_bridge.cpp) — 매크로 국면 파일 판정기 단위 테스트(D-033·D-060)
 - [test_replay_source.cpp](../Quant/tests/test_replay_source.cpp) — 캡처 리플레이 소스 단위 테스트
 - [test_ringbuffer.cpp](../Quant/tests/test_ringbuffer.cpp) — SPSC RingBuffer 정확성·처리량 테스트

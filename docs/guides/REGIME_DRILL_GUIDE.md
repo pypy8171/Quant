@@ -1,18 +1,15 @@
-# 국면 드릴 가이드 — 강제청산·BULL/BEAR 분기 검증
+# 국면 드릴 가이드 — 강제청산·전략선택 분기 검증
 
 라이브에서 한 번도 실행되지 않은 두 경로를 모의계좌에서 의도적으로 태우는 절차다.
 배경과 미룬 경위는 [DEFERRED_ISSUES D-15](../DEFERRED_ISSUES.md), 배선 결정은
 [DECISIONS D-021](../DECISIONS.md).
 
-## 국면 축이 둘이라는 점부터
+## 국면 입력은 하나다
 
-| 축 | 입력 | 하는 일 | 청산 |
-|---|---|---|---|
-| `RegimeController` | 코스피 지수 일봉 | 국면별로 활성 전략 집합을 고른다 | 안 한다 |
-| `regime.json` 파일 전달 | 매크로 보조 프로세스 | `entry_halt`·`force_liquidate` | `force_liquidate`가 한다 |
-
-`RegimeController`가 BEAR를 내도 보유분은 청산되지 않는다. 진입만 막힌다.
-전량 청산은 `regime.json`의 `force_liquidate`뿐이다. 그래서 드릴도 둘로 나뉜다.
+`regime.json`(매크로 보조 프로세스 `PYQuant/tools/macro_regime_feed.py`)의 라벨 RISK_ON/NEUTRAL/RISK_OFF가
+전략 집합 선택·매수 비율·`entry_halt`·`force_liquidate`를 전부 낸다(D-084). 코스피 일봉으로 따로 판정하던
+`RegimeController`는 09-14에 지웠다(D-085). 전략 선택은 진입만 켜고 끌 뿐 보유분을 청산하지 않는다 —
+전량 청산은 `force_liquidate`뿐이다. 그래서 드릴도 둘로 나뉜다.
 
 ## 공통 전제
 
@@ -74,44 +71,23 @@
 
 ---
 
-## D-15b — BULL/BEAR 전략선택 분기
+## D-15b — 전략선택 분기
 
-2026-09-07에 `regime_tuning` 배선이 들어가면서 태울 수 있게 됐다(D-021).
-
-### 원리
-
-코스피 실측 score는 1이다(종가>200MA에서 +1, 이평 혼조로 0).
-`classify()`가 BULL을 먼저 보므로 임계값을 이렇게 준다.
-
-| 목표 | 설정 | 결과 |
-|---|---|---|
-| BULL | `score_bull_threshold: 1` | 1 >= 1 → BULL |
-| BEAR | `score_bear_threshold: 1` (bull은 기본 2 유지) | 1 < 2, 1 <= 1 → BEAR |
-
-가짜 봉도 우회 경로도 없다. 실제 시장 데이터가 그대로 분기를 지나간다.
+`regime_tuning` 임계값으로 코스피 판정을 뒤집던 방법은 판정기와 함께 사라졌다(D-085). 지금은 `regime.json`을
+손으로 써서 태운다 — D-15a와 같은 파일, `regime` 라벨만 다르다.
 
 ### 설정
 
-`config_dev_paper.json`에 넣는다.
-
-```json
-"regime_tuning": { "score_bull_threshold": 1 }
-```
+config `regime_strategies`에 라벨별 집합을 다르게 두고(예: `"RISK_ON": ["DEVSCALE_*"]`, `"NEUTRAL": []`),
+`regime.json`의 `regime`를 `RISK_ON` → `NEUTRAL` → `RISK_ON`으로 바꿔 쓴다(`valid: true`, 갱신 시각은 현재).
 
 ### 관측 항목
 
-- 기동 로그 `[Main] 국면 판정 파라미터 — …` 에 유효값이 찍히는가
-- 기본값과 다르면 `[Main] 국면 점수 임계값 오버라이드` WARN이 붙는가
-- `apply_regime_selection()`이 `regime_strategies`의 해당 국면 목록으로 전략셋을 바꾸는가
-- BEAR 케이스에서 **청산이 일어나지 않는지**(진입만 막혀야 정상). 여기서 청산이 나오면 축 설계가 깨진 것이다
-- `regime_reeval_sec` 주기 재평가에서 같은 국면이 유지되는가
-
-### 안전장치
-
-- 실계좌(`is_paper=false`)에서는 임계값 오버라이드를 무시하고 기본값으로 되돌린다(ERROR 기록).
-  지수코드·이평 기간은 정당한 튜닝이라 막지 않는다.
-- `bull <= bear`면 NEUTRAL이 도달 불능이 되므로 기본값으로 되돌린다.
+- 라벨을 바꿀 때마다 `[RegimeSelect] 국면=<라벨> → 활성=[…] 비활성=[…]` 줄이 한 번 남는가(같은 라벨 재기록에는 안 남아야 한다)
+- 비활성이 된 전략이 신규 진입을 안 내는가, 켜진 전략은 다음 계획 회차에 내는가
+- **청산이 일어나지 않는지**(진입만 막혀야 정상). 여기서 청산이 나오면 축 설계가 깨진 것이다
+- 파일을 stale(`regime_stale_sec` 경과)로 두면 이전 선택이 유지되는가
 
 ### 끝나면
 
-`regime_tuning` 블록을 지운다. 미지정이 기본값이라 지우는 것만으로 원복된다.
+`regime.json`은 보조 프로세스가 다음 3분 갱신에 덮어쓴다. `regime_strategies`를 드릴 전 값으로 되돌린다.

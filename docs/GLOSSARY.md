@@ -43,8 +43,6 @@
 | **reconcile** (리컨사일) | 로컬 원장 ↔ KIS 실잔고를 재조회로 재동기 | rest 모드처럼 체결콜백이 없을 때 손익 근사 경로 | `Quant/src/core/Engine.cpp` |
 | **kill switch** | 신규·청산 양방향 하드스톱 스위치 | ZMQ 수동명령 / WS 연속 실패로 발동(손익기반 자동킬은 미구현) | `Quant/src/risk/OrderGate.cpp` |
 | **entry_halt** | 신규 진입(BUY)만 차단, 청산(SELL)은 허용하는 플래그 | **OrderGate 전역 플래그**라 켜지면 모든 전략의 신규진입이 함께 막힌다. 매크로 사이드카 regime.json 파일브리지가 토글(→ 구조 국면 `RegimeController`와 다른 축) | `Quant/src/risk/OrderGate.cpp` |
-| **RegimeController** | 장 시작 1회 지수 종가>200MA(±1)+정배열(ma20>ma60>ma120)/역배열(±1)로 `score∈{-2..+2}`를 매겨 BULL/NEUTRAL/BEAR/UNKNOWN 판정 | 매크로 사이드카(regime.json)와 **별개 축**인 구조 국면. config `regime_strategies`로 국면별 전략 집합 자동선택 | `Quant/include/core/RegimeController.h` |
-| **Regime / RegimeSnapshot** | 국면 enum(BULL/NEUTRAL/BEAR/UNKNOWN) + 판정 스냅샷 구조체(date·score·200MA·정배열/역배열·지수 이평 분해) | RegimeController가 산출, 학습입력·설명·디버깅용 개별지표 분해 저장 | `Quant/include/core/Types.h` |
 | **FORCE_LIQ** | BEAR 등에서 보유 전량을 시장가로 청산하는 강제청산 신호 | `strategy_id="FORCE_LIQ"`. 시장가라 명목 백스톱 우회 방지로 평단을 `ref_price`에 stamp | `Quant/src/core/Engine.cpp` |
 | **UniverseScanner** | 시총·거래대금·등락률 필터로 매매 유니버스를 스캔(scan_devscale / scan_itb) | 정배열 프로브·수급 필터 포함 | `Quant/include/universe/UniverseScanner.h:16` |
 | **StrategyFactory** | config를 읽어 전략 인스턴스를 생성·등록하는 팩토리 | main.cpp에서 분리된 전략 로딩 계층 | `Quant/src/strategy/StrategyFactory.cpp` |
@@ -108,7 +106,7 @@
 | **is_paper** | 모의(true, openapivts:29443) / 실계좌(false) 스위치 | 시세·주문 도메인 분기 |
 | **fetch_interval_sec** | 데이터 폴링 주기(초) | 장외 시간은 스킵 |
 | **regime / regime.json** | 매크로 사이드카(`macro_regime_feed.py`)가 쓰는 위험국면 파일브리지 | risk_score를 매수 비율 `entry_scale`(0~1)로 옮겨 전략이 명목에 곱하고, 정지선 이하면 entry_halt. 코스피·코스닥·해외·유가 등락표 + 장초 대비 방향표(D-083). ※ 장시작 구조 국면 판정은 별도 축 → `RegimeController` 참조 |
-| **regime_strategies / regime_reeval_sec** | 국면(BULL/NEUTRAL/BEAR)별 전략 집합을 자동선택하는 config 맵 / 재평가 주기(기본 300s) | 지정 시 국면이 전략셋을 선택, 미지정 시 전략별 active_regimes 하위호환 |
+| **regime_strategies** | `regime.json` 라벨(RISK_ON/NEUTRAL/RISK_OFF)별 전략 집합을 고르는 config 맵 | 라벨이 바뀐 회차에만 `Engine::apply_regime_selection`이 전략 `active_`를 켜고 끈다(신규 진입만). 코스피 200MA로 따로 판정하던 축은 지웠다(D-084·D-085) | `Quant/src/main.cpp` |
 | **dedup** (dedup_window_sec) | 동일 전략+종목 중복주문 제거 창 | 1초 내 중복 거부 |
 
 ---
@@ -131,7 +129,7 @@
 | **walk-forward** | walk-forward | 롤링으로 재적합하며 전진 검증 | — |
 | **ablation** | 절제실험 | 요소를 하나씩 제거해 기여도 측정 | BT-10 EOD ablation |
 | **regime filter** | 국면필터 | 지수 국면으로 신규진입을 게이팅하는 레버 | 지금까지 견고성 확인된 유일 레버 |
-| **regime_scorer** | 구조 국면 스코어러 | C++ `RegimeController`를 미러(변형 A)하고 연속화/기울기/오버레이로 확장한 Track A 애블레이션 | `PYQuant/backtest/regime_scorer.py`, study [10](../research/studies/10_regime_scorer/README.md) |
+| **regime_scorer** | 구조 국면 스코어러 | C++에서 지운 코스피 200MA 판정기(D-085)를 미러(변형 A)하고 연속화/기울기/오버레이로 확장한 Track A 애블레이션 | `PYQuant/backtest/regime_scorer.py`, study [10](../research/studies/10_regime_scorer/README.md) |
 | **index_intraday_logger** | 장중 지수 forward 로거 | 장중 지수(0001/1001/2001) 30s append-only JSONL 적재 — 지수 PIT 히스토리 부재로 백테스트 불가한 Track B의 유일 검증경로 | `PYQuant/tools/index_intraday_logger.py` |
 | **BT-NN** | Backtest #NN | 백테스트 일련번호(예: BT-08 위기대응, BT-09 위기전략 10종, BT-10 저점매수) | 상세는 research 허브 |
 | **IC** | Information Coefficient | 예측값과 실현수익의 순위상관 | 산문 첫 등장은 `순위상관(IC)`으로 병기한다 |

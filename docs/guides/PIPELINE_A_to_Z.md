@@ -97,7 +97,7 @@ TRADE 모드의 데이터 흐름:
 2. (HAS_ZMQ 시) ZmqBridge 생성 + KILL/STATUS 명령 핸들러 등록 (`Engine.cpp::start`). 기본 빌드는 미포함.
 3. **KisClient 생성 + 인증**: `kis_ = make_unique<KisClient>(kis_cfg_)`; `authenticate()` 실패 시 조기 반환 (`Engine.cpp::start`).
 4. **OrderRouter(FEP) 초기화**: `order_router_ = make_unique<OrderRouter>(order_gate_, *kis_)` (`Engine.cpp::start`). `order_gate_`는 Engine 멤버(값 소유, `Engine.h::order_gate_`), `kis_`는 참조 주입.
-5. **RegimeController 초기화**: `regime_ = make_unique<RegimeController>()`, `regime_->set_kis(kis_.get())` (`Engine.cpp::start`). 실제 판정은 장 시작 시 1회.
+5. **국면 파일 전달**: `regime.json` 폴링(`Engine.cpp::poll_regime_file`)이 라벨·비율·정지·청산을 낸다(D-084·D-085; 옛 `RegimeController`는 지웠다).
 6. **전략 초기화**: 각 전략에 `set_kis()` 주입 후 `on_start()` 호출(예외는 잡아 해당 전략만 건너뜀) (`Engine.cpp::start`). 전략은 `on_start`에서 KIS로 universe를 조회할 수 있다.
 7. **WS 구독 스펙 수집(중복 제거)**: 모든 전략의 `get_watch_specs()`를 순회, 키 `"KR:<exch>:<ticker>"`로 중복 제거해 `watch_specs_`에 적재 (`Engine.cpp::start`).
 8. `running_ = true` (`Engine.cpp::start`).
@@ -305,7 +305,6 @@ FEED/KR_TEST/US_TEST 모드는 `set_console_enabled(false)`로 콘솔 로그를 
 | G1 | **get_daily_ohlcv 날짜 하드코딩 → 500/빈응답** | `KisClient.cpp::get_daily_ohlcv` | 모의서버에서 일봉 응답 실패 → market_queue_ 미적재 → MACross 등 일봉 전략 **신호 0건**. TRADE 모드 핵심 경로가 사실상 무동작. | `get_index_daily_ohlcv`처럼 KST 기준 유한 날짜구간(오늘, 오늘-N일) + 페이지네이션으로 교체 (`KisClient.cpp::get_index_daily_ohlcv` 패턴 재사용). |
 | G2 | **count=1 폴링 + 일봉 반복** | `Engine.cpp::data_thread_fn`, `MACrossStrategy.h::on_data` | 최신 1봉만 반복 수신 → deque가 동일 종가로 채워져 크로스 미발생. 과거봉 시드 부재. | on_start에서 과거 N봉 시드(seed) 또는 DataThread에서 `count=long_period+α` 요청 + 신규봉만 push. |
 | G3 | **WS 실시간 체결/호가가 전략에 미활용** | `MACrossStrategy.h::on_data`(on_trade/on_order_book 미구현), `StrategyBase.h::on_trade` | H0STCNT0 현재가가 들어와도 MACross는 무시. 실시간성 없음. 구독은 하되 소비 안 함. | 실시간 가격 기반 전략(예: 밴드/스탑) 도입 또는 MACross를 WS 가격으로 교차 판정하도록 확장. |
-| G4 | **RegimeController 지수일봉 조회 실패 가능(500)** | `RegimeController.cpp::evaluate`, `KisClient.cpp::get_index_daily_ohlcv`(TR `FHKUP03500100`, 모의서버 제약) | 조회 실패 시 연속 fail이면 NEUTRAL fallback (`RegimeController.cpp::evaluate`). 국면 게이트가 사실상 NEUTRAL 고정될 수 있음 → 진입 게이트가 의도대로 안 걸림. | 모의/실전 지수 TR 가용성 확인, 실패 시 캐시/보수 fallback 정책 명문화. |
 | G5 | **포지션 원장이 실제 계좌잔고와 분리되어 시작** | `OrderGate.cpp::reset_daily`(positions_는 리셋하지 않는다), `OrderGate` 초기 상태 = 빈 맵 | 엔진 기동 시 `positions_`는 비어 있어, 실제 계좌에 보유분이 있어도 게이트는 0으로 인식 → 매도 가능수량 오판/평단 부정확. universe_from_balance는 전략 시드만 하고 게이트 원장은 시드 안 함(`StrategyFactory.cpp::load_ma_cross`). | 기동 시 `get_balance()`로 positions_/avg_prices_ 시드하는 원장 부트스트랩 추가. |
 | G6 | **US 체결 방향 필드 인덱스 추정** | `WebSocketClient.cpp::parse_us_trade`("방향 필드 위치 확인 후 조정" 주석) | 미국 체결 direction이 부정확할 수 있음(현재 US 전략 미사용이라 저위험). | 실측 로그로 인덱스 확정. |
 | G7 | **정정(REPLACE) 부분체결·조직번호 재캡처 미완** | `OrderRouter.cpp::replace_route`(TODO) | 부분체결 상태 정정은 수량 정합 미보장 → MM은 CANCEL+NEW만 사용. 정정 응답의 새 조직번호 미파싱(원 조직번호 승계). | 정정 응답 파싱 강화 + 부분체결 정정 로직(Phase 2). |
@@ -328,7 +327,6 @@ FEED/KR_TEST/US_TEST 모드는 `set_console_enabled(false)`로 콘솔 로그를 
 - `Quant/include/risk/OrderGate.h` / `Quant/src/risk/OrderGate.cpp` (전체)
 - `Quant/src/ipc/OrderRouter.cpp` / `Quant/include/ipc/OrderRouter.h` (전체)
 - `Quant/include/api/IOrderExecutor.h` (전체)
-- `Quant/src/core/RegimeController.cpp` / `Quant/include/core/RegimeController.h` (전체)
 - `Quant/include/strategy/StrategyBase.h` / `Quant/include/strategy/MACrossStrategy.h` (전체)
 - `Quant/include/utils/Logger.h` (전체), `Quant/src/utils/Logger.cpp`(placeholder), `Quant/src/utils/Config.cpp`(placeholder)
 - `Quant/config/config.json`, `Quant/config/config_mm_paper.json`

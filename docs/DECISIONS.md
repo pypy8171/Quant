@@ -3644,3 +3644,31 @@ WTI 수준 표(100달러 위 −1) — 위의 이유로 note만. 급락 강제�
 **확인 방법**: 다음 장 트레이더 로그에 `[RegimeSelect] 국면=NEUTRAL → 활성=[DEVSCALE_…, TRENDX_…]` 줄이 첫 `regime.json` 폴링
 직후 한 번 남고 라벨이 바뀔 때만 다시 남는지, `[Regime] BULL/NEUTRAL/BEAR score=…`(코스피 축) 줄은 계속 찍히되 그 직후
 `[RegimeSelect]`가 따라오지 않는지, `test_regime_bridge`(선택 전이 13 검사 추가)·ctest 34/34 통과.
+
+### D-085 코스피 200일선 국면 판정기(RegimeController)를 지운다 (2026-09-14)
+
+**배경**: D-084로 전략 선택 입력이 `regime.json` 라벨로 옮겨간 뒤 `RegimeController`(코스피 종가>200MA·20/60/120 정배열
+→ BULL/NEUTRAL/BEAR, D-083 당일 −2% 강제 BEAR 포함)는 5분마다 `[Regime] NEUTRAL score=1 …` 줄을 찍는 일만 남았다. D-084 직전
+커밋 기준으로 이 판정기의 결과를 읽는 곳을 다 세어 보니 `Engine::apply_regime_selection`(전략 `active_` on/off, 신규 진입만)과
+전략 등록 시 `is_active_for` 폴백 두 곳뿐이었고, OrderGate 한도·매수 비율·진입정지·강제청산·스캐너 코스피 게이트·대시보드
+어디에도 안 들어갔다. 그런데 남긴 로그가 축 A와 같은 `[Regime]` 접두어라 매매일지·요약 스크립트가 어느 축을 읽는지
+헷갈리게 했다. 사용자 판단: on/off만 하던 축을 관찰용으로 남길 이유가 없다 — 국면은 축 A 하나다.
+
+**결정**:
+- `Quant/include/core/RegimeController.h`·`Quant/src/core/RegimeController.cpp`·`Quant/tests/test_regime.cpp`를 지운다
+  (ctest 34→33). `Engine`의 `regime_`·`regime_cfg_`·재평가 버킷(`regime_reeval_interval_sec_`·`regime_bucket_now`)과
+  `main.cpp`의 `regime_tuning` 파싱 블록, `Types.h`의 `RegimeSnapshot`을 같이 지운다. config `regime_reeval_sec`·`regime_tuning`
+  키는 읽지 않는다(현재 config에 없다). `Regime` enum(BULL/NEUTRAL/BEAR)은 `regime_strategies` 맵의 내부 표현으로 남긴다.
+- `[RegimeSelect] 국면=…` 줄의 국면을 `regime.json` 라벨(RISK_ON/NEUTRAL/RISK_OFF)로 적는다(`regime_bridge::label_of`).
+  `scripts/eod_autodoc.py`의 세션 표 "국면" 열이 이 줄을 읽으므로 내일부터 그 열은 축 A 라벨이다. `[Regime]` 접두어는
+  이제 축 A(매수비율·정지·청산·stale) 줄만 쓴다.
+- D-083의 당일 급락 강제 BEAR는 판정기와 함께 사라진다. 급락에 매수를 막는 문턱은 정하지 않았고(09-14 사용자 판단),
+  필요해지면 `PYQuant/tools/macro_regime_feed.py` 투표 항목에 코스피 당일 등락을 넣는 쪽이다.
+- `KisClient::get_index_daily_ohlcv`(`Quant/src/api/KisIndex.cpp`)는 호출자가 없어졌지만 `IMarketDataSource` 인터페이스의
+  일부라 이 결정에서는 두었다.
+
+**버린 대안**: 접두어만 `[RegimeKospi]`로 바꿔 관찰 로그를 유지 — 읽는 사람이 없는 로그를 하루 340줄씩 쌓는 셈이고,
+피드 장애 백업이라는 D-084의 보류 사유는 코스피 하나로 on/off를 정하는 것 자체가 모호하다는 판단과 맞지 않는다.
+
+**확인 방법**: 다음 장 로그에 `[Regime] … score=` 코스피 줄이 없고, `[RegimeSelect] 국면=NEUTRAL`(또는 RISK_ON) 줄이 첫
+`regime.json` 폴링 뒤 한 번 남는지. `docs/eod/` 세션 표 국면 열이 RISK_ON/NEUTRAL/RISK_OFF로 찍히는지. ctest 33/33.

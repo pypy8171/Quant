@@ -98,6 +98,18 @@ inline Regime selection_of(const std::string& label)
     return Regime::UNKNOWN;
 }
 
+// 선택 국면 → 파일 라벨(selection_of의 역방향). 로그·일지는 파일 라벨로 적는다. [why D-085]
+inline std::string label_of(Regime r)
+{
+    switch (r)
+    {
+    case Regime::BULL:    return "RISK_ON";
+    case Regime::NEUTRAL: return "NEUTRAL";
+    case Regime::BEAR:    return "RISK_OFF";
+    default:              return "UNKNOWN";
+    }
+}
+
 enum class FileState
 {
     kMissing,    // 파일 없음 → 게이트 불변

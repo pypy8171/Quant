@@ -136,13 +136,6 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     }
 }
 
-// 국면 재평가 버킷 — KST 하루 초를 재평가 주기로 나눈 번호. 번호가 바뀌는 순간이 벽시계 경계다. [why D-074]
-long long Engine::regime_bucket_now() const
-{
-    const int sec = ::kst::sec_of_day(std::time(nullptr));
-    return regime_reeval_interval_sec_ > 0 ? sec / regime_reeval_interval_sec_ : 0;
-}
-
 // G1: 국면 r에 맞춰 전략 활성셋을 재선택한다.
 //  has_regime_map_이면 국면별 id 목록이 권위적 선택자('*' 접두 매칭으로 스캐너 동적 id 포함),
 //  아니면 기존 per-strategy active_regimes 폴백. 선택 결정(활성/비활성 목록)은 국면 변화 또는
@@ -151,8 +144,7 @@ long long Engine::regime_bucket_now() const
 //  ── 입력은 regime.json 라벨 하나다(D-084) ────────────────────────────────
 //  poll_regime_file()이 RISK_ON→BULL·NEUTRAL·RISK_OFF→BEAR로 옮겨 라벨이 바뀐 회차에 부른다.
 //  같은 파일이 entry_halt·매수비율·강제청산도 내므로 "무엇을 살까"와 "지금 사도 되나"가 한 입력에서
-//  나온다. RegimeController(코스피 200MA·정배열)는 09-14까지 이 함수의 입력이었으나 코스피 하나로
-//  몇 주 고정되는 스위치라 관찰 로그로만 남긴다 — evaluate()는 돌고 여기로는 안 온다. [why D-084]
+//  나온다. 코스피 200MA·정배열로 따로 판정하던 축은 이 스위치 말고 하는 일이 없어 지웠다. [why D-084][why D-085]
 void Engine::apply_regime_selection(Regime r, bool force_log)
 {
     // id 매칭: 목록 항목이 '*'로 끝나면 접두 매칭, 아니면 정확히 일치.
@@ -203,7 +195,7 @@ void Engine::apply_regime_selection(Regime r, bool force_log)
         }
         else
         {
-            // per-strategy 폴백도 같은 입력(r)으로 판정한다 — RegimeController의 현재값이 아니다. [why D-084]
+            // per-strategy 폴백도 같은 입력(r)으로 판정한다. [why D-084]
             const auto ar = s->active_regimes();
             on            = std::find(ar.begin(), ar.end(), r) != ar.end();
         }
@@ -214,7 +206,8 @@ void Engine::apply_regime_selection(Regime r, bool force_log)
 
     if (force_log || r != last_selected_regime_)
     {
-        const std::string line = "[RegimeSelect] 국면=" + to_string(r) + " → 활성=[" + active_ids +
+        // 국면은 regime.json 라벨로 적는다(RISK_ON·NEUTRAL·RISK_OFF) — 매매일지·대시보드가 이 값을 읽는다. [why D-085]
+        const std::string line = "[RegimeSelect] 국면=" + regime_bridge::label_of(r) + " → 활성=[" + active_ids +
                                  "] 비활성=[" + inactive_ids + "]" +
                                  (has_regime_map_ ? "" : " (per-strategy 폴백)");
 
@@ -715,13 +708,6 @@ void Engine::start()
         return;
     }
 
-    // RegimeController (국면 메타레이어) 초기화
-    regime_ = std::make_unique<RegimeController>(regime_cfg_);
-    // 업종 지수 일봉도 시세이므로 모의 도메인은 HTTP 500. 시세 전용 실전 클라이언트가
-    //  있으면 그걸로 조회(없으면 모의로 폴백 → NEUTRAL 유지).
-    regime_->set_source(quote_kis_ ? quote_kis_.get() : kis_.get());
-    LOG_INFO("[Engine] RegimeController 초기화 완료");
-
     // 전략 초기화 (시세 클라이언트 주입 → on_start 내부에서 Universe 조회)
     // 전략의 kis_는 차트(일봉·분봉)·랭킹 등 "읽기 전용 시세 조회"에만 쓰인다(실제 주문 발주는 OrderThread가 담당).
     // 분봉 TR(inquire-time-itemchartprice)은 모의 도메인에서 HTTP 500 → 시세 전용 실전 클라이언트가
@@ -1188,13 +1174,6 @@ void Engine::data_thread_fn(std::stop_token st)
             LOG_INFO(std::string("[DataThread] 장 개장 전이(") + (is_kr_market_open() ? "KR" : "US") +
                      ") — OrderGate 일별 카운터 리셋");
 
-            // 코스피 국면(장 시작) — 관찰 로그만. 전략 선택은 regime.json 라벨이 한다. [why D-084]
-            if (regime_)
-            {
-                (void) regime_->evaluate();   // 내부에서 [Regime] 로그
-                last_regime_bucket_ = regime_bucket_now();
-            }
-
             // 기동 뒤 첫 개장이면 아직 라벨 전이가 없었을 수 있다. 마지막 선택을 강제 로그로 다시 적용해
             //  "오늘 무엇이 켜져 있나"가 하루 한 줄은 남게 한다.
             if (last_selected_regime_ != Regime::UNKNOWN)
@@ -1216,21 +1195,6 @@ void Engine::data_thread_fn(std::stop_token st)
             // 매크로 레짐 게이트: 보조 프로세스가 쓴 regime.json → OrderGate entry_halt 토글.
             //  재스캔/잔고 대조와 같은 "사이클 1회" 계층. rest·일봉 모드 공통 경로라 두 모드 다 커버.
             poll_regime_file();
-
-            // 코스피 국면 재평가 — 관찰 로그만(전략 선택은 poll_regime_file의 라벨 전이). [why D-084]
-            //  RegimeController::evaluate()는 이 data_thread 단일 호출자라 재호출 계약 위반 없음.
-            //  평가 시점은 기동 시각 경과가 아니라 KST 벽시계 버킷 경계다 — 기동 시각에 따라 위상이
-            //  달라지면 regime.json 갱신(3분)·유니버스 재스캔과 어긋난 채 하루 종일 간다. [why D-074]
-            if (regime_ && regime_reeval_interval_sec_ > 0)
-            {
-                const long long bucket = regime_bucket_now();
-
-                if (bucket != last_regime_bucket_)
-                {
-                    (void) regime_->evaluate();   // 국면이 바뀌면 [Regime] 로그
-                    last_regime_bucket_ = bucket;
-                }
-            }
 
             // 주기적 유니버스 재스캔(동적 등록) — 슬리브별 주기는 각 job이 자체 판단한다.
             if (!rescan_jobs_.empty())
@@ -1662,7 +1626,7 @@ void Engine::data_thread_fn(std::stop_token st)
 //  set_entry_halt는 이 함수가 유일 호출자라 소유권 단순. 파일 없음/손상/
 //  판정보류(valid=false)/stale이면 게이트를 새로 켜지 않는다(유지가 실패안전).
 //  매크로 risk-off 오버레이 축(G2): entry_halt·force_liquidate(강제청산)를 건다.
-//  RegimeController의 전략선택 축과는 별개 관심사 — 선택 축은 apply_regime_selection() 참조.
+//  전략선택 축(apply_regime_selection)과는 별개 관심사다.
 //  판정(stale·시간 상자·1회 로그)은 core/RegimeFileBridge.h의 상태기계가 맡는다. [why D-060]
 // 스캔 스레드가 슬리브마다 부른다(20초 간격). 파일은 임시 이름으로 쓰고 바꿔치기해
 //  대시보드가 반쯤 쓰인 JSON을 읽지 않게 한다. 쓰기 실패는 매매와 무관하므로 경고만 남긴다.

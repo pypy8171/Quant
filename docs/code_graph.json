@@ -24,7 +24,7 @@
     {
       "from": "core",
       "to": "api",
-      "weight": 10
+      "weight": 9
     },
     {
       "from": "core",
@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 6
+      "weight": 5
     },
     {
       "from": "ipc",
@@ -177,7 +177,6 @@
     "core/OrderPacer.h": "core",
     "core/PaperExecutor.h": "core",
     "core/ReconcilePlan.h": "core",
-    "core/RegimeController.h": "core",
     "core/RegimeFileBridge.h": "core",
     "core/ReplaySource.h": "core",
     "core/RingBuffer.h": "core",
@@ -235,7 +234,6 @@
     "core/Engine.cpp": "core",
     "core/LedgerReconciler.cpp": "core",
     "core/OrderPacer.cpp": "core",
-    "core/RegimeController.cpp": "core",
     "core/RingBuffer.cpp": "core",
     "core/SignalDispatcher.cpp": "core",
     "ipc/OpsServer.cpp": "ipc",
@@ -341,7 +339,6 @@
       "core/MpscQueue.h",
       "core/OrderPacer.h",
       "core/PaperExecutor.h",
-      "core/RegimeController.h",
       "core/RegimeFileBridge.h",
       "core/ReplaySource.h",
       "core/RingBuffer.h",
@@ -396,15 +393,6 @@
       "api/KisResult.h",
       "api/KisTypes.h",
       "core/MarketSession.h",
-      "core/Types.h"
-    ],
-    "core/RegimeController.cpp": [
-      "api/IMarketDataSource.h",
-      "core/KstTime.h",
-      "core/RegimeController.h",
-      "utils/Logger.h"
-    ],
-    "core/RegimeController.h": [
       "core/Types.h"
     ],
     "core/RegimeFileBridge.h": [
@@ -607,8 +595,7 @@
   },
   "included_by": {
     "api/IMarketDataSource.h": [
-      "api/KisClient.h",
-      "core/RegimeController.cpp"
+      "api/KisClient.h"
     ],
     "api/IOrderExecutor.h": [
       "api/KisClient.h",
@@ -690,7 +677,6 @@
       "core/DataPoller.cpp",
       "core/Engine.cpp",
       "core/LedgerReconciler.h",
-      "core/RegimeController.cpp",
       "ipc/OrderRouter.cpp",
       "risk/OrderGate.cpp",
       "strategy/DeviationScaleStrategy.h",
@@ -732,10 +718,6 @@
       "core/Engine.cpp",
       "core/LedgerReconciler.h",
       "ipc/OrderRouter.h"
-    ],
-    "core/RegimeController.h": [
-      "core/Engine.h",
-      "core/RegimeController.cpp"
     ],
     "core/RegimeFileBridge.h": [
       "core/Engine.h"
@@ -792,7 +774,6 @@
       "core/LatencyTrace.h",
       "core/OrderPacer.h",
       "core/PaperExecutor.h",
-      "core/RegimeController.h",
       "core/RegimeFileBridge.h",
       "core/SignalDispatcher.h",
       "core/StrategyShard.h",
@@ -928,7 +909,6 @@
       "core/Engine.cpp",
       "core/LedgerReconciler.cpp",
       "core/OrderPacer.cpp",
-      "core/RegimeController.cpp",
       "core/SignalDispatcher.cpp",
       "ipc/OpsServer.cpp",
       "ipc/OrderRouter.cpp",
@@ -953,22 +933,22 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 28
+      "in_degree": 27
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 25
+      "in_degree": 24
     },
     {
       "header": "strategy/StrategyBase.h",
       "in_degree": 13
     },
     {
-      "header": "core/KstTime.h",
-      "in_degree": 12
+      "header": "api/KisClient.h",
+      "in_degree": 11
     },
     {
-      "header": "api/KisClient.h",
+      "header": "core/KstTime.h",
       "in_degree": 11
     },
     {

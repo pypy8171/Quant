@@ -406,7 +406,7 @@ name = "6. 제어·주기 — 파이프라인 밖에서 돌아가는 것"
 summary = "국면(전략 집합 선택)·잔고 대조·토큰 갱신·큐 고수위·WS 끊김 복구는 파이프라인 스레드에 걸리지 않게 데이터·제어 스레드가 돈다."
 review = [
   "제어 작업이 파이프라인 락을 잡는지 — 잡으면 최악 지연이 여기서 난다",
-  "전략 집합 선택·비율·정지·청산이 전부 `regime.json` 라벨에서 나오는지 — `RegimeController`(코스피 200MA)는 관찰 로그만(D-084)",
+  "전략 집합 선택·비율·정지·청산이 전부 `regime.json` 라벨에서 나오는지 — 코스피 200MA 축은 지웠다(D-085)",
   "대조가 체결 직후 5초를 미루되 30초마다 한 번은 도는지(`defer_after_fill`)",
 ]
 
@@ -414,12 +414,6 @@ review = [
   sym = "Engine::control_thread_fn"
   file = "Quant/src/core/Engine.cpp"
   what = "큐 고수위 1분 로그 → 토큰 선갱신(5분, 만료 30분 전) → 손익 갱신 감시(끊기면 보수정지) → WS stale·재연결·REST 폴백"
-
-  [[stage.step]]
-  sym = "RegimeController::evaluate"
-  file = "Quant/src/core/RegimeController.cpp"
-  what = "코스피 200MA·정배열 점수 → BULL/NEUTRAL/BEAR — 관찰 로그만, 전략 선택엔 안 쓴다(D-084). 오늘 봉 접기(`fold_today`)·전환 확인 `confirm_n`(D-076). 데이터 스레드 단일 호출자"
-  test = "test_regime"
 
   [[stage.step]]
   sym = "Engine::apply_regime_selection"

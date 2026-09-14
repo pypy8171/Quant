@@ -249,7 +249,7 @@ struct Fundamentals
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 시장 국면 (RegimeController가 장 시작 시 1회 판정)
+// 시장 국면 — regime.json 라벨을 옮긴 전략 선택 입력(RISK_ON→BULL, RISK_OFF→BEAR) [why D-084]
 // ─────────────────────────────────────────────────────────────────────────────
 enum class Regime
 {
@@ -259,20 +259,3 @@ enum class Regime
     UNKNOWN   // 판정 불가(데이터 부족 등)
 };
 
-// 국면 판정 결과 1건. 최종 regime 하나만 두지 않고 판정에 쓴 개별 지표(200일선 돌파 여부,
-// 정배열/역배열, 각 이평값)를 따로 남긴다 — 나중에 학습 피처로 쓰거나, "왜 이 국면으로
-// 판정했는지" 설명하거나, 디버깅할 때 근거를 되짚기 위해서다.
-struct RegimeSnapshot
-{
-    std::string date;            // "YYYYMMDD" — 국면이 적용되는 거래일(KST)
-    Regime      regime = Regime::UNKNOWN;
-    int         score  = 0;      // v0: -2..+2
-    bool        above_ma200  = false;  // 지수 종가 > 200일선
-    bool        aligned_bull  = false; // ma20 > ma60 > ma120
-    bool        aligned_bear  = false; // ma20 < ma60 < ma120
-    double      index_close = 0.0;
-    double      ma200 = 0.0, ma20 = 0.0, ma60 = 0.0, ma120 = 0.0;
-    double      day_pct  = 0.0;        // 당일 등락(%) = index_close / 전일 확정 종가 − 1. 당일접음일 때만 의미
-    bool        day_drop = false;      // 당일 급락으로 BEAR를 강제했나 [why D-083]
-    std::chrono::system_clock::time_point timestamp;
-};

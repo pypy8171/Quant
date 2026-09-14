@@ -145,7 +145,6 @@ Quant/                              ← 저장소 루트
 │   │   ├── core/
 │   │   │   ├── Engine.h            5-스레드 트레이딩 엔진 (+국면→전략 자동선택·강제청산)
 │   │   │   ├── ReconcilePlan.h     잔고 대조 차이 계산 → RECONCILE 행 (헤더 전용 순수 함수, test_reconcile_plan)
-│   │   │   ├── RegimeController.h  국면 판정 (200MA·정배열 → BULL/NEUTRAL/BEAR, 지수 현재값을 오늘 봉으로 접어 5분 재판정)
 │   │   │   ├── RingBuffer.h        SPSC 락-프리 큐 (cache-line 분리)
 │   │   │   ├── UniverseExit.h      재스캔 이탈·복귀 판정 (연속 부재 → 차단·해제, present 연속 → 복귀; 헤더 전용 순수 함수)
 │   │   │   └── Types.h             MarketData, OrderSignal(+ref_price), Regime/RegimeSnapshot 등
@@ -226,7 +225,7 @@ Quant/                              ← 저장소 루트
 │   │   ├── __init__.py
 │   │   ├── engine.py               날짜별 시뮬레이션 (look-ahead bias 방지)
 │   │   ├── report.py               수익률·MDD·Sharpe·승률 출력
-│   │   └── regime_scorer.py        C++ RegimeController 미러 + 구조 국면 제거실험 (Track A)
+│   │   └── regime_scorer.py        옛 C++ 코스피 국면 판정기 미러 + 구조 국면 제거실험 (Track A)
 │   ├── tools/
 │   │   └── index_intraday_logger.py  장중 지수(0001/1001/2001) 30s append-only JSONL forward 적재 (Track B)
 │   ├── tests/
@@ -270,10 +269,10 @@ Quant/                              ← 저장소 루트
 ### 단위 테스트
 
 <!-- gen:test-targets -->
-단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다 — 실행 타깃 `34`개.
+단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다 — 실행 타깃 `33`개.
 
 ```bash
-cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_ops_server test_ops_protocol test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_bar_aggregator test_order_pacer test_regime_bridge test_regime test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_wake_gate test_symbol_table test_tick_capture test_replay_source test_paper_executor test_feed_mux test_engine test_feed_supervisor test_shard_matrix test_strategy_shard test_strategy_router test_latency_trace test_mpsc test_account_ledger test_logger
+cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_ops_server test_ops_protocol test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_bar_aggregator test_order_pacer test_regime_bridge test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_wake_gate test_symbol_table test_tick_capture test_replay_source test_paper_executor test_feed_mux test_engine test_feed_supervisor test_shard_matrix test_strategy_shard test_strategy_router test_latency_trace test_mpsc test_account_ledger test_logger
 ```
 <!-- /gen -->
 테스트 이름은 각각 원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·잔고 대조 계산·잔고 대조기·REST 현재가 폴러·신호 디스패처·발주 조절기·운영단말 프로토콜/서버·비동기 로거·매크로 국면 파일 판정기·N분봉 집계기·소비자 깨우기 조각·구간 지연 CSV·종목 id 테이블·틱 캡처·캡처 리플레이 소스·모의 체결기·피드 소스 mux·수신 N×샤드 M 링 행렬·전략 샤드·종목 id 전략 라우터·WS 피드 감독기·시험용 시세로 도는 Engine 한 바퀴(레인 1×샤드 1, 2×2, 캡처 리플레이)를 가리킨다.

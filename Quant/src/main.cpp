@@ -398,78 +398,7 @@ int main(int argc, char* argv[])
         }
 
         engine.set_regime_strategies(rmap);
-        engine.set_regime_reeval_interval(cfg.value("regime_reeval_sec", 300));
-        LOG_INFO("[Main] 국면→전략 자동선택 맵 " + std::to_string(rmap.size()) +
-                 "개 국면 적용(재평가 " + std::to_string(cfg.value("regime_reeval_sec", 300)) + "s)");
-    }
-
-    // 국면 판정기(RegimeController) 파라미터. config "regime_tuning":
-    //  {"index_code":"0001","ma_long":200,"ma_mid":60,"ma_short":20,"ma_align3":120,
-    //   "score_bull_threshold":2,"score_bear_threshold":-2,"fail_fallback_n":3}
-    //  미지정이면 기본값 그대로(기존 동작 불변). 이 배선이 없던 동안 지수코드마저 하드코딩이라
-    //  코스닥 지수로 판정할 수단이 없었고, BULL/BEAR 분기를 실데이터로 태울 방법도 없었다
-    //  (docs/DEFERRED_ISSUES.md D-15).
-    if (cfg.contains("regime_tuning"))
-    {
-        const auto& rt = cfg["regime_tuning"];
-        const RegimeController::Config def;       // 기본값 스냅샷(오버라이드 판별·되돌림용)
-        RegimeController::Config rc;              // 기본값에서 시작해 준 항목만 덮어쓴다
-        rc.index_code      = rt.value("index_code",      rc.index_code);
-        rc.ma_long         = rt.value("ma_long",         rc.ma_long);
-        rc.ma_mid          = rt.value("ma_mid",          rc.ma_mid);
-        rc.ma_short        = rt.value("ma_short",        rc.ma_short);
-        rc.ma_align3       = rt.value("ma_align3",       rc.ma_align3);
-        rc.fail_fallback_n = rt.value("fail_fallback_n", rc.fail_fallback_n);
-        rc.fold_today      = rt.value("fold_today",      rc.fold_today);
-        rc.confirm_n       = rt.value("confirm_n",       rc.confirm_n);
-        rc.day_drop_bear_pct    = rt.value("day_drop_bear_pct",    rc.day_drop_bear_pct);
-        rc.day_drop_release_pct = rt.value("day_drop_release_pct", rc.day_drop_release_pct);
-
-        // 점수 임계값은 국면 판정을 통째로 뒤집는 스위치다(±2가 v0 2축의 만장일치 규칙).
-        //  검증·드릴 목적으로만 열어두고, 실계좌에서는 무시하고 기본값으로 되돌린다.
-        const int bull = rt.value("score_bull_threshold", def.score_bull_threshold);
-        const int bear = rt.value("score_bear_threshold", def.score_bear_threshold);
-        const bool overridden = (bull != def.score_bull_threshold) || (bear != def.score_bear_threshold);
-
-        if (overridden && !kis_cfg.is_paper)
-        {
-            LOG_ERROR("[Main] regime_tuning 점수 임계값 오버라이드는 실계좌에서 무시한다 "
-                      "(요청 bull=" + std::to_string(bull) + " bear=" + std::to_string(bear) +
-                      " → 기본 " + std::to_string(def.score_bull_threshold) + "/" +
-                      std::to_string(def.score_bear_threshold) + "). 모의계좌에서만 쓴다.");
-        }
-        else
-        {
-            rc.score_bull_threshold = bull;
-            rc.score_bear_threshold = bear;
-
-            if (overridden)
-            {
-                LOG_WARN("[Main] 국면 점수 임계값 오버라이드 — bull>=" + std::to_string(bull) +
-                         ", bear<=" + std::to_string(bear) + " (기본 " +
-                         std::to_string(def.score_bull_threshold) + "/" +
-                         std::to_string(def.score_bear_threshold) +
-                         "). 국면이 실제 시장과 다르게 판정되니 검증용으로만 둔다.");
-            }
-        }
-
-        // classify()는 BULL을 먼저 보므로 bull<=bear면 NEUTRAL이 도달 불능이 된다.
-        if (rc.score_bull_threshold <= rc.score_bear_threshold)
-        {
-            LOG_ERROR("[Main] regime_tuning: bull(" + std::to_string(rc.score_bull_threshold) +
-                      ") <= bear(" + std::to_string(rc.score_bear_threshold) +
-                      ") — NEUTRAL이 도달 불능이라 기본값으로 되돌린다.");
-            rc.score_bull_threshold = def.score_bull_threshold;
-            rc.score_bear_threshold = def.score_bear_threshold;
-        }
-
-        engine.set_regime_config(rc);
-        LOG_INFO("[Main] 국면 판정 파라미터 — 지수=" + rc.index_code +
-                 " ma(" + std::to_string(rc.ma_short) + "/" + std::to_string(rc.ma_mid) + "/" +
-                 std::to_string(rc.ma_align3) + "/" + std::to_string(rc.ma_long) + ")" +
-                 " 임계(bull>=" + std::to_string(rc.score_bull_threshold) +
-                 ", bear<=" + std::to_string(rc.score_bear_threshold) + ")" +
-                 " fail_fallback=" + std::to_string(rc.fail_fallback_n));
+        LOG_INFO("[Main] 국면→전략 자동선택 맵 " + std::to_string(rmap.size()) + "개 국면 적용");
     }
 
     // 기동 스모크 테스트 — 서버 실행 직후 지정 종목을 시장가 1주 매수해, 주문 경로 전체가

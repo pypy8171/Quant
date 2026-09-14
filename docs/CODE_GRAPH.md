@@ -20,11 +20,11 @@ graph LR
   utils[utils]
   api -->|10| core
   api -->|5| utils
-  core -->|10| api
+  core -->|9| api
   core -->|3| ipc
   core -->|4| risk
   core -->|3| strategy
-  core -->|6| utils
+  core -->|5| utils
   ipc -->|2| api
   ipc -->|5| core
   ipc --> risk
@@ -55,11 +55,11 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 28 |
-| `utils/Logger.h` | 25 |
+| `core/Types.h` | 27 |
+| `utils/Logger.h` | 24 |
 | `strategy/StrategyBase.h` | 13 |
-| `core/KstTime.h` | 12 |
 | `api/KisClient.h` | 11 |
+| `core/KstTime.h` | 11 |
 | `core/MarketSession.h` | 8 |
 | `core/WakeGate.h` | 7 |
 | `core/SymbolTable.h` | 5 |
@@ -100,8 +100,6 @@ graph LR
     n_core_OrderPacer_cpp["core/OrderPacer.cpp"]
     n_core_OrderPacer_h["core/OrderPacer.h"]
     n_core_PaperExecutor_h["core/PaperExecutor.h"]
-    n_core_RegimeController_cpp["core/RegimeController.cpp"]
-    n_core_RegimeController_h["core/RegimeController.h"]
     n_core_RegimeFileBridge_h["core/RegimeFileBridge.h"]
     n_core_ReplaySource_h["core/ReplaySource.h"]
     n_core_ShardMatrix_h["core/ShardMatrix.h"]
@@ -206,7 +204,6 @@ graph LR
   n_core_Engine_h --> n_core_MpscQueue_h
   n_core_Engine_h --> n_core_OrderPacer_h
   n_core_Engine_h --> n_core_PaperExecutor_h
-  n_core_Engine_h --> n_core_RegimeController_h
   n_core_Engine_h --> n_core_RegimeFileBridge_h
   n_core_Engine_h --> n_core_ReplaySource_h
   n_core_Engine_h --> n_core_RingBuffer_h
@@ -246,11 +243,6 @@ graph LR
   n_core_PaperExecutor_h --> n_api_KisTypes_h
   n_core_PaperExecutor_h --> n_core_MarketSession_h
   n_core_PaperExecutor_h --> n_core_Types_h
-  n_core_RegimeController_cpp --> n_api_IMarketDataSource_h
-  n_core_RegimeController_cpp --> n_core_KstTime_h
-  n_core_RegimeController_cpp --> n_core_RegimeController_h
-  n_core_RegimeController_cpp --> n_utils_Logger_h
-  n_core_RegimeController_h --> n_core_Types_h
   n_core_RegimeFileBridge_h --> n_core_Types_h
   n_core_ReplaySource_h --> n_core_IFeedSource_h
   n_core_ReplaySource_h --> n_core_TickCapture_h

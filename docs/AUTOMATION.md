@@ -162,7 +162,6 @@ powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -KillAll # 전�
 | 루프 | 주체 | 주기 | 하는 일 |
 |---|---|---|---|
 | 매크로 국면 파일 전달 | `PYQuant/tools/macro_regime_feed.py` | 상시 | `regime.json` 갱신 → 엔진이 `OrderGate::set_entry_halt` 토글(신규 매수만 차단, 청산은 통과) |
-| 엔진 내부 국면 | `RegimeController` | `regime_reeval_sec`(기본 300초) | 국면별 전략 집합 자동 선택, BEAR에서 `FORCE_LIQ` |
 | 제어 스레드 | `Engine::control_thread_fn` | 상시 | 잔고 대조·손익 갱신 감시, 끊기면 보수정지 |
 | 증분 로그 감시 | `scripts/parse_quant_log.py --watch` | 15~20분 | 유의미한 창일 때만 출력. 조용하면 토큰 0 |
 | 전 종목 시세 파일 전달 | `scripts/live_prices_feed.py` | 20초(`PRICES_PERIOD_SEC`, D-028) | 네이버 벌크 시세를 100종목씩 묶어 받아 `Quant/config/prices_live.json`으로 떨군다. KIS REST 초당 한도와 무관해서 2,700종목을 20초 주기로 훑을 수 있다. `UniverseScanner`가 이 파일을 읽는다 |

@@ -21,7 +21,7 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
     // 조회창의 초는 KST 자리값을 UTC로 읽은 값이라 옮기지 않고 날짜로 찍는다. '오늘'은 KST 기준
     //  (KST 자정~오전 실행 시 최신봉 누락 방지). 서버 TZ와 무관하다.
     auto fmt_date = [](time_t t) -> std::string { return kst::format_ymd(kst::utc_date(t)); };
-    // 일봉 timestamp는 그 날짜의 UTC 정오 — 날짜 경계 회피. RegimeController::ymd_of가 같은 기준으로 읽는다.
+    // 일봉 timestamp는 그 날짜의 UTC 정오 — 날짜 경계 회피. 읽는 쪽도 같은 기준으로 날짜를 뽑는다.
     auto parse_ymd = [](const std::string& s) -> time_t { return kis_rest::parse_dt(s, "120000"); };
     auto sd = [](const nlohmann::json& o, const std::string& k) -> double {
         try { return std::stod(o.value(k, "0")); } catch (...) { return 0.0; }

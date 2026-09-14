@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@d4937c1 Quant/src/core/Engine.cpp@646486d Quant/include/core/DataPoller.h@af7c1d6 Quant/include/core/SignalDispatcher.h@46685e0 Quant/include/core/OrderPacer.h@e69b52f Quant/include/core/LedgerReconciler.h@a86da46 Quant/include/core/WakeGate.h@1f37917 Quant/include/core/BarAggregator.h@780b3fa Quant/include/core/LatencyTrace.h@4810be1 Quant/include/core/ReconcilePlan.h@74e6157 -->
+<!-- sync: Quant/include/core/Engine.h@8030114 Quant/src/core/Engine.cpp@9b286fc Quant/include/core/DataPoller.h@af7c1d6 Quant/include/core/SignalDispatcher.h@46685e0 Quant/include/core/OrderPacer.h@e69b52f Quant/include/core/LedgerReconciler.h@a86da46 Quant/include/core/WakeGate.h@1f37917 Quant/include/core/BarAggregator.h@780b3fa Quant/include/core/LatencyTrace.h@4810be1 Quant/include/core/ReconcilePlan.h@74e6157 -->
 엔진은 락-프리 파이프라인(데이터→전략 샤드→디스패치→주문)에 체결 소비 스레드와 제어 스레드를 더해 다섯 개 + 샤드 M개의 스레드를 실행합니다(config `strategy_shards`, 기본 1):
 
 ```
@@ -28,17 +28,17 @@
 
 ### 핵심 타입 (`Quant/include/core/Types.h`)
 
-<!-- sync: Quant/include/core/Types.h@114841e -->
+<!-- sync: Quant/include/core/Types.h@eb3ce5b -->
 `MarketData`(OHLCV + bar_index), `OrderSignal`(side/type/qty/price/**ref_price** + strategy_id, 종목 id `sym`은 전략 스레드가 큐에 넣기 전에 찍는다), `Position`, `OrderBook`(5단계 호가, 채널 `H0STASP0`/선물 `H0IFASP0`), `TradeData`(실시간 체결, 채널 `H0STCNT0`/선물 `H0IFCNT0`; 호가·체결 모두 종목 id `sym`과 정수 시각 `hhmmss`를 들고, 봉·호가·체결의 `ticker`는 `sym::Ticker` 15자 고정 배열이라 세 구조체는 trivially copyable이다 — 문자열은 `.str()`, D-071), `WatchSpec`(FEED 구독 종목 명세 — `is_future` 플래그로 현·선 채널 선택), `Regime`(enum: BULL/NEUTRAL/BEAR/UNKNOWN), `RegimeSnapshot`(장 시작 국면 판정 결과 — score·200MA·정배열/역배열·지수 이평 분해).
 
 > `OrderSignal.ref_price`는 시장가(price=0) 주문의 명목 한도 평가 기준가다. 지정가는 `price`로 명목을 재지만 시장가는 `price`가 0이라 이 값이 없으면 명목 백스톱이 우회된다(특히 급락장 강제청산의 시장가 전량매도). 발주 측이 직전 현재가/평단을 stamp한다.
 
 ### 국면(Regime) 대응
 
-<!-- sync: Quant/include/core/RegimeController.h@e967d28 Quant/include/core/RegimeFileBridge.h@9b3636d -->
+<!-- sync: Quant/include/core/RegimeFileBridge.h@0cffa75 -->
 전략 집합 선택·매수 비율·신규매수 정지·강제청산은 전부 한 입력, 매크로 보조 프로세스(`PYQuant/tools/macro_regime_feed.py`)가 3분마다 쓰는 `regime.json`(config `regime_file`·`regime_stale_sec`)에서 나온다(D-084). 코스피·코스닥·나스닥·S&P 선물·10년물·VIX·환율·WTI 8개 투표가 점수가 되고, 파일의 `regime` 라벨(RISK_ON/NEUTRAL/RISK_OFF, 판정 보류면 UNKNOWN)·`entry_scale`(매수 명목 비율 0~1, D-083)·`entry_halt`(비율 0과 같은 뜻)·`force_liquidate`가 각각 다음으로 간다 — 라벨은 RISK_ON→BULL·NEUTRAL·RISK_OFF→BEAR로 옮겨 **라벨이 바뀐 회차에만** `Engine::apply_regime_selection`이 config `"regime_strategies": {"RISK_ON":[id…],"NEUTRAL":[…],"RISK_OFF":[…]}`(종전 `BULL`·`BEAR` 키도 같은 뜻, `'*'` 접두 매칭) 기준으로 전략의 `active_`를 켜고 끈다(맵이 없으면 전략별 `active_regimes`로 하위호환, 맵이 등록 전략과 하나도 안 맞으면 WARN). `entry_scale`은 `OrderGate::set_entry_scale`로 넘어가 `DeviationScaleStrategy`가 베이스·물타기 명목에 곱하고, `entry_halt`는 `OrderGate::set_entry_halt`(신규매수만 차단, 청산은 통과)를 토글하고, `force_liquidate`는 여기에 더해 strategy_thread가 보유 전량에 대해 `FORCE_LIQ` 시장가 매도를 2초 간격으로 재발주하게 한다. 파일의 갱신 지연(stale)·무효(valid=false)·모르는 라벨은 이전 값을 유지하며, 개장 후 만료(시간 상자, 기본 0=끔)·전이·1회 로그 판정은 `Quant/include/core/RegimeFileBridge.h`의 상태기계가 맡고 `Engine::poll_regime_file`은 파일 읽기와 적용만 한다(D-060, `test_regime_bridge`). 드릴 절차는 [docs/guides/REGIME_DRILL_GUIDE.md](guides/REGIME_DRILL_GUIDE.md).
 
-`RegimeController`(`Quant/include/core/RegimeController.h`)는 코스피 하나로 종가>200MA(±1)와 정배열/역배열(ma20·ma60·ma120, ±1)을 `score∈{-2..+2}`로 매겨 BULL/NEUTRAL/BEAR/UNKNOWN을 내는 **관찰 로그 축**이다 — 09-14까지 전략 선택 입력이었으나 코스피 하나로 몇 주씩 고정되는 스위치라 D-084에서 뗐고, 파이썬 피드 장애 때의 백업 후보로 코드만 남긴다. 확정 일봉은 하루 1회 받아 두고 재평가(`regime_reeval_sec`, 기본 300초, KST 벽시계 격자, D-074)마다 지수 현재값을 오늘 봉으로 접어 다시 판정하며, 장중 전환은 다른 국면이 `confirm_n`(기본 2)회 연속일 때만 한다(`regime_tuning.fold_today`·`confirm_n`, D-076). 지수 당일 등락이 −2% 이하면 BEAR를 강제한다(−1.5% 안으로 돌아오면 해제, D-083). 판정 파라미터는 config `"regime_tuning"`으로 덮어쓸 수 있고, 임계값 오버라이드는 실계좌에서 무시된다. 지수 일봉은 `IMarketDataSource`(`Quant/include/api/IMarketDataSource.h`)로 받으므로 `evaluate()`는 가짜 소스로 시험한다(`test_regime`, D-066).
+코스피 하나의 200일선·정배열로 BULL/NEUTRAL/BEAR를 따로 내던 `RegimeController`는 전략 on/off 말고 하는 일이 없어 09-14에 지웠다(D-085). `[RegimeSelect] 국면=RISK_ON …` 줄의 국면도 `regime.json` 라벨이다.
 
 ### 전략 추가하기
 

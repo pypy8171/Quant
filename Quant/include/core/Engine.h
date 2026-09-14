@@ -15,7 +15,6 @@
 #include "core/FeedSupervisor.h"
 #include "core/StrategyRouter.h"
 #include "core/StrategyShard.h"
-#include "core/RegimeController.h"
 #include "core/RegimeFileBridge.h"
 #include "core/Types.h"
 #include "risk/OrderGate.h"
@@ -221,18 +220,6 @@ public:
         has_regime_map_ = !regime_strategies_.empty();
     }
 
-    // 장중 국면 재평가 주기(초, ≤0이면 기본 유지). 국면 변화 시 전략셋 동적 재선택.
-    void set_regime_reeval_interval(int sec)
-    {
-        if (sec > 0)
-        {
-            regime_reeval_interval_sec_ = sec;
-        }
-    }
-
-    // 국면 판정기 파라미터(지수코드·이평기간·점수 임계값). 스레드 시작 전에만.
-    //  미지정이면 RegimeController::Config 기본값 그대로라 기존 동작이 변하지 않는다.
-    void set_regime_config(RegimeController::Config c) { regime_cfg_ = c; }
     // ZMQ 제어 채널. bind 주소 기본 127.0.0.1(모든 인터페이스 노출 금지), token이 비면 KILL은
     //  거부된다(config `zmq_control_token`). 스레드 시작 전에만. HAS_ZMQ가 꺼진 빌드에선 무시.
     void set_zmq_control(const std::string& bind_addr, const std::string& token)
@@ -410,9 +397,6 @@ private:
     std::map<Regime, std::vector<std::string>> regime_strategies_; // 국면별 활성 전략 id(빈 항목=아무 전략도 활성 안 함)
     bool has_regime_map_ = false;                 // false면 per-strategy active_regimes 폴백
     Regime last_selected_regime_ = Regime::UNKNOWN; // 직전 선택 국면(변화 감지→재선택·로그)
-    int regime_reeval_interval_sec_ = 300;        // 장중 국면 재평가 주기(초)
-    long long last_regime_bucket_ = -1;           // 마지막으로 평가한 KST 벽시계 버킷(sec_of_day / 주기), -1=미평가
-    long long regime_bucket_now() const;
 
     // 수신 N × 전략 샤드 M 링 행렬. 셀 하나의 생산자는 스레드 하나다 — WS 레인 i(소켓 i의 수신 스레드)는 행 i, 체결은
     //  데이터 스레드 행(REST 대체 틱, 행 data_row_)을 더 둔다(D-053이 두 큐로 풀던 것을 행으로 푼다). 열은 종목 해시
@@ -476,8 +460,6 @@ private:
 
     OrderGate order_gate_;
     std::unique_ptr<OrderRouter> order_router_; // 주문 전처리·중계 레이어(증권업계 용어로 FEP, Front-End Processor). start() 이후 유효
-    RegimeController::Config regime_cfg_{};     // 국면 판정 파라미터(config 주입, 미지정=기본값)
-    std::unique_ptr<RegimeController> regime_;  // 국면 메타레이어 (start() 이후 유효)
 
     // 전략에서 수집한 구독 스펙 (on_start 이후 확정)
     //  data_thread(재스캔 등록)가 쓰고 control_thread(WS 재연결)가 읽는다 — watch_specs_mtx_로 보호.

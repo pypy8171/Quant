@@ -114,7 +114,6 @@ set(ENGINE_SOURCES
   src/core/BarAggregator.cpp
   src/core/SignalDispatcher.cpp
   src/core/OrderPacer.cpp
-  src/core/RegimeController.cpp
   src/core/RingBuffer.cpp
   ${KIS_CLIENT_SOURCES}
   ${KIS_WS_SOURCES}
@@ -306,13 +305,6 @@ endif()
 add_executable(test_regime_bridge tests/test_regime_bridge.cpp)
 target_include_directories(test_regime_bridge PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(test_regime_bridge PRIVATE nlohmann_json::nlohmann_json)
-
-# ─── 테스트 타겟: RegimeController 점수/분류·evaluate() 단위 테스트 (KIS 불필요 — 가짜 시세 소스) ──
-add_executable(test_regime tests/test_regime.cpp src/core/RegimeController.cpp src/utils/Logger.cpp)
-target_include_directories(test_regime PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-if(UNIX)
-    target_link_libraries(test_regime PRIVATE pthread)
-endif()
 
 # ─── 테스트 타겟: SPSC RingBuffer 검증 ───────────────────────────────────
 add_executable(test_ringbuffer tests/test_ringbuffer.cpp)
@@ -517,7 +509,6 @@ set(QUANT_ASSERT_TARGETS
     test_bar_aggregator
     test_ops_protocol
     test_ops_server
-    test_regime
     test_regime_bridge
     test_ringbuffer
     test_ringbuffer_stress

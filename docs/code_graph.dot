@@ -12,11 +12,11 @@ digraph code_graph {
   "utils";
   "api" -> "core" [label="10"];
   "api" -> "utils" [label="5"];
-  "core" -> "api" [label="10"];
+  "core" -> "api" [label="9"];
   "core" -> "ipc" [label="3"];
   "core" -> "risk" [label="4"];
   "core" -> "strategy" [label="3"];
-  "core" -> "utils" [label="6"];
+  "core" -> "utils" [label="5"];
   "ipc" -> "api" [label="2"];
   "ipc" -> "core" [label="5"];
   "ipc" -> "risk" [label="1"];
