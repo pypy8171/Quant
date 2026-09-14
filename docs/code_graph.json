@@ -1116,6 +1116,7 @@
       "scripts/check_docs.py",
       "scripts/check_plain_language.py",
       "scripts/check_runtime_health.py",
+      "scripts/commit_gate.py",
       "scripts/dashboard_server.py",
       "scripts/eod_autodoc.py",
       "scripts/eod_collect.py",
@@ -1132,10 +1133,13 @@
       "scripts/parse_quant_log.py",
       "scripts/refresh_dashboard.py",
       "scripts/seed_open_orders.py",
+      "scripts/session_board.py",
       "scripts/session_triage.py",
       "scripts/summarize_trading_day.py",
       "scripts/sync_impact.py",
-      "scripts/sync_ledgers.py"
+      "scripts/sync_ledgers.py",
+      "scripts/token_audit.py",
+      "scripts/trade_costs.py"
     ],
     "edges": {
       "PYQuant/backtest/devscale_replay.py": [
@@ -1743,9 +1747,11 @@
         "scripts/live_prices_feed.py"
       ],
       "readers": [
+        "PYQuant/tools/universe_feed.py",
         "scripts/live_prices_feed.py"
       ],
       "mentions": [
+        "PYQuant/tools/universe_feed.py",
         "scripts/live_prices_feed.py"
       ]
     },
@@ -1756,14 +1762,16 @@
       "readers": [
         "PYQuant/dashboard/backfill_live.py",
         "Quant/src/ipc/OrderRouter.cpp",
-        "scripts/parse_quant_log.py"
+        "scripts/parse_quant_log.py",
+        "scripts/trade_costs.py"
       ],
       "mentions": [
         "PYQuant/dashboard/backfill_live.py",
         "Quant/src/ipc/OrderRouter.cpp",
         "scripts/_logdir.py",
         "scripts/notify_sidecar.py",
-        "scripts/parse_quant_log.py"
+        "scripts/parse_quant_log.py",
+        "scripts/trade_costs.py"
       ]
     },
     "universe*.json": {
@@ -1844,13 +1852,16 @@
       ]
     },
     "kis_token_*.json": {
-      "writers": [],
+      "writers": [
+        "scripts/commit_gate.py"
+      ],
       "readers": [
         "scripts/gen_facts.py"
       ],
       "mentions": [
         "PYQuant/kis/client.py",
         "Quant/src/api/KisAuth.cpp",
+        "scripts/commit_gate.py",
         "scripts/gen_facts.py"
       ]
     }

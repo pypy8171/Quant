@@ -145,8 +145,8 @@
       "test_replay_source",
       "test_paper_executor",
       "test_feed_mux",
-      "test_feed_supervisor",
       "test_engine",
+      "test_feed_supervisor",
       "test_shard_matrix",
       "test_strategy_shard",
       "test_strategy_router",
@@ -196,8 +196,8 @@
       "test_replay_source",
       "test_paper_executor",
       "test_feed_mux",
-      "test_feed_supervisor",
       "test_engine",
+      "test_feed_supervisor",
       "test_shard_matrix",
       "test_strategy_shard",
       "test_strategy_router",
@@ -217,6 +217,7 @@
       "dashboard-sync",
       "dev-loop",
       "eod-review",
+      "handoff",
       "intraday-start",
       "review-apply",
       "review-bundle",
@@ -227,7 +228,6 @@
       "watch"
     ],
     "agents": [
-      "arch-doc",
       "backtest-runner",
       "bias-auditor",
       "claude-coach",
@@ -243,7 +243,6 @@
       "pm",
       "prep-doc",
       "quant-analyst",
-      "review-recorder",
       "reviewer",
       "strategist"
     ],
@@ -256,18 +255,21 @@
       "docs-gate.ps1",
       "eod-gate.ps1",
       "file-index-gate.ps1",
+      "handoff-due.ps1",
+      "handoff-list.ps1",
       "lexicon-gate.ps1",
       "output-gate.ps1",
+      "precompact-handoff.ps1",
       "review-reminder.ps1",
       "secret-gate.ps1",
       "sync-gate.ps1"
     ],
     "counts": {
-      "commands": 15,
-      "agents": 19,
+      "commands": 16,
+      "agents": 17,
       "skills": 1,
-      "hooks": 10,
-      "hook_wirings": 10
+      "hooks": 13,
+      "hook_wirings": 13
     },
     "settings_hooks": [
       {
@@ -319,6 +321,12 @@
         "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\dashboard-refresh.ps1"
       },
       {
+        "event": "Stop",
+        "matcher": "",
+        "hook_file": "handoff-due.ps1",
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\handoff-due.ps1"
+      },
+      {
         "event": "SessionStart",
         "matcher": "",
         "hook_file": "eod-gate.ps1",
@@ -329,6 +337,18 @@
         "matcher": "",
         "hook_file": "cron-gate.ps1",
         "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\cron-gate.ps1"
+      },
+      {
+        "event": "SessionStart",
+        "matcher": "",
+        "hook_file": "handoff-list.ps1",
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\handoff-list.ps1"
+      },
+      {
+        "event": "PreCompact",
+        "matcher": "",
+        "hook_file": "precompact-handoff.ps1",
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\precompact-handoff.ps1"
       }
     ]
   },
@@ -373,6 +393,7 @@
   "dir_tree": {
     ".claude": {
       "agents": {},
+      "agents_disabled": {},
       "commands": {},
       "hooks": {},
       "skills": {},
@@ -428,14 +449,20 @@
     {
       "file": "Quant/include/strategy/DeviationScaleStrategy.h",
       "symbol": "on_trade_batch",
-      "lines": 599,
-      "start": 288
+      "lines": 623,
+      "start": 289
     },
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::data_thread_fn",
       "lines": 488,
-      "start": 1137
+      "start": 1155
+    },
+    {
+      "file": "Quant/src/core/Engine.cpp",
+      "symbol": "Engine::start",
+      "lines": 449,
+      "start": 528
     },
     {
       "file": "Quant/src/risk/OrderGate.cpp",
@@ -444,16 +471,10 @@
       "start": 222
     },
     {
-      "file": "Quant/src/core/Engine.cpp",
-      "symbol": "Engine::start",
-      "lines": 431,
-      "start": 528
-    },
-    {
       "file": "Quant/src/main.cpp",
       "symbol": "main",
-      "lines": 392,
-      "start": 139
+      "lines": 386,
+      "start": 170
     },
     {
       "file": "Quant/src/strategy/StrategyFactory.cpp",
@@ -495,7 +516,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::strategy_thread_fn",
       "lines": 191,
-      "start": 1792
+      "start": 1810
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
@@ -526,6 +547,12 @@
       "symbol": "OrderGate::clamp_buy_qty",
       "lines": 168,
       "start": 53
+    },
+    {
+      "file": "scripts/token_audit.py",
+      "symbol": "main",
+      "lines": 168,
+      "start": 292
     },
     {
       "file": "Quant/include/strategy/ThemeStrategy.h",
@@ -597,7 +624,13 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::shard_thread_fn",
       "lines": 126,
-      "start": 1984
+      "start": 2002
+    },
+    {
+      "file": "scripts/token_audit.py",
+      "symbol": "scan",
+      "lines": 126,
+      "start": 147
     },
     {
       "file": "Quant/src/ipc/ZmqBridge.cpp",
@@ -660,6 +693,12 @@
       "start": 52
     },
     {
+      "file": "Quant/src/core/Engine.cpp",
+      "symbol": "Engine::control_thread_fn",
+      "lines": 104,
+      "start": 2389
+    },
+    {
       "file": "Quant/src/api/WsSocketPosix.cpp",
       "symbol": "ws_tcp_connect",
       "lines": 103,
@@ -675,7 +714,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::order_thread_fn",
       "lines": 101,
-      "start": 2112
+      "start": 2130
     },
     {
       "file": "Quant/include/strategy/SupplyDemandPullbackStrategy.h",
@@ -684,16 +723,10 @@
       "start": 95
     },
     {
-      "file": "Quant/src/core/Engine.cpp",
-      "symbol": "Engine::control_thread_fn",
-      "lines": 100,
-      "start": 2370
-    },
-    {
       "file": "Quant/src/core/LedgerReconciler.cpp",
       "symbol": "LedgerReconciler::reconcile",
       "lines": 100,
-      "start": 277
+      "start": 291
     },
     {
       "file": "Quant/src/core/Engine.cpp",
@@ -744,6 +777,12 @@
       "start": 130
     },
     {
+      "file": "PYQuant/tools/universe_feed.py",
+      "symbol": "build",
+      "lines": 93,
+      "start": 68
+    },
+    {
       "file": "Quant/src/api/KisAccount.cpp",
       "symbol": "KisClient::get_open_orders",
       "lines": 92,
@@ -765,13 +804,13 @@
       "file": "Quant/include/strategy/DeviationScaleStrategy.h",
       "symbol": "prefetch_loop",
       "lines": 90,
-      "start": 946
+      "start": 971
     },
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::drain_manual_inbox",
       "lines": 90,
-      "start": 2581
+      "start": 2604
     },
     {
       "file": "PYQuant/tools/log_report.py",
@@ -820,12 +859,6 @@
       "symbol": "OrderRouter::append_trade_line",
       "lines": 83,
       "start": 986
-    },
-    {
-      "file": "PYQuant/tools/universe_feed.py",
-      "symbol": "build",
-      "lines": 82,
-      "start": 47
     }
   ]
 }
