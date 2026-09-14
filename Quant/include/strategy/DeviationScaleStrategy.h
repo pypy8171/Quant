@@ -250,6 +250,7 @@ public:
         last_warm_log_ms_ = 0;
         last_px_ = 0.0;
         last_avg_px_ = 0.0;
+        avg_pos_seen_ = 0;
         // 집계기 이력은 지우지 않는다(재등록 경로에서 같은 날이면 그대로 쓸 수 있다). 날짜가 바뀌었으면
         //  on_trade_batch의 날짜 검사가 비운다. 시드는 다시 받는다.
         seeded_version_ = 0;
@@ -520,6 +521,20 @@ public:
         {
             const int pos = confirmed_position(p_.account, p_.ticker);
 
+            // [inv] 평단 캐시는 보유 수량이 바뀐 뒤 쓰지 않는다. 전량 청산 뒤 재진입하면 원장 평단은 새 체결가로
+            //  바뀌는데 캐시는 옛 평단이라, 새 체결 직후 스탑이 바로 걸려 15초 왕복 매매가 났다(09-14 067290:
+            //  옛 평단 3515.9, 새 체결 3415). 보유 0이면 비우고, 수량이 바뀌었으면 원장(REST 없음)에서 다시 읽는다.
+            if (pos <= 0)
+            {
+                last_avg_px_ = 0.0;
+            }
+            else if (pos != avg_pos_seen_ && ledger_sellable(p_.account, p_.ticker))
+            {
+                (void)sellable_qty();
+            }
+
+            avg_pos_seen_ = pos;
+
             if (pos > 0 && last_avg_px_ <= 0.0 &&
                 (avg_query_ts_ == std::chrono::steady_clock::time_point{} ||
                  now - avg_query_ts_ >= std::chrono::seconds(60)))
@@ -616,6 +631,16 @@ public:
         }
 
         int pos = confirmed_position(p_.account, p_.ticker);
+
+        // 스탑 청산이 아직 진행 중이면(청산을 냈는데 보유가 줄지 않음) 재구성하지 않는다. 시장가 스탑이 체결되기 전에
+        //  다음 하트비트가 익절 지정가 매도를 다시 깔면, 라우터가 매도가능 0을 풀려고 살아 있는 스탑 주문을 취소하려 든다
+        //  (09-14 13:00 079650: 스탑 RTT 7초 사이 익절 매도가 들어가 취소 시도, 체결이 먼저라 피해 없음).
+        //  청산 진행은 스탑 블록·라우터 재시도가 맡고, 쿨다운이 끝나면 여기로 돌아온다.
+        if (pos > 0 && liq_last_pos_ > 0 && pos >= liq_last_pos_ &&
+            stop_cooldown_until_ != std::chrono::steady_clock::time_point{} && now < stop_cooldown_until_)
+        {
+            return;
+        }
 
         // ── 목표 분할 매수 산출(발주 전) ─────────────────────────────────────────
         //  계단 가격·수량은 sma·pos의 순수 함수. 먼저 계획을 만들고 직전 분할 매수와
@@ -1395,6 +1420,7 @@ private:
     int    liq_fail_streak_ = 0;                           // 연속 미진행 횟수(백오프 지수)
     std::chrono::steady_clock::time_point stop_cooldown_until_{}; // 스탑·트레일 뒤 분할 매수 재개 시각
     std::chrono::steady_clock::time_point avg_query_ts_{};        // 평단 직접 조회 스로틀(60초)
+    int    avg_pos_seen_ = 0;                                     // last_avg_px_를 읽었을 때의 보유 수량(바뀌면 다시 읽음)
     int    prefetch_jitter_sec_ = 0;                       // 봉 경계 뒤 분봉 조회 지연(초, 티커 해시)
     uint64_t seq_ = 0;
 
