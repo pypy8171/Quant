@@ -55,7 +55,7 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 27 |
+| `core/Types.h` | 28 |
 | `utils/Logger.h` | 25 |
 | `strategy/StrategyBase.h` | 13 |
 | `core/KstTime.h` | 12 |
@@ -102,6 +102,7 @@ graph LR
     n_core_PaperExecutor_h["core/PaperExecutor.h"]
     n_core_RegimeController_cpp["core/RegimeController.cpp"]
     n_core_RegimeController_h["core/RegimeController.h"]
+    n_core_RegimeFileBridge_h["core/RegimeFileBridge.h"]
     n_core_ReplaySource_h["core/ReplaySource.h"]
     n_core_ShardMatrix_h["core/ShardMatrix.h"]
     n_core_SignalDispatcher_cpp["core/SignalDispatcher.cpp"]
@@ -250,6 +251,7 @@ graph LR
   n_core_RegimeController_cpp --> n_core_RegimeController_h
   n_core_RegimeController_cpp --> n_utils_Logger_h
   n_core_RegimeController_h --> n_core_Types_h
+  n_core_RegimeFileBridge_h --> n_core_Types_h
   n_core_ReplaySource_h --> n_core_IFeedSource_h
   n_core_ReplaySource_h --> n_core_TickCapture_h
   n_core_ShardMatrix_h --> n_core_RingBuffer_h

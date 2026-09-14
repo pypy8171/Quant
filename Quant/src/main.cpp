@@ -356,14 +356,15 @@ int main(int argc, char* argv[])
     //  per-strategy active_regimes 방식 유지(하위호환). 지정 시 국면이 전략셋을 선택한다.
     if (cfg.contains("regime_strategies"))
     {
+        // 키는 regime.json 라벨(RISK_ON·NEUTRAL·RISK_OFF)이고, 09-14까지 쓰던 BULL·BEAR도 같은 뜻으로 받는다. [why D-084]
         auto to_regime = [](const std::string& k) -> Regime
         {
-            if (k == "BULL")
+            if (k == "BULL" || k == "RISK_ON")
             {
                 return Regime::BULL;
             }
 
-            if (k == "BEAR")
+            if (k == "BEAR" || k == "RISK_OFF")
             {
                 return Regime::BEAR;
             }
@@ -388,6 +389,12 @@ int main(int argc, char* argv[])
             }
 
             rmap[r] = it.value().get<std::vector<std::string>>();
+        }
+
+        // 선택 입력은 regime.json 라벨이라 파일이 없으면 맵이 한 번도 적용되지 않는다(전 전략 기본 활성).
+        if (cfg.value("regime_file", std::string()).empty())
+        {
+            LOG_WARN("[Main] regime_strategies가 있는데 regime_file이 비어 있다 — 국면별 전략 선택이 동작하지 않는다");
         }
 
         engine.set_regime_strategies(rmap);

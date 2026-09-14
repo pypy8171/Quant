@@ -82,10 +82,8 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
         return;
     }
 
-    if (regime_)
-    {
-        strategy->set_active(regime_->is_active_for(strategy->active_regimes()));
-    }
+    // 새 전략의 초기 활성은 data_thread가 재스캔 직후 apply_regime_selection(last_selected_regime_)로
+    //  맵 기준으로 다시 정한다. 선택 국면을 아직 모르면(기동 직후) 기본 활성. [why D-084]
 
     // 구독 스펙 추가 (control_thread 재연결 읽기와 겹치므로 watch_specs_mtx_).
     //  REST 폴링 모드면 다음 폴링 사이클부터 현재가를 받는다. WS 모드는 connect()가 기동 때
@@ -150,12 +148,11 @@ long long Engine::regime_bucket_now() const
 //  아니면 기존 per-strategy active_regimes 폴백. 선택 결정(활성/비활성 목록)은 국면 변화 또는
 //  force_log 시 [RegimeSelect]로 기록 → "왜 이 전략을 켰나"가 로그에 남는다.
 //
-//  ── 국면 두 축은 별개(G2) ─────────────────────────────────────────────────
-//  ① RegimeController(내부 지수 국면)는 전략 선택 축이다. BULL/NEUTRAL/BEAR로
-//     어떤 전략을 켤지 고른다(이 함수). ② regime.json(매크로 risk-off)은
-//     리스크 오버레이 축이다. poll_regime_file()이 entry_halt/force_liquidate로
-//     신규진입 정지·강제청산을 건다. 서로 다른 관심사라 통합하지 않는다. ①은
-//     "무엇을 살까", ②는 "지금 사도 되나/다 팔아야 하나"를 각각 결정한다.
+//  ── 입력은 regime.json 라벨 하나다(D-084) ────────────────────────────────
+//  poll_regime_file()이 RISK_ON→BULL·NEUTRAL·RISK_OFF→BEAR로 옮겨 라벨이 바뀐 회차에 부른다.
+//  같은 파일이 entry_halt·매수비율·강제청산도 내므로 "무엇을 살까"와 "지금 사도 되나"가 한 입력에서
+//  나온다. RegimeController(코스피 200MA·정배열)는 09-14까지 이 함수의 입력이었으나 코스피 하나로
+//  몇 주 고정되는 스위치라 관찰 로그로만 남긴다 — evaluate()는 돌고 여기로는 안 온다. [why D-084]
 void Engine::apply_regime_selection(Regime r, bool force_log)
 {
     // id 매칭: 목록 항목이 '*'로 끝나면 접두 매칭, 아니면 정확히 일치.
@@ -206,7 +203,9 @@ void Engine::apply_regime_selection(Regime r, bool force_log)
         }
         else
         {
-            on = regime_ ? regime_->is_active_for(s->active_regimes()) : true;
+            // per-strategy 폴백도 같은 입력(r)으로 판정한다 — RegimeController의 현재값이 아니다. [why D-084]
+            const auto ar = s->active_regimes();
+            on            = std::find(ar.begin(), ar.end(), r) != ar.end();
         }
 
         s->set_active(on);
@@ -215,9 +214,19 @@ void Engine::apply_regime_selection(Regime r, bool force_log)
 
     if (force_log || r != last_selected_regime_)
     {
-        LOG_INFO("[RegimeSelect] 국면=" + to_string(r) + " → 활성=[" + active_ids +
-                 "] 비활성=[" + inactive_ids + "]" +
-                 (has_regime_map_ ? "" : " (per-strategy 폴백)"));
+        const std::string line = "[RegimeSelect] 국면=" + to_string(r) + " → 활성=[" + active_ids +
+                                 "] 비활성=[" + inactive_ids + "]" +
+                                 (has_regime_map_ ? "" : " (per-strategy 폴백)");
+
+        // 맵이 있는데 하나도 안 켜지면 오타(접두어·대소문자)나 빈 항목일 수 있어 WARN으로 올린다.
+        if (has_regime_map_ && active_ids.empty() && !inactive_ids.empty())
+        {
+            LOG_WARN(line + " — 맵이 등록 전략과 하나도 안 맞음(신규 진입 전면 차단 상태)");
+        }
+        else
+        {
+            LOG_INFO(line);
+        }
     }
 
     last_selected_regime_ = r;
@@ -1179,12 +1188,18 @@ void Engine::data_thread_fn(std::stop_token st)
             LOG_INFO(std::string("[DataThread] 장 개장 전이(") + (is_kr_market_open() ? "KR" : "US") +
                      ") — OrderGate 일별 카운터 리셋");
 
-            // 국면 판정(장 시작) → 국면에 맞는 전략셋 선택·적용 (G1). 선택 결정은 로그로 기록.
+            // 코스피 국면(장 시작) — 관찰 로그만. 전략 선택은 regime.json 라벨이 한다. [why D-084]
             if (regime_)
             {
-                auto snap = regime_->evaluate();   // 내부에서 [Regime] 로그
-                apply_regime_selection(snap.regime, /*force_log=*/true);
+                (void) regime_->evaluate();   // 내부에서 [Regime] 로그
                 last_regime_bucket_ = regime_bucket_now();
+            }
+
+            // 기동 뒤 첫 개장이면 아직 라벨 전이가 없었을 수 있다. 마지막 선택을 강제 로그로 다시 적용해
+            //  "오늘 무엇이 켜져 있나"가 하루 한 줄은 남게 한다.
+            if (last_selected_regime_ != Regime::UNKNOWN)
+            {
+                apply_regime_selection(last_selected_regime_, /*force_log=*/true);
             }
         }
 
@@ -1202,8 +1217,7 @@ void Engine::data_thread_fn(std::stop_token st)
             //  재스캔/잔고 대조와 같은 "사이클 1회" 계층. rest·일봉 모드 공통 경로라 두 모드 다 커버.
             poll_regime_file();
 
-            // G1: 장중 국면 재평가 → 국면이 바뀌면 전략셋 동적 재선택(국면 전환 시 교체).
-            //  일봉 기반 국면 신호라 장중 변화는 드물지만, 재평가로 국면 전이를 놓치지 않는다.
+            // 코스피 국면 재평가 — 관찰 로그만(전략 선택은 poll_regime_file의 라벨 전이). [why D-084]
             //  RegimeController::evaluate()는 이 data_thread 단일 호출자라 재호출 계약 위반 없음.
             //  평가 시점은 기동 시각 경과가 아니라 KST 벽시계 버킷 경계다 — 기동 시각에 따라 위상이
             //  달라지면 regime.json 갱신(3분)·유니버스 재스캔과 어긋난 채 하루 종일 간다. [why D-074]
@@ -1213,8 +1227,7 @@ void Engine::data_thread_fn(std::stop_token st)
 
                 if (bucket != last_regime_bucket_)
                 {
-                    auto snap = regime_->evaluate();
-                    apply_regime_selection(snap.regime, /*force_log=*/false); // 변화 시에만 로그
+                    (void) regime_->evaluate();   // 국면이 바뀌면 [Regime] 로그
                     last_regime_bucket_ = bucket;
                 }
             }
@@ -1228,7 +1241,7 @@ void Engine::data_thread_fn(std::stop_token st)
                     // G1: 재스캔으로 새로 등록된 전략도 현재 국면 선택에 맞춰 즉시 게이팅
                     //  (기본 active_=true로 잘못된 국면에 진입하는 창을 닫는다). 국면 불변이라
                     //  force_log=false → 로그 노이즈 없음.
-                    if (regime_ && last_selected_regime_ != Regime::UNKNOWN)
+                    if (last_selected_regime_ != Regime::UNKNOWN)
                     {
                         apply_regime_selection(last_selected_regime_, /*force_log=*/false);
                     }
@@ -1785,6 +1798,12 @@ void Engine::poll_regime_file()
         LOG_WARN(std::string("[Regime] 신규진입 ") +
                  (*out.entry_halt ? "정지(ENTRY_HALT ON)" : "재개(ENTRY_HALT OFF)") +
                  " — regime=" + obs.snap.regime + " score=" + std::to_string(obs.snap.risk_score));
+    }
+
+    // 전략 선택 — 라벨이 바뀐 회차에만. 같은 data_thread라 apply_regime_selection의 strategies_ 순회와 겹치지 않는다.
+    if (out.selection)
+    {
+        apply_regime_selection(*out.selection, /*force_log=*/false);
     }
 
     // 비율은 halt와 같은 소유권(이 함수만 set). 전략은 다음 계획 회차에 rung 명목에 곱한다.

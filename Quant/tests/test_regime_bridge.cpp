@@ -1,7 +1,7 @@
 // 매크로 국면 파일 판정기(core/RegimeFileBridge.h) 단위 테스트. entry_halt 전이 1회 로그·stale 1회 경고·
 // 판정 보류(valid=false) 불변·시간 상자(개장 후 N분, 하루 리셋, 파장 뒤 무효, force_liquidate 제외)·
 // force_liquidate 플래그의 "그대로 둔다" 규칙·JSON 형 불량 처리를 고정한다. 헤더 전용이라 파일·로그 없이 돈다.
-// 관련 결정: D-033(시간 상자), D-060(분리).
+// 관련 결정: D-033(시간 상자), D-060(분리), D-083(매수 비율), D-084(전략 선택 라벨).
 // 빌드: cmake --build <dir> --target test_regime_bridge
 #include "core/RegimeFileBridge.h"
 
@@ -54,7 +54,42 @@ KstClock at(int m, int yday = 100)
 bool quiet(const Outcome& o)
 {
     return !o.entry_halt && !o.force_liquidate && !o.log_expiry && !o.log_stale && !o.log_halt_transition &&
-           !o.log_liq_on && !o.log_liq_off && !o.entry_scale && !o.log_scale_change;
+           !o.log_liq_on && !o.log_liq_off && !o.entry_scale && !o.log_scale_change && !o.selection;
+}
+
+Observation labeled(const char* label, bool valid = true)
+{
+    Observation o = fresh(valid, false, false);
+    o.snap.regime  = label;
+    return o;
+}
+
+// 전략 선택 국면(D-084): 라벨이 바뀐 회차에만 실린다. stale·무효·모르는 라벨은 이전 선택 유지.
+int test_selection()
+{
+    CHECK(selection_of("RISK_ON") == Regime::BULL && selection_of("NEUTRAL") == Regime::NEUTRAL &&
+          selection_of("RISK_OFF") == Regime::BEAR && selection_of("UNKNOWN") == Regime::UNKNOWN &&
+          selection_of("bull") == Regime::UNKNOWN);
+
+    RegimeFileBridge b;
+    CHECK(b.selection_now() == Regime::UNKNOWN);
+    Outcome o = b.step(labeled("NEUTRAL"), at(10));
+    CHECK(o.selection && *o.selection == Regime::NEUTRAL && b.selection_now() == Regime::NEUTRAL);
+    o = b.step(labeled("NEUTRAL"), at(11)); // 같은 라벨은 다시 안 싣는다
+    CHECK(!o.selection);
+    o = b.step(labeled("RISK_ON"), at(12));
+    CHECK(o.selection && *o.selection == Regime::BULL);
+    o = b.step(labeled("UNKNOWN"), at(13)); // 판정 보류 라벨 → 유지
+    CHECK(!o.selection && b.selection_now() == Regime::BULL);
+    o = b.step(labeled("RISK_OFF", /*valid=*/false), at(14)); // 무효 파일 → 유지
+    CHECK(!o.selection && b.selection_now() == Regime::BULL);
+    o = b.step(stale(700), at(15));
+    CHECK(!o.selection && b.selection_now() == Regime::BULL);
+    Observation missing;
+    CHECK(!b.step(missing, at(16)).selection);
+    o = b.step(labeled("RISK_OFF"), at(17));
+    CHECK(o.selection && *o.selection == Regime::BEAR);
+    return 0;
 }
 
 // 매수 비율(D-083): 파일 값이 바뀐 회차에만 실리고, halt·청산이면 0, 없으면 1, 만료로 풀리면 1.
@@ -216,7 +251,7 @@ int test_stale_sec_setter()
 int main()
 {
     if (test_parse_snapshot() || test_halt_transition() || test_missing_stale_invalid_keep_gate() || test_time_box() ||
-        test_force_liquidate() || test_stale_sec_setter() || test_entry_scale())
+        test_force_liquidate() || test_stale_sec_setter() || test_entry_scale() || test_selection())
     {
         return 1;
     }

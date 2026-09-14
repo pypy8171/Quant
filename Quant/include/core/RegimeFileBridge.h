@@ -1,8 +1,10 @@
 #pragma once
-// 매크로 국면 파일(regime.json) → 진입정지(entry_halt)·강제청산(force_liquidate) 판정.
+// 매크로 국면 파일(regime.json) → 진입정지(entry_halt)·강제청산(force_liquidate)·매수비율·전략 선택 국면 판정.
 //  파일 읽기·로그·OrderGate 적용은 Engine(data_thread)이 하고, 여기는 관측값과 KST 시각을 받아
 //  "게이트를 어떻게 바꿀지"만 답하는 상태기계다 — 시간 상자(D-033)의 하루 리셋·1회 로그 규칙을
 //  I/O 없이 시험하려고 뗐다. data_thread 전용이라 동기화는 없다. [why D-060]
+#include "core/Types.h"
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -73,6 +75,29 @@ inline Snapshot parse_snapshot(const nlohmann::json& j)
     return s;
 }
 
+// 파일 라벨 → 전략 선택 국면. RISK_OFF는 파일 쪽에서 entry_halt와 같은 문턱(score ≤ halt)이라
+//  BEAR 집합은 halt 위에 얹히는 셈이고, 실제 선택은 RISK_ON/NEUTRAL 사이에서 갈린다. 모르는 라벨·
+//  UNKNOWN(판정 보류)은 UNKNOWN — 호출자는 이전 선택을 유지한다. [why D-084]
+inline Regime selection_of(const std::string& label)
+{
+    if (label == "RISK_ON")
+    {
+        return Regime::BULL;
+    }
+
+    if (label == "NEUTRAL")
+    {
+        return Regime::NEUTRAL;
+    }
+
+    if (label == "RISK_OFF")
+    {
+        return Regime::BEAR;
+    }
+
+    return Regime::UNKNOWN;
+}
+
 enum class FileState
 {
     kMissing,    // 파일 없음 → 게이트 불변
@@ -103,6 +128,8 @@ struct Outcome
     std::optional<bool> force_liquidate; // 파일이 신선·유효할 때만
     // OrderGate::set_entry_scale 호출이 필요할 때만(값이 바뀐 회차). halt·청산이면 0, 만료면 1.
     std::optional<double> entry_scale;
+    // Engine::apply_regime_selection 호출이 필요할 때만(라벨이 바뀐 회차). stale·무효·모르는 라벨은 비어 있다.
+    std::optional<Regime> selection;
     bool log_expiry          = false;    // 시간 상자 만료 — 하루 1회
     bool log_stale           = false;    // stale 진입 1회
     bool log_halt_transition = false;    // entry_halt 전이(값은 entry_halt)
@@ -128,6 +155,7 @@ public:
     int  stale_sec() const { return stale_sec_; }
     bool halt_on() const { return halt_on_; }
     double scale_now() const { return scale_now_; }
+    Regime selection_now() const { return selection_now_; }
 
     Outcome step(const Observation& o, const KstClock& clk)
     {
@@ -166,6 +194,15 @@ public:
         if (!o.snap.valid)
         {
             return out;
+        }
+
+        // 전략 선택 축 — 라벨이 바뀐 회차에만 싣는다. 모르는 라벨은 이전 선택 유지. [why D-084]
+        const Regime sel = selection_of(o.snap.regime);
+
+        if (sel != Regime::UNKNOWN && sel != selection_now_)
+        {
+            out.selection  = sel;
+            selection_now_ = sel;
         }
 
         const bool liq  = o.snap.force_liquidate;
@@ -254,6 +291,7 @@ private:
     int  halt_expire_min_ = kDefaultRegimeHaltExpireMin;
     bool halt_on_         = false; // 우리가 현재 건 halt(전이 시에만 set·로그)
     double scale_now_     = kRegimeScaleFull; // 우리가 현재 건 비율(전이 시에만 set·로그)
+    Regime selection_now_ = Regime::UNKNOWN;  // 마지막으로 바깥에 실은 전략 선택 국면(전이 시에만)
     bool stale_warned_    = false;
     int  expire_yday_     = -1;
     bool expired_         = false; // 오늘 이미 만료시켰나(로그 1회화 겸용)

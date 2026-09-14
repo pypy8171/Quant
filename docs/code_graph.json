@@ -407,6 +407,9 @@
     "core/RegimeController.h": [
       "core/Types.h"
     ],
+    "core/RegimeFileBridge.h": [
+      "core/Types.h"
+    ],
     "core/ReplaySource.h": [
       "core/IFeedSource.h",
       "core/TickCapture.h"
@@ -790,6 +793,7 @@
       "core/OrderPacer.h",
       "core/PaperExecutor.h",
       "core/RegimeController.h",
+      "core/RegimeFileBridge.h",
       "core/SignalDispatcher.h",
       "core/StrategyShard.h",
       "core/TickCapture.h",
@@ -949,7 +953,7 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 27
+      "in_degree": 28
     },
     {
       "header": "utils/Logger.h",

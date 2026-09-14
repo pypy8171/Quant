@@ -3611,3 +3611,36 @@ WTI 수준 표(100달러 위 −1) — 위의 이유로 note만. 급락 강제�
 **확인 방법**: 다음 장 `Quant/config/regime.json`에 `KOSPI`·`KOSDAQ`·`WTI` 항목과 `entry_scale`, `source`="Yahoo chart"가 있는지,
 09:0x 이후 `logs/regime_open_ref.json`이 오늘 날짜인지, 트레이더 로그에 `[Regime] 매수비율 0.x` 줄이 값이 바뀔 때만 남는지,
 `test_regime`·`test_regime_bridge` 통과. 대시보드 국면 카드에 "매수비율 xx%"와 각 줄의 "장초 ±x%" 표시.
+
+### D-084 전략 선택 국면의 입력을 코스피 200MA에서 regime.json 라벨로 (2026-09-14)
+
+**배경**: 국면 축이 둘이었다. 축 A(`PYQuant/tools/macro_regime_feed.py` → `regime.json`)는 코스피·코스닥·나스닥·S&P 선물·
+10년물·VIX·환율·WTI 8개 투표로 매수비율·진입정지·강제청산을 내고 3분마다 갱신된다. 축 B(`RegimeController`)는 코스피 하나의
+200일선·20/60/120 정배열로 BULL/NEUTRAL/BEAR를 내고, 그 값이 `regime_strategies` 맵으로 전략을 켜고 껐다. 축 B는 일봉 입력이라
+국면이 몇 주씩 고정되고, D-083에서 당일 −2% 강제 BEAR를 얹어 급락 대응까지 맡기려 했다. 09-14 회의(축 B 논의)와 사용자 판단:
+같은 코스피 입력으로 스위치를 하나 더 두면 AND 결합에서 가장 느린 축이 나머지를 누른다. 코스피 하나로 on/off를 정하는 기준이
+모호하고, 급락에 매수를 아예 막는 문턱값은 지금 단순하게 정할 일이 아니다. 전략은 지표 8개를 보는 축 A를 봐야 한다.
+
+**결정**:
+- `Engine::apply_regime_selection`의 입력을 `regime.json`의 `regime` 라벨로 바꾼다. `RegimeFileBridge::step`이 라벨을
+  RISK_ON→BULL·NEUTRAL·RISK_OFF→BEAR로 옮겨 **라벨이 바뀐 회차에만** `Outcome.selection`에 싣고, `poll_regime_file`이 적용한다.
+  stale·무효(valid=false)·UNKNOWN·모르는 라벨은 이전 선택 유지 — halt·비율과 같은 "그대로 둔다" 규칙.
+- `RegimeController`는 관찰 로그로만 남긴다. 장 시작·`regime_reeval_sec`마다 `evaluate()`는 돌아 `[Regime]` 줄을 찍지만 전략
+  선택으로는 안 간다. D-083의 당일 급락 강제 BEAR도 로그 전용이 된다. 코드는 지우지 않는다 — 파이썬 피드가 죽었을 때의 백업
+  후보이고, 삭제는 관찰 뒤 따로 정한다.
+- 재스캔으로 새로 등록되는 전략의 초기 활성은 `RegimeController::is_active_for`가 아니라 재스캔 직후의
+  `apply_regime_selection(last_selected_regime_)`가 맵 기준으로 정한다(회의 W-1). 맵이 등록 전략과 하나도 안 맞으면 `[RegimeSelect]`
+  줄을 WARN으로 올린다(W-2). 맵이 없을 때의 per-strategy `active_regimes` 폴백도 같은 입력(전달받은 국면)으로 판정한다.
+- config `regime_strategies` 키는 `RISK_ON`·`NEUTRAL`·`RISK_OFF`를 받고 종전 `BULL`·`BEAR`도 같은 뜻으로 받는다. 파일 라벨의
+  RISK_OFF는 `entry_halt`와 같은 문턱(score ≤ −7)이라 BEAR 항목은 halt 위에 얹히는 셈이고, 실제 선택은 RISK_ON/NEUTRAL 사이에서
+  갈린다. `regime_strategies`가 있는데 `regime_file`이 비면 기동 때 WARN — 맵이 한 번도 적용되지 않는다.
+- 오늘 라이브 맵은 BULL·NEUTRAL이 같은 집합이라 이 변경으로 켜지는 전략은 달라지지 않는다. 스캐너의 코스피·코스닥 게이트
+  `risk_off_index_pct`(09-14 09:33 −1.0으로 사실상 끔)는 이 결정과 별개이고 값은 정하지 않았다.
+
+**버린 대안**: `RegimeController` 삭제 — 피드 장애 백업 가치가 있고, 관찰 로그를 몇 주 본 뒤 정해도 늦지 않다.
+축 B에 짧은 이평·다른 지표를 붙여 실제 가동 — 그 지표들은 이미 축 A 투표표에 있거나 거기에 한 줄 더하는 편이 싸다.
+코스피 200MA를 축 A 투표 항목으로 추가 — 필요하면 `macro_regime_feed.py` `SYMBOLS`에 한 줄이고 이 결정의 범위 밖.
+
+**확인 방법**: 다음 장 트레이더 로그에 `[RegimeSelect] 국면=NEUTRAL → 활성=[DEVSCALE_…, TRENDX_…]` 줄이 첫 `regime.json` 폴링
+직후 한 번 남고 라벨이 바뀔 때만 다시 남는지, `[Regime] BULL/NEUTRAL/BEAR score=…`(코스피 축) 줄은 계속 찍히되 그 직후
+`[RegimeSelect]`가 따라오지 않는지, `test_regime_bridge`(선택 전이 13 검사 추가)·ctest 34/34 통과.
