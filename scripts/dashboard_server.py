@@ -31,6 +31,7 @@ import math
 import os
 import re
 import statistics
+import subprocess
 import sys
 import time
 import threading
@@ -1111,8 +1112,15 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path in ("/", "/index.html"):
             self._send(200, "text/html; charset=utf-8", HTML.encode("utf-8"))
         elif self.path.startswith("/sessions"):
-            # 세션 현황판. 파일은 Stop 훅이 턴마다 scripts/session_board.py로 다시 쓰므로 여기서는 읽어 내보내기만 한다.
+            # 세션 현황판. Stop 훅이 턴마다 다시 쓰지만 어느 세션도 턴을 끝내지 않으면 파일이 그대로다(09-14: 페이지는
+            # 30초마다 다시 읽는데 47분 표시가 안 바뀜). 그래서 파일이 30초보다 낡았으면 여기서 한 번 다시 만든다(0.4초).
             f = REPO / "_private" / "session_board.html"
+            try:
+                if not f.exists() or time.time() - f.stat().st_mtime > 30:
+                    subprocess.run([sys.executable, str(REPO / "scripts" / "session_board.py"), "--quiet"],
+                                   timeout=10, capture_output=True)
+            except Exception:
+                pass  # 못 만들면 있는 파일을 그대로 내보낸다
             if f.exists():
                 self._send(200, "text/html; charset=utf-8", f.read_bytes())
             else:

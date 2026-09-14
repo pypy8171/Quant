@@ -236,7 +236,7 @@ scripts/eod_autodoc.py
 | `scripts/gen_code_flow.py` | `docs/code_flow.toml`(읽는 순서·심볼·볼 것)에서 `docs/CODE_FLOW.md`를 만든다. 줄 번호·시그니처는 소스에서 찾아 채우므로 코드가 옮겨가도 링크가 따라가고, 심볼이 사라지면 `--check`가 exit 1로 막아 명세를 고치게 한다. sync-gate가 `fix_cmd`로 턴 끝마다 재생성한다(D-078) |
 | `scripts/brace_style.py` | 중괄호와 블록 앞뒤 빈 줄을 기계적으로 맞춘다(`.clang-format`의 Allman·`InsertBraces`와 같은 규칙). 손으로 맞추지 않는다 |
 | `scripts/check_plain_language.py` | 쓰지 않기로 한 말을 검출·치환한다(`--fix`는 뒤 조사까지 맞춘다). 정본은 `docs/STYLE_GUIDE.md`, 게이트는 `lexicon-gate.ps1`과 `@committer` |
-| `scripts/session_board.py` | 살아 있는 세션(`~/.claude/sessions/*.json`)마다 기록 jsonl의 늘어난 꼬리만 읽어 문맥 K/%·턴(모델 호출 수)·압축 횟수·마지막 사용자 요청을 세고, 현황판 `_private/SESSION_CLAIMS.md` 줄과 인계 파일 유무를 붙여 `_private/session_board.json`·`.html`(30초 자동 새로고침)로 쓴다. 문맥 50%↑ 노랑, 80%↑ 빨강, 100K↑면 인계 시점 표시. `--facts`·`--skeleton`·`--due`는 인계 훅이 쓴다 |
+| `scripts/session_board.py` | 살아 있는 세션(`~/.claude/sessions/*.json`)마다 기록 jsonl의 늘어난 꼬리만 읽어 문맥 K/%·턴(모델 호출 수)·압축 횟수·마지막 사용자 요청을 세고, 현황판 `_private/SESSION_CLAIMS.md` 줄과 인계 파일 유무를 붙여 `_private/session_board.json`·`.html`(30초 자동 새로고침)로 쓴다. 파일은 Stop 훅이 턴마다 다시 쓰고, 대시보드 서버 `/sessions`는 파일이 30초보다 낡았으면 요청 때 한 번 더 만든다(어느 세션도 턴을 안 끝내면 훅만으로는 멈춰 있어서). 문맥 50%↑ 노랑, 80%↑ 빨강, 100K↑면 인계 시점 표시. `--facts`·`--skeleton`·`--due`는 인계 훅이 쓴다 |
 | `scripts/session_triage.py` | 코드 세션 여럿이 하루 동안 남긴 상태(미푸시·worktree·브랜치·현황판 `_private/SESSION_CLAIMS.md`·인계 파일·배포 exe 뒤에 쌓인 C++ 커밋)를 한 보고서로 모은다. 되돌릴 수 있는 정리만 옵션으로 한다 — `--prune-branches`(main에 들어간 브랜치 `-d`)·`--archive-handoffs`·`--orphan-patch`. worktree 제거·푸시·exe 교체는 하지 않는다. 절차는 `/triage`(로컬 커맨드), 규칙은 CLAUDE.md 다중 세션 절 |
 
 해석을 채우는 커맨드는 `/eod-review`(사후검토 문서) → `/trade-log`(매매일지 해석) → `/dashboard-sync`(아티팩트 재발행)
