@@ -233,6 +233,8 @@ public:
     void note_displacement(const DisplacePlan& plan, const std::string& beneficiary);
     // 동시 보유 슬롯이 꽉 찼는가(신규 종목을 열 자리가 없는가).
     bool slots_full() const;
+    // 열린 슬롯 수 — 보유 수량 > 0인 종목 + 보유 없이 매수 선점만 있는 종목. positions_mtx_를 잡는다.
+    size_t open_slot_count() const;
     // 신규 종목을 열 여력이 없는가 — 자리(슬롯)와 예산(총노출) 중 하나만 막혀도 없다.
     bool capacity_full() const;
 

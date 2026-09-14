@@ -1064,6 +1064,11 @@ bool OrderGate::slots_full() const
         return false;
     }
 
+    return open_slot_count() >= static_cast<size_t>(cfg_.max_concurrent_positions);
+}
+
+size_t OrderGate::open_slot_count() const
+{
     std::lock_guard<std::mutex> lk(positions_mtx_);
     size_t open = 0;
 
@@ -1088,7 +1093,7 @@ bool OrderGate::slots_full() const
         }
     }
 
-    return open >= static_cast<size_t>(cfg_.max_concurrent_positions);
+    return open;
 }
 
 // 신규 종목을 열 여력이 없는가. 교체 진입이 슬롯만 보면, 슬롯은 남았는데 총노출 상한에
@@ -1157,6 +1162,19 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
     if (!cfg_.displace_enabled || cfg_.max_concurrent_positions <= 0)
     {
         return plan;
+    }
+
+    // (0) 한도를 넘겨 들고 있으면(한도를 내린 날·이월 보유가 많은 날) 최약체 하나를 비워도 자리가 안 난다.
+    //  그래도 비우면 수혜 종목의 보류 매수는 만료되고 매도만 남는다(09-14 실측: 한도 40→30 뒤 204270·388050
+    //  이월분이 z=-2.5로 밀려 나갔는데 105560·067290은 끝내 못 들어옴). 보유가 한도 밑으로 내려갈 때까지 교체는 쉰다.
+    {
+        const auto open = open_slot_count();
+        const auto cap  = static_cast<size_t>(cfg_.max_concurrent_positions);
+
+        if (open > cap)
+        {
+            return decline(std::format("보유 {} > 한도 {} — 하나 비워도 자리가 안 나 교체 보류", open, cap));
+        }
     }
 
     // (1) 신규 종목의 점수. 점수를 모르면 교체 근거가 없다.
