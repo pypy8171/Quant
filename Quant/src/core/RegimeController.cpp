@@ -3,6 +3,7 @@
 #include "core/KstTime.h"
 #include "utils/Logger.h"
 #include <chrono>
+#include <cstdio>
 #include <ctime>
 
 // ─── Regime → 문자열 (로깅/직렬화) ──────────────────────────────────────────
@@ -19,6 +20,14 @@ std::string to_string(Regime r)
 
 namespace
 {
+// 로그용 "+1.2%" — std::to_string(double)은 소수 6자리가 붙는다.
+std::string fmt_pct(double v)
+{
+    char buf[24];
+    std::snprintf(buf, sizeof(buf), "%+.1f%%", v);
+    return buf;
+}
+
 // time_point → "YYYYMMDD" (UTC 날짜). 지수 일봉의 timestamp는 그 날짜의 UTC 정오다(KisIndex.cpp).
 std::string ymd_of(std::chrono::system_clock::time_point tp)
 {
@@ -170,6 +179,32 @@ RegimeSnapshot RegimeController::evaluate()
     s.timestamp = std::chrono::system_clock::now();
     fail_streak_ = 0;
 
+    // 당일 급락 강제 BEAR. closes[1]은 전일 확정 종가(당일접음일 때). 들어갈 때 −bear, 나올 때 −release로
+    //  되돌림이 그 사이에 머물면 BEAR를 유지한다 — 문턱 하나면 −2.0% 언저리에서 주기마다 뒤집힌다. [why D-083]
+    if (cfg_.fold_today && cfg_.day_drop_bear_pct > 0.0 && closes.size() >= 2 && closes[1] > 0.0)
+    {
+        s.day_pct = (closes[0] / closes[1] - 1.0) * 100.0;
+
+        if (day_drop_on_ && s.day_pct > -cfg_.day_drop_release_pct)
+        {
+            day_drop_on_ = false;
+        }
+        else if (!day_drop_on_ && s.day_pct <= -cfg_.day_drop_bear_pct)
+        {
+            day_drop_on_ = true;
+        }
+
+        if (day_drop_on_)
+        {
+            s.day_drop = true;
+            s.regime   = Regime::BEAR;
+        }
+    }
+    else
+    {
+        day_drop_on_ = false;
+    }
+
     // 장중 전환 확인. 오늘 봉을 접으면 지수가 이평 근처에서 흔들릴 때 판정이 주기마다 뒤집힐 수 있다 —
     //  다른 국면이 confirm_n회 연속일 때만 바꾼다. 그날 첫 성공 판정(실패 뒤 복구 포함)과 fold_today가 꺼진 경우는
     //  바로 확정한다.
@@ -220,7 +255,9 @@ RegimeSnapshot RegimeController::evaluate()
                  (cfg_.fold_today ? " 당일접음" : " 전일확정") +
                  " ma200=" + std::to_string(static_cast<int>(s.ma200)) +
                  " above200=" + (s.above_ma200 ? "Y" : "N") +
-                 " 정배열=" + (s.aligned_bull ? "Y" : (s.aligned_bear ? "역배열" : "혼조")) + ")");
+                 " 정배열=" + (s.aligned_bull ? "Y" : (s.aligned_bear ? "역배열" : "혼조")) +
+                 (cfg_.fold_today ? " 당일=" + fmt_pct(s.day_pct) : "") +
+                 (s.day_drop ? " 급락강제BEAR" : "") + ")");
     }
 
     return s;

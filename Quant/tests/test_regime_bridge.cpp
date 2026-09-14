@@ -26,13 +26,14 @@ int g_checks = 0;
         }                                                                                  \
     } while (0)
 
-Observation fresh(bool valid, bool halt, bool liq)
+Observation fresh(bool valid, bool halt, bool liq, std::optional<double> scale = std::nullopt)
 {
     Observation o;
     o.state                = FileState::kFresh;
     o.snap.valid           = valid;
     o.snap.entry_halt      = halt;
     o.snap.force_liquidate = liq;
+    o.snap.entry_scale     = scale;
     return o;
 }
 
@@ -53,7 +54,42 @@ KstClock at(int m, int yday = 100)
 bool quiet(const Outcome& o)
 {
     return !o.entry_halt && !o.force_liquidate && !o.log_expiry && !o.log_stale && !o.log_halt_transition &&
-           !o.log_liq_on && !o.log_liq_off;
+           !o.log_liq_on && !o.log_liq_off && !o.entry_scale && !o.log_scale_change;
+}
+
+// 매수 비율(D-083): 파일 값이 바뀐 회차에만 실리고, halt·청산이면 0, 없으면 1, 만료로 풀리면 1.
+int test_entry_scale()
+{
+    RegimeFileBridge b;
+    Outcome o = b.step(fresh(true, false, false, 0.7), at(10));
+    CHECK(o.entry_scale && *o.entry_scale == 0.7 && o.log_scale_change && b.scale_now() == 0.7);
+    o = b.step(fresh(true, false, false, 0.7), at(11));
+    CHECK(!o.entry_scale && !o.log_scale_change);
+    o = b.step(fresh(true, false, false, 0.44), at(12)); // 0.1 단위로 끊는다
+    CHECK(o.entry_scale && *o.entry_scale == 0.4);
+    o = b.step(fresh(true, true, false, 0.4), at(13));   // halt면 파일 값과 무관하게 0
+    CHECK(o.entry_scale && *o.entry_scale == 0.0 && o.entry_halt && *o.entry_halt);
+    o = b.step(fresh(true, false, false), at(14));       // 키 없음 → 1
+    CHECK(o.entry_scale && *o.entry_scale == 1.0 && !b.halt_on());
+    o = b.step(fresh(true, false, true, 0.9), at(15));   // 청산이면 0
+    CHECK(o.entry_scale && *o.entry_scale == 0.0);
+    o = b.step(fresh(false, false, false, 0.5), at(16)); // 무효면 비율도 불변
+    CHECK(!o.entry_scale && b.scale_now() == 0.0);
+    Observation missing;
+    CHECK(!b.step(missing, at(17)).entry_scale);
+
+    // 시간 상자로 halt가 풀리면 비율도 1로 돌아온다.
+    RegimeFileBridge t;
+    t.set_halt_expire_min(60);
+    (void) t.step(fresh(true, true, false, 0.0), at(10));
+    o = t.step(missing, at(60));
+    CHECK(o.log_expiry && o.entry_scale && *o.entry_scale == 1.0);
+
+    // 파싱: 숫자만 받고 0~1로 자른다. null·문자열은 없음.
+    CHECK(parse_snapshot(json{{"entry_scale", 1.7}}).entry_scale == 1.0);
+    CHECK(parse_snapshot(json{{"entry_scale", nullptr}}).entry_scale == std::nullopt);
+    CHECK(parse_snapshot(json{{"entry_scale", "0.5"}}).entry_scale == std::nullopt);
+    return 0;
 }
 
 int test_parse_snapshot()
@@ -180,7 +216,7 @@ int test_stale_sec_setter()
 int main()
 {
     if (test_parse_snapshot() || test_halt_transition() || test_missing_stale_invalid_keep_gate() || test_time_box() ||
-        test_force_liquidate() || test_stale_sec_setter())
+        test_force_liquidate() || test_stale_sec_setter() || test_entry_scale())
     {
         return 1;
     }

@@ -272,5 +272,7 @@ struct RegimeSnapshot
     bool        aligned_bear  = false; // ma20 < ma60 < ma120
     double      index_close = 0.0;
     double      ma200 = 0.0, ma20 = 0.0, ma60 = 0.0, ma120 = 0.0;
+    double      day_pct  = 0.0;        // 당일 등락(%) = index_close / 전일 확정 종가 − 1. 당일접음일 때만 의미
+    bool        day_drop = false;      // 당일 급락으로 BEAR를 강제했나 [why D-083]
     std::chrono::system_clock::time_point timestamp;
 };

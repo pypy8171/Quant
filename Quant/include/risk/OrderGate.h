@@ -201,6 +201,18 @@ public:
         return entry_halt_.load();
     }
 
+    // 매수 명목 비율(0~1). 국면 점수를 스위치가 아니라 비율로 옮긴 값 — 전략이 rung 명목에 곱한다.
+    //  게이트 자체는 이 값으로 주문을 막지 않는다(0이면 entry_halt가 같이 켜진다). [why D-083]
+    void set_entry_scale(double s)
+    {
+        entry_scale_.store(s);
+    }
+
+    double entry_scale() const
+    {
+        return entry_scale_.load();
+    }
+
     // 유니버스 스캔이 낸 종합 점수 랭크(1=최고)를 주입한다. 재스캔이 매번 덮어쓴다.
     //  total은 랭크의 모집단 크기(등록 종목 수). 비어 있으면 우선순위 바는 동작하지 않는다.
     //  z는 같은 점수의 표준화값 — 랭크는 "몇 번째"만 알려주고 "얼마나 더 좋은지"는 못 알려준다.
@@ -362,6 +374,7 @@ private:
     Config cfg_;
     std::atomic<bool> kill_switch_{false};
     std::atomic<bool> entry_halt_{false};  // 신규 진입(BUY NEW)만 정지, SELL 청산은 통과 — 국면 리스크용
+    std::atomic<double> entry_scale_{1.0}; // 매수 명목 비율(0~1). 국면 점수의 비례판 [why D-083]
     std::atomic<bool> pnl_stale_{false};   // 잔고 대조 정체 → daily_pnl 미갱신, BUY NEW 보수 정지(B2)
     std::atomic<double> available_cash_{0.0}; // 주문가능현금 스냅샷. 잔고 대조가 갱신, clamp_buy_qty가 락 없이 읽음
     std::atomic<double> equity_{0.0};      // 총평가금 스냅샷(§3d 총노출 게이트 분모). 잔고 대조가 갱신, check()가 락 없이 읽음

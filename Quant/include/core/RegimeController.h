@@ -37,6 +37,11 @@ public:
         int fail_fallback_n      =  3;     // 연속 N회 조회실패 → NEUTRAL fallback
         bool fold_today          = true;   // 지수 현재값을 오늘 봉으로 접어 장중 재판정. false면 전일 확정봉·하루 1회
         int  confirm_n           =  2;     // 장중 국면 전환에 필요한 연속 동일 판정 횟수(재평가 주기 단위)
+        // 당일 급락 강제 BEAR. 지수가 전일 종가 대비 이만큼(%) 빠지면 점수와 무관하게 BEAR, 되돌림이
+        //  release 안으로 들어오면 푼다(둘 사이는 유지). 0이면 끔. 200일선·정배열은 하루 −3%를 못 본다 —
+        //  09-14 코스피 −3.3%인 날 NEUTRAL이 83회 찍혔다. [why D-083]
+        double day_drop_bear_pct    = 2.0;
+        double day_drop_release_pct = 1.5;
     };
 
     // GCC: 중첩 Config의 멤버 기본값 초기화(NSDMI, Non-Static Data Member Initializer)를
@@ -99,6 +104,7 @@ private:
     std::string             day_bars_date_;
     Regime pending_   = Regime::UNKNOWN;        // 확인 대기 중인 다른 국면과 연속 횟수
     int    pending_n_ = 0;
+    bool   day_drop_on_ = false;                // 당일 급락 강제 BEAR가 걸려 있나(release까지 유지)
 };
 
 std::string to_string(Regime r);

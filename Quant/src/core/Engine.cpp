@@ -61,6 +61,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
         return order_gate_.position(account, ticker);
     });
     strategy->set_entry_halt_provider([this] { return order_gate_.is_entry_halted(); });
+    strategy->set_entry_scale_provider([this] { return order_gate_.entry_scale(); });
     strategy->set_sellable_provider([this](const std::string& account, const std::string& ticker) {
         return ledger_sellable(account, ticker);
     });
@@ -728,6 +729,7 @@ void Engine::start()
             return order_gate_.position(account, ticker);
         });
         s->set_entry_halt_provider([this] { return order_gate_.is_entry_halted(); });
+        s->set_entry_scale_provider([this] { return order_gate_.entry_scale(); });
         s->set_sellable_provider([this](const std::string& account, const std::string& ticker) {
             return ledger_sellable(account, ticker);
         });
@@ -1783,6 +1785,20 @@ void Engine::poll_regime_file()
         LOG_WARN(std::string("[Regime] 신규진입 ") +
                  (*out.entry_halt ? "정지(ENTRY_HALT ON)" : "재개(ENTRY_HALT OFF)") +
                  " — regime=" + obs.snap.regime + " score=" + std::to_string(obs.snap.risk_score));
+    }
+
+    // 비율은 halt와 같은 소유권(이 함수만 set). 전략은 다음 계획 회차에 rung 명목에 곱한다.
+    if (out.entry_scale)
+    {
+        order_gate_.set_entry_scale(*out.entry_scale);
+    }
+
+    if (out.log_scale_change)
+    {
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "%.1f", *out.entry_scale);
+        LOG_INFO(std::string("[Regime] 매수비율 ") + buf + " — regime=" + obs.snap.regime +
+                 " score=" + std::to_string(obs.snap.risk_score));
     }
 
     // force_liquidate 배선(G3): 플래그만 세우고 실제 매도는 order_queue_ 단일 생산자인

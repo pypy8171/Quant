@@ -5,6 +5,9 @@
 //  I/O 없이 시험하려고 뗐다. data_thread 전용이라 동기화는 없다. [why D-060]
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
+#include <cmath>
+
 #include <optional>
 #include <string>
 
@@ -12,10 +15,14 @@
 // config "regime_stale_sec" 로 덮어쓸 수 있고, 미지정 시 이 기본값을 쓴다.
 inline constexpr int kDefaultRegimeStaleSec = 600;
 
-// 매크로 진입정지의 유효 시간(개장 후 분). 0이면 만료 없음(옛 동작).
-//  이 축의 입력 5개 중 4개가 간밤 미국 종가라 KST 장중 내내 상수다 — 회복을 관측할 수
-//  없는 신호에 장중 거부권을 계속 주지 않는다. [why D-033]
-inline constexpr int kDefaultRegimeHaltExpireMin = 60;
+// 매크로 진입정지의 유효 시간(개장 후 분). 0이면 만료 없음.
+//  60분 만료는 입력 5개 중 4개가 간밤 미국 종가라 장중 내내 상수였을 때의 장치였다(D-033).
+//  D-083부터 코스피·코스닥·선물·유가를 Yahoo 현재가로 3분마다 받고 장초 대비 방향표도 세므로
+//  회복이 관측된다 — 시계로 풀 이유가 없어져 기본을 0으로 둔다. config로 되살릴 수 있다. [why D-083]
+inline constexpr int kDefaultRegimeHaltExpireMin = 0;
+
+// entry_scale이 없거나 무효일 때의 값(= 비율 제한 없음).
+inline constexpr double kRegimeScaleFull = 1.0;
 
 namespace regime_bridge
 {
@@ -27,6 +34,8 @@ struct Snapshot
     bool        force_liquidate = false;
     std::string regime          = "?";
     int         risk_score      = 0;
+    // 매수 명목 비율(0~1). 보조 프로세스가 점수를 옮긴 값. 키가 없거나 null이면 비어 있다(→ 1.0).
+    std::optional<double> entry_scale;
 };
 
 // 키가 없거나 형이 다르면 기본값. 보조 프로세스가 "true" 문자열을 쓰는 실수를 예외 대신 "없음"으로 받는다.
@@ -52,6 +61,13 @@ inline Snapshot parse_snapshot(const nlohmann::json& j)
     if (sc != j.end() && sc->is_number())
     {
         s.risk_score = sc->get<int>();
+    }
+
+    auto es = j.find("entry_scale");
+
+    if (es != j.end() && es->is_number())
+    {
+        s.entry_scale = std::clamp(es->get<double>(), 0.0, 1.0);
     }
 
     return s;
@@ -85,11 +101,14 @@ struct Outcome
 {
     std::optional<bool> entry_halt;      // OrderGate::set_entry_halt 호출이 필요할 때만
     std::optional<bool> force_liquidate; // 파일이 신선·유효할 때만
+    // OrderGate::set_entry_scale 호출이 필요할 때만(값이 바뀐 회차). halt·청산이면 0, 만료면 1.
+    std::optional<double> entry_scale;
     bool log_expiry          = false;    // 시간 상자 만료 — 하루 1회
     bool log_stale           = false;    // stale 진입 1회
     bool log_halt_transition = false;    // entry_halt 전이(값은 entry_halt)
     bool log_liq_on          = false;    // force_liquidate 켜짐 1회
     bool log_liq_off         = false;    // force_liquidate 꺼짐 1회
+    bool log_scale_change    = false;    // entry_scale 변경(값은 entry_scale)
 };
 
 class RegimeFileBridge
@@ -108,6 +127,7 @@ public:
     void set_halt_expire_min(int m) { halt_expire_min_ = m; }
     int  stale_sec() const { return stale_sec_; }
     bool halt_on() const { return halt_on_; }
+    double scale_now() const { return scale_now_; }
 
     Outcome step(const Observation& o, const KstClock& clk)
     {
@@ -122,6 +142,7 @@ public:
             out.log_expiry  = mark_expired();
             out.entry_halt  = false;
             halt_on_        = false;
+            set_scale(out, kRegimeScaleFull);
         }
 
         switch (o.state)
@@ -163,6 +184,12 @@ public:
             halt_on_                = halt;
         }
 
+        // 비율은 halt·청산이면 0(파일이 뭐라 하든), 아니면 파일 값(없으면 1). 0.1 단위로 끊어 3분마다
+        //  미세하게 흔들려 전략이 분할 매수를 다시 까는 일을 막는다. [why D-083]
+        double scale = halt ? 0.0 : o.snap.entry_scale.value_or(kRegimeScaleFull);
+        scale        = std::round(scale * 10.0) / 10.0;
+        set_scale(out, scale);
+
         if (liq && !liq_warned_)
         {
             out.log_liq_on = true;
@@ -180,6 +207,19 @@ public:
     }
 
 private:
+    // 비율 전이 — 값이 바뀐 회차에만 Outcome에 싣고 로그를 켠다.
+    void set_scale(Outcome& out, double scale)
+    {
+        if (scale == scale_now_)
+        {
+            return;
+        }
+
+        scale_now_           = scale;
+        out.entry_scale      = scale;
+        out.log_scale_change = true;
+    }
+
     // 개장 후 N분이 지났는가. 날짜가 바뀌면 만료 상태를 되돌린다.
     bool time_box_passed(const KstClock& clk)
     {
@@ -213,6 +253,7 @@ private:
     int  stale_sec_       = kDefaultRegimeStaleSec;
     int  halt_expire_min_ = kDefaultRegimeHaltExpireMin;
     bool halt_on_         = false; // 우리가 현재 건 halt(전이 시에만 set·로그)
+    double scale_now_     = kRegimeScaleFull; // 우리가 현재 건 비율(전이 시에만 set·로그)
     bool stale_warned_    = false;
     int  expire_yday_     = -1;
     bool expired_         = false; // 오늘 이미 만료시켰나(로그 1회화 겸용)

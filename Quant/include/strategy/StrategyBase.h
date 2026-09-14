@@ -133,6 +133,17 @@ public:
         return entry_halt_provider_ ? entry_halt_provider_() : false;
     }
 
+    // 매수 명목 비율(OrderGate::entry_scale) 접근자 주입 — Engine이 바인딩한다. 미주입이면 1.0.
+    void set_entry_scale_provider(std::function<double()> f)
+    {
+        entry_scale_provider_ = std::move(f);
+    }
+
+    double entry_scale() const
+    {
+        return entry_scale_provider_ ? entry_scale_provider_() : 1.0;
+    }
+
     // 매도가능수량·평단 접근자 주입 — OrderGate 원장 기준(잔고 대조가 맞춘 주문가능분에서 이 세션의
     //  미체결 매도를 뺀 값). 전략 스레드가 잔고 REST를 동기로 부르면 한 종목의 조회(13~16초)가
     //  다른 전략 전부를 막고 체결 큐가 넘친다(09-11 15:15~15:22). [why D-055]
@@ -195,6 +206,7 @@ protected:
     KisClient* account_kis_ = nullptr; // non-owning; 계좌 조회용(미주입 시 kis_ 사용)
     std::function<int(const std::string&, const std::string&)> position_provider_; // 결제완료 확정 포지션(D2=결제일 T+2)
     std::function<bool()> entry_halt_provider_; // 신규매수 차단 여부(OrderGate). 미주입=false
+    std::function<double()> entry_scale_provider_; // 매수 명목 비율(OrderGate). 미주입=1.0
     std::function<SellableInfo(const std::string&, const std::string&)> sellable_provider_; // 원장 매도가능·평단
     SymbolResolver symbol_resolver_; // 종목 문자열 → id(SymbolTable::intern). 미주입=kNone
     std::atomic<bool> active_{true};      // 국면 게이트(Engine이 설정). 기본 true=통과 (G-1)

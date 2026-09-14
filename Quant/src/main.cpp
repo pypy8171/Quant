@@ -415,6 +415,8 @@ int main(int argc, char* argv[])
         rc.fail_fallback_n = rt.value("fail_fallback_n", rc.fail_fallback_n);
         rc.fold_today      = rt.value("fold_today",      rc.fold_today);
         rc.confirm_n       = rt.value("confirm_n",       rc.confirm_n);
+        rc.day_drop_bear_pct    = rt.value("day_drop_bear_pct",    rc.day_drop_bear_pct);
+        rc.day_drop_release_pct = rt.value("day_drop_release_pct", rc.day_drop_release_pct);
 
         // 점수 임계값은 국면 판정을 통째로 뒤집는 스위치다(±2가 v0 2축의 만장일치 규칙).
         //  검증·드릴 목적으로만 열어두고, 실계좌에서는 무시하고 기본값으로 되돌린다.

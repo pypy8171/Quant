@@ -1450,9 +1450,11 @@ async function tick(){
     // 간밤 해외(regime.json). tier=info는 표를 내지 않는 참고 지표. note는 절대 수준 평가.
     const comps=r.components||{}; const gate=[], info=[];
     for(const k in comps){ (comps[k].tier==='info'?info:gate).push(comps[k]); }
-    const row=(c,tag)=>`<div class="rn">${eb(c.label||'')}</div><div class="rp">${ipx(c.price)}</div><div class="${cls(c.pct)}">${pct(c.pct)}</div><div class="mut">${tag}</div>`
+    // intra는 장초 대비 방향표(D-083) — 개장 첫 계산값 대비 등락과 ±1표를 같은 줄에 덧붙인다.
+    const intra=(c)=>c.intra?` <span class="mut">장초 ${pct(c.intra.pct)} (${c.intra.vote>0?'+':''}${eb(c.intra.vote)})</span>`:'';
+    const row=(c,tag)=>`<div class="rn">${eb(c.label||'')}</div><div class="rp">${ipx(c.price)}</div><div class="${cls(c.pct)}">${pct(c.pct)}</div><div class="mut">${tag}${intra(c)}</div>`
       +(c.note?`<div class="note">${eb(c.note)}</div>`:'');
-    comp+=`<div class="sec">간밤 해외 (전일 종가 대비 · 표결)</div>`;
+    comp+=`<div class="sec">국내·해외 현재가 (전일 종가 대비 · 표결)</div>`;
     for(const c of gate){ comp+=row(c,'vote '+eb(c.vote)); }
     if(info.length){ comp+=`<div class="sec">참고 (표 없음)</div>`; for(const c of info){ comp+=row(c,'참고'); } }
     const sum=(r.assessment||{}).summary;
@@ -1461,12 +1463,13 @@ async function tick(){
         <span class="mut"> score ${eb(r.risk_score)}</span>
         ${stale?'<span class="pill bad" style="background:var(--chip)"> STALE '+eb(r._age_sec)+'s</span>':''}</div>
       <div style="margin-top:8px">
-        신규매수: <b class="${halt?'bad':'up'}">${halt?'차단(entry_halt)':'허용'}</b><br>
+        매수비율: <b class="${halt?'bad':(r.entry_scale!=null&&r.entry_scale<1?'warnc':'up')}">${r.entry_scale==null?'—':Math.round(r.entry_scale*100)+'%'}</b>
+        <span class="mut">${halt?'(entry_halt — 신규매수 차단)':'(rung 명목에 곱한다)'}</span><br>
         강제청산: <b class="${liq?'bad':''}">${liq?'ON(force_liquidate)':'off'}</b>
       </div>
       ${sum?`<div class="regime-sum">${eb(sum)}</div>`:''}
       <div class="regime-comp">${comp}</div>
-      <div class="muted">기준 halt≤${eb((r.thresholds||{}).halt_score)} · liq≤${eb((r.thresholds||{}).liq_score)} · ${eb(r.ts||'')}</div>`;
+      <div class="muted">기준 on≥${eb((r.thresholds||{}).on_score)} · halt≤${eb((r.thresholds||{}).halt_score)} · liq≤${eb((r.thresholds||{}).liq_score)}${r.open_ref_ts?' · 장초 기준 '+eb(String(r.open_ref_ts).slice(11,16)):''} · ${eb(r.ts||'')}</div>`;
   }
 
   // 기준

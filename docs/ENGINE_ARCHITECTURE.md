@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@d4937c1 Quant/src/core/Engine.cpp@e4b99ce Quant/include/core/DataPoller.h@af7c1d6 Quant/include/core/SignalDispatcher.h@46685e0 Quant/include/core/OrderPacer.h@e69b52f Quant/include/core/LedgerReconciler.h@a86da46 Quant/include/core/WakeGate.h@1f37917 Quant/include/core/BarAggregator.h@780b3fa Quant/include/core/LatencyTrace.h@4810be1 Quant/include/core/ReconcilePlan.h@74e6157 -->
+<!-- sync: Quant/include/core/Engine.h@d4937c1 Quant/src/core/Engine.cpp@867ab8e Quant/include/core/DataPoller.h@af7c1d6 Quant/include/core/SignalDispatcher.h@46685e0 Quant/include/core/OrderPacer.h@e69b52f Quant/include/core/LedgerReconciler.h@a86da46 Quant/include/core/WakeGate.h@1f37917 Quant/include/core/BarAggregator.h@780b3fa Quant/include/core/LatencyTrace.h@4810be1 Quant/include/core/ReconcilePlan.h@74e6157 -->
 엔진은 락-프리 파이프라인(데이터→전략 샤드→디스패치→주문)에 체결 소비 스레드와 제어 스레드를 더해 다섯 개 + 샤드 M개의 스레드를 실행합니다(config `strategy_shards`, 기본 1):
 
 ```
@@ -28,17 +28,17 @@
 
 ### 핵심 타입 (`Quant/include/core/Types.h`)
 
-<!-- sync: Quant/include/core/Types.h@e1aed8a -->
+<!-- sync: Quant/include/core/Types.h@114841e -->
 `MarketData`(OHLCV + bar_index), `OrderSignal`(side/type/qty/price/**ref_price** + strategy_id, 종목 id `sym`은 전략 스레드가 큐에 넣기 전에 찍는다), `Position`, `OrderBook`(5단계 호가, 채널 `H0STASP0`/선물 `H0IFASP0`), `TradeData`(실시간 체결, 채널 `H0STCNT0`/선물 `H0IFCNT0`; 호가·체결 모두 종목 id `sym`과 정수 시각 `hhmmss`를 들고, 봉·호가·체결의 `ticker`는 `sym::Ticker` 15자 고정 배열이라 세 구조체는 trivially copyable이다 — 문자열은 `.str()`, D-071), `WatchSpec`(FEED 구독 종목 명세 — `is_future` 플래그로 현·선 채널 선택), `Regime`(enum: BULL/NEUTRAL/BEAR/UNKNOWN), `RegimeSnapshot`(장 시작 국면 판정 결과 — score·200MA·정배열/역배열·지수 이평 분해).
 
 > `OrderSignal.ref_price`는 시장가(price=0) 주문의 명목 한도 평가 기준가다. 지정가는 `price`로 명목을 재지만 시장가는 `price`가 0이라 이 값이 없으면 명목 백스톱이 우회된다(특히 급락장 강제청산의 시장가 전량매도). 발주 측이 직전 현재가/평단을 stamp한다.
 
 ### 국면(Regime) 대응
 
-<!-- sync: Quant/include/core/RegimeController.h@fc1562c Quant/include/core/RegimeFileBridge.h@7a9b1be -->
+<!-- sync: Quant/include/core/RegimeController.h@e967d28 Quant/include/core/RegimeFileBridge.h@105d2e5 -->
 `RegimeController`(`Quant/include/core/RegimeController.h`)가 지수 종가>200MA(±1)와 정배열/역배열(ma20·ma60·ma120, ±1)로 `score∈{-2..+2}`를 매겨 BULL/NEUTRAL/BEAR/UNKNOWN을 판정한다. 확정 일봉은 하루 1회 받아 두고 재평가마다 지수 현재값을 오늘 봉으로 접어 다시 판정하며, 장중 전환은 다른 국면이 `confirm_n`(기본 2)회 연속일 때만 한다(`regime_tuning.fold_today`·`confirm_n`, D-076). config `"regime_strategies": {"BULL":[id…],"NEUTRAL":[…],"BEAR":[…]}`를 주면 국면이 전략 집합을 자동 선택하고(재평가 주기 `regime_reeval_sec`, 기본 300초 — KST 벽시계 격자에 맞춰 돈다, D-074), 지정하지 않으면 전략별 `active_regimes` 방식으로 하위호환한다. 판정 파라미터(지수코드·이평기간·점수 임계값)는 config `"regime_tuning"`으로 덮어쓸 수 있고, 임계값 오버라이드는 실계좌에서 무시된다. 지수 일봉은 `IMarketDataSource`(`Quant/include/api/IMarketDataSource.h`)로 받으므로 `evaluate()`는 가짜 소스로 시험한다(`test_regime`, D-066).
 
-국면 축은 둘이고 하는 일이 다르다. **`RegimeController`는 전략 집합만 고른다 — 청산은 하지 않는다.** 보유 전량을 시장가로 청산하는 `FORCE_LIQ`는 다른 축, 즉 매크로 보조 프로세스(`macro_regime_feed.py`)가 쓰는 `regime.json` 파일 전달이 낸다(config `regime_file`·`regime_stale_sec`). 이 파일의 `entry_halt`는 `OrderGate::set_entry_halt`(신규매수만 차단, 청산은 통과)를 토글하고, `force_liquidate`는 여기에 더해 strategy_thread가 보유 전량에 대해 `FORCE_LIQ` 시장가 매도를 2초 간격으로 재발주하게 한다. 파일의 갱신 지연(stale)·개장 후 만료(시간 상자)·1회 로그 판정은 `Quant/include/core/RegimeFileBridge.h`의 상태기계가 맡고 `Engine::poll_regime_file`은 파일 읽기와 적용만 한다(D-060, `test_regime_bridge`). 드릴 절차는 [docs/guides/REGIME_DRILL_GUIDE.md](guides/REGIME_DRILL_GUIDE.md).
+국면 축은 둘이고 하는 일이 다르다. **`RegimeController`는 전략 집합만 고른다 — 청산은 하지 않는다.** 200일선·정배열 점수에 더해 지수 당일 등락이 −2% 이하면 BEAR를 강제한다(−1.5% 안으로 돌아오면 해제, D-083). 보유 전량을 시장가로 청산하는 `FORCE_LIQ`는 다른 축, 즉 매크로 보조 프로세스(`macro_regime_feed.py`)가 쓰는 `regime.json` 파일 전달이 낸다(config `regime_file`·`regime_stale_sec`). 이 파일의 `entry_scale`(매수 명목 비율 0~1, D-083)은 `OrderGate::set_entry_scale`로 넘어가 `DeviationScaleStrategy`가 베이스·물타기 명목에 곱하고, `entry_halt`(비율 0과 같은 뜻)는 `OrderGate::set_entry_halt`(신규매수만 차단, 청산은 통과)를 토글하고, `force_liquidate`는 여기에 더해 strategy_thread가 보유 전량에 대해 `FORCE_LIQ` 시장가 매도를 2초 간격으로 재발주하게 한다. 파일의 갱신 지연(stale)·개장 후 만료(시간 상자, 기본 0=끔)·비율 전이·1회 로그 판정은 `Quant/include/core/RegimeFileBridge.h`의 상태기계가 맡고 `Engine::poll_regime_file`은 파일 읽기와 적용만 한다(D-060, `test_regime_bridge`). 드릴 절차는 [docs/guides/REGIME_DRILL_GUIDE.md](guides/REGIME_DRILL_GUIDE.md).
 
 ### 전략 추가하기
 

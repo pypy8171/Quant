@@ -663,12 +663,16 @@ public:
         //  베이스=자본×base_pct(5%), 물타기 총예산=자본×(max_pct−base_pct)(5%)를 n_rungs로 분할.
         //  베이스+물타기 합 ≈ 자본×max_pct(10%) → OrderGate 명목캡과 정합(캡은 백스톱).
         const double eq            = equity_ > 0.0 ? equity_ : p_.fallback_equity;
-        const double mult          = p_.size_mult > 0.0 ? p_.size_mult : 1.0;
+        // 국면 매수비율(OrderGate::entry_scale, 0~1)을 명목에 곱한다. 스위치(halt)가 아니라 비율이라
+        //  코스피 −1%면 70%, −2%면 40%처럼 줄어들고 반등하면 돌아온다. 0.1 단위로 끊어 3분마다
+        //  분할 매수가 재구성되는 일을 막고, 시그니처에 붙여 바뀐 회차에만 다시 깐다. [why D-083]
+        const double rscale        = std::round(std::clamp(entry_scale(), 0.0, 1.0) * 10.0) / 10.0;
+        const double mult          = (p_.size_mult > 0.0 ? p_.size_mult : 1.0) * rscale;
         // 원 단위 총액이 주어지면 그 금액을 base_pct:max_pct 비율로 베이스·물타기에 나눈다.
         const double base_share    = p_.max_pct > p_.base_pct ? p_.base_pct / p_.max_pct : 1.0;
-        const double base_notional = p_.notional_krw > 0.0 ? p_.notional_krw * base_share
+        const double base_notional = p_.notional_krw > 0.0 ? p_.notional_krw * rscale * base_share
                                                             : eq * p_.base_pct * mult;
-        const double rung_budget   = p_.notional_krw > 0.0 ? p_.notional_krw - base_notional
+        const double rung_budget   = p_.notional_krw > 0.0 ? p_.notional_krw * rscale - base_notional
                                                             : eq * (p_.max_pct > p_.base_pct ? p_.max_pct - p_.base_pct : 0.0) * mult;
         const double rung_notional = p_.buy_rungs > 0 ? rung_budget / p_.buy_rungs : 0.0;
 
@@ -804,8 +808,10 @@ public:
         //  풀리면 시그니처가 바뀌어 다시 깐다. 떨림은 D-033 체류가 막는다. [why D-033]
         //  스탑·트레일 뒤 쿨다운도 같은 축이다 — 존이 열려 있어도 분할 매수를 걷는다.
         const bool cooling  = stop_cooldown_until_ != std::chrono::steady_clock::time_point{} && now < stop_cooldown_until_;
-        const bool entry_on = is_active() && !entry_halted() && !cooling;
+        const bool entry_on = is_active() && !entry_halted() && !cooling && rscale > 0.0;
         sig += entry_on ? "A1" : "A0";
+        sig += 'S';
+        sig += std::to_string(static_cast<int>(rscale * 10.0 + 0.5)); // 매수비율 0~10
 
         // 먼지 정리: 보유 평가금이 dust_krw 아래인데 깔 매수 rung이 없으면(베이스 끝·물타기 없음·진입 차단)
         //  이 보유는 커질 길이 없이 슬롯만 차지한다. 익절 지정가 대신 시장가로 정리한다. 매수 rung이 있으면

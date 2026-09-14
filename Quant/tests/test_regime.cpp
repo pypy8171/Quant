@@ -144,7 +144,9 @@ int main()
         src.bars = series(211, 1000.0, -2.0);
         src.bars[0].close = 1.0; // REST 응답의 오늘봉은 이상값이어도 판정에 들어가지 않아야 한다
         src.index_px = 1000.0;
-        RegimeController rc;
+        RegimeController::Config no_drop; // 아래서 현재값 1.0으로 200일선 아래를 흉내 낸다 — 급락 강제(D-083)는 끄고 이평 축만 본다
+        no_drop.day_drop_bear_pct = 0.0;
+        RegimeController rc(no_drop);
         rc.set_source(&src);
         auto s = rc.evaluate();
         assert(s.regime == Regime::BULL && s.score == 2);
@@ -242,6 +244,39 @@ int main()
         s = rc.evaluate();
         assert(s.regime == Regime::BULL && src.calls == 3);
         PASS("evaluate_fail_retry_then_cache");
+    }
+
+    // 당일 급락 강제 BEAR(D-083): 상승 계열(BULL)이라도 현재값이 전일 종가(998) 대비 −3%면 BEAR.
+    //  −1.8%(release −1.5% 안쪽 아님)면 유지, −1.0%면 풀려 원래 판정(BULL)으로 — 확인 2회를 거친다.
+    {
+        FakeSource src;
+        src.bars = series(211, 1000.0, -2.0);
+        src.index_px = 998.0 * 0.97;
+        RegimeController rc;
+        rc.set_source(&src);
+        auto s = rc.evaluate();
+        assert(s.regime == Regime::BEAR && s.day_drop && s.score == 2 && s.day_pct < -2.9 && s.day_pct > -3.1);
+        src.index_px = 998.0 * 0.982;
+        s = rc.evaluate();
+        assert(s.regime == Regime::BEAR && s.day_drop);
+        src.index_px = 998.0 * 0.99;
+        s = rc.evaluate();
+        assert(s.regime == Regime::BEAR && !s.day_drop); // 강제는 풀렸고 BULL 전환은 확인 대기(1/2)
+        s = rc.evaluate();
+        assert(s.regime == Regime::BULL && !s.day_drop);
+        PASS("evaluate_day_drop_forces_bear_with_hysteresis");
+
+        // 끈 경우(0)에는 강제하지 않는다.
+        RegimeController::Config off;
+        off.day_drop_bear_pct = 0.0;
+        FakeSource src2;
+        src2.bars = series(211, 1000.0, -2.0);
+        src2.index_px = 998.0 * 0.95;
+        RegimeController rc2(off);
+        rc2.set_source(&src2);
+        auto t = rc2.evaluate();
+        assert(t.regime == Regime::BULL && !t.day_drop && t.day_pct == 0.0);
+        PASS("evaluate_day_drop_disabled");
     }
 
     Logger::instance().flush();

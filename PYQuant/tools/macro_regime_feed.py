@@ -61,12 +61,30 @@ for _s in (sys.stdout, sys.stderr):
 #   한국 장중에 움직이는 미국 선물을 못 본다(09-14: 투표는 금요일 현물 +0.96/+0.86 → RISK_ON 인데 실제
 #   나스닥 선물 −1.32%, S&P 선물 −0.60%). Yahoo 가 막히면 FDR(fdr 키)로 내려간다. [why D-081]
 #  FRED:DGS10 은 'Close' 컬럼이 없고 시리즈명이 컬럼 → fetch_changes 가 첫 수치열로 폴백.
+#  코스피·코스닥은 이 시스템이 사는 시장 그 자체인데 표가 없었다(09-14 코스피 −3.3%·코스닥 −1.7%인 날
+#   해외 5개만 세어 RISK_ON +4). FDR 일봉은 장중 당일 행이 없어 처음 만들 때 뺐던 것이라, Yahoo 현재가로
+#   넣는다. FDR 폴백은 없다(fdr=None) — 장중에 전일 종가를 "오늘"로 읽느니 표를 비우는 편이 낫다. [why D-083]
+#  WTI는 참고 지표(FRED, 이틀 늦음)였다가 등락 표로 승격 — 09-14 102달러인데 화면은 97.26이었다.
+#   수준(100달러 위)은 표가 아니라 note로만 남긴다: 수준을 표로 넣으면 100달러 위 석 달 내내 −1이 깔려
+#   정지선이 그만큼 내려온 것과 같아진다. 표는 "급등한 날"에만 나간다.
 SYMBOLS = {
+    "KOSPI": {"yahoo": "^KS11", "fdr": None,         "vote_dir": +1, "label": "코스피"},
+    "KOSDAQ":{"yahoo": "^KQ11", "fdr": None,         "vote_dir": +1, "label": "코스닥"},
     "NQ_F":  {"yahoo": "NQ=F",  "fdr": "IXIC",       "vote_dir": +1, "label": "나스닥 선물"},
     "ES_F":  {"yahoo": "ES=F",  "fdr": "US500",      "vote_dir": +1, "label": "S&P500 선물"},
     "TNX10": {"yahoo": "^TNX",  "fdr": "FRED:DGS10", "vote_dir": -1, "label": "10Y 미국채금리"},
     "VIX":   {"yahoo": "^VIX",  "fdr": "VIX",        "vote_dir": -1, "label": "VIX"},
     "USDKRW":{"yahoo": "KRW=X", "fdr": "USD/KRW",    "vote_dir": -1, "label": "USD/KRW"},
+    "WTI":   {"yahoo": "CL=F",  "fdr": "FRED:DCOILWTICO", "vote_dir": -1, "label": "WTI 유가"},
+}
+
+# 장초 대비 방향표 — 전일 대비 표는 개장 때 이미 빨간 날 장중에 돌아서는 것을 못 본다(09:00 −1.3%였던
+#  선물이 11:00 −0.3%면 여전히 −1표). 그날 09:00 첫 계산값을 기준점으로 두고, 거기서의 방향을 ±1로 센다.
+#  사용자가 지목한 둘만: 나스닥 선물(오르면 +1), 10년물 금리(내리면 +1). warn은 기준점 대비 %.
+#  ^TNX 값이 수익률(%)이라 0.6% 변화 ≈ 3bp. 기준점은 logs/regime_open_ref.json에 남겨 재기동에도 유지.
+INTRA_SYMBOLS = {
+    "NQ_F":  {"warn": 0.3, "vote_dir": +1},
+    "TNX10": {"warn": 0.6, "vote_dir": -1},
 }
 
 YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=1d&interval=5m"
@@ -95,25 +113,28 @@ def fetch_yahoo(sym: str, timeout: float = 8.0) -> tuple[float | None, float | N
 #  FRED 일별 시리즈라 KST 기준 1~2일 늦다. 코스피·코스닥 장중값은 FDR에 당일 행이 없어
 #  대시보드가 KIS 지수 현재가로 따로 붙인다(scripts/dashboard_server.py).
 INFO_SYMBOLS = {
-    "TYX30": {"fdr": "FRED:DGS30",         "label": "30Y 미국채금리"},
-    "DGS2":  {"fdr": "FRED:DGS2",          "label": "2Y 미국채금리"},
-    "HY":    {"fdr": "FRED:BAMLH0A0HYM2",  "label": "미국 하이일드 스프레드"},
-    "WTI":   {"fdr": "FRED:DCOILWTICO",    "label": "WTI 유가"},
+    "TYX30": {"fdr": "FRED:DGS30",         "label": "30Y 미국채금리 (FRED, 1~2일 지연)"},
+    "DGS2":  {"fdr": "FRED:DGS2",          "label": "2Y 미국채금리 (FRED, 1~2일 지연)"},
+    "HY":    {"fdr": "FRED:BAMLH0A0HYM2",  "label": "미국 하이일드 스프레드 (FRED, 1~2일 지연)"},
 }
 
 # 지표별 % 변화 임계(검증 필요) — |chg| 가 warn 이상이면 방향표 1표, strong 이상이면 2표.
 #  VIX 는 절대 % 변화가 크므로 별도 임계. TNX10(금리)은 하루 %변동이 채권선물보다 커 별도.
 THRESHOLDS = {
+    "KOSPI":  {"warn": 0.7, "strong": 1.5},
+    "KOSDAQ": {"warn": 0.8, "strong": 1.8},
     "NQ_F":   {"warn": 0.4, "strong": 0.9},
     "ES_F":   {"warn": 0.4, "strong": 0.9},
     "TNX10":  {"warn": 1.5, "strong": 3.0},
     "VIX":    {"warn": 4.0, "strong": 9.0},
     "USDKRW": {"warn": 0.4, "strong": 0.9},
+    "WTI":    {"warn": 2.0, "strong": 4.0},
 }
 
 # 종합 판정(검증 필요):
-#   risk_score = Σ(방향표). 음수일수록 위험회피.
-#   entry_halt = risk_score <= HALT_SCORE  (신규 진입 정지)
+#   risk_score = Σ(방향표) + Σ(장초 대비표). 음수일수록 위험회피.
+#   entry_halt = risk_score <= HALT_SCORE  (신규 진입 정지 — entry_scale 0과 같은 뜻, 예전 필드 호환)
+#   entry_scale = 점수를 매수 명목 비율(0~1)로 옮긴 값. 엔진은 이 값을 rung 명목에 곱한다(D-083).
 #   force_liquidate = risk_score <= LIQ_SCORE
 #   주의: 이 값이 true가 되면 C++ 전략 스레드가 보유 전량을 시장가로 매도한다(FORCE_LIQ,
 #   2초 간격 재발주). 로그만 찍는 값이 아니다. 임계값을 낮출 때 그 무게로 다룬다.
@@ -123,8 +144,12 @@ THRESHOLDS = {
 #  하루), 다년 재구성으로 검증하지 않았다. 재구성 시 look-ahead 함정 둘을 먼저 처리한다 —
 #  KST 당일에 보이는 미국 종가는 T-1 세션이고, USD/KRW 종가는 같은 세션이라 09:00 게이트로
 #  새어 들어간다. 검증 전까지 이 값을 확정된 임계로 인용하지 않는다. [why D-033]
-HALT_SCORE = -4
-LIQ_SCORE  = -6
+# 09-14(D-083): 표 항목이 5개(±10)에서 8개+장초 2표(±18)로 늘어 같은 비율로 옮겼다 — 정지 −4/10 → −7/18,
+#  청산 −6/10 → −11/18. 09-14 아침을 새 항목으로 다시 세면 −9 안팎이라 개장 정지·청산 아님이 된다.
+#  이 값도 검증 전 잠정값이다.
+HALT_SCORE = -7
+LIQ_SCORE  = -11
+ON_SCORE   = 3    # 이 위면 RISK_ON 표시(표시·로그용, 게이트 아님)
 # 드릴용 덮어쓰기. 하락장에서 진입 경로를 시험하려고 halt를 잠시 끌 때 상수를 고치지 않고
 #  환경변수로 내린다(예: QUANT_HALT_SCORE=-99). 청산선은 따로 QUANT_LIQ_SCORE.
 HALT_SCORE = int(os.environ.get("QUANT_HALT_SCORE", HALT_SCORE))
@@ -282,11 +307,56 @@ def assess_levels(components: dict, score: int) -> dict:
     return {"flags": flags, "summary": summary}
 
 
-def build_regime(changes: dict) -> dict:
+# [formula] 점수 → 매수 명목 비율. 스위치(−3이면 100%, −4면 0%)의 절벽을 없앤다. 점수 ≥ +2면 100%,
+#  0이면 70%, 정지선 절반이면 40%, 정지선 아래는 0. 사이 값은 직선. 엔진은 이 값을 rung 명목에 곱한다.
+#  0.1 단위로 끊어 3분마다 미세하게 바뀌어 분할 매수가 재구성되는 일을 막는다. [why D-083]
+def entry_scale(score: int, halt: int = None) -> float:
+    halt = HALT_SCORE if halt is None else halt
+    pts = [(float(halt), 0.0), (halt / 2.0, 0.4), (0.0, 0.7), (2.0, 1.0)]
+    if score <= pts[0][0]:
+        return 0.0
+    if score >= pts[-1][0]:
+        return 1.0
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        if x0 <= score <= x1:
+            return round(y0 + (y1 - y0) * (score - x0) / (x1 - x0), 1)
+    return 1.0
+
+
+def load_open_ref(path, prices: dict) -> dict:
+    """그날 09:00 이후 첫 계산의 가격을 기준점으로 잡아 파일에 남긴다. 이미 오늘 기준점이 있으면 그것을 쓴다.
+    반환 {"date": "YYYY-MM-DD", "prices": {key: price}} 또는 개장 전이면 {}."""
+    now = datetime.now(KST)
+    today = now.date().isoformat()
+    ref = {}
+    try:
+        if path and path.exists():
+            ref = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — 기준점 파일이 깨졌으면 오늘 다시 잡는다
+        ref = {}
+    if ref.get("date") == today and ref.get("prices"):
+        return ref
+    if now.hour < 9:
+        return {}
+    ref = {"date": today, "ts": now.isoformat(timespec="seconds"),
+           "prices": {k: v for k, v in prices.items() if k in INTRA_SYMBOLS and v is not None}}
+    if not ref["prices"]:
+        return {}
+    try:
+        if path:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(ref, ensure_ascii=False, indent=1), encoding="utf-8")
+    except Exception as e:  # noqa: BLE001
+        print(f"[WARN] 장초 기준점 저장 실패: {type(e).__name__}: {e}", file=sys.stderr)
+    return ref
+
+
+def build_regime(changes: dict, open_ref: dict | None = None) -> dict:
     """지표 변화 → 레짐 판정. 반환 dict 가 곧 regime.json 스키마(=C++ 리더 계약).
 
     C++ 리더 계약:
       entry_halt(bool)  → OrderGate::set_entry_halt(entry_halt) 로 그대로 토글.
+      entry_scale(float|null) → OrderGate::set_entry_scale(). null(무효)이면 엔진은 1.0으로 본다.
       force_liquidate(bool) → 보유 전량 시장가 매도(FORCE_LIQ). strategy_thread가 체결될 때까지
                           2초 간격으로 재발주한다. 가장 무거운 신호이므로 valid=false면 절대 true가 아니다.
       stale_after_sec   → C++는 (지금 - ts) > 이 값이면 파일을 신뢰하지 말 것(페일세이프).
@@ -307,6 +377,20 @@ def build_regime(changes: dict) -> dict:
         valid_count += 1
         components[key] = {"label": meta["label"], "pct": round(pct, 3), "vote": vote,
                            "price": ch.get("price"), "src": ch.get("src", "fdr")}
+
+    # 장초 대비 방향표. 기준점이 없으면(개장 전·첫 계산) 0표.
+    ref_prices = (open_ref or {}).get("prices") or {}
+    for key, meta in INTRA_SYMBOLS.items():
+        c = components.get(key)
+        base = ref_prices.get(key)
+        if not c or c.get("price") is None or not base:
+            continue
+        ipct = (c["price"] - base) / base * 100.0
+        ivote = 0
+        if abs(ipct) >= meta["warn"]:
+            ivote = meta["vote_dir"] * (1 if ipct > 0 else -1)
+        score += ivote
+        c["intra"] = {"pct": round(ipct, 3), "vote": ivote, "base": base}
 
     # 참고 지표는 표 0·tier=info로 넣는다. 아래 valid 계산은 SYMBOLS 개수만 본다.
     for key, meta in INFO_SYMBOLS.items():
@@ -330,7 +414,7 @@ def build_regime(changes: dict) -> dict:
         regime = "UNKNOWN"
     elif score <= HALT_SCORE:
         regime = "RISK_OFF"
-    elif score >= 2:
+    elif score >= ON_SCORE:
         regime = "RISK_ON"
     else:
         regime = "NEUTRAL"
@@ -342,10 +426,12 @@ def build_regime(changes: dict) -> dict:
         "entry_halt": entry_halt,
         "force_liquidate": force_liquidate,
         "risk_score": score,
+        "entry_scale": (0.0 if force_liquidate else entry_scale(score)) if valid else None,
+        "open_ref_ts": (open_ref or {}).get("ts"),
         "valid": valid,
         "valid_count": valid_count,
         "stale_after_sec": 600,
-        "thresholds": {"halt_score": HALT_SCORE, "liq_score": LIQ_SCORE},
+        "thresholds": {"halt_score": HALT_SCORE, "liq_score": LIQ_SCORE, "on_score": ON_SCORE},
         "components": components,
         "assessment": assessment,
         "source": ("Yahoo chart(장중 현재가)" if any(c.get("src") == "yahoo" for c in components.values())
@@ -384,6 +470,8 @@ def append_history(path: Path, obj: dict) -> None:
             "valid": obj.get("valid"),
             "halt_score": HALT_SCORE,
             "liq_score": LIQ_SCORE,
+            "entry_scale": obj.get("entry_scale"),
+            "intra": {k: v["intra"]["vote"] for k, v in (obj.get("components") or {}).items() if v.get("intra")},
             "pct": {k: v.get("pct") for k, v in (obj.get("components") or {}).items()},
             "vote": {k: v.get("vote") for k, v in (obj.get("components") or {}).items()},
         }
@@ -416,6 +504,9 @@ def main() -> None:
     else:
         hist_path = Path(args.history)
 
+    # 장초 기준점은 이력과 같은 logs/ 아래. 날짜가 바뀌면 load_open_ref가 스스로 새로 잡는다.
+    ref_path = Path(__file__).resolve().parents[2] / "logs" / "regime_open_ref.json"
+
     print(f"매크로 레짐 보조 프로세스 | 출력={out_path} | 이력={hist_path or '끔'} | "
           f"주기={args.interval}s | once={args.once}")
     print("⚠️ 임계값은 검증 필요 가정 — 라이브 관찰하며 보정(STRATEGIES.md 참조)")
@@ -427,7 +518,8 @@ def main() -> None:
         regime = None
         try:
             changes = fetch_changes({**SYMBOLS, **INFO_SYMBOLS})
-            regime = build_regime(changes)
+            open_ref = load_open_ref(ref_path, {k: v.get("price") for k, v in changes.items()})
+            regime = build_regime(changes, open_ref)
             write_atomic(out_path, regime)
         except KeyboardInterrupt:
             print("\n중단 — 마지막 regime.json 유지")
@@ -438,11 +530,14 @@ def main() -> None:
             if hist_path is not None:
                 append_history(hist_path, regime)
             comp = " ".join(
-                f"{k}={v['pct']}%({v['vote']:+d})" if v.get("pct") is not None else f"{k}=NA"
+                (f"{k}={v['pct']}%({v['vote']:+d})"
+                 + (f"[장초{v['intra']['pct']:+.2f}%({v['intra']['vote']:+d})]" if v.get("intra") else ""))
+                if v.get("pct") is not None else f"{k}=NA"
                 for k, v in regime["components"].items()
             )
             print(f"[{regime['ts']}] regime={regime['regime']} score={regime['risk_score']} "
-                  f"halt={regime['entry_halt']} liq={regime['force_liquidate']} | {comp}")
+                  f"scale={regime['entry_scale']} halt={regime['entry_halt']} "
+                  f"liq={regime['force_liquidate']} | {comp}")
             print(f"    {regime['assessment']['summary']}")
         if args.once:
             break
