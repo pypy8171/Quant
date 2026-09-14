@@ -170,6 +170,9 @@ endif()
 # ─── 실행 파일 ──────────────────────────────────────
 add_executable(quant_trader src/main.cpp)
 target_link_libraries(quant_trader PRIVATE quant_engine)
+if(WIN32)
+  target_link_libraries(quant_trader PRIVATE dbghelp)   # 비정상 종료 미니덤프(main.cpp on_seh)
+endif()
  
 # ─── config 파일 처리 (파일이 없으면 스킵 — Docker 빌드 시 volume으로 주입) ──
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/config/config.json)

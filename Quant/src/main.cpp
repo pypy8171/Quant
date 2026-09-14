@@ -26,6 +26,7 @@
 #endif
 #include <windows.h>
 #include <timeapi.h>
+#include <dbghelp.h>
 #ifdef ERROR
 #undef ERROR // wingdi.h — LogLevel::ERROR와 부딪힌다
 #endif
@@ -108,12 +109,42 @@ static void on_terminate()
 }
 
 #ifdef _WIN32
+// 코드 한 줄("SEH 0xC0000005")만으로는 어느 스레드의 어느 명령인지 알 수 없다(09-14 09:46 실측 —
+//  재스캔 직후 접근 위반, 위치 불명). 사유에 주소·스레드를 붙이고 로그 옆에 미니덤프를 남긴다.
+//  덤프는 스택·스레드·모듈만(MiniDumpWithIndirectlyReferencedMemory) — 힙 전체는 수백 MB라 뺀다.
 static LONG WINAPI on_seh(EXCEPTION_POINTERS* ep)
 {
-    char buf[64];
-    std::snprintf(buf, sizeof(buf), "SEH 0x%08lX",
-                  ep && ep->ExceptionRecord ? ep->ExceptionRecord->ExceptionCode : 0UL);
-    log_and_die(buf);
+    const auto* rec = ep ? ep->ExceptionRecord : nullptr;
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), "SEH 0x%08lX addr=%p tid=%lu",
+                  rec ? rec->ExceptionCode : 0UL, rec ? rec->ExceptionAddress : nullptr,
+                  GetCurrentThreadId());
+    std::string why = buf;
+
+    try
+    {
+        const auto dir  = Logger::default_base_dir();
+        const auto path = dir / ("crash_" + std::to_string(GetCurrentProcessId()) + ".dmp");
+        HANDLE h = CreateFileW(path.wstring().c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                               FILE_ATTRIBUTE_NORMAL, nullptr);
+
+        if (h != INVALID_HANDLE_VALUE)
+        {
+            MINIDUMP_EXCEPTION_INFORMATION mei{GetCurrentThreadId(), ep, FALSE};
+            const BOOL ok = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), h,
+                                              static_cast<MINIDUMP_TYPE>(MiniDumpWithIndirectlyReferencedMemory |
+                                                                         MiniDumpWithThreadInfo),
+                                              ep ? &mei : nullptr, nullptr, nullptr);
+            CloseHandle(h);
+            why += ok ? " dump=" + path.string() : " dump 실패 err=" + std::to_string(GetLastError());
+        }
+    }
+    catch (...)
+    {
+        why += " dump 실패(예외)";
+    }
+
+    log_and_die(why);
     return EXCEPTION_EXECUTE_HANDLER;
 }
 #endif
