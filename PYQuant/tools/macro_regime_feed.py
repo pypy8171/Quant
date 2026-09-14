@@ -52,15 +52,39 @@ for _s in (sys.stdout, sys.stderr):
 #  vote_dir: 이 지표가 "오르면" 위험선호(+1)인지 위험회피(-1)인지.
 #    나스닥/S&P↑ → risk-on(+1). VIX↑ → risk-off(지표값↑이 위험이므로 -1).
 #    10Y 금리↑ → 금리상승 → risk-off(-1). USD/KRW↑ → 원화약세 → risk-off(-1).
-#  키(NQ_F/ES_F 등)는 C++ 리더·기존 로그와의 호환을 위해 유지하되, 소스는 현물지수/금리다.
+#  키(NQ_F/ES_F 등)는 C++ 리더·기존 로그와의 호환을 위해 유지한다.
+#  소스는 Yahoo chart(yahoo 키, 장중 현재가 vs 전일 종가)가 먼저다. FDR 일봉은 T-1 종가끼리의 변화라
+#   한국 장중에 움직이는 미국 선물을 못 본다(09-14: 투표는 금요일 현물 +0.96/+0.86 → RISK_ON 인데 실제
+#   나스닥 선물 −1.32%, S&P 선물 −0.60%). Yahoo 가 막히면 FDR(fdr 키)로 내려간다. [why D-081]
 #  FRED:DGS10 은 'Close' 컬럼이 없고 시리즈명이 컬럼 → fetch_changes 가 첫 수치열로 폴백.
 SYMBOLS = {
-    "NQ_F":  {"fdr": "IXIC",       "vote_dir": +1, "label": "나스닥 지수"},
-    "ES_F":  {"fdr": "US500",      "vote_dir": +1, "label": "S&P500 지수"},
-    "TNX10": {"fdr": "FRED:DGS10", "vote_dir": -1, "label": "10Y 미국채금리"},
-    "VIX":   {"fdr": "VIX",        "vote_dir": -1, "label": "VIX"},
-    "USDKRW":{"fdr": "USD/KRW",    "vote_dir": -1, "label": "USD/KRW"},
+    "NQ_F":  {"yahoo": "NQ=F",  "fdr": "IXIC",       "vote_dir": +1, "label": "나스닥 선물"},
+    "ES_F":  {"yahoo": "ES=F",  "fdr": "US500",      "vote_dir": +1, "label": "S&P500 선물"},
+    "TNX10": {"yahoo": "^TNX",  "fdr": "FRED:DGS10", "vote_dir": -1, "label": "10Y 미국채금리"},
+    "VIX":   {"yahoo": "^VIX",  "fdr": "VIX",        "vote_dir": -1, "label": "VIX"},
+    "USDKRW":{"yahoo": "KRW=X", "fdr": "USD/KRW",    "vote_dir": -1, "label": "USD/KRW"},
 }
+
+YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=1d&interval=5m"
+YAHOO_UA    = "Mozilla/5.0"   # 기본 python UA 는 429/403 을 받는다(16:03 실측)
+
+
+def fetch_yahoo(sym: str, timeout: float = 8.0) -> tuple[float | None, float | None, str | None]:
+    """Yahoo chart meta 의 현재가·전일 종가로 % 변화. 반환 (pct, price, err).
+    선물(NQ=F·ES=F)은 거의 24시간 움직여 한국 장중에도 현재가가 갱신된다. VX=F 는 404 라 VIX 는 ^VIX(현물)."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(YAHOO_CHART.format(sym=sym), headers={"User-Agent": YAHOO_UA})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            doc = json.load(r)
+        meta = doc["chart"]["result"][0]["meta"]
+        last = meta.get("regularMarketPrice")
+        prev = meta.get("previousClose") or meta.get("chartPreviousClose")
+        if last is None or prev in (None, 0):
+            return None, None, "yahoo_no_meta"
+        return (float(last) - float(prev)) / float(prev) * 100.0, float(last), None
+    except Exception as e:  # noqa: BLE001 — 심볼 하나 실패가 전체를 멈추면 안 됨
+        return None, None, f"yahoo:{type(e).__name__}:{e}"
 
 # 참고 지표 — 표를 내지 않고 valid_count에도 들어가지 않는다. 패널에 수치와 수준 평가만 보인다.
 #  게이트 지표로 승격하려면 SYMBOLS·THRESHOLDS로 옮기고 halt/liq 임계를 같이 다시 정한다.
@@ -110,20 +134,34 @@ def now_kst_iso() -> str:
 def fetch_changes(symbols: dict) -> dict:
     """FinanceDataReader로 각 심볼의 당일 % 변화(전일 종가 대비)를 best-effort 수집.
 
-    반환: {key: {"pct": float|None, "price": float|None, "err": str|None}}
+    반환: {key: {"pct": float|None, "price": float|None, "err": str|None, "src": str}}
     네트워크/패키지 실패는 pct=None 으로 격리(하나 죽어도 나머지로 판정).
+    yahoo 키가 있으면 Yahoo chart(장중 현재가)를 먼저 쓰고, 실패한 심볼만 FDR 일봉으로 내려간다.
     """
+    out = {}
+    pending = {}
+    for key, meta in symbols.items():
+        if meta.get("yahoo"):
+            pct, price, err = fetch_yahoo(meta["yahoo"])
+            if pct is not None:
+                out[key] = {"pct": pct, "price": price, "err": None, "src": "yahoo"}
+                continue
+            print(f"[!] {key} Yahoo 실패({err}) — FDR 일봉으로 내려간다", file=sys.stderr)
+        pending[key] = meta
+    if not pending:
+        return out
+
     try:
         import FinanceDataReader as fdr
     except ImportError:
         print("[!] FinanceDataReader 미설치 — `pip install finance-datareader` 후 재실행",
               file=sys.stderr)
-        return {k: {"pct": None, "price": None, "err": "no_fdr"} for k in symbols}
+        out.update({k: {"pct": None, "price": None, "err": "no_fdr", "src": "fdr"} for k in pending})
+        return out
 
     # 최근 15일치를 받아 유효 종가 2개(전일·당일)로 % 변화 산출. 휴장·형성중 봉은 dropna 로 제거.
     start = (datetime.now(KST).date() - timedelta(days=15)).isoformat()
-    out = {}
-    for key, meta in symbols.items():
+    for key, meta in pending.items():
         pct = price = None
         err = None
         try:
@@ -146,7 +184,7 @@ def fetch_changes(symbols: dict) -> dict:
                     err = "no_data"
         except Exception as e:  # noqa: BLE001 — 심볼 하나 실패가 전체를 멈추면 안 됨
             err = f"{type(e).__name__}:{e}"
-        out[key] = {"pct": pct, "price": price, "err": err}
+        out[key] = {"pct": pct, "price": price, "err": err, "src": "fdr"}
     return out
 
 
@@ -264,7 +302,7 @@ def build_regime(changes: dict) -> dict:
         score += vote
         valid_count += 1
         components[key] = {"label": meta["label"], "pct": round(pct, 3), "vote": vote,
-                           "price": ch.get("price")}
+                           "price": ch.get("price"), "src": ch.get("src", "fdr")}
 
     # 참고 지표는 표 0·tier=info로 넣는다. 아래 valid 계산은 SYMBOLS 개수만 본다.
     for key, meta in INFO_SYMBOLS.items():
@@ -306,7 +344,8 @@ def build_regime(changes: dict) -> dict:
         "thresholds": {"halt_score": HALT_SCORE, "liq_score": LIQ_SCORE},
         "components": components,
         "assessment": assessment,
-        "source": "FinanceDataReader",
+        "source": ("Yahoo chart(장중 현재가)" if any(c.get("src") == "yahoo" for c in components.values())
+                   else "FinanceDataReader"),
     }
 
 
