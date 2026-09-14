@@ -192,7 +192,7 @@ void LedgerReconciler::resync_holdings(const AccountBalance& bal, bool resync_po
 //  손실컷 재시작 리셋 구멍 방지: 기준선을 거래일(KST)별 파일로 영속화. 같은 날 재시작 → 저장된
 //  기준선 재사용(손실 한도 유지), 새 거래일 → 신규 캡처+저장. 장 시작(09:00)부터 연속 구동 시
 //  파일이 그날 시가 기준선을 담아 당일손익이 정확.
-void LedgerReconciler::capture_baseline(double tot_eval, std::time_t now_utc)
+void LedgerReconciler::capture_baseline(double tot_eval, std::optional<double> prev_day_total, std::time_t now_utc)
 {
     const std::string ymd = ledger::kst_ymd(now_utc);
     std::filesystem::path bpath;
@@ -223,7 +223,21 @@ void LedgerReconciler::capture_baseline(double tot_eval, std::time_t now_utc)
     }
     else
     {
-        baseline_ = tot_eval;
+        // 전일 총자산(bfdy_tot_asst_evlu_amt)이 있으면 그것이 기준선이다. 첫 대조는 개장 뒤에 돌기
+        //  때문에 그 시점 총평가금을 앵커로 잡으면 이월 보유분의 시초 갭이 손실컷에서 통째로 빠진다
+        //  (09-14: 전일 대비 -140만원인데 게이트는 -25만원만 봐 -100만원 한도가 한 번도 안 걸렸다).
+        //  전일 입출금이 있으면 그만큼 어긋나므로 갭을 로그로 남긴다.
+        if (prev_day_total && *prev_day_total > 0.0)
+        {
+            baseline_ = *prev_day_total;
+            LOG_INFO("[Engine] 기준선 = 전일 총자산 " + std::to_string(static_cast<long long>(baseline_)) +
+                     "원, 첫 대조 총평가 " + std::to_string(static_cast<long long>(tot_eval)) + "원 (시초 갭 " +
+                     std::to_string(static_cast<long long>(tot_eval - baseline_)) + "원이 당일손익에 포함)");
+        }
+        else
+        {
+            baseline_ = tot_eval;
+        }
 
         if (!bpath.empty())
         {
@@ -237,8 +251,8 @@ void LedgerReconciler::capture_baseline(double tot_eval, std::time_t now_utc)
             }
         }
 
-        LOG_INFO("[Engine] 기준선 신규 캡처+저장(" + ymd + "): 총평가금 " +
-                 std::to_string(static_cast<long long>(tot_eval)) + "원");
+        LOG_INFO("[Engine] 기준선 신규 캡처+저장(" + ymd + "): " +
+                 std::to_string(static_cast<long long>(baseline_)) + "원");
     }
 
     have_baseline_ = true;
@@ -318,7 +332,7 @@ void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)
 
                 if (!have_baseline_)
                 {
-                    capture_baseline(tot_eval, now_utc);
+                    capture_baseline(tot_eval, bal->prev_day_total_asset, now_utc);
                 }
 
                 const double delta = tot_eval - baseline_;

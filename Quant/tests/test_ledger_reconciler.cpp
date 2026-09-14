@@ -151,15 +151,15 @@ int test_reconcile_rest()
     r.set_baseline_dir(baseline_dir());
     r.set_reconcile_sink([&](const reconcile::Row& row) { rows.push_back(row); });
 
-    // 첫 대조: 원장 덮어쓰기, 기준선 캡처(델타 0), 파일 저장.
+    // 첫 대조: 원장 덮어쓰기, 기준선은 전일 총자산(990000) — 시초 갭 +10000이 당일손익에 든다. 파일 저장.
     r.reconcile(true, kT0);
     CHECK(gate.position("A") == 10 && gate.avg_price("A") == 100.0);
-    CHECK(gate.daily_pnl() == 0.0 && gate.equity() == 1000000.0 && gate.available_cash() == 500000.0);
-    CHECK(r.has_baseline() && r.baseline() == 1000000.0);
+    CHECK(gate.daily_pnl() == 10000.0 && gate.equity() == 1000000.0 && gate.available_cash() == 500000.0);
+    CHECK(r.has_baseline() && r.baseline() == 990000.0);
     {
         std::ifstream f(baseline_dir() / "pnl_baseline_20270115.txt");
         long long     v = 0;
-        CHECK(f.is_open() && (f >> v) && v == 1000000);
+        CHECK(f.is_open() && (f >> v) && v == 990000);
     }
 
     // 원장이 비어 있었고 A가 새로 들어왔으니 OVERWRITE 행 하나.
@@ -169,7 +169,7 @@ int test_reconcile_rest()
     rows.clear();
     next = ok_balance({hold("A", 10, 100.0, 10)}, 1020000.0);
     r.reconcile(true, kT0 + 60);
-    CHECK(gate.daily_pnl() == 20000.0 && rows.empty());
+    CHECK(gate.daily_pnl() == 30000.0 && rows.empty());
 
     // 재시작(새 인스턴스, 같은 날): 파일 기준선을 재사용해 손실컷이 이어진다.
     LedgerReconciler r2(gate, [&] { return next; });
@@ -177,9 +177,9 @@ int test_reconcile_rest()
     r2.set_reconcile_sink([&](const reconcile::Row& row) { rows.push_back(row); });
     next = ok_balance({hold("A", 10, 100.0, 10)}, 900000.0);
     r2.reconcile(true, kT0 + 120);
-    CHECK(r2.baseline() == 1000000.0 && gate.daily_pnl() == -100000.0);
+    CHECK(r2.baseline() == 990000.0 && gate.daily_pnl() == -90000.0);
 
-    // 새 거래일: 다시 캡처(다른 파일).
+    // 새 거래일: 다시 캡처(다른 파일). 전일 총자산이 없으면 첫 대조 총평가금으로 떨어진다.
     r2.new_trading_day();
     r2.reconcile(true, kT0 + 24 * 3600);
     CHECK(r2.baseline() == 900000.0 && gate.daily_pnl() == 0.0);

@@ -168,7 +168,7 @@ public:
 
 private:
     void resync_holdings(const AccountBalance& bal, bool resync_positions);
-    void capture_baseline(double tot_eval, std::time_t now_utc);
+    void capture_baseline(double tot_eval, std::optional<double> prev_day_total, std::time_t now_utc);
 
     OrderGate&    gate_;
     FetchBalance  fetch_;
@@ -182,6 +182,6 @@ private:
     std::atomic<long long> last_fill_utc_{0};
     std::time_t defer_since_ = 0;             // 연속으로 미루기 시작한 시각(0=안 미루는 중)
     bool   have_baseline_ = false;
-    double baseline_      = 0.0;              // 당일 첫 대조 시 캡처한 총평가금(원) — 손실컷 세션 앵커
+    double baseline_      = 0.0;              // 전일 총자산(없으면 첫 대조 총평가금)(원) — 손실컷 앵커
     ledger::ReconcileBreaker breaker_;
 };
