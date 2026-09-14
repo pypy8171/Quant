@@ -34,6 +34,10 @@
 import argparse
 import json
 import os
+
+# numpy가 딸려오는 OpenBLAS는 코어 수만큼 작업 버퍼를 미리 잡는다(16코어 PC에서 프로세스당 500MB).
+#  이 스크립트는 행렬 연산이 없으니 스레드 1개로 묶는다. numpy를 처음 import하기 전에 있어야 한다.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 import sys
 import time
 from datetime import datetime, timezone, timedelta
