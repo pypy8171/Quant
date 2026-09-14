@@ -1110,6 +1110,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "application/json; charset=utf-8", body)
         elif self.path in ("/", "/index.html"):
             self._send(200, "text/html; charset=utf-8", HTML.encode("utf-8"))
+        elif self.path.startswith("/sessions"):
+            # 세션 현황판. 파일은 Stop 훅이 턴마다 scripts/session_board.py로 다시 쓰므로 여기서는 읽어 내보내기만 한다.
+            f = REPO / "_private" / "session_board.html"
+            if f.exists():
+                self._send(200, "text/html; charset=utf-8", f.read_bytes())
+            else:
+                self._send(404, "text/plain; charset=utf-8",
+                           "세션 현황판 없음 — py scripts\\session_board.py 를 한 번 돌릴 것".encode("utf-8"))
         else:
             self._send(404, "text/plain; charset=utf-8", b"not found")
 
