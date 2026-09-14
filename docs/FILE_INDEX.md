@@ -470,6 +470,7 @@
 - [MAINTENANCE_WEEKLY.md](reports/MAINTENANCE_WEEKLY.md) — 주간 유지보수 현황 보고서
 - [MDC_BLOCK_REPORT.md](reports/MDC_BLOCK_REPORT.md) — KRX 데이터 차단 진단 보고서
 - [PIPELINE_LATENCY_REPORT.md](reports/PIPELINE_LATENCY_REPORT.md) — 파이프라인 지연 벤치마크 보고서
+- [TOKEN_AUDIT.md](reports/TOKEN_AUDIT.md) — 최근 7일 세션 기록의 토큰 사용 감사(절차·도구·하네스 주입·압축·훅별 표), `py scripts/token_audit.py --md`로 다시 만든다
 
 ## linux_practice
 
@@ -723,6 +724,8 @@
 - [summarize_trading_day.py](../scripts/summarize_trading_day.py) — 일일 매매 사실 요약 스크립트
 - [sync_impact.py](../scripts/sync_impact.py) — 문서 동기화 드리프트 검사 스크립트
 - [sync_ledgers.py](../scripts/sync_ledgers.py) — 결정 원장 파생 문서 생성 스크립트
+- [token_audit.py](../scripts/token_audit.py) — 세션 기록(jsonl)에서 토큰 사용을 절차·도구·하네스 주입·압축·훅별로 집계해 표로 낸다(--days, --session, --md)
+- [trade_costs.py](../scripts/trade_costs.py) — 체결 원장(trades_YYYYMMDD.csv)의 날짜별·종목별 매매 비용(수수료·거래세)과 실현손익을 누적 JSON(logs/trade_costs.json)과 표로 낸다(--days, --symbol)
 
 ## strategies
 
