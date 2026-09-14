@@ -570,8 +570,8 @@
     {
       "file": "scripts/eod_autodoc.py",
       "symbol": "render",
-      "lines": 156,
-      "start": 202
+      "lines": 159,
+      "start": 207
     },
     {
       "file": "PYQuant/backtest/devscale_replay.py",

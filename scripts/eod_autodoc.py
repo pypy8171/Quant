@@ -150,6 +150,7 @@ def scan_ledger(path: Path) -> dict:
 
     per = defaultdict(lambda: {"B": 0, "Bq": 0, "Bn": 0.0, "S": 0, "Sq": 0, "Sn": 0.0,
                                "breason": Counter(), "sreason": Counter(),
+                               "rtime": {},  # 사유 → [첫 체결, 마지막 체결] HH:MM:SS
                                "strat": Counter(), "t0": "", "t1": "", "rp": 0.0})
     probe = 0
     for r in rows:
@@ -168,7 +169,11 @@ def scan_ledger(path: Path) -> dict:
         if not a["t0"]:
             a["t0"] = r["ts_kst"][11:19]
         a["t1"] = r["ts_kst"][11:19]
-        why = (r.get("entry_reason") or r.get("reason") or "").strip()[:72]
+        # 누적거래량/20일평균 같은 진입 문맥은 시각에 따라 뜻이 달라져(09:20의 0.2와 14:00의 0.2)
+        #  사유별로 첫·마지막 체결 시각을 같이 남긴다. 72자 절단은 250봉고가대비 필드를 잘라 뺐다.
+        why = (r.get("entry_reason") or r.get("reason") or "").strip()[:160]
+        hms = r["ts_kst"][11:19]
+        a["rtime"].setdefault((r["side"], why), [hms, hms])[1] = hms
         if r["side"] == "BUY":
             a["B"] += 1; a["Bq"] += q; a["Bn"] += q * px; a["breason"][why] += 1
         else:
@@ -307,10 +312,13 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
             label = f"{t} {names.get(t, '')}".strip()
             add(f"**{label}**")
             add("")
+            def span(side: str, why: str) -> str:
+                t0, t1 = a["rtime"].get((side, why), ["", ""])
+                return t0[:5] if t0[:5] == t1[:5] else f"{t0[:5]}~{t1[:5]}"
             for why, n in a["breason"].most_common(3):
-                add(f"- 매수 {n}건 — {why or '_사유 없음_'}")
+                add(f"- 매수 {n}건 ({span('BUY', why)}) — {why or '_사유 없음_'}")
             for why, n in a["sreason"].most_common(3):
-                add(f"- 매도 {n}건 — {why or '_사유 없음_'}")
+                add(f"- 매도 {n}건 ({span('SELL', why)}) — {why or '_사유 없음_'}")
             add("")
     else:
         add("실전략 체결 없음.")
