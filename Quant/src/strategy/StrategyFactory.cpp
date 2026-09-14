@@ -594,6 +594,7 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
     base.trail_sma_exit     = s.value("trail_sma_exit", false);
     base.trail_sma_tol_pct  = s.value("trail_sma_tol_pct", 1.0);
     base.stop_cooldown_sec  = s.value("stop_cooldown_sec", 900);
+    base.dust_krw           = s.value("dust_krw", 250000.0);     // 평가금 이 아래 잔존 보유는 시장가 정리(0=끄기)
     base.sell_anchor_avg    = s.value("sell_anchor_avg", false);
     base.prefetch_jitter_pct = s.value("prefetch_jitter_pct", 50);
     base.bar_source        = s.value("bar_source", std::string("ws"));   // "ws"(기본)|"rest" (D-069·D-072)

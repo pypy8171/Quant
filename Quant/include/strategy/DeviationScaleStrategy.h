@@ -130,6 +130,9 @@ public:
         //  stop_cooldown_sec: 스탑·트레일 청산 뒤 이 시간 동안 분할 매수를 깔지 않는다. 존이
         //   그대로 열려 있으면 다음 하트비트에 베이스 매수가 도로 나가 같은 자리를 되산다.
         int    stop_cooldown_sec = 900;
+        //  dust_krw: 보유 평가금이 이 값(원) 아래이고 깔 매수 rung이 없으면 시장가로 정리한다. 1~5주짜리
+        //   잔존 보유가 슬롯 하나를 종일 차지했다(09-14 15:00 스윕 대상 3종목). 0이면 끄기. [why D-081]
+        double dust_krw = 250000.0;
         //  sell_anchor_avg: 분할 익절 앵커를 현재가가 아니라 잔고 평단으로 둔다. 현재가 앵커는
         //   목표가가 값을 따라 올라가 8초 안의 급등에서만 붙는다. 평단 기준이면 +dev_sell%가
         //   진입 대비 익절이 된다. 목표가가 이미 현재가 아래면 현재가에 지정가를 낸다.
@@ -251,6 +254,8 @@ public:
         last_px_ = 0.0;
         last_avg_px_ = 0.0;
         avg_pos_seen_ = 0;
+        base_target_qty_ = 0;
+        peak_pos_ = 0;
         // 집계기 이력은 지우지 않는다(재등록 경로에서 같은 날이면 그대로 쓸 수 있다). 날짜가 바뀌었으면
         //  on_trade_batch의 날짜 검사가 비운다. 시드는 다시 받는다.
         seeded_version_ = 0;
@@ -672,8 +677,24 @@ public:
         const double sell_anchor = guard_on ? (std::max)(base_line, cur_px) : base_line;
         const double buy_anchor  = guard_on ? (std::min)(base_line, cur_px) : base_line;
 
-        // 베이스: 무포지션이면 기준선 근처 지정가 매수(자본의 base_pct).
+        // 베이스: 무포지션이면 기준선 근처 지정가 매수(자본의 base_pct). 부분체결로 보유가 목표에 못 미치면
+        //  잔량을 같은 자리에 다시 깐다 — 예전엔 1주만 체결돼도 pos>0이라 베이스 rung이 빠졌고, 재구성이 잔량
+        //  주문을 취소해 익절 매도 1주만 남았다(09-14 375500 09:00:00 1/16 체결 → 09:00:10 잔량 취소, 096770
+        //  13:10 같은 경로). 목표 수량은 처음 깔 때 값을 기억한다 — 값이 움직여 bq가 ±1 흔들리면 1주 매수가
+        //  반복된다. 익절로 줄어든 보유는 채우지 않는다(peak_pos_가 목표에 닿았으면 베이스는 끝난 것). [why D-081]
         if (pos <= 0)
+        {
+            base_target_qty_ = 0;
+            peak_pos_        = 0;
+        }
+        else
+        {
+            peak_pos_ = (std::max)(peak_pos_, pos);
+        }
+
+        const bool base_short = pos > 0 && base_target_qty_ > 0 && peak_pos_ < base_target_qty_;
+
+        if (pos <= 0 || base_short)
         {
             double bp = round_to_tick(base_line, OrderSide::BUY);
 
@@ -685,16 +706,19 @@ public:
                 bp = round_to_tick(cur_px - krx::tick_size(cur_px), OrderSide::BUY);
             }
 
-            int    bq = qty_for(base_notional, bp);
+            int    bq = base_short ? base_target_qty_ : qty_for(base_notional, bp);
 
             if (bq <= 0)
             {
                 bq = p_.base_qty;  // 자본 미상 폴백
             }
 
-            if (bp > 0.0 && bq > 0)
+            const int need = base_short ? bq - pos : bq;
+
+            if (bp > 0.0 && need > 0)
             {
-                plan.push_back({OrderSide::BUY, bp, bq});
+                plan.push_back({OrderSide::BUY, bp, need});
+                base_target_qty_ = bq;
             }
         }
 
@@ -777,6 +801,28 @@ public:
         const bool cooling  = stop_cooldown_until_ != std::chrono::steady_clock::time_point{} && now < stop_cooldown_until_;
         const bool entry_on = is_active() && !entry_halted() && !cooling;
         sig += entry_on ? "A1" : "A0";
+
+        // 먼지 정리: 보유 평가금이 dust_krw 아래인데 깔 매수 rung이 없으면(베이스 끝·물타기 없음·진입 차단)
+        //  이 보유는 커질 길이 없이 슬롯만 차지한다. 익절 지정가 대신 시장가로 정리한다. 매수 rung이 있으면
+        //  베이스 잔량이 채워지는 중이라 둔다. 재시도 간격은 emit_liquidation 백오프가 맡는다. [why D-081]
+        if (pos > 0 && p_.dust_krw > 0.0 && cur_px > 0.0 && pos * cur_px < p_.dust_krw)
+        {
+            bool has_buy = false;
+
+            for (const auto& r : plan)
+            {
+                has_buy = has_buy || (entry_on && r.side == OrderSide::BUY);
+            }
+
+            if (!has_buy)
+            {
+                cancel_all(out);
+                emit_liquidation(out, pos, now, "먼지 정리(평가금 " + fmt1(pos * cur_px) + " < " +
+                                                    fmt1(p_.dust_krw) + ")");
+                return;
+            }
+        }
+
         // 데드밴드는 분할 주문 앵커 기준이다. 현재가 앵커(anchor_on_price)에서 SMA로 재면 값이
         //  틱마다 바뀌는데 데드밴드는 조용하다고 판정해 (b)가 걸리지 않았다(09-11 TRENDX 재구성
         //  669회 vs DEVSCALE 160회).
@@ -1408,6 +1454,8 @@ private:
     double last_avg_px_ = 0.0;             // 잔고 평단(sellable_qty가 갱신) — ref_price 폴백
     int64_t last_warm_log_ms_ = 0;         // 봉 부족 로그 스로틀(60초)
     int    last_pos_ = -1;                  // 마지막 재구성 시 포지션(데드밴드 가드)
+    int    base_target_qty_ = 0;            // 베이스 rung을 처음 깔 때의 목표 수량(부분체결 잔량 기준, 보유 0이면 초기화)
+    int    peak_pos_ = 0;                   // 이번 보유 구간의 최대 보유 수량(목표에 닿았으면 베이스 잔량을 더 깔지 않음)
     std::string last_ladder_sig_;          // 마지막 발주 분할 매수 시그니처(no-change 가드)
     std::chrono::steady_clock::time_point last_work_{};   // 스로틀
     std::chrono::steady_clock::time_point last_rebuild_{}; // 마지막 분할 매수 전면 재구성
