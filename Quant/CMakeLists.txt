@@ -218,6 +218,15 @@ add_executable(test_order_router
     src/utils/Logger.cpp
 )
 target_include_directories(test_order_router PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(ZMQ_FOUND)
+  # OrderRouter.cpp가 ZmqBridge.h를 포함하고 publish_order/publish_fill을 호출한다 —
+  # quant_engine과 링크하지 않고 소스를 직접 컴파일하므로 ZmqBridge.cpp 본체·include 경로·링크를
+  # 별도로 받아야 한다. vcpkg CONFIG 경로는 ZMQ_INC가 비고 zmq.h 경로를 libzmq 타깃이 전이적으로
+  # 실어주므로 링크까지 해야 zmq.h를 찾는다.
+  target_sources(test_order_router PRIVATE src/ipc/ZmqBridge.cpp)
+  target_include_directories(test_order_router PRIVATE ${ZMQ_INC} ${cppzmq_SOURCE_DIR})
+  target_link_libraries(test_order_router PRIVATE ${ZMQ_LIB} nlohmann_json::nlohmann_json)
+endif()
 if(UNIX)
     target_link_libraries(test_order_router PRIVATE pthread)
 endif()

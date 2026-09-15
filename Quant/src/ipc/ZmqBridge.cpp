@@ -284,8 +284,8 @@ void ZmqBridge::publish_health(uint64_t data_cnt, uint64_t sig_cnt, uint64_t ord
     enqueue("HEALTH", j.dump());
 }
 
-void ZmqBridge::publish_fill(const FillNotification& fn, double commission,
-                              double tax, double avg_price, int net_qty,
+void ZmqBridge::publish_fill(const FillNotification& fn, const std::string& strategy_id,
+                              double commission, double tax, double avg_price, int net_qty,
                               double realized_pnl)
 {
     json j;
@@ -301,6 +301,8 @@ void ZmqBridge::publish_fill(const FillNotification& fn, double commission,
     j["net_qty"]      = net_qty;
     j["realized_pnl"] = realized_pnl;
     j["account"]      = account_no_;
+    j["strategy"]     = strategy_id;
+    j["regime"]       = regime_label_;
     enqueue("FILL", j.dump());
 }
 

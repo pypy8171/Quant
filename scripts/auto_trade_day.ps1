@@ -46,6 +46,18 @@ $LogDir  = Join-Path $Repo "logs"
 $RunLog  = Join-Path $LogDir ("auto_trade_day_{0}.log" -f (Get-Date -Format yyyyMMdd))
 New-Item -ItemType Directory -Force -Path $LogDir, (Split-Path $Status) | Out-Null
 
+# ─────────────── .env 로드 ───────────────
+# TimescaleDB 비밀번호 등은 소스에 심지 않는다 — 리포 루트 .env(gitignore)에서 읽어
+# 이 프로세스 환경에 실으면 Start-Window가 띄우는 자식 창에 자동으로 상속된다.
+$EnvFile = Join-Path $Repo ".env"
+if (Test-Path $EnvFile) {
+  Get-Content $EnvFile | ForEach-Object {
+    if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$') {
+      [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], "Process")
+    }
+  }
+}
+
 $script:Sessions = @()
 $script:Started  = Get-Date
 
@@ -275,7 +287,7 @@ if (-not $NoNotify)    { Start-Window "quant-notify"    "& '$py' scripts\notify_
 # 네이티브 트레이더는 컨테이너가 아니라 ZMQ PUB(127.0.0.1:5555)만 낸다 — docker-compose의
 # quant-recorder는 quant-engine 컨테이너를 구독하므로 이 프로세스를 못 본다(D-090 후속).
 # 같은 호스트에서 직접 구독해 TimescaleDB에 적재한다.
-if (-not $NoRecorder)  { Start-Window "quant-recorder"  "`$env:TSDB_PASSWORD='changeme'; & '$py' PYQuant\main.py record --host localhost --port 5555" "main.py record" }
+if (-not $NoRecorder)  { Start-Window "quant-recorder"  "& '$py' PYQuant\main.py record --host localhost --port 5555" "main.py record" }
 
 # ─────────────── 감시 루프 ───────────────
 $deadline = [datetime]::ParseExact((Get-Date -Format "yyyy-MM-dd") + " " + $Until, "yyyy-MM-dd HH:mm", $null)

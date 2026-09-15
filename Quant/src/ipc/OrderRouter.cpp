@@ -1734,7 +1734,7 @@ void OrderRouter::on_fill(const FillNotification& fn)
 #ifdef HAS_ZMQ
         if (zmq_)
         {
-            zmq_->publish_fill(fn, result.commission, result.tax,
+            zmq_->publish_fill(fn, snap.signal.strategy_id, result.commission, result.tax,
                                result.avg_price, result.net_qty,
                                result.realized_pnl);
         }
@@ -1805,7 +1805,7 @@ void OrderRouter::on_fill(const FillNotification& fn)
 #ifdef HAS_ZMQ
     if (zmq_)
     {
-        zmq_->publish_fill(fn, result.commission, result.tax,
+        zmq_->publish_fill(fn, orphan.signal.strategy_id, result.commission, result.tax,
                            result.avg_price, result.net_qty,
                            result.realized_pnl);
     }

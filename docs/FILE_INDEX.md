@@ -13,7 +13,7 @@
 - [docs](#docs) — 52개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 176개
-- [scripts](#scripts) — 44개
+- [scripts](#scripts) — 45개
 - [strategies](#strategies) — 24개
 - [tools](#tools) — 3개
 

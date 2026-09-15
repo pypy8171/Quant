@@ -204,6 +204,15 @@ void Engine::apply_regime_selection(Regime r, bool force_log)
         append(on ? active_ids : inactive_ids, s->id());
     }
 
+#ifdef HAS_ZMQ
+    if (zmq_bridge_)
+    {
+        // FILL 페이로드가 그때그때 이 라벨을 실어 DB의 regime 열을 채운다(주문 시점이 아니라
+        // publish 시점 기준 — 국면 전환 중 걸친 체결은 오차가 있을 수 있으나 근사로 충분).
+        zmq_bridge_->set_regime_label(regime_bridge::label_of(r));
+    }
+#endif
+
     if (force_log || r != last_selected_regime_)
     {
         // 국면은 regime.json 라벨로 적는다(RISK_ON·NEUTRAL·RISK_OFF) — 매매일지·대시보드가 이 값을 읽는다. [why D-085]

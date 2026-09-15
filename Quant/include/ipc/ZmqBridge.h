@@ -40,13 +40,17 @@ public:
     // 이 프로세스가 물린 브로커 계좌번호. 한 프로세스=한 계좌라 FILL/ORDER 페이로드에 고정으로 실어
     // DB 쪽에서 실계좌·모의계좌 원장이 섞이지 않게 한다.
     void set_account_no(std::string acct) { account_no_ = std::move(acct); }
+    // 현재 선택된 국면 라벨(RISK_ON·NEUTRAL·RISK_OFF). Engine::apply_regime_selection이 국면이
+    // 바뀔 때마다 갱신 — FILL 페이로드에 그때그때 실어 DB의 regime 열을 채운다.
+    void set_regime_label(std::string label) { regime_label_ = std::move(label); }
 
     // ── 이벤트 publish (스레드-안전: 내부 큐 경유) ──────────────────────────
     void publish_trade(const TradeData& td);
     void publish_signal(const OrderSignal& sig);
     void publish_order(const OrderSignal& sig, bool ok);
     void publish_health(uint64_t data_cnt, uint64_t sig_cnt, uint64_t ord_cnt);
-    void publish_fill(const FillNotification& fn, double commission, double tax,
+    void publish_fill(const FillNotification& fn, const std::string& strategy_id,
+                      double commission, double tax,
                       double avg_price, int net_qty, double realized_pnl);
 
     // ── Python 명령 수신 콜백 설정 ──────────────────────────────────────────
@@ -75,6 +79,7 @@ private:
     std::string bind_addr_ = "127.0.0.1";
     std::string control_token_;
     std::string account_no_;
+    std::string regime_label_;
 
     std::atomic<bool> running_{false};
     std::thread zmq_thread_;
