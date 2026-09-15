@@ -77,7 +77,9 @@ class Params:
     base_pct: float = 0.015
     max_pct: float = 0.022
     stop_loss_pct: float = 0.0
+    stop_atr_mult: float = 0.0           # >0이면 평단 − 배수×전일확정 일봉 ATR14를 손절선으로 쓴다(고정 %와 배타)
     stop_cooldown_bars: int = 5          # 900초 / 3분
+    entry_confirm_bars: int = 0          # >0이면 직전 닫힌 봉 N개가 연속 종가 상승일 때만 베이스 BUY
     trail_sma_exit: bool = False
     trail_sma_tol_pct: float = 1.0
     eod_hhmm: int = 1515
@@ -90,6 +92,23 @@ VARIANTS = {
     "v2_norung":          Params(buy_rungs=0),
     "v3_norung_stop2.5":  Params(buy_rungs=0, stop_loss_pct=2.5),
     "v4_norung_stop_trail": Params(buy_rungs=0, stop_loss_pct=2.5, trail_sma_exit=True),
+}
+
+# 16_trendx_execution 검증 격자. 기저 v3(=라이브 config_dev_paper TRENDX)에서 한 번에 하나만 바꾼다.
+#   atr* — 손절을 고정 2.5%에서 일봉 ATR14 배수로. 1.5~2.5배는 일중 기준으로 아주 넓어(중앙 9~16%)
+#          사실상 손절 없음에 가깝다. 라이브 2.5%와 폭이 비슷한 0.3·0.5배를 같이 둔다.
+#   delay* — 진입을 존 활성화 즉시가 아니라 닫힌 3분봉 N개 연속 종가 상승 확인 뒤로 미룬다.
+EXEC_VARIANTS = {
+    "e0_base_stop2.5":  Params(buy_rungs=0, stop_loss_pct=2.5),
+    "e1_atr0.3":        Params(buy_rungs=0, stop_atr_mult=0.3),
+    "e2_atr0.5":        Params(buy_rungs=0, stop_atr_mult=0.5),
+    "e3_atr1.5":        Params(buy_rungs=0, stop_atr_mult=1.5),
+    "e4_atr2.0":        Params(buy_rungs=0, stop_atr_mult=2.0),
+    "e5_atr2.5":        Params(buy_rungs=0, stop_atr_mult=2.5),
+    "e6_delay1":        Params(buy_rungs=0, stop_loss_pct=2.5, entry_confirm_bars=1),
+    "e7_delay2":        Params(buy_rungs=0, stop_loss_pct=2.5, entry_confirm_bars=2),
+    "e8_delay3":        Params(buy_rungs=0, stop_loss_pct=2.5, entry_confirm_bars=3),
+    "e9_nostop":        Params(buy_rungs=0),
 }
 
 
@@ -105,54 +124,75 @@ def resample(df1: pd.DataFrame, n: int) -> pd.DataFrame:
 
 
 class DailyBook:
-    """전일 확정 일봉 SMA. 일봉 parquet(~2026-09-04) 뒤는 분봉 파일의 일중 종가로 잇는다."""
+    """전일 확정 일봉 SMA·ATR14. 일봉 parquet(~2026-09-04) 뒤는 분봉 파일의 일중 고저종으로 잇는다."""
 
     def __init__(self, tickers: set[str]):
-        d = pd.read_parquet(DAILY_PARQUET, columns=["Date", "code", "Close"])
+        d = pd.read_parquet(DAILY_PARQUET, columns=["Date", "code", "High", "Low", "Close"])
         d = d[d["code"].isin(tickers)]
-        self.close: dict[str, pd.Series] = {}
+        self.bars: dict[str, pd.DataFrame] = {}
         for code, g in d.groupby("code"):
-            s = g.set_index("Date")["Close"].astype(float)
-            s.index = s.index.strftime("%Y%m%d")
-            self.close[code] = s
+            b = g.set_index("Date")[["High", "Low", "Close"]].astype(float)
+            b.index = b.index.strftime("%Y%m%d")
+            self.bars[code] = b
         self._extended: set[str] = set()
 
     def _extend_from_minute(self, t: str) -> None:
         if t in self._extended:
             return
         self._extended.add(t)
-        s = self.close.get(t, pd.Series(dtype=float))
-        last = s.index.max() if len(s) else "00000000"
+        b = self.bars.get(t)
+        if b is None:
+            b = pd.DataFrame(columns=["High", "Low", "Close"], dtype=float)
+        last = b.index.max() if len(b) else "00000000"
         extra = {}
         for p in sorted((MINUTE_DIR / t).glob("*.parquet")):
             ymd = p.stem
             if ymd <= last:
                 continue
-            m = pd.read_parquet(p, columns=["close"])
+            m = pd.read_parquet(p, columns=["high", "low", "close"])
             if len(m) >= 300:
-                extra[ymd] = float(m["close"].iloc[-1])
+                extra[ymd] = (float(m["high"].max()), float(m["low"].min()), float(m["close"].iloc[-1]))
         if extra:
-            self.close[t] = pd.concat([s, pd.Series(extra)]).sort_index()
+            add = pd.DataFrame.from_dict(extra, orient="index", columns=["High", "Low", "Close"])
+            self.bars[t] = pd.concat([b, add]).sort_index()
+
+    def _prev(self, t: str, ymd: str) -> pd.DataFrame | None:
+        self._extend_from_minute(t)
+        b = self.bars.get(t)
+        if b is None:
+            return None
+        return b[b.index < ymd]
 
     def smas_prev(self, t: str, ymd: str) -> dict | None:
         """ymd 전 거래일까지의 SMA5/10/20/60. 60일이 안 되면 None."""
-        self._extend_from_minute(t)
-        s = self.close.get(t)
-        if s is None:
+        b = self._prev(t, ymd)
+        if b is None or len(b) < 60:
             return None
-        s = s[s.index < ymd]
-        if len(s) < 60:
-            return None
-        v = s.to_numpy()
+        v = b["Close"].to_numpy()
         return {n: float(v[-n:].mean()) for n in (5, 10, 20, 60)}
+
+    def atr14_prev(self, t: str, ymd: str) -> float:
+        """ymd 전 거래일까지의 일봉 ATR14(참범위 14일 단순평균). 14일이 안 되면 0."""
+        b = self._prev(t, ymd)
+        if b is None or len(b) < 15:
+            return 0.0
+        b = b.iloc[-15:]
+        prev_close = b["Close"].shift(1)
+        tr = pd.concat([(b["High"] - b["Low"]).abs(),
+                        (b["High"] - prev_close).abs(),
+                        (b["Low"] - prev_close).abs()], axis=1).max(axis=1)
+        return float(tr.iloc[1:].mean())
 
 
 def aligned(sm: dict, tol_pct: float) -> bool:
     return sm[5] > sm[10] and sm[10] > sm[20] and sm[20] > sm[60] * (1.0 - tol_pct / 100.0)
 
 
-def replay_day(bars: pd.DataFrame, smas: dict, p: Params, cost: CostModel) -> dict:
-    """하루 리플레이. 반환: 체결 수·손익·MAE·최대 투입 명목."""
+def replay_day(bars: pd.DataFrame, smas: dict, p: Params, cost: CostModel, atr14: float = 0.0) -> dict:
+    """하루 리플레이. 반환: 체결 수·손익·MAE·최대 투입 명목.
+
+    atr14는 **전일 확정 일봉**까지로 만든 ATR14(원). p.stop_atr_mult>0일 때만 쓴다.
+    """
     al = aligned(smas, p.align_tol_pct)
     s20 = smas[20]
     base_share = p.base_pct / p.max_pct if p.max_pct > p.base_pct else 1.0
@@ -202,9 +242,10 @@ def replay_day(bars: pd.DataFrame, smas: dict, p: Params, cost: CostModel) -> di
         if pos == 0:
             avg, cost_basis = 0.0, 0.0
 
+    arr = bars[["open", "high", "low", "close", "hhmm"]].to_numpy(dtype=float)   # 봉당 .iloc 회피(같은 값)
     for i in range(n):
-        b = bars.iloc[i]
-        o, h, l, c, hhmm = float(b.open), float(b.high), float(b.low), float(b.close), int(b.hhmm)
+        o, h, l, c = float(arr[i, 0]), float(arr[i, 1]), float(arr[i, 2]), float(arr[i, 3])
+        hhmm = int(arr[i, 4])
         # 1) 직전 봉에서 낸 주문을 이 봉 범위로 체결 판정한다. 하락봉이면 BUY부터, 상승봉이면 SELL부터.
         up = c >= o
         for kind, px, q, tag in sorted(orders, key=lambda x: (x[0] != ("SELL" if up else "BUY"))):
@@ -251,7 +292,12 @@ def replay_day(bars: pd.DataFrame, smas: dict, p: Params, cost: CostModel) -> di
         if not hold_zone:
             liquidate("zone_exit")
             continue
-        if p.stop_loss_pct > 0 and pos > 0 and c <= avg * (1.0 - p.stop_loss_pct / 100.0):
+        stop_px = 0.0                     # 0이면 손절 없음
+        if p.stop_atr_mult > 0 and atr14 > 0:
+            stop_px = avg - p.stop_atr_mult * atr14
+        elif p.stop_loss_pct > 0:
+            stop_px = avg * (1.0 - p.stop_loss_pct / 100.0)
+        if stop_px > 0 and pos > 0 and c <= stop_px:
             liquidate("stop")
             cooldown_until = i + p.stop_cooldown_bars
             continue
@@ -266,7 +312,14 @@ def replay_day(bars: pd.DataFrame, smas: dict, p: Params, cost: CostModel) -> di
         in_cooldown = i < cooldown_until
         room = p.max_notional_per_ticker - pos * avg       # 게이트 명목 상한(전략은 누적 상한이 없다)
         plan = []
-        if pos <= 0 and not in_cooldown:
+        # 진입 확인 — 닫힌 봉만 본다. closes[-1]은 방금 닫힌 이 봉이고 주문은 다음 봉에서 체결되므로
+        # 미완성 봉 종가를 보는 look-ahead가 아니다. N=2면 closes[-1]>closes[-2]>closes[-3].
+        confirmed = True
+        if p.entry_confirm_bars > 0:
+            need = p.entry_confirm_bars + 1
+            confirmed = len(closes) >= need and all(
+                closes[-k] > closes[-k - 1] for k in range(1, p.entry_confirm_bars + 1))
+        if pos <= 0 and not in_cooldown and confirmed:
             bp = round_tick(c, "BUY")
             if bp >= c:
                 bp = round_tick(c - tick_size(c), "BUY")
@@ -331,9 +384,11 @@ def run(pairs: list[tuple[str, str]], variants: dict[str, Params], since: str, u
             no_sma += 1
             continue
         bars = resample(m, 3)
+        atr14 = book.atr14_prev(t, ymd)
         for name, p in variants.items():
-            r = replay_day(bars, smas, p, cost)
+            r = replay_day(bars, smas, p, cost, atr14)
             rows.append({"variant": name, "ticker": t, "ymd": ymd, "aligned_prev": aligned(smas, p.align_tol_pct),
+                         "atr14_pct": atr14 / smas[20] * 100.0,
                          "open_dev_pct": (float(bars.iloc[0].close) - smas[20]) / smas[20] * 100.0, **r})
     print(f"[replay] pairs {len(pairs)} · 분봉 없음 {missing} · 짧음 {short} · SMA 부족 {no_sma} · "
           f"리플레이 {len(rows)//max(len(variants),1)}(종목,일)", flush=True)
@@ -363,8 +418,11 @@ def main() -> int:
     ap.add_argument("--since", default="00000000")
     ap.add_argument("--until", default="99999999")
     ap.add_argument("--variant", default=None, help="하나만 돌릴 때")
+    ap.add_argument("--set", dest="vset", default="base", choices=("base", "exec"),
+                    help="base=v1~v4, exec=16_trendx_execution 격자(ATR 스탑·진입 지연)")
     args = ap.parse_args()
-    variants = VARIANTS if not args.variant else {args.variant: VARIANTS[args.variant]}
+    table = VARIANTS if args.vset == "base" else EXEC_VARIANTS
+    variants = table if not args.variant else {args.variant: table[args.variant]}
     pairs = load_pairs(Path(args.pairs))
     df = run(pairs, variants, args.since.replace("-", ""), args.until.replace("-", ""))
     out = Path(args.out)

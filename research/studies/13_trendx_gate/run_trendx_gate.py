@@ -104,12 +104,15 @@ def add_features(d: pd.DataFrame, sma_prev: bool) -> pd.DataFrame:
     return d
 
 
-def simulate_code(o, h, l, c, stop_pct: float, tp_close: bool):
+def simulate_code(o, h, l, c, stop_pct: float, tp_close: bool, stop_level=None):
     """한 종목의 모든 신호일 i에 대해 익일 시가 진입 → 손절/익절/20일 청산을 벡터로 푼다.
 
     같은 날 안의 우선순위는 D-013과 같다: 갭 하락(시가≤손절가) → 손절(저가≤손절가, 최악 가정)
     → 익절(고가≥목표+1틱). 익절은 목표가 체결(touch), tp_close=True면 그날 종가 체결(감도).
     데이터가 끝나면(상폐·자료 끝) 마지막 종가로 청산한다.
+
+    stop_level을 주면 진입가 대비 고정 % 대신 그 배열을 손절가로 쓴다(신호일 종가까지로 만든
+    ATR 스탑 등). 값이 nan인 행은 손절 없음으로 본다. stop_level=None이면 기존 % 경로 그대로다.
     """
     n = len(c)
     K = MAX_HOLD
@@ -121,7 +124,10 @@ def simulate_code(o, h, l, c, stop_pct: float, tp_close: bool):
     entry = ow[:, 0]
     valid = np.isfinite(entry)
     with np.errstate(invalid="ignore"):
-        stop_px = entry * (1.0 - stop_pct / 100.0) if stop_pct > 0 else np.full(n, -np.inf)
+        if stop_level is not None:
+            stop_px = np.where(np.isfinite(stop_level), stop_level, -np.inf)
+        else:
+            stop_px = entry * (1.0 - stop_pct / 100.0) if stop_pct > 0 else np.full(n, -np.inf)
         tp_px = entry * (1.0 + TP_PCT / 100.0)
         tp_trig = tp_px + krx_tick(tp_px)
         gap = ow <= stop_px[:, None]
@@ -156,13 +162,14 @@ def simulate_code(o, h, l, c, stop_pct: float, tp_close: bool):
     return entry, exit_px, k + 1, gross, mae, mfe, why, valid
 
 
-def simulate_all(d: pd.DataFrame, stop_pct: float, tp_close: bool) -> pd.DataFrame:
+def simulate_all(d: pd.DataFrame, stop_pct: float, tp_close: bool, stop_col: str | None = None) -> pd.DataFrame:
     parts = []
     for code, idx in d.groupby("code", sort=False).indices.items():
         sub = d.iloc[idx]
         entry, exit_px, hold, gross, mae, mfe, why, valid = simulate_code(
             sub["Open"].to_numpy(), sub["High"].to_numpy(), sub["Low"].to_numpy(),
-            sub["Close"].to_numpy(), stop_pct, tp_close)
+            sub["Close"].to_numpy(), stop_pct, tp_close,
+            None if stop_col is None else sub[stop_col].to_numpy())
         parts.append(pd.DataFrame({"entry": entry, "exit_px": exit_px, "hold": hold, "gross": gross,
                                    "mae": mae, "mfe": mfe, "why": why, "valid": valid}, index=sub.index))
     out = pd.concat(parts).sort_index()

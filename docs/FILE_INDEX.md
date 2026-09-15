@@ -12,7 +12,7 @@
 - [Quant](#quant) — 163개
 - [docs](#docs) — 52개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 134개
+- [research](#research) — 176개
 - [scripts](#scripts) — 44개
 - [strategies](#strategies) — 24개
 - [tools](#tools) — 3개
@@ -713,6 +713,24 @@
 - [trades_V4_today_nobracket.csv.gz](../research/studies/14_hold_axis/trades_V4_today_nobracket.csv.gz) — 축 분리 V4(D-033 되돌림) 매매 원장 데이터
 - [trades_V4_today_notop_nobracket.csv.gz](../research/studies/14_hold_axis/trades_V4_today_notop_nobracket.csv.gz) — 점수필터 제거 V4(D-033 되돌림) 매매 원장 데이터
 - [trades_V4_today_tpfirst.csv.gz](../research/studies/14_hold_axis/trades_V4_today_tpfirst.csv.gz) — 익절 우선 V4(D-033 되돌림) 매매 원장 데이터
+
+### research/studies/15_impulse_pullback/
+
+- [README.md](../research/studies/15_impulse_pullback/README.md) — 15번 스터디 리포트(임펄스 후 눌림 추격, 사전등록·방법·결과·스윕·진단·재현정보)
+- [check_no_lookahead.py](../research/studies/15_impulse_pullback/check_no_lookahead.py) — 15번 하네스 자체 점검(절단 동치·손계산·쿨다운)
+- [fetch_pit_panel.py](../research/studies/15_impulse_pullback/fetch_pit_panel.py) — 15번 입력 준비(PIT 유니버스 단면·일봉 패널·지수)
+- [run_baseline_control.py](../research/studies/15_impulse_pullback/run_baseline_control.py) — 15번 날짜맞춤 대조군(사건 알파 = 사건 − 같은 날 유니버스 평균)
+- [run_impulse_pullback.py](../research/studies/15_impulse_pullback/run_impulse_pullback.py) — 15번 사건 백테스트 하네스(사건 스캔·익일 시가 체결·밴드 3종 스윕)
+
+### research/studies/16_trendx_execution/
+
+- [README.md](../research/studies/16_trendx_execution/README.md) — 16번 요약(ATR 손절·진입 지연 검증 결과, STRATEGIES.md #7·#8 판정)
+- [analyze_exec.py](../research/studies/16_trendx_execution/analyze_exec.py) — 16번 3분봉 리플레이 결과 집계(손절 발동률·R분포)
+- [atr_stop_results.tsv](../research/studies/16_trendx_execution/atr_stop_results.tsv) — 16번 일봉 근사 ATR 배수별 손절 결과
+- [exec_paired.tsv](../research/studies/16_trendx_execution/exec_paired.tsv) — 16번 진입 지연(즉시 vs 2봉 확인) 짝비교 결과
+- [exec_replay.tsv](../research/studies/16_trendx_execution/exec_replay.tsv) — 16번 3분봉 손절 리플레이 원장
+- [exec_replay_days.tsv](../research/studies/16_trendx_execution/exec_replay_days.tsv) — 16번 3분봉 리플레이 입력 원본(일별)
+- [run_atr_stop.py](../research/studies/16_trendx_execution/run_atr_stop.py) — 16번 ATR 손절 백테스트 하네스
 
 ## scripts
 
