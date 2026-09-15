@@ -64,7 +64,7 @@ config를 읽고 전략을 만들고 `Engine::start()`가 행렬·샤드·원장
 4. [`Engine::start`](../Quant/src/core/Engine.cpp#L604) — 행렬 `reshape`(행=수신 레인+폴러, 열=샤드) → 샤드 생성 → 원장 시드 → WS 연결·콜백 → jthread 다섯. 아래 두 걸음은 이 함수 안이다  
    `Quant/src/core/Engine.cpp:604` · `void Engine::start()`
 5. [`Engine::start (WS 콜백 설치)`](../Quant/src/core/Engine.cpp#L918) — 소켓 레인 i의 호가·체결 콜백. 종목 id로 열을 고르고(`consumer_of`) 자기 행에 `push_to` — 가득 차면 버리고 센다(블로킹 금지)  
-   `Quant/src/core/Engine.cpp:918` · `ws_->set_lane_callbacks([this] (uint32_t lane, const OrderBook& in) …`
+   `Quant/src/core/Engine.cpp:918` · `feed_.ws->set_lane_callbacks([this] (uint32_t lane, const OrderBook& in) …`
 6. [`Engine::start (스레드 기동)`](../Quant/src/core/Engine.cpp#L1034) — data·strategy·order·fill·control 다섯 jthread + 샤드 M. stop_token이 첫 인자라 람다로 감싼다  
    `Quant/src/core/Engine.cpp:1034` · `data_thread_     = std::jthread([this] (std::stop_token st) { data_thread_fn(st); });`
 7. [`LedgerReconciler::bootstrap`](../Quant/src/core/LedgerReconciler.cpp#L20) — 기동 잔고 시드 — 브로커 잔고를 원장·게이트 포지션으로. 실패 재시도 횟수와 실패 시 기동 중단 여부  
