@@ -43,7 +43,26 @@ constexpr int kSdpRestPacingMs = 60;
 class SupplyDemandPullbackStrategy : public StrategyBase
 {
 public:
-    enum class EntryMode { EOD, INTRADAY };
+    // 진입 모드 — StrategyType과 같은 스마트enum idiom. EntryMode::from_string으로
+    //  config "entry_mode" 문자열을 파싱한다.
+    class EntryMode
+    {
+    public:
+        enum Value { EOD, INTRADAY };
+
+        EntryMode() = default;
+        constexpr EntryMode(Value v) : value_(v) {}
+        constexpr operator Value() const { return value_; }
+
+        // INTRADAY가 아니면 EOD로 본다(기존 (s=="INTRADAY")?INTRADAY:EOD 관례 유지).
+        static EntryMode from_string(const std::string& s)
+        {
+            return s == "INTRADAY" ? EntryMode(INTRADAY) : EntryMode(EOD);
+        }
+
+    private:
+        Value value_ = EOD;
+    };
 
     struct Params
     {

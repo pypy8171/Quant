@@ -41,48 +41,7 @@
       "file": "Quant/include/strategy/ValueContraryStrategy.h"
     }
   ],
-  "strategy_loaders": [
-    {
-      "id": "MA_CROSS",
-      "loader": "load_ma_cross"
-    },
-    {
-      "id": "INTRADAY_BREAKOUT",
-      "loader": "load_intraday_breakout"
-    },
-    {
-      "id": "MOMENTUM",
-      "loader": "load_momentum"
-    },
-    {
-      "id": "VALUE_CONTRARY",
-      "loader": "load_value_contrary"
-    },
-    {
-      "id": "FIXED_INTERVAL",
-      "loader": "load_fixed_interval"
-    },
-    {
-      "id": "PRICE_TARGET",
-      "loader": "load_price_target"
-    },
-    {
-      "id": "SUPPLY_DEMAND_PULLBACK",
-      "loader": "load_supply_demand_pullback"
-    },
-    {
-      "id": "MARKET_MAKING",
-      "loader": "load_market_making"
-    },
-    {
-      "id": "DEVIATION_SCALE",
-      "loader": "load_deviation_scale"
-    },
-    {
-      "id": "THEME",
-      "loader": "load_theme"
-    }
-  ],
+  "strategy_loaders": [],
   "py_strategies": [
     {
       "name": "CrossMomentumStrategy",
@@ -479,13 +438,13 @@
       "file": "Quant/src/strategy/StrategyFactory.cpp",
       "symbol": "load_deviation_scale",
       "lines": 365,
-      "start": 569
+      "start": 566
     },
     {
       "file": "Quant/src/main.cpp",
       "symbol": "main",
-      "lines": 327,
-      "start": 185
+      "lines": 321,
+      "start": 226
     },
     {
       "file": "Quant/src/core/Engine.cpp",
@@ -725,7 +684,7 @@
       "file": "Quant/include/strategy/SupplyDemandPullbackStrategy.h",
       "symbol": "on_start",
       "lines": 100,
-      "start": 95
+      "start": 114
     },
     {
       "file": "Quant/src/core/LedgerReconciler.cpp",

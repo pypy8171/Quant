@@ -2764,7 +2764,7 @@ void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& e
         OrderSignal s;
         s.ticker      = r.ticker;
         s.account_id  = r.account;
-        s.side        = r.side == "SELL" ? OrderSide::SELL : OrderSide::BUY;
+        s.side        = OrderSide::from_string(r.side);
         s.type        = r.price > 0.0 ? OrderType::LIMIT : OrderType::MARKET;
         s.quantity    = r.qty;
         s.price       = r.price;

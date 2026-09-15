@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <string>
 #include <type_traits>
+#include <unordered_map>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 시장 구분
@@ -47,11 +48,31 @@ struct MarketData
 // ─────────────────────────────────────────────────────────────────────────────
 // 주문 신호 (전략 → RingBuffer → 주문 실행 스레드)
 // ─────────────────────────────────────────────────────────────────────────────
-enum class OrderSide
+// 주문 매수/매도 — enum class는 멤버 함수를 못 가져 문자열 매칭을 못 둔다. StrategyType과 같은
+//  스마트enum idiom(Value 감싸기)으로 OrderSide::from_string(파싱)을 붙인다. [why D-071]
+class OrderSide
 {
-    BUY,
-    SELL,
-    NONE
+public:
+    enum Value
+    {
+        BUY,
+        SELL,
+        NONE
+    };
+
+    OrderSide() = default;
+    constexpr OrderSide(Value v) : value_(v) {}
+    constexpr operator Value() const { return value_; }
+
+    // 체결·주문 로그의 "BUY"/"SELL" 문자열 → OrderSide. SELL이 아니면 BUY로 본다
+    //  (기존 (s=="SELL")?SELL:BUY 관례 유지 — 오탈자·미지정도 BUY).
+    static OrderSide from_string(const std::string& s)
+    {
+        return s == "SELL" ? OrderSide(SELL) : OrderSide(BUY);
+    }
+
+private:
+    Value value_ = NONE;
 };
 enum class OrderType
 {
@@ -251,11 +272,87 @@ struct Fundamentals
 // ─────────────────────────────────────────────────────────────────────────────
 // 시장 국면 — regime.json 라벨을 옮긴 전략 선택 입력(RISK_ON→BULL, RISK_OFF→BEAR) [why D-084]
 // ─────────────────────────────────────────────────────────────────────────────
-enum class Regime
+// 시장 국면 — StrategyType과 같은 스마트enum idiom. Regime::from_string으로 config
+//  "active_regimes" 문자열을 파싱한다(regime.json 라벨 파싱은 RegimeFileBridge::selection_of,
+//  어휘가 달라 여기 합치지 않는다).
+class Regime
 {
-    BULL,     // 강세장
-    NEUTRAL,  // 중립(방향성 약함)
-    BEAR,     // 약세장
-    UNKNOWN   // 판정 불가(데이터 부족 등)
+public:
+    enum Value
+    {
+        BULL,     // 강세장
+        NEUTRAL,  // 중립(방향성 약함)
+        BEAR,     // 약세장
+        UNKNOWN   // 판정 불가(데이터 부족 등)
+    };
+
+    Regime() = default;
+    constexpr Regime(Value v) : value_(v) {}
+    constexpr operator Value() const { return value_; }
+
+    // 매칭 실패는 UNKNOWN — 호출자(parse_active_regimes)가 경고 로그로 판단한다.
+    static Regime from_string(const std::string& s)
+    {
+        static const std::unordered_map<std::string, Value> NAMES = {
+            {"BULL", BULL},
+            {"NEUTRAL", NEUTRAL},
+            {"BEAR", BEAR},
+        };
+
+        auto it = NAMES.find(s);
+        return it != NAMES.end() ? Regime(it->second) : Regime(UNKNOWN);
+    }
+
+private:
+    Value value_ = UNKNOWN;
 };
 
+// 전략 타입 — enum class는 멤버 함수를 못 가져 문자열 매칭 로직을 이 안에 못 둔다. Value를 감싸
+//  StrategyType::MA_CROSS(값)와 StrategyType::from_string(파싱)을 같은 이름 밑에 둔다(스마트enum idiom).
+//  Value로의 암묵 변환이 있어 map key·switch·비교는 기존 enum class와 동일하게 쓴다.
+class StrategyType
+{
+public:
+    enum Value
+    {
+        UNKNOWN,
+        MA_CROSS,
+        INTRADAY_BREAKOUT,
+        MOMENTUM,
+        VALUE_CONTRARY,
+        FIXED_INTERVAL,
+        PRICE_TARGET,
+        SUPPLY_DEMAND_PULLBACK,
+        MARKET_MAKING,
+        DEVIATION_SCALE,
+        THEME
+    };
+
+    StrategyType() = default;
+    constexpr StrategyType(Value v) : value_(v) {}
+    constexpr operator Value() const { return value_; }
+
+    // config "type" 문자열 → StrategyType. 디스패치·로그 비교를 문자열이 아닌 enum값으로 하기 위함
+    //  (hot path는 아니지만 오탈자 비교·string 해시를 매 로드마다 반복할 이유가 없다). 매칭 실패는 UNKNOWN.
+    static StrategyType from_string(const std::string& s)
+    {
+        static const std::unordered_map<std::string, Value> NAMES = {
+            {"MA_CROSS", MA_CROSS},
+            {"INTRADAY_BREAKOUT", INTRADAY_BREAKOUT},
+            {"MOMENTUM", MOMENTUM},
+            {"VALUE_CONTRARY", VALUE_CONTRARY},
+            {"FIXED_INTERVAL", FIXED_INTERVAL},
+            {"PRICE_TARGET", PRICE_TARGET},
+            {"SUPPLY_DEMAND_PULLBACK", SUPPLY_DEMAND_PULLBACK},
+            {"MARKET_MAKING", MARKET_MAKING},
+            {"DEVIATION_SCALE", DEVIATION_SCALE},
+            {"THEME", THEME},
+        };
+
+        auto it = NAMES.find(s);
+        return it != NAMES.end() ? StrategyType(it->second) : StrategyType(UNKNOWN);
+    }
+
+private:
+    Value value_ = UNKNOWN;
+};

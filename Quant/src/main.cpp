@@ -182,6 +182,47 @@ static json load_config(const std::string& path)
 //   · 관찰 모드(FEED/KR_TEST/US_TEST) → modes/Monitors.cpp
 //   · TRADE 모드 → 엔진 구성 + strategy/StrategyFactory.cpp 로 전략 로딩
 // ═══════════════════════════════════════════════════════════════════════════
+namespace
+{
+
+// 실행 모드 — StrategyType과 같은 스마트enum idiom. main.cpp 전용이라 Types.h가 아닌 여기 둔다.
+class Mode
+{
+public:
+    enum Value { FEED, KR_TEST, US_TEST, TRADE };
+
+    Mode() = default;
+    constexpr Mode(Value v) : value_(v) {}
+    constexpr operator Value() const { return value_; }
+
+    // config/argv "mode" 문자열 → Mode. 모르는 값(과거 "TRADE" 포함)은 TRADE로 낙하 —
+    //  기존 if/else 체인이 FEED/KR_TEST/US_TEST만 걸러내고 나머지를 TRADE 경로로 흘리던 것과 동일하다.
+    static Mode from_string(const std::string& s)
+    {
+        if (s == "FEED")
+        {
+            return Mode(FEED);
+        }
+
+        if (s == "KR_TEST")
+        {
+            return Mode(KR_TEST);
+        }
+
+        if (s == "US_TEST")
+        {
+            return Mode(US_TEST);
+        }
+
+        return Mode(TRADE);
+    }
+
+private:
+    Value value_ = TRADE;
+};
+
+} // namespace
+
 int main(int argc, char* argv[])
 {
 #ifdef _WIN32
@@ -278,20 +319,20 @@ int main(int argc, char* argv[])
     SetUnhandledExceptionFilter(on_seh);
 #endif
 
-    std::string mode = cfg.value("mode", "FEED");
+    Mode mode = Mode::from_string(cfg.value("mode", std::string("FEED")));
 
     // ═══════════════════════════════════════════════════════════════════════
     //  관찰용 모니터 모드 — 각자 자기 루프를 돌다 종료 (modes/Monitors.cpp)
     // ═══════════════════════════════════════════════════════════════════════
-    if (mode == "FEED")
+    if (mode == Mode::FEED)
     {
         return run_feed(kis_cfg, tickers, futures, g_running);
     }
-    else if (mode == "KR_TEST")
+    else if (mode == Mode::KR_TEST)
     {
         return run_kr_test(kis_cfg, g_running);
     }
-    else if (mode == "US_TEST")
+    else if (mode == Mode::US_TEST)
     {
         return run_us_test(kis_cfg, g_running);
     }

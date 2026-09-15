@@ -349,7 +349,7 @@ static void load_price_target(StrategyLoadCtx& ctx, const json& s)
                 continue;
             }
 
-            l.side     = (lo.value("side", "BUY") == "SELL") ? OrderSide::SELL : OrderSide::BUY;
+            l.side     = OrderSide::from_string(lo.value("side", "BUY"));
             l.price    = lo.value("price",    0.0);
             l.quantity = lo.value("quantity", 1);
             limit_orders.push_back(l);
@@ -376,10 +376,7 @@ static void load_supply_demand_pullback(StrategyLoadCtx& ctx, const json& s)
     sp.quantity          = s.value("quantity",          10);
     sp.eod_exit_hhmm     = s.value("eod_exit_hhmm",    std::string("1500"));
     sp.stop_below_ma     = s.value("stop_below_ma",    0.0);
-    std::string mode_str = s.value("entry_mode", "EOD");
-    sp.mode = (mode_str == "INTRADAY")
-            ? SupplyDemandPullbackStrategy::EntryMode::INTRADAY
-            : SupplyDemandPullbackStrategy::EntryMode::EOD;
+    sp.mode = SupplyDemandPullbackStrategy::EntryMode::from_string(s.value("entry_mode", "EOD"));
     add_gated(ctx.engine, std::make_unique<SupplyDemandPullbackStrategy>(sp));
 }
 
@@ -964,23 +961,16 @@ static bool parse_active_regimes(const json& s, const std::string& type, std::ve
     for (const auto& r : s["active_regimes"])
     {
         std::string rs = r.is_string() ? r.get<std::string>() : std::string();
+        Regime      parsed = Regime::from_string(rs);
 
-        if (rs == "BULL")
-        {
-            ar.push_back(Regime::BULL);
-        }
-        else if (rs == "NEUTRAL")
-        {
-            ar.push_back(Regime::NEUTRAL);
-        }
-        else if (rs == "BEAR")
-        {
-            ar.push_back(Regime::BEAR);
-        }
-        else
+        if (parsed == Regime::UNKNOWN)
         {
             LOG_WARN("[Main] " + type + " 알 수 없는 active_regimes 값: '" + rs +
                       "' (BULL/NEUTRAL/BEAR만 유효) — 무시됨");   // G-2
+        }
+        else
+        {
+            ar.push_back(parsed);
         }
     }
 
@@ -999,17 +989,17 @@ void load_strategies(StrategyLoadCtx& ctx, const json& strategies)
     // 실사용 현황(config_dev_paper.json 기준, 2026-09-15): DEVIATION_SCALE만 라이브(눌림 DEVSCALE·추격 TRENDX 슬리브 2개).
     // INTRADAY_BREAKOUT은 이 표로 등록되는 게 아니라 attach_holding_guardians()가 승계 보유분에만 붙이는 청산 전용 가디언.
     // 나머지(MA_CROSS·MOMENTUM·VALUE_CONTRARY·FIXED_INTERVAL·PRICE_TARGET·SUPPLY_DEMAND_PULLBACK·MARKET_MAKING·THEME)는 현재 config 어디에도 안 걸림 — 죽은 코드는 아니고 미사용.
-    static const std::map<std::string, void (*)(StrategyLoadCtx&, const json&)> LOADERS = {
-        {"MA_CROSS", load_ma_cross},
-        {"INTRADAY_BREAKOUT", load_intraday_breakout},
-        {"MOMENTUM", load_momentum},
-        {"VALUE_CONTRARY", load_value_contrary},
-        {"FIXED_INTERVAL", load_fixed_interval},
-        {"PRICE_TARGET", load_price_target},
-        {"SUPPLY_DEMAND_PULLBACK", load_supply_demand_pullback},
-        {"MARKET_MAKING", load_market_making},
-        {"DEVIATION_SCALE", load_deviation_scale},
-        {"THEME", load_theme},
+    static const std::map<StrategyType, void (*)(StrategyLoadCtx&, const json&)> LOADERS = {
+        {StrategyType::MA_CROSS, load_ma_cross},
+        {StrategyType::INTRADAY_BREAKOUT, load_intraday_breakout},
+        {StrategyType::MOMENTUM, load_momentum},
+        {StrategyType::VALUE_CONTRARY, load_value_contrary},
+        {StrategyType::FIXED_INTERVAL, load_fixed_interval},
+        {StrategyType::PRICE_TARGET, load_price_target},
+        {StrategyType::SUPPLY_DEMAND_PULLBACK, load_supply_demand_pullback},
+        {StrategyType::MARKET_MAKING, load_market_making},
+        {StrategyType::DEVIATION_SCALE, load_deviation_scale},
+        {StrategyType::THEME, load_theme},
     };
 
     for (auto& s : strategies)
@@ -1017,7 +1007,7 @@ void load_strategies(StrategyLoadCtx& ctx, const json& strategies)
         std::string type = s.value("type", std::string());
         size_t n_before = ctx.engine.strategy_count();
 
-        auto it = LOADERS.find(type);
+        auto it = LOADERS.find(StrategyType::from_string(type));
 
         if (it == LOADERS.end())
         {

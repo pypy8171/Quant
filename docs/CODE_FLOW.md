@@ -55,10 +55,10 @@ flowchart LR
 
 config를 읽고 전략을 만들고 `Engine::start()`가 행렬·샤드·원장·소켓 콜백·스레드 다섯을 세운다. 이 절만 읽으면 누가 무엇을 소유하는지 보인다.
 
-1. [`main`](../Quant/src/main.cpp#L185) — 진입. `load_config` → `Engine engine(...)` → `set_*` 배선 → `load_strategies` → `engine.start()` 순서를 훑는다  
-   `Quant/src/main.cpp:185` · `int main(int argc, char* argv[])`
-2. [`load_strategies`](../Quant/src/strategy/StrategyFactory.cpp#L997) — config `strategies[]`를 전략 객체로. 새 전략을 붙이는 자리(CLAUDE.md '전략 추가하기')  
-   `Quant/src/strategy/StrategyFactory.cpp:997` · `void load_strategies(StrategyLoadCtx& ctx, const json& strategies)`
+1. [`main`](../Quant/src/main.cpp#L226) — 진입. `load_config` → `Engine engine(...)` → `set_*` 배선 → `load_strategies` → `engine.start()` 순서를 훑는다  
+   `Quant/src/main.cpp:226` · `int main(int argc, char* argv[])`
+2. [`load_strategies`](../Quant/src/strategy/StrategyFactory.cpp#L987) — config `strategies[]`를 전략 객체로. 새 전략을 붙이는 자리(CLAUDE.md '전략 추가하기')  
+   `Quant/src/strategy/StrategyFactory.cpp:987` · `void load_strategies(StrategyLoadCtx& ctx, const json& strategies)`
 3. [`Engine::add_strategy`](../Quant/src/core/Engine.cpp#L33) — 전략 등록. 심볼 해석기(`set_symbol_resolver` → `SymbolTable::intern`)가 여기서 주입된다  
    `Quant/src/core/Engine.cpp:33` · `void Engine::add_strategy(std::unique_ptr<StrategyBase> strategy)`
 4. [`Engine::start`](../Quant/src/core/Engine.cpp#L604) — 행렬 `reshape`(행=수신 레인+폴러, 열=샤드) → 샤드 생성 → 원장 시드 → WS 연결·콜백 → jthread 다섯. 아래 두 걸음은 이 함수 안이다  

@@ -703,7 +703,7 @@ void OrderRouter::load_order_reasons_locked()
 
         OrderReason r;
         r.ticker      = f[1];
-        r.side        = (f[2] == "SELL") ? OrderSide::SELL : OrderSide::BUY;
+        r.side        = OrderSide::from_string(f[2]);
         r.strategy_id = f[6];
         r.reason      = f[7];
 
