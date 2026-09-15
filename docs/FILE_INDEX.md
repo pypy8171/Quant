@@ -681,6 +681,39 @@
 - [run_trendx_gate.py](../research/studies/13_trendx_gate/run_trendx_gate.py) — TRENDX 게이트 일봉 근사 백테스트 스크립트
 - [stats_util.py](../research/studies/13_trendx_gate/stats_util.py) — scipy 없는 환경용 통계 보조 함수 모음
 
+### research/studies/14_hold_axis/
+
+- [README.md](../research/studies/14_hold_axis/README.md) — DevScale 유지 게이트 정배열 축 완화 스터디 요약
+- [paired.tsv](../research/studies/14_hold_axis/paired.tsv) — 1차(현행 브래킷) 짝비교 일별 데이터
+- [paired_nobracket.tsv](../research/studies/14_hold_axis/paired_nobracket.tsv) — 축 분리(브래킷 제거) 짝비교 일별 데이터
+- [paired_notop_nobracket.tsv](../research/studies/14_hold_axis/paired_notop_nobracket.tsv) — 점수필터 제거 감도 짝비교 일별 데이터
+- [paired_tpfirst.tsv](../research/studies/14_hold_axis/paired_tpfirst.tsv) — 익절 우선 가정 짝비교 일별 데이터
+- [results.tsv](../research/studies/14_hold_axis/results.tsv) — 1차(현행 브래킷) 구간별 결과 데이터
+- [results_nobracket.tsv](../research/studies/14_hold_axis/results_nobracket.tsv) — 축 분리(브래킷 제거) 구간별 결과 데이터
+- [results_notop_nobracket.tsv](../research/studies/14_hold_axis/results_notop_nobracket.tsv) — 점수필터 제거 감도 구간별 결과 데이터
+- [results_tpfirst.tsv](../research/studies/14_hold_axis/results_tpfirst.tsv) — 익절 우선 가정 구간별 결과 데이터
+- [run_hold_axis.py](../research/studies/14_hold_axis/run_hold_axis.py) — 유지 게이트 4변형 짝비교 백테스트 스크립트
+- [run_meta.json](../research/studies/14_hold_axis/run_meta.json) — 1차(현행 브래킷) 실행 메타데이터
+- [run_meta_nobracket.json](../research/studies/14_hold_axis/run_meta_nobracket.json) — 축 분리(브래킷 제거) 실행 메타데이터
+- [run_meta_notop_nobracket.json](../research/studies/14_hold_axis/run_meta_notop_nobracket.json) — 점수필터 제거 감도 실행 메타데이터
+- [run_meta_tpfirst.json](../research/studies/14_hold_axis/run_meta_tpfirst.json) — 익절 우선 가정 실행 메타데이터
+- [trades_V1_current.csv.gz](../research/studies/14_hold_axis/trades_V1_current.csv.gz) — 1차 V1(현행) 매매 원장 데이터
+- [trades_V1_current_nobracket.csv.gz](../research/studies/14_hold_axis/trades_V1_current_nobracket.csv.gz) — 축 분리 V1(현행) 매매 원장 데이터
+- [trades_V1_current_notop_nobracket.csv.gz](../research/studies/14_hold_axis/trades_V1_current_notop_nobracket.csv.gz) — 점수필터 제거 V1(현행) 매매 원장 데이터
+- [trades_V1_current_tpfirst.csv.gz](../research/studies/14_hold_axis/trades_V1_current_tpfirst.csv.gz) — 익절 우선 V1(현행) 매매 원장 데이터
+- [trades_V2_or_today.csv.gz](../research/studies/14_hold_axis/trades_V2_or_today.csv.gz) — 1차 V2(당일봉도 허용) 매매 원장 데이터
+- [trades_V2_or_today_nobracket.csv.gz](../research/studies/14_hold_axis/trades_V2_or_today_nobracket.csv.gz) — 축 분리 V2(당일봉도 허용) 매매 원장 데이터
+- [trades_V2_or_today_notop_nobracket.csv.gz](../research/studies/14_hold_axis/trades_V2_or_today_notop_nobracket.csv.gz) — 점수필터 제거 V2(당일봉도 허용) 매매 원장 데이터
+- [trades_V2_or_today_tpfirst.csv.gz](../research/studies/14_hold_axis/trades_V2_or_today_tpfirst.csv.gz) — 익절 우선 V2(당일봉도 허용) 매매 원장 데이터
+- [trades_V3_band_only.csv.gz](../research/studies/14_hold_axis/trades_V3_band_only.csv.gz) — 1차 V3(이격 단독) 매매 원장 데이터
+- [trades_V3_band_only_nobracket.csv.gz](../research/studies/14_hold_axis/trades_V3_band_only_nobracket.csv.gz) — 축 분리 V3(이격 단독) 매매 원장 데이터
+- [trades_V3_band_only_notop_nobracket.csv.gz](../research/studies/14_hold_axis/trades_V3_band_only_notop_nobracket.csv.gz) — 점수필터 제거 V3(이격 단독) 매매 원장 데이터
+- [trades_V3_band_only_tpfirst.csv.gz](../research/studies/14_hold_axis/trades_V3_band_only_tpfirst.csv.gz) — 익절 우선 V3(이격 단독) 매매 원장 데이터
+- [trades_V4_today.csv.gz](../research/studies/14_hold_axis/trades_V4_today.csv.gz) — 1차 V4(D-033 되돌림) 매매 원장 데이터
+- [trades_V4_today_nobracket.csv.gz](../research/studies/14_hold_axis/trades_V4_today_nobracket.csv.gz) — 축 분리 V4(D-033 되돌림) 매매 원장 데이터
+- [trades_V4_today_notop_nobracket.csv.gz](../research/studies/14_hold_axis/trades_V4_today_notop_nobracket.csv.gz) — 점수필터 제거 V4(D-033 되돌림) 매매 원장 데이터
+- [trades_V4_today_tpfirst.csv.gz](../research/studies/14_hold_axis/trades_V4_today_tpfirst.csv.gz) — 익절 우선 V4(D-033 되돌림) 매매 원장 데이터
+
 ## scripts
 
 ### scripts/

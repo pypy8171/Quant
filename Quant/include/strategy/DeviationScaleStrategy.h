@@ -490,8 +490,13 @@ public:
                                    : -down_th;
         const bool   band    = d_s20 > 0.0 && s_dev <= up_th && s_dev >= low_th;
         const bool   zone    = aligned && band;          // 진입 게이트
-        // [inv] hold_zone은 zone보다 넓다(정배열 축이 느린 쪽). 좁아지면 청산이 진입보다 먼저 돈다.
-        const bool   hold_zone = aligned_hold && band;   // 유지 게이트 — 청산 판정
+        // [inv] hold_zone은 zone보다 넓어야 한다(정배열 축이 느린 쪽) — 좁아지면 막 산 걸 다음
+        //  틱에 바로 되판다. aligned_hold(전일 확정)만 쓰면 당일 막 정배열이 시작된 종목은 전일
+        //  축이 아직 못 따라와 hold_zone=N인데 zone=Y가 나온다(GS건설 09-15: 정배열=Y 101건
+        //  전부 유지=N — 진입 자체가 막혔다). aligned_today를 OR로 더해 진입 순간엔 항상
+        //  hold_zone⊇zone이 되게 한다 — research/studies/14_hold_axis V2로 짝비교(무해, 유의한
+        //  손실 없음)까지 확인했다 [why D-088].
+        const bool   hold_zone = (aligned_hold || aligned) && band;   // 유지 게이트 — 청산 판정
         in_zone_ = zone;
 
         // 존 판정 로그: 상태 변화 시 또는 60초마다 1회.
@@ -510,17 +515,21 @@ public:
 
         if (!hold_zone)
         {
-            // 존 이탈 → 미체결 전부 취소 + 보유분 시장가 청산(매도가능분 클램프+백오프).
-            bool cancelled = cancel_all(out);
             int pos = confirmed_position(p_.account, p_.ticker);
-            emit_liquidation(out, pos, now, "존 이탈"); // 클램프+백오프(자체 로깅)
 
-            if (cancelled && pos <= 0)
+            if (pos > 0)
+            {
+                // 존 이탈 → 미체결 전부 취소 + 보유분 시장가 청산(매도가능분 클램프+백오프).
+                cancel_all(out);
+                emit_liquidation(out, pos, now, "존 이탈"); // 클램프+백오프(자체 로깅)
+                return;
+            }
+
+            // 보유가 없으면 청산할 게 없다 — 미체결 매수만 거두고, 진입 여부는 아래 zone에 맡긴다.
+            if (cancel_all(out))
             {
                 LOG_INFO("[" + id() + "] 존 이탈 — 미체결 취소(보유 0)");
             }
-
-            return;
         }
 
         // ── 하드 스탑: 평단 대비 stop_loss_pct 아래면 존 상태와 무관하게 청산 ─────────

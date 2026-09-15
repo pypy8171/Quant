@@ -1,0 +1,57 @@
+{
+  "run_at": "2026-09-15 10:41:45",
+  "data": "PYQuant/data/bars_all_pit.parquet",
+  "data_sha1_16": "1522bb7bc426a709",
+  "data_bytes": 66962229,
+  "git_commit": "7c6d1ae4f00fc4ebb6ed50a47c70838ee795a15a",
+  "git_dirty": true,
+  "seed": "없음 — 난수 미사용, 전부 결정론",
+  "params": {
+    "POOL_N": 500,
+    "ENTRY": [
+      5.0,
+      35.0
+    ],
+    "HOLD_BAND": [
+      1.0,
+      39.0
+    ],
+    "STOP_PCT": 2.5,
+    "TP_PCT": 3.0,
+    "COST_PCT": 0.31,
+    "R_DENOM": 6.0,
+    "SCORE_TOP_N": 25,
+    "score_w": [
+      1.0,
+      1.0,
+      0.5,
+      0.7
+    ]
+  },
+  "periods": {
+    "2020covid": [
+      "2020-01-02",
+      "2020-12-30"
+    ],
+    "2022bear": [
+      "2022-01-03",
+      "2022-12-29"
+    ],
+    "2024blackmon": [
+      "2023-12-28",
+      "2024-12-30"
+    ],
+    "2026now": [
+      "2025-12-30",
+      "2026-08-04"
+    ]
+  },
+  "variants": {
+    "V1_current": "aligned_prev AND band (현행)",
+    "V2_or_today": "(aligned_prev OR aligned_today) AND band (당일봉도 허용)",
+    "V3_band_only": "band 단독 (이격 기준만)",
+    "V4_today": "aligned_today AND band (느린 축을 빠른 축으로 교체, D-033 되돌림)"
+  },
+  "cmd": "py research/studies/14_hold_axis/run_hold_axis.py",
+  "elapsed_sec": 21.1
+}
