@@ -645,6 +645,7 @@ void Engine::start()
     zmq_bridge_ = std::make_unique<ZmqBridge>();
     zmq_bridge_->set_bind_address(zmq_bind_addr_);
     zmq_bridge_->set_control_token(zmq_control_token_);
+    zmq_bridge_->set_account_no(kis_cfg_.account_no); // 실계좌·모의계좌 원장 분리용 [why D-090]
     zmq_bridge_->set_command_handler(
         [this](const std::string& cmd) -> std::string
         {

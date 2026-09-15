@@ -3788,3 +3788,29 @@ V3·V4에서 이 근사 영향이 가장 크다. V2(이번 결정)는 상대적�
 **확인 방법**: ctest 33/33(기존 종목단위 로직 회귀 없음). 다음 장 로그에서 `trades_*.csv`의
 `strategy_realized_pnl` 컬럼이 SELL 체결에서만 채워지는지, 기존 `realized_pnl`과 부호·크기가 서로
 모순 안 되는지 확인한다.
+
+### D-090 TimescaleDB fills/orders/positions에 계좌 컬럼을 붙인다 (2026-09-15)
+
+**배경**: DBeaver로 라이브 DB(`quant-tsdb`)를 열어보니 `fills`·`orders`·`positions`에 계좌 구분 컬럼이
+전혀 없었다. `positions`의 PK는 `ticker` 하나뿐이라 실계좌·모의계좌가 같은 종목을 들면 원장이 그대로
+덮어써진다. 실제로 2026-06-08 체결 18건(odno가 `0000032617` 같은 실제 KIS 형식)은 실계좌(`69706076`)
+흔적으로 보이고, `positions`엔 그때 잔고가 그대로 남아 있는데, 지금 라이브 트레이더는 모의계좌
+(`config_dev_paper.json`, `50204275`)로 돈다 — 이 상태에서 모의 체결이 들어오면 실계좌 잔고 위에
+그대로 얹힌다.
+
+**결정**: `fills`·`orders`·`positions`에 `account TEXT` 컬럼을 추가하고 `positions`의 PK를
+`(account, ticker)`로 바꾼다. 계좌 태그는 `OrderGate`의 다계좌 파티션 키(`signal.account_id`, 단일계좌면
+빈 문자열)가 아니라 `KisConfig.account_no`를 쓴다 — 한 엔진 프로세스는 항상 한 브로커 계좌에 물리므로
+공정 시작 시 한 번 `ZmqBridge::set_account_no(kis_cfg_.account_no)`로 고정하고 FILL/ORDER 페이로드마다
+그대로 실어보낸다. 기존 행은 사용자 확인 하에 2026-06-08 18건→`69706076`(real), 2026-09-07 17건(테스트/
+리플레이 흔적, `K000077` 등 비-KIS 형식 odno)→`test`로 태깅했다.
+
+**버린 대안**: `signal.account_id`를 태그로 쓰는 것 — 이건 법인/DMA 다계좌용 내부 파티션 키라 단일계좌
+모드에서는 항상 빈 문자열이라 실제 브로커 계좌 구분에 못 쓴다. `record` CLI에 `--account` 플래그를 추가해
+recorder가 스스로 태깅하는 것도 검토했으나, ZMQ PUB 쪽이 이미 유일한 소스(한 프로세스=한 계좌)이고
+recorder는 여러 엔진을 동시에 구독할 수 있어 CLI 플래그로 고정하면 나중에 다계좌 recorder로 확장할 때
+오히려 발목을 잡는다.
+
+**확인 방법**: 재빌드 후 라이브 재기동 직후 `SELECT DISTINCT account FROM fills ORDER BY ts DESC LIMIT 5;`로
+새 체결이 `50204275`로 찍히는지 확인. `positions` PK 충돌 없이 실계좌·모의계좌 잔고가 독립적으로 쌓이는지
+다음 장에서 재확인.

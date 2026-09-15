@@ -134,8 +134,8 @@ class DbClient:
             _require(data, "ts", "ticker", "side", "qty", "ok")
             with self._conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO orders(ts,ticker,side,qty,price,ok,market)"
-                    " VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    "INSERT INTO orders(ts,ticker,side,qty,price,ok,market,account)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                     (
                         _ms_to_dt(data["ts"]),
                         data["ticker"],
@@ -144,6 +144,7 @@ class DbClient:
                         data.get("price"),
                         data["ok"],
                         data.get("market", "KR"),
+                        data.get("account"),
                     ),
                 )
         except Exception as e:
@@ -202,8 +203,8 @@ class DbClient:
             with self._conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO fills"
-                    "(ts,odno,ticker,side,filled_qty,filled_price,commission,tax,market,regime)"
-                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    "(ts,odno,ticker,side,filled_qty,filled_price,commission,tax,market,regime,account)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (
                         ts,
                         data["odno"],
@@ -215,28 +216,32 @@ class DbClient:
                         data.get("tax"),
                         data.get("market", "KR"),
                         data.get("regime"),   # 그때의 국면 stamp (없으면 NULL)
+                        data.get("account"),  # 브로커 계좌번호 (D-090, 실계좌·모의계좌 분리)
                     ),
                 )
         except Exception as e:
             logger.error(f"insert_fill 실패 (data={data}): {e}")
 
     def upsert_position(self, ticker: str, quantity: int,
-                        avg_price: float, realized_pnl: float):
-        """포지션 원장 갱신 — 체결 후 또는 장 마감 배치에서 호출."""
+                        avg_price: float, realized_pnl: float,
+                        account: str = "unknown"):
+        """포지션 원장 갱신 — 체결 후 또는 장 마감 배치에서 호출.
+        PK가 (account,ticker)라 계좌를 안 넘기면 'unknown' 계좌로 쌓인다 — 실계좌·모의계좌
+        원장이 섞이는 것(D-090)보다는 안전한 기본값."""
         try:
             with self._conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO positions(ticker,quantity,avg_price,realized_pnl,updated_at)"
-                    " VALUES (%s,%s,%s,%s,NOW())"
-                    " ON CONFLICT (ticker) DO UPDATE SET"
+                    "INSERT INTO positions(account,ticker,quantity,avg_price,realized_pnl,updated_at)"
+                    " VALUES (%s,%s,%s,%s,%s,NOW())"
+                    " ON CONFLICT (account,ticker) DO UPDATE SET"
                     "   quantity=EXCLUDED.quantity,"
                     "   avg_price=EXCLUDED.avg_price,"
                     "   realized_pnl=EXCLUDED.realized_pnl,"
                     "   updated_at=NOW()",
-                    (ticker, quantity, avg_price, realized_pnl),
+                    (account, ticker, quantity, avg_price, realized_pnl),
                 )
         except Exception as e:
-            logger.error(f"upsert_position 실패 ({ticker}): {e}")
+            logger.error(f"upsert_position 실패 ({account}:{ticker}): {e}")
 
     def insert_bar(self, ticker: str, ts: datetime, o: float, h: float,
                    lo: float, c: float, vol: int, market: str = "KR"):

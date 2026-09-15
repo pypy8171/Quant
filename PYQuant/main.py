@@ -241,7 +241,8 @@ def cmd_record(args):
     def _rec_fill(d):
         db.insert_fill(d)
         db.upsert_position(d["ticker"], d["net_qty"], d["avg_price"],
-                           d.get("realized_pnl", 0.0))
+                           d.get("realized_pnl", 0.0),
+                           account=d.get("account", "unknown"))
         sg = '+' if d.get("realized_pnl", 0) >= 0 else ''
         logger.info(f"REC FILL   {d.get('ticker')} {d.get('side')} "
                     f"{d.get('filled_qty')}주 @{d.get('filled_price'):,.0f}  "

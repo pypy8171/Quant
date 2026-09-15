@@ -60,10 +60,18 @@ endif()
  
 # ─── 의존성: ZeroMQ (선택적) ──────────────────────────────────────────────
 # Windows: vcpkg install zeromq  /  Linux: sudo apt install libzmq3-dev
-find_library(ZMQ_LIB  NAMES zmq libzmq)
-find_path   (ZMQ_INC  NAMES zmq.h)
+# vcpkg가 만드는 라이브러리 파일명은 libzmq-mt-<버전>.lib처럼 버전이 박혀 있어
+# find_library(NAMES zmq libzmq)로는 못 찾는다 — vcpkg 쪽은 CONFIG 패키지로 먼저 찾는다.
+find_package(ZeroMQ CONFIG QUIET)
+if(ZeroMQ_FOUND)
+  set(ZMQ_LIB libzmq)
+  set(ZMQ_INC "")
+else()
+  find_library(ZMQ_LIB  NAMES zmq libzmq)
+  find_path   (ZMQ_INC  NAMES zmq.h)
+endif()
 
-if(ZMQ_LIB AND ZMQ_INC)
+if(ZeroMQ_FOUND OR (ZMQ_LIB AND ZMQ_INC))
   message(STATUS "ZeroMQ found: ${ZMQ_LIB}")
   add_compile_definitions(HAS_ZMQ)
 

@@ -269,6 +269,7 @@ void ZmqBridge::publish_order(const OrderSignal& sig, bool ok)
     j["price"] = sig.price;
     j["ok"] = ok;
     j["market"] = (sig.market == Market::US ? "US" : "KR");
+    j["account"] = account_no_;
     enqueue("ORDER", j.dump());
 }
 
@@ -299,6 +300,7 @@ void ZmqBridge::publish_fill(const FillNotification& fn, double commission,
     j["avg_price"]    = avg_price;
     j["net_qty"]      = net_qty;
     j["realized_pnl"] = realized_pnl;
+    j["account"]      = account_no_;
     enqueue("FILL", j.dump());
 }
 

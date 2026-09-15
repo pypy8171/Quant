@@ -37,6 +37,9 @@ public:
     void set_bind_address(std::string addr) { if (!addr.empty()) bind_addr_ = std::move(addr); }
     // KILL 공유 토큰. 비어 있으면 KILL을 아예 받지 않는다 — 무인증 REQ 한 방으로 매매가 서는 것을 막는다.
     void set_control_token(std::string token) { control_token_ = std::move(token); }
+    // 이 프로세스가 물린 브로커 계좌번호. 한 프로세스=한 계좌라 FILL/ORDER 페이로드에 고정으로 실어
+    // DB 쪽에서 실계좌·모의계좌 원장이 섞이지 않게 한다.
+    void set_account_no(std::string acct) { account_no_ = std::move(acct); }
 
     // ── 이벤트 publish (스레드-안전: 내부 큐 경유) ──────────────────────────
     void publish_trade(const TradeData& td);
@@ -71,6 +74,7 @@ private:
     int rep_port_;
     std::string bind_addr_ = "127.0.0.1";
     std::string control_token_;
+    std::string account_no_;
 
     std::atomic<bool> running_{false};
     std::thread zmq_thread_;

@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS orders (
     qty        INTEGER,
     price      NUMERIC(18,4),
     ok         BOOLEAN,
-    market     TEXT DEFAULT 'KR'
+    market     TEXT DEFAULT 'KR',
+    account    TEXT            -- 브로커 계좌번호 (실계좌·모의계좌 원장 분리, D-090)
 );
 SELECT create_hypertable('orders', 'ts', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS orders_ticker_ts ON orders (ticker, ts DESC);
@@ -58,20 +59,26 @@ CREATE TABLE IF NOT EXISTS fills (
     filled_price NUMERIC(18,4) NOT NULL,
     commission   NUMERIC(18,4),            -- 수수료 (매수·매도 0.015%)
     tax          NUMERIC(18,4),            -- 거래세 (매도 0.18%)
-    market       TEXT DEFAULT 'KR'
+    market       TEXT DEFAULT 'KR',
+    regime       TEXT,
+    strategy     TEXT,
+    account      TEXT          -- 브로커 계좌번호 (실계좌·모의계좌 원장 분리, D-090)
 );
 SELECT create_hypertable('fills', 'ts', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS fills_odno        ON fills (odno);
 CREATE INDEX IF NOT EXISTS fills_ticker_ts   ON fills (ticker, ts DESC);
+CREATE INDEX IF NOT EXISTS fills_ts_idx      ON fills (ts DESC);
 
 -- ── 포지션 원장 (계좌 현재 상태) ─────────────────────────────────────────────
 -- 체결 발생 시 UPSERT, 장 마감 EOD 배치에서도 갱신
 CREATE TABLE IF NOT EXISTS positions (
-    ticker       TEXT          PRIMARY KEY,
+    account      TEXT          NOT NULL DEFAULT 'unknown',  -- 브로커 계좌번호 (D-090, PK의 일부)
+    ticker       TEXT          NOT NULL,
     quantity     INTEGER       NOT NULL DEFAULT 0,
     avg_price    NUMERIC(18,4) NOT NULL DEFAULT 0,  -- 매수 평균단가
     realized_pnl NUMERIC(18,4) NOT NULL DEFAULT 0,  -- 당일 실현손익
-    updated_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    updated_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (account, ticker)
 );
 
 -- ── 계좌 일별 스냅샷 (원금추적/기간수익률용) ────────────────────────────────
