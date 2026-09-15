@@ -454,20 +454,20 @@
     {
       "file": "Quant/include/strategy/DeviationScaleStrategy.h",
       "symbol": "on_trade_batch",
-      "lines": 675,
+      "lines": 684,
       "start": 294
     },
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::data_thread_fn",
       "lines": 470,
-      "start": 1152
+      "start": 1216
     },
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::start",
       "lines": 443,
-      "start": 531
+      "start": 595
     },
     {
       "file": "Quant/src/risk/OrderGate.cpp",
@@ -488,6 +488,12 @@
       "start": 185
     },
     {
+      "file": "Quant/src/core/Engine.cpp",
+      "symbol": "Engine::maybe_rescan_universe",
+      "lines": 301,
+      "start": 256
+    },
+    {
       "file": "Quant/include/strategy/IntradayBreakoutStrategy.h",
       "symbol": "on_trade",
       "lines": 294,
@@ -500,12 +506,6 @@
       "start": 64
     },
     {
-      "file": "Quant/src/core/Engine.cpp",
-      "symbol": "Engine::maybe_rescan_universe",
-      "lines": 237,
-      "start": 256
-    },
-    {
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::on_fill",
       "lines": 236,
@@ -515,7 +515,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::strategy_thread_fn",
       "lines": 206,
-      "start": 1809
+      "start": 1873
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
@@ -623,7 +623,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::shard_thread_fn",
       "lines": 126,
-      "start": 2016
+      "start": 2080
     },
     {
       "file": "scripts/token_audit.py",
@@ -701,7 +701,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::control_thread_fn",
       "lines": 104,
-      "start": 2403
+      "start": 2467
     },
     {
       "file": "Quant/src/api/WsSocketPosix.cpp",
@@ -719,7 +719,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::order_thread_fn",
       "lines": 101,
-      "start": 2144
+      "start": 2208
     },
     {
       "file": "Quant/include/strategy/SupplyDemandPullbackStrategy.h",
@@ -809,7 +809,7 @@
       "file": "Quant/include/strategy/DeviationScaleStrategy.h",
       "symbol": "prefetch_loop",
       "lines": 90,
-      "start": 1028
+      "start": 1037
     },
     {
       "file": "PYQuant/tools/log_report.py",
@@ -821,7 +821,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::drain_manual_inbox",
       "lines": 89,
-      "start": 2618
+      "start": 2682
     },
     {
       "file": "Quant/src/universe/UniverseScanner.cpp",

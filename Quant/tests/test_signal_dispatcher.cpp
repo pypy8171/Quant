@@ -1,8 +1,8 @@
 // 신호 디스패처(core/SignalDispatcher.h) 단위 테스트. 주문 큐·ZMQ·종목 표기·청산 관리 여부를 std::function으로
 //  대신해 Engine 없이 순번 부여, 비활성 전략·청산 관리 티커 차단, 교체 진입의 매도-보류-발주·만료·취소, 강제청산
-//  잔량 계산과 스로틀, 한도 초과분 정리의 1회성, 전략 활성 플래그(국면·유니버스 AND), 유니버스 이탈·복귀 판정
-//  (core/UniverseExit.h)을 고정한다. OrderGate·Logger를 링크한다.
-//  관련 결정: D-019(교체 진입), D-038(순번), D-063(분리), D-077(유니버스 이탈).
+//  잔량 계산과 스로틀, 한도 초과분 정리의 1회성, 전략 활성 플래그(국면·유니버스 AND), 유니버스 이탈·복귀 판정과
+//  등록 상한 교체 후보 선택(core/UniverseExit.h)을 고정한다. OrderGate·Logger를 링크한다.
+//  관련 결정: D-019(교체 진입), D-038(순번), D-063(분리), D-077(유니버스 이탈), D-087(등록층 점수 교체).
 // 빌드: cmake --build <dir> --target test_signal_dispatcher
 #include "core/SignalDispatcher.h"
 #include "core/UniverseExit.h"
@@ -11,6 +11,8 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <map>
+#include <set>
 #include <vector>
 
 namespace
@@ -174,6 +176,40 @@ int test_universe_exit_judge()
     CHECK(clamp_block(900, 600) == 600);
     CHECK(clamp_block(40, 600) == 40);
     CHECK(clamp_block(900, 0) == 900);
+    return 0;
+}
+
+// 등록 상한이 찼을 때 오늘 순위 밖·미보유 종목에게만, 부재가 가장 긴 것부터 자리를 비운다 (D-087).
+int test_universe_evict_pick()
+{
+    using namespace universe_exit;
+    std::map<std::string, int> owned{{"A", 1}, {"B", 2}, {"C", 3}};
+    auto reserved0  = [](const std::string&) { return 0; };
+    auto no_absence = [](const std::string&) -> long long { return 0; };
+
+    // A만 오늘 top-N 밖(미보유) — A가 후보.
+    CHECK(pick_evict_candidate(owned, std::set<std::string>{"B", "C"}, std::set<std::string>{}, reserved0,
+                                no_absence) == "A");
+    // 전부 오늘 top-N 안이면 내줄 게 없다.
+    CHECK(pick_evict_candidate(owned, std::set<std::string>{"A", "B", "C"}, std::set<std::string>{}, reserved0,
+                                no_absence)
+              .empty());
+    // top-N 밖이어도 보유 중이면 대상 아님.
+    CHECK(pick_evict_candidate(owned, std::set<std::string>{"B", "C"}, std::set<std::string>{"A"}, reserved0,
+                                no_absence)
+              .empty());
+    // top-N 밖이어도 선점(reserved) 중이면 대상 아님.
+    auto reserved_a = [](const std::string& t) { return t == "A" ? 1 : 0; };
+    CHECK(pick_evict_candidate(owned, std::set<std::string>{"B", "C"}, std::set<std::string>{}, reserved_a,
+                                no_absence)
+              .empty());
+    // 부재 시간이 다르면 가장 오래 밖에 있던 쪽(B)을 고른다 — owned 순회 순서와 무관.
+    auto absence_b_longer = [](const std::string& t) -> long long { return t == "B" ? 900 : 100; };
+    CHECK(pick_evict_candidate(owned, std::set<std::string>{}, std::set<std::string>{}, reserved0,
+                                absence_b_longer) == "B");
+    // 부재 시간이 전부 같으면(추적 없음 포함) 티커 문자열 순으로 고정 — 맵 순회 순서에 기대지 않는다.
+    CHECK(pick_evict_candidate(owned, std::set<std::string>{}, std::set<std::string>{}, reserved0, no_absence) ==
+          "A");
     return 0;
 }
 
@@ -349,9 +385,9 @@ int main()
         Logger::instance().set_base_dir(Logger::executable_dir() / "logs_test");
     }
 
-    if (test_stamp() || test_strategy_gate() || test_universe_exit_judge() || test_displace_hold_and_release() ||
-        test_displace_cancel_and_expiry() || test_force_liq_orders() || test_trim_orders() ||
-        test_force_liq_throttle() || test_trim_once())
+    if (test_stamp() || test_strategy_gate() || test_universe_exit_judge() || test_universe_evict_pick() ||
+        test_displace_hold_and_release() || test_displace_cancel_and_expiry() || test_force_liq_orders() ||
+        test_trim_orders() || test_force_liq_throttle() || test_trim_once())
     {
         return 1;
     }

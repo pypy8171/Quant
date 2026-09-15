@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <string>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 유니버스 이탈·복귀 판정의 순수 부분. Engine::maybe_rescan_universe(data_thread)가 시계·스캔 결과를 넣어
@@ -55,5 +56,37 @@ inline Absent judge_absent(long long absent_sec, const Thresholds& th, bool in_u
 inline bool judge_return(int present_streak, const Thresholds& th, bool in_universe)
 {
     return !in_universe && present_streak >= std::max(1, th.return_confirm);
+}
+
+// 등록 상한이 찼을 때 자리를 내줄 후보 — 오늘 스캔 top-N에 없고(점수 밀림) 미보유·미선점인 등록 종목 중
+//  부재가 가장 오래된 것(absent_sec 최댓값). owned가 unordered_map이라 순회 순서가 해시 상태에 달리므로,
+//  부재 시간이 같을 때는(또는 부재 추적이 없을 때는 전부 0으로 같을 때는) 티커 문자열로 마저 정해
+//  입력이 같으면 항상 같은 종목을 고른다 — 순회 순서에 기대지 않는다 [why D-087].
+template <typename OwnedMap, typename InScanSet, typename HeldSet, typename ReservedFn, typename AbsentSecFn>
+inline std::string pick_evict_candidate(const OwnedMap& owned, const InScanSet& in_scan, const HeldSet& held,
+                                         ReservedFn&& reserved, AbsentSecFn&& absent_sec)
+{
+    std::string best;
+    long long   best_absent_sec = -1;
+
+    for (const auto& kv : owned)
+    {
+        const auto& ticker = kv.first;
+
+        if (in_scan.count(ticker) || held.count(ticker) || reserved(ticker) != 0)
+        {
+            continue;
+        }
+
+        const long long sec = absent_sec(ticker);
+
+        if (sec > best_absent_sec || (sec == best_absent_sec && (best.empty() || ticker < best)))
+        {
+            best            = ticker;
+            best_absent_sec = sec;
+        }
+    }
+
+    return best;
 }
 } // namespace universe_exit

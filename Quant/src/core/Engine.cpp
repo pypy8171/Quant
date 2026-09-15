@@ -308,6 +308,66 @@ void Engine::maybe_rescan_universe()
         int  added  = 0;
         bool capped = false;
 
+        // 상한에 닿았을 때 자리를 내줄 후보 — 오늘 스캔 top-N에 없고(점수 밀림) 미보유인 등록 종목.
+        //  누적 등록만 세면 한 번 자리 잡은 종목이 오늘 순위와 무관하게 영영 남는다 [why D-087].
+        //  이탈 판정(아래)도 같은 스캔·같은 보유 스냅샷을 쓴다 — 두 번 찍으면 그 사이 체결로 어긋날 수 있다.
+        std::unordered_set<std::string> in_scan(tickers.begin(), tickers.end());
+        std::unordered_set<std::string> held;
+
+        for (const auto& h : order_gate_.snapshot_positions())
+        {
+            if (h.qty != 0 || order_gate_.reserved(h.account, h.ticker) != 0)
+            {
+                held.insert(h.ticker);
+            }
+        }
+
+        auto retire_owned_for_evict = [&](const std::string& tk, const std::string& beneficiary)
+        {
+            auto oit = job.owned.find(tk);
+
+            if (oit == job.owned.end())
+            {
+                return;
+            }
+
+            StrategyBase* ptr = oit->second;
+            ptr->set_active(false);
+
+            std::unique_ptr<StrategyBase> victim;
+            uint64_t ver = 0;
+            {
+                std::lock_guard<std::mutex> lk(strat_mutex_);
+                auto sit = std::find_if(strategies_.begin(), strategies_.end(),
+                                        [ptr](const std::unique_ptr<StrategyBase>& s) { return s.get() == ptr; });
+
+                if (sit != strategies_.end())
+                {
+                    victim = std::move(*sit);
+                    strategies_.erase(sit);
+                }
+
+                ver = strat_version_.fetch_add(1, std::memory_order_release) + 1;
+            }
+
+            if (victim)
+            {
+                LOG_INFO("[Engine] 재스캔 점수 교체 — 오늘 순위 밖·미보유 해제: " + victim->describe() +
+                         " → " + beneficiary);
+                retired_.push_back(Retired{std::move(victim), ver});
+            }
+
+            registered_tickers_.erase(tk);
+            job.owned.erase(oit);
+            job.absent_since.erase(tk);
+            job.present_streak.erase(tk);
+
+            if (job.registered > 0)
+            {
+                --job.registered;
+            }
+        };
+
         for (auto& t : tickers)
         {
             if (t.empty() || registered_tickers_.count(t))
@@ -315,12 +375,27 @@ void Engine::maybe_rescan_universe()
                 continue;
             }
 
-            // 상한에 닿으면 더 등록하지 않는다. 해제 경로가 없어 한번 등록한 종목은 남으므로,
-            //  상한이 없으면 재스캔마다 조회량이 계단식으로 늘어난다.
+            // 상한에 닿으면 오늘 순위 밖·미보유 종목을 찾아 그 자리를 내준다. 없으면 더 등록하지 않는다.
             if (job.max_registered > 0 && job.registered >= job.max_registered)
             {
-                capped = true;
-                break;
+                const std::string victim_ticker = universe_exit::pick_evict_candidate(
+                    job.owned, in_scan, held,
+                    [this](const std::string& tk) { return order_gate_.reserved(tk); },
+                    [&job, now_c](const std::string& tk) -> long long
+                    {
+                        auto it = job.absent_since.find(tk);
+                        return it == job.absent_since.end()
+                                   ? 0LL
+                                   : std::chrono::duration_cast<std::chrono::seconds>(now_c - it->second).count();
+                    });
+
+                if (victim_ticker.empty())
+                {
+                    capped = true;
+                    break;
+                }
+
+                retire_owned_for_evict(victim_ticker, t);
             }
 
             auto strat = job.factory(t);
@@ -375,18 +450,7 @@ void Engine::maybe_rescan_universe()
         job.empty_scan_warned = false;
 
         // 이탈 판정. universe_fn은 보유 종목을 결과에서 이미 빼고 주므로(drop_held) 빠져 있다는
-        //  것만으로는 이탈이 아니다 — 보유·선점을 원장에서 다시 보고, 있으면 present로 친다.
-        std::unordered_set<std::string> in_scan(tickers.begin(), tickers.end());
-        std::unordered_set<std::string> held;
-
-        for (const auto& h : order_gate_.snapshot_positions())
-        {
-            if (h.qty != 0 || order_gate_.reserved(h.account, h.ticker) != 0)
-            {
-                held.insert(h.ticker);
-            }
-        }
-
+        //  것만으로는 이탈이 아니다 — in_scan·held는 위에서 이미 찍은 같은 스냅샷을 그대로 쓴다.
         const universe_exit::Thresholds th{job.block_after_sec, job.drop_after_sec, job.return_confirm};
         std::vector<std::string> drop;
 
