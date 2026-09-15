@@ -69,7 +69,7 @@
     {
       "from": "main",
       "to": "core",
-      "weight": 1
+      "weight": 2
     },
     {
       "from": "main",
@@ -469,6 +469,7 @@
     ],
     "main.cpp": [
       "core/Engine.h",
+      "core/Types.h",
       "modes/Monitors.h",
       "strategy/StrategyFactory.h",
       "utils/Logger.h"
@@ -781,6 +782,7 @@
       "core/TickSize.h",
       "ipc/OrderRouter.h",
       "ipc/ZmqBridge.h",
+      "main.cpp",
       "modes/Monitors.cpp",
       "risk/OrderGate.h",
       "strategy/StrategyBase.h",
@@ -933,7 +935,7 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 27
+      "in_degree": 28
     },
     {
       "header": "utils/Logger.h",

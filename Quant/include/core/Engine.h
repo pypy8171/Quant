@@ -286,6 +286,24 @@ public:
     void request_shutdown();                     // running_ 내리고 다섯 스레드에 정지 요청. KILL 핸들러·시그널 핸들러·stop()이 부른다. join은 stop()만
 
 private:
+    // ── start() 단계 분리 (가독성용, 로직은 그대로) ────────────────────────────
+    void setup_shards();
+
+#ifdef HAS_ZMQ
+    void setup_zmq_bridge();
+#endif
+
+    bool authenticate_feed(bool offline);
+    void setup_paper_executor(bool offline);
+    void init_order_router();
+    void init_ledger_reconciler();
+    void init_data_poller();
+    bool try_bootstrap_ledger();
+    void start_strategies();
+    void collect_watch_specs();
+    void connect_feed();
+    void spawn_threads();
+
     // ── 스레드 진입점 ────────────────────────────────────────────────────────
     // 다섯 스레드는 stop_token으로 정지를 본다. running_은 엔진 밖(main 루프·KILL 핸들러·폴러)이 읽는 깃발 [why D-070]
     void data_thread_fn(std::stop_token st);

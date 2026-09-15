@@ -601,15 +601,9 @@ void Engine::reap_retired(bool force)
     strat_.retired.erase(keep, strat_.retired.end());
 }
 
-void Engine::start()
+// ─── start() 단계 분리 (가독성용, 로직은 그대로) ──────────────────────────────
+void Engine::setup_shards()
 {
-    if (running_.load())
-    {
-        return;
-    }
-
-    LOG_INFO("[Engine] ── 퀀트 엔진 시작 ──────────────────────────────");
-
     // 샤드는 WS 콜백·데이터 스레드가 push 뒤 깨우므로 소켓을 열기 전에 만든다. 스레드는 아래에서 같이 띄운다.
     //  stop() 뒤 다시 start()하면 옛 샤드(스레드는 join 뒤)를 버리고 새로 만든다.
     pipeline_.shard_threads.clear();
@@ -649,8 +643,11 @@ void Engine::start()
 
     LOG_INFO("[Engine] 전략 샤드 " + std::to_string(shard_count) + "개 (config strategy_shards=" +
              std::to_string(pipeline_.strategy_shards) + ")");
+}
 
 #ifdef HAS_ZMQ
+void Engine::setup_zmq_bridge()
+{
     zmq_bridge_ = std::make_unique<ZmqBridge>();
     zmq_bridge_->set_bind_address(zmq_bind_addr_);
     zmq_bridge_->set_control_token(zmq_control_token_);
@@ -677,54 +674,62 @@ void Engine::start()
             return "UNKNOWN";
         });
     zmq_bridge_->start();
+}
 #endif
 
+bool Engine::authenticate_feed(bool offline)
+{
     // 피드를 직접 받았거나 캡처 파일을 트는 것이면 브로커 없이 돈다 — feed_.kis는 비고, 아래 KIS를 보는 경로는 전부 null을
     //  "소스 없음"으로 다룬다. 리플레이의 종목은 config tickers(전략 구독)뿐이고 유니버스 스캔·REST 봉 시드는 없다. [why D-071]
-    const bool offline = feed_.feed_override != nullptr || !feed_.replay_file.empty();
-
     if (offline)
     {
         LOG_INFO(std::string("[Engine] ") + (feed_.feed_override ? "피드 주입" : "리플레이") +
                  " — KIS 없이 기동(주문·잔고는 모의 체결기)");
+        return true;
     }
-    else
+
+    feed_.kis = std::make_unique<KisClient>(kis_cfg_);
+
+    if (!feed_.kis->authenticate())
     {
-        feed_.kis = std::make_unique<KisClient>(kis_cfg_);
+        LOG_ERROR("[Engine] KIS 인증 실패");
+        return false;
+    }
 
-        if (!feed_.kis->authenticate())
+    // 시세 전용 클라이언트(실전 도메인) — 모의 시세 REST가 HTTP 500이므로 시세만 실전으로 조회.
+    //  실패해도 feed_.kis(모의)로 폴백하되, 모의 시세는 500이라 사실상 틱이 안 나옴을 경고.
+    //  WS 모드에서도 만들어 둔다: WS가 죽어 폴링으로 낮출 때 쓸 시세 소스가 그때 가서는 없으면
+    //  폴백이 무의미해진다(모의 도메인으로 폴링하면 500만 쌓인다).
+    if (feed_.has_quote_kis)
+    {
+        feed_.quote_kis = std::make_unique<KisClient>(feed_.quote_kis_cfg);
+
+        if (!feed_.quote_kis->authenticate())
         {
-            LOG_ERROR("[Engine] KIS 인증 실패");
-            return;
+            LOG_ERROR("[Engine] 시세 클라이언트(실전) 인증 실패 — 모의 시세로 폴백(틱 없을 수 있음)");
+            feed_.quote_kis.reset();
         }
-
-        // 시세 전용 클라이언트(실전 도메인) — 모의 시세 REST가 HTTP 500이므로 시세만 실전으로 조회.
-        //  실패해도 feed_.kis(모의)로 폴백하되, 모의 시세는 500이라 사실상 틱이 안 나옴을 경고.
-        //  WS 모드에서도 만들어 둔다: WS가 죽어 폴링으로 낮출 때 쓸 시세 소스가 그때 가서는 없으면
-        //  폴백이 무의미해진다(모의 도메인으로 폴링하면 500만 쌓인다).
-        if (feed_.has_quote_kis)
+        else
         {
-            feed_.quote_kis = std::make_unique<KisClient>(feed_.quote_kis_cfg);
-
-            if (!feed_.quote_kis->authenticate())
-            {
-                LOG_ERROR("[Engine] 시세 클라이언트(실전) 인증 실패 — 모의 시세로 폴백(틱 없을 수 있음)");
-                feed_.quote_kis.reset();
-            }
-            else
-            {
-                LOG_INFO("[Engine] 시세 클라이언트(실전 도메인) 인증 완료 — 현재가 폴링 소스");
-            }
+            LOG_INFO("[Engine] 시세 클라이언트(실전 도메인) 인증 완료 — 현재가 폴링 소스");
         }
     }
 
+    return true;
+}
+
+void Engine::setup_paper_executor(bool offline)
+{
     // KIS가 없으면 주문·잔고는 모의 체결기가 받는다. [why D-071]
     if (offline)
     {
         feed_.paper = std::make_unique<feed::PaperExecutor>(feed_.replay_cash);
         LOG_INFO("[Engine] 모의 체결기: 현금 " + std::to_string(static_cast<long long>(feed_.replay_cash)) + "원");
     }
+}
 
+void Engine::init_order_router()
+{
     IOrderExecutor& executor = feed_.paper ? static_cast<IOrderExecutor&>(*feed_.paper) : *feed_.kis;
 
     // FEP OrderRouter 초기화
@@ -742,7 +747,10 @@ void Engine::start()
     //  보유수량을 바꾸지 않고 주문가능현금·매도가능수량만 푸는데 둘 다 주기 잔고 대조가
     //  다시 읽는다.
     order_router_->cancel_stale_orders_async();
+}
 
+void Engine::init_ledger_reconciler()
+{
     // 잔고 → 원장 대조기. 브로커·라우터·종목명은 함수로 넘겨 대조기가 KisClient·OrderRouter를 모르게 한다. [why D-061]
     ledger_ = std::make_unique<LedgerReconciler>(order_gate_,
                                                  [this] { return feed_.paper ? feed_.paper->balance() : feed_.kis->get_balance(); });
@@ -750,7 +758,10 @@ void Engine::start()
     ledger_->set_baseline_dir(Logger::instance().base_dir()); // 실행 위치와 무관하게 로그 폴더와 같은 곳
     ledger_->set_name_sink([this](const std::string& t, const std::string& n) { register_ticker_name(t, n); });
     ledger_->set_reconcile_sink([this](const reconcile::Row& r) { order_router_->record_reconcile(r); });
+}
 
+void Engine::init_data_poller()
+{
     // REST 현재가 폴러. 시세는 시세 전용 클라이언트가 있으면 그쪽(실전 도메인 초당 한도가 높다). [why D-062]
     //  [lock-order] 데이터 스레드는 pipeline_.td_mx의 WS 레인 행에 넣지 않는다 — 폴러의 틱은 자기 행(pipeline_.data_row)으로 간다.
     poller_ = std::make_unique<DataPoller>(
@@ -773,15 +784,28 @@ void Engine::start()
             pipeline_.shards[m]->wake().notify();
         });
     poller_->set_keep_going([this] { return running_.load(std::memory_order_acquire); });
+}
 
+bool Engine::try_bootstrap_ledger()
+{
     // G5: 실계좌 보유분을 원장에 시드 (스레드 시작 전, 단일스레드 구간)
-    if (bootstrap_ledger_ && !ledger_->bootstrap())
+    if (!bootstrap_ledger_)
     {
-        // running_이 아직 false라 main 루프가 바로 빠지고, 감시자가 5초 뒤 다시 띄운다.
-        LOG_ERROR("[Engine] 원장 없이 기동하지 않는다 — 프로세스 종료");
-        return;
+        return true;
     }
 
+    if (ledger_->bootstrap())
+    {
+        return true;
+    }
+
+    // running_이 아직 false라 main 루프가 바로 빠지고, 감시자가 5초 뒤 다시 띄운다.
+    LOG_ERROR("[Engine] 원장 없이 기동하지 않는다 — 프로세스 종료");
+    return false;
+}
+
+void Engine::start_strategies()
+{
     // 전략 초기화 (시세 클라이언트 주입 → on_start 내부에서 Universe 조회)
     // 전략의 feed_.kis는 차트(일봉·분봉)·랭킹 등 "읽기 전용 시세 조회"에만 쓰인다(실제 주문 발주는 OrderThread가 담당).
     // 분봉 TR(inquire-time-itemchartprice)은 모의 도메인에서 HTTP 500 → 시세 전용 실전 클라이언트가
@@ -817,7 +841,10 @@ void Engine::start()
             LOG_ERROR("[Engine] on_start 알 수 없는 예외 [" + s->id() + "] — 전략 건너뜀");
         }
     }
+}
 
+void Engine::collect_watch_specs()
+{
     // 전략별 구독 스펙 수집 (중복 제거)
     watch_specs_.clear();
     {
@@ -849,187 +876,190 @@ void Engine::start()
             universe_rescan_.registered_tickers.insert(spec.ticker);
         }
     }
+}
 
-    running_.store(true);
-
-    // 런타임 피드 상태를 config 의도로 초기화. 이후 WS 생사에 따라 control_thread가 토글한다.
-    feed_.rest_feed_active.store(feed_.rest_price_feed, std::memory_order_relaxed);
-
+void Engine::connect_feed()
+{
     // WebSocket — 동적 구독 스펙으로 연결.
     //  feed_.rest_price_feed 모드에서는 WS를 열지 않는다: KIS는 app_key당 실시간 1세션만
     //  허용하는데, 세션 정리가 서버측에 걸려 rt=9(ALREADY IN USE) 재연결 폭주가 나므로
     //  체결 피드를 REST 현재가 폴링(data_thread_fn)으로 대체하고 WS 의존을 제거한다.
     //  주문은 REST(order_thread_fn)로 나가므로 매매에는 영향 없음(체결통보 on_fill만 없음).
-    if (!feed_.rest_price_feed && !watch_specs_.empty())
+    if (feed_.rest_price_feed || watch_specs_.empty())
     {
-        if (feed_.feed_override)
+        return;
+    }
+
+    if (feed_.feed_override)
+    {
+        feed_.ws = std::move(feed_.feed_override);
+        LOG_INFO("[Engine] 주입된 피드 소스(레인 " + std::to_string(feed_.ws->lanes()) + "개)");
+    }
+    else if (!feed_.replay_file.empty())
+    {
+        feed_.ws = std::make_unique<feed::ReplaySource>(feed_.replay_file, feed_.replay_speed);
+        LOG_INFO("[Engine] 리플레이 소스: " + feed_.replay_file + " (speed " + std::to_string(feed_.replay_speed) + ")");
+    }
+    else if (feed_.extra_feed_cfgs.empty())
+    {
+        feed_.ws = std::make_unique<KisWebSocket>(kis_cfg_);
+    }
+    else
+    {
+        // 소켓 여럿 — 첫 소스가 기본 키다(체결통보는 첫 소스만 받는다). 레인 모드라 소켓 i의 수신 스레드가
+        //  행렬의 행 i에 직접 넣는다(mux 스레드 없음). 소켓이 하나면 FeedMux를 끼우지 않는다.
+        std::vector<std::unique_ptr<feed::IFeedSource>> socks;
+        socks.push_back(std::make_unique<KisWebSocket>(kis_cfg_));
+
+        for (const auto& c : feed_.extra_feed_cfgs)
         {
-            feed_.ws = std::move(feed_.feed_override);
-            LOG_INFO("[Engine] 주입된 피드 소스(레인 " + std::to_string(feed_.ws->lanes()) + "개)");
+            socks.push_back(std::make_unique<KisWebSocket>(c));
         }
-        else if (!feed_.replay_file.empty())
+
+        feed_.ws = std::make_unique<feed::FeedMux>(std::move(socks));
+        LOG_INFO("[Engine] WS 소켓 " + std::to_string(feed_.extra_feed_cfgs.size() + 1) + "개를 FeedMux 레인 " +
+                 std::to_string(pipeline_.ws_lanes) + "개로 묶는다");
+    }
+
+    // 리플레이를 다시 캡처하면 같은 틱이 두 파일에 남으므로 캡처는 WS일 때만 연다.
+    if (!feed_.capture_dir.empty() && feed_.replay_file.empty())
+    {
+        // 파일명은 UTC 기동 시각 — 재기동이 같은 파일에 이어 쓰지 않도록.
+        const auto now_s = std::chrono::duration_cast<std::chrono::seconds>(
+                               std::chrono::system_clock::now().time_since_epoch())
+                               .count();
+        const std::filesystem::path file =
+            std::filesystem::path(feed_.capture_dir) / ("ticks_" + std::to_string(now_s) + ".bin");
+        feed_.capture = std::make_unique<feed::TickCapture>(file);
+
+        if (feed_.capture->ok())
         {
-            feed_.ws = std::make_unique<feed::ReplaySource>(feed_.replay_file, feed_.replay_speed);
-            LOG_INFO("[Engine] 리플레이 소스: " + feed_.replay_file + " (speed " + std::to_string(feed_.replay_speed) + ")");
-        }
-        else if (feed_.extra_feed_cfgs.empty())
-        {
-            feed_.ws = std::make_unique<KisWebSocket>(kis_cfg_);
+            LOG_INFO("[Engine] 틱 캡처 시작: " + file.string());
         }
         else
         {
-            // 소켓 여럿 — 첫 소스가 기본 키다(체결통보는 첫 소스만 받는다). 레인 모드라 소켓 i의 수신 스레드가
-            //  행렬의 행 i에 직접 넣는다(mux 스레드 없음). 소켓이 하나면 FeedMux를 끼우지 않는다.
-            std::vector<std::unique_ptr<feed::IFeedSource>> socks;
-            socks.push_back(std::make_unique<KisWebSocket>(kis_cfg_));
-
-            for (const auto& c : feed_.extra_feed_cfgs)
-            {
-                socks.push_back(std::make_unique<KisWebSocket>(c));
-            }
-
-            feed_.ws = std::make_unique<feed::FeedMux>(std::move(socks));
-            LOG_INFO("[Engine] WS 소켓 " + std::to_string(feed_.extra_feed_cfgs.size() + 1) + "개를 FeedMux 레인 " +
-                     std::to_string(pipeline_.ws_lanes) + "개로 묶는다");
-        }
-
-        // 리플레이를 다시 캡처하면 같은 틱이 두 파일에 남으므로 캡처는 WS일 때만 연다.
-        if (!feed_.capture_dir.empty() && feed_.replay_file.empty())
-        {
-            // 파일명은 UTC 기동 시각 — 재기동이 같은 파일에 이어 쓰지 않도록.
-            const auto now_s = std::chrono::duration_cast<std::chrono::seconds>(
-                                   std::chrono::system_clock::now().time_since_epoch())
-                                   .count();
-            const std::filesystem::path file =
-                std::filesystem::path(feed_.capture_dir) / ("ticks_" + std::to_string(now_s) + ".bin");
-            feed_.capture = std::make_unique<feed::TickCapture>(file);
-
-            if (feed_.capture->ok())
-            {
-                LOG_INFO("[Engine] 틱 캡처 시작: " + file.string());
-            }
-            else
-            {
-                LOG_WARN("[Engine] 틱 캡처 파일을 열지 못해 캡처 없이 간다: " + file.string());
-            }
-        }
-
-        // 레인 = 이 콜백을 부르는 수신 스레드 번호 = 행렬의 행. 한 행은 그 스레드만 넣는다(SPSC 셀, 원칙 5).
-        feed_.ws->set_lane_callbacks([this](uint32_t lane, const OrderBook& in)
-                           {
-                               OrderBook ob = in;
-                               ob.sym       = symbols_.intern(ob.ticker);
-
-                               // 수신 스레드가 디코드 시점에 찍은 값을 지킨다. 안 찍힌 소스만 여기서 찍는다.
-                               if (ob.recv_ns == 0)
-                               {
-                                   ob.recv_ns = trace::now_ns();
-                               }
-
-                               if (feed_.capture)
-                               {
-                                   feed_.capture->on_book(ob);
-                               }
-
-                               // 호가도 체결과 같은 규칙 — 버린 수를 세고 넘침이 시작될 때 한 번 남긴다.
-                               const auto m = pipeline_.ob_mx.consumer_of(ob.sym);
-
-                               if (!pipeline_.ob_mx.push_to(lane, m, ob))
-                               {
-                                   if (ob_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
-                                   {
-                                       LOG_WARN("[WS] 호가 큐 가득 — 호가 폐기 시작 " + in.ticker.str() +
-                                                " (샤드 스레드 정체 의심)");
-                                   }
-
-                                   return;
-                               }
-
-                               pipeline_.shards[m]->wake().notify();
-                           },
-                           [this](uint32_t lane, const TradeData& in)
-                           {
-                               // push가 어차피 한 번 복사하므로 여기서 복사해 id를 찍고 move로 넣는다. 수신 시각은
-                               //  수신 스레드가 디코드 시점에 찍은 값을 지키고, 안 찍힌 소스만 여기서 찍는다.
-                               TradeData td = in;
-                               td.sym       = symbols_.intern(td.ticker);
-
-                               if (td.recv_ns == 0)
-                               {
-                                   td.recv_ns = trace::now_ns();
-                               }
-
-                               if (feed_.capture)
-                               {
-                                   feed_.capture->on_trade(td);
-                               }
-
-                               // 모의 체결은 틱 스레드에서 — 체결통보 큐의 생산자가 이 스레드 하나로 남는다
-                               //  (feed_.paper는 리플레이·피드 주입 전용이고 둘 다 레인 하나다).
-                               if (feed_.paper)
-                               {
-                                   feed_.paper->on_tick(in.ticker, in.price, in.hhmmss);
-                               }
-
-                               // 전략 스레드가 멈추면 큐가 차고 틱이 여기서 사라진다 — 세어 두고
-                               //  넘침이 시작될 때 한 번 남긴다(09-11 15:15 잔고 조회 정체). [why D-055]
-                               const auto m = pipeline_.td_mx.consumer_of(td.sym);
-
-                               if (!pipeline_.td_mx.push_to(lane, m, td))
-                               {
-                                   if (td_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
-                                   {
-                                       LOG_WARN("[WS] 체결 큐 가득 — 틱 폐기 시작 " + in.ticker.str() +
-                                                " (샤드 스레드 정체 의심)");
-                                   }
-
-                                   return;
-                               }
-
-                               pipeline_.shards[m]->wake().notify();
-#ifdef HAS_ZMQ
-                               if (zmq_bridge_)
-                               {
-                                   zmq_bridge_->publish_trade(td);
-                               }
-#endif
-                           });
-        auto push_fill = [this](const FillNotification& fn)
-                               {
-                                   // 수신 스레드는 큐에 넣고 바로 돌아간다. 가득 찼으면(1024건 밀림 = 소비자가 멈춘 것)
-                                   //  기다리지 않고 버린다 — 여기서 대기하면 전 종목 틱이 같이 선다. 버린 건은
-                                   //  잔고 대조(control_thread)가 원장에 메운다. [why D-056]
-                                   if (!pipeline_.fill_queue.push(fn))
-                                   {
-                                       const auto n = pipeline_.fill_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
-                                       LOG_ERROR("[Engine] 체결통보 큐 가득 참 — 드롭 " + fn.ticker + " ODNO=" + fn.odno +
-                                                 " (누적 " + std::to_string(n) + "건)");
-                                       return;
-                                   }
-
-                                   pipeline_.fill_wake.notify();
-                               };
-        feed_.ws->set_fill_callback(push_fill);
-
-        if (feed_.paper)
-        {
-            feed_.paper->set_fill_callback(push_fill);
-        }
-
-        if (!feed_.ws->connect(watch_specs_))
-        {
-            // 예전에는 경고만 남기고 넘어갔는데, 그러면 전략이 호가·체결을 하나도 못 받아
-            //  매매가 조용히 멈춘다(폴링 경로가 꺼져 있으므로). 폴링으로 낮춰 계속 돈다.
-            //  control_thread가 재연결을 계속 시도하고, 붙으면 WS로 되돌린다.
-            LOG_ERROR("[Engine] WebSocket 최초 연결 실패");
-
-            if (!activate_rest_fallback("최초 연결 실패"))
-            {
-                LOG_ERROR("[Engine] 폴링 폴백도 불가(시세 소스 없음) — 호가/체결 이벤트 없이 동작");
-            }
+            LOG_WARN("[Engine] 틱 캡처 파일을 열지 못해 캡처 없이 간다: " + file.string());
         }
     }
 
+    // 레인 = 이 콜백을 부르는 수신 스레드 번호 = 행렬의 행. 한 행은 그 스레드만 넣는다(SPSC 셀, 원칙 5).
+    feed_.ws->set_lane_callbacks([this](uint32_t lane, const OrderBook& in)
+                       {
+                           OrderBook ob = in;
+                           ob.sym       = symbols_.intern(ob.ticker);
+
+                           // 수신 스레드가 디코드 시점에 찍은 값을 지킨다. 안 찍힌 소스만 여기서 찍는다.
+                           if (ob.recv_ns == 0)
+                           {
+                               ob.recv_ns = trace::now_ns();
+                           }
+
+                           if (feed_.capture)
+                           {
+                               feed_.capture->on_book(ob);
+                           }
+
+                           // 호가도 체결과 같은 규칙 — 버린 수를 세고 넘침이 시작될 때 한 번 남긴다.
+                           const auto m = pipeline_.ob_mx.consumer_of(ob.sym);
+
+                           if (!pipeline_.ob_mx.push_to(lane, m, ob))
+                           {
+                               if (ob_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
+                               {
+                                   LOG_WARN("[WS] 호가 큐 가득 — 호가 폐기 시작 " + in.ticker.str() +
+                                            " (샤드 스레드 정체 의심)");
+                               }
+
+                               return;
+                           }
+
+                           pipeline_.shards[m]->wake().notify();
+                       },
+                       [this](uint32_t lane, const TradeData& in)
+                       {
+                           // push가 어차피 한 번 복사하므로 여기서 복사해 id를 찍고 move로 넣는다. 수신 시각은
+                           //  수신 스레드가 디코드 시점에 찍은 값을 지키고, 안 찍힌 소스만 여기서 찍는다.
+                           TradeData td = in;
+                           td.sym       = symbols_.intern(td.ticker);
+
+                           if (td.recv_ns == 0)
+                           {
+                               td.recv_ns = trace::now_ns();
+                           }
+
+                           if (feed_.capture)
+                           {
+                               feed_.capture->on_trade(td);
+                           }
+
+                           // 모의 체결은 틱 스레드에서 — 체결통보 큐의 생산자가 이 스레드 하나로 남는다
+                           //  (feed_.paper는 리플레이·피드 주입 전용이고 둘 다 레인 하나다).
+                           if (feed_.paper)
+                           {
+                               feed_.paper->on_tick(in.ticker, in.price, in.hhmmss);
+                           }
+
+                           // 전략 스레드가 멈추면 큐가 차고 틱이 여기서 사라진다 — 세어 두고
+                           //  넘침이 시작될 때 한 번 남긴다(09-11 15:15 잔고 조회 정체). [why D-055]
+                           const auto m = pipeline_.td_mx.consumer_of(td.sym);
+
+                           if (!pipeline_.td_mx.push_to(lane, m, td))
+                           {
+                               if (td_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
+                               {
+                                   LOG_WARN("[WS] 체결 큐 가득 — 틱 폐기 시작 " + in.ticker.str() +
+                                            " (샤드 스레드 정체 의심)");
+                               }
+
+                               return;
+                           }
+
+                           pipeline_.shards[m]->wake().notify();
+#ifdef HAS_ZMQ
+                           if (zmq_bridge_)
+                           {
+                               zmq_bridge_->publish_trade(td);
+                           }
+#endif
+                       });
+    auto push_fill = [this](const FillNotification& fn)
+                           {
+                               // 수신 스레드는 큐에 넣고 바로 돌아간다. 가득 찼으면(1024건 밀림 = 소비자가 멈춘 것)
+                               //  기다리지 않고 버린다 — 여기서 대기하면 전 종목 틱이 같이 선다. 버린 건은
+                               //  잔고 대조(control_thread)가 원장에 메운다. [why D-056]
+                               if (!pipeline_.fill_queue.push(fn))
+                               {
+                                   const auto n = pipeline_.fill_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
+                                   LOG_ERROR("[Engine] 체결통보 큐 가득 참 — 드롭 " + fn.ticker + " ODNO=" + fn.odno +
+                                             " (누적 " + std::to_string(n) + "건)");
+                                   return;
+                               }
+
+                               pipeline_.fill_wake.notify();
+                           };
+    feed_.ws->set_fill_callback(push_fill);
+
+    if (feed_.paper)
+    {
+        feed_.paper->set_fill_callback(push_fill);
+    }
+
+    if (!feed_.ws->connect(watch_specs_))
+    {
+        // 예전에는 경고만 남기고 넘어갔는데, 그러면 전략이 호가·체결을 하나도 못 받아
+        //  매매가 조용히 멈춘다(폴링 경로가 꺼져 있으므로). 폴링으로 낮춰 계속 돈다.
+        //  control_thread가 재연결을 계속 시도하고, 붙으면 WS로 되돌린다.
+        LOG_ERROR("[Engine] WebSocket 최초 연결 실패");
+
+        if (!activate_rest_fallback("최초 연결 실패"))
+        {
+            LOG_ERROR("[Engine] 폴링 폴백도 불가(시세 소스 없음) — 호가/체결 이벤트 없이 동작");
+        }
+    }
+}
+
+void Engine::spawn_threads()
+{
     // jthread는 stop_token을 첫 인자로 넣으므로 멤버 함수 포인터(this가 첫 인자)는 람다로 감싼다.
     data_thread_     = std::jthread([this](std::stop_token st) { data_thread_fn(st); });
 
@@ -1042,6 +1072,50 @@ void Engine::start()
     order_thread_    = std::jthread([this](std::stop_token st) { order_thread_fn(st); });
     fill_thread_     = std::jthread([this](std::stop_token st) { fill_thread_fn(st); });
     control_thread_  = std::jthread([this](std::stop_token st) { control_thread_fn(st); });
+}
+
+void Engine::start()
+{
+    if (running_.load())
+    {
+        return;
+    }
+
+    LOG_INFO("[Engine] ── 퀀트 엔진 시작 ──────────────────────────────");
+
+    setup_shards();
+
+#ifdef HAS_ZMQ
+    setup_zmq_bridge();
+#endif
+
+    const bool offline = feed_.feed_override != nullptr || !feed_.replay_file.empty();
+
+    if (!authenticate_feed(offline))
+    {
+        return;
+    }
+
+    setup_paper_executor(offline);
+    init_order_router();
+    init_ledger_reconciler();
+    init_data_poller();
+
+    if (!try_bootstrap_ledger())
+    {
+        return;
+    }
+
+    start_strategies();
+    collect_watch_specs();
+
+    running_.store(true);
+
+    // 런타임 피드 상태를 config 의도로 초기화. 이후 WS 생사에 따라 control_thread가 토글한다.
+    feed_.rest_feed_active.store(feed_.rest_price_feed, std::memory_order_relaxed);
+
+    connect_feed();
+    spawn_threads();
 
     LOG_INFO("[Engine] 모든 스레드 시작 완료");
 }

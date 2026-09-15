@@ -11,6 +11,10 @@ endif()
 
 project ("Quant")
 
+# CMP0141의 자동 링커 /DEBUG 주입이 Ninja + Open-Folder 조합에서 안 먹어
+# quant_trader.pdb가 재빌드해도 안 갱신되는 문제가 있었다 — 명시로 강제한다.
+add_link_options($<$<CONFIG:Debug,RelWithDebInfo>:/DEBUG>)
+
 # ctest가 루트 빌드 폴더에서 하위 테스트를 찾게 한다(`ctest --preset x64-release`).
 enable_testing()
 

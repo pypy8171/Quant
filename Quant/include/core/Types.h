@@ -356,3 +356,51 @@ public:
 private:
     Value value_ = UNKNOWN;
 };
+
+// 실행 모드 — StrategyType과 같은 스마트enum idiom. main.cpp의 인자·config "mode" 파싱이 쓴다.
+class Mode
+{
+public:
+    enum Value
+    {
+        FEED,
+        KR_TEST,
+        US_TEST,
+        TRADE
+    };
+
+    Mode() = default;
+    constexpr Mode(Value v) : value_(v)
+    {
+    }
+
+    constexpr operator Value() const
+    {
+        return value_;
+    }
+
+    // config/argv "mode" 문자열 → Mode. 모르는 값(과거 "TRADE" 포함)은 TRADE로 낙하 —
+    //  기존 if/else 체인이 FEED/KR_TEST/US_TEST만 걸러내고 나머지를 TRADE 경로로 흘리던 것과 동일하다.
+    static Mode from_string(const std::string& s)
+    {
+        if (s == "FEED")
+        {
+            return Mode(FEED);
+        }
+
+        if (s == "KR_TEST")
+        {
+            return Mode(KR_TEST);
+        }
+
+        if (s == "US_TEST")
+        {
+            return Mode(US_TEST);
+        }
+
+        return Mode(TRADE);
+    }
+
+private:
+    Value value_ = TRADE;
+};

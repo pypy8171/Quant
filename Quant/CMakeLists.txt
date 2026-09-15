@@ -177,6 +177,9 @@ endif()
 # ─── 실행 파일 ──────────────────────────────────────
 add_executable(quant_trader src/main.cpp)
 target_link_libraries(quant_trader PRIVATE quant_engine)
+set_target_properties(quant_trader PROPERTIES
+  VS_DEBUGGER_COMMAND_ARGUMENTS "${CMAKE_CURRENT_SOURCE_DIR}/config/config_dev_paper.json"
+  VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 if(WIN32)
   target_link_libraries(quant_trader PRIVATE dbghelp)   # 비정상 종료 미니덤프(main.cpp on_seh)
 endif()

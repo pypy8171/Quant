@@ -420,13 +420,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::data_thread_fn",
       "lines": 470,
-      "start": 1226
-    },
-    {
-      "file": "Quant/src/core/Engine.cpp",
-      "symbol": "Engine::start",
-      "lines": 444,
-      "start": 604
+      "start": 1300
     },
     {
       "file": "Quant/src/risk/OrderGate.cpp",
@@ -439,12 +433,6 @@
       "symbol": "load_deviation_scale",
       "lines": 365,
       "start": 566
-    },
-    {
-      "file": "Quant/src/main.cpp",
-      "symbol": "main",
-      "lines": 321,
-      "start": 226
     },
     {
       "file": "Quant/src/core/Engine.cpp",
@@ -474,7 +462,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::strategy_thread_fn",
       "lines": 206,
-      "start": 1883
+      "start": 1957
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
@@ -487,6 +475,12 @@
       "symbol": "OrderRouter::cancel_stale_orders_async",
       "lines": 187,
       "start": 839
+    },
+    {
+      "file": "Quant/src/core/Engine.cpp",
+      "symbol": "Engine::connect_feed",
+      "lines": 179,
+      "start": 881
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
@@ -537,6 +531,12 @@
       "start": 168
     },
     {
+      "file": "Quant/src/main.cpp",
+      "symbol": "main",
+      "lines": 144,
+      "start": 389
+    },
+    {
       "file": "PYQuant/main.py",
       "symbol": "main",
       "lines": 143,
@@ -582,7 +582,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::shard_thread_fn",
       "lines": 126,
-      "start": 2090
+      "start": 2164
     },
     {
       "file": "scripts/token_audit.py",
@@ -660,7 +660,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::control_thread_fn",
       "lines": 104,
-      "start": 2477
+      "start": 2551
     },
     {
       "file": "Quant/src/api/WsSocketPosix.cpp",
@@ -678,7 +678,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::order_thread_fn",
       "lines": 101,
-      "start": 2218
+      "start": 2292
     },
     {
       "file": "Quant/include/strategy/SupplyDemandPullbackStrategy.h",
@@ -780,7 +780,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::drain_manual_inbox",
       "lines": 89,
-      "start": 2692
+      "start": 2766
     },
     {
       "file": "Quant/src/universe/UniverseScanner.cpp",

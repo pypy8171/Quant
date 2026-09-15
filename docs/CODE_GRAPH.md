@@ -29,7 +29,7 @@ graph LR
   ipc -->|5| core
   ipc --> risk
   ipc -->|3| utils
-  main --> core
+  main -->|2| core
   main --> modes
   main --> strategy
   main --> utils
@@ -55,7 +55,7 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 27 |
+| `core/Types.h` | 28 |
 | `utils/Logger.h` | 24 |
 | `strategy/StrategyBase.h` | 13 |
 | `api/KisClient.h` | 11 |
@@ -284,6 +284,7 @@ graph LR
   n_ipc_ZmqBridge_cpp --> n_utils_Logger_h
   n_ipc_ZmqBridge_h --> n_core_Types_h
   n_main_cpp --> n_core_Engine_h
+  n_main_cpp --> n_core_Types_h
   n_main_cpp --> n_modes_Monitors_h
   n_main_cpp --> n_strategy_StrategyFactory_h
   n_main_cpp --> n_utils_Logger_h
