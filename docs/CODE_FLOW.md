@@ -180,8 +180,8 @@ config를 읽고 전략을 만들고 `Engine::start()`가 행렬·샤드·원장
    `Quant/src/risk/OrderGate.cpp:222` · `bool OrderGate::check(const OrderSignal& sig, std::string& reject_reason)` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
 40. [`OrderGate::clamp_buy_qty`](../Quant/src/risk/OrderGate.cpp#L53) — 매수 수량을 현금·명목 한도로 깎는다. 0이 되면 거부  
    `Quant/src/risk/OrderGate.cpp:53` · `int OrderGate::clamp_buy_qty(const OrderSignal& sig)` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
-41. [`OrderGate::plan_displacement`](../Quant/src/risk/OrderGate.cpp#L1148) — 슬롯이 찼을 때 어느 보유를 내보낼지. 디스패처의 교체 진입이 이 계획을 쓴다  
-   `Quant/src/risk/OrderGate.cpp:1148` · `OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account, …` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
+41. [`OrderGate::plan_displacement`](../Quant/src/risk/OrderGate.cpp#L1154) — 슬롯이 찼을 때 어느 보유를 내보낼지. 디스패처의 교체 진입이 이 계획을 쓴다  
+   `Quant/src/risk/OrderGate.cpp:1154` · `OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account, …` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
 42. [`OrderGate::on_accept`](../Quant/src/risk/OrderGate.cpp#L662) — `reserved_` 선점(슬롯·현금). 체결·취소에서 되돌리는 짝은 `on_fill_confirmed`·`on_cancel`  
    `Quant/src/risk/OrderGate.cpp:662` · `void OrderGate::on_accept(const std::string& account, const std::string& ticker, …` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
 43. [`KisClient::submit_order_ack`](../Quant/src/api/KisOrder.cpp#L129) — 현금 주문 REST. tr_id(실/모의)·`auth_headers`·응답에서 ODNO. 여기서만 KIS에 주문이 닿는다  

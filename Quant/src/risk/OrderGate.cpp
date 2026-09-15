@@ -1044,7 +1044,13 @@ OrderGate::FillResult OrderGate::on_fill_confirmed(
         }
     }
 
-    if (side == OrderSide::SELL && !result.basis_unknown)
+    if (side == OrderSide::BUY)
+    {
+        // 매수 수수료도 발생 즉시 비용으로 인식한다 — avg_price에 얹으면 평단 표시가
+        //  실제 체결가와 어긋나므로, daily_pnl_에서 바로 뺀다.
+        add_realized_pnl(-result.commission);
+    }
+    else if (side == OrderSide::SELL && !result.basis_unknown)
     {
         add_realized_pnl(result.realized_pnl);
     }

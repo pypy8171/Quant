@@ -178,7 +178,10 @@ void test_sell_unknown_basis_no_fake_profit()
     auto r2 = gate.on_fill_confirmed("ACC2", "047050", OrderSide::SELL, 10, 54700.0);
     assert(!r2.basis_unknown);
     assert(r2.realized_pnl > 0.0 && r2.realized_pnl < 47000.0); // 47,000원에서 수수료·세금 차감
-    assert(gate.daily_pnl() == r2.realized_pnl);
+
+    // 매수 수수료(10*50000*0.00015=75원)도 발생 즉시 daily_pnl_에서 빠진다.
+    const double buy_commission = 10 * 50000.0 * 0.00015;
+    assert(gate.daily_pnl() == r2.realized_pnl - buy_commission);
     PASS("sell_unknown_basis_no_fake_profit");
 }
 

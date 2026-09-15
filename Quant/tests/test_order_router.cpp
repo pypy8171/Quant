@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <cassert>
 #include <chrono>
+#include <cmath>
 #include <ctime>
 #include <iostream>
 #include <cstdlib>
@@ -368,7 +369,11 @@ void test_unmapped_fill_duplicate_ignored()
     s.odno = "PREV-SELL"; s.ticker = "316140"; s.side = OrderSide::SELL;
     s.filled_qty = 75; s.filled_price = 34050.0; s.fill_time = "093000";
     router.on_fill(s);
-    assert(gate.daily_pnl() == 0.0);
+
+    // 위 BUY 100주(91+9, 평단 54700)의 매수 수수료가 발생 즉시 차감돼 있다.
+    //  SELL(316140)은 평단 미상이라 0을 더할 뿐 — 실현이익은 안 생긴다(C-1).
+    const double buy_commission = 100 * 54700.0 * 0.00015;
+    assert(std::abs(gate.daily_pnl() - (-buy_commission)) < 0.01); // 분할 누적 부동소수 오차 허용
     PASS("unmapped_fill_duplicate_ignored");
 }
 
