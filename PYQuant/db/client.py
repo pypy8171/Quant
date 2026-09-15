@@ -203,8 +203,8 @@ class DbClient:
             with self._conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO fills"
-                    "(ts,odno,ticker,side,filled_qty,filled_price,commission,tax,market,regime,account)"
-                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    "(ts,odno,ticker,side,filled_qty,filled_price,commission,tax,market,regime,strategy,account)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (
                         ts,
                         data["odno"],
@@ -216,6 +216,7 @@ class DbClient:
                         data.get("tax"),
                         data.get("market", "KR"),
                         data.get("regime"),   # 그때의 국면 stamp (없으면 NULL)
+                        data.get("strategy"),
                         data.get("account"),  # 브로커 계좌번호 (D-090, 실계좌·모의계좌 분리)
                     ),
                 )

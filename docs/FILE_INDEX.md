@@ -740,6 +740,7 @@
 - [analyze_slot_cost.py](../scripts/analyze_slot_cost.py) — 보유 슬롯 한도 비용 분석 스크립트
 - [auto_trade_day.ps1](../scripts/auto_trade_day.ps1) — 일일 자동매매 기동 스크립트
 - [auto_trade_guard.ps1](../scripts/auto_trade_guard.ps1) — 자동매매 감시견 스크립트
+- [backfill_fills_db.py](../scripts/backfill_fills_db.py) — 과거 체결 원장 CSV를 TimescaleDB fills 테이블에 적재하는 스크립트
 - [backfill_studies.py](../scripts/backfill_studies.py) — 스터디 결과 메트릭 백필 스크립트
 - [brace_style.py](../scripts/brace_style.py) — 중괄호 스타일 강제 스크립트
 - [build.sh](../scripts/build.sh) — Docker 이미지 빌드 스크립트
