@@ -168,13 +168,19 @@ public:
         // SELL인데 원장이 평단을 모를 때 true. 그 경우 realized_pnl은 0으로 두고 daily_pnl에도
         //  더하지 않는다 — (price-0)*qty가 이익으로 잡히면 일일 손실컷이 무력화된다(C-1).
         bool   basis_unknown = false;
+        // strategy_id별 서브원장(전략별 손익 귀속, D-089) — 위 필드들과 계산은 독립이고
+        //  daily_pnl_·kill switch 판정에는 안 들어간다. 참고용 집계만.
+        double strategy_realized_pnl  = 0.0; // 이번 체결의 strategy_id 기준 실현손익 (SELL만)
+        bool   strategy_basis_unknown = false; // strategy_id가 비었거나 그 전략의 평단을 모를 때 true
     };
+    // strategy_id: OrderSignal.strategy_id(예: "TRENDX_108490"). 빈 문자열이면 서브원장 갱신을 건너뛴다.
     FillResult on_fill_confirmed(const std::string& account, const std::string& ticker,
-                                 OrderSide side, int qty, double price);
+                                 OrderSide side, int qty, double price,
+                                 const std::string& strategy_id = std::string());
     FillResult on_fill_confirmed(const std::string& ticker, OrderSide side,
                                  int qty, double price)
     {
-        return on_fill_confirmed(std::string(), ticker, side, qty, price);
+        return on_fill_confirmed(std::string(), ticker, side, qty, price, std::string());
     }
 
     // ── Kill switch ─────────────────────────────────────────────────────────
@@ -413,6 +419,11 @@ private:
     PosMap<int>       sellable_;         // (account,ticker) → 매도가능수량(주)
     PosMap<int>       missed_sell_seen_; // (account,ticker) → 직전 대조에서 본 잔고 수량(2회 연속 확인용)
     PosMap<TimePoint> opened_at_;        // (account,ticker) → 포지션이 0에서 열린 시각(교체 최소 보유 판정)
+
+    // strategy_id별 서브원장(D-089, 손익 귀속 전용) — positions_/avg_prices_와 같은 락(positions_mtx_)으로 보호.
+    //  키는 strategy_id 그대로(예: "TRENDX_108490") — 이미 (슬리브,종목)을 유일하게 담아 계좌 축은 안 섞는다.
+    std::unordered_map<std::string, int>    strategy_positions_;
+    std::unordered_map<std::string, double> strategy_avg_prices_;
 
     mutable std::mutex pnl_mtx_;
     double daily_pnl_{0.0};

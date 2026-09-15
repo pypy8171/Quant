@@ -961,7 +961,8 @@ void OrderGate::seed_position(const std::string& account, const std::string& tic
 
 // ─── 체결 확인 — avg_price 재계산 + 실현손익 적립 ──────────────────────────
 OrderGate::FillResult OrderGate::on_fill_confirmed(
-    const std::string& account, const std::string& ticker, OrderSide side, int qty, double price)
+    const std::string& account, const std::string& ticker, OrderSide side, int qty, double price,
+    const std::string& strategy_id)
 {
     FillResult result;
     result.commission = price * qty * kCommissionRate;                              // 수수료 0.015%
@@ -972,6 +973,47 @@ OrderGate::FillResult OrderGate::on_fill_confirmed(
         const PosKey k = make_key(account, ticker);
         int pre_qty    = positions_.count(k) ? positions_[k] : 0; // 체결 전 실보유
         double cur_avg = avg_prices_.count(k) ? avg_prices_[k] : 0.0;
+
+        // strategy_id별 서브원장(D-089) — 위 종목단위 pre_qty/cur_avg와 별개로 같은 락에서 갱신.
+        //  빈 문자열이면 건드리지 않는다(계산·판정에 영향 없음, 참고용 집계일 뿐).
+        if (!strategy_id.empty())
+        {
+            int strat_pre_qty    = strategy_positions_.count(strategy_id) ? strategy_positions_[strategy_id] : 0;
+            double strat_cur_avg = strategy_avg_prices_.count(strategy_id) ? strategy_avg_prices_[strategy_id] : 0.0;
+
+            if (side == OrderSide::BUY)
+            {
+                int strat_new_qty = strat_pre_qty + qty;
+                strategy_avg_prices_[strategy_id] = (strat_new_qty > 0)
+                    ? (strat_pre_qty * strat_cur_avg + qty * price) / strat_new_qty
+                    : price;
+                strategy_positions_[strategy_id] = strat_new_qty;
+            }
+            else // SELL
+            {
+                if (strat_pre_qty <= 0 || strat_cur_avg <= 0.0)
+                {
+                    result.strategy_basis_unknown = true;
+                }
+                else
+                {
+                    result.strategy_realized_pnl = (price - strat_cur_avg) * qty
+                                                    - result.commission - result.tax;
+                }
+
+                int strat_new_qty = strat_pre_qty - qty;
+
+                if (strat_new_qty <= 0)
+                {
+                    strategy_positions_.erase(strategy_id);
+                    strategy_avg_prices_.erase(strategy_id);
+                }
+                else
+                {
+                    strategy_positions_[strategy_id] = strat_new_qty;
+                }
+            }
+        }
 
         if (side == OrderSide::BUY)
         {

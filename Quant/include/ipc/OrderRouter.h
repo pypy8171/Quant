@@ -134,9 +134,11 @@ private:
     //   event가 빈 문자열이면 mo.status를 event로 사용(접수/거부/취소). 체결은 "FILL".
     //   파일 쓰기는 io_mtx_로 직렬화한다(hist_mtx_ 밖에서 호출 — 디스크가 원장 락을 잡지 않게).
     //   realized_pnl은 매도 체결의 실현손익(수수료·세금 차감 후). 그 외 행은 빈 칸으로 남긴다.
+    //   strategy_realized_pnl은 같은 매도 체결의 strategy_id 기준 실현손익(D-089, 열 맨 끝 추가분).
     void        write_trade_row(const std::string& event, const ManagedOrder& mo,
                                 int fill_qty, double fill_price,
-                                double realized_pnl = 0.0);
+                                double realized_pnl = 0.0,
+                                double strategy_realized_pnl = 0.0);
     // 원장 CSV에 한 줄을 덧붙인다(io_mtx_). 파일이 없으면 헤더를 쓰고, 옛 헤더면 열을 맞춰
     //  한 번 재작성한다. write_trade_row·record_reconcile이 줄을 만들어 여기로 보낸다.
     void        append_trade_line(const std::string& line);

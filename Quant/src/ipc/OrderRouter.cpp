@@ -1033,7 +1033,8 @@ void OrderRouter::cancel_stale_orders_async()
 //  덧붙이는 방식이라 중간 삽입은 기존 행의 값을 엉뚱한 열로 밀어낸다. Python 판독기는 열 이름으로 읽는다.
 static const std::string kTradeHeader =
     "ts_kst,event,order_id,odno,strategy,ticker,side,type,"
-    "order_qty,order_price,fill_qty,fill_price,status,reason,entry_reason,realized_pnl,seq";
+    "order_qty,order_price,fill_qty,fill_price,status,reason,entry_reason,realized_pnl,seq,"
+    "strategy_realized_pnl";
 
 // CSV 깨짐 방지: 콤마/개행 공백 치환
 static std::string csv_safe(std::string s)
@@ -1141,7 +1142,8 @@ void OrderRouter::append_trade_line(const std::string& line)
 }
 
 void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& mo,
-                                  int fill_qty, double fill_price, double realized_pnl)
+                                  int fill_qty, double fill_price, double realized_pnl,
+                                  double strategy_realized_pnl)
 {
     const OrderSignal& sig = mo.signal;
 
@@ -1186,6 +1188,14 @@ void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& 
     if (sig.seq != 0)
     {
         f += std::to_string(sig.seq);
+    }
+
+    // strategy_realized_pnl은 realized_pnl과 같은 조건(SELL 체결)에서만 채운다 — 열 끝 추가분(D-089).
+    f += ',';
+
+    if (event == "FILL" && sig.side == OrderSide::SELL)
+    {
+        std::format_to(std::back_inserter(f), "{:.2f}", strategy_realized_pnl);
     }
 
     append_trade_line(f);
@@ -1702,7 +1712,7 @@ void OrderRouter::on_fill(const FillNotification& fn)
         // TODO(다계좌): 진짜 다중 CANO 라우팅 시 ODNO가 계좌별로 재사용되므로 체결 매칭 키를
         //   (odno + account) 또는 CANO별 H0STCNI 피드 분리로 확장해야 오적립을 막는다.
         auto result = gate_.on_fill_confirmed(mo.signal.account_id, fn.ticker, fn.side,
-                                              apply_qty, fn.filled_price);
+                                              apply_qty, fn.filled_price, mo.signal.strategy_id);
 
         // 락 밖에서 쓰려고 복사한다 — mo는 history_ 원소라 record()의 축출로 참조가 죽을 수 있다.
         const ManagedOrder snap        = mo;
@@ -1718,7 +1728,8 @@ void OrderRouter::on_fill(const FillNotification& fn)
 
         // 거래 원장 CSV — 실제 체결(부분/전량)을 한 줄로 영속화. 실현손익을 같이 남기려고
         //   gate_.on_fill_confirmed() 뒤에 쓴다(mo.status는 위에서 이미 갱신됨).
-        write_trade_row("FILL", snap, apply_qty, fn.filled_price, result.realized_pnl);
+        write_trade_row("FILL", snap, apply_qty, fn.filled_price, result.realized_pnl,
+                        result.strategy_realized_pnl);
         write_open_orders_file(open_orders, seq);
 #ifdef HAS_ZMQ
         if (zmq_)
@@ -1780,7 +1791,7 @@ void OrderRouter::on_fill(const FillNotification& fn)
     gate_.on_accept(orphan.signal.account_id, fn.ticker, fn.side,
                     fn.filled_qty, fn.filled_price);
     auto result = gate_.on_fill_confirmed(orphan.signal.account_id, fn.ticker, fn.side,
-                                          fn.filled_qty, fn.filled_price);
+                                          fn.filled_qty, fn.filled_price, orphan.signal.strategy_id);
     lk.unlock(); // 원장 갱신 끝 — 파일 쓰기는 락 밖에서
 
     if (result.basis_unknown)
@@ -1789,7 +1800,8 @@ void OrderRouter::on_fill(const FillNotification& fn)
                              orphan.order_id, fn.ticker, fn.filled_qty, static_cast<int>(fn.filled_price)));
     }
 
-    write_trade_row("FILL", orphan, fn.filled_qty, fn.filled_price, result.realized_pnl);
+    write_trade_row("FILL", orphan, fn.filled_qty, fn.filled_price, result.realized_pnl,
+                    result.strategy_realized_pnl);
 #ifdef HAS_ZMQ
     if (zmq_)
     {

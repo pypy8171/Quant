@@ -996,6 +996,9 @@ static bool parse_active_regimes(const json& s, const std::string& type, std::ve
 // ─── 디스패치 ───────────────────────────────────────────────────────────────
 void load_strategies(StrategyLoadCtx& ctx, const json& strategies)
 {
+    // 실사용 현황(config_dev_paper.json 기준, 2026-09-15): DEVIATION_SCALE만 라이브(눌림 DEVSCALE·추격 TRENDX 슬리브 2개).
+    // INTRADAY_BREAKOUT은 이 표로 등록되는 게 아니라 attach_holding_guardians()가 승계 보유분에만 붙이는 청산 전용 가디언.
+    // 나머지(MA_CROSS·MOMENTUM·VALUE_CONTRARY·FIXED_INTERVAL·PRICE_TARGET·SUPPLY_DEMAND_PULLBACK·MARKET_MAKING·THEME)는 현재 config 어디에도 안 걸림 — 죽은 코드는 아니고 미사용.
     static const std::map<std::string, void (*)(StrategyLoadCtx&, const json&)> LOADERS = {
         {"MA_CROSS", load_ma_cross},
         {"INTRADAY_BREAKOUT", load_intraday_breakout},
