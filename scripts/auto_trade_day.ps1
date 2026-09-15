@@ -24,6 +24,7 @@ param(
   [switch]$NoDashboard,
   [switch]$NoNotify,                 # 체결·포지션 메신저 알림 창을 띄우지 않는다
   [switch]$NoPrices,                 # 전 종목 시세 파일 전달(네이버 벌크) 창을 띄우지 않는다
+  [switch]$NoRecorder,               # ZMQ 체결·주문을 TimescaleDB에 적재하는 창을 띄우지 않는다
   [switch]$NoEod,                    # 마감 뒤 사실 문서·대시보드 갱신을 건너뛴다
   [switch]$NoBuild,                  # 기동 전 재빌드를 건너뛴다(exe를 손으로 바꾼 날). 이때는 소스가 exe보다 새면 중단
   [switch]$DryRun
@@ -271,6 +272,10 @@ if (-not $NoUniverse)  {
 if (-not $NoPrices)    { Start-Window "quant-prices"    "& '$py' scripts\live_prices_feed.py" "live_prices_feed.py" }
 if (-not $NoDashboard) { Start-Window "quant-dashboard" "py scripts\dashboard_server.py" "dashboard_server.py" }
 if (-not $NoNotify)    { Start-Window "quant-notify"    "& '$py' scripts\notify_sidecar.py --config $Config --interval 1800" "notify_sidecar.py" }
+# 네이티브 트레이더는 컨테이너가 아니라 ZMQ PUB(127.0.0.1:5555)만 낸다 — docker-compose의
+# quant-recorder는 quant-engine 컨테이너를 구독하므로 이 프로세스를 못 본다(D-090 후속).
+# 같은 호스트에서 직접 구독해 TimescaleDB에 적재한다.
+if (-not $NoRecorder)  { Start-Window "quant-recorder"  "`$env:TSDB_PASSWORD='changeme'; & '$py' PYQuant\main.py record --host localhost --port 5555" "main.py record" }
 
 # ─────────────── 감시 루프 ───────────────
 $deadline = [datetime]::ParseExact((Get-Date -Format "yyyy-MM-dd") + " " + $Until, "yyyy-MM-dd HH:mm", $null)
