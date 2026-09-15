@@ -14,7 +14,7 @@
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 176개
 - [scripts](#scripts) — 45개
-- [strategies](#strategies) — 24개
+- [strategies](#strategies) — 25개
 - [tools](#tools) — 3개
 
 ## (루트)
@@ -813,6 +813,7 @@
 - [2026-09-10.md](../strategies/DeviationScale/live/2026-09-10.md) — DevScale 09-10 모의매매 일지(자동생성)
 - [2026-09-11.md](../strategies/DeviationScale/live/2026-09-11.md) — DevScale 09-11 모의매매 일지(자동생성)
 - [2026-09-14.md](../strategies/DeviationScale/live/2026-09-14.md) — 09-14 라이브 매매일지
+- [2026-09-15.md](../strategies/DeviationScale/live/2026-09-15.md) — 09-15 라이브 매매일지
 
 ### strategies/DeviationScale/reviews/
 
