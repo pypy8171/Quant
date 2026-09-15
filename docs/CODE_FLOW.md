@@ -153,8 +153,8 @@ config를 읽고 전략을 만들고 `Engine::start()`가 행렬·샤드·원장
    `Quant/src/core/SignalDispatcher.cpp:120` · `void SignalDispatcher::from_strategy(bool active, const std::string& strategy_id, const OrderSignal& sig)` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
 32. [`dispatch::SignalDispatcher::submit`](../Quant/src/core/SignalDispatcher.cpp#L147) — `seq` stamp(D-038) → 슬롯이 찼으면 교체 계획(최약체 매도 뒤 매수 보류) → 싱크(= `order_queue_` push)  
    `Quant/src/core/SignalDispatcher.cpp:147` · `void SignalDispatcher::submit(const OrderSignal& sig)` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
-33. [`dispatch::SignalDispatcher::force_liquidate`](../Quant/src/core/SignalDispatcher.cpp#L240) — 보유 전량 시장가 매도를 2초 간격 재발주. `ref_price`가 여기서 찍히는지 본다  
-   `Quant/src/core/SignalDispatcher.cpp:240` · `void SignalDispatcher::force_liquidate(Clock::time_point now)` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
+33. [`dispatch::SignalDispatcher::force_liquidate`](../Quant/src/core/SignalDispatcher.cpp#L245) — 보유 전량 시장가 매도를 2초 간격 재발주. `ref_price`가 여기서 찍히는지 본다  
+   `Quant/src/core/SignalDispatcher.cpp:245` · `void SignalDispatcher::force_liquidate(Clock::time_point now)` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
 34. [`Engine::drain_manual_inbox`](../Quant/src/core/Engine.cpp#L2618) — 운영단말 수동 주문이 같은 싱크로 들어온다 — 생산자를 늘리지 않기 위해 이 스레드가 꺼낸다  
    `Quant/src/core/Engine.cpp:2618` · `void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& emit)`
 

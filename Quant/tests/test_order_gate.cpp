@@ -375,6 +375,26 @@ void test_displace_daily_cap()
     PASS("displace_daily_cap");
 }
 
+void test_entry_snapshot_matches_separate_calls()
+{
+    auto cfg = displace_cfg();
+    cfg.max_concurrent_positions = 2;
+    OrderGate gate(cfg);
+    gate.seed_position("", "A", 10, 1000.0);
+
+    auto snap_new = gate.entry_snapshot("", "Z"); // 미보유·미선점·슬롯 여유
+    assert(snap_new.position == 0 && snap_new.reserved == 0 && !snap_new.slots_full);
+
+    auto snap_held = gate.entry_snapshot("", "A");
+    assert(snap_held.position == 10 && snap_held.reserved == 0);
+
+    gate.seed_position("", "B", 10, 1000.0); // 2/2 슬롯 — 새 종목은 이제 가득 참
+    auto snap_full = gate.entry_snapshot("", "Z");
+    assert(snap_full.position == 0 && snap_full.reserved == 0 && snap_full.slots_full);
+    assert(snap_full.slots_full == gate.slots_full());
+    PASS("entry_snapshot_matches_separate_calls");
+}
+
 // ─── 테스트 17: 시장가 명목 백스톱과 ref_price ────────────────────────────
 //   시장가는 price=0이라 eval_px가 ref_price로 떨어진다. 전략이 ref_price를 안 찍으면
 //   명목 검사 자체가 건너뛰어진다(현 설계). SELL은 청산 계열이라 초과해도 통과시킨다.
@@ -449,6 +469,7 @@ int main()
     test_displace_min_hold_blocks();
     test_displace_reserves_slot_and_cooldown();
     test_displace_daily_cap();
+    test_entry_snapshot_matches_separate_calls();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

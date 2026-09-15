@@ -1451,6 +1451,49 @@ double OrderGate::avg_price(const std::string& account, const std::string& ticke
     return (it != avg_prices_.end()) ? it->second : 0.0;
 }
 
+OrderGate::EntrySnapshot OrderGate::entry_snapshot(const std::string& account, const std::string& ticker) const
+{
+    EntrySnapshot snap;
+    std::lock_guard<std::mutex> lk(positions_mtx_);
+
+    const auto key = make_key(account, ticker);
+    auto pos_it = positions_.find(key);
+    snap.position = (pos_it != positions_.end()) ? pos_it->second : 0;
+
+    auto resv_it = reserved_.find(key);
+    snap.reserved = (resv_it != reserved_.end()) ? resv_it->second : 0;
+
+    if (cfg_.max_concurrent_positions > 0)
+    {
+        size_t open = 0;
+
+        for (const auto& kv : positions_)
+        {
+            if (kv.second > 0)
+            {
+                ++open;
+            }
+        }
+
+        for (const auto& kv : reserved_)
+        {
+            if (kv.second > 0)
+            {
+                auto it = positions_.find(kv.first);
+
+                if (it == positions_.end() || it->second <= 0)
+                {
+                    ++open;
+                }
+            }
+        }
+
+        snap.slots_full = open >= static_cast<size_t>(cfg_.max_concurrent_positions);
+    }
+
+    return snap;
+}
+
 double OrderGate::daily_pnl() const
 {
     std::lock_guard<std::mutex> lk(pnl_mtx_);

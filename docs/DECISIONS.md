@@ -3672,3 +3672,30 @@ WTI 수준 표(100달러 위 −1) — 위의 이유로 note만. 급락 강제�
 
 **확인 방법**: 다음 장 로그에 `[Regime] … score=` 코스피 줄이 없고, `[RegimeSelect] 국면=NEUTRAL`(또는 RISK_ON) 줄이 첫
 `regime.json` 폴링 뒤 한 번 남는지. `docs/eod/` 세션 표 국면 열이 RISK_ON/NEUTRAL/RISK_OFF로 찍히는지. ctest 33/33.
+
+### D-086 SignalDispatcher의 교체 진입 판단을 한 번의 잠금으로 읽는다 (2026-09-15)
+
+**배경**: 09-15 모의투자 09:44:24~09:44:36 사이 20초 안에 서로 다른 17종목이 사유 없는
+"동시 보유 종목 한도 초과 … — 신규 종목 진입 정지"로 거부됐다. `OrderGate::check()`는 `displace_decline_`에
+사유가 있으면 "교체 보류: …"를 붙이는데, `displace_decline_`은 `plan_displacement()`가 호출될 때마다(교체가
+성립하든 안 하든) 반드시 채워진다. 즉 사유가 비어 있다는 것은 `plan_displacement()` 자체가 불려지지 않았다는
+뜻이다. `SignalDispatcher::submit()`의 사전 판단(`gate_.position()`→`gate_.reserved()`→`gate_.capacity_full()`)은
+`positions_mtx_`를 세 번 따로 잠갔다 풀었다 한다 — 그 사이(주문 스레드가 큐를 처리하며 체결·선점을 반영하는 틈)에
+조합이 바뀌면 `capacity_full()`을 낡은 값으로 읽어 교체 판정을 건너뛸 수 있다. 같은 창에서 `[Displace]` 성공
+이벤트가 3건 있었으므로 `displace_enabled` 자체가 꺼진 것은 아니다 — 세 번 나눠 읽는 조합만 문제였다.
+
+**결정**: `OrderGate::entry_snapshot(account, ticker)`를 추가해 `position`·`reserved`·`slots_full`을
+`positions_mtx_` 잠금 한 번으로 함께 읽는다(슬롯 계산은 `check()` 3c 블록과 같은 인라인 루프를 그대로 복사 —
+`open_slot_count()`를 부르면 같은 뮤텍스를 재귀 잠금해 죽는다). `SignalDispatcher::submit()`은 이 스냅샷으로
+포지션·선점 여부와 슬롯가득참을 한 번에 보고, 총노출 상한(`capacity_full()`의 나머지 절반)만 별도 OR로 더한다.
+
+**버린 대안**: `OrderGate::check()` 안에서 교체 매도까지 동기 실행 — `check()`는 순수 판정 함수여야 하고, SELL
+주문 발행(부수효과)은 계약상 전략 스레드 몫이다(`order_queue_`는 단일 생산자, OrderGate.cpp:1056 주석).
+submit()→check() 사이(스레드를 건너 큐를 타는 구간)의 시차까지 없애는 락 재설계 — 이번 관측은 submit() 내부
+3회 잠금의 찢어진 조합이 원인이었고, 큐 건너 시차는 이미 있던 구조적 간격이라 범위 밖.
+
+**남은 위험**: submit() 시점과 check() 시점(다른 스레드, 큐를 사이에 둠) 사이의 시차 자체는 이 수정으로 없어지지
+않는다 — 이번에 닫은 것은 submit() 안에서 세 번 나눠 읽던 찢어진 조합뿐이다. 같은 다발 패턴이 다시 보이면 재관찰.
+
+**확인 방법**: 다음 슬롯 한도 다발 거부 창에서 사유 없는 "신규 종목 진입 정지"가 줄고 "교체 보류: …" 또는 실제 `[Displace]`
+매도로 대체되는지. ctest 33/33(또는 새 테스트 추가 시 34/34).

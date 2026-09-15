@@ -250,6 +250,16 @@ public:
     // 신규 종목을 열 여력이 없는가 — 자리(슬롯)와 예산(총노출) 중 하나만 막혀도 없다.
     bool capacity_full() const;
 
+    // position/reserved/슬롯가득참을 한 번의 잠금으로 함께 읽는다. [why D-086]
+    // [inv] 총노출 상한(capacity_full()의 나머지 절반)은 포함하지 않는다 — 호출부가 따로 더한다.
+    struct EntrySnapshot
+    {
+        int  position   = 0;
+        int  reserved   = 0;
+        bool slots_full = false;
+    };
+    EntrySnapshot entry_snapshot(const std::string& account, const std::string& ticker) const;
+
     // ── PnL stale guard (B2) — 잔고 대조 정체 시 신규 매수 정지 ──────────────
     // rest_price_feed 모드는 daily_pnl_을 잔고 대조(총평가금 델타)로만 갱신한다. 잔고조회가
     // 연속 실패(12002 타임아웃 등)해 서킷브레이커가 잔고 대조를 스킵하는 동안 daily_pnl_은 낡은

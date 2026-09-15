@@ -168,8 +168,13 @@ void SignalDispatcher::submit(const OrderSignal& sig)
         }
     }
 
-    if (gcfg.displace_enabled && buy_new && gate_.position(sig.account_id, sig.ticker) == 0 &&
-        gate_.reserved(sig.account_id, sig.ticker) == 0 && gate_.capacity_full())
+    // entry_snapshot()으로 position/reserved/slots_full을 한 번의 잠금에서 함께 읽는다 — 따로 세 번
+    //  잠그면(구 코드) 그 사이 주문 스레드가 positions_/reserved_를 바꿔 낡은 조합을 볼 수 있다.
+    //  [why D-086]
+    const auto snap = buy_new ? gate_.entry_snapshot(sig.account_id, sig.ticker) : OrderGate::EntrySnapshot{};
+
+    if (gcfg.displace_enabled && buy_new && snap.position == 0 && snap.reserved == 0 &&
+        (snap.slots_full || gate_.capacity_full()))
     {
         const auto plan = gate_.plan_displacement(sig.account_id, sig.ticker);
 
