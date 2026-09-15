@@ -1678,50 +1678,50 @@ void Engine::set_entry_priority(std::unordered_map<std::string, int> rank,
 //  부분/손상은 kUnreadable로 조용히 넘긴다.
 static regime_bridge::Observation observe_regime_file(const std::string& path, int stale_sec)
 {
-    regime_bridge::Observation o;
+    regime_bridge::Observation observation;
     std::error_code ec;
 
     if (!std::filesystem::exists(path, ec) || ec)
     {
-        return o; // kMissing
+        return observation; // kMissing
     }
 
     // 갱신 지연: 보조 프로세스가 죽어 파일이 오래되면 신뢰 불가. 수정 시각을 못 읽으면 나이를 모르니 갱신된 것으로 본다.
-    auto ftime = std::filesystem::last_write_time(path, ec);
+    auto modified_time = std::filesystem::last_write_time(path, ec);
 
     if (!ec)
     {
-        o.age_sec = std::chrono::duration_cast<std::chrono::seconds>(
-                        std::filesystem::file_time_type::clock::now() - ftime).count();
+        observation.age_sec = std::chrono::duration_cast<std::chrono::seconds>(
+                        std::filesystem::file_time_type::clock::now() - modified_time).count();
 
-        if (o.age_sec > stale_sec)
+        if (observation.age_sec > stale_sec)
         {
-            o.state = regime_bridge::FileState::kStale;
-            return o;
+            observation.state = regime_bridge::FileState::kStale;
+            return observation;
         }
     }
 
-    o.state = regime_bridge::FileState::kUnreadable;
+    observation.state = regime_bridge::FileState::kUnreadable;
 
     try
     {
-        std::ifstream f(path);
+        std::ifstream file(path);
 
-        if (!f)
+        if (!file)
         {
-            return o;
+            return observation;
         }
 
-        nlohmann::json j;
-        f >> j;
-        o.snap  = regime_bridge::parse_snapshot(j);
-        o.state = regime_bridge::FileState::kFresh;
+        nlohmann::json doc;
+        file >> doc;
+        observation.snap  = regime_bridge::parse_snapshot(doc);
+        observation.state = regime_bridge::FileState::kFresh;
     }
     catch (const std::exception&)
     {
     }
 
-    return o;
+    return observation;
 }
 
 void Engine::poll_regime_file()

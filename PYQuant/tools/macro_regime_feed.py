@@ -91,9 +91,19 @@ YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=1d&
 YAHOO_UA    = "Mozilla/5.0"   # 기본 python UA 는 429/403 을 받는다(16:03 실측)
 
 
-def fetch_yahoo(sym: str, timeout: float = 8.0) -> tuple[float | None, float | None, str | None]:
-    """Yahoo chart meta 의 현재가·전일 종가로 % 변화. 반환 (pct, price, err).
-    선물(NQ=F·ES=F)은 거의 24시간 움직여 한국 장중에도 현재가가 갱신된다. VX=F 는 404 라 VIX 는 ^VIX(현물)."""
+def fetch_yahoo(sym: str, timeout: float = 8.0) -> dict:
+    """Yahoo chart meta 의 현재가·전일 종가로 % 변화.
+    선물(NQ=F·ES=F)은 거의 24시간 움직여 한국 장중에도 현재가가 갱신된다. VX=F 는 404 라 VIX 는 ^VIX(현물).
+
+    코스피·코스닥처럼 하루 몇 시간만 여는 시장은, 그날 정규장이 아직 안 열렸으면
+    regularMarketPrice/previousClose가 전날 종가-전전날 종가(=어제 하루치 등락)로 멈춰 있다.
+    이걸 "오늘"로 세면 개장 전 내내 어제 등락이 오늘 표결·score에 그대로 들어간다(사용자 보고,
+    09-15 08:34 코스피 -3.26%가 그 사고). currentTradingPeriod.regular.start(오늘 정규장 시작
+    epoch)로 아직 열리기 전인지 판정해 — 열리기 전이면 오늘 실시간 pct=0.0(정의상 아직 안 움직임),
+    방금 받은 값은 prev_pct(어제 등락, 비교용·표결 제외)로 돌린다.
+    반환: {"pct","price","err","prev_pct","premarket"}.
+    """
+    import time as _time
     import urllib.request
     try:
         req = urllib.request.Request(YAHOO_CHART.format(sym=sym), headers={"User-Agent": YAHOO_UA})
@@ -103,10 +113,74 @@ def fetch_yahoo(sym: str, timeout: float = 8.0) -> tuple[float | None, float | N
         last = meta.get("regularMarketPrice")
         prev = meta.get("previousClose") or meta.get("chartPreviousClose")
         if last is None or prev in (None, 0):
-            return None, None, "yahoo_no_meta"
-        return (float(last) - float(prev)) / float(prev) * 100.0, float(last), None
+            return {"pct": None, "price": None, "err": "yahoo_no_meta", "prev_pct": None, "premarket": False}
+        raw_pct = (float(last) - float(prev)) / float(prev) * 100.0
+        regular_start = ((meta.get("currentTradingPeriod") or {}).get("regular") or {}).get("start")
+        premarket = regular_start is not None and _time.time() < regular_start
+        if premarket:
+            return {"pct": 0.0, "price": float(last), "err": None, "prev_pct": raw_pct, "premarket": True}
+        return {"pct": raw_pct, "price": float(last), "err": None, "prev_pct": None, "premarket": False}
     except Exception as e:  # noqa: BLE001 — 심볼 하나 실패가 전체를 멈추면 안 됨
-        return None, None, f"yahoo:{type(e).__name__}:{e}"
+        return {"pct": None, "price": None, "err": f"yahoo:{type(e).__name__}:{e}", "prev_pct": None, "premarket": False}
+
+
+# 코스피·코스닥은 Yahoo 대신 네이버 실시간 지수를 쓴다 — Yahoo regularMarketPrice는 KRX 개장
+#  직후 몇 분간 전날 종가에 멈춰 있는데(09-15 09:01 실측: 개장 1분 지났는데도 premarket 판정을
+#  못 벗어나 어제 -3.26%를 그대로 오늘로 표결, 매수비율이 30%까지 눌림 — 사용자 보고), 네이버는
+#  marketStatus로 개장 여부를 직접 주고 지연도 없다(같은 시각 KIS 실측 -0.30%/+0.38%와 일치).
+#  scripts/live_prices_feed.py가 이미 같은 네이버 벌크 시세로 종목 가격을 받는 패턴이라 인증도 새로 안 든다.
+NAVER_INDEX_UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
+NAVER_INDEX_SYMBOLS = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ"}  # SYMBOLS 키 → 네이버 itemCode
+
+
+def fetch_naver_index(timeout: float = 8.0) -> dict:
+    """네이버 실시간 지수 일괄 조회. 반환: {itemCode: {"pct","price","open"}}. 실패하면 {}."""
+    import urllib.request
+    url = ("https://polling.finance.naver.com/api/realtime/domestic/index/"
+           + ",".join(NAVER_INDEX_SYMBOLS.values()))
+    try:
+        req = urllib.request.Request(url, headers=NAVER_INDEX_UA)
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.load(r)
+        out = {}
+        for d in data.get("datas", []):
+            code, pct, price = d.get("itemCode"), d.get("fluctuationsRatioRaw"), d.get("closePriceRaw")
+            if code is None or pct is None or price is None:
+                continue
+            out[code] = {"pct": float(pct), "price": float(price), "open": d.get("marketStatus") == "OPEN"}
+        return out
+    except Exception:
+        return {}
+
+
+# 나스닥·S&P500 선물은 코스피·코스닥과 달리 한국 장중에도 계속 움직여 fetch_yahoo() 의 premarket
+#  얼어붙기 경로가 안 걸린다(09-15 실측: premarket=False, 실시간 값). 그런데 미국 정규장은 한국
+#  개장 3~4시간 전에 이미 끝나 있어 "어제"에 해당하는 값이 따로 있다 — 일봉 종가 배열에서 오늘
+#  정규장 시작(currentTradingPeriod.regular.start) 이전 마지막 두 봉(그 전날 종가 대비 어제 종가)으로 구한다.
+DAILY_REF_SYMBOLS = {"NQ_F", "ES_F"}
+
+
+def fetch_yahoo_daily_prev(sym: str, timeout: float = 8.0) -> float | None:
+    """직전 정규장(가장 최근 완결 세션) 종가의 그 전날 대비 등락 %. 못 구하면 None."""
+    import urllib.request
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=5d&interval=1d"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": YAHOO_UA})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            doc = json.load(r)
+        result = doc["chart"]["result"][0]
+        meta = result["meta"]
+        today_start = ((meta.get("currentTradingPeriod") or {}).get("regular") or {}).get("start")
+        if today_start is None:
+            return None
+        ts = result.get("timestamp") or []
+        closes = ((result.get("indicators") or {}).get("quote") or [{}])[0].get("close") or []
+        past = [c for t, c in zip(ts, closes) if t < today_start and c is not None]
+        if len(past) < 2 or not past[-2]:
+            return None
+        return (past[-1] - past[-2]) / past[-2] * 100.0
+    except Exception:
+        return None
 
 # 참고 지표 — 표를 내지 않고 valid_count에도 들어가지 않는다. 패널에 수치와 수준 평가만 보인다.
 #  게이트 지표로 승격하려면 SYMBOLS·THRESHOLDS로 옮기고 halt/liq 임계를 같이 다시 정한다.
@@ -169,13 +243,31 @@ def fetch_changes(symbols: dict) -> dict:
     """
     out = {}
     pending = {}
+    naver_idx = None
     for key, meta in symbols.items():
-        if meta.get("yahoo"):
-            pct, price, err = fetch_yahoo(meta["yahoo"])
-            if pct is not None:
-                out[key] = {"pct": pct, "price": price, "err": None, "src": "yahoo"}
+        if key in NAVER_INDEX_SYMBOLS:
+            if naver_idx is None:
+                naver_idx = fetch_naver_index()
+            row = naver_idx.get(NAVER_INDEX_SYMBOLS[key])
+            if row is not None:
+                if row["open"]:
+                    out[key] = {"pct": row["pct"], "price": row["price"], "err": None,
+                                "src": "naver", "prev_pct": None, "premarket": False}
+                else:
+                    out[key] = {"pct": 0.0, "price": row["price"], "err": None, "src": "naver",
+                                "prev_pct": row["pct"], "premarket": True}
                 continue
-            print(f"[!] {key} Yahoo 실패({err}) — FDR 일봉으로 내려간다", file=sys.stderr)
+            print(f"[!] {key} 네이버 지수 실패 — Yahoo로 내려간다", file=sys.stderr)
+        if meta.get("yahoo"):
+            y = fetch_yahoo(meta["yahoo"])
+            if y["pct"] is not None:
+                prev_pct = y.get("prev_pct")
+                if prev_pct is None and key in DAILY_REF_SYMBOLS:
+                    prev_pct = fetch_yahoo_daily_prev(meta["yahoo"])
+                out[key] = {"pct": y["pct"], "price": y["price"], "err": None, "src": "yahoo",
+                            "prev_pct": prev_pct, "premarket": y.get("premarket", False)}
+                continue
+            print(f"[!] {key} Yahoo 실패({y['err']}) — FDR 일봉으로 내려간다", file=sys.stderr)
         pending[key] = meta
     if not pending:
         return out
@@ -377,6 +469,10 @@ def build_regime(changes: dict, open_ref: dict | None = None) -> dict:
         valid_count += 1
         components[key] = {"label": meta["label"], "pct": round(pct, 3), "vote": vote,
                            "price": ch.get("price"), "src": ch.get("src", "fdr")}
+        if ch.get("premarket"):
+            components[key]["premarket"] = True
+        if ch.get("prev_pct") is not None:
+            components[key]["prev_pct"] = round(ch["prev_pct"], 3)
 
     # 장초 대비 방향표. 기준점이 없으면(개장 전·첫 계산) 0표.
     ref_prices = (open_ref or {}).get("prices") or {}

@@ -1452,7 +1452,10 @@ async function tick(){
     for(const k in comps){ (comps[k].tier==='info'?info:gate).push(comps[k]); }
     // intra는 장초 대비 방향표(D-083) — 개장 첫 계산값 대비 등락과 ±1표를 같은 줄에 덧붙인다.
     const intra=(c)=>c.intra?` <span class="mut">장초 ${pct(c.intra.pct)} (${c.intra.vote>0?'+':''}${eb(c.intra.vote)})</span>`:'';
-    const row=(c,tag)=>`<div class="rn">${eb(c.label||'')}</div><div class="rp">${ipx(c.price)}</div><div class="${cls(c.pct)}">${pct(c.pct)}</div><div class="mut">${tag}${intra(c)}</div>`
+    // premarket=오늘 정규장 전이라 pct는 정의상 0(표결 제외). prev_pct=어제 완결된 세션 등락(비교용, 표결 제외) —
+    //  코스피·코스닥은 premarket 얼어붙기로, 나스닥·S&P500 선물은 일봉 조회로 따로 채운다(둘 다 표결 제외).
+    const prevp=(c)=>c.prev_pct!=null?` <span class="mut">어제 ${pct(c.prev_pct)}</span>`:'';
+    const row=(c,tag)=>`<div class="rn">${eb(c.label||'')}</div><div class="rp">${ipx(c.price)}</div><div class="${cls(c.pct)}">${pct(c.pct)}</div><div class="mut">${tag}${intra(c)}${prevp(c)}</div>`
       +(c.note?`<div class="note">${eb(c.note)}</div>`:'');
     comp+=`<div class="sec">국내·해외 현재가 (전일 종가 대비 · 표결)</div>`;
     for(const c of gate){ comp+=row(c,'vote '+eb(c.vote)); }
