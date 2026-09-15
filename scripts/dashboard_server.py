@@ -1236,7 +1236,7 @@ small.err{color:var(--dn)}
   <div class="card col6"><h2>매매 리스트 (유니버스)</h2>
     <div class="muted" id="uninote"></div>
     <div class="scroll"><table id="uni">
-    <thead><tr><th>#</th><th class="l">종목</th><th class="l">코드</th><th>종가</th><th class="l">시장</th></tr></thead>
+    <thead><tr><th>#</th><th class="l">종목</th><th class="l">코드</th><th>현재가</th><th class="l">시장</th></tr></thead>
     <tbody></tbody></table></div></div>
 
   <div class="card col6"><h2>이벤트 피드 (콘솔 상당)</h2><div class="feed" id="feed"></div></div>
@@ -1504,7 +1504,7 @@ async function tick(){
   const u=s.universe||{}; const ub=document.querySelector('#uni tbody');
   if(u.__error__){ document.getElementById('uninote').innerHTML='<small class="err">'+eb(u.__error__)+'</small>'; ub.innerHTML=''; }
   else{
-    document.getElementById('uninote').textContent=`기준일 ${u.basDt||'?'} · ${u.market||''} · ${u.count||0}종목 · ${u.source||''}`;
+    document.getElementById('uninote').textContent=`종목목록 기준일 ${u.basDt||'?'}(data.go.kr, 상장목록용) · 가격 ${u.mktcap_source||u.turnover_source||'?'} · ${u.market||''} · ${u.count||0}종목 · ${u.source||''}`;
     const uni=(u.universe||[]).slice(0,120);
     ub.innerHTML=uni.map((x,i)=>`<tr class="tickrow clk" data-tk="${eb(x.ticker)}" data-nm="${eb(x.name)}"><td>${i+1}</td><td class="l">${eb(x.name)}</td><td class="l mut">${eb(x.ticker)}</td><td>${won(x.close)}</td><td class="l mut">${eb(x.market)}</td></tr>`).join('');
   }
