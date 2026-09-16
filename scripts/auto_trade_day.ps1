@@ -168,6 +168,29 @@ function Start-Window([string]$title, [string]$cmd, [string]$probe = "") {
   $script:Windows[$title] = @{ cmd = $cmd; probe = $probe; proc = $proc; started = Get-Date }
 }
 
+# TimescaleDB는 Docker Desktop이 아니라 WSL2(Ubuntu-22.04) 안의 Docker가 낸다. .wslconfig에
+# vmIdleTimeout=-1(무제한)을 걸어 놔도 `wsl -e <명령>`처럼 한 번 실행하고 끝나는 호출은 명령이
+# 끝나자마자 그 배포판 인스턴스가 곧바로 내려간다(09-16 실측: postgres가 정상 shutdown 로그를
+# 남기며 1~2분 간격으로 뜨고 죽길 반복, docker events·crontab·systemd 타이머 어디에도 이걸
+# 만드는 주체가 없었다 — VM 유휴 타임아웃이 아니라 배포판 인스턴스 자체의 동작이다). 그래서
+# 찔러 깨우는 것만으로는 못 고치고, 하루 종일 배포판에 붙어 있는 프로세스(quant-wsl-keepalive
+# 창의 `wsl -e sleep infinity`)를 따로 유지한다 — 이 함수는 기동 직후·재시도 때 healthy까지
+# 대기하는 보조 확인일 뿐이다.
+function Wait-Tsdb {
+  if ($DryRun) { return }
+  $tsdb = (wsl -e docker inspect quant-tsdb --format "{{.State.Health.Status}}" 2>$null)
+  if ($LASTEXITCODE -ne 0 -or $tsdb -notmatch "healthy") {
+    Say "  quant-tsdb 미기동(status=$tsdb) — 최대 30초 대기"
+    for ($i = 0; $i -lt 6; $i++) {
+      Start-Sleep -Seconds 5
+      $tsdb = (wsl -e docker inspect quant-tsdb --format "{{.State.Health.Status}}" 2>$null)
+      if ($tsdb -match "healthy") { break }
+    }
+  }
+  if ($tsdb -match "healthy") { Say "  quant-tsdb healthy" }
+  else { Say "  quant-tsdb 여전히 미기동(status=$tsdb) — recorder는 재시도 루프로 뜬다, DB 적재는 못 할 수 있다." "WARN" }
+}
+
 function Restore-Windows {
   # 창(powershell)은 -NoExit라 안의 파이썬이 죽어도 남는다. 빈 창만 보면 살아 있는 줄 안다.
   # 그래서 파이썬 프로세스의 명령줄에서 스크립트 이름을 직접 찾는다.
@@ -175,12 +198,21 @@ function Restore-Windows {
   $procs = @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='py.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue)
   foreach ($title in @($script:Windows.Keys)) {
     $w = $script:Windows[$title]
-    if (-not $w.probe) { continue }
+    if (-not $w.probe) {
+      # 파이썬 프로세스가 아니라 확인할 probe가 없다(예: quant-wsl-keepalive) — 창(powershell)
+      # 자체가 죽었는지만 본다.
+      if ($w.proc -and $w.proc.HasExited) {
+        Say "부속 창 '$title'이 죽었다 — 다시 띄운다." "WARN"
+        Start-Window $title $w.cmd $w.probe
+      }
+      continue
+    }
     # 기동 직후에는 아직 파이썬이 안 뜬 상태일 수 있다. 뜰 시간을 준다.
     if (((Get-Date) - $w.started).TotalSeconds -lt 45) { continue }
     if ($procs | Where-Object { $_.CommandLine -like "*$($w.probe)*" }) { continue }
     Say "부속 창 '$title' 안에서 $($w.probe)가 죽었다 — 다시 띄운다." "WARN"
     if ($w.proc -and -not $w.proc.HasExited) { Stop-Process -Id $w.proc.Id -Force -ErrorAction SilentlyContinue }
+    if ($title -eq "quant-recorder") { Wait-Tsdb }
     Start-Window $title $w.cmd $w.probe
   }
 }
@@ -287,7 +319,13 @@ if (-not $NoNotify)    { Start-Window "quant-notify"    "& '$py' scripts\notify_
 # 네이티브 트레이더는 컨테이너가 아니라 ZMQ PUB(127.0.0.1:5555)만 낸다 — docker-compose의
 # quant-recorder는 quant-engine 컨테이너를 구독하므로 이 프로세스를 못 본다(D-090 후속).
 # 같은 호스트에서 직접 구독해 TimescaleDB에 적재한다.
-if (-not $NoRecorder)  { Start-Window "quant-recorder"  "& '$py' PYQuant\main.py record --host localhost --port 5555" "main.py record" }
+if (-not $NoRecorder) {
+  Say "WSL 배포판을 하루 종일 깨워 둔다(quant-wsl-keepalive) — TimescaleDB 컨테이너가 붙어 있을 곳"
+  Start-Window "quant-wsl-keepalive" "while (`$true) { wsl -e sleep infinity; Start-Sleep -Seconds 2 }" ""
+  Say "TimescaleDB 사전 점검 — WSL Docker 깨우기"
+  Wait-Tsdb
+  Start-Window "quant-recorder"  "& '$py' PYQuant\main.py record --host localhost --port 5555" "main.py record"
+}
 
 # ─────────────── 감시 루프 ───────────────
 $deadline = [datetime]::ParseExact((Get-Date -Format "yyyy-MM-dd") + " " + $Until, "yyyy-MM-dd HH:mm", $null)
