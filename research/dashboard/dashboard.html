@@ -340,7 +340,7 @@ section.fam h2 .sub{color:var(--faint);font-weight:400;font-size:12px;margin-lef
 
 <header class="head wrap">
   <h1>퀀트 매매 대시보드 <span class="v">quant.metrics/v1 · quant.live/v1 · quant.review/v1</span></h1>
-  <div class="gen">생성 2026-09-17 · 데이터 계약(정규화 스키마)만 렌더 · 계열·비교군 분리</div>
+  <div class="gen">생성 2026-09-18 · 데이터 계약(정규화 스키마)만 렌더 · 계열·비교군 분리</div>
   <div class="overview"><div class="stat"><b>94</b>백테스트행</div><div class="stat"><b>9</b>스터디</div><div class="stat"><b>2</b>계열</div><div class="stat"><b>22</b>매매일지</div><div class="stat"><b>21</b>주문로그일</div><div class="stat"><b>22</b>리뷰</div><div class="stat"><b>6</b>장전 브리핑</div></div>
   <div class="legend"><span class="lbl">정직성:</span><span class="badge b-robust" title="look-ahead 차단·비용·홀드아웃 등 방법론이 견고. 승패는 지표값이 말함.">견고</span><span class="badge b-honest_failure" title="비용을 반영하면 벤치(그냥 보유)를 이기지 못한 결과를 그대로 보고.">벤치 못 이김</span><span class="badge b-overfit_suspect" title="표본·자유도 대비 성과가 과함 — 신뢰 보류(소표본 포함).">과최적화 의심</span><span class="badge b-context_required" title="헤드라인 숫자가 오독을 부름(비참여·생존편향 등) — 캡션·짝 해석 필수.">맥락필수</span><span class="badge b-unlabeled" title="정직성 라벨 미지정.">미분류</span></div>
 </header>
@@ -369,7 +369,7 @@ section.fam h2 .sub{color:var(--faint);font-weight:400;font-size:12px;margin-lef
 </div>
 
 <div class="panel" id="panel-live" role="tabpanel" aria-labelledby="tab-live" hidden>
-<section class="fam"><h2>라이브(모의) 매매 기록</h2><p class="fdesc">KIS 모의계좌(paper) 실증. 아래 <b>매매 일지</b>는 서술 원문 링크, <b>주문 로그</b>는 <code>logs/trades_*.csv</code> 일자별 롤업. 체결 열은 최종 상태가 체결인 주문 수이고, 실현손익은 여기서 집계하지 않는다. <span class="win">갱신 2026-09-17 16:05 · 일지 22건 · 원장 21일</span></p><div class="grp"><h3>매매 일지 <span class="win">(카드 클릭 = 원문 펼치기)</span></h3><div class="cards"><details class="card jcard"><summary><div class="chead"><span class="cdate">2026-09-17</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-09-17 (목)</div><div class="csumm">DeviationScale (DEVSCALE) 정배열눌림 지정가 분할 매수 + ITB 청산 관리(전일 보유분).</div></summary><div class="jsrc">strategies/DeviationScale/live/2026-09-17.md</div><pre class="jbody"># 라이브 모의 매매 일지 — 2026-09-17 (목)
+<section class="fam"><h2>라이브(모의) 매매 기록</h2><p class="fdesc">KIS 모의계좌(paper) 실증. 아래 <b>매매 일지</b>는 서술 원문 링크, <b>주문 로그</b>는 <code>logs/trades_*.csv</code> 일자별 롤업. 체결 열은 최종 상태가 체결인 주문 수이고, 실현손익은 여기서 집계하지 않는다. <span class="win">갱신 2026-09-18 01:29 · 일지 22건 · 원장 21일</span></p><div class="grp"><h3>매매 일지 <span class="win">(카드 클릭 = 원문 펼치기)</span></h3><div class="cards"><details class="card jcard"><summary><div class="chead"><span class="cdate">2026-09-17</span><span class="pill p-strat">DeviationScale</span></div><div class="ctitle">라이브 모의 매매 일지 — 2026-09-17 (목)</div><div class="csumm">DeviationScale (DEVSCALE) 정배열눌림 지정가 분할 매수 + ITB 청산 관리(전일 보유분).</div></summary><div class="jsrc">strategies/DeviationScale/live/2026-09-17.md</div><pre class="jbody"># 라이브 모의 매매 일지 — 2026-09-17 (목)
 
 &gt; 환경: **KIS 모의계좌**(openapivts, is_paper=true). 시세·랭킹·지수는 실전 도메인 REST 폴링, 주문은 모의 발주.
 &gt; 전략: **DeviationScale (DEVSCALE)** 정배열눌림 지정가 분할 매수 + **ITB** 청산 관리(전일 보유분).

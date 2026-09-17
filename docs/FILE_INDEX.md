@@ -13,7 +13,7 @@
 - [docs](#docs) — 55개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 176개
-- [scripts](#scripts) — 47개
+- [scripts](#scripts) — 53개
 - [strategies](#strategies) — 27개
 - [tools](#tools) — 3개
 
@@ -775,10 +775,10 @@
 - [notify_sidecar.py](../scripts/notify_sidecar.py) — 매매 알림 발송 보조 프로세스
 - [parse_quant_log.py](../scripts/parse_quant_log.py) — 매매 로그 파서 스크립트
 - [quant_procs.ps1](../scripts/quant_procs.ps1) — 실행 프로세스 점검·정리 스크립트
+- [refresh_dashboard.py](../scripts/refresh_dashboard.py) — 대시보드·리뷰 재생성 스크립트
+- [rename_frags.py](../scripts/rename_frags.py) — 합성 식별자 안의 약어 조각(qty·cfg·mtx…)을 풀어쓰는 3단계 도구(D-092). 조각·전체·파일별 표와 KIS 전문 조각 제외 규칙을 안에 둔다
 - [rename_ids.py](../scripts/rename_ids.py) — 약어 식별자 치환 도구(D-092). 매핑 json을 받아 C++ 식별자만 바꾸고 문자열 리터럴·#include는 두며 주석은 바꾼다
 - [rename_locals.py](../scripts/rename_locals.py) — 한 글자 지역변수·매개변수를 선언 범위 안에서만 풀어쓰는 도구(D-092), --override로 못 고른 이름 지정
-- [rename_frags.py](../scripts/rename_frags.py) — 합성 식별자 안의 약어 조각(qty·cfg·mtx…)을 풀어쓰는 3단계 도구(D-092). 조각·전체·파일별 표와 KIS 전문 조각 제외 규칙을 안에 둔다
-- [refresh_dashboard.py](../scripts/refresh_dashboard.py) — 대시보드·리뷰 재생성 스크립트
 - [seed_open_orders.py](../scripts/seed_open_orders.py) — 미체결 주문 상태 복구 스크립트
 - [session_board.py](../scripts/session_board.py) — 살아 있는 Claude 세션의 현황판(이름·브랜치·문맥 K/%·턴·압축·마지막 요청·현황판 줄·인계 파일)을 `_private/session_board.json`·`.html`로 쓴다. `--skeleton`은 인계 파일 뼈대, `--due`는 인계 시점 판정(훅용)
 - [session_board_server.py](../scripts/session_board_server.py) — 세션 현황판 HTTP 서버(:8788, SessionStart 훅이 띄우고 세션이 다 닫히면 내려감)
