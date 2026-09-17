@@ -145,6 +145,7 @@ ON_BN_CLICKED(IDC_SELL, &OpsTerminalDlg::OnSell)
 ON_BN_CLICKED(IDC_SELL_ALL, &OpsTerminalDlg::OnSellAll)
 ON_BN_CLICKED(IDC_BUY, &OpsTerminalDlg::OnBuy)
 ON_BN_CLICKED(IDC_KILL, &OpsTerminalDlg::OnKill)
+ON_BN_CLICKED(IDC_HALT, &OpsTerminalDlg::OnHalt)
 ON_WM_TIMER()
 ON_NOTIFY(LVN_ITEMCHANGED, IDC_POSITIONS, &OpsTerminalDlg::OnPositionSelected)
 ON_MESSAGE(WM_OPS_FRAME, &OpsTerminalDlg::OnOpsFrame)
@@ -302,6 +303,31 @@ void OpsTerminalDlg::OnKill()
     else
     {
         log(L"연결이 없어 KILL을 보내지 못했다.");
+    }
+}
+
+void OpsTerminalDlg::OnHalt()
+{
+    const bool want_on = !manual_halt_;
+    const int  result = MessageBox(want_on ? L"신규 진입(매수)만 막는다. 보유분 매도는 그대로 나간다.\n\n켤까?"
+                                       : L"수동 진입정지를 끈다.\n\n끌까?",
+                              L"매매 정지", MB_YESNO | (want_on ? MB_ICONWARNING : MB_ICONQUESTION));
+
+    if (result != IDYES)
+    {
+        return;
+    }
+
+    json body;
+    body["on"] = want_on;
+
+    if (link_.send(OpsMsg::HALT_REQ, body.dump()))
+    {
+        log(want_on ? L"HALT_REQ ON 전송" : L"HALT_REQ OFF 전송");
+    }
+    else
+    {
+        log(L"연결이 없어 HALT_REQ를 보내지 못했다.");
     }
 }
 
@@ -466,6 +492,19 @@ void OpsTerminalDlg::handle_frame(const ops::Frame& frame)
         log((flag(document, "ok") ? L"[KILL] 확인 — " : L"[KILL] 거절 — ") + from_utf8(text_of(document, "msg")));
         break;
 
+    case OpsMsg::HALT_ACK:
+        if (flag(document, "ok"))
+        {
+            set_halt_button(flag(document, "manual_halt"));
+            log(manual_halt_ ? L"[HALT] 확인 — 수동 진입정지 ON" : L"[HALT] 확인 — 수동 진입정지 OFF");
+        }
+        else
+        {
+            log(L"[HALT] 거절 — 미인증");
+        }
+
+        break;
+
     case OpsMsg::ERROR_MSG:
         log(L"[서버 오류] " + from_utf8(text_of(document, "msg")));
         break;
@@ -602,11 +641,13 @@ void OpsTerminalDlg::apply_status(const std::string& body)
         return;
     }
 
+    set_halt_button(flag(document, "manual_halt"));
+
     CString text;
-    text.Format(L"엔진 상태: running=%d data=%d signal=%d order=%d | kill=%d entry_halt=%d force_liq=%d | paper=%d",
+    text.Format(L"엔진 상태: running=%d data=%d signal=%d order=%d | kill=%d entry_halt=%d manual_halt=%d force_liq=%d | paper=%d",
              flag(document, "running") ? 1 : 0, flag(document, "data") ? 1 : 0, flag(document, "signal") ? 1 : 0, flag(document, "order") ? 1 : 0,
-             flag(document, "kill") ? 1 : 0, flag(document, "entry_halt") ? 1 : 0, flag(document, "force_liq") ? 1 : 0,
-             flag(document, "paper") ? 1 : 0);
+             flag(document, "kill") ? 1 : 0, flag(document, "entry_halt") ? 1 : 0, flag(document, "manual_halt") ? 1 : 0,
+             flag(document, "force_liq") ? 1 : 0, flag(document, "paper") ? 1 : 0);
 
     if (document.contains("strategies") && document["strategies"].is_array())
     {
@@ -700,8 +741,14 @@ void OpsTerminalDlg::log(const CString& line)
 
 void OpsTerminalDlg::set_order_enabled(bool on)
 {
-    for (int id : {IDC_SELL, IDC_SELL_ALL, IDC_BUY, IDC_KILL})
+    for (int id : {IDC_SELL, IDC_SELL_ALL, IDC_BUY, IDC_KILL, IDC_HALT})
     {
         GetDlgItem(id)->EnableWindow(on ? TRUE : FALSE);
     }
+}
+
+void OpsTerminalDlg::set_halt_button(bool on)
+{
+    manual_halt_ = on;
+    SetDlgItemText(IDC_HALT, on ? L"매매 정지: ON (해제하려면 클릭)" : L"매매 정지: OFF");
 }

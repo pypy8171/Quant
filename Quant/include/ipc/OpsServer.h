@@ -67,11 +67,13 @@ public:
     // JSON 문자열을 돌려주는 조회기 둘. 서버 스레드에서 1초마다도 불리니 락을 오래 잡지 않는다.
     using JsonProvider = std::function<std::string()>;
     using KillHandler  = std::function<void()>;
+    using HaltHandler  = std::function<void(bool)>; // 수동 정지 on/off — OrderGate::set_manual_halt로 배선 [why D-091]
 
     void set_order_handler(OrderHandler order_handler) { on_order_ = std::move(order_handler); }
     void set_status_provider(JsonProvider status_provider) { status_ = std::move(status_provider); }
     void set_positions_provider(JsonProvider positions_provider) { positions_ = std::move(positions_provider); }
     void set_kill_handler(KillHandler kill_handler) { on_kill_ = std::move(kill_handler); }
+    void set_halt_handler(HaltHandler halt_handler) { on_halt_ = std::move(halt_handler); }
 
     bool start();
     void stop();
@@ -112,6 +114,7 @@ private:
     JsonProvider status_;
     JsonProvider positions_;
     KillHandler  on_kill_;
+    HaltHandler  on_halt_;
 
     std::atomic<bool> running_{false};
     std::thread       srv_thread_;

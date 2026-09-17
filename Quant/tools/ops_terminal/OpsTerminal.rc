@@ -49,6 +49,7 @@ BEGIN
     LISTBOX                                       IDC_LOG,         13, 274, 574, 116,
                     LBS_NOINTEGRALHEIGHT | LBS_NOSEL | WS_VSCROLL | WS_HSCROLL | WS_BORDER
 
-    // 킬스위치
+    // 진입정지·킬스위치
+    PUSHBUTTON      "매매 정지: OFF",             IDC_HALT,         7, 400, 140,  15
     PUSHBUTTON      "킬스위치 — 엔진 정지",       IDC_KILL,       487, 400, 106,  15
 END

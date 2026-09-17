@@ -1,6 +1,6 @@
 # MFC 운영단말 `ops_terminal` 작업 문서
 
-<!-- sync: Quant/tools/ops_terminal/OpsTerminalDlg.cpp@da26683 Quant/tools/ops_terminal/OpsTerminalDlg.h@428b248 Quant/tools/ops_terminal/OpsLink.cpp@f0236c7 Quant/tools/ops_terminal/OpsLink.h@90fa75f Quant/include/ipc/OpsProtocol.h@54b58b3 -->
+<!-- sync: Quant/tools/ops_terminal/OpsTerminalDlg.cpp@9dfc4a5 Quant/tools/ops_terminal/OpsTerminalDlg.h@f494e41 Quant/tools/ops_terminal/OpsLink.cpp@f0236c7 Quant/tools/ops_terminal/OpsLink.h@90fa75f Quant/include/ipc/OpsProtocol.h@77ee4c1 -->
 `Quant/tools/ops_terminal/`에 있는 MFC 대화상자 단말의 정본이다. 무엇을 하는 프로그램인지, 어떻게 빌드·실행하는지,
 MFC라서 걸린 함정과 지금까지 손댄 이력을 여기에 모은다. **MFC 쪽을 고치면 이 문서를 같이 고친다**(8절 체크리스트).
 채널 자체(프로토콜·서버·콘솔 단말)는 [docs/guides/OPS_TERMINAL.md](OPS_TERMINAL.md), 결정 배경은
@@ -71,7 +71,7 @@ cd c:\Users\<사용자>\source\repos\Quant
 위에서 아래로:
 
 1. 접속란 — 호스트·포트·토큰(가림)·접속/끊기 버튼·연결 상태(끊김/접속 중/연결됨/준비).
-2. 엔진 상태 한 줄 — running·data·signal·order·kill·entry_halt·force_liq·paper·전략 수. 준비 상태에서 5초마다 갱신.
+2. 엔진 상태 한 줄 — running·data·signal·order·kill·entry_halt·manual_halt·force_liq·paper·전략 수. 준비 상태에서 5초마다 갱신.
 3. 포지션 표 — 계좌·종목·이름·수량·평단·현재가·평단대비(%)·대기매도·매도가능(=수량−대기매도). 서버 push(1초, 변화 시)와
    새로고침 버튼. 현재가는 엔진이 마지막으로 본 체결가(`last`)라 장 밖이나 기동 직후엔 `—`로 비어 있다가 첫 폴링(30초 주기)
    뒤 채워진다. 표는 종목 키로 바뀐 칸만 고치므로 갱신이 와도 스크롤·선택이 그대로다.
@@ -82,6 +82,10 @@ cd c:\Users\<사용자>\source\repos\Quant
 5. 로그 — 시각 접두, 2000줄 상한. `ORDER_ACK`·`ORDER_RESULT`·`FILL`·`ERROR`가 여기 쌓인다. 전략 주문 결과도 같은 채널로 오므로
    내 주문 줄에는 `★내 주문` 표식이 붙는다.
 6. 킬스위치 — 확인창 뒤 `KILL`. 엔진이 주문을 막고 내려간다.
+7. 매매 정지 토글 — 확인창 뒤 `HALT_REQ`로 신규 진입 수동 정지/해제. `OrderGate::manual_halt_`은 국면 자동 정지
+   (`entry_halt_`, `RegimeFileBridge`가 관리)와 분리된 별도 플래그라 국면 갱신·만료 타이머가 운영자의 수동 정지를
+   되돌리지 않는다. 두 플래그는 `is_entry_halted()`에서 OR로 합쳐진다. 버튼 라벨은 서버 `STATUS`의 `manual_halt`
+   값을 따라 "매매 정지: ON/OFF"로 바뀐다(D-091).
 
 매도·매수·킬은 전부 확인창을 거친다. 수동 주문의 cid는 `mfc-<ms>`로 찍혀 엔진 로그 `[MANUAL]` 줄과 맞출 수 있다.
 
@@ -137,3 +141,4 @@ cid→ODNO 대응은 단말이 든다. `ORDER_RESULT`에 둘이 같이 오면 �
 | 2026-09-11 | 내 주문 거절이 전략 `[결과]` 줄에 묻혀 안 보임 → `★내 주문` 표식 + 폼 아래 "내 주문 결과" 줄(`IDC_LAST_RESULT`). 한전기술 1주 매도로 `ORDER_ACK→ORDER_RESULT(ODNO 0000033740)` 왕복 확인 |
 | 2026-09-13 | 언어 표준 C++23(D-070). `OpsTerminalDlg.cpp` 조건식 한 줄(`CString` 감싸기) 외 수정 없음. 7절 함정 표에 한 행 |
 | 2026-09-11 | 현재가가 없어 팔 자리를 볼 수 없음 → 엔진에 종목별 최근 체결가 캐시(`Engine::last_price_array_`, 전략 스레드가 틱마다 씀)를 두고 POSITIONS에 `last` 필드 추가. 60초 넘게 틱이 없는 보유 종목(유니버스 밖, WS 구독 상한에 밀린 종목)은 데이터 스레드가 매 사이클(30초) REST 현재가로 보충한다. 표에 현재가·평단대비 열, 폼에 현재가 줄(`IDC_CUR_PRICE`), `ref_price` stamp. 갱신마다 스크롤이 맨 위로 가던 것을 행 단위 갱신으로 고침 |
+| 2026-09-18 | 수동 매매 정지 스위치 추가(D-091). `OpsProtocol.h`에 `HALT_REQ`/`HALT_ACK`(0x32/0x33), `OrderGate`에 `manual_halt_`(국면 자동 `entry_halt_`와 분리, `is_entry_halted()`에서 OR), 단말에 `IDC_HALT` 토글 버튼. 착수 계기는 "판단이 안 설 때 신규 진입만 수동으로 멈추고 싶다"는 운영 요구 |

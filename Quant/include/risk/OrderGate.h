@@ -202,9 +202,22 @@ public:
         entry_halt_.store(on);
     }
 
+    // 운영단말(HALT_REQ)이 켜는 수동 정지 — entry_halt_(국면 자동, RegimeFileBridge가 갱신)와
+    //  분리된 플래그다. 같은 변수를 같이 쓰면 RegimeFileBridge의 자동 해제가 사람이 켠 정지를
+    //  모른 채 지워버린다 — is_entry_halted()에서만 OR로 합친다. [why D-091]
+    void set_manual_halt(bool on)
+    {
+        manual_halt_.store(on);
+    }
+
+    bool is_manual_halted() const
+    {
+        return manual_halt_.load();
+    }
+
     bool is_entry_halted() const
     {
-        return entry_halt_.load();
+        return entry_halt_.load() || manual_halt_.load();
     }
 
     // 매수 명목 비율(0~1). 국면 점수를 스위치가 아니라 비율로 옮긴 값 — 전략이 rung 명목에 곱한다.
@@ -390,6 +403,7 @@ private:
     Config config_;
     std::atomic<bool> kill_switch_{false};
     std::atomic<bool> entry_halt_{false};  // 신규 진입(BUY NEW)만 정지, SELL 청산은 통과 — 국면 리스크용
+    std::atomic<bool> manual_halt_{false}; // 운영단말 HALT_REQ가 켜는 수동 정지 — entry_halt_와 별도 원천 [why D-091]
     std::atomic<double> entry_scale_{1.0}; // 매수 명목 비율(0~1). 국면 점수의 비례판 [why D-083]
     std::atomic<bool> pnl_stale_{false};   // 잔고 대조 정체 → daily_pnl 미갱신, BUY NEW 보수 정지(B2)
     std::atomic<double> available_cash_{0.0}; // 주문가능현금 스냅샷. 잔고 대조가 갱신, clamp_buy_qty가 락 없이 읽음

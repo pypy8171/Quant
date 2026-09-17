@@ -487,6 +487,7 @@ graph LR
 | `scripts/backfill_fills_db.py` | `_logdir`, `db.client` |
 | `scripts/backfill_studies.py` | `backtest.report` |
 | `scripts/build_review_entry.py` | `eod_collect` |
+| `scripts/check_code_conventions.py` | `rename_frags` |
 | `scripts/check_runtime_health.py` | `_logdir`, `log_patterns` |
 | `scripts/dashboard_server.py` | `_logdir`, `kis.client`, `naver.theme` |
 | `scripts/eod_autodoc.py` | `_logdir`, `log_patterns` |

@@ -551,6 +551,26 @@ bool OpsServer::on_frame(Client& client, const ops::Frame& frame)
             return true;
         }
 
+        case OpsMsg::HALT_REQ:
+        {
+            if (!client.authentication)
+            {
+                send(client, OpsMsg::HALT_ACK, json{{"ok", false}, {"manual_halt", false}}.dump());
+                return true;
+            }
+
+            const bool on = body.value("on", false);
+            LOG_WARN(std::string("[Ops] HALT_REQ 수신 ") + client.name + " on=" + (on ? "1" : "0"));
+
+            if (on_halt_)
+            {
+                on_halt_(on);
+            }
+
+            send(client, OpsMsg::HALT_ACK, json{{"ok", true}, {"manual_halt", on}}.dump());
+            return true;
+        }
+
         case OpsMsg::KILL:
         {
             if (!client.authentication)

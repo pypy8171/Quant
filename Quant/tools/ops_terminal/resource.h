@@ -30,3 +30,4 @@
 // 로그·제어
 #define IDC_LOG               1040
 #define IDC_KILL              1041
+#define IDC_HALT              1042

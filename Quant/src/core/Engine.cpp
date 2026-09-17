@@ -2720,6 +2720,12 @@ void Engine::start_ops_server()
             order_gate_.set_kill_switch(true);
             request_shutdown();
         });
+    ops_.server->set_halt_handler(
+        [this](bool on)
+        {
+            LOG_WARN(std::string("[Ops] HALT_REQ — 수동 진입정지 ") + (on ? "ON" : "OFF"));
+            order_gate_.set_manual_halt(on);
+        });
     ops_.server->set_order_handler(
         [this](const OpsOrderReq& ops_order_request) -> std::string
         {
@@ -2782,6 +2788,7 @@ std::string Engine::ops_status_json() const
                           {"order", order_count_.load()},
                           {"kill", order_gate_.is_killed()},
                           {"entry_halt", order_gate_.is_entry_halted()},
+                          {"manual_halt", order_gate_.is_manual_halted()},
                           {"force_liq", force_liquidate_.load(std::memory_order_relaxed)},
                           {"paper", kis_config_.is_paper},
                           {"strategies", strategy_.list.size()}}

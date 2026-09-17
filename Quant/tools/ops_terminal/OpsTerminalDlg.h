@@ -36,6 +36,7 @@ protected:
     afx_msg void    OnSellAll();
     afx_msg void    OnBuy();
     afx_msg void    OnKill();
+    afx_msg void    OnHalt();
     afx_msg void    OnTimer(UINT_PTR id);
     afx_msg void    OnPositionSelected(NMHDR* header, LRESULT* result);
     afx_msg LRESULT OnOpsFrame(WPARAM, LPARAM lparam);
@@ -61,11 +62,13 @@ private:
     void apply_status(const std::string& body);
     void log(const CString& line);
     void set_order_enabled(bool on);
+    void set_halt_button(bool on); // manual_halt_ 갱신 + 버튼 캡션 반영 [why D-091]
 
     TerminalArgs arguments_;
     OpsLink      link_;
     LinkState    state_ = LinkState::Disconnected;
     bool         authentication_  = false;
+    bool         manual_halt_ = false; // 서버가 최근에 알려온 수동 정지 상태(HALT_ACK·STATUS로 갱신)
 
     CListCtrl positions_;
     CListBox  log_;

@@ -35,7 +35,7 @@ enum class OpsMsg : uint8_t
     PING         = 0x03, // c→s {}
     PONG         = 0x04, // s→c {"ts"}
     STATUS_REQ   = 0x10, // c→s {}
-    STATUS       = 0x11, // s→c {"running","data","signal","order","kill","entry_halt","force_liq"}
+    STATUS       = 0x11, // s→c {"running","data","signal","order","kill","entry_halt","manual_halt","force_liq"}
     POS_REQ      = 0x12, // c→s {}
     POSITIONS    = 0x13, // s→c {"positions":[{account,ticker,name,quantity,average_price,reserved,last}]} — 변경 시 push도 한다. reserved: 미체결 매도 음수·매수 양수, last: 최근 체결가(틱 없으면 0)
     ORDER_REQ    = 0x20, // c→s {"cid","ticker","side","qty","price","ref_price"}
@@ -44,6 +44,8 @@ enum class OpsMsg : uint8_t
     FILL         = 0x23, // s→c {"odno","ticker","side","qty","price","time"}
     KILL         = 0x30, // c→s {}
     KILL_ACK     = 0x31, // s→c {"ok"}
+    HALT_REQ     = 0x32, // c→s {"on"} — 수동 진입정지 on/off. kill과 달리 되돌릴 수 있고 SELL은 막지 않는다 [why D-091]
+    HALT_ACK     = 0x33, // s→c {"ok","manual_halt"}
     ERROR_MSG    = 0x7F, // s→c {"msg"}
 };
 
@@ -65,6 +67,8 @@ inline const char* message_name(uint8_t message_type)
         case OpsMsg::FILL:         return "FILL";
         case OpsMsg::KILL:         return "KILL";
         case OpsMsg::KILL_ACK:     return "KILL_ACK";
+        case OpsMsg::HALT_REQ:     return "HALT_REQ";
+        case OpsMsg::HALT_ACK:     return "HALT_ACK";
         case OpsMsg::ERROR_MSG:    return "ERROR";
     }
 

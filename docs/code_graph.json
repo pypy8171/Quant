@@ -1352,6 +1352,9 @@
       "scripts/build_review_entry.py": [
         "eod_collect"
       ],
+      "scripts/check_code_conventions.py": [
+        "rename_frags"
+      ],
       "scripts/check_runtime_health.py": [
         "_logdir",
         "log_patterns"
@@ -1526,6 +1529,9 @@
       "naver.theme": [
         "PYQuant/tools/fetch_naver_themes.py",
         "scripts/dashboard_server.py"
+      ],
+      "rename_frags": [
+        "scripts/check_code_conventions.py"
       ],
       "rename_ids": [
         "scripts/rename_frags.py",
