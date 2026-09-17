@@ -27,7 +27,7 @@
 //    OrderGate::check()   — Kill switch / Rate / 포지션 / 중복 검증
 //       │ PASS
 //       ▼
-//    KisClient::submit_order_ack() — KIS API 전송 → ODNO·조직번호 수신(실패면 err_code)
+//    KisClient::submit_order_acknowledgement() — KIS API 전송 → ODNO·조직번호 수신(실패면 error_code)
 //       │
 //       ├─ 성공 → ACCEPTED,  ZMQ publish_order(ok=true)
 //       └─ 실패 → REJECTED,  ZMQ publish_order(ok=false)
@@ -60,7 +60,7 @@ public:
 
     // ── 잔고 대조 기록 (C-2) ────────────────────────────────────────────────
     //  Engine이 브로커 잔고와 원장을 비교한 결과를 원장 CSV에 `RECONCILE` 행으로 남긴다.
-    //  order_qty/order_price=원장 수량·평단, fill_qty/fill_price=브로커 수량·평단, status=action,
+    //  order_quantity/order_price=원장 수량·평단, fill_quantity/fill_price=브로커 수량·평단, status=action,
     //  reason에 그 종목의 살아있는 주문 수(live_orders)를 적는다 — 미체결이 있으면 불일치가
     //  체결 지연일 수 있어 사람이 어느 단계인지 가를 근거가 된다. 덮어쓰기·정리(action이 KEEP이
     //  아닌 것)는 LOG_WARN도 낸다. 원장 자체는 바꾸지 않는다(그건 OrderGate 몫).
@@ -83,7 +83,7 @@ public:
         uint64_t accepted = 0;
         uint64_t rejected = 0;
     };
-    Stats stats() const;
+    Stats statistics() const;
 
     // KIS 주문 API(신규·취소·정정)를 실제로 부른 누적 횟수. 주문 스레드가 submit 전후 값을 비교해
     //  발주 간격(order_min_interval_ms)을 실제 호출 뒤에만 건다 — 게이트·ENTRY_HALT의 로컬 거부는
@@ -119,12 +119,12 @@ public:
 private:
     std::string next_id();
     // 직전 KIS 주문/취소/정정 오류코드를 " [코드]" 꼬리표로 만든다(EGW00201 재시도 판별용). 없으면 "".
-    static std::string kis_err_suffix(const OrderAck& ack);
+    static std::string kis_error_suffix(const OrderAck& acknowledgement);
     void        record(const ManagedOrder& managed_order);
     // 살아있는(ACCEPTED·미체결 잔량>0) 주문 목록을 부속 파일 본문 문자열로 만든다.
     //  호출자는 hist_mtx_를 보유해야 한다. 파일 쓰기는 write_open_orders_file이 락 밖에서 한다.
     std::string snapshot_open_orders_locked() const;
-    // 부속 파일 덮어쓰기(io_mtx_). sequence가 이미 쓴 것보다 오래됐으면 건너뛴다 —
+    // 부속 파일 덮어쓰기(io_mutex_). sequence가 이미 쓴 것보다 오래됐으면 건너뛴다 —
     //  락 밖에서 쓰므로 스냅샷 순서와 쓰기 순서가 뒤집힐 수 있다. 실패는 매매를 막지 않는다.
     void        write_open_orders_file(const std::string& body, uint64_t sequence);
     // 스냅샷을 새로 떠서 부속 파일을 다시 쓴다(hist_mtx_를 잠깐 잡고, 쓰기는 밖에서).
@@ -132,14 +132,14 @@ private:
     void        rewrite_open_orders();
     // 거래 원장 CSV 적재 — 주문/체결을 logs/trades_YYYYMMDD.csv 에 한 줄씩 영속화.
     //   event가 빈 문자열이면 managed_order.status를 event로 사용(접수/거부/취소). 체결은 "FILL".
-    //   파일 쓰기는 io_mtx_로 직렬화한다(hist_mtx_ 밖에서 호출 — 디스크가 원장 락을 잡지 않게).
+    //   파일 쓰기는 io_mtx_로 직렬화한다(history_mutex_ 밖에서 호출 — 디스크가 원장 락을 잡지 않게).
     //   realized_pnl은 매도 체결의 실현손익(수수료·세금 차감 후). 그 외 행은 빈 칸으로 남긴다.
     //   strategy_realized_pnl은 같은 매도 체결의 strategy_id 기준 실현손익(D-089, 열 맨 끝 추가분).
     void        write_trade_row(const std::string& event, const ManagedOrder& managed_order,
-                                int fill_qty, double fill_price,
+                                int fill_quantity, double fill_price,
                                 double realized_pnl = 0.0,
                                 double strategy_realized_pnl = 0.0);
-    // 원장 CSV에 한 줄을 덧붙인다(io_mtx_). 파일이 없으면 헤더를 쓰고, 옛 헤더면 열을 맞춰
+    // 원장 CSV에 한 줄을 덧붙인다(io_mutex_). 파일이 없으면 헤더를 쓰고, 옛 헤더면 열을 맞춰
     //  한 번 재작성한다. write_trade_row·record_reconcile이 줄을 만들어 여기로 보낸다.
     void        append_trade_line(const std::string& line);
     // 원장 CSV 시각 열 — 날짜 파일명(YYYYMMDD)과 행 시각("YYYY-MM-DD HH:MM:SS")을 같이 만든다. KST 고정.
@@ -151,12 +151,12 @@ private:
     [[nodiscard]] ManagedOrder replace_route(const OrderSignal& signal); // action=REPLACE(정정)
     // SELL이 40240000(주문가능분 없음)으로 막히면: 그 종목의 미체결 예약매도를 조회·취소하고
     //  시장가 매도를 1회 재시도한다(장중 자가 청산 정리). 성공 시 kis_order_no 채운 OrderAck,
-    //  예약 없음/취소 실패 시 빈 ack. 이전 세션·수동 예약이 보유수량을 묶은 경우를 해소.
+    //  예약 없음/취소 실패 시 빈 acknowledgement. 이전 세션·수동 예약이 보유수량을 묶은 경우를 해소.
     //  취소한 예약이 이번 세션 주문이면 history_를 CANCELLED로 닫고 게이트 선점을 푼다(C-2).
     [[nodiscard]] OrderAck reconcile_blocked_sell(const OrderSignal& signal);
     // client_oid로 아직 살아있는(ACCEPTED, 미체결 잔량>0) 주문을 history_에서 찾는다.
     // 호출자는 반드시 hist_mtx_를 보유해야 한다. 반환 포인터는 lock 보유 동안만 유효.
-    ManagedOrder* find_live_by_oid(const std::string& client_oid);
+    ManagedOrder* find_live_by_order_id(const std::string& client_order_id);
 
     // ── ODNO → 주문 사유 기록 ────────────────────────────────────────────────
     //  history_는 메모리에만 있어 재기동하면 이전 세션 주문의 ODNO를 잊는다. 그 주문이
@@ -172,9 +172,9 @@ private:
         OrderSide   side      = OrderSide::BUY;
         int         quantity  = 0;
         double      price     = 0.0;
-        double      ref_price = 0.0;
+        double      reference_price = 0.0;
     };
-    // 접수된 주문 한 건을 기록 파일에 덧붙인다(io_mtx_). record()가 락 밖에서 부른다.
+    // 접수된 주문 한 건을 기록 파일에 덧붙인다(io_mutex_). record()가 락 밖에서 부른다.
     void append_order_reason(const ManagedOrder& managed_order);
     // 오늘자 기록 파일을 읽어 order_reasons_를 채운다. 첫 체결통보 때 1회.
     //  호출자는 hist_mtx_를 보유해야 한다.
@@ -188,7 +188,7 @@ private:
     ZmqBridge*       zmq_ = nullptr;
 #endif
 
-    mutable std::mutex       hist_mtx_;
+    mutable std::mutex       history_mutex_;
     std::deque<ManagedOrder> history_;
     // 체결통보 키 → 그 키로 들어온 통보 횟수 (hist_mtx_로 보호).
     //  같은 초·같은 수량·단가의 분할체결은 키가 겹치므로 집합이 아니라 횟수로 센다.
@@ -201,29 +201,29 @@ private:
     //  되살린 주문은 지운다(같은 ODNO를 두 번 되살리지 않게).
     std::unordered_map<std::string, OrderReason> order_reasons_;
     bool order_reasons_loaded_ = false;
-    // MM-1: client_oid → order_id 존재 힌트 (hist_mtx_로 보호). 실제 ManagedOrder는
+    // MM-1: client_order_id → order_id 존재 힌트 (hist_mtx_로 보호). 실제 ManagedOrder는
     //   history_ 스캔으로 해석(deque 요소는 pop_front로 소멸 가능 → 안정 핸들 아님).
-    std::unordered_map<std::string, std::string> oid_index_;
+    std::unordered_map<std::string, std::string> order_id_index_;
     // 취소가 "취소 대상 없음"으로 되돌아온 종목 → 그 시각 (hist_mtx_로 보호).
     //  전략은 취소 결과를 보지 못한 채 재구성 주문을 이어 내므로, 원주문이 이미 체결돼
     //  있었으면 대체 주문이 그대로 중복 매수가 된다(09-09 033790·108490 5건).
     //  다음 재구성 주기까지 그 종목의 신규 주문을 짧게 막는다.
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> cancel_miss_;
-    // 부속 파일 스냅샷 번호. hist_mtx_ 아래에서 올리고, io_mtx_ 아래에서 "마지막으로 쓴 번호"와 비교한다.
-    uint64_t open_orders_seq_         = 0;
+    // 부속 파일 스냅샷 번호. history_mutex_ 아래에서 올리고, io_mutex_ 아래에서 "마지막으로 쓴 번호"와 비교한다.
+    uint64_t open_orders_sequence_         = 0;
     // 이전 세션에서 넘어온 미체결 줄(kis_order_no|orgno|ticker|side|remaining). 취소 스레드가 한 건씩 정리한다.
     //  스냅샷이 history_만 보면 취소를 못 마친 줄(한도 거부·종료 중단·크래시)이 이번 세션 첫 기록에서
     //  파일에서 사라지고 다음 재기동은 그 주문을 모른다. 정리될 때까지 스냅샷에 같이 실린다.
-    //  [lock-order] hist_mtx_ → carry_mtx_. 취소 스레드는 carry_mtx_를 단독으로만 잡는다.
+    //  [lock-order] history_mutex_ → carry_mutex_. 취소 스레드는 carry_mtx_를 단독으로만 잡는다.
     std::vector<std::array<std::string, 5>> carry_rows_;
-    mutable std::mutex                      carry_mtx_;
-    std::mutex io_mtx_;                       // 원장 CSV·부속 파일 쓰기 직렬화
-    uint64_t open_orders_written_seq_ = 0;    // io_mtx_ 보호
+    mutable std::mutex                      carry_mutex_;
+    std::mutex io_mutex_;                       // 원장 CSV·부속 파일 쓰기 직렬화
+    uint64_t open_orders_written_sequence_ = 0;    // io_mutex_ 보호
 
     // 유령주문 취소 스레드. 종료가 몇 분씩 걸리지 않도록 매 건 전에 stop_token을 본다.
-    std::jthread       stale_thr_;
+    std::jthread       stale_threshold_;
 
-    std::atomic<uint64_t> seq_{0};
+    std::atomic<uint64_t> sequence_{0};
     std::atomic<uint64_t> total_count_{0};
     std::atomic<uint64_t> accepted_count_{0};
     std::atomic<uint64_t> rejected_count_{0};

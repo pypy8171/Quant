@@ -25,7 +25,7 @@ KisResult<AccountBalance> KisClient::get_balance()
     };
 
     AccountBalance balance;
-    std::string fk, nk, cont;
+    std::string forward_key, next_key, continuation;
 
     for (int page = 0; page < 30; ++page) // 안전 상한(무한루프 방지)
     {
@@ -33,9 +33,9 @@ KisResult<AccountBalance> KisClient::get_balance()
                           "?CANO=" + config_.account_no + "&ACNT_PRDT_CD=" + config_.account_type +
                           "&AFHR_FLPR_YN=N&OFL_YN=&INQR_DVSN=02&UNPR_DVSN=01" +
                           "&FUND_STTL_ICLD_YN=N&FNCG_AMT_AUTO_RDPT_YN=N&PRCS_DVSN=00" +
-                          "&CTX_AREA_FK100=" + fk + "&CTX_AREA_NK100=" + nk;
+                          "&CTX_AREA_FK100=" + forward_key + "&CTX_AREA_NK100=" + next_key;
 
-        std::vector<std::string> headers = auth_headers(transaction_id, {"tr_cont: " + cont});
+        std::vector<std::string> headers = authentication_headers(transaction_id, {"tr_cont: " + continuation});
 
         std::string response = http_get(url, headers);
 
@@ -65,16 +65,16 @@ KisResult<AccountBalance> KisClient::get_balance()
 
         kis_rest::decode_balance_page(document, balance, page == 0);
 
-        std::string nk_next = rtrim(document.value("ctx_area_nk100", ""));
+        std::string next_key_next = rtrim(document.value("ctx_area_nk100", ""));
 
-        if (nk_next.empty())
+        if (next_key_next.empty())
         {
             break; // 다음 페이지 없음
         }
 
-        fk = rtrim(document.value("ctx_area_fk100", ""));
-        nk = nk_next;
-        cont = "N";
+        forward_key = rtrim(document.value("ctx_area_fk100", ""));
+        next_key = next_key_next;
+        continuation = "N";
     }
 
     return balance;
@@ -105,7 +105,7 @@ std::vector<OpenOrder> KisClient::get_open_orders()
     };
 
     std::vector<OpenOrder> result;
-    std::string fk, nk, cont;
+    std::string forward_key, next_key, continuation;
 
     for (int page = 0; page < 30; ++page) // 안전 상한(무한루프 방지)
     {
@@ -113,9 +113,9 @@ std::vector<OpenOrder> KisClient::get_open_orders()
                           "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl" +
                           "?CANO=" + config_.account_no + "&ACNT_PRDT_CD=" + config_.account_type +
                           "&INQR_DVSN_1=0&INQR_DVSN_2=0" +
-                          "&CTX_AREA_FK100=" + fk + "&CTX_AREA_NK100=" + nk;
+                          "&CTX_AREA_FK100=" + forward_key + "&CTX_AREA_NK100=" + next_key;
 
-        std::vector<std::string> headers = auth_headers(transaction_id, {"tr_cont: " + cont});
+        std::vector<std::string> headers = authentication_headers(transaction_id, {"tr_cont: " + continuation});
 
         std::string response = http_get(url, headers);
 
@@ -145,35 +145,35 @@ std::vector<OpenOrder> KisClient::get_open_orders()
         {
             for (auto& output_node : document["output"])
             {
-                OpenOrder oo;
-                oo.ticker    = output_node.value("pdno", std::string(""));
-                oo.name      = output_node.value("prdt_name", std::string(""));
-                oo.kis_order_no      = output_node.value("odno", output_node.value("ODNO", std::string("")));
-                oo.krx_forwarding_org_no = output_node.value("ord_gno_brno", std::string(""));
-                oo.psbl_qty  = to_int(output_node.value("psbl_qty", std::string("")));
-                oo.ord_unpr  = to_dbl(output_node.value("ord_unpr", std::string("")));
-                std::string sb = output_node.value("sll_buy_dvsn_cd", std::string(""));
-                oo.side = (sb == "01") ? OrderSide::SELL
-                        : (sb == "02") ? OrderSide::BUY
+                OpenOrder open_order;
+                open_order.ticker    = output_node.value("pdno", std::string(""));
+                open_order.name      = output_node.value("prdt_name", std::string(""));
+                open_order.kis_order_no      = output_node.value("odno", output_node.value("ODNO", std::string("")));
+                open_order.krx_forwarding_org_no = output_node.value("ord_gno_brno", std::string(""));
+                open_order.psbl_qty  = to_int(output_node.value("psbl_qty", std::string("")));
+                open_order.ord_unpr  = to_dbl(output_node.value("ord_unpr", std::string("")));
+                std::string buy_sell_code = output_node.value("sll_buy_dvsn_cd", std::string(""));
+                open_order.side = (buy_sell_code == "01") ? OrderSide::SELL
+                        : (buy_sell_code == "02") ? OrderSide::BUY
                                        : OrderSide::NONE;
 
-                if (!oo.ticker.empty() && oo.psbl_qty > 0)
+                if (!open_order.ticker.empty() && open_order.psbl_qty > 0)
                 {
-                    result.push_back(oo);
+                    result.push_back(open_order);
                 }
             }
         }
 
-        std::string nk_next = rtrim(document.value("ctx_area_nk100", ""));
+        std::string next_key_next = rtrim(document.value("ctx_area_nk100", ""));
 
-        if (nk_next.empty())
+        if (next_key_next.empty())
         {
             break; // 다음 페이지 없음
         }
 
-        fk = rtrim(document.value("ctx_area_fk100", ""));
-        nk = nk_next;
-        cont = "N";
+        forward_key = rtrim(document.value("ctx_area_fk100", ""));
+        next_key = next_key_next;
+        continuation = "N";
     }
 
     return result;

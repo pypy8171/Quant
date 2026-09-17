@@ -13,7 +13,7 @@
 #include <optional>
 #include <string>
 
-// regime.json 이 이 초(sec)보다 오래되면 보조 프로세스가 죽은 것으로 보고 신뢰하지 않는다(페일세이프).
+// regime.json 이 이 초(seconds)보다 오래되면 보조 프로세스가 죽은 것으로 보고 신뢰하지 않는다(페일세이프).
 // config "regime_stale_sec" 로 덮어쓸 수 있고, 미지정 시 이 기본값을 쓴다.
 inline constexpr int kDefaultRegimeStaleSec = 600;
 
@@ -58,18 +58,18 @@ inline Snapshot parse_snapshot(const nlohmann::json& document)
         snapshot.regime = found->get<std::string>();
     }
 
-    auto sc = document.find("risk_score");
+    auto score_node = document.find("risk_score");
 
-    if (sc != document.end() && sc->is_number())
+    if (score_node != document.end() && score_node->is_number())
     {
-        snapshot.risk_score = sc->get<int>();
+        snapshot.risk_score = score_node->get<int>();
     }
 
-    auto es = document.find("entry_scale");
+    auto entry_scale_node = document.find("entry_scale");
 
-    if (es != document.end() && es->is_number())
+    if (entry_scale_node != document.end() && entry_scale_node->is_number())
     {
-        snapshot.entry_scale = std::clamp(es->get<double>(), 0.0, 1.0);
+        snapshot.entry_scale = std::clamp(entry_scale_node->get<double>(), 0.0, 1.0);
     }
 
     return snapshot;
@@ -145,8 +145,8 @@ struct Outcome
     bool log_expiry          = false;    // 시간 상자 만료 — 하루 1회
     bool log_stale           = false;    // stale 진입 1회
     bool log_halt_transition = false;    // entry_halt 전이(값은 entry_halt)
-    bool log_liq_on          = false;    // force_liquidate 켜짐 1회
-    bool log_liq_off         = false;    // force_liquidate 꺼짐 1회
+    bool log_liquidation_on          = false;    // force_liquidate 켜짐 1회
+    bool log_liquidation_off         = false;    // force_liquidate 꺼짐 1회
     bool log_scale_change    = false;    // entry_scale 변경(값은 entry_scale)
 };
 
@@ -169,7 +169,7 @@ public:
     double scale_now() const { return scale_now_; }
     Regime selection_now() const { return selection_now_; }
 
-    Outcome step(const Observation& observation, const KstClock& clk)
+    Outcome step(const Observation& observation, const KstClock& clock)
     {
         Outcome out;
 
@@ -177,7 +177,7 @@ public:
         //  경로가 넷이다(파일 없음·stale·읽기 실패·판정 보류). 분기마다 같은 해제를 적으면 한 곳은
         //  빠지고 그날 halt가 안 풀린다 — 09-10의 실패 모양이었다.
         //  force_liquidate 중에는 풀지 않는다(극단 위험회피를 시계로 풀지 않는다). [why D-033]
-        if (halt_on_ && !liq_warned_ && time_box_passed(clk))
+        if (halt_on_ && !liquidation_warned_ && time_box_passed(clock))
         {
             out.log_expiry  = mark_expired();
             out.entry_halt  = false;
@@ -209,18 +209,18 @@ public:
         }
 
         // 전략 선택 축 — 라벨이 바뀐 회차에만 싣는다. 모르는 라벨은 이전 선택 유지. [why D-084]
-        const Regime sel = selection_of(observation.snapshot.regime);
+        const Regime selected_regime = selection_of(observation.snapshot.regime);
 
-        if (sel != Regime::UNKNOWN && sel != selection_now_)
+        if (selected_regime != Regime::UNKNOWN && selected_regime != selection_now_)
         {
-            out.selection  = sel;
-            selection_now_ = sel;
+            out.selection  = selected_regime;
+            selection_now_ = selected_regime;
         }
 
-        const bool liq  = observation.snapshot.force_liquidate;
-        bool       halt = observation.snapshot.entry_halt || liq; // 청산 중엔 신규 진입도 반드시 정지
+        const bool liquidation  = observation.snapshot.force_liquidate;
+        bool       halt = observation.snapshot.entry_halt || liquidation; // 청산 중엔 신규 진입도 반드시 정지
 
-        if (halt && !liq && time_box_passed(clk))
+        if (halt && !liquidation && time_box_passed(clock))
         {
             out.log_expiry = mark_expired() || out.log_expiry;
             halt           = false;
@@ -239,19 +239,19 @@ public:
         scale        = std::round(scale * 10.0) / 10.0;
         set_scale(out, scale);
 
-        if (liq && !liq_warned_)
+        if (liquidation && !liquidation_warned_)
         {
-            out.log_liq_on = true;
-            liq_warned_    = true;
+            out.log_liquidation_on = true;
+            liquidation_warned_    = true;
         }
 
-        if (!liq && liq_warned_)
+        if (!liquidation && liquidation_warned_)
         {
-            out.log_liq_off = true;
-            liq_warned_     = false;
+            out.log_liquidation_off = true;
+            liquidation_warned_     = false;
         }
 
-        out.force_liquidate = liq;
+        out.force_liquidate = liquidation;
         return out;
     }
 
@@ -270,21 +270,21 @@ private:
     }
 
     // 개장 후 N분이 지났는가. 날짜가 바뀌면 만료 상태를 되돌린다.
-    bool time_box_passed(const KstClock& clk)
+    bool time_box_passed(const KstClock& clock)
     {
         if (halt_expire_min_ <= 0)
         {
             return false;
         }
 
-        if (clk.yesterday != expire_yday_)
+        if (clock.yesterday != expire_yday_)
         {
-            expire_yday_ = clk.yesterday;
+            expire_yday_ = clock.yesterday;
             expired_     = false;
         }
 
         // [inv] 09:00~15:30 안에서만 만료가 성립한다 — 파장 뒤·개장 전은 걸리지 않는다.
-        return clk.minutes_after_open >= halt_expire_min_ && clk.minutes_after_open < 390;
+        return clock.minutes_after_open >= halt_expire_min_ && clock.minutes_after_open < 390;
     }
 
     // 만료 로그는 하루 한 번. 처음 만료시킨 호출만 true.
@@ -307,6 +307,6 @@ private:
     bool stale_warned_    = false;
     int  expire_yday_     = -1;
     bool expired_         = false; // 오늘 이미 만료시켰나(로그 1회화 겸용)
-    bool liq_warned_      = false; // force_liquidate 전이 로그 1회화
+    bool liquidation_warned_      = false; // force_liquidate 전이 로그 1회화
 };
 } // namespace regime_bridge

@@ -26,15 +26,15 @@ static std::string today_ymd()
 std::string OrderRouter::next_id()
 {
     // 주문마다 부르는 곳이라 스트림을 쓰지 않는다(D-042). 6자리를 넘으면 자릿수만 늘어난다.
-    return std::format("ORD-{:06}", ++seq_);
+    return std::format("ORD-{:06}", ++sequence_);
 }
 
 // ─── 거부 사유에 KIS 오류코드 꼬리표 부착 ───────────────────────────────
 //  order_thread가 EGW00201(초당 거래건수 초과)을 문자열로 판별해 적응적 재시도를 걸 수 있게,
 //  응답의 err_code를 " [코드]" 형태로 reject_reason 끝에 붙인다. 코드 없으면 빈 문자열.
-std::string OrderRouter::kis_err_suffix(const OrderAck& ack)
+std::string OrderRouter::kis_error_suffix(const OrderAck& acknowledgement)
 {
-    return ack.err_code.empty() ? std::string() : (" [" + ack.err_code + "]");
+    return acknowledgement.error_code.empty() ? std::string() : (" [" + acknowledgement.error_code + "]");
 }
 
 // ─── 주문 제출 — action에 따라 라우팅 (MM-1) ─────────────────────────────
@@ -61,7 +61,7 @@ ManagedOrder OrderRouter::submit(const OrderSignal& signal)
 }
 
 // ─── 신규 주문 (기존 경로) ─────────────────────────────────────────────────
-ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
+ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
 {
     auto now = std::chrono::system_clock::now();
 
@@ -69,9 +69,9 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
     //    분할 매수 전략은 매 틱 같은 rung을 다시 내므로, 넘친다고 버리면 그 종목은 하루 종일
     //    한 주도 못 나가면서 초당 주문 예산만 태운다(09-08 오전 126640·293490 반복 거부).
     //    여유가 0이면 손대지 않는다 — 아래 check()가 어느 한도에 걸렸는지 그대로 남기게 둔다.
-    OrderSignal signal = in_sig;
-    bool sell_no_qty = false;
-    const int allowed = gate_.clamp_buy_qty(signal);
+    OrderSignal signal = in_signal;
+    bool sell_no_quantity = false;
+    const int allowed = gate_.clamp_buy_quantity(signal);
 
     if (allowed == 0 && signal.side == OrderSide::SELL && signal.action == OrderAction::NEW &&
         signal.quantity > 0)
@@ -80,15 +80,15 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
         //  그대로 통과시키고, KIS가 주문을 통째로 40240000(모의투자 잔고내역이 없습니다)으로
         //  거부한다 — 한 주도 못 빠져나오면서 초당 주문 예산만 태운다(09-08 001450 105주·
         //  086450 486주·047050 254주/381주가 모두 이 경로로 전량 거부됐다).
-        sell_no_qty = true;
+        sell_no_quantity = true;
     }
     else if (allowed > 0 && allowed < signal.quantity && signal.side == OrderSide::SELL &&
              gate_.sellable_view(signal.account_id, signal.ticker).pending > 0)
     {
         // 매도가능이 모자란 이유가 이 세션의 예약매도(익절 지정가)라면 잘라 내지 않고, 그 예약을 취소해
-        //  수량을 풀고 전량을 낸다 — 아래 sell_no_qty 와 같은 길. 잘라 내면 나머지는 전략이 취소를 낸 뒤
+        //  수량을 풀고 전량을 낸다 — 아래 sell_no_quantity 와 같은 길. 잘라 내면 나머지는 전략이 취소를 낸 뒤
         //  다음 백오프(30초 뒤)에야 나간다(09-14 15:15 012210 115주 중 100주만, 나머지는 15:16 뒤). [why D-082]
-        sell_no_qty = true;
+        sell_no_quantity = true;
     }
     else if (allowed > 0 && allowed < signal.quantity)
     {
@@ -113,7 +113,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
     {
         bool blocked = false;
         {
-            std::lock_guard<std::mutex> lock(hist_mtx_);
+            std::lock_guard<std::mutex> lock(history_mutex_);
             auto iterator = cancel_miss_.find(signal.ticker);
 
             if (iterator != cancel_miss_.end())
@@ -149,9 +149,9 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
     //  KIS 호출이 없으니 발주 스레드 예산을 안 쓴다. [why D-082]
     if (signal.side == OrderSide::SELL && signal.action == OrderAction::NEW && signal.type == OrderType::MARKET)
     {
-        std::string dup;
+        std::string duplicate;
         {
-            std::lock_guard<std::mutex> lock(hist_mtx_);
+            std::lock_guard<std::mutex> lock(history_mutex_);
             const auto now_sc = std::chrono::system_clock::now();
 
             for (const auto& history_entry : history_)
@@ -170,15 +170,15 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
                     continue;
                 }
 
-                dup = history_entry.order_id + " 미체결 " + std::to_string(history_entry.signal.quantity - history_entry.confirmed_quantity) + "주";
+                duplicate = history_entry.order_id + " 미체결 " + std::to_string(history_entry.signal.quantity - history_entry.confirmed_quantity) + "주";
                 break;
             }
         }
 
-        if (!dup.empty())
+        if (!duplicate.empty())
         {
             managed_order.status        = OrderStatus::REJECTED;
-            managed_order.reject_reason = "같은 시장가 매도 진행 중 [" + dup + "] — 중복 발주 생략";
+            managed_order.reject_reason = "같은 시장가 매도 진행 중 [" + duplicate + "] — 중복 발주 생략";
             ++rejected_count_;
             LOG_INFO("[OrderRouter] 중복 생략 [" + managed_order.order_id + "] " + signal.ticker + " " +
                      std::to_string(signal.quantity) + "주 → " + managed_order.reject_reason);
@@ -190,10 +190,10 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
     // 1. OrderGate 검증
     std::string reject_reason;
     std::string kis_order_no;
-    OrderAck    ack;
+    OrderAck    acknowledgement;
     bool        freed = false;
 
-    if (sell_no_qty)
+    if (sell_no_quantity)
     {
         // 왜 0인지 남기고, 이 프로세스가 아는 예약매도(이번 세션 이력·이전 세션 부속 파일)를 취소해
         //  수량을 풀어 본다. 거부만 하고 끝내면 예약매도가 브로커에 남은 채 청산이 하루 종일 막힌다
@@ -201,23 +201,23 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
         //  풀리면 그 자리에서 재발주한 접수로 이어간다. [why D-055]
         const auto sellable_view = gate_.sellable_view(signal.account_id, signal.ticker);
         LOG_WARN(std::format("[OrderRouter] 매도가능 {}/{}주 {} — 원장 보유 {}주, 잔고 주문가능 {}주, 이 세션 미체결 매도 {}주 → 예약매도 취소 시도",
-                             allowed, signal.quantity, signal.ticker, sellable_view.held, sellable_view.psbl_cap, sellable_view.pending));
-        OrderAck rack = reconcile_blocked_sell(signal);
+                             allowed, signal.quantity, signal.ticker, sellable_view.held, sellable_view.possible_quantity_cap, sellable_view.pending));
+        OrderAck reconcile_acknowledgement = reconcile_blocked_sell(signal);
 
-        if (rack.ok())
+        if (reconcile_acknowledgement.ok())
         {
-            ack   = rack;
-            kis_order_no  = rack.kis_order_no;
+            acknowledgement   = reconcile_acknowledgement;
+            kis_order_no  = reconcile_acknowledgement.kis_order_no;
             freed = true;
         }
-        else if (rack.err_code == kis_err::kNoSellableQty && allowed > 0)
+        else if (reconcile_acknowledgement.error_code == kis_error::kNoSellableQty && allowed > 0)
         {
             // 취소할 예약매도를 못 찾았지만 일부는 나갈 수 있다 — 잘라서라도 낸다(예전 클램프 경로).
             LOG_INFO(std::format("[OrderRouter] 한도 클램프 {} {}주 → {}주 (예약매도 취소 불발)", signal.ticker, signal.quantity, allowed));
             signal.quantity = allowed;
             managed_order.signal    = signal;
         }
-        else if (rack.err_code == kis_err::kNoSellableQty)
+        else if (reconcile_acknowledgement.error_code == kis_error::kNoSellableQty)
         {
             reject_reason = "매도가능수량 0 (미체결 매도·미결제분) — 취소할 예약매도 없음, 발주 생략";
         }
@@ -225,7 +225,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
         {
             // 예약매도는 취소됐는데 재매도가 거부(유량한도·전송 실패)된 것 — 수량은 풀렸으니 재시도가 낸다.
             //  09-14 15:00 096770: 취소 뒤 재매도가 EGW00201 에 걸렸는데 "취소할 예약매도 없음"으로 남아 원인을 잘못 짚었다.
-            reject_reason = "예약매도 취소 뒤 재매도 실패 [" + rack.err_code + "] — 재시도 대상";
+            reject_reason = "예약매도 취소 뒤 재매도 실패 [" + reconcile_acknowledgement.error_code + "] — 재시도 대상";
         }
     }
 
@@ -249,7 +249,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
     // 2. KIS 주문 전송 (submit_order_ack로 ODNO + KRX 조직번호 캡처 — 정정/취소 준비)
     //    접수 왕복지연(RTT)을 재서 접수 로그에 남긴다 → log_report.py가 중앙값(p50)·상위 1%(p99) 집계.
     managed_order.status = OrderStatus::SUBMITTED;
-    const auto t_send = std::chrono::steady_clock::now();
+    const auto send_thread = std::chrono::steady_clock::now();
     std::chrono::milliseconds::rep rtt_ms = 0; // count()의 타입 그대로 — MSVC는 long long이라 long이면 잘린다(C4244)
 
     try
@@ -257,12 +257,12 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
         if (!freed) // 예약매도 취소 뒤 재발주가 이미 접수됐으면 그 결과를 쓴다
         {
             ++kis_calls_;
-            ack  = kis_.submit_order_ack(signal);
-            kis_order_no = ack.kis_order_no;
+            acknowledgement  = kis_.submit_order_acknowledgement(signal);
+            kis_order_no = acknowledgement.kis_order_no;
         }
 
         rtt_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                     std::chrono::steady_clock::now() - t_send)
+                     std::chrono::steady_clock::now() - send_thread)
                      .count();
     }
     catch (const std::exception& exception)
@@ -286,7 +286,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
     // 청산차단 자가정리 — SELL이 "주문가능분 없음"(40240000)으로 막히면, 그 종목의
     //  미체결 예약매도(이전 세션/수동 예약이 보유수량을 묶은 것)를 조회·취소하고 시장가로 1회
     //  재시도한다. 성공하면 아래 접수 블록이 그대로 처리(kis_order_no/ack가 재시도 결과로 갱신됨).
-    if (!ack.ok() && signal.side == OrderSide::SELL && ack.err_code == kis_err::kNoSellableQty)
+    if (!acknowledgement.ok() && signal.side == OrderSide::SELL && acknowledgement.error_code == kis_error::kNoSellableQty)
     {
         const auto sellable_view = gate_.sellable_view(signal.account_id, signal.ticker);
 
@@ -296,12 +296,12 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
             LOG_WARN("[OrderRouter] 보유수량 0(원장 기준) " + signal.ticker + " — 매도 불가, KIS도 주문가능분 없음으로 거부");
         }
 
-        OrderAck rack = reconcile_blocked_sell(signal);
+        OrderAck reconcile_acknowledgement = reconcile_blocked_sell(signal);
 
-        if (rack.ok())
+        if (reconcile_acknowledgement.ok())
         {
-            ack  = rack;
-            kis_order_no = rack.kis_order_no;
+            acknowledgement  = reconcile_acknowledgement;
+            kis_order_no = reconcile_acknowledgement.kis_order_no;
         }
     }
 
@@ -309,20 +309,20 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
     {
         managed_order.status      = OrderStatus::ACCEPTED;
         managed_order.kis_order_no = kis_order_no;
-        managed_order.krx_forwarding_org_no    = ack.krx_forwarding_org_no; // 정정/취소 시 원주문 조직번호로 재입력
+        managed_order.krx_forwarding_org_no    = acknowledgement.krx_forwarding_org_no; // 정정/취소 시 원주문 조직번호로 재입력
         ++accepted_count_;
         // KIS 접수 시점에 포지션 선점 (보수적 추적 — 실제 체결 확인 전까지 재주문 차단)
         //  선점가는 지정가=price, 시장가(0)=ref_price로 근사 stamp → §3d 총노출이 시장가 선점을
         //  과소평가하지 않게(check()의 eval_px와 대칭, 보수측).
         gate_.on_accept(signal.account_id, signal.ticker, signal.side, signal.quantity,
-                        signal.price > 0.0 ? signal.price : signal.ref_price);
+                        signal.price > 0.0 ? signal.price : signal.reference_price);
 
-        // client_oid → order_id 인덱스 (취소/정정 대상 조회용). hist_mtx_는 record()에서 잡으므로
+        // client_order_id → order_id 인덱스 (취소/정정 대상 조회용). hist_mtx_는 record()에서 잡으므로
         //   여기선 별도로 짧게 보호한다(단일 order_thread라 경합은 on_fill/recent와만 발생).
-        if (!signal.client_oid.empty())
+        if (!signal.client_order_id.empty())
         {
-            std::lock_guard<std::mutex> lock(hist_mtx_);
-            oid_index_[signal.client_oid] = managed_order.order_id;
+            std::lock_guard<std::mutex> lock(history_mutex_);
+            order_id_index_[signal.client_order_id] = managed_order.order_id;
         }
 
         LOG_INFO(std::format("[OrderRouter] 접수 [{}] ODNO={} {} {} {}주 RTT={}ms", managed_order.order_id, kis_order_no, signal.ticker,
@@ -337,7 +337,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_sig)
     else
     {
         managed_order.status        = OrderStatus::REJECTED;
-        managed_order.reject_reason = "KIS API 거부 (빈 ODNO)" + kis_err_suffix(ack);
+        managed_order.reject_reason = "KIS API 거부 (빈 ODNO)" + kis_error_suffix(acknowledgement);
         ++rejected_count_;
         LOG_ERROR("[OrderRouter] KIS 거부 [" + managed_order.order_id + "] " + signal.ticker + managed_order.reject_reason);
 #ifdef HAS_ZMQ
@@ -371,7 +371,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal)
     //  그때는 아래 "취소할 예약매도 없음"으로 떨어진다. 그래도 통째로 단락하는 것보다 낫다.
     if (kis_.is_paper())
     {
-        std::lock_guard<std::mutex> lock(hist_mtx_);
+        std::lock_guard<std::mutex> lock(history_mutex_);
 
         for (const auto& managed_order : history_)
         {
@@ -400,7 +400,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal)
 
         // 이전 세션이 남긴 미체결(부속 파일)도 후보다 — 기동 스윕이 아직 못 지웠거나 한도 거부로
         //  남긴 줄이 이 종목의 수량을 묶고 있을 수 있다. 취소되면 아래에서 줄을 지운다.
-        std::lock_guard<std::mutex> ck(carry_mtx_);
+        std::lock_guard<std::mutex> ck(carry_mutex_);
 
         for (const auto& carry_row : carry_rows_)
         {
@@ -428,7 +428,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal)
         catch (const std::exception& exception)
         {
             LOG_WARN("[OrderRouter] 미체결 조회 예외 — " + std::string(exception.what()));
-            return OrderAck::fail(kis_err::kTransport);
+            return OrderAck::fail(kis_error::kTransport);
         }
     }
 
@@ -443,12 +443,12 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal)
 
         LOG_WARN(std::format("[OrderRouter] 청산차단 해소 {} 예약매도 {}주 ODNO={} @{} → 취소 시도", signal.ticker,
                              open.psbl_qty, open.kis_order_no, static_cast<int>(open.ord_unpr)));
-        OrderAck cxl;
+        OrderAck cancel;
 
         try
         {
             ++kis_calls_;
-            cxl = kis_.cancel_order(open.ticker, open.kis_order_no, open.krx_forwarding_org_no, open.psbl_qty, /*all_remaining=*/true);
+            cancel = kis_.cancel_order(open.ticker, open.kis_order_no, open.krx_forwarding_org_no, open.psbl_qty, /*all_remaining=*/true);
         }
         catch (const std::exception& exception)
         {
@@ -456,19 +456,19 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal)
             continue;
         }
 
-        if (!cxl.ok())
+        if (!cancel.ok())
         {
             continue;
         }
 
         ++cancelled;
 
-        // 이번 세션 주문이면 이력·선점을 같이 정리한다. 잠금 순서 hist_→gate는 cancel_route와 같다.
+        // 이번 세션 주문이면 이력·선점을 같이 정리한다. 잠금 순서 history_→gate는 cancel_route와 같다.
         ManagedOrder closed;
         bool         found   = false;
         int          release = 0;
         {
-            std::lock_guard<std::mutex> lock(hist_mtx_);
+            std::lock_guard<std::mutex> lock(history_mutex_);
 
             for (auto& managed_order : history_)
             {
@@ -489,7 +489,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal)
                 managed_order.updated_at    = std::chrono::system_clock::now();
                 closed           = managed_order;
                 found            = true;
-                oid_index_.erase(managed_order.signal.client_oid);
+                order_id_index_.erase(managed_order.signal.client_order_id);
                 break;
             }
 
@@ -512,7 +512,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal)
             // 이전 세션 줄 — 부속 파일에서 빼고, 취소로 풀린 수량을 게이트에 되돌린다(스윕과 같은 처리).
             bool carried = false;
             {
-                std::lock_guard<std::mutex> ck(carry_mtx_);
+                std::lock_guard<std::mutex> ck(carry_mutex_);
                 const auto before = carry_rows_.size();
                 carry_rows_.erase(std::remove_if(carry_rows_.begin(), carry_rows_.end(),
                                                  [&open](const std::array<std::string, 5>& parts) { return parts[0] == open.kis_order_no; }),
@@ -533,7 +533,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal)
     {
         LOG_WARN("[OrderRouter] 청산차단 미해소 " + signal.ticker +
                  " — 취소할 예약매도 없음/취소 실패 (수동 확인 필요)");
-        return OrderAck::fail(kis_err::kNoSellableQty); // 원인은 그대로 — 호출부가 거부 사유로 남긴다
+        return OrderAck::fail(kis_error::kNoSellableQty); // 원인은 그대로 — 호출부가 거부 사유로 남긴다
     }
 
     LOG_INFO(std::format("[OrderRouter] 예약매도 {}건 취소 완료 → {} 시장가 매도 재시도", cancelled, signal.ticker));
@@ -541,12 +541,12 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal)
     try
     {
         ++kis_calls_;
-        return kis_.submit_order_ack(signal);
+        return kis_.submit_order_acknowledgement(signal);
     }
     catch (const std::exception& exception)
     {
         LOG_ERROR("[OrderRouter] 청산 재매도 예외 " + signal.ticker + " — " + std::string(exception.what()));
-        return OrderAck::fail(kis_err::kTransport);
+        return OrderAck::fail(kis_error::kTransport);
     }
 }
 
@@ -558,7 +558,7 @@ int OrderRouter::sweep_stale_reservations()
 {
     std::vector<std::string> live;
     {
-        std::lock_guard<std::mutex> lock(hist_mtx_);
+        std::lock_guard<std::mutex> lock(history_mutex_);
 
         // [inv] 이력이 비면 아무 것도 풀지 않는다. 선점은 접수 때만 생기고 접수는 이력에도
         //  남으므로 정상적으로는 둘이 같이 비어 있다. 이력만 비는 경우(재기동 직후, 상한 초과로
@@ -600,7 +600,7 @@ void OrderRouter::record(const ManagedOrder& managed_order)
     std::string open_orders;
     uint64_t    sequence = 0;
     {
-        std::lock_guard<std::mutex> lock(hist_mtx_);
+        std::lock_guard<std::mutex> lock(history_mutex_);
         history_.push_back(managed_order);
 
         while (static_cast<int>(history_.size()) > config_.max_history)
@@ -615,10 +615,10 @@ void OrderRouter::record(const ManagedOrder& managed_order)
         }
 
         open_orders = snapshot_open_orders_locked();
-        sequence         = ++open_orders_seq_;
+        sequence         = ++open_orders_sequence_;
     }
 
-    // 파일 I/O는 hist_mtx_ 밖에서 — 디스크가 느린 순간 체결(on_fill)·발주(submit)가 같이 밀리지 않게(W-8).
+    // 파일 I/O는 history_mutex_ 밖에서 — 디스크가 느린 순간 체결(on_fill)·발주(submit)가 같이 밀리지 않게(W-8).
     // 거래 원장 CSV — 주문 종착 상태(접수/거부/취소)를 한 줄로 영속화.
     //   event="" → managed_order.status 문자열(ACCEPTED/REJECTED/CANCELLED)이 event가 된다.
     write_trade_row("", managed_order, 0, 0.0);
@@ -654,10 +654,10 @@ void OrderRouter::append_order_reason(const ManagedOrder& managed_order)
     const std::string line = std::format("{}|{}|{}|{}|{}|{}|{}|{}\n", managed_order.kis_order_no, safe(managed_order.signal.ticker),
                                          managed_order.signal.side == OrderSide::BUY ? "BUY" : "SELL", managed_order.signal.quantity,
                                          static_cast<long long>(managed_order.signal.price),
-                                         static_cast<long long>(managed_order.signal.ref_price), safe(managed_order.signal.strategy_id),
+                                         static_cast<long long>(managed_order.signal.reference_price), safe(managed_order.signal.strategy_id),
                                          safe(managed_order.signal.reason));
 
-    std::lock_guard<std::mutex> lock(io_mtx_);
+    std::lock_guard<std::mutex> lock(io_mutex_);
     std::ofstream out(Logger::instance().path_for("order_reasons_" + today_ymd() + ".txt"),
                       std::ios::app);
 
@@ -688,12 +688,12 @@ void OrderRouter::load_order_reasons_locked()
     while (std::getline(in, line))
     {
         std::vector<std::string> fields;
-        std::string tok;
-        std::istringstream ss(line);
+        std::string token;
+        std::istringstream stream(line);
 
-        while (std::getline(ss, tok, '|'))
+        while (std::getline(stream, token, '|'))
         {
-            fields.push_back(tok);
+            fields.push_back(token);
         }
 
         if (fields.size() < 8 || fields[0].empty())
@@ -711,7 +711,7 @@ void OrderRouter::load_order_reasons_locked()
         {
             order_reason.quantity  = std::stoi(fields[3]);
             order_reason.price     = std::stod(fields[4]);
-            order_reason.ref_price = std::stod(fields[5]);
+            order_reason.reference_price = std::stod(fields[5]);
         }
         catch (const std::exception&)
         {
@@ -764,7 +764,7 @@ std::string OrderRouter::snapshot_open_orders_locked() const
 
     // 이전 세션 줄은 아직 취소가 안 끝난 것만 남아 있다 — 이번 세션 줄과 합쳐 쓴다.
     {
-        std::lock_guard<std::mutex> lock(carry_mtx_);
+        std::lock_guard<std::mutex> lock(carry_mutex_);
 
         for (const auto& carry_row : carry_rows_)
         {
@@ -780,9 +780,9 @@ void OrderRouter::rewrite_open_orders()
     std::string body;
     uint64_t    sequence = 0;
     {
-        std::lock_guard<std::mutex> lock(hist_mtx_);
+        std::lock_guard<std::mutex> lock(history_mutex_);
         body = snapshot_open_orders_locked();
-        sequence  = ++open_orders_seq_;
+        sequence  = ++open_orders_sequence_;
     }
 
     write_open_orders_file(body, sequence);
@@ -792,21 +792,21 @@ void OrderRouter::write_open_orders_file(const std::string& body, uint64_t seque
 {
     namespace fs = std::filesystem;
     std::error_code error_code;
-    std::lock_guard<std::mutex> lock(io_mtx_);
+    std::lock_guard<std::mutex> lock(io_mutex_);
 
-    if (sequence <= open_orders_written_seq_)
+    if (sequence <= open_orders_written_sequence_)
     {
         return; // 더 새 스냅샷이 먼저 쓰였다 — 옛 것으로 덮으면 살아있는 주문이 사라진다
     }
 
-    open_orders_written_seq_ = sequence;
+    open_orders_written_sequence_ = sequence;
 
     fs::path path = Logger::instance().path_for("open_orders.txt");
-    fs::path tmp  = Logger::instance().path_for("open_orders.tmp");
+    fs::path temporary  = Logger::instance().path_for("open_orders.tmp");
 
     // 임시파일에 쓰고 원자적으로 갈아끼운다 — 기동 중 크래시로 반쪽 파일을 읽지 않도록.
     {
-        std::ofstream out(tmp, std::ios::trunc);
+        std::ofstream out(temporary, std::ios::trunc);
 
         if (!out)
         {
@@ -816,11 +816,11 @@ void OrderRouter::write_open_orders_file(const std::string& body, uint64_t seque
         out << body;
     }
 
-    fs::rename(tmp, path, error_code);
+    fs::rename(temporary, path, error_code);
 
     if (error_code)
     {
-        fs::remove(tmp, error_code);
+        fs::remove(temporary, error_code);
     }
 }
 
@@ -828,11 +828,11 @@ void OrderRouter::write_open_orders_file(const std::string& body, uint64_t seque
 OrderRouter::~OrderRouter()
 {
     // jthread 소멸자가 같은 일을 하지만 그건 멤버 소멸 순서 안에서다 — 스레드가 쓰는 멤버가 먼저 죽지 않게 여기서 회수한다.
-    stale_thr_.request_stop();
+    stale_threshold_.request_stop();
 
-    if (stale_thr_.joinable())
+    if (stale_threshold_.joinable())
     {
-        stale_thr_.join();
+        stale_threshold_.join();
     }
 }
 
@@ -865,23 +865,23 @@ void OrderRouter::cancel_stale_orders_async()
             }
 
             std::array<std::string, 5> fields;
-            size_t pos = 0, index = 0;
+            size_t position = 0, index = 0;
             bool ok = true;
 
             while (index < 5)
             {
-                size_t bar = line.find('|', pos);
+                size_t bar = line.find('|', position);
 
                 if (index < 4 && bar == std::string::npos) { ok = false; break; }
-                fields[index++] = line.substr(pos, index < 5 && bar != std::string::npos
-                                                ? bar - pos : std::string::npos);
+                fields[index++] = line.substr(position, index < 5 && bar != std::string::npos
+                                                ? bar - position : std::string::npos);
 
                 if (bar == std::string::npos)
                 {
                     break;
                 }
 
-                pos = bar + 1;
+                position = bar + 1;
             }
 
             if (ok && index == 5 && !fields[0].empty())
@@ -899,7 +899,7 @@ void OrderRouter::cancel_stale_orders_async()
     // 파일은 비우지 않는다. 읽은 줄을 carry_rows_에 들고 있으면 이번 세션의 스냅샷마다 같이
     //  실리므로, 취소를 마치기 전에 죽거나 한도 거부로 남긴 주문도 다음 재기동에 그대로 넘어간다.
     {
-        std::lock_guard<std::mutex> lock(carry_mtx_);
+        std::lock_guard<std::mutex> lock(carry_mutex_);
         carry_rows_.clear();
 
         for (const auto& row : rows)
@@ -918,15 +918,15 @@ void OrderRouter::cancel_stale_orders_async()
     LOG_WARN("[OrderRouter] 이전 세션 미체결 " + std::to_string(rows.size()) +
              "건 발견 — 백그라운드 취소 시작(유령 주문이 현금을 묶고 청산 직후 재진입을 만든다)");
 
-    if (stale_thr_.joinable())
+    if (stale_threshold_.joinable())
     {
-        stale_thr_.join();
+        stale_threshold_.join();
     }
 
     // 취소는 건당 왕복 3~5초다. 기동 경로에서 돌리면 장중 재기동이 5분씩 멈춘다.
     //  잔고 시드는 이 스레드를 기다리지 않아도 된다 — 미체결 취소는 보유수량을 바꾸지
     //  않고 주문가능현금·매도가능수량만 푸는데, 둘 다 주기 잔고 대조가 다시 읽는다.
-    stale_thr_ = std::jthread([this, rows](std::stop_token stop_token)
+    stale_threshold_ = std::jthread([this, rows](std::stop_token stop_token)
     {
         int cancelled = 0;
 
@@ -948,7 +948,7 @@ void OrderRouter::cancel_stale_orders_async()
                 continue;
             }
 
-            OrderAck res;
+            OrderAck result;
             bool     rate_limited = false;
 
             // 한도 거부(EGW00201)는 "이미 종료"가 아니다. 같은 분기로 흘리면 유령 예약이 KIS에
@@ -959,7 +959,7 @@ void OrderRouter::cancel_stale_orders_async()
                 try
                 {
                     ++kis_calls_;
-                    res = kis_.cancel_order(row[2], row[0], row[1], quantity, /*all_remaining=*/true);
+                    result = kis_.cancel_order(row[2], row[0], row[1], quantity, /*all_remaining=*/true);
                 }
                 catch (const std::exception& exception)
                 {
@@ -967,7 +967,7 @@ void OrderRouter::cancel_stale_orders_async()
                     break;
                 }
 
-                rate_limited = !res.ok() && res.err_code == kis_err::kRateLimit;
+                rate_limited = !result.ok() && result.error_code == kis_error::kRateLimit;
 
                 if (!rate_limited || stop_token.stop_requested())
                 {
@@ -985,7 +985,7 @@ void OrderRouter::cancel_stale_orders_async()
                 continue;
             }
 
-            if (res.ok())
+            if (result.ok())
             {
                 ++cancelled;
                 LOG_INFO("[OrderRouter] 유령주문 취소 " + row[2] + " " + row[3] + " " +
@@ -1008,7 +1008,7 @@ void OrderRouter::cancel_stale_orders_async()
 
             // 취소 접수든 이미 종료든 이 줄은 끝났다 — 부속 파일에서 뺀다.
             {
-                std::lock_guard<std::mutex> lock(carry_mtx_);
+                std::lock_guard<std::mutex> lock(carry_mutex_);
                 carry_rows_.erase(std::remove_if(carry_rows_.begin(), carry_rows_.end(),
                                                  [&row](const std::array<std::string, 5>& parts) { return parts[0] == row[0]; }),
                                   carry_rows_.end());
@@ -1027,7 +1027,7 @@ void OrderRouter::cancel_stale_orders_async()
 // ─── 거래 원장 CSV 적재 ───────────────────────────────────────────────────
 //  실행 로그(quant_trader.log)와 별개로 매수·매도·거부·체결·잔고 대조를 구조적으로 남긴다.
 //  logs/trades_YYYYMMDD.csv 에 한 줄씩 append(날짜별 파일). record()·on_fill()·record_reconcile()
-//  이 줄을 만들고 append_trade_line이 io_mtx_로 직렬화해 쓴다(hist_mtx_ 밖 — 동시쓰기 없음).
+//  이 줄을 만들고 append_trade_line이 io_mtx_로 직렬화해 쓴다(history_mutex_ 밖 — 동시쓰기 없음).
 //  원장 쓰기 실패는 매매를 막지 않는다(best-effort — 조용히 반환).
 //  열 정본은 kTradeHeader 하나다. 열을 더할 때는 끝에 붙인다 — 스키마 승격이 옛 파일 행 끝에 빈 칸을
 //  덧붙이는 방식이라 중간 삽입은 기존 행의 값을 엉뚱한 열로 밀어낸다. Python 판독기는 열 이름으로 읽는다.
@@ -1052,14 +1052,14 @@ static std::string csv_safe(std::string text)
 
 void OrderRouter::trade_row_timestamp(std::string& date, std::string& stamp)
 {
-    const std::time_t tt = std::time(nullptr);
-    date  = kst::date_yyyymmdd(tt);
-    stamp = kst::datetime(tt);
+    const std::time_t now_time = std::time(nullptr);
+    date  = kst::date_yyyymmdd(now_time);
+    stamp = kst::datetime(now_time);
 }
 
 void OrderRouter::append_trade_line(const std::string& line)
 {
-    std::lock_guard<std::mutex> io_lk(io_mtx_);
+    std::lock_guard<std::mutex> io_lk(io_mutex_);
 
     std::string dbuf, time_buffer;
     trade_row_timestamp(dbuf, time_buffer);
@@ -1097,16 +1097,16 @@ void OrderRouter::append_trade_line(const std::string& line)
 
                 std::vector<std::string> rows;
 
-                for (std::string ln; std::getline(in, ln); )
+                for (std::string line; std::getline(in, line); )
                 {
-                    if (!ln.empty() && ln.back() == '\r')
+                    if (!line.empty() && line.back() == '\r')
                     {
-                        ln.pop_back();
+                        line.pop_back();
                     }
 
-                    if (!ln.empty())
+                    if (!line.empty())
                     {
-                        rows.push_back(ln + std::string(static_cast<size_t>(add), ','));
+                        rows.push_back(line + std::string(static_cast<size_t>(add), ','));
                     }
                 }
 
@@ -1142,16 +1142,16 @@ void OrderRouter::append_trade_line(const std::string& line)
 }
 
 void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& managed_order,
-                                  int fill_qty, double fill_price, double realized_pnl,
+                                  int fill_quantity, double fill_price, double realized_pnl,
                                   double strategy_realized_pnl)
 {
     const OrderSignal& signal = managed_order.signal;
 
-    auto side_str = [](OrderSide order_side) {
+    auto side_string = [](OrderSide order_side) {
         return order_side == OrderSide::BUY ? "BUY" : (order_side == OrderSide::SELL ? "SELL" : "NONE");
     };
-    auto type_str = [](OrderType order_type) { return order_type == OrderType::LIMIT ? "LIMIT" : "MARKET"; };
-    auto status_str = [](OrderStatus status) -> const char* {
+    auto type_string = [](OrderType order_type) { return order_type == OrderType::LIMIT ? "LIMIT" : "MARKET"; };
+    auto status_string = [](OrderStatus status) -> const char* {
         switch (status)
         {
         case OrderStatus::PENDING:   return "PENDING";
@@ -1165,14 +1165,14 @@ void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& 
     };
 
     // event 빈 문자열이면 상태 문자열을 사용
-    std::string ev = event.empty() ? status_str(managed_order.status) : event;
+    std::string event_text = event.empty() ? status_string(managed_order.status) : event;
     // reason = 거부/봉쇄 사유(OrderGate·KIS), entry_reason = 진입 판단 근거(전략, G4) — 분리 컬럼.
     std::string reason       = csv_safe(managed_order.reject_reason);
     std::string entry_reason = csv_safe(signal.reason);
 
-    std::string field = std::format("{},{},{},{},{},{},{},{},{:.2f},{},{:.2f},{},{},{},", ev, managed_order.order_id,
-                                managed_order.kis_order_no, signal.strategy_id, signal.ticker, side_str(signal.side), type_str(signal.type),
-                                signal.quantity, signal.price, fill_qty, fill_price, status_str(managed_order.status), reason,
+    std::string field = std::format("{},{},{},{},{},{},{},{},{:.2f},{},{:.2f},{},{},{},", event_text, managed_order.order_id,
+                                managed_order.kis_order_no, signal.strategy_id, signal.ticker, side_string(signal.side), type_string(signal.type),
+                                signal.quantity, signal.price, fill_quantity, fill_price, status_string(managed_order.status), reason,
                                 entry_reason);
 
     // 실현손익은 매도 체결에서만 의미가 있다. 매수·접수·거부 행은 빈 칸으로 둬서
@@ -1202,12 +1202,12 @@ void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& 
 }
 
 // ─── 잔고 대조 기록 (C-2) ─────────────────────────────────────────────────
-//  live_orders는 history_에서 센다(hist_mtx_). 파일 쓰기는 락 밖.
+//  live_orders는 history_에서 센다(history_mutex_). 파일 쓰기는 락 밖.
 void OrderRouter::record_reconcile(const ReconcileNote& reconcile_note)
 {
     int live_orders = 0;
     {
-        std::lock_guard<std::mutex> lock(hist_mtx_);
+        std::lock_guard<std::mutex> lock(history_mutex_);
 
         for (const auto& managed_order : history_)
         {
@@ -1219,7 +1219,7 @@ void OrderRouter::record_reconcile(const ReconcileNote& reconcile_note)
         }
     }
 
-    std::string reason = std::format("live_orders={} diff_qty={}", live_orders, reconcile_note.broker_qty - reconcile_note.ledger_qty);
+    std::string reason = std::format("live_orders={} diff_qty={}", live_orders, reconcile_note.broker_quantity - reconcile_note.ledger_quantity);
 
     if (!reconcile_note.note.empty())
     {
@@ -1229,28 +1229,28 @@ void OrderRouter::record_reconcile(const ReconcileNote& reconcile_note)
     if (reconcile_note.action != "KEEP")
     {
         LOG_WARN(std::format("[OrderRouter] 잔고 대조 {} 원장 {}주@{} vs 브로커 {}주@{} → {} ({})", reconcile_note.ticker,
-                             reconcile_note.ledger_qty, static_cast<long long>(reconcile_note.ledger_avg), reconcile_note.broker_qty,
-                             static_cast<long long>(reconcile_note.broker_avg), reconcile_note.action, reason));
+                             reconcile_note.ledger_quantity, static_cast<long long>(reconcile_note.ledger_average), reconcile_note.broker_quantity,
+                             static_cast<long long>(reconcile_note.broker_average), reconcile_note.action, reason));
     }
 
     // 빈 칸: order_id·kis_order_no·strategy, side·type, 끝의 entry_reason·realized_pnl·sequence.
-    append_trade_line(std::format("RECONCILE,,,,{},NONE,,{},{:.2f},{},{:.2f},{},{},,,", reconcile_note.ticker, reconcile_note.ledger_qty,
-                                  reconcile_note.ledger_avg, reconcile_note.broker_qty, reconcile_note.broker_avg, csv_safe(reconcile_note.action), reason));
+    append_trade_line(std::format("RECONCILE,,,,{},NONE,,{},{:.2f},{},{:.2f},{},{},,,", reconcile_note.ticker, reconcile_note.ledger_quantity,
+                                  reconcile_note.ledger_average, reconcile_note.broker_quantity, reconcile_note.broker_average, csv_safe(reconcile_note.action), reason));
 }
 
-// ─── client_oid로 살아있는 주문 조회 (호출자가 hist_mtx_ 보유) ────────────
+// ─── client_oid로 살아있는 주문 조회 (호출자가 history_mutex_ 보유) ────────────
 //  live = ACCEPTED 이면서 미체결 잔량이 남은 주문(부분체결도 status는 ACCEPTED 유지).
 //  FILLED/CANCELLED/REJECTED는 취소·정정 대상 아님.
-ManagedOrder* OrderRouter::find_live_by_oid(const std::string& client_oid)
+ManagedOrder* OrderRouter::find_live_by_order_id(const std::string& client_order_id)
 {
-    if (client_oid.empty())
+    if (client_order_id.empty())
     {
         return nullptr;
     }
 
     for (auto& managed_order : history_)
     {
-        if (managed_order.signal.client_oid != client_oid)
+        if (managed_order.signal.client_order_id != client_order_id)
         {
             continue;
         }
@@ -1289,17 +1289,17 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
     //  find_live_by_oid는 살아있는 주문만 보므로 !found는 세 경우를 뭉뚱그린다 —
     //  체결됨 / 이미 취소됨 / 애초에 접수된 적 없음(REJECTED·이력 없음).
     //  중복 매수 위험은 첫째에만 있다. [why D-033]
-    bool orig_may_have_filled = false;
+    bool original_may_have_filled = false;
     const char* gone_why = "이력 없음(재기동·이력초과)";
     {
-        std::lock_guard<std::mutex> lock(hist_mtx_);
-        ManagedOrder* orig = find_live_by_oid(signal.orig_client_oid);
+        std::lock_guard<std::mutex> lock(history_mutex_);
+        ManagedOrder* original = find_live_by_order_id(signal.original_client_order_id);
 
-        if (!orig && !signal.orig_client_oid.empty())
+        if (!original && !signal.original_client_order_id.empty())
         {
             for (const auto& history_entry : history_)
             {
-                if (history_entry.signal.client_oid != signal.orig_client_oid)
+                if (history_entry.signal.client_order_id != signal.original_client_order_id)
                 {
                     continue;
                 }
@@ -1307,7 +1307,7 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
                 if (history_entry.status == OrderStatus::FILLED ||
                     (history_entry.status == OrderStatus::ACCEPTED && history_entry.confirmed_quantity > 0))
                 {
-                    orig_may_have_filled = true;
+                    original_may_have_filled = true;
                     gone_why             = "이미 체결";
                 }
                 else if (history_entry.status == OrderStatus::CANCELLED)
@@ -1323,15 +1323,15 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
             }
         }
 
-        if (orig)
+        if (original)
         {
             found        = true;
-            ticker       = orig->signal.ticker;
-            kis_order_no = orig->kis_order_no;
-            krx_forwarding_org_no    = orig->krx_forwarding_org_no;
-            account      = orig->signal.account_id;
-            side         = orig->signal.side;
-            outstanding  = orig->signal.quantity - orig->confirmed_quantity;
+            ticker       = original->signal.ticker;
+            kis_order_no = original->kis_order_no;
+            krx_forwarding_org_no    = original->krx_forwarding_org_no;
+            account      = original->signal.account_id;
+            side         = original->signal.side;
+            outstanding  = original->signal.quantity - original->confirmed_quantity;
 
             if (outstanding < 0)
             {
@@ -1348,21 +1348,21 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
         //  실제 문제(게이트·KIS 거부)를 덮는다. CANCELLED로 닫고, 체결 가능성이 있는 경우만
         //  경고와 매수 보류를 남긴다. [why D-035]
         managed_order.status        = OrderStatus::CANCELLED;
-        managed_order.reject_reason = std::string("취소 대상 없음 (") + gone_why + ") oid=" + signal.orig_client_oid;
+        managed_order.reject_reason = std::string("취소 대상 없음 (") + gone_why + ") oid=" + signal.original_client_order_id;
 
-        // 체결 흔적이 있을 때만 매수를 잠근다. 접수된 적 없는 oid(전략이 거부된 주문을
+        // 체결 흔적이 있을 때만 매수를 잠근다. 접수된 적 없는 order_id(전략이 거부된 주문을
         //  live로 들고 있는 경우)에도 잠그면 매 재구성 주기마다 취소 빗나감 → 매수 거부 →
         //  거부된 oid가 다시 live로 → 다음 주기에 또 취소 빗나감으로 되돌아, 창이 계속
         //  갱신되며 그 종목 매수가 영구히 막힌다. 2026-09-10 006910이 이 모양으로
         //  보유 0인 채 57분간 한 주도 못 샀다(대체 주문 보류 176건). [why D-033]
         //  이미 무장돼 있으면 시각을 갱신하지 않는다 — 창은 연장되지 않는다.
-        if (orig_may_have_filled)
+        if (original_may_have_filled)
         {
-            std::lock_guard<std::mutex> lock(hist_mtx_);
+            std::lock_guard<std::mutex> lock(history_mutex_);
             cancel_miss_.emplace(signal.ticker, std::chrono::steady_clock::now());
         }
 
-        if (orig_may_have_filled)
+        if (original_may_have_filled)
         {
             LOG_WARN("[OrderRouter] 취소 무시 [" + managed_order.order_id + "] " + managed_order.reject_reason +
                      " — 체결 가능성 있어 신규매수 보류");
@@ -1377,12 +1377,12 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
     }
 
     // 2) KIS 취소 (lock 밖)
-    OrderAck cxl;
+    OrderAck cancel;
 
     try
     {
         ++kis_calls_;
-        cxl = kis_.cancel_order(ticker, kis_order_no, krx_forwarding_org_no, outstanding, /*all_remaining=*/true);
+        cancel = kis_.cancel_order(ticker, kis_order_no, krx_forwarding_org_no, outstanding, /*all_remaining=*/true);
     }
     catch (const std::exception& exception)
     {
@@ -1394,40 +1394,40 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
         return managed_order;
     }
 
-    if (!cxl.ok())
+    if (!cancel.ok())
     {
         // KIS 거부(이미 체결/취소 등) → reserved 미변경. 체결이 먼저면 체결 경로가 이미 해제함.
         managed_order.status        = OrderStatus::REJECTED;
-        managed_order.reject_reason = "KIS 취소 거부(원주문 이미 체결/소멸 가능)" + kis_err_suffix(cxl);
+        managed_order.reject_reason = "KIS 취소 거부(원주문 이미 체결/소멸 가능)" + kis_error_suffix(cancel);
         ++rejected_count_;
         LOG_WARN("[OrderRouter] 취소 거부 [" + managed_order.order_id + "] " + ticker +
-                 " 원oid=" + signal.orig_client_oid);
+                 " 원oid=" + signal.original_client_order_id);
         record(managed_order);
         return managed_order;
     }
 
     // 3) 성공 — reserved 해제(잔량 재계산) + 원주문 CANCELLED 표기 + 인덱스 정리
     {
-        std::lock_guard<std::mutex> lock(hist_mtx_);
-        ManagedOrder* orig = find_live_by_oid(signal.orig_client_oid);
+        std::lock_guard<std::mutex> lock(history_mutex_);
+        ManagedOrder* original = find_live_by_order_id(signal.original_client_order_id);
         int release = 0;
 
-        if (orig)
+        if (original)
         {
-            release = orig->signal.quantity - orig->confirmed_quantity; // 취소 성공 시점 실제 미체결
+            release = original->signal.quantity - original->confirmed_quantity; // 취소 성공 시점 실제 미체결
 
             if (release < 0)
             {
                 release = 0;
             }
 
-            orig->status     = OrderStatus::CANCELLED;
-            orig->updated_at = std::chrono::system_clock::now();
+            original->status     = OrderStatus::CANCELLED;
+            original->updated_at = std::chrono::system_clock::now();
         }
 
-        oid_index_.erase(signal.orig_client_oid);
+        order_id_index_.erase(signal.original_client_order_id);
 
-        // gate 뮤텍스는 hist_mtx_와 독립. 잠금 순서 hist_→positions_는 on_fill과 동일(데드락 없음).
+        // gate 뮤텍스는 hist_mtx_와 독립. 잠금 순서 history_→positions_는 on_fill과 동일(데드락 없음).
         if (release > 0)
         {
             gate_.on_cancel(account, ticker, side, release);
@@ -1435,19 +1435,19 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
     }
 
     managed_order.status       = OrderStatus::CANCELLED; // 취소 요청 자체는 성공 접수
-    managed_order.kis_order_no = cxl.kis_order_no;
+    managed_order.kis_order_no = cancel.kis_order_no;
     managed_order.updated_at   = std::chrono::system_clock::now();
     ++accepted_count_;
     LOG_INFO("[OrderRouter] 취소 접수 [" + managed_order.order_id + "] " + ticker +
-             " 원oid=" + signal.orig_client_oid + " 취소ODNO=" + cxl.kis_order_no);
+             " 원oid=" + signal.original_client_order_id + " 취소ODNO=" + cancel.kis_order_no);
     record(managed_order);
     return managed_order;
 }
 
 // ─── 정정 라우팅 (action=REPLACE) ─────────────────────────────────────────
 //  KIS 정정 1콜 = cancel-replace. 성공 시 새 ODNO 발급.
-//  reserved 조정: 원 미체결 잔량 해제 후 new_qty 재선점(같은 side). 원주문은 CANCELLED,
-//  정정 결과를 새 ManagedOrder(ACCEPTED)로 추적(새 ODNO/새 client_oid).
+//  reserved 조정: 원 미체결 잔량 해제 후 new_quantity 재선점(같은 side). 원주문은 CANCELLED,
+//  정정 결과를 새 ManagedOrder(ACCEPTED)로 추적(새 ODNO/새 client_order_id).
 //  ⚠ 첫 컷 한계: 부분체결 상태 정정은 수량 정합이 복잡 → MM은 REPLACE 미사용(CANCEL+NEW 사용).
 //     본 경로는 미체결 전량 대상 정정만 안전. 부분체결분 정정은 Phase 2에서 정밀화.
 ManagedOrder OrderRouter::replace_route(const OrderSignal& signal)
@@ -1466,18 +1466,18 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& signal)
     int outstanding = 0;
     bool found = false;
     {
-        std::lock_guard<std::mutex> lock(hist_mtx_);
-        ManagedOrder* orig = find_live_by_oid(signal.orig_client_oid);
+        std::lock_guard<std::mutex> lock(history_mutex_);
+        ManagedOrder* original = find_live_by_order_id(signal.original_client_order_id);
 
-        if (orig)
+        if (original)
         {
             found        = true;
-            ticker       = orig->signal.ticker;
-            kis_order_no = orig->kis_order_no;
-            krx_forwarding_org_no    = orig->krx_forwarding_org_no;
-            account      = orig->signal.account_id;
-            side         = orig->signal.side;
-            outstanding  = orig->signal.quantity - orig->confirmed_quantity;
+            ticker       = original->signal.ticker;
+            kis_order_no = original->kis_order_no;
+            krx_forwarding_org_no    = original->krx_forwarding_org_no;
+            account      = original->signal.account_id;
+            side         = original->signal.side;
+            outstanding  = original->signal.quantity - original->confirmed_quantity;
 
             if (outstanding < 0)
             {
@@ -1489,21 +1489,21 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& signal)
     if (!found)
     {
         managed_order.status        = OrderStatus::REJECTED;
-        managed_order.reject_reason = "정정 대상 없음 oid=" + signal.orig_client_oid;
+        managed_order.reject_reason = "정정 대상 없음 oid=" + signal.original_client_order_id;
         ++rejected_count_;
         LOG_WARN("[OrderRouter] 정정 무시 [" + managed_order.order_id + "] " + managed_order.reject_reason);
         record(managed_order);
         return managed_order;
     }
 
-    int new_qty = (signal.quantity > 0) ? signal.quantity : outstanding;
+    int new_quantity = (signal.quantity > 0) ? signal.quantity : outstanding;
 
-    OrderAck rev;
+    OrderAck revise_acknowledgement;
 
     try
     {
         ++kis_calls_;
-        rev = kis_.revise_order(ticker, kis_order_no, krx_forwarding_org_no, new_qty, signal.price);
+        revise_acknowledgement = kis_.revise_order(ticker, kis_order_no, krx_forwarding_org_no, new_quantity, signal.price);
     }
     catch (const std::exception& exception)
     {
@@ -1515,61 +1515,61 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& signal)
         return managed_order;
     }
 
-    if (!rev.ok())
+    if (!revise_acknowledgement.ok())
     {
         managed_order.status        = OrderStatus::REJECTED;
-        managed_order.reject_reason = "KIS 정정 거부(원주문 이미 체결/소멸 가능)" + kis_err_suffix(rev);
+        managed_order.reject_reason = "KIS 정정 거부(원주문 이미 체결/소멸 가능)" + kis_error_suffix(revise_acknowledgement);
         ++rejected_count_;
         LOG_WARN("[OrderRouter] 정정 거부 [" + managed_order.order_id + "] " + ticker +
-                 " 원oid=" + signal.orig_client_oid);
+                 " 원oid=" + signal.original_client_order_id);
         record(managed_order);
         return managed_order;
     }
 
-    // 성공 — 원 미체결 잔량 해제 후 new_qty 재선점, 원주문 CANCELLED, 정정본 ACCEPTED 추적
+    // 성공 — 원 미체결 잔량 해제 후 new_quantity 재선점, 원주문 CANCELLED, 정정본 ACCEPTED 추적
     {
-        std::lock_guard<std::mutex> lock(hist_mtx_);
-        ManagedOrder* orig = find_live_by_oid(signal.orig_client_oid);
+        std::lock_guard<std::mutex> lock(history_mutex_);
+        ManagedOrder* original = find_live_by_order_id(signal.original_client_order_id);
         int release = outstanding;
 
-        if (orig)
+        if (original)
         {
-            release = orig->signal.quantity - orig->confirmed_quantity;
+            release = original->signal.quantity - original->confirmed_quantity;
 
             if (release < 0)
             {
                 release = 0;
             }
 
-            orig->status     = OrderStatus::CANCELLED;
-            orig->updated_at = std::chrono::system_clock::now();
+            original->status     = OrderStatus::CANCELLED;
+            original->updated_at = std::chrono::system_clock::now();
         }
 
-        oid_index_.erase(signal.orig_client_oid);
+        order_id_index_.erase(signal.original_client_order_id);
 
         if (release > 0)
         {
             gate_.on_cancel(account, ticker, side, release);
         }
 
-        // 정정본 재선점 — 새 side는 원주문과 동일 (선점가는 지정가=price, 시장가=ref_price 근사)
-        gate_.on_accept(account, ticker, side, new_qty, signal.price > 0.0 ? signal.price : signal.ref_price);
+        // 정정본 재선점 — 새 side는 원주문과 동일 (선점가는 지정가=price, 시장가=reference_price 근사)
+        gate_.on_accept(account, ticker, side, new_quantity, signal.price > 0.0 ? signal.price : signal.reference_price);
 
-        if (!signal.client_oid.empty())
+        if (!signal.client_order_id.empty())
         {
-            oid_index_[signal.client_oid] = managed_order.order_id;
+            order_id_index_[signal.client_order_id] = managed_order.order_id;
         }
     }
 
     managed_order.status       = OrderStatus::ACCEPTED;
-    managed_order.kis_order_no = rev.kis_order_no;
+    managed_order.kis_order_no = revise_acknowledgement.kis_order_no;
     managed_order.krx_forwarding_org_no    = krx_forwarding_org_no; // 정정 응답의 조직번호를 미파싱해 원 조직번호를 승계(통상 동일). TODO: 응답서 재캡처
     managed_order.signal.side  = side;      // NONE 방지: 원주문 side 승계
     managed_order.updated_at   = std::chrono::system_clock::now();
     ++accepted_count_;
     LOG_INFO("[OrderRouter] 정정 접수 [" + managed_order.order_id + "] " + ticker +
-             " 원oid=" + signal.orig_client_oid + " 새ODNO=" + rev.kis_order_no +
-             std::format(" qty={} @{}", new_qty, static_cast<int>(signal.price)));
+             " 원oid=" + signal.original_client_order_id + " 새ODNO=" + revise_acknowledgement.kis_order_no +
+             std::format(" qty={} @{}", new_quantity, static_cast<int>(signal.price)));
     record(managed_order);
     return managed_order;
 }
@@ -1578,7 +1578,7 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& signal)
 void OrderRouter::on_fill(const FillNotification& fill_notification)
 {
     // unique_lock: 원장 갱신까지만 잡고, 파일 쓰기·publish 전에 푼다(W-8).
-    std::unique_lock<std::mutex> lock(hist_mtx_);
+    std::unique_lock<std::mutex> lock(history_mutex_);
     // 중복 제거 — KIS 체결통보는 at-least-once(재전송/WS 재구독 시 중복 가능).
     // H0STCNI0 전문에 체결고유번호가 없어 kis_order_no+체결시각+수량+단가를 조합 키로 사용.
     // ODNO는 영업일 단위 재사용되고 fill_time은 HHMMSS(날짜 없음)라, 거래일(수신일)을
@@ -1618,23 +1618,23 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
             }
         }
 
-        auto jit = known ? order_reasons_.end() : order_reasons_.find(fill_notification.kis_order_no);
+        auto jitter = known ? order_reasons_.end() : order_reasons_.find(fill_notification.kis_order_no);
 
-        if (jit != order_reasons_.end())
+        if (jitter != order_reasons_.end())
         {
             ManagedOrder record;
             record.order_id           = next_id();
             record.kis_order_no       = fill_notification.kis_order_no;
             record.status             = OrderStatus::ACCEPTED;
             record.confirmed_quantity      = 0;
-            record.signal.ticker      = jit->second.ticker;
-            record.signal.side        = jit->second.side;
+            record.signal.ticker      = jitter->second.ticker;
+            record.signal.side        = jitter->second.side;
             record.signal.type        = OrderType::LIMIT;
-            record.signal.quantity    = jit->second.quantity;
-            record.signal.price       = jit->second.price;
-            record.signal.ref_price   = jit->second.ref_price;
-            record.signal.strategy_id = jit->second.strategy_id;
-            record.signal.reason      = jit->second.reason;
+            record.signal.quantity    = jitter->second.quantity;
+            record.signal.price       = jitter->second.price;
+            record.signal.reference_price   = jitter->second.reference_price;
+            record.signal.strategy_id = jitter->second.strategy_id;
+            record.signal.reason      = jitter->second.reason;
             record.submitted_at       = fill_notification.timestamp;
             record.updated_at         = fill_notification.timestamp;
             history_.push_back(record);
@@ -1644,13 +1644,13 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
             //  reset_reserved()가 실제 잔고로 되맞춘다.
             gate_.on_accept(record.signal.account_id, record.signal.ticker, record.signal.side,
                             record.signal.quantity,
-                            record.signal.price > 0.0 ? record.signal.price : record.signal.ref_price);
+                            record.signal.price > 0.0 ? record.signal.price : record.signal.reference_price);
             LOG_INFO("[OrderRouter] 재기동 복원 [" + record.order_id + "] ODNO=" + fill_notification.kis_order_no + " " +
                      record.signal.ticker +
                      (record.signal.side == OrderSide::BUY ? " BUY " : " SELL ") +
                      std::to_string(record.signal.quantity) + "주 전략=" + record.signal.strategy_id +
                      " (주문 사유 기록에서 복구)");
-            order_reasons_.erase(jit);   // 같은 ODNO를 두 번 되살리지 않는다
+            order_reasons_.erase(jitter);   // 같은 ODNO를 두 번 되살리지 않는다
         }
     }
 
@@ -1682,15 +1682,15 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
         // 주문 잔량 상한 — 누적 체결이 주문수량을 넘지 못하게 클램프한다.
         //  통보 재전송으로 같은 체결이 두 번 와도 과체결로 원장이 부풀지 않는다.
         const int outstanding = managed_order.signal.quantity - managed_order.confirmed_quantity;
-        const int apply_qty   = (fill_notification.filled_quantity > outstanding) ? outstanding : fill_notification.filled_quantity;
+        const int apply_quantity   = (fill_notification.filled_quantity > outstanding) ? outstanding : fill_notification.filled_quantity;
 
-        if (apply_qty < fill_notification.filled_quantity)
+        if (apply_quantity < fill_notification.filled_quantity)
         {
             LOG_WARN(std::format("[OrderRouter] 주문잔량 초과 체결통보 — 잔량으로 클램프 [{}] ODNO={} 통보={}주 잔량={}주",
                                  managed_order.order_id, fill_notification.kis_order_no, fill_notification.filled_quantity, outstanding));
         }
 
-        managed_order.confirmed_quantity += apply_qty;
+        managed_order.confirmed_quantity += apply_quantity;
         managed_order.updated_at     = fill_notification.timestamp;
 
         if (managed_order.confirmed_quantity >= managed_order.signal.quantity)
@@ -1701,7 +1701,7 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
         LOG_INFO("[OrderRouter] 체결 확인 [" + managed_order.order_id + "] ODNO=" + fill_notification.kis_order_no +
                  " " + fill_notification.ticker +
                  (fill_notification.side == OrderSide::BUY ? " BUY " : " SELL ") +
-                 std::to_string(apply_qty) + "주 @" +
+                 std::to_string(apply_quantity) + "주 @" +
                  std::to_string(static_cast<int>(fill_notification.filled_price)) +
                  " (누적 " + std::to_string(managed_order.confirmed_quantity) +
                  "/" + std::to_string(managed_order.signal.quantity) + "주)");
@@ -1712,30 +1712,30 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
         // TODO(다계좌): 진짜 다중 CANO 라우팅 시 ODNO가 계좌별로 재사용되므로 체결 매칭 키를
         //   (kis_order_no + account) 또는 CANO별 H0STCNI 피드 분리로 확장해야 오적립을 막는다.
         auto result = gate_.on_fill_confirmed(managed_order.signal.account_id, fill_notification.ticker, fill_notification.side,
-                                              apply_qty, fill_notification.filled_price, managed_order.signal.strategy_id);
+                                              apply_quantity, fill_notification.filled_price, managed_order.signal.strategy_id);
 
         // 락 밖에서 쓰려고 복사한다 — managed_order는 history_ 원소라 record()의 축출로 참조가 죽을 수 있다.
         const ManagedOrder snapshot        = managed_order;
         const std::string  open_orders = snapshot_open_orders_locked(); // 잔량이 줄었으니 부속 파일을 다시 쓴다
-        const uint64_t     sequence         = ++open_orders_seq_;
+        const uint64_t     sequence         = ++open_orders_sequence_;
         lock.unlock();
 
         if (result.basis_unknown)
         {
             LOG_WARN(std::format("[OrderRouter] 평단 미상 SELL 체결 — 실현손익 미산정(0) [{}] {} {}주 @{} (원장 재시드 필요)",
-                                 snapshot.order_id, fill_notification.ticker, apply_qty, static_cast<int>(fill_notification.filled_price)));
+                                 snapshot.order_id, fill_notification.ticker, apply_quantity, static_cast<int>(fill_notification.filled_price)));
         }
 
         // 거래 원장 CSV — 실제 체결(부분/전량)을 한 줄로 영속화. 실현손익을 같이 남기려고
         //   gate_.on_fill_confirmed() 뒤에 쓴다(managed_order.status는 위에서 이미 갱신됨).
-        write_trade_row("FILL", snapshot, apply_qty, fill_notification.filled_price, result.realized_pnl,
+        write_trade_row("FILL", snapshot, apply_quantity, fill_notification.filled_price, result.realized_pnl,
                         result.strategy_realized_pnl);
         write_open_orders_file(open_orders, sequence);
 #ifdef HAS_ZMQ
         if (zmq_)
         {
             zmq_->publish_fill(fill_notification, snapshot.signal.strategy_id, result.commission, result.tax,
-                               result.average_price, result.net_qty,
+                               result.average_price, result.net_quantity,
                                result.realized_pnl);
         }
 #endif
@@ -1806,7 +1806,7 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
     if (zmq_)
     {
         zmq_->publish_fill(fill_notification, orphan.signal.strategy_id, result.commission, result.tax,
-                           result.average_price, result.net_qty,
+                           result.average_price, result.net_quantity,
                            result.realized_pnl);
     }
 #else
@@ -1819,17 +1819,17 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
 // 차단되므로, 전일 키는 더 이상 필요 없다.
 void OrderRouter::reset_daily()
 {
-    std::lock_guard<std::mutex> lock(hist_mtx_);
+    std::lock_guard<std::mutex> lock(history_mutex_);
     seen_fills_.clear();
     orphan_fill_keys_.clear();
-    oid_index_.clear(); // MM-1: client_oid 인덱스도 장 마감 정리 (당일 주문 장 마감 소멸과 정합)
+    order_id_index_.clear(); // MM-1: client_order_id 인덱스도 장 마감 정리 (당일 주문 장 마감 소멸과 정합)
     // 사유 기록도 거래일이 바뀌면 다시 읽는다(파일이 날짜별이라 어제 것을 들고 있으면 안 된다).
     order_reasons_.clear();
     order_reasons_loaded_ = false;
 }
 
 // ─── 통계 ─────────────────────────────────────────────────────────────────
-OrderRouter::Stats OrderRouter::stats() const
+OrderRouter::Stats OrderRouter::statistics() const
 {
     return {total_count_.load(), accepted_count_.load(), rejected_count_.load()};
 }
@@ -1837,7 +1837,7 @@ OrderRouter::Stats OrderRouter::stats() const
 // ─── 최근 N건 이력 ────────────────────────────────────────────────────────
 std::vector<ManagedOrder> OrderRouter::recent(int count) const
 {
-    std::lock_guard<std::mutex> lock(hist_mtx_);
+    std::lock_guard<std::mutex> lock(history_mutex_);
     int start = std::max(0, static_cast<int>(history_.size()) - count);
     return {history_.begin() + start, history_.end()};
 }

@@ -70,16 +70,16 @@ private:
 
     std::atomic<bool> running_{false};
     std::atomic<bool> connected_{false};
-    std::thread       th_;
-    SOCKET            fd_ = INVALID_SOCKET;
+    std::thread       thread_;
+    SOCKET            descriptor_ = INVALID_SOCKET;
 
     // 송신 큐. UI가 넣고 작업자가 뺀다. cv로 select 대기를 깨운다.
-    std::mutex                          q_mtx_;
-    std::deque<std::vector<uint8_t>>    q_;
-    std::condition_variable             q_cv_;
+    std::mutex                          queue_mutex_;
+    std::deque<std::vector<uint8_t>>    queue_;
+    std::condition_variable             queue_condition_variable_;
     std::atomic<bool>                   wake_{false};
 
-    // 하트비트: 10초마다 PING, 30초 무수신이면 죽은 연결로 본다. 단위 ms.
+    // 하트비트: 10초마다 PING, 30초 무수신이면 죽은 연결로 본다. 단위 milliseconds.
     static constexpr int kPingEveryMs   = 10'000;
     static constexpr int kDeadAfterMs   = 30'000;
     static constexpr int kBackoffMaxMs  = 30'000;

@@ -54,17 +54,17 @@ public:
     // sector_codes: 스캔할 업종코드 목록 (빈 벡터면 KOSPI_SECTORS 전체)
     // top_n_sectors: 모멘텀 상위 N개 업종 선택
     // volume_surge_mult: 거래량 급증 배수 (최근 vs 20일 평균)
-    // inst_filter: true면 외국인+기관 동시 순매수 필터 적용
+    // institution_filter: true면 외국인+기관 동시 순매수 필터 적용
     ThemeStrategy(std::vector<std::string> sector_codes,
                   int top_n_sectors,
                   double volume_surge_mult,
-                  bool inst_filter,
+                  bool institution_filter,
                   int quantity,
                   int eod_exit_hhmm)
         : sector_codes_(std::move(sector_codes)),
           top_n_sectors_(top_n_sectors),
           volume_surge_mult_(volume_surge_mult),
-          inst_filter_(inst_filter),
+          institution_filter_(institution_filter),
           quantity_(quantity),
           eod_exit_hhmm_(eod_exit_hhmm)
     {}
@@ -75,21 +75,21 @@ public:
     {
         return "THEME_KR | top_sectors=" + std::to_string(top_n_sectors_) +
                " | vol_surge=" + std::to_string(static_cast<int>(volume_surge_mult_)) + "x" +
-               " | inst=" + (inst_filter_ ? "Y" : "N") +
+               " | inst=" + (institution_filter_ ? "Y" : "N") +
                " | qty=" + std::to_string(quantity_) +
                " | 장 마감=" + std::to_string(eod_exit_hhmm_);
     }
 
-    std::vector<WatchSpec> get_watch_specs() const override
+    std::vector<WatchSpec> get_watch_specifications() const override
     {
-        std::vector<WatchSpec> specs;
+        std::vector<WatchSpec> specifications;
 
         for (const auto& ticker : candidates_)
         {
-            specs.push_back({ticker, Market::KR, ""});
+            specifications.push_back({ticker, Market::KR, ""});
         }
 
-        return specs;
+        return specifications;
     }
 
     // ── 스크리닝 ──────────────────────────────────────────────────────────
@@ -192,14 +192,14 @@ public:
                     volume_sum += static_cast<double>(bars[volume_index].volume);
                 }
 
-                double avg_vol = volume_sum / volume_count;
+                double average_volume = volume_sum / volume_count;
 
-                if (avg_vol <= 0)
+                if (average_volume <= 0)
                 {
                     continue;
                 }
 
-                double surge = static_cast<double>(bars[0].volume) / avg_vol;
+                double surge = static_cast<double>(bars[0].volume) / average_volume;
 
                 if (surge >= volume_surge_mult_)
                 {
@@ -215,7 +215,7 @@ public:
                  std::to_string(surge_candidates.size()) + "종목");
 
         // ── Step 3: 외국인+기관 동시 순매수 필터 ─────────────────────────
-        if (!inst_filter_)
+        if (!institution_filter_)
         {
             // 필터 미적용 시 surge_candidates 바로 사용
             for (const auto& ticker : surge_candidates)
@@ -289,7 +289,7 @@ private:
     std::optional<OrderSignal> check_entry_exit(symbol::SymbolId symbol_id,
                                                  std::string_view ticker,
                                                  int32_t hhmmss,
-                                                 double ref_px)
+                                                 double reference_price)
     {
         int hhmm = hhmmss / 100;
 
@@ -316,12 +316,12 @@ private:
             signal.side        = OrderSide::BUY;
             signal.type        = OrderType::MARKET;
             signal.quantity    = quantity_;
-            signal.ref_price   = ref_px;  // 시장가 명목 백스톱 기준가(현재가/체결가)
+            signal.reference_price   = reference_price;  // 시장가 명목 백스톱 기준가(현재가/체결가)
             signal.market      = Market::KR;
             signal.strategy_id = id();
             signal.timestamp   = std::chrono::system_clock::now();
 
-            LOG_INFO("[ThemeStrategy] BUY: " + std::string(ticker) + " @" + krx::hhmmss_str(hhmmss));
+            LOG_INFO("[ThemeStrategy] BUY: " + std::string(ticker) + " @" + krx::hhmmss_string(hhmmss));
             return signal;
         }
 
@@ -336,12 +336,12 @@ private:
             signal.side        = OrderSide::SELL;
             signal.type        = OrderType::MARKET;
             signal.quantity    = quantity_;
-            signal.ref_price   = ref_px;  // 시장가 명목 백스톱 기준가(현재가/체결가)
+            signal.reference_price   = reference_price;  // 시장가 명목 백스톱 기준가(현재가/체결가)
             signal.market      = Market::KR;
             signal.strategy_id = id();
             signal.timestamp   = std::chrono::system_clock::now();
 
-            LOG_INFO("[ThemeStrategy] SELL(장 마감): " + std::string(ticker) + " @" + krx::hhmmss_str(hhmmss));
+            LOG_INFO("[ThemeStrategy] SELL(장 마감): " + std::string(ticker) + " @" + krx::hhmmss_string(hhmmss));
             return signal;
         }
 
@@ -351,7 +351,7 @@ private:
     std::vector<std::string>          sector_codes_;
     int                               top_n_sectors_;
     double                            volume_surge_mult_;
-    bool                              inst_filter_;
+    bool                              institution_filter_;
     int                               quantity_;
     int                               eod_exit_hhmm_;
 

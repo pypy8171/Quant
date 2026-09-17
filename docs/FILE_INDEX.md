@@ -777,6 +777,7 @@
 - [quant_procs.ps1](../scripts/quant_procs.ps1) — 실행 프로세스 점검·정리 스크립트
 - [rename_ids.py](../scripts/rename_ids.py) — 약어 식별자 치환 도구(D-092). 매핑 json을 받아 C++ 식별자만 바꾸고 문자열 리터럴·#include는 두며 주석은 바꾼다
 - [rename_locals.py](../scripts/rename_locals.py) — 한 글자 지역변수·매개변수를 선언 범위 안에서만 풀어쓰는 도구(D-092), --override로 못 고른 이름 지정
+- [rename_frags.py](../scripts/rename_frags.py) — 합성 식별자 안의 약어 조각(qty·cfg·mtx…)을 풀어쓰는 3단계 도구(D-092). 조각·전체·파일별 표와 KIS 전문 조각 제외 규칙을 안에 둔다
 - [refresh_dashboard.py](../scripts/refresh_dashboard.py) — 대시보드·리뷰 재생성 스크립트
 - [seed_open_orders.py](../scripts/seed_open_orders.py) — 미체결 주문 상태 복구 스크립트
 - [session_board.py](../scripts/session_board.py) — 살아 있는 Claude 세션의 현황판(이름·브랜치·문맥 K/%·턴·압축·마지막 요청·현황판 줄·인계 파일)을 `_private/session_board.json`·`.html`로 쓴다. `--skeleton`은 인계 파일 뼈대, `--due`는 인계 시점 판정(훅용)
@@ -791,6 +792,7 @@
 - [trade_costs.py](../scripts/trade_costs.py) — 체결 원장(trades_YYYYMMDD.csv)의 날짜별·종목별 매매 비용(수수료·거래세)과 실현손익을 누적 JSON(logs/trade_costs.json)과 표로 낸다(--days, --symbol)
 - [unattended_night.ps1](../scripts/unattended_night.ps1) — 밤사이 무인 이어달리기를 지시서·종료시각과 함께 띄우는 진입 스크립트
 - [unattended_run.ps1](../scripts/unattended_run.ps1) — 긴 작업을 헤드리스 사이클로 쪼개고 사이를 인계 파일로 이어 사람 없이 끝까지 돌린다(-Name, -PromptFile, -Until)
+- [wt_build.cmd](../scripts/wt_build.cmd) — 워크트리에서 VS2022 환경을 잡고 Quant/build_win을 Ninja로 빌드, `test` 인자면 ctest까지
 
 ### scripts/rename_maps/
 

@@ -1,6 +1,6 @@
 # GLOSSARY — 용어·약어 사전
 
-이 저장소는 전략·인프라·데이터에 영어 약어와 축약 코드명을 많이 쓴다. 처음 보는 사람이 `DevScale`, `ITB`, `dev_buy`, `reconcile` 같은 단어를 코드·로그·일지에서 만났을 때 **무슨 개념인지 한 곳에서 찾을 수 있도록** 모은 사전이다.
+이 저장소는 전략·인프라·데이터에 영어 약어와 축약 코드명을 많이 쓴다. 처음 보는 사람이 `DevScale`, `ITB`, `deviation_buy`, `reconcile` 같은 단어를 코드·로그·일지에서 만났을 때 **무슨 개념인지 한 곳에서 찾을 수 있도록** 모은 사전이다.
 
 - 파일 경로 참조는 백틱(예: `Quant/include/strategy/DeviationScaleStrategy.h:14`)으로 적는다 — 코드가 이동하면 줄번호는 어긋날 수 있으니 **개념 위치의 힌트**로만 본다(정합 검사는 마크다운 링크만 대상).
 - 두 허브: 리서치·백테스트는 [research/README.md](../research/README.md), 전략 스펙·실증은 [strategies/README.md](../strategies/README.md).
@@ -43,7 +43,7 @@
 | **reconcile** (리컨사일) | 로컬 원장 ↔ KIS 실잔고를 재조회로 재동기 | rest 모드처럼 체결콜백이 없을 때 손익 근사 경로 | `Quant/src/core/Engine.cpp` |
 | **kill switch** | 신규·청산 양방향 하드스톱 스위치 | ZMQ 수동명령 / WS 연속 실패로 발동(손익기반 자동킬은 미구현) | `Quant/src/risk/OrderGate.cpp` |
 | **entry_halt** | 신규 진입(BUY)만 차단, 청산(SELL)은 허용하는 플래그 | **OrderGate 전역 플래그**라 켜지면 모든 전략의 신규진입이 함께 막힌다. 매크로 사이드카 regime.json 파일브리지가 토글(→ 구조 국면 `RegimeController`와 다른 축) | `Quant/src/risk/OrderGate.cpp` |
-| **FORCE_LIQ** | BEAR 등에서 보유 전량을 시장가로 청산하는 강제청산 신호 | `strategy_id="FORCE_LIQ"`. 시장가라 명목 백스톱 우회 방지로 평단을 `ref_price`에 stamp | `Quant/src/core/Engine.cpp` |
+| **FORCE_LIQ** | BEAR 등에서 보유 전량을 시장가로 청산하는 강제청산 신호 | `strategy_id="FORCE_LIQ"`. 시장가라 명목 백스톱 우회 방지로 평단을 `reference_price`에 stamp | `Quant/src/core/Engine.cpp` |
 | **UniverseScanner** | 시총·거래대금·등락률 필터로 매매 유니버스를 스캔(scan_devscale / scan_itb) | 정배열 프로브·수급 필터 포함 | `Quant/include/universe/UniverseScanner.h:16` |
 | **StrategyFactory** | config를 읽어 전략 인스턴스를 생성·등록하는 팩토리 | main.cpp에서 분리된 전략 로딩 계층 | `Quant/src/strategy/StrategyFactory.cpp` |
 | **Logger** | 비동기 싱글톤 로거(ms UTC 타임스탬프, 콘솔 + `logs/quant_trader.log`) | hot path는 큐 push만·전용 writer 스레드가 I/O(꼬리 지연(tail) 억제). 큐는 `MpscQueue<Record>` 65,536슬롯(D-045), 가득 차면 새 레코드 드롭+`dropped()`·`flush()`. LOG_INFO/WARN/ERROR/DEBUG 매크로 | `Quant/include/utils/Logger.h` |
@@ -51,7 +51,7 @@
 | **manage_holdings** | 스캔 유니버스 밖 잔고 보유분에 "청산 전용" 가디언을 부착(신규진입 영구차단) | config `manage_holdings` 블록 | `Quant/config` 전략 블록 |
 | **ZmqBridge / OrderRouter(IPC)** | ZeroMQ 기반 프로세스 간 시세·주문 중계(선택 구성) | Python 오퍼레이터 연동 | `Quant/src/ipc/ZmqBridge.cpp` |
 | **OrderSignal / MarketData** | 전략이 산출한 주문신호(side/type/qty/price/ref_price) / OHLCV+bar_index 시세 | 파이프라인 코어 타입 | `Quant/include/core/Types.h` |
-| **ref_price** | 시장가(price=0) 주문의 명목 한도(max_notional_per_order/per_ticker) 평가 기준가 | 지정가는 price로 명목 평가, 시장가는 이 값으로 — 시장가의 백스톱 우회 차단. FORCE_LIQ 매도는 평단을 stamp | `Quant/include/core/Types.h` · `Quant/src/risk/OrderGate.cpp` |
+| **reference_price** | 시장가(price=0) 주문의 명목 한도(max_notional_per_order/per_ticker) 평가 기준가 | 지정가는 price로 명목 평가, 시장가는 이 값으로 — 시장가의 백스톱 우회 차단. FORCE_LIQ 매도는 평단을 stamp | `Quant/include/core/Types.h` · `Quant/src/risk/OrderGate.cpp` |
 
 ---
 

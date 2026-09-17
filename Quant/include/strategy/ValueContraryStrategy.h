@@ -141,20 +141,20 @@ public:
     }
 
     // ── WS 구독 스펙 — on_start() 이후 candidates_ 기준 ──────────────────
-    std::vector<WatchSpec> get_watch_specs() const override
+    std::vector<WatchSpec> get_watch_specifications() const override
     {
-        std::vector<WatchSpec> specs;
+        std::vector<WatchSpec> specifications;
 
         for (const auto& ticker : candidates_)
         {
-            WatchSpec spec;
-            spec.ticker = ticker;
-            spec.market = market_;
-            spec.exchange = exchange_;
-            specs.push_back(spec);
+            WatchSpec specification;
+            specification.ticker = ticker;
+            specification.market = market_;
+            specification.exchange = exchange_;
+            specifications.push_back(specification);
         }
 
-        return specs;
+        return specifications;
     }
 
     // ── 일봉 — 이 전략은 이벤트 드리븐으로만 동작 ────────────────────────
@@ -195,7 +195,7 @@ public:
 private:
     // 진입·청산 공통 로직
     std::optional<OrderSignal> check_entry_exit(symbol::SymbolId symbol_id, std::string_view ticker, int32_t hhmmss,
-                                                double ref_px)
+                                                double reference_price)
     {
         int hhmm = hhmmss / 100;
 
@@ -222,13 +222,13 @@ private:
             signal.side = OrderSide::BUY;
             signal.type = OrderType::MARKET;
             signal.quantity = quantity_;
-            signal.ref_price = ref_px;  // 시장가 명목 백스톱 기준가(현재가/체결가)
+            signal.reference_price = reference_price;  // 시장가 명목 백스톱 기준가(현재가/체결가)
             signal.market = market_;
             signal.exchange = exchange_;
             signal.strategy_id = id();
             signal.timestamp = std::chrono::system_clock::now();
 
-            LOG_INFO("[ValueContrary] BUY: " + std::string(ticker) + " @" + krx::hhmmss_str(hhmmss));
+            LOG_INFO("[ValueContrary] BUY: " + std::string(ticker) + " @" + krx::hhmmss_string(hhmmss));
             return signal;
         }
 
@@ -243,13 +243,13 @@ private:
             signal.side = OrderSide::SELL;
             signal.type = OrderType::MARKET;
             signal.quantity = quantity_;
-            signal.ref_price = ref_px;  // 시장가 명목 백스톱 기준가(현재가/체결가)
+            signal.reference_price = reference_price;  // 시장가 명목 백스톱 기준가(현재가/체결가)
             signal.market = market_;
             signal.exchange = exchange_;
             signal.strategy_id = id();
             signal.timestamp = std::chrono::system_clock::now();
 
-            LOG_INFO("[ValueContrary] SELL(장 마감): " + std::string(ticker) + " @" + krx::hhmmss_str(hhmmss));
+            LOG_INFO("[ValueContrary] SELL(장 마감): " + std::string(ticker) + " @" + krx::hhmmss_string(hhmmss));
             return signal;
         }
 

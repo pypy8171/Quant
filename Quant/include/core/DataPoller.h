@@ -16,9 +16,9 @@
 namespace poller
 {
 // 같은 구독인가 — 종목·시장·선물 여부가 같으면 채널이 같다. 넘침 목록의 중복 판정에 쓴다.
-inline bool same_spec(const WatchSpec& spec_a, const WatchSpec& spec_b)
+inline bool same_specification(const WatchSpec& specification_a, const WatchSpec& specification_b)
 {
-    return spec_a.ticker == spec_b.ticker && spec_a.market == spec_b.market && spec_a.is_future == spec_b.is_future;
+    return specification_a.ticker == specification_b.ticker && specification_a.market == specification_b.market && specification_a.is_future == specification_b.is_future;
 }
 
 // REST 현재가 한 건을 WS 체결 틱과 같은 모양으로. quantity·direction·strength는 REST에 없어 0이다.
@@ -79,24 +79,24 @@ public:
     void set_keep_going(KeepGoingFn keep_going) { keep_going_ = std::move(keep_going); }
     // 종목 간 호출 간격. 실전 도메인 시세는 초당 한도(~20/s)가 있어 무간격으로 몰아치면 뒷종목이 HTTP 500으로
     //  떨어진다 — 150ms면 한도 밑에 깔려 전 종목이 매 사이클 틱을 받는다(종목 수×150ms가 사이클 안에 들게).
-    void set_universe_pacing(std::chrono::milliseconds ms) { universe_pacing_ = ms; }
+    void set_universe_pacing(std::chrono::milliseconds milliseconds) { universe_pacing_ = milliseconds; }
     // 보유 보충은 모의 도메인(초당 한도가 낮다)에서도 돌아 300ms.
-    void set_top_up_pacing(std::chrono::milliseconds ms) { top_up_pacing_ = ms; }
+    void set_top_up_pacing(std::chrono::milliseconds milliseconds) { top_up_pacing_ = milliseconds; }
 
     // 폴링 모드: KR 현물 spec마다 현재가를 받아 틱으로 흘린다. 반환 = 흘린 틱 수(data_count_ 가산용).
-    int poll_universe(const std::vector<WatchSpec>& specs, std::time_t now_utc);
+    int poll_universe(const std::vector<WatchSpec>& specifications, std::time_t now_utc);
 
     // WS 상한에 밀린 종목 등록. 이미 있으면 false. 반환 뒤 overflow_count()로 로그 문구를 만든다.
-    bool add_overflow(const WatchSpec& spec);
+    bool add_overflow(const WatchSpec& specification);
     size_t overflow_count() const { return overflow_.size(); }
 
-    // 넘침 처리 한 사이클: from_ws(최초 연결·재연결에서 밀린 것)를 합치고, 종목마다 재구독을 먼저 시도해 되면
+    // 넘침 처리 한 사이클: from_websocket(최초 연결·재연결에서 밀린 것)를 합치고, 종목마다 재구독을 먼저 시도해 되면
     //  목록에서 빼고, 안 되면 REST 현재가를 틱으로 흘린다. 반환 = 흘린 틱 수.
-    int poll_overflow(const std::vector<WatchSpec>& from_ws, const ResubscribeFn& resub, std::time_t now_utc);
+    int poll_overflow(const std::vector<WatchSpec>& from_websocket, const ResubscribeFn& resub, std::time_t now_utc);
 
     // 틱이 끊긴 보유 종목의 현재가 보충. 전략이 볼 일은 없어 틱은 안 흘리고 on_px로만 준다(운영단말 현재가·
-    //  수동주문 ref_price). 반환 = 조회한 종목 수.
-    int top_up(const std::vector<std::string>& tickers, const std::function<void(const std::string&, double)>& on_px);
+    //  수동주문 reference_price). 반환 = 조회한 종목 수.
+    int top_up(const std::vector<std::string>& tickers, const std::function<void(const std::string&, double)>& on_price);
 
 private:
     bool keep_going() const { return !keep_going_ || keep_going_(); }

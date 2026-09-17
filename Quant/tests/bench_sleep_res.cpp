@@ -30,33 +30,33 @@ struct Stats
 Stats summarize(std::vector<double>& values)
 {
     std::sort(values.begin(), values.end());
-    Stats stats;
-    stats.p50_us = values[values.size() / 2];
-    stats.p99_us = values[values.size() * 99 / 100];
-    stats.max_us = values.back();
-    return stats;
+    Stats statistics;
+    statistics.p50_us = values[values.size() / 2];
+    statistics.p99_us = values[values.size() * 99 / 100];
+    statistics.max_us = values.back();
+    return statistics;
 }
 
 template <typename F>
 Stats measure(int iters, F&& one_wait)
 {
-    std::vector<double> got;
-    got.reserve(static_cast<size_t>(iters));
+    std::vector<double> received;
+    received.reserve(static_cast<size_t>(iters));
 
     for (int index = 0; index < iters; ++index)
     {
         const auto start_time = steady_clock::now();
         one_wait();
-        got.push_back(duration<double, std::micro>(steady_clock::now() - start_time).count());
+        received.push_back(duration<double, std::micro>(steady_clock::now() - start_time).count());
     }
 
-    return summarize(got);
+    return summarize(received);
 }
 
-void print_row(const char* name, double asked_us, const Stats& stats)
+void print_row(const char* name, double asked_us, const Stats& statistics)
 {
-    std::printf("  %-22s ask=%8.0fus  p50=%9.1fus  p99=%9.1fus  max=%9.1fus\n", name, asked_us, stats.p50_us, stats.p99_us,
-                stats.max_us);
+    std::printf("  %-22s ask=%8.0fus  p50=%9.1fus  p99=%9.1fus  max=%9.1fus\n", name, asked_us, statistics.p50_us, statistics.p99_us,
+                statistics.max_us);
 }
 
 void run_table(const char* title, int iters)
@@ -66,11 +66,11 @@ void run_table(const char* title, int iters)
     print_row("sleep_for(1ms)", 1000.0, measure(iters, [] { std::this_thread::sleep_for(milliseconds(1)); }));
 
     std::mutex mutex;
-    std::condition_variable cv;
+    std::condition_variable condition_variable;
     print_row("cv.wait_for(1ms)", 1000.0, measure(iters, [&]
     {
         std::unique_lock<std::mutex> lock(mutex);
-        cv.wait_for(lock, milliseconds(1));
+        condition_variable.wait_for(lock, milliseconds(1));
     }));
     print_row("yield()", 0.0, measure(iters, [] { std::this_thread::yield(); }));
 }

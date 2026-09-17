@@ -63,14 +63,14 @@ void ZmqBridge::stop()
 // ─── 스레드 본체 (ZMQ 소켓은 이 스레드에서만 사용) ─────────────────────────
 void ZmqBridge::thread_fn()
 {
-    zmq::context_t ctx{1};
-    zmq::socket_t pub{ctx, zmq::socket_type::pub};
-    zmq::socket_t rep{ctx, zmq::socket_type::rep};
+    zmq::context_t context{1};
+    zmq::socket_t publish_socket{context, zmq::socket_type::pub};
+    zmq::socket_t rep{context, zmq::socket_type::rep};
 
     try
     {
-        pub.bind("tcp://" + bind_addr_ + ":" + std::to_string(pub_port_));
-        rep.bind("tcp://" + bind_addr_ + ":" + std::to_string(rep_port_));
+        publish_socket.bind("tcp://" + bind_address_ + ":" + std::to_string(pub_port_));
+        rep.bind("tcp://" + bind_address_ + ":" + std::to_string(rep_port_));
     }
     catch (const zmq::error_t& zmq_error)
     {
@@ -86,9 +86,9 @@ void ZmqBridge::thread_fn()
     {
         // 1. 송신 큐 소진 — 락 안에서는 스왑만 하고 전송은 락 밖에서(Logger writer와 같은 패턴).
         //    락을 쥔 채 큐 상한(10만 건)까지 밀어내면 그동안 전략·주문·WS 콜백의 enqueue가 전부 선다.
-        std::queue<Msg> local;
+        std::queue<Message> local;
         {
-            std::lock_guard<std::mutex> lock(queue_mtx_);
+            std::lock_guard<std::mutex> lock(queue_mutex_);
             std::swap(local, send_queue_);
         }
 
@@ -98,15 +98,15 @@ void ZmqBridge::thread_fn()
             // 멀티파트: frame1=topic, frame2=payload. 두 프레임 다 dontwait — 이 스레드가 REP 폴링도 맡아
             //  전송에서 멈추면 명령 채널까지 같이 선다. PUB는 HWM에서 드롭이 정상 동작이다.
             zmq::message_t t_frame(front.topic.size());
-            zmq::message_t p_frame(front.payload.size());
+            zmq::message_t payload_frame(front.payload.size());
             std::memcpy(t_frame.data(), front.topic.data(), front.topic.size());
-            std::memcpy(p_frame.data(), front.payload.data(), front.payload.size());
+            std::memcpy(payload_frame.data(), front.payload.data(), front.payload.size());
 
             try
             {
-                if (pub.send(t_frame, zmq::send_flags::sndmore | zmq::send_flags::dontwait))
+                if (publish_socket.send(t_frame, zmq::send_flags::sndmore | zmq::send_flags::dontwait))
                 {
-                    pub.send(p_frame, zmq::send_flags::dontwait);
+                    publish_socket.send(payload_frame, zmq::send_flags::dontwait);
                 }
                 else
                 {
@@ -129,48 +129,48 @@ void ZmqBridge::thread_fn()
 
             if (items[0].revents & ZMQ_POLLIN)
             {
-                zmq::message_t req;
-                rep.recv(req, zmq::recv_flags::none);
-                std::string cmd(static_cast<char*>(req.data()), req.size());
+                zmq::message_t request;
+                rep.recv(request, zmq::recv_flags::none);
+                std::string command(static_cast<char*>(request.data()), request.size());
 
                 // KILL만 토큰을 요구한다: "KILL <token>". 토큰 미설정·불일치면 핸들러에 닿지 않는다.
                 //  REP는 요청마다 응답을 보내야 하므로 거부도 reply로 끝낸다.
-                std::string reply_str = "OK";
+                std::string reply_string = "OK";
                 bool        allowed   = true;
-                const auto  sp        = cmd.find(' ');
-                const std::string verb = cmd.substr(0, sp);
+                const auto  space_position        = command.find(' ');
+                const std::string verb = command.substr(0, space_position);
 
                 if (verb == "KILL")
                 {
-                    const std::string given = (sp == std::string::npos) ? std::string() : cmd.substr(sp + 1);
+                    const std::string given = (space_position == std::string::npos) ? std::string() : command.substr(space_position + 1);
 
                     if (control_token_.empty() || given != control_token_)
                     {
                         allowed   = false;
-                        reply_str = "DENIED";
+                        reply_string = "DENIED";
                         LOG_WARN(std::string("[ZMQ] KILL 거부 — ") +
                                  (control_token_.empty() ? "zmq_control_token 미설정" : "토큰 불일치"));
                     }
                     else
                     {
-                        cmd = verb;
+                        command = verb;
                     }
                 }
 
-                if (allowed && cmd_handler_)
+                if (allowed && command_handler_)
                 {
                     try
                     {
-                        reply_str = cmd_handler_(cmd);
+                        reply_string = command_handler_(command);
                     }
                     catch (...)
                     {
                     }
                 }
 
-                zmq::message_t reply_msg(reply_str.size());
-                std::memcpy(reply_msg.data(), reply_str.data(), reply_str.size());
-                rep.send(reply_msg, zmq::send_flags::none);
+                zmq::message_t reply_message(reply_string.size());
+                std::memcpy(reply_message.data(), reply_string.data(), reply_string.size());
+                rep.send(reply_message, zmq::send_flags::none);
             }
         }
         catch (const zmq::error_t& zmq_error)
@@ -182,15 +182,15 @@ void ZmqBridge::thread_fn()
         }
     }
 
-    pub.close();
+    publish_socket.close();
     rep.close();
-    ctx.close();
+    context.close();
 }
 
 // ─── 메시지 enqueue (스레드-안전) ───────────────────────────────────────────
 void ZmqBridge::enqueue(std::string topic, std::string payload)
 {
-    std::lock_guard<std::mutex> lock(queue_mtx_);
+    std::lock_guard<std::mutex> lock(queue_mutex_);
     // (C8) 토픽별 drop 차등 — 원장 정합성에 직결되는 FILL/ORDER/SIGNAL은
     // 고빈도 TRADE/HEALTH보다 훨씬 큰 하드캡까지 보존한다.
     const bool critical = (topic == "FILL" || topic == "ORDER" || topic == "SIGNAL");
@@ -220,12 +220,12 @@ static int64_t now_ms()
 }
 
 // 3값 enum을 2분기로 접지 않는다 — CANCEL/REPLACE는 side==NONE으로도 여기까지 온다(W-11).
-static const char* side_str(OrderSide order_side)
+static const char* side_string(OrderSide order_side)
 {
     return order_side == OrderSide::BUY ? "BUY" : (order_side == OrderSide::SELL ? "SELL" : "NONE");
 }
 
-static const char* action_str(OrderAction order_action)
+static const char* action_string(OrderAction order_action)
 {
     return order_action == OrderAction::CANCEL ? "CANCEL" : (order_action == OrderAction::REPLACE ? "REPLACE" : "NEW");
 }
@@ -248,8 +248,8 @@ void ZmqBridge::publish_signal(const OrderSignal& signal)
     document["ts"] = now_ms();
     document["strategy"] = signal.strategy_id;
     document["ticker"] = signal.ticker;
-    document["side"] = side_str(signal.side);
-    document["action"] = action_str(signal.action);
+    document["side"] = side_string(signal.side);
+    document["action"] = action_string(signal.action);
     document["qty"] = signal.quantity;
     document["price"] = signal.price;
     document["market"] = (signal.market == Market::US ? "US" : "KR");
@@ -263,8 +263,8 @@ void ZmqBridge::publish_order(const OrderSignal& signal, bool ok)
     document["ts"] = now_ms();
     document["strategy"] = signal.strategy_id;
     document["ticker"] = signal.ticker;
-    document["side"] = side_str(signal.side);
-    document["action"] = action_str(signal.action);
+    document["side"] = side_string(signal.side);
+    document["action"] = action_string(signal.action);
     document["qty"] = signal.quantity;
     document["price"] = signal.price;
     document["ok"] = ok;
@@ -273,32 +273,32 @@ void ZmqBridge::publish_order(const OrderSignal& signal, bool ok)
     enqueue("ORDER", document.dump());
 }
 
-void ZmqBridge::publish_health(uint64_t data_cnt, uint64_t sig_cnt, uint64_t ord_cnt)
+void ZmqBridge::publish_health(uint64_t data_count, uint64_t signal_count, uint64_t order_count)
 {
     json document;
     document["ts"]    = now_ms();
-    document["data"]  = data_cnt;
-    document["signal"] = sig_cnt;
-    document["order"] = ord_cnt;
+    document["data"]  = data_count;
+    document["signal"] = signal_count;
+    document["order"] = order_count;
     document["drop"]  = drop_count_.load();
     enqueue("HEALTH", document.dump());
 }
 
 void ZmqBridge::publish_fill(const FillNotification& fill_notification, const std::string& strategy_id,
-                              double commission, double tax, double average_price, int net_qty,
+                              double commission, double tax, double average_price, int net_quantity,
                               double realized_pnl)
 {
     json document;
     document["ts"]           = now_ms();
     document["odno"]         = fill_notification.kis_order_no;
     document["ticker"]       = fill_notification.ticker;
-    document["side"]         = side_str(fill_notification.side);
+    document["side"]         = side_string(fill_notification.side);
     document["filled_qty"]   = fill_notification.filled_quantity;
     document["filled_price"] = fill_notification.filled_price;
     document["commission"]   = commission;
     document["tax"]          = tax;
     document["avg_price"]    = average_price;
-    document["net_qty"]      = net_qty;
+    document["net_qty"]      = net_quantity;
     document["realized_pnl"] = realized_pnl;
     document["account"]      = account_no_;
     document["strategy"]     = strategy_id;

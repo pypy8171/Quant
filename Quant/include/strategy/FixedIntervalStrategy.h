@@ -8,14 +8,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // FixedIntervalStrategy  —  고정 종목 주기적 매수/매도 (파이프라인 테스트용)
 //
-//  interval_sec마다 BUY(buy_qty) → SELL(sell_qty) 를 교대로 발행한다.
+//  interval_sec마다 BUY(buy_quantity) → SELL(sell_quantity) 를 교대로 발행한다.
 //  장 세션 외 시간에는 신호를 내지 않는다.
 // ─────────────────────────────────────────────────────────────────────────────
 class FixedIntervalStrategy : public StrategyBase
 {
 public:
-    FixedIntervalStrategy(std::string ticker, int buy_qty, int sell_qty, int interval_sec)
-        : ticker_(std::move(ticker)), buy_qty_(buy_qty), sell_qty_(sell_qty),
+    FixedIntervalStrategy(std::string ticker, int buy_quantity, int sell_quantity, int interval_sec)
+        : ticker_(std::move(ticker)), buy_quantity_(buy_quantity), sell_quantity_(sell_quantity),
           interval_sec_(interval_sec)
     {}
 
@@ -23,13 +23,13 @@ public:
 
     std::string describe() const override
     {
-        return id() + " | BUY=" + std::to_string(buy_qty_) +
-               " SELL=" + std::to_string(sell_qty_) +
+        return id() + " | BUY=" + std::to_string(buy_quantity_) +
+               " SELL=" + std::to_string(sell_quantity_) +
                " every " + std::to_string(interval_sec_) + "s";
     }
 
     // 고정 종목 구독
-    std::vector<WatchSpec> get_watch_specs() const override
+    std::vector<WatchSpec> get_watch_specifications() const override
     {
         return {{ticker_, Market::KR, ""}};
     }
@@ -41,8 +41,8 @@ public:
                        std::chrono::seconds(interval_sec_); // 즉시 첫 신호 허용
         phase_ = Phase::BUY;
         LOG_INFO("[FixedInterval] 시작: " + ticker_ +
-                 " BUY=" + std::to_string(buy_qty_) +
-                 " SELL=" + std::to_string(sell_qty_) +
+                 " BUY=" + std::to_string(buy_quantity_) +
+                 " SELL=" + std::to_string(sell_quantity_) +
                  " 주기=" + std::to_string(interval_sec_) + "초");
     }
 
@@ -75,23 +75,23 @@ public:
         signal.symbol_id         = symbol_id_;
         signal.market      = Market::KR;
         signal.type        = OrderType::MARKET;
-        signal.ref_price   = trade.price; // 시장가는 price=0 — 이 값이 없으면 1주문 명목 상한이 비어 버린다
+        signal.reference_price   = trade.price; // 시장가는 price=0 — 이 값이 없으면 1주문 명목 상한이 비어 버린다
         signal.strategy_id = id();
         signal.timestamp   = std::chrono::system_clock::now();
 
         if (phase_ == Phase::BUY)
         {
             signal.side     = OrderSide::BUY;
-            signal.quantity = buy_qty_;
-            phase_       = (sell_qty_ > 0) ? Phase::SELL : Phase::BUY; // sell_qty=0이면 BUY만 반복
-            LOG_INFO("[FixedInterval] BUY " + ticker_ + " " + std::to_string(buy_qty_) + "주");
+            signal.quantity = buy_quantity_;
+            phase_       = (sell_quantity_ > 0) ? Phase::SELL : Phase::BUY; // sell_quantity=0이면 BUY만 반복
+            LOG_INFO("[FixedInterval] BUY " + ticker_ + " " + std::to_string(buy_quantity_) + "주");
         }
         else
         {
             signal.side     = OrderSide::SELL;
-            signal.quantity = sell_qty_;
+            signal.quantity = sell_quantity_;
             phase_       = Phase::BUY;
-            LOG_INFO("[FixedInterval] SELL " + ticker_ + " " + std::to_string(sell_qty_) + "주");
+            LOG_INFO("[FixedInterval] SELL " + ticker_ + " " + std::to_string(sell_quantity_) + "주");
         }
 
         last_signal_ = now;
@@ -108,7 +108,7 @@ private:
 
     std::string ticker_;
     symbol::SymbolId symbol_id_ = symbol::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
-    int buy_qty_, sell_qty_, interval_sec_;
+    int buy_quantity_, sell_quantity_, interval_sec_;
     Phase phase_ = Phase::BUY;
     std::chrono::steady_clock::time_point last_signal_{};
 

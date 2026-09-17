@@ -1,7 +1,7 @@
 // 발주 조절기(core/OrderPacer.h) 단위 테스트. 보유 수량 조회를 std::function으로 대신해 Engine·OrderGate 없이
 //  발주 간격, 거부 분류(유량 한도·청산 SELL·40240000·BUY 제외·횟수 소진), 재시도 만기 순서와 청산 완료 폐기를
 //  고정한다. Logger만 링크한다. 관련 결정: C-2(청산 SELL 재시도), D-065(분리).
-// 빌드: cmake --build <dir> --target test_order_pacer
+// 빌드: cmake --build <directory> --target test_order_pacer
 #include "core/OrderPacer.h"
 #include "risk/GateReasons.h"
 #include "utils/Logger.h"
@@ -13,13 +13,13 @@ namespace
 {
 int g_checks = 0;
 
-#define CHECK(cond)                                                                        \
+#define CHECK(condition)                                                                        \
     do                                                                                     \
     {                                                                                      \
         ++g_checks;                                                                        \
-        if (!(cond))                                                                       \
+        if (!(condition))                                                                       \
         {                                                                                  \
-            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #cond << "\n";     \
+            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #condition << "\n";     \
             return 1;                                                                      \
         }                                                                                  \
     } while (0)
@@ -47,14 +47,14 @@ int test_classify()
 {
     const auto sell = signal("A", OrderSide::SELL, 10);
     const auto buy  = signal("A", OrderSide::BUY, 10);
-    const auto cxl  = signal("A", OrderSide::BUY, 0, OrderAction::CANCEL);
+    const auto cancel  = signal("A", OrderSide::BUY, 0, OrderAction::CANCEL);
 
     // 접수·횟수 소진은 재시도 없음
     CHECK(pacing::classify(sell, 0, 3, OrderStatus::ACCEPTED, "", kDelay).kind == Retry::NONE);
     CHECK(pacing::classify(sell, 3, 3, OrderStatus::REJECTED, "x", kDelay).kind == Retry::NONE);
 
     // 유량 한도 — KIS EGW00201과 게이트 "Rate limit …" 둘 다, action 불문
-    auto plan = pacing::classify(cxl, 0, 3, OrderStatus::REJECTED, "EGW00201 초당 거래건수 초과", kDelay);
+    auto plan = pacing::classify(cancel, 0, 3, OrderStatus::REJECTED, "EGW00201 초당 거래건수 초과", kDelay);
     CHECK(plan.kind == Retry::RATE_LIMIT && plan.delay == kDelay);
     plan = pacing::classify(buy, 2, 3, OrderStatus::REJECTED, gate_reason::rate_limit(false, 5), kDelay);
     CHECK(plan.kind == Retry::RATE_LIMIT && plan.delay == kDelay);
@@ -89,7 +89,7 @@ int test_interval()
     CHECK(order_pacer.wait_before_send(start_time + milliseconds(100)) == milliseconds(250));
     CHECK(order_pacer.wait_before_send(start_time + milliseconds(350)) == Clock::duration::zero());
     CHECK(order_pacer.wait_before_send(start_time + milliseconds(900)) == Clock::duration::zero());
-    // 재시도 지연은 dedup 창(1.2s) 아래로 내려가지 않고, 간격이 더 길면 간격을 따른다
+    // 재시도 지연은 deduplicate 창(1.2s) 아래로 내려가지 않고, 간격이 더 길면 간격을 따른다
     CHECK(order_pacer.retry_delay() == milliseconds(1200));
     CHECK(OrderPacer({2000, 3}, start_time).retry_delay() == milliseconds(2000));
     return 0;
@@ -154,9 +154,9 @@ int test_retry_queue()
 int main()
 {
     // 산출물을 라이브 로그 폴더와 갈라 둔다(test_order_router와 같은 이유). QUANT_LOG_DIR이 있으면 존중.
-    if (const char* env = std::getenv("QUANT_LOG_DIR"); !env || !*env)
+    if (const char* environment = std::getenv("QUANT_LOG_DIR"); !environment || !*environment)
     {
-        Logger::instance().set_base_dir(Logger::executable_dir() / "logs_test");
+        Logger::instance().set_base_directory(Logger::executable_directory() / "logs_test");
     }
 
     if (test_classify() || test_interval() || test_retry_queue())

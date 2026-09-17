@@ -32,7 +32,7 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
     //  더 짧은 요청은 앞에서 잘라 답한다. timestamp는 받아온 시각이라 지금으로 다시 찍는다.
     if (config_.daily_cache_ttl_sec > 0)
     {
-        std::lock_guard<std::mutex> lock(daily_cache_mtx_);
+        std::lock_guard<std::mutex> lock(daily_cache_mutex_);
         auto iterator = daily_cache_.find(ckey);
 
         if (iterator != daily_cache_.end() && iterator->second.requested >= count &&
@@ -54,16 +54,16 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
 
     // G1 수정: 날짜 하드코딩(19000101~99991231)은 모의서버 500 → 유한창(오늘−N일 ~ 오늘, KST).
     //  조회창의 초는 KST 자리값을 UTC로 읽은 값(parse_dt와 같은 눈금)이라 옮기지 않고 날짜로 찍는다.
-    auto fmt_date   = [](time_t time_value) -> std::string { return kst::format_ymd(kst::utc_date(time_value)); };
+    auto format_date   = [](time_t time_value) -> std::string { return kst::format_ymd(kst::utc_date(time_value)); };
     auto parse_date = [](const std::string& date_yyyymmdd) -> time_t { return kis_rest::parse_dt(date_yyyymmdd, "000000"); };
 
     const time_t end_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + kKstOffsetSec; // KST 오늘
-    const std::string today = fmt_date(end_t);
+    const std::string today = format_date(end_t);
     // 주봉 절단 기준: 이번 주 월요일(응답의 stck_bsop_date는 주 시작일). 월요일 이후 행은 진행 중 봉이다.
     std::string week_start;
     {
         const int back = (kst::decompose(std::chrono::sys_seconds{std::chrono::seconds{end_t}}).tm_wday + 6) % 7; // 월=0 … 일=6
-        week_start = fmt_date(end_t - static_cast<time_t>(back) * 86400);
+        week_start = format_date(end_t - static_cast<time_t>(back) * 86400);
     }
 
     // 한 페이지에 담을 봉 수와 달력일 여유. 거래일→달력일 1.7배 + 헤드룸 10일(최소 30일), 주봉은 ×7.
@@ -85,14 +85,14 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
 
     for (int page = 0; page < max_pages && static_cast<int>(result.size()) < count; ++page)
     {
-        const std::string d2 = fmt_date(page_end);
-        const std::string d1 = fmt_date(page_end - static_cast<time_t>(window_days) * 86400);
+        const std::string to_date = format_date(page_end);
+        const std::string from_date = format_date(page_end - static_cast<time_t>(window_days) * 86400);
 
         std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice" +
-                          "?FID_COND_MRKT_DIV_CODE=J" + "&FID_INPUT_ISCD=" + ticker + "&FID_INPUT_DATE_1=" + d1 +
-                          "&FID_INPUT_DATE_2=" + d2 + "&FID_PERIOD_DIV_CODE=" + period + "&FID_ORG_ADJ_PRC=0";
+                          "?FID_COND_MRKT_DIV_CODE=J" + "&FID_INPUT_ISCD=" + ticker + "&FID_INPUT_DATE_1=" + from_date +
+                          "&FID_INPUT_DATE_2=" + to_date + "&FID_PERIOD_DIV_CODE=" + period + "&FID_ORG_ADJ_PRC=0";
 
-        std::vector<std::string> headers = auth_headers("FHKST03010100");
+        std::vector<std::string> headers = authentication_headers("FHKST03010100");
         std::string response = http_get(url, headers);
         ++pages_fetched;
 
@@ -193,7 +193,7 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
     // 빈 결과는 캐시하지 않는다(일시적 500·파싱 실패를 TTL 동안 굳히지 않기 위해).
     if (config_.daily_cache_ttl_sec > 0 && !result.empty())
     {
-        std::lock_guard<std::mutex> lock(daily_cache_mtx_);
+        std::lock_guard<std::mutex> lock(daily_cache_mutex_);
         auto& cache_entry = daily_cache_[ckey];
         cache_entry.at = std::chrono::steady_clock::now();
         cache_entry.requested = count;
@@ -226,16 +226,16 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
         hour = "153000";
     }
 
-    std::vector<std::string> headers = auth_headers("FHKST03010200");
+    std::vector<std::string> headers = authentication_headers("FHKST03010200");
 
     // 필요한 1분봉 수 = count*interval_min. 1콜당 ~30봉 → 여유롭게 페이지 상한.
     const int need_1min  = count * interval_min;
     const int kMaxPages  = (std::min)(20, need_1min / 25 + 3); // (): windows.h min 매크로 회피
 
-    std::vector<kis_rest::RawMinute> raws;
+    std::vector<kis_rest::RawMinute> raw_minutes;
     std::unordered_set<std::string> seen; // date+hour 중복(페이지 경계) 제거
 
-    for (int page = 0; page < kMaxPages && static_cast<int>(raws.size()) < need_1min; ++page)
+    for (int page = 0; page < kMaxPages && static_cast<int>(raw_minutes.size()) < need_1min; ++page)
     {
         std::string url = base_url() +
             "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice"
@@ -267,7 +267,7 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
         }
 
         int added = 0;
-        std::string page_earliest = kis_rest::parse_minute_page(array, raws, seen, "", added);
+        std::string page_earliest = kis_rest::parse_minute_page(array, raw_minutes, seen, "", added);
 
         if (page_earliest.empty())
         {
@@ -297,7 +297,7 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
         std::this_thread::sleep_for(std::chrono::milliseconds(120)); // rate limit 여유
     }
 
-    return kis_rest::aggregate_minutes(raws, ticker, interval_min, count);
+    return kis_rest::aggregate_minutes(raw_minutes, ticker, interval_min, count);
 }
 
 // 지정 날짜(과거일 포함)의 분봉. TR FHKST03010230 (inquire-time-dailychartprice).
@@ -324,16 +324,16 @@ std::vector<MarketData> KisClient::get_daily_minute_ohlcv(const std::string& tic
 
     std::string hour = end_hhmmss.size() == 6 ? end_hhmmss : std::string("153000");
 
-    std::vector<std::string> headers = auth_headers("FHKST03010230", {"custtype: P"});
+    std::vector<std::string> headers = authentication_headers("FHKST03010230", {"custtype: P"});
 
     // 1콜당 최대 120봉. 09:00~15:30이 390분이라 하루치 전체도 4콜이면 찬다.
     const int need_1min = count * interval_min;
     const int kMaxPages = (std::min)(6, need_1min / 110 + 2); // (): windows.h min 매크로 회피
 
-    std::vector<kis_rest::RawMinute> raws;
+    std::vector<kis_rest::RawMinute> raw_minutes;
     std::unordered_set<std::string> seen;
 
-    for (int page = 0; page < kMaxPages && static_cast<int>(raws.size()) < need_1min; ++page)
+    for (int page = 0; page < kMaxPages && static_cast<int>(raw_minutes.size()) < need_1min; ++page)
     {
         std::string url = base_url() +
             "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice"
@@ -366,7 +366,7 @@ std::vector<MarketData> KisClient::get_daily_minute_ohlcv(const std::string& tic
         }
 
         int added = 0;
-        std::string page_earliest = kis_rest::parse_minute_page(array, raws, seen, yyyymmdd, added);
+        std::string page_earliest = kis_rest::parse_minute_page(array, raw_minutes, seen, yyyymmdd, added);
 
         if (page_earliest.empty())
         {
@@ -394,7 +394,7 @@ std::vector<MarketData> KisClient::get_daily_minute_ohlcv(const std::string& tic
         std::this_thread::sleep_for(std::chrono::milliseconds(120));
     }
 
-    return kis_rest::aggregate_minutes(raws, ticker, interval_min, count);
+    return kis_rest::aggregate_minutes(raw_minutes, ticker, interval_min, count);
 }
 
 double KisClient::get_current_price(const std::string& ticker)
@@ -402,7 +402,7 @@ double KisClient::get_current_price(const std::string& ticker)
     std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/inquire-price" + "?FID_COND_MRKT_DIV_CODE=J" +
                       "&FID_INPUT_ISCD=" + ticker;
 
-    std::vector<std::string> headers = auth_headers("FHKST01010100");
+    std::vector<std::string> headers = authentication_headers("FHKST01010100");
 
     std::string response = http_get(url, headers);
 
@@ -427,7 +427,7 @@ Fundamentals KisClient::get_fundamentals(const std::string& ticker)
     std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/inquire-price" + "?FID_COND_MRKT_DIV_CODE=J" +
                       "&FID_INPUT_ISCD=" + ticker;
 
-    std::vector<std::string> headers = auth_headers("FHKST01010100");
+    std::vector<std::string> headers = authentication_headers("FHKST01010100");
 
     Fundamentals fundamentals;
     fundamentals.ticker = ticker;
@@ -462,7 +462,7 @@ Fundamentals KisClient::get_fundamentals(const std::string& ticker)
             }
         };
         fundamentals.last = parse_d("stck_prpr"); // 현재가
-        fundamentals.diff = parse_d("prdy_vrss"); // 전일대비
+        fundamentals.difference = parse_d("prdy_vrss"); // 전일대비
         fundamentals.rate = parse_d("prdy_ctrt"); // 등락률(%)
         fundamentals.open = parse_d("stck_oprc"); // 시가
         fundamentals.high = parse_d("stck_hgpr"); // 고가
@@ -492,7 +492,7 @@ std::vector<MarketData> KisClient::get_us_daily_ohlcv(const std::string& ticker,
     std::string url = base_url() + "/uapi/overseas-price/v1/quotations/dailyprice" + "?AUTH=" + "&EXCD=" + exchange +
                       "&SYMB=" + ticker + "&GUBN=0" + "&BYMD=" + "&MODP=0";
 
-    std::vector<std::string> headers = auth_headers("HHDFS76240000", {"custtype: P"});
+    std::vector<std::string> headers = authentication_headers("HHDFS76240000", {"custtype: P"});
 
     std::string response = http_get(url, headers);
 
@@ -590,7 +590,7 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
     std::string url =
         base_url() + "/uapi/overseas-price/v1/quotations/price-detail" + "?AUTH=&EXCD=" + exchange + "&SYMB=" + ticker;
 
-    std::vector<std::string> headers = auth_headers("HHDFS00000300", {"custtype: P"});
+    std::vector<std::string> headers = authentication_headers("HHDFS00000300", {"custtype: P"});
 
     Fundamentals fundamentals;
     fundamentals.ticker = ticker;
@@ -670,7 +670,7 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
         fundamentals.ask_price = parse_dbl("pask");
         fundamentals.bid_quantity = parse_i64("vbid");
         fundamentals.ask_quantity = parse_i64("vask");
-        fundamentals.diff = parse_dbl("diff");
+        fundamentals.difference = parse_dbl("diff");
         fundamentals.rate = parse_dbl("rate");
     }
     catch (const std::exception& exception)

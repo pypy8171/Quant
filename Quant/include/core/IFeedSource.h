@@ -24,7 +24,7 @@ public:
 
     virtual ~IFeedSource() = default;
 
-    virtual void set_callbacks(OrderBookCb on_ob, TradeCb on_trade) = 0;
+    virtual void set_callbacks(OrderBookCb on_order_book, TradeCb on_trade) = 0;
 
     // 수신 스레드(레인) 수. Engine이 링 행렬의 행 수로 쓴다(원칙 5 — 레인마다 자기 행, 생산자 하나). 소켓 하나면 1.
     virtual uint32_t lanes() const
@@ -33,22 +33,22 @@ public:
     }
 
     // 레인 번호를 달아 부르는 콜백. 기본은 레인 0 하나로 set_callbacks에 얹는다 — 소켓 여럿을 묶는 구현만 덮어쓴다.
-    virtual void set_lane_callbacks(LaneOrderBookCb on_ob, LaneTradeCb on_trade)
+    virtual void set_lane_callbacks(LaneOrderBookCb on_order_book, LaneTradeCb on_trade)
     {
-        set_callbacks([cb = std::move(on_ob)](const OrderBook& order_book) { cb(0, order_book); },
-                      [cb = std::move(on_trade)](const TradeData& trade) { cb(0, trade); });
+        set_callbacks([callback = std::move(on_order_book)](const OrderBook& order_book) { callback(0, order_book); },
+                      [callback = std::move(on_trade)](const TradeData& trade) { callback(0, trade); });
     }
 
     // 체결통보가 없는 소스(리플레이)는 등록을 무시한다 — 주문은 어차피 REST 라우터가 낸다.
     virtual void set_fill_callback(FillCb) {}
 
-    virtual bool connect(const std::vector<WatchSpec>& specs) = 0;
+    virtual bool connect(const std::vector<WatchSpec>& specifications) = 0;
     virtual void disconnect()                                 = 0;
 
     // 연결을 유지한 채 종목을 더 구독한다. 반환·판정 규약은 KisWebSocket::subscribe_incremental 주석.
-    virtual bool                   subscribe_incremental(const WatchSpec& spec) = 0;
-    virtual bool                   has_spec(const WatchSpec& spec) const        = 0;
-    virtual std::vector<WatchSpec> take_overflow_specs()                        = 0;
+    virtual bool                   subscribe_incremental(const WatchSpec& specification) = 0;
+    virtual bool                   has_specification(const WatchSpec& specification) const        = 0;
+    virtual std::vector<WatchSpec> take_overflow_specifications()                        = 0;
 
     virtual bool is_connected() const = 0;
     // threshold_sec 이상 메시지가 없으면 true. Engine 제어 스레드가 재연결 판단에 쓴다.
@@ -57,10 +57,10 @@ public:
     // 멈춘 연결을 다시 잇는다. specs는 지금 봐야 할 종목 전체(재스캔 추가분 포함). 소켓 하나면 끊고 specs로 다시 잇는
     //  것이고, 소켓 여럿을 묶은 소스는 멈춘 것만 자기 종목으로 다시 잇는다(FeedMux) — 살아 있는 소켓의 틱은 그 사이에도
     //  흐른다. 다시 이은 연결이 전부 성공하면 true. 제어 스레드만 부른다. [why D-071]
-    virtual bool reconnect_stale(const std::vector<WatchSpec>& specs, int /*threshold_sec*/)
+    virtual bool reconnect_stale(const std::vector<WatchSpec>& specifications, int /*threshold_sec*/)
     {
         disconnect();
-        return connect(specs);
+        return connect(specifications);
     }
 };
 

@@ -32,18 +32,18 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
-using sock_t = SOCKET;
+using socket_handle_t = SOCKET;
 #define SOCK_BAD INVALID_SOCKET
-#define sock_close closesocket
+#define socket_close closesocket
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
-using sock_t = int;
+using socket_handle_t = int;
 #define SOCK_BAD (-1)
-#define sock_close ::close
+#define socket_close ::close
 #endif
 
 using json = nlohmann::json;
@@ -53,39 +53,39 @@ namespace
 
 struct Conn
 {
-    sock_t           fd = SOCK_BAD;
+    socket_handle_t           descriptor = SOCK_BAD;
     ops::FrameReader reader;
 
     // 프로세스 종료로 소켓을 놓으면 서버가 RST(10054)를 받는다 — 정상 종료는 shutdown 뒤 close.
     ~Conn()
     {
-        if (fd != SOCK_BAD)
+        if (descriptor != SOCK_BAD)
         {
 #ifdef _WIN32
-            ::shutdown(fd, SD_BOTH);
+            ::shutdown(descriptor, SD_BOTH);
 #else
-            ::shutdown(fd, SHUT_RDWR);
+            ::shutdown(descriptor, SHUT_RDWR);
 #endif
-            sock_close(fd);
+            socket_close(descriptor);
         }
     }
 
-    bool send_frame(ops::OpsMsg ops_msg, const std::string& body)
+    bool send_frame(ops::OpsMsg ops_message, const std::string& body)
     {
-        auto bytes = ops::encode(ops_msg, body);
-        size_t off = 0;
+        auto bytes = ops::encode(ops_message, body);
+        size_t offset = 0;
 
-        while (off < bytes.size())
+        while (offset < bytes.size())
         {
-            const int width = ::send(fd, reinterpret_cast<const char*>(bytes.data() + off),
-                                 static_cast<int>(bytes.size() - off), 0);
+            const int width = ::send(descriptor, reinterpret_cast<const char*>(bytes.data() + offset),
+                                 static_cast<int>(bytes.size() - offset), 0);
 
             if (width <= 0)
             {
                 return false;
             }
 
-            off += static_cast<size_t>(width);
+            offset += static_cast<size_t>(width);
         }
 
         return true;
@@ -116,13 +116,13 @@ struct Conn
                 return -1;
             }
 
-            fd_set rd;
-            FD_ZERO(&rd);
-            FD_SET(fd, &rd);
-            timeval tv{};
-            tv.tv_sec  = static_cast<long>(left.count() / 1000);
-            tv.tv_usec = static_cast<long>((left.count() % 1000) * 1000);
-            const int count = ::select(static_cast<int>(fd) + 1, &rd, nullptr, nullptr, &tv);
+            fd_set read_set;
+            FD_ZERO(&read_set);
+            FD_SET(descriptor, &read_set);
+            timeval time_value{};
+            time_value.tv_sec  = static_cast<long>(left.count() / 1000);
+            time_value.tv_usec = static_cast<long>((left.count() % 1000) * 1000);
+            const int count = ::select(static_cast<int>(descriptor) + 1, &read_set, nullptr, nullptr, &time_value);
 
             if (count == 0)
             {
@@ -135,7 +135,7 @@ struct Conn
             }
 
             uint8_t buffer[16384];
-            const int result = ::recv(fd, reinterpret_cast<char*>(buffer), sizeof(buffer), 0);
+            const int result = ::recv(descriptor, reinterpret_cast<char*>(buffer), sizeof(buffer), 0);
 
             if (result <= 0)
             {
@@ -147,34 +147,34 @@ struct Conn
     }
 };
 
-bool connect_to(Conn& conn, const std::string& host, int port)
+bool connect_to(Conn& connection, const std::string& host, int port)
 {
 #ifdef _WIN32
     WSADATA wsa_data;
     WSAStartup(MAKEWORD(2, 2), &wsa_data);
 #endif
-    conn.fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    connection.descriptor = ::socket(AF_INET, SOCK_STREAM, 0);
 
-    if (conn.fd == SOCK_BAD)
+    if (connection.descriptor == SOCK_BAD)
     {
         return false;
     }
 
-    sockaddr_in sa{};
-    sa.sin_family = AF_INET;
-    sa.sin_port   = htons(static_cast<uint16_t>(port));
+    sockaddr_in socket_address{};
+    socket_address.sin_family = AF_INET;
+    socket_address.sin_port   = htons(static_cast<uint16_t>(port));
 
     if (host == "localhost")
     {
-        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        socket_address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     }
-    else if (inet_pton(AF_INET, host.c_str(), &sa.sin_addr) != 1)
+    else if (inet_pton(AF_INET, host.c_str(), &socket_address.sin_addr) != 1)
     {
         std::cerr << "호스트 해석 실패: " << host << "\n";
         return false;
     }
 
-    return ::connect(conn.fd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == 0;
+    return ::connect(connection.descriptor, reinterpret_cast<sockaddr*>(&socket_address), sizeof(socket_address)) == 0;
 }
 
 void print_positions(const json& document)
@@ -192,15 +192,15 @@ void print_positions(const json& document)
 
 void print_push(const ops::Frame& frame)
 {
-    std::cout << "[" << ops::msg_name(frame.type) << "] " << frame.body << "\n";
+    std::cout << "[" << ops::message_name(frame.type) << "] " << frame.body << "\n";
 }
 
-std::string make_cid()
+std::string make_client_id()
 {
-    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::system_clock::now().time_since_epoch())
                         .count();
-    return "cli-" + std::to_string(ms);
+    return "cli-" + std::to_string(milliseconds);
 }
 
 } // namespace
@@ -243,31 +243,31 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    const std::string cmd = rest[0];
-    Conn conn;
+    const std::string command = rest[0];
+    Conn connection;
 
-    if (!connect_to(conn, host, port))
+    if (!connect_to(connection, host, port))
     {
         std::cerr << "연결 실패 " << host << ":" << port << " — quant_trader가 ops_port로 떠 있는지 확인\n";
         return 1;
     }
 
-    conn.send_frame(ops::OpsMsg::HELLO, json{{"token", token}, {"client", "ops_client/0.1"}}.dump());
+    connection.send_frame(ops::OpsMsg::HELLO, json{{"token", token}, {"client", "ops_client/0.1"}}.dump());
     ops::Frame frame;
 
-    if (conn.recv_frame(frame, 3000) != 1 || frame.type != static_cast<uint8_t>(ops::OpsMsg::WELCOME))
+    if (connection.recv_frame(frame, 3000) != 1 || frame.type != static_cast<uint8_t>(ops::OpsMsg::WELCOME))
     {
         std::cerr << "WELCOME 없음: " << (frame.body.empty() ? "(응답 없음)" : frame.body) << "\n";
         return 1;
     }
 
     const json welcome = json::parse(frame.body, nullptr, false);
-    const bool auth    = welcome.value("auth", false);
-    std::cout << "연결됨 paper=" << welcome.value("paper", true) << " auth=" << auth << "\n";
+    const bool authentication    = welcome.value("auth", false);
+    std::cout << "연결됨 paper=" << welcome.value("paper", true) << " auth=" << authentication << "\n";
 
     // WELCOME 직후 서버가 POSITIONS 스냅샷을 먼저 보낸다 — 명령 응답을 기다릴 때 섞여 들어오므로
     //  타입으로 걸러 받는다.
-    auto wait_type = [&](ops::OpsMsg want, int timeout_ms, ops::Frame& out) -> int
+    auto wait_type = [&](ops::OpsMsg wanted_type, int timeout_ms, ops::Frame& out) -> int
     {
         auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
 
@@ -280,14 +280,14 @@ int main(int argc, char** argv)
                 return -1;
             }
 
-            const int rc = conn.recv_frame(out, static_cast<int>(left.count()));
+            const int result_code = connection.recv_frame(out, static_cast<int>(left.count()));
 
-            if (rc != 1)
+            if (result_code != 1)
             {
-                return rc;
+                return result_code;
             }
 
-            if (out.type == static_cast<uint8_t>(want))
+            if (out.type == static_cast<uint8_t>(wanted_type))
             {
                 return 1;
             }
@@ -300,9 +300,9 @@ int main(int argc, char** argv)
         }
     };
 
-    if (cmd == "status")
+    if (command == "status")
     {
-        conn.send_frame(ops::OpsMsg::STATUS_REQ, "{}");
+        connection.send_frame(ops::OpsMsg::STATUS_REQ, "{}");
 
         if (wait_type(ops::OpsMsg::STATUS, 3000, frame) != 1)
         {
@@ -313,9 +313,9 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    if (cmd == "positions")
+    if (command == "positions")
     {
-        conn.send_frame(ops::OpsMsg::POS_REQ, "{}");
+        connection.send_frame(ops::OpsMsg::POS_REQ, "{}");
 
         if (wait_type(ops::OpsMsg::POSITIONS, 3000, frame) != 1)
         {
@@ -326,27 +326,27 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    if (cmd == "sell" || cmd == "buy")
+    if (command == "sell" || command == "buy")
     {
         if (rest.size() < 3)
         {
-            std::cerr << "사용법: " << cmd << " <ticker> <qty> [price]\n";
+            std::cerr << "사용법: " << command << " <ticker> <qty> [price]\n";
             return 1;
         }
 
-        if (!auth)
+        if (!authentication)
         {
             std::cerr << "주문에는 --token이 필요하다(서버 ops_token과 일치)\n";
             return 2;
         }
 
-        const std::string cid = make_cid();
-        json req{{"cid", cid},
+        const std::string client_id = make_client_id();
+        json request{{"cid", client_id},
                  {"ticker", rest[1]},
-                 {"side", cmd == "sell" ? "SELL" : "BUY"},
+                 {"side", command == "sell" ? "SELL" : "BUY"},
                  {"qty", std::atoi(rest[2].c_str())},
                  {"price", rest.size() > 3 ? std::atof(rest[3].c_str()) : 0.0}};
-        conn.send_frame(ops::OpsMsg::ORDER_REQ, req.dump());
+        connection.send_frame(ops::OpsMsg::ORDER_REQ, request.dump());
 
         if (wait_type(ops::OpsMsg::ORDER_ACK, 3000, frame) != 1)
         {
@@ -354,15 +354,15 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        json ack = json::parse(frame.body);
+        json acknowledgement = json::parse(frame.body);
 
-        if (!ack.value("accepted", false))
+        if (!acknowledgement.value("accepted", false))
         {
-            std::cerr << "인테이크 거부: " << ack.value("msg", std::string()) << "\n";
+            std::cerr << "인테이크 거부: " << acknowledgement.value("msg", std::string()) << "\n";
             return 2;
         }
 
-        std::cout << "인테이크 적재 cid=" << cid << " — 게이트·브로커 결과 대기…\n";
+        std::cout << "인테이크 적재 cid=" << client_id << " — 게이트·브로커 결과 대기…\n";
 
         // 같은 cid의 ORDER_RESULT만 기다린다(전략 주문 결과도 같은 채널로 온다). 브로커 왕복이
         //  3~5초라 15초까지 본다.
@@ -378,14 +378,14 @@ int main(int argc, char** argv)
                 return 3;
             }
 
-            const int rc = conn.recv_frame(frame, static_cast<int>(left.count()));
+            const int result_code = connection.recv_frame(frame, static_cast<int>(left.count()));
 
-            if (rc == 0)
+            if (result_code == 0)
             {
                 return 1;
             }
 
-            if (rc != 1)
+            if (result_code != 1)
             {
                 continue;
             }
@@ -394,7 +394,7 @@ int main(int argc, char** argv)
             {
                 json node = json::parse(frame.body, nullptr, false);
 
-                if (node.value("cid", std::string()) == cid)
+                if (node.value("cid", std::string()) == client_id)
                 {
                     const bool ok = node.value("ok", false);
                     std::cout << (ok ? "접수 " : "거부 ") << node.value("order_id", std::string()) << " odno="
@@ -408,22 +408,22 @@ int main(int argc, char** argv)
         }
     }
 
-    if (cmd == "watch")
+    if (command == "watch")
     {
         std::cout << "push 대기 (Ctrl+C로 종료)\n";
         auto last_ping = std::chrono::steady_clock::now();
 
         while (true)
         {
-            const int rc = conn.recv_frame(frame, 1000);
+            const int result_code = connection.recv_frame(frame, 1000);
 
-            if (rc == 0)
+            if (result_code == 0)
             {
                 std::cerr << "연결 끊김\n";
                 return 1;
             }
 
-            if (rc == 1)
+            if (result_code == 1)
             {
                 if (frame.type == static_cast<uint8_t>(ops::OpsMsg::POSITIONS))
                 {
@@ -438,14 +438,14 @@ int main(int argc, char** argv)
             if (std::chrono::steady_clock::now() - last_ping >= std::chrono::seconds(10))
             {
                 last_ping = std::chrono::steady_clock::now();
-                conn.send_frame(ops::OpsMsg::PING, "{}");
+                connection.send_frame(ops::OpsMsg::PING, "{}");
             }
         }
     }
 
-    if (cmd == "kill")
+    if (command == "kill")
     {
-        conn.send_frame(ops::OpsMsg::KILL, "{}");
+        connection.send_frame(ops::OpsMsg::KILL, "{}");
 
         if (wait_type(ops::OpsMsg::KILL_ACK, 3000, frame) != 1)
         {
@@ -456,6 +456,6 @@ int main(int argc, char** argv)
         return json::parse(frame.body).value("ok", false) ? 0 : 2;
     }
 
-    std::cerr << "알 수 없는 명령: " << cmd << "\n";
+    std::cerr << "알 수 없는 명령: " << command << "\n";
     return 1;
 }

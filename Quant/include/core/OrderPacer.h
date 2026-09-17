@@ -27,7 +27,7 @@ struct RetryPlan
 };
 
 // 거부 결과를 보고 재시도할지·언제 할지 정한다. 순수 함수.
-//  retry_delay는 dedup 창(1s) 위여야 한다 — 그 아래로 되쏘면 게이트 dedup(§5)에 또 막힌다.
+//  retry_delay는 deduplicate 창(1s) 위여야 한다 — 그 아래로 되쏘면 게이트 deduplicate(§5)에 또 막힌다.
 //  분당 한도 거부는 창이 비기까지 최대 60초라 20초로 물러난다(1.2초면 3회가 4초 안에 소진돼 같은 드롭이 된다).
 RetryPlan classify(const OrderSignal& signal, int attempts, int max_retries, OrderStatus status,
                    const std::string& reject_reason, std::chrono::milliseconds retry_delay);
@@ -65,12 +65,12 @@ public:
     // 가장 이른 재시도 만기. 재시도가 없으면 nullopt — 주문 스레드가 그때까지 자도 되는 시각이다.
     std::optional<Clock::time_point> next_retry_at() const
     {
-        if (retry_q_.empty())
+        if (retry_queue_.empty())
         {
             return std::nullopt;
         }
 
-        return retry_q_.front().not_before;
+        return retry_queue_.front().not_before;
     }
 
     // 직전 KIS 호출 뒤 min_interval을 채우기까지 남은 시간. 0이면 바로 낸다.
@@ -87,7 +87,7 @@ public:
 
     std::size_t retry_count() const
     {
-        return retry_q_.size();
+        return retry_queue_.size();
     }
 
     std::chrono::milliseconds retry_delay() const
@@ -105,8 +105,8 @@ private:
 
     Config                    config_;
     std::chrono::milliseconds min_interval_;
-    std::chrono::milliseconds retry_delay_; // max(min_interval, 1200ms) — dedup 창 위
+    std::chrono::milliseconds retry_delay_; // max(min_interval, 1200ms) — deduplicate 창 위
     Clock::time_point         last_submit_;
     PositionFn                position_;
-    std::deque<Retry>         retry_q_;
+    std::deque<Retry>         retry_queue_;
 };

@@ -13,7 +13,7 @@
 namespace trace
 {
 
-// 한 신호의 네 시각(steady_clock ns). 0은 "그 지점을 안 지났다" — 예: REST 봉에서 난 신호는 tick_ns가 0.
+// 한 신호의 네 시각(steady_clock nanoseconds). 0은 "그 지점을 안 지났다" — 예: REST 봉에서 난 신호는 tick_ns가 0.
 struct Marks
 {
     int64_t tick_ns   = 0; // 수신 스레드가 틱을 받은 시각

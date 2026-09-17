@@ -8,12 +8,12 @@
 #include <string_view>
 #include <vector>
 
-// split_records는 뷰(kis_ws::Fields)를 받는다(D-042). 벡터를 만들고 호출 직전에 뷰로 바꾼다.
+// split_records는 뷰(kis_websocket::Fields)를 받는다(D-042). 벡터를 만들고 호출 직전에 뷰로 바꾼다.
 struct FieldList
 {
     std::vector<std::string_view> views;
     FieldList(const std::vector<std::string>& fields) : views(fields.begin(), fields.end()) {}
-    operator kis_ws::Fields() const { return kis_ws::Fields(views); }
+    operator kis_websocket::Fields() const { return kis_websocket::Fields(views); }
 };
 
 static std::vector<std::string> make_fields(int records, int width, const std::string& tag)
@@ -44,20 +44,20 @@ int main()
         // 뷰는 원문 벡터가 살아 있는 동안만 유효하다 — recs를 쓰는 동안 f를 잡아 둔다.
         const auto fields = make_fields(2, 22, "t");
         const FieldList value(fields);
-        auto recs = KisWebSocket::split_records(value, 2, 22);
-        assert(recs.size() == 2);
-        assert(recs[0].size() == 22 && recs[1].size() == 22);
-        assert(recs[0][0] == "t0_0" && recs[0][21] == "t0_21");
-        assert(recs[1][0] == "t1_0" && recs[1][21] == "t1_21");
+        auto records = KisWebSocket::split_records(value, 2, 22);
+        assert(records.size() == 2);
+        assert(records[0].size() == 22 && records[1].size() == 22);
+        assert(records[0][0] == "t0_0" && records[0][21] == "t0_21");
+        assert(records[1][0] == "t1_0" && records[1][21] == "t1_21");
     }
 
     // 3×46 (실측에 가까운 체결 폭), count=3 → 셋.
     {
         const auto fields = make_fields(3, 46, "c");
         const FieldList value(fields);
-        auto recs = KisWebSocket::split_records(value, 3, 22);
-        assert(recs.size() == 3);
-        assert(recs[2][45] == "c2_45");
+        auto records = KisWebSocket::split_records(value, 3, 22);
+        assert(records.size() == 3);
+        assert(records[2][45] == "c2_45");
     }
 
     // 나누어떨어지지 않으면 자르지 않는다(45필드 / 2).

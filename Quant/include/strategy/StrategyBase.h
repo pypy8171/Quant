@@ -66,7 +66,7 @@ public:
     }
 
     // Engine이 WS 구독 목록 수집에 사용 — on_start() 이후 유효
-    virtual std::vector<WatchSpec> get_watch_specs() const
+    virtual std::vector<WatchSpec> get_watch_specifications() const
     {
         return {};
     }

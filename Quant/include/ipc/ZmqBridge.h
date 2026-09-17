@@ -34,7 +34,7 @@ public:
     void stop();
 
     // start() 전에만. 빈 주소는 무시한다.
-    void set_bind_address(std::string addr) { if (!addr.empty()) bind_addr_ = std::move(addr); }
+    void set_bind_address(std::string address) { if (!address.empty()) bind_address_ = std::move(address); }
     // KILL 공유 토큰. 비어 있으면 KILL을 아예 받지 않는다 — 무인증 REQ 한 방으로 매매가 서는 것을 막는다.
     void set_control_token(std::string token) { control_token_ = std::move(token); }
     // 이 프로세스가 물린 브로커 계좌번호. 한 프로세스=한 계좌라 FILL/ORDER 페이로드에 고정으로 실어
@@ -48,24 +48,24 @@ public:
     void publish_trade(const TradeData& trade);
     void publish_signal(const OrderSignal& signal);
     void publish_order(const OrderSignal& signal, bool ok);
-    void publish_health(uint64_t data_cnt, uint64_t sig_cnt, uint64_t ord_cnt);
+    void publish_health(uint64_t data_count, uint64_t signal_count, uint64_t order_count);
     void publish_fill(const FillNotification& fill_notification, const std::string& strategy_id,
                       double commission, double tax,
-                      double average_price, int net_qty, double realized_pnl);
+                      double average_price, int net_quantity, double realized_pnl);
 
     // ── Python 명령 수신 콜백 설정 ──────────────────────────────────────────
-    // cmd  : 수신된 명령 문자열 (KILL / STATUS / PAUSE <id> 등)
+    // command  : 수신된 명령 문자열 (KILL / STATUS / PAUSE <id> 등)
     // reply: 명령에 대한 응답 문자열 반환
-    using CmdHandler = std::function<std::string(const std::string& cmd)>;
+    using CmdHandler = std::function<std::string(const std::string& command)>;
     void set_command_handler(CmdHandler handler)
     {
-        cmd_handler_ = std::move(handler);
+        command_handler_ = std::move(handler);
     }
 
     uint64_t drop_count() const { return drop_count_.load(); }
 
 private:
-    struct Msg
+    struct Message
     {
         std::string topic;
         std::string payload;
@@ -76,7 +76,7 @@ private:
 
     int pub_port_;
     int rep_port_;
-    std::string bind_addr_ = "127.0.0.1";
+    std::string bind_address_ = "127.0.0.1";
     std::string control_token_;
     std::string account_no_;
     std::string regime_label_;
@@ -84,10 +84,10 @@ private:
     std::atomic<bool> running_{false};
     std::thread zmq_thread_;
 
-    std::mutex queue_mtx_;
-    std::queue<Msg> send_queue_;
+    std::mutex queue_mutex_;
+    std::queue<Message> send_queue_;
 
-    CmdHandler cmd_handler_;
+    CmdHandler command_handler_;
     std::atomic<uint64_t> drop_count_{0};
 };
 

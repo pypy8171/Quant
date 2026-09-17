@@ -47,14 +47,14 @@ inline struct tm decompose(std::chrono::sys_seconds sys_seconds)
     using namespace std::chrono;
     const sys_days       day_start = floor<days>(sys_seconds);
     const year_month_day date_yyyymmdd{day_start};
-    const hh_mm_ss       hms{sys_seconds - day_start};
+    const hh_mm_ss       time_of_day{sys_seconds - day_start};
     struct tm            out{};
     out.tm_year = static_cast<int>(date_yyyymmdd.year()) - 1900;
     out.tm_mon  = static_cast<int>(static_cast<unsigned>(date_yyyymmdd.month())) - 1;
     out.tm_mday = static_cast<int>(static_cast<unsigned>(date_yyyymmdd.day()));
-    out.tm_hour = static_cast<int>(hms.hours().count());
-    out.tm_min  = static_cast<int>(hms.minutes().count());
-    out.tm_sec  = static_cast<int>(hms.seconds().count());
+    out.tm_hour = static_cast<int>(time_of_day.hours().count());
+    out.tm_min  = static_cast<int>(time_of_day.minutes().count());
+    out.tm_sec  = static_cast<int>(time_of_day.seconds().count());
     out.tm_wday = static_cast<int>(weekday{day_start}.c_encoding());
     out.tm_yday = static_cast<int>((day_start - sys_days{date_yyyymmdd.year() / January / 1}).count());
     return out;

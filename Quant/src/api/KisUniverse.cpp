@@ -28,11 +28,11 @@ const std::vector<std::string> US_NYS_FALLBACK = {
 
 // 외부 JSON에서 문자열 리스트 로드. key 비면 top-level 배열, 아니면 object[key] 배열을 읽는다.
 // 파일 부재·형식오류·빈배열이면 fallback 반환(LOG_WARN). 호출측 static 으로 최초 1회만 로드.
-std::vector<std::string> load_str_list(const std::string& filename, const std::string& key,
+std::vector<std::string> load_string_list(const std::string& filename, const std::string& key,
                                        const std::vector<std::string>& fallback, const char* what)
 {
-    const char* dir = std::getenv("QUANT_CONFIG_DIR");
-    std::string base = (dir && *dir) ? std::string(dir) : std::string("Quant/config");
+    const char* directory = std::getenv("QUANT_CONFIG_DIR");
+    std::string base = (directory && *directory) ? std::string(directory) : std::string("Quant/config");
     std::string path = base + "/" + filename;
     std::ifstream file(path);
 
@@ -99,7 +99,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
                       "&FID_TRGT_EXLS_CLS_CODE=0" + "&FID_RANK_SORT_CLS_CODE=0" +
                       "&FID_INPUT_PRICE_1=" + "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
 
-    std::vector<std::string> headers = auth_headers("FHPST01720000");
+    std::vector<std::string> headers = authentication_headers("FHPST01720000");
 
     std::string response = http_get(url, headers);
 
@@ -156,9 +156,9 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
         // ETF/ETN/ELW 제외: 브랜드 접두사(경계검사) + 상품 토큰(채권·액티브·레버리지…) + 6자리 숫자 티커.
         //  접두사는 KODEX·TIGER 등 브랜드를, 토큰은 접두사 목록 밖 비브랜드 액티브(KIWOOM 단기채권ESG액티브 등)를 잡는다.
         static const std::vector<std::string> ETF_PREFIXES =
-            load_str_list("etf_prefixes.json", "", ETF_PREFIXES_FALLBACK, "ETF 접두");
+            load_string_list("etf_prefixes.json", "", ETF_PREFIXES_FALLBACK, "ETF 접두");
         static const std::vector<std::string> ETF_TOKENS =
-            load_str_list("etf_name_tokens.json", "", etf_filter::default_tokens(), "ETF 토큰");
+            load_string_list("etf_name_tokens.json", "", etf_filter::default_tokens(), "ETF 토큰");
         auto is_etf_name = [&](const std::string& name)
         { return etf_filter::is_etf_like(name, ETF_PREFIXES, ETF_TOKENS); };
         // KOSPI 보통주 티커는 반드시 6자리 숫자
@@ -250,7 +250,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
                       "&FID_TRGT_CLS_CODE=111111111" + "&FID_TRGT_EXLS_CLS_CODE=000000" +
                       "&FID_INPUT_PRICE_1=" + "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
 
-    std::vector<std::string> headers = auth_headers("FHPST01710000");
+    std::vector<std::string> headers = authentication_headers("FHPST01710000");
 
     std::string response = http_get(url, headers);
 
@@ -306,9 +306,9 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
 
         // ETF/ETN/ELW 제외: 브랜드 접두사(경계검사) + 상품 토큰 + 6자리 숫자 티커(fetch_kr_ranking과 동일 규칙)
         static const std::vector<std::string> ETF_PREFIXES =
-            load_str_list("etf_prefixes.json", "", ETF_PREFIXES_FALLBACK, "ETF 접두");
+            load_string_list("etf_prefixes.json", "", ETF_PREFIXES_FALLBACK, "ETF 접두");
         static const std::vector<std::string> ETF_TOKENS =
-            load_str_list("etf_name_tokens.json", "", etf_filter::default_tokens(), "ETF 토큰");
+            load_string_list("etf_name_tokens.json", "", etf_filter::default_tokens(), "ETF 토큰");
         auto is_etf_name = [&](const std::string& name)
         { return etf_filter::is_etf_like(name, ETF_PREFIXES, ETF_TOKENS); };
         auto is_normal_ticker = [](const std::string& ticker)
@@ -405,7 +405,7 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
                       "&FID_INPUT_ISCD=" + market + "&FID_DIV_CLS_CODE=0" +
                       "&FID_RANK_SORT_CLS_CODE=" + sort + "&FID_ETC_CLS_CODE=" + etc_cls;
 
-    std::vector<std::string> headers = auth_headers("FHPTJ04400000");
+    std::vector<std::string> headers = authentication_headers("FHPTJ04400000");
 
     std::string response = http_get(url, headers);
 
@@ -472,10 +472,10 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
                 }
 
                 est_investor_flow.name = item.value("hts_kor_isnm", "");
-                est_investor_flow.foreign_net_qty = safe_i(item, "frgn_ntby_qty");
-                est_investor_flow.inst_net_qty    = safe_i(item, "orgn_ntby_qty");
-                est_investor_flow.foreign_net_amt = safe_d(item, "frgn_ntby_tr_pbmn");
-                est_investor_flow.inst_net_amt    = safe_d(item, "orgn_ntby_tr_pbmn");
+                est_investor_flow.foreign_net_quantity = safe_i(item, "frgn_ntby_qty");
+                est_investor_flow.institution_net_quantity    = safe_i(item, "orgn_ntby_qty");
+                est_investor_flow.foreign_net_amount = safe_d(item, "frgn_ntby_tr_pbmn");
+                est_investor_flow.institution_net_amount    = safe_d(item, "orgn_ntby_tr_pbmn");
 
                 if (!est_investor_flow.ticker.empty())
                 {
@@ -508,7 +508,7 @@ std::vector<std::string> KisClient::fetch_universe_by_pbr(double max_pbr, const 
                       "&FID_TRGT_EXLS_CLS_CODE=0" + "&FID_RANK_SORT_CLS_CODE=0" +
                       "&FID_INPUT_PRICE_1=" + "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
 
-    std::vector<std::string> headers = auth_headers("FHPST01720000");
+    std::vector<std::string> headers = authentication_headers("FHPST01720000");
 
     std::string response = http_get(url, headers);
 
@@ -576,14 +576,14 @@ std::vector<std::string> KisClient::fetch_us_universe_by_pbr(double max_pbr, con
 {
     // S&P 500 핵심 100종목 (가치주·성장주 혼합) — 외부 us_universe.json {"nasdaq","nyse"} 로드/폴백
     static const std::vector<std::string> NAS_LIST =
-        load_str_list("us_universe.json", "nasdaq", US_NAS_FALLBACK, "US NASDAQ 유니버스");
+        load_string_list("us_universe.json", "nasdaq", US_NAS_FALLBACK, "US NASDAQ 유니버스");
     static const std::vector<std::string> NYS_LIST =
-        load_str_list("us_universe.json", "nyse", US_NYS_FALLBACK, "US NYSE 유니버스");
+        load_string_list("us_universe.json", "nyse", US_NYS_FALLBACK, "US NYSE 유니버스");
 
-    const auto& src = (exchange == "NYS") ? NYS_LIST : NAS_LIST;
+    const auto& source = (exchange == "NYS") ? NYS_LIST : NAS_LIST;
     std::vector<std::string> result;
 
-    for (const auto& ticker : src)
+    for (const auto& ticker : source)
     {
         if (max_pbr > 0.0)
         {
@@ -636,7 +636,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
         "&FID_VOL_CNT="
         "&FID_RSFL_RATE1=&FID_RSFL_RATE2=";
 
-    std::vector<std::string> headers = auth_headers("FHPST01700000");
+    std::vector<std::string> headers = authentication_headers("FHPST01700000");
 
     std::vector<RankingStock> result;
 
@@ -665,10 +665,10 @@ std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
             return result;
         }
 
-        auto sd = [](const nlohmann::json& node, const std::string& key) -> double {
+        auto number_of = [](const nlohmann::json& node, const std::string& key) -> double {
             try { return std::stod(node.value(key, "0")); } catch (...) { return 0.0; }
         };
-        auto si = [](const nlohmann::json& node, const std::string& key) -> int64_t {
+        auto to_int64 = [](const nlohmann::json& node, const std::string& key) -> int64_t {
             try { return std::stoll(node.value(key, "0")); } catch (...) { return 0; }
         };
         auto is_normal_ticker = [](const std::string& ticker) {
@@ -707,9 +707,9 @@ std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
             RankingStock stock;
             stock.ticker      = ticker;
             stock.name        = item.value("hts_kor_isnm", "");
-            stock.price       = sd(item, "stck_prpr");
-            stock.change_rate = sd(item, "prdy_ctrt");
-            stock.volume      = si(item, "acml_vol");
+            stock.price       = number_of(item, "stck_prpr");
+            stock.change_rate = number_of(item, "prdy_ctrt");
+            stock.volume      = to_int64(item, "acml_vol");
             result.push_back(stock);
         }
 

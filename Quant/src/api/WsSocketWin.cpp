@@ -34,15 +34,15 @@ std::wstring to_wide(const std::string& text)
     }
 
     int count = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
-    std::wstring word(count - 1, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, &word[0], count);
-    return word;
+    std::wstring wide_text(count - 1, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, &wide_text[0], count);
+    return wide_text;
 }
 
 class WinHttpWsSocket final : public WsSocket
 {
 public:
-    WinHttpWsSocket() : buf_(128 * 1024)
+    WinHttpWsSocket() : buffer_(128 * 1024)
     {
     }
 
@@ -72,38 +72,38 @@ public:
             return false;
         }
 
-        HINTERNET hReq = WinHttpOpenRequest(hConnect_, L"GET", L"/", nullptr, WINHTTP_NO_REFERER,
+        HINTERNET request_handle = WinHttpOpenRequest(hConnect_, L"GET", L"/", nullptr, WINHTTP_NO_REFERER,
                                             WINHTTP_DEFAULT_ACCEPT_TYPES, 0);
 
-        if (!hReq)
+        if (!request_handle)
         {
             LOG_ERROR("[WS] WinHttpOpenRequest 실패");
             release_parents();
             return false;
         }
 
-        WinHttpSetOption(hReq, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0);
+        WinHttpSetOption(request_handle, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0);
 
-        if (!WinHttpSendRequest(hReq, WINHTTP_NO_ADDITIONAL_HEADERS, 0, nullptr, 0, 0, 0) ||
-            !WinHttpReceiveResponse(hReq, nullptr))
+        if (!WinHttpSendRequest(request_handle, WINHTTP_NO_ADDITIONAL_HEADERS, 0, nullptr, 0, 0, 0) ||
+            !WinHttpReceiveResponse(request_handle, nullptr))
         {
             LOG_ERROR("[WS] WebSocket 업그레이드 요청 실패: " + std::to_string(GetLastError()));
-            WinHttpCloseHandle(hReq);
+            WinHttpCloseHandle(request_handle);
             release_parents();
             return false;
         }
 
-        HINTERNET hWs = WinHttpWebSocketCompleteUpgrade(hReq, 0);
-        WinHttpCloseHandle(hReq);
+        HINTERNET websocket_handle = WinHttpWebSocketCompleteUpgrade(request_handle, 0);
+        WinHttpCloseHandle(request_handle);
 
-        if (!hWs)
+        if (!websocket_handle)
         {
             LOG_ERROR("[WS] WinHttpWebSocketCompleteUpgrade 실패: " + std::to_string(GetLastError()));
             release_parents();
             return false;
         }
 
-        hWebSocket_.store(hWs);
+        hWebSocket_.store(websocket_handle);
         return true;
     }
 
@@ -136,11 +136,11 @@ public:
 
             DWORD bytesRead = 0;
             WINHTTP_WEB_SOCKET_BUFFER_TYPE bufType{};
-            DWORD rc = WinHttpWebSocketReceive(handle, buf_.data(), (DWORD)buf_.size(), &bytesRead, &bufType);
+            DWORD result_code = WinHttpWebSocketReceive(handle, buffer_.data(), (DWORD)buffer_.size(), &bytesRead, &bufType);
 
-            if (rc != ERROR_SUCCESS)
+            if (result_code != ERROR_SUCCESS)
             {
-                last_error_ = "code=" + std::to_string(rc);
+                last_error_ = "code=" + std::to_string(result_code);
                 return false;
             }
 
@@ -153,11 +153,11 @@ public:
             // FRAGMENT는 모으고 MESSAGE에서 완성한다. 바이너리 타입은 KIS가 쓰지 않는다 — 버린다.
             if (bufType == WINHTTP_WEB_SOCKET_UTF8_FRAGMENT_BUFFER_TYPE)
             {
-                out.append(reinterpret_cast<const char*>(buf_.data()), bytesRead);
+                out.append(reinterpret_cast<const char*>(buffer_.data()), bytesRead);
             }
             else if (bufType == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE)
             {
-                out.append(reinterpret_cast<const char*>(buf_.data()), bytesRead);
+                out.append(reinterpret_cast<const char*>(buffer_.data()), bytesRead);
                 return true;
             }
         }
@@ -207,61 +207,61 @@ private:
     HINTERNET hSession_ = nullptr;
     HINTERNET hConnect_ = nullptr;
     std::atomic<HINTERNET> hWebSocket_{nullptr}; // close()(다른 스레드)와 recv_message가 같이 본다
-    std::vector<BYTE> buf_;
+    std::vector<BYTE> buffer_;
     std::string last_error_; // recv_message를 부른 스레드만 쓴다
 };
 
 } // namespace
 
-std::unique_ptr<WsSocket> ws_platform::make_socket()
+std::unique_ptr<WsSocket> websocket_platform::make_socket()
 {
     return std::make_unique<WinHttpWsSocket>();
 }
 
-std::string ws_platform::http_post_json(const std::string& url, const std::string& body)
+std::string websocket_platform::http_post_json(const std::string& url, const std::string& body)
 {
-    std::wstring wurl = to_wide(url);
+    std::wstring wide_url = to_wide(url);
     wchar_t host[512]{}, path[4096]{};
-    URL_COMPONENTS uc{};
-    uc.dwStructSize = sizeof(uc);
-    uc.lpszHostName = host;
-    uc.dwHostNameLength = (DWORD)std::size(host);
-    uc.lpszUrlPath = path;
-    uc.dwUrlPathLength = (DWORD)std::size(path);
-    WinHttpCrackUrl(wurl.c_str(), 0, 0, &uc);
+    URL_COMPONENTS url_components{};
+    url_components.dwStructSize = sizeof(url_components);
+    url_components.lpszHostName = host;
+    url_components.dwHostNameLength = (DWORD)std::size(host);
+    url_components.lpszUrlPath = path;
+    url_components.dwUrlPathLength = (DWORD)std::size(path);
+    WinHttpCrackUrl(wide_url.c_str(), 0, 0, &url_components);
 
-    HINTERNET hSess = WinHttpOpen(L"QuantTrader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
+    HINTERNET session_handle = WinHttpOpen(L"QuantTrader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
                                   WINHTTP_NO_PROXY_BYPASS, 0);
 
-    if (!hSess)
+    if (!session_handle)
     {
         return "";
     }
 
-    HINTERNET hConn = WinHttpConnect(hSess, host, uc.nPort, 0);
+    HINTERNET connection_handle = WinHttpConnect(session_handle, host, url_components.nPort, 0);
 
-    if (!hConn)
+    if (!connection_handle)
     {
-        WinHttpCloseHandle(hSess);
+        WinHttpCloseHandle(session_handle);
         return "";
     }
 
-    DWORD flags = (uc.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
-    HINTERNET hReq =
-        WinHttpOpenRequest(hConn, L"POST", path, nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    DWORD flags = (url_components.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
+    HINTERNET request_handle =
+        WinHttpOpenRequest(connection_handle, L"POST", path, nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
 
-    if (!hReq)
+    if (!request_handle)
     {
-        WinHttpCloseHandle(hConn);
-        WinHttpCloseHandle(hSess);
+        WinHttpCloseHandle(connection_handle);
+        WinHttpCloseHandle(session_handle);
         return "";
     }
 
-    WinHttpAddRequestHeaders(hReq, L"Content-Type: application/json\r\n", (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
+    WinHttpAddRequestHeaders(request_handle, L"Content-Type: application/json\r\n", (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
 
-    bool ok = WinHttpSendRequest(hReq, WINHTTP_NO_ADDITIONAL_HEADERS, 0, (LPVOID)body.c_str(), (DWORD)body.size(),
+    bool ok = WinHttpSendRequest(request_handle, WINHTTP_NO_ADDITIONAL_HEADERS, 0, (LPVOID)body.c_str(), (DWORD)body.size(),
                                  (DWORD)body.size(), 0) &&
-              WinHttpReceiveResponse(hReq, nullptr);
+              WinHttpReceiveResponse(request_handle, nullptr);
 
     std::string response;
 
@@ -269,51 +269,51 @@ std::string ws_platform::http_post_json(const std::string& url, const std::strin
     {
         DWORD avail = 0;
 
-        while (WinHttpQueryDataAvailable(hReq, &avail) && avail > 0)
+        while (WinHttpQueryDataAvailable(request_handle, &avail) && avail > 0)
         {
             std::string chunk(avail, '\0');
             DWORD read = 0;
-            WinHttpReadData(hReq, &chunk[0], avail, &read);
+            WinHttpReadData(request_handle, &chunk[0], avail, &read);
             response.append(chunk, 0, read);
         }
     }
 
-    WinHttpCloseHandle(hReq);
-    WinHttpCloseHandle(hConn);
-    WinHttpCloseHandle(hSess);
+    WinHttpCloseHandle(request_handle);
+    WinHttpCloseHandle(connection_handle);
+    WinHttpCloseHandle(session_handle);
     return response;
 }
 
 // ─── 체결통보 복호화: BCrypt(CNG) — AES-256-CBC, PKCS7 패딩 제거 ───────────
 // Windows: BCrypt(CNG) — AES-256-CBC, PKCS7 패딩 제거
-std::string ws_platform::aes_cbc_decrypt(const std::string& cipher, const std::string& key, const std::string& iv)
+std::string websocket_platform::aes_cbc_decrypt(const std::string& cipher, const std::string& key, const std::string& initialization_vector)
 {
-    if (cipher.empty() || cipher.size() % 16 != 0 || key.size() != 32 || iv.size() != 16)
+    if (cipher.empty() || cipher.size() % 16 != 0 || key.size() != 32 || initialization_vector.size() != 16)
     {
         return "";
     }
 
-    BCRYPT_ALG_HANDLE hAlg = nullptr;
-    BCRYPT_KEY_HANDLE hKey = nullptr;
+    BCRYPT_ALG_HANDLE algorithm_handle = nullptr;
+    BCRYPT_KEY_HANDLE key_handle = nullptr;
     std::string result;
 
-    if (BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_AES_ALGORITHM, nullptr, 0) != 0)
+    if (BCryptOpenAlgorithmProvider(&algorithm_handle, BCRYPT_AES_ALGORITHM, nullptr, 0) != 0)
     {
         return "";
     }
 
-    BCryptSetProperty(hAlg, BCRYPT_CHAINING_MODE,
+    BCryptSetProperty(algorithm_handle, BCRYPT_CHAINING_MODE,
                       (PUCHAR)BCRYPT_CHAIN_MODE_CBC,
                       sizeof(BCRYPT_CHAIN_MODE_CBC), 0);
 
-    if (BCryptGenerateSymmetricKey(hAlg, &hKey, nullptr, 0,
+    if (BCryptGenerateSymmetricKey(algorithm_handle, &key_handle, nullptr, 0,
                                    (PUCHAR)key.data(), 32, 0) == 0)
     {
-        std::vector<UCHAR> ivbuf(iv.begin(), iv.begin() + 16); // BCrypt가 IV를 갱신하므로 복사
+        std::vector<UCHAR> ivbuf(initialization_vector.begin(), initialization_vector.begin() + 16); // BCrypt가 IV를 갱신하므로 복사
         std::string out(cipher.size(), '\0');
         ULONG outLen = 0;
 
-        if (BCryptDecrypt(hKey,
+        if (BCryptDecrypt(key_handle,
                           (PUCHAR)cipher.data(), (ULONG)cipher.size(),
                           nullptr, ivbuf.data(), (ULONG)ivbuf.size(),
                           (PUCHAR)&out[0], (ULONG)out.size(), &outLen,
@@ -323,14 +323,14 @@ std::string ws_platform::aes_cbc_decrypt(const std::string& cipher, const std::s
         }
     }
 
-    if (hKey)
+    if (key_handle)
     {
-        BCryptDestroyKey(hKey);
+        BCryptDestroyKey(key_handle);
     }
 
-    if (hAlg)
+    if (algorithm_handle)
     {
-        BCryptCloseAlgorithmProvider(hAlg, 0);
+        BCryptCloseAlgorithmProvider(algorithm_handle, 0);
     }
 
     return result;

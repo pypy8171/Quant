@@ -18,22 +18,22 @@ using namespace std::chrono_literals;
 // 가이드 5절의 순번 카운터 꼴. seen을 잡은 뒤 큐를 다시 보고, 그동안 seq_가 안 바뀌었으면 잔다.
 struct AtomicGate
 {
-    std::atomic<uint32_t> seq_{0};
+    std::atomic<uint32_t> sequence_{0};
 
     void notify()
     {
-        seq_.fetch_add(1, std::memory_order_release);
-        seq_.notify_one();
+        sequence_.fetch_add(1, std::memory_order_release);
+        sequence_.notify_one();
     }
 
     uint32_t snapshot() const
     {
-        return seq_.load(std::memory_order_acquire);
+        return sequence_.load(std::memory_order_acquire);
     }
 
     void wait(uint32_t seen)
     {
-        seq_.wait(seen, std::memory_order_acquire);
+        sequence_.wait(seen, std::memory_order_acquire);
     }
 };
 
@@ -115,7 +115,7 @@ void run(const char* name, Gate& gate, WaitFn do_wait, SleepFn is_sleeping)
 
 int main()
 {
-    for (int rep = 0; rep < 3; ++rep)
+    for (int repeat = 0; repeat < 3; ++repeat)
     {
         {
             sync::WakeGate gate;

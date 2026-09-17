@@ -84,7 +84,7 @@ private:
 
     static std::filesystem::path file_path()
     {
-        return Logger::instance().base_dir() / "seed_peaks.json";
+        return Logger::instance().base_directory() / "seed_peaks.json";
     }
 
     static nlohmann::json read_locked()
@@ -120,23 +120,23 @@ private:
     static void write_locked(const nlohmann::json& document)
     {
         const auto path = file_path();
-        const auto tmp = path.string() + ".tmp";
+        const auto temporary = path.string() + ".tmp";
         std::error_code error_code;
         std::filesystem::create_directories(path.parent_path(), error_code);
 
         {
-            std::ofstream out(tmp, std::ios::trunc);
+            std::ofstream out(temporary, std::ios::trunc);
 
             if (!out)
             {
-                LOG_WARN("[SeedPeak] seed_peaks.json 쓰기 실패: " + tmp);
+                LOG_WARN("[SeedPeak] seed_peaks.json 쓰기 실패: " + temporary);
                 return;
             }
 
             out << document.dump();
         }
 
-        std::filesystem::rename(tmp, path, error_code);
+        std::filesystem::rename(temporary, path, error_code);
 
         if (error_code)
         {

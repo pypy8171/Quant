@@ -94,12 +94,12 @@ static void log_and_die(const std::string& why)
 // 로그 옆에 미니덤프를 남기고 사유에 붙일 꼬리를 돌려준다. SEH 와 std::terminate 둘 다 쓴다 — terminate 는
 //  예외 정보가 없어도 부른 스레드의 스택이 덤프에 남는다(09-11 terminate 는 사유 한 줄뿐이라 위치를 못 찾았다).
 //  덤프는 스택·스레드·모듈만(MiniDumpWithIndirectlyReferencedMemory) — 힙 전체는 수백 MB라 뺀다.
-static std::string write_minidump(const char* tag, EXCEPTION_POINTERS* ep)
+static std::string write_minidump(const char* tag, EXCEPTION_POINTERS* exception_pointers)
 {
     try
     {
-        const auto dir  = Logger::default_base_dir();
-        const auto path = dir / (std::string(tag) + "_" + std::to_string(GetCurrentProcessId()) + ".dmp");
+        const auto directory  = Logger::default_base_directory();
+        const auto path = directory / (std::string(tag) + "_" + std::to_string(GetCurrentProcessId()) + ".dmp");
         HANDLE handle = CreateFileW(path.wstring().c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                                FILE_ATTRIBUTE_NORMAL, nullptr);
 
@@ -108,11 +108,11 @@ static std::string write_minidump(const char* tag, EXCEPTION_POINTERS* ep)
             return " dump 실패 err=" + std::to_string(GetLastError());
         }
 
-        MINIDUMP_EXCEPTION_INFORMATION mei{GetCurrentThreadId(), ep, FALSE};
+        MINIDUMP_EXCEPTION_INFORMATION mei{GetCurrentThreadId(), exception_pointers, FALSE};
         const BOOL ok = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), handle,
                                           static_cast<MINIDUMP_TYPE>(MiniDumpWithIndirectlyReferencedMemory |
                                                                      MiniDumpWithThreadInfo),
-                                          ep ? &mei : nullptr, nullptr, nullptr);
+                                          exception_pointers ? &mei : nullptr, nullptr, nullptr);
         CloseHandle(handle);
         return ok ? " dump=" + path.string() : " dump 실패 err=" + std::to_string(GetLastError());
     }
@@ -129,9 +129,9 @@ static void on_terminate()
 
     try
     {
-        if (auto ep = std::current_exception())
+        if (auto exception_pointers = std::current_exception())
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(exception_pointers);
         }
     }
     catch (const std::exception& exception)
@@ -152,15 +152,15 @@ static void on_terminate()
 #ifdef _WIN32
 // 코드 한 줄("SEH 0xC0000005")만으로는 어느 스레드의 어느 명령인지 알 수 없다(09-14 09:46 실측 —
 //  재스캔 직후 접근 위반, 위치 불명). 사유에 주소·스레드를 붙이고 로그 옆에 미니덤프를 남긴다.
-static LONG WINAPI on_seh(EXCEPTION_POINTERS* ep)
+static LONG WINAPI on_seh(EXCEPTION_POINTERS* exception_pointers)
 {
-    const auto* record = ep ? ep->ExceptionRecord : nullptr;
+    const auto* record = exception_pointers ? exception_pointers->ExceptionRecord : nullptr;
     char buffer[256];
     std::snprintf(buffer, sizeof(buffer), "SEH 0x%08lX addr=%p tid=%lu",
                   record ? record->ExceptionCode : 0UL, record ? record->ExceptionAddress : nullptr,
                   GetCurrentThreadId());
     std::string why = buffer;
-    why += write_minidump("crash", ep);
+    why += write_minidump("crash", exception_pointers);
     log_and_die(why);
     return EXCEPTION_EXECUTE_HANDLER;
 }
@@ -182,18 +182,18 @@ static json load_config(const std::string& path)
 // ─── TRADE 모드 엔진 구성 (main() 가독성용 분리, 로직은 그대로) ────────────────
 
 // 피드·리플레이·매크로 레짐·ZMQ·운영단말 — config 1:1 세터 호출 모음.
-static void configure_engine_channels(Engine& engine, const KisConfig& kis_cfg, const json& config)
+static void configure_engine_channels(Engine& engine, const KisConfig& kis_config, const json& config)
 {
     engine.set_bootstrap_ledger(config.value("bootstrap_ledger_from_balance", false));
     engine.set_rest_price_feed(config.value("rest_price_feed", false));
-    engine.set_capture_dir(config.value("capture_dir", std::string()));
+    engine.set_capture_directory(config.value("capture_dir", std::string()));
     engine.set_strategy_shards(config.value("strategy_shards", 1u));
 
     // 추가 WS 세션 키(D-071 원칙 1). 기본 kis 키와 함께 소켓을 여럿 열어 구독 상한을 소켓 수만큼 늘린다.
     //  계좌·모의 여부는 기본 키와 같고 app_key·app_secret만 다르다. 체결통보(hts_id)는 기본 키만 받는다.
     for (const auto& kill_entry : jsonx::array_or_empty(config, "feed_keys"))
     {
-        KisConfig kis_config   = kis_cfg;
+        KisConfig kis_config   = kis_config;
         kis_config.app_key     = kill_entry.at("app_key").get<std::string>();
         kis_config.app_secret  = kill_entry.at("app_secret").get<std::string>();
         kis_config.hts_id.clear();
@@ -245,7 +245,7 @@ static void configure_regime_strategies(Engine& engine, const json& config)
 
         return Regime::UNKNOWN;
     };
-    std::map<Regime, std::vector<std::string>> rmap;
+    std::map<Regime, std::vector<std::string>> regime_map;
 
     for (auto iterator = config["regime_strategies"].begin(); iterator != config["regime_strategies"].end(); ++iterator)
     {
@@ -257,7 +257,7 @@ static void configure_regime_strategies(Engine& engine, const json& config)
             continue;
         }
 
-        rmap[regime] = iterator.value().get<std::vector<std::string>>();
+        regime_map[regime] = iterator.value().get<std::vector<std::string>>();
     }
 
     // 선택 입력은 regime.json 라벨이라 파일이 없으면 맵이 한 번도 적용되지 않는다(전 전략 기본 활성).
@@ -266,8 +266,8 @@ static void configure_regime_strategies(Engine& engine, const json& config)
         LOG_WARN("[Main] regime_strategies가 있는데 regime_file이 비어 있다 — 국면별 전략 선택이 동작하지 않는다");
     }
 
-    engine.set_regime_strategies(rmap);
-    LOG_INFO("[Main] 국면→전략 자동선택 맵 " + std::to_string(rmap.size()) + "개 국면 적용");
+    engine.set_regime_strategies(regime_map);
+    LOG_INFO("[Main] 국면→전략 자동선택 맵 " + std::to_string(regime_map.size()) + "개 국면 적용");
 }
 
 // 기동 스모크 테스트 — 서버 실행 직후 지정 종목을 시장가 1주 매수해, 주문 경로 전체가
@@ -280,15 +280,15 @@ static void configure_startup_probe(Engine& engine, const json& config)
         return;
     }
 
-    const auto& sp = config["startup_probe"];
-    std::string sp_ticker = sp.value("ticker", std::string());
-    int         sp_qty    = sp.value("qty", 0);
-    engine.set_startup_probe(sp_ticker, sp_qty);
+    const auto& startup_probe_node = config["startup_probe"];
+    std::string startup_ticker = startup_probe_node.value("ticker", std::string());
+    int         startup_quantity    = startup_probe_node.value("qty", 0);
+    engine.set_startup_probe(startup_ticker, startup_quantity);
 
-    if (!sp_ticker.empty() && sp_qty > 0)
+    if (!startup_ticker.empty() && startup_quantity > 0)
     {
-        LOG_INFO("[Main] 기동 점검 설정: " + sp_ticker + " 시장가 " +
-                 std::to_string(sp_qty) + "주 (모의계좌 주문경로 검증)");
+        LOG_INFO("[Main] 기동 점검 설정: " + startup_ticker + " 시장가 " +
+                 std::to_string(startup_quantity) + "주 (모의계좌 주문경로 검증)");
     }
 }
 
@@ -333,45 +333,45 @@ static void configure_risk(Engine& engine, const json& config)
     }
 
     const auto& regime_node = config["risk"];
-    OrderGate::Config rc; // OrderGate::Config 기본값에서 시작
-    rc.max_qty_per_ticker     = regime_node.value("max_qty_per_ticker", rc.max_qty_per_ticker);
-    rc.daily_loss_limit       = regime_node.value("daily_loss_limit", rc.daily_loss_limit);
-    rc.max_orders_per_min     = regime_node.value("max_orders_per_min", rc.max_orders_per_min);
-    rc.max_orders_per_sec     = regime_node.value("max_orders_per_sec", rc.max_orders_per_sec);
-    rc.dedup_window_sec       = regime_node.value("dedup_window_sec", rc.dedup_window_sec);
-    rc.max_qty_per_order      = regime_node.value("max_qty_per_order", rc.max_qty_per_order);
-    rc.max_notional_per_order = regime_node.value("max_notional_per_order", rc.max_notional_per_order);
-    rc.max_notional_per_ticker  = regime_node.value("max_notional_per_ticker", rc.max_notional_per_ticker);
-    rc.max_concurrent_positions = regime_node.value("max_concurrent_positions", rc.max_concurrent_positions);
-    rc.max_gross_exposure_pct   = regime_node.value("max_gross_exposure_pct", rc.max_gross_exposure_pct);
+    OrderGate::Config result_code; // OrderGate::Config 기본값에서 시작
+    result_code.max_quantity_per_ticker     = regime_node.value("max_qty_per_ticker", result_code.max_quantity_per_ticker);
+    result_code.daily_loss_limit       = regime_node.value("daily_loss_limit", result_code.daily_loss_limit);
+    result_code.max_orders_per_min     = regime_node.value("max_orders_per_min", result_code.max_orders_per_min);
+    result_code.max_orders_per_sec     = regime_node.value("max_orders_per_sec", result_code.max_orders_per_sec);
+    result_code.deduplicate_window_sec       = regime_node.value("dedup_window_sec", result_code.deduplicate_window_sec);
+    result_code.max_quantity_per_order      = regime_node.value("max_qty_per_order", result_code.max_quantity_per_order);
+    result_code.max_notional_per_order = regime_node.value("max_notional_per_order", result_code.max_notional_per_order);
+    result_code.max_notional_per_ticker  = regime_node.value("max_notional_per_ticker", result_code.max_notional_per_ticker);
+    result_code.max_concurrent_positions = regime_node.value("max_concurrent_positions", result_code.max_concurrent_positions);
+    result_code.max_gross_exposure_percent   = regime_node.value("max_gross_exposure_pct", result_code.max_gross_exposure_percent);
     // 슬롯 경합 시 점수 상위부터 채운다(선착순 금지). 스캐너가 랭크를 게이트에 주입한다.
-    rc.entry_priority_enabled   = regime_node.value("entry_priority_enabled", rc.entry_priority_enabled);
+    result_code.entry_priority_enabled   = regime_node.value("entry_priority_enabled", result_code.entry_priority_enabled);
     // 슬롯이 꽉 찬 뒤에도 더 높은 점수가 오면 최약체를 비우고 자리를 넘긴다(교체 진입).
-    rc.displace_enabled         = regime_node.value("displace_enabled", rc.displace_enabled);
-    rc.displace_min_z_gap       = regime_node.value("displace_min_z_gap", rc.displace_min_z_gap);
-    rc.displace_min_hold_sec    = regime_node.value("displace_min_hold_sec", rc.displace_min_hold_sec);
-    rc.displace_cooldown_sec    = regime_node.value("displace_cooldown_sec", rc.displace_cooldown_sec);
-    rc.displace_max_per_day     = regime_node.value("displace_max_per_day", rc.displace_max_per_day);
-    rc.displace_slot_hold_sec   = regime_node.value("displace_slot_hold_sec", rc.displace_slot_hold_sec);
+    result_code.displace_enabled         = regime_node.value("displace_enabled", result_code.displace_enabled);
+    result_code.displace_min_z_gap       = regime_node.value("displace_min_z_gap", result_code.displace_min_z_gap);
+    result_code.displace_min_hold_sec    = regime_node.value("displace_min_hold_sec", result_code.displace_min_hold_sec);
+    result_code.displace_cooldown_sec    = regime_node.value("displace_cooldown_sec", result_code.displace_cooldown_sec);
+    result_code.displace_max_per_day     = regime_node.value("displace_max_per_day", result_code.displace_max_per_day);
+    result_code.displace_slot_hold_sec   = regime_node.value("displace_slot_hold_sec", result_code.displace_slot_hold_sec);
     // 오늘 스캔에 안 잡힌 이월 보유분에 매길 점수. 0이면 그런 보유분은 교체 후보에서 빠진다.
-    rc.displace_unscored_z      = regime_node.value("displace_unscored_z", rc.displace_unscored_z);
-    engine.set_risk_config(rc);
-    LOG_INFO("[Main] risk 한도: 종목당 " + std::to_string(rc.max_qty_per_ticker) + "주, 일손실 " +
-             std::to_string(static_cast<long long>(rc.daily_loss_limit)) + "원, " +
-             std::to_string(rc.max_orders_per_sec) + "/s·" +
-             std::to_string(rc.max_orders_per_min) + "/min");
+    result_code.displace_unscored_z      = regime_node.value("displace_unscored_z", result_code.displace_unscored_z);
+    engine.set_risk_config(result_code);
+    LOG_INFO("[Main] risk 한도: 종목당 " + std::to_string(result_code.max_quantity_per_ticker) + "주, 일손실 " +
+             std::to_string(static_cast<long long>(result_code.daily_loss_limit)) + "원, " +
+             std::to_string(result_code.max_orders_per_sec) + "/s·" +
+             std::to_string(result_code.max_orders_per_min) + "/min");
 
-    if (rc.max_notional_per_ticker > 0.0 || rc.max_concurrent_positions > 0)
+    if (result_code.max_notional_per_ticker > 0.0 || result_code.max_concurrent_positions > 0)
     {
         LOG_INFO("[Main] 사이징 백스톱: 종목당 명목 " +
-                 std::to_string(static_cast<long long>(rc.max_notional_per_ticker)) + "원, 동시보유 " +
-                 std::to_string(rc.max_concurrent_positions) + "종목");
+                 std::to_string(static_cast<long long>(result_code.max_notional_per_ticker)) + "원, 동시보유 " +
+                 std::to_string(result_code.max_concurrent_positions) + "종목");
     }
 
-    if (rc.max_gross_exposure_pct > 0.0)
+    if (result_code.max_gross_exposure_percent > 0.0)
     {
         LOG_INFO("[Main] 총노출 상한: 자본의 " +
-                 std::to_string(rc.max_gross_exposure_pct) + " (잔고 대조 총평가금 기준)");
+                 std::to_string(result_code.max_gross_exposure_percent) + " (잔고 대조 총평가금 기준)");
     }
 
     // 주문 호출 간격 조절(C-2/W-3) — 버스트 청산 EGW00201 회피 + 거부 SELL 재시도.
@@ -390,16 +390,16 @@ static void configure_risk(Engine& engine, const json& config)
 int main(int argc, char* argv[])
 {
 #ifdef _WIN32
-    TimerResolution timer_res;
+    TimerResolution timer_result;
     SetConsoleOutputCP(CP_UTF8);
-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    HANDLE output_handle = GetStdHandle(STD_OUTPUT_HANDLE);
     DWORD dwMode = 0;
-    GetConsoleMode(hOut, &dwMode);
-    SetConsoleMode(hOut, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    GetConsoleMode(output_handle, &dwMode);
+    SetConsoleMode(output_handle, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
 #endif
-    // 로그·산출물 기준 폴더는 Logger::default_base_dir()(QUANT_LOG_DIR > 실행파일 옆 logs/).
-    Logger::instance().set_base_dir(Logger::default_base_dir());
-    Logger::instance().init(Logger::instance().path_for("quant_trader.log"), LogLevel::INFO);
+    // 로그·산출물 기준 폴더는 Logger::default_base_directory()(QUANT_LOG_DIR > 실행파일 옆 logs/).
+    Logger::instance().set_base_directory(Logger::default_base_directory());
+    Logger::instance().initialize(Logger::instance().path_for("quant_trader.log"), LogLevel::INFO);
     LOG_INFO("=== Quant Trader v2.0 ===");
 
     // 인자 파싱: quant_trader [config] [MODE]
@@ -451,13 +451,13 @@ int main(int argc, char* argv[])
     }
 
     // KIS 설정
-    KisConfig kis_cfg;
-    kis_cfg.app_key      = config["kis"]["app_key"];
-    kis_cfg.app_secret   = config["kis"]["app_secret"];
-    kis_cfg.account_no   = config["kis"]["account_no"];
-    kis_cfg.account_type = config["kis"]["account_type"].get<std::string>();
-    kis_cfg.hts_id       = config["kis"].value("hts_id", ""); // 미설정 시 account_no 사용
-    kis_cfg.is_paper     = config["kis"]["is_paper"].get<bool>();
+    KisConfig kis_config;
+    kis_config.app_key      = config["kis"]["app_key"];
+    kis_config.app_secret   = config["kis"]["app_secret"];
+    kis_config.account_no   = config["kis"]["account_no"];
+    kis_config.account_type = config["kis"]["account_type"].get<std::string>();
+    kis_config.hts_id       = config["kis"].value("hts_id", ""); // 미설정 시 account_no 사용
+    kis_config.is_paper     = config["kis"]["is_paper"].get<bool>();
 
     // FEED 모드 전용 — TRADE 모드는 전략이 동적으로 종목 구성
     std::vector<std::string> tickers;
@@ -490,32 +490,32 @@ int main(int argc, char* argv[])
     // ═══════════════════════════════════════════════════════════════════════
     if (mode == Mode::FEED)
     {
-        return run_feed(kis_cfg, tickers, futures, g_running);
+        return run_feed(kis_config, tickers, futures, g_running);
     }
     else if (mode == Mode::KR_TEST)
     {
-        return run_kr_test(kis_cfg, g_running);
+        return run_kr_test(kis_config, g_running);
     }
     else if (mode == Mode::US_TEST)
     {
-        return run_us_test(kis_cfg, g_running);
+        return run_us_test(kis_config, g_running);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     //  TRADE 모드: 전략 매매 엔진 (tickers 설정 불필요 — 전략이 동적으로 구성)
     // ═══════════════════════════════════════════════════════════════════════
     int interval = config.value("fetch_interval_sec", 60);
-    Engine engine(kis_cfg, interval);
+    Engine engine(kis_config, interval);
     g_engine = &engine;
 
-    configure_engine_channels(engine, kis_cfg, config);
+    configure_engine_channels(engine, kis_config, config);
     configure_regime_strategies(engine, config);
     configure_startup_probe(engine, config);
     const QuoteKisSetup quote_kis = configure_quote_kis(engine, config);
     configure_risk(engine, config);
 
     // 전략 로딩 — 타입별 로더 디스패치 + active_regimes 후처리 (strategy/StrategyFactory.cpp)
-    StrategyLoadCtx sctx{engine, kis_cfg, quote_kis.config, quote_kis.has};
+    StrategyLoadCtx sctx{engine, kis_config, quote_kis.config, quote_kis.has};
     load_strategies(sctx, config["strategies"]);
 
     engine.start();

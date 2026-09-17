@@ -69,24 +69,24 @@ static void test_high_water() {
 }
 
 static void test_spsc_correctness() {
-	RingBuffer<int> rb(1024);
+	RingBuffer<int> rest_bar(1024);
 	constexpr int kItemCount = 1'000'000;
 
-	std::thread prod([&] {
+	std::thread produced([&] {
 		for (int index = 0; index < kItemCount; ++index)
 		{
-			while (!rb.push(index))
+			while (!rest_bar.push(index))
 			{
 				std::this_thread::yield();
 			}
 		}
 		});
 
-	std::thread cons([&] {
+	std::thread consumed([&] {
 		int expected = 0;
 
 		while (expected < kItemCount) {
-			auto popped = rb.pop();
+			auto popped = rest_bar.pop();
 
 			if (!popped)
 			{
@@ -99,33 +99,33 @@ static void test_spsc_correctness() {
 		}
 		});
 
-	prod.join();
-	cons.join();
+	produced.join();
+	consumed.join();
 	std::cout << "[OK] SPSC ordering preserved over " << kItemCount << " items\n";
 }
 
 static void test_throughput() {
-	RingBuffer<int> rb(4096);
+	RingBuffer<int> rest_bar(4096);
 	constexpr int kItemCount = 10'000'000;
 
 	auto start_time = std::chrono::steady_clock::now();
 
-	std::thread prod([&] {
+	std::thread produced([&] {
 		for (int index = 0; index < kItemCount; ++index)
 		{
-			while (!rb.push(index))
+			while (!rest_bar.push(index))
 			{
 				std::this_thread::yield();
 			}
 		}
 		});
 
-	std::thread cons([&] {
-		int got = 0;
+	std::thread consumed([&] {
+		int received = 0;
 
-		while (got < kItemCount)
+		while (received < kItemCount)
 		{
-			auto popped = rb.pop();
+			auto popped = rest_bar.pop();
 
 			if (!popped)
 			{
@@ -133,19 +133,19 @@ static void test_throughput() {
 				continue;
 			}
 
-			++got;
+			++received;
 		}
 		});
 
-	prod.join();
-	cons.join();
+	produced.join();
+	consumed.join();
 
-	auto t1 = std::chrono::steady_clock::now();
-	auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - start_time).count();
-	double mops = (ms > 0) ? static_cast<double>(kItemCount) / ms / 1000.0 : 0.0;
+	auto end_time = std::chrono::steady_clock::now();
+	auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+	double mops = (milliseconds > 0) ? static_cast<double>(kItemCount) / milliseconds / 1000.0 : 0.0;
 
 	std::cout << "[OK] Throughput: " << kItemCount << " items in "
-		<< ms << " ms (" << mops << " M ops/sec)\n";
+		<< milliseconds << " ms (" << mops << " M ops/sec)\n";
 }
 
 int main() {

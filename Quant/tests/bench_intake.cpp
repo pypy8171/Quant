@@ -1,7 +1,7 @@
 // tests/bench_intake.cpp
 // 멀티클라이언트 주문 인테이크 부하 벤치(D2) — N개 생산자(클라이언트)가 동시에 OrderSignal을
 //  push하고 단일 소비자(FEP)가 pop한다. 큐 종류(mpsc/mutex)와 소비자 처리지연(exec_delay_us)을
-//  바꿔가며 처리량(orders/sec)·전 구간(E2E) 지연(중앙값(p50)·상위 1%(p99)·상위 0.1%(p999))·
+//  바꿔가며 처리량(orders/seconds)·전 구간(E2E) 지연(중앙값(p50)·상위 1%(p99)·상위 0.1%(p999))·
 //  backpressure·계좌 fairness를 측정한다.
 //
 // [inv] 측정 범위 — D2는 "큐 자체"를 격리 측정한다. 소비자는 실제 `OrderRouter::submit` 대신
@@ -38,11 +38,11 @@
 #include <windows.h>
 #endif
 
-using clk = std::chrono::steady_clock;
+using steady_clock = std::chrono::steady_clock;
 
 static inline int64_t now_ns()
 {
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(clk::now().time_since_epoch()).count();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(steady_clock::now().time_since_epoch()).count();
 }
 
 // FEP 처리시간 시뮬레이션 — sleep은 부정확하므로 busy-wait
@@ -75,7 +75,7 @@ struct Result
     long long consumed = 0;    // 소비자가 pop해 처리한 총건수
     long long push_retries = 0; // backpressure(가득 참)로 재시도한 횟수
     double dur_sec = 0;
-    std::vector<int64_t> lat_ns;      // E2E 지연 샘플 (소비자 단독 수집)
+    std::vector<int64_t> latencies_ns;      // E2E 지연 샘플 (소비자 단독 수집)
     std::vector<long long> per_account; // 계좌별 처리건수 (fairness)
 };
 
@@ -126,12 +126,12 @@ Result run(int count, double duration_sec, int64_t exec_delay_ns, size_t capture
                         next_emit += interval_ns;
                     }
 
-                    IntakeMsg intake_msg;
-                    intake_msg.signal = base;
-                    intake_msg.account = position;
-                    intake_msg.enqueue_ns = now_ns();
+                    IntakeMsg intake_message;
+                    intake_message.signal = base;
+                    intake_message.account = position;
+                    intake_message.enqueue_ns = now_ns();
 
-                    if (queue.push(intake_msg))
+                    if (queue.push(intake_message))
                     {
                         ++local;
                     }
@@ -151,16 +151,16 @@ Result run(int count, double duration_sec, int64_t exec_delay_ns, size_t capture
     // 지연 샘플 상한 — 초과분은 수집 중단. reserve로 미리 잡아 측정 중 재할당(소비자 스톨)
     // 을 원천 차단한다 (W-1: 재할당이 throughput·tail을 왜곡하던 문제).
     const size_t LAT_CAP = 1u << 23; // 8.4M
-    std::vector<int64_t> lat;
-    lat.reserve(LAT_CAP);
+    std::vector<int64_t> latencies;
+    latencies.reserve(LAT_CAP);
     std::vector<long long> per_account(count, 0);
     long long consumed = 0;
 
-    const auto start_time = clk::now();
+    const auto start_time = steady_clock::now();
     const auto t_end =
-        start_time + std::chrono::duration_cast<clk::duration>(std::chrono::duration<double>(duration_sec));
+        start_time + std::chrono::duration_cast<steady_clock::duration>(std::chrono::duration<double>(duration_sec));
 
-    while (clk::now() < t_end)
+    while (steady_clock::now() < t_end)
     {
         auto option = queue.pop();
 
@@ -178,9 +178,9 @@ Result run(int count, double duration_sec, int64_t exec_delay_ns, size_t capture
             ++per_account[option->account];
         }
 
-        if (lat.size() < LAT_CAP)
+        if (latencies.size() < LAT_CAP)
         {
-            lat.push_back(latency);
+            latencies.push_back(latency);
         }
 
         ++consumed;
@@ -210,13 +210,13 @@ Result run(int count, double duration_sec, int64_t exec_delay_ns, size_t capture
     result.produced = produced.load();
     result.consumed = consumed;
     result.push_retries = push_retries.load();
-    result.dur_sec = std::chrono::duration<double>(clk::now() - start_time).count();
-    result.lat_ns = std::move(lat);
+    result.dur_sec = std::chrono::duration<double>(steady_clock::now() - start_time).count();
+    result.latencies_ns = std::move(latencies);
     result.per_account = std::move(per_account);
     return result;
 }
 
-static double pct_us(std::vector<int64_t>& sorted, double price)
+static double percentile_us(std::vector<int64_t>& sorted, double price)
 {
     if (sorted.empty())
     {
@@ -224,11 +224,11 @@ static double pct_us(std::vector<int64_t>& sorted, double price)
     }
 
     size_t index = static_cast<size_t>(price * (sorted.size() - 1));
-    return sorted[index] / 1000.0; // ns → µs
+    return sorted[index] / 1000.0; // nanoseconds → µs
 }
 
 // 계좌별 처리건수의 변동계수(CV = stdev/mean) — 0에 가까울수록 공평
-static double fairness_cv(const std::vector<long long>& values)
+static double fairness_condition_variable(const std::vector<long long>& values)
 {
     if (values.empty())
     {
@@ -249,15 +249,15 @@ static double fairness_cv(const std::vector<long long>& values)
         return 0.0;
     }
 
-    double var = 0;
+    double variance = 0;
 
     for (auto value : values)
     {
-        var += (value - mean) * (value - mean);
+        variance += (value - mean) * (value - mean);
     }
 
-    var /= values.size();
-    return std::sqrt(var) / mean;
+    variance /= values.size();
+    return std::sqrt(variance) / mean;
 }
 
 int main(int argc, char** argv)
@@ -292,13 +292,13 @@ int main(int argc, char** argv)
         result = run<MpscQueue<IntakeMsg>>(count, duration, delay_ns, capture, rate);
     }
 
-    std::sort(result.lat_ns.begin(), result.lat_ns.end());
-    const double thr = (result.dur_sec > 0) ? result.consumed / result.dur_sec : 0.0;
+    std::sort(result.latencies_ns.begin(), result.latencies_ns.end());
+    const double threshold = (result.dur_sec > 0) ? result.consumed / result.dur_sec : 0.0;
     const long long lost = result.produced - result.consumed; // 무손실이면 0
-    const unsigned hw = std::thread::hardware_concurrency();
+    const unsigned hardware_threads = std::thread::hardware_concurrency();
 
     std::printf("\n=== bench_intake (%s) ===\n", qtype.c_str());
-    std::printf("producers(N)   : %d  (hardware_concurrency=%u)\n", count, hw);
+    std::printf("producers(N)   : %d  (hardware_concurrency=%u)\n", count, hardware_threads);
     std::printf("duration        : %.3f sec   capacity=%zu   exec_delay=%.1f us\n", result.dur_sec, capture,
                 delay_ns / 1000.0);
 
@@ -314,19 +314,19 @@ int main(int argc, char** argv)
 
     std::printf("produced        : %lld\n", result.produced);
     std::printf("consumed        : %lld   (lost = produced-consumed = %lld)\n", result.consumed, lost);
-    std::printf("throughput      : %.0f orders/sec\n", thr);
+    std::printf("throughput      : %.0f orders/sec\n", threshold);
     std::printf("E2E latency (us): p50=%.2f  p99=%.2f  p999=%.2f  max=%.2f\n",
-                pct_us(result.lat_ns, 0.50), pct_us(result.lat_ns, 0.99), pct_us(result.lat_ns, 0.999),
-                result.lat_ns.empty() ? 0.0 : result.lat_ns.back() / 1000.0);
+                percentile_us(result.latencies_ns, 0.50), percentile_us(result.latencies_ns, 0.99), percentile_us(result.latencies_ns, 0.999),
+                result.latencies_ns.empty() ? 0.0 : result.latencies_ns.back() / 1000.0);
     std::printf("push_retries    : %lld  (backpressure)\n", result.push_retries);
     std::printf("fairness CV     : %.4f  (계좌별 처리건수 편차, 0=완전공평)\n",
-                fairness_cv(result.per_account));
+                fairness_condition_variable(result.per_account));
 
-    // CSV 한 줄 (D4 스윕 집계용): queue,N,delay_us,dur,produced,consumed,lost,thr,p50,p99,p999,retries,cv,hw
+    // CSV 한 줄 (D4 스윕 집계용): queue,N,delay_us,dur,produced,consumed,lost,threshold,p50,p99,p999,retries,condition_variable,hardware_threads
     std::printf("CSV,%s,%d,%.1f,%.3f,%lld,%lld,%lld,%.0f,%.2f,%.2f,%.2f,%lld,%.4f,%u\n", qtype.c_str(),
-                count, delay_ns / 1000.0, result.dur_sec, result.produced, result.consumed, lost, thr,
-                pct_us(result.lat_ns, 0.50), pct_us(result.lat_ns, 0.99), pct_us(result.lat_ns, 0.999),
-                result.push_retries, fairness_cv(result.per_account), hw);
+                count, delay_ns / 1000.0, result.dur_sec, result.produced, result.consumed, lost, threshold,
+                percentile_us(result.latencies_ns, 0.50), percentile_us(result.latencies_ns, 0.99), percentile_us(result.latencies_ns, 0.999),
+                result.push_retries, fairness_condition_variable(result.per_account), hardware_threads);
 
     return (lost == 0) ? 0 : 1; // 무손실 아니면 실패
 }

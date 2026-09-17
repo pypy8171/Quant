@@ -38,7 +38,7 @@
 
 ### D-5. submit_order와 submit_order_ack의 본문 중복
 - 위치: [Quant/src/api/KisOrder.cpp:36](../Quant/src/api/KisOrder.cpp#L36), [Quant/src/api/KisOrder.cpp:129](../Quant/src/api/KisOrder.cpp#L129)
-- 현상: 두 함수가 본문·tr_id를 거의 그대로 복제한다. `submit_order_ack`가 응답에서
+- 현상: 두 함수가 본문·tr_id를 거의 그대로 복제한다. `submit_order_acknowledgement`가 응답에서
   조직번호까지 더 캡처하는 점만 다르다.
 - 미룬 이유: 동작은 정확하고, 지금 리팩터해도 기능 변화가 없다.
 - 재개 조건: 주문 전문 필드가 늘어 양쪽을 같이 고쳐야 하는 부담이 커지면 공통 본문으로 합친다.
@@ -95,14 +95,14 @@
 
 ### D-11. 청산 매도가 매도가능수량으로 클램프되지 않는다 (ITB 청산 관리)
 - 위치: [IntradayBreakoutStrategy.h:174](../Quant/include/strategy/IntradayBreakoutStrategy.h#L174)
-- 현상: 청산 신호가 시드 보유수량(`hold_qty_`) 전량으로 나간다. 예약매도가 물량을 묶어
+- 현상: 청산 신호가 시드 보유수량(`hold_quantity_`) 전량으로 나간다. 예약매도가 물량을 묶어
   `ord_psbl_qty`가 보유보다 작으면 KIS가 전량을 거부한다(40240000). 신호를 낸 직후
-  `in_position_=false; hold_qty_=0`으로 상태를 지우므로 거부돼도 재시도가 없다.
+  `in_position_=false; hold_quantity_=0`으로 상태를 지우므로 거부돼도 재시도가 없다.
   2026-09-07 실측: 047050 보유 181주·매도가능 91주인데 SELL 181로 나가 거부됐고, 매도는 미체결로 남았다.
   같은 날 모의 잔고 12종목 중 10종목이 매도가능 0이었다.
 - 미룬 이유: 물량을 묶고 있는 것이 그 예약매도 자신이라, 예약이 체결되면 포지션은 어차피
   빠져나간다(체결분은 미연결 체결 경로가 원장에 반영). 손실을 만드는 결함은 아니고 로그만 시끄럽다.
-  DevScale이 쓰는 `sellable_qty()`를 전략마다 붙이면 종목당 동기 잔고조회가 늘어 지금도 넘치는
+  DevScale이 쓰는 `sellable_quantity()`를 전략마다 붙이면 종목당 동기 잔고조회가 늘어 지금도 넘치는
   초당 한도(HTTP 500)를 악화시킨다. 장중에 넣기엔 부작용이 더 크다고 봤다.
 - 재개 조건: 실계좌 전환 전. 전략이 아니라 엔진 주문 경로 한 곳에서, 잔고 대조가 이미 받아오는
   잔고 스냅샷의 `ord_psbl_qty`로 SELL 수량을 클램프한다(추가 API 호출 없음). 스냅샷이 낡았을 때
@@ -123,13 +123,13 @@
 - 재개 조건: 없음(실계좌 전환 시 자동 해소). 모의에서 재시도하지 말 것 — 위 조합은 이미 확인했다.
 
 ### D-13. 재기동하면 주문 시퀀스가 1로 리셋돼 당일 원장에 order_id가 중복된다
-- 위치: [OrderRouter.h:112](../Quant/include/ipc/OrderRouter.h#L112) (`seq_{0}`)
-- 현상: `next_id()`가 프로세스 메모리의 `seq_`만 쓴다. 장중 재기동하면 다시 ORD-000001부터
+- 위치: [OrderRouter.h:112](../Quant/include/ipc/OrderRouter.h#L112) (`sequence_{0}`)
+- 현상: `next_id()`가 프로세스 메모리의 `sequence_`만 쓴다. 장중 재기동하면 다시 ORD-000001부터
   발번해서 같은 날 `logs/trades_YYYYMMDD.csv` 안에 같은 order_id가 여러 주문을 가리킨다.
   2026-09-07 실측(3회 재기동): ORD-000003이 28행, ORD-000001이 11행.
 - 미룬 이유: 체결 매칭은 ODNO로 하므로 라이브 동작에는 영향이 없다. 대시보드도 행 단위로
   표시해서 화면은 정상이다. 깨지는 것은 order_id로 묶는 사후 집계다.
-- 재개 조건: 기동 시 당일 CSV를 훑어 최대 ORD 번호를 읽고 `seq_`를 그 값으로 시드한다.
+- 재개 조건: 기동 시 당일 CSV를 훑어 최대 ORD 번호를 읽고 `sequence_`를 그 값으로 시드한다.
   같은 작업에서 CANCELLED 행이 취소 ODNO가 아니라 원주문 ODNO를 남기도록 함께 고친다
   (지금은 CSV 리플레이로 취소분과 생존 주문을 구분할 수 없다).
 
@@ -200,7 +200,7 @@
   하나뿐이고 그 입력은 `regime.json`이다. `RegimeController`의 BEAR는 전략 집합만 고른다.
   같은 오류가 CLAUDE.md에도 있었고 함께 고쳤다. 두 축이라 검증도 둘로 나뉜다.
 - D-15a (강제청산 경로): 코드 변경 없이 `regime.json`에 `force_liquidate: true`를 써서
-  모의계좌 장중에 태운다. `ref_price` stamp, 시장가의 명목 백스톱 우회 여부, 2초 재발주
+  모의계좌 장중에 태운다. `reference_price` stamp, 시장가의 명목 백스톱 우회 여부, 2초 재발주
   루프, 해제 경로를 본다. 절차는 [docs/guides/REGIME_DRILL_GUIDE.md](guides/REGIME_DRILL_GUIDE.md).
   같은 드릴에서 D-11(청산 매도가 증권사 매도가능수량으로 클램프되지 않음)도 함께 드러난다.
 - D-15b (전략선택 분기): 주입 경로가 없어서 못 태우고 있었다 — `RegimeController::Config`가

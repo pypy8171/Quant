@@ -1,7 +1,7 @@
 // StrategyShard 단위 테스트 — 열 하나를 비우는 순서(호가→체결→봉 하나), 샤드마다 다른 전략 집합의 라우팅, 신호 봉투의
 //  tick_ns·active·전략 id, id 없는 틱의 대체 조회, 현재가 콜백, 다건 발주의 NONE 걸러내기, 버전·고수위, 그리고
 //  전략 계산이 든 틱을 샤드 1·2·4가 나눠 받을 때의 벽시계 측정(원칙 7).
-// 빌드: cmake --build <dir> --target test_strategy_shard
+// 빌드: cmake --build <directory> --target test_strategy_shard
 #include "core/ShardMatrix.h"
 #include "core/StrategyShard.h"
 #include "core/SymbolTable.h"
@@ -21,13 +21,13 @@ namespace
 {
 int g_checks = 0;
 
-#define CHECK(cond)                                                                        \
+#define CHECK(condition)                                                                        \
     do                                                                                     \
     {                                                                                      \
         ++g_checks;                                                                        \
-        if (!(cond))                                                                       \
+        if (!(condition))                                                                       \
         {                                                                                  \
-            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #cond << "\n";     \
+            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #condition << "\n";     \
             return 1;                                                                      \
         }                                                                                  \
     } while (0)
@@ -55,14 +55,14 @@ public:
     std::optional<OrderSignal> on_data(const MarketData& market_data) override
     {
         ++bars;
-        last_bar_sym = market_data.symbol_id;
+        last_bar_symbol = market_data.symbol_id;
         return std::nullopt;
     }
 
     std::optional<OrderSignal> on_order_book(const OrderBook& order_book) override
     {
         ++books;
-        last_book_sym = order_book.symbol_id;
+        last_book_symbol = order_book.symbol_id;
         return std::nullopt;
     }
 
@@ -71,13 +71,13 @@ public:
         OrderSignal cancel;
         cancel.action = OrderAction::CANCEL;
         cancel.side   = OrderSide::NONE;
-        cancel.ticker = order_book.ticker.str();
+        cancel.ticker = order_book.ticker.string();
         cancel.symbol_id    = order_book.symbol_id;
         out.push_back(cancel);
         OrderSignal none;
         none.action = OrderAction::NEW;
         none.side   = OrderSide::NONE;
-        none.ticker = order_book.ticker.str();
+        none.ticker = order_book.ticker.string();
         out.push_back(none);
     }
 
@@ -98,7 +98,7 @@ public:
                 x_value ^= x_value << 17;
             }
 
-            acc += x_value; // xorshift는 GF(2) 선형이라 xor로 접으면 짝수 번 반복이 0이 된다
+            accumulator += x_value; // xorshift는 GF(2) 선형이라 xor로 접으면 짝수 번 반복이 0이 된다
             return std::nullopt;
         }
 
@@ -106,21 +106,21 @@ public:
         signal.side        = OrderSide::BUY;
         signal.type        = OrderType::MARKET;
         signal.quantity    = 1;
-        signal.ticker      = trade.ticker.str();
+        signal.ticker      = trade.ticker.string();
         signal.strategy_id = id_;
         signal.symbol_id         = trade.symbol_id;
         return signal;
     }
 
-    std::vector<WatchSpec> get_watch_specs() const override
+    std::vector<WatchSpec> get_watch_specifications() const override
     {
         std::vector<WatchSpec> values;
 
         for (const auto& ticker : tickers_)
         {
-            WatchSpec spec;
-            spec.ticker = ticker;
-            values.push_back(spec);
+            WatchSpec specification;
+            specification.ticker = ticker;
+            values.push_back(specification);
         }
 
         return values;
@@ -129,9 +129,9 @@ public:
     int                                             bars          = 0;
     int                                             books         = 0;
     int                                             trades        = 0;
-    symbol::SymbolId                                   last_bar_sym  = symbol::kNone;
-    symbol::SymbolId                                   last_book_sym = symbol::kNone;
-    uint64_t                                        acc           = 0;
+    symbol::SymbolId                                   last_bar_symbol  = symbol::kNone;
+    symbol::SymbolId                                   last_book_symbol = symbol::kNone;
+    uint64_t                                        accumulator           = 0;
     std::vector<std::pair<symbol::SymbolId, uint32_t>> seen;
 
 private:
@@ -147,7 +147,7 @@ struct Sink
     int64_t                     last_tick_ns = -1;
 };
 
-TradeData make_td(symbol::SymbolId id, const std::string& ticker, uint32_t sequence, double price, int64_t received_ns)
+TradeData make_trade(symbol::SymbolId id, const std::string& ticker, uint32_t sequence, double price, int64_t received_ns)
 {
     TradeData trade;
     trade.symbol_id         = id;
@@ -170,10 +170,10 @@ int main()
         shard::Matrix<OrderBook>  order_book(1, 2, 64);
         shard::Matrix<TradeData>  trade(1, 2, 64);
         shard::Matrix<MarketData> bars(1, 2, 8);
-        strategy::Shard              s0(0, {order_book, trade, bars});
-        strategy::Shard              s1(1, {order_book, trade, bars});
-        CHECK(s0.index() == 0 && s1.index() == 1);
-        CHECK(s0.empty() && s1.empty());
+        strategy::Shard              shard_a(0, {order_book, trade, bars});
+        strategy::Shard              shard_b(1, {order_book, trade, bars});
+        CHECK(shard_a.index() == 0 && shard_b.index() == 1);
+        CHECK(shard_a.empty() && shard_b.empty());
 
         std::vector<std::string> names;
         std::vector<symbol::SymbolId> ids;
@@ -185,24 +185,24 @@ int main()
         }
 
         // 구독 전략 A는 종목 0·1·2를 본다. 샤드마다 복제한다(같은 id, 다른 객체).
-        FakeStrategy a0("A", {names[0], names[1], names[2]}), a1("A", {names[0], names[1], names[2]});
-        FakeStrategy all0("ALL", {}), all1("ALL", {});
-        all1.set_active(false); // 샤드 1의 ALL은 비활성 — 봉투에 실려야 한다
-        s0.rebuild({&a0, &all0}, 7, symbol_id_of);
-        s1.rebuild({&a1, &all1}, 7, symbol_id_of);
-        CHECK(s0.seen_version() == 7 && s1.seen_version() == 7);
-        CHECK(s0.router().all_count() == 1 && s1.router().all_count() == 1);
+        FakeStrategy strategy_a_first("A", {names[0], names[1], names[2]}), strategy_a_second("A", {names[0], names[1], names[2]});
+        FakeStrategy strategy_all_first("ALL", {}), strategy_all_second("ALL", {});
+        strategy_all_second.set_active(false); // 샤드 1의 ALL은 비활성 — 봉투에 실려야 한다
+        shard_a.rebuild({&strategy_a_first, &strategy_all_first}, 7, symbol_id_of);
+        shard_b.rebuild({&strategy_a_second, &strategy_all_second}, 7, symbol_id_of);
+        CHECK(shard_a.seen_version() == 7 && shard_b.seen_version() == 7);
+        CHECK(shard_a.router().all_count() == 1 && shard_b.router().all_count() == 1);
 
         // 종목 12개 × 3건. 생산자는 push로 종목 해시 열에 넣는다.
         for (uint32_t innermost_index = 0; innermost_index < 3; ++innermost_index)
         {
             for (size_t ids_index = 0; ids_index < ids.size(); ++ids_index)
             {
-                CHECK(trade.push(0, ids[ids_index], make_td(ids[ids_index], names[ids_index], innermost_index, 100.0 + static_cast<double>(ids_index), 1000 + innermost_index)));
+                CHECK(trade.push(0, ids[ids_index], make_trade(ids[ids_index], names[ids_index], innermost_index, 100.0 + static_cast<double>(ids_index), 1000 + innermost_index)));
             }
         }
 
-        CHECK(!s0.empty() || !s1.empty());
+        CHECK(!shard_a.empty() || !shard_b.empty());
         Sink                       sink0, sink1;
         std::vector<symbol::SymbolId> priced0, priced1;
         const auto                 run = [&](strategy::Shard& shard, Sink& sink, std::vector<symbol::SymbolId>& priced)
@@ -222,12 +222,12 @@ int main()
             {
             }
         };
-        run(s0, sink0, priced0);
-        run(s1, sink1, priced1);
-        CHECK(s0.empty() && s1.empty());
+        run(shard_a, sink0, priced0);
+        run(shard_b, sink1, priced1);
+        CHECK(shard_a.empty() && shard_b.empty());
 
         // 전부 받는 전략은 자기 샤드의 종목만, 총합이 36건. 구독 전략은 0·1·2가 해시로 간 샤드에서만.
-        CHECK(all0.trades + all1.trades == 36);
+        CHECK(strategy_all_first.trades + strategy_all_second.trades == 36);
         CHECK(priced0.size() + priced1.size() == 36);
         int a_expected0 = 0, a_expected1 = 0;
 
@@ -236,37 +236,37 @@ int main()
             (shard::shard_of(ids[index], 2) == 0 ? a_expected0 : a_expected1) += 3;
         }
 
-        CHECK(a0.trades == a_expected0 && a1.trades == a_expected1);
+        CHECK(strategy_a_first.trades == a_expected0 && strategy_a_second.trades == a_expected1);
 
-        for (const auto& [id, sequence] : all0.seen)
+        for (const auto& [id, sequence] : strategy_all_first.seen)
         {
             CHECK(shard::shard_of(id, 2) == 0);
         }
 
-        for (const auto& [id, sequence] : all1.seen)
+        for (const auto& [id, sequence] : strategy_all_second.seen)
         {
             CHECK(shard::shard_of(id, 2) == 1);
         }
 
         // 종목 안 순번 0,1,2 — 샤드 0의 첫 종목으로 본다.
         {
-            std::vector<uint32_t> seqs;
-            const auto            first = all0.seen.front().first;
+            std::vector<uint32_t> sequences;
+            const auto            first = strategy_all_first.seen.front().first;
 
-            for (const auto& [id, sequence] : all0.seen)
+            for (const auto& [id, sequence] : strategy_all_first.seen)
             {
                 if (id == first)
                 {
-                    seqs.push_back(sequence);
+                    sequences.push_back(sequence);
                 }
             }
 
-            CHECK(seqs.size() == 3 && seqs[0] == 0 && seqs[1] == 1 && seqs[2] == 2);
+            CHECK(sequences.size() == 3 && sequences[0] == 0 && sequences[1] == 1 && sequences[2] == 2);
         }
 
         // 봉투 — 체결마다 전략마다 BUY 하나. tick_ns는 received_ns, 샤드 1의 ALL은 active=false.
-        CHECK(sink0.out.size() == static_cast<size_t>(a0.trades + all0.trades));
-        CHECK(sink1.out.size() == static_cast<size_t>(a1.trades + all1.trades));
+        CHECK(sink0.out.size() == static_cast<size_t>(strategy_a_first.trades + strategy_all_first.trades));
+        CHECK(sink1.out.size() == static_cast<size_t>(strategy_a_second.trades + strategy_all_second.trades));
         CHECK(sink0.last_tick_ns == 1002 && sink1.last_tick_ns == 1002);
         bool inactive_seen = false, id_ok = true;
 
@@ -281,7 +281,7 @@ int main()
         }
 
         CHECK(inactive_seen && id_ok);
-        CHECK(s0.high_water() >= 1 && s1.high_water() >= 1);
+        CHECK(shard_a.high_water() >= 1 && shard_b.high_water() >= 1);
     }
 
     // 2. 한 바퀴의 순서 — 호가 전부, 체결 전부, 봉은 하나만. 호가 봉투는 tick_ns 0, 다건 경로의 CANCEL은 통과하고
@@ -302,7 +302,7 @@ int main()
         CHECK(order_book.push(0, id, other_order_book));
         other_order_book.received_ns = 8;
         CHECK(order_book.push(0, id, other_order_book));
-        TradeData tick = make_td(symbol::kNone, "005930", 0, 70000.0, 55);
+        TradeData tick = make_trade(symbol::kNone, "005930", 0, 70000.0, 55);
         CHECK(trade.push_to(0, 0, tick));
         MarketData m1, m2;
         m1.symbol_id = id;
@@ -316,7 +316,7 @@ int main()
         {
             order.push_back((signal.action == OrderAction::CANCEL ? "C" : "B") + std::to_string(tick_ns));
         };
-        CHECK(shard.step(emit, [&](symbol::SymbolId got, double price) { priced += (got == id && price == 70000.0) ? 1 : 0; }, symbol_id_of));
+        CHECK(shard.step(emit, [&](symbol::SymbolId received, double price) { priced += (received == id && price == 70000.0) ? 1 : 0; }, symbol_id_of));
         // 호가 2건 → CANCEL 둘(tick은 호가의 received_ns 7·8), 체결 1건 → BUY(tick 55), 봉 하나.
         CHECK(order.size() == 3 && order[0] == "C7" && order[1] == "C8" && order[2] == "B55");
         CHECK(all.books == 2 && all.trades == 1 && all.bars == 1 && priced == 1);
@@ -397,7 +397,7 @@ int main()
                 {
                     for (uint32_t symbol_index = 0; symbol_index < kSymbols; ++symbol_index)
                     {
-                        const TradeData tick = make_td(ids[symbol_index], "M", per_index, 1.0, 0);
+                        const TradeData tick = make_trade(ids[symbol_index], "M", per_index, 1.0, 0);
 
                         while (!trade.push(0, ids[symbol_index], tick))
                         {
@@ -416,18 +416,18 @@ int main()
                 thread.join();
             }
 
-            const auto t1 = std::chrono::steady_clock::now();
-            uint64_t   total = 0, acc = 0;
+            const auto end_time = std::chrono::steady_clock::now();
+            uint64_t   total = 0, accumulator = 0;
 
             for (uint32_t row = 0; row < row_count; ++row)
             {
                 total += static_cast<uint64_t>(strategies[row]->trades);
-                acc += strategies[row]->acc;
+                accumulator += strategies[row]->accumulator;
             }
 
             CHECK(total == static_cast<uint64_t>(kSymbols) * kPer);
-            const double ms = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(t1 - start_time).count()) / 1e3;
-            std::cout << "[측정] 샤드 " << row_count << "개: 틱 " << total << "건 전체 " << ms << "ms (acc " << (acc & 0xff)
+            const double milliseconds = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count()) / 1e3;
+            std::cout << "[측정] 샤드 " << row_count << "개: 틱 " << total << "건 전체 " << milliseconds << "ms (acc " << (accumulator & 0xff)
                       << ")\n";
         }
     }
@@ -437,19 +437,19 @@ int main()
     {
         std::vector<std::string> same, split;
         const uint32_t           row_count   = 4;
-        const auto               m0  = shard::shard_of(table.intern("A00001"), row_count);
+        const auto               first_shard_index  = shard::shard_of(table.intern("A00001"), row_count);
         same.push_back("A00001");
 
         for (int index = 2; index < 40 && (same.size() < 3 || split.size() < 2); ++index)
         {
             const std::string ticker  = "A000" + std::to_string(10 + index);
-            const auto        mm = shard::shard_of(table.intern(ticker), row_count);
+            const auto        shard_index = shard::shard_of(table.intern(ticker), row_count);
 
-            if (mm == m0 && same.size() < 3)
+            if (shard_index == first_shard_index && same.size() < 3)
             {
                 same.push_back(ticker);
             }
-            else if (mm != m0 && split.size() < 2)
+            else if (shard_index != first_shard_index && split.size() < 2)
             {
                 split.push_back(ticker);
             }
@@ -465,8 +465,8 @@ int main()
         CHECK(strategy::owner_shard(one, 1, symbol_id_of) == std::optional<uint32_t>(0u));
         CHECK(strategy::owner_shard(spanning, 1, symbol_id_of) == std::optional<uint32_t>(0u));
         CHECK(strategy::owner_shard(all, 1, symbol_id_of) == std::optional<uint32_t>(0u));
-        CHECK(strategy::owner_shard(one, row_count, symbol_id_of) == std::optional<uint32_t>(m0));
-        CHECK(strategy::owner_shard(three, row_count, symbol_id_of) == std::optional<uint32_t>(m0));
+        CHECK(strategy::owner_shard(one, row_count, symbol_id_of) == std::optional<uint32_t>(first_shard_index));
+        CHECK(strategy::owner_shard(three, row_count, symbol_id_of) == std::optional<uint32_t>(first_shard_index));
         CHECK(!strategy::owner_shard(spanning, row_count, symbol_id_of));
         CHECK(!strategy::owner_shard(all, row_count, symbol_id_of));
         FakeStrategy unknown("unknown", {"Z99999"});

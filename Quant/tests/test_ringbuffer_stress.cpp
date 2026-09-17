@@ -22,8 +22,8 @@
 #include <string>
 #include <cstdint>
 
-using clk = std::chrono::steady_clock;
-using ns = std::chrono::nanoseconds;
+using steady_clock = std::chrono::steady_clock;
+using nanoseconds = std::chrono::nanoseconds;
 
 // ─────────────────────────────────────────────────────────────────
 // 실제 OrderBook 크기 시뮬레이션 (KIS H0STASP0 기반)
@@ -33,9 +33,9 @@ struct alignas(64) MockOrderBook {
 	char     ticker[8];          // 종목코드
 	char     time[8];             // 시간
 	double   ask_price[5];        // 매도호가 5단계
-	int64_t  ask_qty[5];          // 매도잔량
+	int64_t  ask_quantity[5];          // 매도잔량
 	double   bid_price[5];        // 매수호가
-	int64_t  bid_qty[5];          // 매수잔량
+	int64_t  bid_quantity[5];          // 매수잔량
 	int64_t  send_ts_ns;          // producer 송신 시각 (latency 측정용)
 	uint64_t sequence;                 // 무결성 검증용 시퀀스 번호
 	char     padding[16];         // 200바이트 근접
@@ -49,7 +49,7 @@ struct Stats {
 	std::atomic<uint64_t> produced{ 0 };
 	std::atomic<uint64_t> consumed{ 0 };
 	std::atomic<uint64_t> push_failed{ 0 };   // 큐 full로 재시도
-	std::atomic<uint64_t> seq_errors{ 0 };    // 순서 깨짐
+	std::atomic<uint64_t> sequence_errors{ 0 };    // 순서 깨짐
 	std::atomic<uint64_t> data_errors{ 0 };   // 데이터 손상
 
 	std::vector<int64_t> latencies_ns;      // consumer가 측정
@@ -60,8 +60,8 @@ struct Stats {
 //   - 종목당 burst (10-50건 연속) → 짧은 idle
 //   - 종목 6개 round-robin (실제 다종목 모니터링 환경)
 // ─────────────────────────────────────────────────────────────────
-static void producer_fn(RingBuffer<MockOrderBook>& rb,
-	Stats& stats,
+static void producer_fn(RingBuffer<MockOrderBook>& rest_bar,
+	Stats& statistics,
 	std::atomic<bool>& stop_flag,
 	int duration_sec)
 {
@@ -70,18 +70,18 @@ static void producer_fn(RingBuffer<MockOrderBook>& rb,
 	};
 	constexpr int N_TICKERS = sizeof(TICKERS) / sizeof(TICKERS[0]);
 
-	std::mt19937 rng(42);
+	std::mt19937 random_engine(42);
 	std::uniform_int_distribution<int> burst_dist(10, 50);
 	std::uniform_int_distribution<int> idle_us_dist(50, 500);
 
-	auto deadline = clk::now() + std::chrono::seconds(duration_sec);
+	auto deadline = steady_clock::now() + std::chrono::seconds(duration_sec);
 	uint64_t sequence = 0;
-	int ticker_idx = 0;
+	int ticker_index = 0;
 
-	while (!stop_flag.load(std::memory_order_relaxed) && clk::now() < deadline) {
-		int burst = burst_dist(rng);
-		const char* ticker = TICKERS[ticker_idx];
-		ticker_idx = (ticker_idx + 1) % N_TICKERS;
+	while (!stop_flag.load(std::memory_order_relaxed) && steady_clock::now() < deadline) {
+		int burst = burst_dist(random_engine);
+		const char* ticker = TICKERS[ticker_index];
+		ticker_index = (ticker_index + 1) % N_TICKERS;
 
 		for (int burst_index = 0; burst_index < burst; ++burst_index) {
 			MockOrderBook order_book{};
@@ -91,32 +91,32 @@ static void producer_fn(RingBuffer<MockOrderBook>& rb,
 
 			for (int index = 0; index < 5; ++index) {
 				order_book.ask_price[index] = 70000.0 + index * 10 + burst_index;
-				order_book.ask_qty[index] = 100 + index * 50;
+				order_book.ask_quantity[index] = 100 + index * 50;
 				order_book.bid_price[index] = 69990.0 - index * 10 - burst_index;
-				order_book.bid_qty[index] = 100 + index * 50;
+				order_book.bid_quantity[index] = 100 + index * 50;
 			}
 
-			order_book.send_ts_ns = std::chrono::duration_cast<ns>(
-				clk::now().time_since_epoch()).count();
+			order_book.send_ts_ns = std::chrono::duration_cast<nanoseconds>(
+				steady_clock::now().time_since_epoch()).count();
 
 			// Push (가득 차면 재시도, 운영 환경에선 데이터 손실 옵션도 있음)
 			int retries = 0;
 
-			while (!rb.push(order_book)) {
+			while (!rest_bar.push(order_book)) {
 				if (++retries > 1000) {
-					stats.push_failed.fetch_add(1, std::memory_order_relaxed);
+					statistics.push_failed.fetch_add(1, std::memory_order_relaxed);
 					break;
 				}
 
 				std::this_thread::yield();
 			}
 
-			stats.produced.fetch_add(1, std::memory_order_relaxed);
+			statistics.produced.fetch_add(1, std::memory_order_relaxed);
 		}
 
 		// Idle (burst 사이 간격)
 		std::this_thread::sleep_for(
-			std::chrono::microseconds(idle_us_dist(rng)));
+			std::chrono::microseconds(idle_us_dist(random_engine)));
 	}
 }
 
@@ -126,12 +126,12 @@ static void producer_fn(RingBuffer<MockOrderBook>& rb,
 //   - 시퀀스 번호 검증 (순서/무손실)
 //   - end-to-end latency 측정
 // ─────────────────────────────────────────────────────────────────
-static void consumer_fn(RingBuffer<MockOrderBook>& rb,
-	Stats& stats,
+static void consumer_fn(RingBuffer<MockOrderBook>& rest_bar,
+	Stats& statistics,
 	std::atomic<bool>& stop_flag)
 {
-	uint64_t expected_seq[6] = { 0, 0, 0, 0, 0, 0 };  // 종목별 sequence
-	auto ticker_idx = [](const char* ticker) -> int {
+	uint64_t expected_sequence[6] = { 0, 0, 0, 0, 0, 0 };  // 종목별 sequence
+	auto ticker_index = [](const char* ticker) -> int {
 		if (std::strcmp(ticker, "005930") == 0)
 		{
 		    return 0;
@@ -165,10 +165,10 @@ static void consumer_fn(RingBuffer<MockOrderBook>& rb,
 		return -1;
 		};
 
-	stats.latencies_ns.reserve(10'000'000);
+	statistics.latencies_ns.reserve(10'000'000);
 
-	while (!stop_flag.load(std::memory_order_relaxed) || !rb.empty()) {
-		auto option = rb.pop();
+	while (!stop_flag.load(std::memory_order_relaxed) || !rest_bar.empty()) {
+		auto option = rest_bar.pop();
 
 		if (!option) {
 			std::this_thread::sleep_for(std::chrono::microseconds(10));
@@ -176,28 +176,28 @@ static void consumer_fn(RingBuffer<MockOrderBook>& rb,
 		}
 
 		// Latency 측정
-		int64_t now_ns = std::chrono::duration_cast<ns>(
-			clk::now().time_since_epoch()).count();
+		int64_t now_ns = std::chrono::duration_cast<nanoseconds>(
+			steady_clock::now().time_since_epoch()).count();
 		int64_t latency = now_ns - option->send_ts_ns;
 
 		if (latency >= 0)
 		{
-		    stats.latencies_ns.push_back(latency);
+		    statistics.latencies_ns.push_back(latency);
 		}
 
 		// 데이터 무결성 (호가가 음수면 손상)
 		if (option->ask_price[0] < 0 || option->bid_price[0] < 0) {
-			stats.data_errors.fetch_add(1, std::memory_order_relaxed);
+			statistics.data_errors.fetch_add(1, std::memory_order_relaxed);
 		}
 
-		stats.consumed.fetch_add(1, std::memory_order_relaxed);
+		statistics.consumed.fetch_add(1, std::memory_order_relaxed);
 
 		// 전략 계산 시뮬레이션 (간단한 work)
 		volatile double sink = 0.0;
 
 		for (int index = 0; index < 5; ++index) {
-			sink = sink + option->ask_price[index] * option->ask_qty[index];
-			sink = sink + option->bid_price[index] * option->bid_qty[index];
+			sink = sink + option->ask_price[index] * option->ask_quantity[index];
+			sink = sink + option->bid_price[index] * option->bid_quantity[index];
 		}
 
 		(void)sink;
@@ -207,14 +207,14 @@ static void consumer_fn(RingBuffer<MockOrderBook>& rb,
 // ─────────────────────────────────────────────────────────────────
 // Latency 분위수 출력
 // ─────────────────────────────────────────────────────────────────
-static void print_latency_stats(std::vector<int64_t>& values) {
+static void print_latency_statistics(std::vector<int64_t>& values) {
 	if (values.empty()) {
 		std::cout << "  (no latency samples)\n";
 		return;
 	}
 
 	std::sort(values.begin(), values.end());
-	auto pct = [&](double price) {
+	auto percent = [&](double price) {
 		size_t index = static_cast<size_t>(values.size() * price);
 
 		if (index >= values.size()) 
@@ -224,24 +224,24 @@ static void print_latency_stats(std::vector<int64_t>& values) {
 
 		return values[index];
 		};
-	auto fmt = [](int64_t ns) -> std::string {
-		if (ns < 1000)
+	auto format = [](int64_t nanoseconds) -> std::string {
+		if (nanoseconds < 1000)
 		{
-		    return std::to_string(ns) + " ns";
+		    return std::to_string(nanoseconds) + " ns";
 		}
 
-		if (ns < 1'000'000)
+		if (nanoseconds < 1'000'000)
 		{
-		    return std::to_string(ns / 1000) + " µs";
+		    return std::to_string(nanoseconds / 1000) + " µs";
 		}
 
-		return std::to_string(ns / 1'000'000) + " ms";
+		return std::to_string(nanoseconds / 1'000'000) + " ms";
 		};
-	std::cout << "  p50:  " << fmt(pct(0.50)) << "\n"
-		<< "  p90:  " << fmt(pct(0.90)) << "\n"
-		<< "  p99:  " << fmt(pct(0.99)) << "\n"
-		<< "  p999: " << fmt(pct(0.999)) << "\n"
-		<< "  max:  " << fmt(values.back()) << "\n";
+	std::cout << "  p50:  " << format(percent(0.50)) << "\n"
+		<< "  p90:  " << format(percent(0.90)) << "\n"
+		<< "  p99:  " << format(percent(0.99)) << "\n"
+		<< "  p999: " << format(percent(0.999)) << "\n"
+		<< "  max:  " << format(values.back()) << "\n";
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -269,61 +269,61 @@ int main(int argc, char** argv) {
 	std::cout << "Pattern        : 6 tickers, burst(10-50)/idle(50-500us)\n";
 	std::cout << "Consumer       : variable work per msg + integrity check\n\n";
 
-	RingBuffer<MockOrderBook> rb(4096);
-	Stats stats;
+	RingBuffer<MockOrderBook> rest_bar(4096);
+	Stats statistics;
 	std::atomic<bool> stop_flag{ false };
 
-	auto start_time = clk::now();
+	auto start_time = steady_clock::now();
 
-	std::thread prod(producer_fn, std::ref(rb), std::ref(stats),
+	std::thread produced(producer_fn, std::ref(rest_bar), std::ref(statistics),
 		std::ref(stop_flag), duration);
-	std::thread cons(consumer_fn, std::ref(rb), std::ref(stats),
+	std::thread consumed(consumer_fn, std::ref(rest_bar), std::ref(statistics),
 		std::ref(stop_flag));
 
 	// 진행 상황 표시 (5초마다)
-	while (clk::now() - start_time < std::chrono::seconds(duration)) {
+	while (steady_clock::now() - start_time < std::chrono::seconds(duration)) {
 		std::this_thread::sleep_for(std::chrono::seconds(5));
 		auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-			clk::now() - start_time).count();
+			steady_clock::now() - start_time).count();
 		std::cout << "  [t+" << std::setw(4) << elapsed << "s] "
-			<< "produced=" << stats.produced.load()
-			<< " consumed=" << stats.consumed.load()
-			<< " in-queue=" << (stats.produced.load() - stats.consumed.load())
+			<< "produced=" << statistics.produced.load()
+			<< " consumed=" << statistics.consumed.load()
+			<< " in-queue=" << (statistics.produced.load() - statistics.consumed.load())
 			<< "\n";
 	}
 
-	prod.join();
+	produced.join();
 	stop_flag.store(true);
-	cons.join();
+	consumed.join();
 
-	auto t1 = clk::now();
-	auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - start_time).count();
+	auto end_time = steady_clock::now();
+	auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
 
 	// ─── 결과 ─────────────────────────────────────────────────────
 	std::cout << "\n=== Results ===\n";
 	std::cout << "Elapsed        : " << elapsed_ms << " ms\n";
-	std::cout << "Produced       : " << stats.produced.load() << "\n";
-	std::cout << "Consumed       : " << stats.consumed.load() << "\n";
-	std::cout << "Push failed    : " << stats.push_failed.load() << "\n";
-	std::cout << "Data errors    : " << stats.data_errors.load() << "\n";
+	std::cout << "Produced       : " << statistics.produced.load() << "\n";
+	std::cout << "Consumed       : " << statistics.consumed.load() << "\n";
+	std::cout << "Push failed    : " << statistics.push_failed.load() << "\n";
+	std::cout << "Data errors    : " << statistics.data_errors.load() << "\n";
 	std::cout << "Throughput     : "
-		<< (stats.consumed.load() * 1000 / std::max<int64_t>(elapsed_ms, 1))
+		<< (statistics.consumed.load() * 1000 / std::max<int64_t>(elapsed_ms, 1))
 		<< " msg/sec\n";
 	std::cout << "Bandwidth      : "
-		<< (stats.consumed.load() * sizeof(MockOrderBook) * 1000
+		<< (statistics.consumed.load() * sizeof(MockOrderBook) * 1000
 			/ std::max<int64_t>(elapsed_ms, 1) / 1024 / 1024)
 		<< " MB/sec\n\n";
 
 	std::cout << "Latency (producer push → consumer pop):\n";
-	print_latency_stats(stats.latencies_ns);
+	print_latency_statistics(statistics.latencies_ns);
 
 	// ─── 검증 판정 ────────────────────────────────────────────────
-	bool ok = (stats.produced.load() == stats.consumed.load())
-		&& (stats.data_errors.load() == 0);
+	bool ok = (statistics.produced.load() == statistics.consumed.load())
+		&& (statistics.data_errors.load() == 0);
 
 	std::cout << "\n[" << (ok ? "PASS" : "FAIL")
-		<< "] integrity=" << (stats.data_errors.load() == 0 ? "OK" : "FAIL")
-		<< ", lossless=" << (stats.produced.load() == stats.consumed.load() ? "OK" : "FAIL")
+		<< "] integrity=" << (statistics.data_errors.load() == 0 ? "OK" : "FAIL")
+		<< ", lossless=" << (statistics.produced.load() == statistics.consumed.load() ? "OK" : "FAIL")
 		<< "\n";
 
 	return ok ? 0 : 1;

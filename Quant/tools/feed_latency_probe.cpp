@@ -73,10 +73,10 @@
 #endif
 #endif
 
-using clk = std::chrono::steady_clock;
+using steady_clock = std::chrono::steady_clock;
 static inline int64_t now_ns()
 {
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(clk::now().time_since_epoch()).count();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(steady_clock::now().time_since_epoch()).count();
 }
 
 // 수신 콜백 → 소비자로 넘기는 경량 레코드 (recv 시각만 필요).
@@ -86,31 +86,31 @@ struct ProbeMsg
     char    type; // 'O'=orderbook, 'T'=trade
 };
 
-struct Pctl
+struct PercentileSummary
 {
-    int64_t p50 = 0, p99 = 0, p999 = 0, mx = 0;
+    int64_t p50 = 0, p99 = 0, p999 = 0, max_value = 0;
     size_t  count = 0;
 };
-static Pctl percentiles(std::vector<int64_t>& values)
+static PercentileSummary percentiles(std::vector<int64_t>& values)
 {
-    Pctl pctl;
-    pctl.count = values.size();
+    PercentileSummary percentiles;
+    percentiles.count = values.size();
 
     if (values.empty())
     {
-        return pctl;
+        return percentiles;
     }
 
     std::sort(values.begin(), values.end());
     auto at = [&](double price) { return values[static_cast<size_t>(price * (values.size() - 1))]; };
-    pctl.p50 = at(0.50);
-    pctl.p99 = at(0.99);
-    pctl.p999 = at(0.999);
-    pctl.mx = values.back();
-    return pctl;
+    percentiles.p50 = at(0.50);
+    percentiles.p99 = at(0.99);
+    percentiles.p999 = at(0.999);
+    percentiles.max_value = values.back();
+    return percentiles;
 }
 
-static std::string fmt_ns(int64_t count)
+static std::string format_ns(int64_t count)
 {
     char byte_value[32];
 
@@ -130,7 +130,7 @@ static std::string fmt_ns(int64_t count)
     return std::string(byte_value);
 }
 
-static std::string arg_str(int argc, char** argv, const char* key, const std::string& def)
+static std::string argument_string(int argc, char** argv, const char* key, const std::string& default_value)
 {
     for (int index = 1; index + 1 < argc; ++index)
     {
@@ -140,30 +140,30 @@ static std::string arg_str(int argc, char** argv, const char* key, const std::st
         }
     }
 
-    return def;
+    return default_value;
 }
 
-static int64_t arg_i64(int argc, char** argv, const char* key, int64_t def)
+static int64_t argument_int64(int argc, char** argv, const char* key, int64_t default_value)
 {
-    std::string text = arg_str(argc, argv, key, "");
-    return text.empty() ? def : std::atoll(text.c_str());
+    std::string text = argument_string(argc, argv, key, "");
+    return text.empty() ? default_value : std::atoll(text.c_str());
 }
 
 static std::vector<std::string> split_csv(const std::string& text)
 {
     std::vector<std::string> out;
-    std::stringstream ss(text);
-    std::string tok;
+    std::stringstream stream(text);
+    std::string token;
 
-    while (std::getline(ss, tok, ','))
+    while (std::getline(stream, token, ','))
     {
         // 앞뒤 공백 제거
-        size_t first_value = tok.find_first_not_of(" \t\r\n");
-        size_t bit_value = tok.find_last_not_of(" \t\r\n");
+        size_t first_value = token.find_first_not_of(" \t\r\n");
+        size_t bit_value = token.find_last_not_of(" \t\r\n");
 
         if (first_value != std::string::npos)
         {
-            out.push_back(tok.substr(first_value, bit_value - first_value + 1));
+            out.push_back(token.substr(first_value, bit_value - first_value + 1));
         }
     }
 
@@ -171,27 +171,27 @@ static std::vector<std::string> split_csv(const std::string& text)
 }
 
 // kis 블록(app_key 등)을 담은 JSON 오브젝트 → KisConfig
-static KisConfig kc_from_kis_obj(const nlohmann::json& node)
+static KisConfig kis_config_from_kis_object(const nlohmann::json& node)
 {
-    KisConfig kc;
-    kc.app_key      = node.at("app_key").get<std::string>();
-    kc.app_secret   = node.at("app_secret").get<std::string>();
-    kc.account_no   = node.value("account_no", "");
-    kc.account_type = node.value("account_type", "01");
-    kc.hts_id       = node.value("hts_id", "");
-    kc.is_paper     = node.value("is_paper", true);
-    return kc;
+    KisConfig kis_config;
+    kis_config.app_key      = node.at("app_key").get<std::string>();
+    kis_config.app_secret   = node.at("app_secret").get<std::string>();
+    kis_config.account_no   = node.value("account_no", "");
+    kis_config.account_type = node.value("account_type", "01");
+    kis_config.hts_id       = node.value("hts_id", "");
+    kis_config.is_paper     = node.value("is_paper", true);
+    return kis_config;
 }
 
 // 세션 하나: 자격증명 + 담당 종목 + 큐 + WS + 소비자 스레드 + 표본.
 struct Session
 {
-    KisConfig                          kc;
+    KisConfig                          kis_config;
     std::vector<std::string>           symbols;
     std::unique_ptr<RingBuffer<ProbeMsg>> queue;
-    std::unique_ptr<KisWebSocket>      ws;
+    std::unique_ptr<KisWebSocket>      websocket;
     std::thread                        consumer;
-    std::vector<int64_t>               lat;      // recv→decision (세션 전용, race 없음)
+    std::vector<int64_t>               latencies;      // recv→decision (세션 전용, race 없음)
     std::atomic<uint64_t>              order_book{0}, trade{0}, dropped{0}, decided{0};
     bool                               connected = false;
 };
@@ -201,15 +201,15 @@ int main(int argc, char** argv)
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
-    const int  duration    = static_cast<int>(arg_i64(argc, argv, "--duration", 60));
-    const bool trade_only  = arg_i64(argc, argv, "--trade-only", 1) != 0;
-    const int  count_cap   = static_cast<int>(arg_i64(argc, argv, "--count", 0)); // 0 = 전부
+    const int  duration    = static_cast<int>(argument_int64(argc, argv, "--duration", 60));
+    const bool trade_only  = argument_int64(argc, argv, "--trade-only", 1) != 0;
+    const int  count_cap   = static_cast<int>(argument_int64(argc, argv, "--count", 0)); // 0 = 전부
     const int  per_default = trade_only ? 40 : 20;
-    const int  per_session = static_cast<int>(arg_i64(argc, argv, "--per-session", per_default));
-    const std::string symbol_csv   = arg_str(argc, argv, "--symbols", "");
-    const std::string universe  = arg_str(argc, argv, "--universe", "");
-    const std::string sessions_path = arg_str(argc, argv, "--sessions", "");
-    const std::string configs_csv   = arg_str(argc, argv, "--configs", "");
+    const int  per_session = static_cast<int>(argument_int64(argc, argv, "--per-session", per_default));
+    const std::string symbol_csv   = argument_string(argc, argv, "--symbols", "");
+    const std::string universe  = argument_string(argc, argv, "--universe", "");
+    const std::string sessions_path = argument_string(argc, argv, "--sessions", "");
+    const std::string configs_csv   = argument_string(argc, argv, "--configs", "");
 
     // ---- 1) 자격증명(세션) 로드 ----
     std::vector<KisConfig> creds;
@@ -226,7 +226,7 @@ int main(int argc, char** argv)
 
             for (const auto& element : array)
             {
-                creds.push_back(kc_from_kis_obj(element));
+                creds.push_back(kis_config_from_kis_object(element));
             }
         }
         else if (!configs_csv.empty())
@@ -237,25 +237,25 @@ int main(int argc, char** argv)
 
                 if (!file) { std::printf("[probe] --configs 항목 열기 실패: %s\n", path.c_str()); return 1; }
                 nlohmann::json document; file >> document;
-                creds.push_back(kc_from_kis_obj(document.at("kis")));
+                creds.push_back(kis_config_from_kis_object(document.at("kis")));
             }
         }
         else
         {
             // 위치 인자 하나 = 단일 config(기존 동작)
-            std::string cfg_path = "config/config_dev_paper.json";
+            std::string config_path = "config/config_dev_paper.json";
 
             for (int index = 1; index < argc; ++index)
             {
                 if (argv[index][0] == '-') { ++index; continue; } // 플래그 + 그 값 건너뜀(모든 플래그가 값 1개)
-                cfg_path = argv[index]; break;
+                config_path = argv[index]; break;
             }
 
-            std::ifstream file(cfg_path);
+            std::ifstream file(config_path);
 
-            if (!file) { std::printf("[probe] config 열기 실패: %s\n", cfg_path.c_str()); return 1; }
+            if (!file) { std::printf("[probe] config 열기 실패: %s\n", config_path.c_str()); return 1; }
             nlohmann::json document; file >> document;
-            creds.push_back(kc_from_kis_obj(document.at("kis")));
+            creds.push_back(kis_config_from_kis_object(document.at("kis")));
         }
     }
     catch (const std::exception& exception)
@@ -314,22 +314,22 @@ int main(int argc, char** argv)
     // ---- 3) 수량 조절 + 세션 용량 대조 ----
     const int sessions_avail = static_cast<int>(creds.size());
     const int capacity       = sessions_avail * per_session; // 라이브로 받을 수 있는 상한
-    int want = static_cast<int>(all_symbols.size());
+    int wanted_count = static_cast<int>(all_symbols.size());
 
     if (count_cap > 0)
     {
-        want = std::min(want, count_cap);
+        wanted_count = std::min(wanted_count, count_cap);
     }
 
-    int use = std::min(want, capacity);
+    int use = std::min(wanted_count, capacity);
 
-    if (use < want)
+    if (use < wanted_count)
     {
-        int need_sessions = (want + per_session - 1) / per_session;
+        int need_sessions = (wanted_count + per_session - 1) / per_session;
         std::printf("[probe] ⚠ 요청 %d종목 > 세션 용량 %d (%d세션 × %d/세션). %d종목만 구독.\n",
-                    want, capacity, sessions_avail, per_session, use);
+                    wanted_count, capacity, sessions_avail, per_session, use);
         std::printf("        %d종목을 라이브로 받으려면 app_key %d개(현재 %d개)가 필요하다.\n",
-                    want, need_sessions, sessions_avail);
+                    wanted_count, need_sessions, sessions_avail);
     }
 
     all_symbols.resize(use);
@@ -341,19 +341,19 @@ int main(int argc, char** argv)
     std::printf("세션(app_key)   : %d개 발견, %d개 사용\n", sessions_avail, used_sessions_clamped);
     std::printf("구독 밀도       : %s (%d등록/종목, 세션당 최대 %d종목)\n",
                 trade_only ? "체결전용 H0STCNT0" : "호가+체결", trade_only ? 1 : 2, per_session);
-    std::printf("종목            : %d개 구독 (요청 %d)\n", use, want);
+    std::printf("종목            : %d개 구독 (요청 %d)\n", use, wanted_count);
     std::printf("duration        : %d sec\n", duration);
     std::printf("NOTE: 내부(수신콜백→주문결정) 지연 + 관측 실 msg rate만 측정. 거래소 wire\n");
     std::printf("      지연은 무료 API에 µs 원천 ts가 없어 측정 불가(정직 경계).\n");
     std::printf("      장외(09:00–15:30 KST 밖)에는 틱이 없어 샘플 0.\n\n");
 
     // ---- 4) 종목을 세션에 분배(연속 청크) + 세션 구성 ----
-    std::vector<std::unique_ptr<Session>> sess;
+    std::vector<std::unique_ptr<Session>> sessions;
 
     for (int used_session_index = 0; used_session_index < used_sessions_clamped; ++used_session_index)
     {
         auto session = std::make_unique<Session>();
-        session->kc = creds[used_session_index];
+        session->kis_config = creds[used_session_index];
         session->queue  = std::make_unique<RingBuffer<ProbeMsg>>(1u << 16);
         int begin = used_session_index * per_session;
         int end   = std::min(static_cast<int>(all_symbols.size()), begin + per_session);
@@ -363,16 +363,16 @@ int main(int argc, char** argv)
             session->symbols.push_back(all_symbols[end_index]);
         }
 
-        sess.push_back(std::move(session));
+        sessions.push_back(std::move(session));
     }
 
     std::atomic<bool> stop{false};
 
     // 세션별 소비자 스레드 — 각 큐는 SPSC(WS 수신 스레드 1 : 소비자 1).
-    for (auto& sp : sess)
+    for (auto& session_pointer : sessions)
     {
-        Session* session = sp.get();
-        session->lat.reserve(1u << 21);
+        Session* session = session_pointer.get();
+        session->latencies.reserve(1u << 21);
         session->consumer = std::thread([session, &stop] {
             while (!stop.load(std::memory_order_relaxed) || !session->queue->empty())
             {
@@ -388,9 +388,9 @@ int main(int argc, char** argv)
                 (void)sink;
                 const int64_t time_value = now_ns();
 
-                if (session->lat.size() < session->lat.capacity())
+                if (session->latencies.size() < session->latencies.capacity())
                 {
-                    session->lat.push_back(time_value - option->recv_ts_ns);
+                    session->latencies.push_back(time_value - option->recv_ts_ns);
                 }
 
                 session->decided.fetch_add(1, std::memory_order_relaxed);
@@ -399,15 +399,15 @@ int main(int argc, char** argv)
     }
 
     // ---- 5) 세션별 WS 연결 ----
-    for (auto& sp : sess)
+    for (auto& session_pointer : sessions)
     {
-        Session* session = sp.get();
-        session->ws = std::make_unique<KisWebSocket>(session->kc);
-        session->ws->set_callbacks(
+        Session* session = session_pointer.get();
+        session->websocket = std::make_unique<KisWebSocket>(session->kis_config);
+        session->websocket->set_callbacks(
             [session](const OrderBook&) {
-                ProbeMsg probe_msg{now_ns(), 'O'};
+                ProbeMsg probe_message{now_ns(), 'O'};
 
-                if (session->queue->push(probe_msg))
+                if (session->queue->push(probe_message))
                 {
                     session->order_book.fetch_add(1, std::memory_order_relaxed);
                 }
@@ -417,9 +417,9 @@ int main(int argc, char** argv)
                 }
             },
             [session](const TradeData&) {
-                ProbeMsg probe_msg{now_ns(), 'T'};
+                ProbeMsg probe_message{now_ns(), 'T'};
 
-                if (session->queue->push(probe_msg))
+                if (session->queue->push(probe_message))
                 {
                     session->trade.fetch_add(1, std::memory_order_relaxed);
                 }
@@ -433,28 +433,28 @@ int main(int argc, char** argv)
     const int64_t start_time = now_ns();
     int connected_sessions = 0;
 
-    for (size_t sess_index = 0; sess_index < sess.size(); ++sess_index)
+    for (size_t session_index = 0; session_index < sessions.size(); ++session_index)
     {
-        Session* session = sess[sess_index].get();
-        std::vector<WatchSpec> specs;
+        Session* session = sessions[session_index].get();
+        std::vector<WatchSpec> specifications;
 
         for (const auto& symbol : session->symbols)
         {
-            WatchSpec spec; spec.ticker = symbol; spec.market = Market::KR; spec.trade_only = trade_only;
-            specs.push_back(spec);
+            WatchSpec specification; specification.ticker = symbol; specification.market = Market::KR; specification.trade_only = trade_only;
+            specifications.push_back(specification);
         }
 
         std::printf("[probe] 세션 %zu/%zu 연결 시도 (%zu종목)...\n",
-                    sess_index + 1, sess.size(), session->symbols.size());
+                    session_index + 1, sessions.size(), session->symbols.size());
 
-        if (session->ws->connect(specs))
+        if (session->websocket->connect(specifications))
         {
             session->connected = true;
             ++connected_sessions;
         }
         else
         {
-            std::printf("[probe] 세션 %zu 연결 실패 (approval key/세션/상한 확인).\n", sess_index + 1);
+            std::printf("[probe] 세션 %zu 연결 실패 (approval key/세션/상한 확인).\n", session_index + 1);
         }
     }
 
@@ -463,79 +463,79 @@ int main(int argc, char** argv)
         std::printf("[probe] 전 세션 연결 실패.\n");
         stop.store(true);
 
-        for (auto& sp : sess)
+        for (auto& session : sessions)
         {
-            if (sp->consumer.joinable())
+            if (session->consumer.joinable())
             {
-                sp->consumer.join();
+                session->consumer.join();
             }
         }
 
         return 1;
     }
 
-    std::printf("[probe] %d/%zu 세션 연결. %d초 수신...\n\n", connected_sessions, sess.size(), duration);
+    std::printf("[probe] %d/%zu 세션 연결. %d초 수신...\n\n", connected_sessions, sessions.size(), duration);
 
     for (int duration_index = 0; duration_index < duration; ++duration_index)
     {
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
-    for (auto& sp : sess)
+    for (auto& session : sessions)
     {
-        if (sp->connected)
+        if (session->connected)
         {
-            sp->ws->disconnect();
+            session->websocket->disconnect();
         }
     }
 
     stop.store(true, std::memory_order_relaxed);
 
-    for (auto& sp : sess)
+    for (auto& session : sessions)
     {
-        if (sp->consumer.joinable())
+        if (session->consumer.joinable())
         {
-            sp->consumer.join();
+            session->consumer.join();
         }
     }
 
     const double elapsed = (now_ns() - start_time) / 1e9;
 
     // ---- 6) 집계 + 표본 병합 ----
-    uint64_t ob_total = 0, td_total = 0, drop_total = 0, dec_total = 0;
-    std::vector<int64_t> lat;
+    uint64_t order_book_total = 0, trade_total = 0, drop_total = 0, dec_total = 0;
+    std::vector<int64_t> latencies;
 
-    for (auto& sp : sess)
+    for (auto& session : sessions)
     {
-        ob_total   += sp->order_book.load();
-        td_total   += sp->trade.load();
-        drop_total += sp->dropped.load();
-        dec_total  += sp->decided.load();
-        lat.insert(lat.end(), sp->lat.begin(), sp->lat.end());
+        order_book_total   += session->order_book.load();
+        trade_total   += session->trade.load();
+        drop_total += session->dropped.load();
+        dec_total  += session->decided.load();
+        latencies.insert(latencies.end(), session->latencies.begin(), session->latencies.end());
     }
 
-    const uint64_t total = ob_total + td_total;
+    const uint64_t total = order_book_total + trade_total;
 
     std::printf("=== 수신 결과 (전 세션 집계) ===\n");
     std::printf("elapsed         : %.1f sec\n", elapsed);
-    std::printf("세션 연결       : %d/%zu\n", connected_sessions, sess.size());
+    std::printf("세션 연결       : %d/%zu\n", connected_sessions, sessions.size());
     std::printf("orderbook/trade : %llu / %llu (drop %llu)\n",
-                static_cast<unsigned long long>(ob_total), static_cast<unsigned long long>(td_total),
+                static_cast<unsigned long long>(order_book_total), static_cast<unsigned long long>(trade_total),
                 static_cast<unsigned long long>(drop_total));
     std::printf("decided         : %llu\n", static_cast<unsigned long long>(dec_total));
     std::printf("관측 msg rate   : %.1f msg/sec (실 라이브, %d종목/%d세션)\n",
                 total / (elapsed > 0 ? elapsed : 1), use, connected_sessions);
 
-    if (lat.empty())
+    if (latencies.empty())
     {
         std::printf("\n[주의] 샘플 0 — 장외이거나 틱 미수신. 장 중(09:00–15:30 KST)에 재실행.\n");
         return 0;
     }
 
-    Pctl pctl = percentiles(lat);
+    PercentileSummary percentile_values = percentiles(latencies);
     std::printf("\n=== 내부 지연 (수신콜백 → 주문결정, 실데이터, 전 세션 병합) ===\n");
-    std::printf("n=%zu  p50=%s  p99=%s  p999=%s  max=%s\n", pctl.count, fmt_ns(pctl.p50).c_str(),
-                fmt_ns(pctl.p99).c_str(), fmt_ns(pctl.p999).c_str(), fmt_ns(pctl.mx).c_str());
+    std::printf("n=%zu  p50=%s  p99=%s  p999=%s  max=%s\n", percentile_values.count, format_ns(percentile_values.p50).c_str(),
+                format_ns(percentile_values.p99).c_str(), format_ns(percentile_values.p999).c_str(), format_ns(percentile_values.max_value).c_str());
     std::printf("\n비교: bench_feed_ingest(합성)의 proc(recv→order)와 같은 구간 — 실데이터로 재확인.\n");
     return 0;
 }

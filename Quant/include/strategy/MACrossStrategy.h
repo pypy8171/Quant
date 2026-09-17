@@ -27,7 +27,7 @@ public:
         return "MA_CROSS_" + ticker_;
     }
 
-    std::vector<WatchSpec> get_watch_specs() const override
+    std::vector<WatchSpec> get_watch_specifications() const override
     {
         // MACross는 REST 폴링(get_daily_ohlcv)으로만 동작 — WS 호가/체결 불필요.
         // trade_only=true → H0STCNT0만 구독(호가 제외)해 구독 한도(≈41건) 절약.
@@ -44,9 +44,9 @@ public:
     {
         symbol_id_ = symbol_of(ticker_);
         prices_.clear();
-        prev_short_ma_ = 0.0;
-        prev_long_ma_ = 0.0;
-        have_prev_ = false;
+        previous_short_moving_average_ = 0.0;
+        previous_long_moving_average_ = 0.0;
+        have_previous_ = false;
         in_position_ = start_in_position_;
     }
 
@@ -71,39 +71,39 @@ public:
             return std::nullopt;
         }
 
-        double short_ma = calc_ma(short_period_);
-        double long_ma = calc_ma(long_period_);
+        double short_moving_average = calculate_moving_average(short_period_);
+        double long_moving_average = calculate_moving_average(long_period_);
 
         std::optional<OrderSignal> signal;
 
         // 첫 완전창은 previous만 시드하고 신호를 건너뛴다. previous가 0.0으로 시작하면
-        // prev_short<=prev_long(0<=0)이 무조건 참이라, 실제 교차가 없어도 그 순간
+        // previous_short<=previous_long(0<=0)이 무조건 참이라, 실제 교차가 없어도 그 순간
         // short>long이기만 하면 허위 골든크로스로 매수해버린다.
-        if (have_prev_)
+        if (have_previous_)
         {
             // 골든크로스: 단기가 장기를 상향 돌파 (진입 — 국면 게이트 적용)
-            if (is_active() && !in_position_ && prev_short_ma_ <= prev_long_ma_ && short_ma > long_ma)
+            if (is_active() && !in_position_ && previous_short_moving_average_ <= previous_long_moving_average_ && short_moving_average > long_moving_average)
             {
                 signal = make_signal(data, OrderSide::BUY);
                 in_position_ = true;
             }
 
             // 데드크로스: 단기가 장기를 하향 돌파
-            else if (in_position_ && prev_short_ma_ >= prev_long_ma_ && short_ma < long_ma)
+            else if (in_position_ && previous_short_moving_average_ >= previous_long_moving_average_ && short_moving_average < long_moving_average)
             {
                 signal = make_signal(data, OrderSide::SELL);
                 in_position_ = false;
             }
         }
 
-        prev_short_ma_ = short_ma;
-        prev_long_ma_ = long_ma;
-        have_prev_ = true;
+        previous_short_moving_average_ = short_moving_average;
+        previous_long_moving_average_ = long_moving_average;
+        have_previous_ = true;
         return signal;
     }
 
 private:
-    double calc_ma(int period) const
+    double calculate_moving_average(int period) const
     {
         auto iterator = prices_.end();
         double sum = 0.0;
@@ -124,7 +124,7 @@ private:
         signal.side = side;
         signal.type = OrderType::MARKET;
         signal.quantity = quantity_;
-        signal.ref_price = market_data.close;  // 시장가 명목 백스톱 평가 기준가(price=0이라 없으면 우회됨)
+        signal.reference_price = market_data.close;  // 시장가 명목 백스톱 평가 기준가(price=0이라 없으면 우회됨)
         signal.strategy_id = id();
         signal.timestamp = market_data.timestamp;
         return signal;
@@ -137,8 +137,8 @@ private:
     int quantity_;
     bool start_in_position_ = false;
     std::deque<double> prices_;
-    double prev_short_ma_ = 0.0;
-    double prev_long_ma_ = 0.0;
-    bool have_prev_ = false;
+    double previous_short_moving_average_ = 0.0;
+    double previous_long_moving_average_ = 0.0;
+    bool have_previous_ = false;
     bool in_position_ = false;
 };

@@ -10,8 +10,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // MarketMakingStrategy (MM-1) — 미니 시장조성기
 //
-//  매 호가(H0STASP0) 틱에서 mid = (bid1 + ask1)/2 를 계산하고,
-//  mid ± half_spread_ticks 위치에 양방향 지정가(매수/매도)를 건다.
+//  매 호가(H0STASP0) 틱에서 mid_price = (best_bid + best_ask)/2 를 계산하고,
+//  mid_price ± half_spread_ticks 위치에 양방향 지정가(매수/매도)를 건다.
 //  시장이 requote_move_ticks 이상 이동하면 기존 견적을 취소(CANCEL)하고 재호가(NEW).
 //
 //  발주는 on_order_book_batch로 틱당 최대 4건(취소2+신규2)을 낸다. 실제 KIS 취소/신규는
@@ -24,7 +24,7 @@
 //   • REPLACE(정정) 대신 CANCEL+NEW 사용(단순). ODNO 유지 정정은 Phase 2.
 //
 //  ── 재호가 폭주 방지 ──
-//   • min_requote_ms 최소 간격  AND  mid 이동 ≥ requote_move_ticks 일 때만 재호가.
+//   • min_requote_ms 최소 간격  AND  mid_price 이동 ≥ requote_move_ticks 일 때만 재호가.
 //   • 백스톱: OrderGate 초당 5건 한도. NEW 2건/재호가라 min_requote_ms ≥ 1000 권장(초당 4건 이내).
 //     (CANCEL/REPLACE는 첫 컷에서 OrderGate.check를 우회 → rate 카운트 안 됨. NEW만 카운트.)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -34,7 +34,7 @@ public:
     MarketMakingStrategy(std::string ticker, int quantity, int half_spread_ticks,
                          int requote_move_ticks, int min_requote_ms)
         : ticker_(std::move(ticker)),
-          qty_(quantity),
+          quantity_(quantity),
           half_spread_ticks_(half_spread_ticks < 1 ? 1 : half_spread_ticks),
           requote_move_ticks_(requote_move_ticks < 1 ? 1 : requote_move_ticks),
           min_requote_(std::chrono::milliseconds(min_requote_ms < 0 ? 0 : min_requote_ms))
@@ -48,14 +48,14 @@ public:
 
     std::string describe() const override
     {
-        return "MarketMaking | " + ticker_ + " | qty=" + std::to_string(qty_) +
+        return "MarketMaking | " + ticker_ + " | qty=" + std::to_string(quantity_) +
                " half_spread=" + std::to_string(half_spread_ticks_) + "tk" +
                " requote_move=" + std::to_string(requote_move_ticks_) + "tk" +
                " min_requote=" + std::to_string(min_requote_.count()) + "ms";
     }
 
     // 호가 필수 → trade_only=false (H0STASP0 구독). MM은 반드시 호가를 받아야 한다.
-    std::vector<WatchSpec> get_watch_specs() const override
+    std::vector<WatchSpec> get_watch_specifications() const override
     {
         return {{ticker_, Market::KR, "", /*trade_only=*/false}};
     }
@@ -69,11 +69,11 @@ public:
     void on_start() override
     {
         symbol_id_ = symbol_of(ticker_);
-        bid_oid_.clear();
-        ask_oid_.clear();
+        bid_order_id_.clear();
+        ask_order_id_.clear();
         last_mid_ = 0.0;
         last_requote_ = std::chrono::steady_clock::time_point{};
-        seq_ = 0;
+        sequence_ = 0;
     }
 
     void on_order_book_batch(const OrderBook& order_book, std::vector<OrderSignal>& out) override
@@ -83,21 +83,21 @@ public:
             return;
         }
 
-        const double bid1 = order_book.bids[0].price;
-        const double ask1 = order_book.asks[0].price;
+        const double best_bid = order_book.bids[0].price;
+        const double best_ask = order_book.asks[0].price;
 
         // 장전·비어있는 호가(구독 직후/휴장) → 견적 안 냄.
-        // TODO(호가 소싱 폴백, 기본 비활성): bid1/ask1가 지속 0이면 kis_->get_current_price()로
-        //   임시 mid 구성 가능하나 REST 저지연 아님 → 견적 억제가 원칙. config 플래그로만 노출 예정.
-        if (bid1 <= 0.0 || ask1 <= 0.0 || ask1 < bid1)
+        // TODO(호가 소싱 폴백, 기본 비활성): best_bid/ask1가 지속 0이면 kis_->get_current_price()로
+        //   임시 mid_price 구성 가능하나 REST 저지연 아님 → 견적 억제가 원칙. config 플래그로만 노출 예정.
+        if (best_bid <= 0.0 || best_ask <= 0.0 || best_ask < best_bid)
         {
             return;
         }
 
-        const double mid  = (bid1 + ask1) / 2.0;
-        const double tick = tick_size(mid);
+        const double mid_price  = (best_bid + best_ask) / 2.0;
+        const double tick = tick_size(mid_price);
 
-        const bool have_live = !bid_oid_.empty() || !ask_oid_.empty();
+        const bool have_live = !bid_order_id_.empty() || !ask_order_id_.empty();
         const auto now = std::chrono::steady_clock::now();
 
         // ── 재호가 게이트 ──────────────────────────────────────────────────
@@ -109,16 +109,16 @@ public:
                 return;
             }
 
-            // (b) mid 이동이 requote_move_ticks 미만 → skip (폭주 방지)
-            if (std::fabs(mid - last_mid_) < requote_move_ticks_ * tick)
+            // (b) mid_price 이동이 requote_move_ticks 미만 → skip (폭주 방지)
+            if (std::fabs(mid_price - last_mid_) < requote_move_ticks_ * tick)
             {
                 return;
             }
         }
 
         // ── 목표 견적가 (스프레드 보존: 매수 내림 / 매도 올림) ───────────────
-        const double raw_bid = mid - half_spread_ticks_ * tick;
-        const double raw_ask = mid + half_spread_ticks_ * tick;
+        const double raw_bid = mid_price - half_spread_ticks_ * tick;
+        const double raw_ask = mid_price + half_spread_ticks_ * tick;
         const double desired_bid = round_to_tick(raw_bid, OrderSide::BUY);
         const double desired_ask = round_to_tick(raw_ask, OrderSide::SELL);
 
@@ -128,25 +128,25 @@ public:
         }
 
         // ── 기존 견적 취소 (있으면) ─────────────────────────────────────────
-        if (!bid_oid_.empty())
+        if (!bid_order_id_.empty())
         {
-            out.push_back(make_cancel(bid_oid_, OrderSide::BUY));
-            bid_oid_.clear();
+            out.push_back(make_cancel(bid_order_id_, OrderSide::BUY));
+            bid_order_id_.clear();
         }
 
-        if (!ask_oid_.empty())
+        if (!ask_order_id_.empty())
         {
-            out.push_back(make_cancel(ask_oid_, OrderSide::SELL));
-            ask_oid_.clear();
+            out.push_back(make_cancel(ask_order_id_, OrderSide::SELL));
+            ask_order_id_.clear();
         }
 
         // ── 신규 양방향 지정가 ──────────────────────────────────────────────
-        bid_oid_ = next_oid("B");
-        ask_oid_ = next_oid("A");
-        out.push_back(make_new(bid_oid_, OrderSide::BUY, desired_bid));
-        out.push_back(make_new(ask_oid_, OrderSide::SELL, desired_ask));
+        bid_order_id_ = next_order_id("B");
+        ask_order_id_ = next_order_id("A");
+        out.push_back(make_new(bid_order_id_, OrderSide::BUY, desired_bid));
+        out.push_back(make_new(ask_order_id_, OrderSide::SELL, desired_ask));
 
-        last_mid_     = mid;
+        last_mid_     = mid_price;
         last_requote_ = now;
     }
 
@@ -155,29 +155,29 @@ private:
     static double tick_size(double price) { return krx::tick_size(price); }
     static double round_to_tick(double price, OrderSide side) { return krx::round_to_tick(price, side); }
 
-    std::string next_oid(const char* tag)
+    std::string next_order_id(const char* tag)
     {
-        return id() + ":" + tag + ":" + std::to_string(++seq_);
+        return id() + ":" + tag + ":" + std::to_string(++sequence_);
     }
 
-    OrderSignal make_new(const std::string& oid, OrderSide side, double price)
+    OrderSignal make_new(const std::string& order_id, OrderSide side, double price)
     {
         OrderSignal signal;
         signal.ticker      = ticker_;
         signal.symbol_id         = symbol_id_;
         signal.side        = side;
         signal.type        = OrderType::LIMIT;
-        signal.quantity    = qty_;
+        signal.quantity    = quantity_;
         signal.price       = price;
         signal.strategy_id = id();
         signal.market      = Market::KR;
         signal.action      = OrderAction::NEW;
-        signal.client_oid  = oid;
+        signal.client_order_id  = order_id;
         signal.timestamp   = std::chrono::system_clock::now();
         return signal;
     }
 
-    OrderSignal make_cancel(const std::string& orig_oid, OrderSide side)
+    OrderSignal make_cancel(const std::string& original_order_id, OrderSide side)
     {
         OrderSignal signal;
         signal.ticker         = ticker_;
@@ -188,22 +188,22 @@ private:
         signal.strategy_id    = id();
         signal.market         = Market::KR;
         signal.action         = OrderAction::CANCEL;
-        signal.orig_client_oid = orig_oid;
+        signal.original_client_order_id = original_order_id;
         signal.timestamp      = std::chrono::system_clock::now();
         return signal;
     }
 
     std::string ticker_;
     symbol::SymbolId symbol_id_ = symbol::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
-    int qty_;
+    int quantity_;
     int half_spread_ticks_;
     int requote_move_ticks_;
     std::chrono::milliseconds min_requote_;
 
     // 상태 — order_thread가 아닌 strategy_thread에서만 접근(on_order_book_batch 단일 호출자).
-    std::string bid_oid_;  // 현재 live 매수 견적 client_oid ("" = 없음/낙관)
-    std::string ask_oid_;  // 현재 live 매도 견적 client_oid
+    std::string bid_order_id_;  // 현재 live 매수 견적 client_order_id ("" = 없음/낙관)
+    std::string ask_order_id_;  // 현재 live 매도 견적 client_order_id
     double last_mid_ = 0.0;
     std::chrono::steady_clock::time_point last_requote_{};
-    uint64_t seq_ = 0;
+    uint64_t sequence_ = 0;
 };

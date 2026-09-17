@@ -34,7 +34,7 @@ static void t_byte_by_byte()
     auto bytes = ops::encode(OpsMsg::STATUS, "{\"running\":true}");
     FrameReader reader;
     Frame frame;
-    int got = 0;
+    int received = 0;
 
     for (size_t byte_index = 0; byte_index < bytes.size(); ++byte_index)
     {
@@ -42,28 +42,28 @@ static void t_byte_by_byte()
 
         while (reader.next(frame))
         {
-            ++got;
+            ++received;
             assert(frame.body == "{\"running\":true}");
         }
 
         if (byte_index + 1 < bytes.size())
         {
-            assert(got == 0);
+            assert(received == 0);
         }
     }
 
-    assert(got == 1);
+    assert(received == 1);
 }
 
 // 한 recv에 프레임 두 개 반 — 둘은 나오고 나머지 반은 다음 feed까지 기다린다.
 static void t_two_and_half()
 {
     auto ping_frame = ops::encode(OpsMsg::PING, "");
-    auto pos_frame = ops::encode(OpsMsg::POS_REQ, "{}");
+    auto position_frame = ops::encode(OpsMsg::POS_REQ, "{}");
     auto kill_frame = ops::encode(OpsMsg::KILL, "{\"x\":1}");
     std::vector<uint8_t> wire;
     wire.insert(wire.end(), ping_frame.begin(), ping_frame.end());
-    wire.insert(wire.end(), pos_frame.begin(), pos_frame.end());
+    wire.insert(wire.end(), position_frame.begin(), position_frame.end());
     wire.insert(wire.end(), kill_frame.begin(), kill_frame.begin() + 5);
 
     FrameReader reader;
@@ -113,18 +113,18 @@ static void t_oversize_rejected()
     assert(!ops::encode(OpsMsg::POSITIONS, std::string(ops::kMaxBody, 'x')).empty());
 
     // 디코더: 길이 필드만 상한 넘게 조작 — 본문을 기다리지 않고 즉시 bad
-    uint8_t hdr[8] = {'Q', 'P', ops::kVersion, 0x03, 0x00, 0x10, 0x00, 0x01};
+    uint8_t header[8] = {'Q', 'P', ops::kVersion, 0x03, 0x00, 0x10, 0x00, 0x01};
     FrameReader reader;
-    reader.feed(hdr, 8);
+    reader.feed(header, 8);
     Frame frame;
     assert(!reader.next(frame) && reader.bad());
 }
 
 static void t_names()
 {
-    assert(std::string(ops::msg_name(0x20)) == "ORDER_REQ");
-    assert(std::string(ops::msg_name(0x7F)) == "ERROR");
-    assert(std::string(ops::msg_name(0x55)) == "?");
+    assert(std::string(ops::message_name(0x20)) == "ORDER_REQ");
+    assert(std::string(ops::message_name(0x7F)) == "ERROR");
+    assert(std::string(ops::message_name(0x55)) == "?");
 }
 
 int main()

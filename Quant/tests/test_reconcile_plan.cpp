@@ -16,12 +16,12 @@ using reconcile::Row;
 
 int g_pass = 0;
 
-#define CHECK(cond)                                                                                                  \
+#define CHECK(condition)                                                                                                  \
     do                                                                                                               \
     {                                                                                                                \
-        if (!(cond))                                                                                                 \
+        if (!(condition))                                                                                                 \
         {                                                                                                            \
-            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #cond << "\n";                               \
+            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #condition << "\n";                               \
             return 1;                                                                                                \
         }                                                                                                            \
         ++g_pass;                                                                                                    \
@@ -60,14 +60,14 @@ int main()
         auto rest = reconcile::plan(ledger, broker, true, {}, "mode=REST");
         CHECK(rest.size() == 1);
         CHECK(rest[0].ticker == "005930");
-        CHECK(rest[0].ledger_qty == 10 && rest[0].broker_qty == 12);
-        CHECK(rest[0].ledger_avg == 71000.0 && rest[0].broker_avg == 71100.0);
+        CHECK(rest[0].ledger_quantity == 10 && rest[0].broker_quantity == 12);
+        CHECK(rest[0].ledger_average == 71000.0 && rest[0].broker_average == 71100.0);
         CHECK(rest[0].action == "OVERWRITE");
         CHECK(rest[0].note == "mode=REST");
 
-        auto ws = reconcile::plan(ledger, broker, false, {}, "mode=WS");
-        CHECK(ws.size() == 1);
-        CHECK(ws[0].action == "KEEP");
+        auto websocket = reconcile::plan(ledger, broker, false, {}, "mode=WS");
+        CHECK(websocket.size() == 1);
+        CHECK(websocket[0].action == "KEEP");
     }
 
     // 3) 수량은 같고 평단만 1원 이상 어긋남 → 행이 난다(체결 하나가 다른 가격으로 들어갔다는 신호).
@@ -88,15 +88,15 @@ int main()
         auto rows = reconcile::plan(ledger, broker, true, {"035420"}, "mode=REST");
         CHECK(rows.size() == 3);
         CHECK(rows[0].ticker == "068270" && rows[0].action == "OVERWRITE");
-        CHECK(rows[0].ledger_qty == 0 && rows[0].broker_qty == 2 && rows[0].ledger_avg == 0.0);
+        CHECK(rows[0].ledger_quantity == 0 && rows[0].broker_quantity == 2 && rows[0].ledger_average == 0.0);
 
-        const Row* pr = find_row(rows, "035420");
-        CHECK(pr && pr->action == "PRUNE");
-        CHECK(pr->ledger_qty == 5 && pr->broker_qty == 0 && pr->broker_avg == 0.0);
+        const Row* row_naver = find_row(rows, "035420");
+        CHECK(row_naver && row_naver->action == "PRUNE");
+        CHECK(row_naver->ledger_quantity == 5 && row_naver->broker_quantity == 0 && row_naver->broker_average == 0.0);
 
-        const Row* kp = find_row(rows, "000660");
-        CHECK(kp && kp->action == "KEEP");
-        CHECK(kp->ledger_qty == 3 && kp->broker_qty == 0);
+        const Row* kept_row = find_row(rows, "000660");
+        CHECK(kept_row && kept_row->action == "KEEP");
+        CHECK(kept_row->ledger_quantity == 3 && kept_row->broker_quantity == 0);
         CHECK(find_row(rows, "005930") == nullptr);
     }
 
@@ -106,7 +106,7 @@ int main()
         std::vector<Held> broker{{"005930", 0, 0.0}, {"", 4, 100.0}};
         auto rows = reconcile::plan(ledger, broker, false, {}, "");
         CHECK(rows.size() == 1);
-        CHECK(rows[0].ticker == "005930" && rows[0].action == "KEEP" && rows[0].broker_qty == 0);
+        CHECK(rows[0].ticker == "005930" && rows[0].action == "KEEP" && rows[0].broker_quantity == 0);
     }
 
     // 6) 원장 quantity<=0 항목은 대조 대상이 아니다.

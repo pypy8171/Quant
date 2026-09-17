@@ -1,5 +1,5 @@
 // OrderGate 단위 테스트
-// 빌드: cmake --build <dir> --target test_order_gate
+// 빌드: cmake --build <directory> --target test_order_gate
 // 실행: ./test_order_gate
 //
 // 테스트 항목:
@@ -13,7 +13,7 @@
 //   8. 중복 신호는 rate slot 소모 안 함 (C5 fix)
 //   9. SELL on_accept은 포지션 0 미만 방지 (C6 fix)
 //  17. 시장가 1주문 명목 백스톱 — BUY는 ref_price로 거부, SELL은 경고만 하고 통과,
-//      ref_price 없으면 검사 자체가 없음(게이트가 못 잡는 현행을 기록)
+//      reference_price 없으면 검사 자체가 없음(게이트가 못 잡는 현행을 기록)
 
 #include "risk/OrderGate.h"
 #include <cassert>
@@ -58,7 +58,7 @@ void test_kill_switch()
 void test_position_limit()
 {
     OrderGate::Config config;
-    config.max_qty_per_ticker = 5;
+    config.max_quantity_per_ticker = 5;
     config.max_orders_per_min = 100;
     config.max_orders_per_sec = 100;
     OrderGate gate(config);
@@ -99,7 +99,7 @@ void test_rate_limit_per_sec()
     OrderGate::Config config;
     config.max_orders_per_sec = 3;
     config.max_orders_per_min = 100;
-    config.dedup_window_sec   = 0.0; // dedup 비활성
+    config.deduplicate_window_sec   = 0.0; // deduplicate 비활성
     OrderGate gate(config);
 
     std::string reason;
@@ -119,10 +119,10 @@ void test_rate_limit_per_sec()
 }
 
 // ─── 테스트 5: 중복 신호 ─────────────────────────────────────────────────
-void test_dedup()
+void test_deduplicate()
 {
     OrderGate::Config config;
-    config.dedup_window_sec   = 2.0;
+    config.deduplicate_window_sec   = 2.0;
     config.max_orders_per_min = 100;
     config.max_orders_per_sec = 100;
     OrderGate gate(config);
@@ -141,7 +141,7 @@ void test_normal_pass()
     OrderGate::Config config;
     config.max_orders_per_min = 100;
     config.max_orders_per_sec = 100;
-    config.dedup_window_sec   = 0.0;
+    config.deduplicate_window_sec   = 0.0;
     OrderGate gate(config);
 
     std::string reason;
@@ -154,10 +154,10 @@ void test_normal_pass()
 void test_sell_bypasses_position_check()
 {
     OrderGate::Config config;
-    config.max_qty_per_ticker = 0; // BUY 완전 차단
+    config.max_quantity_per_ticker = 0; // BUY 완전 차단
     config.max_orders_per_min = 100;
     config.max_orders_per_sec = 100;
-    config.dedup_window_sec   = 0.0;
+    config.deduplicate_window_sec   = 0.0;
     OrderGate gate(config);
 
     std::string reason;
@@ -167,12 +167,12 @@ void test_sell_bypasses_position_check()
 }
 
 // ─── 테스트 8: 중복 신호는 rate slot 소모 안 함 (C5 fix) ─────────────────
-void test_dedup_does_not_consume_rate_slot()
+void test_deduplicate_does_not_consume_rate_slot()
 {
     OrderGate::Config config;
     config.max_orders_per_sec = 2;   // 초당 2건 허용
     config.max_orders_per_min = 100;
-    config.dedup_window_sec   = 10.0; // 10초 dedup
+    config.deduplicate_window_sec   = 10.0; // 10초 deduplicate
     OrderGate gate(config);
 
     std::string reason;
@@ -181,7 +181,7 @@ void test_dedup_does_not_consume_rate_slot()
     // 첫 번째 통과 (rate slot 1 소모)
     assert(gate.check(signal, reason));
 
-    // 두 번째: dedup 차단 — rate slot 소모 없어야 함
+    // 두 번째: deduplicate 차단 — rate slot 소모 없어야 함
     assert(!gate.check(signal, reason));
     assert(reason.find("중복") != std::string::npos);
 
@@ -200,7 +200,7 @@ void test_sell_clamps_position_at_zero()
     OrderGate::Config config;
     config.max_orders_per_min = 100;
     config.max_orders_per_sec = 100;
-    config.dedup_window_sec   = 0.0;
+    config.deduplicate_window_sec   = 0.0;
     OrderGate gate(config);
 
     // BUY 2주 접수→체결 → 실보유 2, 선점 해제
@@ -218,28 +218,28 @@ void test_sell_clamps_position_at_zero()
 
 // ─── 테스트 10: 부분체결 평단 정확성 (C2/C4 fix) ───────────────────────────
 //   on_accept 선점값이 아니라 실체결 수량으로 평단을 계산해야 함
-void test_partial_fill_avg_price()
+void test_partial_fill_average_price()
 {
     OrderGate::Config config;
-    config.max_qty_per_ticker = 100;
+    config.max_quantity_per_ticker = 100;
     config.max_orders_per_min = 100;
     config.max_orders_per_sec = 100;
-    config.dedup_window_sec   = 0.0;
+    config.deduplicate_window_sec   = 0.0;
     OrderGate gate(config);
 
     gate.on_accept("005930", OrderSide::BUY, 10, 1000.0); // 선점 10
     assert(gate.reserved("005930") == 10);
 
     // 5주 부분체결 @1000 → 평단 1000 (구버그라면 분모=선점10 → 500)
-    auto r1 = gate.on_fill_confirmed("005930", OrderSide::BUY, 5, 1000.0);
-    assert(r1.net_qty == 5);
-    assert(r1.average_price > 999.9 && r1.average_price < 1000.1);
+    auto fill_a = gate.on_fill_confirmed("005930", OrderSide::BUY, 5, 1000.0);
+    assert(fill_a.net_quantity == 5);
+    assert(fill_a.average_price > 999.9 && fill_a.average_price < 1000.1);
     assert(gate.reserved("005930") == 5); // 체결분만큼 선점 해제
 
     // 나머지 5주 체결 @1100 → 평단 (5*1000 + 5*1100)/10 = 1050
-    auto r2 = gate.on_fill_confirmed("005930", OrderSide::BUY, 5, 1100.0);
-    assert(r2.net_qty == 10);
-    assert(r2.average_price > 1049.9 && r2.average_price < 1050.1);
+    auto fill_b = gate.on_fill_confirmed("005930", OrderSide::BUY, 5, 1100.0);
+    assert(fill_b.net_quantity == 10);
+    assert(fill_b.average_price > 1049.9 && fill_b.average_price < 1050.1);
     assert(gate.position("005930") == 10);
     assert(gate.reserved("005930") == 0); // 선점 전부 해제
     PASS("partial_fill_avg_price");
@@ -248,11 +248,11 @@ void test_partial_fill_avg_price()
 // ─── 교체 진입 ───────────────────────────────────────────────────────────
 //  슬롯이 꽉 찬 뒤에도 더 높은 점수가 오면 최약체를 비운다. 비우지 못하는 조건들(격차 부족,
 //  최소 보유 미달, 점수 미상)이 실제로 막는지도 같이 본다.
-static OrderGate::Config displace_cfg()
+static OrderGate::Config displace_config()
 {
     OrderGate::Config config;
     config.max_concurrent_positions = 2;
-    config.max_qty_per_ticker       = 1000;
+    config.max_quantity_per_ticker       = 1000;
     config.max_orders_per_min       = 1000;
     config.max_orders_per_sec       = 1000;
     config.displace_enabled         = true;
@@ -263,7 +263,7 @@ static OrderGate::Config displace_cfg()
 
 void test_displace_picks_weakest()
 {
-    OrderGate gate(displace_cfg());
+    OrderGate gate(displace_config());
     gate.seed_position("", "A", 10, 1000.0);
     gate.seed_position("", "B", 10, 1000.0);
     gate.set_entry_priority({{"A", 1}, {"B", 2}, {"C", 3}},
@@ -279,7 +279,7 @@ void test_displace_picks_weakest()
 
 void test_displace_needs_score_gap()
 {
-    OrderGate gate(displace_cfg());
+    OrderGate gate(displace_config());
     gate.seed_position("", "A", 10, 1000.0);
     gate.seed_position("", "B", 10, 1000.0);
     // C가 B보다 0.3σ 높을 뿐 — 임계 0.5σ 미달이라 교체하지 않는다.
@@ -291,7 +291,7 @@ void test_displace_needs_score_gap()
 
 void test_displace_skips_unscored_holdings()
 {
-    OrderGate gate(displace_cfg());
+    OrderGate gate(displace_config());
     gate.seed_position("", "A", 10, 1000.0);  // 점수 있음
     gate.seed_position("", "Z", 10, 1000.0);  // 점수 없음(청산 관리 보유분)
     gate.set_entry_priority({{"A", 1}, {"C", 2}}, {{"A", 1.2}, {"C", 1.9}}, 2);
@@ -304,7 +304,7 @@ void test_displace_skips_unscored_holdings()
 
 void test_displace_min_hold_blocks()
 {
-    auto config = displace_cfg();
+    auto config = displace_config();
     config.displace_min_hold_sec = 3600; // 방금 산 종목은 못 뺀다
     OrderGate gate(config);
     std::string reason;
@@ -325,7 +325,7 @@ void test_displace_min_hold_blocks()
 
 void test_displace_reserves_slot_and_cooldown()
 {
-    OrderGate gate(displace_cfg());
+    OrderGate gate(displace_config());
     gate.seed_position("", "A", 10, 1000.0);
     gate.seed_position("", "B", 10, 1000.0);
     gate.set_entry_priority({{"A", 1}, {"B", 2}, {"C", 3}, {"D", 4}},
@@ -341,17 +341,17 @@ void test_displace_reserves_slot_and_cooldown()
 
     std::string reason;
     // 밀려난 B는 쿨다운으로 재진입 불가.
-    auto sb = make_signal("B", OrderSide::BUY, 1);
-    assert(!gate.check(sb, reason));
+    auto buy_sell_code = make_signal("B", OrderSide::BUY, 1);
+    assert(!gate.check(buy_sell_code, reason));
     assert(reason.find("쿨다운") != std::string::npos);
 
     // 비운 자리는 D가 아니라 C의 것이다.
-    auto sd = make_signal("D", OrderSide::BUY, 1);
-    assert(!gate.check(sd, reason));
+    auto signal_d = make_signal("D", OrderSide::BUY, 1);
+    assert(!gate.check(signal_d, reason));
     assert(reason.find("예약") != std::string::npos);
 
-    auto sc = make_signal("C", OrderSide::BUY, 1);
-    assert(gate.check(sc, reason));
+    auto signal_c = make_signal("C", OrderSide::BUY, 1);
+    assert(gate.check(signal_c, reason));
 
     // C가 자리를 가져갔으므로 예약은 풀린다.
     gate.on_fill_confirmed("", "C", OrderSide::BUY, 1, 1000.0);
@@ -360,7 +360,7 @@ void test_displace_reserves_slot_and_cooldown()
 
 void test_displace_daily_cap()
 {
-    auto config = displace_cfg();
+    auto config = displace_config();
     config.displace_max_per_day = 1;
     config.displace_slot_hold_sec = 0; // 슬롯 예약이 아니라 횟수 상한이 막는지를 본다
     OrderGate gate(config);
@@ -368,16 +368,16 @@ void test_displace_daily_cap()
     gate.seed_position("", "B", 10, 1000.0);
     gate.set_entry_priority({{"A", 1}, {"B", 2}, {"C", 3}},
                             {{"A", 0.9}, {"B", -0.8}, {"C", 1.5}}, 3);
-    auto p1 = gate.plan_displacement("", "C");
-    assert(p1.ok);
-    gate.note_displacement(p1, "C");
+    auto plan_a = gate.plan_displacement("", "C");
+    assert(plan_a.ok);
+    gate.note_displacement(plan_a, "C");
     assert(!gate.plan_displacement("", "C").ok); // 하루 1회 소진
     PASS("displace_daily_cap");
 }
 
 void test_entry_snapshot_matches_separate_calls()
 {
-    auto config = displace_cfg();
+    auto config = displace_config();
     config.max_concurrent_positions = 2;
     OrderGate gate(config);
     gate.seed_position("", "A", 10, 1000.0);
@@ -395,33 +395,33 @@ void test_entry_snapshot_matches_separate_calls()
     PASS("entry_snapshot_matches_separate_calls");
 }
 
-// ─── 테스트 17: 시장가 명목 백스톱과 ref_price ────────────────────────────
+// ─── 테스트 17: 시장가 명목 백스톱과 reference_price ────────────────────────────
 //   시장가는 price=0이라 eval_px가 ref_price로 떨어진다. 전략이 ref_price를 안 찍으면
 //   명목 검사 자체가 건너뛰어진다(현 설계). SELL은 청산 계열이라 초과해도 통과시킨다.
-static OrderSignal make_market(OrderSide side, int quantity, double ref_price)
+static OrderSignal make_market(OrderSide side, int quantity, double reference_price)
 {
     auto signal = make_signal("005930", side, quantity);
     signal.type      = OrderType::MARKET;
     signal.price     = 0.0;
-    signal.ref_price = ref_price;
+    signal.reference_price = reference_price;
     return signal;
 }
 
-static OrderGate::Config notional_cfg()
+static OrderGate::Config notional_config()
 {
     OrderGate::Config config;
     config.max_orders_per_min = 100;
     config.max_orders_per_sec = 100;
-    config.dedup_window_sec   = 0.0;
-    config.max_qty_per_ticker = 100'000;
-    config.max_qty_per_order  = 10'000;
+    config.deduplicate_window_sec   = 0.0;
+    config.max_quantity_per_ticker = 100'000;
+    config.max_quantity_per_order  = 10'000;
     config.max_notional_per_order = 50'000'000.0;
     return config;
 }
 
-void test_market_sell_ref_price_notional()
+void test_market_sell_reference_price_notional()
 {
-    OrderGate gate(notional_cfg());
+    OrderGate gate(notional_config());
     std::string reason;
     // 1,000주 × 100,000원 = 1억 > 5천만. SELL(청산)은 통과, BUY는 거부.
     assert(gate.check(make_market(OrderSide::SELL, 1000, 100000.0), reason));
@@ -432,11 +432,11 @@ void test_market_sell_ref_price_notional()
     PASS("market_sell_ref_price_notional");
 }
 
-void test_market_sell_without_ref_price_bypasses_notional()
+void test_market_sell_without_reference_price_bypasses_notional()
 {
-    OrderGate gate(notional_cfg());
+    OrderGate gate(notional_config());
     std::string reason;
-    // price=0, ref_price=0 → 평가가가 없어 명목 검사를 건너뛴다(수량 한도만). BUY도 통과가 현행이다.
+    // price=0, reference_price=0 → 평가가가 없어 명목 검사를 건너뛴다(수량 한도만). BUY도 통과가 현행이다.
     assert(gate.check(make_market(OrderSide::SELL, 1000, 0.0), reason));
     assert(gate.check(make_market(OrderSide::BUY, 1000, 0.0), reason));
     // 수량 한도는 여전히 산다
@@ -455,14 +455,14 @@ int main()
     test_position_limit();
     test_daily_loss_limit();
     test_rate_limit_per_sec();
-    test_dedup();
+    test_deduplicate();
     test_normal_pass();
     test_sell_bypasses_position_check();
-    test_dedup_does_not_consume_rate_slot();
+    test_deduplicate_does_not_consume_rate_slot();
     test_sell_clamps_position_at_zero();
-    test_partial_fill_avg_price();
-    test_market_sell_ref_price_notional();
-    test_market_sell_without_ref_price_bypasses_notional();
+    test_partial_fill_average_price();
+    test_market_sell_reference_price_notional();
+    test_market_sell_without_reference_price_bypasses_notional();
     test_displace_picks_weakest();
     test_displace_needs_score_gap();
     test_displace_skips_unscored_holdings();

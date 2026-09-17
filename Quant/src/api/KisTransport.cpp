@@ -1,6 +1,6 @@
 // api/KisTransport.cpp — HTTP 전송 한 겹: 플랫폼별 요청(WinHTTP/libcurl)·재시도·초당 한도·공용 인증 헤더.
-//  모든 REST 호출은 http_get/http_post를 지난다. 스레드 공용(연결은 스레드별 캐시, 한도 버킷은 rate_mtx_).
-//  KisClient 구현은 도메인별 7파일이다 — 목록은 Quant/src/api/KisClientInternal.h. [why D-048]
+//  모든 REST 호출은 http_get/http_post를 지난다. 스레드 공용(연결은 스레드별 캐시, 한도 버킷은 rate_mutex_).
+//  KisClient 구현은 도메인별 7파일이다 — 목록은 Quant/source/api/KisClientInternal.h. [why D-048]
 #include "KisClientInternal.h"
 
 // 재시도 없이 즉시 실패 스코프 깊이(스레드별). 0보다 크면 조회 재시도를 하지 않는다.
@@ -30,9 +30,9 @@ static std::wstring to_wstring(const std::string& text)
     }
 
     int count = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
-    std::wstring word(count - 1, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, &word[0], count);
-    return word;
+    std::wstring wide_text(count - 1, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, &wide_text[0], count);
+    return wide_text;
 }
 
 struct WinHttpResult
@@ -46,25 +46,25 @@ struct WinHttpResult
 static WinHttpResult crack_url(const std::string& url)
 {
     WinHttpResult win_http_result{};
-    std::wstring wurl = to_wstring(url);
+    std::wstring wide_url = to_wstring(url);
     wchar_t host[512]{}, path[4096]{};
-    URL_COMPONENTS uc{};
-    uc.dwStructSize = sizeof(uc);
-    uc.lpszHostName = host;
-    uc.dwHostNameLength = (DWORD)std::size(host);
-    uc.lpszUrlPath = path;
-    uc.dwUrlPathLength = (DWORD)std::size(path);
-    WinHttpCrackUrl(wurl.c_str(), 0, 0, &uc);
+    URL_COMPONENTS url_components{};
+    url_components.dwStructSize = sizeof(url_components);
+    url_components.lpszHostName = host;
+    url_components.dwHostNameLength = (DWORD)std::size(host);
+    url_components.lpszUrlPath = path;
+    url_components.dwUrlPathLength = (DWORD)std::size(path);
+    WinHttpCrackUrl(wide_url.c_str(), 0, 0, &url_components);
     win_http_result.host = host;
     win_http_result.path = path;
-    win_http_result.port = uc.nPort;
-    win_http_result.https = (uc.nScheme == INTERNET_SCHEME_HTTPS);
+    win_http_result.port = url_components.nPort;
+    win_http_result.https = (url_components.nScheme == INTERNET_SCHEME_HTTPS);
     return win_http_result;
 }
 
 // ─── 커넥션 풀(P-2): 스레드별 WinHTTP 세션·연결 상주로 keep-alive 재사용 ────────
-//  매 호출 hSession/hConnect를 새로 열면 주문·조회마다 TCP+TLS 핸드셰이크를 재지불한다.
-//  hSession·hConnect를 thread_local로 상주시키고 hReq만 매번 생성한다. WINHTTP_DISABLE_KEEP_ALIVE를
+//  매 호출 session_handle/hConnect를 새로 열면 주문·조회마다 TCP+TLS 핸드셰이크를 재지불한다.
+//  session_handle·hConnect를 thread_local로 상주시키고 hReq만 매번 생성한다. WINHTTP_DISABLE_KEEP_ALIVE를
 //  걸지 않으므로 WinHTTP가 기저 TCP+TLS 연결을 keep-alive 풀에서 재사용한다.
 //  스레드별 소유라 락이 없다(SPSC 파이프라인과 같은 기조: data·order 스레드가 각자 warm 연결을 가짐).
 //  전송 계층 실패 시 캐시를 파기해 다음 호출이 새 연결을 맺는다(끊긴 keep-alive 복구).
@@ -98,7 +98,7 @@ struct WinHttpConn
 };
 
 // 스레드별 상주 연결. 호스트/포트가 바뀌면(현재는 사실상 단일 호스트라 최초 1회) 재수립한다.
-static thread_local WinHttpConn t_conn;
+static thread_local WinHttpConn thread_connection;
 
 // 풀링 해제 스위치. 환경변수 QUANT_HTTP_NOPOOL=1이면 매 요청 뒤 상주 연결을 파기해
 // 풀링 도입 전(요청마다 TCP+TLS 재수립) 거동을 그대로 재현한다. 측정용으로만 쓴다 —
@@ -112,45 +112,45 @@ static bool http_nopool()
     return disabled;
 }
 
-// (host,port)에 대한 상주 hConnect 확보. 실패 시 nullptr.
+// (host,port)에 대한 상주 connect_handle 확보. 실패 시 nullptr.
 static HINTERNET acquire_connection(const WinHttpResult& win_http_result)
 {
-    if (t_conn.session && t_conn.connect && t_conn.host == win_http_result.host && t_conn.port == win_http_result.port)
+    if (thread_connection.session && thread_connection.connect && thread_connection.host == win_http_result.host && thread_connection.port == win_http_result.port)
     {
-        return t_conn.connect; // 워밍된 연결 재사용
+        return thread_connection.connect; // 워밍된 연결 재사용
     }
 
-    t_conn.reset(); // 최초 or 호스트 변경 → 재수립
+    thread_connection.reset(); // 최초 or 호스트 변경 → 재수립
 
-    t_conn.session = WinHttpOpen(L"QuantTrader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
+    thread_connection.session = WinHttpOpen(L"QuantTrader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
                                  WINHTTP_NO_PROXY_BYPASS, 0);
 
-    if (!t_conn.session)
+    if (!thread_connection.session)
     {
         return nullptr;
     }
 
-    // 명시적 타임아웃(ms): resolve/connect/send/receive. 기본값(무한대급)에서 하향해
+    // 명시적 타임아웃(milliseconds): resolve/connect/send/receive. 기본값(무한대급)에서 하향해
     // 전송 계층 히컵이 스레드를 오래 잡지 않게 한다.
-    WinHttpSetTimeouts(t_conn.session, 5000, 5000, 10000, 15000);
+    WinHttpSetTimeouts(thread_connection.session, 5000, 5000, 10000, 15000);
 
-    t_conn.connect = WinHttpConnect(t_conn.session, win_http_result.host.c_str(), win_http_result.port, 0);
+    thread_connection.connect = WinHttpConnect(thread_connection.session, win_http_result.host.c_str(), win_http_result.port, 0);
 
-    if (!t_conn.connect)
+    if (!thread_connection.connect)
     {
-        t_conn.reset();
+        thread_connection.reset();
         return nullptr;
     }
 
-    t_conn.host = win_http_result.host;
-    t_conn.port = win_http_result.port;
-    return t_conn.connect;
+    thread_connection.host = win_http_result.host;
+    thread_connection.port = win_http_result.port;
+    return thread_connection.connect;
 }
 } // namespace
 
 // 단발 시도. transport_ok = HTTP 응답을 실제로 받았는가(상태코드 무관, 4xx/5xx도 true).
 //  false = 전송 계층 실패(핸들 생성/SendRequest/ReceiveResponse 실패 — 예: 12152). 이때만 재시도 대상.
-//  hSession/hConnect는 상주(keep-alive)라 매 호출 hReq만 열고 닫는다. 전송 실패 시 상주 연결을 파기한다.
+//  session_handle/hConnect는 상주(keep-alive)라 매 호출 hReq만 열고 닫는다. 전송 실패 시 상주 연결을 파기한다.
 static std::string winhttp_request_once(const std::string& method, const std::string& url,
                                         const std::vector<std::string>& headers, const std::string& body,
                                         bool& transport_ok, int& status_code)
@@ -159,51 +159,51 @@ static std::string winhttp_request_once(const std::string& method, const std::st
     status_code = 0;
     auto other_crack_url = crack_url(url);
 
-    HINTERNET hConnect = acquire_connection(other_crack_url);
+    HINTERNET connect_handle = acquire_connection(other_crack_url);
 
-    if (!hConnect)
+    if (!connect_handle)
     {
         return "";
     }
 
     DWORD flags = other_crack_url.https ? WINHTTP_FLAG_SECURE : 0;
-    HINTERNET hReq = WinHttpOpenRequest(hConnect, to_wstring(method).c_str(), other_crack_url.path.c_str(), nullptr,
+    HINTERNET request_handle = WinHttpOpenRequest(connect_handle, to_wstring(method).c_str(), other_crack_url.path.c_str(), nullptr,
                                         WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
 
-    if (!hReq)
+    if (!request_handle)
     {
-        t_conn.reset(); // 상주 연결이 상해 있을 수 있음 → 파기, 다음 호출서 재수립
+        thread_connection.reset(); // 상주 연결이 상해 있을 수 있음 → 파기, 다음 호출서 재수립
         return "";
     }
 
     for (auto& header : headers)
     {
         auto wh = to_wstring(header + "\r\n");
-        WinHttpAddRequestHeaders(hReq, wh.c_str(), (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
+        WinHttpAddRequestHeaders(request_handle, wh.c_str(), (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
     }
 
     LPVOID pBody = body.empty() ? nullptr : (LPVOID)body.c_str();
     DWORD cbBody = (DWORD)body.size();
 
-    if (!WinHttpSendRequest(hReq, WINHTTP_NO_ADDITIONAL_HEADERS, 0, pBody, cbBody, cbBody, 0))
+    if (!WinHttpSendRequest(request_handle, WINHTTP_NO_ADDITIONAL_HEADERS, 0, pBody, cbBody, cbBody, 0))
     {
         DWORD error = GetLastError();
         char errbuf[128];
         snprintf(errbuf, sizeof(errbuf), "[WinHTTP] SendRequest 실패: %lu", error);
         LOG_ERROR(std::string(errbuf) + "  url=" + url);
-        WinHttpCloseHandle(hReq);
-        t_conn.reset(); // 끊긴 keep-alive 가능 → 파기 후 재수립(GET이면 래퍼가 재시도)
+        WinHttpCloseHandle(request_handle);
+        thread_connection.reset(); // 끊긴 keep-alive 가능 → 파기 후 재수립(GET이면 래퍼가 재시도)
         return "";
     }
 
-    if (!WinHttpReceiveResponse(hReq, nullptr))
+    if (!WinHttpReceiveResponse(request_handle, nullptr))
     {
         DWORD error = GetLastError();
         char errbuf[128];
         snprintf(errbuf, sizeof(errbuf), "[WinHTTP] ReceiveResponse 실패: %lu", error);
         LOG_ERROR(std::string(errbuf) + "  url=" + url);
-        WinHttpCloseHandle(hReq);
-        t_conn.reset();
+        WinHttpCloseHandle(request_handle);
+        thread_connection.reset();
         return "";
     }
 
@@ -212,7 +212,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
 
     // HTTP 상태 코드 확인 (4xx/5xx도 body를 읽어야 함)
     DWORD statusCode = 0, statusSize = sizeof(statusCode);
-    WinHttpQueryHeaders(hReq, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
+    WinHttpQueryHeaders(request_handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
                         &statusCode, &statusSize, WINHTTP_NO_HEADER_INDEX);
     status_code = static_cast<int>(statusCode);
 
@@ -226,19 +226,19 @@ static std::string winhttp_request_once(const std::string& method, const std::st
     std::string response;
     DWORD avail = 0;
 
-    while (WinHttpQueryDataAvailable(hReq, &avail) && avail > 0)
+    while (WinHttpQueryDataAvailable(request_handle, &avail) && avail > 0)
     {
         std::string chunk(avail, '\0');
         DWORD read = 0;
-        WinHttpReadData(hReq, &chunk[0], avail, &read);
+        WinHttpReadData(request_handle, &chunk[0], avail, &read);
         response.append(chunk, 0, read);
     }
 
-    WinHttpCloseHandle(hReq); // hReq만 닫는다. hConnect/hSession은 상주(keep-alive 재사용).
+    WinHttpCloseHandle(request_handle); // hReq만 닫는다. connect_handle/hSession은 상주(keep-alive 재사용).
 
     if (http_nopool())
     {
-        t_conn.reset(); // 측정용 스위치 — 풀링 도입 전 거동(요청마다 재수립) 재현
+        thread_connection.reset(); // 측정용 스위치 — 풀링 도입 전 거동(요청마다 재수립) 재현
     }
 
     return response;
@@ -307,9 +307,9 @@ static std::string winhttp_request(const std::string& method, const std::string&
 // ─── Linux: libcurl ────────────────────────────────────────────────────────
 #include <curl/curl.h>
 
-static size_t write_callback(char* ptr, size_t size, size_t nmemb, std::string* data)
+static size_t write_callback(char* pointer, size_t size, size_t nmemb, std::string* data)
 {
-    data->append(ptr, size * nmemb);
+    data->append(pointer, size * nmemb);
     return size * nmemb;
 }
 
@@ -348,11 +348,11 @@ static std::string curl_request_once(const std::string& method, const std::strin
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
     }
 
-    CURLcode rc = curl_easy_perform(curl);
+    CURLcode result_code = curl_easy_perform(curl);
 
-    if (rc != CURLE_OK)
+    if (result_code != CURLE_OK)
     {
-        LOG_ERROR(std::string("[CURL] 요청 실패: ") + curl_easy_strerror(rc));
+        LOG_ERROR(std::string("[CURL] 요청 실패: ") + curl_easy_strerror(result_code));
     }
     else
     {
@@ -442,7 +442,7 @@ void KisClient::rate_limit_acquire(const std::string& url)
     {
         double wait_sec = 0.0;
         {
-            std::lock_guard<std::mutex> lock(rate_mtx_);
+            std::lock_guard<std::mutex> lock(rate_mutex_);
             auto now = std::chrono::steady_clock::now();
 
             if (rate_last_.time_since_epoch().count() == 0)
@@ -477,20 +477,20 @@ void KisClient::rate_limit_acquire(const std::string& url)
 
 void KisClient::note_rate_limited()
 {
-    std::lock_guard<std::mutex> lock(rate_mtx_);
+    std::lock_guard<std::mutex> lock(rate_mutex_);
     rate_tokens_ = 0.0; // 다음 호출은 리필을 기다린다(≈1초치)
 }
 
 // 헤더 목록의 authorization 줄을 지금 토큰으로 덮어쓴다. 호출자들은 헤더를 먼저 조립하고
 //  http_get/http_post가 그 뒤에 ensure_authenticated()를 부르므로, 갱신이 일어난 요청은 옛 토큰
 //  (기동 직후 첫 호출이면 빈 토큰)으로 나간다. authorization 줄이 없는 헤더(oauth2)는 그대로 둔다.
-static void kis_stamp_bearer(std::vector<std::string>& headers, const std::string& tok)
+static void kis_stamp_bearer(std::vector<std::string>& headers, const std::string& token)
 {
     for (auto& header : headers)
     {
         if (header.starts_with("authorization:") || header.starts_with("Authorization:"))
         {
-            header = "authorization: Bearer " + tok;
+            header = "authorization: Bearer " + token;
             return;
         }
     }
@@ -568,7 +568,7 @@ std::string KisClient::http_post(const std::string& url, const std::vector<std::
 
 // 공용 인증 헤더 — bearer·appkey·appsecret·tr_id 네 줄에 호출별 항목을 더한다.
 //  bearer는 http_get/http_post가 ensure_authenticated 뒤 최신 토큰으로 다시 찍는다(kis_stamp_bearer).
-std::vector<std::string> KisClient::auth_headers(const std::string& transaction_id,
+std::vector<std::string> KisClient::authentication_headers(const std::string& transaction_id,
                                                  std::initializer_list<std::string> extra) const
 {
     std::vector<std::string> parts = {"authorization: Bearer " + token(), "appkey: " + config_.app_key,

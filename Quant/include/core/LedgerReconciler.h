@@ -139,9 +139,9 @@ public:
     void set_name_sink(NameSink name_sink) { name_sink_ = std::move(name_sink); }
     void set_reconcile_sink(ReconcileSink reconcile_sink) { reconcile_sink_ = std::move(reconcile_sink); }
     void set_account_no(std::string account) { account_no_ = std::move(account); }
-    void set_baseline_dir(std::filesystem::path dir) { baseline_dir_ = std::move(dir); }
+    void set_baseline_directory(std::filesystem::path directory) { baseline_directory_ = std::move(directory); }
     void set_prune_age_sec(int prune_age_sec) { prune_age_sec_ = prune_age_sec; }
-    void set_post_fill_defer(int sec, int max_sec) { post_fill_defer_sec_ = sec; post_fill_defer_max_sec_ = max_sec; }
+    void set_post_fill_defer(int seconds, int max_sec) { post_fill_defer_sec_ = seconds; post_fill_defer_max_sec_ = max_sec; }
 
     // 체결통보 시각. 체결 소비 스레드가 부르고 reconcile(제어 스레드)이 읽는다 — 이 값만 원자적이다.
     void note_fill(std::time_t now_utc) { last_fill_utc_.store(static_cast<long long>(now_utc), std::memory_order_relaxed); }
@@ -168,14 +168,14 @@ public:
 
 private:
     void resync_holdings(const AccountBalance& balance, bool resync_positions);
-    void capture_baseline(double tot_eval, std::optional<double> prev_day_total, std::time_t now_utc);
+    void capture_baseline(double total_evaluation, std::optional<double> previous_day_total, std::time_t now_utc);
 
     OrderGate&    gate_;
     FetchBalance  fetch_;
     NameSink      name_sink_;
     ReconcileSink reconcile_sink_;
     std::string   account_no_;
-    std::filesystem::path baseline_dir_;      // 비어 있으면 기준선을 영속하지 않는다(시험용)
+    std::filesystem::path baseline_directory_;      // 비어 있으면 기준선을 영속하지 않는다(시험용)
     int    prune_age_sec_ = ledger::kPrunePositionAgeSec;
     int    post_fill_defer_sec_     = ledger::kPostFillDeferSec;
     int    post_fill_defer_max_sec_ = ledger::kPostFillDeferMaxSec;

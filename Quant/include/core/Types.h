@@ -33,7 +33,7 @@ struct WatchSpec
 // ─────────────────────────────────────────────────────────────────────────────
 struct MarketData
 {
-    symbol::Ticker ticker; // 고정 배열 — 링을 memcpy로 지난다. 문자열은 ticker.str(). [why D-071]
+    symbol::Ticker ticker; // 고정 배열 — 링을 memcpy로 지난다. 문자열은 ticker.string(). [why D-071]
     double close = 0.0;
     double open = 0.0;
     double high = 0.0;
@@ -82,8 +82,8 @@ enum class OrderType
 
 // 주문 생명주기 액션 (MM-1) — 기본 NEW로 기존 전략 무변경.
 //   NEW     : 신규 주문 (기존 경로)
-//   CANCEL  : orig_client_oid 대상 미체결 취소 (order-rvsecncl, 취소)
-//   REPLACE : orig_client_oid 대상 정정 (order-rvsecncl, 정정 — cancel-replace 단일 콜)
+//   CANCEL  : original_client_order_id 대상 미체결 취소 (order-rvsecncl, 취소)
+//   REPLACE : original_client_order_id 대상 정정 (order-rvsecncl, 정정 — cancel-replace 단일 콜)
 enum class OrderAction
 {
     NEW,
@@ -95,7 +95,7 @@ struct OrderSignal
 {
     std::string ticker;
     // 종목 id. 전략 스레드가 신호를 큐에 넣기 전에 ticker로 찍는다(emit_from). 0이면 배선이 빠진 경로.
-    //  남은 문자열(ticker·strategy_id·client_oid·reason)은 신호가 틱보다 훨씬 드물고 KIS 전문·원장 CSV가
+    //  남은 문자열(ticker·strategy_id·client_order_id·reason)은 신호가 틱보다 훨씬 드물고 KIS 전문·원장 CSV가
     //  문자열을 요구해 그대로 둔다 — 링 복사 비용은 test_strategy_router 5번이 잰다. [why D-071]
     symbol::SymbolId symbol_id = symbol::kNone;
     OrderSide side = OrderSide::NONE;
@@ -105,7 +105,7 @@ struct OrderSignal
     // 시장가(price=0) 주문의 명목 한도 평가용 참조가(직전 현재가/최우선호가). 기본 0=미지정.
     // 지정가는 price로 명목을 평가하지만 시장가는 price가 0이라, 이 값이 없으면 명목 백스톱이
     // 우회된다(특히 급락장 강제청산의 시장가 전량매도). 발주 측이 마지막 체결가를 stamp한다.
-    double ref_price = 0.0;
+    double reference_price = 0.0;
     std::string strategy_id;
     Market market = Market::KR;
     std::string exchange; // US only: "NAS", "NYS"
@@ -114,15 +114,15 @@ struct OrderSignal
 
     // ── 주문 생명주기 관리 (MM-1) — 전부 기본값, 비파괴 확장 ─────────────────
     OrderAction action = OrderAction::NEW; // 기본 NEW라 기존 전략은 이 필드를 몰라도 동일 동작
-    std::string client_oid;                // 전략이 부여하는 주문 식별자 (취소/정정 추적용)
-    std::string orig_client_oid;           // CANCEL/REPLACE 대상 원주문 client_oid
+    std::string client_order_id;                // 전략이 부여하는 주문 식별자 (취소/정정 추적용)
+    std::string original_client_order_id;           // CANCEL/REPLACE 대상 원주문 client_order_id
 
     // ── 판단 근거 (G4) — 비파괴 확장, 기본 빈값 ──────────────────────────────
     // 전략이 이 신호를 낸 "이유"(충족된 지표·조건 요약). 신호와 한 레코드로 영속되어
     // 로그 타임라인 재구성 없이 "왜 샀나"를 조인 가능. reject_reason(거부사유)과 별개.
     std::string reason;
 
-    // ── 구간 시각 (steady_clock ns, 0=안 찍음) — 틱 수신·신호 생성 시각. 주문 스레드가 pop·완료 시각을 더해
+    // ── 구간 시각 (steady_clock nanoseconds, 0=안 찍음) — 틱 수신·신호 생성 시각. 주문 스레드가 pop·완료 시각을 더해
     //  logs/latency_trace.csv 한 줄로 남긴다(core/LatencyTrace.h). [why D-071]
     int64_t tick_at_ns   = 0;
     int64_t signal_at_ns = 0;
@@ -155,13 +155,13 @@ struct OrderBookLevel
 
 struct OrderBook
 {
-    symbol::Ticker   ticker;           // 고정 배열 — 링을 memcpy로 지난다. 문자열은 ticker.str(). [why D-071]
+    symbol::Ticker   ticker;           // 고정 배열 — 링을 memcpy로 지난다. 문자열은 ticker.string(). [why D-071]
     symbol::SymbolId symbol_id = symbol::kNone; // 수신 스레드가 SymbolTable로 찍는다. 0이면 배선이 빠진 경로. [why D-071]
     int32_t       hhmmss = 0;       // KST 호가 시각 정수(093001 → 93001). 0이면 모름. 디코더가 한 번 파싱한다. [why D-071]
     OrderBookLevel asks[5];
     OrderBookLevel bids[5];
     std::chrono::system_clock::time_point timestamp;
-    // 수신 스레드가 디코드 직후 찍는 steady_clock ns. 체결(TradeData.received_ns)과 같은 시계라 채널이 달라도 도착 순서를
+    // 수신 스레드가 디코드 직후 찍는 steady_clock nanoseconds. 체결(TradeData.received_ns)과 같은 시계라 채널이 달라도 도착 순서를
     //  하나로 되돌릴 수 있다. 0은 "안 찍음". [why D-071]
     int64_t received_ns = 0;
 };
@@ -171,7 +171,7 @@ struct OrderBook
 // ─────────────────────────────────────────────────────────────────────────────
 struct TradeData
 {
-    symbol::Ticker   ticker;           // 고정 배열 — 링을 memcpy로 지난다. 문자열은 ticker.str(). [why D-071]
+    symbol::Ticker   ticker;           // 고정 배열 — 링을 memcpy로 지난다. 문자열은 ticker.string(). [why D-071]
     symbol::SymbolId symbol_id = symbol::kNone; // 수신·폴러 스레드가 SymbolTable로 찍는다. 0이면 배선이 빠진 경로. [why D-071]
     int32_t       hhmmss = 0;       // KST 체결 시각 정수(093001 → 93001). 0이면 모름. 디코더가 한 번 파싱한다. [why D-071]
     double price = 0.0;
@@ -182,7 +182,7 @@ struct TradeData
     // 아래 둘은 국내 현물 체결(H0STCNT0)에만 있다. REST 폴링·선물·미국 틱은 0.
     double  strength = 0.0;   // 체결강도(CTTR, %) — 100 위면 매수 체결이 우세
     int64_t accumulated_volume = 0;  // 당일 누적 거래량
-    // 수신 스레드가 디코드 직후 찍는 steady_clock ns(호가 OrderBook.received_ns와 같은 시계). 구간 지연 측정의 출발점이고
+    // 수신 스레드가 디코드 직후 찍는 steady_clock nanoseconds(호가 OrderBook.received_ns와 같은 시계). 구간 지연 측정의 출발점이고
     //  0은 "안 찍음"(REST 대체 틱). [why D-071]
     int64_t received_ns = 0;
 };
@@ -261,7 +261,7 @@ struct Fundamentals
     double ask_price = 0.0; // 매도호가
     int64_t bid_quantity = 0;  // 매수잔량
     int64_t ask_quantity = 0;  // 매도잔량
-    double diff = 0.0;         // 전일 대비
+    double difference = 0.0;         // 전일 대비
     double rate = 0.0;         // 등락율(%)
     double market_cap = 0.0;   // 시가총액 (억원)
     double week52_high = 0.0;          // 52주 최고가(원). 0=미제공

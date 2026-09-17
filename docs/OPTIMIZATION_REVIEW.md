@@ -21,10 +21,10 @@
 ## 최적화 (O)
 
 ### O1. 전략 스레드에서 동기 REST — 가장 큰 지연 원인
-`Quant/include/strategy/DeviationScaleStrategy.h` `sellable_qty()`가 공유 전략 스레드에서
-`akis->get_balance()`를 동기로 호출한다. 소스 주석도 이 위험을 이미 인정하고 있다
+`Quant/include/strategy/DeviationScaleStrategy.h` `sellable_quantity()`가 공유 전략 스레드에서
+`account_kis->get_balance()`를 동기로 호출한다. 소스 주석도 이 위험을 이미 인정하고 있다
 ("한 종목의 잔고 조회가 다른 종목 전부의 발주를 수십 초 막는다"). `FastFailScope`로 재시도는 껐지만
-왕복 자체는 남는다. 같은 클래스에 이미 `prefetch_thread_` + `snap_mtx_` 스냅샷 패턴이 있다.
+왕복 자체는 남는다. 같은 클래스에 이미 `prefetch_thread_` + `snap_mutex_` 스냅샷 패턴이 있다.
 
 - 수정: 매도가능수량도 프리페치 스냅샷에 포함시키고, 스냅샷이 낡았으면(예: 5초 초과) 보수적으로 0을 반환한다.
 - 검증: 전략 스레드 사이클 시간을 로깅해 REST 왕복이 사라졌는지 본다.
@@ -63,7 +63,7 @@ client_oid, orig_client_oid, reason)를 갖는다. push마다 복사 대입이�
 
 ### O6. OrderGate 지연에 민감한 경로의 선형 스캔
 `Quant/src/risk/OrderGate.cpp` `check()`의 §3c(동시 보유 종목 수)·§3d(총노출)가 매 BUY마다
-`positions_`와 `reserved_` 전체를 `positions_mtx_` 아래서 훑는다. 거절 사유는 매번 `std::ostringstream`으로 만든다.
+`positions_`와 `reserved_` 전체를 `positions_mutex_` 아래서 훑는다. 거절 사유는 매번 `std::ostringstream`으로 만든다.
 `positions_.count(k) ? positions_[k] : 0`은 조회를 두 번 하고 비-const `operator[]`로 없는 키를 삽입할 여지도 있다.
 
 - 수정: 보유 종목 수와 총노출을 갱신 시점에 증분 유지한다. 거절 문자열은 문자열 연결로 바꾸고, 조회는 `find()` 한 번으로 끝낸다.
@@ -169,7 +169,7 @@ Engine을 두 개 만들면 공유된다. 멤버 필드로 옮긴다.
 `utc_plus_hours()`가 662줄에서 선언되고 1332줄에서 정의된다. 헤더나 파일 상단으로 올린다.
 
 ### R6. 락 규약이 일관되지 않다
-`apply_regime_selection()`은 `strategies_`를 락 없이 순회하고 `daily_bars_needed()`는 `strat_mutex_`를 잡는다.
+`apply_regime_selection()`은 `strategies_`를 락 없이 순회하고 `daily_bars_needed()`는 `strategy_mutex_`를 잡는다.
 어느 쪽이 맞는지 정하고 클래스 주석에 불변식을 적는다.
 
 ### R7. `scripts/dashboard_server.py` (916줄)

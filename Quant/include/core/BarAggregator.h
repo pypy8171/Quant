@@ -92,7 +92,7 @@ private:
     {
         BarSlot    slot;
         MarketData market_data;
-        int64_t    acml_base = -1; // 버킷 시작 시점의 당일 누적 거래량(첫 틱의 acml − quantity). 모르면 −1 → quantity 합산
+        int64_t    accumulated_base = -1; // 버킷 시작 시점의 당일 누적 거래량(첫 틱의 acml − quantity). 모르면 −1 → quantity 합산
         bool       active    = false;
     };
 

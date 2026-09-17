@@ -36,7 +36,7 @@ inline std::string pad_right(const std::string& text, int target)
     return (width >= target) ? text : text + std::string(target - width, ' ');
 }
 
-inline std::string trunc(const std::string& text, int max_w)
+inline std::string truncate(const std::string& text, int max_width)
 {
     int width = 0;
     size_t index = 0;
@@ -51,7 +51,7 @@ inline std::string trunc(const std::string& text, int max_w)
         else if (byte < 0xF0) { char_width = 2; char_bytes = 3; }
         else               { char_width = 2; char_bytes = 4; }
 
-        if (width + char_width > max_w)
+        if (width + char_width > max_width)
         {
             break;
         }

@@ -19,19 +19,19 @@ namespace universe
 //    z_i    = clamp((S_i − μ)/σ, −2, +2)        점수 자체를 다시 정규화 — 가중치를 바꿔도
 //                                               배수 범위가 예측 가능하게 유지된다
 //    raw_i  = 1 + spread × z_i / 2              spread=0.6 → raw ∈ [0.4, 1.6] (최대:최소 4:1)
-//    scale  = target_total_pct / (base_pct × Σ_{상위 slots} raw)
+//    scale  = target_total_percent / (base_percent × Σ_{상위 slots} raw)
 //    mult_i = raw_i × scale
 //
 //  정규화 기준을 "등록 전체"가 아니라 "상위 slots개"로 잡는 이유: 동시 보유 상한이 slots이라
 //  실제로 자본을 물고 있는 건 최대 slots종목이다. 등록 수(오늘 57)로 나누면 예산을 절반도
-//  못 쓰고, 정규화를 아예 안 하면 반대로 넘친다(2026-09-07 실측: 25슬롯 × base_pct 5% =
+//  못 쓰고, 정규화를 아예 안 하면 반대로 넘친다(2026-09-07 실측: 25슬롯 × base_percent 5% =
 //  125% > 총노출 캡 95% → 캡이 신규 매수를 통째로 리젝).
 //
 //  σ가 사실상 0이거나 입력이 비면 전부 1.0을 돌려준다(균등 폴백 — 배선 전 동작과 동일).
 // ─────────────────────────────────────────────────────────────────────────────
 inline std::unordered_map<std::string, double>
 score_to_mult(const std::unordered_map<std::string, double>& scores,
-              double spread, double target_total_pct, double base_pct, int slots)
+              double spread, double target_total_percent, double base_percent, int slots)
 {
     std::unordered_map<std::string, double> multiplier;
 
@@ -45,7 +45,7 @@ score_to_mult(const std::unordered_map<std::string, double>& scores,
         multiplier[entry.first] = 1.0;
     }
 
-    if (!(spread > 0.0) || !(target_total_pct > 0.0) || !(base_pct > 0.0) || slots <= 0)
+    if (!(spread > 0.0) || !(target_total_percent > 0.0) || !(base_percent > 0.0) || slots <= 0)
     {
         return multiplier;
     }
@@ -59,11 +59,11 @@ score_to_mult(const std::unordered_map<std::string, double>& scores,
     }
 
     mean /= static_cast<double>(count);
-    double var = 0.0;
+    double variance = 0.0;
 
-    for (const auto& entry : scores) { const double deviation = entry.second - mean; var += deviation * deviation; }
-    var /= static_cast<double>(count);
-    const double sd = std::sqrt(var);
+    for (const auto& entry : scores) { const double deviation = entry.second - mean; variance += deviation * deviation; }
+    variance /= static_cast<double>(count);
+    const double standard_deviation = std::sqrt(variance);
 
     // 분산이 없으면(전 종목 동점) 차등이 의미 없다. 총합 정규화만 걸고 배수는 균등하게 둔다.
     std::vector<std::pair<std::string, double>> raw;
@@ -73,9 +73,9 @@ score_to_mult(const std::unordered_map<std::string, double>& scores,
     {
         double ratio = 1.0;
 
-        if (sd > 1e-12)
+        if (standard_deviation > 1e-12)
         {
-            double z_score = (entry.second - mean) / sd;
+            double z_score = (entry.second - mean) / standard_deviation;
             z_score = std::max(-2.0, std::min(2.0, z_score));
             ratio = 1.0 + spread * z_score / 2.0;
         }
@@ -98,7 +98,7 @@ score_to_mult(const std::unordered_map<std::string, double>& scores,
         return multiplier;
     }
 
-    const double scale = target_total_pct / (base_pct * sum_top);
+    const double scale = target_total_percent / (base_percent * sum_top);
 
     for (const auto& entry : raw)
     {
@@ -128,19 +128,19 @@ score_to_z(const std::unordered_map<std::string, double>& scores)
     }
 
     mean /= static_cast<double>(scores.size());
-    double var = 0.0;
+    double variance = 0.0;
 
-    for (const auto& entry : scores) { const double deviation = entry.second - mean; var += deviation * deviation; }
-    var /= static_cast<double>(scores.size());
-    const double sd = std::sqrt(var);
+    for (const auto& entry : scores) { const double deviation = entry.second - mean; variance += deviation * deviation; }
+    variance /= static_cast<double>(scores.size());
+    const double standard_deviation = std::sqrt(variance);
 
     for (const auto& entry : scores)
     {
         double value = 0.0;
 
-        if (sd > 1e-12)
+        if (standard_deviation > 1e-12)
         {
-            value = std::max(-2.0, std::min(2.0, (entry.second - mean) / sd));
+            value = std::max(-2.0, std::min(2.0, (entry.second - mean) / standard_deviation));
         }
 
         out[entry.first] = value;

@@ -50,7 +50,7 @@ void OpsLink::start(HWND notify, const std::string& host, int port, const std::s
     host_  = host;
     port_  = port;
     token_ = token;
-    th_    = std::thread(&OpsLink::thread_fn, this);
+    thread_    = std::thread(&OpsLink::thread_fn, this);
 }
 
 void OpsLink::stop()
@@ -61,11 +61,11 @@ void OpsLink::stop()
     }
 
     wake_.store(true);
-    q_cv_.notify_all();
+    queue_condition_variable_.notify_all();
 
-    if (th_.joinable())
+    if (thread_.joinable())
     {
-        th_.join();
+        thread_.join();
     }
 
     close_socket();
@@ -87,12 +87,12 @@ bool OpsLink::send(ops::OpsMsg type, const std::string& body)
     }
 
     {
-        std::lock_guard<std::mutex> lock(q_mtx_);
-        q_.push_back(std::move(bytes));
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        queue_.push_back(std::move(bytes));
     }
 
     wake_.store(true);
-    q_cv_.notify_one();
+    queue_condition_variable_.notify_one();
     return true;
 }
 
@@ -108,11 +108,11 @@ void OpsLink::post_frame(const ops::Frame& frame)
 
 void OpsLink::close_socket()
 {
-    if (fd_ != INVALID_SOCKET)
+    if (descriptor_ != INVALID_SOCKET)
     {
-        ::shutdown(fd_, SD_BOTH);
-        ::closesocket(fd_);
-        fd_ = INVALID_SOCKET;
+        ::shutdown(descriptor_, SD_BOTH);
+        ::closesocket(descriptor_);
+        descriptor_ = INVALID_SOCKET;
     }
 }
 
@@ -135,8 +135,8 @@ void OpsLink::thread_fn()
             close_socket();
 
             {
-                std::lock_guard<std::mutex> lock(q_mtx_);
-                q_.clear(); // 끊긴 연결에 쌓인 송신분은 버린다 — 주문은 사용자가 결과를 보고 다시 낸다
+                std::lock_guard<std::mutex> lock(queue_mutex_);
+                queue_.clear(); // 끊긴 연결에 쌓인 송신분은 버린다 — 주문은 사용자가 결과를 보고 다시 낸다
             }
         }
 
@@ -148,8 +148,8 @@ void OpsLink::thread_fn()
         post_state(LinkState::Disconnected, std::to_string(backoff / 1000) + "초 뒤 재접속");
 
         // backoff 대기. stop()이 깨운다.
-        std::unique_lock<std::mutex> lock(q_mtx_);
-        q_cv_.wait_for(lock, std::chrono::milliseconds(backoff), [this] { return !running_.load(); });
+        std::unique_lock<std::mutex> lock(queue_mutex_);
+        queue_condition_variable_.wait_for(lock, std::chrono::milliseconds(backoff), [this] { return !running_.load(); });
         backoff = (backoff * 2 > kBackoffMaxMs) ? kBackoffMaxMs : backoff * 2;
     }
 
@@ -161,35 +161,35 @@ bool OpsLink::connect_once()
     addrinfo hints{};
     hints.ai_family   = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
-    addrinfo* res     = nullptr;
+    addrinfo* result     = nullptr;
 
-    if (::getaddrinfo(host_.c_str(), std::to_string(port_).c_str(), &hints, &res) != 0 || res == nullptr)
+    if (::getaddrinfo(host_.c_str(), std::to_string(port_).c_str(), &hints, &result) != 0 || result == nullptr)
     {
         post_state(LinkState::Disconnected, "주소 해석 실패 " + host_);
         return false;
     }
 
-    fd_ = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    descriptor_ = ::socket(result->ai_family, result->ai_socktype, result->ai_protocol);
 
-    if (fd_ == INVALID_SOCKET)
+    if (descriptor_ == INVALID_SOCKET)
     {
-        ::freeaddrinfo(res);
+        ::freeaddrinfo(result);
         return false;
     }
 
     // 연결 자체는 논블로킹 + select로 3초 상한을 둔다 — 서버가 죽어 있을 때 스레드가 오래 묶이지 않게.
-    u_long nb = 1;
-    ::ioctlsocket(fd_, FIONBIO, &nb);
-    ::connect(fd_, res->ai_addr, static_cast<int>(res->ai_addrlen));
-    ::freeaddrinfo(res);
+    u_long nonblocking = 1;
+    ::ioctlsocket(descriptor_, FIONBIO, &nonblocking);
+    ::connect(descriptor_, result->ai_addr, static_cast<int>(result->ai_addrlen));
+    ::freeaddrinfo(result);
 
     fd_set write_set;
     FD_ZERO(&write_set);
-    FD_SET(fd_, &write_set);
+    FD_SET(descriptor_, &write_set);
     fd_set error_set = write_set;
-    timeval tv{3, 0};
+    timeval time_value{3, 0};
 
-    if (::select(0, nullptr, &write_set, &error_set, &tv) <= 0 || FD_ISSET(fd_, &error_set))
+    if (::select(0, nullptr, &write_set, &error_set, &time_value) <= 0 || FD_ISSET(descriptor_, &error_set))
     {
         close_socket();
         return false;
@@ -197,7 +197,7 @@ bool OpsLink::connect_once()
 
     int error    = 0;
     int errlen = sizeof(error);
-    ::getsockopt(fd_, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&error), &errlen);
+    ::getsockopt(descriptor_, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&error), &errlen);
 
     if (error != 0)
     {
@@ -206,7 +206,7 @@ bool OpsLink::connect_once()
     }
 
     int one = 1;
-    ::setsockopt(fd_, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&one), sizeof(one));
+    ::setsockopt(descriptor_, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&one), sizeof(one));
     return true;
 }
 
@@ -222,32 +222,32 @@ void OpsLink::session_loop()
     {
         // 송신 큐를 out으로 옮긴다
         {
-            std::lock_guard<std::mutex> lock(q_mtx_);
+            std::lock_guard<std::mutex> lock(queue_mutex_);
 
-            for (auto& queued : q_)
+            for (auto& queued : queue_)
             {
                 out.insert(out.end(), queued.begin(), queued.end());
             }
 
-            q_.clear();
+            queue_.clear();
         }
 
         wake_.store(false);
 
         fd_set read_set;
         FD_ZERO(&read_set);
-        FD_SET(fd_, &read_set);
+        FD_SET(descriptor_, &read_set);
         fd_set write_set;
         FD_ZERO(&write_set);
 
         if (!out.empty())
         {
-            FD_SET(fd_, &write_set);
+            FD_SET(descriptor_, &write_set);
         }
 
         // 200ms — stop()·send()가 깨우는 지연 상한. 하트비트 정밀도로도 충분하다.
-        timeval tv{0, 200'000};
-        const int count = ::select(0, &read_set, out.empty() ? nullptr : &write_set, nullptr, &tv);
+        timeval time_value{0, 200'000};
+        const int count = ::select(0, &read_set, out.empty() ? nullptr : &write_set, nullptr, &time_value);
 
         if (count < 0)
         {
@@ -255,17 +255,17 @@ void OpsLink::session_loop()
             return;
         }
 
-        if (count > 0 && FD_ISSET(fd_, &read_set))
+        if (count > 0 && FD_ISSET(descriptor_, &read_set))
         {
-            const int got = ::recv(fd_, reinterpret_cast<char*>(buffer), sizeof(buffer), 0);
+            const int received = ::recv(descriptor_, reinterpret_cast<char*>(buffer), sizeof(buffer), 0);
 
-            if (got == 0)
+            if (received == 0)
             {
                 post_state(LinkState::Disconnected, "서버가 연결을 닫음");
                 return;
             }
 
-            if (got < 0)
+            if (received < 0)
             {
                 const int error = WSAGetLastError();
 
@@ -278,7 +278,7 @@ void OpsLink::session_loop()
             else
             {
                 last_rx = Clock::now();
-                reader.feed(buffer, static_cast<size_t>(got));
+                reader.feed(buffer, static_cast<size_t>(received));
                 ops::Frame frame;
 
                 while (reader.next(frame))
@@ -299,9 +299,9 @@ void OpsLink::session_loop()
             }
         }
 
-        if (!out.empty() && (count > 0 && FD_ISSET(fd_, &write_set)))
+        if (!out.empty() && (count > 0 && FD_ISSET(descriptor_, &write_set)))
         {
-            const int sent = ::send(fd_, reinterpret_cast<const char*>(out.data()), static_cast<int>(out.size()), 0);
+            const int sent = ::send(descriptor_, reinterpret_cast<const char*>(out.data()), static_cast<int>(out.size()), 0);
 
             if (sent > 0)
             {

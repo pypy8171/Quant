@@ -3,7 +3,7 @@
 //  잔량 계산과 스로틀, 한도 초과분 정리의 1회성, 전략 활성 플래그(국면·유니버스 AND), 유니버스 이탈·복귀 판정과
 //  등록 상한 교체 후보 선택(core/UniverseExit.h)을 고정한다. OrderGate·Logger를 링크한다.
 //  관련 결정: D-019(교체 진입), D-038(순번), D-063(분리), D-077(유니버스 이탈), D-087(등록층 점수 교체).
-// 빌드: cmake --build <dir> --target test_signal_dispatcher
+// 빌드: cmake --build <directory> --target test_signal_dispatcher
 #include "core/SignalDispatcher.h"
 #include "core/UniverseExit.h"
 #include "strategy/StrategyBase.h"
@@ -19,13 +19,13 @@ namespace
 {
 int g_checks = 0;
 
-#define CHECK(cond)                                                                        \
+#define CHECK(condition)                                                                        \
     do                                                                                     \
     {                                                                                      \
         ++g_checks;                                                                        \
-        if (!(cond))                                                                       \
+        if (!(condition))                                                                       \
         {                                                                                  \
-            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #cond << "\n";     \
+            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #condition << "\n";     \
             return 1;                                                                      \
         }                                                                                  \
     } while (0)
@@ -46,19 +46,19 @@ OrderSignal signal(const char* ticker, OrderSide side, int quantity, OrderAction
     return signal;
 }
 
-OrderGate::Config open_cfg()
+OrderGate::Config open_config()
 {
     OrderGate::Config config;
-    config.max_qty_per_ticker = 1000;
+    config.max_quantity_per_ticker = 1000;
     config.max_orders_per_min = 1000;
     config.max_orders_per_sec = 1000;
     return config;
 }
 
 // 슬롯 2개가 찬 책. 교체 진입은 켜고 보유 시간 조건은 끈다(test_order_gate와 같은 설정).
-OrderGate::Config displace_cfg()
+OrderGate::Config displace_config()
 {
-    auto config                     = open_cfg();
+    auto config                     = open_config();
     config.max_concurrent_positions = 2;
     config.displace_enabled         = true;
     config.displace_min_z_gap       = 0.5;
@@ -90,7 +90,7 @@ struct Rig
 
 int test_stamp()
 {
-    Rig rig(open_cfg());
+    Rig rig(open_config());
     rig.dispatcher.submit(signal("A", OrderSide::BUY, 1));
     rig.dispatcher.submit(signal("A", OrderSide::SELL, 2));
     CHECK(rig.out.size() == 2 && rig.out[0].sequence == 1 && rig.out[1].sequence == 2 && rig.dispatcher.sequence() == 2);
@@ -98,7 +98,7 @@ int test_stamp()
 
     // 로그 한 줄 — 취소는 동작을 앞에, 대상 주문을 뒤에 적는다.
     auto cancel_signal            = signal("A", OrderSide::BUY, 0, OrderAction::CANCEL);
-    cancel_signal.orig_client_oid = "oid-7";
+    cancel_signal.original_client_order_id = "oid-7";
     cancel_signal.reason          = "재구성";
     const auto line   = dispatch::describe(cancel_signal, "<A>");
     CHECK(line == "[T] <A> 취소 BUY 0 대상=oid-7 | 근거: 재구성");
@@ -108,7 +108,7 @@ int test_stamp()
 
 int test_strategy_gate()
 {
-    Rig rig(open_cfg());
+    Rig rig(open_config());
     rig.dispatcher.set_guardian([](const std::string& ticker) { return ticker == "G"; });
 
     // 비활성 전략: 신규 매수만 막고 매도·취소는 통과.
@@ -215,14 +215,14 @@ int test_universe_evict_pick()
 
 int test_displace_hold_and_release()
 {
-    Rig rig(displace_cfg());
+    Rig rig(displace_config());
     seed_full_book(rig.gate);
     CHECK(rig.gate.capacity_full());
 
     // 꽉 찬 책에 C 매수 → 최약체 B 전량 매도가 나가고 C 매수는 보류.
     rig.dispatcher.submit(signal("C", OrderSide::BUY, 1));
     CHECK(rig.out.size() == 1 && rig.out[0].ticker == "B" && rig.out[0].side == OrderSide::SELL &&
-          rig.out[0].type == OrderType::MARKET && rig.out[0].quantity == 10 && rig.out[0].ref_price == 1000.0 &&
+          rig.out[0].type == OrderType::MARKET && rig.out[0].quantity == 10 && rig.out[0].reference_price == 1000.0 &&
           rig.out[0].strategy_id == "DISPLACE");
     CHECK(rig.dispatcher.held_ticker() == "C" && rig.dispatcher.held_count() == 1);
 
@@ -252,7 +252,7 @@ int test_displace_hold_and_release()
 int test_displace_cancel_and_expiry()
 {
     {
-        Rig rig(displace_cfg());
+        Rig rig(displace_config());
         seed_full_book(rig.gate);
         rig.dispatcher.submit(signal("C", OrderSide::BUY, 1));
         CHECK(rig.dispatcher.held_count() == 1);
@@ -262,7 +262,7 @@ int test_displace_cancel_and_expiry()
     }
 
     {
-        Rig rig(displace_cfg());
+        Rig rig(displace_config());
         seed_full_book(rig.gate);
         rig.dispatcher.submit(signal("C", OrderSide::BUY, 1));
         // 예약 시한이 지나면 버린다 — 자리가 났어도.
@@ -273,7 +273,7 @@ int test_displace_cancel_and_expiry()
 
     {
         // 교체가 꺼져 있으면 꽉 찬 책이라도 매수는 그대로 나간다(거부는 게이트 몫).
-        auto config             = displace_cfg();
+        auto config             = displace_config();
         config.displace_enabled = false;
         Rig rig(config);
         seed_full_book(rig.gate);
@@ -284,7 +284,7 @@ int test_displace_cancel_and_expiry()
     return 0;
 }
 
-int test_force_liq_orders()
+int test_force_liquidation_orders()
 {
     std::vector<OrderGate::HeldPos> held = {{"", "A", 10, 100.0}, {"", "B", 5, 200.0}, {"", "C", 3, 300.0}};
     const auto reserved                  = [](const std::string&, const std::string& ticker)
@@ -301,9 +301,9 @@ int test_force_liq_orders()
 
         return 2; // 미체결 매수는 잔량에 영향 없음
     };
-    const auto out = dispatch::force_liq_orders(held, reserved);
+    const auto out = dispatch::force_liquidation_orders(held, reserved);
     CHECK(out.size() == 2);
-    CHECK(out[0].ticker == "A" && out[0].quantity == 6 && out[0].ref_price == 100.0 &&
+    CHECK(out[0].ticker == "A" && out[0].quantity == 6 && out[0].reference_price == 100.0 &&
           out[0].strategy_id == "FORCE_LIQ" && out[0].type == OrderType::MARKET && out[0].side == OrderSide::SELL);
     CHECK(out[1].ticker == "C" && out[1].quantity == 3);
     CHECK(out[0].reason.find("미체결매도=4") != std::string::npos);
@@ -324,15 +324,15 @@ int test_trim_orders()
     };
     const auto out = dispatch::trim_orders(held, 1000.0, reserved);
     CHECK(out.size() == 1 && out[0].ticker == "B" && out[0].quantity == 7 && out[0].strategy_id == "LIMIT_TRIM" &&
-          out[0].ref_price == 100.0);
+          out[0].reference_price == 100.0);
     CHECK(out[0].reason.find("한도수량=10") != std::string::npos);
     CHECK(dispatch::trim_orders(held, 0.0, reserved).empty());
     return 0;
 }
 
-int test_force_liq_throttle()
+int test_force_liquidation_throttle()
 {
-    Rig rig(open_cfg());
+    Rig rig(open_config());
     rig.gate.seed_position("", "A", 10, 100.0);
 
     // 기준 시각 직후에는 안 나가고(간격 미달), 간격이 차야 한 번, 다시 간격이 차야 또 한 번.
@@ -347,7 +347,7 @@ int test_force_liq_throttle()
     CHECK(rig.out.size() == 2 && rig.out[1].sequence == 2);
 
     // 간격을 줄이면 그만큼 자주.
-    rig.dispatcher.set_liq_interval(std::chrono::milliseconds(500));
+    rig.dispatcher.set_liquidation_interval(std::chrono::milliseconds(500));
     rig.dispatcher.force_liquidate(rig.start_time + std::chrono::milliseconds(4500));
     CHECK(rig.out.size() == 3);
     return 0;
@@ -355,7 +355,7 @@ int test_force_liq_throttle()
 
 int test_trim_once()
 {
-    auto config                    = open_cfg();
+    auto config                    = open_config();
     config.max_notional_per_ticker = 1000.0;
     Rig rig(config);
     rig.gate.seed_position("", "A", 20, 100.0);
@@ -368,7 +368,7 @@ int test_trim_once()
     CHECK(rig.out.size() == 1);
 
     // 시각을 바꾸면 그때부터. 한도가 0이면 정리 없이 끝난 것으로 표시한다.
-    Rig second_rig(open_cfg());
+    Rig second_rig(open_config());
     second_rig.gate.seed_position("", "A", 20, 100.0);
     second_rig.dispatcher.set_trim_at(second_rig.start_time + std::chrono::seconds(1));
     second_rig.dispatcher.trim_excess_once(second_rig.start_time + std::chrono::seconds(1));
@@ -380,14 +380,14 @@ int test_trim_once()
 int main()
 {
     // 산출물을 라이브 로그 폴더와 갈라 둔다(test_order_router와 같은 이유). QUANT_LOG_DIR이 있으면 존중.
-    if (const char* env = std::getenv("QUANT_LOG_DIR"); !env || !*env)
+    if (const char* environment = std::getenv("QUANT_LOG_DIR"); !environment || !*environment)
     {
-        Logger::instance().set_base_dir(Logger::executable_dir() / "logs_test");
+        Logger::instance().set_base_directory(Logger::executable_directory() / "logs_test");
     }
 
     if (test_stamp() || test_strategy_gate() || test_universe_exit_judge() || test_universe_evict_pick() ||
-        test_displace_hold_and_release() || test_displace_cancel_and_expiry() || test_force_liq_orders() ||
-        test_trim_orders() || test_force_liq_throttle() || test_trim_once())
+        test_displace_hold_and_release() || test_displace_cancel_and_expiry() || test_force_liquidation_orders() ||
+        test_trim_orders() || test_force_liquidation_throttle() || test_trim_once())
     {
         return 1;
     }

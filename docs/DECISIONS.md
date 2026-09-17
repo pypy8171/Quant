@@ -3818,13 +3818,16 @@ recorder는 여러 엔진을 동시에 구독할 수 있어 CLI 플래그로 고
 ---
 
 ### D-092 C++ 식별자의 약어를 풀어 쓴다 (2026-09-18)
-**상태**: 진행 중 (1단계 끝, 2단계 지역변수 남음)
+**상태**: 끝 (1·2·3단계 적용, 빌드·ctest 33/33)
 
 **결정**: `Quant/` C++ 식별자에서 약어를 풀어 쓴다. 1단계는 구조체 필드와 지배적 약어 94개
 (`scripts/rename_maps/01_fields.json`, 126파일 6,487곳, 예: `td`→`trade`, `sym`→`symbol_id`, `ob`→`order_book`,
 `sig`→`signal`, `recv_ns`→`received_ns`)와 네임스페이스 `sym`→`symbol`. 2단계는 한 글자 지역변수 약 1,200곳과
 다의어 약어(`ms`·`sc`·`rc`·`spec`, `_pct`→`_percent`, `ma_`→`moving_average_`, `ws`→`websocket`)다.
 치환 도구는 `scripts/rename_ids.py`(문자열 리터럴·주석 안의 전문 설명은 건드리지 않는다).
+3단계는 합성 이름 안의 약어 조각(`qty`→`quantity`, `cfg`→`config`, `mtx`→`mutex`, `px`→`price`, `ack`→`acknowledgement` 등)과
+짧은 지역 이름 전체(`akis`→`account_kis`, `clk`→`steady_clock`, `Pctl`→`PercentileSummary`)를 `scripts/rename_frags.py`로
+8,941곳/133파일 바꿨다. 조각 표·전체 표·파일별 표를 나눠 같은 조각이 파일마다 다른 뜻일 때(`sc`·`sp`·`col`)를 가른다.
 
 **배경**: 사용자 지시. 필드와 지역변수가 두세 글자 약어라 처음 읽는 사람이 구조체 정의를 열어 봐야 뜻이 잡혔다.
 
@@ -3832,6 +3835,9 @@ recorder는 여러 엔진을 동시에 구독할 수 있어 CLI 플래그로 고
 - KIS 전문 필드명(`tr_id`·`odno`·`hhmmss`·`ymd`)은 문자열 리터럴·JSON 키·주석의 전문 설명에서 그대로 둔다 —
   파서·대시보드·파이썬 쪽이 그 이름을 읽는다. C++ 식별자만 바꾼다.
 - `hhmmss`·`hhmm`·`pbr`·`per`·`argv`·`argc`·`ok`·`now`는 약어가 아니라 이름으로 보고 두었다.
+- KIS 전문 조각(`odno`·`psbl`·`evlu`·`unpr`…)이 든 C++ 이름(`ord_psbl_qty`)은 통째로 둔다 — 전문 문서와 grep으로 맞춰 보는 이름이다.
+  단위 접미사 `_ns`·`_ms`·`_us`·`_sec`는 표기라 두고, `.str()`은 표준 스트림 관례라 멤버 접근 위치에서 둔다. 새 이름이 같은
+  범위의 함수와 겹치면(`reserved`·`account_kis`·`ledger_sellable`·`event`) 손으로 다른 이름을 골랐다.
 - 한 번에 전부 바꾸는 안은 버렸다 — 6천 곳 치환의 오치환(`st`→`stop_token`, `ec`, `hw`, `cap` 같은 짧은 토큰의
   겹침)을 빌드·테스트로 한 단계씩 잡는 편이 되돌리기 쉽다.
 

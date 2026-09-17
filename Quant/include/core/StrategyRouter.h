@@ -1,7 +1,7 @@
 // 종목 id → 그 종목을 보는 전략 목록. 전략 스레드가 틱마다 전략 전부를 돌며 각자 문자열을 비교하던 것을
 //  id 배열 인덱스 한 번으로 바꾼다(원칙 6). 구독 종목을 안 밝힌 전략(get_watch_specs가 빈 것)은 전부 받는다 —
 //  오늘과 같은 동작이다.
-// 스레드: 전략 스레드 전용. 전략 목록이 바뀔 때(strat_version_)만 다시 만든다 — hot path에서 문자열을 보지 않는다.
+// 스레드: 전략 스레드 전용. 전략 목록이 바뀔 때(strategy_version_)만 다시 만든다 — hot path에서 문자열을 보지 않는다.
 //  [why D-071]
 #pragma once
 
@@ -25,20 +25,20 @@ public:
     void rebuild(const std::vector<StrategyBase*>& strategies, SymbolIdOf&& symbol_id_of)
     {
         all_.clear();
-        by_sym_.clear();
+        by_symbol_.clear();
         routes_ = 0;
 
         std::vector<symbol::SymbolId> ids;
 
         for (StrategyBase* strategy : strategies)
         {
-            const auto specs = strategy->get_watch_specs();
+            const auto specifications = strategy->get_watch_specifications();
             ids.clear();
-            bool unresolved = specs.empty();
+            bool unresolved = specifications.empty();
 
-            for (const auto& sp : specs)
+            for (const auto& watch_specification : specifications)
             {
-                const symbol::SymbolId id = symbol_id_of(sp.ticker);
+                const symbol::SymbolId id = symbol_id_of(watch_specification.ticker);
 
                 if (id == symbol::kNone)
                 {
@@ -57,12 +57,12 @@ public:
 
             for (const symbol::SymbolId id : ids)
             {
-                if (id >= by_sym_.size())
+                if (id >= by_symbol_.size())
                 {
-                    by_sym_.resize(static_cast<size_t>(id) + 1);
+                    by_symbol_.resize(static_cast<size_t>(id) + 1);
                 }
 
-                auto& subscribers = by_sym_[id];
+                auto& subscribers = by_symbol_[id];
 
                 if (std::find(subscribers.begin(), subscribers.end(), strategy) == subscribers.end())
                 {
@@ -77,9 +77,9 @@ public:
     template <class Fn>
     void for_each(symbol::SymbolId id, Fn&& callback) const
     {
-        if (id < by_sym_.size())
+        if (id < by_symbol_.size())
         {
-            for (StrategyBase* strategy : by_sym_[id])
+            for (StrategyBase* strategy : by_symbol_[id])
             {
                 callback(strategy);
             }
@@ -104,11 +104,11 @@ public:
 
     [[nodiscard]] size_t watchers(symbol::SymbolId id) const noexcept
     {
-        return id < by_sym_.size() ? by_sym_[id].size() : 0;
+        return id < by_symbol_.size() ? by_symbol_[id].size() : 0;
     }
 
 private:
-    std::vector<std::vector<StrategyBase*>> by_sym_; // index = SymbolId
+    std::vector<std::vector<StrategyBase*>> by_symbol_; // index = SymbolId
     std::vector<StrategyBase*>              all_;    // 구독 종목을 안 밝힌 전략
     size_t                                  routes_ = 0;
 };

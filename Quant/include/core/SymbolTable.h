@@ -23,7 +23,7 @@ using SymbolId = uint32_t;
 constexpr SymbolId kNone = 0;
 
 // 틱·호가·봉 구조체가 드는 종목 코드 — std::string 대신 고정 배열이라 구조체가 trivially copyable이고 링 복사가
-//  memcpy다. 문자열이 필요한 곳(로그·REST·캡처 파일·화면)은 view()·str()로 꺼낸다. 최대 15자, 넘치면 잘린다
+//  memcpy다. 문자열이 필요한 곳(로그·REST·캡처 파일·화면)은 view()·string()로 꺼낸다. 최대 15자, 넘치면 잘린다
 //  (KIS 현물 6·선물 8·미국 티커). 암시적으로 string_view가 되지만 std::string은 되지 않는다 — hot path에서
 //  할당이 생기면 컴파일이 막히게. [why D-071]
 struct Ticker
@@ -59,7 +59,7 @@ struct Ticker
         return {data, length};
     }
 
-    [[nodiscard]] std::string str() const
+    [[nodiscard]] std::string string() const
     {
         return std::string(data, length);
     }
@@ -112,7 +112,7 @@ public:
     SymbolId intern(std::string_view ticker)
     {
         {
-            std::shared_lock<std::shared_mutex> rl(mu_);
+            std::shared_lock<std::shared_mutex> read_lock(mutex_);
             auto                                iterator = ids_.find(ticker);
 
             if (iterator != ids_.end())
@@ -121,7 +121,7 @@ public:
             }
         }
 
-        std::unique_lock<std::shared_mutex> wl(mu_);
+        std::unique_lock<std::shared_mutex> write_lock(mutex_);
         auto                                iterator = ids_.find(ticker);
 
         if (iterator != ids_.end())
@@ -142,7 +142,7 @@ public:
 
     [[nodiscard]] SymbolId lookup(std::string_view ticker) const
     {
-        std::shared_lock<std::shared_mutex> rl(mu_);
+        std::shared_lock<std::shared_mutex> read_lock(mutex_);
         auto                                iterator = ids_.find(ticker);
         return iterator == ids_.end() ? kNone : iterator->second;
     }
@@ -150,14 +150,14 @@ public:
     // 모르는 id면 빈 문자열. 복사해 돌려준다 — 참조를 내주면 재스캔의 벡터 재할당과 경쟁한다.
     [[nodiscard]] std::string name(SymbolId id) const
     {
-        std::shared_lock<std::shared_mutex> rl(mu_);
+        std::shared_lock<std::shared_mutex> read_lock(mutex_);
         return id < names_.size() ? names_[id] : std::string{};
     }
 
     // 등록된 종목 수(id 0 제외).
     [[nodiscard]] size_t size() const
     {
-        std::shared_lock<std::shared_mutex> rl(mu_);
+        std::shared_lock<std::shared_mutex> read_lock(mutex_);
         return names_.size() - 1;
     }
 
@@ -177,7 +177,7 @@ private:
         }
     };
 
-    mutable std::shared_mutex                                      mu_;
+    mutable std::shared_mutex                                      mutex_;
     std::unordered_map<std::string, SymbolId, SvHash, std::equal_to<>> ids_;
     std::vector<std::string>                                       names_; // [inv] names_[ids_[t]] == t
     const size_t                                                   capacity_;

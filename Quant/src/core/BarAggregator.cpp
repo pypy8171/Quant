@@ -26,24 +26,24 @@ BarSlot slot_of(int32_t hhmmss, std::time_t recv_utc, int interval_min, int open
     }
 
     const struct tm local_time = kst::to_tm(recv_utc);
-    int             hh = local_time.tm_hour;
-    int             mm = local_time.tm_min;
+    int             hour = local_time.tm_hour;
+    int             minute = local_time.tm_min;
 
     if (hhmmss > 0)
     {
-        hh = hhmmss / 10000;
-        mm = hhmmss / 100 % 100;
+        hour = hhmmss / 10000;
+        minute = hhmmss / 100 % 100;
     }
 
-    const int hhmm = hh * 100 + mm;
+    const int hhmm = hour * 100 + minute;
 
-    if (hh > 23 || mm > 59 || hhmm < open_hhmm || hhmm > close_hhmm)
+    if (hour > 23 || minute > 59 || hhmm < open_hhmm || hhmm > close_hhmm)
     {
         return out;
     }
 
     out.day    = day_key(local_time);
-    out.bucket = (hh * 60 + mm) / interval_min;
+    out.bucket = (hour * 60 + minute) / interval_min;
     return out;
 }
 
@@ -64,11 +64,11 @@ std::vector<MarketData> resample(const std::vector<MarketData>& bars_1m, int int
         return out;
     }
 
-    const size_t want = max_count > 0 ? static_cast<size_t>(max_count) : bars_1m.size();
+    const size_t wanted_count = max_count > 0 ? static_cast<size_t>(max_count) : bars_1m.size();
 
     if (interval_min <= 1)
     {
-        out.assign(bars_1m.begin(), bars_1m.begin() + static_cast<std::ptrdiff_t>((std::min)(want, bars_1m.size())));
+        out.assign(bars_1m.begin(), bars_1m.begin() + static_cast<std::ptrdiff_t>((std::min)(wanted_count, bars_1m.size())));
 
         for (size_t out_index = 0; out_index < out.size(); ++out_index)
         {
@@ -80,8 +80,8 @@ std::vector<MarketData> resample(const std::vector<MarketData>& bars_1m, int int
 
     // 과거→최신으로 걸으며 같은 자리를 접는다. 자리는 봉 timestamp의 KST 분에서 온다 — 집계기 1분봉(자리 시작
     //  시각)과 REST 1분봉(그 분의 라벨) 모두 같은 분을 가리킨다.
-    std::vector<MarketData> asc;
-    BarSlot                 cur;
+    std::vector<MarketData> ascending;
+    BarSlot                 current;
 
     for (auto iterator = bars_1m.rbegin(); iterator != bars_1m.rend(); ++iterator)
     {
@@ -91,14 +91,14 @@ std::vector<MarketData> resample(const std::vector<MarketData>& bars_1m, int int
         slot.day    = day_key(local_time);
         slot.bucket = (local_time.tm_hour * 60 + local_time.tm_min) / interval_min;
 
-        if (asc.empty() || slot != cur)
+        if (ascending.empty() || slot != current)
         {
-            asc.push_back(*iterator);
-            cur = slot;
+            ascending.push_back(*iterator);
+            current = slot;
             continue;
         }
 
-        MarketData& market_data = asc.back();
+        MarketData& market_data = ascending.back();
         market_data.high        = (std::max)(market_data.high, iterator->high); // (): windows.h max 매크로 회피
         market_data.low         = (std::min)(market_data.low, iterator->low);
         market_data.close       = iterator->close;
@@ -106,9 +106,9 @@ std::vector<MarketData> resample(const std::vector<MarketData>& bars_1m, int int
         market_data.timestamp = iterator->timestamp;
     }
 
-    out.reserve((std::min)(want, asc.size()));
+    out.reserve((std::min)(wanted_count, ascending.size()));
 
-    for (auto iterator = asc.rbegin(); iterator != asc.rend() && out.size() < want; ++iterator)
+    for (auto iterator = ascending.rbegin(); iterator != ascending.rend() && out.size() < wanted_count; ++iterator)
     {
         out.push_back(*iterator);
         out.back().bar_index = static_cast<int>(out.size() - 1);
@@ -140,7 +140,7 @@ void BarAggregator::close_live(Series& series)
     series.closed.push_front(series.live.market_data);
     series.slots.push_front(series.live.slot);
     series.live.active    = false;
-    series.live.acml_base = -1;
+    series.live.accumulated_base = -1;
     trim(series);
 
     if (sink_)
@@ -233,7 +233,7 @@ bool BarAggregator::on_tick(const TradeData& trade)
         // [inv] 거래량은 누적차다 — 첫 틱의 acml − quantity가 버킷 시작값. acml이 없으면(REST 대체 틱) quantity 합산.
         series.live.active    = true;
         series.live.slot      = slot;
-        series.live.acml_base = trade.accumulated_volume > 0 ? trade.accumulated_volume - trade.quantity : -1;
+        series.live.accumulated_base = trade.accumulated_volume > 0 ? trade.accumulated_volume - trade.quantity : -1;
         MarketData& market_data   = series.live.market_data;
 
         if (!series.slots.empty() && series.slots.front() == slot)
@@ -247,9 +247,9 @@ bool BarAggregator::on_tick(const TradeData& trade)
             market_data.close = trade.price;
             market_data.volume += trade.quantity;
 
-            if (series.live.acml_base >= 0)
+            if (series.live.accumulated_base >= 0)
             {
-                series.live.acml_base = trade.accumulated_volume - market_data.volume;
+                series.live.accumulated_base = trade.accumulated_volume - market_data.volume;
             }
 
             return true;
@@ -271,9 +271,9 @@ bool BarAggregator::on_tick(const TradeData& trade)
     market_data.low         = (std::min)(market_data.low, trade.price);
     market_data.close       = trade.price;
 
-    if (series.live.acml_base >= 0 && trade.accumulated_volume > 0)
+    if (series.live.accumulated_base >= 0 && trade.accumulated_volume > 0)
     {
-        market_data.volume = (std::max)(market_data.volume, trade.accumulated_volume - series.live.acml_base);
+        market_data.volume = (std::max)(market_data.volume, trade.accumulated_volume - series.live.accumulated_base);
     }
     else
     {
@@ -298,9 +298,9 @@ int BarAggregator::seed(symbol::SymbolId symbol_id, const std::vector<MarketData
         series.ticker = rest_bars.front().ticker;
     }
 
-    for (const MarketData& rb : rest_bars)
+    for (const MarketData& rest_bar : rest_bars)
     {
-        const std::time_t timestamp = std::chrono::system_clock::to_time_t(rb.timestamp);
+        const std::time_t timestamp = std::chrono::system_clock::to_time_t(rest_bar.timestamp);
 
         if (timestamp <= 0)
         {
@@ -318,16 +318,16 @@ int BarAggregator::seed(symbol::SymbolId symbol_id, const std::vector<MarketData
         if (series.live.active && slot == series.live.slot)
         {
             MarketData&   market_data      = series.live.market_data;
-            const int64_t old_vol = market_data.volume;
-            market_data.open               = rb.open;
-            market_data.high               = (std::max)(market_data.high, rb.high);
-            market_data.low                = (std::min)(market_data.low, rb.low);
-            market_data.volume             = (std::max)(old_vol, rb.volume);
+            const int64_t old_volume = market_data.volume;
+            market_data.open               = rest_bar.open;
+            market_data.high               = (std::max)(market_data.high, rest_bar.high);
+            market_data.low                = (std::min)(market_data.low, rest_bar.low);
+            market_data.volume             = (std::max)(old_volume, rest_bar.volume);
 
-            // 누적차 기준을 옮겨 다음 틱부터 합친 거래량 위에 쌓이게 한다(마지막 acml = base + old_vol).
-            if (series.live.acml_base >= 0)
+            // 누적차 기준을 옮겨 다음 틱부터 합친 거래량 위에 쌓이게 한다(마지막 acml = base + old_volume).
+            if (series.live.accumulated_base >= 0)
             {
-                series.live.acml_base += old_vol - market_data.volume;
+                series.live.accumulated_base += old_volume - market_data.volume;
             }
 
             continue;
@@ -346,12 +346,12 @@ int BarAggregator::seed(symbol::SymbolId symbol_id, const std::vector<MarketData
 
         if (iterator != series.slots.end() && *iterator == slot)
         {
-            series.closed[index] = rb; // 닫힌 자리는 REST가 이긴다
+            series.closed[index] = rest_bar; // 닫힌 자리는 REST가 이긴다
         }
         else
         {
             series.slots.insert(iterator, slot);
-            series.closed.insert(series.closed.begin() + static_cast<std::ptrdiff_t>(index), rb);
+            series.closed.insert(series.closed.begin() + static_cast<std::ptrdiff_t>(index), rest_bar);
             ++added;
         }
     }
@@ -378,8 +378,8 @@ std::vector<MarketData> BarAggregator::snapshot(symbol::SymbolId symbol_id, int 
     }
 
     const Series& series = iterator->second;
-    const size_t  want = max_count > 0 ? static_cast<size_t>(max_count) : series.closed.size() + 1;
-    out.reserve((std::min)(want, series.closed.size() + 1));
+    const size_t  wanted_count = max_count > 0 ? static_cast<size_t>(max_count) : series.closed.size() + 1;
+    out.reserve((std::min)(wanted_count, series.closed.size() + 1));
 
     if (series.live.active)
     {
@@ -388,7 +388,7 @@ std::vector<MarketData> BarAggregator::snapshot(symbol::SymbolId symbol_id, int 
 
     for (const MarketData& market_data : series.closed)
     {
-        if (out.size() >= want)
+        if (out.size() >= wanted_count)
         {
             break;
         }

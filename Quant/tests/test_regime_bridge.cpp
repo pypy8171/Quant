@@ -2,7 +2,7 @@
 // 판정 보류(valid=false) 불변·시간 상자(개장 후 N분, 하루 리셋, 파장 뒤 무효, force_liquidate 제외)·
 // force_liquidate 플래그의 "그대로 둔다" 규칙·JSON 형 불량 처리를 고정한다. 헤더 전용이라 파일·로그 없이 돈다.
 // 관련 결정: D-033(시간 상자), D-060(분리), D-083(매수 비율), D-084(전략 선택 라벨).
-// 빌드: cmake --build <dir> --target test_regime_bridge
+// 빌드: cmake --build <directory> --target test_regime_bridge
 #include "core/RegimeFileBridge.h"
 
 #include <cassert>
@@ -15,24 +15,24 @@ namespace
 {
 int g_checks = 0;
 
-#define CHECK(cond)                                                                        \
+#define CHECK(condition)                                                                        \
     do                                                                                     \
     {                                                                                      \
         ++g_checks;                                                                        \
-        if (!(cond))                                                                       \
+        if (!(condition))                                                                       \
         {                                                                                  \
-            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #cond << "\n";     \
+            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #condition << "\n";     \
             return 1;                                                                      \
         }                                                                                  \
     } while (0)
 
-Observation fresh(bool valid, bool halt, bool liq, std::optional<double> scale = std::nullopt)
+Observation fresh(bool valid, bool halt, bool liquidation, std::optional<double> scale = std::nullopt)
 {
     Observation observation;
     observation.state                = FileState::kFresh;
     observation.snapshot.valid           = valid;
     observation.snapshot.entry_halt      = halt;
-    observation.snapshot.force_liquidate = liq;
+    observation.snapshot.force_liquidate = liquidation;
     observation.snapshot.entry_scale     = scale;
     return observation;
 }
@@ -54,7 +54,7 @@ KstClock at(int row, int yesterday = 100)
 bool quiet(const Outcome& outcome)
 {
     return !outcome.entry_halt && !outcome.force_liquidate && !outcome.log_expiry && !outcome.log_stale && !outcome.log_halt_transition &&
-           !outcome.log_liq_on && !outcome.log_liq_off && !outcome.entry_scale && !outcome.log_scale_change && !outcome.selection;
+           !outcome.log_liquidation_on && !outcome.log_liquidation_off && !outcome.entry_scale && !outcome.log_scale_change && !outcome.selection;
 }
 
 Observation labeled(const char* label, bool valid = true)
@@ -218,9 +218,9 @@ int test_force_liquidate()
 
     // entry_halt=false여도 force_liquidate면 halt를 건다. 켜짐 로그 1회.
     Outcome outcome = bridge.step(fresh(true, false, true), at(10));
-    CHECK(outcome.entry_halt && *outcome.entry_halt && outcome.log_liq_on && outcome.force_liquidate && *outcome.force_liquidate);
+    CHECK(outcome.entry_halt && *outcome.entry_halt && outcome.log_liquidation_on && outcome.force_liquidate && *outcome.force_liquidate);
     outcome = bridge.step(fresh(true, false, true), at(11));
-    CHECK(!outcome.log_liq_on && !outcome.entry_halt);
+    CHECK(!outcome.log_liquidation_on && !outcome.entry_halt);
 
     // 청산 중에는 시간 상자가 풀지 않는다 — 파일이 있어도, 없어도.
     outcome = bridge.step(fresh(true, false, true), at(90));
@@ -231,7 +231,7 @@ int test_force_liquidate()
 
     // 해제: 꺼짐 로그 1회 + halt 전이. 그 뒤 90분이라 halt는 다시 안 걸린다.
     outcome = bridge.step(fresh(true, false, false), at(92));
-    CHECK(outcome.log_liq_off && outcome.entry_halt && !*outcome.entry_halt && outcome.force_liquidate && !*outcome.force_liquidate);
+    CHECK(outcome.log_liquidation_off && outcome.entry_halt && !*outcome.entry_halt && outcome.force_liquidate && !*outcome.force_liquidate);
     CHECK(!bridge.step(fresh(true, true, false), at(93)).entry_halt && !bridge.halt_on());
     return 0;
 }

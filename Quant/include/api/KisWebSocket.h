@@ -15,7 +15,7 @@
 #include <thread>
 #include <vector>
 
-class WsSocket; // 플랫폼 소켓(Quant/src/api/WsSocket.h). 이 헤더는 플랫폼 헤더를 끌어오지 않는다. [why D-049]
+class WsSocket; // 플랫폼 소켓(Quant/source/api/WsSocket.h). 이 헤더는 플랫폼 헤더를 끌어오지 않는다. [why D-049]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // KisWebSocket  —  국내 + 미국 실시간 WebSocket
@@ -25,10 +25,10 @@ class WsSocket; // 플랫폼 소켓(Quant/src/api/WsSocket.h). 이 헤더는 플
 //  미국      HDFSCNT0 → TradeData(US)  (KIS는 미국 호가 미제공)
 //
 // 사용법:
-//   KisWebSocket ws(config);
-//   ws.set_callbacks(on_ob, on_trade);
-//   ws.connect(specs);   // WatchSpec 리스트로 KR/US 혼합 구독
-//   ws.disconnect();
+//   KisWebSocket websocket(config);
+//   websocket.set_callbacks(on_order_book, on_trade);
+//   websocket.connect(specifications);   // WatchSpec 리스트로 KR/US 혼합 구독
+//   websocket.disconnect();
 //
 // 스레드: recv_loop 스레드가 소켓을 소유하고 재연결·백오프·구독 복원을 한다(플랫폼 공통 한 벌).
 //   소켓 열기·닫기·프레임 송수신은 WsSocket 구현(WinHTTP / POSIX)이 맡는다. [why D-049]
@@ -42,9 +42,9 @@ public:
     KisWebSocket(const KisWebSocket&)            = delete;
     KisWebSocket& operator=(const KisWebSocket&) = delete;
 
-    void set_callbacks(OrderBookCb on_ob, TradeCb on_trade) override;
+    void set_callbacks(OrderBookCb on_order_book, TradeCb on_trade) override;
     void set_fill_callback(FillCb on_fill) override;
-    bool connect(const std::vector<WatchSpec>& specs) override;
+    bool connect(const std::vector<WatchSpec>& specifications) override;
     void disconnect() override;
 
     // 연결을 유지한 채 종목 하나를 더 구독한다(장중 유니버스 재스캔으로 늘어난 종목용).
@@ -54,21 +54,21 @@ public:
     //  연결 전이면 목록에만 넣고 실제 구독은 connect()가 한다.
     //  data_thread에서 호출하고 specs_는 연결 스레드가 읽으므로 specs_mtx_로 보호한다.
     // 반환: 구독 프레임을 실제로 보냈으면 true. false는 세 경우다 — 이미 목록에 있음,
-    //  연결 전(목록에 남겨 connect()가 구독), 구독 상한(목록에서도 뺀다). 호출자는 has_spec()으로
+    //  연결 전(목록에 남겨 connect()가 구독), 구독 상한(목록에서도 뺀다). 호출자는 has_specification()으로
     //  앞 둘과 마지막을 가른다: 목록에 없으면 이 종목은 WS 틱을 영영 못 받는다.
-    bool subscribe_incremental(const WatchSpec& spec) override;
+    bool subscribe_incremental(const WatchSpec& specification) override;
 
-    // spec이 구독 목록(specs_)에 있는지. 상한으로 밀려난 종목의 REST 대체 판정용.
-    bool has_spec(const WatchSpec& spec) const override;
+    // spec이 구독 목록(specifications_)에 있는지. 상한으로 밀려난 종목의 REST 대체 판정용.
+    bool has_specification(const WatchSpec& specification) const override;
 
     // 연결·재연결의 subscribe_all이 상한으로 거른 종목을 넘겨주고 비운다(한 번 가져가면 끝).
     //  Engine이 data_thread 사이클마다 가져가 REST 대체 목록에 합친다.
-    std::vector<WatchSpec> take_overflow_specs() override;
+    std::vector<WatchSpec> take_overflow_specifications() override;
 
-    // 다건 프레임 분리는 kis_ws::split_records(api/KisWsDecode.h). 여기 이름은 테스트·호출부 호환용.
-    static kis_ws::Records split_records(kis_ws::Fields fields, int count, size_t min_fields) noexcept
+    // 다건 프레임 분리는 kis_websocket::split_records(api/KisWsDecode.h). 여기 이름은 테스트·호출부 호환용.
+    static kis_websocket::Records split_records(kis_websocket::Fields fields, int count, size_t min_fields) noexcept
     {
-        return kis_ws::split_records(fields, count, min_fields);
+        return kis_websocket::split_records(fields, count, min_fields);
     }
 
     bool is_connected() const override
@@ -96,14 +96,14 @@ private:
     bool get_approval_key();
     void send_text(const std::string& message);
     void send_subscribe(const std::string& transaction_id, const std::string& tr_key);
-    // specs_ 전체를 순회하며 채널을 구독한다(최초 연결·재연결 공통). 거래ID(transaction_id) 하드코딩
+    // specifications_ 전체를 순회하며 채널을 구독한다(최초 연결·재연결 공통). 거래ID(transaction_id) 하드코딩
     // 블록이 네 곳(플랫폼×최초/재연결)에 중복돼 있던 것을 한 곳으로 모은다.
     // 재연결 시 선물 채널이 빠지는 불일치를 막는다.
     void subscribe_all();
-    // spec 하나의 채널을 구독한다(현·선물·미국 분기 한 곳). subscribe_all과 증분 구독이 공유한다.
-    void subscribe_spec(const WatchSpec& spec);
-    // spec 하나가 소비하는 구독 슬롯 수(호가+체결이면 2, trade_only면 1).
-    static int spec_channel_count(const WatchSpec& spec);
+    // specification 하나의 채널을 구독한다(현·선물·미국 분기 한 곳). subscribe_all과 증분 구독이 공유한다.
+    void subscribe_specification(const WatchSpec& specification);
+    // specification 하나가 소비하는 구독 슬롯 수(호가+체결이면 2, trade_only면 1).
+    static int specification_channel_count(const WatchSpec& specification);
     // KIS 세션 구독 상한. 문서상 41건이며, 넘기면 이후 구독이 rt=1 MAX SUBSCRIBE OVER로 잘린다.
     static constexpr int kMaxWsSubs = 40;
     // 현재 세션이 사용 중인 구독 슬롯 수(subscribe_all이 리셋, 증분 구독이 증가).
@@ -111,7 +111,7 @@ private:
     void recv_loop(std::stop_token stop_token);
     void parse_message(const std::string& message);
     // 레코드 한 건을 transaction_id에 맞는 파서로 보낸다(단건·다건 프레임이 공유).
-    void dispatch_record(std::string_view transaction_id, kis_ws::Fields fields);
+    void dispatch_record(std::string_view transaction_id, kis_websocket::Fields fields);
     // 채널별 파서가 요구하는 최소 필드 수(각 parse_*의 가드와 같은 값). 모르는 채널은 0.
     static size_t min_fields_for(std::string_view transaction_id) noexcept;
     // 프레임 분해 뷰 벡터. 수신 스레드만 만지고 용량을 재사용해 정상 상태에서 할당이 없다. [why D-042]
@@ -119,24 +119,24 @@ private:
     std::vector<std::string_view> fields_;
     // 다건 프레임을 자르지 못해 1건만 처리했을 때의 경고 횟수. 수신 스레드만 만진다.
     int multi_rec_warned_ = 0;
-    void parse_orderbook(kis_ws::Fields fields);
-    void parse_kr_trade(kis_ws::Fields fields);
-    void parse_us_trade(kis_ws::Fields fields);
-    void parse_fut_trade(kis_ws::Fields fields);     // H0IFCNT0 선물 체결
-    void parse_fut_orderbook(kis_ws::Fields fields); // H0IFASP0 선물 호가
-    void parse_fill_notification(kis_ws::Fields fields);
+    void parse_orderbook(kis_websocket::Fields fields);
+    void parse_kr_trade(kis_websocket::Fields fields);
+    void parse_us_trade(kis_websocket::Fields fields);
+    void parse_future_trade(kis_websocket::Fields fields);     // H0IFCNT0 선물 체결
+    void parse_future_orderbook(kis_websocket::Fields fields); // H0IFASP0 선물 호가
+    void parse_fill_notification(kis_websocket::Fields fields);
 
-    // 체결통보(H0STCNI) 복호화 — base64는 여기, AES-256-CBC는 플랫폼별(ws_platform::aes_cbc_decrypt)
+    // 체결통보(H0STCNI) 복호화 — base64는 여기, AES-256-CBC는 플랫폼별(websocket_platform::aes_cbc_decrypt)
     static std::string base64_decode(const std::string& in);
 
     KisConfig config_;
     std::string approval_key_; // KIS 실시간 WS 접속 승인키 (REST로 발급, 세션 내 재사용)
     std::string aes_key_; // 체결통보 복호화 키 (구독 응답에서 획득)
     std::string aes_iv_;  // 체결통보 복호화 IV
-    std::vector<WatchSpec> specs_;
-    std::vector<WatchSpec> overflow_specs_; // subscribe_all이 상한으로 거른 종목 — Engine이 가져간다
-    // specs_·overflow_specs_ 보호 — 연결 스레드가 읽고(subscribe_all) data_thread가 쓴다(subscribe_incremental).
-    mutable std::mutex specs_mtx_;
+    std::vector<WatchSpec> specifications_;
+    std::vector<WatchSpec> overflow_specifications_; // subscribe_all이 상한으로 거른 종목 — Engine이 가져간다
+    // specifications_·overflow_specifications_ 보호 — 연결 스레드가 읽고(subscribe_all) data_thread가 쓴다(subscribe_incremental).
+    mutable std::mutex specifications_mutex_;
 
     std::atomic<bool>    connected_{false};
     // 나노초 단위 — std::atomic<time_point>는 이식성 문제로 int64_t 사용
@@ -144,10 +144,10 @@ private:
         std::chrono::steady_clock::now().time_since_epoch().count()
     };
     std::jthread recv_thread_;
-    // sock_ 교체·close와 send_text를 갈라 놓는다. recv_message는 락 없이 블로킹한다(close가 깨운다).
-    std::mutex send_mtx_;
+    // socket_ 교체·close와 send_text를 갈라 놓는다. recv_message는 락 없이 블로킹한다(close가 깨운다).
+    std::mutex send_mutex_;
     // [inv] recv_loop 스레드만 바꾼다. connect()는 스레드를 띄우기 전, disconnect()는 join한 뒤에 만진다.
-    std::unique_ptr<WsSocket> sock_;
+    std::unique_ptr<WsSocket> socket_;
 
     OrderBookCb on_orderbook_;
     TradeCb     on_trade_;

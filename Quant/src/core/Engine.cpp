@@ -18,10 +18,10 @@
 
 using namespace std::chrono_literals;
 
-Engine::Engine(KisConfig kis_cfg, int fetch_interval_sec)
-    : kis_cfg_(std::move(kis_cfg)), fetch_interval_sec_(fetch_interval_sec),
-      last_px_arr_(std::make_unique<std::atomic<double>[]>(symbols_.capacity())),
-      last_px_at_ns_(std::make_unique<std::atomic<int64_t>[]>(symbols_.capacity()))
+Engine::Engine(KisConfig kis_config, int fetch_interval_sec)
+    : kis_config_(std::move(kis_config)), fetch_interval_sec_(fetch_interval_sec),
+      last_price_array_(std::make_unique<std::atomic<double>[]>(symbols_.capacity())),
+      last_price_at_ns_(std::make_unique<std::atomic<int64_t>[]>(symbols_.capacity()))
 {
 }
 
@@ -85,25 +85,25 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     // 새 전략의 초기 활성은 data_thread가 재스캔 직후 apply_regime_selection(strategy_.last_selected_regime)로
     //  맵 기준으로 다시 정한다. 선택 국면을 아직 모르면(기동 직후) 기본 활성. [why D-084]
 
-    // 구독 스펙 추가 (control_thread 재연결 읽기와 겹치므로 watch_specs_mtx_).
+    // 구독 스펙 추가 (control_thread 재연결 읽기와 겹치므로 watch_specifications_mutex_).
     //  REST 폴링 모드면 다음 폴링 사이클부터 현재가를 받는다. WS 모드는 connect()가 기동 때
     //  한 번만 돌아서, 여기서 늘어난 종목은 목록에 넣는 것만으로는 틱이 오지 않는다. 살아 있는
     //  연결에 증분 구독을 걸어 둔다. 이게 없으면 재스캔으로 등록된 전략이 on_data를 한 번도
     //  못 받아 조용히 매매하지 않는다(등록 로그만 남아 정상으로 보인다).
-    for (auto& spec : strategy->get_watch_specs())
+    for (auto& specification : strategy->get_watch_specifications())
     {
-        if (spec.market == Market::KR)
+        if (specification.market == Market::KR)
         {
-            universe_rescan_.registered_tickers.insert(spec.ticker);
+            universe_rescan_.registered_tickers.insert(specification.ticker);
         }
 
         bool exists = false;
         {
-            std::lock_guard<std::mutex> wl(watch_specs_mtx_);
+            std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
 
-            for (auto& watch_spec : watch_specs_)
+            for (auto& watch_specification : watch_specifications_)
             {
-                if (watch_spec.market == spec.market && watch_spec.exchange == spec.exchange && watch_spec.ticker == spec.ticker)
+                if (watch_specification.market == specification.market && watch_specification.exchange == specification.exchange && watch_specification.ticker == specification.ticker)
                 {
                     exists = true;
                     break;
@@ -112,18 +112,18 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
 
             if (!exists)
             {
-                watch_specs_.push_back(spec);
+                watch_specifications_.push_back(specification);
             }
         }
 
-        if (!exists && feed_.ws)
+        if (!exists && feed_.websocket)
         {
             // false 자체는 정상일 수 있다(연결 전·이미 구독). 목록에서까지 빠졌으면 구독 상한에
             //  밀린 것이고, 그대로 두면 이 종목은 틱 없이 조용히 매매하지 않는다(09-11 실측:
             //  40 초과 종목 체결 0건). 넘침 목록에 넣어 data_thread가 REST로 대신 흘린다.
-            if (!feed_.ws->subscribe_incremental(spec) && !feed_.ws->has_spec(spec) && poller_->add_overflow(spec))
+            if (!feed_.websocket->subscribe_incremental(specification) && !feed_.websocket->has_specification(specification) && poller_->add_overflow(specification))
             {
-                LOG_WARN("[Engine] WS 구독 상한 — " + spec.ticker + " 시세는 REST 폴링으로 대체(넘침 " +
+                LOG_WARN("[Engine] WS 구독 상한 — " + specification.ticker + " 시세는 REST 폴링으로 대체(넘침 " +
                          std::to_string(poller_->overflow_count()) + "종목)");
             }
         }
@@ -148,9 +148,9 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
 void Engine::apply_regime_selection(Regime regime, bool force_log)
 {
     // id 매칭: 목록 항목이 '*'로 끝나면 접두 매칭, 아니면 정확히 일치.
-    auto matches = [](const std::string& id, const std::vector<std::string>& sel)
+    auto matches = [](const std::string& id, const std::vector<std::string>& selected)
     {
-        for (const auto& selected : sel)
+        for (const auto& selected : selected)
         {
             if (!selected.empty() && selected.back() == '*')
             {
@@ -168,7 +168,7 @@ void Engine::apply_regime_selection(Regime regime, bool force_log)
         return false;
     };
 
-    const std::vector<std::string>* sel = nullptr;
+    const std::vector<std::string>* selected = nullptr;
 
     if (strategy_.has_regime_map)
     {
@@ -176,7 +176,7 @@ void Engine::apply_regime_selection(Regime regime, bool force_log)
 
         if (iterator != strategy_.regime_map.end())
         {
-            sel = &iterator->second; // 없는 국면 키 = 아무 전략도 활성 안 함(전량 비활성)
+            selected = &iterator->second; // 없는 국면 키 = 아무 전략도 활성 안 함(전량 비활성)
         }
     }
 
@@ -191,13 +191,13 @@ void Engine::apply_regime_selection(Regime regime, bool force_log)
 
         if (strategy_.has_regime_map)
         {
-            on = sel && matches(strategy->id(), *sel);
+            on = selected && matches(strategy->id(), *selected);
         }
         else
         {
             // per-strategy 폴백도 같은 입력(r)으로 판정한다. [why D-084]
-            const auto& ar = strategy->active_regimes();
-            on            = std::find(ar.begin(), ar.end(), regime) != ar.end();
+            const auto& active_regimes = strategy->active_regimes();
+            on            = std::find(active_regimes.begin(), active_regimes.end(), regime) != active_regimes.end();
         }
 
         strategy->set_active(on);
@@ -243,15 +243,15 @@ void Engine::seed_universe_rescan(const std::vector<std::string>& tickers)
     }
 
     auto& job = universe_rescan_.jobs.back();
-    std::unordered_set<std::string> want(tickers.begin(), tickers.end());
+    std::unordered_set<std::string> wanted_tickers(tickers.begin(), tickers.end());
 
     for (auto& strategy : strategy_.list)
     {
-        for (const auto& spec : strategy->get_watch_specs())
+        for (const auto& specification : strategy->get_watch_specifications())
         {
-            if (spec.market == Market::KR && want.count(spec.ticker) && !job.owned.count(spec.ticker))
+            if (specification.market == Market::KR && wanted_tickers.count(specification.ticker) && !job.owned.count(specification.ticker))
             {
-                job.owned[spec.ticker] = strategy.get();
+                job.owned[specification.ticker] = strategy.get();
                 ++job.registered;   // 상한은 소유 수로 센다 — 떼면 줄어드는 자리에 기동 종목도 든다
             }
         }
@@ -278,7 +278,7 @@ void Engine::maybe_rescan_universe()
         return;
     }
 
-    const auto now_c = std::chrono::steady_clock::now();
+    const auto now_steady = std::chrono::steady_clock::now();
 
     for (auto& job : universe_rescan_.jobs)
     {
@@ -288,14 +288,14 @@ void Engine::maybe_rescan_universe()
         }
 
         if (job.last_run.time_since_epoch().count() != 0 &&
-            now_c - job.last_run < std::chrono::seconds(job.interval_sec))
+            now_steady - job.last_run < std::chrono::seconds(job.interval_sec))
         {
             continue;
         }
 
         // 첫 부재 스캔의 시계 원점 — 직전 스캔(마지막으로 보인 때)이다. 첫 실행이면 지금.
-        const auto prev_run = job.last_run.time_since_epoch().count() != 0 ? job.last_run : now_c;
-        job.last_run = now_c;
+        const auto previous_run = job.last_run.time_since_epoch().count() != 0 ? job.last_run : now_steady;
+        job.last_run = now_steady;
 
         std::vector<std::string> tickers;
         const auto scan_call_start = std::chrono::steady_clock::now();
@@ -320,7 +320,7 @@ void Engine::maybe_rescan_universe()
         {
             const long long scan_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                           std::chrono::steady_clock::now() - scan_call_start).count();
-            const long long gap_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now_c - prev_run).count();
+            const long long gap_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now_steady - previous_run).count();
             LOG_INFO("[Engine] 유니버스 재스캔 계측: 경과=" + std::to_string(scan_ms) + "ms 간격=" +
                      std::to_string(gap_ms) + "ms(설정 " + std::to_string(job.interval_sec * 1000) + "ms) 결과=" +
                      std::to_string(tickers.size()) + "종목 이 슬리브 등록=" + std::to_string(job.registered));
@@ -345,41 +345,41 @@ void Engine::maybe_rescan_universe()
 
         auto retire_owned_for_evict = [&](const std::string& ticker, const std::string& beneficiary)
         {
-            auto oit = job.owned.find(ticker);
+            auto owned_iterator = job.owned.find(ticker);
 
-            if (oit == job.owned.end())
+            if (owned_iterator == job.owned.end())
             {
                 return;
             }
 
-            StrategyBase* ptr = oit->second;
-            ptr->set_active(false);
+            StrategyBase* pointer = owned_iterator->second;
+            pointer->set_active(false);
 
             std::unique_ptr<StrategyBase> victim;
-            uint64_t ver = 0;
+            uint64_t version = 0;
             {
                 std::lock_guard<std::mutex> lock(strategy_.mutex);
-                auto sit = std::find_if(strategy_.list.begin(), strategy_.list.end(),
-                                        [ptr](const std::unique_ptr<StrategyBase>& strategy) { return strategy.get() == ptr; });
+                auto strategy_iterator = std::find_if(strategy_.list.begin(), strategy_.list.end(),
+                                        [pointer](const std::unique_ptr<StrategyBase>& strategy) { return strategy.get() == pointer; });
 
-                if (sit != strategy_.list.end())
+                if (strategy_iterator != strategy_.list.end())
                 {
-                    victim = std::move(*sit);
-                    strategy_.list.erase(sit);
+                    victim = std::move(*strategy_iterator);
+                    strategy_.list.erase(strategy_iterator);
                 }
 
-                ver = strategy_.version.fetch_add(1, std::memory_order_release) + 1;
+                version = strategy_.version.fetch_add(1, std::memory_order_release) + 1;
             }
 
             if (victim)
             {
                 LOG_INFO("[Engine] 재스캔 점수 교체 — 오늘 순위 밖·미보유 해제: " + victim->describe() +
                          " → " + beneficiary);
-                strategy_.retired.push_back(Retired{std::move(victim), ver});
+                strategy_.retired.push_back(Retired{std::move(victim), version});
             }
 
             universe_rescan_.registered_tickers.erase(ticker);
-            job.owned.erase(oit);
+            job.owned.erase(owned_iterator);
             job.absent_since.erase(ticker);
             job.present_streak.erase(ticker);
 
@@ -402,12 +402,12 @@ void Engine::maybe_rescan_universe()
                 const std::string victim_ticker = universe_exit::pick_evict_candidate(
                     job.owned, in_scan, held,
                     [this](const std::string& ticker) { return order_gate_.reserved(ticker); },
-                    [&job, now_c](const std::string& ticker) -> long long
+                    [&job, now_steady](const std::string& ticker) -> long long
                     {
                         auto iterator = job.absent_since.find(ticker);
                         return iterator == job.absent_since.end()
                                    ? 0LL
-                                   : std::chrono::duration_cast<std::chrono::seconds>(now_c - iterator->second).count();
+                                   : std::chrono::duration_cast<std::chrono::seconds>(now_steady - iterator->second).count();
                     });
 
                 if (victim_ticker.empty())
@@ -475,7 +475,7 @@ void Engine::maybe_rescan_universe()
         const universe_exit::Thresholds thread{job.block_after_sec, job.drop_after_sec, job.return_confirm};
         std::vector<std::string> drop;
 
-        for (const auto& [owned_ticker, ptr] : job.owned)
+        for (const auto& [owned_ticker, pointer] : job.owned)
         {
             // 시계는 하나(연속 부재), 임계값은 둘 — block_after_sec에 신규매수를 막고 drop_after_sec에 뗀다.
             //  복귀는 present가 return_confirm회 연속일 때만 — 경계 종목이 한 번 보이자마자 풀리면 사고팔기를
@@ -487,15 +487,15 @@ void Engine::maybe_rescan_universe()
             {
                 job.absent_since.erase(owned_ticker);
 
-                if (!ptr->in_universe())
+                if (!pointer->in_universe())
                 {
                     const int streak = ++job.present_streak[owned_ticker];
 
                     if (universe_exit::judge_return(streak, thread, /*in_universe=*/false))
                     {
-                        ptr->set_in_universe(true);
+                        pointer->set_in_universe(true);
                         job.present_streak.erase(owned_ticker);
-                        LOG_INFO("[Engine] 유니버스 복귀 → 신규매수 허용: " + ptr->describe() + " (present " +
+                        LOG_INFO("[Engine] 유니버스 복귀 → 신규매수 허용: " + pointer->describe() + " (present " +
                                  std::to_string(streak) + "회 연속)");
                     }
                 }
@@ -508,16 +508,16 @@ void Engine::maybe_rescan_universe()
 
             if (iterator == job.absent_since.end())
             {
-                iterator = job.absent_since.emplace(owned_ticker, prev_run).first;
+                iterator = job.absent_since.emplace(owned_ticker, previous_run).first;
             }
 
-            const auto absent_sec = std::chrono::duration_cast<std::chrono::seconds>(now_c - iterator->second).count();
+            const auto absent_sec = std::chrono::duration_cast<std::chrono::seconds>(now_steady - iterator->second).count();
 
-            switch (universe_exit::judge_absent(absent_sec, thread, ptr->in_universe()))
+            switch (universe_exit::judge_absent(absent_sec, thread, pointer->in_universe()))
             {
             case universe_exit::Absent::BLOCK:
-                ptr->set_in_universe(false);
-                LOG_INFO("[Engine] 유니버스 이탈 → 신규매수 차단: " + ptr->describe() + " (" +
+                pointer->set_in_universe(false);
+                LOG_INFO("[Engine] 유니버스 이탈 → 신규매수 차단: " + pointer->describe() + " (" +
                          std::to_string(absent_sec) + "초 부재, 해제는 " + std::to_string(job.drop_after_sec) + "초)");
                 break;
             case universe_exit::Absent::DROP:
@@ -530,30 +530,30 @@ void Engine::maybe_rescan_universe()
 
         for (const auto& dropped_ticker : drop)
         {
-            StrategyBase* ptr = job.owned[dropped_ticker];
+            StrategyBase* pointer = job.owned[dropped_ticker];
             // 옛 스냅샷이 새 스냅샷으로 바뀔 때까지 틱은 계속 온다 — 그 사이 신규매수만 막는다.
-            ptr->set_active(false);
+            pointer->set_active(false);
             std::unique_ptr<StrategyBase> victim;
-            uint64_t ver = 0;
+            uint64_t version = 0;
             {
                 std::lock_guard<std::mutex> lock(strategy_.mutex);
-                auto sit = std::find_if(strategy_.list.begin(), strategy_.list.end(),
-                                        [ptr](const std::unique_ptr<StrategyBase>& strategy) { return strategy.get() == ptr; });
+                auto strategy_iterator = std::find_if(strategy_.list.begin(), strategy_.list.end(),
+                                        [pointer](const std::unique_ptr<StrategyBase>& strategy) { return strategy.get() == pointer; });
 
-                if (sit != strategy_.list.end())
+                if (strategy_iterator != strategy_.list.end())
                 {
-                    victim = std::move(*sit);
-                    strategy_.list.erase(sit);
+                    victim = std::move(*strategy_iterator);
+                    strategy_.list.erase(strategy_iterator);
                 }
 
-                ver = strategy_.version.fetch_add(1, std::memory_order_release) + 1;
+                version = strategy_.version.fetch_add(1, std::memory_order_release) + 1;
             }
 
             if (victim)
             {
                 LOG_INFO("[Engine] 재스캔 이탈 해제: " + victim->describe() + " — " +
                          std::to_string(job.drop_after_sec) + "초 이상 유니버스 밖, 보유·선점 없음");
-                strategy_.retired.push_back(Retired{std::move(victim), ver});
+                strategy_.retired.push_back(Retired{std::move(victim), version});
             }
 
             universe_rescan_.registered_tickers.erase(dropped_ticker);
@@ -588,7 +588,7 @@ void Engine::reap_retired(bool force)
 
     for (auto iterator = strategy_.retired.begin(); iterator != strategy_.retired.end(); ++iterator)
     {
-        if (!force && iterator->ver > seen)
+        if (!force && iterator->version > seen)
         {
             *keep++ = std::move(*iterator);
             continue;
@@ -638,14 +638,14 @@ void Engine::setup_shards()
         }
     }
 
-    // [inv] WS 레인 수 = 소켓 수 — 아래 feed_.ws 생성과 같은 조건(리플레이·소켓 하나면 1, feed_keys가 있으면 1+N)이라
-    //  feed_.ws->lanes()와 같다. 소켓을 만들기 전에 행 수가 필요해 config로 센다.
-    pipeline_.ws_lanes = feed_.feed_override ? feed_.feed_override->lanes()
+    // [inv] WS 레인 수 = 소켓 수 — 아래 feed_.websocket 생성과 같은 조건(리플레이·소켓 하나면 1, feed_keys가 있으면 1+N)이라
+    //  feed_.websocket->lanes()와 같다. 소켓을 만들기 전에 행 수가 필요해 config로 센다.
+    pipeline_.websocket_lanes = feed_.feed_override ? feed_.feed_override->lanes()
                 : (feed_.replay_file.empty() && !feed_.extra_feed_cfgs.empty()) ? static_cast<uint32_t>(feed_.extra_feed_cfgs.size() + 1)
                                                                       : 1u;
-    pipeline_.data_row = pipeline_.ws_lanes;
-    pipeline_.order_book_matrix.reshape(pipeline_.ws_lanes, shard_count, 4096);
-    pipeline_.trade_matrix.reshape(pipeline_.ws_lanes + 1, shard_count, 4096);
+    pipeline_.data_row = pipeline_.websocket_lanes;
+    pipeline_.order_book_matrix.reshape(pipeline_.websocket_lanes, shard_count, 4096);
+    pipeline_.trade_matrix.reshape(pipeline_.websocket_lanes + 1, shard_count, 4096);
     pipeline_.bars_matrix.reshape(1, shard_count, 1024);
 
     for (uint32_t shard_index = 0; shard_index < shard_count; ++shard_index)
@@ -661,13 +661,13 @@ void Engine::setup_shards()
 void Engine::setup_zmq_bridge()
 {
     zmq_bridge_ = std::make_unique<ZmqBridge>();
-    zmq_bridge_->set_bind_address(zmq_bind_addr_);
+    zmq_bridge_->set_bind_address(zmq_bind_address_);
     zmq_bridge_->set_control_token(zmq_control_token_);
-    zmq_bridge_->set_account_no(kis_cfg_.account_no); // 실계좌·모의계좌 원장 분리용 [why D-090]
+    zmq_bridge_->set_account_no(kis_config_.account_no); // 실계좌·모의계좌 원장 분리용 [why D-090]
     zmq_bridge_->set_command_handler(
-        [this](const std::string& cmd) -> std::string
+        [this](const std::string& command) -> std::string
         {
-            if (cmd == "KILL")
+            if (command == "KILL")
             {
                 LOG_WARN("[ZMQ] KILL 명령 수신 — 신규 주문 차단 + 엔진 종료");
                 order_gate_.set_kill_switch(true);
@@ -675,7 +675,7 @@ void Engine::setup_zmq_bridge()
                 return "OK";
             }
 
-            if (cmd == "STATUS")
+            if (command == "STATUS")
             {
                 return "{\"running\":true"
                        ",\"data\":" +
@@ -700,7 +700,7 @@ bool Engine::authenticate_feed(bool offline)
         return true;
     }
 
-    feed_.kis = std::make_unique<KisClient>(kis_cfg_);
+    feed_.kis = std::make_unique<KisClient>(kis_config_);
 
     if (!feed_.kis->authenticate())
     {
@@ -714,7 +714,7 @@ bool Engine::authenticate_feed(bool offline)
     //  폴백이 무의미해진다(모의 도메인으로 폴링하면 500만 쌓인다).
     if (feed_.has_quote_kis)
     {
-        feed_.quote_kis = std::make_unique<KisClient>(feed_.quote_kis_cfg);
+        feed_.quote_kis = std::make_unique<KisClient>(feed_.quote_kis_config);
 
         if (!feed_.quote_kis->authenticate())
         {
@@ -740,7 +740,7 @@ void Engine::setup_paper_executor(bool offline)
     }
 }
 
-void Engine::init_order_router()
+void Engine::initialize_order_router()
 {
     IOrderExecutor& executor = feed_.paper ? static_cast<IOrderExecutor&>(*feed_.paper) : *feed_.kis;
 
@@ -761,26 +761,26 @@ void Engine::init_order_router()
     order_router_->cancel_stale_orders_async();
 }
 
-void Engine::init_ledger_reconciler()
+void Engine::initialize_ledger_reconciler()
 {
     // 잔고 → 원장 대조기. 브로커·라우터·종목명은 함수로 넘겨 대조기가 KisClient·OrderRouter를 모르게 한다. [why D-061]
     ledger_ = std::make_unique<LedgerReconciler>(order_gate_,
                                                  [this] { return feed_.paper ? feed_.paper->balance() : feed_.kis->get_balance(); });
     ledger_->set_account_no(feed_.kis ? feed_.kis->account_no() : std::string("PAPER"));
-    ledger_->set_baseline_dir(Logger::instance().base_dir()); // 실행 위치와 무관하게 로그 폴더와 같은 곳
+    ledger_->set_baseline_directory(Logger::instance().base_directory()); // 실행 위치와 무관하게 로그 폴더와 같은 곳
     ledger_->set_name_sink([this](const std::string& ticker, const std::string& name) { register_ticker_name(ticker, name); });
     ledger_->set_reconcile_sink([this](const reconcile::Row& row) { order_router_->record_reconcile(row); });
 }
 
-void Engine::init_data_poller()
+void Engine::initialize_data_poller()
 {
     // REST 현재가 폴러. 시세는 시세 전용 클라이언트가 있으면 그쪽(실전 도메인 초당 한도가 높다). [why D-062]
     //  [lock-order] 데이터 스레드는 pipeline_.trade_matrix의 WS 레인 행에 넣지 않는다 — 폴러의 틱은 자기 행(pipeline_.data_row)으로 간다.
     poller_ = std::make_unique<DataPoller>(
         [this](const std::string& ticker)
         {
-            KisClient* qc = feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get();
-            return qc ? qc->get_current_price(ticker) : 0.0;
+            KisClient* quote_client = feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get();
+            return quote_client ? quote_client->get_current_price(ticker) : 0.0;
         },
         [this](const TradeData& in)
         {
@@ -855,37 +855,37 @@ void Engine::start_strategies()
     }
 }
 
-void Engine::collect_watch_specs()
+void Engine::collect_watch_specifications()
 {
     // 전략별 구독 스펙 수집 (중복 제거)
-    watch_specs_.clear();
+    watch_specifications_.clear();
     {
         std::unordered_set<std::string> seen;
 
         for (auto& strategy : strategy_.list)
         {
-            for (auto& spec : strategy->get_watch_specs())
+            for (auto& specification : strategy->get_watch_specifications())
             {
-                std::string key = (spec.market == Market::US ? "US:" : "KR:") + spec.exchange + ":" + spec.ticker;
+                std::string key = (specification.market == Market::US ? "US:" : "KR:") + specification.exchange + ":" + specification.ticker;
 
                 if (seen.insert(key).second)
                 {
-                    watch_specs_.push_back(spec);
+                    watch_specifications_.push_back(specification);
                 }
             }
         }
     }
 
-    LOG_INFO("[Engine] WS 구독 종목: " + std::to_string(watch_specs_.size()) + "개");
+    LOG_INFO("[Engine] WS 구독 종목: " + std::to_string(watch_specifications_.size()) + "개");
 
     // 재스캔 중복 방지 시드 — 기동 유니버스에 이미 등록된 KR 티커 기록.
     universe_rescan_.registered_tickers.clear();
 
-    for (auto& spec : watch_specs_)
+    for (auto& specification : watch_specifications_)
     {
-        if (spec.market == Market::KR)
+        if (specification.market == Market::KR)
         {
-            universe_rescan_.registered_tickers.insert(spec.ticker);
+            universe_rescan_.registered_tickers.insert(specification.ticker);
         }
     }
 }
@@ -897,51 +897,51 @@ void Engine::connect_feed()
     //  허용하는데, 세션 정리가 서버측에 걸려 rt=9(ALREADY IN USE) 재연결 폭주가 나므로
     //  체결 피드를 REST 현재가 폴링(data_thread_fn)으로 대체하고 WS 의존을 제거한다.
     //  주문은 REST(order_thread_fn)로 나가므로 매매에는 영향 없음(체결통보 on_fill만 없음).
-    if (feed_.rest_price_feed || watch_specs_.empty())
+    if (feed_.rest_price_feed || watch_specifications_.empty())
     {
         return;
     }
 
     if (feed_.feed_override)
     {
-        feed_.ws = std::move(feed_.feed_override);
-        LOG_INFO("[Engine] 주입된 피드 소스(레인 " + std::to_string(feed_.ws->lanes()) + "개)");
+        feed_.websocket = std::move(feed_.feed_override);
+        LOG_INFO("[Engine] 주입된 피드 소스(레인 " + std::to_string(feed_.websocket->lanes()) + "개)");
     }
     else if (!feed_.replay_file.empty())
     {
-        feed_.ws = std::make_unique<feed::ReplaySource>(feed_.replay_file, feed_.replay_speed);
+        feed_.websocket = std::make_unique<feed::ReplaySource>(feed_.replay_file, feed_.replay_speed);
         LOG_INFO("[Engine] 리플레이 소스: " + feed_.replay_file + " (speed " + std::to_string(feed_.replay_speed) + ")");
     }
     else if (feed_.extra_feed_cfgs.empty())
     {
-        feed_.ws = std::make_unique<KisWebSocket>(kis_cfg_);
+        feed_.websocket = std::make_unique<KisWebSocket>(kis_config_);
     }
     else
     {
         // 소켓 여럿 — 첫 소스가 기본 키다(체결통보는 첫 소스만 받는다). 레인 모드라 소켓 i의 수신 스레드가
-        //  행렬의 행 i에 직접 넣는다(mux 스레드 없음). 소켓이 하나면 FeedMux를 끼우지 않는다.
+        //  행렬의 행 i에 직접 넣는다(multiplexer 스레드 없음). 소켓이 하나면 FeedMux를 끼우지 않는다.
         std::vector<std::unique_ptr<feed::IFeedSource>> socks;
-        socks.push_back(std::make_unique<KisWebSocket>(kis_cfg_));
+        socks.push_back(std::make_unique<KisWebSocket>(kis_config_));
 
-        for (const auto& extra_feed_cfg : feed_.extra_feed_cfgs)
+        for (const auto& extra_feed_config : feed_.extra_feed_cfgs)
         {
-            socks.push_back(std::make_unique<KisWebSocket>(extra_feed_cfg));
+            socks.push_back(std::make_unique<KisWebSocket>(extra_feed_config));
         }
 
-        feed_.ws = std::make_unique<feed::FeedMux>(std::move(socks));
+        feed_.websocket = std::make_unique<feed::FeedMux>(std::move(socks));
         LOG_INFO("[Engine] WS 소켓 " + std::to_string(feed_.extra_feed_cfgs.size() + 1) + "개를 FeedMux 레인 " +
-                 std::to_string(pipeline_.ws_lanes) + "개로 묶는다");
+                 std::to_string(pipeline_.websocket_lanes) + "개로 묶는다");
     }
 
     // 리플레이를 다시 캡처하면 같은 틱이 두 파일에 남으므로 캡처는 WS일 때만 연다.
-    if (!feed_.capture_dir.empty() && feed_.replay_file.empty())
+    if (!feed_.capture_directory.empty() && feed_.replay_file.empty())
     {
         // 파일명은 UTC 기동 시각 — 재기동이 같은 파일에 이어 쓰지 않도록.
         const auto now_s = std::chrono::duration_cast<std::chrono::seconds>(
                                std::chrono::system_clock::now().time_since_epoch())
                                .count();
         const std::filesystem::path file =
-            std::filesystem::path(feed_.capture_dir) / ("ticks_" + std::to_string(now_s) + ".bin");
+            std::filesystem::path(feed_.capture_directory) / ("ticks_" + std::to_string(now_s) + ".bin");
         feed_.capture = std::make_unique<feed::TickCapture>(file);
 
         if (feed_.capture->ok())
@@ -955,7 +955,7 @@ void Engine::connect_feed()
     }
 
     // 레인 = 이 콜백을 부르는 수신 스레드 번호 = 행렬의 행. 한 행은 그 스레드만 넣는다(SPSC 셀, 원칙 5).
-    feed_.ws->set_lane_callbacks([this](uint32_t lane, const OrderBook& in)
+    feed_.websocket->set_lane_callbacks([this](uint32_t lane, const OrderBook& in)
                        {
                            OrderBook order_book = in;
                            order_book.symbol_id       = symbols_.intern(order_book.ticker);
@@ -976,9 +976,9 @@ void Engine::connect_feed()
 
                            if (!pipeline_.order_book_matrix.push_to(lane, consumer, order_book))
                            {
-                               if (ob_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
+                               if (order_book_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
                                {
-                                   LOG_WARN("[WS] 호가 큐 가득 — 호가 폐기 시작 " + in.ticker.str() +
+                                   LOG_WARN("[WS] 호가 큐 가득 — 호가 폐기 시작 " + in.ticker.string() +
                                             " (샤드 스레드 정체 의심)");
                                }
 
@@ -1017,9 +1017,9 @@ void Engine::connect_feed()
 
                            if (!pipeline_.trade_matrix.push_to(lane, consumer, trade))
                            {
-                               if (td_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
+                               if (trade_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
                                {
-                                   LOG_WARN("[WS] 체결 큐 가득 — 틱 폐기 시작 " + in.ticker.str() +
+                                   LOG_WARN("[WS] 체결 큐 가득 — 틱 폐기 시작 " + in.ticker.string() +
                                             " (샤드 스레드 정체 의심)");
                                }
 
@@ -1049,14 +1049,14 @@ void Engine::connect_feed()
 
                                pipeline_.fill_wake.notify();
                            };
-    feed_.ws->set_fill_callback(push_fill);
+    feed_.websocket->set_fill_callback(push_fill);
 
     if (feed_.paper)
     {
         feed_.paper->set_fill_callback(push_fill);
     }
 
-    if (!feed_.ws->connect(watch_specs_))
+    if (!feed_.websocket->connect(watch_specifications_))
     {
         // 예전에는 경고만 남기고 넘어갔는데, 그러면 전략이 호가·체결을 하나도 못 받아
         //  매매가 조용히 멈춘다(폴링 경로가 꺼져 있으므로). 폴링으로 낮춰 계속 돈다.
@@ -1109,9 +1109,9 @@ void Engine::start()
     }
 
     setup_paper_executor(offline);
-    init_order_router();
-    init_ledger_reconciler();
-    init_data_poller();
+    initialize_order_router();
+    initialize_ledger_reconciler();
+    initialize_data_poller();
 
     if (!try_bootstrap_ledger())
     {
@@ -1119,7 +1119,7 @@ void Engine::start()
     }
 
     start_strategies();
-    collect_watch_specs();
+    collect_watch_specifications();
 
     running_.store(true);
 
@@ -1141,27 +1141,27 @@ void Engine::register_ticker_name(const std::string& ticker, const std::string& 
         return;
     }
 
-    std::lock_guard<std::mutex> lock(ticker_names_mu_);
+    std::lock_guard<std::mutex> lock(ticker_names_mutex_);
     ticker_names_[ticker] = name;
 }
 
-double Engine::last_px(symbol::SymbolId id) const noexcept
+double Engine::last_price(symbol::SymbolId id) const noexcept
 {
-    return id < symbols_.capacity() ? last_px_arr_[id].load(std::memory_order_relaxed) : 0.0;
+    return id < symbols_.capacity() ? last_price_array_[id].load(std::memory_order_relaxed) : 0.0;
 }
 
-double Engine::last_px(const std::string& ticker) const
+double Engine::last_price(const std::string& ticker) const
 {
-    return last_px(symbols_.lookup(ticker));
+    return last_price(symbols_.lookup(ticker));
 }
 
-int64_t Engine::last_px_at_ns(const std::string& ticker) const
+int64_t Engine::last_price_at_ns(const std::string& ticker) const
 {
     const auto id = symbols_.lookup(ticker);
-    return id < symbols_.capacity() ? last_px_at_ns_[id].load(std::memory_order_relaxed) : 0;
+    return id < symbols_.capacity() ? last_price_at_ns_[id].load(std::memory_order_relaxed) : 0;
 }
 
-void Engine::set_last_px(symbol::SymbolId id, double price) noexcept
+void Engine::set_last_price(symbol::SymbolId id, double price) noexcept
 {
     // id 0(미배선)과 상한 밖은 버린다 — 캐시가 틀리는 것보다 비는 쪽이 낫다.
     if (price <= 0.0 || id == symbol::kNone || id >= symbols_.capacity())
@@ -1169,18 +1169,18 @@ void Engine::set_last_px(symbol::SymbolId id, double price) noexcept
         return;
     }
 
-    last_px_arr_[id].store(price, std::memory_order_relaxed);
-    last_px_at_ns_[id].store(trace::now_ns(), std::memory_order_relaxed);
+    last_price_array_[id].store(price, std::memory_order_relaxed);
+    last_price_at_ns_[id].store(trace::now_ns(), std::memory_order_relaxed);
 }
 
-void Engine::set_last_px(const std::string& ticker, double price)
+void Engine::set_last_price(const std::string& ticker, double price)
 {
-    set_last_px(symbols_.intern(ticker), price);
+    set_last_price(symbols_.intern(ticker), price);
 }
 
 std::string Engine::ticker_label(const std::string& ticker) const
 {
-    std::lock_guard<std::mutex> lock(ticker_names_mu_);
+    std::lock_guard<std::mutex> lock(ticker_names_mutex_);
     auto iterator = ticker_names_.find(ticker);
 
     if (iterator != ticker_names_.end() && !iterator->second.empty())
@@ -1193,7 +1193,7 @@ std::string Engine::ticker_label(const std::string& ticker) const
 
 std::string Engine::ticker_name(const std::string& ticker) const
 {
-    std::lock_guard<std::mutex> lock(ticker_names_mu_);
+    std::lock_guard<std::mutex> lock(ticker_names_mutex_);
     auto iterator = ticker_names_.find(ticker);
 
     if (iterator != ticker_names_.end())
@@ -1204,13 +1204,13 @@ std::string Engine::ticker_name(const std::string& ticker) const
     return std::string();
 }
 
-// 전략에 주는 매도가능수량. 게이트 clamp와 같은 식(psbl_cap - pending)이라 전략이 낸 수량이 게이트에서
+// 전략에 주는 매도가능수량. 게이트 clamp와 같은 식(possible_quantity_cap - pending)이라 전략이 낸 수량이 게이트에서
 //  다시 잘리지 않는다. psbl_cap은 잔고 대조(refresh_sellable)가 매 사이클 맞춘다. [why D-055]
 StrategyBase::SellableInfo Engine::ledger_sellable(const std::string& account, const std::string& ticker) const
 {
     const auto sellable_view = order_gate_.sellable_view(account, ticker);
     StrategyBase::SellableInfo sellable_info;
-    const int room = sellable_view.psbl_cap - sellable_view.pending;
+    const int room = sellable_view.possible_quantity_cap - sellable_view.pending;
     sellable_info.sellable = room > 0 ? room : 0;
     sellable_info.average_price   = order_gate_.average_price(account, ticker);
     return sellable_info;
@@ -1275,9 +1275,9 @@ void Engine::stop()
         data_thread_.join();
     }
 
-    if (feed_.ws)
+    if (feed_.websocket)
     {
-        feed_.ws->disconnect();
+        feed_.websocket->disconnect();
     }
 
     // disconnect()가 수신 스레드를 join하므로 이 뒤로는 push가 없다. fill_thread는 큐가 빌 때까지 돌고 끝난다.
@@ -1304,7 +1304,7 @@ void Engine::stop()
     }
 
     reap_retired(/*force=*/true);
-    print_stats();
+    print_statistics();
     LOG_INFO("[Engine] 종료 완료");
 }
 
@@ -1417,7 +1417,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                     held,
                     [this](const std::string& ticker) -> std::optional<std::chrono::steady_clock::time_point>
                     {
-                        const int64_t at_ns = last_px_at_ns(ticker);
+                        const int64_t at_ns = last_price_at_ns(ticker);
 
                         if (at_ns == 0)
                         {
@@ -1429,7 +1429,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                     std::chrono::steady_clock::now() - std::chrono::seconds(60));
 
                 const auto top_up_start = cycle_clock::now();
-                poller_->top_up(stale, [this](const std::string& ticker, double price) { set_last_px(ticker, price); });
+                poller_->top_up(stale, [this](const std::string& ticker, double price) { set_last_price(ticker, price); });
                 top_up_ms = ms_between(top_up_start, cycle_clock::now());
             }
 
@@ -1446,24 +1446,24 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                     // 수급추정(EstInvestorFlow) 로그 주기. 폴 간격(fetch_interval_sec_)이
                     //  30초일 때 10틱이면 약 5분마다다. 폴 간격을 바꾸면 실제 분 주기도 바뀐다.
                     constexpr int kEstFlowLogEveryNTicks = 10;
-                    KisClient* eqc = feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get();
+                    KisClient* equity_quote_client = feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get();
 
-                    if (eqc && (est_flow_tick % kEstFlowLogEveryNTicks) == 0)
+                    if (equity_quote_client && (est_flow_tick % kEstFlowLogEveryNTicks) == 0)
                     {
                         // 우리 유니버스(watch) 티커 집합 — 교집합만 강조 로깅.
                         std::unordered_set<std::string> ours;
 
-                        for (const auto& watch_spec : watch_specs_)
+                        for (const auto& watch_specification : watch_specifications_)
                         {
-                            if (watch_spec.market == Market::KR)
+                            if (watch_specification.market == Market::KR)
                             {
-                                ours.insert(watch_spec.ticker);
+                                ours.insert(watch_specification.ticker);
                             }
                         }
 
-                        auto buy_top  = eqc->fetch_est_investor_ranking("0000", "0", "0"); // 순매수 상위
+                        auto buy_top  = equity_quote_client->fetch_est_investor_ranking("0000", "0", "0"); // 순매수 상위
                         std::this_thread::sleep_for(150ms);
-                        auto sell_top = eqc->fetch_est_investor_ranking("0000", "1", "0"); // 순매도 상위
+                        auto sell_top = equity_quote_client->fetch_est_investor_ranking("0000", "1", "0"); // 순매도 상위
 
                         // 로그 축소: 전체시장 30행 덤프 대신 "우리 유니버스(★) 교집합만" 남긴다.
                         //  fetch(관측 적재)는 그대로 — 로그 볼륨만 스냅샷당 ~61줄→1~4줄로 줄인다.
@@ -1485,9 +1485,9 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                                 for (const auto& flow_g : values) { ++rank; if (flow_g.ticker == flow_f.ticker) break; }
                                 LOG_INFO(std::string("[수급추정] ") + label + " ★" + flow_f.ticker + " " +
                                          flow_f.name + " (전체 " + std::to_string(rank) + "위)" +
-                                         " 외인=" + std::to_string(flow_f.foreign_net_qty) +
-                                         " 기관=" + std::to_string(flow_f.inst_net_qty) +
-                                         " 외인금액=" + std::to_string(static_cast<int64_t>(flow_f.foreign_net_amt)));
+                                         " 외인=" + std::to_string(flow_f.foreign_net_quantity) +
+                                         " 기관=" + std::to_string(flow_f.institution_net_quantity) +
+                                         " 외인금액=" + std::to_string(static_cast<int64_t>(flow_f.foreign_net_amount)));
                                 ++shown;
                             }
 
@@ -1495,10 +1495,10 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                         };
                         LOG_INFO("[수급추정] 스냅샷(관측) 매수상위 " + std::to_string(buy_top.size()) +
                                  "행·매도상위 " + std::to_string(sell_top.size()) + "행 수신");
-                        int nb = dump("매수상위", buy_top);
-                        int ns = dump("매도상위", sell_top);
+                        int buy_top_count = dump("매수상위", buy_top);
+                        int sell_top_count = dump("매도상위", sell_top);
 
-                        if (nb + ns == 0)
+                        if (buy_top_count + sell_top_count == 0)
                         {
                             LOG_INFO("[수급추정]   (우리 유니버스가 외인·기관 상위권 미포함)");
                         }
@@ -1532,56 +1532,56 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                             {"0025", "보험"},       {"0026", "서비스업"}};
 
                         struct SecRate { std::string name; double rate; double price; };
-                        std::vector<SecRate> secs;
+                        std::vector<SecRate> sectors;
 
                         for (const auto& [code, name] : kSectors)
                         {
                             std::this_thread::sleep_for(100ms); // rate limit 여유(20업종×100ms=2초)
-                            auto ip = sqc->get_index_price(code);
+                            auto index_price = sqc->get_index_price(code);
 
-                            if (ip.price > 0.0)
+                            if (index_price.price > 0.0)
                             {
-                                secs.push_back({name, ip.change_rate, ip.price});
+                                sectors.push_back({name, index_price.change_rate, index_price.price});
                             }
                         }
 
-                        std::ranges::sort(secs, std::ranges::greater{}, &SecRate::rate);
+                        std::ranges::sort(sectors, std::ranges::greater{}, &SecRate::rate);
 
                         // 폭(breadth) 한 줄. 지수 등락률 하나로는 "지수는 빠졌는데 업종 절반이
                         //  플러스"인 회복 초입과 전 업종이 같이 밀리는 진짜 위험회피를 구분할 수
                         //  없다. 지금은 관측 전용이다 — 어떤 판정에도 쓰지 않는다. 회복일과
                         //  데드캣을 사후에 갈라 볼 표본이 쌓이기 전에는 게이트로 승격하지 않는다.
                         //  [why D-033]
-                        if (!secs.empty())
+                        if (!sectors.empty())
                         {
                             int up = 0;
 
-                            for (const auto& sec : secs)
+                            for (const auto& sector : sectors)
                             {
-                                if (sec.rate > 0.0)
+                                if (sector.rate > 0.0)
                                 {
                                     ++up;
                                 }
                             }
 
                             // 정렬이 끝난 뒤라 중앙값은 가운데 원소다(짝수면 두 값의 평균).
-                            const size_t count = secs.size();
-                            double med = (count % 2 == 1)
-                                             ? secs[count / 2].rate
-                                             : (secs[count / 2 - 1].rate + secs[count / 2].rate) / 2.0;
+                            const size_t count = sectors.size();
+                            double median = (count % 2 == 1)
+                                             ? sectors[count / 2].rate
+                                             : (sectors[count / 2 - 1].rate + sectors[count / 2].rate) / 2.0;
                             char head[128];
                             std::snprintf(head, sizeof(head),
-                                          "[섹터] 폭 %d/%zu 플러스, 중앙값 %+.2f%%", up, count, med);
+                                          "[섹터] 폭 %d/%zu 플러스, 중앙값 %+.2f%%", up, count, median);
                             LOG_INFO(head);
                         }
 
                         LOG_INFO("[섹터] ── 업종 등락률(강→약, 관측용) ──");
 
-                        for (const auto& sec : secs)
+                        for (const auto& sector : sectors)
                         {
                             char line[128];
                             std::snprintf(line, sizeof(line), "[섹터] %-8s %+6.2f%%  지수=%.2f",
-                                          sec.name.c_str(), sec.rate, sec.price);
+                                          sector.name.c_str(), sector.rate, sector.price);
                             LOG_INFO(line);
                         }
                     }
@@ -1608,18 +1608,18 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                             try
                             {
                                 std::ifstream mf(regime_file_);
-                                nlohmann::json mj;
+                                nlohmann::json regime_json;
 
                                 if (mf)
                                 {
-                                    mf >> mj;
+                                    mf >> regime_json;
                                 }
 
-                                if (mj.contains("components"))
+                                if (regime_json.contains("components"))
                                 {
-                                    std::string reg = mj.value("regime", std::string("?"));
-                                    int score = mj.value("risk_score", 0);
-                                    bool valid = mj.value("valid", false);
+                                    std::string reg = regime_json.value("regime", std::string("?"));
+                                    int score = regime_json.value("risk_score", 0);
+                                    bool valid = regime_json.value("valid", false);
                                     LOG_INFO("[매크로] ── regime=" + reg + " score=" +
                                              std::to_string(score) +
                                              (valid ? "" : " (valid=false)") + " ──");
@@ -1628,7 +1628,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                                         {"USDKRW", "환율(USD/KRW)"}, {"NQ_F", "나스닥선물"},
                                         {"TNX10", "미국채10Y금리"},  {"ES_F", "S&P500선물"},
                                         {"VIX", "VIX"}};
-                                    auto& comps = mj["components"];
+                                    auto& comps = regime_json["components"];
 
                                     for (const auto& [key, label] : kMacro)
                                     {
@@ -1641,14 +1641,14 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
                                         if (component.contains("pct") && !component["pct"].is_null())
                                         {
-                                            double pct = component["pct"].get<double>();
+                                            double percent = component["pct"].get<double>();
                                             double price = (component.contains("price") && !component["price"].is_null())
                                                                ? component["price"].get<double>() : 0.0;
                                             int vote = component.value("vote", 0);
                                             char line[160];
                                             std::snprintf(line, sizeof(line),
                                                           "[매크로] %s  %+.2f%%  price=%.2f  vote=%+d",
-                                                          label.c_str(), pct, price, vote);
+                                                          label.c_str(), percent, price, vote);
                                             LOG_INFO(line);
                                         }
                                         else
@@ -1677,34 +1677,34 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                 //  get_current_price를 쓰고, ITB는 이 틱으로 1분 버킷 채널을 구성/스탑 평가한다.
                 //  종전엔 WS와 같은 큐에 넣었는데, WS 폴백 중 WS가 되살아나면 생산자가 둘이 됐다 — 폴러의
                 //  싱크는 행렬의 데이터 스레드 행이라 그 경우가 없다. [why D-062]
-                data_count_ += poller_->poll_universe(watch_specs_, std::time(nullptr));
+                data_count_ += poller_->poll_universe(watch_specifications_, std::time(nullptr));
             }
             else
             {
                 // 차트(일봉) TR은 모의 도메인에서 HTTP 500을 돌려준다. 주문 클라이언트로 부르면
                 //  종목 수×사이클마다 500이 쌓여 로그가 그걸로 덮인다(3회 재시도까지 붙는다).
                 //  위 rest 분기와 같이 시세 클라이언트로 부른다.
-                KisClient* qc = feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get();
+                KisClient* quote_client = feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get();
 
                 // 일봉을 받아 쓰는 전략이 하나도 없으면 폴링 자체를 건너뛴다. DevScale·ITB처럼
                 //  호가·체결 이벤트로만 도는 구성에서는 이 루프가 종목 수만큼 차트 TR을 매 사이클
                 //  때리고 결과는 아무도 안 본다. 그 호출량이 초당 한도를 밀어 다른 조회(3분봉·현재가)까지
                 //  500으로 떨어뜨린다. 전략 집합은 국면 전환으로 바뀌므로 매 사이클 다시 확인한다.
-                if (qc && daily_bars_needed())
+                if (quote_client && daily_bars_needed())
                 {
-                    for (const auto& spec : watch_specs_)
+                    for (const auto& specification : watch_specifications_)
                     {
                         std::vector<MarketData> bars;
 
-                        if (spec.market == Market::KR)
+                        if (specification.market == Market::KR)
                         {
                             // 여기만 당일 봉이 목적이다(파이프라인에 오늘 시세를 흘린다).
                             //  지표·앵커 용도의 다른 호출자는 전부 기본값(전일까지)을 쓴다.
-                            bars = qc->get_daily_ohlcv(spec.ticker, 1, /*include_today=*/true);
+                            bars = quote_client->get_daily_ohlcv(specification.ticker, 1, /*include_today=*/true);
                         }
                         else
                         {
-                            bars = qc->get_us_daily_ohlcv(spec.ticker, 1, spec.exchange);
+                            bars = quote_client->get_us_daily_ohlcv(specification.ticker, 1, specification.exchange);
                         }
 
                         if (bars.empty())
@@ -1729,10 +1729,10 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
                 // WS 상한에 밀린 종목 — 재구독을 먼저 시도하고(드롭으로 슬롯이 비었을 수 있다) 안 되면 REST로.
                 //  rest 분기가 도는 사이클에는 부르지 않는다(그쪽이 이미 전 종목을 폴링한다).
-                if (feed_.ws)
+                if (feed_.websocket)
                 {
                     data_count_ += poller_->poll_overflow(
-                        feed_.ws->take_overflow_specs(), [this](const WatchSpec& spec) { return feed_.ws->subscribe_incremental(spec); },
+                        feed_.websocket->take_overflow_specifications(), [this](const WatchSpec& specification) { return feed_.websocket->subscribe_incremental(specification); },
                         std::time(nullptr));
                 }
             }
@@ -1834,29 +1834,29 @@ void Engine::set_entry_priority(std::unordered_map<std::string, int> rank,
 
     order_gate_.set_entry_priority(std::move(rank), std::move(items), total);
 
-    static std::mutex file_mtx; // 두 슬리브가 겹쳐 불러도 파일은 한 번에 하나만 쓴다
-    std::lock_guard<std::mutex> lock(file_mtx);
-    const auto path = Logger::instance().base_dir() / "entry_scores.json";
-    const auto tmp  = Logger::instance().base_dir() / "entry_scores.json.tmp";
+    static std::mutex file_mutex; // 두 슬리브가 겹쳐 불러도 파일은 한 번에 하나만 쓴다
+    std::lock_guard<std::mutex> lock(file_mutex);
+    const auto path = Logger::instance().base_directory() / "entry_scores.json";
+    const auto temporary  = Logger::instance().base_directory() / "entry_scores.json.tmp";
     std::error_code error_code;
     {
-        std::ofstream of(tmp, std::ios::trunc);
+        std::ofstream output_file(temporary, std::ios::trunc);
 
-        if (!of.is_open())
+        if (!output_file.is_open())
         {
-            LOG_WARN("[Engine] entry_scores.json 쓰기 실패: " + tmp.string());
+            LOG_WARN("[Engine] entry_scores.json 쓰기 실패: " + temporary.string());
             return;
         }
 
         const auto now = std::chrono::system_clock::now();
-        of << nlohmann::json{{"ts", std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count()},
+        output_file << nlohmann::json{{"ts", std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count()},
                              {"total", total},
                              {"unscored_z", order_gate_.config().displace_unscored_z},
                              {"scores", std::move(scores)}}
                   .dump();
     }
 
-    std::filesystem::rename(tmp, path, error_code);
+    std::filesystem::rename(temporary, path, error_code);
 
     if (error_code)
     {
@@ -1922,22 +1922,22 @@ void Engine::poll_regime_file()
         return; // 기능 미가동(기본)
     }
 
-    const regime_bridge::Observation obs = observe_regime_file(regime_file_, regime_bridge_.stale_sec());
+    const regime_bridge::Observation observation = observe_regime_file(regime_file_, regime_bridge_.stale_sec());
     const struct tm kst = ::kst::to_tm(std::time(nullptr));
     // 09:00~15:30을 분으로 편 값(is_kr_market_open과 같은 기준). 개장 전은 음수라 안 걸린다.
-    const regime_bridge::KstClock clk{kst.tm_yday, kst.tm_hour * 60 + kst.tm_min - 540};
-    const regime_bridge::Outcome  out = regime_bridge_.step(obs, clk);
+    const regime_bridge::KstClock clock{kst.tm_yday, kst.tm_hour * 60 + kst.tm_min - 540};
+    const regime_bridge::Outcome  out = regime_bridge_.step(observation, clock);
 
     if (out.log_expiry)
     {
-        LOG_WARN("[Regime] 매크로 진입정지 만료 — 개장 후 " + std::to_string(clk.minutes_after_open) +
+        LOG_WARN("[Regime] 매크로 진입정지 만료 — 개장 후 " + std::to_string(clock.minutes_after_open) +
                  "분 경과. 이 축은 장중 갱신되지 않으므로 오늘 남은 시간의 신규진입 판단은 "
                  "유니버스 지수 게이트와 종목 정배열에 맡긴다");
     }
 
     if (out.log_stale)
     {
-        LOG_WARN("[Regime] regime.json " + std::to_string(obs.age_sec) + "s 경과(> " +
+        LOG_WARN("[Regime] regime.json " + std::to_string(observation.age_sec) + "s 경과(> " +
                  std::to_string(regime_bridge_.stale_sec()) +
                  "s) — 보조 프로세스 중단 의심, 게이트 신규 변경 보류(현 halt 유지)");
     }
@@ -1952,7 +1952,7 @@ void Engine::poll_regime_file()
     {
         LOG_WARN(std::string("[Regime] 신규진입 ") +
                  (*out.entry_halt ? "정지(ENTRY_HALT ON)" : "재개(ENTRY_HALT OFF)") +
-                 " — regime=" + obs.snapshot.regime + " score=" + std::to_string(obs.snapshot.risk_score));
+                 " — regime=" + observation.snapshot.regime + " score=" + std::to_string(observation.snapshot.risk_score));
     }
 
     // 전략 선택 — 라벨이 바뀐 회차에만. 같은 data_thread라 apply_regime_selection의 strategy_.list 순회와 겹치지 않는다.
@@ -1971,19 +1971,19 @@ void Engine::poll_regime_file()
     {
         char buffer[16];
         std::snprintf(buffer, sizeof(buffer), "%.1f", *out.entry_scale);
-        LOG_INFO(std::string("[Regime] 매수비율 ") + buffer + " — regime=" + obs.snapshot.regime +
-                 " score=" + std::to_string(obs.snapshot.risk_score));
+        LOG_INFO(std::string("[Regime] 매수비율 ") + buffer + " — regime=" + observation.snapshot.regime +
+                 " score=" + std::to_string(observation.snapshot.risk_score));
     }
 
     // force_liquidate 배선(G3): 플래그만 세우고 실제 매도는 pipeline_.order_queue 단일 생산자인
     //  strategy_thread가 낸다(SPSC 준수). 여기(data_thread)는 원자 플래그 토글과 1회 로그뿐이다.
-    if (out.log_liq_on)
+    if (out.log_liquidation_on)
     {
         LOG_ERROR("[Regime] force_liquidate=TRUE (극단 위험회피) — 보유 전량 강제청산 요청, "
                   "strategy_thread가 시장가 매도 발주");
     }
 
-    if (out.log_liq_off)
+    if (out.log_liquidation_off)
     {
         LOG_WARN("[Regime] force_liquidate 해제 — 강제청산 중단");
     }
@@ -1995,7 +1995,7 @@ void Engine::poll_regime_file()
 }
 
 // ─── 전략 처리 스레드 ─────────────────────────────────────────────────────
-// ob_queue_(호가) → td_queue_(체결) → market_queue_(일봉) 순 우선처리
+// order_book_queue_(호가) → trade_queue_(체결) → market_queue_(일봉) 순 우선처리
 // 아이들 시 100µs 슬립 → 저지연 유지
 void Engine::strategy_thread_fn(std::stop_token stop_token)
 {
@@ -2070,13 +2070,13 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
         probe.ticker      = startup_probe_ticker_;
         probe.side        = OrderSide::BUY;
         probe.type        = OrderType::MARKET;
-        probe.quantity    = startup_probe_qty_;
+        probe.quantity    = startup_probe_quantity_;
         probe.price       = 0.0;
         probe.strategy_id = "STARTUP_PROBE";
         LOG_INFO("[Engine] 기동 점검 — " + probe.ticker + " 시장가 BUY " +
                  std::to_string(probe.quantity) + "주 (모의계좌 주문경로 검증, 체결되면 되판다)");
         push_signal(probe);
-        startup_probe_base_qty_ = base;
+        startup_probe_base_quantity_ = base;
         startup_probe_fired_at_ = std::chrono::steady_clock::now();
         startup_probe_settled_  = false;
     };
@@ -2102,7 +2102,7 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
         }
 
         // 기동 점검 — 09:00~15:20 KST 안에서만 낸다. 그 전 기동은 루프가 09:00 을 넘길 때 낸다.
-        if (!startup_probe_fired_ && !startup_probe_ticker_.empty() && startup_probe_qty_ > 0)
+        if (!startup_probe_fired_ && !startup_probe_ticker_.empty() && startup_probe_quantity_ > 0)
         {
             const int32_t hhmmss = kst::hhmmss_int(std::time(nullptr));
 
@@ -2117,7 +2117,7 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
         //  접수 거부·미체결로 보고 포기하고 표식을 지운다 — 다음 기동에서 다시 낸다.
         if (!startup_probe_settled_)
         {
-            const auto  now_p = std::chrono::steady_clock::now();
+            const auto  now_time_point = std::chrono::steady_clock::now();
             int         quantity   = 0;
             std::string account;
 
@@ -2130,25 +2130,25 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
                 }
             }
 
-            if (quantity >= startup_probe_base_qty_ + startup_probe_qty_)
+            if (quantity >= startup_probe_base_quantity_ + startup_probe_quantity_)
             {
                 OrderSignal back;
                 back.ticker      = startup_probe_ticker_;
                 back.account_id  = account;
                 back.side        = OrderSide::SELL;
                 back.type        = OrderType::MARKET;
-                back.quantity    = startup_probe_qty_;
+                back.quantity    = startup_probe_quantity_;
                 back.price       = 0.0;
-                back.ref_price   = order_gate_.average_price(account, startup_probe_ticker_);
+                back.reference_price   = order_gate_.average_price(account, startup_probe_ticker_);
                 back.strategy_id = "STARTUP_PROBE";
                 back.reason      = "기동 점검 되팔기";
-                LOG_INFO("[Engine] 기동 점검 체결 확인(보유 " + std::to_string(startup_probe_base_qty_) +
+                LOG_INFO("[Engine] 기동 점검 체결 확인(보유 " + std::to_string(startup_probe_base_quantity_) +
                          "→" + std::to_string(quantity) + ") — " + back.ticker + " 시장가 SELL " +
                          std::to_string(back.quantity) + "주로 되판다");
                 push_signal(back);
                 startup_probe_settled_ = true;
             }
-            else if (now_p - startup_probe_fired_at_ > std::chrono::seconds(120))
+            else if (now_time_point - startup_probe_fired_at_ > std::chrono::seconds(120))
             {
                 std::error_code error_code;
                 std::filesystem::remove(startup_probe_marker, error_code);
@@ -2213,7 +2213,7 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
     // strategy_.version을 올릴 때만 락 하에 재구성한다(틱마다 락 회피). 뗀 전략은 strategy_.retired가
     // 붙들고 있어 재구성 전의 옛 포인터도 유효하다(reap_retired가 seen 버전을 보고 파기).
     std::vector<StrategyBase*> snapshot;
-    uint64_t                   seen_ver = static_cast<uint64_t>(-1);
+    uint64_t                   seen_version = static_cast<uint64_t>(-1);
     const auto                 symbol_id_of   = [this](std::string_view ticker) { return symbols_.intern(ticker); };
 
     // 신호 봉투 — 전략 상태(active·id)는 여기서 읽는다. 전략 스레드는 전략 객체를 보지 않는다.
@@ -2250,7 +2250,7 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
         pipeline_.strategy_wake.notify();
     };
     // 운영단말 현재가용 캐시 — id 배열에 relaxed store 둘. 종목은 샤드 하나만 지나므로 쓰는 스레드도 하나다.
-    const auto on_price = [this](symbol::SymbolId id, double price) { set_last_px(id, price); };
+    const auto on_price = [this](symbol::SymbolId id, double price) { set_last_price(id, price); };
 
     // 유휴 전이: 전략 스레드와 같은 정책 — 200us yield 뒤 자기 게이트에서 잔다. [why D-071]
     constexpr auto                        kSpinBudget = std::chrono::microseconds(200);
@@ -2258,9 +2258,9 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
 
     while (!stop_token.stop_requested())
     {
-        const uint64_t ver = strategy_.version.load(std::memory_order_acquire);
+        const uint64_t version = strategy_.version.load(std::memory_order_acquire);
 
-        if (ver != seen_ver)
+        if (version != seen_version)
         {
             {
                 std::lock_guard<std::mutex> lock(strategy_.mutex);
@@ -2277,15 +2277,15 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
                     }
                 }
 
-                shard.rebuild(snapshot, ver, symbol_id_of);
+                shard.rebuild(snapshot, version, symbol_id_of);
             }
 
             LOG_INFO("[Shard " + std::to_string(row) + "] 라우팅 재구성: 전략 " + std::to_string(snapshot.size()) +
                      "개, 종목 배정 " + std::to_string(shard.router().routes()) + "건, 전부 받는 전략 " +
                      std::to_string(shard.router().all_count()) + "개");
-            seen_ver = ver;
+            seen_version = version;
             // 뗀 전략은 모든 샤드가 새 스냅샷을 본 뒤에야 파기한다 — 가장 뒤처진 샤드의 버전을 알린다.
-            uint64_t min_seen = ver;
+            uint64_t min_seen = version;
 
             for (const auto& other : pipeline_.shards)
             {
@@ -2343,7 +2343,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
     pacer.set_position([this](const std::string& argument, const std::string& ticker) { return order_gate_.position(argument, ticker); });
 
     // 구간 지연 CSV. 이 스레드만 쓰므로 지역 객체로 두고, 첫 주문 때 파일을 연다. [why D-071]
-    trace::LatencyTrace lat_trace(Logger::instance().path_for("latency_trace.csv"));
+    trace::LatencyTrace latency_trace(Logger::instance().path_for("latency_trace.csv"));
 
     while (!stop_token.stop_requested())
     {
@@ -2391,7 +2391,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             // 재시도 건은 pop 시각이 첫 시도 것이라 구간이 부풀지 않게 첫 시도만 남긴다.
             if (next->attempts == 0)
             {
-                lat_trace.record(signal, trace::Marks{signal.tick_at_ns, signal.signal_at_ns, pop_ns, trace::now_ns()}, kis_called,
+                latency_trace.record(signal, trace::Marks{signal.tick_at_ns, signal.signal_at_ns, pop_ns, trace::now_ns()}, kis_called,
                                  managed_order.status == OrderStatus::ACCEPTED);
             }
 
@@ -2402,7 +2402,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
                 // 게이트·브로커를 지난 최종 결과. 단말은 cid로 자기 ORDER_ACK와 잇고, 전략 주문도
                 //  같은 채널로 보여 운영 화면이 자동매매를 함께 본다.
                 ops_.server->broadcast(ops::OpsMsg::ORDER_RESULT,
-                                       nlohmann::json{{"cid", signal.client_oid},
+                                       nlohmann::json{{"cid", signal.client_order_id},
                                                       {"order_id", managed_order.order_id},
                                                       {"odno", managed_order.kis_order_no},
                                                       {"strategy", signal.strategy_id},
@@ -2434,7 +2434,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
     LOG_INFO("[OrderThread] 종료");
 }
 
-// 체결통보 소비 전용 스레드. 주문 스레드에 얹지 않은 이유: 주문 스레드는 KIS 발주(REST, 수십~수백 ms)와 발주 간격
+// 체결통보 소비 전용 스레드. 주문 스레드에 얹지 않은 이유: 주문 스레드는 KIS 발주(REST, 수십~수백 milliseconds)와 발주 간격
 //  대기에 묶여 있는 시간이 길어, 그 뒤에 선 체결이 원장에 늦게 들어가고 다음 SELL의 보유 수량 판단이 그만큼 낡는다.
 //  큐가 비면 condvar에서 자고 WS 콜백이 깨운다 — 1ms 폴링은 Windows에서 실측 8~15ms 늦었다(test_pipeline_stress).
 //  on_fill이 던지면 스레드가 죽어 이후 체결이 전부 큐에 쌓이므로 건마다 잡아 로그로 남긴다. [why D-056]
@@ -2540,7 +2540,7 @@ bool Engine::is_any_market_open() const
     return is_kr_market_open() || is_us_market_open();
 }
 
-void Engine::print_stats() const
+void Engine::print_statistics() const
 {
     LOG_INFO("[Engine] 수집: " + std::to_string(data_count_.load()) +
              "  신호: " + std::to_string(signal_count_.load()) + "  주문: " + std::to_string(order_count_.load()));
@@ -2563,7 +2563,7 @@ bool Engine::activate_rest_fallback(const std::string& reason)
     // 폴링이 쓸 시세 소스. 모의 도메인은 시세 REST가 HTTP 500이라 실전 시세 클라이언트가
     //  없고 주문계좌마저 모의면 낮춰봐야 틱이 안 나온다. 그때는 거짓 안심을 주지 않는다.
     //  브로커 없는 기동(피드 주입)도 같다 — 낮출 REST가 없다.
-    if (!feed_.kis || (!feed_.quote_kis && kis_cfg_.is_paper))
+    if (!feed_.kis || (!feed_.quote_kis && kis_config_.is_paper))
     {
         return false;
     }
@@ -2597,24 +2597,24 @@ void Engine::control_thread_fn(std::stop_token stop_token)
     constexpr int kCheckIntervalSec = 5;
     // 큐 고수위는 장 외에도 찍는다 — 큐 크기가 맞는지의 근거가 되므로 WS 유무·개장 여부와 무관하다. [why D-071]
     constexpr int kHighWaterEvery = 12; // 5초 × 12 = 1분
-    int hw_tick = 0;
+    int high_water_tick = 0;
     constexpr int kTokenEvery = 60; // 5초 × 60 = 5분
     int token_tick = 0;
 
     while (sync::sleep_unless_stopped(stop_token, std::chrono::seconds(kCheckIntervalSec)))
     {
 
-        if (++hw_tick >= kHighWaterEvery)
+        if (++high_water_tick >= kHighWaterEvery)
         {
-            hw_tick = 0;
-            std::string shard_hw; // 샤드마다 세 열 가운데 가장 높았던 셀
+            high_water_tick = 0;
+            std::string shard_high_water; // 샤드마다 세 열 가운데 가장 높았던 셀
 
             for (const auto& sh : pipeline_.shards)
             {
-                shard_hw += (shard_hw.empty() ? "" : ",") + std::to_string(sh->high_water());
+                shard_high_water += (shard_high_water.empty() ? "" : ",") + std::to_string(sh->high_water());
             }
 
-            LOG_INFO("[큐 고수위] shard=" + shard_hw + "/4096 shard_out=" + std::to_string(pipeline_.shard_out.size()) + "/" +
+            LOG_INFO("[큐 고수위] shard=" + shard_high_water + "/4096 shard_out=" + std::to_string(pipeline_.shard_out.size()) + "/" +
                      std::to_string(pipeline_.shard_out.capacity()) + " shard_dropped=" +
                      std::to_string(pipeline_.shard_dropped.load(std::memory_order_relaxed)) + " order=" +
                      std::to_string(pipeline_.order_queue.high_water()) + "/" + std::to_string(pipeline_.order_queue.capacity()) +
@@ -2640,14 +2640,14 @@ void Engine::control_thread_fn(std::stop_token stop_token)
             }
         }
 
-        if (!feed_.ws)
+        if (!feed_.websocket)
         {
             continue;
         }
 
         // 장 외 시간에는 stale이 정상 — 장 중에만 묻는다. 전이 판정은 감독기, 소켓·폴백 적용은 여기. [why D-071]
         const bool market_open = is_any_market_open();
-        const bool stale       = market_open && feed_.ws->is_stale(feed_.feed_sup.config().stale_sec);
+        const bool stale       = market_open && feed_.websocket->is_stale(feed_.feed_sup.config().stale_sec);
         const auto step        = feed_.feed_sup.observe(market_open, stale, std::chrono::steady_clock::now());
 
         if (step == feed::Supervisor::Step::kHealthy)
@@ -2663,14 +2663,14 @@ void Engine::control_thread_fn(std::stop_token stop_token)
 
         LOG_WARN("[Control] WebSocket " + std::to_string(feed_.feed_sup.config().stale_sec) +
                  "초 이상 시세 미수신 — 재연결 시도");
-        std::vector<WatchSpec> specs_copy;
+        std::vector<WatchSpec> specifications_copy;
         {
-            std::lock_guard<std::mutex> wl(watch_specs_mtx_); // data_thread의 재스캔 push_back과 겹친다
-            specs_copy = watch_specs_;
+            std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_); // data_thread의 재스캔 push_back과 겹친다
+            specifications_copy = watch_specifications_;
         }
 
         // 소켓이 여럿이면 멈춘 것만 다시 잇는다 — 살아 있는 소켓의 종목은 그 사이에도 틱이 흐른다. 하나면 끊고 다시 잇는 것.
-        const bool ok    = feed_.ws->reconnect_stale(specs_copy, feed_.feed_sup.config().stale_sec);
+        const bool ok    = feed_.websocket->reconnect_stale(specifications_copy, feed_.feed_sup.config().stale_sec);
         const auto after = feed_.feed_sup.on_reconnect(ok, std::chrono::steady_clock::now());
 
         if (ok)
@@ -2708,9 +2708,9 @@ void Engine::start_ops_server()
     }
 
     ops_.server = std::make_unique<OpsServer>();
-    ops_.server->set_bind(ops_.bind_addr, ops_.port);
+    ops_.server->set_bind(ops_.bind_address, ops_.port);
     ops_.server->set_token(ops_.token);
-    ops_.server->set_paper(kis_cfg_.is_paper);
+    ops_.server->set_paper(kis_config_.is_paper);
     ops_.server->set_status_provider([this] { return ops_status_json(); });
     ops_.server->set_positions_provider([this] { return ops_positions_json(); });
     ops_.server->set_kill_handler(
@@ -2721,46 +2721,46 @@ void Engine::start_ops_server()
             request_shutdown();
         });
     ops_.server->set_order_handler(
-        [this](const OpsOrderReq& ops_order_req) -> std::string
+        [this](const OpsOrderReq& ops_order_request) -> std::string
         {
-            if (ops_order_req.cid.empty() || ops_order_req.cid.size() > 64)
+            if (ops_order_request.client_id.empty() || ops_order_request.client_id.size() > 64)
             {
                 return "cid는 1~64자";
             }
 
-            if (ops_order_req.ticker.size() != 6 || !std::all_of(ops_order_req.ticker.begin(), ops_order_req.ticker.end(), ::isdigit))
+            if (ops_order_request.ticker.size() != 6 || !std::all_of(ops_order_request.ticker.begin(), ops_order_request.ticker.end(), ::isdigit))
             {
                 return "ticker는 6자리 숫자";
             }
 
-            if (ops_order_req.side != "SELL" && ops_order_req.side != "BUY")
+            if (ops_order_request.side != "SELL" && ops_order_request.side != "BUY")
             {
                 return "side는 SELL|BUY";
             }
 
-            if (ops_order_req.quantity <= 0 || ops_order_req.quantity > 100000)
+            if (ops_order_request.quantity <= 0 || ops_order_request.quantity > 100000)
             {
                 return "qty 범위 1~100000";
             }
 
-            if (ops_order_req.price < 0.0 || ops_order_req.ref_price < 0.0)
+            if (ops_order_request.price < 0.0 || ops_order_request.reference_price < 0.0)
             {
                 return "가격은 0 이상";
             }
 
             {
-                std::lock_guard<std::mutex> lock(ops_.manual_cid_mtx);
+                std::lock_guard<std::mutex> lock(ops_.manual_client_id_mutex);
 
-                if (!ops_.manual_cids.insert(ops_order_req.cid).second)
+                if (!ops_.manual_cids.insert(ops_order_request.client_id).second)
                 {
                     return "중복 cid — 이미 접수";
                 }
             }
 
-            if (!ops_.manual_inbox.push(ops_order_req))
+            if (!ops_.manual_inbox.push(ops_order_request))
             {
-                std::lock_guard<std::mutex> lock(ops_.manual_cid_mtx);
-                ops_.manual_cids.erase(ops_order_req.cid);
+                std::lock_guard<std::mutex> lock(ops_.manual_client_id_mutex);
+                ops_.manual_cids.erase(ops_order_request.client_id);
                 return "수동주문 인테이크 가득 참";
             }
 
@@ -2783,7 +2783,7 @@ std::string Engine::ops_status_json() const
                           {"kill", order_gate_.is_killed()},
                           {"entry_halt", order_gate_.is_entry_halted()},
                           {"force_liq", force_liquidate_.load(std::memory_order_relaxed)},
-                          {"paper", kis_cfg_.is_paper},
+                          {"paper", kis_config_.is_paper},
                           {"strategies", strategy_.list.size()}}
         .dump();
 }
@@ -2800,7 +2800,7 @@ std::string Engine::ops_positions_json() const
                        {"qty", snapshot_position.quantity},
                        {"avg_price", snapshot_position.average_price},
                        {"reserved", order_gate_.reserved(snapshot_position.account, snapshot_position.ticker)},
-                       {"last", last_px(snapshot_position.ticker)}});
+                       {"last", last_price(snapshot_position.ticker)}});
     }
 
     return nlohmann::json{{"positions", array}}.dump();
@@ -2808,33 +2808,33 @@ std::string Engine::ops_positions_json() const
 
 void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& emit)
 {
-    while (auto req = ops_.manual_inbox.pop())
+    while (auto request = ops_.manual_inbox.pop())
     {
-        const OpsOrderReq& ops_order_req = *req;
+        const OpsOrderReq& ops_order_request = *request;
         std::string reject;
-        double      ref = ops_order_req.ref_price;
+        double      reference = ops_order_request.reference_price;
 
         // 단말이 기준가를 안 찍었으면 엔진의 최근 체결가로 채운다 — 시장가 명목 한도가 0으로 새지 않게.
-        if (ref <= 0.0)
+        if (reference <= 0.0)
         {
-            ref = last_px(ops_order_req.ticker);
+            reference = last_price(ops_order_request.ticker);
         }
 
-        if (ops_order_req.side == "SELL")
+        if (ops_order_request.side == "SELL")
         {
             // 보유 범위 안에서만 — 보유가 없거나 보유를 넘는 요청은 여기서 끊는다. 매도가능(보유−미체결매도)이 0인
             //  것은 거부하지 않고 라우터로 보낸다 — 라우터가 그 종목의 예약매도를 취소해 수량을 풀고 다시 낸다
             //  (청산차단 자가정리). 예전엔 여기서 "매도가능 0"으로 끊어 그 길에 닿지 못했다(09-14 15:00 먼지 정리
             //  3건 중 2건이 예약 익절 때문에 거부). [why D-082]
             int held = 0;
-            double avg = 0.0;
+            double average = 0.0;
 
             for (const auto& snapshot_position : order_gate_.snapshot_positions())
             {
-                if (snapshot_position.ticker == ops_order_req.ticker && snapshot_position.account == ops_order_req.account)
+                if (snapshot_position.ticker == ops_order_request.ticker && snapshot_position.account == ops_order_request.account)
                 {
                     held = snapshot_position.quantity;
-                    avg  = snapshot_position.average_price;
+                    average  = snapshot_position.average_price;
                     break;
                 }
             }
@@ -2843,33 +2843,33 @@ void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& e
             {
                 reject = "보유 없음";
             }
-            else if (ops_order_req.quantity > held)
+            else if (ops_order_request.quantity > held)
             {
-                reject = "보유 " + std::to_string(held) + " 초과 요청 " + std::to_string(ops_order_req.quantity);
+                reject = "보유 " + std::to_string(held) + " 초과 요청 " + std::to_string(ops_order_request.quantity);
             }
 
-            if (ref <= 0.0)
+            if (reference <= 0.0)
             {
-                ref = avg;
+                reference = average;
             }
         }
 
         if (!reject.empty())
         {
-            LOG_WARN("[Ops] 수동주문 거부 cid=" + ops_order_req.cid + " " + ops_order_req.ticker + " " + ops_order_req.side + " " + std::to_string(ops_order_req.quantity) +
+            LOG_WARN("[Ops] 수동주문 거부 cid=" + ops_order_request.client_id + " " + ops_order_request.ticker + " " + ops_order_request.side + " " + std::to_string(ops_order_request.quantity) +
                      " — " + reject);
 
             if (ops_.server)
             {
                 ops_.server->broadcast(ops::OpsMsg::ORDER_RESULT,
-                                       nlohmann::json{{"cid", ops_order_req.cid},
+                                       nlohmann::json{{"cid", ops_order_request.client_id},
                                                       {"order_id", ""},
                                                       {"odno", ""},
                                                       {"strategy", "MANUAL"},
-                                                      {"ticker", ops_order_req.ticker},
-                                                      {"side", ops_order_req.side},
-                                                      {"qty", ops_order_req.quantity},
-                                                      {"price", ops_order_req.price},
+                                                      {"ticker", ops_order_request.ticker},
+                                                      {"side", ops_order_request.side},
+                                                      {"qty", ops_order_request.quantity},
+                                                      {"price", ops_order_request.price},
                                                       {"ok", false},
                                                       {"msg", reject}}
                                            .dump());
@@ -2879,19 +2879,19 @@ void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& e
         }
 
         OrderSignal signal;
-        signal.ticker      = ops_order_req.ticker;
-        signal.account_id  = ops_order_req.account;
-        signal.side        = OrderSide::from_string(ops_order_req.side);
-        signal.type        = ops_order_req.price > 0.0 ? OrderType::LIMIT : OrderType::MARKET;
-        signal.quantity    = ops_order_req.quantity;
-        signal.price       = ops_order_req.price;
-        signal.ref_price   = ref;
+        signal.ticker      = ops_order_request.ticker;
+        signal.account_id  = ops_order_request.account;
+        signal.side        = OrderSide::from_string(ops_order_request.side);
+        signal.type        = ops_order_request.price > 0.0 ? OrderType::LIMIT : OrderType::MARKET;
+        signal.quantity    = ops_order_request.quantity;
+        signal.price       = ops_order_request.price;
+        signal.reference_price   = reference;
         signal.strategy_id = "MANUAL";
-        signal.client_oid  = ops_order_req.cid;
-        signal.reason      = "운영단말 수동주문 cid=" + ops_order_req.cid;
+        signal.client_order_id  = ops_order_request.client_id;
+        signal.reason      = "운영단말 수동주문 cid=" + ops_order_request.client_id;
         signal.timestamp   = std::chrono::system_clock::now();
-        LOG_INFO("[Ops] 수동주문 → 게이트 cid=" + ops_order_req.cid + " " + ops_order_req.ticker + " " + ops_order_req.side + " " + std::to_string(ops_order_req.quantity) +
-                 (ops_order_req.price > 0.0 ? " @" + std::to_string(static_cast<long long>(ops_order_req.price)) : " 시장가"));
+        LOG_INFO("[Ops] 수동주문 → 게이트 cid=" + ops_order_request.client_id + " " + ops_order_request.ticker + " " + ops_order_request.side + " " + std::to_string(ops_order_request.quantity) +
+                 (ops_order_request.price > 0.0 ? " @" + std::to_string(static_cast<long long>(ops_order_request.price)) : " 시장가"));
         emit(signal);
     }
 }

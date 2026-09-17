@@ -42,7 +42,7 @@ int main(int argc, char** argv)
 
     const std::string config_path = argv[1];
     const std::string issue_code = argv[2];
-    const std::string mrkt = (argc > 3) ? argv[3] : "F";
+    const std::string market = (argc > 3) ? argv[3] : "F";
 
     std::ifstream file(config_path);
 
@@ -56,26 +56,26 @@ int main(int argc, char** argv)
 
     // 시세키 선택: quote_kis(실전 시세) 우선, 없으면 kis.
     const char* block = config.contains("quote_kis") ? "quote_kis" : "kis";
-    const json& kb = config[block];
+    const json& kis_block = config[block];
 
-    KisConfig kc;
-    kc.app_key    = kb.value("app_key", "");
-    kc.app_secret = kb.value("app_secret", "");
-    kc.is_paper   = kb.value("is_paper", false);
+    KisConfig kis_config;
+    kis_config.app_key    = kis_block.value("app_key", "");
+    kis_config.app_secret = kis_block.value("app_secret", "");
+    kis_config.is_paper   = kis_block.value("is_paper", false);
     // 시세 조회는 계좌 불필요(quote 전용). account_no/type는 비워둔다.
 
     std::cout << "=== 선물 시세 프로브 ===\n";
     std::cout << "config=" << config_path << "  키블록=" << block
-              << "  is_paper=" << (kc.is_paper ? "true" : "false") << "\n";
-    std::cout << "iscd=" << issue_code << "  market_div=" << mrkt << "\n";
+              << "  is_paper=" << (kis_config.is_paper ? "true" : "false") << "\n";
+    std::cout << "iscd=" << issue_code << "  market_div=" << market << "\n";
 
-    if (kc.is_paper)
+    if (kis_config.is_paper)
     {
         std::cout << "[경고] is_paper=true 시세키 — 모의 도메인은 시세 REST 미지원이라 HTTP500이 예상됩니다.\n"
                      "       config에 실전 quote_kis 블록을 두거나 실전 config를 쓰세요.\n";
     }
 
-    KisClient kis(kc);
+    KisClient kis(kis_config);
 
     if (!kis.authenticate())
     {
@@ -88,7 +88,7 @@ int main(int argc, char** argv)
     // issue_code=="list" → 선물 전광판 조회(현재 거래가능 계약 목록·코드). 최근월물 코드 확보용.
     if (issue_code == "list")
     {
-        std::string cls = (mrkt == "F") ? "MKI" : mrkt; // 3번째 인자를 market_cls로 재사용 가능
+        std::string cls = (market == "F") ? "MKI" : market; // 3번째 인자를 market_cls로 재사용 가능
         const KisResult<std::vector<FutureContract>> board = kis.get_future_board(cls);
         std::cout << "[2] 선물 전광판 (market_cls=" << cls << ")\n";
 
@@ -107,13 +107,13 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    KisClient::FuturePrice fp = kis.get_future_price(issue_code, mrkt);
-    std::cout << "[2] 조회 결과 (ok=" << (fp.ok ? "true" : "false") << ")\n";
-    std::cout << "    현재가        = " << fp.price << "\n";
-    std::cout << "    전일대비      = " << fp.change << " (" << fp.change_rate << "%)  sign=" << fp.sign << "\n";
-    std::cout << "    시/고/저      = " << fp.open << " / " << fp.high << " / " << fp.low << "\n";
-    std::cout << "    누적거래량    = " << fp.volume << "\n";
-    std::cout << "    미결제약정    = " << fp.open_interest << "\n";
+    KisClient::FuturePrice future_price = kis.get_future_price(issue_code, market);
+    std::cout << "[2] 조회 결과 (ok=" << (future_price.ok ? "true" : "false") << ")\n";
+    std::cout << "    현재가        = " << future_price.price << "\n";
+    std::cout << "    전일대비      = " << future_price.change << " (" << future_price.change_rate << "%)  sign=" << future_price.sign << "\n";
+    std::cout << "    시/고/저      = " << future_price.open << " / " << future_price.high << " / " << future_price.low << "\n";
+    std::cout << "    누적거래량    = " << future_price.volume << "\n";
+    std::cout << "    미결제약정    = " << future_price.open_interest << "\n";
     std::cout << "\n※ 필드명 확정: 로그(logs/quant_trader.log)의 '[KIS] get_future_price RAW ...' 한 줄을\n"
                  "  보고 실제 output 키와 대조하세요. ok=false거나 값이 0이면 필드명/ISCD/market_div를 조정합니다.\n";
     std::cout << "=== 완료 ===\n";

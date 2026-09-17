@@ -36,28 +36,28 @@ public:
 
     [[nodiscard]] std::optional<T> pop()
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<std::mutex> lock(mutex_);
 
-        if (q_.empty())
+        if (queue_.empty())
         {
             return std::nullopt;
         }
 
-        T item = std::move(q_.front());
-        q_.pop_front();
+        T item = std::move(queue_.front());
+        queue_.pop_front();
         return item;
     }
 
     [[nodiscard]] bool empty() const
     {
-        std::lock_guard<std::mutex> lock(mtx_);
-        return q_.empty();
+        std::lock_guard<std::mutex> lock(mutex_);
+        return queue_.empty();
     }
 
     [[nodiscard]] size_t size() const
     {
-        std::lock_guard<std::mutex> lock(mtx_);
-        return q_.size();
+        std::lock_guard<std::mutex> lock(mutex_);
+        return queue_.size();
     }
 
     size_t capacity() const
@@ -68,18 +68,18 @@ public:
 private:
     template <typename U> bool emplace(U&& item)
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<std::mutex> lock(mutex_);
 
-        if (q_.size() >= capacity_)
+        if (queue_.size() >= capacity_)
         {
             return false; // bounded — MpscQueue의 가득 참과 동일 계약
         }
 
-        q_.push_back(std::forward<U>(item));
+        queue_.push_back(std::forward<U>(item));
         return true;
     }
 
     const size_t capacity_;
-    mutable std::mutex mtx_;
-    std::deque<T> q_;
+    mutable std::mutex mutex_;
+    std::deque<T> queue_;
 };

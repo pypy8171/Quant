@@ -21,7 +21,7 @@ public:
         return "MOMENTUM_" + ticker_;
     }
 
-    std::vector<WatchSpec> get_watch_specs() const override
+    std::vector<WatchSpec> get_watch_specifications() const override
     {
         return {{ticker_, Market::KR, ""}};
     }
@@ -97,7 +97,7 @@ private:
         signal.side = side;
         signal.type = OrderType::MARKET;
         signal.quantity = quantity_;
-        signal.ref_price = market_data.close;  // 시장가 명목 백스톱 평가 기준가(price=0이라 없으면 우회됨)
+        signal.reference_price = market_data.close;  // 시장가 명목 백스톱 평가 기준가(price=0이라 없으면 우회됨)
         signal.strategy_id = id();
         signal.timestamp = market_data.timestamp;
         return signal;

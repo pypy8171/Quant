@@ -36,9 +36,9 @@ constexpr int kSdpRestPacingMs = 60;
 //    on_data(일봉): 5일선 눌림목 판정 → 당일 BUY (다음날 실질 진입)
 //
 //  [진입 모드 B — INTRADAY 일중]
-//    on_start에서 전일 확정 일봉으로 ref_ma5_ 고정
+//    on_start에서 전일 확정 일봉으로 reference_ma5_ 고정
 //    on_trade/on_order_book에서 장중 5일선 눌림목 터치 포착 → 즉시 BUY
-//    eod_exit_hhmm 또는 ma5 이탈 시 손절/청산
+//    eod_exit_hhmm 또는 moving_average_5 이탈 시 손절/청산
 // ─────────────────────────────────────────────────────────────────────────────
 class SupplyDemandPullbackStrategy : public StrategyBase
 {
@@ -72,42 +72,42 @@ public:
         int         min_dual_days    = 3;      // 쌍끌이 최소 일수
         int         min_consec_days  = 0;      // 연속 쌍끌이 최소 일수 (0=미사용)
         int64_t     net_buy_threshold= 0;      // 누적 순매수 하한 (수량)
-        int         ma_period        = 5;
-        double      pullback_band    = 0.01;   // ma5 ±1% 눌림목 인식 밴드
-        bool        require_prev_above = true; // 직전봉이 ma5 위에 있었는지
+        int         moving_average_period        = 5;
+        double      pullback_band    = 0.01;   // moving_average_5 ±1% 눌림목 인식 밴드
+        bool        require_previous_above = true; // 직전봉이 moving_average_5 위에 있었는지
         EntryMode   mode             = EntryMode::EOD;
         int         quantity         = 10;
         std::string eod_exit_hhmm    = "1500"; // INTRADAY 청산 시각
-        double      stop_below_ma    = 0.0;    // ma5*(1-stop) 이탈 손절 (0=미사용)
+        double      stop_below_moving_average    = 0.0;    // moving_average_5*(1-stop) 이탈 손절 (0=미사용)
     };
 
-    explicit SupplyDemandPullbackStrategy(Params params) : p_(std::move(params)) {}
+    explicit SupplyDemandPullbackStrategy(Params parameters) : parameters_(std::move(parameters)) {}
 
     std::string id() const override { return "SUPPLY_DEMAND_PULLBACK"; }
     std::string describe() const override
     {
-        return id() + " | uni=" + std::to_string(p_.universe_size) +
-               " | dual>=" + std::to_string(p_.min_dual_days) +
-               " | band=" + std::to_string(static_cast<int>(p_.pullback_band * 100)) + "%" +
-               " | qty=" + std::to_string(p_.quantity) +
-               " | mode=" + (p_.mode == EntryMode::EOD ? "EOD" : "INTRADAY");
+        return id() + " | uni=" + std::to_string(parameters_.universe_size) +
+               " | dual>=" + std::to_string(parameters_.min_dual_days) +
+               " | band=" + std::to_string(static_cast<int>(parameters_.pullback_band * 100)) + "%" +
+               " | qty=" + std::to_string(parameters_.quantity) +
+               " | mode=" + (parameters_.mode == EntryMode::EOD ? "EOD" : "INTRADAY");
     }
 
-    std::vector<WatchSpec> get_watch_specs() const override
+    std::vector<WatchSpec> get_watch_specifications() const override
     {
-        std::vector<WatchSpec> specs;
+        std::vector<WatchSpec> specifications;
 
-        if (p_.mode != EntryMode::INTRADAY)
+        if (parameters_.mode != EntryMode::INTRADAY)
         {
-            return specs;
+            return specifications;
         }
 
         for (const auto& ticker : candidates_)
         {
-            specs.push_back({ticker, Market::KR, "", /*trade_only=*/true});
+            specifications.push_back({ticker, Market::KR, "", /*trade_only=*/true});
         }
 
-        return specs;
+        return specifications;
     }
 
     // ── 선별 ─────────────────────────────────────────────────────────────────
@@ -117,20 +117,20 @@ public:
 
         candidates_.clear();
         closes_.clear();
-        ref_ma5_.clear();
+        reference_ma5_.clear();
         held_.clear();
 
         const std::string today = today_yyyymmdd();
 
         // 1. 유니버스: 시총 상위 N
-        auto ranked = kis_->fetch_kr_ranking(p_.universe_size, p_.market_div);
+        auto ranked = kis_->fetch_kr_ranking(parameters_.universe_size, parameters_.market_div);
         LOG_INFO("[SDP] 유니버스: " + std::to_string(ranked.size()) + "종목");
 
         // 2. 종목별 수급 시계열 조회 → 쌍끌이 점수
         for (const auto& stock : ranked)
         {
             const std::string& ticker = stock.ticker;
-            auto flows = kis_->get_investor_flow(ticker, p_.market_div);
+            auto flows = kis_->get_investor_flow(ticker, parameters_.market_div);
             std::this_thread::sleep_for(std::chrono::milliseconds(kSdpRestPacingMs));
 
             if (flows.empty())
@@ -138,20 +138,20 @@ public:
                 continue;
             }
 
-            Score sc = calc_score(ticker, flows, today);
-            bool dual_ok  = sc.dual_days  >= p_.min_dual_days;
-            bool cons_ok  = (p_.min_consec_days == 0) || (sc.consec_days >= p_.min_consec_days);
-            bool cum_ok   = sc.cum_foreign > p_.net_buy_threshold
-                         && sc.cum_inst    > p_.net_buy_threshold;
+            Score score = calculate_score(ticker, flows, today);
+            bool dual_ok  = score.dual_days  >= parameters_.min_dual_days;
+            bool consumed_ok  = (parameters_.min_consec_days == 0) || (score.consec_days >= parameters_.min_consec_days);
+            bool cumulative_ok   = score.cumulative_foreign > parameters_.net_buy_threshold
+                         && score.cumulative_institution    > parameters_.net_buy_threshold;
 
-            if (dual_ok && cons_ok && cum_ok)
+            if (dual_ok && consumed_ok && cumulative_ok)
             {
                 candidates_.push_back(ticker);
                 LOG_INFO("[SDP] 후보: " + ticker + " " + stock.name +
-                         " | 쌍끌이=" + std::to_string(sc.dual_days) + "일" +
-                         " | 연속=" + std::to_string(sc.consec_days) + "일" +
-                         " | 외인누적=" + std::to_string(sc.cum_foreign) +
-                         " | 기관누적=" + std::to_string(sc.cum_inst));
+                         " | 쌍끌이=" + std::to_string(score.dual_days) + "일" +
+                         " | 연속=" + std::to_string(score.consec_days) + "일" +
+                         " | 외인누적=" + std::to_string(score.cumulative_foreign) +
+                         " | 기관누적=" + std::to_string(score.cumulative_institution));
             }
         }
 
@@ -160,12 +160,12 @@ public:
         // candidates_ 확정 후 O(1) 조회용 set 동기화 (필수 — 누락 시 is_candidate가 항상 false)
         rebuild_set();
 
-        // 3-A. EOD 모드: 최근 일봉으로 ma 초기화
-        if (p_.mode == EntryMode::EOD)
+        // 3-A. EOD 모드: 최근 일봉으로 moving_average 초기화
+        if (parameters_.mode == EntryMode::EOD)
         {
             for (const auto& ticker : candidates_)
             {
-                auto bars = kis_->get_daily_ohlcv(ticker, p_.ma_period + 2);
+                auto bars = kis_->get_daily_ohlcv(ticker, parameters_.moving_average_period + 2);
                 std::this_thread::sleep_for(std::chrono::milliseconds(kSdpRestPacingMs));
                 auto& closes = closes_[symbol_of(ticker)];
 
@@ -178,47 +178,47 @@ public:
             }
         }
 
-        // 3-B. INTRADAY 모드: 전일 확정 일봉으로 ref_ma5_ 고정
+        // 3-B. INTRADAY 모드: 전일 확정 일봉으로 reference_ma5_ 고정
         else
         {
             for (const auto& ticker : candidates_)
             {
-                auto bars = kis_->get_daily_ohlcv(ticker, p_.ma_period + 2);
+                auto bars = kis_->get_daily_ohlcv(ticker, parameters_.moving_average_period + 2);
                 std::this_thread::sleep_for(std::chrono::milliseconds(kSdpRestPacingMs));
 
-                if (static_cast<int>(bars.size()) < p_.ma_period)
+                if (static_cast<int>(bars.size()) < parameters_.moving_average_period)
                 {
                     continue;
                 }
 
-                // bars[0]=최신(당일 미완성 가능) → bars[1..ma_period] 사용
+                // bars[0]=최신(당일 미완성 가능) → bars[1..moving_average_period] 사용
                 double sum = 0.0;
                 // 현재는 두 가지(당일봉 유무)를 구분하지 않고 항상 1부터 쓴다(보수적).
                 // 삼항의 두 분기 값이 같아 실질 무조건 1 — 당일봉 처리 분기 지점만 남겨둔 자리(보류 목록).
                 int start = (bars[0].volume == 0) ? 1 : 1;
 
-                if (static_cast<int>(bars.size()) <= start + p_.ma_period - 1)
+                if (static_cast<int>(bars.size()) <= start + parameters_.moving_average_period - 1)
                 {
                     continue;
                 }
 
-                for (int ma_period_index = start; ma_period_index < start + p_.ma_period; ++ma_period_index)
+                for (int moving_average_period_index = start; moving_average_period_index < start + parameters_.moving_average_period; ++moving_average_period_index)
                 {
-                    sum += bars[ma_period_index].close;
+                    sum += bars[moving_average_period_index].close;
                 }
 
-                ref_ma5_[symbol_of(ticker)] = sum / p_.ma_period;
+                reference_ma5_[symbol_of(ticker)] = sum / parameters_.moving_average_period;
             }
         }
     }
 
     // EOD 모드에서만 일봉을 쓴다. 장중(INTRADAY) 모드면 on_data가 바로 빠져나가므로 폴링도 불필요.
-    bool wants_daily_bars() const override { return p_.mode == EntryMode::EOD; }
+    bool wants_daily_bars() const override { return parameters_.mode == EntryMode::EOD; }
 
     // ── EOD 모드 진입/청산 (일봉) ─────────────────────────────────────────────
     std::optional<OrderSignal> on_data(const MarketData& market_data) override
     {
-        if (p_.mode != EntryMode::EOD)
+        if (parameters_.mode != EntryMode::EOD)
         {
             return std::nullopt;
         }
@@ -231,22 +231,22 @@ public:
         }
 
         auto& closes = closes_[id];
-        double prev_close = closes.empty() ? market_data.close : closes.back();
+        double previous_close = closes.empty() ? market_data.close : closes.back();
         closes.push_back(market_data.close);
         trim(closes);
 
-        if (static_cast<int>(closes.size()) < p_.ma_period)
+        if (static_cast<int>(closes.size()) < parameters_.moving_average_period)
         {
             return std::nullopt;
         }
 
-        double ma    = sma(closes, p_.ma_period);
+        double moving_average    = simple_moving_average(closes, parameters_.moving_average_period);
         double price = market_data.close;
 
         // 보유 중이면 손절만 체크
         if (held_.count(id))
         {
-            if (p_.stop_below_ma > 0.0 && price < ma * (1.0 - p_.stop_below_ma))
+            if (parameters_.stop_below_moving_average > 0.0 && price < moving_average * (1.0 - parameters_.stop_below_moving_average))
             {
                 held_.erase(id);
                 return make_signal(id, market_data.ticker, OrderSide::SELL, price);
@@ -256,12 +256,12 @@ public:
         }
 
         // 눌림목 진입 조건
-        bool prev_above = !p_.require_prev_above || (prev_close >= ma);
-        bool in_band    = price >= ma * (1.0 - p_.pullback_band)
-                       && price <= ma * (1.0 + p_.pullback_band);
-        bool supported  = price >= ma;
+        bool previous_above = !parameters_.require_previous_above || (previous_close >= moving_average);
+        bool in_band    = price >= moving_average * (1.0 - parameters_.pullback_band)
+                       && price <= moving_average * (1.0 + parameters_.pullback_band);
+        bool supported  = price >= moving_average;
 
-        if (is_active() && prev_above && in_band && supported)   // 진입 — 국면 게이트
+        if (is_active() && previous_above && in_band && supported)   // 진입 — 국면 게이트
         {
             held_.insert(id);
             return make_signal(id, market_data.ticker, OrderSide::BUY, price);
@@ -273,7 +273,7 @@ public:
     // ── INTRADAY 모드 진입/청산 (체결 이벤트) ────────────────────────────────
     std::optional<OrderSignal> on_trade(const TradeData& trade) override
     {
-        if (p_.mode != EntryMode::INTRADAY)
+        if (parameters_.mode != EntryMode::INTRADAY)
         {
             return std::nullopt;
         }
@@ -290,18 +290,18 @@ public:
             return std::nullopt;
         }
 
-        auto ref = ref_ma5_.find(id);
+        auto reference = reference_ma5_.find(id);
 
-        if (ref == ref_ma5_.end())
+        if (reference == reference_ma5_.end())
         {
             return std::nullopt;
         }
 
-        double ma    = ref->second;
+        double moving_average    = reference->second;
         double price = trade.price;
 
         // 청산 시각 도달
-        if (past_hhmm(p_.eod_exit_hhmm))
+        if (past_hhmm(parameters_.eod_exit_hhmm))
         {
             if (held_.count(id))
             {
@@ -315,7 +315,7 @@ public:
         // 보유 중 손절
         if (held_.count(id))
         {
-            if (p_.stop_below_ma > 0.0 && price < ma * (1.0 - p_.stop_below_ma))
+            if (parameters_.stop_below_moving_average > 0.0 && price < moving_average * (1.0 - parameters_.stop_below_moving_average))
             {
                 held_.erase(id);
                 return make_signal(id, trade.ticker, OrderSide::SELL, price);
@@ -325,9 +325,9 @@ public:
         }
 
         // 눌림목 진입
-        bool in_band   = price >= ma * (1.0 - p_.pullback_band)
-                      && price <= ma * (1.0 + p_.pullback_band);
-        bool supported = price >= ma;
+        bool in_band   = price >= moving_average * (1.0 - parameters_.pullback_band)
+                      && price <= moving_average * (1.0 + parameters_.pullback_band);
+        bool supported = price >= moving_average;
 
         if (is_active() && in_band && supported)   // 진입 — 국면 게이트
         {
@@ -349,17 +349,17 @@ private:
     // 수급 점수 계산 내부 타입 (전략 내부용, Types.h에 노출 불필요)
     struct Score
     {
-        int64_t cum_foreign = 0;
-        int64_t cum_inst    = 0;
+        int64_t cumulative_foreign = 0;
+        int64_t cumulative_institution    = 0;
         int     dual_days   = 0;
         int     consec_days = 0;
     };
 
-    Score calc_score(const std::string& /*ticker*/,
+    Score calculate_score(const std::string& /*ticker*/,
                      const std::vector<InvestorFlow>& flows,
                      const std::string& today) const
     {
-        Score sc;
+        Score score;
         int used = 0;
         bool consec_broken = false;
 
@@ -370,7 +370,7 @@ private:
                 continue;  // look-ahead 방지: 당일 제외
             }
 
-            if (used >= p_.lookback_days)
+            if (used >= parameters_.lookback_days)
             {
                 break;
             }
@@ -378,19 +378,19 @@ private:
             ++used;
 
             bool dual = (flow.foreign_net > 0) && (flow.institution_net > 0);
-            sc.cum_foreign += flow.foreign_net;
-            sc.cum_inst    += flow.institution_net;
+            score.cumulative_foreign += flow.foreign_net;
+            score.cumulative_institution    += flow.institution_net;
 
             if (dual)
             {
-                sc.dual_days++;
+                score.dual_days++;
             }
 
             if (!consec_broken)
             {
                 if (dual)
                 {
-                    sc.consec_days++;
+                    score.consec_days++;
                 }
                 else
                 {
@@ -399,7 +399,7 @@ private:
             }
         }
 
-        return sc;
+        return score;
     }
 
     bool is_candidate(symbol::SymbolId id) const
@@ -418,7 +418,7 @@ private:
         }
     }
 
-    static double sma(const std::deque<double>& closes, int count)
+    static double simple_moving_average(const std::deque<double>& closes, int count)
     {
         if (static_cast<int>(closes.size()) < count)
         {
@@ -437,7 +437,7 @@ private:
 
     void trim(std::deque<double>& closes) const
     {
-        while (static_cast<int>(closes.size()) > p_.ma_period + 2)
+        while (static_cast<int>(closes.size()) > parameters_.moving_average_period + 2)
         {
             closes.pop_front();
         }
@@ -450,7 +450,7 @@ private:
         signal.symbol_id         = sid;
         signal.side        = side;
         signal.type        = OrderType::MARKET;
-        signal.quantity    = p_.quantity;
+        signal.quantity    = parameters_.quantity;
         signal.price       = price;
         signal.market      = Market::KR;
         signal.strategy_id = id();
@@ -476,10 +476,10 @@ private:
         return now >= target;
     }
 
-    Params                                               p_;
+    Params                                               parameters_;
     std::vector<std::string>                               candidates_; // 문자열 — 구독 스펙·REST·로그
     std::unordered_set<symbol::SymbolId>                      cand_set_;   // O(1) 조회(id)
     std::unordered_map<symbol::SymbolId, std::deque<double>>  closes_;     // EOD ma용
-    std::unordered_map<symbol::SymbolId, double>              ref_ma5_;    // INTRADAY 기준선
+    std::unordered_map<symbol::SymbolId, double>              reference_ma5_;    // INTRADAY 기준선
     std::unordered_set<symbol::SymbolId>                      held_;       // 보유 종목
 };

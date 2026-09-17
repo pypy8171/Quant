@@ -23,7 +23,7 @@
 #include <system_error>
 #include <vector>
 
-namespace kis_ws
+namespace kis_websocket
 {
 
 // 레코드 한 건의 필드 목록. 뷰 벡터의 구간을 가리키기만 한다(소유 없음, 16바이트, 값 전달).
@@ -202,17 +202,17 @@ inline bool to_int(std::string_view text, int& out) noexcept
 }
 
 // 5단계 호가 블록. 현물·선물이 시작 위치만 다르고 배열 규칙은 같다.
-inline bool fill_levels(Fields fields, size_t ask_p, size_t ask_q, size_t bid_p,
-                        size_t bid_q, OrderBook& order_book)
+inline bool fill_levels(Fields fields, size_t ask_price, size_t ask_quantity, size_t bid_price,
+                        size_t bid_quantity, OrderBook& order_book)
 {
     bool ok = true;
 
     for (size_t index = 0; index < 5; ++index)
     {
-        ok &= to_double(fields[ask_p + index], order_book.asks[index].price);
-        ok &= to_i64(fields[ask_q + index], order_book.asks[index].quantity);
-        ok &= to_double(fields[bid_p + index], order_book.bids[index].price);
-        ok &= to_i64(fields[bid_q + index], order_book.bids[index].quantity);
+        ok &= to_double(fields[ask_price + index], order_book.asks[index].price);
+        ok &= to_i64(fields[ask_quantity + index], order_book.asks[index].quantity);
+        ok &= to_double(fields[bid_price + index], order_book.bids[index].price);
+        ok &= to_i64(fields[bid_quantity + index], order_book.bids[index].quantity);
     }
 
     return ok;
@@ -294,7 +294,7 @@ inline Decode decode_us_trade(Fields fields, TradeData& trade)
 
 // ─── 국내 선물 체결 (H0IFCNT0) ───────────────────────────────────────────
 // [wire] [0]종목코드 [1]체결시각 [5]현재가 [9]단위체결량 [10]누적거래량 [18]미결제약정. 방향 코드가 없어 direction=0.
-inline Decode decode_fut_trade(Fields fields, TradeData& trade)
+inline Decode decode_future_trade(Fields fields, TradeData& trade)
 {
     if (fields.size() < kMinFieldsFutTrade)
     {
@@ -313,7 +313,7 @@ inline Decode decode_fut_trade(Fields fields, TradeData& trade)
 
 // ─── 국내 선물 호가 (H0IFASP0) ───────────────────────────────────────────
 // [wire] [0]종목코드 [1]시각 [2-6]매도호가 [7-11]매수호가 [12-21]호가건수(건너뜀) [22-26]매도잔량 [27-31]매수잔량
-inline Decode decode_fut_orderbook(Fields fields, OrderBook& order_book)
+inline Decode decode_future_orderbook(Fields fields, OrderBook& order_book)
 {
     if (fields.size() < kMinFieldsFutOrderbook)
     {
@@ -365,4 +365,4 @@ inline Decode decode_fill(Fields fields, FillNotification& fill_notification)
     return ok ? Decode::kOk : Decode::kBadNumber;
 }
 
-} // namespace kis_ws
+} // namespace kis_websocket

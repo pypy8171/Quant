@@ -37,7 +37,7 @@ enum class OpsMsg : uint8_t
     STATUS_REQ   = 0x10, // c→s {}
     STATUS       = 0x11, // s→c {"running","data","signal","order","kill","entry_halt","force_liq"}
     POS_REQ      = 0x12, // c→s {}
-    POSITIONS    = 0x13, // s→c {"positions":[{account,ticker,name,qty,avg_price,reserved,last}]} — 변경 시 push도 한다. reserved: 미체결 매도 음수·매수 양수, last: 최근 체결가(틱 없으면 0)
+    POSITIONS    = 0x13, // s→c {"positions":[{account,ticker,name,quantity,average_price,reserved,last}]} — 변경 시 push도 한다. reserved: 미체결 매도 음수·매수 양수, last: 최근 체결가(틱 없으면 0)
     ORDER_REQ    = 0x20, // c→s {"cid","ticker","side","qty","price","ref_price"}
     ORDER_ACK    = 0x21, // s→c {"cid","accepted","msg"} — 인테이크 적재 여부(게이트 통과 아님)
     ORDER_RESULT = 0x22, // s→c {"cid","order_id","strategy","ticker","side","qty","ok","msg"} — 게이트·브로커 결과
@@ -47,7 +47,7 @@ enum class OpsMsg : uint8_t
     ERROR_MSG    = 0x7F, // s→c {"msg"}
 };
 
-inline const char* msg_name(uint8_t message_type)
+inline const char* message_name(uint8_t message_type)
 {
     switch (static_cast<OpsMsg>(message_type))
     {
@@ -113,25 +113,25 @@ public:
             return;
         }
 
-        buf_.insert(buf_.end(), data, data + length);
+        buffer_.insert(buffer_.end(), data, data + length);
     }
 
     // 완성된 프레임이 있으면 out에 채우고 true. 없거나 bad()면 false.
     bool next(Frame& out)
     {
-        if (bad_ || buf_.size() < kHeaderLen)
+        if (bad_ || buffer_.size() < kHeaderLen)
         {
             return false;
         }
 
-        if (buf_[0] != kMagic0 || buf_[1] != kMagic1 || buf_[2] != kVersion)
+        if (buffer_[0] != kMagic0 || buffer_[1] != kMagic1 || buffer_[2] != kVersion)
         {
             bad_ = true;
             return false;
         }
 
-        const uint32_t count = (static_cast<uint32_t>(buf_[4]) << 24) | (static_cast<uint32_t>(buf_[5]) << 16) |
-                           (static_cast<uint32_t>(buf_[6]) << 8) | static_cast<uint32_t>(buf_[7]);
+        const uint32_t count = (static_cast<uint32_t>(buffer_[4]) << 24) | (static_cast<uint32_t>(buffer_[5]) << 16) |
+                           (static_cast<uint32_t>(buffer_[6]) << 8) | static_cast<uint32_t>(buffer_[7]);
 
         if (count > kMaxBody)
         {
@@ -139,22 +139,22 @@ public:
             return false;
         }
 
-        if (buf_.size() < kHeaderLen + count)
+        if (buffer_.size() < kHeaderLen + count)
         {
             return false;
         }
 
-        out.type = buf_[3];
-        out.body.assign(reinterpret_cast<const char*>(buf_.data() + kHeaderLen), count);
-        buf_.erase(buf_.begin(), buf_.begin() + static_cast<std::ptrdiff_t>(kHeaderLen + count));
+        out.type = buffer_[3];
+        out.body.assign(reinterpret_cast<const char*>(buffer_.data() + kHeaderLen), count);
+        buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(kHeaderLen + count));
         return true;
     }
 
     bool   bad() const { return bad_; }
-    size_t pending() const { return buf_.size(); }
+    size_t pending() const { return buffer_.size(); }
 
 private:
-    std::vector<uint8_t> buf_;
+    std::vector<uint8_t> buffer_;
     bool                 bad_ = false;
 };
 

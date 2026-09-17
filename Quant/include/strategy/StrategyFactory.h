@@ -14,9 +14,9 @@ class Engine;
 struct StrategyLoadCtx
 {
     Engine&          engine;
-    const KisConfig& kis_cfg;       // 주문/잔고용(모의 가능)
-    const KisConfig& quote_kis_cfg; // 시세 전용(실전 도메인) — 스캔 유니버스가 사용
+    const KisConfig& kis_config;       // 주문/잔고용(모의 가능)
+    const KisConfig& quote_kis_config; // 시세 전용(실전 도메인) — 스캔 유니버스가 사용
     bool             has_quote_kis = false;
 };
 
-void load_strategies(StrategyLoadCtx& ctx, const nlohmann::json& strategies);
+void load_strategies(StrategyLoadCtx& context, const nlohmann::json& strategies);

@@ -33,17 +33,17 @@ std::optional<uint32_t> owner_shard(const StrategyBase& strategy, uint32_t shard
         return 0u;
     }
 
-    const auto              specs = strategy.get_watch_specs();
+    const auto              specifications = strategy.get_watch_specifications();
     std::optional<uint32_t> owner;
 
-    if (specs.empty())
+    if (specifications.empty())
     {
         return std::nullopt;
     }
 
-    for (const auto& sp : specs)
+    for (const auto& watch_specification : specifications)
     {
-        const symbol::SymbolId id = symbol_id_of(sp.ticker);
+        const symbol::SymbolId id = symbol_id_of(watch_specification.ticker);
 
         if (id == symbol::kNone)
         {
@@ -84,7 +84,7 @@ class Shard
 {
 public:
     Shard(uint32_t index, ShardQueues shard_queues)
-        : index_(index), q_(shard_queues)
+        : index_(index), queue_(shard_queues)
     {
     }
 
@@ -123,15 +123,15 @@ public:
     // 세 열이 다 비었나 — 잠들기 전 술어.
     [[nodiscard]] bool empty() const noexcept
     {
-        return q_.order_book.empty(index_) && q_.trade.empty(index_) && q_.bars.empty(index_);
+        return queue_.order_book.empty(index_) && queue_.trade.empty(index_) && queue_.bars.empty(index_);
     }
 
     // 세 열 가운데 가장 높았던 셀 — [큐 고수위] 줄.
     [[nodiscard]] size_t high_water() const noexcept
     {
-        size_t hw = q_.order_book.high_water(index_);
-        hw        = hw < q_.trade.high_water(index_) ? q_.trade.high_water(index_) : hw;
-        return hw < q_.bars.high_water(index_) ? q_.bars.high_water(index_) : hw;
+        size_t high_water = queue_.order_book.high_water(index_);
+        high_water        = high_water < queue_.trade.high_water(index_) ? queue_.trade.high_water(index_) : high_water;
+        return high_water < queue_.bars.high_water(index_) ? queue_.bars.high_water(index_) : high_water;
     }
 
     // 한 바퀴 — 호가 전부, 체결 전부, 봉 하나. 돌려주는 값은 하나라도 처리했나.
@@ -142,7 +142,7 @@ public:
     {
         bool did_work = false;
 
-        while (auto option = q_.order_book.pop(index_))
+        while (auto option = queue_.order_book.pop(index_))
         {
             router_.for_each(option->symbol_id, [&](StrategyBase* strategy)
             {
@@ -154,10 +154,10 @@ public:
                 }
 
                 // 다건 발주 경로 — 취소·정정은 side가 NONE이어도 통과한다(생명주기 액션).
-                batch_buf_.clear();
-                strategy->on_order_book_batch(*option, batch_buf_);
+                batch_buffer_.clear();
+                strategy->on_order_book_batch(*option, batch_buffer_);
 
-                for (auto& batch : batch_buf_)
+                for (auto& batch : batch_buffer_)
                 {
                     if (batch.action != OrderAction::NEW || batch.side != OrderSide::NONE)
                     {
@@ -169,7 +169,7 @@ public:
             did_work = true;
         }
 
-        while (auto option = q_.trade.pop(index_))
+        while (auto option = queue_.trade.pop(index_))
         {
             const symbol::SymbolId id = option->symbol_id != symbol::kNone ? option->symbol_id : symbol_id_of(option->ticker);
             option->symbol_id               = id; // 전략은 trade.symbol_id으로만 비교한다 — 여기서 한 번 채운다
@@ -184,10 +184,10 @@ public:
                     emit(strategy, *signal, option->received_ns);
                 }
 
-                batch_buf_.clear();
-                strategy->on_trade_batch(*option, batch_buf_);
+                batch_buffer_.clear();
+                strategy->on_trade_batch(*option, batch_buffer_);
 
-                for (auto& batch : batch_buf_)
+                for (auto& batch : batch_buffer_)
                 {
                     if (batch.action != OrderAction::NEW || batch.side != OrderSide::NONE)
                     {
@@ -199,7 +199,7 @@ public:
             did_work = true;
         }
 
-        if (auto option = q_.bars.pop(index_))
+        if (auto option = queue_.bars.pop(index_))
         {
             router_.for_each(option->symbol_id, [&](StrategyBase* strategy)
             {
@@ -219,10 +219,10 @@ public:
 
 private:
     uint32_t                 index_;
-    ShardQueues              q_;
+    ShardQueues              queue_;
     Router                   router_;
     sync::WakeGate           wake_;
     std::atomic<uint64_t>    seen_version_{0};
-    std::vector<OrderSignal> batch_buf_; // 다건 발주 재사용 버퍼 — 틱마다 할당하지 않는다
+    std::vector<OrderSignal> batch_buffer_; // 다건 발주 재사용 버퍼 — 틱마다 할당하지 않는다
 };
 } // namespace strategy

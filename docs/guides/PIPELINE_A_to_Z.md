@@ -41,7 +41,7 @@ TRADE 모드의 데이터 흐름:
 
 - 스레드 4개는 `Engine::start()`에서 기동된다: `data_thread_`, `strategy_thread_`, `order_thread_`, `control_thread_` (`Engine.cpp::start`).
 - 큐는 전부 `RingBuffer<T>` — **SPSC(단일 생산자/단일 소비자) 락프리** 큐. `head_`(producer 전용)와 `tail_`(consumer 전용)을 별도 캐시라인에 배치해 false sharing을 회피한다 (`RingBuffer.h::head_`·`RingBuffer.h::tail_`). `push`는 release, `pop`은 acquire 메모리 순서를 쓴다 (`RingBuffer.h::push`·`RingBuffer.h::pop`). 슬롯 1개를 full/empty 구분용으로 비워둔다 (`RingBuffer.h::capacity_`).
-- SPSC 계약상 각 큐는 **생산자 1 / 소비자 1**이어야 한다. 실제로 `market_queue_`는 DataThread가 유일 생산자, `ob_queue_`/`td_queue_`는 WS 수신 스레드가 유일 생산자, 이 셋 모두 StrategyThread가 유일 소비자다. `order_queue_`는 StrategyThread 생산 / OrderThread 소비 → 계약 성립.
+- SPSC 계약상 각 큐는 **생산자 1 / 소비자 1**이어야 한다. 실제로 `market_queue_`는 DataThread가 유일 생산자, `order_book_queue_`/`trade_queue_`는 WS 수신 스레드가 유일 생산자, 이 셋 모두 StrategyThread가 유일 소비자다. `order_queue_`는 StrategyThread 생산 / OrderThread 소비 → 계약 성립.
 
 ---
 
@@ -63,7 +63,7 @@ TRADE 모드의 데이터 흐름:
 
 ### 1.3 전략 등록 루프
 `for (auto& s : cfg["strategies"])` (`StrategyFactory.cpp::load_strategies`)에서 `type` 분기로 전략 객체를 생성해 `engine.add_strategy()`로 등록. 지원 타입:
-- `MA_CROSS` (`StrategyFactory.cpp::load_ma_cross`) — `short_period`, `long_period`, `quantity`. **`universe_from_balance=true`** 모드가 특수(`StrategyFactory.cpp::load_ma_cross`): 별도 `KisClient bal_kis`로 인증 후 `get_balance()`로 모의계좌 보유종목을 읽어(`StrategyFactory.cpp::load_ma_cross`), `output1` 배열의 `pdno`(종목)·`hldg_qty`(보유수량)마다 `MACrossStrategy(code, sp, lp, hq, start_in_position=true)`를 등록한다 (`StrategyFactory.cpp::load_ma_cross`). 즉 보유분을 "이미 진입한 상태"로 시드해 데드크로스에 실제 보유수량을 매도할 수 있게 한다.
+- `MA_CROSS` (`StrategyFactory.cpp::load_moving_average_cross`) — `short_period`, `long_period`, `quantity`. **`universe_from_balance=true`** 모드가 특수(`StrategyFactory.cpp::load_moving_average_cross`): 별도 `KisClient balance_kis`로 인증 후 `get_balance()`로 모의계좌 보유종목을 읽어(`StrategyFactory.cpp::load_moving_average_cross`), `output1` 배열의 `pdno`(종목)·`hldg_qty`(보유수량)마다 `MACrossStrategy(code, sp, lp, hq, start_in_position=true)`를 등록한다 (`StrategyFactory.cpp::load_moving_average_cross`). 즉 보유분을 "이미 진입한 상태"로 시드해 데드크로스에 실제 보유수량을 매도할 수 있게 한다.
 - `MOMENTUM` (`StrategyFactory.cpp::load_momentum`), `VALUE_CONTRARY` (`StrategyFactory.cpp::load_value_contrary`), `FIXED_INTERVAL` (`StrategyFactory.cpp::load_fixed_interval`), `PRICE_TARGET` (`StrategyFactory.cpp::load_price_target`), `SUPPLY_DEMAND_PULLBACK` (`StrategyFactory.cpp::load_supply_demand_pullback`), `MARKET_MAKING` (`StrategyFactory.cpp::load_market_making`), `THEME` (`StrategyFactory.cpp::load_theme`). 미지원 타입은 경고 (`StrategyFactory.cpp::load_strategies`).
 - **전략-국면 매핑**: 방금 추가된 전략에 `active_regimes` 배열(BULL/NEUTRAL/BEAR)을 파싱해 `engine.set_last_active_regimes()`로 주입 (`StrategyFactory.cpp::add_gated`). 키가 있는데 파싱 결과가 비면 "게이트 무효" 경고 (`StrategyFactory.cpp::load_strategies`).
 
@@ -82,7 +82,7 @@ TRADE 모드의 데이터 흐름:
 
 **base_url / tr_id 분기**:
 - `base_url()`: `is_paper ? openapivts...:29443 : openapi...:9443` (`KisClient.h::base_url`).
-- 국내 주문 tr_id: 매수 `VTTC0802U`(모의)/`TTTC0802U`(실), 매도 `VTTC0801U`/`TTTC0801U` (`KisClient.cpp::submit_order_ack`). 정정/취소는 `VTTC0803U`/`TTTC0803U` (`KisClient.cpp::cancel_order`·`KisClient.cpp::revise_order`). 잔고조회 `VTTC8434R`/`TTTC8434R` (`KisClient.cpp::get_balance`).
+- 국내 주문 tr_id: 매수 `VTTC0802U`(모의)/`TTTC0802U`(실), 매도 `VTTC0801U`/`TTTC0801U` (`KisClient.cpp::submit_order_acknowledgement`). 정정/취소는 `VTTC0803U`/`TTTC0803U` (`KisClient.cpp::cancel_order`·`KisClient.cpp::revise_order`). 잔고조회 `VTTC8434R`/`TTTC8434R` (`KisClient.cpp::get_balance`).
 - 조회계 tr_id: 일봉 `FHKST03010100`(`KisClient.cpp::get_daily_ohlcv`), 현재가/펀더멘털 `FHKST01010100`(`KisClient.cpp::get_current_price`·`KisClient.cpp::get_fundamentals`), 시총랭킹 `FHPST01720000`(`KisClient.cpp::fetch_kr_ranking`), 지수일봉 `FHKUP03500100`(`KisClient.cpp::get_index_daily_ohlcv`), 지수현재값 `FHPUP02100000`(`KisClient.cpp::get_index_price`), 투자자동향 `FHKST01010900`(`KisClient.cpp::get_investor_trend`·`KisClient.cpp::get_investor_flow`).
 
 **헤더 구성** (공통 4종): `authorization: Bearer <token>`, `appkey`, `appsecret`, `tr_id` (예: `KisClient.cpp::get_daily_ohlcv`). GET에도 KIS는 `Content-Type: application/json`을 요구하므로 `http_get`이 없으면 자동 추가 (`KisClient.cpp::http_get`). HTTP 구현은 플랫폼 분기: Windows `winhttp_request`(`KisClient.cpp::winhttp_request`), Linux `curl_request`(`KisClient.cpp::curl_request`).
@@ -95,17 +95,17 @@ TRADE 모드의 데이터 흐름:
 
 1. `running_` 이미 true면 반환 (`Engine.cpp::start`).
 2. (HAS_ZMQ 시) ZmqBridge 생성 + KILL/STATUS 명령 핸들러 등록 (`Engine.cpp::start`). 기본 빌드는 미포함.
-3. **KisClient 생성 + 인증**: `kis_ = make_unique<KisClient>(kis_cfg_)`; `authenticate()` 실패 시 조기 반환 (`Engine.cpp::start`).
+3. **KisClient 생성 + 인증**: `kis_ = make_unique<KisClient>(kis_config_)`; `authenticate()` 실패 시 조기 반환 (`Engine.cpp::start`).
 4. **OrderRouter(FEP) 초기화**: `order_router_ = make_unique<OrderRouter>(order_gate_, *kis_)` (`Engine.cpp::start`). `order_gate_`는 Engine 멤버(값 소유, `Engine.h::order_gate_`), `kis_`는 참조 주입.
 5. **국면 파일 전달**: `regime.json` 폴링(`Engine.cpp::poll_regime_file`)이 라벨·비율·정지·청산을 낸다(D-084·D-085; 옛 `RegimeController`는 지웠다).
 6. **전략 초기화**: 각 전략에 `set_kis()` 주입 후 `on_start()` 호출(예외는 잡아 해당 전략만 건너뜀) (`Engine.cpp::start`). 전략은 `on_start`에서 KIS로 universe를 조회할 수 있다.
-7. **WS 구독 스펙 수집(중복 제거)**: 모든 전략의 `get_watch_specs()`를 순회, 키 `"KR:<exch>:<ticker>"`로 중복 제거해 `watch_specs_`에 적재 (`Engine.cpp::start`).
+7. **WS 구독 스펙 수집(중복 제거)**: 모든 전략의 `get_watch_specifications()`를 순회, 키 `"KR:<exch>:<ticker>"`로 중복 제거해 `watch_specifications_`에 적재 (`Engine.cpp::start`).
 8. `running_ = true` (`Engine.cpp::start`).
-9. **WebSocket 연결·구독**: `watch_specs_`가 비어있지 않으면 `ws_ = make_unique<KisWebSocket>()` 생성 후 콜백 3종 등록 (`Engine.cpp::start`):
-   - OrderBook 콜백 → `ob_queue_.push(ob)` (`Engine.cpp::start`)
-   - TradeData 콜백 → `td_queue_.push(td)` (`Engine.cpp::start`)
+9. **WebSocket 연결·구독**: `watch_specifications_`가 비어있지 않으면 `ws_ = make_unique<KisWebSocket>()` 생성 후 콜백 3종 등록 (`Engine.cpp::start`):
+   - OrderBook 콜백 → `order_book_queue_.push(ob)` (`Engine.cpp::start`)
+   - TradeData 콜백 → `trade_queue_.push(td)` (`Engine.cpp::start`)
    - Fill 콜백 → `order_router_->on_fill(fn)` (`Engine.cpp::start`)
-   - `ws_->connect(watch_specs_)` 실패 시 경고만 하고 계속(호가/체결 없이 REST만으로 동작) (`Engine.cpp::start`).
+   - `ws_->connect(watch_specifications_)` 실패 시 경고만 하고 계속(호가/체결 없이 REST만으로 동작) (`Engine.cpp::start`).
 10. **스레드 4개 기동** (`Engine.cpp::start`).
 
 `stop()` (`Engine.cpp::stop`)은 `running_.exchange(false)`로 중복 방지, control→order→strategy→data 역순 join, WS disconnect, 전략 `on_stop()`, 통계 출력.
@@ -119,7 +119,7 @@ TRADE 모드의 데이터 흐름:
 1. **장중 판정 + 장 시작 감지**: `is_any_market_open()`(`Engine.cpp::is_any_market_open`) = KR(09:00~15:30 KST, `Engine.cpp::is_kr_market_open`) 또는 US(KST 22:30~05:00, `Engine.cpp::is_us_market_open`). 판정은 `gmtime + 9h`로 머신 TZ 무관하게 KST를 계산 (`Engine.cpp::utc_plus_hours`).
 2. **장 시작 엣지**(`market_now && !was_market_open`): `order_gate_.reset_daily()` + `order_router_->reset_daily()` + `regime_->evaluate()` 후 전략별 `set_active(regime_->is_active_for(...))` (`Engine.cpp::data_thread_fn`).
 3. 장 외 시간이면 60초 슬립 후 continue (`Engine.cpp::data_thread_fn`).
-4. **폴링**: `watch_specs_`의 각 종목에 대해 KR이면 `kis_->get_daily_ohlcv(spec.ticker, 1)`, US면 `get_us_daily_ohlcv(spec.ticker, 1, exchange)` (`Engine.cpp::data_thread_fn`). 반환 `bars[0]`에 `bar_index = data_count_`를 심고 `market_queue_.push(md)` (`Engine.cpp::data_thread_fn`). 큐가 full이면 1ms 슬립하며 재시도. push 후 `data_count_++`.
+4. **폴링**: `watch_specifications_`의 각 종목에 대해 KR이면 `kis_->get_daily_ohlcv(spec.ticker, 1)`, US면 `get_us_daily_ohlcv(spec.ticker, 1, exchange)` (`Engine.cpp::data_thread_fn`). 반환 `bars[0]`에 `bar_index = data_count_`를 심고 `market_queue_.push(md)` (`Engine.cpp::data_thread_fn`). 큐가 full이면 1ms 슬립하며 재시도. push 후 `data_count_++`.
 5. 루프 말미 `fetch_interval_sec_`초(기본 60s) 슬립 (`Engine.cpp::data_thread_fn`).
 
 **데이터 변환**: KIS REST JSON `output2[i]`의 `stck_clpr/oprc/hgpr/lwpr/acml_vol`(문자열) → `std::stod/stoll` → `MarketData{close,open,high,low,volume, timestamp=now, bar_index}` (`KisClient.cpp::get_daily_ohlcv`). `timestamp`는 거래소 체결시각이 아니라 **REST 응답 처리 시각**임에 주의 (`Types.h::MarketData`).
@@ -133,7 +133,7 @@ TRADE 모드의 데이터 흐름:
 ```
 
 - **왜 문제인가**: `inquire-daily-itemchartprice`(TR `FHKST03010100`)는 조회 구간을 합리적 범위(보통 ~100일 이내)로 기대한다. 1900~9999년 전 구간을 요청하면 서버가 처리하지 못해 HTTP 500 또는 빈 `output2`를 반환한다. `http_get`이 빈 문자열/에러를 돌려주면 `get_daily_ohlcv`는 빈 벡터를 반환하고(`KisClient.cpp::get_daily_ohlcv`), DataThread는 `bars.empty()`에서 continue → **market_queue_에 아무것도 push되지 않는다** (`Engine.cpp::data_thread_fn`). 결과적으로 StrategyThread의 `on_data`가 호출되지 않아 MACross 같은 일봉 기반 전략이 **신호를 전혀 내지 못한다**(입력이 굶음).
-- **올바른 값**: 같은 파일의 `get_index_daily_ohlcv`가 쓰는 방식처럼 `DATE_2 = 오늘(KST)`, `DATE_1 = 오늘 - N일`로 유한 구간을 넣어야 한다 (참조 패턴: `KisClient.cpp::get_index_daily_ohlcv`의 `fmt_date(end_t)` / `end_t - kWindowDays*86400`). count봉을 채우려면 페이지네이션도 함께 필요.
+- **올바른 값**: 같은 파일의 `get_index_daily_ohlcv`가 쓰는 방식처럼 `DATE_2 = 오늘(KST)`, `DATE_1 = 오늘 - N일`로 유한 구간을 넣어야 한다 (참조 패턴: `KisClient.cpp::get_index_daily_ohlcv`의 `format_date(end_t)` / `end_t - kWindowDays*86400`). count봉을 채우려면 페이지네이션도 함께 필요.
 
 ### 4.2 부차 문제: count=1 폴링과 일봉 반복
 DataThread는 `get_daily_ohlcv(ticker, 1)`로 **최신 1봉만** 가져온다 (`Engine.cpp::data_thread_fn`). 이 봉은 "오늘의(미완성) 일봉"이라, 60초마다 폴링할 때마다 사실상 같은 날짜의 종가가 반복 push된다. MACross의 `prices_` deque(`MACrossStrategy.h::prices_`)는 서로 거의 같은 값으로 채워져 골든/데드크로스가 잘 발생하지 않는다. 설령 4.1 버그가 고쳐져도, 장중 일봉 크로스 전략이 의미 있게 동작하려면 과거 N봉을 시드하는 로직이 필요하다. (KR_TEST 경로는 `get_daily_ohlcv(code, 65)`로 여러 봉을 받아 MA를 계산하므로 대조적 — `Monitors.cpp::run_kr_test`.)
@@ -147,7 +147,7 @@ WS 연결/구독은 `KisWebSocket::connect()` (Windows·Linux 두 정의, `WebSo
 ### 5.1 연결·구독
 - approval key 발급: `POST /oauth2/Approval` with `{grant_type, appkey, secretkey}` → `approval_key_` (`WebSocketClient.cpp::get_approval_key`). REST OAuth 토큰과 별개 키.
 - WS 엔드포인트: `ops.koreainvestment.com`, 포트 `is_paper ? 31000 : 21000` (`WebSocketClient.cpp::connect`).
-- 구독: KR 종목은 `H0STASP0`(호가, `trade_only=false`일 때만) + `H0STCNT0`(체결) (`WebSocketClient.cpp::subscribe_spec`). US는 `HDFSCNT0`, tr_key=`"EXCH|SYMBOL"` (`WebSocketClient.cpp::subscribe_spec`). 체결통보 `H0STCNI9`(모의)/`H0STCNI0`(실)은 `on_fill_` 등록 + `hts_id` 비어있지 않을 때만 구독 (`WebSocketClient.cpp::subscribe_all`). `send_subscribe`는 approval_key를 header에 담은 JSON을 보낸다 (`WebSocketClient.cpp::send_subscribe`).
+- 구독: KR 종목은 `H0STASP0`(호가, `trade_only=false`일 때만) + `H0STCNT0`(체결) (`WebSocketClient.cpp::subscribe_specification`). US는 `HDFSCNT0`, tr_key=`"EXCH|SYMBOL"` (`WebSocketClient.cpp::subscribe_specification`). 체결통보 `H0STCNI9`(모의)/`H0STCNI0`(실)은 `on_fill_` 등록 + `hts_id` 비어있지 않을 때만 구독 (`WebSocketClient.cpp::subscribe_all`). `send_subscribe`는 approval_key를 header에 담은 JSON을 보낸다 (`WebSocketClient.cpp::send_subscribe`).
 
 ### 5.2 프레임 파싱 (`parse_message`)
 - JSON 프레임(`msg[0]=='{'`): `PINGPONG`이면 그대로 echo (`WebSocketClient.cpp::parse_message`). 구독 응답이면 rt_cd/msg1 로그. 체결통보 구독 응답이면 `output.key/iv`를 확보해 **AES-256-CBC key(32B)/iv(16B)**를 저장(길이 검증 후) (`WebSocketClient.cpp::parse_message`).
@@ -162,10 +162,10 @@ WS 연결/구독은 `KisWebSocket::connect()` (Windows·Linux 두 정의, `WebSo
 | `f[12]` | 체결량 | `td.quantity = stoll(f[12])` |
 | `f[21]` | 체결구분(1=매수,5=매도) | `td.direction = stoi(f[21])` |
 
-필드 22개 미만이면 무시 (`WebSocketClient.cpp::min_fields_for`). 결과 `TradeData`를 `on_trade_(td)`로 콜백 → Engine의 콜백이 `td_queue_.push(td)` (`Engine.cpp::start`).
+필드 22개 미만이면 무시 (`WebSocketClient.cpp::min_fields_for`). 결과 `TradeData`를 `on_trade_(td)`로 콜백 → Engine의 콜백이 `trade_queue_.push(td)` (`Engine.cpp::start`).
 
 ### 5.4 H0STASP0 호가 필드 인덱스 (parse_orderbook, `WebSocketClient.cpp::parse_orderbook`)
-5단계만 사용: `asks[i].price=f[3+i]`, `asks[i].quantity=f[23+i]`, `bids[i].price=f[13+i]`, `bids[i].quantity=f[33+i]` (`WebSocketClient.cpp::parse_orderbook`). 38필드 미만이면 무시. `OrderBook`을 `on_orderbook_(ob)` → `ob_queue_.push(ob)` (`Engine.cpp::start`).
+5단계만 사용: `asks[i].price=f[3+i]`, `asks[i].quantity=f[23+i]`, `bids[i].price=f[13+i]`, `bids[i].quantity=f[33+i]` (`WebSocketClient.cpp::parse_orderbook`). 38필드 미만이면 무시. `OrderBook`을 `on_orderbook_(ob)` → `order_book_queue_.push(ob)` (`Engine.cpp::start`).
 
 ### 5.5 US 체결 HDFSCNT0 (parse_us_trade, `WebSocketClient.cpp::parse_us_trade`)
 `f[2]`=현재가, `f[8]`=체결량, 방향은 `f[20]`(추정, 필드 확인 주석) (`WebSocketClient.cpp::parse_us_trade`).
@@ -174,7 +174,7 @@ WS 연결/구독은 `KisWebSocket::connect()` (Windows·Linux 두 정의, `WebSo
 - **경로 A (REST 일봉 → market_queue_)** → StrategyThread가 `on_data()` 호출 (`Engine.cpp::strategy_thread_fn`).
 - **경로 B-호가 (H0STASP0 → ob_queue_)** → `on_order_book()` + `on_order_book_batch()` (`Engine.cpp::strategy_thread_fn`).
 - **경로 B-체결 (H0STCNT0/HDFSCNT0 → td_queue_)** → `on_trade()` (`Engine.cpp::strategy_thread_fn`).
-- **MACrossStrategy는 `on_data`만 구현**하며(`MACrossStrategy.h::on_data`), `on_order_book`/`on_trade`는 StrategyBase 기본(nullopt 반환, `StrategyBase.h::on_order_book`·`StrategyBase.h::on_trade`)을 그대로 쓴다. 즉 **MACross는 경로 A(REST 일봉)만 소비하고 WS 체결/호가는 무시한다.** WS 실시간 현재가가 전략에 활용되지 않는 것이 현재 설계 상태다. (MACross의 `get_watch_specs`가 `trade_only=true`로 H0STCNT0만 구독하나, 그 체결 데이터는 전략이 읽지 않는다 — `MACrossStrategy.h::get_watch_specs`.)
+- **MACrossStrategy는 `on_data`만 구현**하며(`MACrossStrategy.h::on_data`), `on_order_book`/`on_trade`는 StrategyBase 기본(nullopt 반환, `StrategyBase.h::on_order_book`·`StrategyBase.h::on_trade`)을 그대로 쓴다. 즉 **MACross는 경로 A(REST 일봉)만 소비하고 WS 체결/호가는 무시한다.** WS 실시간 현재가가 전략에 활용되지 않는 것이 현재 설계 상태다. (MACross의 `get_watch_specifications`가 `trade_only=true`로 H0STCNT0만 구독하나, 그 체결 데이터는 전략이 읽지 않는다 — `MACrossStrategy.h::get_watch_specifications`.)
 
 ---
 
@@ -182,8 +182,8 @@ WS 연결/구독은 `KisWebSocket::connect()` (Windows·Linux 두 정의, `WebSo
 
 `Engine::strategy_thread_fn()` (`Engine.cpp::strategy_thread_fn`)는 우선순위 순으로 큐를 비운다:
 
-1. **ob_queue_** (호가, 고주파) — while 루프로 소진, 각 전략 `on_order_book` + `on_order_book_batch` (`Engine.cpp::strategy_thread_fn`). batch 경로는 MM 등 다건 발주용이며 CANCEL/REPLACE는 side==NONE이어도 통과 (`Engine.cpp::strategy_thread_fn`).
-2. **td_queue_** (체결) — while 루프, `on_trade` (`Engine.cpp::strategy_thread_fn`).
+1. **order_book_queue_** (호가, 고주파) — while 루프로 소진, 각 전략 `on_order_book` + `on_order_book_batch` (`Engine.cpp::strategy_thread_fn`). batch 경로는 MM 등 다건 발주용이며 CANCEL/REPLACE는 side==NONE이어도 통과 (`Engine.cpp::strategy_thread_fn`).
+2. **trade_queue_** (체결) — while 루프, `on_trade` (`Engine.cpp::strategy_thread_fn`).
 3. **market_queue_** (일봉) — if 1건, `on_data` (`Engine.cpp::strategy_thread_fn`).
 4. 아무 일도 없으면 100µs 슬립(저지연 유지) (`Engine.cpp::strategy_thread_fn`).
 
@@ -192,9 +192,9 @@ WS 연결/구독은 `KisWebSocket::connect()` (Windows·Linux 두 정의, `WebSo
 ### 6.1 MACross on_data 로직 (`MACrossStrategy.h::on_data`)
 1. `data.ticker != ticker_`면 무시 (`MACrossStrategy.h::on_data`).
 2. `prices_.push_back(data.close)`, deque 크기를 `long_period_`로 유지(`pop_front`) (`MACrossStrategy.h::on_data`). 봉이 `long_period_` 미만이면 nullopt (`MACrossStrategy.h::on_data`).
-3. `calc_ma(short)`, `calc_ma(long)` — deque 뒤에서 period개 합산/평균 (`MACrossStrategy.h::calc_ma`).
-4. **골든크로스(매수)**: `is_active() && !in_position_ && prev_short_ma_ <= prev_long_ma_ && short_ma > long_ma` (`MACrossStrategy.h::on_data`) → `make_signal(BUY)`, `in_position_=true`.
-5. **데드크로스(매도)**: `in_position_ && prev_short_ma_ >= prev_long_ma_ && short_ma < long_ma` (`MACrossStrategy.h::on_data`) → `make_signal(SELL)`, `in_position_=false`. **매도에는 `is_active()` 게이트가 없다** — 비활성 국면에서도 청산은 허용(진입만 차단).
+3. `calculate_moving_average(short)`, `calculate_moving_average(long)` — deque 뒤에서 period개 합산/평균 (`MACrossStrategy.h::calculate_moving_average`).
+4. **골든크로스(매수)**: `is_active() && !in_position_ && previous_short_moving_average_ <= previous_long_moving_average_ && short_moving_average > long_moving_average` (`MACrossStrategy.h::on_data`) → `make_signal(BUY)`, `in_position_=true`.
+5. **데드크로스(매도)**: `in_position_ && previous_short_moving_average_ >= previous_long_moving_average_ && short_moving_average < long_moving_average` (`MACrossStrategy.h::on_data`) → `make_signal(SELL)`, `in_position_=false`. **매도에는 `is_active()` 게이트가 없다** — 비활성 국면에서도 청산은 허용(진입만 차단).
 6. `prev_*_ma_` 갱신 (`MACrossStrategy.h::on_data`).
 
 `in_position_`은 `on_start`에서 `start_in_position_`으로 시드 (`MACrossStrategy.h::on_start`). `universe_from_balance` 모드에서 보유분을 true로 시드하면 첫 신호가 데드크로스 매도가 될 수 있어 실보유분을 지표로 청산 가능 (`MACrossStrategy.h::start_in_position_`).
@@ -206,7 +206,7 @@ WS 연결/구독은 `KisWebSocket::connect()` (Windows·Linux 두 정의, `WebSo
 
 ## 7. 매매 로직 — OrderSignal 생성
 
-`OrderSignal` 구조 (`Types.h::OrderSignal`): `ticker, side(BUY/SELL/NONE), type(MARKET/LIMIT), quantity, price, strategy_id, market, exchange, timestamp, account_id`, 그리고 MM-1 확장 `action(NEW/CANCEL/REPLACE), client_oid, orig_client_oid`.
+`OrderSignal` 구조 (`Types.h::OrderSignal`): `ticker, side(BUY/SELL/NONE), type(MARKET/LIMIT), quantity, price, strategy_id, market, exchange, timestamp, account_id`, 그리고 MM-1 확장 `action(NEW/CANCEL/REPLACE), client_order_id, original_client_order_id`.
 
 MACross의 `make_signal` (`MACrossStrategy.h::make_signal`)은 `type=MARKET`, `quantity=quantity_`, `strategy_id=id()`("MA_CROSS_<ticker>"), `timestamp=d.timestamp`를 채운다. `account_id`/`action`은 기본값(빈 문자열/NEW). StrategyThread가 `side != NONE`인 신호만 push한다 (`Engine.cpp::strategy_thread_fn`).
 
@@ -243,15 +243,15 @@ MACross의 `make_signal` (`MACrossStrategy.h::make_signal`)은 `type=MARKET`, `q
 **new_route** (`OrderRouter.cpp::new_route`):
 1. `ManagedOrder` 생성, `order_id="ORD-000001"` 형식(`next_id`, `OrderRouter.cpp::next_id`), status=PENDING, `total_count_++`.
 2. `gate_.check()` 실패 → REJECTED + `rejected_count_++` + record (`OrderRouter.cpp::new_route`).
-3. 통과 → status=SUBMITTED. **RTT 계측**: `t_send` 기록 후 `kis_.submit_order_ack(sig)` 호출, `steady_clock` 차이로 `rtt_ms` 산출 (`OrderRouter.cpp::new_route`). 예외 시 REJECTED (`OrderRouter.cpp::new_route`).
+3. 통과 → status=SUBMITTED. **RTT 계측**: `send_thread` 기록 후 `kis_.submit_order_acknowledgement(sig)` 호출, `steady_clock` 차이로 `rtt_ms` 산출 (`OrderRouter.cpp::new_route`). 예외 시 REJECTED (`OrderRouter.cpp::new_route`).
 4. `ack.odno`가 비어있지 않으면 → status=ACCEPTED, `kis_order_no=odno`, `krx_orgno=ack.krx_orgno`(정정/취소용), `accepted_count_++` (`OrderRouter.cpp::new_route`).
-5. **`gate_.on_accept(account, ticker, side, qty, price)`로 reserved_ 선점** (`OrderRouter.cpp::new_route`) — 실체결 전까지 재주문 차단.
-6. `client_oid` 있으면 `oid_index_`에 매핑 (`OrderRouter.cpp::new_route`). 접수 로그에 RTT 포함 (`OrderRouter.cpp::new_route`).
+5. **`gate_.on_accept(account, ticker, side, quantity, price)`로 reserved_ 선점** (`OrderRouter.cpp::new_route`) — 실체결 전까지 재주문 차단.
+6. `client_order_id` 있으면 `order_id_index_`에 매핑 (`OrderRouter.cpp::new_route`). 접수 로그에 RTT 포함 (`OrderRouter.cpp::new_route`).
 7. odno 비었으면 REJECTED("빈 ODNO") (`OrderRouter.cpp::new_route`).
 
-`KisClient::submit_order_ack()` (`KisClient.cpp::submit_order_ack`): tr_id 분기(§2 참조), body 구성(국내는 `ORD_DVSN` MARKET="01"/LIMIT="00", `ORD_QTY`, `ORD_UNPR`) (`KisClient.cpp::submit_order_ack`), `http_post` 후 `rt_cd=="0"` 확인, `output.ODNO`와 `output.KRX_FWDG_ORD_ORGNO` 추출해 `OrderAck` 반환 (`KisClient.cpp::submit_order_ack`).
+`KisClient::submit_order_acknowledgement()` (`KisClient.cpp::submit_order_acknowledgement`): tr_id 분기(§2 참조), body 구성(국내는 `ORD_DVSN` MARKET="01"/LIMIT="00", `ORD_QTY`, `ORD_UNPR`) (`KisClient.cpp::submit_order_acknowledgement`), `http_post` 후 `rt_cd=="0"` 확인, `output.ODNO`와 `output.KRX_FWDG_ORD_ORGNO` 추출해 `OrderAck` 반환 (`KisClient.cpp::submit_order_acknowledgement`).
 
-**on_accept** (`OrderGate.cpp::on_accept`): `reserved_[k] += (BUY? +qty : -qty)`, 0이면 erase. positions_/avg_price는 불변(접수는 체결이 아님).
+**on_accept** (`OrderGate.cpp::on_accept`): `reserved_[k] += (BUY? +quantity : -quantity)`, 0이면 erase. positions_/avg_price는 불변(접수는 체결이 아님).
 
 ---
 
@@ -263,14 +263,14 @@ MACross의 `make_signal` (`MACrossStrategy.h::make_signal`)은 `type=MARKET`, `q
 체결통보 필드 (`WebSocketClient.cpp::parse_fill_notification`): `f[2]`=ODNO, `f[4]`=매도/매수구분(01=매도,02=매수), `f[8]`=종목코드, `f[9]`=체결수량, `f[10]`=체결단가, `f[11]`=체결시각, `f[13]`=CNTG_YN(1=접수통보,2=체결통보). **`f[13]!="2"`면 반환** — 체결(2)만 처리 (`WebSocketClient.cpp::parse_fill_notification`). 결과 `FillNotification`을 `on_fill_(fn)` → Engine 콜백 → `OrderRouter::on_fill(fn)` (`Engine.cpp::start`).
 
 ### 10.2 OrderRouter::on_fill (`OrderRouter.cpp::on_fill`)
-1. **멱등 처리**: 체결고유번호가 없어 `수신일(YYYYMMDD):ODNO:fill_time:qty:price*100`를 조합 키로 `seen_fills_`에 삽입 시도, 중복이면 무시 (`OrderRouter.cpp::on_fill`). 거래일 prefix로 cross-day ODNO 재사용 충돌 방지(V-4).
+1. **멱등 처리**: 체결고유번호가 없어 `수신일(YYYYMMDD):ODNO:fill_time:quantity:price*100`를 조합 키로 `seen_fills_`에 삽입 시도, 중복이면 무시 (`OrderRouter.cpp::on_fill`). 거래일 prefix로 cross-day ODNO 재사용 충돌 방지(V-4).
 2. `history_`에서 `kis_order_no==fn.odno`이고 ACCEPTED/FILLED이며 미체결 잔량이 있는 주문을 찾아 (`OrderRouter.cpp::on_fill`) `confirmed_qty += filled_qty`, 전량이면 status=FILLED (`OrderRouter.cpp::on_fill`).
-3. **원장 갱신**: `gate_.on_fill_confirmed(account, ticker, side, qty, price)` (`OrderRouter.cpp::on_fill`).
+3. **원장 갱신**: `gate_.on_fill_confirmed(account, ticker, side, quantity, price)` (`OrderRouter.cpp::on_fill`).
 
 ### 10.3 on_fill_confirmed (`OrderGate.cpp::on_fill_confirmed`)
-- 수수료 `price*qty*0.00015`, 거래세(매도만) `price*qty*0.0018` (`OrderGate.cpp::on_fill_confirmed`).
-- **BUY**: `new_qty=pre_qty+qty`, `avg_prices_[k] = (pre_qty*cur_avg + qty*price)/new_qty` (부분체결도 정확), `positions_[k]=new_qty`, reserved_ 선점 -qty 해제 (`OrderGate.cpp::on_fill_confirmed`).
-- **SELL**: `new_qty=pre_qty-qty`(음수는 0 클램프—공매도 미지원), `realized_pnl=(price-cur_avg)*qty - 수수료 - 세금`, avg_price 불변, new_qty==0이면 positions_/avg_prices_ erase, reserved_ +qty 해제 (`OrderGate.cpp::on_fill_confirmed`). SELL이면 `add_realized_pnl`로 `daily_pnl_` 적립 (`OrderGate.cpp::add_realized_pnl`).
+- 수수료 `price*quantity*0.00015`, 거래세(매도만) `price*quantity*0.0018` (`OrderGate.cpp::on_fill_confirmed`).
+- **BUY**: `new_quantity=pre_quantity+quantity`, `average_prices_[k] = (pre_quantity*current_average + quantity*price)/new_quantity` (부분체결도 정확), `positions_[k]=new_quantity`, reserved_ 선점 -qty 해제 (`OrderGate.cpp::on_fill_confirmed`).
+- **SELL**: `new_quantity=pre_quantity-quantity`(음수는 0 클램프—공매도 미지원), `realized_pnl=(price-current_average)*quantity - 수수료 - 세금`, avg_price 불변, new_qty==0이면 positions_/avg_prices_ erase, reserved_ +qty 해제 (`OrderGate.cpp::on_fill_confirmed`). SELL이면 `add_realized_pnl`로 `daily_pnl_` 적립 (`OrderGate.cpp::add_realized_pnl`).
 
 파티션 키는 `mo.signal.account_id` — 현재 단일 CANO 전제라 ODNO가 유일해 매핑이 정확. 진짜 다계좌 라우팅 시 (odno+account) 키 확장 필요(TODO 주석 `OrderRouter.cpp::on_fill`).
 
@@ -292,7 +292,7 @@ FEED/KR_TEST/US_TEST 모드는 `set_console_enabled(false)`로 콘솔 로그를 
 ## 12. 종료 흐름
 
 - SIGINT/SIGTERM → `signal_handler`가 `g_running=false` + `g_engine->stop()` (`main.cpp::signal_handler`, 등록 `main.cpp::main`).
-- `Engine::stop()` (`Engine.cpp::stop`): `running_.exchange(false)`로 1회성 보장 → control→order→strategy→data 역순 join → `ws_->disconnect()` → 전략 `on_stop()` → `print_stats()`.
+- `Engine::stop()` (`Engine.cpp::stop`): `running_.exchange(false)`로 1회성 보장 → control→order→strategy→data 역순 join → `ws_->disconnect()` → 전략 `on_stop()` → `print_statistics()`.
 - `KisWebSocket::disconnect()` (`WebSocketClient.cpp::disconnect` — Win·Linux 두 정의): `connected_.exchange(false)`, 소켓 close, recv_thread_ join. Linux는 `shutdown(SHUT_RDWR)`로 블로킹 recv를 깨워 join 무한대기 방지(W-1).
 - 메인 스레드는 `engine.is_running()`이 false가 되면 루프 탈출 후 종료 로그 (`main.cpp::main`). 로그 flush는 `std::ofstream` 소멸자에 의존(명시적 flush 없음).
 
@@ -305,7 +305,7 @@ FEED/KR_TEST/US_TEST 모드는 `set_console_enabled(false)`로 콘솔 로그를 
 | G1 | **get_daily_ohlcv 날짜 하드코딩 → 500/빈응답** | `KisClient.cpp::get_daily_ohlcv` | 모의서버에서 일봉 응답 실패 → market_queue_ 미적재 → MACross 등 일봉 전략 **신호 0건**. TRADE 모드 핵심 경로가 사실상 무동작. | `get_index_daily_ohlcv`처럼 KST 기준 유한 날짜구간(오늘, 오늘-N일) + 페이지네이션으로 교체 (`KisClient.cpp::get_index_daily_ohlcv` 패턴 재사용). |
 | G2 | **count=1 폴링 + 일봉 반복** | `Engine.cpp::data_thread_fn`, `MACrossStrategy.h::on_data` | 최신 1봉만 반복 수신 → deque가 동일 종가로 채워져 크로스 미발생. 과거봉 시드 부재. | on_start에서 과거 N봉 시드(seed) 또는 DataThread에서 `count=long_period+α` 요청 + 신규봉만 push. |
 | G3 | **WS 실시간 체결/호가가 전략에 미활용** | `MACrossStrategy.h::on_data`(on_trade/on_order_book 미구현), `StrategyBase.h::on_trade` | H0STCNT0 현재가가 들어와도 MACross는 무시. 실시간성 없음. 구독은 하되 소비 안 함. | 실시간 가격 기반 전략(예: 밴드/스탑) 도입 또는 MACross를 WS 가격으로 교차 판정하도록 확장. |
-| G5 | **포지션 원장이 실제 계좌잔고와 분리되어 시작** | `OrderGate.cpp::reset_daily`(positions_는 리셋하지 않는다), `OrderGate` 초기 상태 = 빈 맵 | 엔진 기동 시 `positions_`는 비어 있어, 실제 계좌에 보유분이 있어도 게이트는 0으로 인식 → 매도 가능수량 오판/평단 부정확. universe_from_balance는 전략 시드만 하고 게이트 원장은 시드 안 함(`StrategyFactory.cpp::load_ma_cross`). | 기동 시 `get_balance()`로 positions_/avg_prices_ 시드하는 원장 부트스트랩 추가. |
+| G5 | **포지션 원장이 실제 계좌잔고와 분리되어 시작** | `OrderGate.cpp::reset_daily`(positions_는 리셋하지 않는다), `OrderGate` 초기 상태 = 빈 맵 | 엔진 기동 시 `positions_`는 비어 있어, 실제 계좌에 보유분이 있어도 게이트는 0으로 인식 → 매도 가능수량 오판/평단 부정확. universe_from_balance는 전략 시드만 하고 게이트 원장은 시드 안 함(`StrategyFactory.cpp::load_moving_average_cross`). | 기동 시 `get_balance()`로 positions_/avg_prices_ 시드하는 원장 부트스트랩 추가. |
 | G6 | **US 체결 방향 필드 인덱스 추정** | `WebSocketClient.cpp::parse_us_trade`("방향 필드 위치 확인 후 조정" 주석) | 미국 체결 direction이 부정확할 수 있음(현재 US 전략 미사용이라 저위험). | 실측 로그로 인덱스 확정. |
 | G7 | **정정(REPLACE) 부분체결·조직번호 재캡처 미완** | `OrderRouter.cpp::replace_route`(TODO) | 부분체결 상태 정정은 수량 정합 미보장 → MM은 CANCEL+NEW만 사용. 정정 응답의 새 조직번호 미파싱(원 조직번호 승계). | 정정 응답 파싱 강화 + 부분체결 정정 로직(Phase 2). |
 | G8 | **해외 정정/취소 미구현** | `KisClient.cpp::cancel_order`(주석 "해외 정정/취소 별도 tr_id — 미구현 TODO") | US 주문 취소/정정 불가. | overseas order-rvsecncl tr_id/URL 추가. |

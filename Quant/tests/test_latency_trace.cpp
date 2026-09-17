@@ -1,5 +1,5 @@
 // LatencyTrace 단위 테스트 — 구간 계산의 0 처리, CSV 행 형식, 파일 머리글이 한 번만 쓰이는지.
-// 빌드: cmake --build <dir> --target test_latency_trace
+// 빌드: cmake --build <directory> --target test_latency_trace
 #include "core/LatencyTrace.h"
 
 #include <cstdlib>
@@ -14,13 +14,13 @@ namespace
 {
 int g_checks = 0;
 
-#define CHECK(cond)                                                                        \
+#define CHECK(condition)                                                                        \
     do                                                                                     \
     {                                                                                      \
         ++g_checks;                                                                        \
-        if (!(cond))                                                                       \
+        if (!(condition))                                                                       \
         {                                                                                  \
-            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #cond << "\n";     \
+            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #condition << "\n";     \
             return 1;                                                                      \
         }                                                                                  \
     } while (0)
@@ -28,10 +28,10 @@ int g_checks = 0;
 std::vector<std::string> split(const std::string& line)
 {
     std::vector<std::string> out;
-    std::stringstream        ss(line);
+    std::stringstream        stream(line);
     std::string              field;
 
-    while (std::getline(ss, field, ','))
+    while (std::getline(stream, field, ','))
     {
         out.push_back(field);
     }
@@ -83,11 +83,11 @@ int main()
     // 3. REST 봉 신호(tick_ns=0): 첫 구간 -1, total은 signal부터.
     marks.tick_ns = 0;
     const auto row2 = trace::csv_row(signal, marks, false, false, 0);
-    const auto f2   = split(row2.substr(0, row2.size() - 1));
-    CHECK(f2[6] == "-1");
-    CHECK(f2[9] == "15010");
-    CHECK(f2[10] == "0");
-    CHECK(f2[11] == "0");
+    const auto fields_two   = split(row2.substr(0, row2.size() - 1));
+    CHECK(fields_two[6] == "-1");
+    CHECK(fields_two[9] == "15010");
+    CHECK(fields_two[10] == "0");
+    CHECK(fields_two[11] == "0");
 
     // 4. 파일: 머리글은 새 파일에만, 두 번째 인스턴스가 이어 써도 머리글이 다시 안 붙는다.
     const auto path = std::filesystem::temp_directory_path() / "quant_test_latency_trace.csv";

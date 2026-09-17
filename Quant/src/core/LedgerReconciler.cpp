@@ -55,7 +55,7 @@ bool LedgerReconciler::bootstrap(int attempts, std::chrono::milliseconds retry_d
             //  세션이 남긴 미체결 매도·미결제분) 전량 청산이 40240000으로 통째 거부돼
             //  한 주도 못 빠져나온다(09-08 047050 254주·381주 연속 거부). 필드가 없거나
             //  파싱 실패면 -1을 넘겨 "모름"으로 두고 보유수량을 그대로 쓴다.
-            const int psbl_q = holding.sellable_qty.value_or(-1);
+            const int psbl_q = holding.sellable_quantity.value_or(-1);
             gate_.seed_position(std::string(), holding.ticker, holding.quantity, holding.average_price, psbl_q);
 
             if (name_sink_)
@@ -65,7 +65,7 @@ bool LedgerReconciler::bootstrap(int attempts, std::chrono::milliseconds retry_d
 
             LOG_INFO("[Engine]   시드 " + holding.ticker + " " + holding.name + " " + std::to_string(holding.quantity) + "주 @평단 " +
                      std::to_string(static_cast<long long>(holding.average_price)) + " 주문가능=" +
-                     (holding.sellable_qty ? std::to_string(*holding.sellable_qty) : std::string("(field없음)")));
+                     (holding.sellable_quantity ? std::to_string(*holding.sellable_quantity) : std::string("(field없음)")));
             ++count;
         }
 
@@ -85,9 +85,9 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
     // 대조 행은 덮어쓰기·정리 "전" 원장 값으로 남긴다 — 덮어쓴 뒤에 재면 항상 일치로 나온다. [why D-038]
     std::vector<reconcile::Held> ledger_before;
 
-    for (const auto& hp : gate_.snapshot_positions())
+    for (const auto& held_position : gate_.snapshot_positions())
     {
-        ledger_before.push_back(reconcile::Held{hp.ticker, hp.quantity, hp.average_price});
+        ledger_before.push_back(reconcile::Held{held_position.ticker, held_position.quantity, held_position.average_price});
     }
 
     std::vector<reconcile::Held> broker_now;
@@ -109,19 +109,19 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
     {
         const std::string& code = holding.ticker;
         const int    quantity  = holding.quantity;
-        const double av = holding.average_price;
+        const double average_value = holding.average_price;
         held.push_back(code);
-        broker_now.push_back(reconcile::Held{code, quantity, av});
+        broker_now.push_back(reconcile::Held{code, quantity, average_value});
 
         if (resync_positions)
         {
-            gate_.seed_position(std::string(), code, quantity, av);
+            gate_.seed_position(std::string(), code, quantity, average_value);
         }
 
         // 매도가능수량은 재동기 모드와 무관하게 매번 맞춘다(기동 시드 0 고착 해소).
-        if (holding.sellable_qty)
+        if (holding.sellable_quantity)
         {
-            gate_.refresh_sellable(std::string(), code, *holding.sellable_qty);
+            gate_.refresh_sellable(std::string(), code, *holding.sellable_quantity);
         }
 
         // 체결통보 모드는 원장을 덮어쓰지 않는다. 대신 재연결 사이에 빠진 매도 체결만
@@ -192,14 +192,14 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
 //  손실컷 재시작 리셋 구멍 방지: 기준선을 거래일(KST)별 파일로 영속화. 같은 날 재시작 → 저장된
 //  기준선 재사용(손실 한도 유지), 새 거래일 → 신규 캡처+저장. 장 시작(09:00)부터 연속 구동 시
 //  파일이 그날 시가 기준선을 담아 당일손익이 정확.
-void LedgerReconciler::capture_baseline(double tot_eval, std::optional<double> prev_day_total, std::time_t now_utc)
+void LedgerReconciler::capture_baseline(double total_evaluation, std::optional<double> previous_day_total, std::time_t now_utc)
 {
     const std::string date_yyyymmdd = ledger::kst_ymd(now_utc);
     std::filesystem::path bpath;
 
-    if (!baseline_dir_.empty())
+    if (!baseline_directory_.empty())
     {
-        bpath = baseline_dir_ / ledger::baseline_file_name(date_yyyymmdd, account_no_);
+        bpath = baseline_directory_ / ledger::baseline_file_name(date_yyyymmdd, account_no_);
     }
 
     double file_base = 0.0;
@@ -227,27 +227,27 @@ void LedgerReconciler::capture_baseline(double tot_eval, std::optional<double> p
         //  때문에 그 시점 총평가금을 앵커로 잡으면 이월 보유분의 시초 갭이 손실컷에서 통째로 빠진다
         //  (09-14: 전일 대비 -140만원인데 게이트는 -25만원만 봐 -100만원 한도가 한 번도 안 걸렸다).
         //  전일 입출금이 있으면 그만큼 어긋나므로 갭을 로그로 남긴다.
-        if (prev_day_total && *prev_day_total > 0.0)
+        if (previous_day_total && *previous_day_total > 0.0)
         {
-            baseline_ = *prev_day_total;
+            baseline_ = *previous_day_total;
             LOG_INFO("[Engine] 기준선 = 전일 총자산 " + std::to_string(static_cast<long long>(baseline_)) +
-                     "원, 첫 대조 총평가 " + std::to_string(static_cast<long long>(tot_eval)) + "원 (시초 갭 " +
-                     std::to_string(static_cast<long long>(tot_eval - baseline_)) + "원이 당일손익에 포함)");
+                     "원, 첫 대조 총평가 " + std::to_string(static_cast<long long>(total_evaluation)) + "원 (시초 갭 " +
+                     std::to_string(static_cast<long long>(total_evaluation - baseline_)) + "원이 당일손익에 포함)");
         }
         else
         {
-            baseline_ = tot_eval;
+            baseline_ = total_evaluation;
         }
 
         if (!bpath.empty())
         {
             std::error_code error_code;
-            std::filesystem::create_directories(baseline_dir_, error_code); // 종전 Logger::path_for가 하던 일
-            std::ofstream of(bpath, std::ios::trunc);
+            std::filesystem::create_directories(baseline_directory_, error_code); // 종전 Logger::path_for가 하던 일
+            std::ofstream output_file(bpath, std::ios::trunc);
 
-            if (of.is_open())
+            if (output_file.is_open())
             {
-                of << static_cast<long long>(baseline_) << "\n";
+                output_file << static_cast<long long>(baseline_) << "\n";
             }
         }
 
@@ -260,7 +260,7 @@ void LedgerReconciler::capture_baseline(double tot_eval, std::optional<double> p
 
 // ─── 주기 대조 ──────────────────────────────────────────────────────────────
 //  rest_price_feed_ 모드는 체결콜백(OrderRouter::on_fill)이 미등록이라 positions_/daily_pnl_이
-//  갱신되지 않는다(치명). 매 사이클 잔고를 재조회해 1) output1 보유분으로 positions_/avg_prices_
+//  갱신되지 않는다(치명). 매 사이클 잔고를 재조회해 1) output1 보유분으로 positions_/average_prices_
 //  재동기, 2) output2 총평가금(tot_evlu_amt)의 당일 기준선 대비 델타를 daily_pnl_로 세팅한다.
 //  절대 평가손익(evlu_pfls)이 아니라 "당일 기준선 델타"를 쓴다 — 이미 -30% 물린 미실현손실을
 //  daily_pnl로 넣으면 개장 즉시 모든 신규매수가 막힌다.
@@ -326,28 +326,28 @@ void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)
             }
 
             // 2) 당일 총평가금 델타 → daily_pnl_. 요약 필드의 부재는 optional이 든다.
-            if (balance->total_eval_amt)
+            if (balance->total_evaluation_amount)
             {
-                const double tot_eval = *balance->total_eval_amt;
+                const double total_evaluation = *balance->total_evaluation_amount;
 
                 if (!have_baseline_)
                 {
-                    capture_baseline(tot_eval, balance->prev_day_total_asset, now_utc);
+                    capture_baseline(total_evaluation, balance->previous_day_total_asset, now_utc);
                 }
 
-                const double delta = tot_eval - baseline_;
+                const double delta = total_evaluation - baseline_;
                 gate_.set_daily_pnl(delta); // 손실컷용(세션 앵커) — 리스크게이트 동작 유지
-                gate_.set_equity(tot_eval); // 총노출 게이트(§3d) 분모 — 총평가금 스냅샷 갱신
+                gate_.set_equity(total_evaluation); // 총노출 게이트(§3d) 분모 — 총평가금 스냅샷 갱신
                 LOG_INFO("[Engine] 잔고 대조: 당일손익 " + std::to_string(static_cast<long long>(delta)) + "원 (총평가 " +
-                         std::to_string(static_cast<long long>(tot_eval)) + ")");
+                         std::to_string(static_cast<long long>(total_evaluation)) + ")");
 
                 // 표시 전용: 전일 총자산(bfdy_tot_asst_evlu_amt) 대비 오늘 손익 — launch 시점과 무관하게
                 //  "전일종가 대비 당일손익"을 찍는다. 손실컷 기준선(세션 앵커)과는 분리(리스크 동작 불변).
-                if (balance->prev_day_total_asset && *balance->prev_day_total_asset > 0.0)
+                if (balance->previous_day_total_asset && *balance->previous_day_total_asset > 0.0)
                 {
-                    const double day_delta = tot_eval - *balance->prev_day_total_asset;
+                    const double day_delta = total_evaluation - *balance->previous_day_total_asset;
                     LOG_INFO("[Engine] 당일손익(전일대비): " + std::to_string(static_cast<long long>(day_delta)) +
-                             "원 (전일총자산 " + std::to_string(static_cast<long long>(*balance->prev_day_total_asset)) + ")");
+                             "원 (전일총자산 " + std::to_string(static_cast<long long>(*balance->previous_day_total_asset)) + ")");
                 }
             }
         }

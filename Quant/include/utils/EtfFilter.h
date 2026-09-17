@@ -50,10 +50,10 @@ inline bool is_reit_like(const std::string& name,
                          const std::vector<std::string>& suffixes,
                          const std::vector<std::string>& exacts)
 {
-    for (const auto& sfx : suffixes)
+    for (const auto& suffix : suffixes)
     {
-        if (!sfx.empty() && name.size() >= sfx.size() &&
-            name.compare(name.size() - sfx.size(), sfx.size(), sfx) == 0)
+        if (!suffix.empty() && name.size() >= suffix.size() &&
+            name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0)
         {
             return true;
         }
@@ -111,8 +111,8 @@ inline const std::vector<std::string>& default_prefixes()
 inline std::vector<std::string> load_list(const std::string& filename,
                                           const std::vector<std::string>& fallback)
 {
-    const char* dir = std::getenv("QUANT_CONFIG_DIR");
-    std::string base = (dir && *dir) ? std::string(dir) : std::string("Quant/config");
+    const char* directory = std::getenv("QUANT_CONFIG_DIR");
+    std::string base = (directory && *directory) ? std::string(directory) : std::string("Quant/config");
     std::ifstream file(base + "/" + filename);
 
     if (!file.is_open())

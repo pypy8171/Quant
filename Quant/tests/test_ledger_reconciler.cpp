@@ -2,7 +2,7 @@
 //  기동 시드 재시도, REST/WS 모드의 덮어쓰기·유지, 유령 정리와 빈 잔고 가드, 당일 기준선의 파일 재사용·
 //  새 거래일 재캡처, 서킷브레이커 백오프와 pnl_stale 전이를 고정한다. OrderGate·Logger를 링크한다.
 //  관련 결정: D-038(대조 행), D-061(분리).
-// 빌드: cmake --build <dir> --target test_ledger_reconciler
+// 빌드: cmake --build <directory> --target test_ledger_reconciler
 #include "core/LedgerReconciler.h"
 #include "utils/Logger.h"
 
@@ -16,13 +16,13 @@ namespace
 {
 int g_checks = 0;
 
-#define CHECK(cond)                                                                        \
+#define CHECK(condition)                                                                        \
     do                                                                                     \
     {                                                                                      \
         ++g_checks;                                                                        \
-        if (!(cond))                                                                       \
+        if (!(condition))                                                                       \
         {                                                                                  \
-            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #cond << "\n";     \
+            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #condition << "\n";     \
             return 1;                                                                      \
         }                                                                                  \
     } while (0)
@@ -30,25 +30,25 @@ int g_checks = 0;
 // 2027-01-15 08:00 UTC = KST 17:00 같은 날. 기준선 파일 날짜를 고정한다.
 constexpr std::time_t kT0 = 1800000000;
 
-Holding hold(const char* ticker, int quantity, double av, std::optional<int> psbl = std::nullopt)
+Holding hold(const char* ticker, int quantity, double average_value, std::optional<int> psbl = std::nullopt)
 {
     Holding holding;
     holding.ticker       = ticker;
     holding.name         = std::string("N-") + ticker;
     holding.quantity          = quantity;
-    holding.average_price    = av;
-    holding.sellable_qty = psbl;
+    holding.average_price    = average_value;
+    holding.sellable_quantity = psbl;
     return holding;
 }
 
-KisResult<AccountBalance> ok_balance(std::vector<Holding> hs, double tot_eval, double cash = 500000.0,
+KisResult<AccountBalance> ok_balance(std::vector<Holding> hs, double total_evaluation, double cash = 500000.0,
                                      std::optional<double> previous = std::nullopt)
 {
     AccountBalance balance;
     balance.holdings             = std::move(hs);
-    balance.total_eval_amt       = tot_eval;
+    balance.total_evaluation_amount       = total_evaluation;
     balance.available_cash       = cash;
-    balance.prev_day_total_asset = previous;
+    balance.previous_day_total_asset = previous;
     return balance;
 }
 
@@ -57,16 +57,16 @@ KisResult<AccountBalance> fail_balance()
     return kis_fail("EGW00201", "초당 거래건수 초과");
 }
 
-std::filesystem::path baseline_dir()
+std::filesystem::path baseline_directory()
 {
-    return Logger::instance().base_dir() / "ledger_test";
+    return Logger::instance().base_directory() / "ledger_test";
 }
 
 void wipe_baselines()
 {
     std::error_code error_code;
-    std::filesystem::remove_all(baseline_dir(), error_code);
-    std::filesystem::create_directories(baseline_dir(), error_code);
+    std::filesystem::remove_all(baseline_directory(), error_code);
+    std::filesystem::create_directories(baseline_directory(), error_code);
 }
 
 int test_breaker()
@@ -127,16 +127,16 @@ int test_bootstrap()
     // 두 번 실패 뒤 성공 — 원장·주문가능·종목명이 시드된다.
     calls = 0;
     std::vector<std::pair<std::string, std::string>> names;
-    LedgerReconciler r2(gate, [&] {
+    LedgerReconciler second_reconciler(gate, [&] {
         ++calls;
         return calls < 3 ? fail_balance()
                          : ok_balance({hold("005930", 10, 70000.0, 7), hold("000660", 3, 150000.0)}, 1000000.0);
     });
-    r2.set_name_sink([&](const std::string& ticker, const std::string& name) { names.emplace_back(ticker, name); });
-    CHECK(r2.bootstrap(5, std::chrono::milliseconds(0)) && calls == 3);
+    second_reconciler.set_name_sink([&](const std::string& ticker, const std::string& name) { names.emplace_back(ticker, name); });
+    CHECK(second_reconciler.bootstrap(5, std::chrono::milliseconds(0)) && calls == 3);
     CHECK(gate.position("005930") == 10 && gate.average_price("005930") == 70000.0);
-    CHECK(gate.sellable_view(std::string(), "005930").psbl_cap == 7);
-    CHECK(gate.sellable_view(std::string(), "000660").psbl_cap == 3); // 모름(-1) → 보유수량
+    CHECK(gate.sellable_view(std::string(), "005930").possible_quantity_cap == 7);
+    CHECK(gate.sellable_view(std::string(), "000660").possible_quantity_cap == 3); // 모름(-1) → 보유수량
     CHECK(names.size() == 2 && names[0].first == "005930" && names[0].second == "N-005930");
     return 0;
 }
@@ -148,7 +148,7 @@ int test_reconcile_rest()
     KisResult<AccountBalance> next = ok_balance({hold("A", 10, 100.0, 10)}, 1000000.0, 500000.0, 990000.0);
     std::vector<reconcile::Row> rows;
     LedgerReconciler reconciler(gate, [&] { return next; });
-    reconciler.set_baseline_dir(baseline_dir());
+    reconciler.set_baseline_directory(baseline_directory());
     reconciler.set_reconcile_sink([&](const reconcile::Row& row) { rows.push_back(row); });
 
     // 첫 대조: 원장 덮어쓰기, 기준선은 전일 총자산(990000) — 시초 갭 +10000이 당일손익에 든다. 파일 저장.
@@ -157,7 +157,7 @@ int test_reconcile_rest()
     CHECK(gate.daily_pnl() == 10000.0 && gate.equity() == 1000000.0 && gate.available_cash() == 500000.0);
     CHECK(reconciler.has_baseline() && reconciler.baseline() == 990000.0);
     {
-        std::ifstream file(baseline_dir() / "pnl_baseline_20270115.txt");
+        std::ifstream file(baseline_directory() / "pnl_baseline_20270115.txt");
         long long     cash_value = 0;
         CHECK(file.is_open() && (file >> cash_value) && cash_value == 990000);
     }
@@ -172,23 +172,23 @@ int test_reconcile_rest()
     CHECK(gate.daily_pnl() == 30000.0 && rows.empty());
 
     // 재시작(새 인스턴스, 같은 날): 파일 기준선을 재사용해 손실컷이 이어진다.
-    LedgerReconciler r2(gate, [&] { return next; });
-    r2.set_baseline_dir(baseline_dir());
-    r2.set_reconcile_sink([&](const reconcile::Row& row) { rows.push_back(row); });
+    LedgerReconciler second_reconciler(gate, [&] { return next; });
+    second_reconciler.set_baseline_directory(baseline_directory());
+    second_reconciler.set_reconcile_sink([&](const reconcile::Row& row) { rows.push_back(row); });
     next = ok_balance({hold("A", 10, 100.0, 10)}, 900000.0);
-    r2.reconcile(true, kT0 + 120);
-    CHECK(r2.baseline() == 990000.0 && gate.daily_pnl() == -90000.0);
+    second_reconciler.reconcile(true, kT0 + 120);
+    CHECK(second_reconciler.baseline() == 990000.0 && gate.daily_pnl() == -90000.0);
 
     // 새 거래일: 다시 캡처(다른 파일). 전일 총자산이 없으면 첫 대조 총평가금으로 떨어진다.
-    r2.new_trading_day();
-    r2.reconcile(true, kT0 + 24 * 3600);
-    CHECK(r2.baseline() == 900000.0 && gate.daily_pnl() == 0.0);
-    CHECK(std::filesystem::exists(baseline_dir() / "pnl_baseline_20270116.txt"));
+    second_reconciler.new_trading_day();
+    second_reconciler.reconcile(true, kT0 + 24 * 3600);
+    CHECK(second_reconciler.baseline() == 900000.0 && gate.daily_pnl() == 0.0);
+    CHECK(std::filesystem::exists(baseline_directory() / "pnl_baseline_20270116.txt"));
 
     // 유령 정리: 원장에만 있는 B(시드는 24시간 전 열린 것으로 잡힌다)는 걷어내고 PRUNE 행을 남긴다.
     gate.seed_position(std::string(), "B", 5, 50.0);
     rows.clear();
-    r2.reconcile(true, kT0 + 24 * 3600 + 60);
+    second_reconciler.reconcile(true, kT0 + 24 * 3600 + 60);
     CHECK(gate.position("B") == 0 && gate.position("A") == 10);
     CHECK(rows.size() == 1 && rows[0].ticker == "B" && rows[0].action == "PRUNE");
 
@@ -196,12 +196,12 @@ int test_reconcile_rest()
     gate.seed_position(std::string(), "B", 5, 50.0);
     rows.clear();
     next = ok_balance({}, 900000.0);
-    r2.reconcile(true, kT0 + 24 * 3600 + 120);
+    second_reconciler.reconcile(true, kT0 + 24 * 3600 + 120);
     CHECK(gate.position("B") == 5 && gate.position("A") == 10 && rows.empty());
     return 0;
 }
 
-int test_reconcile_ws()
+int test_reconcile_websocket()
 {
     OrderGate gate;
     gate.seed_position(std::string(), "A", 10, 100.0);
@@ -212,9 +212,9 @@ int test_reconcile_ws()
     // WS 모드는 원장을 덮어쓰지 않는다(첫 관측만으로는 놓친 매도로도 안 본다). 매도가능은 매번 맞춘다.
     reconciler.reconcile(false, kT0);
     CHECK(gate.position("A") == 10);
-    CHECK(gate.sellable_view(std::string(), "A").psbl_cap == 8);
-    CHECK(rows.size() == 1 && rows[0].ticker == "A" && rows[0].action == "KEEP" && rows[0].ledger_qty == 10 &&
-          rows[0].broker_qty == 8);
+    CHECK(gate.sellable_view(std::string(), "A").possible_quantity_cap == 8);
+    CHECK(rows.size() == 1 && rows[0].ticker == "A" && rows[0].action == "KEEP" && rows[0].ledger_quantity == 10 &&
+          rows[0].broker_quantity == 8);
     CHECK(gate.equity() == 1000000.0 && reconciler.has_baseline()); // 기준선 디렉터리 없음 → 파일 없이 캡처
     return 0;
 }
@@ -289,12 +289,12 @@ int test_reconcile_failure()
 int main()
 {
     // 산출물을 라이브 로그 폴더와 갈라 둔다(test_order_router와 같은 이유). QUANT_LOG_DIR이 있으면 존중.
-    if (const char* env = std::getenv("QUANT_LOG_DIR"); !env || !*env)
+    if (const char* environment = std::getenv("QUANT_LOG_DIR"); !environment || !*environment)
     {
-        Logger::instance().set_base_dir(Logger::executable_dir() / "logs_test");
+        Logger::instance().set_base_directory(Logger::executable_directory() / "logs_test");
     }
 
-    if (test_breaker() || test_names() || test_bootstrap() || test_reconcile_rest() || test_reconcile_ws() ||
+    if (test_breaker() || test_names() || test_bootstrap() || test_reconcile_rest() || test_reconcile_websocket() ||
         test_reconcile_post_fill_defer() || test_reconcile_failure())
     {
         return 1;

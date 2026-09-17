@@ -16,8 +16,8 @@
 //  OrderRouter가 on_accept()·add_realized_pnl()로 내부 상태를 갱신한다.
 //  검사 항목과 그 실행 순서의 정본은 `OrderGate.cpp::check` 하나다 — 목록을 여기에 복사하지 않는다.
 //
-// [lock-order] check()는 positions_mtx_ 안에서 displace_mtx_·prio_mtx_를 잡는다(교체 후보·우선순위
-//   판정이 보유 스냅샷과 같은 시점이어야 해서). 그러므로 순서는 positions → {displace, prio}이고,
+// [lock-order] check()는 positions_mutex_ 안에서 displace_mutex_·prio_mtx_를 잡는다(교체 후보·우선순위
+//   판정이 보유 스냅샷과 같은 시점이어야 해서). 그러므로 순서는 positions → {displace, priority}이고,
 //   displace·prio를 쥔 채 positions를 잡는 경로는 두지 않는다(plan_displacement는 비중첩).
 //   pnl·rate·dedup은 독립 스코프에서만 획득한다.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -26,7 +26,7 @@ class OrderGate
 public:
     struct Config
     {
-        int max_qty_per_ticker  = 100;          // 종목당 최대 보유 수량(BUY 누적) — fat-finger 백스톱
+        int max_quantity_per_ticker  = 100;          // 종목당 최대 보유 수량(BUY 누적) — fat-finger 백스톱
         // ── 명목 사이징 백스톱 — 전략이 자본%로 사이징할 때의 상한/집중 제어(0=미적용) ──
         double max_notional_per_ticker  = 0.0;  // 종목당 최대 보유 명목(원). 지정가=price, 시장가=ref_price로 평가. 0=수량 한도만
         int    max_concurrent_positions = 0;    // 동시 보유 종목 상한(새 종목 여는 BUY NEW에만). 0=미적용
@@ -51,14 +51,14 @@ public:
         double displace_unscored_z    = 0.0;
         // ── 포트폴리오 총노출 상한 — 모든 종목 보유·예약 명목 합이 자본의 이 비율을 넘으면 신규 매수 차단(0=미적용).
         //    종목당 상한(15%)×동시보유(10)=150% 같은 과노출을 총합 단에서 막는다(청산은 통과).
-        double max_gross_exposure_pct   = 0.0;  // 예: 0.95 = 자본의 95%. equity_ 미주입(0)이면 자동 비활성
+        double max_gross_exposure_percent   = 0.0;  // 예: 0.95 = 자본의 95%. equity_ 미주입(0)이면 자동 비활성
         double daily_loss_limit = -300'000.0;   // 일일 최대 손실 (-30만원)
         int max_orders_per_min  = 20;           // 분당 최대 주문 (KIS 권장)
         int max_orders_per_sec  = 5;            // 초당 최대 주문 (KIS 안전 한도)
-        double dedup_window_sec = 1.0;          // 중복 신호 제거 윈도우(초)
+        double deduplicate_window_sec = 1.0;          // 중복 신호 제거 윈도우(초)
         // ── 1주문 fat-finger 백스톱 (C-3) — NEW BUY/SELL 공통. 시장가 대량주문 슬리피지 방어.
         //    보유 전량 매도 등 정상 주문은 통과할 만큼 넉넉하게, 비정상 대량만 차단.
-        int max_qty_per_order        = 10'000;         // 1주문 최대 수량
+        int max_quantity_per_order        = 10'000;         // 1주문 최대 수량
         double max_notional_per_order = 50'000'000.0;  // 1주문 최대 명목(원). price>0일 때만 검사
     };
 
@@ -91,13 +91,13 @@ public:
     // SELL NEW는 매도가능수량(보유 - 미체결매도)으로 깎는다. 자기 익절 지정가가 자기
     // 청산을 막아 KIS가 40240000으로 주문을 통째로 거부하면 한 주도 못 빠져나온다.
     // 원장이 그 종목을 0으로 알고 있으면 손대지 않는다(과소 인식 방어).
-    int clamp_buy_qty(const OrderSignal& signal);
+    int clamp_buy_quantity(const OrderSignal& signal);
 
     // ── 상태 업데이트 ───────────────────────────────────────────────────────
     // KIS 접수(주문번호 ODNO 수신) 시 reserved_에 선점만 기록(실체결 원장 positions_는 불변).
     // check()는 positions_ + reserved_ 합산으로 한도를 보므로 미체결 주문이 과잉 주문을 차단한다.
     // 체결(on_fill_confirmed) 시 reserved_가 해제되고 positions_/average_price가 갱신된다.
-    // 원장은 (account_id:ticker)로 파티셔닝 — 계좌별 독립. 아래 4-arg 오버로드는 account="" 하위호환.
+    // 원장은 (account_id:ticker)로 파티셔닝 — 계좌별 독립. 아래 4-argument 오버로드는 account="" 하위호환.
     void on_accept(const std::string& account, const std::string& ticker,
                    OrderSide side, int quantity, double price);
     void on_accept(const std::string& ticker, OrderSide side, int quantity, double price)
@@ -112,7 +112,7 @@ public:
     //  (add_realized_pnl은 누적, 이건 절대치 세팅 — 잔고 대조 전용)
     void set_daily_pnl(double pnl)
     {
-        std::lock_guard<std::mutex> lock(pnl_mtx_);
+        std::lock_guard<std::mutex> lock(pnl_mutex_);
         daily_pnl_ = pnl;
     }
 
@@ -161,7 +161,7 @@ public:
     struct FillResult
     {
         double average_price    = 0.0; // 갱신된 매수 평균단가
-        int    net_qty      = 0;   // 체결 후 순 보유수량
+        int    net_quantity      = 0;   // 체결 후 순 보유수량
         double commission   = 0.0; // 수수료 (0.015%)
         double tax          = 0.0; // 거래세 (매도 0.18%)
         double realized_pnl = 0.0; // 이번 체결 실현손익 (SELL만 양수)
@@ -226,7 +226,7 @@ public:
     void set_entry_priority(std::unordered_map<std::string, int> rank,
                             std::unordered_map<std::string, double> items, int total)
     {
-        std::lock_guard<std::mutex> lock(prio_mtx_);
+        std::lock_guard<std::mutex> lock(priority_mutex_);
         entry_rank_  = std::move(rank);
         entry_z_     = std::move(items);
         entry_total_ = total;
@@ -315,7 +315,7 @@ public:
     struct SellableView
     {
         int held     = 0;
-        int psbl_cap = 0;
+        int possible_quantity_cap = 0;
         int pending  = 0;
     };
 
@@ -330,7 +330,7 @@ public:
     //  조건: 차이가 미체결 매도(reserved_<0) 이내이고, 같은 잔고 수량이 두 번 연속 관측될 때만
     //  (잔고 왕복이 통보보다 빠른 순간의 경합 회피). 맞춘 수량을 돌려주고 아니면 0.
     //  09-11 11:00 재연결 사이에 248170 매도 52주 통보가 빠져 18분간 유령 52주가 슬롯을 물었다.
-    int absorb_missed_sell(const std::string& account, const std::string& ticker, int balance_qty);
+    int absorb_missed_sell(const std::string& account, const std::string& ticker, int balance_quantity);
 
     // ── 조회 ─────────────────────────────────────────────────────────────────
     // 계좌 지정 버전(주 경로) + account="" 하위호환(단일 계좌).
@@ -368,9 +368,9 @@ private:
         size_t operator()(const PosKey& key) const
         {
             // boost::hash_combine 모양. 두 필드를 xor만 하면 (a,b)와 (b,a)가 같은 버킷에 간다.
-            const size_t h1 = std::hash<std::string>{}(key.account);
-            const size_t h2 = std::hash<std::string>{}(key.ticker);
-            return h1 ^ (h2 + 0x9e3779b9u + (h1 << 6) + (h1 >> 2));
+            const size_t account_hash = std::hash<std::string>{}(key.account);
+            const size_t ticker_hash = std::hash<std::string>{}(key.ticker);
+            return account_hash ^ (ticker_hash + 0x9e3779b9u + (account_hash << 6) + (account_hash >> 2));
         }
     };
 
@@ -395,23 +395,23 @@ private:
     std::atomic<double> available_cash_{0.0}; // 주문가능현금 스냅샷. 잔고 대조가 갱신, clamp_buy_qty가 락 없이 읽음
     std::atomic<double> equity_{0.0};      // 총평가금 스냅샷(§3d 총노출 게이트 분모). 잔고 대조가 갱신, check()가 락 없이 읽음
 
-    mutable std::mutex prio_mtx_;
+    mutable std::mutex priority_mutex_;
     std::unordered_map<std::string, int> entry_rank_; // ticker → 종합점수 랭크(1=최고)
     int entry_total_ = 0;                             // 랭크 모집단 크기(등록 종목 수)
     std::unordered_map<std::string, double> entry_z_; // ticker → 종합점수 z (교체 격차 판정용)
 
-    mutable std::mutex displace_mtx_;
+    mutable std::mutex displace_mutex_;
     std::unordered_map<std::string, TimePoint> displace_cooldown_; // 밀려난 종목 → 재진입 허용 시각
     std::string slot_reserved_for_;      // 비운 슬롯을 쓸 종목(다른 종목이 가로채지 못하게)
     TimePoint   slot_reserved_until_{};  // 예약 만료 시각
     mutable std::unordered_map<std::string, std::string> displace_decline_; // 신규 종목 → 직전 교체 거절 사유(거부 문구용)
     int         displace_count_ = 0;     // 당일 교체 횟수(reset_daily에서 0으로)
 
-    mutable std::mutex positions_mtx_;
+    mutable std::mutex positions_mutex_;
     PosMap<int>    reserved_;    // (account,ticker) → 미체결 선점 수량 (BUY +, SELL -). 재주문 차단용
-    PosMap<double> reserved_px_; // (account,ticker) → 미체결 선점가(§3d 총노출 계산용). reserved_와 동일 생명주기로 정리
+    PosMap<double> reserved_price_; // (account,ticker) → 미체결 선점가(§3d 총노출 계산용). reserved_와 동일 생명주기로 정리
     PosMap<int>    positions_;   // (account,ticker) → 실체결 순보유 수량 (양수=롱)
-    PosMap<double> avg_prices_;
+    PosMap<double> average_prices_;
     // account:ticker -> 매도가능수량. 보유수량과 다르다: 기동 전 세션이 남긴 미체결 매도,
     //  미결제분 때문에 KIS가 실제로 받아주는 매도 수량은 보유보다 적을 수 있다. 이걸 모르면
     //  전량 청산이 40240000(주문가능분 없음)으로 통째 거부돼 한 주도 못 빠져나온다.
@@ -420,18 +420,18 @@ private:
     PosMap<int>       missed_sell_seen_; // (account,ticker) → 직전 대조에서 본 잔고 수량(2회 연속 확인용)
     PosMap<TimePoint> opened_at_;        // (account,ticker) → 포지션이 0에서 열린 시각(교체 최소 보유 판정)
 
-    // strategy_id별 서브원장(D-089, 손익 귀속 전용) — positions_/avg_prices_와 같은 락(positions_mtx_)으로 보호.
+    // strategy_id별 서브원장(D-089, 손익 귀속 전용) — positions_/avg_prices_와 같은 락(positions_mutex_)으로 보호.
     //  키는 strategy_id 그대로(예: "TRENDX_108490") — 이미 (슬리브,종목)을 유일하게 담아 계좌 축은 안 섞는다.
     std::unordered_map<std::string, int>    strategy_positions_;
-    std::unordered_map<std::string, double> strategy_avg_prices_;
+    std::unordered_map<std::string, double> strategy_average_prices_;
 
-    mutable std::mutex pnl_mtx_;
+    mutable std::mutex pnl_mutex_;
     double daily_pnl_{0.0};
 
-    mutable std::mutex rate_mtx_;
+    mutable std::mutex rate_mutex_;
     std::deque<TimePoint> order_times_min_; // 최근 1분 내 주문 시각 (분당 제한)
     std::deque<TimePoint> order_times_sec_; // 최근 1초 내 주문 시각 (초당 제한)
 
-    mutable std::mutex dedup_mtx_;
+    mutable std::mutex deduplicate_mutex_;
     std::unordered_map<std::string, TimePoint> last_signal_; // "strategy:ticker" → 마지막 신호 시각
 };

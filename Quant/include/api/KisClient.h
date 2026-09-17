@@ -45,16 +45,16 @@ inline std::string kis_hhmmss_minus_minutes(const std::string& hhmmss, int minut
         }
     }
 
-    const int hh = (hhmmss[0] - '0') * 10 + (hhmmss[1] - '0');
-    const int mm = (hhmmss[2] - '0') * 10 + (hhmmss[3] - '0');
-    const int ss = (hhmmss[4] - '0') * 10 + (hhmmss[5] - '0');
+    const int hour = (hhmmss[0] - '0') * 10 + (hhmmss[1] - '0');
+    const int minute = (hhmmss[2] - '0') * 10 + (hhmmss[3] - '0');
+    const int second = (hhmmss[4] - '0') * 10 + (hhmmss[5] - '0');
 
-    if (hh > 23 || mm > 59 || ss > 59)
+    if (hour > 23 || minute > 59 || second > 59)
     {
         return "";
     }
 
-    const long total = static_cast<long>(hh) * 3600 + mm * 60 + ss - static_cast<long>(minutes) * 60;
+    const long total = static_cast<long>(hour) * 3600 + minute * 60 + second - static_cast<long>(minutes) * 60;
 
     if (total < 0)
     {
@@ -91,7 +91,7 @@ public:
     bool refresh_token(std::chrono::seconds margin);
     bool is_authenticated() const
     {
-        std::lock_guard<std::mutex> lock(token_mtx_);
+        std::lock_guard<std::mutex> lock(token_mutex_);
         return !access_token_.empty();
     }
 
@@ -107,7 +107,7 @@ public:
     const std::string& account_no() const { return config_.account_no; }
 
     // ── 국내 (KR) ──────────────────────────────────────────────────────────
-    // 계측: 이 스레드가 rate_limit_acquire 안에서 기다린 시간의 누적(ns). 호출자가 호출 전후 차이로
+    // 계측: 이 스레드가 rate_limit_acquire 안에서 기다린 시간의 누적(nanoseconds). 호출자가 호출 전후 차이로
     //  자기 몫을 잰다 — 버킷은 인스턴스 공유라 인스턴스 합계로는 어느 호출이 밀렸는지 못 가른다.
     static std::uint64_t rate_wait_ns_this_thread();
 
@@ -140,13 +140,13 @@ public:
     bool send_order(const OrderSignal& signal);
     // 주문 3메서드는 단일 order_thread에서만 호출된다. 실패 사유는 반환값 err_code에 있다(D-039).
     // MM-1: 신규 주문 + KRX 조직번호(정정/취소용) 캡처
-    [[nodiscard]] OrderAck submit_order_ack(const OrderSignal& signal) override;
+    [[nodiscard]] OrderAck submit_order_acknowledgement(const OrderSignal& signal) override;
     // MM-1: 국내 미체결 취소 (order-rvsecncl). 성공 시 kis_order_no=취소접수번호
     [[nodiscard]] OrderAck cancel_order(const std::string& ticker, const std::string& orig_odno,
                                         const std::string& krx_forwarding_org_no, int quantity, bool all_remaining) override;
     // MM-1: 국내 정정 (order-rvsecncl). 성공 시 kis_order_no=새 ODNO(정정접수번호)
     [[nodiscard]] OrderAck revise_order(const std::string& ticker, const std::string& orig_odno,
-                                        const std::string& krx_forwarding_org_no, int new_qty, double new_price) override;
+                                        const std::string& krx_forwarding_org_no, int new_quantity, double new_price) override;
     [[nodiscard]] bool is_paper() const noexcept override { return config_.is_paper; }
     // 미체결(정정취소 가능) 예약주문 조회 — inquire-psbl-rvsecncl (모의 VTTC0084R / 실전 TTTC0084R)
     [[nodiscard]] std::vector<OpenOrder> get_open_orders() override;
@@ -232,10 +232,10 @@ public:
     {
         std::string ticker;             // mksc_shrn_iscd
         std::string name;               // hts_kor_isnm
-        int64_t foreign_net_qty = 0;    // frgn_ntby_qty (외국인 추정 순매수 수량, +담기/-던지기)
-        int64_t inst_net_qty    = 0;    // orgn_ntby_qty (기관 추정)
-        double  foreign_net_amt = 0.0;  // frgn_ntby_tr_pbmn (금액, 원)
-        double  inst_net_amt    = 0.0;  // orgn_ntby_tr_pbmn
+        int64_t foreign_net_quantity = 0;    // frgn_ntby_qty (외국인 추정 순매수 수량, +담기/-던지기)
+        int64_t institution_net_quantity    = 0;    // orgn_ntby_qty (기관 추정)
+        double  foreign_net_amount = 0.0;  // frgn_ntby_tr_pbmn (금액, 원)
+        double  institution_net_amount    = 0.0;  // orgn_ntby_tr_pbmn
     };
     // market: "0000"=전체 "0001"=코스피 "1001"=코스닥. sort: "0"=순매수상위 "1"=순매도상위.
     // etc_cls: "0"=전체 "1"=외국인 "2"=기관계 (필드가 한 행에 동거 안 하면 분리 조회).
@@ -271,7 +271,7 @@ private:
     std::string http_get(const std::string& url, const std::vector<std::string>& headers);
     std::string http_post(const std::string& url, const std::vector<std::string>& headers, const std::string& body);
     // 인증 헤더 네 줄(bearer·appkey·appsecret·transaction_id) + 호출별 추가 항목. 구현 파일 전부가 쓴다. [why D-048]
-    std::vector<std::string> auth_headers(const std::string& transaction_id,
+    std::vector<std::string> authentication_headers(const std::string& transaction_id,
                                           std::initializer_list<std::string> extra = {}) const;
 
     // 토큰 만료 5분 전이면 자동 재발급 — http_get/http_post가 요청마다 부른다(refresh_token(5분)).
@@ -285,7 +285,7 @@ private:
     // — authenticate가 std::string을 재기록하는 순간 다른 스레드가 복사하다 힙 손상되던 레이스 차단.
     std::string token() const
     {
-        std::lock_guard<std::mutex> lock(token_mtx_);
+        std::lock_guard<std::mutex> lock(token_mutex_);
         return access_token_;
     }
 
@@ -298,9 +298,9 @@ private:
     KisConfig config_;
     // 토큰 상태(access_token_/token_expires_at_)는 전략·데이터·주문·제어 스레드가 같은 인스턴스를 공유한다.
     //  token_mtx_는 그 두 멤버의 읽기·쓰기만 지키고(몇 줄), 발급 HTTP 왕복은 refresh_mtx_가 직렬화한다.
-    //  [lock-order] refresh_mtx_ → token_mtx_. [why D-073]
-    mutable std::mutex token_mtx_;
-    std::mutex         refresh_mtx_;
+    //  [lock-order] refresh_mutex_ → token_mutex_. [why D-073]
+    mutable std::mutex token_mutex_;
+    std::mutex         refresh_mutex_;
 
     // 일봉·주봉 공통 조회(페이지네이션·절단·캐시). period='D'|'W'.
     std::vector<MarketData> get_chart_ohlcv(const std::string& ticker, int count, bool include_current,
@@ -316,14 +316,14 @@ private:
         int requested = 0; // 이 항목을 만들 때 요청한 봉 수(짧은 이력 종목이 매번 미스 나는 것 방지)
         std::vector<MarketData> bars;
     };
-    mutable std::mutex daily_cache_mtx_;
+    mutable std::mutex daily_cache_mutex_;
     std::unordered_map<std::string, DailyCacheEntry> daily_cache_;
 
     // 초당 호출 한도 토큰버킷 — 인스턴스(=app_key)당 하나. 한도는 app_key 단위라 시세 클라이언트와
     //  주문 클라이언트가 각각 자기 예산을 쓴다. 모든 호출이 http_get/http_post를 지나므로
     //  여기서 재우면 우회하는 호출 경로가 없다. 주문·잔고 경로는 예약분을 따로 둬, 시세 조회가
     //  버킷을 비워도 주문이 그 뒤에 줄서지 않게 한다.
-    mutable std::mutex rate_mtx_;
+    mutable std::mutex rate_mutex_;
     double rate_tokens_ = 0.0;
     std::chrono::steady_clock::time_point rate_last_;
     void rate_limit_acquire(const std::string& url);

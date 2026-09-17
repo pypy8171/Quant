@@ -41,17 +41,17 @@ size_t count_and_check_order(int threads)
             continue;
         }
 
-        int tid = 0;
+        int thread_id = 0;
         long sequence = 0;
 
-        if (std::sscanf(line.c_str() + found, " T%d S%ld", &tid, &sequence) != 2)
+        if (std::sscanf(line.c_str() + found, " T%d S%ld", &thread_id, &sequence) != 2)
         {
             continue;
         }
 
-        assert(tid >= 0 && tid < threads);
-        assert(sequence > last[tid]); // 스레드별 FIFO — 역전·중복 없음
-        last[tid] = sequence;
+        assert(thread_id >= 0 && thread_id < threads);
+        assert(sequence > last[thread_id]); // 스레드별 FIFO — 역전·중복 없음
+        last[thread_id] = sequence;
         ++lines;
     }
 
@@ -62,31 +62,31 @@ void test_multi_producer_no_loss()
 {
     static constexpr int kThreads = 4;
     static constexpr int kPerThread = 20000;
-    auto& lg = Logger::instance();
-    lg.set_console_enabled(false);
-    lg.init(kFile, LogLevel::INFO);
+    auto& logger = Logger::instance();
+    logger.set_console_enabled(false);
+    logger.initialize(kFile, LogLevel::INFO);
 
-    const uint64_t dropped_before = lg.dropped();
-    std::vector<std::thread> ths;
+    const uint64_t dropped_before = logger.dropped();
+    std::vector<std::thread> threads;
 
     for (int thread_index = 0; thread_index < kThreads; ++thread_index)
     {
-        ths.emplace_back([thread_index, &lg]
+        threads.emplace_back([thread_index, &logger]
         {
             for (int per_thread_index = 0; per_thread_index < kPerThread; ++per_thread_index)
             {
-                lg.info("T" + std::to_string(thread_index) + " S" + std::to_string(per_thread_index));
+                logger.info("T" + std::to_string(thread_index) + " S" + std::to_string(per_thread_index));
             }
         });
     }
 
-    for (auto& thread : ths)
+    for (auto& thread : threads)
     {
         thread.join();
     }
 
-    lg.flush();
-    const uint64_t dropped = lg.dropped() - dropped_before;
+    logger.flush();
+    const uint64_t dropped = logger.dropped() - dropped_before;
     const size_t written = count_and_check_order(kThreads);
     std::printf("written=%zu dropped=%llu\n", written, static_cast<unsigned long long>(dropped));
     assert(written + dropped == static_cast<size_t>(kThreads) * kPerThread);
@@ -95,13 +95,13 @@ void test_multi_producer_no_loss()
 
 void test_flush_contract()
 {
-    auto& lg = Logger::instance();
+    auto& logger = Logger::instance();
 
     for (int round = 0; round < 50; ++round)
     {
         const std::string tag = "FLUSHMARK-" + std::to_string(round);
-        lg.info(tag);
-        lg.flush();
+        logger.info(tag);
+        logger.flush();
 
         std::ifstream in(kFile);
         std::string line;

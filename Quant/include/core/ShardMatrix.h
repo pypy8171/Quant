@@ -123,15 +123,15 @@ public:
     // 열의 셀 고수위 중 최대 — [큐 고수위] 로그용.
     [[nodiscard]] size_t high_water(uint32_t consumer) const noexcept
     {
-        size_t hw = 0;
+        size_t high_water = 0;
 
         for (uint32_t producer_index = 0; producer_index < producers_; ++producer_index)
         {
             const size_t height = cell(producer_index, consumer).high_water();
-            hw             = height > hw ? height : hw;
+            high_water             = height > high_water ? height : high_water;
         }
 
-        return hw;
+        return high_water;
     }
 
 private:

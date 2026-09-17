@@ -35,23 +35,23 @@ public:
     ReplaySource(const ReplaySource&)            = delete;
     ReplaySource& operator=(const ReplaySource&) = delete;
 
-    void set_callbacks(OrderBookCb on_ob, TradeCb on_trade) override
+    void set_callbacks(OrderBookCb on_order_book, TradeCb on_trade) override
     {
-        on_ob_    = std::move(on_ob);
+        on_order_book_    = std::move(on_order_book);
         on_trade_ = std::move(on_trade);
     }
 
     // specs가 비어 있으면 파일의 전 종목을 재생한다. 파일을 못 열면 false.
-    bool connect(const std::vector<WatchSpec>& specs) override
+    bool connect(const std::vector<WatchSpec>& specifications) override
     {
         disconnect();
 
         {
-            std::lock_guard<std::mutex> lock(filter_mtx_);
+            std::lock_guard<std::mutex> lock(filter_mutex_);
 
-            for (const auto& spec : specs)
+            for (const auto& specification : specifications)
             {
-                filter_.insert(spec.ticker);
+                filter_.insert(specification.ticker);
             }
         }
 
@@ -64,7 +64,7 @@ public:
 
         finished_.store(false, std::memory_order_relaxed);
         connected_.store(true, std::memory_order_release);
-        thread_ = std::jthread([this, rd = std::move(reader)](std::stop_token stop_token) mutable { run(stop_token, *rd); });
+        thread_ = std::jthread([this, reader = std::move(reader)](std::stop_token stop_token) mutable { run(stop_token, *reader); });
         return true;
     }
 
@@ -80,19 +80,19 @@ public:
     }
 
     // 목록에 넣기만 한다. 파일에 없는 종목이면 아무것도 안 나오는데, 그건 캡처 쪽 문제라 여기서 판정하지 않는다.
-    bool subscribe_incremental(const WatchSpec& spec) override
+    bool subscribe_incremental(const WatchSpec& specification) override
     {
-        std::lock_guard<std::mutex> lock(filter_mtx_);
-        return filter_.insert(spec.ticker).second;
+        std::lock_guard<std::mutex> lock(filter_mutex_);
+        return filter_.insert(specification.ticker).second;
     }
 
-    bool has_spec(const WatchSpec& spec) const override
+    bool has_specification(const WatchSpec& specification) const override
     {
-        std::lock_guard<std::mutex> lock(filter_mtx_);
-        return filter_.empty() || filter_.count(spec.ticker) > 0;
+        std::lock_guard<std::mutex> lock(filter_mutex_);
+        return filter_.empty() || filter_.count(specification.ticker) > 0;
     }
 
-    std::vector<WatchSpec> take_overflow_specs() override
+    std::vector<WatchSpec> take_overflow_specifications() override
     {
         return {};
     }
@@ -129,12 +129,12 @@ public:
     }
 
 private:
-    void run(std::stop_token stop_token, TickReader& rd)
+    void run(std::stop_token stop_token, TickReader& reader)
     {
         Record  record;
-        int64_t prev_ns = 0;
+        int64_t previous_ns = 0;
 
-        while (!stop_token.stop_requested() && rd.next(record))
+        while (!stop_token.stop_requested() && reader.next(record))
         {
             const Common& common = record.kind == kKindTrade ? record.trade.common : record.book.common;
 
@@ -144,12 +144,12 @@ private:
                 continue;
             }
 
-            if (speed_ > 0.0 && prev_ns != 0 && common.received_ns > prev_ns)
+            if (speed_ > 0.0 && previous_ns != 0 && common.received_ns > previous_ns)
             {
-                pace(stop_token, static_cast<int64_t>(static_cast<double>(common.received_ns - prev_ns) / speed_));
+                pace(stop_token, static_cast<int64_t>(static_cast<double>(common.received_ns - previous_ns) / speed_));
             }
 
-            prev_ns = common.received_ns;
+            previous_ns = common.received_ns;
 
             if (stop_token.stop_requested())
             {
@@ -167,11 +167,11 @@ private:
                     on_trade_(trade);
                 }
             }
-            else if (on_ob_)
+            else if (on_order_book_)
             {
                 OrderBook order_book = to_book(record.book);
                 order_book.received_ns   = now_ns();
-                on_ob_(order_book);
+                on_order_book_(order_book);
             }
 
             played_.fetch_add(1, std::memory_order_relaxed);
@@ -184,7 +184,7 @@ private:
 
     bool pass(const char* ticker) const
     {
-        std::lock_guard<std::mutex> lock(filter_mtx_);
+        std::lock_guard<std::mutex> lock(filter_mutex_);
         return filter_.empty() || filter_.count(ticker) > 0;
     }
 
@@ -215,10 +215,10 @@ private:
         return duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count();
     }
 
-    OrderBookCb           on_ob_;
+    OrderBookCb           on_order_book_;
     TradeCb               on_trade_;
 
-    mutable std::mutex              filter_mtx_;
+    mutable std::mutex              filter_mutex_;
     std::unordered_set<std::string> filter_; // 비어 있으면 전 종목
 
     std::jthread          thread_;

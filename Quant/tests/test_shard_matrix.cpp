@@ -1,6 +1,6 @@
 // ShardMatrix 단위 테스트 — 종목 해시 샤딩의 균형, 셀 가득 참, 라운드로빈, N 생산자 × M 소비자에서 종목 안 순서 보존,
 //  1×1·2×2·4×4 처리량 측정(원칙 7), 기동 전 reshape.
-// 빌드: cmake --build <dir> --target test_shard_matrix
+// 빌드: cmake --build <directory> --target test_shard_matrix
 #include "core/ShardMatrix.h"
 #include "core/Types.h"
 
@@ -15,13 +15,13 @@ namespace
 {
 int g_checks = 0;
 
-#define CHECK(cond)                                                                        \
+#define CHECK(condition)                                                                        \
     do                                                                                     \
     {                                                                                      \
         ++g_checks;                                                                        \
-        if (!(cond))                                                                       \
+        if (!(condition))                                                                       \
         {                                                                                  \
-            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #cond << "\n";     \
+            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #condition << "\n";     \
             return 1;                                                                      \
         }                                                                                  \
     } while (0)
@@ -35,19 +35,19 @@ struct Item
 
 // N 생산자 × M 소비자. 종목 s는 생산자 s % N에만 있다(FeedMux가 종목을 소켓 하나에만 두는 것과 같다).
 //  생산자는 자기 종목을 돌아가며 kPer번씩 push하고, 소비자는 자기 열이 빌 때까지 pop한다.
-//  돌려주는 값은 소비자 하나가 항목 하나를 꺼내는 데 든 평균 ns(전체 벽시계 / 소비자당 항목 수).
+//  돌려주는 값은 소비자 하나가 항목 하나를 꺼내는 데 든 평균 nanoseconds(전체 벽시계 / 소비자당 항목 수).
 struct RunResult
 {
     bool     order_ok = true; // 종목마다 sequence가 0,1,2,…로 왔나
     bool     shard_ok = true; // 소비자 m이 shard_of(symbol_id) == m인 종목만 받았나
     uint64_t received = 0;
-    double   ns_per   = 0.0; // 소비자 하나가 항목 하나를 받는 데 든 평균 ns(벽시계 / 소비자당 건수)
+    double   ns_per   = 0.0; // 소비자 하나가 항목 하나를 받는 데 든 평균 nanoseconds(벽시계 / 소비자당 건수)
     double   wall_ms  = 0.0; // 전체 벽시계 — 같은 총량을 N×M이 얼마나 빨리 끝내나
 };
 
 RunResult run_matrix(uint32_t count, uint32_t row_count, uint32_t symbols, uint32_t per_symbol, size_t capacity)
 {
-    shard::Matrix<Item> mx(count, row_count, capacity);
+    shard::Matrix<Item> matrix(count, row_count, capacity);
     const uint64_t      total = static_cast<uint64_t>(symbols) * per_symbol;
     std::atomic<bool>   go{false};
     // 소비자마다 받을 건수를 미리 안다 — 공유 카운터를 항목마다 건드리면 그 경합이 측정에 섞인다.
@@ -58,7 +58,7 @@ RunResult run_matrix(uint32_t count, uint32_t row_count, uint32_t symbols, uint3
         expected[shard::shard_of(symbol_index, row_count)] += per_symbol;
     }
 
-    std::vector<std::vector<uint32_t>> last_seq(row_count, std::vector<uint32_t>(symbols + 1, 0));
+    std::vector<std::vector<uint32_t>> last_sequence(row_count, std::vector<uint32_t>(symbols + 1, 0));
     std::vector<int>    order_bad(row_count, 0), shard_bad(row_count, 0);
 
     std::vector<std::thread> consumers;
@@ -73,7 +73,7 @@ RunResult run_matrix(uint32_t count, uint32_t row_count, uint32_t symbols, uint3
 
             while (received[row] < expected[row])
             {
-                auto iterator = mx.pop(row);
+                auto iterator = matrix.pop(row);
 
                 if (!iterator)
                 {
@@ -86,7 +86,7 @@ RunResult run_matrix(uint32_t count, uint32_t row_count, uint32_t symbols, uint3
                     ++shard_bad[row];
                 }
 
-                uint32_t& expect = last_seq[row][iterator->symbol_id];
+                uint32_t& expect = last_sequence[row][iterator->symbol_id];
 
                 if (iterator->sequence != expect)
                 {
@@ -125,7 +125,7 @@ RunResult run_matrix(uint32_t count, uint32_t row_count, uint32_t symbols, uint3
                 {
                     Item iterator{mine_entry, per_symbol_index};
 
-                    while (!mx.push(slot_index, mine_entry, iterator))
+                    while (!matrix.push(slot_index, mine_entry, iterator))
                     {
                         std::this_thread::yield(); // 시험은 잃지 않는다 — 배선은 버리고 센다
                     }
@@ -147,7 +147,7 @@ RunResult run_matrix(uint32_t count, uint32_t row_count, uint32_t symbols, uint3
         consumer.join();
     }
 
-    const auto t1 = std::chrono::steady_clock::now();
+    const auto end_time = std::chrono::steady_clock::now();
     RunResult  result;
 
     for (uint32_t row = 0; row < row_count; ++row)
@@ -157,9 +157,9 @@ RunResult run_matrix(uint32_t count, uint32_t row_count, uint32_t symbols, uint3
         result.shard_ok = result.shard_ok && shard_bad[row] == 0;
     }
 
-    const double ns = static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - start_time).count());
-    result.ns_per        = ns / (static_cast<double>(total) / row_count);
-    result.wall_ms       = ns / 1e6;
+    const double nanoseconds = static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count());
+    result.ns_per        = nanoseconds / (static_cast<double>(total) / row_count);
+    result.wall_ms       = nanoseconds / 1e6;
     return result;
 }
 } // namespace
@@ -200,57 +200,57 @@ int main()
 
     // 2. 셀 가득 참 — 용량 4면 네 번째까지 들어가고 다섯 번째는 false. 소비자가 비우면 다시 들어간다.
     {
-        shard::Matrix<Item> mx(1, 1, 4);
-        CHECK(mx.producers() == 1 && mx.consumers() == 1);
-        CHECK(mx.empty(0));
+        shard::Matrix<Item> matrix(1, 1, 4);
+        CHECK(matrix.producers() == 1 && matrix.consumers() == 1);
+        CHECK(matrix.empty(0));
 
         for (uint32_t innermost_index = 0; innermost_index < 4; ++innermost_index)
         {
-            CHECK(mx.push(0, 1, Item{1, innermost_index}));
+            CHECK(matrix.push(0, 1, Item{1, innermost_index}));
         }
 
-        CHECK(!mx.push(0, 1, Item{1, 4}));
-        CHECK(!mx.empty(0));
-        CHECK(mx.high_water(0) == 4);
-        auto got = mx.pop(0);
-        CHECK(got && got->sequence == 0);
-        CHECK(mx.push(0, 1, Item{1, 4}));
+        CHECK(!matrix.push(0, 1, Item{1, 4}));
+        CHECK(!matrix.empty(0));
+        CHECK(matrix.high_water(0) == 4);
+        auto received = matrix.pop(0);
+        CHECK(received && received->sequence == 0);
+        CHECK(matrix.push(0, 1, Item{1, 4}));
 
         for (uint32_t innermost_index = 1; innermost_index <= 4; ++innermost_index)
         {
-            got = mx.pop(0);
-            CHECK(got && got->sequence == innermost_index);
+            received = matrix.pop(0);
+            CHECK(received && received->sequence == innermost_index);
         }
 
-        CHECK(!mx.pop(0));
-        CHECK(mx.empty(0));
+        CHECK(!matrix.pop(0));
+        CHECK(matrix.empty(0));
     }
 
     // 3. 라운드로빈 — 생산자 0이 셋, 생산자 1이 하나를 같은 샤드에 넣으면 0,1,0,0 순으로 나온다.
     //  push_to로 샤드를 직접 고른다.
     {
-        shard::Matrix<Item> mx(2, 3, 8);
-        CHECK(mx.push_to(0, 2, Item{10, 0}));
-        CHECK(mx.push_to(0, 2, Item{10, 1}));
-        CHECK(mx.push_to(0, 2, Item{10, 2}));
-        CHECK(mx.push_to(1, 2, Item{11, 0}));
-        CHECK(mx.empty(0) && mx.empty(1) && !mx.empty(2));
-        auto first = mx.pop(2);
-        auto second = mx.pop(2);
-        auto third = mx.pop(2);
-        auto fourth = mx.pop(2);
+        shard::Matrix<Item> matrix(2, 3, 8);
+        CHECK(matrix.push_to(0, 2, Item{10, 0}));
+        CHECK(matrix.push_to(0, 2, Item{10, 1}));
+        CHECK(matrix.push_to(0, 2, Item{10, 2}));
+        CHECK(matrix.push_to(1, 2, Item{11, 0}));
+        CHECK(matrix.empty(0) && matrix.empty(1) && !matrix.empty(2));
+        auto first = matrix.pop(2);
+        auto second = matrix.pop(2);
+        auto third = matrix.pop(2);
+        auto fourth = matrix.pop(2);
         CHECK(first && first->symbol_id == 10 && first->sequence == 0);
         CHECK(second && second->symbol_id == 11);
         CHECK(third && third->symbol_id == 10 && third->sequence == 1);
         CHECK(fourth && fourth->symbol_id == 10 && fourth->sequence == 2);
-        CHECK(!mx.pop(2));
+        CHECK(!matrix.pop(2));
         // 종목 해시 push는 shard_of가 고른 열에만 들어간다.
-        CHECK(mx.push(1, 5, Item{5, 0}));
+        CHECK(matrix.push(1, 5, Item{5, 0}));
         const auto m5 = shard::shard_of(5, 3);
 
         for (uint32_t row = 0; row < 3; ++row)
         {
-            CHECK(mx.empty(row) == (row != m5));
+            CHECK(matrix.empty(row) == (row != m5));
         }
     }
 
@@ -282,24 +282,24 @@ int main()
     // 6. reshape — 1×1로 만든 행렬을 config가 정한 2×3으로 다시 잡는다. 셀은 새로 만들어지고(옛 항목은 버린다) 열 선택은
     //  새 열 수로 간다. 스레드가 없을 때만 부른다는 제약은 호출 쪽 몫이다.
     {
-        shard::Matrix<Item> mx(1, 1, 8);
-        CHECK(mx.push_to(0, 0, Item{5, 0}));
-        mx.reshape(2, 3, 4);
-        CHECK(mx.producers() == 2 && mx.consumers() == 3);
-        CHECK(mx.empty(0) && mx.empty(1) && mx.empty(2));
+        shard::Matrix<Item> matrix(1, 1, 8);
+        CHECK(matrix.push_to(0, 0, Item{5, 0}));
+        matrix.reshape(2, 3, 4);
+        CHECK(matrix.producers() == 2 && matrix.consumers() == 3);
+        CHECK(matrix.empty(0) && matrix.empty(1) && matrix.empty(2));
 
         for (symbol::SymbolId symbol_id = 1; symbol_id <= 30; ++symbol_id)
         {
-            CHECK(mx.consumer_of(symbol_id) == shard::shard_of(symbol_id, 3));
+            CHECK(matrix.consumer_of(symbol_id) == shard::shard_of(symbol_id, 3));
         }
 
-        const auto consumer = mx.consumer_of(9);
-        CHECK(mx.push_to(1, consumer, Item{9, 0}));
-        CHECK(mx.push_to(1, consumer, Item{9, 1}));
-        const auto first = mx.pop(consumer);
-        const auto second = mx.pop(consumer);
+        const auto consumer = matrix.consumer_of(9);
+        CHECK(matrix.push_to(1, consumer, Item{9, 0}));
+        CHECK(matrix.push_to(1, consumer, Item{9, 1}));
+        const auto first = matrix.pop(consumer);
+        const auto second = matrix.pop(consumer);
         CHECK(first && second && first->sequence == 0 && second->sequence == 1);
-        CHECK(!mx.pop(consumer));
+        CHECK(!matrix.pop(consumer));
     }
 
     std::cout << "test_shard_matrix: " << g_checks << " checks passed\n";

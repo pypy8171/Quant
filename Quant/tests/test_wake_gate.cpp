@@ -1,6 +1,6 @@
 // WakeGate 단위 테스트 — 생산자 notify가 소비자를 상한(capture) 전에 깨우는지, 신호 유실이 없는지, 만기 시각이 지켜지는지,
 //  정지 요청(stop_token)이 capture·sleep 만기 전에 깨우는지.
-// 빌드: cmake --build <dir> --target test_wake_gate
+// 빌드: cmake --build <directory> --target test_wake_gate
 #include "core/RingBuffer.h"
 #include "core/WakeGate.h"
 
@@ -17,13 +17,13 @@ namespace
 {
 int g_checks = 0;
 
-#define CHECK(cond)                                                                        \
+#define CHECK(condition)                                                                        \
     do                                                                                     \
     {                                                                                      \
         ++g_checks;                                                                        \
-        if (!(cond))                                                                       \
+        if (!(condition))                                                                       \
         {                                                                                  \
-            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #cond << "\n";     \
+            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #condition << "\n";     \
             return 1;                                                                      \
         }                                                                                  \
     } while (0)
@@ -122,7 +122,7 @@ int main()
         consumer.join();
 
         CHECK(consumed.load() == kRounds);
-        // 유실 1회 = 1s. 1,000회가 정상이면 Windows에서도 수백 ms 안이다.
+        // 유실 1회 = 1s. 1,000회가 정상이면 Windows에서도 수백 milliseconds 안이다.
         CHECK(total < 5s);
 
         std::sort(wake_us.begin(), wake_us.end());
@@ -157,7 +157,7 @@ int main()
         });
 
         // RingBuffer는 SPSC라 생산자 쪽은 뮤텍스로 직렬화한다 — 여기서 재는 것은 notify의 다중 호출뿐이다.
-        std::mutex               push_mtx;
+        std::mutex               push_mutex;
         std::vector<std::thread> producers;
 
         for (int producer_index = 0; producer_index < kProducers; ++producer_index)
@@ -167,7 +167,7 @@ int main()
                 for (int per_producer_index = 0; per_producer_index < kPerProducer; ++per_producer_index)
                 {
                     {
-                        std::lock_guard<std::mutex> lock(push_mtx);
+                        std::lock_guard<std::mutex> lock(push_mutex);
 
                         while (!queue.push(per_producer_index))
                         {
@@ -194,48 +194,48 @@ int main()
     // 6. stop_token 오버로드 — 정지 요청이 오면 capture(2s) 전에 깬다. 정지가 이미 요청돼 있으면 자지 않는다.
     {
         sync::WakeGate   gate;
-        std::stop_source src;
+        std::stop_source source;
         const auto       start_time = Clock::now();
-        std::jthread     stopper([&] { std::this_thread::sleep_for(50ms); src.request_stop(); });
-        gate.wait_for(2s, src.get_token(), [] { return true; });
+        std::jthread     stopper([&] { std::this_thread::sleep_for(50ms); source.request_stop(); });
+        gate.wait_for(2s, source.get_token(), [] { return true; });
         const auto woke = Clock::now() - start_time;
         CHECK(woke >= 40ms);
         CHECK(woke < 1s);
         CHECK(!gate.sleeping());
 
-        const auto t1 = Clock::now();
-        gate.wait_for(2s, src.get_token(), [] { return true; }); // 이미 정지 요청됨
-        CHECK(Clock::now() - t1 < 200ms);
+        const auto end_time = Clock::now();
+        gate.wait_for(2s, source.get_token(), [] { return true; }); // 이미 정지 요청됨
+        CHECK(Clock::now() - end_time < 200ms);
 
-        const auto t2 = Clock::now();
-        gate.wait_until(Clock::now() + 2s, src.get_token(), [] { return true; });
-        CHECK(Clock::now() - t2 < 200ms);
+        const auto later_time = Clock::now();
+        gate.wait_until(Clock::now() + 2s, source.get_token(), [] { return true; });
+        CHECK(Clock::now() - later_time < 200ms);
     }
 
     // 7. 정지 요청 없이 push+notify만으로도 stop_token 오버로드가 깬다(기존 경로와 같은 동작).
     {
         sync::WakeGate      gate;
-        std::stop_source    src;
+        std::stop_source    source;
         std::atomic<bool>   ready{false};
         const auto          start_time = Clock::now();
         std::jthread        producer([&] { std::this_thread::sleep_for(30ms); ready.store(true, std::memory_order_release); gate.notify(); });
-        gate.wait_for(2s, src.get_token(), [&] { return !ready.load(std::memory_order_acquire); });
+        gate.wait_for(2s, source.get_token(), [&] { return !ready.load(std::memory_order_acquire); });
         CHECK(Clock::now() - start_time < 1s);
         CHECK(ready.load());
     }
 
     // 8. sleep_unless_stopped — 다 자면 true, 정지 요청이면 만기 전에 false.
     {
-        std::stop_source src;
+        std::stop_source source;
         const auto       start_time = Clock::now();
-        CHECK(sync::sleep_unless_stopped(src.get_token(), 30ms));
+        CHECK(sync::sleep_unless_stopped(source.get_token(), 30ms));
         CHECK(Clock::now() - start_time >= 25ms);
 
-        std::jthread stopper([&] { std::this_thread::sleep_for(50ms); src.request_stop(); });
-        const auto   t1 = Clock::now();
-        CHECK(!sync::sleep_unless_stopped(src.get_token(), 5s));
-        CHECK(Clock::now() - t1 < 1s);
-        CHECK(!sync::sleep_unless_stopped(src.get_token(), 5s)); // 이미 정지 — 바로 false
+        std::jthread stopper([&] { std::this_thread::sleep_for(50ms); source.request_stop(); });
+        const auto   end_time = Clock::now();
+        CHECK(!sync::sleep_unless_stopped(source.get_token(), 5s));
+        CHECK(Clock::now() - end_time < 1s);
+        CHECK(!sync::sleep_unless_stopped(source.get_token(), 5s)); // 이미 정지 — 바로 false
     }
 
     std::cout << "test_wake_gate: " << g_checks << " checks passed\n";

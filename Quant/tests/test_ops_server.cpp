@@ -14,18 +14,18 @@
 
 #ifdef _WIN32
 #include <ws2tcpip.h>
-using sock_t = SOCKET;
+using socket_handle_t = SOCKET;
 #define SOCK_BAD INVALID_SOCKET
-#define sock_close closesocket
+#define socket_close closesocket
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
-using sock_t = int;
+using socket_handle_t = int;
 #define SOCK_BAD (-1)
-#define sock_close ::close
+#define socket_close ::close
 #endif
 
 using ops::Frame;
@@ -36,25 +36,25 @@ namespace
 
 constexpr int kPort = 17100; // 운영 기본(7100)과 겹치지 않게
 
-struct Cli
+struct Client
 {
-    sock_t           fd = SOCK_BAD;
-    ops::FrameReader rd;
+    socket_handle_t           descriptor = SOCK_BAD;
+    ops::FrameReader reader;
 
     bool open()
     {
-        fd = ::socket(AF_INET, SOCK_STREAM, 0);
-        sockaddr_in sa{};
-        sa.sin_family      = AF_INET;
-        sa.sin_port        = htons(kPort);
-        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        return ::connect(fd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == 0;
+        descriptor = ::socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in socket_address{};
+        socket_address.sin_family      = AF_INET;
+        socket_address.sin_port        = htons(kPort);
+        socket_address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        return ::connect(descriptor, reinterpret_cast<sockaddr*>(&socket_address), sizeof(socket_address)) == 0;
     }
 
-    void send(OpsMsg ops_msg, const std::string& body)
+    void send(OpsMsg ops_message, const std::string& body)
     {
-        auto encoded = ops::encode(ops_msg, body);
-        ::send(fd, reinterpret_cast<const char*>(encoded.data()), static_cast<int>(encoded.size()), 0);
+        auto encoded = ops::encode(ops_message, body);
+        ::send(descriptor, reinterpret_cast<const char*>(encoded.data()), static_cast<int>(encoded.size()), 0);
     }
 
     // 1 수신 / 0 상대 종료 / -1 시간 초과
@@ -64,7 +64,7 @@ struct Cli
 
         while (true)
         {
-            if (rd.next(frame))
+            if (reader.next(frame))
             {
                 return 1;
             }
@@ -78,30 +78,30 @@ struct Cli
 
             fd_set read_set;
             FD_ZERO(&read_set);
-            FD_SET(fd, &read_set);
-            timeval tv{};
-            tv.tv_sec  = static_cast<long>(left.count() / 1000);
-            tv.tv_usec = static_cast<long>((left.count() % 1000) * 1000);
+            FD_SET(descriptor, &read_set);
+            timeval time_value{};
+            time_value.tv_sec  = static_cast<long>(left.count() / 1000);
+            time_value.tv_usec = static_cast<long>((left.count() % 1000) * 1000);
 
-            if (::select(static_cast<int>(fd) + 1, &read_set, nullptr, nullptr, &tv) <= 0)
+            if (::select(static_cast<int>(descriptor) + 1, &read_set, nullptr, nullptr, &time_value) <= 0)
             {
                 return -1;
             }
 
             uint8_t buffer[4096];
-            const int count = ::recv(fd, reinterpret_cast<char*>(buffer), sizeof(buffer), 0);
+            const int count = ::recv(descriptor, reinterpret_cast<char*>(buffer), sizeof(buffer), 0);
 
             if (count <= 0)
             {
                 return 0;
             }
 
-            rd.feed(buffer, static_cast<size_t>(count));
+            reader.feed(buffer, static_cast<size_t>(count));
         }
     }
 
-    // want 타입이 올 때까지 다른 타입은 건너뛴다
-    bool expect(OpsMsg want, Frame& frame)
+    // wanted_type 타입이 올 때까지 다른 타입은 건너뛴다
+    bool expect(OpsMsg wanted_type, Frame& frame)
     {
         for (int index = 0; index < 10; ++index)
         {
@@ -110,7 +110,7 @@ struct Cli
                 return false;
             }
 
-            if (frame.type == static_cast<uint8_t>(want))
+            if (frame.type == static_cast<uint8_t>(wanted_type))
             {
                 return true;
             }
@@ -119,11 +119,11 @@ struct Cli
         return false;
     }
 
-    ~Cli()
+    ~Client()
     {
-        if (fd != SOCK_BAD)
+        if (descriptor != SOCK_BAD)
         {
-            sock_close(fd);
+            socket_close(descriptor);
         }
     }
 };
@@ -145,11 +145,11 @@ struct Fake
                 return positions;
             });
         ops_server.set_order_handler(
-            [this](const OpsOrderReq& ops_order_req)
+            [this](const OpsOrderReq& ops_order_request)
             {
                 std::lock_guard<std::mutex> lock(mutex);
-                orders.push_back(ops_order_req);
-                return ops_order_req.quantity > 0 ? std::string() : std::string("qty<=0");
+                orders.push_back(ops_order_request);
+                return ops_order_request.quantity > 0 ? std::string() : std::string("qty<=0");
             });
         ops_server.set_kill_handler(
             [this]
@@ -170,94 +170,94 @@ bool has(const std::string& text, const char* needle)
 // 첫 프레임이 HELLO가 아니면 ERROR 뒤 끊김
 static void t_hello_first(OpsServer&)
 {
-    Cli cli;
-    assert(cli.open());
-    cli.send(OpsMsg::STATUS_REQ, "{}");
+    Client client;
+    assert(client.open());
+    client.send(OpsMsg::STATUS_REQ, "{}");
     Frame frame;
-    assert(cli.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::ERROR_MSG));
+    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::ERROR_MSG));
     assert(has(frame.body, "HELLO"));
-    assert(cli.recv(frame) == 0);
+    assert(client.recv(frame) == 0);
 }
 
 static void t_bad_token(OpsServer&)
 {
-    Cli cli;
-    assert(cli.open());
-    cli.send(OpsMsg::HELLO, "{\"token\":\"wrong\",\"client\":\"t\"}");
+    Client client;
+    assert(client.open());
+    client.send(OpsMsg::HELLO, "{\"token\":\"wrong\",\"client\":\"t\"}");
     Frame frame;
-    assert(cli.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::ERROR_MSG));
-    assert(cli.recv(frame) == 0);
+    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::ERROR_MSG));
+    assert(client.recv(frame) == 0);
 }
 
-static void t_happy_path(OpsServer& ops_server, Fake& fk)
+static void t_happy_path(OpsServer& ops_server, Fake& forward_key)
 {
-    Cli cli;
-    assert(cli.open());
-    cli.send(OpsMsg::HELLO, "{\"token\":\"secret\",\"client\":\"t\"}");
+    Client client;
+    assert(client.open());
+    client.send(OpsMsg::HELLO, "{\"token\":\"secret\",\"client\":\"t\"}");
     Frame frame;
-    assert(cli.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::WELCOME));
+    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::WELCOME));
     assert(has(frame.body, "\"auth\":true"));
     // WELCOME 직후 스냅샷이 먼저 온다
-    assert(cli.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::POSITIONS));
+    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::POSITIONS));
     assert(has(frame.body, "005930"));
 
-    cli.send(OpsMsg::STATUS_REQ, "{}");
-    assert(cli.expect(OpsMsg::STATUS, frame) && has(frame.body, "running"));
+    client.send(OpsMsg::STATUS_REQ, "{}");
+    assert(client.expect(OpsMsg::STATUS, frame) && has(frame.body, "running"));
 
-    cli.send(OpsMsg::PING, "{}");
-    assert(cli.expect(OpsMsg::PONG, frame) && has(frame.body, "ts"));
+    client.send(OpsMsg::PING, "{}");
+    assert(client.expect(OpsMsg::PONG, frame) && has(frame.body, "ts"));
 
-    cli.send(OpsMsg::ORDER_REQ, "{\"cid\":\"c1\",\"ticker\":\"005930\",\"side\":\"SELL\",\"qty\":2,\"price\":0}");
-    assert(cli.expect(OpsMsg::ORDER_ACK, frame));
+    client.send(OpsMsg::ORDER_REQ, "{\"cid\":\"c1\",\"ticker\":\"005930\",\"side\":\"SELL\",\"qty\":2,\"price\":0}");
+    assert(client.expect(OpsMsg::ORDER_ACK, frame));
     assert(has(frame.body, "\"accepted\":true") && has(frame.body, "c1"));
 
-    cli.send(OpsMsg::ORDER_REQ, "{\"cid\":\"c2\",\"ticker\":\"005930\",\"side\":\"SELL\",\"qty\":0}");
-    assert(cli.expect(OpsMsg::ORDER_ACK, frame));
+    client.send(OpsMsg::ORDER_REQ, "{\"cid\":\"c2\",\"ticker\":\"005930\",\"side\":\"SELL\",\"qty\":0}");
+    assert(client.expect(OpsMsg::ORDER_ACK, frame));
     assert(has(frame.body, "\"accepted\":false") && has(frame.body, "qty<=0"));
 
     {
-        std::lock_guard<std::mutex> lock(fk.mutex);
-        assert(fk.orders.size() == 2);
-        assert(fk.orders[0].cid == "c1" && fk.orders[0].ticker == "005930" && fk.orders[0].side == "SELL" &&
-               fk.orders[0].quantity == 2);
+        std::lock_guard<std::mutex> lock(forward_key.mutex);
+        assert(forward_key.orders.size() == 2);
+        assert(forward_key.orders[0].client_id == "c1" && forward_key.orders[0].ticker == "005930" && forward_key.orders[0].side == "SELL" &&
+               forward_key.orders[0].quantity == 2);
     }
 
     // 다른 스레드의 broadcast가 인증된 연결에 push된다
     ops_server.broadcast(OpsMsg::ORDER_RESULT, "{\"cid\":\"c1\",\"ok\":true}");
-    assert(cli.expect(OpsMsg::ORDER_RESULT, frame) && has(frame.body, "c1"));
+    assert(client.expect(OpsMsg::ORDER_RESULT, frame) && has(frame.body, "c1"));
 
     // 포지션 문자열이 바뀌면 1초 주기로 push
     {
-        std::lock_guard<std::mutex> lock(fk.mutex);
-        fk.positions = "{\"positions\":[]}";
+        std::lock_guard<std::mutex> lock(forward_key.mutex);
+        forward_key.positions = "{\"positions\":[]}";
     }
 
-    assert(cli.expect(OpsMsg::POSITIONS, frame) && frame.body == "{\"positions\":[]}");
+    assert(client.expect(OpsMsg::POSITIONS, frame) && frame.body == "{\"positions\":[]}");
 
     // 알 수 없는 타입은 ERROR로 답하고 연결은 유지
-    cli.send(static_cast<OpsMsg>(0x55), "{}");
-    assert(cli.expect(OpsMsg::ERROR_MSG, frame));
-    cli.send(OpsMsg::PING, "{}");
-    assert(cli.expect(OpsMsg::PONG, frame));
+    client.send(static_cast<OpsMsg>(0x55), "{}");
+    assert(client.expect(OpsMsg::ERROR_MSG, frame));
+    client.send(OpsMsg::PING, "{}");
+    assert(client.expect(OpsMsg::PONG, frame));
 
-    cli.send(OpsMsg::KILL, "{}");
-    assert(cli.expect(OpsMsg::KILL_ACK, frame) && has(frame.body, "\"ok\":true"));
+    client.send(OpsMsg::KILL, "{}");
+    assert(client.expect(OpsMsg::KILL_ACK, frame) && has(frame.body, "\"ok\":true"));
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     {
-        std::lock_guard<std::mutex> lock(fk.mutex);
-        assert(fk.kills == 1);
+        std::lock_guard<std::mutex> lock(forward_key.mutex);
+        assert(forward_key.kills == 1);
     }
 }
 
 // 본문이 JSON이 아니면 ERROR 뒤 끊김
 static void t_bad_json(OpsServer&)
 {
-    Cli cli;
-    assert(cli.open());
-    cli.send(OpsMsg::HELLO, "not json");
+    Client client;
+    assert(client.open());
+    client.send(OpsMsg::HELLO, "not json");
     Frame frame;
-    assert(cli.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::ERROR_MSG));
-    assert(cli.recv(frame) == 0);
+    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::ERROR_MSG));
+    assert(client.recv(frame) == 0);
 }
 
 // 토큰 없는 서버: 누구나 붙되 주문·KILL은 거부
@@ -265,26 +265,26 @@ static void t_readonly_without_token()
 {
     OpsServer ops_server;
     ops_server.set_bind("127.0.0.1", kPort);
-    Fake fk;
-    fk.wire(ops_server);
+    Fake forward_key;
+    forward_key.wire(ops_server);
     assert(ops_server.start());
 
-    Cli cli;
-    assert(cli.open());
-    cli.send(OpsMsg::HELLO, "{\"client\":\"t\"}");
+    Client client;
+    assert(client.open());
+    client.send(OpsMsg::HELLO, "{\"client\":\"t\"}");
     Frame frame;
-    assert(cli.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::WELCOME));
+    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::WELCOME));
     assert(has(frame.body, "\"auth\":false"));
 
-    cli.send(OpsMsg::ORDER_REQ, "{\"cid\":\"c9\",\"ticker\":\"005930\",\"side\":\"SELL\",\"qty\":1}");
-    assert(cli.expect(OpsMsg::ORDER_ACK, frame));
+    client.send(OpsMsg::ORDER_REQ, "{\"cid\":\"c9\",\"ticker\":\"005930\",\"side\":\"SELL\",\"qty\":1}");
+    assert(client.expect(OpsMsg::ORDER_ACK, frame));
     assert(has(frame.body, "\"accepted\":false") && has(frame.body, "ops_token"));
 
-    cli.send(OpsMsg::KILL, "{}");
-    assert(cli.expect(OpsMsg::KILL_ACK, frame) && has(frame.body, "\"ok\":false"));
+    client.send(OpsMsg::KILL, "{}");
+    assert(client.expect(OpsMsg::KILL_ACK, frame) && has(frame.body, "\"ok\":false"));
     {
-        std::lock_guard<std::mutex> lock(fk.mutex);
-        assert(fk.orders.empty() && fk.kills == 0);
+        std::lock_guard<std::mutex> lock(forward_key.mutex);
+        assert(forward_key.orders.empty() && forward_key.kills == 0);
     }
 
     ops_server.stop();
@@ -316,19 +316,19 @@ int main()
     WSADATA wsa_data;
     WSAStartup(MAKEWORD(2, 2), &wsa_data);
 #endif
-    Logger::instance().init("logs/test_ops_server.log", LogLevel::WARN);
+    Logger::instance().initialize("logs/test_ops_server.log", LogLevel::WARN);
 
     {
         OpsServer ops_server;
         ops_server.set_bind("127.0.0.1", kPort);
         ops_server.set_token("secret");
-        Fake fk;
-        fk.wire(ops_server);
+        Fake forward_key;
+        forward_key.wire(ops_server);
         assert(ops_server.start());
         t_hello_first(ops_server);
         t_bad_token(ops_server);
         t_bad_json(ops_server);
-        t_happy_path(ops_server, fk);
+        t_happy_path(ops_server, forward_key);
         ops_server.stop();
         assert(!ops_server.running());
     }

@@ -37,7 +37,7 @@ inline bool in_session(int hhmm)
     return hhmm >= kSessionOpenHHMM && hhmm < kSessionCloseHHMM;
 }
 
-inline bool in_session_str(const std::string& ticker)
+inline bool in_session_string(const std::string& ticker)
 {
     return in_session(parse_hhmm(ticker));
 }
@@ -67,7 +67,7 @@ inline int32_t parse_hhmmss(std::string_view ticker)
 }
 
 // 정수 HHMMSS를 여섯 자리 문자열로(93001 → "093001"). 화면·CSV·캡처 파일용 — hot path에서 부르지 않는다.
-inline std::string hhmmss_str(int32_t hhmmss)
+inline std::string hhmmss_string(int32_t hhmmss)
 {
     char buffer[7];
 

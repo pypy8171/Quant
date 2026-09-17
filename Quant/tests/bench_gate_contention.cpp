@@ -1,5 +1,5 @@
 // tests/bench_gate_contention.cpp
-// OrderGate::positions_mtx_ 경합 벤치(감사 L4) — 전략 스레드가 틱마다 부르는 원장 읽기(position·
+// OrderGate::positions_mutex_ 경합 벤치(감사 L4) — 전략 스레드가 틱마다 부르는 원장 읽기(position·
 //  sellable_view)가 다른 스레드의 쓰기(체결 반영·잔고 대조 정리·운영단말 스냅샷)에 얼마나 막히는지 잰다.
 //  읽기 한 번의 지연(중앙값(p50)·상위 1%(p99)·상위 0.1%(p999)·최악)을 쓰기 없는 기준선과 나란히 찍는다.
 //
@@ -25,22 +25,22 @@
 namespace
 {
 
-using clk = std::chrono::steady_clock;
-using ns  = std::chrono::nanoseconds;
+using steady_clock = std::chrono::steady_clock;
+using nanoseconds  = std::chrono::nanoseconds;
 
 constexpr int kSlots = 40;
 
-OrderGate::Config bench_cfg()
+OrderGate::Config bench_config()
 {
     OrderGate::Config config;
-    config.max_qty_per_ticker = 1'000'000;
+    config.max_quantity_per_ticker = 1'000'000;
     config.max_orders_per_min = 1'000'000;
     config.max_orders_per_sec = 1'000'000;
-    config.dedup_window_sec   = 0.0;
+    config.deduplicate_window_sec   = 0.0;
     return config;
 }
 
-std::string tkr(int index)
+std::string ticker_of(int index)
 {
     char buffer[8];
     std::snprintf(buffer, sizeof(buffer), "%06d", index + 1);
@@ -48,14 +48,14 @@ std::string tkr(int index)
 }
 
 // 지연 시뮬레이션은 sleep 금지(Windows 타이머 해상도)라 busy-wait
-void spin_until(clk::time_point time_point)
+void spin_until(steady_clock::time_point time_point)
 {
-    while (clk::now() < time_point)
+    while (steady_clock::now() < time_point)
     {
     }
 }
 
-double pct_ns(const std::vector<int64_t>& sorted, double price)
+double percentile_ns(const std::vector<int64_t>& sorted, double price)
 {
     if (sorted.empty())
     {
@@ -69,26 +69,26 @@ double pct_ns(const std::vector<int64_t>& sorted, double price)
 struct Result
 {
     uint64_t             reads = 0;
-    std::vector<int64_t> lat_ns;
+    std::vector<int64_t> latencies_ns;
 };
 
 // 읽기 스레드(전략 스레드 역할). 틱마다 position 한 번 + sellable_view 한 번 — DeviationScale이 틱당 부르는 양.
 Result run_reader(const OrderGate& gate, const std::string& account, double duration_sec, std::atomic<bool>& stop)
 {
     Result result;
-    result.lat_ns.reserve(1 << 22);
-    const auto end = clk::now() + std::chrono::milliseconds(static_cast<int>(duration_sec * 1000));
+    result.latencies_ns.reserve(1 << 22);
+    const auto end = steady_clock::now() + std::chrono::milliseconds(static_cast<int>(duration_sec * 1000));
     int index = 0;
     volatile int sink = 0;
 
-    while (clk::now() < end)
+    while (steady_clock::now() < end)
     {
-        const std::string ticker = tkr(index % kSlots);
-        const auto start_time = clk::now();
+        const std::string ticker = ticker_of(index % kSlots);
+        const auto start_time = steady_clock::now();
         sink = sink + gate.position(account, ticker);
-        sink = sink + gate.sellable_view(account, ticker).psbl_cap;
-        const auto t1 = clk::now();
-        result.lat_ns.push_back(std::chrono::duration_cast<ns>(t1 - start_time).count());
+        sink = sink + gate.sellable_view(account, ticker).possible_quantity_cap;
+        const auto end_time = steady_clock::now();
+        result.latencies_ns.push_back(std::chrono::duration_cast<nanoseconds>(end_time - start_time).count());
         ++result.reads;
         ++index;
     }
@@ -105,13 +105,13 @@ void run_filler(OrderGate& gate, const std::string& account, int rate, std::atom
         return;
     }
 
-    const auto period = ns(1'000'000'000LL / rate);
-    auto next = clk::now();
+    const auto period = nanoseconds(1'000'000'000LL / rate);
+    auto next = steady_clock::now();
     int index = 0;
 
     while (!stop.load(std::memory_order_acquire))
     {
-        const std::string ticker = tkr(index % kSlots);
+        const std::string ticker = ticker_of(index % kSlots);
         const OrderSide side = (index / kSlots) % 2 == 0 ? OrderSide::BUY : OrderSide::SELL;
         gate.on_accept(account, ticker, side, 1, 10000.0);
         gate.on_fill_confirmed(account, ticker, side, 1, 10000.0);
@@ -133,10 +133,10 @@ void run_reconciler(OrderGate& gate, const std::string& account, int every_ms, s
 
     for (int slot_index = 0; slot_index < kSlots; ++slot_index)
     {
-        live.push_back(tkr(slot_index));
+        live.push_back(ticker_of(slot_index));
     }
 
-    auto next = clk::now();
+    auto next = steady_clock::now();
 
     while (!stop.load(std::memory_order_acquire))
     {
@@ -147,7 +147,7 @@ void run_reconciler(OrderGate& gate, const std::string& account, int every_ms, s
 
         for (int slot_index = 0; slot_index < kSlots; ++slot_index)
         {
-            gate.seed_position(account, tkr(slot_index), 10, 10000.0, 10);
+            gate.seed_position(account, ticker_of(slot_index), 10, 10000.0, 10);
         }
     }
 }
@@ -160,7 +160,7 @@ void run_ops(const OrderGate& gate, int every_ms, std::atomic<bool>& stop)
         return;
     }
 
-    auto next = clk::now();
+    auto next = steady_clock::now();
 
     while (!stop.load(std::memory_order_acquire))
     {
@@ -172,21 +172,21 @@ void run_ops(const OrderGate& gate, int every_ms, std::atomic<bool>& stop)
 
 void report(const char* label, Result& result, double duration_sec)
 {
-    std::sort(result.lat_ns.begin(), result.lat_ns.end());
+    std::sort(result.latencies_ns.begin(), result.latencies_ns.end());
     std::printf("%-22s reads=%llu (%.2fM/s)  p50=%.0fns  p99=%.0fns  p999=%.0fns  max=%.0fns\n", label,
                 static_cast<unsigned long long>(result.reads), static_cast<double>(result.reads) / duration_sec / 1e6,
-                pct_ns(result.lat_ns, 0.50), pct_ns(result.lat_ns, 0.99), pct_ns(result.lat_ns, 0.999),
-                result.lat_ns.empty() ? 0.0 : static_cast<double>(result.lat_ns.back()));
+                percentile_ns(result.latencies_ns, 0.50), percentile_ns(result.latencies_ns, 0.99), percentile_ns(result.latencies_ns, 0.999),
+                result.latencies_ns.empty() ? 0.0 : static_cast<double>(result.latencies_ns.back()));
 }
 
 void run_case(const char* label, double duration_sec, int fill_rate, int reconcile_ms, int ops_ms)
 {
-    OrderGate gate(bench_cfg());
+    OrderGate gate(bench_config());
     const std::string account = "bench-account";
 
     for (int slot_index = 0; slot_index < kSlots; ++slot_index)
     {
-        gate.seed_position(account, tkr(slot_index), 10, 10000.0, 10);
+        gate.seed_position(account, ticker_of(slot_index), 10, 10000.0, 10);
     }
 
     std::atomic<bool> stop{false};

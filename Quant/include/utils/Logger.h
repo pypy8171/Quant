@@ -48,8 +48,8 @@ class Logger
 public:
     static Logger& instance()
     {
-        static Logger inst;
-        return inst;
+        static Logger institution;
+        return institution;
     }
 
     // 싱글톤 — 사본이 생기면 writer 스레드와 큐가 둘이 된다.
@@ -57,7 +57,7 @@ public:
     Logger& operator=(const Logger&) = delete;
 
     // 실행파일이 놓인 디렉터리(cwd와 무관). 알 수 없으면 cwd.
-    static std::filesystem::path executable_dir()
+    static std::filesystem::path executable_directory()
     {
 #ifdef _WIN32
         wchar_t buffer[4096];
@@ -84,19 +84,19 @@ public:
 
     // 로그·산출물 기준 디렉터리 기본값: QUANT_LOG_DIR 환경변수 > 실행파일 옆 logs/.
     //  cwd 기준이면 테스트 바이너리를 repo 루트에서 돌릴 때 당일 원장(trades_*.csv)에 TEST 행이 섞인다.
-    static std::filesystem::path default_base_dir()
+    static std::filesystem::path default_base_directory()
     {
-        if (const char* env = std::getenv("QUANT_LOG_DIR"); env && *env)
+        if (const char* environment = std::getenv("QUANT_LOG_DIR"); environment && *environment)
         {
-            return std::filesystem::path(env);
+            return std::filesystem::path(environment);
         }
 
-        return executable_dir() / "logs";
+        return executable_directory() / "logs";
     }
 
-    void init(const std::filesystem::path& filepath, LogLevel min_level = LogLevel::INFO)
+    void initialize(const std::filesystem::path& filepath, LogLevel min_level = LogLevel::INFO)
     {
-        std::lock_guard<std::mutex> lock(cfg_mutex_);
+        std::lock_guard<std::mutex> lock(config_mutex_);
         // 부모 디렉터리를 먼저 만든다. main에서 실행파일 기준 절대경로가 넘어오므로
         // cwd 위치와 무관하게 로그가 한 폴더에 모인다. (Windows 한글 경로 대비 path로 open)
         std::error_code error_code;
@@ -126,25 +126,25 @@ public:
 
     // 실행 위치(cwd)와 무관하게 로그·산출물을 한 곳에 모으기 위한 기준 디렉터리.
     // main에서 실행파일 기준 절대경로로 한 번 고정한다(미설정 시 cwd 하위 "logs").
-    void set_base_dir(const std::filesystem::path& dir)
+    void set_base_directory(const std::filesystem::path& directory)
     {
-        std::lock_guard<std::mutex> lock(cfg_mutex_);
-        base_dir_ = dir;
+        std::lock_guard<std::mutex> lock(config_mutex_);
+        base_directory_ = directory;
     }
 
-    std::filesystem::path base_dir()
+    std::filesystem::path base_directory()
     {
-        std::lock_guard<std::mutex> lock(cfg_mutex_);
-        return base_dir_;
+        std::lock_guard<std::mutex> lock(config_mutex_);
+        return base_directory_;
     }
 
     // 기준 디렉터리 하위 파일의 전체 경로(부모 폴더가 없으면 생성).
     std::filesystem::path path_for(const std::string& name)
     {
-        std::lock_guard<std::mutex> lock(cfg_mutex_);
+        std::lock_guard<std::mutex> lock(config_mutex_);
         std::error_code error_code;
-        std::filesystem::create_directories(base_dir_, error_code);
-        return base_dir_ / name;
+        std::filesystem::create_directories(base_directory_, error_code);
+        return base_directory_ / name;
     }
 
     // 화면 표시 모드일 때 콘솔 출력을 끄고 파일에만 기록
@@ -166,7 +166,7 @@ public:
         if (!running_.load(std::memory_order_acquire))
         {
             // 종료 중(writer 정지)에는 동기 폴백. 늦은 호출자끼리의 file_ 경쟁만 cfg_mutex_로 막는다.
-            std::lock_guard<std::mutex> lock(cfg_mutex_);
+            std::lock_guard<std::mutex> lock(config_mutex_);
             write_unlocked(format(record));
             return;
         }
@@ -205,7 +205,7 @@ public:
     {
         if (!running_.load(std::memory_order_acquire))
         {
-            std::lock_guard<std::mutex> lock(cfg_mutex_);
+            std::lock_guard<std::mutex> lock(config_mutex_);
 
             if (file_.is_open())
             {
@@ -253,7 +253,7 @@ private:
     // 큐에 넣고, writer가 자고 있으면 깨운다. 실패(가득 참)면 false.
     // [lock-order] push(release) → seq_cst fence → sleeping 읽기. writer 쪽은 sleeping 쓰기 → fence → 큐 확인.
     //  양쪽 다 store-fence-load라 둘 중 하나는 상대 store를 본다 — 넣었는데 아무도 안 깨우는 경우가 없다.
-    //  notify는 wake_mtx_ 없이 부른다. writer가 잠들기 직전이면 신호가 새지만 wait_for 상한이 받는다.
+    //  notify는 wake_mutex_ 없이 부른다. writer가 잠들기 직전이면 신호가 새지만 wait_for 상한이 받는다.
     bool enqueue(Record&& record)
     {
         if (!queue_.push(std::move(record)))
@@ -265,7 +265,7 @@ private:
 
         if (writer_sleeping_.load(std::memory_order_relaxed))
         {
-            wake_cv_.notify_one();
+            wake_condition_variable_.notify_one();
         }
 
         return true;
@@ -349,13 +349,13 @@ private:
     // "잔다"를 먼저 알리고 큐를 다시 본 뒤 잔다(enqueue의 fence 짝). 신호가 새는 경우를 대비해 상한을 둔다.
     void sleep_until_work(std::stop_token stop_token)
     {
-        std::unique_lock<std::mutex> lock(wake_mtx_);
+        std::unique_lock<std::mutex> lock(wake_mutex_);
         writer_sleeping_.store(true, std::memory_order_relaxed);
         std::atomic_thread_fence(std::memory_order_seq_cst);
 
         if (queue_.empty() && !stop_token.stop_requested())
         {
-            wake_cv_.wait_for(lock, stop_token, kSleepCap, [this] { return !queue_.empty(); });
+            wake_condition_variable_.wait_for(lock, stop_token, kSleepCap, [this] { return !queue_.empty(); });
         }
 
         writer_sleeping_.store(false, std::memory_order_relaxed);
@@ -381,17 +381,17 @@ private:
     std::string format(const Record& record) const
     {
         auto time_value = std::chrono::system_clock::to_time_t(record.timestamp);
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(record.timestamp.time_since_epoch()) % 1000;
+        auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(record.timestamp.time_since_epoch()) % 1000;
         std::tm time_buffer{};
 #ifdef _WIN32
         localtime_s(&time_buffer, &time_value);
 #else
         localtime_r(&time_value, &time_buffer);
 #endif
-        std::ostringstream ss;
-        ss << std::put_time(&time_buffer, "%Y-%m-%d %H:%M:%S") << '.' << std::setfill('0') << std::setw(3)
-           << ms.count() << " [" << level_str(record.level) << "] " << record.message;
-        return ss.str();
+        std::ostringstream stream;
+        stream << std::put_time(&time_buffer, "%Y-%m-%d %H:%M:%S") << '.' << std::setfill('0') << std::setw(3)
+           << milliseconds.count() << " [" << level_string(record.level) << "] " << record.message;
+        return stream.str();
     }
 
     // 콘솔·파일 실제 기록. writer 스레드에서 호출(락 불필요 — file_/console은 writer 단독 소유).
@@ -408,7 +408,7 @@ private:
         }
     }
 
-    static const char* level_str(LogLevel log_level)
+    static const char* level_string(LogLevel log_level)
     {
         switch (log_level)
         {
@@ -426,9 +426,9 @@ private:
     }
 
     // 설정(파일 핸들·디렉터리)용 뮤텍스와 큐용 뮤텍스를 분리 — 설정 변경이 hot path 큐잉과 경쟁하지 않게.
-    std::mutex cfg_mutex_;
+    std::mutex config_mutex_;
     std::ofstream file_;
-    std::filesystem::path base_dir_{default_base_dir()}; // set_base_dir 전에도 실행파일 기준
+    std::filesystem::path base_directory_{default_base_directory()}; // set_base_directory 전에도 실행파일 기준
 
     std::atomic<LogLevel> min_level_{LogLevel::INFO};
     std::atomic<bool> console_enabled_{true};
@@ -441,8 +441,8 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<uint64_t> dropped_{0};
     std::atomic<bool> writer_sleeping_{false}; // writer가 wake_cv_에서 자는 중(생산자가 notify 여부 결정)
-    std::mutex wake_mtx_;                      // writer만 잡는다. 생산자는 notify만 부른다
-    std::condition_variable_any wake_cv_;      // stop_token 대기는 _any에만 있다
+    std::mutex wake_mutex_;                      // writer만 잡는다. 생산자는 notify만 부른다
+    std::condition_variable_any wake_condition_variable_;      // stop_token 대기는 _any에만 있다
     std::jthread writer_;
 };
 

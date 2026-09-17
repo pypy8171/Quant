@@ -1,6 +1,6 @@
 // 리플레이용 모의 체결기 — OrderRouter가 KIS 대신 주문을 넣는 IOrderExecutor. 주문은 다음 틱에 체결되고
 //  체결통보는 라이브와 같은 콜백으로 나간다. 잔고 대조기에는 자기 장부를 돌려준다.
-// 스레드: submit/cancel/revise는 주문 스레드, on_tick은 피드 스레드, balance는 제어 스레드. mtx_ 하나로 지킨다.
+// 스레드: submit/cancel/revise는 주문 스레드, on_tick은 피드 스레드, balance는 제어 스레드. mutex_ 하나로 지킨다.
 //  체결통보 콜백은 on_tick(피드 스레드)에서만 부른다 — fill_queue_의 생산자를 하나로 두기 위해. [why D-071]
 #pragma once
 #include "api/IOrderExecutor.h"
@@ -31,28 +31,28 @@ public:
 
     explicit PaperExecutor(double initial_cash) : cash_(initial_cash), initial_cash_(initial_cash) {}
 
-    void set_fill_callback(FillCb cb)
+    void set_fill_callback(FillCb callback)
     {
-        std::lock_guard<std::mutex> lock(mtx_);
-        on_fill_ = std::move(cb);
+        std::lock_guard<std::mutex> lock(mutex_);
+        on_fill_ = std::move(callback);
     }
 
     // 접수만 한다. 체결은 그 종목의 다음 틱(on_tick)에서 — 시장가는 틱 가격, 지정가는 가격이 닿을 때.
     //  매도는 보유수량에서 대기 매도를 뺀 만큼만 받고(부족하면 KIS와 같은 40240000), 매수는 현금 한도.
-    [[nodiscard]] OrderAck submit_order_ack(const OrderSignal& signal) override
+    [[nodiscard]] OrderAck submit_order_acknowledgement(const OrderSignal& signal) override
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<std::mutex> lock(mutex_);
 
         if (signal.quantity <= 0 || signal.side == OrderSide::NONE)
         {
             return OrderAck::fail("E_PAPER_ARG");
         }
 
-        const double price = signal.price > 0.0 ? signal.price : signal.ref_price;
+        const double price = signal.price > 0.0 ? signal.price : signal.reference_price;
 
         if (signal.side == OrderSide::SELL && sellable_locked(signal.ticker) < signal.quantity)
         {
-            return OrderAck::fail(kis_err::kNoSellableQty);
+            return OrderAck::fail(kis_error::kNoSellableQty);
         }
 
         if (signal.side == OrderSide::BUY && price > 0.0 && price * signal.quantity > cash_ - reserved_cash_locked())
@@ -70,7 +70,7 @@ public:
     [[nodiscard]] OrderAck cancel_order(const std::string& ticker, const std::string& orig_odno, const std::string&,
                                         int quantity, bool all_remaining) override
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<std::mutex> lock(mutex_);
         Pending* pending = find_locked(ticker, orig_odno);
 
         if (!pending)
@@ -91,17 +91,17 @@ public:
     }
 
     [[nodiscard]] OrderAck revise_order(const std::string& ticker, const std::string& orig_odno, const std::string&,
-                                        int new_qty, double new_price) override
+                                        int new_quantity, double new_price) override
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<std::mutex> lock(mutex_);
         Pending* pending = find_locked(ticker, orig_odno);
 
-        if (!pending || new_qty <= 0)
+        if (!pending || new_quantity <= 0)
         {
             return OrderAck::fail("E_PAPER_NO_ORDER");
         }
 
-        pending->signal.quantity = new_qty;
+        pending->signal.quantity = new_quantity;
         pending->signal.price    = new_price;
         pending->signal.type     = new_price > 0.0 ? OrderType::LIMIT : OrderType::MARKET;
         pending->kis_order_no         = next_odno_locked();
@@ -115,7 +115,7 @@ public:
 
     [[nodiscard]] std::vector<OpenOrder> get_open_orders() override
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<std::mutex> lock(mutex_);
         std::vector<OpenOrder>      out;
 
         for (const auto& [ticker, list] : pending_)
@@ -142,11 +142,11 @@ public:
     void on_tick(std::string_view ticker_sv, double price, int32_t hhmmss)
     {
         std::vector<FillNotification> fills;
-        FillCb                        cb;
+        FillCb                        callback;
         const std::string             ticker(ticker_sv);
 
         {
-            std::lock_guard<std::mutex> lock(mtx_);
+            std::lock_guard<std::mutex> lock(mutex_);
             last_price_[ticker] = price;
             auto iterator          = pending_.find(ticker);
 
@@ -172,7 +172,7 @@ public:
                 fill_notification.side         = begin->signal.side;
                 fill_notification.filled_quantity   = begin->signal.quantity;
                 fill_notification.filled_price = price;
-                fill_notification.fill_time    = krx::hhmmss_str(hhmmss);
+                fill_notification.fill_time    = krx::hhmmss_string(hhmmss);
                 fill_notification.timestamp    = std::chrono::system_clock::now();
                 fills.push_back(std::move(fill_notification));
                 begin = list.erase(begin);
@@ -183,16 +183,16 @@ public:
                 pending_.erase(iterator);
             }
 
-            cb = on_fill_;
+            callback = on_fill_;
         }
 
         fills_ += fills.size();
 
-        if (cb)
+        if (callback)
         {
             for (const auto& fill : fills)
             {
-                cb(fill);
+                callback(fill);
             }
         }
     }
@@ -200,30 +200,30 @@ public:
     // 잔고 대조기(LedgerReconciler::FetchBalance)용 — KIS 잔고 자리에 자기 장부를 준다.
     [[nodiscard]] KisResult<AccountBalance> balance() const
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<std::mutex> lock(mutex_);
         AccountBalance              balance;
-        double                      eval = cash_;
+        double                      evaluation = cash_;
 
         for (const auto& [ticker, book_entry] : book_)
         {
-            const auto lp = last_price_.find(ticker);
-            const double price = lp != last_price_.end() ? lp->second : book_entry.average_price;
+            const auto last_price_iterator = last_price_.find(ticker);
+            const double price = last_price_iterator != last_price_.end() ? last_price_iterator->second : book_entry.average_price;
             Holding      out = book_entry;
-            out.eval_pnl     = (price - book_entry.average_price) * book_entry.quantity;
-            out.sellable_qty = book_entry.quantity - pending_sell_locked(ticker);
-            eval += price * book_entry.quantity;
+            out.evaluation_pnl     = (price - book_entry.average_price) * book_entry.quantity;
+            out.sellable_quantity = book_entry.quantity - pending_sell_locked(ticker);
+            evaluation += price * book_entry.quantity;
             balance.holdings.push_back(out);
         }
 
-        balance.total_eval_amt       = eval;
+        balance.total_evaluation_amount       = evaluation;
         balance.available_cash       = cash_ - reserved_cash_locked();
-        balance.prev_day_total_asset = initial_cash_;
+        balance.previous_day_total_asset = initial_cash_;
         return balance;
     }
 
     [[nodiscard]] double cash() const
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<std::mutex> lock(mutex_);
         return cash_;
     }
 
@@ -234,7 +234,7 @@ public:
 
     [[nodiscard]] size_t open_count() const
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<std::mutex> lock(mutex_);
         size_t                      count = 0;
 
         for (const auto& [pending_entry, list] : pending_)
@@ -324,7 +324,7 @@ private:
             {
                 if (item.signal.side == OrderSide::BUY)
                 {
-                    const double price = item.signal.price > 0.0 ? item.signal.price : item.signal.ref_price;
+                    const double price = item.signal.price > 0.0 ? item.signal.price : item.signal.reference_price;
                     sum += price * item.signal.quantity;
                 }
             }
@@ -386,7 +386,7 @@ private:
         return buffer;
     }
 
-    mutable std::mutex mtx_;
+    mutable std::mutex mutex_;
     FillCb             on_fill_;
 
     std::unordered_map<std::string, std::vector<Pending>> pending_; // ticker → 접수 순서

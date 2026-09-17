@@ -24,8 +24,8 @@ namespace feed
 {
 
 // ── 파일 형식 v1 ─────────────────────────────────────────────────────────────
-//  머리 16바이트: "QTCAP\0" + ver(uint8=1) + pad(1) + 시작 utc_ms(int64, LE).
-//  레코드: uint16 length(본문 바이트) + uint8 kind(1=체결 2=호가) + uint8 ver(1) + 본문. 본문은 아래 POD를 그대로 쓴다
+//  머리 16바이트: "QTCAP\0" + version(uint8=1) + pad(1) + 시작 utc_ms(int64, LE).
+//  레코드: uint16 length(본문 바이트) + uint8 kind(1=체결 2=호가) + uint8 version(1) + 본문. 본문은 아래 POD를 그대로 쓴다
 //  (LE, x64 정렬 그대로). 꼬리가 잘려 있으면 리더가 그 앞까지만 돌려준다.
 constexpr uint8_t kFormatVersion = 1;
 constexpr uint8_t kKindTrade     = 1;
@@ -35,7 +35,7 @@ constexpr size_t  kTimeMax       = 8;  // HHMMSS
 
 struct Common
 {
-    int64_t  received_ns = 0; // 수신 스레드 steady_clock ns (TradeData.received_ns·OrderBook.received_ns).
+    int64_t  received_ns = 0; // 수신 스레드 steady_clock nanoseconds (TradeData.received_ns·OrderBook.received_ns).
     int64_t  wall_us = 0; // system_clock us — 리플레이의 timestamp 복원용
     char     ticker[kTickerMax] = {};
     char     time[kTimeMax]     = {};
@@ -85,23 +85,23 @@ inline int64_t wall_us_of(std::chrono::system_clock::time_point tp)
     return std::chrono::duration_cast<std::chrono::microseconds>(tp.time_since_epoch()).count();
 }
 
-inline void put_str(char* dst, size_t capture, std::string_view text)
+inline void put_string(char* destination, size_t capture, std::string_view text)
 {
     const size_t count = text.size() < capture - 1 ? text.size() : capture - 1;
-    std::memcpy(dst, text.data(), count);
-    dst[count] = '\0';
+    std::memcpy(destination, text.data(), count);
+    destination[count] = '\0';
 }
 
 // 파일 형식은 그대로 "HHMMSS" 문자다(정수화 전 캡처와 호환). 여섯 자리를 손으로 찍는다 — 수신 스레드라 할당이 없다.
-inline void put_hhmmss(char* dst, int32_t hhmmss)
+inline void put_hhmmss(char* destination, int32_t hhmmss)
 {
     for (int index = 5; index >= 0; --index)
     {
-        dst[index] = static_cast<char>('0' + hhmmss % 10);
+        destination[index] = static_cast<char>('0' + hhmmss % 10);
         hhmmss /= 10;
     }
 
-    dst[6] = '\0';
+    destination[6] = '\0';
 }
 
 inline void fill_common(Common& common, std::string_view ticker, int32_t hhmmss, uint32_t symbol_id, Market market,
@@ -109,7 +109,7 @@ inline void fill_common(Common& common, std::string_view ticker, int32_t hhmmss,
 {
     common.received_ns = received_ns;
     common.wall_us = wall_us_of(timestamp);
-    put_str(common.ticker, kTickerMax, ticker);
+    put_string(common.ticker, kTickerMax, ticker);
     put_hhmmss(common.time, hhmmss);
     common.symbol_id       = symbol_id;
     common.market    = static_cast<uint8_t>(market);
@@ -172,13 +172,13 @@ class TickCapture
 public:
     // 파일을 열지 못하면 ok()가 false고 on_*는 아무것도 하지 않는다 — 캡처 실패가 매매를 막지 않는다.
     explicit TickCapture(std::filesystem::path file, size_t queue_capacity = 1u << 16)
-        : path_(std::move(file)), q_(queue_capacity)
+        : path_(std::move(file)), queue_(queue_capacity)
     {
         std::error_code error_code;
         std::filesystem::create_directories(path_.parent_path(), error_code);
-        fp_ = std::fopen(path_.string().c_str(), "ab");
+        file_ = std::fopen(path_.string().c_str(), "ab");
 
-        if (fp_ == nullptr)
+        if (file_ == nullptr)
         {
             return;
         }
@@ -191,7 +191,7 @@ public:
             head[6]                = static_cast<char>(kFormatVersion);
             const int64_t start_ms = wall_us_of(std::chrono::system_clock::now()) / 1000;
             std::memcpy(head.data() + 8, &start_ms, sizeof(start_ms));
-            std::fwrite(head.data(), 1, head.size(), fp_);
+            std::fwrite(head.data(), 1, head.size(), file_);
         }
 
         running_.store(true, std::memory_order_release);
@@ -200,7 +200,7 @@ public:
 
     ~TickCapture()
     {
-        if (fp_ == nullptr)
+        if (file_ == nullptr)
         {
             return;
         }
@@ -208,7 +208,7 @@ public:
         running_.store(false, std::memory_order_release);
         wake_.notify();
         writer_.join();
-        std::fclose(fp_);
+        std::fclose(file_);
     }
 
     TickCapture(const TickCapture&)            = delete;
@@ -216,13 +216,13 @@ public:
 
     [[nodiscard]] bool ok() const noexcept
     {
-        return fp_ != nullptr;
+        return file_ != nullptr;
     }
 
     // 생산자(수신 스레드). 큐가 차면 버리고 센다 — 캡처 때문에 틱 경로가 서지 않는다.
     void on_trade(const TradeData& trade) noexcept
     {
-        if (fp_ == nullptr)
+        if (file_ == nullptr)
         {
             return;
         }
@@ -235,7 +235,7 @@ public:
 
     void on_book(const OrderBook& order_book) noexcept
     {
-        if (fp_ == nullptr)
+        if (file_ == nullptr)
         {
             return;
         }
@@ -249,7 +249,7 @@ public:
     // 큐가 빌 때까지 기다리고 파일을 flush한다. 종료·테스트용 — hot path에서 부르지 않는다.
     void flush()
     {
-        if (fp_ == nullptr)
+        if (file_ == nullptr)
         {
             return;
         }
@@ -261,10 +261,10 @@ public:
             std::this_thread::yield();
         }
 
-        flush_req_.store(true, std::memory_order_release);
+        flush_request_.store(true, std::memory_order_release);
         wake_.notify();
 
-        while (flush_req_.load(std::memory_order_acquire))
+        while (flush_request_.load(std::memory_order_acquire))
         {
             std::this_thread::yield();
         }
@@ -290,7 +290,7 @@ private:
     {
         offered_.fetch_add(1, std::memory_order_relaxed);
 
-        if (!q_.push(std::move(record)))
+        if (!queue_.push(std::move(record)))
         {
             dropped_.fetch_add(1, std::memory_order_relaxed);
             return;
@@ -303,11 +303,11 @@ private:
     {
         const uint16_t length = record.kind == kKindTrade ? static_cast<uint16_t>(sizeof(TradeBody))
                                                   : static_cast<uint16_t>(sizeof(BookBody));
-        const uint8_t  hdr[4] = {static_cast<uint8_t>(length & 0xFF), static_cast<uint8_t>(length >> 8), record.kind,
+        const uint8_t  header[4] = {static_cast<uint8_t>(length & 0xFF), static_cast<uint8_t>(length >> 8), record.kind,
                                  kFormatVersion};
-        std::fwrite(hdr, 1, sizeof(hdr), fp_);
+        std::fwrite(header, 1, sizeof(header), file_);
         std::fwrite(record.kind == kKindTrade ? static_cast<const void*>(&record.trade) : static_cast<const void*>(&record.book), 1,
-                    length, fp_);
+                    length, file_);
         written_.fetch_add(1, std::memory_order_release);
     }
 
@@ -317,47 +317,47 @@ private:
 
         while (true)
         {
-            bool did = false;
+            bool drained = false;
 
-            while (auto option = q_.pop())
+            while (auto option = queue_.pop())
             {
                 write_one(*option);
-                did = true;
+                drained = true;
             }
 
-            if (flush_req_.load(std::memory_order_acquire))
+            if (flush_request_.load(std::memory_order_acquire))
             {
-                std::fflush(fp_);
-                flush_req_.store(false, std::memory_order_release);
+                std::fflush(file_);
+                flush_request_.store(false, std::memory_order_release);
             }
 
-            if (!running_.load(std::memory_order_acquire) && !did)
+            if (!running_.load(std::memory_order_acquire) && !drained)
             {
-                std::fflush(fp_);
+                std::fflush(file_);
                 return;
             }
 
-            if (!did)
+            if (!drained)
             {
                 // 유휴면 stdio 버퍼를 비우고 잔다. 1초 상한은 종료 지연의 상한이지 깨우는 수단이 아니다.
-                std::fflush(fp_);
+                std::fflush(file_);
                 wake_.wait_for(1s,
                                [this]
                                {
-                                   return q_.empty() && running_.load(std::memory_order_acquire) &&
-                                          !flush_req_.load(std::memory_order_acquire);
+                                   return queue_.empty() && running_.load(std::memory_order_acquire) &&
+                                          !flush_request_.load(std::memory_order_acquire);
                                });
             }
         }
     }
 
     std::filesystem::path  path_;
-    MpscQueue<Record>      q_;
-    std::FILE*             fp_ = nullptr;
+    MpscQueue<Record>      queue_;
+    std::FILE*             file_ = nullptr;
     std::thread            writer_;
     sync::WakeGate         wake_;
     std::atomic<bool>      running_{false};
-    std::atomic<bool>      flush_req_{false};
+    std::atomic<bool>      flush_request_{false};
     std::atomic<uint64_t>  offered_{0};
     std::atomic<uint64_t>  written_{0};
     std::atomic<uint64_t>  dropped_{0};
@@ -369,20 +369,20 @@ class TickReader
 public:
     explicit TickReader(const std::filesystem::path& file)
     {
-        fp_ = std::fopen(file.string().c_str(), "rb");
+        file_ = std::fopen(file.string().c_str(), "rb");
 
-        if (fp_ == nullptr)
+        if (file_ == nullptr)
         {
             return;
         }
 
         std::array<char, 16> head{};
 
-        if (std::fread(head.data(), 1, head.size(), fp_) != head.size() || std::memcmp(head.data(), "QTCAP", 6) != 0 ||
+        if (std::fread(head.data(), 1, head.size(), file_) != head.size() || std::memcmp(head.data(), "QTCAP", 6) != 0 ||
             head[6] != static_cast<char>(kFormatVersion))
         {
-            std::fclose(fp_);
-            fp_ = nullptr;
+            std::fclose(file_);
+            file_ = nullptr;
             return;
         }
 
@@ -391,9 +391,9 @@ public:
 
     ~TickReader()
     {
-        if (fp_ != nullptr)
+        if (file_ != nullptr)
         {
-            std::fclose(fp_);
+            std::fclose(file_);
         }
     }
 
@@ -402,7 +402,7 @@ public:
 
     [[nodiscard]] bool ok() const noexcept
     {
-        return fp_ != nullptr;
+        return file_ != nullptr;
     }
 
     [[nodiscard]] int64_t start_utc_ms() const noexcept
@@ -413,36 +413,36 @@ public:
     // 다음 레코드. 끝이거나 꼬리가 잘렸거나 모르는 kind면 false — 그 뒤로는 계속 false.
     bool next(Record& out)
     {
-        if (fp_ == nullptr)
+        if (file_ == nullptr)
         {
             return false;
         }
 
-        uint8_t hdr[4];
+        uint8_t header[4];
 
-        if (std::fread(hdr, 1, sizeof(hdr), fp_) != sizeof(hdr))
+        if (std::fread(header, 1, sizeof(header), file_) != sizeof(header))
         {
             return stop();
         }
 
-        const uint16_t length  = static_cast<uint16_t>(hdr[0] | (hdr[1] << 8));
-        const uint8_t  kind = hdr[2];
-        void*          dst  = nullptr;
+        const uint16_t length  = static_cast<uint16_t>(header[0] | (header[1] << 8));
+        const uint8_t  kind = header[2];
+        void*          destination  = nullptr;
 
         if (kind == kKindTrade && length == sizeof(TradeBody))
         {
-            dst = &out.trade;
+            destination = &out.trade;
         }
         else if (kind == kKindBook && length == sizeof(BookBody))
         {
-            dst = &out.book;
+            destination = &out.book;
         }
         else
         {
             return stop();
         }
 
-        if (std::fread(dst, 1, length, fp_) != length)
+        if (std::fread(destination, 1, length, file_) != length)
         {
             return stop();
         }
@@ -454,12 +454,12 @@ public:
 private:
     bool stop()
     {
-        std::fclose(fp_);
-        fp_ = nullptr;
+        std::fclose(file_);
+        file_ = nullptr;
         return false;
     }
 
-    std::FILE* fp_           = nullptr;
+    std::FILE* file_           = nullptr;
     int64_t    start_utc_ms_ = 0;
 };
 

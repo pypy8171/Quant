@@ -1,6 +1,6 @@
 # MFC 운영단말 `ops_terminal` 작업 문서
 
-<!-- sync: Quant/tools/ops_terminal/OpsTerminalDlg.cpp@6b2052d Quant/tools/ops_terminal/OpsTerminalDlg.h@ed5332d Quant/tools/ops_terminal/OpsLink.cpp@6e49d83 Quant/tools/ops_terminal/OpsLink.h@f6615a7 Quant/include/ipc/OpsProtocol.h@0f001e6 -->
+<!-- sync: Quant/tools/ops_terminal/OpsTerminalDlg.cpp@da26683 Quant/tools/ops_terminal/OpsTerminalDlg.h@428b248 Quant/tools/ops_terminal/OpsLink.cpp@f0236c7 Quant/tools/ops_terminal/OpsLink.h@90fa75f Quant/include/ipc/OpsProtocol.h@54b58b3 -->
 `Quant/tools/ops_terminal/`에 있는 MFC 대화상자 단말의 정본이다. 무엇을 하는 프로그램인지, 어떻게 빌드·실행하는지,
 MFC라서 걸린 함정과 지금까지 손댄 이력을 여기에 모은다. **MFC 쪽을 고치면 이 문서를 같이 고친다**(8절 체크리스트).
 채널 자체(프로토콜·서버·콘솔 단말)는 [docs/guides/OPS_TERMINAL.md](OPS_TERMINAL.md), 결정 배경은
@@ -114,7 +114,7 @@ cid→ODNO 대응은 단말이 든다. `ORDER_RESULT`에 둘이 같이 오면 �
 | 작업자 스레드에서 컨트롤을 만지면 어긋남 | 컨트롤은 UI 스레드만. 작업자는 `PostMessage`만 |
 | `SendMessage`로 넘기면 `stop()`의 join과 교착 | `PostMessage`만 쓴다. 닫을 때 남은 포인터는 대화상자가 정리 |
 | `std::string`↔`CString` | `from_utf8`/`to_utf8`(MultiByteToWideChar/WideCharToMultiByte, CP_UTF8). 서버 본문은 UTF-8 |
-| `ops::msg_name`은 `uint8_t`를 받는다 | `f.type`을 그대로 넘긴다 (`OpsMsg`로 캐스팅하지 않음) |
+| `ops::message_name`은 `uint8_t`를 받는다 | `f.type`을 그대로 넘긴다 (`OpsMsg`로 캐스팅하지 않음) |
 | POSITIONS `reserved`는 부호 있는 값(미체결 매도 음수) | 음수만 대기 매도로 세고 매도가능 = 수량 − 대기매도(0 하한). 처음엔 그대로 빼서 미체결 매도가 매도가능을 늘려 보였다 |
 | `CListCtrl`을 `DeleteAllItems`로 비우고 다시 채우면 스크롤이 맨 위로 튄다 | 종목 키로 행을 찾아 바뀐 칸만 `SetItemText`, 새 종목은 끝에 붙이고 사라진 종목만 뒤에서부터 `DeleteItem`. 현재가가 1초마다 바뀌면서 표가 매번 초기화되던 것 |
 | C++20부터 조건식 `cond ? L"리터럴" : CString`이 C2445 | 양쪽 형식을 맞춘다 — 리터럴을 `CString(L"…")`으로 감싼다. 표준을 23으로 올린 뒤(D-070) 이 파일에서만 걸렸다 |
@@ -136,4 +136,4 @@ cid→ODNO 대응은 단말이 든다. `ORDER_RESULT`에 둘이 같이 오면 �
 | 2026-09-11 | 첫 왕복(LG전자 1주 지정가 매도)에서 게이트 거부 "매도가능수량 0" — 표의 매도가능이 `reserved` 부호를 무시해 25주 부풀려 보인 것. 부호 처리 + 매도 확인창에 표 기준 매도가능 초과 경고 |
 | 2026-09-11 | 내 주문 거절이 전략 `[결과]` 줄에 묻혀 안 보임 → `★내 주문` 표식 + 폼 아래 "내 주문 결과" 줄(`IDC_LAST_RESULT`). 한전기술 1주 매도로 `ORDER_ACK→ORDER_RESULT(ODNO 0000033740)` 왕복 확인 |
 | 2026-09-13 | 언어 표준 C++23(D-070). `OpsTerminalDlg.cpp` 조건식 한 줄(`CString` 감싸기) 외 수정 없음. 7절 함정 표에 한 행 |
-| 2026-09-11 | 현재가가 없어 팔 자리를 볼 수 없음 → 엔진에 종목별 최근 체결가 캐시(`Engine::last_px_`, 전략 스레드가 틱마다 씀)를 두고 POSITIONS에 `last` 필드 추가. 60초 넘게 틱이 없는 보유 종목(유니버스 밖, WS 구독 상한에 밀린 종목)은 데이터 스레드가 매 사이클(30초) REST 현재가로 보충한다. 표에 현재가·평단대비 열, 폼에 현재가 줄(`IDC_CUR_PRICE`), `ref_price` stamp. 갱신마다 스크롤이 맨 위로 가던 것을 행 단위 갱신으로 고침 |
+| 2026-09-11 | 현재가가 없어 팔 자리를 볼 수 없음 → 엔진에 종목별 최근 체결가 캐시(`Engine::last_price_array_`, 전략 스레드가 틱마다 씀)를 두고 POSITIONS에 `last` 필드 추가. 60초 넘게 틱이 없는 보유 종목(유니버스 밖, WS 구독 상한에 밀린 종목)은 데이터 스레드가 매 사이클(30초) REST 현재가로 보충한다. 표에 현재가·평단대비 열, 폼에 현재가 줄(`IDC_CUR_PRICE`), `ref_price` stamp. 갱신마다 스크롤이 맨 위로 가던 것을 행 단위 갱신으로 고침 |

@@ -77,7 +77,7 @@
 | 굶었다, 굶는 | 밀렸다, 밀리는 |
 | 두들긴다 | 반복 호출한다 |
 
-전문용어를 한국어로 옮기기 애매하면 한국어(영어) 병기로 쓴다: 취소·재주문 반복(churn), 잦은 반전(whipsaw), 대체 경로(fallback). 코드 식별자·설정키·필드명(`daily_pnl`, `regime_stale_sec`, `sellable_qty()`)은 산문 규칙과 무관하게 그대로 둔다.
+전문용어를 한국어로 옮기기 애매하면 한국어(영어) 병기로 쓴다: 취소·재주문 반복(churn), 잦은 반전(whipsaw), 대체 경로(fallback). 코드 식별자·설정키·필드명(`daily_pnl`, `regime_stale_sec`, `sellable_quantity()`)은 산문 규칙과 무관하게 그대로 둔다.
 
 **자동 게이트**. 위 대체어 표는 `scripts/check_plain_language.py`가 기계적으로 검사한다(정규식 규칙 `RULES`, 백테스트 서술형 이름 `NAME_MAP`). 산문 `.md`, 대시보드 데이터섬(`research/dashboard/reviews.json`·`live.json`), 그리고 화면·로그에 그대로 나오는 코드 주석·문구(`Quant/**/*.h`·`*.cpp`, `scripts/**/*.py`·`*.ps1`, `.claude/` 커맨드·에이전트 문서)를 스캔하며, 이 문서와 `docs/GLOSSARY.md`는 용어 정의를 담으므로 스스로 파괴하지 않도록 제외한다.
 

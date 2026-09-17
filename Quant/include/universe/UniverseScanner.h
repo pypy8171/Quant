@@ -17,14 +17,14 @@ namespace universe
 struct ItbScanCfg
 {
     int    scan_top_n   = 30;
-    double chg_min      = 0.02;
-    double chg_max      = 0.12;
+    double change_min      = 0.02;
+    double change_max      = 0.12;
     double min_price    = 3000.0;
-    bool   sd_filter    = true;
+    bool   standard_deviation_filter    = true;
     double risk_off_index = -0.01;
     // 재개 임계·체류는 DevScale 쪽(ScanCfg)과 같은 뜻이다. 기본값은 차단 임계와 같고 체류 0이라
     //  옛 단일 임계 동작과 같다 — 값을 가르는 것은 config 몫이다. [inv] resume >= risk_off_index
-    double risk_off_idx_resume = -0.01;
+    double risk_off_index_resume = -0.01;
     int    risk_off_dwell_sec  = 0;
     int    max_register = 6;
 };
@@ -56,36 +56,36 @@ struct DevScanCfg
     int    align_refresh_max = 0;    // 재스캔당 재조회 상한(0=끄기, 기본)
     int    align_refresh_sec = 600;  // 초, 이 시간이 지난 조회분만 재조회 대상
     int    union_refresh_sec = 0;    // 초, 후보 합집합 재수집 주기. 0=매 재스캔 새로 수집 [why D-028]
-    double max_dev_pct     = 0.0;    // 이격 (price-SMA20)/SMA20 상한. 0=비활성 [why D-022]
-    double min_dev_pct     = 0.0;    // 같은 이격의 하한. max와 짝지어 슬리브 밴드를 만든다 [why D-022]
+    double max_deviation_percent     = 0.0;    // 이격 (price-SMA20)/SMA20 상한. 0=비활성 [why D-022]
+    double min_deviation_percent     = 0.0;    // 같은 이격의 하한. max와 짝지어 슬리브 밴드를 만든다 [why D-022]
     // 정배열 마지막 조건(SMA20>SMA60)의 허용오차. 0=엄격(기존). tol을 주면 SMA20이 SMA60보다
     //  tol만큼 아래인 종목까지 통과한다 — 3개월 이평이 아직 높은 낙폭 회복 구간을 열 때 쓴다.
     //  1.0 이상이면 이 조건 자체가 사라져 3조건(SMA5>SMA10>SMA20)만 남는다.
-    double align_ma_tol_pct = 0.0;
+    double align_moving_average_tolerance_percent = 0.0;
     std::string universe_file;       // data.go.kr 시총∪거래대금 피드 경로. 비면 KIS 랭킹 축만 [why D-015]
     std::string prices_file;         // 전 종목 장중 시세 파일(`scripts/live_prices_feed.py` 산출) [why D-029]
     double min_turnover = 0.0;       // 원, 거래대금 하한. 0=비활성 [why D-029]
     bool   full_market = false;      // 후보 풀을 시세 파일의 전 종목으로 넓힌다 [why D-015]
     std::vector<std::string> sector_codes;   // 업종 등락률 축. 비면 끄기 [why D-029]
     int    sector_top_n      = 10;   // 업종당 상위 N행(등락률 내림차순)
-    double sector_min_chg    = 0.0;  // %, 이 등락률 미만은 버린다
+    double sector_min_change    = 0.0;  // %, 이 등락률 미만은 버린다
     // 횡단면 점수는 정배열 검사에 이미 쓴 일봉을 재활용하므로 추가 REST가 없다. [why D-018]
     int    score_top_n      = 0;   // 0=비활성(전체 등록), N=상위 N만
-    double score_w_trend    = 1.0; // (SMA5-SMA60)/SMA60 의 z에 곱한다
-    double score_w_pullback = 1.0; // -(price-SMA20)/SMA20 의 z에 곱한다
-    double score_w_supply   = 0.0; // 로거 데이터 확보 후 활성 (D-014)
-    double score_w_vol      = 0.5; // ATR(14)/종가 z의 감점 가중
+    double score_weight_trend    = 1.0; // (SMA5-SMA60)/SMA60 의 z에 곱한다
+    double score_weight_pullback = 1.0; // -(price-SMA20)/SMA20 의 z에 곱한다
+    double score_weight_supply   = 0.0; // 로거 데이터 확보 후 활성 (D-014)
+    double score_weight_volume      = 0.5; // ATR(14)/종가 z의 감점 가중
     // 거래대금 축 — log(거래대금)의 z에 곱한다. 0=비활성(기존). 추세·눌림이 비슷하면 더 두꺼운
     //  종목을 위로 올린다. 알파 축이 아니라 체결비용 축이다(얇은 종목의 청산 슬리피지 회피).
-    double score_w_liquidity = 0.0;
+    double score_weight_liquidity = 0.0;
     bool   kosdaq_enabled      = false;  // [why D-030]
-    double risk_off_idx_kosdaq = -0.015; // 분수, 코스닥 지수 risk_off 임계 [why D-030]
+    double risk_off_index_kosdaq = -0.015; // 분수, 코스닥 지수 risk_off 임계 [why D-030]
     // 지수 게이트의 재개 임계와 최소 체류. 차단 임계 하나로만 매 재스캔(20초) 판정하면 지수가
     //  경계를 오갈 때 게이트가 같이 떤다(2026-08-21에 2분 53초 간격 토글). 차단은 risk_off_index,
     //  재개는 이 값 위로 올라와야 풀리고, 상태를 바꾼 뒤 dwell 초 동안은 다시 바꾸지 않는다.
     //  [inv] resume >= risk_off_index 여야 히스테리시스가 성립한다(같으면 옛 동작).
-    double risk_off_idx_resume        = -0.012; // 분수, 코스피 재개 임계 [why D-033]
-    double risk_off_idx_kosdaq_resume = -0.009; // 분수, 코스닥 재개 임계 [why D-033]
+    double risk_off_index_resume        = -0.012; // 분수, 코스피 재개 임계 [why D-033]
+    double risk_off_index_kosdaq_resume = -0.009; // 분수, 코스닥 재개 임계 [why D-033]
     int    risk_off_dwell_sec         = 600;    // 초, 상태 변경 후 최소 체류. 0=끄기 [why D-033]
 };
 

@@ -26,39 +26,39 @@ public:
 
         if (sleeping_.load(std::memory_order_relaxed))
         {
-            std::lock_guard<std::mutex> lock(mtx_);
-            cv_.notify_one();
+            std::lock_guard<std::mutex> lock(mutex_);
+            condition_variable_.notify_one();
         }
     }
 
     // 소비자: 큐가 비었을 때 부른다. still_idle()이 true인 동안만 잔다(재확인으로 유실 방지). capture은 종료·주기 작업의
     //  상한이지 깨우는 수단이 아니다. 잔 뒤 돌아오면 호출자가 큐를 다시 본다.
-    template <typename Rep, typename Period, typename Pred>
-    void wait_for(std::chrono::duration<Rep, Period> capture, Pred still_idle)
+    template <typename Representation, typename Period, typename Predicate>
+    void wait_for(std::chrono::duration<Representation, Period> capture, Predicate still_idle)
     {
-        std::unique_lock<std::mutex> lock(mtx_);
+        std::unique_lock<std::mutex> lock(mutex_);
         sleeping_.store(true, std::memory_order_relaxed);
         std::atomic_thread_fence(std::memory_order_seq_cst);
 
         if (still_idle())
         {
-            cv_.wait_for(lock, capture);
+            condition_variable_.wait_for(lock, capture);
         }
 
         sleeping_.store(false, std::memory_order_relaxed);
     }
 
     // 만기 시각이 있는 소비자용(주문 재시도). deadline이 지났으면 바로 돌아온다.
-    template <typename Clock, typename Dur, typename Pred>
-    void wait_until(std::chrono::time_point<Clock, Dur> deadline, Pred still_idle)
+    template <typename Clock, typename Duration, typename Predicate>
+    void wait_until(std::chrono::time_point<Clock, Duration> deadline, Predicate still_idle)
     {
-        std::unique_lock<std::mutex> lock(mtx_);
+        std::unique_lock<std::mutex> lock(mutex_);
         sleeping_.store(true, std::memory_order_relaxed);
         std::atomic_thread_fence(std::memory_order_seq_cst);
 
         if (still_idle())
         {
-            cv_.wait_until(lock, deadline);
+            condition_variable_.wait_until(lock, deadline);
         }
 
         sleeping_.store(false, std::memory_order_relaxed);
@@ -66,31 +66,31 @@ public:
 
     // jthread 소비자용 — 정지 요청(request_stop)이 오면 capture 전에 깬다. still_idle에 정지 깃발을 넣을 필요가 없다.
     //  condition_variable_any의 stop_token 오버로드는 정지 콜백으로 notify를 걸어 준다 [why D-070].
-    template <typename Rep, typename Period, typename Pred>
-    void wait_for(std::chrono::duration<Rep, Period> capture, std::stop_token stop_token, Pred still_idle)
+    template <typename Representation, typename Period, typename Predicate>
+    void wait_for(std::chrono::duration<Representation, Period> capture, std::stop_token stop_token, Predicate still_idle)
     {
-        std::unique_lock<std::mutex> lock(mtx_);
+        std::unique_lock<std::mutex> lock(mutex_);
         sleeping_.store(true, std::memory_order_relaxed);
         std::atomic_thread_fence(std::memory_order_seq_cst);
 
         if (still_idle())
         {
-            cv_.wait_for(lock, stop_token, capture, [&] { return !still_idle(); });
+            condition_variable_.wait_for(lock, stop_token, capture, [&] { return !still_idle(); });
         }
 
         sleeping_.store(false, std::memory_order_relaxed);
     }
 
-    template <typename Clock, typename Dur, typename Pred>
-    void wait_until(std::chrono::time_point<Clock, Dur> deadline, std::stop_token stop_token, Pred still_idle)
+    template <typename Clock, typename Duration, typename Predicate>
+    void wait_until(std::chrono::time_point<Clock, Duration> deadline, std::stop_token stop_token, Predicate still_idle)
     {
-        std::unique_lock<std::mutex> lock(mtx_);
+        std::unique_lock<std::mutex> lock(mutex_);
         sleeping_.store(true, std::memory_order_relaxed);
         std::atomic_thread_fence(std::memory_order_seq_cst);
 
         if (still_idle())
         {
-            cv_.wait_until(lock, stop_token, deadline, [&] { return !still_idle(); });
+            condition_variable_.wait_until(lock, stop_token, deadline, [&] { return !still_idle(); });
         }
 
         sleeping_.store(false, std::memory_order_relaxed);
@@ -102,20 +102,20 @@ public:
     }
 
 private:
-    std::mutex                  mtx_;
-    std::condition_variable_any cv_; // stop_token 오버로드는 _any에만 있다
+    std::mutex                  mutex_;
+    std::condition_variable_any condition_variable_; // stop_token 오버로드는 _any에만 있다
     std::atomic<bool>           sleeping_{false};
 };
 
 // 정지 요청이 오면 바로 깨는 sleep. 다 잤으면 true, 정지 요청으로 깼으면 false.
 //  "잘게 끊어 자면서 깃발을 본다"(100ms×N)와 "정지가 sleep 만기까지 기다린다"(제어 5초·WS 백오프 30초)를 둘 다 대신한다.
-template <typename Rep, typename Period>
-bool sleep_unless_stopped(std::stop_token stop_token, std::chrono::duration<Rep, Period> duration)
+template <typename Representation, typename Period>
+bool sleep_unless_stopped(std::stop_token stop_token, std::chrono::duration<Representation, Period> duration)
 {
     std::mutex                   mutex;
-    std::condition_variable_any  cv;
+    std::condition_variable_any  condition_variable;
     std::unique_lock<std::mutex> lock(mutex);
-    return !cv.wait_for(lock, stop_token, duration, [&] { return stop_token.stop_requested(); });
+    return !condition_variable.wait_for(lock, stop_token, duration, [&] { return stop_token.stop_requested(); });
 }
 
 } // namespace sync

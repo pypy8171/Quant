@@ -67,31 +67,31 @@ public:
         return text;
     }
 
-    std::vector<WatchSpec> get_watch_specs() const override
+    std::vector<WatchSpec> get_watch_specifications() const override
     {
-        std::vector<WatchSpec> specs;
+        std::vector<WatchSpec> specifications;
 
         for (const auto& target : targets_)
         {
-            specs.push_back({target.ticker, Market::KR, ""});
+            specifications.push_back({target.ticker, Market::KR, ""});
         }
 
         for (const auto& low : limit_orders_)
         {
-            bool dup = false;
+            bool duplicate = false;
 
             for (const auto& target : targets_)
             {
-                if (target.ticker == low.ticker) { dup = true; break; }
+                if (target.ticker == low.ticker) { duplicate = true; break; }
             }
 
-            if (!dup)
+            if (!duplicate)
             {
-                specs.push_back({low.ticker, Market::KR, ""});
+                specifications.push_back({low.ticker, Market::KR, ""});
             }
         }
 
-        return specs;
+        return specifications;
     }
 
     void on_start() override
@@ -283,7 +283,7 @@ private:
         signal.side        = side;
         signal.type        = OrderType::MARKET;
         signal.quantity    = price_target.quantity;
-        signal.ref_price   = trigger_price;  // 시장가 명목 백스톱 기준가(트리거 현재가)
+        signal.reference_price   = trigger_price;  // 시장가 명목 백스톱 기준가(트리거 현재가)
         signal.market      = Market::KR;
         signal.strategy_id = "PRICE_TARGET";
         signal.timestamp   = std::chrono::system_clock::now();

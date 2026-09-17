@@ -16,17 +16,17 @@ struct Held
 {
     std::string ticker;
     int         quantity = 0;
-    double      avg = 0.0;   // 원. 브로커는 pchs_avg_pric(소수 넷째 자리), 원장은 체결가 가중평균
+    double      average = 0.0;   // 원. 브로커는 pchs_avg_pric(소수 넷째 자리), 원장은 체결가 가중평균
 };
 
 // OrderRouter::ReconcileNote와 같은 모양. 라우터 헤더를 끌어오지 않으려고 여기서 정의하고 라우터가 별칭으로 쓴다.
 struct Row
 {
     std::string ticker;
-    int         ledger_qty = 0;
-    int         broker_qty = 0;
-    double      ledger_avg = 0.0;
-    double      broker_avg = 0.0;
+    int         ledger_quantity = 0;
+    int         broker_quantity = 0;
+    double      ledger_average = 0.0;
+    double      broker_average = 0.0;
     std::string action;      // "OVERWRITE" | "PRUNE" | "KEEP"
     std::string note;        // 자유 문구(대조 모드 등). 콤마는 라우터가 공백으로 바꾼다
 };
@@ -35,7 +35,7 @@ struct Row
 //  같은 포지션도 소수점 아래에서 어긋난다. 1원 이상 벌어지면 체결 하나가 빠졌거나 다른 가격으로 들어간 것.
 constexpr double kAvgToleranceWon = 1.0;
 
-inline bool avg_differs(double amount, double base)
+inline bool average_differs(double amount, double base)
 {
     return std::fabs(amount - base) >= kAvgToleranceWon;
 }
@@ -68,15 +68,15 @@ inline std::vector<Row> plan(const std::vector<Held>& ledger, const std::vector<
 
         seen.insert(broker_entry.ticker);
         const auto iterator  = by_ticker.find(broker_entry.ticker);
-        const int  lq  = (iterator == by_ticker.end()) ? 0 : iterator->second->quantity;
-        const auto lav = (iterator == by_ticker.end()) ? 0.0 : iterator->second->avg;
+        const int  ledger_quantity  = (iterator == by_ticker.end()) ? 0 : iterator->second->quantity;
+        const auto ledger_average = (iterator == by_ticker.end()) ? 0.0 : iterator->second->average;
 
-        if (lq == broker_entry.quantity && !avg_differs(lav, broker_entry.avg))
+        if (ledger_quantity == broker_entry.quantity && !average_differs(ledger_average, broker_entry.average))
         {
             continue;
         }
 
-        rows.push_back(Row{broker_entry.ticker, lq, broker_entry.quantity, lav, broker_entry.avg, resync ? "OVERWRITE" : "KEEP", note});
+        rows.push_back(Row{broker_entry.ticker, ledger_quantity, broker_entry.quantity, ledger_average, broker_entry.average, resync ? "OVERWRITE" : "KEEP", note});
     }
 
     for (const auto& ledger_entry : ledger)
@@ -86,7 +86,7 @@ inline std::vector<Row> plan(const std::vector<Held>& ledger, const std::vector<
             continue;
         }
 
-        rows.push_back(Row{ledger_entry.ticker, ledger_entry.quantity, 0, ledger_entry.avg, 0.0, gone.count(ledger_entry.ticker) ? "PRUNE" : "KEEP", note});
+        rows.push_back(Row{ledger_entry.ticker, ledger_entry.quantity, 0, ledger_entry.average, 0.0, gone.count(ledger_entry.ticker) ? "PRUNE" : "KEEP", note});
     }
 
     return rows;

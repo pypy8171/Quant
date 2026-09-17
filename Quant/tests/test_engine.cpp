@@ -2,7 +2,7 @@
 // 체결 소비 스레드→원장(보유)까지 도는지, 주입 모드가 브로커 없이 기동·종료하는지 고정한다. 케이스는 둘 — 레인 1×샤드 1과
 // 레인 2×샤드 2(종목 둘이 서로 다른 레인에서 들어와 서로 다른 열에서 판단된다). 관련 결정: D-071(Phase 3·Phase 4 앞단계).
 // 스레드: 테스트 스레드가 피드 소스의 수신 스레드 역할(레인 0..N-1)을 하고 나머지는 Engine이 띄운다.
-// 빌드: cmake --build <dir> --target test_engine
+// 빌드: cmake --build <directory> --target test_engine
 #include "core/Engine.h"
 #include "core/IFeedSource.h"
 #include "core/ShardMatrix.h"
@@ -27,13 +27,13 @@ namespace
 {
 int g_checks = 0;
 
-#define CHECK(cond)                                                                        \
+#define CHECK(condition)                                                                        \
     do                                                                                     \
     {                                                                                      \
         ++g_checks;                                                                        \
-        if (!(cond))                                                                       \
+        if (!(condition))                                                                       \
         {                                                                                  \
-            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #cond << "\n";     \
+            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #condition << "\n";     \
             return 1;                                                                      \
         }                                                                                  \
     } while (0)
@@ -47,42 +47,42 @@ public:
 
     uint32_t lanes() const override { return lanes_; }
 
-    void set_callbacks(OrderBookCb on_ob, TradeCb on_trade) override
+    void set_callbacks(OrderBookCb on_order_book, TradeCb on_trade) override
     {
-        on_ob_    = std::move(on_ob);
+        on_order_book_    = std::move(on_order_book);
         on_trade_ = std::move(on_trade);
     }
 
-    void set_lane_callbacks(LaneOrderBookCb on_ob, LaneTradeCb on_trade) override
+    void set_lane_callbacks(LaneOrderBookCb on_order_book, LaneTradeCb on_trade) override
     {
-        lane_ob_    = std::move(on_ob);
+        lane_order_book_    = std::move(on_order_book);
         lane_trade_ = std::move(on_trade);
     }
 
-    bool connect(const std::vector<WatchSpec>& specs) override
+    bool connect(const std::vector<WatchSpec>& specifications) override
     {
-        std::lock_guard<std::mutex> lock(mtx_);
-        specs_     = specs;
+        std::lock_guard<std::mutex> lock(mutex_);
+        specifications_     = specifications;
         connected_ = true;
         return true;
     }
 
     void disconnect() override { connected_ = false; }
 
-    bool subscribe_incremental(const WatchSpec& spec) override
+    bool subscribe_incremental(const WatchSpec& specification) override
     {
-        std::lock_guard<std::mutex> lock(mtx_);
-        specs_.push_back(spec);
+        std::lock_guard<std::mutex> lock(mutex_);
+        specifications_.push_back(specification);
         return true;
     }
 
-    bool has_spec(const WatchSpec& spec) const override
+    bool has_specification(const WatchSpec& specification) const override
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard<std::mutex> lock(mutex_);
 
-        for (const auto& watch : specs_)
+        for (const auto& watch : specifications_)
         {
-            if (watch.ticker == spec.ticker)
+            if (watch.ticker == specification.ticker)
             {
                 return true;
             }
@@ -91,7 +91,7 @@ public:
         return false;
     }
 
-    std::vector<WatchSpec> take_overflow_specs() override { return {}; }
+    std::vector<WatchSpec> take_overflow_specifications() override { return {}; }
     bool                   is_connected() const override { return connected_.load(); }
     bool                   is_stale(int) const override { return false; }
 
@@ -115,20 +115,20 @@ public:
         }
     }
 
-    std::vector<WatchSpec> specs() const
+    std::vector<WatchSpec> specifications() const
     {
-        std::lock_guard<std::mutex> lock(mtx_);
-        return specs_;
+        std::lock_guard<std::mutex> lock(mutex_);
+        return specifications_;
     }
 
 private:
     uint32_t               lanes_;
-    mutable std::mutex     mtx_;
-    std::vector<WatchSpec> specs_;
+    mutable std::mutex     mutex_;
+    std::vector<WatchSpec> specifications_;
     std::atomic<bool>      connected_{false};
-    OrderBookCb            on_ob_;
+    OrderBookCb            on_order_book_;
     TradeCb                on_trade_;
-    LaneOrderBookCb        lane_ob_;
+    LaneOrderBookCb        lane_order_book_;
     LaneTradeCb            lane_trade_;
 };
 
@@ -144,18 +144,18 @@ public:
 
     void on_start() override { symbol_id_ = symbol_of(ticker_); }
 
-    std::vector<WatchSpec> get_watch_specs() const override
+    std::vector<WatchSpec> get_watch_specifications() const override
     {
-        WatchSpec spec;
-        spec.ticker = ticker_;
-        return {spec};
+        WatchSpec specification;
+        specification.ticker = ticker_;
+        return {specification};
     }
 
     std::optional<OrderSignal> on_trade(const TradeData& trade) override
     {
         ++ticks_seen;
 
-        if (fired_ || !same_symbol(symbol_id_, ticker_, trade.symbol_id, trade.ticker.str()))
+        if (fired_ || !same_symbol(symbol_id_, ticker_, trade.symbol_id, trade.ticker.string()))
         {
             return std::nullopt;
         }
@@ -167,7 +167,7 @@ public:
         signal.side        = OrderSide::BUY;
         signal.type        = OrderType::MARKET;
         signal.quantity    = 1;
-        signal.ref_price   = trade.price;
+        signal.reference_price   = trade.price;
         signal.strategy_id = id();
         return signal;
     }
@@ -191,25 +191,25 @@ int run_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& ti
     auto* feed       = feed_owned.get();
     std::vector<BuyOnce*> strategies;
 
-    Engine eng(KisConfig{});
-    eng.set_strategy_shards(shards);
+    Engine engine(KisConfig{});
+    engine.set_strategy_shards(shards);
 
     for (const auto& ticker : tickers)
     {
         auto stop_token = std::make_unique<BuyOnce>(ticker);
         strategies.push_back(stop_token.get());
-        eng.add_strategy(std::move(stop_token));
+        engine.add_strategy(std::move(stop_token));
     }
 
-    eng.set_feed_source(std::move(feed_owned), 1'000'000.0);
-    eng.start();
+    engine.set_feed_source(std::move(feed_owned), 1'000'000.0);
+    engine.start();
 
     // 1. 브로커 없이 떴고, 소스는 전략들의 구독 종목으로 연결됐고, 행렬은 요청한 레인×샤드 그대로다(샤드 1 폴백 없음).
-    CHECK(eng.is_running());
+    CHECK(engine.is_running());
     CHECK(feed->is_connected());
-    CHECK(feed->specs().size() == tickers.size());
-    CHECK(eng.ws_lanes() == lanes);
-    CHECK(eng.shard_count() == shards);
+    CHECK(feed->specifications().size() == tickers.size());
+    CHECK(engine.websocket_lanes() == lanes);
+    CHECK(engine.shard_count() == shards);
 
     // 2. 종목들이 실제로 서로 다른 열에 떨어진다(샤드가 둘 이상일 때) — 같은 열이면 N×M을 시험한 것이 아니다.
     {
@@ -231,12 +231,12 @@ int run_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& ti
 
     const auto deadline = std::chrono::steady_clock::now() + 5s;
 
-    while (eng.order_count() < tickers.size() && std::chrono::steady_clock::now() < deadline)
+    while (engine.order_count() < tickers.size() && std::chrono::steady_clock::now() < deadline)
     {
         std::this_thread::sleep_for(5ms);
     }
 
-    CHECK(eng.order_count() == tickers.size());
+    CHECK(engine.order_count() == tickers.size());
 
     for (auto* stop_token : strategies)
     {
@@ -253,7 +253,7 @@ int run_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& ti
             feed->emit_trade(static_cast<uint32_t>(ticker_index) % lanes, tickers[ticker_index], 70100.0, 93002 + index);
         }
 
-        held = eng.held_positions();
+        held = engine.held_positions();
 
         if (held.size() >= tickers.size())
         {
@@ -272,12 +272,12 @@ int run_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& ti
         CHECK(holding.average_price > 70099.0 && holding.average_price < 70101.0);
     }
 
-    CHECK(eng.signal_count() == tickers.size());
+    CHECK(engine.signal_count() == tickers.size());
 
     // 5. 정지가 장 외 대기(60초)를 기다리지 않는다.
     const auto start_time = std::chrono::steady_clock::now();
-    eng.stop();
-    CHECK(!eng.is_running());
+    engine.stop();
+    CHECK(!engine.is_running());
     CHECK(std::chrono::steady_clock::now() - start_time < 10s);
     return 0;
 }
@@ -310,16 +310,16 @@ int run_replay_case()
         CHECK(capture.written() == 100);
     }
 
-    Engine eng(KisConfig{});
+    Engine engine(KisConfig{});
     auto   st_owned = std::make_unique<BuyOnce>("005930");
     auto*  stop_token       = st_owned.get();
-    eng.add_strategy(std::move(st_owned));
-    eng.set_replay(path.string(), 1.0, 1'000'000.0);
-    eng.start();
+    engine.add_strategy(std::move(st_owned));
+    engine.set_replay(path.string(), 1.0, 1'000'000.0);
+    engine.start();
 
     // 1. KIS 없이 떴고 레인은 하나다.
-    CHECK(eng.is_running());
-    CHECK(eng.ws_lanes() == 1);
+    CHECK(engine.is_running());
+    CHECK(engine.websocket_lanes() == 1);
 
     // 2. 캡처가 흐르는 동안 주문 1건이 접수되고 다음 틱에 체결돼 보유 1주·평단 70100이 잡힌다.
     std::vector<OrderGate::HeldPos> held;
@@ -327,7 +327,7 @@ int run_replay_case()
 
     while (std::chrono::steady_clock::now() < deadline)
     {
-        held = eng.held_positions();
+        held = engine.held_positions();
 
         if (!held.empty())
         {
@@ -337,7 +337,7 @@ int run_replay_case()
         std::this_thread::sleep_for(10ms);
     }
 
-    CHECK(eng.order_count() == 1);
+    CHECK(engine.order_count() == 1);
     CHECK(stop_token->ticks_seen.load() >= 2);
     CHECK(held.size() == 1);
 
@@ -348,9 +348,9 @@ int run_replay_case()
         CHECK(held[0].average_price > 70099.0 && held[0].average_price < 70101.0);
     }
 
-    CHECK(eng.signal_count() == 1);
-    eng.stop();
-    CHECK(!eng.is_running());
+    CHECK(engine.signal_count() == 1);
+    engine.stop();
+    CHECK(!engine.is_running());
     std::filesystem::remove(path);
     return 0;
 }
@@ -358,19 +358,19 @@ int run_replay_case()
 
 int main()
 {
-    if (const int rc = run_case(1, 1, {"005930"}); rc != 0)
+    if (const int result_code = run_case(1, 1, {"005930"}); result_code != 0)
     {
-        return rc;
+        return result_code;
     }
 
-    if (const int rc = run_case(2, 2, {"005930", "000660"}); rc != 0)
+    if (const int result_code = run_case(2, 2, {"005930", "000660"}); result_code != 0)
     {
-        return rc;
+        return result_code;
     }
 
-    if (const int rc = run_replay_case(); rc != 0)
+    if (const int result_code = run_replay_case(); result_code != 0)
     {
-        return rc;
+        return result_code;
     }
 
     std::cout << "test_engine OK (" << g_checks << " checks)\n";

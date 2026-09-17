@@ -18,7 +18,7 @@ struct TerminalArgs
 class OpsTerminalDlg : public CDialogEx
 {
 public:
-    explicit OpsTerminalDlg(const TerminalArgs& args, CWnd* parent = nullptr);
+    explicit OpsTerminalDlg(const TerminalArgs& arguments, CWnd* parent = nullptr);
 
     enum
     {
@@ -26,7 +26,7 @@ public:
     };
 
 protected:
-    void DoDataExchange(CDataExchange* dx) override;
+    void DoDataExchange(CDataExchange* data_exchange) override;
     BOOL OnInitDialog() override;
     void OnCancel() override;
 
@@ -37,9 +37,9 @@ protected:
     afx_msg void    OnBuy();
     afx_msg void    OnKill();
     afx_msg void    OnTimer(UINT_PTR id);
-    afx_msg void    OnPositionSelected(NMHDR* hdr, LRESULT* result);
-    afx_msg LRESULT OnOpsFrame(WPARAM, LPARAM lp);
-    afx_msg LRESULT OnOpsState(WPARAM, LPARAM lp);
+    afx_msg void    OnPositionSelected(NMHDR* header, LRESULT* result);
+    afx_msg LRESULT OnOpsFrame(WPARAM, LPARAM lparam);
+    afx_msg LRESULT OnOpsState(WPARAM, LPARAM lparam);
 
     DECLARE_MESSAGE_MAP()
 
@@ -57,21 +57,21 @@ private:
     void apply_positions(const std::string& body);
     int  sellable_in_table(const CString& ticker) const;
     double last_in_table(const CString& ticker) const;
-    void   refresh_cur_price();
+    void   refresh_current_price();
     void apply_status(const std::string& body);
     void log(const CString& line);
     void set_order_enabled(bool on);
 
-    TerminalArgs args_;
+    TerminalArgs arguments_;
     OpsLink      link_;
     LinkState    state_ = LinkState::Disconnected;
-    bool         auth_  = false;
+    bool         authentication_  = false;
 
     CListCtrl positions_;
     CListBox  log_;
 
-    std::map<std::string, PendingOrder> by_cid_;
-    std::map<std::string, std::string>  odno_to_cid_;
+    std::map<std::string, PendingOrder> by_client_id_;
+    std::map<std::string, std::string>  odno_to_client_id_;
 
     static constexpr UINT_PTR kStatusTimer = 1;
     static constexpr UINT     kStatusEveryMs = 5000;

@@ -30,7 +30,7 @@ namespace
 //  캐시하는 것은 정배열 판정이 아니라 그 재료인 확정된 과거 일봉이다.
 //  KIS 일봉을 include_today=false로 받으므로(D-005) d[0]은 전일 확정봉이고 장중에
 //  바뀔 일이 없다. 당일봉은 따로 받지 않고 현재가를 SMA에 직접 접어 넣는다 —
-//  s_n_live = (s_n*n - r_n + px_live) / n. 그래서 정배열·이격 판정은 재스캔마다
+//  s_n_live = (s_n*n - r_n + price_live) / n. 그래서 정배열·이격 판정은 재스캔마다
 //  새 값으로 다시 나오고, REST만 하루 1회로 줄어든다.
 //  px_live는 랭킹 축이 실어오는 전 종목 시세 파일(네이버 벌크)에서 온다. 이 파일이
 //  끊기면 price가 전일 종가로 돌아가 판정이 정말로 얼어붙는다 — 나이를 경고로 내보낸다.
@@ -41,17 +41,17 @@ struct DailyProbe
 {
     std::string date_yyyymmdd;                       // 조회 시각의 로컬 날짜(YYYYMMDD)
     int    bars  = 0;                      // 확보 봉수(<60이면 판정 불가)
-    double s5 = 0.0, s10 = 0.0, s20 = 0.0, s60 = 0.0;
+    double average_5 = 0.0, average_10 = 0.0, average_20 = 0.0, average_60 = 0.0;
     double close = 0.0;                    // 최신 종가(d[0])
     // [formula] SMA에 오늘 가격을 접어 넣을 때 빠지는 봉의 종가.
-    //  s_n_live = (s_n*n - roll_n + px_live) / n — REST 없이 정배열을 장중 갱신한다.
+    //  s_n_live = (s_n*n - roll_n + price_live) / n — REST 없이 정배열을 장중 갱신한다.
     double r5 = 0.0, r10 = 0.0, r20 = 0.0, r60 = 0.0;
-    double atr_pct = 0.0;                  // ATR(14)/종가. 정배열 판정용 일봉 재활용(추가 REST 0)
+    double atr_percent = 0.0;                  // ATR(14)/종가. 정배열 판정용 일봉 재활용(추가 REST 0)
     std::time_t at = 0;                    // 마지막 조회 시각. 장중 재조회 순번을 이걸로 정한다
     // 저항·거래량 축(2026-09-11 회의 §3). 봉이 모자라면 있는 만큼으로 잰다. 0=미산출.
     double hi250    = 0.0;                 // 확보 봉 안 최고가(align_daily_n=250이면 52주 고가)
-    double pivot_hi = 0.0;                 // 최근 스윙 고점 — 좌우 5봉보다 높은 고가 중 가장 최근(당일 제외)
-    double avg_vol20 = 0.0;                // 20일 평균 거래량(주). 장중 누적거래량 배율의 분모
+    double pivot_high = 0.0;                 // 최근 스윙 고점 — 좌우 5봉보다 높은 고가 중 가장 최근(당일 제외)
+    double average_vol20 = 0.0;                // 20일 평균 거래량(주). 장중 누적거래량 배율의 분모
     double close21  = 0.0;                 // 21봉 전 종가(≈1개월 수익률 분모)
 };
 
@@ -91,7 +91,7 @@ public:
                 return;
             }
 
-            std::lock_guard<std::mutex> lock(mu_);
+            std::lock_guard<std::mutex> lock(mutex_);
 
             for (auto iterator = document.begin(); iterator != document.end(); ++iterator)
             {
@@ -102,30 +102,30 @@ public:
                 }
 
                 const auto& value = iterator.value();
-                DailyProbe pr;
-                pr.date_yyyymmdd     = date_yyyymmdd;
-                pr.bars    = value[0].get<int>();
-                pr.s5      = value[1].get<double>();
-                pr.s10     = value[2].get<double>();
-                pr.s20     = value[3].get<double>();
-                pr.s60     = value[4].get<double>();
-                pr.close   = value[5].get<double>();
-                pr.r5      = value[6].get<double>();
-                pr.r10     = value[7].get<double>();
-                pr.r20     = value[8].get<double>();
-                pr.r60     = value[9].get<double>();
-                pr.atr_pct = value[10].get<double>();
-                pr.at      = static_cast<std::time_t>(value[11].get<long long>());
+                DailyProbe daily_probe;
+                daily_probe.date_yyyymmdd     = date_yyyymmdd;
+                daily_probe.bars    = value[0].get<int>();
+                daily_probe.average_5      = value[1].get<double>();
+                daily_probe.average_10     = value[2].get<double>();
+                daily_probe.average_20     = value[3].get<double>();
+                daily_probe.average_60     = value[4].get<double>();
+                daily_probe.close   = value[5].get<double>();
+                daily_probe.r5      = value[6].get<double>();
+                daily_probe.r10     = value[7].get<double>();
+                daily_probe.r20     = value[8].get<double>();
+                daily_probe.r60     = value[9].get<double>();
+                daily_probe.atr_percent = value[10].get<double>();
+                daily_probe.at      = static_cast<std::time_t>(value[11].get<long long>());
 
                 if (value.size() >= 16)
                 {
-                    pr.hi250     = value[12].get<double>();
-                    pr.pivot_hi  = value[13].get<double>();
-                    pr.avg_vol20 = value[14].get<double>();
-                    pr.close21   = value[15].get<double>();
+                    daily_probe.hi250     = value[12].get<double>();
+                    daily_probe.pivot_high  = value[13].get<double>();
+                    daily_probe.average_vol20 = value[14].get<double>();
+                    daily_probe.close21   = value[15].get<double>();
                 }
 
-                map_[iterator.key()] = pr;
+                map_[iterator.key()] = daily_probe;
                 ++count;
             }
         }
@@ -144,35 +144,35 @@ public:
     // 쓰다 만 파일을 다음 기동이 읽지 않도록 임시 파일에 쓰고 바꿔치운다.
     void save_today(const std::string& date_yyyymmdd) const
     {
-        // [wire] 값 순서: bars, s5, s10, s20, s60, close, r5, r10, r20, r60, atr_pct, at,
-        //  hi250, pivot_hi, avg_vol20, close21 (뒤 4칸은 나중에 붙었다 — 읽을 때 없어도 된다)
+        // [wire] 값 순서: bars, average_5, average_10, average_20, average_60, close, r5, r10, r20, r60, atr_percent, at,
+        //  hi250, pivot_high, average_vol20, close21 (뒤 4칸은 나중에 붙었다 — 읽을 때 없어도 된다)
         nlohmann::json document = nlohmann::json::object();
         {
-            std::lock_guard<std::mutex> lock(mu_);
+            std::lock_guard<std::mutex> lock(mutex_);
 
             for (const auto& entry : map_)
             {
-                const DailyProbe& pr = entry.second;
+                const DailyProbe& daily_probe = entry.second;
 
-                if (pr.date_yyyymmdd != date_yyyymmdd)
+                if (daily_probe.date_yyyymmdd != date_yyyymmdd)
                 {
                     continue;
                 }
 
-                document[entry.first] = nlohmann::json::array({pr.bars, pr.s5, pr.s10, pr.s20, pr.s60,
-                                                     pr.close, pr.r5, pr.r10, pr.r20, pr.r60,
-                                                     pr.atr_pct, static_cast<long long>(pr.at),
-                                                     pr.hi250, pr.pivot_hi, pr.avg_vol20, pr.close21});
+                document[entry.first] = nlohmann::json::array({daily_probe.bars, daily_probe.average_5, daily_probe.average_10, daily_probe.average_20, daily_probe.average_60,
+                                                     daily_probe.close, daily_probe.r5, daily_probe.r10, daily_probe.r20, daily_probe.r60,
+                                                     daily_probe.atr_percent, static_cast<long long>(daily_probe.at),
+                                                     daily_probe.hi250, daily_probe.pivot_high, daily_probe.average_vol20, daily_probe.close21});
             }
         }
 
         const std::string path = cache_path(date_yyyymmdd);
-        const std::string tmp  = path + ".tmp";
+        const std::string temporary  = path + ".tmp";
 
         try
         {
             {
-                std::ofstream file(tmp, std::ios::trunc);
+                std::ofstream file(temporary, std::ios::trunc);
 
                 if (!file)
                 {
@@ -183,11 +183,11 @@ public:
             }
 
             std::error_code error_code;
-            std::filesystem::rename(tmp, path, error_code);
+            std::filesystem::rename(temporary, path, error_code);
 
             if (error_code)
             {
-                std::filesystem::remove(tmp, error_code);
+                std::filesystem::remove(temporary, error_code);
             }
         }
         catch (const std::exception& exception)
@@ -199,7 +199,7 @@ public:
     // 오늘치가 있으면 채우고 true. 날짜가 다르면 미스로 본다.
     bool get(const std::string& ticker, const std::string& date_yyyymmdd, DailyProbe& out) const
     {
-        std::lock_guard<std::mutex> lock(mu_);
+        std::lock_guard<std::mutex> lock(mutex_);
         auto iterator = map_.find(ticker);
 
         if (iterator == map_.end() || iterator->second.date_yyyymmdd != date_yyyymmdd)
@@ -211,10 +211,10 @@ public:
         return true;
     }
 
-    void put(const std::string& ticker, const DailyProbe& pr)
+    void put(const std::string& ticker, const DailyProbe& daily_probe)
     {
-        std::lock_guard<std::mutex> lock(mu_);
-        map_[ticker] = pr;
+        std::lock_guard<std::mutex> lock(mutex_);
+        map_[ticker] = daily_probe;
     }
 
     // 장중 재조회 대상 고르기 — 판정 재료인 현재가는 장중 내내 변하지만 일봉 요약은
@@ -231,7 +231,7 @@ public:
         const std::time_t now_t = std::time(nullptr);
         std::vector<std::pair<std::time_t, std::string>> stale;
         {
-            std::lock_guard<std::mutex> lock(mu_);
+            std::lock_guard<std::mutex> lock(mutex_);
 
             for (const auto& candidate : cand)
             {
@@ -270,7 +270,7 @@ private:
         return Logger::instance().path_for("daily_probe_" + date_yyyymmdd + ".json").string();
     }
 
-    mutable std::mutex mu_;
+    mutable std::mutex mutex_;
     std::unordered_map<std::string, DailyProbe> map_;
     std::string loaded_;
 };
@@ -281,7 +281,7 @@ DailyProbeCache g_probe_cache;
 struct MarketQuote
 {
     double      price   = 0.0;   // 원, 장중 갱신
-    double      val  = 0.0;   // 당일 누적 거래대금(원). 0=미제공
+    double      value  = 0.0;   // 당일 누적 거래대금(원). 0=미제공
     double      volume  = 0.0;   // 당일 누적 거래량(주). 0=미제공
     std::string name;         // 시세 파일이 준 종목명. 비면 미제공
 };
@@ -305,7 +305,7 @@ struct CandidateSet
     int  reit_drop = 0;
 
     // 중복이면 false. 이름은 로그 라벨과 out_names에 쓴다.
-    bool add(const std::string& ticker, const std::string& nm)
+    bool add(const std::string& ticker, const std::string& name)
     {
         if (!seen.insert(ticker).second)
         {
@@ -313,7 +313,7 @@ struct CandidateSet
         }
 
         tickers.push_back(ticker);
-        names[ticker] = nm;
+        names[ticker] = name;
         return true;
     }
 
@@ -348,25 +348,25 @@ std::mutex   g_candidate_mutex;
 //   먼저 발화한 쪽 판정이 나머지에도 걸린다 — 임계가 갈리는 순간 1회 경고한다. [why D-033]
 struct IdxGateLatch
 {
-    bool off = false;                              // [inv] 현재 차단 상태(래치된 값)
+    bool risk_off = false;                              // [inv] 현재 차단 상태(래치된 값)
     bool primed = false;                           // [inv] since가 유효한가 — 첫 전환 전에는 false
     std::chrono::steady_clock::time_point since{}; // 마지막 전환 시각
     double seen_trip = 0.0;                        // 직전 호출이 준 차단 임계(공유 감지용)
     double seen_resume = 0.0;                      // 직전 호출이 준 재개 임계
-    bool cfg_warned = false;                       // 설정 경고를 이미 냈나(도배 방지)
+    bool config_warned = false;                       // 설정 경고를 이미 냈나(도배 방지)
 };
 
 IdxGateLatch g_kospi_latch;
 IdxGateLatch g_kosdaq_latch;
 IdxGateLatch g_itb_kospi_latch;   // ITB 슬리브 전용 — 임계가 DevScale과 달라 래치를 나눈다
-std::mutex   g_idx_latch_mu;
+std::mutex   g_index_latch_mutex;
 
 // 히스테리시스 한 축. 등락률이 trip 아래로 내려가면 차단, resume 위로 올라오면 재개하고,
 //  그 사이 중립대에서는 직전 상태를 유지한다. 차단 임계 하나로 20초마다 다시 재던 옛 판정은
 //  지수가 경계를 오갈 때 게이트도 같이 떨었다(2026-08-21 최소 2분 53초 간격 토글).
 //  observed=false는 조회 실패다 — 판정도 타이머도 건드리지 않는다. 반환은 "지금 차단인가".
 //  [why D-033]
-bool latch_risk_off(IdxGateLatch& latch, double chg, bool observed, double trip, double resume,
+bool latch_risk_off(IdxGateLatch& latch, double change, bool observed, double trip, double resume,
                     int dwell_sec, const char* label)
 {
     // 관측 실패에는 판정하지 않는다. KisClient::get_index_price는 응답 파싱이 어긋나면
@@ -375,73 +375,73 @@ bool latch_risk_off(IdxGateLatch& latch, double chg, bool observed, double trip,
     //  지수 급락 구간은 초당한도가 가장 잘 터지는 구간이라 이 오판과 상관이 있다.
     if (!observed)
     {
-        return latch.off;
+        return latch.risk_off;
     }
 
     // resume이 trip보다 낮으면 히스테리시스가 뒤집힌다 — 설정 실수는 옛 동작(단일 임계)으로 접는다.
     if (resume < trip)
     {
-        if (!latch.cfg_warned)
+        if (!latch.config_warned)
         {
             LOG_WARN(std::string("[Universe] ") + label + " 지수 게이트 재개 임계가 차단 임계보다 낮다"
                      " — 히스테리시스를 끄고 단일 임계로 판정한다 (차단 " +
                      std::to_string(trip * 100.0) + "% / 재개 " + std::to_string(resume * 100.0) + "%)");
-            latch.cfg_warned = true;
+            latch.config_warned = true;
         }
 
         resume = trip;
     }
-    else if (latch.primed && !latch.cfg_warned &&
+    else if (latch.primed && !latch.config_warned &&
              (latch.seen_trip != trip || latch.seen_resume != resume))
     {
         // 래치는 프로세스 전역이고 슬리브마다 config가 따로 온다. 임계가 갈리면 먼저 발화한 쪽
         //  판정이 나머지 슬리브에도 그대로 걸린다는 뜻이라 한 번 알린다.
         LOG_WARN(std::string("[Universe] ") + label + " 지수 게이트 임계가 슬리브마다 다르다"
                  " — 래치는 전역이라 먼저 발화한 판정이 공유된다");
-        latch.cfg_warned = true;
+        latch.config_warned = true;
     }
 
     latch.seen_trip   = trip;
     latch.seen_resume = resume;
 
-    bool want = latch.off;
+    bool want_off = latch.risk_off;
 
-    if (chg < trip)
+    if (change < trip)
     {
-        want = true;
+        want_off = true;
     }
-    else if (chg >= resume)
+    else if (change >= resume)
     {
-        want = false;
+        want_off = false;
     }
 
-    if (want == latch.off)
+    if (want_off == latch.risk_off)
     {
-        return latch.off;
+        return latch.risk_off;
     }
 
     const auto now = std::chrono::steady_clock::now();
 
     // 체류는 재개 방향에만 건다. 08-21의 문제는 재개 쪽 떨림이었지 차단 지연이 아니었고,
     //  안전 게이트는 닫는 쪽이 언제나 즉시여야 한다.
-    if (dwell_sec > 0 && latch.primed && !want)
+    if (dwell_sec > 0 && latch.primed && !want_off)
     {
         const auto held =
             std::chrono::duration_cast<std::chrono::seconds>(now - latch.since).count();
 
         if (held < static_cast<long long>(dwell_sec))
         {
-            return latch.off;   // 체류 미달 — 이번 재스캔은 직전 상태를 그대로 쓴다
+            return latch.risk_off;   // 체류 미달 — 이번 재스캔은 직전 상태를 그대로 쓴다
         }
     }
 
-    latch.off    = want;
+    latch.risk_off    = want_off;
     latch.primed = true;
     latch.since  = now;
-    LOG_WARN(std::string("[Universe] ") + label + " 지수 게이트 " + (want ? "차단" : "재개") +
-             " — 등락률 " + std::to_string(chg * 100.0) + "%, 차단 " +
+    LOG_WARN(std::string("[Universe] ") + label + " 지수 게이트 " + (want_off ? "차단" : "재개") +
+             " — 등락률 " + std::to_string(change * 100.0) + "%, 차단 " +
              std::to_string(trip * 100.0) + "% / 재개 " + std::to_string(resume * 100.0) + "%");
-    return latch.off;
+    return latch.risk_off;
 }
 
 // 시장별 risk_off 게이트(2026-08-19 회의). 코스피 급락은 전이 회피를 위해 코스피·코스닥
@@ -449,19 +449,19 @@ bool latch_risk_off(IdxGateLatch& latch, double chg, bool observed, double trip,
 //  코스닥 종목은 이중 AND — 코스피 정상 AND 코스닥 정상일 때만 통과.
 struct MarketGate
 {
-    double kospi_chg  = 0.0;
-    double kosdaq_chg = 0.0;   // [inv] kosdaq_enabled=false면 미관측이라 0.0 — 표시에 쓰지 않는다
-    bool   kospi_obs  = false; // [inv] 이번 조회가 성공했나. false면 chg는 의미 없다 [why D-033]
-    bool   kosdaq_obs = false;
+    double kospi_change  = 0.0;
+    double kosdaq_change = 0.0;   // [inv] kosdaq_enabled=false면 미관측이라 0.0 — 표시에 쓰지 않는다
+    bool   kospi_observation  = false; // [inv] 이번 조회가 성공했나. false면 chg는 의미 없다 [why D-033]
+    bool   kosdaq_observation = false;
     bool   kospi_pass  = false;
     bool   kosdaq_pass = false;
 
     bool closed() const { return !kospi_pass && !kosdaq_pass; }
 
     // 시장 미상은 코스닥과 같은 보수 판정(닫혀 있으면 드롭).
-    bool allows(std::string_view mk) const
+    bool allows(std::string_view mask_key) const
     {
-        if (mk == "KOSDAQ" || mk == "UNKNOWN")
+        if (mask_key == "KOSDAQ" || mask_key == "UNKNOWN")
         {
             return kosdaq_pass;
         }
@@ -479,26 +479,26 @@ MarketGate build_market_gate(KisClient& kis, const DevScanCfg& config)
     // [wire] 조회가 어긋나면 KisClient가 로그 없이 IndexPrice{}를 돌려준다 — price>0이 관측
     //  성공의 유일한 표식이다. 지수 평보합도 price는 양수라 오탐이 없다.
     const auto kospi = kis.get_index_price("0001");
-    market_gate.kospi_obs = kospi.price > 0.0;
-    market_gate.kospi_chg = kospi.change_rate / 100.0;   // [wire] KIS는 % 단위
+    market_gate.kospi_observation = kospi.price > 0.0;
+    market_gate.kospi_change = kospi.change_rate / 100.0;   // [wire] KIS는 % 단위
 
     if (config.kosdaq_enabled)
     {
         const auto kosdaq = kis.get_index_price("1001");   // [wire] 코스닥 종합지수
-        market_gate.kosdaq_obs = kosdaq.price > 0.0;
-        market_gate.kosdaq_chg = kosdaq.change_rate / 100.0;
+        market_gate.kosdaq_observation = kosdaq.price > 0.0;
+        market_gate.kosdaq_change = kosdaq.change_rate / 100.0;
     }
 
-    std::lock_guard<std::mutex> lock(g_idx_latch_mu);
-    const bool kospi_off = latch_risk_off(g_kospi_latch, market_gate.kospi_chg, market_gate.kospi_obs,
-                                          config.risk_off_index, config.risk_off_idx_resume,
+    std::lock_guard<std::mutex> lock(g_index_latch_mutex);
+    const bool kospi_off = latch_risk_off(g_kospi_latch, market_gate.kospi_change, market_gate.kospi_observation,
+                                          config.risk_off_index, config.risk_off_index_resume,
                                           config.risk_off_dwell_sec, "코스피");
     bool kosdaq_off = false;
 
     if (config.kosdaq_enabled)
     {
-        kosdaq_off = latch_risk_off(g_kosdaq_latch, market_gate.kosdaq_chg, market_gate.kosdaq_obs,
-                                    config.risk_off_idx_kosdaq, config.risk_off_idx_kosdaq_resume,
+        kosdaq_off = latch_risk_off(g_kosdaq_latch, market_gate.kosdaq_change, market_gate.kosdaq_observation,
+                                    config.risk_off_index_kosdaq, config.risk_off_index_kosdaq_resume,
                                     config.risk_off_dwell_sec, "코스닥");
     }
 
@@ -510,7 +510,7 @@ MarketGate build_market_gate(KisClient& kis, const DevScanCfg& config)
 // ETF/ETN·리츠 배제(개별주만). ETF는 브랜드 접두사(경계검사)∪상품 토큰, 리츠는 접미사·정확일치다.
 //  KIS 축은 KisClient에서 이미 걸러지지만 data.go.kr 축과 한 규칙으로 이중 차단한다.
 //  리츠를 따로 보는 이유는 배당·NAV로 움직여 일봉 프리필터를 그대로 통과하기 때문이다(334890 유입).
-bool excluded_by_name(const std::string& nm, int& etf_drop, int& reit_drop)
+bool excluded_by_name(const std::string& name, int& etf_drop, int& reit_drop)
 {
     static const std::vector<std::string> kEtfPrefixes =
         etf_filter::load_list("etf_prefixes.json", etf_filter::default_prefixes());
@@ -521,13 +521,13 @@ bool excluded_by_name(const std::string& nm, int& etf_drop, int& reit_drop)
     static const std::vector<std::string> kReitExacts =
         etf_filter::load_list("reit_names.json", etf_filter::default_reit_exacts());
 
-    if (etf_filter::is_etf_like(nm, kEtfPrefixes, kEtfTokens))
+    if (etf_filter::is_etf_like(name, kEtfPrefixes, kEtfTokens))
     {
         ++etf_drop;
         return true;
     }
 
-    if (etf_filter::is_reit_like(nm, kReitSuffixes, kReitExacts))
+    if (etf_filter::is_reit_like(name, kReitSuffixes, kReitExacts))
     {
         ++reit_drop;
         return true;
@@ -562,19 +562,19 @@ void load_quote_table(const DevScanCfg& config, QuoteTable& quotes)
 
     try
     {
-        nlohmann::json pj;
-        pf >> pj;
+        nlohmann::json parsed_json;
+        pf >> parsed_json;
         // 필드 타입이 기대와 다르면 nlohmann은 예외를 던진다. 그대로 두면 바깥 catch로 빠져
         //  시세 파일 전체가 버려지는데, 결과가 "price가 전일 종가로 회귀"라 로그만 보면 파일 없음과
         //  구분되지 않는다. 항목 단위로 막아 어긋난 종목만 버린다.
-        auto num = [](const nlohmann::json& document, const char* key) -> double
+        auto number = [](const nlohmann::json& document, const char* key) -> double
         {
             const auto found = document.find(key);
             return (found != document.end() && found->is_number()) ? found->get<double>() : 0.0;
         };
-        const auto fp = pj.is_object() ? pj.find("prices") : pj.end();
+        const auto prices_node = parsed_json.is_object() ? parsed_json.find("prices") : parsed_json.end();
         const nlohmann::json pm =
-            (fp != pj.end() && fp->is_object()) ? *fp : nlohmann::json::object();
+            (prices_node != parsed_json.end() && prices_node->is_object()) ? *prices_node : nlohmann::json::object();
         int bad = 0;
 
         for (auto iterator = pm.begin(); iterator != pm.end(); ++iterator)
@@ -585,28 +585,28 @@ void load_quote_table(const DevScanCfg& config, QuoteTable& quotes)
                 continue;
             }
 
-            const double price = num(iterator.value(), "px");
+            const double price = number(iterator.value(), "px");
 
             if (price <= 0.0)
             {
                 continue;
             }
 
-            MarketQuote& mq = quotes[iterator.key()];
-            mq.price  = price;
-            mq.val = num(iterator.value(), "val");
-            mq.volume = num(iterator.value(), "vol");
+            MarketQuote& market_quote = quotes[iterator.key()];
+            market_quote.price  = price;
+            market_quote.value = number(iterator.value(), "val");
+            market_quote.volume = number(iterator.value(), "vol");
             const auto name_node = iterator.value().find("nm");
 
             if (name_node != iterator.value().end() && name_node->is_string())
             {
-                mq.name = name_node->get<std::string>();
+                market_quote.name = name_node->get<std::string>();
             }
         }
 
-        const auto ft = pj.is_object() ? pj.find("ts") : pj.end();
+        const auto timestamp_iterator = parsed_json.is_object() ? parsed_json.find("ts") : parsed_json.end();
         const std::time_t timestamp =
-            (ft != pj.end() && ft->is_number()) ? static_cast<std::time_t>(ft->get<long long>()) : 0;
+            (timestamp_iterator != parsed_json.end() && timestamp_iterator->is_number()) ? static_cast<std::time_t>(timestamp_iterator->get<long long>()) : 0;
         const std::time_t age = std::time(nullptr) - timestamp;
         LOG_INFO("[Main] 전 종목 시세: " + std::to_string(quotes.size()) +
                  "종목 (" + std::to_string(static_cast<long long>(age)) + "초 전 갱신)");
@@ -705,7 +705,7 @@ void take_universe_file(const DevScanCfg& config, CandidateSet& candidates)
         }
 
         const nlohmann::json& array = jsonx::array_or_empty(document, "universe");
-        int added_file = 0, dup = 0;
+        int added_file = 0, duplicate = 0;
 
         for (const auto& element : array)
         {
@@ -716,9 +716,9 @@ void take_universe_file(const DevScanCfg& config, CandidateSet& candidates)
                 continue;
             }
 
-            const std::string nm = element.value("name", std::string());
+            const std::string name = element.value("name", std::string());
 
-            if (excluded_by_name(nm, candidates.etf_drop, candidates.reit_drop))
+            if (excluded_by_name(name, candidates.etf_drop, candidates.reit_drop))
             {
                 continue;
             }
@@ -736,9 +736,9 @@ void take_universe_file(const DevScanCfg& config, CandidateSet& candidates)
                 continue;
             }
 
-            if (!candidates.add(ticker, nm))
+            if (!candidates.add(ticker, name))
             {
-                ++dup;
+                ++duplicate;
                 continue;
             }
 
@@ -748,12 +748,12 @@ void take_universe_file(const DevScanCfg& config, CandidateSet& candidates)
 
         LOG_INFO("[Main] DEVSCALE data.go.kr 축(기준일 " + basDt + "): 파일 " +
                  std::to_string(array.size()) + "종목 → 신규 " + std::to_string(added_file) +
-                 " union (중복 " + std::to_string(dup) + ")");
+                 " union (중복 " + std::to_string(duplicate) + ")");
     }
-    catch (const std::exception& ex)
+    catch (const std::exception& exception)
     {
         LOG_WARN("[Main] DEVSCALE 유니버스 파일 파싱 실패(" + config.universe_file +
-                 "): " + std::string(ex.what()) + " — data.go.kr 축 스킵");
+                 "): " + std::string(exception.what()) + " — data.go.kr 축 스킵");
     }
 }
 
@@ -770,9 +770,9 @@ void take_sector_ranking(KisClient& kis, const DevScanCfg& config, QuoteTable& q
     const std::size_t before = candidates.tickers.size();
     int sec_ok = 0, sec_weak = 0;
 
-    for (const auto& sc : config.sector_codes)
+    for (const auto& sector_code : config.sector_codes)
     {
-        auto rows = kis.fetch_sector_ranking(sc, config.sector_top_n);
+        auto rows = kis.fetch_sector_ranking(sector_code, config.sector_top_n);
         // 26콜을 쉬지 않고 내면 8.8콜/s로 나가 문서상 한도 20/s의 절반을 이 축 하나가
         //  버스트로 먹는다(09-08: ranking/fluctuation HTTP 500 70건). 재스캔 주기가
         //  600초라 2.6초에서 5.2초로 늘어나는 지연은 무시할 만하다.
@@ -789,7 +789,7 @@ void take_sector_ranking(KisClient& kis, const DevScanCfg& config, QuoteTable& q
 
         for (const auto& row : rows)
         {
-            if (row.change_rate < config.sector_min_chg)
+            if (row.change_rate < config.sector_min_change)
             {
                 ++sec_weak;
                 continue;
@@ -835,30 +835,30 @@ void take_full_market(const DevScanCfg& config, const QuoteTable& quotes, Candid
 
     for (const auto& ticker : tickers)
     {
-        auto itq = quotes.find(ticker);
+        auto quote_iterator = quotes.find(ticker);
 
-        if (itq == quotes.end() || itq->second.name.empty())
+        if (quote_iterator == quotes.end() || quote_iterator->second.name.empty())
         {
             ++no_name;
             continue;
         }
 
-        if (excluded_by_name(itq->second.name, candidates.etf_drop, candidates.reit_drop))
+        if (excluded_by_name(quote_iterator->second.name, candidates.etf_drop, candidates.reit_drop))
         {
             continue;
         }
 
-        if (itq->second.price < config.min_price)
+        if (quote_iterator->second.price < config.min_price)
         {
             continue;
         }
 
-        if (config.max_price > 0.0 && itq->second.price > config.max_price)
+        if (config.max_price > 0.0 && quote_iterator->second.price > config.max_price)
         {
             continue;
         }
 
-        candidates.add(ticker, itq->second.name);
+        candidates.add(ticker, quote_iterator->second.name);
     }
 
     LOG_INFO("[Main] 전 종목 확장: 신규 " + std::to_string(candidates.tickers.size() - before_fm) +
@@ -922,54 +922,54 @@ DailyProbe fetch_probe(KisClient& kis, const DevScanCfg& config, const std::stri
                        const std::string& date_yyyymmdd)
 {
     auto daily_ohlcv = kis.get_daily_ohlcv(ticker, config.align_daily_n);
-    DailyProbe pr;
-    pr.date_yyyymmdd  = date_yyyymmdd;
-    pr.at   = std::time(nullptr);
-    pr.bars = static_cast<int>(daily_ohlcv.size());
+    DailyProbe daily_probe;
+    daily_probe.date_yyyymmdd  = date_yyyymmdd;
+    daily_probe.at   = std::time(nullptr);
+    daily_probe.bars = static_cast<int>(daily_ohlcv.size());
 
-    if (pr.bars < 60)
+    if (daily_probe.bars < 60)
     {
-        return pr;
+        return daily_probe;
     }
 
-    auto sma = [&](int count) { double sum = 0.0; for (int index = 0; index < count; ++index) sum += daily_ohlcv[index].close; return sum / count; };
-    pr.s5 = sma(5); pr.s10 = sma(10); pr.s20 = sma(20); pr.s60 = sma(60);
-    pr.r5 = daily_ohlcv[4].close; pr.r10 = daily_ohlcv[9].close;
-    pr.r20 = daily_ohlcv[19].close; pr.r60 = daily_ohlcv[59].close;
-    pr.close = daily_ohlcv[0].close;
+    auto simple_moving_average = [&](int count) { double sum = 0.0; for (int index = 0; index < count; ++index) sum += daily_ohlcv[index].close; return sum / count; };
+    daily_probe.average_5 = simple_moving_average(5); daily_probe.average_10 = simple_moving_average(10); daily_probe.average_20 = simple_moving_average(20); daily_probe.average_60 = simple_moving_average(60);
+    daily_probe.r5 = daily_ohlcv[4].close; daily_probe.r10 = daily_ohlcv[9].close;
+    daily_probe.r20 = daily_ohlcv[19].close; daily_probe.r60 = daily_ohlcv[59].close;
+    daily_probe.close = daily_ohlcv[0].close;
     // [formula] ATR(14) — True Range = max(고−저, |고−전일종가|, |저−전일종가|)의 14봉 평균.
     //  d[0]이 최신이므로 d[i+1]이 i의 전일. 종가로 나눠 종목 간 비교 가능한 비율로 만든다.
-    double tr_sum = 0.0;
-    int    tr_n   = 0;
+    double true_range_sum = 0.0;
+    int    true_range_count   = 0;
 
-    for (size_t index = 0; index + 1 < daily_ohlcv.size() && tr_n < 14; ++index, ++tr_n)
+    for (size_t index = 0; index + 1 < daily_ohlcv.size() && true_range_count < 14; ++index, ++true_range_count)
     {
-        const double prev_c = daily_ohlcv[index + 1].close;
+        const double previous_close = daily_ohlcv[index + 1].close;
         const double high = daily_ohlcv[index].high, low = daily_ohlcv[index].low;
-        double tr = high - low;
-        const double high_gap = std::fabs(high - prev_c), low_gap = std::fabs(low - prev_c);
+        double true_range = high - low;
+        const double high_gap = std::fabs(high - previous_close), low_gap = std::fabs(low - previous_close);
 
-        if (high_gap > tr)
+        if (high_gap > true_range)
         {
-            tr = high_gap;
+            true_range = high_gap;
         }
 
-        if (low_gap > tr)
+        if (low_gap > true_range)
         {
-            tr = low_gap;
+            true_range = low_gap;
         }
 
-        tr_sum += tr;
+        true_range_sum += true_range;
     }
 
-    pr.atr_pct = (tr_n > 0 && pr.close > 0.0) ? (tr_sum / tr_n) / pr.close : 0.0;
+    daily_probe.atr_percent = (true_range_count > 0 && daily_probe.close > 0.0) ? (true_range_sum / true_range_count) / daily_probe.close : 0.0;
 
     // 저항·거래량 축. 일봉은 전일까지(include_today=false)라 d[0]이 전일이다.
     for (const auto& bar : daily_ohlcv)
     {
-        if (bar.high > pr.hi250)
+        if (bar.high > daily_probe.hi250)
         {
-            pr.hi250 = bar.high;
+            daily_probe.hi250 = bar.high;
         }
     }
 
@@ -985,7 +985,7 @@ DailyProbe fetch_probe(KisClient& kis, const DevScanCfg& config, const std::stri
 
         if (peak)
         {
-            pr.pivot_hi = daily_ohlcv[index].high;
+            daily_probe.pivot_high = daily_ohlcv[index].high;
             break;
         }
     }
@@ -997,15 +997,15 @@ DailyProbe fetch_probe(KisClient& kis, const DevScanCfg& config, const std::stri
         volume_sum += static_cast<double>(daily_ohlcv[index].volume);
     }
 
-    pr.avg_vol20 = volume_sum / 20.0;
-    pr.close21   = daily_ohlcv.size() > 21 ? daily_ohlcv[21].close : 0.0;
-    return pr;
+    daily_probe.average_vol20 = volume_sum / 20.0;
+    daily_probe.close21   = daily_ohlcv.size() > 21 ? daily_ohlcv[21].close : 0.0;
+    return daily_probe;
 }
 
 //  점수는 원자료를 바로 더하지 않는다. 추세·눌림·변동성은 단위도 일별 분산도 달라서 그대로
 //   더하면 그날 우연히 많이 벌어진 축이 점수를 지배한다. 통과 집합 안에서 각각 z-score로
 //   정규화하고 ±2σ에서 자른 뒤 가중합한다(스케일-프리 + 이상치 1종목 지배 차단).
-struct Feat
+struct Features
 {
     std::string ticker;
     double trend, pull, volume, turnover, score;
@@ -1024,12 +1024,12 @@ struct ProbeStats
 
 // 2단: 정배열 프리필터 — 후보를 일봉으로 검사해 정배열=Y(≥60봉)만 통과시킨다.
 //  데이터부족(신규상장 <60봉)은 여기서 자동 제외된다. 일봉 조회 비용은 align_probe_max로
-//  캡하되 캐시 히트는 예산을 쓰지 않는다. 정배열 규칙은 MaAlign.h의 quant::ma::aligned 하나를 전략과 같이 쓴다.
-std::vector<Feat> probe_and_filter(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd,
+//  캡하되 캐시 히트는 예산을 쓰지 않는다. 정배열 규칙은 MaAlign.h의 quant::moving_average::aligned 하나를 전략과 같이 쓴다.
+std::vector<Features> probe_and_filter(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd,
                                    const CandidateSet& candidates, const QuoteTable& quotes,
-                                   const MarketGate& gate, ProbeStats& stats)
+                                   const MarketGate& gate, ProbeStats& statistics)
 {
-    std::vector<Feat> passed;
+    std::vector<Features> passed;
     std::unordered_set<std::string> refresh_set;
 
     if (config.align_refresh_max > 0)
@@ -1059,11 +1059,11 @@ std::vector<Feat> probe_and_filter(KisClient& kis, const DevScanCfg& config, con
         //  먹는다. 거래대금을 모르는 후보는 통과시킨다(기존 동작 유지).
         if (config.min_turnover > 0.0)
         {
-            auto itv = quotes.find(ticker);
+            auto quote_found = quotes.find(ticker);
 
-            if (itv != quotes.end() && itv->second.val > 0.0 && itv->second.val < config.min_turnover)
+            if (quote_found != quotes.end() && quote_found->second.value > 0.0 && quote_found->second.value < config.min_turnover)
             {
-                ++stats.illiquid;
+                ++statistics.illiquid;
                 continue;
             }
         }
@@ -1074,121 +1074,121 @@ std::vector<Feat> probe_and_filter(KisClient& kis, const DevScanCfg& config, con
             break;
         }
 
-        DailyProbe pr;
-        bool have = g_probe_cache.get(ticker, date_yyyymmdd, pr);
+        DailyProbe daily_probe;
+        bool cached = g_probe_cache.get(ticker, date_yyyymmdd, daily_probe);
         const bool refresh_me = refresh_set.find(ticker) != refresh_set.end();   // 대상은 전부 오늘치가 있다
 
-        if (!have || refresh_me)
+        if (!cached || refresh_me)
         {
-            if (stats.fetched >= config.align_probe_max)
+            if (statistics.fetched >= config.align_probe_max)
             {
                 // 예산은 REST에만 건다. 예전에는 여기서 루프를 끊어 뒤쪽 후보의 공짜 캐시
                 //  히트까지 같이 버렸고, 그래서 후보 집합을 넓힐수록 뒤쪽이 영구히 미검사로 남았다.
-                if (!have)
+                if (!cached)
                 {
-                    ++stats.budget_skipped;
+                    ++statistics.budget_skipped;
                     continue;
                 }
 
-                ++stats.cache_hit;
+                ++statistics.cache_hit;
             }
             else
             {
                 if (refresh_me)
                 {
-                    ++stats.refreshed;
+                    ++statistics.refreshed;
                 }
 
                 // 하루 첫 스캔은 수백 건이 연속으로 나간다. 60ms에서는 초당한도(EGW00201) 거부가
                 //  09-08 하루 149건 났고 CANCEL뿐 아니라 NEW에도 걸려 진입이 4초씩 밀렸다.
                 //  같은 날 주문 RTT p50이 09시 381ms에서 10시 1870ms로 단조증가한 것도 계좌 단위
                 //  REST 누적 부하로 보여 150ms로 올린다. 캐시 히트 경로에는 걸리지 않는다.
-                if (stats.fetched > 0)
+                if (statistics.fetched > 0)
                 {
                     std::this_thread::sleep_for(std::chrono::milliseconds(150));
                 }
 
                 const auto fetch_start = std::chrono::steady_clock::now();
                 const std::uint64_t wait_before_ns = KisClient::rate_wait_ns_this_thread();
-                pr = fetch_probe(kis, config, ticker, date_yyyymmdd);
-                stats.rest_ms += std::chrono::duration_cast<std::chrono::milliseconds>(
+                daily_probe = fetch_probe(kis, config, ticker, date_yyyymmdd);
+                statistics.rest_ms += std::chrono::duration_cast<std::chrono::milliseconds>(
                                      std::chrono::steady_clock::now() - fetch_start).count();
-                stats.wait_ms += static_cast<long long>(
+                statistics.wait_ms += static_cast<long long>(
                     (KisClient::rate_wait_ns_this_thread() - wait_before_ns) / 1000000ULL);
-                ++stats.fetched;
-                g_probe_cache.put(ticker, pr);
+                ++statistics.fetched;
+                g_probe_cache.put(ticker, daily_probe);
             }
         }
         else
         {
-            ++stats.cache_hit;
+            ++statistics.cache_hit;
         }
 
-        ++stats.probed;
+        ++statistics.probed;
 
-        if (pr.bars < 60)
+        if (daily_probe.bars < 60)
         {
-            ++stats.short_bars;
+            ++statistics.short_bars;
             continue;
         }
 
         // 오늘 가격을 최신 봉으로 접어 넣어 SMA를 다시 계산한다. 일봉 캐시는 include_today=false라
         //  전일치에서 멈춰 있고, 그대로 쓰면 정배열 판정이 하루 종일 얼어붙어 재스캔이 같은 종목만
         //  돌려준다. 시세 표의 현재가를 쓰므로 REST 추가 없이 매 재스캔마다 다시 판정한다.
-        double price = pr.close;
+        double price = daily_probe.close;
         double turnover = 0.0;
         {
-            auto itp = quotes.find(ticker);
+            auto quote_entry = quotes.find(ticker);
 
-            if (itp != quotes.end())
+            if (quote_entry != quotes.end())
             {
-                if (itp->second.price > 0.0)
+                if (quote_entry->second.price > 0.0)
                 {
-                    price = itp->second.price;
+                    price = quote_entry->second.price;
                 }
 
-                turnover = itp->second.val;
+                turnover = quote_entry->second.value;
             }
         }
 
-        quant::ma::Smas previous;
-        previous.s5 = pr.s5; previous.s10 = pr.s10; previous.s20 = pr.s20; previous.s60 = pr.s60;
-        const quant::ma::Smas ma =
-            quant::ma::fold_today(previous, pr.r5, pr.r10, pr.r20, pr.r60, price);
-        const double s5 = ma.s5, s10 = ma.s10, s20 = ma.s20, s60 = ma.s60;
+        quant::moving_average::SimpleMovingAverages previous;
+        previous.average_5 = daily_probe.average_5; previous.average_10 = daily_probe.average_10; previous.average_20 = daily_probe.average_20; previous.average_60 = daily_probe.average_60;
+        const quant::moving_average::SimpleMovingAverages moving_average =
+            quant::moving_average::fold_today(previous, daily_probe.r5, daily_probe.r10, daily_probe.r20, daily_probe.r60, price);
+        const double average_5 = moving_average.average_5, average_10 = moving_average.average_10, average_20 = moving_average.average_20, average_60 = moving_average.average_60;
 
-        if (!quant::ma::aligned(ma, config.align_ma_tol_pct))
+        if (!quant::moving_average::aligned(moving_average, config.align_moving_average_tolerance_percent))
         {
-            ++stats.misaligned;
+            ++statistics.misaligned;
             continue;
         }
 
-        double trend = s60 > 0.0 ? (s5 - s60) / s60 : 0.0;   // 추세강도(정배열 기울기)
-        double pull  = s20 > 0.0 ? (price - s20) / s20 : 0.0;   // 눌림깊이(음수=SMA20 아래)
+        double trend = average_60 > 0.0 ? (average_5 - average_60) / average_60 : 0.0;   // 추세강도(정배열 기울기)
+        double pull  = average_20 > 0.0 ? (price - average_20) / average_20 : 0.0;   // 눌림깊이(음수=SMA20 아래)
 
         // 과확장 컷 — 이격 상한 초과는 존 밴드 진입이 불가한 폭등주라 슬롯만 낭비한다.
-        if (config.max_dev_pct > 0.0 && pull > config.max_dev_pct)
+        if (config.max_deviation_percent > 0.0 && pull > config.max_deviation_percent)
         {
-            ++stats.overext;
+            ++statistics.overext;
             continue;
         }
 
         // 과확장 하한 — 밴드 아래(덜 벌어진 종목)는 눌림 슬리브 몫이다.
-        if (config.min_dev_pct > 0.0 && pull < config.min_dev_pct)
+        if (config.min_deviation_percent > 0.0 && pull < config.min_deviation_percent)
         {
-            ++stats.overext;
+            ++statistics.overext;
             continue;
         }
 
-        passed.push_back({ticker, trend, pull, pr.atr_pct, turnover, 0.0});
-        ++stats.aligned;
+        passed.push_back({ticker, trend, pull, daily_probe.atr_percent, turnover, 0.0});
+        ++statistics.aligned;
     }
 
-    if (stats.budget_skipped > 0)
+    if (statistics.budget_skipped > 0)
     {
         LOG_WARN("[Main] DEVSCALE 정배열 프리필터: 일봉 조회 상한(" +
                  std::to_string(config.align_probe_max) + ") 도달 — 캐시 없는 후보 " +
-                 std::to_string(stats.budget_skipped) + "건은 다음 재스캔에서 채움");
+                 std::to_string(statistics.budget_skipped) + "건은 다음 재스캔에서 채움");
     }
 
     return passed;
@@ -1196,12 +1196,12 @@ std::vector<Feat> probe_and_filter(KisClient& kis, const DevScanCfg& config, con
 
 // 2.5단: 횡단면 정규화로 종합 점수 하나를 만든다. 이 점수가 등록 순서(=진입 우선순위)와
 //  종목별 비중 배수 두 가지를 모두 정한다.
-//  [formula] S = w_trend·z(추세) + w_pull·z(-눌림) - w_vol·z(변동성) + w_liq·z(log 거래대금).
+//  [formula] S = weight_trend·z(추세) + weight_pull·z(-눌림) - weight_volume·z(변동성) + weight_liquidity·z(log 거래대금).
 //   변동성은 뺀다 — 추세·눌림이 같다면 덜 흔들리는 쪽이 낫다.
 //   거래대금은 더한다 — 같은 조건이면 두꺼운 쪽이 청산 슬리피지가 작다. 기본값 0(비활성)이다.
-void score_cross_section(const DevScanCfg& config, std::vector<Feat>& passed)
+void score_cross_section(const DevScanCfg& config, std::vector<Features>& passed)
 {
-    auto zscore = [&](double Feat::*field, bool invert, std::vector<double>& values)
+    auto zscore = [&](double Features::*field, bool invert, std::vector<double>& values)
     {
         const size_t count = passed.size();
         values.assign(count, 0.0);
@@ -1219,21 +1219,21 @@ void score_cross_section(const DevScanCfg& config, std::vector<Feat>& passed)
         }
 
         mean /= static_cast<double>(count);
-        double var = 0.0;
+        double variance = 0.0;
 
-        for (const auto& passed_entry : passed) { const double d0 = passed_entry.*field - mean; var += d0 * d0; }
-        var /= static_cast<double>(count);
-        const double sd = std::sqrt(var);
+        for (const auto& passed_entry : passed) { const double d0 = passed_entry.*field - mean; variance += d0 * d0; }
+        variance /= static_cast<double>(count);
+        const double standard_deviation = std::sqrt(variance);
 
         // 분산이 사실상 0이면(전 종목 동일) 정규화가 무의미하다. 전부 0으로 두어 균등 폴백.
-        if (!(sd > 1e-12))
+        if (!(standard_deviation > 1e-12))
         {
             return;
         }
 
         for (size_t index = 0; index < count; ++index)
         {
-            double value = (passed[index].*field - mean) / sd;
+            double value = (passed[index].*field - mean) / standard_deviation;
 
             if (value > 2.0)
             {
@@ -1248,12 +1248,12 @@ void score_cross_section(const DevScanCfg& config, std::vector<Feat>& passed)
             values[index] = invert ? -value : value;
         }
     };
-    std::vector<double> zt, zp, zv, zl;
-    zscore(&Feat::trend, false, zt);
-    zscore(&Feat::pull,  true,  zp);   // 눌림은 음수(SMA20 아래)일수록 좋아 부호를 뒤집는다. 추세확장 슬리브(min_dev_pct>0)에선 전부 양수라 "덜 벌어진 쪽 우대"(과확장 감점)로 작동한다
-    zscore(&Feat::volume,   false, zv);
+    std::vector<double> z_trend, z_pull, z_volume, z_liquidity;
+    zscore(&Features::trend, false, z_trend);
+    zscore(&Features::pull,  true,  z_pull);   // 눌림은 음수(SMA20 아래)일수록 좋아 부호를 뒤집는다. 추세확장 슬리브(min_deviation_percent>0)에선 전부 양수라 "덜 벌어진 쪽 우대"(과확장 감점)로 작동한다
+    zscore(&Features::volume,   false, z_volume);
 
-    if (config.score_w_liquidity != 0.0)
+    if (config.score_weight_liquidity != 0.0)
     {
         // 거래대금은 자릿수 분포라 로그를 취해 z를 낸다. 원값 그대로면 대형주 한둘이 표준편차를
         //  다 먹어 나머지가 한 점에 뭉친다.
@@ -1282,29 +1282,29 @@ void score_cross_section(const DevScanCfg& config, std::vector<Feat>& passed)
             passed_entry.turnover = passed_entry.turnover > 0.0 ? std::log(passed_entry.turnover) : fill;
         }
 
-        zscore(&Feat::turnover, false, zl);
+        zscore(&Features::turnover, false, z_liquidity);
     }
     else
     {
-        zl.assign(passed.size(), 0.0);
+        z_liquidity.assign(passed.size(), 0.0);
     }
 
     for (size_t passed_index = 0; passed_index < passed.size(); ++passed_index)
     {
-        passed[passed_index].score = config.score_w_trend * zt[passed_index] + config.score_w_pullback * zp[passed_index]
-                        - config.score_w_vol * zv[passed_index] + config.score_w_liquidity * zl[passed_index];
+        passed[passed_index].score = config.score_weight_trend * z_trend[passed_index] + config.score_weight_pullback * z_pull[passed_index]
+                        - config.score_weight_volume * z_volume[passed_index] + config.score_weight_liquidity * z_liquidity[passed_index];
     }
 }
 
 // 3단: 점수 내림차순으로 등록한다. score_top_n>0이면 상위 N만 남긴다.
 //  절단이 없어도 정렬은 한다 — 등록 순서가 그대로 진입 우선순위라, 안 정렬하면
 //  유니버스 파일 순서(시총·거래대금)가 우선순위를 먹는다.
-std::vector<std::string> rank_and_truncate(const DevScanCfg& config, std::vector<Feat>& passed,
+std::vector<std::string> rank_and_truncate(const DevScanCfg& config, std::vector<Features>& passed,
                                            const CandidateSet& candidates,
                                            std::unordered_map<std::string, std::string>* out_names,
                                            std::unordered_map<std::string, double>* out_scores)
 {
-    std::ranges::sort(passed, std::ranges::greater{}, &Feat::score);
+    std::ranges::sort(passed, std::ranges::greater{}, &Features::score);
     std::size_t take_n = passed.size();
 
     if (config.score_top_n > 0 && static_cast<std::size_t>(config.score_top_n) < take_n)
@@ -1334,15 +1334,15 @@ std::vector<std::string> rank_and_truncate(const DevScanCfg& config, std::vector
     {
         LOG_INFO("[Main] DEVSCALE 횡단면 스코어: 정배열통과=" + std::to_string(passed.size()) +
                  " → 상위 " + std::to_string(take_n) + " 선정 (w_trend=" +
-                 std::to_string(config.score_w_trend) + " w_pull=" + std::to_string(config.score_w_pullback) +
-                 " w_liq=" + std::to_string(config.score_w_liquidity) +
-                 " w_supply=" + std::to_string(config.score_w_supply) + "(미적용) w_vol=" + std::to_string(config.score_w_vol) + ")");
+                 std::to_string(config.score_weight_trend) + " w_pull=" + std::to_string(config.score_weight_pullback) +
+                 " w_liq=" + std::to_string(config.score_weight_liquidity) +
+                 " w_supply=" + std::to_string(config.score_weight_supply) + "(미적용) w_vol=" + std::to_string(config.score_weight_volume) + ")");
     }
 
     return out;
 }
 
-// 프리필터 off — 기존 동작(후보 앞에서부터 max_register개).
+// 프리필터 risk_off — 기존 동작(후보 앞에서부터 max_register개).
 std::vector<std::string> take_first_n(const DevScanCfg& config, const CandidateSet& candidates,
                                       const MarketGate& gate,
                                       std::unordered_map<std::string, std::string>* out_names)
@@ -1384,7 +1384,7 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& config
     //  다른 슬리브가 한 래치를 나눠 쓰면 먼저 발화한 쪽 판정이 다른 쪽에 걸린다. 지금은 기동 시
     //  1회 호출이라 체류·재개가 작동할 일이 없고, 재스캔 잡이 붙는 날 그대로 살아난다. [why D-033]
     auto kospi = scan_kis.get_index_price("0001");
-    double idx_chg = kospi.change_rate / 100.0; // KIS는 % 단위
+    double index_change = kospi.change_rate / 100.0; // KIS는 % 단위
 
     // [wire] 조회가 어긋나면 KisClient가 로그 없이 IndexPrice{}를 준다 — price>0이 관측
     //  성공의 유일한 표식이다. 0.0을 그대로 믿으면 게이트가 언제나 "통과"로 틀리는데,
@@ -1398,9 +1398,9 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& config
 
     bool risk_off = false;
     {
-        std::lock_guard<std::mutex> lock(g_idx_latch_mu);
-        risk_off = latch_risk_off(g_itb_kospi_latch, idx_chg, /*observed=*/true, config.risk_off_index,
-                                  config.risk_off_idx_resume, config.risk_off_dwell_sec, "코스피(ITB)");
+        std::lock_guard<std::mutex> lock(g_index_latch_mutex);
+        risk_off = latch_risk_off(g_itb_kospi_latch, index_change, /*observed=*/true, config.risk_off_index,
+                                  config.risk_off_index_resume, config.risk_off_dwell_sec, "코스피(ITB)");
     }
 
     if (risk_off)
@@ -1408,7 +1408,7 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& config
         LOG_WARN("[Main] universe_from_scan: 레짐 위험회피(코스피 " +
                  std::to_string(kospi.change_rate) + "%, 차단 " +
                  std::to_string(config.risk_off_index * 100.0) + "% / 재개 " +
-                 std::to_string(config.risk_off_idx_resume * 100.0) + "%) — 신규매수 유니버스 미등록");
+                 std::to_string(config.risk_off_index_resume * 100.0) + "%) — 신규매수 유니버스 미등록");
         return out;
     }
 
@@ -1422,10 +1422,10 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& config
             break;
         }
 
-        double chg = ranked.change_rate / 100.0; // % → 비율
+        double change = ranked.change_rate / 100.0; // % → 비율
 
         // 필터①: 등락률 밴드(강세 모멘텀, 급등 추격 배제)
-        if (chg < config.chg_min || chg > config.chg_max)
+        if (change < config.change_min || change > config.change_max)
         {
             continue;
         }
@@ -1437,11 +1437,11 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& config
         }
 
         // 필터③: 수급(option) — 외국인 T-1 확정 순매수 > 0 (후보 소수에만 조회)
-        if (config.sd_filter)
+        if (config.standard_deviation_filter)
         {
-            auto tr = scan_kis.get_investor_trend(ranked.ticker);
+            auto true_range = scan_kis.get_investor_trend(ranked.ticker);
 
-            if (tr.foreign_net <= 0)
+            if (true_range.foreign_net <= 0)
             {
                 LOG_INFO("[Main]   - ITB 스캔 제외 " + ranked.ticker + " 외국인순매수<=0");
                 continue;
@@ -1498,8 +1498,8 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
     if (gate.closed())
     {
         // 모든 시장이 위험회피 상태다. 후보 수집·일봉 조회를 전부 생략한다.
-        LOG_WARN("[Main] DEVSCALE 스캔: 레짐 위험회피(코스피 " + std::to_string(gate.kospi_chg * 100.0) +
-                 "%" + (config.kosdaq_enabled ? ", 코스닥 " + std::to_string(gate.kosdaq_chg * 100.0) + "%" : "") +
+        LOG_WARN("[Main] DEVSCALE 스캔: 레짐 위험회피(코스피 " + std::to_string(gate.kospi_change * 100.0) +
+                 "%" + (config.kosdaq_enabled ? ", 코스닥 " + std::to_string(gate.kosdaq_change * 100.0) + "%" : "") +
                  ") — 신규 유니버스 스킵");
         return {};
     }
@@ -1514,9 +1514,9 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
         return take_first_n(config, candidates, gate, out_mapNames);
     }
 
-    ProbeStats stats;
+    ProbeStats statistics;
     const auto probe_start = scan_clock::now();
-    std::vector<Feat> passed = probe_and_filter(kis, config, date_yyyymmdd, candidates, quotes, gate, stats);
+    std::vector<Features> passed = probe_and_filter(kis, config, date_yyyymmdd, candidates, quotes, gate, statistics);
     const long long probe_ms = ms_since(probe_start);
     const auto score_start = scan_clock::now();
     score_cross_section(config, passed);
@@ -1526,7 +1526,7 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
     // 새로 받은 일봉이 있을 때만 파일을 갱신한다. 히트만 났으면 내용이 같다.
     const auto save_start = scan_clock::now();
 
-    if (stats.fetched > 0)
+    if (statistics.fetched > 0)
     {
         g_probe_cache.save_today(date_yyyymmdd);
     }
@@ -1536,23 +1536,23 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
     LOG_INFO("[Main] DEVSCALE 정배열 프리필터: 후보=" + std::to_string(candidates.tickers.size()) +
              " ETF드롭=" + std::to_string(candidates.etf_drop) +
              " 리츠드롭=" + std::to_string(candidates.reit_drop) +
-             " 검사=" + std::to_string(stats.probed) +
-             " (일봉조회=" + std::to_string(stats.fetched) +
-             " 재조회=" + std::to_string(stats.refreshed) +
-             " 캐시=" + std::to_string(stats.cache_hit) + ")" +
-             " 정배열=" + std::to_string(stats.aligned) +
-             " 역배열컷=" + std::to_string(stats.misaligned) +
-             " 데이터부족(<60봉)=" + std::to_string(stats.short_bars) +
-             " 과확장컷=" + std::to_string(stats.overext) +
-             " 거래대금미달=" + std::to_string(stats.illiquid) +
-             " 예산소진=" + std::to_string(stats.budget_skipped) +
+             " 검사=" + std::to_string(statistics.probed) +
+             " (일봉조회=" + std::to_string(statistics.fetched) +
+             " 재조회=" + std::to_string(statistics.refreshed) +
+             " 캐시=" + std::to_string(statistics.cache_hit) + ")" +
+             " 정배열=" + std::to_string(statistics.aligned) +
+             " 역배열컷=" + std::to_string(statistics.misaligned) +
+             " 데이터부족(<60봉)=" + std::to_string(statistics.short_bars) +
+             " 과확장컷=" + std::to_string(statistics.overext) +
+             " 거래대금미달=" + std::to_string(statistics.illiquid) +
+             " 예산소진=" + std::to_string(statistics.budget_skipped) +
              " 등록=" + std::to_string(out.size()));
     // 단계별 경과 — 검사는 REST 시간과 버킷 대기를 따로 보여 "REST가 아니라면 어디서 새는지" 가른다.
     LOG_INFO("[Main] DEVSCALE 스캔 계측: 전체=" + std::to_string(ms_since(scan_start)) +
              "ms 게이트=" + std::to_string(gate_ms) + "ms 수집=" + std::to_string(collect_ms) +
-             "ms 검사=" + std::to_string(probe_ms) + "ms(REST=" + std::to_string(stats.rest_ms) +
-             "ms 버킷대기=" + std::to_string(stats.wait_ms) + "ms 간격sleep=" +
-             std::to_string(stats.fetched > 0 ? (stats.fetched - 1) * 150 : 0) +
+             "ms 검사=" + std::to_string(probe_ms) + "ms(REST=" + std::to_string(statistics.rest_ms) +
+             "ms 버킷대기=" + std::to_string(statistics.wait_ms) + "ms 간격sleep=" +
+             std::to_string(statistics.fetched > 0 ? (statistics.fetched - 1) * 150 : 0) +
              "ms) 점수·순위=" + std::to_string(score_ms) + "ms 캐시저장=" + std::to_string(save_ms) + "ms");
     return out;
 }

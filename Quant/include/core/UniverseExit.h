@@ -78,12 +78,12 @@ inline std::string pick_evict_candidate(const OwnedMap& owned, const InScanSet& 
             continue;
         }
 
-        const long long sec = absent_sec(ticker);
+        const long long seconds = absent_sec(ticker);
 
-        if (sec > best_absent_sec || (sec == best_absent_sec && (best.empty() || ticker < best)))
+        if (seconds > best_absent_sec || (seconds == best_absent_sec && (best.empty() || ticker < best)))
         {
             best            = ticker;
-            best_absent_sec = sec;
+            best_absent_sec = seconds;
         }
     }
 

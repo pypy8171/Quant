@@ -8,14 +8,14 @@
 
 DataPoller::DataPoller(QuoteFn quote, TickSink sink) : quote_(std::move(quote)), sink_(std::move(sink)) {}
 
-int DataPoller::poll_universe(const std::vector<WatchSpec>& specs, std::time_t now_utc)
+int DataPoller::poll_universe(const std::vector<WatchSpec>& specifications, std::time_t now_utc)
 {
     const int32_t hhmmss = kst::hhmmss_int(now_utc);
     int           count      = 0;
 
-    for (const auto& spec : specs)
+    for (const auto& specification : specifications)
     {
-        if (spec.market != Market::KR)
+        if (specification.market != Market::KR)
         {
             continue;
         }
@@ -30,43 +30,43 @@ int DataPoller::poll_universe(const std::vector<WatchSpec>& specs, std::time_t n
             std::this_thread::sleep_for(universe_pacing_);
         }
 
-        const double price = quote_(spec.ticker);
+        const double price = quote_(specification.ticker);
 
         if (price <= 0.0)
         {
             continue;
         }
 
-        sink_(poller::make_tick(spec.ticker, price, hhmmss, std::chrono::system_clock::now()));
+        sink_(poller::make_tick(specification.ticker, price, hhmmss, std::chrono::system_clock::now()));
         ++count;
     }
 
     return count;
 }
 
-bool DataPoller::add_overflow(const WatchSpec& spec)
+bool DataPoller::add_overflow(const WatchSpec& specification)
 {
     for (const auto& overflow_entry : overflow_)
     {
-        if (poller::same_spec(overflow_entry, spec))
+        if (poller::same_specification(overflow_entry, specification))
         {
             return false;
         }
     }
 
-    overflow_.push_back(spec);
+    overflow_.push_back(specification);
     return true;
 }
 
-int DataPoller::poll_overflow(const std::vector<WatchSpec>& from_ws, const ResubscribeFn& resub, std::time_t now_utc)
+int DataPoller::poll_overflow(const std::vector<WatchSpec>& from_websocket, const ResubscribeFn& resub, std::time_t now_utc)
 {
     // 최초 연결·재연결에서 상한에 밀린 종목도 여기로 합친다 — 재스캔 등록분만 챙기면 기동 시 뒤쪽에 선
     //  종목(청산 관리 시드)이 틱을 영영 못 받는다.
-    for (const auto& spec : from_ws)
+    for (const auto& specification : from_websocket)
     {
-        if (add_overflow(spec))
+        if (add_overflow(specification))
         {
-            LOG_WARN("[Engine] WS 구독 상한 — " + spec.ticker + " 시세는 REST 폴링으로 대체(넘침 " +
+            LOG_WARN("[Engine] WS 구독 상한 — " + specification.ticker + " 시세는 REST 폴링으로 대체(넘침 " +
                      std::to_string(overflow_.size()) + "종목)");
         }
     }
@@ -80,24 +80,24 @@ int DataPoller::poll_overflow(const std::vector<WatchSpec>& from_ws, const Resub
     const auto             pending = overflow_; // 재구독 성공이 목록을 줄이므로 복사본을 돈다
     int                    count       = 0;
 
-    for (const auto& spec : pending)
+    for (const auto& specification : pending)
     {
-        if (resub && resub(spec))
+        if (resub && resub(specification))
         {
             for (auto iterator = overflow_.begin(); iterator != overflow_.end(); ++iterator)
             {
-                if (poller::same_spec(*iterator, spec))
+                if (poller::same_specification(*iterator, specification))
                 {
                     overflow_.erase(iterator);
                     break;
                 }
             }
 
-            LOG_INFO("[Engine] WS 슬롯 확보 — " + spec.ticker + " 구독 복귀");
+            LOG_INFO("[Engine] WS 슬롯 확보 — " + specification.ticker + " 구독 복귀");
             continue;
         }
 
-        if (spec.market != Market::KR)
+        if (specification.market != Market::KR)
         {
             continue;
         }
@@ -112,24 +112,24 @@ int DataPoller::poll_overflow(const std::vector<WatchSpec>& from_ws, const Resub
             std::this_thread::sleep_for(universe_pacing_);
         }
 
-        const double price = quote_(spec.ticker);
+        const double price = quote_(specification.ticker);
 
         if (price <= 0.0)
         {
-            if (rest_failed_.insert(spec.ticker).second)
+            if (rest_failed_.insert(specification.ticker).second)
             {
-                LOG_WARN("[Engine] REST 대체 시세 실패 " + spec.ticker + " — 현재가 0(응답 없음/파싱 실패)");
+                LOG_WARN("[Engine] REST 대체 시세 실패 " + specification.ticker + " — 현재가 0(응답 없음/파싱 실패)");
             }
 
             continue;
         }
 
-        if (rest_seen_.insert(spec.ticker).second)
+        if (rest_seen_.insert(specification.ticker).second)
         {
-            LOG_INFO("[Engine] REST 대체 시세 첫 수신 " + spec.ticker + " px=" + std::to_string(price));
+            LOG_INFO("[Engine] REST 대체 시세 첫 수신 " + specification.ticker + " px=" + std::to_string(price));
         }
 
-        sink_(poller::make_tick(spec.ticker, price, hhmmss, std::chrono::system_clock::now()));
+        sink_(poller::make_tick(specification.ticker, price, hhmmss, std::chrono::system_clock::now()));
         ++count;
     }
 
@@ -137,7 +137,7 @@ int DataPoller::poll_overflow(const std::vector<WatchSpec>& from_ws, const Resub
 }
 
 int DataPoller::top_up(const std::vector<std::string>& tickers,
-                       const std::function<void(const std::string&, double)>& on_px)
+                       const std::function<void(const std::string&, double)>& on_price)
 {
     int count = 0;
 
@@ -153,7 +153,7 @@ int DataPoller::top_up(const std::vector<std::string>& tickers,
             std::this_thread::sleep_for(top_up_pacing_);
         }
 
-        on_px(ticker, quote_(ticker));
+        on_price(ticker, quote_(ticker));
         ++count;
     }
 

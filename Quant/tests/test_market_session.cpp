@@ -10,13 +10,13 @@
 
 namespace
 {
-void set_tz(const char* tz)
+void set_timezone(const char* timezone)
 {
 #ifdef _WIN32
-    _putenv_s("TZ", tz);
+    _putenv_s("TZ", timezone);
     _tzset();
 #else
-    setenv("TZ", tz, 1);
+    setenv("TZ", timezone, 1);
     tzset();
 #endif
 }
@@ -26,9 +26,9 @@ void check_kst_fixed()
 {
     constexpr std::time_t kOpen = 1789084800;
 
-    for (const char* tz : {"UTC0", "KST-9", "PST8PDT"})
+    for (const char* timezone : {"UTC0", "KST-9", "PST8PDT"})
     {
-        set_tz(tz);
+        set_timezone(timezone);
         assert(kst::date_yyyymmdd(kOpen) == "20260911");
         assert(kst::hhmmss(kOpen) == "090000");
         assert(kst::datetime(kOpen) == "2026-09-11 09:00:00");
@@ -92,10 +92,10 @@ int main()
     assert(parse_hhmmss("09300") == 0);
     assert(parse_hhmmss("09300a") == 0);
     assert(parse_hhmmss("") == 0);
-    assert(hhmmss_str(93001) == "093001");
-    assert(hhmmss_str(0) == "000000");
-    assert(hhmmss_str(235959) == "235959");
-    assert(parse_hhmmss(hhmmss_str(153000)) == 153000);
+    assert(hhmmss_string(93001) == "093001");
+    assert(hhmmss_string(0) == "000000");
+    assert(hhmmss_string(235959) == "235959");
+    assert(parse_hhmmss(hhmmss_string(153000)) == 153000);
 
     // in_session: 09:00 포함, 15:30 제외.
     assert(!in_session(kSessionOpenHHMM - 1));
@@ -106,10 +106,10 @@ int main()
     assert(!in_session(0));
 
     // 문자열 경로는 둘을 잇는다.
-    assert(in_session_str("090000"));
-    assert(!in_session_str("085959"));
-    assert(!in_session_str("153000"));
-    assert(!in_session_str(""));
+    assert(in_session_string("090000"));
+    assert(!in_session_string("085959"));
+    assert(!in_session_string("153000"));
+    assert(!in_session_string(""));
 
     std::cout << "test_market_session: all passed" << std::endl;
     return 0;

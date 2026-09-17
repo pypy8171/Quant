@@ -26,7 +26,7 @@ TRADE 모드에서 틱 하나가 들어와 주문이 나가고 체결이 원장�
 diagram = """
 flowchart LR
   subgraph recv[1. 수신 — 소켓 스레드 N]
-    WS[KisWebSocket::recv_loop] --> DEC[kis_ws::decode_*] --> CB[Engine WS 콜백]
+    WS[KisWebSocket::recv_loop] --> DEC[kis_websocket::decode_*] --> CB[Engine WS 콜백]
   end
   subgraph mx[SPSC 링 행렬]
     CB --> TD[td_mx_ / ob_mx_ (행=수신 레인, 열=샤드)]
@@ -41,7 +41,7 @@ flowchart LR
     SO --> SD[SignalDispatcher::from_strategy] --> OQ[order_queue_ SPSC]
   end
   subgraph ord[4. 주문 스레드]
-    OQ --> PC[OrderPacer] --> OR[OrderRouter::submit] --> OG[OrderGate::check] --> KIS[KisClient::submit_order_ack]
+    OQ --> PC[OrderPacer] --> OR[OrderRouter::submit] --> OG[OrderGate::check] --> KIS[KisClient::submit_order_acknowledgement]
   end
   subgraph fill[5. 체결 스레드]
     FN[parse_fill_notification] --> FQ[fill_queue_ SPSC] --> OF[OrderRouter::on_fill] --> OGF[OrderGate::on_fill_confirmed]
@@ -134,13 +134,13 @@ review = [
   what = "`decode_kr_trade` → `trade.symbol_id`(SymbolTable) → `received_ns` 스탬프 → `on_trade_` 콜백. 호가는 `parse_orderbook`이 같은 모양"
 
   [[stage.step]]
-  sym = "kis_ws::decode_kr_trade"
+  sym = "kis_websocket::decode_kr_trade"
   file = "Quant/include/api/KisWsDecode.h"
   what = "순수 함수. 필드 인덱스 → `TradeData`(가격·수량·`hhmmss` 정수·방향). 필드 번호가 [wire] 정본"
   test = "test_ws_decode"
 
   [[stage.step]]
-  sym = "kis_ws::decode_orderbook"
+  sym = "kis_websocket::decode_orderbook"
   file = "Quant/include/api/KisWsDecode.h"
   what = "5단계 호가 → `OrderBook`. 매도·매수 가격/잔량 필드 위치"
   test = "test_ws_decode"
@@ -183,7 +183,7 @@ summary = "샤드 m은 자기 열만 비운다. 틱의 종목 id로 그 종목�
 review = [
   "전략이 문자열로 종목을 비교하는 곳이 있는지 — `same_symbol`/`trade.symbol_id` 정수 비교여야 한다(원칙 6)",
   "전략 `on_*`이 블로킹 I/O(REST)를 직접 부르는지 — DeviationScale은 프리페치 스레드로 뺐다",
-  "`ref_price`를 시장가 신호에 찍는지 — 없으면 명목 백스톱이 우회된다(Types.h 주석)",
+  "`reference_price`를 시장가 신호에 찍는지 — 없으면 명목 백스톱이 우회된다(Types.h 주석)",
   "한 전략의 구독 종목이 열 둘에 걸치지 않는지(`owner_shard` 경고)",
 ]
 
@@ -222,7 +222,7 @@ review = [
   [[stage.step]]
   sym = "DeviationScaleStrategy::on_trade_batch"
   file = "Quant/include/strategy/DeviationScaleStrategy.h"
-  what = "틱 → `agg_.on_tick` → 판단 직전 `close_stale`·`bars::resample` → 진입/청산 판단 → out. 매매 로직의 본체"
+  what = "틱 → `aggregator_.on_tick` → 판단 직전 `close_stale`·`bars::resample` → 진입/청산 판단 → out. 매매 로직의 본체"
 
   [[stage.step]]
   sym = "bars::BarAggregator::on_tick"
@@ -239,7 +239,7 @@ review = [
   [[stage.step]]
   sym = "DeviationScaleStrategy::emit_liquidation"
   file = "Quant/include/strategy/DeviationScaleStrategy.h"
-  what = "청산 신호 조립 — 시장가면 `ref_price` 스탬프, 매도 가능 수량은 원장 접근자(`sellable_qty`, 동기 잔고조회 금지)"
+  what = "청산 신호 조립 — 시장가면 `reference_price` 스탬프, 매도 가능 수량은 원장 접근자(`sellable_quantity`, 동기 잔고조회 금지)"
 
 # ───────────────────────────────────────────────────────────────────────────────
 
@@ -279,7 +279,7 @@ review = [
   [[stage.step]]
   sym = "dispatch::SignalDispatcher::force_liquidate"
   file = "Quant/src/core/SignalDispatcher.cpp"
-  what = "보유 전량 시장가 매도를 2초 간격 재발주. `ref_price`가 여기서 찍히는지 본다"
+  what = "보유 전량 시장가 매도를 2초 간격 재발주. `reference_price`가 여기서 찍히는지 본다"
   test = "test_signal_dispatcher"
 
   [[stage.step]]
@@ -297,7 +297,7 @@ review = [
   "게이트 거부 사유 문장이 `GateReasons.h` 한 곳에서 오는지(D-067) — 조절기가 문장으로 분류하므로 흩어지면 깨진다",
   "청산 SELL의 재시도가 BUY와 다르게 분류되는지(유량 한도는 action 불문, 40240000 제외)",
   "`on_accept`가 KIS ack 뒤에만 불려 `reserved_`가 선점되는지 — 거부인데 선점되면 슬롯이 샌다",
-  "시장가 명목 검사가 `ref_price`로 되는지(`price`=0)",
+  "시장가 명목 검사가 `reference_price`로 되는지(`price`=0)",
 ]
 
   [[stage.step]]
@@ -320,7 +320,7 @@ review = [
   [[stage.step]]
   sym = "OrderRouter::submit"
   file = "Quant/src/ipc/OrderRouter.cpp"
-  what = "`gate_.check` → `kis_.submit_order_ack`(ODNO·KRX 조직번호) → `gate_.on_accept` → 원장 CSV 행(`seq` 동반). 실패 경로마다 무엇이 되돌려지는지"
+  what = "`gate_.check` → `kis_.submit_order_acknowledgement`(ODNO·KRX 조직번호) → `gate_.on_accept` → 원장 CSV 행(`seq` 동반). 실패 경로마다 무엇이 되돌려지는지"
   test = "test_order_router"
 
   [[stage.step]]
@@ -330,7 +330,7 @@ review = [
   test = "test_order_gate"
 
   [[stage.step]]
-  sym = "OrderGate::clamp_buy_qty"
+  sym = "OrderGate::clamp_buy_quantity"
   file = "Quant/src/risk/OrderGate.cpp"
   what = "매수 수량을 현금·명목 한도로 깎는다. 0이 되면 거부"
   test = "test_order_gate"
@@ -348,9 +348,9 @@ review = [
   test = "test_order_gate"
 
   [[stage.step]]
-  sym = "KisClient::submit_order_ack"
+  sym = "KisClient::submit_order_acknowledgement"
   file = "Quant/src/api/KisOrder.cpp"
-  what = "현금 주문 REST. tr_id(실/모의)·`auth_headers`·응답에서 ODNO. 여기서만 KIS에 주문이 닿는다"
+  what = "현금 주문 REST. tr_id(실/모의)·`authentication_headers`·응답에서 ODNO. 여기서만 KIS에 주문이 닿는다"
 
   [[stage.step]]
   sym = "trace::LatencyTrace::record"
@@ -376,7 +376,7 @@ review = [
   what = "AES 복호화 → `decode_fill` → `on_fill_` 콜백(Engine이 `fill_queue_.push`)"
 
   [[stage.step]]
-  sym = "kis_ws::decode_fill"
+  sym = "kis_websocket::decode_fill"
   file = "Quant/include/api/KisWsDecode.h"
   what = "체결통보 필드 → `FillNotification`(ODNO·체결/거부·수량·가격). 거부 통보도 같은 채널"
   test = "test_ws_decode"

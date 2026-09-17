@@ -20,7 +20,7 @@ using ReservedFn = std::function<int(const std::string& account, const std::stri
 
 // 강제청산 매도 — 보유마다 이미 낸 미체결 매도를 뺀 잔량을 시장가로. 잔량이 남는 한 다음 주기에 다시 만든다.
 //  시장가라 price=0 → 명목 백스톱이 우회되지 않게 평단을 ref_price에 stamp한다(현재가가 없는 경로라 평단이 최선).
-std::vector<OrderSignal> force_liq_orders(const std::vector<OrderGate::HeldPos>& held, const ReservedFn& reserved);
+std::vector<OrderSignal> force_liquidation_orders(const std::vector<OrderGate::HeldPos>& held, const ReservedFn& reserved);
 
 // 종목당 명목 한도 초과분 정리 — 한도수량(cap_notional/평단)을 넘는 만큼만 시장가 매도. 이미 낸 미체결 매도는
 //  곧 줄어들 분량이라 뺀다. cap_notional≤0이면 비어 있다.
@@ -44,7 +44,7 @@ public:
 
     void set_label(LabelFn label) { label_ = std::move(label); }
     void set_guardian(GuardFn guardian) { guardian_ = std::move(guardian); }
-    void set_liq_interval(std::chrono::milliseconds ms) { liq_interval_ = ms; }
+    void set_liquidation_interval(std::chrono::milliseconds milliseconds) { liquidation_interval_ = milliseconds; }
     void set_trim_at(Clock::time_point at) { trim_at_ = at; }
 
     // 전략이 낸 신호. 비활성 전략의 BUY NEW는 버리고(청산·취소·정정은 통과 — entry_halt와 같은 규약), 청산 관리
@@ -63,7 +63,7 @@ public:
     // 종목당 명목 한도 초과분 정리 — trim_at 이후 한 번만. 매 루프 부른다.
     void trim_excess_once(Clock::time_point now);
 
-    uint64_t           sequence() const { return seq_; }           // 마지막으로 부여한 순번(0=아직 없음)
+    uint64_t           sequence() const { return sequence_; }           // 마지막으로 부여한 순번(0=아직 없음)
     std::size_t        held_count() const { return held_.size(); }
     const std::string& held_ticker() const { return held_ticker_; }
     bool               trim_done() const { return trim_done_; }
@@ -79,7 +79,7 @@ private:
     GuardFn    guardian_;
 
     // [inv] 단조 증가, strategy_thread 전용. 게이트 거부·큐 드롭·접수·체결 행이 전부 이 번호를 물고 간다. [why D-038]
-    uint64_t seq_ = 0;
+    uint64_t sequence_ = 0;
 
     // 교체 진입 보류 — 최약체 매도를 낸 뒤 수혜 종목의 매수(rung 전부)를 자리가 날 때까지 든다. [why D-019]
     std::vector<OrderSignal> held_;
@@ -88,8 +88,8 @@ private:
 
     std::unordered_set<std::string> guard_logged_; // 청산 관리 차단 로그는 종목당 한 번
 
-    Clock::time_point         last_liq_;
-    std::chrono::milliseconds liq_interval_{2000}; // dedup 윈도우(1s)보다 길어야 재발주가 통과한다
+    Clock::time_point         last_liquidation_;
+    std::chrono::milliseconds liquidation_interval_{2000}; // deduplicate 윈도우(1s)보다 길어야 재발주가 통과한다
     Clock::time_point         trim_at_;
     bool                      trim_done_ = false;
 };

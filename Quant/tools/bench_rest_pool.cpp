@@ -4,7 +4,7 @@
 //   재는 것: KisClient의 HTTP 왕복 1회(요청 조립 → 전송 → 응답 수신·파싱)에 걸린 벽시계 시간.
 //   비교 축은 하나뿐이다 — 커넥션 풀링 유무. 같은 바이너리를 환경변수로만 나눠 두 번 돌린다.
 //
-//     풀링 ON  (기본)             : hSession/hConnect 상주 → TCP+TLS 핸드셰이크를 최초 1회만
+//     풀링 ON  (기본)             : session_handle/connect_handle 상주 → TCP+TLS 핸드셰이크를 최초 1회만
 //     풀링 OFF (QUANT_HTTP_NOPOOL=1): 매 요청 뒤 연결 파기 → 요청마다 핸드셰이크 재지불
 //
 //   주문(POST)이 아니라 조회(GET)로 재는 이유: 주문 왕복은 전략 신호에 의존해 통제가 안 되고,
@@ -43,7 +43,7 @@ using json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 
 // 정렬된 표본에서 백분위수 — 최근접 순위(nearest-rank).
-static double pct(const std::vector<double>& sorted, double price)
+static double percent(const std::vector<double>& sorted, double price)
 {
     if (sorted.empty())
     {
@@ -94,31 +94,31 @@ int main(int argc, char** argv)
     json config = json::parse(file);
 
     const char* block = config.contains("quote_kis") ? "quote_kis" : "kis";
-    const json& kb = config[block];
+    const json& kis_block = config[block];
 
-    KisConfig kc;
-    kc.app_key    = kb.value("app_key", "");
-    kc.app_secret = kb.value("app_secret", "");
-    kc.is_paper   = kb.value("is_paper", false);
+    KisConfig kis_config;
+    kis_config.app_key    = kis_block.value("app_key", "");
+    kis_config.app_secret = kis_block.value("app_secret", "");
+    kis_config.is_paper   = kis_block.value("is_paper", false);
 
     const char* np = std::getenv("QUANT_HTTP_NOPOOL");
     const bool nopool = np && *np == '1';
 
     std::cout << "=== REST 커넥션 풀링 벤치 (P-2) ===\n";
     std::cout << "config=" << config_path << "  키블록=" << block
-              << "  is_paper=" << (kc.is_paper ? "true" : "false") << "\n";
+              << "  is_paper=" << (kis_config.is_paper ? "true" : "false") << "\n";
     std::cout << "ticker=" << ticker << "  n=" << count << "  pace=" << pace_ms << "ms\n";
     std::cout << "커넥션 풀링 = " << (nopool ? "OFF (QUANT_HTTP_NOPOOL=1 — 요청마다 TCP+TLS 재수립)"
                                              : "ON (상주 연결 재사용)")
               << "\n\n";
 
-    if (kc.is_paper)
+    if (kis_config.is_paper)
     {
         std::cout << "[경고] is_paper=true 시세키 — 모의 도메인은 시세 REST 미지원이라 HTTP500이 예상됩니다.\n"
                      "       config에 실전 quote_kis 블록을 두거나 실전 config를 쓰세요.\n\n";
     }
 
-    KisClient kis(kc);
+    KisClient kis(kis_config);
 
     if (!kis.authenticate())
     {
@@ -139,21 +139,21 @@ int main(int argc, char** argv)
 
     std::cout << "[2] 워밍업 " << kWarmup << "회 완료\n";
 
-    std::vector<double> ms;
-    ms.reserve(static_cast<size_t>(count));
+    std::vector<double> milliseconds;
+    milliseconds.reserve(static_cast<size_t>(count));
     int fail = 0;
 
     for (int index = 0; index < count; ++index)
     {
         auto start_time = Clock::now();
         double price = kis.get_current_price(ticker);
-        auto t1 = Clock::now();
+        auto end_time = Clock::now();
 
-        double dt = std::chrono::duration<double, std::milli>(t1 - start_time).count();
+        double dt = std::chrono::duration<double, std::milli>(end_time - start_time).count();
 
         if (price > 0.0)
         {
-            ms.push_back(dt);
+            milliseconds.push_back(dt);
         }
         else
         {
@@ -166,15 +166,15 @@ int main(int argc, char** argv)
         }
     }
 
-    std::cout << "[3] 측정 " << count << "회 완료 (성공 " << ms.size() << " / 실패 " << fail << ")\n\n";
+    std::cout << "[3] 측정 " << count << "회 완료 (성공 " << milliseconds.size() << " / 실패 " << fail << ")\n\n";
 
-    if (ms.empty())
+    if (milliseconds.empty())
     {
         std::cerr << "[중단] 성공 표본 0 — 시세키/도메인/장 상태를 확인하세요.\n";
         return 4;
     }
 
-    std::vector<double> sorted_samples = ms;
+    std::vector<double> sorted_samples = milliseconds;
     std::sort(sorted_samples.begin(), sorted_samples.end());
     double sum = 0.0;
 
@@ -187,9 +187,9 @@ int main(int argc, char** argv)
     std::cout << "── 호출당 지연 (ms) ──────────────────────\n";
     std::cout << "  표본        " << sorted_samples.size() << "\n";
     std::cout << "  최소        " << sorted_samples.front() << "\n";
-    std::cout << "  중앙값(p50) " << pct(sorted_samples, 50) << "\n";
-    std::cout << "  p90         " << pct(sorted_samples, 90) << "\n";
-    std::cout << "  p99         " << pct(sorted_samples, 99) << "\n";
+    std::cout << "  중앙값(p50) " << percent(sorted_samples, 50) << "\n";
+    std::cout << "  p90         " << percent(sorted_samples, 90) << "\n";
+    std::cout << "  p99         " << percent(sorted_samples, 99) << "\n";
     std::cout << "  최대        " << sorted_samples.back() << "\n";
     std::cout << "  평균        " << (sum / static_cast<double>(sorted_samples.size())) << "\n";
     std::cout << "──────────────────────────────────────────\n";

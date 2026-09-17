@@ -2,7 +2,7 @@
 // End-to-End 파이프라인 부하 테스트
 //
 // 시뮬레이션 구조:
-//   WS recv_thread → ob_queue_/td_queue_ → strategy_thread
+//   WS recv_thread → order_book_queue_/trade_queue_ → strategy_thread
 //                                        → order_queue_ → order_thread
 //                 → fill_queue_ → fill_thread            (체결통보, D-056 — 소비자는 condvar로 잠들고 생산자가 깨운다)
 //
@@ -10,7 +10,7 @@
 // Windows Sleep 부정확성 회피를 위해 busy-wait 기반 rate limiting 사용.
 //
 // 사용법: test_pipeline_stress [duration_sec] [mode]
-//   mode: "normal" (기본, 3,000 message/sec) | "burst" (14,000 message/sec)
+//   mode: "normal" (기본, 3,000 message/seconds) | "burst" (14,000 message/seconds)
 
 #include "core/RingBuffer.h"
 #include <condition_variable>
@@ -28,8 +28,8 @@
 #include <cstdint>
 #include <cstdio>
 
-using clk = std::chrono::steady_clock;
-using ns = std::chrono::nanoseconds;
+using steady_clock = std::chrono::steady_clock;
+using nanoseconds = std::chrono::nanoseconds;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 티커 200개 동적 생성
@@ -57,9 +57,9 @@ struct MockOrderBook {
     int64_t  send_ts_ns;
     uint64_t sequence;
     double   ask_price[5];
-    int64_t  ask_qty[5];
+    int64_t  ask_quantity[5];
     double   bid_price[5];
-    int64_t  bid_qty[5];
+    int64_t  bid_quantity[5];
 };
 
 struct MockTradeData {
@@ -82,7 +82,7 @@ struct MockFill {
 struct MockOrderSignal {
     char     ticker[8];
     int64_t  send_ts_ns;
-    uint64_t origin_seq;   // 어느 입력 메시지에서 파생됐는가
+    uint64_t origin_sequence;   // 어느 입력 메시지에서 파생됐는가
     int      side;          // 0=BUY, 1=SELL
     int      quantity;
 };
@@ -90,8 +90,8 @@ struct MockOrderSignal {
 // ─────────────────────────────────────────────────────────────────────────────
 // Busy-wait 기반 정확한 sleep (Windows Sleep 부정확성 회피)
 // ─────────────────────────────────────────────────────────────────────────────
-static inline void busy_wait_until(clk::time_point deadline) {
-    while (clk::now() < deadline) {
+static inline void busy_wait_until(steady_clock::time_point deadline) {
+    while (steady_clock::now() < deadline) {
         // pure busy spin — Windows scheduler 회피
     }
 }
@@ -100,21 +100,21 @@ static inline void busy_wait_until(clk::time_point deadline) {
 // 통계
 // ─────────────────────────────────────────────────────────────────────────────
 struct PipelineStats {
-    std::atomic<uint64_t> ob_produced{ 0 };
-    std::atomic<uint64_t> ob_consumed{ 0 };
-    std::atomic<uint64_t> td_produced{ 0 };
-    std::atomic<uint64_t> td_consumed{ 0 };
+    std::atomic<uint64_t> order_book_produced{ 0 };
+    std::atomic<uint64_t> order_book_consumed{ 0 };
+    std::atomic<uint64_t> trade_produced{ 0 };
+    std::atomic<uint64_t> trade_consumed{ 0 };
     std::atomic<uint64_t> signals_generated{ 0 };
     std::atomic<uint64_t> orders_processed{ 0 };
-    std::atomic<uint64_t> ob_drops{ 0 };
-    std::atomic<uint64_t> td_drops{ 0 };
+    std::atomic<uint64_t> order_book_drops{ 0 };
+    std::atomic<uint64_t> trade_drops{ 0 };
     std::atomic<uint64_t> order_drops{ 0 };
     std::atomic<uint64_t> fill_produced{ 0 };
     std::atomic<uint64_t> fill_consumed{ 0 };
     std::atomic<uint64_t> fill_drops{ 0 };
     // fill_thread 깨우기(Engine::fill_wake_*와 같은 방식)
-    std::mutex              fill_wake_mtx;
-    std::condition_variable fill_wake_cv;
+    std::mutex              fill_wake_mutex;
+    std::condition_variable fill_wake_condition_variable;
     std::atomic<bool>       fill_sleeping{ false };
 
     // 전 구간(E2E) latency: producer push → order_thread 처리 완료
@@ -127,106 +127,106 @@ struct PipelineStats {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WS 시뮬레이션 Producer
-//   - N_TICKERS 종목, 종목당 ob_rate OB/sec + td_rate TD/sec
+//   - N_TICKERS 종목, 종목당 order_book_rate OB/seconds + trade_rate TD/seconds
 // ─────────────────────────────────────────────────────────────────────────────
-static void ws_producer_fn(RingBuffer<MockOrderBook>& ob_q,
-    RingBuffer<MockTradeData>& td_q,
-    RingBuffer<MockFill>& fill_q,
-    PipelineStats& stats,
+static void websocket_producer_fn(RingBuffer<MockOrderBook>& order_book_queue,
+    RingBuffer<MockTradeData>& trade_queue,
+    RingBuffer<MockFill>& fill_queue,
+    PipelineStats& statistics,
     std::atomic<bool>& stop_flag,
     int duration_sec,
-    int ob_rate,
-    int td_rate)
+    int order_book_rate,
+    int trade_rate)
 {
     static const auto TICKERS = make_tickers();  // 한 번만 생성
 
-    const int     total_rate = N_TICKERS * (ob_rate + td_rate);
+    const int     total_rate = N_TICKERS * (order_book_rate + trade_rate);
     const int64_t INTERVAL_US = 1'000'000 / total_rate;
 
-    std::mt19937 rng(42);
+    std::mt19937 random_engine(42);
     std::uniform_int_distribution<int> ticker_dist(0, N_TICKERS - 1);
-    // OB:TD 비율을 type_dist 범위로 근사 — ob_rate/(ob_rate+td_rate) 확률로 OB, 나머지 TD
-    const int type_range = ob_rate + td_rate;
+    // OB:TD 비율을 type_dist 범위로 근사 — order_book_rate/(order_book_rate+trade_rate) 확률로 OB, 나머지 TD
+    const int type_range = order_book_rate + trade_rate;
     std::uniform_int_distribution<int> type_dist(0, type_range - 1);
 
-    auto deadline = clk::now() + std::chrono::seconds(duration_sec);
-    auto next_send = clk::now();
+    auto deadline = steady_clock::now() + std::chrono::seconds(duration_sec);
+    auto next_send = steady_clock::now();
     uint64_t sequence = 0;
-    uint64_t fill_seq = 0;
+    uint64_t fill_sequence = 0;
 
-    while (!stop_flag.load(std::memory_order_relaxed) && clk::now() < deadline) {
+    while (!stop_flag.load(std::memory_order_relaxed) && steady_clock::now() < deadline) {
         busy_wait_until(next_send);
         next_send += std::chrono::microseconds(INTERVAL_US);
 
-        int     tk_idx = ticker_dist(rng);
-        bool    is_ob = (type_dist(rng) < ob_rate);
-        int64_t now_ns = std::chrono::duration_cast<ns>(
-            clk::now().time_since_epoch()).count();
+        int     ticker_index = ticker_dist(random_engine);
+        bool    is_order_book = (type_dist(random_engine) < order_book_rate);
+        int64_t now_ns = std::chrono::duration_cast<nanoseconds>(
+            steady_clock::now().time_since_epoch()).count();
 
         // 체결통보는 같은 수신 스레드가 시세 사이에 끼워 넣는다(실물과 같은 단일 생산자). 시세 500건당 1건 —
         //  실장(하루 수백 건)보다 훨씬 잦게 넣어 소비자 폴링이 밀리는지 본다.
         if (sequence % 500 == 0) {
             MockFill mock_fill{};
-            std::memcpy(mock_fill.ticker, TICKERS[tk_idx].c_str(), 7);
+            std::memcpy(mock_fill.ticker, TICKERS[ticker_index].c_str(), 7);
             mock_fill.send_ts_ns = now_ns;
-            mock_fill.sequence = fill_seq++;
-            mock_fill.quantity = 1 + static_cast<int>(fill_seq % 10);
+            mock_fill.sequence = fill_sequence++;
+            mock_fill.quantity = 1 + static_cast<int>(fill_sequence % 10);
             mock_fill.price = 70000.0;
 
-            if (fill_q.push(mock_fill))
+            if (fill_queue.push(mock_fill))
             {
-                stats.fill_produced.fetch_add(1, std::memory_order_relaxed);
+                statistics.fill_produced.fetch_add(1, std::memory_order_relaxed);
                 std::atomic_thread_fence(std::memory_order_seq_cst);
 
-                if (stats.fill_sleeping.load(std::memory_order_relaxed))
+                if (statistics.fill_sleeping.load(std::memory_order_relaxed))
                 {
-                    stats.fill_wake_cv.notify_one();
+                    statistics.fill_wake_condition_variable.notify_one();
                 }
             }
             else
             {
-                stats.fill_drops.fetch_add(1, std::memory_order_relaxed);
+                statistics.fill_drops.fetch_add(1, std::memory_order_relaxed);
             }
         }
 
-        if (is_ob) {
+        if (is_order_book) {
             MockOrderBook order_book{};
-            std::memcpy(order_book.ticker, TICKERS[tk_idx].c_str(), 7);
+            std::memcpy(order_book.ticker, TICKERS[ticker_index].c_str(), 7);
             order_book.send_ts_ns = now_ns;
             order_book.sequence = sequence++;
 
             for (int index = 0; index < 5; ++index) {
                 order_book.ask_price[index] = 70000.0 + index * 10;
-                order_book.ask_qty[index] = 100 * (index + 1);
+                order_book.ask_quantity[index] = 100 * (index + 1);
                 order_book.bid_price[index] = 69990.0 - index * 10;
-                order_book.bid_qty[index] = 100 * (index + 1);
+                order_book.bid_quantity[index] = 100 * (index + 1);
             }
 
-            if (ob_q.push(order_book))
+            if (order_book_queue.push(order_book))
             {
-                stats.ob_produced.fetch_add(1, std::memory_order_relaxed);
+                statistics.order_book_produced.fetch_add(1, std::memory_order_relaxed);
             }
             else
             {
-                stats.ob_drops.fetch_add(1, std::memory_order_relaxed);
+                statistics.order_book_drops.fetch_add(1, std::memory_order_relaxed);
             }
         }
         else {
             MockTradeData trade{};
-            std::memcpy(trade.ticker, TICKERS[tk_idx].c_str(), 7);
+            std::memcpy(trade.ticker, TICKERS[ticker_index].c_str(), 7);
             trade.send_ts_ns = now_ns;
             trade.sequence = sequence++;
             trade.price = 70000.0 + (sequence % 100);
             trade.quantity = 10 + (sequence % 50);
             trade.direction = (sequence % 2) ? 1 : 5;
 
-            if (td_q.push(trade))
+            if (trade_queue.push(trade))
             {
-                stats.td_produced.fetch_add(1, std::memory_order_relaxed);
+                statistics.trade_produced.fetch_add(1, std::memory_order_relaxed);
             }
             else
             {
-                stats.td_drops.fetch_add(1, std::memory_order_relaxed);
+                statistics.trade_drops.fetch_add(1, std::memory_order_relaxed);
             }
         }
     }
@@ -234,26 +234,26 @@ static void ws_producer_fn(RingBuffer<MockOrderBook>& ob_q,
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Strategy Thread 시뮬레이션
-//   - ob_queue, td_queue 소비하며 신호 생성
+//   - order_book_queue, trade_queue 소비하며 신호 생성
 //   - 신호 발생 빈도: OB 100건당 1개, TD 200건당 1개
 //   - OB와 TD 카운터 분리해서 빈도 의도대로 보장
 // ─────────────────────────────────────────────────────────────────────────────
-static void strategy_fn(RingBuffer<MockOrderBook>& ob_q,
-    RingBuffer<MockTradeData>& td_q,
-    RingBuffer<MockOrderSignal>& order_q,
-    PipelineStats& stats,
+static void strategy_fn(RingBuffer<MockOrderBook>& order_book_queue,
+    RingBuffer<MockTradeData>& trade_queue,
+    RingBuffer<MockOrderSignal>& order_queue,
+    PipelineStats& statistics,
     std::atomic<bool>& stop_flag)
 {
-    uint64_t ob_counter = 0;
-    uint64_t td_counter = 0;
+    uint64_t order_book_counter = 0;
+    uint64_t trade_counter = 0;
 
     while (!stop_flag.load(std::memory_order_relaxed)
-        || !ob_q.empty() || !td_q.empty())
+        || !order_book_queue.empty() || !trade_queue.empty())
     {
         bool did_work = false;
 
-        while (auto option = ob_q.pop()) {
-            stats.ob_consumed.fetch_add(1, std::memory_order_relaxed);
+        while (auto option = order_book_queue.pop()) {
+            statistics.order_book_consumed.fetch_add(1, std::memory_order_relaxed);
             volatile double sink = 0.0;
 
             for (int index = 0; index < 5; ++index)
@@ -263,47 +263,47 @@ static void strategy_fn(RingBuffer<MockOrderBook>& ob_q,
 
             (void)sink;
 
-            if (++ob_counter % 100 == 0) {
+            if (++order_book_counter % 100 == 0) {
                 MockOrderSignal signal{};
                 std::memcpy(signal.ticker, option->ticker, 7);
                 signal.send_ts_ns = option->send_ts_ns;
-                signal.origin_seq = option->sequence;
+                signal.origin_sequence = option->sequence;
                 signal.side = 0;
                 signal.quantity = 10;
 
-                if (order_q.push(signal))
+                if (order_queue.push(signal))
                 {
-                    stats.signals_generated.fetch_add(1, std::memory_order_relaxed);
+                    statistics.signals_generated.fetch_add(1, std::memory_order_relaxed);
                 }
                 else
                 {
-                    stats.order_drops.fetch_add(1, std::memory_order_relaxed);
+                    statistics.order_drops.fetch_add(1, std::memory_order_relaxed);
                 }
             }
 
             did_work = true;
         }
 
-        while (auto option = td_q.pop()) {
-            stats.td_consumed.fetch_add(1, std::memory_order_relaxed);
+        while (auto option = trade_queue.pop()) {
+            statistics.trade_consumed.fetch_add(1, std::memory_order_relaxed);
             volatile double sink = option->price * option->quantity;
             (void)sink;
 
-            if (++td_counter % 200 == 0) {
+            if (++trade_counter % 200 == 0) {
                 MockOrderSignal signal{};
                 std::memcpy(signal.ticker, option->ticker, 7);
                 signal.send_ts_ns = option->send_ts_ns;
-                signal.origin_seq = option->sequence;
+                signal.origin_sequence = option->sequence;
                 signal.side = 1;
                 signal.quantity = 5;
 
-                if (order_q.push(signal))
+                if (order_queue.push(signal))
                 {
-                    stats.signals_generated.fetch_add(1, std::memory_order_relaxed);
+                    statistics.signals_generated.fetch_add(1, std::memory_order_relaxed);
                 }
                 else
                 {
-                    stats.order_drops.fetch_add(1, std::memory_order_relaxed);
+                    statistics.order_drops.fetch_add(1, std::memory_order_relaxed);
                 }
             }
 
@@ -318,65 +318,65 @@ static void strategy_fn(RingBuffer<MockOrderBook>& ob_q,
 // Order Thread 시뮬레이션
 //   - 내부 파이프라인 latency만 측정 (외부 REST 지연 시뮬레이션 제거)
 // ─────────────────────────────────────────────────────────────────────────────
-static void order_fn(RingBuffer<MockOrderSignal>& order_q,
-    PipelineStats& stats,
+static void order_fn(RingBuffer<MockOrderSignal>& order_queue,
+    PipelineStats& statistics,
     std::atomic<bool>& stop_flag)
 {
-    while (!stop_flag.load(std::memory_order_relaxed) || !order_q.empty()) {
-        auto option = order_q.pop();
+    while (!stop_flag.load(std::memory_order_relaxed) || !order_queue.empty()) {
+        auto option = order_queue.pop();
 
         if (!option) {
             continue;   // busy spin
         }
 
         // E2E latency: producer push 시각 → 여기 도달 시각
-        int64_t now_ns = std::chrono::duration_cast<ns>(
-            clk::now().time_since_epoch()).count();
+        int64_t now_ns = std::chrono::duration_cast<nanoseconds>(
+            steady_clock::now().time_since_epoch()).count();
         int64_t latency = now_ns - option->send_ts_ns;
 
         if (latency >= 0)
         {
-            stats.e2e_latencies_ns.push_back(latency);
+            statistics.e2e_latencies_ns.push_back(latency);
         }
 
-        stats.orders_processed.fetch_add(1, std::memory_order_relaxed);
+        statistics.orders_processed.fetch_add(1, std::memory_order_relaxed);
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fill Thread 시뮬레이션 — Engine::fill_thread_fn과 같은 condvar 잠들기·깨우기. 원장 반영 비용은 넣지 않는다.
 // ─────────────────────────────────────────────────────────────────────────────
-static void fill_fn(RingBuffer<MockFill>& fill_q,
-    PipelineStats& stats,
+static void fill_fn(RingBuffer<MockFill>& fill_queue,
+    PipelineStats& statistics,
     std::atomic<bool>& stop_flag)
 {
-    while (!stop_flag.load(std::memory_order_relaxed) || !fill_q.empty()) {
-        auto option = fill_q.pop();
+    while (!stop_flag.load(std::memory_order_relaxed) || !fill_queue.empty()) {
+        auto option = fill_queue.pop();
 
         if (!option) {
-            std::unique_lock<std::mutex> lock(stats.fill_wake_mtx);
-            stats.fill_sleeping.store(true, std::memory_order_relaxed);
+            std::unique_lock<std::mutex> lock(statistics.fill_wake_mutex);
+            statistics.fill_sleeping.store(true, std::memory_order_relaxed);
             std::atomic_thread_fence(std::memory_order_seq_cst);
 
-            if (fill_q.empty() && !stop_flag.load(std::memory_order_relaxed))
+            if (fill_queue.empty() && !stop_flag.load(std::memory_order_relaxed))
             {
-                stats.fill_wake_cv.wait_for(lock, std::chrono::milliseconds(100));
+                statistics.fill_wake_condition_variable.wait_for(lock, std::chrono::milliseconds(100));
             }
 
-            stats.fill_sleeping.store(false, std::memory_order_relaxed);
+            statistics.fill_sleeping.store(false, std::memory_order_relaxed);
             continue;
         }
 
-        int64_t now_ns = std::chrono::duration_cast<ns>(
-            clk::now().time_since_epoch()).count();
+        int64_t now_ns = std::chrono::duration_cast<nanoseconds>(
+            steady_clock::now().time_since_epoch()).count();
         int64_t latency = now_ns - option->send_ts_ns;
 
         if (latency >= 0)
         {
-            stats.fill_latencies_ns.push_back(latency);
+            statistics.fill_latencies_ns.push_back(latency);
         }
 
-        stats.fill_consumed.fetch_add(1, std::memory_order_relaxed);
+        statistics.fill_consumed.fetch_add(1, std::memory_order_relaxed);
     }
 }
 
@@ -389,7 +389,7 @@ static void print_latency(std::vector<int64_t>& values, const char* label) {
     if (values.empty()) { std::cout << "  (no samples)\n"; return; }
     std::sort(values.begin(), values.end());
 
-    auto pct = [&](double price) {
+    auto percent = [&](double price) {
         size_t index = static_cast<size_t>(values.size() * price);
 
         if (index >= values.size())
@@ -399,7 +399,7 @@ static void print_latency(std::vector<int64_t>& values, const char* label) {
 
         return values[index];
         };
-    auto fmt = [](int64_t count) -> std::string {
+    auto format = [](int64_t count) -> std::string {
         char buffer[32];
 
         if (count < 1000)
@@ -418,11 +418,11 @@ static void print_latency(std::vector<int64_t>& values, const char* label) {
         return std::string(buffer);
         };
 
-    std::cout << "  p50:  " << fmt(pct(0.50)) << "\n"
-        << "  p90:  " << fmt(pct(0.90)) << "\n"
-        << "  p99:  " << fmt(pct(0.99)) << "\n"
-        << "  p999: " << fmt(pct(0.999)) << "\n"
-        << "  max:  " << fmt(values.back()) << "\n";
+    std::cout << "  p50:  " << format(percent(0.50)) << "\n"
+        << "  p90:  " << format(percent(0.90)) << "\n"
+        << "  p99:  " << format(percent(0.99)) << "\n"
+        << "  p999: " << format(percent(0.999)) << "\n"
+        << "  max:  " << format(values.back()) << "\n";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -458,84 +458,84 @@ int main(int argc, char** argv) {
         << N_TICKERS * TD_PER_TICKER << "/sec)\n";
     std::cout << "Total in       : " << N_TICKERS * (OB_PER_TICKER + TD_PER_TICKER) << " msg/sec\n\n";
 
-    RingBuffer<MockOrderBook>   ob_q(16384);
-    RingBuffer<MockTradeData>   td_q(16384);
-    RingBuffer<MockOrderSignal> order_q(1024);
-    RingBuffer<MockFill>        fill_q(1024);   // Engine::fill_queue_와 같은 깊이
+    RingBuffer<MockOrderBook>   order_book_queue(16384);
+    RingBuffer<MockTradeData>   trade_queue(16384);
+    RingBuffer<MockOrderSignal> order_queue(1024);
+    RingBuffer<MockFill>        fill_queue(1024);   // Engine::fill_queue_와 같은 깊이
 
-    PipelineStats stats;
-    stats.e2e_latencies_ns.reserve(500'000);
-    stats.fill_latencies_ns.reserve(10'000);
+    PipelineStats statistics;
+    statistics.e2e_latencies_ns.reserve(500'000);
+    statistics.fill_latencies_ns.reserve(10'000);
     std::atomic<bool> stop_flag{ false };
 
-    auto start_time = clk::now();
+    auto start_time = steady_clock::now();
 
-    std::thread t_ws(ws_producer_fn, std::ref(ob_q), std::ref(td_q), std::ref(fill_q),
-        std::ref(stats), std::ref(stop_flag), duration,
+    std::thread websocket_thread(websocket_producer_fn, std::ref(order_book_queue), std::ref(trade_queue), std::ref(fill_queue),
+        std::ref(statistics), std::ref(stop_flag), duration,
         OB_PER_TICKER, TD_PER_TICKER);
-    std::thread t_strat(strategy_fn, std::ref(ob_q), std::ref(td_q),
-        std::ref(order_q), std::ref(stats), std::ref(stop_flag));
-    std::thread t_ord(order_fn, std::ref(order_q), std::ref(stats), std::ref(stop_flag));
-    std::thread t_fill(fill_fn, std::ref(fill_q), std::ref(stats), std::ref(stop_flag));
+    std::thread strategy_thread(strategy_fn, std::ref(order_book_queue), std::ref(trade_queue),
+        std::ref(order_queue), std::ref(statistics), std::ref(stop_flag));
+    std::thread order_thread(order_fn, std::ref(order_queue), std::ref(statistics), std::ref(stop_flag));
+    std::thread t_fill(fill_fn, std::ref(fill_queue), std::ref(statistics), std::ref(stop_flag));
 
     // 진행 상황 5초마다 출력
-    while (clk::now() - start_time < std::chrono::seconds(duration)) {
+    while (steady_clock::now() - start_time < std::chrono::seconds(duration)) {
         std::this_thread::sleep_for(std::chrono::seconds(5));
         auto el = std::chrono::duration_cast<std::chrono::seconds>(
-            clk::now() - start_time).count();
+            steady_clock::now() - start_time).count();
         std::cout << "  [t+" << std::setw(3) << el << "s] "
-            << "OB " << stats.ob_produced.load() << "/" << stats.ob_consumed.load()
-            << "/" << stats.ob_drops.load()
-            << " | TD " << stats.td_produced.load() << "/" << stats.td_consumed.load()
-            << "/" << stats.td_drops.load()
-            << " | sig " << stats.signals_generated.load()
-            << " | ord " << stats.orders_processed.load()
-            << " | fill " << stats.fill_produced.load() << "/" << stats.fill_consumed.load()
-            << "/" << stats.fill_drops.load()
-            << " | qsize ob=" << (stats.ob_produced.load() - stats.ob_consumed.load())
-            << " td=" << (stats.td_produced.load() - stats.td_consumed.load())
+            << "OB " << statistics.order_book_produced.load() << "/" << statistics.order_book_consumed.load()
+            << "/" << statistics.order_book_drops.load()
+            << " | TD " << statistics.trade_produced.load() << "/" << statistics.trade_consumed.load()
+            << "/" << statistics.trade_drops.load()
+            << " | sig " << statistics.signals_generated.load()
+            << " | ord " << statistics.orders_processed.load()
+            << " | fill " << statistics.fill_produced.load() << "/" << statistics.fill_consumed.load()
+            << "/" << statistics.fill_drops.load()
+            << " | qsize ob=" << (statistics.order_book_produced.load() - statistics.order_book_consumed.load())
+            << " td=" << (statistics.trade_produced.load() - statistics.trade_consumed.load())
             << "\n";
     }
 
-    t_ws.join();
+    websocket_thread.join();
     stop_flag.store(true);
-    t_strat.join();
-    t_ord.join();
+    strategy_thread.join();
+    order_thread.join();
     t_fill.join();
 
-    auto t1 = clk::now();
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - start_time).count();
+    auto end_time = steady_clock::now();
+    auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
 
     std::cout << "\n=== Results ===\n";
-    std::cout << "Elapsed        : " << ms << " ms\n";
+    std::cout << "Elapsed        : " << milliseconds << " ms\n";
     std::cout << "OB    produced/consumed/dropped : "
-        << stats.ob_produced.load() << " / "
-        << stats.ob_consumed.load() << " / "
-        << stats.ob_drops.load() << "\n";
+        << statistics.order_book_produced.load() << " / "
+        << statistics.order_book_consumed.load() << " / "
+        << statistics.order_book_drops.load() << "\n";
     std::cout << "TD    produced/consumed/dropped : "
-        << stats.td_produced.load() << " / "
-        << stats.td_consumed.load() << " / "
-        << stats.td_drops.load() << "\n";
+        << statistics.trade_produced.load() << " / "
+        << statistics.trade_consumed.load() << " / "
+        << statistics.trade_drops.load() << "\n";
     std::cout << "Order generated/processed/dropped : "
-        << stats.signals_generated.load() << " / "
-        << stats.orders_processed.load() << " / "
-        << stats.order_drops.load() << "\n";
+        << statistics.signals_generated.load() << " / "
+        << statistics.orders_processed.load() << " / "
+        << statistics.order_drops.load() << "\n";
     std::cout << "Fill  produced/consumed/dropped : "
-        << stats.fill_produced.load() << " / "
-        << stats.fill_consumed.load() << " / "
-        << stats.fill_drops.load() << "\n\n";
+        << statistics.fill_produced.load() << " / "
+        << statistics.fill_consumed.load() << " / "
+        << statistics.fill_drops.load() << "\n\n";
 
-    print_latency(stats.e2e_latencies_ns, "E2E latency (input -> order_thread)");
-    print_latency(stats.fill_latencies_ns, "Fill latency (ws -> fill_thread, condvar wake)");
+    print_latency(statistics.e2e_latencies_ns, "E2E latency (input -> order_thread)");
+    print_latency(statistics.fill_latencies_ns, "Fill latency (ws -> fill_thread, condvar wake)");
 
-    bool ok = (stats.ob_drops.load() == 0)
-        && (stats.td_drops.load() == 0)
-        && (stats.order_drops.load() == 0)
-        && (stats.ob_produced.load() == stats.ob_consumed.load())
-        && (stats.td_produced.load() == stats.td_consumed.load())
-        && (stats.signals_generated.load() == stats.orders_processed.load())
-        && (stats.fill_drops.load() == 0)
-        && (stats.fill_produced.load() == stats.fill_consumed.load());
+    bool ok = (statistics.order_book_drops.load() == 0)
+        && (statistics.trade_drops.load() == 0)
+        && (statistics.order_drops.load() == 0)
+        && (statistics.order_book_produced.load() == statistics.order_book_consumed.load())
+        && (statistics.trade_produced.load() == statistics.trade_consumed.load())
+        && (statistics.signals_generated.load() == statistics.orders_processed.load())
+        && (statistics.fill_drops.load() == 0)
+        && (statistics.fill_produced.load() == statistics.fill_consumed.load());
 
     std::cout << "\n[" << (ok ? "PASS" : "FAIL")
         << "] no drops, no order/fill backlog\n";

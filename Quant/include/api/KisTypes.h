@@ -13,8 +13,8 @@ struct Holding
     std::string name;                 // [wire] prdt_name
     int         quantity = 0;              // [wire] hldg_qty. 주
     double      average_price = 0.0;      // [wire] pchs_avg_pric. 원
-    double      eval_pnl = 0.0;       // [wire] evlu_pfls_amt. 평가손익, 원 — 표시 전용
-    std::optional<int> sellable_qty;  // [wire] ord_psbl_qty. 필드가 없거나 숫자가 아니면 비어 있다("모름") —
+    double      evaluation_pnl = 0.0;       // [wire] evlu_pfls_amt. 평가손익, 원 — 표시 전용
+    std::optional<int> sellable_quantity;  // [wire] ord_psbl_qty. 필드가 없거나 숫자가 아니면 비어 있다("모름") —
                                       //  호출자는 보유수량을 대신 쓴다. 0은 "매도 가능 0주"라 비어 있음과 다르다
 };
 
@@ -23,9 +23,9 @@ struct Holding
 struct AccountBalance
 {
     std::vector<Holding> holdings;
-    std::optional<double> total_eval_amt;        // [wire] tot_evlu_amt, 없으면 nass_amt(순자산). 원
+    std::optional<double> total_evaluation_amount;        // [wire] tot_evlu_amt, 없으면 nass_amt(순자산). 원
     std::optional<double> available_cash;        // [wire] prvs_rcdl_excc_amt(가수도정산금), 없으면 dnca_tot_amt(예수금). 원
-    std::optional<double> prev_day_total_asset;  // [wire] bfdy_tot_asst_evlu_amt(전일 총자산). 원
+    std::optional<double> previous_day_total_asset;  // [wire] bfdy_tot_asst_evlu_amt(전일 총자산). 원
 };
 
 // 선물 전광판 한 행 = 거래 가능한 계약 하나. 만기 오름차순이라 첫 행이 최근월물.

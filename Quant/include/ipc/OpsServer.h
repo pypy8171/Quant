@@ -36,15 +36,15 @@ using ops_socket_t = SOCKET;
 using ops_socket_t = int;
 #endif
 
-// 단말이 낸 주문 한 건. side는 "BUY"/"SELL", price 0=시장가, ref_price 0=엔진이 평단으로 대체.
+// 단말이 낸 주문 한 건. side는 "BUY"/"SELL", price 0=시장가, reference_price 0=엔진이 평단으로 대체.
 struct OpsOrderReq
 {
-    std::string cid;       // 단말이 붙인 식별자 — 같은 cid의 재전송은 한 번만 처리한다
+    std::string client_id;       // 단말이 붙인 식별자 — 같은 cid의 재전송은 한 번만 처리한다
     std::string ticker;
     std::string side;
     int         quantity       = 0;
     double      price     = 0.0;
-    double      ref_price = 0.0;
+    double      reference_price = 0.0;
     std::string account;
 };
 
@@ -57,7 +57,7 @@ public:
     OpsServer& operator=(const OpsServer&) = delete;
 
     // start() 전에만. 빈 주소는 무시한다.
-    void set_bind(const std::string& addr, int port);
+    void set_bind(const std::string& address, int port);
     void set_token(std::string token) { token_ = std::move(token); }
     void set_paper(bool paper) { paper_ = paper; }
 
@@ -86,11 +86,11 @@ public:
 private:
     struct Client
     {
-        ops_socket_t     fd;
+        ops_socket_t     descriptor;
         ops::FrameReader reader;
         std::string      out;   // 아직 못 보낸 바이트
         bool             hello = false;
-        bool             auth  = false;
+        bool             authentication  = false;
         std::string      name;
     };
 
@@ -100,10 +100,10 @@ private:
     bool on_frame(Client& client, const ops::Frame& frame); // false면 끊는다
     void send(Client& client, ops::OpsMsg type, const std::string& body);
     void flush(Client& client);
-    void close_client(ops_socket_t fd);
+    void close_client(ops_socket_t descriptor);
     void push_positions_if_changed();
 
-    std::string bind_addr_ = "127.0.0.1";
+    std::string bind_address_ = "127.0.0.1";
     int         port_      = 7100;
     std::string token_;
     bool        paper_ = true;
@@ -115,15 +115,15 @@ private:
 
     std::atomic<bool> running_{false};
     std::thread       srv_thread_;
-    ops_socket_t      listen_fd_;
+    ops_socket_t      listen_descriptor_;
 
-    // fd→Client. 서버 스레드만 만지지만 client_count()가 다른 스레드에서 읽어 뮤텍스를 둔다.
-    mutable std::mutex                          clients_mtx_;
+    // descriptor→Client. 서버 스레드만 만지지만 client_count()가 다른 스레드에서 읽어 뮤텍스를 둔다.
+    mutable std::mutex                          clients_mutex_;
     std::unordered_map<ops_socket_t, Client>    clients_;
 
     // 다른 스레드가 넣고 서버 스레드가 빼는 push 큐
-    std::mutex                                        bcast_mtx_;
-    std::vector<std::pair<ops::OpsMsg, std::string>>  bcast_;
+    std::mutex                                        broadcast_mutex_;
+    std::vector<std::pair<ops::OpsMsg, std::string>>  broadcast_;
 
     std::string last_positions_json_;
 };

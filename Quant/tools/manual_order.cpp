@@ -2,7 +2,7 @@
 // 수동 주문 도구 — 사람이 직접 주문을 넣어 접수→체결을 확인한다.
 //
 //   전략 자동주문이 아니라 DMA 클라이언트 한 명(=사람)이 주문을 인테이크에 넣는
-//   실제(비벤치) 경로. OrderGate(리스크) → KIS submit_order_ack(접수, ODNO) →
+//   실제(비벤치) 경로. OrderGate(리스크) → KIS submit_order_acknowledgement(접수, ODNO) →
 //   get_balance 폴링(체결=보유수량 변화)까지 한 흐름으로 확인한다.
 //
 //   안전: is_paper=true(모의계좌)에서만 실행된다. 실거래 config면 즉시 중단.
@@ -67,16 +67,16 @@ int main(int argc, char** argv)
 
     json config = json::parse(file);
 
-    KisConfig kc;
-    kc.app_key      = config["kis"]["app_key"];
-    kc.app_secret   = config["kis"]["app_secret"];
-    kc.account_no   = config["kis"]["account_no"];
-    kc.account_type = config["kis"]["account_type"].get<std::string>();
-    kc.hts_id       = config["kis"].value("hts_id", "");
-    kc.is_paper     = config["kis"]["is_paper"].get<bool>();
+    KisConfig kis_config;
+    kis_config.app_key      = config["kis"]["app_key"];
+    kis_config.app_secret   = config["kis"]["app_secret"];
+    kis_config.account_no   = config["kis"]["account_no"];
+    kis_config.account_type = config["kis"]["account_type"].get<std::string>();
+    kis_config.hts_id       = config["kis"].value("hts_id", "");
+    kis_config.is_paper     = config["kis"]["is_paper"].get<bool>();
 
     // ── ★ 안전 게이트: 모의계좌 아니면 거부 ──────────────────────────────────
-    if (!kc.is_paper)
+    if (!kis_config.is_paper)
     {
         std::cerr << "[중단] is_paper=false (실거래 config). 이 도구는 모의계좌 전용입니다.\n"
                      "       config/config_paper.json 을 쓰거나 is_paper=true로 설정하세요.\n";
@@ -94,22 +94,22 @@ int main(int argc, char** argv)
     signal.price       = price;
     signal.strategy_id = "MANUAL";
     signal.market      = Market::KR;
-    signal.account_id  = kc.account_no; // 계좌별 원장에 실제 계좌로 파티션
+    signal.account_id  = kis_config.account_no; // 계좌별 원장에 실제 계좌로 파티션
 
     // ── 주문 양식 출력 (KIS 요청 본문) ───────────────────────────────────────
-    std::cout << "=== 수동 주문 (모의계좌 " << mask(kc.account_no) << ") ===\n";
+    std::cout << "=== 수동 주문 (모의계좌 " << mask(kis_config.account_no) << ") ===\n";
     std::cout << "종목=" << ticker << "  " << (side == OrderSide::BUY ? "매수" : "매도")
               << "  수량=" << quantity << "  유형=" << (type == OrderType::MARKET ? "시장가" : "지정가")
               << "  가격=" << (type == OrderType::LIMIT ? std::to_string(static_cast<int>(price)) : "-") << "\n";
     std::cout << "KIS 주문 본문(양식):\n"
-              << "  CANO=" << mask(kc.account_no) << "  ACNT_PRDT_CD=" << kc.account_type
+              << "  CANO=" << mask(kis_config.account_no) << "  ACNT_PRDT_CD=" << kis_config.account_type
               << "  PDNO=" << ticker << "\n"
               << "  ORD_DVSN=" << (type == OrderType::MARKET ? "01(시장가)" : "00(지정가)")
               << "  ORD_QTY=" << quantity << "  ORD_UNPR=" << (type == OrderType::LIMIT ? static_cast<int>(price) : 0) << "\n"
               << "  tr_id=" << (side == OrderSide::BUY ? "VTTC0802U(모의매수)" : "VTTC0801U(모의매도)") << "\n\n";
 
     // ── [1] 인증 ─────────────────────────────────────────────────────────────
-    KisClient kis(kc);
+    KisClient kis(kis_config);
 
     if (!kis.authenticate())
     {
@@ -126,14 +126,14 @@ int main(int argc, char** argv)
     //  주문 단위 한도만 config에서 실어 준다 — 보유·노출 한도는 엔진이 따로 본다.
     OrderGate gate;
     {
-        const json rj = config.value("risk", json::object());
-        OrderGate::Config gc;
-        gc.max_qty_per_order      = rj.value("max_qty_per_order", 10000);
-        gc.max_notional_per_order = rj.value("max_notional_per_order", 50000000.0);
-        gc.max_qty_per_ticker     = rj.value("max_qty_per_ticker", 4000);
-        gc.max_orders_per_min     = rj.value("max_orders_per_min", 20);
-        gc.max_orders_per_sec     = rj.value("max_orders_per_sec", 5);
-        gate.set_config(gc);
+        const json risk_json = config.value("risk", json::object());
+        OrderGate::Config gate_config;
+        gate_config.max_quantity_per_order      = risk_json.value("max_qty_per_order", 10000);
+        gate_config.max_notional_per_order = risk_json.value("max_notional_per_order", 50000000.0);
+        gate_config.max_quantity_per_ticker     = risk_json.value("max_qty_per_ticker", 4000);
+        gate_config.max_orders_per_min     = risk_json.value("max_orders_per_min", 20);
+        gate_config.max_orders_per_sec     = risk_json.value("max_orders_per_sec", 5);
+        gate.set_config(gate_config);
     }
 
     std::string reason;
@@ -146,16 +146,16 @@ int main(int argc, char** argv)
 
     std::cout << "[2] OrderGate 통과\n";
 
-    // ── [3] 접수 (submit_order_ack → ODNO) ───────────────────────────────────────
-    const OrderAck ack = kis.submit_order_ack(signal);
+    // ── [3] 접수 (submit_order_acknowledgement → ODNO) ───────────────────────────────────────
+    const OrderAck acknowledgement = kis.submit_order_acknowledgement(signal);
 
-    if (!ack.ok())
+    if (!acknowledgement.ok())
     {
-        std::cerr << "[중단] 주문 접수 실패 [" << ack.err_code << "] (로그의 KIS msg 확인)\n";
+        std::cerr << "[중단] 주문 접수 실패 [" << acknowledgement.error_code << "] (로그의 KIS msg 확인)\n";
         return 5;
     }
 
-    const std::string& kis_order_no = ack.kis_order_no;
+    const std::string& kis_order_no = acknowledgement.kis_order_no;
 
     gate.on_accept(signal.account_id, ticker, side, quantity, price); // 미체결 선점(원장)
     std::cout << "[3] 접수 완료 — ODNO=" << kis_order_no << "\n";
@@ -181,7 +181,7 @@ int main(int argc, char** argv)
             if (holding.ticker == ticker)
             {
                 std::cout << "    [" << (index + 1) * 2 << "s] 보유수량=" << holding.quantity << "  매입평균=" << holding.average_price
-                          << "  평가손익=" << holding.eval_pnl << "\n";
+                          << "  평가손익=" << holding.evaluation_pnl << "\n";
                 seen = true;
             }
         }
