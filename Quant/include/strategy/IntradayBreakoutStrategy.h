@@ -55,9 +55,10 @@ public:
           no_new_entry_hhmm_(no_new_entry_hhmm), notional_per_position_(notional_per_position),
           day_open_price_(day_open_price)
     {
+        id_ = "ITB_" + ticker_;
     }
 
-    std::string id() const override { return "ITB_" + ticker_; }
+    const std::string& id() const override { return id_; }
 
     // 표시명(종목명) — 로깅 전용. id()/deduplicate 키는 ticker 기반 유지.
     void set_name(std::string name) { name_ = std::move(name); }
@@ -505,6 +506,7 @@ private:
     static std::string price_string(double value) { return std::to_string(static_cast<long long>(std::llround(value))); }
 
     std::string ticker_;
+    std::string id_; // 전략 이름, 생성자에서 한 번
     symbol::SymbolId symbol_id_ = symbol::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
     std::string name_; // 표시명(로깅 전용)
     int entry_quantity_;   // 신규 돌파 진입 수량(명목 미지정 시 고정)

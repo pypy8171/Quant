@@ -42,7 +42,7 @@ public:
     {
     }
 
-    std::string id() const override
+    const std::string& id() const override
     {
         return id_;
     }

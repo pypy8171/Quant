@@ -154,6 +154,7 @@ public:
 
     explicit DeviationScaleStrategy(Params parameters) : parameters_(std::move(parameters)), aggregator_(aggregator_config(parameters_))
     {
+        id_ = parameters_.id_prefix + "_" + parameters_.ticker;
         websocket_bars_ = (parameters_.bar_source == "ws");
 
         // 닫힌 1분봉 한 줄 — 분마다 종목마다 나오므로 DEBUG. 비교표(compare_ws_bars.py)가 이 줄을 REST 1분봉과
@@ -198,7 +199,7 @@ public:
 
     ~DeviationScaleStrategy() { stop_prefetch(); }
 
-    std::string id() const override { return parameters_.id_prefix + "_" + parameters_.ticker; }
+    const std::string& id() const override { return id_; }
 
     // 로그 표시용 "티커(종목명)". 이름 없으면 티커만. id()·데이터키와는 분리.
     std::string display() const
@@ -1467,6 +1468,7 @@ private:
     struct Live { std::string order_id; OrderSide side; };
 
     Params parameters_;
+    std::string id_; // 전략 이름, 생성자에서 한 번
     std::vector<Live> live_;               // 현재 live로 낙관하는 예약들
     std::vector<MarketData> daily_;        // 일봉 캐시(정배열/눌림 판정)
     double equity_ = 0.0;                   // 사이징 기준 자본(총평가금) 스냅샷 — 일별 갱신

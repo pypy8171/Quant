@@ -14,12 +14,10 @@ public:
     MomentumStrategy(std::string ticker, int period, int quantity)
         : ticker_(std::move(ticker)), period_(period), quantity_(quantity)
     {
+        id_ = "MOMENTUM_" + ticker_;
     }
 
-    std::string id() const override
-    {
-        return "MOMENTUM_" + ticker_;
-    }
+    const std::string& id() const override { return id_; }
 
     std::vector<WatchSpec> get_watch_specifications() const override
     {
@@ -104,6 +102,7 @@ private:
     }
 
     std::string ticker_;
+    std::string id_; // 전략 이름, 생성자에서 한 번
     symbol::SymbolId symbol_id_ = symbol::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
     int period_;
     int quantity_;

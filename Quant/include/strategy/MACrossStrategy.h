@@ -20,12 +20,10 @@ public:
         : ticker_(std::move(ticker)), short_period_(short_period), long_period_(long_period),
           quantity_(quantity), start_in_position_(start_in_position)
     {
+        id_ = "MA_CROSS_" + ticker_;
     }
 
-    std::string id() const override
-    {
-        return "MA_CROSS_" + ticker_;
-    }
+    const std::string& id() const override { return id_; }
 
     std::vector<WatchSpec> get_watch_specifications() const override
     {
@@ -131,6 +129,7 @@ private:
     }
 
     std::string ticker_;
+    std::string id_; // 전략 이름, 생성자에서 한 번
     symbol::SymbolId symbol_id_ = symbol::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
     int short_period_;
     int long_period_;

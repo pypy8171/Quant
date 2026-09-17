@@ -45,7 +45,12 @@ public:
           limit_orders_(std::move(limit_orders))
     {}
 
-    std::string id() const override { return "PRICE_TARGET"; }
+    const std::string& id() const override
+    {
+        static const std::string kId = "PRICE_TARGET";
+
+        return kId;
+    }
 
     std::string describe() const override
     {

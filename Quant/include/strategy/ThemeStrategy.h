@@ -69,7 +69,12 @@ public:
           eod_exit_hhmm_(eod_exit_hhmm)
     {}
 
-    std::string id() const override { return "THEME_KR"; }
+    const std::string& id() const override
+    {
+        static const std::string kId = "THEME_KR";
+
+        return kId;
+    }
 
     std::string describe() const override
     {

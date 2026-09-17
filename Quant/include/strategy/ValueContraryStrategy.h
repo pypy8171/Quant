@@ -41,12 +41,10 @@ public:
         : market_(market), exchange_(std::move(exchange)), pbr_max_(pbr_max), quantity_(quantity),
           eod_exit_hhmm_(eod_exit_hhmm)
     {
+        id_ = std::string("VALUE_CONTRARY_") + (market_ == Market::KR ? "KR" : "US");
     }
 
-    std::string id() const override
-    {
-        return std::string("VALUE_CONTRARY_") + (market_ == Market::KR ? "KR" : "US");
-    }
+    const std::string& id() const override { return id_; }
 
     std::string describe() const override
     {
@@ -270,6 +268,7 @@ private:
 
     Market market_;
     std::string exchange_;
+    std::string id_; // 전략 이름, 생성자에서 한 번
     double pbr_max_;
     int quantity_;
     int eod_exit_hhmm_;

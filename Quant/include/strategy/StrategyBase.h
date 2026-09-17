@@ -17,7 +17,9 @@ class StrategyBase
 public:
     virtual ~StrategyBase() = default;
 
-    virtual std::string id() const = 0;
+    // 전략 이름 — 생성 시 한 번 만들어 둔 문자열의 참조. 신호 봉투가 신호마다 받아 가므로
+    //  호출마다 결합하지 않는다(D-071 원칙 6). [inv] 반환 참조는 전략 객체가 살아 있는 동안 유효.
+    virtual const std::string& id() const = 0;
     virtual std::string describe() const = 0;
 
     // 일봉 시세 이벤트

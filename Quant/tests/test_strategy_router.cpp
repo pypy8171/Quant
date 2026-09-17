@@ -33,7 +33,7 @@ class FakeStrategy final : public StrategyBase
 public:
     FakeStrategy(std::string id, std::vector<std::string> tickers) : id_(std::move(id)), tickers_(std::move(tickers)) {}
 
-    std::string id() const override
+    const std::string& id() const override
     {
         return id_;
     }

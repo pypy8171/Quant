@@ -39,12 +39,10 @@ public:
           requote_move_ticks_(requote_move_ticks < 1 ? 1 : requote_move_ticks),
           min_requote_(std::chrono::milliseconds(min_requote_ms < 0 ? 0 : min_requote_ms))
     {
+        id_ = "MM_" + ticker_;
     }
 
-    std::string id() const override
-    {
-        return "MM_" + ticker_;
-    }
+    const std::string& id() const override { return id_; }
 
     std::string describe() const override
     {
@@ -194,6 +192,7 @@ private:
     }
 
     std::string ticker_;
+    std::string id_; // 전략 이름, 생성자에서 한 번
     symbol::SymbolId symbol_id_ = symbol::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
     int quantity_;
     int half_spread_ticks_;

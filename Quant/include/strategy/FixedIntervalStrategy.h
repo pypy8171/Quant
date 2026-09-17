@@ -17,9 +17,10 @@ public:
     FixedIntervalStrategy(std::string ticker, int buy_quantity, int sell_quantity, int interval_sec)
         : ticker_(std::move(ticker)), buy_quantity_(buy_quantity), sell_quantity_(sell_quantity),
           interval_sec_(interval_sec)
-    {}
+    {
+        id_ = "FIXED_INTERVAL_" + ticker_;}
 
-    std::string id() const override { return "FIXED_INTERVAL_" + ticker_; }
+    const std::string& id() const override { return id_; }
 
     std::string describe() const override
     {
@@ -107,6 +108,7 @@ private:
     enum class Phase { BUY, SELL };
 
     std::string ticker_;
+    std::string id_; // 전략 이름, 생성자에서 한 번
     symbol::SymbolId symbol_id_ = symbol::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
     int buy_quantity_, sell_quantity_, interval_sec_;
     Phase phase_ = Phase::BUY;

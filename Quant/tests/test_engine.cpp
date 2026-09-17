@@ -136,9 +136,9 @@ private:
 class BuyOnce : public StrategyBase
 {
 public:
-    explicit BuyOnce(std::string ticker) : ticker_(std::move(ticker)) {}
+    explicit BuyOnce(std::string ticker) : ticker_(std::move(ticker)), id_("buy_once_" + ticker_) {}
 
-    std::string id() const override { return "buy_once_" + ticker_; }
+    const std::string& id() const override { return id_; }
     std::string describe() const override { return "첫 틱에 1주 매수"; }
     std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
 
@@ -177,6 +177,7 @@ public:
 
 private:
     std::string   ticker_;
+    std::string   id_;
     symbol::SymbolId symbol_id_{};
     bool          fired_ = false;
 };

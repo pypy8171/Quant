@@ -132,7 +132,13 @@ int test_strategy_gate()
     // 전략이 디스패처에 주는 active는 국면 축과 유니버스 축의 AND다 — 어느 한쪽이 닫히면 신규매수가 막힌다 (D-077).
     struct Stub : StrategyBase
     {
-        std::string id() const override { return "S"; }
+        const std::string& id() const override
+        {
+            static const std::string kId = "S";
+
+            return kId;
+        }
+
         std::string describe() const override { return "S"; }
         std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
     } stop_token;

@@ -305,16 +305,16 @@ void bench_last_price(const std::vector<std::string>& tickers)
 class OneSymStrategy final : public StrategyBase
 {
 public:
-    explicit OneSymStrategy(std::string ticker) : ticker_(std::move(ticker)) {}
+    explicit OneSymStrategy(std::string ticker) : ticker_(std::move(ticker)), id_("bench_" + ticker_) {}
 
     void bind(symbol::SymbolId id)
     {
         symbol_id_ = id;
     }
 
-    std::string id() const override
+    const std::string& id() const override
     {
-        return "bench_" + ticker_;
+        return id_;
     }
 
     std::string describe() const override
@@ -349,6 +349,7 @@ public:
 
 private:
     std::string   ticker_;
+    std::string   id_;
     symbol::SymbolId symbol_id_ = symbol::kNone;
 };
 

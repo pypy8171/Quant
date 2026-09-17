@@ -83,7 +83,13 @@ public:
 
     explicit SupplyDemandPullbackStrategy(Params parameters) : parameters_(std::move(parameters)) {}
 
-    std::string id() const override { return "SUPPLY_DEMAND_PULLBACK"; }
+    const std::string& id() const override
+    {
+        static const std::string kId = "SUPPLY_DEMAND_PULLBACK";
+
+        return kId;
+    }
+
     std::string describe() const override
     {
         return id() + " | uni=" + std::to_string(parameters_.universe_size) +
