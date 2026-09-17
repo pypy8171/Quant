@@ -222,11 +222,26 @@ function Restore-Windows {
 #  union_refresh_sec마다 파일을 다시 읽는다. 스캔이 실패하면(장 전에 누적치가 없고 data.go.kr 목록이 이틀
 #  전이면 rc=1) 직전 파일을 그대로 두고 30분 뒤 다시 본다(09-14 실측: 이틀 전 기준으로 하루를 보내
 #  보안주 3종·라온시큐어가 풀에 없었다).
+# 09-16 실측: 08시대(사전장) 스캔은 거래대금이 전 종목 0이라 이 가드에 거의 매번 걸려 rc=1이고,
+#  30분 카운터는 스크립트 기동 시각 기준이라 09:00과 우연히 맞지 않으면 장 시작 뒤에도 한참(최대
+#  30분) 전날 파일로 매매한다 — 주도주는 매일 바뀌므로 이 창이 위험하다. 카운터와 별개로 09:00~09:04
+#  구간에 한 번 강제 재확인해 그 창을 최대 5분으로 줄인다.
 $script:UnivNext = (Get-Date).AddMinutes(30)
+$script:UnivOpenRetryDone = $false
 function Refresh-Universe {
-  if ($DryRun -or $NoUniverse -or (Get-Date) -lt $script:UnivNext) { return }
-  $script:UnivNext = (Get-Date).AddMinutes(30)
-  if ((Get-Date).ToString("HHmm") -ge "1530") { return }
+  if ($DryRun -or $NoUniverse) { return }
+  $now = Get-Date
+  if ($now.ToString("HHmm") -ge "1530") { return }
+  if (-not $script:UnivOpenRetryDone -and $now.ToString("HHmm") -ge "0900" -and $now.ToString("HHmm") -lt "0905") {
+    $script:UnivOpenRetryDone = $true
+    Say "장 시작 직후 유니버스 재확인 — 30분 카운터와 별개(사전장 rc=1 대비)."
+    & $py PYQuant\tools\universe_feed.py --market ALL --out Quant\config\universe_scan.json
+    if ($LASTEXITCODE -ne 0) { Say "유니버스 재스캔 실패(rc=$LASTEXITCODE) — 직전 파일 유지." "WARN" }
+    else { $script:UnivNext = $now.AddMinutes(30) }
+    return
+  }
+  if ($now -lt $script:UnivNext) { return }
+  $script:UnivNext = $now.AddMinutes(30)
   Say "유니버스 스캔을 다시 돌린다(시총·거래대금 현재 값, 30분 뒤 재확인)."
   & $py PYQuant\tools\universe_feed.py --market ALL --out Quant\config\universe_scan.json
   if ($LASTEXITCODE -ne 0) { Say "유니버스 재스캔 실패(rc=$LASTEXITCODE) — 직전 파일 유지." "WARN" }

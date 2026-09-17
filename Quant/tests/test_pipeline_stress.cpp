@@ -170,7 +170,7 @@ static void ws_producer_fn(RingBuffer<MockOrderBook>& ob_q,
             std::memcpy(f.ticker, TICKERS[tk_idx].c_str(), 7);
             f.send_ts_ns = now_ns;
             f.seq = fill_seq++;
-            f.quantity = 1 + (int)(fill_seq % 10);
+            f.quantity = 1 + static_cast<int>(fill_seq % 10);
             f.price = 70000.0;
 
             if (fill_q.push(f))
@@ -404,15 +404,15 @@ static void print_latency(std::vector<int64_t>& v, const char* label) {
 
         if (n < 1000)
         {
-            std::snprintf(buf, sizeof(buf), "%lld ns", (long long)n);
+            std::snprintf(buf, sizeof(buf), "%lld ns", static_cast<long long>(n));
         }
         else if (n < 1'000'000)
         {
-            std::snprintf(buf, sizeof(buf), "%lld us", (long long)(n / 1000));
+            std::snprintf(buf, sizeof(buf), "%lld us", static_cast<long long>(n / 1000));
         }
         else
         {
-            std::snprintf(buf, sizeof(buf), "%lld ms", (long long)(n / 1'000'000));
+            std::snprintf(buf, sizeof(buf), "%lld ms", static_cast<long long>(n / 1'000'000));
         }
 
         return std::string(buf);

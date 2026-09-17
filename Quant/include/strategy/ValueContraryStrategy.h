@@ -110,7 +110,7 @@ public:
                 bars.erase(bars.begin());
             }
 
-            if ((int)bars.size() < 4)
+            if (static_cast<int>(bars.size()) < 4)
             {
                 continue;
             }

@@ -196,7 +196,7 @@ void Engine::apply_regime_selection(Regime r, bool force_log)
         else
         {
             // per-strategy 폴백도 같은 입력(r)으로 판정한다. [why D-084]
-            const auto ar = s->active_regimes();
+            const auto& ar = s->active_regimes();
             on            = std::find(ar.begin(), ar.end(), r) != ar.end();
         }
 
@@ -1461,7 +1461,7 @@ void Engine::data_thread_fn(std::stop_token st)
                                          f.name + " (전체 " + std::to_string(rank) + "위)" +
                                          " 외인=" + std::to_string(f.foreign_net_qty) +
                                          " 기관=" + std::to_string(f.inst_net_qty) +
-                                         " 외인금액=" + std::to_string((int64_t)f.foreign_net_amt));
+                                         " 외인금액=" + std::to_string(static_cast<int64_t>(f.foreign_net_amt)));
                                 ++shown;
                             }
 

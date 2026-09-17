@@ -42,10 +42,12 @@ CLAIMS = PRIVATE / "SESSION_CLAIMS.md"
 OUT_JSON = PRIVATE / "session_board.json"
 OUT_HTML = PRIVATE / "session_board.html"
 STATE = PRIVATE / "session_board.state.json"
+UNATTENDED = PRIVATE / "UNATTENDED.flag"   # 있으면 사람이 없는 동안이다. 첫 줄에 만료 시각(ISO)을 적는다
 
 CONTEXT_WINDOW = 200_000      # 모델 문맥 창. 비율 색은 이 값 기준이다
 WARN_PCT, DANGER_PCT = 50, 80  # 노랑·빨강 경계(%)
 HANDOFF_CTX = 100_000          # 이 문맥을 넘긴 세션은 다음 작업 경계에서 인계한다(.claude/commands/handoff.md)
+HANDOFF_HARD_CTX = 145_000     # 경계가 아니어도 이 문맥을 넘기면 그 자리에서 인계한다(자동 압축 ~166K 앞)
 REQUEST_KEEP = 5               # 사용자 요청은 마지막 다섯 개만 기억한다
 REQUEST_CHARS = 80
 
@@ -328,15 +330,53 @@ def write_skeleton(row: dict) -> str:
     return f"{p.name} 기계적 사실 절 갱신"
 
 
+def unattended() -> bool:
+    """무인 실행 중인가. _private/UNATTENDED.flag 첫 줄의 만료 시각(ISO)이 지나면 꺼진 것으로 본다.
+    깜빡하고 안 지우면 낮에도 승인 없이 진행하게 되므로, 시각이 없으면 만든 지 12시간까지만 유효하다."""
+    try:
+        txt = UNATTENDED.read_text(encoding="utf-8").strip()
+    except OSError:
+        return False
+    if txt:
+        try:
+            return datetime.now() < datetime.fromisoformat(txt.splitlines()[0].strip())
+        except ValueError:
+            pass
+    try:
+        return (datetime.now().timestamp() - UNATTENDED.stat().st_mtime) < 12 * 3600
+    except OSError:
+        return False
+
+
 def handoff_due(row: dict, state: dict) -> str:
-    """Stop 훅. 이 턴에 HEAD가 바뀌었고(커밋 직후 = 작업 경계) 문맥이 HANDOFF_CTX를 넘었으면 안내 문구를 돌려준다.
-    직전 HEAD는 세션별로 state에 둔다. 처음 보는 세션은 기록만 하고 알리지 않는다."""
+    """Stop 훅. 인계할 때가 되면 안내 문구를 돌려준다. 갈래가 둘이다 —
+    ① 작업 경계: 이 턴에 HEAD가 바뀌었고(커밋 직후) 문맥이 HANDOFF_CTX를 넘었다.
+    ② 압축 임박: 경계가 아니어도 문맥이 HANDOFF_HARD_CTX를 넘었다. 커밋을 하지 않는 세션(조사·문서·백테스트)은
+       ①이 오지 않아 자동 압축까지 가기 때문이다. 압축 구간마다 한 번만 알린다(압축되면 다시 켜진다).
+    직전 HEAD와 알린 이력은 세션별로 state에 둔다. 처음 보는 세션은 기록만 하고 알리지 않는다."""
     head = git_facts()["head"]
     acc = state.setdefault(row["session_id"], _empty_acc())
     prev = acc.get("last_head")
     acc["last_head"] = head
+
+    if row["ctx"] >= HANDOFF_HARD_CTX and acc.get("hard_fired") != row["compacts"]:
+        acc["hard_fired"] = row["compacts"]
+        if unattended():
+            # 사람이 없다. '/clear 를 권하라'로 끝내면 세션이 그 자리에서 멈춰 밤새 아무것도 안 된다.
+            return (f"[인계 시점·무인] 문맥 약 {row['ctx_k']}K(>{HANDOFF_HARD_CTX // 1000}K) — 자동 압축이 멀지 않다. "
+                    "지금 하던 것을 매듭짓고 _private/HANDOFF_<세션이름>.md 의 '남은 것'을 다음 사람이 그대로 "
+                    "집을 수 있을 만큼 구체적으로 채워라(파일 경로·다음 명령까지). 사용자는 자고 있다 — "
+                    "/clear 를 권하지 말고, 묻지도 말고, 인계 파일을 갱신한 뒤 남은 작업을 그대로 이어서 진행한다. "
+                    "압축이 오면 그 뒤 턴이 이 파일을 읽고 잇는다.")
+        return (f"[인계 시점] 문맥 약 {row['ctx_k']}K(>{HANDOFF_HARD_CTX // 1000}K) — 자동 압축이 멀지 않다. "
+                "하던 일을 매듭짓고 /handoff 로 인계 파일을 쓴 뒤 사용자에게 /clear 를 권할 것 "
+                "(.claude/commands/handoff.md). 압축을 기다리면 무엇을 남길지 고를 수 없다.")
+
     if prev is None or prev == head or not row["handoff_due"]:
         return ""
+    if unattended():
+        return (f"[인계 시점·무인] 커밋 {prev}→{head} 직후이고 문맥 약 {row['ctx_k']}K(>{HANDOFF_CTX // 1000}K). "
+                "인계 파일의 '한 것'·'남은 것'을 갱신하고 묻지 말고 다음 작업을 이어서 진행한다.")
     return (f"[인계 시점] 커밋 {prev}→{head} 직후이고 문맥 약 {row['ctx_k']}K(>{HANDOFF_CTX // 1000}K). "
             "/handoff 로 인계 파일을 쓰고 사용자에게 /clear 를 권할 것 (.claude/commands/handoff.md)")
 

@@ -34,7 +34,7 @@ graph LR
   main --> strategy
   main --> utils
   modes -->|3| api
-  modes -->|2| core
+  modes -->|3| core
   modes --> ipc
   modes -->|2| utils
   risk -->|2| core
@@ -58,8 +58,8 @@ graph LR
 | `core/Types.h` | 28 |
 | `utils/Logger.h` | 24 |
 | `strategy/StrategyBase.h` | 13 |
+| `core/KstTime.h` | 12 |
 | `api/KisClient.h` | 11 |
-| `core/KstTime.h` | 11 |
 | `core/MarketSession.h` | 8 |
 | `core/WakeGate.h` | 7 |
 | `core/SymbolTable.h` | 5 |
@@ -290,6 +290,7 @@ graph LR
   n_main_cpp --> n_utils_Logger_h
   n_modes_Monitors_cpp --> n_api_KisClient_h
   n_modes_Monitors_cpp --> n_api_KisWebSocket_h
+  n_modes_Monitors_cpp --> n_core_KstTime_h
   n_modes_Monitors_cpp --> n_core_MarketSession_h
   n_modes_Monitors_cpp --> n_core_Types_h
   n_modes_Monitors_cpp --> n_ipc_ZmqBridge_h

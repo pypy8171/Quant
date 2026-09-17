@@ -356,14 +356,14 @@ static void configure_risk(Engine& engine, const json& cfg)
     rc.displace_unscored_z      = r.value("displace_unscored_z", rc.displace_unscored_z);
     engine.set_risk_config(rc);
     LOG_INFO("[Main] risk 한도: 종목당 " + std::to_string(rc.max_qty_per_ticker) + "주, 일손실 " +
-             std::to_string((long long)rc.daily_loss_limit) + "원, " +
+             std::to_string(static_cast<long long>(rc.daily_loss_limit)) + "원, " +
              std::to_string(rc.max_orders_per_sec) + "/s·" +
              std::to_string(rc.max_orders_per_min) + "/min");
 
     if (rc.max_notional_per_ticker > 0.0 || rc.max_concurrent_positions > 0)
     {
         LOG_INFO("[Main] 사이징 백스톱: 종목당 명목 " +
-                 std::to_string((long long)rc.max_notional_per_ticker) + "원, 동시보유 " +
+                 std::to_string(static_cast<long long>(rc.max_notional_per_ticker)) + "원, 동시보유 " +
                  std::to_string(rc.max_concurrent_positions) + "종목");
     }
 

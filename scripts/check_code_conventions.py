@@ -3,13 +3,15 @@
 """코드 작업 규약을 스테이징된 변경에 대해 기계적으로 검사한다.
 
 정본은 docs/guides/MAINTENANCE_AUTOMATION.md 4절(주석 규약)과 .clang-format(중괄호)이다.
-이 스크립트는 그중 사람이 놓치기 쉬운 네 가지만 본다.
+이 스크립트는 그중 사람이 놓치기 쉬운 다섯 가지만 본다.
 
   1. 중괄호   — 스테이징된 Quant/**.h/.cpp에 brace_style.py --check
   2. D-NNN    — 추가된 줄이 가리키는 결정 번호가 docs/DECISIONS.md에 실재하는지
   3. 태그 철자 — `// [xxx]` 중 규약에 없는 태그(경고만)
   4. 줄 성격  — 파일별 추가·삭제를 주석과 코드로 나눠 보고.
                 --comment-only를 주면 코드 줄 변경이 0이 아닐 때 실패한다.
+  5. 캐스트   — 추가된 C++ 코드 줄의 C스타일 캐스트. 값은 static_cast,
+                포인터는 reinterpret_cast로 쓴다. `(void)x;`는 예외.
 
 주석 밀도는 검사하지 않는다. 4절이 밀도를 게이트로 걸지 말라고 정해 두었고,
 집계는 maintain.py --weekly가 리포트로 남긴다.
@@ -36,6 +38,15 @@ ALLOWED_TAGS = {"inv", "lock-order", "wire", "formula"}
 WHY_TAG_RE = re.compile(r"^why D-\d{3}$")
 TAG_RE = re.compile(r"//\s*\[([A-Za-z][A-Za-z0-9 _./-]*)\]")
 DNNN_RE = re.compile(r"\bD-(\d{3})\b")
+
+# C스타일 캐스트 — 캐스트로 읽히는 모양만 잡는다.
+#  `)` 바로 뒤에 피연산자가 공백 없이 붙어야 캐스트다. 그래서 `void f(int)`,
+#  `[](int) {`, `is_stale(int) const` 같은 선언부는 걸리지 않는다.
+#  `(void)x;`는 미사용 인자 관용구라 타입 목록에서 뺐다.
+CAST_TYPE = (r"(?:unsigned\s+(?:long\s+long|long|int|char|short)|long\s+long"
+             r"|std::size_t|std::time_t|std::u?int(?:8|16|32|64)_t|u?int(?:8|16|32|64)_t"
+             r"|size_t|ssize_t|time_t|int|long|short|double|float|char|bool)")
+C_CAST_RE = re.compile(r"\((?:const\s+|volatile\s+)*" + CAST_TYPE + r"\s*\**\)(?=[A-Za-z_(&])")
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -159,6 +170,20 @@ def main(argv: list[str]) -> int:
                     continue
                 print(f"{path}:{ln}: 경고: 규약에 없는 태그 [{t}] "
                       f"(허용: inv, lock-order, wire, formula, why D-NNN)")
+
+    # 5. C스타일 캐스트 — 값은 static_cast, 포인터는 reinterpret_cast
+    for path, items in adds.items():
+        if Path(path).suffix.lower() not in CPP_EXT:
+            continue
+
+        for ln, text in items:
+            if is_comment(path, text) is True:
+                continue
+
+            for hit in C_CAST_RE.finditer(text):
+                print(f"{path}:{ln}: 오류: C스타일 캐스트 {hit.group(0)} — "
+                      f"값은 static_cast<T>(x), 포인터는 reinterpret_cast<T>(x)로 쓴다")
+                problems += 1
 
     # 4. 줄 성격 집계
     rows = []

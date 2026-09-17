@@ -214,7 +214,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
     DWORD statusCode = 0, statusSize = sizeof(statusCode);
     WinHttpQueryHeaders(hReq, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
                         &statusCode, &statusSize, WINHTTP_NO_HEADER_INDEX);
-    status_code = (int)statusCode;
+    status_code = static_cast<int>(statusCode);
 
     if (statusCode >= 400)
     {
@@ -359,7 +359,7 @@ static std::string curl_request_once(const std::string& method, const std::strin
         transport_ok = true;
         long http_code = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-        status_code = (int)http_code;
+        status_code = static_cast<int>(http_code);
     }
 
     curl_slist_free_all(hlist);

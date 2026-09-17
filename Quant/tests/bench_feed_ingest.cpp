@@ -114,7 +114,7 @@ static void sock_close(socket_t s)
 static void set_nodelay(socket_t s)
 {
     int one = 1;
-    setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char*)&one, sizeof(one));
+    setsockopt(s, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&one), sizeof(one));
 }
 
 // 전량 송신(부분 송신 루프). 실패 시 false.
@@ -124,14 +124,14 @@ static bool send_all(socket_t s, const char* p, size_t n)
 
     while (sent < n)
     {
-        int r = ::send(s, p + sent, (int)(n - sent), 0);
+        int r = ::send(s, p + sent, static_cast<int>(n - sent), 0);
 
         if (r <= 0)
         {
             return false;
         }
 
-        sent += (size_t)r;
+        sent += static_cast<size_t>(r);
     }
 
     return true;
@@ -327,7 +327,7 @@ static void koscom_send_fn(socket_t s,
 {
     std::mt19937_64 rng(0xC0FFEE);
     std::uniform_real_distribution<double> u01(0.0, 1.0);
-    const int64_t interval_ns = (total_rate > 0) ? (int64_t)(1e9 / total_rate) : 0;
+    const int64_t interval_ns = (total_rate > 0) ? static_cast<int64_t>(1e9 / total_rate) : 0;
     const int64_t t0 = now_ns();
     const int64_t t_end = t0 + duration_ns;
     int64_t next_emit = t0;
@@ -374,7 +374,7 @@ static void koscom_send_fn(socket_t s,
 
         m.send_ts_ns = now_ns(); // 소켓 진입 직전 stamp
 
-        if (!send_all(s, (const char*)&m, kRec))
+        if (!send_all(s, reinterpret_cast<const char*>(&m), kRec))
         {
             break; // 상대 종료
         }
@@ -402,15 +402,15 @@ static void recv_fn(socket_t s,
 
     while (!stop.load(std::memory_order_relaxed))
     {
-        int r = ::recv(s, buf.data() + have, (int)(buf.size() - have), 0);
+        int r = ::recv(s, buf.data() + have, static_cast<int>(buf.size() - have), 0);
 
         if (r <= 0)
         {
             break; // 상대 종료 or 오류
         }
 
-        have += (size_t)r;
-        st.bytes_recv.fetch_add((uint64_t)r, std::memory_order_relaxed);
+        have += static_cast<size_t>(r);
+        st.bytes_recv.fetch_add(static_cast<uint64_t>(r), std::memory_order_relaxed);
 
         size_t off = 0;
 
@@ -627,7 +627,7 @@ static Pctl percentiles(std::vector<int64_t>& v)
     }
 
     std::sort(v.begin(), v.end());
-    auto at = [&](double p) { return v[(size_t)(p * (v.size() - 1))]; };
+    auto at = [&](double p) { return v[static_cast<size_t>(p * (v.size() - 1))]; };
     r.p50 = at(0.50);
     r.p99 = at(0.99);
     r.p999 = at(0.999);
@@ -641,7 +641,7 @@ static std::string fmt_ns(int64_t n)
 
     if (n < 1000)
     {
-        std::snprintf(b, sizeof(b), "%lld ns", (long long)n);
+        std::snprintf(b, sizeof(b), "%lld ns", static_cast<long long>(n));
     }
     else if (n < 1'000'000)
     {
@@ -677,13 +677,13 @@ static socket_t make_listener(uint16_t port)
     }
 
     int one = 1;
-    setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, (const char*)&one, sizeof(one));
+    setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&one), sizeof(one));
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port = htons(port);
 
-    if (::bind(ls, (sockaddr*)&addr, sizeof(addr)) != 0)
+    if (::bind(ls, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0)
     {
         sock_close(ls);
         return kBadSock;
@@ -712,7 +712,7 @@ static socket_t connect_to(const std::string& host, uint16_t port)
     addr.sin_port = htons(port);
     inet_pton(AF_INET, host.c_str(), &addr.sin_addr);
 
-    if (::connect(s, (sockaddr*)&addr, sizeof(addr)) != 0)
+    if (::connect(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0)
     {
         sock_close(s);
         return kBadSock;
@@ -810,7 +810,7 @@ static RunResult run_self(const std::vector<std::string>& tickers, const ZipfPic
     run_receiver_pipeline(conn, st, stop, measuring, lat_cap, ob_cap, td_cap, order_cap,
                           t_recv, t_str, t_ord, ob_q, td_q, order_q);
     std::thread t_send(koscom_send_fn, cli, std::cref(tickers), std::cref(zipf), std::ref(st),
-                       std::ref(stop), rate, ob_ratio, (int64_t)duration_sec * 1'000'000'000LL);
+                       std::ref(stop), rate, ob_ratio, static_cast<int64_t>(duration_sec) * 1'000'000'000LL);
 
     t_send.join();                                     // 방출 종료
     measuring.store(false, std::memory_order_relaxed); // 이후는 드레인
@@ -904,16 +904,16 @@ static void print_run(const RunResult& r, int64_t offered)
     std::printf("=== Throughput ===\n");
     std::printf("elapsed          : %.2f sec\n", r.elapsed_sec);
     std::printf("wire sent/recv   : %llu / %llu  (bad_magic %llu)\n",
-                (unsigned long long)r.wire_sent, (unsigned long long)r.wire_recv,
-                (unsigned long long)r.bad_magic);
+                static_cast<unsigned long long>(r.wire_sent), static_cast<unsigned long long>(r.wire_recv),
+                static_cast<unsigned long long>(r.bad_magic));
     std::printf("bytes recv       : %.1f MB\n", r.bytes_recv / 1e6);
-    std::printf("offered/achieved : %lld / %.0f msg/sec\n", (long long)offered, r.recv_rate);
+    std::printf("offered/achieved : %lld / %.0f msg/sec\n", static_cast<long long>(offered), r.recv_rate);
     std::printf("signals/orders   : %llu / %llu  (order_q hwm %llu)\n",
-                (unsigned long long)r.signals, (unsigned long long)r.orders,
-                (unsigned long long)r.order_hwm);
+                static_cast<unsigned long long>(r.signals), static_cast<unsigned long long>(r.orders),
+                static_cast<unsigned long long>(r.order_hwm));
     std::printf("recv-q hwm ob/td : %llu / %llu   drops(밀림 처리): %llu\n\n",
-                (unsigned long long)r.ob_hwm, (unsigned long long)r.td_hwm,
-                (unsigned long long)r.drops);
+                static_cast<unsigned long long>(r.ob_hwm), static_cast<unsigned long long>(r.td_hwm),
+                static_cast<unsigned long long>(r.drops));
 
     std::printf("=== Latency (wire 송신 → 주문 결정) ===\n");
     auto line = [](const char* lbl, const Pctl& p) {
@@ -937,10 +937,10 @@ int main(int argc, char** argv)
 
     std::string mode = (argc > 1) ? argv[1] : "self";
     const std::string uni_path = arg_str(argc, argv, "--universe", "");
-    const int fallback_n = (int)arg_i64(argc, argv, "--tickers", 2600);
+    const int fallback_n = static_cast<int>(arg_i64(argc, argv, "--tickers", 2600));
     const double zipf_s = arg_dbl(argc, argv, "--zipf", 1.0);
     const double ob_ratio = arg_dbl(argc, argv, "--ob-ratio", 0.7);
-    const uint16_t port = (uint16_t)arg_i64(argc, argv, "--port", 47001);
+    const uint16_t port = static_cast<uint16_t>(arg_i64(argc, argv, "--port", 47001));
 
     std::vector<std::string> tickers = load_universe(uni_path, fallback_n);
     ZipfPicker zipf(tickers.size(), zipf_s);
@@ -955,9 +955,9 @@ int main(int argc, char** argv)
     if (mode == "self")
     {
         const int64_t rate = arg_i64(argc, argv, "--rate", 200000);
-        const int duration = (int)arg_i64(argc, argv, "--duration", 20);
+        const int duration = static_cast<int>(arg_i64(argc, argv, "--duration", 20));
         print_banner("self", tickers, uni_path, ob_ratio, zipf_s);
-        std::printf("offered rate     : %lld msg/sec\n", (long long)rate);
+        std::printf("offered rate     : %lld msg/sec\n", static_cast<long long>(rate));
         std::printf("duration         : %d sec\n", duration);
         std::printf("port             : %u\n\n", port);
         RunResult r = run_self(tickers, zipf, port, rate, ob_ratio, duration,
@@ -970,10 +970,10 @@ int main(int argc, char** argv)
         const int64_t start = arg_i64(argc, argv, "--start", 100000);
         const int64_t step = arg_i64(argc, argv, "--step", 200000);
         const int64_t maxr = arg_i64(argc, argv, "--max", 3'000'000);
-        const int dwell = (int)arg_i64(argc, argv, "--dwell", 3);
+        const int dwell = static_cast<int>(arg_i64(argc, argv, "--dwell", 3));
         print_banner("sweep", tickers, uni_path, ob_ratio, zipf_s);
         std::printf("sweep: offered %lld → %lld step %lld, dwell %ds/step (port %u)\n\n",
-                    (long long)start, (long long)maxr, (long long)step, dwell, port);
+                    static_cast<long long>(start), static_cast<long long>(maxr), static_cast<long long>(step), dwell, port);
         std::printf("%-12s %-11s %-10s %-10s %-10s %-8s %-9s\n",
                     "offered/s", "achieved/s", "e2e_p50", "e2e_p99", "e2e_p999", "drops", "lossless");
         std::printf("%s\n", std::string(76, '-').c_str());
@@ -984,13 +984,13 @@ int main(int argc, char** argv)
             RunResult r = run_self(tickers, zipf, port, rate, ob_ratio, dwell,
                                    OB_CAP, TD_CAP, ORDER_CAP, LAT_CAP);
             std::printf("%-12lld %-11.0f %-10s %-10s %-10s %-8llu %-9s\n",
-                        (long long)rate, r.recv_rate, fmt_ns(r.e2e.p50).c_str(),
+                        static_cast<long long>(rate), r.recv_rate, fmt_ns(r.e2e.p50).c_str(),
                         fmt_ns(r.e2e.p99).c_str(), fmt_ns(r.e2e.p999).c_str(),
-                        (unsigned long long)r.drops, r.lossless ? "yes" : "NO");
+                        static_cast<unsigned long long>(r.drops), r.lossless ? "yes" : "NO");
             std::printf("CSV,%lld,%.0f,%lld,%lld,%lld,%llu,%d\n",
-                        (long long)rate, r.recv_rate, (long long)r.e2e.p50,
-                        (long long)r.e2e.p99, (long long)r.e2e.p999,
-                        (unsigned long long)r.drops, r.lossless ? 1 : 0);
+                        static_cast<long long>(rate), r.recv_rate, static_cast<long long>(r.e2e.p50),
+                        static_cast<long long>(r.e2e.p99), static_cast<long long>(r.e2e.p999),
+                        static_cast<unsigned long long>(r.drops), r.lossless ? 1 : 0);
 
             if (r.lossless)
             {
@@ -1002,7 +1002,7 @@ int main(int argc, char** argv)
             }
         }
 
-        std::printf("\n용량 천장 (최대 무손실 offered rate): %lld msg/sec\n", (long long)ceiling);
+        std::printf("\n용량 천장 (최대 무손실 offered rate): %lld msg/sec\n", static_cast<long long>(ceiling));
     }
     else if (mode == "serve")
     {
@@ -1085,7 +1085,7 @@ int main(int argc, char** argv)
     {
         const std::string host = arg_str(argc, argv, "--host", "127.0.0.1");
         const int64_t rate = arg_i64(argc, argv, "--rate", 200000);
-        const int duration = (int)arg_i64(argc, argv, "--duration", 20);
+        const int duration = static_cast<int>(arg_i64(argc, argv, "--duration", 20));
         print_banner("send", tickers, uni_path, ob_ratio, zipf_s);
         std::printf("[send] %s:%u 로 연결 시도...\n", host.c_str(), port);
         socket_t s = connect_to(host, port);
@@ -1098,12 +1098,12 @@ int main(int argc, char** argv)
         }
 
         set_nodelay(s);
-        std::printf("[send] 연결됨. %lld msg/s, %ds 방출.\n", (long long)rate, duration);
+        std::printf("[send] 연결됨. %lld msg/s, %ds 방출.\n", static_cast<long long>(rate), duration);
         Stats st;
         std::atomic<bool> stop{false};
         koscom_send_fn(s, tickers, zipf, st, stop, rate, ob_ratio,
-                       (int64_t)duration * 1'000'000'000LL);
-        std::printf("[send] 방출 완료: %llu msg.\n", (unsigned long long)st.wire_sent.load());
+                       static_cast<int64_t>(duration) * 1'000'000'000LL);
+        std::printf("[send] 방출 완료: %llu msg.\n", static_cast<unsigned long long>(st.wire_sent.load()));
         sock_close(s);
     }
     else

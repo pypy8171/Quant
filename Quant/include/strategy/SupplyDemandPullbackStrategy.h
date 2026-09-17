@@ -186,7 +186,7 @@ public:
                 auto bars = kis_->get_daily_ohlcv(tk, p_.ma_period + 2);
                 std::this_thread::sleep_for(std::chrono::milliseconds(kSdpRestPacingMs));
 
-                if ((int)bars.size() < p_.ma_period)
+                if (static_cast<int>(bars.size()) < p_.ma_period)
                 {
                     continue;
                 }
@@ -197,7 +197,7 @@ public:
                 // 삼항의 두 분기 값이 같아 실질 무조건 1 — 당일봉 처리 분기 지점만 남겨둔 자리(보류 목록).
                 int start = (bars[0].volume == 0) ? 1 : 1;
 
-                if ((int)bars.size() <= start + p_.ma_period - 1)
+                if (static_cast<int>(bars.size()) <= start + p_.ma_period - 1)
                 {
                     continue;
                 }
@@ -235,7 +235,7 @@ public:
         dq.push_back(md.close);
         trim(dq);
 
-        if ((int)dq.size() < p_.ma_period)
+        if (static_cast<int>(dq.size()) < p_.ma_period)
         {
             return std::nullopt;
         }
@@ -420,14 +420,14 @@ private:
 
     static double sma(const std::deque<double>& dq, int n)
     {
-        if ((int)dq.size() < n)
+        if (static_cast<int>(dq.size()) < n)
         {
             return 0.0;
         }
 
         double s = 0.0;
 
-        for (int i = (int)dq.size() - n; i < (int)dq.size(); ++i)
+        for (int i = static_cast<int>(dq.size()) - n; i < static_cast<int>(dq.size()); ++i)
         {
             s += dq[i];
         }
@@ -437,7 +437,7 @@ private:
 
     void trim(std::deque<double>& dq) const
     {
-        while ((int)dq.size() > p_.ma_period + 2)
+        while (static_cast<int>(dq.size()) > p_.ma_period + 2)
         {
             dq.pop_front();
         }

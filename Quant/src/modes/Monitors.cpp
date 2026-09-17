@@ -1,6 +1,7 @@
 #include "modes/Monitors.h"
 #include "api/KisClient.h"
 #include "api/KisWebSocket.h"
+#include "core/KstTime.h"
 #include "core/MarketSession.h"
 #include "core/Types.h"
 #include "utils/Logger.h"
@@ -111,21 +112,11 @@ static void print_feed(const std::vector<std::string>& tickers, std::mutex& mtx,
     // 현재 시각
     auto now = std::chrono::system_clock::now();
     auto tt = std::chrono::system_clock::to_time_t(now);
-#ifdef _WIN32
-    struct tm tm_info
-    {
-    };
-    localtime_s(&tm_info, &tt);
-#else
-    struct tm tm_info
-    {
-    };
-    localtime_r(&tt, &tm_info);
-#endif
+    const struct tm tm_info = kst::to_tm(tt);
     char tbuf[32];
     std::strftime(tbuf, sizeof(tbuf), "%H:%M:%S", &tm_info);
 
-    std::cout << "══════════════════════════ 실시간 시세 [" << tbuf << "] ══════════════════════════\n\n";
+    std::cout << "══════════════════════════ 실시간 시세 [" << tbuf << " KST] ══════════════════════════\n\n";
 
     std::lock_guard<std::mutex> lk(mtx);
 
@@ -468,14 +459,7 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
                      {
                          auto now = std::chrono::system_clock::now();
                          auto tt = std::chrono::system_clock::to_time_t(now);
-                         struct tm tmi
-                         {
-                         };
-#ifdef _WIN32
-                         localtime_s(&tmi, &tt);
-#else
-                          localtime_r(&tt, &tmi);
-#endif
+                         const struct tm tmi = kst::to_tm(tt);
                          char tbuf[16];
                          std::strftime(tbuf, sizeof(tbuf), "%H:%M:%S", &tmi);
 
@@ -589,21 +573,14 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
 
         auto now2 = std::chrono::system_clock::now();
         auto tt2 = std::chrono::system_clock::to_time_t(now2);
-        struct tm tmi2
-        {
-        };
-#ifdef _WIN32
-        localtime_s(&tmi2, &tt2);
-#else
-        localtime_r(&tt2, &tmi2);
-#endif
+        const struct tm tmi2 = kst::to_tm(tt2);
         char hbuf[32];
         std::strftime(hbuf, sizeof(hbuf), "%H:%M:%S", &tmi2);
 
         // 헤더 + 지수 (2줄)
         {
             char h[160];
-            snprintf(h, sizeof(h), "══ KR 실시간 시세 [%s] %s ══", hbuf,
+            snprintf(h, sizeof(h), "══ KR 실시간 시세 [%s KST] %s ══", hbuf,
                      ws_ok ? "[WS:연결]" : "[WS:끊김]");
             lines.push_back(h);
         }
@@ -776,14 +753,7 @@ int run_us_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
 
                     auto now = std::chrono::system_clock::now();
                     auto tt = std::chrono::system_clock::to_time_t(now);
-                    struct tm tmi
-                    {
-                    };
-#ifdef _WIN32
-                    localtime_s(&tmi, &tt);
-#else
-                    localtime_r(&tt, &tmi);
-#endif
+                    const struct tm tmi = kst::to_tm(tt);
                     char tbuf[16];
                     std::strftime(tbuf, sizeof(tbuf), "%H:%M:%S", &tmi);
 
@@ -807,18 +777,11 @@ int run_us_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
 
         auto now = std::chrono::system_clock::now();
         auto tt = std::chrono::system_clock::to_time_t(now);
-        struct tm tm_info
-        {
-        };
-#ifdef _WIN32
-        localtime_s(&tm_info, &tt);
-#else
-        localtime_r(&tt, &tm_info);
-#endif
+        const struct tm tm_info = kst::to_tm(tt);
         char tbuf[32];
         std::strftime(tbuf, sizeof(tbuf), "%H:%M:%S", &tm_info);
 
-        std::cout << "══════════ M7 미국주식 시세 [" << tbuf << "] ══════════\n";
+        std::cout << "══════════ M7 미국주식 시세 [" << tbuf << " KST] ══════════\n";
         std::cout << std::fixed << std::setprecision(0);
         std::cout << "  국내 삼성전자: ";
 

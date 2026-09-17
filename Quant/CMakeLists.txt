@@ -353,6 +353,10 @@ if(UNIX)
     target_link_libraries(test_pipeline_stress PRIVATE pthread)
 endif()
 
+# ─── 벤치 타겟: 티커 조회 방식별 성능 비교 (map vs unordered_map vs flat array) ──
+add_executable(bench_ticker_lookup tests/test_ticker.cpp)
+target_include_directories(bench_ticker_lookup PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # ─── 벤치 타겟: 전종목 규모 시세 파이프라인 부하 (market firehose) ────────
 add_executable(bench_market_firehose tests/bench_market_firehose.cpp)
 target_include_directories(bench_market_firehose PRIVATE

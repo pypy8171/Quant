@@ -73,7 +73,7 @@ public:
 
     // 이 전략이 활성화될 시장 국면. 기본값=전 국면(기존 전략 무변경 호환).
     // config "active_regimes"로 set_active_regimes() 오버라이드. Engine::apply_regime_selection 폴백이 참조.
-    std::vector<Regime> active_regimes() const { return active_regimes_; }
+    const std::vector<Regime>& active_regimes() const { return active_regimes_; }
     void set_active_regimes(std::vector<Regime> r) { active_regimes_ = std::move(r); }
 
     // 신규 진입 게이트 두 축. 진입 분기에서 is_active()를 보고 막는다(청산은 무관). 둘 다 기본 true.

@@ -42,7 +42,7 @@ bool sock_recv_all(int fd, void* buf, size_t len)
         }
 
         p += n;
-        len -= (size_t)n;
+        len -= static_cast<size_t>(n);
     }
 
     return true;

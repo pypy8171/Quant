@@ -539,7 +539,7 @@ std::vector<MarketData> KisClient::get_us_daily_ohlcv(const std::string& ticker,
                 result.push_back(md);
             }
 
-            if ((int)result.size() >= count)
+            if (static_cast<int>(result.size()) >= count)
             {
                 break;
             }

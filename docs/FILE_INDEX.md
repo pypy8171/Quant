@@ -9,12 +9,12 @@
 - [(루트)](#루트) — 9개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 81개
-- [Quant](#quant) — 163개
-- [docs](#docs) — 52개
+- [Quant](#quant) — 166개
+- [docs](#docs) — 53개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 176개
-- [scripts](#scripts) — 45개
-- [strategies](#strategies) — 25개
+- [scripts](#scripts) — 47개
+- [strategies](#strategies) — 27개
 - [tools](#tools) — 3개
 
 ## (루트)
@@ -184,6 +184,7 @@
 - [etf_prefixes.json](../Quant/config/etf_prefixes.json) — ETF 브랜드 접두사 목록(유니버스 필터용)
 - [reit_name_suffixes.json](../Quant/config/reit_name_suffixes.json) — 리츠 종목명 접미사 목록
 - [reit_names.json](../Quant/config/reit_names.json) — 접미사로 안 걸리는 리츠 종목명 예외 목록
+- [ticker_names.json](../Quant/config/ticker_names.json) — bench_ticker_lookup이 쓰는 티커→종목명 표본 20종목
 - [us_universe.json](../Quant/config/us_universe.json) — 해외주식(나스닥·뉴욕) PBR 후보 유니버스 폴백 목록
 
 ### Quant/include/api/
@@ -372,6 +373,7 @@
 - [test_strategy_shard.cpp](../Quant/tests/test_strategy_shard.cpp) — 전략 샤드 단위 테스트(열 소비 순서·다건 발주)
 - [test_symbol_table.cpp](../Quant/tests/test_symbol_table.cpp) — 종목 id 테이블 단위 테스트(부여 순서·동시성)
 - [test_tick_capture.cpp](../Quant/tests/test_tick_capture.cpp) — 틱 캡처·리더 왕복·이어쓰기 단위 테스트
+- [test_ticker.cpp](../Quant/tests/test_ticker.cpp) — 티커 조회 방식 3가지(std::map·unordered_map·정수 id 평면 배열)의 조회 시간을 2,700종목·1억회로 재는 벤치
 - [test_wake_gate.cpp](../Quant/tests/test_wake_gate.cpp) — WakeGate 소비자 깨우기 단위 테스트
 - [test_ws_decode.cpp](../Quant/tests/test_ws_decode.cpp) — KIS 실시간 채널 디코더 단위 테스트(D-037)
 - [test_ws_frame.cpp](../Quant/tests/test_ws_frame.cpp) — WS 다건 프레임 분리·분봉 커서 시각 산술 단위 테스트
@@ -439,6 +441,7 @@
 - [2026-09-10.md](eod/2026-09-10.md) — 09-10 매매 사후검토(진입정지·매크로 게이트)
 - [2026-09-11.md](eod/2026-09-11.md) — 09-11 매매 사후검토(동기 잔고조회 지연)
 - [2026-09-14.md](eod/2026-09-14.md) — 09-14 매매 사후검토
+- [2026-09-16.md](eod/2026-09-16.md) — 09-16 매매 사후검토
 - [README.md](eod/README.md) — 장 마감 리뷰 색인
 
 ### docs/guides/
@@ -781,6 +784,8 @@
 - [sync_ledgers.py](../scripts/sync_ledgers.py) — 결정 원장 파생 문서 생성 스크립트
 - [token_audit.py](../scripts/token_audit.py) — 세션 기록(jsonl)에서 토큰 사용을 절차·도구·하네스 주입·압축·훅별로 집계해 표로 낸다(--days, --session, --md)
 - [trade_costs.py](../scripts/trade_costs.py) — 체결 원장(trades_YYYYMMDD.csv)의 날짜별·종목별 매매 비용(수수료·거래세)과 실현손익을 누적 JSON(logs/trade_costs.json)과 표로 낸다(--days, --symbol)
+- [unattended_night.ps1](../scripts/unattended_night.ps1) — 밤사이 무인 이어달리기를 지시서·종료시각과 함께 띄우는 진입 스크립트
+- [unattended_run.ps1](../scripts/unattended_run.ps1) — 긴 작업을 헤드리스 사이클로 쪼개고 사이를 인계 파일로 이어 사람 없이 끝까지 돌린다(-Name, -PromptFile, -Until)
 
 ## strategies
 
@@ -814,6 +819,8 @@
 - [2026-09-11.md](../strategies/DeviationScale/live/2026-09-11.md) — DevScale 09-11 모의매매 일지(자동생성)
 - [2026-09-14.md](../strategies/DeviationScale/live/2026-09-14.md) — 09-14 라이브 매매일지
 - [2026-09-15.md](../strategies/DeviationScale/live/2026-09-15.md) — 09-15 라이브 매매일지
+- [2026-09-16.md](../strategies/DeviationScale/live/2026-09-16.md) — 09-16 라이브 매매일지
+- [2026-09-17.md](../strategies/DeviationScale/live/2026-09-17.md) — 09-17 라이브 매매일지
 
 ### strategies/DeviationScale/reviews/
 

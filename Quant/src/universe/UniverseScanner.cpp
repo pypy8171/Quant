@@ -14,6 +14,7 @@
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -33,7 +34,7 @@ namespace
 //  px_live는 랭킹 축이 실어오는 전 종목 시세 파일(네이버 벌크)에서 온다. 이 파일이
 //  끊기면 px가 전일 종가로 돌아가 판정이 정말로 얼어붙는다 — 나이를 경고로 내보낸다.
 //  캐시가 없던 때는 재스캔마다 후보 전체의 일봉을 다시 받았고, 그 비용이
-//  rescan_interval에 반비례해 후보 풀을 넓히는 것 자체가 막혔다(align_probe_max가 그 캡).
+//  rescan_interval에 반비례해 후보 집합을 넓히는 것 자체가 막혔다(align_probe_max가 그 캡).
 //  ATR·봉수처럼 확정봉만 쓰는 값은 그대로 하루 고정이다.
 struct DailyProbe
 {
@@ -113,7 +114,7 @@ public:
                 pr.r20     = a[8].get<double>();
                 pr.r60     = a[9].get<double>();
                 pr.atr_pct = a[10].get<double>();
-                pr.at      = (std::time_t)a[11].get<long long>();
+                pr.at      = static_cast<std::time_t>(a[11].get<long long>());
 
                 if (a.size() >= 16)
                 {
@@ -159,7 +160,7 @@ public:
 
                 j[kv.first] = nlohmann::json::array({pr.bars, pr.s5, pr.s10, pr.s20, pr.s60,
                                                      pr.close, pr.r5, pr.r10, pr.r20, pr.r60,
-                                                     pr.atr_pct, (long long)pr.at,
+                                                     pr.atr_pct, static_cast<long long>(pr.at),
                                                      pr.hi250, pr.pivot_hi, pr.avg_vol20, pr.close21});
             }
         }
@@ -251,7 +252,7 @@ public:
 
         std::ranges::sort(stale, {}, &std::pair<std::time_t, std::string>::first);
         considered = stale.size();
-        const std::size_t take = std::min<std::size_t>(stale.size(), (std::size_t)budget);
+        const std::size_t take = std::min<std::size_t>(stale.size(), static_cast<std::size_t>(budget));
         std::unordered_set<std::string> out;
 
         for (std::size_t i = 0; i < take; ++i)
@@ -290,7 +291,7 @@ using QuoteTable = std::unordered_map<std::string, MarketQuote>;
 //  당기면 이 축만으로 초당 한도를 먹는다. 반면 정배열·이격·점수를 다시 매기는 데 필요한 건
 //  일봉 캐시와 시세 표뿐이라 REST가 0이다. 그래서 "누가 후보인가"(비싼 축)와
 //  "그 중 누가 좋은가"(싼 축)의 주기를 분리한다.
-struct CandidatePool
+struct CandidateSet
 {
     std::string ymd;
     std::time_t at = 0;
@@ -315,15 +316,17 @@ struct CandidatePool
         return true;
     }
 
-    std::string name_of(const std::string& t) const
+    // [inv] 반환 뷰는 cands 수명 안, names에 삽입이 없는 구간에서만 유효하다(재해시가 뷰를 끊는다).
+    std::string_view name_of(const std::string& t) const
     {
         auto it = names.find(t);
-        return it != names.end() ? it->second : std::string();
+        return it != names.end() ? std::string_view(it->second) : std::string_view{};
     }
 
     // market_map이 있는데도 사전에 없는 티커는 코스피·코스닥 보통주가 아니다(ETN 등).
     //  사전이 없는 구 파일에서는 태그 없는 후보를 KOSPI로 간주해 기존 동작을 유지한다.
-    std::string market_of(const std::string& t) const
+    //  [inv] name_of와 같다 — 반환 뷰는 market에 삽입이 없는 구간에서만 유효하다.
+    std::string_view market_of(const std::string& t) const
     {
         auto it = market.find(t);
 
@@ -332,11 +335,11 @@ struct CandidatePool
             return it->second;
         }
 
-        return have_market_map ? std::string("UNKNOWN") : std::string("KOSPI");
+        return have_market_map ? std::string_view("UNKNOWN") : std::string_view("KOSPI");
     }
 };
-CandidatePool g_pool;
-std::mutex    g_pool_mu;
+CandidateSet g_cand_cache;
+std::mutex   g_cand_mu;
 
 // 지수 게이트의 래치. 축(코스피·코스닥)마다 현재 차단 여부와 마지막 전환 시각을 들고 있는다.
 //  재스캔 스레드가 유일한 호출자지만 g_pool과 같은 규약으로 뮤텍스를 둔다.
@@ -455,7 +458,7 @@ struct MarketGate
     bool closed() const { return !kospi_pass && !kosdaq_pass; }
 
     // 시장 미상은 코스닥과 같은 보수 판정(닫혀 있으면 드롭).
-    bool allows(const std::string& mk) const
+    bool allows(std::string_view mk) const
     {
         if (mk == "KOSDAQ" || mk == "UNKNOWN")
         {
@@ -602,10 +605,10 @@ void load_quote_table(const DevScanCfg& cfg, QuoteTable& q)
 
         const auto ft = pj.is_object() ? pj.find("ts") : pj.end();
         const std::time_t ts =
-            (ft != pj.end() && ft->is_number()) ? (std::time_t)ft->get<long long>() : 0;
+            (ft != pj.end() && ft->is_number()) ? static_cast<std::time_t>(ft->get<long long>()) : 0;
         const std::time_t age = std::time(nullptr) - ts;
         LOG_INFO("[Main] 전 종목 시세: " + std::to_string(q.size()) +
-                 "종목 (" + std::to_string((long long)age) + "초 전 갱신)");
+                 "종목 (" + std::to_string(static_cast<long long>(age)) + "초 전 갱신)");
 
         if (bad > 0)
         {
@@ -621,7 +624,7 @@ void load_quote_table(const DevScanCfg& cfg, QuoteTable& q)
         }
         else if (age > 600)
         {
-            LOG_WARN("[Main] 전 종목 시세가 " + std::to_string((long long)age) +
+            LOG_WARN("[Main] 전 종목 시세가 " + std::to_string(static_cast<long long>(age)) +
                      "초 지났다 — 보조 프로세스 확인 필요. 정배열 판정이 전일 종가로 고정된다");
         }
     }
@@ -631,9 +634,9 @@ void load_quote_table(const DevScanCfg& cfg, QuoteTable& q)
     }
 }
 
-// 랭킹 응답을 후보 풀에 붓는다. 스냅샷가는 중복분에도 반영한다 — 표의 현재가를 최신으로 둔다.
+// 랭킹 응답을 후보 집합에 붓는다. 스냅샷가는 중복분에도 반영한다 — 표의 현재가를 최신으로 둔다.
 void take_ranking(const std::vector<KisClient::RankingStock>& rank, const DevScanCfg& cfg,
-                  QuoteTable& q, CandidatePool& pool)
+                  QuoteTable& q, CandidateSet& cands)
 {
     for (const auto& r : rank)
     {
@@ -647,7 +650,7 @@ void take_ranking(const std::vector<KisClient::RankingStock>& rank, const DevSca
             continue;
         }
 
-        if (excluded_by_name(r.name, pool.etf_drop, pool.reit_drop))
+        if (excluded_by_name(r.name, cands.etf_drop, cands.reit_drop))
         {
             continue;
         }
@@ -657,15 +660,15 @@ void take_ranking(const std::vector<KisClient::RankingStock>& rank, const DevSca
             q[r.ticker].px = r.price;
         }
 
-        pool.add(r.ticker, r.name);
+        cands.add(r.ticker, r.name);
     }
 }
 
-// data.go.kr 시총∪거래대금 유니버스 피드. KIS 30행캡·ETF 잠식을 우회한 개별주 깊은 풀이라
-//  후보 풀 맨 앞에 넣어 일봉 조회 우선순위를 준다. 파일이 없으면 조용히 스킵한다(하위호환).
+// data.go.kr 시총∪거래대금 유니버스 피드. KIS 30행캡·ETF 잠식을 우회한 개별주 깊은 집합이라
+//  후보 집합 맨 앞에 넣어 일봉 조회 우선순위를 준다. 파일이 없으면 조용히 스킵한다(하위호환).
 //  전종목 코드→시장 사전(market_map)을 top-N보다 먼저 적재해, KIS 랭킹축 티커의 시장도
 //  해석되게 한다 — 없으면 kosdaq_enabled 게이트가 그쪽으로 샌다.
-void take_universe_file(const DevScanCfg& cfg, CandidatePool& pool)
+void take_universe_file(const DevScanCfg& cfg, CandidateSet& cands)
 {
     if (cfg.universe_file.empty())
     {
@@ -693,14 +696,17 @@ void take_universe_file(const DevScanCfg& cfg, CandidatePool& pool)
             {
                 if (it.value().is_string())
                 {
-                    pool.market[it.key()] = it.value().get<std::string>();
+                    cands.market[it.key()] = it.value().get<std::string>();
                 }
             }
 
-            pool.have_market_map = !pool.market.empty();
+            cands.have_market_map = !cands.market.empty();
         }
 
-        const auto arr = j.value("universe", nlohmann::json::array());
+        // 유니버스 배열은 수천 원소다 — j.value()로 받으면 통째로 깊은 복사가 된다. 노드를 그대로 본다.
+        static const nlohmann::json kEmptyArray = nlohmann::json::array();
+        const auto                  uit         = j.find("universe");
+        const nlohmann::json&       arr         = (uit != j.end() && uit->is_array()) ? *uit : kEmptyArray;
         int added_file = 0, dup = 0;
 
         for (const auto& e : arr)
@@ -714,7 +720,7 @@ void take_universe_file(const DevScanCfg& cfg, CandidatePool& pool)
 
             const std::string nm = e.value("name", std::string());
 
-            if (excluded_by_name(nm, pool.etf_drop, pool.reit_drop))
+            if (excluded_by_name(nm, cands.etf_drop, cands.reit_drop))
             {
                 continue;
             }
@@ -732,13 +738,13 @@ void take_universe_file(const DevScanCfg& cfg, CandidatePool& pool)
                 continue;
             }
 
-            if (!pool.add(t, nm))
+            if (!cands.add(t, nm))
             {
                 ++dup;
                 continue;
             }
 
-            pool.market[t] = e.value("market", std::string());   // 시장별 risk_off 게이트용
+            cands.market[t] = e.value("market", std::string());   // 시장별 risk_off 게이트용
             ++added_file;
         }
 
@@ -755,15 +761,15 @@ void take_universe_file(const DevScanCfg& cfg, CandidatePool& pool)
 
 // 업종 등락률 축 — 다른 축과 data.go.kr 축이 전부 전일 이전 상태를 보는 것과 달리 이 축만
 //  장중을 본다. 등락률 내림차순이라 상위 N행이 곧 지금 강한 종목이고, 업종을 순회하므로
-//  한 섹터가 풀을 독식하지 않는다. 정배열·과확장 판정은 뒤 프리필터가 그대로 한다.
-void take_sector_ranking(KisClient& c, const DevScanCfg& cfg, QuoteTable& q, CandidatePool& pool)
+//  한 섹터가 집합을 독식하지 않는다. 정배열·과확장 판정은 뒤 프리필터가 그대로 한다.
+void take_sector_ranking(KisClient& c, const DevScanCfg& cfg, QuoteTable& q, CandidateSet& cands)
 {
     if (cfg.sector_codes.empty())
     {
         return;
     }
 
-    const std::size_t before = pool.tickers.size();
+    const std::size_t before = cands.tickers.size();
     int sec_ok = 0, sec_weak = 0;
 
     for (const auto& sc : cfg.sector_codes)
@@ -794,12 +800,12 @@ void take_sector_ranking(KisClient& c, const DevScanCfg& cfg, QuoteTable& q, Can
             strong.push_back(r);
         }
 
-        take_ranking(strong, cfg, q, pool);
+        take_ranking(strong, cfg, q, cands);
     }
 
     LOG_INFO("[Main] DEVSCALE 업종 등락률 축: " + std::to_string(sec_ok) + "/" +
              std::to_string(cfg.sector_codes.size()) + "업종 응답, 신규 " +
-             std::to_string(pool.tickers.size() - before) + "종목 union (약세컷 " +
+             std::to_string(cands.tickers.size() - before) + "종목 union (약세컷 " +
              std::to_string(sec_weak) + ")");
 }
 
@@ -807,19 +813,19 @@ void take_sector_ranking(KisClient& c, const DevScanCfg& cfg, QuoteTable& q, Can
 //  가져와 ETF·리츠 필터를 그대로 적용한다(이름이 없으면 버린다).
 //  티커를 정렬해 순회한다. 해시맵 순서로 돌면 같은 입력에서도 후보 순서가 실행마다 달라지고,
 //  align_probe_max로 잘리는 지점이 함께 바뀌어 유니버스가 재현되지 않는다.
-void take_full_market(const DevScanCfg& cfg, const QuoteTable& q, CandidatePool& pool)
+void take_full_market(const DevScanCfg& cfg, const QuoteTable& q, CandidateSet& cands)
 {
-    if (!cfg.full_market || !pool.have_market_map)
+    if (!cfg.full_market || !cands.have_market_map)
     {
         return;
     }
 
-    const std::size_t before_fm = pool.tickers.size();
+    const std::size_t before_fm = cands.tickers.size();
     int no_name = 0;
     std::vector<std::string> tickers;
-    tickers.reserve(pool.market.size());
+    tickers.reserve(cands.market.size());
 
-    for (const auto& kv : pool.market)
+    for (const auto& kv : cands.market)
     {
         if (kv.first.size() == 6)
         {
@@ -839,7 +845,7 @@ void take_full_market(const DevScanCfg& cfg, const QuoteTable& q, CandidatePool&
             continue;
         }
 
-        if (excluded_by_name(itq->second.name, pool.etf_drop, pool.reit_drop))
+        if (excluded_by_name(itq->second.name, cands.etf_drop, cands.reit_drop))
         {
             continue;
         }
@@ -854,31 +860,31 @@ void take_full_market(const DevScanCfg& cfg, const QuoteTable& q, CandidatePool&
             continue;
         }
 
-        pool.add(t, itq->second.name);
+        cands.add(t, itq->second.name);
     }
 
-    LOG_INFO("[Main] 전 종목 확장: 신규 " + std::to_string(pool.tickers.size() - before_fm) +
+    LOG_INFO("[Main] 전 종목 확장: 신규 " + std::to_string(cands.tickers.size() - before_fm) +
              "종목 union (시세없음 " + std::to_string(no_name) + ", 총 후보 " +
-             std::to_string(pool.tickers.size()) + ")");
+             std::to_string(cands.tickers.size()) + ")");
 }
 
 // 후보 합집합을 채운다. union_refresh_sec 안에 다시 불리면 수집을 통째로 건너뛰고
-//  지난 풀을 그대로 쓴다 — 이 단계만 KIS REST 23콜이고 이후 재판정은 0콜이다(D-028).
+//  지난 집합을 그대로 쓴다 — 이 단계만 KIS REST 23콜이고 이후 재판정은 0콜이다(D-028).
 //  0이면 매 호출 새로 모은다(기존 동작).
 void collect_candidates(KisClient& c, const DevScanCfg& cfg, const std::string& ymd,
-                        QuoteTable& q, CandidatePool& pool)
+                        QuoteTable& q, CandidateSet& cands)
 {
     if (cfg.union_refresh_sec > 0)
     {
         long long age = -1;
         {
-            std::lock_guard<std::mutex> lk(g_pool_mu);
+            std::lock_guard<std::mutex> lk(g_cand_mu);
 
-            if (g_pool.ymd == ymd && !g_pool.tickers.empty() &&
-                std::time(nullptr) - g_pool.at < cfg.union_refresh_sec)
+            if (g_cand_cache.ymd == ymd && !g_cand_cache.tickers.empty() &&
+                std::time(nullptr) - g_cand_cache.at < cfg.union_refresh_sec)
             {
-                pool = g_pool;
-                age  = (long long)(std::time(nullptr) - g_pool.at);
+                cands = g_cand_cache;
+                age  = static_cast<long long>(std::time(nullptr) - g_cand_cache.at);
             }
         }
 
@@ -886,7 +892,7 @@ void collect_candidates(KisClient& c, const DevScanCfg& cfg, const std::string& 
         {
             // 현재가·거래대금은 시세 표에서 방금 읽은 값을 쓴다. 랭킹 축이 실어오던
             //  스냅샷가는 재사용분에 없지만, 네이버 쪽이 더 최신이라 판정에는 그편이 낫다.
-            LOG_INFO("[Main] DEVSCALE 후보 합집합 재사용: " + std::to_string(pool.tickers.size()) +
+            LOG_INFO("[Main] DEVSCALE 후보 합집합 재사용: " + std::to_string(cands.tickers.size()) +
                      "종목 (" + std::to_string(age) +
                      "초 전 수집, 갱신주기 " + std::to_string(cfg.union_refresh_sec) + "초)");
             return;
@@ -894,21 +900,21 @@ void collect_candidates(KisClient& c, const DevScanCfg& cfg, const std::string& 
     }
 
     // 정배열 프리필터로 상당수가 탈락하므로 여기선 max_register로 자르지 않고 넓게 모은다.
-    take_universe_file(cfg, pool);
-    take_ranking(c.fetch_kr_ranking(cfg.scan_top_n, "J"), cfg, q, pool);            // 시총 상위
-    take_ranking(c.fetch_value_ranking(cfg.value_top_n, "J", "3"), cfg, q, pool);   // 거래대금 상위
-    // 랭킹 TR은 축마다 상위 30행 고정(연속조회 불가)이라 정렬축을 하나 더 union해 풀을 넓힌다.
+    take_universe_file(cfg, cands);
+    take_ranking(c.fetch_kr_ranking(cfg.scan_top_n, "J"), cfg, q, cands);            // 시총 상위
+    take_ranking(c.fetch_value_ranking(cfg.value_top_n, "J", "3"), cfg, q, cands);   // 거래대금 상위
+    // 랭킹 TR은 축마다 상위 30행 고정(연속조회 불가)이라 정렬축을 하나 더 union해 집합을 넓힌다.
     //  거래증가율(1)은 대형주에 편중된 시총·거래대금축과 겹침이 적어(중소형 모멘텀) 정배열 후보를 늘린다.
-    take_ranking(c.fetch_value_ranking(cfg.value_top_n, "J", "1"), cfg, q, pool);   // 거래증가율 상위
-    take_sector_ranking(c, cfg, q, pool);
-    take_full_market(cfg, q, pool);
+    take_ranking(c.fetch_value_ranking(cfg.value_top_n, "J", "1"), cfg, q, cands);   // 거래증가율 상위
+    take_sector_ranking(c, cfg, q, cands);
+    take_full_market(cfg, q, cands);
 
     if (cfg.union_refresh_sec > 0)
     {
-        std::lock_guard<std::mutex> lk(g_pool_mu);
-        pool.ymd = ymd;
-        pool.at  = std::time(nullptr);
-        g_pool   = pool;
+        std::lock_guard<std::mutex> lk(g_cand_mu);
+        cands.ymd = ymd;
+        cands.at  = std::time(nullptr);
+        g_cand_cache   = cands;
     }
 }
 
@@ -921,7 +927,7 @@ DailyProbe fetch_probe(KisClient& c, const DevScanCfg& cfg, const std::string& t
     DailyProbe pr;
     pr.ymd  = ymd;
     pr.at   = std::time(nullptr);
-    pr.bars = (int)d.size();
+    pr.bars = static_cast<int>(d.size());
 
     if (pr.bars < 60)
     {
@@ -999,7 +1005,7 @@ DailyProbe fetch_probe(KisClient& c, const DevScanCfg& cfg, const std::string& t
 }
 
 //  점수는 원자료를 바로 더하지 않는다. 추세·눌림·변동성은 단위도 일별 분산도 달라서 그대로
-//   더하면 그날 우연히 많이 벌어진 축이 점수를 지배한다. 통과 풀 안에서 각각 z-score로
+//   더하면 그날 우연히 많이 벌어진 축이 점수를 지배한다. 통과 집합 안에서 각각 z-score로
 //   정규화하고 ±2σ에서 자른 뒤 가중합한다(스케일-프리 + 이상치 1종목 지배 차단).
 struct Feat
 {
@@ -1020,7 +1026,7 @@ struct ProbeStats
 //  데이터부족(신규상장 <60봉)은 여기서 자동 제외된다. 일봉 조회 비용은 align_probe_max로
 //  캡하되 캐시 히트는 예산을 쓰지 않는다. 정배열 규칙은 MaAlign.h의 quant::ma::aligned 하나를 전략과 같이 쓴다.
 std::vector<Feat> probe_and_filter(KisClient& c, const DevScanCfg& cfg, const std::string& ymd,
-                                   const CandidatePool& pool, const QuoteTable& q,
+                                   const CandidateSet& cands, const QuoteTable& q,
                                    const MarketGate& gate, ProbeStats& st)
 {
     std::vector<Feat> passed;
@@ -1029,8 +1035,8 @@ std::vector<Feat> probe_and_filter(KisClient& c, const DevScanCfg& cfg, const st
     if (cfg.align_refresh_max > 0)
     {
         std::size_t stale_n = 0;
-        refresh_set = g_probe_cache.stale_targets(pool.tickers, ymd,
-                                                  (std::time_t)cfg.align_refresh_sec,
+        refresh_set = g_probe_cache.stale_targets(cands.tickers, ymd,
+                                                  static_cast<std::time_t>(cfg.align_refresh_sec),
                                                   cfg.align_refresh_max, stale_n);
 
         if (stale_n > 0)
@@ -1042,9 +1048,9 @@ std::vector<Feat> probe_and_filter(KisClient& c, const DevScanCfg& cfg, const st
         }
     }
 
-    for (const auto& t : pool.tickers)
+    for (const auto& t : cands.tickers)
     {
-        if (!gate.allows(pool.market_of(t)))
+        if (!gate.allows(cands.market_of(t)))
         {
             continue;   // 시장 risk_off 게이트. 일봉 조회 비용도 여기서 아낀다
         }
@@ -1063,7 +1069,7 @@ std::vector<Feat> probe_and_filter(KisClient& c, const DevScanCfg& cfg, const st
         }
 
         // 스코어링 시엔 max_register 대신 align_probe_max까지 넓게 모아 랭킹한다(더 나은 상위 N).
-        if (cfg.score_top_n <= 0 && (int)passed.size() >= cfg.max_register)
+        if (cfg.score_top_n <= 0 && static_cast<int>(passed.size()) >= cfg.max_register)
         {
             break;
         }
@@ -1077,7 +1083,7 @@ std::vector<Feat> probe_and_filter(KisClient& c, const DevScanCfg& cfg, const st
             if (st.fetched >= cfg.align_probe_max)
             {
                 // 예산은 REST에만 건다. 예전에는 여기서 루프를 끊어 뒤쪽 후보의 공짜 캐시
-                //  히트까지 같이 버렸고, 그래서 후보 풀을 넓힐수록 뒤쪽이 영구히 미검사로 남았다.
+                //  히트까지 같이 버렸고, 그래서 후보 집합을 넓힐수록 뒤쪽이 영구히 미검사로 남았다.
                 if (!have)
                 {
                     ++st.budget_skipped;
@@ -1288,16 +1294,16 @@ void score_cross_section(const DevScanCfg& cfg, std::vector<Feat>& passed)
 //  절단이 없어도 정렬은 한다 — 등록 순서가 그대로 진입 우선순위라, 안 정렬하면
 //  유니버스 파일 순서(시총·거래대금)가 우선순위를 먹는다.
 std::vector<std::string> rank_and_truncate(const DevScanCfg& cfg, std::vector<Feat>& passed,
-                                           const CandidatePool& pool,
+                                           const CandidateSet& cands,
                                            std::unordered_map<std::string, std::string>* out_names,
                                            std::unordered_map<std::string, double>* out_scores)
 {
     std::ranges::sort(passed, std::ranges::greater{}, &Feat::score);
     std::size_t take_n = passed.size();
 
-    if (cfg.score_top_n > 0 && (std::size_t)cfg.score_top_n < take_n)
+    if (cfg.score_top_n > 0 && static_cast<std::size_t>(cfg.score_top_n) < take_n)
     {
-        take_n = (std::size_t)cfg.score_top_n;
+        take_n = static_cast<std::size_t>(cfg.score_top_n);
     }
 
     std::vector<std::string> out;
@@ -1309,7 +1315,7 @@ std::vector<std::string> rank_and_truncate(const DevScanCfg& cfg, std::vector<Fe
 
         if (out_names)
         {
-            (*out_names)[passed[i].ticker] = pool.name_of(passed[i].ticker);
+            (*out_names)[passed[i].ticker] = cands.name_of(passed[i].ticker);
         }
 
         if (out_scores)
@@ -1331,20 +1337,20 @@ std::vector<std::string> rank_and_truncate(const DevScanCfg& cfg, std::vector<Fe
 }
 
 // 프리필터 off — 기존 동작(후보 앞에서부터 max_register개).
-std::vector<std::string> take_first_n(const DevScanCfg& cfg, const CandidatePool& pool,
+std::vector<std::string> take_first_n(const DevScanCfg& cfg, const CandidateSet& cands,
                                       const MarketGate& gate,
                                       std::unordered_map<std::string, std::string>* out_names)
 {
     std::vector<std::string> out;
 
-    for (const auto& t : pool.tickers)
+    for (const auto& t : cands.tickers)
     {
-        if (!gate.allows(pool.market_of(t)))
+        if (!gate.allows(cands.market_of(t)))
         {
             continue;
         }
 
-        if ((int)out.size() >= cfg.max_register)
+        if (static_cast<int>(out.size()) >= cfg.max_register)
         {
             break;
         }
@@ -1353,7 +1359,7 @@ std::vector<std::string> take_first_n(const DevScanCfg& cfg, const CandidatePool
 
         if (out_names)
         {
-            (*out_names)[t] = pool.name_of(t);
+            (*out_names)[t] = cands.name_of(t);
         }
     }
 
@@ -1450,9 +1456,9 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& cfg)
         out.push_back({r.ticker, r.name, day_open});
         LOG_INFO("[Main]   + ITB 스캔 " + r.ticker + " " + r.name + " (등락 " +
                  std::to_string(r.change_rate) + "% 가격 " +
-                 std::to_string((long long)r.price) + " 시가앵커 " +
-                 std::to_string((long long)day_open) + " 거래대금 " +
-                 std::to_string((long long)r.trade_value) + ")");
+                 std::to_string(static_cast<long long>(r.price)) + " 시가앵커 " +
+                 std::to_string(static_cast<long long>(day_open)) + " 거래대금 " +
+                 std::to_string(static_cast<long long>(r.trade_value)) + ")");
         ++added;
     }
 
@@ -1465,10 +1471,10 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& cfg)
 //  쓰고(D-028로 주기 분리), 정배열·이격·점수 재판정은 일봉 캐시와 시세 표만 본다.
 //  스캔 스레드에서만 부른다. 실패는 예외 대신 빈 목록으로 돌려준다.
 std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
-                                       std::unordered_map<std::string, std::string>* out_names,
-                                       std::unordered_map<std::string, double>* out_scores)
+                                       std::unordered_map<std::string, std::string>* out_mapNames,
+                                       std::unordered_map<std::string, double>* out_mapScores)
 {
-    const std::string ymd = local_ymd();   // 일봉 캐시·후보 풀 캐시의 거래일 키
+    const std::string ymd = local_ymd();   // 일봉 캐시·후보 집합 캐시의 거래일 키
     g_probe_cache.load_today(ymd);         // 장중 재기동 시 일봉 재조회를 막는다
 
     QuoteTable quotes;
@@ -1485,18 +1491,18 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
         return {};
     }
 
-    CandidatePool pool;
-    collect_candidates(c, cfg, ymd, quotes, pool);
+    CandidateSet cands;
+    collect_candidates(c, cfg, ymd, quotes, cands);
 
     if (!cfg.require_aligned)
     {
-        return take_first_n(cfg, pool, gate, out_names);
+        return take_first_n(cfg, cands, gate, out_mapNames);
     }
 
     ProbeStats st;
-    std::vector<Feat> passed = probe_and_filter(c, cfg, ymd, pool, quotes, gate, st);
+    std::vector<Feat> passed = probe_and_filter(c, cfg, ymd, cands, quotes, gate, st);
     score_cross_section(cfg, passed);
-    std::vector<std::string> out = rank_and_truncate(cfg, passed, pool, out_names, out_scores);
+    std::vector<std::string> out = rank_and_truncate(cfg, passed, cands, out_mapNames, out_mapScores);
 
     // 새로 받은 일봉이 있을 때만 파일을 갱신한다. 히트만 났으면 내용이 같다.
     if (st.fetched > 0)
@@ -1504,9 +1510,9 @@ std::vector<std::string> scan_devscale(KisClient& c, const DevScanCfg& cfg,
         g_probe_cache.save_today(ymd);
     }
 
-    LOG_INFO("[Main] DEVSCALE 정배열 프리필터: 후보=" + std::to_string(pool.tickers.size()) +
-             " ETF드롭=" + std::to_string(pool.etf_drop) +
-             " 리츠드롭=" + std::to_string(pool.reit_drop) +
+    LOG_INFO("[Main] DEVSCALE 정배열 프리필터: 후보=" + std::to_string(cands.tickers.size()) +
+             " ETF드롭=" + std::to_string(cands.etf_drop) +
+             " 리츠드롭=" + std::to_string(cands.reit_drop) +
              " 검사=" + std::to_string(st.probed) +
              " (일봉조회=" + std::to_string(st.fetched) +
              " 재조회=" + std::to_string(st.refreshed) +

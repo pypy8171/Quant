@@ -46,12 +46,22 @@ using Clock = std::chrono::steady_clock;
 static double pct(const std::vector<double>& sorted, double p)
 {
     if (sorted.empty())
+    {
         return 0.0;
-    size_t idx = (size_t)std::ceil(p / 100.0 * (double)sorted.size());
+    }
+
+    size_t idx = static_cast<size_t>(std::ceil(p / 100.0 * static_cast<double>(sorted.size())));
+
     if (idx == 0)
+    {
         idx = 1;
+    }
+
     if (idx > sorted.size())
+    {
         idx = sorted.size();
+    }
+
     return sorted[idx - 1];
 }
 
@@ -74,11 +84,13 @@ int main(int argc, char** argv)
     const int pace_ms = (argc > 4) ? std::atoi(argv[4]) : 60;
 
     std::ifstream f(config_path);
+
     if (!f)
     {
         std::cerr << "[중단] config 못 엶: " << config_path << "\n";
         return 1;
     }
+
     json cfg = json::parse(f);
 
     const char* block = cfg.contains("quote_kis") ? "quote_kis" : "kis";
@@ -99,30 +111,38 @@ int main(int argc, char** argv)
     std::cout << "커넥션 풀링 = " << (nopool ? "OFF (QUANT_HTTP_NOPOOL=1 — 요청마다 TCP+TLS 재수립)"
                                              : "ON (상주 연결 재사용)")
               << "\n\n";
+
     if (kc.is_paper)
+    {
         std::cout << "[경고] is_paper=true 시세키 — 모의 도메인은 시세 REST 미지원이라 HTTP500이 예상됩니다.\n"
                      "       config에 실전 quote_kis 블록을 두거나 실전 config를 쓰세요.\n\n";
+    }
 
     KisClient kis(kc);
+
     if (!kis.authenticate())
     {
         std::cerr << "[중단] 인증 실패 (앱키/시크릿 확인)\n";
         return 3;
     }
+
     std::cout << "[1] 인증 완료 (인증 왕복은 측정에서 제외)\n";
 
     // 워밍업 — 첫 호출에는 DNS 조회·토큰 경로 초기화가 섞여 분포를 왜곡한다. 측정에서 뺀다.
     constexpr int kWarmup = 3;
+
     for (int i = 0; i < kWarmup; ++i)
     {
         kis.get_current_price(ticker);
         std::this_thread::sleep_for(std::chrono::milliseconds(pace_ms));
     }
+
     std::cout << "[2] 워밍업 " << kWarmup << "회 완료\n";
 
     std::vector<double> ms;
-    ms.reserve((size_t)n);
+    ms.reserve(static_cast<size_t>(n));
     int fail = 0;
+
     for (int i = 0; i < n; ++i)
     {
         auto t0 = Clock::now();
@@ -130,14 +150,22 @@ int main(int argc, char** argv)
         auto t1 = Clock::now();
 
         double dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
         if (price > 0.0)
+        {
             ms.push_back(dt);
+        }
         else
+        {
             ++fail; // 조회 실패는 분포에서 제외(재시도 백오프가 섞여 지연을 왜곡)
+        }
 
         if (pace_ms > 0 && i + 1 < n)
+        {
             std::this_thread::sleep_for(std::chrono::milliseconds(pace_ms));
+        }
     }
+
     std::cout << "[3] 측정 " << n << "회 완료 (성공 " << ms.size() << " / 실패 " << fail << ")\n\n";
 
     if (ms.empty())
@@ -149,8 +177,11 @@ int main(int argc, char** argv)
     std::vector<double> s = ms;
     std::sort(s.begin(), s.end());
     double sum = 0.0;
+
     for (double v : s)
+    {
         sum += v;
+    }
 
     std::cout << std::fixed << std::setprecision(2);
     std::cout << "── 호출당 지연 (ms) ──────────────────────\n";
@@ -160,7 +191,7 @@ int main(int argc, char** argv)
     std::cout << "  p90         " << pct(s, 90) << "\n";
     std::cout << "  p99         " << pct(s, 99) << "\n";
     std::cout << "  최대        " << s.back() << "\n";
-    std::cout << "  평균        " << (sum / (double)s.size()) << "\n";
+    std::cout << "  평균        " << (sum / static_cast<double>(s.size())) << "\n";
     std::cout << "──────────────────────────────────────────\n";
     std::cout << "풀링 " << (nopool ? "OFF" : "ON") << " 기준값입니다. 반대 조건으로 한 번 더 돌려 비교하세요.\n";
     std::cout << "  같은 회차·같은 네트워크 상태에서 연달아 재야 비교가 성립합니다(외부 회선 변동이 섞임).\n";

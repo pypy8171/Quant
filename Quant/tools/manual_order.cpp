@@ -100,12 +100,12 @@ int main(int argc, char** argv)
     std::cout << "=== 수동 주문 (모의계좌 " << mask(kc.account_no) << ") ===\n";
     std::cout << "종목=" << ticker << "  " << (side == OrderSide::BUY ? "매수" : "매도")
               << "  수량=" << qty << "  유형=" << (type == OrderType::MARKET ? "시장가" : "지정가")
-              << "  가격=" << (type == OrderType::LIMIT ? std::to_string((int)price) : "-") << "\n";
+              << "  가격=" << (type == OrderType::LIMIT ? std::to_string(static_cast<int>(price)) : "-") << "\n";
     std::cout << "KIS 주문 본문(양식):\n"
               << "  CANO=" << mask(kc.account_no) << "  ACNT_PRDT_CD=" << kc.account_type
               << "  PDNO=" << ticker << "\n"
               << "  ORD_DVSN=" << (type == OrderType::MARKET ? "01(시장가)" : "00(지정가)")
-              << "  ORD_QTY=" << qty << "  ORD_UNPR=" << (type == OrderType::LIMIT ? (int)price : 0) << "\n"
+              << "  ORD_QTY=" << qty << "  ORD_UNPR=" << (type == OrderType::LIMIT ? static_cast<int>(price) : 0) << "\n"
               << "  tr_id=" << (side == OrderSide::BUY ? "VTTC0802U(모의매수)" : "VTTC0801U(모의매도)") << "\n\n";
 
     // ── [1] 인증 ─────────────────────────────────────────────────────────────

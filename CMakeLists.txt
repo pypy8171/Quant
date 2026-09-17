@@ -20,3 +20,8 @@ enable_testing()
 
 # 하위 프로젝트를 포함합니다.
 add_subdirectory ("Quant")
+
+if(MSVC)
+    # 하위 모든 타깃이 MSVC 빌드 시 자동으로 /MD (또는 /MDd)를 사용하도록 전역 설정합니다.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()

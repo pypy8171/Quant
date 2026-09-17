@@ -102,7 +102,7 @@ static Pctl percentiles(std::vector<int64_t>& v)
     }
 
     std::sort(v.begin(), v.end());
-    auto at = [&](double p) { return v[(size_t)(p * (v.size() - 1))]; };
+    auto at = [&](double p) { return v[static_cast<size_t>(p * (v.size() - 1))]; };
     r.p50 = at(0.50);
     r.p99 = at(0.99);
     r.p999 = at(0.999);
@@ -116,7 +116,7 @@ static std::string fmt_ns(int64_t n)
 
     if (n < 1000)
     {
-        std::snprintf(b, sizeof(b), "%lld ns", (long long)n);
+        std::snprintf(b, sizeof(b), "%lld ns", static_cast<long long>(n));
     }
     else if (n < 1'000'000)
     {
@@ -201,11 +201,11 @@ int main(int argc, char** argv)
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
-    const int  duration    = (int)arg_i64(argc, argv, "--duration", 60);
+    const int  duration    = static_cast<int>(arg_i64(argc, argv, "--duration", 60));
     const bool trade_only  = arg_i64(argc, argv, "--trade-only", 1) != 0;
-    const int  count_cap   = (int)arg_i64(argc, argv, "--count", 0); // 0 = 전부
+    const int  count_cap   = static_cast<int>(arg_i64(argc, argv, "--count", 0)); // 0 = 전부
     const int  per_default = trade_only ? 40 : 20;
-    const int  per_session = (int)arg_i64(argc, argv, "--per-session", per_default);
+    const int  per_session = static_cast<int>(arg_i64(argc, argv, "--per-session", per_default));
     const std::string sym_csv   = arg_str(argc, argv, "--symbols", "");
     const std::string universe  = arg_str(argc, argv, "--universe", "");
     const std::string sessions_path = arg_str(argc, argv, "--sessions", "");
@@ -312,9 +312,9 @@ int main(int argc, char** argv)
     }
 
     // ---- 3) 수량 조절 + 세션 용량 대조 ----
-    const int sessions_avail = (int)creds.size();
+    const int sessions_avail = static_cast<int>(creds.size());
     const int capacity       = sessions_avail * per_session; // 라이브로 받을 수 있는 상한
-    int want = (int)all_symbols.size();
+    int want = static_cast<int>(all_symbols.size());
 
     if (count_cap > 0)
     {
@@ -356,7 +356,7 @@ int main(int argc, char** argv)
         s->kc = creds[i];
         s->q  = std::make_unique<RingBuffer<ProbeMsg>>(1u << 16);
         int begin = i * per_session;
-        int end   = std::min((int)all_symbols.size(), begin + per_session);
+        int end   = std::min(static_cast<int>(all_symbols.size()), begin + per_session);
 
         for (int k = begin; k < end; ++k)
         {
@@ -520,9 +520,9 @@ int main(int argc, char** argv)
     std::printf("elapsed         : %.1f sec\n", elapsed);
     std::printf("세션 연결       : %d/%zu\n", connected_sessions, sess.size());
     std::printf("orderbook/trade : %llu / %llu (drop %llu)\n",
-                (unsigned long long)ob_total, (unsigned long long)td_total,
-                (unsigned long long)drop_total);
-    std::printf("decided         : %llu\n", (unsigned long long)dec_total);
+                static_cast<unsigned long long>(ob_total), static_cast<unsigned long long>(td_total),
+                static_cast<unsigned long long>(drop_total));
+    std::printf("decided         : %llu\n", static_cast<unsigned long long>(dec_total));
     std::printf("관측 msg rate   : %.1f msg/sec (실 라이브, %d종목/%d세션)\n",
                 total / (elapsed > 0 ? elapsed : 1), use, connected_sessions);
 

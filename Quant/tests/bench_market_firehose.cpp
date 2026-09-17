@@ -492,7 +492,7 @@ static std::string fmt_ns(int64_t n)
 
     if (n < 1000)
     {
-        std::snprintf(b, sizeof(b), "%lld ns", (long long)n);
+        std::snprintf(b, sizeof(b), "%lld ns", static_cast<long long>(n));
     }
     else if (n < 1'000'000)
     {
@@ -553,7 +553,7 @@ static RunResult run_once(const std::vector<std::string>& tickers,
                       std::ref(stop), lat_cap);
     std::thread t_ws(producer_fn, std::ref(ob_q), std::ref(td_q), std::cref(tickers), std::cref(zipf),
                      std::ref(st), std::ref(stop), total_rate, ob_ratio,
-                     (int64_t)duration_sec * 1'000'000'000LL);
+                     static_cast<int64_t>(duration_sec) * 1'000'000'000LL);
 
     t_ws.join();                                    // 방출 종료
     measuring.store(false, std::memory_order_relaxed); // 이후 소비분은 드레인 → 샘플 제외
@@ -629,7 +629,7 @@ int main(int argc, char** argv)
 #endif
     std::string mode = (argc > 1) ? argv[1] : "load";
     const std::string uni_path = arg_str(argc, argv, "--universe", "");
-    const int fallback_n = (int)arg_i64(argc, argv, "--tickers", 2600);
+    const int fallback_n = static_cast<int>(arg_i64(argc, argv, "--tickers", 2600));
     const double zipf_s = arg_dbl(argc, argv, "--zipf", 1.0);
     const double ob_ratio = arg_dbl(argc, argv, "--ob-ratio", 0.7);
 
@@ -647,11 +647,11 @@ int main(int argc, char** argv)
         const int64_t start = arg_i64(argc, argv, "--start", 50000);
         const int64_t step = arg_i64(argc, argv, "--step", 100000);
         const int64_t maxr = arg_i64(argc, argv, "--max", 2'000'000);
-        const int dwell = (int)arg_i64(argc, argv, "--dwell", 4);
+        const int dwell = static_cast<int>(arg_i64(argc, argv, "--dwell", 4));
 
         print_banner("sweep", tickers, uni_path, ob_ratio, zipf_s);
         std::printf("sweep: rate %lld → %lld step %lld, dwell %ds/step\n\n",
-                    (long long)start, (long long)maxr, (long long)step, dwell);
+                    static_cast<long long>(start), static_cast<long long>(maxr), static_cast<long long>(step), dwell);
         std::printf("%-12s %-10s %-10s %-10s %-10s %-8s %-9s\n",
                     "offered/s", "e2e_p50", "e2e_p99", "e2e_p999", "e2e_max", "drops", "lossless");
         std::printf("%s\n", std::string(72, '-').c_str());
@@ -662,15 +662,15 @@ int main(int argc, char** argv)
         {
             RunResult r = run_once(tickers, zipf, rate, ob_ratio, dwell, OB_CAP, TD_CAP, ORDER_CAP, LAT_CAP);
             std::printf("%-12lld %-10s %-10s %-10s %-10s %-8llu %-9s\n",
-                        (long long)rate, fmt_ns(r.e2e.p50).c_str(), fmt_ns(r.e2e.p99).c_str(),
+                        static_cast<long long>(rate), fmt_ns(r.e2e.p50).c_str(), fmt_ns(r.e2e.p99).c_str(),
                         fmt_ns(r.e2e.p999).c_str(), fmt_ns(r.e2e.mx).c_str(),
-                        (unsigned long long)r.drops, r.lossless ? "yes" : "NO");
+                        static_cast<unsigned long long>(r.drops), r.lossless ? "yes" : "NO");
             // CSV: rate,p50ns,p99ns,p999ns,maxns,drops,lossless,ob_prod,td_prod
             std::printf("CSV,%lld,%lld,%lld,%lld,%lld,%llu,%d,%llu,%llu\n",
-                        (long long)rate, (long long)r.e2e.p50, (long long)r.e2e.p99,
-                        (long long)r.e2e.p999, (long long)r.e2e.mx, (unsigned long long)r.drops,
-                        r.lossless ? 1 : 0, (unsigned long long)r.ob_prod,
-                        (unsigned long long)r.td_prod);
+                        static_cast<long long>(rate), static_cast<long long>(r.e2e.p50), static_cast<long long>(r.e2e.p99),
+                        static_cast<long long>(r.e2e.p999), static_cast<long long>(r.e2e.mx), static_cast<unsigned long long>(r.drops),
+                        r.lossless ? 1 : 0, static_cast<unsigned long long>(r.ob_prod),
+                        static_cast<unsigned long long>(r.td_prod));
 
             if (r.lossless)
             {
@@ -682,16 +682,16 @@ int main(int argc, char** argv)
             }
         }
 
-        std::printf("\n용량 천장 (최대 무손실 offered rate): %lld msg/sec\n", (long long)ceiling);
+        std::printf("\n용량 천장 (최대 무손실 offered rate): %lld msg/sec\n", static_cast<long long>(ceiling));
         return 0;
     }
 
     // ── load 모드 ──
     const int64_t rate = arg_i64(argc, argv, "--rate", 200000);
-    const int duration = (int)arg_i64(argc, argv, "--duration", 20);
+    const int duration = static_cast<int>(arg_i64(argc, argv, "--duration", 20));
 
     print_banner("load", tickers, uni_path, ob_ratio, zipf_s);
-    std::printf("offered rate    : %lld msg/sec (총)\n", (long long)rate);
+    std::printf("offered rate    : %lld msg/sec (총)\n", static_cast<long long>(rate));
     std::printf("duration        : %d sec\n\n", duration);
 
     RunResult r = run_once(tickers, zipf, rate, ob_ratio, duration, OB_CAP, TD_CAP, ORDER_CAP, LAT_CAP);
@@ -699,17 +699,17 @@ int main(int argc, char** argv)
     std::printf("=== Throughput ===\n");
     std::printf("elapsed         : %.2f sec\n", r.elapsed_sec);
     std::printf("OB  produced/consumed/drop : %llu / %llu / (hwm %llu)\n",
-                (unsigned long long)r.ob_prod, (unsigned long long)r.ob_cons,
-                (unsigned long long)r.ob_hwm);
+                static_cast<unsigned long long>(r.ob_prod), static_cast<unsigned long long>(r.ob_cons),
+                static_cast<unsigned long long>(r.ob_hwm));
     std::printf("TD  produced/consumed/drop : %llu / %llu / (hwm %llu)\n",
-                (unsigned long long)r.td_prod, (unsigned long long)r.td_cons,
-                (unsigned long long)r.td_hwm);
+                static_cast<unsigned long long>(r.td_prod), static_cast<unsigned long long>(r.td_cons),
+                static_cast<unsigned long long>(r.td_hwm));
     std::printf("signals/orders  : %llu / %llu (order_q hwm %llu)\n",
-                (unsigned long long)r.signals, (unsigned long long)r.orders,
-                (unsigned long long)r.order_hwm);
+                static_cast<unsigned long long>(r.signals), static_cast<unsigned long long>(r.orders),
+                static_cast<unsigned long long>(r.order_hwm));
     std::printf("total in rate   : %.0f msg/sec (실측)\n",
                 (r.ob_prod + r.td_prod) / (r.elapsed_sec > 0 ? r.elapsed_sec : 1));
-    std::printf("total drops     : %llu\n\n", (unsigned long long)r.drops);
+    std::printf("total drops     : %llu\n\n", static_cast<unsigned long long>(r.drops));
 
     std::printf("=== Latency (내부 처리단, 네트워크 제외) ===\n");
     auto line = [](const char* lbl, const Pctl& p) {

@@ -61,12 +61,12 @@ public:
 
         prices_.push_back(data.close);
 
-        if ((int)prices_.size() > long_period_)
+        if (static_cast<int>(prices_.size()) > long_period_)
         {
             prices_.pop_front();
         }
 
-        if ((int)prices_.size() < long_period_)
+        if (static_cast<int>(prices_.size()) < long_period_)
         {
             return std::nullopt;
         }

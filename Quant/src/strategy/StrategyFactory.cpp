@@ -243,7 +243,7 @@ static void load_intraday_breakout(StrategyLoadCtx& ctx, const json& s)
                     engine.register_ticker_name(h.ticker, h.name); // 로그 라벨(보유분 종목명)
                     add_gated(engine, std::move(strat));
                     LOG_INFO("[Main]   + ITB " + h.ticker + " " + h.name + " 보유 " + std::to_string(h.qty) +
-                             "주 (in_position 시드, 평단=" + std::to_string((long long)h.avg_price) + ")");
+                             "주 (in_position 시드, 평단=" + std::to_string(static_cast<long long>(h.avg_price)) + ")");
                     ++added;
                 }
             }
@@ -474,7 +474,7 @@ static void attach_holding_guardians(StrategyLoadCtx& ctx, const json& mh,
         engine.mark_guardian_ticker(code);        // 스캔 슬리브의 신규매수에서 제외
         add_gated(engine, std::move(strat));
         LOG_INFO("[Main]   + 청산 관리(ITB) " + code + " " + pname + " 보유 " +
-                 std::to_string(hq) + "주 @평단 " + std::to_string((long long)av) +
+                 std::to_string(hq) + "주 @평단 " + std::to_string(static_cast<long long>(av)) +
                  " (trail=" + std::to_string(seed_trail_disp) + "% 본전탈출=" +
                  std::to_string(exit_near_avg_disp) + "%(무장 -" + std::to_string(arm_disp) + "%) 유예" +
                  std::to_string(guard_warmup_sec) + "s eod=" + std::to_string(eod_hhmm) + ")");
@@ -693,6 +693,7 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         sc.risk_off_idx    = s.value("risk_off_index_pct", -0.02);
         sc.kosdaq_enabled      = s.value("kosdaq_enabled", false);              // 코스닥 참여(기본 off, 백테스트 통과 후 개방)
         sc.risk_off_idx_kosdaq = s.value("risk_off_index_pct_kosdaq", -0.015);  // 코스닥 지수 risk_off 임계(코스피보다 보수적)
+
         // 재개 임계와 최소 체류 — 차단 임계와 갈라 두어 경계 근처 토글을 없앤다. [why D-033]
         sc.risk_off_idx_resume        = s.value("risk_off_resume_pct", -0.012);
         sc.risk_off_idx_kosdaq_resume = s.value("risk_off_resume_pct_kosdaq", -0.009);
@@ -776,17 +777,17 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
         auto scan_fn = [sc, &engine, score_state, w_spread, w_target, w_base, sleeve_id,
                         krw_on, krw_floor, krw_cap, krw_cap_z](KisClient& c)
         {
-            std::unordered_map<std::string, std::string> nm;
-            std::unordered_map<std::string, double>      sco;
-            auto ts = universe::scan_devscale(c, sc, &nm, &sco);
+            std::unordered_map<std::string, std::string> names_by_ticker;
+            std::unordered_map<std::string, double>      scores_by_ticker;
+            auto ts = universe::scan_devscale(c, sc, &names_by_ticker, &scores_by_ticker);
 
-            for (auto& kv : nm)
+            for (auto& kv : names_by_ticker)
             {
                 engine.register_ticker_name(kv.first, kv.second);
             }
 
             // 점수의 두 가지 용도 — (a) 누가 먼저 슬롯을 차지하는가(랭크), (b) 얼마를 사는가(배수).
-            auto mult = universe::score_to_mult(sco, w_spread, w_target, w_base,
+            auto mult = universe::score_to_mult(scores_by_ticker, w_spread, w_target, w_base,
                                                 engine.risk_max_positions());
             {
                 std::lock_guard<std::mutex> lk(score_state->mu);
@@ -800,14 +801,14 @@ static void load_deviation_scale(StrategyLoadCtx& ctx, const json& s)
 
                 if (krw_on)
                 {
-                    for (auto& kv : score_to_krw(sco, krw_floor, krw_cap, krw_cap_z))
+                    for (auto& kv : score_to_krw(scores_by_ticker, krw_floor, krw_cap, krw_cap_z))
                     {
                         score_state->krw[kv.first] = kv.second;
                     }
                 }
             }
 
-            publish_entry_priority(engine, sleeve_id, sco);
+            publish_entry_priority(engine, sleeve_id, scores_by_ticker);
             return ts;
         };
         auto drop_held = [](std::vector<std::string>& ts, const std::set<std::string>& h)

@@ -12,6 +12,15 @@ static std::string kis_reject_code(const json& j)
     return code.empty() ? std::string(kis_err::kUnknown) : code;
 }
 
+// 응답의 output 노드. j.value("output", json::object())는 노드를 통째로 깊은 복사하므로
+//  필드 한둘을 읽을 때도 값이 복사된다 — 없으면 빈 객체를 가리키는 참조를 돌려준다.
+static const json& kis_output_node(const json& j)
+{
+    static const json kEmptyObject = json::object();
+    const auto        it           = j.find("output");
+    return (it != j.end() && it->is_object()) ? *it : kEmptyObject;
+}
+
 static bool kis_parse_order_resp(const std::string& resp, json& j, const char* what)
 {
     try
@@ -87,7 +96,7 @@ bool KisClient::send_order(const OrderSignal& signal)
                 {"PDNO", signal.ticker},
                 {"ORD_DVSN", signal.type == OrderType::MARKET ? "01" : "00"},
                 {"ORD_QTY", std::to_string(signal.quantity)},
-                {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string((int)signal.price) : "0"}};
+                {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(static_cast<int>(signal.price)) : "0"}};
     }
 
     std::string resp = http_post(url,
@@ -159,7 +168,7 @@ OrderAck KisClient::submit_order_ack(const OrderSignal& signal)
                 {"PDNO", signal.ticker},
                 {"ORD_DVSN", signal.type == OrderType::MARKET ? "01" : "00"},
                 {"ORD_QTY", std::to_string(signal.quantity)},
-                {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string((int)signal.price) : "0"}};
+                {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(static_cast<int>(signal.price)) : "0"}};
     }
 
     std::string resp = http_post(url,
@@ -185,8 +194,8 @@ OrderAck KisClient::submit_order_ack(const OrderSignal& signal)
         return OrderAck::fail(kis_reject_code(j));
     }
 
-    auto out = j.value("output", json::object());
-    OrderAck ack;
+    const json& out = kis_output_node(j);
+    OrderAck    ack;
     ack.odno      = out.value("ODNO", "");
     ack.krx_orgno = out.value("KRX_FWDG_ORD_ORGNO", "");
     LOG_INFO("[KIS] 주문 접수: " + signal.ticker +
@@ -248,7 +257,7 @@ OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& o
         return OrderAck::fail(kis_reject_code(j));
     }
 
-    std::string cancel_odno = j.value("output", json::object()).value("ODNO", "");
+    std::string cancel_odno = kis_output_node(j).value("ODNO", "");
     LOG_INFO("[KIS] 취소 접수: " + ticker + " 원ODNO=" + orig_odno +
              " 취소ODNO=" + cancel_odno);
     return OrderAck{cancel_odno, std::string(), std::string()};
@@ -274,7 +283,7 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
                  {"ORD_DVSN", "00"},                              // 지정가
                  {"RVSE_CNCL_DVSN_CD", "01"},                     // 01=정정
                  {"ORD_QTY", std::to_string(new_qty)},            // 정정 수량
-                 {"ORD_UNPR", std::to_string((int)new_price)},    // 정정 단가
+                 {"ORD_UNPR", std::to_string(static_cast<int>(new_price))},    // 정정 단가
                  // QTY_ALL_ORD_YN="Y"는 KIS가 잔량 전체를 정정하게 하므로, 위 ORD_QTY(부분 정정
                  // 수량)는 실제로 반영되지 않는다. 현재 호출부는 단가 정정만 쓰므로 무해하나,
                  // 부분수량 정정이 필요해지면 "N"으로 바꾸고 ORD_QTY를 살려야 한다(보류 목록).
@@ -305,9 +314,9 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
     }
 
     // 정정 성공 시 새 ODNO 발급 → 반환 (호출부가 kis_order_no 갱신)
-    std::string new_odno = j.value("output", json::object()).value("ODNO", "");
+    std::string new_odno = kis_output_node(j).value("ODNO", "");
     LOG_INFO("[KIS] 정정 접수: " + ticker + " 원ODNO=" + orig_odno +
-             " 새ODNO=" + new_odno + " @" + std::to_string((int)new_price));
+             " 새ODNO=" + new_odno + " @" + std::to_string(static_cast<int>(new_price)));
     return OrderAck{new_odno, std::string(), std::string()};
 }
 

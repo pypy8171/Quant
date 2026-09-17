@@ -55,7 +55,7 @@ public:
         // close>=channel_high가 close==당일고가일 때만 성립해 돌파 진입이 거의 발화하지
         // 않고, 저점 청산(close<=channel_low)도 같이 억제돼 손절이 조용히 멈춘다.
         // 그래서 판정을 먼저 하고 당일 바 반영(push)은 뒤에 둔다.
-        if ((int)highs_.size() >= period_)
+        if (static_cast<int>(highs_.size()) >= period_)
         {
             double channel_high = *std::max_element(highs_.begin(), highs_.end());
             double channel_low = *std::min_element(lows_.begin(), lows_.end());
@@ -79,7 +79,7 @@ public:
         highs_.push_back(data.high);
         lows_.push_back(data.low);
 
-        if ((int)highs_.size() > period_)
+        if (static_cast<int>(highs_.size()) > period_)
         {
             highs_.pop_front();
             lows_.pop_front();

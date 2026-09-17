@@ -65,8 +65,11 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 | `session-board-server.ps1` | SessionStart | `scripts/session_board_server.py`(:8788)를 숨긴 창으로 띄운다 — 트레이더 대시보드가 없어도 세션이 하나라도 열려 있으면 현황판을 보게. 포트가 이미 쓰이면 서버가 스스로 끝나므로 매번 띄운다 |
 | `cron-gate.ps1` | SessionStart | 예약작업이 예정 시각을 넘겨 안 돌았거나 `LastTaskResult≠0`이면 작업 이름·실패 시각·복구 커맨드를 알림 |
 | `dashboard-refresh.ps1` | Stop | 매매일지·백테스트가 `dashboard.html`보다 새것이면 리뷰 항목과 대시보드를 다시 만든다. 같은 훅이 `session_board.py --quiet`로 세션 현황판도 턴마다 다시 쓴다. 낡았는지는 수정시각으로 보므로 편집 도구·스크립트·다른 세션 어느 경로로 고쳤든 걸린다 |
-| `handoff-due.ps1` | Stop | 이 턴에 HEAD가 바뀌었고(커밋 직후) 세션 문맥이 100K를 넘었으면 exit 2로 턴을 되돌려 `/handoff`를 밟게 한다. 판정은 `session_board.py --due`(세션별 직전 HEAD를 `_private/session_board.state.json`에 둠) |
+| `handoff-due.ps1` | Stop | 인계할 때가 되면 exit 2로 턴을 되돌려 `/handoff`를 밟게 한다. 갈래가 둘이다 — ①작업 경계: 이 턴에 HEAD가 바뀌었고(커밋 직후) 문맥이 100K를 넘었다. ②압축 임박: 경계가 아니어도 문맥이 145K를 넘었다(커밋을 하지 않는 세션은 ①이 오지 않아 자동 압축까지 가므로). ②는 압축 구간마다 한 번만 알린다. 판정은 `session_board.py --due`(세션별 직전 HEAD와 알린 이력을 `_private/session_board.state.json`에 둠) |
+| `resume-work.ps1` | SessionStart | 압축 직후(`source=compact`)와 무인일 때 인계 파일의 '남은 것'을 가리켜 하던 일을 잇게 한다. 사람이 없으면 `/clear`를 칠 수 없어 자동 압축이 곧 문맥 초기화이므로, 압축 다음 턴이 무엇을 하던 중이었는지 알 길이 이 파일뿐이다. 세션 이름은 짧은 해시라 며칠 전 세션과 겹치므로 **한 시간 안에 갱신된 자기 파일만** 집는다(옛 인계를 이어받아 엉뚱한 일을 하는 것을 막는다) |
 | `precompact-handoff.ps1` | PreCompact | 압축 직전에 `session_board.py --skeleton`으로 `_private/HANDOFF_<세션이름>.md` 뼈대를 만들고 기계적 사실(브랜치·HEAD·미커밋·현황판 줄·문맥·턴·최근 요청)만 채운다. 파일이 있으면 그 절만 갱신 |
+
+**무인 표시 `_private/UNATTENDED.flag`** — 사람이 자는 동안 돌릴 때 만든다. 첫 줄에 만료 시각(ISO, 예 `2026-09-18T09:00:00`)을 적고, 그 시각이 지나면 없는 것으로 친다(빈 파일이면 12시간). 이 표시가 있으면 `handoff-due.ps1`은 '`/clear`를 권하라'가 아니라 '인계 파일을 갱신하고 그대로 이어서 진행하라'로 바뀌고, `resume-work.ps1`은 묻지 말고 진행하라고 알린다. 사람이 없는데 승인을 기다리면 밤새 아무것도 안 되기 때문이다. 판정은 `session_board.py` 의 `unattended()` 한 곳에 있다.
 
 ## 4. 하루 무인 루프 — `/auto-trade-day`
 
@@ -228,7 +231,7 @@ scripts/eod_autodoc.py
 | `scripts/check_docs.py` | 깨진 내부 링크·색인 누락 검사. exit 0이어야 문서 커밋 |
 | `scripts/sync_impact.py` | 바뀐 파일을 `docs/sync_map.toml`의 규칙과 대조해 봐야 할 문서를 찍고, 문서 안 `<!-- sync: 경로@해시 -->` 도장으로 낡은 문단을 집어낸다. `--fix`는 gen 블록 치환, `--restamp`는 도장 갱신, `--render`는 `docs/SYNC_MAP.md` §2 표 생성. Stop 훅과 커밋 훅이 부른다(D-075) |
 | `scripts/commit_gate.py` | 커밋 직전 게이트 — 스테이징 diff의 보안(시크릿·개인정보·비공개 단어)·문체·문서 드리프트·코드 규약·재현성과 커밋 메시지 형식(`--msg-file`)을 한 번에 본다. 0 통과·1 차단·3 사람 판단 남음. 돌 때마다 규칙별 견본으로 자기 시험을 하고, 통과하면 `.claude/commit-gate.state`에 스테이징 트리 해시를 적어 `secret-gate.ps1` 훅이 게이트를 건너뛴 커밋을 막게 한다. 비공개 단어 목록은 `_private/gate_words.txt`에서 읽는다(없으면 차단) |
-| `scripts/check_code_conventions.py` | 스테이징된 코드 변경의 규약 검사 — 중괄호(`brace_style.py --check`), 없는 D-NNN 참조, 규약에 없는 주석 태그, 주석·코드 줄 성격 집계. `--comment-only`는 코드 줄이 섞였는지 본다. 밀도는 보지 않는다(정본 `docs/guides/MAINTENANCE_AUTOMATION.md` 4절이 밀도를 게이트로 걸지 말라고 정해 두었다) |
+| `scripts/check_code_conventions.py` | 스테이징된 코드 변경의 규약 검사 — 중괄호(`brace_style.py --check`), 없는 D-NNN 참조, 규약에 없는 주석 태그, C스타일 캐스트(값은 `static_cast`·포인터는 `reinterpret_cast`, `(void)x;`는 예외), 주석·코드 줄 성격 집계. `--comment-only`는 코드 줄이 섞였는지 본다. 밀도는 보지 않는다(정본 `docs/guides/MAINTENANCE_AUTOMATION.md` 4절이 밀도를 게이트로 걸지 말라고 정해 두었다) |
 | `scripts/maintain.py` | 위 검사기를 한 번에 돌리는 진입점. `--check`는 `check_docs` → `check_code_refs --diff-only` → `gen_facts --check` → `gen_code_graph --check` → `sync_impact --stamps` 순으로 묶어 표로 요약한다. `--weekly`는 파일별 주석 밀도와 태그 없는 긴 블록을 `docs/reports/MAINTENANCE_WEEKLY.md`에 남긴다 |
 | `scripts/check_code_refs.py` | 문서가 가리키는 코드 참조가 실재하는지 검사한다 — 경로, `파일::심볼`, 줄번호 참조. 줄번호 참조는 코드가 움직이면 조용히 어긋나므로 새로 추가된 줄에서 막고 `파일::심볼`로 쓰게 한다 |
 | `scripts/gen_facts.py` | 저장소를 세어 `docs/facts.json`을 만들고, 문서의 `<!-- gen:이름 -->` 블록을 그 값으로 채운다. 하네스 개수·훅 배선처럼 손으로 세면 반드시 어긋나는 숫자가 대상이다. KIS 토큰 캐시 파일명은 실 키 앞부분이 들어가므로 가려서 쓴다 |
@@ -236,9 +239,10 @@ scripts/eod_autodoc.py
 | `scripts/gen_code_flow.py` | `docs/code_flow.toml`(읽는 순서·심볼·볼 것)에서 `docs/CODE_FLOW.md`를 만든다. 줄 번호·시그니처는 소스에서 찾아 채우므로 코드가 옮겨가도 링크가 따라가고, 심볼이 사라지면 `--check`가 exit 1로 막아 명세를 고치게 한다. sync-gate가 `fix_cmd`로 턴 끝마다 재생성한다(D-078) |
 | `scripts/brace_style.py` | 중괄호와 블록 앞뒤 빈 줄을 기계적으로 맞춘다(`.clang-format`의 Allman·`InsertBraces`와 같은 규칙). 손으로 맞추지 않는다 |
 | `scripts/check_plain_language.py` | 쓰지 않기로 한 말을 검출·치환한다(`--fix`는 뒤 조사까지 맞춘다). 정본은 `docs/STYLE_GUIDE.md`, 게이트는 `lexicon-gate.ps1`과 `@committer` |
-| `scripts/session_board.py` | 살아 있는 세션(`~/.claude/sessions/*.json`)마다 기록 jsonl의 늘어난 꼬리만 읽어 문맥 K/%·턴(모델 호출 수)·압축 횟수·마지막 사용자 요청을 세고, 현황판 `_private/SESSION_CLAIMS.md` 줄과 인계 파일 유무를 붙여 `_private/session_board.json`·`.html`(30초 자동 새로고침)로 쓴다. 파일은 Stop 훅이 턴마다 다시 쓰고, 서버(`:8788`, 트레이더가 돌 때는 대시보드 `:8787/sessions`도)는 파일이 30초보다 낡았으면 요청 때 한 번 더 만든다(어느 세션도 턴을 안 끝내면 훅만으로는 멈춰 있어서). 문맥 50%↑ 노랑, 80%↑ 빨강, 100K↑면 인계 시점 표시. `--facts`·`--skeleton`·`--due`는 인계 훅이 쓴다 |
+| `scripts/session_board.py` | 살아 있는 세션(`~/.claude/sessions/*.json`)마다 기록 jsonl의 늘어난 꼬리만 읽어 문맥 K/%·턴(모델 호출 수)·압축 횟수·마지막 사용자 요청을 세고, 현황판 `_private/SESSION_CLAIMS.md` 줄과 인계 파일 유무를 붙여 `_private/session_board.json`·`.html`(30초 자동 새로고침)로 쓴다. 파일은 Stop 훅이 턴마다 다시 쓰고, 서버(`:8788`, 트레이더가 돌 때는 대시보드 `:8787/sessions`도)는 파일이 30초보다 낡았으면 요청 때 한 번 더 만든다(어느 세션도 턴을 안 끝내면 훅만으로는 멈춰 있어서). 문맥 50%↑ 노랑, 80%↑ 빨강, 100K↑면 인계 시점 표시(145K↑는 경계를 안 기다리고 알린다). `--facts`·`--skeleton`·`--due`는 인계 훅이 쓴다 |
 | `scripts/session_board_server.py` | 세션 현황판만 내주는 작은 HTTP 서버(`http://127.0.0.1:8788/sessions`, `/sessions.json`). SessionStart 훅이 세션마다 띄우고 포트가 쓰이면 바로 끝난다. 이 저장소의 세션이 2분 연속 없으면 스스로 내려간다 — 프로젝트를 닫으면 같이 사라진다 |
 | `scripts/session_triage.py` | 코드 세션 여럿이 하루 동안 남긴 상태(미푸시·worktree·브랜치·현황판 `_private/SESSION_CLAIMS.md`·인계 파일·배포 exe 뒤에 쌓인 C++ 커밋)를 한 보고서로 모은다. 되돌릴 수 있는 정리만 옵션으로 한다 — `--prune-branches`(main에 들어간 브랜치 `-d`)·`--archive-handoffs`·`--orphan-patch`. worktree 제거·푸시·exe 교체는 하지 않는다. 절차는 `/triage`(로컬 커맨드), 규칙은 CLAUDE.md 다중 세션 절 |
+| `scripts/unattended_run.ps1` | 사람이 자는 동안 지시서 하나를 여러 사이클에 걸쳐 잇는다. 한 사이클은 `claude -p --permission-mode bypassPermissions` 한 번이고, 끝나면 프로세스가 죽으므로 다음 사이클은 문맥 0에서 시작한다 — 대화 세션에서 불가능한 `/clear`를 이렇게 대신한다. 사이클 사이를 잇는 것은 `_private/HANDOFF_<이름>.md` 하나뿐이라, 매 사이클 지시에 '남은 것'을 파일 경로와 다음 명령까지 적으라는 규칙을 붙인다. `-Name`마다 인계·완료표시·로그가 따로라 여러 개를 동시에 돌려도 섞이지 않는다(단, 같은 파일을 고치는 일을 겹쳐 주지 않는다). 모델이 `_private/DONE_<이름>.flag`를 만들면 남은 사이클을 버리고 끝낸다. 한글 지시는 반드시 `-PromptFile`(UTF-8 BOM)로 준다 — `-Prompt`는 PS 5.1 파이프 인코딩 탓에 물음표로 깨진 적이 있다 |
 
 해석을 채우는 커맨드는 `/eod-review`(사후검토 문서) → `/trade-log`(매매일지 해석) → `/dashboard-sync`(아티팩트 재발행)
 → `/stock-study`(종목 학습) → `/daily`(DAILY_LOG prepend) 순이다.

@@ -142,7 +142,7 @@ static void test_throughput() {
 
 	auto t1 = std::chrono::steady_clock::now();
 	auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-	double mops = (ms > 0) ? (double)N / ms / 1000.0 : 0.0;
+	double mops = (ms > 0) ? static_cast<double>(N) / ms / 1000.0 : 0.0;
 
 	std::cout << "[OK] Throughput: " << N << " items in "
 		<< ms << " ms (" << mops << " M ops/sec)\n";
