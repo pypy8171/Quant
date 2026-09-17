@@ -26,17 +26,17 @@
 namespace
 {
 
-std::wstring to_wide(const std::string& s)
+std::wstring to_wide(const std::string& text)
 {
-    if (s.empty())
+    if (text.empty())
     {
         return {};
     }
 
-    int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring w(n - 1, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], n);
-    return w;
+    int count = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
+    std::wstring word(count - 1, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, &word[0], count);
+    return word;
 }
 
 class WinHttpWsSocket final : public WsSocket
@@ -107,16 +107,16 @@ public:
         return true;
     }
 
-    void send_text(const std::string& msg) override
+    void send_text(const std::string& message) override
     {
-        HINTERNET h = hWebSocket_.load();
+        HINTERNET handle = hWebSocket_.load();
 
-        if (!h)
+        if (!handle)
         {
             return;
         }
 
-        WinHttpWebSocketSend(h, WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE, (PVOID)msg.data(), (DWORD)msg.size());
+        WinHttpWebSocketSend(handle, WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE, (PVOID)message.data(), (DWORD)message.size());
     }
 
     bool recv_message(std::string& out) override
@@ -126,9 +126,9 @@ public:
         while (true)
         {
             // close()가 핸들을 비운 뒤엔 여기서 끝난다. 이미 Receive에 들어간 호출은 닫힌 핸들 오류로 돌아온다.
-            HINTERNET h = hWebSocket_.load();
+            HINTERNET handle = hWebSocket_.load();
 
-            if (!h)
+            if (!handle)
             {
                 last_error_ = "closed";
                 return false;
@@ -136,7 +136,7 @@ public:
 
             DWORD bytesRead = 0;
             WINHTTP_WEB_SOCKET_BUFFER_TYPE bufType{};
-            DWORD rc = WinHttpWebSocketReceive(h, buf_.data(), (DWORD)buf_.size(), &bytesRead, &bufType);
+            DWORD rc = WinHttpWebSocketReceive(handle, buf_.data(), (DWORD)buf_.size(), &bytesRead, &bufType);
 
             if (rc != ERROR_SUCCESS)
             {
@@ -165,16 +165,16 @@ public:
 
     void close() override
     {
-        HINTERNET h = hWebSocket_.exchange(nullptr);
+        HINTERNET handle = hWebSocket_.exchange(nullptr);
 
-        if (!h)
+        if (!handle)
         {
             return;
         }
 
         // close 프레임 없이 핸들만 닫으면 KIS가 세션을 붙잡아 다음 접속이 rt=9로 거부된다.
-        WinHttpWebSocketClose(h, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0);
-        WinHttpCloseHandle(h);
+        WinHttpWebSocketClose(handle, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0);
+        WinHttpCloseHandle(handle);
     }
 
     bool is_open() const override
@@ -263,7 +263,7 @@ std::string ws_platform::http_post_json(const std::string& url, const std::strin
                                  (DWORD)body.size(), 0) &&
               WinHttpReceiveResponse(hReq, nullptr);
 
-    std::string resp;
+    std::string response;
 
     if (ok)
     {
@@ -274,14 +274,14 @@ std::string ws_platform::http_post_json(const std::string& url, const std::strin
             std::string chunk(avail, '\0');
             DWORD read = 0;
             WinHttpReadData(hReq, &chunk[0], avail, &read);
-            resp.append(chunk, 0, read);
+            response.append(chunk, 0, read);
         }
     }
 
     WinHttpCloseHandle(hReq);
     WinHttpCloseHandle(hConn);
     WinHttpCloseHandle(hSess);
-    return resp;
+    return response;
 }
 
 // ─── 체결통보 복호화: BCrypt(CNG) — AES-256-CBC, PKCS7 패딩 제거 ───────────

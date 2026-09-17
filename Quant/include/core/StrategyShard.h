@@ -20,20 +20,20 @@
 #include <utility>
 #include <vector>
 
-namespace strat
+namespace strategy
 {
 // 전략을 맡을 샤드. 구독 종목이 전부 한 열로 해시되면 그 열, 아니면(종목이 여러 열에 걸치거나 구독을 안 밝혔거나
 //  아직 id가 없으면) 없음 — 그 전략은 샤드 둘이 같이 만지게 되므로 M>1로 띄우면 안 된다. M이 1이면 언제나 0.
 //  종목마다 전략 하나인 지금 전략(DevScale_*·ITB_*)은 전부 한 열이다. [why D-071]
-template <typename SymOf>
-std::optional<uint32_t> owner_shard(const StrategyBase& s, uint32_t shards, SymOf&& sym_of)
+template <typename SymbolIdOf>
+std::optional<uint32_t> owner_shard(const StrategyBase& strategy, uint32_t shards, SymbolIdOf&& symbol_id_of)
 {
     if (shards <= 1)
     {
         return 0u;
     }
 
-    const auto              specs = s.get_watch_specs();
+    const auto              specs = strategy.get_watch_specs();
     std::optional<uint32_t> owner;
 
     if (specs.empty())
@@ -43,21 +43,21 @@ std::optional<uint32_t> owner_shard(const StrategyBase& s, uint32_t shards, SymO
 
     for (const auto& sp : specs)
     {
-        const sym::SymbolId id = sym_of(sp.ticker);
+        const symbol::SymbolId id = symbol_id_of(sp.ticker);
 
-        if (id == sym::kNone)
+        if (id == symbol::kNone)
         {
             return std::nullopt;
         }
 
-        const uint32_t m = shard::shard_of(id, shards);
+        const uint32_t row = shard::shard_of(id, shards);
 
-        if (owner && *owner != m)
+        if (owner && *owner != row)
         {
             return std::nullopt;
         }
 
-        owner = m;
+        owner = row;
     }
 
     return owner;
@@ -67,7 +67,7 @@ std::optional<uint32_t> owner_shard(const StrategyBase& s, uint32_t shards, SymO
 //  디스패치 스레드는 전략 객체를 보지 않는다.
 struct Emitted
 {
-    OrderSignal sig;
+    OrderSignal signal;
     std::string strategy_id;
     bool        active = true; // StrategyBase::is_active() — 국면 축 AND 유니버스 축
 };
@@ -75,16 +75,16 @@ struct Emitted
 // 샤드가 비우는 세 행렬. 생산자 행은 호출자가 정한다(수신 스레드·데이터 스레드).
 struct ShardQueues
 {
-    shard::Matrix<OrderBook>&  ob;
-    shard::Matrix<TradeData>&  td;
+    shard::Matrix<OrderBook>&  order_book;
+    shard::Matrix<TradeData>&  trade;
     shard::Matrix<MarketData>& bars;
 };
 
 class Shard
 {
 public:
-    Shard(uint32_t index, ShardQueues q)
-        : index_(index), q_(q)
+    Shard(uint32_t index, ShardQueues shard_queues)
+        : index_(index), q_(shard_queues)
     {
     }
 
@@ -107,10 +107,10 @@ public:
     }
 
     // 전략 목록이 바뀔 때만(버전) 샤드 스레드에서. 샤드가 여럿이면 각자 자기 전략 집합으로 부른다.
-    template <class SymOf>
-    void rebuild(const std::vector<StrategyBase*>& strategies, uint64_t version, SymOf&& sym_of)
+    template <class SymbolIdOf>
+    void rebuild(const std::vector<StrategyBase*>& strategies, uint64_t version, SymbolIdOf&& symbol_id_of)
     {
-        router_.rebuild(strategies, std::forward<SymOf>(sym_of));
+        router_.rebuild(strategies, std::forward<SymbolIdOf>(symbol_id_of));
         seen_version_.store(version, std::memory_order_release);
     }
 
@@ -123,45 +123,45 @@ public:
     // 세 열이 다 비었나 — 잠들기 전 술어.
     [[nodiscard]] bool empty() const noexcept
     {
-        return q_.ob.empty(index_) && q_.td.empty(index_) && q_.bars.empty(index_);
+        return q_.order_book.empty(index_) && q_.trade.empty(index_) && q_.bars.empty(index_);
     }
 
     // 세 열 가운데 가장 높았던 셀 — [큐 고수위] 줄.
     [[nodiscard]] size_t high_water() const noexcept
     {
-        size_t hw = q_.ob.high_water(index_);
-        hw        = hw < q_.td.high_water(index_) ? q_.td.high_water(index_) : hw;
+        size_t hw = q_.order_book.high_water(index_);
+        hw        = hw < q_.trade.high_water(index_) ? q_.trade.high_water(index_) : hw;
         return hw < q_.bars.high_water(index_) ? q_.bars.high_water(index_) : hw;
     }
 
     // 한 바퀴 — 호가 전부, 체결 전부, 봉 하나. 돌려주는 값은 하나라도 처리했나.
     //  emit(StrategyBase*, const OrderSignal&, tick_ns): 신호 봉투를 만드는 자리. tick_ns는 체결 경로만 0이 아니다.
-    //  on_price(SymbolId, double): 체결마다 현재가 캐시. sym_of(ticker): 생산자가 id를 안 찍은 틱(리플레이·옛 경로)만 부른다.
-    template <class Emit, class OnPrice, class SymOf>
-    bool step(Emit&& emit, OnPrice&& on_price, SymOf&& sym_of)
+    //  on_price(SymbolId, double): 체결마다 현재가 캐시. symbol_id_of(ticker): 생산자가 id를 안 찍은 틱(리플레이·옛 경로)만 부른다.
+    template <class Emit, class OnPrice, class SymbolIdOf>
+    bool step(Emit&& emit, OnPrice&& on_price, SymbolIdOf&& symbol_id_of)
     {
         bool did_work = false;
 
-        while (auto opt = q_.ob.pop(index_))
+        while (auto option = q_.order_book.pop(index_))
         {
-            router_.for_each(opt->sym, [&](StrategyBase* s)
+            router_.for_each(option->symbol_id, [&](StrategyBase* strategy)
             {
-                auto sig = s->on_order_book(*opt);
+                auto signal = strategy->on_order_book(*option);
 
-                if (sig && sig->side != OrderSide::NONE)
+                if (signal && signal->side != OrderSide::NONE)
                 {
-                    emit(s, *sig, int64_t{0});
+                    emit(strategy, *signal, int64_t{0});
                 }
 
                 // 다건 발주 경로 — 취소·정정은 side가 NONE이어도 통과한다(생명주기 액션).
                 batch_buf_.clear();
-                s->on_order_book_batch(*opt, batch_buf_);
+                strategy->on_order_book_batch(*option, batch_buf_);
 
-                for (auto& b : batch_buf_)
+                for (auto& batch : batch_buf_)
                 {
-                    if (b.action != OrderAction::NEW || b.side != OrderSide::NONE)
+                    if (batch.action != OrderAction::NEW || batch.side != OrderSide::NONE)
                     {
-                        emit(s, b, opt->recv_ns);
+                        emit(strategy, batch, option->received_ns);
                     }
                 }
             });
@@ -169,29 +169,29 @@ public:
             did_work = true;
         }
 
-        while (auto opt = q_.td.pop(index_))
+        while (auto option = q_.trade.pop(index_))
         {
-            const sym::SymbolId id = opt->sym != sym::kNone ? opt->sym : sym_of(opt->ticker);
-            opt->sym               = id; // 전략은 td.sym으로만 비교한다 — 여기서 한 번 채운다
-            on_price(id, opt->price);
+            const symbol::SymbolId id = option->symbol_id != symbol::kNone ? option->symbol_id : symbol_id_of(option->ticker);
+            option->symbol_id               = id; // 전략은 trade.symbol_id으로만 비교한다 — 여기서 한 번 채운다
+            on_price(id, option->price);
 
-            router_.for_each(id, [&](StrategyBase* s)
+            router_.for_each(id, [&](StrategyBase* strategy)
             {
-                auto sig = s->on_trade(*opt);
+                auto signal = strategy->on_trade(*option);
 
-                if (sig && sig->side != OrderSide::NONE)
+                if (signal && signal->side != OrderSide::NONE)
                 {
-                    emit(s, *sig, opt->recv_ns);
+                    emit(strategy, *signal, option->received_ns);
                 }
 
                 batch_buf_.clear();
-                s->on_trade_batch(*opt, batch_buf_);
+                strategy->on_trade_batch(*option, batch_buf_);
 
-                for (auto& b : batch_buf_)
+                for (auto& batch : batch_buf_)
                 {
-                    if (b.action != OrderAction::NEW || b.side != OrderSide::NONE)
+                    if (batch.action != OrderAction::NEW || batch.side != OrderSide::NONE)
                     {
-                        emit(s, b, opt->recv_ns);
+                        emit(strategy, batch, option->received_ns);
                     }
                 }
             });
@@ -199,15 +199,15 @@ public:
             did_work = true;
         }
 
-        if (auto opt = q_.bars.pop(index_))
+        if (auto option = q_.bars.pop(index_))
         {
-            router_.for_each(opt->sym, [&](StrategyBase* s)
+            router_.for_each(option->symbol_id, [&](StrategyBase* strategy)
             {
-                auto sig = s->on_data(*opt);
+                auto signal = strategy->on_data(*option);
 
-                if (sig && sig->side != OrderSide::NONE)
+                if (signal && signal->side != OrderSide::NONE)
                 {
-                    emit(s, *sig, int64_t{0});
+                    emit(strategy, *signal, int64_t{0});
                 }
             });
 
@@ -225,4 +225,4 @@ private:
     std::atomic<uint64_t>    seen_version_{0};
     std::vector<OrderSignal> batch_buf_; // 다건 발주 재사용 버퍼 — 틱마다 할당하지 않는다
 };
-} // namespace strat
+} // namespace strategy

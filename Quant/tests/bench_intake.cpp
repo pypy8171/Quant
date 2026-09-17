@@ -64,7 +64,7 @@ static inline void busy_wait_ns(int64_t dur_ns)
 // 큐에 싣는 원소: 실제 OrderSignal 페이로드(현실적 크기) + 인테이크 타임스탬프 + 계좌 태그
 struct IntakeMsg
 {
-    OrderSignal sig;
+    OrderSignal signal;
     int64_t enqueue_ns = 0;
     int account = 0;
 };
@@ -80,21 +80,21 @@ struct Result
 };
 
 template <typename Queue>
-Result run(int N, double duration_sec, int64_t exec_delay_ns, size_t cap, double rate_per_producer)
+Result run(int count, double duration_sec, int64_t exec_delay_ns, size_t capture, double rate_per_producer)
 {
-    Queue q(cap);
+    Queue queue(capture);
     std::atomic<bool> stop{false};
     std::atomic<long long> produced{0};
     std::atomic<long long> push_retries{0};
 
     // ── 생산자 N개: 각자 계좌 태그(p)로 OrderSignal을 계속 밀어넣음(가득 차면 yield 재시도)
     std::vector<std::thread> producers;
-    producers.reserve(N);
+    producers.reserve(count);
 
-    for (int p = 0; p < N; ++p)
+    for (int position = 0; position < count; ++position)
     {
         producers.emplace_back(
-            [&q, &stop, &produced, &push_retries, p, rate_per_producer]
+            [&queue, &stop, &produced, &push_retries, position, rate_per_producer]
             {
                 OrderSignal base;
                 base.ticker = "005930";
@@ -116,22 +116,22 @@ Result run(int N, double duration_sec, int64_t exec_delay_ns, size_t cap, double
                 {
                     if (interval_ns > 0)
                     {
-                        const int64_t t = now_ns();
+                        const int64_t time_value = now_ns();
 
-                        if (t < next_emit)
+                        if (time_value < next_emit)
                         {
-                            busy_wait_ns(next_emit - t); // 스케줄 시각까지 대기
+                            busy_wait_ns(next_emit - time_value); // 스케줄 시각까지 대기
                         }
 
                         next_emit += interval_ns;
                     }
 
-                    IntakeMsg m;
-                    m.sig = base;
-                    m.account = p;
-                    m.enqueue_ns = now_ns();
+                    IntakeMsg intake_msg;
+                    intake_msg.signal = base;
+                    intake_msg.account = position;
+                    intake_msg.enqueue_ns = now_ns();
 
-                    if (q.push(m))
+                    if (queue.push(intake_msg))
                     {
                         ++local;
                     }
@@ -153,29 +153,29 @@ Result run(int N, double duration_sec, int64_t exec_delay_ns, size_t cap, double
     const size_t LAT_CAP = 1u << 23; // 8.4M
     std::vector<int64_t> lat;
     lat.reserve(LAT_CAP);
-    std::vector<long long> per_account(N, 0);
+    std::vector<long long> per_account(count, 0);
     long long consumed = 0;
 
-    const auto t0 = clk::now();
+    const auto start_time = clk::now();
     const auto t_end =
-        t0 + std::chrono::duration_cast<clk::duration>(std::chrono::duration<double>(duration_sec));
+        start_time + std::chrono::duration_cast<clk::duration>(std::chrono::duration<double>(duration_sec));
 
     while (clk::now() < t_end)
     {
-        auto opt = q.pop();
+        auto option = queue.pop();
 
-        if (!opt)
+        if (!option)
         {
             std::this_thread::yield();
             continue;
         }
 
-        const int64_t latency = now_ns() - opt->enqueue_ns;
+        const int64_t latency = now_ns() - option->enqueue_ns;
         busy_wait_ns(exec_delay_ns); // FEP 처리 시뮬레이션
 
-        if (opt->account >= 0 && opt->account < N)
+        if (option->account >= 0 && option->account < count)
         {
-            ++per_account[opt->account];
+            ++per_account[option->account];
         }
 
         if (lat.size() < LAT_CAP)
@@ -191,58 +191,58 @@ Result run(int N, double duration_sec, int64_t exec_delay_ns, size_t cap, double
     // 오염시키므로 lat에 넣지 않고 consumed만 카운트한다 (W-2).
     stop.store(true, std::memory_order_relaxed);
 
-    for (auto& t : producers)
+    for (auto& producer : producers)
     {
-        t.join();
+        producer.join();
     }
 
-    while (auto opt = q.pop())
+    while (auto option = queue.pop())
     {
-        if (opt->account >= 0 && opt->account < N)
+        if (option->account >= 0 && option->account < count)
         {
-            ++per_account[opt->account];
+            ++per_account[option->account];
         }
 
         ++consumed;
     }
 
-    Result r;
-    r.produced = produced.load();
-    r.consumed = consumed;
-    r.push_retries = push_retries.load();
-    r.dur_sec = std::chrono::duration<double>(clk::now() - t0).count();
-    r.lat_ns = std::move(lat);
-    r.per_account = std::move(per_account);
-    return r;
+    Result result;
+    result.produced = produced.load();
+    result.consumed = consumed;
+    result.push_retries = push_retries.load();
+    result.dur_sec = std::chrono::duration<double>(clk::now() - start_time).count();
+    result.lat_ns = std::move(lat);
+    result.per_account = std::move(per_account);
+    return result;
 }
 
-static double pct_us(std::vector<int64_t>& sorted, double p)
+static double pct_us(std::vector<int64_t>& sorted, double price)
 {
     if (sorted.empty())
     {
         return 0.0;
     }
 
-    size_t idx = static_cast<size_t>(p * (sorted.size() - 1));
-    return sorted[idx] / 1000.0; // ns → µs
+    size_t index = static_cast<size_t>(price * (sorted.size() - 1));
+    return sorted[index] / 1000.0; // ns → µs
 }
 
 // 계좌별 처리건수의 변동계수(CV = stdev/mean) — 0에 가까울수록 공평
-static double fairness_cv(const std::vector<long long>& v)
+static double fairness_cv(const std::vector<long long>& values)
 {
-    if (v.empty())
+    if (values.empty())
     {
         return 0.0;
     }
 
     double sum = 0;
 
-    for (auto x : v)
+    for (auto value : values)
     {
-        sum += static_cast<double>(x);
+        sum += static_cast<double>(value);
     }
 
-    double mean = sum / v.size();
+    double mean = sum / values.size();
 
     if (mean == 0)
     {
@@ -251,12 +251,12 @@ static double fairness_cv(const std::vector<long long>& v)
 
     double var = 0;
 
-    for (auto x : v)
+    for (auto value : values)
     {
-        var += (x - mean) * (x - mean);
+        var += (value - mean) * (value - mean);
     }
 
-    var /= v.size();
+    var /= values.size();
     return std::sqrt(var) / mean;
 }
 
@@ -265,68 +265,68 @@ int main(int argc, char** argv)
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
-    int N = (argc > 1) ? std::atoi(argv[1]) : 8;
+    int count = (argc > 1) ? std::atoi(argv[1]) : 8;
     double duration = (argc > 2) ? std::atof(argv[2]) : 3.0;
     std::string qtype = (argc > 3) ? argv[3] : "mpsc";
     int64_t delay_ns = (argc > 4) ? static_cast<int64_t>(std::atoll(argv[4])) * 1000 : 0;
-    size_t cap = (argc > 5) ? static_cast<size_t>(std::atoll(argv[5])) : 65536;
+    size_t capture = (argc > 5) ? static_cast<size_t>(std::atoll(argv[5])) : 65536;
     double rate = (argc > 6) ? std::atof(argv[6]) : 0.0;
 
-    if (N < 1)
+    if (count < 1)
     {
-        N = 1;
+        count = 1;
     }
 
-    // 두 큐가 동일 실용량을 갖도록 2^n로 정규화(최소 2) — 대조군 공정성 + cap=0 라이브락 방지 (W-3)
-    cap = mpsc_detail::round_up_pow2(cap);
+    // 두 큐가 동일 실용량을 갖도록 2^n로 정규화(최소 2) — 대조군 공정성 + capture=0 라이브락 방지 (W-3)
+    capture = mpsc_detail::round_up_pow2(capture);
 
-    Result r;
+    Result result;
 
     if (qtype == "mutex")
     {
-        r = run<MutexQueue<IntakeMsg>>(N, duration, delay_ns, cap, rate);
+        result = run<MutexQueue<IntakeMsg>>(count, duration, delay_ns, capture, rate);
     }
     else
     {
         qtype = "mpsc";
-        r = run<MpscQueue<IntakeMsg>>(N, duration, delay_ns, cap, rate);
+        result = run<MpscQueue<IntakeMsg>>(count, duration, delay_ns, capture, rate);
     }
 
-    std::sort(r.lat_ns.begin(), r.lat_ns.end());
-    const double thr = (r.dur_sec > 0) ? r.consumed / r.dur_sec : 0.0;
-    const long long lost = r.produced - r.consumed; // 무손실이면 0
+    std::sort(result.lat_ns.begin(), result.lat_ns.end());
+    const double thr = (result.dur_sec > 0) ? result.consumed / result.dur_sec : 0.0;
+    const long long lost = result.produced - result.consumed; // 무손실이면 0
     const unsigned hw = std::thread::hardware_concurrency();
 
     std::printf("\n=== bench_intake (%s) ===\n", qtype.c_str());
-    std::printf("producers(N)   : %d  (hardware_concurrency=%u)\n", N, hw);
-    std::printf("duration        : %.3f sec   capacity=%zu   exec_delay=%.1f us\n", r.dur_sec, cap,
+    std::printf("producers(N)   : %d  (hardware_concurrency=%u)\n", count, hw);
+    std::printf("duration        : %.3f sec   capacity=%zu   exec_delay=%.1f us\n", result.dur_sec, capture,
                 delay_ns / 1000.0);
 
     if (rate > 0)
     {
         std::printf("offered load    : %.0f/producer × %d = %.0f orders/sec (paced, 지연 측정 모드)\n",
-                    rate, N, rate * N);
+                    rate, count, rate * count);
     }
     else
     {
         std::printf("offered load    : unlimited (풀스로틀, 처리량 측정 모드 — 지연은 백로그 지배)\n");
     }
 
-    std::printf("produced        : %lld\n", r.produced);
-    std::printf("consumed        : %lld   (lost = produced-consumed = %lld)\n", r.consumed, lost);
+    std::printf("produced        : %lld\n", result.produced);
+    std::printf("consumed        : %lld   (lost = produced-consumed = %lld)\n", result.consumed, lost);
     std::printf("throughput      : %.0f orders/sec\n", thr);
     std::printf("E2E latency (us): p50=%.2f  p99=%.2f  p999=%.2f  max=%.2f\n",
-                pct_us(r.lat_ns, 0.50), pct_us(r.lat_ns, 0.99), pct_us(r.lat_ns, 0.999),
-                r.lat_ns.empty() ? 0.0 : r.lat_ns.back() / 1000.0);
-    std::printf("push_retries    : %lld  (backpressure)\n", r.push_retries);
+                pct_us(result.lat_ns, 0.50), pct_us(result.lat_ns, 0.99), pct_us(result.lat_ns, 0.999),
+                result.lat_ns.empty() ? 0.0 : result.lat_ns.back() / 1000.0);
+    std::printf("push_retries    : %lld  (backpressure)\n", result.push_retries);
     std::printf("fairness CV     : %.4f  (계좌별 처리건수 편차, 0=완전공평)\n",
-                fairness_cv(r.per_account));
+                fairness_cv(result.per_account));
 
     // CSV 한 줄 (D4 스윕 집계용): queue,N,delay_us,dur,produced,consumed,lost,thr,p50,p99,p999,retries,cv,hw
     std::printf("CSV,%s,%d,%.1f,%.3f,%lld,%lld,%lld,%.0f,%.2f,%.2f,%.2f,%lld,%.4f,%u\n", qtype.c_str(),
-                N, delay_ns / 1000.0, r.dur_sec, r.produced, r.consumed, lost, thr,
-                pct_us(r.lat_ns, 0.50), pct_us(r.lat_ns, 0.99), pct_us(r.lat_ns, 0.999),
-                r.push_retries, fairness_cv(r.per_account), hw);
+                count, delay_ns / 1000.0, result.dur_sec, result.produced, result.consumed, lost, thr,
+                pct_us(result.lat_ns, 0.50), pct_us(result.lat_ns, 0.99), pct_us(result.lat_ns, 0.999),
+                result.push_retries, fairness_cv(result.per_account), hw);
 
     return (lost == 0) ? 0 : 1; // 무손실 아니면 실패
 }

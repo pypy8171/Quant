@@ -11,8 +11,8 @@ struct Holding
 {
     std::string ticker;               // [wire] pdno
     std::string name;                 // [wire] prdt_name
-    int         qty = 0;              // [wire] hldg_qty. 주
-    double      avg_price = 0.0;      // [wire] pchs_avg_pric. 원
+    int         quantity = 0;              // [wire] hldg_qty. 주
+    double      average_price = 0.0;      // [wire] pchs_avg_pric. 원
     double      eval_pnl = 0.0;       // [wire] evlu_pfls_amt. 평가손익, 원 — 표시 전용
     std::optional<int> sellable_qty;  // [wire] ord_psbl_qty. 필드가 없거나 숫자가 아니면 비어 있다("모름") —
                                       //  호출자는 보유수량을 대신 쓴다. 0은 "매도 가능 0주"라 비어 있음과 다르다
@@ -31,6 +31,6 @@ struct AccountBalance
 // 선물 전광판 한 행 = 거래 가능한 계약 하나. 만기 오름차순이라 첫 행이 최근월물.
 struct FutureContract
 {
-    std::string iscd;  // [wire] futs_shrn_iscd — inquire-price의 FID_INPUT_ISCD로 넣는 코드
+    std::string issue_code;  // [wire] futs_shrn_iscd — inquire-price의 FID_INPUT_ISCD로 넣는 코드
     std::string name;  // [wire] hts_kor_isnm
 };

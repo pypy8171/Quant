@@ -84,9 +84,9 @@ public:
     {
         std::vector<WatchSpec> specs;
 
-        for (const auto& tk : candidates_)
+        for (const auto& ticker : candidates_)
         {
-            specs.push_back({tk, Market::KR, ""});
+            specs.push_back({ticker, Market::KR, ""});
         }
 
         return specs;
@@ -146,15 +146,15 @@ public:
 
         // 수익률 내림차순 정렬 → 상위 N개 선택
         std::ranges::sort(momentum_rank, std::ranges::greater{},
-                          [](const auto& e) { return e.first; });
+                          [](const auto& element) { return element.first; });
 
-        int n = std::min(top_n_sectors_, static_cast<int>(momentum_rank.size()));
-        LOG_INFO("[ThemeStrategy] Step1 완료 — 상위 " + std::to_string(n) + "개 업종 선택:");
+        int count = std::min(top_n_sectors_, static_cast<int>(momentum_rank.size()));
+        LOG_INFO("[ThemeStrategy] Step1 완료 — 상위 " + std::to_string(count) + "개 업종 선택:");
 
-        for (int i = 0; i < n; ++i)
+        for (int index = 0; index < count; ++index)
         {
-            LOG_INFO("  [" + std::to_string(i+1) + "] " + momentum_rank[i].second +
-                     " (" + std::to_string(momentum_rank[i].first).substr(0,6) + "%)");
+            LOG_INFO("  [" + std::to_string(index+1) + "] " + momentum_rank[index].second +
+                     " (" + std::to_string(momentum_rank[index].first).substr(0,6) + "%)");
         }
 
         // ── Step 2: 업종 내 종목 스캔 + 거래량 급증 필터 ─────────────────
@@ -162,9 +162,9 @@ public:
 
         std::vector<std::string> surge_candidates;
 
-        for (int i = 0; i < n; ++i)
+        for (int index = 0; index < count; ++index)
         {
-            const std::string& sector_code = momentum_rank[i].second;
+            const std::string& sector_code = momentum_rank[index].second;
             auto ranked = kis_->fetch_sector_ranking(sector_code, 30);
             std::this_thread::sleep_for(std::chrono::milliseconds(kThemeRestPacingMs));
 
@@ -184,15 +184,15 @@ public:
                 }
 
                 // 20일 평균 거래량
-                double vol_sum = 0;
-                int vol_cnt = std::min(20, static_cast<int>(bars.size()) - 1);
+                double volume_sum = 0;
+                int volume_count = std::min(20, static_cast<int>(bars.size()) - 1);
 
-                for (int j = 1; j <= vol_cnt; ++j)
+                for (int volume_index = 1; volume_index <= volume_count; ++volume_index)
                 {
-                    vol_sum += static_cast<double>(bars[j].volume);
+                    volume_sum += static_cast<double>(bars[volume_index].volume);
                 }
 
-                double avg_vol = vol_sum / vol_cnt;
+                double avg_vol = volume_sum / volume_count;
 
                 if (avg_vol <= 0)
                 {
@@ -218,26 +218,26 @@ public:
         if (!inst_filter_)
         {
             // 필터 미적용 시 surge_candidates 바로 사용
-            for (const auto& tk : surge_candidates)
+            for (const auto& ticker : surge_candidates)
             {
-                candidates_.insert(tk);
+                candidates_.insert(ticker);
             }
         }
         else
         {
             LOG_INFO("[ThemeStrategy] Step3 — 수급 필터 (외국인+기관 동시 순매수)");
 
-            for (const auto& tk : surge_candidates)
+            for (const auto& ticker : surge_candidates)
             {
-                auto trend = kis_->get_investor_trend(tk);
+                auto trend = kis_->get_investor_trend(ticker);
                 std::this_thread::sleep_for(std::chrono::milliseconds(kThemeRestPacingMs));
 
-                if (trend.foreign_net > 0 && trend.inst_net > 0)
+                if (trend.foreign_net > 0 && trend.institution_net > 0)
                 {
-                    LOG_INFO("[ThemeStrategy] 수급 통과: " + tk +
+                    LOG_INFO("[ThemeStrategy] 수급 통과: " + ticker +
                              " 외국인=" + std::to_string(trend.foreign_net) +
-                             " 기관=" + std::to_string(trend.inst_net));
-                    candidates_.insert(tk);
+                             " 기관=" + std::to_string(trend.institution_net));
+                    candidates_.insert(ticker);
                 }
             }
         }
@@ -248,35 +248,35 @@ public:
         // 틱 경로는 id로만 본다 — 후보 문자열은 구독 스펙·로그용으로 남긴다.
         pending_.clear();
 
-        for (const auto& tk : candidates_)
+        for (const auto& ticker : candidates_)
         {
-            pending_.insert(symbol_of(tk));
+            pending_.insert(symbol_of(ticker));
         }
 
-        for (const auto& tk : candidates_)
+        for (const auto& ticker : candidates_)
         {
-            LOG_INFO("  → " + tk);
+            LOG_INFO("  → " + ticker);
         }
     }
 
     std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
 
     // 호가 이벤트 — 진입/청산
-    std::optional<OrderSignal> on_order_book(const OrderBook& ob) override
+    std::optional<OrderSignal> on_order_book(const OrderBook& order_book) override
     {
-        double px = ob.asks[0].price > 0 ? ob.asks[0].price : ob.bids[0].price;
-        return check_entry_exit(ob.sym, ob.ticker, ob.hhmmss, px);
+        double price = order_book.asks[0].price > 0 ? order_book.asks[0].price : order_book.bids[0].price;
+        return check_entry_exit(order_book.symbol_id, order_book.ticker, order_book.hhmmss, price);
     }
 
     // 체결 이벤트 — 호가 보완
-    std::optional<OrderSignal> on_trade(const TradeData& td) override
+    std::optional<OrderSignal> on_trade(const TradeData& trade) override
     {
-        if (td.market != Market::KR)
+        if (trade.market != Market::KR)
         {
             return std::nullopt;
         }
 
-        return check_entry_exit(td.sym, td.ticker, td.hhmmss, td.price);
+        return check_entry_exit(trade.symbol_id, trade.ticker, trade.hhmmss, trade.price);
     }
 
     void on_stop() override
@@ -286,7 +286,7 @@ public:
     }
 
 private:
-    std::optional<OrderSignal> check_entry_exit(sym::SymbolId sym,
+    std::optional<OrderSignal> check_entry_exit(symbol::SymbolId symbol_id,
                                                  std::string_view ticker,
                                                  int32_t hhmmss,
                                                  double ref_px)
@@ -298,51 +298,51 @@ private:
             return std::nullopt;  // 09:00~15:30 정규장만(core/MarketSession.h)
         }
 
-        if (sym == sym::kNone)
+        if (symbol_id == symbol::kNone)
         {
-            sym = symbol_of(ticker); // id 없이 온 틱(옛 경로) — 찍힌 게 정상이라 여기는 드물다
+            symbol_id = symbol_of(ticker); // id 없이 온 틱(옛 경로) — 찍힌 게 정상이라 여기는 드물다
         }
 
         // 진입: 후보이고 아직 매수 안 했으면 (국면 게이트 적용)
-        if (is_active() && pending_.count(sym) && !buy_sent_.count(sym))
+        if (is_active() && pending_.count(symbol_id) && !buy_sent_.count(symbol_id))
         {
-            buy_sent_.insert(sym);
-            pending_.erase(sym);
+            buy_sent_.insert(symbol_id);
+            pending_.erase(symbol_id);
             candidates_.erase(std::string(ticker));
 
-            OrderSignal sig;
-            sig.ticker      = ticker;
-            sig.sym         = sym;
-            sig.side        = OrderSide::BUY;
-            sig.type        = OrderType::MARKET;
-            sig.quantity    = quantity_;
-            sig.ref_price   = ref_px;  // 시장가 명목 백스톱 기준가(현재가/체결가)
-            sig.market      = Market::KR;
-            sig.strategy_id = id();
-            sig.timestamp   = std::chrono::system_clock::now();
+            OrderSignal signal;
+            signal.ticker      = ticker;
+            signal.symbol_id         = symbol_id;
+            signal.side        = OrderSide::BUY;
+            signal.type        = OrderType::MARKET;
+            signal.quantity    = quantity_;
+            signal.ref_price   = ref_px;  // 시장가 명목 백스톱 기준가(현재가/체결가)
+            signal.market      = Market::KR;
+            signal.strategy_id = id();
+            signal.timestamp   = std::chrono::system_clock::now();
 
             LOG_INFO("[ThemeStrategy] BUY: " + std::string(ticker) + " @" + krx::hhmmss_str(hhmmss));
-            return sig;
+            return signal;
         }
 
         // 청산: 매수했고, 아직 청산 안 했고, 청산 시각 도달
-        if (buy_sent_.count(sym) && !sell_sent_.count(sym) && hhmm >= eod_exit_hhmm_)
+        if (buy_sent_.count(symbol_id) && !sell_sent_.count(symbol_id) && hhmm >= eod_exit_hhmm_)
         {
-            sell_sent_.insert(sym);
+            sell_sent_.insert(symbol_id);
 
-            OrderSignal sig;
-            sig.ticker      = ticker;
-            sig.sym         = sym;
-            sig.side        = OrderSide::SELL;
-            sig.type        = OrderType::MARKET;
-            sig.quantity    = quantity_;
-            sig.ref_price   = ref_px;  // 시장가 명목 백스톱 기준가(현재가/체결가)
-            sig.market      = Market::KR;
-            sig.strategy_id = id();
-            sig.timestamp   = std::chrono::system_clock::now();
+            OrderSignal signal;
+            signal.ticker      = ticker;
+            signal.symbol_id         = symbol_id;
+            signal.side        = OrderSide::SELL;
+            signal.type        = OrderType::MARKET;
+            signal.quantity    = quantity_;
+            signal.ref_price   = ref_px;  // 시장가 명목 백스톱 기준가(현재가/체결가)
+            signal.market      = Market::KR;
+            signal.strategy_id = id();
+            signal.timestamp   = std::chrono::system_clock::now();
 
             LOG_INFO("[ThemeStrategy] SELL(장 마감): " + std::string(ticker) + " @" + krx::hhmmss_str(hhmmss));
-            return sig;
+            return signal;
         }
 
         return std::nullopt;
@@ -356,7 +356,7 @@ private:
     int                               eod_exit_hhmm_;
 
     std::unordered_set<std::string>   candidates_; // 문자열 — 구독 스펙·로그. 틱 경로는 아래 id 집합만 본다
-    std::unordered_set<sym::SymbolId> pending_;    // 매수 대기 후보 id
-    std::unordered_set<sym::SymbolId> buy_sent_;
-    std::unordered_set<sym::SymbolId> sell_sent_;
+    std::unordered_set<symbol::SymbolId> pending_;    // 매수 대기 후보 id
+    std::unordered_set<symbol::SymbolId> buy_sent_;
+    std::unordered_set<symbol::SymbolId> sell_sent_;
 };

@@ -3814,3 +3814,30 @@ recorder는 여러 엔진을 동시에 구독할 수 있어 CLI 플래그로 고
 **확인 방법**: 재빌드 후 라이브 재기동 직후 `SELECT DISTINCT account FROM fills ORDER BY ts DESC LIMIT 5;`로
 새 체결이 `50204275`로 찍히는지 확인. `positions` PK 충돌 없이 실계좌·모의계좌 잔고가 독립적으로 쌓이는지
 다음 장에서 재확인.
+
+---
+
+### D-092 C++ 식별자의 약어를 풀어 쓴다 (2026-09-18)
+**상태**: 진행 중 (1단계 끝, 2단계 지역변수 남음)
+
+**결정**: `Quant/` C++ 식별자에서 약어를 풀어 쓴다. 1단계는 구조체 필드와 지배적 약어 94개
+(`scripts/rename_maps/01_fields.json`, 126파일 6,487곳, 예: `td`→`trade`, `sym`→`symbol_id`, `ob`→`order_book`,
+`sig`→`signal`, `recv_ns`→`received_ns`)와 네임스페이스 `sym`→`symbol`. 2단계는 한 글자 지역변수 약 1,200곳과
+다의어 약어(`ms`·`sc`·`rc`·`spec`, `_pct`→`_percent`, `ma_`→`moving_average_`, `ws`→`websocket`)다.
+치환 도구는 `scripts/rename_ids.py`(문자열 리터럴·주석 안의 전문 설명은 건드리지 않는다).
+
+**배경**: 사용자 지시. 필드와 지역변수가 두세 글자 약어라 처음 읽는 사람이 구조체 정의를 열어 봐야 뜻이 잡혔다.
+
+**규칙(버린 대안 포함)**:
+- KIS 전문 필드명(`tr_id`·`odno`·`hhmmss`·`ymd`)은 문자열 리터럴·JSON 키·주석의 전문 설명에서 그대로 둔다 —
+  파서·대시보드·파이썬 쪽이 그 이름을 읽는다. C++ 식별자만 바꾼다.
+- `hhmmss`·`hhmm`·`pbr`·`per`·`argv`·`argc`·`ok`·`now`는 약어가 아니라 이름으로 보고 두었다.
+- 한 번에 전부 바꾸는 안은 버렸다 — 6천 곳 치환의 오치환(`st`→`stop_token`, `ec`, `hw`, `cap` 같은 짧은 토큰의
+  겹침)을 빌드·테스트로 한 단계씩 잡는 편이 되돌리기 쉽다.
+
+**근거**: 1단계 뒤 빌드 170/170, ctest 33/33. 오치환은 손으로 열 곳 남짓 되돌렸다(`std::from_chars_result::ec`,
+`stop_token`, `capture` 등).
+
+**남은 위험**: 다른 worktree(예: wt/manual-halt)가 같은 파일을 고치면 머지 충돌이 크다 — 리네임 뒤 rebase.
+문서·주석의 옛 이름(`td.sym`)은 `docs/CODE_FLOW.md`·`docs/ENGINE_ARCHITECTURE.md`·`CLAUDE.md`만 맞췄고
+`docs/DECISIONS.md`의 지난 항목은 당시 이름 그대로 둔다.

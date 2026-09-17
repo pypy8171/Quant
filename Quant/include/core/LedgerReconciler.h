@@ -78,14 +78,14 @@ public:
         }
 
         ++fail_streak_;
-        int cap = fail_streak_ - 1;
+        int capture = fail_streak_ - 1;
 
-        if (cap > 3)
+        if (capture > 3)
         {
-            cap = 3; // 백오프 상한: 2^3 = 8 사이클
+            capture = 3; // 백오프 상한: 2^3 = 8 사이클
         }
 
-        skip_remaining_  = 1 << cap;
+        skip_remaining_  = 1 << capture;
         out.skip_cycles  = skip_remaining_;
         out.log_backoff  = true;
         out.log_stale_on = fail_streak_ == kPnlStaleStreak;
@@ -109,14 +109,14 @@ private:
 // UTC 초 → KST 거래일 YYYYMMDD. 손익 기준선 파일과 날짜별 표식 파일이 같은 기준을 쓴다.
 inline std::string kst_ymd(std::time_t now_utc)
 {
-    return kst::ymd(now_utc);
+    return kst::date_yyyymmdd(now_utc);
 }
 
 // 기준선 파일명. 계좌번호를 넣어 같은 거래일에 계좌를 갈아끼면(모의계좌 재발급 등) 옛 계좌 기준선을
 //  재사용해 당일손익이 오염되는 것을 막는다(계좌 바뀌면 새로 캡처).
-inline std::string baseline_file_name(const std::string& ymd, const std::string& account)
+inline std::string baseline_file_name(const std::string& date_yyyymmdd, const std::string& account)
 {
-    std::string name = "pnl_baseline_" + ymd;
+    std::string name = "pnl_baseline_" + date_yyyymmdd;
 
     if (!account.empty())
     {
@@ -136,17 +136,17 @@ public:
 
     LedgerReconciler(OrderGate& gate, FetchBalance fetch);
 
-    void set_name_sink(NameSink s) { name_sink_ = std::move(s); }
-    void set_reconcile_sink(ReconcileSink s) { reconcile_sink_ = std::move(s); }
-    void set_account_no(std::string acct) { account_no_ = std::move(acct); }
+    void set_name_sink(NameSink name_sink) { name_sink_ = std::move(name_sink); }
+    void set_reconcile_sink(ReconcileSink reconcile_sink) { reconcile_sink_ = std::move(reconcile_sink); }
+    void set_account_no(std::string account) { account_no_ = std::move(account); }
     void set_baseline_dir(std::filesystem::path dir) { baseline_dir_ = std::move(dir); }
-    void set_prune_age_sec(int s) { prune_age_sec_ = s; }
+    void set_prune_age_sec(int prune_age_sec) { prune_age_sec_ = prune_age_sec; }
     void set_post_fill_defer(int sec, int max_sec) { post_fill_defer_sec_ = sec; post_fill_defer_max_sec_ = max_sec; }
 
     // 체결통보 시각. 체결 소비 스레드가 부르고 reconcile(제어 스레드)이 읽는다 — 이 값만 원자적이다.
     void note_fill(std::time_t now_utc) { last_fill_utc_.store(static_cast<long long>(now_utc), std::memory_order_relaxed); }
 
-    // G5: 잔고 보유 행(ticker/qty/avg_price/주문가능)을 OrderGate.seed_position으로 시드. 실패=false → 기동 중단.
+    // G5: 잔고 보유 행(ticker/quantity/average_price/주문가능)을 OrderGate.seed_position으로 시드. 실패=false → 기동 중단.
     //  기동 직후는 유령주문 취소·유니버스 스캔과 같은 초 안에 겹쳐 한도(초당 5건)에 자주 걸리므로
     //  attempts번 retry_delay 간격으로 다시 묻는다. 끝내 못 읽으면 빈 원장으로 매매하지 않는다(09-11 09:17 사례).
     bool bootstrap(int attempts = 5, std::chrono::milliseconds retry_delay = std::chrono::milliseconds(1500));
@@ -167,7 +167,7 @@ public:
     const ledger::ReconcileBreaker& breaker() const { return breaker_; }
 
 private:
-    void resync_holdings(const AccountBalance& bal, bool resync_positions);
+    void resync_holdings(const AccountBalance& balance, bool resync_positions);
     void capture_baseline(double tot_eval, std::optional<double> prev_day_total, std::time_t now_utc);
 
     OrderGate&    gate_;

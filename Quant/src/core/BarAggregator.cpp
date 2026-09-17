@@ -10,9 +10,9 @@ namespace bars
 {
 namespace
 {
-int64_t day_key(const struct tm& t)
+int64_t day_key(const struct tm& time_parts)
 {
-    return static_cast<int64_t>(t.tm_year) * 400 + t.tm_yday;
+    return static_cast<int64_t>(time_parts.tm_year) * 400 + time_parts.tm_yday;
 }
 } // namespace
 
@@ -25,9 +25,9 @@ BarSlot slot_of(int32_t hhmmss, std::time_t recv_utc, int interval_min, int open
         return out;
     }
 
-    const struct tm k = kst::to_tm(recv_utc);
-    int             hh = k.tm_hour;
-    int             mm = k.tm_min;
+    const struct tm local_time = kst::to_tm(recv_utc);
+    int             hh = local_time.tm_hour;
+    int             mm = local_time.tm_min;
 
     if (hhmmss > 0)
     {
@@ -42,16 +42,16 @@ BarSlot slot_of(int32_t hhmmss, std::time_t recv_utc, int interval_min, int open
         return out;
     }
 
-    out.day    = day_key(k);
+    out.day    = day_key(local_time);
     out.bucket = (hh * 60 + mm) / interval_min;
     return out;
 }
 
-std::chrono::system_clock::time_point slot_start(const BarSlot& s, std::time_t recv_utc, int interval_min)
+std::chrono::system_clock::time_point slot_start(const BarSlot& slot, std::time_t recv_utc, int interval_min)
 {
-    const struct tm   k          = kst::to_tm(recv_utc);
-    const std::time_t day_start  = recv_utc - (k.tm_hour * 3600 + k.tm_min * 60 + k.tm_sec);
-    const std::time_t bar_start  = day_start + static_cast<std::time_t>(s.bucket) * interval_min * 60;
+    const struct tm   local_time          = kst::to_tm(recv_utc);
+    const std::time_t day_start  = recv_utc - (local_time.tm_hour * 3600 + local_time.tm_min * 60 + local_time.tm_sec);
+    const std::time_t bar_start  = day_start + static_cast<std::time_t>(slot.bucket) * interval_min * 60;
     return std::chrono::system_clock::from_time_t(bar_start);
 }
 
@@ -70,9 +70,9 @@ std::vector<MarketData> resample(const std::vector<MarketData>& bars_1m, int int
     {
         out.assign(bars_1m.begin(), bars_1m.begin() + static_cast<std::ptrdiff_t>((std::min)(want, bars_1m.size())));
 
-        for (size_t i = 0; i < out.size(); ++i)
+        for (size_t out_index = 0; out_index < out.size(); ++out_index)
         {
-            out[i].bar_index = static_cast<int>(i);
+            out[out_index].bar_index = static_cast<int>(out_index);
         }
 
         return out;
@@ -83,347 +83,347 @@ std::vector<MarketData> resample(const std::vector<MarketData>& bars_1m, int int
     std::vector<MarketData> asc;
     BarSlot                 cur;
 
-    for (auto it = bars_1m.rbegin(); it != bars_1m.rend(); ++it)
+    for (auto iterator = bars_1m.rbegin(); iterator != bars_1m.rend(); ++iterator)
     {
-        const std::time_t ts = std::chrono::system_clock::to_time_t(it->timestamp);
-        const struct tm   k  = kst::to_tm(ts);
+        const std::time_t timestamp = std::chrono::system_clock::to_time_t(iterator->timestamp);
+        const struct tm   local_time  = kst::to_tm(timestamp);
         BarSlot           slot;
-        slot.day    = day_key(k);
-        slot.bucket = (k.tm_hour * 60 + k.tm_min) / interval_min;
+        slot.day    = day_key(local_time);
+        slot.bucket = (local_time.tm_hour * 60 + local_time.tm_min) / interval_min;
 
         if (asc.empty() || slot != cur)
         {
-            asc.push_back(*it);
+            asc.push_back(*iterator);
             cur = slot;
             continue;
         }
 
-        MarketData& md = asc.back();
-        md.high        = (std::max)(md.high, it->high); // (): windows.h max 매크로 회피
-        md.low         = (std::min)(md.low, it->low);
-        md.close       = it->close;
-        md.volume += it->volume;
-        md.timestamp = it->timestamp;
+        MarketData& market_data = asc.back();
+        market_data.high        = (std::max)(market_data.high, iterator->high); // (): windows.h max 매크로 회피
+        market_data.low         = (std::min)(market_data.low, iterator->low);
+        market_data.close       = iterator->close;
+        market_data.volume += iterator->volume;
+        market_data.timestamp = iterator->timestamp;
     }
 
     out.reserve((std::min)(want, asc.size()));
 
-    for (auto it = asc.rbegin(); it != asc.rend() && out.size() < want; ++it)
+    for (auto iterator = asc.rbegin(); iterator != asc.rend() && out.size() < want; ++iterator)
     {
-        out.push_back(*it);
+        out.push_back(*iterator);
         out.back().bar_index = static_cast<int>(out.size() - 1);
     }
 
     return out;
 }
 
-BarAggregator::BarAggregator(Config cfg) : cfg_(cfg)
+BarAggregator::BarAggregator(Config config) : config_(config)
 {
-    if (cfg_.interval_min < 1)
+    if (config_.interval_min < 1)
     {
-        cfg_.interval_min = 1;
+        config_.interval_min = 1;
     }
 
-    if (cfg_.keep < 1)
+    if (config_.keep < 1)
     {
-        cfg_.keep = 1;
+        config_.keep = 1;
     }
 }
 
-void BarAggregator::close_live(Series& s)
+void BarAggregator::close_live(Series& series)
 {
-    if (!s.live.active)
+    if (!series.live.active)
     {
         return;
     }
 
-    s.closed.push_front(s.live.md);
-    s.slots.push_front(s.live.slot);
-    s.live.active    = false;
-    s.live.acml_base = -1;
-    trim(s);
+    series.closed.push_front(series.live.market_data);
+    series.slots.push_front(series.live.slot);
+    series.live.active    = false;
+    series.live.acml_base = -1;
+    trim(series);
 
     if (sink_)
     {
-        sink_(s.closed.front());
+        sink_(series.closed.front());
     }
 }
 
 int BarAggregator::close_stale(std::time_t now_utc)
 {
-    int n = 0;
+    int count = 0;
 
-    for (auto& kv : series_)
+    for (auto& entry : series_)
     {
-        n += close_stale(kv.first, now_utc);
+        count += close_stale(entry.first, now_utc);
     }
 
-    return n;
+    return count;
 }
 
-int BarAggregator::close_stale(sym::SymbolId sym, std::time_t now_utc)
+int BarAggregator::close_stale(symbol::SymbolId symbol_id, std::time_t now_utc)
 {
-    auto it = series_.find(sym);
+    auto iterator = series_.find(symbol_id);
 
-    if (it == series_.end() || !it->second.live.active)
+    if (iterator == series_.end() || !iterator->second.live.active)
     {
         return 0;
     }
 
     // 장 시간 필터는 걸지 않는다 — 15:31의 시계가 15:30 봉을 닫아야 한다. hhmmss가 비어 있으니 now의 KST 분이 자리다.
-    const BarSlot now_slot = slot_of(0, now_utc, cfg_.interval_min, 0, 2359);
+    const BarSlot now_slot = slot_of(0, now_utc, config_.interval_min, 0, 2359);
 
-    if (!now_slot.valid() || !(it->second.live.slot < now_slot))
+    if (!now_slot.valid() || !(iterator->second.live.slot < now_slot))
     {
         return 0;
     }
 
-    close_live(it->second);
+    close_live(iterator->second);
     return 1;
 }
 
-void BarAggregator::trim(Series& s)
+void BarAggregator::trim(Series& series)
 {
-    while (static_cast<int>(s.closed.size()) > cfg_.keep)
+    while (static_cast<int>(series.closed.size()) > config_.keep)
     {
-        s.closed.pop_back();
-        s.slots.pop_back();
+        series.closed.pop_back();
+        series.slots.pop_back();
     }
 }
 
-bool BarAggregator::on_tick(const TradeData& td)
+bool BarAggregator::on_tick(const TradeData& trade)
 {
-    if (td.price <= 0.0 || td.sym == sym::kNone)
+    if (trade.price <= 0.0 || trade.symbol_id == symbol::kNone)
     {
         return false;
     }
 
-    const std::time_t recv = std::chrono::system_clock::to_time_t(td.timestamp);
-    const BarSlot     slot = slot_of(td.hhmmss, recv, cfg_.interval_min, cfg_.session_open, cfg_.session_close);
+    const std::time_t recv = std::chrono::system_clock::to_time_t(trade.timestamp);
+    const BarSlot     slot = slot_of(trade.hhmmss, recv, config_.interval_min, config_.session_open, config_.session_close);
 
     if (!slot.valid())
     {
         return false;
     }
 
-    Series& s = series_[td.sym];
+    Series& series = series_[trade.symbol_id];
 
-    if (s.ticker.empty())
+    if (series.ticker.empty())
     {
-        s.ticker = td.ticker;
+        series.ticker = trade.ticker;
     }
 
-    if (s.live.active && slot < s.live.slot)
+    if (series.live.active && slot < series.live.slot)
     {
         return false; // 늦게 온 과거 틱 — 닫힌 봉의 종가를 고칠 순 없다
     }
 
-    if (!s.slots.empty() && slot < s.slots.front())
+    if (!series.slots.empty() && slot < series.slots.front())
     {
         return false; // 시드가 이미 닫아 둔 자리보다 오래된 틱
     }
 
-    if (s.live.active && slot != s.live.slot)
+    if (series.live.active && slot != series.live.slot)
     {
-        close_live(s);
+        close_live(series);
     }
 
-    if (!s.live.active)
+    if (!series.live.active)
     {
-        // [inv] 거래량은 누적차다 — 첫 틱의 acml − qty가 버킷 시작값. acml이 없으면(REST 대체 틱) qty 합산.
-        s.live.active    = true;
-        s.live.slot      = slot;
-        s.live.acml_base = td.acml_volume > 0 ? td.acml_volume - td.quantity : -1;
-        MarketData& md   = s.live.md;
+        // [inv] 거래량은 누적차다 — 첫 틱의 acml − quantity가 버킷 시작값. acml이 없으면(REST 대체 틱) quantity 합산.
+        series.live.active    = true;
+        series.live.slot      = slot;
+        series.live.acml_base = trade.accumulated_volume > 0 ? trade.accumulated_volume - trade.quantity : -1;
+        MarketData& market_data   = series.live.market_data;
 
-        if (!s.slots.empty() && s.slots.front() == slot)
+        if (!series.slots.empty() && series.slots.front() == slot)
         {
             // 시드가 같은 자리를 닫힌 봉으로 넣어 뒀다(REST가 진행 중 봉을 돌려준 경우). 그 위에 이어 붙인다.
-            md = s.closed.front();
-            s.closed.pop_front();
-            s.slots.pop_front();
-            md.high  = (std::max)(md.high, td.price);
-            md.low   = (std::min)(md.low, td.price);
-            md.close = td.price;
-            md.volume += td.quantity;
+            market_data = series.closed.front();
+            series.closed.pop_front();
+            series.slots.pop_front();
+            market_data.high  = (std::max)(market_data.high, trade.price);
+            market_data.low   = (std::min)(market_data.low, trade.price);
+            market_data.close = trade.price;
+            market_data.volume += trade.quantity;
 
-            if (s.live.acml_base >= 0)
+            if (series.live.acml_base >= 0)
             {
-                s.live.acml_base = td.acml_volume - md.volume;
+                series.live.acml_base = trade.accumulated_volume - market_data.volume;
             }
 
             return true;
         }
 
-        md               = MarketData{};
-        md.ticker        = s.ticker;
-        md.sym           = td.sym;
-        md.market        = td.market;
-        md.open = md.high = md.low = md.close = td.price;
-        md.volume        = td.quantity;
-        md.timestamp     = slot_start(slot, recv, cfg_.interval_min);
-        md.bar_index     = 0;
+        market_data               = MarketData{};
+        market_data.ticker        = series.ticker;
+        market_data.symbol_id           = trade.symbol_id;
+        market_data.market        = trade.market;
+        market_data.open = market_data.high = market_data.low = market_data.close = trade.price;
+        market_data.volume        = trade.quantity;
+        market_data.timestamp     = slot_start(slot, recv, config_.interval_min);
+        market_data.bar_index     = 0;
         return true;
     }
 
-    MarketData& md = s.live.md;
-    md.high        = (std::max)(md.high, td.price); // (): windows.h max 매크로 회피
-    md.low         = (std::min)(md.low, td.price);
-    md.close       = td.price;
+    MarketData& market_data = series.live.market_data;
+    market_data.high        = (std::max)(market_data.high, trade.price); // (): windows.h max 매크로 회피
+    market_data.low         = (std::min)(market_data.low, trade.price);
+    market_data.close       = trade.price;
 
-    if (s.live.acml_base >= 0 && td.acml_volume > 0)
+    if (series.live.acml_base >= 0 && trade.accumulated_volume > 0)
     {
-        md.volume = (std::max)(md.volume, td.acml_volume - s.live.acml_base);
+        market_data.volume = (std::max)(market_data.volume, trade.accumulated_volume - series.live.acml_base);
     }
     else
     {
-        md.volume += td.quantity;
+        market_data.volume += trade.quantity;
     }
 
     return true;
 }
 
-int BarAggregator::seed(sym::SymbolId sym, const std::vector<MarketData>& rest_bars)
+int BarAggregator::seed(symbol::SymbolId symbol_id, const std::vector<MarketData>& rest_bars)
 {
-    if (sym == sym::kNone || rest_bars.empty())
+    if (symbol_id == symbol::kNone || rest_bars.empty())
     {
         return 0;
     }
 
-    Series& s     = series_[sym];
+    Series& series     = series_[symbol_id];
     int     added = 0;
 
-    if (s.ticker.empty())
+    if (series.ticker.empty())
     {
-        s.ticker = rest_bars.front().ticker;
+        series.ticker = rest_bars.front().ticker;
     }
 
     for (const MarketData& rb : rest_bars)
     {
-        const std::time_t ts = std::chrono::system_clock::to_time_t(rb.timestamp);
+        const std::time_t timestamp = std::chrono::system_clock::to_time_t(rb.timestamp);
 
-        if (ts <= 0)
+        if (timestamp <= 0)
         {
             continue;
         }
 
         // REST 봉의 timestamp는 버킷의 마지막 1분 시각이라 같은 버킷에 든다. 장 시간 필터는 시드에 걸지 않는다.
-        const BarSlot slot = slot_of(kst::hhmmss_int(ts), ts, cfg_.interval_min, 0, 2359);
+        const BarSlot slot = slot_of(kst::hhmmss_int(timestamp), timestamp, config_.interval_min, 0, 2359);
 
         if (!slot.valid())
         {
             continue;
         }
 
-        if (s.live.active && slot == s.live.slot)
+        if (series.live.active && slot == series.live.slot)
         {
-            MarketData&   md      = s.live.md;
-            const int64_t old_vol = md.volume;
-            md.open               = rb.open;
-            md.high               = (std::max)(md.high, rb.high);
-            md.low                = (std::min)(md.low, rb.low);
-            md.volume             = (std::max)(old_vol, rb.volume);
+            MarketData&   market_data      = series.live.market_data;
+            const int64_t old_vol = market_data.volume;
+            market_data.open               = rb.open;
+            market_data.high               = (std::max)(market_data.high, rb.high);
+            market_data.low                = (std::min)(market_data.low, rb.low);
+            market_data.volume             = (std::max)(old_vol, rb.volume);
 
             // 누적차 기준을 옮겨 다음 틱부터 합친 거래량 위에 쌓이게 한다(마지막 acml = base + old_vol).
-            if (s.live.acml_base >= 0)
+            if (series.live.acml_base >= 0)
             {
-                s.live.acml_base += old_vol - md.volume;
+                series.live.acml_base += old_vol - market_data.volume;
             }
 
             continue;
         }
 
-        if (s.live.active && s.live.slot < slot)
+        if (series.live.active && series.live.slot < slot)
         {
             // 시드가 진행 중 봉보다 새 자리를 가졌다 — 로컬이 그 사이 틱을 못 본 것이다. 진행 봉을 닫고 이어 붙인다.
-            close_live(s);
+            close_live(series);
         }
 
-        auto it = std::lower_bound(s.slots.begin(), s.slots.end(), slot,
-                                   [](const BarSlot& a, const BarSlot& b) { return b < a; }); // 내림차순
+        auto iterator = std::lower_bound(series.slots.begin(), series.slots.end(), slot,
+                                   [](const BarSlot& slot_a, const BarSlot& slot_b) { return slot_b < slot_a; }); // 내림차순
 
-        const size_t idx = static_cast<size_t>(it - s.slots.begin());
+        const size_t index = static_cast<size_t>(iterator - series.slots.begin());
 
-        if (it != s.slots.end() && *it == slot)
+        if (iterator != series.slots.end() && *iterator == slot)
         {
-            s.closed[idx] = rb; // 닫힌 자리는 REST가 이긴다
+            series.closed[index] = rb; // 닫힌 자리는 REST가 이긴다
         }
         else
         {
-            s.slots.insert(it, slot);
-            s.closed.insert(s.closed.begin() + static_cast<std::ptrdiff_t>(idx), rb);
+            series.slots.insert(iterator, slot);
+            series.closed.insert(series.closed.begin() + static_cast<std::ptrdiff_t>(index), rb);
             ++added;
         }
     }
 
-    for (size_t i = 0; i < s.closed.size(); ++i)
+    for (size_t closed_index = 0; closed_index < series.closed.size(); ++closed_index)
     {
-        s.closed[i].ticker    = s.ticker;
-        s.closed[i].sym       = sym;
-        s.closed[i].bar_index = 0; // snapshot이 다시 매긴다
+        series.closed[closed_index].ticker    = series.ticker;
+        series.closed[closed_index].symbol_id       = symbol_id;
+        series.closed[closed_index].bar_index = 0; // snapshot이 다시 매긴다
     }
 
-    trim(s);
+    trim(series);
     return added;
 }
 
-std::vector<MarketData> BarAggregator::snapshot(sym::SymbolId sym, int max_count) const
+std::vector<MarketData> BarAggregator::snapshot(symbol::SymbolId symbol_id, int max_count) const
 {
     std::vector<MarketData> out;
-    const auto              it = series_.find(sym);
+    const auto              iterator = series_.find(symbol_id);
 
-    if (it == series_.end())
+    if (iterator == series_.end())
     {
         return out;
     }
 
-    const Series& s = it->second;
-    const size_t  want = max_count > 0 ? static_cast<size_t>(max_count) : s.closed.size() + 1;
-    out.reserve((std::min)(want, s.closed.size() + 1));
+    const Series& series = iterator->second;
+    const size_t  want = max_count > 0 ? static_cast<size_t>(max_count) : series.closed.size() + 1;
+    out.reserve((std::min)(want, series.closed.size() + 1));
 
-    if (s.live.active)
+    if (series.live.active)
     {
-        out.push_back(s.live.md);
+        out.push_back(series.live.market_data);
     }
 
-    for (const MarketData& md : s.closed)
+    for (const MarketData& market_data : series.closed)
     {
         if (out.size() >= want)
         {
             break;
         }
 
-        out.push_back(md);
+        out.push_back(market_data);
     }
 
-    for (size_t i = 0; i < out.size(); ++i)
+    for (size_t out_index = 0; out_index < out.size(); ++out_index)
     {
-        out[i].bar_index = static_cast<int>(i);
+        out[out_index].bar_index = static_cast<int>(out_index);
     }
 
     return out;
 }
 
-int BarAggregator::closed_count(sym::SymbolId sym) const
+int BarAggregator::closed_count(symbol::SymbolId symbol_id) const
 {
-    const auto it = series_.find(sym);
-    return it == series_.end() ? 0 : static_cast<int>(it->second.closed.size());
+    const auto iterator = series_.find(symbol_id);
+    return iterator == series_.end() ? 0 : static_cast<int>(iterator->second.closed.size());
 }
 
-BarSlot BarAggregator::current_slot(sym::SymbolId sym) const
+BarSlot BarAggregator::current_slot(symbol::SymbolId symbol_id) const
 {
-    const auto it = series_.find(sym);
+    const auto iterator = series_.find(symbol_id);
 
-    if (it == series_.end() || !it->second.live.active)
+    if (iterator == series_.end() || !iterator->second.live.active)
     {
         return BarSlot{};
     }
 
-    return it->second.live.slot;
+    return iterator->second.live.slot;
 }
 
-void BarAggregator::clear(sym::SymbolId sym)
+void BarAggregator::clear(symbol::SymbolId symbol_id)
 {
-    series_.erase(sym);
+    series_.erase(symbol_id);
 }
 } // namespace bars

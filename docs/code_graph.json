@@ -1134,6 +1134,9 @@
       "scripts/notify_sidecar.py",
       "scripts/parse_quant_log.py",
       "scripts/refresh_dashboard.py",
+      "scripts/rename_frags.py",
+      "scripts/rename_ids.py",
+      "scripts/rename_locals.py",
       "scripts/seed_open_orders.py",
       "scripts/session_board.py",
       "scripts/session_board_server.py",
@@ -1375,6 +1378,12 @@
       "scripts/parse_quant_log.py": [
         "_logdir"
       ],
+      "scripts/rename_frags.py": [
+        "rename_ids"
+      ],
+      "scripts/rename_locals.py": [
+        "rename_ids"
+      ],
       "scripts/session_board_server.py": [
         "session_board"
       ],
@@ -1517,6 +1526,10 @@
       "naver.theme": [
         "PYQuant/tools/fetch_naver_themes.py",
         "scripts/dashboard_server.py"
+      ],
+      "rename_ids": [
+        "scripts/rename_frags.py",
+        "scripts/rename_locals.py"
       ],
       "report.account": [
         "PYQuant/main.py"

@@ -1,6 +1,6 @@
 // WakeGate(mutex+condvar_any) vs 순번 카운터 atomic::wait — 소비자 깨우기 지연과 생산자 notify 비용을 같은 틀로 잰다.
 //  D-070 7단계의 판단 근거. 둘 다 Windows에서는 WaitOnAddress/조건변수 커널 깨우기라 큰 차이를 기대하지 않았고,
-//  atomic::wait에는 시간 제한이 없어 cap·deadline이 필요한 호출부 3곳에는 그대로 못 쓴다. 숫자는 가이드 17절 표.
+//  atomic::wait에는 시간 제한이 없어 capture·deadline이 필요한 호출부 3곳에는 그대로 못 쓴다. 숫자는 가이드 17절 표.
 #include "core/RingBuffer.h"
 #include "core/WakeGate.h"
 
@@ -39,9 +39,9 @@ struct AtomicGate
 
 // test_wake_gate 4번과 같은 왕복 — 소비자가 잠든 것을 확인하고 push+notify, 깨어나 pop한 시각까지를 잰다.
 template <class Gate, class WaitFn, class SleepFn>
-void run(const char* name, Gate& g, WaitFn do_wait, SleepFn is_sleeping)
+void run(const char* name, Gate& gate, WaitFn do_wait, SleepFn is_sleeping)
 {
-    RingBuffer<int>        q{64};
+    RingBuffer<int>        queue{64};
     std::atomic<bool>      stop{false};
     std::atomic<int>       consumed{0};
     constexpr int          kRounds = 2000;
@@ -53,7 +53,7 @@ void run(const char* name, Gate& g, WaitFn do_wait, SleepFn is_sleeping)
     {
         while (!stop.load(std::memory_order_acquire))
         {
-            if (auto v = q.pop())
+            if (auto value = queue.pop())
             {
                 const auto now = Clock::now().time_since_epoch().count();
                 wake_us.push_back(static_cast<double>(now - pushed_at_ns.load(std::memory_order_acquire)) / 1000.0);
@@ -61,15 +61,15 @@ void run(const char* name, Gate& g, WaitFn do_wait, SleepFn is_sleeping)
                 continue;
             }
 
-            do_wait(q, stop);
+            do_wait(queue, stop);
         }
     });
 
     std::vector<double> notify_ns;
     notify_ns.reserve(kRounds);
-    const auto t0 = Clock::now();
+    const auto start_time = Clock::now();
 
-    for (int i = 0; i < kRounds; ++i)
+    for (int round_index = 0; round_index < kRounds; ++round_index)
     {
         while (!is_sleeping())
         {
@@ -84,25 +84,25 @@ void run(const char* name, Gate& g, WaitFn do_wait, SleepFn is_sleeping)
 
         pushed_at_ns.store(Clock::now().time_since_epoch().count(), std::memory_order_release);
 
-        if (!q.push(i))
+        if (!queue.push(round_index))
         {
-            std::cerr << name << " push 실패(round " << i << ")\n";
+            std::cerr << name << " push 실패(round " << round_index << ")\n";
             return;
         }
 
         const auto n0 = Clock::now();
-        g.notify();
+        gate.notify();
         notify_ns.push_back(static_cast<double>((Clock::now() - n0).count()));
 
-        while (consumed.load(std::memory_order_acquire) <= i)
+        while (consumed.load(std::memory_order_acquire) <= round_index)
         {
             std::this_thread::yield();
         }
     }
 
-    const auto total = Clock::now() - t0;
+    const auto total = Clock::now() - start_time;
     stop.store(true, std::memory_order_release);
-    g.notify();
+    gate.notify();
     consumer.join();
 
     std::sort(wake_us.begin(), wake_us.end());
@@ -118,24 +118,24 @@ int main()
     for (int rep = 0; rep < 3; ++rep)
     {
         {
-            sync::WakeGate g;
-            run("condvar ", g, [&](RingBuffer<int>& q, std::atomic<bool>& stop)
+            sync::WakeGate gate;
+            run("condvar ", gate, [&](RingBuffer<int>& queue, std::atomic<bool>& stop)
             {
-                g.wait_for(1s, [&] { return q.empty() && !stop.load(std::memory_order_acquire); });
-            }, [&] { return g.sleeping(); });
+                gate.wait_for(1s, [&] { return queue.empty() && !stop.load(std::memory_order_acquire); });
+            }, [&] { return gate.sleeping(); });
         }
 
         {
-            AtomicGate        g;
+            AtomicGate        atomic_gate;
             std::atomic<bool> sleeping{false};
-            run("atomic  ", g, [&](RingBuffer<int>& q, std::atomic<bool>& stop)
+            run("atomic  ", atomic_gate, [&](RingBuffer<int>& queue, std::atomic<bool>& stop)
             {
-                const uint32_t seen = g.snapshot();
+                const uint32_t seen = atomic_gate.snapshot();
                 sleeping.store(true, std::memory_order_seq_cst);
 
-                if (q.empty() && !stop.load(std::memory_order_acquire))
+                if (queue.empty() && !stop.load(std::memory_order_acquire))
                 {
-                    g.wait(seen);
+                    atomic_gate.wait(seen);
                 }
 
                 sleeping.store(false, std::memory_order_relaxed);

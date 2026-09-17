@@ -25,7 +25,7 @@ namespace feed
 
 // ── 파일 형식 v1 ─────────────────────────────────────────────────────────────
 //  머리 16바이트: "QTCAP\0" + ver(uint8=1) + pad(1) + 시작 utc_ms(int64, LE).
-//  레코드: uint16 len(본문 바이트) + uint8 kind(1=체결 2=호가) + uint8 ver(1) + 본문. 본문은 아래 POD를 그대로 쓴다
+//  레코드: uint16 length(본문 바이트) + uint8 kind(1=체결 2=호가) + uint8 ver(1) + 본문. 본문은 아래 POD를 그대로 쓴다
 //  (LE, x64 정렬 그대로). 꼬리가 잘려 있으면 리더가 그 앞까지만 돌려준다.
 constexpr uint8_t kFormatVersion = 1;
 constexpr uint8_t kKindTrade     = 1;
@@ -35,11 +35,11 @@ constexpr size_t  kTimeMax       = 8;  // HHMMSS
 
 struct Common
 {
-    int64_t  recv_ns = 0; // 수신 스레드 steady_clock ns (TradeData.recv_ns·OrderBook.recv_ns).
+    int64_t  received_ns = 0; // 수신 스레드 steady_clock ns (TradeData.received_ns·OrderBook.received_ns).
     int64_t  wall_us = 0; // system_clock us — 리플레이의 timestamp 복원용
     char     ticker[kTickerMax] = {};
     char     time[kTimeMax]     = {};
-    uint32_t sym       = 0; // 캡처 시점 id. 기동마다 달라지므로 리플레이는 ticker로 다시 등록한다.
+    uint32_t symbol_id       = 0; // 캡처 시점 id. 기동마다 달라지므로 리플레이는 ticker로 다시 등록한다.
     uint8_t  market    = 0; // Market enum 값
     uint8_t  direction = 0; // 1=매수 5=매도 0=없음
     uint8_t  pad[6]    = {}; // 8바이트 정렬 채움
@@ -47,16 +47,16 @@ struct Common
 
 struct TradeBody
 {
-    Common  c;
+    Common  common;
     double  price       = 0.0;
     int64_t quantity    = 0;
     double  strength    = 0.0;
-    int64_t acml_volume = 0;
+    int64_t accumulated_volume = 0;
 };
 
 struct BookBody
 {
-    Common         c;
+    Common         common;
     OrderBookLevel asks[5];
     OrderBookLevel bids[5];
 };
@@ -85,85 +85,85 @@ inline int64_t wall_us_of(std::chrono::system_clock::time_point tp)
     return std::chrono::duration_cast<std::chrono::microseconds>(tp.time_since_epoch()).count();
 }
 
-inline void put_str(char* dst, size_t cap, std::string_view s)
+inline void put_str(char* dst, size_t capture, std::string_view text)
 {
-    const size_t n = s.size() < cap - 1 ? s.size() : cap - 1;
-    std::memcpy(dst, s.data(), n);
-    dst[n] = '\0';
+    const size_t count = text.size() < capture - 1 ? text.size() : capture - 1;
+    std::memcpy(dst, text.data(), count);
+    dst[count] = '\0';
 }
 
 // 파일 형식은 그대로 "HHMMSS" 문자다(정수화 전 캡처와 호환). 여섯 자리를 손으로 찍는다 — 수신 스레드라 할당이 없다.
 inline void put_hhmmss(char* dst, int32_t hhmmss)
 {
-    for (int i = 5; i >= 0; --i)
+    for (int index = 5; index >= 0; --index)
     {
-        dst[i] = static_cast<char>('0' + hhmmss % 10);
+        dst[index] = static_cast<char>('0' + hhmmss % 10);
         hhmmss /= 10;
     }
 
     dst[6] = '\0';
 }
 
-inline void fill_common(Common& c, std::string_view ticker, int32_t hhmmss, uint32_t sym, Market market,
-                        int direction, int64_t recv_ns, std::chrono::system_clock::time_point ts)
+inline void fill_common(Common& common, std::string_view ticker, int32_t hhmmss, uint32_t symbol_id, Market market,
+                        int direction, int64_t received_ns, std::chrono::system_clock::time_point timestamp)
 {
-    c.recv_ns = recv_ns;
-    c.wall_us = wall_us_of(ts);
-    put_str(c.ticker, kTickerMax, ticker);
-    put_hhmmss(c.time, hhmmss);
-    c.sym       = sym;
-    c.market    = static_cast<uint8_t>(market);
-    c.direction = static_cast<uint8_t>(direction);
+    common.received_ns = received_ns;
+    common.wall_us = wall_us_of(timestamp);
+    put_str(common.ticker, kTickerMax, ticker);
+    put_hhmmss(common.time, hhmmss);
+    common.symbol_id       = symbol_id;
+    common.market    = static_cast<uint8_t>(market);
+    common.direction = static_cast<uint8_t>(direction);
 }
 
-inline TradeBody to_body(const TradeData& td)
+inline TradeBody to_body(const TradeData& trade)
 {
-    TradeBody b;
-    fill_common(b.c, td.ticker, td.hhmmss, td.sym, td.market, td.direction, td.recv_ns, td.timestamp);
-    b.price       = td.price;
-    b.quantity    = td.quantity;
-    b.strength    = td.strength;
-    b.acml_volume = td.acml_volume;
-    return b;
+    TradeBody trade_body;
+    fill_common(trade_body.common, trade.ticker, trade.hhmmss, trade.symbol_id, trade.market, trade.direction, trade.received_ns, trade.timestamp);
+    trade_body.price       = trade.price;
+    trade_body.quantity    = trade.quantity;
+    trade_body.strength    = trade.strength;
+    trade_body.accumulated_volume = trade.accumulated_volume;
+    return trade_body;
 }
 
-inline BookBody to_body(const OrderBook& ob)
+inline BookBody to_body(const OrderBook& order_book)
 {
-    BookBody b;
-    fill_common(b.c, ob.ticker, ob.hhmmss, ob.sym, Market::KR, 0, ob.recv_ns, ob.timestamp);
-    std::memcpy(b.asks, ob.asks, sizeof(b.asks));
-    std::memcpy(b.bids, ob.bids, sizeof(b.bids));
-    return b;
+    BookBody book_body;
+    fill_common(book_body.common, order_book.ticker, order_book.hhmmss, order_book.symbol_id, Market::KR, 0, order_book.received_ns, order_book.timestamp);
+    std::memcpy(book_body.asks, order_book.asks, sizeof(book_body.asks));
+    std::memcpy(book_body.bids, order_book.bids, sizeof(book_body.bids));
+    return book_body;
 }
 
-inline TradeData to_trade(const TradeBody& b)
+inline TradeData to_trade(const TradeBody& trade_body)
 {
-    TradeData td;
-    td.ticker      = b.c.ticker;
-    td.hhmmss      = krx::parse_hhmmss(b.c.time);
-    td.sym         = b.c.sym;
-    td.market      = static_cast<Market>(b.c.market);
-    td.direction   = b.c.direction;
-    td.recv_ns     = b.c.recv_ns;
-    td.timestamp   = std::chrono::system_clock::time_point(std::chrono::microseconds(b.c.wall_us));
-    td.price       = b.price;
-    td.quantity    = b.quantity;
-    td.strength    = b.strength;
-    td.acml_volume = b.acml_volume;
-    return td;
+    TradeData trade;
+    trade.ticker      = trade_body.common.ticker;
+    trade.hhmmss      = krx::parse_hhmmss(trade_body.common.time);
+    trade.symbol_id         = trade_body.common.symbol_id;
+    trade.market      = static_cast<Market>(trade_body.common.market);
+    trade.direction   = trade_body.common.direction;
+    trade.received_ns     = trade_body.common.received_ns;
+    trade.timestamp   = std::chrono::system_clock::time_point(std::chrono::microseconds(trade_body.common.wall_us));
+    trade.price       = trade_body.price;
+    trade.quantity    = trade_body.quantity;
+    trade.strength    = trade_body.strength;
+    trade.accumulated_volume = trade_body.accumulated_volume;
+    return trade;
 }
 
-inline OrderBook to_book(const BookBody& b)
+inline OrderBook to_book(const BookBody& book_body)
 {
-    OrderBook ob;
-    ob.ticker    = b.c.ticker;
-    ob.hhmmss    = krx::parse_hhmmss(b.c.time);
-    ob.sym       = b.c.sym;
-    ob.recv_ns   = b.c.recv_ns;
-    ob.timestamp = std::chrono::system_clock::time_point(std::chrono::microseconds(b.c.wall_us));
-    std::memcpy(ob.asks, b.asks, sizeof(ob.asks));
-    std::memcpy(ob.bids, b.bids, sizeof(ob.bids));
-    return ob;
+    OrderBook order_book;
+    order_book.ticker    = book_body.common.ticker;
+    order_book.hhmmss    = krx::parse_hhmmss(book_body.common.time);
+    order_book.symbol_id       = book_body.common.symbol_id;
+    order_book.received_ns   = book_body.common.received_ns;
+    order_book.timestamp = std::chrono::system_clock::time_point(std::chrono::microseconds(book_body.common.wall_us));
+    std::memcpy(order_book.asks, book_body.asks, sizeof(order_book.asks));
+    std::memcpy(order_book.bids, book_body.bids, sizeof(order_book.bids));
+    return order_book;
 }
 
 // ── 기록기 ───────────────────────────────────────────────────────────────────
@@ -174,8 +174,8 @@ public:
     explicit TickCapture(std::filesystem::path file, size_t queue_capacity = 1u << 16)
         : path_(std::move(file)), q_(queue_capacity)
     {
-        std::error_code ec;
-        std::filesystem::create_directories(path_.parent_path(), ec);
+        std::error_code error_code;
+        std::filesystem::create_directories(path_.parent_path(), error_code);
         fp_ = std::fopen(path_.string().c_str(), "ab");
 
         if (fp_ == nullptr)
@@ -184,7 +184,7 @@ public:
         }
 
         // 새 파일에만 머리를 쓴다 — 같은 파일에 이어 쓰면(재기동) 레코드가 붙는다.
-        if (std::filesystem::file_size(path_, ec) == 0 && !ec)
+        if (std::filesystem::file_size(path_, error_code) == 0 && !error_code)
         {
             std::array<char, 16> head{};
             std::memcpy(head.data(), "QTCAP", 6);
@@ -220,30 +220,30 @@ public:
     }
 
     // 생산자(수신 스레드). 큐가 차면 버리고 센다 — 캡처 때문에 틱 경로가 서지 않는다.
-    void on_trade(const TradeData& td) noexcept
+    void on_trade(const TradeData& trade) noexcept
     {
         if (fp_ == nullptr)
         {
             return;
         }
 
-        Record r;
-        r.kind  = kKindTrade;
-        r.trade = to_body(td);
-        enqueue(std::move(r));
+        Record record;
+        record.kind  = kKindTrade;
+        record.trade = to_body(trade);
+        enqueue(std::move(record));
     }
 
-    void on_book(const OrderBook& ob) noexcept
+    void on_book(const OrderBook& order_book) noexcept
     {
         if (fp_ == nullptr)
         {
             return;
         }
 
-        Record r;
-        r.kind = kKindBook;
-        r.book = to_body(ob);
-        enqueue(std::move(r));
+        Record record;
+        record.kind = kKindBook;
+        record.book = to_body(order_book);
+        enqueue(std::move(record));
     }
 
     // 큐가 빌 때까지 기다리고 파일을 flush한다. 종료·테스트용 — hot path에서 부르지 않는다.
@@ -286,11 +286,11 @@ public:
     }
 
 private:
-    void enqueue(Record&& r) noexcept
+    void enqueue(Record&& record) noexcept
     {
         offered_.fetch_add(1, std::memory_order_relaxed);
 
-        if (!q_.push(std::move(r)))
+        if (!q_.push(std::move(record)))
         {
             dropped_.fetch_add(1, std::memory_order_relaxed);
             return;
@@ -299,15 +299,15 @@ private:
         wake_.notify();
     }
 
-    void write_one(const Record& r)
+    void write_one(const Record& record)
     {
-        const uint16_t len = r.kind == kKindTrade ? static_cast<uint16_t>(sizeof(TradeBody))
+        const uint16_t length = record.kind == kKindTrade ? static_cast<uint16_t>(sizeof(TradeBody))
                                                   : static_cast<uint16_t>(sizeof(BookBody));
-        const uint8_t  hdr[4] = {static_cast<uint8_t>(len & 0xFF), static_cast<uint8_t>(len >> 8), r.kind,
+        const uint8_t  hdr[4] = {static_cast<uint8_t>(length & 0xFF), static_cast<uint8_t>(length >> 8), record.kind,
                                  kFormatVersion};
         std::fwrite(hdr, 1, sizeof(hdr), fp_);
-        std::fwrite(r.kind == kKindTrade ? static_cast<const void*>(&r.trade) : static_cast<const void*>(&r.book), 1,
-                    len, fp_);
+        std::fwrite(record.kind == kKindTrade ? static_cast<const void*>(&record.trade) : static_cast<const void*>(&record.book), 1,
+                    length, fp_);
         written_.fetch_add(1, std::memory_order_release);
     }
 
@@ -319,9 +319,9 @@ private:
         {
             bool did = false;
 
-            while (auto opt = q_.pop())
+            while (auto option = q_.pop())
             {
-                write_one(*opt);
+                write_one(*option);
                 did = true;
             }
 
@@ -425,15 +425,15 @@ public:
             return stop();
         }
 
-        const uint16_t len  = static_cast<uint16_t>(hdr[0] | (hdr[1] << 8));
+        const uint16_t length  = static_cast<uint16_t>(hdr[0] | (hdr[1] << 8));
         const uint8_t  kind = hdr[2];
         void*          dst  = nullptr;
 
-        if (kind == kKindTrade && len == sizeof(TradeBody))
+        if (kind == kKindTrade && length == sizeof(TradeBody))
         {
             dst = &out.trade;
         }
-        else if (kind == kKindBook && len == sizeof(BookBody))
+        else if (kind == kKindBook && length == sizeof(BookBody))
         {
             dst = &out.book;
         }
@@ -442,7 +442,7 @@ public:
             return stop();
         }
 
-        if (std::fread(dst, 1, len, fp_) != len)
+        if (std::fread(dst, 1, length, fp_) != length)
         {
             return stop();
         }

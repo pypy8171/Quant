@@ -72,9 +72,9 @@ void ZmqBridge::thread_fn()
         pub.bind("tcp://" + bind_addr_ + ":" + std::to_string(pub_port_));
         rep.bind("tcp://" + bind_addr_ + ":" + std::to_string(rep_port_));
     }
-    catch (const zmq::error_t& e)
+    catch (const zmq::error_t& zmq_error)
     {
-        LOG_ERROR(std::string("[ZMQ] 소켓 bind 실패: ") + e.what());
+        LOG_ERROR(std::string("[ZMQ] 소켓 bind 실패: ") + zmq_error.what());
         running_.store(false);
         return;
     }
@@ -88,19 +88,19 @@ void ZmqBridge::thread_fn()
         //    락을 쥔 채 큐 상한(10만 건)까지 밀어내면 그동안 전략·주문·WS 콜백의 enqueue가 전부 선다.
         std::queue<Msg> local;
         {
-            std::lock_guard<std::mutex> lk(queue_mtx_);
+            std::lock_guard<std::mutex> lock(queue_mtx_);
             std::swap(local, send_queue_);
         }
 
         while (!local.empty())
         {
-            auto& m = local.front();
+            auto& front = local.front();
             // 멀티파트: frame1=topic, frame2=payload. 두 프레임 다 dontwait — 이 스레드가 REP 폴링도 맡아
             //  전송에서 멈추면 명령 채널까지 같이 선다. PUB는 HWM에서 드롭이 정상 동작이다.
-            zmq::message_t t_frame(m.topic.size());
-            zmq::message_t p_frame(m.payload.size());
-            std::memcpy(t_frame.data(), m.topic.data(), m.topic.size());
-            std::memcpy(p_frame.data(), m.payload.data(), m.payload.size());
+            zmq::message_t t_frame(front.topic.size());
+            zmq::message_t p_frame(front.payload.size());
+            std::memcpy(t_frame.data(), front.topic.data(), front.topic.size());
+            std::memcpy(p_frame.data(), front.payload.data(), front.payload.size());
 
             try
             {
@@ -113,10 +113,10 @@ void ZmqBridge::thread_fn()
                     ++drop_count_;
                 }
             }
-            catch (const zmq::error_t& e)
+            catch (const zmq::error_t& zmq_error)
             {
                 ++drop_count_;
-                LOG_WARN(std::string("[ZMQ] publish 실패 topic=") + m.topic + " : " + e.what());
+                LOG_WARN(std::string("[ZMQ] publish 실패 topic=") + front.topic + " : " + zmq_error.what());
             }
 
             local.pop();
@@ -173,11 +173,11 @@ void ZmqBridge::thread_fn()
                 rep.send(reply_msg, zmq::send_flags::none);
             }
         }
-        catch (const zmq::error_t& e)
+        catch (const zmq::error_t& zmq_error)
         {
-            if (e.num() != ETERM)
+            if (zmq_error.num() != ETERM)
             {
-                LOG_WARN(std::string("[ZMQ] poll 오류: ") + e.what());
+                LOG_WARN(std::string("[ZMQ] poll 오류: ") + zmq_error.what());
             }
         }
     }
@@ -190,13 +190,13 @@ void ZmqBridge::thread_fn()
 // ─── 메시지 enqueue (스레드-안전) ───────────────────────────────────────────
 void ZmqBridge::enqueue(std::string topic, std::string payload)
 {
-    std::lock_guard<std::mutex> lk(queue_mtx_);
+    std::lock_guard<std::mutex> lock(queue_mtx_);
     // (C8) 토픽별 drop 차등 — 원장 정합성에 직결되는 FILL/ORDER/SIGNAL은
     // 고빈도 TRADE/HEALTH보다 훨씬 큰 하드캡까지 보존한다.
     const bool critical = (topic == "FILL" || topic == "ORDER" || topic == "SIGNAL");
-    const size_t cap = critical ? kCriticalQueueCap : kNormalQueueCap;
+    const size_t capacity = critical ? kCriticalQueueCap : kNormalQueueCap;
 
-    if (send_queue_.size() >= cap)
+    if (send_queue_.size() >= capacity)
     {
         ++drop_count_;
 
@@ -220,90 +220,90 @@ static int64_t now_ms()
 }
 
 // 3값 enum을 2분기로 접지 않는다 — CANCEL/REPLACE는 side==NONE으로도 여기까지 온다(W-11).
-static const char* side_str(OrderSide s)
+static const char* side_str(OrderSide order_side)
 {
-    return s == OrderSide::BUY ? "BUY" : (s == OrderSide::SELL ? "SELL" : "NONE");
+    return order_side == OrderSide::BUY ? "BUY" : (order_side == OrderSide::SELL ? "SELL" : "NONE");
 }
 
-static const char* action_str(OrderAction a)
+static const char* action_str(OrderAction order_action)
 {
-    return a == OrderAction::CANCEL ? "CANCEL" : (a == OrderAction::REPLACE ? "REPLACE" : "NEW");
+    return order_action == OrderAction::CANCEL ? "CANCEL" : (order_action == OrderAction::REPLACE ? "REPLACE" : "NEW");
 }
 
-void ZmqBridge::publish_trade(const TradeData& td)
+void ZmqBridge::publish_trade(const TradeData& trade)
 {
-    json j;
-    j["ts"] = now_ms();
-    j["ticker"] = td.ticker;
-    j["price"] = td.price;
-    j["volume"] = td.quantity;
-    j["direction"] = td.direction; // 1=매수, 5=매도
-    j["market"] = (td.market == Market::US ? "US" : "KR");
-    enqueue("TRADE", j.dump());
+    json document;
+    document["ts"] = now_ms();
+    document["ticker"] = trade.ticker;
+    document["price"] = trade.price;
+    document["volume"] = trade.quantity;
+    document["direction"] = trade.direction; // 1=매수, 5=매도
+    document["market"] = (trade.market == Market::US ? "US" : "KR");
+    enqueue("TRADE", document.dump());
 }
 
-void ZmqBridge::publish_signal(const OrderSignal& sig)
+void ZmqBridge::publish_signal(const OrderSignal& signal)
 {
-    json j;
-    j["ts"] = now_ms();
-    j["strategy"] = sig.strategy_id;
-    j["ticker"] = sig.ticker;
-    j["side"] = side_str(sig.side);
-    j["action"] = action_str(sig.action);
-    j["qty"] = sig.quantity;
-    j["price"] = sig.price;
-    j["market"] = (sig.market == Market::US ? "US" : "KR");
-    j["gated"] = false; // 게이트(OrderGate) 이전 발행 — 거부될 수 있다. 결과는 ORDER 토픽.
-    enqueue("SIGNAL", j.dump());
+    json document;
+    document["ts"] = now_ms();
+    document["strategy"] = signal.strategy_id;
+    document["ticker"] = signal.ticker;
+    document["side"] = side_str(signal.side);
+    document["action"] = action_str(signal.action);
+    document["qty"] = signal.quantity;
+    document["price"] = signal.price;
+    document["market"] = (signal.market == Market::US ? "US" : "KR");
+    document["gated"] = false; // 게이트(OrderGate) 이전 발행 — 거부될 수 있다. 결과는 ORDER 토픽.
+    enqueue("SIGNAL", document.dump());
 }
 
-void ZmqBridge::publish_order(const OrderSignal& sig, bool ok)
+void ZmqBridge::publish_order(const OrderSignal& signal, bool ok)
 {
-    json j;
-    j["ts"] = now_ms();
-    j["strategy"] = sig.strategy_id;
-    j["ticker"] = sig.ticker;
-    j["side"] = side_str(sig.side);
-    j["action"] = action_str(sig.action);
-    j["qty"] = sig.quantity;
-    j["price"] = sig.price;
-    j["ok"] = ok;
-    j["market"] = (sig.market == Market::US ? "US" : "KR");
-    j["account"] = account_no_;
-    enqueue("ORDER", j.dump());
+    json document;
+    document["ts"] = now_ms();
+    document["strategy"] = signal.strategy_id;
+    document["ticker"] = signal.ticker;
+    document["side"] = side_str(signal.side);
+    document["action"] = action_str(signal.action);
+    document["qty"] = signal.quantity;
+    document["price"] = signal.price;
+    document["ok"] = ok;
+    document["market"] = (signal.market == Market::US ? "US" : "KR");
+    document["account"] = account_no_;
+    enqueue("ORDER", document.dump());
 }
 
 void ZmqBridge::publish_health(uint64_t data_cnt, uint64_t sig_cnt, uint64_t ord_cnt)
 {
-    json j;
-    j["ts"]    = now_ms();
-    j["data"]  = data_cnt;
-    j["signal"] = sig_cnt;
-    j["order"] = ord_cnt;
-    j["drop"]  = drop_count_.load();
-    enqueue("HEALTH", j.dump());
+    json document;
+    document["ts"]    = now_ms();
+    document["data"]  = data_cnt;
+    document["signal"] = sig_cnt;
+    document["order"] = ord_cnt;
+    document["drop"]  = drop_count_.load();
+    enqueue("HEALTH", document.dump());
 }
 
-void ZmqBridge::publish_fill(const FillNotification& fn, const std::string& strategy_id,
-                              double commission, double tax, double avg_price, int net_qty,
+void ZmqBridge::publish_fill(const FillNotification& fill_notification, const std::string& strategy_id,
+                              double commission, double tax, double average_price, int net_qty,
                               double realized_pnl)
 {
-    json j;
-    j["ts"]           = now_ms();
-    j["odno"]         = fn.odno;
-    j["ticker"]       = fn.ticker;
-    j["side"]         = side_str(fn.side);
-    j["filled_qty"]   = fn.filled_qty;
-    j["filled_price"] = fn.filled_price;
-    j["commission"]   = commission;
-    j["tax"]          = tax;
-    j["avg_price"]    = avg_price;
-    j["net_qty"]      = net_qty;
-    j["realized_pnl"] = realized_pnl;
-    j["account"]      = account_no_;
-    j["strategy"]     = strategy_id;
-    j["regime"]       = regime_label_;
-    enqueue("FILL", j.dump());
+    json document;
+    document["ts"]           = now_ms();
+    document["odno"]         = fill_notification.kis_order_no;
+    document["ticker"]       = fill_notification.ticker;
+    document["side"]         = side_str(fill_notification.side);
+    document["filled_qty"]   = fill_notification.filled_quantity;
+    document["filled_price"] = fill_notification.filled_price;
+    document["commission"]   = commission;
+    document["tax"]          = tax;
+    document["avg_price"]    = average_price;
+    document["net_qty"]      = net_qty;
+    document["realized_pnl"] = realized_pnl;
+    document["account"]      = account_no_;
+    document["strategy"]     = strategy_id;
+    document["regime"]       = regime_label_;
+    enqueue("FILL", document.dump());
 }
 
 #endif // HAS_ZMQ

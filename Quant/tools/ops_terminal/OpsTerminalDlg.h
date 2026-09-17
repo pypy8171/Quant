@@ -49,11 +49,11 @@ private:
     {
         std::string ticker;
         std::string side;
-        int         qty = 0;
+        int         quantity = 0;
     };
 
     void place_order(const char* side);
-    void handle_frame(const ops::Frame& f);
+    void handle_frame(const ops::Frame& frame);
     void apply_positions(const std::string& body);
     int  sellable_in_table(const CString& ticker) const;
     double last_in_table(const CString& ticker) const;

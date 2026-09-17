@@ -26,39 +26,39 @@ int g_checks = 0;
         }                                                                                  \
     } while (0)
 
-TradeData make_trade(int i)
+TradeData make_trade(int index)
 {
-    TradeData td;
-    td.ticker      = i % 2 == 0 ? "005930" : "000660";
-    td.sym         = static_cast<sym::SymbolId>(i % 2 + 1);
-    td.hhmmss      = 90100 + i; // 0901ii
-    td.price       = 70000.0 + i;
-    td.quantity    = 10 + i;
-    td.direction   = i % 2 == 0 ? 1 : 5;
-    td.market      = Market::KR;
-    td.timestamp   = std::chrono::system_clock::time_point(std::chrono::microseconds(1'700'000'000'000'000LL + i));
-    td.strength    = 100.5 + i;
-    td.acml_volume = 1000 + i;
-    td.recv_ns     = 5'000'000 + i;
-    return td;
+    TradeData trade;
+    trade.ticker      = index % 2 == 0 ? "005930" : "000660";
+    trade.symbol_id         = static_cast<symbol::SymbolId>(index % 2 + 1);
+    trade.hhmmss      = 90100 + index; // 0901ii
+    trade.price       = 70000.0 + index;
+    trade.quantity    = 10 + index;
+    trade.direction   = index % 2 == 0 ? 1 : 5;
+    trade.market      = Market::KR;
+    trade.timestamp   = std::chrono::system_clock::time_point(std::chrono::microseconds(1'700'000'000'000'000LL + index));
+    trade.strength    = 100.5 + index;
+    trade.accumulated_volume = 1000 + index;
+    trade.received_ns     = 5'000'000 + index;
+    return trade;
 }
 
-OrderBook make_book(int i)
+OrderBook make_book(int index)
 {
-    OrderBook ob;
-    ob.ticker    = "005930";
-    ob.sym       = 1;
-    ob.hhmmss    = 90100;
-    ob.recv_ns   = 7'000'000 + i; // 수신 스레드가 찍은 값이 캡처에 그대로 남는다
-    ob.timestamp = std::chrono::system_clock::time_point(std::chrono::microseconds(1'700'000'000'000'000LL + i));
+    OrderBook order_book;
+    order_book.ticker    = "005930";
+    order_book.symbol_id       = 1;
+    order_book.hhmmss    = 90100;
+    order_book.received_ns   = 7'000'000 + index; // 수신 스레드가 찍은 값이 캡처에 그대로 남는다
+    order_book.timestamp = std::chrono::system_clock::time_point(std::chrono::microseconds(1'700'000'000'000'000LL + index));
 
-    for (int k = 0; k < 5; ++k)
+    for (int innermost_index = 0; innermost_index < 5; ++innermost_index)
     {
-        ob.asks[k] = {70100.0 + k * 100 + i, 100 + k};
-        ob.bids[k] = {70000.0 - k * 100 - i, 200 + k};
+        order_book.asks[innermost_index] = {70100.0 + innermost_index * 100 + index, 100 + innermost_index};
+        order_book.bids[innermost_index] = {70000.0 - innermost_index * 100 - index, 200 + innermost_index};
     }
 
-    return ob;
+    return order_book;
 }
 
 } // namespace
@@ -70,64 +70,64 @@ int main()
 
     // 1. 체결 3·호가 2를 섞어 쓰고 그대로 읽는다.
     {
-        feed::TickCapture cap(path);
-        CHECK(cap.ok());
-        cap.on_trade(make_trade(0));
-        cap.on_book(make_book(0));
-        cap.on_trade(make_trade(1));
-        cap.on_trade(make_trade(2));
-        cap.on_book(make_book(1));
-        cap.flush();
-        CHECK(cap.written() == 5);
-        CHECK(cap.dropped() == 0);
+        feed::TickCapture capture(path);
+        CHECK(capture.ok());
+        capture.on_trade(make_trade(0));
+        capture.on_book(make_book(0));
+        capture.on_trade(make_trade(1));
+        capture.on_trade(make_trade(2));
+        capture.on_book(make_book(1));
+        capture.flush();
+        CHECK(capture.written() == 5);
+        CHECK(capture.dropped() == 0);
     }
 
     {
         feed::TickReader rd(path);
         CHECK(rd.ok());
         CHECK(rd.start_utc_ms() > 1'600'000'000'000LL);
-        feed::Record r;
+        feed::Record record;
 
-        CHECK(rd.next(r) && r.kind == feed::kKindTrade);
-        const TradeData t0 = feed::to_trade(r.trade);
-        CHECK(t0.ticker == "005930" && t0.sym == 1 && t0.hhmmss == 90100);
-        CHECK(t0.price == 70000.0 && t0.quantity == 10 && t0.direction == 1 && t0.market == Market::KR);
-        CHECK(t0.strength == 100.5 && t0.acml_volume == 1000 && t0.recv_ns == 5'000'000);
-        CHECK(t0.timestamp == make_trade(0).timestamp);
+        CHECK(rd.next(record) && record.kind == feed::kKindTrade);
+        const TradeData start_time = feed::to_trade(record.trade);
+        CHECK(start_time.ticker == "005930" && start_time.symbol_id == 1 && start_time.hhmmss == 90100);
+        CHECK(start_time.price == 70000.0 && start_time.quantity == 10 && start_time.direction == 1 && start_time.market == Market::KR);
+        CHECK(start_time.strength == 100.5 && start_time.accumulated_volume == 1000 && start_time.received_ns == 5'000'000);
+        CHECK(start_time.timestamp == make_trade(0).timestamp);
 
-        CHECK(rd.next(r) && r.kind == feed::kKindBook);
-        const OrderBook b0 = feed::to_book(r.book);
-        CHECK(b0.ticker == "005930" && b0.sym == 1 && b0.hhmmss == 90100);
+        CHECK(rd.next(record) && record.kind == feed::kKindBook);
+        const OrderBook b0 = feed::to_book(record.book);
+        CHECK(b0.ticker == "005930" && b0.symbol_id == 1 && b0.hhmmss == 90100);
         CHECK(b0.asks[4].price == 70500.0 && b0.asks[4].quantity == 104);
         CHECK(b0.bids[0].price == 70000.0 && b0.bids[0].quantity == 200);
-        CHECK(r.book.c.recv_ns == 7'000'000 && b0.recv_ns == 7'000'000);
+        CHECK(record.book.common.received_ns == 7'000'000 && b0.received_ns == 7'000'000);
         CHECK(b0.timestamp == make_book(0).timestamp);
 
-        CHECK(rd.next(r) && r.kind == feed::kKindTrade && feed::to_trade(r.trade).ticker == "000660");
-        CHECK(rd.next(r) && r.kind == feed::kKindTrade && feed::to_trade(r.trade).price == 70002.0);
-        CHECK(rd.next(r) && r.kind == feed::kKindBook && r.book.c.recv_ns == 7'000'001);
-        CHECK(!rd.next(r));
-        CHECK(!rd.next(r));
+        CHECK(rd.next(record) && record.kind == feed::kKindTrade && feed::to_trade(record.trade).ticker == "000660");
+        CHECK(rd.next(record) && record.kind == feed::kKindTrade && feed::to_trade(record.trade).price == 70002.0);
+        CHECK(rd.next(record) && record.kind == feed::kKindBook && record.book.common.received_ns == 7'000'001);
+        CHECK(!rd.next(record));
+        CHECK(!rd.next(record));
     }
 
     // 2. 같은 파일에 두 번째 인스턴스가 이어 쓰면 머리는 다시 안 붙고 레코드가 6개다.
     {
-        feed::TickCapture cap(path);
-        cap.on_trade(make_trade(3));
-        cap.flush();
+        feed::TickCapture capture(path);
+        capture.on_trade(make_trade(3));
+        capture.flush();
     }
 
     {
         feed::TickReader rd(path);
-        feed::Record     r;
-        int              n = 0;
+        feed::Record     record;
+        int              count = 0;
 
-        while (rd.next(r))
+        while (rd.next(record))
         {
-            ++n;
+            ++count;
         }
 
-        CHECK(n == 6);
+        CHECK(count == 6);
     }
 
     // 3. 꼬리가 잘린 파일: 마지막 레코드 중간에서 끊으면 앞 5개만 나온다.
@@ -135,27 +135,27 @@ int main()
         const auto size = std::filesystem::file_size(path);
         std::filesystem::resize_file(path, size - 10);
         feed::TickReader rd(path);
-        feed::Record     r;
-        int              n = 0;
+        feed::Record     record;
+        int              count = 0;
 
-        while (rd.next(r))
+        while (rd.next(record))
         {
-            ++n;
+            ++count;
         }
 
-        CHECK(n == 5);
+        CHECK(count == 5);
     }
 
     // 4. 없는 파일·머리가 다른 파일은 ok()가 false.
     {
         feed::TickReader rd(std::filesystem::temp_directory_path() / "quant_test_tick_capture_missing.bin");
         CHECK(!rd.ok());
-        feed::Record r;
-        CHECK(!rd.next(r));
+        feed::Record record;
+        CHECK(!rd.next(record));
 
-        std::FILE* f = std::fopen(path.string().c_str(), "wb");
-        std::fputs("not a capture", f);
-        std::fclose(f);
+        std::FILE* file = std::fopen(path.string().c_str(), "wb");
+        std::fputs("not a capture", file);
+        std::fclose(file);
         feed::TickReader bad(path);
         CHECK(!bad.ok());
     }
@@ -164,42 +164,42 @@ int main()
 
     // 5. 큐 상한 4에 6개를 넣으면(기록 스레드가 못 따라오게 하진 못하니) 버린 수 + 쓴 수 = 6.
     {
-        feed::TickCapture cap(path, 4);
+        feed::TickCapture capture(path, 4);
 
-        for (int i = 0; i < 6; ++i)
+        for (int index = 0; index < 6; ++index)
         {
-            cap.on_trade(make_trade(i));
+            capture.on_trade(make_trade(index));
         }
 
-        cap.flush();
-        CHECK(cap.written() + cap.dropped() == 6);
-        CHECK(cap.written() >= 4);
+        capture.flush();
+        CHECK(capture.written() + capture.dropped() == 6);
+        CHECK(capture.written() >= 4);
     }
 
     std::filesystem::remove(path);
 
     // 6. 열 수 없는 경로면 ok()가 false고 on_*는 조용히 무시한다.
     {
-        feed::TickCapture cap(std::filesystem::path("Z:/no_such_dir_quant/x/ticks.bin"));
+        feed::TickCapture capture(std::filesystem::path("Z:/no_such_dir_quant/x/ticks.bin"));
 
-        if (!cap.ok())
+        if (!capture.ok())
         {
-            cap.on_trade(make_trade(0));
-            CHECK(cap.written() == 0);
+            capture.on_trade(make_trade(0));
+            CHECK(capture.written() == 0);
         }
     }
 
     // 7. 측정(원칙 7) — 틱 구조체 크기와, 틱 한 건이 링을 지나는 비용·캡처 블록에서 되돌리는 비용.
-    //  종목 코드가 std::string이던 때(2026-09-13, Release): TradeData 96B·링 13ns·decode 11ns. sym::Ticker 고정 배열로
+    //  종목 코드가 std::string이던 때(2026-09-13, Release): TradeData 96B·링 13ns·decode 11ns. symbol::Ticker 고정 배열로
     //  바꾼 뒤: 80B·3ns·6ns. 구조체가 trivially copyable이 돼 링 복사가 memcpy로 내려간 몫이다.
     {
         constexpr int kN = 1'000'000;
         RingBuffer<TradeData> ring(1024);
         const TradeData src = make_trade(0);
-        auto t0 = std::chrono::steady_clock::now();
+        auto start_time = std::chrono::steady_clock::now();
         double sink = 0.0;
 
-        for (int i = 0; i < kN; ++i)
+        for (int index = 0; index < kN; ++index)
         {
             (void)ring.push(src);
             auto got = ring.pop();
@@ -210,57 +210,57 @@ int main()
         const feed::TradeBody blk = feed::to_body(src);
         int64_t acc = 0;
 
-        for (int i = 0; i < kN; ++i)
+        for (int index = 0; index < kN; ++index)
         {
-            TradeData td = feed::to_trade(blk);
-            acc += td.quantity + static_cast<int64_t>(td.ticker.size());
+            TradeData trade = feed::to_trade(blk);
+            acc += trade.quantity + static_cast<int64_t>(trade.ticker.size());
         }
 
         auto t2 = std::chrono::steady_clock::now();
-        const auto ns = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::nanoseconds>(b - a).count(); };
+        const auto ns = [](auto left, auto right) { return std::chrono::duration_cast<std::chrono::nanoseconds>(right - left).count(); };
         std::cout << "[측정] sizeof TradeData=" << sizeof(TradeData) << " OrderBook=" << sizeof(OrderBook)
-                  << " MarketData=" << sizeof(MarketData) << " | 링 push+pop " << ns(t0, t1) / kN << "ns/틱 | 캡처 decode "
+                  << " MarketData=" << sizeof(MarketData) << " | 링 push+pop " << ns(start_time, t1) / kN << "ns/틱 | 캡처 decode "
                   << ns(t1, t2) / kN << "ns/틱 (sink " << sink << ' ' << acc << ")\n";
     }
 
     // 8. 생산자 여럿(FeedMux 레인) — 스레드 4개가 500건씩 동시에 넣어도 쓴 수 + 버린 수 = 2000이고 파일도 그만큼이다.
     {
         {
-            feed::TickCapture        cap(path, 4096);
+            feed::TickCapture        capture(path, 4096);
             std::vector<std::thread> ths;
 
-            for (int t = 0; t < 4; ++t)
+            for (int time_value = 0; time_value < 4; ++time_value)
             {
                 ths.emplace_back(
-                    [&cap, t]
+                    [&capture, time_value]
                     {
-                        for (int i = 0; i < 500; ++i)
+                        for (int index = 0; index < 500; ++index)
                         {
-                            cap.on_trade(make_trade(t * 500 + i));
+                            capture.on_trade(make_trade(time_value * 500 + index));
                         }
                     });
             }
 
-            for (auto& th : ths)
+            for (auto& thread : ths)
             {
-                th.join();
+                thread.join();
             }
 
-            cap.flush();
-            CHECK(cap.written() + cap.dropped() == 2000);
-            CHECK(cap.written() == 2000);
+            capture.flush();
+            CHECK(capture.written() + capture.dropped() == 2000);
+            CHECK(capture.written() == 2000);
         }
 
         feed::TickReader rd(path);
-        feed::Record     r;
-        size_t           n = 0;
+        feed::Record     record;
+        size_t           count = 0;
 
-        while (rd.next(r))
+        while (rd.next(record))
         {
-            ++n;
+            ++count;
         }
 
-        CHECK(n == 2000);
+        CHECK(count == 2000);
     }
 
     std::filesystem::remove(path);

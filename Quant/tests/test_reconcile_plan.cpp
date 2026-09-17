@@ -28,13 +28,13 @@ int g_pass = 0;
     } while (0)
 
 // 행 목록에서 종목 하나를 찾는다. 순서가 결정적이지 않은 검사에 쓴다.
-const Row* find_row(const std::vector<Row>& rows, const std::string& t)
+const Row* find_row(const std::vector<Row>& rows, const std::string& ticker)
 {
-    for (const auto& r : rows)
+    for (const auto& row : rows)
     {
-        if (r.ticker == t)
+        if (row.ticker == ticker)
         {
-            return &r;
+            return &row;
         }
     }
 
@@ -100,7 +100,7 @@ int main()
         CHECK(find_row(rows, "005930") == nullptr);
     }
 
-    // 5) 브로커 qty<=0·빈 티커는 보유가 아니다 — 원장에 없어도 행이 나지 않고, 원장에 있으면 원장 쪽 KEEP으로 잡힌다.
+    // 5) 브로커 quantity<=0·빈 티커는 보유가 아니다 — 원장에 없어도 행이 나지 않고, 원장에 있으면 원장 쪽 KEEP으로 잡힌다.
     {
         std::vector<Held> ledger{{"005930", 10, 71000.0}};
         std::vector<Held> broker{{"005930", 0, 0.0}, {"", 4, 100.0}};
@@ -109,7 +109,7 @@ int main()
         CHECK(rows[0].ticker == "005930" && rows[0].action == "KEEP" && rows[0].broker_qty == 0);
     }
 
-    // 6) 원장 qty<=0 항목은 대조 대상이 아니다.
+    // 6) 원장 quantity<=0 항목은 대조 대상이 아니다.
     {
         std::vector<Held> ledger{{"005930", 0, 0.0}};
         std::vector<Held> broker{};

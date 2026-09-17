@@ -13,12 +13,12 @@ class MACrossStrategy : public StrategyBase
 public:
     // start_in_position=true: 기동 시 이미 보유 중인 것으로 간주(모의계좌 보유분).
     //   → 첫 신호는 항상 데드크로스 매도(BUY는 무포지션에서만) → 기존 보유분을 지표로 청산 가능.
-    //   → OrderGate 내부 원장에서 매도가 먼저 -qty를 선점하므로, 뒤이은 재매수가 상쇄(net-zero)돼
+    //   → OrderGate 내부 원장에서 매도가 먼저 -quantity를 선점하므로, 뒤이은 재매수가 상쇄(net-zero)돼
     //     포지션 한도에 걸리지 않는다.
-    MACrossStrategy(std::string ticker, int short_period, int long_period, int qty,
+    MACrossStrategy(std::string ticker, int short_period, int long_period, int quantity,
                     bool start_in_position = false)
         : ticker_(std::move(ticker)), short_period_(short_period), long_period_(long_period),
-          quantity_(qty), start_in_position_(start_in_position)
+          quantity_(quantity), start_in_position_(start_in_position)
     {
     }
 
@@ -42,7 +42,7 @@ public:
 
     void on_start() override
     {
-        sym_ = symbol_of(ticker_);
+        symbol_id_ = symbol_of(ticker_);
         prices_.clear();
         prev_short_ma_ = 0.0;
         prev_long_ma_ = 0.0;
@@ -54,7 +54,7 @@ public:
 
     std::optional<OrderSignal> on_data(const MarketData& data) override
     {
-        if (!same_symbol(sym_, ticker_, data.sym, data.ticker))
+        if (!same_symbol(symbol_id_, ticker_, data.symbol_id, data.ticker))
         {
             return std::nullopt;
         }
@@ -76,7 +76,7 @@ public:
 
         std::optional<OrderSignal> signal;
 
-        // 첫 완전창은 prev만 시드하고 신호를 건너뛴다. prev가 0.0으로 시작하면
+        // 첫 완전창은 previous만 시드하고 신호를 건너뛴다. previous가 0.0으로 시작하면
         // prev_short<=prev_long(0<=0)이 무조건 참이라, 실제 교차가 없어도 그 순간
         // short>long이기만 하면 허위 골든크로스로 매수해버린다.
         if (have_prev_)
@@ -105,33 +105,33 @@ public:
 private:
     double calc_ma(int period) const
     {
-        auto it = prices_.end();
+        auto iterator = prices_.end();
         double sum = 0.0;
 
-        for (int i = 0; i < period; ++i)
+        for (int period_index = 0; period_index < period; ++period_index)
         {
-            sum += *(--it);
+            sum += *(--iterator);
         }
 
         return sum / period;
     }
 
-    OrderSignal make_signal(const MarketData& d, OrderSide side)
+    OrderSignal make_signal(const MarketData& market_data, OrderSide side)
     {
-        OrderSignal s;
-        s.ticker = ticker_;
-        s.sym    = sym_;
-        s.side = side;
-        s.type = OrderType::MARKET;
-        s.quantity = quantity_;
-        s.ref_price = d.close;  // 시장가 명목 백스톱 평가 기준가(price=0이라 없으면 우회됨)
-        s.strategy_id = id();
-        s.timestamp = d.timestamp;
-        return s;
+        OrderSignal signal;
+        signal.ticker = ticker_;
+        signal.symbol_id    = symbol_id_;
+        signal.side = side;
+        signal.type = OrderType::MARKET;
+        signal.quantity = quantity_;
+        signal.ref_price = market_data.close;  // 시장가 명목 백스톱 평가 기준가(price=0이라 없으면 우회됨)
+        signal.strategy_id = id();
+        signal.timestamp = market_data.timestamp;
+        return signal;
     }
 
     std::string ticker_;
-    sym::SymbolId sym_ = sym::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
+    symbol::SymbolId symbol_id_ = symbol::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
     int short_period_;
     int long_period_;
     int quantity_;

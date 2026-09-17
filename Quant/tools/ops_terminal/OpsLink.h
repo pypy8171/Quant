@@ -59,8 +59,8 @@ private:
     void thread_fn();
     bool connect_once();
     void session_loop();   // 연결 하나의 수명. 돌아오면 끊긴 것
-    void post_state(LinkState s, const std::string& detail);
-    void post_frame(const ops::Frame& f);
+    void post_state(LinkState state, const std::string& detail);
+    void post_frame(const ops::Frame& frame);
     void close_socket();
 
     HWND        hwnd_ = nullptr;

@@ -11,8 +11,8 @@
 class MomentumStrategy : public StrategyBase
 {
 public:
-    MomentumStrategy(std::string ticker, int period, int qty)
-        : ticker_(std::move(ticker)), period_(period), quantity_(qty)
+    MomentumStrategy(std::string ticker, int period, int quantity)
+        : ticker_(std::move(ticker)), period_(period), quantity_(quantity)
     {
     }
 
@@ -34,7 +34,7 @@ public:
 
     void on_start() override
     {
-        sym_ = symbol_of(ticker_);
+        symbol_id_ = symbol_of(ticker_);
         highs_.clear();
         lows_.clear();
         in_position_ = false;
@@ -44,7 +44,7 @@ public:
 
     std::optional<OrderSignal> on_data(const MarketData& data) override
     {
-        if (!same_symbol(sym_, ticker_, data.sym, data.ticker))
+        if (!same_symbol(symbol_id_, ticker_, data.symbol_id, data.ticker))
         {
             return std::nullopt;
         }
@@ -89,22 +89,22 @@ public:
     }
 
 private:
-    OrderSignal make_signal(const MarketData& d, OrderSide side)
+    OrderSignal make_signal(const MarketData& market_data, OrderSide side)
     {
-        OrderSignal s;
-        s.ticker = ticker_;
-        s.sym    = sym_;
-        s.side = side;
-        s.type = OrderType::MARKET;
-        s.quantity = quantity_;
-        s.ref_price = d.close;  // 시장가 명목 백스톱 평가 기준가(price=0이라 없으면 우회됨)
-        s.strategy_id = id();
-        s.timestamp = d.timestamp;
-        return s;
+        OrderSignal signal;
+        signal.ticker = ticker_;
+        signal.symbol_id    = symbol_id_;
+        signal.side = side;
+        signal.type = OrderType::MARKET;
+        signal.quantity = quantity_;
+        signal.ref_price = market_data.close;  // 시장가 명목 백스톱 평가 기준가(price=0이라 없으면 우회됨)
+        signal.strategy_id = id();
+        signal.timestamp = market_data.timestamp;
+        return signal;
     }
 
     std::string ticker_;
-    sym::SymbolId sym_ = sym::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
+    symbol::SymbolId symbol_id_ = symbol::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
     int period_;
     int quantity_;
     std::deque<double> highs_;

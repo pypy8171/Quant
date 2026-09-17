@@ -32,38 +32,38 @@ constexpr int kSlots = 40;
 
 OrderGate::Config bench_cfg()
 {
-    OrderGate::Config c;
-    c.max_qty_per_ticker = 1'000'000;
-    c.max_orders_per_min = 1'000'000;
-    c.max_orders_per_sec = 1'000'000;
-    c.dedup_window_sec   = 0.0;
-    return c;
+    OrderGate::Config config;
+    config.max_qty_per_ticker = 1'000'000;
+    config.max_orders_per_min = 1'000'000;
+    config.max_orders_per_sec = 1'000'000;
+    config.dedup_window_sec   = 0.0;
+    return config;
 }
 
-std::string tkr(int i)
+std::string tkr(int index)
 {
-    char buf[8];
-    std::snprintf(buf, sizeof(buf), "%06d", i + 1);
-    return buf;
+    char buffer[8];
+    std::snprintf(buffer, sizeof(buffer), "%06d", index + 1);
+    return buffer;
 }
 
 // 지연 시뮬레이션은 sleep 금지(Windows 타이머 해상도)라 busy-wait
-void spin_until(clk::time_point t)
+void spin_until(clk::time_point time_point)
 {
-    while (clk::now() < t)
+    while (clk::now() < time_point)
     {
     }
 }
 
-double pct_ns(const std::vector<int64_t>& sorted, double p)
+double pct_ns(const std::vector<int64_t>& sorted, double price)
 {
     if (sorted.empty())
     {
         return 0.0;
     }
 
-    size_t idx = static_cast<size_t>(p * static_cast<double>(sorted.size() - 1));
-    return static_cast<double>(sorted[idx]);
+    size_t index = static_cast<size_t>(price * static_cast<double>(sorted.size() - 1));
+    return static_cast<double>(sorted[index]);
 }
 
 struct Result
@@ -73,32 +73,32 @@ struct Result
 };
 
 // 읽기 스레드(전략 스레드 역할). 틱마다 position 한 번 + sellable_view 한 번 — DeviationScale이 틱당 부르는 양.
-Result run_reader(const OrderGate& gate, const std::string& acct, double duration_sec, std::atomic<bool>& stop)
+Result run_reader(const OrderGate& gate, const std::string& account, double duration_sec, std::atomic<bool>& stop)
 {
-    Result r;
-    r.lat_ns.reserve(1 << 22);
+    Result result;
+    result.lat_ns.reserve(1 << 22);
     const auto end = clk::now() + std::chrono::milliseconds(static_cast<int>(duration_sec * 1000));
-    int i = 0;
+    int index = 0;
     volatile int sink = 0;
 
     while (clk::now() < end)
     {
-        const std::string t = tkr(i % kSlots);
-        const auto t0 = clk::now();
-        sink = sink + gate.position(acct, t);
-        sink = sink + gate.sellable_view(acct, t).psbl_cap;
+        const std::string ticker = tkr(index % kSlots);
+        const auto start_time = clk::now();
+        sink = sink + gate.position(account, ticker);
+        sink = sink + gate.sellable_view(account, ticker).psbl_cap;
         const auto t1 = clk::now();
-        r.lat_ns.push_back(std::chrono::duration_cast<ns>(t1 - t0).count());
-        ++r.reads;
-        ++i;
+        result.lat_ns.push_back(std::chrono::duration_cast<ns>(t1 - start_time).count());
+        ++result.reads;
+        ++index;
     }
 
     stop.store(true, std::memory_order_release);
-    return r;
+    return result;
 }
 
 // 체결 스레드 역할 — 선점 뒤 체결. BUY/SELL을 번갈아 보유를 1주씩 흔든다.
-void run_filler(OrderGate& gate, const std::string& acct, int rate, std::atomic<bool>& stop)
+void run_filler(OrderGate& gate, const std::string& account, int rate, std::atomic<bool>& stop)
 {
     if (rate <= 0)
     {
@@ -107,22 +107,22 @@ void run_filler(OrderGate& gate, const std::string& acct, int rate, std::atomic<
 
     const auto period = ns(1'000'000'000LL / rate);
     auto next = clk::now();
-    int i = 0;
+    int index = 0;
 
     while (!stop.load(std::memory_order_acquire))
     {
-        const std::string t = tkr(i % kSlots);
-        const OrderSide side = (i / kSlots) % 2 == 0 ? OrderSide::BUY : OrderSide::SELL;
-        gate.on_accept(acct, t, side, 1, 10000.0);
-        gate.on_fill_confirmed(acct, t, side, 1, 10000.0);
-        ++i;
+        const std::string ticker = tkr(index % kSlots);
+        const OrderSide side = (index / kSlots) % 2 == 0 ? OrderSide::BUY : OrderSide::SELL;
+        gate.on_accept(account, ticker, side, 1, 10000.0);
+        gate.on_fill_confirmed(account, ticker, side, 1, 10000.0);
+        ++index;
         next += period;
         spin_until(next);
     }
 }
 
 // 잔고 대조 역할(데이터 스레드) — 스냅샷을 뜨고, 살아 있는 종목만 남기고, 잔고대로 다시 시드한다.
-void run_reconciler(OrderGate& gate, const std::string& acct, int every_ms, std::atomic<bool>& stop)
+void run_reconciler(OrderGate& gate, const std::string& account, int every_ms, std::atomic<bool>& stop)
 {
     if (every_ms <= 0)
     {
@@ -131,9 +131,9 @@ void run_reconciler(OrderGate& gate, const std::string& acct, int every_ms, std:
 
     std::vector<std::string> live;
 
-    for (int i = 0; i < kSlots; ++i)
+    for (int slot_index = 0; slot_index < kSlots; ++slot_index)
     {
-        live.push_back(tkr(i));
+        live.push_back(tkr(slot_index));
     }
 
     auto next = clk::now();
@@ -145,9 +145,9 @@ void run_reconciler(OrderGate& gate, const std::string& acct, int every_ms, std:
         (void)gate.snapshot_positions();
         (void)gate.prune_positions(live, 0);
 
-        for (int i = 0; i < kSlots; ++i)
+        for (int slot_index = 0; slot_index < kSlots; ++slot_index)
         {
-            gate.seed_position(acct, tkr(i), 10, 10000.0, 10);
+            gate.seed_position(account, tkr(slot_index), 10, 10000.0, 10);
         }
     }
 }
@@ -170,34 +170,34 @@ void run_ops(const OrderGate& gate, int every_ms, std::atomic<bool>& stop)
     }
 }
 
-void report(const char* label, Result& r, double duration_sec)
+void report(const char* label, Result& result, double duration_sec)
 {
-    std::sort(r.lat_ns.begin(), r.lat_ns.end());
+    std::sort(result.lat_ns.begin(), result.lat_ns.end());
     std::printf("%-22s reads=%llu (%.2fM/s)  p50=%.0fns  p99=%.0fns  p999=%.0fns  max=%.0fns\n", label,
-                static_cast<unsigned long long>(r.reads), static_cast<double>(r.reads) / duration_sec / 1e6,
-                pct_ns(r.lat_ns, 0.50), pct_ns(r.lat_ns, 0.99), pct_ns(r.lat_ns, 0.999),
-                r.lat_ns.empty() ? 0.0 : static_cast<double>(r.lat_ns.back()));
+                static_cast<unsigned long long>(result.reads), static_cast<double>(result.reads) / duration_sec / 1e6,
+                pct_ns(result.lat_ns, 0.50), pct_ns(result.lat_ns, 0.99), pct_ns(result.lat_ns, 0.999),
+                result.lat_ns.empty() ? 0.0 : static_cast<double>(result.lat_ns.back()));
 }
 
 void run_case(const char* label, double duration_sec, int fill_rate, int reconcile_ms, int ops_ms)
 {
     OrderGate gate(bench_cfg());
-    const std::string acct = "12345678-01";
+    const std::string account = "bench-account";
 
-    for (int i = 0; i < kSlots; ++i)
+    for (int slot_index = 0; slot_index < kSlots; ++slot_index)
     {
-        gate.seed_position(acct, tkr(i), 10, 10000.0, 10);
+        gate.seed_position(account, tkr(slot_index), 10, 10000.0, 10);
     }
 
     std::atomic<bool> stop{false};
-    std::thread filler([&] { run_filler(gate, acct, fill_rate, stop); });
-    std::thread reconciler([&] { run_reconciler(gate, acct, reconcile_ms, stop); });
+    std::thread filler([&] { run_filler(gate, account, fill_rate, stop); });
+    std::thread reconciler([&] { run_reconciler(gate, account, reconcile_ms, stop); });
     std::thread ops([&] { run_ops(gate, ops_ms, stop); });
-    Result r = run_reader(gate, acct, duration_sec, stop);
+    Result result = run_reader(gate, account, duration_sec, stop);
     filler.join();
     reconciler.join();
     ops.join();
-    report(label, r, duration_sec);
+    report(label, result, duration_sec);
 }
 
 } // namespace

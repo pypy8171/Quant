@@ -31,10 +31,10 @@
 class MarketMakingStrategy : public StrategyBase
 {
 public:
-    MarketMakingStrategy(std::string ticker, int qty, int half_spread_ticks,
+    MarketMakingStrategy(std::string ticker, int quantity, int half_spread_ticks,
                          int requote_move_ticks, int min_requote_ms)
         : ticker_(std::move(ticker)),
-          qty_(qty),
+          qty_(quantity),
           half_spread_ticks_(half_spread_ticks < 1 ? 1 : half_spread_ticks),
           requote_move_ticks_(requote_move_ticks < 1 ? 1 : requote_move_ticks),
           min_requote_(std::chrono::milliseconds(min_requote_ms < 0 ? 0 : min_requote_ms))
@@ -68,7 +68,7 @@ public:
 
     void on_start() override
     {
-        sym_ = symbol_of(ticker_);
+        symbol_id_ = symbol_of(ticker_);
         bid_oid_.clear();
         ask_oid_.clear();
         last_mid_ = 0.0;
@@ -76,15 +76,15 @@ public:
         seq_ = 0;
     }
 
-    void on_order_book_batch(const OrderBook& ob, std::vector<OrderSignal>& out) override
+    void on_order_book_batch(const OrderBook& order_book, std::vector<OrderSignal>& out) override
     {
-        if (!ob.ticker.empty() && !same_symbol(sym_, ticker_, ob.sym, ob.ticker))
+        if (!order_book.ticker.empty() && !same_symbol(symbol_id_, ticker_, order_book.symbol_id, order_book.ticker))
         {
             return;
         }
 
-        const double bid1 = ob.bids[0].price;
-        const double ask1 = ob.asks[0].price;
+        const double bid1 = order_book.bids[0].price;
+        const double ask1 = order_book.asks[0].price;
 
         // 장전·비어있는 호가(구독 직후/휴장) → 견적 안 냄.
         // TODO(호가 소싱 폴백, 기본 비활성): bid1/ask1가 지속 0이면 kis_->get_current_price()로
@@ -153,7 +153,7 @@ public:
 private:
     // KRX 호가단위/격자 절사는 core/TickSize.h(krx::)로 일원화. 얇은 위임만 유지.
     static double tick_size(double price) { return krx::tick_size(price); }
-    static double round_to_tick(double p, OrderSide side) { return krx::round_to_tick(p, side); }
+    static double round_to_tick(double price, OrderSide side) { return krx::round_to_tick(price, side); }
 
     std::string next_oid(const char* tag)
     {
@@ -162,39 +162,39 @@ private:
 
     OrderSignal make_new(const std::string& oid, OrderSide side, double price)
     {
-        OrderSignal s;
-        s.ticker      = ticker_;
-        s.sym         = sym_;
-        s.side        = side;
-        s.type        = OrderType::LIMIT;
-        s.quantity    = qty_;
-        s.price       = price;
-        s.strategy_id = id();
-        s.market      = Market::KR;
-        s.action      = OrderAction::NEW;
-        s.client_oid  = oid;
-        s.timestamp   = std::chrono::system_clock::now();
-        return s;
+        OrderSignal signal;
+        signal.ticker      = ticker_;
+        signal.symbol_id         = symbol_id_;
+        signal.side        = side;
+        signal.type        = OrderType::LIMIT;
+        signal.quantity    = qty_;
+        signal.price       = price;
+        signal.strategy_id = id();
+        signal.market      = Market::KR;
+        signal.action      = OrderAction::NEW;
+        signal.client_oid  = oid;
+        signal.timestamp   = std::chrono::system_clock::now();
+        return signal;
     }
 
     OrderSignal make_cancel(const std::string& orig_oid, OrderSide side)
     {
-        OrderSignal s;
-        s.ticker         = ticker_;
-        s.sym            = sym_;
-        s.side           = side; // 참고용(취소 라우팅은 원주문 정보 사용). Engine NONE 가드는 action으로 우회.
-        s.type           = OrderType::LIMIT;
-        s.quantity       = 0;
-        s.strategy_id    = id();
-        s.market         = Market::KR;
-        s.action         = OrderAction::CANCEL;
-        s.orig_client_oid = orig_oid;
-        s.timestamp      = std::chrono::system_clock::now();
-        return s;
+        OrderSignal signal;
+        signal.ticker         = ticker_;
+        signal.symbol_id            = symbol_id_;
+        signal.side           = side; // 참고용(취소 라우팅은 원주문 정보 사용). Engine NONE 가드는 action으로 우회.
+        signal.type           = OrderType::LIMIT;
+        signal.quantity       = 0;
+        signal.strategy_id    = id();
+        signal.market         = Market::KR;
+        signal.action         = OrderAction::CANCEL;
+        signal.orig_client_oid = orig_oid;
+        signal.timestamp      = std::chrono::system_clock::now();
+        return signal;
     }
 
     std::string ticker_;
-    sym::SymbolId sym_ = sym::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
+    symbol::SymbolId symbol_id_ = symbol::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
     int qty_;
     int half_spread_ticks_;
     int requote_move_ticks_;

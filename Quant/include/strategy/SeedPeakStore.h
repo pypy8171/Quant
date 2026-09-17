@@ -23,21 +23,21 @@ class SeedPeakStore
 public:
     static std::string today_yyyymmdd()
     {
-        return kst::ymd(std::time(nullptr));
+        return kst::date_yyyymmdd(std::time(nullptr));
     }
 
     // 당일 저장분이 있으면 고점, 없거나 날짜가 다르면 0.
     static double load(const std::string& ticker)
     {
-        std::lock_guard<std::mutex> lk(mtx());
-        nlohmann::json j = read_locked();
+        std::lock_guard<std::mutex> lock(mutex());
+        nlohmann::json document = read_locked();
 
-        if (j.value("date", "") != today_yyyymmdd())
+        if (document.value("date", "") != today_yyyymmdd())
         {
             return 0.0;
         }
 
-        const auto& peaks = j["peaks"];
+        const auto& peaks = document["peaks"];
 
         if (!peaks.is_object() || !peaks.contains(ticker))
         {
@@ -50,36 +50,36 @@ public:
     // 날짜가 바뀌었으면 어제 표를 통째로 버리고 새로 시작한다.
     static void save(const std::string& ticker, double peak)
     {
-        std::lock_guard<std::mutex> lk(mtx());
-        nlohmann::json j = read_locked();
+        std::lock_guard<std::mutex> lock(mutex());
+        nlohmann::json document = read_locked();
         const std::string today = today_yyyymmdd();
 
-        if (j.value("date", "") != today)
+        if (document.value("date", "") != today)
         {
-            j = nlohmann::json{{"date", today}, {"peaks", nlohmann::json::object()}};
+            document = nlohmann::json{{"date", today}, {"peaks", nlohmann::json::object()}};
         }
 
-        j["peaks"][ticker] = peak;
-        write_locked(j);
+        document["peaks"][ticker] = peak;
+        write_locked(document);
     }
 
     static void erase(const std::string& ticker)
     {
-        std::lock_guard<std::mutex> lk(mtx());
-        nlohmann::json j = read_locked();
+        std::lock_guard<std::mutex> lock(mutex());
+        nlohmann::json document = read_locked();
 
-        if (j["peaks"].is_object() && j["peaks"].contains(ticker))
+        if (document["peaks"].is_object() && document["peaks"].contains(ticker))
         {
-            j["peaks"].erase(ticker);
-            write_locked(j);
+            document["peaks"].erase(ticker);
+            write_locked(document);
         }
     }
 
 private:
-    static std::mutex& mtx()
+    static std::mutex& mutex()
     {
-        static std::mutex m;
-        return m;
+        static std::mutex store;
+        return store;
     }
 
     static std::filesystem::path file_path()
@@ -89,12 +89,12 @@ private:
 
     static nlohmann::json read_locked()
     {
-        nlohmann::json j = nlohmann::json{{"date", ""}, {"peaks", nlohmann::json::object()}};
+        nlohmann::json document = nlohmann::json{{"date", ""}, {"peaks", nlohmann::json::object()}};
         std::ifstream in(file_path());
 
         if (!in)
         {
-            return j;
+            return document;
         }
 
         try
@@ -103,26 +103,26 @@ private:
 
             if (parsed.is_object())
             {
-                j["date"] = parsed.value("date", "");
-                j["peaks"] = parsed.contains("peaks") && parsed["peaks"].is_object()
+                document["date"] = parsed.value("date", "");
+                document["peaks"] = parsed.contains("peaks") && parsed["peaks"].is_object()
                                  ? parsed["peaks"]
                                  : nlohmann::json::object();
             }
         }
-        catch (const std::exception& e)
+        catch (const std::exception& exception)
         {
-            LOG_WARN(std::string("[SeedPeak] seed_peaks.json 파싱 실패 — 빈 표로 시작: ") + e.what());
+            LOG_WARN(std::string("[SeedPeak] seed_peaks.json 파싱 실패 — 빈 표로 시작: ") + exception.what());
         }
 
-        return j;
+        return document;
     }
 
-    static void write_locked(const nlohmann::json& j)
+    static void write_locked(const nlohmann::json& document)
     {
         const auto path = file_path();
         const auto tmp = path.string() + ".tmp";
-        std::error_code ec;
-        std::filesystem::create_directories(path.parent_path(), ec);
+        std::error_code error_code;
+        std::filesystem::create_directories(path.parent_path(), error_code);
 
         {
             std::ofstream out(tmp, std::ios::trunc);
@@ -133,14 +133,14 @@ private:
                 return;
             }
 
-            out << j.dump();
+            out << document.dump();
         }
 
-        std::filesystem::rename(tmp, path, ec);
+        std::filesystem::rename(tmp, path, error_code);
 
-        if (ec)
+        if (error_code)
         {
-            LOG_WARN("[SeedPeak] seed_peaks.json 교체 실패: " + ec.message());
+            LOG_WARN("[SeedPeak] seed_peaks.json 교체 실패: " + error_code.message());
         }
     }
 };

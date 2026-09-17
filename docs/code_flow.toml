@@ -131,7 +131,7 @@ review = [
   [[stage.step]]
   sym = "KisWebSocket::parse_kr_trade"
   file = "Quant/src/api/WebSocketClient.cpp"
-  what = "`decode_kr_trade` → `td.sym`(SymbolTable) → `recv_ns` 스탬프 → `on_trade_` 콜백. 호가는 `parse_orderbook`이 같은 모양"
+  what = "`decode_kr_trade` → `trade.symbol_id`(SymbolTable) → `received_ns` 스탬프 → `on_trade_` 콜백. 호가는 `parse_orderbook`이 같은 모양"
 
   [[stage.step]]
   sym = "kis_ws::decode_kr_trade"
@@ -181,7 +181,7 @@ id = "shard"
 name = "2. 샤드 — 틱이 전략을 만나 신호가 되기까지"
 summary = "샤드 m은 자기 열만 비운다. 틱의 종목 id로 그 종목을 보는 전략만 방문하고(`Router`), `NONE`이 아닌 신호를 봉투에 싸서 `shard_out_`에 넣는다. 전략 코드 리뷰는 이 절에서 시작한다."
 review = [
-  "전략이 문자열로 종목을 비교하는 곳이 있는지 — `same_symbol`/`td.sym` 정수 비교여야 한다(원칙 6)",
+  "전략이 문자열로 종목을 비교하는 곳이 있는지 — `same_symbol`/`trade.symbol_id` 정수 비교여야 한다(원칙 6)",
   "전략 `on_*`이 블로킹 I/O(REST)를 직접 부르는지 — DeviationScale은 프리페치 스레드로 뺐다",
   "`ref_price`를 시장가 신호에 찍는지 — 없으면 명목 백스톱이 우회된다(Types.h 주석)",
   "한 전략의 구독 종목이 열 둘에 걸치지 않는지(`owner_shard` 경고)",

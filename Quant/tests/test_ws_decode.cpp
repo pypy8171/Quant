@@ -11,71 +11,71 @@ using kis_ws::Decode;
 
 // 디코더는 원문을 가리키는 뷰(kis_ws::Fields)를 받는다(D-042). 테스트는 std::string 벡터를 만들고
 //  호출 직전에 뷰로 바꾼다 — 벡터가 살아 있는 동안만 유효하다.
-struct V
+struct FieldList
 {
-    std::vector<std::string_view> v;
-    V(const std::vector<std::string>& f) : v(f.begin(), f.end()) {}
-    operator kis_ws::Fields() const { return kis_ws::Fields(v); }
+    std::vector<std::string_view> views;
+    FieldList(const std::vector<std::string>& fields) : views(fields.begin(), fields.end()) {}
+    operator kis_ws::Fields() const { return kis_ws::Fields(views); }
 };
 
 // width개 필드를 "F<i>"로 채운 뒤 호출자가 필요한 칸만 덮어쓴다.
 static std::vector<std::string> blank(size_t width)
 {
-    std::vector<std::string> f(width);
+    std::vector<std::string> fields(width);
 
-    for (size_t i = 0; i < width; ++i)
+    for (size_t column_index = 0; column_index < width; ++column_index)
     {
-        f[i] = "F" + std::to_string(i);
+        fields[column_index] = "F" + std::to_string(column_index);
     }
 
-    return f;
+    return fields;
 }
 
 // 5단계 호가 배열을 채운다: 매도 100+i·잔량 10+i, 매수 90+i·잔량 20+i.
-static void put_levels(std::vector<std::string>& f, size_t ask_p, size_t ask_q, size_t bid_p, size_t bid_q)
+static void put_levels(std::vector<std::string>& fields, size_t ask_p, size_t ask_q, size_t bid_p, size_t bid_q)
 {
-    for (size_t i = 0; i < 5; ++i)
+    for (size_t index = 0; index < 5; ++index)
     {
-        f[ask_p + i] = std::to_string(100 + i);
-        f[ask_q + i] = std::to_string(10 + i);
-        f[bid_p + i] = std::to_string(90 + i);
-        f[bid_q + i] = std::to_string(20 + i);
+        fields[ask_p + index] = std::to_string(100 + index);
+        fields[ask_q + index] = std::to_string(10 + index);
+        fields[bid_p + index] = std::to_string(90 + index);
+        fields[bid_q + index] = std::to_string(20 + index);
     }
 }
 
-static void check_levels(const OrderBook& ob)
+static void check_levels(const OrderBook& order_book)
 {
-    for (int i = 0; i < 5; ++i)
+    for (int index = 0; index < 5; ++index)
     {
-        assert(ob.asks[i].price == 100.0 + i);
-        assert(ob.asks[i].quantity == 10 + i);
-        assert(ob.bids[i].price == 90.0 + i);
-        assert(ob.bids[i].quantity == 20 + i);
+        assert(order_book.asks[index].price == 100.0 + index);
+        assert(order_book.asks[index].quantity == 10 + index);
+        assert(order_book.bids[index].price == 90.0 + index);
+        assert(order_book.bids[index].quantity == 20 + index);
     }
 }
 
 static void test_orderbook()
 {
-    auto f = blank(kis_ws::kMinFieldsOrderbook);
-    f[0] = "005930";
-    f[1] = "093001";
-    put_levels(f, 3, 23, 13, 33);
-    OrderBook ob;
-    assert(kis_ws::decode_orderbook(V(f), ob) == Decode::kOk);
-    assert(ob.ticker == "005930" && ob.hhmmss == 93001);
-    check_levels(ob);
+    auto fields = blank(kis_ws::kMinFieldsOrderbook);
+    fields[0] = "005930";
+    fields[1] = "093001";
+    put_levels(fields, 3, 23, 13, 33);
+    OrderBook order_book;
+    assert(kis_ws::decode_orderbook(FieldList(fields), order_book) == Decode::kOk);
+    assert(order_book.ticker == "005930" && order_book.hhmmss == 93001);
+    check_levels(order_book);
 
     // 37필드면 마지막 잔량이 없다 — 구조체를 건드리지 않는다.
-    f.pop_back();
+    fields.pop_back();
     OrderBook untouched;
-    assert(kis_ws::decode_orderbook(V(f), untouched) == Decode::kShort);
+    assert(kis_ws::decode_orderbook(FieldList(fields), untouched) == Decode::kShort);
     assert(untouched.ticker.empty());
 
     // 숫자 하나가 비면 kBadNumber. 나머지 칸은 채워진다(현재 호출자는 이 레코드를 흘려보낸다).
-    f.push_back("37");
-    f[5] = "";
+    fields.push_back("37");
+    fields[5] = "";
     OrderBook partial;
-    assert(kis_ws::decode_orderbook(V(f), partial) == Decode::kBadNumber);
+    assert(kis_ws::decode_orderbook(FieldList(fields), partial) == Decode::kBadNumber);
     assert(partial.asks[2].price == 0.0);
     assert(partial.asks[2].quantity == 12); // 같은 단계의 잔량은 그대로 읽는다
     assert(partial.bids[4].price == 94.0);
@@ -83,172 +83,172 @@ static void test_orderbook()
 
 static void test_fut_orderbook()
 {
-    auto f = blank(kis_ws::kMinFieldsFutOrderbook);
-    f[0] = "101W09";
-    put_levels(f, 2, 22, 7, 27);
-    OrderBook ob;
-    assert(kis_ws::decode_fut_orderbook(V(f), ob) == Decode::kOk);
-    assert(ob.ticker == "101W09");
-    check_levels(ob);
+    auto fields = blank(kis_ws::kMinFieldsFutOrderbook);
+    fields[0] = "101W09";
+    put_levels(fields, 2, 22, 7, 27);
+    OrderBook order_book;
+    assert(kis_ws::decode_fut_orderbook(FieldList(fields), order_book) == Decode::kOk);
+    assert(order_book.ticker == "101W09");
+    check_levels(order_book);
 
     // 건수 블록(12-21)은 읽지 않는다 — 비어 있어도 kOk.
-    for (size_t i = 12; i <= 21; ++i)
+    for (size_t index = 12; index <= 21; ++index)
     {
-        f[i] = "";
+        fields[index] = "";
     }
 
     OrderBook ob2;
-    assert(kis_ws::decode_fut_orderbook(V(f), ob2) == Decode::kOk);
+    assert(kis_ws::decode_fut_orderbook(FieldList(fields), ob2) == Decode::kOk);
 
-    f.resize(31);
-    assert(kis_ws::decode_fut_orderbook(V(f), ob2) == Decode::kShort);
+    fields.resize(31);
+    assert(kis_ws::decode_fut_orderbook(FieldList(fields), ob2) == Decode::kShort);
 }
 
 static void test_kr_trade()
 {
-    auto f = blank(kis_ws::kMinFieldsKrTrade);
-    f[0] = "000660";
-    f[1] = "101500";
-    f[2] = "215000";
-    f[12] = "37";
-    f[13] = "1234567";
-    f[18] = "123.45";
-    f[21] = "5";
-    TradeData td;
-    assert(kis_ws::decode_kr_trade(V(f), td) == Decode::kOk);
-    assert(td.ticker == "000660" && td.hhmmss == 101500);
-    assert(td.price == 215000.0 && td.quantity == 37 && td.direction == 5);
-    assert(td.market == Market::KR);
-    assert(td.acml_volume == 1234567 && td.strength == 123.45);
+    auto fields = blank(kis_ws::kMinFieldsKrTrade);
+    fields[0] = "000660";
+    fields[1] = "101500";
+    fields[2] = "215000";
+    fields[12] = "37";
+    fields[13] = "1234567";
+    fields[18] = "123.45";
+    fields[21] = "5";
+    TradeData trade;
+    assert(kis_ws::decode_kr_trade(FieldList(fields), trade) == Decode::kOk);
+    assert(trade.ticker == "000660" && trade.hhmmss == 101500);
+    assert(trade.price == 215000.0 && trade.quantity == 37 && trade.direction == 5);
+    assert(trade.market == Market::KR);
+    assert(trade.accumulated_volume == 1234567 && trade.strength == 123.45);
 
     // 보조 필드(누적거래량·체결강도)는 비거나 깨져도 kOk — 0으로 둔다.
-    f[13] = "";
-    f[18] = "n/a";
+    fields[13] = "";
+    fields[18] = "n/a";
     TradeData aux;
-    assert(kis_ws::decode_kr_trade(V(f), aux) == Decode::kOk);
-    assert(aux.acml_volume == 0 && aux.strength == 0.0);
-    f[13] = "1234567";
-    f[18] = "123.45";
+    assert(kis_ws::decode_kr_trade(FieldList(fields), aux) == Decode::kOk);
+    assert(aux.accumulated_volume == 0 && aux.strength == 0.0);
+    fields[13] = "1234567";
+    fields[18] = "123.45";
 
-    f[21] = "x";
+    fields[21] = "x";
     TradeData bad;
-    assert(kis_ws::decode_kr_trade(V(f), bad) == Decode::kBadNumber);
+    assert(kis_ws::decode_kr_trade(FieldList(fields), bad) == Decode::kBadNumber);
     assert(bad.price == 215000.0 && bad.direction == 0);
 
     // 칸별 실패: 앞 칸(가격)이 깨져도 뒤 칸(수량·방향)은 읽는다. 구 파서는 첫 실패에서 멈춰
     // 수량·방향이 0이었다 — D-037이 바꾼 동작이라 여기서 고정한다.
-    f[2] = "";
-    f[21] = "5";
+    fields[2] = "";
+    fields[21] = "5";
     TradeData partial;
-    assert(kis_ws::decode_kr_trade(V(f), partial) == Decode::kBadNumber);
+    assert(kis_ws::decode_kr_trade(FieldList(fields), partial) == Decode::kBadNumber);
     assert(partial.price == 0.0 && partial.quantity == 37 && partial.direction == 5);
 
     // 전체가 숫자여야 한다 — "215000abc"·"1,000"은 앞자리만 읽지 않고 kBadNumber(D-039).
     //  한 칸이 밀린 전문이 그럴듯한 값으로 통과하는 것을 막는다.
-    f[2] = "215000abc";
-    f[12] = "1,000";
+    fields[2] = "215000abc";
+    fields[12] = "1,000";
     TradeData strict;
-    assert(kis_ws::decode_kr_trade(V(f), strict) == Decode::kBadNumber);
+    assert(kis_ws::decode_kr_trade(FieldList(fields), strict) == Decode::kBadNumber);
 
     // 앞의 '+'는 KIS 부호 표기라 허용한다.
-    f[2] = "+215000";
-    f[12] = "1000";
+    fields[2] = "+215000";
+    fields[12] = "1000";
     TradeData signed_ok;
-    assert(kis_ws::decode_kr_trade(V(f), signed_ok) == Decode::kOk);
+    assert(kis_ws::decode_kr_trade(FieldList(fields), signed_ok) == Decode::kOk);
     assert(signed_ok.price == 215000.0 && signed_ok.quantity == 1000);
 
-    f.resize(21);
-    assert(kis_ws::decode_kr_trade(V(f), bad) == Decode::kShort);
+    fields.resize(21);
+    assert(kis_ws::decode_kr_trade(FieldList(fields), bad) == Decode::kShort);
 }
 
 static void test_us_trade()
 {
-    auto f = blank(kis_ws::kMinFieldsUsTrade);
-    f[0] = "AAPL";
-    f[2] = "189.25";
-    f[8] = "120";
-    TradeData td;
-    assert(kis_ws::decode_us_trade(V(f), td) == Decode::kOk);
-    assert(td.market == Market::US && td.price == 189.25 && td.quantity == 120);
-    assert(td.direction == 0); // 20필드 이하면 방향 없음
+    auto fields_f = blank(kis_ws::kMinFieldsUsTrade);
+    fields_f[0] = "AAPL";
+    fields_f[2] = "189.25";
+    fields_f[8] = "120";
+    TradeData trade;
+    assert(kis_ws::decode_us_trade(FieldList(fields_f), trade) == Decode::kOk);
+    assert(trade.market == Market::US && trade.price == 189.25 && trade.quantity == 120);
+    assert(trade.direction == 0); // 20필드 이하면 방향 없음
 
-    auto g = blank(21);
-    g[2] = "1";
-    g[8] = "2";
-    g[20] = "1";
+    auto fields_g = blank(21);
+    fields_g[2] = "1";
+    fields_g[8] = "2";
+    fields_g[20] = "1";
     TradeData td2;
-    assert(kis_ws::decode_us_trade(V(g), td2) == Decode::kOk);
+    assert(kis_ws::decode_us_trade(FieldList(fields_g), td2) == Decode::kOk);
     assert(td2.direction == 1);
 
-    g[20] = "x";
+    fields_g[20] = "x";
     TradeData td3;
-    assert(kis_ws::decode_us_trade(V(g), td3) == Decode::kBadNumber);
+    assert(kis_ws::decode_us_trade(FieldList(fields_g), td3) == Decode::kBadNumber);
     assert(td3.price == 1.0 && td3.quantity == 2 && td3.direction == 0);
 
-    g.resize(8);
-    assert(kis_ws::decode_us_trade(V(g), td2) == Decode::kShort);
+    fields_g.resize(8);
+    assert(kis_ws::decode_us_trade(FieldList(fields_g), td2) == Decode::kShort);
 }
 
 static void test_fut_trade()
 {
-    auto f = blank(kis_ws::kMinFieldsFutTrade);
-    f[0] = "101W09";
-    f[5] = "412.35";
-    f[9] = "3";
-    TradeData td;
-    td.direction = 7; // 채널이 방향을 안 주므로 0으로 덮어써야 한다
-    assert(kis_ws::decode_fut_trade(V(f), td) == Decode::kOk);
-    assert(td.price == 412.35 && td.quantity == 3 && td.direction == 0);
-    assert(td.market == Market::KR);
+    auto fields = blank(kis_ws::kMinFieldsFutTrade);
+    fields[0] = "101W09";
+    fields[5] = "412.35";
+    fields[9] = "3";
+    TradeData trade;
+    trade.direction = 7; // 채널이 방향을 안 주므로 0으로 덮어써야 한다
+    assert(kis_ws::decode_fut_trade(FieldList(fields), trade) == Decode::kOk);
+    assert(trade.price == 412.35 && trade.quantity == 3 && trade.direction == 0);
+    assert(trade.market == Market::KR);
 
-    f.resize(18);
-    assert(kis_ws::decode_fut_trade(V(f), td) == Decode::kShort);
+    fields.resize(18);
+    assert(kis_ws::decode_fut_trade(FieldList(fields), trade) == Decode::kShort);
 }
 
 static std::vector<std::string> fill_record(const std::string& side, const std::string& cntg_yn)
 {
-    auto f = blank(kis_ws::kMinFieldsFill);
-    f[2] = "0000123456";
-    f[4] = side;
-    f[8] = "005930";
-    f[9] = "10";
-    f[10] = "71500";
-    f[11] = "093512";
-    f[13] = cntg_yn;
-    return f;
+    auto fields = blank(kis_ws::kMinFieldsFill);
+    fields[2] = "0000123456";
+    fields[4] = side;
+    fields[8] = "005930";
+    fields[9] = "10";
+    fields[10] = "71500";
+    fields[11] = "093512";
+    fields[13] = cntg_yn;
+    return fields;
 }
 
 static void test_fill()
 {
-    FillNotification fn;
-    assert(kis_ws::decode_fill(V(fill_record("02", "2")), fn) == Decode::kOk);
-    assert(fn.side == OrderSide::BUY && fn.odno == "0000123456" && fn.ticker == "005930");
-    assert(fn.filled_qty == 10 && fn.filled_price == 71500.0 && fn.fill_time == "093512");
+    FillNotification fill_notification;
+    assert(kis_ws::decode_fill(FieldList(fill_record("02", "2")), fill_notification) == Decode::kOk);
+    assert(fill_notification.side == OrderSide::BUY && fill_notification.kis_order_no == "0000123456" && fill_notification.ticker == "005930");
+    assert(fill_notification.filled_quantity == 10 && fill_notification.filled_price == 71500.0 && fill_notification.fill_time == "093512");
 
     FillNotification sell;
-    assert(kis_ws::decode_fill(V(fill_record("01", "2")), sell) == Decode::kOk);
+    assert(kis_ws::decode_fill(FieldList(fill_record("01", "2")), sell) == Decode::kOk);
     assert(sell.side == OrderSide::SELL);
 
     // 접수 통보(1)는 체결이 아니다.
     FillNotification skip;
-    assert(kis_ws::decode_fill(V(fill_record("02", "1")), skip) == Decode::kSkip);
-    assert(skip.odno.empty());
+    assert(kis_ws::decode_fill(FieldList(fill_record("02", "1")), skip) == Decode::kSkip);
+    assert(skip.kis_order_no.empty());
 
     // 매매구분이 01/02 밖이면 원장에 못 넣는다 — 채우지 않고 돌려보낸다.
     FillNotification bad_side;
-    assert(kis_ws::decode_fill(V(fill_record("03", "2")), bad_side) == Decode::kBadSide);
-    assert(bad_side.odno.empty() && bad_side.side == OrderSide::NONE);
+    assert(kis_ws::decode_fill(FieldList(fill_record("03", "2")), bad_side) == Decode::kBadSide);
+    assert(bad_side.kis_order_no.empty() && bad_side.side == OrderSide::NONE);
 
     // 수량·단가 변환 실패는 kBadNumber. 호출자가 버린다.
-    auto f = fill_record("02", "2");
-    f[9] = "";
+    auto other_fill_record = fill_record("02", "2");
+    other_fill_record[9] = "";
     FillNotification bad_num;
-    assert(kis_ws::decode_fill(V(f), bad_num) == Decode::kBadNumber);
+    assert(kis_ws::decode_fill(FieldList(other_fill_record), bad_num) == Decode::kBadNumber);
 
     // 1~2필드 제어 메시지와 13필드 모두 kShort.
-    FillNotification s;
-    assert(kis_ws::decode_fill(V({"0", "1"}), s) == Decode::kShort);
-    assert(kis_ws::decode_fill(V(blank(13)), s) == Decode::kShort);
+    FillNotification short_fill;
+    assert(kis_ws::decode_fill(FieldList({"0", "1"}), short_fill) == Decode::kShort);
+    assert(kis_ws::decode_fill(FieldList(blank(13)), short_fill) == Decode::kShort);
 }
 
 int main()

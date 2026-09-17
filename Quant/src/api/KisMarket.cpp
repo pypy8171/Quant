@@ -30,22 +30,22 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
 
     // 캐시 조회 — 유효시간 안이고 요청한 만큼 담겨 있으면 그대로 쓴다. 최신봉이 앞이라
     //  더 짧은 요청은 앞에서 잘라 답한다. timestamp는 받아온 시각이라 지금으로 다시 찍는다.
-    if (cfg_.daily_cache_ttl_sec > 0)
+    if (config_.daily_cache_ttl_sec > 0)
     {
-        std::lock_guard<std::mutex> lk(daily_cache_mtx_);
-        auto it = daily_cache_.find(ckey);
+        std::lock_guard<std::mutex> lock(daily_cache_mtx_);
+        auto iterator = daily_cache_.find(ckey);
 
-        if (it != daily_cache_.end() && it->second.requested >= count &&
-            std::chrono::steady_clock::now() - it->second.at <
-                std::chrono::seconds(cfg_.daily_cache_ttl_sec))
+        if (iterator != daily_cache_.end() && iterator->second.requested >= count &&
+            std::chrono::steady_clock::now() - iterator->second.at <
+                std::chrono::seconds(config_.daily_cache_ttl_sec))
         {
-            size_t n = (std::min)(static_cast<size_t>(count), it->second.bars.size());
-            std::vector<MarketData> hit(it->second.bars.begin(), it->second.bars.begin() + n);
+            size_t total = (std::min)(static_cast<size_t>(count), iterator->second.bars.size());
+            std::vector<MarketData> hit(iterator->second.bars.begin(), iterator->second.bars.begin() + total);
             auto now = std::chrono::system_clock::now();
 
-            for (auto& md : hit)
+            for (auto& market_data : hit)
             {
-                md.timestamp = now;
+                market_data.timestamp = now;
             }
 
             return hit;
@@ -54,8 +54,8 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
 
     // G1 수정: 날짜 하드코딩(19000101~99991231)은 모의서버 500 → 유한창(오늘−N일 ~ 오늘, KST).
     //  조회창의 초는 KST 자리값을 UTC로 읽은 값(parse_dt와 같은 눈금)이라 옮기지 않고 날짜로 찍는다.
-    auto fmt_date   = [](time_t t) -> std::string { return kst::format_ymd(kst::utc_date(t)); };
-    auto parse_date = [](const std::string& ymd) -> time_t { return kis_rest::parse_dt(ymd, "000000"); };
+    auto fmt_date   = [](time_t time_value) -> std::string { return kst::format_ymd(kst::utc_date(time_value)); };
+    auto parse_date = [](const std::string& date_yyyymmdd) -> time_t { return kis_rest::parse_dt(date_yyyymmdd, "000000"); };
 
     const time_t end_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + kKstOffsetSec; // KST 오늘
     const std::string today = fmt_date(end_t);
@@ -87,9 +87,9 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
                           "&FID_INPUT_DATE_2=" + d2 + "&FID_PERIOD_DIV_CODE=" + period + "&FID_ORG_ADJ_PRC=0";
 
         std::vector<std::string> headers = auth_headers("FHKST03010100");
-        std::string resp = http_get(url, headers);
+        std::string response = http_get(url, headers);
 
-        if (resp.empty())
+        if (response.empty())
         {
             LOG_ERROR(std::string("[KIS] ") + (period == 'W' ? "주봉" : "일봉") + " 조회 실패: " + ticker +
                       (page > 0 ? " (페이지 " + std::to_string(page + 1) + ")" : ""));
@@ -101,48 +101,48 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
 
         try
         {
-            auto j = json::parse(resp);
-            auto& arr = j["output2"];
+            auto document = json::parse(response);
+            auto& array = document["output2"];
 
-            for (auto& item : arr)
+            for (auto& item : array)
             {
                 if (static_cast<int>(result.size()) >= count)
                 {
                     break;
                 }
 
-                const std::string ymd = item.value("stck_bsop_date", std::string());
+                const std::string date_yyyymmdd = item.value("stck_bsop_date", std::string());
 
-                if (ymd.empty())
+                if (date_yyyymmdd.empty())
                 {
                     continue;
                 }
 
                 ++rows;
-                oldest = ymd; // 응답은 최신→과거라 마지막으로 본 날짜가 가장 오래된 행
+                oldest = date_yyyymmdd; // 응답은 최신→과거라 마지막으로 본 날짜가 가장 오래된 행
 
                 // 진행 중 봉 절단(D-005). 응답에서 날짜로 거른다 — FID_INPUT_DATE_2를 전일로
                 //  당기는 방식은 휴장·반차 캘린더가 필요해서 쓰지 않는다.
                 //  일봉은 오늘 행, 주봉은 이번 주 월요일 이후 행이다. 드롭한 행은 봉 수로 세지 않는다.
-                if (!include_current && (period == 'W' ? ymd >= week_start : ymd == today))
+                if (!include_current && (period == 'W' ? date_yyyymmdd >= week_start : date_yyyymmdd == today))
                 {
                     continue;
                 }
 
-                MarketData md;
-                md.ticker = ticker;
-                md.close = std::stod(item["stck_clpr"].get<std::string>());
-                md.open = std::stod(item["stck_oprc"].get<std::string>());
-                md.high = std::stod(item["stck_hgpr"].get<std::string>());
-                md.low = std::stod(item["stck_lwpr"].get<std::string>());
-                md.volume = std::stoll(item["acml_vol"].get<std::string>());
-                md.timestamp = std::chrono::system_clock::now();
-                result.push_back(md);
+                MarketData market_data;
+                market_data.ticker = ticker;
+                market_data.close = std::stod(item["stck_clpr"].get<std::string>());
+                market_data.open = std::stod(item["stck_oprc"].get<std::string>());
+                market_data.high = std::stod(item["stck_hgpr"].get<std::string>());
+                market_data.low = std::stod(item["stck_lwpr"].get<std::string>());
+                market_data.volume = std::stoll(item["acml_vol"].get<std::string>());
+                market_data.timestamp = std::chrono::system_clock::now();
+                result.push_back(market_data);
             }
         }
-        catch (const std::exception& e)
+        catch (const std::exception& exception)
         {
-            LOG_ERROR(std::string("[KIS] 일봉 파싱 오류: ") + e.what());
+            LOG_ERROR(std::string("[KIS] 일봉 파싱 오류: ") + exception.what());
             break;
         }
 
@@ -164,13 +164,13 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
     }
 
     // 빈 결과는 캐시하지 않는다(일시적 500·파싱 실패를 TTL 동안 굳히지 않기 위해).
-    if (cfg_.daily_cache_ttl_sec > 0 && !result.empty())
+    if (config_.daily_cache_ttl_sec > 0 && !result.empty())
     {
-        std::lock_guard<std::mutex> lk(daily_cache_mtx_);
-        auto& e = daily_cache_[ckey];
-        e.at = std::chrono::steady_clock::now();
-        e.requested = count;
-        e.bars = result;
+        std::lock_guard<std::mutex> lock(daily_cache_mtx_);
+        auto& cache_entry = daily_cache_[ckey];
+        cache_entry.at = std::chrono::steady_clock::now();
+        cache_entry.requested = count;
+        cache_entry.bars = result;
     }
 
     return result;
@@ -199,7 +199,7 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
         hour = "153000";
     }
 
-    std::vector<std::string> hdrs = auth_headers("FHKST03010200");
+    std::vector<std::string> headers = auth_headers("FHKST03010200");
 
     // 필요한 1분봉 수 = count*interval_min. 1콜당 ~30봉 → 여유롭게 페이지 상한.
     const int need_1min  = count * interval_min;
@@ -218,29 +218,29 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
             "&FID_INPUT_HOUR_1=" + hour +
             "&FID_PW_DATA_INCU_YN=N";
 
-        std::string resp = http_get(url, hdrs);
+        std::string response = http_get(url, headers);
 
-        if (resp.empty())
+        if (response.empty())
         {
             break;
         }
 
-        auto j = json::parse(resp, nullptr, false);
+        auto document = json::parse(response, nullptr, false);
 
-        if (j.is_discarded() || !j.contains("output2"))
+        if (document.is_discarded() || !document.contains("output2"))
         {
             break;
         }
 
-        auto& arr = j["output2"];
+        auto& array = document["output2"];
 
-        if (arr.empty())
+        if (array.empty())
         {
             break;
         }
 
         int added = 0;
-        std::string page_earliest = kis_rest::parse_minute_page(arr, raws, seen, "", added);
+        std::string page_earliest = kis_rest::parse_minute_page(array, raws, seen, "", added);
 
         if (page_earliest.empty())
         {
@@ -254,19 +254,19 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
             break;
         }
 
-        std::string prev = kis_hhmmss_minus_minutes(page_earliest, 1);
+        std::string previous = kis_hhmmss_minus_minutes(page_earliest, 1);
 
-        if (prev.empty())
+        if (previous.empty())
         {
             break;
         }
 
-        if (prev < "090000")
+        if (previous < "090000")
         {
-            prev = "090000";
+            previous = "090000";
         }
 
-        hour = prev;
+        hour = previous;
         std::this_thread::sleep_for(std::chrono::milliseconds(120)); // rate limit 여유
     }
 
@@ -297,7 +297,7 @@ std::vector<MarketData> KisClient::get_daily_minute_ohlcv(const std::string& tic
 
     std::string hour = end_hhmmss.size() == 6 ? end_hhmmss : std::string("153000");
 
-    std::vector<std::string> hdrs = auth_headers("FHKST03010230", {"custtype: P"});
+    std::vector<std::string> headers = auth_headers("FHKST03010230", {"custtype: P"});
 
     // 1콜당 최대 120봉. 09:00~15:30이 390분이라 하루치 전체도 4콜이면 찬다.
     const int need_1min = count * interval_min;
@@ -317,29 +317,29 @@ std::vector<MarketData> KisClient::get_daily_minute_ohlcv(const std::string& tic
             "&FID_PW_DATA_INCU_YN=Y"
             "&FID_FAKE_TICK_INCU_YN=N";
 
-        std::string resp = http_get(url, hdrs);
+        std::string response = http_get(url, headers);
 
-        if (resp.empty())
+        if (response.empty())
         {
             break;
         }
 
-        auto j = json::parse(resp, nullptr, false);
+        auto document = json::parse(response, nullptr, false);
 
-        if (j.is_discarded() || !j.contains("output2"))
+        if (document.is_discarded() || !document.contains("output2"))
         {
             break;
         }
 
-        auto& arr = j["output2"];
+        auto& array = document["output2"];
 
-        if (arr.empty())
+        if (array.empty())
         {
             break;
         }
 
         int added = 0;
-        std::string page_earliest = kis_rest::parse_minute_page(arr, raws, seen, yyyymmdd, added);
+        std::string page_earliest = kis_rest::parse_minute_page(array, raws, seen, yyyymmdd, added);
 
         if (page_earliest.empty())
         {
@@ -351,19 +351,19 @@ std::vector<MarketData> KisClient::get_daily_minute_ohlcv(const std::string& tic
             break; // 그날 장 시작에 도달
         }
 
-        std::string prev = kis_hhmmss_minus_minutes(page_earliest, 1);
+        std::string previous = kis_hhmmss_minus_minutes(page_earliest, 1);
 
-        if (prev.empty())
+        if (previous.empty())
         {
             break;
         }
 
-        if (prev < "090000")
+        if (previous < "090000")
         {
-            prev = "090000";
+            previous = "090000";
         }
 
-        hour = prev;
+        hour = previous;
         std::this_thread::sleep_for(std::chrono::milliseconds(120));
     }
 
@@ -377,17 +377,17 @@ double KisClient::get_current_price(const std::string& ticker)
 
     std::vector<std::string> headers = auth_headers("FHKST01010100");
 
-    std::string resp = http_get(url, headers);
+    std::string response = http_get(url, headers);
 
-    if (resp.empty())
+    if (response.empty())
     {
         return 0.0;
     }
 
     try
     {
-        auto j = json::parse(resp);
-        return std::stod(j["output"]["stck_prpr"].get<std::string>());
+        auto document = json::parse(response);
+        return std::stod(document["output"]["stck_prpr"].get<std::string>());
     }
     catch (...)
     {
@@ -402,58 +402,58 @@ Fundamentals KisClient::get_fundamentals(const std::string& ticker)
 
     std::vector<std::string> headers = auth_headers("FHKST01010100");
 
-    Fundamentals f;
-    f.ticker = ticker;
+    Fundamentals fundamentals;
+    fundamentals.ticker = ticker;
 
-    std::string resp = http_get(url, headers);
+    std::string response = http_get(url, headers);
 
-    if (resp.empty())
+    if (response.empty())
     {
-        return f;
+        return fundamentals;
     }
 
     try
     {
-        auto j = json::parse(resp);
-        auto& out = j["output"];
+        auto document = json::parse(response);
+        auto& out = document["output"];
         auto parse_d = [&](const std::string& key) -> double
         {
-            std::string s = out.value(key, "");
+            std::string text = out.value(key, "");
 
-            if (s.empty())
+            if (text.empty())
             {
                 return 0.0;
             }
 
             try
             {
-                return std::stod(s);
+                return std::stod(text);
             }
             catch (...)
             {
                 return 0.0;
             }
         };
-        f.last = parse_d("stck_prpr"); // 현재가
-        f.diff = parse_d("prdy_vrss"); // 전일대비
-        f.rate = parse_d("prdy_ctrt"); // 등락률(%)
-        f.open = parse_d("stck_oprc"); // 시가
-        f.high = parse_d("stck_hgpr"); // 고가
-        f.low = parse_d("stck_lwpr");  // 저가
-        f.pbr        = parse_d("pbr");
-        f.per        = parse_d("per");
-        f.market_cap = parse_d("hts_avls"); // 시가총액 (억원)
+        fundamentals.last = parse_d("stck_prpr"); // 현재가
+        fundamentals.diff = parse_d("prdy_vrss"); // 전일대비
+        fundamentals.rate = parse_d("prdy_ctrt"); // 등락률(%)
+        fundamentals.open = parse_d("stck_oprc"); // 시가
+        fundamentals.high = parse_d("stck_hgpr"); // 고가
+        fundamentals.low = parse_d("stck_lwpr");  // 저가
+        fundamentals.pbr        = parse_d("pbr");
+        fundamentals.per        = parse_d("per");
+        fundamentals.market_cap = parse_d("hts_avls"); // 시가총액 (억원)
         // [wire] FHKST01010100 output: w52_hgpr=52주 최고가, w52_hgpr_vrss_prpr_ctrt=현재가의 52주고가
         //  대비 등락률(%, 고가 아래면 음수), bstp_kor_isnm=업종명(한글). 저항 판단·업종 분산용.
-        f.w52_high          = parse_d("w52_hgpr");
-        f.w52_high_dist_pct = parse_d("w52_hgpr_vrss_prpr_ctrt");
-        f.sector_name       = out.value("bstp_kor_isnm", std::string());
+        fundamentals.week52_high          = parse_d("w52_hgpr");
+        fundamentals.week52_high_distance_percent = parse_d("w52_hgpr_vrss_prpr_ctrt");
+        fundamentals.sector_name       = out.value("bstp_kor_isnm", std::string());
     }
     catch (...)
     {
     }
 
-    return f;
+    return fundamentals;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -465,78 +465,78 @@ std::vector<MarketData> KisClient::get_us_daily_ohlcv(const std::string& ticker,
     std::string url = base_url() + "/uapi/overseas-price/v1/quotations/dailyprice" + "?AUTH=" + "&EXCD=" + exchange +
                       "&SYMB=" + ticker + "&GUBN=0" + "&BYMD=" + "&MODP=0";
 
-    std::vector<std::string> hdrs = auth_headers("HHDFS76240000", {"custtype: P"});
+    std::vector<std::string> headers = auth_headers("HHDFS76240000", {"custtype: P"});
 
-    std::string resp = http_get(url, hdrs);
+    std::string response = http_get(url, headers);
 
-    if (resp.empty())
+    if (response.empty())
     {
         LOG_WARN("[KIS-US] OHLCV 응답 없음: " + ticker);
         return {};
     }
 
-    LOG_DEBUG("[KIS-US] OHLCV 응답(" + ticker + "): " + resp.substr(0, 300));
+    LOG_DEBUG("[KIS-US] OHLCV 응답(" + ticker + "): " + response.substr(0, 300));
 
     std::vector<MarketData> result;
 
     try
     {
-        auto j = json::parse(resp);
+        auto document = json::parse(response);
 
-        if (!j.contains("output2") || !j["output2"].is_array())
+        if (!document.contains("output2") || !document["output2"].is_array())
         {
             LOG_WARN("[KIS-US] output2 없음: " + ticker);
             return {};
         }
 
-        for (const auto& item : j["output2"])
+        for (const auto& item : document["output2"])
         {
-            MarketData md;
-            md.ticker = ticker;
-            md.market = Market::US;
+            MarketData market_data;
+            market_data.ticker = ticker;
+            market_data.market = Market::US;
             // KIS 해외 일봉 필드: clos/open/high/low/tvol
-            auto parse_d = [](const json& o, const std::string& k) -> double
+            auto parse_d = [](const json& node, const std::string& key) -> double
             {
-                if (!o.contains(k))
+                if (!node.contains(key))
                 {
                     return 0.0;
                 }
 
-                std::string s = o[k].is_string() ? o[k].get<std::string>() : o[k].dump();
+                std::string text = node[key].is_string() ? node[key].get<std::string>() : node[key].dump();
 
                 try
                 {
-                    return s.empty() ? 0.0 : std::stod(s);
+                    return text.empty() ? 0.0 : std::stod(text);
                 }
                 catch (...)
                 {
                     return 0.0;
                 }
             };
-            md.close = parse_d(item, "clos");
-            md.open = parse_d(item, "open");
-            md.high = parse_d(item, "high");
-            md.low = parse_d(item, "low");
-            md.volume = 0;
+            market_data.close = parse_d(item, "clos");
+            market_data.open = parse_d(item, "open");
+            market_data.high = parse_d(item, "high");
+            market_data.low = parse_d(item, "low");
+            market_data.volume = 0;
 
             try
             {
-                std::string v = item.value("tvol", "0");
+                std::string value = item.value("tvol", "0");
 
-                if (!v.empty())
+                if (!value.empty())
                 {
-                    md.volume = std::stoll(v);
+                    market_data.volume = std::stoll(value);
                 }
             }
             catch (...)
             {
             }
 
-            md.timestamp = std::chrono::system_clock::now();
+            market_data.timestamp = std::chrono::system_clock::now();
 
-            if (md.close > 0.0)
+            if (market_data.close > 0.0)
             {
-                result.push_back(md);
+                result.push_back(market_data);
             }
 
             if (static_cast<int>(result.size()) >= count)
@@ -545,9 +545,9 @@ std::vector<MarketData> KisClient::get_us_daily_ohlcv(const std::string& ticker,
             }
         }
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        LOG_ERROR("[KIS-US] OHLCV 파싱 오류 " + ticker + ": " + e.what());
+        LOG_ERROR("[KIS-US] OHLCV 파싱 오류 " + ticker + ": " + exception.what());
     }
 
     return result;
@@ -563,46 +563,46 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
     std::string url =
         base_url() + "/uapi/overseas-price/v1/quotations/price-detail" + "?AUTH=&EXCD=" + exchange + "&SYMB=" + ticker;
 
-    std::vector<std::string> hdrs = auth_headers("HHDFS00000300", {"custtype: P"});
+    std::vector<std::string> headers = auth_headers("HHDFS00000300", {"custtype: P"});
 
-    Fundamentals f;
-    f.ticker = ticker;
+    Fundamentals fundamentals;
+    fundamentals.ticker = ticker;
 
-    std::string resp = http_get(url, hdrs);
+    std::string response = http_get(url, headers);
 
-    if (resp.empty())
+    if (response.empty())
     {
         LOG_WARN("[KIS-US] Fundamentals 응답 없음: " + ticker);
-        return f;
+        return fundamentals;
     }
 
-    LOG_DEBUG("[KIS-US] Fundamentals 응답(" + ticker + "): " + resp.substr(0, 300));
+    LOG_DEBUG("[KIS-US] Fundamentals 응답(" + ticker + "): " + response.substr(0, 300));
 
     try
     {
-        auto j = json::parse(resp);
+        auto document = json::parse(response);
         // KIS 해외주식 현재가상세는 output1 키 사용
-        const char* out_key = j.contains("output1") ? "output1" : j.contains("output") ? "output" : nullptr;
+        const char* out_key = document.contains("output1") ? "output1" : document.contains("output") ? "output" : nullptr;
 
         if (!out_key)
         {
             LOG_WARN("[KIS-US] output 키 없음: " + ticker);
-            return f;
+            return fundamentals;
         }
 
-        const auto& out = j[out_key];
+        const auto& out = document[out_key];
         auto parse_dbl = [&](const std::string& key) -> double
         {
-            std::string s = out.value(key, "");
+            std::string text = out.value(key, "");
 
-            if (s.empty())
+            if (text.empty())
             {
                 return 0.0;
             }
 
             try
             {
-                return std::stod(s);
+                return std::stod(text);
             }
             catch (...)
             {
@@ -611,45 +611,45 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
         };
         auto parse_i64 = [&](const std::string& key) -> int64_t
         {
-            std::string s = out.value(key, "");
+            std::string text = out.value(key, "");
 
-            if (s.empty())
+            if (text.empty())
             {
                 return 0;
             }
 
             try
             {
-                return std::stoll(s);
+                return std::stoll(text);
             }
             catch (...)
             {
                 return 0;
             }
         };
-        f.per = parse_dbl("per");
-        f.pbr = parse_dbl("pbr");
+        fundamentals.per = parse_dbl("per");
+        fundamentals.pbr = parse_dbl("pbr");
 
-        if (f.pbr == 0.0)
+        if (fundamentals.pbr == 0.0)
         {
-            f.pbr = parse_dbl("p_b_rate");
+            fundamentals.pbr = parse_dbl("p_b_rate");
         }
 
-        f.last = parse_dbl("last");
-        f.open = parse_dbl("open");
-        f.high = parse_dbl("high");
-        f.low = parse_dbl("low");
-        f.pbid = parse_dbl("pbid");
-        f.pask = parse_dbl("pask");
-        f.vbid = parse_i64("vbid");
-        f.vask = parse_i64("vask");
-        f.diff = parse_dbl("diff");
-        f.rate = parse_dbl("rate");
+        fundamentals.last = parse_dbl("last");
+        fundamentals.open = parse_dbl("open");
+        fundamentals.high = parse_dbl("high");
+        fundamentals.low = parse_dbl("low");
+        fundamentals.bid_price = parse_dbl("pbid");
+        fundamentals.ask_price = parse_dbl("pask");
+        fundamentals.bid_quantity = parse_i64("vbid");
+        fundamentals.ask_quantity = parse_i64("vask");
+        fundamentals.diff = parse_dbl("diff");
+        fundamentals.rate = parse_dbl("rate");
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        LOG_ERROR("[KIS-US] Fundamentals 파싱 오류 " + ticker + ": " + e.what());
+        LOG_ERROR("[KIS-US] Fundamentals 파싱 오류 " + ticker + ": " + exception.what());
     }
 
-    return f;
+    return fundamentals;
 }

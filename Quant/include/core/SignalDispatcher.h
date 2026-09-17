@@ -28,7 +28,7 @@ std::vector<OrderSignal> trim_orders(const std::vector<OrderGate::HeldPos>& held
                                      const ReservedFn& reserved);
 
 // 신호 로그 한 줄. 취소·정정은 수량이 0이라 side만 찍으면 "BUY 0"으로 나온다 — 무엇을 하는 신호인지 앞에 적는다.
-std::string describe(const OrderSignal& sig, const std::string& label);
+std::string describe(const OrderSignal& signal, const std::string& label);
 } // namespace dispatch
 
 class SignalDispatcher
@@ -42,17 +42,17 @@ public:
     // now는 강제청산 스로틀의 기준 시각. 한도 정리는 now+20초 뒤 한 번(set_trim_at으로 바꾼다).
     SignalDispatcher(OrderGate& gate, Sink sink, Clock::time_point now);
 
-    void set_label(LabelFn f) { label_ = std::move(f); }
-    void set_guardian(GuardFn f) { guardian_ = std::move(f); }
+    void set_label(LabelFn label) { label_ = std::move(label); }
+    void set_guardian(GuardFn guardian) { guardian_ = std::move(guardian); }
     void set_liq_interval(std::chrono::milliseconds ms) { liq_interval_ = ms; }
     void set_trim_at(Clock::time_point at) { trim_at_ = at; }
 
     // 전략이 낸 신호. 비활성 전략의 BUY NEW는 버리고(청산·취소·정정은 통과 — entry_halt와 같은 규약), 청산 관리
     //  보유 종목의 NEW는 ITB_ 전략이 아니면 종목당 한 번 로그하고 버린다.
-    void from_strategy(bool active, const std::string& strategy_id, const OrderSignal& sig);
+    void from_strategy(bool active, const std::string& strategy_id, const OrderSignal& signal);
 
     // 운영단말·기동 점검·강제청산 등 전략 밖에서 온 신호. 교체 진입 판단을 거쳐 emit한다.
-    void submit(const OrderSignal& sig);
+    void submit(const OrderSignal& signal);
 
     // 교체 매도가 체결돼 자리가 났으면 보류 매수를 낸다. 예약 시한이 지나면 버린다. 루프 머리마다 부른다.
     void flush_held(Clock::time_point now);
@@ -63,7 +63,7 @@ public:
     // 종목당 명목 한도 초과분 정리 — trim_at 이후 한 번만. 매 루프 부른다.
     void trim_excess_once(Clock::time_point now);
 
-    uint64_t           seq() const { return seq_; }           // 마지막으로 부여한 순번(0=아직 없음)
+    uint64_t           sequence() const { return seq_; }           // 마지막으로 부여한 순번(0=아직 없음)
     std::size_t        held_count() const { return held_.size(); }
     const std::string& held_ticker() const { return held_ticker_; }
     bool               trim_done() const { return trim_done_; }

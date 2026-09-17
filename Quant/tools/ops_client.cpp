@@ -7,8 +7,8 @@
 //     ops_client [--host 127.0.0.1] [--port 7100] [--token T] <명령>
 //       status                       엔진 상태
 //       positions                    보유 목록(원장 기준)
-//       sell <ticker> <qty> [price]  수동 매도(price 생략=시장가). 결과(ORDER_RESULT)까지 기다린다
-//       buy  <ticker> <qty> [price]  수동 매수
+//       sell <ticker> <quantity> [price]  수동 매도(price 생략=시장가). 결과(ORDER_RESULT)까지 기다린다
+//       buy  <ticker> <quantity> [price]  수동 매수
 //       watch                        접속을 유지하며 push(POSITIONS·ORDER_RESULT·FILL)를 출력
 //       kill                         킬스위치 + 엔진 종료 (토큰 필요)
 //
@@ -70,22 +70,22 @@ struct Conn
         }
     }
 
-    bool send_frame(ops::OpsMsg t, const std::string& body)
+    bool send_frame(ops::OpsMsg ops_msg, const std::string& body)
     {
-        auto bytes = ops::encode(t, body);
+        auto bytes = ops::encode(ops_msg, body);
         size_t off = 0;
 
         while (off < bytes.size())
         {
-            const int w = ::send(fd, reinterpret_cast<const char*>(bytes.data() + off),
+            const int width = ::send(fd, reinterpret_cast<const char*>(bytes.data() + off),
                                  static_cast<int>(bytes.size() - off), 0);
 
-            if (w <= 0)
+            if (width <= 0)
             {
                 return false;
             }
 
-            off += static_cast<size_t>(w);
+            off += static_cast<size_t>(width);
         }
 
         return true;
@@ -122,40 +122,40 @@ struct Conn
             timeval tv{};
             tv.tv_sec  = static_cast<long>(left.count() / 1000);
             tv.tv_usec = static_cast<long>((left.count() % 1000) * 1000);
-            const int n = ::select(static_cast<int>(fd) + 1, &rd, nullptr, nullptr, &tv);
+            const int count = ::select(static_cast<int>(fd) + 1, &rd, nullptr, nullptr, &tv);
 
-            if (n == 0)
+            if (count == 0)
             {
                 return -1;
             }
 
-            if (n < 0)
+            if (count < 0)
             {
                 return 0;
             }
 
-            uint8_t buf[16384];
-            const int r = ::recv(fd, reinterpret_cast<char*>(buf), sizeof(buf), 0);
+            uint8_t buffer[16384];
+            const int result = ::recv(fd, reinterpret_cast<char*>(buffer), sizeof(buffer), 0);
 
-            if (r <= 0)
+            if (result <= 0)
             {
                 return 0;
             }
 
-            reader.feed(buf, static_cast<size_t>(r));
+            reader.feed(buffer, static_cast<size_t>(result));
         }
     }
 };
 
-bool connect_to(Conn& c, const std::string& host, int port)
+bool connect_to(Conn& conn, const std::string& host, int port)
 {
 #ifdef _WIN32
-    WSADATA w;
-    WSAStartup(MAKEWORD(2, 2), &w);
+    WSADATA wsa_data;
+    WSAStartup(MAKEWORD(2, 2), &wsa_data);
 #endif
-    c.fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    conn.fd = ::socket(AF_INET, SOCK_STREAM, 0);
 
-    if (c.fd == SOCK_BAD)
+    if (conn.fd == SOCK_BAD)
     {
         return false;
     }
@@ -174,25 +174,25 @@ bool connect_to(Conn& c, const std::string& host, int port)
         return false;
     }
 
-    return ::connect(c.fd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == 0;
+    return ::connect(conn.fd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == 0;
 }
 
-void print_positions(const json& j)
+void print_positions(const json& document)
 {
     std::cout << "account  ticker  name              qty  avg_price  reserved  last\n";
 
-    for (const auto& p : j.value("positions", json::array()))
+    for (const auto& position_node : document.value("positions", json::array()))
     {
-        std::cout << (p.value("account", std::string()).empty() ? "-" : p.value("account", std::string())) << "  "
-                  << p.value("ticker", std::string()) << "  " << p.value("name", std::string()) << "  "
-                  << p.value("qty", 0) << "  " << p.value("avg_price", 0.0) << "  " << p.value("reserved", 0) << "  "
-                  << p.value("last", 0.0) << "\n";
+        std::cout << (position_node.value("account", std::string()).empty() ? "-" : position_node.value("account", std::string())) << "  "
+                  << position_node.value("ticker", std::string()) << "  " << position_node.value("name", std::string()) << "  "
+                  << position_node.value("qty", 0) << "  " << position_node.value("avg_price", 0.0) << "  " << position_node.value("reserved", 0) << "  "
+                  << position_node.value("last", 0.0) << "\n";
     }
 }
 
-void print_push(const ops::Frame& f)
+void print_push(const ops::Frame& frame)
 {
-    std::cout << "[" << ops::msg_name(f.type) << "] " << f.body << "\n";
+    std::cout << "[" << ops::msg_name(frame.type) << "] " << frame.body << "\n";
 }
 
 std::string make_cid()
@@ -215,25 +215,25 @@ int main(int argc, char** argv)
     std::string token;
     std::vector<std::string> rest;
 
-    for (int i = 1; i < argc; ++i)
+    for (int index = 1; index < argc; ++index)
     {
-        std::string a = argv[i];
+        std::string argument = argv[index];
 
-        if (a == "--host" && i + 1 < argc)
+        if (argument == "--host" && index + 1 < argc)
         {
-            host = argv[++i];
+            host = argv[++index];
         }
-        else if (a == "--port" && i + 1 < argc)
+        else if (argument == "--port" && index + 1 < argc)
         {
-            port = std::atoi(argv[++i]);
+            port = std::atoi(argv[++index]);
         }
-        else if (a == "--token" && i + 1 < argc)
+        else if (argument == "--token" && index + 1 < argc)
         {
-            token = argv[++i];
+            token = argv[++index];
         }
         else
         {
-            rest.push_back(a);
+            rest.push_back(argument);
         }
     }
 
@@ -244,24 +244,24 @@ int main(int argc, char** argv)
     }
 
     const std::string cmd = rest[0];
-    Conn c;
+    Conn conn;
 
-    if (!connect_to(c, host, port))
+    if (!connect_to(conn, host, port))
     {
         std::cerr << "연결 실패 " << host << ":" << port << " — quant_trader가 ops_port로 떠 있는지 확인\n";
         return 1;
     }
 
-    c.send_frame(ops::OpsMsg::HELLO, json{{"token", token}, {"client", "ops_client/0.1"}}.dump());
-    ops::Frame f;
+    conn.send_frame(ops::OpsMsg::HELLO, json{{"token", token}, {"client", "ops_client/0.1"}}.dump());
+    ops::Frame frame;
 
-    if (c.recv_frame(f, 3000) != 1 || f.type != static_cast<uint8_t>(ops::OpsMsg::WELCOME))
+    if (conn.recv_frame(frame, 3000) != 1 || frame.type != static_cast<uint8_t>(ops::OpsMsg::WELCOME))
     {
-        std::cerr << "WELCOME 없음: " << (f.body.empty() ? "(응답 없음)" : f.body) << "\n";
+        std::cerr << "WELCOME 없음: " << (frame.body.empty() ? "(응답 없음)" : frame.body) << "\n";
         return 1;
     }
 
-    const json welcome = json::parse(f.body, nullptr, false);
+    const json welcome = json::parse(frame.body, nullptr, false);
     const bool auth    = welcome.value("auth", false);
     std::cout << "연결됨 paper=" << welcome.value("paper", true) << " auth=" << auth << "\n";
 
@@ -280,7 +280,7 @@ int main(int argc, char** argv)
                 return -1;
             }
 
-            const int rc = c.recv_frame(out, static_cast<int>(left.count()));
+            const int rc = conn.recv_frame(out, static_cast<int>(left.count()));
 
             if (rc != 1)
             {
@@ -302,27 +302,27 @@ int main(int argc, char** argv)
 
     if (cmd == "status")
     {
-        c.send_frame(ops::OpsMsg::STATUS_REQ, "{}");
+        conn.send_frame(ops::OpsMsg::STATUS_REQ, "{}");
 
-        if (wait_type(ops::OpsMsg::STATUS, 3000, f) != 1)
+        if (wait_type(ops::OpsMsg::STATUS, 3000, frame) != 1)
         {
             return 1;
         }
 
-        std::cout << json::parse(f.body).dump(2) << "\n";
+        std::cout << json::parse(frame.body).dump(2) << "\n";
         return 0;
     }
 
     if (cmd == "positions")
     {
-        c.send_frame(ops::OpsMsg::POS_REQ, "{}");
+        conn.send_frame(ops::OpsMsg::POS_REQ, "{}");
 
-        if (wait_type(ops::OpsMsg::POSITIONS, 3000, f) != 1)
+        if (wait_type(ops::OpsMsg::POSITIONS, 3000, frame) != 1)
         {
             return 1;
         }
 
-        print_positions(json::parse(f.body));
+        print_positions(json::parse(frame.body));
         return 0;
     }
 
@@ -346,15 +346,15 @@ int main(int argc, char** argv)
                  {"side", cmd == "sell" ? "SELL" : "BUY"},
                  {"qty", std::atoi(rest[2].c_str())},
                  {"price", rest.size() > 3 ? std::atof(rest[3].c_str()) : 0.0}};
-        c.send_frame(ops::OpsMsg::ORDER_REQ, req.dump());
+        conn.send_frame(ops::OpsMsg::ORDER_REQ, req.dump());
 
-        if (wait_type(ops::OpsMsg::ORDER_ACK, 3000, f) != 1)
+        if (wait_type(ops::OpsMsg::ORDER_ACK, 3000, frame) != 1)
         {
             std::cerr << "ORDER_ACK 없음\n";
             return 1;
         }
 
-        json ack = json::parse(f.body);
+        json ack = json::parse(frame.body);
 
         if (!ack.value("accepted", false))
         {
@@ -378,7 +378,7 @@ int main(int argc, char** argv)
                 return 3;
             }
 
-            const int rc = c.recv_frame(f, static_cast<int>(left.count()));
+            const int rc = conn.recv_frame(frame, static_cast<int>(left.count()));
 
             if (rc == 0)
             {
@@ -390,21 +390,21 @@ int main(int argc, char** argv)
                 continue;
             }
 
-            if (f.type == static_cast<uint8_t>(ops::OpsMsg::ORDER_RESULT))
+            if (frame.type == static_cast<uint8_t>(ops::OpsMsg::ORDER_RESULT))
             {
-                json r = json::parse(f.body, nullptr, false);
+                json node = json::parse(frame.body, nullptr, false);
 
-                if (r.value("cid", std::string()) == cid)
+                if (node.value("cid", std::string()) == cid)
                 {
-                    const bool ok = r.value("ok", false);
-                    std::cout << (ok ? "접수 " : "거부 ") << r.value("order_id", std::string()) << " odno="
-                              << r.value("odno", std::string()) << (ok ? "" : " — " + r.value("msg", std::string()))
+                    const bool ok = node.value("ok", false);
+                    std::cout << (ok ? "접수 " : "거부 ") << node.value("order_id", std::string()) << " odno="
+                              << node.value("odno", std::string()) << (ok ? "" : " — " + node.value("msg", std::string()))
                               << "\n";
                     return ok ? 0 : 2;
                 }
             }
 
-            print_push(f);
+            print_push(frame);
         }
     }
 
@@ -415,7 +415,7 @@ int main(int argc, char** argv)
 
         while (true)
         {
-            const int rc = c.recv_frame(f, 1000);
+            const int rc = conn.recv_frame(frame, 1000);
 
             if (rc == 0)
             {
@@ -425,35 +425,35 @@ int main(int argc, char** argv)
 
             if (rc == 1)
             {
-                if (f.type == static_cast<uint8_t>(ops::OpsMsg::POSITIONS))
+                if (frame.type == static_cast<uint8_t>(ops::OpsMsg::POSITIONS))
                 {
-                    print_positions(json::parse(f.body, nullptr, false));
+                    print_positions(json::parse(frame.body, nullptr, false));
                 }
                 else
                 {
-                    print_push(f);
+                    print_push(frame);
                 }
             }
 
             if (std::chrono::steady_clock::now() - last_ping >= std::chrono::seconds(10))
             {
                 last_ping = std::chrono::steady_clock::now();
-                c.send_frame(ops::OpsMsg::PING, "{}");
+                conn.send_frame(ops::OpsMsg::PING, "{}");
             }
         }
     }
 
     if (cmd == "kill")
     {
-        c.send_frame(ops::OpsMsg::KILL, "{}");
+        conn.send_frame(ops::OpsMsg::KILL, "{}");
 
-        if (wait_type(ops::OpsMsg::KILL_ACK, 3000, f) != 1)
+        if (wait_type(ops::OpsMsg::KILL_ACK, 3000, frame) != 1)
         {
             return 1;
         }
 
-        std::cout << f.body << "\n";
-        return json::parse(f.body).value("ok", false) ? 0 : 2;
+        std::cout << frame.body << "\n";
+        return json::parse(frame.body).value("ok", false) ? 0 : 2;
     }
 
     std::cerr << "알 수 없는 명령: " << cmd << "\n";

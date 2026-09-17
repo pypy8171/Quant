@@ -12,55 +12,55 @@
 
 namespace utf8 {
 
-inline int display_width(const std::string& s)
+inline int display_width(const std::string& text)
 {
-    int w = 0;
-    size_t i = 0;
+    int width = 0;
+    size_t index = 0;
 
-    while (i < s.size())
+    while (index < text.size())
     {
-        unsigned char c = s[i];
+        unsigned char byte = text[index];
 
-        if      (c < 0x80) { i += 1; w += 1; }
-        else if (c < 0xE0) { i += 2; w += 2; }
-        else if (c < 0xF0) { i += 3; w += 2; } // CJK
-        else               { i += 4; w += 2; }
+        if      (byte < 0x80) { index += 1; width += 1; }
+        else if (byte < 0xE0) { index += 2; width += 2; }
+        else if (byte < 0xF0) { index += 3; width += 2; } // CJK
+        else               { index += 4; width += 2; }
     }
 
-    return w;
+    return width;
 }
 
-inline std::string pad_right(const std::string& s, int target)
+inline std::string pad_right(const std::string& text, int target)
 {
-    int w = display_width(s);
-    return (w >= target) ? s : s + std::string(target - w, ' ');
+    int width = display_width(text);
+    return (width >= target) ? text : text + std::string(target - width, ' ');
 }
 
-inline std::string trunc(const std::string& s, int max_w)
+inline std::string trunc(const std::string& text, int max_w)
 {
-    int w = 0;
-    size_t i = 0;
+    int width = 0;
+    size_t index = 0;
 
-    while (i < s.size())
+    while (index < text.size())
     {
-        unsigned char c = s[i];
-        int cw, cb;
+        unsigned char byte = text[index];
+        int char_width, char_bytes;
 
-        if      (c < 0x80) { cw = 1; cb = 1; }
-        else if (c < 0xE0) { cw = 2; cb = 2; }
-        else if (c < 0xF0) { cw = 2; cb = 3; }
-        else               { cw = 2; cb = 4; }
+        if      (byte < 0x80) { char_width = 1; char_bytes = 1; }
+        else if (byte < 0xE0) { char_width = 2; char_bytes = 2; }
+        else if (byte < 0xF0) { char_width = 2; char_bytes = 3; }
+        else               { char_width = 2; char_bytes = 4; }
 
-        if (w + cw > max_w)
+        if (width + char_width > max_w)
         {
             break;
         }
 
-        w += cw;
-        i += cb;
+        width += char_width;
+        index += char_bytes;
     }
 
-    return s.substr(0, i);
+    return text.substr(0, index);
 }
 
 } // namespace utf8

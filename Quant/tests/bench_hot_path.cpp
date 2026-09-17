@@ -1,6 +1,6 @@
 // tests/bench_hot_path.cpp
 // 09-13 hot path 변경(D-071 Phase 2·3)의 항목별 전후 비교 — 옛 방식을 벤치 안에 최소 복제해 같은 입력으로 잰다.
-//  결과는 `docs/reports/PIPELINE_LATENCY_REPORT.md` 결과 ⑥, 절차는 `docs/guides/LOAD_TEST_GUIDE.md` §6.
+//  결과는 `docs/reports/PIPELINE_LATENCY_REPORT.market_data` 결과 ⑥, 절차는 `docs/guides/LOAD_TEST_GUIDE.market_data` §6.
 //  스레드: 항목 1~4는 단일 스레드, 5(캡처)·6(mux)·7(연쇄)은 생산자 1·소비자 1. release 빌드로만 잰다. [why D-071]
 //
 // [inv] 측정 범위 — 실 KIS WS 프레임 수신·복호화·네트워크는 빠져 있다. 재는 것은 디코더 입구(`^` 페이로드)부터
@@ -45,32 +45,32 @@ int64_t now_ns()
 }
 
 // t(steady ns)까지 바쁘게 기다린다 — 생산자 투입률 맞춤용. sleep은 2ms 격자라 못 쓴다.
-void spin_until(int64_t t)
+void spin_until(int64_t time_value)
 {
-    while (now_ns() < t)
+    while (now_ns() < time_value)
     {
     }
 }
 
 // f를 iters번 돌린 평균 ns/op. 첫 1/16은 예열로 버린다.
 template <class F>
-double ns_per_op(size_t iters, F&& f)
+double ns_per_op(size_t iters, F&& item)
 {
     const size_t warm = iters / 16;
 
-    for (size_t i = 0; i < warm; ++i)
+    for (size_t warm_index = 0; warm_index < warm; ++warm_index)
     {
-        f(i);
+        item(warm_index);
     }
 
-    const int64_t t0 = now_ns();
+    const int64_t start_time = now_ns();
 
-    for (size_t i = 0; i < iters; ++i)
+    for (size_t index = 0; index < iters; ++index)
     {
-        f(i);
+        item(index);
     }
 
-    return static_cast<double>(now_ns() - t0) / static_cast<double>(iters);
+    return static_cast<double>(now_ns() - start_time) / static_cast<double>(iters);
 }
 
 struct Pct
@@ -78,22 +78,22 @@ struct Pct
     double p50 = 0, p99 = 0, p999 = 0, max = 0;
 };
 
-Pct percentiles(std::vector<double>& v)
+Pct percentiles(std::vector<double>& values)
 {
-    Pct p;
+    Pct pct;
 
-    if (v.empty())
+    if (values.empty())
     {
-        return p;
+        return pct;
     }
 
-    std::sort(v.begin(), v.end());
-    auto at = [&](double q) { return v[std::min(v.size() - 1, static_cast<size_t>(q * static_cast<double>(v.size())))]; };
-    p.p50  = at(0.50);
-    p.p99  = at(0.99);
-    p.p999 = at(0.999);
-    p.max  = v.back();
-    return p;
+    std::sort(values.begin(), values.end());
+    auto at = [&](double quantity) { return values[std::min(values.size() - 1, static_cast<size_t>(quantity * static_cast<double>(values.size())))]; };
+    pct.p50  = at(0.50);
+    pct.p99  = at(0.99);
+    pct.p999 = at(0.999);
+    pct.max  = values.back();
+    return pct;
 }
 
 void row(const char* name, double ns_old, double ns_new)
@@ -117,105 +117,105 @@ constexpr size_t kSymbols = 2600;
 
 std::vector<std::string> make_tickers()
 {
-    std::vector<std::string> v;
-    v.reserve(kSymbols);
+    std::vector<std::string> parts;
+    parts.reserve(kSymbols);
 
-    for (size_t i = 0; i < kSymbols; ++i)
+    for (size_t symbol_index = 0; symbol_index < kSymbols; ++symbol_index)
     {
-        char buf[8];
-        std::snprintf(buf, sizeof(buf), "%06zu", 5930 + i * 7);
-        v.emplace_back(buf);
+        char buffer[8];
+        std::snprintf(buffer, sizeof(buffer), "%06zu", 5930 + symbol_index * 7);
+        parts.emplace_back(buffer);
     }
 
-    return v;
+    return parts;
 }
 
 // 종목 접근 순서 — 선형이면 캐시가 다 먹으므로 LCG로 섞는다.
-size_t next_idx(size_t& s)
+size_t next_idx(size_t& size)
 {
-    s = s * 6364136223846793005ULL + 1442695040888963407ULL;
-    return (s >> 33) % kSymbols;
+    size = size * 6364136223846793005ULL + 1442695040888963407ULL;
+    return (size >> 33) % kSymbols;
 }
 
 // [wire] H0STCNT0 페이로드 — 46필드를 '^'로 잇는다. 디코더가 읽는 자리(0·1·2·12·13·18·21)만 실값, 나머지는 0.
-std::string make_kr_trade_payload(const std::string& ticker, int px)
+std::string make_kr_trade_payload(const std::string& ticker, int price)
 {
-    std::string s;
+    std::string text;
 
-    for (int i = 0; i < 46; ++i)
+    for (int index = 0; index < 46; ++index)
     {
-        if (i > 0)
+        if (index > 0)
         {
-            s += '^';
+            text += '^';
         }
 
-        switch (i)
+        switch (index)
         {
-            case 0: s += ticker; break;
-            case 1: s += "093001"; break;
-            case 2: s += std::to_string(px); break;
-            case 12: s += "150"; break;
-            case 13: s += "1234567"; break;
-            case 18: s += "120.55"; break;
-            case 21: s += "1"; break;
-            default: s += '0'; break;
+            case 0: text += ticker; break;
+            case 1: text += "093001"; break;
+            case 2: text += std::to_string(price); break;
+            case 12: text += "150"; break;
+            case 13: text += "1234567"; break;
+            case 18: text += "120.55"; break;
+            case 21: text += "1"; break;
+            default: text += '0'; break;
         }
     }
 
-    return s;
+    return text;
 }
 
 // ─── 1. 디코더 — 시각 문자열 → 정수 hhmmss (9d838e0) ─────────────────────────────
-// 옛: td.time = f[1]로 문자열을 싣고 소비자마다 다시 파싱(IntradayBreakout은 stoi(substr), 나머지는 parse_hhmm).
+// 옛: trade.time = f[1]로 문자열을 싣고 소비자마다 다시 파싱(IntradayBreakout은 stoi(substr), 나머지는 parse_hhmm).
 // 새: 디코더가 parse_hhmmss 한 번, 소비자는 정수 나눗셈.
 void bench_decode()
 {
     head("1. 디코더 시각 — 문자열 실어 소비자 N회 파싱 vs 정수 한 번");
     const std::string payload = make_kr_trade_payload("005930", 71200);
-    std::vector<std::string_view> f;
-    f.reserve(64);
+    std::vector<std::string_view> fields;
+    fields.reserve(64);
     constexpr size_t kIters     = 2'000'000;
     constexpr int    kConsumers = 4; // 봉 집계기 세션 판정 + 전략 셋이 같은 틱을 본다
 
     const double split_ns = ns_per_op(kIters, [&](size_t)
     {
-        kis_ws::split_fields(payload, '^', f);
-        g_sink += static_cast<int64_t>(f.size());
+        kis_ws::split_fields(payload, '^', fields);
+        g_sink += static_cast<int64_t>(fields.size());
     });
 
-    kis_ws::split_fields(payload, '^', f);
-    TradeData td;
+    kis_ws::split_fields(payload, '^', fields);
+    TradeData trade;
 
     const double decode_ns = ns_per_op(kIters, [&](size_t)
     {
-        (void)kis_ws::decode_kr_trade(f, td);
-        g_sink += td.hhmmss;
+        (void)kis_ws::decode_kr_trade(fields, trade);
+        g_sink += trade.hhmmss;
     });
 
     const double old_ns = ns_per_op(kIters, [&](size_t)
     {
-        std::string time(f[1]); // 옛 td.time
-        int v = std::stoi(time.substr(0, 6)); // 옛 IntradayBreakoutStrategy::parse_hhmmss
+        std::string time(fields[1]); // 옛 trade.time
+        int value = std::stoi(time.substr(0, 6)); // 옛 IntradayBreakoutStrategy::parse_hhmmss
 
-        for (int c = 1; c < kConsumers; ++c)
+        for (int consumer_index = 1; consumer_index < kConsumers; ++consumer_index)
         {
-            v += krx::parse_hhmm(time);
+            value += krx::parse_hhmm(time);
         }
 
-        g_sink += v;
+        g_sink += value;
     });
 
     const double new_ns = ns_per_op(kIters, [&](size_t)
     {
-        const int32_t h = krx::parse_hhmmss(f[1]);
-        int           v = h;
+        const int32_t height = krx::parse_hhmmss(fields[1]);
+        int           value = height;
 
-        for (int c = 1; c < kConsumers; ++c)
+        for (int consumer_index = 1; consumer_index < kConsumers; ++consumer_index)
         {
-            v += h / 100;
+            value += height / 100;
         }
 
-        g_sink += v;
+        g_sink += value;
     });
 
     std::printf("  %-44s %9s  %9s  %7s\n", "항목", "옛 ns", "새 ns", "배");
@@ -227,7 +227,7 @@ void bench_decode()
 // ─── 2. 현재가 캐시 — mutex+map<string> vs id 배열 (f9026d5) ──────────────────────
 struct OldLastPx
 {
-    double                   px = 0;
+    double                   price = 0;
     Clock::time_point        at;
 };
 
@@ -239,59 +239,59 @@ void bench_last_px(const std::vector<std::string>& tickers)
     std::unordered_map<std::string, OldLastPx> old_map;
     std::mutex                                 old_mu;
 
-    for (const auto& t : tickers)
+    for (const auto& ticker : tickers)
     {
-        old_map[t] = {};
+        old_map[ticker] = {};
     }
 
-    sym::SymbolTable tab(kSymbols + 1);
-    std::vector<sym::SymbolId> ids;
+    symbol::SymbolTable tab(kSymbols + 1);
+    std::vector<symbol::SymbolId> ids;
 
-    for (const auto& t : tickers)
+    for (const auto& ticker : tickers)
     {
-        ids.push_back(tab.intern(t));
+        ids.push_back(tab.intern(ticker));
     }
 
     auto arr_px = std::make_unique<std::atomic<double>[]>(kSymbols + 1);
     auto arr_at = std::make_unique<std::atomic<int64_t>[]>(kSymbols + 1);
 
-    size_t s = 1;
+    size_t size = 1;
     const double old_set = ns_per_op(kIters, [&](size_t)
     {
-        const auto& t = tickers[next_idx(s)];
-        std::lock_guard<std::mutex> lk(old_mu);
-        old_map[t] = OldLastPx{71200.0, Clock::now()};
+        const auto& ticker = tickers[next_idx(size)];
+        std::lock_guard<std::mutex> lock(old_mu);
+        old_map[ticker] = OldLastPx{71200.0, Clock::now()};
     });
 
-    s = 1;
+    size = 1;
     const double new_set = ns_per_op(kIters, [&](size_t)
     {
-        const sym::SymbolId id = ids[next_idx(s)];
+        const symbol::SymbolId id = ids[next_idx(size)];
         arr_px[id].store(71200.0, std::memory_order_relaxed);
         arr_at[id].store(now_ns(), std::memory_order_relaxed);
     });
 
-    s = 1;
+    size = 1;
     const double old_get = ns_per_op(kIters, [&](size_t)
     {
-        const auto& t = tickers[next_idx(s)];
-        std::lock_guard<std::mutex> lk(old_mu);
-        auto it = old_map.find(t);
-        g_sink += static_cast<int64_t>(it == old_map.end() ? 0.0 : it->second.px);
+        const auto& ticker = tickers[next_idx(size)];
+        std::lock_guard<std::mutex> lock(old_mu);
+        auto iterator = old_map.find(ticker);
+        g_sink += static_cast<int64_t>(iterator == old_map.end() ? 0.0 : iterator->second.price);
     });
 
-    s = 1;
+    size = 1;
     const double new_get = ns_per_op(kIters, [&](size_t)
     {
-        const sym::SymbolId id = ids[next_idx(s)];
+        const symbol::SymbolId id = ids[next_idx(size)];
         g_sink += static_cast<int64_t>(arr_px[id].load(std::memory_order_relaxed));
     });
 
     // 수신 콜백이 아직 틱마다 부르는 문자열 → id 조회. 디코더가 id를 직접 찍는 후속이 없앨 비용.
-    s = 1;
+    size = 1;
     const double intern_ns = ns_per_op(kIters, [&](size_t)
     {
-        g_sink += tab.intern(tickers[next_idx(s)]);
+        g_sink += tab.intern(tickers[next_idx(size)]);
     });
 
     std::printf("  %-44s %9s  %9s  %7s\n", "항목", "옛 ns", "새 ns", "배");
@@ -301,15 +301,15 @@ void bench_last_px(const std::vector<std::string>& tickers)
 }
 
 // ─── 3. 라우터 — 전 전략 방문 vs 종목 id 디스패치 (780597a) ───────────────────────
-// 구독 종목 하나를 밝히는 가짜 전략. on_trade는 오늘 전략들처럼 sym이 다르면 바로 돌아간다.
+// 구독 종목 하나를 밝히는 가짜 전략. on_trade는 오늘 전략들처럼 symbol_id이 다르면 바로 돌아간다.
 class OneSymStrategy final : public StrategyBase
 {
 public:
     explicit OneSymStrategy(std::string ticker) : ticker_(std::move(ticker)) {}
 
-    void bind(sym::SymbolId id)
+    void bind(symbol::SymbolId id)
     {
-        sym_ = id;
+        symbol_id_ = id;
     }
 
     std::string id() const override
@@ -327,9 +327,9 @@ public:
         return std::nullopt;
     }
 
-    std::optional<OrderSignal> on_trade(const TradeData& td) override
+    std::optional<OrderSignal> on_trade(const TradeData& trade) override
     {
-        if (td.sym != sym_)
+        if (trade.symbol_id != symbol_id_)
         {
             return std::nullopt;
         }
@@ -340,60 +340,60 @@ public:
 
     std::vector<WatchSpec> get_watch_specs() const override
     {
-        WatchSpec w;
-        w.ticker = ticker_;
-        return {w};
+        WatchSpec spec;
+        spec.ticker = ticker_;
+        return {spec};
     }
 
     int64_t hits = 0;
 
 private:
     std::string   ticker_;
-    sym::SymbolId sym_ = sym::kNone;
+    symbol::SymbolId symbol_id_ = symbol::kNone;
 };
 
 void bench_router_n(const std::vector<std::string>& tickers, size_t n_strats)
 {
     constexpr size_t kIters = 1'000'000;
-    sym::SymbolTable tab(kSymbols + 1);
+    symbol::SymbolTable tab(kSymbols + 1);
     std::vector<std::unique_ptr<OneSymStrategy>> owned;
     std::vector<StrategyBase*>                   ptrs;
 
-    for (size_t i = 0; i < n_strats; ++i)
+    for (size_t index = 0; index < n_strats; ++index)
     {
-        owned.push_back(std::make_unique<OneSymStrategy>(tickers[i]));
-        owned.back()->bind(tab.intern(tickers[i]));
+        owned.push_back(std::make_unique<OneSymStrategy>(tickers[index]));
+        owned.back()->bind(tab.intern(tickers[index]));
         ptrs.push_back(owned.back().get());
     }
 
-    strat::Router r;
-    r.rebuild(ptrs, [&tab](const std::string& t) { return tab.intern(t); });
+    strategy::Router router;
+    router.rebuild(ptrs, [&tab](const std::string& ticker) { return tab.intern(ticker); });
 
     std::vector<TradeData> ticks(n_strats);
 
-    for (size_t i = 0; i < n_strats; ++i)
+    for (size_t index = 0; index < n_strats; ++index)
     {
-        ticks[i].ticker = tickers[i];
-        ticks[i].sym    = tab.intern(tickers[i]);
-        ticks[i].price  = 1000.0 + static_cast<double>(i);
+        ticks[index].ticker = tickers[index];
+        ticks[index].symbol_id    = tab.intern(tickers[index]);
+        ticks[index].price  = 1000.0 + static_cast<double>(index);
     }
 
-    size_t s = 7;
+    size_t size = 7;
     const double old_ns = ns_per_op(kIters, [&](size_t)
     {
-        const auto& td = ticks[next_idx(s) % n_strats];
+        const auto& trade = ticks[next_idx(size) % n_strats];
 
-        for (auto* p : ptrs)
+        for (auto* ptr : ptrs)
         {
-            (void)p->on_trade(td);
+            (void)ptr->on_trade(trade);
         }
     });
 
-    s = 7;
+    size = 7;
     const double new_ns = ns_per_op(kIters, [&](size_t)
     {
-        const auto& td = ticks[next_idx(s) % n_strats];
-        r.for_each(td.sym, [&td](StrategyBase* p) { (void)p->on_trade(td); });
+        const auto& trade = ticks[next_idx(size) % n_strats];
+        router.for_each(trade.symbol_id, [&trade](StrategyBase* strategy) { (void)strategy->on_trade(trade); });
     });
 
     char name[64];
@@ -414,7 +414,7 @@ void bench_router(const std::vector<std::string>& tickers)
 struct State
 {
     double  ma = 0;
-    int64_t n  = 0;
+    int64_t count = 0;
 };
 
 void bench_state_key(const std::vector<std::string>& tickers)
@@ -423,59 +423,59 @@ void bench_state_key(const std::vector<std::string>& tickers)
     constexpr size_t kIters = 2'000'000;
 
     std::unordered_map<std::string, State>   by_str;
-    std::unordered_map<sym::SymbolId, State> by_id;
+    std::unordered_map<symbol::SymbolId, State> by_id;
     std::vector<State>                       by_idx(kSymbols + 1);
-    sym::SymbolTable                         tab(kSymbols + 1);
-    std::vector<sym::SymbolId>               ids;
+    symbol::SymbolTable                         tab(kSymbols + 1);
+    std::vector<symbol::SymbolId>               ids;
 
-    for (const auto& t : tickers)
+    for (const auto& ticker : tickers)
     {
-        by_str[t] = {};
-        const auto id = tab.intern(t);
+        by_str[ticker] = {};
+        const auto id = tab.intern(ticker);
         by_id[id]     = {};
         ids.push_back(id);
     }
 
-    size_t s = 3;
+    size_t size = 3;
     const double str_ns = ns_per_op(kIters, [&](size_t)
     {
-        auto& st = by_str[tickers[next_idx(s)]];
-        st.ma += 1.0;
-        ++st.n;
-        g_sink += st.n;
+        auto& state = by_str[tickers[next_idx(size)]];
+        state.ma += 1.0;
+        ++state.count;
+        g_sink += state.count;
     });
 
-    s = 3;
+    size = 3;
     const double id_ns = ns_per_op(kIters, [&](size_t)
     {
-        auto& st = by_id[ids[next_idx(s)]];
-        st.ma += 1.0;
-        ++st.n;
-        g_sink += st.n;
+        auto& state = by_id[ids[next_idx(size)]];
+        state.ma += 1.0;
+        ++state.count;
+        g_sink += state.count;
     });
 
-    s = 3;
+    size = 3;
     const double idx_ns = ns_per_op(kIters, [&](size_t)
     {
-        auto& st = by_idx[ids[next_idx(s)]];
-        st.ma += 1.0;
-        ++st.n;
-        g_sink += st.n;
+        auto& state = by_idx[ids[next_idx(size)]];
+        state.ma += 1.0;
+        ++state.count;
+        g_sink += state.count;
     });
 
     // 전략이 틱마다 하던 "내 종목인가" 비교 — 여섯 자리 문자열 vs 정수.
     const std::string mine = tickers[10];
-    const sym::SymbolId mine_id = ids[10];
-    s = 5;
+    const symbol::SymbolId mine_id = ids[10];
+    size = 5;
     const double cmp_str = ns_per_op(kIters, [&](size_t)
     {
-        g_sink += (tickers[next_idx(s)] != mine) ? 1 : 0;
+        g_sink += (tickers[next_idx(size)] != mine) ? 1 : 0;
     });
 
-    s = 5;
+    size = 5;
     const double cmp_id = ns_per_op(kIters, [&](size_t)
     {
-        g_sink += (ids[next_idx(s)] != mine_id) ? 1 : 0;
+        g_sink += (ids[next_idx(size)] != mine_id) ? 1 : 0;
     });
 
     std::printf("  %-44s %9s  %9s  %7s\n", "항목", "옛 ns", "새 ns", "배");
@@ -490,28 +490,28 @@ void bench_capture_at(const std::vector<TradeData>& ticks, double rate_per_s)
 {
     constexpr size_t kTicks = 400'000;
     const auto file = std::filesystem::temp_directory_path() / "bench_hot_path_capture.bin";
-    std::error_code ec;
-    std::filesystem::remove(file, ec);
+    std::error_code error_code;
+    std::filesystem::remove(file, error_code);
     const int64_t gap = rate_per_s > 0 ? static_cast<int64_t>(1e9 / rate_per_s) : 0;
 
     double   push_ns = 0;
     uint64_t dropped = 0;
     int64_t  total   = 0;
     {
-        feed::TickCapture cap(file);
+        feed::TickCapture capture(file);
 
-        if (!cap.ok())
+        if (!capture.ok())
         {
             std::printf("  캡처 파일을 못 열었다: %s\n", file.string().c_str());
             return;
         }
 
-        size_t        s    = 11;
+        size_t        size    = 11;
         int64_t       next = now_ns();
-        const int64_t t0   = next;
+        const int64_t start_time   = next;
         int64_t       busy = 0;
 
-        for (size_t i = 0; i < kTicks; ++i)
+        for (size_t tick_index = 0; tick_index < kTicks; ++tick_index)
         {
             if (gap > 0)
             {
@@ -519,19 +519,19 @@ void bench_capture_at(const std::vector<TradeData>& ticks, double rate_per_s)
                 next += gap;
             }
 
-            const int64_t a = now_ns();
-            cap.on_trade(ticks[next_idx(s)]);
-            busy += now_ns() - a;
+            const int64_t first_value = now_ns();
+            capture.on_trade(ticks[next_idx(size)]);
+            busy += now_ns() - first_value;
         }
 
-        cap.flush();
-        total   = now_ns() - t0;
+        capture.flush();
+        total   = now_ns() - start_time;
         push_ns = static_cast<double>(busy) / static_cast<double>(kTicks);
-        dropped = cap.dropped();
+        dropped = capture.dropped();
     }
 
-    const auto bytes = std::filesystem::file_size(file, ec);
-    std::filesystem::remove(file, ec);
+    const auto bytes = std::filesystem::file_size(file, error_code);
+    std::filesystem::remove(file, error_code);
     const double written = static_cast<double>(kTicks - dropped);
     std::printf("  %-12s on_trade %6.1f ns/틱 | 드롭 %6llu / %zu | 기록 %.0f 건/s (%.1f MB, flush까지 %.0f ms)\n",
                 gap > 0 ? "투입률 맞춤" : "최대속도", push_ns, static_cast<unsigned long long>(dropped), kTicks,
@@ -544,14 +544,14 @@ void bench_capture(const std::vector<std::string>& tickers)
     head("5. 틱 캡처 — 수신 콜백의 capture_->on_trade(td) 비용과 기록 스레드 상한(링 65,536)");
     std::vector<TradeData> ticks(kSymbols);
 
-    for (size_t i = 0; i < kSymbols; ++i)
+    for (size_t symbol_index = 0; symbol_index < kSymbols; ++symbol_index)
     {
-        ticks[i].ticker   = tickers[i];
-        ticks[i].sym      = static_cast<sym::SymbolId>(i + 1);
-        ticks[i].hhmmss   = 93001;
-        ticks[i].price    = 71200.0;
-        ticks[i].quantity = 150;
-        ticks[i].recv_ns  = now_ns();
+        ticks[symbol_index].ticker   = tickers[symbol_index];
+        ticks[symbol_index].symbol_id      = static_cast<symbol::SymbolId>(symbol_index + 1);
+        ticks[symbol_index].hhmmss   = 93001;
+        ticks[symbol_index].price    = 71200.0;
+        ticks[symbol_index].quantity = 150;
+        ticks[symbol_index].received_ns  = now_ns();
     }
 
     std::printf("  전 시장 100k/s(투입률 맞춤)와 상한(최대속도) 두 줄. 드롭은 기록 스레드가 못 따라온 양.\n");
@@ -566,9 +566,9 @@ struct SpinSource final : feed::IFeedSource
     TradeCb on_td;
     bool    connected = false;
 
-    void set_callbacks(OrderBookCb, TradeCb td) override
+    void set_callbacks(OrderBookCb, TradeCb trade) override
     {
-        on_td = std::move(td);
+        on_td = std::move(trade);
     }
 
     bool connect(const std::vector<WatchSpec>&) override
@@ -615,11 +615,11 @@ void bench_mux(const std::vector<std::string>& tickers, size_t n_sources, double
     std::vector<std::unique_ptr<feed::IFeedSource>> srcs;
     std::vector<SpinSource*>                        raw;
 
-    for (size_t i = 0; i < n_sources; ++i)
+    for (size_t source_index = 0; source_index < n_sources; ++source_index)
     {
-        auto s = std::make_unique<SpinSource>();
-        raw.push_back(s.get());
-        srcs.push_back(std::move(s));
+        auto spin_source = std::make_unique<SpinSource>();
+        raw.push_back(spin_source.get());
+        srcs.push_back(std::move(spin_source));
     }
 
     feed::FeedMux mux(std::move(srcs));
@@ -628,9 +628,9 @@ void bench_mux(const std::vector<std::string>& tickers, size_t n_sources, double
     std::atomic<size_t> got{0};
 
     mux.set_callbacks([](const OrderBook&) {},
-                      [&](const TradeData& td)
+                      [&](const TradeData& trade)
                       {
-                          lat.push_back(static_cast<double>(now_ns() - td.recv_ns));
+                          lat.push_back(static_cast<double>(now_ns() - trade.received_ns));
                           got.fetch_add(1, std::memory_order_release);
                       });
 
@@ -638,20 +638,20 @@ void bench_mux(const std::vector<std::string>& tickers, size_t n_sources, double
     (void)mux.connect(specs);
 
     std::vector<std::thread> producers;
-    const int64_t t0 = now_ns();
+    const int64_t start_time = now_ns();
 
-    for (size_t p = 0; p < n_sources; ++p)
+    for (size_t source_index = 0; source_index < n_sources; ++source_index)
     {
-        producers.emplace_back([&, p]
+        producers.emplace_back([&, source_index]
         {
-            TradeData td;
-            td.ticker = tickers[p];
-            td.sym    = static_cast<sym::SymbolId>(p + 1);
-            td.price  = 1000.0;
+            TradeData trade;
+            trade.ticker = tickers[source_index];
+            trade.symbol_id    = static_cast<symbol::SymbolId>(source_index + 1);
+            trade.price  = 1000.0;
 
             int64_t next = now_ns();
 
-            for (size_t i = 0; i < kTicks; ++i)
+            for (size_t tick_index = 0; tick_index < kTicks; ++tick_index)
             {
                 if (gap > 0)
                 {
@@ -659,15 +659,15 @@ void bench_mux(const std::vector<std::string>& tickers, size_t n_sources, double
                     next += gap;
                 }
 
-                td.recv_ns = now_ns();
-                raw[p]->on_td(td);
+                trade.received_ns = now_ns();
+                raw[source_index]->on_td(trade);
             }
         });
     }
 
-    for (auto& t : producers)
+    for (auto& producer : producers)
     {
-        t.join();
+        producer.join();
     }
 
     while (got.load(std::memory_order_acquire) + mux.dropped() < kTicks * n_sources)
@@ -675,10 +675,10 @@ void bench_mux(const std::vector<std::string>& tickers, size_t n_sources, double
         std::this_thread::yield();
     }
 
-    const double secs = static_cast<double>(now_ns() - t0) / 1e9;
-    const Pct    p    = percentiles(lat);
+    const double secs = static_cast<double>(now_ns() - start_time) / 1e9;
+    const Pct    pct    = percentiles(lat);
     std::printf("  소스 %zu개: 홉 지연 p50 %.0f ns  p99 %.0f ns  p999 %.0f ns  max %.0f ns  |  %.0f 건/s, 드롭 %llu\n",
-                n_sources, p.p50, p.p99, p.p999, p.max, static_cast<double>(lat.size()) / secs,
+                n_sources, pct.p50, pct.p99, pct.p999, pct.max, static_cast<double>(lat.size()) / secs,
                 static_cast<unsigned long long>(mux.dropped()));
 }
 
@@ -705,42 +705,42 @@ void bench_chain_at(const std::vector<std::string>& tickers, double rate_per_s)
     std::vector<std::string> payloads;
     payloads.reserve(kSymbols);
 
-    for (size_t i = 0; i < kSymbols; ++i)
+    for (size_t symbol_index = 0; symbol_index < kSymbols; ++symbol_index)
     {
-        payloads.push_back(make_kr_trade_payload(tickers[i], 70000 + static_cast<int>(i)));
+        payloads.push_back(make_kr_trade_payload(tickers[symbol_index], 70000 + static_cast<int>(symbol_index)));
     }
 
-    sym::SymbolTable tab(kSymbols + 1);
+    symbol::SymbolTable tab(kSymbols + 1);
     std::vector<std::unique_ptr<OneSymStrategy>> owned;
     std::vector<StrategyBase*>                   ptrs;
 
-    for (size_t i = 0; i < kStrats; ++i)
+    for (size_t index = 0; index < kStrats; ++index)
     {
-        owned.push_back(std::make_unique<OneSymStrategy>(tickers[i]));
-        owned.back()->bind(tab.intern(tickers[i]));
+        owned.push_back(std::make_unique<OneSymStrategy>(tickers[index]));
+        owned.back()->bind(tab.intern(tickers[index]));
         ptrs.push_back(owned.back().get());
     }
 
-    strat::Router r;
-    r.rebuild(ptrs, [&tab](const std::string& t) { return tab.intern(t); });
+    strategy::Router router;
+    router.rebuild(ptrs, [&tab](const std::string& ticker) { return tab.intern(ticker); });
     auto arr_px = std::make_unique<std::atomic<double>[]>(kSymbols + 1);
 
-    RingBuffer<TradeData> q(1u << 16);
+    RingBuffer<TradeData> queue(1u << 16);
     std::vector<double>   lat;
     lat.reserve(kTicks);
     std::atomic<bool> done{false};
 
     std::thread consumer([&]
     {
-        size_t n = 0;
+        size_t count = 0;
 
-        while (n < kTicks)
+        while (count < kTicks)
         {
-            auto opt = q.pop();
+            auto option = queue.pop();
 
-            if (!opt)
+            if (!option)
             {
-                if (done.load(std::memory_order_acquire) && q.empty())
+                if (done.load(std::memory_order_acquire) && queue.empty())
                 {
                     break;
                 }
@@ -748,21 +748,21 @@ void bench_chain_at(const std::vector<std::string>& tickers, double rate_per_s)
                 continue;
             }
 
-            const sym::SymbolId id = opt->sym;
-            arr_px[id].store(opt->price, std::memory_order_relaxed);
-            r.for_each(id, [&](StrategyBase* s) { (void)s->on_trade(*opt); });
-            lat.push_back(static_cast<double>(now_ns() - opt->recv_ns));
-            ++n;
+            const symbol::SymbolId id = option->symbol_id;
+            arr_px[id].store(option->price, std::memory_order_relaxed);
+            router.for_each(id, [&](StrategyBase* strategy) { (void)strategy->on_trade(*option); });
+            lat.push_back(static_cast<double>(now_ns() - option->received_ns));
+            ++count;
         }
     });
 
-    std::vector<std::string_view> f;
-    f.reserve(64);
-    size_t        s    = 13;
-    const int64_t t0   = now_ns();
-    int64_t       next = t0;
+    std::vector<std::string_view> fields;
+    fields.reserve(64);
+    size_t        size    = 13;
+    const int64_t start_time   = now_ns();
+    int64_t       next = start_time;
 
-    for (size_t i = 0; i < kTicks; ++i)
+    for (size_t tick_index = 0; tick_index < kTicks; ++tick_index)
     {
         if (gap > 0)
         {
@@ -770,14 +770,14 @@ void bench_chain_at(const std::vector<std::string>& tickers, double rate_per_s)
             next += gap;
         }
 
-        const std::string& payload = payloads[next_idx(s)];
-        kis_ws::split_fields(payload, '^', f);
-        TradeData td;
-        (void)kis_ws::decode_kr_trade(f, td);
-        td.recv_ns = now_ns();
-        td.sym     = tab.intern(td.ticker);
+        const std::string& payload = payloads[next_idx(size)];
+        kis_ws::split_fields(payload, '^', fields);
+        TradeData trade;
+        (void)kis_ws::decode_kr_trade(fields, trade);
+        trade.received_ns = now_ns();
+        trade.symbol_id     = tab.intern(trade.ticker);
 
-        while (!q.push(std::move(td)))
+        while (!queue.push(std::move(trade)))
         {
             std::this_thread::yield();
         }
@@ -785,13 +785,13 @@ void bench_chain_at(const std::vector<std::string>& tickers, double rate_per_s)
 
     done.store(true, std::memory_order_release);
     consumer.join();
-    const double secs = static_cast<double>(now_ns() - t0) / 1e9;
-    const Pct    p    = percentiles(lat);
+    const double secs = static_cast<double>(now_ns() - start_time) / 1e9;
+    const Pct    pct    = percentiles(lat);
     int64_t      hits = 0;
 
-    for (const auto& o : owned)
+    for (const auto& owned_ticker : owned)
     {
-        hits += o->hits;
+        hits += owned_ticker->hits;
     }
 
     if (gap > 0)
@@ -806,8 +806,8 @@ void bench_chain_at(const std::vector<std::string>& tickers, double rate_per_s)
                     static_cast<long long>(hits));
     }
 
-    std::printf("  수신 시각 → on_trade 반환: p50 %.0f ns  p99 %.0f ns  p999 %.0f ns  max %.0f ns\n", p.p50, p.p99,
-                p.p999, p.max);
+    std::printf("  수신 시각 → on_trade 반환: p50 %.0f ns  p99 %.0f ns  p999 %.0f ns  max %.0f ns\n", pct.p50, pct.p99,
+                pct.p999, pct.max);
 }
 
 } // namespace

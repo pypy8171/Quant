@@ -62,11 +62,11 @@ public:
         double max_notional_per_order = 50'000'000.0;  // 1주문 최대 명목(원). price>0일 때만 검사
     };
 
-    OrderGate() : cfg_()
+    OrderGate() : config_()
     {
     }
 
-    explicit OrderGate(Config cfg) : cfg_(cfg)
+    explicit OrderGate(Config config) : config_(config)
     {
     }
 
@@ -74,12 +74,12 @@ public:
     OrderGate(const OrderGate&)            = delete;
     OrderGate& operator=(const OrderGate&) = delete;
 
-    // 위험 한도 주입 — 반드시 order_thread 시작 전에만 호출(cfg_는 check()에서 락 없이 읽힘).
-    void set_config(const Config& cfg) { cfg_ = cfg; }
-    const Config& config() const { return cfg_; }
+    // 위험 한도 주입 — 반드시 order_thread 시작 전에만 호출(config_는 check()에서 락 없이 읽힘).
+    void set_config(const Config& config) { config_ = config; }
+    const Config& config() const { return config_; }
 
     // ── 주문 검증 (true = 통과, false = 거부) ──────────────────────────────
-    bool check(const OrderSignal& sig, std::string& reject_reason);
+    bool check(const OrderSignal& signal, std::string& reject_reason);
 
     // ── 한도 클램프 (BUY NEW 전용) ─────────────────────────────────────────
     // 한도를 넘는 수량을 거부하는 대신 한도 안으로 줄여 돌려준다. 분할 매수 전략은 매 틱
@@ -91,18 +91,18 @@ public:
     // SELL NEW는 매도가능수량(보유 - 미체결매도)으로 깎는다. 자기 익절 지정가가 자기
     // 청산을 막아 KIS가 40240000으로 주문을 통째로 거부하면 한 주도 못 빠져나온다.
     // 원장이 그 종목을 0으로 알고 있으면 손대지 않는다(과소 인식 방어).
-    int clamp_buy_qty(const OrderSignal& sig);
+    int clamp_buy_qty(const OrderSignal& signal);
 
     // ── 상태 업데이트 ───────────────────────────────────────────────────────
     // KIS 접수(주문번호 ODNO 수신) 시 reserved_에 선점만 기록(실체결 원장 positions_는 불변).
     // check()는 positions_ + reserved_ 합산으로 한도를 보므로 미체결 주문이 과잉 주문을 차단한다.
-    // 체결(on_fill_confirmed) 시 reserved_가 해제되고 positions_/avg_price가 갱신된다.
+    // 체결(on_fill_confirmed) 시 reserved_가 해제되고 positions_/average_price가 갱신된다.
     // 원장은 (account_id:ticker)로 파티셔닝 — 계좌별 독립. 아래 4-arg 오버로드는 account="" 하위호환.
     void on_accept(const std::string& account, const std::string& ticker,
-                   OrderSide side, int qty, double price);
-    void on_accept(const std::string& ticker, OrderSide side, int qty, double price)
+                   OrderSide side, int quantity, double price);
+    void on_accept(const std::string& ticker, OrderSide side, int quantity, double price)
     {
-        on_accept(std::string(), ticker, side, qty, price);
+        on_accept(std::string(), ticker, side, quantity, price);
     }
 
     void add_realized_pnl(double pnl);  // SELL 체결 시 실현 손익 추가 (테스트에서도 사용)
@@ -112,7 +112,7 @@ public:
     //  (add_realized_pnl은 누적, 이건 절대치 세팅 — 잔고 대조 전용)
     void set_daily_pnl(double pnl)
     {
-        std::lock_guard<std::mutex> lk(pnl_mtx_);
+        std::lock_guard<std::mutex> lock(pnl_mtx_);
         daily_pnl_ = pnl;
     }
 
@@ -126,7 +126,7 @@ public:
     //  총평가금(equity_)과 다르다 — 평가금이 1억이어도 미체결 지정가와 미결제 매수가
     //  현금을 묶으면 살 수 없다. 이 값이 없으면 게이트가 그걸 모른 채 계속 발주하고
     //  KIS가 40250000으로 전량 거부한다(2026-09-08 59건).
-    void set_available_cash(double v) { available_cash_.store(v, std::memory_order_relaxed); }
+    void set_available_cash(double available_cash) { available_cash_.store(available_cash, std::memory_order_relaxed); }
     double available_cash() const { return available_cash_.load(std::memory_order_relaxed); }
 
     // ── 원장 부트스트랩 (G5) — 기동 시 실계좌 보유분을 원장에 시드 ─────────────
@@ -134,39 +134,39 @@ public:
     // on_fill_confirmed 재사용 금지(수수료·실현손익 오적립) → 전용 API.
     // 계좌키는 신호가 쓰는 account_id와 반드시 동일해야 조회된다(단일계좌는 account="").
     // sellable < 0 이면 "모름"으로 보고 보유수량을 그대로 쓴다.
-    void seed_position(const std::string& account, const std::string& ticker, int qty, double avg_price,
+    void seed_position(const std::string& account, const std::string& ticker, int quantity, double average_price,
                        int sellable);
-    void seed_position(const std::string& account, const std::string& ticker, int qty, double avg_price)
+    void seed_position(const std::string& account, const std::string& ticker, int quantity, double average_price)
     {
-        seed_position(account, ticker, qty, avg_price, -1);
+        seed_position(account, ticker, quantity, average_price, -1);
     }
 
-    void seed_position(const std::string& ticker, int qty, double avg_price)
+    void seed_position(const std::string& ticker, int quantity, double average_price)
     {
-        seed_position(std::string(), ticker, qty, avg_price, -1);
+        seed_position(std::string(), ticker, quantity, average_price, -1);
     }
 
     // ── 미체결 취소/정정 축소 시 선점 해제 (C5, MM-1) ─────────────────────
-    // qty = 취소된 미체결 잔량(>0). reserved_만 감소 — positions_/avg_price는 불변(취소는 체결 아님).
-    // 방향은 on_fill_confirmed의 선점 해제와 동일: BUY 선점(+)은 -qty, SELL 선점(-)은 +qty.
+    // quantity = 취소된 미체결 잔량(>0). reserved_만 감소 — positions_/average_price는 불변(취소는 체결 아님).
+    // 방향은 on_fill_confirmed의 선점 해제와 동일: BUY 선점(+)은 -quantity, SELL 선점(-)은 +quantity.
     // 호출 규약: 반드시 KIS 취소 성공(rt_cd=="0") 이후에만 호출 — 실패 시 호출하면 이중해제.
-    void on_cancel(const std::string& account, const std::string& ticker, OrderSide side, int qty);
-    void on_cancel(const std::string& ticker, OrderSide side, int qty)
+    void on_cancel(const std::string& account, const std::string& ticker, OrderSide side, int quantity);
+    void on_cancel(const std::string& ticker, OrderSide side, int quantity)
     {
-        on_cancel(std::string(), ticker, side, qty);
+        on_cancel(std::string(), ticker, side, quantity);
     }
 
     // ── 체결 확인 시 원장 갱신 ─────────────────────────────────────────────
-    // H0STCNI0 체결통보 수신 후 호출. avg_price 재계산 + 실현손익 적립.
+    // H0STCNI0 체결통보 수신 후 호출. average_price 재계산 + 실현손익 적립.
     struct FillResult
     {
-        double avg_price    = 0.0; // 갱신된 매수 평균단가
+        double average_price    = 0.0; // 갱신된 매수 평균단가
         int    net_qty      = 0;   // 체결 후 순 보유수량
         double commission   = 0.0; // 수수료 (0.015%)
         double tax          = 0.0; // 거래세 (매도 0.18%)
         double realized_pnl = 0.0; // 이번 체결 실현손익 (SELL만 양수)
         // SELL인데 원장이 평단을 모를 때 true. 그 경우 realized_pnl은 0으로 두고 daily_pnl에도
-        //  더하지 않는다 — (price-0)*qty가 이익으로 잡히면 일일 손실컷이 무력화된다(C-1).
+        //  더하지 않는다 — (price-0)*quantity가 이익으로 잡히면 일일 손실컷이 무력화된다(C-1).
         bool   basis_unknown = false;
         // strategy_id별 서브원장(전략별 손익 귀속, D-089) — 위 필드들과 계산은 독립이고
         //  daily_pnl_·kill switch 판정에는 안 들어간다. 참고용 집계만.
@@ -175,12 +175,12 @@ public:
     };
     // strategy_id: OrderSignal.strategy_id(예: "TRENDX_108490"). 빈 문자열이면 서브원장 갱신을 건너뛴다.
     FillResult on_fill_confirmed(const std::string& account, const std::string& ticker,
-                                 OrderSide side, int qty, double price,
+                                 OrderSide side, int quantity, double price,
                                  const std::string& strategy_id = std::string());
     FillResult on_fill_confirmed(const std::string& ticker, OrderSide side,
-                                 int qty, double price)
+                                 int quantity, double price)
     {
-        return on_fill_confirmed(std::string(), ticker, side, qty, price, std::string());
+        return on_fill_confirmed(std::string(), ticker, side, quantity, price, std::string());
     }
 
     // ── Kill switch ─────────────────────────────────────────────────────────
@@ -209,9 +209,9 @@ public:
 
     // 매수 명목 비율(0~1). 국면 점수를 스위치가 아니라 비율로 옮긴 값 — 전략이 rung 명목에 곱한다.
     //  게이트 자체는 이 값으로 주문을 막지 않는다(0이면 entry_halt가 같이 켜진다). [why D-083]
-    void set_entry_scale(double s)
+    void set_entry_scale(double entry_scale)
     {
-        entry_scale_.store(s);
+        entry_scale_.store(entry_scale);
     }
 
     double entry_scale() const
@@ -224,11 +224,11 @@ public:
     //  z는 같은 점수의 표준화값 — 랭크는 "몇 번째"만 알려주고 "얼마나 더 좋은지"는 못 알려준다.
     //  교체는 격차가 잡음보다 큰지를 봐야 하므로 z가 따로 필요하다.
     void set_entry_priority(std::unordered_map<std::string, int> rank,
-                            std::unordered_map<std::string, double> z, int total)
+                            std::unordered_map<std::string, double> items, int total)
     {
-        std::lock_guard<std::mutex> lk(prio_mtx_);
+        std::lock_guard<std::mutex> lock(prio_mtx_);
         entry_rank_  = std::move(rank);
-        entry_z_     = std::move(z);
+        entry_z_     = std::move(items);
         entry_total_ = total;
     }
 
@@ -240,8 +240,8 @@ public:
         bool        ok = false;
         std::string account;      // 비울 종목의 계좌
         std::string ticker;       // 비울 종목
-        int         qty = 0;      // 매도할 수량(미체결 매도 제외)
-        double      avg_price = 0.0;
+        int         quantity = 0;      // 매도할 수량(미체결 매도 제외)
+        double      average_price = 0.0;
         double      victim_z = 0.0;
         double      new_z = 0.0;
         std::string reason;       // 로그·원장에 남길 사유
@@ -308,7 +308,7 @@ public:
     //  게이트의 sellable_은 잔고 시드값(ord_psbl_qty) 그대로 남아, 미체결이 없는데도 자기 청산이
     //  막힌다(09-09 000215: 13:45 취소 후 16분간 "매도가능수량 0"으로 교체 진입 4회 무산).
     //  보유수량을 넘지 않게 자른다. 원장이 모르는 종목이면 아무 것도 하지 않는다.
-    void restore_sellable(const std::string& account, const std::string& ticker, int qty);
+    void restore_sellable(const std::string& account, const std::string& ticker, int quantity);
 
     // 매도가능수량이 0으로 잘린 이유를 로그에 남길 조각. 원장 보유·잔고 주문가능(시드/대조값)·
     //  이 세션 미체결 매도(선점). 원장이 모르는 종목이면 held=0이고 나머지도 0이다.
@@ -336,16 +336,16 @@ public:
     // 계좌 지정 버전(주 경로) + account="" 하위호환(단일 계좌).
     int    position(const std::string& account, const std::string& ticker) const;
     int    reserved(const std::string& account, const std::string& ticker) const;
-    double avg_price(const std::string& account, const std::string& ticker) const;
+    double average_price(const std::string& account, const std::string& ticker) const;
     int    position(const std::string& ticker) const { return position(std::string(), ticker); }
     int    reserved(const std::string& ticker) const { return reserved(std::string(), ticker); }
-    double avg_price(const std::string& ticker) const { return avg_price(std::string(), ticker); }
+    double average_price(const std::string& ticker) const { return average_price(std::string(), ticker); }
     double daily_pnl() const;
 
     // ── 보유 포지션 스냅샷 (G3 강제청산) — net>0 실보유분만 락 하 복사 반환 ──────
     //  data_thread가 아닌 strategy_thread(order_queue_ 단일 생산자)가 force_liquidate 시
     //  이 목록으로 전량 시장가 매도를 발주한다.
-    struct HeldPos { std::string account; std::string ticker; int qty; double avg_price; };
+    struct HeldPos { std::string account; std::string ticker; int quantity; double average_price; };
     std::vector<HeldPos> snapshot_positions() const;
 
 private:
@@ -365,11 +365,11 @@ private:
 
     struct PosKeyHash
     {
-        size_t operator()(const PosKey& k) const
+        size_t operator()(const PosKey& key) const
         {
             // boost::hash_combine 모양. 두 필드를 xor만 하면 (a,b)와 (b,a)가 같은 버킷에 간다.
-            const size_t h1 = std::hash<std::string>{}(k.account);
-            const size_t h2 = std::hash<std::string>{}(k.ticker);
+            const size_t h1 = std::hash<std::string>{}(key.account);
+            const size_t h2 = std::hash<std::string>{}(key.ticker);
             return h1 ^ (h2 + 0x9e3779b9u + (h1 << 6) + (h1 >> 2));
         }
     };
@@ -387,7 +387,7 @@ private:
     //  고쳐지므로 여기 하나만 둔다. 호출 전에 positions_mtx_를 잡아야 한다(내부에서 잡지 않음).
     void release_reservation(const PosKey& key, int delta);
 
-    Config cfg_;
+    Config config_;
     std::atomic<bool> kill_switch_{false};
     std::atomic<bool> entry_halt_{false};  // 신규 진입(BUY NEW)만 정지, SELL 청산은 통과 — 국면 리스크용
     std::atomic<double> entry_scale_{1.0}; // 매수 명목 비율(0~1). 국면 점수의 비례판 [why D-083]

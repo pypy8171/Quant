@@ -38,7 +38,7 @@ config에는 **실계좌 인증 정보**가 있다. 모의투자는 `"is_paper":
 ## 아키텍처
 
 요약은 [docs/ENGINE_ARCHITECTURE.md](docs/ENGINE_ARCHITECTURE.md), 읽는 순서는 [docs/CODE_FLOW.md](docs/CODE_FLOW.md).
-전략 추가는 `StrategyBase` 상속 → `on_start`에서 `symbol_of()`로 id를 받아 `td.sym`과 정수 비교 → `main.cpp`의
+전략 추가는 `StrategyBase` 상속 → `on_start`에서 `symbol_of()`로 id를 받아 `trade.symbol_id`와 정수 비교 → `main.cpp`의
 `engine.add_strategy(...)` 등록. 플랫폼 코드는 HTTP `#ifdef _WIN32`(`Quant/src/api/KisTransport.cpp`), WebSocket은
 파일 단위(`WsSocketWin.cpp`/`WsSocketPosix.cpp`) — 네트워크 기능 추가 시 이 패턴 유지. Windows 빌드 플래그·콘솔 UTF-8은
 [docs/guides/PROJECT_GUIDE.md](docs/guides/PROJECT_GUIDE.md).

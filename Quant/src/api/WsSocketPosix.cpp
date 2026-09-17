@@ -19,30 +19,30 @@
 namespace
 {
 
-size_t curl_write_cb(char* p, size_t sz, size_t nm, std::string* out)
+size_t curl_write_cb(char* cursor, size_t sz, size_t nm, std::string* out)
 {
-    out->append(p, sz * nm);
+    out->append(cursor, sz * nm);
     return sz * nm;
 }
 
 
 // ─── POSIX socket 헬퍼 ────────────────────────────────────────────────────
 
-bool sock_recv_all(int fd, void* buf, size_t len)
+bool sock_recv_all(int fd, void* buffer, size_t length)
 {
-    auto* p = static_cast<char*>(buf);
+    auto* cursor = static_cast<char*>(buffer);
 
-    while (len > 0)
+    while (length > 0)
     {
-        ssize_t n = ::recv(fd, p, len, 0);
+        ssize_t received = ::recv(fd, cursor, length, 0);
 
-        if (n <= 0)
+        if (received <= 0)
         {
             return false;
         }
 
-        p += n;
-        len -= static_cast<size_t>(n);
+        cursor += received;
+        length -= static_cast<size_t>(received);
     }
 
     return true;
@@ -67,16 +67,16 @@ bool ws_tcp_connect(const std::string& host, int port, int& out_fd)
 
     int fd = -1;
 
-    for (auto* p = res; p; p = p->ai_next)
+    for (auto* address_info = res; address_info; address_info = address_info->ai_next)
     {
-        fd = ::socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        fd = ::socket(address_info->ai_family, address_info->ai_socktype, address_info->ai_protocol);
 
         if (fd < 0)
         {
             continue;
         }
 
-        if (::connect(fd, p->ai_addr, p->ai_addrlen) == 0)
+        if (::connect(fd, address_info->ai_addr, address_info->ai_addrlen) == 0)
         {
             break;
         }
@@ -117,30 +117,30 @@ bool ws_tcp_connect(const std::string& host, int port, int& out_fd)
     }
 
     // 응답을 헤더 끝(\r\n\r\n)까지 읽기 (부분 수신 대비)
-    std::string resp;
-    char buf[1024];
+    std::string response;
+    char buffer[1024];
 
-    for (int i = 0; i < 8; ++i)
+    for (int index = 0; index < 8; ++index)
     {
-        ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
+        ssize_t received = ::recv(fd, buffer, sizeof(buffer), 0);
 
-        if (n <= 0)
+        if (received <= 0)
         {
             break;
         }
 
-        resp.append(buf, static_cast<size_t>(n));
+        response.append(buffer, static_cast<size_t>(received));
 
-        if (resp.find("\r\n\r\n") != std::string::npos)
+        if (response.find("\r\n\r\n") != std::string::npos)
         {
             break;
         }
     }
 
-    if (resp.find("101") == std::string::npos)
+    if (response.find("101") == std::string::npos)
     {
-        LOG_WARN("[WS] 핸드셰이크 응답에 101 없음 (recv " + std::to_string(resp.size()) +
-                 "B): " + resp.substr(0, 120));
+        LOG_WARN("[WS] 핸드셰이크 응답에 101 없음 (recv " + std::to_string(response.size()) +
+                 "B): " + response.substr(0, 120));
         ::close(fd);
         return false;
     }
@@ -157,29 +157,29 @@ bool ws_tcp_connect(const std::string& host, int port, int& out_fd)
 // RFC 6455 텍스트 프레임 송신 (client→server, MASK=1 필수)
 void ws_send_text_linux(int fd, const std::string& data)
 {
-    size_t len = data.size();
+    size_t length = data.size();
     std::vector<uint8_t> frame;
-    frame.reserve(6 + len);
+    frame.reserve(6 + length);
 
     frame.push_back(0x81); // FIN=1, opcode=1(Text)
 
-    if (len <= 125)
+    if (length <= 125)
     {
-        frame.push_back(uint8_t(0x80 | len));
+        frame.push_back(uint8_t(0x80 | length));
     }
-    else if (len <= 65535)
+    else if (length <= 65535)
     {
         frame.push_back(0x80 | 126);
-        frame.push_back(uint8_t(len >> 8));
-        frame.push_back(uint8_t(len));
+        frame.push_back(uint8_t(length >> 8));
+        frame.push_back(uint8_t(length));
     }
     else
     {
         frame.push_back(0x80 | 127);
 
-        for (int i = 7; i >= 0; --i)
+        for (int index = 7; index >= 0; --index)
         {
-            frame.push_back(uint8_t(len >> (8 * i)));
+            frame.push_back(uint8_t(length >> (8 * index)));
         }
     }
 
@@ -189,20 +189,20 @@ void ws_send_text_linux(int fd, const std::string& data)
     const uint8_t mk[4] = {0x37, 0x1A, 0xC5, 0x4F};
     frame.insert(frame.end(), mk, mk + 4);
 
-    for (size_t i = 0; i < len; ++i)
+    for (size_t length_index = 0; length_index < length; ++length_index)
     {
-        frame.push_back(uint8_t(data[i]) ^ mk[i % 4]);
+        frame.push_back(uint8_t(data[length_index]) ^ mk[length_index % 4]);
     }
 
     ::send(fd, frame.data(), frame.size(), MSG_NOSIGNAL);
 }
 
-// RFC 6455 프레임 수신 → 메시지 하나를 out에 채운다(false = 연결 종료/오류, 이유는 err).
+// RFC 6455 프레임 수신 → 메시지 하나를 out에 채운다(false = 연결 종료/오류, 이유는 error).
 //  FIN=0 프레임과 뒤따르는 continuation(0x0)을 한 메시지로 모은다 — Windows 경로의 UTF8_FRAGMENT
 //  누적과 같은 동작이어야 parse_message가 잘린 문자열을 받지 않는다. 제어 프레임(ping/pong)은
 //  분할 메시지 사이에 끼어들 수 있으므로 누적을 끊지 않는다. 재귀 대신 루프 — ping이 연속으로
 //  오면 스택이 자란다.
-bool ws_recv_frame_linux(int fd, std::string& out, std::string& err)
+bool ws_recv_frame_linux(int fd, std::string& out, std::string& error)
 {
     // 손상된 길이 필드 하나로 거대 할당이 일어나지 않게 상한을 둔다. KIS 실시간 프레임은 KB 단위다.
     constexpr uint64_t kMaxMessageBytes = uint64_t(1) << 20;
@@ -216,48 +216,48 @@ bool ws_recv_frame_linux(int fd, std::string& out, std::string& err)
 
         if (!sock_recv_all(fd, hdr, 2))
         {
-            err = "recv 실패/종료";
+            error = "recv 실패/종료";
             return false;
         }
 
         const bool fin = (hdr[0] & 0x80) != 0;
         const uint8_t opcode = hdr[0] & 0x0F;
         const bool masked = ((hdr[1] >> 7) & 1) != 0;
-        uint64_t len = hdr[1] & 0x7F;
+        uint64_t length = hdr[1] & 0x7F;
 
-        if (len == 126)
+        if (length == 126)
         {
             uint8_t ext[2];
 
             if (!sock_recv_all(fd, ext, 2))
             {
-                err = "recv 실패/종료";
+                error = "recv 실패/종료";
                 return false;
             }
 
-            len = (uint64_t(ext[0]) << 8) | ext[1];
+            length = (uint64_t(ext[0]) << 8) | ext[1];
         }
-        else if (len == 127)
+        else if (length == 127)
         {
             uint8_t ext[8];
 
             if (!sock_recv_all(fd, ext, 8))
             {
-                err = "recv 실패/종료";
+                error = "recv 실패/종료";
                 return false;
             }
 
-            len = 0;
+            length = 0;
 
-            for (int i = 0; i < 8; ++i)
+            for (int index = 0; index < 8; ++index)
             {
-                len = (len << 8) | ext[i];
+                length = (length << 8) | ext[index];
             }
         }
 
-        if (len > kMaxMessageBytes || message.size() + len > kMaxMessageBytes)
+        if (length > kMaxMessageBytes || message.size() + length > kMaxMessageBytes)
         {
-            err = "프레임 길이 상한 초과 (" + std::to_string(len) + "B)";
+            error = "프레임 길이 상한 초과 (" + std::to_string(length) + "B)";
             return false;
         }
 
@@ -265,36 +265,36 @@ bool ws_recv_frame_linux(int fd, std::string& out, std::string& err)
 
         if (masked && !sock_recv_all(fd, mk, 4))
         {
-            err = "recv 실패/종료";
+            error = "recv 실패/종료";
             return false;
         }
 
-        std::vector<uint8_t> payload(static_cast<size_t>(len));
+        std::vector<uint8_t> payload(static_cast<size_t>(length));
 
-        if (len > 0 && !sock_recv_all(fd, payload.data(), static_cast<size_t>(len)))
+        if (length > 0 && !sock_recv_all(fd, payload.data(), static_cast<size_t>(length)))
         {
-            err = "recv 실패/종료";
+            error = "recv 실패/종료";
             return false;
         }
 
         if (masked)
         {
-            for (size_t i = 0; i < payload.size(); ++i)
+            for (size_t payload_index = 0; payload_index < payload.size(); ++payload_index)
             {
-                payload[i] ^= mk[i % 4];
+                payload[payload_index] ^= mk[payload_index % 4];
             }
         }
 
         if (opcode == 0x8)
         {
-            err = "서버 close 프레임";
+            error = "서버 close 프레임";
             return false;
         }
 
         if (opcode == 0x9)
         {
             // Ping(0x9) → Pong(0xA). 제어 프레임 payload는 125B 이하라 1바이트 길이로 충분하다.
-            std::vector<uint8_t> pong = {0x8A, uint8_t(0x80 | (len & 0x7F)), 0x00, 0x00, 0x00, 0x00};
+            std::vector<uint8_t> pong = {0x8A, uint8_t(0x80 | (length & 0x7F)), 0x00, 0x00, 0x00, 0x00};
             pong.insert(pong.end(), payload.begin(), payload.end());
             ::send(fd, pong.data(), pong.size(), MSG_NOSIGNAL);
             continue;
@@ -347,7 +347,7 @@ public:
         return true;
     }
 
-    void send_text(const std::string& msg) override
+    void send_text(const std::string& message) override
     {
         int fd = fd_.load();
 
@@ -356,7 +356,7 @@ public:
             return;
         }
 
-        ws_send_text_linux(fd, msg);
+        ws_send_text_linux(fd, message);
     }
 
     bool recv_message(std::string& out) override
@@ -421,15 +421,15 @@ std::string ws_platform::http_post_json(const std::string& url, const std::strin
         return "";
     }
 
-    std::string resp;
-    curl_slist* hdrs = nullptr;
-    hdrs = curl_slist_append(hdrs, "Content-Type: application/json");
+    std::string response;
+    curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hdrs);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
 
@@ -440,9 +440,9 @@ std::string ws_platform::http_post_json(const std::string& url, const std::strin
         LOG_ERROR(std::string("[WS] HTTP POST 오류: ") + curl_easy_strerror(rc));
     }
 
-    curl_slist_free_all(hdrs);
+    curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
-    return resp;
+    return response;
 }
 
 // ─── 체결통보 복호화: OpenSSL EVP — AES-256-CBC, PKCS7 패딩 제거(DecryptFinal) ──
@@ -461,23 +461,23 @@ std::string ws_platform::aes_cbc_decrypt(const std::string& cipher, const std::s
     }
 
     std::string out(cipher.size() + 16, '\0');
-    int len = 0, total = 0;
+    int length = 0, total = 0;
     std::string result;
 
     if (EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr,
             reinterpret_cast<const unsigned char*>(key.data()),
             reinterpret_cast<const unsigned char*>(iv.data())) == 1 &&
         EVP_DecryptUpdate(ctx,
-            reinterpret_cast<unsigned char*>(&out[0]), &len,
+            reinterpret_cast<unsigned char*>(&out[0]), &length,
             reinterpret_cast<const unsigned char*>(cipher.data()),
             static_cast<int>(cipher.size())) == 1)
     {
-        total = len;
+        total = length;
 
         if (EVP_DecryptFinal_ex(ctx,
-                reinterpret_cast<unsigned char*>(&out[0]) + total, &len) == 1)
+                reinterpret_cast<unsigned char*>(&out[0]) + total, &length) == 1)
         {
-            total += len;
+            total += length;
             result.assign(out.data(), total);
         }
     }

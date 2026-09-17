@@ -43,26 +43,26 @@ using json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 
 // 정렬된 표본에서 백분위수 — 최근접 순위(nearest-rank).
-static double pct(const std::vector<double>& sorted, double p)
+static double pct(const std::vector<double>& sorted, double price)
 {
     if (sorted.empty())
     {
         return 0.0;
     }
 
-    size_t idx = static_cast<size_t>(std::ceil(p / 100.0 * static_cast<double>(sorted.size())));
+    size_t index = static_cast<size_t>(std::ceil(price / 100.0 * static_cast<double>(sorted.size())));
 
-    if (idx == 0)
+    if (index == 0)
     {
-        idx = 1;
+        index = 1;
     }
 
-    if (idx > sorted.size())
+    if (index > sorted.size())
     {
-        idx = sorted.size();
+        index = sorted.size();
     }
 
-    return sorted[idx - 1];
+    return sorted[index - 1];
 }
 
 int main(int argc, char** argv)
@@ -80,21 +80,21 @@ int main(int argc, char** argv)
 
     const std::string config_path = argv[1];
     const std::string ticker = (argc > 2) ? argv[2] : "005930";
-    const int n = (argc > 3) ? std::atoi(argv[3]) : 40;
+    const int count = (argc > 3) ? std::atoi(argv[3]) : 40;
     const int pace_ms = (argc > 4) ? std::atoi(argv[4]) : 60;
 
-    std::ifstream f(config_path);
+    std::ifstream file(config_path);
 
-    if (!f)
+    if (!file)
     {
         std::cerr << "[중단] config 못 엶: " << config_path << "\n";
         return 1;
     }
 
-    json cfg = json::parse(f);
+    json config = json::parse(file);
 
-    const char* block = cfg.contains("quote_kis") ? "quote_kis" : "kis";
-    const json& kb = cfg[block];
+    const char* block = config.contains("quote_kis") ? "quote_kis" : "kis";
+    const json& kb = config[block];
 
     KisConfig kc;
     kc.app_key    = kb.value("app_key", "");
@@ -107,7 +107,7 @@ int main(int argc, char** argv)
     std::cout << "=== REST 커넥션 풀링 벤치 (P-2) ===\n";
     std::cout << "config=" << config_path << "  키블록=" << block
               << "  is_paper=" << (kc.is_paper ? "true" : "false") << "\n";
-    std::cout << "ticker=" << ticker << "  n=" << n << "  pace=" << pace_ms << "ms\n";
+    std::cout << "ticker=" << ticker << "  n=" << count << "  pace=" << pace_ms << "ms\n";
     std::cout << "커넥션 풀링 = " << (nopool ? "OFF (QUANT_HTTP_NOPOOL=1 — 요청마다 TCP+TLS 재수립)"
                                              : "ON (상주 연결 재사용)")
               << "\n\n";
@@ -131,7 +131,7 @@ int main(int argc, char** argv)
     // 워밍업 — 첫 호출에는 DNS 조회·토큰 경로 초기화가 섞여 분포를 왜곡한다. 측정에서 뺀다.
     constexpr int kWarmup = 3;
 
-    for (int i = 0; i < kWarmup; ++i)
+    for (int warmup_index = 0; warmup_index < kWarmup; ++warmup_index)
     {
         kis.get_current_price(ticker);
         std::this_thread::sleep_for(std::chrono::milliseconds(pace_ms));
@@ -140,16 +140,16 @@ int main(int argc, char** argv)
     std::cout << "[2] 워밍업 " << kWarmup << "회 완료\n";
 
     std::vector<double> ms;
-    ms.reserve(static_cast<size_t>(n));
+    ms.reserve(static_cast<size_t>(count));
     int fail = 0;
 
-    for (int i = 0; i < n; ++i)
+    for (int index = 0; index < count; ++index)
     {
-        auto t0 = Clock::now();
+        auto start_time = Clock::now();
         double price = kis.get_current_price(ticker);
         auto t1 = Clock::now();
 
-        double dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        double dt = std::chrono::duration<double, std::milli>(t1 - start_time).count();
 
         if (price > 0.0)
         {
@@ -160,13 +160,13 @@ int main(int argc, char** argv)
             ++fail; // 조회 실패는 분포에서 제외(재시도 백오프가 섞여 지연을 왜곡)
         }
 
-        if (pace_ms > 0 && i + 1 < n)
+        if (pace_ms > 0 && index + 1 < count)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(pace_ms));
         }
     }
 
-    std::cout << "[3] 측정 " << n << "회 완료 (성공 " << ms.size() << " / 실패 " << fail << ")\n\n";
+    std::cout << "[3] 측정 " << count << "회 완료 (성공 " << ms.size() << " / 실패 " << fail << ")\n\n";
 
     if (ms.empty())
     {
@@ -174,24 +174,24 @@ int main(int argc, char** argv)
         return 4;
     }
 
-    std::vector<double> s = ms;
-    std::sort(s.begin(), s.end());
+    std::vector<double> sorted_samples = ms;
+    std::sort(sorted_samples.begin(), sorted_samples.end());
     double sum = 0.0;
 
-    for (double v : s)
+    for (double sample : sorted_samples)
     {
-        sum += v;
+        sum += sample;
     }
 
     std::cout << std::fixed << std::setprecision(2);
     std::cout << "── 호출당 지연 (ms) ──────────────────────\n";
-    std::cout << "  표본        " << s.size() << "\n";
-    std::cout << "  최소        " << s.front() << "\n";
-    std::cout << "  중앙값(p50) " << pct(s, 50) << "\n";
-    std::cout << "  p90         " << pct(s, 90) << "\n";
-    std::cout << "  p99         " << pct(s, 99) << "\n";
-    std::cout << "  최대        " << s.back() << "\n";
-    std::cout << "  평균        " << (sum / static_cast<double>(s.size())) << "\n";
+    std::cout << "  표본        " << sorted_samples.size() << "\n";
+    std::cout << "  최소        " << sorted_samples.front() << "\n";
+    std::cout << "  중앙값(p50) " << pct(sorted_samples, 50) << "\n";
+    std::cout << "  p90         " << pct(sorted_samples, 90) << "\n";
+    std::cout << "  p99         " << pct(sorted_samples, 99) << "\n";
+    std::cout << "  최대        " << sorted_samples.back() << "\n";
+    std::cout << "  평균        " << (sum / static_cast<double>(sorted_samples.size())) << "\n";
     std::cout << "──────────────────────────────────────────\n";
     std::cout << "풀링 " << (nopool ? "OFF" : "ON") << " 기준값입니다. 반대 조건으로 한 번 더 돌려 비교하세요.\n";
     std::cout << "  같은 회차·같은 네트워크 상태에서 연달아 재야 비교가 성립합니다(외부 회선 변동이 섞임).\n";

@@ -30,26 +30,26 @@ int g_checks = 0;
 // 2027-01-15 08:00 UTC = KST 17:00 같은 날. 기준선 파일 날짜를 고정한다.
 constexpr std::time_t kT0 = 1800000000;
 
-Holding hold(const char* t, int q, double av, std::optional<int> psbl = std::nullopt)
+Holding hold(const char* ticker, int quantity, double av, std::optional<int> psbl = std::nullopt)
 {
-    Holding h;
-    h.ticker       = t;
-    h.name         = std::string("N-") + t;
-    h.qty          = q;
-    h.avg_price    = av;
-    h.sellable_qty = psbl;
-    return h;
+    Holding holding;
+    holding.ticker       = ticker;
+    holding.name         = std::string("N-") + ticker;
+    holding.quantity          = quantity;
+    holding.average_price    = av;
+    holding.sellable_qty = psbl;
+    return holding;
 }
 
 KisResult<AccountBalance> ok_balance(std::vector<Holding> hs, double tot_eval, double cash = 500000.0,
-                                     std::optional<double> prev = std::nullopt)
+                                     std::optional<double> previous = std::nullopt)
 {
-    AccountBalance b;
-    b.holdings             = std::move(hs);
-    b.total_eval_amt       = tot_eval;
-    b.available_cash       = cash;
-    b.prev_day_total_asset = prev;
-    return b;
+    AccountBalance balance;
+    balance.holdings             = std::move(hs);
+    balance.total_eval_amt       = tot_eval;
+    balance.available_cash       = cash;
+    balance.prev_day_total_asset = previous;
+    return balance;
 }
 
 KisResult<AccountBalance> fail_balance()
@@ -64,42 +64,42 @@ std::filesystem::path baseline_dir()
 
 void wipe_baselines()
 {
-    std::error_code ec;
-    std::filesystem::remove_all(baseline_dir(), ec);
-    std::filesystem::create_directories(baseline_dir(), ec);
+    std::error_code error_code;
+    std::filesystem::remove_all(baseline_dir(), error_code);
+    std::filesystem::create_directories(baseline_dir(), error_code);
 }
 
 int test_breaker()
 {
-    ledger::ReconcileBreaker b;
-    CHECK(!b.take_skip());
+    ledger::ReconcileBreaker reconcile_breaker;
+    CHECK(!reconcile_breaker.take_skip());
 
     // 실패 1: 백오프 1사이클, 아직 pnl_stale 아님.
-    ledger::BreakerOutcome o = b.on_result(false);
-    CHECK(o.log_backoff && o.skip_cycles == 1 && !o.pnl_stale && !o.log_stale_on && b.fail_streak() == 1);
-    CHECK(b.take_skip() && !b.take_skip());
+    ledger::BreakerOutcome breaker_outcome = reconcile_breaker.on_result(false);
+    CHECK(breaker_outcome.log_backoff && breaker_outcome.skip_cycles == 1 && !breaker_outcome.pnl_stale && !breaker_outcome.log_stale_on && reconcile_breaker.fail_streak() == 1);
+    CHECK(reconcile_breaker.take_skip() && !reconcile_breaker.take_skip());
 
     // 실패 2: 임계 진입 1회 로그 + pnl_stale=true, 백오프 2.
-    o = b.on_result(false);
-    CHECK(o.log_stale_on && o.pnl_stale && *o.pnl_stale && o.skip_cycles == 2);
-    o = b.on_result(false);
-    CHECK(!o.log_stale_on && o.pnl_stale && *o.pnl_stale && o.skip_cycles == 4);
-    o = b.on_result(false);
-    CHECK(o.skip_cycles == 8);
-    o = b.on_result(false);
-    CHECK(o.skip_cycles == 8 && b.fail_streak() == 5); // 상한 2^3
+    breaker_outcome = reconcile_breaker.on_result(false);
+    CHECK(breaker_outcome.log_stale_on && breaker_outcome.pnl_stale && *breaker_outcome.pnl_stale && breaker_outcome.skip_cycles == 2);
+    breaker_outcome = reconcile_breaker.on_result(false);
+    CHECK(!breaker_outcome.log_stale_on && breaker_outcome.pnl_stale && *breaker_outcome.pnl_stale && breaker_outcome.skip_cycles == 4);
+    breaker_outcome = reconcile_breaker.on_result(false);
+    CHECK(breaker_outcome.skip_cycles == 8);
+    breaker_outcome = reconcile_breaker.on_result(false);
+    CHECK(breaker_outcome.skip_cycles == 8 && reconcile_breaker.fail_streak() == 5); // 상한 2^3
 
     // 복구: 즉시 스킵 0, 두 로그 모두, pnl_stale=false.
-    o = b.on_result(true);
-    CHECK(o.log_recovered && o.log_stale_off && o.pnl_stale && !*o.pnl_stale && b.skip_remaining() == 0 &&
-          b.fail_streak() == 0);
+    breaker_outcome = reconcile_breaker.on_result(true);
+    CHECK(breaker_outcome.log_recovered && breaker_outcome.log_stale_off && breaker_outcome.pnl_stale && !*breaker_outcome.pnl_stale && reconcile_breaker.skip_remaining() == 0 &&
+          reconcile_breaker.fail_streak() == 0);
 
     // 단발 실패 뒤 성공: 복구 로그는 찍되 정체 해제 로그는 없다.
-    (void) b.on_result(false);
-    o = b.on_result(true);
-    CHECK(o.log_recovered && !o.log_stale_off);
-    o = b.on_result(true);
-    CHECK(!o.log_recovered && o.pnl_stale && !*o.pnl_stale);
+    (void) reconcile_breaker.on_result(false);
+    breaker_outcome = reconcile_breaker.on_result(true);
+    CHECK(breaker_outcome.log_recovered && !breaker_outcome.log_stale_off);
+    breaker_outcome = reconcile_breaker.on_result(true);
+    CHECK(!breaker_outcome.log_recovered && breaker_outcome.pnl_stale && !*breaker_outcome.pnl_stale);
     return 0;
 }
 
@@ -117,11 +117,11 @@ int test_bootstrap()
 {
     OrderGate gate;
     int       calls = 0;
-    LedgerReconciler r(gate, [&] {
+    LedgerReconciler reconciler(gate, [&] {
         ++calls;
         return fail_balance();
     });
-    CHECK(!r.bootstrap(5, std::chrono::milliseconds(0)) && calls == 5);
+    CHECK(!reconciler.bootstrap(5, std::chrono::milliseconds(0)) && calls == 5);
     CHECK(gate.snapshot_positions().empty());
 
     // 두 번 실패 뒤 성공 — 원장·주문가능·종목명이 시드된다.
@@ -132,9 +132,9 @@ int test_bootstrap()
         return calls < 3 ? fail_balance()
                          : ok_balance({hold("005930", 10, 70000.0, 7), hold("000660", 3, 150000.0)}, 1000000.0);
     });
-    r2.set_name_sink([&](const std::string& t, const std::string& n) { names.emplace_back(t, n); });
+    r2.set_name_sink([&](const std::string& ticker, const std::string& name) { names.emplace_back(ticker, name); });
     CHECK(r2.bootstrap(5, std::chrono::milliseconds(0)) && calls == 3);
-    CHECK(gate.position("005930") == 10 && gate.avg_price("005930") == 70000.0);
+    CHECK(gate.position("005930") == 10 && gate.average_price("005930") == 70000.0);
     CHECK(gate.sellable_view(std::string(), "005930").psbl_cap == 7);
     CHECK(gate.sellable_view(std::string(), "000660").psbl_cap == 3); // 모름(-1) → 보유수량
     CHECK(names.size() == 2 && names[0].first == "005930" && names[0].second == "N-005930");
@@ -147,19 +147,19 @@ int test_reconcile_rest()
     OrderGate gate;
     KisResult<AccountBalance> next = ok_balance({hold("A", 10, 100.0, 10)}, 1000000.0, 500000.0, 990000.0);
     std::vector<reconcile::Row> rows;
-    LedgerReconciler r(gate, [&] { return next; });
-    r.set_baseline_dir(baseline_dir());
-    r.set_reconcile_sink([&](const reconcile::Row& row) { rows.push_back(row); });
+    LedgerReconciler reconciler(gate, [&] { return next; });
+    reconciler.set_baseline_dir(baseline_dir());
+    reconciler.set_reconcile_sink([&](const reconcile::Row& row) { rows.push_back(row); });
 
     // 첫 대조: 원장 덮어쓰기, 기준선은 전일 총자산(990000) — 시초 갭 +10000이 당일손익에 든다. 파일 저장.
-    r.reconcile(true, kT0);
-    CHECK(gate.position("A") == 10 && gate.avg_price("A") == 100.0);
+    reconciler.reconcile(true, kT0);
+    CHECK(gate.position("A") == 10 && gate.average_price("A") == 100.0);
     CHECK(gate.daily_pnl() == 10000.0 && gate.equity() == 1000000.0 && gate.available_cash() == 500000.0);
-    CHECK(r.has_baseline() && r.baseline() == 990000.0);
+    CHECK(reconciler.has_baseline() && reconciler.baseline() == 990000.0);
     {
-        std::ifstream f(baseline_dir() / "pnl_baseline_20270115.txt");
-        long long     v = 0;
-        CHECK(f.is_open() && (f >> v) && v == 990000);
+        std::ifstream file(baseline_dir() / "pnl_baseline_20270115.txt");
+        long long     cash_value = 0;
+        CHECK(file.is_open() && (file >> cash_value) && cash_value == 990000);
     }
 
     // 원장이 비어 있었고 A가 새로 들어왔으니 OVERWRITE 행 하나.
@@ -168,7 +168,7 @@ int test_reconcile_rest()
     // 평가금이 오르면 델타만 움직인다.
     rows.clear();
     next = ok_balance({hold("A", 10, 100.0, 10)}, 1020000.0);
-    r.reconcile(true, kT0 + 60);
+    reconciler.reconcile(true, kT0 + 60);
     CHECK(gate.daily_pnl() == 30000.0 && rows.empty());
 
     // 재시작(새 인스턴스, 같은 날): 파일 기준선을 재사용해 손실컷이 이어진다.
@@ -206,16 +206,16 @@ int test_reconcile_ws()
     OrderGate gate;
     gate.seed_position(std::string(), "A", 10, 100.0);
     std::vector<reconcile::Row> rows;
-    LedgerReconciler r(gate, [&] { return ok_balance({hold("A", 8, 100.0, 8)}, 1000000.0); });
-    r.set_reconcile_sink([&](const reconcile::Row& row) { rows.push_back(row); });
+    LedgerReconciler reconciler(gate, [&] { return ok_balance({hold("A", 8, 100.0, 8)}, 1000000.0); });
+    reconciler.set_reconcile_sink([&](const reconcile::Row& row) { rows.push_back(row); });
 
     // WS 모드는 원장을 덮어쓰지 않는다(첫 관측만으로는 놓친 매도로도 안 본다). 매도가능은 매번 맞춘다.
-    r.reconcile(false, kT0);
+    reconciler.reconcile(false, kT0);
     CHECK(gate.position("A") == 10);
     CHECK(gate.sellable_view(std::string(), "A").psbl_cap == 8);
     CHECK(rows.size() == 1 && rows[0].ticker == "A" && rows[0].action == "KEEP" && rows[0].ledger_qty == 10 &&
           rows[0].broker_qty == 8);
-    CHECK(gate.equity() == 1000000.0 && r.has_baseline()); // 기준선 디렉터리 없음 → 파일 없이 캡처
+    CHECK(gate.equity() == 1000000.0 && reconciler.has_baseline()); // 기준선 디렉터리 없음 → 파일 없이 캡처
     return 0;
 }
 
@@ -224,37 +224,37 @@ int test_reconcile_post_fill_defer()
 {
     OrderGate gate;
     int       calls = 0;
-    LedgerReconciler r(gate, [&] {
+    LedgerReconciler reconciler(gate, [&] {
         ++calls;
         return ok_balance({hold("A", 8, 100.0, 8)}, 1000000.0);
     });
-    r.set_post_fill_defer(5, 30);
+    reconciler.set_post_fill_defer(5, 30);
 
-    r.reconcile(false, kT0); // 체결 이력 없음 — 돈다
+    reconciler.reconcile(false, kT0); // 체결 이력 없음 — 돈다
     CHECK(calls == 1);
-    r.note_fill(kT0 + 10);
-    r.reconcile(false, kT0 + 11); // 체결 1초 뒤 — 미룬다
-    r.reconcile(false, kT0 + 14); // 4초 뒤 — 아직
+    reconciler.note_fill(kT0 + 10);
+    reconciler.reconcile(false, kT0 + 11); // 체결 1초 뒤 — 미룬다
+    reconciler.reconcile(false, kT0 + 14); // 4초 뒤 — 아직
     CHECK(calls == 1);
-    r.reconcile(false, kT0 + 15); // 5초 — 돈다
+    reconciler.reconcile(false, kT0 + 15); // 5초 — 돈다
     CHECK(calls == 2);
 
     // 체결이 3초마다 이어진다: 30초 상한마다 한 번은 돈다.
-    std::time_t t = kT0 + 100;
+    std::time_t time_value = kT0 + 100;
 
-    for (int i = 0; i < 20; ++i, t += 3)
+    for (int index = 0; index < 20; ++index, time_value += 3)
     {
-        r.note_fill(t);
-        r.reconcile(false, t + 1);
+        reconciler.note_fill(time_value);
+        reconciler.reconcile(false, time_value + 1);
     }
 
     CHECK(calls == 3); // 101에서 유예 시작 → 131에서 한 번(다음은 161인데 체결은 157에서 끝난다)
-    r.reconcile(false, t + 10); // 마지막 체결에서 5초 넘음 — 돈다
+    reconciler.reconcile(false, time_value + 10); // 마지막 체결에서 5초 넘음 — 돈다
     CHECK(calls == 4);
     // 유예 0이면 끈 것과 같다.
-    r.set_post_fill_defer(0, 30);
-    r.note_fill(t + 20);
-    r.reconcile(false, t + 21);
+    reconciler.set_post_fill_defer(0, 30);
+    reconciler.note_fill(time_value + 20);
+    reconciler.reconcile(false, time_value + 21);
     CHECK(calls == 5);
     return 0;
 }
@@ -264,24 +264,24 @@ int test_reconcile_failure()
     OrderGate gate;
     int       calls = 0;
     bool      good  = false;
-    LedgerReconciler r(gate, [&] {
+    LedgerReconciler reconciler(gate, [&] {
         ++calls;
         return good ? ok_balance({hold("A", 1, 1.0)}, 100.0) : fail_balance();
     });
 
-    r.reconcile(true, kT0);
-    CHECK(calls == 1 && !gate.is_pnl_stale() && r.breaker().skip_remaining() == 1);
-    r.reconcile(true, kT0); // 백오프 — 조회 안 함
+    reconciler.reconcile(true, kT0);
+    CHECK(calls == 1 && !gate.is_pnl_stale() && reconciler.breaker().skip_remaining() == 1);
+    reconciler.reconcile(true, kT0); // 백오프 — 조회 안 함
     CHECK(calls == 1);
-    r.reconcile(true, kT0); // 실패 2 → pnl_stale
-    CHECK(calls == 2 && gate.is_pnl_stale() && r.breaker().skip_remaining() == 2);
-    r.reconcile(true, kT0);
-    r.reconcile(true, kT0);
+    reconciler.reconcile(true, kT0); // 실패 2 → pnl_stale
+    CHECK(calls == 2 && gate.is_pnl_stale() && reconciler.breaker().skip_remaining() == 2);
+    reconciler.reconcile(true, kT0);
+    reconciler.reconcile(true, kT0);
     CHECK(calls == 2);
 
     good = true;
-    r.reconcile(true, kT0); // 복구 — 즉시 해제
-    CHECK(calls == 3 && !gate.is_pnl_stale() && r.breaker().fail_streak() == 0 && gate.position("A") == 1);
+    reconciler.reconcile(true, kT0); // 복구 — 즉시 해제
+    CHECK(calls == 3 && !gate.is_pnl_stale() && reconciler.breaker().fail_streak() == 0 && gate.position("A") == 1);
     return 0;
 }
 } // namespace

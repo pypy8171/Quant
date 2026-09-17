@@ -21,7 +21,7 @@ namespace feed
 class ReplaySource final : public IFeedSource
 {
 public:
-    // speed: 1.0이면 캡처 때 간격(recv_ns 차이)대로, 2.0이면 두 배 빠르게, 0이면 쉬지 않고 최대 속도.
+    // speed: 1.0이면 캡처 때 간격(received_ns 차이)대로, 2.0이면 두 배 빠르게, 0이면 쉬지 않고 최대 속도.
     explicit ReplaySource(std::filesystem::path file, double speed = 0.0)
         : file_(std::move(file)), speed_(speed)
     {
@@ -47,11 +47,11 @@ public:
         disconnect();
 
         {
-            std::lock_guard<std::mutex> lk(filter_mtx_);
+            std::lock_guard<std::mutex> lock(filter_mtx_);
 
-            for (const auto& s : specs)
+            for (const auto& spec : specs)
             {
-                filter_.insert(s.ticker);
+                filter_.insert(spec.ticker);
             }
         }
 
@@ -64,7 +64,7 @@ public:
 
         finished_.store(false, std::memory_order_relaxed);
         connected_.store(true, std::memory_order_release);
-        thread_ = std::jthread([this, rd = std::move(reader)](std::stop_token st) mutable { run(st, *rd); });
+        thread_ = std::jthread([this, rd = std::move(reader)](std::stop_token stop_token) mutable { run(stop_token, *rd); });
         return true;
     }
 
@@ -82,13 +82,13 @@ public:
     // 목록에 넣기만 한다. 파일에 없는 종목이면 아무것도 안 나오는데, 그건 캡처 쪽 문제라 여기서 판정하지 않는다.
     bool subscribe_incremental(const WatchSpec& spec) override
     {
-        std::lock_guard<std::mutex> lk(filter_mtx_);
+        std::lock_guard<std::mutex> lock(filter_mtx_);
         return filter_.insert(spec.ticker).second;
     }
 
     bool has_spec(const WatchSpec& spec) const override
     {
-        std::lock_guard<std::mutex> lk(filter_mtx_);
+        std::lock_guard<std::mutex> lock(filter_mtx_);
         return filter_.empty() || filter_.count(spec.ticker) > 0;
     }
 
@@ -129,72 +129,72 @@ public:
     }
 
 private:
-    void run(std::stop_token st, TickReader& rd)
+    void run(std::stop_token stop_token, TickReader& rd)
     {
-        Record  r;
+        Record  record;
         int64_t prev_ns = 0;
 
-        while (!st.stop_requested() && rd.next(r))
+        while (!stop_token.stop_requested() && rd.next(record))
         {
-            const Common& c = r.kind == kKindTrade ? r.trade.c : r.book.c;
+            const Common& common = record.kind == kKindTrade ? record.trade.common : record.book.common;
 
-            if (!pass(c.ticker))
+            if (!pass(common.ticker))
             {
                 skipped_.fetch_add(1, std::memory_order_relaxed);
                 continue;
             }
 
-            if (speed_ > 0.0 && prev_ns != 0 && c.recv_ns > prev_ns)
+            if (speed_ > 0.0 && prev_ns != 0 && common.received_ns > prev_ns)
             {
-                pace(st, static_cast<int64_t>(static_cast<double>(c.recv_ns - prev_ns) / speed_));
+                pace(stop_token, static_cast<int64_t>(static_cast<double>(common.received_ns - prev_ns) / speed_));
             }
 
-            prev_ns = c.recv_ns;
+            prev_ns = common.received_ns;
 
-            if (st.stop_requested())
+            if (stop_token.stop_requested())
             {
                 break;
             }
 
-            // 캡처 때 recv_ns는 위 간격 계산에만 쓰고, 내보내는 틱에는 이 프로세스 시계를 찍는다 — 구간 지연 CSV가
+            // 캡처 때 received_ns는 위 간격 계산에만 쓰고, 내보내는 틱에는 이 프로세스 시계를 찍는다 — 구간 지연 CSV가
             //  옛 시계와 지금 시계를 빼는 일이 없게. [why D-071]
-            if (r.kind == kKindTrade)
+            if (record.kind == kKindTrade)
             {
                 if (on_trade_)
                 {
-                    TradeData td = to_trade(r.trade);
-                    td.recv_ns   = now_ns();
-                    on_trade_(td);
+                    TradeData trade = to_trade(record.trade);
+                    trade.received_ns   = now_ns();
+                    on_trade_(trade);
                 }
             }
             else if (on_ob_)
             {
-                OrderBook ob = to_book(r.book);
-                ob.recv_ns   = now_ns();
-                on_ob_(ob);
+                OrderBook order_book = to_book(record.book);
+                order_book.received_ns   = now_ns();
+                on_ob_(order_book);
             }
 
             played_.fetch_add(1, std::memory_order_relaxed);
         }
 
         // 정지 요청으로 나온 것은 "끝까지 재생"이 아니다.
-        finished_.store(!st.stop_requested(), std::memory_order_release);
+        finished_.store(!stop_token.stop_requested(), std::memory_order_release);
         connected_.store(false, std::memory_order_release);
     }
 
     bool pass(const char* ticker) const
     {
-        std::lock_guard<std::mutex> lk(filter_mtx_);
+        std::lock_guard<std::mutex> lock(filter_mtx_);
         return filter_.empty() || filter_.count(ticker) > 0;
     }
 
     // 정지 요청에 50ms 안에 응답하도록 잘라 잔다. 시계 격자(2ms)보다 짧은 간격은 sleep 없이 지나간다.
-    static void pace(const std::stop_token& st, int64_t wait_ns)
+    static void pace(const std::stop_token& stop_token, int64_t wait_ns)
     {
         using namespace std::chrono;
         const auto deadline = steady_clock::now() + nanoseconds(wait_ns);
 
-        while (!st.stop_requested())
+        while (!stop_token.stop_requested())
         {
             const auto left = deadline - steady_clock::now();
 

@@ -21,9 +21,9 @@ struct ItbScanCfg
     double chg_max      = 0.12;
     double min_price    = 3000.0;
     bool   sd_filter    = true;
-    double risk_off_idx = -0.01;
+    double risk_off_index = -0.01;
     // 재개 임계·체류는 DevScale 쪽(ScanCfg)과 같은 뜻이다. 기본값은 차단 임계와 같고 체류 0이라
-    //  옛 단일 임계 동작과 같다 — 값을 가르는 것은 config 몫이다. [inv] resume >= risk_off_idx
+    //  옛 단일 임계 동작과 같다 — 값을 가르는 것은 config 몫이다. [inv] resume >= risk_off_index
     double risk_off_idx_resume = -0.01;
     int    risk_off_dwell_sec  = 0;
     int    max_register = 6;
@@ -38,7 +38,7 @@ struct ItbCandidate
 
 // 레짐 위험회피면 빈 목록을 돌려준다(신규 미등록). 실패도 예외가 아니라 빈 목록이다.
 //  kis는 인증된 실전 시세 클라이언트여야 한다.
-std::vector<ItbCandidate> scan_itb(KisClient& kis, const ItbScanCfg& cfg);
+std::vector<ItbCandidate> scan_itb(KisClient& kis, const ItbScanCfg& config);
 
 // ── DeviationScale 스캔 ─────────────────────────────────────────────────────
 struct DevScanCfg
@@ -48,7 +48,7 @@ struct DevScanCfg
     double min_price       = 5000.0;
     double max_price       = 0.0; // 원, 0이면 상한 없음
     int    max_register    = 40;
-    double risk_off_idx    = -0.02;
+    double risk_off_index    = -0.02;
     bool   require_aligned = true;
     int    align_probe_max = 60;   // 재스캔당 일봉 REST 상한
     int    align_daily_n   = 70;   // 봉, 한 종목당 받는 일봉 길이
@@ -81,19 +81,19 @@ struct DevScanCfg
     bool   kosdaq_enabled      = false;  // [why D-030]
     double risk_off_idx_kosdaq = -0.015; // 분수, 코스닥 지수 risk_off 임계 [why D-030]
     // 지수 게이트의 재개 임계와 최소 체류. 차단 임계 하나로만 매 재스캔(20초) 판정하면 지수가
-    //  경계를 오갈 때 게이트가 같이 떤다(2026-08-21에 2분 53초 간격 토글). 차단은 risk_off_idx,
+    //  경계를 오갈 때 게이트가 같이 떤다(2026-08-21에 2분 53초 간격 토글). 차단은 risk_off_index,
     //  재개는 이 값 위로 올라와야 풀리고, 상태를 바꾼 뒤 dwell 초 동안은 다시 바꾸지 않는다.
-    //  [inv] resume >= risk_off_idx 여야 히스테리시스가 성립한다(같으면 옛 동작).
+    //  [inv] resume >= risk_off_index 여야 히스테리시스가 성립한다(같으면 옛 동작).
     double risk_off_idx_resume        = -0.012; // 분수, 코스피 재개 임계 [why D-033]
     double risk_off_idx_kosdaq_resume = -0.009; // 분수, 코스닥 재개 임계 [why D-033]
     int    risk_off_dwell_sec         = 600;    // 초, 상태 변경 후 최소 체류. 0=끄기 [why D-033]
 };
 
-// 초기 등록·주기적 재스캔이 공용으로 호출한다(cfg는 값 복사 캡처라 std::function 저장이 안전).
+// 초기 등록·주기적 재스캔이 공용으로 호출한다(config는 값 복사 캡처라 std::function 저장이 안전).
 //  레짐 위험회피면 빈 목록을 돌려준다. 실패도 예외가 아니라 빈 목록이다.
 //  out_names·out_scores(옵션)를 주면 등록 티커의 종목명과 종합점수를 채운다.
 //  등록 순서가 곧 진입 우선순위다. 점수 → 비중 배수 변환은 `ScoreWeight.h`가 한다. [why D-018]
-std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& cfg,
+std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
                                        std::unordered_map<std::string, std::string>* out_names = nullptr,
                                        std::unordered_map<std::string, double>* out_scores = nullptr);
 

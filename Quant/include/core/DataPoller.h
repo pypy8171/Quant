@@ -16,31 +16,31 @@
 namespace poller
 {
 // 같은 구독인가 — 종목·시장·선물 여부가 같으면 채널이 같다. 넘침 목록의 중복 판정에 쓴다.
-inline bool same_spec(const WatchSpec& a, const WatchSpec& b)
+inline bool same_spec(const WatchSpec& spec_a, const WatchSpec& spec_b)
 {
-    return a.ticker == b.ticker && a.market == b.market && a.is_future == b.is_future;
+    return spec_a.ticker == spec_b.ticker && spec_a.market == spec_b.market && spec_a.is_future == spec_b.is_future;
 }
 
 // REST 현재가 한 건을 WS 체결 틱과 같은 모양으로. quantity·direction·strength는 REST에 없어 0이다.
-inline TradeData make_tick(const std::string& ticker, double px, int32_t hhmmss,
-                           std::chrono::system_clock::time_point ts)
+inline TradeData make_tick(const std::string& ticker, double price, int32_t hhmmss,
+                           std::chrono::system_clock::time_point timestamp)
 {
-    TradeData td;
-    td.ticker    = ticker;
-    td.hhmmss    = hhmmss;
-    td.price     = px;
-    td.quantity  = 0;
-    td.direction = 0;
-    td.market    = Market::KR;
-    td.timestamp = ts;
-    return td;
+    TradeData trade;
+    trade.ticker    = ticker;
+    trade.hhmmss    = hhmmss;
+    trade.price     = price;
+    trade.quantity  = 0;
+    trade.direction = 0;
+    trade.market    = Market::KR;
+    trade.timestamp = timestamp;
+    return trade;
 }
 
 // 이 틱이 make_tick이 만든 REST 대체 틱인가. WS 체결 틱은 체결량이 항상 1주 이상이고 REST 현재가에는
 //  체결량·누적량이 없다 — 봉 집계기가 REST 틱을 거르고 REST 봉으로 되돌아가는 판정에 쓴다. [why D-069]
-inline bool is_rest_tick(const TradeData& td)
+inline bool is_rest_tick(const TradeData& trade)
 {
-    return td.quantity == 0 && td.acml_volume == 0;
+    return trade.quantity == 0 && trade.accumulated_volume == 0;
 }
 
 // 틱이 끊긴 종목 고르기 — last_seen이 비었거나(틱 없음) cutoff보다 오래됐으면 고른다. 구독 여부는 따지지
@@ -52,13 +52,13 @@ inline std::vector<std::string> select_stale(const std::vector<std::string>& hel
 {
     std::vector<std::string> out;
 
-    for (const auto& t : held)
+    for (const auto& held_ticker : held)
     {
-        const auto at = last_seen(t);
+        const auto at = last_seen(held_ticker);
 
         if (!at || *at < cutoff)
         {
-            out.push_back(t);
+            out.push_back(held_ticker);
         }
     }
 
@@ -76,7 +76,7 @@ public:
 
     DataPoller(QuoteFn quote, TickSink sink);
 
-    void set_keep_going(KeepGoingFn f) { keep_going_ = std::move(f); }
+    void set_keep_going(KeepGoingFn keep_going) { keep_going_ = std::move(keep_going); }
     // 종목 간 호출 간격. 실전 도메인 시세는 초당 한도(~20/s)가 있어 무간격으로 몰아치면 뒷종목이 HTTP 500으로
     //  떨어진다 — 150ms면 한도 밑에 깔려 전 종목이 매 사이클 틱을 받는다(종목 수×150ms가 사이클 안에 들게).
     void set_universe_pacing(std::chrono::milliseconds ms) { universe_pacing_ = ms; }

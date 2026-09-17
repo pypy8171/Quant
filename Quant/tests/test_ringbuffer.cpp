@@ -10,35 +10,35 @@
 
 // 2의 거듭제곱 올림과 가득 참·비어 있음 경계. 카운터가 감싸지 않으므로 슬롯 전부를 쓴다(D-042).
 static void test_pow2_capacity() {
-	RingBuffer<int> a(1000);
-	assert(a.capacity() == 1024);
-	RingBuffer<int> b(1024);
-	assert(b.capacity() == 1024);
-	RingBuffer<int> c(1);
-	assert(c.capacity() == 1);
-	assert(c.push(7));
-	assert(!c.push(8));
-	assert(c.size() == 1);
-	auto v = c.pop();
-	assert(v && *v == 7);
-	assert(!c.pop());
-	assert(c.empty());
+	RingBuffer<int> odd_queue(1000);
+	assert(odd_queue.capacity() == 1024);
+	RingBuffer<int> large_queue(1024);
+	assert(large_queue.capacity() == 1024);
+	RingBuffer<int> single_queue(1);
+	assert(single_queue.capacity() == 1);
+	assert(single_queue.push(7));
+	assert(!single_queue.push(8));
+	assert(single_queue.size() == 1);
+	auto popped_v = single_queue.pop();
+	assert(popped_v && *popped_v == 7);
+	assert(!single_queue.pop());
+	assert(single_queue.empty());
 
-	RingBuffer<int> d(4);
+	RingBuffer<int> small_queue(4);
 
-	for (int i = 0; i < 4; ++i) {
-		assert(d.push(i));
+	for (int index = 0; index < 4; ++index) {
+		assert(small_queue.push(index));
 	}
 
-	assert(!d.push(99));
-	assert(d.size() == 4);
+	assert(!small_queue.push(99));
+	assert(small_queue.size() == 4);
 
 	// 한 바퀴 넘겨 마스크 경계를 지난 뒤에도 순서가 유지되는지
 	for (int round = 0; round < 3; ++round) {
-		for (int i = 0; i < 4; ++i) {
-			auto x = d.pop();
-			assert(x && *x == round * 4 + i);
-			assert(d.push(round * 4 + i + 4));
+		for (int index = 0; index < 4; ++index) {
+			auto popped_x = small_queue.pop();
+			assert(popped_x && *popped_x == round * 4 + index);
+			assert(small_queue.push(round * 4 + index + 4));
 		}
 	}
 
@@ -47,35 +47,35 @@ static void test_pow2_capacity() {
 
 // 고수위는 가득 찼던 4에서 더 오르지 않고, 비운 뒤에도 내려가지 않는다(기동 뒤 최댓값).
 static void test_high_water() {
-	RingBuffer<int> q(4);
-	assert(q.high_water() == 0);
-	assert(q.push(1));
-	assert(q.high_water() == 1);
-	assert(q.pop());
-	assert(q.push(2));
-	assert(q.high_water() == 1);
+	RingBuffer<int> queue(4);
+	assert(queue.high_water() == 0);
+	assert(queue.push(1));
+	assert(queue.high_water() == 1);
+	assert(queue.pop());
+	assert(queue.push(2));
+	assert(queue.high_water() == 1);
 
-	for (int i = 0; i < 3; ++i) {
-		assert(q.push(i));
+	for (int index = 0; index < 3; ++index) {
+		assert(queue.push(index));
 	}
 
-	assert(q.high_water() == 4);
+	assert(queue.high_water() == 4);
 
-	while (q.pop()) {
+	while (queue.pop()) {
 	}
 
-	assert(q.high_water() == 4);
+	assert(queue.high_water() == 4);
 	std::cout << "[PASS] high water\n";
 }
 
 static void test_spsc_correctness() {
 	RingBuffer<int> rb(1024);
-	constexpr int N = 1'000'000;
+	constexpr int kItemCount = 1'000'000;
 
 	std::thread prod([&] {
-		for (int i = 0; i < N; ++i)
+		for (int index = 0; index < kItemCount; ++index)
 		{
-			while (!rb.push(i))
+			while (!rb.push(index))
 			{
 				std::this_thread::yield();
 			}
@@ -85,35 +85,35 @@ static void test_spsc_correctness() {
 	std::thread cons([&] {
 		int expected = 0;
 
-		while (expected < N) {
-			auto v = rb.pop();
+		while (expected < kItemCount) {
+			auto popped = rb.pop();
 
-			if (!v)
+			if (!popped)
 			{
 				std::this_thread::yield();
 				continue;
 			}
 
-			assert(*v == expected);
+			assert(*popped == expected);
 			++expected;
 		}
 		});
 
 	prod.join();
 	cons.join();
-	std::cout << "[OK] SPSC ordering preserved over " << N << " items\n";
+	std::cout << "[OK] SPSC ordering preserved over " << kItemCount << " items\n";
 }
 
 static void test_throughput() {
 	RingBuffer<int> rb(4096);
-	constexpr int N = 10'000'000;
+	constexpr int kItemCount = 10'000'000;
 
-	auto t0 = std::chrono::steady_clock::now();
+	auto start_time = std::chrono::steady_clock::now();
 
 	std::thread prod([&] {
-		for (int i = 0; i < N; ++i)
+		for (int index = 0; index < kItemCount; ++index)
 		{
-			while (!rb.push(i))
+			while (!rb.push(index))
 			{
 				std::this_thread::yield();
 			}
@@ -123,11 +123,11 @@ static void test_throughput() {
 	std::thread cons([&] {
 		int got = 0;
 
-		while (got < N)
+		while (got < kItemCount)
 		{
-			auto v = rb.pop();
+			auto popped = rb.pop();
 
-			if (!v)
+			if (!popped)
 			{
 				std::this_thread::yield();
 				continue;
@@ -141,10 +141,10 @@ static void test_throughput() {
 	cons.join();
 
 	auto t1 = std::chrono::steady_clock::now();
-	auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-	double mops = (ms > 0) ? static_cast<double>(N) / ms / 1000.0 : 0.0;
+	auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - start_time).count();
+	double mops = (ms > 0) ? static_cast<double>(kItemCount) / ms / 1000.0 : 0.0;
 
-	std::cout << "[OK] Throughput: " << N << " items in "
+	std::cout << "[OK] Throughput: " << kItemCount << " items in "
 		<< ms << " ms (" << mops << " M ops/sec)\n";
 }
 

@@ -60,25 +60,25 @@ public:
     static std::filesystem::path executable_dir()
     {
 #ifdef _WIN32
-        wchar_t buf[4096];
-        unsigned long n = GetModuleFileNameW(nullptr, buf, 4096);
+        wchar_t buffer[4096];
+        unsigned long length = GetModuleFileNameW(nullptr, buffer, 4096);
 
-        if (n == 0 || n >= 4096)
+        if (length == 0 || length >= 4096)
         {
             return std::filesystem::current_path();
         }
 
-        return std::filesystem::path(std::wstring(buf, n)).parent_path();
+        return std::filesystem::path(std::wstring(buffer, length)).parent_path();
 #else
-        std::error_code ec;
-        auto p = std::filesystem::read_symlink("/proc/self/exe", ec);
+        std::error_code error_code;
+        auto symlink = std::filesystem::read_symlink("/proc/self/exe", error_code);
 
-        if (ec)
+        if (error_code)
         {
             return std::filesystem::current_path();
         }
 
-        return p.parent_path();
+        return symlink.parent_path();
 #endif
     }
 
@@ -99,12 +99,12 @@ public:
         std::lock_guard<std::mutex> lock(cfg_mutex_);
         // 부모 디렉터리를 먼저 만든다. main에서 실행파일 기준 절대경로가 넘어오므로
         // cwd 위치와 무관하게 로그가 한 폴더에 모인다. (Windows 한글 경로 대비 path로 open)
-        std::error_code ec;
+        std::error_code error_code;
         auto parent = filepath.parent_path();
 
         if (!parent.empty())
         {
-            std::filesystem::create_directories(parent, ec);
+            std::filesystem::create_directories(parent, error_code);
         }
 
         file_.open(filepath, std::ios::app);
@@ -142,8 +142,8 @@ public:
     std::filesystem::path path_for(const std::string& name)
     {
         std::lock_guard<std::mutex> lock(cfg_mutex_);
-        std::error_code ec;
-        std::filesystem::create_directories(base_dir_, ec);
+        std::error_code error_code;
+        std::filesystem::create_directories(base_dir_, error_code);
         return base_dir_ / name;
     }
 
@@ -153,7 +153,7 @@ public:
         console_enabled_.store(enabled, std::memory_order_relaxed);
     }
 
-    void log(LogLevel level, const std::string& msg)
+    void log(LogLevel level, const std::string& message)
     {
         if (level < min_level_.load(std::memory_order_relaxed))
         {
@@ -161,41 +161,41 @@ public:
         }
 
         // hot path: 시각 스탬프만 찍고 큐에 넘긴다(포맷팅은 writer가 수행). 락 없음.
-        Record rec{level, std::chrono::system_clock::now(), msg, nullptr};
+        Record record{level, std::chrono::system_clock::now(), message, nullptr};
 
         if (!running_.load(std::memory_order_acquire))
         {
             // 종료 중(writer 정지)에는 동기 폴백. 늦은 호출자끼리의 file_ 경쟁만 cfg_mutex_로 막는다.
             std::lock_guard<std::mutex> lock(cfg_mutex_);
-            write_unlocked(format(rec));
+            write_unlocked(format(record));
             return;
         }
 
-        if (!enqueue(std::move(rec)))
+        if (!enqueue(std::move(record)))
         {
             // 가득 참 — 새 레코드를 버린다. MPSC는 생산자 쪽에서 가장 오래된 칸을 뺄 수 없다.
             dropped_.fetch_add(1, std::memory_order_relaxed);
         }
     }
 
-    void info(const std::string& m)
+    void info(const std::string& message)
     {
-        log(LogLevel::INFO, m);
+        log(LogLevel::INFO, message);
     }
 
-    void warn(const std::string& m)
+    void warn(const std::string& message)
     {
-        log(LogLevel::WARN, m);
+        log(LogLevel::WARN, message);
     }
 
-    void error(const std::string& m)
+    void error(const std::string& message)
     {
-        log(LogLevel::ERROR, m);
+        log(LogLevel::ERROR, message);
     }
 
-    void debug(const std::string& m)
+    void debug(const std::string& message)
     {
-        log(LogLevel::DEBUG, m);
+        log(LogLevel::DEBUG, message);
     }
 
     // 이 호출 전에 반환된 log()가 모두 파일/콘솔에 반영될 때까지 블로킹(테스트·종료 직전 정합 확인용).
@@ -239,24 +239,24 @@ private:
     struct Record
     {
         LogLevel level;
-        std::chrono::system_clock::time_point ts;
-        std::string msg;
+        std::chrono::system_clock::time_point timestamp;
+        std::string message;
         std::atomic<bool>* flush_mark; // flush()의 표식. 아니면 nullptr
     };
 
     Logger()
     {
         running_.store(true, std::memory_order_release);
-        writer_ = std::jthread([this](std::stop_token st) { writer_loop(st); });
+        writer_ = std::jthread([this](std::stop_token stop_token) { writer_loop(stop_token); });
     }
 
     // 큐에 넣고, writer가 자고 있으면 깨운다. 실패(가득 참)면 false.
     // [lock-order] push(release) → seq_cst fence → sleeping 읽기. writer 쪽은 sleeping 쓰기 → fence → 큐 확인.
     //  양쪽 다 store-fence-load라 둘 중 하나는 상대 store를 본다 — 넣었는데 아무도 안 깨우는 경우가 없다.
     //  notify는 wake_mtx_ 없이 부른다. writer가 잠들기 직전이면 신호가 새지만 wait_for 상한이 받는다.
-    bool enqueue(Record&& rec)
+    bool enqueue(Record&& record)
     {
-        if (!queue_.push(std::move(rec)))
+        if (!queue_.push(std::move(record)))
         {
             return false;
         }
@@ -282,9 +282,9 @@ private:
         }
 
         // writer가 마지막 pop 뒤에 들어온 레코드를 비운다. join 뒤라 이 스레드가 유일한 소비자다.
-        while (auto rec = queue_.pop())
+        while (auto record = queue_.pop())
         {
-            consume(*rec);
+            consume(*record);
         }
 
         const uint64_t dropped = dropped_.load(std::memory_order_relaxed);
@@ -301,18 +301,18 @@ private:
     }
 
     // writer 스레드 단독. 큐가 비면 yield 몇 번 뒤 condvar에서 잔다 — 로그는 지연보다 hot path 비간섭이 우선이다.
-    void writer_loop(std::stop_token st)
+    void writer_loop(std::stop_token stop_token)
     {
         int idle = 0;
         size_t since_flush = 0;
 
         while (true)
         {
-            auto rec = queue_.pop();
+            auto record = queue_.pop();
 
-            if (!rec)
+            if (!record)
             {
-                if (st.stop_requested())
+                if (stop_token.stop_requested())
                 {
                     break; // 이 뒤에 들어온 건 소멸자가 비운다
                 }
@@ -329,14 +329,14 @@ private:
                 }
                 else
                 {
-                    sleep_until_work(st);
+                    sleep_until_work(stop_token);
                 }
 
                 continue;
             }
 
             idle = 0;
-            consume(*rec);
+            consume(*record);
 
             if (++since_flush >= kFlushEvery && file_.is_open())
             {
@@ -347,50 +347,50 @@ private:
     }
 
     // "잔다"를 먼저 알리고 큐를 다시 본 뒤 잔다(enqueue의 fence 짝). 신호가 새는 경우를 대비해 상한을 둔다.
-    void sleep_until_work(std::stop_token st)
+    void sleep_until_work(std::stop_token stop_token)
     {
         std::unique_lock<std::mutex> lock(wake_mtx_);
         writer_sleeping_.store(true, std::memory_order_relaxed);
         std::atomic_thread_fence(std::memory_order_seq_cst);
 
-        if (queue_.empty() && !st.stop_requested())
+        if (queue_.empty() && !stop_token.stop_requested())
         {
-            wake_cv_.wait_for(lock, st, kSleepCap, [this] { return !queue_.empty(); });
+            wake_cv_.wait_for(lock, stop_token, kSleepCap, [this] { return !queue_.empty(); });
         }
 
         writer_sleeping_.store(false, std::memory_order_relaxed);
     }
 
     // 레코드 하나 처리 — 표식이면 파일을 비우고 신호, 아니면 기록. 소비자 스레드(writer 또는 소멸자)만 부른다.
-    void consume(const Record& rec)
+    void consume(const Record& record)
     {
-        if (rec.flush_mark != nullptr)
+        if (record.flush_mark != nullptr)
         {
             if (file_.is_open())
             {
                 file_.flush();
             }
 
-            rec.flush_mark->store(true, std::memory_order_release);
+            record.flush_mark->store(true, std::memory_order_release);
             return;
         }
 
-        write_unlocked(format(rec));
+        write_unlocked(format(record));
     }
 
-    std::string format(const Record& rec) const
+    std::string format(const Record& record) const
     {
-        auto t = std::chrono::system_clock::to_time_t(rec.ts);
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(rec.ts.time_since_epoch()) % 1000;
-        std::tm tm_buf{};
+        auto time_value = std::chrono::system_clock::to_time_t(record.timestamp);
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(record.timestamp.time_since_epoch()) % 1000;
+        std::tm time_buffer{};
 #ifdef _WIN32
-        localtime_s(&tm_buf, &t);
+        localtime_s(&time_buffer, &time_value);
 #else
-        localtime_r(&t, &tm_buf);
+        localtime_r(&time_value, &time_buffer);
 #endif
         std::ostringstream ss;
-        ss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S") << '.' << std::setfill('0') << std::setw(3)
-           << ms.count() << " [" << level_str(rec.level) << "] " << rec.msg;
+        ss << std::put_time(&time_buffer, "%Y-%m-%d %H:%M:%S") << '.' << std::setfill('0') << std::setw(3)
+           << ms.count() << " [" << level_str(record.level) << "] " << record.message;
         return ss.str();
     }
 
@@ -408,9 +408,9 @@ private:
         }
     }
 
-    static const char* level_str(LogLevel l)
+    static const char* level_str(LogLevel log_level)
     {
-        switch (l)
+        switch (log_level)
         {
         case LogLevel::DEBUG:
             return "DEBUG";
@@ -446,15 +446,15 @@ private:
     std::jthread writer_;
 };
 
-#define LOG_INFO(msg) Logger::instance().info(msg)
-#define LOG_WARN(msg) Logger::instance().warn(msg)
-#define LOG_ERROR(msg) Logger::instance().error(msg)
+#define LOG_INFO(message) Logger::instance().info(message)
+#define LOG_WARN(message) Logger::instance().warn(message)
+#define LOG_ERROR(message) Logger::instance().error(message)
 // DEBUG만 가드한다 — 인자는 임계값을 넘을 때만 평가되므로 부작용 있는 식을 넣지 않는다.
-#define LOG_DEBUG(msg)                                                                                                 \
+#define LOG_DEBUG(message)                                                                                                 \
     do                                                                                                                 \
     {                                                                                                                  \
         if (Logger::instance().enabled(LogLevel::DEBUG))                                                               \
         {                                                                                                              \
-            Logger::instance().debug(msg);                                                                             \
+            Logger::instance().debug(message);                                                                             \
         }                                                                                                              \
     } while (0)

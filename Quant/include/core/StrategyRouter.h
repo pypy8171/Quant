@@ -13,34 +13,34 @@
 #include <string>
 #include <vector>
 
-namespace strat
+namespace strategy
 {
 
 class Router
 {
 public:
-    // sym_of: 종목 문자열 → id. 처음 보는 종목은 여기서 id를 받는다(기동·재스캔 시점이라 hot path가 아니다).
+    // symbol_id_of: 종목 문자열 → id. 처음 보는 종목은 여기서 id를 받는다(기동·재스캔 시점이라 hot path가 아니다).
     //  kNone을 돌려주면(테이블이 찼다) 그 전략은 전부 받는 쪽으로 보낸다 — 틱을 놓치는 것보다 낫다.
-    template <class SymOf>
-    void rebuild(const std::vector<StrategyBase*>& strategies, SymOf&& sym_of)
+    template <class SymbolIdOf>
+    void rebuild(const std::vector<StrategyBase*>& strategies, SymbolIdOf&& symbol_id_of)
     {
         all_.clear();
         by_sym_.clear();
         routes_ = 0;
 
-        std::vector<sym::SymbolId> ids;
+        std::vector<symbol::SymbolId> ids;
 
-        for (StrategyBase* s : strategies)
+        for (StrategyBase* strategy : strategies)
         {
-            const auto specs = s->get_watch_specs();
+            const auto specs = strategy->get_watch_specs();
             ids.clear();
             bool unresolved = specs.empty();
 
             for (const auto& sp : specs)
             {
-                const sym::SymbolId id = sym_of(sp.ticker);
+                const symbol::SymbolId id = symbol_id_of(sp.ticker);
 
-                if (id == sym::kNone)
+                if (id == symbol::kNone)
                 {
                     unresolved = true;
                     break;
@@ -51,22 +51,22 @@ public:
 
             if (unresolved)
             {
-                all_.push_back(s);
+                all_.push_back(strategy);
                 continue;
             }
 
-            for (const sym::SymbolId id : ids)
+            for (const symbol::SymbolId id : ids)
             {
                 if (id >= by_sym_.size())
                 {
                     by_sym_.resize(static_cast<size_t>(id) + 1);
                 }
 
-                auto& v = by_sym_[id];
+                auto& subscribers = by_sym_[id];
 
-                if (std::find(v.begin(), v.end(), s) == v.end())
+                if (std::find(subscribers.begin(), subscribers.end(), strategy) == subscribers.end())
                 {
-                    v.push_back(s);
+                    subscribers.push_back(strategy);
                     ++routes_;
                 }
             }
@@ -75,19 +75,19 @@ public:
 
     // id를 보는 전략들, 그 다음 전부 받는 전략들을 방문한다. id가 kNone이거나 모르는 id면 후자만.
     template <class Fn>
-    void for_each(sym::SymbolId id, Fn&& fn) const
+    void for_each(symbol::SymbolId id, Fn&& callback) const
     {
         if (id < by_sym_.size())
         {
-            for (StrategyBase* s : by_sym_[id])
+            for (StrategyBase* strategy : by_sym_[id])
             {
-                fn(s);
+                callback(strategy);
             }
         }
 
-        for (StrategyBase* s : all_)
+        for (StrategyBase* strategy : all_)
         {
-            fn(s);
+            callback(strategy);
         }
     }
 
@@ -102,7 +102,7 @@ public:
         return all_.size();
     }
 
-    [[nodiscard]] size_t watchers(sym::SymbolId id) const noexcept
+    [[nodiscard]] size_t watchers(symbol::SymbolId id) const noexcept
     {
         return id < by_sym_.size() ? by_sym_[id].size() : 0;
     }
@@ -113,4 +113,4 @@ private:
     size_t                                  routes_ = 0;
 };
 
-} // namespace strat
+} // namespace strategy

@@ -74,14 +74,14 @@ public:
     // 이 전략이 활성화될 시장 국면. 기본값=전 국면(기존 전략 무변경 호환).
     // config "active_regimes"로 set_active_regimes() 오버라이드. Engine::apply_regime_selection 폴백이 참조.
     const std::vector<Regime>& active_regimes() const { return active_regimes_; }
-    void set_active_regimes(std::vector<Regime> r) { active_regimes_ = std::move(r); }
+    void set_active_regimes(std::vector<Regime> active_regimes) { active_regimes_ = std::move(active_regimes); }
 
     // 신규 진입 게이트 두 축. 진입 분기에서 is_active()를 보고 막는다(청산은 무관). 둘 다 기본 true.
     //  - active_: Engine이 국면 판정 뒤 설정(현재 국면 ∈ active_regimes). 재스캔 뒤 재적용된다.
     //  - in_universe_: 재스캔 결과에 이 종목이 있는지. 빠지면 그 주기부터 신규매수를 막고, 돌아오면 푼다.
     //    국면 재적용이 active_만 다시 쓰므로 축을 따로 둔다 [why D-077].
-    void set_active(bool a) { active_.store(a, std::memory_order_relaxed); }
-    void set_in_universe(bool u) { in_universe_.store(u, std::memory_order_relaxed); }
+    void set_active(bool active) { active_.store(active, std::memory_order_relaxed); }
+    void set_in_universe(bool in_universe) { in_universe_.store(in_universe, std::memory_order_relaxed); }
     bool in_universe() const { return in_universe_.load(std::memory_order_relaxed); }
     bool is_active() const
     {
@@ -90,9 +90,9 @@ public:
 
     // Engine이 unique_ptr<KisClient>로 수명을 관리한다.
     // set_kis()는 Engine::start() 내부에서만 호출되며, 전략 소멸 전에 Engine이 먼저 종료된다.
-    void set_kis(KisClient* k)
+    void set_kis(KisClient* kis)
     {
-        kis_ = k;
+        kis_ = kis;
     }
 
     // 계좌 조회(잔고·매도가능수량·총평가금) 전용 클라이언트 주입.
@@ -101,17 +101,17 @@ public:
     //  잔고를 쓰는 코드가 전부 "알 수 없음"으로 떨어진다(매도가능=0 → 청산·익절 미발주).
     //  계좌를 가진 주문 클라이언트를 따로 받아 두 관심사를 분리한다.
     //  미주입이면 account_kis()가 kis_로 되돌아가 단일 클라이언트 구성의 기존 동작을 유지한다.
-    void set_account_kis(KisClient* k)
+    void set_account_kis(KisClient* account_kis)
     {
-        account_kis_ = k;
+        account_kis_ = account_kis;
     }
 
     // OrderGate 확정 포지션 접근자 주입 — WS/REST 양모드 공용 원장 진실원천.
     // Engine::start()에서 order_gate_.position(account,ticker)로 바인딩. 미주입 시 0 반환.
     // (체결콜백 부재 rest 모드에서도 잔고 대조로 원장이 최신이라 이 값이 신뢰 가능)
-    void set_position_provider(std::function<int(const std::string&, const std::string&)> f)
+    void set_position_provider(std::function<int(const std::string&, const std::string&)> provider)
     {
-        position_provider_ = std::move(f);
+        position_provider_ = std::move(provider);
     }
 
     int confirmed_position(const std::string& account, const std::string& ticker) const
@@ -123,9 +123,9 @@ public:
     //  게이트는 라우터 앞에서 매수를 거부하지만 전략은 그걸 모르고 같은 계획을 유지하므로,
     //  차단이 풀려도 분할 매수를 다시 깔지 않았다(09-10 결함 C). 전략이 계획 단계에서 읽게 한다.
     //  미주입이면 false = 차단 없음.
-    void set_entry_halt_provider(std::function<bool()> f)
+    void set_entry_halt_provider(std::function<bool()> provider)
     {
-        entry_halt_provider_ = std::move(f);
+        entry_halt_provider_ = std::move(provider);
     }
 
     bool entry_halted() const
@@ -134,9 +134,9 @@ public:
     }
 
     // 매수 명목 비율(OrderGate::entry_scale) 접근자 주입 — Engine이 바인딩한다. 미주입이면 1.0.
-    void set_entry_scale_provider(std::function<double()> f)
+    void set_entry_scale_provider(std::function<double()> provider)
     {
-        entry_scale_provider_ = std::move(f);
+        entry_scale_provider_ = std::move(provider);
     }
 
     double entry_scale() const
@@ -151,12 +151,12 @@ public:
     struct SellableInfo
     {
         int    sellable = 0;   // 주
-        double avg_px   = 0.0; // 원, 0=원장에 없음
+        double average_price   = 0.0; // 원, 0=원장에 없음
     };
 
-    void set_sellable_provider(std::function<SellableInfo(const std::string&, const std::string&)> f)
+    void set_sellable_provider(std::function<SellableInfo(const std::string&, const std::string&)> provider)
     {
-        sellable_provider_ = std::move(f);
+        sellable_provider_ = std::move(provider);
     }
 
     std::optional<SellableInfo> ledger_sellable(const std::string& account, const std::string& ticker) const
@@ -170,26 +170,26 @@ public:
     }
 
     // 종목 문자열 → 정수 id. Engine이 SymbolTable::intern을 넣는다 — 전략은 기동·설정 때 한 번 받아 두고
-    //  틱에서는 td.sym과 정수로만 비교한다(원칙 6, D-071). 미주입이면 kNone — 아래 same_symbol이 문자열로 되돌아간다.
-    using SymbolResolver = std::function<sym::SymbolId(std::string_view)>;
+    //  틱에서는 trade.symbol_id과 정수로만 비교한다(원칙 6, D-071). 미주입이면 kNone — 아래 same_symbol이 문자열로 되돌아간다.
+    using SymbolResolver = std::function<symbol::SymbolId(std::string_view)>;
 
-    void set_symbol_resolver(SymbolResolver f)
+    void set_symbol_resolver(SymbolResolver symbol_resolver)
     {
-        symbol_resolver_ = std::move(f);
+        symbol_resolver_ = std::move(symbol_resolver);
     }
 
 protected:
-    sym::SymbolId symbol_of(std::string_view ticker) const
+    symbol::SymbolId symbol_of(std::string_view ticker) const
     {
-        return symbol_resolver_ ? symbol_resolver_(ticker) : sym::kNone;
+        return symbol_resolver_ ? symbol_resolver_(ticker) : symbol::kNone;
     }
 
     // 틱이 내 종목인가. 둘 다 id가 있으면 정수 비교, 한쪽이라도 kNone(주입 전·시험)이면 문자열.
-    static bool same_symbol(sym::SymbolId a, std::string_view a_ticker, sym::SymbolId b, std::string_view b_ticker)
+    static bool same_symbol(symbol::SymbolId symbol_id_a, std::string_view a_ticker, symbol::SymbolId symbol_id_b, std::string_view b_ticker)
     {
-        if (a != sym::kNone && b != sym::kNone)
+        if (symbol_id_a != symbol::kNone && symbol_id_b != symbol::kNone)
         {
-            return a == b;
+            return symbol_id_a == symbol_id_b;
         }
 
         return a_ticker == b_ticker;

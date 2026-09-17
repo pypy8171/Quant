@@ -42,7 +42,7 @@ struct OpsOrderReq
     std::string cid;       // 단말이 붙인 식별자 — 같은 cid의 재전송은 한 번만 처리한다
     std::string ticker;
     std::string side;
-    int         qty       = 0;
+    int         quantity       = 0;
     double      price     = 0.0;
     double      ref_price = 0.0;
     std::string account;
@@ -68,10 +68,10 @@ public:
     using JsonProvider = std::function<std::string()>;
     using KillHandler  = std::function<void()>;
 
-    void set_order_handler(OrderHandler h) { on_order_ = std::move(h); }
-    void set_status_provider(JsonProvider p) { status_ = std::move(p); }
-    void set_positions_provider(JsonProvider p) { positions_ = std::move(p); }
-    void set_kill_handler(KillHandler h) { on_kill_ = std::move(h); }
+    void set_order_handler(OrderHandler order_handler) { on_order_ = std::move(order_handler); }
+    void set_status_provider(JsonProvider status_provider) { status_ = std::move(status_provider); }
+    void set_positions_provider(JsonProvider positions_provider) { positions_ = std::move(positions_provider); }
+    void set_kill_handler(KillHandler kill_handler) { on_kill_ = std::move(kill_handler); }
 
     bool start();
     void stop();
@@ -96,10 +96,10 @@ private:
 
     void thread_fn();
     void accept_one();
-    void on_readable(Client& c);
-    bool on_frame(Client& c, const ops::Frame& f); // false면 끊는다
-    void send(Client& c, ops::OpsMsg type, const std::string& body);
-    void flush(Client& c);
+    void on_readable(Client& client);
+    bool on_frame(Client& client, const ops::Frame& frame); // false면 끊는다
+    void send(Client& client, ops::OpsMsg type, const std::string& body);
+    void flush(Client& client);
     void close_client(ops_socket_t fd);
     void push_positions_if_changed();
 

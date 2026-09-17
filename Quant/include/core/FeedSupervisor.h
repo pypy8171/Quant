@@ -40,9 +40,9 @@ public:
         kFallback
     };
 
-    explicit Supervisor(SupervisorConfig cfg = {}) : cfg_(cfg) {}
+    explicit Supervisor(SupervisorConfig config = {}) : config_(config) {}
 
-    const SupervisorConfig& config() const { return cfg_; }
+    const SupervisorConfig& config() const { return config_; }
 
     Step observe(bool market_open, bool stale, clock::time_point now)
     {
@@ -69,9 +69,9 @@ public:
         }
 
         ++fail_streak_;
-        last_backoff_sec_ = std::min(cfg_.backoff_step_sec * fail_streak_, cfg_.backoff_max_sec);
+        last_backoff_sec_ = std::min(config_.backoff_step_sec * fail_streak_, config_.backoff_max_sec);
         next_try_         = now + std::chrono::seconds(last_backoff_sec_);
-        return fail_streak_ == cfg_.fallback_after_fails ? After::kFallback : After::kNone;
+        return fail_streak_ == config_.fallback_after_fails ? After::kFallback : After::kNone;
     }
 
     int fail_streak() const { return fail_streak_; }
@@ -79,7 +79,7 @@ public:
     clock::time_point next_try() const { return next_try_; }
 
 private:
-    SupervisorConfig  cfg_;
+    SupervisorConfig  config_;
     int               fail_streak_      = 0;
     int               last_backoff_sec_ = 0;
     clock::time_point next_try_{}; // [inv] 기본값(epoch)은 어떤 now보다 앞이라 첫 stale은 바로 재연결한다

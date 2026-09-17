@@ -12,22 +12,22 @@
 struct KisError
 {
     std::string code;
-    std::string msg;
+    std::string message;
 };
 
 // 성공이면 `*r`·`r->`·`r.value()`, 실패면 `r.error()`만 의미가 있다. 성공 여부를 안 보고 값을 쓰는 실수는
 //  반환 함수의 [[nodiscard]]와 explicit bool로 막는다 — `if (auto r = kis.get_balance()) { r->holdings ... }` 꼴로 쓴다.
-//  실패 반환은 `return kis_fail(code, msg);`, 성공 반환은 값을 그대로 `return v;`(암묵 변환).
+//  실패 반환은 `return kis_fail(code, message);`, 성공 반환은 값을 그대로 `return v;`(암묵 변환).
 //  실패 봉투에는 값이 없다 — 예전 손 봉투와 달리 실패 상태에서 `*r`·`r->`는 정의되지 않는다. [why D-070]
 template <class T> using KisResult = std::expected<T, KisError>;
 
-inline std::unexpected<KisError> kis_fail(std::string code, std::string msg)
+inline std::unexpected<KisError> kis_fail(std::string code, std::string message)
 {
-    return std::unexpected(KisError{std::move(code), std::move(msg)});
+    return std::unexpected(KisError{std::move(code), std::move(message)});
 }
 
-// 로그 한 줄용 "code msg". 성공이면 빈 문자열.
-template <class T> std::string error_text(const KisResult<T>& r)
+// 로그 한 줄용 "code message". 성공이면 빈 문자열.
+template <class T> std::string error_text(const KisResult<T>& result)
 {
-    return r ? std::string() : r.error().code + " " + r.error().msg;
+    return result ? std::string() : result.error().code + " " + result.error().message;
 }

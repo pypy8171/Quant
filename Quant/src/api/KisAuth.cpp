@@ -13,7 +13,7 @@
 //  KisClient 구현
 // ═══════════════════════════════════════════════════════════════════════════
 
-KisClient::KisClient(const KisConfig& cfg) : cfg_(cfg)
+KisClient::KisClient(const KisConfig& config) : config_(config)
 {
 #ifndef _WIN32
     curl_global_init(CURL_GLOBAL_DEFAULT);
@@ -38,13 +38,13 @@ static std::string token_cache_path(const std::string& app_key)
 
 bool KisClient::token_expiring(std::chrono::seconds margin) const
 {
-    std::lock_guard<std::mutex> lk(token_mtx_);
+    std::lock_guard<std::mutex> lock(token_mtx_);
     return access_token_.empty() || std::chrono::system_clock::now() + margin >= token_expires_at_;
 }
 
 void KisClient::set_token(std::string token, std::chrono::system_clock::time_point expires_at)
 {
-    std::lock_guard<std::mutex> lk(token_mtx_);
+    std::lock_guard<std::mutex> lock(token_mtx_);
     access_token_     = std::move(token);
     token_expires_at_ = expires_at;
 }
@@ -86,17 +86,17 @@ bool KisClient::authenticate()
 bool KisClient::issue_token()
 {
     // ── 캐시 파일에 유효한 토큰이 있으면 재사용 ──────────────────────────
-    std::string cache_path = token_cache_path(cfg_.app_key);
+    std::string cache_path = token_cache_path(config_.app_key);
     {
-        std::ifstream f(cache_path);
+        std::ifstream file(cache_path);
 
-        if (f.is_open())
+        if (file.is_open())
         {
             try
             {
-                auto j = json::parse(f);
-                std::string token = j.value("access_token", "");
-                std::string expires = j.value("expires_at", ""); // ISO "YYYY-MM-DD HH:MM:SS"
+                auto document = json::parse(file);
+                std::string token = document.value("access_token", "");
+                std::string expires = document.value("expires_at", ""); // ISO "YYYY-MM-DD HH:MM:SS"
 
                 if (!token.empty() && !expires.empty())
                 {
@@ -104,16 +104,16 @@ bool KisClient::issue_token()
                     struct tm tm_exp
                     {
                     };
-                    int y, mo, d, h, mi, s;
+                    int year, month, day, hour, minute, second;
 
-                    if (sscanf(expires.c_str(), "%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6)
+                    if (sscanf(expires.c_str(), "%d-%d-%d %d:%d:%d", &year, &month, &day, &hour, &minute, &second) == 6)
                     {
-                        tm_exp.tm_year = y - 1900;
-                        tm_exp.tm_mon = mo - 1;
-                        tm_exp.tm_mday = d;
-                        tm_exp.tm_hour = h;
-                        tm_exp.tm_min = mi;
-                        tm_exp.tm_sec = s;
+                        tm_exp.tm_year = year - 1900;
+                        tm_exp.tm_mon = month - 1;
+                        tm_exp.tm_mday = day;
+                        tm_exp.tm_hour = hour;
+                        tm_exp.tm_min = minute;
+                        tm_exp.tm_sec = second;
                         tm_exp.tm_isdst = -1;
                         auto exp_t = std::mktime(&tm_exp);
                         auto now_t = std::time(nullptr);
@@ -135,12 +135,12 @@ bool KisClient::issue_token()
     }
 
     // ── 새 토큰 발급 ─────────────────────────────────────────────────────
-    json body = {{"grant_type", "client_credentials"}, {"appkey", cfg_.app_key}, {"appsecret", cfg_.app_secret}};
+    json body = {{"grant_type", "client_credentials"}, {"appkey", config_.app_key}, {"appsecret", config_.app_secret}};
 
     std::string url = base_url() + "/oauth2/tokenP";
-    std::string resp = http_post(url, {"Content-Type: application/json"}, body.dump());
+    std::string response = http_post(url, {"Content-Type: application/json"}, body.dump());
 
-    if (resp.empty())
+    if (response.empty())
     {
         LOG_ERROR("[KIS] 토큰 발급 요청 실패");
         return false;
@@ -148,11 +148,11 @@ bool KisClient::issue_token()
 
     try
     {
-        auto j = json::parse(resp);
-        const std::string token = j["access_token"].get<std::string>();
+        auto document = json::parse(response);
+        const std::string token = document["access_token"].get<std::string>();
 
         // 만료 시각 저장 (KIS 응답 필드: access_token_token_expired)
-        std::string expires = j.value("access_token_token_expired", "");
+        std::string expires = document.value("access_token_token_expired", "");
         std::chrono::system_clock::time_point expires_at;
 
         // 인메모리 만료 시각 설정
@@ -160,16 +160,16 @@ bool KisClient::issue_token()
             struct tm tm_exp
             {
             };
-            int y, mo, d, h, mi, s;
+            int year, month, day, hour, minute, second;
 
-            if (sscanf(expires.c_str(), "%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6)
+            if (sscanf(expires.c_str(), "%d-%d-%d %d:%d:%d", &year, &month, &day, &hour, &minute, &second) == 6)
             {
-                tm_exp.tm_year = y - 1900;
-                tm_exp.tm_mon = mo - 1;
-                tm_exp.tm_mday = d;
-                tm_exp.tm_hour = h;
-                tm_exp.tm_min = mi;
-                tm_exp.tm_sec = s;
+                tm_exp.tm_year = year - 1900;
+                tm_exp.tm_mon = month - 1;
+                tm_exp.tm_mday = day;
+                tm_exp.tm_hour = hour;
+                tm_exp.tm_min = minute;
+                tm_exp.tm_sec = second;
                 tm_exp.tm_isdst = -1;
                 expires_at = std::chrono::system_clock::from_time_t(std::mktime(&tm_exp));
             }
@@ -212,9 +212,9 @@ bool KisClient::issue_token()
         LOG_INFO("[KIS] 토큰 발급 성공 (만료: " + expires + ")");
         return true;
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        LOG_ERROR(std::string("[KIS] 토큰 파싱 오류: ") + e.what());
+        LOG_ERROR(std::string("[KIS] 토큰 파싱 오류: ") + exception.what());
         return false;
     }
 }

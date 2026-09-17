@@ -29,32 +29,32 @@ void check_kst_fixed()
     for (const char* tz : {"UTC0", "KST-9", "PST8PDT"})
     {
         set_tz(tz);
-        assert(kst::ymd(kOpen) == "20260911");
+        assert(kst::date_yyyymmdd(kOpen) == "20260911");
         assert(kst::hhmmss(kOpen) == "090000");
         assert(kst::datetime(kOpen) == "2026-09-11 09:00:00");
-        assert(kst::ymd(kOpen - 1) == "20260911");     // 08:59:59 KST
+        assert(kst::date_yyyymmdd(kOpen - 1) == "20260911");     // 08:59:59 KST
         assert(kst::hhmmss(kOpen - 1) == "085959");
-        assert(kst::ymd(kOpen - 9 * 3600) == "20260911"); // 00:00:00 KST — 날짜 경계
-        assert(kst::ymd(kOpen - 9 * 3600 - 1) == "20260910");
+        assert(kst::date_yyyymmdd(kOpen - 9 * 3600) == "20260911"); // 00:00:00 KST — 날짜 경계
+        assert(kst::date_yyyymmdd(kOpen - 9 * 3600 - 1) == "20260910");
         assert(kst::hhmmss(kOpen - 9 * 3600 - 1) == "235959");
         assert(kst::hhmmss_int(kOpen) == 90000);
         assert(kst::hhmmss_int(kOpen - 1) == 85959);
         assert(kst::hhmmss_int(kOpen - 9 * 3600 - 1) == 235959);
 
-        const struct tm t = kst::to_tm(kOpen);
-        assert(t.tm_year == 126 && t.tm_mon == 8 && t.tm_mday == 11);
-        assert(t.tm_hour == 9 && t.tm_min == 0 && t.tm_sec == 0);
-        assert(t.tm_wday == 5);   // 금요일 — is_kr_market_open이 주말 판정에 쓴다
-        assert(t.tm_yday == 253); // 1월 1일 = 0 — BarAggregator가 거래일 키에 쓴다
+        const struct tm local_time = kst::to_tm(kOpen);
+        assert(local_time.tm_year == 126 && local_time.tm_mon == 8 && local_time.tm_mday == 11);
+        assert(local_time.tm_hour == 9 && local_time.tm_min == 0 && local_time.tm_sec == 0);
+        assert(local_time.tm_wday == 5);   // 금요일 — is_kr_market_open이 주말 판정에 쓴다
+        assert(local_time.tm_yday == 253); // 1월 1일 = 0 — BarAggregator가 거래일 키에 쓴다
         assert(kst::to_tm(kOpen - 9 * 3600 - 1).tm_yday == 252);
 
-        const auto tod = kst::time_of_day(kOpen + 6 * 3600 + 30 * 60 + 5);
-        assert(tod.hours().count() == 15 && tod.minutes().count() == 30 && tod.seconds().count() == 5);
+        const auto time_of_day = kst::time_of_day(kOpen + 6 * 3600 + 30 * 60 + 5);
+        assert(time_of_day.hours().count() == 15 && time_of_day.minutes().count() == 30 && time_of_day.seconds().count() == 5);
     }
 
     // 윤년 2월 29일 — 1월 1일부터 59일째.
     constexpr std::time_t kLeap = 1709164800 - 9 * 3600; // 2024-02-29 00:00:00 KST
-    assert(kst::ymd(kLeap) == "20240229");
+    assert(kst::date_yyyymmdd(kLeap) == "20240229");
     assert(kst::to_tm(kLeap).tm_yday == 59);
     assert(kst::format_ymd(std::chrono::year{2024} / 2 / 29) == "20240229");
 

@@ -47,27 +47,27 @@ void set_nonblocking(ops_socket_t fd)
 #endif
 }
 
-bool would_block(int err)
+bool would_block(int error)
 {
 #ifdef _WIN32
-    return err == WSAEWOULDBLOCK;
+    return error == WSAEWOULDBLOCK;
 #else
-    return err == EWOULDBLOCK || err == EAGAIN;
+    return error == EWOULDBLOCK || error == EAGAIN;
 #endif
 }
 
-bool is_reset(int err)
+bool is_reset(int error)
 {
 #ifdef _WIN32
-    return err == WSAECONNRESET;
+    return error == WSAECONNRESET;
 #else
-    return err == ECONNRESET;
+    return error == ECONNRESET;
 #endif
 }
 
-std::string err_body(const std::string& msg)
+std::string err_body(const std::string& message)
 {
-    return json{{"msg", msg}}.dump();
+    return json{{"msg", message}}.dump();
 }
 
 } // namespace
@@ -107,8 +107,8 @@ bool OpsServer::start()
     }
 
 #ifdef _WIN32
-    WSADATA w;
-    WSAStartup(MAKEWORD(2, 2), &w);
+    WSADATA wsa_data;
+    WSAStartup(MAKEWORD(2, 2), &wsa_data);
 #endif
 
     listen_fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -174,11 +174,11 @@ void OpsServer::stop()
     }
 
     {
-        std::lock_guard<std::mutex> lk(clients_mtx_);
+        std::lock_guard<std::mutex> lock(clients_mtx_);
 
-        for (auto& kv : clients_)
+        for (auto& entry : clients_)
         {
-            ops_close(kv.first);
+            ops_close(entry.first);
         }
 
         clients_.clear();
@@ -195,7 +195,7 @@ void OpsServer::stop()
 
 size_t OpsServer::client_count() const
 {
-    std::lock_guard<std::mutex> lk(clients_mtx_);
+    std::lock_guard<std::mutex> lock(clients_mtx_);
     return clients_.size();
 }
 
@@ -206,7 +206,7 @@ void OpsServer::broadcast(ops::OpsMsg type, const std::string& body)
         return;
     }
 
-    std::lock_guard<std::mutex> lk(bcast_mtx_);
+    std::lock_guard<std::mutex> lock(bcast_mtx_);
     bcast_.emplace_back(type, body);
 }
 
@@ -226,21 +226,21 @@ void OpsServer::thread_fn()
         ops_socket_t maxfd = listen_fd_;
 
         {
-            std::lock_guard<std::mutex> lk(clients_mtx_);
+            std::lock_guard<std::mutex> lock(clients_mtx_);
 
-            for (auto& kv : clients_)
+            for (auto& entry : clients_)
             {
-                FD_SET(kv.first, &rd);
+                FD_SET(entry.first, &rd);
 
-                if (!kv.second.out.empty())
+                if (!entry.second.out.empty())
                 {
-                    FD_SET(kv.first, &wr);
+                    FD_SET(entry.first, &wr);
                 }
 
 #ifndef _WIN32
-                if (kv.first > maxfd)
+                if (entry.first > maxfd)
                 {
-                    maxfd = kv.first;
+                    maxfd = entry.first;
                 }
 #endif
             }
@@ -250,21 +250,21 @@ void OpsServer::thread_fn()
         timeval tv{};
         tv.tv_sec  = 0;
         tv.tv_usec = 50000;
-        const int n = ::select(static_cast<int>(maxfd) + 1, &rd, &wr, nullptr, &tv);
+        const int count = ::select(static_cast<int>(maxfd) + 1, &rd, &wr, nullptr, &tv);
 
-        if (n < 0)
+        if (count < 0)
         {
-            const int err = ops_errno();
+            const int error = ops_errno();
 #ifdef _WIN32
-            if (err == WSAEINTR)
+            if (error == WSAEINTR)
 #else
-            if (err == EINTR)
+            if (error == EINTR)
 #endif
             {
                 continue;
             }
 
-            LOG_ERROR("[Ops] select 실패 err=" + std::to_string(err));
+            LOG_ERROR("[Ops] select 실패 err=" + std::to_string(error));
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
             continue;
         }
@@ -277,31 +277,31 @@ void OpsServer::thread_fn()
         std::vector<ops_socket_t> dead;
 
         {
-            std::lock_guard<std::mutex> lk(clients_mtx_);
+            std::lock_guard<std::mutex> lock(clients_mtx_);
 
-            for (auto& kv : clients_)
+            for (auto& entry : clients_)
             {
-                Client& c = kv.second;
+                Client& client = entry.second;
 
-                if (FD_ISSET(kv.first, &rd))
+                if (FD_ISSET(entry.first, &rd))
                 {
-                    on_readable(c);
+                    on_readable(client);
                 }
 
-                if (c.fd == OPS_INVALID)
+                if (client.fd == OPS_INVALID)
                 {
-                    dead.push_back(kv.first);
+                    dead.push_back(entry.first);
                     continue;
                 }
 
-                if (FD_ISSET(kv.first, &wr) || !c.out.empty())
+                if (FD_ISSET(entry.first, &wr) || !client.out.empty())
                 {
-                    flush(c);
+                    flush(client);
                 }
 
-                if (c.fd == OPS_INVALID)
+                if (client.fd == OPS_INVALID)
                 {
-                    dead.push_back(kv.first);
+                    dead.push_back(entry.first);
                 }
             }
         }
@@ -315,24 +315,24 @@ void OpsServer::thread_fn()
         std::vector<std::pair<ops::OpsMsg, std::string>> pending;
 
         {
-            std::lock_guard<std::mutex> lk(bcast_mtx_);
+            std::lock_guard<std::mutex> lock(bcast_mtx_);
             pending.swap(bcast_);
         }
 
         if (!pending.empty())
         {
-            std::lock_guard<std::mutex> lk(clients_mtx_);
+            std::lock_guard<std::mutex> lock(clients_mtx_);
 
-            for (auto& kv : clients_)
+            for (auto& entry : clients_)
             {
-                if (!kv.second.auth && token_.empty() == false)
+                if (!entry.second.auth && token_.empty() == false)
                 {
                     continue; // 토큰 인증이 켜진 서버에서 미인증 연결에는 push하지 않는다
                 }
 
-                for (auto& p : pending)
+                for (auto& pending_entry : pending)
                 {
-                    send(kv.second, p.first, p.second);
+                    send(entry.second, pending_entry.first, pending_entry.second);
                 }
             }
         }
@@ -368,46 +368,46 @@ void OpsServer::accept_one()
 
     char ip[64] = {0};
     inet_ntop(AF_INET, &peer.sin_addr, ip, sizeof(ip));
-    Client c;
-    c.fd   = fd;
-    c.name = std::string(ip) + ":" + std::to_string(ntohs(peer.sin_port));
+    Client client;
+    client.fd   = fd;
+    client.name = std::string(ip) + ":" + std::to_string(ntohs(peer.sin_port));
 
     {
-        std::lock_guard<std::mutex> lk(clients_mtx_);
+        std::lock_guard<std::mutex> lock(clients_mtx_);
 
         if (clients_.size() >= 8)
         {
             // 운영단말이 8개를 넘을 일은 없다 — 넘으면 소켓 누수나 스캐너다.
-            LOG_WARN("[Ops] 연결 상한(8) — 거부 " + c.name);
+            LOG_WARN("[Ops] 연결 상한(8) — 거부 " + client.name);
             ops_close(fd);
             return;
         }
 
-        clients_.emplace(fd, std::move(c));
+        clients_.emplace(fd, std::move(client));
     }
 
     LOG_INFO("[Ops] 연결 " + std::string(ip) + ":" + std::to_string(ntohs(peer.sin_port)));
 }
 
-void OpsServer::on_readable(Client& c)
+void OpsServer::on_readable(Client& client)
 {
-    uint8_t buf[16384];
+    uint8_t buffer[16384];
 
     while (true)
     {
-        const int r = ::recv(c.fd, reinterpret_cast<char*>(buf), sizeof(buf), 0);
+        const int result = ::recv(client.fd, reinterpret_cast<char*>(buffer), sizeof(buffer), 0);
 
-        if (r > 0)
+        if (result > 0)
         {
-            c.reader.feed(buf, static_cast<size_t>(r));
+            client.reader.feed(buffer, static_cast<size_t>(result));
             continue;
         }
 
-        if (r == 0)
+        if (result == 0)
         {
-            LOG_INFO("[Ops] 상대 종료 " + c.name);
-            ops_close(c.fd);
-            c.fd = OPS_INVALID;
+            LOG_INFO("[Ops] 상대 종료 " + client.name);
+            ops_close(client.fd);
+            client.fd = OPS_INVALID;
             return;
         }
 
@@ -417,86 +417,86 @@ void OpsServer::on_readable(Client& c)
         }
 
         // 단말이 shutdown 없이 닫으면 RST(10054/ECONNRESET)로 온다 — 결함이 아니라 끊김이다.
-        const int err = ops_errno();
+        const int error = ops_errno();
 
-        if (is_reset(err))
+        if (is_reset(error))
         {
-            LOG_INFO("[Ops] 연결 끊김(RST) " + c.name);
+            LOG_INFO("[Ops] 연결 끊김(RST) " + client.name);
         }
         else
         {
-            LOG_WARN("[Ops] recv 실패 " + c.name + " err=" + std::to_string(err));
+            LOG_WARN("[Ops] recv 실패 " + client.name + " err=" + std::to_string(error));
         }
 
-        ops_close(c.fd);
-        c.fd = OPS_INVALID;
+        ops_close(client.fd);
+        client.fd = OPS_INVALID;
         return;
     }
 
-    ops::Frame f;
+    ops::Frame frame;
 
-    while (c.reader.next(f))
+    while (client.reader.next(frame))
     {
-        if (!on_frame(c, f))
+        if (!on_frame(client, frame))
         {
-            flush(c); // 거부 사유를 보내고 끊는다
-            ops_close(c.fd);
-            c.fd = OPS_INVALID;
+            flush(client); // 거부 사유를 보내고 끊는다
+            ops_close(client.fd);
+            client.fd = OPS_INVALID;
             return;
         }
     }
 
-    if (c.reader.bad())
+    if (client.reader.bad())
     {
-        LOG_WARN("[Ops] 프레임 규약 위반 — 끊음 " + c.name);
-        ops_close(c.fd);
-        c.fd = OPS_INVALID;
+        LOG_WARN("[Ops] 프레임 규약 위반 — 끊음 " + client.name);
+        ops_close(client.fd);
+        client.fd = OPS_INVALID;
     }
 }
 
-bool OpsServer::on_frame(Client& c, const ops::Frame& f)
+bool OpsServer::on_frame(Client& client, const ops::Frame& frame)
 {
     using ops::OpsMsg;
-    const auto type = static_cast<OpsMsg>(f.type);
+    const auto type = static_cast<OpsMsg>(frame.type);
     json body;
 
-    if (!f.body.empty())
+    if (!frame.body.empty())
     {
-        body = json::parse(f.body, nullptr, false);
+        body = json::parse(frame.body, nullptr, false);
 
         if (body.is_discarded())
         {
-            send(c, OpsMsg::ERROR_MSG, err_body("본문 JSON 파싱 실패"));
+            send(client, OpsMsg::ERROR_MSG, err_body("본문 JSON 파싱 실패"));
             return false;
         }
     }
 
-    if (!c.hello)
+    if (!client.hello)
     {
         if (type != OpsMsg::HELLO)
         {
-            send(c, OpsMsg::ERROR_MSG, err_body("첫 프레임은 HELLO여야 한다"));
+            send(client, OpsMsg::ERROR_MSG, err_body("첫 프레임은 HELLO여야 한다"));
             return false;
         }
 
         const std::string tok = body.value("token", std::string());
-        c.hello = true;
-        c.auth  = token_.empty() ? false : (tok == token_);
+        client.hello = true;
+        client.auth  = token_.empty() ? false : (tok == token_);
 
-        if (!token_.empty() && !c.auth)
+        if (!token_.empty() && !client.auth)
         {
-            LOG_WARN("[Ops] 토큰 불일치 — 끊음 " + c.name);
-            send(c, OpsMsg::ERROR_MSG, err_body("token 불일치"));
+            LOG_WARN("[Ops] 토큰 불일치 — 끊음 " + client.name);
+            send(client, OpsMsg::ERROR_MSG, err_body("token 불일치"));
             return false;
         }
 
         const std::string who = body.value("client", std::string("?"));
-        LOG_INFO("[Ops] HELLO " + c.name + " client=" + who + (c.auth ? " auth" : " read-only"));
-        send(c, OpsMsg::WELCOME, json{{"ok", true}, {"auth", c.auth}, {"engine", "quant_trader"}, {"paper", paper_}}.dump());
+        LOG_INFO("[Ops] HELLO " + client.name + " client=" + who + (client.auth ? " auth" : " read-only"));
+        send(client, OpsMsg::WELCOME, json{{"ok", true}, {"auth", client.auth}, {"engine", "quant_trader"}, {"paper", paper_}}.dump());
 
         if (positions_)
         {
-            send(c, OpsMsg::POSITIONS, positions_());
+            send(client, OpsMsg::POSITIONS, positions_());
         }
 
         return true;
@@ -509,32 +509,32 @@ bool OpsServer::on_frame(Client& c, const ops::Frame& f)
             const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::system_clock::now().time_since_epoch())
                                 .count();
-            send(c, OpsMsg::PONG, json{{"ts", ms}}.dump());
+            send(client, OpsMsg::PONG, json{{"ts", ms}}.dump());
             return true;
         }
 
         case OpsMsg::STATUS_REQ:
-            send(c, OpsMsg::STATUS, status_ ? status_() : "{}");
+            send(client, OpsMsg::STATUS, status_ ? status_() : "{}");
             return true;
 
         case OpsMsg::POS_REQ:
-            send(c, OpsMsg::POSITIONS, positions_ ? positions_() : "{\"positions\":[]}");
+            send(client, OpsMsg::POSITIONS, positions_ ? positions_() : "{\"positions\":[]}");
             return true;
 
         case OpsMsg::ORDER_REQ:
         {
-            OpsOrderReq r;
-            r.cid       = body.value("cid", std::string());
-            r.ticker    = body.value("ticker", std::string());
-            r.side      = body.value("side", std::string());
-            r.qty       = body.value("qty", 0);
-            r.price     = body.value("price", 0.0);
-            r.ref_price = body.value("ref_price", 0.0);
-            r.account   = body.value("account", std::string());
+            OpsOrderReq ops_order_req;
+            ops_order_req.cid       = body.value("cid", std::string());
+            ops_order_req.ticker    = body.value("ticker", std::string());
+            ops_order_req.side      = body.value("side", std::string());
+            ops_order_req.quantity       = body.value("qty", 0);
+            ops_order_req.price     = body.value("price", 0.0);
+            ops_order_req.ref_price = body.value("ref_price", 0.0);
+            ops_order_req.account   = body.value("account", std::string());
 
             std::string why;
 
-            if (!c.auth)
+            if (!client.auth)
             {
                 why = token_.empty() ? "서버 ops_token 미설정 — 주문 불가" : "미인증";
             }
@@ -544,23 +544,23 @@ bool OpsServer::on_frame(Client& c, const ops::Frame& f)
             }
             else
             {
-                why = on_order_(r);
+                why = on_order_(ops_order_req);
             }
 
-            send(c, OpsMsg::ORDER_ACK, json{{"cid", r.cid}, {"accepted", why.empty()}, {"msg", why}}.dump());
+            send(client, OpsMsg::ORDER_ACK, json{{"cid", ops_order_req.cid}, {"accepted", why.empty()}, {"msg", why}}.dump());
             return true;
         }
 
         case OpsMsg::KILL:
         {
-            if (!c.auth)
+            if (!client.auth)
             {
-                send(c, OpsMsg::KILL_ACK, json{{"ok", false}, {"msg", "미인증"}}.dump());
+                send(client, OpsMsg::KILL_ACK, json{{"ok", false}, {"msg", "미인증"}}.dump());
                 return true;
             }
 
-            LOG_WARN("[Ops] KILL 수신 " + c.name);
-            send(c, OpsMsg::KILL_ACK, json{{"ok", true}}.dump());
+            LOG_WARN("[Ops] KILL 수신 " + client.name);
+            send(client, OpsMsg::KILL_ACK, json{{"ok", true}}.dump());
 
             if (on_kill_)
             {
@@ -571,12 +571,12 @@ bool OpsServer::on_frame(Client& c, const ops::Frame& f)
         }
 
         default:
-            send(c, OpsMsg::ERROR_MSG, err_body(std::string("지원하지 않는 타입 ") + std::to_string(f.type)));
+            send(client, OpsMsg::ERROR_MSG, err_body(std::string("지원하지 않는 타입 ") + std::to_string(frame.type)));
             return true;
     }
 }
 
-void OpsServer::send(Client& c, ops::OpsMsg type, const std::string& body)
+void OpsServer::send(Client& client, ops::OpsMsg type, const std::string& body)
 {
     auto bytes = ops::encode(type, body);
 
@@ -586,45 +586,45 @@ void OpsServer::send(Client& c, ops::OpsMsg type, const std::string& body)
         return;
     }
 
-    if (c.out.size() > (4u << 20))
+    if (client.out.size() > (4u << 20))
     {
         // 안 읽는 단말에 무한히 쌓지 않는다. 4 MiB면 이미 화면이 죽은 것이다.
-        LOG_WARN("[Ops] 송신 적체 4MiB — 끊음 " + c.name);
-        ops_close(c.fd);
-        c.fd = OPS_INVALID;
+        LOG_WARN("[Ops] 송신 적체 4MiB — 끊음 " + client.name);
+        ops_close(client.fd);
+        client.fd = OPS_INVALID;
         return;
     }
 
-    c.out.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-    flush(c);
+    client.out.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    flush(client);
 }
 
-void OpsServer::flush(Client& c)
+void OpsServer::flush(Client& client)
 {
-    while (c.fd != OPS_INVALID && !c.out.empty())
+    while (client.fd != OPS_INVALID && !client.out.empty())
     {
-        const int w = ::send(c.fd, c.out.data(), static_cast<int>(c.out.size()), 0);
+        const int width = ::send(client.fd, client.out.data(), static_cast<int>(client.out.size()), 0);
 
-        if (w > 0)
+        if (width > 0)
         {
-            c.out.erase(0, static_cast<size_t>(w));
+            client.out.erase(0, static_cast<size_t>(width));
             continue;
         }
 
-        if (w < 0 && would_block(ops_errno()))
+        if (width < 0 && would_block(ops_errno()))
         {
             return; // 다음 select에서 wr로 깨운다
         }
 
-        LOG_WARN("[Ops] send 실패 " + c.name + " err=" + std::to_string(ops_errno()));
-        ops_close(c.fd);
-        c.fd = OPS_INVALID;
+        LOG_WARN("[Ops] send 실패 " + client.name + " err=" + std::to_string(ops_errno()));
+        ops_close(client.fd);
+        client.fd = OPS_INVALID;
     }
 }
 
 void OpsServer::close_client(ops_socket_t fd)
 {
-    std::lock_guard<std::mutex> lk(clients_mtx_);
+    std::lock_guard<std::mutex> lock(clients_mtx_);
     clients_.erase(fd);
 }
 
@@ -643,13 +643,13 @@ void OpsServer::push_positions_if_changed()
     }
 
     last_positions_json_ = now;
-    std::lock_guard<std::mutex> lk(clients_mtx_);
+    std::lock_guard<std::mutex> lock(clients_mtx_);
 
-    for (auto& kv : clients_)
+    for (auto& entry : clients_)
     {
-        if (kv.second.hello)
+        if (entry.second.hello)
         {
-            send(kv.second, ops::OpsMsg::POSITIONS, now);
+            send(entry.second, ops::OpsMsg::POSITIONS, now);
         }
     }
 }

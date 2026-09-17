@@ -61,7 +61,7 @@ public:
 
     bool connect(const std::vector<WatchSpec>& specs) override
     {
-        std::lock_guard<std::mutex> lk(mtx_);
+        std::lock_guard<std::mutex> lock(mtx_);
         specs_     = specs;
         connected_ = true;
         return true;
@@ -71,18 +71,18 @@ public:
 
     bool subscribe_incremental(const WatchSpec& spec) override
     {
-        std::lock_guard<std::mutex> lk(mtx_);
+        std::lock_guard<std::mutex> lock(mtx_);
         specs_.push_back(spec);
         return true;
     }
 
     bool has_spec(const WatchSpec& spec) const override
     {
-        std::lock_guard<std::mutex> lk(mtx_);
+        std::lock_guard<std::mutex> lock(mtx_);
 
-        for (const auto& s : specs_)
+        for (const auto& watch : specs_)
         {
-            if (s.ticker == spec.ticker)
+            if (watch.ticker == spec.ticker)
             {
                 return true;
             }
@@ -98,26 +98,26 @@ public:
     // 수신 스레드가 디코드 직후 부르는 자리 — 여기서는 테스트 스레드가 레인 lane의 역할을 한다.
     void emit_trade(uint32_t lane, const std::string& ticker, double price, int32_t hhmmss)
     {
-        TradeData td;
-        td.ticker.assign(ticker);
-        td.price     = price;
-        td.quantity  = 10;
-        td.direction = 1;
-        td.hhmmss    = hhmmss;
+        TradeData trade;
+        trade.ticker.assign(ticker);
+        trade.price     = price;
+        trade.quantity  = 10;
+        trade.direction = 1;
+        trade.hhmmss    = hhmmss;
 
         if (lane_trade_)
         {
-            lane_trade_(lane, td);
+            lane_trade_(lane, trade);
         }
         else if (on_trade_)
         {
-            on_trade_(td);
+            on_trade_(trade);
         }
     }
 
     std::vector<WatchSpec> specs() const
     {
-        std::lock_guard<std::mutex> lk(mtx_);
+        std::lock_guard<std::mutex> lock(mtx_);
         return specs_;
     }
 
@@ -142,42 +142,42 @@ public:
     std::string describe() const override { return "첫 틱에 1주 매수"; }
     std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
 
-    void on_start() override { sym_ = symbol_of(ticker_); }
+    void on_start() override { symbol_id_ = symbol_of(ticker_); }
 
     std::vector<WatchSpec> get_watch_specs() const override
     {
-        WatchSpec w;
-        w.ticker = ticker_;
-        return {w};
+        WatchSpec spec;
+        spec.ticker = ticker_;
+        return {spec};
     }
 
-    std::optional<OrderSignal> on_trade(const TradeData& td) override
+    std::optional<OrderSignal> on_trade(const TradeData& trade) override
     {
         ++ticks_seen;
 
-        if (fired_ || !same_symbol(sym_, ticker_, td.sym, td.ticker.str()))
+        if (fired_ || !same_symbol(symbol_id_, ticker_, trade.symbol_id, trade.ticker.str()))
         {
             return std::nullopt;
         }
 
         fired_ = true;
-        OrderSignal sig;
-        sig.ticker      = ticker_;
-        sig.sym         = td.sym;
-        sig.side        = OrderSide::BUY;
-        sig.type        = OrderType::MARKET;
-        sig.quantity    = 1;
-        sig.ref_price   = td.price;
-        sig.strategy_id = id();
-        return sig;
+        OrderSignal signal;
+        signal.ticker      = ticker_;
+        signal.symbol_id         = trade.symbol_id;
+        signal.side        = OrderSide::BUY;
+        signal.type        = OrderType::MARKET;
+        signal.quantity    = 1;
+        signal.ref_price   = trade.price;
+        signal.strategy_id = id();
+        return signal;
     }
 
-    sym::SymbolId    sym() const { return sym_; }
+    symbol::SymbolId    symbol_id() const { return symbol_id_; }
     std::atomic<int> ticks_seen{0};
 
 private:
     std::string   ticker_;
-    sym::SymbolId sym_{};
+    symbol::SymbolId symbol_id_{};
     bool          fired_ = false;
 };
 
@@ -189,16 +189,16 @@ int run_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& ti
 
     auto  feed_owned = std::make_unique<FakeFeed>(lanes);
     auto* feed       = feed_owned.get();
-    std::vector<BuyOnce*> strats;
+    std::vector<BuyOnce*> strategies;
 
     Engine eng(KisConfig{});
     eng.set_strategy_shards(shards);
 
-    for (const auto& t : tickers)
+    for (const auto& ticker : tickers)
     {
-        auto st = std::make_unique<BuyOnce>(t);
-        strats.push_back(st.get());
-        eng.add_strategy(std::move(st));
+        auto stop_token = std::make_unique<BuyOnce>(ticker);
+        strategies.push_back(stop_token.get());
+        eng.add_strategy(std::move(stop_token));
     }
 
     eng.set_feed_source(std::move(feed_owned), 1'000'000.0);
@@ -215,18 +215,18 @@ int run_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& ti
     {
         std::set<uint32_t> cols;
 
-        for (auto* st : strats)
+        for (auto* stop_token : strategies)
         {
-            cols.insert(shard::shard_of(st->sym(), shards));
+            cols.insert(shard::shard_of(stop_token->symbol_id(), shards));
         }
 
         CHECK(cols.size() == std::min<size_t>(shards, tickers.size()));
     }
 
     // 3. 첫 틱이 각 전략까지 닿고 매수 신호가 주문 큐로 간다. 접수는 모의 체결기 — 체결은 다음 틱에서.
-    for (size_t i = 0; i < tickers.size(); ++i)
+    for (size_t ticker_index = 0; ticker_index < tickers.size(); ++ticker_index)
     {
-        feed->emit_trade(static_cast<uint32_t>(i) % lanes, tickers[i], 70000.0, 93001);
+        feed->emit_trade(static_cast<uint32_t>(ticker_index) % lanes, tickers[ticker_index], 70000.0, 93001);
     }
 
     const auto deadline = std::chrono::steady_clock::now() + 5s;
@@ -238,19 +238,19 @@ int run_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& ti
 
     CHECK(eng.order_count() == tickers.size());
 
-    for (auto* st : strats)
+    for (auto* stop_token : strategies)
     {
-        CHECK(st->ticks_seen.load() >= 1);
+        CHECK(stop_token->ticks_seen.load() >= 1);
     }
 
     // 4. 다음 틱이 시장가를 그 가격에 체결시키고 체결 소비 스레드가 원장에 반영한다 — 종목마다 보유 1주, 평단 70100.
     std::vector<OrderGate::HeldPos> held;
 
-    for (int i = 0; i < 400; ++i)
+    for (int index = 0; index < 400; ++index)
     {
-        for (size_t k = 0; k < tickers.size(); ++k)
+        for (size_t ticker_index = 0; ticker_index < tickers.size(); ++ticker_index)
         {
-            feed->emit_trade(static_cast<uint32_t>(k) % lanes, tickers[k], 70100.0, 93002 + i);
+            feed->emit_trade(static_cast<uint32_t>(ticker_index) % lanes, tickers[ticker_index], 70100.0, 93002 + index);
         }
 
         held = eng.held_positions();
@@ -265,20 +265,20 @@ int run_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& ti
 
     CHECK(held.size() == tickers.size());
 
-    for (const auto& h : held)
+    for (const auto& holding : held)
     {
-        CHECK(std::find(tickers.begin(), tickers.end(), h.ticker) != tickers.end());
-        CHECK(h.qty == 1);
-        CHECK(h.avg_price > 70099.0 && h.avg_price < 70101.0);
+        CHECK(std::find(tickers.begin(), tickers.end(), holding.ticker) != tickers.end());
+        CHECK(holding.quantity == 1);
+        CHECK(holding.average_price > 70099.0 && holding.average_price < 70101.0);
     }
 
     CHECK(eng.signal_count() == tickers.size());
 
     // 5. 정지가 장 외 대기(60초)를 기다리지 않는다.
-    const auto t0 = std::chrono::steady_clock::now();
+    const auto start_time = std::chrono::steady_clock::now();
     eng.stop();
     CHECK(!eng.is_running());
-    CHECK(std::chrono::steady_clock::now() - t0 < 10s);
+    CHECK(std::chrono::steady_clock::now() - start_time < 10s);
     return 0;
 }
 
@@ -291,28 +291,28 @@ int run_replay_case()
     const auto path = std::filesystem::temp_directory_path() / "quant_test_engine_replay.bin";
     std::filesystem::remove(path);
     {
-        feed::TickCapture cap(path);
-        CHECK(cap.ok());
+        feed::TickCapture capture(path);
+        CHECK(capture.ok());
 
-        for (int i = 0; i < 100; ++i)
+        for (int index = 0; index < 100; ++index)
         {
-            TradeData td;
-            td.ticker.assign("005930");
-            td.price     = i == 0 ? 70000.0 : 70100.0;
-            td.quantity  = 10;
-            td.direction = 1;
-            td.hhmmss    = 93001 + i;
-            td.recv_ns   = 1'000'000'000LL + static_cast<int64_t>(i) * 20'000'000LL;
-            cap.on_trade(td);
+            TradeData trade;
+            trade.ticker.assign("005930");
+            trade.price     = index == 0 ? 70000.0 : 70100.0;
+            trade.quantity  = 10;
+            trade.direction = 1;
+            trade.hhmmss    = 93001 + index;
+            trade.received_ns   = 1'000'000'000LL + static_cast<int64_t>(index) * 20'000'000LL;
+            capture.on_trade(trade);
         }
 
-        cap.flush();
-        CHECK(cap.written() == 100);
+        capture.flush();
+        CHECK(capture.written() == 100);
     }
 
     Engine eng(KisConfig{});
     auto   st_owned = std::make_unique<BuyOnce>("005930");
-    auto*  st       = st_owned.get();
+    auto*  stop_token       = st_owned.get();
     eng.add_strategy(std::move(st_owned));
     eng.set_replay(path.string(), 1.0, 1'000'000.0);
     eng.start();
@@ -338,14 +338,14 @@ int run_replay_case()
     }
 
     CHECK(eng.order_count() == 1);
-    CHECK(st->ticks_seen.load() >= 2);
+    CHECK(stop_token->ticks_seen.load() >= 2);
     CHECK(held.size() == 1);
 
     if (held.size() == 1)
     {
         CHECK(held[0].ticker == "005930");
-        CHECK(held[0].qty == 1);
-        CHECK(held[0].avg_price > 70099.0 && held[0].avg_price < 70101.0);
+        CHECK(held[0].quantity == 1);
+        CHECK(held[0].average_price > 70099.0 && held[0].average_price < 70101.0);
     }
 
     CHECK(eng.signal_count() == 1);

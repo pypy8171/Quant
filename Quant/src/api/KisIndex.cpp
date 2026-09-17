@@ -20,14 +20,14 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
 
     // 조회창의 초는 KST 자리값을 UTC로 읽은 값이라 옮기지 않고 날짜로 찍는다. '오늘'은 KST 기준
     //  (KST 자정~오전 실행 시 최신봉 누락 방지). 서버 TZ와 무관하다.
-    auto fmt_date = [](time_t t) -> std::string { return kst::format_ymd(kst::utc_date(t)); };
+    auto fmt_date = [](time_t time_value) -> std::string { return kst::format_ymd(kst::utc_date(time_value)); };
     // 일봉 timestamp는 그 날짜의 UTC 정오 — 날짜 경계 회피. 읽는 쪽도 같은 기준으로 날짜를 뽑는다.
-    auto parse_ymd = [](const std::string& s) -> time_t { return kis_rest::parse_dt(s, "120000"); };
-    auto sd = [](const nlohmann::json& o, const std::string& k) -> double {
-        try { return std::stod(o.value(k, "0")); } catch (...) { return 0.0; }
+    auto parse_ymd = [](const std::string& text) -> time_t { return kis_rest::parse_dt(text, "120000"); };
+    auto sd = [](const nlohmann::json& node, const std::string& key) -> double {
+        try { return std::stod(node.value(key, "0")); } catch (...) { return 0.0; }
     };
 
-    std::vector<std::string> hdrs = auth_headers("FHKUP03500100");
+    std::vector<std::string> headers = auth_headers("FHKUP03500100");
 
     time_t end_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now())
                    + kKstOffsetSec;           // KST 기준 '오늘'
@@ -49,23 +49,23 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
 
         try
         {
-            auto resp = http_get(url, hdrs);
+            auto response = http_get(url, headers);
 
-            if (resp.empty())
+            if (response.empty())
             {
                 break;
             }
 
-            auto j = json::parse(resp, nullptr, false);
+            auto document = json::parse(response, nullptr, false);
 
-            if (j.is_discarded() || !j.contains("output2"))
+            if (document.is_discarded() || !document.contains("output2"))
             {
                 break;
             }
 
-            auto& arr = j["output2"];
+            auto& array = document["output2"];
 
-            if (arr.empty())
+            if (array.empty())
             {
                 break;
             }
@@ -73,7 +73,7 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
             std::string page_oldest;
             int added = 0;
 
-            for (const auto& item : arr)              // output2는 최신→과거 순
+            for (const auto& item : array)              // output2는 최신→과거 순
             {
                 std::string bd = item.value("stck_bsop_date", "");
 
@@ -83,20 +83,20 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
                     continue;
                 }
 
-                MarketData d;
-                d.ticker = sector_code;
-                d.close  = sd(item, "bstp_nmix_prpr");
-                d.open   = sd(item, "bstp_nmix_oprc");
-                d.high   = sd(item, "bstp_nmix_hgpr");
-                d.low    = sd(item, "bstp_nmix_lwpr");
-                d.volume = static_cast<int64_t>(sd(item, "acml_vol"));
+                MarketData market_data;
+                market_data.ticker = sector_code;
+                market_data.close  = sd(item, "bstp_nmix_prpr");
+                market_data.open   = sd(item, "bstp_nmix_oprc");
+                market_data.high   = sd(item, "bstp_nmix_hgpr");
+                market_data.low    = sd(item, "bstp_nmix_lwpr");
+                market_data.volume = static_cast<int64_t>(sd(item, "acml_vol"));
 
                 if (!bd.empty())
                 {
-                    d.timestamp = std::chrono::system_clock::from_time_t(parse_ymd(bd));
+                    market_data.timestamp = std::chrono::system_clock::from_time_t(parse_ymd(bd));
                 }
 
-                result.push_back(d);
+                result.push_back(market_data);
                 ++added;
 
                 if (!bd.empty() && (page_oldest.empty() || bd < page_oldest))
@@ -125,9 +125,9 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
 
             end_t = ot - 86400;                              // 다음 윈도우: 최古일 -1일
         }
-        catch (const std::exception& e)
+        catch (const std::exception& exception)
         {
-            LOG_WARN("[KIS] 업종 일봉(" + sector_code + ") 오류: " + e.what());
+            LOG_WARN("[KIS] 업종 일봉(" + sector_code + ") 오류: " + exception.what());
             break;
         }
 
@@ -157,46 +157,46 @@ KisClient::InvestorTrend KisClient::get_investor_trend(const std::string& ticker
         "?FID_COND_MRKT_DIV_CODE=J"
         "&FID_INPUT_ISCD=" + ticker;
 
-    std::vector<std::string> hdrs = auth_headers("FHKST01010900");
+    std::vector<std::string> headers = auth_headers("FHKST01010900");
 
     InvestorTrend result;
     result.ticker = ticker;
 
     try
     {
-        auto resp = http_get(url, hdrs);
+        auto response = http_get(url, headers);
 
-        if (resp.empty())
+        if (response.empty())
         {
             return result;
         }
 
-        auto j = json::parse(resp, nullptr, false);
+        auto document = json::parse(response, nullptr, false);
 
-        if (j.is_discarded() || !j.contains("output"))
+        if (document.is_discarded() || !document.contains("output"))
         {
             return result;
         }
 
         // output 배열 최신(오늘) 데이터만 사용
-        auto& arr = j["output"];
+        auto& array = document["output"];
 
-        if (arr.empty())
+        if (array.empty())
         {
             return result;
         }
 
-        const auto& latest = arr[0];
+        const auto& latest = array[0];
 
-        auto si = [](const nlohmann::json& o, const std::string& k) -> int64_t {
-            try { return std::stoll(o.value(k, "0")); } catch (...) { return 0; }
+        auto si = [](const nlohmann::json& node, const std::string& key) -> int64_t {
+            try { return std::stoll(node.value(key, "0")); } catch (...) { return 0; }
         };
         result.foreign_net = si(latest, "frgn_ntby_qty");  // 외국인 순매수
-        result.inst_net    = si(latest, "orgn_ntby_qty");   // 기관 순매수
+        result.institution_net    = si(latest, "orgn_ntby_qty");   // 기관 순매수
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        LOG_WARN("[KIS] 투자자동향(" + ticker + ") 오류: " + e.what());
+        LOG_WARN("[KIS] 투자자동향(" + ticker + ") 오류: " + exception.what());
     }
 
     return result;
@@ -215,66 +215,66 @@ std::vector<InvestorFlow> KisClient::get_investor_flow(const std::string& ticker
         "?FID_COND_MRKT_DIV_CODE=" + market_div +
         "&FID_INPUT_ISCD=" + ticker;
 
-    std::vector<std::string> hdrs = auth_headers("FHKST01010900");
+    std::vector<std::string> headers = auth_headers("FHKST01010900");
 
     std::vector<InvestorFlow> result;
 
     try
     {
-        auto resp = http_get(url, hdrs);
+        auto response = http_get(url, headers);
 
-        if (resp.empty())
+        if (response.empty())
         {
             return result;
         }
 
-        auto j = json::parse(resp, nullptr, false);
+        auto document = json::parse(response, nullptr, false);
 
-        if (j.is_discarded() || !j.contains("output"))
+        if (document.is_discarded() || !document.contains("output"))
         {
             return result;
         }
 
-        auto si = [](const nlohmann::json& o, const std::string& k) -> int64_t {
-            std::string s = o.value(k, "");
+        auto si = [](const nlohmann::json& node, const std::string& key) -> int64_t {
+            std::string text = node.value(key, "");
 
-            if (s.empty())
+            if (text.empty())
             {
                 return 0;
             }
 
             // KIS 부호 있는 수치 문자열: 앞에 + / - 포함 가능
-            try { return std::stoll(s); } catch (...) { return 0; }
+            try { return std::stoll(text); } catch (...) { return 0; }
         };
-        auto sd = [](const nlohmann::json& o, const std::string& k) -> double {
-            std::string s = o.value(k, "");
+        auto sd = [](const nlohmann::json& node, const std::string& key) -> double {
+            std::string text = node.value(key, "");
 
-            if (s.empty())
+            if (text.empty())
             {
                 return 0.0;
             }
 
-            try { return std::stod(s); } catch (...) { return 0.0; }
+            try { return std::stod(text); } catch (...) { return 0.0; }
         };
 
-        for (const auto& row : j["output"])
+        for (const auto& row : document["output"])
         {
-            InvestorFlow f;
-            f.date        = row.value("stck_bsop_date", "");
-            f.foreign_net = si(row, "frgn_ntby_qty");
-            f.inst_net    = si(row, "orgn_ntby_qty");
-            f.indiv_net   = si(row, "prsn_ntby_qty");
-            f.close       = sd(row, "stck_clpr");
+            InvestorFlow investor_flow;
+            investor_flow.date        = row.value("stck_bsop_date", "");
+            investor_flow.foreign_net = si(row, "frgn_ntby_qty");
+            investor_flow.institution_net    = si(row, "orgn_ntby_qty");
+            investor_flow.individual_net   = si(row, "prsn_ntby_qty");
+            investor_flow.close       = sd(row, "stck_clpr");
 
-            if (!f.date.empty())
+            if (!investor_flow.date.empty())
             {
-                result.push_back(std::move(f));
+                result.push_back(std::move(investor_flow));
             }
         }
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        LOG_WARN("[KIS] 투자자 시계열(" + ticker + ") 오류: " + e.what());
+        LOG_WARN("[KIS] 투자자 시계열(" + ticker + ") 오류: " + exception.what());
     }
 
     return result; // [0]=가장 최근, look-ahead 방지는 호출측 책임
@@ -295,20 +295,20 @@ KisClient::IndexPrice KisClient::get_index_price(const std::string& ticker)
 
     try
     {
-        auto resp = http_get(url, headers);
-        auto j = json::parse(resp, nullptr, false);
+        auto response = http_get(url, headers);
+        auto document = json::parse(response, nullptr, false);
 
-        if (j.is_discarded() || !j.contains("output"))
+        if (document.is_discarded() || !document.contains("output"))
         {
             return ip;
         }
 
-        auto& o = j["output"];
-        auto sd = [&](const char* k) -> double
+        auto& output_node = document["output"];
+        auto sd = [&](const char* key) -> double
         {
             try
             {
-                return std::stod(o.value(k, "0"));
+                return std::stod(output_node.value(key, "0"));
             }
             catch (...)
             {
@@ -321,41 +321,41 @@ KisClient::IndexPrice KisClient::get_index_price(const std::string& ticker)
 
         try
         {
-            ip.sign = std::stoi(o.value("prdy_vrss_sign", "3"));
+            ip.sign = std::stoi(output_node.value("prdy_vrss_sign", "3"));
         }
         catch (...)
         {
             ip.sign = 3;
         }
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        LOG_WARN("[KIS] get_index_price(" + ticker + ") 실패: " + e.what());
+        LOG_WARN("[KIS] get_index_price(" + ticker + ") 실패: " + exception.what());
     }
 
     return ip;
 }
 
-KisClient::FuturePrice KisClient::get_future_price(const std::string& iscd, const std::string& market_div)
+KisClient::FuturePrice KisClient::get_future_price(const std::string& issue_code, const std::string& market_div)
 {
     ensure_authenticated();
 
     std::string url = base_url() + "/uapi/domestic-futureoption/v1/quotations/inquire-price"
-                      + "?FID_COND_MRKT_DIV_CODE=" + market_div + "&FID_INPUT_ISCD=" + iscd;
+                      + "?FID_COND_MRKT_DIV_CODE=" + market_div + "&FID_INPUT_ISCD=" + issue_code;
 
     std::vector<std::string> headers = auth_headers("FHMIF10000000", {"Content-Type: application/json"});
 
     FuturePrice fp;
-    fp.iscd = iscd;
+    fp.issue_code = issue_code;
 
     try
     {
-        auto resp = http_get(url, headers);
-        auto j = json::parse(resp, nullptr, false);
+        auto response = http_get(url, headers);
+        auto document = json::parse(response, nullptr, false);
 
-        if (j.is_discarded())
+        if (document.is_discarded())
         {
-            LOG_WARN("[KIS] get_future_price(" + iscd + ") JSON 파싱 불가: " + resp.substr(0, 200));
+            LOG_WARN("[KIS] get_future_price(" + issue_code + ") JSON 파싱 불가: " + response.substr(0, 200));
             return fp;
         }
 
@@ -369,53 +369,53 @@ KisClient::FuturePrice KisClient::get_future_price(const std::string& iscd, cons
 
             for (const char* key : {"output1", "output2", "output3", "output"})
             {
-                if (j.contains(key))
+                if (document.contains(key))
                 {
-                    dump += std::string(key) + "=" + j[key].dump() + "  ";
+                    dump += std::string(key) + "=" + document[key].dump() + "  ";
                 }
             }
 
-            LOG_INFO("[KIS] get_future_price RAW " + (dump.empty() ? resp.substr(0, 500) : dump));
+            LOG_INFO("[KIS] get_future_price RAW " + (dump.empty() ? response.substr(0, 500) : dump));
         }
 
         // 시세를 담은 output 객체 탐색: 가격 필드(futs_prpr)를 가진 객체를 우선 확정,
         // 없으면 output2→output1→output 순서의 첫 객체.
-        const json* o = nullptr;
+        const json* node = nullptr;
 
         for (const char* key : {"output2", "output1", "output"})
         {
-            if (j.contains(key) && j[key].is_object())
+            if (document.contains(key) && document[key].is_object())
             {
-                if (!o)
+                if (!node)
                 {
-                    o = &j[key];
+                    node = &document[key];
                 }
 
-                if (j[key].contains("futs_prpr"))
+                if (document[key].contains("futs_prpr"))
                 {
-                    o = &j[key];
+                    node = &document[key];
                     break;
                 }
             }
         }
 
-        if (!o)
+        if (!node)
         {
             return fp;
         }
 
-        auto sd = [&](const char* k) -> double {
-            try { return std::stod((*o).value(k, "0")); } catch (...) { return 0.0; }
+        auto sd = [&](const char* key) -> double {
+            try { return std::stod((*node).value(key, "0")); } catch (...) { return 0.0; }
         };
-        auto sll = [&](const char* k) -> int64_t {
-            try { return std::stoll((*o).value(k, "0")); } catch (...) { return 0; }
+        auto sll = [&](const char* key) -> int64_t {
+            try { return std::stoll((*node).value(key, "0")); } catch (...) { return 0; }
         };
 
         fp.price         = sd("futs_prpr");
         fp.change        = sd("futs_prdy_vrss");
         fp.change_rate   = sd("futs_prdy_ctrt");
 
-        try { fp.sign = std::stoi((*o).value("prdy_vrss_sign", "3")); } catch (...) { fp.sign = 3; }
+        try { fp.sign = std::stoi((*node).value("prdy_vrss_sign", "3")); } catch (...) { fp.sign = 3; }
         fp.open          = sd("futs_oprc");
         fp.high          = sd("futs_hgpr");
         fp.low           = sd("futs_lwpr");
@@ -423,9 +423,9 @@ KisClient::FuturePrice KisClient::get_future_price(const std::string& iscd, cons
         fp.open_interest = sll("hts_otst_stpl_qty");
         fp.ok            = (fp.price != 0.0);
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        LOG_WARN("[KIS] get_future_price(" + iscd + ") 실패: " + e.what());
+        LOG_WARN("[KIS] get_future_price(" + issue_code + ") 실패: " + exception.what());
     }
 
     return fp;
@@ -444,19 +444,19 @@ KisResult<std::vector<FutureContract>> KisClient::get_future_board(const std::st
 
     try
     {
-        auto resp = http_get(url, headers);
-        auto j = json::parse(resp, nullptr, false);
+        auto response = http_get(url, headers);
+        auto document = json::parse(response, nullptr, false);
 
-        if (j.is_discarded())
+        if (document.is_discarded())
         {
-            LOG_WARN("[KIS] get_future_board JSON 파싱 불가: " + resp.substr(0, 200));
-            return kis_fail("parse", resp.substr(0, 200));
+            LOG_WARN("[KIS] get_future_board JSON 파싱 불가: " + response.substr(0, 200));
+            return kis_fail("parse", response.substr(0, 200));
         }
 
-        if (j.value("rt_cd", "0") != "0")
+        if (document.value("rt_cd", "0") != "0")
         {
-            LOG_WARN("[KIS] get_future_board 응답 오류 " + j.value("msg_cd", "") + " " + j.value("msg1", ""));
-            return kis_fail(j.value("msg_cd", "rt_cd"), j.value("msg1", ""));
+            LOG_WARN("[KIS] get_future_board 응답 오류 " + document.value("msg_cd", "") + " " + document.value("msg1", ""));
+            return kis_fail(document.value("msg_cd", "rt_cd"), document.value("msg1", ""));
         }
 
         // 스키마 변동 대비: 프로세스당 첫 응답 한 번은 raw를 남긴다(get_future_price와 같은 규칙).
@@ -465,14 +465,14 @@ KisResult<std::vector<FutureContract>> KisClient::get_future_board(const std::st
         if (!dumped)
         {
             dumped = true;
-            LOG_INFO("[KIS] get_future_board RAW " + resp.substr(0, 500));
+            LOG_INFO("[KIS] get_future_board RAW " + response.substr(0, 500));
         }
 
-        return kis_rest::decode_future_board(j);
+        return kis_rest::decode_future_board(document);
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        LOG_WARN(std::string("[KIS] get_future_board 실패: ") + e.what());
-        return kis_fail("transport", e.what());
+        LOG_WARN(std::string("[KIS] get_future_board 실패: ") + exception.what());
+        return kis_fail("transport", exception.what());
     }
 }

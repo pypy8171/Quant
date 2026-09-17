@@ -35,8 +35,8 @@ public:
     // 레인 번호를 달아 부르는 콜백. 기본은 레인 0 하나로 set_callbacks에 얹는다 — 소켓 여럿을 묶는 구현만 덮어쓴다.
     virtual void set_lane_callbacks(LaneOrderBookCb on_ob, LaneTradeCb on_trade)
     {
-        set_callbacks([cb = std::move(on_ob)](const OrderBook& ob) { cb(0, ob); },
-                      [cb = std::move(on_trade)](const TradeData& td) { cb(0, td); });
+        set_callbacks([cb = std::move(on_ob)](const OrderBook& order_book) { cb(0, order_book); },
+                      [cb = std::move(on_trade)](const TradeData& trade) { cb(0, trade); });
     }
 
     // 체결통보가 없는 소스(리플레이)는 등록을 무시한다 — 주문은 어차피 REST 라우터가 낸다.

@@ -32,7 +32,7 @@
 struct StubOrderExecutor : IOrderExecutor
 {
     bool        succeed;
-    std::string odno;
+    std::string kis_order_no;
     int         call_count = 0;
     // MM-1 확장 — 취소/정정 경로 추적
     std::string orgno        = "ORG000001"; // submit_order_ack가 반환할 조직번호
@@ -40,14 +40,14 @@ struct StubOrderExecutor : IOrderExecutor
     bool        revise_ok    = true;          // revise_order 성공 여부
     int         cancel_calls = 0;
     int         revise_calls = 0;
-    int         last_cancel_qty = -1;         // 마지막 취소에 전달된 qty(잔량 재계산 검증)
+    int         last_cancel_qty = -1;         // 마지막 취소에 전달된 quantity(잔량 재계산 검증)
     // C-2 청산차단 경로 — 다음 fail_next건은 err_code로 실패, 그 뒤 성공
     bool        paper     = false;
     int         fail_next = 0;
     std::string err_code;
 
-    explicit StubOrderExecutor(bool s, std::string o = "A000000042")
-        : succeed(s), odno(std::move(o))
+    explicit StubOrderExecutor(bool flag, std::string output = "A000000042")
+        : succeed(flag), kis_order_no(std::move(output))
     {
     }
 
@@ -63,14 +63,14 @@ struct StubOrderExecutor : IOrderExecutor
             return OrderAck::fail(err_code.empty() ? std::string("E_TEST") : err_code);
         }
 
-        return succeed ? OrderAck{odno, orgno, std::string()} : OrderAck::fail("E_TEST");
+        return succeed ? OrderAck{kis_order_no, orgno, std::string()} : OrderAck::fail("E_TEST");
     }
 
     OrderAck cancel_order(const std::string&, const std::string&, const std::string&,
-                          int qty, bool) override
+                          int quantity, bool) override
     {
         ++cancel_calls;
-        last_cancel_qty = qty;
+        last_cancel_qty = quantity;
         return cancel_ok ? OrderAck{"C000000001", std::string(), std::string()} : OrderAck::fail("E_TEST");
     }
 
@@ -83,29 +83,29 @@ struct StubOrderExecutor : IOrderExecutor
 };
 
 // ─── 헬퍼 ─────────────────────────────────────────────────────────────────────
-static OrderSignal make_signal(const std::string& ticker, OrderSide side, int qty = 1)
+static OrderSignal make_signal(const std::string& ticker, OrderSide side, int quantity = 1)
 {
-    OrderSignal s;
-    s.ticker      = ticker;
-    s.side        = side;
-    s.quantity    = qty;
-    s.price       = 75000.0;
-    s.strategy_id = "TEST";
-    s.market      = Market::KR;
-    return s;
+    OrderSignal signal;
+    signal.ticker      = ticker;
+    signal.side        = side;
+    signal.quantity    = quantity;
+    signal.price       = 75000.0;
+    signal.strategy_id = "TEST";
+    signal.market      = Market::KR;
+    return signal;
 }
 
 static OrderGate::Config relaxed_cfg()
 {
-    OrderGate::Config c;
-    c.max_orders_per_min = 100;
-    c.max_orders_per_sec = 100;
-    c.dedup_window_sec   = 0.0;
-    return c;
+    OrderGate::Config config;
+    config.max_orders_per_min = 100;
+    config.max_orders_per_sec = 100;
+    config.dedup_window_sec   = 0.0;
+    return config;
 }
 
 // 오늘 원장 CSV의 마지막 n줄(헤더 제외). 행 검증용.
-static std::vector<std::string> tail_trade_rows(size_t n)
+static std::vector<std::string> tail_trade_rows(size_t count)
 {
     std::time_t tt = std::time(nullptr);
     std::tm     lt{};
@@ -114,9 +114,9 @@ static std::vector<std::string> tail_trade_rows(size_t n)
 #else
     localtime_r(&tt, &lt);
 #endif
-    char buf[9];
-    std::strftime(buf, sizeof(buf), "%Y%m%d", &lt);
-    std::ifstream in(Logger::instance().path_for(std::string("trades_") + buf + ".csv"));
+    char buffer[9];
+    std::strftime(buffer, sizeof(buffer), "%Y%m%d", &lt);
+    std::ifstream in(Logger::instance().path_for(std::string("trades_") + buffer + ".csv"));
     std::vector<std::string> rows;
 
     for (std::string ln; std::getline(in, ln); )
@@ -132,9 +132,9 @@ static std::vector<std::string> tail_trade_rows(size_t n)
         }
     }
 
-    if (rows.size() > n)
+    if (rows.size() > count)
     {
-        rows.erase(rows.begin(), rows.end() - static_cast<long>(n));
+        rows.erase(rows.begin(), rows.end() - static_cast<long>(count));
     }
 
     return rows;
@@ -145,16 +145,16 @@ static std::vector<std::string> split_csv(const std::string& ln)
     std::vector<std::string> out;
     std::string cur;
 
-    for (char c : ln)
+    for (char character : ln)
     {
-        if (c == ',')
+        if (character == ',')
         {
             out.push_back(cur);
             cur.clear();
         }
         else
         {
-            cur += c;
+            cur += character;
         }
     }
 
@@ -176,14 +176,14 @@ void test_gate_rejected()
     StubOrderExecutor stub(true);
     OrderRouter       router(gate, stub);
 
-    auto mo = router.submit(make_signal("005930", OrderSide::BUY));
+    auto managed_order = router.submit(make_signal("005930", OrderSide::BUY));
 
-    assert(mo.status == OrderStatus::REJECTED);
-    assert(mo.reject_reason.find("KILL") != std::string::npos);
+    assert(managed_order.status == OrderStatus::REJECTED);
+    assert(managed_order.reject_reason.find("KILL") != std::string::npos);
     assert(stub.call_count == 0); // KIS 호출 없어야 함
 
-    auto s = router.stats();
-    assert(s.total == 1 && s.accepted == 0 && s.rejected == 1);
+    auto stats = router.stats();
+    assert(stats.total == 1 && stats.accepted == 0 && stats.rejected == 1);
     PASS("gate_rejected");
 }
 
@@ -194,14 +194,14 @@ void test_kis_accepted()
     StubOrderExecutor stub(true, "K000012345");
     OrderRouter       router(gate, stub);
 
-    auto mo = router.submit(make_signal("005930", OrderSide::BUY, 1));
+    auto managed_order = router.submit(make_signal("005930", OrderSide::BUY, 1));
 
-    assert(mo.status == OrderStatus::ACCEPTED);
-    assert(mo.kis_order_no == "K000012345");
+    assert(managed_order.status == OrderStatus::ACCEPTED);
+    assert(managed_order.kis_order_no == "K000012345");
     assert(stub.call_count == 1);
 
-    auto s = router.stats();
-    assert(s.total == 1 && s.accepted == 1 && s.rejected == 0);
+    auto stats = router.stats();
+    assert(stats.total == 1 && stats.accepted == 1 && stats.rejected == 0);
     PASS("kis_accepted");
 }
 
@@ -212,14 +212,14 @@ void test_kis_failed()
     StubOrderExecutor stub(false); // 빈 문자열 반환
     OrderRouter       router(gate, stub);
 
-    auto mo = router.submit(make_signal("005930", OrderSide::BUY, 1));
+    auto managed_order = router.submit(make_signal("005930", OrderSide::BUY, 1));
 
-    assert(mo.status == OrderStatus::REJECTED);
-    assert(mo.reject_reason.find("KIS") != std::string::npos);
+    assert(managed_order.status == OrderStatus::REJECTED);
+    assert(managed_order.reject_reason.find("KIS") != std::string::npos);
     assert(stub.call_count == 1); // 게이트 통과 후 KIS 호출은 됨
 
-    auto s = router.stats();
-    assert(s.total == 1 && s.accepted == 0 && s.rejected == 1);
+    auto stats = router.stats();
+    assert(stats.total == 1 && stats.accepted == 0 && stats.rejected == 1);
     PASS("kis_failed");
 }
 
@@ -231,17 +231,17 @@ void test_stats_mixed()
     OrderRouter       router(gate, stub);
 
     // 3건 성공
-    for (int i = 0; i < 3; ++i)
+    for (int index = 0; index < 3; ++index)
     {
-        (void)router.submit(make_signal("00593" + std::to_string(i), OrderSide::BUY));
+        (void)router.submit(make_signal("00593" + std::to_string(index), OrderSide::BUY));
     }
 
     // kill switch 이후 1건 거부
     gate.set_kill_switch(true);
     (void)router.submit(make_signal("005934", OrderSide::BUY));
 
-    auto s = router.stats();
-    assert(s.total == 4 && s.accepted == 3 && s.rejected == 1);
+    auto stats = router.stats();
+    assert(stats.total == 4 && stats.accepted == 3 && stats.rejected == 1);
     PASS("stats_mixed");
 }
 
@@ -252,14 +252,14 @@ void test_history_recent()
     StubOrderExecutor stub(true);
     OrderRouter       router(gate, stub);
 
-    for (int i = 0; i < 5; ++i)
+    for (int index = 0; index < 5; ++index)
     {
-        (void)router.submit(make_signal("00593" + std::to_string(i), OrderSide::BUY));
+        (void)router.submit(make_signal("00593" + std::to_string(index), OrderSide::BUY));
     }
 
-    auto h = router.recent(3);
-    assert(h.size() == 3);
-    assert(h[2].signal.ticker == "005934"); // 마지막이 5번째 종목
+    auto history = router.recent(3);
+    assert(history.size() == 3);
+    assert(history[2].signal.ticker == "005934"); // 마지막이 5번째 종목
     PASS("history_recent");
 }
 
@@ -279,7 +279,7 @@ void test_order_id_sequence()
 }
 
 // ─── 테스트 7: 과체결 방어는 주문잔량 상한이 담당 ────────────────────────
-//   (odno,체결시각,수량,단가)는 유일하지 않다 — 같은 초에 같은 수량·단가로 나뉘어
+//   (kis_order_no,체결시각,수량,단가)는 유일하지 않다 — 같은 초에 같은 수량·단가로 나뉘어
 //   체결되면 서로 다른 실체결이 같은 키를 갖는다. 그래서 같은 키의 통보도 각각 반영하고,
 //   대신 누적 체결이 주문수량을 넘지 못하게 클램프해 과체결을 막는다.
 void test_duplicate_fill_ignored()
@@ -291,31 +291,31 @@ void test_duplicate_fill_ignored()
     (void)router.submit(make_signal("005930", OrderSide::BUY, 10)); // ACCEPTED, ODNO=K000077
 
     // 부분체결 5주 통보
-    FillNotification fn;
-    fn.odno         = "K000077";
-    fn.ticker       = "005930";
-    fn.side         = OrderSide::BUY;
-    fn.filled_qty   = 5;
-    fn.filled_price = 75000.0;
-    fn.fill_time    = "100000";
-    router.on_fill(fn);
+    FillNotification fill_notification;
+    fill_notification.kis_order_no         = "K000077";
+    fill_notification.ticker       = "005930";
+    fill_notification.side         = OrderSide::BUY;
+    fill_notification.filled_quantity   = 5;
+    fill_notification.filled_price = 75000.0;
+    fill_notification.fill_time    = "100000";
+    router.on_fill(fill_notification);
 
     auto h1 = router.recent(1);
-    assert(h1[0].confirmed_qty == 5);
+    assert(h1[0].confirmed_quantity == 5);
     assert(h1[0].status == OrderStatus::ACCEPTED);
 
     // 같은 키의 두 번째 통보 = 같은 초의 또 다른 5주 분할체결 → 반영되어 전량 체결
-    router.on_fill(fn);
+    router.on_fill(fill_notification);
     auto h2 = router.recent(1);
-    assert(h2[0].confirmed_qty == 10);
+    assert(h2[0].confirmed_quantity == 10);
     assert(h2[0].status == OrderStatus::FILLED);
 
     // 주문수량(10주)을 이미 채웠으므로 그 이상은 반영되지 않는다.
     //  ODNO는 아는 주문이므로 미매핑(ORPHAN) 경로로 새어 포지션이 부풀어도 안 된다.
-    fn.fill_time = "100005";
-    router.on_fill(fn);
+    fill_notification.fill_time = "100005";
+    router.on_fill(fill_notification);
     auto h3 = router.recent(1);
-    assert(h3[0].confirmed_qty == 10);
+    assert(h3[0].confirmed_quantity == 10);
     assert(h3[0].status == OrderStatus::FILLED);
     assert(gate.position("005930") == 10);  // 15주로 부풀지 않음
     PASS("duplicate_fill_ignored");
@@ -333,10 +333,10 @@ void test_unmapped_fill_applied()
     OrderRouter       router(gate, stub);
 
     // 이 라우터가 낸 적 없는 ODNO의 체결통보
-    FillNotification fn;
-    fn.odno = "PREV-SESSION"; fn.ticker = "047050"; fn.side = OrderSide::BUY;
-    fn.filled_qty = 91; fn.filled_price = 54700.0; fn.fill_time = "110707";
-    router.on_fill(fn);
+    FillNotification fill_notification;
+    fill_notification.kis_order_no = "PREV-SESSION"; fill_notification.ticker = "047050"; fill_notification.side = OrderSide::BUY;
+    fill_notification.filled_quantity = 91; fill_notification.filled_price = 54700.0; fill_notification.fill_time = "110707";
+    router.on_fill(fill_notification);
 
     assert(gate.position("047050") == 91);  // 원장에 반영
     assert(gate.reserved("047050") == 0);   // 없던 선점을 깎아 음수로 만들지 않음
@@ -345,30 +345,30 @@ void test_unmapped_fill_applied()
 
 // ─── 테스트 7c: 미매핑 체결의 재전송은 한 번만 반영 (W-6 회귀) ──────────────
 //   미연결은 history_에 없어 exhausted 판정이 못 잡고, 주문수량도 몰라 잔량 클램프도 없다.
-//   같은 키(거래일:odno:시각:수량:단가)의 2회차는 무시하고, 키가 다른 후속 분할체결은 반영한다.
+//   같은 키(거래일:kis_order_no:시각:수량:단가)의 2회차는 무시하고, 키가 다른 후속 분할체결은 반영한다.
 void test_unmapped_fill_duplicate_ignored()
 {
     OrderGate         gate(relaxed_cfg());
     StubOrderExecutor stub(true, "K000556");
     OrderRouter       router(gate, stub);
 
-    FillNotification fn;
-    fn.odno = "PREV-SESSION"; fn.ticker = "047050"; fn.side = OrderSide::BUY;
-    fn.filled_qty = 91; fn.filled_price = 54700.0; fn.fill_time = "110707";
-    router.on_fill(fn);
-    router.on_fill(fn);                    // WS 재구독 재전송
+    FillNotification fill_notification;
+    fill_notification.kis_order_no = "PREV-SESSION"; fill_notification.ticker = "047050"; fill_notification.side = OrderSide::BUY;
+    fill_notification.filled_quantity = 91; fill_notification.filled_price = 54700.0; fill_notification.fill_time = "110707";
+    router.on_fill(fill_notification);
+    router.on_fill(fill_notification);                    // WS 재구독 재전송
     assert(gate.position("047050") == 91); // 182로 부풀지 않음
     assert(gate.reserved("047050") == 0);
 
-    fn.fill_time = "110709"; fn.filled_qty = 9; // 같은 주문의 다음 분할체결(키 다름)
-    router.on_fill(fn);
+    fill_notification.fill_time = "110709"; fill_notification.filled_quantity = 9; // 같은 주문의 다음 분할체결(키 다름)
+    router.on_fill(fill_notification);
     assert(gate.position("047050") == 100);
 
     // 평단 미상 미연결 SELL — 실현이익을 만들지 않는다(C-1)
-    FillNotification s;
-    s.odno = "PREV-SELL"; s.ticker = "316140"; s.side = OrderSide::SELL;
-    s.filled_qty = 75; s.filled_price = 34050.0; s.fill_time = "093000";
-    router.on_fill(s);
+    FillNotification orphan_sell_fill;
+    orphan_sell_fill.kis_order_no = "PREV-SELL"; orphan_sell_fill.ticker = "316140"; orphan_sell_fill.side = OrderSide::SELL;
+    orphan_sell_fill.filled_quantity = 75; orphan_sell_fill.filled_price = 34050.0; orphan_sell_fill.fill_time = "093000";
+    router.on_fill(orphan_sell_fill);
 
     // 위 BUY 100주(91+9, 평단 54700)의 매수 수수료가 발생 즉시 차감돼 있다.
     //  SELL(316140)은 평단 미상이라 0을 더할 뿐 — 실현이익은 안 생긴다(C-1).
@@ -379,7 +379,7 @@ void test_unmapped_fill_duplicate_ignored()
 
 // ─── 테스트 8: cross-day 중복방지 키 (V-4 fix) ────────────────────────────────────
 //   ODNO는 영업일 단위 재사용 + fill_time은 HHMMSS(날짜 없음). 다른 거래일의 동일
-//   (odno,fill_time,qty,price) 통보가 전일 체결로 오인돼 drop되면 실체결 누락 사고.
+//   (kis_order_no,fill_time,quantity,price) 통보가 전일 체결로 오인돼 drop되면 실체결 누락 사고.
 //   거래일 prefix로 차단 — 둘 다 정상 반영되어야 한다.
 void test_cross_day_fill_not_deduped()
 {
@@ -388,24 +388,24 @@ void test_cross_day_fill_not_deduped()
     OrderRouter       router(gate, stub);
     (void)router.submit(make_signal("005930", OrderSide::BUY, 10));
 
-    auto mk_ts = [](int y, int mo, int d) {
-        std::tm t{}; t.tm_year = y - 1900; t.tm_mon = mo - 1; t.tm_mday = d;
-        t.tm_hour = 10; t.tm_isdst = -1;
-        return std::chrono::system_clock::from_time_t(std::mktime(&t));
+    auto mk_ts = [](int y_value, int managed_order, int days) {
+        std::tm time_parts{}; time_parts.tm_year = y_value - 1900; time_parts.tm_mon = managed_order - 1; time_parts.tm_mday = days;
+        time_parts.tm_hour = 10; time_parts.tm_isdst = -1;
+        return std::chrono::system_clock::from_time_t(std::mktime(&time_parts));
     };
 
-    FillNotification fn;
-    fn.odno = "K000077"; fn.ticker = "005930"; fn.side = OrderSide::BUY;
-    fn.filled_qty = 5; fn.filled_price = 75000.0; fn.fill_time = "100000";
+    FillNotification fill_notification;
+    fill_notification.kis_order_no = "K000077"; fill_notification.ticker = "005930"; fill_notification.side = OrderSide::BUY;
+    fill_notification.filled_quantity = 5; fill_notification.filled_price = 75000.0; fill_notification.fill_time = "100000";
 
-    fn.timestamp = mk_ts(2024, 1, 10);   // 거래일 1
-    router.on_fill(fn);
-    assert(router.recent(1)[0].confirmed_qty == 5);
+    fill_notification.timestamp = mk_ts(2024, 1, 10);   // 거래일 1
+    router.on_fill(fill_notification);
+    assert(router.recent(1)[0].confirmed_quantity == 5);
 
-    // 동일 (odno,fill_time,qty,price) + 다른 거래일 → 별개 체결로 처리(중복 아님)
-    fn.timestamp = mk_ts(2024, 1, 11);   // 거래일 2
-    router.on_fill(fn);
-    assert(router.recent(1)[0].confirmed_qty == 10);   // 누락 없이 누적
+    // 동일 (kis_order_no,fill_time,quantity,price) + 다른 거래일 → 별개 체결로 처리(중복 아님)
+    fill_notification.timestamp = mk_ts(2024, 1, 11);   // 거래일 2
+    router.on_fill(fill_notification);
+    assert(router.recent(1)[0].confirmed_quantity == 10);   // 누락 없이 누적
     assert(router.recent(1)[0].status == OrderStatus::FILLED);
     PASS("cross_day_fill_not_deduped");
 }
@@ -419,9 +419,9 @@ void test_cancel_releases_reserved()
 
     OrderSignal buy = make_signal("005930", OrderSide::BUY, 10);
     buy.client_oid  = "MM:B:1";
-    auto mo = router.submit(buy);
-    assert(mo.status == OrderStatus::ACCEPTED);
-    assert(mo.krx_orgno == "ORG000001");       // submit_order_ack가 조직번호 캡처
+    auto managed_order = router.submit(buy);
+    assert(managed_order.status == OrderStatus::ACCEPTED);
+    assert(managed_order.krx_forwarding_org_no == "ORG000001");       // submit_order_ack가 조직번호 캡처
     assert(gate.reserved("005930") == 10);
 
     OrderSignal cancel;
@@ -469,10 +469,10 @@ void test_partial_fill_then_cancel()
     (void)router.submit(buy);
     assert(gate.reserved("005930") == 10);
 
-    FillNotification fn;
-    fn.odno = "K000333"; fn.ticker = "005930"; fn.side = OrderSide::BUY;
-    fn.filled_qty = 4; fn.filled_price = 75000.0; fn.fill_time = "100000";
-    router.on_fill(fn);
+    FillNotification fill_notification;
+    fill_notification.kis_order_no = "K000333"; fill_notification.ticker = "005930"; fill_notification.side = OrderSide::BUY;
+    fill_notification.filled_quantity = 4; fill_notification.filled_price = 75000.0; fill_notification.fill_time = "100000";
+    router.on_fill(fill_notification);
     assert(gate.reserved("005930") == 6);   // 10 - 4
     assert(gate.position("005930") == 4);
 
@@ -500,10 +500,10 @@ void test_cancel_after_full_fill_selfheal()
     buy.client_oid  = "MM:B:1";
     (void)router.submit(buy);
 
-    FillNotification fn;
-    fn.odno = "K000444"; fn.ticker = "005930"; fn.side = OrderSide::BUY;
-    fn.filled_qty = 10; fn.filled_price = 75000.0; fn.fill_time = "100000";
-    router.on_fill(fn);
+    FillNotification fill_notification;
+    fill_notification.kis_order_no = "K000444"; fill_notification.ticker = "005930"; fill_notification.side = OrderSide::BUY;
+    fill_notification.filled_quantity = 10; fill_notification.filled_price = 75000.0; fill_notification.fill_time = "100000";
+    router.on_fill(fill_notification);
     assert(gate.reserved("005930") == 0);
     assert(gate.position("005930") == 10);
 
@@ -566,8 +566,8 @@ void test_reason_journal_restart_recovery()
         OrderGate         gate(relaxed_cfg());
         StubOrderExecutor stub(true, "R000777");
         OrderRouter       router(gate, stub);
-        auto mo = router.submit(buy);
-        assert(mo.status == OrderStatus::ACCEPTED);
+        auto managed_order = router.submit(buy);
+        assert(managed_order.status == OrderStatus::ACCEPTED);
         assert(gate.reserved("047050") == 100);
     }
 
@@ -576,10 +576,10 @@ void test_reason_journal_restart_recovery()
     StubOrderExecutor stub(true, "R000888");
     OrderRouter       router(gate, stub);
 
-    FillNotification fn;
-    fn.odno = "R000777"; fn.ticker = "047050"; fn.side = OrderSide::BUY;
-    fn.filled_qty = 60; fn.filled_price = 54700.0; fn.fill_time = "110707";
-    router.on_fill(fn);
+    FillNotification fill_notification;
+    fill_notification.kis_order_no = "R000777"; fill_notification.ticker = "047050"; fill_notification.side = OrderSide::BUY;
+    fill_notification.filled_quantity = 60; fill_notification.filled_price = 54700.0; fill_notification.fill_time = "110707";
+    router.on_fill(fill_notification);
 
     assert(gate.position("047050") == 60);
     assert(gate.reserved("047050") == 40);   // 주문수량 100을 되살리고 60만 해제
@@ -588,21 +588,21 @@ void test_reason_journal_restart_recovery()
     auto hist = router.recent(5);
     bool found = false;
 
-    for (const auto& h : hist)
+    for (const auto& history_entry : hist)
     {
-        if (h.kis_order_no == "R000777")
+        if (history_entry.kis_order_no == "R000777")
         {
             found = true;
-            assert(h.signal.strategy_id == "DEVSCALE");
-            assert(h.signal.quantity == 100);
+            assert(history_entry.signal.strategy_id == "DEVSCALE");
+            assert(history_entry.signal.quantity == 100);
         }
     }
 
     assert(found);
 
     // 잔량 클램프 회복 — 남은 40주보다 많은 통보가 와도 100을 넘지 않는다.
-    fn.fill_time = "110709"; fn.filled_qty = 60;
-    router.on_fill(fn);
+    fill_notification.fill_time = "110709"; fill_notification.filled_quantity = 60;
+    router.on_fill(fill_notification);
     assert(gate.position("047050") == 100);
 
     PASS("reason_journal_restart_recovery");
@@ -618,50 +618,50 @@ void test_reconcile_row_written()
 
     (void)router.submit(make_signal("005930", OrderSide::BUY, 10)); // ACCEPTED, 미체결 → live_orders=1
 
-    OrderRouter::ReconcileNote n;
-    n.ticker     = "005930";
-    n.ledger_qty = 10;
-    n.broker_qty = 7;
-    n.ledger_avg = 75000.0;
-    n.broker_avg = 74900.0;
-    n.action     = "OVERWRITE";
-    n.note       = "mode=REST";
-    router.record_reconcile(n);
+    OrderRouter::ReconcileNote reconcile_note;
+    reconcile_note.ticker     = "005930";
+    reconcile_note.ledger_qty = 10;
+    reconcile_note.broker_qty = 7;
+    reconcile_note.ledger_avg = 75000.0;
+    reconcile_note.broker_avg = 74900.0;
+    reconcile_note.action     = "OVERWRITE";
+    reconcile_note.note       = "mode=REST";
+    router.record_reconcile(reconcile_note);
 
     auto rows = tail_trade_rows(1);
     assert(rows.size() == 1);
-    auto c = split_csv(rows[0]);
-    assert(c.size() == 17);              // 헤더 열 수와 같다(seq까지)
-    assert(c[1] == "RECONCILE");
-    assert(c[5] == "005930");
-    assert(c[8] == "10" && c[10] == "7"); // order_qty=원장, fill_qty=브로커
-    assert(c[12] == "OVERWRITE");
-    assert(c[13] == "live_orders=1 diff_qty=-3 mode=REST");
-    assert(c[16].empty());               // seq 빈 칸
+    auto other_split_csv = split_csv(rows[0]);
+    assert(other_split_csv.size() == 17);              // 헤더 열 수와 같다(sequence까지)
+    assert(other_split_csv[1] == "RECONCILE");
+    assert(other_split_csv[5] == "005930");
+    assert(other_split_csv[8] == "10" && other_split_csv[10] == "7"); // order_qty=원장, fill_qty=브로커
+    assert(other_split_csv[12] == "OVERWRITE");
+    assert(other_split_csv[13] == "live_orders=1 diff_qty=-3 mode=REST");
+    assert(other_split_csv[16].empty());               // sequence 빈 칸
     PASS("reconcile_row_written");
 }
 
-// ─── C-2: seq 전파 — 전략이 stamp한 순번이 접수 행과 체결 행에 그대로 남는다 ────────────
+// ─── C-2: sequence 전파 — 전략이 stamp한 순번이 접수 행과 체결 행에 그대로 남는다 ────────────
 void test_seq_propagates_to_rows()
 {
     OrderGate         gate(relaxed_cfg());
     StubOrderExecutor stub(true, "K000202");
     OrderRouter       router(gate, stub);
 
-    OrderSignal sig = make_signal("005930", OrderSide::BUY, 3);
-    sig.seq         = 77;
-    auto mo         = router.submit(sig);
-    assert(mo.status == OrderStatus::ACCEPTED);
-    assert(mo.signal.seq == 77);
+    OrderSignal signal = make_signal("005930", OrderSide::BUY, 3);
+    signal.sequence         = 77;
+    auto managed_order         = router.submit(signal);
+    assert(managed_order.status == OrderStatus::ACCEPTED);
+    assert(managed_order.signal.sequence == 77);
 
-    FillNotification fn;
-    fn.odno         = "K000202";
-    fn.ticker       = "005930";
-    fn.side         = OrderSide::BUY;
-    fn.filled_qty   = 3;
-    fn.filled_price = 75000.0;
-    fn.fill_time    = "100100";
-    router.on_fill(fn);
+    FillNotification fill_notification;
+    fill_notification.kis_order_no         = "K000202";
+    fill_notification.ticker       = "005930";
+    fill_notification.side         = OrderSide::BUY;
+    fill_notification.filled_quantity   = 3;
+    fill_notification.filled_price = 75000.0;
+    fill_notification.fill_time    = "100100";
+    router.on_fill(fill_notification);
 
     auto rows = tail_trade_rows(2);
     assert(rows.size() == 2);
@@ -699,7 +699,7 @@ void test_blocked_sell_releases_reservation()
     assert(gate.reserved("005930") == -8);       // 매도 선점(부호는 게이트 규약)
 
     // 시장가 청산이 40240000으로 막힘 → 예약매도 취소 → 재매도 접수
-    stub.odno      = "K000302";
+    stub.kis_order_no      = "K000302";
     stub.fail_next = 1;
     stub.err_code  = "40240000";
     OrderSignal liq = make_signal("005930", OrderSide::SELL, 8);
@@ -714,11 +714,11 @@ void test_blocked_sell_releases_reservation()
     // 원주문은 CANCELLED, 선점은 재매도분만
     bool orig_cancelled = false;
 
-    for (const auto& h : router.recent(10))
+    for (const auto& history_entry : router.recent(10))
     {
-        if (h.kis_order_no == "K000301")
+        if (history_entry.kis_order_no == "K000301")
         {
-            orig_cancelled = (h.status == OrderStatus::CANCELLED);
+            orig_cancelled = (history_entry.status == OrderStatus::CANCELLED);
         }
     }
 
@@ -757,11 +757,11 @@ int main()
 #else
         localtime_r(&tt, &lt);
 #endif
-        char buf[9];
-        std::strftime(buf, sizeof(buf), "%Y%m%d", &lt);
-        std::error_code ec;
+        char buffer[9];
+        std::strftime(buffer, sizeof(buffer), "%Y%m%d", &lt);
+        std::error_code error_code;
         std::filesystem::remove(
-            Logger::instance().path_for(std::string("order_reasons_") + buf + ".txt"), ec);
+            Logger::instance().path_for(std::string("order_reasons_") + buffer + ".txt"), error_code);
     }
 
     test_gate_rejected();

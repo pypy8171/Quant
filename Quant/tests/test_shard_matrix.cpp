@@ -29,8 +29,8 @@ int g_checks = 0;
 // 시험용 항목 — 종목 id와 그 종목 안 순번.
 struct Item
 {
-    sym::SymbolId sym = sym::kNone;
-    uint32_t      seq = 0;
+    symbol::SymbolId symbol_id = symbol::kNone;
+    uint32_t      sequence = 0;
 };
 
 // N 생산자 × M 소비자. 종목 s는 생산자 s % N에만 있다(FeedMux가 종목을 소켓 하나에만 두는 것과 같다).
@@ -38,80 +38,80 @@ struct Item
 //  돌려주는 값은 소비자 하나가 항목 하나를 꺼내는 데 든 평균 ns(전체 벽시계 / 소비자당 항목 수).
 struct RunResult
 {
-    bool     order_ok = true; // 종목마다 seq가 0,1,2,…로 왔나
-    bool     shard_ok = true; // 소비자 m이 shard_of(sym) == m인 종목만 받았나
+    bool     order_ok = true; // 종목마다 sequence가 0,1,2,…로 왔나
+    bool     shard_ok = true; // 소비자 m이 shard_of(symbol_id) == m인 종목만 받았나
     uint64_t received = 0;
     double   ns_per   = 0.0; // 소비자 하나가 항목 하나를 받는 데 든 평균 ns(벽시계 / 소비자당 건수)
     double   wall_ms  = 0.0; // 전체 벽시계 — 같은 총량을 N×M이 얼마나 빨리 끝내나
 };
 
-RunResult run_matrix(uint32_t N, uint32_t M, uint32_t symbols, uint32_t per_symbol, size_t capacity)
+RunResult run_matrix(uint32_t count, uint32_t row_count, uint32_t symbols, uint32_t per_symbol, size_t capacity)
 {
-    shard::Matrix<Item> mx(N, M, capacity);
+    shard::Matrix<Item> mx(count, row_count, capacity);
     const uint64_t      total = static_cast<uint64_t>(symbols) * per_symbol;
     std::atomic<bool>   go{false};
     // 소비자마다 받을 건수를 미리 안다 — 공유 카운터를 항목마다 건드리면 그 경합이 측정에 섞인다.
-    std::vector<uint64_t> expected(M, 0), received(M, 0);
+    std::vector<uint64_t> expected(row_count, 0), received(row_count, 0);
 
-    for (uint32_t s = 1; s <= symbols; ++s)
+    for (uint32_t symbol_index = 1; symbol_index <= symbols; ++symbol_index)
     {
-        expected[shard::shard_of(s, M)] += per_symbol;
+        expected[shard::shard_of(symbol_index, row_count)] += per_symbol;
     }
 
-    std::vector<std::vector<uint32_t>> last_seq(M, std::vector<uint32_t>(symbols + 1, 0));
-    std::vector<int>    order_bad(M, 0), shard_bad(M, 0);
+    std::vector<std::vector<uint32_t>> last_seq(row_count, std::vector<uint32_t>(symbols + 1, 0));
+    std::vector<int>    order_bad(row_count, 0), shard_bad(row_count, 0);
 
     std::vector<std::thread> consumers;
 
-    for (uint32_t m = 0; m < M; ++m)
+    for (uint32_t row = 0; row < row_count; ++row)
     {
-        consumers.emplace_back([&, m]
+        consumers.emplace_back([&, row]
         {
             while (!go.load(std::memory_order_acquire))
             {
             }
 
-            while (received[m] < expected[m])
+            while (received[row] < expected[row])
             {
-                auto it = mx.pop(m);
+                auto iterator = mx.pop(row);
 
-                if (!it)
+                if (!iterator)
                 {
                     std::this_thread::yield();
                     continue;
                 }
 
-                if (shard::shard_of(it->sym, M) != m)
+                if (shard::shard_of(iterator->symbol_id, row_count) != row)
                 {
-                    ++shard_bad[m];
+                    ++shard_bad[row];
                 }
 
-                uint32_t& expect = last_seq[m][it->sym];
+                uint32_t& expect = last_seq[row][iterator->symbol_id];
 
-                if (it->seq != expect)
+                if (iterator->sequence != expect)
                 {
-                    ++order_bad[m];
+                    ++order_bad[row];
                 }
 
-                expect = it->seq + 1;
-                ++received[m];
+                expect = iterator->sequence + 1;
+                ++received[row];
             }
         });
     }
 
     std::vector<std::thread> producers;
 
-    for (uint32_t n = 0; n < N; ++n)
+    for (uint32_t slot_index = 0; slot_index < count; ++slot_index)
     {
-        producers.emplace_back([&, n]
+        producers.emplace_back([&, slot_index]
         {
-            std::vector<sym::SymbolId> mine;
+            std::vector<symbol::SymbolId> mine;
 
-            for (uint32_t s = 1; s <= symbols; ++s)
+            for (uint32_t symbol_index = 1; symbol_index <= symbols; ++symbol_index)
             {
-                if ((s - 1) % N == n)
+                if ((symbol_index - 1) % count == slot_index)
                 {
-                    mine.push_back(s);
+                    mine.push_back(symbol_index);
                 }
             }
 
@@ -119,13 +119,13 @@ RunResult run_matrix(uint32_t N, uint32_t M, uint32_t symbols, uint32_t per_symb
             {
             }
 
-            for (uint32_t k = 0; k < per_symbol; ++k)
+            for (uint32_t per_symbol_index = 0; per_symbol_index < per_symbol; ++per_symbol_index)
             {
-                for (auto s : mine)
+                for (auto mine_entry : mine)
                 {
-                    Item it{s, k};
+                    Item iterator{mine_entry, per_symbol_index};
 
-                    while (!mx.push(n, s, it))
+                    while (!mx.push(slot_index, mine_entry, iterator))
                     {
                         std::this_thread::yield(); // 시험은 잃지 않는다 — 배선은 버리고 센다
                     }
@@ -134,33 +134,33 @@ RunResult run_matrix(uint32_t N, uint32_t M, uint32_t symbols, uint32_t per_symb
         });
     }
 
-    const auto t0 = std::chrono::steady_clock::now();
+    const auto start_time = std::chrono::steady_clock::now();
     go.store(true, std::memory_order_release);
 
-    for (auto& t : producers)
+    for (auto& producer : producers)
     {
-        t.join();
+        producer.join();
     }
 
-    for (auto& t : consumers)
+    for (auto& consumer : consumers)
     {
-        t.join();
+        consumer.join();
     }
 
     const auto t1 = std::chrono::steady_clock::now();
-    RunResult  r;
+    RunResult  result;
 
-    for (uint32_t m = 0; m < M; ++m)
+    for (uint32_t row = 0; row < row_count; ++row)
     {
-        r.received += received[m];
-        r.order_ok = r.order_ok && order_bad[m] == 0;
-        r.shard_ok = r.shard_ok && shard_bad[m] == 0;
+        result.received += received[row];
+        result.order_ok = result.order_ok && order_bad[row] == 0;
+        result.shard_ok = result.shard_ok && shard_bad[row] == 0;
     }
 
-    const double ns = static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
-    r.ns_per        = ns / (static_cast<double>(total) / M);
-    r.wall_ms       = ns / 1e6;
-    return r;
+    const double ns = static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - start_time).count());
+    result.ns_per        = ns / (static_cast<double>(total) / row_count);
+    result.wall_ms       = ns / 1e6;
+    return result;
 }
 } // namespace
 
@@ -172,29 +172,29 @@ int main()
         CHECK(shard::shard_of(7, 4) == shard::shard_of(7, 4));
         std::vector<int> count(4, 0);
 
-        for (sym::SymbolId s = 1; s <= 2500; ++s)
+        for (symbol::SymbolId symbol_id = 1; symbol_id <= 2500; ++symbol_id)
         {
-            const auto m = shard::shard_of(s, 4);
-            CHECK(m < 4);
-            ++count[m];
+            const auto shard = shard::shard_of(symbol_id, 4);
+            CHECK(shard < 4);
+            ++count[shard];
         }
 
-        for (int c : count)
+        for (int total : count)
         {
-            CHECK(c >= 500 && c <= 750);
+            CHECK(total >= 500 && total <= 750);
         }
 
         // 촘촘한 연속 id(현물 뒤 선물처럼 몰린 구간)도 흩어진다 — 연속 8개가 한 샤드에 몰리지 않는다.
         std::vector<int> run(4, 0);
 
-        for (sym::SymbolId s = 100; s < 108; ++s)
+        for (symbol::SymbolId symbol_id = 100; symbol_id < 108; ++symbol_id)
         {
-            ++run[shard::shard_of(s, 4)];
+            ++run[shard::shard_of(symbol_id, 4)];
         }
 
-        for (int c : run)
+        for (int count : run)
         {
-            CHECK(c < 8);
+            CHECK(count < 8);
         }
     }
 
@@ -204,22 +204,22 @@ int main()
         CHECK(mx.producers() == 1 && mx.consumers() == 1);
         CHECK(mx.empty(0));
 
-        for (uint32_t k = 0; k < 4; ++k)
+        for (uint32_t innermost_index = 0; innermost_index < 4; ++innermost_index)
         {
-            CHECK(mx.push(0, 1, Item{1, k}));
+            CHECK(mx.push(0, 1, Item{1, innermost_index}));
         }
 
         CHECK(!mx.push(0, 1, Item{1, 4}));
         CHECK(!mx.empty(0));
         CHECK(mx.high_water(0) == 4);
         auto got = mx.pop(0);
-        CHECK(got && got->seq == 0);
+        CHECK(got && got->sequence == 0);
         CHECK(mx.push(0, 1, Item{1, 4}));
 
-        for (uint32_t k = 1; k <= 4; ++k)
+        for (uint32_t innermost_index = 1; innermost_index <= 4; ++innermost_index)
         {
             got = mx.pop(0);
-            CHECK(got && got->seq == k);
+            CHECK(got && got->sequence == innermost_index);
         }
 
         CHECK(!mx.pop(0));
@@ -235,31 +235,31 @@ int main()
         CHECK(mx.push_to(0, 2, Item{10, 2}));
         CHECK(mx.push_to(1, 2, Item{11, 0}));
         CHECK(mx.empty(0) && mx.empty(1) && !mx.empty(2));
-        auto a = mx.pop(2);
-        auto b = mx.pop(2);
-        auto c = mx.pop(2);
-        auto d = mx.pop(2);
-        CHECK(a && a->sym == 10 && a->seq == 0);
-        CHECK(b && b->sym == 11);
-        CHECK(c && c->sym == 10 && c->seq == 1);
-        CHECK(d && d->sym == 10 && d->seq == 2);
+        auto first = mx.pop(2);
+        auto second = mx.pop(2);
+        auto third = mx.pop(2);
+        auto fourth = mx.pop(2);
+        CHECK(first && first->symbol_id == 10 && first->sequence == 0);
+        CHECK(second && second->symbol_id == 11);
+        CHECK(third && third->symbol_id == 10 && third->sequence == 1);
+        CHECK(fourth && fourth->symbol_id == 10 && fourth->sequence == 2);
         CHECK(!mx.pop(2));
         // 종목 해시 push는 shard_of가 고른 열에만 들어간다.
         CHECK(mx.push(1, 5, Item{5, 0}));
         const auto m5 = shard::shard_of(5, 3);
 
-        for (uint32_t m = 0; m < 3; ++m)
+        for (uint32_t row = 0; row < 3; ++row)
         {
-            CHECK(mx.empty(m) == (m != m5));
+            CHECK(mx.empty(row) == (row != m5));
         }
     }
 
     // 4. 스레드 — 2 생산자 × 3 소비자, 종목 60개 × 2,000건. 종목 안 순서가 지켜지고 샤드가 어긋나지 않고 하나도 안 잃는다.
     {
-        const auto r = run_matrix(2, 3, 60, 2000, 256);
-        CHECK(r.received == 60u * 2000u);
-        CHECK(r.order_ok);
-        CHECK(r.shard_ok);
+        const auto run_result = run_matrix(2, 3, 60, 2000, 256);
+        CHECK(run_result.received == 60u * 2000u);
+        CHECK(run_result.order_ok);
+        CHECK(run_result.shard_ok);
     }
 
     // 5. 측정(원칙 7) — 같은 총량(종목 240 × 4,000건 = 96만)을 1×1·2×2·4×4가 나눠 받을 때 소비자당 항목 비용과 전체 벽시계.
@@ -269,13 +269,13 @@ int main()
     {
         std::cout << "[측정] hardware_concurrency=" << std::thread::hardware_concurrency() << '\n';
 
-        for (uint32_t k : {1u, 2u, 4u})
+        for (uint32_t innermost_index : {1u, 2u, 4u})
         {
-            const auto r = run_matrix(k, k, 240, 4000, 1024);
-            CHECK(r.received == 240u * 4000u);
-            CHECK(r.order_ok && r.shard_ok);
-            std::cout << "[측정] " << k << "x" << k << " 소비자당 " << (240u * 4000u / k) << "건: " << r.ns_per
-                      << "ns/건, 전체 " << r.wall_ms << "ms\n";
+            const auto run_result = run_matrix(innermost_index, innermost_index, 240, 4000, 1024);
+            CHECK(run_result.received == 240u * 4000u);
+            CHECK(run_result.order_ok && run_result.shard_ok);
+            std::cout << "[측정] " << innermost_index << "x" << innermost_index << " 소비자당 " << (240u * 4000u / innermost_index) << "건: " << run_result.ns_per
+                      << "ns/건, 전체 " << run_result.wall_ms << "ms\n";
         }
     }
 
@@ -288,18 +288,18 @@ int main()
         CHECK(mx.producers() == 2 && mx.consumers() == 3);
         CHECK(mx.empty(0) && mx.empty(1) && mx.empty(2));
 
-        for (sym::SymbolId sym = 1; sym <= 30; ++sym)
+        for (symbol::SymbolId symbol_id = 1; symbol_id <= 30; ++symbol_id)
         {
-            CHECK(mx.consumer_of(sym) == shard::shard_of(sym, 3));
+            CHECK(mx.consumer_of(symbol_id) == shard::shard_of(symbol_id, 3));
         }
 
-        const auto m = mx.consumer_of(9);
-        CHECK(mx.push_to(1, m, Item{9, 0}));
-        CHECK(mx.push_to(1, m, Item{9, 1}));
-        const auto a = mx.pop(m);
-        const auto b = mx.pop(m);
-        CHECK(a && b && a->seq == 0 && b->seq == 1);
-        CHECK(!mx.pop(m));
+        const auto consumer = mx.consumer_of(9);
+        CHECK(mx.push_to(1, consumer, Item{9, 0}));
+        CHECK(mx.push_to(1, consumer, Item{9, 1}));
+        const auto first = mx.pop(consumer);
+        const auto second = mx.pop(consumer);
+        CHECK(first && second && first->sequence == 0 && second->sequence == 1);
+        CHECK(!mx.pop(consumer));
     }
 
     std::cout << "test_shard_matrix: " << g_checks << " checks passed\n";

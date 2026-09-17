@@ -3,7 +3,7 @@
 //
 // 검증 항목:
 //   ① 무손실   : N 생산자가 각 M건 push → 소비자가 정확히 N*M건 pop (유실/중복 0)
-//   ② 순번 보존 : 각 생산자의 seq가 소비자에서 0,1,2,... 순서로 도착 (역전/누락 0)
+//   ② 순번 보존 : 각 생산자의 sequence가 소비자에서 0,1,2,... 순서로 도착 (역전/누락 0)
 //   ③ backpressure: 작은 용량에서 push가 false를 반환해도 재시도로 무손실 유지
 //
 //   ②가 성립하는 이유: 단일 생산자는 순서대로 push하고, Vyukov 큐는 티켓(enqueue_pos)
@@ -22,29 +22,29 @@
 struct Msg
 {
     int producer;
-    int seq;
+    int sequence;
 };
 
 template <typename Queue>
-bool run_test(const char* name, int num_producers, int per_producer, size_t cap)
+bool run_test(const char* name, int num_producers, int per_producer, size_t capture)
 {
-    Queue q(cap);
+    Queue queue(capture);
     const long long total = static_cast<long long>(num_producers) * per_producer;
 
     // ── 생산자 N개: 각자 (producer_id, 0..M-1) 를 순서대로 push (가득 차면 재시도)
     std::vector<std::thread> producers;
     producers.reserve(num_producers);
 
-    for (int p = 0; p < num_producers; ++p)
+    for (int producer_index = 0; producer_index < num_producers; ++producer_index)
     {
         producers.emplace_back(
-            [&q, p, per_producer]
+            [&queue, producer_index, per_producer]
             {
-                for (int i = 0; i < per_producer; ++i)
+                for (int per_producer_index = 0; per_producer_index < per_producer; ++per_producer_index)
                 {
-                    Msg m{p, i};
+                    Msg msg{producer_index, per_producer_index};
 
-                    while (!q.push(m))
+                    while (!queue.push(msg))
                     {
                         std::this_thread::yield(); // backpressure: 가득 참 → 양보 후 재시도
                     }
@@ -59,43 +59,43 @@ bool run_test(const char* name, int num_producers, int per_producer, size_t cap)
 
     while (received < total)
     {
-        auto opt = q.pop();
+        auto option = queue.pop();
 
-        if (!opt)
+        if (!option)
         {
             std::this_thread::yield(); // 비어 있음 → 양보 후 재시도
             continue;
         }
 
-        const Msg& m = *opt;
+        const Msg& msg = *option;
 
-        if (m.producer < 0 || m.producer >= num_producers)
+        if (msg.producer < 0 || msg.producer >= num_producers)
         {
             order_ok = false; // 손상된 데이터
         }
-        else if (m.seq != last_seq[m.producer] + 1)
+        else if (msg.sequence != last_seq[msg.producer] + 1)
         {
             order_ok = false; // 순번 역전/누락
         }
         else
         {
-            last_seq[m.producer] = m.seq;
+            last_seq[msg.producer] = msg.sequence;
         }
 
         ++received;
     }
 
-    for (auto& t : producers)
+    for (auto& producer : producers)
     {
-        t.join();
+        producer.join();
     }
 
     const bool count_ok = (received == total);
     bool complete = true;
 
-    for (int p = 0; p < num_producers; ++p)
+    for (int producer_index = 0; producer_index < num_producers; ++producer_index)
     {
-        if (last_seq[p] != per_producer - 1)
+        if (last_seq[producer_index] != per_producer - 1)
         {
             complete = false;
         }

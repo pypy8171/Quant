@@ -48,11 +48,11 @@ public:
         return std::nullopt;
     }
 
-    std::optional<OrderSignal> on_trade(const TradeData& td) override
+    std::optional<OrderSignal> on_trade(const TradeData& trade) override
     {
-        for (const auto& t : tickers_)
+        for (const auto& ticker : tickers_)
         {
-            if (td.ticker == t)
+            if (trade.ticker == ticker)
             {
                 ++hits;
                 break;
@@ -64,14 +64,14 @@ public:
 
     std::vector<WatchSpec> get_watch_specs() const override
     {
-        std::vector<WatchSpec> v;
+        std::vector<WatchSpec> values;
 
-        for (const auto& t : tickers_)
+        for (const auto& ticker : tickers_)
         {
-            v.push_back({t, Market::KR, ""});
+            values.push_back({ticker, Market::KR, ""});
         }
 
-        return v;
+        return values;
     }
 
     int hits = 0;
@@ -81,13 +81,13 @@ private:
     std::vector<std::string> tickers_;
 };
 
-std::vector<StrategyBase*> ptrs(const std::vector<std::unique_ptr<FakeStrategy>>& v)
+std::vector<StrategyBase*> ptrs(const std::vector<std::unique_ptr<FakeStrategy>>& values)
 {
     std::vector<StrategyBase*> out;
 
-    for (const auto& s : v)
+    for (const auto& strategy : values)
     {
-        out.push_back(s.get());
+        out.push_back(strategy.get());
     }
 
     return out;
@@ -98,69 +98,69 @@ int main()
 {
     // 1. 종목별 라우팅. A는 두 종목, B는 한 종목, C는 구독을 안 밝힘(전부 받는다).
     {
-        sym::SymbolTable                           tab;
+        symbol::SymbolTable                           tab;
         std::vector<std::unique_ptr<FakeStrategy>> ss;
         ss.push_back(std::make_unique<FakeStrategy>("A", std::vector<std::string>{"005930", "000660"}));
         ss.push_back(std::make_unique<FakeStrategy>("B", std::vector<std::string>{"000660"}));
         ss.push_back(std::make_unique<FakeStrategy>("C", std::vector<std::string>{}));
 
-        strat::Router r;
-        r.rebuild(ptrs(ss), [&tab](const std::string& t) { return tab.intern(t); });
-        CHECK(r.routes() == 3 && r.all_count() == 1);
+        strategy::Router router;
+        router.rebuild(ptrs(ss), [&tab](const std::string& ticker) { return tab.intern(ticker); });
+        CHECK(router.routes() == 3 && router.all_count() == 1);
         CHECK(tab.size() == 2);
 
         const auto samsung = tab.lookup("005930");
         const auto hynix   = tab.lookup("000660");
-        CHECK(r.watchers(samsung) == 1 && r.watchers(hynix) == 2 && r.watchers(sym::kNone) == 0);
+        CHECK(router.watchers(samsung) == 1 && router.watchers(hynix) == 2 && router.watchers(symbol::kNone) == 0);
 
         std::vector<std::string> seen;
-        r.for_each(samsung, [&seen](StrategyBase* s) { seen.push_back(s->id()); });
+        router.for_each(samsung, [&seen](StrategyBase* strategy) { seen.push_back(strategy->id()); });
         CHECK(seen.size() == 2 && seen[0] == "A" && seen[1] == "C");
 
         seen.clear();
-        r.for_each(hynix, [&seen](StrategyBase* s) { seen.push_back(s->id()); });
+        router.for_each(hynix, [&seen](StrategyBase* strategy) { seen.push_back(strategy->id()); });
         CHECK(seen.size() == 3 && seen[0] == "A" && seen[1] == "B" && seen[2] == "C");
 
         // 모르는 id·kNone은 전부 받는 전략만.
         seen.clear();
-        r.for_each(sym::kNone, [&seen](StrategyBase* s) { seen.push_back(s->id()); });
+        router.for_each(symbol::kNone, [&seen](StrategyBase* strategy) { seen.push_back(strategy->id()); });
         CHECK(seen.size() == 1 && seen[0] == "C");
         seen.clear();
-        r.for_each(999, [&seen](StrategyBase* s) { seen.push_back(s->id()); });
+        router.for_each(999, [&seen](StrategyBase* strategy) { seen.push_back(strategy->id()); });
         CHECK(seen.size() == 1 && seen[0] == "C");
     }
 
     // 2. 같은 종목을 두 번 적은 전략은 한 번만 들어간다. 재구성하면 이전 배정은 사라진다.
     {
-        sym::SymbolTable                           tab;
+        symbol::SymbolTable                           tab;
         std::vector<std::unique_ptr<FakeStrategy>> ss;
         ss.push_back(std::make_unique<FakeStrategy>("D", std::vector<std::string>{"005930", "005930"}));
 
-        strat::Router r;
-        r.rebuild(ptrs(ss), [&tab](const std::string& t) { return tab.intern(t); });
-        CHECK(r.routes() == 1 && r.watchers(tab.lookup("005930")) == 1);
+        strategy::Router router;
+        router.rebuild(ptrs(ss), [&tab](const std::string& ticker) { return tab.intern(ticker); });
+        CHECK(router.routes() == 1 && router.watchers(tab.lookup("005930")) == 1);
 
         ss.clear();
         ss.push_back(std::make_unique<FakeStrategy>("E", std::vector<std::string>{"000660"}));
-        r.rebuild(ptrs(ss), [&tab](const std::string& t) { return tab.intern(t); });
-        CHECK(r.routes() == 1 && r.watchers(tab.lookup("005930")) == 0 && r.watchers(tab.lookup("000660")) == 1);
-        CHECK(r.all_count() == 0);
+        router.rebuild(ptrs(ss), [&tab](const std::string& ticker) { return tab.intern(ticker); });
+        CHECK(router.routes() == 1 && router.watchers(tab.lookup("005930")) == 0 && router.watchers(tab.lookup("000660")) == 1);
+        CHECK(router.all_count() == 0);
     }
 
     // 3. 테이블이 차서 kNone이 나오면 그 전략은 전부 받는 쪽으로 간다(다른 종목이 id를 받았어도 한쪽에만).
     {
-        sym::SymbolTable                           tab(2);
+        symbol::SymbolTable                           tab(2);
         std::vector<std::unique_ptr<FakeStrategy>> ss;
         ss.push_back(std::make_unique<FakeStrategy>("F", std::vector<std::string>{"005930", "000660"}));
 
-        strat::Router r;
-        r.rebuild(ptrs(ss), [&tab](const std::string& t) { return tab.intern(t); });
-        CHECK(tab.lookup("005930") != sym::kNone && tab.lookup("000660") == sym::kNone);
-        CHECK(r.routes() == 0 && r.all_count() == 1 && r.watchers(tab.lookup("005930")) == 0);
+        strategy::Router router;
+        router.rebuild(ptrs(ss), [&tab](const std::string& ticker) { return tab.intern(ticker); });
+        CHECK(tab.lookup("005930") != symbol::kNone && tab.lookup("000660") == symbol::kNone);
+        CHECK(router.routes() == 0 && router.all_count() == 1 && router.watchers(tab.lookup("005930")) == 0);
 
-        int n = 0;
-        r.for_each(tab.lookup("005930"), [&n](StrategyBase*) { ++n; });
-        CHECK(n == 1);
+        int count = 0;
+        router.for_each(tab.lookup("005930"), [&count](StrategyBase*) { ++count; });
+        CHECK(count == 1);
     }
 
     // 4. 측정(원칙 7). 전략 40개(종목 하나씩) × 틱 20만 건 — 전부 순회 vs 라우터. 결과는 같아야 한다.
@@ -168,51 +168,51 @@ int main()
         constexpr int kStrats = 40;
         constexpr int kTicks  = 200'000;
 
-        sym::SymbolTable                           tab;
+        symbol::SymbolTable                           tab;
         std::vector<std::unique_ptr<FakeStrategy>> ss;
         std::vector<TradeData>                     ticks(kStrats);
 
-        for (int i = 0; i < kStrats; ++i)
+        for (int index = 0; index < kStrats; ++index)
         {
-            const std::string tk = "0" + std::to_string(10000 + i);
-            ss.push_back(std::make_unique<FakeStrategy>("S" + std::to_string(i), std::vector<std::string>{tk}));
-            ticks[i].ticker = tk;
-            ticks[i].sym    = tab.intern(tk);
+            const std::string ticker = "0" + std::to_string(10000 + index);
+            ss.push_back(std::make_unique<FakeStrategy>("S" + std::to_string(index), std::vector<std::string>{ticker}));
+            ticks[index].ticker = ticker;
+            ticks[index].symbol_id    = tab.intern(ticker);
         }
 
         auto ps = ptrs(ss);
-        strat::Router r;
-        r.rebuild(ps, [&tab](const std::string& t) { return tab.intern(t); });
-        CHECK(r.routes() == kStrats && r.all_count() == 0);
+        strategy::Router router;
+        router.rebuild(ps, [&tab](const std::string& ticker) { return tab.intern(ticker); });
+        CHECK(router.routes() == kStrats && router.all_count() == 0);
 
-        const auto t0 = std::chrono::steady_clock::now();
+        const auto start_time = std::chrono::steady_clock::now();
 
-        for (int n = 0; n < kTicks; ++n)
+        for (int tick_index = 0; tick_index < kTicks; ++tick_index)
         {
-            const auto& td = ticks[n % kStrats];
+            const auto& trade = ticks[tick_index % kStrats];
 
-            for (auto* s : ps)
+            for (auto* strategy : ps)
             {
-                (void)s->on_trade(td);
+                (void)strategy->on_trade(trade);
             }
         }
 
         const auto t1 = std::chrono::steady_clock::now();
 
-        for (int n = 0; n < kTicks; ++n)
+        for (int tick_index = 0; tick_index < kTicks; ++tick_index)
         {
-            const auto& td = ticks[n % kStrats];
-            r.for_each(td.sym, [&td](StrategyBase* s) { (void)s->on_trade(td); });
+            const auto& trade = ticks[tick_index % kStrats];
+            router.for_each(trade.symbol_id, [&trade](StrategyBase* strategy) { (void)strategy->on_trade(trade); });
         }
 
         const auto t2 = std::chrono::steady_clock::now();
 
-        for (const auto& s : ss)
+        for (const auto& strategy : ss)
         {
-            CHECK(s->hits == 2 * kTicks / kStrats);
+            CHECK(strategy->hits == 2 * kTicks / kStrats);
         }
 
-        const auto ns_all = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count() / kTicks;
+        const auto ns_all = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - start_time).count() / kTicks;
         const auto ns_rt  = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count() / kTicks;
         std::cout << "  틱당 전부 순회 " << ns_all << "ns, 라우터 " << ns_rt << "ns (전략 " << kStrats << "개)\n";
     }
@@ -223,32 +223,32 @@ int main()
         constexpr int kSignals = 100'000;
         RingBuffer<OrderSignal> ring(1024);
 
-        OrderSignal sig;
-        sig.ticker      = "005930";
-        sig.sym         = 1;
-        sig.side        = OrderSide::BUY;
-        sig.quantity    = 10;
-        sig.strategy_id = "deviation_scale";
-        sig.client_oid  = "ds-20260913-000001";
-        sig.reason      = "ma20>ma60>ma120, dev -3.1%";
+        OrderSignal signal;
+        signal.ticker      = "005930";
+        signal.symbol_id         = 1;
+        signal.side        = OrderSide::BUY;
+        signal.quantity    = 10;
+        signal.strategy_id = "deviation_scale";
+        signal.client_oid  = "ds-20260913-000001";
+        signal.reason      = "ma20>ma60>ma120, dev -3.1%";
 
         int         popped = 0;
-        const auto  t0     = std::chrono::steady_clock::now();
+        const auto  start_time     = std::chrono::steady_clock::now();
 
-        for (int n = 0; n < kSignals; ++n)
+        for (int signal_index = 0; signal_index < kSignals; ++signal_index)
         {
-            sig.seq = static_cast<uint64_t>(n);
-            CHECK(ring.push(sig));
+            signal.sequence = static_cast<uint64_t>(signal_index);
+            CHECK(ring.push(signal));
 
-            if (auto o = ring.pop())
+            if (auto popped_signal = ring.pop())
             {
-                popped += o->sym == 1 ? 1 : 0;
+                popped += popped_signal->symbol_id == 1 ? 1 : 0;
             }
         }
 
         const auto t1 = std::chrono::steady_clock::now();
         CHECK(popped == kSignals);
-        const auto ns_sig = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count() / kSignals;
+        const auto ns_sig = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - start_time).count() / kSignals;
         std::cout << "  신호당 OrderSignal 링 push+pop " << ns_sig << "ns (문자열 4개, " << sizeof(OrderSignal) << "B)\n";
     }
 

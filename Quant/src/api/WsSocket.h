@@ -15,7 +15,7 @@ public:
     // 한 객체에 한 번만 부른다. 재연결은 새 객체를 연다.
     virtual bool open(const std::string& host, int port) = 0;
     // 텍스트 프레임 하나. 직렬화는 호출자(KisWebSocket::send_mtx_) 책임이다. 닫힌 뒤엔 조용히 버린다.
-    virtual void send_text(const std::string& msg) = 0;
+    virtual void send_text(const std::string& message) = 0;
     // 메시지 하나가 완성될 때까지 블로킹. 분할 프레임은 여기서 합친다 — parse_message가 잘린 문자열을 받지 않는다.
     // false = 오류·서버 종료·close()로 깨어남. 이유는 last_error()에 남는다.
     virtual bool recv_message(std::string& out) = 0;

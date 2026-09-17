@@ -10,7 +10,7 @@
 //   quote_kis/kis 중 실제로 쓰는 키가 is_paper=true면 경고만 하고 진행(500 예상).
 //
 //   사용법:
-//     future_quote_probe <config> <iscd> [market_div=F]
+//     future_quote_probe <config> <issue_code> [market_div=F]
 //   예)
 //     future_quote_probe config/config_dev_paper.json 101W09
 //         (KOSPI200 선물 최근월물 코드는 만기마다 바뀐다 — KRX 또는 선물 전광판에서 확인)
@@ -41,22 +41,22 @@ int main(int argc, char** argv)
     }
 
     const std::string config_path = argv[1];
-    const std::string iscd = argv[2];
+    const std::string issue_code = argv[2];
     const std::string mrkt = (argc > 3) ? argv[3] : "F";
 
-    std::ifstream f(config_path);
+    std::ifstream file(config_path);
 
-    if (!f)
+    if (!file)
     {
         std::cerr << "[중단] config 못 엶: " << config_path << "\n";
         return 1;
     }
 
-    json cfg = json::parse(f);
+    json config = json::parse(file);
 
     // 시세키 선택: quote_kis(실전 시세) 우선, 없으면 kis.
-    const char* block = cfg.contains("quote_kis") ? "quote_kis" : "kis";
-    const json& kb = cfg[block];
+    const char* block = config.contains("quote_kis") ? "quote_kis" : "kis";
+    const json& kb = config[block];
 
     KisConfig kc;
     kc.app_key    = kb.value("app_key", "");
@@ -67,7 +67,7 @@ int main(int argc, char** argv)
     std::cout << "=== 선물 시세 프로브 ===\n";
     std::cout << "config=" << config_path << "  키블록=" << block
               << "  is_paper=" << (kc.is_paper ? "true" : "false") << "\n";
-    std::cout << "iscd=" << iscd << "  market_div=" << mrkt << "\n";
+    std::cout << "iscd=" << issue_code << "  market_div=" << mrkt << "\n";
 
     if (kc.is_paper)
     {
@@ -85,8 +85,8 @@ int main(int argc, char** argv)
 
     std::cout << "[1] 인증 완료\n";
 
-    // iscd=="list" → 선물 전광판 조회(현재 거래가능 계약 목록·코드). 최근월물 코드 확보용.
-    if (iscd == "list")
+    // issue_code=="list" → 선물 전광판 조회(현재 거래가능 계약 목록·코드). 최근월물 코드 확보용.
+    if (issue_code == "list")
     {
         std::string cls = (mrkt == "F") ? "MKI" : mrkt; // 3번째 인자를 market_cls로 재사용 가능
         const KisResult<std::vector<FutureContract>> board = kis.get_future_board(cls);
@@ -98,16 +98,16 @@ int main(int argc, char** argv)
             return 4;
         }
 
-        for (const FutureContract& c : *board)
+        for (const FutureContract& future_contract : *board)
         {
-            std::cout << "    " << c.iscd << "  " << c.name << "\n";
+            std::cout << "    " << future_contract.issue_code << "  " << future_contract.name << "\n";
         }
 
         std::cout << "=== 완료 (첫 행이 최근월물 — 그 코드를 iscd로 재실행. raw는 로그의 'get_future_board RAW') ===\n";
         return 0;
     }
 
-    KisClient::FuturePrice fp = kis.get_future_price(iscd, mrkt);
+    KisClient::FuturePrice fp = kis.get_future_price(issue_code, mrkt);
     std::cout << "[2] 조회 결과 (ok=" << (fp.ok ? "true" : "false") << ")\n";
     std::cout << "    현재가        = " << fp.price << "\n";
     std::cout << "    전일대비      = " << fp.change << " (" << fp.change_rate << "%)  sign=" << fp.sign << "\n";

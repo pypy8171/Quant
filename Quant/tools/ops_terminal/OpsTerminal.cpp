@@ -12,35 +12,35 @@ namespace
 
 // "--host 127.0.0.1 --port 7100 --token T". 없는 값은 기본으로. 토큰은 환경변수 QUANT_OPS_TOKEN도 받는다
 //  — 명령행은 작업관리자에 보이므로 개인 PC 밖에서는 환경변수를 권한다.
-void parse_cmdline(int argc, wchar_t** argv, TerminalArgs& a)
+void parse_cmdline(int argc, wchar_t** argv, TerminalArgs& terminal_args)
 {
-    for (int i = 1; i + 1 < argc; i += 2)
+    for (int index = 1; index + 1 < argc; index += 2)
     {
-        const std::wstring k = argv[i];
-        const CString      v = argv[i + 1];
+        const std::wstring key = argv[index];
+        const CString      value = argv[index + 1];
 
-        if (k == L"--host")
+        if (key == L"--host")
         {
-            a.host = v;
+            terminal_args.host = value;
         }
-        else if (k == L"--port")
+        else if (key == L"--port")
         {
-            a.port = _wtoi(v);
+            terminal_args.port = _wtoi(value);
         }
-        else if (k == L"--token")
+        else if (key == L"--token")
         {
-            a.token = v;
+            terminal_args.token = value;
         }
     }
 
-    if (a.token.IsEmpty())
+    if (terminal_args.token.IsEmpty())
     {
         wchar_t* env = nullptr;
-        size_t   n   = 0;
+        size_t   count   = 0;
 
-        if (_wdupenv_s(&env, &n, L"QUANT_OPS_TOKEN") == 0 && env != nullptr)
+        if (_wdupenv_s(&env, &count, L"QUANT_OPS_TOKEN") == 0 && env != nullptr)
         {
-            a.token = env;
+            terminal_args.token = env;
             free(env);
         }
     }

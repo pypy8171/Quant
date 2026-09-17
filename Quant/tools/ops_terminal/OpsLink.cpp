@@ -10,18 +10,18 @@ namespace
 
 using Clock = std::chrono::steady_clock;
 
-int64_t ms_since(Clock::time_point t)
+int64_t ms_since(Clock::time_point time_point)
 {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t).count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - time_point).count();
 }
 
 // 소켓이 없거나 hwnd가 죽었을 때 PostMessage가 실패하면 넘긴 포인터를 우리가 지운다.
 template <typename T>
-void post_or_delete(HWND h, UINT msg, T* p)
+void post_or_delete(HWND window, UINT message, T* item)
 {
-    if (h == nullptr || !::PostMessage(h, msg, 0, reinterpret_cast<LPARAM>(p)))
+    if (window == nullptr || !::PostMessage(window, message, 0, reinterpret_cast<LPARAM>(item)))
     {
-        delete p;
+        delete item;
     }
 }
 
@@ -29,8 +29,8 @@ void post_or_delete(HWND h, UINT msg, T* p)
 
 OpsLink::OpsLink()
 {
-    WSADATA w;
-    WSAStartup(MAKEWORD(2, 2), &w);
+    WSADATA wsa_data;
+    WSAStartup(MAKEWORD(2, 2), &wsa_data);
 }
 
 OpsLink::~OpsLink()
@@ -87,7 +87,7 @@ bool OpsLink::send(ops::OpsMsg type, const std::string& body)
     }
 
     {
-        std::lock_guard<std::mutex> lk(q_mtx_);
+        std::lock_guard<std::mutex> lock(q_mtx_);
         q_.push_back(std::move(bytes));
     }
 
@@ -96,14 +96,14 @@ bool OpsLink::send(ops::OpsMsg type, const std::string& body)
     return true;
 }
 
-void OpsLink::post_state(LinkState s, const std::string& detail)
+void OpsLink::post_state(LinkState link_state, const std::string& detail)
 {
-    post_or_delete(hwnd_, WM_OPS_STATE, new OpsStateMsg{s, detail});
+    post_or_delete(hwnd_, WM_OPS_STATE, new OpsStateMsg{link_state, detail});
 }
 
-void OpsLink::post_frame(const ops::Frame& f)
+void OpsLink::post_frame(const ops::Frame& frame)
 {
-    post_or_delete(hwnd_, WM_OPS_FRAME, new ops::Frame(f));
+    post_or_delete(hwnd_, WM_OPS_FRAME, new ops::Frame(frame));
 }
 
 void OpsLink::close_socket()
@@ -135,7 +135,7 @@ void OpsLink::thread_fn()
             close_socket();
 
             {
-                std::lock_guard<std::mutex> lk(q_mtx_);
+                std::lock_guard<std::mutex> lock(q_mtx_);
                 q_.clear(); // 끊긴 연결에 쌓인 송신분은 버린다 — 주문은 사용자가 결과를 보고 다시 낸다
             }
         }
@@ -148,8 +148,8 @@ void OpsLink::thread_fn()
         post_state(LinkState::Disconnected, std::to_string(backoff / 1000) + "초 뒤 재접속");
 
         // backoff 대기. stop()이 깨운다.
-        std::unique_lock<std::mutex> lk(q_mtx_);
-        q_cv_.wait_for(lk, std::chrono::milliseconds(backoff), [this] { return !running_.load(); });
+        std::unique_lock<std::mutex> lock(q_mtx_);
+        q_cv_.wait_for(lock, std::chrono::milliseconds(backoff), [this] { return !running_.load(); });
         backoff = (backoff * 2 > kBackoffMaxMs) ? kBackoffMaxMs : backoff * 2;
     }
 
@@ -183,23 +183,23 @@ bool OpsLink::connect_once()
     ::connect(fd_, res->ai_addr, static_cast<int>(res->ai_addrlen));
     ::freeaddrinfo(res);
 
-    fd_set w;
-    FD_ZERO(&w);
-    FD_SET(fd_, &w);
-    fd_set e = w;
+    fd_set write_set;
+    FD_ZERO(&write_set);
+    FD_SET(fd_, &write_set);
+    fd_set error_set = write_set;
     timeval tv{3, 0};
 
-    if (::select(0, nullptr, &w, &e, &tv) <= 0 || FD_ISSET(fd_, &e))
+    if (::select(0, nullptr, &write_set, &error_set, &tv) <= 0 || FD_ISSET(fd_, &error_set))
     {
         close_socket();
         return false;
     }
 
-    int err    = 0;
-    int errlen = sizeof(err);
-    ::getsockopt(fd_, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&err), &errlen);
+    int error    = 0;
+    int errlen = sizeof(error);
+    ::getsockopt(fd_, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&error), &errlen);
 
-    if (err != 0)
+    if (error != 0)
     {
         close_socket();
         return false;
@@ -216,17 +216,17 @@ void OpsLink::session_loop()
     std::vector<uint8_t> out;           // 아직 못 보낸 바이트
     auto                 last_rx   = Clock::now();
     auto                 last_ping = Clock::now();
-    uint8_t              buf[16384];
+    uint8_t              buffer[16384];
 
     while (running_.load())
     {
         // 송신 큐를 out으로 옮긴다
         {
-            std::lock_guard<std::mutex> lk(q_mtx_);
+            std::lock_guard<std::mutex> lock(q_mtx_);
 
-            for (auto& b : q_)
+            for (auto& queued : q_)
             {
-                out.insert(out.end(), b.begin(), b.end());
+                out.insert(out.end(), queued.begin(), queued.end());
             }
 
             q_.clear();
@@ -234,30 +234,30 @@ void OpsLink::session_loop()
 
         wake_.store(false);
 
-        fd_set r;
-        FD_ZERO(&r);
-        FD_SET(fd_, &r);
-        fd_set w;
-        FD_ZERO(&w);
+        fd_set read_set;
+        FD_ZERO(&read_set);
+        FD_SET(fd_, &read_set);
+        fd_set write_set;
+        FD_ZERO(&write_set);
 
         if (!out.empty())
         {
-            FD_SET(fd_, &w);
+            FD_SET(fd_, &write_set);
         }
 
         // 200ms — stop()·send()가 깨우는 지연 상한. 하트비트 정밀도로도 충분하다.
         timeval tv{0, 200'000};
-        const int n = ::select(0, &r, out.empty() ? nullptr : &w, nullptr, &tv);
+        const int count = ::select(0, &read_set, out.empty() ? nullptr : &write_set, nullptr, &tv);
 
-        if (n < 0)
+        if (count < 0)
         {
             post_state(LinkState::Disconnected, "select 실패 err=" + std::to_string(WSAGetLastError()));
             return;
         }
 
-        if (n > 0 && FD_ISSET(fd_, &r))
+        if (count > 0 && FD_ISSET(fd_, &read_set))
         {
-            const int got = ::recv(fd_, reinterpret_cast<char*>(buf), sizeof(buf), 0);
+            const int got = ::recv(fd_, reinterpret_cast<char*>(buffer), sizeof(buffer), 0);
 
             if (got == 0)
             {
@@ -267,28 +267,28 @@ void OpsLink::session_loop()
 
             if (got < 0)
             {
-                const int err = WSAGetLastError();
+                const int error = WSAGetLastError();
 
-                if (err != WSAEWOULDBLOCK)
+                if (error != WSAEWOULDBLOCK)
                 {
-                    post_state(LinkState::Disconnected, "recv 실패 err=" + std::to_string(err));
+                    post_state(LinkState::Disconnected, "recv 실패 err=" + std::to_string(error));
                     return;
                 }
             }
             else
             {
                 last_rx = Clock::now();
-                reader.feed(buf, static_cast<size_t>(got));
-                ops::Frame f;
+                reader.feed(buffer, static_cast<size_t>(got));
+                ops::Frame frame;
 
-                while (reader.next(f))
+                while (reader.next(frame))
                 {
-                    if (f.type == static_cast<uint8_t>(ops::OpsMsg::WELCOME))
+                    if (frame.type == static_cast<uint8_t>(ops::OpsMsg::WELCOME))
                     {
                         post_state(LinkState::Ready, "WELCOME");
                     }
 
-                    post_frame(f);
+                    post_frame(frame);
                 }
 
                 if (reader.bad())
@@ -299,7 +299,7 @@ void OpsLink::session_loop()
             }
         }
 
-        if (!out.empty() && (n > 0 && FD_ISSET(fd_, &w)))
+        if (!out.empty() && (count > 0 && FD_ISSET(fd_, &write_set)))
         {
             const int sent = ::send(fd_, reinterpret_cast<const char*>(out.data()), static_cast<int>(out.size()), 0);
 
@@ -317,8 +317,8 @@ void OpsLink::session_loop()
         // 하트비트. PING은 큐를 거치지 않고 out에 직접 붙인다(connected_ 여부와 무관).
         if (ms_since(last_ping) >= kPingEveryMs)
         {
-            auto p = ops::encode(ops::OpsMsg::PING, "{}");
-            out.insert(out.end(), p.begin(), p.end());
+            auto ping_frame = ops::encode(ops::OpsMsg::PING, "{}");
+            out.insert(out.end(), ping_frame.begin(), ping_frame.end());
             last_ping = Clock::now();
         }
 

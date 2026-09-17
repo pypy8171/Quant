@@ -44,19 +44,19 @@ public:
 #ifdef HAS_ZMQ
     OrderRouter(OrderGate& gate, IOrderExecutor& kis,
                 ZmqBridge* zmq = nullptr,
-                OrderRouterConfig cfg = OrderRouterConfig())
-        : gate_(gate), kis_(kis), cfg_(cfg), zmq_(zmq) {}
+                OrderRouterConfig config = OrderRouterConfig())
+        : gate_(gate), kis_(kis), config_(config), zmq_(zmq) {}
 #else
     OrderRouter(OrderGate& gate, IOrderExecutor& kis,
-                OrderRouterConfig cfg = OrderRouterConfig())
-        : gate_(gate), kis_(kis), cfg_(cfg) {}
+                OrderRouterConfig config = OrderRouterConfig())
+        : gate_(gate), kis_(kis), config_(config) {}
 #endif
 
     // ── 주문 제출 — 검증 → KIS 전송 → 상태 기록 ─────────────────────────
-    [[nodiscard]] ManagedOrder submit(const OrderSignal& sig);
+    [[nodiscard]] ManagedOrder submit(const OrderSignal& signal);
 
     // ── 체결통보 수신 — ODNO로 이력 조회 후 FILLED 상태 갱신 ────────────
-    void on_fill(const FillNotification& fn);
+    void on_fill(const FillNotification& fill_notification);
 
     // ── 잔고 대조 기록 (C-2) ────────────────────────────────────────────────
     //  Engine이 브로커 잔고와 원장을 비교한 결과를 원장 CSV에 `RECONCILE` 행으로 남긴다.
@@ -65,7 +65,7 @@ public:
     //  체결 지연일 수 있어 사람이 어느 단계인지 가를 근거가 된다. 덮어쓰기·정리(action이 KEEP이
     //  아닌 것)는 LOG_WARN도 낸다. 원장 자체는 바꾸지 않는다(그건 OrderGate 몫).
     using ReconcileNote = reconcile::Row;   // 필드는 core/ReconcilePlan.h. Engine의 plan() 결과를 그대로 받는다
-    void record_reconcile(const ReconcileNote& n);
+    void record_reconcile(const ReconcileNote& note);
 
     // 살아있는 주문이 없는데 게이트에 남은 선점을 푼다. 선점은 접수 때만 생기므로
     //  라우터 이력이 정본이다. 모의투자는 미체결조회(inquire-psbl-rvsecncl)를 지원하지 않아
@@ -94,7 +94,7 @@ public:
     }
 
     // ── 최근 N건 이력 조회 ────────────────────────────────────────────────
-    std::vector<ManagedOrder> recent(int n = 20) const;
+    std::vector<ManagedOrder> recent(int count = 20) const;
 
     // ── 이전 세션이 남긴 미체결 주문 취소 (기동 시 1회) ─────────────────
     //  재기동하면 history_가 비어 이전 세션 주문의 ODNO를 잊는다. 모의투자는
@@ -120,22 +120,22 @@ private:
     std::string next_id();
     // 직전 KIS 주문/취소/정정 오류코드를 " [코드]" 꼬리표로 만든다(EGW00201 재시도 판별용). 없으면 "".
     static std::string kis_err_suffix(const OrderAck& ack);
-    void        record(const ManagedOrder& mo);
+    void        record(const ManagedOrder& managed_order);
     // 살아있는(ACCEPTED·미체결 잔량>0) 주문 목록을 부속 파일 본문 문자열로 만든다.
     //  호출자는 hist_mtx_를 보유해야 한다. 파일 쓰기는 write_open_orders_file이 락 밖에서 한다.
     std::string snapshot_open_orders_locked() const;
-    // 부속 파일 덮어쓰기(io_mtx_). seq가 이미 쓴 것보다 오래됐으면 건너뛴다 —
+    // 부속 파일 덮어쓰기(io_mtx_). sequence가 이미 쓴 것보다 오래됐으면 건너뛴다 —
     //  락 밖에서 쓰므로 스냅샷 순서와 쓰기 순서가 뒤집힐 수 있다. 실패는 매매를 막지 않는다.
-    void        write_open_orders_file(const std::string& body, uint64_t seq);
+    void        write_open_orders_file(const std::string& body, uint64_t sequence);
     // 스냅샷을 새로 떠서 부속 파일을 다시 쓴다(hist_mtx_를 잠깐 잡고, 쓰기는 밖에서).
     //  이전 세션 줄(carry_rows_)이 정리될 때마다 취소 스레드가 부른다.
     void        rewrite_open_orders();
     // 거래 원장 CSV 적재 — 주문/체결을 logs/trades_YYYYMMDD.csv 에 한 줄씩 영속화.
-    //   event가 빈 문자열이면 mo.status를 event로 사용(접수/거부/취소). 체결은 "FILL".
+    //   event가 빈 문자열이면 managed_order.status를 event로 사용(접수/거부/취소). 체결은 "FILL".
     //   파일 쓰기는 io_mtx_로 직렬화한다(hist_mtx_ 밖에서 호출 — 디스크가 원장 락을 잡지 않게).
     //   realized_pnl은 매도 체결의 실현손익(수수료·세금 차감 후). 그 외 행은 빈 칸으로 남긴다.
     //   strategy_realized_pnl은 같은 매도 체결의 strategy_id 기준 실현손익(D-089, 열 맨 끝 추가분).
-    void        write_trade_row(const std::string& event, const ManagedOrder& mo,
+    void        write_trade_row(const std::string& event, const ManagedOrder& managed_order,
                                 int fill_qty, double fill_price,
                                 double realized_pnl = 0.0,
                                 double strategy_realized_pnl = 0.0);
@@ -146,14 +146,14 @@ private:
     static void trade_row_timestamp(std::string& date, std::string& stamp);
 
     // ── MM-1: 주문 생명주기 라우팅 ────────────────────────────────────────
-    ManagedOrder new_route(const OrderSignal& sig);     // 기존 신규 주문 경로
-    [[nodiscard]] ManagedOrder cancel_route(const OrderSignal& sig);  // action=CANCEL
-    [[nodiscard]] ManagedOrder replace_route(const OrderSignal& sig); // action=REPLACE(정정)
+    ManagedOrder new_route(const OrderSignal& signal);     // 기존 신규 주문 경로
+    [[nodiscard]] ManagedOrder cancel_route(const OrderSignal& signal);  // action=CANCEL
+    [[nodiscard]] ManagedOrder replace_route(const OrderSignal& signal); // action=REPLACE(정정)
     // SELL이 40240000(주문가능분 없음)으로 막히면: 그 종목의 미체결 예약매도를 조회·취소하고
-    //  시장가 매도를 1회 재시도한다(장중 자가 청산 정리). 성공 시 odno 채운 OrderAck,
+    //  시장가 매도를 1회 재시도한다(장중 자가 청산 정리). 성공 시 kis_order_no 채운 OrderAck,
     //  예약 없음/취소 실패 시 빈 ack. 이전 세션·수동 예약이 보유수량을 묶은 경우를 해소.
     //  취소한 예약이 이번 세션 주문이면 history_를 CANCELLED로 닫고 게이트 선점을 푼다(C-2).
-    [[nodiscard]] OrderAck reconcile_blocked_sell(const OrderSignal& sig);
+    [[nodiscard]] OrderAck reconcile_blocked_sell(const OrderSignal& signal);
     // client_oid로 아직 살아있는(ACCEPTED, 미체결 잔량>0) 주문을 history_에서 찾는다.
     // 호출자는 반드시 hist_mtx_를 보유해야 한다. 반환 포인터는 lock 보유 동안만 유효.
     ManagedOrder* find_live_by_oid(const std::string& client_oid);
@@ -175,7 +175,7 @@ private:
         double      ref_price = 0.0;
     };
     // 접수된 주문 한 건을 기록 파일에 덧붙인다(io_mtx_). record()가 락 밖에서 부른다.
-    void append_order_reason(const ManagedOrder& mo);
+    void append_order_reason(const ManagedOrder& managed_order);
     // 오늘자 기록 파일을 읽어 order_reasons_를 채운다. 첫 체결통보 때 1회.
     //  호출자는 hist_mtx_를 보유해야 한다.
     void load_order_reasons_locked();
@@ -183,7 +183,7 @@ private:
 
     OrderGate&       gate_;
     IOrderExecutor&  kis_;
-    OrderRouterConfig cfg_;
+    OrderRouterConfig config_;
 #ifdef HAS_ZMQ
     ZmqBridge*       zmq_ = nullptr;
 #endif
@@ -211,7 +211,7 @@ private:
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> cancel_miss_;
     // 부속 파일 스냅샷 번호. hist_mtx_ 아래에서 올리고, io_mtx_ 아래에서 "마지막으로 쓴 번호"와 비교한다.
     uint64_t open_orders_seq_         = 0;
-    // 이전 세션에서 넘어온 미체결 줄(odno|orgno|ticker|side|remaining). 취소 스레드가 한 건씩 정리한다.
+    // 이전 세션에서 넘어온 미체결 줄(kis_order_no|orgno|ticker|side|remaining). 취소 스레드가 한 건씩 정리한다.
     //  스냅샷이 history_만 보면 취소를 못 마친 줄(한도 거부·종료 중단·크래시)이 이번 세션 첫 기록에서
     //  파일에서 사라지고 다음 재기동은 그 주문을 모른다. 정리될 때까지 스냅샷에 같이 실린다.
     //  [lock-order] hist_mtx_ → carry_mtx_. 취소 스레드는 carry_mtx_를 단독으로만 잡는다.

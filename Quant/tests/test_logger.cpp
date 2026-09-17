@@ -2,7 +2,7 @@
 // 비동기 Logger(MPSC 큐, D-045) 검증.
 //
 // 검증 항목:
-//   ① 무손실·순번 : N 스레드가 각 M줄 로그 → 파일에 (N*M − dropped)줄, 스레드별 seq는 단조 증가
+//   ① 무손실·순번 : N 스레드가 각 M줄 로그 → 파일에 (N*M − dropped)줄, 스레드별 sequence는 단조 증가
 //   ② flush 계약  : flush() 반환 시점에 그 전에 반환된 log()가 전부 파일에 있다
 //   ③ 드롭 계수   : 가득 차서 버린 수가 dropped()에 잡히고, 기록 + 드롭 = 발행 수
 //
@@ -24,7 +24,7 @@ namespace
 const std::filesystem::path kDir = "logs_test";
 const std::filesystem::path kFile = kDir / "test_logger.log";
 
-// 파일에서 "T<t> S<seq>" 꼴 줄을 세고 스레드별 seq 단조 증가를 확인한다.
+// 파일에서 "T<t> S<sequence>" 꼴 줄을 세고 스레드별 sequence 단조 증가를 확인한다.
 size_t count_and_check_order(int threads)
 {
     std::ifstream in(kFile);
@@ -34,24 +34,24 @@ size_t count_and_check_order(int threads)
 
     while (std::getline(in, line))
     {
-        const auto t = line.find(" T");
+        const auto found = line.find(" T");
 
-        if (t == std::string::npos)
+        if (found == std::string::npos)
         {
             continue;
         }
 
         int tid = 0;
-        long seq = 0;
+        long sequence = 0;
 
-        if (std::sscanf(line.c_str() + t, " T%d S%ld", &tid, &seq) != 2)
+        if (std::sscanf(line.c_str() + found, " T%d S%ld", &tid, &sequence) != 2)
         {
             continue;
         }
 
         assert(tid >= 0 && tid < threads);
-        assert(seq > last[tid]); // 스레드별 FIFO — 역전·중복 없음
-        last[tid] = seq;
+        assert(sequence > last[tid]); // 스레드별 FIFO — 역전·중복 없음
+        last[tid] = sequence;
         ++lines;
     }
 
@@ -69,20 +69,20 @@ void test_multi_producer_no_loss()
     const uint64_t dropped_before = lg.dropped();
     std::vector<std::thread> ths;
 
-    for (int t = 0; t < kThreads; ++t)
+    for (int thread_index = 0; thread_index < kThreads; ++thread_index)
     {
-        ths.emplace_back([t, &lg]
+        ths.emplace_back([thread_index, &lg]
         {
-            for (int i = 0; i < kPerThread; ++i)
+            for (int per_thread_index = 0; per_thread_index < kPerThread; ++per_thread_index)
             {
-                lg.info("T" + std::to_string(t) + " S" + std::to_string(i));
+                lg.info("T" + std::to_string(thread_index) + " S" + std::to_string(per_thread_index));
             }
         });
     }
 
-    for (auto& th : ths)
+    for (auto& thread : ths)
     {
-        th.join();
+        thread.join();
     }
 
     lg.flush();
@@ -126,9 +126,9 @@ void test_flush_contract()
 
 int main()
 {
-    std::error_code ec;
-    std::filesystem::create_directories(kDir, ec);
-    std::filesystem::remove(kFile, ec);
+    std::error_code error_code;
+    std::filesystem::create_directories(kDir, error_code);
+    std::filesystem::remove(kFile, error_code);
 
     test_multi_producer_no_loss();
     test_flush_contract();

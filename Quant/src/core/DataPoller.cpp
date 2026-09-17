@@ -11,7 +11,7 @@ DataPoller::DataPoller(QuoteFn quote, TickSink sink) : quote_(std::move(quote)),
 int DataPoller::poll_universe(const std::vector<WatchSpec>& specs, std::time_t now_utc)
 {
     const int32_t hhmmss = kst::hhmmss_int(now_utc);
-    int           n      = 0;
+    int           count      = 0;
 
     for (const auto& spec : specs)
     {
@@ -30,25 +30,25 @@ int DataPoller::poll_universe(const std::vector<WatchSpec>& specs, std::time_t n
             std::this_thread::sleep_for(universe_pacing_);
         }
 
-        const double px = quote_(spec.ticker);
+        const double price = quote_(spec.ticker);
 
-        if (px <= 0.0)
+        if (price <= 0.0)
         {
             continue;
         }
 
-        sink_(poller::make_tick(spec.ticker, px, hhmmss, std::chrono::system_clock::now()));
-        ++n;
+        sink_(poller::make_tick(spec.ticker, price, hhmmss, std::chrono::system_clock::now()));
+        ++count;
     }
 
-    return n;
+    return count;
 }
 
 bool DataPoller::add_overflow(const WatchSpec& spec)
 {
-    for (const auto& w : overflow_)
+    for (const auto& overflow_entry : overflow_)
     {
-        if (poller::same_spec(w, spec))
+        if (poller::same_spec(overflow_entry, spec))
         {
             return false;
         }
@@ -78,17 +78,17 @@ int DataPoller::poll_overflow(const std::vector<WatchSpec>& from_ws, const Resub
 
     const int32_t          hhmmss  = kst::hhmmss_int(now_utc);
     const auto             pending = overflow_; // 재구독 성공이 목록을 줄이므로 복사본을 돈다
-    int                    n       = 0;
+    int                    count       = 0;
 
     for (const auto& spec : pending)
     {
         if (resub && resub(spec))
         {
-            for (auto it = overflow_.begin(); it != overflow_.end(); ++it)
+            for (auto iterator = overflow_.begin(); iterator != overflow_.end(); ++iterator)
             {
-                if (poller::same_spec(*it, spec))
+                if (poller::same_spec(*iterator, spec))
                 {
-                    overflow_.erase(it);
+                    overflow_.erase(iterator);
                     break;
                 }
             }
@@ -112,9 +112,9 @@ int DataPoller::poll_overflow(const std::vector<WatchSpec>& from_ws, const Resub
             std::this_thread::sleep_for(universe_pacing_);
         }
 
-        const double px = quote_(spec.ticker);
+        const double price = quote_(spec.ticker);
 
-        if (px <= 0.0)
+        if (price <= 0.0)
         {
             if (rest_failed_.insert(spec.ticker).second)
             {
@@ -126,20 +126,20 @@ int DataPoller::poll_overflow(const std::vector<WatchSpec>& from_ws, const Resub
 
         if (rest_seen_.insert(spec.ticker).second)
         {
-            LOG_INFO("[Engine] REST 대체 시세 첫 수신 " + spec.ticker + " px=" + std::to_string(px));
+            LOG_INFO("[Engine] REST 대체 시세 첫 수신 " + spec.ticker + " px=" + std::to_string(price));
         }
 
-        sink_(poller::make_tick(spec.ticker, px, hhmmss, std::chrono::system_clock::now()));
-        ++n;
+        sink_(poller::make_tick(spec.ticker, price, hhmmss, std::chrono::system_clock::now()));
+        ++count;
     }
 
-    return n;
+    return count;
 }
 
 int DataPoller::top_up(const std::vector<std::string>& tickers,
                        const std::function<void(const std::string&, double)>& on_px)
 {
-    int n = 0;
+    int count = 0;
 
     for (const auto& ticker : tickers)
     {
@@ -154,8 +154,8 @@ int DataPoller::top_up(const std::vector<std::string>& tickers,
         }
 
         on_px(ticker, quote_(ticker));
-        ++n;
+        ++count;
     }
 
-    return n;
+    return count;
 }

@@ -18,22 +18,22 @@ inline bool is_etf_like(const std::string& name,
                         const std::vector<std::string>& prefixes,
                         const std::vector<std::string>& tokens)
 {
-    for (const auto& p : prefixes)
+    for (const auto& prefix : prefixes)
     {
         // 브랜드 전방일치 + 경계 검사: 접두사 뒤가 문자열 끝이거나 ASCII(공백·숫자·영문)여야
         //  ETF로 본다. KIS 종목명은 브랜드 뒤에 공백/숫자가 온다("KODEX 200","KIWOOM 단기채권…").
         //  경계 없이 전방일치만 하면 한글이 바로 붙는 보통주를 오드롭한다(예: "파워"→파워로직스 037030).
         //  한글은 UTF-8 선두바이트가 0x80 이상 — 접두사 직후가 한글이면 경계 불성립(보통주로 판정).
-        if (!p.empty() && name.starts_with(p) &&
-            (name.size() == p.size() || static_cast<unsigned char>(name[p.size()]) < 0x80))
+        if (!prefix.empty() && name.starts_with(prefix) &&
+            (name.size() == prefix.size() || static_cast<unsigned char>(name[prefix.size()]) < 0x80))
         {
             return true;
         }
     }
 
-    for (const auto& tk : tokens)
+    for (const auto& ticker : tokens)
     {
-        if (!tk.empty() && name.find(tk) != std::string::npos) // 상품 토큰 부분일치(채권·액티브…)
+        if (!ticker.empty() && name.find(ticker) != std::string::npos) // 상품 토큰 부분일치(채권·액티브…)
         {
             return true;
         }
@@ -59,9 +59,9 @@ inline bool is_reit_like(const std::string& name,
         }
     }
 
-    for (const auto& e : exacts)
+    for (const auto& exact : exacts)
     {
-        if (!e.empty() && name == e)
+        if (!exact.empty() && name == exact)
         {
             return true;
         }
@@ -72,35 +72,35 @@ inline bool is_reit_like(const std::string& name,
 
 inline const std::vector<std::string>& default_reit_suffixes()
 {
-    static const std::vector<std::string> s = {"리츠"};
-    return s;
+    static const std::vector<std::string> suffixes = {"리츠"};
+    return suffixes;
 }
 
 // 접미사로 안 잡히는 상장 리츠(사명에 리츠가 끝에 오지 않는 경우)만 열거.
 inline const std::vector<std::string>& default_reit_exacts()
 {
-    static const std::vector<std::string> e = {"이리츠코크렙"};
-    return e;
+    static const std::vector<std::string> exacts = {"이리츠코크렙"};
+    return exacts;
 }
 
 // 상품 토큰 기본값 — 개별 보통주 이름엔 나타나지 않는 ETF/ETN 표지만(오탐 방지).
 //  단기'채권'·ESG'액티브' 같은 비브랜드 액티브·채권 ETF를 접두사 없이 잡는다.
 inline const std::vector<std::string>& default_tokens()
 {
-    static const std::vector<std::string> t = {"ETF", "ETN", "액티브", "레버리지",
+    static const std::vector<std::string> tokens = {"ETF", "ETN", "액티브", "레버리지",
                                                "인버스", "커버드콜", "채권"};
-    return t;
+    return tokens;
 }
 
 // 브랜드 접두사 기본값 — etf_prefixes.json 미존재 시 폴백.
 // 주의: KisClient.cpp의 ETF_PREFIXES_FALLBACK과 물리적으로 두 벌 복제라, 한쪽을 고치면 다른 쪽도 함께 고쳐야 한다(정합은 코드로 강제되지 않음).
 inline const std::vector<std::string>& default_prefixes()
 {
-    static const std::vector<std::string> p = {
+    static const std::vector<std::string> prefixes = {
         "KODEX",    "TIGER", "KINDEX", "KOSEF",  "ARIRANG",  "ACE",       "SOL",  "HANARO",
         "FOCUS",    "TREX",  "WON",    "PLUS",   "KoAct",    "TIMEFOLIO", "KTOP", "BIG",
         "히어로즈", "KCGI",  "파워",   "KBSTAR", "마이다스", "RISE",      "TRUE", "MASTER"};
-    return p;
+    return prefixes;
 }
 
 // config JSON(top-level 문자열 배열) 로드. QUANT_CONFIG_DIR(없으면 "Quant/config") 기준.
@@ -113,29 +113,29 @@ inline std::vector<std::string> load_list(const std::string& filename,
 {
     const char* dir = std::getenv("QUANT_CONFIG_DIR");
     std::string base = (dir && *dir) ? std::string(dir) : std::string("Quant/config");
-    std::ifstream f(base + "/" + filename);
+    std::ifstream file(base + "/" + filename);
 
-    if (!f.is_open())
+    if (!file.is_open())
     {
         return fallback;
     }
 
     try
     {
-        auto j = nlohmann::json::parse(f);
+        auto document = nlohmann::json::parse(file);
 
-        if (!j.is_array())
+        if (!document.is_array())
         {
             return fallback;
         }
 
         std::vector<std::string> out;
 
-        for (const auto& e : j)
+        for (const auto& element : document)
         {
-            if (e.is_string())
+            if (element.is_string())
             {
-                out.push_back(e.get<std::string>());
+                out.push_back(element.get<std::string>());
             }
         }
 

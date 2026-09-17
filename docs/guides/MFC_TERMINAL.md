@@ -1,6 +1,6 @@
 # MFC 운영단말 `ops_terminal` 작업 문서
 
-<!-- sync: Quant/tools/ops_terminal/OpsTerminalDlg.cpp@97b0b22 Quant/tools/ops_terminal/OpsTerminalDlg.h@c5fb0e6 Quant/tools/ops_terminal/OpsLink.cpp@8f439a6 Quant/tools/ops_terminal/OpsLink.h@9e551d7 Quant/include/ipc/OpsProtocol.h@a1495a4 -->
+<!-- sync: Quant/tools/ops_terminal/OpsTerminalDlg.cpp@6b2052d Quant/tools/ops_terminal/OpsTerminalDlg.h@ed5332d Quant/tools/ops_terminal/OpsLink.cpp@6e49d83 Quant/tools/ops_terminal/OpsLink.h@f6615a7 Quant/include/ipc/OpsProtocol.h@0f001e6 -->
 `Quant/tools/ops_terminal/`에 있는 MFC 대화상자 단말의 정본이다. 무엇을 하는 프로그램인지, 어떻게 빌드·실행하는지,
 MFC라서 걸린 함정과 지금까지 손댄 이력을 여기에 모은다. **MFC 쪽을 고치면 이 문서를 같이 고친다**(8절 체크리스트).
 채널 자체(프로토콜·서버·콘솔 단말)는 [docs/guides/OPS_TERMINAL.md](OPS_TERMINAL.md), 결정 배경은

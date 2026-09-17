@@ -29,11 +29,11 @@ std::vector<std::string> split(const std::string& line)
 {
     std::vector<std::string> out;
     std::stringstream        ss(line);
-    std::string              f;
+    std::string              field;
 
-    while (std::getline(ss, f, ','))
+    while (std::getline(ss, field, ','))
     {
-        out.push_back(f);
+        out.push_back(field);
     }
 
     return out;
@@ -50,39 +50,39 @@ int main()
     CHECK(trace::segment_us(1'000'000, 3'500'000) == 2500);
 
     // 2. 행 형식 — 열 12개, 값이 자리에 맞게 들어간다.
-    OrderSignal sig;
-    sig.seq         = 42;
-    sig.ticker      = "005930";
-    sig.strategy_id = "devscale";
-    sig.side        = OrderSide::BUY;
-    sig.action      = OrderAction::NEW;
+    OrderSignal signal;
+    signal.sequence         = 42;
+    signal.ticker      = "005930";
+    signal.strategy_id = "devscale";
+    signal.side        = OrderSide::BUY;
+    signal.action      = OrderAction::NEW;
 
-    trace::Marks m;
-    m.tick_ns   = 10'000'000;
-    m.signal_ns = 10'050'000; // +50us
-    m.pop_ns    = 10'060'000; // +10us
-    m.done_ns   = 25'060'000; // +15,000us (HTTP)
+    trace::Marks marks;
+    marks.tick_ns   = 10'000'000;
+    marks.signal_ns = 10'050'000; // +50us
+    marks.pop_ns    = 10'060'000; // +10us
+    marks.done_ns   = 25'060'000; // +15,000us (HTTP)
 
-    const auto row = trace::csv_row(sig, m, true, true, 1'700'000'000'123LL);
+    const auto row = trace::csv_row(signal, marks, true, true, 1'700'000'000'123LL);
     CHECK(row.back() == '\n');
-    const auto f = split(row.substr(0, row.size() - 1));
-    CHECK(f.size() == 12);
-    CHECK(f[0] == "1700000000123");
-    CHECK(f[1] == "42");
-    CHECK(f[2] == "005930");
-    CHECK(f[3] == "devscale");
-    CHECK(f[4] == "BUY");
-    CHECK(f[5] == "NEW");
-    CHECK(f[6] == "50");
-    CHECK(f[7] == "10");
-    CHECK(f[8] == "15000");
-    CHECK(f[9] == "15060");
-    CHECK(f[10] == "1");
-    CHECK(f[11] == "1");
+    const auto fields = split(row.substr(0, row.size() - 1));
+    CHECK(fields.size() == 12);
+    CHECK(fields[0] == "1700000000123");
+    CHECK(fields[1] == "42");
+    CHECK(fields[2] == "005930");
+    CHECK(fields[3] == "devscale");
+    CHECK(fields[4] == "BUY");
+    CHECK(fields[5] == "NEW");
+    CHECK(fields[6] == "50");
+    CHECK(fields[7] == "10");
+    CHECK(fields[8] == "15000");
+    CHECK(fields[9] == "15060");
+    CHECK(fields[10] == "1");
+    CHECK(fields[11] == "1");
 
     // 3. REST 봉 신호(tick_ns=0): 첫 구간 -1, total은 signal부터.
-    m.tick_ns = 0;
-    const auto row2 = trace::csv_row(sig, m, false, false, 0);
+    marks.tick_ns = 0;
+    const auto row2 = trace::csv_row(signal, marks, false, false, 0);
     const auto f2   = split(row2.substr(0, row2.size() - 1));
     CHECK(f2[6] == "-1");
     CHECK(f2[9] == "15010");
@@ -93,25 +93,25 @@ int main()
     const auto path = std::filesystem::temp_directory_path() / "quant_test_latency_trace.csv";
     std::filesystem::remove(path);
     {
-        trace::LatencyTrace t(path);
-        CHECK(t.rows() == 0);
-        t.record(sig, m, true, true);
-        t.record(sig, m, false, false);
-        CHECK(t.rows() == 2);
+        trace::LatencyTrace latency_trace(path);
+        CHECK(latency_trace.rows() == 0);
+        latency_trace.record(signal, marks, true, true);
+        latency_trace.record(signal, marks, false, false);
+        CHECK(latency_trace.rows() == 2);
     }
 
     {
-        trace::LatencyTrace t(path);
-        t.record(sig, m, true, false);
+        trace::LatencyTrace latency_trace(path);
+        latency_trace.record(signal, marks, true, false);
     }
 
     std::ifstream            in(path);
     std::vector<std::string> lines;
-    std::string              l;
+    std::string              line;
 
-    while (std::getline(in, l))
+    while (std::getline(in, line))
     {
-        lines.push_back(l);
+        lines.push_back(line);
     }
 
     CHECK(lines.size() == 4);

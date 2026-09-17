@@ -21,18 +21,18 @@ bool LedgerReconciler::bootstrap(int attempts, std::chrono::milliseconds retry_d
 {
     try
     {
-        KisResult<AccountBalance> bal = kis_fail("init", "");
+        KisResult<AccountBalance> balance = kis_fail("init", "");
 
         for (int attempt = 0; attempt < attempts; ++attempt)
         {
-            bal = fetch_();
+            balance = fetch_();
 
-            if (bal)
+            if (balance)
             {
                 break;
             }
 
-            LOG_WARN("[Engine] 원장 부트스트랩: 잔고 실패(" + error_text(bal) + ") — 재시도 " +
+            LOG_WARN("[Engine] 원장 부트스트랩: 잔고 실패(" + error_text(balance) + ") — 재시도 " +
                      std::to_string(attempt + 1) + "/" + std::to_string(attempts));
 
             if (retry_delay.count() > 0)
@@ -41,53 +41,53 @@ bool LedgerReconciler::bootstrap(int attempts, std::chrono::milliseconds retry_d
             }
         }
 
-        if (!bal)
+        if (!balance)
         {
             LOG_ERROR("[Engine] 원장 부트스트랩: 잔고를 끝내 못 읽음 — 기동 중단");
             return false;
         }
 
-        int n = 0;
+        int count = 0;
 
-        for (const Holding& h : bal->holdings)
+        for (const Holding& holding : balance->holdings)
         {
             // 주문가능수량(ord_psbl_qty)을 게이트에 함께 시드한다. 보유수량과 다르면(직전
             //  세션이 남긴 미체결 매도·미결제분) 전량 청산이 40240000으로 통째 거부돼
             //  한 주도 못 빠져나온다(09-08 047050 254주·381주 연속 거부). 필드가 없거나
             //  파싱 실패면 -1을 넘겨 "모름"으로 두고 보유수량을 그대로 쓴다.
-            const int psbl_q = h.sellable_qty.value_or(-1);
-            gate_.seed_position(std::string(), h.ticker, h.qty, h.avg_price, psbl_q);
+            const int psbl_q = holding.sellable_qty.value_or(-1);
+            gate_.seed_position(std::string(), holding.ticker, holding.quantity, holding.average_price, psbl_q);
 
             if (name_sink_)
             {
-                name_sink_(h.ticker, h.name); // 로그 라벨(초기 보유분 종목명)
+                name_sink_(holding.ticker, holding.name); // 로그 라벨(초기 보유분 종목명)
             }
 
-            LOG_INFO("[Engine]   시드 " + h.ticker + " " + h.name + " " + std::to_string(h.qty) + "주 @평단 " +
-                     std::to_string(static_cast<long long>(h.avg_price)) + " 주문가능=" +
-                     (h.sellable_qty ? std::to_string(*h.sellable_qty) : std::string("(field없음)")));
-            ++n;
+            LOG_INFO("[Engine]   시드 " + holding.ticker + " " + holding.name + " " + std::to_string(holding.quantity) + "주 @평단 " +
+                     std::to_string(static_cast<long long>(holding.average_price)) + " 주문가능=" +
+                     (holding.sellable_qty ? std::to_string(*holding.sellable_qty) : std::string("(field없음)")));
+            ++count;
         }
 
-        LOG_INFO("[Engine] 원장 부트스트랩 완료: " + std::to_string(n) + "종목 시드");
+        LOG_INFO("[Engine] 원장 부트스트랩 완료: " + std::to_string(count) + "종목 시드");
         return true;
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        LOG_ERROR("[Engine] 원장 부트스트랩 예외: " + std::string(e.what()));
+        LOG_ERROR("[Engine] 원장 부트스트랩 예외: " + std::string(exception.what()));
         return false;
     }
 }
 
 // ─── 보유분 재동기 — 실체결 원장을 실제 잔고로 강제 일치 ───────────────────
-void LedgerReconciler::resync_holdings(const AccountBalance& bal, bool resync_positions)
+void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resync_positions)
 {
     // 대조 행은 덮어쓰기·정리 "전" 원장 값으로 남긴다 — 덮어쓴 뒤에 재면 항상 일치로 나온다. [why D-038]
     std::vector<reconcile::Held> ledger_before;
 
     for (const auto& hp : gate_.snapshot_positions())
     {
-        ledger_before.push_back(reconcile::Held{hp.ticker, hp.qty, hp.avg_price});
+        ledger_before.push_back(reconcile::Held{hp.ticker, hp.quantity, hp.average_price});
     }
 
     std::vector<reconcile::Held> broker_now;
@@ -105,23 +105,23 @@ void LedgerReconciler::resync_holdings(const AccountBalance& bal, bool resync_po
     // 잔고에 있는 종목을 모으면서, 재동기 모드면 원장까지 덮어쓴다.
     std::vector<std::string> held;
 
-    for (const Holding& h : bal.holdings)
+    for (const Holding& holding : balance.holdings)
     {
-        const std::string& code = h.ticker;
-        const int    q  = h.qty;
-        const double av = h.avg_price;
+        const std::string& code = holding.ticker;
+        const int    quantity  = holding.quantity;
+        const double av = holding.average_price;
         held.push_back(code);
-        broker_now.push_back(reconcile::Held{code, q, av});
+        broker_now.push_back(reconcile::Held{code, quantity, av});
 
         if (resync_positions)
         {
-            gate_.seed_position(std::string(), code, q, av);
+            gate_.seed_position(std::string(), code, quantity, av);
         }
 
         // 매도가능수량은 재동기 모드와 무관하게 매번 맞춘다(기동 시드 0 고착 해소).
-        if (h.sellable_qty)
+        if (holding.sellable_qty)
         {
-            gate_.refresh_sellable(std::string(), code, *h.sellable_qty);
+            gate_.refresh_sellable(std::string(), code, *holding.sellable_qty);
         }
 
         // 체결통보 모드는 원장을 덮어쓰지 않는다. 대신 재연결 사이에 빠진 매도 체결만
@@ -129,12 +129,12 @@ void LedgerReconciler::resync_holdings(const AccountBalance& bal, bool resync_po
         //  (09-11 11:00 WS 끊김 4초에 248170 매도 52주 통보 유실 → 18분 유령 보유)
         if (!resync_positions)
         {
-            const int absorbed = gate_.absorb_missed_sell(std::string(), code, q);
+            const int absorbed = gate_.absorb_missed_sell(std::string(), code, quantity);
 
             if (absorbed > 0)
             {
                 LOG_WARN("[Engine] 잔고 대조: " + code + " 원장이 잔고보다 " + std::to_string(absorbed) +
-                         "주 많아 놓친 매도 체결로 보고 " + std::to_string(q) + "주로 맞춘다");
+                         "주 많아 놓친 매도 체결로 보고 " + std::to_string(quantity) + "주로 맞춘다");
             }
         }
     }
@@ -160,9 +160,9 @@ void LedgerReconciler::resync_holdings(const AccountBalance& bal, bool resync_po
     {
         std::string list;
 
-        for (const auto& t : gone)
+        for (const auto& gone_ticker : gone)
         {
-            list += (list.empty() ? "" : ",") + t;
+            list += (list.empty() ? "" : ",") + gone_ticker;
         }
 
         LOG_WARN("[Engine] 잔고 대조: 잔고에 없는 원장 보유 " + std::to_string(gone.size()) + "종목 정리 (" + list + ")");
@@ -175,9 +175,9 @@ void LedgerReconciler::resync_holdings(const AccountBalance& bal, bool resync_po
         const auto rows = reconcile::plan(ledger_before, broker_now, resync_positions, gone,
                                           resync_positions ? "mode=REST" : "mode=WS");
 
-        for (const auto& r : rows)
+        for (const auto& row : rows)
         {
-            reconcile_sink_(r);
+            reconcile_sink_(row);
         }
 
         if (!rows.empty())
@@ -194,12 +194,12 @@ void LedgerReconciler::resync_holdings(const AccountBalance& bal, bool resync_po
 //  파일이 그날 시가 기준선을 담아 당일손익이 정확.
 void LedgerReconciler::capture_baseline(double tot_eval, std::optional<double> prev_day_total, std::time_t now_utc)
 {
-    const std::string ymd = ledger::kst_ymd(now_utc);
+    const std::string date_yyyymmdd = ledger::kst_ymd(now_utc);
     std::filesystem::path bpath;
 
     if (!baseline_dir_.empty())
     {
-        bpath = baseline_dir_ / ledger::baseline_file_name(ymd, account_no_);
+        bpath = baseline_dir_ / ledger::baseline_file_name(date_yyyymmdd, account_no_);
     }
 
     double file_base = 0.0;
@@ -218,7 +218,7 @@ void LedgerReconciler::capture_baseline(double tot_eval, std::optional<double> p
     if (from_file)
     {
         baseline_ = file_base;
-        LOG_INFO("[Engine] 기준선 파일 재사용(" + ymd + "): " + std::to_string(static_cast<long long>(baseline_)) +
+        LOG_INFO("[Engine] 기준선 파일 재사용(" + date_yyyymmdd + "): " + std::to_string(static_cast<long long>(baseline_)) +
                  "원 — 재시작해도 당일 손실컷 유지");
     }
     else
@@ -241,8 +241,8 @@ void LedgerReconciler::capture_baseline(double tot_eval, std::optional<double> p
 
         if (!bpath.empty())
         {
-            std::error_code ec;
-            std::filesystem::create_directories(baseline_dir_, ec); // 종전 Logger::path_for가 하던 일
+            std::error_code error_code;
+            std::filesystem::create_directories(baseline_dir_, error_code); // 종전 Logger::path_for가 하던 일
             std::ofstream of(bpath, std::ios::trunc);
 
             if (of.is_open())
@@ -251,7 +251,7 @@ void LedgerReconciler::capture_baseline(double tot_eval, std::optional<double> p
             }
         }
 
-        LOG_INFO("[Engine] 기준선 신규 캡처+저장(" + ymd + "): " +
+        LOG_INFO("[Engine] 기준선 신규 캡처+저장(" + date_yyyymmdd + "): " +
                  std::to_string(static_cast<long long>(baseline_)) + "원");
     }
 
@@ -306,33 +306,33 @@ void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)
 
     try
     {
-        const KisResult<AccountBalance> bal = fetch_();
+        const KisResult<AccountBalance> balance = fetch_();
 
-        if (!bal)
+        if (!balance)
         {
-            LOG_WARN("[Engine] 잔고 대조: 조회 실패(" + error_text(bal) + ")");
+            LOG_WARN("[Engine] 잔고 대조: 조회 실패(" + error_text(balance) + ")");
         }
         else
         {
             responded = true;
-            resync_holdings(*bal, resync_positions);
+            resync_holdings(*balance, resync_positions);
 
             // 주문가능현금 — 매수 클램프의 진짜 상한. 가수도정산금액(실질 주문가능)을 우선 쓰고
             //  없으면 예수금총금액으로 떨어진다. 평가금과 달리 미체결 지정가와 미결제 매수로
             //  묶인 몫이 빠져 있어야 40250000 도배를 막을 수 있다.
-            if (bal->available_cash && *bal->available_cash >= 0.0)
+            if (balance->available_cash && *balance->available_cash >= 0.0)
             {
-                gate_.set_available_cash(*bal->available_cash);
+                gate_.set_available_cash(*balance->available_cash);
             }
 
             // 2) 당일 총평가금 델타 → daily_pnl_. 요약 필드의 부재는 optional이 든다.
-            if (bal->total_eval_amt)
+            if (balance->total_eval_amt)
             {
-                const double tot_eval = *bal->total_eval_amt;
+                const double tot_eval = *balance->total_eval_amt;
 
                 if (!have_baseline_)
                 {
-                    capture_baseline(tot_eval, bal->prev_day_total_asset, now_utc);
+                    capture_baseline(tot_eval, balance->prev_day_total_asset, now_utc);
                 }
 
                 const double delta = tot_eval - baseline_;
@@ -343,18 +343,18 @@ void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)
 
                 // 표시 전용: 전일 총자산(bfdy_tot_asst_evlu_amt) 대비 오늘 손익 — launch 시점과 무관하게
                 //  "전일종가 대비 당일손익"을 찍는다. 손실컷 기준선(세션 앵커)과는 분리(리스크 동작 불변).
-                if (bal->prev_day_total_asset && *bal->prev_day_total_asset > 0.0)
+                if (balance->prev_day_total_asset && *balance->prev_day_total_asset > 0.0)
                 {
-                    const double day_delta = tot_eval - *bal->prev_day_total_asset;
+                    const double day_delta = tot_eval - *balance->prev_day_total_asset;
                     LOG_INFO("[Engine] 당일손익(전일대비): " + std::to_string(static_cast<long long>(day_delta)) +
-                             "원 (전일총자산 " + std::to_string(static_cast<long long>(*bal->prev_day_total_asset)) + ")");
+                             "원 (전일총자산 " + std::to_string(static_cast<long long>(*balance->prev_day_total_asset)) + ")");
                 }
             }
         }
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        LOG_ERROR("[Engine] 잔고 대조 예외: " + std::string(e.what()));
+        LOG_ERROR("[Engine] 잔고 대조 예외: " + std::string(exception.what()));
     }
 
     // 서킷브레이커 갱신 — 성공 시 즉시 복귀, 실패 시 지수 백오프. 지속 정체 동안 daily_pnl_은 낡아

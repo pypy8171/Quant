@@ -29,23 +29,23 @@ int g_checks = 0;
         }                                                                                  \
     } while (0)
 
-WatchSpec spec(const std::string& t, bool fut = false)
+WatchSpec spec(const std::string& ticker, bool fut = false)
 {
-    WatchSpec s;
-    s.ticker    = t;
-    s.is_future = fut;
-    return s;
+    WatchSpec spec;
+    spec.ticker    = ticker;
+    spec.is_future = fut;
+    return spec;
 }
 
 // 가짜 소스 — 구독 목록·상한·연결 상태를 흉내 내고, emit_*는 호출 스레드에서 콜백을 부른다.
 struct FakeSource final : feed::IFeedSource
 {
-    explicit FakeSource(int cap, bool connect_ok = true) : cap_(cap), connect_ok_(connect_ok) {}
+    explicit FakeSource(int capture, bool connect_ok = true) : cap_(capture), connect_ok_(connect_ok) {}
 
-    void set_callbacks(OrderBookCb ob, TradeCb td) override
+    void set_callbacks(OrderBookCb order_book, TradeCb trade) override
     {
-        on_ob_ = std::move(ob);
-        on_td_ = std::move(td);
+        on_ob_ = std::move(order_book);
+        on_td_ = std::move(trade);
     }
 
     void set_fill_callback(FillCb cb) override
@@ -55,20 +55,20 @@ struct FakeSource final : feed::IFeedSource
 
     bool connect(const std::vector<WatchSpec>& specs) override
     {
-        std::lock_guard<std::mutex> lk(mtx_);
+        std::lock_guard<std::mutex> lock(mtx_);
         connected_ = connect_ok_;
         specs_.clear();
         overflow_.clear();
 
-        for (const auto& s : specs)
+        for (const auto& spec : specs)
         {
             if (static_cast<int>(specs_.size()) >= cap_)
             {
-                overflow_.push_back(s);
+                overflow_.push_back(spec);
             }
             else
             {
-                specs_.insert(s.ticker);
+                specs_.insert(spec.ticker);
             }
         }
 
@@ -77,16 +77,16 @@ struct FakeSource final : feed::IFeedSource
 
     void disconnect() override
     {
-        std::lock_guard<std::mutex> lk(mtx_);
+        std::lock_guard<std::mutex> lock(mtx_);
         connected_ = false;
         ++disconnects;
     }
 
-    bool subscribe_incremental(const WatchSpec& s) override
+    bool subscribe_incremental(const WatchSpec& spec) override
     {
-        std::lock_guard<std::mutex> lk(mtx_);
+        std::lock_guard<std::mutex> lock(mtx_);
 
-        if (specs_.count(s.ticker))
+        if (specs_.count(spec.ticker))
         {
             return false;
         }
@@ -96,19 +96,19 @@ struct FakeSource final : feed::IFeedSource
             return false;
         }
 
-        specs_.insert(s.ticker);
+        specs_.insert(spec.ticker);
         return true;
     }
 
-    bool has_spec(const WatchSpec& s) const override
+    bool has_spec(const WatchSpec& spec) const override
     {
-        std::lock_guard<std::mutex> lk(mtx_);
-        return specs_.count(s.ticker) > 0;
+        std::lock_guard<std::mutex> lock(mtx_);
+        return specs_.count(spec.ticker) > 0;
     }
 
     std::vector<WatchSpec> take_overflow_specs() override
     {
-        std::lock_guard<std::mutex> lk(mtx_);
+        std::lock_guard<std::mutex> lock(mtx_);
         auto                        out = std::move(overflow_);
         overflow_.clear();
         return out;
@@ -116,7 +116,7 @@ struct FakeSource final : feed::IFeedSource
 
     bool is_connected() const override
     {
-        std::lock_guard<std::mutex> lk(mtx_);
+        std::lock_guard<std::mutex> lock(mtx_);
         return connected_;
     }
 
@@ -125,37 +125,37 @@ struct FakeSource final : feed::IFeedSource
         return stale;
     }
 
-    void emit_trade(const std::string& ticker, double px)
+    void emit_trade(const std::string& ticker, double price)
     {
-        TradeData td;
-        td.ticker = ticker;
-        td.price  = px;
-        on_td_(td);
+        TradeData trade;
+        trade.ticker = ticker;
+        trade.price  = price;
+        on_td_(trade);
     }
 
     void emit_book(const std::string& ticker)
     {
-        OrderBook ob;
-        ob.ticker = ticker;
-        on_ob_(ob);
+        OrderBook order_book;
+        order_book.ticker = ticker;
+        on_ob_(order_book);
     }
 
-    bool emit_fill(const std::string& odno)
+    bool emit_fill(const std::string& kis_order_no)
     {
         if (!on_fill_)
         {
             return false;
         }
 
-        FillNotification fn;
-        fn.odno = odno;
-        on_fill_(fn);
+        FillNotification fill_notification;
+        fill_notification.kis_order_no = kis_order_no;
+        on_fill_(fill_notification);
         return true;
     }
 
     size_t spec_count() const
     {
-        std::lock_guard<std::mutex> lk(mtx_);
+        std::lock_guard<std::mutex> lock(mtx_);
         return specs_.size();
     }
 
@@ -176,7 +176,7 @@ private:
 
 struct Sink
 {
-    std::mutex                   mtx;
+    std::mutex                   mutex;
     std::vector<TradeData>       trades;
     std::vector<OrderBook>       books;
     std::vector<FillNotification> fills;
@@ -184,15 +184,15 @@ struct Sink
 
     size_t total()
     {
-        std::lock_guard<std::mutex> lk(mtx);
+        std::lock_guard<std::mutex> lock(mutex);
         return trades.size() + books.size() + fills.size();
     }
 
-    bool wait_total(size_t n)
+    bool wait_total(size_t count)
     {
-        for (int i = 0; i < 500; ++i)
+        for (int index = 0; index < 500; ++index)
         {
-            if (total() >= n)
+            if (total() >= count)
             {
                 return true;
             }
@@ -207,23 +207,23 @@ struct Sink
 void attach(feed::FeedMux& mux, Sink& sink)
 {
     mux.set_callbacks(
-        [&sink](const OrderBook& ob)
+        [&sink](const OrderBook& order_book)
         {
-            std::lock_guard<std::mutex> lk(sink.mtx);
-            sink.books.push_back(ob);
+            std::lock_guard<std::mutex> lock(sink.mutex);
+            sink.books.push_back(order_book);
             sink.threads.insert(std::this_thread::get_id());
         },
-        [&sink](const TradeData& td)
+        [&sink](const TradeData& trade)
         {
-            std::lock_guard<std::mutex> lk(sink.mtx);
-            sink.trades.push_back(td);
+            std::lock_guard<std::mutex> lock(sink.mutex);
+            sink.trades.push_back(trade);
             sink.threads.insert(std::this_thread::get_id());
         });
     mux.set_fill_callback(
-        [&sink](const FillNotification& fn)
+        [&sink](const FillNotification& fill_notification)
         {
-            std::lock_guard<std::mutex> lk(sink.mtx);
-            sink.fills.push_back(fn);
+            std::lock_guard<std::mutex> lock(sink.mutex);
+            sink.fills.push_back(fill_notification);
             sink.threads.insert(std::this_thread::get_id());
         });
 }
@@ -234,13 +234,13 @@ int main()
     // 1. 배정과 전달: 5종목을 두 소스에 3/2로 나누고, 소스마다 다른 스레드가 쏜 이벤트가 mux 스레드 하나로 온다.
     //    같은 소스 안 순서는 그대로다.
     {
-        auto a  = std::make_unique<FakeSource>(40);
-        auto b  = std::make_unique<FakeSource>(40);
-        auto* pa = a.get();
-        auto* pb = b.get();
+        auto fake_source_a  = std::make_unique<FakeSource>(40);
+        auto fake_source_b  = std::make_unique<FakeSource>(40);
+        auto* pa = fake_source_a.get();
+        auto* pb = fake_source_b.get();
         std::vector<std::unique_ptr<feed::IFeedSource>> srcs;
-        srcs.push_back(std::move(a));
-        srcs.push_back(std::move(b));
+        srcs.push_back(std::move(fake_source_a));
+        srcs.push_back(std::move(fake_source_b));
         feed::FeedMux mux(std::move(srcs), 1024);
         Sink          sink;
         attach(mux, sink);
@@ -252,8 +252,8 @@ int main()
         CHECK(mux.source_of(spec("A")) == 0 && mux.source_of(spec("B")) == 1 && mux.source_of(spec("E")) == 0);
         CHECK(mux.has_spec(spec("C")) && !mux.has_spec(spec("Z")));
 
-        std::thread ta([pa] { for (int i = 0; i < 1000; ++i) { pa->emit_trade("A", 1000 + i); } });
-        std::thread tb([pb] { for (int i = 0; i < 1000; ++i) { pb->emit_trade("B", 2000 + i); } pb->emit_book("B"); });
+        std::thread ta([pa] { for (int index = 0; index < 1000; ++index) { pa->emit_trade("A", 1000 + index); } });
+        std::thread tb([pb] { for (int index = 0; index < 1000; ++index) { pb->emit_trade("B", 2000 + index); } pb->emit_book("B"); });
         ta.join();
         tb.join();
         CHECK(sink.wait_total(2001));
@@ -263,11 +263,11 @@ int main()
         double last_a = 0, last_b = 0;
         bool   ordered = true;
 
-        for (const auto& td : sink.trades)
+        for (const auto& trade : sink.trades)
         {
-            double& last = td.ticker == "A" ? last_a : last_b;
-            ordered      = ordered && td.price > last;
-            last         = td.price;
+            double& last = trade.ticker == "A" ? last_a : last_b;
+            ordered      = ordered && trade.price > last;
+            last         = trade.price;
         }
 
         CHECK(ordered);
@@ -276,7 +276,7 @@ int main()
         // 체결통보는 첫 소스만 등록된다.
         CHECK(pa->emit_fill("X1"));
         CHECK(!pb->emit_fill("X2"));
-        CHECK(sink.wait_total(2002) && sink.fills.size() == 1 && sink.fills[0].odno == "X1");
+        CHECK(sink.wait_total(2002) && sink.fills.size() == 1 && sink.fills[0].kis_order_no == "X1");
 
         // 재연결: 배정은 유지된다.
         mux.disconnect();
@@ -287,12 +287,12 @@ int main()
 
     // 2. 증분 구독은 배정이 적은 소스로, 상한에 걸리면 배정을 지운다. 넘침 회수는 소스 전부를 합친다.
     {
-        auto a  = std::make_unique<FakeSource>(2);
-        auto b  = std::make_unique<FakeSource>(2);
-        auto* pa = a.get();
+        auto fake_source_a  = std::make_unique<FakeSource>(2);
+        auto fake_source_b  = std::make_unique<FakeSource>(2);
+        auto* pa = fake_source_a.get();
         std::vector<std::unique_ptr<feed::IFeedSource>> srcs;
-        srcs.push_back(std::move(a));
-        srcs.push_back(std::move(b));
+        srcs.push_back(std::move(fake_source_a));
+        srcs.push_back(std::move(fake_source_b));
         feed::FeedMux mux(std::move(srcs), 64);
         Sink          sink;
         attach(mux, sink);
@@ -313,9 +313,9 @@ int main()
         const auto over = mux.take_overflow_specs();
         CHECK(!over.empty());
 
-        for (const auto& s : over)
+        for (const auto& overflow_entry : over)
         {
-            CHECK(!mux.source_of(s).has_value());
+            CHECK(!mux.source_of(overflow_entry).has_value());
         }
 
         CHECK(pa->spec_count() == 2);
@@ -323,12 +323,12 @@ int main()
 
     // 3. 소스 하나가 연결에 실패하면 전부 끊고 false. stale은 하나라도 멈추면 true.
     {
-        auto a  = std::make_unique<FakeSource>(40);
-        auto b  = std::make_unique<FakeSource>(40, /*connect_ok=*/false);
-        auto* pa = a.get();
+        auto fake_source_a  = std::make_unique<FakeSource>(40);
+        auto fake_source_b  = std::make_unique<FakeSource>(40, /*connect_ok=*/false);
+        auto* pa = fake_source_a.get();
         std::vector<std::unique_ptr<feed::IFeedSource>> srcs;
-        srcs.push_back(std::move(a));
-        srcs.push_back(std::move(b));
+        srcs.push_back(std::move(fake_source_a));
+        srcs.push_back(std::move(fake_source_b));
         feed::FeedMux mux(std::move(srcs), 64);
         Sink          sink;
         attach(mux, sink);
@@ -337,12 +337,12 @@ int main()
     }
 
     {
-        auto a  = std::make_unique<FakeSource>(40);
-        auto b  = std::make_unique<FakeSource>(40);
-        auto* pb = b.get();
+        auto fake_source_a  = std::make_unique<FakeSource>(40);
+        auto fake_source_b  = std::make_unique<FakeSource>(40);
+        auto* pb = fake_source_b.get();
         std::vector<std::unique_ptr<feed::IFeedSource>> srcs;
-        srcs.push_back(std::move(a));
-        srcs.push_back(std::move(b));
+        srcs.push_back(std::move(fake_source_a));
+        srcs.push_back(std::move(fake_source_b));
         feed::FeedMux mux(std::move(srcs), 64);
         Sink          sink;
         attach(mux, sink);
@@ -355,13 +355,13 @@ int main()
     // 3b. 멈춘 소스만 다시 잇는다 — 살아 있는 소스는 끊지 않고 종목도 그대로, 멈춘 소스는 자기 배정 종목으로 다시 붙는다.
     //     배정이 없던 새 종목은 다시 잇는 소스에 붙는다. 전부 멈췄으면 전부 다시 잇는다.
     {
-        auto  a  = std::make_unique<FakeSource>(40);
-        auto  b  = std::make_unique<FakeSource>(40);
-        auto* pa = a.get();
-        auto* pb = b.get();
+        auto  fake_source_a  = std::make_unique<FakeSource>(40);
+        auto  fake_source_b  = std::make_unique<FakeSource>(40);
+        auto* pa = fake_source_a.get();
+        auto* pb = fake_source_b.get();
         std::vector<std::unique_ptr<feed::IFeedSource>> srcs;
-        srcs.push_back(std::move(a));
-        srcs.push_back(std::move(b));
+        srcs.push_back(std::move(fake_source_a));
+        srcs.push_back(std::move(fake_source_b));
         feed::FeedMux mux(std::move(srcs), 64);
         Sink          sink;
         attach(mux, sink);
@@ -390,10 +390,10 @@ int main()
 
     // 4. 링이 차면 버리고 센다 — 콜백이 막혀 있는 동안 링 용량보다 많이 쏜다.
     {
-        auto a  = std::make_unique<FakeSource>(40);
-        auto* pa = a.get();
+        auto fake_source  = std::make_unique<FakeSource>(40);
+        auto* pa = fake_source.get();
         std::vector<std::unique_ptr<feed::IFeedSource>> srcs;
-        srcs.push_back(std::move(a));
+        srcs.push_back(std::move(fake_source));
         feed::FeedMux     mux(std::move(srcs), 16);
         std::atomic<bool> gate{true};
         std::atomic<int>  got{0};
@@ -409,14 +409,14 @@ int main()
                           });
         CHECK(mux.connect({spec("A")}));
 
-        for (int i = 0; i < 100; ++i)
+        for (int index = 0; index < 100; ++index)
         {
-            pa->emit_trade("A", i);
+            pa->emit_trade("A", index);
         }
 
         gate = false;
 
-        for (int i = 0; i < 500 && got.load() + static_cast<int>(mux.dropped()) < 100; ++i)
+        for (int index = 0; index < 500 && got.load() + static_cast<int>(mux.dropped()) < 100; ++index)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
@@ -434,33 +434,33 @@ int main()
     // 6. 레인 모드: 소스 i가 쏜 이벤트는 그 스레드에서 레인 i를 달고 바로 온다 — mux 스레드도 링도 안 거친다.
     //    체결통보는 첫 소스만, 역시 그 스레드에서. 소스 하나짜리 기본 구현은 lanes()=1, 레인 0.
     {
-        auto  a  = std::make_unique<FakeSource>(40);
-        auto  b  = std::make_unique<FakeSource>(40);
-        auto* pa = a.get();
-        auto* pb = b.get();
+        auto  fake_source_a  = std::make_unique<FakeSource>(40);
+        auto  fake_source_b  = std::make_unique<FakeSource>(40);
+        auto* pa = fake_source_a.get();
+        auto* pb = fake_source_b.get();
         std::vector<std::unique_ptr<feed::IFeedSource>> srcs;
-        srcs.push_back(std::move(a));
-        srcs.push_back(std::move(b));
+        srcs.push_back(std::move(fake_source_a));
+        srcs.push_back(std::move(fake_source_b));
         feed::FeedMux mux(std::move(srcs), 64);
         CHECK(mux.lanes() == 2);
 
-        std::mutex                        mtx;
+        std::mutex                        mutex;
         std::vector<std::pair<uint32_t, std::thread::id>> seen; // (레인, 부른 스레드)
         std::vector<std::string>          tickers;
         std::atomic<int>                  fills{0};
         std::thread::id                   fill_thread;
         mux.set_lane_callbacks(
-            [&](uint32_t lane, const OrderBook& ob)
+            [&](uint32_t lane, const OrderBook& order_book)
             {
-                std::lock_guard<std::mutex> lk(mtx);
+                std::lock_guard<std::mutex> lock(mutex);
                 seen.emplace_back(lane, std::this_thread::get_id());
-                tickers.push_back(ob.ticker.str());
+                tickers.push_back(order_book.ticker.str());
             },
-            [&](uint32_t lane, const TradeData& td)
+            [&](uint32_t lane, const TradeData& trade)
             {
-                std::lock_guard<std::mutex> lk(mtx);
+                std::lock_guard<std::mutex> lock(mutex);
                 seen.emplace_back(lane, std::this_thread::get_id());
-                tickers.push_back(td.ticker.str());
+                tickers.push_back(trade.ticker.str());
             });
         mux.set_fill_callback(
             [&](const FillNotification&)
@@ -470,8 +470,8 @@ int main()
             });
         CHECK(mux.connect({spec("A"), spec("B")}));
 
-        std::thread ta([pa] { for (int i = 0; i < 300; ++i) { pa->emit_trade("A", 1 + i); } pa->emit_book("A"); });
-        std::thread tb([pb] { for (int i = 0; i < 300; ++i) { pb->emit_trade("B", 1 + i); } });
+        std::thread ta([pa] { for (int index = 0; index < 300; ++index) { pa->emit_trade("A", 1 + index); } pa->emit_book("A"); });
+        std::thread tb([pb] { for (int index = 0; index < 300; ++index) { pb->emit_trade("B", 1 + index); } });
         const auto id_a = ta.get_id();
         const auto id_b = tb.get_id();
         ta.join();
@@ -480,11 +480,11 @@ int main()
         // join 뒤라 더 올 게 없다 — 링이 없으니 기다릴 것도 없다.
         bool lanes_ok = seen.size() == 601;
 
-        for (size_t i = 0; i < seen.size() && lanes_ok; ++i)
+        for (size_t seen_index = 0; seen_index < seen.size() && lanes_ok; ++seen_index)
         {
-            const bool from_a = seen[i].second == id_a;
-            lanes_ok          = (from_a || seen[i].second == id_b) && seen[i].first == (from_a ? 0u : 1u) &&
-                       tickers[i] == (from_a ? "A" : "B");
+            const bool from_a = seen[seen_index].second == id_a;
+            lanes_ok          = (from_a || seen[seen_index].second == id_b) && seen[seen_index].first == (from_a ? 0u : 1u) &&
+                       tickers[seen_index] == (from_a ? "A" : "B");
         }
 
         CHECK(lanes_ok);

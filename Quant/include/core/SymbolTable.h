@@ -14,7 +14,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace sym
+namespace symbol
 {
 
 using SymbolId = uint32_t;
@@ -31,47 +31,47 @@ struct Ticker
     static constexpr size_t kMax = 15;
 
     char    data[kMax] = {};
-    uint8_t len        = 0;
+    uint8_t length        = 0;
 
     constexpr Ticker() = default;
 
     // string_view 하나만 받는다(const char*·std::string은 그 뒤에 선다) — 두 갈래를 두면 `t == "005930"`이 모호해진다.
-    Ticker(std::string_view s)
+    Ticker(std::string_view text)
     {
-        assign(s);
+        assign(text);
     }
 
-    void assign(std::string_view s)
+    void assign(std::string_view text)
     {
-        len = static_cast<uint8_t>(s.size() < kMax ? s.size() : kMax);
-        std::memcpy(data, s.data(), len);
-        std::memset(data + len, 0, kMax - len);
+        length = static_cast<uint8_t>(text.size() < kMax ? text.size() : kMax);
+        std::memcpy(data, text.data(), length);
+        std::memset(data + length, 0, kMax - length);
     }
 
-    Ticker& operator=(std::string_view s)
+    Ticker& operator=(std::string_view text)
     {
-        assign(s);
+        assign(text);
         return *this;
     }
 
     [[nodiscard]] std::string_view view() const
     {
-        return {data, len};
+        return {data, length};
     }
 
     [[nodiscard]] std::string str() const
     {
-        return std::string(data, len);
+        return std::string(data, length);
     }
 
     [[nodiscard]] bool empty() const
     {
-        return len == 0;
+        return length == 0;
     }
 
     [[nodiscard]] size_t size() const
     {
-        return len;
+        return length;
     }
 
     operator std::string_view() const
@@ -79,19 +79,19 @@ struct Ticker
         return view();
     }
 
-    friend bool operator==(const Ticker& a, const Ticker& b)
+    friend bool operator==(const Ticker& ticker_a, const Ticker& ticker_b)
     {
-        return a.len == b.len && std::memcmp(a.data, b.data, a.len) == 0;
+        return ticker_a.length == ticker_b.length && std::memcmp(ticker_a.data, ticker_b.data, ticker_a.length) == 0;
     }
 
-    friend bool operator==(const Ticker& a, std::string_view b)
+    friend bool operator==(const Ticker& ticker, std::string_view begin)
     {
-        return a.view() == b;
+        return ticker.view() == begin;
     }
 
-    friend std::ostream& operator<<(std::ostream& os, const Ticker& t)
+    friend std::ostream& operator<<(std::ostream& os, const Ticker& ticker)
     {
-        return os << t.view();
+        return os << ticker.view();
     }
 };
 
@@ -113,20 +113,20 @@ public:
     {
         {
             std::shared_lock<std::shared_mutex> rl(mu_);
-            auto                                it = ids_.find(ticker);
+            auto                                iterator = ids_.find(ticker);
 
-            if (it != ids_.end())
+            if (iterator != ids_.end())
             {
-                return it->second;
+                return iterator->second;
             }
         }
 
         std::unique_lock<std::shared_mutex> wl(mu_);
-        auto                                it = ids_.find(ticker);
+        auto                                iterator = ids_.find(ticker);
 
-        if (it != ids_.end())
+        if (iterator != ids_.end())
         {
-            return it->second;
+            return iterator->second;
         }
 
         if (names_.size() >= capacity_)
@@ -143,8 +143,8 @@ public:
     [[nodiscard]] SymbolId lookup(std::string_view ticker) const
     {
         std::shared_lock<std::shared_mutex> rl(mu_);
-        auto                                it = ids_.find(ticker);
-        return it == ids_.end() ? kNone : it->second;
+        auto                                iterator = ids_.find(ticker);
+        return iterator == ids_.end() ? kNone : iterator->second;
     }
 
     // 모르는 id면 빈 문자열. 복사해 돌려준다 — 참조를 내주면 재스캔의 벡터 재할당과 경쟁한다.
@@ -171,9 +171,9 @@ private:
     {
         using is_transparent = void;
 
-        size_t operator()(std::string_view s) const noexcept
+        size_t operator()(std::string_view text) const noexcept
         {
-            return std::hash<std::string_view>{}(s);
+            return std::hash<std::string_view>{}(text);
         }
     };
 
@@ -183,4 +183,4 @@ private:
     const size_t                                                   capacity_;
 };
 
-} // namespace sym
+} // namespace symbol

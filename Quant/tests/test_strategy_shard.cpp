@@ -52,87 +52,87 @@ public:
         return id_;
     }
 
-    std::optional<OrderSignal> on_data(const MarketData& md) override
+    std::optional<OrderSignal> on_data(const MarketData& market_data) override
     {
         ++bars;
-        last_bar_sym = md.sym;
+        last_bar_sym = market_data.symbol_id;
         return std::nullopt;
     }
 
-    std::optional<OrderSignal> on_order_book(const OrderBook& ob) override
+    std::optional<OrderSignal> on_order_book(const OrderBook& order_book) override
     {
         ++books;
-        last_book_sym = ob.sym;
+        last_book_sym = order_book.symbol_id;
         return std::nullopt;
     }
 
-    void on_order_book_batch(const OrderBook& ob, std::vector<OrderSignal>& out) override
+    void on_order_book_batch(const OrderBook& order_book, std::vector<OrderSignal>& out) override
     {
         OrderSignal cancel;
         cancel.action = OrderAction::CANCEL;
         cancel.side   = OrderSide::NONE;
-        cancel.ticker = ob.ticker.str();
-        cancel.sym    = ob.sym;
+        cancel.ticker = order_book.ticker.str();
+        cancel.symbol_id    = order_book.symbol_id;
         out.push_back(cancel);
         OrderSignal none;
         none.action = OrderAction::NEW;
         none.side   = OrderSide::NONE;
-        none.ticker = ob.ticker.str();
+        none.ticker = order_book.ticker.str();
         out.push_back(none);
     }
 
-    std::optional<OrderSignal> on_trade(const TradeData& td) override
+    std::optional<OrderSignal> on_trade(const TradeData& trade) override
     {
         ++trades;
-        seen.emplace_back(td.sym, static_cast<uint32_t>(td.acml_volume));
+        seen.emplace_back(trade.symbol_id, static_cast<uint32_t>(trade.accumulated_volume));
 
         if (burn_rounds_ > 0)
         {
             // 전략 계산 흉내 — xorshift 몇 바퀴. 결과를 멤버에 접어 최적화로 사라지지 않게 한다.
-            uint64_t x = (static_cast<uint64_t>(td.sym) * 0x9E3779B97F4A7C15ull) ^ static_cast<uint64_t>(td.acml_volume + 1);
+            uint64_t x_value = (static_cast<uint64_t>(trade.symbol_id) * 0x9E3779B97F4A7C15ull) ^ static_cast<uint64_t>(trade.accumulated_volume + 1);
 
-            for (int i = 0; i < burn_rounds_; ++i)
+            for (int burn_round_index = 0; burn_round_index < burn_rounds_; ++burn_round_index)
             {
-                x ^= x << 13;
-                x ^= x >> 7;
-                x ^= x << 17;
+                x_value ^= x_value << 13;
+                x_value ^= x_value >> 7;
+                x_value ^= x_value << 17;
             }
 
-            acc += x; // xorshift는 GF(2) 선형이라 xor로 접으면 짝수 번 반복이 0이 된다
+            acc += x_value; // xorshift는 GF(2) 선형이라 xor로 접으면 짝수 번 반복이 0이 된다
             return std::nullopt;
         }
 
-        OrderSignal sig;
-        sig.side        = OrderSide::BUY;
-        sig.type        = OrderType::MARKET;
-        sig.quantity    = 1;
-        sig.ticker      = td.ticker.str();
-        sig.strategy_id = id_;
-        sig.sym         = td.sym;
-        return sig;
+        OrderSignal signal;
+        signal.side        = OrderSide::BUY;
+        signal.type        = OrderType::MARKET;
+        signal.quantity    = 1;
+        signal.ticker      = trade.ticker.str();
+        signal.strategy_id = id_;
+        signal.symbol_id         = trade.symbol_id;
+        return signal;
     }
 
     std::vector<WatchSpec> get_watch_specs() const override
     {
-        std::vector<WatchSpec> v;
+        std::vector<WatchSpec> values;
 
-        for (const auto& t : tickers_)
+        for (const auto& ticker : tickers_)
         {
-            WatchSpec w;
-            w.ticker = t;
-            v.push_back(w);
+            WatchSpec spec;
+            spec.ticker = ticker;
+            values.push_back(spec);
         }
 
-        return v;
+        return values;
     }
 
     int                                             bars          = 0;
     int                                             books         = 0;
     int                                             trades        = 0;
-    sym::SymbolId                                   last_bar_sym  = sym::kNone;
-    sym::SymbolId                                   last_book_sym = sym::kNone;
+    symbol::SymbolId                                   last_bar_sym  = symbol::kNone;
+    symbol::SymbolId                                   last_book_sym = symbol::kNone;
     uint64_t                                        acc           = 0;
-    std::vector<std::pair<sym::SymbolId, uint32_t>> seen;
+    std::vector<std::pair<symbol::SymbolId, uint32_t>> seen;
 
 private:
     std::string              id_;
@@ -143,44 +143,44 @@ private:
 // 샤드 스레드가 전부 받을 때까지 도는 헬퍼 — 봉투 수와 마지막 tick_ns를 센다.
 struct Sink
 {
-    std::vector<strat::Emitted> out;
+    std::vector<strategy::Emitted> out;
     int64_t                     last_tick_ns = -1;
 };
 
-TradeData make_td(sym::SymbolId id, const std::string& ticker, uint32_t seq, double px, int64_t recv_ns)
+TradeData make_td(symbol::SymbolId id, const std::string& ticker, uint32_t sequence, double price, int64_t received_ns)
 {
-    TradeData td;
-    td.sym         = id;
-    td.ticker      = sym::Ticker(ticker);
-    td.acml_volume = seq;
-    td.price       = px;
-    td.recv_ns     = recv_ns;
-    return td;
+    TradeData trade;
+    trade.symbol_id         = id;
+    trade.ticker      = symbol::Ticker(ticker);
+    trade.accumulated_volume = sequence;
+    trade.price       = price;
+    trade.received_ns     = received_ns;
+    return trade;
 }
 } // namespace
 
 int main()
 {
-    sym::SymbolTable table;
-    const auto       sym_of = [&](std::string_view t) { return table.intern(t); };
+    symbol::SymbolTable table;
+    const auto       symbol_id_of = [&](std::string_view ticker) { return table.intern(ticker); };
 
     // 1. 두 샤드 — 각자 다른 전략 집합. 구독 전략은 자기 종목이 자기 샤드로 올 때만, 전부 받는 전략은 그 샤드 종목 전부.
-    //  같은 종목의 순서가 지켜지고 봉투는 recv_ns·active·전략 id를 싣고 현재가 콜백은 체결마다 온다.
+    //  같은 종목의 순서가 지켜지고 봉투는 received_ns·active·전략 id를 싣고 현재가 콜백은 체결마다 온다.
     {
-        shard::Matrix<OrderBook>  ob(1, 2, 64);
-        shard::Matrix<TradeData>  td(1, 2, 64);
+        shard::Matrix<OrderBook>  order_book(1, 2, 64);
+        shard::Matrix<TradeData>  trade(1, 2, 64);
         shard::Matrix<MarketData> bars(1, 2, 8);
-        strat::Shard              s0(0, {ob, td, bars});
-        strat::Shard              s1(1, {ob, td, bars});
+        strategy::Shard              s0(0, {order_book, trade, bars});
+        strategy::Shard              s1(1, {order_book, trade, bars});
         CHECK(s0.index() == 0 && s1.index() == 1);
         CHECK(s0.empty() && s1.empty());
 
         std::vector<std::string> names;
-        std::vector<sym::SymbolId> ids;
+        std::vector<symbol::SymbolId> ids;
 
-        for (int i = 0; i < 12; ++i)
+        for (int index = 0; index < 12; ++index)
         {
-            names.push_back("00000" + std::to_string(i));
+            names.push_back("00000" + std::to_string(index));
             ids.push_back(table.intern(names.back()));
         }
 
@@ -188,37 +188,37 @@ int main()
         FakeStrategy a0("A", {names[0], names[1], names[2]}), a1("A", {names[0], names[1], names[2]});
         FakeStrategy all0("ALL", {}), all1("ALL", {});
         all1.set_active(false); // 샤드 1의 ALL은 비활성 — 봉투에 실려야 한다
-        s0.rebuild({&a0, &all0}, 7, sym_of);
-        s1.rebuild({&a1, &all1}, 7, sym_of);
+        s0.rebuild({&a0, &all0}, 7, symbol_id_of);
+        s1.rebuild({&a1, &all1}, 7, symbol_id_of);
         CHECK(s0.seen_version() == 7 && s1.seen_version() == 7);
         CHECK(s0.router().all_count() == 1 && s1.router().all_count() == 1);
 
         // 종목 12개 × 3건. 생산자는 push로 종목 해시 열에 넣는다.
-        for (uint32_t k = 0; k < 3; ++k)
+        for (uint32_t innermost_index = 0; innermost_index < 3; ++innermost_index)
         {
-            for (size_t i = 0; i < ids.size(); ++i)
+            for (size_t ids_index = 0; ids_index < ids.size(); ++ids_index)
             {
-                CHECK(td.push(0, ids[i], make_td(ids[i], names[i], k, 100.0 + static_cast<double>(i), 1000 + k)));
+                CHECK(trade.push(0, ids[ids_index], make_td(ids[ids_index], names[ids_index], innermost_index, 100.0 + static_cast<double>(ids_index), 1000 + innermost_index)));
             }
         }
 
         CHECK(!s0.empty() || !s1.empty());
         Sink                       sink0, sink1;
-        std::vector<sym::SymbolId> priced0, priced1;
-        const auto                 run = [&](strat::Shard& s, Sink& sink, std::vector<sym::SymbolId>& priced)
+        std::vector<symbol::SymbolId> priced0, priced1;
+        const auto                 run = [&](strategy::Shard& shard, Sink& sink, std::vector<symbol::SymbolId>& priced)
         {
-            while (s.step(
-                [&](StrategyBase* st, const OrderSignal& sig, int64_t tick_ns)
+            while (shard.step(
+                [&](StrategyBase* stop_token, const OrderSignal& signal, int64_t tick_ns)
                 {
-                    strat::Emitted e;
-                    e.sig           = sig;
-                    e.sig.t_tick_ns = tick_ns;
-                    e.strategy_id   = st->id();
-                    e.active        = st->is_active();
-                    sink.out.push_back(std::move(e));
+                    strategy::Emitted emitted;
+                    emitted.signal           = signal;
+                    emitted.signal.tick_at_ns = tick_ns;
+                    emitted.strategy_id   = stop_token->id();
+                    emitted.active        = stop_token->is_active();
+                    sink.out.push_back(std::move(emitted));
                     sink.last_tick_ns = tick_ns;
                 },
-                [&](sym::SymbolId id, double) { priced.push_back(id); }, sym_of))
+                [&](symbol::SymbolId id, double) { priced.push_back(id); }, symbol_id_of))
             {
             }
         };
@@ -231,19 +231,19 @@ int main()
         CHECK(priced0.size() + priced1.size() == 36);
         int a_expected0 = 0, a_expected1 = 0;
 
-        for (size_t i = 0; i < 3; ++i)
+        for (size_t index = 0; index < 3; ++index)
         {
-            (shard::shard_of(ids[i], 2) == 0 ? a_expected0 : a_expected1) += 3;
+            (shard::shard_of(ids[index], 2) == 0 ? a_expected0 : a_expected1) += 3;
         }
 
         CHECK(a0.trades == a_expected0 && a1.trades == a_expected1);
 
-        for (const auto& [id, seq] : all0.seen)
+        for (const auto& [id, sequence] : all0.seen)
         {
             CHECK(shard::shard_of(id, 2) == 0);
         }
 
-        for (const auto& [id, seq] : all1.seen)
+        for (const auto& [id, sequence] : all1.seen)
         {
             CHECK(shard::shard_of(id, 2) == 1);
         }
@@ -253,31 +253,31 @@ int main()
             std::vector<uint32_t> seqs;
             const auto            first = all0.seen.front().first;
 
-            for (const auto& [id, seq] : all0.seen)
+            for (const auto& [id, sequence] : all0.seen)
             {
                 if (id == first)
                 {
-                    seqs.push_back(seq);
+                    seqs.push_back(sequence);
                 }
             }
 
             CHECK(seqs.size() == 3 && seqs[0] == 0 && seqs[1] == 1 && seqs[2] == 2);
         }
 
-        // 봉투 — 체결마다 전략마다 BUY 하나. tick_ns는 recv_ns, 샤드 1의 ALL은 active=false.
+        // 봉투 — 체결마다 전략마다 BUY 하나. tick_ns는 received_ns, 샤드 1의 ALL은 active=false.
         CHECK(sink0.out.size() == static_cast<size_t>(a0.trades + all0.trades));
         CHECK(sink1.out.size() == static_cast<size_t>(a1.trades + all1.trades));
         CHECK(sink0.last_tick_ns == 1002 && sink1.last_tick_ns == 1002);
         bool inactive_seen = false, id_ok = true;
 
-        for (const auto& e : sink1.out)
+        for (const auto& emitted : sink1.out)
         {
-            if (e.strategy_id == "ALL")
+            if (emitted.strategy_id == "ALL")
             {
-                inactive_seen = inactive_seen || !e.active;
+                inactive_seen = inactive_seen || !emitted.active;
             }
 
-            id_ok = id_ok && (e.strategy_id == "A" || e.strategy_id == "ALL") && e.sig.side == OrderSide::BUY;
+            id_ok = id_ok && (emitted.strategy_id == "A" || emitted.strategy_id == "ALL") && emitted.signal.side == OrderSide::BUY;
         }
 
         CHECK(inactive_seen && id_ok);
@@ -285,46 +285,46 @@ int main()
     }
 
     // 2. 한 바퀴의 순서 — 호가 전부, 체결 전부, 봉은 하나만. 호가 봉투는 tick_ns 0, 다건 경로의 CANCEL은 통과하고
-    //  NEW+NONE은 걸러진다. id 없는 틱(리플레이·옛 경로)은 sym_of로 채운다.
+    //  NEW+NONE은 걸러진다. id 없는 틱(리플레이·옛 경로)은 symbol_id_of로 채운다.
     {
-        shard::Matrix<OrderBook>  ob(1, 1, 8);
-        shard::Matrix<TradeData>  td(1, 1, 8);
+        shard::Matrix<OrderBook>  order_book(1, 1, 8);
+        shard::Matrix<TradeData>  trade(1, 1, 8);
         shard::Matrix<MarketData> bars(1, 1, 8);
-        strat::Shard              s(0, {ob, td, bars});
+        strategy::Shard              shard(0, {order_book, trade, bars});
         FakeStrategy              all("ALL", {});
-        s.rebuild({&all}, 1, sym_of);
+        shard.rebuild({&all}, 1, symbol_id_of);
         const auto id = table.intern("005930");
 
-        OrderBook b;
-        b.sym     = id;
-        b.ticker  = sym::Ticker("005930");
-        b.recv_ns = 7;
-        CHECK(ob.push(0, id, b));
-        b.recv_ns = 8;
-        CHECK(ob.push(0, id, b));
-        TradeData t = make_td(sym::kNone, "005930", 0, 70000.0, 55);
-        CHECK(td.push_to(0, 0, t));
+        OrderBook other_order_book;
+        other_order_book.symbol_id     = id;
+        other_order_book.ticker  = symbol::Ticker("005930");
+        other_order_book.received_ns = 7;
+        CHECK(order_book.push(0, id, other_order_book));
+        other_order_book.received_ns = 8;
+        CHECK(order_book.push(0, id, other_order_book));
+        TradeData tick = make_td(symbol::kNone, "005930", 0, 70000.0, 55);
+        CHECK(trade.push_to(0, 0, tick));
         MarketData m1, m2;
-        m1.sym = id;
-        m2.sym = id;
+        m1.symbol_id = id;
+        m2.symbol_id = id;
         CHECK(bars.push(0, id, m1));
         CHECK(bars.push(0, id, m2));
 
         std::vector<std::string> order;
         int                      priced = 0;
-        const auto               emit   = [&](StrategyBase*, const OrderSignal& sig, int64_t tick_ns)
+        const auto               emit   = [&](StrategyBase*, const OrderSignal& signal, int64_t tick_ns)
         {
-            order.push_back((sig.action == OrderAction::CANCEL ? "C" : "B") + std::to_string(tick_ns));
+            order.push_back((signal.action == OrderAction::CANCEL ? "C" : "B") + std::to_string(tick_ns));
         };
-        CHECK(s.step(emit, [&](sym::SymbolId got, double px) { priced += (got == id && px == 70000.0) ? 1 : 0; }, sym_of));
-        // 호가 2건 → CANCEL 둘(tick은 호가의 recv_ns 7·8), 체결 1건 → BUY(tick 55), 봉 하나.
+        CHECK(shard.step(emit, [&](symbol::SymbolId got, double price) { priced += (got == id && price == 70000.0) ? 1 : 0; }, symbol_id_of));
+        // 호가 2건 → CANCEL 둘(tick은 호가의 received_ns 7·8), 체결 1건 → BUY(tick 55), 봉 하나.
         CHECK(order.size() == 3 && order[0] == "C7" && order[1] == "C8" && order[2] == "B55");
         CHECK(all.books == 2 && all.trades == 1 && all.bars == 1 && priced == 1);
         CHECK(all.seen.size() == 1 && all.seen[0].first == id); // kNone이 id로 채워졌다
-        CHECK(!s.empty());                                        // 봉 하나 남았다
-        CHECK(s.step(emit, [&](sym::SymbolId, double) {}, sym_of));
-        CHECK(all.bars == 2 && s.empty());
-        CHECK(!s.step(emit, [&](sym::SymbolId, double) {}, sym_of));
+        CHECK(!shard.empty());                                        // 봉 하나 남았다
+        CHECK(shard.step(emit, [&](symbol::SymbolId, double) {}, symbol_id_of));
+        CHECK(all.bars == 2 && shard.empty());
+        CHECK(!shard.step(emit, [&](symbol::SymbolId, double) {}, symbol_id_of));
     }
 
     // 3. 측정(원칙 7) — 전략 계산이 든 틱(종목 240 × 1,000건, 틱당 xorshift 300바퀴)을 샤드 1·2·4가 나눠 받을 때 벽시계.
@@ -334,52 +334,52 @@ int main()
     {
         std::cout << "[측정] hardware_concurrency=" << std::thread::hardware_concurrency() << '\n';
         constexpr uint32_t kSymbols = 240, kPer = 1000, kBurn = 300;
-        std::vector<sym::SymbolId> ids;
+        std::vector<symbol::SymbolId> ids;
 
-        for (uint32_t i = 0; i < kSymbols; ++i)
+        for (uint32_t symbol_index = 0; symbol_index < kSymbols; ++symbol_index)
         {
-            ids.push_back(table.intern("M" + std::to_string(i)));
+            ids.push_back(table.intern("M" + std::to_string(symbol_index)));
         }
 
-        for (uint32_t M : {1u, 2u, 4u})
+        for (uint32_t row_count : {1u, 2u, 4u})
         {
-            shard::Matrix<OrderBook>  ob(1, M, 16);
-            shard::Matrix<TradeData>  td(1, M, 2048);
-            shard::Matrix<MarketData> bars(1, M, 16);
-            std::vector<std::unique_ptr<strat::Shard>>  shards;
+            shard::Matrix<OrderBook>  order_book(1, row_count, 16);
+            shard::Matrix<TradeData>  trade(1, row_count, 2048);
+            shard::Matrix<MarketData> bars(1, row_count, 16);
+            std::vector<std::unique_ptr<strategy::Shard>>  shards;
             std::vector<std::unique_ptr<FakeStrategy>>  strategies;
-            std::vector<uint64_t>                       expected(M, 0);
+            std::vector<uint64_t>                       expected(row_count, 0);
 
-            for (uint32_t i = 0; i < kSymbols; ++i)
+            for (uint32_t symbol_index = 0; symbol_index < kSymbols; ++symbol_index)
             {
-                expected[shard::shard_of(ids[i], M)] += kPer;
+                expected[shard::shard_of(ids[symbol_index], row_count)] += kPer;
             }
 
-            for (uint32_t m = 0; m < M; ++m)
+            for (uint32_t row = 0; row < row_count; ++row)
             {
-                shards.push_back(std::make_unique<strat::Shard>(m, strat::ShardQueues{ob, td, bars}));
+                shards.push_back(std::make_unique<strategy::Shard>(row, strategy::ShardQueues{order_book, trade, bars}));
                 strategies.push_back(std::make_unique<FakeStrategy>("ALL", std::vector<std::string>{}, kBurn));
-                shards.back()->rebuild({strategies.back().get()}, 1, sym_of);
+                shards.back()->rebuild({strategies.back().get()}, 1, symbol_id_of);
             }
 
             std::atomic<bool>        go{false};
             std::vector<std::thread> threads;
 
-            for (uint32_t m = 0; m < M; ++m)
+            for (uint32_t row = 0; row < row_count; ++row)
             {
-                threads.emplace_back([&, m]
+                threads.emplace_back([&, row]
                 {
-                    auto& s  = *shards[m];
-                    auto& st = *strategies[m];
+                    auto& shard  = *shards[row];
+                    auto& stop_token = *strategies[row];
 
                     while (!go.load(std::memory_order_acquire))
                     {
                     }
 
-                    while (static_cast<uint64_t>(st.trades) < expected[m])
+                    while (static_cast<uint64_t>(stop_token.trades) < expected[row])
                     {
-                        if (!s.step([](StrategyBase*, const OrderSignal&, int64_t) {}, [](sym::SymbolId, double) {},
-                                    sym_of))
+                        if (!shard.step([](StrategyBase*, const OrderSignal&, int64_t) {}, [](symbol::SymbolId, double) {},
+                                    symbol_id_of))
                         {
                             std::this_thread::yield();
                         }
@@ -393,13 +393,13 @@ int main()
                 {
                 }
 
-                for (uint32_t k = 0; k < kPer; ++k)
+                for (uint32_t per_index = 0; per_index < kPer; ++per_index)
                 {
-                    for (uint32_t i = 0; i < kSymbols; ++i)
+                    for (uint32_t symbol_index = 0; symbol_index < kSymbols; ++symbol_index)
                     {
-                        const TradeData t = make_td(ids[i], "M", k, 1.0, 0);
+                        const TradeData tick = make_td(ids[symbol_index], "M", per_index, 1.0, 0);
 
-                        while (!td.push(0, ids[i], t))
+                        while (!trade.push(0, ids[symbol_index], tick))
                         {
                             std::this_thread::yield();
                         }
@@ -407,27 +407,27 @@ int main()
                 }
             });
 
-            const auto t0 = std::chrono::steady_clock::now();
+            const auto start_time = std::chrono::steady_clock::now();
             go.store(true, std::memory_order_release);
             producer.join();
 
-            for (auto& t : threads)
+            for (auto& thread : threads)
             {
-                t.join();
+                thread.join();
             }
 
             const auto t1 = std::chrono::steady_clock::now();
             uint64_t   total = 0, acc = 0;
 
-            for (uint32_t m = 0; m < M; ++m)
+            for (uint32_t row = 0; row < row_count; ++row)
             {
-                total += static_cast<uint64_t>(strategies[m]->trades);
-                acc += strategies[m]->acc;
+                total += static_cast<uint64_t>(strategies[row]->trades);
+                acc += strategies[row]->acc;
             }
 
             CHECK(total == static_cast<uint64_t>(kSymbols) * kPer);
-            const double ms = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count()) / 1e3;
-            std::cout << "[측정] 샤드 " << M << "개: 틱 " << total << "건 전체 " << ms << "ms (acc " << (acc & 0xff)
+            const double ms = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(t1 - start_time).count()) / 1e3;
+            std::cout << "[측정] 샤드 " << row_count << "개: 틱 " << total << "건 전체 " << ms << "ms (acc " << (acc & 0xff)
                       << ")\n";
         }
     }
@@ -436,22 +436,22 @@ int main()
     //  열이 갈리거나 구독을 안 밝혔거나 id를 못 받으면 없음(M>1로 띄우면 안 되는 전략).
     {
         std::vector<std::string> same, split;
-        const uint32_t           M   = 4;
-        const auto               m0  = shard::shard_of(table.intern("A00001"), M);
+        const uint32_t           row_count   = 4;
+        const auto               m0  = shard::shard_of(table.intern("A00001"), row_count);
         same.push_back("A00001");
 
-        for (int i = 2; i < 40 && (same.size() < 3 || split.size() < 2); ++i)
+        for (int index = 2; index < 40 && (same.size() < 3 || split.size() < 2); ++index)
         {
-            const std::string t  = "A000" + std::to_string(10 + i);
-            const auto        mm = shard::shard_of(table.intern(t), M);
+            const std::string ticker  = "A000" + std::to_string(10 + index);
+            const auto        mm = shard::shard_of(table.intern(ticker), row_count);
 
             if (mm == m0 && same.size() < 3)
             {
-                same.push_back(t);
+                same.push_back(ticker);
             }
             else if (mm != m0 && split.size() < 2)
             {
-                split.push_back(t);
+                split.push_back(ticker);
             }
         }
 
@@ -460,18 +460,18 @@ int main()
         FakeStrategy three("three", same);
         FakeStrategy spanning("spanning", {same[0], split[0]});
         FakeStrategy all("all", {});
-        const auto   lookup = [&](std::string_view t) { return table.lookup(t); };
+        const auto   lookup = [&](std::string_view ticker) { return table.lookup(ticker); };
 
-        CHECK(strat::owner_shard(one, 1, sym_of) == std::optional<uint32_t>(0u));
-        CHECK(strat::owner_shard(spanning, 1, sym_of) == std::optional<uint32_t>(0u));
-        CHECK(strat::owner_shard(all, 1, sym_of) == std::optional<uint32_t>(0u));
-        CHECK(strat::owner_shard(one, M, sym_of) == std::optional<uint32_t>(m0));
-        CHECK(strat::owner_shard(three, M, sym_of) == std::optional<uint32_t>(m0));
-        CHECK(!strat::owner_shard(spanning, M, sym_of));
-        CHECK(!strat::owner_shard(all, M, sym_of));
+        CHECK(strategy::owner_shard(one, 1, symbol_id_of) == std::optional<uint32_t>(0u));
+        CHECK(strategy::owner_shard(spanning, 1, symbol_id_of) == std::optional<uint32_t>(0u));
+        CHECK(strategy::owner_shard(all, 1, symbol_id_of) == std::optional<uint32_t>(0u));
+        CHECK(strategy::owner_shard(one, row_count, symbol_id_of) == std::optional<uint32_t>(m0));
+        CHECK(strategy::owner_shard(three, row_count, symbol_id_of) == std::optional<uint32_t>(m0));
+        CHECK(!strategy::owner_shard(spanning, row_count, symbol_id_of));
+        CHECK(!strategy::owner_shard(all, row_count, symbol_id_of));
         FakeStrategy unknown("unknown", {"Z99999"});
-        CHECK(!strat::owner_shard(unknown, M, lookup));
-        CHECK(strat::owner_shard(unknown, M, sym_of).has_value());
+        CHECK(!strategy::owner_shard(unknown, row_count, lookup));
+        CHECK(strategy::owner_shard(unknown, row_count, symbol_id_of).has_value());
     }
 
     std::cout << "test_strategy_shard: " << g_checks << " checks passed\n";

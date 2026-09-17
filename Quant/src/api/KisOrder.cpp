@@ -7,27 +7,27 @@
 //  호출부(OrderRouter)가 catch로 막고는 있지만 예외 경로에서는 msg_cd가 비어 EGW00201 적응
 //  재시도가 동작하지 않는다 — 실패를 값으로 돌려줘야 그 경로가 산다.
 // rt_cd≠0 응답의 msg_cd. 비어 있으면 kUnknown — OrderAck 불변식(실패면 err_code 비지 않음)을 지킨다.
-static std::string kis_reject_code(const json& j)
+static std::string kis_reject_code(const json& document)
 {
-    std::string code = j.value("msg_cd", std::string(""));
+    std::string code = document.value("msg_cd", std::string(""));
     return code.empty() ? std::string(kis_err::kUnknown) : code;
 }
 
-static bool kis_parse_order_resp(const std::string& resp, json& j, const char* what)
+static bool kis_parse_order_resp(const std::string& response, json& document, const char* what)
 {
     try
     {
-        j = json::parse(resp);
+        document = json::parse(response);
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        LOG_ERROR(std::string("[KIS] ") + what + " 응답 파싱 실패: " + e.what() + " — " + resp.substr(0, 200));
+        LOG_ERROR(std::string("[KIS] ") + what + " 응답 파싱 실패: " + exception.what() + " — " + response.substr(0, 200));
         return false;
     }
 
-    if (!j.is_object() || !j.contains("rt_cd") || !j["rt_cd"].is_string())
+    if (!document.is_object() || !document.contains("rt_cd") || !document["rt_cd"].is_string())
     {
-        LOG_ERROR(std::string("[KIS] ") + what + " 응답에 rt_cd 없음 — " + resp.substr(0, 200));
+        LOG_ERROR(std::string("[KIS] ") + what + " 응답에 rt_cd 없음 — " + response.substr(0, 200));
         return false;
     }
 
@@ -37,7 +37,7 @@ static bool kis_parse_order_resp(const std::string& resp, json& j, const char* w
 bool KisClient::send_order(const OrderSignal& signal)
 {
     bool is_us = (signal.market == Market::US);
-    std::string tr_id;
+    std::string transaction_id;
     std::string url;
 
     if (is_us)
@@ -45,11 +45,11 @@ bool KisClient::send_order(const OrderSignal& signal)
         // 해외주식 주문: NAS/NYS
         if (signal.side == OrderSide::BUY)
         {
-            tr_id = cfg_.is_paper ? "VTTT1002U" : "TTTT1002U";
+            transaction_id = config_.is_paper ? "VTTT1002U" : "TTTT1002U";
         }
         else
         {
-            tr_id = cfg_.is_paper ? "VTTT1006U" : "TTTT1006U";
+            transaction_id = config_.is_paper ? "VTTT1006U" : "TTTT1006U";
         }
 
         url = base_url() + "/uapi/overseas-stock/v1/trading/order";
@@ -59,11 +59,11 @@ bool KisClient::send_order(const OrderSignal& signal)
         // 국내주식 현금 주문
         if (signal.side == OrderSide::BUY)
         {
-            tr_id = cfg_.is_paper ? "VTTC0802U" : "TTTC0802U";
+            transaction_id = config_.is_paper ? "VTTC0802U" : "TTTC0802U";
         }
         else
         {
-            tr_id = cfg_.is_paper ? "VTTC0801U" : "TTTC0801U";
+            transaction_id = config_.is_paper ? "VTTC0801U" : "TTTC0801U";
         }
 
         url = base_url() + "/uapi/domestic-stock/v1/trading/order-cash";
@@ -73,8 +73,8 @@ bool KisClient::send_order(const OrderSignal& signal)
 
     if (is_us)
     {
-        body = {{"CANO", cfg_.account_no},
-                {"ACNT_PRDT_CD", cfg_.account_type},
+        body = {{"CANO", config_.account_no},
+                {"ACNT_PRDT_CD", config_.account_type},
                 {"OVRS_EXCG_CD", signal.exchange},
                 {"PDNO", signal.ticker},
                 {"ORD_DVSN", "00"}, // 해외주식은 지정가(00)만 낸다. 시장가도 가격 "0"의 00으로 나간다.
@@ -83,32 +83,32 @@ bool KisClient::send_order(const OrderSignal& signal)
     }
     else
     {
-        body = {{"CANO", cfg_.account_no},
-                {"ACNT_PRDT_CD", cfg_.account_type},
+        body = {{"CANO", config_.account_no},
+                {"ACNT_PRDT_CD", config_.account_type},
                 {"PDNO", signal.ticker},
                 {"ORD_DVSN", signal.type == OrderType::MARKET ? "01" : "00"},
                 {"ORD_QTY", std::to_string(signal.quantity)},
                 {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(static_cast<int>(signal.price)) : "0"}};
     }
 
-    std::string resp = http_post(url,
-                                 auth_headers(tr_id, {"Content-Type: application/json"}),
+    std::string response = http_post(url,
+                                 auth_headers(transaction_id, {"Content-Type: application/json"}),
                                  body.dump());
 
-    if (resp.empty())
+    if (response.empty())
     {
         LOG_ERROR("[KIS] 주문 실패: " + signal.ticker);
         return false;
     }
 
-    json j;
+    json document;
 
-    if (!kis_parse_order_resp(resp, j, "send_order"))
+    if (!kis_parse_order_resp(response, document, "send_order"))
     {
         return false;
     }
 
-    bool ok = (j["rt_cd"].get<std::string>() == "0");
+    bool ok = (document["rt_cd"].get<std::string>() == "0");
 
     if (ok)
     {
@@ -117,7 +117,7 @@ bool KisClient::send_order(const OrderSignal& signal)
     }
     else
     {
-        LOG_ERROR("[KIS] 주문 오류: " + j.value("msg1", std::string("")));
+        LOG_ERROR("[KIS] 주문 오류: " + document.value("msg1", std::string("")));
     }
 
     return ok;
@@ -130,18 +130,18 @@ bool KisClient::send_order(const OrderSignal& signal)
 OrderAck KisClient::submit_order_ack(const OrderSignal& signal)
 {
     bool is_us = (signal.market == Market::US);
-    std::string tr_id, url;
+    std::string transaction_id, url;
 
     if (is_us)
     {
-        tr_id = (signal.side == OrderSide::BUY) ? (cfg_.is_paper ? "VTTT1002U" : "TTTT1002U")
-                                                 : (cfg_.is_paper ? "VTTT1006U" : "TTTT1006U");
+        transaction_id = (signal.side == OrderSide::BUY) ? (config_.is_paper ? "VTTT1002U" : "TTTT1002U")
+                                                 : (config_.is_paper ? "VTTT1006U" : "TTTT1006U");
         url = base_url() + "/uapi/overseas-stock/v1/trading/order";
     }
     else
     {
-        tr_id = (signal.side == OrderSide::BUY) ? (cfg_.is_paper ? "VTTC0802U" : "TTTC0802U")
-                                                 : (cfg_.is_paper ? "VTTC0801U" : "TTTC0801U");
+        transaction_id = (signal.side == OrderSide::BUY) ? (config_.is_paper ? "VTTC0802U" : "TTTC0802U")
+                                                 : (config_.is_paper ? "VTTC0801U" : "TTTC0801U");
         url = base_url() + "/uapi/domestic-stock/v1/trading/order-cash";
     }
 
@@ -149,51 +149,51 @@ OrderAck KisClient::submit_order_ack(const OrderSignal& signal)
 
     if (is_us)
     {
-        body = {{"CANO", cfg_.account_no}, {"ACNT_PRDT_CD", cfg_.account_type},
+        body = {{"CANO", config_.account_no}, {"ACNT_PRDT_CD", config_.account_type},
                 {"OVRS_EXCG_CD", signal.exchange}, {"PDNO", signal.ticker},
                 {"ORD_DVSN", "00"}, {"ORD_QTY", std::to_string(signal.quantity)},
                 {"OVRS_ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(signal.price) : "0"}};
     }
     else
     {
-        body = {{"CANO", cfg_.account_no}, {"ACNT_PRDT_CD", cfg_.account_type},
+        body = {{"CANO", config_.account_no}, {"ACNT_PRDT_CD", config_.account_type},
                 {"PDNO", signal.ticker},
                 {"ORD_DVSN", signal.type == OrderType::MARKET ? "01" : "00"},
                 {"ORD_QTY", std::to_string(signal.quantity)},
                 {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(static_cast<int>(signal.price)) : "0"}};
     }
 
-    std::string resp = http_post(url,
-        auth_headers(tr_id, {"Content-Type: application/json"}),
+    std::string response = http_post(url,
+        auth_headers(transaction_id, {"Content-Type: application/json"}),
         body.dump());
 
-    if (resp.empty())
+    if (response.empty())
     {
         LOG_ERROR("[KIS] submit_order_ack 실패: " + signal.ticker);
         return OrderAck::fail(kis_err::kTransport);
     }
 
-    json j;
+    json document;
 
-    if (!kis_parse_order_resp(resp, j, "submit_order_ack"))
+    if (!kis_parse_order_resp(response, document, "submit_order_ack"))
     {
         return OrderAck::fail(kis_err::kTransport);
     }
 
-    if (j["rt_cd"].get<std::string>() != "0")
+    if (document["rt_cd"].get<std::string>() != "0")
     {
-        LOG_ERROR("[KIS] 주문 오류: " + j.value("msg1", std::string("")));
-        return OrderAck::fail(kis_reject_code(j));
+        LOG_ERROR("[KIS] 주문 오류: " + document.value("msg1", std::string("")));
+        return OrderAck::fail(kis_reject_code(document));
     }
 
-    const json& out = jsonx::object_or_empty(j, "output");
+    const json& out = jsonx::object_or_empty(document, "output");
     OrderAck    ack;
-    ack.odno      = out.value("ODNO", "");
-    ack.krx_orgno = out.value("KRX_FWDG_ORD_ORGNO", "");
+    ack.kis_order_no      = out.value("ODNO", "");
+    ack.krx_forwarding_org_no = out.value("KRX_FWDG_ORD_ORGNO", "");
     LOG_INFO("[KIS] 주문 접수: " + signal.ticker +
              (signal.side == OrderSide::BUY ? " BUY " : " SELL ") +
-             std::to_string(signal.quantity) + "주  ODNO=" + ack.odno +
-             " ORGNO=" + ack.krx_orgno);
+             std::to_string(signal.quantity) + "주  ODNO=" + ack.kis_order_no +
+             " ORGNO=" + ack.krx_forwarding_org_no);
     return ack;
 }
 
@@ -202,7 +202,7 @@ OrderAck KisClient::submit_order_ack(const OrderSignal& signal)
 //  KRX_FWDG_ORD_ORGNO(원주문 조직번호)와 ORGN_ODNO(원주문번호)가 필수 입력.
 //  주의: 국내 현금 주문 전용. 해외(overseas) 정정/취소는 별도 tr_id/URL — 미구현(TODO).
 OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& orig_odno,
-                                 const std::string& krx_orgno, int qty, bool all_remaining)
+                                 const std::string& krx_forwarding_org_no, int quantity, bool all_remaining)
 {
 
     if (orig_odno.empty())
@@ -211,52 +211,52 @@ OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& o
         return OrderAck::fail("E_NO_ORIG_ODNO");
     }
 
-    std::string tr_id = cfg_.is_paper ? "VTTC0803U" : "TTTC0803U";
+    std::string transaction_id = config_.is_paper ? "VTTC0803U" : "TTTC0803U";
     std::string url   = base_url() + "/uapi/domestic-stock/v1/trading/order-rvsecncl";
 
-    json body = {{"CANO", cfg_.account_no},
-                 {"ACNT_PRDT_CD", cfg_.account_type},
-                 {"KRX_FWDG_ORD_ORGNO", krx_orgno},              // 원주문 조직번호
+    json body = {{"CANO", config_.account_no},
+                 {"ACNT_PRDT_CD", config_.account_type},
+                 {"KRX_FWDG_ORD_ORGNO", krx_forwarding_org_no},              // 원주문 조직번호
                  {"ORGN_ODNO", orig_odno},                       // 원주문번호
                  {"ORD_DVSN", "00"},                             // 지정가 (취소도 원주문 구분 통상 "00")
                  {"RVSE_CNCL_DVSN_CD", "02"},                    // 02=취소
-                 {"ORD_QTY", std::to_string(qty)},               // 취소 수량 (QTY_ALL_ORD_YN=Y면 무시됨)
+                 {"ORD_QTY", std::to_string(quantity)},               // 취소 수량 (QTY_ALL_ORD_YN=Y면 무시됨)
                  {"ORD_UNPR", "0"},                              // 취소는 단가 0
                  {"QTY_ALL_ORD_YN", all_remaining ? "Y" : "N"}}; // 잔량 전체 취소
 
-    std::string resp = http_post(url,
-        auth_headers(tr_id, {"Content-Type: application/json"}),
+    std::string response = http_post(url,
+        auth_headers(transaction_id, {"Content-Type: application/json"}),
         body.dump());
 
-    if (resp.empty())
+    if (response.empty())
     {
         LOG_ERROR("[KIS] cancel_order 전송 실패: " + ticker + " ODNO=" + orig_odno);
         return OrderAck::fail(kis_err::kTransport);
     }
 
-    json j;
+    json document;
 
-    if (!kis_parse_order_resp(resp, j, "cancel_order"))
+    if (!kis_parse_order_resp(response, document, "cancel_order"))
     {
         return OrderAck::fail(kis_err::kTransport);
     }
 
-    if (j["rt_cd"].get<std::string>() != "0")
+    if (document["rt_cd"].get<std::string>() != "0")
     {
         // 이미 체결/취소된 주문이면 KIS가 거부 → 자가치유(호출부가 reserved 미변경). 로그만.
         LOG_WARN("[KIS] 취소 거부: " + ticker + " ODNO=" + orig_odno + " — " +
-                 j.value("msg1", std::string("")));
-        return OrderAck::fail(kis_reject_code(j));
+                 document.value("msg1", std::string("")));
+        return OrderAck::fail(kis_reject_code(document));
     }
 
-    std::string cancel_odno = jsonx::object_or_empty(j, "output").value("ODNO", "");
+    std::string cancel_order_no = jsonx::object_or_empty(document, "output").value("ODNO", "");
     LOG_INFO("[KIS] 취소 접수: " + ticker + " 원ODNO=" + orig_odno +
-             " 취소ODNO=" + cancel_odno);
-    return OrderAck{cancel_odno, std::string(), std::string()};
+             " 취소ODNO=" + cancel_order_no);
+    return OrderAck{cancel_order_no, std::string(), std::string()};
 }
 
 OrderAck KisClient::revise_order(const std::string& ticker, const std::string& orig_odno,
-                                 const std::string& krx_orgno, int new_qty, double new_price)
+                                 const std::string& krx_forwarding_org_no, int new_qty, double new_price)
 {
 
     if (orig_odno.empty())
@@ -265,12 +265,12 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
         return OrderAck::fail("E_NO_ORIG_ODNO");
     }
 
-    std::string tr_id = cfg_.is_paper ? "VTTC0803U" : "TTTC0803U";
+    std::string transaction_id = config_.is_paper ? "VTTC0803U" : "TTTC0803U";
     std::string url   = base_url() + "/uapi/domestic-stock/v1/trading/order-rvsecncl";
 
-    json body = {{"CANO", cfg_.account_no},
-                 {"ACNT_PRDT_CD", cfg_.account_type},
-                 {"KRX_FWDG_ORD_ORGNO", krx_orgno},
+    json body = {{"CANO", config_.account_no},
+                 {"ACNT_PRDT_CD", config_.account_type},
+                 {"KRX_FWDG_ORD_ORGNO", krx_forwarding_org_no},
                  {"ORGN_ODNO", orig_odno},
                  {"ORD_DVSN", "00"},                              // 지정가
                  {"RVSE_CNCL_DVSN_CD", "01"},                     // 01=정정
@@ -281,35 +281,35 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
                  // 부분수량 정정이 필요해지면 "N"으로 바꾸고 ORD_QTY를 살려야 한다(보류 목록).
                  {"QTY_ALL_ORD_YN", "Y"}};                        // 잔량 전체 정정
 
-    std::string resp = http_post(url,
-        auth_headers(tr_id, {"Content-Type: application/json"}),
+    std::string response = http_post(url,
+        auth_headers(transaction_id, {"Content-Type: application/json"}),
         body.dump());
 
-    if (resp.empty())
+    if (response.empty())
     {
         LOG_ERROR("[KIS] revise_order 전송 실패: " + ticker + " ODNO=" + orig_odno);
         return OrderAck::fail(kis_err::kTransport);
     }
 
-    json j;
+    json document;
 
-    if (!kis_parse_order_resp(resp, j, "revise_order"))
+    if (!kis_parse_order_resp(response, document, "revise_order"))
     {
         return OrderAck::fail(kis_err::kTransport);
     }
 
-    if (j["rt_cd"].get<std::string>() != "0")
+    if (document["rt_cd"].get<std::string>() != "0")
     {
         LOG_WARN("[KIS] 정정 거부: " + ticker + " ODNO=" + orig_odno + " — " +
-                 j.value("msg1", std::string("")));
-        return OrderAck::fail(kis_reject_code(j));
+                 document.value("msg1", std::string("")));
+        return OrderAck::fail(kis_reject_code(document));
     }
 
     // 정정 성공 시 새 ODNO 발급 → 반환 (호출부가 kis_order_no 갱신)
-    std::string new_odno = jsonx::object_or_empty(j, "output").value("ODNO", "");
+    std::string new_order_no = jsonx::object_or_empty(document, "output").value("ODNO", "");
     LOG_INFO("[KIS] 정정 접수: " + ticker + " 원ODNO=" + orig_odno +
-             " 새ODNO=" + new_odno + " @" + std::to_string(static_cast<int>(new_price)));
-    return OrderAck{new_odno, std::string(), std::string()};
+             " 새ODNO=" + new_order_no + " @" + std::to_string(static_cast<int>(new_price)));
+    return OrderAck{new_order_no, std::string(), std::string()};
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -319,20 +319,20 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
 // ═══════════════════════════════════════════════════════════════════════════
 bool KisClient::send_us_order(const OrderSignal& signal)
 {
-    std::string tr_id;
+    std::string transaction_id;
 
     if (signal.side == OrderSide::BUY)
     {
-        tr_id = cfg_.is_paper ? "VTTT1002U" : "TTTT1002U";
+        transaction_id = config_.is_paper ? "VTTT1002U" : "TTTT1002U";
     }
     else
     {
-        tr_id = cfg_.is_paper ? "VTTT1006U" : "TTTT1006U";
+        transaction_id = config_.is_paper ? "VTTT1006U" : "TTTT1006U";
     }
 
     // KIS 해외주식 주문: 시장가 = ORD_DVSN "00", 가격 "0"
-    json body = {{"CANO", cfg_.account_no},
-                 {"ACNT_PRDT_CD", cfg_.account_type},
+    json body = {{"CANO", config_.account_no},
+                 {"ACNT_PRDT_CD", config_.account_type},
                  {"OVRS_EXCG_CD", signal.exchange.empty() ? "NASD" : signal.exchange},
                  {"PDNO", signal.ticker},
                  {"ORD_DVSN", "00"}, // 해외주식은 지정가(00)만 낸다. 시장가도 가격 "0"의 00으로 나간다.
@@ -340,24 +340,24 @@ bool KisClient::send_us_order(const OrderSignal& signal)
                  {"OVRS_ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(signal.price) : "0"}};
 
     std::string url = base_url() + "/uapi/overseas-stock/v1/trading/order";
-    std::string resp = http_post(url,
-                                 auth_headers(tr_id, {"Content-Type: application/json"}),
+    std::string response = http_post(url,
+                                 auth_headers(transaction_id, {"Content-Type: application/json"}),
                                  body.dump());
 
-    if (resp.empty())
+    if (response.empty())
     {
         LOG_ERROR("[KIS-US] 주문 실패: " + signal.ticker);
         return false;
     }
 
-    json j;
+    json document;
 
-    if (!kis_parse_order_resp(resp, j, "send_us_order"))
+    if (!kis_parse_order_resp(response, document, "send_us_order"))
     {
         return false;
     }
 
-    bool ok = (j["rt_cd"].get<std::string>() == "0");
+    bool ok = (document["rt_cd"].get<std::string>() == "0");
 
     if (ok)
     {
@@ -366,7 +366,7 @@ bool KisClient::send_us_order(const OrderSignal& signal)
     }
     else
     {
-        LOG_ERROR("[KIS-US] 주문 오류: " + j.value("msg1", "unknown"));
+        LOG_ERROR("[KIS-US] 주문 오류: " + document.value("msg1", "unknown"));
     }
 
     return ok;

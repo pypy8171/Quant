@@ -41,11 +41,11 @@ std::vector<std::string> generate_tickers()
     std::vector<std::string> tickers;
     tickers.reserve(TICKER_COUNT);
 
-    for (size_t i = 0; i < TICKER_COUNT; ++i)
+    for (size_t ticker_index = 0; ticker_index < TICKER_COUNT; ++ticker_index)
     {
-        char buf[8];
-        std::snprintf(buf, sizeof(buf), "%06zu", i);
-        tickers.emplace_back(buf);
+        char buffer[8];
+        std::snprintf(buffer, sizeof(buffer), "%06zu", ticker_index);
+        tickers.emplace_back(buffer);
     }
 
     return tickers;
@@ -67,12 +67,12 @@ int main()
     std::mt19937 rng(42); // 시드 고정
     std::uniform_int_distribution<size_t> dist(0, TICKER_COUNT - 1);
 
-    for (size_t i = 0; i < ITERATIONS; ++i)
+    for (size_t iteration_index = 0; iteration_index < ITERATIONS; ++iteration_index)
     {
-        size_t idx = dist(rng);
-        input_stream_str.push_back(tickers[idx]);
-        input_stream_numeric.push_back(std::stoul(tickers[idx]));
-        input_stream_id.push_back(static_cast<uint32_t>(idx));
+        size_t index = dist(rng);
+        input_stream_str.push_back(tickers[index]);
+        input_stream_numeric.push_back(std::stoul(tickers[index]));
+        input_stream_id.push_back(static_cast<uint32_t>(index));
     }
 
     std::cout << "=== HFT Ticker Lookup Benchmark (" << ITERATIONS << " lookups) ===\n\n";
@@ -83,18 +83,18 @@ int main()
     {
         std::map<std::string, MarketData> ticker_map;
 
-        for (const auto& t : tickers)
+        for (const auto& ticker : tickers)
         {
-            ticker_map[t] = MarketData{1000, 100};
+            ticker_map[ticker] = MarketData{1000, 100};
         }
 
         auto start = std::chrono::high_resolution_clock::now();
         uint64_t checksum = 0;
 
-        for (size_t i = 0; i < ITERATIONS; ++i)
+        for (size_t iteration_index = 0; iteration_index < ITERATIONS; ++iteration_index)
         {
             // Hot-Path: 문자열로 트리 탐색 후 데이터 접근
-            const auto& data = ticker_map[input_stream_str[i]];
+            const auto& data = ticker_map[input_stream_str[iteration_index]];
             checksum += data.price;
         }
 
@@ -110,18 +110,18 @@ int main()
     {
         std::unordered_map<std::string, MarketData> ticker_unmap;
 
-        for (const auto& t : tickers)
+        for (const auto& ticker : tickers)
         {
-            ticker_unmap[t] = MarketData{1000, 100};
+            ticker_unmap[ticker] = MarketData{1000, 100};
         }
 
         auto start = std::chrono::high_resolution_clock::now();
         uint64_t checksum = 0;
 
-        for (size_t i = 0; i < ITERATIONS; ++i)
+        for (size_t iteration_index = 0; iteration_index < ITERATIONS; ++iteration_index)
         {
             // Hot-Path: 문자열 해시 연산 후 버킷 탐색
-            const auto& data = ticker_unmap[input_stream_str[i]];
+            const auto& data = ticker_unmap[input_stream_str[iteration_index]];
             checksum += data.price;
         }
 
@@ -142,10 +142,10 @@ int main()
         auto start = std::chrono::high_resolution_clock::now();
         uint64_t checksum = 0;
 
-        for (size_t i = 0; i < ITERATIONS; ++i)
+        for (size_t iteration_index = 0; iteration_index < ITERATIONS; ++iteration_index)
         {
             // Hot-Path: 문자열 배제, 정수 ID로 다이렉트 주소 이동 (O(1))
-            const auto& data = flat_array[input_stream_id[i]];
+            const auto& data = flat_array[input_stream_id[iteration_index]];
             checksum += data.price;
         }
 
@@ -167,10 +167,10 @@ int main()
         auto start = std::chrono::high_resolution_clock::now();
         uint64_t checksum = 0;
 
-        for (size_t i = 0; i < ITERATIONS; ++i)
+        for (size_t iteration_index = 0; iteration_index < ITERATIONS; ++iteration_index)
         {
             // Hot-Path: 문자열 배제, 정수 ID로 다이렉트 주소 이동 (O(1))
-            const auto& data = vec[input_stream_id[i]];
+            const auto& data = vec[input_stream_id[iteration_index]];
             checksum += data.price;
         }
 

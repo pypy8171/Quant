@@ -25,7 +25,7 @@ class WsSocket; // 플랫폼 소켓(Quant/src/api/WsSocket.h). 이 헤더는 플
 //  미국      HDFSCNT0 → TradeData(US)  (KIS는 미국 호가 미제공)
 //
 // 사용법:
-//   KisWebSocket ws(cfg);
+//   KisWebSocket ws(config);
 //   ws.set_callbacks(on_ob, on_trade);
 //   ws.connect(specs);   // WatchSpec 리스트로 KR/US 혼합 구독
 //   ws.disconnect();
@@ -36,7 +36,7 @@ class WsSocket; // 플랫폼 소켓(Quant/src/api/WsSocket.h). 이 헤더는 플
 class KisWebSocket final : public feed::IFeedSource
 {
 public:
-    explicit KisWebSocket(const KisConfig& cfg);
+    explicit KisWebSocket(const KisConfig& config);
     ~KisWebSocket() override;
     // 스레드·뮤텍스를 소유한다 — 복사는 원본과 사본이 같은 자원을 두 번 닫는 길이라 막는다.
     KisWebSocket(const KisWebSocket&)            = delete;
@@ -94,9 +94,9 @@ private:
     }
 
     bool get_approval_key();
-    void send_text(const std::string& msg);
-    void send_subscribe(const std::string& tr_id, const std::string& tr_key);
-    // specs_ 전체를 순회하며 채널을 구독한다(최초 연결·재연결 공통). 거래ID(tr_id) 하드코딩
+    void send_text(const std::string& message);
+    void send_subscribe(const std::string& transaction_id, const std::string& tr_key);
+    // specs_ 전체를 순회하며 채널을 구독한다(최초 연결·재연결 공통). 거래ID(transaction_id) 하드코딩
     // 블록이 네 곳(플랫폼×최초/재연결)에 중복돼 있던 것을 한 곳으로 모은다.
     // 재연결 시 선물 채널이 빠지는 불일치를 막는다.
     void subscribe_all();
@@ -108,28 +108,28 @@ private:
     static constexpr int kMaxWsSubs = 40;
     // 현재 세션이 사용 중인 구독 슬롯 수(subscribe_all이 리셋, 증분 구독이 증가).
     std::atomic<int> sub_used_{0};
-    void recv_loop(std::stop_token st);
-    void parse_message(const std::string& msg);
-    // 레코드 한 건을 tr_id에 맞는 파서로 보낸다(단건·다건 프레임이 공유).
-    void dispatch_record(std::string_view tr_id, kis_ws::Fields f);
+    void recv_loop(std::stop_token stop_token);
+    void parse_message(const std::string& message);
+    // 레코드 한 건을 transaction_id에 맞는 파서로 보낸다(단건·다건 프레임이 공유).
+    void dispatch_record(std::string_view transaction_id, kis_ws::Fields fields);
     // 채널별 파서가 요구하는 최소 필드 수(각 parse_*의 가드와 같은 값). 모르는 채널은 0.
-    static size_t min_fields_for(std::string_view tr_id) noexcept;
+    static size_t min_fields_for(std::string_view transaction_id) noexcept;
     // 프레임 분해 뷰 벡터. 수신 스레드만 만지고 용량을 재사용해 정상 상태에서 할당이 없다. [why D-042]
     std::vector<std::string_view> parts_;
     std::vector<std::string_view> fields_;
     // 다건 프레임을 자르지 못해 1건만 처리했을 때의 경고 횟수. 수신 스레드만 만진다.
     int multi_rec_warned_ = 0;
-    void parse_orderbook(kis_ws::Fields f);
-    void parse_kr_trade(kis_ws::Fields f);
-    void parse_us_trade(kis_ws::Fields f);
-    void parse_fut_trade(kis_ws::Fields f);     // H0IFCNT0 선물 체결
-    void parse_fut_orderbook(kis_ws::Fields f); // H0IFASP0 선물 호가
-    void parse_fill_notification(kis_ws::Fields f);
+    void parse_orderbook(kis_ws::Fields fields);
+    void parse_kr_trade(kis_ws::Fields fields);
+    void parse_us_trade(kis_ws::Fields fields);
+    void parse_fut_trade(kis_ws::Fields fields);     // H0IFCNT0 선물 체결
+    void parse_fut_orderbook(kis_ws::Fields fields); // H0IFASP0 선물 호가
+    void parse_fill_notification(kis_ws::Fields fields);
 
     // 체결통보(H0STCNI) 복호화 — base64는 여기, AES-256-CBC는 플랫폼별(ws_platform::aes_cbc_decrypt)
     static std::string base64_decode(const std::string& in);
 
-    KisConfig cfg_;
+    KisConfig config_;
     std::string approval_key_; // KIS 실시간 WS 접속 승인키 (REST로 발급, 세션 내 재사용)
     std::string aes_key_; // 체결통보 복호화 키 (구독 응답에서 획득)
     std::string aes_iv_;  // 체결통보 복호화 IV

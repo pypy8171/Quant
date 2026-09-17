@@ -42,7 +42,7 @@ public:
     {
         lanes_.reserve(sources_.size());
 
-        for (size_t i = 0; i < sources_.size(); ++i)
+        for (size_t source_index = 0; source_index < sources_.size(); ++source_index)
         {
             lanes_.push_back(std::make_unique<Lane>(ring_capacity));
         }
@@ -69,11 +69,11 @@ public:
         lane_trade_ = std::move(on_trade);
         lane_mode_  = true;
 
-        for (size_t i = 0; i < sources_.size(); ++i)
+        for (size_t source_index = 0; source_index < sources_.size(); ++source_index)
         {
-            const uint32_t lane = static_cast<uint32_t>(i);
-            sources_[i]->set_callbacks([this, lane](const OrderBook& ob) { lane_ob_(lane, ob); },
-                                       [this, lane](const TradeData& td) { lane_trade_(lane, td); });
+            const uint32_t lane = static_cast<uint32_t>(source_index);
+            sources_[source_index]->set_callbacks([this, lane](const OrderBook& order_book) { lane_ob_(lane, order_book); },
+                                       [this, lane](const TradeData& trade) { lane_trade_(lane, trade); });
         }
     }
 
@@ -84,16 +84,16 @@ public:
         on_trade_  = std::move(on_trade);
         lane_mode_ = false;
 
-        for (size_t i = 0; i < sources_.size(); ++i)
+        for (size_t source_index = 0; source_index < sources_.size(); ++source_index)
         {
-            Lane* lane = lanes_[i].get();
-            sources_[i]->set_callbacks([this, lane](const OrderBook& ob) { enqueue(*lane, Event{ob}); },
-                                       [this, lane](const TradeData& td) { enqueue(*lane, Event{td}); });
+            Lane* lane = lanes_[source_index].get();
+            sources_[source_index]->set_callbacks([this, lane](const OrderBook& order_book) { enqueue(*lane, Event{order_book}); },
+                                       [this, lane](const TradeData& trade) { enqueue(*lane, Event{trade}); });
         }
 
         if (!mux_thread_.joinable())
         {
-            mux_thread_ = std::jthread([this](std::stop_token st) { mux_loop(st); });
+            mux_thread_ = std::jthread([this](std::stop_token stop_token) { mux_loop(stop_token); });
         }
     }
 
@@ -106,15 +106,15 @@ public:
             // 모드는 부르는 시점에 본다 — set_callbacks/set_lane_callbacks와 등록 순서에 매이지 않게.
             Lane* lane = lanes_[0].get();
             sources_[0]->set_fill_callback(
-                [this, lane](const FillNotification& fn)
+                [this, lane](const FillNotification& fill_notification)
                 {
                     if (lane_mode_)
                     {
-                        on_fill_(fn);
+                        on_fill_(fill_notification);
                         return;
                     }
 
-                    enqueue(*lane, Event{fn});
+                    enqueue(*lane, Event{fill_notification});
                 });
         }
     }
@@ -130,35 +130,35 @@ public:
 
         std::vector<std::vector<WatchSpec>> per_source(sources_.size());
         {
-            std::lock_guard<std::mutex> lk(assign_mtx_);
+            std::lock_guard<std::mutex> lock(assign_mtx_);
             size_t                      next = 0;
 
-            for (const auto& s : specs)
+            for (const auto& spec : specs)
             {
-                const auto it = assign_.find(key(s));
-                size_t     idx;
+                const auto iterator = assign_.find(key(spec));
+                size_t     index;
 
-                if (it != assign_.end())
+                if (iterator != assign_.end())
                 {
-                    idx = it->second;
+                    index = iterator->second;
                 }
                 else
                 {
-                    idx = next++ % sources_.size();
-                    assign_.emplace(key(s), idx);
+                    index = next++ % sources_.size();
+                    assign_.emplace(key(spec), index);
                 }
 
-                per_source[idx].push_back(s);
+                per_source[index].push_back(spec);
             }
         }
 
-        for (size_t i = 0; i < sources_.size(); ++i)
+        for (size_t source_index = 0; source_index < sources_.size(); ++source_index)
         {
-            if (!sources_[i]->connect(per_source[i]))
+            if (!sources_[source_index]->connect(per_source[source_index]))
             {
-                for (size_t j = 0; j < i; ++j)
+                for (size_t inner_index = 0; inner_index < source_index; ++inner_index)
                 {
-                    sources_[j]->disconnect();
+                    sources_[inner_index]->disconnect();
                 }
 
                 return false;
@@ -170,36 +170,36 @@ public:
 
     void disconnect() override
     {
-        for (auto& s : sources_)
+        for (auto& source : sources_)
         {
-            s->disconnect();
+            source->disconnect();
         }
     }
 
     // 새 종목은 배정 수가 가장 적은 소스로. 상한에 걸려 그 소스 목록에서도 빠지면 배정을 지워 has_spec이 false가 된다.
     bool subscribe_incremental(const WatchSpec& spec) override
     {
-        size_t idx;
+        size_t index;
         {
-            std::lock_guard<std::mutex> lk(assign_mtx_);
-            const auto                  it = assign_.find(key(spec));
+            std::lock_guard<std::mutex> lock(assign_mtx_);
+            const auto                  iterator = assign_.find(key(spec));
 
-            if (it != assign_.end())
+            if (iterator != assign_.end())
             {
-                idx = it->second;
+                index = iterator->second;
             }
             else
             {
-                idx = least_loaded_locked();
-                assign_.emplace(key(spec), idx);
+                index = least_loaded_locked();
+                assign_.emplace(key(spec), index);
             }
         }
 
-        const bool sent = sources_[idx]->subscribe_incremental(spec);
+        const bool sent = sources_[index]->subscribe_incremental(spec);
 
-        if (!sent && !sources_[idx]->has_spec(spec))
+        if (!sent && !sources_[index]->has_spec(spec))
         {
-            std::lock_guard<std::mutex> lk(assign_mtx_);
+            std::lock_guard<std::mutex> lock(assign_mtx_);
             assign_.erase(key(spec));
         }
 
@@ -208,37 +208,37 @@ public:
 
     bool has_spec(const WatchSpec& spec) const override
     {
-        std::optional<size_t> idx;
+        std::optional<size_t> index;
         {
-            std::lock_guard<std::mutex> lk(assign_mtx_);
-            const auto                  it = assign_.find(key(spec));
+            std::lock_guard<std::mutex> lock(assign_mtx_);
+            const auto                  iterator = assign_.find(key(spec));
 
-            if (it != assign_.end())
+            if (iterator != assign_.end())
             {
-                idx = it->second;
+                index = iterator->second;
             }
         }
 
-        return idx && sources_[*idx]->has_spec(spec);
+        return index && sources_[*index]->has_spec(spec);
     }
 
     std::vector<WatchSpec> take_overflow_specs() override
     {
         std::vector<WatchSpec> out;
 
-        for (auto& s : sources_)
+        for (auto& source : sources_)
         {
-            auto part = s->take_overflow_specs();
+            auto part = source->take_overflow_specs();
             out.insert(out.end(), part.begin(), part.end());
         }
 
         if (!out.empty())
         {
-            std::lock_guard<std::mutex> lk(assign_mtx_);
+            std::lock_guard<std::mutex> lock(assign_mtx_);
 
-            for (const auto& s : out)
+            for (const auto& out_event : out)
             {
-                assign_.erase(key(s));
+                assign_.erase(key(out_event));
             }
         }
 
@@ -247,9 +247,9 @@ public:
 
     bool is_connected() const override
     {
-        for (const auto& s : sources_)
+        for (const auto& source : sources_)
         {
-            if (s->is_connected())
+            if (source->is_connected())
             {
                 return true;
             }
@@ -261,9 +261,9 @@ public:
     // 소스 하나라도 끊겼거나 멈췄으면 stale — 어느 것인지는 reconnect_stale이 다시 가려 그것만 잇는다.
     bool is_stale(int threshold_sec) const override
     {
-        for (const auto& s : sources_)
+        for (const auto& source : sources_)
         {
-            if (!s->is_connected() || s->is_stale(threshold_sec))
+            if (!source->is_connected() || source->is_stale(threshold_sec))
             {
                 return true;
             }
@@ -280,11 +280,11 @@ public:
         std::vector<bool> dead(sources_.size(), false);
         size_t            dead_n = 0;
 
-        for (size_t i = 0; i < sources_.size(); ++i)
+        for (size_t source_index = 0; source_index < sources_.size(); ++source_index)
         {
-            if (!sources_[i]->is_connected() || sources_[i]->is_stale(threshold_sec))
+            if (!sources_[source_index]->is_connected() || sources_[source_index]->is_stale(threshold_sec))
             {
-                dead[i] = true;
+                dead[source_index] = true;
                 ++dead_n;
             }
         }
@@ -297,48 +297,48 @@ public:
 
         std::vector<std::vector<WatchSpec>> per_source(sources_.size());
         {
-            std::lock_guard<std::mutex> lk(assign_mtx_);
+            std::lock_guard<std::mutex> lock(assign_mtx_);
             size_t                      next = 0;
 
-            for (const auto& s : specs)
+            for (const auto& spec : specs)
             {
-                const auto it = assign_.find(key(s));
-                size_t     idx;
+                const auto iterator = assign_.find(key(spec));
+                size_t     index;
 
-                if (it != assign_.end())
+                if (iterator != assign_.end())
                 {
-                    idx = it->second;
+                    index = iterator->second;
                 }
                 else
                 {
-                    idx = next++ % sources_.size();
+                    index = next++ % sources_.size();
 
-                    while (!dead[idx])
+                    while (!dead[index])
                     {
-                        idx = (idx + 1) % sources_.size();
+                        index = (index + 1) % sources_.size();
                     }
 
-                    assign_.emplace(key(s), idx);
+                    assign_.emplace(key(spec), index);
                 }
 
-                if (dead[idx])
+                if (dead[index])
                 {
-                    per_source[idx].push_back(s);
+                    per_source[index].push_back(spec);
                 }
             }
         }
 
         bool ok = true;
 
-        for (size_t i = 0; i < sources_.size(); ++i)
+        for (size_t source_index = 0; source_index < sources_.size(); ++source_index)
         {
-            if (!dead[i])
+            if (!dead[source_index])
             {
                 continue;
             }
 
-            sources_[i]->disconnect();
-            ok = sources_[i]->connect(per_source[i]) && ok;
+            sources_[source_index]->disconnect();
+            ok = sources_[source_index]->connect(per_source[source_index]) && ok;
         }
 
         return ok;
@@ -363,22 +363,22 @@ public:
     // 종목이 어느 소스에 배정됐는지. 없으면 nullopt. 테스트·진단용.
     [[nodiscard]] std::optional<size_t> source_of(const WatchSpec& spec) const
     {
-        std::lock_guard<std::mutex> lk(assign_mtx_);
-        const auto                  it = assign_.find(key(spec));
-        return it == assign_.end() ? std::nullopt : std::optional<size_t>(it->second);
+        std::lock_guard<std::mutex> lock(assign_mtx_);
+        const auto                  iterator = assign_.find(key(spec));
+        return iterator == assign_.end() ? std::nullopt : std::optional<size_t>(iterator->second);
     }
 
 private:
     struct Lane
     {
-        explicit Lane(size_t cap) : ring(cap) {}
+        explicit Lane(size_t capture) : ring(capture) {}
 
         RingBuffer<Event> ring;
     };
 
-    static std::string key(const WatchSpec& s)
+    static std::string key(const WatchSpec& spec)
     {
-        return s.is_future ? s.ticker + "/F" : s.ticker;
+        return spec.is_future ? spec.ticker + "/F" : spec.ticker;
     }
 
     // 수신 스레드에서. 링이 차면 버린다 — 여기서 기다리면 그 소켓의 전 종목이 밀린다.
@@ -397,18 +397,18 @@ private:
     {
         std::vector<size_t> load(sources_.size(), 0);
 
-        for (const auto& [k, idx] : assign_)
+        for (const auto& [assignment, index] : assign_)
         {
-            ++load[idx];
+            ++load[index];
         }
 
         size_t best = 0;
 
-        for (size_t i = 1; i < load.size(); ++i)
+        for (size_t load_index = 1; load_index < load.size(); ++load_index)
         {
-            if (load[i] < load[best])
+            if (load[load_index] < load[best])
             {
-                best = i;
+                best = load_index;
             }
         }
 
@@ -417,9 +417,9 @@ private:
 
     bool all_empty() const
     {
-        for (const auto& l : lanes_)
+        for (const auto& lane : lanes_)
         {
-            if (!l->ring.empty())
+            if (!lane->ring.empty())
             {
                 return false;
             }
@@ -429,19 +429,19 @@ private:
     }
 
     // 링을 돌아가며 비운다. 한 링당 한 바퀴에 kBurst개까지만 — 한 소켓이 바쁘다고 다른 소켓 종목이 굶지 않게.
-    void mux_loop(std::stop_token st)
+    void mux_loop(std::stop_token stop_token)
     {
         static constexpr size_t kBurst = 256;
 
-        while (!st.stop_requested())
+        while (!stop_token.stop_requested())
         {
             bool any = false;
 
-            for (auto& l : lanes_)
+            for (auto& lane : lanes_)
             {
-                for (size_t n = 0; n < kBurst; ++n)
+                for (size_t burst_index = 0; burst_index < kBurst; ++burst_index)
                 {
-                    auto ev = l->ring.pop();
+                    auto ev = lane->ring.pop();
 
                     if (!ev)
                     {
@@ -455,32 +455,32 @@ private:
 
             if (!any)
             {
-                wake_.wait_for(std::chrono::milliseconds(5), st, [this] { return all_empty(); });
+                wake_.wait_for(std::chrono::milliseconds(5), stop_token, [this] { return all_empty(); });
             }
         }
     }
 
     void dispatch(Event& ev)
     {
-        if (auto* td = std::get_if<TradeData>(&ev))
+        if (auto* trade = std::get_if<TradeData>(&ev))
         {
             if (on_trade_)
             {
-                on_trade_(*td);
+                on_trade_(*trade);
             }
         }
-        else if (auto* ob = std::get_if<OrderBook>(&ev))
+        else if (auto* order_book = std::get_if<OrderBook>(&ev))
         {
             if (on_ob_)
             {
-                on_ob_(*ob);
+                on_ob_(*order_book);
             }
         }
-        else if (auto* fn = std::get_if<FillNotification>(&ev))
+        else if (auto* fill_notification = std::get_if<FillNotification>(&ev))
         {
             if (on_fill_)
             {
-                on_fill_(*fn);
+                on_fill_(*fill_notification);
             }
         }
     }

@@ -134,9 +134,9 @@ public:
         // 틱 경로는 id로만 본다 — 후보 문자열은 구독 스펙·로그용으로 남긴다.
         pending_.clear();
 
-        for (const auto& tk : candidates_)
+        for (const auto& ticker : candidates_)
         {
-            pending_.insert(symbol_of(tk));
+            pending_.insert(symbol_of(ticker));
         }
     }
 
@@ -145,13 +145,13 @@ public:
     {
         std::vector<WatchSpec> specs;
 
-        for (const auto& tk : candidates_)
+        for (const auto& ticker : candidates_)
         {
-            WatchSpec s;
-            s.ticker = tk;
-            s.market = market_;
-            s.exchange = exchange_;
-            specs.push_back(s);
+            WatchSpec spec;
+            spec.ticker = ticker;
+            spec.market = market_;
+            spec.exchange = exchange_;
+            specs.push_back(spec);
         }
 
         return specs;
@@ -164,26 +164,26 @@ public:
     }
 
     // ── 호가 이벤트 (국내 전용) ───────────────────────────────────────────
-    std::optional<OrderSignal> on_order_book(const OrderBook& ob) override
+    std::optional<OrderSignal> on_order_book(const OrderBook& order_book) override
     {
         if (market_ != Market::KR)
         {
             return std::nullopt;
         }
 
-        double px = ob.asks[0].price > 0 ? ob.asks[0].price : ob.bids[0].price;
-        return check_entry_exit(ob.sym, ob.ticker, ob.hhmmss, px);
+        double price = order_book.asks[0].price > 0 ? order_book.asks[0].price : order_book.bids[0].price;
+        return check_entry_exit(order_book.symbol_id, order_book.ticker, order_book.hhmmss, price);
     }
 
     // ── 체결 이벤트 (미국 + 국내) ─────────────────────────────────────────
-    std::optional<OrderSignal> on_trade(const TradeData& td) override
+    std::optional<OrderSignal> on_trade(const TradeData& trade) override
     {
-        if (td.market != market_)
+        if (trade.market != market_)
         {
             return std::nullopt;
         }
 
-        return check_entry_exit(td.sym, td.ticker, td.hhmmss, td.price);
+        return check_entry_exit(trade.symbol_id, trade.ticker, trade.hhmmss, trade.price);
     }
 
     void on_stop() override
@@ -194,7 +194,7 @@ public:
 
 private:
     // 진입·청산 공통 로직
-    std::optional<OrderSignal> check_entry_exit(sym::SymbolId sym, std::string_view ticker, int32_t hhmmss,
+    std::optional<OrderSignal> check_entry_exit(symbol::SymbolId symbol_id, std::string_view ticker, int32_t hhmmss,
                                                 double ref_px)
     {
         int hhmm = hhmmss / 100;
@@ -204,53 +204,53 @@ private:
             return std::nullopt;
         }
 
-        if (sym == sym::kNone)
+        if (symbol_id == symbol::kNone)
         {
-            sym = symbol_of(ticker); // id 없이 온 틱(옛 경로) — 찍힌 게 정상이라 여기는 드물다
+            symbol_id = symbol_of(ticker); // id 없이 온 틱(옛 경로) — 찍힌 게 정상이라 여기는 드물다
         }
 
         // 진입: 후보이고 아직 매수 안 했으면 (국면 게이트 적용)
-        if (is_active() && pending_.count(sym) && !buy_sent_.count(sym))
+        if (is_active() && pending_.count(symbol_id) && !buy_sent_.count(symbol_id))
         {
-            buy_sent_.insert(sym);
-            pending_.erase(sym);
+            buy_sent_.insert(symbol_id);
+            pending_.erase(symbol_id);
             candidates_.erase(std::string(ticker));
 
-            OrderSignal sig;
-            sig.ticker = ticker;
-            sig.sym = sym;
-            sig.side = OrderSide::BUY;
-            sig.type = OrderType::MARKET;
-            sig.quantity = quantity_;
-            sig.ref_price = ref_px;  // 시장가 명목 백스톱 기준가(현재가/체결가)
-            sig.market = market_;
-            sig.exchange = exchange_;
-            sig.strategy_id = id();
-            sig.timestamp = std::chrono::system_clock::now();
+            OrderSignal signal;
+            signal.ticker = ticker;
+            signal.symbol_id = symbol_id;
+            signal.side = OrderSide::BUY;
+            signal.type = OrderType::MARKET;
+            signal.quantity = quantity_;
+            signal.ref_price = ref_px;  // 시장가 명목 백스톱 기준가(현재가/체결가)
+            signal.market = market_;
+            signal.exchange = exchange_;
+            signal.strategy_id = id();
+            signal.timestamp = std::chrono::system_clock::now();
 
             LOG_INFO("[ValueContrary] BUY: " + std::string(ticker) + " @" + krx::hhmmss_str(hhmmss));
-            return sig;
+            return signal;
         }
 
         // 청산: 매수 보냈고, 청산 안 했고, 청산 시각 도달
-        if (buy_sent_.count(sym) && !sell_sent_.count(sym) && hhmm >= eod_exit_hhmm_)
+        if (buy_sent_.count(symbol_id) && !sell_sent_.count(symbol_id) && hhmm >= eod_exit_hhmm_)
         {
-            sell_sent_.insert(sym);
+            sell_sent_.insert(symbol_id);
 
-            OrderSignal sig;
-            sig.ticker = ticker;
-            sig.sym = sym;
-            sig.side = OrderSide::SELL;
-            sig.type = OrderType::MARKET;
-            sig.quantity = quantity_;
-            sig.ref_price = ref_px;  // 시장가 명목 백스톱 기준가(현재가/체결가)
-            sig.market = market_;
-            sig.exchange = exchange_;
-            sig.strategy_id = id();
-            sig.timestamp = std::chrono::system_clock::now();
+            OrderSignal signal;
+            signal.ticker = ticker;
+            signal.symbol_id = symbol_id;
+            signal.side = OrderSide::SELL;
+            signal.type = OrderType::MARKET;
+            signal.quantity = quantity_;
+            signal.ref_price = ref_px;  // 시장가 명목 백스톱 기준가(현재가/체결가)
+            signal.market = market_;
+            signal.exchange = exchange_;
+            signal.strategy_id = id();
+            signal.timestamp = std::chrono::system_clock::now();
 
             LOG_INFO("[ValueContrary] SELL(장 마감): " + std::string(ticker) + " @" + krx::hhmmss_str(hhmmss));
-            return sig;
+            return signal;
         }
 
         return std::nullopt;
@@ -275,7 +275,7 @@ private:
     int eod_exit_hhmm_;
 
     std::unordered_set<std::string>   candidates_; // 문자열 — 구독 스펙·로그. 틱 경로는 아래 id 집합만 본다
-    std::unordered_set<sym::SymbolId> pending_;    // 매수 대기 후보 id
-    std::unordered_set<sym::SymbolId> buy_sent_;
-    std::unordered_set<sym::SymbolId> sell_sent_;
+    std::unordered_set<symbol::SymbolId> pending_;    // 매수 대기 후보 id
+    std::unordered_set<symbol::SymbolId> buy_sent_;
+    std::unordered_set<symbol::SymbolId> sell_sent_;
 };

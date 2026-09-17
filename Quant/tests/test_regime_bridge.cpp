@@ -28,40 +28,40 @@ int g_checks = 0;
 
 Observation fresh(bool valid, bool halt, bool liq, std::optional<double> scale = std::nullopt)
 {
-    Observation o;
-    o.state                = FileState::kFresh;
-    o.snap.valid           = valid;
-    o.snap.entry_halt      = halt;
-    o.snap.force_liquidate = liq;
-    o.snap.entry_scale     = scale;
-    return o;
+    Observation observation;
+    observation.state                = FileState::kFresh;
+    observation.snapshot.valid           = valid;
+    observation.snapshot.entry_halt      = halt;
+    observation.snapshot.force_liquidate = liq;
+    observation.snapshot.entry_scale     = scale;
+    return observation;
 }
 
 Observation stale(long long age)
 {
-    Observation o;
-    o.state   = FileState::kStale;
-    o.age_sec = age;
-    return o;
+    Observation observation;
+    observation.state   = FileState::kStale;
+    observation.age_sec = age;
+    return observation;
 }
 
 // 개장 후 m분(음수는 개장 전), 같은 날.
-KstClock at(int m, int yday = 100)
+KstClock at(int row, int yesterday = 100)
 {
-    return KstClock{yday, m};
+    return KstClock{yesterday, row};
 }
 
-bool quiet(const Outcome& o)
+bool quiet(const Outcome& outcome)
 {
-    return !o.entry_halt && !o.force_liquidate && !o.log_expiry && !o.log_stale && !o.log_halt_transition &&
-           !o.log_liq_on && !o.log_liq_off && !o.entry_scale && !o.log_scale_change && !o.selection;
+    return !outcome.entry_halt && !outcome.force_liquidate && !outcome.log_expiry && !outcome.log_stale && !outcome.log_halt_transition &&
+           !outcome.log_liq_on && !outcome.log_liq_off && !outcome.entry_scale && !outcome.log_scale_change && !outcome.selection;
 }
 
 Observation labeled(const char* label, bool valid = true)
 {
-    Observation o = fresh(valid, false, false);
-    o.snap.regime  = label;
-    return o;
+    Observation observation = fresh(valid, false, false);
+    observation.snapshot.regime  = label;
+    return observation;
 }
 
 // 전략 선택 국면(D-084): 라벨이 바뀐 회차에만 실린다. stale·무효·모르는 라벨은 이전 선택 유지.
@@ -71,54 +71,54 @@ int test_selection()
           selection_of("RISK_OFF") == Regime::BEAR && selection_of("UNKNOWN") == Regime::UNKNOWN &&
           selection_of("bull") == Regime::UNKNOWN);
 
-    RegimeFileBridge b;
-    CHECK(b.selection_now() == Regime::UNKNOWN);
-    Outcome o = b.step(labeled("NEUTRAL"), at(10));
-    CHECK(o.selection && *o.selection == Regime::NEUTRAL && b.selection_now() == Regime::NEUTRAL);
-    o = b.step(labeled("NEUTRAL"), at(11)); // 같은 라벨은 다시 안 싣는다
-    CHECK(!o.selection);
-    o = b.step(labeled("RISK_ON"), at(12));
-    CHECK(o.selection && *o.selection == Regime::BULL);
-    o = b.step(labeled("UNKNOWN"), at(13)); // 판정 보류 라벨 → 유지
-    CHECK(!o.selection && b.selection_now() == Regime::BULL);
-    o = b.step(labeled("RISK_OFF", /*valid=*/false), at(14)); // 무효 파일 → 유지
-    CHECK(!o.selection && b.selection_now() == Regime::BULL);
-    o = b.step(stale(700), at(15));
-    CHECK(!o.selection && b.selection_now() == Regime::BULL);
+    RegimeFileBridge bridge;
+    CHECK(bridge.selection_now() == Regime::UNKNOWN);
+    Outcome outcome = bridge.step(labeled("NEUTRAL"), at(10));
+    CHECK(outcome.selection && *outcome.selection == Regime::NEUTRAL && bridge.selection_now() == Regime::NEUTRAL);
+    outcome = bridge.step(labeled("NEUTRAL"), at(11)); // 같은 라벨은 다시 안 싣는다
+    CHECK(!outcome.selection);
+    outcome = bridge.step(labeled("RISK_ON"), at(12));
+    CHECK(outcome.selection && *outcome.selection == Regime::BULL);
+    outcome = bridge.step(labeled("UNKNOWN"), at(13)); // 판정 보류 라벨 → 유지
+    CHECK(!outcome.selection && bridge.selection_now() == Regime::BULL);
+    outcome = bridge.step(labeled("RISK_OFF", /*valid=*/false), at(14)); // 무효 파일 → 유지
+    CHECK(!outcome.selection && bridge.selection_now() == Regime::BULL);
+    outcome = bridge.step(stale(700), at(15));
+    CHECK(!outcome.selection && bridge.selection_now() == Regime::BULL);
     Observation missing;
-    CHECK(!b.step(missing, at(16)).selection);
-    o = b.step(labeled("RISK_OFF"), at(17));
-    CHECK(o.selection && *o.selection == Regime::BEAR);
+    CHECK(!bridge.step(missing, at(16)).selection);
+    outcome = bridge.step(labeled("RISK_OFF"), at(17));
+    CHECK(outcome.selection && *outcome.selection == Regime::BEAR);
     return 0;
 }
 
 // 매수 비율(D-083): 파일 값이 바뀐 회차에만 실리고, halt·청산이면 0, 없으면 1, 만료로 풀리면 1.
 int test_entry_scale()
 {
-    RegimeFileBridge b;
-    Outcome o = b.step(fresh(true, false, false, 0.7), at(10));
-    CHECK(o.entry_scale && *o.entry_scale == 0.7 && o.log_scale_change && b.scale_now() == 0.7);
-    o = b.step(fresh(true, false, false, 0.7), at(11));
-    CHECK(!o.entry_scale && !o.log_scale_change);
-    o = b.step(fresh(true, false, false, 0.44), at(12)); // 0.1 단위로 끊는다
-    CHECK(o.entry_scale && *o.entry_scale == 0.4);
-    o = b.step(fresh(true, true, false, 0.4), at(13));   // halt면 파일 값과 무관하게 0
-    CHECK(o.entry_scale && *o.entry_scale == 0.0 && o.entry_halt && *o.entry_halt);
-    o = b.step(fresh(true, false, false), at(14));       // 키 없음 → 1
-    CHECK(o.entry_scale && *o.entry_scale == 1.0 && !b.halt_on());
-    o = b.step(fresh(true, false, true, 0.9), at(15));   // 청산이면 0
-    CHECK(o.entry_scale && *o.entry_scale == 0.0);
-    o = b.step(fresh(false, false, false, 0.5), at(16)); // 무효면 비율도 불변
-    CHECK(!o.entry_scale && b.scale_now() == 0.0);
+    RegimeFileBridge bridge;
+    Outcome outcome = bridge.step(fresh(true, false, false, 0.7), at(10));
+    CHECK(outcome.entry_scale && *outcome.entry_scale == 0.7 && outcome.log_scale_change && bridge.scale_now() == 0.7);
+    outcome = bridge.step(fresh(true, false, false, 0.7), at(11));
+    CHECK(!outcome.entry_scale && !outcome.log_scale_change);
+    outcome = bridge.step(fresh(true, false, false, 0.44), at(12)); // 0.1 단위로 끊는다
+    CHECK(outcome.entry_scale && *outcome.entry_scale == 0.4);
+    outcome = bridge.step(fresh(true, true, false, 0.4), at(13));   // halt면 파일 값과 무관하게 0
+    CHECK(outcome.entry_scale && *outcome.entry_scale == 0.0 && outcome.entry_halt && *outcome.entry_halt);
+    outcome = bridge.step(fresh(true, false, false), at(14));       // 키 없음 → 1
+    CHECK(outcome.entry_scale && *outcome.entry_scale == 1.0 && !bridge.halt_on());
+    outcome = bridge.step(fresh(true, false, true, 0.9), at(15));   // 청산이면 0
+    CHECK(outcome.entry_scale && *outcome.entry_scale == 0.0);
+    outcome = bridge.step(fresh(false, false, false, 0.5), at(16)); // 무효면 비율도 불변
+    CHECK(!outcome.entry_scale && bridge.scale_now() == 0.0);
     Observation missing;
-    CHECK(!b.step(missing, at(17)).entry_scale);
+    CHECK(!bridge.step(missing, at(17)).entry_scale);
 
     // 시간 상자로 halt가 풀리면 비율도 1로 돌아온다.
-    RegimeFileBridge t;
-    t.set_halt_expire_min(60);
-    (void) t.step(fresh(true, true, false, 0.0), at(10));
-    o = t.step(missing, at(60));
-    CHECK(o.log_expiry && o.entry_scale && *o.entry_scale == 1.0);
+    RegimeFileBridge test_bridge;
+    test_bridge.set_halt_expire_min(60);
+    (void) test_bridge.step(fresh(true, true, false, 0.0), at(10));
+    outcome = test_bridge.step(missing, at(60));
+    CHECK(outcome.log_expiry && outcome.entry_scale && *outcome.entry_scale == 1.0);
 
     // 파싱: 숫자만 받고 0~1로 자른다. null·문자열은 없음.
     CHECK(parse_snapshot(json{{"entry_scale", 1.7}}).entry_scale == 1.0);
@@ -129,121 +129,121 @@ int test_entry_scale()
 
 int test_parse_snapshot()
 {
-    Snapshot s = parse_snapshot(json{{"valid", true}, {"entry_halt", true}, {"force_liquidate", false},
+    Snapshot parsed_snapshot = parse_snapshot(json{{"valid", true}, {"entry_halt", true}, {"force_liquidate", false},
                                      {"regime", "BEAR"}, {"risk_score", 3}});
-    CHECK(s.valid && s.entry_halt && !s.force_liquidate && s.regime == "BEAR" && s.risk_score == 3);
+    CHECK(parsed_snapshot.valid && parsed_snapshot.entry_halt && !parsed_snapshot.force_liquidate && parsed_snapshot.regime == "BEAR" && parsed_snapshot.risk_score == 3);
 
     // 키 없음·형 불량은 기본값 — "true" 문자열·"3" 문자열은 없는 것으로 본다(예외 없음).
-    Snapshot d = parse_snapshot(json{{"valid", "true"}, {"entry_halt", 1}, {"regime", 7}, {"risk_score", "3"}});
-    CHECK(!d.valid && !d.entry_halt && !d.force_liquidate && d.regime == "?" && d.risk_score == 0);
+    Snapshot snapshot = parse_snapshot(json{{"valid", "true"}, {"entry_halt", 1}, {"regime", 7}, {"risk_score", "3"}});
+    CHECK(!snapshot.valid && !snapshot.entry_halt && !snapshot.force_liquidate && snapshot.regime == "?" && snapshot.risk_score == 0);
     CHECK(!parse_snapshot(json::object()).valid);
     return 0;
 }
 
 int test_halt_transition()
 {
-    RegimeFileBridge b;
-    b.set_halt_expire_min(0); // 시간 상자 끔
-    Outcome o = b.step(fresh(true, true, false), at(10));
-    CHECK(o.entry_halt && *o.entry_halt && o.log_halt_transition && b.halt_on());
-    CHECK(o.force_liquidate && !*o.force_liquidate);
+    RegimeFileBridge bridge;
+    bridge.set_halt_expire_min(0); // 시간 상자 끔
+    Outcome outcome = bridge.step(fresh(true, true, false), at(10));
+    CHECK(outcome.entry_halt && *outcome.entry_halt && outcome.log_halt_transition && bridge.halt_on());
+    CHECK(outcome.force_liquidate && !*outcome.force_liquidate);
 
     // 같은 값이 다시 오면 set·로그 없음.
-    o = b.step(fresh(true, true, false), at(11));
-    CHECK(!o.entry_halt && !o.log_halt_transition && o.force_liquidate && !*o.force_liquidate);
+    outcome = bridge.step(fresh(true, true, false), at(11));
+    CHECK(!outcome.entry_halt && !outcome.log_halt_transition && outcome.force_liquidate && !*outcome.force_liquidate);
 
-    o = b.step(fresh(true, false, false), at(12));
-    CHECK(o.entry_halt && !*o.entry_halt && o.log_halt_transition && !b.halt_on());
+    outcome = bridge.step(fresh(true, false, false), at(12));
+    CHECK(outcome.entry_halt && !*outcome.entry_halt && outcome.log_halt_transition && !bridge.halt_on());
     return 0;
 }
 
 int test_missing_stale_invalid_keep_gate()
 {
-    RegimeFileBridge b;
-    b.set_halt_expire_min(0);
-    (void) b.step(fresh(true, true, false), at(10));
-    CHECK(b.halt_on());
+    RegimeFileBridge bridge;
+    bridge.set_halt_expire_min(0);
+    (void) bridge.step(fresh(true, true, false), at(10));
+    CHECK(bridge.halt_on());
 
     // 파일 없음·읽기 실패·판정 보류 — 게이트도 force_liquidate도 그대로.
     Observation missing;
-    CHECK(quiet(b.step(missing, at(11))) && b.halt_on());
+    CHECK(quiet(bridge.step(missing, at(11))) && bridge.halt_on());
     Observation bad;
     bad.state = FileState::kUnreadable;
-    CHECK(quiet(b.step(bad, at(12))) && b.halt_on());
-    CHECK(quiet(b.step(fresh(false, false, false), at(13))) && b.halt_on());
+    CHECK(quiet(bridge.step(bad, at(12))) && bridge.halt_on());
+    CHECK(quiet(bridge.step(fresh(false, false, false), at(13))) && bridge.halt_on());
 
     // stale은 첫 진입에만 경고, 신선한 파일이 오면 경고 상태가 풀려 다음 stale에 다시 경고.
-    Outcome o = b.step(stale(700), at(14));
-    CHECK(o.log_stale && !o.entry_halt && b.halt_on());
-    CHECK(quiet(b.step(stale(730), at(15))));
-    (void) b.step(fresh(true, true, false), at(16));
-    CHECK(b.step(stale(800), at(17)).log_stale);
+    Outcome outcome = bridge.step(stale(700), at(14));
+    CHECK(outcome.log_stale && !outcome.entry_halt && bridge.halt_on());
+    CHECK(quiet(bridge.step(stale(730), at(15))));
+    (void) bridge.step(fresh(true, true, false), at(16));
+    CHECK(bridge.step(stale(800), at(17)).log_stale);
     return 0;
 }
 
 int test_time_box()
 {
-    RegimeFileBridge b;
-    b.set_halt_expire_min(60);
+    RegimeFileBridge bridge;
+    bridge.set_halt_expire_min(60);
 
     // 개장 후 10분: halt 걸림. 59분: 아직. 60분: 만료 — 해제 + 하루 1회 로그.
-    Outcome o = b.step(fresh(true, true, false), at(10));
-    CHECK(o.entry_halt && *o.entry_halt);
-    CHECK(!b.step(fresh(true, true, false), at(59)).entry_halt && b.halt_on());
-    o = b.step(fresh(true, true, false), at(60));
-    CHECK(o.entry_halt && !*o.entry_halt && o.log_expiry && !b.halt_on());
+    Outcome outcome = bridge.step(fresh(true, true, false), at(10));
+    CHECK(outcome.entry_halt && *outcome.entry_halt);
+    CHECK(!bridge.step(fresh(true, true, false), at(59)).entry_halt && bridge.halt_on());
+    outcome = bridge.step(fresh(true, true, false), at(60));
+    CHECK(outcome.entry_halt && !*outcome.entry_halt && outcome.log_expiry && !bridge.halt_on());
 
     // 만료 뒤 파일이 계속 halt를 말해도 다시 걸지 않고, 로그도 다시 안 찍는다.
-    o = b.step(fresh(true, true, false), at(61));
-    CHECK(!o.entry_halt && !o.log_expiry && !b.halt_on());
+    outcome = bridge.step(fresh(true, true, false), at(61));
+    CHECK(!outcome.entry_halt && !outcome.log_expiry && !bridge.halt_on());
 
     // 파일이 없어도 진입부에서 푼다(09-10 실패 모양). 먼저 새 날로 halt를 다시 건다.
-    (void) b.step(fresh(true, true, false), at(5, 101));
-    CHECK(b.halt_on());
+    (void) bridge.step(fresh(true, true, false), at(5, 101));
+    CHECK(bridge.halt_on());
     Observation missing;
-    o = b.step(missing, at(70, 101));
-    CHECK(o.entry_halt && !*o.entry_halt && o.log_expiry && !b.halt_on());
+    outcome = bridge.step(missing, at(70, 101));
+    CHECK(outcome.entry_halt && !*outcome.entry_halt && outcome.log_expiry && !bridge.halt_on());
 
     // 파장 뒤(390분 이상)·개장 전(음수)은 만료가 성립하지 않는다.
-    (void) b.step(fresh(true, true, false), at(5, 102));
-    CHECK(!b.step(fresh(true, true, false), at(395, 102)).entry_halt && b.halt_on());
-    CHECK(!b.step(fresh(true, true, false), at(-30, 103)).entry_halt && b.halt_on());
+    (void) bridge.step(fresh(true, true, false), at(5, 102));
+    CHECK(!bridge.step(fresh(true, true, false), at(395, 102)).entry_halt && bridge.halt_on());
+    CHECK(!bridge.step(fresh(true, true, false), at(-30, 103)).entry_halt && bridge.halt_on());
     return 0;
 }
 
 int test_force_liquidate()
 {
-    RegimeFileBridge b;
-    b.set_halt_expire_min(60);
+    RegimeFileBridge bridge;
+    bridge.set_halt_expire_min(60);
 
     // entry_halt=false여도 force_liquidate면 halt를 건다. 켜짐 로그 1회.
-    Outcome o = b.step(fresh(true, false, true), at(10));
-    CHECK(o.entry_halt && *o.entry_halt && o.log_liq_on && o.force_liquidate && *o.force_liquidate);
-    o = b.step(fresh(true, false, true), at(11));
-    CHECK(!o.log_liq_on && !o.entry_halt);
+    Outcome outcome = bridge.step(fresh(true, false, true), at(10));
+    CHECK(outcome.entry_halt && *outcome.entry_halt && outcome.log_liq_on && outcome.force_liquidate && *outcome.force_liquidate);
+    outcome = bridge.step(fresh(true, false, true), at(11));
+    CHECK(!outcome.log_liq_on && !outcome.entry_halt);
 
     // 청산 중에는 시간 상자가 풀지 않는다 — 파일이 있어도, 없어도.
-    o = b.step(fresh(true, false, true), at(90));
-    CHECK(!o.entry_halt && !o.log_expiry && b.halt_on());
+    outcome = bridge.step(fresh(true, false, true), at(90));
+    CHECK(!outcome.entry_halt && !outcome.log_expiry && bridge.halt_on());
     Observation missing;
-    o = b.step(missing, at(91));
-    CHECK(quiet(o) && b.halt_on());
+    outcome = bridge.step(missing, at(91));
+    CHECK(quiet(outcome) && bridge.halt_on());
 
     // 해제: 꺼짐 로그 1회 + halt 전이. 그 뒤 90분이라 halt는 다시 안 걸린다.
-    o = b.step(fresh(true, false, false), at(92));
-    CHECK(o.log_liq_off && o.entry_halt && !*o.entry_halt && o.force_liquidate && !*o.force_liquidate);
-    CHECK(!b.step(fresh(true, true, false), at(93)).entry_halt && !b.halt_on());
+    outcome = bridge.step(fresh(true, false, false), at(92));
+    CHECK(outcome.log_liq_off && outcome.entry_halt && !*outcome.entry_halt && outcome.force_liquidate && !*outcome.force_liquidate);
+    CHECK(!bridge.step(fresh(true, true, false), at(93)).entry_halt && !bridge.halt_on());
     return 0;
 }
 
 int test_stale_sec_setter()
 {
-    RegimeFileBridge b;
-    CHECK(b.stale_sec() == kDefaultRegimeStaleSec);
-    b.set_stale_sec(0); // 0 이하는 무시
-    CHECK(b.stale_sec() == kDefaultRegimeStaleSec);
-    b.set_stale_sec(120);
-    CHECK(b.stale_sec() == 120);
+    RegimeFileBridge bridge;
+    CHECK(bridge.stale_sec() == kDefaultRegimeStaleSec);
+    bridge.set_stale_sec(0); // 0 이하는 무시
+    CHECK(bridge.stale_sec() == kDefaultRegimeStaleSec);
+    bridge.set_stale_sec(120);
+    CHECK(bridge.stale_sec() == 120);
     return 0;
 }
 } // namespace

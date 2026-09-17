@@ -41,38 +41,38 @@ struct Snapshot
 };
 
 // 키가 없거나 형이 다르면 기본값. 보조 프로세스가 "true" 문자열을 쓰는 실수를 예외 대신 "없음"으로 받는다.
-inline Snapshot parse_snapshot(const nlohmann::json& j)
+inline Snapshot parse_snapshot(const nlohmann::json& document)
 {
-    auto flag = [&j](const char* key) {
-        auto it = j.find(key);
-        return it != j.end() && it->is_boolean() && it->get<bool>();
+    auto flag = [&document](const char* key) {
+        auto iterator = document.find(key);
+        return iterator != document.end() && iterator->is_boolean() && iterator->get<bool>();
     };
-    Snapshot s;
-    s.valid           = flag("valid");
-    s.entry_halt      = flag("entry_halt");
-    s.force_liquidate = flag("force_liquidate");
-    auto r = j.find("regime");
+    Snapshot snapshot;
+    snapshot.valid           = flag("valid");
+    snapshot.entry_halt      = flag("entry_halt");
+    snapshot.force_liquidate = flag("force_liquidate");
+    auto found = document.find("regime");
 
-    if (r != j.end() && r->is_string())
+    if (found != document.end() && found->is_string())
     {
-        s.regime = r->get<std::string>();
+        snapshot.regime = found->get<std::string>();
     }
 
-    auto sc = j.find("risk_score");
+    auto sc = document.find("risk_score");
 
-    if (sc != j.end() && sc->is_number())
+    if (sc != document.end() && sc->is_number())
     {
-        s.risk_score = sc->get<int>();
+        snapshot.risk_score = sc->get<int>();
     }
 
-    auto es = j.find("entry_scale");
+    auto es = document.find("entry_scale");
 
-    if (es != j.end() && es->is_number())
+    if (es != document.end() && es->is_number())
     {
-        s.entry_scale = std::clamp(es->get<double>(), 0.0, 1.0);
+        snapshot.entry_scale = std::clamp(es->get<double>(), 0.0, 1.0);
     }
 
-    return s;
+    return snapshot;
 }
 
 // 파일 라벨 → 전략 선택 국면. RISK_OFF는 파일 쪽에서 entry_halt와 같은 문턱(score ≤ halt)이라
@@ -99,9 +99,9 @@ inline Regime selection_of(const std::string& label)
 }
 
 // 선택 국면 → 파일 라벨(selection_of의 역방향). 로그·일지는 파일 라벨로 적는다. [why D-085]
-inline std::string label_of(Regime r)
+inline std::string label_of(Regime regime)
 {
-    switch (r)
+    switch (regime)
     {
     case Regime::BULL:    return "RISK_ON";
     case Regime::NEUTRAL: return "NEUTRAL";
@@ -122,13 +122,13 @@ struct Observation
 {
     FileState state   = FileState::kMissing;
     long long age_sec = 0; // kStale일 때 경고 문구용
-    Snapshot  snap;        // kFresh일 때만 뜻이 있다
+    Snapshot  snapshot;        // kFresh일 때만 뜻이 있다
 };
 
 // 판정에 필요한 KST 두 값. Engine이 utc_plus_hours(9)로 채운다.
 struct KstClock
 {
-    int yday               = 0;    // tm_yday — 만료 상태를 하루 단위로 되돌리는 기준
+    int yesterday               = 0;    // tm_yday — 만료 상태를 하루 단위로 되돌리는 기준
     int minutes_after_open = -540; // 09:00 기준 분(is_kr_market_open과 같은 축). 개장 전은 음수
 };
 
@@ -155,21 +155,21 @@ class RegimeFileBridge
 public:
     RegimeFileBridge() = default;
 
-    void set_stale_sec(int s)
+    void set_stale_sec(int stale_sec)
     {
-        if (s > 0)
+        if (stale_sec > 0)
         {
-            stale_sec_ = s;
+            stale_sec_ = stale_sec;
         }
     }
 
-    void set_halt_expire_min(int m) { halt_expire_min_ = m; }
+    void set_halt_expire_min(int halt_expire_min) { halt_expire_min_ = halt_expire_min; }
     int  stale_sec() const { return stale_sec_; }
     bool halt_on() const { return halt_on_; }
     double scale_now() const { return scale_now_; }
     Regime selection_now() const { return selection_now_; }
 
-    Outcome step(const Observation& o, const KstClock& clk)
+    Outcome step(const Observation& observation, const KstClock& clk)
     {
         Outcome out;
 
@@ -185,7 +185,7 @@ public:
             set_scale(out, kRegimeScaleFull);
         }
 
-        switch (o.state)
+        switch (observation.state)
         {
         case FileState::kMissing:
         case FileState::kUnreadable:
@@ -203,13 +203,13 @@ public:
             break;
         }
 
-        if (!o.snap.valid)
+        if (!observation.snapshot.valid)
         {
             return out;
         }
 
         // 전략 선택 축 — 라벨이 바뀐 회차에만 싣는다. 모르는 라벨은 이전 선택 유지. [why D-084]
-        const Regime sel = selection_of(o.snap.regime);
+        const Regime sel = selection_of(observation.snapshot.regime);
 
         if (sel != Regime::UNKNOWN && sel != selection_now_)
         {
@@ -217,8 +217,8 @@ public:
             selection_now_ = sel;
         }
 
-        const bool liq  = o.snap.force_liquidate;
-        bool       halt = o.snap.entry_halt || liq; // 청산 중엔 신규 진입도 반드시 정지
+        const bool liq  = observation.snapshot.force_liquidate;
+        bool       halt = observation.snapshot.entry_halt || liq; // 청산 중엔 신규 진입도 반드시 정지
 
         if (halt && !liq && time_box_passed(clk))
         {
@@ -235,7 +235,7 @@ public:
 
         // 비율은 halt·청산이면 0(파일이 뭐라 하든), 아니면 파일 값(없으면 1). 0.1 단위로 끊어 3분마다
         //  미세하게 흔들려 전략이 분할 매수를 다시 까는 일을 막는다. [why D-083]
-        double scale = halt ? 0.0 : o.snap.entry_scale.value_or(kRegimeScaleFull);
+        double scale = halt ? 0.0 : observation.snapshot.entry_scale.value_or(kRegimeScaleFull);
         scale        = std::round(scale * 10.0) / 10.0;
         set_scale(out, scale);
 
@@ -277,9 +277,9 @@ private:
             return false;
         }
 
-        if (clk.yday != expire_yday_)
+        if (clk.yesterday != expire_yday_)
         {
-            expire_yday_ = clk.yday;
+            expire_yday_ = clk.yesterday;
             expired_     = false;
         }
 

@@ -51,13 +51,13 @@ public:
         enum Value { EOD, INTRADAY };
 
         EntryMode() = default;
-        constexpr EntryMode(Value v) : value_(v) {}
+        constexpr EntryMode(Value value) : value_(value) {}
         constexpr operator Value() const { return value_; }
 
         // INTRADAY가 아니면 EOD로 본다(기존 (s=="INTRADAY")?INTRADAY:EOD 관례 유지).
-        static EntryMode from_string(const std::string& s)
+        static EntryMode from_string(const std::string& text)
         {
-            return s == "INTRADAY" ? EntryMode(INTRADAY) : EntryMode(EOD);
+            return text == "INTRADAY" ? EntryMode(INTRADAY) : EntryMode(EOD);
         }
 
     private:
@@ -81,7 +81,7 @@ public:
         double      stop_below_ma    = 0.0;    // ma5*(1-stop) 이탈 손절 (0=미사용)
     };
 
-    explicit SupplyDemandPullbackStrategy(Params p) : p_(std::move(p)) {}
+    explicit SupplyDemandPullbackStrategy(Params params) : p_(std::move(params)) {}
 
     std::string id() const override { return "SUPPLY_DEMAND_PULLBACK"; }
     std::string describe() const override
@@ -102,9 +102,9 @@ public:
             return specs;
         }
 
-        for (const auto& tk : candidates_)
+        for (const auto& ticker : candidates_)
         {
-            specs.push_back({tk, Market::KR, "", /*trade_only=*/true});
+            specs.push_back({ticker, Market::KR, "", /*trade_only=*/true});
         }
 
         return specs;
@@ -129,8 +129,8 @@ public:
         // 2. 종목별 수급 시계열 조회 → 쌍끌이 점수
         for (const auto& stock : ranked)
         {
-            const std::string& tk = stock.ticker;
-            auto flows = kis_->get_investor_flow(tk, p_.market_div);
+            const std::string& ticker = stock.ticker;
+            auto flows = kis_->get_investor_flow(ticker, p_.market_div);
             std::this_thread::sleep_for(std::chrono::milliseconds(kSdpRestPacingMs));
 
             if (flows.empty())
@@ -138,7 +138,7 @@ public:
                 continue;
             }
 
-            Score sc = calc_score(tk, flows, today);
+            Score sc = calc_score(ticker, flows, today);
             bool dual_ok  = sc.dual_days  >= p_.min_dual_days;
             bool cons_ok  = (p_.min_consec_days == 0) || (sc.consec_days >= p_.min_consec_days);
             bool cum_ok   = sc.cum_foreign > p_.net_buy_threshold
@@ -146,8 +146,8 @@ public:
 
             if (dual_ok && cons_ok && cum_ok)
             {
-                candidates_.push_back(tk);
-                LOG_INFO("[SDP] 후보: " + tk + " " + stock.name +
+                candidates_.push_back(ticker);
+                LOG_INFO("[SDP] 후보: " + ticker + " " + stock.name +
                          " | 쌍끌이=" + std::to_string(sc.dual_days) + "일" +
                          " | 연속=" + std::to_string(sc.consec_days) + "일" +
                          " | 외인누적=" + std::to_string(sc.cum_foreign) +
@@ -163,27 +163,27 @@ public:
         // 3-A. EOD 모드: 최근 일봉으로 ma 초기화
         if (p_.mode == EntryMode::EOD)
         {
-            for (const auto& tk : candidates_)
+            for (const auto& ticker : candidates_)
             {
-                auto bars = kis_->get_daily_ohlcv(tk, p_.ma_period + 2);
+                auto bars = kis_->get_daily_ohlcv(ticker, p_.ma_period + 2);
                 std::this_thread::sleep_for(std::chrono::milliseconds(kSdpRestPacingMs));
-                auto& dq = closes_[symbol_of(tk)];
+                auto& closes = closes_[symbol_of(ticker)];
 
-                for (auto it = bars.rbegin(); it != bars.rend(); ++it)
+                for (auto iterator = bars.rbegin(); iterator != bars.rend(); ++iterator)
                 {
-                    dq.push_back(it->close);
+                    closes.push_back(iterator->close);
                 }
 
-                trim(dq);
+                trim(closes);
             }
         }
 
         // 3-B. INTRADAY 모드: 전일 확정 일봉으로 ref_ma5_ 고정
         else
         {
-            for (const auto& tk : candidates_)
+            for (const auto& ticker : candidates_)
             {
-                auto bars = kis_->get_daily_ohlcv(tk, p_.ma_period + 2);
+                auto bars = kis_->get_daily_ohlcv(ticker, p_.ma_period + 2);
                 std::this_thread::sleep_for(std::chrono::milliseconds(kSdpRestPacingMs));
 
                 if (static_cast<int>(bars.size()) < p_.ma_period)
@@ -202,12 +202,12 @@ public:
                     continue;
                 }
 
-                for (int i = start; i < start + p_.ma_period; ++i)
+                for (int ma_period_index = start; ma_period_index < start + p_.ma_period; ++ma_period_index)
                 {
-                    sum += bars[i].close;
+                    sum += bars[ma_period_index].close;
                 }
 
-                ref_ma5_[symbol_of(tk)] = sum / p_.ma_period;
+                ref_ma5_[symbol_of(ticker)] = sum / p_.ma_period;
             }
         }
     }
@@ -216,32 +216,32 @@ public:
     bool wants_daily_bars() const override { return p_.mode == EntryMode::EOD; }
 
     // ── EOD 모드 진입/청산 (일봉) ─────────────────────────────────────────────
-    std::optional<OrderSignal> on_data(const MarketData& md) override
+    std::optional<OrderSignal> on_data(const MarketData& market_data) override
     {
         if (p_.mode != EntryMode::EOD)
         {
             return std::nullopt;
         }
 
-        const sym::SymbolId id = md.sym != sym::kNone ? md.sym : symbol_of(md.ticker);
+        const symbol::SymbolId id = market_data.symbol_id != symbol::kNone ? market_data.symbol_id : symbol_of(market_data.ticker);
 
         if (!is_candidate(id))
         {
             return std::nullopt;
         }
 
-        auto& dq = closes_[id];
-        double prev_close = dq.empty() ? md.close : dq.back();
-        dq.push_back(md.close);
-        trim(dq);
+        auto& closes = closes_[id];
+        double prev_close = closes.empty() ? market_data.close : closes.back();
+        closes.push_back(market_data.close);
+        trim(closes);
 
-        if (static_cast<int>(dq.size()) < p_.ma_period)
+        if (static_cast<int>(closes.size()) < p_.ma_period)
         {
             return std::nullopt;
         }
 
-        double ma    = sma(dq, p_.ma_period);
-        double price = md.close;
+        double ma    = sma(closes, p_.ma_period);
+        double price = market_data.close;
 
         // 보유 중이면 손절만 체크
         if (held_.count(id))
@@ -249,7 +249,7 @@ public:
             if (p_.stop_below_ma > 0.0 && price < ma * (1.0 - p_.stop_below_ma))
             {
                 held_.erase(id);
-                return make_signal(id, md.ticker, OrderSide::SELL, price);
+                return make_signal(id, market_data.ticker, OrderSide::SELL, price);
             }
 
             return std::nullopt;
@@ -264,26 +264,26 @@ public:
         if (is_active() && prev_above && in_band && supported)   // 진입 — 국면 게이트
         {
             held_.insert(id);
-            return make_signal(id, md.ticker, OrderSide::BUY, price);
+            return make_signal(id, market_data.ticker, OrderSide::BUY, price);
         }
 
         return std::nullopt;
     }
 
     // ── INTRADAY 모드 진입/청산 (체결 이벤트) ────────────────────────────────
-    std::optional<OrderSignal> on_trade(const TradeData& td) override
+    std::optional<OrderSignal> on_trade(const TradeData& trade) override
     {
         if (p_.mode != EntryMode::INTRADAY)
         {
             return std::nullopt;
         }
 
-        if (td.market != Market::KR)
+        if (trade.market != Market::KR)
         {
             return std::nullopt;
         }
 
-        const sym::SymbolId id = td.sym != sym::kNone ? td.sym : symbol_of(td.ticker);
+        const symbol::SymbolId id = trade.symbol_id != symbol::kNone ? trade.symbol_id : symbol_of(trade.ticker);
 
         if (!is_candidate(id))
         {
@@ -298,7 +298,7 @@ public:
         }
 
         double ma    = ref->second;
-        double price = td.price;
+        double price = trade.price;
 
         // 청산 시각 도달
         if (past_hhmm(p_.eod_exit_hhmm))
@@ -306,7 +306,7 @@ public:
             if (held_.count(id))
             {
                 held_.erase(id);
-                return make_signal(id, td.ticker, OrderSide::SELL, price);
+                return make_signal(id, trade.ticker, OrderSide::SELL, price);
             }
 
             return std::nullopt;
@@ -318,7 +318,7 @@ public:
             if (p_.stop_below_ma > 0.0 && price < ma * (1.0 - p_.stop_below_ma))
             {
                 held_.erase(id);
-                return make_signal(id, td.ticker, OrderSide::SELL, price);
+                return make_signal(id, trade.ticker, OrderSide::SELL, price);
             }
 
             return std::nullopt;
@@ -332,7 +332,7 @@ public:
         if (is_active() && in_band && supported)   // 진입 — 국면 게이트
         {
             held_.insert(id);
-            return make_signal(id, td.ticker, OrderSide::BUY, price);
+            return make_signal(id, trade.ticker, OrderSide::BUY, price);
         }
 
         return std::nullopt;
@@ -355,7 +355,7 @@ private:
         int     consec_days = 0;
     };
 
-    Score calc_score(const std::string& /*tk*/,
+    Score calc_score(const std::string& /*ticker*/,
                      const std::vector<InvestorFlow>& flows,
                      const std::string& today) const
     {
@@ -363,9 +363,9 @@ private:
         int used = 0;
         bool consec_broken = false;
 
-        for (const auto& f : flows)
+        for (const auto& flow : flows)
         {
-            if (f.date == today)
+            if (flow.date == today)
             {
                 continue;  // look-ahead 방지: 당일 제외
             }
@@ -377,9 +377,9 @@ private:
 
             ++used;
 
-            bool dual = (f.foreign_net > 0) && (f.inst_net > 0);
-            sc.cum_foreign += f.foreign_net;
-            sc.cum_inst    += f.inst_net;
+            bool dual = (flow.foreign_net > 0) && (flow.institution_net > 0);
+            sc.cum_foreign += flow.foreign_net;
+            sc.cum_inst    += flow.institution_net;
 
             if (dual)
             {
@@ -402,7 +402,7 @@ private:
         return sc;
     }
 
-    bool is_candidate(sym::SymbolId id) const
+    bool is_candidate(symbol::SymbolId id) const
     {
         return cand_set_.count(id) > 0;
     }
@@ -412,55 +412,55 @@ private:
     {
         cand_set_.clear();
 
-        for (const auto& tk : candidates_)
+        for (const auto& ticker : candidates_)
         {
-            cand_set_.insert(symbol_of(tk));
+            cand_set_.insert(symbol_of(ticker));
         }
     }
 
-    static double sma(const std::deque<double>& dq, int n)
+    static double sma(const std::deque<double>& closes, int count)
     {
-        if (static_cast<int>(dq.size()) < n)
+        if (static_cast<int>(closes.size()) < count)
         {
             return 0.0;
         }
 
-        double s = 0.0;
+        double sum = 0.0;
 
-        for (int i = static_cast<int>(dq.size()) - n; i < static_cast<int>(dq.size()); ++i)
+        for (int close_index = static_cast<int>(closes.size()) - count; close_index < static_cast<int>(closes.size()); ++close_index)
         {
-            s += dq[i];
+            sum += closes[close_index];
         }
 
-        return s / n;
+        return sum / count;
     }
 
-    void trim(std::deque<double>& dq) const
+    void trim(std::deque<double>& closes) const
     {
-        while (static_cast<int>(dq.size()) > p_.ma_period + 2)
+        while (static_cast<int>(closes.size()) > p_.ma_period + 2)
         {
-            dq.pop_front();
+            closes.pop_front();
         }
     }
 
-    OrderSignal make_signal(sym::SymbolId sid, std::string_view tk, OrderSide side, double price) const
+    OrderSignal make_signal(symbol::SymbolId sid, std::string_view ticker, OrderSide side, double price) const
     {
-        OrderSignal sig;
-        sig.ticker      = tk;
-        sig.sym         = sid;
-        sig.side        = side;
-        sig.type        = OrderType::MARKET;
-        sig.quantity    = p_.quantity;
-        sig.price       = price;
-        sig.market      = Market::KR;
-        sig.strategy_id = id();
-        sig.timestamp   = std::chrono::system_clock::now();
-        return sig;
+        OrderSignal signal;
+        signal.ticker      = ticker;
+        signal.symbol_id         = sid;
+        signal.side        = side;
+        signal.type        = OrderType::MARKET;
+        signal.quantity    = p_.quantity;
+        signal.price       = price;
+        signal.market      = Market::KR;
+        signal.strategy_id = id();
+        signal.timestamp   = std::chrono::system_clock::now();
+        return signal;
     }
 
     static std::string today_yyyymmdd()
     {
-        return kst::ymd(std::time(nullptr));
+        return kst::date_yyyymmdd(std::time(nullptr));
     }
 
     static bool past_hhmm(const std::string& hhmm)
@@ -470,16 +470,16 @@ private:
             return false;
         }
 
-        const auto tod    = kst::time_of_day(std::time(nullptr));
-        const int  now    = static_cast<int>(tod.hours().count() * 100 + tod.minutes().count());
+        const auto time_of_day    = kst::time_of_day(std::time(nullptr));
+        const int  now    = static_cast<int>(time_of_day.hours().count() * 100 + time_of_day.minutes().count());
         const int  target = std::stoi(hhmm.substr(0, 2)) * 100 + std::stoi(hhmm.substr(2, 2));
         return now >= target;
     }
 
     Params                                               p_;
     std::vector<std::string>                               candidates_; // 문자열 — 구독 스펙·REST·로그
-    std::unordered_set<sym::SymbolId>                      cand_set_;   // O(1) 조회(id)
-    std::unordered_map<sym::SymbolId, std::deque<double>>  closes_;     // EOD ma용
-    std::unordered_map<sym::SymbolId, double>              ref_ma5_;    // INTRADAY 기준선
-    std::unordered_set<sym::SymbolId>                      held_;       // 보유 종목
+    std::unordered_set<symbol::SymbolId>                      cand_set_;   // O(1) 조회(id)
+    std::unordered_map<symbol::SymbolId, std::deque<double>>  closes_;     // EOD ma용
+    std::unordered_map<symbol::SymbolId, double>              ref_ma5_;    // INTRADAY 기준선
+    std::unordered_set<symbol::SymbolId>                      held_;       // 보유 종목
 };

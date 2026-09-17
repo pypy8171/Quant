@@ -119,9 +119,9 @@ public:
     }
 
 private:
-    static constexpr size_t round_up_pow2(size_t n) noexcept
+    static constexpr size_t round_up_pow2(size_t count) noexcept
     {
-        return std::bit_ceil(n);
+        return std::bit_ceil(count);
     }
 
     // 생산자만 쓴다(push 직후). 비교 한 번뿐이라 hot path 비용은 relaxed load 하나다. 소비자가 그 사이에 뺐으면

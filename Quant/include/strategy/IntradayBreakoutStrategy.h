@@ -11,10 +11,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // IntradayBreakoutStrategy (ITB v2)  —  장중 채널 돌파 + 물린분/신규분 분리 청산
 //
-//  협의체(전략·아키텍처·데이터·리스크) 확정 스펙(strategies/ITB/SPEC.md §2).
+//  협의체(전략·아키텍처·데이터·리스크) 확정 스펙(strategies/ITB/SPEC.market_data §2).
 //  입력은 오직 WS/REST 체결 틱(on_trade) — 깨진 REST 일봉 경로(G1/G2)를 우회한다.
 //
-//  [입력]  국내 실시간 체결 채널(H0STCNT0) 틱을 on_trade(TradeData)로 받는다. td.price=현재가, td.hhmmss=HHMMSS 정수.
+//  [입력]  국내 실시간 체결 채널(H0STCNT0) 틱을 on_trade(TradeData)로 받는다. trade.price=현재가, trade.hhmmss=HHMMSS 정수.
 //  [진입]  1분 버킷 종가가 최근 N분 채널 고점을 상향 돌파 + 당일 앵커 대비 +eps 위
 //          → 시장가 신규 매수. 버킷 마감 시에만 평가(틱 노이즈/휩쏘 억제).
 //          수량은 notional_per_position>0이면 floor(명목/현재가), 아니면 entry_qty 고정.
@@ -39,7 +39,7 @@ public:
                              double breakout_eps = 0.002, double trail_pct = 0.010,
                              double hard_pct = 0.015, int eod_hhmm = 1515,
                              int reentry_cooldown_sec = 60,
-                             double avg_px = 0.0, double avg_loss_pct = 0.0,
+                             double average_price = 0.0, double avg_loss_pct = 0.0,
                              // ── v2 추가 (뒤에 붙여 하위호환) ──
                              double seed_trail_pct = 0.0,      // 물린분 고점 기준 트레일(0→trail_pct)
                              double exit_near_avg_pct = 0.0,   // 물린분 본전탈출(평단 -x% 이내, 0=비활성)
@@ -50,7 +50,7 @@ public:
           start_in_position_(start_in_position), channel_min_(channel_min),
           eps_(breakout_eps), trail_pct_(trail_pct), hard_pct_(hard_pct),
           eod_hhmm_(eod_hhmm), cooldown_sec_(reentry_cooldown_sec),
-          avg_px_(avg_px), avg_loss_pct_(avg_loss_pct),
+          avg_px_(average_price), avg_loss_pct_(avg_loss_pct),
           seed_trail_pct_(seed_trail_pct), exit_near_avg_pct_(exit_near_avg_pct),
           no_new_entry_hhmm_(no_new_entry_hhmm), notional_per_position_(notional_per_position),
           day_open_px_(day_open_px)
@@ -60,7 +60,7 @@ public:
     std::string id() const override { return "ITB_" + ticker_; }
 
     // 표시명(종목명) — 로깅 전용. id()/dedup 키는 ticker 기반 유지.
-    void set_name(std::string n) { name_ = std::move(n); }
+    void set_name(std::string name) { name_ = std::move(name); }
 
     // 본전탈출 무장 임계 — 이 깊이만큼 실제로 물려 본 적이 있어야 본전탈출이 켜진다.
     //  0이면 무장 조건 없음(예전 동작). 재기동 직후 평단 -0.2% 보유분이 첫 틱에
@@ -68,7 +68,7 @@ public:
     void set_exit_near_avg_arm(double pct) { exit_near_avg_arm_pct_ = pct; }
     // 부착 직후 보호구간 — 이 시간 동안은 청산 관리 청산을 내지 않는다. 재기동 첫 틱과
     //  국면 배선(RegimeSelect) 적용 사이의 경합으로 투매가 나가는 것을 막는다.
-    void set_guard_warmup_sec(int s) { guard_warmup_sec_ = s; }
+    void set_guard_warmup_sec(int guard_warmup_sec) { guard_warmup_sec_ = guard_warmup_sec; }
     // 이월 보유분 평단 하드스톱(조합안) — 평단 −hard_pct 아래를 완성 1분봉 종가 confirm_bars 개가 연속 확인하고
     //  from_hhmm 이후일 때만. 부착 때 이미 skip_pct 넘게 물린 구형 보유는 대상에서 뺀다(개장 투매 방지). [why D-082]
     void set_seed_hard_stop(double hard_pct, double skip_pct, int from_hhmm, int confirm_bars)
@@ -100,7 +100,7 @@ public:
 
     void on_start() override
     {
-        sym_ = symbol_of(ticker_);
+        symbol_id_ = symbol_of(ticker_);
         closes_.clear();
         cur_hhmm_ = -1;
         cur_bucket_last_ = 0.0;
@@ -130,44 +130,44 @@ public:
     // 일봉 경로 미사용(라이브 소스는 WS 체결) — 순수가상 요건 충족용 no-op.
     std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
 
-    std::optional<OrderSignal> on_trade(const TradeData& td) override
+    std::optional<OrderSignal> on_trade(const TradeData& trade) override
     {
-        if (!same_symbol(sym_, ticker_, td.sym, td.ticker))
+        if (!same_symbol(symbol_id_, ticker_, trade.symbol_id, trade.ticker))
         {
             return std::nullopt;
         }
 
-        double px = td.price;
+        double price = trade.price;
 
-        if (px <= 0.0)
+        if (price <= 0.0)
         {
             return std::nullopt; // 방어: 잘못된 틱
         }
 
-        last_ = px;
+        last_ = price;
 
-        int hhmmss = td.hhmmss;
+        int hhmmss = trade.hhmmss;
         int hhmm = hhmmss / 100;
 
         // 당일 앵커 — day_open 주입 우선, 아니면 첫 유효 틱. 신규 돌파 기준가.
         if (anchor_px_ <= 0.0)
         {
-            anchor_px_ = (day_open_px_ > 0.0 ? day_open_px_ : px);
+            anchor_px_ = (day_open_px_ > 0.0 ? day_open_px_ : price);
 
             if (in_position_) // 보유분: 트레일은 현재가 기준(물린 평단 무시 → 개장 투매 방지)
             {
-                entry_px_ = px;
-                peak_ = px;
+                entry_px_ = price;
+                peak_ = price;
 
-                if (position_is_seed_ && saved_peak_ > px)
+                if (position_is_seed_ && saved_peak_ > price)
                 {
                     peak_ = saved_peak_;
                     LOG_INFO("[ITB] 시드 고점 복원 " + tag() + " peak=" + px_str(peak_) +
-                             " (첫 틱 " + px_str(px) + ")");
+                             " (첫 틱 " + px_str(price) + ")");
                 }
                 else if (position_is_seed_)
                 {
-                    LOG_INFO("[ITB] 시드 앵커 " + tag() + " 첫 틱 " + px_str(px) + " (저장 고점 없음)");
+                    LOG_INFO("[ITB] 시드 앵커 " + tag() + " 첫 틱 " + px_str(price) + " (저장 고점 없음)");
                     // 첫 틱이 곧 고점이면 그것도 남긴다 — 미끄러지기만 하는 종목은 새 고점이 없어
                     //  저장 기회가 없고, 다음 재기동이 다시 첫 틱으로 앵커를 내린다.
                     SeedPeakStore::save(ticker_, peak_);
@@ -181,12 +181,12 @@ public:
         {
             if (exit_pending_)
             {
-                return exit_pending_tick(px, td.timestamp);
+                return exit_pending_tick(price, trade.timestamp);
             }
 
-            if (px > peak_)
+            if (price > peak_)
             {
-                peak_ = px;
+                peak_ = price;
 
                 // 시드 고점 저장은 0.1% 이상 올랐을 때만 — 틱마다 파일을 쓰지 않는다.
                 if (position_is_seed_ && peak_ >= last_saved_peak_ * 1.001)
@@ -196,9 +196,9 @@ public:
                 }
             }
 
-            if (trough_ <= 0.0 || px < trough_)
+            if (trough_ <= 0.0 || price < trough_)
             {
-                trough_ = px;
+                trough_ = price;
             }
 
             // 부착 직후 보호구간. 첫 틱에 스탑을 평가하면 재기동이 곧 투매가 된다.
@@ -223,30 +223,30 @@ public:
                 if (seed_hard_pct_ > 0.0 && avg_px_ > 0.0 && !seed_hard_checked_)
                 {
                     seed_hard_checked_  = true;
-                    seed_hard_excluded_ = seed_hard_skip_pct_ > 0.0 && px <= avg_px_ * (1.0 - seed_hard_skip_pct_);
+                    seed_hard_excluded_ = seed_hard_skip_pct_ > 0.0 && price <= avg_px_ * (1.0 - seed_hard_skip_pct_);
 
                     if (seed_hard_excluded_)
                     {
                         LOG_INFO("[ITB] 평단 하드스톱 제외 " + tag() + " — 부착 때 평단 " + px_str(avg_px_) + " 대비 " +
-                                 std::to_string(static_cast<int>((px / avg_px_ - 1.0) * 100.0)) + "% (기준 -" +
+                                 std::to_string(static_cast<int>((price / avg_px_ - 1.0) * 100.0)) + "% (기준 -" +
                                  std::to_string(static_cast<int>(seed_hard_skip_pct_ * 100.0)) + "% 초과)");
                     }
                 }
 
                 const double seed_hard_stop = avg_px_ * (1.0 - seed_hard_pct_);
                 bool seed_hard_hit = seed_hard_pct_ > 0.0 && avg_px_ > 0.0 && !seed_hard_excluded_ &&
-                                     hhmm >= seed_hard_from_hhmm_ && px <= seed_hard_stop &&
+                                     hhmm >= seed_hard_from_hhmm_ && price <= seed_hard_stop &&
                                      static_cast<int>(closes_.size()) >= seed_hard_confirm_bars_;
 
-                for (int i = 1; seed_hard_hit && i <= seed_hard_confirm_bars_; ++i)
+                for (int seed_hard_confirm_bar_index = 1; seed_hard_hit && seed_hard_confirm_bar_index <= seed_hard_confirm_bars_; ++seed_hard_confirm_bar_index)
                 {
-                    if (closes_[closes_.size() - i] > seed_hard_stop)
+                    if (closes_[closes_.size() - seed_hard_confirm_bar_index] > seed_hard_stop)
                     {
                         seed_hard_hit = false;
                     }
                 }
 
-                if (px <= seed_trail_stop)
+                if (price <= seed_trail_stop)
                 {
                     hit = true;
                     why = " (seed-trail)";
@@ -257,14 +257,14 @@ public:
                     why = " (평단 하드스톱)";
                 }
                 else if (exit_near_avg_pct_ > 0.0 && avg_px_ > 0.0 &&
-                         px < avg_px_ && // 상단 가드: 아직 물린(underwater) 상태에서만
-                         px >= avg_px_ * (1.0 - exit_near_avg_pct_) &&
+                         price < avg_px_ && // 상단 가드: 아직 물린(underwater) 상태에서만
+                         price >= avg_px_ * (1.0 - exit_near_avg_pct_) &&
                          // 하단 무장: 실제로 arm%만큼 물려 본 적이 있어야 한다.
                          (exit_near_avg_arm_pct_ <= 0.0 ||
                           (trough_ > 0.0 && trough_ <= avg_px_ * (1.0 - exit_near_avg_arm_pct_))))
                 {
                     // 본전탈출 = "물린 보유분이 평단 근처까지 회복하면 재하락 전에 탈출".
-                    //  밴드: avg*(1-pct) ≤ px < avg. 상단 가드(px<avg)가 없으면 평단 위(수익)
+                    //  밴드: avg*(1-pct) ≤ price < avg. 상단 가드(price<avg)가 없으면 평단 위(수익)
                     //  포지션도 본전에서 청산돼 상방을 스스로 잘라먹는다 → 수익 구간은 seed-trail에 태운다.
                     hit = true;
                     why = " (본전탈출)";
@@ -276,20 +276,20 @@ public:
                 double trail_stop = peak_ * (1.0 - trail_pct_);
                 double hard_stop = entry_px_ * (1.0 - hard_pct_);
 
-                if (px <= trail_stop)
+                if (price <= trail_stop)
                 {
                     hit = true;
                     why = " (trail)";
                 }
-                else if (px <= hard_stop)
+                else if (price <= hard_stop)
                 {
                     hit = true;
                     why = " (hard)";
                 }
             }
 
-            // 평단 손절(opt-in, 보통 0=비활성) — 성격 무관 실제 손실률 초과 시 청산.
-            if (!hit && warm && avg_loss_pct_ > 0.0 && avg_px_ > 0.0 && px <= avg_px_ * (1.0 - avg_loss_pct_))
+            // 평단 손절(option-in, 보통 0=비활성) — 성격 무관 실제 손실률 초과 시 청산.
+            if (!hit && warm && avg_loss_pct_ > 0.0 && avg_px_ > 0.0 && price <= avg_px_ * (1.0 - avg_loss_pct_))
             {
                 hit = true;
                 why = " (평단손절)";
@@ -330,7 +330,7 @@ public:
                     position_is_seed_ = false;
                     SeedPeakStore::erase(ticker_);
                     exit_pending_ = false;
-                    cooldown_until_ = td.timestamp + std::chrono::seconds(cooldown_sec_);
+                    cooldown_until_ = trade.timestamp + std::chrono::seconds(cooldown_sec_);
                     have_cooldown_ = true;
                     return std::nullopt;
                 }
@@ -346,10 +346,10 @@ public:
                              " → " + std::to_string(sell_qty) + "주 (원장 기준, 보유 상태는 유지)");
                 }
 
-                auto sig = make_signal(OrderSide::SELL, sell_qty, px, td.timestamp,
+                auto signal = make_signal(OrderSide::SELL, sell_qty, price, trade.timestamp,
                                        std::string("청산") + why);
                 LOG_INFO("[ITB] SELL " + tag() + " qty=" + std::to_string(sell_qty) + " @" +
-                         px_str(px) + why);
+                         px_str(price) + why);
                 // 신호는 큐에 들어갈 뿐 접수·체결을 보장하지 않는다. 여기서 상태를 지우면 게이트에
                 //  튕긴 포지션이 어느 청산 경로에도 다시 잡히지 않는다. 확정 포지션이 0이 될 때까지
                 //  보유 상태를 유지한 채 백오프 재발주한다(exit_pending_tick).
@@ -359,7 +359,7 @@ public:
                 exit_next_retry_ = std::chrono::steady_clock::now() +
                                    std::chrono::seconds(exit_backoff_sec_);
                 exit_why_ = why;
-                return sig;
+                return signal;
             }
         }
 
@@ -367,46 +367,46 @@ public:
         if (cur_hhmm_ < 0)
         {
             cur_hhmm_ = hhmm;
-            cur_bucket_last_ = px;
+            cur_bucket_last_ = price;
             return std::nullopt;
         }
 
         if (hhmm == cur_hhmm_)
         {
-            cur_bucket_last_ = px; // 같은 버킷: 종가 갱신만
+            cur_bucket_last_ = price; // 같은 버킷: 종가 갱신만
             return std::nullopt;
         }
 
         // 버킷 롤오버: 직전 버킷 종가 확정
         double bucket_close = cur_bucket_last_;
-        std::optional<OrderSignal> sig;
+        std::optional<OrderSignal> signal;
 
         if (!in_position_ && is_active() && static_cast<int>(closes_.size()) >= channel_min_)
         {
             double hi_n = *std::max_element(closes_.begin(), closes_.end());
-            bool cooldown_ok = !have_cooldown_ || td.timestamp >= cooldown_until_;
+            bool cooldown_ok = !have_cooldown_ || trade.timestamp >= cooldown_until_;
             int no_entry_hhmm = (no_new_entry_hhmm_ > 0 ? no_new_entry_hhmm_ : eod_hhmm_);
             bool session_ok = hhmm < no_entry_hhmm; // 마감 임박 신규진입 금지
 
             if (cooldown_ok && session_ok && bucket_close > hi_n &&
                 bucket_close > anchor_px_ * (1.0 + eps_))
             {
-                int qty = entry_qty_;
+                int quantity = entry_qty_;
 
                 if (notional_per_position_ > 0.0 && bucket_close > 0.0)
                 {
-                    qty = std::max(1, static_cast<int>(std::floor(notional_per_position_ / bucket_close)));
+                    quantity = std::max(1, static_cast<int>(std::floor(notional_per_position_ / bucket_close)));
                 }
 
-                sig = make_signal(OrderSide::BUY, qty, bucket_close, td.timestamp,
+                signal = make_signal(OrderSide::BUY, quantity, bucket_close, trade.timestamp,
                                   "채널돌파 종가=" + px_str(bucket_close) + ">hiN=" + px_str(hi_n) +
                                   " 앵커=" + px_str(anchor_px_));
-                LOG_INFO("[ITB] BUY " + tag() + " qty=" + std::to_string(qty) + " @" +
+                LOG_INFO("[ITB] BUY " + tag() + " qty=" + std::to_string(quantity) + " @" +
                          px_str(bucket_close) + " (돌파 hiN=" + px_str(hi_n) + ")");
                 in_position_ = true;
                 position_is_seed_ = false; // 신규 진입분 — 타이트 스탑 적용
                 SeedPeakStore::erase(ticker_);
-                hold_qty_ = qty;
+                hold_qty_ = quantity;
                 entry_px_ = bucket_close;
                 peak_ = bucket_close;
             }
@@ -421,8 +421,8 @@ public:
         }
 
         cur_hhmm_ = hhmm;
-        cur_bucket_last_ = px;
-        return sig;
+        cur_bucket_last_ = price;
+        return signal;
     }
 
 private:
@@ -430,7 +430,7 @@ private:
     //  백오프를 되돌린다. 아니면 백오프 창이 지났을 때 같은 수량을 재발주한다.
     //  원장이 이 종목을 모르면(미시드) 0이 나와 곧바로 해제된다 — 예전 동작과 같다.
     //  체결 뒤 남은 재발주는 게이트가 안 잡고 브로커가 거부하므로 횟수 상한으로 스팸을 끊는다.
-    std::optional<OrderSignal> exit_pending_tick(double px, std::chrono::system_clock::time_point ts)
+    std::optional<OrderSignal> exit_pending_tick(double price, std::chrono::system_clock::time_point timestamp)
     {
         const int pos = confirmed_position("", ticker_); // make_signal의 account_id=""와 같은 키
         const auto now = std::chrono::steady_clock::now();
@@ -443,7 +443,7 @@ private:
             position_is_seed_ = false;
             SeedPeakStore::erase(ticker_);
             exit_pending_ = false;
-            cooldown_until_ = ts + std::chrono::seconds(cooldown_sec_);
+            cooldown_until_ = timestamp + std::chrono::seconds(cooldown_sec_);
             have_cooldown_ = true;
             return std::nullopt;
         }
@@ -474,38 +474,38 @@ private:
         }
 
         ++exit_retries_;
-        auto sig = make_signal(OrderSide::SELL, hold_qty_, px, ts,
+        auto signal = make_signal(OrderSide::SELL, hold_qty_, price, timestamp,
                                "청산 재발주#" + std::to_string(exit_retries_) + exit_why_);
         LOG_WARN("[ITB] SELL 재발주#" + std::to_string(exit_retries_) + " " + tag() + " qty=" +
-                 std::to_string(hold_qty_) + " @" + px_str(px) + exit_why_ + " 다음 " +
+                 std::to_string(hold_qty_) + " @" + px_str(price) + exit_why_ + " 다음 " +
                  std::to_string(exit_backoff_sec_) + "s");
         exit_next_retry_ = now + std::chrono::seconds(exit_backoff_sec_);
         exit_backoff_sec_ = std::min(exit_backoff_sec_ * 2, kExitBackoffMaxSec);
-        return sig;
+        return signal;
     }
 
-    OrderSignal make_signal(OrderSide side, int qty, double px,
-                            std::chrono::system_clock::time_point ts,
+    OrderSignal make_signal(OrderSide side, int quantity, double price,
+                            std::chrono::system_clock::time_point timestamp,
                             const std::string& reason = "")
     {
-        OrderSignal s;
-        s.ticker = ticker_;
-        s.sym    = sym_;
-        s.side = side;
-        s.type = OrderType::MARKET;
-        s.quantity = qty;
-        s.price = px; // MARKET은 미사용이나 로깅·명목 상한 계산·향후 LIMIT 대비
-        s.market = Market::KR;
-        s.strategy_id = id();
-        s.reason = reason; // G4: 판단 근거(돌파/청산 사유)를 신호에 실어 영속
-        s.timestamp = ts;
-        return s; // account_id="" (기본) — OrderGate 원장 시드 계좌키와 일치(C-1)
+        OrderSignal signal;
+        signal.ticker = ticker_;
+        signal.symbol_id    = symbol_id_;
+        signal.side = side;
+        signal.type = OrderType::MARKET;
+        signal.quantity = quantity;
+        signal.price = price; // MARKET은 미사용이나 로깅·명목 상한 계산·향후 LIMIT 대비
+        signal.market = Market::KR;
+        signal.strategy_id = id();
+        signal.reason = reason; // G4: 판단 근거(돌파/청산 사유)를 신호에 실어 영속
+        signal.timestamp = timestamp;
+        return signal; // account_id="" (기본) — OrderGate 원장 시드 계좌키와 일치(C-1)
     }
 
-    static std::string px_str(double v) { return std::to_string(static_cast<long long>(std::llround(v))); }
+    static std::string px_str(double value) { return std::to_string(static_cast<long long>(std::llround(value))); }
 
     std::string ticker_;
-    sym::SymbolId sym_ = sym::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
+    symbol::SymbolId symbol_id_ = symbol::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
     std::string name_; // 표시명(로깅 전용)
     int entry_qty_;   // 신규 돌파 진입 수량(명목 미지정 시 고정)
     int hold_qty_;    // 현재 보유수량(시드분 또는 진입분) — 매도 전량 기준

@@ -16,41 +16,41 @@ using ops::OpsMsg;
 namespace
 {
 
-CString from_utf8(const std::string& s)
+CString from_utf8(const std::string& text)
 {
-    if (s.empty())
+    if (text.empty())
     {
         return CString();
     }
 
-    const int n = ::MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
-    CString   r;
-    wchar_t*  p = r.GetBufferSetLength(n);
-    ::MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), p, n);
-    r.ReleaseBuffer(n);
-    return r;
+    const int count = ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    CString   raw;
+    wchar_t*  cursor = raw.GetBufferSetLength(count);
+    ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), cursor, count);
+    raw.ReleaseBuffer(count);
+    return raw;
 }
 
-std::string to_utf8(const CString& s)
+std::string to_utf8(const CString& text)
 {
-    if (s.IsEmpty())
+    if (text.IsEmpty())
     {
         return {};
     }
 
-    const int   n = ::WideCharToMultiByte(CP_UTF8, 0, s, s.GetLength(), nullptr, 0, nullptr, nullptr);
-    std::string r(static_cast<size_t>(n), '\0');
-    ::WideCharToMultiByte(CP_UTF8, 0, s, s.GetLength(), r.data(), n, nullptr, nullptr);
-    return r;
+    const int   count = ::WideCharToMultiByte(CP_UTF8, 0, text, text.GetLength(), nullptr, 0, nullptr, nullptr);
+    std::string raw(static_cast<size_t>(count), '\0');
+    ::WideCharToMultiByte(CP_UTF8, 0, text, text.GetLength(), raw.data(), count, nullptr, nullptr);
+    return raw;
 }
 
 CString now_hhmmss()
 {
-    SYSTEMTIME t;
-    ::GetLocalTime(&t);
-    CString s;
-    s.Format(L"%02d:%02d:%02d", t.wHour, t.wMinute, t.wSecond);
-    return s;
+    SYSTEMTIME systemtime;
+    ::GetLocalTime(&systemtime);
+    CString text;
+    text.Format(L"%02d:%02d:%02d", systemtime.wHour, systemtime.wMinute, systemtime.wSecond);
+    return text;
 }
 
 int64_t now_ms()
@@ -60,54 +60,54 @@ int64_t now_ms()
 }
 
 // 정수·실수 어느 쪽으로 와도 읽는다. 없으면 0.
-double num(const json& j, const char* key)
+double num(const json& document, const char* key)
 {
-    auto it = j.find(key);
+    auto iterator = document.find(key);
 
-    if (it == j.end() || !it->is_number())
+    if (iterator == document.end() || !iterator->is_number())
     {
         return 0.0;
     }
 
-    return it->get<double>();
+    return iterator->get<double>();
 }
 
-std::string str(const json& j, const char* key)
+std::string str(const json& document, const char* key)
 {
-    auto it = j.find(key);
-    return (it != j.end() && it->is_string()) ? it->get<std::string>() : std::string();
+    auto iterator = document.find(key);
+    return (iterator != document.end() && iterator->is_string()) ? iterator->get<std::string>() : std::string();
 }
 
-bool flag(const json& j, const char* key)
+bool flag(const json& document, const char* key)
 {
-    auto it = j.find(key);
-    return it != j.end() && it->is_boolean() && it->get<bool>();
+    auto iterator = document.find(key);
+    return iterator != document.end() && iterator->is_boolean() && iterator->get<bool>();
 }
 
-CString fmt_qty(double v)
+CString fmt_qty(double value)
 {
-    CString s;
-    s.Format(L"%lld", static_cast<long long>(v));
-    return s;
+    CString text;
+    text.Format(L"%lld", static_cast<long long>(value));
+    return text;
 }
 
-CString fmt_price(double v)
+CString fmt_price(double value)
 {
-    CString s;
-    s.Format(L"%.0f", v);
-    return s;
+    CString text;
+    text.Format(L"%.0f", value);
+    return text;
 }
 
-CString fmt_pct(double v)
+CString fmt_pct(double value)
 {
-    CString s;
-    s.Format(L"%+.2f%%", v);
-    return s;
+    CString text;
+    text.Format(L"%+.2f%%", value);
+    return text;
 }
 
-const wchar_t* state_text(LinkState s)
+const wchar_t* state_text(LinkState link_state)
 {
-    switch (s)
+    switch (link_state)
     {
     case LinkState::Connecting:
         return L"접속 중";
@@ -200,17 +200,17 @@ void OpsTerminalDlg::OnCancel()
     KillTimer(kStatusTimer);
     link_.stop();
 
-    MSG m;
+    MSG msg;
 
-    while (::PeekMessage(&m, m_hWnd, WM_OPS_FRAME, WM_OPS_STATE, PM_REMOVE))
+    while (::PeekMessage(&msg, m_hWnd, WM_OPS_FRAME, WM_OPS_STATE, PM_REMOVE))
     {
-        if (m.message == WM_OPS_FRAME)
+        if (msg.message == WM_OPS_FRAME)
         {
-            delete reinterpret_cast<ops::Frame*>(m.lParam);
+            delete reinterpret_cast<ops::Frame*>(msg.lParam);
         }
-        else if (m.message == WM_OPS_STATE)
+        else if (msg.message == WM_OPS_STATE)
         {
-            delete reinterpret_cast<OpsStateMsg*>(m.lParam);
+            delete reinterpret_cast<OpsStateMsg*>(msg.lParam);
         }
     }
 
@@ -287,10 +287,10 @@ void OpsTerminalDlg::OnSellAll()
 
 void OpsTerminalDlg::OnKill()
 {
-    const int r = MessageBox(L"킬스위치를 켜고 엔진을 내린다. 남은 주문은 나가지 않는다.\n\n진행할까?", L"킬스위치",
+    const int result = MessageBox(L"킬스위치를 켜고 엔진을 내린다. 남은 주문은 나가지 않는다.\n\n진행할까?", L"킬스위치",
                              MB_YESNO | MB_DEFBUTTON2 | MB_ICONWARNING);
 
-    if (r != IDYES)
+    if (result != IDYES)
     {
         return;
     }
@@ -331,10 +331,10 @@ void OpsTerminalDlg::OnPositionSelected(NMHDR* hdr, LRESULT* result)
 
 LRESULT OpsTerminalDlg::OnOpsState(WPARAM, LPARAM lp)
 {
-    std::unique_ptr<OpsStateMsg> m(reinterpret_cast<OpsStateMsg*>(lp));
-    state_ = m->state;
-    SetDlgItemText(IDC_LINK_STATE, CString(state_text(state_)) + L" — " + from_utf8(m->detail));
-    log(CString(L"[링크] ") + state_text(state_) + L": " + from_utf8(m->detail));
+    std::unique_ptr<OpsStateMsg> ops_state_msg(reinterpret_cast<OpsStateMsg*>(lp));
+    state_ = ops_state_msg->state;
+    SetDlgItemText(IDC_LINK_STATE, CString(state_text(state_)) + L" — " + from_utf8(ops_state_msg->detail));
+    log(CString(L"[링크] ") + state_text(state_) + L": " + from_utf8(ops_state_msg->detail));
 
     if (state_ == LinkState::Ready)
     {
@@ -359,35 +359,35 @@ LRESULT OpsTerminalDlg::OnOpsState(WPARAM, LPARAM lp)
 
 LRESULT OpsTerminalDlg::OnOpsFrame(WPARAM, LPARAM lp)
 {
-    std::unique_ptr<ops::Frame> f(reinterpret_cast<ops::Frame*>(lp));
-    handle_frame(*f);
+    std::unique_ptr<ops::Frame> frame(reinterpret_cast<ops::Frame*>(lp));
+    handle_frame(*frame);
     return 0;
 }
 
-void OpsTerminalDlg::handle_frame(const ops::Frame& f)
+void OpsTerminalDlg::handle_frame(const ops::Frame& frame)
 {
-    json j;
+    json document;
 
-    if (!f.body.empty())
+    if (!frame.body.empty())
     {
-        j = json::parse(f.body, nullptr, false);
+        document = json::parse(frame.body, nullptr, false);
 
-        if (j.is_discarded())
+        if (document.is_discarded())
         {
-            log(CString(L"[수신] ") + from_utf8(ops::msg_name(f.type)) + L" 본문이 JSON이 아니다");
+            log(CString(L"[수신] ") + from_utf8(ops::msg_name(frame.type)) + L" 본문이 JSON이 아니다");
             return;
         }
     }
 
-    switch (static_cast<OpsMsg>(f.type))
+    switch (static_cast<OpsMsg>(frame.type))
     {
     case OpsMsg::WELCOME:
     {
-        auth_ = flag(j, "auth");
-        CString s;
-        s.Format(L"WELCOME engine=%s paper=%d auth=%d", from_utf8(str(j, "engine")).GetString(), flag(j, "paper") ? 1 : 0,
+        auth_ = flag(document, "auth");
+        CString text;
+        text.Format(L"WELCOME engine=%s paper=%d auth=%d", from_utf8(str(document, "engine")).GetString(), flag(document, "paper") ? 1 : 0,
                  auth_ ? 1 : 0);
-        log(s);
+        log(text);
 
         if (!auth_)
         {
@@ -399,11 +399,11 @@ void OpsTerminalDlg::handle_frame(const ops::Frame& f)
     }
 
     case OpsMsg::POSITIONS:
-        apply_positions(f.body);
+        apply_positions(frame.body);
         break;
 
     case OpsMsg::STATUS:
-        apply_status(f.body);
+        apply_status(frame.body);
         break;
 
     case OpsMsg::PONG:
@@ -411,39 +411,39 @@ void OpsTerminalDlg::handle_frame(const ops::Frame& f)
 
     case OpsMsg::ORDER_ACK:
     {
-        const std::string cid = str(j, "cid");
-        auto              it  = by_cid_.find(cid);
-        CString           who = it == by_cid_.end() ? from_utf8(cid)
-                                                    : from_utf8(it->second.ticker + " " + it->second.side + " " +
-                                                                std::to_string(it->second.qty));
-        log((flag(j, "accepted") ? L"[ACK] 인테이크 적재 " : L"[ACK] 거절 ") + who + L" — " + from_utf8(str(j, "msg")));
+        const std::string cid = str(document, "cid");
+        auto              iterator  = by_cid_.find(cid);
+        CString           who = iterator == by_cid_.end() ? from_utf8(cid)
+                                                    : from_utf8(iterator->second.ticker + " " + iterator->second.side + " " +
+                                                                std::to_string(iterator->second.quantity));
+        log((flag(document, "accepted") ? L"[ACK] 인테이크 적재 " : L"[ACK] 거절 ") + who + L" — " + from_utf8(str(document, "msg")));
         break;
     }
 
     case OpsMsg::ORDER_RESULT:
     {
-        const std::string cid  = str(j, "cid");
-        const std::string odno = str(j, "odno");
+        const std::string cid  = str(document, "cid");
+        const std::string kis_order_no = str(document, "odno");
 
-        if (!odno.empty() && !cid.empty())
+        if (!kis_order_no.empty() && !cid.empty())
         {
-            odno_to_cid_[odno] = cid;
+            odno_to_cid_[kis_order_no] = cid;
         }
 
         // 전략 주문 결과도 같은 채널로 오므로 내 주문(by_cid_에 있는 cid)은 표식을 붙여 구분한다 —
         //  09-11 첫 운용에서 거절 한 줄이 전략 [결과] 줄에 묻혀 안 보였다.
         const bool mine = !cid.empty() && by_cid_.count(cid) > 0;
-        CString    s;
-        s.Format(L"%s[결과] %s %s %s %lld주 %s odno=%s %s", mine ? L"★내 주문 " : L"",
-                 flag(j, "ok") ? L"접수" : L"거절", from_utf8(str(j, "strategy")).GetString(),
-                 from_utf8(str(j, "ticker")).GetString(), static_cast<long long>(num(j, "qty")),
-                 from_utf8(str(j, "side")).GetString(), from_utf8(odno).GetString(),
-                 from_utf8(str(j, "msg")).GetString());
-        log(s);
+        CString    text;
+        text.Format(L"%s[결과] %s %s %s %lld주 %s odno=%s %s", mine ? L"★내 주문 " : L"",
+                 flag(document, "ok") ? L"접수" : L"거절", from_utf8(str(document, "strategy")).GetString(),
+                 from_utf8(str(document, "ticker")).GetString(), static_cast<long long>(num(document, "qty")),
+                 from_utf8(str(document, "side")).GetString(), from_utf8(kis_order_no).GetString(),
+                 from_utf8(str(document, "msg")).GetString());
+        log(text);
 
         if (mine)
         {
-            SetDlgItemText(IDC_LAST_RESULT, s);
+            SetDlgItemText(IDC_LAST_RESULT, text);
         }
 
         break;
@@ -451,27 +451,27 @@ void OpsTerminalDlg::handle_frame(const ops::Frame& f)
 
     case OpsMsg::FILL:
     {
-        const std::string odno = str(j, "odno");
-        auto              it   = odno_to_cid_.find(odno);
-        CString           s;
-        s.Format(L"[체결] %s %s %lld주 @%s odno=%s%s", from_utf8(str(j, "ticker")).GetString(),
-                 from_utf8(str(j, "side")).GetString(), static_cast<long long>(num(j, "qty")),
-                 fmt_price(num(j, "price")).GetString(), from_utf8(odno).GetString(),
-                 it == odno_to_cid_.end() ? L"" : (L" ← 내 주문 " + from_utf8(it->second)).GetString());
-        log(s);
+        const std::string kis_order_no = str(document, "odno");
+        auto              iterator   = odno_to_cid_.find(kis_order_no);
+        CString           text;
+        text.Format(L"[체결] %s %s %lld주 @%s odno=%s%s", from_utf8(str(document, "ticker")).GetString(),
+                 from_utf8(str(document, "side")).GetString(), static_cast<long long>(num(document, "qty")),
+                 fmt_price(num(document, "price")).GetString(), from_utf8(kis_order_no).GetString(),
+                 iterator == odno_to_cid_.end() ? L"" : (L" ← 내 주문 " + from_utf8(iterator->second)).GetString());
+        log(text);
         break;
     }
 
     case OpsMsg::KILL_ACK:
-        log((flag(j, "ok") ? L"[KILL] 확인 — " : L"[KILL] 거절 — ") + from_utf8(str(j, "msg")));
+        log((flag(document, "ok") ? L"[KILL] 확인 — " : L"[KILL] 거절 — ") + from_utf8(str(document, "msg")));
         break;
 
     case OpsMsg::ERROR_MSG:
-        log(L"[서버 오류] " + from_utf8(str(j, "msg")));
+        log(L"[서버 오류] " + from_utf8(str(document, "msg")));
         break;
 
     default:
-        log(CString(L"[수신] 알 수 없는 타입 ") + from_utf8(ops::msg_name(f.type)));
+        log(CString(L"[수신] 알 수 없는 타입 ") + from_utf8(ops::msg_name(frame.type)));
         break;
     }
 }
@@ -480,11 +480,11 @@ void OpsTerminalDlg::handle_frame(const ops::Frame& f)
 // 표에서 종목 행의 현재가를 읽는다. 행이 없거나 틱이 없던 종목(0)이면 0.
 double OpsTerminalDlg::last_in_table(const CString& ticker) const
 {
-    for (int i = 0; i < positions_.GetItemCount(); ++i)
+    for (int item_index = 0; item_index < positions_.GetItemCount(); ++item_index)
     {
-        if (positions_.GetItemText(i, kColTicker) == ticker)
+        if (positions_.GetItemText(item_index, kColTicker) == ticker)
         {
-            return _wtof(positions_.GetItemText(i, kColLast));
+            return _wtof(positions_.GetItemText(item_index, kColLast));
         }
     }
 
@@ -504,11 +504,11 @@ void OpsTerminalDlg::refresh_cur_price()
 // 표에서 종목 행의 매도가능을 읽는다. 행이 없으면 -1.
 int OpsTerminalDlg::sellable_in_table(const CString& ticker) const
 {
-    for (int i = 0; i < positions_.GetItemCount(); ++i)
+    for (int item_index = 0; item_index < positions_.GetItemCount(); ++item_index)
     {
-        if (positions_.GetItemText(i, kColTicker) == ticker)
+        if (positions_.GetItemText(item_index, kColTicker) == ticker)
         {
-            return _wtoi(positions_.GetItemText(i, kColSellable));
+            return _wtoi(positions_.GetItemText(item_index, kColSellable));
         }
     }
 
@@ -517,9 +517,9 @@ int OpsTerminalDlg::sellable_in_table(const CString& ticker) const
 
 void OpsTerminalDlg::apply_positions(const std::string& body)
 {
-    json j = json::parse(body, nullptr, false);
+    json document = json::parse(body, nullptr, false);
 
-    if (j.is_discarded() || !j.contains("positions") || !j["positions"].is_array())
+    if (document.is_discarded() || !document.contains("positions") || !document["positions"].is_array())
     {
         return;
     }
@@ -529,9 +529,9 @@ void OpsTerminalDlg::apply_positions(const std::string& body)
     //  붙이고, 사라진 종목만 지운다. 선택·스크롤은 컨트롤이 그대로 갖고 있다.
     std::unordered_map<std::wstring, int> row_of;
 
-    for (int i = 0; i < positions_.GetItemCount(); ++i)
+    for (int item_index = 0; item_index < positions_.GetItemCount(); ++item_index)
     {
-        row_of[positions_.GetItemText(i, kColTicker).GetString()] = i;
+        row_of[positions_.GetItemText(item_index, kColTicker).GetString()] = item_index;
     }
 
     auto set_cell = [this](int row, int col, const CString& text)
@@ -545,33 +545,33 @@ void OpsTerminalDlg::apply_positions(const std::string& body)
     std::unordered_set<std::wstring> seen;
     positions_.SetRedraw(FALSE);
 
-    for (const auto& p : j["positions"])
+    for (const auto& position_node : document["positions"])
     {
-        const double qty      = num(p, "qty");
-        const double reserved = num(p, "reserved");
+        const double quantity      = num(position_node, "qty");
+        const double reserved = num(position_node, "reserved");
         const double sell_pending = reserved < 0 ? -reserved : 0;
-        const double sellable     = qty - sell_pending > 0 ? qty - sell_pending : 0;
-        const double avg      = num(p, "avg_price");
-        const double last     = num(p, "last");
-        const CString ticker  = from_utf8(str(p, "ticker"));
+        const double sellable     = quantity - sell_pending > 0 ? quantity - sell_pending : 0;
+        const double avg      = num(position_node, "avg_price");
+        const double last     = num(position_node, "last");
+        const CString ticker  = from_utf8(str(position_node, "ticker"));
         seen.insert(ticker.GetString());
 
-        auto it  = row_of.find(ticker.GetString());
-        int  row = it != row_of.end() ? it->second : -1;
+        auto iterator  = row_of.find(ticker.GetString());
+        int  row = iterator != row_of.end() ? iterator->second : -1;
 
         if (row < 0)
         {
-            row = positions_.InsertItem(positions_.GetItemCount(), from_utf8(str(p, "account")));
+            row = positions_.InsertItem(positions_.GetItemCount(), from_utf8(str(position_node, "account")));
             positions_.SetItemText(row, kColTicker, ticker);
             row_of[ticker.GetString()] = row;
         }
         else
         {
-            set_cell(row, kColAccount, from_utf8(str(p, "account")));
+            set_cell(row, kColAccount, from_utf8(str(position_node, "account")));
         }
 
-        set_cell(row, kColName, from_utf8(str(p, "name")));
-        set_cell(row, kColQty, fmt_qty(qty));
+        set_cell(row, kColName, from_utf8(str(position_node, "name")));
+        set_cell(row, kColQty, fmt_qty(quantity));
         set_cell(row, kColAvg, fmt_price(avg));
         set_cell(row, kColLast, last > 0 ? fmt_price(last) : CString(L"—"));
         set_cell(row, kColChg, last > 0 && avg > 0 ? fmt_pct((last - avg) / avg * 100.0) : CString(L"—"));
@@ -580,11 +580,11 @@ void OpsTerminalDlg::apply_positions(const std::string& body)
     }
 
     // 뒤에서부터 지워야 앞 행의 인덱스가 밀리지 않는다.
-    for (int i = positions_.GetItemCount() - 1; i >= 0; --i)
+    for (int index = positions_.GetItemCount() - 1; index >= 0; --index)
     {
-        if (seen.count(positions_.GetItemText(i, kColTicker).GetString()) == 0)
+        if (seen.count(positions_.GetItemText(index, kColTicker).GetString()) == 0)
         {
-            positions_.DeleteItem(i);
+            positions_.DeleteItem(index);
         }
     }
 
@@ -595,27 +595,27 @@ void OpsTerminalDlg::apply_positions(const std::string& body)
 
 void OpsTerminalDlg::apply_status(const std::string& body)
 {
-    json j = json::parse(body, nullptr, false);
+    json document = json::parse(body, nullptr, false);
 
-    if (j.is_discarded())
+    if (document.is_discarded())
     {
         return;
     }
 
-    CString s;
-    s.Format(L"엔진 상태: running=%d data=%d signal=%d order=%d | kill=%d entry_halt=%d force_liq=%d | paper=%d",
-             flag(j, "running") ? 1 : 0, flag(j, "data") ? 1 : 0, flag(j, "signal") ? 1 : 0, flag(j, "order") ? 1 : 0,
-             flag(j, "kill") ? 1 : 0, flag(j, "entry_halt") ? 1 : 0, flag(j, "force_liq") ? 1 : 0,
-             flag(j, "paper") ? 1 : 0);
+    CString text;
+    text.Format(L"엔진 상태: running=%d data=%d signal=%d order=%d | kill=%d entry_halt=%d force_liq=%d | paper=%d",
+             flag(document, "running") ? 1 : 0, flag(document, "data") ? 1 : 0, flag(document, "signal") ? 1 : 0, flag(document, "order") ? 1 : 0,
+             flag(document, "kill") ? 1 : 0, flag(document, "entry_halt") ? 1 : 0, flag(document, "force_liq") ? 1 : 0,
+             flag(document, "paper") ? 1 : 0);
 
-    if (j.contains("strategies") && j["strategies"].is_array())
+    if (document.contains("strategies") && document["strategies"].is_array())
     {
-        CString n;
-        n.Format(L" | 전략 %d개", static_cast<int>(j["strategies"].size()));
-        s += n;
+        CString name;
+        name.Format(L" | 전략 %d개", static_cast<int>(document["strategies"].size()));
+        text += name;
     }
 
-    SetDlgItemText(IDC_ENGINE_STATE, s);
+    SetDlgItemText(IDC_ENGINE_STATE, text);
 }
 
 // 확인 대화상자 한 번을 거쳐 ORDER_REQ를 보낸다. 거절·결과는 프레임으로 돌아와 로그에 남는다.
@@ -630,10 +630,10 @@ void OpsTerminalDlg::place_order(const char* side)
     CString ticker;
     GetDlgItemText(IDC_TICKER, ticker);
     ticker.Trim();
-    const int qty   = static_cast<int>(GetDlgItemInt(IDC_QTY));
+    const int quantity   = static_cast<int>(GetDlgItemInt(IDC_QTY));
     const int price = static_cast<int>(GetDlgItemInt(IDC_PRICE));
 
-    if (ticker.GetLength() != 6 || qty <= 0 || price < 0)
+    if (ticker.GetLength() != 6 || quantity <= 0 || price < 0)
     {
         MessageBox(L"종목코드 6자리와 1 이상의 수량이 필요하다.", L"운영단말", MB_ICONWARNING);
         return;
@@ -643,7 +643,7 @@ void OpsTerminalDlg::place_order(const char* side)
     const double last = last_in_table(ticker);
     CString      ask;
     ask.Format(L"%s %s %d주 %s (현재가 %s)\n\n엔진 게이트·브로커를 거쳐 실제로 나간다. 진행할까?", ticker.GetString(),
-               sell ? L"매도" : L"매수", qty, price == 0 ? L"시장가" : (L"지정가 " + fmt_price(price)).GetString(),
+               sell ? L"매도" : L"매수", quantity, price == 0 ? L"시장가" : (L"지정가 " + fmt_price(price)).GetString(),
                last > 0 ? fmt_price(last).GetString() : L"—");
 
     // 표가 아는 매도가능을 넘으면 미리 알린다 — 게이트는 어차피 거부하지만, 이유(미체결 매도가 잡고 있음)를
@@ -652,7 +652,7 @@ void OpsTerminalDlg::place_order(const char* side)
     {
         const int sellable = sellable_in_table(ticker);
 
-        if (sellable >= 0 && qty > sellable)
+        if (sellable >= 0 && quantity > sellable)
         {
             CString warn;
             warn.Format(L"\n\n표 기준 매도가능 %d주 — 미체결 매도 예약이 잡고 있으면 게이트가 거부한다.", sellable);
@@ -670,7 +670,7 @@ void OpsTerminalDlg::place_order(const char* side)
     req["cid"]       = cid;
     req["ticker"]    = to_utf8(ticker);
     req["side"]      = side;
-    req["qty"]       = qty;
+    req["qty"]       = quantity;
     req["price"]     = price;
     // 시장가(price 0)의 명목 한도 평가 기준가. 표의 현재가를 찍고, 없으면 0으로 두어 엔진이 자기 최근가·평단으로 채운다.
     req["ref_price"] = last;
@@ -682,8 +682,8 @@ void OpsTerminalDlg::place_order(const char* side)
         return;
     }
 
-    by_cid_[cid] = PendingOrder{to_utf8(ticker), side, qty};
-    log(L"[주문] 전송 " + from_utf8(cid) + L" " + ticker + (sell ? L" SELL " : L" BUY ") + fmt_qty(qty) +
+    by_cid_[cid] = PendingOrder{to_utf8(ticker), side, quantity};
+    log(L"[주문] 전송 " + from_utf8(cid) + L" " + ticker + (sell ? L" SELL " : L" BUY ") + fmt_qty(quantity) +
         (price == 0 ? CString(L" 시장가") : L" @" + fmt_price(price)));  // C++20 조건식은 양쪽 형식이 같아야 한다
 }
 
@@ -694,8 +694,8 @@ void OpsTerminalDlg::log(const CString& line)
         log_.DeleteString(0);
     }
 
-    const int idx = log_.AddString(now_hhmmss() + L"  " + line);
-    log_.SetTopIndex(idx);
+    const int index = log_.AddString(now_hhmmss() + L"  " + line);
+    log_.SetTopIndex(index);
 }
 
 void OpsTerminalDlg::set_order_enabled(bool on)

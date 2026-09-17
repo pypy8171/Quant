@@ -24,7 +24,7 @@ struct WatchSpec
     std::string exchange;      // US only: "NAS", "NYS"
     bool trade_only = false;   // true: H0STCNT0만 구독 (호가 제외, 구독 한도 절약)
     // true: 국내 선물 채널(H0IFCNT0 체결·H0IFASP0 호가)로 구독. market은 KR로 두되
-    // 이 플래그로 선물 tr_id를 고른다(주문/엔진 경로의 Market enum은 건드리지 않음).
+    // 이 플래그로 선물 transaction_id를 고른다(주문/엔진 경로의 Market enum은 건드리지 않음).
     bool is_future = false;
 };
 
@@ -33,7 +33,7 @@ struct WatchSpec
 // ─────────────────────────────────────────────────────────────────────────────
 struct MarketData
 {
-    sym::Ticker ticker; // 고정 배열 — 링을 memcpy로 지난다. 문자열은 ticker.str(). [why D-071]
+    symbol::Ticker ticker; // 고정 배열 — 링을 memcpy로 지난다. 문자열은 ticker.str(). [why D-071]
     double close = 0.0;
     double open = 0.0;
     double high = 0.0;
@@ -42,7 +42,7 @@ struct MarketData
     Market market = Market::KR;
     std::chrono::system_clock::time_point timestamp; // 수신 시각 (KIS REST 응답 처리 시점, 거래소 체결 시각과 다를 수 있음)
     int bar_index = 0;
-    sym::SymbolId sym = sym::kNone; // 데이터 스레드가 SymbolTable로 찍는다. 0이면 배선이 빠진 경로. [why D-071]
+    symbol::SymbolId symbol_id = symbol::kNone; // 데이터 스레드가 SymbolTable로 찍는다. 0이면 배선이 빠진 경로. [why D-071]
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -61,14 +61,14 @@ public:
     };
 
     OrderSide() = default;
-    constexpr OrderSide(Value v) : value_(v) {}
+    constexpr OrderSide(Value value) : value_(value) {}
     constexpr operator Value() const { return value_; }
 
     // 체결·주문 로그의 "BUY"/"SELL" 문자열 → OrderSide. SELL이 아니면 BUY로 본다
     //  (기존 (s=="SELL")?SELL:BUY 관례 유지 — 오탈자·미지정도 BUY).
-    static OrderSide from_string(const std::string& s)
+    static OrderSide from_string(const std::string& text)
     {
-        return s == "SELL" ? OrderSide(SELL) : OrderSide(BUY);
+        return text == "SELL" ? OrderSide(SELL) : OrderSide(BUY);
     }
 
 private:
@@ -97,7 +97,7 @@ struct OrderSignal
     // 종목 id. 전략 스레드가 신호를 큐에 넣기 전에 ticker로 찍는다(emit_from). 0이면 배선이 빠진 경로.
     //  남은 문자열(ticker·strategy_id·client_oid·reason)은 신호가 틱보다 훨씬 드물고 KIS 전문·원장 CSV가
     //  문자열을 요구해 그대로 둔다 — 링 복사 비용은 test_strategy_router 5번이 잰다. [why D-071]
-    sym::SymbolId sym = sym::kNone;
+    symbol::SymbolId symbol_id = symbol::kNone;
     OrderSide side = OrderSide::NONE;
     OrderType type = OrderType::MARKET;
     int quantity = 0;
@@ -124,13 +124,13 @@ struct OrderSignal
 
     // ── 구간 시각 (steady_clock ns, 0=안 찍음) — 틱 수신·신호 생성 시각. 주문 스레드가 pop·완료 시각을 더해
     //  logs/latency_trace.csv 한 줄로 남긴다(core/LatencyTrace.h). [why D-071]
-    int64_t t_tick_ns   = 0;
-    int64_t t_signal_ns = 0;
+    int64_t tick_at_ns   = 0;
+    int64_t signal_at_ns = 0;
 
     // ── 신호 순번 (C-2) — 전략 스레드가 신호를 만들 때 단조 증가로 stamp. 0=미부여 ────────
-    // 게이트 거부·라우터 접수·체결·원장 CSV(`seq` 열)가 이 번호를 그대로 물고 가므로
+    // 게이트 거부·라우터 접수·체결·원장 CSV(`sequence` 열)가 이 번호를 그대로 물고 가므로
     // 한 신호의 경로를 ODNO 없이도 잇는다(재기동 전 접수된 주문의 체결은 ODNO만 있어 0).
-    uint64_t seq = 0;
+    uint64_t sequence = 0;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -140,7 +140,7 @@ struct Position
 {
     std::string ticker;
     int quantity = 0;
-    double avg_price = 0.0;
+    double average_price = 0.0;
     double unrealized_pnl = 0.0;
 };
 
@@ -155,15 +155,15 @@ struct OrderBookLevel
 
 struct OrderBook
 {
-    sym::Ticker   ticker;           // 고정 배열 — 링을 memcpy로 지난다. 문자열은 ticker.str(). [why D-071]
-    sym::SymbolId sym = sym::kNone; // 수신 스레드가 SymbolTable로 찍는다. 0이면 배선이 빠진 경로. [why D-071]
+    symbol::Ticker   ticker;           // 고정 배열 — 링을 memcpy로 지난다. 문자열은 ticker.str(). [why D-071]
+    symbol::SymbolId symbol_id = symbol::kNone; // 수신 스레드가 SymbolTable로 찍는다. 0이면 배선이 빠진 경로. [why D-071]
     int32_t       hhmmss = 0;       // KST 호가 시각 정수(093001 → 93001). 0이면 모름. 디코더가 한 번 파싱한다. [why D-071]
     OrderBookLevel asks[5];
     OrderBookLevel bids[5];
     std::chrono::system_clock::time_point timestamp;
-    // 수신 스레드가 디코드 직후 찍는 steady_clock ns. 체결(TradeData.recv_ns)과 같은 시계라 채널이 달라도 도착 순서를
+    // 수신 스레드가 디코드 직후 찍는 steady_clock ns. 체결(TradeData.received_ns)과 같은 시계라 채널이 달라도 도착 순서를
     //  하나로 되돌릴 수 있다. 0은 "안 찍음". [why D-071]
-    int64_t recv_ns = 0;
+    int64_t received_ns = 0;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -171,8 +171,8 @@ struct OrderBook
 // ─────────────────────────────────────────────────────────────────────────────
 struct TradeData
 {
-    sym::Ticker   ticker;           // 고정 배열 — 링을 memcpy로 지난다. 문자열은 ticker.str(). [why D-071]
-    sym::SymbolId sym = sym::kNone; // 수신·폴러 스레드가 SymbolTable로 찍는다. 0이면 배선이 빠진 경로. [why D-071]
+    symbol::Ticker   ticker;           // 고정 배열 — 링을 memcpy로 지난다. 문자열은 ticker.str(). [why D-071]
+    symbol::SymbolId symbol_id = symbol::kNone; // 수신·폴러 스레드가 SymbolTable로 찍는다. 0이면 배선이 빠진 경로. [why D-071]
     int32_t       hhmmss = 0;       // KST 체결 시각 정수(093001 → 93001). 0이면 모름. 디코더가 한 번 파싱한다. [why D-071]
     double price = 0.0;
     int64_t quantity = 0;
@@ -181,10 +181,10 @@ struct TradeData
     std::chrono::system_clock::time_point timestamp;
     // 아래 둘은 국내 현물 체결(H0STCNT0)에만 있다. REST 폴링·선물·미국 틱은 0.
     double  strength = 0.0;   // 체결강도(CTTR, %) — 100 위면 매수 체결이 우세
-    int64_t acml_volume = 0;  // 당일 누적 거래량
-    // 수신 스레드가 디코드 직후 찍는 steady_clock ns(호가 OrderBook.recv_ns와 같은 시계). 구간 지연 측정의 출발점이고
+    int64_t accumulated_volume = 0;  // 당일 누적 거래량
+    // 수신 스레드가 디코드 직후 찍는 steady_clock ns(호가 OrderBook.received_ns와 같은 시계). 구간 지연 측정의 출발점이고
     //  0은 "안 찍음"(REST 대체 틱). [why D-071]
-    int64_t recv_ns = 0;
+    int64_t received_ns = 0;
 };
 
 // [inv] 틱·호가·봉은 trivially copyable — 링 push/pop이 memcpy고 문자열 할당이 hot path에 없다. [why D-071]
@@ -196,10 +196,10 @@ static_assert(std::is_trivially_copyable_v<TradeData> && std::is_trivially_copya
 // ─────────────────────────────────────────────────────────────────────────────
 struct FillNotification
 {
-    std::string odno;                              // KIS 주문번호 (ODNO)
+    std::string kis_order_no;                              // KIS 주문번호 (ODNO)
     std::string ticker;                            // 단축종목코드
     OrderSide   side        = OrderSide::NONE;
-    int         filled_qty  = 0;                   // 체결수량 (CNTG_QTY)
+    int         filled_quantity  = 0;                   // 체결수량 (CNTG_QTY)
     double      filled_price = 0.0;                // 체결단가 (CNTG_UNPR)
     std::string fill_time;                         // 체결시간 HHMMSS
     std::chrono::system_clock::time_point timestamp;
@@ -222,11 +222,11 @@ struct ManagedOrder
 {
     std::string   order_id;       // 내부 순번 ID  "ORD-000001"
     std::string   kis_order_no;   // KIS 접수번호  ODNO
-    std::string   krx_orgno;      // KRX_FWDG_ORD_ORGNO — 정정/취소 필수 입력 (원주문 조직번호). 빈값=미보존
+    std::string   krx_forwarding_org_no;      // KRX_FWDG_ORD_ORGNO — 정정/취소 필수 입력 (원주문 조직번호). 빈값=미보존
     OrderSignal   signal;
     OrderStatus   status{OrderStatus::PENDING};
     std::string   reject_reason;
-    int           confirmed_qty = 0; // 누적 체결 수량 (부분체결 추적)
+    int           confirmed_quantity = 0; // 누적 체결 수량 (부분체결 추적)
     std::chrono::system_clock::time_point submitted_at;
     std::chrono::system_clock::time_point updated_at;
 };
@@ -240,8 +240,8 @@ struct InvestorFlow
 {
     std::string date;             // "YYYYMMDD" (stck_bsop_date)
     int64_t     foreign_net = 0;  // 외국인 순매수 수량 (frgn_ntby_qty)
-    int64_t     inst_net    = 0;  // 기관 순매수 수량   (orgn_ntby_qty)
-    int64_t     indiv_net   = 0;  // 개인 순매수 수량   (prsn_ntby_qty)
+    int64_t     institution_net    = 0;  // 기관 순매수 수량   (orgn_ntby_qty)
+    int64_t     individual_net   = 0;  // 개인 순매수 수량   (prsn_ntby_qty)
     double      close       = 0.0;// 해당일 종가 (stck_clpr)
 };
 
@@ -257,15 +257,15 @@ struct Fundamentals
     double open = 0.0; // 시가
     double high = 0.0; // 고가
     double low = 0.0;  // 저가
-    double pbid = 0.0; // 매수호가
-    double pask = 0.0; // 매도호가
-    int64_t vbid = 0;  // 매수잔량
-    int64_t vask = 0;  // 매도잔량
+    double bid_price = 0.0; // 매수호가
+    double ask_price = 0.0; // 매도호가
+    int64_t bid_quantity = 0;  // 매수잔량
+    int64_t ask_quantity = 0;  // 매도잔량
     double diff = 0.0;         // 전일 대비
     double rate = 0.0;         // 등락율(%)
     double market_cap = 0.0;   // 시가총액 (억원)
-    double w52_high = 0.0;          // 52주 최고가(원). 0=미제공
-    double w52_high_dist_pct = 0.0; // 현재가의 52주고가 대비 등락률(%, 고가 아래면 음수)
+    double week52_high = 0.0;          // 52주 최고가(원). 0=미제공
+    double week52_high_distance_percent = 0.0; // 현재가의 52주고가 대비 등락률(%, 고가 아래면 음수)
     std::string sector_name;        // 업종명(KIS bstp_kor_isnm). 업종 분산·상관 캡용
 };
 
@@ -287,11 +287,11 @@ public:
     };
 
     Regime() = default;
-    constexpr Regime(Value v) : value_(v) {}
+    constexpr Regime(Value value) : value_(value) {}
     constexpr operator Value() const { return value_; }
 
     // 매칭 실패는 UNKNOWN — 호출자(parse_active_regimes)가 경고 로그로 판단한다.
-    static Regime from_string(const std::string& s)
+    static Regime from_string(const std::string& text)
     {
         static const std::unordered_map<std::string, Value> NAMES = {
             {"BULL", BULL},
@@ -299,8 +299,8 @@ public:
             {"BEAR", BEAR},
         };
 
-        auto it = NAMES.find(s);
-        return it != NAMES.end() ? Regime(it->second) : Regime(UNKNOWN);
+        auto iterator = NAMES.find(text);
+        return iterator != NAMES.end() ? Regime(iterator->second) : Regime(UNKNOWN);
     }
 
 private:
@@ -329,12 +329,12 @@ public:
     };
 
     StrategyType() = default;
-    constexpr StrategyType(Value v) : value_(v) {}
+    constexpr StrategyType(Value value) : value_(value) {}
     constexpr operator Value() const { return value_; }
 
     // config "type" 문자열 → StrategyType. 디스패치·로그 비교를 문자열이 아닌 enum값으로 하기 위함
     //  (hot path는 아니지만 오탈자 비교·string 해시를 매 로드마다 반복할 이유가 없다). 매칭 실패는 UNKNOWN.
-    static StrategyType from_string(const std::string& s)
+    static StrategyType from_string(const std::string& text)
     {
         static const std::unordered_map<std::string, Value> NAMES = {
             {"MA_CROSS", MA_CROSS},
@@ -349,8 +349,8 @@ public:
             {"THEME", THEME},
         };
 
-        auto it = NAMES.find(s);
-        return it != NAMES.end() ? StrategyType(it->second) : StrategyType(UNKNOWN);
+        auto iterator = NAMES.find(text);
+        return iterator != NAMES.end() ? StrategyType(iterator->second) : StrategyType(UNKNOWN);
     }
 
 private:
@@ -370,7 +370,7 @@ public:
     };
 
     Mode() = default;
-    constexpr Mode(Value v) : value_(v)
+    constexpr Mode(Value value) : value_(value)
     {
     }
 
@@ -381,19 +381,19 @@ public:
 
     // config/argv "mode" 문자열 → Mode. 모르는 값(과거 "TRADE" 포함)은 TRADE로 낙하 —
     //  기존 if/else 체인이 FEED/KR_TEST/US_TEST만 걸러내고 나머지를 TRADE 경로로 흘리던 것과 동일하다.
-    static Mode from_string(const std::string& s)
+    static Mode from_string(const std::string& text)
     {
-        if (s == "FEED")
+        if (text == "FEED")
         {
             return Mode(FEED);
         }
 
-        if (s == "KR_TEST")
+        if (text == "KR_TEST")
         {
             return Mode(KR_TEST);
         }
 
-        if (s == "US_TEST")
+        if (text == "US_TEST")
         {
             return Mode(US_TEST);
         }

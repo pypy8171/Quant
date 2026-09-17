@@ -29,21 +29,21 @@ int g_checks = 0;
 // 2027-01-15 08:00:00 UTC = KST 17:00:00.
 constexpr std::time_t kT0 = 1800000000;
 
-WatchSpec spec(const char* t, Market m = Market::KR, bool fut = false)
+WatchSpec spec(const char* ticker, Market market = Market::KR, bool fut = false)
 {
-    WatchSpec s;
-    s.ticker    = t;
-    s.market    = m;
-    s.is_future = fut;
-    return s;
+    WatchSpec spec;
+    spec.ticker    = ticker;
+    spec.market    = market;
+    spec.is_future = fut;
+    return spec;
 }
 
 int test_kst()
 {
-    CHECK(kst::ymd(kT0) == "20270115");
+    CHECK(kst::date_yyyymmdd(kT0) == "20270115");
     CHECK(kst::hhmmss(kT0) == "170000");
     CHECK(kst::hhmmss(kT0 + 7 * 3600 + 61) == "000101"); // UTC 15:01:01 = KST 다음날 00:01:01
-    CHECK(kst::ymd(kT0 + 7 * 3600 + 61) == "20270116");
+    CHECK(kst::date_yyyymmdd(kT0 + 7 * 3600 + 61) == "20270116");
     return 0;
 }
 
@@ -53,10 +53,10 @@ int test_pure()
     CHECK(!poller::same_spec(spec("A"), spec("A", Market::US)));
     CHECK(!poller::same_spec(spec("A"), spec("A", Market::KR, true)));
 
-    const auto ts = std::chrono::system_clock::now();
-    const auto td = poller::make_tick("005930", 71000.0, 93001, ts);
-    CHECK(td.ticker == "005930" && td.price == 71000.0 && td.hhmmss == 93001 && td.quantity == 0 &&
-          td.direction == 0 && td.market == Market::KR && td.timestamp == ts && td.strength == 0.0);
+    const auto timestamp = std::chrono::system_clock::now();
+    const auto trade = poller::make_tick("005930", 71000.0, 93001, timestamp);
+    CHECK(trade.ticker == "005930" && trade.price == 71000.0 && trade.hhmmss == 93001 && trade.quantity == 0 &&
+          trade.direction == 0 && trade.market == Market::KR && trade.timestamp == timestamp && trade.strength == 0.0);
 
     // 틱 없음·오래됨은 고르고, 신선한 것은 남긴다.
     const auto now    = std::chrono::steady_clock::now();
@@ -64,16 +64,16 @@ int test_pure()
     std::map<std::string, std::chrono::steady_clock::time_point> seen{{"FRESH", now - std::chrono::seconds(5)},
                                                                      {"OLD", now - std::chrono::seconds(120)}};
     const auto stale = poller::select_stale({"FRESH", "OLD", "NONE"},
-                                            [&](const std::string& t) -> std::optional<std::chrono::steady_clock::time_point>
+                                            [&](const std::string& ticker) -> std::optional<std::chrono::steady_clock::time_point>
                                             {
-                                                auto it = seen.find(t);
+                                                auto iterator = seen.find(ticker);
 
-                                                if (it == seen.end())
+                                                if (iterator == seen.end())
                                                 {
                                                     return std::nullopt;
                                                 }
 
-                                                return it->second;
+                                                return iterator->second;
                                             },
                                             cutoff);
     CHECK(stale.size() == 2 && stale[0] == "OLD" && stale[1] == "NONE");
@@ -84,27 +84,27 @@ int test_universe()
 {
     std::vector<std::string> asked;
     std::vector<TradeData>   out;
-    std::map<std::string, double> px{{"A", 100.0}, {"B", 0.0}, {"C", 300.0}};
-    DataPoller p(
-        [&](const std::string& t)
+    std::map<std::string, double> price{{"A", 100.0}, {"B", 0.0}, {"C", 300.0}};
+    DataPoller data_poller(
+        [&](const std::string& ticker)
         {
-            asked.push_back(t);
-            return px.count(t) ? px[t] : 0.0;
+            asked.push_back(ticker);
+            return price.count(ticker) ? price[ticker] : 0.0;
         },
-        [&](const TradeData& td) { out.push_back(td); });
-    p.set_universe_pacing(std::chrono::milliseconds(0));
+        [&](const TradeData& trade) { out.push_back(trade); });
+    data_poller.set_universe_pacing(std::chrono::milliseconds(0));
 
     // US spec은 건너뛰고, 현재가 0은 틱을 안 흘린다. 시각은 KST HHMMSS.
-    const int n = p.poll_universe({spec("A"), spec("US1", Market::US), spec("B"), spec("C")}, kT0);
-    CHECK(n == 2 && asked.size() == 3 && out.size() == 2);
+    const int count = data_poller.poll_universe({spec("A"), spec("US1", Market::US), spec("B"), spec("C")}, kT0);
+    CHECK(count == 2 && asked.size() == 3 && out.size() == 2);
     CHECK(out[0].ticker == "A" && out[0].price == 100.0 && out[0].hhmmss == 170000);
     CHECK(out[1].ticker == "C" && out[1].price == 300.0);
 
     // 종료 플래그가 내려가면 첫 종목 전에 끊는다.
     asked.clear();
     out.clear();
-    p.set_keep_going([] { return false; });
-    CHECK(p.poll_universe({spec("A")}, kT0) == 0 && asked.empty());
+    data_poller.set_keep_going([] { return false; });
+    CHECK(data_poller.poll_universe({spec("A")}, kT0) == 0 && asked.empty());
     return 0;
 }
 
@@ -113,18 +113,18 @@ int test_overflow()
     std::vector<std::string> asked;
     std::vector<TradeData>   out;
     double                   px_b = 0.0;
-    DataPoller p(
-        [&](const std::string& t)
+    DataPoller data_poller(
+        [&](const std::string& ticker)
         {
-            asked.push_back(t);
-            return t == "A" ? 100.0 : px_b;
+            asked.push_back(ticker);
+            return ticker == "A" ? 100.0 : px_b;
         },
-        [&](const TradeData& td) { out.push_back(td); });
-    p.set_universe_pacing(std::chrono::milliseconds(0));
+        [&](const TradeData& trade) { out.push_back(trade); });
+    data_poller.set_universe_pacing(std::chrono::milliseconds(0));
 
     // 등록: 같은 채널은 한 번만, 선물은 다른 채널.
-    CHECK(p.add_overflow(spec("A")) && !p.add_overflow(spec("A")) && p.add_overflow(spec("A", Market::KR, true)));
-    CHECK(p.overflow_count() == 2);
+    CHECK(data_poller.add_overflow(spec("A")) && !data_poller.add_overflow(spec("A")) && data_poller.add_overflow(spec("A", Market::KR, true)));
+    CHECK(data_poller.overflow_count() == 2);
 
     // WS에서 온 넘침도 합친다(중복은 무시). 재구독 전부 실패 → KR 현물만 REST, B는 0이라 틱 없음.
     int resub_calls = 0;
@@ -133,17 +133,17 @@ int test_overflow()
         ++resub_calls;
         return false;
     };
-    int n = p.poll_overflow({spec("A"), spec("B")}, never, kT0); // A·A(선물)은 100, B는 0
-    CHECK(p.overflow_count() == 3 && resub_calls == 3);
-    CHECK(n == 2 && out.size() == 2 && out[0].ticker == "A" && out[0].hhmmss == 170000 && out[1].ticker == "A");
+    int count = data_poller.poll_overflow({spec("A"), spec("B")}, never, kT0); // A·A(선물)은 100, B는 0
+    CHECK(data_poller.overflow_count() == 3 && resub_calls == 3);
+    CHECK(count == 2 && out.size() == 2 && out[0].ticker == "A" && out[0].hhmmss == 170000 && out[1].ticker == "A");
     CHECK(asked.size() == 3); // A·A(선물)·B — 선물도 market은 KR이라 REST를 물어본다(종전과 같다)
 
     // A만 재구독 성공 → 목록에서 빠지고 REST도 안 물어본다. B가 살아나면 틱이 나온다.
     asked.clear();
     out.clear();
     px_b = 50.0;
-    n = p.poll_overflow({}, [](const WatchSpec& s) { return s.ticker == "A" && !s.is_future; }, kT0);
-    CHECK(p.overflow_count() == 2 && n == 2);
+    count = data_poller.poll_overflow({}, [](const WatchSpec& spec) { return spec.ticker == "A" && !spec.is_future; }, kT0);
+    CHECK(data_poller.overflow_count() == 2 && count == 2);
     CHECK(out.size() == 2 && out[0].ticker == "A" && out[0].price == 100.0 && out[1].ticker == "B" &&
           out[1].price == 50.0);
     CHECK(asked.size() == 2 && asked[0] == "A" && asked[1] == "B");
@@ -157,16 +157,16 @@ int test_overflow()
 int test_top_up()
 {
     std::vector<std::pair<std::string, double>> got;
-    DataPoller p([](const std::string& t) { return t == "A" ? 100.0 : 0.0; }, [](const TradeData&) {});
-    p.set_top_up_pacing(std::chrono::milliseconds(0));
+    DataPoller data_poller([](const std::string& ticker) { return ticker == "A" ? 100.0 : 0.0; }, [](const TradeData&) {});
+    data_poller.set_top_up_pacing(std::chrono::milliseconds(0));
 
     // 실패(0)도 그대로 넘긴다 — 0을 버릴지는 받는 쪽(set_last_px)이 정한다. 틱은 흘리지 않는다.
-    const int n = p.top_up({"A", "B"}, [&](const std::string& t, double px) { got.emplace_back(t, px); });
-    CHECK(n == 2 && got.size() == 2 && got[0].first == "A" && got[0].second == 100.0 && got[1].second == 0.0);
+    const int count = data_poller.top_up({"A", "B"}, [&](const std::string& ticker, double price) { got.emplace_back(ticker, price); });
+    CHECK(count == 2 && got.size() == 2 && got[0].first == "A" && got[0].second == 100.0 && got[1].second == 0.0);
 
-    p.set_keep_going([] { return false; });
+    data_poller.set_keep_going([] { return false; });
     got.clear();
-    CHECK(p.top_up({"A"}, [&](const std::string& t, double px) { got.emplace_back(t, px); }) == 0 && got.empty());
+    CHECK(data_poller.top_up({"A"}, [&](const std::string& ticker, double price) { got.emplace_back(ticker, price); }) == 0 && got.empty());
     return 0;
 }
 } // namespace

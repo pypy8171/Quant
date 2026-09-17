@@ -37,7 +37,7 @@ struct alignas(64) MockOrderBook {
 	double   bid_price[5];        // 매수호가
 	int64_t  bid_qty[5];          // 매수잔량
 	int64_t  send_ts_ns;          // producer 송신 시각 (latency 측정용)
-	uint64_t seq;                 // 무결성 검증용 시퀀스 번호
+	uint64_t sequence;                 // 무결성 검증용 시퀀스 번호
 	char     padding[16];         // 200바이트 근접
 };
 static_assert(sizeof(MockOrderBook) >= 192, "OrderBook size check");
@@ -75,34 +75,34 @@ static void producer_fn(RingBuffer<MockOrderBook>& rb,
 	std::uniform_int_distribution<int> idle_us_dist(50, 500);
 
 	auto deadline = clk::now() + std::chrono::seconds(duration_sec);
-	uint64_t seq = 0;
+	uint64_t sequence = 0;
 	int ticker_idx = 0;
 
 	while (!stop_flag.load(std::memory_order_relaxed) && clk::now() < deadline) {
 		int burst = burst_dist(rng);
-		const char* tk = TICKERS[ticker_idx];
+		const char* ticker = TICKERS[ticker_idx];
 		ticker_idx = (ticker_idx + 1) % N_TICKERS;
 
-		for (int b = 0; b < burst; ++b) {
-			MockOrderBook ob{};
-			std::memcpy(ob.ticker, tk, 6);
-			ob.ticker[6] = '\0';
-			ob.seq = seq++;
+		for (int burst_index = 0; burst_index < burst; ++burst_index) {
+			MockOrderBook order_book{};
+			std::memcpy(order_book.ticker, ticker, 6);
+			order_book.ticker[6] = '\0';
+			order_book.sequence = sequence++;
 
-			for (int i = 0; i < 5; ++i) {
-				ob.ask_price[i] = 70000.0 + i * 10 + b;
-				ob.ask_qty[i] = 100 + i * 50;
-				ob.bid_price[i] = 69990.0 - i * 10 - b;
-				ob.bid_qty[i] = 100 + i * 50;
+			for (int index = 0; index < 5; ++index) {
+				order_book.ask_price[index] = 70000.0 + index * 10 + burst_index;
+				order_book.ask_qty[index] = 100 + index * 50;
+				order_book.bid_price[index] = 69990.0 - index * 10 - burst_index;
+				order_book.bid_qty[index] = 100 + index * 50;
 			}
 
-			ob.send_ts_ns = std::chrono::duration_cast<ns>(
+			order_book.send_ts_ns = std::chrono::duration_cast<ns>(
 				clk::now().time_since_epoch()).count();
 
 			// Push (가득 차면 재시도, 운영 환경에선 데이터 손실 옵션도 있음)
 			int retries = 0;
 
-			while (!rb.push(ob)) {
+			while (!rb.push(order_book)) {
 				if (++retries > 1000) {
 					stats.push_failed.fetch_add(1, std::memory_order_relaxed);
 					break;
@@ -130,34 +130,34 @@ static void consumer_fn(RingBuffer<MockOrderBook>& rb,
 	Stats& stats,
 	std::atomic<bool>& stop_flag)
 {
-	uint64_t expected_seq[6] = { 0, 0, 0, 0, 0, 0 };  // 종목별 seq
-	auto ticker_idx = [](const char* tk) -> int {
-		if (std::strcmp(tk, "005930") == 0)
+	uint64_t expected_seq[6] = { 0, 0, 0, 0, 0, 0 };  // 종목별 sequence
+	auto ticker_idx = [](const char* ticker) -> int {
+		if (std::strcmp(ticker, "005930") == 0)
 		{
 		    return 0;
 		}
 
-		if (std::strcmp(tk, "000660") == 0)
+		if (std::strcmp(ticker, "000660") == 0)
 		{
 		    return 1;
 		}
 
-		if (std::strcmp(tk, "005380") == 0)
+		if (std::strcmp(ticker, "005380") == 0)
 		{
 		    return 2;
 		}
 
-		if (std::strcmp(tk, "035720") == 0)
+		if (std::strcmp(ticker, "035720") == 0)
 		{
 		    return 3;
 		}
 
-		if (std::strcmp(tk, "051910") == 0)
+		if (std::strcmp(ticker, "051910") == 0)
 		{
 		    return 4;
 		}
 
-		if (std::strcmp(tk, "006400") == 0)
+		if (std::strcmp(ticker, "006400") == 0)
 		{
 		    return 5;
 		}
@@ -168,9 +168,9 @@ static void consumer_fn(RingBuffer<MockOrderBook>& rb,
 	stats.latencies_ns.reserve(10'000'000);
 
 	while (!stop_flag.load(std::memory_order_relaxed) || !rb.empty()) {
-		auto opt = rb.pop();
+		auto option = rb.pop();
 
-		if (!opt) {
+		if (!option) {
 			std::this_thread::sleep_for(std::chrono::microseconds(10));
 			continue;
 		}
@@ -178,7 +178,7 @@ static void consumer_fn(RingBuffer<MockOrderBook>& rb,
 		// Latency 측정
 		int64_t now_ns = std::chrono::duration_cast<ns>(
 			clk::now().time_since_epoch()).count();
-		int64_t latency = now_ns - opt->send_ts_ns;
+		int64_t latency = now_ns - option->send_ts_ns;
 
 		if (latency >= 0)
 		{
@@ -186,7 +186,7 @@ static void consumer_fn(RingBuffer<MockOrderBook>& rb,
 		}
 
 		// 데이터 무결성 (호가가 음수면 손상)
-		if (opt->ask_price[0] < 0 || opt->bid_price[0] < 0) {
+		if (option->ask_price[0] < 0 || option->bid_price[0] < 0) {
 			stats.data_errors.fetch_add(1, std::memory_order_relaxed);
 		}
 
@@ -195,9 +195,9 @@ static void consumer_fn(RingBuffer<MockOrderBook>& rb,
 		// 전략 계산 시뮬레이션 (간단한 work)
 		volatile double sink = 0.0;
 
-		for (int i = 0; i < 5; ++i) {
-			sink = sink + opt->ask_price[i] * opt->ask_qty[i];
-			sink = sink + opt->bid_price[i] * opt->bid_qty[i];
+		for (int index = 0; index < 5; ++index) {
+			sink = sink + option->ask_price[index] * option->ask_qty[index];
+			sink = sink + option->bid_price[index] * option->bid_qty[index];
 		}
 
 		(void)sink;
@@ -207,22 +207,22 @@ static void consumer_fn(RingBuffer<MockOrderBook>& rb,
 // ─────────────────────────────────────────────────────────────────
 // Latency 분위수 출력
 // ─────────────────────────────────────────────────────────────────
-static void print_latency_stats(std::vector<int64_t>& v) {
-	if (v.empty()) {
+static void print_latency_stats(std::vector<int64_t>& values) {
+	if (values.empty()) {
 		std::cout << "  (no latency samples)\n";
 		return;
 	}
 
-	std::sort(v.begin(), v.end());
-	auto pct = [&](double p) {
-		size_t idx = static_cast<size_t>(v.size() * p);
+	std::sort(values.begin(), values.end());
+	auto pct = [&](double price) {
+		size_t index = static_cast<size_t>(values.size() * price);
 
-		if (idx >= v.size()) 
+		if (index >= values.size()) 
 		{
-			idx = v.size() - 1;
+			index = values.size() - 1;
 		}
 
-		return v[idx];
+		return values[index];
 		};
 	auto fmt = [](int64_t ns) -> std::string {
 		if (ns < 1000)
@@ -241,7 +241,7 @@ static void print_latency_stats(std::vector<int64_t>& v) {
 		<< "  p90:  " << fmt(pct(0.90)) << "\n"
 		<< "  p99:  " << fmt(pct(0.99)) << "\n"
 		<< "  p999: " << fmt(pct(0.999)) << "\n"
-		<< "  max:  " << fmt(v.back()) << "\n";
+		<< "  max:  " << fmt(values.back()) << "\n";
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -273,7 +273,7 @@ int main(int argc, char** argv) {
 	Stats stats;
 	std::atomic<bool> stop_flag{ false };
 
-	auto t0 = clk::now();
+	auto start_time = clk::now();
 
 	std::thread prod(producer_fn, std::ref(rb), std::ref(stats),
 		std::ref(stop_flag), duration);
@@ -281,10 +281,10 @@ int main(int argc, char** argv) {
 		std::ref(stop_flag));
 
 	// 진행 상황 표시 (5초마다)
-	while (clk::now() - t0 < std::chrono::seconds(duration)) {
+	while (clk::now() - start_time < std::chrono::seconds(duration)) {
 		std::this_thread::sleep_for(std::chrono::seconds(5));
 		auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-			clk::now() - t0).count();
+			clk::now() - start_time).count();
 		std::cout << "  [t+" << std::setw(4) << elapsed << "s] "
 			<< "produced=" << stats.produced.load()
 			<< " consumed=" << stats.consumed.load()
@@ -297,7 +297,7 @@ int main(int argc, char** argv) {
 	cons.join();
 
 	auto t1 = clk::now();
-	auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+	auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - start_time).count();
 
 	// ─── 결과 ─────────────────────────────────────────────────────
 	std::cout << "\n=== Results ===\n";

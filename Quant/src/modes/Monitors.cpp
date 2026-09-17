@@ -41,38 +41,38 @@ static const std::map<std::string, std::string> TICKER_NAMES = {{"005380", "현�
                                                                 {"000660", "SK하이닉"}, {"402340", "SK스퀘어"},
                                                                 {"006400", "삼성SDI "}, {"009150", "삼성전기"}};
 
-static std::string fmt_int_comma(long long v, int width, const std::string& empty)
+static std::string fmt_int_comma(long long value, int width, const std::string& empty)
 {
-    if (v <= 0)
+    if (value <= 0)
     {
         return empty;
     }
 
-    std::string s = std::to_string(v);
-    std::string r;
-    int cnt = 0;
+    std::string text = std::to_string(value);
+    std::string raw;
+    int count = 0;
 
-    for (int i = static_cast<int>(s.size()) - 1; i >= 0; --i)
+    for (int index = static_cast<int>(text.size()) - 1; index >= 0; --index)
     {
-        if (cnt > 0 && cnt % 3 == 0)
+        if (count > 0 && count % 3 == 0)
         {
-            r = "," + r;
+            raw = "," + raw;
         }
 
-        r = s[i] + r;
-        ++cnt;
+        raw = text[index] + raw;
+        ++count;
     }
 
-    while (static_cast<int>(r.size()) < width)
+    while (static_cast<int>(raw.size()) < width)
     {
-        r = " " + r;
+        raw = " " + raw;
     }
 
-    return r;
+    return raw;
 }
 
-static std::string fmt_price(double v) { return fmt_int_comma(static_cast<long long>(v), 8, "       -"); }
-static std::string fmt_qty(int64_t v)  { return fmt_int_comma(v, 7, "      -"); }
+static std::string fmt_price(double value) { return fmt_int_comma(static_cast<long long>(value), 8, "       -"); }
+static std::string fmt_qty(int64_t value)  { return fmt_int_comma(value, 7, "      -"); }
 
 static std::string fmt_time_hms(int32_t hhmmss)
 {
@@ -81,19 +81,19 @@ static std::string fmt_time_hms(int32_t hhmmss)
         return "--:--:--";
     }
 
-    const std::string t = krx::hhmmss_str(hhmmss);
-    return t.substr(0, 2) + ":" + t.substr(2, 2) + ":" + t.substr(4, 2);
+    const std::string ticker = krx::hhmmss_str(hhmmss);
+    return ticker.substr(0, 2) + ":" + ticker.substr(2, 2) + ":" + ticker.substr(4, 2);
 }
 
 // 체결 방향(TradeData.direction, KIS 부호와 동일): 1=매수우위(상승) ▲, 5=매도우위(하락) ▼.
-static std::string dir_str(int d)
+static std::string dir_str(int days)
 {
-    if (d == 1)
+    if (days == 1)
     {
         return "\xE2\x96\xB2"; // UTF-8 ▲
     }
 
-    if (d == 5)
+    if (days == 5)
     {
         return "\xE2\x96\xBC"; // UTF-8 ▼
     }
@@ -102,7 +102,7 @@ static std::string dir_str(int d)
 }
 
 // ─── 1초마다 콘솔에 시세 표시 ────────────────────────────────────────────
-static void print_feed(const std::vector<std::string>& tickers, std::mutex& mtx,
+static void print_feed(const std::vector<std::string>& tickers, std::mutex& mutex,
                        const std::map<std::string, OrderBook>& ob_cache,
                        const std::map<std::string, TradeData>& td_cache)
 {
@@ -113,12 +113,12 @@ static void print_feed(const std::vector<std::string>& tickers, std::mutex& mtx,
     auto now = std::chrono::system_clock::now();
     auto tt = std::chrono::system_clock::to_time_t(now);
     const struct tm tm_info = kst::to_tm(tt);
-    char tbuf[32];
-    std::strftime(tbuf, sizeof(tbuf), "%H:%M:%S", &tm_info);
+    char time_buffer[32];
+    std::strftime(time_buffer, sizeof(time_buffer), "%H:%M:%S", &tm_info);
 
-    std::cout << "══════════════════════════ 실시간 시세 [" << tbuf << " KST] ══════════════════════════\n\n";
+    std::cout << "══════════════════════════ 실시간 시세 [" << time_buffer << " KST] ══════════════════════════\n\n";
 
-    std::lock_guard<std::mutex> lk(mtx);
+    std::lock_guard<std::mutex> lock(mutex);
 
     for (const auto& ticker : tickers)
     {
@@ -148,25 +148,25 @@ static void print_feed(const std::vector<std::string>& tickers, std::mutex& mtx,
 
         if (ob_it != ob_cache.end())
         {
-            const auto& ob = ob_it->second;
+            const auto& order_book = ob_it->second;
 
             // 매도5↔매수1, 매도4↔매수2, ..., 매도1↔매수5
-            for (int i = 4; i >= 0; --i)
+            for (int index = 4; index >= 0; --index)
             {
                 // 매도: asks[i] (i=4이 가장 멀리, i=0이 최우선)
                 // 매수: bids[4-i] (최우선매수가 위, 멀수록 아래)
-                int j = 4 - i;
-                std::cout << "    매도" << (i + 1) << ": " << fmt_price(ob.asks[i].price) << " ("
-                          << fmt_qty(ob.asks[i].quantity) << ")"
+                int inner_index = 4 - index;
+                std::cout << "    매도" << (index + 1) << ": " << fmt_price(order_book.asks[index].price) << " ("
+                          << fmt_qty(order_book.asks[index].quantity) << ")"
                           << "  │  "
-                          << "매수" << (j + 1) << ": " << fmt_price(ob.bids[j].price) << " ("
-                          << fmt_qty(ob.bids[j].quantity) << ")"
+                          << "매수" << (inner_index + 1) << ": " << fmt_price(order_book.bids[inner_index].price) << " ("
+                          << fmt_qty(order_book.bids[inner_index].quantity) << ")"
                           << "\n";
             }
         }
         else
         {
-            for (int i = 0; i < 5; ++i)
+            for (int index = 0; index < 5; ++index)
             {
                 std::cout << "    (데이터 수신 대기...)                     \n";
             }
@@ -193,22 +193,22 @@ int run_feed(const KisConfig& kis_cfg, const std::vector<std::string>& tickers,
 
     KisWebSocket ws(kis_cfg);
     ws.set_callbacks(
-        [&](const OrderBook& ob)
+        [&](const OrderBook& order_book)
         {
-            std::lock_guard<std::mutex> lk(cache_mtx);
-            ob_cache[ob.ticker.str()] = ob;
+            std::lock_guard<std::mutex> lock(cache_mtx);
+            ob_cache[order_book.ticker.str()] = order_book;
         },
-        [&](const TradeData& td)
+        [&](const TradeData& trade)
         {
-            std::lock_guard<std::mutex> lk(cache_mtx);
-            td_cache[td.ticker.str()] = td;
+            std::lock_guard<std::mutex> lock(cache_mtx);
+            td_cache[trade.ticker.str()] = trade;
         });
 
     std::vector<WatchSpec> specs;
 
-    for (const auto& t : tickers)
+    for (const auto& ticker : tickers)
     {
-        specs.push_back({t, Market::KR, ""});
+        specs.push_back({ticker, Market::KR, ""});
     }
 
     // 국내 선물 — H0IFCNT0 체결·H0IFASP0 호가. 실계좌 WS 도메인 전용(모의 미지원)이라
@@ -273,8 +273,8 @@ int run_feed(const KisConfig& kis_cfg, const std::vector<std::string>& tickers,
 int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
 {
     // UTF-8 유틸 — utils/Utf8.h 참조
-    auto utf8_pad_right = [](const std::string& s, int t) { return utf8::pad_right(s, t); };
-    auto utf8_trunc     = [](const std::string& s, int m) { return utf8::trunc(s, m); };
+    auto utf8_pad_right = [](const std::string& text, int time_value) { return utf8::pad_right(text, time_value); };
+    auto utf8_trunc     = [](const std::string& text, int row) { return utf8::trunc(text, row); };
 
     KisClient kis(kis_cfg);
 
@@ -309,56 +309,56 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
 
         double sum = 0.0;
 
-        for (int i = 0; i < period; ++i)
+        for (int period_index = 0; period_index < period; ++period_index)
         {
-            sum += bars[i].close;
+            sum += bars[period_index].close;
         }
 
         return sum / period;
     };
 
     // 시가총액(억원) → 콤팩트 문자열 (543210억→"54.3조", 12345억→"1.2조", 500억→"500억")
-    auto fmt_cap = [](double v) -> std::string
+    auto fmt_cap = [](double value) -> std::string
     {
-        if (v <= 0)
+        if (value <= 0)
         {
             return "    --";
         }
 
-        char buf[16];
+        char buffer[16];
 
-        if (v >= 10000.0)
+        if (value >= 10000.0)
         {
-            snprintf(buf, sizeof(buf), "%.1f조", v / 10000.0);
+            snprintf(buffer, sizeof(buffer), "%.1f조", value / 10000.0);
         }
         else
         {
-            snprintf(buf, sizeof(buf), "%.0f억", v);
+            snprintf(buffer, sizeof(buffer), "%.0f억", value);
         }
 
-        return buf;
+        return buffer;
     };
 
     // MA값 → 콤팩트 문자열 (283250→"283K", 1900000→"1.9M")
-    auto fmt_ma = [](double v) -> std::string
+    auto fmt_ma = [](double value) -> std::string
     {
-        if (v <= 0)
+        if (value <= 0)
         {
             return "   --";
         }
 
-        char buf[16];
+        char buffer[16];
 
-        if (v >= 1'000'000.0)
+        if (value >= 1'000'000.0)
         {
-            snprintf(buf, sizeof(buf), "%.1fM", v / 1'000'000.0);
+            snprintf(buffer, sizeof(buffer), "%.1fM", value / 1'000'000.0);
         }
         else
         {
-            snprintf(buf, sizeof(buf), "%.0fK", v / 1'000.0);
+            snprintf(buffer, sizeof(buffer), "%.0fK", value / 1'000.0);
         }
 
-        return buf;
+        return buffer;
     };
 
     // KOSPI 시가총액 상위 20 고정 목록 (KIS 랭킹 API가 거래량 기준이라 직접 정의)
@@ -402,39 +402,39 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
     // 모든 종목 합쳐서 순서대로 로드
     std::vector<std::pair<std::string, std::string>> all_stocks;
 
-    for (const auto& s : KR_TOP20)
+    for (const auto& top20_entry : KR_TOP20)
     {
-        all_stocks.push_back(s);
+        all_stocks.push_back(top20_entry);
     }
 
-    for (const auto& s : KR_WATCH)
+    for (const auto& watch_entry : KR_WATCH)
     {
-        all_stocks.push_back(s);
+        all_stocks.push_back(watch_entry);
     }
 
     for (const auto& [code, name] : all_stocks)
     {
-        auto f = kis.get_fundamentals(code);
+        auto fundamentals = kis.get_fundamentals(code);
         auto bars = kis.get_daily_ohlcv(code, 65); // MA60 계산용
 
         StockPrice sp;
         sp.ticker = code;
         sp.name = name;
-        sp.price = f.last;
-        sp.change = f.diff;
-        sp.change_rate = f.rate;
-        sp.base_price = (f.diff != 0.0) ? f.last - f.diff : f.last;
-        sp.pbr = f.pbr;
-        sp.per = f.per;
+        sp.price = fundamentals.last;
+        sp.change = fundamentals.diff;
+        sp.change_rate = fundamentals.rate;
+        sp.base_price = (fundamentals.diff != 0.0) ? fundamentals.last - fundamentals.diff : fundamentals.last;
+        sp.pbr = fundamentals.pbr;
+        sp.per = fundamentals.per;
         sp.ma5        = calc_ma(bars, 5);
         sp.ma10       = calc_ma(bars, 10);
         sp.ma20       = calc_ma(bars, 20);
         sp.ma60       = calc_ma(bars, 60);
-        sp.market_cap = f.market_cap;
+        sp.market_cap = fundamentals.market_cap;
         std::cout << "  " << code << " " << name << " 완료\n";
         std::cout.flush();
         {
-            std::lock_guard<std::mutex> lk(cache_mtx);
+            std::lock_guard<std::mutex> lock(cache_mtx);
             cache[code] = sp;
             display_order.push_back(code);
         }
@@ -455,36 +455,36 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
 
     KisWebSocket ws(kis_cfg);
     ws.set_callbacks([](const OrderBook&) {},
-                     [&](const TradeData& td)
+                     [&](const TradeData& trade)
                      {
                          auto now = std::chrono::system_clock::now();
                          auto tt = std::chrono::system_clock::to_time_t(now);
                          const struct tm tmi = kst::to_tm(tt);
-                         char tbuf[16];
-                         std::strftime(tbuf, sizeof(tbuf), "%H:%M:%S", &tmi);
+                         char time_buffer[16];
+                         std::strftime(time_buffer, sizeof(time_buffer), "%H:%M:%S", &tmi);
 
-                         std::lock_guard<std::mutex> lk(cache_mtx);
-                         auto it = cache.find(td.ticker.str());
+                         std::lock_guard<std::mutex> lock(cache_mtx);
+                         auto iterator = cache.find(trade.ticker.str());
 
-                         if (it == cache.end())
+                         if (iterator == cache.end())
                          {
                              return;
                          }
 
-                         auto& sp = it->second;
-                         sp.price = td.price;
-                         sp.direction = td.direction;
+                         auto& sp = iterator->second;
+                         sp.price = trade.price;
+                         sp.direction = trade.direction;
                          sp.change = sp.price - sp.base_price;
                          sp.change_rate = (sp.base_price > 0) ? sp.change / sp.base_price * 100.0 : 0.0;
-                         sp.updated = tbuf;
+                         sp.updated = time_buffer;
 #ifdef HAS_ZMQ
-                         zmq_br->publish_trade(td);
+                         zmq_br->publish_trade(trade);
 #endif
                      });
 
     std::vector<WatchSpec> specs;
     {
-        std::lock_guard<std::mutex> lk(cache_mtx);
+        std::lock_guard<std::mutex> lock(cache_mtx);
 
         for (const auto& code : display_order)
         {
@@ -514,7 +514,7 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
 
                     auto ip = kis.get_index_price(code);
                     {
-                        std::lock_guard<std::mutex> lk(idx_mtx);
+                        std::lock_guard<std::mutex> lock(idx_mtx);
                         idx_cache[code] = {ip, true};
                     }
 
@@ -523,7 +523,7 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
 
                 // 지수 3종 조회(각 300ms) 뒤 약 4.7초 대기 → 폴링 주기 대략 5초.
                 // 종료 신호에 빨리 반응하도록 100ms 단위로 쪼갠다(47회 × 100ms = 4.7초).
-                for (int i = 0; i < 47 && running.load(); ++i)
+                for (int index = 0; index < 47 && running.load(); ++index)
                 {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 }
@@ -542,7 +542,7 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
                           : sp.change < 0 ? "\033[34m"
                                           : "";
         const char* rst = "\033[0m";
-        const char* arr = sp.change > 0   ? "\xE2\x96\xB2"
+        const char* array = sp.change > 0   ? "\xE2\x96\xB2"
                           : sp.change < 0 ? "\xE2\x96\xBC"
                                           : " ";
         std::string disp_name = utf8_pad_right(utf8_trunc(sp.name, 10), 10);
@@ -554,7 +554,7 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
         char ln[512];
         snprintf(ln, sizeof(ln),
                  "%2d  %-6s  %s  %s%9.0f  %s %+8.0f  %+6.2f%%%s  %4.2f  %5.1f  %6s  %5s %5s %5s %5s  %s",
-                 rank, code.c_str(), disp_name.c_str(), col, sp.price, arr, sp.change, sp.change_rate, rst,
+                 rank, code.c_str(), disp_name.c_str(), col, sp.price, array, sp.change, sp.change_rate, rst,
                  sp.pbr, sp.per, scap.c_str(), s5.c_str(), s10.c_str(), s20.c_str(), s60.c_str(),
                  sp.updated.empty() ? "--:--:--" : sp.updated.c_str());
         return std::string(ln);
@@ -562,10 +562,10 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
 
     while (running.load())
     {
-        std::map<std::string, StockPrice> snap;
+        std::map<std::string, StockPrice> snapshot;
         {
-            std::lock_guard<std::mutex> lk(cache_mtx);
-            snap = cache;
+            std::lock_guard<std::mutex> lock(cache_mtx);
+            snapshot = cache;
         }
 
         // 출력할 모든 줄을 벡터로 수집 후 한 번에 출력
@@ -574,15 +574,15 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
         auto now2 = std::chrono::system_clock::now();
         auto tt2 = std::chrono::system_clock::to_time_t(now2);
         const struct tm tmi2 = kst::to_tm(tt2);
-        char hbuf[32];
-        std::strftime(hbuf, sizeof(hbuf), "%H:%M:%S", &tmi2);
+        char header_buffer[32];
+        std::strftime(header_buffer, sizeof(header_buffer), "%H:%M:%S", &tmi2);
 
         // 헤더 + 지수 (2줄)
         {
-            char h[160];
-            snprintf(h, sizeof(h), "══ KR 실시간 시세 [%s KST] %s ══", hbuf,
+            char character[160];
+            snprintf(character, sizeof(character), "══ KR 실시간 시세 [%s KST] %s ══", header_buffer,
                      ws_ok ? "[WS:연결]" : "[WS:끊김]");
-            lines.push_back(h);
+            lines.push_back(character);
         }
 
         {
@@ -591,26 +591,26 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
 
             for (const auto& [code, name] : INDICES)
             {
-                auto it = idx_cache.find(code);
+                auto iterator = idx_cache.find(code);
 
-                if (it == idx_cache.end() || !it->second.loaded)
+                if (iterator == idx_cache.end() || !iterator->second.loaded)
                 {
                     idx_line += name + ":조회중  ";
                     continue;
                 }
 
-                const auto& ip = it->second.data;
+                const auto& ip = iterator->second.data;
                 // KIS 전일대비 부호(sign): 1=상한, 2=상승, 3=보합, 4=하한, 5=하락.
                 // 상승계열(1·2)=빨강↑, 하락계열(4·5)=파랑↓, 보합(3)=색 없음.
                 const char* col = (ip.sign == 1 || ip.sign == 2)   ? "\033[31m"
                                   : (ip.sign == 4 || ip.sign == 5) ? "\033[34m"
                                                                     : "";
                 const char* rst = "\033[0m";
-                const char* arr = (ip.sign == 1 || ip.sign == 2)   ? "\xE2\x96\xB2"
+                const char* array = (ip.sign == 1 || ip.sign == 2)   ? "\xE2\x96\xB2"
                                   : (ip.sign == 4 || ip.sign == 5) ? "\xE2\x96\xBC"
                                                                     : " ";
                 char seg[120];
-                snprintf(seg, sizeof(seg), "%s:%s%.2f%s%+.2f(%+.2f%%)%s  ", name.c_str(), col, ip.price, arr,
+                snprintf(seg, sizeof(seg), "%s:%s%.2f%s%+.2f(%+.2f%%)%s  ", name.c_str(), col, ip.price, array,
                          ip.change, ip.change_rate, rst);
                 idx_line += seg;
             }
@@ -622,40 +622,40 @@ int run_kr_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
         lines.push_back("\033[90m── KOSPI 시총 상위 20 " + std::string(50, '-') + "\033[0m");
         lines.push_back(" #  code    name            price         chg     chg%   PBR    PER     cap    MA5  MA10  MA20  MA60      time");
 
-        for (size_t i = 0; i < KR_TOP20.size(); ++i)
+        for (size_t kr_top20_index = 0; kr_top20_index < KR_TOP20.size(); ++kr_top20_index)
         {
-            const auto& code = KR_TOP20[i].first;
-            auto it = snap.find(code);
+            const auto& code = KR_TOP20[kr_top20_index].first;
+            auto iterator = snapshot.find(code);
 
-            if (it == snap.end())
+            if (iterator == snapshot.end())
             {
                 char tmp[64];
-                snprintf(tmp, sizeof(tmp), "%2zu  %s  (로딩 중...)", i + 1, code.c_str());
+                snprintf(tmp, sizeof(tmp), "%2zu  %s  (로딩 중...)", kr_top20_index + 1, code.c_str());
                 lines.push_back(tmp);
             }
             else
             {
-                lines.push_back(stock_row(static_cast<int>(i + 1), code, it->second));
+                lines.push_back(stock_row(static_cast<int>(kr_top20_index + 1), code, iterator->second));
             }
         }
 
         // ── 관심 종목 (구분선만, 헤더 재사용) ────────────────────────
         lines.push_back("\033[90m── 관심 종목 " + std::string(59, '-') + "\033[0m");
 
-        for (size_t i = 0; i < KR_WATCH.size(); ++i)
+        for (size_t kr_watch_index = 0; kr_watch_index < KR_WATCH.size(); ++kr_watch_index)
         {
-            const auto& code = KR_WATCH[i].first;
-            auto it = snap.find(code);
+            const auto& code = KR_WATCH[kr_watch_index].first;
+            auto iterator = snapshot.find(code);
 
-            if (it == snap.end())
+            if (iterator == snapshot.end())
             {
                 char tmp[64];
-                snprintf(tmp, sizeof(tmp), "%2zu  %s  (로딩 중...)", i + 1, code.c_str());
+                snprintf(tmp, sizeof(tmp), "%2zu  %s  (로딩 중...)", kr_watch_index + 1, code.c_str());
                 lines.push_back(tmp);
             }
             else
             {
-                lines.push_back(stock_row(static_cast<int>(i + 1), code, it->second));
+                lines.push_back(stock_row(static_cast<int>(kr_watch_index + 1), code, iterator->second));
             }
         }
 
@@ -741,25 +741,25 @@ int run_us_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
 
             while (running.load())
             {
-                for (const auto& [sym, name] : M7)
+                for (const auto& [ticker, name] : M7)
                 {
                     if (!running.load())
                     {
                         break;
                     }
 
-                    auto f = kis.get_us_fundamentals(sym, "NAS");
-                    auto bars = kis.get_us_daily_ohlcv(sym, 5, "NAS");
+                    auto us_fundamentals = kis.get_us_fundamentals(ticker, "NAS");
+                    auto bars = kis.get_us_daily_ohlcv(ticker, 5, "NAS");
 
                     auto now = std::chrono::system_clock::now();
                     auto tt = std::chrono::system_clock::to_time_t(now);
                     const struct tm tmi = kst::to_tm(tt);
-                    char tbuf[16];
-                    std::strftime(tbuf, sizeof(tbuf), "%H:%M:%S", &tmi);
+                    char time_buffer[16];
+                    std::strftime(time_buffer, sizeof(time_buffer), "%H:%M:%S", &tmi);
 
                     {
-                        std::lock_guard<std::mutex> lk(cache_mtx);
-                        cache[sym] = {f, bars, tbuf};
+                        std::lock_guard<std::mutex> lock(cache_mtx);
+                        cache[ticker] = {us_fundamentals, bars, time_buffer};
                     }
 
                     // KIS rate limit: 종목당 최소 200ms 간격
@@ -778,10 +778,10 @@ int run_us_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
         auto now = std::chrono::system_clock::now();
         auto tt = std::chrono::system_clock::to_time_t(now);
         const struct tm tm_info = kst::to_tm(tt);
-        char tbuf[32];
-        std::strftime(tbuf, sizeof(tbuf), "%H:%M:%S", &tm_info);
+        char time_buffer[32];
+        std::strftime(time_buffer, sizeof(time_buffer), "%H:%M:%S", &tm_info);
 
-        std::cout << "══════════ M7 미국주식 시세 [" << tbuf << " KST] ══════════\n";
+        std::cout << "══════════ M7 미국주식 시세 [" << time_buffer << " KST] ══════════\n";
         std::cout << std::fixed << std::setprecision(0);
         std::cout << "  국내 삼성전자: ";
 
@@ -796,52 +796,52 @@ int run_us_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
 
         std::cout << "\n\n";
 
-        std::lock_guard<std::mutex> lk(cache_mtx);
+        std::lock_guard<std::mutex> lock(cache_mtx);
 
         bool any_ok = false;
 
-        for (const auto& [sym, name] : M7)
+        for (const auto& [ticker, name] : M7)
         {
-            auto it = cache.find(sym);
+            auto iterator = cache.find(ticker);
 
-            std::cout << "  [" << name << " / " << sym << "]";
+            std::cout << "  [" << name << " / " << ticker << "]";
 
-            if (it != cache.end())
+            if (iterator != cache.end())
             {
-                std::cout << "  갱신: " << it->second.updated;
+                std::cout << "  갱신: " << iterator->second.updated;
             }
 
             std::cout << "\n";
 
-            if (it == cache.end())
+            if (iterator == cache.end())
             {
                 std::cout << "    (조회 중...)\n\n";
                 continue;
             }
 
-            const auto& f = it->second.fund;
-            const auto& bars = it->second.bars;
+            const auto& fund = iterator->second.fund;
+            const auto& bars = iterator->second.bars;
 
-            if (f.last > 0.0)
+            if (fund.last > 0.0)
             {
                 any_ok = true;
-                std::string dir = (f.rate > 0) ? "▲" : (f.rate < 0 ? "▼" : "-");
-                std::cout << std::setprecision(2) << "    현재가: $" << f.last << " " << dir << std::showpos
-                          << std::setprecision(2) << f.rate << "%"
-                          << " (" << f.diff << ")\n"
+                std::string dir = (fund.rate > 0) ? "▲" : (fund.rate < 0 ? "▼" : "-");
+                std::cout << std::setprecision(2) << "    현재가: $" << fund.last << " " << dir << std::showpos
+                          << std::setprecision(2) << fund.rate << "%"
+                          << " (" << fund.diff << ")\n"
                           << std::noshowpos;
 
-                if (f.open > 0.0)
+                if (fund.open > 0.0)
                 {
-                    std::cout << "    시가: $" << f.open << "  고가: $" << f.high << "  저가: $" << f.low << "\n";
+                    std::cout << "    시가: $" << fund.open << "  고가: $" << fund.high << "  저가: $" << fund.low << "\n";
                 }
 
-                if (f.pbid > 0.0 || f.pask > 0.0)
+                if (fund.bid_price > 0.0 || fund.ask_price > 0.0)
                 {
-                    std::cout << "    매수호가: $" << f.pbid << "  매도호가: $" << f.pask << "\n";
+                    std::cout << "    매수호가: $" << fund.bid_price << "  매도호가: $" << fund.ask_price << "\n";
                 }
 
-                std::cout << std::setprecision(1) << "    PER=" << f.per << "  PBR=" << f.pbr << "\n";
+                std::cout << std::setprecision(1) << "    PER=" << fund.per << "  PBR=" << fund.pbr << "\n";
             }
             else
             {
@@ -852,9 +852,9 @@ int run_us_test(const KisConfig& kis_cfg, const std::atomic<bool>& running)
             {
                 std::cout << "    일봉:";
 
-                for (const auto& b : bars)
+                for (const auto& bar : bars)
                 {
-                    std::cout << "  $" << std::setprecision(2) << b.close;
+                    std::cout << "  $" << std::setprecision(2) << bar.close;
                 }
 
                 if (bars.size() >= 4)

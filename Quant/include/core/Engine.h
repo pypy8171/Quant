@@ -42,8 +42,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Engine  —  퀀트 트레이딩 엔진
 //
-//  [데이터 스레드]  KIS REST 일봉·대체 틱   → bars_mx·td_mx (행렬의 데이터 스레드 행)
-//  [샤드 스레드 m]  ob_mx + td_mx + bars_mx 열 m → 전략 → shard_out
+//  [데이터 스레드]  KIS REST 일봉·대체 틱   → bars_matrix·trade_matrix (행렬의 데이터 스레드 행)
+//  [샤드 스레드 m]  order_book_matrix + trade_matrix + bars_matrix 열 m → 전략 → shard_out
 //  [전략 스레드]    shard_out + 수동주문 → 디스패처(순번·슬롯·교체) → order_queue
 //  [주문 스레드]    order_queue → KIS REST 주문 (KR/US 자동 분기)
 //
@@ -65,33 +65,33 @@ public:
     void add_strategy(std::unique_ptr<StrategyBase> strategy);
 
     // 직전 추가된 전략에 활성 국면 설정 (main.cpp config 파싱용)
-    void set_last_active_regimes(const std::vector<Regime>& r)
+    void set_last_active_regimes(const std::vector<Regime>& last_active_regimes)
     {
-        if (!strat_.list.empty())
+        if (!strategy_.list.empty())
         {
-            strat_.list.back()->set_active_regimes(r);
+            strategy_.list.back()->set_active_regimes(last_active_regimes);
         }
     }
 
-    size_t strategy_count() const { return strat_.list.size(); }
+    size_t strategy_count() const { return strategy_.list.size(); }
 
     // ── 피드 설정(스레드 시작 전에만) ───────────────────────────────────────
     // 실시간 체결가는 원래 WebSocket으로 받지만, WS 세션이 rt_cd=9(ALREADY IN USE, 중복접속)로
     // 폭주할 때의 우회책이다. true면 DataThread가 REST get_current_price(현재가 조회)를 주기적으로
-    // 폴링해 그 값을 TradeData(체결 틱)처럼 td_mx의 데이터 스레드 행에 넣고, WS 연결은 생략한다. ITB 전략이
+    // 폴링해 그 값을 TradeData(체결 틱)처럼 trade_matrix의 데이터 스레드 행에 넣고, WS 연결은 생략한다. ITB 전략이
     // 이 틱으로 구동된다(ITB = IntradayBreakoutStrategy, 장중 돌파 전략).
-    void set_rest_price_feed(bool b) { feed_.rest_price_feed = b; }
+    void set_rest_price_feed(bool rest_price_feed) { feed_.rest_price_feed = rest_price_feed; }
 
     // WS 틱·호가 캡처 폴더(빈 문자열이면 끔). 기동마다 ticks_<UTC시각>.bin 하나. REST 대체 틱은 raw 피드가
     //  아니라 캡처하지 않는다. [why D-071]
     void set_capture_dir(const std::string& dir) { feed_.capture_dir = dir; }
 
     // 전략 샤드 수(config `strategy_shards`, 기본 1). 스레드 시작 전에만. 전략 하나가 여러 샤드에 걸치면 start()가 1로 내린다.
-    void set_strategy_shards(uint32_t m) { pipeline_.strategy_shards = m == 0 ? 1u : m; }
+    void set_strategy_shards(uint32_t strategy_shards) { pipeline_.strategy_shards = strategy_shards == 0 ? 1u : strategy_shards; }
 
     // WS 소켓을 하나 더 연다(KIS는 app_key당 실시간 1세션이라 키가 하나 더 있어야 한다). 하나라도 있으면 기본 키와
     //  함께 FeedMux로 묶여 종목이 소켓들에 나뉜다 — 구독 상한(kMaxWsSubs)이 소켓 수만큼 는다. 리플레이 중엔 무시. [why D-071]
-    void add_feed_config(const KisConfig& c) { feed_.extra_feed_cfgs.push_back(c); }
+    void add_feed_config(const KisConfig& kis_config) { feed_.extra_feed_cfgs.push_back(kis_config); }
 
     // 캡처 파일 리플레이(빈 문자열이면 WS). WS 자리에 ReplaySource가 들어가 같은 콜백으로 틱·호가를 되돌린다.
     //  speed 0은 최대 속도, 1은 캡처 간격. set_feed_source와 같이 KisClient를 만들지 않는다 — 인증·계좌 없이 파일과
@@ -117,25 +117,25 @@ public:
     // 프로그램을 재시작하면 OrderGate 원장이 0으로 비는데, 실계좌엔 이미 보유분이 남아있다.
     // get_balance(잔고조회)로 종목·수량·평단을 읽어 원장에 심어(seed) 실제와 장부를 맞춘다
     // (안 맞으면 매도수량·평단·손실한도 계산이 어긋난다). main이 config로 켠다.
-    void set_bootstrap_ledger(bool b) { bootstrap_ledger_ = b; }
+    void set_bootstrap_ledger(bool bootstrap_ledger) { bootstrap_ledger_ = bootstrap_ledger; }
 
     // 기동 스모크 테스트(smoke test: 전원 켜서 최소한 도는지 보는 점검) — 서버 실행 직후 지정
     //  종목을 시장가로 딱 1회 매수해 주문 경로 전체(OrderRouter→체결통보→원장)가 살아있는지
-    //  확인한다. qty≤0 또는 ticker 빈 문자열이면 미가동.
+    //  확인한다. quantity≤0 또는 ticker 빈 문자열이면 미가동.
     //  strategy_thread가 order_queue의 단일 생산자이므로 그 스레드 진입 시 1회만 push한다.
     //  하루 한 번만 낸다(logs/startup_probe_YYYYMMDD 표식) — 재기동마다 내면 점검 주식이 쌓인다
     //  (2026-09-09 재기동 13회 → 005930 13주). 체결이 확인되면 같은 수량을 바로 되판다.
-    void set_startup_probe(const std::string& ticker, int qty)
+    void set_startup_probe(const std::string& ticker, int quantity)
     {
         startup_probe_ticker_ = ticker;
-        startup_probe_qty_    = qty;
+        startup_probe_qty_    = quantity;
     }
 
     // 시세 전용 클라이언트 설정(실전 도메인). KIS 모의(openapivts)는 시세 REST가 HTTP 500이라
     // 시세는 실전 키+실전 도메인으로 조회하고 주문만 모의로 낸다. rest_price_feed 폴링이 사용.
-    void set_quote_kis_config(const KisConfig& c)
+    void set_quote_kis_config(const KisConfig& quote_kis_config)
     {
-        feed_.quote_kis_cfg = c;
+        feed_.quote_kis_cfg = quote_kis_config;
         feed_.has_quote_kis = true;
     }
 
@@ -166,7 +166,7 @@ public:
     // 그날 매크로 축은 다시 halt를 걸지 못한다. 그 뒤 통제는 장중을 실제로 보는 축
     // (UniverseScanner 코스피 게이트·종목 정배열)이 갖는다. force_liquidate는 대상이 아니다.
     // 0 이하면 만료를 끈다. [why D-033]
-    void set_regime_halt_expire_min(int m) { regime_bridge_.set_halt_expire_min(m); }
+    void set_regime_halt_expire_min(int regime_halt_expire_min) { regime_bridge_.set_halt_expire_min(regime_halt_expire_min); }
 
     // ── 리스크·주문 ──────────────────────────────────────────────────────────
     // 주문 호출 간격 조절/재시도 (C-2/W-3) — 버스트 청산이 초당한도로 튕겨 유실되는 것 방지.
@@ -179,14 +179,14 @@ public:
     }
 
     // OrderGate 위험 한도를 config로 주입(스레드 시작 전에만). 기본값은 OrderGate::Config.
-    void set_risk_config(const OrderGate::Config& c) { order_gate_.set_config(c); }
+    void set_risk_config(const OrderGate::Config& risk_config) { order_gate_.set_config(risk_config); }
     // 슬롯 수 조회 — 스캐너가 "베이스 총합이 목표 노출을 넘지 않도록" 배수를 정규화할 때 쓴다.
     //  위험 config는 전략 로딩보다 먼저 주입되므로(main.cpp) 이 시점에 이미 유효하다.
     int risk_max_positions() const { return order_gate_.config().max_concurrent_positions; }
     // 점수 랭크를 게이트에 주입 — 슬롯이 꽉 차갈수록 상위 점수만 통과시킨다.
     //  같은 표를 로그 폴더 entry_scores.json에도 남겨 대시보드가 보유 종목을 점수순으로 보인다. [why D-047]
     void set_entry_priority(std::unordered_map<std::string, int> rank,
-                            std::unordered_map<std::string, double> z, int total);
+                            std::unordered_map<std::string, double> zscores, int total);
     // 현재 보유(롱) 원장 스냅샷 — 유니버스 재스캔의 "보유분 제외"가 매회 최신 잔고를 보게 한다.
     //  기동 시 1회 조회한 잔고를 계속 쓰면 청산된 종목이 세션 내내 후보에서 빠진다.
     std::vector<OrderGate::HeldPos> held_positions() const { return order_gate_.snapshot_positions(); }
@@ -210,15 +210,15 @@ public:
     {
         // 슬리브마다 한 번씩 부른다 — 덮어쓰지 않고 쌓는다. 예전에는 단일 슬롯이라
         //  두 번째 호출이 첫 번째를 조용히 지웠다(먼저 건 재스캔이 사라짐).
-        RescanJob j;
-        j.universe_fn    = std::move(universe_fn);
-        j.factory        = std::move(factory);
-        j.interval_sec   = interval_sec;
-        j.max_registered = max_registered;
-        j.drop_after_sec = drop_after_sec;
-        j.block_after_sec = block_after_sec;
-        j.return_confirm  = return_confirm;
-        universe_rescan_.jobs.push_back(std::move(j));
+        RescanJob rescan_job;
+        rescan_job.universe_fn    = std::move(universe_fn);
+        rescan_job.factory        = std::move(factory);
+        rescan_job.interval_sec   = interval_sec;
+        rescan_job.max_registered = max_registered;
+        rescan_job.drop_after_sec = drop_after_sec;
+        rescan_job.block_after_sec = block_after_sec;
+        rescan_job.return_confirm  = return_confirm;
+        universe_rescan_.jobs.push_back(std::move(rescan_job));
     }
 
     // 기동 때 add_strategy로 넣은 유니버스 종목을 마지막 set_universe_rescan 슬리브의 소유로 잡는다.
@@ -231,10 +231,10 @@ public:
     //  현재 국면 목록에 든 전략만 활성, 나머지 비활성.
     //  id 항목이 '*'로 끝나면 접두 매칭(스캐너 동적 id: "DevScale_*", "ITB_*").
     //  맵이 비면(미지정) 기존 per-strategy active_regimes 방식으로 폴백(하위호환).
-    void set_regime_strategies(std::map<Regime, std::vector<std::string>> m)
+    void set_regime_strategies(std::map<Regime, std::vector<std::string>> regime_strategies)
     {
-        strat_.regime_map = std::move(m);
-        strat_.has_regime_map = !strat_.regime_map.empty();
+        strategy_.regime_map = std::move(regime_strategies);
+        strategy_.has_regime_map = !strategy_.regime_map.empty();
     }
 
     // ZMQ 제어 채널. bind 주소 기본 127.0.0.1(모든 인터페이스 노출 금지), token이 비면 KILL은
@@ -266,7 +266,7 @@ public:
     //  다른 쪽이 곧바로 되사서 수수료만 나간다(2026-09-08 금호건설: 13:39:59 전량매도 →
     //  13:40:12 재매수). 기동 시 단일스레드 구간에서만 채우고 전략 스레드는 읽기만 한다.
     void mark_guardian_ticker(const std::string& ticker) { universe_rescan_.guardian_tickers.insert(ticker); }
-    bool is_guardian_ticker(const std::string& t) const { return universe_rescan_.guardian_tickers.count(t) > 0; }
+    bool is_guardian_ticker(const std::string& ticker) const { return universe_rescan_.guardian_tickers.count(ticker) > 0; }
 
     void register_ticker_name(const std::string& ticker, const std::string& name);
     // 이름이 있으면 "티커(종목명)", 없으면 티커 원문을 반환.
@@ -306,28 +306,28 @@ private:
 
     // ── 스레드 진입점 ────────────────────────────────────────────────────────
     // 다섯 스레드는 stop_token으로 정지를 본다. running_은 엔진 밖(main 루프·KILL 핸들러·폴러)이 읽는 깃발 [why D-070]
-    void data_thread_fn(std::stop_token st);
-    void strategy_thread_fn(std::stop_token st);
-    void shard_thread_fn(std::stop_token st, uint32_t m); // 행렬 열 m을 비워 전략을 돌리고 신호를 shard_out에 넣는다 [why D-071]
-    void order_thread_fn(std::stop_token st);
-    void fill_thread_fn(std::stop_token st);     // 체결통보 소비(fill_queue → OrderRouter::on_fill → ops 방송). WS 수신 스레드에서 뗀 것 [why D-056]
-    void control_thread_fn(std::stop_token st); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
+    void data_thread_fn(std::stop_token stop_token);
+    void strategy_thread_fn(std::stop_token stop_token);
+    void shard_thread_fn(std::stop_token stop_token, uint32_t column); // 행렬 열 m을 비워 전략을 돌리고 신호를 shard_out에 넣는다 [why D-071]
+    void order_thread_fn(std::stop_token stop_token);
+    void fill_thread_fn(std::stop_token stop_token);     // 체결통보 소비(fill_queue → OrderRouter::on_fill → ops 방송). WS 수신 스레드에서 뗀 것 [why D-056]
+    void control_thread_fn(std::stop_token stop_token); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
 
     // ── 전략 레지스트리·국면·유니버스 보조 ─────────────────────────────────
     StrategyBase::SellableInfo ledger_sellable(const std::string& account, const std::string& ticker) const;
     // 매크로 레짐 파일 읽기 → RegimeFileBridge 판정 → OrderGate entry_halt·force_liquidate_ 적용 (data_thread 전용)
     void poll_regime_file();
     void maybe_rescan_universe();  // 주기적 유니버스 재스캔 → 신규 티커 런타임 등록·이탈 티커 해제 (data_thread 전용)
-    // 전략 해제는 두 단계다. 뗄 때는 strat_.list에서 빼고 strat_.retired로 옮기며 버전을 올린다 —
+    // 전략 해제는 두 단계다. 뗄 때는 strategy_.list에서 빼고 strategy_.retired로 옮기며 버전을 올린다 —
     //  strategy_thread의 옛 스냅샷이 아직 그 포인터를 들고 있을 수 있어서 바로 지우지 않는다.
-    //  strategy_thread가 새 스냅샷을 만든 뒤(strat_.seen_version ≥ 뗀 시점 버전) on_stop·파기한다.
+    //  strategy_thread가 새 스냅샷을 만든 뒤(strategy_.seen_version ≥ 뗀 시점 버전) on_stop·파기한다.
     //  force=true는 종료 경로(strategy_thread 합류 뒤)에서 전부 비운다.
     void reap_retired(bool force);
     // G1: 현재 국면 r에 맞춰 전략별 active 플래그 재선택. 선택 결정을 로그로 기록(국면 변화
-    //  또는 force_log 시). data_thread 전용(strat_.list 반복은 이 스레드에서만 mutate).
-    void apply_regime_selection(Regime r, bool force_log);
+    //  또는 force_log 시). data_thread 전용(strategy_.list 반복은 이 스레드에서만 mutate).
+    void apply_regime_selection(Regime regime, bool force_log);
     // 런타임 전략 등록(set_kis·position_provider·on_start·set_active·watch_specs_ 추가 일괄).
-    // strat_.list push_back은 락 하에, strat_.version 증가로 strategy_thread 스냅샷 갱신 유도.
+    // strategy_.list push_back은 락 하에, strategy_.version 증가로 strategy_thread 스냅샷 갱신 유도.
     void register_strategy_runtime(std::unique_ptr<StrategyBase> strategy);
 
     // 지금 활성인 전략 중 일봉(on_data)을 쓰는 전략이 하나라도 있는가. data_thread의 일봉 폴링
@@ -350,11 +350,11 @@ private:
     // ── 기본 설정·기동 점검 ─────────────────────────────────────────────────
     KisConfig kis_cfg_;
     int fetch_interval_sec_;
-    bool bootstrap_ledger_ = false; // 기동 시 실계좌 보유분 원장 시드 여부(G5, opt-in)
+    bool bootstrap_ledger_ = false; // 기동 시 실계좌 보유분 원장 시드 여부(G5, option-in)
     std::string startup_probe_ticker_;  // 기동 점검 종목(빈 문자열=미가동)
     int         startup_probe_qty_ = 0; // 기동 점검 수량(≤0=미가동)
     bool        startup_probe_fired_ = false; // 기동 점검 1회성 발사 가드
-    // 되팔기 상태(strategy_thread 전용). base=발사 직전 보유수량, 그 위로 qty만큼 늘면 체결로 본다.
+    // 되팔기 상태(strategy_thread 전용). base=발사 직전 보유수량, 그 위로 quantity만큼 늘면 체결로 본다.
     bool        startup_probe_settled_ = true;  // 되팔기 끝났거나 할 일 없음
     int         startup_probe_base_qty_ = 0;
     std::chrono::steady_clock::time_point startup_probe_fired_at_{};
@@ -362,7 +362,7 @@ private:
     struct FeedState
     {
         // REST 폴백 상태
-        bool rest_price_feed = false;  // REST 현재가 폴링을 체결 피드로 사용(WS 우회, opt-in)
+        bool rest_price_feed = false;  // REST 현재가 폴링을 체결 피드로 사용(WS 우회, option-in)
         // 지금 실제로 어느 피드로 도는지(런타임 상태). 기동 시 rest_price_feed로 초기화하고,
         //  WS 모드에서 연결이 죽으면 control_thread가 true로 올려 폴링으로 낮춘다(WS 복귀 시 되돌림).
         //  config 의도(rest_price_feed)와 분리해 둔 이유는, 폴백으로 켜진 것인지 처음부터 폴링이었는지를
@@ -412,7 +412,7 @@ private:
     std::unique_ptr<DataPoller> poller_;
 
     // ── 전략 레지스트리 ──────────────────────────────────────────────────────
-    // 뗀 전략 대기열 항목(data_thread 전용). ver=뗀 직후의 strat_.version.
+    // 뗀 전략 대기열 항목(data_thread 전용). ver=뗀 직후의 strategy_.version.
     struct Retired
     {
         std::unique_ptr<StrategyBase> strategy;
@@ -432,7 +432,7 @@ private:
         bool   has_regime_map = false;                 // false면 per-strategy active_regimes 폴백
         Regime last_selected_regime = Regime::UNKNOWN; // 직전 선택 국면(변화 감지→재선택·로그)
     };
-    StrategyRegistry strat_;
+    StrategyRegistry strategy_;
 
     // ── 유니버스 재스캔 ──────────────────────────────────────────────────────
     // 주기적 유니버스 재스캔 상태 (data_thread 전용)
@@ -466,19 +466,19 @@ private:
     // ── N×M 샤드 파이프라인·큐 ──────────────────────────────────────────────
     // 수신 N × 전략 샤드 M 링 행렬. 셀 하나의 생산자는 스레드 하나다 — WS 레인 i(소켓 i의 수신 스레드)는 행 i, 체결은
     //  데이터 스레드 행(REST 대체 틱, 행 data_row)을 더 둔다(D-053이 두 큐로 풀던 것을 행으로 푼다). 열은 종목 해시
-    //  (원칙 2). 전략은 자기 종목의 열 하나가 맡는다(strat::owner_shard) — 전략 객체를 두 샤드 스레드가 만지면 안 된다. [why D-071]
+    //  (원칙 2). 전략은 자기 종목의 열 하나가 맡는다(strategy::owner_shard) — 전략 객체를 두 샤드 스레드가 만지면 안 된다. [why D-071]
     struct ShardPipeline
     {
         uint32_t                  ws_lanes        = 1;    // WS 수신 스레드(레인) 수 = 소켓 수. start()가 행 수로 쓴다
-        uint32_t                  data_row        = 1;    // td_mx의 데이터 스레드 행 = ws_lanes
+        uint32_t                  data_row        = 1;    // trade_matrix의 데이터 스레드 행 = ws_lanes
         uint32_t                  strategy_shards = 1;    // config. start()가 열 수로 쓴다(걸치는 전략이 있으면 1)
-        shard::Matrix<OrderBook>  ob_mx{1, 1, 4096};   // 호가 (국내) — WS 레인 행 N. 행·열 수는 start()의 reshape
-        shard::Matrix<TradeData>  td_mx{2, 1, 4096};   // 체결 (미국 + 국내) — WS 레인 행 N + 데이터 스레드 행
-        shard::Matrix<MarketData> bars_mx{1, 1, 1024}; // 일봉 — 데이터 스레드 행(index 0)만
-        std::vector<std::unique_ptr<strat::Shard>> shards;           // 열 m을 비우는 샤드. start()가 만든다
+        shard::Matrix<OrderBook>  order_book_matrix{1, 1, 4096};   // 호가 (국내) — WS 레인 행 N. 행·열 수는 start()의 reshape
+        shard::Matrix<TradeData>  trade_matrix{2, 1, 4096};   // 체결 (미국 + 국내) — WS 레인 행 N + 데이터 스레드 행
+        shard::Matrix<MarketData> bars_matrix{1, 1, 1024}; // 일봉 — 데이터 스레드 행(index 0)만
+        std::vector<std::unique_ptr<strategy::Shard>> shards;           // 열 m을 비우는 샤드. start()가 만든다
         std::vector<std::jthread>                  shard_threads;
         // 샤드 → 전략(디스패치) 스레드. 생산자가 M이라 MPSC(원칙 5). 가득 차면 버리고 센다 — order_dropped와 같은 규칙.
-        MpscQueue<strat::Emitted> shard_out{4096};
+        MpscQueue<strategy::Emitted> shard_out{4096};
         std::atomic<uint64_t>     shard_dropped{0};
         RingBuffer<OrderSignal> order_queue{1024}; // 주문 스레드가 KIS 왕복에 묶이는 몇 초를 받는다 [why D-073]
         // 체결통보. WS 수신 스레드는 여기 push만 하고 원장 반영(OrderRouter::on_fill)은 fill_thread가 한다 —
@@ -489,7 +489,7 @@ private:
         // 소비자 깨우기 — 생산자가 push 뒤 notify, 소비자는 큐가 비면 잔다. 1ms 폴링은 Windows 타이머 격자 때문에
         //  실측 p50 15.6ms였다(bench_sleep_res). [why D-071]
         sync::WakeGate fill_wake;  // fill_thread ← WS 수신 스레드
-        sync::WakeGate strat_wake; // strategy_thread ← 샤드·운영단말 스레드. 샤드 자신의 게이트는 Shard::wake()
+        sync::WakeGate strategy_wake; // strategy_thread ← 샤드·운영단말 스레드. 샤드 자신의 게이트는 Shard::wake()
         sync::WakeGate order_wake; // order_thread ← strategy_thread
     };
     ShardPipeline pipeline_;
@@ -557,17 +557,17 @@ private:
     // ── 심볼·현재가 캐시 (symbols_는 아래 last_px_arr_/last_px_at_ns_ 생성자 초기화보다 앞서 선언돼야 한다) ──
     // 종목 문자열 ↔ 정수 id. 수신·폴러 스레드가 틱·호가에 id를 찍고 아래 현재가 캐시가 그 id로 인덱스한다.
     //  처음 보는 종목은 그 자리에서 등록되므로 기동 시 채울 필요가 없다. [why D-071]
-    sym::SymbolTable symbols_;
+    symbol::SymbolTable symbols_;
 
     // 종목별 최근 체결가(원 단위)와 받은 시각(steady_clock ns), id 인덱스 배열. 전략 스레드가 td_queue_를 비우며
     //  쓰고, 데이터 스레드가 틱이 끊긴 보유 종목을 REST로 보충하고, OpsServer 스레드가 POSITIONS 현재가·수동주문
-    //  ref_price로 읽는다. 원소가 atomic이라 락이 없고, px와 at은 따로 읽혀 순간 어긋날 수 있다(둘 다 감시용).
+    //  ref_price로 읽는다. 원소가 atomic이라 락이 없고, price와 at은 따로 읽혀 순간 어긋날 수 있다(둘 다 감시용).
     //  틱이 없던 종목은 0.
     std::unique_ptr<std::atomic<double>[]>  last_px_arr_;
     std::unique_ptr<std::atomic<int64_t>[]> last_px_at_ns_;
-    double                                  last_px(sym::SymbolId id) const noexcept;
+    double                                  last_px(symbol::SymbolId id) const noexcept;
     double                                  last_px(const std::string& ticker) const;
     int64_t                                 last_px_at_ns(const std::string& ticker) const;
-    void                                    set_last_px(sym::SymbolId id, double px) noexcept;
-    void                                    set_last_px(const std::string& ticker, double px);
+    void                                    set_last_px(symbol::SymbolId id, double price) noexcept;
+    void                                    set_last_px(const std::string& ticker, double price);
 };

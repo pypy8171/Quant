@@ -1,5 +1,5 @@
-// WakeGate 단위 테스트 — 생산자 notify가 소비자를 상한(cap) 전에 깨우는지, 신호 유실이 없는지, 만기 시각이 지켜지는지,
-//  정지 요청(stop_token)이 cap·sleep 만기 전에 깨우는지.
+// WakeGate 단위 테스트 — 생산자 notify가 소비자를 상한(capture) 전에 깨우는지, 신호 유실이 없는지, 만기 시각이 지켜지는지,
+//  정지 요청(stop_token)이 capture·sleep 만기 전에 깨우는지.
 // 빌드: cmake --build <dir> --target test_wake_gate
 #include "core/RingBuffer.h"
 #include "core/WakeGate.h"
@@ -37,27 +37,27 @@ int main()
 {
     // 1. still_idle이 false면 자지 않고 바로 돌아온다(큐에 이미 일이 있는 경우).
     {
-        sync::WakeGate g;
-        const auto t0 = Clock::now();
-        g.wait_for(500ms, [] { return false; });
-        CHECK(Clock::now() - t0 < 50ms);
-        CHECK(!g.sleeping());
+        sync::WakeGate gate;
+        const auto start_time = Clock::now();
+        gate.wait_for(500ms, [] { return false; });
+        CHECK(Clock::now() - start_time < 50ms);
+        CHECK(!gate.sleeping());
     }
 
     // 2. 지난 만기는 바로 돌아온다.
     {
-        sync::WakeGate g;
-        const auto t0 = Clock::now();
-        g.wait_until(Clock::now() - 1ms, [] { return true; });
-        CHECK(Clock::now() - t0 < 50ms);
+        sync::WakeGate gate;
+        const auto start_time = Clock::now();
+        gate.wait_until(Clock::now() - 1ms, [] { return true; });
+        CHECK(Clock::now() - start_time < 50ms);
     }
 
     // 3. 만기가 있으면 notify 없이도 그 시각에 깬다(주문 재시도 경로).
     {
-        sync::WakeGate g;
-        const auto t0 = Clock::now();
-        g.wait_until(t0 + 30ms, [] { return true; });
-        const auto took = Clock::now() - t0;
+        sync::WakeGate gate;
+        const auto start_time = Clock::now();
+        gate.wait_until(start_time + 30ms, [] { return true; });
+        const auto took = Clock::now() - start_time;
         CHECK(took >= 30ms);
         CHECK(took < 300ms);
     }
@@ -65,8 +65,8 @@ int main()
     // 4. 생산자 push+notify가 상한(1s)보다 훨씬 먼저 소비자를 깨운다 — 1,000회 왕복이 신호 유실 없이 끝나야 한다.
     //    유실이 한 번이라도 나면 그 회차가 1s를 다 자므로 총 시간이 튄다.
     {
-        sync::WakeGate         g;
-        RingBuffer<int>  q{64};
+        sync::WakeGate         gate;
+        RingBuffer<int>  queue{64};
         std::atomic<bool>      stop{false};
         std::atomic<int>       consumed{0};
         constexpr int          kRounds = 1000;
@@ -78,7 +78,7 @@ int main()
         {
             while (!stop.load(std::memory_order_acquire))
             {
-                if (auto v = q.pop())
+                if (auto value = queue.pop())
                 {
                     const auto now = Clock::now().time_since_epoch().count();
                     wake_us.push_back(static_cast<double>(now - pushed_at_ns.load(std::memory_order_acquire)) / 1000.0);
@@ -86,17 +86,17 @@ int main()
                     continue;
                 }
 
-                g.wait_for(1s, [&] { return q.empty() && !stop.load(std::memory_order_acquire); });
+                gate.wait_for(1s, [&] { return queue.empty() && !stop.load(std::memory_order_acquire); });
             }
         });
 
-        const auto t0 = Clock::now();
+        const auto start_time = Clock::now();
 
-        for (int i = 0; i < kRounds; ++i)
+        for (int round_index = 0; round_index < kRounds; ++round_index)
         {
             // 소비자가 정말 잠들 때까지 기다렸다가 넣는다 — 깨우기 경로만 재기 위해서. sleeping이 켜진 직후는
             //  아직 "재확인" 단계일 수 있어 조금 더 기다려 wait 안으로 들어가게 한다.
-            while (!g.sleeping())
+            while (!gate.sleeping())
             {
                 std::this_thread::yield();
             }
@@ -107,18 +107,18 @@ int main()
             }
 
             pushed_at_ns.store(Clock::now().time_since_epoch().count(), std::memory_order_release);
-            CHECK(q.push(i));
-            g.notify();
+            CHECK(queue.push(round_index));
+            gate.notify();
 
-            while (consumed.load(std::memory_order_acquire) <= i)
+            while (consumed.load(std::memory_order_acquire) <= round_index)
             {
                 std::this_thread::yield();
             }
         }
 
-        const auto total = Clock::now() - t0;
+        const auto total = Clock::now() - start_time;
         stop.store(true, std::memory_order_release);
-        g.notify();
+        gate.notify();
         consumer.join();
 
         CHECK(consumed.load() == kRounds);
@@ -135,8 +135,8 @@ int main()
 
     // 5. 생산자 여럿이 동시에 notify해도 소비자는 전부 받는다.
     {
-        sync::WakeGate        g;
-        RingBuffer<int> q{4096};
+        sync::WakeGate        gate;
+        RingBuffer<int> queue{4096};
         std::atomic<bool>     stop{false};
         std::atomic<int>      consumed{0};
         constexpr int         kProducers = 4;
@@ -144,15 +144,15 @@ int main()
 
         std::thread consumer([&]
         {
-            while (!stop.load(std::memory_order_acquire) || !q.empty())
+            while (!stop.load(std::memory_order_acquire) || !queue.empty())
             {
-                if (q.pop())
+                if (queue.pop())
                 {
                     consumed.fetch_add(1, std::memory_order_release);
                     continue;
                 }
 
-                g.wait_for(100ms, [&] { return q.empty() && !stop.load(std::memory_order_acquire); });
+                gate.wait_for(100ms, [&] { return queue.empty() && !stop.load(std::memory_order_acquire); });
             }
         });
 
@@ -160,76 +160,76 @@ int main()
         std::mutex               push_mtx;
         std::vector<std::thread> producers;
 
-        for (int p = 0; p < kProducers; ++p)
+        for (int producer_index = 0; producer_index < kProducers; ++producer_index)
         {
             producers.emplace_back([&]
             {
-                for (int i = 0; i < kPerProducer; ++i)
+                for (int per_producer_index = 0; per_producer_index < kPerProducer; ++per_producer_index)
                 {
                     {
-                        std::lock_guard<std::mutex> lk(push_mtx);
+                        std::lock_guard<std::mutex> lock(push_mtx);
 
-                        while (!q.push(i))
+                        while (!queue.push(per_producer_index))
                         {
                             std::this_thread::yield();
                         }
                     }
 
-                    g.notify();
+                    gate.notify();
                 }
             });
         }
 
-        for (auto& t : producers)
+        for (auto& producer : producers)
         {
-            t.join();
+            producer.join();
         }
 
         stop.store(true, std::memory_order_release);
-        g.notify();
+        gate.notify();
         consumer.join();
         CHECK(consumed.load() == kProducers * kPerProducer);
     }
 
-    // 6. stop_token 오버로드 — 정지 요청이 오면 cap(2s) 전에 깬다. 정지가 이미 요청돼 있으면 자지 않는다.
+    // 6. stop_token 오버로드 — 정지 요청이 오면 capture(2s) 전에 깬다. 정지가 이미 요청돼 있으면 자지 않는다.
     {
-        sync::WakeGate   g;
+        sync::WakeGate   gate;
         std::stop_source src;
-        const auto       t0 = Clock::now();
+        const auto       start_time = Clock::now();
         std::jthread     stopper([&] { std::this_thread::sleep_for(50ms); src.request_stop(); });
-        g.wait_for(2s, src.get_token(), [] { return true; });
-        const auto woke = Clock::now() - t0;
+        gate.wait_for(2s, src.get_token(), [] { return true; });
+        const auto woke = Clock::now() - start_time;
         CHECK(woke >= 40ms);
         CHECK(woke < 1s);
-        CHECK(!g.sleeping());
+        CHECK(!gate.sleeping());
 
         const auto t1 = Clock::now();
-        g.wait_for(2s, src.get_token(), [] { return true; }); // 이미 정지 요청됨
+        gate.wait_for(2s, src.get_token(), [] { return true; }); // 이미 정지 요청됨
         CHECK(Clock::now() - t1 < 200ms);
 
         const auto t2 = Clock::now();
-        g.wait_until(Clock::now() + 2s, src.get_token(), [] { return true; });
+        gate.wait_until(Clock::now() + 2s, src.get_token(), [] { return true; });
         CHECK(Clock::now() - t2 < 200ms);
     }
 
     // 7. 정지 요청 없이 push+notify만으로도 stop_token 오버로드가 깬다(기존 경로와 같은 동작).
     {
-        sync::WakeGate      g;
+        sync::WakeGate      gate;
         std::stop_source    src;
         std::atomic<bool>   ready{false};
-        const auto          t0 = Clock::now();
-        std::jthread        producer([&] { std::this_thread::sleep_for(30ms); ready.store(true, std::memory_order_release); g.notify(); });
-        g.wait_for(2s, src.get_token(), [&] { return !ready.load(std::memory_order_acquire); });
-        CHECK(Clock::now() - t0 < 1s);
+        const auto          start_time = Clock::now();
+        std::jthread        producer([&] { std::this_thread::sleep_for(30ms); ready.store(true, std::memory_order_release); gate.notify(); });
+        gate.wait_for(2s, src.get_token(), [&] { return !ready.load(std::memory_order_acquire); });
+        CHECK(Clock::now() - start_time < 1s);
         CHECK(ready.load());
     }
 
     // 8. sleep_unless_stopped — 다 자면 true, 정지 요청이면 만기 전에 false.
     {
         std::stop_source src;
-        const auto       t0 = Clock::now();
+        const auto       start_time = Clock::now();
         CHECK(sync::sleep_unless_stopped(src.get_token(), 30ms));
-        CHECK(Clock::now() - t0 >= 25ms);
+        CHECK(Clock::now() - start_time >= 25ms);
 
         std::jthread stopper([&] { std::this_thread::sleep_for(50ms); src.request_stop(); });
         const auto   t1 = Clock::now();

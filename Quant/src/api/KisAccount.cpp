@@ -8,47 +8,47 @@
 //  kis_rest::decode_balance_page가 소유한다. (모의: VTTC8434R / 실거래: TTTC8434R)
 KisResult<AccountBalance> KisClient::get_balance()
 {
-    std::string tr_id = cfg_.is_paper ? "VTTC8434R" : "TTTC8434R";
+    std::string transaction_id = config_.is_paper ? "VTTC8434R" : "TTTC8434R";
 
     // 연속조회(페이지네이션): 잔고는 페이지당 ~20종목만 반환하고, 더 있으면 응답 body의
     //  ctx_area_nk100(다음페이지 키)가 채워진다. 이를 CTX_AREA_FK100/NK100로 되넣고
     //  요청헤더 tr_cont:N으로 다음 페이지를 받아 output1을 전부 누적한다. 트림 후 raw 연결로
     //  충분(모의계좌 실측: 20+11=31종목 정상 수신). output2/최상위는 첫 페이지 것을 유지.
-    auto rtrim = [](std::string s)
+    auto rtrim = [](std::string text)
     {
-        while (!s.empty() && (s.back() == ' ' || s.back() == '\t'))
+        while (!text.empty() && (text.back() == ' ' || text.back() == '\t'))
         {
-            s.pop_back();
+            text.pop_back();
         }
 
-        return s;
+        return text;
     };
 
-    AccountBalance bal;
+    AccountBalance balance;
     std::string fk, nk, cont;
 
     for (int page = 0; page < 30; ++page) // 안전 상한(무한루프 방지)
     {
         std::string url = base_url() + "/uapi/domestic-stock/v1/trading/inquire-balance" +
-                          "?CANO=" + cfg_.account_no + "&ACNT_PRDT_CD=" + cfg_.account_type +
+                          "?CANO=" + config_.account_no + "&ACNT_PRDT_CD=" + config_.account_type +
                           "&AFHR_FLPR_YN=N&OFL_YN=&INQR_DVSN=02&UNPR_DVSN=01" +
                           "&FUND_STTL_ICLD_YN=N&FNCG_AMT_AUTO_RDPT_YN=N&PRCS_DVSN=00" +
                           "&CTX_AREA_FK100=" + fk + "&CTX_AREA_NK100=" + nk;
 
-        std::vector<std::string> headers = auth_headers(tr_id, {"tr_cont: " + cont});
+        std::vector<std::string> headers = auth_headers(transaction_id, {"tr_cont: " + cont});
 
-        std::string resp = http_get(url, headers);
+        std::string response = http_get(url, headers);
 
         // [inv] 어느 페이지든 못 받으면 전체가 실패다. 2페이지째가 빠진 부분 목록을 성공으로 돌려주면 호출자의
         //  유령 정리(prune_positions)가 그 페이지의 실보유를 걷어낸다 — 빈 목록 가드로는 못 잡는 구멍.
-        if (resp.empty())
+        if (response.empty())
         {
             return kis_fail("transport", "잔고 응답 없음(page=" + std::to_string(page) + ")");
         }
 
-        nlohmann::json j = json::parse(resp, nullptr, false);
+        nlohmann::json document = json::parse(response, nullptr, false);
 
-        if (j.is_discarded())
+        if (document.is_discarded())
         {
             return kis_fail("parse", "잔고 JSON 파싱 불가(page=" + std::to_string(page) + ")");
         }
@@ -56,52 +56,52 @@ KisResult<AccountBalance> KisClient::get_balance()
         // [wire] 한도 초과(EGW00201)나 서버 오류 본문은 rt_cd≠"0"에 output1이 빈 배열이다. 이걸
         //  정상 응답처럼 돌려주면 호출자가 "보유 0종목"으로 읽어 원장을 비운 채 매매한다
         //  (09-11 09:17 재기동 시드 0건 → 3분간 빈 원장).
-        if (j.value("rt_cd", "") != "0")
+        if (document.value("rt_cd", "") != "0")
         {
             LOG_WARN("[KIS] 잔고 조회 응답 오류(page=" + std::to_string(page) + ") " +
-                     j.value("msg_cd", "") + " " + j.value("msg1", ""));
-            return kis_fail(j.value("msg_cd", "rt_cd"), j.value("msg1", ""));
+                     document.value("msg_cd", "") + " " + document.value("msg1", ""));
+            return kis_fail(document.value("msg_cd", "rt_cd"), document.value("msg1", ""));
         }
 
-        kis_rest::decode_balance_page(j, bal, page == 0);
+        kis_rest::decode_balance_page(document, balance, page == 0);
 
-        std::string nk_next = rtrim(j.value("ctx_area_nk100", ""));
+        std::string nk_next = rtrim(document.value("ctx_area_nk100", ""));
 
         if (nk_next.empty())
         {
             break; // 다음 페이지 없음
         }
 
-        fk = rtrim(j.value("ctx_area_fk100", ""));
+        fk = rtrim(document.value("ctx_area_fk100", ""));
         nk = nk_next;
         cont = "N";
     }
 
-    return bal;
+    return balance;
 }
 
 // ─── 미체결(정정취소 가능) 예약주문 조회 — inquire-psbl-rvsecncl ─────────────
 //  장중 청산이 40240000(주문가능분 없음)으로 막힐 때, 그 종목의 예약매도를 찾아
 //  취소→재매도로 자가정리하기 위한 조회. (모의: VTTC0084R / 실거래: TTTC0084R)
-//  응답 output(array) 필드는 소문자: odno·ord_gno_brno·pdno·prdt_name·psbl_qty·
+//  응답 output(array) 필드는 소문자: kis_order_no·ord_gno_brno·pdno·prdt_name·psbl_qty·
 //  ord_unpr·sll_buy_dvsn_cd(01매도/02매수). 수량·단가는 문자열이라 파싱 가드.
 //  잔고처럼 ctx_area(FK/NK)로 페이지네이션한다.
 std::vector<OpenOrder> KisClient::get_open_orders()
 {
-    std::string tr_id = cfg_.is_paper ? "VTTC0084R" : "TTTC0084R";
+    std::string transaction_id = config_.is_paper ? "VTTC0084R" : "TTTC0084R";
 
-    auto to_int = [](const std::string& s) -> int
-    { try { return s.empty() ? 0 : std::stoi(s); } catch (...) { return 0; } };
-    auto to_dbl = [](const std::string& s) -> double
-    { try { return s.empty() ? 0.0 : std::stod(s); } catch (...) { return 0.0; } };
-    auto rtrim = [](std::string s)
+    auto to_int = [](const std::string& text) -> int
+    { try { return text.empty() ? 0 : std::stoi(text); } catch (...) { return 0; } };
+    auto to_dbl = [](const std::string& text) -> double
+    { try { return text.empty() ? 0.0 : std::stod(text); } catch (...) { return 0.0; } };
+    auto rtrim = [](std::string text)
     {
-        while (!s.empty() && (s.back() == ' ' || s.back() == '\t'))
+        while (!text.empty() && (text.back() == ' ' || text.back() == '\t'))
         {
-            s.pop_back();
+            text.pop_back();
         }
 
-        return s;
+        return text;
     };
 
     std::vector<OpenOrder> result;
@@ -111,48 +111,48 @@ std::vector<OpenOrder> KisClient::get_open_orders()
     {
         std::string url = base_url() +
                           "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl" +
-                          "?CANO=" + cfg_.account_no + "&ACNT_PRDT_CD=" + cfg_.account_type +
+                          "?CANO=" + config_.account_no + "&ACNT_PRDT_CD=" + config_.account_type +
                           "&INQR_DVSN_1=0&INQR_DVSN_2=0" +
                           "&CTX_AREA_FK100=" + fk + "&CTX_AREA_NK100=" + nk;
 
-        std::vector<std::string> headers = auth_headers(tr_id, {"tr_cont: " + cont});
+        std::vector<std::string> headers = auth_headers(transaction_id, {"tr_cont: " + cont});
 
-        std::string resp = http_get(url, headers);
+        std::string response = http_get(url, headers);
 
-        if (resp.empty())
+        if (response.empty())
         {
             break;
         }
 
-        nlohmann::json j;
+        nlohmann::json document;
 
         try
         {
-            j = json::parse(resp);
+            document = json::parse(response);
         }
         catch (...)
         {
             break;
         }
 
-        if (j.value("rt_cd", std::string("")) != "0")
+        if (document.value("rt_cd", std::string("")) != "0")
         {
-            LOG_WARN("[KIS] 미체결 조회 오류: " + j.value("msg1", std::string("")));
+            LOG_WARN("[KIS] 미체결 조회 오류: " + document.value("msg1", std::string("")));
             break;
         }
 
-        if (j.contains("output") && j["output"].is_array())
+        if (document.contains("output") && document["output"].is_array())
         {
-            for (auto& o : j["output"])
+            for (auto& output_node : document["output"])
             {
                 OpenOrder oo;
-                oo.ticker    = o.value("pdno", std::string(""));
-                oo.name      = o.value("prdt_name", std::string(""));
-                oo.odno      = o.value("odno", o.value("ODNO", std::string("")));
-                oo.krx_orgno = o.value("ord_gno_brno", std::string(""));
-                oo.psbl_qty  = to_int(o.value("psbl_qty", std::string("")));
-                oo.ord_unpr  = to_dbl(o.value("ord_unpr", std::string("")));
-                std::string sb = o.value("sll_buy_dvsn_cd", std::string(""));
+                oo.ticker    = output_node.value("pdno", std::string(""));
+                oo.name      = output_node.value("prdt_name", std::string(""));
+                oo.kis_order_no      = output_node.value("odno", output_node.value("ODNO", std::string("")));
+                oo.krx_forwarding_org_no = output_node.value("ord_gno_brno", std::string(""));
+                oo.psbl_qty  = to_int(output_node.value("psbl_qty", std::string("")));
+                oo.ord_unpr  = to_dbl(output_node.value("ord_unpr", std::string("")));
+                std::string sb = output_node.value("sll_buy_dvsn_cd", std::string(""));
                 oo.side = (sb == "01") ? OrderSide::SELL
                         : (sb == "02") ? OrderSide::BUY
                                        : OrderSide::NONE;
@@ -164,14 +164,14 @@ std::vector<OpenOrder> KisClient::get_open_orders()
             }
         }
 
-        std::string nk_next = rtrim(j.value("ctx_area_nk100", ""));
+        std::string nk_next = rtrim(document.value("ctx_area_nk100", ""));
 
         if (nk_next.empty())
         {
             break; // 다음 페이지 없음
         }
 
-        fk = rtrim(j.value("ctx_area_fk100", ""));
+        fk = rtrim(document.value("ctx_area_fk100", ""));
         nk = nk_next;
         cont = "N";
     }

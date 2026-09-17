@@ -23,9 +23,9 @@ struct BarSlot
     int     bucket = -1;
 
     bool valid() const { return bucket >= 0; }
-    bool operator==(const BarSlot& o) const { return day == o.day && bucket == o.bucket; }
-    bool operator!=(const BarSlot& o) const { return !(*this == o); }
-    bool operator<(const BarSlot& o) const { return day != o.day ? day < o.day : bucket < o.bucket; }
+    bool operator==(const BarSlot& slot) const { return day == slot.day && bucket == slot.bucket; }
+    bool operator!=(const BarSlot& slot) const { return !(*this == slot); }
+    bool operator<(const BarSlot& slot) const { return day != slot.day ? day < slot.day : bucket < slot.bucket; }
 };
 
 // 틱 → 봉 자리. 분은 hhmmss(거래소 체결 시각)에서, 날짜는 recv_utc의 KST 거래일에서 온다. hhmmss가 여섯 자리가
@@ -34,7 +34,7 @@ BarSlot slot_of(int32_t hhmmss, std::time_t recv_utc, int interval_min, int open
 
 // 봉 시작 시각(UTC). MarketData.timestamp에 넣는다 — REST 봉의 timestamp가 봉의 마지막 1분 시각이라 뜻이 조금
 //  다르지만, 전략은 timestamp를 판단에 쓰지 않는다.
-std::chrono::system_clock::time_point slot_start(const BarSlot& s, std::time_t recv_utc, int interval_min);
+std::chrono::system_clock::time_point slot_start(const BarSlot& slot, std::time_t recv_utc, int interval_min);
 
 // 1분봉([0]=최신, 출처 불문 — 집계기 스냅샷이든 REST 1분봉이든)을 interval_min 봉으로 접는다. 버킷은
 //  slot_of·aggregate_minutes와 같은 시계 정렬이라 REST N분봉과 자리가 같다. 시가=버킷 첫 분, 종가=마지막 분,
@@ -56,43 +56,43 @@ public:
 
     using BarSink = std::function<void(const MarketData&)>; // 닫힌 봉 한 개 — 다음 버킷 첫 틱이나 close_stale이 닫는다
 
-    explicit BarAggregator(Config cfg);
+    explicit BarAggregator(Config config);
     BarAggregator(const BarAggregator&)            = delete; // 종목별 이력을 든다 — 전략 스레드에 하나
     BarAggregator& operator=(const BarAggregator&) = delete;
 
-    void set_sink(BarSink f) { sink_ = std::move(f); }
+    void set_sink(BarSink sink) { sink_ = std::move(sink); }
 
-    // 틱 한 개. 장 밖·가격 0·id 없음(sym==kNone)·자리를 못 정하면 버리고 false. 앞 봉을 닫았으면 sink가 그 안에서 불린다.
-    bool on_tick(const TradeData& td);
+    // 틱 한 개. 장 밖·가격 0·id 없음(symbol_id==kNone)·자리를 못 정하면 버리고 false. 앞 봉을 닫았으면 sink가 그 안에서 불린다.
+    bool on_tick(const TradeData& trade);
 
     // REST 봉([0]=최신)을 한 번 넣는다. 닫힌 자리는 REST가 이기고, 진행 중 자리는 합치고(시가 REST·고저 max/min·
     //  종가 로컬·거래량 큰 쪽), 로컬에 없는 자리는 채운다. 돌아오는 값은 새로 들어간 봉 수.
-    int seed(sym::SymbolId sym, const std::vector<MarketData>& rest_bars);
+    int seed(symbol::SymbolId symbol_id, const std::vector<MarketData>& rest_bars);
 
     // [0]=진행 중 봉(있으면), 그 뒤 닫힌 봉 최신→과거. max_count를 넘기지 않는다(0이면 전부).
-    std::vector<MarketData> snapshot(sym::SymbolId sym, int max_count = 0) const;
+    std::vector<MarketData> snapshot(symbol::SymbolId symbol_id, int max_count = 0) const;
 
     // 닫힌 봉 수(진행 중 제외). 워밍업 판정용.
-    int closed_count(sym::SymbolId sym) const;
+    int closed_count(symbol::SymbolId symbol_id) const;
 
     // 진행 중 봉의 자리. 없으면 valid()가 거짓.
-    BarSlot current_slot(sym::SymbolId sym) const;
+    BarSlot current_slot(symbol::SymbolId symbol_id) const;
 
     // 시계로 닫는다 — now_utc의 KST 분이 진행 중 봉의 자리를 지났으면 그 봉을 닫고 sink를 부른다. 다음 버킷
     //  첫 틱만 봉을 닫으면 틱이 뜸한 종목과 마감 동시호가 뒤 마지막 봉은 확정이 늦거나 안 된다. 돌아오는 값은
     //  닫은 봉 수. 한 종목만 보는 꼴은 그 종목이 없으면 0. [why D-074]
     int close_stale(std::time_t now_utc);
-    int close_stale(sym::SymbolId sym, std::time_t now_utc);
+    int close_stale(symbol::SymbolId symbol_id, std::time_t now_utc);
 
-    void clear(sym::SymbolId sym);
-    const Config& config() const { return cfg_; }
+    void clear(symbol::SymbolId symbol_id);
+    const Config& config() const { return config_; }
 
 private:
     struct Live
     {
         BarSlot    slot;
-        MarketData md;
-        int64_t    acml_base = -1; // 버킷 시작 시점의 당일 누적 거래량(첫 틱의 acml − qty). 모르면 −1 → qty 합산
+        MarketData market_data;
+        int64_t    acml_base = -1; // 버킷 시작 시점의 당일 누적 거래량(첫 틱의 acml − quantity). 모르면 −1 → quantity 합산
         bool       active    = false;
     };
 
@@ -104,11 +104,11 @@ private:
         Live                   live;
     };
 
-    void close_live(Series& s);
-    void trim(Series& s);
+    void close_live(Series& series);
+    void trim(Series& series);
 
-    Config                                  cfg_;
+    Config                                  config_;
     BarSink                                 sink_;
-    std::unordered_map<sym::SymbolId, Series> series_;
+    std::unordered_map<symbol::SymbolId, Series> series_;
 };
 } // namespace bars

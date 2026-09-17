@@ -30,9 +30,9 @@ inline constexpr size_t kCacheLine = 64;
 #endif
 
 // 용량을 2의 거듭제곱으로 올림 → pos & mask 로 modulo 대체 (최소 2)
-inline constexpr size_t round_up_pow2(size_t n) noexcept
+inline constexpr size_t round_up_pow2(size_t count) noexcept
 {
-    return std::bit_ceil(n < 2 ? size_t{2} : n);
+    return std::bit_ceil(count < 2 ? size_t{2} : count);
 }
 } // namespace mpsc_detail
 
@@ -43,10 +43,10 @@ public:
         : buffer_(mpsc_detail::round_up_pow2(capacity)), mask_(buffer_.size() - 1), enqueue_pos_(0),
           dequeue_pos_(0)
     {
-        // 초기 상태: i번 칸은 i번째 티켓을 기다린다 (seq == 그 칸을 채울 pos 값)
-        for (size_t i = 0; i < buffer_.size(); ++i)
+        // 초기 상태: i번 칸은 i번째 티켓을 기다린다 (sequence == 그 칸을 채울 pos 값)
+        for (size_t buffer_index = 0; buffer_index < buffer_.size(); ++buffer_index)
         {
-            buffer_[i].seq.store(i, std::memory_order_relaxed);
+            buffer_[buffer_index].sequence.store(buffer_index, std::memory_order_relaxed);
         }
     }
 
@@ -69,8 +69,8 @@ public:
     {
         const size_t pos = dequeue_pos_.load(std::memory_order_relaxed);
         Cell& cell = buffer_[pos & mask_];
-        const size_t seq = cell.seq.load(std::memory_order_acquire);
-        const intptr_t diff = static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos + 1);
+        const size_t sequence = cell.sequence.load(std::memory_order_acquire);
+        const intptr_t diff = static_cast<intptr_t>(sequence) - static_cast<intptr_t>(pos + 1);
 
         if (diff < 0)
         {
@@ -81,7 +81,7 @@ public:
 
         T item = std::move(cell.data);
         // 데이터를 뺀 뒤에 칸을 "다음 바퀴용 빈 칸"으로 표시 → 생산자가 재사용 가능
-        cell.seq.store(pos + mask_ + 1, std::memory_order_release);
+        cell.sequence.store(pos + mask_ + 1, std::memory_order_release);
         dequeue_pos_.store(pos + 1, std::memory_order_relaxed);
         return item;
     }
@@ -108,7 +108,7 @@ public:
 private:
     struct Cell
     {
-        std::atomic<size_t> seq;
+        std::atomic<size_t> sequence;
         T data;
     };
 
@@ -120,8 +120,8 @@ private:
         while (true)
         {
             cell = &buffer_[pos & mask_];
-            const size_t seq = cell->seq.load(std::memory_order_acquire);
-            const intptr_t diff = static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos);
+            const size_t sequence = cell->sequence.load(std::memory_order_acquire);
+            const intptr_t diff = static_cast<intptr_t>(sequence) - static_cast<intptr_t>(pos);
 
             if (diff == 0)
             {
@@ -143,7 +143,7 @@ private:
 
         cell->data = std::forward<U>(item);
         // release: 앞의 data 쓰기를 가둔 뒤 "채웠다"를 공개 → 소비자 acquire와 happens-before
-        cell->seq.store(pos + 1, std::memory_order_release);
+        cell->sequence.store(pos + 1, std::memory_order_release);
         return true;
     }
 

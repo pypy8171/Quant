@@ -25,40 +25,40 @@ int g_checks = 0;
         }                                                                                  \
     } while (0)
 
-TradeData make_trade(int i, int64_t recv_ns)
+TradeData make_trade(int index, int64_t received_ns)
 {
-    TradeData td;
-    td.ticker    = i % 2 == 0 ? "005930" : "000660";
-    td.hhmmss    = 90100;
-    td.price     = 70000.0 + i;
-    td.quantity  = 10 + i;
-    td.direction = 1;
-    td.market    = Market::KR;
-    td.timestamp = std::chrono::system_clock::time_point(std::chrono::microseconds(1'700'000'000'000'000LL + i));
-    td.recv_ns   = recv_ns;
-    return td;
+    TradeData trade;
+    trade.ticker    = index % 2 == 0 ? "005930" : "000660";
+    trade.hhmmss    = 90100;
+    trade.price     = 70000.0 + index;
+    trade.quantity  = 10 + index;
+    trade.direction = 1;
+    trade.market    = Market::KR;
+    trade.timestamp = std::chrono::system_clock::time_point(std::chrono::microseconds(1'700'000'000'000'000LL + index));
+    trade.received_ns   = received_ns;
+    return trade;
 }
 
-OrderBook make_book(int i)
+OrderBook make_book(int index)
 {
-    OrderBook ob;
-    ob.ticker  = "005930";
-    ob.hhmmss  = 90100;
-    ob.recv_ns = 1'050'000'000;
+    OrderBook order_book;
+    order_book.ticker  = "005930";
+    order_book.hhmmss  = 90100;
+    order_book.received_ns = 1'050'000'000;
 
-    for (int k = 0; k < 5; ++k)
+    for (int innermost_index = 0; innermost_index < 5; ++innermost_index)
     {
-        ob.asks[k] = {70100.0 + k * 100 + i, 100 + k};
-        ob.bids[k] = {70000.0 - k * 100 - i, 200 + k};
+        order_book.asks[innermost_index] = {70100.0 + innermost_index * 100 + index, 100 + innermost_index};
+        order_book.bids[innermost_index] = {70000.0 - innermost_index * 100 - index, 200 + innermost_index};
     }
 
-    return ob;
+    return order_book;
 }
 
 // 재생이 끝날 때까지 기다린다(최대 5초).
 bool wait_finished(const feed::ReplaySource& src)
 {
-    for (int i = 0; i < 500 && !src.finished(); ++i)
+    for (int index = 0; index < 500 && !src.finished(); ++index)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -73,9 +73,9 @@ struct Seen
 
 void hook(feed::ReplaySource& src, Seen& seen)
 {
-    src.set_callbacks([&seen](const OrderBook& ob) { seen.order.push_back("B:" + ob.ticker.str()); },
-                      [&seen](const TradeData& td)
-                      { seen.order.push_back("T:" + td.ticker.str() + ":" + std::to_string(static_cast<int>(td.price))); });
+    src.set_callbacks([&seen](const OrderBook& order_book) { seen.order.push_back("B:" + order_book.ticker.str()); },
+                      [&seen](const TradeData& trade)
+                      { seen.order.push_back("T:" + trade.ticker.str() + ":" + std::to_string(static_cast<int>(trade.price))); });
 }
 
 } // namespace
@@ -87,15 +87,15 @@ int main()
 
     // 캡처: 체결 4(005930·000660 번갈아, 간격 100ms)·호가 1. 총 5.
     {
-        feed::TickCapture cap(path);
-        CHECK(cap.ok());
-        cap.on_trade(make_trade(0, 1'000'000'000));
-        cap.on_book(make_book(0));
-        cap.on_trade(make_trade(1, 1'100'000'000));
-        cap.on_trade(make_trade(2, 1'200'000'000));
-        cap.on_trade(make_trade(3, 1'300'000'000));
-        cap.flush();
-        CHECK(cap.written() == 5);
+        feed::TickCapture capture(path);
+        CHECK(capture.ok());
+        capture.on_trade(make_trade(0, 1'000'000'000));
+        capture.on_book(make_book(0));
+        capture.on_trade(make_trade(1, 1'100'000'000));
+        capture.on_trade(make_trade(2, 1'200'000'000));
+        capture.on_trade(make_trade(3, 1'300'000'000));
+        capture.flush();
+        CHECK(capture.written() == 5);
     }
 
     // 1. 전 종목·최대 속도: 5개가 캡처 순서 그대로 온다.
@@ -137,10 +137,10 @@ int main()
         feed::ReplaySource src(path, 1.0);
         Seen               seen;
         hook(src, seen);
-        const auto t0 = std::chrono::steady_clock::now();
+        const auto start_time = std::chrono::steady_clock::now();
         CHECK(src.connect({}));
         CHECK(wait_finished(src));
-        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time).count();
         CHECK(ms >= 250);
         CHECK(seen.order.size() == 5);
     }
@@ -149,10 +149,10 @@ int main()
         feed::ReplaySource src(path, 10.0);
         Seen               seen;
         hook(src, seen);
-        const auto t0 = std::chrono::steady_clock::now();
+        const auto start_time = std::chrono::steady_clock::now();
         CHECK(src.connect({}));
         CHECK(wait_finished(src));
-        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time).count();
         CHECK(ms < 200);
     }
 
@@ -163,9 +163,9 @@ int main()
         hook(src, seen);
         CHECK(src.connect({}));
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        const auto t0 = std::chrono::steady_clock::now();
+        const auto start_time = std::chrono::steady_clock::now();
         src.disconnect();
-        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time).count();
         CHECK(ms < 500);
         CHECK(!src.is_connected());
         CHECK(!src.finished());

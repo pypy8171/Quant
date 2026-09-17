@@ -1,5 +1,5 @@
 // N분봉 집계기(core/BarAggregator.h) 단위 테스트. 버킷 정렬(REST aggregate_minutes와 같은 식)·자정 단조·빈 구간
-//  건너뜀·장 밖 틱 폐기·누적 거래량 차와 qty 합산 뒷걸음·시드 병합(닫힌 봉 REST 우선, 진행 봉 합침, 빈 자리
+//  건너뜀·장 밖 틱 폐기·누적 거래량 차와 quantity 합산 뒷걸음·시드 병합(닫힌 봉 REST 우선, 진행 봉 합침, 빈 자리
 //  채움)·keep 상한·bar_index 0=최신·닫힘 콜백, 그리고 1분 기저를 N분으로 접는 resample이 직접 집계와 같음을
 //  고정한다. KIS·Engine·Logger 없이 링크한다.
 //  관련 결정: D-068·D-072.
@@ -42,41 +42,41 @@ std::time_t utc_of(const std::string& hhmmss)
 }
 
 // 시험용 종목 id — 집계기는 id로만 찾고 문자열은 닫힌 봉에 싣는다.
-constexpr sym::SymbolId kSamsung = 1, kHynix = 2, kNaver = 3, kUnknown = 99;
+constexpr symbol::SymbolId kSamsung = 1, kHynix = 2, kNaver = 3, kUnknown = 99;
 
-sym::SymbolId sym_of(const char* ticker)
+symbol::SymbolId symbol_id_of(const char* ticker)
 {
     return std::string_view(ticker) == "005930" ? kSamsung : std::string_view(ticker) == "000660" ? kHynix : kNaver;
 }
 
-TradeData tick(const std::string& hhmmss, double px, int64_t qty, int64_t acml, const char* ticker = "005930")
+TradeData tick(const std::string& hhmmss, double price, int64_t quantity, int64_t acml, const char* ticker = "005930")
 {
-    TradeData td;
-    td.ticker      = ticker;
-    td.sym         = sym_of(ticker);
-    td.hhmmss      = std::stoi(hhmmss);
-    td.price       = px;
-    td.quantity    = qty;
-    td.acml_volume = acml;
-    td.market      = Market::KR;
-    td.timestamp   = std::chrono::system_clock::from_time_t(utc_of(hhmmss));
-    return td;
+    TradeData trade;
+    trade.ticker      = ticker;
+    trade.symbol_id         = symbol_id_of(ticker);
+    trade.hhmmss      = std::stoi(hhmmss);
+    trade.price       = price;
+    trade.quantity    = quantity;
+    trade.accumulated_volume = acml;
+    trade.market      = Market::KR;
+    trade.timestamp   = std::chrono::system_clock::from_time_t(utc_of(hhmmss));
+    return trade;
 }
 
 // REST 봉 흉내 — timestamp는 버킷의 마지막 1분 시각(aggregate_minutes와 같다).
-MarketData rest_bar(const std::string& last_min_hhmmss, double o, double h, double l, double c, int64_t v)
+MarketData rest_bar(const std::string& last_min_hhmmss, double open, double high, double low, double close, int64_t value)
 {
-    MarketData md;
-    md.ticker    = "005930";
-    md.sym       = kSamsung;
-    md.market    = Market::KR;
-    md.open      = o;
-    md.high      = h;
-    md.low       = l;
-    md.close     = c;
-    md.volume    = v;
-    md.timestamp = std::chrono::system_clock::from_time_t(utc_of(last_min_hhmmss));
-    return md;
+    MarketData market_data;
+    market_data.ticker    = "005930";
+    market_data.symbol_id       = kSamsung;
+    market_data.market    = Market::KR;
+    market_data.open      = open;
+    market_data.high      = high;
+    market_data.low       = low;
+    market_data.close     = close;
+    market_data.volume    = value;
+    market_data.timestamp = std::chrono::system_clock::from_time_t(utc_of(last_min_hhmmss));
+    return market_data;
 }
 } // namespace
 
@@ -87,11 +87,11 @@ int main()
 
     // ── slot_of: 시계 정렬, 장 밖, 시각 0(모름) ────────────────────────────────
     {
-        const BarSlot a = bars::slot_of(90000, utc_of("090000"), 3, 900, 1530);
-        const BarSlot b = bars::slot_of(90259, utc_of("090259"), 3, 900, 1530);
-        const BarSlot c = bars::slot_of(90300, utc_of("090300"), 3, 900, 1530);
-        CHECK(a.valid() && a == b && b != c && a < c);
-        CHECK(a.bucket == (9 * 60) / 3 && c.bucket == a.bucket + 1);
+        const BarSlot slot_a = bars::slot_of(90000, utc_of("090000"), 3, 900, 1530);
+        const BarSlot slot_b = bars::slot_of(90259, utc_of("090259"), 3, 900, 1530);
+        const BarSlot slot_c = bars::slot_of(90300, utc_of("090300"), 3, 900, 1530);
+        CHECK(slot_a.valid() && slot_a == slot_b && slot_b != slot_c && slot_a < slot_c);
+        CHECK(slot_a.bucket == (9 * 60) / 3 && slot_c.bucket == slot_a.bucket + 1);
         CHECK(!bars::slot_of(85959, utc_of("085959"), 3, 900, 1530).valid());   // 동시호가 전
         CHECK(bars::slot_of(153000, utc_of("153000"), 3, 900, 1530).valid());    // 마감 동시호가 체결
         CHECK(!bars::slot_of(153100, utc_of("153100"), 3, 900, 1530).valid());   // 장 뒤
@@ -99,23 +99,23 @@ int main()
         CHECK(!bars::slot_of(990000, utc_of("090000"), 3, 900, 1530).valid());   // 깨진 시각
         CHECK(!bars::slot_of(90000, utc_of("090000"), 0, 900, 1530).valid());   // 간격 0
         // 시각이 0(모름)이면 수신 시각의 KST 분을 쓴다 — REST 대체 틱.
-        const BarSlot r = bars::slot_of(0, utc_of("100130"), 3, 900, 1530);
-        CHECK(r.valid() && r.bucket == (10 * 60 + 1) / 3);
+        const BarSlot resolved_slot = bars::slot_of(0, utc_of("100130"), 3, 900, 1530);
+        CHECK(resolved_slot.valid() && resolved_slot.bucket == (10 * 60 + 1) / 3);
         // 자정 단조: 다음날 09:00 자리는 오늘 15:30 자리보다 크다.
         const BarSlot today_last = bars::slot_of(153000, utc_of("153000"), 3, 900, 1530);
         const BarSlot tomorrow   = bars::slot_of(90000, utc_of("090000") + 86400, 3, 900, 1530);
         CHECK(today_last < tomorrow && tomorrow.day == today_last.day + 1);
         // 봉 시작 시각은 버킷의 첫 분.
-        const auto st = std::chrono::system_clock::to_time_t(bars::slot_start(b, utc_of("090259"), 3));
-        CHECK(st == utc_of("090000"));
+        const auto stop_token = std::chrono::system_clock::to_time_t(bars::slot_start(slot_b, utc_of("090259"), 3));
+        CHECK(stop_token == utc_of("090000"));
     }
 
     // ── 한 봉 안 OHLC·누적 거래량 차, 다음 버킷 첫 틱이 앞 봉을 닫음, bar_index 0=최신 ──
     {
-        BarAggregator::Config cfg;
-        BarAggregator agg(cfg);
+        BarAggregator::Config config;
+        BarAggregator agg(config);
         std::vector<MarketData> closed;
-        agg.set_sink([&](const MarketData& md) { closed.push_back(md); });
+        agg.set_sink([&](const MarketData& market_data) { closed.push_back(market_data); });
 
         CHECK(agg.on_tick(tick("090000", 100.0, 10, 10)));
         CHECK(agg.on_tick(tick("090030", 103.0, 5, 15)));
@@ -123,21 +123,21 @@ int main()
         CHECK(agg.on_tick(tick("090259", 101.0, 3, 25)));
         CHECK(closed.empty() && agg.closed_count(kSamsung) == 0);
 
-        auto snap = agg.snapshot(kSamsung);
-        CHECK(snap.size() == 1);
-        CHECK(snap[0].open == 100.0 && snap[0].high == 103.0 && snap[0].low == 98.0 && snap[0].close == 101.0);
-        CHECK(snap[0].volume == 25);
-        CHECK(snap[0].bar_index == 0 && snap[0].ticker == "005930");
+        auto snapshot = agg.snapshot(kSamsung);
+        CHECK(snapshot.size() == 1);
+        CHECK(snapshot[0].open == 100.0 && snapshot[0].high == 103.0 && snapshot[0].low == 98.0 && snapshot[0].close == 101.0);
+        CHECK(snapshot[0].volume == 25);
+        CHECK(snapshot[0].bar_index == 0 && snapshot[0].ticker == "005930");
 
         // 09:03:00 첫 틱이 09:00 봉을 닫는다. 사이에 틱을 흘렸어도(acml 25→40) 거래량은 누적차라 맞다.
         CHECK(agg.on_tick(tick("090300", 102.0, 4, 44)));
         CHECK(closed.size() == 1 && closed[0].close == 101.0 && closed[0].volume == 25);
         CHECK(agg.closed_count(kSamsung) == 1);
         CHECK(agg.on_tick(tick("090400", 104.0, 6, 50)));
-        snap = agg.snapshot(kSamsung);
-        CHECK(snap.size() == 2 && snap[0].bar_index == 0 && snap[1].bar_index == 1);
-        CHECK(snap[0].open == 102.0 && snap[0].close == 104.0 && snap[0].volume == 10); // 44−40 + 6
-        CHECK(snap[1].close == 101.0);
+        snapshot = agg.snapshot(kSamsung);
+        CHECK(snapshot.size() == 2 && snapshot[0].bar_index == 0 && snapshot[1].bar_index == 1);
+        CHECK(snapshot[0].open == 102.0 && snapshot[0].close == 104.0 && snapshot[0].volume == 10); // 44−40 + 6
+        CHECK(snapshot[1].close == 101.0);
 
         // 늦게 온 과거 틱은 버린다 — 닫힌 봉을 고치지 않는다.
         CHECK(!agg.on_tick(tick("090250", 90.0, 1, 51)));
@@ -148,8 +148,8 @@ int main()
         CHECK(agg.closed_count(kSamsung) == 2);
         const BarSlot cur = agg.current_slot(kSamsung);
         CHECK(cur.bucket == (9 * 60 + 9) / 3);
-        snap = agg.snapshot(kSamsung);
-        CHECK(snap.size() == 3 && snap[1].open == 102.0); // [1]=09:03 봉, 09:06 봉은 없다
+        snapshot = agg.snapshot(kSamsung);
+        CHECK(snapshot.size() == 3 && snapshot[1].open == 102.0); // [1]=09:03 봉, 09:06 봉은 없다
 
         // max_count
         CHECK(agg.snapshot(kSamsung, 2).size() == 2);
@@ -169,7 +169,7 @@ int main()
         CHECK(agg.snapshot(kSamsung).empty() && agg.snapshot(kHynix).size() == 1);
     }
 
-    // ── acml 없는 틱(REST 대체·선물)은 qty 합산으로 뒷걸음 ────────────────────────
+    // ── acml 없는 틱(REST 대체·선물)은 quantity 합산으로 뒷걸음 ────────────────────────
     {
         BarAggregator agg(BarAggregator::Config{});
         CHECK(agg.on_tick(tick("100000", 10.0, 3, 0)));
@@ -184,7 +184,7 @@ int main()
     {
         BarAggregator agg(BarAggregator::Config{});
         std::vector<MarketData> closed;
-        agg.set_sink([&](const MarketData& md) { closed.push_back(md); });
+        agg.set_sink([&](const MarketData& market_data) { closed.push_back(market_data); });
 
         // 로컬은 09:06 봉을 09:07부터만 봤다(구독이 늦었다).
         CHECK(agg.on_tick(tick("090700", 200.0, 10, 500)));
@@ -199,13 +199,13 @@ int main()
         };
         CHECK(agg.seed(kSamsung, rest) == 2);
         CHECK(agg.closed_count(kSamsung) == 2);
-        auto snap = agg.snapshot(kSamsung);
-        CHECK(snap.size() == 3);
-        CHECK(snap[0].open == 198.0 && snap[0].high == 206.0 && snap[0].low == 197.0);
-        CHECK(snap[0].close == 205.0);   // 종가는 로컬(더 늦다)
-        CHECK(snap[0].volume == 480);    // 거래량은 큰 쪽
-        CHECK(snap[1].close == 198.0 && snap[2].close == 190.0);
-        CHECK(snap[1].ticker == "005930" && snap[1].bar_index == 1 && snap[2].bar_index == 2);
+        auto snapshot = agg.snapshot(kSamsung);
+        CHECK(snapshot.size() == 3);
+        CHECK(snapshot[0].open == 198.0 && snapshot[0].high == 206.0 && snapshot[0].low == 197.0);
+        CHECK(snapshot[0].close == 205.0);   // 종가는 로컬(더 늦다)
+        CHECK(snapshot[0].volume == 480);    // 거래량은 큰 쪽
+        CHECK(snapshot[1].close == 198.0 && snapshot[2].close == 190.0);
+        CHECK(snapshot[1].ticker == "005930" && snapshot[1].bar_index == 1 && snapshot[2].bar_index == 2);
 
         // 합친 뒤 틱이 더 오면 거래량은 합친 값 위에 쌓인다(누적차 기준 이동).
         CHECK(agg.on_tick(tick("090830", 207.0, 5, 515)));
@@ -222,9 +222,9 @@ int main()
         CHECK(closed.size() == 1 && closed[0].close == 207.0);
         CHECK(agg.closed_count(kSamsung) == 4 && !agg.current_slot(kSamsung).valid());
         CHECK(agg.on_tick(tick("091130", 213.0, 2, 700)));
-        snap = agg.snapshot(kSamsung);
-        CHECK(snap.size() == 4 && snap[0].open == 210.0 && snap[0].high == 213.0 && snap[0].close == 213.0);
-        CHECK(snap[0].volume == 102);
+        snapshot = agg.snapshot(kSamsung);
+        CHECK(snapshot.size() == 4 && snapshot[0].open == 210.0 && snapshot[0].high == 213.0 && snapshot[0].close == 213.0);
+        CHECK(snapshot[0].volume == 102);
         CHECK(agg.on_tick(tick("091140", 214.0, 3, 703)));
         CHECK(agg.snapshot(kSamsung)[0].volume == 105);
         // 시드가 닫아 둔 자리보다 오래된 틱은 버린다.
@@ -235,28 +235,28 @@ int main()
         nots.close = 1.0;
         CHECK(agg.seed(kSamsung, {nots}) == 0);
         CHECK(agg.seed(kSamsung, {}) == 0);
-        CHECK(agg.seed(sym::kNone, rest) == 0);
+        CHECK(agg.seed(symbol::kNone, rest) == 0);
     }
 
     // ── keep 상한: 오래된 봉부터 버림, 슬롯 순서 유지 ────────────────────────────
     {
-        BarAggregator::Config cfg;
-        cfg.keep = 3;
-        BarAggregator agg(cfg);
+        BarAggregator::Config config;
+        config.keep = 3;
+        BarAggregator agg(config);
         int n_closed = 0;
         agg.set_sink([&](const MarketData&) { ++n_closed; });
 
-        for (int i = 0; i < 6; ++i)
+        for (int index = 0; index < 6; ++index)
         {
-            char buf[7];
-            std::snprintf(buf, sizeof(buf), "%02d%02d00", 9, i * 3);
-            CHECK(agg.on_tick(tick(buf, 100.0 + i, 1, i + 1)));
+            char buffer[7];
+            std::snprintf(buffer, sizeof(buffer), "%02d%02d00", 9, index * 3);
+            CHECK(agg.on_tick(tick(buffer, 100.0 + index, 1, index + 1)));
         }
 
         CHECK(n_closed == 5 && agg.closed_count(kSamsung) == 3);
-        auto snap = agg.snapshot(kSamsung);
-        CHECK(snap.size() == 4);
-        CHECK(snap[0].close == 105.0 && snap[3].close == 102.0); // [0]=진행 중(09:15), 09:00·09:03은 버려짐
+        auto snapshot = agg.snapshot(kSamsung);
+        CHECK(snapshot.size() == 4);
+        CHECK(snapshot[0].close == 105.0 && snapshot[3].close == 102.0); // [0]=진행 중(09:15), 09:00·09:03은 버려짐
         // 시드로 더 넣어도 상한을 넘기지 않는다.
         std::vector<MarketData> old = {rest_bar("090200", 1, 1, 1, 1, 1)};
         agg.seed(kSamsung, old);
@@ -272,8 +272,8 @@ int main()
         CHECK(agg.on_tick(d1));
         CHECK(agg.on_tick(d2));
         CHECK(agg.closed_count(kSamsung) == 1);
-        auto snap = agg.snapshot(kSamsung);
-        CHECK(snap[0].close == 20.0 && snap[1].close == 10.0);
+        auto snapshot = agg.snapshot(kSamsung);
+        CHECK(snapshot[0].close == 20.0 && snapshot[1].close == 10.0);
     }
 
     // ── resample: 1분 기저 → 3분. 틱을 바로 3분에 넣은 집계기와 봉이 같아야 한다 (D-072) ──
@@ -287,16 +287,16 @@ int main()
         const char* mins[] = {"0900", "0901", "0902", "0903", "0905", "0906", "0907"};
         int         acml   = 0;
 
-        for (int i = 0; i < 7; ++i)
+        for (int index = 0; index < 7; ++index)
         {
-            const std::string m  = mins[i];
-            const double      px = 100.0 + i;
+            const std::string message  = mins[index];
+            const double      price = 100.0 + index;
             acml += 5;
-            CHECK(one.on_tick(tick(m + "10", px + 0.5, 5, acml)));
-            CHECK(three.on_tick(tick(m + "10", px + 0.5, 5, acml)));
+            CHECK(one.on_tick(tick(message + "10", price + 0.5, 5, acml)));
+            CHECK(three.on_tick(tick(message + "10", price + 0.5, 5, acml)));
             acml += 7;
-            CHECK(one.on_tick(tick(m + "40", px, 7, acml)));
-            CHECK(three.on_tick(tick(m + "40", px, 7, acml)));
+            CHECK(one.on_tick(tick(message + "40", price, 7, acml)));
+            CHECK(three.on_tick(tick(message + "40", price, 7, acml)));
         }
 
         const auto s1 = one.snapshot(kSamsung);
@@ -305,11 +305,11 @@ int main()
         const auto d3 = three.snapshot(kSamsung);
         CHECK(r3.size() == 3 && d3.size() == 3); // 09:06(진행 중)·09:03·09:00
 
-        for (size_t i = 0; i < 3; ++i)
+        for (size_t index = 0; index < 3; ++index)
         {
-            CHECK(r3[i].open == d3[i].open && r3[i].high == d3[i].high && r3[i].low == d3[i].low &&
-                  r3[i].close == d3[i].close && r3[i].volume == d3[i].volume);
-            CHECK(r3[i].bar_index == static_cast<int>(i));
+            CHECK(r3[index].open == d3[index].open && r3[index].high == d3[index].high && r3[index].low == d3[index].low &&
+                  r3[index].close == d3[index].close && r3[index].volume == d3[index].volume);
+            CHECK(r3[index].bar_index == static_cast<int>(index));
         }
 
         CHECK(r3[2].open == 100.5 && r3[2].close == 102.0 && r3[2].high == 102.5 && r3[2].low == 100.0);
@@ -332,7 +332,7 @@ int main()
     {
         bars::BarAggregator agg(bars::BarAggregator::Config{1, 64, 900, 1530});
         std::vector<MarketData> closed;
-        agg.set_sink([&](const MarketData& md) { closed.push_back(md); });
+        agg.set_sink([&](const MarketData& market_data) { closed.push_back(market_data); });
         CHECK(agg.on_tick(tick("152959", 100.0, 1, 1)));
         CHECK(agg.on_tick(tick("153000", 101.0, 2, 3))); // 마감 동시호가 체결 → 15:29 닫힘, 15:30 진행
         CHECK(closed.size() == 1 && agg.current_slot(kSamsung).bucket == 15 * 60 + 30);
@@ -360,20 +360,20 @@ int main()
     {
         constexpr int kTicks = 1'000'000;
         BarAggregator agg(BarAggregator::Config{});
-        TradeData     td = tick("100000", 100.0, 1, 1);
+        TradeData     trade = tick("100000", 100.0, 1, 1);
 
-        const auto t0 = std::chrono::steady_clock::now();
+        const auto start_time = std::chrono::steady_clock::now();
 
-        for (int n = 0; n < kTicks; ++n)
+        for (int tick_index = 0; tick_index < kTicks; ++tick_index)
         {
-            td.price       = 100.0 + (n & 7);
-            td.acml_volume = n + 1;
-            (void)agg.on_tick(td);
+            trade.price       = 100.0 + (tick_index & 7);
+            trade.accumulated_volume = tick_index + 1;
+            (void)agg.on_tick(trade);
         }
 
         const auto t1 = std::chrono::steady_clock::now();
         CHECK(agg.current_slot(kSamsung).valid());
-        const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count() / kTicks;
+        const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - start_time).count() / kTicks;
         std::cout << "  틱당 on_tick " << ns << "ns (같은 분, 종목 하나)\n";
     }
 

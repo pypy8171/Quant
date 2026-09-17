@@ -10,7 +10,7 @@
 // Windows Sleep 부정확성 회피를 위해 busy-wait 기반 rate limiting 사용.
 //
 // 사용법: test_pipeline_stress [duration_sec] [mode]
-//   mode: "normal" (기본, 3,000 msg/sec) | "burst" (14,000 msg/sec)
+//   mode: "normal" (기본, 3,000 message/sec) | "burst" (14,000 message/sec)
 
 #include "core/RingBuffer.h"
 #include <condition_variable>
@@ -37,16 +37,16 @@ using ns = std::chrono::nanoseconds;
 static constexpr int N_TICKERS = 200;
 
 static std::vector<std::string> make_tickers() {
-    std::vector<std::string> v;
-    v.reserve(N_TICKERS);
+    std::vector<std::string> parts;
+    parts.reserve(N_TICKERS);
 
-    for (int i = 1; i <= N_TICKERS; ++i) {
-        char buf[8];
-        std::snprintf(buf, sizeof(buf), "%06d", i);
-        v.emplace_back(buf);
+    for (int ticker_index = 1; ticker_index <= N_TICKERS; ++ticker_index) {
+        char buffer[8];
+        std::snprintf(buffer, sizeof(buffer), "%06d", ticker_index);
+        parts.emplace_back(buffer);
     }
 
-    return v;
+    return parts;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -55,7 +55,7 @@ static std::vector<std::string> make_tickers() {
 struct MockOrderBook {
     char     ticker[8];
     int64_t  send_ts_ns;
-    uint64_t seq;
+    uint64_t sequence;
     double   ask_price[5];
     int64_t  ask_qty[5];
     double   bid_price[5];
@@ -65,7 +65,7 @@ struct MockOrderBook {
 struct MockTradeData {
     char     ticker[8];
     int64_t  send_ts_ns;
-    uint64_t seq;
+    uint64_t sequence;
     double   price;
     int64_t  quantity;
     int      direction;
@@ -74,7 +74,7 @@ struct MockTradeData {
 struct MockFill {
     char     ticker[8];
     int64_t  send_ts_ns;
-    uint64_t seq;
+    uint64_t sequence;
     int      quantity;
     double   price;
 };
@@ -151,7 +151,7 @@ static void ws_producer_fn(RingBuffer<MockOrderBook>& ob_q,
 
     auto deadline = clk::now() + std::chrono::seconds(duration_sec);
     auto next_send = clk::now();
-    uint64_t seq = 0;
+    uint64_t sequence = 0;
     uint64_t fill_seq = 0;
 
     while (!stop_flag.load(std::memory_order_relaxed) && clk::now() < deadline) {
@@ -165,15 +165,15 @@ static void ws_producer_fn(RingBuffer<MockOrderBook>& ob_q,
 
         // 체결통보는 같은 수신 스레드가 시세 사이에 끼워 넣는다(실물과 같은 단일 생산자). 시세 500건당 1건 —
         //  실장(하루 수백 건)보다 훨씬 잦게 넣어 소비자 폴링이 밀리는지 본다.
-        if (seq % 500 == 0) {
-            MockFill f{};
-            std::memcpy(f.ticker, TICKERS[tk_idx].c_str(), 7);
-            f.send_ts_ns = now_ns;
-            f.seq = fill_seq++;
-            f.quantity = 1 + static_cast<int>(fill_seq % 10);
-            f.price = 70000.0;
+        if (sequence % 500 == 0) {
+            MockFill mock_fill{};
+            std::memcpy(mock_fill.ticker, TICKERS[tk_idx].c_str(), 7);
+            mock_fill.send_ts_ns = now_ns;
+            mock_fill.sequence = fill_seq++;
+            mock_fill.quantity = 1 + static_cast<int>(fill_seq % 10);
+            mock_fill.price = 70000.0;
 
-            if (fill_q.push(f))
+            if (fill_q.push(mock_fill))
             {
                 stats.fill_produced.fetch_add(1, std::memory_order_relaxed);
                 std::atomic_thread_fence(std::memory_order_seq_cst);
@@ -190,19 +190,19 @@ static void ws_producer_fn(RingBuffer<MockOrderBook>& ob_q,
         }
 
         if (is_ob) {
-            MockOrderBook ob{};
-            std::memcpy(ob.ticker, TICKERS[tk_idx].c_str(), 7);
-            ob.send_ts_ns = now_ns;
-            ob.seq = seq++;
+            MockOrderBook order_book{};
+            std::memcpy(order_book.ticker, TICKERS[tk_idx].c_str(), 7);
+            order_book.send_ts_ns = now_ns;
+            order_book.sequence = sequence++;
 
-            for (int i = 0; i < 5; ++i) {
-                ob.ask_price[i] = 70000.0 + i * 10;
-                ob.ask_qty[i] = 100 * (i + 1);
-                ob.bid_price[i] = 69990.0 - i * 10;
-                ob.bid_qty[i] = 100 * (i + 1);
+            for (int index = 0; index < 5; ++index) {
+                order_book.ask_price[index] = 70000.0 + index * 10;
+                order_book.ask_qty[index] = 100 * (index + 1);
+                order_book.bid_price[index] = 69990.0 - index * 10;
+                order_book.bid_qty[index] = 100 * (index + 1);
             }
 
-            if (ob_q.push(ob))
+            if (ob_q.push(order_book))
             {
                 stats.ob_produced.fetch_add(1, std::memory_order_relaxed);
             }
@@ -212,15 +212,15 @@ static void ws_producer_fn(RingBuffer<MockOrderBook>& ob_q,
             }
         }
         else {
-            MockTradeData td{};
-            std::memcpy(td.ticker, TICKERS[tk_idx].c_str(), 7);
-            td.send_ts_ns = now_ns;
-            td.seq = seq++;
-            td.price = 70000.0 + (seq % 100);
-            td.quantity = 10 + (seq % 50);
-            td.direction = (seq % 2) ? 1 : 5;
+            MockTradeData trade{};
+            std::memcpy(trade.ticker, TICKERS[tk_idx].c_str(), 7);
+            trade.send_ts_ns = now_ns;
+            trade.sequence = sequence++;
+            trade.price = 70000.0 + (sequence % 100);
+            trade.quantity = 10 + (sequence % 50);
+            trade.direction = (sequence % 2) ? 1 : 5;
 
-            if (td_q.push(td))
+            if (td_q.push(trade))
             {
                 stats.td_produced.fetch_add(1, std::memory_order_relaxed);
             }
@@ -252,26 +252,26 @@ static void strategy_fn(RingBuffer<MockOrderBook>& ob_q,
     {
         bool did_work = false;
 
-        while (auto opt = ob_q.pop()) {
+        while (auto option = ob_q.pop()) {
             stats.ob_consumed.fetch_add(1, std::memory_order_relaxed);
             volatile double sink = 0.0;
 
-            for (int i = 0; i < 5; ++i)
+            for (int index = 0; index < 5; ++index)
             {
-                sink = sink + opt->ask_price[i] - opt->bid_price[i];
+                sink = sink + option->ask_price[index] - option->bid_price[index];
             }
 
             (void)sink;
 
             if (++ob_counter % 100 == 0) {
-                MockOrderSignal sig{};
-                std::memcpy(sig.ticker, opt->ticker, 7);
-                sig.send_ts_ns = opt->send_ts_ns;
-                sig.origin_seq = opt->seq;
-                sig.side = 0;
-                sig.quantity = 10;
+                MockOrderSignal signal{};
+                std::memcpy(signal.ticker, option->ticker, 7);
+                signal.send_ts_ns = option->send_ts_ns;
+                signal.origin_seq = option->sequence;
+                signal.side = 0;
+                signal.quantity = 10;
 
-                if (order_q.push(sig))
+                if (order_q.push(signal))
                 {
                     stats.signals_generated.fetch_add(1, std::memory_order_relaxed);
                 }
@@ -284,20 +284,20 @@ static void strategy_fn(RingBuffer<MockOrderBook>& ob_q,
             did_work = true;
         }
 
-        while (auto opt = td_q.pop()) {
+        while (auto option = td_q.pop()) {
             stats.td_consumed.fetch_add(1, std::memory_order_relaxed);
-            volatile double sink = opt->price * opt->quantity;
+            volatile double sink = option->price * option->quantity;
             (void)sink;
 
             if (++td_counter % 200 == 0) {
-                MockOrderSignal sig{};
-                std::memcpy(sig.ticker, opt->ticker, 7);
-                sig.send_ts_ns = opt->send_ts_ns;
-                sig.origin_seq = opt->seq;
-                sig.side = 1;
-                sig.quantity = 5;
+                MockOrderSignal signal{};
+                std::memcpy(signal.ticker, option->ticker, 7);
+                signal.send_ts_ns = option->send_ts_ns;
+                signal.origin_seq = option->sequence;
+                signal.side = 1;
+                signal.quantity = 5;
 
-                if (order_q.push(sig))
+                if (order_q.push(signal))
                 {
                     stats.signals_generated.fetch_add(1, std::memory_order_relaxed);
                 }
@@ -323,16 +323,16 @@ static void order_fn(RingBuffer<MockOrderSignal>& order_q,
     std::atomic<bool>& stop_flag)
 {
     while (!stop_flag.load(std::memory_order_relaxed) || !order_q.empty()) {
-        auto opt = order_q.pop();
+        auto option = order_q.pop();
 
-        if (!opt) {
+        if (!option) {
             continue;   // busy spin
         }
 
         // E2E latency: producer push 시각 → 여기 도달 시각
         int64_t now_ns = std::chrono::duration_cast<ns>(
             clk::now().time_since_epoch()).count();
-        int64_t latency = now_ns - opt->send_ts_ns;
+        int64_t latency = now_ns - option->send_ts_ns;
 
         if (latency >= 0)
         {
@@ -351,16 +351,16 @@ static void fill_fn(RingBuffer<MockFill>& fill_q,
     std::atomic<bool>& stop_flag)
 {
     while (!stop_flag.load(std::memory_order_relaxed) || !fill_q.empty()) {
-        auto opt = fill_q.pop();
+        auto option = fill_q.pop();
 
-        if (!opt) {
-            std::unique_lock<std::mutex> lk(stats.fill_wake_mtx);
+        if (!option) {
+            std::unique_lock<std::mutex> lock(stats.fill_wake_mtx);
             stats.fill_sleeping.store(true, std::memory_order_relaxed);
             std::atomic_thread_fence(std::memory_order_seq_cst);
 
             if (fill_q.empty() && !stop_flag.load(std::memory_order_relaxed))
             {
-                stats.fill_wake_cv.wait_for(lk, std::chrono::milliseconds(100));
+                stats.fill_wake_cv.wait_for(lock, std::chrono::milliseconds(100));
             }
 
             stats.fill_sleeping.store(false, std::memory_order_relaxed);
@@ -369,7 +369,7 @@ static void fill_fn(RingBuffer<MockFill>& fill_q,
 
         int64_t now_ns = std::chrono::duration_cast<ns>(
             clk::now().time_since_epoch()).count();
-        int64_t latency = now_ns - opt->send_ts_ns;
+        int64_t latency = now_ns - option->send_ts_ns;
 
         if (latency >= 0)
         {
@@ -383,46 +383,46 @@ static void fill_fn(RingBuffer<MockFill>& fill_q,
 // ─────────────────────────────────────────────────────────────────────────────
 // Latency 분위수 출력
 // ─────────────────────────────────────────────────────────────────────────────
-static void print_latency(std::vector<int64_t>& v, const char* label) {
-    std::cout << label << " (count=" << v.size() << "):\n";
+static void print_latency(std::vector<int64_t>& values, const char* label) {
+    std::cout << label << " (count=" << values.size() << "):\n";
 
-    if (v.empty()) { std::cout << "  (no samples)\n"; return; }
-    std::sort(v.begin(), v.end());
+    if (values.empty()) { std::cout << "  (no samples)\n"; return; }
+    std::sort(values.begin(), values.end());
 
-    auto pct = [&](double p) {
-        size_t idx = static_cast<size_t>(v.size() * p);
+    auto pct = [&](double price) {
+        size_t index = static_cast<size_t>(values.size() * price);
 
-        if (idx >= v.size())
+        if (index >= values.size())
         {
-            idx = v.size() - 1;
+            index = values.size() - 1;
         }
 
-        return v[idx];
+        return values[index];
         };
-    auto fmt = [](int64_t n) -> std::string {
-        char buf[32];
+    auto fmt = [](int64_t count) -> std::string {
+        char buffer[32];
 
-        if (n < 1000)
+        if (count < 1000)
         {
-            std::snprintf(buf, sizeof(buf), "%lld ns", static_cast<long long>(n));
+            std::snprintf(buffer, sizeof(buffer), "%lld ns", static_cast<long long>(count));
         }
-        else if (n < 1'000'000)
+        else if (count < 1'000'000)
         {
-            std::snprintf(buf, sizeof(buf), "%lld us", static_cast<long long>(n / 1000));
+            std::snprintf(buffer, sizeof(buffer), "%lld us", static_cast<long long>(count / 1000));
         }
         else
         {
-            std::snprintf(buf, sizeof(buf), "%lld ms", static_cast<long long>(n / 1'000'000));
+            std::snprintf(buffer, sizeof(buffer), "%lld ms", static_cast<long long>(count / 1'000'000));
         }
 
-        return std::string(buf);
+        return std::string(buffer);
         };
 
     std::cout << "  p50:  " << fmt(pct(0.50)) << "\n"
         << "  p90:  " << fmt(pct(0.90)) << "\n"
         << "  p99:  " << fmt(pct(0.99)) << "\n"
         << "  p999: " << fmt(pct(0.999)) << "\n"
-        << "  max:  " << fmt(v.back()) << "\n";
+        << "  max:  " << fmt(values.back()) << "\n";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -468,7 +468,7 @@ int main(int argc, char** argv) {
     stats.fill_latencies_ns.reserve(10'000);
     std::atomic<bool> stop_flag{ false };
 
-    auto t0 = clk::now();
+    auto start_time = clk::now();
 
     std::thread t_ws(ws_producer_fn, std::ref(ob_q), std::ref(td_q), std::ref(fill_q),
         std::ref(stats), std::ref(stop_flag), duration,
@@ -479,10 +479,10 @@ int main(int argc, char** argv) {
     std::thread t_fill(fill_fn, std::ref(fill_q), std::ref(stats), std::ref(stop_flag));
 
     // 진행 상황 5초마다 출력
-    while (clk::now() - t0 < std::chrono::seconds(duration)) {
+    while (clk::now() - start_time < std::chrono::seconds(duration)) {
         std::this_thread::sleep_for(std::chrono::seconds(5));
         auto el = std::chrono::duration_cast<std::chrono::seconds>(
-            clk::now() - t0).count();
+            clk::now() - start_time).count();
         std::cout << "  [t+" << std::setw(3) << el << "s] "
             << "OB " << stats.ob_produced.load() << "/" << stats.ob_consumed.load()
             << "/" << stats.ob_drops.load()
@@ -504,7 +504,7 @@ int main(int argc, char** argv) {
     t_fill.join();
 
     auto t1 = clk::now();
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - start_time).count();
 
     std::cout << "\n=== Results ===\n";
     std::cout << "Elapsed        : " << ms << " ms\n";

@@ -47,9 +47,9 @@ enum class OpsMsg : uint8_t
     ERROR_MSG    = 0x7F, // s→c {"msg"}
 };
 
-inline const char* msg_name(uint8_t t)
+inline const char* msg_name(uint8_t message_type)
 {
-    switch (static_cast<OpsMsg>(t))
+    switch (static_cast<OpsMsg>(message_type))
     {
         case OpsMsg::HELLO:        return "HELLO";
         case OpsMsg::WELCOME:      return "WELCOME";
@@ -85,17 +85,17 @@ inline std::vector<uint8_t> encode(OpsMsg type, const std::string& body)
         return {};
     }
 
-    const uint32_t n = static_cast<uint32_t>(body.size());
+    const uint32_t count = static_cast<uint32_t>(body.size());
     std::vector<uint8_t> out;
-    out.reserve(kHeaderLen + n);
+    out.reserve(kHeaderLen + count);
     out.push_back(kMagic0);
     out.push_back(kMagic1);
     out.push_back(kVersion);
     out.push_back(static_cast<uint8_t>(type));
-    out.push_back(static_cast<uint8_t>((n >> 24) & 0xFF));
-    out.push_back(static_cast<uint8_t>((n >> 16) & 0xFF));
-    out.push_back(static_cast<uint8_t>((n >> 8) & 0xFF));
-    out.push_back(static_cast<uint8_t>(n & 0xFF));
+    out.push_back(static_cast<uint8_t>((count >> 24) & 0xFF));
+    out.push_back(static_cast<uint8_t>((count >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((count >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>(count & 0xFF));
     out.insert(out.end(), body.begin(), body.end());
     return out;
 }
@@ -106,14 +106,14 @@ inline std::vector<uint8_t> encode(OpsMsg type, const std::string& body)
 class FrameReader
 {
 public:
-    void feed(const uint8_t* data, size_t len)
+    void feed(const uint8_t* data, size_t length)
     {
         if (bad_)
         {
             return;
         }
 
-        buf_.insert(buf_.end(), data, data + len);
+        buf_.insert(buf_.end(), data, data + length);
     }
 
     // 완성된 프레임이 있으면 out에 채우고 true. 없거나 bad()면 false.
@@ -130,23 +130,23 @@ public:
             return false;
         }
 
-        const uint32_t n = (static_cast<uint32_t>(buf_[4]) << 24) | (static_cast<uint32_t>(buf_[5]) << 16) |
+        const uint32_t count = (static_cast<uint32_t>(buf_[4]) << 24) | (static_cast<uint32_t>(buf_[5]) << 16) |
                            (static_cast<uint32_t>(buf_[6]) << 8) | static_cast<uint32_t>(buf_[7]);
 
-        if (n > kMaxBody)
+        if (count > kMaxBody)
         {
             bad_ = true;
             return false;
         }
 
-        if (buf_.size() < kHeaderLen + n)
+        if (buf_.size() < kHeaderLen + count)
         {
             return false;
         }
 
         out.type = buf_[3];
-        out.body.assign(reinterpret_cast<const char*>(buf_.data() + kHeaderLen), n);
-        buf_.erase(buf_.begin(), buf_.begin() + static_cast<std::ptrdiff_t>(kHeaderLen + n));
+        out.body.assign(reinterpret_cast<const char*>(buf_.data() + kHeaderLen), count);
+        buf_.erase(buf_.begin(), buf_.begin() + static_cast<std::ptrdiff_t>(kHeaderLen + count));
         return true;
     }
 

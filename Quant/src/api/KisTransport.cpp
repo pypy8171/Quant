@@ -22,17 +22,17 @@ KisClient::FastFailScope::~FastFailScope() { --g_fastfail_depth; }
 #include <winhttp.h>
 #pragma comment(lib, "winhttp.lib")
 
-static std::wstring to_wstring(const std::string& s)
+static std::wstring to_wstring(const std::string& text)
 {
-    if (s.empty())
+    if (text.empty())
     {
         return {};
     }
 
-    int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring w(n - 1, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], n);
-    return w;
+    int count = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
+    std::wstring word(count - 1, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, &word[0], count);
+    return word;
 }
 
 struct WinHttpResult
@@ -45,7 +45,7 @@ struct WinHttpResult
 
 static WinHttpResult crack_url(const std::string& url)
 {
-    WinHttpResult r{};
+    WinHttpResult win_http_result{};
     std::wstring wurl = to_wstring(url);
     wchar_t host[512]{}, path[4096]{};
     URL_COMPONENTS uc{};
@@ -55,11 +55,11 @@ static WinHttpResult crack_url(const std::string& url)
     uc.lpszUrlPath = path;
     uc.dwUrlPathLength = (DWORD)std::size(path);
     WinHttpCrackUrl(wurl.c_str(), 0, 0, &uc);
-    r.host = host;
-    r.path = path;
-    r.port = uc.nPort;
-    r.https = (uc.nScheme == INTERNET_SCHEME_HTTPS);
-    return r;
+    win_http_result.host = host;
+    win_http_result.path = path;
+    win_http_result.port = uc.nPort;
+    win_http_result.https = (uc.nScheme == INTERNET_SCHEME_HTTPS);
+    return win_http_result;
 }
 
 // ─── 커넥션 풀(P-2): 스레드별 WinHTTP 세션·연결 상주로 keep-alive 재사용 ────────
@@ -105,17 +105,17 @@ static thread_local WinHttpConn t_conn;
 // 바이너리 하나에서 변수 하나(풀링 유무)만 바꿔 before/after를 비교하려는 목적.
 static bool http_nopool()
 {
-    static const bool v = [] {
-        const char* e = std::getenv("QUANT_HTTP_NOPOOL");
-        return e && *e == '1';
+    static const bool disabled = [] {
+        const char* end = std::getenv("QUANT_HTTP_NOPOOL");
+        return end && *end == '1';
     }();
-    return v;
+    return disabled;
 }
 
 // (host,port)에 대한 상주 hConnect 확보. 실패 시 nullptr.
-static HINTERNET acquire_connection(const WinHttpResult& c)
+static HINTERNET acquire_connection(const WinHttpResult& win_http_result)
 {
-    if (t_conn.session && t_conn.connect && t_conn.host == c.host && t_conn.port == c.port)
+    if (t_conn.session && t_conn.connect && t_conn.host == win_http_result.host && t_conn.port == win_http_result.port)
     {
         return t_conn.connect; // 워밍된 연결 재사용
     }
@@ -134,7 +134,7 @@ static HINTERNET acquire_connection(const WinHttpResult& c)
     // 전송 계층 히컵이 스레드를 오래 잡지 않게 한다.
     WinHttpSetTimeouts(t_conn.session, 5000, 5000, 10000, 15000);
 
-    t_conn.connect = WinHttpConnect(t_conn.session, c.host.c_str(), c.port, 0);
+    t_conn.connect = WinHttpConnect(t_conn.session, win_http_result.host.c_str(), win_http_result.port, 0);
 
     if (!t_conn.connect)
     {
@@ -142,8 +142,8 @@ static HINTERNET acquire_connection(const WinHttpResult& c)
         return nullptr;
     }
 
-    t_conn.host = c.host;
-    t_conn.port = c.port;
+    t_conn.host = win_http_result.host;
+    t_conn.port = win_http_result.port;
     return t_conn.connect;
 }
 } // namespace
@@ -157,17 +157,17 @@ static std::string winhttp_request_once(const std::string& method, const std::st
 {
     transport_ok = false;
     status_code = 0;
-    auto c = crack_url(url);
+    auto other_crack_url = crack_url(url);
 
-    HINTERNET hConnect = acquire_connection(c);
+    HINTERNET hConnect = acquire_connection(other_crack_url);
 
     if (!hConnect)
     {
         return "";
     }
 
-    DWORD flags = c.https ? WINHTTP_FLAG_SECURE : 0;
-    HINTERNET hReq = WinHttpOpenRequest(hConnect, to_wstring(method).c_str(), c.path.c_str(), nullptr,
+    DWORD flags = other_crack_url.https ? WINHTTP_FLAG_SECURE : 0;
+    HINTERNET hReq = WinHttpOpenRequest(hConnect, to_wstring(method).c_str(), other_crack_url.path.c_str(), nullptr,
                                         WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
 
     if (!hReq)
@@ -176,9 +176,9 @@ static std::string winhttp_request_once(const std::string& method, const std::st
         return "";
     }
 
-    for (auto& h : headers)
+    for (auto& header : headers)
     {
-        auto wh = to_wstring(h + "\r\n");
+        auto wh = to_wstring(header + "\r\n");
         WinHttpAddRequestHeaders(hReq, wh.c_str(), (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
     }
 
@@ -187,9 +187,9 @@ static std::string winhttp_request_once(const std::string& method, const std::st
 
     if (!WinHttpSendRequest(hReq, WINHTTP_NO_ADDITIONAL_HEADERS, 0, pBody, cbBody, cbBody, 0))
     {
-        DWORD err = GetLastError();
+        DWORD error = GetLastError();
         char errbuf[128];
-        snprintf(errbuf, sizeof(errbuf), "[WinHTTP] SendRequest 실패: %lu", err);
+        snprintf(errbuf, sizeof(errbuf), "[WinHTTP] SendRequest 실패: %lu", error);
         LOG_ERROR(std::string(errbuf) + "  url=" + url);
         WinHttpCloseHandle(hReq);
         t_conn.reset(); // 끊긴 keep-alive 가능 → 파기 후 재수립(GET이면 래퍼가 재시도)
@@ -198,9 +198,9 @@ static std::string winhttp_request_once(const std::string& method, const std::st
 
     if (!WinHttpReceiveResponse(hReq, nullptr))
     {
-        DWORD err = GetLastError();
+        DWORD error = GetLastError();
         char errbuf[128];
-        snprintf(errbuf, sizeof(errbuf), "[WinHTTP] ReceiveResponse 실패: %lu", err);
+        snprintf(errbuf, sizeof(errbuf), "[WinHTTP] ReceiveResponse 실패: %lu", error);
         LOG_ERROR(std::string(errbuf) + "  url=" + url);
         WinHttpCloseHandle(hReq);
         t_conn.reset();
@@ -265,28 +265,28 @@ static std::string winhttp_request(const std::string& method, const std::string&
     constexpr unsigned kRetryBackoffMsBase = 500; // 선형 백오프 기준(attempt배: 500ms, 1000ms)
     const bool idempotent = (method == "GET");
     const int max_attempts = (idempotent && g_fastfail_depth == 0) ? kMaxGetAttempts : 1;
-    std::string resp;
+    std::string response;
 
     for (int attempt = 1; attempt <= max_attempts; ++attempt)
     {
         bool transport_ok = false;
         int status = 0;
-        resp = winhttp_request_once(method, url, headers, body, transport_ok, status);
+        response = winhttp_request_once(method, url, headers, body, transport_ok, status);
         // 재시도 대상: 전송 실패(항상) 또는 조회(GET)의 5xx. 그 외(2xx/4xx)는 즉시 반환.
         const bool retryable = !transport_ok || (idempotent && status >= 500);
 
         if (!retryable)
         {
-            return resp;
+            return response;
         }
 
         // 한도 초과가 확인되면 한 번만 더 시도하고 그친다. 부하가 원인인 실패에 재시도를
         //  겹치면 부하를 더 얹는다.
-        const bool rate_limited = is_rate_limited(resp);
+        const bool rate_limited = is_rate_limited(response);
 
         if (rate_limited && attempt >= 2)
         {
-            return resp;
+            return response;
         }
 
         if (attempt < max_attempts)
@@ -300,7 +300,7 @@ static std::string winhttp_request(const std::string& method, const std::string&
         }
     }
 
-    return resp; // 재시도 소진 — 마지막 응답(빈 문자열 또는 5xx 바디)
+    return response; // 재시도 소진 — 마지막 응답(빈 문자열 또는 5xx 바디)
 }
 
 #else
@@ -331,9 +331,9 @@ static std::string curl_request_once(const std::string& method, const std::strin
     std::string response;
     curl_slist* hlist = nullptr;
 
-    for (auto& h : headers)
+    for (auto& header : headers)
     {
-        hlist = curl_slist_append(hlist, h.c_str());
+        hlist = curl_slist_append(hlist, header.c_str());
     }
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
@@ -375,25 +375,25 @@ static std::string curl_request(const std::string& method, const std::string& ur
     constexpr int kRetryBackoffMsBase = 500; // 선형 백오프 기준(attempt배: 500ms, 1000ms)
     const bool idempotent = (method == "GET");
     const int max_attempts = (idempotent && g_fastfail_depth == 0) ? kMaxGetAttempts : 1;
-    std::string resp;
+    std::string response;
 
     for (int attempt = 1; attempt <= max_attempts; ++attempt)
     {
         bool transport_ok = false;
         int status = 0;
-        resp = curl_request_once(method, url, headers, body, transport_ok, status);
+        response = curl_request_once(method, url, headers, body, transport_ok, status);
         const bool retryable = !transport_ok || (idempotent && status >= 500);
 
         if (!retryable)
         {
-            return resp;
+            return response;
         }
 
-        const bool rate_limited = is_rate_limited(resp); // 한도 초과면 한 번만 더 시도
+        const bool rate_limited = is_rate_limited(response); // 한도 초과면 한 번만 더 시도
 
         if (rate_limited && attempt >= 2)
         {
-            return resp;
+            return response;
         }
 
         if (attempt < max_attempts)
@@ -407,7 +407,7 @@ static std::string curl_request(const std::string& method, const std::string& ur
         }
     }
 
-    return resp;
+    return response;
 }
 #endif
 
@@ -420,8 +420,8 @@ static std::string curl_request(const std::string& method, const std::string& ur
 void KisClient::rate_limit_acquire(const std::string& url)
 {
     // 실전 초당 20건, 모의 초당 2건이 공표 한도다. 재시도·토큰 갱신이 끼어들 여유를 남겨 낮게 잡는다.
-    const double refill = cfg_.is_paper ? 2.0 : 15.0;
-    const double cap = refill; // 1초치까지만 모아둔다(그 이상 몰아치면 어차피 한도에 걸린다)
+    const double refill = config_.is_paper ? 2.0 : 15.0;
+    const double capacity = refill; // 1초치까지만 모아둔다(그 이상 몰아치면 어차피 한도에 걸린다)
     // 주문·잔고 경로에는 예약분을 남긴다. 시세 조회가 버킷을 다 비운 순간 청산 주문이
     //  그 뒤에 줄서면 몇 백 ms가 늦는데, 그 지연은 조회 지연과 값이 다르다.
     const bool priority = url.find("/trading/") != std::string::npos;
@@ -431,18 +431,18 @@ void KisClient::rate_limit_acquire(const std::string& url)
     {
         double wait_sec = 0.0;
         {
-            std::lock_guard<std::mutex> lk(rate_mtx_);
+            std::lock_guard<std::mutex> lock(rate_mtx_);
             auto now = std::chrono::steady_clock::now();
 
             if (rate_last_.time_since_epoch().count() == 0)
             {
                 rate_last_ = now;
-                rate_tokens_ = cap; // 첫 호출은 기다리지 않는다
+                rate_tokens_ = capacity; // 첫 호출은 기다리지 않는다
             }
 
             double elapsed = std::chrono::duration<double>(now - rate_last_).count();
             rate_last_ = now;
-            rate_tokens_ = (std::min)(cap, rate_tokens_ + elapsed * refill);
+            rate_tokens_ = (std::min)(capacity, rate_tokens_ + elapsed * refill);
 
             if (rate_tokens_ >= need)
             {
@@ -464,20 +464,20 @@ void KisClient::rate_limit_acquire(const std::string& url)
 
 void KisClient::note_rate_limited()
 {
-    std::lock_guard<std::mutex> lk(rate_mtx_);
+    std::lock_guard<std::mutex> lock(rate_mtx_);
     rate_tokens_ = 0.0; // 다음 호출은 리필을 기다린다(≈1초치)
 }
 
 // 헤더 목록의 authorization 줄을 지금 토큰으로 덮어쓴다. 호출자들은 헤더를 먼저 조립하고
 //  http_get/http_post가 그 뒤에 ensure_authenticated()를 부르므로, 갱신이 일어난 요청은 옛 토큰
 //  (기동 직후 첫 호출이면 빈 토큰)으로 나간다. authorization 줄이 없는 헤더(oauth2)는 그대로 둔다.
-static void kis_stamp_bearer(std::vector<std::string>& hdrs, const std::string& tok)
+static void kis_stamp_bearer(std::vector<std::string>& headers, const std::string& tok)
 {
-    for (auto& h : hdrs)
+    for (auto& header : headers)
     {
-        if (h.starts_with("authorization:") || h.starts_with("Authorization:"))
+        if (header.starts_with("authorization:") || header.starts_with("Authorization:"))
         {
-            h = "authorization: Bearer " + tok;
+            header = "authorization: Bearer " + tok;
             return;
         }
     }
@@ -485,13 +485,13 @@ static void kis_stamp_bearer(std::vector<std::string>& hdrs, const std::string& 
 
 std::string KisClient::http_get(const std::string& url, const std::vector<std::string>& headers)
 {
-    auto hdrs = headers;
+    auto request_headers = headers;
 
     // oauth2 토큰 발급 엔드포인트가 아닌 경우에만 자동 갱신 (재귀 방지)
     if (url.find("oauth2") == std::string::npos)
     {
         ensure_authenticated();
-        kis_stamp_bearer(hdrs, token());
+        kis_stamp_bearer(request_headers, token());
     }
 
     rate_limit_acquire(url);
@@ -499,9 +499,9 @@ std::string KisClient::http_get(const std::string& url, const std::vector<std::s
     // KIS API는 GET에도 Content-Type: application/json 요구
     bool has_ct = false;
 
-    for (auto& h : hdrs)
+    for (auto& request_header : request_headers)
     {
-        if (h.find("Content-Type") != std::string::npos)
+        if (request_header.find("Content-Type") != std::string::npos)
         {
             has_ct = true;
             break;
@@ -510,56 +510,56 @@ std::string KisClient::http_get(const std::string& url, const std::vector<std::s
 
     if (!has_ct)
     {
-        hdrs.push_back("Content-Type: application/json; charset=utf-8");
+        request_headers.push_back("Content-Type: application/json; charset=utf-8");
     }
 #ifdef _WIN32
-    std::string resp = winhttp_request("GET", url, hdrs, "");
+    std::string response = winhttp_request("GET", url, request_headers, "");
 #else
-    std::string resp = curl_request("GET", url, hdrs, "");
+    std::string response = curl_request("GET", url, request_headers, "");
 #endif
 
-    if (is_rate_limited(resp))
+    if (is_rate_limited(response))
     {
         note_rate_limited();
     }
 
-    return resp;
+    return response;
 }
 
 std::string KisClient::http_post(const std::string& url, const std::vector<std::string>& headers,
                                  const std::string& body)
 {
-    auto hdrs = headers;
+    auto request_headers = headers;
 
     if (url.find("oauth2") == std::string::npos)
     {
         ensure_authenticated();
-        kis_stamp_bearer(hdrs, token());
+        kis_stamp_bearer(request_headers, token());
     }
 
     rate_limit_acquire(url);
 
 #ifdef _WIN32
-    std::string resp = winhttp_request("POST", url, hdrs, body);
+    std::string response = winhttp_request("POST", url, request_headers, body);
 #else
-    std::string resp = curl_request("POST", url, hdrs, body);
+    std::string response = curl_request("POST", url, request_headers, body);
 #endif
 
-    if (is_rate_limited(resp))
+    if (is_rate_limited(response))
     {
         note_rate_limited();
     }
 
-    return resp;
+    return response;
 }
 
 // 공용 인증 헤더 — bearer·appkey·appsecret·tr_id 네 줄에 호출별 항목을 더한다.
 //  bearer는 http_get/http_post가 ensure_authenticated 뒤 최신 토큰으로 다시 찍는다(kis_stamp_bearer).
-std::vector<std::string> KisClient::auth_headers(const std::string& tr_id,
+std::vector<std::string> KisClient::auth_headers(const std::string& transaction_id,
                                                  std::initializer_list<std::string> extra) const
 {
-    std::vector<std::string> h = {"authorization: Bearer " + token(), "appkey: " + cfg_.app_key,
-                                  "appsecret: " + cfg_.app_secret, "tr_id: " + tr_id};
-    h.insert(h.end(), extra.begin(), extra.end());
-    return h;
+    std::vector<std::string> parts = {"authorization: Bearer " + token(), "appkey: " + config_.app_key,
+                                  "appsecret: " + config_.app_secret, "tr_id: " + transaction_id};
+    parts.insert(parts.end(), extra.begin(), extra.end());
+    return parts;
 }

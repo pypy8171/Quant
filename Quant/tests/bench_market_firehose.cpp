@@ -1,8 +1,8 @@
 // tests/bench_market_firehose.cpp
 // 전종목 규모(~2,600) 시세 파이프라인 부하테스트 — 내부 3단 처리단의 전 구간(E2E) 지연 분포
 //  (중앙값(p50)·상위 1%(p99)·상위 0.1%(p999))와 최대 지속가능 처리량(throughput)을 실측한다.
-//  실행 절차의 정본은 `docs/guides/LOAD_TEST_GUIDE.md` §1, 결과는
-//  `docs/reports/PIPELINE_LATENCY_REPORT.md`.
+//  실행 절차의 정본은 `docs/guides/LOAD_TEST_GUIDE.market_data` §1, 결과는
+//  `docs/reports/PIPELINE_LATENCY_REPORT.market_data`.
 //
 // [inv] 측정 범위 — 내부 처리단만 잰다. 실제 KIS REST/WS 네트워크 지연은 빠져 있고, 프로덕션
 //   end-to-end 지연은 무료 API 폴링 주기(초 단위)가 좌우한다. 이 하네스로 "지연을 개선했다"를
@@ -70,7 +70,7 @@ struct MockOrderBook
 {
     char     ticker[8];
     int64_t  send_ts_ns;
-    uint64_t seq;
+    uint64_t sequence;
     double   ask_price[5];
     int64_t  ask_qty[5];
     double   bid_price[5];
@@ -81,7 +81,7 @@ struct MockTradeData
 {
     char     ticker[8];
     int64_t  send_ts_ns;
-    uint64_t seq;
+    uint64_t sequence;
     double   price;
     int64_t  quantity;
     int      direction;
@@ -108,35 +108,35 @@ static std::vector<std::string> load_universe(const std::string& path, int fallb
 
     if (!path.empty())
     {
-        std::ifstream f(path);
+        std::ifstream file(path);
 
-        if (f)
+        if (file)
         {
-            std::string body((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            std::string body((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
             // "codes" 배열 이후만 스캔(ticker 이름 등 다른 숫자 오염 방지). 없으면 전체 스캔.
             size_t start = body.find("\"codes\"");
             std::string scan = (start != std::string::npos) ? body.substr(start) : body;
 
             // 따옴표로 감싼 연속 6자리 숫자 토큰만 코드로 취급.
-            for (size_t i = 0; i + 1 < scan.size(); ++i)
+            for (size_t index = 0; index + 1 < scan.size(); ++index)
             {
-                if (scan[i] != '"')
+                if (scan[index] != '"')
                 {
                     continue;
                 }
 
-                size_t j = i + 1, digits = 0;
+                size_t inner_index = index + 1, digits = 0;
 
-                while (j < scan.size() && scan[j] >= '0' && scan[j] <= '9')
+                while (inner_index < scan.size() && scan[inner_index] >= '0' && scan[inner_index] <= '9')
                 {
-                    ++j;
+                    ++inner_index;
                     ++digits;
                 }
 
-                if (digits == 6 && j < scan.size() && scan[j] == '"')
+                if (digits == 6 && inner_index < scan.size() && scan[inner_index] == '"')
                 {
-                    out.emplace_back(scan.substr(i + 1, 6));
-                    i = j;
+                    out.emplace_back(scan.substr(index + 1, 6));
+                    index = inner_index;
                 }
             }
         }
@@ -146,11 +146,11 @@ static std::vector<std::string> load_universe(const std::string& path, int fallb
     {
         out.reserve(fallback_n);
 
-        for (int i = 1; i <= fallback_n; ++i)
+        for (int fallback_index = 1; fallback_index <= fallback_n; ++fallback_index)
         {
-            char buf[8];
-            std::snprintf(buf, sizeof(buf), "%06d", i);
-            out.emplace_back(buf);
+            char buffer[8];
+            std::snprintf(buffer, sizeof(buffer), "%06d", fallback_index);
+            out.emplace_back(buffer);
         }
     }
 
@@ -165,31 +165,31 @@ static std::vector<std::string> load_universe(const std::string& path, int fallb
 struct ZipfPicker
 {
     std::vector<double> cdf;
-    explicit ZipfPicker(size_t n, double s)
+    explicit ZipfPicker(size_t count, double sum)
     {
-        cdf.resize(n);
+        cdf.resize(count);
         double acc = 0.0;
 
-        for (size_t i = 0; i < n; ++i)
+        for (size_t index = 0; index < count; ++index)
         {
-            acc += 1.0 / std::pow(static_cast<double>(i + 1), s);
-            cdf[i] = acc;
+            acc += 1.0 / std::pow(static_cast<double>(index + 1), sum);
+            cdf[index] = acc;
         }
 
         const double total = acc;
 
-        for (auto& c : cdf)
+        for (auto& cumulative : cdf)
         {
-            c /= total;
+            cumulative /= total;
         }
     }
 
     // u ∈ [0,1) → 종목 인덱스
-    size_t pick(double u) const
+    size_t pick(double upper) const
     {
-        auto it = std::lower_bound(cdf.begin(), cdf.end(), u);
-        size_t idx = static_cast<size_t>(it - cdf.begin());
-        return (idx < cdf.size()) ? idx : cdf.size() - 1;
+        auto iterator = std::lower_bound(cdf.begin(), cdf.end(), upper);
+        size_t index = static_cast<size_t>(iterator - cdf.begin());
+        return (index < cdf.size()) ? index : cdf.size() - 1;
     }
 };
 
@@ -217,11 +217,11 @@ struct Stats
     std::vector<int64_t> e2e_ns;             // order 스레드가 채움
 };
 
-static inline void bump_hwm(std::atomic<uint64_t>& hwm, uint64_t v)
+static inline void bump_hwm(std::atomic<uint64_t>& hwm, uint64_t value)
 {
     uint64_t cur = hwm.load(std::memory_order_relaxed);
 
-    while (v > cur && !hwm.compare_exchange_weak(cur, v, std::memory_order_relaxed))
+    while (value > cur && !hwm.compare_exchange_weak(cur, value, std::memory_order_relaxed))
     {
     }
 }
@@ -234,7 +234,7 @@ static void producer_fn(RingBuffer<MockOrderBook>& ob_q,
                         RingBuffer<MockTradeData>& td_q,
                         const std::vector<std::string>& tickers,
                         const ZipfPicker& zipf,
-                        Stats& st,
+                        Stats& stop_token,
                         std::atomic<bool>& stop,
                         int64_t total_rate,
                         double ob_ratio,
@@ -244,23 +244,23 @@ static void producer_fn(RingBuffer<MockOrderBook>& ob_q,
     std::uniform_real_distribution<double> u01(0.0, 1.0);
 
     const int64_t interval_ns = (total_rate > 0) ? static_cast<int64_t>(1e9 / total_rate) : 0;
-    const int64_t t0 = now_ns();
-    const int64_t t_end = t0 + duration_ns;
-    int64_t next_emit = t0;
-    uint64_t seq = 0;
+    const int64_t start_time = now_ns();
+    const int64_t t_end = start_time + duration_ns;
+    int64_t next_emit = start_time;
+    uint64_t sequence = 0;
 
     while (!stop.load(std::memory_order_relaxed))
     {
-        const int64_t t = now_ns();
+        const int64_t time_value = now_ns();
 
-        if (t >= t_end)
+        if (time_value >= t_end)
         {
             break;
         }
 
         if (interval_ns > 0)
         {
-            if (t < next_emit)
+            if (time_value < next_emit)
             {
                 busy_wait_until_ns(next_emit);
             }
@@ -268,52 +268,52 @@ static void producer_fn(RingBuffer<MockOrderBook>& ob_q,
             next_emit += interval_ns;
         }
 
-        const size_t tk = zipf.pick(u01(rng));
-        const int64_t ts = now_ns();
+        const size_t ticker_index = zipf.pick(u01(rng));
+        const int64_t timestamp = now_ns();
 
         if (u01(rng) < ob_ratio)
         {
-            MockOrderBook ob{};
-            std::memcpy(ob.ticker, tickers[tk].c_str(), 7);
-            ob.send_ts_ns = ts;
-            ob.seq = seq++;
+            MockOrderBook order_book{};
+            std::memcpy(order_book.ticker, tickers[ticker_index].c_str(), 7);
+            order_book.send_ts_ns = timestamp;
+            order_book.sequence = sequence++;
 
-            for (int i = 0; i < 5; ++i)
+            for (int index = 0; index < 5; ++index)
             {
-                ob.ask_price[i] = 70000.0 + i * 10;
-                ob.ask_qty[i] = 100 * (i + 1);
-                ob.bid_price[i] = 69990.0 - i * 10;
-                ob.bid_qty[i] = 100 * (i + 1);
+                order_book.ask_price[index] = 70000.0 + index * 10;
+                order_book.ask_qty[index] = 100 * (index + 1);
+                order_book.bid_price[index] = 69990.0 - index * 10;
+                order_book.bid_qty[index] = 100 * (index + 1);
             }
 
-            if (ob_q.push(ob))
+            if (ob_q.push(order_book))
             {
-                st.ob_produced.fetch_add(1, std::memory_order_relaxed);
-                bump_hwm(st.ob_hwm, ob_q.size());
+                stop_token.ob_produced.fetch_add(1, std::memory_order_relaxed);
+                bump_hwm(stop_token.ob_hwm, ob_q.size());
             }
             else
             {
-                st.ob_drops.fetch_add(1, std::memory_order_relaxed);
+                stop_token.ob_drops.fetch_add(1, std::memory_order_relaxed);
             }
         }
         else
         {
-            MockTradeData td{};
-            std::memcpy(td.ticker, tickers[tk].c_str(), 7);
-            td.send_ts_ns = ts;
-            td.seq = seq++;
-            td.price = 70000.0 + (seq % 100);
-            td.quantity = 10 + (seq % 50);
-            td.direction = (seq % 2) ? 1 : 5;
+            MockTradeData trade{};
+            std::memcpy(trade.ticker, tickers[ticker_index].c_str(), 7);
+            trade.send_ts_ns = timestamp;
+            trade.sequence = sequence++;
+            trade.price = 70000.0 + (sequence % 100);
+            trade.quantity = 10 + (sequence % 50);
+            trade.direction = (sequence % 2) ? 1 : 5;
 
-            if (td_q.push(td))
+            if (td_q.push(trade))
             {
-                st.td_produced.fetch_add(1, std::memory_order_relaxed);
-                bump_hwm(st.td_hwm, td_q.size());
+                stop_token.td_produced.fetch_add(1, std::memory_order_relaxed);
+                bump_hwm(stop_token.td_hwm, td_q.size());
             }
             else
             {
-                st.td_drops.fetch_add(1, std::memory_order_relaxed);
+                stop_token.td_drops.fetch_add(1, std::memory_order_relaxed);
             }
         }
     }
@@ -326,87 +326,87 @@ static void producer_fn(RingBuffer<MockOrderBook>& ob_q,
 static void strategy_fn(RingBuffer<MockOrderBook>& ob_q,
                         RingBuffer<MockTradeData>& td_q,
                         RingBuffer<MockOrderSignal>& order_q,
-                        Stats& st,
+                        Stats& stop_token,
                         std::atomic<bool>& stop,
                         size_t lat_cap)
 {
-    st.intake_to_strat_ns.reserve(lat_cap);
+    stop_token.intake_to_strat_ns.reserve(lat_cap);
     uint64_t obc = 0, tdc = 0;
 
     while (!stop.load(std::memory_order_relaxed) || !ob_q.empty() || !td_q.empty())
     {
-        while (auto opt = ob_q.pop())
+        while (auto option = ob_q.pop())
         {
-            const int64_t t = now_ns();
+            const int64_t time_value = now_ns();
 
-            if (st.intake_to_strat_ns.size() < lat_cap)
+            if (stop_token.intake_to_strat_ns.size() < lat_cap)
             {
-                st.intake_to_strat_ns.push_back(t - opt->send_ts_ns);
+                stop_token.intake_to_strat_ns.push_back(time_value - option->send_ts_ns);
             }
 
-            st.ob_consumed.fetch_add(1, std::memory_order_relaxed);
+            stop_token.ob_consumed.fetch_add(1, std::memory_order_relaxed);
             volatile double sink = 0.0;
 
-            for (int i = 0; i < 5; ++i)
+            for (int index = 0; index < 5; ++index)
             {
-                sink = sink + opt->ask_price[i] - opt->bid_price[i];
+                sink = sink + option->ask_price[index] - option->bid_price[index];
             }
 
             (void)sink;
 
             if (++obc % 100 == 0)
             {
-                MockOrderSignal sig{};
-                std::memcpy(sig.ticker, opt->ticker, 7);
-                sig.send_ts_ns = opt->send_ts_ns;
-                sig.strat_ts_ns = now_ns();
-                sig.origin_seq = opt->seq;
-                sig.side = 0;
-                sig.quantity = 10;
+                MockOrderSignal signal{};
+                std::memcpy(signal.ticker, option->ticker, 7);
+                signal.send_ts_ns = option->send_ts_ns;
+                signal.strat_ts_ns = now_ns();
+                signal.origin_seq = option->sequence;
+                signal.side = 0;
+                signal.quantity = 10;
 
-                if (order_q.push(sig))
+                if (order_q.push(signal))
                 {
-                    st.signals.fetch_add(1, std::memory_order_relaxed);
-                    bump_hwm(st.order_hwm, order_q.size());
+                    stop_token.signals.fetch_add(1, std::memory_order_relaxed);
+                    bump_hwm(stop_token.order_hwm, order_q.size());
                 }
                 else
                 {
-                    st.order_drops.fetch_add(1, std::memory_order_relaxed);
+                    stop_token.order_drops.fetch_add(1, std::memory_order_relaxed);
                 }
             }
         }
 
-        while (auto opt = td_q.pop())
+        while (auto option = td_q.pop())
         {
-            const int64_t t = now_ns();
+            const int64_t time_value = now_ns();
 
-            if (st.intake_to_strat_ns.size() < lat_cap)
+            if (stop_token.intake_to_strat_ns.size() < lat_cap)
             {
-                st.intake_to_strat_ns.push_back(t - opt->send_ts_ns);
+                stop_token.intake_to_strat_ns.push_back(time_value - option->send_ts_ns);
             }
 
-            st.td_consumed.fetch_add(1, std::memory_order_relaxed);
-            volatile double sink = opt->price * opt->quantity;
+            stop_token.td_consumed.fetch_add(1, std::memory_order_relaxed);
+            volatile double sink = option->price * option->quantity;
             (void)sink;
 
             if (++tdc % 200 == 0)
             {
-                MockOrderSignal sig{};
-                std::memcpy(sig.ticker, opt->ticker, 7);
-                sig.send_ts_ns = opt->send_ts_ns;
-                sig.strat_ts_ns = now_ns();
-                sig.origin_seq = opt->seq;
-                sig.side = 1;
-                sig.quantity = 5;
+                MockOrderSignal signal{};
+                std::memcpy(signal.ticker, option->ticker, 7);
+                signal.send_ts_ns = option->send_ts_ns;
+                signal.strat_ts_ns = now_ns();
+                signal.origin_seq = option->sequence;
+                signal.side = 1;
+                signal.quantity = 5;
 
-                if (order_q.push(sig))
+                if (order_q.push(signal))
                 {
-                    st.signals.fetch_add(1, std::memory_order_relaxed);
-                    bump_hwm(st.order_hwm, order_q.size());
+                    stop_token.signals.fetch_add(1, std::memory_order_relaxed);
+                    bump_hwm(stop_token.order_hwm, order_q.size());
                 }
                 else
                 {
-                    st.order_drops.fetch_add(1, std::memory_order_relaxed);
+                    stop_token.order_drops.fetch_add(1, std::memory_order_relaxed);
                 }
             }
         }
@@ -418,40 +418,40 @@ static void strategy_fn(RingBuffer<MockOrderBook>& ob_q,
 //   외부 REST 지연 시뮬레이션 없음 — 내부 파이프라인만.
 // ─────────────────────────────────────────────────────────────────────────────
 static void order_fn(RingBuffer<MockOrderSignal>& order_q,
-                     Stats& st,
+                     Stats& stop_token,
                      std::atomic<bool>& stop,
                      size_t lat_cap,
                      std::atomic<bool>& measuring)
 {
-    st.strat_to_order_ns.reserve(lat_cap);
-    st.e2e_ns.reserve(lat_cap);
+    stop_token.strat_to_order_ns.reserve(lat_cap);
+    stop_token.e2e_ns.reserve(lat_cap);
 
     while (!stop.load(std::memory_order_relaxed) || !order_q.empty())
     {
-        auto opt = order_q.pop();
+        auto option = order_q.pop();
 
-        if (!opt)
+        if (!option)
         {
             continue;
         }
 
-        const int64_t t = now_ns();
+        const int64_t time_value = now_ns();
 
         // 측정창이 닫힌 뒤(드레인) 항목은 percentile 오염원 → 카운트만.
         if (measuring.load(std::memory_order_relaxed))
         {
-            if (st.strat_to_order_ns.size() < lat_cap)
+            if (stop_token.strat_to_order_ns.size() < lat_cap)
             {
-                st.strat_to_order_ns.push_back(t - opt->strat_ts_ns);
+                stop_token.strat_to_order_ns.push_back(time_value - option->strat_ts_ns);
             }
 
-            if (st.e2e_ns.size() < lat_cap)
+            if (stop_token.e2e_ns.size() < lat_cap)
             {
-                st.e2e_ns.push_back(t - opt->send_ts_ns);
+                stop_token.e2e_ns.push_back(time_value - option->send_ts_ns);
             }
         }
 
-        st.orders.fetch_add(1, std::memory_order_relaxed);
+        stop_token.orders.fetch_add(1, std::memory_order_relaxed);
     }
 }
 
@@ -461,49 +461,49 @@ static void order_fn(RingBuffer<MockOrderSignal>& order_q,
 struct Pctl
 {
     int64_t p50 = 0, p99 = 0, p999 = 0, mx = 0;
-    size_t  n = 0;
+    size_t  count = 0;
 };
 
-static Pctl percentiles(std::vector<int64_t>& v)
+static Pctl percentiles(std::vector<int64_t>& values)
 {
-    Pctl r;
-    r.n = v.size();
+    Pctl pctl;
+    pctl.count = values.size();
 
-    if (v.empty())
+    if (values.empty())
     {
-        return r;
+        return pctl;
     }
 
-    std::sort(v.begin(), v.end());
-    auto at = [&](double p) {
-        size_t i = static_cast<size_t>(p * (v.size() - 1));
-        return v[i];
+    std::sort(values.begin(), values.end());
+    auto at = [&](double price) {
+        size_t index = static_cast<size_t>(price * (values.size() - 1));
+        return values[index];
     };
-    r.p50 = at(0.50);
-    r.p99 = at(0.99);
-    r.p999 = at(0.999);
-    r.mx = v.back();
-    return r;
+    pctl.p50 = at(0.50);
+    pctl.p99 = at(0.99);
+    pctl.p999 = at(0.999);
+    pctl.mx = values.back();
+    return pctl;
 }
 
-static std::string fmt_ns(int64_t n)
+static std::string fmt_ns(int64_t count)
 {
-    char b[32];
+    char byte_value[32];
 
-    if (n < 1000)
+    if (count < 1000)
     {
-        std::snprintf(b, sizeof(b), "%lld ns", static_cast<long long>(n));
+        std::snprintf(byte_value, sizeof(byte_value), "%lld ns", static_cast<long long>(count));
     }
-    else if (n < 1'000'000)
+    else if (count < 1'000'000)
     {
-        std::snprintf(b, sizeof(b), "%.2f us", n / 1000.0);
+        std::snprintf(byte_value, sizeof(byte_value), "%.2f us", count / 1000.0);
     }
     else
     {
-        std::snprintf(b, sizeof(b), "%.2f ms", n / 1'000'000.0);
+        std::snprintf(byte_value, sizeof(byte_value), "%.2f ms", count / 1'000'000.0);
     }
 
-    return std::string(b);
+    return std::string(byte_value);
 }
 
 static const char* build_type()
@@ -543,16 +543,16 @@ static RunResult run_once(const std::vector<std::string>& tickers,
     RingBuffer<MockTradeData>   td_q(td_cap);
     RingBuffer<MockOrderSignal> order_q(order_cap);
 
-    Stats st;
+    Stats stop_token;
     std::atomic<bool> stop{false};
     std::atomic<bool> measuring{true};
 
-    const int64_t t0 = now_ns();
-    std::thread t_ord(order_fn, std::ref(order_q), std::ref(st), std::ref(stop), lat_cap, std::ref(measuring));
-    std::thread t_str(strategy_fn, std::ref(ob_q), std::ref(td_q), std::ref(order_q), std::ref(st),
+    const int64_t start_time = now_ns();
+    std::thread t_ord(order_fn, std::ref(order_q), std::ref(stop_token), std::ref(stop), lat_cap, std::ref(measuring));
+    std::thread t_str(strategy_fn, std::ref(ob_q), std::ref(td_q), std::ref(order_q), std::ref(stop_token),
                       std::ref(stop), lat_cap);
     std::thread t_ws(producer_fn, std::ref(ob_q), std::ref(td_q), std::cref(tickers), std::cref(zipf),
-                     std::ref(st), std::ref(stop), total_rate, ob_ratio,
+                     std::ref(stop_token), std::ref(stop), total_rate, ob_ratio,
                      static_cast<int64_t>(duration_sec) * 1'000'000'000LL);
 
     t_ws.join();                                    // 방출 종료
@@ -561,24 +561,24 @@ static RunResult run_once(const std::vector<std::string>& tickers,
     t_str.join();
     t_ord.join();
 
-    RunResult r;
-    r.elapsed_sec = (now_ns() - t0) / 1e9;
-    r.e2e = percentiles(st.e2e_ns);
-    r.i2s = percentiles(st.intake_to_strat_ns);
-    r.s2o = percentiles(st.strat_to_order_ns);
-    r.ob_prod = st.ob_produced.load();
-    r.td_prod = st.td_produced.load();
-    r.ob_cons = st.ob_consumed.load();
-    r.td_cons = st.td_consumed.load();
-    r.signals = st.signals.load();
-    r.orders = st.orders.load();
-    r.drops = st.ob_drops.load() + st.td_drops.load() + st.order_drops.load();
-    r.ob_hwm = st.ob_hwm.load();
-    r.td_hwm = st.td_hwm.load();
-    r.order_hwm = st.order_hwm.load();
-    r.lossless = (r.drops == 0) && (r.ob_prod == r.ob_cons) && (r.td_prod == r.td_cons) &&
-                 (r.signals == r.orders);
-    return r;
+    RunResult result;
+    result.elapsed_sec = (now_ns() - start_time) / 1e9;
+    result.e2e = percentiles(stop_token.e2e_ns);
+    result.i2s = percentiles(stop_token.intake_to_strat_ns);
+    result.s2o = percentiles(stop_token.strat_to_order_ns);
+    result.ob_prod = stop_token.ob_produced.load();
+    result.td_prod = stop_token.td_produced.load();
+    result.ob_cons = stop_token.ob_consumed.load();
+    result.td_cons = stop_token.td_consumed.load();
+    result.signals = stop_token.signals.load();
+    result.orders = stop_token.orders.load();
+    result.drops = stop_token.ob_drops.load() + stop_token.td_drops.load() + stop_token.order_drops.load();
+    result.ob_hwm = stop_token.ob_hwm.load();
+    result.td_hwm = stop_token.td_hwm.load();
+    result.order_hwm = stop_token.order_hwm.load();
+    result.lossless = (result.drops == 0) && (result.ob_prod == result.ob_cons) && (result.td_prod == result.td_cons) &&
+                 (result.signals == result.orders);
+    return result;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -586,11 +586,11 @@ static RunResult run_once(const std::vector<std::string>& tickers,
 // ─────────────────────────────────────────────────────────────────────────────
 static std::string arg_str(int argc, char** argv, const char* key, const std::string& def)
 {
-    for (int i = 2; i + 1 < argc; ++i)
+    for (int index = 2; index + 1 < argc; ++index)
     {
-        if (std::strcmp(argv[i], key) == 0)
+        if (std::strcmp(argv[index], key) == 0)
         {
-            return argv[i + 1];
+            return argv[index + 1];
         }
     }
 
@@ -599,14 +599,14 @@ static std::string arg_str(int argc, char** argv, const char* key, const std::st
 
 static int64_t arg_i64(int argc, char** argv, const char* key, int64_t def)
 {
-    std::string s = arg_str(argc, argv, key, "");
-    return s.empty() ? def : std::atoll(s.c_str());
+    std::string text = arg_str(argc, argv, key, "");
+    return text.empty() ? def : std::atoll(text.c_str());
 }
 
 static double arg_dbl(int argc, char** argv, const char* key, double def)
 {
-    std::string s = arg_str(argc, argv, key, "");
-    return s.empty() ? def : std::atof(s.c_str());
+    std::string text = arg_str(argc, argv, key, "");
+    return text.empty() ? def : std::atof(text.c_str());
 }
 
 static void print_banner(const char* mode, const std::vector<std::string>& tickers,
@@ -660,19 +660,19 @@ int main(int argc, char** argv)
 
         for (int64_t rate = start; rate <= maxr; rate += step)
         {
-            RunResult r = run_once(tickers, zipf, rate, ob_ratio, dwell, OB_CAP, TD_CAP, ORDER_CAP, LAT_CAP);
+            RunResult result = run_once(tickers, zipf, rate, ob_ratio, dwell, OB_CAP, TD_CAP, ORDER_CAP, LAT_CAP);
             std::printf("%-12lld %-10s %-10s %-10s %-10s %-8llu %-9s\n",
-                        static_cast<long long>(rate), fmt_ns(r.e2e.p50).c_str(), fmt_ns(r.e2e.p99).c_str(),
-                        fmt_ns(r.e2e.p999).c_str(), fmt_ns(r.e2e.mx).c_str(),
-                        static_cast<unsigned long long>(r.drops), r.lossless ? "yes" : "NO");
+                        static_cast<long long>(rate), fmt_ns(result.e2e.p50).c_str(), fmt_ns(result.e2e.p99).c_str(),
+                        fmt_ns(result.e2e.p999).c_str(), fmt_ns(result.e2e.mx).c_str(),
+                        static_cast<unsigned long long>(result.drops), result.lossless ? "yes" : "NO");
             // CSV: rate,p50ns,p99ns,p999ns,maxns,drops,lossless,ob_prod,td_prod
             std::printf("CSV,%lld,%lld,%lld,%lld,%lld,%llu,%d,%llu,%llu\n",
-                        static_cast<long long>(rate), static_cast<long long>(r.e2e.p50), static_cast<long long>(r.e2e.p99),
-                        static_cast<long long>(r.e2e.p999), static_cast<long long>(r.e2e.mx), static_cast<unsigned long long>(r.drops),
-                        r.lossless ? 1 : 0, static_cast<unsigned long long>(r.ob_prod),
-                        static_cast<unsigned long long>(r.td_prod));
+                        static_cast<long long>(rate), static_cast<long long>(result.e2e.p50), static_cast<long long>(result.e2e.p99),
+                        static_cast<long long>(result.e2e.p999), static_cast<long long>(result.e2e.mx), static_cast<unsigned long long>(result.drops),
+                        result.lossless ? 1 : 0, static_cast<unsigned long long>(result.ob_prod),
+                        static_cast<unsigned long long>(result.td_prod));
 
-            if (r.lossless)
+            if (result.lossless)
             {
                 ceiling = rate;
             }
@@ -694,34 +694,34 @@ int main(int argc, char** argv)
     std::printf("offered rate    : %lld msg/sec (총)\n", static_cast<long long>(rate));
     std::printf("duration        : %d sec\n\n", duration);
 
-    RunResult r = run_once(tickers, zipf, rate, ob_ratio, duration, OB_CAP, TD_CAP, ORDER_CAP, LAT_CAP);
+    RunResult result = run_once(tickers, zipf, rate, ob_ratio, duration, OB_CAP, TD_CAP, ORDER_CAP, LAT_CAP);
 
     std::printf("=== Throughput ===\n");
-    std::printf("elapsed         : %.2f sec\n", r.elapsed_sec);
+    std::printf("elapsed         : %.2f sec\n", result.elapsed_sec);
     std::printf("OB  produced/consumed/drop : %llu / %llu / (hwm %llu)\n",
-                static_cast<unsigned long long>(r.ob_prod), static_cast<unsigned long long>(r.ob_cons),
-                static_cast<unsigned long long>(r.ob_hwm));
+                static_cast<unsigned long long>(result.ob_prod), static_cast<unsigned long long>(result.ob_cons),
+                static_cast<unsigned long long>(result.ob_hwm));
     std::printf("TD  produced/consumed/drop : %llu / %llu / (hwm %llu)\n",
-                static_cast<unsigned long long>(r.td_prod), static_cast<unsigned long long>(r.td_cons),
-                static_cast<unsigned long long>(r.td_hwm));
+                static_cast<unsigned long long>(result.td_prod), static_cast<unsigned long long>(result.td_cons),
+                static_cast<unsigned long long>(result.td_hwm));
     std::printf("signals/orders  : %llu / %llu (order_q hwm %llu)\n",
-                static_cast<unsigned long long>(r.signals), static_cast<unsigned long long>(r.orders),
-                static_cast<unsigned long long>(r.order_hwm));
+                static_cast<unsigned long long>(result.signals), static_cast<unsigned long long>(result.orders),
+                static_cast<unsigned long long>(result.order_hwm));
     std::printf("total in rate   : %.0f msg/sec (실측)\n",
-                (r.ob_prod + r.td_prod) / (r.elapsed_sec > 0 ? r.elapsed_sec : 1));
-    std::printf("total drops     : %llu\n\n", static_cast<unsigned long long>(r.drops));
+                (result.ob_prod + result.td_prod) / (result.elapsed_sec > 0 ? result.elapsed_sec : 1));
+    std::printf("total drops     : %llu\n\n", static_cast<unsigned long long>(result.drops));
 
     std::printf("=== Latency (내부 처리단, 네트워크 제외) ===\n");
-    auto line = [](const char* lbl, const Pctl& p) {
-        std::printf("%-26s n=%-9zu p50=%-10s p99=%-10s p999=%-10s max=%s\n", lbl, p.n,
-                    fmt_ns(p.p50).c_str(), fmt_ns(p.p99).c_str(), fmt_ns(p.p999).c_str(),
-                    fmt_ns(p.mx).c_str());
+    auto line = [](const char* lbl, const Pctl& pctl) {
+        std::printf("%-26s n=%-9zu p50=%-10s p99=%-10s p999=%-10s max=%s\n", lbl, pctl.count,
+                    fmt_ns(pctl.p50).c_str(), fmt_ns(pctl.p99).c_str(), fmt_ns(pctl.p999).c_str(),
+                    fmt_ns(pctl.mx).c_str());
     };
-    line("intake -> strategy", r.i2s);
-    line("strategy -> order", r.s2o);
-    line("E2E (intake -> order)", r.e2e);
+    line("intake -> strategy", result.i2s);
+    line("strategy -> order", result.s2o);
+    line("E2E (intake -> order)", result.e2e);
 
     std::printf("\n[%s] no drops, no backlog (전종목 규모 무손실 판정)\n",
-                r.lossless ? "PASS" : "FAIL");
-    return r.lossless ? 0 : 1;
+                result.lossless ? "PASS" : "FAIL");
+    return result.lossless ? 0 : 1;
 }

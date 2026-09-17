@@ -36,7 +36,7 @@ public:
 
     [[nodiscard]] std::optional<T> pop()
     {
-        std::lock_guard<std::mutex> lk(mtx_);
+        std::lock_guard<std::mutex> lock(mtx_);
 
         if (q_.empty())
         {
@@ -50,13 +50,13 @@ public:
 
     [[nodiscard]] bool empty() const
     {
-        std::lock_guard<std::mutex> lk(mtx_);
+        std::lock_guard<std::mutex> lock(mtx_);
         return q_.empty();
     }
 
     [[nodiscard]] size_t size() const
     {
-        std::lock_guard<std::mutex> lk(mtx_);
+        std::lock_guard<std::mutex> lock(mtx_);
         return q_.size();
     }
 
@@ -68,7 +68,7 @@ public:
 private:
     template <typename U> bool emplace(U&& item)
     {
-        std::lock_guard<std::mutex> lk(mtx_);
+        std::lock_guard<std::mutex> lock(mtx_);
 
         if (q_.size() >= capacity_)
         {

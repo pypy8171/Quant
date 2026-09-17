@@ -29,7 +29,7 @@ struct RetryPlan
 // 거부 결과를 보고 재시도할지·언제 할지 정한다. 순수 함수.
 //  retry_delay는 dedup 창(1s) 위여야 한다 — 그 아래로 되쏘면 게이트 dedup(§5)에 또 막힌다.
 //  분당 한도 거부는 창이 비기까지 최대 60초라 20초로 물러난다(1.2초면 3회가 4초 안에 소진돼 같은 드롭이 된다).
-RetryPlan classify(const OrderSignal& sig, int attempts, int max_retries, OrderStatus status,
+RetryPlan classify(const OrderSignal& signal, int attempts, int max_retries, OrderStatus status,
                    const std::string& reject_reason, std::chrono::milliseconds retry_delay);
 } // namespace pacing
 
@@ -47,15 +47,15 @@ public:
 
     struct Pending
     {
-        OrderSignal sig;
+        OrderSignal signal;
         int         attempts = 0; // 이 신호가 이미 KIS에 간 횟수
     };
 
-    OrderPacer(Config cfg, Clock::time_point now);
+    OrderPacer(Config config, Clock::time_point now);
 
-    void set_position(PositionFn fn)
+    void set_position(PositionFn fill_notification)
     {
-        position_ = std::move(fn);
+        position_ = std::move(fill_notification);
     }
 
     // 만기된 재시도 가운데 아직 목적이 남은 것 하나. 청산 SELL은 보유가 0이면 목적이 이미 이뤄진 것이라 버린다.
@@ -83,7 +83,7 @@ public:
     }
 
     // 거부 결과를 보고 재시도를 예약한다. 예약했으면 true.
-    bool on_rejected(const Pending& p, OrderStatus status, const std::string& reject_reason, Clock::time_point now);
+    bool on_rejected(const Pending& pending, OrderStatus status, const std::string& reject_reason, Clock::time_point now);
 
     std::size_t retry_count() const
     {
@@ -98,12 +98,12 @@ public:
 private:
     struct Retry
     {
-        OrderSignal       sig;
+        OrderSignal       signal;
         int               attempts;
         Clock::time_point not_before;
     };
 
-    Config                    cfg_;
+    Config                    config_;
     std::chrono::milliseconds min_interval_;
     std::chrono::milliseconds retry_delay_; // max(min_interval, 1200ms) — dedup 창 위
     Clock::time_point         last_submit_;

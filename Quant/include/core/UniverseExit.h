@@ -37,14 +37,14 @@ enum class Absent
 };
 
 // 연속 부재 absent_sec로 판정. 이미 차단된 종목(in_universe=false)에는 BLOCK을 다시 내지 않는다.
-inline Absent judge_absent(long long absent_sec, const Thresholds& th, bool in_universe)
+inline Absent judge_absent(long long absent_sec, const Thresholds& thread, bool in_universe)
 {
-    if (th.drop_after_sec > 0 && absent_sec >= th.drop_after_sec)
+    if (thread.drop_after_sec > 0 && absent_sec >= thread.drop_after_sec)
     {
         return Absent::DROP;
     }
 
-    if (in_universe && th.block_after_sec > 0 && absent_sec >= th.block_after_sec)
+    if (in_universe && thread.block_after_sec > 0 && absent_sec >= thread.block_after_sec)
     {
         return Absent::BLOCK;
     }
@@ -53,9 +53,9 @@ inline Absent judge_absent(long long absent_sec, const Thresholds& th, bool in_u
 }
 
 // 차단 상태에서 present 스캔이 return_confirm회 연속이면 true(차단 해제). return_confirm≤1은 1회로 본다.
-inline bool judge_return(int present_streak, const Thresholds& th, bool in_universe)
+inline bool judge_return(int present_streak, const Thresholds& thread, bool in_universe)
 {
-    return !in_universe && present_streak >= std::max(1, th.return_confirm);
+    return !in_universe && present_streak >= std::max(1, thread.return_confirm);
 }
 
 // 등록 상한이 찼을 때 자리를 내줄 후보 — 오늘 스캔 top-N에 없고(점수 밀림) 미보유·미선점인 등록 종목 중
@@ -69,9 +69,9 @@ inline std::string pick_evict_candidate(const OwnedMap& owned, const InScanSet& 
     std::string best;
     long long   best_absent_sec = -1;
 
-    for (const auto& kv : owned)
+    for (const auto& entry : owned)
     {
-        const auto& ticker = kv.first;
+        const auto& ticker = entry.first;
 
         if (in_scan.count(ticker) || held.count(ticker) || reserved(ticker) != 0)
         {

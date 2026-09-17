@@ -32,22 +32,22 @@ int g_pass = 0;
     } while (0)
 
 // output2 한 행. KIS는 숫자도 문자열로 준다.
-json row(const char* date, const char* hour, const char* o, const char* h, const char* l, const char* c, const char* v)
+json row(const char* date, const char* hour, const char* output, const char* header, const char* line, const char* code, const char* value)
 {
-    return json{{"stck_bsop_date", date}, {"stck_cntg_hour", hour}, {"stck_oprc", o},
-                {"stck_hgpr", h},         {"stck_lwpr", l},         {"stck_prpr", c},
-                {"cntg_vol", v}};
+    return json{{"stck_bsop_date", date}, {"stck_cntg_hour", hour}, {"stck_oprc", output},
+                {"stck_hgpr", header},         {"stck_lwpr", line},         {"stck_prpr", code},
+                {"cntg_vol", value}};
 }
 
 int test_num()
 {
-    json o = {{"a", "1234.5"}, {"b", ""}, {"c", "abc"}, {"d", 7}, {"e", "-3"}};
-    CHECK(kis_rest::num(o, "a") == 1234.5);
-    CHECK(kis_rest::num(o, "b") == 0.0);       // 빈 문자열
-    CHECK(kis_rest::num(o, "c") == 0.0);       // 숫자 아님
-    CHECK(kis_rest::num(o, "d") == 0.0);       // 문자열이 아닌 값 — value()가 type_error를 던진다
-    CHECK(kis_rest::num(o, "e") == -3.0);
-    CHECK(kis_rest::num(o, "missing") == 0.0); // 키 없음
+    json node = {{"a", "1234.5"}, {"b", ""}, {"c", "abc"}, {"d", 7}, {"e", "-3"}};
+    CHECK(kis_rest::num(node, "a") == 1234.5);
+    CHECK(kis_rest::num(node, "b") == 0.0);       // 빈 문자열
+    CHECK(kis_rest::num(node, "c") == 0.0);       // 숫자 아님
+    CHECK(kis_rest::num(node, "d") == 0.0);       // 문자열이 아닌 값 — value()가 type_error를 던진다
+    CHECK(kis_rest::num(node, "e") == -3.0);
+    CHECK(kis_rest::num(node, "missing") == 0.0); // 키 없음
     return 0;
 }
 
@@ -80,7 +80,7 @@ int test_parse_minute_page()
     CHECK(cur == "090100");
     CHECK(added == 2);
     CHECK(raws.size() == 2);
-    CHECK(raws[0].o == 100 && raws[0].h == 110 && raws[0].l == 90 && raws[0].c == 105 && raws[0].v == 10);
+    CHECK(raws[0].open == 100 && raws[0].high == 110 && raws[0].low == 90 && raws[0].close == 105 && raws[0].volume == 10);
 
     // 페이지 2: 경계 중복(090100)은 raws에 안 들어가고, 커서는 중복 여부와 무관하게 가장 이른 시각.
     json p2 = json::array({row("20260911", "090100", "99", "101", "98", "100", "20"),
@@ -142,8 +142,8 @@ int test_aggregate()
         {"20260910", "090000", 1, 1, 1, 1, 1},
         {"20260911", "090000", 2, 2, 2, 2, 2},
     };
-    auto d = kis_rest::aggregate_minutes(two_days, "005930", 3, 10);
-    CHECK(d.size() == 2 && d[0].close == 2 && d[1].close == 1);
+    auto aggregated = kis_rest::aggregate_minutes(two_days, "005930", 3, 10);
+    CHECK(aggregated.size() == 2 && aggregated[0].close == 2 && aggregated[1].close == 1);
 
     // 시각이 깨진 행은 건너뛴다. 빈 입력·interval 0·count 0은 빈 결과(0으로 나누지 않는다).
     std::vector<kis_rest::RawMinute> bad = {{"20260911", "xx", 1, 1, 1, 1, 1}};
@@ -157,29 +157,29 @@ int test_aggregate()
 
 int test_opt_num()
 {
-    json o = {{"a", "12.5"}, {"b", ""}, {"c", "x"}, {"d", 3}};
-    CHECK(kis_rest::opt_num(o, "a") && *kis_rest::opt_num(o, "a") == 12.5);
-    CHECK(!kis_rest::opt_num(o, "b"));       // 빈 문자열은 "없음" — num()의 0과 다르다
-    CHECK(!kis_rest::opt_num(o, "c"));
-    CHECK(!kis_rest::opt_num(o, "d"));       // 문자열이 아닌 값
-    CHECK(!kis_rest::opt_num(o, "missing"));
+    json node = {{"a", "12.5"}, {"b", ""}, {"c", "x"}, {"d", 3}};
+    CHECK(kis_rest::opt_num(node, "a") && *kis_rest::opt_num(node, "a") == 12.5);
+    CHECK(!kis_rest::opt_num(node, "b"));       // 빈 문자열은 "없음" — num()의 0과 다르다
+    CHECK(!kis_rest::opt_num(node, "c"));
+    CHECK(!kis_rest::opt_num(node, "d"));       // 문자열이 아닌 값
+    CHECK(!kis_rest::opt_num(node, "missing"));
     return 0;
 }
 
 int test_decode_holding()
 {
-    json h = {{"pdno", "005930"}, {"prdt_name", "삼성전자"}, {"hldg_qty", "12"}, {"pchs_avg_pric", "71000.0000"},
+    json node = {{"pdno", "005930"}, {"prdt_name", "삼성전자"}, {"hldg_qty", "12"}, {"pchs_avg_pric", "71000.0000"},
               {"ord_psbl_qty", "10 "}, {"evlu_pfls_amt", "-1200"}};
-    Holding r = kis_rest::decode_holding(h);
-    CHECK(r.ticker == "005930" && r.name == "삼성전자" && r.qty == 12 && r.avg_price == 71000.0);
-    CHECK(r.eval_pnl == -1200.0);
-    CHECK(r.sellable_qty && *r.sellable_qty == 10); // 꼬리 공백 허용
+    Holding decoded_holding = kis_rest::decode_holding(node);
+    CHECK(decoded_holding.ticker == "005930" && decoded_holding.name == "삼성전자" && decoded_holding.quantity == 12 && decoded_holding.average_price == 71000.0);
+    CHECK(decoded_holding.eval_pnl == -1200.0);
+    CHECK(decoded_holding.sellable_qty && *decoded_holding.sellable_qty == 10); // 꼬리 공백 허용
 
     // ord_psbl_qty 없음·숫자 아님 → 비어 있음("모름"). 0은 "매도 가능 0주"로 남는다.
     CHECK(!kis_rest::decode_holding(json{{"pdno", "1"}, {"hldg_qty", "1"}}).sellable_qty);
     CHECK(!kis_rest::decode_holding(json{{"pdno", "1"}, {"hldg_qty", "1"}, {"ord_psbl_qty", "n/a"}}).sellable_qty);
-    Holding z = kis_rest::decode_holding(json{{"pdno", "1"}, {"hldg_qty", "1"}, {"ord_psbl_qty", "0"}});
-    CHECK(z.sellable_qty && *z.sellable_qty == 0);
+    Holding zero_holding = kis_rest::decode_holding(json{{"pdno", "1"}, {"hldg_qty", "1"}, {"ord_psbl_qty", "0"}});
+    CHECK(zero_holding.sellable_qty && *zero_holding.sellable_qty == 0);
     return 0;
 }
 
@@ -193,47 +193,47 @@ int test_decode_balance_page()
                                         json{{"hldg_qty", "9"}}})},
                {"output2", json::array({json{{"tot_evlu_amt", "1500000"}, {"prvs_rcdl_excc_amt", "300000"},
                                              {"dnca_tot_amt", "999"}, {"bfdy_tot_asst_evlu_amt", "1490000"}}})}};
-    AccountBalance b;
-    kis_rest::decode_balance_page(p1, b, /*first_page=*/true);
-    CHECK(b.holdings.size() == 2 && b.holdings[0].ticker == "005930" && b.holdings[1].qty == 3);
-    CHECK(b.total_eval_amt && *b.total_eval_amt == 1500000.0);
-    CHECK(b.available_cash && *b.available_cash == 300000.0); // 가수도정산금 우선
-    CHECK(b.prev_day_total_asset && *b.prev_day_total_asset == 1490000.0);
+    AccountBalance balance_b;
+    kis_rest::decode_balance_page(p1, balance_b, /*first_page=*/true);
+    CHECK(balance_b.holdings.size() == 2 && balance_b.holdings[0].ticker == "005930" && balance_b.holdings[1].quantity == 3);
+    CHECK(balance_b.total_eval_amt && *balance_b.total_eval_amt == 1500000.0);
+    CHECK(balance_b.available_cash && *balance_b.available_cash == 300000.0); // 가수도정산금 우선
+    CHECK(balance_b.prev_day_total_asset && *balance_b.prev_day_total_asset == 1490000.0);
 
     // 2페이지: 보유 누적, output2는 첫 페이지 것을 유지(덮어쓰지 않는다).
     json p2 = {{"output1", json::array({json{{"pdno", "051910"}, {"hldg_qty", "1"}, {"pchs_avg_pric", "5"}}})},
                {"output2", json::array({json{{"tot_evlu_amt", "1"}}})}};
-    kis_rest::decode_balance_page(p2, b, /*first_page=*/false);
-    CHECK(b.holdings.size() == 3 && b.holdings[2].ticker == "051910");
-    CHECK(*b.total_eval_amt == 1500000.0);
+    kis_rest::decode_balance_page(p2, balance_b, /*first_page=*/false);
+    CHECK(balance_b.holdings.size() == 3 && balance_b.holdings[2].ticker == "051910");
+    CHECK(*balance_b.total_eval_amt == 1500000.0);
 
     // output2가 객체이고 tot_evlu_amt가 비면 nass_amt, 가수도정산금이 비면 예수금으로.
     json p3 = {{"output1", json::array()},
                {"output2", json{{"tot_evlu_amt", ""}, {"nass_amt", "77"}, {"dnca_tot_amt", "5"}}}};
-    AccountBalance c;
-    kis_rest::decode_balance_page(p3, c, true);
-    CHECK(c.holdings.empty());
-    CHECK(c.total_eval_amt && *c.total_eval_amt == 77.0);
-    CHECK(c.available_cash && *c.available_cash == 5.0);
-    CHECK(!c.prev_day_total_asset);
+    AccountBalance balance_c;
+    kis_rest::decode_balance_page(p3, balance_c, true);
+    CHECK(balance_c.holdings.empty());
+    CHECK(balance_c.total_eval_amt && *balance_c.total_eval_amt == 77.0);
+    CHECK(balance_c.available_cash && *balance_c.available_cash == 5.0);
+    CHECK(!balance_c.prev_day_total_asset);
 
     // output1·output2 둘 다 없음(한도 초과 본문 모양) → 아무것도 채우지 않는다.
-    AccountBalance d;
-    kis_rest::decode_balance_page(json{{"rt_cd", "1"}, {"msg_cd", "EGW00201"}}, d, true);
-    CHECK(d.holdings.empty() && !d.total_eval_amt && !d.available_cash);
+    AccountBalance balance_d;
+    kis_rest::decode_balance_page(json{{"rt_cd", "1"}, {"msg_cd", "EGW00201"}}, balance_d, true);
+    CHECK(balance_d.holdings.empty() && !balance_d.total_eval_amt && !balance_d.available_cash);
     return 0;
 }
 
 int test_decode_future_board()
 {
     // output1이 비어 있으면 output2, 그것도 없으면 output. 코드 없는 행은 버린다.
-    json j = {{"output1", json::array()},
+    json document = {{"output1", json::array()},
               {"output2", json::array({json{{"futs_shrn_iscd", "101W09"}, {"hts_kor_isnm", "KOSPI200 F 202609"}},
                                        json{{"hts_kor_isnm", "코드 없음"}},
                                        json{{"futs_shrn_iscd", "101WC0"}, {"hts_kor_isnm", "KOSPI200 F 202612"}}})},
               {"output", json::array({json{{"futs_shrn_iscd", "ZZZ"}}})}};
-    auto rows = kis_rest::decode_future_board(j);
-    CHECK(rows.size() == 2 && rows[0].iscd == "101W09" && rows[1].iscd == "101WC0");
+    auto rows = kis_rest::decode_future_board(document);
+    CHECK(rows.size() == 2 && rows[0].issue_code == "101W09" && rows[1].issue_code == "101WC0");
     CHECK(rows[0].name == "KOSPI200 F 202609");
     CHECK(kis_rest::decode_future_board(json::object()).empty());
     CHECK(kis_rest::decode_future_board(json{{"output1", "not-an-array"}}).empty());
@@ -243,15 +243,15 @@ int test_decode_future_board()
 int test_kis_result()
 {
     // 봉투(std::expected): 실패는 bool false·error_text, 성공은 값 접근. 실패 봉투에는 값이 없다.
-    KisResult<AccountBalance> f = kis_fail("EGW00201", "초당 거래건수 초과");
-    CHECK(!f && !f.has_value() && f.error().code == "EGW00201" && error_text(f) == "EGW00201 초당 거래건수 초과");
-    AccountBalance b;
-    b.holdings.push_back(Holding{"005930", "삼성전자", 1, 70000.0, 0.0, std::nullopt});
-    KisResult<AccountBalance> o = std::move(b);
-    CHECK(o && error_text(o).empty() && o->holdings.size() == 1 && (*o).holdings[0].ticker == "005930");
+    KisResult<AccountBalance> failed = kis_fail("EGW00201", "초당 거래건수 초과");
+    CHECK(!failed && !failed.has_value() && failed.error().code == "EGW00201" && error_text(failed) == "EGW00201 초당 거래건수 초과");
+    AccountBalance balance;
+    balance.holdings.push_back(Holding{"005930", "삼성전자", 1, 70000.0, 0.0, std::nullopt});
+    KisResult<AccountBalance> moved = std::move(balance);
+    CHECK(moved && error_text(moved).empty() && moved->holdings.size() == 1 && (*moved).holdings[0].ticker == "005930");
     // 실패 → 값 대입으로 성공 봉투가 된다(LedgerReconciler 부트스트랩의 "init" 실패 → 재시도 루프 대입).
-    f = AccountBalance{};
-    CHECK(f.has_value() && f->holdings.empty());
+    failed = AccountBalance{};
+    CHECK(failed.has_value() && failed->holdings.empty());
     return 0;
 }
 

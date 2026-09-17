@@ -28,11 +28,11 @@ namespace kis_rest
 {
 
 // 문자열 숫자 필드 → double. 키 없음·빈 값·파싱 실패·문자열이 아닌 값은 0.
-inline double num(const nlohmann::json& o, const std::string& k)
+inline double num(const nlohmann::json& node, const std::string& key)
 {
     try
     {
-        return std::stod(o.value(k, "0"));
+        return std::stod(node.value(key, "0"));
     }
     catch (...)
     {
@@ -42,42 +42,42 @@ inline double num(const nlohmann::json& o, const std::string& k)
 
 // YYYYMMDD + HHMMSS → time_t. 자리값을 UTC로 읽는다 — KST 오프셋은 호출자가 뺀다. 서버 TZ와 무관하다.
 //  형식이 아니거나 달력에 없는 날짜(13월·2월 30일)면 0.
-inline time_t parse_dt(const std::string& d, const std::string& t)
+inline time_t parse_dt(const std::string& data, const std::string& ticker)
 {
-    if (d.size() != 8 || t.size() < 6)
+    if (data.size() != 8 || ticker.size() < 6)
     {
         return 0;
     }
 
     using namespace std::chrono;
-    year_month_day ymd;
-    seconds        tod;
+    year_month_day date_yyyymmdd;
+    seconds        time_of_day;
 
     try
     {
-        ymd = year{std::stoi(d.substr(0, 4))} / month{static_cast<unsigned>(std::stoi(d.substr(4, 2)))} /
-              day{static_cast<unsigned>(std::stoi(d.substr(6, 2)))};
-        tod = hours{std::stoi(t.substr(0, 2))} + minutes{std::stoi(t.substr(2, 2))} + seconds{std::stoi(t.substr(4, 2))};
+        date_yyyymmdd = year{std::stoi(data.substr(0, 4))} / month{static_cast<unsigned>(std::stoi(data.substr(4, 2)))} /
+              day{static_cast<unsigned>(std::stoi(data.substr(6, 2)))};
+        time_of_day = hours{std::stoi(ticker.substr(0, 2))} + minutes{std::stoi(ticker.substr(2, 2))} + seconds{std::stoi(ticker.substr(4, 2))};
     }
     catch (...)
     {
         return 0;
     }
 
-    if (!ymd.ok())
+    if (!date_yyyymmdd.ok())
     {
         return 0;
     }
 
-    return static_cast<time_t>((sys_days{ymd} + tod).time_since_epoch().count());
+    return static_cast<time_t>((sys_days{date_yyyymmdd} + time_of_day).time_since_epoch().count());
 }
 
 // 1분봉 원본 한 행.
 struct RawMinute
 {
     std::string date, hour;
-    double o = 0, h = 0, l = 0, c = 0;
-    int64_t v = 0;
+    double open = 0, high = 0, low = 0, close = 0;
+    int64_t volume = 0;
 };
 
 // 1분봉 원본 → interval_min 집계봉. 반환은 최신→과거(result[0]=최신, bar_index 0=최신), 최대 count봉.
@@ -95,21 +95,21 @@ inline std::vector<MarketData> aggregate_minutes(std::vector<RawMinute>& raws, c
         return result;
     }
 
-    std::sort(raws.begin(), raws.end(), [](const RawMinute& a, const RawMinute& b) {
-        return a.date != b.date ? a.date < b.date : a.hour < b.hour;
+    std::sort(raws.begin(), raws.end(), [](const RawMinute& raw_minute_a, const RawMinute& raw_minute_b) {
+        return raw_minute_a.date != raw_minute_b.date ? raw_minute_a.date < raw_minute_b.date : raw_minute_a.hour < raw_minute_b.hour;
     });
 
     std::vector<MarketData> asc; // 과거→최신 집계봉
     std::string cur_key;
 
-    for (const auto& r : raws)
+    for (const auto& raw : raws)
     {
         int hh = 0, mm = 0;
 
         try
         {
-            hh = std::stoi(r.hour.substr(0, 2));
-            mm = std::stoi(r.hour.substr(2, 2));
+            hh = std::stoi(raw.hour.substr(0, 2));
+            mm = std::stoi(raw.hour.substr(2, 2));
         }
         catch (...)
         {
@@ -117,38 +117,38 @@ inline std::vector<MarketData> aggregate_minutes(std::vector<RawMinute>& raws, c
         }
 
         int bucket = (hh * 60 + mm) / interval_min;
-        std::string key = r.date + ":" + std::to_string(bucket);
+        std::string key = raw.date + ":" + std::to_string(bucket);
 
         if (key != cur_key)
         {
-            MarketData md;
-            md.ticker = ticker;
-            md.market = Market::KR;
-            md.open = r.o;
-            md.high = r.h;
-            md.low = r.l;
-            md.close = r.c;
-            md.volume = r.v;
-            md.timestamp = std::chrono::system_clock::from_time_t(parse_dt(r.date, r.hour) - kst::kOffsetSec);
-            asc.push_back(md);
+            MarketData market_data;
+            market_data.ticker = ticker;
+            market_data.market = Market::KR;
+            market_data.open = raw.open;
+            market_data.high = raw.high;
+            market_data.low = raw.low;
+            market_data.close = raw.close;
+            market_data.volume = raw.volume;
+            market_data.timestamp = std::chrono::system_clock::from_time_t(parse_dt(raw.date, raw.hour) - kst::kOffsetSec);
+            asc.push_back(market_data);
             cur_key = key;
         }
         else
         {
-            MarketData& md = asc.back();
-            md.high = (std::max)(md.high, r.h); // (): windows.h max 매크로 회피
-            md.low = (std::min)(md.low, r.l);
-            md.close = r.c; // 버킷 내 최신 마감
-            md.volume += r.v;
-            md.timestamp = std::chrono::system_clock::from_time_t(parse_dt(r.date, r.hour) - kst::kOffsetSec);
+            MarketData& market_data = asc.back();
+            market_data.high = (std::max)(market_data.high, raw.high); // (): windows.h max 매크로 회피
+            market_data.low = (std::min)(market_data.low, raw.low);
+            market_data.close = raw.close; // 버킷 내 최신 마감
+            market_data.volume += raw.volume;
+            market_data.timestamp = std::chrono::system_clock::from_time_t(parse_dt(raw.date, raw.hour) - kst::kOffsetSec);
         }
     }
 
-    for (auto it = asc.rbegin(); it != asc.rend() && static_cast<int>(result.size()) < count; ++it)
+    for (auto iterator = asc.rbegin(); iterator != asc.rend() && static_cast<int>(result.size()) < count; ++iterator)
     {
-        MarketData md = *it;
-        md.bar_index = static_cast<int>(result.size());
-        result.push_back(md);
+        MarketData market_data = *iterator;
+        market_data.bar_index = static_cast<int>(result.size());
+        result.push_back(market_data);
     }
 
     return result;
@@ -157,47 +157,47 @@ inline std::vector<MarketData> aggregate_minutes(std::vector<RawMinute>& raws, c
 // output2(최신→과거) 한 페이지 → raws에 누적. seen(date+hour)으로 페이지 경계 중복을 걸러내고,
 //  이 페이지에서 가장 이른 HHMMSS를 돌려준다(역페이징 커서 — 날짜 필터·중복과 무관하게 모든 행을 본다).
 //  date_filter가 비어 있지 않으면 그 날짜 행만 취한다. added_out은 이번 호출로 raws에 더한 행 수.
-inline std::string parse_minute_page(const nlohmann::json& arr, std::vector<RawMinute>& raws,
+inline std::string parse_minute_page(const nlohmann::json& array, std::vector<RawMinute>& raws,
                                      std::unordered_set<std::string>& seen, const std::string& date_filter,
                                      int& added_out)
 {
     std::string page_earliest;
     added_out = 0;
 
-    for (const auto& item : arr)
+    for (const auto& item : array)
     {
-        std::string d = item.value("stck_bsop_date", "");
-        std::string t = item.value("stck_cntg_hour", "");
+        std::string data = item.value("stck_bsop_date", "");
+        std::string ticker = item.value("stck_cntg_hour", "");
 
-        if (t.size() < 6)
+        if (ticker.size() < 6)
         {
             continue;
         }
 
-        if (page_earliest.empty() || t < page_earliest)
+        if (page_earliest.empty() || ticker < page_earliest)
         {
-            page_earliest = t;
+            page_earliest = ticker;
         }
 
-        if (!date_filter.empty() && d != date_filter)
+        if (!date_filter.empty() && data != date_filter)
         {
             continue; // 요청 날짜 밖 행 방어
         }
 
-        if (!seen.insert(d + t).second)
+        if (!seen.insert(data + ticker).second)
         {
             continue; // 페이지 경계 중복
         }
 
-        RawMinute r;
-        r.date = d;
-        r.hour = t;
-        r.o = num(item, "stck_oprc");
-        r.h = num(item, "stck_hgpr");
-        r.l = num(item, "stck_lwpr");
-        r.c = num(item, "stck_prpr");
-        r.v = static_cast<int64_t>(num(item, "cntg_vol"));
-        raws.push_back(r);
+        RawMinute raw_minute;
+        raw_minute.date = data;
+        raw_minute.hour = ticker;
+        raw_minute.open = num(item, "stck_oprc");
+        raw_minute.high = num(item, "stck_hgpr");
+        raw_minute.low = num(item, "stck_lwpr");
+        raw_minute.close = num(item, "stck_prpr");
+        raw_minute.volume = static_cast<int64_t>(num(item, "cntg_vol"));
+        raws.push_back(raw_minute);
         ++added_out;
     }
 
@@ -206,27 +206,27 @@ inline std::string parse_minute_page(const nlohmann::json& arr, std::vector<RawM
 
 // 문자열 숫자 필드 → optional<double>. 키 없음·빈 값·숫자 아님은 비어 있음 — num()의 0과 달리 "없다"를 남긴다.
 //  잔고 요약처럼 0원과 필드 부재를 구분해야 하는 곳에 쓴다.
-inline std::optional<double> opt_num(const nlohmann::json& o, const std::string& k)
+inline std::optional<double> opt_num(const nlohmann::json& node, const std::string& key)
 {
-    std::string s;
+    std::string text;
 
     try
     {
-        s = o.value(k, "");
+        text = node.value(key, "");
     }
     catch (...)
     {
         return std::nullopt;
     }
 
-    if (s.empty())
+    if (text.empty())
     {
         return std::nullopt;
     }
 
     try
     {
-        return std::stod(s);
+        return std::stod(text);
     }
     catch (...)
     {
@@ -236,35 +236,35 @@ inline std::optional<double> opt_num(const nlohmann::json& o, const std::string&
 
 // 잔고 output1 한 행 → Holding. ord_psbl_qty는 숫자(공백 허용)일 때만 채운다 — 09-08에 이 필드를 보유수량으로
 //  대신 썼다가 전량 청산이 40240000으로 통째 거부된 적이 있어, 못 읽은 것은 못 읽었다고 남긴다.
-inline Holding decode_holding(const nlohmann::json& h)
+inline Holding decode_holding(const nlohmann::json& node)
 {
-    Holding r;
-    r.ticker    = h.value("pdno", "");
-    r.name      = h.value("prdt_name", "");
-    r.qty       = static_cast<int>(num(h, "hldg_qty"));
-    r.avg_price = num(h, "pchs_avg_pric");
-    r.eval_pnl  = num(h, "evlu_pfls_amt");
-    const std::string psbl = h.value("ord_psbl_qty", "");
+    Holding holding;
+    holding.ticker    = node.value("pdno", "");
+    holding.name      = node.value("prdt_name", "");
+    holding.quantity       = static_cast<int>(num(node, "hldg_qty"));
+    holding.average_price = num(node, "pchs_avg_pric");
+    holding.eval_pnl  = num(node, "evlu_pfls_amt");
+    const std::string psbl = node.value("ord_psbl_qty", "");
 
     if (!psbl.empty() && psbl.find_first_not_of("0123456789 ") == std::string::npos)
     {
-        r.sellable_qty = std::atoi(psbl.c_str());
+        holding.sellable_qty = std::atoi(psbl.c_str());
     }
 
-    return r;
+    return holding;
 }
 
 // 잔고 응답 한 페이지 → out에 누적. output1 행은 pdno가 비거나 수량 0 이하면 버린다(잔고는 매도 완료 종목을
 //  0주로 며칠 남긴다). 요약(output2)은 first_page일 때만 읽는다 — 배열로도 객체로도 온다.
-inline void decode_balance_page(const nlohmann::json& j, AccountBalance& out, bool first_page)
+inline void decode_balance_page(const nlohmann::json& document, AccountBalance& out, bool first_page)
 {
-    if (j.contains("output1") && j["output1"].is_array())
+    if (document.contains("output1") && document["output1"].is_array())
     {
-        for (const auto& h : j["output1"])
+        for (const auto& holding_node : document["output1"])
         {
-            Holding hd = decode_holding(h);
+            Holding hd = decode_holding(holding_node);
 
-            if (hd.ticker.empty() || hd.qty <= 0)
+            if (hd.ticker.empty() || hd.quantity <= 0)
             {
                 continue;
             }
@@ -273,12 +273,12 @@ inline void decode_balance_page(const nlohmann::json& j, AccountBalance& out, bo
         }
     }
 
-    if (!first_page || !j.contains("output2"))
+    if (!first_page || !document.contains("output2"))
     {
         return;
     }
 
-    const auto& o2 = j["output2"];
+    const auto& o2 = document["output2"];
     const nlohmann::json* row = nullptr;
 
     if (o2.is_array() && !o2.empty())
@@ -315,26 +315,26 @@ inline void decode_balance_page(const nlohmann::json& j, AccountBalance& out, bo
 
 // 선물 전광판 응답 → 계약 목록. 행 배열은 output1·output2·output 중 처음 비어 있지 않은 것이다
 //  (실키 응답이 어느 키로 오는지 문서가 못 박지 않아 셋을 본다). 코드가 빈 행은 버린다.
-inline std::vector<FutureContract> decode_future_board(const nlohmann::json& j)
+inline std::vector<FutureContract> decode_future_board(const nlohmann::json& document)
 {
     std::vector<FutureContract> out;
 
     for (const char* key : {"output1", "output2", "output"})
     {
-        if (!j.contains(key) || !j[key].is_array() || j[key].empty())
+        if (!document.contains(key) || !document[key].is_array() || document[key].empty())
         {
             continue;
         }
 
-        for (const auto& r : j[key])
+        for (const auto& row : document[key])
         {
-            FutureContract c;
-            c.iscd = r.value("futs_shrn_iscd", "");
-            c.name = r.value("hts_kor_isnm", "");
+            FutureContract future_contract;
+            future_contract.issue_code = row.value("futs_shrn_iscd", "");
+            future_contract.name = row.value("hts_kor_isnm", "");
 
-            if (!c.iscd.empty())
+            if (!future_contract.issue_code.empty())
             {
-                out.push_back(std::move(c));
+                out.push_back(std::move(future_contract));
             }
         }
 

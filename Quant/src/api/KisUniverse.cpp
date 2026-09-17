@@ -34,9 +34,9 @@ std::vector<std::string> load_str_list(const std::string& filename, const std::s
     const char* dir = std::getenv("QUANT_CONFIG_DIR");
     std::string base = (dir && *dir) ? std::string(dir) : std::string("Quant/config");
     std::string path = base + "/" + filename;
-    std::ifstream f(path);
+    std::ifstream file(path);
 
-    if (!f.is_open())
+    if (!file.is_open())
     {
         LOG_WARN(std::string("[KIS] ") + what + " 외부파일 없음(" + path + ") — 내장 기본값 " +
                  std::to_string(fallback.size()) + "개 사용");
@@ -45,27 +45,27 @@ std::vector<std::string> load_str_list(const std::string& filename, const std::s
 
     try
     {
-        auto j = json::parse(f);
-        const json* arr = nullptr;
+        auto document = json::parse(file);
+        const json* array = nullptr;
 
-        if (key.empty() && j.is_array())
+        if (key.empty() && document.is_array())
         {
-            arr = &j;
+            array = &document;
         }
-        else if (!key.empty() && j.is_object() && j.contains(key) && j[key].is_array())
+        else if (!key.empty() && document.is_object() && document.contains(key) && document[key].is_array())
         {
-            arr = &j[key];
+            array = &document[key];
         }
 
         std::vector<std::string> out;
 
-        if (arr)
+        if (array)
         {
-            for (const auto& e : *arr)
+            for (const auto& element : *array)
             {
-                if (e.is_string())
+                if (element.is_string())
                 {
-                    out.push_back(e.get<std::string>());
+                    out.push_back(element.get<std::string>());
                 }
             }
         }
@@ -79,9 +79,9 @@ std::vector<std::string> load_str_list(const std::string& filename, const std::s
         LOG_INFO(std::string("[KIS] ") + what + " 외부파일 로드 " + std::to_string(out.size()) + "개 (" + path + ")");
         return out;
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        LOG_WARN(std::string("[KIS] ") + what + " 외부파일 파싱실패(" + path + ": " + e.what() + ") — 내장 기본값 사용");
+        LOG_WARN(std::string("[KIS] ") + what + " 외부파일 파싱실패(" + path + ": " + exception.what() + ") — 내장 기본값 사용");
         return fallback;
     }
 }
@@ -99,53 +99,53 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
                       "&FID_TRGT_EXLS_CLS_CODE=0" + "&FID_RANK_SORT_CLS_CODE=0" +
                       "&FID_INPUT_PRICE_1=" + "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
 
-    std::vector<std::string> hdrs = auth_headers("FHPST01720000");
+    std::vector<std::string> headers = auth_headers("FHPST01720000");
 
-    std::string resp = http_get(url, hdrs);
+    std::string response = http_get(url, headers);
 
-    if (resp.empty())
+    if (response.empty())
     {
         LOG_WARN("[KIS] 랭킹 조회 실패 (" + market_div + ")");
         return {};
     }
 
-    LOG_DEBUG("[KIS] 랭킹 응답: " + resp.substr(0, 400));
+    LOG_DEBUG("[KIS] 랭킹 응답: " + response.substr(0, 400));
 
     std::vector<RankingStock> result;
 
     try
     {
-        auto j = json::parse(resp);
-        auto safe_d = [](const nlohmann::json& o, const std::string& k) -> double
+        auto document = json::parse(response);
+        auto safe_d = [](const nlohmann::json& node, const std::string& key) -> double
         {
-            std::string s = o.value(k, "");
+            std::string text = node.value(key, "");
 
-            if (s.empty())
+            if (text.empty())
             {
                 return 0.0;
             }
 
             try
             {
-                return std::stod(s);
+                return std::stod(text);
             }
             catch (...)
             {
                 return 0.0;
             }
         };
-        auto safe_i = [](const nlohmann::json& o, const std::string& k) -> int64_t
+        auto safe_i = [](const nlohmann::json& node, const std::string& key) -> int64_t
         {
-            std::string s = o.value(k, "");
+            std::string text = node.value(key, "");
 
-            if (s.empty())
+            if (text.empty())
             {
                 return 0;
             }
 
             try
             {
-                return std::stoll(s);
+                return std::stoll(text);
             }
             catch (...)
             {
@@ -162,16 +162,16 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
         auto is_etf_name = [&](const std::string& name)
         { return etf_filter::is_etf_like(name, ETF_PREFIXES, ETF_TOKENS); };
         // KOSPI 보통주 티커는 반드시 6자리 숫자
-        auto is_normal_ticker = [](const std::string& t)
+        auto is_normal_ticker = [](const std::string& ticker)
         {
-            if (t.size() != 6)
+            if (ticker.size() != 6)
             {
                 return false;
             }
 
-            for (char c : t)
+            for (char character : ticker)
             {
-                if (c < '0' || c > '9')
+                if (character < '0' || character > '9')
                 {
                     return false;
                 }
@@ -181,10 +181,10 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
         };
 
         // API 응답 키: "output" (단일 배열)
-        auto& arr = j.contains("output2") ? j["output2"] : j["output"];
+        auto& array = document.contains("output2") ? document["output2"] : document["output"];
         int drop_etf = 0, drop_ticker = 0; // 진단: raw 행이 어디서 새는지 계측
 
-        for (const auto& item : arr)
+        for (const auto& item : array)
         {
             std::string name = item.value("hts_kor_isnm", "");
             std::string ticker = item.value("mksc_shrn_iscd", "");
@@ -193,26 +193,26 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
 
             if (is_etf_name(name)) { ++drop_etf; continue; }
 
-            RankingStock s;
-            s.ticker = ticker;
-            s.name = name;
-            s.price = safe_d(item, "stck_prpr");
-            s.change = safe_d(item, "prdy_vrss");
-            s.change_rate = safe_d(item, "prdy_ctrt");
-            s.volume = safe_i(item, "acml_vol");
-            s.pbr = safe_d(item, "hts_pbr");
-            s.per = safe_d(item, "hts_per");
-            result.push_back(s);
+            RankingStock stock;
+            stock.ticker = ticker;
+            stock.name = name;
+            stock.price = safe_d(item, "stck_prpr");
+            stock.change = safe_d(item, "prdy_vrss");
+            stock.change_rate = safe_d(item, "prdy_ctrt");
+            stock.volume = safe_i(item, "acml_vol");
+            stock.pbr = safe_d(item, "hts_pbr");
+            stock.per = safe_d(item, "hts_per");
+            result.push_back(stock);
         }
 
         // 진단: raw 행수 vs 필터 후. raw가 ~30 고정이면 페이지네이션 필요, ETF드롭이 크면 API단 제외로 회복.
-        LOG_INFO("[KIS] 시총랭킹 진단: raw=" + std::to_string(arr.size()) +
+        LOG_INFO("[KIS] 시총랭킹 진단: raw=" + std::to_string(array.size()) +
                  " ETF드롭=" + std::to_string(drop_etf) + " 티커드롭=" + std::to_string(drop_ticker) +
                  " 생존=" + std::to_string(result.size()) + " (요청 count=" + std::to_string(count) + ")");
 
         // API 정렬 기준이 불명확하므로 거래대금(가격×거래량) 내림차순 정렬 — 시가총액 대용
         std::ranges::sort(result, std::ranges::greater{},
-                          [](const RankingStock& s) { return s.price * static_cast<double>(s.volume); });
+                          [](const RankingStock& stock) { return stock.price * static_cast<double>(stock.volume); });
 
         // count개로 자르고 순위 재부여
         if (static_cast<int>(result.size()) > count)
@@ -220,14 +220,14 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
             result.resize(count);
         }
 
-        for (int i = 0; i < static_cast<int>(result.size()); ++i)
+        for (int result_index = 0; result_index < static_cast<int>(result.size()); ++result_index)
         {
-            result[i].rank = i + 1;
+            result[result_index].rank = result_index + 1;
         }
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        LOG_ERROR("[KIS] 랭킹 파싱 오류: " + std::string(e.what()));
+        LOG_ERROR("[KIS] 랭킹 파싱 오류: " + std::string(exception.what()));
     }
 
     LOG_INFO("[KIS] 랭킹 조회 완료: " + std::to_string(result.size()) + "종목");
@@ -250,53 +250,53 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
                       "&FID_TRGT_CLS_CODE=111111111" + "&FID_TRGT_EXLS_CLS_CODE=000000" +
                       "&FID_INPUT_PRICE_1=" + "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
 
-    std::vector<std::string> hdrs = auth_headers("FHPST01710000");
+    std::vector<std::string> headers = auth_headers("FHPST01710000");
 
-    std::string resp = http_get(url, hdrs);
+    std::string response = http_get(url, headers);
 
-    if (resp.empty())
+    if (response.empty())
     {
         LOG_WARN("[KIS] 거래대금 랭킹 조회 실패 (" + market_div + ")");
         return {};
     }
 
-    LOG_DEBUG("[KIS] 거래대금 랭킹 응답: " + resp.substr(0, 400));
+    LOG_DEBUG("[KIS] 거래대금 랭킹 응답: " + response.substr(0, 400));
 
     std::vector<RankingStock> result;
 
     try
     {
-        auto j = json::parse(resp);
-        auto safe_d = [](const nlohmann::json& o, const std::string& k) -> double
+        auto document = json::parse(response);
+        auto safe_d = [](const nlohmann::json& node, const std::string& key) -> double
         {
-            std::string s = o.value(k, "");
+            std::string text = node.value(key, "");
 
-            if (s.empty())
+            if (text.empty())
             {
                 return 0.0;
             }
 
             try
             {
-                return std::stod(s);
+                return std::stod(text);
             }
             catch (...)
             {
                 return 0.0;
             }
         };
-        auto safe_i = [](const nlohmann::json& o, const std::string& k) -> int64_t
+        auto safe_i = [](const nlohmann::json& node, const std::string& key) -> int64_t
         {
-            std::string s = o.value(k, "");
+            std::string text = node.value(key, "");
 
-            if (s.empty())
+            if (text.empty())
             {
                 return 0;
             }
 
             try
             {
-                return std::stoll(s);
+                return std::stoll(text);
             }
             catch (...)
             {
@@ -311,16 +311,16 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
             load_str_list("etf_name_tokens.json", "", etf_filter::default_tokens(), "ETF 토큰");
         auto is_etf_name = [&](const std::string& name)
         { return etf_filter::is_etf_like(name, ETF_PREFIXES, ETF_TOKENS); };
-        auto is_normal_ticker = [](const std::string& t)
+        auto is_normal_ticker = [](const std::string& ticker)
         {
-            if (t.size() != 6)
+            if (ticker.size() != 6)
             {
                 return false;
             }
 
-            for (char c : t)
+            for (char character : ticker)
             {
-                if (c < '0' || c > '9')
+                if (character < '0' || character > '9')
                 {
                     return false;
                 }
@@ -330,10 +330,10 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
         };
 
         // volume-rank 응답 배열 키: "output" (표준). output2도 방어적으로 수용.
-        auto& arr = j.contains("output") ? j["output"] : j["output2"];
+        auto& array = document.contains("output") ? document["output"] : document["output2"];
         int drop_etf = 0, drop_ticker = 0; // 진단: raw 행이 어디서 새는지 계측
 
-        for (const auto& item : arr)
+        for (const auto& item : array)
         {
             std::string name = item.value("hts_kor_isnm", "");
             // 티커 키가 mksc_shrn_iscd 또는 stck_shrn_iscd 둘 다 관측됨 → 양쪽 시도
@@ -348,19 +348,19 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
 
             if (is_etf_name(name)) { ++drop_etf; continue; }
 
-            RankingStock s;
-            s.ticker = ticker;
-            s.name = name;
-            s.price = safe_d(item, "stck_prpr");
-            s.change = safe_d(item, "prdy_vrss");
-            s.change_rate = safe_d(item, "prdy_ctrt");
-            s.volume = safe_i(item, "acml_vol");
-            s.trade_value = safe_d(item, "acml_tr_pbmn"); // 누적 거래대금(원)
-            result.push_back(s);
+            RankingStock stock;
+            stock.ticker = ticker;
+            stock.name = name;
+            stock.price = safe_d(item, "stck_prpr");
+            stock.change = safe_d(item, "prdy_vrss");
+            stock.change_rate = safe_d(item, "prdy_ctrt");
+            stock.volume = safe_i(item, "acml_vol");
+            stock.trade_value = safe_d(item, "acml_tr_pbmn"); // 누적 거래대금(원)
+            result.push_back(stock);
         }
 
         // 진단: raw 행수 vs 필터 후. raw가 ~30 고정이면 페이지네이션 필요, ETF드롭이 크면 API단 제외로 회복.
-        LOG_INFO("[KIS] 거래대금랭킹 진단(축=" + blng_cls + "): raw=" + std::to_string(arr.size()) +
+        LOG_INFO("[KIS] 거래대금랭킹 진단(축=" + blng_cls + "): raw=" + std::to_string(array.size()) +
                  " ETF드롭=" + std::to_string(drop_etf) + " 티커드롭=" + std::to_string(drop_ticker) +
                  " 생존=" + std::to_string(result.size()) + " (요청 count=" + std::to_string(count) + ")");
 
@@ -376,14 +376,14 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
             result.resize(count);
         }
 
-        for (int i = 0; i < static_cast<int>(result.size()); ++i)
+        for (int result_index = 0; result_index < static_cast<int>(result.size()); ++result_index)
         {
-            result[i].rank = i + 1;
+            result[result_index].rank = result_index + 1;
         }
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        LOG_ERROR("[KIS] 거래대금 랭킹 파싱 오류: " + std::string(e.what()));
+        LOG_ERROR("[KIS] 거래대금 랭킹 파싱 오류: " + std::string(exception.what()));
     }
 
     LOG_INFO("[KIS] 거래대금 랭킹 조회 완료: " + std::to_string(result.size()) + "종목");
@@ -405,11 +405,11 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
                       "&FID_INPUT_ISCD=" + market + "&FID_DIV_CLS_CODE=0" +
                       "&FID_RANK_SORT_CLS_CODE=" + sort + "&FID_ETC_CLS_CODE=" + etc_cls;
 
-    std::vector<std::string> hdrs = auth_headers("FHPTJ04400000");
+    std::vector<std::string> headers = auth_headers("FHPTJ04400000");
 
-    std::string resp = http_get(url, hdrs);
+    std::string response = http_get(url, headers);
 
-    if (resp.empty())
+    if (response.empty())
     {
         LOG_WARN("[KIS] 당일 수급 랭킹 조회 실패 (sort=" + sort + " etc=" + etc_cls + ")");
         return {};
@@ -419,79 +419,79 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
 
     try
     {
-        auto j = json::parse(resp);
+        auto document = json::parse(response);
         // 스키마 확정 전: 파싱 결과가 비면 원문을 로깅해 필드명/구조를 눈으로 확인한다.
-        auto safe_i = [](const nlohmann::json& o, const std::string& k) -> int64_t
+        auto safe_i = [](const nlohmann::json& node, const std::string& key) -> int64_t
         {
-            std::string s = o.value(k, "");
+            std::string text = node.value(key, "");
 
-            if (s.empty())
+            if (text.empty())
             {
                 return 0;
             }
 
-            try { return std::stoll(s); } catch (...) { return 0; }
+            try { return std::stoll(text); } catch (...) { return 0; }
         };
-        auto safe_d = [](const nlohmann::json& o, const std::string& k) -> double
+        auto safe_d = [](const nlohmann::json& node, const std::string& key) -> double
         {
-            std::string s = o.value(k, "");
+            std::string text = node.value(key, "");
 
-            if (s.empty())
+            if (text.empty())
             {
                 return 0.0;
             }
 
-            try { return std::stod(s); } catch (...) { return 0.0; }
+            try { return std::stod(text); } catch (...) { return 0.0; }
         };
 
-        const nlohmann::json* arr = nullptr;
+        const nlohmann::json* array = nullptr;
 
-        if (j.contains("output"))
+        if (document.contains("output"))
         {
-            arr = &j["output"];
+            array = &document["output"];
         }
-        else if (j.contains("output1"))
+        else if (document.contains("output1"))
         {
-            arr = &j["output1"];
+            array = &document["output1"];
         }
-        else if (j.contains("output2"))
+        else if (document.contains("output2"))
         {
-            arr = &j["output2"];
+            array = &document["output2"];
         }
 
-        if (arr && arr->is_array())
+        if (array && array->is_array())
         {
-            for (const auto& item : *arr)
+            for (const auto& item : *array)
             {
-                EstInvestorFlow f;
-                f.ticker = item.value("mksc_shrn_iscd", "");
+                EstInvestorFlow est_investor_flow;
+                est_investor_flow.ticker = item.value("mksc_shrn_iscd", "");
 
-                if (f.ticker.empty())
+                if (est_investor_flow.ticker.empty())
                 {
-                    f.ticker = item.value("stck_shrn_iscd", "");
+                    est_investor_flow.ticker = item.value("stck_shrn_iscd", "");
                 }
 
-                f.name = item.value("hts_kor_isnm", "");
-                f.foreign_net_qty = safe_i(item, "frgn_ntby_qty");
-                f.inst_net_qty    = safe_i(item, "orgn_ntby_qty");
-                f.foreign_net_amt = safe_d(item, "frgn_ntby_tr_pbmn");
-                f.inst_net_amt    = safe_d(item, "orgn_ntby_tr_pbmn");
+                est_investor_flow.name = item.value("hts_kor_isnm", "");
+                est_investor_flow.foreign_net_qty = safe_i(item, "frgn_ntby_qty");
+                est_investor_flow.inst_net_qty    = safe_i(item, "orgn_ntby_qty");
+                est_investor_flow.foreign_net_amt = safe_d(item, "frgn_ntby_tr_pbmn");
+                est_investor_flow.inst_net_amt    = safe_d(item, "orgn_ntby_tr_pbmn");
 
-                if (!f.ticker.empty())
+                if (!est_investor_flow.ticker.empty())
                 {
-                    result.push_back(std::move(f));
+                    result.push_back(std::move(est_investor_flow));
                 }
             }
         }
 
         if (result.empty())
         {
-            LOG_WARN("[KIS] 당일 수급 랭킹 파싱 0건 — 스키마 확인용 원문: " + resp.substr(0, 500));
+            LOG_WARN("[KIS] 당일 수급 랭킹 파싱 0건 — 스키마 확인용 원문: " + response.substr(0, 500));
         }
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        LOG_ERROR("[KIS] 당일 수급 랭킹 파싱 오류: " + std::string(e.what()) + " 원문: " + resp.substr(0, 300));
+        LOG_ERROR("[KIS] 당일 수급 랭킹 파싱 오류: " + std::string(exception.what()) + " 원문: " + response.substr(0, 300));
     }
 
     return result;
@@ -508,24 +508,24 @@ std::vector<std::string> KisClient::fetch_universe_by_pbr(double max_pbr, const 
                       "&FID_TRGT_EXLS_CLS_CODE=0" + "&FID_RANK_SORT_CLS_CODE=0" +
                       "&FID_INPUT_PRICE_1=" + "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
 
-    std::vector<std::string> hdrs = auth_headers("FHPST01720000");
+    std::vector<std::string> headers = auth_headers("FHPST01720000");
 
-    std::string resp = http_get(url, hdrs);
+    std::string response = http_get(url, headers);
 
-    if (resp.empty())
+    if (response.empty())
     {
         LOG_WARN("[KIS] Universe 조회 실패 (" + market_div + ")");
         return {};
     }
 
-    LOG_DEBUG("[KIS] Universe(" + market_div + ") 응답: " + resp.substr(0, 300));
+    LOG_DEBUG("[KIS] Universe(" + market_div + ") 응답: " + response.substr(0, 300));
 
     std::vector<std::string> result;
 
     try
     {
-        auto j = json::parse(resp);
-        auto& arr2 = j.contains("output2") ? j["output2"] : j["output"];
+        auto document = json::parse(response);
+        auto& arr2 = document.contains("output2") ? document["output2"] : document["output"];
 
         for (const auto& item : arr2)
         {
@@ -558,9 +558,9 @@ std::vector<std::string> KisClient::fetch_universe_by_pbr(double max_pbr, const 
             result.push_back(ticker);
         }
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        LOG_ERROR("[KIS] Universe 파싱 오류: " + std::string(e.what()));
+        LOG_ERROR("[KIS] Universe 파싱 오류: " + std::string(exception.what()));
     }
 
     LOG_INFO("[KIS] Universe(" + market_div + ") PBR<=" + std::to_string(max_pbr) +
@@ -583,25 +583,25 @@ std::vector<std::string> KisClient::fetch_us_universe_by_pbr(double max_pbr, con
     const auto& src = (exchange == "NYS") ? NYS_LIST : NAS_LIST;
     std::vector<std::string> result;
 
-    for (const auto& tk : src)
+    for (const auto& ticker : src)
     {
         if (max_pbr > 0.0)
         {
-            auto f = get_us_fundamentals(tk, exchange);
+            auto us_fundamentals = get_us_fundamentals(ticker, exchange);
 
             // KIS가 pbr 미제공(0.0)이면 PBR 조건 무시, per로 대리 (per=0이면 pass)
-            if (f.pbr > 0.0 && f.pbr > max_pbr)
+            if (us_fundamentals.pbr > 0.0 && us_fundamentals.pbr > max_pbr)
             {
                 continue;
             }
 
-            if (f.pbr == 0.0 && f.per > 0.0 && f.per > max_pbr * 10.0)
+            if (us_fundamentals.pbr == 0.0 && us_fundamentals.per > 0.0 && us_fundamentals.per > max_pbr * 10.0)
             {
                 continue;
             }
         }
 
-        result.push_back(tk);
+        result.push_back(ticker);
         // KIS 초당 거래건수 제한 회피 (1req/200ms)
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
@@ -636,50 +636,50 @@ std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
         "&FID_VOL_CNT="
         "&FID_RSFL_RATE1=&FID_RSFL_RATE2=";
 
-    std::vector<std::string> hdrs = auth_headers("FHPST01700000");
+    std::vector<std::string> headers = auth_headers("FHPST01700000");
 
     std::vector<RankingStock> result;
 
     try
     {
-        auto resp = http_get(url, hdrs);
+        auto response = http_get(url, headers);
 
-        if (resp.empty())
+        if (response.empty())
         {
             return result;
         }
 
-        LOG_DEBUG("[KIS] 업종 등락률 응답(" + sector_code + "): " + resp.substr(0, 300));
+        LOG_DEBUG("[KIS] 업종 등락률 응답(" + sector_code + "): " + response.substr(0, 300));
 
-        auto j = json::parse(resp, nullptr, false);
+        auto document = json::parse(response, nullptr, false);
 
-        if (j.is_discarded())
+        if (document.is_discarded())
         {
             return result;
         }
 
-        if (j.value("rt_cd", std::string("0")) != "0")
+        if (document.value("rt_cd", std::string("0")) != "0")
         {
             LOG_WARN("[KIS] 업종 등락률(" + sector_code + ") 거부: rt_cd=" +
-                     j.value("rt_cd", std::string()) + " " + j.value("msg1", std::string()));
+                     document.value("rt_cd", std::string()) + " " + document.value("msg1", std::string()));
             return result;
         }
 
-        auto sd = [](const nlohmann::json& o, const std::string& k) -> double {
-            try { return std::stod(o.value(k, "0")); } catch (...) { return 0.0; }
+        auto sd = [](const nlohmann::json& node, const std::string& key) -> double {
+            try { return std::stod(node.value(key, "0")); } catch (...) { return 0.0; }
         };
-        auto si = [](const nlohmann::json& o, const std::string& k) -> int64_t {
-            try { return std::stoll(o.value(k, "0")); } catch (...) { return 0; }
+        auto si = [](const nlohmann::json& node, const std::string& key) -> int64_t {
+            try { return std::stoll(node.value(key, "0")); } catch (...) { return 0; }
         };
-        auto is_normal_ticker = [](const std::string& t) {
-            if (t.size() != 6)
+        auto is_normal_ticker = [](const std::string& ticker) {
+            if (ticker.size() != 6)
             {
                 return false;
             }
 
-            for (char c : t)
+            for (char character : ticker)
             {
-                if (c < '0' || c > '9')
+                if (character < '0' || character > '9')
                 {
                     return false;
                 }
@@ -688,9 +688,9 @@ std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
             return true;
         };
 
-        auto& arr = j.contains("output2") ? j["output2"] : j["output"];
+        auto& array = document.contains("output2") ? document["output2"] : document["output"];
 
-        for (const auto& item : arr)
+        for (const auto& item : array)
         {
             std::string ticker = item.value("mksc_shrn_iscd", "");
 
@@ -704,13 +704,13 @@ std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
                 continue;
             }
 
-            RankingStock s;
-            s.ticker      = ticker;
-            s.name        = item.value("hts_kor_isnm", "");
-            s.price       = sd(item, "stck_prpr");
-            s.change_rate = sd(item, "prdy_ctrt");
-            s.volume      = si(item, "acml_vol");
-            result.push_back(s);
+            RankingStock stock;
+            stock.ticker      = ticker;
+            stock.name        = item.value("hts_kor_isnm", "");
+            stock.price       = sd(item, "stck_prpr");
+            stock.change_rate = sd(item, "prdy_ctrt");
+            stock.volume      = si(item, "acml_vol");
+            result.push_back(stock);
         }
 
         // 30행을 다 받아놓고 앞의 count행만 쓰면 그 업종 최고 상승주를 버린다(이미 지불한
@@ -723,9 +723,9 @@ std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
             result.resize(count);
         }
     }
-    catch (const std::exception& e)
+    catch (const std::exception& exception)
     {
-        LOG_WARN("[KIS] 업종 등락률(" + sector_code + ") 오류: " + e.what());
+        LOG_WARN("[KIS] 업종 등락률(" + sector_code + ") 오류: " + exception.what());
     }
 
     return result;

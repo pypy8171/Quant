@@ -8,7 +8,7 @@
 //   안전: is_paper=true(모의계좌)에서만 실행된다. 실거래 config면 즉시 중단.
 //
 //   사용법:
-//     manual_order <config> <buy|sell> <ticker> <qty> [price] [market|limit]
+//     manual_order <config> <buy|sell> <ticker> <quantity> [price] [market|limit]
 //   예)
 //     manual_order config/config_paper.json buy  005930 1            (시장가 매수 1주)
 //     manual_order config/config_paper.json buy  005930 1 70000 limit (지정가 70000 매수)
@@ -31,9 +31,9 @@
 
 using json = nlohmann::json;
 
-static std::string mask(const std::string& s)
+static std::string mask(const std::string& text)
 {
-    return (s.size() > 4) ? s.substr(0, 4) + std::string(s.size() - 4, '*') : "****";
+    return (text.size() > 4) ? text.substr(0, 4) + std::string(text.size() - 4, '*') : "****";
 }
 
 int main(int argc, char** argv)
@@ -52,28 +52,28 @@ int main(int argc, char** argv)
     const std::string config_path = argv[1];
     const std::string side_s = argv[2];
     const std::string ticker = argv[3];
-    const int qty = std::atoi(argv[4]);
+    const int quantity = std::atoi(argv[4]);
     const double price = (argc > 5) ? std::atof(argv[5]) : 0.0;
     const std::string type_s = (argc > 6) ? argv[6] : (price > 0 ? "limit" : "market");
 
     // ── config 로드 ──────────────────────────────────────────────────────────
-    std::ifstream f(config_path);
+    std::ifstream file(config_path);
 
-    if (!f)
+    if (!file)
     {
         std::cerr << "[중단] config 못 엶: " << config_path << "\n";
         return 1;
     }
 
-    json cfg = json::parse(f);
+    json config = json::parse(file);
 
     KisConfig kc;
-    kc.app_key      = cfg["kis"]["app_key"];
-    kc.app_secret   = cfg["kis"]["app_secret"];
-    kc.account_no   = cfg["kis"]["account_no"];
-    kc.account_type = cfg["kis"]["account_type"].get<std::string>();
-    kc.hts_id       = cfg["kis"].value("hts_id", "");
-    kc.is_paper     = cfg["kis"]["is_paper"].get<bool>();
+    kc.app_key      = config["kis"]["app_key"];
+    kc.app_secret   = config["kis"]["app_secret"];
+    kc.account_no   = config["kis"]["account_no"];
+    kc.account_type = config["kis"]["account_type"].get<std::string>();
+    kc.hts_id       = config["kis"].value("hts_id", "");
+    kc.is_paper     = config["kis"]["is_paper"].get<bool>();
 
     // ── ★ 안전 게이트: 모의계좌 아니면 거부 ──────────────────────────────────
     if (!kc.is_paper)
@@ -86,26 +86,26 @@ int main(int argc, char** argv)
     const OrderSide side = (side_s == "sell" || side_s == "SELL") ? OrderSide::SELL : OrderSide::BUY;
     const OrderType type = (type_s == "limit") ? OrderType::LIMIT : OrderType::MARKET;
 
-    OrderSignal sig;
-    sig.ticker      = ticker;
-    sig.side        = side;
-    sig.type        = type;
-    sig.quantity    = qty;
-    sig.price       = price;
-    sig.strategy_id = "MANUAL";
-    sig.market      = Market::KR;
-    sig.account_id  = kc.account_no; // 계좌별 원장에 실제 계좌로 파티션
+    OrderSignal signal;
+    signal.ticker      = ticker;
+    signal.side        = side;
+    signal.type        = type;
+    signal.quantity    = quantity;
+    signal.price       = price;
+    signal.strategy_id = "MANUAL";
+    signal.market      = Market::KR;
+    signal.account_id  = kc.account_no; // 계좌별 원장에 실제 계좌로 파티션
 
     // ── 주문 양식 출력 (KIS 요청 본문) ───────────────────────────────────────
     std::cout << "=== 수동 주문 (모의계좌 " << mask(kc.account_no) << ") ===\n";
     std::cout << "종목=" << ticker << "  " << (side == OrderSide::BUY ? "매수" : "매도")
-              << "  수량=" << qty << "  유형=" << (type == OrderType::MARKET ? "시장가" : "지정가")
+              << "  수량=" << quantity << "  유형=" << (type == OrderType::MARKET ? "시장가" : "지정가")
               << "  가격=" << (type == OrderType::LIMIT ? std::to_string(static_cast<int>(price)) : "-") << "\n";
     std::cout << "KIS 주문 본문(양식):\n"
               << "  CANO=" << mask(kc.account_no) << "  ACNT_PRDT_CD=" << kc.account_type
               << "  PDNO=" << ticker << "\n"
               << "  ORD_DVSN=" << (type == OrderType::MARKET ? "01(시장가)" : "00(지정가)")
-              << "  ORD_QTY=" << qty << "  ORD_UNPR=" << (type == OrderType::LIMIT ? static_cast<int>(price) : 0) << "\n"
+              << "  ORD_QTY=" << quantity << "  ORD_UNPR=" << (type == OrderType::LIMIT ? static_cast<int>(price) : 0) << "\n"
               << "  tr_id=" << (side == OrderSide::BUY ? "VTTC0802U(모의매수)" : "VTTC0801U(모의매도)") << "\n\n";
 
     // ── [1] 인증 ─────────────────────────────────────────────────────────────
@@ -126,7 +126,7 @@ int main(int argc, char** argv)
     //  주문 단위 한도만 config에서 실어 준다 — 보유·노출 한도는 엔진이 따로 본다.
     OrderGate gate;
     {
-        const json rj = cfg.value("risk", json::object());
+        const json rj = config.value("risk", json::object());
         OrderGate::Config gc;
         gc.max_qty_per_order      = rj.value("max_qty_per_order", 10000);
         gc.max_notional_per_order = rj.value("max_notional_per_order", 50000000.0);
@@ -138,7 +138,7 @@ int main(int argc, char** argv)
 
     std::string reason;
 
-    if (!gate.check(sig, reason))
+    if (!gate.check(signal, reason))
     {
         std::cerr << "[중단] OrderGate 거부: " << reason << "\n";
         return 4;
@@ -147,7 +147,7 @@ int main(int argc, char** argv)
     std::cout << "[2] OrderGate 통과\n";
 
     // ── [3] 접수 (submit_order_ack → ODNO) ───────────────────────────────────────
-    const OrderAck ack = kis.submit_order_ack(sig);
+    const OrderAck ack = kis.submit_order_ack(signal);
 
     if (!ack.ok())
     {
@@ -155,33 +155,33 @@ int main(int argc, char** argv)
         return 5;
     }
 
-    const std::string& odno = ack.odno;
+    const std::string& kis_order_no = ack.kis_order_no;
 
-    gate.on_accept(sig.account_id, ticker, side, qty, price); // 미체결 선점(원장)
-    std::cout << "[3] 접수 완료 — ODNO=" << odno << "\n";
+    gate.on_accept(signal.account_id, ticker, side, quantity, price); // 미체결 선점(원장)
+    std::cout << "[3] 접수 완료 — ODNO=" << kis_order_no << "\n";
 
     // ── [4] 체결 확인 (잔고 폴링) ────────────────────────────────────────────
     //   시장가 주문은 장중이면 곧 체결된다. 지정가/장외 시간이면 미체결일 수 있음.
     std::cout << "[4] 체결 확인 (잔고 2초 간격 폴링, 최대 20초)...\n";
     bool seen = false;
 
-    for (int i = 0; i < 10; ++i)
+    for (int index = 0; index < 10; ++index)
     {
         std::this_thread::sleep_for(std::chrono::seconds(2));
-        const KisResult<AccountBalance> bal = kis.get_balance();
+        const KisResult<AccountBalance> balance = kis.get_balance();
 
-        if (!bal)
+        if (!balance)
         {
-            std::cout << "    [" << (i + 1) * 2 << "s] 잔고 조회 실패(" << error_text(bal) << ")\n";
+            std::cout << "    [" << (index + 1) * 2 << "s] 잔고 조회 실패(" << error_text(balance) << ")\n";
             continue;
         }
 
-        for (const Holding& h : bal->holdings)
+        for (const Holding& holding : balance->holdings)
         {
-            if (h.ticker == ticker)
+            if (holding.ticker == ticker)
             {
-                std::cout << "    [" << (i + 1) * 2 << "s] 보유수량=" << h.qty << "  매입평균=" << h.avg_price
-                          << "  평가손익=" << h.eval_pnl << "\n";
+                std::cout << "    [" << (index + 1) * 2 << "s] 보유수량=" << holding.quantity << "  매입평균=" << holding.average_price
+                          << "  평가손익=" << holding.eval_pnl << "\n";
                 seen = true;
             }
         }

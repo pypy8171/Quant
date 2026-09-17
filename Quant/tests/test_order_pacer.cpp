@@ -28,51 +28,51 @@ using Clock = OrderPacer::Clock;
 using std::chrono::milliseconds;
 using pacing::Retry;
 
-OrderSignal sig(const char* ticker, OrderSide side, int qty, OrderAction action = OrderAction::NEW)
+OrderSignal signal(const char* ticker, OrderSide side, int quantity, OrderAction action = OrderAction::NEW)
 {
-    OrderSignal s;
-    s.ticker      = ticker;
-    s.account_id  = "ACC";
-    s.side        = side;
-    s.type        = OrderType::MARKET;
-    s.quantity    = qty;
-    s.action      = action;
-    s.strategy_id = "T";
-    return s;
+    OrderSignal signal;
+    signal.ticker      = ticker;
+    signal.account_id  = "ACC";
+    signal.side        = side;
+    signal.type        = OrderType::MARKET;
+    signal.quantity    = quantity;
+    signal.action      = action;
+    signal.strategy_id = "T";
+    return signal;
 }
 
 const milliseconds kDelay(1200);
 
 int test_classify()
 {
-    const auto sell = sig("A", OrderSide::SELL, 10);
-    const auto buy  = sig("A", OrderSide::BUY, 10);
-    const auto cxl  = sig("A", OrderSide::BUY, 0, OrderAction::CANCEL);
+    const auto sell = signal("A", OrderSide::SELL, 10);
+    const auto buy  = signal("A", OrderSide::BUY, 10);
+    const auto cxl  = signal("A", OrderSide::BUY, 0, OrderAction::CANCEL);
 
     // 접수·횟수 소진은 재시도 없음
     CHECK(pacing::classify(sell, 0, 3, OrderStatus::ACCEPTED, "", kDelay).kind == Retry::NONE);
     CHECK(pacing::classify(sell, 3, 3, OrderStatus::REJECTED, "x", kDelay).kind == Retry::NONE);
 
     // 유량 한도 — KIS EGW00201과 게이트 "Rate limit …" 둘 다, action 불문
-    auto p = pacing::classify(cxl, 0, 3, OrderStatus::REJECTED, "EGW00201 초당 거래건수 초과", kDelay);
-    CHECK(p.kind == Retry::RATE_LIMIT && p.delay == kDelay);
-    p = pacing::classify(buy, 2, 3, OrderStatus::REJECTED, gate_reason::rate_limit(false, 5), kDelay);
-    CHECK(p.kind == Retry::RATE_LIMIT && p.delay == kDelay);
+    auto plan = pacing::classify(cxl, 0, 3, OrderStatus::REJECTED, "EGW00201 초당 거래건수 초과", kDelay);
+    CHECK(plan.kind == Retry::RATE_LIMIT && plan.delay == kDelay);
+    plan = pacing::classify(buy, 2, 3, OrderStatus::REJECTED, gate_reason::rate_limit(false, 5), kDelay);
+    CHECK(plan.kind == Retry::RATE_LIMIT && plan.delay == kDelay);
     // 분당 한도는 20초로 물러난다. 게이트가 만드는 문장 그대로다(계약은 risk/GateReasons.h 한 곳)
     CHECK(gate_reason::rate_limit(true, 40) == "Rate limit 초과 (분당 40건)");
-    p = pacing::classify(buy, 0, 3, OrderStatus::REJECTED, gate_reason::rate_limit(true, 40), kDelay);
-    CHECK(p.kind == Retry::RATE_LIMIT && p.delay == milliseconds(20000));
+    plan = pacing::classify(buy, 0, 3, OrderStatus::REJECTED, gate_reason::rate_limit(true, 40), kDelay);
+    CHECK(plan.kind == Retry::RATE_LIMIT && plan.delay == milliseconds(20000));
     // "Rate limit"은 문자열 머리에 있을 때만 게이트 거부다
     CHECK(pacing::classify(buy, 0, 3, OrderStatus::REJECTED, "기타 Rate limit", kDelay).kind == Retry::NONE);
 
     // 청산 SELL 거부는 되쏜다. 40240000은 지속성 조건이라 제외
-    p = pacing::classify(sell, 1, 3, OrderStatus::REJECTED, "APBK0013 모의투자 장종료", kDelay);
-    CHECK(p.kind == Retry::SELL_REJECTED && p.delay == kDelay);
+    plan = pacing::classify(sell, 1, 3, OrderStatus::REJECTED, "APBK0013 모의투자 장종료", kDelay);
+    CHECK(plan.kind == Retry::SELL_REJECTED && plan.delay == kDelay);
     CHECK(pacing::classify(sell, 0, 3, OrderStatus::REJECTED, "40240000 주문가능수량 없음", kDelay).kind ==
           Retry::NONE);
     // BUY·취소의 일반 거부는 되쏘지 않는다(빈-ODNO 중복주문 위험)
     CHECK(pacing::classify(buy, 0, 3, OrderStatus::REJECTED, "APBK0013", kDelay).kind == Retry::NONE);
-    CHECK(pacing::classify(sig("A", OrderSide::SELL, 0, OrderAction::CANCEL), 0, 3, OrderStatus::REJECTED,
+    CHECK(pacing::classify(signal("A", OrderSide::SELL, 0, OrderAction::CANCEL), 0, 3, OrderStatus::REJECTED,
                            "APBK0013", kDelay)
               .kind == Retry::NONE);
     return 0;
@@ -80,73 +80,73 @@ int test_classify()
 
 int test_interval()
 {
-    const auto t0 = Clock::now();
-    OrderPacer p({350, 3}, t0);
+    const auto start_time = Clock::now();
+    OrderPacer order_pacer({350, 3}, start_time);
     // 첫 주문은 기다리지 않는다
-    CHECK(p.wait_before_send(t0) == Clock::duration::zero());
-    p.note_sent(t0);
-    CHECK(p.wait_before_send(t0) == milliseconds(350));
-    CHECK(p.wait_before_send(t0 + milliseconds(100)) == milliseconds(250));
-    CHECK(p.wait_before_send(t0 + milliseconds(350)) == Clock::duration::zero());
-    CHECK(p.wait_before_send(t0 + milliseconds(900)) == Clock::duration::zero());
+    CHECK(order_pacer.wait_before_send(start_time) == Clock::duration::zero());
+    order_pacer.note_sent(start_time);
+    CHECK(order_pacer.wait_before_send(start_time) == milliseconds(350));
+    CHECK(order_pacer.wait_before_send(start_time + milliseconds(100)) == milliseconds(250));
+    CHECK(order_pacer.wait_before_send(start_time + milliseconds(350)) == Clock::duration::zero());
+    CHECK(order_pacer.wait_before_send(start_time + milliseconds(900)) == Clock::duration::zero());
     // 재시도 지연은 dedup 창(1.2s) 아래로 내려가지 않고, 간격이 더 길면 간격을 따른다
-    CHECK(p.retry_delay() == milliseconds(1200));
-    CHECK(OrderPacer({2000, 3}, t0).retry_delay() == milliseconds(2000));
+    CHECK(order_pacer.retry_delay() == milliseconds(1200));
+    CHECK(OrderPacer({2000, 3}, start_time).retry_delay() == milliseconds(2000));
     return 0;
 }
 
 int test_retry_queue()
 {
-    const auto t0 = Clock::now();
-    OrderPacer p({350, 3}, t0);
+    const auto start_time = Clock::now();
+    OrderPacer order_pacer({350, 3}, start_time);
     int held = 10;
-    p.set_position([&](const std::string&, const std::string&) { return held; });
+    order_pacer.set_position([&](const std::string&, const std::string&) { return held; });
 
     // 예약 → 만기 전엔 없음 → 만기 뒤 attempts+1로 나온다
-    CHECK(p.on_rejected({sig("A", OrderSide::SELL, 10), 0}, OrderStatus::REJECTED, "APBK0013", t0));
-    CHECK(p.retry_count() == 1);
-    CHECK(!p.take_due_retry(t0 + milliseconds(1199)));
-    auto r = p.take_due_retry(t0 + milliseconds(1200));
-    CHECK(r && r->sig.ticker == "A" && r->attempts == 1);
-    CHECK(p.retry_count() == 0);
+    CHECK(order_pacer.on_rejected({signal("A", OrderSide::SELL, 10), 0}, OrderStatus::REJECTED, "APBK0013", start_time));
+    CHECK(order_pacer.retry_count() == 1);
+    CHECK(!order_pacer.take_due_retry(start_time + milliseconds(1199)));
+    auto take_due_retry = order_pacer.take_due_retry(start_time + milliseconds(1200));
+    CHECK(take_due_retry && take_due_retry->signal.ticker == "A" && take_due_retry->attempts == 1);
+    CHECK(order_pacer.retry_count() == 0);
 
     // 접수·비대상 거부는 예약하지 않는다
-    CHECK(!p.on_rejected({sig("A", OrderSide::SELL, 10), 0}, OrderStatus::ACCEPTED, "", t0));
-    CHECK(!p.on_rejected({sig("A", OrderSide::BUY, 10), 0}, OrderStatus::REJECTED, "APBK0013", t0));
-    CHECK(!p.on_rejected({sig("A", OrderSide::SELL, 10), 3}, OrderStatus::REJECTED, "APBK0013", t0));
-    CHECK(p.retry_count() == 0);
+    CHECK(!order_pacer.on_rejected({signal("A", OrderSide::SELL, 10), 0}, OrderStatus::ACCEPTED, "", start_time));
+    CHECK(!order_pacer.on_rejected({signal("A", OrderSide::BUY, 10), 0}, OrderStatus::REJECTED, "APBK0013", start_time));
+    CHECK(!order_pacer.on_rejected({signal("A", OrderSide::SELL, 10), 3}, OrderStatus::REJECTED, "APBK0013", start_time));
+    CHECK(order_pacer.retry_count() == 0);
 
     // 만기 순서는 FIFO — 분당 거부(20s)가 앞에 있으면 뒤의 1.2s 건도 앞이 만기될 때까지 기다린다
-    CHECK(p.on_rejected({sig("B", OrderSide::BUY, 5), 0}, OrderStatus::REJECTED, "Rate limit 초과 (분당 40)", t0));
-    CHECK(p.on_rejected({sig("C", OrderSide::SELL, 5), 0}, OrderStatus::REJECTED, "APBK0013", t0));
-    CHECK(!p.take_due_retry(t0 + milliseconds(5000)));
-    r = p.take_due_retry(t0 + milliseconds(20000));
-    CHECK(r && r->sig.ticker == "B" && r->attempts == 1);
-    r = p.take_due_retry(t0 + milliseconds(20000));
-    CHECK(r && r->sig.ticker == "C");
-    CHECK(!p.take_due_retry(t0 + milliseconds(20000)));
+    CHECK(order_pacer.on_rejected({signal("B", OrderSide::BUY, 5), 0}, OrderStatus::REJECTED, "Rate limit 초과 (분당 40)", start_time));
+    CHECK(order_pacer.on_rejected({signal("C", OrderSide::SELL, 5), 0}, OrderStatus::REJECTED, "APBK0013", start_time));
+    CHECK(!order_pacer.take_due_retry(start_time + milliseconds(5000)));
+    take_due_retry = order_pacer.take_due_retry(start_time + milliseconds(20000));
+    CHECK(take_due_retry && take_due_retry->signal.ticker == "B" && take_due_retry->attempts == 1);
+    take_due_retry = order_pacer.take_due_retry(start_time + milliseconds(20000));
+    CHECK(take_due_retry && take_due_retry->signal.ticker == "C");
+    CHECK(!order_pacer.take_due_retry(start_time + milliseconds(20000)));
 
     // 청산 완료(보유 0)면 만기된 SELL 재시도를 버리고 다음 것을 준다. BUY 재시도는 보유와 무관
-    CHECK(p.on_rejected({sig("D", OrderSide::SELL, 5), 0}, OrderStatus::REJECTED, "APBK0013", t0));
-    CHECK(p.on_rejected({sig("E", OrderSide::BUY, 5), 0}, OrderStatus::REJECTED, "EGW00201", t0));
+    CHECK(order_pacer.on_rejected({signal("D", OrderSide::SELL, 5), 0}, OrderStatus::REJECTED, "APBK0013", start_time));
+    CHECK(order_pacer.on_rejected({signal("E", OrderSide::BUY, 5), 0}, OrderStatus::REJECTED, "EGW00201", start_time));
     held = 0;
-    r    = p.take_due_retry(t0 + milliseconds(1200));
-    CHECK(r && r->sig.ticker == "E");
-    CHECK(p.retry_count() == 0);
+    take_due_retry    = order_pacer.take_due_retry(start_time + milliseconds(1200));
+    CHECK(take_due_retry && take_due_retry->signal.ticker == "E");
+    CHECK(order_pacer.retry_count() == 0);
 
     // 횟수는 재시도마다 이어진다: 2회째 거부 → attempts 2, 3회째 거부는 예약 없음
-    CHECK(p.on_rejected({sig("F", OrderSide::SELL, 5), 0}, OrderStatus::REJECTED, "APBK0013", t0));
+    CHECK(order_pacer.on_rejected({signal("F", OrderSide::SELL, 5), 0}, OrderStatus::REJECTED, "APBK0013", start_time));
     held = 5;
-    r    = p.take_due_retry(t0 + milliseconds(1200));
-    CHECK(r && r->attempts == 1);
-    CHECK(p.on_rejected(*r, OrderStatus::REJECTED, "APBK0013", t0));
-    r = p.take_due_retry(t0 + milliseconds(1200));
-    CHECK(r && r->attempts == 2);
-    CHECK(p.on_rejected(*r, OrderStatus::REJECTED, "APBK0013", t0));
-    r = p.take_due_retry(t0 + milliseconds(1200));
-    CHECK(r && r->attempts == 3);
-    CHECK(!p.on_rejected(*r, OrderStatus::REJECTED, "APBK0013", t0));
-    CHECK(p.retry_count() == 0);
+    take_due_retry    = order_pacer.take_due_retry(start_time + milliseconds(1200));
+    CHECK(take_due_retry && take_due_retry->attempts == 1);
+    CHECK(order_pacer.on_rejected(*take_due_retry, OrderStatus::REJECTED, "APBK0013", start_time));
+    take_due_retry = order_pacer.take_due_retry(start_time + milliseconds(1200));
+    CHECK(take_due_retry && take_due_retry->attempts == 2);
+    CHECK(order_pacer.on_rejected(*take_due_retry, OrderStatus::REJECTED, "APBK0013", start_time));
+    take_due_retry = order_pacer.take_due_retry(start_time + milliseconds(1200));
+    CHECK(take_due_retry && take_due_retry->attempts == 3);
+    CHECK(!order_pacer.on_rejected(*take_due_retry, OrderStatus::REJECTED, "APBK0013", start_time));
+    CHECK(order_pacer.retry_count() == 0);
     return 0;
 }
 } // namespace

@@ -18,35 +18,35 @@ static void t_roundtrip_whole()
     assert(bytes[3] == static_cast<uint8_t>(OpsMsg::ORDER_REQ));
     assert(bytes[7] == 12 && bytes[4] == 0);
 
-    FrameReader r;
-    r.feed(bytes.data(), bytes.size());
-    Frame f;
-    assert(r.next(f));
-    assert(f.type == static_cast<uint8_t>(OpsMsg::ORDER_REQ));
-    assert(f.body == "{\"cid\":\"a1\"}");
-    assert(!r.next(f));
-    assert(r.pending() == 0);
+    FrameReader reader;
+    reader.feed(bytes.data(), bytes.size());
+    Frame frame;
+    assert(reader.next(frame));
+    assert(frame.type == static_cast<uint8_t>(OpsMsg::ORDER_REQ));
+    assert(frame.body == "{\"cid\":\"a1\"}");
+    assert(!reader.next(frame));
+    assert(reader.pending() == 0);
 }
 
 // TCP는 recv 경계를 보장하지 않는다 — 헤더 중간·본문 중간에서 끊겨도 프레임이 하나만 나와야 한다.
 static void t_byte_by_byte()
 {
     auto bytes = ops::encode(OpsMsg::STATUS, "{\"running\":true}");
-    FrameReader r;
-    Frame f;
+    FrameReader reader;
+    Frame frame;
     int got = 0;
 
-    for (size_t i = 0; i < bytes.size(); ++i)
+    for (size_t byte_index = 0; byte_index < bytes.size(); ++byte_index)
     {
-        r.feed(&bytes[i], 1);
+        reader.feed(&bytes[byte_index], 1);
 
-        while (r.next(f))
+        while (reader.next(frame))
         {
             ++got;
-            assert(f.body == "{\"running\":true}");
+            assert(frame.body == "{\"running\":true}");
         }
 
-        if (i + 1 < bytes.size())
+        if (byte_index + 1 < bytes.size())
         {
             assert(got == 0);
         }
@@ -58,51 +58,51 @@ static void t_byte_by_byte()
 // 한 recv에 프레임 두 개 반 — 둘은 나오고 나머지 반은 다음 feed까지 기다린다.
 static void t_two_and_half()
 {
-    auto a = ops::encode(OpsMsg::PING, "");
-    auto b = ops::encode(OpsMsg::POS_REQ, "{}");
-    auto c = ops::encode(OpsMsg::KILL, "{\"x\":1}");
+    auto ping_frame = ops::encode(OpsMsg::PING, "");
+    auto pos_frame = ops::encode(OpsMsg::POS_REQ, "{}");
+    auto kill_frame = ops::encode(OpsMsg::KILL, "{\"x\":1}");
     std::vector<uint8_t> wire;
-    wire.insert(wire.end(), a.begin(), a.end());
-    wire.insert(wire.end(), b.begin(), b.end());
-    wire.insert(wire.end(), c.begin(), c.begin() + 5);
+    wire.insert(wire.end(), ping_frame.begin(), ping_frame.end());
+    wire.insert(wire.end(), pos_frame.begin(), pos_frame.end());
+    wire.insert(wire.end(), kill_frame.begin(), kill_frame.begin() + 5);
 
-    FrameReader r;
-    r.feed(wire.data(), wire.size());
-    Frame f;
-    assert(r.next(f) && f.type == static_cast<uint8_t>(OpsMsg::PING) && f.body.empty());
-    assert(r.next(f) && f.type == static_cast<uint8_t>(OpsMsg::POS_REQ) && f.body == "{}");
-    assert(!r.next(f));
-    assert(r.pending() == 5);
+    FrameReader reader;
+    reader.feed(wire.data(), wire.size());
+    Frame frame;
+    assert(reader.next(frame) && frame.type == static_cast<uint8_t>(OpsMsg::PING) && frame.body.empty());
+    assert(reader.next(frame) && frame.type == static_cast<uint8_t>(OpsMsg::POS_REQ) && frame.body == "{}");
+    assert(!reader.next(frame));
+    assert(reader.pending() == 5);
 
-    r.feed(c.data() + 5, c.size() - 5);
-    assert(r.next(f) && f.type == static_cast<uint8_t>(OpsMsg::KILL) && f.body == "{\"x\":1}");
-    assert(!r.next(f) && r.pending() == 0);
+    reader.feed(kill_frame.data() + 5, kill_frame.size() - 5);
+    assert(reader.next(frame) && frame.type == static_cast<uint8_t>(OpsMsg::KILL) && frame.body == "{\"x\":1}");
+    assert(!reader.next(frame) && reader.pending() == 0);
 }
 
 static void t_bad_magic_sticks()
 {
     auto bytes = ops::encode(OpsMsg::PING, "");
     bytes[1]   = 'X';
-    FrameReader r;
-    r.feed(bytes.data(), bytes.size());
-    Frame f;
-    assert(!r.next(f));
-    assert(r.bad());
+    FrameReader reader;
+    reader.feed(bytes.data(), bytes.size());
+    Frame frame;
+    assert(!reader.next(frame));
+    assert(reader.bad());
 
     // 이후 정상 프레임을 넣어도 살아나지 않는다 — 호출자가 끊어야 한다
     auto ok = ops::encode(OpsMsg::PING, "");
-    r.feed(ok.data(), ok.size());
-    assert(!r.next(f));
+    reader.feed(ok.data(), ok.size());
+    assert(!reader.next(frame));
 }
 
 static void t_bad_version()
 {
     auto bytes = ops::encode(OpsMsg::PING, "");
     bytes[2]   = 2;
-    FrameReader r;
-    r.feed(bytes.data(), bytes.size());
-    Frame f;
-    assert(!r.next(f) && r.bad());
+    FrameReader reader;
+    reader.feed(bytes.data(), bytes.size());
+    Frame frame;
+    assert(!reader.next(frame) && reader.bad());
 }
 
 static void t_oversize_rejected()
@@ -114,10 +114,10 @@ static void t_oversize_rejected()
 
     // 디코더: 길이 필드만 상한 넘게 조작 — 본문을 기다리지 않고 즉시 bad
     uint8_t hdr[8] = {'Q', 'P', ops::kVersion, 0x03, 0x00, 0x10, 0x00, 0x01};
-    FrameReader r;
-    r.feed(hdr, 8);
-    Frame f;
-    assert(!r.next(f) && r.bad());
+    FrameReader reader;
+    reader.feed(hdr, 8);
+    Frame frame;
+    assert(!reader.next(frame) && reader.bad());
 }
 
 static void t_names()
