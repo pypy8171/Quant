@@ -80,14 +80,14 @@ config를 읽고 전략을 만들고 `Engine::start()`가 행렬·샤드·원장
 
 소켓 읽기 스레드는 얇다(원칙 3): 프레임 → 필드 분리 → 구조체 → `recv_ns` 스탬프 → 행렬 push. 문자열은 여기서 끝나고 종목은 정수 id가 된다(원칙 6).
 
-8. [`KisWebSocket::recv_loop`](../Quant/src/api/WebSocketClient.cpp#L134) — 소켓 하나 = 스레드 하나(원칙 1). 프레임 읽기 → `parse_message`. 끊김 감지와 재연결 신호  
-   `Quant/src/api/WebSocketClient.cpp:134` · `void KisWebSocket::recv_loop(std::stop_token stop_token)` · 시험 [test_ws_frame](../Quant/tests/test_ws_frame.cpp)
-9. [`KisWebSocket::parse_message`](../Quant/src/api/WebSocketClient.cpp#L527) — `|`로 헤더 분리 → 암호화 여부(체결통보는 AES) → `dispatch_record`. PINGPONG·구독 응답 처리도 여기  
-   `Quant/src/api/WebSocketClient.cpp:527` · `void KisWebSocket::parse_message(const std::string& message)`
-10. [`KisWebSocket::dispatch_record`](../Quant/src/api/WebSocketClient.cpp#L706) — tr_id로 채널 분기 — H0STCNT0 체결·H0STASP0 호가·H0IFCNT0/H0IFASP0 선물·H0STCNI9 체결통보  
-   `Quant/src/api/WebSocketClient.cpp:706` · `void KisWebSocket::dispatch_record(std::string_view transaction_id, kis_websocket::Fields fields)`
-11. [`KisWebSocket::parse_kr_trade`](../Quant/src/api/WebSocketClient.cpp#L787) — `decode_kr_trade` → `trade.symbol_id`(SymbolTable) → `received_ns` 스탬프 → `on_trade_` 콜백. 호가는 `parse_orderbook`이 같은 모양  
-   `Quant/src/api/WebSocketClient.cpp:787` · `void KisWebSocket::parse_kr_trade(kis_websocket::Fields fields)`
+8. [`KisWebSocket::recv_loop`](../Quant/src/api/WebSocketClient.cpp#L138) — 소켓 하나 = 스레드 하나(원칙 1). 프레임 읽기 → `parse_message`. 끊김 감지와 재연결 신호  
+   `Quant/src/api/WebSocketClient.cpp:138` · `void KisWebSocket::recv_loop(std::stop_token stop_token)` · 시험 [test_ws_frame](../Quant/tests/test_ws_frame.cpp)
+9. [`KisWebSocket::parse_message`](../Quant/src/api/WebSocketClient.cpp#L531) — `|`로 헤더 분리 → 암호화 여부(체결통보는 AES) → `dispatch_record`. PINGPONG·구독 응답 처리도 여기  
+   `Quant/src/api/WebSocketClient.cpp:531` · `void KisWebSocket::parse_message(const std::string& message)`
+10. [`KisWebSocket::dispatch_record`](../Quant/src/api/WebSocketClient.cpp#L719) — tr_id로 채널 분기 — H0STCNT0 체결·H0STASP0 호가·H0IFCNT0/H0IFASP0 선물·H0STCNI9 체결통보  
+   `Quant/src/api/WebSocketClient.cpp:719` · `void KisWebSocket::dispatch_record(std::string_view transaction_id, kis_websocket::Fields fields)`
+11. [`KisWebSocket::parse_kr_trade`](../Quant/src/api/WebSocketClient.cpp#L800) — `decode_kr_trade` → `trade.symbol_id`(SymbolTable) → `received_ns` 스탬프 → `on_trade_` 콜백. 호가는 `parse_orderbook`이 같은 모양  
+   `Quant/src/api/WebSocketClient.cpp:800` · `void KisWebSocket::parse_kr_trade(kis_websocket::Fields fields)`
 12. [`kis_websocket::decode_kr_trade`](../Quant/include/api/KisWsDecode.h#L242) — 순수 함수. 필드 인덱스 → `TradeData`(가격·수량·`hhmmss` 정수·방향). 필드 번호가 [wire] 정본  
    `Quant/include/api/KisWsDecode.h:242` · `inline Decode decode_kr_trade(Fields fields, TradeData& trade)` · 시험 [test_ws_decode](../Quant/tests/test_ws_decode.cpp)
 13. [`kis_websocket::decode_orderbook`](../Quant/include/api/KisWsDecode.h#L226) — 5단계 호가 → `OrderBook`. 매도·매수 가격/잔량 필드 위치  
@@ -200,8 +200,8 @@ config를 읽고 전략을 만들고 `Engine::start()`가 행렬·샤드·원장
 
 체결통보(H0STCNI9)는 수신 스레드가 복호화·디코드만 하고 `fill_queue_`에 push한다. 체결 스레드가 라우터의 `on_fill`로 원장·게이트를 갱신하고 운영단말에 방송한다.
 
-45. [`KisWebSocket::parse_fill_notification`](../Quant/src/api/WebSocketClient.cpp#L873) — AES 복호화 → `decode_fill` → `on_fill_` 콜백(Engine이 `fill_queue_.push`)  
-   `Quant/src/api/WebSocketClient.cpp:873` · `void KisWebSocket::parse_fill_notification(kis_websocket::Fields fields)`
+45. [`KisWebSocket::parse_fill_notification`](../Quant/src/api/WebSocketClient.cpp#L886) — AES 복호화 → `decode_fill` → `on_fill_` 콜백(Engine이 `fill_queue_.push`)  
+   `Quant/src/api/WebSocketClient.cpp:886` · `void KisWebSocket::parse_fill_notification(kis_websocket::Fields fields)`
 46. [`kis_websocket::decode_fill`](../Quant/include/api/KisWsDecode.h#L334) — 체결통보 필드 → `FillNotification`(ODNO·체결/거부·수량·가격). 거부 통보도 같은 채널  
    `Quant/include/api/KisWsDecode.h:334` · `inline Decode decode_fill(Fields fields, FillNotification& fill_notification)` · 시험 [test_ws_decode](../Quant/tests/test_ws_decode.cpp)
 47. [`Engine::fill_thread_fn`](../Quant/src/core/Engine.cpp#L2441) — `fill_queue_` pop → `on_fill` → `ledger_->note_fill`(대조 5초 유예, D-074) → 운영단말 `broadcast`. 비면 `WakeGate`  

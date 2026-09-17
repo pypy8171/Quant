@@ -284,6 +284,34 @@ std::string websocket_platform::http_post_json(const std::string& url, const std
     return response;
 }
 
+namespace
+{
+
+// provider·대칭키 핸들을 recv_loop 스레드마다 하나씩 들고 있는다 — 매 프레임(초당 수백 건)마다
+//  BCryptOpenAlgorithmProvider/BCryptGenerateSymmetricKey를 다시 부르지 않는다. thread_local인 이유는
+//  D-071에서 소켓당 스레드가 N개로 늘 것이므로 정적 하나를 공유하면 레이스가 나기 때문.
+struct AesDecryptState
+{
+    BCRYPT_ALG_HANDLE algorithm_handle = nullptr;
+    BCRYPT_KEY_HANDLE key_handle = nullptr;
+    std::string cached_key; // key_handle이 이 key로 만들어졌다는 표시 — 바뀌면 key_handle을 다시 만든다
+
+    ~AesDecryptState()
+    {
+        if (key_handle)
+        {
+            BCryptDestroyKey(key_handle);
+        }
+
+        if (algorithm_handle)
+        {
+            BCryptCloseAlgorithmProvider(algorithm_handle, 0);
+        }
+    }
+};
+
+} // namespace
+
 // ─── 체결통보 복호화: BCrypt(CNG) — AES-256-CBC, PKCS7 패딩 제거 ───────────
 // Windows: BCrypt(CNG) — AES-256-CBC, PKCS7 패딩 제거
 std::string websocket_platform::aes_cbc_decrypt(const std::string& cipher, const std::string& key, const std::string& initialization_vector)
@@ -293,44 +321,55 @@ std::string websocket_platform::aes_cbc_decrypt(const std::string& cipher, const
         return "";
     }
 
-    BCRYPT_ALG_HANDLE algorithm_handle = nullptr;
-    BCRYPT_KEY_HANDLE key_handle = nullptr;
+    thread_local AesDecryptState state;
+
+    if (!state.algorithm_handle)
+    {
+        BCRYPT_ALG_HANDLE algorithm_handle = nullptr;
+
+        if (BCryptOpenAlgorithmProvider(&algorithm_handle, BCRYPT_AES_ALGORITHM, nullptr, 0) != 0)
+        {
+            return "";
+        }
+
+        BCryptSetProperty(algorithm_handle, BCRYPT_CHAINING_MODE,
+                          reinterpret_cast<PUCHAR>(const_cast<wchar_t*>(BCRYPT_CHAIN_MODE_CBC)),
+                          sizeof(BCRYPT_CHAIN_MODE_CBC), 0);
+        state.algorithm_handle = algorithm_handle;
+    }
+
+    if (!state.key_handle || state.cached_key != key)
+    {
+        if (state.key_handle)
+        {
+            BCryptDestroyKey(state.key_handle);
+            state.key_handle = nullptr;
+        }
+
+        BCRYPT_KEY_HANDLE key_handle = nullptr;
+
+        if (BCryptGenerateSymmetricKey(state.algorithm_handle, &key_handle, nullptr, 0,
+                                       reinterpret_cast<PUCHAR>(const_cast<char*>(key.data())), 32, 0) != 0)
+        {
+            return "";
+        }
+
+        state.key_handle = key_handle;
+        state.cached_key = key;
+    }
+
+    std::vector<UCHAR> ivbuf(initialization_vector.begin(), initialization_vector.begin() + 16); // BCrypt가 IV를 갱신하므로 매 호출 복사
+    std::string out(cipher.size(), '\0');
+    ULONG outLen = 0;
     std::string result;
 
-    if (BCryptOpenAlgorithmProvider(&algorithm_handle, BCRYPT_AES_ALGORITHM, nullptr, 0) != 0)
+    if (BCryptDecrypt(state.key_handle,
+                      reinterpret_cast<PUCHAR>(const_cast<char*>(cipher.data())), static_cast<ULONG>(cipher.size()),
+                      nullptr, ivbuf.data(), static_cast<ULONG>(ivbuf.size()),
+                      reinterpret_cast<PUCHAR>(&out[0]), static_cast<ULONG>(out.size()), &outLen,
+                      BCRYPT_BLOCK_PADDING) == 0)
     {
-        return "";
-    }
-
-    BCryptSetProperty(algorithm_handle, BCRYPT_CHAINING_MODE,
-                      (PUCHAR)BCRYPT_CHAIN_MODE_CBC,
-                      sizeof(BCRYPT_CHAIN_MODE_CBC), 0);
-
-    if (BCryptGenerateSymmetricKey(algorithm_handle, &key_handle, nullptr, 0,
-                                   (PUCHAR)key.data(), 32, 0) == 0)
-    {
-        std::vector<UCHAR> ivbuf(initialization_vector.begin(), initialization_vector.begin() + 16); // BCrypt가 IV를 갱신하므로 복사
-        std::string out(cipher.size(), '\0');
-        ULONG outLen = 0;
-
-        if (BCryptDecrypt(key_handle,
-                          (PUCHAR)cipher.data(), (ULONG)cipher.size(),
-                          nullptr, ivbuf.data(), (ULONG)ivbuf.size(),
-                          (PUCHAR)&out[0], (ULONG)out.size(), &outLen,
-                          BCRYPT_BLOCK_PADDING) == 0)
-        {
-            result.assign(out.data(), outLen);
-        }
-    }
-
-    if (key_handle)
-    {
-        BCryptDestroyKey(key_handle);
-    }
-
-    if (algorithm_handle)
-    {
-        BCryptCloseAlgorithmProvider(algorithm_handle, 0);
+        result.assign(out.data(), outLen);
     }
 
     return result;

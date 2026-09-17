@@ -3851,3 +3851,31 @@ recorder는 여러 엔진을 동시에 구독할 수 있어 CLI 플래그로 고
 **남은 위험**: 다른 worktree(예: wt/manual-halt)가 같은 파일을 고치면 머지 충돌이 크다 — 리네임 뒤 rebase.
 문서·주석의 옛 이름(`td.sym`)은 `docs/CODE_FLOW.md`·`docs/ENGINE_ARCHITECTURE.md`·`CLAUDE.md`만 맞췄고
 `docs/DECISIONS.md`의 지난 항목은 당시 이름 그대로 둔다.
+
+---
+
+### D-093 WebSocket 파싱을 함수 두 개로 가르고, base64·AES 핸들을 스레드마다 캐싱한다 (2026-09-18)
+**상태**: 끝 (빌드 184/184, ctest 33/33)
+
+**결정**: `Quant/src/api/WebSocketClient.cpp`의 `KisWebSocket::parse_message`(제어 프레임 JSON 파싱과
+데이터 프레임 필드 분해·복호화가 한 함수에 섞여 있었다)를 얇은 디스패처로 남기고, 제어 프레임 처리를
+`handle_control_frame`, 데이터 프레임 처리를 `handle_data_frame`으로 나눴다(선언은
+`Quant/include/api/KisWebSocket.h`). `dispatch_record`·`min_fields_for`는 이미 분리돼 있어 손대지 않았다.
+
+같이 `base64_decode`의 역방향 표(`type_value[256]`)를 매 호출 재생성에서 최초 호출 1회짜리 매직 스태틱
+(`static const std::array<int, 256>`)으로 바꿨고, `Quant/src/api/WsSocketWin.cpp`의
+`websocket_platform::aes_cbc_decrypt`는 매 호출 `BCryptOpenAlgorithmProvider`/`BCryptGenerateSymmetricKey`로
+새로 열던 provider·key 핸들을 `thread_local` 구조체(`AesDecryptState`)에 캐싱해 provider는 스레드당 1회,
+대칭키는 key가 바뀔 때만 다시 만들도록 했다. 이 함수 안의 C스타일 캐스트(`(PUCHAR)key.data()` 등)도
+`reinterpret_cast`/`const_cast`로 바꿨다.
+
+**배경**: 문항 40(God Function)·42(캐싱 부재) 진단에서 나온 실제 개선 후보. `parse_message`가 143줄로
+제어·데이터 두 갈래가 한 함수에 있었고, `aes_cbc_decrypt`는 체결통보 프레임마다(초당 수백 건 가능)
+provider·key 핸들을 새로 여닫고 있었다.
+
+**정적 아닌 `thread_local`을 고른 이유**: D-071 원칙 1(소켓 1개=스레드 1개)이 굳어지면 여러 소켓이
+동시에 `aes_cbc_decrypt`를 부를 수 있다 — 정적 하나로 캐싱하면 그 시점에 핸들 레이스가 난다.
+`base64_decode`의 표는 상수라 매직 스태틱(정적, 스레드 세이프 초기화)으로 충분하다 — 쓰기가 없다.
+
+**확인 방법**: `ctest` 중 `test_ws_decode`·`test_kis_decode`가 이 경로를 덮는다 — 33/33 통과로 기존 동작이
+그대로임을 확인했다. 지연 개선치는 따로 측정하지 않았다(원칙 7 — 다음에 벤치를 붙이면 그때 잰다).

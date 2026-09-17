@@ -7,6 +7,7 @@
 #include "core/WakeGate.h"
 #include "utils/Logger.h"
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <nlohmann/json.hpp>
 #include <sstream>
@@ -36,19 +37,22 @@ static int64_t recv_now_ns()
 // AES 본체는 플랫폼별(websocket_platform::aes_cbc_decrypt).
 std::string KisWebSocket::base64_decode(const std::string& in)
 {
-    static const std::string chars =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    int type_value[256];
-
-    for (int index = 0; index < 256; ++index)
+    // 역방향 표는 문자 집합이 고정이라 프레임마다 다시 만들 필요가 없다 — 최초 호출에서 한 번만 채운다.
+    //  매직 스태틱 초기화는 스레드 세이프하고, 이후로는 읽기만 하니 recv_loop 한 스레드 기준으로도 락이 없다.
+    static const std::array<int, 256> type_value = []
     {
-        type_value[index] = -1;
-    }
+        static const std::string chars =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        std::array<int, 256> table{};
+        table.fill(-1);
 
-    for (int index = 0; index < 64; ++index)
-    {
-        type_value[static_cast<unsigned char>(chars[index])] = index;
-    }
+        for (int index = 0; index < 64; ++index)
+        {
+            table[static_cast<unsigned char>(chars[index])] = index;
+        }
+
+        return table;
+    }();
 
     std::string out;
     int value = 0, value_bits = -8;
@@ -535,60 +539,69 @@ void KisWebSocket::parse_message(const std::string& message)
 
     if (message[0] == '{')
     {
-        try
-        {
-            auto document = json::parse(message);
-            std::string transaction_id = document["header"].value("tr_id", "");
-
-            // PINGPONG: KIS가 주기적으로 보내는 연결 유지 신호(heartbeat). 받은 그대로 되돌려준다.
-            if (transaction_id == "PINGPONG")
-            {
-                send_text(message);
-                return;
-            }
-
-            if (document.contains("body"))
-            {
-                std::string rt = document["body"].value("rt_cd", "?");
-                std::string msg1 = document["body"].value("msg1", "");
-                std::string ticker = document["header"].value("tr_key", "");
-                LOG_INFO("[WS] " + transaction_id + "(" + ticker + ") rt=" + rt + " " + msg1);
-
-                // 체결통보 구독 응답: AES key/initialization_vector 확보 → 이후 암호화 프레임 복호화에 사용
-                if ((transaction_id == "H0STCNI0" || transaction_id == "H0STCNI9") &&
-                    document["body"].contains("output"))
-                {
-                    const auto& out = document["body"]["output"];
-                    std::string key = out.value("key", "");
-                    std::string value = out.value("iv", "");
-
-                    // AES-256-CBC: key는 정확히 32바이트, iv는 16바이트여야 함.
-                    // 길이가 다르면(서버 포맷 변경 등) 앞 N바이트만 써서 잘못된 키로
-                    // 복호→쓰레기 평문이 원장에 들어가므로 등호 검증 후 거부 (C-2)
-                    if (key.size() == 32 && value.size() == 16)
-                    {
-                        aes_key_ = std::move(key);
-                        aes_iv_  = std::move(value);
-                        LOG_INFO("[WS] 체결통보 AES key/iv 확보 — 복호화 준비 완료");
-                    }
-                    else
-                    {
-                        aes_key_.clear();
-                        aes_iv_.clear();
-                        LOG_WARN("[WS] 체결통보 key/iv 길이 비정상 (key=" +
-                                 std::to_string(key.size()) + " iv=" + std::to_string(value.size()) +
-                                 ") — 복호화 불가, 암호프레임 drop");
-                    }
-                }
-            }
-        }
-        catch (...)
-        {
-        }
-
+        handle_control_frame(message);
         return;
     }
 
+    handle_data_frame(message);
+}
+
+void KisWebSocket::handle_control_frame(const std::string& message)
+{
+    try
+    {
+        auto document = json::parse(message);
+        std::string transaction_id = document["header"].value("tr_id", "");
+
+        // PINGPONG: KIS가 주기적으로 보내는 연결 유지 신호(heartbeat). 받은 그대로 되돌려준다.
+        if (transaction_id == "PINGPONG")
+        {
+            send_text(message);
+            return;
+        }
+
+        if (document.contains("body"))
+        {
+            std::string rt = document["body"].value("rt_cd", "?");
+            std::string msg1 = document["body"].value("msg1", "");
+            std::string ticker = document["header"].value("tr_key", "");
+            LOG_INFO("[WS] " + transaction_id + "(" + ticker + ") rt=" + rt + " " + msg1);
+
+            // 체결통보 구독 응답: AES key/initialization_vector 확보 → 이후 암호화 프레임 복호화에 사용
+            if ((transaction_id == "H0STCNI0" || transaction_id == "H0STCNI9") &&
+                document["body"].contains("output"))
+            {
+                const auto& out = document["body"]["output"];
+                std::string key = out.value("key", "");
+                std::string value = out.value("iv", "");
+
+                // AES-256-CBC: key는 정확히 32바이트, iv는 16바이트여야 함.
+                // 길이가 다르면(서버 포맷 변경 등) 앞 N바이트만 써서 잘못된 키로
+                // 복호→쓰레기 평문이 원장에 들어가므로 등호 검증 후 거부 (C-2)
+                if (key.size() == 32 && value.size() == 16)
+                {
+                    aes_key_ = std::move(key);
+                    aes_iv_  = std::move(value);
+                    LOG_INFO("[WS] 체결통보 AES key/iv 확보 — 복호화 준비 완료");
+                }
+                else
+                {
+                    aes_key_.clear();
+                    aes_iv_.clear();
+                    LOG_WARN("[WS] 체결통보 key/iv 길이 비정상 (key=" +
+                             std::to_string(key.size()) + " iv=" + std::to_string(value.size()) +
+                             ") — 복호화 불가, 암호프레임 drop");
+                }
+            }
+        }
+    }
+    catch (...)
+    {
+    }
+}
+
+void KisWebSocket::handle_data_frame(const std::string& message)
+{
     // 데이터 메시지: TYPE|TR_ID|COUNT|DATA (^-구분 필드). parts_·fields_는 message를 가리키는 뷰라
     //  message보다 오래 살지 않는다 — 콜백은 이 함수 안에서 끝난다.
     kis_websocket::split_fields(message, '|', parts_);

@@ -109,7 +109,12 @@ private:
     // 현재 세션이 사용 중인 구독 슬롯 수(subscribe_all이 리셋, 증분 구독이 증가).
     std::atomic<int> sub_used_{0};
     void recv_loop(std::stop_token stop_token);
+    // message[0]=='{' 로 두 경로를 가르는 얇은 디스패처. 실제 처리는 아래 두 함수.
     void parse_message(const std::string& message);
+    // 제어 프레임: PINGPONG 에코, 구독 응답 JSON(체결통보 AES key/iv 확보 포함).
+    void handle_control_frame(const std::string& message);
+    // 데이터 프레임: TYPE|TR_ID|COUNT|DATA 분해, 필요 시 base64+AES 복호화, 레코드 디스패치.
+    void handle_data_frame(const std::string& message);
     // 레코드 한 건을 transaction_id에 맞는 파서로 보낸다(단건·다건 프레임이 공유).
     void dispatch_record(std::string_view transaction_id, kis_websocket::Fields fields);
     // 채널별 파서가 요구하는 최소 필드 수(각 parse_*의 가드와 같은 값). 모르는 채널은 0.
