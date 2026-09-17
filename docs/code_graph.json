@@ -19,7 +19,7 @@
     {
       "from": "api",
       "to": "utils",
-      "weight": 5
+      "weight": 6
     },
     {
       "from": "core",
@@ -84,7 +84,7 @@
     {
       "from": "main",
       "to": "utils",
-      "weight": 1
+      "weight": 2
     },
     {
       "from": "modes",
@@ -129,7 +129,7 @@
     {
       "from": "strategy",
       "to": "utils",
-      "weight": 9
+      "weight": 10
     },
     {
       "from": "universe",
@@ -144,7 +144,7 @@
     {
       "from": "universe",
       "to": "utils",
-      "weight": 2
+      "weight": 3
     },
     {
       "from": "utils",
@@ -214,6 +214,7 @@
     "universe/ScoreWeight.h": "universe",
     "universe/UniverseScanner.h": "universe",
     "utils/EtfFilter.h": "utils",
+    "utils/JsonNode.h": "utils",
     "utils/Logger.h": "utils",
     "utils/Utf8.h": "utils",
     "main.cpp": "main",
@@ -278,6 +279,9 @@
     ],
     "api/KisMarket.cpp": [
       "api/KisRestDecode.h"
+    ],
+    "api/KisOrder.cpp": [
+      "utils/JsonNode.h"
     ],
     "api/KisRestDecode.h": [
       "api/KisTypes.h",
@@ -472,6 +476,7 @@
       "core/Types.h",
       "modes/Monitors.h",
       "strategy/StrategyFactory.h",
+      "utils/JsonNode.h",
       "utils/Logger.h"
     ],
     "modes/Monitors.cpp": [
@@ -556,6 +561,7 @@
       "strategy/ValueContraryStrategy.h",
       "universe/ScoreWeight.h",
       "universe/UniverseScanner.h",
+      "utils/JsonNode.h",
       "utils/Logger.h"
     ],
     "strategy/StrategyFactory.h": [
@@ -586,6 +592,7 @@
       "universe/MaAlign.h",
       "universe/UniverseScanner.h",
       "utils/EtfFilter.h",
+      "utils/JsonNode.h",
       "utils/Logger.h"
     ],
     "universe/UniverseScanner.h": [
@@ -904,6 +911,12 @@
       "api/KisClientInternal.h",
       "universe/UniverseScanner.cpp"
     ],
+    "utils/JsonNode.h": [
+      "api/KisOrder.cpp",
+      "main.cpp",
+      "strategy/StrategyFactory.cpp",
+      "universe/UniverseScanner.cpp"
+    ],
     "utils/Logger.h": [
       "api/KisClientInternal.h",
       "api/WebSocketClient.cpp",
@@ -984,6 +997,10 @@
       "in_degree": 4
     },
     {
+      "header": "utils/JsonNode.h",
+      "in_degree": 4
+    },
+    {
       "header": "api/IOrderExecutor.h",
       "in_degree": 3
     },
@@ -1009,10 +1026,6 @@
     },
     {
       "header": "core/IFeedSource.h",
-      "in_degree": 3
-    },
-    {
-      "header": "core/MpscQueue.h",
       "in_degree": 3
     }
   ],

@@ -271,6 +271,7 @@
 ### Quant/include/utils/
 
 - [EtfFilter.h](../Quant/include/utils/EtfFilter.h) — ETF·ETN 종목명 판별 필터
+- [JsonNode.h](../Quant/include/utils/JsonNode.h) — json 하위 노드를 복사 없이 참조로 집어 오는 헬퍼(jsonx::array_or_empty·object_or_empty)
 - [Logger.h](../Quant/include/utils/Logger.h) — 비동기 로거 — MPSC 큐+writer 스레드(D-045)
 - [Utf8.h](../Quant/include/utils/Utf8.h) — UTF-8 터미널 표시폭 계산·패딩 유틸
 

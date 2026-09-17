@@ -1,6 +1,7 @@
 // api/KisOrder.cpp — 국내·해외 주문 발주·정정·취소와 응답 파서. IOrderExecutor 구현부.
 //  실패는 예외가 아니라 OrderAck.err_code 값으로 돌려준다(D-039). [why D-048] 파일 분할 경위.
 #include "KisClientInternal.h"
+#include "utils/JsonNode.h"
 
 // 주문 응답 파서. 게이트웨이가 HTML 오류 페이지를 주거나 rt_cd가 없으면 예외 대신 false.
 //  호출부(OrderRouter)가 catch로 막고는 있지만 예외 경로에서는 msg_cd가 비어 EGW00201 적응
@@ -10,15 +11,6 @@ static std::string kis_reject_code(const json& j)
 {
     std::string code = j.value("msg_cd", std::string(""));
     return code.empty() ? std::string(kis_err::kUnknown) : code;
-}
-
-// 응답의 output 노드. j.value("output", json::object())는 노드를 통째로 깊은 복사하므로
-//  필드 한둘을 읽을 때도 값이 복사된다 — 없으면 빈 객체를 가리키는 참조를 돌려준다.
-static const json& kis_output_node(const json& j)
-{
-    static const json kEmptyObject = json::object();
-    const auto        it           = j.find("output");
-    return (it != j.end() && it->is_object()) ? *it : kEmptyObject;
 }
 
 static bool kis_parse_order_resp(const std::string& resp, json& j, const char* what)
@@ -194,7 +186,7 @@ OrderAck KisClient::submit_order_ack(const OrderSignal& signal)
         return OrderAck::fail(kis_reject_code(j));
     }
 
-    const json& out = kis_output_node(j);
+    const json& out = jsonx::object_or_empty(j, "output");
     OrderAck    ack;
     ack.odno      = out.value("ODNO", "");
     ack.krx_orgno = out.value("KRX_FWDG_ORD_ORGNO", "");
@@ -257,7 +249,7 @@ OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& o
         return OrderAck::fail(kis_reject_code(j));
     }
 
-    std::string cancel_odno = kis_output_node(j).value("ODNO", "");
+    std::string cancel_odno = jsonx::object_or_empty(j, "output").value("ODNO", "");
     LOG_INFO("[KIS] 취소 접수: " + ticker + " 원ODNO=" + orig_odno +
              " 취소ODNO=" + cancel_odno);
     return OrderAck{cancel_odno, std::string(), std::string()};
@@ -314,7 +306,7 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
     }
 
     // 정정 성공 시 새 ODNO 발급 → 반환 (호출부가 kis_order_no 갱신)
-    std::string new_odno = kis_output_node(j).value("ODNO", "");
+    std::string new_odno = jsonx::object_or_empty(j, "output").value("ODNO", "");
     LOG_INFO("[KIS] 정정 접수: " + ticker + " 원ODNO=" + orig_odno +
              " 새ODNO=" + new_odno + " @" + std::to_string(static_cast<int>(new_price)));
     return OrderAck{new_odno, std::string(), std::string()};

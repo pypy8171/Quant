@@ -19,7 +19,7 @@ graph LR
   ipc[ipc]
   utils[utils]
   api -->|10| core
-  api -->|5| utils
+  api -->|6| utils
   core -->|9| api
   core -->|3| ipc
   core -->|4| risk
@@ -32,7 +32,7 @@ graph LR
   main -->|2| core
   main --> modes
   main --> strategy
-  main --> utils
+  main -->|2| utils
   modes -->|3| api
   modes -->|3| core
   modes --> ipc
@@ -41,10 +41,10 @@ graph LR
   strategy -->|5| api
   strategy -->|17| core
   strategy -->|3| universe
-  strategy -->|9| utils
+  strategy -->|10| utils
   universe --> api
   universe -->|2| core
-  universe -->|2| utils
+  universe -->|3| utils
   utils --> core
 ```
 
@@ -78,6 +78,7 @@ graph LR
     n_api_KisClientInternal_h["api/KisClientInternal.h"]
     n_api_KisIndex_cpp["api/KisIndex.cpp"]
     n_api_KisMarket_cpp["api/KisMarket.cpp"]
+    n_api_KisOrder_cpp["api/KisOrder.cpp"]
     n_api_KisRestDecode_h["api/KisRestDecode.h"]
     n_api_KisWebSocket_h["api/KisWebSocket.h"]
     n_api_KisWsDecode_h["api/KisWsDecode.h"]
@@ -167,6 +168,7 @@ graph LR
   n_api_KisClientInternal_h --> n_utils_Logger_h
   n_api_KisIndex_cpp --> n_api_KisRestDecode_h
   n_api_KisMarket_cpp --> n_api_KisRestDecode_h
+  n_api_KisOrder_cpp --> n_utils_JsonNode_h
   n_api_KisRestDecode_h --> n_api_KisTypes_h
   n_api_KisRestDecode_h --> n_core_KstTime_h
   n_api_KisRestDecode_h --> n_core_Types_h
@@ -287,6 +289,7 @@ graph LR
   n_main_cpp --> n_core_Types_h
   n_main_cpp --> n_modes_Monitors_h
   n_main_cpp --> n_strategy_StrategyFactory_h
+  n_main_cpp --> n_utils_JsonNode_h
   n_main_cpp --> n_utils_Logger_h
   n_modes_Monitors_cpp --> n_api_KisClient_h
   n_modes_Monitors_cpp --> n_api_KisWebSocket_h
@@ -343,6 +346,7 @@ graph LR
   n_strategy_StrategyFactory_cpp --> n_strategy_ValueContraryStrategy_h
   n_strategy_StrategyFactory_cpp --> n_universe_ScoreWeight_h
   n_strategy_StrategyFactory_cpp --> n_universe_UniverseScanner_h
+  n_strategy_StrategyFactory_cpp --> n_utils_JsonNode_h
   n_strategy_StrategyFactory_cpp --> n_utils_Logger_h
   n_strategy_StrategyFactory_h --> n_api_KisClient_h
   n_strategy_SupplyDemandPullbackStrategy_h --> n_api_KisClient_h
@@ -363,6 +367,7 @@ graph LR
   n_universe_UniverseScanner_cpp --> n_universe_MaAlign_h
   n_universe_UniverseScanner_cpp --> n_universe_UniverseScanner_h
   n_universe_UniverseScanner_cpp --> n_utils_EtfFilter_h
+  n_universe_UniverseScanner_cpp --> n_utils_JsonNode_h
   n_universe_UniverseScanner_cpp --> n_utils_Logger_h
   n_universe_UniverseScanner_h --> n_api_KisClient_h
   n_utils_Logger_h --> n_core_MpscQueue_h

@@ -2,16 +2,18 @@
 # -*- coding: utf-8 -*-
 """코드 작업 규약을 스테이징된 변경에 대해 기계적으로 검사한다.
 
-정본은 docs/guides/MAINTENANCE_AUTOMATION.md 4절(주석 규약)과 .clang-format(중괄호)이다.
+정본은 docs/guides/MAINTENANCE_AUTOMATION.md 4절(주석·표기 규약)과 .clang-format(중괄호)이다.
 이 스크립트는 그중 사람이 놓치기 쉬운 다섯 가지만 본다.
 
   1. 중괄호   — 스테이징된 Quant/**.h/.cpp에 brace_style.py --check
   2. D-NNN    — 추가된 줄이 가리키는 결정 번호가 docs/DECISIONS.md에 실재하는지
   3. 태그 철자 — `// [xxx]` 중 규약에 없는 태그(경고만)
-  4. 줄 성격  — 파일별 추가·삭제를 주석과 코드로 나눠 보고.
-                --comment-only를 주면 코드 줄 변경이 0이 아닐 때 실패한다.
-  5. 캐스트   — 추가된 C++ 코드 줄의 C스타일 캐스트. 값은 static_cast,
+  4. 캐스트   — 추가된 C++ 코드 줄의 C스타일 캐스트. 값은 static_cast,
                 포인터는 reinterpret_cast로 쓴다. `(void)x;`는 예외.
+  5. 복사     — 안 해도 되는 복사 두 가지. json 노드를 통째로 베끼는
+                `.value("k", json::array())`는 오류, 값 range-for는 경고.
+  6. 줄 성격  — 파일별 추가·삭제를 주석과 코드로 나눠 보고.
+                --comment-only를 주면 코드 줄 변경이 0이 아닐 때 실패한다.
 
 주석 밀도는 검사하지 않는다. 4절이 밀도를 게이트로 걸지 말라고 정해 두었고,
 집계는 maintain.py --weekly가 리포트로 남긴다.
@@ -47,6 +49,16 @@ CAST_TYPE = (r"(?:unsigned\s+(?:long\s+long|long|int|char|short)|long\s+long"
              r"|std::size_t|std::time_t|std::u?int(?:8|16|32|64)_t|u?int(?:8|16|32|64)_t"
              r"|size_t|ssize_t|time_t|int|long|short|double|float|char|bool)")
 C_CAST_RE = re.compile(r"\((?:const\s+|volatile\s+)*" + CAST_TYPE + r"\s*\**\)(?=[A-Za-z_(&])")
+
+# json 노드 깊은 복사 — `j.value("k", json::array())`는 기본값을 만들려고 노드 전체를 베낀다.
+#  필드 한둘을 읽을 때도 배열·객체가 통째로 복사된다. find()로 노드 참조를 잡는 쪽이 맞다.
+JSON_VALUE_COPY_RE = re.compile(
+    r"\.value\s*\([^,()]*,\s*(?:[A-Za-z_][A-Za-z0-9_]*::)*json::(?:array|object)\s*\(\s*\)\s*\)")
+
+# 값 range-for — 원소 타입을 알 수 없어 경고로만 남긴다(int·포인터면 복사가 공짜다).
+#  `auto&`·`auto*`는 걸리지 않는다. 구조적 바인딩 `auto [k, v]`도 pair를 통째로 뜨므로 같이 본다.
+VALUE_RANGE_FOR_RE = re.compile(
+    r"\bfor\s*\(\s*(?:const\s+)?auto\s+(?:[A-Za-z_][A-Za-z0-9_]*\s*:|\[)")
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -171,7 +183,7 @@ def main(argv: list[str]) -> int:
                 print(f"{path}:{ln}: 경고: 규약에 없는 태그 [{t}] "
                       f"(허용: inv, lock-order, wire, formula, why D-NNN)")
 
-    # 5. C스타일 캐스트 — 값은 static_cast, 포인터는 reinterpret_cast
+    # 4. C스타일 캐스트 — 값은 static_cast, 포인터는 reinterpret_cast
     for path, items in adds.items():
         if Path(path).suffix.lower() not in CPP_EXT:
             continue
@@ -185,7 +197,25 @@ def main(argv: list[str]) -> int:
                       f"값은 static_cast<T>(x), 포인터는 reinterpret_cast<T>(x)로 쓴다")
                 problems += 1
 
-    # 4. 줄 성격 집계
+    # 5. 불필요한 복사 — json 노드 깊은 복사(오류)와 값 range-for(경고)
+    for path, items in adds.items():
+        if Path(path).suffix.lower() not in CPP_EXT:
+            continue
+
+        for ln, text in items:
+            if is_comment(path, text) is True:
+                continue
+
+            for hit in JSON_VALUE_COPY_RE.finditer(text):
+                print(f"{path}:{ln}: 오류: json 노드 깊은 복사 {hit.group(0).strip()} — "
+                      f"find()로 노드 참조를 잡고 없을 때만 빈 노드를 가리킨다")
+                problems += 1
+
+            if VALUE_RANGE_FOR_RE.search(text):
+                print(f"{path}:{ln}: 경고: 값 range-for — 원소가 문자열·컨테이너·구조체면 "
+                      f"const auto& 로 받는다")
+
+    # 6. 줄 성격 집계
     rows = []
     code_touch = 0
     for path in sorted(set(list(adds) + list(dels))):

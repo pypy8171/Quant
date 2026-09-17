@@ -11,7 +11,7 @@ digraph code_graph {
   "universe";
   "utils";
   "api" -> "core" [label="10"];
-  "api" -> "utils" [label="5"];
+  "api" -> "utils" [label="6"];
   "core" -> "api" [label="9"];
   "core" -> "ipc" [label="3"];
   "core" -> "risk" [label="4"];
@@ -24,7 +24,7 @@ digraph code_graph {
   "main" -> "core" [label="2"];
   "main" -> "modes" [label="1"];
   "main" -> "strategy" [label="1"];
-  "main" -> "utils" [label="1"];
+  "main" -> "utils" [label="2"];
   "modes" -> "api" [label="3"];
   "modes" -> "core" [label="3"];
   "modes" -> "ipc" [label="1"];
@@ -33,9 +33,9 @@ digraph code_graph {
   "strategy" -> "api" [label="5"];
   "strategy" -> "core" [label="17"];
   "strategy" -> "universe" [label="3"];
-  "strategy" -> "utils" [label="9"];
+  "strategy" -> "utils" [label="10"];
   "universe" -> "api" [label="1"];
   "universe" -> "core" [label="2"];
-  "universe" -> "utils" [label="2"];
+  "universe" -> "utils" [label="3"];
   "utils" -> "core" [label="1"];
 }

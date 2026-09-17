@@ -2,6 +2,7 @@
 #include "core/Types.h"
 #include "modes/Monitors.h"
 #include "strategy/StrategyFactory.h"
+#include "utils/JsonNode.h"
 #include "utils/Logger.h"
 #include <atomic>
 #include <chrono>
@@ -190,7 +191,7 @@ static void configure_engine_channels(Engine& engine, const KisConfig& kis_cfg, 
 
     // 추가 WS 세션 키(D-071 원칙 1). 기본 kis 키와 함께 소켓을 여럿 열어 구독 상한을 소켓 수만큼 늘린다.
     //  계좌·모의 여부는 기본 키와 같고 app_key·app_secret만 다르다. 체결통보(hts_id)는 기본 키만 받는다.
-    for (const auto& k : cfg.value("feed_keys", json::array()))
+    for (const auto& k : jsonx::array_or_empty(cfg, "feed_keys"))
     {
         KisConfig c   = kis_cfg;
         c.app_key     = k.at("app_key").get<std::string>();

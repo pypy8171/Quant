@@ -1,4 +1,5 @@
 #include "universe/UniverseScanner.h"
+#include "utils/JsonNode.h"
 #include "universe/MaAlign.h"
 #include "core/KstTime.h"
 #include "core/Types.h"
@@ -703,10 +704,7 @@ void take_universe_file(const DevScanCfg& cfg, CandidateSet& cands)
             cands.have_market_map = !cands.market.empty();
         }
 
-        // 유니버스 배열은 수천 원소다 — j.value()로 받으면 통째로 깊은 복사가 된다. 노드를 그대로 본다.
-        static const nlohmann::json kEmptyArray = nlohmann::json::array();
-        const auto                  uit         = j.find("universe");
-        const nlohmann::json&       arr         = (uit != j.end() && uit->is_array()) ? *uit : kEmptyArray;
+        const nlohmann::json& arr = jsonx::array_or_empty(j, "universe");
         int added_file = 0, dup = 0;
 
         for (const auto& e : arr)
