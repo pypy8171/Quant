@@ -658,12 +658,20 @@ void OrderRouter::append_order_reason(const ManagedOrder& managed_order)
                                          safe(managed_order.signal.reason));
 
     std::lock_guard<std::mutex> lock(io_mutex_);
-    std::ofstream out(Logger::instance().path_for("order_reasons_" + today_ymd() + ".txt"),
-                      std::ios::app);
+    const std::string date = today_ymd();
 
-    if (out)
+    if (date != order_reason_file_date_ || !order_reason_file_.is_open())
     {
-        out << line;
+        order_reason_file_.close();
+        order_reason_file_.clear();
+        order_reason_file_.open(Logger::instance().path_for("order_reasons_" + date + ".txt"), std::ios::app);
+        order_reason_file_date_ = date;
+    }
+
+    if (order_reason_file_)
+    {
+        order_reason_file_ << line;
+        order_reason_file_.flush();
     }
 }
 
@@ -1057,22 +1065,19 @@ void OrderRouter::trade_row_timestamp(std::string& date, std::string& stamp)
     stamp = kst::datetime(now_time);
 }
 
-void OrderRouter::append_trade_line(const std::string& line)
+void OrderRouter::open_trade_file_locked(const std::string& date)
 {
-    std::lock_guard<std::mutex> io_lk(io_mutex_);
-
-    std::string dbuf, time_buffer;
-    trade_row_timestamp(dbuf, time_buffer);
-
     namespace fs = std::filesystem;
     std::error_code error_code;
     // 실행 위치(cwd)와 무관하게 로그 폴더(main에서 고정)에 매매원장 append.
-    fs::path path = Logger::instance().path_for(std::string("trades_") + dbuf + ".csv");
+    fs::path path = Logger::instance().path_for(std::string("trades_") + date + ".csv");
 
     const bool need_header = !fs::exists(path, error_code);
 
     // 스키마 승격 — 같은 날 파일이 옛 헤더(열이 적음)면 새 열을 붙여 한 번 재작성한다.
     //  한 파일에 15열 헤더와 16열 데이터가 섞이면 판독기가 값을 어긋난 키로 읽는다.
+    //  날짜가 바뀌어 파일을 새로 여는 순간에만 확인한다 — 이미 이번 세션에서 연 파일의
+    //  헤더는 우리 자신이 썼으므로 매 줄마다 다시 볼 필요가 없다. [why D-094]
     if (!need_header)
     {
         std::ifstream in(path);
@@ -1126,19 +1131,38 @@ void OrderRouter::append_trade_line(const std::string& line)
         }
     }
 
-    std::ofstream file(path, std::ios::app);
+    trade_file_.close();
+    trade_file_.clear();
+    trade_file_.open(path, std::ios::app);
 
-    if (!file.is_open())
+    if (trade_file_.is_open() && need_header)
+    {
+        trade_file_ << kTradeHeader << '\n';
+        trade_file_.flush();
+    }
+
+    trade_file_date_ = date;
+}
+
+void OrderRouter::append_trade_line(const std::string& line)
+{
+    std::lock_guard<std::mutex> io_lk(io_mutex_);
+
+    std::string dbuf, time_buffer;
+    trade_row_timestamp(dbuf, time_buffer);
+
+    if (dbuf != trade_file_date_ || !trade_file_.is_open())
+    {
+        open_trade_file_locked(dbuf);
+    }
+
+    if (!trade_file_.is_open())
     {
         return; // best-effort
     }
 
-    if (need_header)
-    {
-        file << kTradeHeader << '\n';
-    }
-
-    file << time_buffer << ',' << line << '\n';
+    trade_file_ << time_buffer << ',' << line << '\n';
+    trade_file_.flush();
 }
 
 void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& managed_order,

@@ -129,7 +129,8 @@ public:
     void set_base_directory(const std::filesystem::path& directory)
     {
         std::lock_guard<std::mutex> lock(config_mutex_);
-        base_directory_ = directory;
+        base_directory_       = directory;
+        base_directory_ready_ = false;
     }
 
     std::filesystem::path base_directory()
@@ -139,11 +140,19 @@ public:
     }
 
     // 기준 디렉터리 하위 파일의 전체 경로(부모 폴더가 없으면 생성).
+    // create_directories는 base_directory_가 바뀐 뒤 처음 한 번만 부른다 — 주문마다(D-094) 불리는
+    // 호출자가 많아, 이미 있는 디렉터리를 매번 시스템콜로 확인하는 비용을 없앤다. [why D-094]
     std::filesystem::path path_for(const std::string& name)
     {
         std::lock_guard<std::mutex> lock(config_mutex_);
-        std::error_code error_code;
-        std::filesystem::create_directories(base_directory_, error_code);
+
+        if (!base_directory_ready_)
+        {
+            std::error_code error_code;
+            std::filesystem::create_directories(base_directory_, error_code);
+            base_directory_ready_ = true;
+        }
+
         return base_directory_ / name;
     }
 
@@ -429,6 +438,7 @@ private:
     std::mutex config_mutex_;
     std::ofstream file_;
     std::filesystem::path base_directory_{default_base_directory()}; // set_base_directory 전에도 실행파일 기준
+    bool base_directory_ready_ = false; // path_for가 base_directory_를 이미 만들었으면 true, set_base_directory가 되돌림
 
     std::atomic<LogLevel> min_level_{LogLevel::INFO};
     std::atomic<bool> console_enabled_{true};

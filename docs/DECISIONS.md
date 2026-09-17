@@ -3901,3 +3901,35 @@ provider·key 핸들을 새로 여닫고 있었다.
 
 **확인 방법**: `ctest` 중 `test_ws_decode`·`test_kis_decode`가 이 경로를 덮는다 — 33/33 통과로 기존 동작이
 그대로임을 확인했다. 지연 개선치는 따로 측정하지 않았다(원칙 7 — 다음에 벤치를 붙이면 그때 잰다).
+
+### D-094 OrderRouter 부속 파일 3개를 주문마다 열고 닫던 것을 날짜별 상주 핸들로 바꾼다 (2026-09-18)
+**상태**: 끝 (빌드 182/182, ctest — D-094가 건드린 `test_order_router` 통과. 나머지 3개 실패
+`test_latency_trace`·`test_tick_capture`·`test_replay_source`·`test_engine`은 이 변경 전 워크트리에서도
+같게 실패해 무관함을 확인했다 — 아래 "확인 방법" 참고)
+
+**결정**: `Quant/src/ipc/OrderRouter.cpp`의 `append_trade_line`(원장 CSV)·`append_order_reason`(주문 사유
+기록)이 주문(체결)마다 `std::ofstream`을 새로 열고 닫던 것을, 날짜 문자열을 키로 하는 상주 핸들
+(`trade_file_`/`order_reason_file_`, `Quant/include/ipc/OrderRouter.h`)로 바꿨다. 헤더 유무·스키마 확인은
+그 날짜 파일을 처음 여는 순간(`open_trade_file_locked`)에만 하고, 이후 같은 날 호출은 이미 열린 핸들에
+바로 쓴다. 매 쓰기 뒤 `flush()`로 이전과 같은 내구성(파일 close와 동일한 디스크 반영 시점)을 유지했다.
+
+같이 `Quant/include/utils/Logger.h`의 `path_for()`가 호출마다 무조건 부르던
+`std::filesystem::create_directories`도 "이번 `base_directory_`에 대해 이미 만들었음" bool
+(`base_directory_ready_`)로 한 번만 부르게 했다. `set_base_directory()`에서 그 bool을 되돌린다(테스트
+5곳이 기준 디렉터리를 바꿔 부른다 — 새 디렉터리는 다시 확인해야 한다). `write_open_orders_file()`의
+임시파일 쓰기+원자적 rename 구조(기동 중 크래시로 반쪽 파일을 읽지 않기 위한 의도적 설계)는 그대로 두고,
+`path_for()` 캐싱의 간접 이득만 받는다.
+
+**배경**: perf-optimizer 에이전트에 D-093과 같은 유형(반복 호출 중 캐싱 없이 재할당·재생성)을 전 코드베이스
+대상으로 읽기전용 조사시켜 받은 우선순위 목록(P-1~P-10)의 1위. `OrderRouter::record()`가 주문 1건마다
+파일 3개를 열고 닫고, `path_for()`도 호출마다 시스템콜을 불러 전부 `io_mutex_`를 쥔 채였다(체결이 몰리는
+구간에서 락 보유 시간을 늘리는 요인).
+
+**참고한 기존 패턴**: `Quant/include/core/LatencyTrace.h`의 `opened_` bool + 상주 `std::ofstream out_` —
+이미 이 코드베이스에 있는 관용구를 그대로 따랐다.
+
+**확인 방법**: `test_order_router`는 이 변경이 건드린 세 함수(`append_trade_line`·`append_order_reason`·
+`write_open_orders_file`을 통해 간접적으로 `path_for`)를 직접 쓴다 — 통과. 전체 ctest는 33개 중 4개
+(`test_latency_trace`·`test_tick_capture`·`test_replay_source`·`test_engine`, 전부 `0xc0000409`류 실패)가
+남는데, `git stash`로 이 변경을 걷어낸 같은 워크트리에서도 동일하게 실패해 이 워크트리 빌드 환경의 기존
+문제이지 D-094 때문이 아님을 확인했다(이 세션이 고칠 범위 밖 — 별도 항목으로 남긴다).

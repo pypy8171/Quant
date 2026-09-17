@@ -9,6 +9,7 @@
 #include <array>
 #include <atomic>
 #include <deque>
+#include <fstream>
 #include <stop_token>
 #include <thread>
 #include <mutex>
@@ -139,9 +140,13 @@ private:
                                 int fill_quantity, double fill_price,
                                 double realized_pnl = 0.0,
                                 double strategy_realized_pnl = 0.0);
-    // 원장 CSV에 한 줄을 덧붙인다(io_mutex_). 파일이 없으면 헤더를 쓰고, 옛 헤더면 열을 맞춰
-    //  한 번 재작성한다. write_trade_row·record_reconcile이 줄을 만들어 여기로 보낸다.
+    // 원장 CSV에 한 줄을 덧붙인다(io_mutex_). 상주 핸들 trade_file_이 날짜와 맞지 않으면
+    //  open_trade_file_locked로 다시 연다(헤더·스키마 점검은 그때만). write_trade_row·
+    //  record_reconcile이 줄을 만들어 여기로 보낸다. [why D-094]
     void        append_trade_line(const std::string& line);
+    // trade_file_을 그 날짜 파일로 (재)연다 — 없으면 헤더를 쓰고, 옛 헤더면 열을 맞춰 한 번
+    //  재작성한다. 호출자는 io_mutex_를 보유해야 한다.
+    void        open_trade_file_locked(const std::string& date);
     // 원장 CSV 시각 열 — 날짜 파일명(YYYYMMDD)과 행 시각("YYYY-MM-DD HH:MM:SS")을 같이 만든다. KST 고정.
     static void trade_row_timestamp(std::string& date, std::string& stamp);
 
@@ -174,7 +179,8 @@ private:
         double      price     = 0.0;
         double      reference_price = 0.0;
     };
-    // 접수된 주문 한 건을 기록 파일에 덧붙인다(io_mutex_). record()가 락 밖에서 부른다.
+    // 접수된 주문 한 건을 기록 파일에 덧붙인다(io_mutex_). 상주 핸들 order_reason_file_이
+    //  오늘 날짜와 맞지 않으면 다시 연다. record()가 락 밖에서 부른다. [why D-094]
     void append_order_reason(const ManagedOrder& managed_order);
     // 오늘자 기록 파일을 읽어 order_reasons_를 채운다. 첫 체결통보 때 1회.
     //  호출자는 hist_mtx_를 보유해야 한다.
@@ -219,6 +225,12 @@ private:
     mutable std::mutex                      carry_mutex_;
     std::mutex io_mutex_;                       // 원장 CSV·부속 파일 쓰기 직렬화
     uint64_t open_orders_written_sequence_ = 0;    // io_mutex_ 보호
+    // 상주 파일 핸들(io_mutex_ 보호) — 주문마다 열고 닫는 대신 날짜가 바뀔 때만 다시 연다.
+    //  LatencyTrace.h의 opened_ 패턴과 같다. [why D-094]
+    std::ofstream trade_file_;
+    std::string   trade_file_date_;
+    std::ofstream order_reason_file_;
+    std::string   order_reason_file_date_;
 
     // 유령주문 취소 스레드. 종료가 몇 분씩 걸리지 않도록 매 건 전에 stop_token을 본다.
     std::jthread       stale_threshold_;
