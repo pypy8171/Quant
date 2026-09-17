@@ -274,6 +274,27 @@ class DbClient:
         except Exception as e:
             logger.error(f"ensure_regime_tables 실패: {e}")
 
+    def ensure_fills_amount_columns(self):
+        """기존 DB에도 fills.total_amount/net_amount 생성 컬럼이 있도록 보장.
+        schema.sql은 fresh init에만 적용되므로 기존 DB는 이 마이그레이션 필요."""
+        ddl = [
+            "ALTER TABLE fills ADD COLUMN IF NOT EXISTS total_amount NUMERIC(18,4)"
+            " GENERATED ALWAYS AS (filled_qty * filled_price) STORED",
+            "ALTER TABLE fills ADD COLUMN IF NOT EXISTS net_amount NUMERIC(18,4)"
+            " GENERATED ALWAYS AS ("
+            "  CASE WHEN side = 'SELL'"
+            "       THEN filled_qty * filled_price - COALESCE(commission, 0) - COALESCE(tax, 0)"
+            "       ELSE filled_qty * filled_price + COALESCE(commission, 0)"
+            "  END"
+            " ) STORED",
+        ]
+        try:
+            with self._conn.cursor() as cur:
+                for stmt in ddl:
+                    cur.execute(stmt)
+        except Exception as e:
+            logger.error(f"ensure_fills_amount_columns 실패: {e}")
+
     def insert_regime(self, data: dict):
         """국면 스냅샷 1건 적재. date를 PK로 UPSERT (장 시작 1회 → 하루 1행)."""
         try:

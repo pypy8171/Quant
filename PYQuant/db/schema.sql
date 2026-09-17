@@ -69,6 +69,18 @@ CREATE INDEX IF NOT EXISTS fills_odno        ON fills (odno);
 CREATE INDEX IF NOT EXISTS fills_ticker_ts   ON fills (ticker, ts DESC);
 CREATE INDEX IF NOT EXISTS fills_ts_idx      ON fills (ts DESC);
 
+-- fills.filled_qty·filled_price·commission·tax는 이미 체결통보(H0STCNI0)에서 채워지므로
+-- C++/Python 쪽 계산 추가 없이 생성 컬럼으로 총액을 뽑는다.
+ALTER TABLE fills ADD COLUMN IF NOT EXISTS total_amount NUMERIC(18,4)
+    GENERATED ALWAYS AS (filled_qty * filled_price) STORED;  -- 총 거래대금(수수료·세금 제외)
+ALTER TABLE fills ADD COLUMN IF NOT EXISTS net_amount NUMERIC(18,4)
+    GENERATED ALWAYS AS (
+        CASE WHEN side = 'SELL'
+             THEN filled_qty * filled_price - COALESCE(commission, 0) - COALESCE(tax, 0)
+             ELSE filled_qty * filled_price + COALESCE(commission, 0)
+        END
+    ) STORED;  -- 정산 반영 대금: 매수=지불액, 매도=실수령액
+
 -- ── 포지션 원장 (계좌 현재 상태) ─────────────────────────────────────────────
 -- 체결 발생 시 UPSERT, 장 마감 EOD 배치에서도 갱신
 CREATE TABLE IF NOT EXISTS positions (

@@ -236,6 +236,7 @@ def cmd_monitor(args):
 def cmd_record(args):
     from db.client import DbClient
     db = DbClient()
+    db.ensure_fills_amount_columns()
 
     monitor = EngineMonitor(host=args.host, pub_port=args.port)
     def _rec_fill(d):
