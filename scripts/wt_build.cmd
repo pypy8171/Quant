@@ -1,5 +1,5 @@
 @echo off
-rem worktree 빌드·테스트. 사용: scripts\wt_build.cmd [test]
+rem worktree build and test. usage: scripts/wt_build.cmd [test]  (ASCII only: cmd reads batch files in the OEM code page)
 setlocal
 call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
 set "VSEXT=C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake"

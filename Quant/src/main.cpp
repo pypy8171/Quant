@@ -191,11 +191,11 @@ static void configure_engine_channels(Engine& engine, const KisConfig& kis_confi
 
     // 추가 WS 세션 키(D-071 원칙 1). 기본 kis 키와 함께 소켓을 여럿 열어 구독 상한을 소켓 수만큼 늘린다.
     //  계좌·모의 여부는 기본 키와 같고 app_key·app_secret만 다르다. 체결통보(hts_id)는 기본 키만 받는다.
-    for (const auto& kill_entry : jsonx::array_or_empty(config, "feed_keys"))
+    for (const auto& key_entry : jsonx::array_or_empty(config, "feed_keys"))
     {
         KisConfig kis_config   = kis_config;
-        kis_config.app_key     = kill_entry.at("app_key").get<std::string>();
-        kis_config.app_secret  = kill_entry.at("app_secret").get<std::string>();
+        kis_config.app_key     = key_entry.at("app_key").get<std::string>();
+        kis_config.app_secret  = key_entry.at("app_secret").get<std::string>();
         kis_config.hts_id.clear();
         engine.add_feed_config(kis_config);
     }
