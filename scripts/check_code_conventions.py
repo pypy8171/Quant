@@ -3,7 +3,7 @@
 """코드 작업 규약을 스테이징된 변경에 대해 기계적으로 검사한다.
 
 정본은 docs/guides/MAINTENANCE_AUTOMATION.md 4절(주석·표기 규약)과 .clang-format(중괄호)이다.
-이 스크립트는 그중 사람이 놓치기 쉬운 다섯 가지만 본다.
+이 스크립트는 그중 사람이 놓치기 쉬운 일곱 가지만 본다.
 
   1. 중괄호   — 스테이징된 Quant/**.h/.cpp에 brace_style.py --check
   2. D-NNN    — 추가된 줄이 가리키는 결정 번호가 docs/DECISIONS.md에 실재하는지
@@ -14,6 +14,10 @@
                 `.value("k", json::array())`는 오류, 값 range-for는 경고.
   6. 줄 성격  — 파일별 추가·삭제를 주석과 코드로 나눠 보고.
                 --comment-only를 주면 코드 줄 변경이 0이 아닐 때 실패한다.
+  7. 약어 이름 — 추가된 C++ 코드 줄의 식별자가 약어(qty·cnt·idx…)거나 한 글자면 오류.
+                판정 표는 리네임에 쓴 scripts/rename_maps/01_fields.json과
+                scripts/rename_frags.py(FRAG·WHOLE·SKIP·WIRE)를 그대로 쓴다.
+                std::·zmq:: 한정 이름, 문자열 리터럴, `[wire]` 줄, 대문자 한 글자(템플릿 인자)는 뺀다.
 
 주석 밀도는 검사하지 않는다. 4절이 밀도를 게이트로 걸지 말라고 정해 두었고,
 집계는 maintain.py --weekly가 리포트로 남긴다.
@@ -33,6 +37,12 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+import rename_frags  # noqa: E402  — 약어 판정 표의 정본(3단계). 1단계 표는 아래 FIELD_MAP.
+import json as _json  # noqa: E402
+
+# 1단계(필드·약어 94개: it→iterator, sym→symbol_id …) 표. 조각 단위가 아니라 이름 전체로 맞춘다.
+FIELD_MAP: dict[str, str] = _json.loads((ROOT / "scripts" / "rename_maps" / "01_fields.json").read_text(encoding="utf-8"))
 
 CPP_EXT = {".h", ".hpp", ".cpp", ".cc"}
 HASH_EXT = {".py", ".ps1"}
@@ -59,6 +69,46 @@ JSON_VALUE_COPY_RE = re.compile(
 #  `auto&`·`auto*`는 걸리지 않는다. 구조적 바인딩 `auto [k, v]`도 pair를 통째로 뜨므로 같이 본다.
 VALUE_RANGE_FOR_RE = re.compile(
     r"\bfor\s*\(\s*(?:const\s+)?auto\s+(?:[A-Za-z_][A-Za-z0-9_]*\s*:|\[)")
+
+# 약어 이름 — 판정은 rename_frags.new_name이 한다(이름이 바뀌면 약어). 리터럴·주석·한정 이름은 먼저 지운다.
+STRING_LITERAL_RE = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'')
+LINE_COMMENT_RE = re.compile(r"//.*$")
+IDENT_RE = re.compile(r"(?<![\w'])[A-Za-z_]\w*")
+SINGLE_LETTER_RE = re.compile(r"^[a-z]$")
+
+
+def abbreviation_hits(path: str, text: str) -> list[tuple[str, str]]:
+    """추가된 코드 한 줄에서 (약어, 풀어 쓴 이름) 쌍을 돌려준다."""
+    if "[wire]" in text or text.lstrip().startswith("#include"):
+        return []
+
+    code = LINE_COMMENT_RE.sub("", STRING_LITERAL_RE.sub('""', text))
+    basename = Path(path).name
+    hits = []
+
+    for match in IDENT_RE.finditer(code):
+        name = match.group(0)
+        start = match.start()
+
+        if rename_frags.qualified_root(code, start) in rename_frags.STD_ROOTS:
+            continue
+
+        is_member = start >= 1 and (code[start - 1] == "." or code[start - 2:start] == "->")
+
+        if SINGLE_LETTER_RE.match(name):
+            hits.append((name, "풀어 쓴 이름"))
+            continue
+
+        if is_member and name in rename_frags.MEMBER_SKIP:   # std::from_chars_result::ec 같은 표준 멤버
+            continue
+
+        renamed = FIELD_MAP.get(name) or rename_frags.new_name(name, basename, is_member)
+
+        if renamed != name:
+            hits.append((name, renamed))
+
+    return hits
+
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -214,6 +264,19 @@ def main(argv: list[str]) -> int:
             if VALUE_RANGE_FOR_RE.search(text):
                 print(f"{path}:{ln}: 경고: 값 range-for — 원소가 문자열·컨테이너·구조체면 "
                       f"const auto& 로 받는다")
+
+    # 7. 약어 이름 — 용어를 먼저 익히는 것이 우선이라 새 코드는 풀어 쓴다(4절 "이름 표기", D-092)
+    for path, items in adds.items():
+        if Path(path).suffix.lower() not in CPP_EXT:
+            continue
+
+        for ln, text in items:
+            if is_comment(path, text) is True:
+                continue
+
+            for name, renamed in abbreviation_hits(path, text):
+                print(f"{path}:{ln}: 오류: 약어 이름 `{name}` — `{renamed}`처럼 풀어 쓴다")
+                problems += 1
 
     # 6. 줄 성격 집계
     rows = []

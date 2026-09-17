@@ -84,7 +84,9 @@ config에는 **실계좌 인증 정보**가 있다. 모의투자는 `"is_paper":
 중괄호는 Allman, 한 줄 본문에도 붙이고 `}` 뒤·제어문 앞에 빈 줄 하나. C스타일 캐스트(`(int)x`)는 금지 — 값은
 `static_cast<T>(x)`, 포인터는 `reinterpret_cast<T>(x)`, `(void)x;`만 예외. 안 해도 되는 복사는 만들지 않는다 — 조회 결과는
 `const&`나 `std::string_view`(수명은 `[inv]`), json 노드는 `value(k, json::array())` 대신 `find()` 참조, range-for는
-`const auto&`, 값 전달은 `std::move`로 받는 sink만. 정리는 `py scripts/brace_style.py <자기 파일만>`,
+`const auto&`, 값 전달은 `std::move`로 받는 sink만. **이름에 약어를 쓰지 않는다** — `qty`·`cfg`·`it`·`i` 대신 `quantity`·`config`·
+`iterator`·`index`. 읽는 사람이 용어를 먼저 익히는 것이 우선이라 그렇다(예외는 전문 필드·지표명·단위 접미사·표준 멤버, 정본 4절
+"이름 표기"). 정리는 `py scripts/brace_style.py <자기 파일만>`,
 검사는 `py scripts/check_code_conventions.py [--comment-only]`.
 
 ## 장중 운영 — 판단이 서면 실행한다
