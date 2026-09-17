@@ -81,10 +81,16 @@ class DataGoKrSource:
         return True
 
     # ── 저수준 호출 (페이지네이션) ───────────────────────────────────────────
+    # 전 시장 스냅샷 한 장의 행수 하한. 실측 2,87x행(2026-09)이라 이보다 작으면 페이지가 중간에
+    # 끊긴 부분 응답이다 — 2026-09-16 09-15 스냅샷이 1,000행(1페이지)만 캐시돼 하루 동안 후보 풀이
+    # 35%로 줄었다. 이 값 아래면 캐시하지 않고 그날은 실패로 본다.
+    SNAPSHOT_MIN_ROWS = 2000
+
     def _fetch_pages(self, params: dict, max_rows: int = 100_000) -> list[dict]:
         import requests
         items: list[dict] = []
         page = 1
+        self.last_fetch_truncated = False   # 페이지 실패로 중간에 끊겼는지 — 호출자가 부분 결과를 가려낸다
         per = 1000
         while len(items) < max_rows:
             q = dict(params)
@@ -111,6 +117,7 @@ class DataGoKrSource:
                     else:
                         time.sleep(0.5 * (attempt + 1))   # 0.5s, 1.0s, 1.5s 백오프
             if data is None:
+                self.last_fetch_truncated = page > 1   # 1페이지부터 실패면 '없음', 그 뒤면 '잘림'
                 break
             body = (data.get("response", {}) or {}).get("body", {}) or {}
             raw = (body.get("items", {}) or {}).get("item", []) or []
@@ -299,10 +306,18 @@ class DataGoKrSource:
             cache = self._cache / f"univ_{ymd}.parquet"
             try:
                 if cache.exists():
-                    return pd.read_parquet(cache).to_dict("records")
+                    cached = pd.read_parquet(cache).to_dict("records")
+                    if len(cached) >= self.SNAPSHOT_MIN_ROWS:
+                        return cached
+                    # 부분 응답이 캐시된 흔적 — 무시하고 다시 받는다(오염 캐시 자기치유)
+                    print(f"[datagokr] 캐시 {cache.name} {len(cached)}행 < {self.SNAPSHOT_MIN_ROWS} — 부분 응답으로 보고 재수집")
             except Exception:
                 pass
             items = self._fetch_pages({"basDt": ymd}, max_rows=10_000)
+            if items and (self.last_fetch_truncated or len(items) < self.SNAPSHOT_MIN_ROWS):
+                # 응답이 '왔다'와 '완전하다'는 다르다 — 잘린 목록은 캐시도, 반환도 하지 않고 전날로 물러난다
+                print(f"[datagokr] {ymd} 스냅샷 {len(items)}행(잘림={self.last_fetch_truncated}) — 부분 응답이라 버리고 전날로 백오프")
+                items = []
             rows = [{
                 "code":     self._code6(it),
                 "name":     str(it.get("itmsNm", "") or ""),

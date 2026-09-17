@@ -67,6 +67,17 @@ function Say([string]$msg, [string]$level = "INFO") {
   Add-Content -Path $RunLog -Value $line -Encoding utf8
 }
 
+# 네이티브 프로그램(py·wsl)의 stdout·stderr를 한 줄씩 RunLog에 남기고 rc를 돌려준다.
+# PowerShell 5.1은 $ErrorActionPreference=Stop 아래서 네이티브 stderr 한 줄을 `2>&1`로 받는 순간
+# 스크립트 전체를 끊는다 — 그래서 합치기는 cmd 안에서 하고 PowerShell은 문자열만 받는다.
+# 2026-09-16 rc=1의 사유(재수집 "이틀 전 랭킹")가 어디에도 안 남은 것이 이 함수를 만든 이유다.
+function Run-Native([string]$cmdline, [string]$prefix = "    ") {
+  $out = cmd /c "$cmdline 2>&1"
+  $rc = $LASTEXITCODE
+  $out | ForEach-Object { Add-Content -Path $RunLog -Value "$prefix$_" -Encoding utf8 }
+  return $rc
+}
+
 function Save-Status([string]$phase, [hashtable]$extra) {
   # 클로드가 읽는 단일 진실 파일. 로그 tail보다 싸고, 파싱이 흔들리지 않는다.
   $o = [ordered]@{
@@ -178,12 +189,12 @@ function Start-Window([string]$title, [string]$cmd, [string]$probe = "") {
 # 대기하는 보조 확인일 뿐이다.
 function Wait-Tsdb {
   if ($DryRun) { return }
-  $tsdb = (wsl -e docker inspect quant-tsdb --format "{{.State.Health.Status}}" 2>$null)
+  $tsdb = (cmd /c 'wsl -e docker inspect quant-tsdb --format "{{.State.Health.Status}}" 2>nul')
   if ($LASTEXITCODE -ne 0 -or $tsdb -notmatch "healthy") {
     Say "  quant-tsdb 미기동(status=$tsdb) — 최대 30초 대기"
     for ($i = 0; $i -lt 6; $i++) {
       Start-Sleep -Seconds 5
-      $tsdb = (wsl -e docker inspect quant-tsdb --format "{{.State.Health.Status}}" 2>$null)
+      $tsdb = (cmd /c 'wsl -e docker inspect quant-tsdb --format "{{.State.Health.Status}}" 2>nul')
       if ($tsdb -match "healthy") { break }
     }
   }
@@ -235,16 +246,16 @@ function Refresh-Universe {
   if (-not $script:UnivOpenRetryDone -and $now.ToString("HHmm") -ge "0900" -and $now.ToString("HHmm") -lt "0905") {
     $script:UnivOpenRetryDone = $true
     Say "장 시작 직후 유니버스 재확인 — 30분 카운터와 별개(사전장 rc=1 대비)."
-    & $py PYQuant\tools\universe_feed.py --market ALL --out Quant\config\universe_scan.json
-    if ($LASTEXITCODE -ne 0) { Say "유니버스 재스캔 실패(rc=$LASTEXITCODE) — 직전 파일 유지." "WARN" }
+    $rc = Run-Native "`"$py`" PYQuant\tools\universe_feed.py --market ALL --out Quant\config\universe_scan.json"
+    if ($rc -ne 0) { Say "유니버스 재스캔 실패(rc=$rc) — 직전 파일 유지." "WARN" }
     else { $script:UnivNext = $now.AddMinutes(30) }
     return
   }
   if ($now -lt $script:UnivNext) { return }
   $script:UnivNext = $now.AddMinutes(30)
   Say "유니버스 스캔을 다시 돌린다(시총·거래대금 현재 값, 30분 뒤 재확인)."
-  & $py PYQuant\tools\universe_feed.py --market ALL --out Quant\config\universe_scan.json
-  if ($LASTEXITCODE -ne 0) { Say "유니버스 재스캔 실패(rc=$LASTEXITCODE) — 직전 파일 유지." "WARN" }
+  $rc = Run-Native "`"$py`" PYQuant\tools\universe_feed.py --market ALL --out Quant\config\universe_scan.json"
+  if ($rc -ne 0) { Say "유니버스 재스캔 실패(rc=$rc) — 직전 파일 유지." "WARN" }
 }
 
 # ─────────────── 사전 점검 ───────────────
@@ -311,8 +322,10 @@ if ($NoBuild) {
 
 # 주문이 나가는 계좌는 kis 블록이다. 최상위나 quote_kis(시세 전용)의 is_paper를 보면
 # 모의를 실계좌로 잘못 읽는다 — 실제로 config_dev_paper는 quote_kis.is_paper=false다.
-$paper = $true
+# 설정을 못 읽으면 '모의'로 가정하지 않는다 — 실계좌 설정을 모의로 잘못 알고 띄우는 쪽이 더 위험하다.
+$paper = $null
 try { $paper = [bool](Get-Content $Config -Raw | ConvertFrom-Json).kis.is_paper } catch { }
+if ($null -eq $paper) { Say "설정 $Config 에서 kis.is_paper 를 읽지 못했다 — 계좌 모드를 모른 채 띄우지 않는다." "ERROR"; exit 2 }
 Say ("계좌 모드: {0}" -f $(if ($paper) { "모의(is_paper=true)" } else { "실계좌(is_paper=false)" })) $(if ($paper) { "INFO" } else { "WARN" })
 
 $py = if (Test-Path $VenvPy) { $VenvPy } else { Say "venv 없음 — 보조 프로세스는 FDR 없이 UNKNOWN만 낸다." "WARN"; "py" }
@@ -324,8 +337,8 @@ if (-not $NoSidecar)   { Start-Window "quant-sidecar"   "& '$py' PYQuant\tools\m
 if (-not $NoUniverse)  {
   Say "유니버스 스캔(ALL) — 완료까지 기다린다. 이게 없으면 전략이 붙을 종목이 없다."
   if (-not $DryRun) {
-    & $py PYQuant\tools\universe_feed.py --market ALL --out Quant\config\universe_scan.json
-    if ($LASTEXITCODE -ne 0) { Say "유니버스 스캔 실패(rc=$LASTEXITCODE) — 직전 스캔 파일로 진행한다." "WARN" }
+    $rc = Run-Native "`"$py`" PYQuant\tools\universe_feed.py --market ALL --out Quant\config\universe_scan.json"
+    if ($rc -ne 0) { Say "유니버스 스캔 실패(rc=$rc) — 직전 스캔 파일로 진행한다." "WARN" }
   }
 }
 if (-not $NoPrices)    { Start-Window "quant-prices"    "& '$py' scripts\live_prices_feed.py" "live_prices_feed.py" }
@@ -355,8 +368,7 @@ while ((Get-Date) -lt $deadline) {
   # 직전 세션이 '이미 한 번 당한' 실패 유형을 다시 냈는지 본다. 재기동마다 확인하지 않으면
   # 같은 결함으로 하루를 다 태운다(2026-09-08: 유령주문 재부활 85건, 재기동 투매 64건).
   if ($script:LastStart) {
-    & py (Join-Path $Repo "scripts\check_runtime_health.py") --since $script:LastStart 2>&1 |
-      ForEach-Object { Say "  $_" }
+    $null = Run-Native ("py `"{0}`" --since {1}" -f (Join-Path $Repo "scripts\check_runtime_health.py"), $script:LastStart) "  "
   }
 
   $t0 = Get-Date
@@ -365,7 +377,7 @@ while ((Get-Date) -lt $deadline) {
   # cancel_stale_orders()가 이 파일을 읽어 전부 취소한다 — 유령 지정가가 현금과 매도가능수량을
   # 묶고, 청산 직후 되사서 전략을 뒤집는 것을 막는다(2026-09-08 미체결 85건 실측).
   # 엔진이 스스로 쓰는 보조 프로세스가 정상이면 이 복원은 같은 내용을 다시 쓸 뿐이라 무해하다.
-  & py (Join-Path $Repo "scripts\seed_open_orders.py") 2>&1 | ForEach-Object { Say "  $_" }
+  $null = Run-Native ("py `"{0}`"" -f (Join-Path $Repo "scripts\seed_open_orders.py")) "  "
 
   # 트레이더도 잡에 넣는다. 워치독이 사라졌는데 엔진만 살아 있으면 아무도 감시하지 않는 채
   # 발주가 계속되고, 다음 기동은 중복 프로세스로 막힌다(duplicate_process). 같이 내리고
