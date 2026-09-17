@@ -417,8 +417,19 @@ static std::string curl_request(const std::string& method, const std::string& ur
 //  EGW00201을 돌려주는데, 어느 쪽이든 그 호출은 버려지고 재시도가 붙어 호출량이 더 는다.
 //  버킷은 인스턴스(=app_key)마다 따로다 — 한도가 app_key 단위라 시세 클라이언트와 주문
 //  클라이언트의 예산은 서로 무관하다. 총 호출량을 줄이지는 못하고 순서만 고르게 만든다.
+namespace
+{
+thread_local std::uint64_t t_rate_wait_ns = 0;   // 스레드별 버킷 대기 누적 — rate_wait_ns_this_thread()
+}
+
+std::uint64_t KisClient::rate_wait_ns_this_thread()
+{
+    return t_rate_wait_ns;
+}
+
 void KisClient::rate_limit_acquire(const std::string& url)
 {
+    const auto acquire_start = std::chrono::steady_clock::now();
     // 실전 초당 20건, 모의 초당 2건이 공표 한도다. 재시도·토큰 갱신이 끼어들 여유를 남겨 낮게 잡는다.
     const double refill = config_.is_paper ? 2.0 : 15.0;
     const double capacity = refill; // 1초치까지만 모아둔다(그 이상 몰아치면 어차피 한도에 걸린다)
@@ -447,6 +458,8 @@ void KisClient::rate_limit_acquire(const std::string& url)
             if (rate_tokens_ >= need)
             {
                 rate_tokens_ -= 1.0;
+                t_rate_wait_ns += static_cast<std::uint64_t>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(now - acquire_start).count());
                 return;
             }
 

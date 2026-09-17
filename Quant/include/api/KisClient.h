@@ -5,6 +5,7 @@
 #include "api/KisTypes.h"
 #include "core/Types.h"
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <functional>
 #include <initializer_list>
@@ -106,6 +107,10 @@ public:
     const std::string& account_no() const { return config_.account_no; }
 
     // ── 국내 (KR) ──────────────────────────────────────────────────────────
+    // 계측: 이 스레드가 rate_limit_acquire 안에서 기다린 시간의 누적(ns). 호출자가 호출 전후 차이로
+    //  자기 몫을 잰다 — 버킷은 인스턴스 공유라 인스턴스 합계로는 어느 호출이 밀렸는지 못 가른다.
+    static std::uint64_t rate_wait_ns_this_thread();
+
     // 일봉 조회. 기본값은 당일 봉을 뺀 '전일까지'다(docs/DECISIONS.market_data D-005).
     //   KIS 응답의 output2[0]은 장중이면 오늘 진행 중 봉이고 그 종가가 실시간 현재가다.
     //   이동평균에 넣으면 오늘 가격이 1/n 가중으로 섞여 지표가 스스로를 참조한다(SMA5는 1/5).

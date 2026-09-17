@@ -1018,6 +1018,8 @@ struct ProbeStats
     int illiquid = 0;         // 거래대금 하한 미달로 버린 수
     int misaligned = 0;       // 정배열 조건 미충족으로 버린 수(진단용)
     int budget_skipped = 0;   // 일봉 조회 예산이 끝났고 캐시도 없어 판정 못 한 수
+    long long rest_ms = 0;    // 계측: fetch_probe(REST 일봉) 안에서 보낸 시간 합. 150ms 간격 sleep은 뺀 값
+    long long wait_ms = 0;    // 계측: 그중 KIS 토큰버킷 대기 합 — 크면 다른 소비자와 경합
 };
 
 // 2단: 정배열 프리필터 — 후보를 일봉으로 검사해 정배열=Y(≥60봉)만 통과시킨다.
@@ -1106,7 +1108,13 @@ std::vector<Feat> probe_and_filter(KisClient& kis, const DevScanCfg& config, con
                     std::this_thread::sleep_for(std::chrono::milliseconds(150));
                 }
 
+                const auto fetch_start = std::chrono::steady_clock::now();
+                const std::uint64_t wait_before_ns = KisClient::rate_wait_ns_this_thread();
                 pr = fetch_probe(kis, config, ticker, date_yyyymmdd);
+                stats.rest_ms += std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     std::chrono::steady_clock::now() - fetch_start).count();
+                stats.wait_ms += static_cast<long long>(
+                    (KisClient::rate_wait_ns_this_thread() - wait_before_ns) / 1000000ULL);
                 ++stats.fetched;
                 g_probe_cache.put(ticker, pr);
             }
@@ -1472,6 +1480,12 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
                                        std::unordered_map<std::string, std::string>* out_mapNames,
                                        std::unordered_map<std::string, double>* out_mapScores)
 {
+    // 계측(문항 2): 단계별 경과를 요약 로그에 붙인다 — "일봉조회=0인데 40초"가 어느 단계인지 가르기 위해.
+    using scan_clock = std::chrono::steady_clock;
+    const auto scan_start = scan_clock::now();
+    auto ms_since = [](scan_clock::time_point from) -> long long
+    { return std::chrono::duration_cast<std::chrono::milliseconds>(scan_clock::now() - from).count(); };
+
     const std::string date_yyyymmdd = local_ymd();   // 일봉 캐시·후보 집합 캐시의 거래일 키
     g_probe_cache.load_today(date_yyyymmdd);         // 장중 재기동 시 일봉 재조회를 막는다
 
@@ -1479,6 +1493,7 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
     load_quote_table(config, quotes);
 
     const MarketGate gate = build_market_gate(kis, config);
+    const long long gate_ms = ms_since(scan_start);   // 시세 파일 적재 + 지수 조회(REST)
 
     if (gate.closed())
     {
@@ -1490,7 +1505,9 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
     }
 
     CandidateSet candidates;
+    const auto collect_start = scan_clock::now();
     collect_candidates(kis, config, date_yyyymmdd, quotes, candidates);
+    const long long collect_ms = ms_since(collect_start);   // KIS 랭킹 REST + 파일 union
 
     if (!config.require_aligned)
     {
@@ -1498,15 +1515,23 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
     }
 
     ProbeStats stats;
+    const auto probe_start = scan_clock::now();
     std::vector<Feat> passed = probe_and_filter(kis, config, date_yyyymmdd, candidates, quotes, gate, stats);
+    const long long probe_ms = ms_since(probe_start);
+    const auto score_start = scan_clock::now();
     score_cross_section(config, passed);
     std::vector<std::string> out = rank_and_truncate(config, passed, candidates, out_mapNames, out_mapScores);
+    const long long score_ms = ms_since(score_start);
 
     // 새로 받은 일봉이 있을 때만 파일을 갱신한다. 히트만 났으면 내용이 같다.
+    const auto save_start = scan_clock::now();
+
     if (stats.fetched > 0)
     {
         g_probe_cache.save_today(date_yyyymmdd);
     }
+
+    const long long save_ms = ms_since(save_start);
 
     LOG_INFO("[Main] DEVSCALE 정배열 프리필터: 후보=" + std::to_string(candidates.tickers.size()) +
              " ETF드롭=" + std::to_string(candidates.etf_drop) +
@@ -1522,6 +1547,13 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
              " 거래대금미달=" + std::to_string(stats.illiquid) +
              " 예산소진=" + std::to_string(stats.budget_skipped) +
              " 등록=" + std::to_string(out.size()));
+    // 단계별 경과 — 검사는 REST 시간과 버킷 대기를 따로 보여 "REST가 아니라면 어디서 새는지" 가른다.
+    LOG_INFO("[Main] DEVSCALE 스캔 계측: 전체=" + std::to_string(ms_since(scan_start)) +
+             "ms 게이트=" + std::to_string(gate_ms) + "ms 수집=" + std::to_string(collect_ms) +
+             "ms 검사=" + std::to_string(probe_ms) + "ms(REST=" + std::to_string(stats.rest_ms) +
+             "ms 버킷대기=" + std::to_string(stats.wait_ms) + "ms 간격sleep=" +
+             std::to_string(stats.fetched > 0 ? (stats.fetched - 1) * 150 : 0) +
+             "ms) 점수·순위=" + std::to_string(score_ms) + "ms 캐시저장=" + std::to_string(save_ms) + "ms");
     return out;
 }
 } // namespace universe

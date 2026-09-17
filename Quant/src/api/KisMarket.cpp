@@ -77,6 +77,12 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
     time_t page_end = end_t;
     std::string last_oldest;
 
+    // 계측(문항 2): 페이지 수·경과·버킷 대기를 남긴다. 버킷 대기가 크면 같은 app_key의 다른
+    //  소비자(전략 프리페치·3분봉 시드)와 경합한 것이고, 작은데 경과가 크면 서버 왕복이 느린 것이다.
+    const auto fetch_start = std::chrono::steady_clock::now();
+    const std::uint64_t wait_before_ns = rate_wait_ns_this_thread();
+    int pages_fetched = 0;
+
     for (int page = 0; page < max_pages && static_cast<int>(result.size()) < count; ++page)
     {
         const std::string d2 = fmt_date(page_end);
@@ -88,6 +94,7 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
 
         std::vector<std::string> headers = auth_headers("FHKST03010100");
         std::string response = http_get(url, headers);
+        ++pages_fetched;
 
         if (response.empty())
         {
@@ -161,6 +168,26 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
 
         last_oldest = oldest;
         page_end = oldest_t - 86400;
+    }
+
+    {
+        const long long elapsed_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - fetch_start).count();
+        const long long wait_ms = static_cast<long long>((rate_wait_ns_this_thread() - wait_before_ns) / 1000000ULL);
+        const std::string line = std::string("[KIS] ") + (period == 'W' ? "주봉" : "일봉") + " 조회 계측: " + ticker +
+                                 " 봉=" + std::to_string(result.size()) + "/" + std::to_string(count) +
+                                 " 페이지=" + std::to_string(pages_fetched) + " 경과=" + std::to_string(elapsed_ms) +
+                                 "ms 버킷대기=" + std::to_string(wait_ms) + "ms";
+
+        // 평소엔 DEBUG(config log_level)로만, 1초를 넘긴 호출은 INFO로 남겨 어느 시각에 밀렸는지 보이게 한다.
+        if (elapsed_ms >= 1000)
+        {
+            LOG_INFO(line);
+        }
+        else
+        {
+            LOG_DEBUG(line);
+        }
     }
 
     // 빈 결과는 캐시하지 않는다(일시적 500·파싱 실패를 TTL 동안 굳히지 않기 위해).

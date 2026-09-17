@@ -298,6 +298,7 @@ void Engine::maybe_rescan_universe()
         job.last_run = now_c;
 
         std::vector<std::string> tickers;
+        const auto scan_call_start = std::chrono::steady_clock::now();
 
         try
         {
@@ -312,6 +313,17 @@ void Engine::maybe_rescan_universe()
         {
             LOG_ERROR("[Engine] 유니버스 재스캔 알 수 없는 예외");
             continue;
+        }
+
+        // 계측(문항 2): 스캔 함수 자체의 경과와 직전 스캔부터의 실제 간격. 설정 주기보다 간격이 길면
+        //  스캔이 느린 것(경과≈간격)인지, 이 스레드의 다른 일(잔고 대조·시세 보충)에 밀린 것인지 여기서 갈린다.
+        {
+            const long long scan_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          std::chrono::steady_clock::now() - scan_call_start).count();
+            const long long gap_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now_c - prev_run).count();
+            LOG_INFO("[Engine] 유니버스 재스캔 계측: 경과=" + std::to_string(scan_ms) + "ms 간격=" +
+                     std::to_string(gap_ms) + "ms(설정 " + std::to_string(job.interval_sec * 1000) + "ms) 결과=" +
+                     std::to_string(tickers.size()) + "종목 이 슬리브 등록=" + std::to_string(job.registered));
         }
 
         int  added  = 0;
@@ -1338,6 +1350,14 @@ void Engine::data_thread_fn(std::stop_token stop_token)
             continue;
         }
 
+        // 계측(문항 2): 사이클 본체가 재스캔 주기(슬라이스)보다 길면 재스캔은 그만큼 늦는다.
+        //  본체 안에서 어느 단계가 먹는지(재스캔·잔고 대조·시세 보충) 같이 잰다.
+        using cycle_clock = std::chrono::steady_clock;
+        const auto cycle_start = cycle_clock::now();
+        auto ms_between = [](cycle_clock::time_point from, cycle_clock::time_point to) -> long long
+        { return std::chrono::duration_cast<std::chrono::milliseconds>(to - from).count(); };
+        long long rescan_ms = 0, reconcile_ms = 0, top_up_ms = 0;
+
         try
         {
             // 매크로 레짐 게이트: 보조 프로세스가 쓴 regime.json → OrderGate entry_halt 토글.
@@ -1348,7 +1368,9 @@ void Engine::data_thread_fn(std::stop_token stop_token)
             if (!universe_rescan_.jobs.empty())
             {
                 {
+                    const auto rescan_start = cycle_clock::now();
                     maybe_rescan_universe();
+                    rescan_ms = ms_between(rescan_start, cycle_clock::now());
 
                     // G1: 재스캔으로 새로 등록된 전략도 현재 국면 선택에 맞춰 즉시 게이팅
                     //  (기본 active_=true로 잘못된 국면에 진입하는 창을 닫는다). 국면 불변이라
@@ -1365,7 +1387,9 @@ void Engine::data_thread_fn(std::stop_token stop_token)
             // 매 사이클 잔고 대조. 폴링 모드는 원장까지 덮어쓰고(체결콜백 부재 보완),
             //  WS 모드는 총평가금·일손익만 갱신한다. WS 모드에서 이걸 건너뛰면 equity가 0에
             //  머물러 총노출 게이트가 조용히 통과만 하고, 일간손실 한도의 기준값도 안 움직인다.
+            const auto reconcile_start = cycle_clock::now();
             ledger_->reconcile(/*resync_positions=*/rest_now, std::time(nullptr));
+            reconcile_ms = ms_between(reconcile_start, cycle_clock::now());
 
             // 잔고가 실보유를 바로잡는 자리 옆에서, 라우터가 선점을 바로잡는다. 정본이 서로
             //  다르다 — 실보유는 브로커, 선점은 라우터 이력. 둘 다 슬롯을 세므로 같이 돈다.
@@ -1404,7 +1428,9 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                     },
                     std::chrono::steady_clock::now() - std::chrono::seconds(60));
 
+                const auto top_up_start = cycle_clock::now();
                 poller_->top_up(stale, [this](const std::string& ticker, double price) { set_last_px(ticker, price); });
+                top_up_ms = ms_between(top_up_start, cycle_clock::now());
             }
 
             if (rest_now)
@@ -1714,6 +1740,23 @@ void Engine::data_thread_fn(std::stop_token stop_token)
         catch (const std::exception& exception)
         {
             LOG_ERROR("[DataThread] 예외: " + std::string(exception.what()));
+        }
+
+        {
+            const long long body_ms = ms_between(cycle_start, cycle_clock::now());
+            const std::string line = "[DataThread] 사이클 계측: 본체=" + std::to_string(body_ms) + "ms (재스캔=" +
+                                     std::to_string(rescan_ms) + "ms 잔고대조=" + std::to_string(reconcile_ms) +
+                                     "ms 시세보충=" + std::to_string(top_up_ms) + "ms)";
+
+            // 2초를 넘긴 사이클만 INFO — 재스캔 주기(20초)를 갉아먹기 시작하는 값이다. 나머지는 DEBUG.
+            if (body_ms >= 2000)
+            {
+                LOG_INFO(line);
+            }
+            else
+            {
+                LOG_DEBUG(line);
+            }
         }
 
         // 사이클 tail 대기 — 재스캔 주기가 사이클보다 짧으면 그 간격으로 잘게 깨어난다.
