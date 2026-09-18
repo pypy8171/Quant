@@ -60,6 +60,8 @@ for _s in (sys.stdout, sys.stderr):
 #  소스는 Yahoo chart(yahoo 키, 장중 현재가 vs 전일 종가)가 먼저다. FDR 일봉은 T-1 종가끼리의 변화라
 #   한국 장중에 움직이는 미국 선물을 못 본다(09-14: 투표는 금요일 현물 +0.96/+0.86 → RISK_ON 인데 실제
 #   나스닥 선물 −1.32%, S&P 선물 −0.60%). Yahoo 가 막히면 FDR(fdr 키)로 내려간다. [why D-081]
+#  나스닥·S&P는 선물 현재가만으로는 반대로 미국 정규장 하루치가 빠진다 — 현물 직전 세션 등락을 더한다
+#   (CASH_REF_SYMBOLS, 09-18).
 #  FRED:DGS10 은 'Close' 컬럼이 없고 시리즈명이 컬럼 → fetch_changes 가 첫 수치열로 폴백.
 #  코스피·코스닥은 이 시스템이 사는 시장 그 자체인데 표가 없었다(09-14 코스피 −3.3%·코스닥 −1.7%인 날
 #   해외 5개만 세어 RISK_ON +4). FDR 일봉은 장중 당일 행이 없어 처음 만들 때 뺐던 것이라, Yahoo 현재가로
@@ -70,8 +72,8 @@ for _s in (sys.stdout, sys.stderr):
 SYMBOLS = {
     "KOSPI": {"yahoo": "^KS11", "fdr": None,         "vote_dir": +1, "label": "코스피"},
     "KOSDAQ":{"yahoo": "^KQ11", "fdr": None,         "vote_dir": +1, "label": "코스닥"},
-    "NQ_F":  {"yahoo": "NQ=F",  "fdr": "IXIC",       "vote_dir": +1, "label": "나스닥 선물"},
-    "ES_F":  {"yahoo": "ES=F",  "fdr": "US500",      "vote_dir": +1, "label": "S&P500 선물"},
+    "NQ_F":  {"yahoo": "NQ=F",  "fdr": "IXIC",       "vote_dir": +1, "label": "나스닥 (마감+선물)"},
+    "ES_F":  {"yahoo": "ES=F",  "fdr": "US500",      "vote_dir": +1, "label": "S&P500 (마감+선물)"},
     "TNX10": {"yahoo": "^TNX",  "fdr": "FRED:DGS10", "vote_dir": -1, "label": "10Y 미국채금리"},
     "VIX":   {"yahoo": "^VIX",  "fdr": "VIX",        "vote_dir": -1, "label": "VIX"},
     "USDKRW":{"yahoo": "KRW=X", "fdr": "USD/KRW",    "vote_dir": -1, "label": "USD/KRW"},
@@ -153,32 +155,42 @@ def fetch_naver_index(timeout: float = 8.0) -> dict:
         return {}
 
 
-# 나스닥·S&P500 선물은 코스피·코스닥과 달리 한국 장중에도 계속 움직여 fetch_yahoo() 의 premarket
-#  얼어붙기 경로가 안 걸린다(09-15 실측: premarket=False, 실시간 값). 그런데 미국 정규장은 한국
-#  개장 3~4시간 전에 이미 끝나 있어 "어제"에 해당하는 값이 따로 있다 — 일봉 종가 배열에서 오늘
-#  정규장 시작(currentTradingPeriod.regular.start) 이전 마지막 두 봉(그 전날 종가 대비 어제 종가)으로 구한다.
-DAILY_REF_SYMBOLS = {"NQ_F", "ES_F"}
+# 나스닥·S&P500 표는 "현물 직전 세션 등락 + 선물의 정산 후 변동"으로 센다.
+#  선물(NQ=F·ES=F)만 보면 Yahoo previousClose 가 어제 17:00 ET 정산가(오늘 06:00 KST)라 그 뒤 움직임만 남고
+#  미국 정규장 하루치가 통째로 빠진다(09-18 08:51 실측: 나스닥 종합 +1.69% 마감인데 선물 −0.15% → 0표).
+#  반대로 현물(^IXIC·^GSPC)만 보면 한국 장중 선물 급락을 못 본다(09-14, D-081). 둘을 더하면 어제 종가 대비
+#  지금 선물이 어디 있는지가 되고, 한국 장중(미국 정규장 밖) 내내 창이 겹치지 않는다. 정산(17:00 ET)과
+#  현물 마감(16:00 ET) 사이 한 시간은 무시한다.
+#  예전 fetch_yahoo_daily_prev 는 선물 일봉으로 "어제"를 구했는데, 선물 일봉은 ET 달력일 봉이라 그저께
+#  값이 나왔다(09-18 실측 +0.03% / −0.43%). 현물 일봉으로 바꾼다.
+CASH_REF_SYMBOLS = {"NQ_F": "^IXIC", "ES_F": "^GSPC"}
 
 
-def fetch_yahoo_daily_prev(sym: str, timeout: float = 8.0) -> float | None:
-    """직전 정규장(가장 최근 완결 세션) 종가의 그 전날 대비 등락 %. 못 구하면 None."""
+def fetch_yahoo_last_session_pct(sym: str, timeout: float = 8.0) -> float | None:
+    """현물 지수의 가장 최근 *완결된* 정규장 종가 등락 %(그 전 세션 종가 대비). 못 구하면 None.
+
+    일봉 타임스탬프는 그 세션의 정규장 시작이라, 시작+정규장 길이가 지금보다 앞이면 완결된 봉이다.
+    미국 정규장 중(22:30~05:00 KST)에 부르면 진행 중인 마지막 봉을 빼고 그 앞 두 봉으로 센다.
+    """
+    import time as _time
     import urllib.request
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=5d&interval=1d"
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=10d&interval=1d"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": YAHOO_UA})
         with urllib.request.urlopen(req, timeout=timeout) as r:
             doc = json.load(r)
         result = doc["chart"]["result"][0]
-        meta = result["meta"]
-        today_start = ((meta.get("currentTradingPeriod") or {}).get("regular") or {}).get("start")
-        if today_start is None:
+        regular = ((result["meta"].get("currentTradingPeriod") or {}).get("regular") or {})
+        session_length = (regular.get("end") or 0) - (regular.get("start") or 0)
+        if session_length <= 0:
             return None
-        ts = result.get("timestamp") or []
+        now = _time.time()
+        timestamps = result.get("timestamp") or []
         closes = ((result.get("indicators") or {}).get("quote") or [{}])[0].get("close") or []
-        past = [c for t, c in zip(ts, closes) if t < today_start and c is not None]
-        if len(past) < 2 or not past[-2]:
+        completed = [c for t, c in zip(timestamps, closes) if t + session_length <= now and c is not None]
+        if len(completed) < 2 or not completed[-2]:
             return None
-        return (past[-1] - past[-2]) / past[-2] * 100.0
+        return (completed[-1] - completed[-2]) / completed[-2] * 100.0
     except Exception:
         return None
 
@@ -261,11 +273,21 @@ def fetch_changes(symbols: dict) -> dict:
         if meta.get("yahoo"):
             y = fetch_yahoo(meta["yahoo"])
             if y["pct"] is not None:
+                pct = y["pct"]
                 prev_pct = y.get("prev_pct")
-                if prev_pct is None and key in DAILY_REF_SYMBOLS:
-                    prev_pct = fetch_yahoo_daily_prev(meta["yahoo"])
-                out[key] = {"pct": y["pct"], "price": y["price"], "err": None, "src": "yahoo",
-                            "prev_pct": prev_pct, "premarket": y.get("premarket", False)}
+                since_settle_pct = None
+                if key in CASH_REF_SYMBOLS:
+                    # 현물 직전 세션 + 선물 정산 후 변동. 현물을 못 받으면 선물 변동만으로 표를 낸다(예전 동작).
+                    cash_pct = fetch_yahoo_last_session_pct(CASH_REF_SYMBOLS[key])
+                    since_settle_pct = pct
+                    prev_pct = cash_pct
+                    if cash_pct is not None:
+                        pct = cash_pct + since_settle_pct
+                    else:
+                        print(f"[!] {key} 현물 {CASH_REF_SYMBOLS[key]} 직전 세션을 못 받아 선물 변동만 센다", file=sys.stderr)
+                out[key] = {"pct": pct, "price": y["price"], "err": None, "src": "yahoo",
+                            "prev_pct": prev_pct, "premarket": y.get("premarket", False),
+                            "since_settle_pct": since_settle_pct}
                 continue
             print(f"[!] {key} Yahoo 실패({y['err']}) — FDR 일봉으로 내려간다", file=sys.stderr)
         pending[key] = meta
@@ -473,6 +495,8 @@ def build_regime(changes: dict, open_ref: dict | None = None) -> dict:
             components[key]["premarket"] = True
         if ch.get("prev_pct") is not None:
             components[key]["prev_pct"] = round(ch["prev_pct"], 3)
+        if ch.get("since_settle_pct") is not None:
+            components[key]["since_settle_pct"] = round(ch["since_settle_pct"], 3)
 
     # 장초 대비 방향표. 기준점이 없으면(개장 전·첫 계산) 0표.
     ref_prices = (open_ref or {}).get("prices") or {}
