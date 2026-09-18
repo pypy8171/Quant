@@ -24,7 +24,7 @@
     {
       "from": "core",
       "to": "api",
-      "weight": 9
+      "weight": 10
     },
     {
       "from": "core",
@@ -34,7 +34,7 @@
     {
       "from": "core",
       "to": "risk",
-      "weight": 4
+      "weight": 5
     },
     {
       "from": "core",
@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 5
+      "weight": 7
     },
     {
       "from": "ipc",
@@ -69,7 +69,7 @@
     {
       "from": "main",
       "to": "core",
-      "weight": 2
+      "weight": 3
     },
     {
       "from": "main",
@@ -84,7 +84,7 @@
     {
       "from": "main",
       "to": "utils",
-      "weight": 2
+      "weight": 1
     },
     {
       "from": "modes",
@@ -162,6 +162,7 @@
     "api/KisTypes.h": "api",
     "api/KisWebSocket.h": "api",
     "api/KisWsDecode.h": "api",
+    "core/AppConfig.h": "core",
     "core/BarAggregator.h": "core",
     "core/DataPoller.h": "core",
     "core/Engine.h": "core",
@@ -230,6 +231,7 @@
     "api/WsSocket.h": "api",
     "api/WsSocketPosix.cpp": "api",
     "api/WsSocketWin.cpp": "api",
+    "core/AppConfig.cpp": "core",
     "core/BarAggregator.cpp": "core",
     "core/DataPoller.cpp": "core",
     "core/Engine.cpp": "core",
@@ -247,7 +249,6 @@
     "strategy/StrategyBase.cpp": "strategy",
     "strategy/StrategyFactory.cpp": "strategy",
     "universe/UniverseScanner.cpp": "universe",
-    "utils/Config.cpp": "utils",
     "utils/Logger.cpp": "utils",
     "utils/Timer.cpp": "utils"
   },
@@ -310,6 +311,17 @@
     ],
     "api/WsSocketWin.cpp": [
       "utils/Logger.h"
+    ],
+    "core/AppConfig.cpp": [
+      "core/AppConfig.h",
+      "utils/JsonNode.h",
+      "utils/Logger.h"
+    ],
+    "core/AppConfig.h": [
+      "api/KisClient.h",
+      "core/RegimeFileBridge.h",
+      "core/Types.h",
+      "risk/OrderGate.h"
     ],
     "core/BarAggregator.cpp": [
       "core/BarAggregator.h",
@@ -473,11 +485,11 @@
       "core/Types.h"
     ],
     "main.cpp": [
+      "core/AppConfig.h",
       "core/Engine.h",
       "core/Types.h",
       "modes/Monitors.h",
       "strategy/StrategyFactory.h",
-      "utils/JsonNode.h",
       "utils/Logger.h"
     ],
     "modes/Monitors.cpp": [
@@ -615,6 +627,7 @@
     "api/KisClient.h": [
       "api/KisClientInternal.h",
       "api/KisWebSocket.h",
+      "core/AppConfig.h",
       "core/Engine.h",
       "modes/Monitors.cpp",
       "modes/Monitors.h",
@@ -655,6 +668,10 @@
     "api/KisWsDecode.h": [
       "api/KisWebSocket.h",
       "api/WebSocketClient.cpp"
+    ],
+    "core/AppConfig.h": [
+      "core/AppConfig.cpp",
+      "main.cpp"
     ],
     "core/BarAggregator.h": [
       "core/BarAggregator.cpp",
@@ -732,6 +749,7 @@
       "ipc/OrderRouter.h"
     ],
     "core/RegimeFileBridge.h": [
+      "core/AppConfig.h",
       "core/Engine.h"
     ],
     "core/ReplaySource.h": [
@@ -778,6 +796,7 @@
       "api/KisRestDecode.h",
       "api/KisWebSocket.h",
       "api/KisWsDecode.h",
+      "core/AppConfig.h",
       "core/BarAggregator.h",
       "core/DataPoller.h",
       "core/Engine.h",
@@ -840,6 +859,7 @@
       "risk/OrderGate.cpp"
     ],
     "risk/OrderGate.h": [
+      "core/AppConfig.h",
       "core/Engine.h",
       "core/LedgerReconciler.h",
       "core/SignalDispatcher.h",
@@ -915,7 +935,7 @@
     ],
     "utils/JsonNode.h": [
       "api/KisOrder.cpp",
-      "main.cpp",
+      "core/AppConfig.cpp",
       "strategy/StrategyFactory.cpp",
       "universe/UniverseScanner.cpp"
     ],
@@ -924,6 +944,7 @@
       "api/WebSocketClient.cpp",
       "api/WsSocketPosix.cpp",
       "api/WsSocketWin.cpp",
+      "core/AppConfig.cpp",
       "core/DataPoller.cpp",
       "core/Engine.cpp",
       "core/LedgerReconciler.cpp",
@@ -952,11 +973,11 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 28
+      "in_degree": 29
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 24
+      "in_degree": 25
     },
     {
       "header": "core/KstTime.h",
@@ -968,7 +989,7 @@
     },
     {
       "header": "api/KisClient.h",
-      "in_degree": 11
+      "in_degree": 12
     },
     {
       "header": "core/MarketSession.h",
@@ -979,11 +1000,11 @@
       "in_degree": 7
     },
     {
-      "header": "core/SymbolTable.h",
-      "in_degree": 5
+      "header": "risk/OrderGate.h",
+      "in_degree": 6
     },
     {
-      "header": "risk/OrderGate.h",
+      "header": "core/SymbolTable.h",
       "in_degree": 5
     },
     {
@@ -1770,13 +1791,16 @@
       ],
       "readers": [
         "PYQuant/tools/macro_regime_feed.py",
+        "Quant/src/core/AppConfig.cpp",
         "Quant/src/core/Engine.cpp",
         "scripts/dashboard_server.py",
         "scripts/notify_sidecar.py"
       ],
       "mentions": [
         "PYQuant/tools/macro_regime_feed.py",
+        "Quant/include/core/AppConfig.h",
         "Quant/include/core/Engine.h",
+        "Quant/src/core/AppConfig.cpp",
         "Quant/src/core/Engine.cpp",
         "Quant/src/main.cpp",
         "scripts/dashboard_server.py",
@@ -1865,6 +1889,7 @@
       ],
       "readers": [
         "PYQuant/tools/compare_ws_bars.py",
+        "Quant/src/main.cpp",
         "scripts/_logdir.py",
         "scripts/check_runtime_health.py",
         "scripts/dashboard_server.py",

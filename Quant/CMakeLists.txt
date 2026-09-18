@@ -116,6 +116,7 @@ set(ENGINE_SOURCES
   src/modes/Monitors.cpp
   src/universe/UniverseScanner.cpp
   src/strategy/StrategyFactory.cpp
+  src/core/AppConfig.cpp
   src/core/Engine.cpp
   src/core/LedgerReconciler.cpp
   src/core/DataPoller.cpp
@@ -130,7 +131,6 @@ set(ENGINE_SOURCES
   src/strategy/MomentumStrategy.cpp
   src/risk/OrderGate.cpp
   src/utils/Logger.cpp
-  src/utils/Config.cpp
   src/utils/Timer.cpp
 )
 
@@ -420,6 +420,10 @@ endif()
 add_executable(test_engine tests/test_engine.cpp)
 target_link_libraries(test_engine PRIVATE quant_engine)
 
+# ─── 테스트 타깃: config.json → AppConfig 경계 — 키 이름·기본값·kis.exchange 검증·매매 창 hhmm→분 (json 읽기는 이 한 곳) ──
+add_executable(test_app_config tests/test_app_config.cpp)
+target_link_libraries(test_app_config PRIVATE quant_engine)
+
 # ─── 테스트 타깃: WS 피드 감독기 — stale→재연결 백오프(step×n, 상한)→폴백 요구 한 번·복귀 재무장 (헤더 전용, D-071) ──
 add_executable(test_feed_supervisor tests/test_feed_supervisor.cpp)
 target_include_directories(test_feed_supervisor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -547,6 +551,7 @@ set(QUANT_ASSERT_TARGETS
     test_feed_mux
     test_feed_supervisor
     test_engine
+    test_app_config
     test_shard_matrix
     test_strategy_shard
     test_strategy_router

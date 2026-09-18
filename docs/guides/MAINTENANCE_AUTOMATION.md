@@ -114,6 +114,17 @@ static·reinterpret·const 세 가지를 겸해 무엇을 의도했는지 코드
 - 검사는 `scripts/check_code_conventions.py` 7번 규칙이 추가된 C++ 코드 줄만 본다(오류). 판정 표는 리네임에 쓴
   `scripts/rename_maps/01_fields.json`·`scripts/rename_frags.py`를 그대로 쓰므로, 예외를 늘리려면 그 표(SKIP·WIRE)를 고친다.
 
+초기화 위치 — 초기화는 두 목록에만 쓴다. 프로세스 수준(콘솔·로거·인자·설정·크래시 핸들러·모드 분기)은
+`Quant/src/main.cpp`의 `main()` 호출 목록, 엔진 수준(샤드·인증·주문 라우터·원장·전략·피드·스레드)은
+`Engine::start()`의 호출 목록이다. 새 초기화는 이름 있는 함수 하나로 만들고 그 목록에 한 줄을 더한다 — 함수 몸통
+안에 섞어 넣거나 주기 블록·콜백에서 처음 불릴 때 만들지 않는다. 순서를 읽는 사람은 그 두 목록만 보면 되게 한다.
+config.json을 읽는 곳은 `Quant/src/core/AppConfig.cpp`의 `parse_config()` 하나다(전략별 파라미터는
+`strategy/StrategyFactory.cpp`가 예외) — Engine 세터와 모드 함수는 typed 값만 받고, 키 누락·값 오류는 네트워크를
+건드리기 전에 그 자리에서 던진다. 함수 안 `static` 지역 변수는 `constexpr`(또는 상수 초기화되는 정수·bool·mutex)만
+쓴다 — 람다·생성자로 채우는 매직 스태틱은 호출마다 초기화 가드를 거치고 첫 호출이 hot path에 걸리면 그때 비용을
+낸다. 값이 컴파일 타임에 정해지면 함수 밖 `constexpr` 표로 빼고(`WebSocketClient.cpp`의 base64 역표가 그 예),
+런타임 입력이 필요하면 위 두 목록으로 올린다.
+
 주석을 줄이는 작업(에이전트 포함)의 확인 절차:
 1. 지우기 전에 그 주장이 지금 코드와 맞는지 확인한다. 틀린 주석을 D-NNN으로 옮기면 오류를 정본에 승격시킨다.
 2. 삭제 줄에서 숫자·식별자·ID(`\d+%`, 날짜, `[A-Z]-?\d+`, `§\d`)를 뽑아 각각이 남은 주석·DECISIONS·대상 문서 중 한 곳에 있는지 목록으로 보고한다. 없으면 삭제하지 않는다.

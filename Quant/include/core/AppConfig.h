@@ -1,0 +1,75 @@
+#pragma once
+// 프로세스 설정 한 벌 — config.json을 typed 값으로 옮긴 것. json을 읽는 곳은 parse_config() 하나뿐이고,
+//  main()·Engine 세터·모니터 모드는 여기 값만 받는다. "config.json의 키 X가 어디에 쓰이나"는 이 파일과
+//  AppConfig.cpp 두 곳에서 끝난다. 전략별 파라미터(`strategies` 배열)만 예외 — 타입마다 키가 달라
+//  strategy/StrategyFactory.cpp가 자기 몫을 읽는다.
+#include "api/KisClient.h"
+#include "core/RegimeFileBridge.h"
+#include "core/Types.h"
+#include "risk/OrderGate.h"
+
+#include <map>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include <nlohmann/json.hpp>
+
+struct AppConfig
+{
+    // ── 공통 ──
+    std::string mode = "FEED"; // FEED / KR_TEST / US_TEST / TRADE (Mode::from_string)
+    bool        debug_log = false; // log_level == "DEBUG"
+    KisConfig   kis;               // 주문·잔고·기본 피드 키
+
+    // ── 관찰 모드(FEED) ──
+    std::vector<std::string> tickers; // 구독 종목. TRADE는 전략이 동적으로 구성하므로 안 쓴다
+    std::vector<std::string> futures; // 국내 선물 실시간(H0IFCNT0/H0IFASP0). 실계좌 WS 도메인 전용
+
+    // ── TRADE: 엔진 채널 ──
+    int                    fetch_interval_sec = 60;
+    bool                   bootstrap_ledger_from_balance = false;
+    bool                   rest_price_feed = false;
+    std::string            capture_directory;
+    unsigned               strategy_shards = 1;
+    std::vector<KisConfig> feed_keys; // 추가 WS 세션 키(D-071 원칙 1). 기본 키와 계좌·모의 여부 같고 hts_id 없음
+    std::string            replay_file;  // 비어 있지 않으면 캡처 파일 리플레이(D-071 원칙 8)
+    double                 replay_speed = 1.0;
+    double                 replay_cash = 100'000'000.0;
+    std::string            regime_file;
+    int                    regime_stale_sec = kDefaultRegimeStaleSec;
+    int                    regime_halt_expire_min = kDefaultRegimeHaltExpireMin;
+    std::string            zmq_bind_address;
+    std::string            zmq_control_token;
+    std::string            ops_bind_address;
+    int                    ops_port = 0;
+    std::string            ops_token;
+
+    // ── TRADE: 국면→전략 자동선택(G1). 비어 있으면 per-strategy active_regimes 방식 유지 ──
+    bool                                       has_regime_strategies = false;
+    std::map<Regime, std::vector<std::string>> regime_strategies;
+
+    // ── TRADE: 기동 점검 주문(startup_probe). ticker 비고 quantity 0이면 미가동 ──
+    bool        has_startup_probe = false;
+    std::string startup_probe_ticker;
+    int         startup_probe_quantity = 0;
+
+    // ── TRADE: 시세 전용(실전 도메인) 키. 모의 시세 REST가 HTTP 500이라 시세만 실전으로 ──
+    std::optional<KisConfig> quote_kis;
+
+    // ── TRADE: 위험 한도·주문 호출 간격. risk 노드가 없어도 매매 창은 채운다 ──
+    bool              has_risk = false; // false면 order pacing은 Engine 기본값 그대로
+    OrderGate::Config risk;
+    int               order_min_interval_ms = 350;
+    int               order_max_retries = 3;
+
+    // ── TRADE: 전략 배열 — StrategyFactory가 타입별로 읽는다 ──
+    nlohmann::json strategies = nlohmann::json::array();
+};
+
+// config.json 문서 → AppConfig. mode_override가 비어 있지 않으면 문서의 "mode"를 덮는다.
+//  값이 틀리면(예: kis.exchange가 KRX/NXT/SOR 밖) std::runtime_error — 네트워크를 건드리기 전에 기동이 멈춘다.
+AppConfig parse_config(const nlohmann::json& document, const std::string& mode_override);
+
+// 파일 경로 → json 문서. 없으면 std::runtime_error.
+nlohmann::json load_config_file(const std::string& path);

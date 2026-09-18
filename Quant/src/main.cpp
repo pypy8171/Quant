@@ -1,8 +1,8 @@
+#include "core/AppConfig.h"
 #include "core/Engine.h"
 #include "core/Types.h"
 #include "modes/Monitors.h"
 #include "strategy/StrategyFactory.h"
-#include "utils/JsonNode.h"
 #include "utils/Logger.h"
 #include <atomic>
 #include <chrono>
@@ -11,12 +11,9 @@
 #include <exception>
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <string>
 #include <thread>
 #include <vector>
-
-#include <nlohmann/json.hpp>
 
 #ifdef _WIN32
 // KisWebSocket.h가 windows.h를 끌어오던 때의 조건(LEAN_AND_MEAN·NOMINMAX·ERROR 해제)을 여기서 직접 맞춘다. [why D-049]
@@ -59,8 +56,6 @@ struct TimerResolution
 
 } // namespace
 #endif
-
-using json = nlohmann::json;
 
 // ─── 전역 종료 플래그 ─────────────────────────────────────────────────────
 static std::atomic<bool> g_running{true};
@@ -166,343 +161,58 @@ static LONG WINAPI on_seh(EXCEPTION_POINTERS* exception_pointers)
 }
 #endif
 
-// ─── 설정 파일 로드 ───────────────────────────────────────────────────────
-static json load_config(const std::string& path)
+// ═══════════════════════════════════════════════════════════════════════════
+//  초기화 단계 — main()이 부르는 순서가 곧 초기화 순서다. 새 초기화는 여기 함수 하나로 만들고 main() 목록에
+//  한 줄을 더한다(정본 docs/guides/MAINTENANCE_AUTOMATION.md 4절 "초기화 위치"). json은 core/AppConfig.cpp만 읽는다.
+// ═══════════════════════════════════════════════════════════════════════════
+
+struct CommandLine
 {
-    std::ifstream file(path);
-
-    if (!file.is_open())
-    {
-        throw std::runtime_error("설정 파일 없음: " + path);
-    }
-
-    return json::parse(file);
-}
-
-// ─── TRADE 모드 엔진 구성 (main() 가독성용 분리, 로직은 그대로) ────────────────
-
-// 피드·리플레이·매크로 레짐·ZMQ·운영단말 — config 1:1 세터 호출 모음.
-static void configure_engine_channels(Engine& engine, const KisConfig& kis_config, const json& config)
-{
-    engine.set_bootstrap_ledger(config.value("bootstrap_ledger_from_balance", false));
-    engine.set_rest_price_feed(config.value("rest_price_feed", false));
-    engine.set_capture_directory(config.value("capture_dir", std::string()));
-    engine.set_strategy_shards(config.value("strategy_shards", 1u));
-
-    // 추가 WS 세션 키(D-071 원칙 1). 기본 kis 키와 함께 소켓을 여럿 열어 구독 상한을 소켓 수만큼 늘린다.
-    //  계좌·모의 여부는 기본 키와 같고 app_key·app_secret만 다르다. 체결통보(hts_id)는 기본 키만 받는다.
-    for (const auto& key_entry : jsonx::array_or_empty(config, "feed_keys"))
-    {
-        KisConfig kis_config   = kis_config;
-        kis_config.app_key     = key_entry.at("app_key").get<std::string>();
-        kis_config.app_secret  = key_entry.at("app_secret").get<std::string>();
-        kis_config.hts_id.clear();
-        engine.add_feed_config(kis_config);
-    }
-
-    // 캡처 파일 리플레이(D-071 원칙 8). WS 대신 파일을 틀어 같은 파이프라인을 돌린다. Engine이 KisClient를 만들지 않으므로
-    //  app_key·계좌가 없어도 되고 실주문 경로도 없다 — 종목은 config tickers, 주문은 모의 체결기.
-    const std::string replay_file = config.value("replay_file", std::string());
-
-    if (!replay_file.empty())
-    {
-        engine.set_replay(replay_file, config.value("replay_speed", 1.0), config.value("replay_cash", 100'000'000.0));
-    }
-
-    engine.set_regime_file(config.value("regime_file", std::string()), config.value("regime_stale_sec", kDefaultRegimeStaleSec));
-    engine.set_regime_halt_expire_min(config.value("regime_halt_expire_min", kDefaultRegimeHaltExpireMin));
-    engine.set_zmq_control(config.value("zmq_bind_addr", std::string()), config.value("zmq_control_token", std::string()));
-    engine.set_ops_control(config.value("ops_bind_addr", std::string()), config.value("ops_port", 0), config.value("ops_token", std::string()));
-}
-
-// G1: 국면→전략 자동선택 맵. config "regime_strategies": {"BULL":[id...], "NEUTRAL":[...], "BEAR":[...]}.
-//  id 항목이 '*'로 끝나면 접두 매칭(스캐너 동적 id: "DevScale_*"). 미지정이면 기존
-//  per-strategy active_regimes 방식 유지(하위호환). 지정 시 국면이 전략셋을 선택한다.
-static void configure_regime_strategies(Engine& engine, const json& config)
-{
-    if (!config.contains("regime_strategies"))
-    {
-        return;
-    }
-
-    // 키는 regime.json 라벨(RISK_ON·NEUTRAL·RISK_OFF)이고, 09-14까지 쓰던 BULL·BEAR도 같은 뜻으로 받는다. [why D-084]
-    auto to_regime = [](const std::string& key) -> Regime
-    {
-        if (key == "BULL" || key == "RISK_ON")
-        {
-            return Regime::BULL;
-        }
-
-        if (key == "BEAR" || key == "RISK_OFF")
-        {
-            return Regime::BEAR;
-        }
-
-        if (key == "NEUTRAL")
-        {
-            return Regime::NEUTRAL;
-        }
-
-        return Regime::UNKNOWN;
-    };
-    std::map<Regime, std::vector<std::string>> regime_map;
-
-    for (auto iterator = config["regime_strategies"].begin(); iterator != config["regime_strategies"].end(); ++iterator)
-    {
-        Regime regime = to_regime(iterator.key());
-
-        if (regime == Regime::UNKNOWN)
-        {
-            LOG_WARN("[Main] regime_strategies: 알 수 없는 국면 키 '" + iterator.key() + "' 무시");
-            continue;
-        }
-
-        regime_map[regime] = iterator.value().get<std::vector<std::string>>();
-    }
-
-    // 선택 입력은 regime.json 라벨이라 파일이 없으면 맵이 한 번도 적용되지 않는다(전 전략 기본 활성).
-    if (config.value("regime_file", std::string()).empty())
-    {
-        LOG_WARN("[Main] regime_strategies가 있는데 regime_file이 비어 있다 — 국면별 전략 선택이 동작하지 않는다");
-    }
-
-    engine.set_regime_strategies(regime_map);
-    LOG_INFO("[Main] 국면→전략 자동선택 맵 " + std::to_string(regime_map.size()) + "개 국면 적용");
-}
-
-// 기동 스모크 테스트 — 서버 실행 직후 지정 종목을 시장가 1주 매수해, 주문 경로 전체가
-//  살아있는지 최소 점검한다. config "startup_probe": {"ticker":"005930","quantity":1}.
-//  없으면 미가동(기존 동작 불변).
-static void configure_startup_probe(Engine& engine, const json& config)
-{
-    if (!config.contains("startup_probe"))
-    {
-        return;
-    }
-
-    const auto& startup_probe_node = config["startup_probe"];
-    std::string startup_ticker = startup_probe_node.value("ticker", std::string());
-    int         startup_quantity    = startup_probe_node.value("qty", 0);
-    engine.set_startup_probe(startup_ticker, startup_quantity);
-
-    if (!startup_ticker.empty() && startup_quantity > 0)
-    {
-        LOG_INFO("[Main] 기동 점검 설정: " + startup_ticker + " 시장가 " +
-                 std::to_string(startup_quantity) + "주 (모의계좌 주문경로 검증)");
-    }
-}
-
-// 시세 전용(실전 도메인) 키: 모의(openapivts)는 시세 REST가 HTTP 500이므로 시세만 실전으로 조회.
-//  스캔 유니버스 분기(universe_from_scan)도 이 실전 키로 거래대금 랭킹/지수를 조회하므로 호출부에 돌려준다.
-struct QuoteKisSetup
-{
-    KisConfig config;
-    bool      has = false;
+    std::string config_path = "config/config.json";
+    std::string mode_override; // 비어 있으면 config의 "mode"
 };
 
-static QuoteKisSetup configure_quote_kis(Engine& engine, const json& config)
+// quant_trader [config] [MODE]
+//   quant_trader.exe                  → config/config.json, mode from json
+//   quant_trader.exe KR_TEST          → config/config.json, mode=KR_TEST
+//   quant_trader.exe US_TEST          → config/config.json, mode=US_TEST
+//   quant_trader.exe config.json TRADE → 지정 config, mode=TRADE
+static CommandLine parse_command_line(int argc, char* argv[])
 {
-    QuoteKisSetup out;
-
-    if (!config.contains("quote_kis"))
-    {
-        return out;
-    }
-
-    KisConfig kis_config;
-    kis_config.app_key      = config["quote_kis"]["app_key"];
-    kis_config.app_secret   = config["quote_kis"]["app_secret"];
-    kis_config.account_no   = config["quote_kis"].value("account_no", "");
-    kis_config.account_type = config["quote_kis"].value("account_type", "01");
-    kis_config.hts_id       = config["quote_kis"].value("hts_id", "");
-    kis_config.is_paper     = false; // 시세는 실전 도메인
-    kis_config.exchange     = config["kis"].value("exchange", "KRX"); // 실시간 채널 선택은 주문 쪽 설정을 따른다 [why D-096]
-    engine.set_quote_kis_config(kis_config);
-    out.config = kis_config;
-    out.has = true;
-    LOG_INFO("[Main] 시세 전용 클라이언트(실전 도메인) 설정됨");
-    return out;
-}
-
-// 위험 한도(risk) + 주문 호출 간격 조절 — config로 노출(없으면 OrderGate 기본값·호출 간격 조절 기본값 유지).
-//  지정된 키만 기본값에서 덮어쓴다. 실제 돈 규율 튜닝을 재빌드 없이 하기 위함(S-1).
-static void configure_risk(Engine& engine, const json& config)
-{
-    OrderGate::Config result_code; // OrderGate::Config 기본값에서 시작
-    // 매매 세션 창은 risk 노드가 없어도 켠다 — 통합 피드가 08:00~20:00 틱을 줘도 주문은 매매 창 안에서만.
-    //  정규장 09:00~15:30 + KRX 애프터마켓 16:00~20:00(D-097, risk.after_market=false로 끈다).
-    //  캡처 리플레이는 밤에도 돌리므로 창을 끈 채(0/0) 둔다. [why D-096]
-    const bool replaying          = !config.value("replay_file", std::string()).empty();
-    const auto risk_int           = [&](const char* key, int fallback) {
-        return config.contains("risk") ? config["risk"].value(key, fallback) : fallback;
-    };
-    const auto hhmm_to_min        = [](int hhmm) { return (hhmm / 100) * 60 + hhmm % 100; };
-    const bool after_market       = config.contains("risk") ? config["risk"].value("after_market", true) : true;
-    result_code.session_open_min  = replaying ? 0 : hhmm_to_min(risk_int("session_open_hhmm", 900));
-    result_code.session_close_min = replaying ? 0 : hhmm_to_min(risk_int("session_close_hhmm", 1530));
-    result_code.after_open_min    = (replaying || !after_market) ? 0 : hhmm_to_min(risk_int("after_open_hhmm", 1600));
-    result_code.after_close_min   = (replaying || !after_market) ? 0 : hhmm_to_min(risk_int("after_close_hhmm", 2000));
-
-    if (!config.contains("risk"))
-    {
-        engine.set_risk_config(result_code);
-        return;
-    }
-
-    const auto& regime_node = config["risk"];
-    result_code.max_quantity_per_ticker     = regime_node.value("max_qty_per_ticker", result_code.max_quantity_per_ticker);
-    result_code.daily_loss_limit       = regime_node.value("daily_loss_limit", result_code.daily_loss_limit);
-    result_code.max_orders_per_min     = regime_node.value("max_orders_per_min", result_code.max_orders_per_min);
-    result_code.max_orders_per_sec     = regime_node.value("max_orders_per_sec", result_code.max_orders_per_sec);
-    result_code.deduplicate_window_sec       = regime_node.value("dedup_window_sec", result_code.deduplicate_window_sec);
-    result_code.max_quantity_per_order      = regime_node.value("max_qty_per_order", result_code.max_quantity_per_order);
-    result_code.max_notional_per_order = regime_node.value("max_notional_per_order", result_code.max_notional_per_order);
-    result_code.max_notional_per_ticker  = regime_node.value("max_notional_per_ticker", result_code.max_notional_per_ticker);
-    result_code.max_concurrent_positions = regime_node.value("max_concurrent_positions", result_code.max_concurrent_positions);
-    result_code.max_gross_exposure_percent   = regime_node.value("max_gross_exposure_pct", result_code.max_gross_exposure_percent);
-    // 슬롯 경합 시 점수 상위부터 채운다(선착순 금지). 스캐너가 랭크를 게이트에 주입한다.
-    result_code.entry_priority_enabled   = regime_node.value("entry_priority_enabled", result_code.entry_priority_enabled);
-    // 슬롯이 꽉 찬 뒤에도 더 높은 점수가 오면 최약체를 비우고 자리를 넘긴다(교체 진입).
-    result_code.displace_enabled         = regime_node.value("displace_enabled", result_code.displace_enabled);
-    result_code.displace_min_z_gap       = regime_node.value("displace_min_z_gap", result_code.displace_min_z_gap);
-    result_code.displace_min_hold_sec    = regime_node.value("displace_min_hold_sec", result_code.displace_min_hold_sec);
-    result_code.displace_cooldown_sec    = regime_node.value("displace_cooldown_sec", result_code.displace_cooldown_sec);
-    result_code.displace_max_per_day     = regime_node.value("displace_max_per_day", result_code.displace_max_per_day);
-    result_code.displace_slot_hold_sec   = regime_node.value("displace_slot_hold_sec", result_code.displace_slot_hold_sec);
-    // 오늘 스캔에 안 잡힌 이월 보유분에 매길 점수. 0이면 그런 보유분은 교체 후보에서 빠진다.
-    result_code.displace_unscored_z      = regime_node.value("displace_unscored_z", result_code.displace_unscored_z);
-    engine.set_risk_config(result_code);
-    LOG_INFO("[Main] risk 한도: 종목당 " + std::to_string(result_code.max_quantity_per_ticker) + "주, 일손실 " +
-             std::to_string(static_cast<long long>(result_code.daily_loss_limit)) + "원, " +
-             std::to_string(result_code.max_orders_per_sec) + "/s·" +
-             std::to_string(result_code.max_orders_per_min) + "/min");
-
-    if (result_code.max_notional_per_ticker > 0.0 || result_code.max_concurrent_positions > 0)
-    {
-        LOG_INFO("[Main] 사이징 백스톱: 종목당 명목 " +
-                 std::to_string(static_cast<long long>(result_code.max_notional_per_ticker)) + "원, 동시보유 " +
-                 std::to_string(result_code.max_concurrent_positions) + "종목");
-    }
-
-    if (result_code.max_gross_exposure_percent > 0.0)
-    {
-        LOG_INFO("[Main] 총노출 상한: 자본의 " +
-                 std::to_string(result_code.max_gross_exposure_percent) + " (잔고 대조 총평가금 기준)");
-    }
-
-    // 주문 호출 간격 조절(C-2/W-3) — 버스트 청산 EGW00201 회피 + 거부 SELL 재시도.
-    int pace_ms = regime_node.value("order_min_interval_ms", 350);
-    int max_ret = regime_node.value("order_max_retries", 3);
-    engine.set_order_pacing(pace_ms, max_ret);
-    LOG_INFO("[Main] 주문 호출 간격 조절: " + std::to_string(pace_ms) + "ms 간격, 청산 SELL 재시도 " +
-             std::to_string(max_ret) + "회");
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  main — 설정·인증 부트스트랩 후 모드별 실행으로 디스패치한다.
-//   · 관찰 모드(FEED/KR_TEST/US_TEST) → modes/Monitors.cpp
-//   · TRADE 모드 → 엔진 구성 + strategy/StrategyFactory.cpp 로 전략 로딩
-// ═══════════════════════════════════════════════════════════════════════════
-int main(int argc, char* argv[])
-{
-#ifdef _WIN32
-    TimerResolution timer_result;
-    SetConsoleOutputCP(CP_UTF8);
-    HANDLE output_handle = GetStdHandle(STD_OUTPUT_HANDLE);
-    DWORD dwMode = 0;
-    GetConsoleMode(output_handle, &dwMode);
-    SetConsoleMode(output_handle, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
-#endif
-    // 로그·산출물 기준 폴더는 Logger::default_base_directory()(QUANT_LOG_DIR > 실행파일 옆 logs/).
-    Logger::instance().set_base_directory(Logger::default_base_directory());
-    Logger::instance().initialize(Logger::instance().path_for("quant_trader.log"), LogLevel::INFO);
-    LOG_INFO("=== Quant Trader v2.0 ===");
-
-    // 인자 파싱: quant_trader [config] [MODE]
-    //   quant_trader.exe                  → config/config.json, mode from json
-    //   quant_trader.exe KR_TEST          → config/config.json, mode=KR_TEST
-    //   quant_trader.exe US_TEST          → config/config.json, mode=US_TEST
-    //   quant_trader.exe config.json TRADE → 지정 config, mode=TRADE
-    std::string config_path = "config/config.json";
-    std::string mode_override = "";
+    CommandLine command_line;
 
     for (int index = 1; index < argc; ++index)
     {
-        std::string input_mode = argv[index];
+        const std::string argument = argv[index];
 
-        if (input_mode == "KR_TEST" || input_mode == "US_TEST" || input_mode == "FEED" || input_mode == "TRADE")
+        if (argument == "KR_TEST" || argument == "US_TEST" || argument == "FEED" || argument == "TRADE")
         {
-            mode_override = input_mode;
+            command_line.mode_override = argument;
         }
         else
         {
-            config_path = input_mode;
+            command_line.config_path = argument;
         }
     }
 
-    json config;
+    return command_line;
+}
 
-    try
-    {
-        config = load_config(config_path);
-        LOG_INFO("[Main] 설정 로드: " + config_path);
-    }
-    catch (const std::exception& exception)
-    {
-        LOG_ERROR(std::string("[Main] 설정 로드 실패: ") + exception.what());
-        return 1;
-    }
+#ifdef _WIN32
+// 콘솔 UTF-8 + ANSI 이스케이프(색). 로그 파일과 무관하게 화면 출력만 바꾼다.
+static void setup_console()
+{
+    SetConsoleOutputCP(CP_UTF8);
+    HANDLE output_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD  console_mode  = 0;
+    GetConsoleMode(output_handle, &console_mode);
+    SetConsoleMode(output_handle, console_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+}
+#endif
 
-    if (!mode_override.empty())
-    {
-        config["mode"] = mode_override;
-        LOG_INFO("[Main] 모드 오버라이드: " + mode_override);
-    }
-
-    // 로그 임계값: 기본 INFO. "DEBUG"는 봉 닫힘(D-069)·KIS 응답 본문 같은 줄을 연다 — 비교표 뽑는 날만 켠다.
-    if (config.value("log_level", std::string("INFO")) == "DEBUG")
-    {
-        Logger::instance().set_min_level(LogLevel::DEBUG);
-        LOG_INFO("[Main] 로그 임계값 DEBUG (config log_level)");
-    }
-
-    // KIS 설정
-    KisConfig kis_config;
-    kis_config.app_key      = config["kis"]["app_key"];
-    kis_config.app_secret   = config["kis"]["app_secret"];
-    kis_config.account_no   = config["kis"]["account_no"];
-    kis_config.account_type = config["kis"]["account_type"].get<std::string>();
-    kis_config.hts_id       = config["kis"].value("hts_id", ""); // 미설정 시 account_no 사용
-    kis_config.is_paper     = config["kis"]["is_paper"].get<bool>();
-    // 주문 거래소·실시간 채널 — KRX(한국거래소만) / NXT(넥스트레이드만) / SOR(증권사 최선집행). [why D-096]
-    kis_config.exchange     = config["kis"].value("exchange", "KRX");
-
-    if (kis_config.exchange != "KRX" && kis_config.exchange != "NXT" && kis_config.exchange != "SOR")
-    {
-        LOG_ERROR("[Main] kis.exchange 는 KRX/NXT/SOR 중 하나여야 한다: '" + kis_config.exchange + "'");
-        return 1;
-    }
-
-    LOG_INFO("[Main] 거래소 구분 " + kis_config.exchange + " — 주문 EXCG_ID_DVSN_CD=" + kis_order_exchange(kis_config) +
-             ", 실시간 채널 " + (kis_unified_feed(kis_config) ? "KRX+NXT 통합(H0UN*)" : "KRX(H0ST*)") +
-             (kis_config.is_paper && kis_config.exchange != "KRX" ? " (모의투자는 KRX만 받아 KRX로 내린다)" : ""));
-
-    // FEED 모드 전용 — TRADE 모드는 전략이 동적으로 종목 구성
-    std::vector<std::string> tickers;
-
-    if (config.contains("tickers"))
-    {
-        tickers = config["tickers"].get<std::vector<std::string>>();
-    }
-
-    // 국내 선물 실시간(H0IFCNT0/H0IFASP0). 실계좌 WS 도메인 전용이라 kis.is_paper=false 필요.
-    std::vector<std::string> futures;
-
-    if (config.contains("futures"))
-    {
-        futures = config["futures"].get<std::vector<std::string>>();
-    }
-
+// 시그널·terminate·SEH — 셋 다 정지 요청 또는 사유 한 줄 + 덤프만 하고 join은 main의 stop() 한 곳(signal_handler 주석).
+static void install_crash_handlers()
+{
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
     std::signal(SIGABRT, [](int) { log_and_die("SIGABRT"); });
@@ -510,42 +220,148 @@ int main(int argc, char* argv[])
 #ifdef _WIN32
     SetUnhandledExceptionFilter(on_seh);
 #endif
+}
 
-    Mode mode = Mode::from_string(config.value("mode", std::string("FEED")));
+// 로그 임계값: 기본 INFO. "DEBUG"는 봉 닫힘(D-069)·KIS 응답 본문 같은 줄을 연다 — 비교표 뽑는 날만 켠다.
+static void apply_log_level(const AppConfig& app)
+{
+    if (app.debug_log)
+    {
+        Logger::instance().set_min_level(LogLevel::DEBUG);
+        LOG_INFO("[Main] 로그 임계값 DEBUG (config log_level)");
+    }
+}
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //  관찰용 모니터 모드 — 각자 자기 루프를 돌다 종료 (modes/Monitors.cpp)
-    // ═══════════════════════════════════════════════════════════════════════
-    if (mode == Mode::FEED)
+static void log_exchange_choice(const KisConfig& kis_config)
+{
+    LOG_INFO("[Main] 거래소 구분 " + kis_config.exchange + " — 주문 EXCG_ID_DVSN_CD=" + kis_order_exchange(kis_config) +
+             ", 실시간 채널 " + (kis_unified_feed(kis_config) ? "KRX+NXT 통합(H0UN*)" : "KRX(H0ST*)") +
+             (kis_config.is_paper && kis_config.exchange != "KRX" ? " (모의투자는 KRX만 받아 KRX로 내린다)" : ""));
+}
+
+// ─── TRADE 모드 엔진 구성 — AppConfig 값을 Engine 세터에 옮긴다. 값 해석은 이미 끝났고 여기서는 배선만 ────────
+
+// 피드·리플레이·매크로 레짐·ZMQ·운영단말.
+static void configure_engine_channels(Engine& engine, const AppConfig& app)
+{
+    engine.set_bootstrap_ledger(app.bootstrap_ledger_from_balance);
+    engine.set_rest_price_feed(app.rest_price_feed);
+    engine.set_capture_directory(app.capture_directory);
+    engine.set_strategy_shards(app.strategy_shards);
+
+    for (const auto& feed_key : app.feed_keys)
     {
-        return run_feed(kis_config, tickers, futures, g_running);
-    }
-    else if (mode == Mode::KR_TEST)
-    {
-        return run_kr_test(kis_config, g_running);
-    }
-    else if (mode == Mode::US_TEST)
-    {
-        return run_us_test(kis_config, g_running);
+        engine.add_feed_config(feed_key);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    //  TRADE 모드: 전략 매매 엔진 (tickers 설정 불필요 — 전략이 동적으로 구성)
-    // ═══════════════════════════════════════════════════════════════════════
-    int interval = config.value("fetch_interval_sec", 60);
-    Engine engine(kis_config, interval);
+    // 캡처 파일 리플레이(D-071 원칙 8). WS 대신 파일을 틀어 같은 파이프라인을 돌린다. Engine이 KisClient를 만들지 않으므로
+    //  app_key·계좌가 없어도 되고 실주문 경로도 없다 — 종목은 config tickers, 주문은 모의 체결기.
+    if (!app.replay_file.empty())
+    {
+        engine.set_replay(app.replay_file, app.replay_speed, app.replay_cash);
+    }
+
+    engine.set_regime_file(app.regime_file, app.regime_stale_sec);
+    engine.set_regime_halt_expire_min(app.regime_halt_expire_min);
+    engine.set_zmq_control(app.zmq_bind_address, app.zmq_control_token);
+    engine.set_ops_control(app.ops_bind_address, app.ops_port, app.ops_token);
+}
+
+// G1: 국면→전략 자동선택 맵. 미지정이면 기존 per-strategy active_regimes 방식 유지(하위호환).
+static void configure_regime_strategies(Engine& engine, const AppConfig& app)
+{
+    if (!app.has_regime_strategies)
+    {
+        return;
+    }
+
+    engine.set_regime_strategies(app.regime_strategies);
+    LOG_INFO("[Main] 국면→전략 자동선택 맵 " + std::to_string(app.regime_strategies.size()) + "개 국면 적용");
+}
+
+// 기동 스모크 테스트 — 서버 실행 직후 지정 종목을 시장가 1주 매수해, 주문 경로 전체가 살아있는지 최소 점검한다.
+//  config "startup_probe": {"ticker":"005930","qty":1}. 없으면 미가동.
+static void configure_startup_probe(Engine& engine, const AppConfig& app)
+{
+    if (!app.has_startup_probe)
+    {
+        return;
+    }
+
+    engine.set_startup_probe(app.startup_probe_ticker, app.startup_probe_quantity);
+
+    if (!app.startup_probe_ticker.empty() && app.startup_probe_quantity > 0)
+    {
+        LOG_INFO("[Main] 기동 점검 설정: " + app.startup_probe_ticker + " 시장가 " +
+                 std::to_string(app.startup_probe_quantity) + "주 (모의계좌 주문경로 검증)");
+    }
+}
+
+// 시세 전용(실전 도메인) 키: 모의(openapivts)는 시세 REST가 HTTP 500이므로 시세만 실전으로 조회.
+//  스캔 유니버스 분기(universe_from_scan)도 이 실전 키로 거래대금 랭킹/지수를 조회한다(StrategyLoadCtx).
+static void configure_quote_kis(Engine& engine, const AppConfig& app)
+{
+    if (!app.quote_kis)
+    {
+        return;
+    }
+
+    engine.set_quote_kis_config(*app.quote_kis);
+    LOG_INFO("[Main] 시세 전용 클라이언트(실전 도메인) 설정됨");
+}
+
+// 위험 한도 + 주문 호출 간격. risk 노드가 없으면 매매 창만 넣고 간격 조절은 Engine 기본값.
+static void configure_risk(Engine& engine, const AppConfig& app)
+{
+    const OrderGate::Config& risk = app.risk;
+    engine.set_risk_config(risk);
+
+    if (!app.has_risk)
+    {
+        return;
+    }
+
+    LOG_INFO("[Main] risk 한도: 종목당 " + std::to_string(risk.max_quantity_per_ticker) + "주, 일손실 " +
+             std::to_string(static_cast<long long>(risk.daily_loss_limit)) + "원, " +
+             std::to_string(risk.max_orders_per_sec) + "/s·" +
+             std::to_string(risk.max_orders_per_min) + "/min");
+
+    if (risk.max_notional_per_ticker > 0.0 || risk.max_concurrent_positions > 0)
+    {
+        LOG_INFO("[Main] 사이징 백스톱: 종목당 명목 " +
+                 std::to_string(static_cast<long long>(risk.max_notional_per_ticker)) + "원, 동시보유 " +
+                 std::to_string(risk.max_concurrent_positions) + "종목");
+    }
+
+    if (risk.max_gross_exposure_percent > 0.0)
+    {
+        LOG_INFO("[Main] 총노출 상한: 자본의 " +
+                 std::to_string(risk.max_gross_exposure_percent) + " (잔고 대조 총평가금 기준)");
+    }
+
+    // 주문 호출 간격 조절(C-2/W-3) — 버스트 청산 EGW00201 회피 + 거부 SELL 재시도.
+    engine.set_order_pacing(app.order_min_interval_ms, app.order_max_retries);
+    LOG_INFO("[Main] 주문 호출 간격 조절: " + std::to_string(app.order_min_interval_ms) + "ms 간격, 청산 SELL 재시도 " +
+             std::to_string(app.order_max_retries) + "회");
+}
+
+// TRADE 모드: 전략 매매 엔진 (tickers 설정 불필요 — 전략이 동적으로 구성). 세터 → 전략 로딩 → start() 순서이고,
+//  start() 안의 순서(샤드·인증·주문 라우터·원장·전략·피드·스레드)는 Engine::start()가 정본이다.
+static int run_trade(const AppConfig& app)
+{
+    Engine engine(app.kis, app.fetch_interval_sec);
     g_engine = &engine;
-
-    configure_engine_channels(engine, kis_config, config);
-    configure_regime_strategies(engine, config);
-    configure_startup_probe(engine, config);
-    const QuoteKisSetup quote_kis = configure_quote_kis(engine, config);
-    configure_risk(engine, config);
+    configure_engine_channels(engine, app);
+    configure_regime_strategies(engine, app);
+    configure_startup_probe(engine, app);
+    configure_quote_kis(engine, app);
+    configure_risk(engine, app);
 
     // 전략 로딩 — 타입별 로더 디스패치 + active_regimes 후처리 (strategy/StrategyFactory.cpp)
-    StrategyLoadCtx sctx{engine, kis_config, quote_kis.config, quote_kis.has};
-    load_strategies(sctx, config["strategies"]);
-
+    const KisConfig  no_quote_kis;
+    StrategyLoadCtx  load_context{engine, app.kis, app.quote_kis ? *app.quote_kis : no_quote_kis,
+                                  app.quote_kis.has_value()};
+    load_strategies(load_context, app.strategies);
     engine.start();
 
     while (engine.is_running())
@@ -558,4 +374,61 @@ int main(int argc, char* argv[])
     g_engine = nullptr;
     LOG_INFO("[Main] 프로그램 종료");
     return 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  main — 아래 호출 순서가 초기화 순서 문서다. 각 단계는 위 함수 하나에 대응한다.
+//   1 타이머 격자 · 2 콘솔 · 3 로거 · 4 인자 · 5 설정(json→AppConfig, 검증 포함) · 6 로그 임계값 ·
+//   7 크래시 핸들러 · 8 모드 분기(관찰 모드는 modes/Monitors.cpp, TRADE는 run_trade)
+// ═══════════════════════════════════════════════════════════════════════════
+int main(int argc, char* argv[])
+{
+#ifdef _WIN32
+    TimerResolution timer_resolution; // 1. 1ms 격자, 소멸자에서 되돌린다
+    setup_console();                  // 2.
+#endif
+    // 3. 로그·산출물 기준 폴더는 Logger::default_base_directory()(QUANT_LOG_DIR > 실행파일 옆 logs/).
+    Logger::instance().set_base_directory(Logger::default_base_directory());
+    Logger::instance().initialize(Logger::instance().path_for("quant_trader.log"), LogLevel::INFO);
+    LOG_INFO("=== Quant Trader v2.0 ===");
+    const CommandLine command_line = parse_command_line(argc, argv); // 4.
+    AppConfig app;
+
+    try // 5. 설정 — 키 누락·값 오류는 여기서 멈춘다. 네트워크는 아직 안 건드렸다
+    {
+        app = parse_config(load_config_file(command_line.config_path), command_line.mode_override);
+        LOG_INFO("[Main] 설정 로드: " + command_line.config_path);
+    }
+    catch (const std::exception& exception)
+    {
+        LOG_ERROR(std::string("[Main] 설정 로드 실패: ") + exception.what());
+        return 1;
+    }
+
+    if (!command_line.mode_override.empty())
+    {
+        LOG_INFO("[Main] 모드 오버라이드: " + command_line.mode_override);
+    }
+
+    apply_log_level(app);        // 6.
+    log_exchange_choice(app.kis);
+    install_crash_handlers();    // 7.
+    const Mode mode = Mode::from_string(app.mode); // 8.
+
+    if (mode == Mode::FEED)
+    {
+        return run_feed(app.kis, app.tickers, app.futures, g_running);
+    }
+
+    if (mode == Mode::KR_TEST)
+    {
+        return run_kr_test(app.kis, g_running);
+    }
+
+    if (mode == Mode::US_TEST)
+    {
+        return run_us_test(app.kis, g_running);
+    }
+
+    return run_trade(app);
 }

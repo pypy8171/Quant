@@ -11,6 +11,7 @@
 #include <chrono>
 #include <nlohmann/json.hpp>
 #include <sstream>
+#include <string_view>
 #include <thread>
 
 using json = nlohmann::json;
@@ -35,36 +36,42 @@ static int64_t recv_now_ns()
 // ─── 체결통보 복호화 (KIS H0STCNI: base64 → AES-256-CBC) ────────────────────
 // 시세 채널은 평문이나 체결통보는 암호화 전송. key/iv는 구독 응답 body.output에서 획득.
 // AES 본체는 플랫폼별(websocket_platform::aes_cbc_decrypt).
+namespace
+{
+
+// base64 역방향 표. 문자 집합이 고정이라 컴파일 타임에 만든다 — 함수 안 static이면 호출마다 초기화 가드를
+//  거치는데(원칙 6, hot path에 런타임 초기화 없음) constexpr는 가드도 초기화도 없이 .rodata에 박힌다.
+constexpr std::array<int, 256> make_base64_table()
+{
+    constexpr std::string_view chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::array<int, 256>       table{};
+    table.fill(-1);
+
+    for (int index = 0; index < 64; ++index)
+    {
+        table[static_cast<unsigned char>(chars[index])] = index;
+    }
+
+    return table;
+}
+
+constexpr std::array<int, 256> kBase64Table = make_base64_table();
+
+} // namespace
+
 std::string KisWebSocket::base64_decode(const std::string& in)
 {
-    // 역방향 표는 문자 집합이 고정이라 프레임마다 다시 만들 필요가 없다 — 최초 호출에서 한 번만 채운다.
-    //  매직 스태틱 초기화는 스레드 세이프하고, 이후로는 읽기만 하니 recv_loop 한 스레드 기준으로도 락이 없다.
-    static const std::array<int, 256> type_value = []
-    {
-        static const std::string chars =
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        std::array<int, 256> table{};
-        table.fill(-1);
-
-        for (int index = 0; index < 64; ++index)
-        {
-            table[static_cast<unsigned char>(chars[index])] = index;
-        }
-
-        return table;
-    }();
-
     std::string out;
     int value = 0, value_bits = -8;
 
     for (unsigned char character : in)
     {
-        if (type_value[character] == -1) // '=' / 개행 / 공백 무시
+        if (kBase64Table[character] == -1) // '=' / 개행 / 공백 무시
         {
             continue;
         }
 
-        value = (value << 6) + type_value[character];
+        value = (value << 6) + kBase64Table[character];
         value_bits += 6;
 
         if (value_bits >= 0)

@@ -20,19 +20,19 @@ graph LR
   utils[utils]
   api -->|11| core
   api -->|6| utils
-  core -->|9| api
+  core -->|10| api
   core -->|3| ipc
-  core -->|4| risk
+  core -->|5| risk
   core -->|3| strategy
-  core -->|5| utils
+  core -->|7| utils
   ipc -->|2| api
   ipc -->|5| core
   ipc --> risk
   ipc -->|3| utils
-  main -->|2| core
+  main -->|3| core
   main --> modes
   main --> strategy
-  main -->|2| utils
+  main --> utils
   modes -->|3| api
   modes -->|3| core
   modes --> ipc
@@ -55,14 +55,14 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 28 |
-| `utils/Logger.h` | 24 |
+| `core/Types.h` | 29 |
+| `utils/Logger.h` | 25 |
 | `core/KstTime.h` | 13 |
 | `strategy/StrategyBase.h` | 13 |
-| `api/KisClient.h` | 11 |
+| `api/KisClient.h` | 12 |
 | `core/MarketSession.h` | 8 |
 | `core/WakeGate.h` | 7 |
-| `core/SymbolTable.h` | 5 |
+| `risk/OrderGate.h` | 6 |
 
 ## 파일 단위 상세
 
@@ -87,6 +87,8 @@ graph LR
     n_api_WsSocketWin_cpp["api/WsSocketWin.cpp"]
   end
   subgraph core
+    n_core_AppConfig_cpp["core/AppConfig.cpp"]
+    n_core_AppConfig_h["core/AppConfig.h"]
     n_core_BarAggregator_cpp["core/BarAggregator.cpp"]
     n_core_BarAggregator_h["core/BarAggregator.h"]
     n_core_DataPoller_cpp["core/DataPoller.cpp"]
@@ -185,6 +187,13 @@ graph LR
   n_api_WebSocketClient_cpp --> n_utils_Logger_h
   n_api_WsSocketPosix_cpp --> n_utils_Logger_h
   n_api_WsSocketWin_cpp --> n_utils_Logger_h
+  n_core_AppConfig_cpp --> n_core_AppConfig_h
+  n_core_AppConfig_cpp --> n_utils_JsonNode_h
+  n_core_AppConfig_cpp --> n_utils_Logger_h
+  n_core_AppConfig_h --> n_api_KisClient_h
+  n_core_AppConfig_h --> n_core_RegimeFileBridge_h
+  n_core_AppConfig_h --> n_core_Types_h
+  n_core_AppConfig_h --> n_risk_OrderGate_h
   n_core_BarAggregator_cpp --> n_core_BarAggregator_h
   n_core_BarAggregator_cpp --> n_core_KstTime_h
   n_core_BarAggregator_h --> n_core_Types_h
@@ -286,11 +295,11 @@ graph LR
   n_ipc_ZmqBridge_cpp --> n_ipc_ZmqBridge_h
   n_ipc_ZmqBridge_cpp --> n_utils_Logger_h
   n_ipc_ZmqBridge_h --> n_core_Types_h
+  n_main_cpp --> n_core_AppConfig_h
   n_main_cpp --> n_core_Engine_h
   n_main_cpp --> n_core_Types_h
   n_main_cpp --> n_modes_Monitors_h
   n_main_cpp --> n_strategy_StrategyFactory_h
-  n_main_cpp --> n_utils_JsonNode_h
   n_main_cpp --> n_utils_Logger_h
   n_modes_Monitors_cpp --> n_api_KisClient_h
   n_modes_Monitors_cpp --> n_api_KisWebSocket_h
@@ -507,12 +516,12 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 
 | 파일 | 쓰는 쪽 | 읽는 쪽 | 언급만 |
 |---|---|---|---|
-| `regime.json` | `PYQuant/tools/macro_regime_feed.py` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/Engine.cpp`, `scripts/dashboard_server.py`, `scripts/notify_sidecar.py` | `Quant/include/core/Engine.h`, `Quant/src/main.cpp` |
+| `regime.json` | `PYQuant/tools/macro_regime_feed.py` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/AppConfig.cpp`, `Quant/src/core/Engine.cpp`, `scripts/dashboard_server.py`, `scripts/notify_sidecar.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/src/main.cpp` |
 | `prices_live.json` | `scripts/live_prices_feed.py` | `scripts/live_prices_feed.py` |  |
 | `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py` | `PYQuant/dashboard/backfill_live.py`, `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_sidecar.py` |
 | `universe*.json` |  | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/nxt_divergence_probe.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseScanner.cpp`, `scripts/eod_minute_backfill.py`, `scripts/live_prices_feed.py`, `scripts/notify_sidecar.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |
 | `open_orders.txt` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` |  |
-| `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/build_review_entry.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `scripts/_logdir.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/eod_autodoc.py`, `scripts/eod_collect.py`, `scripts/extract_swap_counterfactual.py`, `scripts/notify_sidecar.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `Quant/src/main.cpp` |
+| `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/build_review_entry.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `Quant/src/main.cpp`, `scripts/_logdir.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/eod_autodoc.py`, `scripts/eod_collect.py`, `scripts/extract_swap_counterfactual.py`, `scripts/notify_sidecar.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` |  |
 | `kis_token_*.json` | `scripts/commit_gate.py` | `scripts/gen_facts.py` | `PYQuant/kis/client.py`, `Quant/src/api/KisAuth.cpp` |
 
 ## 영향범위 질의 · 기계 소비

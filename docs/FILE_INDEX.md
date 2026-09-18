@@ -201,6 +201,7 @@
 
 ### Quant/include/core/
 
+- [AppConfig.h](../Quant/include/core/AppConfig.h) — config.json을 typed 값으로 옮긴 프로세스 설정 한 벌(`AppConfig`)과 `parse_config` 선언
 - [BarAggregator.h](../Quant/include/core/BarAggregator.h) — 체결 틱 → 종목별 N분봉 집계기(D-068·D-072)
 - [DataPoller.h](../Quant/include/core/DataPoller.h) — REST 현재가 폴러 — 폴링 모드·WS 폴백(D-062)
 - [Engine.h](../Quant/include/core/Engine.h) — 엔진 클래스 선언 — 파이프라인 스레드 배선
@@ -277,7 +278,7 @@
 
 ### Quant/src/
 
-- [main.cpp](../Quant/src/main.cpp) — 프로그램 진입점 — 모드 분기·타이머 해상도(D-071)
+- [main.cpp](../Quant/src/main.cpp) — 프로그램 진입점 — `main()` 호출 목록이 초기화 순서(콘솔·로거·인자·설정·크래시 핸들러·모드 분기), TRADE는 `run_trade`
 
 ### Quant/src/api/
 
@@ -296,6 +297,7 @@
 
 ### Quant/src/core/
 
+- [AppConfig.cpp](../Quant/src/core/AppConfig.cpp) — config.json 읽기의 유일한 자리 — 키 이름·기본값·kis.exchange 검증·매매 창 hhmm→분
 - [BarAggregator.cpp](../Quant/src/core/BarAggregator.cpp) — N분봉 집계기 구현(D-068·D-074)
 - [DataPoller.cpp](../Quant/src/core/DataPoller.cpp) — REST 현재가 폴러 구현 — 호출 간격·넘침 목록(D-062)
 - [Engine.cpp](../Quant/src/core/Engine.cpp) — 엔진 본체 구현 — 생성자·전략 등록·파이프라인
@@ -331,7 +333,6 @@
 
 ### Quant/src/utils/
 
-- [Config.cpp](../Quant/src/utils/Config.cpp) — 빈 placeholder 파일
 - [Logger.cpp](../Quant/src/utils/Logger.cpp) — 빈 placeholder 파일
 - [Timer.cpp](../Quant/src/utils/Timer.cpp) — 빈 placeholder 파일
 
@@ -345,6 +346,7 @@
 - [bench_sleep_res.cpp](../Quant/tests/bench_sleep_res.cpp) — sleep_for·condvar 대기 해상도 실측 도구
 - [bench_wake_gate.cpp](../Quant/tests/bench_wake_gate.cpp) — WakeGate 대 atomic::wait 깨우기 지연 비교 벤치(D-070)
 - [test_account_ledger.cpp](../Quant/tests/test_account_ledger.cpp) — 계좌별 원장 파티셔닝(다계좌 독립성) 단위 테스트
+- [test_app_config.cpp](../Quant/tests/test_app_config.cpp) — config.json → AppConfig 경계 단위 테스트(기본값·오버라이드·feed_keys 상속·risk·regime_strategies)
 - [test_bar_aggregator.cpp](../Quant/tests/test_bar_aggregator.cpp) — N분봉 집계기 단위 테스트(D-068·D-072)
 - [test_data_poller.cpp](../Quant/tests/test_data_poller.cpp) — REST 현재가 폴러 단위 테스트(D-053·D-062)
 - [test_engine.cpp](../Quant/tests/test_engine.cpp) — Engine 한 바퀴 단위 테스트(시험용 시세 주입, KIS·소켓 없이 틱→주문→모의 체결→원장, 레인 1×샤드 1과 2×2, 캡처 파일 리플레이는 KIS 없이)

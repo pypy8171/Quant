@@ -44,8 +44,8 @@
 
 1. `StrategyBase`(`Quant/include/strategy/StrategyBase.h`)를 상속합니다.
 2. `id()`, `on_data(const MarketData&)`, `describe()`를 구현합니다. 종목 비교는 문자열이 아니라 `on_start`에서 `symbol_of(ticker)`로 받은 id와 `trade.symbol_id`로 합니다(`same_symbol` 헬퍼). 신호에는 `signal.symbol_id`를 찍습니다.
-3. `main.cpp`에서 `engine.add_strategy(std::make_unique<YourStrategy>(...))` 로 등록합니다.
-4. 필요하면 `"strategies"` 아래에 설정 항목을 추가하고 `main.cpp`의 전략 로딩 블록에서 파싱합니다.
+3. `Quant/src/strategy/StrategyFactory.cpp`의 타입별 로더에서 `engine.add_strategy(std::make_unique<YourStrategy>(...))` 로 등록합니다.
+4. 필요하면 `"strategies"` 아래에 설정 항목을 추가하고 같은 로더에서 파싱합니다(전략 배열 밖의 키는 `Quant/src/core/AppConfig.cpp`의 `parse_config`만 읽습니다).
 
 ### KIS API 클라이언트 (`Quant/include/api/KisClient.h`, 구현은 `Quant/src/api/Kis*.cpp` 7파일)
 
@@ -54,7 +54,7 @@
 
 ### WebSocket 클라이언트 (`Quant/include/api/KisWebSocket.h`, 구현은 `Quant/src/api/WebSocketClient.cpp` + `WsSocketWin.cpp`/`WsSocketPosix.cpp`)
 
-<!-- sync: Quant/include/api/KisWebSocket.h@f64b1b4 Quant/src/api/WebSocketClient.cpp@ade6fe0 Quant/src/api/WsSocket.h@1cf00dc -->
+<!-- sync: Quant/include/api/KisWebSocket.h@f64b1b4 Quant/src/api/WebSocketClient.cpp@517aead Quant/src/api/WsSocket.h@1cf00dc -->
 FEED 모드에서 사용합니다. REST로 approval key를 발급받고, `ops.koreainvestment.com:31000`(모의) 또는 `:21000`(실거래)에 연결한 뒤 구독한 채널의 파싱된 구조체를 등록된 콜백으로 전달합니다. 구독 채널은 종목당 `WatchSpec`으로 정하며, 국내 현물 호가 `H0STASP0`·체결 `H0STCNT0`(config `kis.exchange`가 NXT·SOR이면 KRX+NXT 통합 `H0UNASP0`·`H0UNCNT0`, D-096), 국내 선물 호가 `H0IFASP0`·체결 `H0IFCNT0`(`WatchSpec.is_future=true`로 선택), 미국 체결 `HDFSCNT0`을 지원합니다. 선물 체결에는 매수/매도 방향 코드가 없어 `direction`을 0으로 둡니다. 최초 연결·재연결 경로에 흩어져 있던 구독 하드코딩은 `subscribe_all()` 한 곳으로 통합되어, 재연결 시 선물 채널이 누락되던 불일치를 없앴습니다. 국내 선물 실시간은 실계좌 WS 도메인 전용이라 모의(`is_paper=true`)에서는 지원되지 않습니다. 소켓 계층은 `Quant/src/api/WsSocket.h`의 `WsSocket` 인터페이스 뒤에 있고(D-049) 플랫폼당 한 파일만 링크되므로, 연결·재연결·백오프·구독은 `WebSocketClient.cpp`에 플랫폼 코드 없이 한 벌입니다. 공개 헤더는 `<windows.h>`를 끌어오지 않습니다. 엔진은 소켓을 `feed::IFeedSource`(`Quant/include/core/IFeedSource.h`)로만 보며 — `Engine::set_feed_source`로 소스를 직접 주거나 config `replay_file`로 캡처 파일을 틀면 KIS 없이 기동해(인증·계좌·유니버스 스캔 없음, 종목은 config `tickers`) 주문·잔고를 모의 체결기가 받는다(`test_engine`이 시험용 시세로 레인 1×샤드 1과 2×2를, 캡처 파일로 리플레이를 한 바퀴씩 돈다, D-071) — config `feed_keys`로 세션 키를 더 주면 `Quant/include/core/FeedMux.h`의 `feed::FeedMux`가 소켓 여럿을 한 소스로 묶어(종목은 한 소켓에만, 체결통보는 첫 소켓만) 구독 상한이 소켓 수만큼 늡니다. 소켓 하나가 멈추면 그 소켓만 자기 배정 종목으로 다시 잇고 나머지 소켓의 틱은 그 사이에도 흐릅니다(`reconnect_stale`, D-071, `test_feed_mux`). 엔진은 레인 모드로 받는다 — 소켓 i의 수신 스레드가 레인 i를 달고 콜백을 직접 불러 행렬의 행 i에 넣고(`IFeedSource::lanes()`·`set_lane_callbacks`, mux 스레드 없음), 틱 캡처 큐는 그래서 `MpscQueue`다(D-071, `test_feed_mux`).
 
 ### 로깅

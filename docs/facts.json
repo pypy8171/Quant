@@ -71,7 +71,7 @@
   "ordergate_rejects": {
     "file": "Quant/src/risk/OrderGate.cpp",
     "pattern": "reject_reason =",
-    "count": 18
+    "count": 19
   },
   "build_targets": {
     "file": "Quant/CMakeLists.txt",
@@ -105,6 +105,7 @@
       "test_paper_executor",
       "test_feed_mux",
       "test_engine",
+      "test_app_config",
       "test_feed_supervisor",
       "test_shard_matrix",
       "test_strategy_shard",
@@ -155,6 +156,7 @@
       "test_paper_executor",
       "test_feed_mux",
       "test_engine",
+      "test_app_config",
       "test_feed_supervisor",
       "test_shard_matrix",
       "test_strategy_shard",
@@ -164,215 +166,37 @@
       "test_account_ledger",
       "test_logger"
     ],
-    "count": 33
+    "count": 34
   },
   "harness": {
-    "commands": [
-      "auto-trade-day",
-      "build",
-      "comment-diet",
-      "daily",
-      "dashboard-sync",
-      "dev-loop",
-      "eod-review",
-      "handoff",
-      "intraday-start",
-      "review-apply",
-      "review-bundle",
-      "strategy-debate",
-      "trade-log",
-      "triage",
-      "verify-backtest",
-      "watch"
-    ],
-    "agents": [
-      "backtest-runner",
-      "bias-auditor",
-      "claude-coach",
-      "committer",
-      "data-sourcer",
-      "harness-engineer",
-      "interviewer",
-      "intraday-analyst",
-      "log-reader",
-      "market-brief",
-      "perf-optimizer",
-      "planner",
-      "pm",
-      "prep-doc",
-      "quant-analyst",
-      "reviewer",
-      "strategist"
-    ],
-    "skills": [
-      "stock-study"
-    ],
-    "hooks": [
-      "cron-gate.ps1",
-      "dashboard-refresh.ps1",
-      "docs-gate.ps1",
-      "eod-gate.ps1",
-      "file-index-gate.ps1",
-      "handoff-due.ps1",
-      "handoff-list.ps1",
-      "lexicon-gate.ps1",
-      "output-gate.ps1",
-      "precompact-handoff.ps1",
-      "resume-work.ps1",
-      "review-reminder.ps1",
-      "secret-gate.ps1",
-      "session-board-server.ps1",
-      "sync-gate.ps1"
-    ],
+    "commands": [],
+    "agents": [],
+    "skills": [],
+    "hooks": [],
     "counts": {
-      "commands": 16,
-      "agents": 17,
-      "skills": 1,
-      "hooks": 15,
-      "hook_wirings": 15
+      "commands": 0,
+      "agents": 0,
+      "skills": 0,
+      "hooks": 0,
+      "hook_wirings": 0
     },
-    "settings_hooks": [
-      {
-        "event": "PreToolUse",
-        "matcher": "Bash|PowerShell",
-        "hook_file": "secret-gate.ps1",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\secret-gate.ps1"
-      },
-      {
-        "event": "PreToolUse",
-        "matcher": "Bash|PowerShell",
-        "hook_file": "docs-gate.ps1",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\docs-gate.ps1"
-      },
-      {
-        "event": "PreToolUse",
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell",
-        "hook_file": "lexicon-gate.ps1",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\lexicon-gate.ps1"
-      },
-      {
-        "event": "Stop",
-        "matcher": "",
-        "hook_file": "output-gate.ps1",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\output-gate.ps1"
-      },
-      {
-        "event": "Stop",
-        "matcher": "",
-        "hook_file": "sync-gate.ps1",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\sync-gate.ps1"
-      },
-      {
-        "event": "Stop",
-        "matcher": "",
-        "hook_file": "file-index-gate.ps1",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\file-index-gate.ps1"
-      },
-      {
-        "event": "Stop",
-        "matcher": "",
-        "hook_file": "review-reminder.ps1",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\review-reminder.ps1"
-      },
-      {
-        "event": "Stop",
-        "matcher": "",
-        "hook_file": "dashboard-refresh.ps1",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\dashboard-refresh.ps1"
-      },
-      {
-        "event": "Stop",
-        "matcher": "",
-        "hook_file": "handoff-due.ps1",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\handoff-due.ps1"
-      },
-      {
-        "event": "SessionStart",
-        "matcher": "",
-        "hook_file": "resume-work.ps1",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/resume-work.ps1"
-      },
-      {
-        "event": "SessionStart",
-        "matcher": "",
-        "hook_file": "eod-gate.ps1",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\eod-gate.ps1"
-      },
-      {
-        "event": "SessionStart",
-        "matcher": "",
-        "hook_file": "cron-gate.ps1",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\cron-gate.ps1"
-      },
-      {
-        "event": "SessionStart",
-        "matcher": "",
-        "hook_file": "handoff-list.ps1",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\handoff-list.ps1"
-      },
-      {
-        "event": "SessionStart",
-        "matcher": "",
-        "hook_file": "session-board-server.ps1",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\session-board-server.ps1"
-      },
-      {
-        "event": "PreCompact",
-        "matcher": "",
-        "hook_file": "precompact-handoff.ps1",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\precompact-handoff.ps1"
-      }
-    ]
+    "settings_hooks": []
   },
   "configs": [
-    ".token_cache.json",
-    "config.json",
     "config_dev_paper.json",
-    "config_itb_paper.json",
-    "config_ma_paper.json",
-    "config_mm_paper.json",
-    "config_paper.json",
-    "config_smoke_paper.json",
     "etf_name_tokens.json",
     "etf_prefixes.json",
-    "kis_token_<REDACTED>.json",
-    "kis_token_<REDACTED>.json",
-    "kis_token_<REDACTED>.json",
-    "prices_live.json",
-    "regime.json",
     "reit_name_suffixes.json",
     "reit_names.json",
     "ticker_names.json",
-    "universe_full.json",
-    "universe_scan.json",
     "us_universe.json"
   ],
   "config_keys": {
-    "top": [
-      "fetch_interval_sec",
-      "kis",
-      "mode",
-      "strategies"
-    ],
-    "strategies": [
-      "eod_exit_hhmm",
-      "exchange",
-      "market",
-      "pbr_max",
-      "quantity",
-      "type"
-    ]
+    "top": [],
+    "strategies": []
   },
   "dir_tree": {
-    ".claude": {
-      "agents": {},
-      "agents_disabled": {},
-      "commands": {},
-      "hooks": {},
-      "skills": {},
-      "tools": {},
-      "worktrees": {}
-    },
+    ".claude": {},
     "docs": {
       "design": {},
       "eod": {},
@@ -398,7 +222,6 @@
       "tools": {}
     },
     "Quant": {
-      "build": {},
       "config": {},
       "include": {},
       "src": {},
@@ -437,8 +260,8 @@
     {
       "file": "Quant/src/risk/OrderGate.cpp",
       "symbol": "OrderGate::check",
-      "lines": 438,
-      "start": 222
+      "lines": 467,
+      "start": 228
     },
     {
       "file": "Quant/src/strategy/StrategyFactory.cpp",
@@ -510,7 +333,7 @@
       "file": "Quant/src/risk/OrderGate.cpp",
       "symbol": "OrderGate::clamp_buy_quantity",
       "lines": 168,
-      "start": 53
+      "start": 59
     },
     {
       "file": "scripts/token_audit.py",
@@ -543,22 +366,22 @@
       "start": 207
     },
     {
+      "file": "Quant/src/ipc/OpsServer.cpp",
+      "symbol": "OpsServer::on_frame",
+      "lines": 150,
+      "start": 457
+    },
+    {
       "file": "PYQuant/backtest/engine.py",
       "symbol": "run",
       "lines": 146,
       "start": 168
     },
     {
-      "file": "Quant/src/main.cpp",
-      "symbol": "main",
-      "lines": 144,
-      "start": 390
-    },
-    {
       "file": "PYQuant/main.py",
       "symbol": "main",
-      "lines": 143,
-      "start": 441
+      "lines": 145,
+      "start": 443
     },
     {
       "file": "Quant/src/api/KisIndex.cpp",
@@ -571,12 +394,6 @@
       "symbol": "KisClient::fetch_kr_ranking",
       "lines": 142,
       "start": 94
-    },
-    {
-      "file": "Quant/src/ipc/OpsServer.cpp",
-      "symbol": "OpsServer::on_frame",
-      "lines": 141,
-      "start": 457
     },
     {
       "file": "Quant/src/api/KisAuth.cpp",
@@ -678,7 +495,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::control_thread_fn",
       "lines": 104,
-      "start": 2594
+      "start": 2596
     },
     {
       "file": "Quant/src/api/WsSocketPosix.cpp",
@@ -690,7 +507,7 @@
       "file": "Quant/src/api/WebSocketClient.cpp",
       "symbol": "KisWebSocket::recv_loop",
       "lines": 101,
-      "start": 138
+      "start": 145
     },
     {
       "file": "Quant/src/core/Engine.cpp",
@@ -801,10 +618,16 @@
       "start": 158
     },
     {
+      "file": "Quant/src/api/KisOrder.cpp",
+      "symbol": "KisClient::send_order",
+      "lines": 89,
+      "start": 52
+    },
+    {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::drain_manual_inbox",
       "lines": 89,
-      "start": 2816
+      "start": 2844
     },
     {
       "file": "Quant/src/universe/UniverseScanner.cpp",
@@ -817,12 +640,6 @@
       "symbol": "render",
       "lines": 89,
       "start": 130
-    },
-    {
-      "file": "Quant/src/api/KisOrder.cpp",
-      "symbol": "KisClient::send_order",
-      "lines": 88,
-      "start": 37
     },
     {
       "file": "Quant/src/core/Engine.cpp",
@@ -859,6 +676,12 @@
       "symbol": "BarAggregator::seed",
       "lines": 83,
       "start": 286
+    },
+    {
+      "file": "Quant/src/core/Engine.cpp",
+      "symbol": "Engine::start_ops_server",
+      "lines": 81,
+      "start": 2705
     }
   ]
 }

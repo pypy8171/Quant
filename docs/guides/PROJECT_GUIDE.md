@@ -143,6 +143,7 @@ Quant/                              ← 저장소 루트
 │   │   │   ├── KisWsDecode.h       실시간 채널 레코드 → 구조체 (헤더 전용 순수 함수, test_ws_decode)
 │   │   │   └── KisWebSocket.h      실시간 체결·호가 WebSocket + stale 감지
 │   │   ├── core/
+│   │   │   ├── AppConfig.h         config.json → typed 설정 한 벌 (json을 읽는 곳은 여기뿐)
 │   │   │   ├── Engine.h            5-스레드 트레이딩 엔진 (+국면→전략 자동선택·강제청산)
 │   │   │   ├── ReconcilePlan.h     잔고 대조 차이 계산 → RECONCILE 행 (헤더 전용 순수 함수, test_reconcile_plan)
 │   │   │   ├── RingBuffer.h        SPSC 락-프리 큐 (cache-line 분리)
@@ -162,11 +163,10 @@ Quant/                              ← 저장소 루트
 │   │   │   └── ValueContraryStrategy.h  저PBR 역추세 전략
 │   │   └── utils/
 │   │       ├── Logger.h            비동기 싱글톤 로거 (ms UTC·전용 writer 스레드·밀림 처리·flush)
-│   │       ├── Config.h            JSON 설정 파서
 │   │       ├── EtfFilter.h         종목명 기반 ETF/ETN 판별 (브랜드 접두사∪상품 토큰, config/etf_name_tokens.json)
 │   │       └── Timer.h             고분해능 타이머
 │   ├── src/
-│   │   ├── main.cpp                진입점 + FEED / KR_TEST / US_TEST / TRADE 모드
+│   │   ├── main.cpp                진입점 — 초기화 단계 호출 목록 + FEED / KR_TEST / US_TEST / TRADE 분기
 │   │   ├── api/
 │   │   │   ├── KisClientInternal.h 구현 파일 공용 include·상수 (공개 헤더 아님)
 │   │   │   ├── KisTransport.cpp    플랫폼별 HTTP (WinHTTP↔libcurl)·재시도·초당 한도·인증 헤더
@@ -181,6 +181,7 @@ Quant/                              ← 저장소 루트
 │   │   │   ├── WsSocketWin.cpp     WinHTTP 소켓·BCrypt (Windows에서만 링크)
 │   │   │   └── WsSocketPosix.cpp   POSIX 소켓·RFC 6455·libcurl·OpenSSL (Linux에서만 링크)
 │   │   ├── core/
+│   │   │   ├── AppConfig.cpp       parse_config — 키 이름·기본값·검증
 │   │   │   ├── Engine.cpp          5-스레드 라이프사이클
 │   │   │   └── RingBuffer.cpp
 │   │   ├── ipc/
@@ -195,7 +196,6 @@ Quant/                              ← 저장소 루트
 │   │   │   └── MomentumStrategy.cpp
 │   │   └── utils/
 │   │       ├── Logger.cpp
-│   │       ├── Config.cpp
 │   │       └── Timer.cpp
 │   ├── config/
 │   │   └── config.json             ← gitignore (실KIS 인증정보+계좌번호)
@@ -269,10 +269,10 @@ Quant/                              ← 저장소 루트
 ### 단위 테스트
 
 <!-- gen:test-targets -->
-단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다 — 실행 타깃 `33`개.
+단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다 — 실행 타깃 `34`개.
 
 ```bash
-cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_ops_server test_ops_protocol test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_bar_aggregator test_order_pacer test_regime_bridge test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_wake_gate test_symbol_table test_tick_capture test_replay_source test_paper_executor test_feed_mux test_engine test_feed_supervisor test_shard_matrix test_strategy_shard test_strategy_router test_latency_trace test_mpsc test_account_ledger test_logger
+cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_ops_server test_ops_protocol test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_bar_aggregator test_order_pacer test_regime_bridge test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_wake_gate test_symbol_table test_tick_capture test_replay_source test_paper_executor test_feed_mux test_engine test_app_config test_feed_supervisor test_shard_matrix test_strategy_shard test_strategy_router test_latency_trace test_mpsc test_account_ledger test_logger
 ```
 <!-- /gen -->
 테스트 이름은 각각 원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·잔고 대조 계산·잔고 대조기·REST 현재가 폴러·신호 디스패처·발주 조절기·운영단말 프로토콜/서버·비동기 로거·매크로 국면 파일 판정기·N분봉 집계기·소비자 깨우기 조각·구간 지연 CSV·종목 id 테이블·틱 캡처·캡처 리플레이 소스·모의 체결기·피드 소스 mux·수신 N×샤드 M 링 행렬·전략 샤드·종목 id 전략 라우터·WS 피드 감독기·시험용 시세로 도는 Engine 한 바퀴(레인 1×샤드 1, 2×2, 캡처 리플레이)를 가리킨다.
