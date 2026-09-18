@@ -48,7 +48,7 @@
 | `research/studies/*/README.md` | `research/studies/README.md`, `research/BACKTESTS.md`, `research/README.md` | 자동(명령) `py scripts/check_docs.py` | 색인 등재는 check_docs가 잡는다. 요지 1줄·타임라인 서사는 사람 |
 | `strategies/*/SPEC.md`, `strategies/*/live/*.md` | `strategies/README.md`, `README.md` | 힌트 | 표에 SPEC·실증·검증경로 행 |
 | `docs/STYLE_GUIDE.md` | `CLAUDE.md#문서 문체 규약`, `.claude/hooks/lexicon-gate.ps1`, `scripts/check_plain_language.py` | 힌트 | 금지 표현을 추가했으면 게이트 두 곳의 사전도 |
-| `docs/guides/MAINTENANCE_AUTOMATION.md#4` (캐스트·복사·이름 표기) | `CLAUDE.md#코드 작업 규약`, `scripts/check_code_conventions.py`, `scripts/rename_frags.py`(SKIP·WIRE 표) | 힌트 | 규약을 더하거나 예외를 늘리면 검사기 규칙과 판정 표도. 약어 예외는 rename_frags.py의 SKIP·WIRE가 정본 |
+| `docs/guides/MAINTENANCE_AUTOMATION.md#4` | `CLAUDE.md#코드 작업 규약`, `scripts/check_code_conventions.py`, `scripts/rename_frags.py` | 힌트 | 규약을 더하거나 예외를 늘리면 검사기 규칙과 판정 표도. 약어 예외는 rename_frags.py의 SKIP·WIRE가 정본 |
 | `docs/sync_map.toml`, `scripts/sync_impact.py`, `scripts/gen_facts.py` | `docs/SYNC_MAP.md`, `docs/AUTOMATION.md#스크립트`, `docs/HARNESS.md` | 자동(명령) `py scripts/sync_impact.py --render --check` | SYNC_MAP.md §2 표는 이 파일에서 생성 |
 <!-- /sync-map:rules -->
 

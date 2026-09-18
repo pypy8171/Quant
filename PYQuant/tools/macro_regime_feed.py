@@ -421,12 +421,15 @@ def assess_levels(components: dict, score: int) -> dict:
     return {"flags": flags, "summary": summary}
 
 
-# [formula] 점수 → 매수 명목 비율. 스위치(−3이면 100%, −4면 0%)의 절벽을 없앤다. 점수 ≥ +2면 100%,
-#  0이면 70%, 정지선 절반이면 40%, 정지선 아래는 0. 사이 값은 직선. 엔진은 이 값을 rung 명목에 곱한다.
+# [formula] 점수 → 매수 명목 비율. 스위치(−3이면 100%, −4면 0%)의 절벽을 없앤다. RISK_ON 기준(ON_SCORE, +3)
+#  이상이면 100%, 0이면 70%, 정지선 절반이면 40%, 정지선 아래는 0. 사이 값은 직선. 엔진은 이 값을 rung 명목에 곱한다.
 #  0.1 단위로 끊어 3분마다 미세하게 바뀌어 분할 매수가 재구성되는 일을 막는다. [why D-083]
-def entry_scale(score: int, halt: int = None) -> float:
+#  09-18: 100%가 되는 점수를 +2에서 ON_SCORE로 옮겼다. +2에서 끝나면 라벨은 NEUTRAL인데 비율은 100%인 칸이
+#  생긴다(09-17 09:25 score 2). NEUTRAL이면 최대 90%, RISK_ON일 때만 100%.
+def entry_scale(score: int, halt: int = None, on: int = None) -> float:
     halt = HALT_SCORE if halt is None else halt
-    pts = [(float(halt), 0.0), (halt / 2.0, 0.4), (0.0, 0.7), (2.0, 1.0)]
+    on = ON_SCORE if on is None else on
+    pts = [(float(halt), 0.0), (halt / 2.0, 0.4), (0.0, 0.7), (float(on), 1.0)]
     if score <= pts[0][0]:
         return 0.0
     if score >= pts[-1][0]:

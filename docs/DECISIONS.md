@@ -3594,6 +3594,8 @@ resample 자리 일치)·`test_kis_decode`(timestamp −9h). 09-14 장은 `log_l
   09:00 이후 첫 계산값이고 `logs/regime_open_ref.json`에 남겨 재기동에도 유지한다. 전일 대비 표는 개장 때 이미 빨간 날 장중에
   돌아서는 것을 못 본다 — 이 표가 그것을 본다.
 - 정지선을 스위치 대신 비율로: `entry_scale` = 점수 ≥+2 → 1.0, 0 → 0.7, 정지선 절반 → 0.4, 정지선 이하 → 0(사이는 직선, 0.1 단위).
+  (09-18 수정: 1.0이 되는 점수를 +2에서 RISK_ON 기준 `ON_SCORE`(+3)로 옮겼다. 아래 줄에서 RISK_ON을 +3으로 옮길 때 이 점은 +2에 남아
+  09-17 09:25 score 2가 NEUTRAL 표시에 매수비율 100%로 나갔다. 이제 NEUTRAL은 최대 0.9, RISK_ON일 때만 1.0.)
   `RegimeFileBridge`가 값이 바뀐 회차에만 `OrderGate::set_entry_scale`로 넘기고, `DeviationScaleStrategy`가 베이스·물타기 명목에
   곱한 뒤 시그니처에 붙여(`S7`) 바뀐 회차에만 분할 매수를 다시 깐다. `entry_halt`는 비율 0과 같은 뜻으로 남는다(옛 필드 호환).
   코스피 −1%면 70%, −2%면 40%처럼 줄고 반등하면 돌아온다.
