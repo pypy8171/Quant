@@ -38,6 +38,10 @@ $env:PYTHONUTF8 = "1"
 # quant_trader는 repo 루트에서 떠야 한다. cwd가 다르면 유니버스 파일을 못 찾아 조용히 붕괴한다.
 $Repo = Split-Path -Parent $PSScriptRoot
 Set-Location $Repo
+# KIS 토큰 캐시를 C++ 트레이더와 파이썬 부속 프로세스가 한 파일로 쓰게 한다. 기본값이 서로 달라
+# (C++는 cwd, 파이썬은 Quant\config) 부속 프로세스가 먼저 토큰을 받으면 10초 뒤 트레이더의 발급이
+# 1분 1회 제한에 걸려 403 → 크래시 루프가 됐다(09-18 08:30 실측). 자식 창·트레이더가 모두 물려받는다.
+$env:KIS_TOKEN_CACHE_DIR = Join-Path $Repo "Quant\config"
 
 $Exe     = Join-Path $Repo "Quant\build_win\quant_trader.exe"
 $VenvPy  = Join-Path $Repo "PYQuant\.venv-win\Scripts\python.exe"

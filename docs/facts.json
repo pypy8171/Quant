@@ -468,7 +468,7 @@
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::on_fill",
       "lines": 238,
-      "start": 1578
+      "start": 1602
     },
     {
       "file": "Quant/src/core/Engine.cpp",
@@ -486,7 +486,7 @@
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::cancel_stale_orders_async",
       "lines": 187,
-      "start": 839
+      "start": 847
     },
     {
       "file": "Quant/src/core/Engine.cpp",
@@ -498,7 +498,7 @@
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::cancel_route",
       "lines": 174,
-      "start": 1272
+      "start": 1296
     },
     {
       "file": "PYQuant/dashboard/build_dashboard.py",
@@ -624,7 +624,7 @@
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::replace_route",
       "lines": 123,
-      "start": 1453
+      "start": 1477
     },
     {
       "file": "scripts/notify_sidecar.py",
@@ -765,6 +765,12 @@
       "start": 130
     },
     {
+      "file": "PYQuant/tools/macro_regime_feed.py",
+      "symbol": "build_regime",
+      "lines": 92,
+      "start": 471
+    },
+    {
       "file": "Quant/src/api/KisAccount.cpp",
       "symbol": "KisClient::get_open_orders",
       "lines": 92,
@@ -781,12 +787,6 @@
       "symbol": "BarAggregator::on_tick",
       "lines": 91,
       "start": 194
-    },
-    {
-      "file": "PYQuant/tools/macro_regime_feed.py",
-      "symbol": "build_regime",
-      "lines": 90,
-      "start": 446
     },
     {
       "file": "Quant/include/strategy/DeviationScaleStrategy.h",
@@ -849,16 +849,16 @@
       "start": 56
     },
     {
+      "file": "PYQuant/tools/macro_regime_feed.py",
+      "symbol": "fetch_changes",
+      "lines": 83,
+      "start": 249
+    },
+    {
       "file": "Quant/src/core/BarAggregator.cpp",
       "symbol": "BarAggregator::seed",
       "lines": 83,
       "start": 286
-    },
-    {
-      "file": "Quant/src/ipc/OrderRouter.cpp",
-      "symbol": "OrderRouter::append_trade_line",
-      "lines": 83,
-      "start": 1060
     }
   ]
 }
