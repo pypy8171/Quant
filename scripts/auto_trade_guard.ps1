@@ -20,7 +20,7 @@
 param(
   [string]$Config = "Quant\config\config_dev_paper.json",
   [string]$Open   = "08:45",   # 이 시각 전에는 기동하지 않는다(장 시작 09:00 전 준비 여유)
-  [string]$Until  = "15:35",   # 워치독에 그대로 넘기는 마감 시각
+  [string]$Until  = "20:05",   # 워치독에 그대로 넘기는 마감 시각(애프터마켓 20:00 + 여유, D-097)
   [switch]$Install,            # 평일 5분 주기 예약작업 등록
   [switch]$Uninstall,
   [switch]$DryRun
@@ -59,11 +59,11 @@ if ($Install) {
   # 주간 트리거에는 반복 설정이 없다. 1회 트리거에서 Repetition만 떼어 붙인다.
   $trg.Repetition = (New-ScheduledTaskTrigger -Once -At $Open `
       -RepetitionInterval (New-TimeSpan -Minutes 5) `
-      -RepetitionDuration (New-TimeSpan -Hours 7)).Repetition
+      -RepetitionDuration (New-TimeSpan -Hours 11 -Minutes 30)).Repetition
   $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
   Register-ScheduledTask -TaskName $TaskName -Action $act -Trigger $trg -Settings $set -Force | Out-Null
-  Say "예약작업 '$TaskName' 등록 — 평일 $Open 부터 5분마다 7시간, config=$Config"
+  Say "예약작업 '$TaskName' 등록 — 평일 $Open 부터 5분마다 11시간 30분(20:15까지), config=$Config"
   exit 0
 }
 

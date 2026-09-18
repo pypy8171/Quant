@@ -13,7 +13,7 @@
 
 | 작업 이름 | 시각 | 실행 | 산출물 |
 |---|---|---|---|
-| `QuantAutoTradeGuard` | 평일 08:45부터 5분마다 7시간 | `powershell -File scripts/auto_trade_guard.ps1` | 워치독이 없으면 하루 루프 기동 (§4) |
+| `QuantAutoTradeGuard` | 평일 08:45부터 5분마다 11시간 30분(20:15까지) | `powershell -File scripts/auto_trade_guard.ps1` | 워치독이 없으면 하루 루프 기동 (§4) |
 | `Quant EOD AutoDoc` | 평일 20:10 | `python scripts/eod_autodoc.py` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` · **결정 원장 파생 문서**(`sync_ledgers.py`) |
 | `claude_stock_study` | 평일 20:30 | `claude -p "/stock-study auto"` | `_private/주식_study/{날짜}_재무/` 1종목 · 저널 · 스터디 사이트 |
 | `claude_dashboard_sync` | 평일 21:10 | `claude -p "/dashboard-sync"` | 대시보드·스터디 사이트 HTML 재생성. 아티팩트 재발행은 헤드리스 `claude -p`에 Artifact 도구가 없어 못 한다 — 대화 세션에서 `/dashboard-sync`를 불러 같은 URL로 올린다 |
