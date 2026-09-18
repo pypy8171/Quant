@@ -52,7 +52,9 @@ config에는 **실계좌 인증 정보**가 있다. 모의투자는 `"is_paper":
 낡은 문서는 기억으로 찾지 않는다(D-075): Stop 훅 `sync-gate.ps1`이 낡은 도장을 잡으면 그 자리에서 문단을 고치고
 `py scripts/sync_impact.py --restamp <문서>`. 새 요약 문단은 **gen 블록 → 도장 → 링크만** 순으로 고르고, 동기화 대상은 늘리지 않는다.
 검사는 `python scripts/check_docs.py`(exit 1 = 드리프트). MFC 단말을 고쳤으면 [docs/guides/MFC_TERMINAL.md](docs/guides/MFC_TERMINAL.md)를
-같은 커밋에서, 실행 인자·접속 방법이 바뀌면 `_private/LINKS.md`도.
+같은 커밋에서, 실행 인자·접속 방법이 바뀌면 `_private/LINKS.md`도. main에 머지한 뒤 **메인 트리에서**
+`cmake --build out/build/x64-release --target ops_terminal`까지 돌린다 — 바탕화면 `운영단말.lnk`(사용자가 더블클릭으로 띄움)는
+그 빌드가 POST_BUILD로 갱신한다(`scripts/ops_terminal_shortcut.ps1`, worktree 빌드는 건너뜀).
 
 ### 커밋 절차
 

@@ -13,6 +13,7 @@
 // 엔진 상태
 #define IDC_ENGINE_STATE      1010
 #define IDC_ACCOUNT_STATE     1011
+#define IDC_ACCOUNT_PNL       1012
 
 // 포지션
 #define IDC_POSITIONS         1020

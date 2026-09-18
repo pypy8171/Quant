@@ -41,6 +41,8 @@ protected:
     afx_msg void    OnHaltSell();
     afx_msg void    OnTimer(UINT_PTR id);
     afx_msg void    OnPositionSelected(NMHDR* header, LRESULT* result);
+    afx_msg void    OnPositionsCustomDraw(NMHDR* header, LRESULT* result); // 평단대비·평가손익 칸을 부호 색으로
+    afx_msg HBRUSH  OnCtlColor(CDC* device_context, CWnd* window, UINT control_type); // 계좌 줄 평가손익 색
     afx_msg LRESULT OnOpsFrame(WPARAM, LPARAM lparam);
     afx_msg LRESULT OnOpsState(WPARAM, LPARAM lparam);
 
@@ -63,6 +65,7 @@ private:
     void   refresh_current_price();
     void apply_status(const std::string& body);
     void apply_account(const nlohmann::json& document); // STATUS의 계좌 요약 다섯 값을 한 줄로
+    static COLORREF profit_color(double value);         // 국내 관례 — 플러스 빨강, 마이너스 파랑, 0은 기본색
     void log(const CString& line);
     void set_order_enabled(bool on);
     void send_halt(const char* side, bool want_on);
@@ -74,6 +77,7 @@ private:
     bool         authentication_  = false;
     bool         manual_buy_halt_  = false; // 서버가 최근에 알려온 수동 정지 상태(HALT_ACK·STATUS로 갱신)
     bool         manual_sell_halt_ = false;
+    double       account_unrealized_pnl_ = 0.0; // OnCtlColor가 IDC_ACCOUNT_PNL 글자색을 고를 때 본다
 
     CListCtrl positions_;
     CListBox  log_;

@@ -634,6 +634,12 @@ if(MSVC)
         target_compile_definitions(ops_terminal PRIVATE _AFXDLL UNICODE _UNICODE)
         target_link_options(ops_terminal PRIVATE /ENTRY:wWinMainCRTStartup)
         target_link_libraries(ops_terminal PRIVATE nlohmann_json::nlohmann_json ws2_32)
+        # 링크 뒤 바탕화면 `운영단말.lnk`를 이 exe로 맞춘다(메인 트리 빌드만, worktree는 스크립트가 건너뛴다).
+        #  사용자가 더블클릭으로 띄우는 길이라 빌드마다 따라가야 한다. 실패해도 빌드는 깨지 않는다.
+        add_custom_command(TARGET ops_terminal POST_BUILD
+            COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+                    -File "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/ops_terminal_shortcut.ps1" "$<TARGET_FILE:ops_terminal>"
+            VERBATIM)
         message(STATUS "ops_terminal(MFC) 빌드 대상에 포함: ${QUANT_MFC_INC}")
     else()
         message(STATUS "ops_terminal(MFC) 건너뜀 — afxwin.h 없음 또는 QUANT_OPS_TERMINAL=OFF")

@@ -20,9 +20,10 @@ BEGIN
     PUSHBUTTON      "접속",                       IDC_CONNECT,    346,   6,  40,  15
     LTEXT           "끊김",                       IDC_LINK_STATE, 392,   9, 200,  10, SS_LEFTNOWORDWRAP
 
-    // 엔진 상태 한 줄 + 계좌 요약 한 줄(STATUS 1초 폴링)
+    // 엔진 상태 한 줄 + 계좌 요약 한 줄(STATUS 1초 폴링). 평가손익은 따로 둬 색(빨강 +, 파랑 -)을 입힌다
     LTEXT           "엔진 상태: -",               IDC_ENGINE_STATE, 7,  26, 586,  10, SS_LEFTNOWORDWRAP
-    LTEXT           "계좌: -",                    IDC_ACCOUNT_STATE, 7, 39, 586,  10, SS_LEFTNOWORDWRAP
+    LTEXT           "계좌: -",                    IDC_ACCOUNT_STATE, 7, 39, 386,  10, SS_LEFTNOWORDWRAP
+    LTEXT           "",                           IDC_ACCOUNT_PNL, 398, 39, 195,  10, SS_LEFTNOWORDWRAP
 
     // 포지션
     GROUPBOX        "보유 포지션 (행을 고르면 주문 폼에 종목·수량이 들어간다)", -1, 7, 53, 586, 180

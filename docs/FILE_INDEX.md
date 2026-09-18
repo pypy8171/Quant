@@ -13,7 +13,7 @@
 - [docs](#docs) — 55개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 176개
-- [scripts](#scripts) — 53개
+- [scripts](#scripts) — 54개
 - [strategies](#strategies) — 27개
 - [tools](#tools) — 3개
 
@@ -773,6 +773,7 @@
 - [logs.sh](../scripts/logs.sh) — Docker 컨테이너 로그 확인 스크립트
 - [maintain.py](../scripts/maintain.py) — 유지보수 자동화 진입점 스크립트
 - [notify_sidecar.py](../scripts/notify_sidecar.py) — 매매 알림 발송 보조 프로세스
+- [ops_terminal_shortcut.ps1](../scripts/ops_terminal_shortcut.ps1) — 운영단말 바탕화면 바로가기 `운영단말.lnk`와 사용자 환경변수 `QUANT_OPS_TOKEN`을 만든다. `ops_terminal` 링크 뒤 CMake POST_BUILD가 부르고, worktree 빌드는 건너뛴다
 - [parse_quant_log.py](../scripts/parse_quant_log.py) — 매매 로그 파서 스크립트
 - [quant_procs.ps1](../scripts/quant_procs.ps1) — 실행 프로세스 점검·정리 스크립트
 - [refresh_dashboard.py](../scripts/refresh_dashboard.py) — 대시보드·리뷰 재생성 스크립트

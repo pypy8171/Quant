@@ -153,6 +153,7 @@ enum Col
     kColAvg,
     kColLast,
     kColChg,
+    kColUnrealized, // 평가손익(원) = 수량 × (현재가 − 평단)
     kColReserved,
     kColSellable,
 };
@@ -170,6 +171,8 @@ ON_BN_CLICKED(IDC_HALT, &OpsTerminalDlg::OnHalt)
 ON_BN_CLICKED(IDC_HALT_SELL, &OpsTerminalDlg::OnHaltSell)
 ON_WM_TIMER()
 ON_NOTIFY(LVN_ITEMCHANGED, IDC_POSITIONS, &OpsTerminalDlg::OnPositionSelected)
+ON_NOTIFY(NM_CUSTOMDRAW, IDC_POSITIONS, &OpsTerminalDlg::OnPositionsCustomDraw)
+ON_WM_CTLCOLOR()
 ON_MESSAGE(WM_OPS_FRAME, &OpsTerminalDlg::OnOpsFrame)
 ON_MESSAGE(WM_OPS_STATE, &OpsTerminalDlg::OnOpsState)
 END_MESSAGE_MAP()
@@ -202,6 +205,7 @@ BOOL OpsTerminalDlg::OnInitDialog()
     positions_.InsertColumn(kColAvg, L"평단", LVCFMT_RIGHT, 80);
     positions_.InsertColumn(kColLast, L"현재가", LVCFMT_RIGHT, 80);
     positions_.InsertColumn(kColChg, L"평단대비", LVCFMT_RIGHT, 64);
+    positions_.InsertColumn(kColUnrealized, L"평가손익", LVCFMT_RIGHT, 90);
     positions_.InsertColumn(kColReserved, L"대기매도", LVCFMT_RIGHT, 60);
     positions_.InsertColumn(kColSellable, L"매도가능", LVCFMT_RIGHT, 60);
 
@@ -659,6 +663,10 @@ void OpsTerminalDlg::apply_positions(const std::string& body)
         set_cell(row, kColAvg, format_price(average));
         set_cell(row, kColLast, last > 0 ? format_price(last) : CString(L"—"));
         set_cell(row, kColChg, last > 0 && average > 0 ? format_percent((last - average) / average * 100.0) : CString(L"—"));
+        const double unrealized = last > 0 && average > 0 ? quantity * (last - average) : 0.0;
+        set_cell(row, kColUnrealized, last > 0 && average > 0 ? format_won(unrealized) : CString(L"—"));
+        // 부호만 행 데이터로 남긴다 — 커스텀 드로우가 칸 색을 고를 때 글자를 다시 파싱하지 않는다.
+        positions_.SetItemData(row, static_cast<DWORD_PTR>(unrealized > 0 ? 1 : unrealized < 0 ? 2 : 0));
         set_cell(row, kColReserved, format_quantity(sell_pending));
         set_cell(row, kColSellable, format_quantity(sellable));
     }
@@ -712,6 +720,7 @@ void OpsTerminalDlg::apply_account(const nlohmann::json& document)
     if (!document.contains("equity"))
     {
         SetDlgItemText(IDC_ACCOUNT_STATE, L"계좌: (엔진이 계좌 요약을 보내지 않음)");
+        SetDlgItemText(IDC_ACCOUNT_PNL, L"");
         return;
     }
 
@@ -724,11 +733,72 @@ void OpsTerminalDlg::apply_account(const nlohmann::json& document)
     const double unrealized_percent = cost_basis > 0.0 ? unrealized_pnl / cost_basis * 100.0 : 0.0;
 
     CString text;
-    text.Format(L"계좌: 총평가 %s원 | 주문가능현금 %s원 | 일손익 %s원 | 보유 평가 %s원 (평가손익 %s원, %s)",
+    text.Format(L"계좌: 총평가 %s원 | 주문가능현금 %s원 | 일손익 %s원 | 보유 평가 %s원",
              format_won(equity).GetString(), format_won(cash).GetString(), format_won(daily_pnl).GetString(),
-             format_won(position_value).GetString(), format_won(unrealized_pnl).GetString(),
-             format_percent(unrealized_percent).GetString());
+             format_won(position_value).GetString());
     SetDlgItemText(IDC_ACCOUNT_STATE, text);
+
+    CString pnl_text;
+    pnl_text.Format(L"평가손익 %s원 (%s)", format_won(unrealized_pnl).GetString(), format_percent(unrealized_percent).GetString());
+    account_unrealized_pnl_ = unrealized_pnl;
+    SetDlgItemText(IDC_ACCOUNT_PNL, pnl_text); // SetDlgItemText가 다시 그리게 하므로 OnCtlColor가 새 부호로 색을 고른다
+}
+
+COLORREF OpsTerminalDlg::profit_color(double value)
+{
+    if (value > 0)
+    {
+        return RGB(214, 0, 0);
+    }
+
+    if (value < 0)
+    {
+        return RGB(0, 80, 214);
+    }
+
+    return GetSysColor(COLOR_WINDOWTEXT);
+}
+
+HBRUSH OpsTerminalDlg::OnCtlColor(CDC* device_context, CWnd* window, UINT control_type)
+{
+    HBRUSH brush = CDialogEx::OnCtlColor(device_context, window, control_type);
+
+    if (window != nullptr && window->GetDlgCtrlID() == IDC_ACCOUNT_PNL)
+    {
+        device_context->SetTextColor(profit_color(account_unrealized_pnl_));
+    }
+
+    return brush;
+}
+
+// 포지션 표의 평단대비·평가손익 칸만 부호 색. 나머지 칸은 기본색으로 되돌려야 한다 — clrText는 행 단위로 남는다.
+void OpsTerminalDlg::OnPositionsCustomDraw(NMHDR* header, LRESULT* result)
+{
+    auto* draw = reinterpret_cast<NMLVCUSTOMDRAW*>(header);
+    *result = CDRF_DODEFAULT;
+
+    switch (draw->nmcd.dwDrawStage)
+    {
+    case CDDS_PREPAINT:
+        *result = CDRF_NOTIFYITEMDRAW;
+        break;
+
+    case CDDS_ITEMPREPAINT:
+        *result = CDRF_NOTIFYSUBITEMDRAW;
+        break;
+
+    case CDDS_ITEMPREPAINT | CDDS_SUBITEM:
+    {
+        const bool pnl_column = draw->iSubItem == kColChg || draw->iSubItem == kColUnrealized;
+        const DWORD_PTR sign = draw->nmcd.lItemlParam;
+        draw->clrText = pnl_column ? profit_color(sign == 1 ? 1.0 : sign == 2 ? -1.0 : 0.0) : GetSysColor(COLOR_WINDOWTEXT);
+        *result = CDRF_NEWFONT;
+        break;
+    }
+
+    default:
+        break;
+    }
 }
 
 // 확인 대화상자 한 번을 거쳐 ORDER_REQ를 보낸다. 거절·결과는 프레임으로 돌아와 로그에 남는다.
