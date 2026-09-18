@@ -51,6 +51,10 @@ NAME_RE = re.compile(r"(\d{6})\(([^)]{1,24})\)")
 NUM_RE = re.compile(r"\d")
 
 WEEKDAY_KR = "월화수목금토일"
+# 매매 비용 요율 — 원장이 realized_pnl을 계산할 때 쓰는 수와 같다(Quant/src/risk/OrderGate.cpp kCommissionRate·kSellTaxRate:
+#  수수료 0.015% 매수·매도, 거래세 0.18% 매도만). 원장 실현손익은 매도측 비용을 이미 뺀 값이라 둘을 더하면 이중 계산이다.
+COMMISSION_RATE = 0.00015
+TAX_RATE = 0.0018
 
 
 # ─────────────────────────── 입력 찾기 ───────────────────────────
@@ -153,9 +157,22 @@ def scan_ledger(path: Path) -> dict:
                                "rtime": {},  # 사유 → [첫 체결, 마지막 체결] HH:MM:SS
                                "strat": Counter(), "t0": "", "t1": "", "rp": 0.0})
     probe = 0
+    # 그날 낸 비용을 손익 옆에 같이 적기 위해 전체 체결(점검 주문 포함)의 대금을 따로 모은다.
+    cost = {"fills": 0, "buy": 0.0, "sell": 0.0, "commission": 0.0, "tax": 0.0, "sell_side": 0.0, "realized": 0.0}
     for r in rows:
         if r["event"] != "FILL":
             continue
+        notional = float(r.get("fill_qty") or 0) * float(r.get("fill_price") or 0)
+        if notional > 0:
+            cost["fills"] += 1
+            cost["commission"] += notional * COMMISSION_RATE
+            cost["realized"] += float(r.get("realized_pnl") or 0)
+            if r["side"] == "BUY":
+                cost["buy"] += notional
+            else:
+                cost["sell"] += notional
+                cost["tax"] += notional * TAX_RATE
+                cost["sell_side"] += notional * (COMMISSION_RATE + TAX_RATE)
         strat = r.get("strategy", "")
         if strat in NON_STRATEGY:
             probe += 1
@@ -180,7 +197,7 @@ def scan_ledger(path: Path) -> dict:
             a["S"] += 1; a["Sq"] += q; a["Sn"] += q * px; a["sreason"][why] += 1
 
     return {"events": events, "sides": sides, "rejects": rejects.most_common(10),
-            "per": dict(per), "probe": probe, "n_rows": len(rows),
+            "per": dict(per), "probe": probe, "n_rows": len(rows), "cost": cost,
             "span": (rows[0]["ts_kst"], rows[-1]["ts_kst"])}
 
 
@@ -192,6 +209,24 @@ def won(x) -> str:
 
 def signed(x) -> str:
     return f"+{int(x):,}" if x > 0 else f"{int(x):,}"
+
+
+def man(x) -> str:
+    """원 단위 금액을 '몇만원'으로. 1만 미만은 천원 단위, 1억 이상은 억·만으로 나눠 적는다."""
+    value = int(round(abs(x)))
+    sign = "-" if x < 0 else ""
+    if value >= 100_000_000:
+        eok, rest = divmod(value, 100_000_000)
+        return f"{sign}{eok}억 {rest // 10_000:,}만원"
+
+    if value >= 10_000:
+        return f"{sign}{value / 10_000:,.1f}만원"
+
+    return f"{sign}{value / 1_000:,.1f}천원"
+
+
+def signed_man(x) -> str:
+    return ("+" if x > 0 else "") + man(x)
 
 
 def rel(p) -> str:
@@ -244,6 +279,18 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
     else:
         add("전일대비 손익 줄이 로그에 없다 — 아래 표는 세션 기준 카운터다.")
     add("")
+    # 비용은 손익 바로 옆에 둔다 — 거래가 잦은 날은 비용이 손익만큼 커지는데(09-14~09-18: 비용 약 170만, 비용 전 손익 -60만)
+    #  4절 집계까지 내려가야 보이면 놓친다. 원장 실현손익은 매도측 비용을 뺀 뒤의 값이라 비용 전 손익을 같이 적는다.
+    cost = led.get("cost")
+    if cost and cost["fills"]:
+        total = cost["commission"] + cost["tax"]
+        realized = cost["realized"]
+        add(f"**매매 비용 약 {man(total)}** = 수수료 {man(cost['commission'])} + 거래세 {man(cost['tax'])} "
+            f"(체결 {cost['fills']}건, 매수 {man(cost['buy'])}·매도 {man(cost['sell'])}, "
+            f"요율 {COMMISSION_RATE * 100:.3f}%·{TAX_RATE * 100:.2f}%). "
+            f"원장 실현손익 {signed_man(realized)}은 매도측 비용을 뺀 값이고, 비용 전 손익은 "
+            f"{signed_man(realized + cost['sell_side'])}.")
+        add("")
     if pnl:
         lo = min(pnl, key=lambda x: x[1])
         hi = max(pnl, key=lambda x: x[1])

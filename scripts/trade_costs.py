@@ -107,8 +107,8 @@ def print_symbol(doc: dict, symbol: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description="체결 원장의 매매 비용·실현손익 누적")
     ap.add_argument("--log-dir", default="Quant/build_win/logs")
-    ap.add_argument("--commission", type=float, default=0.00014, help="매수·매도 수수료율(기본 0.014%%)")
-    ap.add_argument("--tax", type=float, default=0.0015, help="매도 거래세율(농특세 포함, 기본 0.15%%)")
+    ap.add_argument("--commission", type=float, default=0.00015, help="매수·매도 수수료율(기본 0.015%%, 원장 OrderGate.cpp와 같은 수)")
+    ap.add_argument("--tax", type=float, default=0.0018, help="매도 거래세율(농특세 포함, 기본 0.18%%, 원장 OrderGate.cpp와 같은 수)")
     ap.add_argument("--days", type=int, default=0, help="표에 보일 최근 일수(0=전부)")
     ap.add_argument("--symbol", default=None, help="종목 하나의 일별 표")
     ap.add_argument("--out", default=None, help="누적 JSON 경로(기본 <log-dir>/trade_costs.json)")

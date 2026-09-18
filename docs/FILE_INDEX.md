@@ -813,6 +813,7 @@
 - [EVOLUTION.md](../strategies/DeviationScale/EVOLUTION.md) — DevScale 전략 진화 기록
 - [MEETING_2026-09-11_TRENDX.md](../strategies/DeviationScale/MEETING_2026-09-11_TRENDX.md) — TRENDX 전략 검토 회의록
 - [MEETING_2026-09-18_RISKON_SLOTS.md](../strategies/DeviationScale/MEETING_2026-09-18_RISKON_SLOTS.md) — 강세장 슬롯·점수·재진입 회의록(재진입 쿨다운·DEVSCALE 물타기 끔·캡 400만)
+- [MEETING_2026-09-18_TURNOVER_COST.md](../strategies/DeviationScale/MEETING_2026-09-18_TURNOVER_COST.md) — 잦은 매매 원인 회의록(매도 76%가 비신호 경로, 교체 상한 복원→하루 1회 진입 게이트)
 
 ### strategies/DeviationScale/live/
 
