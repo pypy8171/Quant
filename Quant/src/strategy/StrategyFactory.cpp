@@ -403,7 +403,7 @@ static void load_market_making(StrategyLoadCtx& context, const json& node)
 //  스캔 유니버스가 잡지 못한 잔고 보유분(아침에 산 물린분 등)마다 "청산 전용" ITB를
 //  붙인다. 신규진입은 no_new_entry_hhmm=1(항상 과거)로 영구 차단 → 오직 보호·청산만:
 //    seed_trail_percent(넓은 앵커 트레일) + exit_near_average_percent(본전근처 반등청산)
-//    + average_loss_percent(평단손절, 0=비활성) + EOD(eod_exit_hhmm, 기본 1600=장중 강제청산 안 함).
+//    + average_loss_percent(평단손절, 0=비활성) + EOD(eod_exit_hhmm, 기본 2100=장중 강제청산 안 함 — 엔진이 20:00까지 도니 1600은 애프터마켓 청산이 된다, D-097).
 //  covered = 이미 스캔 전략이 담당하는 티커(중복 부착 방지). rest_price_feed 합성틱으로 on_trade 구동.
 static void attach_holding_guardians(StrategyLoadCtx& context, const json& guardians_node,
                                      const std::set<std::string>& covered)
@@ -414,7 +414,7 @@ static void attach_holding_guardians(StrategyLoadCtx& context, const json& guard
     double seed_trail_percent     = seed_trail_display / 100.0;             // %→비율
     double exit_near_average_percent  = exit_near_average_display / 100.0;
     double average_loss_percent       = guardians_node.value("avg_loss_pct", 0.0) / 100.0; // 0=비활성
-    int    eod_hhmm           = guardians_node.value("eod_exit_hhmm", 1600);     // 1600=장중 강제청산 안 함(보호만)
+    int    eod_hhmm           = guardians_node.value("eod_exit_hhmm", 2100);     // 2100=장중 강제청산 안 함(보호만) [why D-097]
     int    channel_min        = guardians_node.value("channel_min", 10);
     int    cooldown_sec       = guardians_node.value("reentry_cooldown_sec", 60);
     // 본전탈출 무장 깊이 — 평단 -arm%까지 실제로 밀려 본 적이 있어야 본전탈출이 켜진다.
