@@ -65,10 +65,25 @@ if (Test-Path $EnvFile) {
 $script:Sessions = @()
 $script:Started  = Get-Date
 
+# RunLog 한 줄 쓰기. Add-Content는 다른 프로세스가 파일을 열어두기만 해도(다른 세션의 `tail -f`) IOException을 내고,
+# $ErrorActionPreference=Stop 아래서는 그 한 줄이 감시견 전체를 끊는다(2026-09-18 10:26 재빌드 직후 중단, 트레이더
+# 미기동). .NET FileStream을 공유 모드 ReadWrite로 열면 같은 상황에서도 붙는다. 그래도 안 되면 짧게 재시도하고
+# 마지막엔 화면에만 남긴다 — 로그 한 줄은 잃어도 되지만 감시견은 죽으면 안 된다.
+function Write-RunLog([string]$line) {
+  for ($attempt = 1; $attempt -le 5; $attempt++) {
+    try {
+      $stream = [System.IO.File]::Open($RunLog, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+      $writer = New-Object System.IO.StreamWriter($stream, (New-Object System.Text.UTF8Encoding($false)))
+      $writer.WriteLine($line); $writer.Close(); return
+    } catch [System.IO.IOException] { Start-Sleep -Milliseconds 200 }
+  }
+  Write-Host "  (RunLog 잠김 — 파일에 못 남긴 줄) $line" -ForegroundColor DarkYellow
+}
+
 function Say([string]$msg, [string]$level = "INFO") {
   $line = "[{0}] {1,-5} {2}" -f (Get-Date -Format "HH:mm:ss"), $level, $msg
   Write-Host $line
-  Add-Content -Path $RunLog -Value $line -Encoding utf8
+  Write-RunLog $line
 }
 
 # 네이티브 프로그램(py·wsl)의 stdout·stderr를 한 줄씩 RunLog에 남기고 rc를 돌려준다.
@@ -78,7 +93,7 @@ function Say([string]$msg, [string]$level = "INFO") {
 function Run-Native([string]$cmdline, [string]$prefix = "    ") {
   $out = cmd /c "$cmdline 2>&1"
   $rc = $LASTEXITCODE
-  $out | ForEach-Object { Add-Content -Path $RunLog -Value "$prefix$_" -Encoding utf8 }
+  $out | ForEach-Object { Write-RunLog "$prefix$_" }
   return $rc
 }
 
@@ -321,7 +336,7 @@ if ($NoBuild) {
   $t0 = Get-Date
   $out = cmd /c "`"$vcvars`" >nul 2>&1 && `"$cmake`" --build Quant\build_win --target quant_trader 2>&1"
   $rc = $LASTEXITCODE
-  $out | ForEach-Object { Add-Content -Path $RunLog -Value "    $_" -Encoding utf8 }
+  $out | ForEach-Object { Write-RunLog "    $_" }
   $secs = [int]((Get-Date) - $t0).TotalSeconds
   if ($rc -ne 0) {
     $why = ($out | Where-Object { $_ -match 'error|FAILED|LNK' } | Select-Object -First 3) -join ' | '
