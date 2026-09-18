@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <unordered_set>
 #include <unordered_map>
@@ -105,6 +106,26 @@ CString format_percent(double value)
     return text;
 }
 
+// 원 단위 금액에 천 단위 쉼표. 계좌 줄은 자릿수가 커서 쉼표 없이는 읽기 어렵다.
+CString format_won(double value)
+{
+    CString digits;
+    digits.Format(L"%.0f", std::fabs(value));
+    CString grouped;
+
+    for (int index = 0; index < digits.GetLength(); ++index)
+    {
+        if (index > 0 && (digits.GetLength() - index) % 3 == 0)
+        {
+            grouped += L',';
+        }
+
+        grouped += digits[index];
+    }
+
+    return (value < 0 ? L"-" : L"") + grouped;
+}
+
 const wchar_t* state_text(LinkState link_state)
 {
     switch (link_state)
@@ -146,6 +167,7 @@ ON_BN_CLICKED(IDC_SELL_ALL, &OpsTerminalDlg::OnSellAll)
 ON_BN_CLICKED(IDC_BUY, &OpsTerminalDlg::OnBuy)
 ON_BN_CLICKED(IDC_KILL, &OpsTerminalDlg::OnKill)
 ON_BN_CLICKED(IDC_HALT, &OpsTerminalDlg::OnHalt)
+ON_BN_CLICKED(IDC_HALT_SELL, &OpsTerminalDlg::OnHaltSell)
 ON_WM_TIMER()
 ON_NOTIFY(LVN_ITEMCHANGED, IDC_POSITIONS, &OpsTerminalDlg::OnPositionSelected)
 ON_MESSAGE(WM_OPS_FRAME, &OpsTerminalDlg::OnOpsFrame)
@@ -308,22 +330,41 @@ void OpsTerminalDlg::OnKill()
 
 void OpsTerminalDlg::OnHalt()
 {
-    const bool want_on = !manual_halt_;
-    const int  result = MessageBox(want_on ? L"신규 진입(매수)만 막는다. 보유분 매도는 그대로 나간다.\n\n켤까?"
-                                       : L"수동 진입정지를 끈다.\n\n끌까?",
-                              L"매매 정지", MB_YESNO | (want_on ? MB_ICONWARNING : MB_ICONQUESTION));
+    const bool want_on = !manual_buy_halt_;
+    const int  result = MessageBox(want_on ? L"전략의 신규 진입(매수)만 막는다. 보유분 매도와 이 창의 수동 주문은 그대로 나간다.\n\n켤까?"
+                                       : L"신규 매수 정지를 끈다.\n\n끌까?",
+                              L"신규 매수 정지", MB_YESNO | (want_on ? MB_ICONWARNING : MB_ICONQUESTION));
 
-    if (result != IDYES)
+    if (result == IDYES)
     {
-        return;
+        send_halt("BUY", want_on);
     }
+}
 
+// 전략 매도 정지 — 손절·트레일·마감 청산까지 전략이 내는 매도 전부가 멈춘다. 이 창의 수동 매도와 국면 강제청산은 예외. [why D-095]
+void OpsTerminalDlg::OnHaltSell()
+{
+    const bool want_on = !manual_sell_halt_;
+    const int  result = MessageBox(want_on ? L"전략이 내는 매도를 전부 막는다 — 손절·트레일·마감 청산도 멈춘다.\n"
+                                              L"이 창의 수동 매도와 국면 강제청산은 그대로 나간다.\n\n켤까?"
+                                       : L"전략 매도 정지를 끈다.\n\n끌까?",
+                              L"전략 매도 정지", MB_YESNO | (want_on ? MB_ICONWARNING : MB_ICONQUESTION));
+
+    if (result == IDYES)
+    {
+        send_halt("SELL", want_on);
+    }
+}
+
+void OpsTerminalDlg::send_halt(const char* side, bool want_on)
+{
     json body;
-    body["on"] = want_on;
+    body["side"] = side;
+    body["on"]   = want_on;
 
     if (link_.send(OpsMsg::HALT_REQ, body.dump()))
     {
-        log(want_on ? L"HALT_REQ ON 전송" : L"HALT_REQ OFF 전송");
+        log(CString(L"HALT_REQ ") + CString(side) + (want_on ? L" ON 전송" : L" OFF 전송"));
     }
     else
     {
@@ -373,6 +414,7 @@ LRESULT OpsTerminalDlg::OnOpsState(WPARAM, LPARAM lparam)
         authentication_ = false;
         set_order_enabled(false);
         SetDlgItemText(IDC_ENGINE_STATE, L"엔진 상태: -");
+        SetDlgItemText(IDC_ACCOUNT_STATE, L"계좌: -");
 
         if (!link_.running())
         {
@@ -495,12 +537,15 @@ void OpsTerminalDlg::handle_frame(const ops::Frame& frame)
     case OpsMsg::HALT_ACK:
         if (flag(document, "ok"))
         {
-            set_halt_button(flag(document, "manual_halt"));
-            log(manual_halt_ ? L"[HALT] 확인 — 수동 진입정지 ON" : L"[HALT] 확인 — 수동 진입정지 OFF");
+            set_halt_buttons(flag(document, "manual_buy_halt"), flag(document, "manual_sell_halt"));
+            CString text;
+            text.Format(L"[HALT] 확인 — 신규 매수 정지 %s, 전략 매도 정지 %s", manual_buy_halt_ ? L"ON" : L"OFF",
+                        manual_sell_halt_ ? L"ON" : L"OFF");
+            log(text);
         }
         else
         {
-            log(L"[HALT] 거절 — 미인증");
+            log(L"[HALT] 거절 — " + from_utf8(text_of(document, "msg").empty() ? std::string("미인증") : text_of(document, "msg")));
         }
 
         break;
@@ -641,13 +686,13 @@ void OpsTerminalDlg::apply_status(const std::string& body)
         return;
     }
 
-    set_halt_button(flag(document, "manual_halt"));
+    set_halt_buttons(flag(document, "manual_buy_halt"), flag(document, "manual_sell_halt"));
 
     CString text;
-    text.Format(L"엔진 상태: running=%d data=%d signal=%d order=%d | kill=%d entry_halt=%d manual_halt=%d force_liq=%d | paper=%d",
+    text.Format(L"엔진 상태: running=%d data=%d signal=%d order=%d | kill=%d entry_halt=%d buy_halt=%d sell_halt=%d force_liq=%d | paper=%d",
              flag(document, "running") ? 1 : 0, flag(document, "data") ? 1 : 0, flag(document, "signal") ? 1 : 0, flag(document, "order") ? 1 : 0,
-             flag(document, "kill") ? 1 : 0, flag(document, "entry_halt") ? 1 : 0, flag(document, "manual_halt") ? 1 : 0,
-             flag(document, "force_liq") ? 1 : 0, flag(document, "paper") ? 1 : 0);
+             flag(document, "kill") ? 1 : 0, flag(document, "entry_halt") ? 1 : 0, flag(document, "manual_buy_halt") ? 1 : 0,
+             flag(document, "manual_sell_halt") ? 1 : 0, flag(document, "force_liq") ? 1 : 0, flag(document, "paper") ? 1 : 0);
 
     if (document.contains("strategies") && document["strategies"].is_array())
     {
@@ -657,6 +702,33 @@ void OpsTerminalDlg::apply_status(const std::string& body)
     }
 
     SetDlgItemText(IDC_ENGINE_STATE, text);
+    apply_account(document);
+}
+
+// 총평가·현금·일손익은 엔진의 잔고 대조 주기(브로커 값)로만 바뀌고, 보유 평가·평가손익은 최근 체결가라 매초 움직인다.
+//  옛 엔진(필드 없음)에 붙으면 줄을 비워 둔다.
+void OpsTerminalDlg::apply_account(const nlohmann::json& document)
+{
+    if (!document.contains("equity"))
+    {
+        SetDlgItemText(IDC_ACCOUNT_STATE, L"계좌: (엔진이 계좌 요약을 보내지 않음)");
+        return;
+    }
+
+    const double equity         = number_of(document, "equity");
+    const double cash           = number_of(document, "cash");
+    const double daily_pnl      = number_of(document, "daily_pnl");
+    const double position_value = number_of(document, "position_value");
+    const double unrealized_pnl = number_of(document, "unrealized_pnl");
+    const double cost_basis     = position_value - unrealized_pnl;
+    const double unrealized_percent = cost_basis > 0.0 ? unrealized_pnl / cost_basis * 100.0 : 0.0;
+
+    CString text;
+    text.Format(L"계좌: 총평가 %s원 | 주문가능현금 %s원 | 일손익 %s원 | 보유 평가 %s원 (평가손익 %s원, %s)",
+             format_won(equity).GetString(), format_won(cash).GetString(), format_won(daily_pnl).GetString(),
+             format_won(position_value).GetString(), format_won(unrealized_pnl).GetString(),
+             format_percent(unrealized_percent).GetString());
+    SetDlgItemText(IDC_ACCOUNT_STATE, text);
 }
 
 // 확인 대화상자 한 번을 거쳐 ORDER_REQ를 보낸다. 거절·결과는 프레임으로 돌아와 로그에 남는다.
@@ -741,14 +813,16 @@ void OpsTerminalDlg::log(const CString& line)
 
 void OpsTerminalDlg::set_order_enabled(bool on)
 {
-    for (int id : {IDC_SELL, IDC_SELL_ALL, IDC_BUY, IDC_KILL, IDC_HALT})
+    for (int id : {IDC_SELL, IDC_SELL_ALL, IDC_BUY, IDC_KILL, IDC_HALT, IDC_HALT_SELL})
     {
         GetDlgItem(id)->EnableWindow(on ? TRUE : FALSE);
     }
 }
 
-void OpsTerminalDlg::set_halt_button(bool on)
+void OpsTerminalDlg::set_halt_buttons(bool buy_on, bool sell_on)
 {
-    manual_halt_ = on;
-    SetDlgItemText(IDC_HALT, on ? L"매매 정지: ON (해제하려면 클릭)" : L"매매 정지: OFF");
+    manual_buy_halt_  = buy_on;
+    manual_sell_halt_ = sell_on;
+    SetDlgItemText(IDC_HALT, buy_on ? L"신규 매수 정지: ON (해제는 클릭)" : L"신규 매수 정지: OFF");
+    SetDlgItemText(IDC_HALT_SELL, sell_on ? L"전략 매도 정지: ON (해제는 클릭)" : L"전략 매도 정지: OFF");
 }

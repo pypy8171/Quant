@@ -6,6 +6,7 @@
 #include "resource.h"
 
 #include <map>
+#include <nlohmann/json_fwd.hpp>
 #include <string>
 
 struct TerminalArgs
@@ -37,6 +38,7 @@ protected:
     afx_msg void    OnBuy();
     afx_msg void    OnKill();
     afx_msg void    OnHalt();
+    afx_msg void    OnHaltSell();
     afx_msg void    OnTimer(UINT_PTR id);
     afx_msg void    OnPositionSelected(NMHDR* header, LRESULT* result);
     afx_msg LRESULT OnOpsFrame(WPARAM, LPARAM lparam);
@@ -60,15 +62,18 @@ private:
     double last_in_table(const CString& ticker) const;
     void   refresh_current_price();
     void apply_status(const std::string& body);
+    void apply_account(const nlohmann::json& document); // STATUS의 계좌 요약 다섯 값을 한 줄로
     void log(const CString& line);
     void set_order_enabled(bool on);
-    void set_halt_button(bool on); // manual_halt_ 갱신 + 버튼 캡션 반영 [why D-091]
+    void send_halt(const char* side, bool want_on);
+    void set_halt_buttons(bool buy_on, bool sell_on); // manual_*_halt_ 갱신 + 버튼 캡션 반영 [why D-091, D-095]
 
     TerminalArgs arguments_;
     OpsLink      link_;
     LinkState    state_ = LinkState::Disconnected;
     bool         authentication_  = false;
-    bool         manual_halt_ = false; // 서버가 최근에 알려온 수동 정지 상태(HALT_ACK·STATUS로 갱신)
+    bool         manual_buy_halt_  = false; // 서버가 최근에 알려온 수동 정지 상태(HALT_ACK·STATUS로 갱신)
+    bool         manual_sell_halt_ = false;
 
     CListCtrl positions_;
     CListBox  log_;
@@ -77,6 +82,6 @@ private:
     std::map<std::string, std::string>  odno_to_client_id_;
 
     static constexpr UINT_PTR kStatusTimer = 1;
-    static constexpr UINT     kStatusEveryMs = 5000;
+    static constexpr UINT     kStatusEveryMs = 1000; // 계좌 줄이 이 주기로 움직인다(STATUS 한 프레임은 수백 바이트)
     static constexpr int      kLogMaxLines   = 2000;
 };

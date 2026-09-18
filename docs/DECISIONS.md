@@ -3935,3 +3935,30 @@ provider·key 핸들을 새로 여닫고 있었다.
 (`test_latency_trace`·`test_tick_capture`·`test_replay_source`·`test_engine`, 전부 `0xc0000409`류 실패)가
 남는데, `git stash`로 이 변경을 걷어낸 같은 워크트리에서도 동일하게 실패해 이 워크트리 빌드 환경의 기존
 문제이지 D-094 때문이 아님을 확인했다(이 세션이 고칠 범위 밖 — 별도 항목으로 남긴다).
+
+---
+
+### D-095 운영단말 수동 정지를 매수·매도 둘로 가른다 (2026-09-18)
+**상태**: 끝 (worktree `wt/ops-account`, 빌드 통과, `test_signal_dispatcher`·`test_ops_server`·`test_order_gate` 통과)
+
+**배경**: D-091의 수동 정지는 신규 매수 하나뿐이었다. 운영자가 "전략이 내는 매도를 잠깐 세우고 싶다"(급락 되돌림을
+기다릴 때, 청산 로직이 의심스러울 때)고 판단해도 걸 자리가 없었다. 같이 넣은 계좌 요약 줄(총평가·현금·일손익·보유
+평가·평가손익, `STATUS` 1초 폴링)은 값을 엔진이 이미 갖고 있어 프로토콜 필드만 늘렸다.
+
+**결정**: `OrderGate::manual_halt_`를 `manual_buy_halt_`·`manual_sell_halt_` 둘로 나누고 `set_manual_halt(OrderSide, bool)`
+하나로 켠다. 매수 정지는 전과 같이 `is_entry_halted()`에 OR — 전략이 신호를 만들지 않는다. 매도 정지는
+`SignalDispatcher::from_strategy`에서 전략의 SELL NEW만 버린다(종목당 한 번 로그, 정지가 풀리면 로그 표를 비운다).
+**수동 주문(`MANUAL`)과 국면 강제청산(`force_liquidate`)은 막지 않는다** — 운영자가 건 정지가 운영자의 손을 묶으면
+안 되고, 극단 위험회피는 사람 판단보다 위에 둔다. 손절·트레일·마감(`eod_hhmm`) 청산은 전략 신호라 같이 멈춘다 —
+단말 확인창에 그대로 적었다. 프로토콜은 `HALT_REQ {"side","on"}`(side 없으면 BUY, 옛 단말 호환),
+`HALT_ACK`·`STATUS`에 `manual_buy_halt`·`manual_sell_halt`.
+
+**버린 대안**: (1) 매도 정지를 `OrderGate::check()`에서 거절 — 전략이 3초마다 같은 매도를 되내 거절 로그가 쌓이고,
+`MANUAL`·강제청산을 예외로 두려면 게이트가 발신자를 알아야 한다. 디스패처는 이미 발신자(`strategy_id`)를 받는 자리라
+거기가 맞다. (2) 마감 청산은 매도 정지에서 예외 — "마감 전엔 다 판다"가 전략 규칙이지 리스크 규칙은 아니라서,
+운영자가 오늘은 넘기겠다고 한 뜻을 엔진이 뒤집지 않게 뒀다. 필요하면 `strategy_id`별 예외를 디스패처 한 줄로 더한다.
+
+**확인 방법**: `test_signal_dispatcher`의 `test_manual_sell_halt`(SELL NEW만 막고 BUY·CANCEL 통과, 끄면 재개, 매수 정지는
+디스패처가 매도를 막지 않음). 장중 단말에서 전략 매도 정지 ON → 로그에 `[Engine] 수동 매도 정지 — 전략 매도 차단` 한 줄,
+단말 수동 매도는 체결되는지, OFF 뒤 전략 매도가 다시 나가는지.
+

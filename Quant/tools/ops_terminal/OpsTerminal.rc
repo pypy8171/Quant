@@ -5,7 +5,7 @@
 
 LANGUAGE LANG_KOREAN, SUBLANG_DEFAULT
 
-IDD_OPS_TERMINAL DIALOGEX 0, 0, 600, 420
+IDD_OPS_TERMINAL DIALOGEX 0, 0, 600, 433
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
 CAPTION "운영단말 — quant_trader"
 FONT 9, "Malgun Gothic", 400, 0, 0x81
@@ -20,36 +20,38 @@ BEGIN
     PUSHBUTTON      "접속",                       IDC_CONNECT,    346,   6,  40,  15
     LTEXT           "끊김",                       IDC_LINK_STATE, 392,   9, 200,  10, SS_LEFTNOWORDWRAP
 
-    // 엔진 상태 한 줄
+    // 엔진 상태 한 줄 + 계좌 요약 한 줄(STATUS 1초 폴링)
     LTEXT           "엔진 상태: -",               IDC_ENGINE_STATE, 7,  26, 586,  10, SS_LEFTNOWORDWRAP
+    LTEXT           "계좌: -",                    IDC_ACCOUNT_STATE, 7, 39, 586,  10, SS_LEFTNOWORDWRAP
 
     // 포지션
-    GROUPBOX        "보유 포지션 (행을 고르면 주문 폼에 종목·수량이 들어간다)", -1, 7, 40, 586, 180
+    GROUPBOX        "보유 포지션 (행을 고르면 주문 폼에 종목·수량이 들어간다)", -1, 7, 53, 586, 180
     CONTROL         "",                           IDC_POSITIONS,  "SysListView32",
                     LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP,
-                                                                   13,  52, 574, 146
-    PUSHBUTTON      "새로고침",                   IDC_REFRESH,    543, 201,  44,  14
+                                                                   13,  65, 574, 146
+    PUSHBUTTON      "새로고침",                   IDC_REFRESH,    543, 214,  44,  14
 
     // 주문 폼
-    GROUPBOX        "수동 주문 (가격 0 = 시장가)", -1,              7, 224, 586,  34
-    LTEXT           "종목",                       -1,              13, 239,  18,  10
-    EDITTEXT                                      IDC_TICKER,      33, 237,  50,  13, ES_AUTOHSCROLL | ES_UPPERCASE
-    LTEXT           "수량",                       -1,              92, 239,  18,  10
-    EDITTEXT                                      IDC_QTY,        112, 237,  40,  13, ES_AUTOHSCROLL | ES_NUMBER
-    LTEXT           "가격",                       -1,             160, 239,  18,  10
-    EDITTEXT                                      IDC_PRICE,      180, 237,  50,  13, ES_AUTOHSCROLL | ES_NUMBER
-    PUSHBUTTON      "매도",                       IDC_SELL,       244, 236,  50,  15
-    PUSHBUTTON      "보유 전량 매도",             IDC_SELL_ALL,   300, 236,  70,  15
-    PUSHBUTTON      "매수",                       IDC_BUY,        400, 236,  50,  15
-    LTEXT           "현재가 —",                   IDC_CUR_PRICE,  460, 239, 127,  10, SS_NOPREFIX
-    LTEXT           "내 주문 결과: —",            IDC_LAST_RESULT, 13, 252, 574,   9, SS_NOPREFIX | SS_ENDELLIPSIS
+    GROUPBOX        "수동 주문 (가격 0 = 시장가)", -1,              7, 237, 586,  34
+    LTEXT           "종목",                       -1,              13, 252,  18,  10
+    EDITTEXT                                      IDC_TICKER,      33, 250,  50,  13, ES_AUTOHSCROLL | ES_UPPERCASE
+    LTEXT           "수량",                       -1,              92, 252,  18,  10
+    EDITTEXT                                      IDC_QTY,        112, 250,  40,  13, ES_AUTOHSCROLL | ES_NUMBER
+    LTEXT           "가격",                       -1,             160, 252,  18,  10
+    EDITTEXT                                      IDC_PRICE,      180, 250,  50,  13, ES_AUTOHSCROLL | ES_NUMBER
+    PUSHBUTTON      "매도",                       IDC_SELL,       244, 249,  50,  15
+    PUSHBUTTON      "보유 전량 매도",             IDC_SELL_ALL,   300, 249,  70,  15
+    PUSHBUTTON      "매수",                       IDC_BUY,        400, 249,  50,  15
+    LTEXT           "현재가 —",                   IDC_CUR_PRICE,  460, 252, 127,  10, SS_NOPREFIX
+    LTEXT           "내 주문 결과: —",            IDC_LAST_RESULT, 13, 265, 574,   9, SS_NOPREFIX | SS_ENDELLIPSIS
 
     // 로그
-    GROUPBOX        "로그",                       -1,               7, 262, 586, 132
-    LISTBOX                                       IDC_LOG,         13, 274, 574, 116,
+    GROUPBOX        "로그",                       -1,               7, 275, 586, 132
+    LISTBOX                                       IDC_LOG,         13, 287, 574, 116,
                     LBS_NOINTEGRALHEIGHT | LBS_NOSEL | WS_VSCROLL | WS_HSCROLL | WS_BORDER
 
     // 진입정지·킬스위치
-    PUSHBUTTON      "매매 정지: OFF",             IDC_HALT,         7, 400, 140,  15
-    PUSHBUTTON      "킬스위치 — 엔진 정지",       IDC_KILL,       487, 400, 106,  15
+    PUSHBUTTON      "신규 매수 정지: OFF",        IDC_HALT,         7, 413, 140,  15
+    PUSHBUTTON      "전략 매도 정지: OFF",        IDC_HALT_SELL,  153, 413, 140,  15
+    PUSHBUTTON      "킬스위치 — 엔진 정지",       IDC_KILL,       487, 413, 106,  15
 END

@@ -35,7 +35,7 @@ enum class OpsMsg : uint8_t
     PING         = 0x03, // c→s {}
     PONG         = 0x04, // s→c {"ts"}
     STATUS_REQ   = 0x10, // c→s {}
-    STATUS       = 0x11, // s→c {"running","data","signal","order","kill","entry_halt","manual_halt","force_liq"}
+    STATUS       = 0x11, // s→c {"running","data","signal","order","kill","entry_halt","manual_buy_halt","manual_sell_halt","force_liq","paper","strategies","equity","cash","daily_pnl","position_value","unrealized_pnl"} — 뒤 다섯은 계좌 요약(원). 단말이 1초마다 묻는다
     POS_REQ      = 0x12, // c→s {}
     POSITIONS    = 0x13, // s→c {"positions":[{account,ticker,name,quantity,average_price,reserved,last}]} — 변경 시 push도 한다. reserved: 미체결 매도 음수·매수 양수, last: 최근 체결가(틱 없으면 0)
     ORDER_REQ    = 0x20, // c→s {"cid","ticker","side","qty","price","ref_price"}
@@ -44,8 +44,8 @@ enum class OpsMsg : uint8_t
     FILL         = 0x23, // s→c {"odno","ticker","side","qty","price","time"}
     KILL         = 0x30, // c→s {}
     KILL_ACK     = 0x31, // s→c {"ok"}
-    HALT_REQ     = 0x32, // c→s {"on"} — 수동 진입정지 on/off. kill과 달리 되돌릴 수 있고 SELL은 막지 않는다 [why D-091]
-    HALT_ACK     = 0x33, // s→c {"ok","manual_halt"}
+    HALT_REQ     = 0x32, // c→s {"side","on"} — 수동 정지 on/off. side는 "BUY"(신규 진입, 없으면 이것)·"SELL"(전략 매도). kill과 달리 되돌릴 수 있다 [why D-091, D-095]
+    HALT_ACK     = 0x33, // s→c {"ok","manual_buy_halt","manual_sell_halt"}
     ERROR_MSG    = 0x7F, // s→c {"msg"}
 };
 

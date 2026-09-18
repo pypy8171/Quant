@@ -126,6 +126,23 @@ void SignalDispatcher::from_strategy(bool active, const std::string& strategy_id
         return;
     }
 
+    // 운영단말 수동 매도 정지(D-095) — 전략이 내는 SELL NEW만 여기서 거른다. 손절·트레일·마감 청산도 전략 신호라
+    //  같이 멈춘다는 뜻이다. 수동 주문(MANUAL)은 이 함수를 지나지 않고, 국면 강제청산은 force_liquidate()가 따로 낸다.
+    if (signal.action == OrderAction::NEW && signal.side == OrderSide::SELL && gate_.is_manual_sell_halted())
+    {
+        if (sell_halt_logged_.insert(signal.ticker).second)
+        {
+            LOG_WARN("[Engine] 수동 매도 정지 — 전략 매도 차단 " + label(signal.ticker) + " (요청 " + strategy_id + ")");
+        }
+
+        return;
+    }
+
+    if (!sell_halt_logged_.empty() && !gate_.is_manual_sell_halted())
+    {
+        sell_halt_logged_.clear();
+    }
+
     // 청산 관리가 맡은 티커는 스캔 슬리브가 새로 사지도, 팔지도 않는다. 소유자를 하나로 두지 않으면 청산 관리가
     //  턴 물량을 스캔 전략이 되사는 회전이 나고, 매도가 둘에서 나가면 같은 보유분에 두 장의 매도가 걸린다
     //  (sellable_quantity 클램프가 있어도 순서에 따라 한쪽이 0을 받아 분할 주문을 3초마다 되감는다). 취소·정정은

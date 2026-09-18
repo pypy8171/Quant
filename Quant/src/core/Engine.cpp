@@ -2721,11 +2721,13 @@ void Engine::start_ops_server()
             request_shutdown();
         });
     ops_.server->set_halt_handler(
-        [this](bool on)
+        [this](const std::string& side, bool on)
         {
-            LOG_WARN(std::string("[Ops] HALT_REQ — 수동 진입정지 ") + (on ? "ON" : "OFF"));
-            order_gate_.set_manual_halt(on);
+            LOG_WARN(std::string("[Ops] HALT_REQ — 수동 ") + (side == "SELL" ? "전략 매도 정지 " : "진입 정지 ") + (on ? "ON" : "OFF"));
+            order_gate_.set_manual_halt(side == "SELL" ? OrderSide::SELL : OrderSide::BUY, on);
         });
+    ops_.server->set_halt_provider(
+        [this] { return std::make_pair(order_gate_.is_manual_buy_halted(), order_gate_.is_manual_sell_halted()); });
     ops_.server->set_order_handler(
         [this](const OpsOrderReq& ops_order_request) -> std::string
         {
@@ -2782,16 +2784,40 @@ void Engine::start_ops_server()
 
 std::string Engine::ops_status_json() const
 {
+    // 계좌 요약. equity·cash·daily_pnl은 잔고 대조 주기(브로커 값)로만 바뀌고, position_value·unrealized_pnl은
+    //  보유분 × 최근 체결가라 틱마다 움직인다 — 단말이 1초마다 물어도 셋은 그대로일 수 있다.
+    double position_value = 0.0;
+    double unrealized_pnl = 0.0;
+
+    for (const auto& snapshot_position : order_gate_.snapshot_positions())
+    {
+        const double last = last_price(snapshot_position.ticker);
+
+        if (snapshot_position.quantity <= 0 || last <= 0.0)
+        {
+            continue;
+        }
+
+        position_value += snapshot_position.quantity * last;
+        unrealized_pnl += snapshot_position.quantity * (last - snapshot_position.average_price);
+    }
+
     return nlohmann::json{{"running", running_.load()},
                           {"data", data_count_.load()},
                           {"signal", signal_count_.load()},
                           {"order", order_count_.load()},
                           {"kill", order_gate_.is_killed()},
                           {"entry_halt", order_gate_.is_entry_halted()},
-                          {"manual_halt", order_gate_.is_manual_halted()},
+                          {"manual_buy_halt", order_gate_.is_manual_buy_halted()},
+                          {"manual_sell_halt", order_gate_.is_manual_sell_halted()},
                           {"force_liq", force_liquidate_.load(std::memory_order_relaxed)},
                           {"paper", kis_config_.is_paper},
-                          {"strategies", strategy_.list.size()}}
+                          {"strategies", strategy_.list.size()},
+                          {"equity", order_gate_.equity()},
+                          {"cash", order_gate_.available_cash()},
+                          {"daily_pnl", order_gate_.daily_pnl()},
+                          {"position_value", position_value},
+                          {"unrealized_pnl", unrealized_pnl}}
         .dump();
 }
 

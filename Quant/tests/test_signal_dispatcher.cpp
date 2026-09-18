@@ -153,6 +153,31 @@ int test_strategy_gate()
     return 0;
 }
 
+// 운영단말 수동 매도 정지(D-095): 전략의 SELL NEW만 막고, 매수·취소는 통과. 끄면 다시 나간다.
+int test_manual_sell_halt()
+{
+    Rig rig(open_config());
+    rig.gate.set_manual_halt(OrderSide::SELL, true);
+    CHECK(rig.gate.is_manual_sell_halted() && !rig.gate.is_manual_buy_halted() && !rig.gate.is_entry_halted());
+
+    rig.dispatcher.from_strategy(true, "DEV_1", signal("A", OrderSide::SELL, 1));
+    CHECK(rig.out.empty());
+    rig.dispatcher.from_strategy(true, "DEV_1", signal("A", OrderSide::BUY, 1));
+    rig.dispatcher.from_strategy(true, "DEV_1", signal("A", OrderSide::SELL, 0, OrderAction::CANCEL));
+    CHECK(rig.out.size() == 2 && rig.out[0].side == OrderSide::BUY && rig.out[1].action == OrderAction::CANCEL);
+
+    rig.gate.set_manual_halt(OrderSide::SELL, false);
+    rig.dispatcher.from_strategy(true, "DEV_1", signal("A", OrderSide::SELL, 1));
+    CHECK(rig.out.size() == 3 && rig.out[2].side == OrderSide::SELL);
+
+    // 매수 정지는 is_entry_halted()로만 드러난다(전략이 신호를 안 만든다) — 디스패처는 매도를 막지 않는다.
+    rig.gate.set_manual_halt(OrderSide::BUY, true);
+    CHECK(rig.gate.is_entry_halted() && !rig.gate.is_manual_sell_halted());
+    rig.dispatcher.from_strategy(true, "DEV_1", signal("A", OrderSide::SELL, 1));
+    CHECK(rig.out.size() == 4);
+    return 0;
+}
+
 // 유니버스 이탈은 시계 하나에 임계값 둘 — 차단(block)이 먼저, 해제(drop)가 뒤. 복귀는 present 연속 횟수로 (D-077).
 int test_universe_exit_judge()
 {
@@ -391,7 +416,7 @@ int main()
         Logger::instance().set_base_directory(Logger::executable_directory() / "logs_test");
     }
 
-    if (test_stamp() || test_strategy_gate() || test_universe_exit_judge() || test_universe_evict_pick() ||
+    if (test_stamp() || test_strategy_gate() || test_manual_sell_halt() || test_universe_exit_judge() || test_universe_evict_pick() ||
         test_displace_hold_and_release() || test_displace_cancel_and_expiry() || test_force_liquidation_orders() ||
         test_trim_orders() || test_force_liquidation_throttle() || test_trim_once())
     {

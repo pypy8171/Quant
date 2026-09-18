@@ -12,6 +12,7 @@
 
 // 엔진 상태
 #define IDC_ENGINE_STATE      1010
+#define IDC_ACCOUNT_STATE     1011
 
 // 포지션
 #define IDC_POSITIONS         1020
@@ -31,3 +32,4 @@
 #define IDC_LOG               1040
 #define IDC_KILL              1041
 #define IDC_HALT              1042
+#define IDC_HALT_SELL         1043

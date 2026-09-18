@@ -555,19 +555,28 @@ bool OpsServer::on_frame(Client& client, const ops::Frame& frame)
         {
             if (!client.authentication)
             {
-                send(client, OpsMsg::HALT_ACK, json{{"ok", false}, {"manual_halt", false}}.dump());
+                send(client, OpsMsg::HALT_ACK, json{{"ok", false}}.dump());
                 return true;
             }
 
-            const bool on = body.value("on", false);
-            LOG_WARN(std::string("[Ops] HALT_REQ 수신 ") + client.name + " on=" + (on ? "1" : "0"));
+            const bool        on   = body.value("on", false);
+            const std::string side = body.value("side", "BUY"); // 옛 단말은 side 없이 보낸다 — 진입 정지로 읽는다
+            LOG_WARN(std::string("[Ops] HALT_REQ 수신 ") + client.name + " side=" + side + " on=" + (on ? "1" : "0"));
+
+            if (side != "BUY" && side != "SELL")
+            {
+                send(client, OpsMsg::HALT_ACK, json{{"ok", false}, {"msg", "side는 BUY 또는 SELL"}}.dump());
+                return true;
+            }
 
             if (on_halt_)
             {
-                on_halt_(on);
+                on_halt_(side, on);
             }
 
-            send(client, OpsMsg::HALT_ACK, json{{"ok", true}, {"manual_halt", on}}.dump());
+            const auto [buy_halt, sell_halt] =
+                halt_provider_ ? halt_provider_() : std::make_pair(side == "BUY" && on, side == "SELL" && on);
+            send(client, OpsMsg::HALT_ACK, json{{"ok", true}, {"manual_buy_halt", buy_halt}, {"manual_sell_halt", sell_halt}}.dump());
             return true;
         }
 

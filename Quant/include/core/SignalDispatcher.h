@@ -87,6 +87,7 @@ private:
     Clock::time_point        held_until_{};
 
     std::unordered_set<std::string> guard_logged_; // 청산 관리 차단 로그는 종목당 한 번
+    std::unordered_set<std::string> sell_halt_logged_; // 수동 매도 정지 차단 로그도 종목당 한 번, 정지가 풀리면 비운다 [why D-095]
 
     Clock::time_point         last_liquidation_;
     std::chrono::milliseconds liquidation_interval_{2000}; // deduplicate 윈도우(1s)보다 길어야 재발주가 통과한다

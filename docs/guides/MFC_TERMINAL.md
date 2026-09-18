@@ -1,6 +1,6 @@
 # MFC 운영단말 `ops_terminal` 작업 문서
 
-<!-- sync: Quant/tools/ops_terminal/OpsTerminalDlg.cpp@9dfc4a5 Quant/tools/ops_terminal/OpsTerminalDlg.h@f494e41 Quant/tools/ops_terminal/OpsLink.cpp@f0236c7 Quant/tools/ops_terminal/OpsLink.h@90fa75f Quant/include/ipc/OpsProtocol.h@77ee4c1 -->
+<!-- sync: Quant/tools/ops_terminal/OpsTerminalDlg.cpp@9d5c86e Quant/tools/ops_terminal/OpsTerminalDlg.h@08d0a7a Quant/tools/ops_terminal/OpsLink.cpp@f0236c7 Quant/tools/ops_terminal/OpsLink.h@90fa75f Quant/include/ipc/OpsProtocol.h@536ddcf -->
 `Quant/tools/ops_terminal/`에 있는 MFC 대화상자 단말의 정본이다. 무엇을 하는 프로그램인지, 어떻게 빌드·실행하는지,
 MFC라서 걸린 함정과 지금까지 손댄 이력을 여기에 모은다. **MFC 쪽을 고치면 이 문서를 같이 고친다**(8절 체크리스트).
 채널 자체(프로토콜·서버·콘솔 단말)는 [docs/guides/OPS_TERMINAL.md](OPS_TERMINAL.md), 결정 배경은
@@ -71,7 +71,10 @@ cd c:\Users\<사용자>\source\repos\Quant
 위에서 아래로:
 
 1. 접속란 — 호스트·포트·토큰(가림)·접속/끊기 버튼·연결 상태(끊김/접속 중/연결됨/준비).
-2. 엔진 상태 한 줄 — running·data·signal·order·kill·entry_halt·manual_halt·force_liq·paper·전략 수. 준비 상태에서 5초마다 갱신.
+2. 엔진 상태 한 줄 — running·data·signal·order·kill·entry_halt·manual_halt·force_liq·paper·전략 수. 준비 상태에서 1초마다 갱신(`STATUS_REQ`).
+   그 아래 계좌 한 줄 — 총평가·주문가능현금·일손익·보유 평가(평가손익, %). 같은 `STATUS` 응답의 `equity`·`cash`·`daily_pnl`·
+   `position_value`·`unrealized_pnl`로 채운다. 앞 셋은 엔진의 잔고 대조 주기(브로커 값)로만 바뀌고, 뒤 둘은 보유분 × 최근 체결가라
+   틱마다 움직인다. 계좌 필드가 없는 옛 엔진에 붙으면 "(엔진이 계좌 요약을 보내지 않음)"으로 비운다.
 3. 포지션 표 — 계좌·종목·이름·수량·평단·현재가·평단대비(%)·대기매도·매도가능(=수량−대기매도). 서버 push(1초, 변화 시)와
    새로고침 버튼. 현재가는 엔진이 마지막으로 본 체결가(`last`)라 장 밖이나 기동 직후엔 `—`로 비어 있다가 첫 폴링(30초 주기)
    뒤 채워진다. 표는 종목 키로 바뀐 칸만 고치므로 갱신이 와도 스크롤·선택이 그대로다.
@@ -81,11 +84,15 @@ cd c:\Users\<사용자>\source\repos\Quant
    폼 아래 "내 주문 결과" 한 줄은 내가 낸 주문의 마지막 `ORDER_RESULT`만 보여 준다(전략 주문 결과에 묻히지 않게).
 5. 로그 — 시각 접두, 2000줄 상한. `ORDER_ACK`·`ORDER_RESULT`·`FILL`·`ERROR`가 여기 쌓인다. 전략 주문 결과도 같은 채널로 오므로
    내 주문 줄에는 `★내 주문` 표식이 붙는다.
-6. 킬스위치 — 확인창 뒤 `KILL`. 엔진이 주문을 막고 내려간다.
-7. 매매 정지 토글 — 확인창 뒤 `HALT_REQ`로 신규 진입 수동 정지/해제. `OrderGate::manual_halt_`은 국면 자동 정지
-   (`entry_halt_`, `RegimeFileBridge`가 관리)와 분리된 별도 플래그라 국면 갱신·만료 타이머가 운영자의 수동 정지를
-   되돌리지 않는다. 두 플래그는 `is_entry_halted()`에서 OR로 합쳐진다. 버튼 라벨은 서버 `STATUS`의 `manual_halt`
-   값을 따라 "매매 정지: ON/OFF"로 바뀐다(D-091).
+6. 킬스위치 — 확인창 뒤 `KILL`. 엔진이 주문을 막고 내려간다. 킬 플래그는 메모리에만 있고 감시견(`scripts/auto_trade_day.ps1`)이
+   5초 뒤 엔진을 다시 띄우므로 실질은 "엔진 재시작"이다. 단말은 클라이언트라 엔진을 시작시키지 못하고, 끊기면 백오프로
+   재접속만 한다. 하루 매매를 멈추려면 7번 매매 정지 토글이나 감시견 정지를 쓴다.
+7. 수동 정지 토글 둘 — 확인창 뒤 `HALT_REQ {"side","on"}`. **신규 매수 정지**는 전략의 신규 진입만 막는다
+   (`OrderGate::manual_buy_halt_`, 국면 자동 정지 `entry_halt_`와 분리된 플래그로 `is_entry_halted()`에서 OR — 국면
+   갱신·만료 타이머가 운영자의 정지를 되돌리지 않는다, D-091). **전략 매도 정지**는 전략이 내는 매도를 전부 막는다
+   (`manual_sell_halt_`, `SignalDispatcher::from_strategy`에서 SELL NEW를 버림) — 손절·트레일·마감 청산도 멈추고,
+   이 창의 수동 매도와 국면 강제청산은 그대로 나간다(D-095). 버튼 라벨은 `STATUS`의 `manual_buy_halt`·
+   `manual_sell_halt`를 따라 "…정지: ON/OFF"로 바뀐다.
 
 매도·매수·킬은 전부 확인창을 거친다. 수동 주문의 cid는 `mfc-<ms>`로 찍혀 엔진 로그 `[MANUAL]` 줄과 맞출 수 있다.
 
@@ -141,4 +148,6 @@ cid→ODNO 대응은 단말이 든다. `ORDER_RESULT`에 둘이 같이 오면 �
 | 2026-09-11 | 내 주문 거절이 전략 `[결과]` 줄에 묻혀 안 보임 → `★내 주문` 표식 + 폼 아래 "내 주문 결과" 줄(`IDC_LAST_RESULT`). 한전기술 1주 매도로 `ORDER_ACK→ORDER_RESULT(ODNO 0000033740)` 왕복 확인 |
 | 2026-09-13 | 언어 표준 C++23(D-070). `OpsTerminalDlg.cpp` 조건식 한 줄(`CString` 감싸기) 외 수정 없음. 7절 함정 표에 한 행 |
 | 2026-09-11 | 현재가가 없어 팔 자리를 볼 수 없음 → 엔진에 종목별 최근 체결가 캐시(`Engine::last_price_array_`, 전략 스레드가 틱마다 씀)를 두고 POSITIONS에 `last` 필드 추가. 60초 넘게 틱이 없는 보유 종목(유니버스 밖, WS 구독 상한에 밀린 종목)은 데이터 스레드가 매 사이클(30초) REST 현재가로 보충한다. 표에 현재가·평단대비 열, 폼에 현재가 줄(`IDC_CUR_PRICE`), `ref_price` stamp. 갱신마다 스크롤이 맨 위로 가던 것을 행 단위 갱신으로 고침 |
+| 2026-09-18 | 전략 매도 정지 버튼(`IDC_HALT_SELL`) 추가(D-095). `HALT_REQ`에 `side`, `STATUS`·`HALT_ACK`의 `manual_halt`가 `manual_buy_halt`·`manual_sell_halt` 둘로. 매수 정지 버튼 라벨을 "신규 매수 정지"로 |
+| 2026-09-18 | 계좌 요약 한 줄(`IDC_ACCOUNT_STATE`) 추가 — `STATUS`에 `equity`·`cash`·`daily_pnl`·`position_value`·`unrealized_pnl`, 상태 폴링 5초→1초. 대화상자 높이 420→433, 아래 컨트롤 13DLU 내림. 킬스위치가 감시견 재기동 때문에 사실상 재시작이라는 점을 5절에 적음 |
 | 2026-09-18 | 수동 매매 정지 스위치 추가(D-091). `OpsProtocol.h`에 `HALT_REQ`/`HALT_ACK`(0x32/0x33), `OrderGate`에 `manual_halt_`(국면 자동 `entry_halt_`와 분리, `is_entry_halted()`에서 OR), 단말에 `IDC_HALT` 토글 버튼. 착수 계기는 "판단이 안 설 때 신규 진입만 수동으로 멈추고 싶다"는 운영 요구 |
