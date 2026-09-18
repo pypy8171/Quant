@@ -219,7 +219,12 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
     }
 
     // 기준시각: 현재 KST(장중)이면 지금, 장전/장후면 15:30에서 역조회.
-    std::string hour = kst::hhmmss(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
+    const std::time_t now_utc = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::string       hour    = kst::hhmmss(now_utc);
+
+    // 당일 봉만 받는다 — 개장 직후 KIS는 기준시각까지 당일 봉이 없으면 전일 봉으로 페이지를 채워
+    //  09:00:03 시드에 전일 63봉이 들어왔고, 그러면 `daily_basis_warmup`(개장 60분 일봉 기준)이 무효가 된다(2026-09-18 실측).
+    const std::string today_kst = kst::format_ymd(kst::date(now_utc));
 
     if (hour < "090000" || hour > "153000")
     {
@@ -267,9 +272,15 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
         }
 
         int added = 0;
-        std::string page_earliest = kis_rest::parse_minute_page(array, raw_minutes, seen, "", added);
+        std::string page_earliest = kis_rest::parse_minute_page(array, raw_minutes, seen, today_kst, added);
 
         if (page_earliest.empty())
+        {
+            break;
+        }
+
+        // 페이지가 최신→과거라 당일 행이 하나도 없으면 더 앞 페이지도 전일 이전이다.
+        if (added == 0)
         {
             break;
         }
