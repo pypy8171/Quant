@@ -10,11 +10,11 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 81개
 - [Quant](#quant) — 168개
-- [docs](#docs) — 55개
+- [docs](#docs) — 56개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 176개
 - [scripts](#scripts) — 54개
-- [strategies](#strategies) — 28개
+- [strategies](#strategies) — 30개
 - [tools](#tools) — 3개
 
 ## (루트)
@@ -447,6 +447,7 @@
 - [2026-09-15.md](eod/2026-09-15.md) — 09-15 매매 사후검토
 - [2026-09-16.md](eod/2026-09-16.md) — 09-16 매매 사후검토
 - [2026-09-17.md](eod/2026-09-17.md) — 09-17 매매 사후검토
+- [2026-09-18.md](eod/2026-09-18.md) — 09-18 매매 사후검토(마감 청산 창 밖 이월·잔고 이상값)
 - [README.md](eod/README.md) — 장 마감 리뷰 색인
 
 ### docs/guides/
@@ -838,6 +839,7 @@
 - [2026-09-15.md](../strategies/DeviationScale/live/2026-09-15.md) — 09-15 라이브 매매일지
 - [2026-09-16.md](../strategies/DeviationScale/live/2026-09-16.md) — 09-16 라이브 매매일지
 - [2026-09-17.md](../strategies/DeviationScale/live/2026-09-17.md) — 09-17 라이브 매매일지
+- [2026-09-18.md](../strategies/DeviationScale/live/2026-09-18.md) — 09-18 라이브 매매일지
 
 ### strategies/DeviationScale/reviews/
 
