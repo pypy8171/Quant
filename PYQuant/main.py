@@ -250,7 +250,9 @@ def cmd_record(args):
                     f"avg={d.get('avg_price'):,.0f}  "
                     f"pnl={sg}{d.get('realized_pnl', 0):,.0f}")
 
-    monitor.on_trade  = lambda d: (db.insert_trade(d),  logger.info(f"REC TRADE  {d.get('ticker')} {d.get('price'):,.0f}"))
+    # 체결 틱은 읽는 곳이 없어 기본은 안 넣는다 — 리플레이 입력은 엔진의 .bin 캡처(capture_dir)가 맡는다.
+    if args.record_ticks:
+        monitor.on_trade = lambda d: (db.insert_trade(d), logger.info(f"REC TRADE  {d.get('ticker')} {d.get('price'):,.0f}"))
     monitor.on_signal = lambda d: (db.insert_signal(d), logger.info(f"REC SIGNAL {d.get('ticker')} {d.get('side')}"))
     monitor.on_order  = lambda d: (db.insert_order(d),  logger.info(f"REC ORDER  {d.get('ticker')} {'OK' if d.get('ok') else 'FAIL'}"))
     monitor.on_health = lambda d: (db.insert_health(d), logger.info(f"REC HEALTH data={d.get('data')} sig={d.get('signal')} ord={d.get('order')}"))
@@ -539,6 +541,8 @@ def main():
     rp = sub.add_parser("record", help="ZMQ 이벤트 → TimescaleDB 적재")
     rp.add_argument("--host",   default="localhost")
     rp.add_argument("--port",   type=int, default=5555)
+    rp.add_argument("--record-ticks", action="store_true",
+                    help="체결 틱(TRADE)도 ticks 테이블에 넣는다 (기본: 안 넣음)")
 
     # ── operate ─────────────────────────────────────────────────────────────
     op = sub.add_parser("operate", help="C++ 엔진 원격 제어")
