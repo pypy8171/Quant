@@ -599,6 +599,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
     base.trail_simple_moving_average_exit     = node.value("trail_sma_exit", false);
     base.trail_simple_moving_average_tolerance_percent  = node.value("trail_sma_tol_pct", 1.0);
     base.stop_cooldown_sec  = node.value("stop_cooldown_sec", 900);
+    base.reentry_cooldown_sec = node.value("reentry_cooldown_sec", 600); // 전량 청산 뒤 재진입 대기(0=끄기)
     base.dust_krw           = node.value("dust_krw", 250000.0);     // 평가금 이 아래 잔존 보유는 시장가 정리(0=끄기)
     base.sell_anchor_average    = node.value("sell_anchor_avg", false);
     base.prefetch_jitter_percent = node.value("prefetch_jitter_pct", 50);

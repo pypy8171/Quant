@@ -9,12 +9,12 @@
 - [(루트)](#루트) — 9개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 81개
-- [Quant](#quant) — 166개
+- [Quant](#quant) — 168개
 - [docs](#docs) — 55개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 176개
 - [scripts](#scripts) — 54개
-- [strategies](#strategies) — 27개
+- [strategies](#strategies) — 28개
 - [tools](#tools) — 3개
 
 ## (루트)
@@ -812,6 +812,7 @@
 
 - [EVOLUTION.md](../strategies/DeviationScale/EVOLUTION.md) — DevScale 전략 진화 기록
 - [MEETING_2026-09-11_TRENDX.md](../strategies/DeviationScale/MEETING_2026-09-11_TRENDX.md) — TRENDX 전략 검토 회의록
+- [MEETING_2026-09-18_RISKON_SLOTS.md](../strategies/DeviationScale/MEETING_2026-09-18_RISKON_SLOTS.md) — 강세장 슬롯·점수·재진입 회의록(재진입 쿨다운·DEVSCALE 물타기 끔·캡 400만)
 
 ### strategies/DeviationScale/live/
 

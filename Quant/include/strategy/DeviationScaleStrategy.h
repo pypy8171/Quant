@@ -130,6 +130,10 @@ public:
         //  stop_cooldown_sec: 스탑·트레일 청산 뒤 이 시간 동안 분할 매수를 깔지 않는다. 존이
         //   그대로 열려 있으면 다음 하트비트에 베이스 매수가 도로 나가 같은 자리를 되산다.
         int    stop_cooldown_sec = 900;
+        //  reentry_cooldown_sec: 전량 청산(익절·교체·장마감 포함) 뒤 이 시간 동안 새 베이스를 깔지 않는다.
+        //   익절 지정가가 다 나간 3초 뒤 같은 값에 베이스를 되사는 일이 있었다(09-18 010170 17,720 매도 →
+        //   17,710 매수, 375500 87,600 → 87,700). 왕복 비용만 내고 자리는 그대로다. 0이면 끄기.
+        int    reentry_cooldown_sec = 600;
         //  dust_krw: 보유 평가금이 이 값(원) 아래이고 깔 매수 rung이 없으면 시장가로 정리한다. 1~5주짜리
         //   잔존 보유가 슬롯 하나를 종일 차지했다(09-14 15:00 스윕 대상 3종목). 0이면 끄기. [why D-081]
         double dust_krw = 250000.0;
@@ -703,6 +707,12 @@ public:
         //  반복된다. 익절로 줄어든 보유는 채우지 않는다(peak_pos_가 목표에 닿았으면 베이스는 끝난 것). [why D-081]
         if (position <= 0)
         {
+            // 보유가 있다가 0이 된 순간만 잡는다 — 처음부터 0인 하트비트마다 대기를 늘리면 진입이 영영 안 된다.
+            if (peak_position_ > 0 && parameters_.reentry_cooldown_sec > 0)
+            {
+                reentry_cooldown_until_ = now + std::chrono::seconds(parameters_.reentry_cooldown_sec);
+            }
+
             base_target_quantity_ = 0;
             peak_position_        = 0;
         }
@@ -817,7 +827,9 @@ public:
         //  차단 해제 뒤에도 매수 rung이 돌아오지 않았다. 차단 중엔 매수 rung을 걷고(취소),
         //  풀리면 시그니처가 바뀌어 다시 깐다. 떨림은 D-033 체류가 막는다. [why D-033]
         //  스탑·트레일 뒤 쿨다운도 같은 축이다 — 존이 열려 있어도 분할 매수를 걷는다.
-        const bool cooling  = stop_cooldown_until_ != std::chrono::steady_clock::time_point{} && now < stop_cooldown_until_;
+        //  전량 청산 뒤 재진입 대기도 같은 축이다.
+        const bool cooling  = (stop_cooldown_until_ != std::chrono::steady_clock::time_point{} && now < stop_cooldown_until_) ||
+                              (reentry_cooldown_until_ != std::chrono::steady_clock::time_point{} && now < reentry_cooldown_until_);
         const bool entry_on = is_active() && !entry_halted() && !cooling && rscale > 0.0;
         signal += entry_on ? "A1" : "A0";
         signal += 'S';
@@ -1490,6 +1502,7 @@ private:
     int    liquidation_last_position_    = -1;                          // 직전 청산시도 position(진행 판정)
     int    liquidation_fail_streak_ = 0;                           // 연속 미진행 횟수(백오프 지수)
     std::chrono::steady_clock::time_point stop_cooldown_until_{}; // 스탑·트레일 뒤 분할 매수 재개 시각
+    std::chrono::steady_clock::time_point reentry_cooldown_until_{}; // 전량 청산 뒤 새 베이스 재개 시각
     std::chrono::steady_clock::time_point average_query_ts_{};        // 평단 직접 조회 스로틀(60초)
     int    average_position_seen_ = 0;                                     // last_average_price_를 읽었을 때의 보유 수량(바뀌면 다시 읽음)
     int    prefetch_jitter_sec_ = 0;                       // 봉 경계 뒤 분봉 조회 지연(초, 티커 해시)
