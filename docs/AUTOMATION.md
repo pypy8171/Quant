@@ -13,13 +13,13 @@
 
 | 작업 이름 | 시각 | 실행 | 산출물 |
 |---|---|---|---|
-| `QuantAutoTradeGuard` | 평일 08:45부터 5분마다 11시간 30분(20:15까지) | `powershell -File scripts/auto_trade_guard.ps1` | 워치독이 없으면 하루 루프 기동 (§4) |
-| `Quant EOD AutoDoc` | 평일 20:10 | `python scripts/eod_autodoc.py` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` · **결정 원장 파생 문서**(`sync_ledgers.py`) |
+| `QuantAutoTradeGuard` | 평일 08:45부터 5분마다 7시간(15:45까지) | `powershell -File scripts/auto_trade_guard.ps1` | 워치독이 없으면 하루 루프 기동 (§4) |
+| `Quant EOD AutoDoc` | 평일 16:05 | `python scripts/eod_autodoc.py` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` · **결정 원장 파생 문서**(`sync_ledgers.py`) |
 | `claude_stock_study` | 평일 20:30 | `claude -p "/stock-study auto"` | `_private/주식_study/{날짜}_재무/` 1종목 · 저널 · 스터디 사이트 |
 | `claude_dashboard_sync` | 평일 21:10 | `claude -p "/dashboard-sync"` | 대시보드·스터디 사이트 HTML 재생성. 아티팩트 재발행은 헤드리스 `claude -p`에 Artifact 도구가 없어 못 한다 — 대화 세션에서 `/dashboard-sync`를 불러 같은 URL로 올린다 |
-| `Quant Maintain Daily` | 평일 20:20 | `python scripts/maintain.py --daily` | `EOD AutoDoc`(20:10) 뒤. 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers`. 대시보드는 부르지 않는다 |
+| `Quant Maintain Daily` | 평일 16:20 | `python scripts/maintain.py --daily` | `EOD AutoDoc`(16:05) 뒤. 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers`. 대시보드는 부르지 않는다 |
 | `Quant Maintain Weekly` | 금요일 21:20 | `python scripts/maintain.py --weekly` | `claude_dashboard_sync`(21:10) 뒤. 미참조 스크립트 · 에이전트 죽은 경로 · 부산물 용량 · 주석 밀도 · 훅 배선 양방향 검사 → `docs/reports/MAINTENANCE_WEEKLY.md` |
-| `Quant Minute Backfill` | 평일 20:25 | `python scripts/eod_minute_backfill.py` | 아침 스캔 `Quant/config/universe_scan.json`을 `PYQuant/data/pit_universe/<오늘>.json`으로 옮기고 그날 유니버스 전체의 1분봉을 `PYQuant/data/minute/`에 쌓는다(`PYQuant/tools/minute_backfill.py --top-n 0`, 약 260종목×4콜). 15:45 전엔 돌지 않는다(반쪽 파일이 그날치를 건너뛰게 만든다). 대시보드 차트가 같은 파일을 읽는다 |
+| `Quant Minute Backfill` | 평일 16:40 | `python scripts/eod_minute_backfill.py` | 아침 스캔 `Quant/config/universe_scan.json`을 `PYQuant/data/pit_universe/<오늘>.json`으로 옮기고 그날 유니버스 전체의 1분봉을 `PYQuant/data/minute/`에 쌓는다(`PYQuant/tools/minute_backfill.py --top-n 0`, 약 260종목×4콜). 15:45 전엔 돌지 않는다(반쪽 파일이 그날치를 건너뛰게 만든다). 대시보드 차트가 같은 파일을 읽는다 |
 
 확인·수정:
 
@@ -33,8 +33,10 @@ schtasks /change /tn claude_stock_study /st 20:30
 > 그대로 돌고 `Quant Maintain Daily`는 이날 처음 Enable했다. 복구는 `Enable-ScheduledTask -TaskName claude_stock_study`,
 > `Enable-ScheduledTask -TaskName claude_dashboard_sync`, 루틴은 `/schedule`에서 켠다.
 
-> 2026-09-18부터 장 마감 자동화 전부를 20:00 뒤로 옮겼다 — KRX 애프터마켓(16:00~20:00, D-097)까지 매매하므로
-> 16시대에 돌면 하루가 아직 안 끝난 상태다. 순서는 `Quant EOD AutoDoc` 20:10 → Maintain Daily 20:20 → Minute Backfill 20:25 →
+> 2026-09-18 낮에 장 마감 자동화 전부를 20:00 뒤로 옮겼다가(KRX 애프터마켓 16:00~20:00, D-097) 같은 날 저녁에 되돌렸다 —
+> KIS 모의 서버는 15:30 뒤 주문을 받지 않아 모의로 도는 동안은 하루가 15:30에 끝난다(T-18). 실계좌로 전환하면
+> 감시견 `-Until 20:05`, `Quant EOD AutoDoc` 20:10 → Maintain Daily 20:20 → Minute Backfill 20:25 → stock_study 20:30 →
+> dashboard_sync 21:10 → Maintain Weekly 21:20으로 다시 올린다. 지금 순서는 `Quant EOD AutoDoc` 16:05 → Maintain Daily 16:20 → Minute Backfill 16:40 →
 > stock_study 20:30(1종목) → dashboard_sync 21:10 → Maintain Weekly 21:20.
 >
 > 그 전 20:00·20:40은 원래 16:00·16:20이었다. 2026-09-07에 두 작업이 모두 세션 사용량 한도(17시 리셋)에 걸려
@@ -220,7 +222,7 @@ scripts/eod_autodoc.py
   └─ PYQuant/dashboard/build_dashboard.py    → research/dashboard/dashboard.html
 ```
 
-20:10 예약 실행만이 아니라 장중에도 돈다. 매매일지·백테스트·장전 브리핑(`docs/premarket/`)을 쓰고 나면 Stop 훅이
+16:05 예약 실행만이 아니라 장중에도 돈다. 매매일지·백테스트·장전 브리핑(`docs/premarket/`)을 쓰고 나면 Stop 훅이
 대시보드와 수정시각을 비교해 낡은 만큼만 다시 만든다(브리핑은 생성기만 다시 돈다). 손으로 돌릴 때는 `py scripts/refresh_dashboard.py --if-stale`.
 
 | 스크립트 | 역할 |

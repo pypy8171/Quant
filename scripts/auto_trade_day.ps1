@@ -12,13 +12,13 @@
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1
-  powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -Config Quant\config\config.json -Until 20:05
+  powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -Config Quant\config\config.json -Until 15:35
   powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -DryRun
 #>
 [CmdletBinding()]
 param(
   [string]$Config = "Quant\config\config_dev_paper.json",
-  [string]$Until = "20:05",          # 이 시각을 넘으면 재기동하지 않는다(애프터마켓 마감 20:00 + 정리 여유, D-097)
+  [string]$Until = "15:35",          # 이 시각을 넘으면 재기동하지 않는다. 모의는 15:30이 매매 끝. 실계좌 전환 때 20:05(애프터마켓 20:00 + 여유, D-097·T-18)
   [switch]$NoSidecar,
   [switch]$NoUniverse,
   [switch]$NoDashboard,

@@ -113,12 +113,13 @@ int hhmm_to_minute(int hhmm)
 // 위험 한도(risk). 지정된 키만 OrderGate 기본값에서 덮어쓴다 — 실제 돈 규율 튜닝을 재빌드 없이 하기 위함(S-1).
 //  매매 세션 창은 risk 노드가 없어도 켠다 — 통합 피드가 08:00~20:00 틱을 줘도 주문은 매매 창 안에서만.
 //  정규장 09:00~15:30 + KRX 애프터마켓 16:00~20:00(D-097, risk.after_market=false로 끈다).
-//  캡처 리플레이는 밤에도 돌리므로 창을 끈 채(0/0) 둔다. [why D-096]
+//  모의투자(is_paper)는 KIS 모의 서버가 15:30 뒤 주문을 '모의투자 장종료'로 거부하므로(2026-09-18 실측)
+//  애프터 창을 config 값과 무관하게 끈다 — KRX 강제와 같은 결. 캡처 리플레이는 밤에도 돌리므로 창을 끈 채(0/0) 둔다. [why D-096]
 void parse_risk(const json& document, AppConfig& app)
 {
     const json& risk_node   = jsonx::object_or_empty(document, "risk");
     const bool  replaying    = !app.replay_file.empty();
-    const bool  after_market = risk_node.value("after_market", true);
+    const bool  after_market = risk_node.value("after_market", true) && !app.kis.is_paper;
     OrderGate::Config& risk  = app.risk;
     risk.session_open_min    = replaying ? 0 : hhmm_to_minute(risk_node.value("session_open_hhmm", 900));
     risk.session_close_min   = replaying ? 0 : hhmm_to_minute(risk_node.value("session_close_hhmm", 1530));

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""장 마감 뒤 당일 1분봉을 로컬에 쌓는다 — 예약작업 `Quant Minute Backfill`(평일 20:25)이 부른다.
+"""장 마감 뒤 당일 1분봉을 로컬에 쌓는다 — 예약작업 `Quant Minute Backfill`(평일 16:40)이 부른다.
 왜 따로 있나: `PYQuant/tools/minute_backfill.py`는 날짜별 시점 유니버스(PIT, 그날 아침에 알 수 있던
 종목 목록) 파일을 요구하는데 그 파일은 백필 도구로만 만들어져 왔다. 아침 스캔 산출물
 `Quant/config/universe_scan.json`이 같은 스키마이므로 그것을 오늘 날짜로 옮겨 두고 백필을 돌린다.
@@ -30,7 +30,7 @@ PIT_DIR = REPO / "PYQuant" / "data" / "pit_universe"
 def main() -> int:
     ap = argparse.ArgumentParser(description="장 마감 뒤 당일 1분봉 백필(예약작업용)")
     ap.add_argument("--force", action="store_true",
-                    help="20:05 전이라도 돈다. 장중에 돌리면 반쪽 파일이 남아 그날치가 건너뛰어진다")
+                    help="15:45 전이라도 돈다. 장중에 돌리면 반쪽 파일이 남아 그날치가 건너뛰어진다")
     args = ap.parse_args()
     now = datetime.now(KST)
     if now.weekday() >= 5:
@@ -38,8 +38,8 @@ def main() -> int:
         return 0
     # 장중에 돌면 마감 전까지의 봉만 담긴 파일이 남고, 백필 도구는 그 파일이 있다는 이유로 그날을
     #  건너뛴다(2026-09-11 실수). 마감 뒤에만 돌린다.
-    if not args.force and (now.hour, now.minute) < (20, 5):
-        print("[eod_minute_backfill] 20:05 전 — 애프터마켓 마감 뒤에 돌린다(--force로 강제)")
+    if not args.force and (now.hour, now.minute) < (15, 45):
+        print("[eod_minute_backfill] 15:45 전 — 마감 뒤에 돌린다(--force로 강제)")
         return 2
     ymd = now.strftime("%Y%m%d")
     pit = PIT_DIR / f"{ymd}.json"

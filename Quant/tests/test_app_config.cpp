@@ -52,9 +52,17 @@ int main()
         CHECK(!app.has_risk);
         CHECK(app.risk.session_open_min == 9 * 60);
         CHECK(app.risk.session_close_min == 15 * 60 + 30);
+        CHECK(app.risk.after_open_min == 0 && app.risk.after_close_min == 0); // 모의는 애프터 창 없음
+        CHECK(app.strategies.is_array() && app.strategies.empty());
+    }
+
+    // 1b. 실계좌면 애프터마켓 창 16:00~20:00이 기본으로 켜진다.
+    {
+        json document           = minimal_document();
+        document["kis"]["is_paper"] = false;
+        const AppConfig app     = parse_config(document, "");
         CHECK(app.risk.after_open_min == 16 * 60);
         CHECK(app.risk.after_close_min == 20 * 60);
-        CHECK(app.strategies.is_array() && app.strategies.empty());
     }
 
     // 2. 모드 오버라이드가 문서의 mode를 이기고, log_level=DEBUG가 읽힌다.
@@ -106,9 +114,10 @@ int main()
         CHECK(app.quote_kis->exchange == "NXT");
     }
 
-    // 5. risk — 지정한 키만 덮고, hhmm은 분으로, after_market=false면 애프터 창 0/0, 리플레이면 창 전부 0.
+    // 5. risk — 지정한 키만 덮고, hhmm은 분으로, after_market=false면 실계좌라도 애프터 창 0/0, 리플레이면 창 전부 0.
     {
         json document = minimal_document();
+        document["kis"]["is_paper"] = false;
         document["risk"] = {{"max_qty_per_ticker", 7},        {"daily_loss_limit", -50000.0},
                             {"session_open_hhmm", 930},        {"after_market", false},
                             {"order_min_interval_ms", 500},    {"displace_enabled", true}};
