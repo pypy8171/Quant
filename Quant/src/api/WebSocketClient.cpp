@@ -349,12 +349,16 @@ void KisWebSocket::subscribe_specification(const WatchSpec& specification)
     }
     else if (specification.market == Market::KR)
     {
+        // KRX 전용(H0ST*)이냐 KRX+NXT 통합(H0UN*)이냐는 config.exchange가 정한다 — 필드 배열이 같아
+        //  파서는 공유한다. [why D-096]
+        const bool unified = kis_unified_feed(config_);
+
         if (!specification.trade_only)
         {
-            send_subscribe("H0STASP0", specification.ticker);
+            send_subscribe(unified ? "H0UNASP0" : "H0STASP0", specification.ticker);
         }
 
-        send_subscribe("H0STCNT0", specification.ticker);
+        send_subscribe(unified ? "H0UNCNT0" : "H0STCNT0", specification.ticker);
     }
     else
     {
@@ -683,12 +687,12 @@ void KisWebSocket::handle_data_frame(const std::string& message)
 
 size_t KisWebSocket::min_fields_for(std::string_view transaction_id) noexcept
 {
-    if (transaction_id == "H0STASP0")
+    if (transaction_id == "H0STASP0" || transaction_id == "H0UNASP0")
     {
         return 38;
     }
 
-    if (transaction_id == "H0STCNT0")
+    if (transaction_id == "H0STCNT0" || transaction_id == "H0UNCNT0")
     {
         return 22;
     }
@@ -718,11 +722,11 @@ size_t KisWebSocket::min_fields_for(std::string_view transaction_id) noexcept
 
 void KisWebSocket::dispatch_record(std::string_view transaction_id, kis_websocket::Fields fields)
 {
-    if (transaction_id == "H0STASP0")
+    if (transaction_id == "H0STASP0" || transaction_id == "H0UNASP0")
     {
         parse_orderbook(fields);
     }
-    else if (transaction_id == "H0STCNT0")
+    else if (transaction_id == "H0STCNT0" || transaction_id == "H0UNCNT0")
     {
         parse_kr_trade(fields);
     }

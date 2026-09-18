@@ -20,10 +20,16 @@ constexpr double kSellTaxRate    = 0.0018;  // 증권거래세 0.18% (매도에�
 constexpr int kSessionOpenMin  = 9 * 60;   // 09:00 KST
 constexpr int kSessionBarEndMin = 15 * 60; // 15:00 KST — 이후로는 바 없음
 
+// 지금 KST, 자정부터의 분.
+int kst_minute_of_day()
+{
+    const auto time_of_day_now = kst::time_of_day(std::time(nullptr));
+    return static_cast<int>(time_of_day_now.hours().count() * 60 + time_of_day_now.minutes().count());
+}
+
 double session_remaining_ratio()
 {
-    const auto time_of_day_now       = kst::time_of_day(std::time(nullptr));
-    const int  now_min = static_cast<int>(time_of_day_now.hours().count() * 60 + time_of_day_now.minutes().count());
+    const int now_min = kst_minute_of_day();
 
     if (now_min <= kSessionOpenMin)
     {
@@ -242,6 +248,22 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
     {
         reject_reason = "ENTRY_HALT 활성 — 신규 진입 정지(청산은 허용)";
         return false;
+    }
+
+    // 1c. 세션 창 — 정규장 밖의 NEW 주문은 막는다. 통합 피드(KRX+NXT)는 08:00~20:00 틱을 주지만 1단계 매매 창은
+    //     정규장 그대로다. CANCEL/REPLACE는 통과(미체결 정리는 언제든). 창이 0/0이면 검사 없음. [why D-096]
+    if (signal.action == OrderAction::NEW && config_.session_close_min > config_.session_open_min)
+    {
+        const int now_min = kst_minute_of_day();
+
+        if (now_min < config_.session_open_min || now_min >= config_.session_close_min)
+        {
+            reject_reason = std::format("세션 창 밖 ({:02}:{:02}, 허용 {:02}:{:02}~{:02}:{:02}) — 정규장에만 주문한다",
+                                        now_min / 60, now_min % 60, config_.session_open_min / 60,
+                                        config_.session_open_min % 60, config_.session_close_min / 60,
+                                        config_.session_close_min % 60);
+            return false;
+        }
     }
 
     // 2b. 1주문 fat-finger 백스톱 (C-3) — NEW BUY/SELL 공통, 시장가 대량주문 슬리피지 방어.

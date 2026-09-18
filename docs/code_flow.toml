@@ -126,7 +126,7 @@ review = [
   [[stage.step]]
   sym = "KisWebSocket::dispatch_record"
   file = "Quant/src/api/WebSocketClient.cpp"
-  what = "tr_id로 채널 분기 — H0STCNT0 체결·H0STASP0 호가·H0IFCNT0/H0IFASP0 선물·H0STCNI9 체결통보"
+  what = "tr_id로 채널 분기 — H0STCNT0/H0UNCNT0 체결·H0STASP0/H0UNASP0 호가·H0IFCNT0/H0IFASP0 선물·H0STCNI9 체결통보"
 
   [[stage.step]]
   sym = "KisWebSocket::parse_kr_trade"

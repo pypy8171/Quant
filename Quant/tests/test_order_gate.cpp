@@ -16,7 +16,10 @@
 //      reference_price 없으면 검사 자체가 없음(게이트가 못 잡는 현행을 기록)
 
 #include "risk/OrderGate.h"
+#include "core/KstTime.h"
+#include <algorithm>
 #include <cassert>
+#include <ctime>
 #include <iostream>
 #include <thread>
 #include <chrono>
@@ -445,6 +448,50 @@ void test_market_sell_without_reference_price_bypasses_notional()
     PASS("market_sell_without_ref_price_bypasses_notional");
 }
 
+// ─── 테스트: 매매 세션 창(D-096) — 창 밖 NEW는 거부, 창 안·창 없음(0/0)·CANCEL은 통과 ──────────
+void test_session_window()
+{
+    // 지금 KST 분 — 창을 "지금을 품는 구간"과 "지금을 피하는 구간"으로 만들어 시계에 기대지 않는다.
+    const auto time_of_day_now = kst::time_of_day(std::time(nullptr));
+    const int  now_min = static_cast<int>(time_of_day_now.hours().count() * 60 + time_of_day_now.minutes().count());
+    std::string reason;
+
+    {
+        OrderGate::Config config;
+        config.session_open_min  = (std::max)(0, now_min - 30);       // <windows.h>의 max/min 매크로 회피
+        config.session_close_min = (std::min)(24 * 60, now_min + 30);
+        OrderGate gate(config);
+        auto      signal = make_signal("005930", OrderSide::BUY);
+        assert(gate.check(signal, reason));
+    }
+
+    {
+        OrderGate::Config config;
+        // 지금이 정오 전이면 오후 창, 아니면 오전 창 — 어느 쪽이든 지금은 밖.
+        config.session_open_min  = now_min < 12 * 60 ? 13 * 60 : 1 * 60;
+        config.session_close_min = now_min < 12 * 60 ? 14 * 60 : 2 * 60;
+        OrderGate gate(config);
+        auto      signal = make_signal("005930", OrderSide::BUY);
+        assert(!gate.check(signal, reason));
+        assert(reason.find("세션 창 밖") != std::string::npos);
+
+        auto cancel   = make_signal("005930", OrderSide::SELL);
+        cancel.action = OrderAction::CANCEL;
+        cancel.original_client_order_id = "TEST-1";
+        reason.clear();
+        gate.check(cancel, reason);
+        assert(reason.find("세션 창 밖") == std::string::npos);
+    }
+
+    {
+        OrderGate gate; // 기본 0/0 = 검사 없음(테스트·리플레이)
+        auto      signal = make_signal("005930", OrderSide::BUY);
+        assert(gate.check(signal, reason));
+    }
+
+    PASS("session_window");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -470,6 +517,7 @@ int main()
     test_displace_reserves_slot_and_cooldown();
     test_displace_daily_cap();
     test_entry_snapshot_matches_separate_calls();
+    test_session_window();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

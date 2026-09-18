@@ -60,6 +60,11 @@ public:
         //    보유 전량 매도 등 정상 주문은 통과할 만큼 넉넉하게, 비정상 대량만 차단.
         int max_quantity_per_order        = 10'000;         // 1주문 최대 수량
         double max_notional_per_order = 50'000'000.0;  // 1주문 최대 명목(원). price>0일 때만 검사
+        // ── 매매 세션 창(KST, 자정부터의 분) — 이 밖의 NEW 주문은 막는다. KRX+NXT 통합 피드는 08:00~20:00
+        //    틱을 주지만 매매는 정규장 09:00~15:30뿐이라, 전략이 그 밖에서 낸 신호를 여기서 잡는다.
+        //    CANCEL/REPLACE는 통과(미체결 정리). 둘 다 0이면 검사 없음 — 테스트·리플레이 기본. [why D-096]
+        int session_open_min  = 0;
+        int session_close_min = 0;
     };
 
     OrderGate() : config_()

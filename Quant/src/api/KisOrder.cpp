@@ -59,11 +59,11 @@ bool KisClient::send_order(const OrderSignal& signal)
         // 국내주식 현금 주문
         if (signal.side == OrderSide::BUY)
         {
-            transaction_id = config_.is_paper ? "VTTC0802U" : "TTTC0802U";
+            transaction_id = config_.is_paper ? "VTTC0012U" : "TTTC0012U";
         }
         else
         {
-            transaction_id = config_.is_paper ? "VTTC0801U" : "TTTC0801U";
+            transaction_id = config_.is_paper ? "VTTC0011U" : "TTTC0011U";
         }
 
         url = base_url() + "/uapi/domestic-stock/v1/trading/order-cash";
@@ -88,7 +88,8 @@ bool KisClient::send_order(const OrderSignal& signal)
                 {"PDNO", signal.ticker},
                 {"ORD_DVSN", signal.type == OrderType::MARKET ? "01" : "00"},
                 {"ORD_QTY", std::to_string(signal.quantity)},
-                {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(static_cast<int>(signal.price)) : "0"}};
+                {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(static_cast<int>(signal.price)) : "0"},
+                {"EXCG_ID_DVSN_CD", kis_order_exchange(config_)}}; // KRX/NXT/SOR [why D-096]
     }
 
     std::string response = http_post(url,
@@ -140,8 +141,8 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
     }
     else
     {
-        transaction_id = (signal.side == OrderSide::BUY) ? (config_.is_paper ? "VTTC0802U" : "TTTC0802U")
-                                                 : (config_.is_paper ? "VTTC0801U" : "TTTC0801U");
+        transaction_id = (signal.side == OrderSide::BUY) ? (config_.is_paper ? "VTTC0012U" : "TTTC0012U")
+                                                 : (config_.is_paper ? "VTTC0011U" : "TTTC0011U");
         url = base_url() + "/uapi/domestic-stock/v1/trading/order-cash";
     }
 
@@ -160,7 +161,8 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
                 {"PDNO", signal.ticker},
                 {"ORD_DVSN", signal.type == OrderType::MARKET ? "01" : "00"},
                 {"ORD_QTY", std::to_string(signal.quantity)},
-                {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(static_cast<int>(signal.price)) : "0"}};
+                {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(static_cast<int>(signal.price)) : "0"},
+                {"EXCG_ID_DVSN_CD", kis_order_exchange(config_)}}; // KRX/NXT/SOR [why D-096]
     }
 
     std::string response = http_post(url,
@@ -211,7 +213,7 @@ OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& o
         return OrderAck::fail("E_NO_ORIG_ODNO");
     }
 
-    std::string transaction_id = config_.is_paper ? "VTTC0803U" : "TTTC0803U";
+    std::string transaction_id = config_.is_paper ? "VTTC0013U" : "TTTC0013U";
     std::string url   = base_url() + "/uapi/domestic-stock/v1/trading/order-rvsecncl";
 
     json body = {{"CANO", config_.account_no},
@@ -222,7 +224,8 @@ OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& o
                  {"RVSE_CNCL_DVSN_CD", "02"},                    // 02=취소
                  {"ORD_QTY", std::to_string(quantity)},               // 취소 수량 (QTY_ALL_ORD_YN=Y면 무시됨)
                  {"ORD_UNPR", "0"},                              // 취소는 단가 0
-                 {"QTY_ALL_ORD_YN", all_remaining ? "Y" : "N"}}; // 잔량 전체 취소
+                 {"QTY_ALL_ORD_YN", all_remaining ? "Y" : "N"}, // 잔량 전체 취소
+                 {"EXCG_ID_DVSN_CD", kis_order_exchange(config_)}}; // 원주문과 같은 거래소 구분 [why D-096]
 
     std::string response = http_post(url,
         authentication_headers(transaction_id, {"Content-Type: application/json"}),
@@ -265,7 +268,7 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
         return OrderAck::fail("E_NO_ORIG_ODNO");
     }
 
-    std::string transaction_id = config_.is_paper ? "VTTC0803U" : "TTTC0803U";
+    std::string transaction_id = config_.is_paper ? "VTTC0013U" : "TTTC0013U";
     std::string url   = base_url() + "/uapi/domestic-stock/v1/trading/order-rvsecncl";
 
     json body = {{"CANO", config_.account_no},
@@ -279,7 +282,8 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
                  // QTY_ALL_ORD_YN="Y"는 KIS가 잔량 전체를 정정하게 하므로, 위 ORD_QTY(부분 정정
                  // 수량)는 실제로 반영되지 않는다. 현재 호출부는 단가 정정만 쓰므로 무해하나,
                  // 부분수량 정정이 필요해지면 "N"으로 바꾸고 ORD_QTY를 살려야 한다(보류 목록).
-                 {"QTY_ALL_ORD_YN", "Y"}};                        // 잔량 전체 정정
+                 {"QTY_ALL_ORD_YN", "Y"},                         // 잔량 전체 정정
+                 {"EXCG_ID_DVSN_CD", kis_order_exchange(config_)}}; // 원주문과 같은 거래소 구분 [why D-096]
 
     std::string response = http_post(url,
         authentication_headers(transaction_id, {"Content-Type: application/json"}),

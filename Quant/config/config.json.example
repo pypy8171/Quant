@@ -4,7 +4,8 @@
     "app_secret":   "YOUR_APP_SECRET",
     "account_no":   "XXXXXXXXXX-XX",
     "account_type": "01",
-    "is_paper":     false
+    "is_paper":     false,
+    "exchange":     "SOR"
   },
 
   "mode": "KR_TEST",

@@ -25,7 +25,29 @@ struct KisConfig
     // 일봉 캐시 유효시간(초). 0이면 캐시 끔. 일봉을 매 사이클 다시 받아야 하는 전략
     //  (MA_CROSS·MOMENTUM처럼 on_data로 도는 것)을 쓸 때는 짧게 두거나 0으로 끈다.
     int daily_cache_ttl_sec = 600;
+    // 국내 주문을 어느 거래소로 내나 — "KRX"(한국거래소만), "NXT"(넥스트레이드만), "SOR"(증권사 최선집행이
+    //  KRX/NXT 중 유리한 쪽으로). KRX가 아니면 실시간 체결·호가도 KRX+NXT 통합 채널(H0UN*)로 받는다.
+    //  모의투자 서버는 KRX만 받으므로 is_paper면 아래 두 도우미가 KRX로 되돌린다. [why D-096]
+    std::string exchange = "KRX";
 };
+
+// 주문 전문의 EXCG_ID_DVSN_CD. 모의투자는 KRX만 받는다(NXT·SOR을 보내면 거부).
+inline const char* kis_order_exchange(const KisConfig& config) noexcept
+{
+    if (config.is_paper || config.exchange == "KRX")
+    {
+        return "KRX";
+    }
+
+    return config.exchange == "NXT" ? "NXT" : "SOR";
+}
+
+// 실시간 체결·호가를 KRX+NXT 통합 채널(H0UNCNT0/H0UNASP0)로 받나. 필드 배열은 KRX 채널과 같아
+//  파서는 하나다(체결 46필드 동일, 호가는 뒤에 중간가 6필드가 붙을 뿐). 모의 도메인은 KRX 채널만 준다.
+inline bool kis_unified_feed(const KisConfig& config) noexcept
+{
+    return !config.is_paper && config.exchange != "KRX";
+}
 
 // HHMMSS 문자열에서 minutes분을 빼 같은 형식으로 돌려준다. 자릿수 산술이 아니라 초로 바꿔 뺀다
 //  ("100000" - 1분 = "095900". 10진수 -100은 "099900"이라는 없는 시각을 만든다).

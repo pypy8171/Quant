@@ -3962,3 +3962,38 @@ provider·key 핸들을 새로 여닫고 있었다.
 디스패처가 매도를 막지 않음). 장중 단말에서 전략 매도 정지 ON → 로그에 `[Engine] 수동 매도 정지 — 전략 매도 차단` 한 줄,
 단말 수동 매도는 체결되는지, OFF 뒤 전략 매도가 다시 나가는지.
 
+---
+
+### D-096 넥스트레이드(NXT)를 통합 피드 + SOR 주문으로 붙인다 — config 키 하나로 켠다 (2026-09-18)
+**상태**: 채택 (빌드·ctest 33/33 통과, 실계좌 FEED 모드 실증은 아직)
+
+**결정**: `Quant/config/config.json`의 `"kis"."exchange"`(`"KRX"`·`"NXT"`·`"SOR"`, 기본 `"KRX"`) 하나로
+주문 거래소와 실시간 채널을 함께 정한다(`Quant/include/api/KisClient.h`의 `kis_order_exchange`·`kis_unified_feed`).
+- 주문: tr_id를 KIS의 새 국내 주문 API(매수 `TTTC0012U`·매도 `TTTC0011U`·정정취소 `TTTC0013U`, 모의는
+  `VTTC*`)로 바꾸고 본문에 `EXCG_ID_DVSN_CD`(KRX/NXT/SOR)를 넣는다(`Quant/src/api/KisOrder.cpp`). 예전
+  `TTTC0802U/0801U/0803U`는 KRX 전용이라 NXT·SOR을 낼 수 없다.
+- 시세: `exchange`가 KRX가 아니면 KRX+NXT 통합 채널 `H0UNCNT0`(체결)·`H0UNASP0`(호가)를 구독한다
+  (`Quant/src/api/WebSocketClient.cpp::subscribe_specification`). 필드 배치가 `H0STCNT0`·`H0STASP0`와 같아
+  파서는 그대로 쓴다(호가는 뒤에 6필드가 더 붙지만 앞 59필드가 같다).
+- 세션 창: 통합 피드는 08:00~20:00 틱을 주므로 전략이 정규장 밖에서 신호를 낼 수 있다. `OrderGate`에
+  세션 창 규칙(`session_open_min`~`session_close_min`, KST 분, 기본 09:00~15:30)을 두어 NEW 주문을 창 밖에서
+  거부한다(`Quant/src/risk/OrderGate.cpp` 1c). 리플레이·테스트는 0/0으로 꺼진다(`Quant/src/main.cpp::configure_risk`).
+- 모의투자(`is_paper`)는 KIS 모의 서버가 KRX만 받으므로 두 도우미가 KRX로 되돌린다.
+
+**배경**: 2026-09-14 KRX 애프터마켓(16:00~20:00)이 열리고 NXT는 프리(08:00~08:50)·메인(09:00:30~15:20)·
+애프터(15:40~20:00)를 돈다. 정규장 09:00~15:30 자체는 그대로다(처음에는 "정규장이 늘어났다"고 알고 시작했으나
+확인 결과 아니었다). 같은 종목이 두 시장에서 거래되니 KRX만 보면 호가·체결의 일부를 놓친다.
+
+**대안 비교**:
+- KRX 유지 — 코드 변화 없음. 대신 NXT 쪽 유동성·가격 개선을 못 받고 통합 시세를 못 본다.
+- NXT 지정 — KRX보다 수수료가 싸지만 종목·시간에 따라 NXT 유동성이 얇아 체결이 나빠질 수 있다.
+- SOR(채택) — 증권사가 주문마다 KRX/NXT 중 유리한 쪽으로 보낸다. 체결 시장은 체결통보 `ORD_EXG_GB`로 알 수 있다.
+  처음 붙이는 단계에서 라우팅 판단을 우리가 떠안지 않는 쪽을 골랐다.
+
+**남은 위험**:
+- KIS 모의투자가 NXT·SOR을 받는지 확인 안 했다 — 코드가 KRX로 되돌리므로 안전하지만 모의로는 NXT 검증이 안 된다.
+- REST 현재가·분봉(`Quant/src/api/KisMarket.cpp`)은 `FID_COND_MRKT_DIV_CODE=J`(KRX) 그대로다. 통합(`UN`)으로
+  바꾸는 것은 2단계.
+- 애프터마켓(15:40~20:00) 매매는 세션 창을 넓히면 되지만 지정가만 허용되고 ETF·ETN이 빠지는 등 규칙이 달라
+  전략 검토 뒤 2단계로 미룬다.
+- 실계좌 FEED 모드에서 08:00~08:50·15:40~20:00에 `H0UN*` 틱이 오는지, SOR 체결이 체결통보로 잡히는지 아직 안 봤다.

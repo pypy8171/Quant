@@ -316,6 +316,7 @@ static QuoteKisSetup configure_quote_kis(Engine& engine, const json& config)
     kis_config.account_type = config["quote_kis"].value("account_type", "01");
     kis_config.hts_id       = config["quote_kis"].value("hts_id", "");
     kis_config.is_paper     = false; // 시세는 실전 도메인
+    kis_config.exchange     = config["kis"].value("exchange", "KRX"); // 실시간 채널 선택은 주문 쪽 설정을 따른다 [why D-096]
     engine.set_quote_kis_config(kis_config);
     out.config = kis_config;
     out.has = true;
@@ -327,13 +328,22 @@ static QuoteKisSetup configure_quote_kis(Engine& engine, const json& config)
 //  지정된 키만 기본값에서 덮어쓴다. 실제 돈 규율 튜닝을 재빌드 없이 하기 위함(S-1).
 static void configure_risk(Engine& engine, const json& config)
 {
+    OrderGate::Config result_code; // OrderGate::Config 기본값에서 시작
+    // 매매 세션 창은 risk 노드가 없어도 켠다 — 통합 피드가 08:00~20:00 틱을 줘도 주문은 정규장 09:00~15:30뿐.
+    //  캡처 리플레이는 밤에도 돌리므로 창을 끈 채(0/0) 둔다. [why D-096]
+    const bool replaying = !config.value("replay_file", std::string()).empty();
+    const int  session_open_hhmm  = config.contains("risk") ? config["risk"].value("session_open_hhmm", 900) : 900;
+    const int  session_close_hhmm = config.contains("risk") ? config["risk"].value("session_close_hhmm", 1530) : 1530;
+    result_code.session_open_min  = replaying ? 0 : (session_open_hhmm / 100) * 60 + session_open_hhmm % 100;
+    result_code.session_close_min = replaying ? 0 : (session_close_hhmm / 100) * 60 + session_close_hhmm % 100;
+
     if (!config.contains("risk"))
     {
+        engine.set_risk_config(result_code);
         return;
     }
 
     const auto& regime_node = config["risk"];
-    OrderGate::Config result_code; // OrderGate::Config 기본값에서 시작
     result_code.max_quantity_per_ticker     = regime_node.value("max_qty_per_ticker", result_code.max_quantity_per_ticker);
     result_code.daily_loss_limit       = regime_node.value("daily_loss_limit", result_code.daily_loss_limit);
     result_code.max_orders_per_min     = regime_node.value("max_orders_per_min", result_code.max_orders_per_min);
@@ -458,6 +468,18 @@ int main(int argc, char* argv[])
     kis_config.account_type = config["kis"]["account_type"].get<std::string>();
     kis_config.hts_id       = config["kis"].value("hts_id", ""); // 미설정 시 account_no 사용
     kis_config.is_paper     = config["kis"]["is_paper"].get<bool>();
+    // 주문 거래소·실시간 채널 — KRX(한국거래소만) / NXT(넥스트레이드만) / SOR(증권사 최선집행). [why D-096]
+    kis_config.exchange     = config["kis"].value("exchange", "KRX");
+
+    if (kis_config.exchange != "KRX" && kis_config.exchange != "NXT" && kis_config.exchange != "SOR")
+    {
+        LOG_ERROR("[Main] kis.exchange 는 KRX/NXT/SOR 중 하나여야 한다: '" + kis_config.exchange + "'");
+        return 1;
+    }
+
+    LOG_INFO("[Main] 거래소 구분 " + kis_config.exchange + " — 주문 EXCG_ID_DVSN_CD=" + kis_order_exchange(kis_config) +
+             ", 실시간 채널 " + (kis_unified_feed(kis_config) ? "KRX+NXT 통합(H0UN*)" : "KRX(H0ST*)") +
+             (kis_config.is_paper && kis_config.exchange != "KRX" ? " (모의투자는 KRX만 받아 KRX로 내린다)" : ""));
 
     // FEED 모드 전용 — TRADE 모드는 전략이 동적으로 종목 구성
     std::vector<std::string> tickers;

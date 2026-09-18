@@ -82,7 +82,7 @@ TRADE 모드의 데이터 흐름:
 
 **base_url / tr_id 분기**:
 - `base_url()`: `is_paper ? openapivts...:29443 : openapi...:9443` (`KisClient.h::base_url`).
-- 국내 주문 tr_id: 매수 `VTTC0802U`(모의)/`TTTC0802U`(실), 매도 `VTTC0801U`/`TTTC0801U` (`KisClient.cpp::submit_order_acknowledgement`). 정정/취소는 `VTTC0803U`/`TTTC0803U` (`KisClient.cpp::cancel_order`·`KisClient.cpp::revise_order`). 잔고조회 `VTTC8434R`/`TTTC8434R` (`KisClient.cpp::get_balance`).
+- 국내 주문 tr_id: 매수 `VTTC0012U`(모의)/`TTTC0012U`(실), 매도 `VTTC0011U`/`TTTC0011U` (`KisClient.cpp::submit_order_acknowledgement`), 본문 `EXCG_ID_DVSN_CD`는 config `kis.exchange`(KRX/NXT/SOR, D-096). 정정/취소는 `VTTC0013U`/`TTTC0013U` (`KisClient.cpp::cancel_order`·`KisClient.cpp::revise_order`). 잔고조회 `VTTC8434R`/`TTTC8434R` (`KisClient.cpp::get_balance`).
 - 조회계 tr_id: 일봉 `FHKST03010100`(`KisClient.cpp::get_daily_ohlcv`), 현재가/펀더멘털 `FHKST01010100`(`KisClient.cpp::get_current_price`·`KisClient.cpp::get_fundamentals`), 시총랭킹 `FHPST01720000`(`KisClient.cpp::fetch_kr_ranking`), 지수일봉 `FHKUP03500100`(`KisClient.cpp::get_index_daily_ohlcv`), 지수현재값 `FHPUP02100000`(`KisClient.cpp::get_index_price`), 투자자동향 `FHKST01010900`(`KisClient.cpp::get_investor_trend`·`KisClient.cpp::get_investor_flow`).
 
 **헤더 구성** (공통 4종): `authorization: Bearer <token>`, `appkey`, `appsecret`, `tr_id` (예: `KisClient.cpp::get_daily_ohlcv`). GET에도 KIS는 `Content-Type: application/json`을 요구하므로 `http_get`이 없으면 자동 추가 (`KisClient.cpp::http_get`). HTTP 구현은 플랫폼 분기: Windows `winhttp_request`(`KisClient.cpp::winhttp_request`), Linux `curl_request`(`KisClient.cpp::curl_request`).
@@ -147,7 +147,7 @@ WS 연결/구독은 `KisWebSocket::connect()` (Windows·Linux 두 정의, `WebSo
 ### 5.1 연결·구독
 - approval key 발급: `POST /oauth2/Approval` with `{grant_type, appkey, secretkey}` → `approval_key_` (`WebSocketClient.cpp::get_approval_key`). REST OAuth 토큰과 별개 키.
 - WS 엔드포인트: `ops.koreainvestment.com`, 포트 `is_paper ? 31000 : 21000` (`WebSocketClient.cpp::connect`).
-- 구독: KR 종목은 `H0STASP0`(호가, `trade_only=false`일 때만) + `H0STCNT0`(체결) (`WebSocketClient.cpp::subscribe_specification`). US는 `HDFSCNT0`, tr_key=`"EXCH|SYMBOL"` (`WebSocketClient.cpp::subscribe_specification`). 체결통보 `H0STCNI9`(모의)/`H0STCNI0`(실)은 `on_fill_` 등록 + `hts_id` 비어있지 않을 때만 구독 (`WebSocketClient.cpp::subscribe_all`). `send_subscribe`는 approval_key를 header에 담은 JSON을 보낸다 (`WebSocketClient.cpp::send_subscribe`).
+- 구독: KR 종목은 `H0STASP0`(호가, `trade_only=false`일 때만) + `H0STCNT0`(체결), config `kis.exchange`가 NXT·SOR이면 KRX+NXT 통합 `H0UNASP0`/`H0UNCNT0`(필드 배치 같음, D-096) (`WebSocketClient.cpp::subscribe_specification`). US는 `HDFSCNT0`, tr_key=`"EXCH|SYMBOL"` (`WebSocketClient.cpp::subscribe_specification`). 체결통보 `H0STCNI9`(모의)/`H0STCNI0`(실)은 `on_fill_` 등록 + `hts_id` 비어있지 않을 때만 구독 (`WebSocketClient.cpp::subscribe_all`). `send_subscribe`는 approval_key를 header에 담은 JSON을 보낸다 (`WebSocketClient.cpp::send_subscribe`).
 
 ### 5.2 프레임 파싱 (`parse_message`)
 - JSON 프레임(`msg[0]=='{'`): `PINGPONG`이면 그대로 echo (`WebSocketClient.cpp::parse_message`). 구독 응답이면 rt_cd/msg1 로그. 체결통보 구독 응답이면 `output.key/iv`를 확보해 **AES-256-CBC key(32B)/iv(16B)**를 저장(길이 검증 후) (`WebSocketClient.cpp::parse_message`).
