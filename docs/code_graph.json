@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 7
+      "weight": 8
     },
     {
       "from": "ipc",
@@ -235,6 +235,7 @@
     "core/BarAggregator.cpp": "core",
     "core/DataPoller.cpp": "core",
     "core/Engine.cpp": "core",
+    "core/EngineConfigure.cpp": "core",
     "core/LedgerReconciler.cpp": "core",
     "core/OrderPacer.cpp": "core",
     "core/RingBuffer.cpp": "core",
@@ -371,6 +372,11 @@
       "ipc/ZmqBridge.h",
       "risk/OrderGate.h",
       "strategy/StrategyBase.h"
+    ],
+    "core/EngineConfigure.cpp": [
+      "core/AppConfig.h",
+      "core/Engine.h",
+      "utils/Logger.h"
     ],
     "core/FeedMux.h": [
       "core/IFeedSource.h",
@@ -671,6 +677,7 @@
     ],
     "core/AppConfig.h": [
       "core/AppConfig.cpp",
+      "core/EngineConfigure.cpp",
       "main.cpp"
     ],
     "core/BarAggregator.h": [
@@ -684,6 +691,7 @@
     ],
     "core/Engine.h": [
       "core/Engine.cpp",
+      "core/EngineConfigure.cpp",
       "main.cpp",
       "strategy/StrategyFactory.cpp"
     ],
@@ -947,6 +955,7 @@
       "core/AppConfig.cpp",
       "core/DataPoller.cpp",
       "core/Engine.cpp",
+      "core/EngineConfigure.cpp",
       "core/LedgerReconciler.cpp",
       "core/OrderPacer.cpp",
       "core/SignalDispatcher.cpp",
@@ -977,7 +986,7 @@
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 25
+      "in_degree": 26
     },
     {
       "header": "core/KstTime.h",
@@ -1016,6 +1025,10 @@
       "in_degree": 4
     },
     {
+      "header": "core/Engine.h",
+      "in_degree": 4
+    },
+    {
       "header": "ipc/ZmqBridge.h",
       "in_degree": 4
     },
@@ -1040,15 +1053,11 @@
       "in_degree": 3
     },
     {
+      "header": "core/AppConfig.h",
+      "in_degree": 3
+    },
+    {
       "header": "core/DataPoller.h",
-      "in_degree": 3
-    },
-    {
-      "header": "core/Engine.h",
-      "in_degree": 3
-    },
-    {
-      "header": "core/IFeedSource.h",
       "in_degree": 3
     }
   ],
@@ -1802,7 +1811,7 @@
         "Quant/include/core/Engine.h",
         "Quant/src/core/AppConfig.cpp",
         "Quant/src/core/Engine.cpp",
-        "Quant/src/main.cpp",
+        "Quant/src/core/EngineConfigure.cpp",
         "scripts/dashboard_server.py",
         "scripts/notify_sidecar.py"
       ]

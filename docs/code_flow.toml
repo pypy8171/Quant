@@ -65,7 +65,7 @@ review = [
   [[stage.step]]
   sym = "main"
   file = "Quant/src/main.cpp"
-  what = "진입. `load_config` → `Engine engine(...)` → `set_*` 배선 → `load_strategies` → `engine.start()` 순서를 훑는다"
+  what = "진입. `parse_config`(json→AppConfig) → `Engine engine(...)` → `engine.configure(app)`(세터 배선, core/EngineConfigure.cpp) → `load_strategies` → `engine.start()` 순서를 훑는다"
 
   [[stage.step]]
   sym = "load_strategies"

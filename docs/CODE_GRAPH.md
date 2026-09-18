@@ -24,7 +24,7 @@ graph LR
   core -->|3| ipc
   core -->|5| risk
   core -->|3| strategy
-  core -->|7| utils
+  core -->|8| utils
   ipc -->|2| api
   ipc -->|5| core
   ipc --> risk
@@ -56,7 +56,7 @@ graph LR
 | 헤더 | 유입 수 |
 |---|---|
 | `core/Types.h` | 29 |
-| `utils/Logger.h` | 25 |
+| `utils/Logger.h` | 26 |
 | `core/KstTime.h` | 13 |
 | `strategy/StrategyBase.h` | 13 |
 | `api/KisClient.h` | 12 |
@@ -95,6 +95,7 @@ graph LR
     n_core_DataPoller_h["core/DataPoller.h"]
     n_core_Engine_cpp["core/Engine.cpp"]
     n_core_Engine_h["core/Engine.h"]
+    n_core_EngineConfigure_cpp["core/EngineConfigure.cpp"]
     n_core_FeedMux_h["core/FeedMux.h"]
     n_core_IFeedSource_h["core/IFeedSource.h"]
     n_core_LatencyTrace_h["core/LatencyTrace.h"]
@@ -231,6 +232,9 @@ graph LR
   n_core_Engine_h --> n_ipc_ZmqBridge_h
   n_core_Engine_h --> n_risk_OrderGate_h
   n_core_Engine_h --> n_strategy_StrategyBase_h
+  n_core_EngineConfigure_cpp --> n_core_AppConfig_h
+  n_core_EngineConfigure_cpp --> n_core_Engine_h
+  n_core_EngineConfigure_cpp --> n_utils_Logger_h
   n_core_FeedMux_h --> n_core_IFeedSource_h
   n_core_FeedMux_h --> n_core_RingBuffer_h
   n_core_FeedMux_h --> n_core_Types_h
@@ -516,7 +520,7 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 
 | 파일 | 쓰는 쪽 | 읽는 쪽 | 언급만 |
 |---|---|---|---|
-| `regime.json` | `PYQuant/tools/macro_regime_feed.py` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/AppConfig.cpp`, `Quant/src/core/Engine.cpp`, `scripts/dashboard_server.py`, `scripts/notify_sidecar.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/src/main.cpp` |
+| `regime.json` | `PYQuant/tools/macro_regime_feed.py` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/AppConfig.cpp`, `Quant/src/core/Engine.cpp`, `scripts/dashboard_server.py`, `scripts/notify_sidecar.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/src/core/EngineConfigure.cpp` |
 | `prices_live.json` | `scripts/live_prices_feed.py` | `scripts/live_prices_feed.py` |  |
 | `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py` | `PYQuant/dashboard/backfill_live.py`, `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_sidecar.py` |
 | `universe*.json` |  | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/nxt_divergence_probe.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseScanner.cpp`, `scripts/eod_minute_backfill.py`, `scripts/live_prices_feed.py`, `scripts/notify_sidecar.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |

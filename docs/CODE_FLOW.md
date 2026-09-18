@@ -55,10 +55,10 @@ flowchart LR
 
 config를 읽고 전략을 만들고 `Engine::start()`가 행렬·샤드·원장·소켓 콜백·스레드 다섯을 세운다. 이 절만 읽으면 누가 무엇을 소유하는지 보인다.
 
-1. [`main`](../Quant/src/main.cpp#L384) — 진입. `load_config` → `Engine engine(...)` → `set_*` 배선 → `load_strategies` → `engine.start()` 순서를 훑는다  
-   `Quant/src/main.cpp:384` · `int main(int argc, char* argv[])`
-2. [`load_strategies`](../Quant/src/strategy/StrategyFactory.cpp#L989) — config `strategies[]`를 전략 객체로. 새 전략을 붙이는 자리(CLAUDE.md '전략 추가하기')  
-   `Quant/src/strategy/StrategyFactory.cpp:989` · `void load_strategies(StrategyLoadCtx& context, const json& strategies)`
+1. [`main`](../Quant/src/main.cpp#L275) — 진입. `parse_config`(json→AppConfig) → `Engine engine(...)` → `engine.configure(app)`(세터 배선, core/EngineConfigure.cpp) → `load_strategies` → `engine.start()` 순서를 훑는다  
+   `Quant/src/main.cpp:275` · `int main(int argc, char* argv[])`
+2. [`load_strategies`](../Quant/src/strategy/StrategyFactory.cpp#L990) — config `strategies[]`를 전략 객체로. 새 전략을 붙이는 자리(CLAUDE.md '전략 추가하기')  
+   `Quant/src/strategy/StrategyFactory.cpp:990` · `void load_strategies(StrategyLoadCtx& context, const json& strategies)`
 3. [`Engine::add_strategy`](../Quant/src/core/Engine.cpp#L33) — 전략 등록. 심볼 해석기(`set_symbol_resolver` → `SymbolTable::intern`)가 여기서 주입된다  
    `Quant/src/core/Engine.cpp:33` · `void Engine::add_strategy(std::unique_ptr<StrategyBase> strategy)`
 4. [`Engine::start`](../Quant/src/core/Engine.cpp#L1089) — 행렬 `reshape`(행=수신 레인+폴러, 열=샤드) → 샤드 생성 → 원장 시드 → WS 연결·콜백 → jthread 다섯. 아래 두 걸음은 이 함수 안이다  
@@ -123,16 +123,16 @@ config를 읽고 전략을 만들고 `Engine::start()`가 행렬·샤드·원장
    `Quant/include/core/StrategyShard.h:68` · `struct Emitted`
 23. [`StrategyBase::on_trade_batch`](../Quant/include/strategy/StrategyBase.h#L57) — 전략 훅의 계약(가상 함수 다섯). 기본 구현은 `on_trade` 하나를 out에 담는다. `symbol_of`·`same_symbol`도 이 헤더  
    `Quant/include/strategy/StrategyBase.h:57` · `virtual void on_trade_batch(const TradeData&, std::vector<OrderSignal>& /*out*/)`
-24. [`DeviationScaleStrategy::on_start`](../Quant/include/strategy/DeviationScaleStrategy.h#L235) — 종목 id 받기·REST 봉 시드·프리페치 스레드. 전략 하나를 끝까지 따라가는 예로 이 전략을 쓴다  
-   `Quant/include/strategy/DeviationScaleStrategy.h:235` · `void on_start() override`
-25. [`DeviationScaleStrategy::on_trade_batch`](../Quant/include/strategy/DeviationScaleStrategy.h#L295) — 틱 → `aggregator_.on_tick` → 판단 직전 `close_stale`·`bars::resample` → 진입/청산 판단 → out. 매매 로직의 본체  
-   `Quant/include/strategy/DeviationScaleStrategy.h:295` · `void on_trade_batch(const TradeData& trade, std::vector<OrderSignal>& out) override`
+24. [`DeviationScaleStrategy::on_start`](../Quant/include/strategy/DeviationScaleStrategy.h#L239) — 종목 id 받기·REST 봉 시드·프리페치 스레드. 전략 하나를 끝까지 따라가는 예로 이 전략을 쓴다  
+   `Quant/include/strategy/DeviationScaleStrategy.h:239` · `void on_start() override`
+25. [`DeviationScaleStrategy::on_trade_batch`](../Quant/include/strategy/DeviationScaleStrategy.h#L299) — 틱 → `aggregator_.on_tick` → 판단 직전 `close_stale`·`bars::resample` → 진입/청산 판단 → out. 매매 로직의 본체  
+   `Quant/include/strategy/DeviationScaleStrategy.h:299` · `void on_trade_batch(const TradeData& trade, std::vector<OrderSignal>& out) override`
 26. [`bars::BarAggregator::on_tick`](../Quant/src/core/BarAggregator.cpp#L194) — 체결 틱을 1분봉으로. `close_stale`은 틱이 없어도 시계로 지난 분을 닫는다(D-074)  
    `Quant/src/core/BarAggregator.cpp:194` · `bool BarAggregator::on_tick(const TradeData& trade)` · 시험 [test_bar_aggregator](../Quant/tests/test_bar_aggregator.cpp)
 27. [`bars::resample`](../Quant/include/core/BarAggregator.h#L44) — 1분봉 → `interval_min` 봉. 판단은 언제나 이 봉으로(D-072)  
    `Quant/include/core/BarAggregator.h:44` · `std::vector<MarketData> resample(const std::vector<MarketData>& bars_1m, int interval_min, int max_count = 0);` · 시험 [test_bar_aggregator](../Quant/tests/test_bar_aggregator.cpp)
-28. [`DeviationScaleStrategy::emit_liquidation`](../Quant/include/strategy/DeviationScaleStrategy.h#L1305) — 청산 신호 조립 — 시장가면 `reference_price` 스탬프, 매도 가능 수량은 원장 접근자(`sellable_quantity`, 동기 잔고조회 금지)  
-   `Quant/include/strategy/DeviationScaleStrategy.h:1305` · `bool emit_liquidation(std::vector<OrderSignal>& out, int position, …`
+28. [`DeviationScaleStrategy::emit_liquidation`](../Quant/include/strategy/DeviationScaleStrategy.h#L1317) — 청산 신호 조립 — 시장가면 `reference_price` 스탬프, 매도 가능 수량은 원장 접근자(`sellable_quantity`, 동기 잔고조회 금지)  
+   `Quant/include/strategy/DeviationScaleStrategy.h:1317` · `bool emit_liquidation(std::vector<OrderSignal>& out, int position, …`
 
 리뷰할 때 볼 것:
 

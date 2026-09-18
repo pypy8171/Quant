@@ -118,6 +118,7 @@ set(ENGINE_SOURCES
   src/strategy/StrategyFactory.cpp
   src/core/AppConfig.cpp
   src/core/Engine.cpp
+  src/core/EngineConfigure.cpp
   src/core/LedgerReconciler.cpp
   src/core/DataPoller.cpp
   src/core/BarAggregator.cpp

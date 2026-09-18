@@ -301,6 +301,7 @@
 - [BarAggregator.cpp](../Quant/src/core/BarAggregator.cpp) — N분봉 집계기 구현(D-068·D-074)
 - [DataPoller.cpp](../Quant/src/core/DataPoller.cpp) — REST 현재가 폴러 구현 — 호출 간격·넘침 목록(D-062)
 - [Engine.cpp](../Quant/src/core/Engine.cpp) — 엔진 본체 구현 — 생성자·전략 등록·파이프라인
+- [EngineConfigure.cpp](../Quant/src/core/EngineConfigure.cpp) — `Engine::configure(const AppConfig&)` — AppConfig 값을 Engine 세터에 옮기는 배선 5단계(채널·국면맵·기동 점검·시세 키·위험 한도)
 - [LedgerReconciler.cpp](../Quant/src/core/LedgerReconciler.cpp) — 잔고 대조기 구현 — 원장 부트스트랩(D-061)
 - [OrderPacer.cpp](../Quant/src/core/OrderPacer.cpp) — 발주 조절기 구현 — 재시도 분류(D-065)
 - [RingBuffer.cpp](../Quant/src/core/RingBuffer.cpp) — 빈 구현 파일 — 템플릿 헤더 전용

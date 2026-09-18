@@ -39,6 +39,8 @@
 #include <unordered_set>
 #include <vector>
 
+struct AppConfig;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Engine  —  퀀트 트레이딩 엔진
 //
@@ -55,6 +57,9 @@ class Engine
 public:
     Engine(KisConfig kis_config, int fetch_interval_sec = 60);
     ~Engine();
+
+    // AppConfig(typed 값)를 아래 세터들에 한 번에 옮긴다 — start() 전에만. 몸통은 src/core/EngineConfigure.cpp.
+    void configure(const AppConfig& app);
 
     // 스레드·뮤텍스를 소유한다 — 복사는 원본과 사본이 같은 자원을 두 번 닫는 길이라 막는다.
     Engine(const Engine&)            = delete;

@@ -114,8 +114,9 @@ static·reinterpret·const 세 가지를 겸해 무엇을 의도했는지 코드
 - 검사는 `scripts/check_code_conventions.py` 7번 규칙이 추가된 C++ 코드 줄만 본다(오류). 판정 표는 리네임에 쓴
   `scripts/rename_maps/01_fields.json`·`scripts/rename_frags.py`를 그대로 쓰므로, 예외를 늘리려면 그 표(SKIP·WIRE)를 고친다.
 
-초기화 위치 — 초기화는 두 목록에만 쓴다. 프로세스 수준(콘솔·로거·인자·설정·크래시 핸들러·모드 분기)은
-`Quant/src/main.cpp`의 `main()` 호출 목록, 엔진 수준(샤드·인증·주문 라우터·원장·전략·피드·스레드)은
+초기화 위치 — 초기화는 세 목록에만 쓴다. 프로세스 수준(콘솔·로거·인자·설정·크래시 핸들러·모드 분기)은
+`Quant/src/main.cpp`의 `main()` 호출 목록, 설정값을 엔진 세터에 옮기는 배선은 `Engine::configure(const AppConfig&)`
+(`Quant/src/core/EngineConfigure.cpp`)의 호출 목록, 엔진 수준(샤드·인증·주문 라우터·원장·전략·피드·스레드)은
 `Engine::start()`의 호출 목록이다. 새 초기화는 이름 있는 함수 하나로 만들고 그 목록에 한 줄을 더한다 — 함수 몸통
 안에 섞어 넣거나 주기 블록·콜백에서 처음 불릴 때 만들지 않는다. 순서를 읽는 사람은 그 두 목록만 보면 되게 한다.
 config.json을 읽는 곳은 `Quant/src/core/AppConfig.cpp`의 `parse_config()` 하나다(전략별 파라미터는
