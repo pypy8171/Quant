@@ -244,12 +244,12 @@ function Restore-Windows {
 # 09-18 실측: 09:00 재확인은 거래대금 35초치라 1,471종목만 값이 있어 104종목에 그쳤고, 09:30에야 277종목이
 #  됐다. 첫 한 시간은 거래대금 순위가 가장 빠르게 바뀌는 구간이라 30분 간격은 너무 길다 — 10:00 전에는 3분,
 #  그 뒤는 10분으로 간격을 시간대별로 둔다(스캔 1회 ~3초, 네이버 29요청).
-$script:UnivNext = (Get-Date).AddMinutes(30)
-$script:UnivOpenRetryDone = $false
 function Get-UnivIntervalMin {
   if ((Get-Date).ToString("HHmm") -lt "1000") { return 3 }
   return 10
 }
+$script:UnivNext = (Get-Date).AddMinutes((Get-UnivIntervalMin))   # 장중 재기동이면 첫 카운터도 같은 규칙
+$script:UnivOpenRetryDone = $false
 function Refresh-Universe {
   if ($DryRun -or $NoUniverse) { return }
   $now = Get-Date
