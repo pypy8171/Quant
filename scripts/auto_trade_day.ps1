@@ -241,23 +241,31 @@ function Restore-Windows {
 #  30분 카운터는 스크립트 기동 시각 기준이라 09:00과 우연히 맞지 않으면 장 시작 뒤에도 한참(최대
 #  30분) 전날 파일로 매매한다 — 주도주는 매일 바뀌므로 이 창이 위험하다. 카운터와 별개로 09:00~09:04
 #  구간에 한 번 강제 재확인해 그 창을 최대 5분으로 줄인다.
+# 09-18 실측: 09:00 재확인은 거래대금 35초치라 1,471종목만 값이 있어 104종목에 그쳤고, 09:30에야 277종목이
+#  됐다. 첫 한 시간은 거래대금 순위가 가장 빠르게 바뀌는 구간이라 30분 간격은 너무 길다 — 10:00 전에는 3분,
+#  그 뒤는 10분으로 간격을 시간대별로 둔다(스캔 1회 ~3초, 네이버 29요청).
 $script:UnivNext = (Get-Date).AddMinutes(30)
 $script:UnivOpenRetryDone = $false
+function Get-UnivIntervalMin {
+  if ((Get-Date).ToString("HHmm") -lt "1000") { return 3 }
+  return 10
+}
 function Refresh-Universe {
   if ($DryRun -or $NoUniverse) { return }
   $now = Get-Date
   if ($now.ToString("HHmm") -ge "1530") { return }
   if (-not $script:UnivOpenRetryDone -and $now.ToString("HHmm") -ge "0900" -and $now.ToString("HHmm") -lt "0905") {
     $script:UnivOpenRetryDone = $true
-    Say "장 시작 직후 유니버스 재확인 — 30분 카운터와 별개(사전장 rc=1 대비)."
+    Say "장 시작 직후 유니버스 재확인 — 정기 카운터와 별개(사전장 rc=1 대비)."
     $rc = Run-Native "`"$py`" PYQuant\tools\universe_feed.py --market ALL --out Quant\config\universe_scan.json"
     if ($rc -ne 0) { Say "유니버스 재스캔 실패(rc=$rc) — 직전 파일 유지." "WARN" }
-    else { $script:UnivNext = $now.AddMinutes(30) }
+    else { $script:UnivNext = $now.AddMinutes((Get-UnivIntervalMin)) }
     return
   }
   if ($now -lt $script:UnivNext) { return }
-  $script:UnivNext = $now.AddMinutes(30)
-  Say "유니버스 스캔을 다시 돌린다(시총·거래대금 현재 값, 30분 뒤 재확인)."
+  $interval = Get-UnivIntervalMin
+  $script:UnivNext = $now.AddMinutes($interval)
+  Say "유니버스 스캔을 다시 돌린다(시총·거래대금 현재 값, ${interval}분 뒤 재확인)."
   $rc = Run-Native "`"$py`" PYQuant\tools\universe_feed.py --market ALL --out Quant\config\universe_scan.json"
   if ($rc -ne 0) { Say "유니버스 재스캔 실패(rc=$rc) — 직전 파일 유지." "WARN" }
 }
