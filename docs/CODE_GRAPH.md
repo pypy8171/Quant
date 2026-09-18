@@ -18,7 +18,7 @@ graph LR
   risk[risk]
   ipc[ipc]
   utils[utils]
-  api -->|10| core
+  api -->|11| core
   api -->|6| utils
   core -->|9| api
   core -->|3| ipc
@@ -57,8 +57,8 @@ graph LR
 |---|---|
 | `core/Types.h` | 28 |
 | `utils/Logger.h` | 24 |
+| `core/KstTime.h` | 13 |
 | `strategy/StrategyBase.h` | 13 |
-| `core/KstTime.h` | 12 |
 | `api/KisClient.h` | 11 |
 | `core/MarketSession.h` | 8 |
 | `core/WakeGate.h` | 7 |
@@ -168,6 +168,7 @@ graph LR
   n_api_KisClientInternal_h --> n_utils_Logger_h
   n_api_KisIndex_cpp --> n_api_KisRestDecode_h
   n_api_KisMarket_cpp --> n_api_KisRestDecode_h
+  n_api_KisOrder_cpp --> n_core_KstTime_h
   n_api_KisOrder_cpp --> n_utils_JsonNode_h
   n_api_KisRestDecode_h --> n_api_KisTypes_h
   n_api_KisRestDecode_h --> n_core_KstTime_h

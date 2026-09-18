@@ -160,7 +160,7 @@ int main()
     {
         BarAggregator aggregator(BarAggregator::Config{});
         CHECK(!aggregator.on_tick(tick("085000", 100.0, 1, 1)));
-        CHECK(!aggregator.on_tick(tick("154000", 100.0, 1, 1)));
+        CHECK(!aggregator.on_tick(tick("200100", 100.0, 1, 1))); // 애프터마켓 마감 20:00 뒤 [why D-097]
         CHECK(!aggregator.on_tick(tick("090000", 0.0, 1, 1)));
         CHECK(aggregator.on_tick(tick("090000", 100.0, 1, 1)));
         CHECK(aggregator.on_tick(tick("090000", 50.0, 1, 1, "000660")));

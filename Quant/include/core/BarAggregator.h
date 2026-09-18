@@ -51,7 +51,8 @@ public:
         int interval_min    = 3;    // 봉 길이(분)
         int keep            = 64;   // 종목당 닫힌 봉 이력 상한(진행 중 봉 제외)
         int session_open    = 900;  // 이 HHMM 앞의 틱은 버린다
-        int session_close   = 1530; // 이 HHMM 뒤의 틱은 버린다(15:30:xx 마감 동시호가는 든다)
+        int session_close   = 2000; // 이 HHMM 뒤의 틱은 버린다(20:00:xx 애프터마켓 마감 체결은 든다). 15:30~16:00
+                                    //  장후 종가 체결도 봉에 든다 — 가격이 종가 한 값이라 봉은 평평하다. [why D-097]
     };
 
     using BarSink = std::function<void(const MarketData&)>; // 닫힌 봉 한 개 — 다음 버킷 첫 틱이나 close_stale이 닫는다

@@ -14,7 +14,7 @@
     {
       "from": "api",
       "to": "core",
-      "weight": 10
+      "weight": 11
     },
     {
       "from": "api",
@@ -281,6 +281,7 @@
       "api/KisRestDecode.h"
     ],
     "api/KisOrder.cpp": [
+      "core/KstTime.h",
       "utils/JsonNode.h"
     ],
     "api/KisRestDecode.h": [
@@ -681,6 +682,7 @@
       "core/ReplaySource.h"
     ],
     "core/KstTime.h": [
+      "api/KisOrder.cpp",
       "api/KisRestDecode.h",
       "core/BarAggregator.cpp",
       "core/DataPoller.cpp",
@@ -957,12 +959,12 @@
       "in_degree": 24
     },
     {
-      "header": "strategy/StrategyBase.h",
+      "header": "core/KstTime.h",
       "in_degree": 13
     },
     {
-      "header": "core/KstTime.h",
-      "in_degree": 12
+      "header": "strategy/StrategyBase.h",
+      "in_degree": 13
     },
     {
       "header": "api/KisClient.h",

@@ -2515,8 +2515,10 @@ bool Engine::is_kr_market_open() const
         return false;
     }
 
+    // 09:00~20:00 KST — 정규장 09:00~15:30, 장후 종가 15:30~16:00, 애프터마켓 16:00~20:00(2026-09-14 개장). 피드 감시·
+    //  개장 전이 판단용이고, 실제 주문 창은 OrderGate 세션 창이 따로 자른다. [why D-097]
     int row = kst.tm_hour * 60 + kst.tm_min;
-    return row >= 540 && row < 930; // 09:00~15:30 KST
+    return row >= 540 && row < 1200;
 }
 
 // 미국 정규장: ET 09:30~16:00 = KST 22:30~05:00 (다음날)

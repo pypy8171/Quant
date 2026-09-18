@@ -484,6 +484,28 @@ void test_session_window()
     }
 
     {
+        // 정규장 창은 지금을 비켜 가고 애프터마켓 창이 지금을 덮으면 통과 — 두 창의 합집합이다. [why D-097]
+        OrderGate::Config config;
+        config.session_open_min  = now_min < 12 * 60 ? 13 * 60 : 1 * 60;
+        config.session_close_min = now_min < 12 * 60 ? 14 * 60 : 2 * 60;
+        config.after_open_min    = (std::max)(0, now_min - 30);
+        config.after_close_min   = (std::min)(24 * 60, now_min + 30);
+        OrderGate gate(config);
+        auto      signal = make_signal("005930", OrderSide::BUY);
+        reason.clear();
+        assert(gate.check(signal, reason));
+
+        // 애프터마켓 창도 지금을 비켜 가면 거부 사유에 두 창이 다 적힌다.
+        config.after_open_min  = now_min < 12 * 60 ? 15 * 60 : 3 * 60;
+        config.after_close_min = now_min < 12 * 60 ? 16 * 60 : 4 * 60;
+        OrderGate gate_closed(config);
+        reason.clear();
+        assert(!gate_closed.check(signal, reason));
+        assert(reason.find("세션 창 밖") != std::string::npos);
+        assert(reason.find(" 및 ") != std::string::npos);
+    }
+
+    {
         OrderGate gate; // 기본 0/0 = 검사 없음(테스트·리플레이)
         auto      signal = make_signal("005930", OrderSide::BUY);
         assert(gate.check(signal, reason));

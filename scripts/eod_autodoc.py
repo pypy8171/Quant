@@ -390,7 +390,7 @@ def run_dashboard(ymd: str, dry: bool) -> list[str]:
     """재생성 절차는 scripts/refresh_dashboard.py가 소유한다.
 
     순서(라이브 백필 · 리뷰 항목 · 생성기)를 여기에도 적어 두면 한쪽만 고쳐져 갈라진다.
-    16:05 예약 실행과 장중 자동 갱신이 같은 절차를 쓰게 하려고 그쪽으로 넘긴다.
+    20:10 예약 실행과 장중 자동 갱신이 같은 절차를 쓰게 하려고 그쪽으로 넘긴다.
     """
     args = ["--live", ymd] + (["--dry-run"] if dry else [])
     r = subprocess.run([sys.executable, "scripts/refresh_dashboard.py", *args], cwd=REPO,

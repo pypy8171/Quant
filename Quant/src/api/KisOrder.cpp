@@ -2,6 +2,7 @@
 //  실패는 예외가 아니라 OrderAck.error_code 값으로 돌려준다(D-039). [why D-048] 파일 분할 경위.
 #include "KisClientInternal.h"
 #include "utils/JsonNode.h"
+#include "core/KstTime.h"
 
 // 주문 응답 파서. 게이트웨이가 HTML 오류 페이지를 주거나 rt_cd가 없으면 예외 대신 false.
 //  호출부(OrderRouter)가 catch로 막고는 있지만 예외 경로에서는 msg_cd가 비어 EGW00201 적응
@@ -11,6 +12,20 @@ static std::string kis_reject_code(const json& document)
 {
     std::string code = document.value("msg_cd", std::string(""));
     return code.empty() ? std::string(kis_error::kUnknown) : code;
+}
+
+// 국내 주문구분. KRX 애프터마켓(16:00~20:00)은 시장가(01)를 받지 않고 지정가·최우선·최유리만 받으므로,
+//  시장가 신호는 그 시간대에 최유리지정가(03, 가격 0)로 나간다 — 반대편 최우선 호가에 붙는 가장 가까운 대체.
+//  [why D-097]
+static const char* kis_order_division(OrderType type)
+{
+    if (type != OrderType::MARKET)
+    {
+        return "00";
+    }
+
+    const int32_t hhmmss = kst::hhmmss_int(std::time(nullptr));
+    return (hhmmss >= 160000 && hhmmss < 200000) ? "03" : "01";
 }
 
 static bool kis_parse_order_response(const std::string& response, json& document, const char* what)
@@ -86,7 +101,7 @@ bool KisClient::send_order(const OrderSignal& signal)
         body = {{"CANO", config_.account_no},
                 {"ACNT_PRDT_CD", config_.account_type},
                 {"PDNO", signal.ticker},
-                {"ORD_DVSN", signal.type == OrderType::MARKET ? "01" : "00"},
+                {"ORD_DVSN", kis_order_division(signal.type)}, // 애프터마켓엔 시장가→최유리 [why D-097]
                 {"ORD_QTY", std::to_string(signal.quantity)},
                 {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(static_cast<int>(signal.price)) : "0"},
                 {"EXCG_ID_DVSN_CD", kis_order_exchange(config_)}}; // KRX/NXT/SOR [why D-096]
@@ -159,7 +174,7 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
     {
         body = {{"CANO", config_.account_no}, {"ACNT_PRDT_CD", config_.account_type},
                 {"PDNO", signal.ticker},
-                {"ORD_DVSN", signal.type == OrderType::MARKET ? "01" : "00"},
+                {"ORD_DVSN", kis_order_division(signal.type)}, // 애프터마켓엔 시장가→최유리 [why D-097]
                 {"ORD_QTY", std::to_string(signal.quantity)},
                 {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(static_cast<int>(signal.price)) : "0"},
                 {"EXCG_ID_DVSN_CD", kis_order_exchange(config_)}}; // KRX/NXT/SOR [why D-096]

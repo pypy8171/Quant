@@ -63,8 +63,12 @@ public:
         // ── 매매 세션 창(KST, 자정부터의 분) — 이 밖의 NEW 주문은 막는다. KRX+NXT 통합 피드는 08:00~20:00
         //    틱을 주지만 매매는 정규장 09:00~15:30뿐이라, 전략이 그 밖에서 낸 신호를 여기서 잡는다.
         //    CANCEL/REPLACE는 통과(미체결 정리). 둘 다 0이면 검사 없음 — 테스트·리플레이 기본. [why D-096]
+        //    두 번째 창은 KRX 애프터마켓(16:00~20:00, 2026-09-14 개장) — 정규장 창과 합집합으로 본다.
+        //    15:30~16:00(장후 종가 거래)은 두 창 사이라 막힌다. 0/0이면 애프터마켓 없음. [why D-097]
         int session_open_min  = 0;
         int session_close_min = 0;
+        int after_open_min    = 0;
+        int after_close_min   = 0;
     };
 
     OrderGate() : config_()

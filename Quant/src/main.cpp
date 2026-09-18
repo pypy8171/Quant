@@ -329,13 +329,19 @@ static QuoteKisSetup configure_quote_kis(Engine& engine, const json& config)
 static void configure_risk(Engine& engine, const json& config)
 {
     OrderGate::Config result_code; // OrderGate::Config 기본값에서 시작
-    // 매매 세션 창은 risk 노드가 없어도 켠다 — 통합 피드가 08:00~20:00 틱을 줘도 주문은 정규장 09:00~15:30뿐.
+    // 매매 세션 창은 risk 노드가 없어도 켠다 — 통합 피드가 08:00~20:00 틱을 줘도 주문은 매매 창 안에서만.
+    //  정규장 09:00~15:30 + KRX 애프터마켓 16:00~20:00(D-097, risk.after_market=false로 끈다).
     //  캡처 리플레이는 밤에도 돌리므로 창을 끈 채(0/0) 둔다. [why D-096]
-    const bool replaying = !config.value("replay_file", std::string()).empty();
-    const int  session_open_hhmm  = config.contains("risk") ? config["risk"].value("session_open_hhmm", 900) : 900;
-    const int  session_close_hhmm = config.contains("risk") ? config["risk"].value("session_close_hhmm", 1530) : 1530;
-    result_code.session_open_min  = replaying ? 0 : (session_open_hhmm / 100) * 60 + session_open_hhmm % 100;
-    result_code.session_close_min = replaying ? 0 : (session_close_hhmm / 100) * 60 + session_close_hhmm % 100;
+    const bool replaying          = !config.value("replay_file", std::string()).empty();
+    const auto risk_int           = [&](const char* key, int fallback) {
+        return config.contains("risk") ? config["risk"].value(key, fallback) : fallback;
+    };
+    const auto hhmm_to_min        = [](int hhmm) { return (hhmm / 100) * 60 + hhmm % 100; };
+    const bool after_market       = config.contains("risk") ? config["risk"].value("after_market", true) : true;
+    result_code.session_open_min  = replaying ? 0 : hhmm_to_min(risk_int("session_open_hhmm", 900));
+    result_code.session_close_min = replaying ? 0 : hhmm_to_min(risk_int("session_close_hhmm", 1530));
+    result_code.after_open_min    = (replaying || !after_market) ? 0 : hhmm_to_min(risk_int("after_open_hhmm", 1600));
+    result_code.after_close_min   = (replaying || !after_market) ? 0 : hhmm_to_min(risk_int("after_close_hhmm", 2000));
 
     if (!config.contains("risk"))
     {

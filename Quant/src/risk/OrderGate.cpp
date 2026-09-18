@@ -250,18 +250,31 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
         return false;
     }
 
-    // 1c. 세션 창 — 정규장 밖의 NEW 주문은 막는다. 통합 피드(KRX+NXT)는 08:00~20:00 틱을 주지만 1단계 매매 창은
-    //     정규장 그대로다. CANCEL/REPLACE는 통과(미체결 정리는 언제든). 창이 0/0이면 검사 없음. [why D-096]
+    // 1c. 세션 창 — 매매 창 밖의 NEW 주문은 막는다. 통합 피드(KRX+NXT)는 08:00~20:00 틱을 주므로 전략이 그 밖에서
+    //     낸 신호를 여기서 잡는다. 창은 정규장(09:00~15:30)과 애프터마켓(16:00~20:00, D-097)의 합집합 — 둘 사이
+    //     15:30~16:00은 장후 종가 거래뿐이라 막힌다. CANCEL/REPLACE는 통과(미체결 정리는 언제든).
+    //     정규장 창이 0/0이면 검사 없음. [why D-096]
     if (signal.action == OrderAction::NEW && config_.session_close_min > config_.session_open_min)
     {
-        const int now_min = kst_minute_of_day();
+        const int  now_min    = kst_minute_of_day();
+        const bool in_regular = now_min >= config_.session_open_min && now_min < config_.session_close_min;
+        const bool in_after   = config_.after_close_min > config_.after_open_min && now_min >= config_.after_open_min &&
+                                now_min < config_.after_close_min;
 
-        if (now_min < config_.session_open_min || now_min >= config_.session_close_min)
+        if (!in_regular && !in_after)
         {
-            reject_reason = std::format("세션 창 밖 ({:02}:{:02}, 허용 {:02}:{:02}~{:02}:{:02}) — 정규장에만 주문한다",
-                                        now_min / 60, now_min % 60, config_.session_open_min / 60,
-                                        config_.session_open_min % 60, config_.session_close_min / 60,
-                                        config_.session_close_min % 60);
+            reject_reason = std::format("세션 창 밖 ({:02}:{:02}, 허용 {:02}:{:02}~{:02}:{:02}", now_min / 60, now_min % 60,
+                                        config_.session_open_min / 60, config_.session_open_min % 60,
+                                        config_.session_close_min / 60, config_.session_close_min % 60);
+
+            if (config_.after_close_min > config_.after_open_min)
+            {
+                reject_reason += std::format(" 및 {:02}:{:02}~{:02}:{:02}", config_.after_open_min / 60,
+                                             config_.after_open_min % 60, config_.after_close_min / 60,
+                                             config_.after_close_min % 60);
+            }
+
+            reject_reason += ") — 매매 창에만 주문한다";
             return false;
         }
     }
