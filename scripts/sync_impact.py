@@ -58,10 +58,15 @@ def rel(p: Path) -> str:
 
 
 def blob_hash(p: Path) -> str | None:
-    """git hash-object와 같은 값. 워킹트리 내용 기준이라 스테이징 여부와 무관하다."""
+    """git hash-object와 같은 방식(blob 헤더 + sha1 앞 7자). 워킹트리 내용 기준이라 스테이징 여부와 무관하다.
+
+    줄바꿈은 LF로 맞춘 뒤 센다. 에디터가 파일을 CRLF로 저장하면 내용이 그대로여도 바이트가 달라져 도장이
+    낡은 것으로 잡혔다(2026-09-18 `Quant/include/api/IMarketDataSource.h`, git status에는 안 보이는 변경).
+    그래서 LF로 커밋된 파일은 git 해시와 같고, CRLF로 커밋된 파일은 다르다 — 도장은 이 함수끼리만 비교하므로 상관없다.
+    """
     if not p.is_file():
         return None
-    data = p.read_bytes()
+    data = p.read_bytes().replace(b"\r\n", b"\n")
     h = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
     return h[:7]
 
