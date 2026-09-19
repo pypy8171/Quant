@@ -202,7 +202,7 @@ foreach ($title in @($script:Windows.Keys)) { … }   # 순회 중 해시를 바
 for ($attempt = 1; $attempt -le 5; $attempt++) { … }
 while (-not $p.HasExited) { … }
 $out | ForEach-Object { Write-RunLog "$prefix$_" }   # $_ 는 현재 원소
-$procs | Where-Object { $_.CommandLine -like "*$probe*" }
+$procs | Where-Object { $_.CommandLine -like "*$marker*" }
 $rows | Sort-Object 역할, 기동 | Format-Table -AutoSize | Out-String -Width 120
 $g.Group | Sort-Object Start ; $ordered[-1]          # 가장 최근 것
 $roots | Group-Object Role                          # 역할별 묶음 → .Name .Count .Group

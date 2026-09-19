@@ -1,5 +1,5 @@
-// tools/feed_latency_probe.cpp
-// 실 KIS 실시간 시세 수신·처리 지연 프로브 — 멀티세션 샤딩(300+종목 확장)
+// tools/feed_latency_measure.cpp
+// 실 KIS 실시간 시세 수신·처리 지연 측정 — 멀티세션 샤딩(300+종목 확장)
 //
 // 목적: bench_feed_ingest(합성 부하, TCP loopback)의 자매 실증. 실제 KIS WebSocket
 //   실시간 시세를 다수 구독해, 실데이터가 파이프라인을 통과함과 수신 콜백→주문 결정까지의
@@ -15,13 +15,13 @@
 //
 //   측정 범위 — 무료 OpenAPI 실시간 시세에는 µs 해상도의 거래소 원천 타임스탬프가 없어
 //     (체결시각은 초/HHMMSS 단위) "거래소→KIS→우리" 물리 wire 지연은 이 경로로 측정 불가다.
-//     이 프로브가 재는 것은 (1) 수신 콜백→주문 결정까지의 내부 처리 지연과 (2) 다수 구독의
+//     이 점검가 재는 것은 (1) 수신 콜백→주문 결정까지의 내부 처리 지연과 (2) 다수 구독의
 //     실제 메시지 rate·집계 처리량이다. wire 지연은 bench_feed_ingest가 담당(합성).
 //
 // 실행 (반드시 장 중 09:00–15:30 KST — 장외에는 틱이 없어 샘플 0):
-//   feed_latency_probe --sessions creds.json --universe universe_full.json --count 300
-//   feed_latency_probe --configs a.json,b.json --count 80 --trade-only 1
-//   feed_latency_probe [config.json] --symbols "005930,000660,..."   (단일세션 하위호환)
+//   feed_latency_measure --sessions creds.json --universe universe_full.json --count 300
+//   feed_latency_measure --configs a.json,b.json --count 80 --trade-only 1
+//   feed_latency_measure [config.json] --symbols "005930,000660,..."   (단일세션 하위호환)
 //
 //   자격증명(세션) 소스 — 아래 중 하나:
 //     --sessions <path>  : JSON 배열 [{app_key,app_secret,is_paper?,hts_id?}, ...]
@@ -80,7 +80,7 @@ static inline int64_t now_ns()
 }
 
 // 수신 콜백 → 소비자로 넘기는 경량 레코드 (recv 시각만 필요).
-struct ProbeMsg
+struct SampleMessage
 {
     int64_t recv_ts_ns;
     char    type; // 'O'=orderbook, 'T'=trade
@@ -188,7 +188,7 @@ struct Session
 {
     KisConfig                          kis_config;
     std::vector<std::string>           symbols;
-    std::unique_ptr<RingBuffer<ProbeMsg>> queue;
+    std::unique_ptr<RingBuffer<SampleMessage>> queue;
     std::unique_ptr<KisWebSocket>      websocket;
     std::thread                        consumer;
     std::vector<int64_t>               latencies;      // recv→decision (세션 전용, race 없음)
@@ -220,7 +220,7 @@ int main(int argc, char** argv)
         {
             std::ifstream file(sessions_path);
 
-            if (!file) { std::printf("[probe] --sessions 열기 실패: %s\n", sessions_path.c_str()); return 1; }
+            if (!file) { std::printf("[measure] --sessions 열기 실패: %s\n", sessions_path.c_str()); return 1; }
             nlohmann::json document; file >> document;
             const nlohmann::json& array = document.is_array() ? document : document.at("sessions");
 
@@ -235,7 +235,7 @@ int main(int argc, char** argv)
             {
                 std::ifstream file(path);
 
-                if (!file) { std::printf("[probe] --configs 항목 열기 실패: %s\n", path.c_str()); return 1; }
+                if (!file) { std::printf("[measure] --configs 항목 열기 실패: %s\n", path.c_str()); return 1; }
                 nlohmann::json document; file >> document;
                 creds.push_back(kis_config_from_kis_object(document.at("kis")));
             }
@@ -253,18 +253,18 @@ int main(int argc, char** argv)
 
             std::ifstream file(config_path);
 
-            if (!file) { std::printf("[probe] config 열기 실패: %s\n", config_path.c_str()); return 1; }
+            if (!file) { std::printf("[measure] config 열기 실패: %s\n", config_path.c_str()); return 1; }
             nlohmann::json document; file >> document;
             creds.push_back(kis_config_from_kis_object(document.at("kis")));
         }
     }
     catch (const std::exception& exception)
     {
-        std::printf("[probe] 자격증명 파싱 실패: %s\n", exception.what());
+        std::printf("[measure] 자격증명 파싱 실패: %s\n", exception.what());
         return 1;
     }
 
-    if (creds.empty()) { std::printf("[probe] 세션 자격증명이 없다.\n"); return 1; }
+    if (creds.empty()) { std::printf("[measure] 세션 자격증명이 없다.\n"); return 1; }
 
     // ---- 2) 종목 리스트 로드 ----
     std::vector<std::string> all_symbols = split_csv(symbol_csv);
@@ -275,7 +275,7 @@ int main(int argc, char** argv)
         {
             std::ifstream file(universe);
 
-            if (!file) { std::printf("[probe] --universe 열기 실패: %s\n", universe.c_str()); return 1; }
+            if (!file) { std::printf("[measure] --universe 열기 실패: %s\n", universe.c_str()); return 1; }
             nlohmann::json document; file >> document;
 
             if (document.contains("universe") && document.at("universe").is_array())
@@ -299,7 +299,7 @@ int main(int argc, char** argv)
         }
         catch (const std::exception& exception)
         {
-            std::printf("[probe] universe 파싱 실패: %s\n", exception.what());
+            std::printf("[measure] universe 파싱 실패: %s\n", exception.what());
             return 1;
         }
     }
@@ -326,7 +326,7 @@ int main(int argc, char** argv)
     if (use < wanted_count)
     {
         int need_sessions = (wanted_count + per_session - 1) / per_session;
-        std::printf("[probe] ⚠ 요청 %d종목 > 세션 용량 %d (%d세션 × %d/세션). %d종목만 구독.\n",
+        std::printf("[measure] ⚠ 요청 %d종목 > 세션 용량 %d (%d세션 × %d/세션). %d종목만 구독.\n",
                     wanted_count, capacity, sessions_avail, per_session, use);
         std::printf("        %d종목을 라이브로 받으려면 app_key %d개(현재 %d개)가 필요하다.\n",
                     wanted_count, need_sessions, sessions_avail);
@@ -337,7 +337,7 @@ int main(int argc, char** argv)
     const int used_sessions = (use + per_session - 1) / per_session;
     const int used_sessions_clamped = std::max(1, std::min(used_sessions, sessions_avail));
 
-    std::printf("=== KIS 실시간 시세 멀티세션 프로브 ===\n");
+    std::printf("=== KIS 실시간 시세 멀티세션 점검 ===\n");
     std::printf("세션(app_key)   : %d개 발견, %d개 사용\n", sessions_avail, used_sessions_clamped);
     std::printf("구독 밀도       : %s (%d등록/종목, 세션당 최대 %d종목)\n",
                 trade_only ? "체결전용 H0STCNT0" : "호가+체결", trade_only ? 1 : 2, per_session);
@@ -354,7 +354,7 @@ int main(int argc, char** argv)
     {
         auto session = std::make_unique<Session>();
         session->kis_config = creds[used_session_index];
-        session->queue  = std::make_unique<RingBuffer<ProbeMsg>>(1u << 16);
+        session->queue  = std::make_unique<RingBuffer<SampleMessage>>(1u << 16);
         int begin = used_session_index * per_session;
         int end   = std::min(static_cast<int>(all_symbols.size()), begin + per_session);
 
@@ -405,9 +405,9 @@ int main(int argc, char** argv)
         session->websocket = std::make_unique<KisWebSocket>(session->kis_config);
         session->websocket->set_callbacks(
             [session](const OrderBook&) {
-                ProbeMsg probe_message{now_ns(), 'O'};
+                SampleMessage sample_message{now_ns(), 'O'};
 
-                if (session->queue->push(probe_message))
+                if (session->queue->push(sample_message))
                 {
                     session->order_book.fetch_add(1, std::memory_order_relaxed);
                 }
@@ -417,9 +417,9 @@ int main(int argc, char** argv)
                 }
             },
             [session](const TradeData&) {
-                ProbeMsg probe_message{now_ns(), 'T'};
+                SampleMessage sample_message{now_ns(), 'T'};
 
-                if (session->queue->push(probe_message))
+                if (session->queue->push(sample_message))
                 {
                     session->trade.fetch_add(1, std::memory_order_relaxed);
                 }
@@ -444,7 +444,7 @@ int main(int argc, char** argv)
             specifications.push_back(specification);
         }
 
-        std::printf("[probe] 세션 %zu/%zu 연결 시도 (%zu종목)...\n",
+        std::printf("[measure] 세션 %zu/%zu 연결 시도 (%zu종목)...\n",
                     session_index + 1, sessions.size(), session->symbols.size());
 
         if (session->websocket->connect(specifications))
@@ -454,13 +454,13 @@ int main(int argc, char** argv)
         }
         else
         {
-            std::printf("[probe] 세션 %zu 연결 실패 (approval key/세션/상한 확인).\n", session_index + 1);
+            std::printf("[measure] 세션 %zu 연결 실패 (approval key/세션/상한 확인).\n", session_index + 1);
         }
     }
 
     if (connected_sessions == 0)
     {
-        std::printf("[probe] 전 세션 연결 실패.\n");
+        std::printf("[measure] 전 세션 연결 실패.\n");
         stop.store(true);
 
         for (auto& session : sessions)
@@ -474,7 +474,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    std::printf("[probe] %d/%zu 세션 연결. %d초 수신...\n\n", connected_sessions, sessions.size(), duration);
+    std::printf("[measure] %d/%zu 세션 연결. %d초 수신...\n\n", connected_sessions, sessions.size(), duration);
 
     for (int duration_index = 0; duration_index < duration; ++duration_index)
     {

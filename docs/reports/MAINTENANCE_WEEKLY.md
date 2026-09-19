@@ -132,7 +132,7 @@
 | `scripts/notify_sidecar.py` | 21 | 653 | 3% |
 | `scripts/check_code_conventions.py` | 6 | 190 | 3% |
 | `PYQuant/backtest/report.py` | 9 | 289 | 3% |
-| `PYQuant/tools/probe_kis_investor.py` | 2 | 67 | 3% |
+| `PYQuant/tools/check_kis_investor.py` | 2 | 67 | 3% |
 | `PYQuant/db/client.py` | 12 | 409 | 3% |
 | `PYQuant/tools/pit_universe_backfill.py` | 3 | 105 | 3% |
 | `scripts/gen_facts.py` | 12 | 473 | 3% |
@@ -152,7 +152,7 @@
 | `PYQuant/tools/full_universe_dump.py` | 2 | 111 | 2% |
 | `PYQuant/strategy/donchian_breakout.py` | 1 | 56 | 2% |
 | `PYQuant/tests/test_adjust_splits.py` | 1 | 57 | 2% |
-| `PYQuant/tools/probe_adjusted.py` | 1 | 69 | 1% |
+| `PYQuant/tools/check_adjusted.py` | 1 | 69 | 1% |
 | `PYQuant/tools/investor_flow_logger.py` | 3 | 213 | 1% |
 | `scripts/maintain.py` | 6 | 430 | 1% |
 | `scripts/sync_ledgers.py` | 2 | 146 | 1% |
@@ -170,8 +170,8 @@
 | `PYQuant/tools/ablation_2022.py` | 0 | 68 | 0% |
 | `PYQuant/tools/check_pykrx.py` | 0 | 28 | 0% |
 | `PYQuant/tools/fullperiod_validate.py` | 0 | 56 | 0% |
-| `PYQuant/tools/nxt_divergence_probe.py` | 0 | 138 | 0% |
-| `PYQuant/tools/probe_datagokr.py` | 0 | 53 | 0% |
+| `PYQuant/tools/nxt_divergence_check.py` | 0 | 138 | 0% |
+| `PYQuant/tools/check_datagokr.py` | 0 | 53 | 0% |
 
 태그 없는 연속 주석 블록(4줄 이상): 197개
 

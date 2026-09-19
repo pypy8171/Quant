@@ -657,33 +657,33 @@ if(MSVC)
     endif()
 endif()
 
-# ─── 도구: 실 KIS 실시간 시세 수신·처리 지연 프로브 (bench_feed_ingest 자매 실증) ──
-add_executable(feed_latency_probe
-    tools/feed_latency_probe.cpp
+# ─── 도구: 실 KIS 실시간 시세 수신·처리 지연 측정 (bench_feed_ingest 자매 실증) ──
+add_executable(feed_latency_measure
+    tools/feed_latency_measure.cpp
     ${KIS_WS_SOURCES}
     ${KIS_CLIENT_SOURCES}
     src/utils/Logger.cpp
 )
-target_include_directories(feed_latency_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(feed_latency_measure PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(UNIX)
-    target_link_libraries(feed_latency_probe PRIVATE
+    target_link_libraries(feed_latency_measure PRIVATE
         CURL::libcurl OpenSSL::Crypto nlohmann_json::nlohmann_json pthread stdc++fs)
 else()
-    target_link_libraries(feed_latency_probe PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
+    target_link_libraries(feed_latency_measure PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
 endif()
 
-# ─── 도구: 국내 선물 시세 조회 프로브 (파생 배선 1단계 — REST inquire-price) ──
-add_executable(future_quote_probe
-    tools/future_quote_probe.cpp
+# ─── 도구: 국내 선물 시세 조회 점검 (파생 배선 1단계 — REST inquire-price) ──
+add_executable(future_quote_check
+    tools/future_quote_check.cpp
     ${KIS_CLIENT_SOURCES}
     src/utils/Logger.cpp
 )
-target_include_directories(future_quote_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(future_quote_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(UNIX)
-    target_link_libraries(future_quote_probe PRIVATE
+    target_link_libraries(future_quote_check PRIVATE
         CURL::libcurl OpenSSL::Crypto nlohmann_json::nlohmann_json pthread stdc++fs)
 else()
-    target_link_libraries(future_quote_probe PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
+    target_link_libraries(future_quote_check PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
 endif()
 
 # ─── 벤치: REST 커넥션 풀링(P-2) 효과 — 조회 왕복 지연 분포, QUANT_HTTP_NOPOOL로 A/B ──

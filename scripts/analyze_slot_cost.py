@@ -27,7 +27,7 @@ REJ_DIR = os.path.join(ROOT, 'research', 'runs', 'swap_counterfactual')
 # 기동 기동 점검과 수동 TEST 발주는 전략 매매가 아니다. 진입분 모집단에서 뺀다.
 #  (TEST는 09-04에 005930을 체결가 75000으로 남겼는데 그날 실제 시세는 25만원대였다.
 #   이 한 줄이 진입분 평균을 +26%로 만들어 비교를 통째로 망가뜨렸다.)
-EXCLUDE_STRATEGY = ('STARTUP_PROBE', 'TEST')
+EXCLUDE_STRATEGY = ('STARTUP_CHECK', 'STARTUP_PROBE', 'TEST')   # STARTUP_PROBE 는 09-19 이전 원장의 옛 태그
 
 
 def fnum(x):

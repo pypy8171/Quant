@@ -110,7 +110,7 @@ KOSCOM 에뮬레이터(송신) ↔ 수신 서버가 **실제 TCP loopback 소켓
 
 > 측정 범위 주의: loopback은 물리 회선(WAN/전용선) 지연이 없다. 즉 "동일 머신 TCP 스택 비용 +
 > 수신 후 주문 결정까지"를 재는 것이지, 코스콤↔증권사 물리 지연은 아니다. 실 라이브 데이터는
-> [feed_latency_probe](../../Quant/tools/feed_latency_probe.cpp)로 소량(~15종목) 병행 실증한다(아래).
+> [feed_latency_measure](../../Quant/tools/feed_latency_measure.cpp)로 소량(~15종목) 병행 실증한다(아래).
 
 지연을 세 구간으로 분해한다: `net = recv_ts − send_ts`(TCP 스택), `proc = order_ts −
 recv_ts`(수신 후 처리단), `e2e = order_ts − send_ts`(전체).
@@ -145,7 +145,7 @@ recv_ts`(수신 후 처리단), `e2e = order_ts − send_ts`(전체).
   메시지 배칭/코얼레싱(패킷당 다건), 멀티 스트림, 커널 바이패스(io_uring/RIO). 링버퍼는
   이미 idle이다. ①②(순수 처리 sub-µs)와 합치면 병목의 소재가 정량적으로 확정된다.
 
-### 실 라이브 데이터 병행 실증 (feed_latency_probe)
+### 실 라이브 데이터 병행 실증 (feed_latency_measure)
 합성 부하와 별개로, 실제 KIS 실시간 WS로 소량(~15종목, 호가+체결)을 구독해 **실데이터가 우리
 파이프라인을 통과함**과 수신콜백→주문결정 내부 지연·관측 msg rate를 라이브로 잰다. 무료 API에는
 µs 해상도 원천 타임스탬프가 없어 거래소 wire 지연은 측정 불가(측정 한계) — 재는 것은 내부
@@ -278,8 +278,8 @@ cmake --build Quant/build_win --target bench_hot_path
 Quant/build_win/bench_hot_path.exe
 
 # 실 라이브 데이터 병행 실증 (반드시 장 중 09:00–15:30 KST)
-cmake --build Quant/build_win --target feed_latency_probe
-Quant/build_win/feed_latency_probe.exe Quant/config/config_dev_paper.json --duration 60
+cmake --build Quant/build_win --target feed_latency_measure
+Quant/build_win/feed_latency_measure.exe Quant/config/config_dev_paper.json --duration 60
 ```
 
 ## 한계·후속

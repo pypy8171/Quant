@@ -2,7 +2,7 @@
 # D-005 검증 — 일봉 응답에 당일 봉이 섞이는지, 섞이면 이동평균을 얼마나 움직이는지 잰다.
 #   get_daily_ohlcv는 이제 응답에서 오늘(KST) 날짜 행을 버린다(include_today=false 기본).
 #   이 스크립트는 같은 응답으로 절단 전/후 SMA를 나란히 계산해 차이를 보여준다.
-# 사용: py Quant/tools/probe_daily_truncation.py [config경로] [종목,종목,...]
+# 사용: py Quant/tools/check_daily_truncation.py [config경로] [종목,종목,...]
 #   기본: config_dev_paper.json  005930,000660,161890
 import json, sys, urllib.request, urllib.parse, urllib.error
 from pathlib import Path

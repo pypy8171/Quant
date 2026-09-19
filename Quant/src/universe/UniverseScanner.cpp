@@ -35,9 +35,9 @@ namespace
 //  px_live는 랭킹 축이 실어오는 전 종목 시세 파일(네이버 벌크)에서 온다. 이 파일이
 //  끊기면 price가 전일 종가로 돌아가 판정이 정말로 얼어붙는다 — 나이를 경고로 내보낸다.
 //  캐시가 없던 때는 재스캔마다 후보 전체의 일봉을 다시 받았고, 그 비용이
-//  rescan_interval에 반비례해 후보 집합을 넓히는 것 자체가 막혔다(align_probe_max가 그 캡).
+//  rescan_interval에 반비례해 후보 집합을 넓히는 것 자체가 막혔다(align_lookup_max가 그 캡).
 //  ATR·봉수처럼 확정봉만 쓰는 값은 그대로 하루 고정이다.
-struct DailyProbe
+struct DailyLookup
 {
     std::string date_yyyymmdd;                       // 조회 시각의 로컬 날짜(YYYYMMDD)
     int    bars  = 0;                      // 확보 봉수(<60이면 판정 불가)
@@ -60,7 +60,7 @@ struct DailyProbe
 //  수백 건의 일봉을 150ms 간격으로 다시 받아야 하고 그동안 발주 경로의 REST까지 밀린다.
 //  확정된 과거 일봉이라 같은 거래일 안에서는 그대로 재사용해도 된다. 파일은 거래일별로
 //  나누므로 날짜가 바뀌면 자연히 무시된다.
-class DailyProbeCache
+class DailyLookupCache
 {
 public:
     // 프로세스당 거래일 1회. 읽기 실패는 캐시 미스와 결과가 같으므로 경고만 남긴다.
@@ -102,30 +102,30 @@ public:
                 }
 
                 const auto& value = iterator.value();
-                DailyProbe daily_probe;
-                daily_probe.date_yyyymmdd     = date_yyyymmdd;
-                daily_probe.bars    = value[0].get<int>();
-                daily_probe.average_5      = value[1].get<double>();
-                daily_probe.average_10     = value[2].get<double>();
-                daily_probe.average_20     = value[3].get<double>();
-                daily_probe.average_60     = value[4].get<double>();
-                daily_probe.close   = value[5].get<double>();
-                daily_probe.r5      = value[6].get<double>();
-                daily_probe.r10     = value[7].get<double>();
-                daily_probe.r20     = value[8].get<double>();
-                daily_probe.r60     = value[9].get<double>();
-                daily_probe.atr_percent = value[10].get<double>();
-                daily_probe.at      = static_cast<std::time_t>(value[11].get<long long>());
+                DailyLookup daily_lookup;
+                daily_lookup.date_yyyymmdd     = date_yyyymmdd;
+                daily_lookup.bars    = value[0].get<int>();
+                daily_lookup.average_5      = value[1].get<double>();
+                daily_lookup.average_10     = value[2].get<double>();
+                daily_lookup.average_20     = value[3].get<double>();
+                daily_lookup.average_60     = value[4].get<double>();
+                daily_lookup.close   = value[5].get<double>();
+                daily_lookup.r5      = value[6].get<double>();
+                daily_lookup.r10     = value[7].get<double>();
+                daily_lookup.r20     = value[8].get<double>();
+                daily_lookup.r60     = value[9].get<double>();
+                daily_lookup.atr_percent = value[10].get<double>();
+                daily_lookup.at      = static_cast<std::time_t>(value[11].get<long long>());
 
                 if (value.size() >= 16)
                 {
-                    daily_probe.hi250     = value[12].get<double>();
-                    daily_probe.pivot_high  = value[13].get<double>();
-                    daily_probe.average_vol20 = value[14].get<double>();
-                    daily_probe.close21   = value[15].get<double>();
+                    daily_lookup.hi250     = value[12].get<double>();
+                    daily_lookup.pivot_high  = value[13].get<double>();
+                    daily_lookup.average_vol20 = value[14].get<double>();
+                    daily_lookup.close21   = value[15].get<double>();
                 }
 
-                map_[iterator.key()] = daily_probe;
+                map_[iterator.key()] = daily_lookup;
                 ++count;
             }
         }
@@ -152,17 +152,17 @@ public:
 
             for (const auto& entry : map_)
             {
-                const DailyProbe& daily_probe = entry.second;
+                const DailyLookup& daily_lookup = entry.second;
 
-                if (daily_probe.date_yyyymmdd != date_yyyymmdd)
+                if (daily_lookup.date_yyyymmdd != date_yyyymmdd)
                 {
                     continue;
                 }
 
-                document[entry.first] = nlohmann::json::array({daily_probe.bars, daily_probe.average_5, daily_probe.average_10, daily_probe.average_20, daily_probe.average_60,
-                                                     daily_probe.close, daily_probe.r5, daily_probe.r10, daily_probe.r20, daily_probe.r60,
-                                                     daily_probe.atr_percent, static_cast<long long>(daily_probe.at),
-                                                     daily_probe.hi250, daily_probe.pivot_high, daily_probe.average_vol20, daily_probe.close21});
+                document[entry.first] = nlohmann::json::array({daily_lookup.bars, daily_lookup.average_5, daily_lookup.average_10, daily_lookup.average_20, daily_lookup.average_60,
+                                                     daily_lookup.close, daily_lookup.r5, daily_lookup.r10, daily_lookup.r20, daily_lookup.r60,
+                                                     daily_lookup.atr_percent, static_cast<long long>(daily_lookup.at),
+                                                     daily_lookup.hi250, daily_lookup.pivot_high, daily_lookup.average_vol20, daily_lookup.close21});
             }
         }
 
@@ -197,7 +197,7 @@ public:
     }
 
     // 오늘치가 있으면 채우고 true. 날짜가 다르면 미스로 본다.
-    bool get(const std::string& ticker, const std::string& date_yyyymmdd, DailyProbe& out) const
+    bool get(const std::string& ticker, const std::string& date_yyyymmdd, DailyLookup& out) const
     {
         std::lock_guard<std::mutex> lock(mutex_);
         auto iterator = map_.find(ticker);
@@ -211,10 +211,10 @@ public:
         return true;
     }
 
-    void put(const std::string& ticker, const DailyProbe& daily_probe)
+    void put(const std::string& ticker, const DailyLookup& daily_lookup)
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        map_[ticker] = daily_probe;
+        map_[ticker] = daily_lookup;
     }
 
     // 장중 재조회 대상 고르기 — 판정 재료인 현재가는 장중 내내 변하지만 일봉 요약은
@@ -267,14 +267,14 @@ public:
 private:
     static std::string cache_path(const std::string& date_yyyymmdd)
     {
-        return Logger::instance().path_for("daily_probe_" + date_yyyymmdd + ".json").string();
+        return Logger::instance().path_for("daily_lookup_" + date_yyyymmdd + ".json").string();
     }
 
     mutable std::mutex mutex_;
-    std::unordered_map<std::string, DailyProbe> map_;
+    std::unordered_map<std::string, DailyLookup> map_;
     std::string loaded_;
 };
-DailyProbeCache g_probe_cache;
+DailyLookupCache g_lookup_cache;
 
 // 전 종목 장중 시세. 시세 파일(네이버 벌크)이 준 시장 전체에 랭킹 축 스냅샷가가 덮인다.
 //  후보만이 아니라 시장 전체를 담는다 — 전 종목 확장 축이 이 표를 후보 원천으로 쓴다.
@@ -810,7 +810,7 @@ void take_sector_ranking(KisClient& kis, const DevScanCfg& config, QuoteTable& q
 // 전 종목 확장 — market_map(코스피+코스닥 전체)을 후보로 붓는다. 종목명은 시세 표에서
 //  가져와 ETF·리츠 필터를 그대로 적용한다(이름이 없으면 버린다).
 //  티커를 정렬해 순회한다. 해시맵 순서로 돌면 같은 입력에서도 후보 순서가 실행마다 달라지고,
-//  align_probe_max로 잘리는 지점이 함께 바뀌어 유니버스가 재현되지 않는다.
+//  align_lookup_max로 잘리는 지점이 함께 바뀌어 유니버스가 재현되지 않는다.
 void take_full_market(const DevScanCfg& config, const QuoteTable& quotes, CandidateSet& candidates)
 {
     if (!config.full_market || !candidates.have_market_map)
@@ -918,25 +918,25 @@ void collect_candidates(KisClient& kis, const DevScanCfg& config, const std::str
 
 // 후보 하나의 일봉을 받아 SMA·롤오프·ATR로 요약한다. 60봉 미만이면 bars만 채워 돌려준다.
 //  조회 간격은 호출자가 책임진다.
-DailyProbe fetch_probe(KisClient& kis, const DevScanCfg& config, const std::string& ticker,
+DailyLookup fetch_daily_lookup(KisClient& kis, const DevScanCfg& config, const std::string& ticker,
                        const std::string& date_yyyymmdd)
 {
     auto daily_ohlcv = kis.get_daily_ohlcv(ticker, config.align_daily_n);
-    DailyProbe daily_probe;
-    daily_probe.date_yyyymmdd  = date_yyyymmdd;
-    daily_probe.at   = std::time(nullptr);
-    daily_probe.bars = static_cast<int>(daily_ohlcv.size());
+    DailyLookup daily_lookup;
+    daily_lookup.date_yyyymmdd  = date_yyyymmdd;
+    daily_lookup.at   = std::time(nullptr);
+    daily_lookup.bars = static_cast<int>(daily_ohlcv.size());
 
-    if (daily_probe.bars < 60)
+    if (daily_lookup.bars < 60)
     {
-        return daily_probe;
+        return daily_lookup;
     }
 
     auto simple_moving_average = [&](int count) { double sum = 0.0; for (int index = 0; index < count; ++index) sum += daily_ohlcv[index].close; return sum / count; };
-    daily_probe.average_5 = simple_moving_average(5); daily_probe.average_10 = simple_moving_average(10); daily_probe.average_20 = simple_moving_average(20); daily_probe.average_60 = simple_moving_average(60);
-    daily_probe.r5 = daily_ohlcv[4].close; daily_probe.r10 = daily_ohlcv[9].close;
-    daily_probe.r20 = daily_ohlcv[19].close; daily_probe.r60 = daily_ohlcv[59].close;
-    daily_probe.close = daily_ohlcv[0].close;
+    daily_lookup.average_5 = simple_moving_average(5); daily_lookup.average_10 = simple_moving_average(10); daily_lookup.average_20 = simple_moving_average(20); daily_lookup.average_60 = simple_moving_average(60);
+    daily_lookup.r5 = daily_ohlcv[4].close; daily_lookup.r10 = daily_ohlcv[9].close;
+    daily_lookup.r20 = daily_ohlcv[19].close; daily_lookup.r60 = daily_ohlcv[59].close;
+    daily_lookup.close = daily_ohlcv[0].close;
     // [formula] ATR(14) — True Range = max(고−저, |고−전일종가|, |저−전일종가|)의 14봉 평균.
     //  d[0]이 최신이므로 d[i+1]이 i의 전일. 종가로 나눠 종목 간 비교 가능한 비율로 만든다.
     double true_range_sum = 0.0;
@@ -962,14 +962,14 @@ DailyProbe fetch_probe(KisClient& kis, const DevScanCfg& config, const std::stri
         true_range_sum += true_range;
     }
 
-    daily_probe.atr_percent = (true_range_count > 0 && daily_probe.close > 0.0) ? (true_range_sum / true_range_count) / daily_probe.close : 0.0;
+    daily_lookup.atr_percent = (true_range_count > 0 && daily_lookup.close > 0.0) ? (true_range_sum / true_range_count) / daily_lookup.close : 0.0;
 
     // 저항·거래량 축. 일봉은 전일까지(include_today=false)라 d[0]이 전일이다.
     for (const auto& bar : daily_ohlcv)
     {
-        if (bar.high > daily_probe.hi250)
+        if (bar.high > daily_lookup.hi250)
         {
-            daily_probe.hi250 = bar.high;
+            daily_lookup.hi250 = bar.high;
         }
     }
 
@@ -985,7 +985,7 @@ DailyProbe fetch_probe(KisClient& kis, const DevScanCfg& config, const std::stri
 
         if (peak)
         {
-            daily_probe.pivot_high = daily_ohlcv[index].high;
+            daily_lookup.pivot_high = daily_ohlcv[index].high;
             break;
         }
     }
@@ -997,9 +997,9 @@ DailyProbe fetch_probe(KisClient& kis, const DevScanCfg& config, const std::stri
         volume_sum += static_cast<double>(daily_ohlcv[index].volume);
     }
 
-    daily_probe.average_vol20 = volume_sum / 20.0;
-    daily_probe.close21   = daily_ohlcv.size() > 21 ? daily_ohlcv[21].close : 0.0;
-    return daily_probe;
+    daily_lookup.average_vol20 = volume_sum / 20.0;
+    daily_lookup.close21   = daily_ohlcv.size() > 21 ? daily_ohlcv[21].close : 0.0;
+    return daily_lookup;
 }
 
 //  점수는 원자료를 바로 더하지 않는다. 추세·눌림·변동성은 단위도 일별 분산도 달라서 그대로
@@ -1011,23 +1011,23 @@ struct Features
     double trend, pull, volume, turnover, score;
 };
 
-struct ProbeStats
+struct LookupStats
 {
-    int probed = 0, aligned = 0, short_bars = 0, overext = 0;
+    int looked_up = 0, aligned = 0, short_bars = 0, overext = 0;
     int fetched = 0, cache_hit = 0, refreshed = 0;
     int illiquid = 0;         // 거래대금 하한 미달로 버린 수
     int misaligned = 0;       // 정배열 조건 미충족으로 버린 수(진단용)
     int budget_skipped = 0;   // 일봉 조회 예산이 끝났고 캐시도 없어 판정 못 한 수
-    long long rest_ms = 0;    // 계측: fetch_probe(REST 일봉) 안에서 보낸 시간 합. 150ms 간격 sleep은 뺀 값
+    long long rest_ms = 0;    // 계측: fetch_daily_lookup(REST 일봉) 안에서 보낸 시간 합. 150ms 간격 sleep은 뺀 값
     long long wait_ms = 0;    // 계측: 그중 KIS 토큰버킷 대기 합 — 크면 다른 소비자와 경합
 };
 
 // 2단: 정배열 프리필터 — 후보를 일봉으로 검사해 정배열=Y(≥60봉)만 통과시킨다.
-//  데이터부족(신규상장 <60봉)은 여기서 자동 제외된다. 일봉 조회 비용은 align_probe_max로
+//  데이터부족(신규상장 <60봉)은 여기서 자동 제외된다. 일봉 조회 비용은 align_lookup_max로
 //  캡하되 캐시 히트는 예산을 쓰지 않는다. 정배열 규칙은 MaAlign.h의 quant::moving_average::aligned 하나를 전략과 같이 쓴다.
-std::vector<Features> probe_and_filter(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd,
+std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd,
                                    const CandidateSet& candidates, const QuoteTable& quotes,
-                                   const MarketGate& gate, ProbeStats& statistics)
+                                   const MarketGate& gate, LookupStats& statistics)
 {
     std::vector<Features> passed;
     std::unordered_set<std::string> refresh_set;
@@ -1035,7 +1035,7 @@ std::vector<Features> probe_and_filter(KisClient& kis, const DevScanCfg& config,
     if (config.align_refresh_max > 0)
     {
         std::size_t stale_n = 0;
-        refresh_set = g_probe_cache.stale_targets(candidates.tickers, date_yyyymmdd,
+        refresh_set = g_lookup_cache.stale_targets(candidates.tickers, date_yyyymmdd,
                                                   static_cast<std::time_t>(config.align_refresh_sec),
                                                   config.align_refresh_max, stale_n);
 
@@ -1068,19 +1068,19 @@ std::vector<Features> probe_and_filter(KisClient& kis, const DevScanCfg& config,
             }
         }
 
-        // 스코어링 시엔 max_register 대신 align_probe_max까지 넓게 모아 랭킹한다(더 나은 상위 N).
+        // 스코어링 시엔 max_register 대신 align_lookup_max까지 넓게 모아 랭킹한다(더 나은 상위 N).
         if (config.score_top_n <= 0 && static_cast<int>(passed.size()) >= config.max_register)
         {
             break;
         }
 
-        DailyProbe daily_probe;
-        bool cached = g_probe_cache.get(ticker, date_yyyymmdd, daily_probe);
+        DailyLookup daily_lookup;
+        bool cached = g_lookup_cache.get(ticker, date_yyyymmdd, daily_lookup);
         const bool refresh_me = refresh_set.find(ticker) != refresh_set.end();   // 대상은 전부 오늘치가 있다
 
         if (!cached || refresh_me)
         {
-            if (statistics.fetched >= config.align_probe_max)
+            if (statistics.fetched >= config.align_lookup_max)
             {
                 // 예산은 REST에만 건다. 예전에는 여기서 루프를 끊어 뒤쪽 후보의 공짜 캐시
                 //  히트까지 같이 버렸고, 그래서 후보 집합을 넓힐수록 뒤쪽이 영구히 미검사로 남았다.
@@ -1110,13 +1110,13 @@ std::vector<Features> probe_and_filter(KisClient& kis, const DevScanCfg& config,
 
                 const auto fetch_start = std::chrono::steady_clock::now();
                 const std::uint64_t wait_before_ns = KisClient::rate_wait_ns_this_thread();
-                daily_probe = fetch_probe(kis, config, ticker, date_yyyymmdd);
+                daily_lookup = fetch_daily_lookup(kis, config, ticker, date_yyyymmdd);
                 statistics.rest_ms += std::chrono::duration_cast<std::chrono::milliseconds>(
                                      std::chrono::steady_clock::now() - fetch_start).count();
                 statistics.wait_ms += static_cast<long long>(
                     (KisClient::rate_wait_ns_this_thread() - wait_before_ns) / 1000000ULL);
                 ++statistics.fetched;
-                g_probe_cache.put(ticker, daily_probe);
+                g_lookup_cache.put(ticker, daily_lookup);
             }
         }
         else
@@ -1124,9 +1124,9 @@ std::vector<Features> probe_and_filter(KisClient& kis, const DevScanCfg& config,
             ++statistics.cache_hit;
         }
 
-        ++statistics.probed;
+        ++statistics.looked_up;
 
-        if (daily_probe.bars < 60)
+        if (daily_lookup.bars < 60)
         {
             ++statistics.short_bars;
             continue;
@@ -1135,7 +1135,7 @@ std::vector<Features> probe_and_filter(KisClient& kis, const DevScanCfg& config,
         // 오늘 가격을 최신 봉으로 접어 넣어 SMA를 다시 계산한다. 일봉 캐시는 include_today=false라
         //  전일치에서 멈춰 있고, 그대로 쓰면 정배열 판정이 하루 종일 얼어붙어 재스캔이 같은 종목만
         //  돌려준다. 시세 표의 현재가를 쓰므로 REST 추가 없이 매 재스캔마다 다시 판정한다.
-        double price = daily_probe.close;
+        double price = daily_lookup.close;
         double turnover = 0.0;
         {
             auto quote_entry = quotes.find(ticker);
@@ -1152,9 +1152,9 @@ std::vector<Features> probe_and_filter(KisClient& kis, const DevScanCfg& config,
         }
 
         quant::moving_average::SimpleMovingAverages previous;
-        previous.average_5 = daily_probe.average_5; previous.average_10 = daily_probe.average_10; previous.average_20 = daily_probe.average_20; previous.average_60 = daily_probe.average_60;
+        previous.average_5 = daily_lookup.average_5; previous.average_10 = daily_lookup.average_10; previous.average_20 = daily_lookup.average_20; previous.average_60 = daily_lookup.average_60;
         const quant::moving_average::SimpleMovingAverages moving_average =
-            quant::moving_average::fold_today(previous, daily_probe.r5, daily_probe.r10, daily_probe.r20, daily_probe.r60, price);
+            quant::moving_average::fold_today(previous, daily_lookup.r5, daily_lookup.r10, daily_lookup.r20, daily_lookup.r60, price);
         const double average_5 = moving_average.average_5, average_10 = moving_average.average_10, average_20 = moving_average.average_20, average_60 = moving_average.average_60;
 
         if (!quant::moving_average::aligned(moving_average, config.align_moving_average_tolerance_percent))
@@ -1180,14 +1180,14 @@ std::vector<Features> probe_and_filter(KisClient& kis, const DevScanCfg& config,
             continue;
         }
 
-        passed.push_back({ticker, trend, pull, daily_probe.atr_percent, turnover, 0.0});
+        passed.push_back({ticker, trend, pull, daily_lookup.atr_percent, turnover, 0.0});
         ++statistics.aligned;
     }
 
     if (statistics.budget_skipped > 0)
     {
         LOG_WARN("[Main] DEVSCALE 정배열 프리필터: 일봉 조회 상한(" +
-                 std::to_string(config.align_probe_max) + ") 도달 — 캐시 없는 후보 " +
+                 std::to_string(config.align_lookup_max) + ") 도달 — 캐시 없는 후보 " +
                  std::to_string(statistics.budget_skipped) + "건은 다음 재스캔에서 채움");
     }
 
@@ -1487,7 +1487,7 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
     { return std::chrono::duration_cast<std::chrono::milliseconds>(scan_clock::now() - from).count(); };
 
     const std::string date_yyyymmdd = local_ymd();   // 일봉 캐시·후보 집합 캐시의 거래일 키
-    g_probe_cache.load_today(date_yyyymmdd);         // 장중 재기동 시 일봉 재조회를 막는다
+    g_lookup_cache.load_today(date_yyyymmdd);         // 장중 재기동 시 일봉 재조회를 막는다
 
     QuoteTable quotes;
     load_quote_table(config, quotes);
@@ -1514,10 +1514,10 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
         return take_first_n(config, candidates, gate, out_mapNames);
     }
 
-    ProbeStats statistics;
-    const auto probe_start = scan_clock::now();
-    std::vector<Features> passed = probe_and_filter(kis, config, date_yyyymmdd, candidates, quotes, gate, statistics);
-    const long long probe_ms = ms_since(probe_start);
+    LookupStats statistics;
+    const auto lookup_start = scan_clock::now();
+    std::vector<Features> passed = lookup_and_filter(kis, config, date_yyyymmdd, candidates, quotes, gate, statistics);
+    const long long lookup_ms = ms_since(lookup_start);
     const auto score_start = scan_clock::now();
     score_cross_section(config, passed);
     std::vector<std::string> out = rank_and_truncate(config, passed, candidates, out_mapNames, out_mapScores);
@@ -1528,7 +1528,7 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
 
     if (statistics.fetched > 0)
     {
-        g_probe_cache.save_today(date_yyyymmdd);
+        g_lookup_cache.save_today(date_yyyymmdd);
     }
 
     const long long save_ms = ms_since(save_start);
@@ -1536,7 +1536,7 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
     LOG_INFO("[Main] DEVSCALE 정배열 프리필터: 후보=" + std::to_string(candidates.tickers.size()) +
              " ETF드롭=" + std::to_string(candidates.etf_drop) +
              " 리츠드롭=" + std::to_string(candidates.reit_drop) +
-             " 검사=" + std::to_string(statistics.probed) +
+             " 검사=" + std::to_string(statistics.looked_up) +
              " (일봉조회=" + std::to_string(statistics.fetched) +
              " 재조회=" + std::to_string(statistics.refreshed) +
              " 캐시=" + std::to_string(statistics.cache_hit) + ")" +
@@ -1550,7 +1550,7 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
     // 단계별 경과 — 검사는 REST 시간과 버킷 대기를 따로 보여 "REST가 아니라면 어디서 새는지" 가른다.
     LOG_INFO("[Main] DEVSCALE 스캔 계측: 전체=" + std::to_string(ms_since(scan_start)) +
              "ms 게이트=" + std::to_string(gate_ms) + "ms 수집=" + std::to_string(collect_ms) +
-             "ms 검사=" + std::to_string(probe_ms) + "ms(REST=" + std::to_string(statistics.rest_ms) +
+             "ms 검사=" + std::to_string(lookup_ms) + "ms(REST=" + std::to_string(statistics.rest_ms) +
              "ms 버킷대기=" + std::to_string(statistics.wait_ms) + "ms 간격sleep=" +
              std::to_string(statistics.fetched > 0 ? (statistics.fetched - 1) * 150 : 0) +
              "ms) 점수·순위=" + std::to_string(score_ms) + "ms 캐시저장=" + std::to_string(save_ms) + "ms");

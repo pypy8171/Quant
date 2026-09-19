@@ -111,8 +111,8 @@ def check_historical_bars(kis):
         # 조회 가능한 최초 날짜 탐색
         print("\n  → 최근 5년치 시작일 탐색 중...")
         for year in [2023, 2024]:
-            probe = kis.get_historical_ohlcv("005930", f"{year}-01-01", f"{year}-01-14")
-            if len(probe) >= 4:
+            sample = kis.get_historical_ohlcv("005930", f"{year}-01-01", f"{year}-01-14")
+            if len(sample) >= 4:
                 print(f"  → {year}년부터 조회 가능: STEP G start_date = '{year}-01-01'로 조정")
                 return False
         print("  → 2024년도 부족 — KIS API 제공 범위 재확인 필요")

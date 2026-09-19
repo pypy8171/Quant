@@ -149,7 +149,7 @@ SMA20에 1/20 가중으로 들어간다는 뜻이다. 추정이 아니라 실측
 절단이 끝나야 "하루 1회 갱신"이 비로소 옳은 설계가 된다. 순서를 뒤집으면 기준점이 더 흔들린다.
 
 **검증 게이트**: 같은 종목·같은 거래일에 09:05와 14:00 두 번 조회해 SMA5/10/20/60이 동일할 것.
-`Quant/tools/probe_daily_truncation.py`가 같은 응답으로 절단 전/후 SMA를 나란히 찍는다.
+`Quant/tools/check_daily_truncation.py`가 같은 응답으로 절단 전/후 SMA를 나란히 찍는다.
 
 09-07 10:33 장중 실측(모의 도메인, 세 종목 모두 최신봉 날짜 = 당일):
 
@@ -1286,7 +1286,7 @@ USD/KRW는 동일 세션이라 종가를 쓰면 그날 09:00 게이트에 미래
 1. `Engine::maybe_rescan_universe()`에 **해제 경로**를 둔다. 스캔 결과에서 `rescan_drop_after_sec`
    (기본 1800초) 이상 연속으로 빠져 있고 보유·미체결 선점이 없는 종목의 전략을 뗀다. 뗄 때는
    바로 지우지 않고 `retired_`로 옮겨 두었다가 strategy_thread가 새 스냅샷을 만든 뒤에 `on_stop`·파기한다.
-2. 기동 점검(`startup_probe`)은 **하루 한 번만** 낸다(`logs/startup_probe_YYYYMMDD` 표식). 원장에서
+2. 기동 점검(`startup_check`)은 **하루 한 번만** 낸다(`logs/startup_check_YYYYMMDD` 표식). 원장에서
    체결이 확인되면 같은 수량을 시장가로 되판다. 120초 안에 확인이 안 되면 되팔기는 포기한다.
 
 **배경**: 재스캔이 "미등록 종목만 등록"이라 유니버스에서 빠진 종목이 전략에 남아 신호를 냈다.
@@ -1797,7 +1797,7 @@ L3). `MpscQueue`는 테스트까지 있었는데 쓰는 곳이 없었다.
 
    구현 파일끼리만 쓰는 include·`using json`·`kKstOffsetSec`는 `Quant/src/api/KisClientInternal.h`에 둔다.
    `Quant/include/`에 넣지 않는 것은 공개 헤더가 아니기 때문이다. `Quant/CMakeLists.txt`는 `KIS_CLIENT_SOURCES`
-   한 목록을 `quant_trader`와 도구 4개(`manual_order`·`feed_latency_probe`·`future_quote_probe`·`bench_rest_pool`)가
+   한 목록을 `quant_trader`와 도구 4개(`manual_order`·`feed_latency_measure`·`future_quote_check`·`bench_rest_pool`)가
    같이 쓴다.
 2. 인증 헤더 네 줄(`authorization`·`appkey`·`appsecret`·`tr_id`)은 `KisClient::auth_headers(tr_id, {extra})`
    하나로 만든다. 25곳에 같은 블록이 있었고, 호출별로 다른 항목(`Content-Type`·`tr_cont`·`custtype`)만
@@ -1867,7 +1867,7 @@ KRX 정보기술 연율 σ 51%가 최고.
 
 `Quant/CMakeLists.txt`는 `KIS_WS_SOURCES`로 플랫폼당 한 파일만 링크한다. 공개 헤더 `Quant/include/api/KisWebSocket.h`는
 `<windows.h>`·`<winhttp.h>`를 더는 끌어오지 않고 `std::unique_ptr<WsSocket>` 하나를 든다. 그 헤더에 기대 `windows.h`를
-얻던 `Quant/src/main.cpp`·`Quant/src/modes/Monitors.cpp`·`Quant/tools/feed_latency_probe.cpp`는 같은 조건
+얻던 `Quant/src/main.cpp`·`Quant/src/modes/Monitors.cpp`·`Quant/tools/feed_latency_measure.cpp`는 같은 조건
 (`WIN32_LEAN_AND_MEAN`·`NOMINMAX`·`ERROR` 해제)으로 직접 넣고, `Quant/include/ipc/OpsServer.h`는 `NOMINMAX`를 더했다
 — `Engine.h` 경유로 `windows.h`를 처음 여는 자리가 됐기 때문이다.
 
@@ -1993,7 +1993,7 @@ interval 집계의 OHLC 병합·거래량 합·정렬(입력 순서 무관)·`ba
 같이 바뀐 데이터 경로: 일봉 조회를 100행 단위 역페이지네이션으로 바꿔 `daily_lookback`=250이 실제로 250봉을
 받고(전엔 100봉에서 잘렸다), 같은 TR로 주봉(`get_weekly_ohlcv`)을 연다. 캐시 키에 주기를 넣어 일·주가
 섞이지 않는다. 체결 틱의 누적거래량(`[13]`)·체결강도(`[18]`)를 `TradeData.acml_volume`·`strength`로 받고,
-`UniverseScanner::DailyProbe`에 250봉 고가·스윙 고점·20일 평균 거래량·21일 전 종가를 더해 매수 문맥 로그와
+`UniverseScanner::DailyLookup`에 250봉 고가·스윙 고점·20일 평균 거래량·21일 전 종가를 더해 매수 문맥 로그와
 다음 저항 판단(회의 §2)의 재료로 남긴다. 종목별 업종명(`bstp_kor_isnm`)·52주 고가도 `Fundamentals`에 받는다.
 대시보드 차트(`scripts/dashboard_server.py::build_chart`)는 `PYQuant/data/{daily,weekly,minute}/` 로컬
 파케이를 먼저 읽고 KIS에는 마지막 봉 이후 증분만 묻는다(장중 분봉 증분본은 `minute_live/`에 따로 둔다 — 백필 경로에 쓰면 반쪽 파일이 그날치를 막는다). 당일 1분봉은 예약작업 `Quant Minute Backfill`(16:40)이

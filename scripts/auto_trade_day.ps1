@@ -182,9 +182,9 @@ if (-not $DryRun) {
   }
 }
 
-$script:Windows = [ordered]@{}   # title -> @{cmd; probe; proc; started} — 되살리기용 원본
+$script:Windows = [ordered]@{}   # title -> @{cmd; marker; proc; started} — 되살리기용 원본
 
-function Start-Window([string]$title, [string]$cmd, [string]$probe = "") {
+function Start-Window([string]$title, [string]$cmd, [string]$marker = "") {
   Say "창 기동: $title"
   if ($DryRun) { Say "  (dry) $cmd"; return }
   $inner = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; `$Host.UI.RawUI.WindowTitle='$title'; Set-Location '$Repo'; $cmd"
@@ -195,7 +195,7 @@ function Start-Window([string]$title, [string]$cmd, [string]$probe = "") {
     else { Say "  pid=$($proc.Id) 잡 편입 실패 — 이 창은 따로 닫아야 한다." "WARN" }
   }
   # 같은 title로 다시 띄우면 항목을 갈아끼운다. 되살릴 때 목록이 불어나지 않게.
-  $script:Windows[$title] = @{ cmd = $cmd; probe = $probe; proc = $proc; started = Get-Date }
+  $script:Windows[$title] = @{ cmd = $cmd; marker = $marker; proc = $proc; started = Get-Date }
 }
 
 # TimescaleDB는 Docker Desktop이 아니라 WSL2(Ubuntu-22.04) 안의 Docker가 낸다. .wslconfig에
@@ -228,22 +228,22 @@ function Restore-Windows {
   $procs = @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='py.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue)
   foreach ($title in @($script:Windows.Keys)) {
     $w = $script:Windows[$title]
-    if (-not $w.probe) {
-      # 파이썬 프로세스가 아니라 확인할 probe가 없다(예: quant-wsl-keepalive) — 창(powershell)
+    if (-not $w.marker) {
+      # 파이썬 프로세스가 아니라 확인할 marker가 없다(예: quant-wsl-keepalive) — 창(powershell)
       # 자체가 죽었는지만 본다.
       if ($w.proc -and $w.proc.HasExited) {
         Say "부속 창 '$title'이 죽었다 — 다시 띄운다." "WARN"
-        Start-Window $title $w.cmd $w.probe
+        Start-Window $title $w.cmd $w.marker
       }
       continue
     }
     # 기동 직후에는 아직 파이썬이 안 뜬 상태일 수 있다. 뜰 시간을 준다.
     if (((Get-Date) - $w.started).TotalSeconds -lt 45) { continue }
-    if ($procs | Where-Object { $_.CommandLine -like "*$($w.probe)*" }) { continue }
-    Say "부속 창 '$title' 안에서 $($w.probe)가 죽었다 — 다시 띄운다." "WARN"
+    if ($procs | Where-Object { $_.CommandLine -like "*$($w.marker)*" }) { continue }
+    Say "부속 창 '$title' 안에서 $($w.marker)가 죽었다 — 다시 띄운다." "WARN"
     if ($w.proc -and -not $w.proc.HasExited) { Stop-Process -Id $w.proc.Id -Force -ErrorAction SilentlyContinue }
     if ($title -eq "quant-recorder") { Wait-Tsdb }
-    Start-Window $title $w.cmd $w.probe
+    Start-Window $title $w.cmd $w.marker
   }
 }
 

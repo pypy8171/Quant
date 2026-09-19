@@ -21,7 +21,7 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@691b256 scripts/auto_trade_guard.ps1@1a3da84 -->
+<!-- sync: scripts/auto_trade_day.ps1@9d7ed45 scripts/auto_trade_guard.ps1@1a3da84 -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 죽으면 다시
 띄운다. 마감 뒤 `scripts/eod_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 트레이더는 이 감시견이 소유한다 —
@@ -112,7 +112,7 @@ config별 전략: `config_dev_paper.json` DEVIATION_SCALE(일봉 정배열+눌�
 
 ## 3. 실시간 대시보드
 
-<!-- sync: scripts/dashboard_server.py@a24c552 -->
+<!-- sync: scripts/dashboard_server.py@6f5546d -->
 
 엔진 재빌드 없이 이미 있는 데이터(KIS 잔고·`regime.json`·`universe_scan.json`·로그·체결원장)를 브라우저에 3초마다
 표시한다. 종목 행 클릭 → 일/주/5분/3분봉 차트. 라이브 데이터는 이 로컬 서버가 있어야 뜬다(발행 URL 하나로는 안 된다).
@@ -191,7 +191,7 @@ $env:TEMP = "C:\build_tmp"; $env:TMP = "C:\build_tmp"
 
 ## 7. forward 데이터 적재 (조회 전용 · 주문 없음)
 
-<!-- sync: PYQuant/tools/investor_flow_logger.py@41e5901 PYQuant/tools/index_intraday_logger.py@89dbbb5 -->
+<!-- sync: PYQuant/tools/investor_flow_logger.py@9986905 PYQuant/tools/index_intraday_logger.py@89dbbb5 -->
 
 외국인·기관 확정 수급(장 마감 후 18:10 KST 이후):
 
@@ -229,20 +229,20 @@ py scripts\check_plain_language.py                                          # �
 ```powershell
 cd {ROOT}
 $env:PYTHONUTF8 = "1"
-.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\probe_kis_investor.py 005930   # 투자자별 매매동향 깊이
-.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\probe_datagokr.py              # data.go.kr 인증/OHLCV/PIT (DATA_GO_KR_KEY 필요)
-.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\probe_adjusted.py 005930       # 수정주가 vs 원주가 갭
+.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\check_kis_investor.py 005930   # 투자자별 매매동향 깊이
+.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\check_datagokr.py              # data.go.kr 인증/OHLCV/PIT (DATA_GO_KR_KEY 필요)
+.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\check_adjusted.py 005930       # 수정주가 vs 원주가 갭
 .\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\full_universe_dump.py          # 전종목 코드 덤프(부하 시험, DATA_GO_KR_KEY 필요)
 ```
 
 ## 10. 부하·지연 벤치 (처리량·꼬리지연 실측 · 주문 없음)
 
 벤치 실행파일은 기본 빌드에 안 들어간다 — 타깃을 지정해 먼저 빌드(`Quant\build_win\`에 산출). 인메모리 벤치는 인증이
-필요 없고 `feed_latency_probe`만 실제 KIS 조회를 한다.
+필요 없고 `feed_latency_measure`만 실제 KIS 조회를 한다.
 
 ```powershell
 cd {ROOT}
-cmake --build Quant\build_win --target bench_market_firehose bench_feed_ingest bench_intake feed_latency_probe
+cmake --build Quant\build_win --target bench_market_firehose bench_feed_ingest bench_intake feed_latency_measure
 ```
 
 `bench_market_firehose` — 전종목 시세를 인프로세스로 쏴 파이프라인 전 구간 지연·처리량(네트워크 없음). `load`=고정 부하, `sweep`=속도 계단 상승.
@@ -261,12 +261,12 @@ cmake --build Quant\build_win --target bench_market_firehose bench_feed_ingest b
 ```
 
 `bench_intake` — 큐 인테이크 마이크로벤치(위치인자 N duration qtype delay_ns cap rate, 기본 8 3.0 mpsc 0 65536 0).
-`feed_latency_probe` — 실제 KIS 실시간 수신 지연(인증 필요, `--symbols` > `--universe` > 내장 15종목).
+`feed_latency_measure` — 실제 KIS 실시간 수신 지연(인증 필요, `--symbols` > `--universe` > 내장 15종목).
 
 ```powershell
 .\Quant\build_win\bench_intake.exe 8 3 mpsc
-.\Quant\build_win\feed_latency_probe.exe --configs Quant\config\config_dev_paper.json --duration 60
-.\Quant\build_win\feed_latency_probe.exe --configs Quant\config\config_dev_paper.json --symbols "005930,000660,035720" --trade-only 1
+.\Quant\build_win\feed_latency_measure.exe --configs Quant\config\config_dev_paper.json --duration 60
+.\Quant\build_win\feed_latency_measure.exe --configs Quant\config\config_dev_paper.json --symbols "005930,000660,035720" --trade-only 1
 ```
 
 스트레스 시험 — 락프리 큐 정합·경합(인자 없음, PASS/FAIL):
@@ -325,7 +325,7 @@ cd {ROOT}
 ## 14. 환경·참고
 
 - cwd는 항상 저장소 루트. 한글 깨짐은 `$env:PYTHONUTF8 = "1"`(data.go.kr 계열은 `$env:PYTHONIOENCODING = "utf-8"`).
-- `DATA_GO_KR_KEY`: `universe_feed` / `probe_datagokr` / `full_universe_dump`에 필요한 환경변수.
+- `DATA_GO_KR_KEY`: `universe_feed` / `check_datagokr` / `full_universe_dump`에 필요한 환경변수.
 - 백그라운드 실행: `Start-Process py -ArgumentList 'scripts\dashboard_server.py' -WindowStyle Hidden`(종료는 11절). 평소엔 전용 창 포그라운드 + Ctrl+C.
 - 예약작업(마감 문서·스터디·대시보드 동기화)의 시각·등록·복구 명령은 [AUTOMATION.md](AUTOMATION.md) 1절 — 여기 적지 않는다.
 - 마감 후 세션 스킬: `/eod-review` → `/trade-log` → `/dashboard-sync` → `/stock-study` → `/daily`.

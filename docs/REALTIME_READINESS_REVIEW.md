@@ -75,7 +75,7 @@ store하기 때문이다. 그런데 시세 큐에는 두 곳이 넣는다.
 |---|---|
 | `DeviationScaleStrategy::make_market_sell` | 가격·참조가 모두 0 |
 | `FixedIntervalStrategy` | 가격 대입 자체가 없음 |
-| Engine 기동 점검(`STARTUP_PROBE`) [Engine.cpp::strategy_thread_fn](../Quant/src/core/Engine.cpp) | 참조가 없음 |
+| Engine 기동 점검(`STARTUP_CHECK`) [Engine.cpp::strategy_thread_fn](../Quant/src/core/Engine.cpp) | 참조가 없음 |
 
 ### W-2. 갱신 지연 감지와 조치 사이의 간격
 

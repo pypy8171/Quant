@@ -13,8 +13,8 @@
 않으면 rt_cd가 0이 아니거나 현재가가 0으로 오는데, 그것도 결과로 남긴다.
 
 실행:
-  py PYQuant/tools/nxt_divergence_probe.py --minutes 30 --interval 60
-  py PYQuant/tools/nxt_divergence_probe.py --tickers 005930,000660 --interval 30
+  py PYQuant/tools/nxt_divergence_check.py --minutes 30 --interval 60
+  py PYQuant/tools/nxt_divergence_check.py --tickers 005930,000660 --interval 30
 
 기본 종목은 Quant/config/universe_scan.json 상위 N개, 없으면 삼성전자·SK하이닉스.
 출력: logs/nxt_divergence_YYYYMMDD.csv (append)
@@ -52,7 +52,7 @@ def _to_f(v) -> float:
         return 0.0
 
 
-def probe_one(kis, ticker: str, div: str) -> dict:
+def check_one(kis, ticker: str, div: str) -> dict:
     """현재가 1건을 시장구분 div로 조회한다. 실패는 rt_cd/msg로 남긴다."""
     data = kis._get(
         "/uapi/domestic-stock/v1/quotations/inquire-price",
@@ -91,7 +91,7 @@ def main() -> int:
 
     kis = from_config(args.config or None)
     if not kis.authenticate():
-        print("[nxt_probe] 인증 실패 — config app_key/app_secret 확인")
+        print("[nxt_check] 인증 실패 — config app_key/app_secret 확인")
         return 1
 
     _LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -104,7 +104,7 @@ def main() -> int:
     header += ["px_gap", "px_gap_bp"]
 
     rounds = 1 if args.minutes <= 0 else max(1, args.minutes * 60 // max(1, args.interval))
-    print(f"[nxt_probe] {len(tickers)}종목 × {len(DIVS)}구분, {args.interval}초 간격 {rounds}회 → {out_path}")
+    print(f"[nxt_check] {len(tickers)}종목 × {len(DIVS)}구분, {args.interval}초 간격 {rounds}회 → {out_path}")
 
     with open(out_path, "a", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
@@ -116,9 +116,9 @@ def main() -> int:
                 row = [stamp, t]
                 px = {}
                 for d in DIVS:
-                    r = probe_one(kis, t, d)
-                    px[d] = r["stck_prpr"]
-                    row += [r["rt_cd"], r["msg"]] + [r[fl] for fl in _FIELDS]
+                    result = check_one(kis, t, d)
+                    px[d] = result["stck_prpr"]
+                    row += [result["rt_cd"], result["msg"]] + [result[fl] for fl in _FIELDS]
                     time.sleep(0.12)   # KIS 초당 한도 여유
                 gap = px["NX"] - px["J"] if px["J"] > 0 and px["NX"] > 0 else 0.0
                 bp = (gap / px["J"] * 10000.0) if px["J"] > 0 and px["NX"] > 0 else 0.0
@@ -130,7 +130,7 @@ def main() -> int:
             if i + 1 < rounds:
                 time.sleep(args.interval)
 
-    print(f"[nxt_probe] 저장 완료 {out_path}")
+    print(f"[nxt_check] 저장 완료 {out_path}")
     return 0
 
 

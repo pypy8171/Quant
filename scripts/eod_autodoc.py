@@ -138,7 +138,7 @@ def scan_log(log: Path, ymd: str) -> dict:
 # ─────────────────────────── 원장 파싱 ───────────────────────────
 
 # 매매가 아닌 이벤트. 집계에서 갈라 내지 않으면 체결 수가 부풀어 보인다.
-NON_STRATEGY = {"TEST", "STARTUP_PROBE"}
+NON_STRATEGY = {"TEST", "STARTUP_CHECK", "STARTUP_PROBE"}   # STARTUP_PROBE 는 09-19 이전 원장의 옛 태그
 
 
 def scan_ledger(path: Path) -> dict:
@@ -158,7 +158,7 @@ def scan_ledger(path: Path) -> dict:
                                "breason": Counter(), "sreason": Counter(),
                                "rtime": {},  # 사유 → [첫 체결, 마지막 체결] HH:MM:SS
                                "strat": Counter(), "t0": "", "t1": "", "rp": 0.0})
-    probe = 0
+    excluded = 0
     # 그날 낸 비용을 손익 옆에 같이 적기 위해 전체 체결(점검 주문 포함)의 대금을 따로 모은다.
     cost = {"fills": 0, "buy": 0.0, "sell": 0.0, "commission": 0.0, "tax": 0.0, "sell_side": 0.0, "realized": 0.0}
     for r in rows:
@@ -177,7 +177,7 @@ def scan_ledger(path: Path) -> dict:
                 cost["sell_side"] += notional * (COMMISSION_RATE + TAX_RATE)
         strat = r.get("strategy", "")
         if strat in NON_STRATEGY:
-            probe += 1
+            excluded += 1
             continue
         t = r["ticker"]
         q = int(float(r.get("fill_qty") or 0))
@@ -199,7 +199,7 @@ def scan_ledger(path: Path) -> dict:
             a["S"] += 1; a["Sq"] += q; a["Sn"] += q * px; a["sreason"][why] += 1
 
     return {"events": events, "sides": sides, "rejects": rejects.most_common(10),
-            "per": dict(per), "probe": probe, "n_rows": len(rows), "cost": cost,
+            "per": dict(per), "excluded": excluded, "n_rows": len(rows), "cost": cost,
             "span": (rows[0]["ts_kst"], rows[-1]["ts_kst"])}
 
 
@@ -346,7 +346,7 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
     per = led.get("per", {})
     if per:
         add(f"실전략 체결 {sum(a['B'] + a['S'] for a in per.values())}건"
-            f"(기동 점검·부하시험 {led.get('probe', 0)}건 제외), 종목 {len(per)}개.")
+            f"(기동 점검·부하시험 {led.get('excluded', 0)}건 제외), 종목 {len(per)}개.")
         add("")
         add("| 종목 | 시각 | 매수 | 매도 | 매수 명목 | 매도 명목 | 실현 |")
         add("|---|---|---|---|---|---|---|")

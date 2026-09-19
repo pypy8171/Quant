@@ -10,7 +10,7 @@
 |---|---|---|---|
 | `bench_market_firehose` | 없음 | 내부 3단 처리단(링버퍼→전략→주문) 지연·처리량 | 없음(합성, 전종목 규모) |
 | `bench_feed_ingest` | 실 TCP(loopback) | 코스콤→서버 소켓 수신 경로(net/proc/e2e 분해) | 없음(합성, 전종목 규모) |
-| `feed_latency_probe` | 실 KIS WS | 실데이터로 수신콜백→주문결정 내부 지연 재확인 | **app_key당 ~40종목**(API 하드캡) |
+| `feed_latency_measure` | 실 KIS WS | 실데이터로 수신콜백→주문결정 내부 지연 재확인 | **app_key당 ~40종목**(API 하드캡) |
 | `bench_hot_path` | 없음 | 09-13 hot path 조각(시각 디코드·현재가 캐시·라우터·상태 키·캡처·FeedMux 홉·연쇄)의 옛/새 A/B | 없음(합성, 종목 2,600개 고정) |
 
 부하테스트의 규모는 앞의 둘(합성)이 담당한다. 라이브 지연 측정은 규모가 아니라 "합성이 낸 처리단 지연이 실데이터에서도 성립하는가"를 확인하는 용도다(장 중에만 틱이 있음).
@@ -25,7 +25,7 @@ Set-Location "$env:USERPROFILE\source\repos\Quant"
 
 ```powershell
 $env:TEMP="C:\build_tmp"
-cmake --build Quant/build_win --target bench_market_firehose bench_feed_ingest feed_latency_probe bench_hot_path
+cmake --build Quant/build_win --target bench_market_firehose bench_feed_ingest feed_latency_measure bench_hot_path
 ```
 
 ## 1. 처리단 부하 (소켓 없음) — bench_market_firehose
@@ -65,7 +65,7 @@ cmake --build Quant/build_win --target bench_market_firehose bench_feed_ingest f
 ## 3. 라이브 실데이터 검증 (규모 아님, 장 중에만)
 
 ```powershell
-.\Quant\build_win\feed_latency_probe.exe --duration 60 --trade-only 1 --count 40 --universe Quant\config\universe_scan.json Quant\config\config.json
+.\Quant\build_win\feed_latency_measure.exe --duration 60 --trade-only 1 --count 40 --universe Quant\config\universe_scan.json Quant\config\config.json
 ```
 
 `--count 40`은 상한일 뿐 후보가 모자라면 그만큼만 구독한다. 40개를 채우려면 종목 리스트(`--universe`)를 반드시 함께 줘야 한다(안 주면 내장 기본 15종목). 장외(09:00–15:30 KST 밖)에는 틱이 없어 샘플이 0이다.
@@ -77,7 +77,7 @@ cmake --build Quant/build_win --target bench_market_firehose bench_feed_ingest f
 py PYQuant\tools\full_universe_dump.py --out Quant\config\universe_full.json
 
 # 세션 파일로 300종목(다중 app_key)
-.\Quant\build_win\feed_latency_probe.exe --sessions Quant\config\creds.json --universe Quant\config\universe_full.json --count 300
+.\Quant\build_win\feed_latency_measure.exe --sessions Quant\config\creds.json --universe Quant\config\universe_full.json --count 300
 ```
 
 이 정도 나오면 정상(실측): drop 0, 관측 msg rate 수십 msg/s, 내부지연 중앙값(p50)=100ns.
@@ -112,8 +112,8 @@ Get-Content logs\bench_hot_path.txt
 | `--zipf S` | 0=균등, 1=대형주 편중(현실 근사) | `--zipf 1.5` |
 | `--ob-ratio R` | 호가:체결 비율 | `--ob-ratio 0.8` |
 | sweep `--start/--step/--max/--dwell` | 스윕 시작·증가폭·상한·스텝당 초 | `--max 5000000 --dwell 4` |
-| `feed_latency_probe` `--count/--per-session/--trade-only` | 구독 종목 상한 / 세션당 상한 / 체결전용 여부 | `--count 40 --trade-only 1` |
-| `feed_latency_probe` `--sessions/--configs` | 다중 app_key 세션(40캡 초과) — JSON 배열 / config `"kis"` 블록 쉼표목록 | `--sessions creds.json` |
+| `feed_latency_measure` `--count/--per-session/--trade-only` | 구독 종목 상한 / 세션당 상한 / 체결전용 여부 | `--count 40 --trade-only 1` |
+| `feed_latency_measure` `--sessions/--configs` | 다중 app_key 세션(40캡 초과) — JSON 배열 / config `"kis"` 블록 쉼표목록 | `--sessions creds.json` |
 
 ## 읽는 법
 

@@ -146,7 +146,10 @@
 
 - [__init__.py](../PYQuant/tools/__init__.py) — 빈 패키지 초기화 파일
 - [ablation_2022.py](../PYQuant/tools/ablation_2022.py) — 2022 폭락장 국면필터 제거실험
+- [check_adjusted.py](../PYQuant/tools/check_adjusted.py) — data.go.kr 수정주가 여부 검증 점검
+- [check_datagokr.py](../PYQuant/tools/check_datagokr.py) — DataGoKrSource 인증·조회 확인용 점검
 - [check_investor_api.py](../PYQuant/tools/check_investor_api.py) — 수급·일봉 API 가용성 검증 스크립트
+- [check_kis_investor.py](../PYQuant/tools/check_kis_investor.py) — KIS 투자자매매동향 TR 깊이 점검
 - [check_market_flow.py](../PYQuant/tools/check_market_flow.py) — 시장 수급·프로그램·선물 TR 점검
 - [check_pykrx.py](../PYQuant/tools/check_pykrx.py) — pykrx 런타임 데이터 가용성 확인
 - [check_pykrx_flow.py](../PYQuant/tools/check_pykrx_flow.py) — pykrx 수급 데이터 검증 스크립트
@@ -161,11 +164,8 @@
 - [macro_regime_feed.py](../PYQuant/tools/macro_regime_feed.py) — 매크로 지표 기반 국면 게이트 발행기
 - [minute_backfill.py](../PYQuant/tools/minute_backfill.py) — 거래일별 1분봉 백필 도구
 - [month_start_sweep.py](../PYQuant/tools/month_start_sweep.py) — 매매 시작월 민감도 스윕 도구
-- [nxt_divergence_probe.py](../PYQuant/tools/nxt_divergence_probe.py) — KRX·NXT 시세 괴리 측정 도구
+- [nxt_divergence_check.py](../PYQuant/tools/nxt_divergence_check.py) — KRX·NXT 시세 괴리 측정 도구
 - [pit_universe_backfill.py](../PYQuant/tools/pit_universe_backfill.py) — 거래일별 PIT 유니버스 재구성 도구
-- [probe_adjusted.py](../PYQuant/tools/probe_adjusted.py) — data.go.kr 수정주가 여부 검증 점검
-- [probe_datagokr.py](../PYQuant/tools/probe_datagokr.py) — DataGoKrSource 인증·조회 확인용 점검
-- [probe_kis_investor.py](../PYQuant/tools/probe_kis_investor.py) — KIS 투자자매매동향 TR 깊이 점검
 - [sweep.py](../PYQuant/tools/sweep.py) — 전략 파라미터 강건성 스윕 도구
 - [universe_feed.py](../PYQuant/tools/universe_feed.py) — 시총·거래대금 유니버스 피드 생성기
 - [walkforward.py](../PYQuant/tools/walkforward.py) — 전진검증 표본외 성과 검증 도구
@@ -389,13 +389,13 @@
 ### Quant/tools/
 
 - [bench_rest_pool.cpp](../Quant/tools/bench_rest_pool.cpp) — REST 커넥션 풀링 효과 측정 벤치
-- [feed_latency_probe.cpp](../Quant/tools/feed_latency_probe.cpp) — 실 KIS WS 다세션 시세 수신 지연 점검 도구
-- [future_quote_probe.cpp](../Quant/tools/future_quote_probe.cpp) — 국내 선물 시세 조회 점검 도구(필드명 확정용)
+- [check_daily.py](../Quant/tools/check_daily.py) — 일봉 REST 확보 가능성 점검 스크립트(유한 날짜창 검증)
+- [check_daily_truncation.py](../Quant/tools/check_daily_truncation.py) — 일봉 당일봉 절단 전후 이동평균 비교 검증 스크립트(D-005)
+- [check_minute.py](../Quant/tools/check_minute.py) — 당일 분봉 REST 확보 가능성 점검 스크립트
+- [feed_latency_measure.cpp](../Quant/tools/feed_latency_measure.cpp) — 실 KIS WS 다세션 시세 수신 지연 측정 도구
+- [future_quote_check.cpp](../Quant/tools/future_quote_check.cpp) — 국내 선물 시세 조회 점검 도구(필드명 확정용)
 - [manual_order.cpp](../Quant/tools/manual_order.cpp) — 수동 주문 도구(모의계좌 접수-체결 확인)
 - [ops_client.cpp](../Quant/tools/ops_client.cpp) — 운영단말 콘솔 클라이언트(상태·보유 조회·수동주문, D-043)
-- [probe_daily.py](../Quant/tools/probe_daily.py) — 일봉 REST 확보 가능성 점검 스크립트(유한 날짜창 검증)
-- [probe_daily_truncation.py](../Quant/tools/probe_daily_truncation.py) — 일봉 당일봉 절단 전후 이동평균 비교 검증 스크립트(D-005)
-- [probe_minute.py](../Quant/tools/probe_minute.py) — 당일 분봉 REST 확보 가능성 점검 스크립트
 - [query_balance.py](../Quant/tools/query_balance.py) — 모의계좌 잔고 조회 스크립트(연속조회 포함)
 
 ### Quant/tools/ops_terminal/

@@ -2,7 +2,7 @@
 # 일봉(FHKST03010100) 확보 가능성 관문 검증 + G1 수정방향(유한 날짜창) 검증.
 #   기존 get_daily_ohlcv는 날짜를 19000101~99991231로 하드코딩 → 모의 500(G1).
 #   여기선 오늘-Ndays ~ 오늘 유한창으로 찍어 (a)모의 지원 여부 (b)1콜 반환 봉수를 본다.
-# 사용: python3 Quant/tools/probe_daily.py [config경로] [종목코드] [일수N]
+# 사용: python3 Quant/tools/check_daily.py [config경로] [종목코드] [일수N]
 #   기본: config_itb_paper.json  005930  120
 import json, sys, urllib.request, urllib.parse, urllib.error
 from pathlib import Path
@@ -21,7 +21,7 @@ BASE = rest_base_url(bool(paper))
 now_kst = datetime.now(timezone(timedelta(hours=9)))
 d2 = now_kst.strftime("%Y%m%d")
 d1 = (now_kst - timedelta(days=days)).strftime("%Y%m%d")
-print(f"[probe] config={path}  domain={'모의' if paper else '실계좌'}  "
+print(f"[check] config={path}  domain={'모의' if paper else '실계좌'}  "
       f"ticker={ticker}  창={d1}~{d2}")
 
 tok = json.load(urllib.request.urlopen(urllib.request.Request(

@@ -701,7 +701,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
         scan_config.risk_off_index_kosdaq_resume = node.value("risk_off_resume_pct_kosdaq", -0.009);
         scan_config.risk_off_dwell_sec         = node.value("risk_off_dwell_sec", 600);
         scan_config.require_aligned = node.value("require_aligned", true);  // 정배열 프리필터 on/off
-        scan_config.align_probe_max = node.value("align_probe_max", 60);    // 정배열 검사 후보 상한(일봉 조회 비용 캡)
+        scan_config.align_lookup_max = node.value("align_lookup_max", 60);    // 정배열 검사 후보 상한(일봉 조회 비용 캡)
 
         // 장중 일봉 재조회 — 0이면 기존 동작(하루 한 번 조회 후 캐시 고정).
         for (const auto& element : jsonx::array_or_empty(node, "sector_codes"))

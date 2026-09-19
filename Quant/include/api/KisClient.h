@@ -188,7 +188,7 @@ public:
     //   market_div = FID_COND_MRKT_DIV_CODE("F"=지수선물 등), issue_code = 종목코드(예 KOSPI200
     //   최근월물). 시세 REST이므로 실전 도메인 전용 — 모의(openapivts:29443)는 시세 미지원이라
     //   HTTP500이 뜬다. 시세전용(quote) KisClient(is_paper=false)로 호출해야 한다.
-    //   output 스키마는 실키 1콜(future_quote_probe, 2026-09-03 확정): output1=계약 시세
+    //   output 스키마는 실키 1콜(future_quote_check, 2026-09-03 확정): output1=계약 시세
     //   (futs_prpr 현재가, futs_prdy_vrss/ctrt, prdy_vrss_sign, futs_oprc/hgpr/lwpr, acml_vol,
     //   hts_otst_stpl_qty 미결제 + delta/gama/theta/vega/rho 그릭스·basis·futs_last_tr_date 만기),
     //   output2/3=기초지수(종합·KOSPI200). 첫 호출 1회 raw를 로그로 남긴다(스키마 변동 대비).

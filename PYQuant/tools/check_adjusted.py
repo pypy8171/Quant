@@ -11,8 +11,8 @@ data.go.kr 가격이 '수정주가'인지 '원주가'인지 검증.
 
 사용 (키 환경변수):
   export DATA_GO_KR_KEY='...'
-  python3 PYQuant/tools/probe_adjusted.py            # 기본 종목셋
-  python3 PYQuant/tools/probe_adjusted.py 005930 035720 247540   # 종목 지정
+  python3 PYQuant/tools/check_adjusted.py            # 기본 종목셋
+  python3 PYQuant/tools/check_adjusted.py 005930 035720 247540   # 종목 지정
 """
 import sys
 from pathlib import Path

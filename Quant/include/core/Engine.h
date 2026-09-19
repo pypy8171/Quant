@@ -130,12 +130,12 @@ public:
     //  종목을 시장가로 딱 1회 매수해 주문 경로 전체(OrderRouter→체결통보→원장)가 살아있는지
     //  확인한다. quantity≤0 또는 ticker 빈 문자열이면 미가동.
     //  strategy_thread가 order_queue의 단일 생산자이므로 그 스레드 진입 시 1회만 push한다.
-    //  하루 한 번만 낸다(logs/startup_probe_YYYYMMDD 표식) — 재기동마다 내면 점검 주식이 쌓인다
+    //  하루 한 번만 낸다(logs/startup_check_YYYYMMDD 표식) — 재기동마다 내면 점검 주식이 쌓인다
     //  (2026-09-09 재기동 13회 → 005930 13주). 체결이 확인되면 같은 수량을 바로 되판다.
-    void set_startup_probe(const std::string& ticker, int quantity)
+    void set_startup_check(const std::string& ticker, int quantity)
     {
-        startup_probe_ticker_ = ticker;
-        startup_probe_quantity_    = quantity;
+        startup_check_ticker_ = ticker;
+        startup_check_quantity_    = quantity;
     }
 
     // 시세 전용 클라이언트 설정(실전 도메인). KIS 모의(openapivts)는 시세 REST가 HTTP 500이라
@@ -373,13 +373,13 @@ private:
     KisConfig kis_config_;
     int fetch_interval_sec_;
     bool bootstrap_ledger_ = false; // 기동 시 실계좌 보유분 원장 시드 여부(G5, option-in)
-    std::string startup_probe_ticker_;  // 기동 점검 종목(빈 문자열=미가동)
-    int         startup_probe_quantity_ = 0; // 기동 점검 수량(≤0=미가동)
-    bool        startup_probe_fired_ = false; // 기동 점검 1회성 발사 가드
+    std::string startup_check_ticker_;  // 기동 점검 종목(빈 문자열=미가동)
+    int         startup_check_quantity_ = 0; // 기동 점검 수량(≤0=미가동)
+    bool        startup_check_fired_ = false; // 기동 점검 1회성 발사 가드
     // 되팔기 상태(strategy_thread 전용). base=발사 직전 보유수량, 그 위로 quantity만큼 늘면 체결로 본다.
-    bool        startup_probe_settled_ = true;  // 되팔기 끝났거나 할 일 없음
-    int         startup_probe_base_quantity_ = 0;
-    std::chrono::steady_clock::time_point startup_probe_fired_at_{};
+    bool        startup_check_settled_ = true;  // 되팔기 끝났거나 할 일 없음
+    int         startup_check_base_quantity_ = 0;
+    std::chrono::steady_clock::time_point startup_check_fired_at_{};
     // ── 피드 상태 ────────────────────────────────────────────────────────────
     struct FeedState
     {

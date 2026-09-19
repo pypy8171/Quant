@@ -7,9 +7,9 @@ data.go.kr 금융위 주식시세정보 소스 검증 기동 점검.
 
 사용 (키는 환경변수로 — 채팅/코드에 박지 말 것):
   WSL/Linux:   export DATA_GO_KR_KEY='발급받은_일반인증키'
-               python3 PYQuant/tools/probe_datagokr.py
+               python3 PYQuant/tools/check_datagokr.py
   Windows PS:  $env:DATA_GO_KR_KEY='발급받은_일반인증키'
-               python PYQuant/tools/probe_datagokr.py
+               python PYQuant/tools/check_datagokr.py
 """
 import sys
 from pathlib import Path

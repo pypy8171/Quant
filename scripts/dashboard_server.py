@@ -977,7 +977,8 @@ def build_criteria(cfg: dict):
 #  notify_sidecar.py가 이 표를 그대로 import해서 쓴다 — 정의는 여기 하나뿐이다.
 STRATEGY_LABEL = {
     "ORPHAN": "이전 세션 주문",
-    "STARTUP_PROBE": "기동 점검 주문",
+    "STARTUP_CHECK": "기동 점검 주문",
+    "STARTUP_PROBE": "기동 점검 주문",   # 09-19 이전 원장의 옛 태그
     "TEST": "테스트 주문",
 }
 

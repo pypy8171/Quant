@@ -49,20 +49,20 @@ void configure_regime_strategies(Engine& engine, const AppConfig& app)
 }
 
 // 기동 스모크 테스트 — 서버 실행 직후 지정 종목을 시장가 1주 매수해, 주문 경로 전체가 살아있는지 최소 점검한다.
-//  config "startup_probe": {"ticker":"005930","qty":1}. 없으면 미가동.
-void configure_startup_probe(Engine& engine, const AppConfig& app)
+//  config "startup_check": {"ticker":"005930","qty":1}. 없으면 미가동.
+void configure_startup_check(Engine& engine, const AppConfig& app)
 {
-    if (!app.has_startup_probe)
+    if (!app.has_startup_check)
     {
         return;
     }
 
-    engine.set_startup_probe(app.startup_probe_ticker, app.startup_probe_quantity);
+    engine.set_startup_check(app.startup_check_ticker, app.startup_check_quantity);
 
-    if (!app.startup_probe_ticker.empty() && app.startup_probe_quantity > 0)
+    if (!app.startup_check_ticker.empty() && app.startup_check_quantity > 0)
     {
-        LOG_INFO("[Engine] 기동 점검 설정: " + app.startup_probe_ticker + " 시장가 " +
-                 std::to_string(app.startup_probe_quantity) + "주 (모의계좌 주문경로 검증)");
+        LOG_INFO("[Engine] 기동 점검 설정: " + app.startup_check_ticker + " 시장가 " +
+                 std::to_string(app.startup_check_quantity) + "주 (모의계좌 주문경로 검증)");
     }
 }
 
@@ -122,7 +122,7 @@ void Engine::configure(const AppConfig& app)
 {
     configure_channels(*this, app);
     configure_regime_strategies(*this, app);
-    configure_startup_probe(*this, app);
+    configure_startup_check(*this, app);
     configure_quote_kis(*this, app);
     configure_risk(*this, app);
 }

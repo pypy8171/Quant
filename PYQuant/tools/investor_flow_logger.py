@@ -13,7 +13,7 @@
   captured_at을 찍어 그대로 남긴다(잠정→확정 리비전 드리프트 자체가 연구 자료).
 
   ⚠️ 필드명 미확정: FHKST01010900 응답 필드명은 아직 라이브 1콜로 확정 안 됨
-     (tools/probe_kis_investor.py, check_investor_api.py 참조). 그래서 이 로거는
+     (tools/check_kis_investor.py, check_investor_api.py 참조). 그래서 이 로거는
      각 행의 raw 딕셔너리를 통째로 보존하고, 외인/기관/개인 순매수는 필드명 후보로
      best-effort 파싱만 병행한다 → 나중에 필드명이 확정되면 raw에서 재파싱 가능.
 
@@ -206,7 +206,7 @@ def main() -> None:
     print(f"완료 | append={appended}행 skip={skipped}행 empty={empty}종목")
     print(f"파일: {month_file}")
     if appended == 0 and empty == len(universe):
-        print("[!] 전 종목 빈 응답 — FHKST01010900 필드명/권한 확인(tools/probe_kis_investor.py로 1콜 점검)")
+        print("[!] 전 종목 빈 응답 — FHKST01010900 필드명/권한 확인(tools/check_kis_investor.py로 1콜 점검)")
 
 
 if __name__ == "__main__":

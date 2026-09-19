@@ -44,7 +44,7 @@
 | **kill switch** | 신규·청산 양방향 하드스톱 스위치 | ZMQ 수동명령 / WS 연속 실패로 발동(손익기반 자동킬은 미구현) | `Quant/src/risk/OrderGate.cpp` |
 | **entry_halt** | 신규 진입(BUY)만 차단, 청산(SELL)은 허용하는 플래그 | **OrderGate 전역 플래그**라 켜지면 모든 전략의 신규진입이 함께 막힌다. 매크로 사이드카 regime.json 파일브리지가 토글(운영단말 수동 정지 `manual_buy_halt`와는 다른 플래그, D-091·D-095) | `Quant/src/risk/OrderGate.cpp` |
 | **FORCE_LIQ** | BEAR 등에서 보유 전량을 시장가로 청산하는 강제청산 신호 | `strategy_id="FORCE_LIQ"`. 시장가라 명목 백스톱 우회 방지로 평단을 `reference_price`에 stamp | `Quant/src/core/Engine.cpp` |
-| **UniverseScanner** | 시총·거래대금·등락률 필터로 매매 유니버스를 스캔(scan_devscale / scan_itb) | 정배열 프로브·수급 필터 포함 | `Quant/include/universe/UniverseScanner.h:16` |
+| **UniverseScanner** | 시총·거래대금·등락률 필터로 매매 유니버스를 스캔(scan_devscale / scan_itb) | 정배열 일봉 조회·수급 필터 포함 | `Quant/include/universe/UniverseScanner.h:16` |
 | **StrategyFactory** | config를 읽어 전략 인스턴스를 생성·등록하는 팩토리 | main.cpp에서 분리된 전략 로딩 계층 | `Quant/src/strategy/StrategyFactory.cpp` |
 | **Logger** | 비동기 싱글톤 로거(ms UTC 타임스탬프, 콘솔 + `logs/quant_trader.log`) | hot path는 큐 push만·전용 writer 스레드가 I/O(꼬리 지연(tail) 억제). 큐는 `MpscQueue<Record>` 65,536슬롯(D-045), 가득 차면 새 레코드 드롭+`dropped()`·`flush()`. LOG_INFO/WARN/ERROR/DEBUG 매크로 | `Quant/include/utils/Logger.h` |
 | **bootstrap_ledger** | 기동 시 실계좌 보유분을 OrderGate 원장에 시드(매도수량·평단·손실한도 정합) | config `bootstrap_ledger_from_balance` | `Quant/src/core/EngineConfigure.cpp` |

@@ -6,7 +6,7 @@ inquire-investor(FHKST01010900)가 '과거 며칠치'를 주는지 알아야 한
 이 TR은 날짜범위 파라미터가 없어 최근 N거래일만 줄 가능성이 크다.
 N이 ~30이면 2년 백테스트엔 부적합 → 다른 수급 데이터 소스 필요.
 
-사용:  python tools/probe_kis_investor.py [종목코드]
+사용:  python tools/check_kis_investor.py [종목코드]
 출력:  rt_cd / 메시지 / 반환 행수 / 날짜범위(가장 오래된~최신) / 샘플 필드
 주문 없음 — 조회(quotations) 전용, 안전.
 """

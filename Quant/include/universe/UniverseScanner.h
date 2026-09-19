@@ -50,7 +50,7 @@ struct DevScanCfg
     int    max_register    = 40;
     double risk_off_index    = -0.02;
     bool   require_aligned = true;
-    int    align_probe_max = 60;   // 재스캔당 일봉 REST 상한
+    int    align_lookup_max = 60;   // 재스캔당 일봉 REST 상한
     int    align_daily_n   = 70;   // 봉, 한 종목당 받는 일봉 길이
     // 장중 일봉 재조회. 기본은 꺼 둔다 — 일봉은 전일 확정치라 재조회해도 같은 값이 온다. [why D-029]
     int    align_refresh_max = 0;    // 재스캔당 재조회 상한(0=끄기, 기본)

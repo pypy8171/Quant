@@ -49,10 +49,10 @@ struct AppConfig
     bool                                       has_regime_strategies = false;
     std::map<Regime, std::vector<std::string>> regime_strategies;
 
-    // ── TRADE: 기동 점검 주문(startup_probe). ticker 비고 quantity 0이면 미가동 ──
-    bool        has_startup_probe = false;
-    std::string startup_probe_ticker;
-    int         startup_probe_quantity = 0;
+    // ── TRADE: 기동 점검 주문(startup_check). ticker 비고 quantity 0이면 미가동 ──
+    bool        has_startup_check = false;
+    std::string startup_check_ticker;
+    int         startup_check_quantity = 0;
 
     // ── TRADE: 시세 전용(실전 도메인) 키. 모의 시세 REST가 HTTP 500이라 시세만 실전으로 ──
     std::optional<KisConfig> quote_kis;

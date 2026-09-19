@@ -32,7 +32,7 @@ STATUS = ROOT / "_private" / "_auto_trade_day.json"
 DEFAULT_CONFIG = "Quant/config/config_dev_paper.json"
 
 # 시트에 절대 싣지 않는 키(값이 실키·계좌). 접두 일치.
-SECRET_PREFIXES = ("kis.", "quote_kis.", "startup_probe.")
+SECRET_PREFIXES = ("kis.", "quote_kis.", "startup_check.")
 SECRET_WORDS = ("app_key", "app_secret", "account", "hts_id", "token")
 
 # 키 접미사 → 단위. spec 의 [[config_key]] 가 있으면 그쪽이 우선.

@@ -3,7 +3,7 @@
 #   - 이 계좌/도메인에서 분봉 TR이 되는가 (모의 500 여부)
 #   - 1콜당 봉 개수, 봉 간격(1분 네이티브 확인)
 #   - 기준시각 역페이지네이션으로 3분봉 집계에 쓸 만큼 쌓이는가
-# 사용: python Quant/tools/probe_minute.py [config경로] [종목코드] [기준HHMMSS] [페이지수]
+# 사용: python Quant/tools/check_minute.py [config경로] [종목코드] [기준HHMMSS] [페이지수]
 #   기본: config_itb_paper.json  005930(삼성전자)  자동(현재 KST, 장전이면 133000)  4페이지
 # 모의/실계좌 각각 config를 바꿔 두 번 돌려 비교하세요.
 import json, sys, urllib.request, urllib.parse, urllib.error
@@ -28,7 +28,7 @@ else:
     hhmmss = now_kst.strftime("%H%M%S")
     base_hhmmss = hhmmss if "090000" <= hhmmss <= "153000" else "153000"
 
-print(f"[probe] config={path}  domain={'모의' if paper else '실계좌'}  "
+print(f"[check] config={path}  domain={'모의' if paper else '실계좌'}  "
       f"ticker={ticker}  base={base_hhmmss}  pages={pages}")
 
 tok = json.load(urllib.request.urlopen(urllib.request.Request(

@@ -14,7 +14,7 @@
 //   들어가지 않는다. 다만 간격이 너무 길면 서버가 idle 연결을 끊어 풀링 이점이 사라질 수 있다.
 //
 //   시세 REST는 모의 도메인이 미지원(HTTP500)이라 실전 시세키가 필요하다.
-//   config에 quote_kis 블록이 있으면 그걸, 없으면 kis 블록을 쓴다(future_quote_probe와 동일).
+//   config에 quote_kis 블록이 있으면 그걸, 없으면 kis 블록을 쓴다(future_quote_check와 동일).
 //
 //   사용법:
 //     bench_rest_pool <config> [ticker=005930] [n=40] [pace_ms=60]

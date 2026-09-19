@@ -1,5 +1,5 @@
-// tools/future_quote_probe.cpp
-// 국내 선물 시세 조회 프로브 — 실전 시세키로 KIS 선물옵션 inquire-price(FHMIF10000000)를
+// tools/future_quote_check.cpp
+// 국내 선물 시세 조회 점검 — 실전 시세키로 KIS 선물옵션 inquire-price(FHMIF10000000)를
 // 1콜 찍어 파싱 결과 + raw output(로그)을 확인한다.
 //
 //   목적: KisClient::get_future_price의 output 필드명은 KIS 공개 스키마가 없어 잠정값이다.
@@ -10,9 +10,9 @@
 //   quote_kis/kis 중 실제로 쓰는 키가 is_paper=true면 경고만 하고 진행(500 예상).
 //
 //   사용법:
-//     future_quote_probe <config> <issue_code> [market_div=F]
+//     future_quote_check <config> <issue_code> [market_div=F]
 //   예)
-//     future_quote_probe config/config_dev_paper.json 101W09
+//     future_quote_check config/config_dev_paper.json 101W09
 //         (KOSPI200 선물 최근월물 코드는 만기마다 바뀐다 — KRX 또는 선물 전광판에서 확인)
 
 #include "api/KisClient.h"
@@ -34,8 +34,8 @@ int main(int argc, char** argv)
 #endif
     if (argc < 3)
     {
-        std::cout << "사용법: future_quote_probe <config> <iscd> [market_div=F]\n"
-                     "예) future_quote_probe config/config_dev_paper.json 101W09\n"
+        std::cout << "사용법: future_quote_check <config> <iscd> [market_div=F]\n"
+                     "예) future_quote_check config/config_dev_paper.json 101W09\n"
                      "    (선물 최근월물 코드는 만기마다 바뀜 — KRX/선물 전광판에서 확인)\n";
         return 1;
     }
@@ -64,7 +64,7 @@ int main(int argc, char** argv)
     kis_config.is_paper   = kis_block.value("is_paper", false);
     // 시세 조회는 계좌 불필요(quote 전용). account_no/type는 비워둔다.
 
-    std::cout << "=== 선물 시세 프로브 ===\n";
+    std::cout << "=== 선물 시세 점검 ===\n";
     std::cout << "config=" << config_path << "  키블록=" << block
               << "  is_paper=" << (kis_config.is_paper ? "true" : "false") << "\n";
     std::cout << "iscd=" << issue_code << "  market_div=" << market << "\n";
