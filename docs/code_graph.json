@@ -1166,6 +1166,7 @@
       "scripts/gen_code_flow.py",
       "scripts/gen_code_graph.py",
       "scripts/gen_facts.py",
+      "scripts/gen_tuning_sheet.py",
       "scripts/live_prices_feed.py",
       "scripts/log_patterns.py",
       "scripts/maintain.py",

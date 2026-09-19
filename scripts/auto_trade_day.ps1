@@ -389,7 +389,11 @@ if (-not $NoRecorder) {
 $deadline = [datetime]::ParseExact((Get-Date -Format "yyyy-MM-dd") + " " + $Until, "yyyy-MM-dd HH:mm", $null)
 if ((Get-Date) -ge $deadline) { Say "이미 $Until 을 지났다. 매매하지 않고 종료." "WARN"; Save-Status "past_deadline" $null; exit 0 }
 
-$shortRuns = 0     # 30초 미만 종료 연속 횟수. 크래시 루프로 계좌를 반복 호출하지 않기 위한 브레이크.
+# 크래시 루프 브레이크 — 최근 30분 안에 세션 종료가 3번이면 멈춘다(T-13-7). 예전 "30초 미만 3연속"은 2~3분 살다 죽는
+#  루프(토큰 만료·WS 재접속 실패 뒤 종료)를 못 잡았다. 종료 시각은 상태 파일 history의 end로도 남는다.
+$crashWindow   = [timespan]::FromMinutes(30)
+$crashMaxExits = 3
+$exitTimes     = @()
 while ((Get-Date) -lt $deadline) {
   $n = $script:Sessions.Count + 1
   Say "세션 #$n 기동 — $Exe $Config"
@@ -442,15 +446,14 @@ while ((Get-Date) -lt $deadline) {
   if (Test-Path "_private\state\session_done_$today") { Say "엔진이 마감 자기 종료 — 재기동하지 않는다."; break }
   if (Test-Path "_private\state\kill_today_$today")   { Say "운영자 KILL — 오늘은 재기동하지 않는다(풀려면 scripts/kill_release.ps1)." "WARN"; break }
 
-  if ($secs -lt 30) {
-    $shortRuns++
-    if ($shortRuns -ge 3) {
-      # 세 번 연속 즉사면 원인이 배선(config·인증·바이너리)에 있다. 재기동으로 풀리지 않는다.
-      Say "30초 미만 종료 3연속 — 크래시 루프로 보고 멈춘다. 로그를 보고 고쳐야 한다." "ERROR"
-      Save-Status "crash_loop" @{ error = "crash_loop"; last_exit = $p.ExitCode }
-      exit 3
-    }
-  } else { $shortRuns = 0 }
+  $now = Get-Date
+  $exitTimes = @($exitTimes | Where-Object { ($now - $_) -lt $crashWindow }) + $now
+  if ($exitTimes.Count -ge $crashMaxExits) {
+    # 30분 안에 세 번 내려갔으면 원인이 배선(config·인증·바이너리·브로커)에 있다. 재기동으로 풀리지 않는다.
+    Say "최근 $($crashWindow.TotalMinutes)분 안 종료 $($exitTimes.Count)회 — 크래시 루프로 보고 멈춘다. 로그를 보고 고쳐야 한다." "ERROR"
+    Save-Status "crash_loop" @{ error = "crash_loop"; last_exit = $p.ExitCode; exits = @($exitTimes | ForEach-Object { $_.ToString("HH:mm:ss") }) }
+    exit 3
+  }
 
   Say "5초 뒤 재기동."
   Start-Sleep -Seconds 5

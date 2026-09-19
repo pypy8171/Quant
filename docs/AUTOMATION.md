@@ -29,7 +29,7 @@
 |---|---|
 | `QuantAutoTradeGuard` | 워치독이 없으면 하루 루프 기동 (§4). 5분마다 도는 시간 폭(`-Hours`)이 매매 끝 시각을 정한다 |
 | `Quant EOD AutoDoc` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` · **결정 원장 파생 문서**(`sync_ledgers.py`) |
-| `Quant Maintain Daily` | `EOD AutoDoc` 뒤. 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers` · `gen_automation_hub`(`_private/AUTOMATION_HUB.md`) · `gen_tuning_sheet`(`_private/TUNING_SHEET.md`). 대시보드는 부르지 않는다 |
+| `Quant Maintain Daily` | `EOD AutoDoc` 뒤. 먼저 로그 정리(`rotate_logs` — 엔진 로그에서 7일 지난 날의 줄을 `logs/archive/quant_trader_<날짜>.log.gz`로 떼어내고, 감시견 로그는 7일 지나면 gz·90일 지나면 삭제. 엔진이 떠 있으면 엔진 로그는 건너뛴다. 원장 `trades_*.csv`는 손대지 않는다), 이어서 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers` · `gen_automation_hub`(`_private/AUTOMATION_HUB.md`) · `gen_tuning_sheet`(`_private/TUNING_SHEET.md`). 대시보드는 부르지 않는다. 손으로는 `py scripts/maintain.py --rotate-logs [--dry-run]` |
 | `Quant Minute Backfill` | 아침 스캔 `Quant/config/universe_scan.json`을 `PYQuant/data/pit_universe/<오늘>.json`으로 옮기고 그날 유니버스 전체의 1분봉을 `PYQuant/data/minute/`에 쌓는다(`PYQuant/tools/minute_backfill.py --top-n 0`, 약 260종목×4콜). 매매 끝 15분 뒤(모의 15:45·실계좌 20:15) 전엔 돌지 않는다(반쪽 파일이 그날치를 건너뛰게 만든다). 대시보드 차트가 같은 파일을 읽는다 |
 | `claude_stock_study` | `claude -p "/stock-study auto"` → `_private/주식_study/{날짜}_재무/` 1종목 · 저널 · 스터디 사이트 |
 | `claude_dashboard_sync` | `claude -p "/dashboard-sync"` → 대시보드·스터디 사이트 HTML 재생성. 아티팩트 재발행은 헤드리스 `claude -p`에 Artifact 도구가 없어 못 한다 — 대화 세션에서 `/dashboard-sync`를 불러 같은 URL로 올린다 |
@@ -114,8 +114,9 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 | 감독 | `.claude/commands/auto-trade-day.md` | 국면 판단, 증분 로그 감시, **무발주 감시**, 결함을 코드/상황으로 분류, 코드면 수정·재빌드, **이슈 대장 누적**, 마감 뒤 해석 문서 |
 
 워치독 상태는 `_private/_auto_trade_day.json` 한 파일에 적힌다(`phase`·`sessions`·`history`). 로그 전체를
-훑는 대신 이 파일을 읽는다. 30초 미만 종료가 3연속이면 `phase=crash_loop`로 스스로 멈춘다 — 재기동으로
-풀리지 않는 배선 문제를 계좌에 대고 반복하지 않기 위해서다.
+훑는 대신 이 파일을 읽는다. 최근 30분 안에 세션 종료가 3번이면 `phase=crash_loop`로 스스로 멈춘다(종료 시각은
+`exits`에 남는다) — 재기동으로 풀리지 않는 배선 문제를 계좌에 대고 반복하지 않기 위해서다. 예전 기준 "30초 미만 종료
+3연속"은 2~3분 살다 죽는 루프를 못 잡았다.
 
 재기동하지 않는 날은 엔진이 표지 파일로 알린다(D-098). 마지막 매매 창이 닫히고 `risk.session_end_grace_sec`(기본 120초)
 뒤 주문 큐가 비면 엔진이 `_private/state/session_done_<날짜>`를 쓰고 스스로 내려가고, 운영단말·ZMQ `KILL`은

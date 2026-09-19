@@ -2,7 +2,9 @@
 # -*- coding: utf-8 -*-
 """유지관리 진입점. 생성기·검사기를 순서대로 부르고 rc를 남긴다.
 
-  --daily   gen_facts --apply → gen_code_graph --json → sync_ledgers → gen_automation_hub → gen_tuning_sheet. 대시보드는 부르지 않는다.
+  --daily   rotate_logs → gen_facts --apply → gen_code_graph --json → sync_ledgers → gen_automation_hub → gen_tuning_sheet. 대시보드는 부르지 않는다.
+  --rotate-logs [--dry-run]  로그 정리만. 엔진 로그에서 7일 지난 날의 줄을 날짜별 gz로 떼어내고, 감시견 로그는 7일 지나면 gz·
+            90일 지나면 삭제. 엔진이 떠 있으면 엔진 로그는 건너뛴다. 원장 trades_*.csv는 손대지 않는다(여러 날을 함께 읽는 스크립트가 있다).
   --check   check_docs → check_code_refs --diff-only → gen_facts --check → gen_code_graph --check → sync_impact --stamps.
             보고만 한다. 자동 수정·스테이징 없음. 하나라도 실패면 exit 1.
   --weekly  미참조 스크립트·에이전트 죽은 경로·부산물 용량·주석 밀도·훅 배선·.claude 해시 매니페스트
@@ -14,6 +16,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import gzip
 import hashlib
 import json
 import os
@@ -32,6 +35,12 @@ PY = sys.executable
 STEP_TIMEOUT = 600
 
 SKIP_DIRS = {"__pycache__", "node_modules", ".git", "logs", "out", "_private"}
+
+# 로그 정리(T-13-10). 엔진 로그는 한 파일에 계속 덧붙여 09-19 기준 81MB(08-07~)라 오늘 줄을 찾는 스크립트마다 전부 읽었다.
+ROTATE_KEEP_DAYS = 7      # 이 일수 안의 줄·파일은 그대로 둔다(대시보드·사후검토·감시 세션이 최근 며칠을 읽는다)
+ROTATE_DELETE_DAYS = 90   # gz로 묶인 감시견 로그를 지우는 기준. 엔진 로그 gz는 지우지 않는다(리플레이·연구 입력)
+ENGINE_LOG_NAME = "quant_trader.log"
+WATCHDOG_LOG_PATTERNS = ("auto_trade_day_*.log", "auto_trade_guard_*.log")
 COMMENT_TAGS = ("[inv]", "[lock-order]", "[wire]", "[why", "[formula]")
 UNTAGGED_BLOCK_MIN = 4
 
@@ -73,10 +82,139 @@ def run_step(name: str, cmd: list[str]) -> tuple[int, float, str]:
     return rc, sec, tail
 
 
+# ----------------------------- 로그 정리 -----------------------------
+
+def _engine_running() -> bool:
+    """quant_trader.exe가 떠 있는지. 엔진은 로그를 append로 열어 두므로 그때 잘라내면 파일 위치가 어긋난다."""
+    if os.name != "nt":
+        return False
+    try:
+        r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq quant_trader.exe", "/NH"],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return True  # 모르면 떠 있는 것으로 보고 손대지 않는다
+    return "quant_trader.exe" in (r.stdout or "")
+
+
+def _engine_log_dir() -> Path:
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import _logdir  # noqa: E402  (QUANT_LOG_DIR > 가장 최근 quant_trader.log를 가진 폴더)
+    return _logdir.log_dir()
+
+
+def _line_day(line: str) -> str | None:
+    """줄 머리 'YYYY-MM-DD'. 없으면 None(스택·이어지는 줄은 직전 줄의 날짜를 따른다)."""
+    head = line[:10]
+    if len(head) == 10 and head[4] == "-" and head[7] == "-" and head[:4].isdigit():
+        return head
+    return None
+
+
+def rotate_engine_log(log_path: Path, cutoff: dt.date, dry_run: bool = False) -> dict:
+    """엔진 로그에서 cutoff 이전 날짜의 줄을 archive/quant_trader_YYYY-MM-DD.log.gz로 옮기고 나머지만 남긴다.
+    gz는 append로 열어 같은 날이 두 번 와도 이어 붙는다(gzip은 멤버를 이어 붙여도 한 스트림으로 읽힌다)."""
+    result = {"moved_lines": 0, "kept_lines": 0, "days": []}
+    if not log_path.exists():
+        return result
+    archive_dir = log_path.parent / "archive"
+    keep_path = log_path.with_name(log_path.name + ".keep")
+    cutoff_text = cutoff.isoformat()
+    current_day: str | None = None
+    current_out = None
+    moved_days: list[str] = []
+    keep_file = None
+    try:
+        if not dry_run:
+            archive_dir.mkdir(exist_ok=True)
+            keep_file = keep_path.open("w", encoding="utf-8", errors="replace", newline="")
+        with log_path.open("r", encoding="utf-8", errors="replace", newline="") as source:
+            for line in source:
+                day = _line_day(line)
+                if day is not None:
+                    current_day = day
+                if current_day is None or current_day >= cutoff_text:
+                    result["kept_lines"] += 1
+                    if keep_file is not None:
+                        keep_file.write(line)
+                    continue
+                result["moved_lines"] += 1
+                if not moved_days or moved_days[-1] != current_day:
+                    moved_days.append(current_day)
+                    if current_out is not None:
+                        current_out.close()
+                    current_out = None if dry_run else gzip.open(archive_dir / f"quant_trader_{current_day}.log.gz", "ab")
+                if current_out is not None:
+                    current_out.write(line.encode("utf-8", errors="replace"))
+    finally:
+        if current_out is not None:
+            current_out.close()
+        if keep_file is not None:
+            keep_file.close()
+    result["days"] = sorted(set(moved_days))
+    if dry_run:
+        return result
+    if result["moved_lines"] == 0:
+        keep_path.unlink(missing_ok=True)
+        return result
+    os.replace(keep_path, log_path)  # 같은 볼륨이라 원자적. 엔진은 다음 기동 때 이 파일에 이어 쓴다
+    return result
+
+
+def rotate_watchdog_logs(directory: Path, today: dt.date, dry_run: bool = False) -> dict:
+    """logs/auto_trade_day_YYYYMMDD.log 류 — KEEP일 지나면 gz, DELETE일 지나면 gz 삭제."""
+    result = {"gzipped": [], "deleted": []}
+    for pattern in WATCHDOG_LOG_PATTERNS:
+        for path in sorted(directory.glob(pattern)) + sorted(directory.glob(pattern + ".gz")):
+            match = re.search(r"(\d{8})", path.name)
+            if not match:
+                continue
+            try:
+                day = dt.datetime.strptime(match.group(1), "%Y%m%d").date()
+            except ValueError:
+                continue
+            age = (today - day).days
+            if path.suffix == ".gz":
+                if age > ROTATE_DELETE_DAYS:
+                    result["deleted"].append(path.name)
+                    if not dry_run:
+                        path.unlink()
+            elif age > ROTATE_KEEP_DAYS:
+                result["gzipped"].append(path.name)
+                if not dry_run:
+                    with path.open("rb") as source, gzip.open(path.with_name(path.name + ".gz"), "wb") as target:
+                        target.writelines(source)
+                    path.unlink()
+    return result
+
+
+def rotate_logs(dry_run: bool = False) -> int:
+    today = dt.date.today()
+    cutoff = today - dt.timedelta(days=ROTATE_KEEP_DAYS)
+    tag = " (dry)" if dry_run else ""
+    engine_log = _engine_log_dir() / ENGINE_LOG_NAME
+    if _engine_running():
+        log(f"[rotate_logs] 엔진 실행 중 — {engine_log} 건너뜀")
+        print("--- rotate_logs: 엔진 실행 중, 엔진 로그 건너뜀")
+    else:
+        moved = rotate_engine_log(engine_log, cutoff, dry_run)
+        line = f"엔진 로그 {moved['moved_lines']}줄을 {len(moved['days'])}일치 gz로, {moved['kept_lines']}줄 남김{tag}"
+        log(f"[rotate_logs] {line}")
+        print(f"--- rotate_logs: {line}")
+    watchdog = rotate_watchdog_logs(ROOT / "logs", today, dry_run)
+    log(f"[rotate_logs] 감시견 로그 gz {len(watchdog['gzipped'])}개, 삭제 {len(watchdog['deleted'])}개{tag}")
+    print(f"--- rotate_logs: 감시견 로그 gz {watchdog['gzipped']}, 삭제 {watchdog['deleted']}{tag}")
+    return 0
+
+
 # ----------------------------- --daily / --check -----------------------------
 
 def daily() -> int:
     log("daily start")
+    try:
+        rotate_logs()
+    except OSError as error:  # 로그 정리가 실패해도 문서 생성은 돈다
+        log(f"[rotate_logs] 실패 {error}")
+        print(f"--- rotate_logs: 실패 {error}")
     steps = [
         ("gen_facts --apply", [PY, "scripts/gen_facts.py", "--apply"]),
         ("gen_code_graph --json", [PY, "scripts/gen_code_graph.py", "--json"]),
@@ -421,6 +559,8 @@ def weekly() -> int:
 def main(argv: list[str]) -> int:
     if "--daily" in argv:
         return daily()
+    if "--rotate-logs" in argv:
+        return rotate_logs(dry_run="--dry-run" in argv)
     if "--check" in argv:
         return check()
     if "--weekly" in argv:
