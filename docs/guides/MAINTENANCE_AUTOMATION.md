@@ -160,4 +160,4 @@ config.json을 읽는 곳은 `Quant/src/core/AppConfig.cpp`의 `parse_config()` 
 3. `check_code_refs.py` + docs-gate 분기(shadow 1주). 이 문서 자신이 첫 검사 대상이다.
 4. `gen_facts.py` + 표식 블록 6개 문서 — 개수 드리프트 종결. 에이전트 프롬프트의 복제 수치 제거.
 5. `gen_code_graph.py` Python 확장 + `maintain.py --daily` 배선(`eod_autodoc` 뒤).
-6. 주간 예약(금 20:50) + `sync_map.json` + review-reminder 지목 + cron-gate 4번째 항목.
+6. 주간 예약(`Quant Maintain Weekly`, 시각은 `scripts/eod_timetable.ps1`) + `sync_map.json` + review-reminder 지목 + cron-gate 4번째 항목.

@@ -63,7 +63,7 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/main.cpp:245` · `static int run_trade(const AppConfig& app)`
 4. [`Engine::configure`](../Quant/src/core/EngineConfigure.cpp#L121) — AppConfig 값을 엔진 세터로 — 채널(ZMQ·운영단말)·국면별 전략 집합·기동 점검·시세 전용 KIS·리스크(게이트 한도·매매 창) 다섯 묶음  
    `Quant/src/core/EngineConfigure.cpp:121` · `void Engine::configure(const AppConfig& app)`
-5. [`load_strategies`](../Quant/src/strategy/StrategyFactory.cpp#L990) — config `strategies[]`를 전략 객체로. 새 전략을 붙이는 자리(CLAUDE.md '전략 추가하기')  
+5. [`load_strategies`](../Quant/src/strategy/StrategyFactory.cpp#L990) — config `strategies[]`를 전략 객체로. 새 전략을 붙이는 자리(docs/ENGINE_ARCHITECTURE.md '전략 추가하기')  
    `Quant/src/strategy/StrategyFactory.cpp:990` · `void load_strategies(StrategyLoadCtx& context, const json& strategies)`
 6. [`Engine::add_strategy`](../Quant/src/core/Engine.cpp#L31) — 전략 등록. 심볼 해석기(`set_symbol_resolver` → `SymbolTable::intern`)가 여기서 주입된다  
    `Quant/src/core/Engine.cpp:31` · `void Engine::add_strategy(std::unique_ptr<StrategyBase> strategy)`

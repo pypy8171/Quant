@@ -212,7 +212,9 @@ MACross의 `make_signal` (`MACrossStrategy.h::make_signal`)은 `type=MARKET`, `q
 
 ---
 
-## 8. 리스크 게이트 — OrderGate::check 11개 검사
+## 8. 리스크 게이트 — OrderGate::check 검사
+
+검사 항목과 순서의 정본은 `Quant/src/risk/OrderGate.cpp::check` 하나다(헤더도 목록을 복사하지 않는다). 아래는 읽기용 요약이라 뒤에 붙은 항목(세션 창 1c, 총노출 상한 3d — D-096·D-097)은 빠져 있다.
 
 `OrderGate::check()` (`OrderGate.cpp::check`)는 순서대로:
 
@@ -333,7 +335,7 @@ FEED/KR_TEST/US_TEST 모드는 `set_console_enabled(false)`로 콘솔 로그를 
 
 ## 확인 못 한 부분 (본 문서 범위 밖)
 
-- 다른 전략 헤더의 내부 로직 상세: `MomentumStrategy`, `ValueContraryStrategy`, `FixedIntervalStrategy`, `PriceTargetStrategy`, `SupplyDemandPullbackStrategy`, `MarketMakingStrategy`, `ThemeStrategy` (main.cpp의 등록·파라미터 파싱만 확인, on_data/on_order_book 내부 미정독). 특히 MM의 `on_order_book_batch` 다건 발주 실제 로직은 미확인.
+- 다른 전략 헤더의 내부 로직 상세: `MomentumStrategy`, `ValueContraryStrategy`, `FixedIntervalStrategy`, `PriceTargetStrategy`, `SupplyDemandPullbackStrategy`, `MarketMakingStrategy`, `ThemeStrategy` (StrategyFactory.cpp의 등록·파라미터 파싱만 확인, on_data/on_order_book 내부 미정독). 특히 MM의 `on_order_book_batch` 다건 발주 실제 로직은 미확인.
 - `ZmqBridge`(HAS_ZMQ 경로) 구현 — 기본 빌드 비활성이라 미정독.
 - `KisClient::get_index_daily_ohlcv`의 실제 모의서버 500 여부는 코드상 페이지네이션·정렬만 확인했고 런타임 실측 로그로는 검증 못 함(G4는 코드 구조와 모의서버 제약 정황 기반 추정).
 - 빌드 산출물(`build_win/`, `build/`)과 CMake 설정 파일은 미검토.

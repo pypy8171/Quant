@@ -118,8 +118,8 @@ tools/          존 판정 점검 등 독립 도구
 ```bash
 cmake --preset x64-release
 cmake --build out/build/x64-release
-ctest --preset x64-release                       # 단위 테스트 34개
-./out/build/x64-release/quant_trader Quant/config/config.json   # 반드시 저장소 루트에서
+ctest --preset x64-release                       # 단위 테스트(목록·개수는 docs/guides/PROJECT_GUIDE.md "단위 테스트")
+./Quant/build_win/quant_trader.exe Quant/config/config.json      # 반드시 저장소 루트에서. 평소 실행은 감시견(docs/RUNBOOK.md 1절)
 ```
 
 **Linux** (`g++-14`·`libcurl4-openssl-dev` 필요)

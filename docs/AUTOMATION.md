@@ -48,7 +48,7 @@
 
 ```powershell
 schtasks /query /tn claude_stock_study /v /fo list | Select-String "다음 실행|마지막 결과"
-schtasks /change /tn claude_stock_study /st 20:30
+schtasks /change /tn claude_stock_study /st 20:30    # 예시 — 실제 변경은 scripts/eod_timetable.ps1 -Apply (시각 정본)
 ```
 
 > **2026-09-14~09-18 정지.** 토큰 사용량을 줄이려고 클로드를 부르는 셋 — `claude_stock_study`·`claude_dashboard_sync`
@@ -85,11 +85,13 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 모델 판단에 맡기지 않고 매번 같은 자리에서 걸리는 장치다. `.claude/`는 gitignore 로컬 전용이라
 훅 파일 자체는 커밋되지 않는다.
 
+배선(이벤트·matcher·파일 수)의 정본은 [docs/HARNESS.md](HARNESS.md)의 `gen:hooks` 표(`settings.json`에서 생성)다 — 이 표는 훅이 하는 일만 적고, 훅을 더하면 두 곳 다 손본다.
+
 | 훅 | 시점 | 하는 일 |
 |---|---|---|
 | `secret-gate.ps1` | PreToolUse (Bash·PowerShell) | app_key·app_secret·계좌번호·개인 이름이 커밋 경로로 새는 것을 차단 |
 | `docs-gate.ps1` | PreToolUse (Bash·PowerShell) | 커밋 전 `sync_impact.py --diff`로 낡은 도장·gen 블록·재생성 실패를 막고(D-075), 문서가 있으면 `check_docs.py` 정합 확인. 링크·색인에 더해 **결정 원장 파생 문서 드리프트**(`sync_ledgers.py --check`)도 여기서 막힌다 |
-| `lexicon-gate.ps1` | PreToolUse (Write·Edit) | 파일에 쓰려는 본문을 `check_plain_language.py --stdin`으로 검사해 쓰지 않기로 한 말(정본은 `docs/STYLE_GUIDE.md` 대체어 표)이 들어가는 순간 막는다. 금지어를 설명하는 글은 본문에 `lexicon-ok` 표시로 통과 |
+| `lexicon-gate.ps1` | PreToolUse (Write·Edit·Bash·PowerShell) | 파일에 쓰려는 본문을 `check_plain_language.py --stdin`으로 검사해 쓰지 않기로 한 말(정본은 `docs/STYLE_GUIDE.md` 대체어 표)이 들어가는 순간 막는다. 금지어를 설명하는 글은 본문에 `lexicon-ok` 표시로 통과 |
 | `sync-gate.ps1` | Stop | 턴이 끝날 때 `sync_impact.py --diff --fix` — 낡은 gen 블록은 치환하고, 낡은 도장·재생성 실패·새 힌트가 있으면 턴을 되돌려 그 자리에서 고치게 한다(D-075) |
 | `file-index-gate.ps1` | Stop | 턴이 끝날 때 `file_index.py`로 `docs/FILE_INDEX.md`·`_private/FILE_INDEX.md`를 트리와 맞춘다 — 없어진 파일은 빠지고 날짜 파일·로그는 규칙 표가 설명을 채우며, 설명 없는 새 파일은 `(설명 필요)`로 넣고 턴을 되돌려 그 자리에서 채우게 한다. 커밋 쪽은 `docs-gate.ps1`이 `--check --staged`로 스테이징된 추가·삭제와 색인을 대조한다 |
 | `review-reminder.ps1` | Stop | 코드 변경 뒤 리뷰 누락을 상기 |
@@ -99,6 +101,8 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 | `dashboard-refresh.ps1` | Stop | 매매일지·백테스트가 `dashboard.html`보다 새것이면 리뷰 항목과 대시보드를 다시 만든다. 같은 훅이 `session_board.py --quiet`로 세션 현황판도 턴마다 다시 쓴다. 낡았는지는 수정시각으로 보므로 편집 도구·스크립트·다른 세션 어느 경로로 고쳤든 걸린다 |
 | `handoff-due.ps1` | Stop | 인계할 때가 되면 exit 2로 턴을 되돌려 `/handoff`를 밟게 한다. 갈래가 둘이다 — ①작업 경계: 이 턴에 HEAD가 바뀌었고(커밋 직후) 문맥이 100K를 넘었다. ②압축 임박: 경계가 아니어도 문맥이 145K를 넘었다(커밋을 하지 않는 세션은 ①이 오지 않아 자동 압축까지 가므로). ②는 압축 구간마다 한 번만 알린다. 판정은 `session_board.py --due`(세션별 직전 HEAD와 알린 이력을 `_private/session_board.state.json`에 둠) |
 | `resume-work.ps1` | SessionStart | 압축 직후(`source=compact`)와 무인일 때 인계 파일의 '남은 것'을 가리켜 하던 일을 잇게 한다. 사람이 없으면 `/clear`를 칠 수 없어 자동 압축이 곧 문맥 초기화이므로, 압축 다음 턴이 무엇을 하던 중이었는지 알 길이 이 파일뿐이다. 세션 이름은 짧은 해시라 며칠 전 세션과 겹치므로 **한 시간 안에 갱신된 자기 파일만** 집는다(옛 인계를 이어받아 엉뚱한 일을 하는 것을 막는다) |
+| `output-gate.ps1` | Stop | 채팅으로 나가는 문장도 `check_plain_language.py`로 검사한다 — 파일은 lexicon-gate가 막는데 대화에는 게이트가 없어 금지어가 새던 것을 막는다 |
+| `handoff-list.ps1` | SessionStart | 아직 보관되지 않은 `_private/HANDOFF_*.md`를 나이·첫 줄과 함께 보여 새 세션이 이어받을 것을 고르게 한다 |
 | `precompact-handoff.ps1` | PreCompact | 압축 직전에 `session_board.py --skeleton`으로 `_private/HANDOFF_<세션이름>.md` 뼈대를 만들고 기계적 사실(브랜치·HEAD·미커밋·현황판 줄·문맥·턴·최근 요청)만 채운다. 파일이 있으면 그 절만 갱신 |
 
 **무인 표시 `_private/UNATTENDED.flag`** — 사람이 자는 동안 돌릴 때 만든다. 첫 줄에 만료 시각(ISO, 예 `2026-09-18T09:00:00`)을 적고, 그 시각이 지나면 없는 것으로 친다(빈 파일이면 12시간). 이 표시가 있으면 `handoff-due.ps1`은 '`/clear`를 권하라'가 아니라 '인계 파일을 갱신하고 그대로 이어서 진행하라'로 바뀌고, `resume-work.ps1`은 묻지 말고 진행하라고 알린다. 사람이 없는데 승인을 기다리면 밤새 아무것도 안 되기 때문이다. 판정은 `session_board.py` 의 `unattended()` 한 곳에 있다.
@@ -257,7 +261,7 @@ scripts/eod_autodoc.py
   └─ PYQuant/dashboard/build_dashboard.py    → research/dashboard/dashboard.html
 ```
 
-16:05 예약 실행만이 아니라 장중에도 돈다. 매매일지·백테스트·장전 브리핑(`docs/premarket/`)을 쓰고 나면 Stop 훅이
+예약 실행(`Quant EOD AutoDoc`, 시각은 1절 표)만이 아니라 장중에도 돈다. 매매일지·백테스트·장전 브리핑(`docs/premarket/`)을 쓰고 나면 Stop 훅이
 대시보드와 수정시각을 비교해 낡은 만큼만 다시 만든다(브리핑은 생성기만 다시 돈다). 손으로 돌릴 때는 `py scripts/refresh_dashboard.py --if-stale`.
 
 | 스크립트 | 역할 |

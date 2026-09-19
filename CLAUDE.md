@@ -8,8 +8,8 @@
 ```bash
 cmake --preset x64-release && cmake --build out/build/x64-release     # Windows(VS2022/Ninja). x64-debug도 같다
 cmake -DCMAKE_BUILD_TYPE=Release -B Quant/build -S Quant && cmake --build Quant/build   # Linux(libcurl4-openssl-dev 필요)
-ctest --preset x64-release          # 단위 테스트 35개. 수동 Ninja 레이아웃은 ctest --test-dir Quant/build_win
-./Quant/build_win/quant_trader Quant/config/config.json               # 반드시 repo 루트에서
+ctest --preset x64-release          # 단위 테스트. 수동 Ninja 레이아웃은 ctest --test-dir Quant/build_win
+./Quant/build_win/quant_trader Quant/config/config.json               # 반드시 repo 루트에서. 감시견·실행 중 exe도 이 트리(RUNBOOK 6절)
 ```
 
 테스트 타깃 목록·이름 풀이·TSAN은 [docs/guides/PROJECT_GUIDE.md](docs/guides/PROJECT_GUIDE.md) "단위 테스트".
@@ -39,8 +39,8 @@ config에는 **실계좌 인증 정보**가 있다. 모의투자는 `"is_paper":
 ## 아키텍처
 
 요약은 [docs/ENGINE_ARCHITECTURE.md](docs/ENGINE_ARCHITECTURE.md), 읽는 순서는 [docs/CODE_FLOW.md](docs/CODE_FLOW.md).
-전략 추가는 `StrategyBase` 상속 → `on_start`에서 `symbol_of()`로 id를 받아 `trade.symbol_id`와 정수 비교 → `main.cpp`의
-`engine.add_strategy(...)` 등록. 플랫폼 코드는 HTTP `#ifdef _WIN32`(`Quant/src/api/KisTransport.cpp`), WebSocket은
+전략 추가는 `StrategyBase` 상속 → `on_start`에서 `symbol_of()`로 id를 받아 `trade.symbol_id`와 정수 비교 →
+`Quant/src/strategy/StrategyFactory.cpp`의 타입별 로더에서 `engine.add_strategy(...)` 등록. 플랫폼 코드는 HTTP `#ifdef _WIN32`(`Quant/src/api/KisTransport.cpp`), WebSocket은
 파일 단위(`WsSocketWin.cpp`/`WsSocketPosix.cpp`) — 네트워크 기능 추가 시 이 패턴 유지. Windows 빌드 플래그·콘솔 UTF-8은
 [docs/guides/PROJECT_GUIDE.md](docs/guides/PROJECT_GUIDE.md).
 

@@ -85,7 +85,7 @@ review = [
   [[stage.step]]
   sym = "load_strategies"
   file = "Quant/src/strategy/StrategyFactory.cpp"
-  what = "config `strategies[]`를 전략 객체로. 새 전략을 붙이는 자리(CLAUDE.md '전략 추가하기')"
+  what = "config `strategies[]`를 전략 객체로. 새 전략을 붙이는 자리(docs/ENGINE_ARCHITECTURE.md '전략 추가하기')"
 
   [[stage.step]]
   sym = "Engine::add_strategy"

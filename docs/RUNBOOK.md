@@ -136,7 +136,7 @@ cd {ROOT}; $env:PYTHONUTF8="1"; Start-Process py -ArgumentList 'scripts\dashboar
 <!-- sync: scripts/parse_quant_log.py@6a71be6 -->
 
 체결원장(CSV)에 없는 운영 이벤트(ERROR·KIS 거부·게이트 봉쇄·WS 재연결·HTTP 오류·주문·체결)만 뽑는다. 손익은 지어내지
-않고 개수·사유만. 트레이더를 루트에서 띄웠으면 로그는 `logs\quant_trader.log`다(`Quant\build_win\logs\`가 아니다).
+않고 개수·사유만. 로그는 실행파일 옆 `Quant\build_win\logs\quant_trader.log`다(cwd가 아니라 exe 기준 — 정본 `scripts/_logdir.py`, 루트 `logs\`는 테스트 바이너리 것).
 7일 지난 날의 줄은 `archive\quant_trader_<날짜>.log.gz`로 옮겨져 있는데(`maintain.py --rotate-logs`), `--date`를 주면 그 gz를 이어서 읽는다.
 
 ```powershell
@@ -221,7 +221,7 @@ py scripts\check_plain_language.py                                          # �
 .\PYQuant\.venv-win\Scripts\python.exe scripts\check_backtest.py            # 위기 스터디 재현성 (0=PASS)
 .\PYQuant\.venv-win\Scripts\python.exe scripts\gen_code_graph.py            # 코드 의존 그래프 → docs\CODE_GRAPH.md
 .\PYQuant\.venv-win\Scripts\python.exe scripts\gen_code_graph.py --impact core/Types.h
-.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\log_report.py logs\quant_trader.log --md report.md --html report.html
+.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\log_report.py Quant\build_win\logs\quant_trader.log --md report.md --html report.html
 ```
 
 ## 9. 데이터 소스 점검 (일회성 · 조회 전용)
