@@ -19,9 +19,7 @@
 using namespace std::chrono_literals;
 
 Engine::Engine(KisConfig kis_config, int fetch_interval_sec)
-    : kis_config_(std::move(kis_config)), fetch_interval_sec_(fetch_interval_sec),
-      last_price_array_(std::make_unique<std::atomic<double>[]>(symbols_.capacity())),
-      last_price_at_ns_(std::make_unique<std::atomic<int64_t>[]>(symbols_.capacity()))
+    : kis_config_(std::move(kis_config)), fetch_interval_sec_(fetch_interval_sec)
 {
 }
 
@@ -47,7 +45,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     }
 
     if (pipeline_.shards.size() > 1 && !strategy::owner_shard(*strategy, static_cast<uint32_t>(pipeline_.shards.size()),
-                                                  [this](std::string_view ticker) { return symbols_.intern(ticker); }))
+                                                  [this](std::string_view ticker) { return symbols_.table.intern(ticker); }))
     {
         LOG_ERROR("[Engine] 런타임 전략 등록 거부 — " + strategy->id() + "의 종목이 여러 샤드에 걸친다(샤드 " +
                   std::to_string(pipeline_.shards.size()) + "개)");
@@ -65,7 +63,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     strategy->set_sellable_provider([this](const std::string& account, const std::string& ticker) {
         return ledger_sellable(account, ticker);
     });
-    strategy->set_symbol_resolver([this](std::string_view ticker) { return symbols_.intern(ticker); });
+    strategy->set_symbol_resolver([this](std::string_view ticker) { return symbols_.table.intern(ticker); });
 
     try
     {
@@ -628,7 +626,7 @@ void Engine::setup_shards()
     {
         for (const auto& registered_strategy : strategy_.list)
         {
-            if (!strategy::owner_shard(*registered_strategy, shard_count, [this](std::string_view ticker) { return symbols_.intern(ticker); }))
+            if (!strategy::owner_shard(*registered_strategy, shard_count, [this](std::string_view ticker) { return symbols_.table.intern(ticker); }))
             {
                 LOG_WARN("[Engine] strategy_shards=" + std::to_string(shard_count) + " 무시 — 전략 " + registered_strategy->id() +
                          "의 종목이 여러 샤드에 걸친다(또는 구독 종목 없음). 샤드 1개로 돈다");
@@ -786,7 +784,7 @@ void Engine::initialize_data_poller()
         [this](const TradeData& in)
         {
             TradeData trade = in;
-            trade.symbol_id       = symbols_.intern(trade.ticker);
+            trade.symbol_id       = symbols_.table.intern(trade.ticker);
             const auto consumer = pipeline_.trade_matrix.consumer_of(trade.symbol_id);
 
             while (!pipeline_.trade_matrix.push_to(pipeline_.data_row, consumer, trade) && running_.load(std::memory_order_acquire))
@@ -839,7 +837,7 @@ void Engine::start_strategies()
         strategy->set_sellable_provider([this](const std::string& account, const std::string& ticker) {
             return ledger_sellable(account, ticker);
         });
-        strategy->set_symbol_resolver([this](std::string_view ticker) { return symbols_.intern(ticker); });
+        strategy->set_symbol_resolver([this](std::string_view ticker) { return symbols_.table.intern(ticker); });
 
         try
         {
@@ -959,7 +957,7 @@ void Engine::connect_feed()
     feed_.websocket->set_lane_callbacks([this](uint32_t lane, const OrderBook& in)
                        {
                            OrderBook order_book = in;
-                           order_book.symbol_id       = symbols_.intern(order_book.ticker);
+                           order_book.symbol_id       = symbols_.table.intern(order_book.ticker);
 
                            // 수신 스레드가 디코드 시점에 찍은 값을 지킨다. 안 찍힌 소스만 여기서 찍는다.
                            if (order_book.received_ns == 0)
@@ -993,7 +991,7 @@ void Engine::connect_feed()
                            // push가 어차피 한 번 복사하므로 여기서 복사해 id를 찍고 move로 넣는다. 수신 시각은
                            //  수신 스레드가 디코드 시점에 찍은 값을 지키고, 안 찍힌 소스만 여기서 찍는다.
                            TradeData trade = in;
-                           trade.symbol_id       = symbols_.intern(trade.ticker);
+                           trade.symbol_id       = symbols_.table.intern(trade.ticker);
 
                            if (trade.received_ns == 0)
                            {
@@ -1148,35 +1146,35 @@ void Engine::register_ticker_name(const std::string& ticker, const std::string& 
 
 double Engine::last_price(symbol::SymbolId id) const noexcept
 {
-    return id < symbols_.capacity() ? last_price_array_[id].load(std::memory_order_relaxed) : 0.0;
+    return id < symbols_.table.capacity() ? symbols_.last_price_array[id].load(std::memory_order_relaxed) : 0.0;
 }
 
 double Engine::last_price(const std::string& ticker) const
 {
-    return last_price(symbols_.lookup(ticker));
+    return last_price(symbols_.table.lookup(ticker));
 }
 
 int64_t Engine::last_price_at_ns(const std::string& ticker) const
 {
-    const auto id = symbols_.lookup(ticker);
-    return id < symbols_.capacity() ? last_price_at_ns_[id].load(std::memory_order_relaxed) : 0;
+    const auto id = symbols_.table.lookup(ticker);
+    return id < symbols_.table.capacity() ? symbols_.last_price_at_ns[id].load(std::memory_order_relaxed) : 0;
 }
 
 void Engine::set_last_price(symbol::SymbolId id, double price) noexcept
 {
     // id 0(미배선)과 상한 밖은 버린다 — 캐시가 틀리는 것보다 비는 쪽이 낫다.
-    if (price <= 0.0 || id == symbol::kNone || id >= symbols_.capacity())
+    if (price <= 0.0 || id == symbol::kNone || id >= symbols_.table.capacity())
     {
         return;
     }
 
-    last_price_array_[id].store(price, std::memory_order_relaxed);
-    last_price_at_ns_[id].store(trace::now_ns(), std::memory_order_relaxed);
+    symbols_.last_price_array[id].store(price, std::memory_order_relaxed);
+    symbols_.last_price_at_ns[id].store(trace::now_ns(), std::memory_order_relaxed);
 }
 
 void Engine::set_last_price(const std::string& ticker, double price)
 {
-    set_last_price(symbols_.intern(ticker), price);
+    set_last_price(symbols_.table.intern(ticker), price);
 }
 
 std::string Engine::ticker_label(const std::string& ticker) const
@@ -1719,7 +1717,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
                         auto& market_data = bars[0];
                         market_data.bar_index = static_cast<int>(data_count_.load());
-                        market_data.symbol_id       = symbols_.intern(market_data.ticker);
+                        market_data.symbol_id       = symbols_.table.intern(market_data.ticker);
                         const auto consumer = pipeline_.bars_matrix.consumer_of(market_data.symbol_id);
 
                         while (!pipeline_.bars_matrix.push_to(0, consumer, market_data) && !stop_token.stop_requested())
@@ -2219,7 +2217,7 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
     // 붙들고 있어 재구성 전의 옛 포인터도 유효하다(reap_retired가 seen 버전을 보고 파기).
     std::vector<StrategyBase*> snapshot;
     uint64_t                   seen_version = static_cast<uint64_t>(-1);
-    const auto                 symbol_id_of   = [this](std::string_view ticker) { return symbols_.intern(ticker); };
+    const auto                 symbol_id_of   = [this](std::string_view ticker) { return symbols_.table.intern(ticker); };
 
     // 신호 봉투 — 전략 상태(active·id)는 여기서 읽는다. 전략 스레드는 전략 객체를 보지 않는다.
     //  tick_ns는 체결 경로만 0이 아니다 — 봉·호가는 CSV에서 -1(측정 불가)로 남는다.
@@ -2232,7 +2230,7 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
         // 전략이 안 찍었으면 여기서 한 번. 신호 종목이 지금 틱과 다를 수 있어(테마·청산) 틱 id를 그대로 쓰지 않는다.
         if (emitted.signal.symbol_id == symbol::kNone)
         {
-            emitted.signal.symbol_id = symbols_.intern(emitted.signal.ticker);
+            emitted.signal.symbol_id = symbols_.table.intern(emitted.signal.ticker);
         }
 
         emitted.strategy_id = strategy->id();

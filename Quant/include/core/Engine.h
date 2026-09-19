@@ -577,17 +577,23 @@ private:
     std::unordered_map<std::string, std::string> ticker_names_;
     mutable std::mutex ticker_names_mutex_;
 
-    // ── 심볼·현재가 캐시 (symbols_는 아래 last_price_array_/last_price_at_ns_ 생성자 초기화보다 앞서 선언돼야 한다) ──
-    // 종목 문자열 ↔ 정수 id. 수신·폴러 스레드가 틱·호가에 id를 찍고 아래 현재가 캐시가 그 id로 인덱스한다.
-    //  처음 보는 종목은 그 자리에서 등록되므로 기동 시 채울 필요가 없다. [why D-071]
-    symbol::SymbolTable symbols_;
+    // ── 심볼·현재가 캐시 ──────────────────────────────────────────────────────
+    struct SymbolCache
+    {
+        // 종목 문자열 ↔ 정수 id. 수신·폴러 스레드가 틱·호가에 id를 찍고 아래 현재가 캐시가 그 id로 인덱스한다.
+        //  처음 보는 종목은 그 자리에서 등록되므로 기동 시 채울 필요가 없다. [why D-071]
+        //  [inv] table이 아래 두 배열보다 먼저 선언돼야 한다 — 배열 크기가 table.capacity()로 초기화된다.
+        symbol::SymbolTable table;
 
-    // 종목별 최근 체결가(원 단위)와 받은 시각(steady_clock nanoseconds), id 인덱스 배열. 전략 스레드가 td_queue_를 비우며
-    //  쓰고, 데이터 스레드가 틱이 끊긴 보유 종목을 REST로 보충하고, OpsServer 스레드가 POSITIONS 현재가·수동주문
-    //  ref_price로 읽는다. 원소가 atomic이라 락이 없고, price와 at은 따로 읽혀 순간 어긋날 수 있다(둘 다 감시용).
-    //  틱이 없던 종목은 0.
-    std::unique_ptr<std::atomic<double>[]>  last_price_array_;
-    std::unique_ptr<std::atomic<int64_t>[]> last_price_at_ns_;
+        // 종목별 최근 체결가(원 단위)와 받은 시각(steady_clock nanoseconds), id 인덱스 배열. 전략 스레드가 td_queue_를 비우며
+        //  쓰고, 데이터 스레드가 틱이 끊긴 보유 종목을 REST로 보충하고, OpsServer 스레드가 POSITIONS 현재가·수동주문
+        //  ref_price로 읽는다. 원소가 atomic이라 락이 없고, price와 at은 따로 읽혀 순간 어긋날 수 있다(둘 다 감시용).
+        //  틱이 없던 종목은 0.
+        std::unique_ptr<std::atomic<double>[]>  last_price_array{std::make_unique<std::atomic<double>[]>(table.capacity())};
+        std::unique_ptr<std::atomic<int64_t>[]> last_price_at_ns{std::make_unique<std::atomic<int64_t>[]>(table.capacity())};
+    };
+    SymbolCache symbols_;
+
     double                                  last_price(symbol::SymbolId id) const noexcept;
     double                                  last_price(const std::string& ticker) const;
     int64_t                                 last_price_at_ns(const std::string& ticker) const;
