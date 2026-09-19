@@ -248,9 +248,13 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
 
     // 2. KIS 주문 전송 (submit_order_ack로 ODNO + KRX 조직번호 캡처 — 정정/취소 준비)
     //    접수 왕복지연(RTT)을 재서 접수 로그에 남긴다 → log_report.py가 중앙값(p50)·상위 1%(p99) 집계.
+    //    RTT 안에는 초당 한도 버킷 대기(rate_limit_acquire)가 섞여 있어 그 몫을 따로 적는다 — 09-14~18 RTT p50 2초가
+    //    망 지연인지 버킷 줄서기인지 이 숫자 없이는 못 가른다. 전송 스레드 분리(T-13-2)는 이 값을 보고 정한다. [why D-071]
     managed_order.status = OrderStatus::SUBMITTED;
     const auto send_thread = std::chrono::steady_clock::now();
+    const std::uint64_t bucket_wait_before_ns = kis_.rate_limit_wait_ns_this_thread();
     std::chrono::milliseconds::rep rtt_ms = 0; // count()의 타입 그대로 — MSVC는 long long이라 long이면 잘린다(C4244)
+    std::chrono::milliseconds::rep bucket_wait_ms = 0;
 
     try
     {
@@ -264,6 +268,8 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
         rtt_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                      std::chrono::steady_clock::now() - send_thread)
                      .count();
+        bucket_wait_ms = static_cast<std::chrono::milliseconds::rep>(
+            (kis_.rate_limit_wait_ns_this_thread() - bucket_wait_before_ns) / 1000000ULL);
     }
     catch (const std::exception& exception)
     {
@@ -325,8 +331,8 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
             order_id_index_[signal.client_order_id] = managed_order.order_id;
         }
 
-        LOG_INFO(std::format("[OrderRouter] 접수 [{}] ODNO={} {} {} {}주 RTT={}ms", managed_order.order_id, kis_order_no, signal.ticker,
-                             signal.side == OrderSide::BUY ? "BUY" : "SELL", signal.quantity, rtt_ms));
+        LOG_INFO(std::format("[OrderRouter] 접수 [{}] ODNO={} {} {} {}주 RTT={}ms 버킷대기={}ms", managed_order.order_id, kis_order_no,
+                             signal.ticker, signal.side == OrderSide::BUY ? "BUY" : "SELL", signal.quantity, rtt_ms, bucket_wait_ms));
 #ifdef HAS_ZMQ
         if (zmq_)
         {
@@ -339,7 +345,9 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
         managed_order.status        = OrderStatus::REJECTED;
         managed_order.reject_reason = "KIS API 거부 (빈 ODNO)" + kis_error_suffix(acknowledgement);
         ++rejected_count_;
-        LOG_ERROR("[OrderRouter] KIS 거부 [" + managed_order.order_id + "] " + signal.ticker + managed_order.reject_reason);
+        // 거부도 같은 왕복을 치르므로 함께 남긴다(09-14 KIS 호출 797건 중 거부 279건).
+        LOG_ERROR(std::format("[OrderRouter] KIS 거부 [{}] {}{} RTT={}ms 버킷대기={}ms", managed_order.order_id, signal.ticker,
+                              managed_order.reject_reason, rtt_ms, bucket_wait_ms));
 #ifdef HAS_ZMQ
         if (zmq_)
         {

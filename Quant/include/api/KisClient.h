@@ -172,6 +172,7 @@ public:
     [[nodiscard]] bool is_paper() const noexcept override { return config_.is_paper; }
     // 미체결(정정취소 가능) 예약주문 조회 — inquire-psbl-rvsecncl (모의 VTTC0084R / 실전 TTTC0084R)
     [[nodiscard]] std::vector<OpenOrder> get_open_orders() override;
+    [[nodiscard]] std::uint64_t rate_limit_wait_ns_this_thread() const noexcept override { return rate_wait_ns_this_thread(); }
     // 잔고 — inquire-balance(모의 VTTC8434R / 실전 TTTC8434R). 연속조회로 보유 전 페이지를 합친다.
     //  실패(전송·파싱·rt_cd≠0, 어느 페이지든)는 fail 봉투로 돌려주고 부분 목록은 내지 않는다 — 호출자가 잔고에
     //  없는 원장 보유를 걷어내므로 반쪽 목록은 빈 목록보다 위험하다. [why D-059]

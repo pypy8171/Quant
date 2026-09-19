@@ -68,4 +68,8 @@ public:
     //  장중 청산이 "주문가능분 없음"(40240000)으로 막힐 때, 해당 종목의 예약매도를 찾아
     //  취소→재매도로 자가정리하기 위한 조회 경로. 세션 간/수동 예약도 감지 가능.
     [[nodiscard]] virtual std::vector<OpenOrder> get_open_orders() { return {}; }
+
+    // 계측: 이 스레드가 브로커 초당 한도 버킷에서 기다린 누적 시간(nanoseconds). 호출자가 전송 전후 차이로 자기 몫을 잰다.
+    //  한도가 없는 구현(가짜·페이퍼)은 0. [why D-071]
+    [[nodiscard]] virtual std::uint64_t rate_limit_wait_ns_this_thread() const noexcept { return 0; }
 };
