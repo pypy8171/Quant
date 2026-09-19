@@ -24,7 +24,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wt_remove.ps1 ../Qua
   `research/STRATEGY_LAB.md`를 건드리지 않는다.
 - worktree를 지울 때는 `git worktree remove`를 바로 부르지 않고 `scripts/wt_remove.ps1`을 쓴다. 워크트리의 `.claude`는 메인
   `Quant/.claude`로의 정션인데 `git worktree remove --force`가 정션을 타고 들어가 메인 쪽 hooks·commands·agents·skills를 지운다
-  (09-18 실제 발생, 복구는 다른 워크트리의 사본으로). 스크립트는 정션만 `cmd /c rmdir`로 뗀 뒤 git에 넘긴다.
+  (09-18·09-19 두 번 발생). 스크립트는 정션만 `cmd /c rmdir`로 뗀 뒤 git에 넘기고, 지우기 전 `scripts/claude_backup.ps1`로
+  거울을 뜬 다음 지운 뒤 메인 `.claude/hooks`가 없으면 `scripts/claude_restore.ps1`로 스스로 되돌린다. Bash에서 `rmdir`과
+  `git worktree remove`를 `&&`·`;`로 잇지 않는다 — 앞이 실패해도 뒤가 도는 것이 09-19 사고였다.
+- `.claude/`는 gitignore라 git에 없다. 거울은 `%USERPROFILE%\.claudeackups\Quant\latest`(Stop 훅이 매 턴 갱신)와
+  `daily\날짜`(14일 보관). 되돌리기는 `powershell -File scripts/claude_restore.ps1 [-From <daily\날짜>] [-Mirror]`.
 - worktree는 `Quant/build_win/`을 공유하지 않는다 — 빌드 산출물은 worktree마다 새로 만든다(`$env:TEMP=C:\build_tmp` 회피는 동일).
 
 ### 세션끼리 순서·충돌을 알아서 정리한다 (상시)

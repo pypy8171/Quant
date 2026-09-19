@@ -405,17 +405,43 @@
     ]
   },
   "configs": [
+    ".token_cache.json",
+    "config.json",
     "config_dev_paper.json",
+    "config_itb_paper.json",
+    "config_ma_paper.json",
+    "config_mm_paper.json",
+    "config_paper.json",
+    "config_smoke_paper.json",
     "etf_name_tokens.json",
     "etf_prefixes.json",
+    "kis_token_<REDACTED>.json",
+    "kis_token_<REDACTED>.json",
+    "kis_token_<REDACTED>.json",
+    "prices_live.json",
+    "regime.json",
     "reit_name_suffixes.json",
     "reit_names.json",
     "ticker_names.json",
+    "universe_full.json",
+    "universe_scan.json",
     "us_universe.json"
   ],
   "config_keys": {
-    "top": [],
-    "strategies": []
+    "top": [
+      "fetch_interval_sec",
+      "kis",
+      "mode",
+      "strategies"
+    ],
+    "strategies": [
+      "eod_exit_hhmm",
+      "exchange",
+      "market",
+      "pbr_max",
+      "quantity",
+      "type"
+    ]
   },
   "dir_tree": {
     ".claude": {
@@ -424,7 +450,8 @@
       "commands": {},
       "hooks": {},
       "skills": {},
-      "tools": {}
+      "tools": {},
+      "worktrees": {}
     },
     "docs": {
       "design": {},
@@ -451,6 +478,7 @@
       "tools": {}
     },
     "Quant": {
+      "build": {},
       "config": {},
       "include": {},
       "src": {},
@@ -505,6 +533,12 @@
       "start": 265
     },
     {
+      "file": "Quant/src/ipc/OrderRouter.cpp",
+      "symbol": "OrderRouter::new_route",
+      "lines": 298,
+      "start": 64
+    },
+    {
       "file": "Quant/include/strategy/IntradayBreakoutStrategy.h",
       "symbol": "on_trade",
       "lines": 294,
@@ -512,15 +546,9 @@
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
-      "symbol": "OrderRouter::new_route",
-      "lines": 290,
-      "start": 64
-    },
-    {
-      "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::on_fill",
       "lines": 238,
-      "start": 1602
+      "start": 1610
     },
     {
       "file": "Quant/src/core/Engine.cpp",
@@ -532,13 +560,13 @@
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::reconcile_blocked_sell",
       "lines": 190,
-      "start": 362
+      "start": 370
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::cancel_stale_orders_async",
       "lines": 187,
-      "start": 847
+      "start": 855
     },
     {
       "file": "Quant/src/core/Engine.cpp",
@@ -550,13 +578,13 @@
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::cancel_route",
       "lines": 174,
-      "start": 1296
+      "start": 1304
     },
     {
       "file": "scripts/eod_autodoc.py",
       "symbol": "render",
       "lines": 171,
-      "start": 242
+      "start": 244
     },
     {
       "file": "PYQuant/dashboard/build_dashboard.py",
@@ -640,7 +668,7 @@
       "file": "scripts/summarize_trading_day.py",
       "symbol": "summarize",
       "lines": 131,
-      "start": 71
+      "start": 73
     },
     {
       "file": "Quant/src/core/Engine.cpp",
@@ -670,7 +698,7 @@
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::replace_route",
       "lines": 123,
-      "start": 1477
+      "start": 1485
     },
     {
       "file": "scripts/notify_sidecar.py",
@@ -737,6 +765,12 @@
       "symbol": "websocket_tcp_connect",
       "lines": 103,
       "start": 52
+    },
+    {
+      "file": "scripts/exit_ev_dashboard.py",
+      "symbol": "build_payload",
+      "lines": 102,
+      "start": 438
     },
     {
       "file": "Quant/src/api/WebSocketClient.cpp",
@@ -912,5 +946,105 @@
       "lines": 82,
       "start": 2769
     }
-  ]
+  ],
+  "regime_model": {
+    "file": "PYQuant/tools/macro_regime_feed.py",
+    "SYMBOLS": {
+      "KOSPI": {
+        "yahoo": "^KS11",
+        "fdr": null,
+        "vote_dir": 1,
+        "label": "코스피"
+      },
+      "KOSDAQ": {
+        "yahoo": "^KQ11",
+        "fdr": null,
+        "vote_dir": 1,
+        "label": "코스닥"
+      },
+      "NQ_F": {
+        "yahoo": "NQ=F",
+        "fdr": "IXIC",
+        "vote_dir": 1,
+        "label": "나스닥 (마감+선물)"
+      },
+      "ES_F": {
+        "yahoo": "ES=F",
+        "fdr": "US500",
+        "vote_dir": 1,
+        "label": "S&P500 (마감+선물)"
+      },
+      "TNX10": {
+        "yahoo": "^TNX",
+        "fdr": "FRED:DGS10",
+        "vote_dir": -1,
+        "label": "10Y 미국채금리"
+      },
+      "VIX": {
+        "yahoo": "^VIX",
+        "fdr": "VIX",
+        "vote_dir": -1,
+        "label": "VIX"
+      },
+      "USDKRW": {
+        "yahoo": "KRW=X",
+        "fdr": "USD/KRW",
+        "vote_dir": -1,
+        "label": "USD/KRW"
+      },
+      "WTI": {
+        "yahoo": "CL=F",
+        "fdr": "FRED:DCOILWTICO",
+        "vote_dir": -1,
+        "label": "WTI 유가"
+      }
+    },
+    "INTRA_SYMBOLS": {
+      "NQ_F": {
+        "warn": 0.3,
+        "vote_dir": 1
+      },
+      "TNX10": {
+        "warn": 0.6,
+        "vote_dir": -1
+      }
+    },
+    "THRESHOLDS": {
+      "KOSPI": {
+        "warn": 0.7,
+        "strong": 1.5
+      },
+      "KOSDAQ": {
+        "warn": 0.8,
+        "strong": 1.8
+      },
+      "NQ_F": {
+        "warn": 0.4,
+        "strong": 0.9
+      },
+      "ES_F": {
+        "warn": 0.4,
+        "strong": 0.9
+      },
+      "TNX10": {
+        "warn": 1.5,
+        "strong": 3.0
+      },
+      "VIX": {
+        "warn": 4.0,
+        "strong": 9.0
+      },
+      "USDKRW": {
+        "warn": 0.4,
+        "strong": 0.9
+      },
+      "WTI": {
+        "warn": 2.0,
+        "strong": 4.0
+      }
+    },
+    "HALT_SCORE": -7,
+    "LIQ_SCORE": -11,
+    "ON_SCORE": 3
+  }
 }

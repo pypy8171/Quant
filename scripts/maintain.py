@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """유지관리 진입점. 생성기·검사기를 순서대로 부르고 rc를 남긴다.
 
-  --daily   rotate_logs → gen_facts --apply → gen_code_graph --json → sync_ledgers → gen_automation_hub → gen_tuning_sheet. 대시보드는 부르지 않는다.
+  --daily   rotate_logs → gen_facts --apply → gen_code_graph --json → sync_ledgers → gen_automation_hub → claude_backup → gen_tuning_sheet. 대시보드는 부르지 않는다.
   --rotate-logs [--dry-run]  로그 정리만. 엔진 로그에서 7일 지난 날의 줄을 날짜별 gz로 떼어내고, 감시견 로그는 7일 지나면 gz·
             90일 지나면 삭제. 엔진이 떠 있으면 엔진 로그는 건너뛴다. 원장 trades_*.csv는 손대지 않는다(여러 날을 함께 읽는 스크립트가 있다).
   --check   check_docs → check_code_refs --diff-only → gen_facts --check → gen_code_graph --check → sync_impact --stamps.
@@ -222,6 +222,7 @@ def daily() -> int:
     if (ROOT / "scripts" / "sync_ledgers.py").exists():
         steps.append(("sync_ledgers", [PY, "scripts/sync_ledgers.py"]))
     steps.append(("gen_automation_hub", [PY, "scripts/gen_automation_hub.py"]))  # _private/AUTOMATION_HUB.md — 예약작업 실제 상태를 날마다 새로 읽는다
+    steps.append(("claude_backup", ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/claude_backup.ps1", "-Quiet"]))  # .claude/ 거울(저장소 밖)
     steps.append(("gen_tuning_sheet", [PY, "scripts/gen_tuning_sheet.py"]))  # _private/TUNING_SHEET.md — 장중 매매 수치·주기 한 장
     worst = 0
     for name, cmd in steps:

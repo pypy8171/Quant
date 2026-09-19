@@ -53,6 +53,9 @@ foreach ($link in $links)
     Write-Host "[wt_remove] 링크 뗌: $($link.Name)"
 }
 
+# 지우기 전에 메인 .claude/ 를 저장소 밖에 거울로 떠 둔다 — 아래에서 무엇이 잘못돼도 되돌릴 수 있게.
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'claude_backup.ps1') -Quiet
+
 $arguments = @('-C', $repo, 'worktree', 'remove')
 
 if ($Force)
@@ -70,3 +73,10 @@ if ($LASTEXITCODE -ne 0)
 }
 
 Write-Host "[wt_remove] 지움: $target"
+
+# 메인 .claude/ 가 정션을 타고 같이 지워졌으면 거울에서 바로 되돌린다.
+if (-not (Test-Path -LiteralPath (Join-Path $repo '.claude\hooks') -PathType Container))
+{
+    Write-Host "[wt_remove] 메인 .claude\hooks 가 사라졌다 — 거울에서 복원"
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'claude_restore.ps1')
+}

@@ -13,7 +13,7 @@
 - [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 182개
-- [scripts](#scripts) — 64개
+- [scripts](#scripts) — 66개
 - [strategies](#strategies) — 31개
 - [tools](#tools) — 3개
 
@@ -777,6 +777,8 @@
 - [check_docs.py](../scripts/check_docs.py) — 문서 링크·색인 검사 스크립트
 - [check_plain_language.py](../scripts/check_plain_language.py) — 문체 담백성 검사 스크립트
 - [check_runtime_health.py](../scripts/check_runtime_health.py) — 실행 로그 장애 패턴 검사 스크립트
+- [claude_backup.ps1](../scripts/claude_backup.ps1) — 메인 트리 `.claude/`(훅·명령·에이전트·스킬·settings)를 저장소 밖 `%USERPROFILE%\.claudeackups\Quant\latest`에 거울로 복사하고 하루 한 번 `daily\날짜` 스냅샷(14일 보관). Stop 훅·`maintain --daily`·`wt_remove` 가 부른다. 원본이 20파일 미만이면 이미 지워진 것으로 보고 거울을 덮어쓰지 않는다
+- [claude_restore.ps1](../scripts/claude_restore.ps1) — 그 거울에서 `.claude/`를 되돌린다. 기본은 빠진 것만 채우고 `-Mirror`는 거울과 똑같이, `-From`으로 `daily\날짜` 스냅샷 지정. 세션이 스스로 부를 수 있게 `settings.json` allow에 열려 있다
 - [commit_gate.py](../scripts/commit_gate.py) — 커밋 직전 게이트(보안·문체·문서·코드 규약·재현성·커밋명 형식을 한 번에), `py scripts/commit_gate.py --msg-file <파일>`
 - [dashboard_server.py](../scripts/dashboard_server.py) — 모의매매 대시보드 서버
 - [eod_autodoc.py](../scripts/eod_autodoc.py) — 장 마감 매매일지 자동생성 스크립트
