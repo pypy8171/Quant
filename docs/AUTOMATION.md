@@ -281,6 +281,7 @@ scripts/eod_autodoc.py
 | `scripts/gen_tuning_sheet.py` | `docs/tuning_sheet.toml`(config 묶음·단위, 코드 수치(줄번호 참조))과 실행 중 config에서 `_private/TUNING_SHEET.md`(상세판)와 `_private/TUNING_CYCLE.md`(요약판, `[[cycle]]` 문장의 `{이름}` 을 실제 값으로 채움)를 만든다. 값은 소스에서 정규식으로 읽으므로 코드를 고치면 시트가 따라오고, 정규식이 안 잡히면 `--check`가 exit 1로 명세를 고치게 한다. config 는 gitignore 라 git diff 로 못 잡아 sync-gate 가 매 턴 `--check` 를 돈다 |
 | `scripts/claude_backup.ps1` | 메인 트리 `.claude/`를 저장소 밖(`%USERPROFILE%\.claudeackups\Quant\latest`)에 거울로 뜬다. Stop 훅이 매 턴, `maintain --daily`가 하루 한 번, `wt_remove.ps1`이 지우기 전에 부른다. `daily\날짜` 스냅샷은 14일 보관 |
 | `scripts/claude_restore.ps1` | 그 거울에서 `.claude/`를 되돌린다(기본은 빠진 것만, `-Mirror`는 완전 일치, `-From`으로 날짜 스냅샷). 세션이 스스로 부를 수 있게 allow에 열려 있다 |
+| `scripts/wt_add.ps1` | 세션용 워크트리를 만든다 — `git worktree add` + 메인 트리 `.claude`로 정션 + gitignore 로컬 파일(`_private/gate_words.txt`·`research/STRATEGY_LAB.md`·`Quant/config/config_dev_paper.json`) 복사. 설치를 손으로 치면 `.claude`를 지우는 줄이 섞여 메인 `.claude/`가 날아간다(09-18·09-19). 제거는 `wt_remove.ps1` |
 | `scripts/gen_runbook.py` | 운영 명령 정본 `docs/RUNBOOK.md`를 복사 버튼 달린 `docs/RUNBOOK.html`(gitignore, 절대경로 치환)로 렌더한다. `gen_facts --apply`가 허브와 같이 부르고, `--check`(check_docs)는 코드 블록의 스크립트 경로가 실재하는지 본다. 인용 스크립트의 인자가 바뀌면 절 머리 도장이 낡음으로 잡힌다 |
 | `scripts/premarket_routine.py` | 장전 시황 브리핑 루틴 프롬프트 정본 `docs/premarket/ROUTINE_PROMPT.md`의 본문 출력(`--render`)·올린 해시 기록(`--mark`)·정본과 비교(`--check`, check_docs가 부른다). 루틴 갱신 자체는 세션(`/schedule`)이 한다 |
 | `scripts/brace_style.py` | 중괄호와 블록 앞뒤 빈 줄을 기계적으로 맞춘다(`.clang-format`의 Allman·`InsertBraces`와 같은 규칙). 손으로 맞추지 않는다 |

@@ -13,7 +13,7 @@
 - [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 182개
-- [scripts](#scripts) — 66개
+- [scripts](#scripts) — 67개
 - [strategies](#strategies) — 31개
 - [tools](#tools) — 3개
 
@@ -823,6 +823,7 @@
 - [trade_costs.py](../scripts/trade_costs.py) — 체결 원장(trades_YYYYMMDD.csv)의 날짜별·종목별 매매 비용(수수료·거래세)과 실현손익을 누적 JSON(logs/trade_costs.json)과 표로 낸다(--days, --symbol)
 - [unattended_night.ps1](../scripts/unattended_night.ps1) — 밤사이 무인 이어달리기를 지시서·종료시각과 함께 띄우는 진입 스크립트
 - [unattended_run.ps1](../scripts/unattended_run.ps1) — 긴 작업을 헤드리스 사이클로 쪼개고 사이를 인계 파일로 이어 사람 없이 끝까지 돌린다(-Name, -PromptFile, -Until)
+- [wt_add.ps1](../scripts/wt_add.ps1) — 세션용 워크트리를 만든다. `git worktree add` 뒤 메인 트리 `.claude`로 정션을 걸고(이미 걸려 있으면 `cmd /c rmdir`로 링크만 뗀다), 검사기가 찾는 로컬 전용 파일 3개를 복사한다. 지울 때는 `wt_remove.ps1`.
 - [wt_build.cmd](../scripts/wt_build.cmd) — 워크트리에서 VS2022 환경을 잡고 Quant/build_win을 Ninja로 빌드, `test` 인자면 ctest까지
 - [wt_remove.ps1](../scripts/wt_remove.ps1) — 워크트리를 지운다. 안의 `.claude` 정션을 `rmdir`로 먼저 떼고 `git worktree remove`를 부른다(정션을 타고 메인 `.claude/`가 지워진 09-18 사고 재발 방지), 미커밋 변경은 `-Force`일 때만
 
