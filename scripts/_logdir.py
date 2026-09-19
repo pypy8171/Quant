@@ -10,19 +10,31 @@ logs/ 에 쓴다. 그래서 같은 날짜의 trades_YYYYMMDD.csv 가 두 폴더�
                      > 실재하는 첫 후보 > Quant/build_win/logs
   find_ledger(date)  그 날짜 원장. 행 수 최대, 동률이면 mtime 최신
   find_log(date)     고른 원장 옆의 quant_trader.log, 없으면 log_dir() 의 것
+  log_sources(date, directory)   그 날짜 줄이 들어 있을 수 있는 파일 — archive/quant_trader_<날짜>.log.gz 뒤에
+                     라이브 로그. maintain.py --rotate-logs 가 7일 지난 날의 줄을 gz로 옮기므로 옛 날짜는 gz에만 있다
+  iter_log_lines(date, directory) 위 파일들을 차례로 열어 줄 단위로 낸다(.gz 도 보통 텍스트처럼)
 """
 from __future__ import annotations
 
+import gzip
 import os
 from pathlib import Path
+from typing import Iterator
 
 REPO = Path(__file__).resolve().parents[1]
 LEDGER_NAME = "trades_{ymd}.csv"
 LOG_NAME = "quant_trader.log"
+ARCHIVE_DIR_NAME = "archive"
+ARCHIVE_NAME = "quant_trader_{iso}.log.gz"   # maintain.py rotate_engine_log 가 쓰는 이름
 
 
 def _ymd(date: str) -> str:
     return date.replace("-", "")[:8]
+
+
+def _iso(date: str) -> str:
+    ymd = _ymd(date)
+    return f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}"
 
 
 def candidate_dirs() -> list[Path]:
@@ -106,3 +118,38 @@ def find_log(date: str | None = None) -> Path | None:
             return led.parent / LOG_NAME
     p = log_dir() / LOG_NAME
     return p if p.exists() else None
+
+
+def dir_of(log_path: Path) -> Path:
+    """로그 파일이 속한 로그 폴더. archive/ 안의 gz 는 한 단계 위가 로그 폴더다."""
+    parent = log_path.parent
+    return parent.parent if parent.name == ARCHIVE_DIR_NAME else parent
+
+
+def log_sources(date: str | None = None, directory: Path | None = None) -> list[Path]:
+    """date(YYYYMMDD 또는 YYYY-MM-DD) 줄이 들어 있을 수 있는 파일을 옛 줄부터 — 그 날짜 gz, 그다음 라이브 로그.
+    date 가 없으면 gz 전부(날짜순) + 라이브 로그. 없는 파일은 뺀다."""
+    base = directory if directory is not None else log_dir()
+    archive_dir = base / ARCHIVE_DIR_NAME
+    sources: list[Path] = []
+    if date:
+        sources.append(archive_dir / ARCHIVE_NAME.format(iso=_iso(date)))
+    else:
+        sources += sorted(archive_dir.glob(ARCHIVE_NAME.format(iso="*")))
+    sources.append(base / LOG_NAME)
+    return [path for path in sources if path.is_file()]
+
+
+def open_log(path: Path):
+    """엔진 로그 한 파일을 텍스트로 연다. .gz 는 gzip 으로 — 줄 내용은 같다."""
+    if path.suffix == ".gz":
+        return gzip.open(path, "rt", encoding="utf-8", errors="replace")
+    return path.open(encoding="utf-8", errors="replace")
+
+
+def iter_log_lines(date: str | None = None, directory: Path | None = None) -> Iterator[str]:
+    """log_sources() 의 파일을 차례로 열어 줄을 낸다(개행 포함). 소비자는 date 로 줄을 거르는 일을 그대로 한다 —
+    gz 에는 그 날짜 줄만 있지만 라이브 로그에는 여러 날이 섞여 있다."""
+    for path in log_sources(date, directory):
+        with open_log(path) as handle:
+            yield from handle

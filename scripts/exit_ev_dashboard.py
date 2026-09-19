@@ -15,6 +15,7 @@ scripts/exit_ev.py 의 적재·통계 함수를 그대로 쓰고, 표 한 줄마
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import re
 import statistics
@@ -25,6 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "PYQuant" / "dashboard"))
+import _logdir  # noqa: E402
 import exit_ev  # noqa: E402
 import gen_tuning_sheet  # noqa: E402
 from build_dashboard import NAME_MAP as STUDY_NAME_MAP  # noqa: E402  (BT-NN → 서술형 이름, 한 곳만 정본)
@@ -159,8 +161,9 @@ def load_names(tickers: set[str]) -> dict[str, str]:
             names.setdefault(ticker, name)
 
     missing = tickers - names.keys()
-    if missing and TRADER_LOG.exists():
-        with TRADER_LOG.open(encoding="utf-8", errors="replace") as handle:
+    if missing and _logdir.log_sources(None, TRADER_LOG.parent):
+        # 7일 지난 날의 줄은 archive/*.log.gz 에 있다(maintain.py --rotate-logs) — 옛 날짜에만 나온 종목 이름도 거기서 찾는다
+        with contextlib.closing(_logdir.iter_log_lines(None, TRADER_LOG.parent)) as handle:
             for line in handle:
                 if "(" not in line and "hts_kor_isnm" not in line:
                     continue

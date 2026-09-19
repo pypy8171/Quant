@@ -20,6 +20,7 @@ ERROR·KIS거부·게이트봉쇄·WS재연결·HTTP오류·주문접수·체결
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import re
 import sys
@@ -199,18 +200,20 @@ def _resolve_date(date: str | None) -> str:
 
 
 def full(date: str | None, as_json: bool):
-    if not LOGFILE.exists():
-        print("로그 파일 없음:", LOGFILE, file=sys.stderr)
-        return 1
     ymd = _resolve_date(date)          # YYYYMMDD 또는 ''
     dprefix = ""
     if ymd:
         dprefix = f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}"
-    with open(LOGFILE, "r", encoding="utf-8", errors="replace") as f:
+    # 7일 지난 날은 archive/quant_trader_<날짜>.log.gz 에 있다(maintain.py --rotate-logs) — 그 gz와 라이브 로그를 이어서 본다
+    sources = _logdir.log_sources(ymd or None, LOGS)
+    if not sources:
+        print("로그 파일 없음:", LOGFILE, file=sys.stderr)
+        return 1
+    with contextlib.closing(_logdir.iter_log_lines(ymd or None, LOGS)) as stream:
         if dprefix:
-            lines = [ln for ln in f if ln.startswith(dprefix)]
+            lines = [ln for ln in stream if ln.startswith(dprefix)]
         else:
-            lines = f.readlines()
+            lines = list(stream)
     buckets, t0, t1 = scan(lines)
 
     summary = {

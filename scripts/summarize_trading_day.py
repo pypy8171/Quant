@@ -9,6 +9,7 @@
   py scripts/summarize_trading_day.py 2026-08-20 2026-08-21
 """
 import os, re, csv, sys, glob, collections
+from pathlib import Path
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
@@ -27,7 +28,8 @@ def find_logs():
     out = []
     for d in LOG_DIRS:
         for p in glob.glob(os.path.join(d, "quant_trader.log")) + \
-                 glob.glob(os.path.join(d, "archive", "*.log")):
+                 glob.glob(os.path.join(d, "archive", "*.log")) + \
+                 glob.glob(os.path.join(d, "archive", "*.log.gz")):   # maintain.py --rotate-logs 가 옮긴 7일 지난 날
             out.append(p)
     return out
 
@@ -46,7 +48,7 @@ def log_lines(date):
     srcs, buf = [], []
     for p in find_logs():
         got, first, last = 0, None, None
-        for i, l in enumerate(open(p, encoding="utf-8", errors="replace"), 1):
+        for i, l in enumerate(_logdir.open_log(Path(p)), 1):
             if l.startswith(date):
                 if first is None:
                     first = i

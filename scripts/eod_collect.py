@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import re
 import sys
@@ -48,8 +49,9 @@ def find_files(date: str):
     csv = _logdir.find_ledger(date)
     if csv is None:
         return None, None
-    log = csv.parent / "quant_trader.log"
-    return (log if log.exists() else None), csv
+    # 7일 지난 날은 라이브 로그가 아니라 archive/quant_trader_<날짜>.log.gz 에 있다(maintain.py --rotate-logs)
+    sources = _logdir.log_sources(date, csv.parent)
+    return (sources[0] if sources else None), csv
 
 
 def norm_reason(s: str) -> str:
@@ -63,8 +65,8 @@ def scan_log(log: Path, ymd: str) -> dict:
         "rescan_computed": [], "signals": [], "zone_last": {},
         "errors": Counter(), "ws_reconnects": [], "pnl_track": [], "prev_pnl_track": [],
     }
-    with log.open(encoding="utf-8", errors="replace") as f:
-        for raw in f:
+    with contextlib.closing(_logdir.iter_log_lines(ymd, _logdir.dir_of(log))) as lines:
+        for raw in lines:
             m = LINE_RE.match(raw.rstrip("\n"))
             if not m:
                 continue

@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv as _csv
 import re
 import subprocess
@@ -68,8 +69,9 @@ def find_files(ymd_compact: str):
     csvp = _logdir.find_ledger(ymd_compact)
     if csvp is None:
         return None, None
-    log = csvp.parent / "quant_trader.log"
-    return (log if log.exists() else None), csvp
+    # 7일 지난 날은 라이브 로그가 아니라 archive/quant_trader_<날짜>.log.gz 에 있다(maintain.py --rotate-logs)
+    sources = _logdir.log_sources(ymd_compact, csvp.parent)
+    return (sources[0] if sources else None), csvp
 
 
 # ─────────────────────────── 로그 파싱 ───────────────────────────
@@ -87,8 +89,8 @@ def scan_log(log: Path, ymd: str) -> dict:
     warns: Counter = Counter()
     cur: dict | None = None
 
-    with log.open(encoding="utf-8", errors="replace") as f:
-        for raw in f:
+    with contextlib.closing(_logdir.iter_log_lines(ymd, _logdir.dir_of(log))) as lines:
+        for raw in lines:
             m = LINE_RE.match(raw.rstrip("\n"))
             if not m:
                 continue

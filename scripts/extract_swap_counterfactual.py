@@ -19,6 +19,7 @@
 """
 import argparse
 import bisect
+import contextlib
 import csv
 import io
 import json
@@ -30,6 +31,8 @@ from datetime import datetime
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_LOG = os.path.join(ROOT, 'Quant', 'build_win', 'logs', 'quant_trader.log')
+sys.path.insert(0, os.path.join(ROOT, 'scripts'))
+import _logdir  # noqa: E402
 OUTDIR = os.path.join(ROOT, 'research', 'runs', 'swap_counterfactual')
 TOL_SEC = 180          # 이벤트 시각과 가격 관측 사이 허용 간격
 CHUNK = 100
@@ -52,10 +55,15 @@ def secs(hhmmss):
 
 
 def scan(log_path, date):
-    """한 번만 훑어 가격 타임라인과 두 종류 이벤트를 모은다."""
+    """한 번만 훑어 가격 타임라인과 두 종류 이벤트를 모은다.
+    log_path 가 None 이면 그 날짜 gz(archive/, maintain.py --rotate-logs)와 라이브 로그를 이어서 본다."""
     prices = {}      # ticker -> [(sec, px), ...] 시간순
     displaces, rejects = [], []
-    with io.open(log_path, encoding='utf-8', errors='replace') as f:
+    if log_path:
+        stream = io.open(log_path, encoding='utf-8', errors='replace')
+    else:
+        stream = contextlib.closing(_logdir.iter_log_lines(date, _logdir.REPO / 'Quant' / 'build_win' / 'logs'))
+    with stream as f:
         for line in f:
             if not line.startswith(date):
                 continue
@@ -148,7 +156,7 @@ def write_csv(path, cols, rows):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--date', default=datetime.now().strftime('%Y-%m-%d'))
-    ap.add_argument('--log', default=DEFAULT_LOG)
+    ap.add_argument('--log', default=None, help='기본은 %s 와 그 날짜의 archive/*.log.gz' % DEFAULT_LOG)
     ap.add_argument('--no-fetch', action='store_true', help='사후 가격 조회 생략')
     a = ap.parse_args()
 
