@@ -83,7 +83,7 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 | 층 | 담당 | 하는 일 |
 |---|---|---|
 | 감시자 | `scripts/auto_trade_guard.ps1` | 평일 5분 주기 예약작업. 장중인데 워치독이 없으면 기동한다. 남은 트레이더가 남아 있으면 먼저 내린다 |
-| 워치독 | `scripts/auto_trade_day.ps1` | 사전 점검(중복 프로세스·계좌 모드), 기동 전 `quant_trader` 재빌드(증분, 실패면 `build_failed`로 중단, `-NoBuild`로 생략), 보조 프로세스·유니버스·대시보드·알림 기동, 트레이더를 마감까지 감시·재기동, 마감 뒤 `eod_autodoc.py` 실행 |
+| 워치독 | `scripts/auto_trade_day.ps1` | 사전 점검(중복 프로세스·계좌 모드), 기동 전 `quant_trader` 재빌드(증분, 실패면 `build_failed`로 중단, `-NoBuild`로 생략), 보조 프로세스·유니버스·대시보드·알림·체결 기록기(`quant-recorder`) 기동, KIS 토큰 캐시를 `KIS_TOKEN_CACHE_DIR`로 트레이더와 한 파일로 맞춤, 트레이더를 마감까지 감시·재기동, 마감 뒤 `eod_autodoc.py` 실행 |
 | 감독 | `.claude/commands/auto-trade-day.md` | 국면 판단, 증분 로그 감시, **무발주 감시**, 결함을 코드/상황으로 분류, 코드면 수정·재빌드, **이슈 대장 누적**, 마감 뒤 해석 문서 |
 
 워치독 상태는 `_private/_auto_trade_day.json` 한 파일에 적힌다(`phase`·`sessions`·`history`). 로그 전체를
@@ -107,7 +107,7 @@ Windows에는 리눅스의 프로세스 그룹 cascade가 없다. 부모가 죽�
 반대 방향, 즉 부속 창 안의 파이썬만 죽는 경우도 잡는다. 창은 `-NoExit`로 띄우므로 안의 스크립트가
 끝나도 빈 창은 남고, 창 목록만 보면 살아 있는 것처럼 보인다. 워치독은 트레이더를 기다리는 동안
 60초마다 `python`/`py` 프로세스의 명령줄을 훑어 등록된 스크립트 이름(`macro_regime_feed.py`,
-`dashboard_server.py`, `notify_sidecar.py`, `live_prices_feed.py`)이 있는지 확인하고, 없으면 남은 창을 내리고 같은 명령으로
+`dashboard_server.py`, `notify_sidecar.py`, `live_prices_feed.py`, `main.py record`)이 있는지 확인하고, 없으면 남은 창을 내리고 같은 명령으로
 다시 띄운다. 기동 직후 45초는 아직 파이썬이 뜨는 중일 수 있어 건너뛴다. 알림 보조 프로세스가 조용히
 사라진 것을 사람이 화면을 봐야 아는 상태를 없애기 위한 것이다.
 
@@ -169,7 +169,7 @@ powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -KillAll # 전�
 
 | 루프 | 주체 | 주기 | 하는 일 |
 |---|---|---|---|
-| 매크로 국면 파일 전달 | `PYQuant/tools/macro_regime_feed.py` | 상시 | `regime.json` 갱신 → 엔진이 `OrderGate::set_entry_halt` 토글(신규 매수만 차단, 청산은 통과) |
+| 매크로 국면 파일 전달 | `PYQuant/tools/macro_regime_feed.py` | 상시 | `regime.json` 갱신 → 엔진이 매수 비율 `entry_scale`·`entry_halt`(신규 매수만 차단)·`force_liquidate`를 옮기고 라벨로 전략 집합을 고른다(D-083·D-084) |
 | 제어 스레드 | `Engine::control_thread_fn` | 상시 | 잔고 대조·손익 갱신 감시, 끊기면 보수정지 |
 | 증분 로그 감시 | `scripts/parse_quant_log.py --watch` | 15~20분 | 유의미한 창일 때만 출력. 조용하면 토큰 0 |
 | 전 종목 시세 파일 전달 | `scripts/live_prices_feed.py` | 20초(`PRICES_PERIOD_SEC`, D-028) | 네이버 벌크 시세를 100종목씩 묶어 받아 `Quant/config/prices_live.json`으로 떨군다. KIS REST 초당 한도와 무관해서 2,700종목을 20초 주기로 훑을 수 있다. `UniverseScanner`가 이 파일을 읽는다 |
@@ -265,5 +265,5 @@ scripts/eod_autodoc.py
 ## 8. 아직 자동화하지 않은 것
 
 - 예약작업 실패의 **자동 복구** — `cron-gate.ps1`이 알리기까지다. 다시 돌리는 것은 사람이 커맨드를 부른다.
-- 유니버스 장중 주기 재스캔 — 기동 시 1회만 돈다.
+- 유니버스 재스캔은 두 겹이다 — 엔진 안 `Engine::maybe_rescan_universe`(`rescan_interval_sec`, D-077·D-087)와 감시견의 스캔 파일 갱신(10:00 전 3분, 뒤 10분). 둘을 하나로 합치는 것은 미정.
 - 커밋·푸시 — 커밋명·파일 목록 승인 게이트를 일부러 유지한다. 검사는 `scripts/commit_gate.py`가 하고 `git commit`은 승인 뒤 메인 세션이 친다.

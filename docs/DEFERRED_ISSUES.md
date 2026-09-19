@@ -10,34 +10,34 @@
 ## 주문 경로 (KIS 클라이언트 · OrderRouter)
 
 ### D-1. revise_order가 부분수량 정정을 못 한다 (QTY_ALL_ORD_YN="Y" 고정)
-- 위치: [Quant/src/api/KisOrder.cpp:276-281](../Quant/src/api/KisOrder.cpp#L276)
+- 위치: [Quant/src/api/KisOrder.cpp](../Quant/src/api/KisOrder.cpp#L300)의 `revise_order()` 전문 필드 `QTY_ALL_ORD_YN`
 - 현상: 정정 전문에 `ORD_QTY`(정정 수량)를 실어 보내지만 `QTY_ALL_ORD_YN="Y"`가 함께 나가서
   KIS가 잔량 전체를 정정한다. `ORD_QTY` 값은 사실상 무시된다.
 - 미룬 이유: 현재 정정 사용처는 전량 재입력뿐이라 잔량 전체 정정으로 충분하다.
 - 재개 조건: 부분수량 정정이 필요해지면 플래그를 "N"으로 바꾸고 `ORD_QTY`를 살린다.
 
 ### D-2. 정정 후 원주문 조직번호(krx_orgno)를 응답에서 재캡처하지 않는다
-- 위치: [OrderRouter.cpp:547](../Quant/src/ipc/OrderRouter.cpp#L547)
+- 위치: [Quant/src/ipc/OrderRouter.cpp](../Quant/src/ipc/OrderRouter.cpp#L1590)의 `krx_forwarding_org_no` 승계 줄(TODO 주석)
 - 현상: 정정 응답의 조직번호를 파싱하지 않고 원주문 조직번호를 그대로 승계한다. 통상 같은 값이라
   지금은 문제가 없다.
 - 미룬 이유: 단일 계좌·단일 정정 경로에서 승계값과 응답값이 일치한다.
 - 재개 조건: 정정 응답의 조직번호가 원주문과 달라질 수 있는 경로가 생기면 응답에서 재캡처한다.
 
 ### D-3. 다계좌(다중 CANO) 체결 매칭 키
-- 위치: [OrderRouter.cpp:613](../Quant/src/ipc/OrderRouter.cpp#L613)
+- 위치: [Quant/src/ipc/OrderRouter.cpp](../Quant/src/ipc/OrderRouter.cpp#L1736)의 `TODO(다계좌)` 주석(체결통보 → 주문 매칭)
 - 현상: 지금은 단일 계좌 가정이라 주문번호(ODNO)만으로 체결을 매칭한다. 계좌가 여럿이면 ODNO가
   계좌별로 재사용돼 매칭 키가 충돌할 수 있다.
 - 미룬 이유: 실운영 계좌가 하나다.
 - 재개 조건: 진짜 다중 CANO 라우팅을 넣을 때 매칭 키를 (CANO, ODNO)로 확장한다.
 
 ### D-4. 해외 정정/취소 미구현
-- 위치: [Quant/src/api/KisOrder.cpp:202](../Quant/src/api/KisOrder.cpp#L202)
+- 위치: [Quant/src/api/KisOrder.cpp](../Quant/src/api/KisOrder.cpp#L220)의 `cancel_order()`·`revise_order()` 머리 주석
 - 현상: 정정/취소는 국내 현금 주문 전용이다. 해외 주문은 tr_id·URL이 달라 아직 없다.
 - 미룬 이유: 현재 주문 경로는 국내 위주다.
 - 재개 조건: 해외 주문을 실제로 낼 때 별도 tr_id/URL로 구현한다.
 
-### D-5. submit_order와 submit_order_ack의 본문 중복
-- 위치: [Quant/src/api/KisOrder.cpp:36](../Quant/src/api/KisOrder.cpp#L36), [Quant/src/api/KisOrder.cpp:129](../Quant/src/api/KisOrder.cpp#L129)
+### D-5. send_order와 submit_order_acknowledgement의 본문 중복
+- 위치: [Quant/src/api/KisOrder.cpp](../Quant/src/api/KisOrder.cpp#L52)의 `send_order()`(옛 이름 `submit_order`), `submit_order_acknowledgement()`
 - 현상: 두 함수가 본문·tr_id를 거의 그대로 복제한다. `submit_order_acknowledgement`가 응답에서
   조직번호까지 더 캡처하는 점만 다르다.
 - 미룬 이유: 동작은 정확하고, 지금 리팩터해도 기능 변화가 없다.
@@ -58,7 +58,7 @@
 ## WebSocket 파서
 
 ### D-6. 미국 체결(HDFSCNT0) 방향 필드 f[20] 미검증
-- 위치: [WebSocketClient.cpp:742](../Quant/src/api/WebSocketClient.cpp#L742)
+- 위치: [Quant/src/api/WebSocketClient.cpp](../Quant/src/api/WebSocketClient.cpp#L831)의 `parse_us_trade()`(호출은 `dispatch_record()`의 HDFSCNT0 분기)
 - 현상: `f[20]`을 매수/매도 방향으로 가정해 `direction`에 넣는다. 실제 전문 필드 순서를
   실데이터로 확인하지 못했다.
 - 미룬 이유: 미국 체결 경로는 아직 실사용 전이다.
@@ -95,7 +95,7 @@
 - 재개 조건: Phase 2에서 체결 피드백·재고 스큐를 붙이고 REPLACE 경로를 검토한다.
 
 ### D-11. 청산 매도가 매도가능수량으로 클램프되지 않는다 (ITB 청산 관리)
-- 위치: [IntradayBreakoutStrategy.h:174](../Quant/include/strategy/IntradayBreakoutStrategy.h#L174)
+- 위치: [Quant/include/strategy/IntradayBreakoutStrategy.h](../Quant/include/strategy/IntradayBreakoutStrategy.h#L181)의 `on_trade()` 청산 분기(지금은 상태를 바로 지우지 않고 `exit_pending_tick()`이 확정 포지션 0을 본 뒤 지운다)
 - 현상: 청산 신호가 시드 보유수량(`hold_quantity_`) 전량으로 나간다. 예약매도가 물량을 묶어
   `ord_psbl_qty`가 보유보다 작으면 KIS가 전량을 거부한다(40240000). 신호를 낸 직후
   `in_position_=false; hold_quantity_=0`으로 상태를 지우므로 거부돼도 재시도가 없다.
@@ -124,7 +124,7 @@
 - 재개 조건: 없음(실계좌 전환 시 자동 해소). 모의에서 재시도하지 말 것 — 위 조합은 이미 확인했다.
 
 ### D-13. 재기동하면 주문 시퀀스가 1로 리셋돼 당일 원장에 order_id가 중복된다
-- 위치: [OrderRouter.h:112](../Quant/include/ipc/OrderRouter.h#L112) (`sequence_{0}`)
+- 위치: [Quant/include/ipc/OrderRouter.h](../Quant/include/ipc/OrderRouter.h#L238) (`std::atomic<uint64_t> sequence_{0}`)
 - 현상: `next_id()`가 프로세스 메모리의 `sequence_`만 쓴다. 장중 재기동하면 다시 ORD-000001부터
   발번해서 같은 날 `logs/trades_YYYYMMDD.csv` 안에 같은 order_id가 여러 주문을 가리킨다.
   2026-09-07 실측(3회 재기동): ORD-000003이 28행, ORD-000001이 11행.
@@ -135,7 +135,7 @@
   (지금은 CSV 리플레이로 취소분과 생존 주문을 구분할 수 없다).
 
 ### D-14. DEVSCALE 주기적 재스캔이 결과를 계산만 하고 엔진에 반영하지 않는다
-- 위치: [UniverseScanner.cpp:305](../Quant/src/universe/UniverseScanner.cpp#L305) 호출부(main.cpp의 재스캔 타이머)
+- 위치: [Quant/src/core/Engine.cpp](../Quant/src/core/Engine.cpp#L265)의 `Engine::maybe_rescan_universe()`(data_thread 루프에서 주기 호출)
 - 현상: `rescan_interval_sec`(600) 주기로 스캔이 실제로 돈다. 2026-09-07 12:16:57 / 12:27:08 /
   12:37:16 세 번 모두 `후보=134 검사=134 정배열=13 과확장컷=22 등록=13`을 남겼다. 그런데 그 뒤에
   `전략 등록`도 `RegimeSelect` 재평가도 따라오지 않고, 존 판정을 내는 전략은 12:06 기동 때
@@ -213,8 +213,8 @@
 ## 운영 자동화 (감시견 · 엔진 종료)
 
 ### D-19. 감시견 창이 사라지면 Job Object가 엔진까지 죽이고, 그 순간 접수돼 있던 주문이 미연결이 된다
-- 위치: [auto_trade_day.ps1:86-88](../scripts/auto_trade_day.ps1#L86)(설계 의도 주석),
-  [auto_trade_day.ps1:164](../scripts/auto_trade_day.ps1#L164)(Job Object 결합),
+- 위치: [scripts/auto_trade_day.ps1](../scripts/auto_trade_day.ps1#L116)("프로세스 수명 묶기" 설계 의도 주석),
+  같은 파일 `Start-Window`의 `[WinJob]::Add`(Job Object 결합),
   [OrderRouter.cpp:362](../Quant/src/ipc/OrderRouter.cpp#L362)(`reconcile_blocked_sell`).
 - 현상: 2026-09-15 감시견 PowerShell 창이 11:55경·12:49경 두 차례 사라졌다(원인은 로그로 확인 불가).
   Job Object가 설계대로 엔진도 함께 종료시켰는데, 두 번째 소실 순간 KIS에 이미 접수돼 있던 112610

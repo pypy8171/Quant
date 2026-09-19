@@ -50,11 +50,11 @@ TRADE 모드의 데이터 흐름:
 ### 1.1 진입점과 인자 파싱
 - `main()` 진입: `main.cpp::main`. Windows 콘솔 UTF-8/ANSI 설정 후 (`main.cpp::main`) `Logger::instance().init("logs/quant_trader.log", INFO)` (`main.cpp::main`, logs/ 하위 고정·부모폴더 자동생성).
 - 인자 파싱: `quant_trader [config] [MODE]`. `KR_TEST/US_TEST/FEED/TRADE`는 `mode_override`로, 그 외 토큰은 `config_path`로 해석 (`main.cpp::main`).
-- 설정 로드는 `load_config()` — `std::ifstream` + `json::parse` (`main.cpp::load_config`, 호출 `main.cpp::main`). 즉 설정 파서는 nlohmann/json 직접 사용이며, `Quant/src/utils/Config.cpp`는 **빈 placeholder**(1줄짜리 빈 파일)다 — 파싱 로직이 여기에 없다.
+- 설정 로드: `main.cpp::main`이 파일을 읽어 `json::parse`한 뒤 `Quant/src/core/AppConfig.cpp::parse_config`가 typed `AppConfig`로 바꾸고, `Quant/src/core/EngineConfigure.cpp::Engine::configure`가 그 값을 엔진 세터에 옮긴다(d7ef5ac·27a6a70). 옛 `main.cpp::load_config`와 placeholder `Quant/src/utils/Config.cpp`는 삭제됐다.
 
 ### 1.2 config.json 스키마
 `config.json` 최상위 키:
-- `kis` 객체: `app_key`, `app_secret`, `account_no`, `account_type`("01"), `hts_id`, `is_paper`(bool) — 파싱 위치 `main.cpp::main`. `hts_id`는 체결통보 채널 구독 키로 쓰이며 미설정 시 빈 문자열 (`main.cpp::main`).
+- `kis` 객체: `app_key`, `app_secret`, `account_no`, `account_type`("01"), `hts_id`, `is_paper`(bool) — 파싱 위치 `AppConfig.cpp::parse_config`. `hts_id`는 체결통보 채널 구독 키로 쓰이며 미설정 시 빈 문자열 (`main.cpp::main`).
 - `mode`: "FEED"/"TRADE"/"KR_TEST"/"US_TEST" (`main.cpp::main`).
 - `fetch_interval_sec`: DataThread 폴링 주기, 기본 60 (`main.cpp::main`).
 - `tickers`: FEED 모드 전용 배열, TRADE 모드에서는 전략이 동적으로 종목을 구성하므로 불필요 (`main.cpp::main`).
@@ -142,7 +142,7 @@ DataThread는 `get_daily_ohlcv(ticker, 1)`로 **최신 1봉만** 가져온다 (`
 
 ## 5. 시세 수신 경로 B — WebSocket 수신 스레드
 
-WS 연결/구독은 `KisWebSocket::connect()` (Windows·Linux 두 정의, `WebSocketClient.cpp::connect`), 수신 파싱은 공통 `parse_message()` (`WebSocketClient.cpp::parse_message`).
+WS 연결/구독은 `KisWebSocket::connect()` (Windows·Linux 두 정의, `WebSocketClient.cpp::connect`), 수신 파싱은 `parse_message()`가 입구이고, D-093(fc748e6)부터 JSON 제어 프레임은 `handle_control_frame()`, 데이터 프레임은 `handle_data_frame()` → 레코드별 `dispatch_record()`로 갈라진다(`WebSocketClient.cpp::handle_control_frame`, `WebSocketClient.cpp::handle_data_frame`, `WebSocketClient.cpp::dispatch_record`). 아래 5.2는 분리 전 서사다.
 
 ### 5.1 연결·구독
 - approval key 발급: `POST /oauth2/Approval` with `{grant_type, appkey, secretkey}` → `approval_key_` (`WebSocketClient.cpp::get_approval_key`). REST OAuth 토큰과 별개 키.
@@ -309,7 +309,7 @@ FEED/KR_TEST/US_TEST 모드는 `set_console_enabled(false)`로 콘솔 로그를 
 | G6 | **US 체결 방향 필드 인덱스 추정** | `WebSocketClient.cpp::parse_us_trade`("방향 필드 위치 확인 후 조정" 주석) | 미국 체결 direction이 부정확할 수 있음(현재 US 전략 미사용이라 저위험). | 실측 로그로 인덱스 확정. |
 | G7 | **정정(REPLACE) 부분체결·조직번호 재캡처 미완** | `OrderRouter.cpp::replace_route`(TODO) | 부분체결 상태 정정은 수량 정합 미보장 → MM은 CANCEL+NEW만 사용. 정정 응답의 새 조직번호 미파싱(원 조직번호 승계). | 정정 응답 파싱 강화 + 부분체결 정정 로직(Phase 2). |
 | G8 | **해외 정정/취소 미구현** | `KisClient.cpp::cancel_order`(주석 "해외 정정/취소 별도 tr_id — 미구현 TODO") | US 주문 취소/정정 불가. | overseas order-rvsecncl tr_id/URL 추가. |
-| G9 | **Config.cpp / Logger.cpp placeholder** | `Quant/src/utils/Config.cpp`, `Quant/src/utils/Logger.cpp` | 설정 파서/로거가 헤더·main에 inline. 모듈 경계가 흐림(유지보수 시 혼란). | 실제 파싱/로깅 구현을 .cpp로 이전하거나 placeholder 제거. |
+| G9 | **Config.cpp / Logger.cpp placeholder** | (당시) `Quant/src/utils/Config.cpp`, `Quant/src/utils/Logger.cpp` | 설정 파서/로거가 헤더·main에 inline. 모듈 경계가 흐림(유지보수 시 혼란). | 해소: 설정 파싱은 `Quant/src/core/AppConfig.cpp::parse_config`, 엔진 배선은 `Quant/src/core/EngineConfigure.cpp::Engine::configure`로 옮겼고 `Config.cpp`는 삭제(d7ef5ac·27a6a70). |
 | G10 | **Logger 타임스탬프 로컬 TZ + flush 없음** | `Logger.h::format` | 주석은 "UTC"인데 localtime 사용. 파이프 캡처 시 블록버퍼링으로 실시간 미표시(§11). | flush 정책 명시(줄마다 `<< std::flush` 또는 파일 라인버퍼), TZ 주석 정정. |
 | G11 | **OrderGate 원자성은 단일 소비자 전제에 의존** | `Quant/src/risk/OrderGate.cpp`(C6), `OrderRouter.cpp::submit` | 멀티 프로듀서로 확장 시 check()+on_accept TOCTOU 발생. 현재는 안전. | 다계좌/멀티스레드 발주 확장 시 check+reserve를 단일 임계구역으로 묶기. |
 | G12 | **hts_id 미설정 시 체결통보 구독 스킵** | `WebSocketClient.cpp::subscribe_all` | hts_id 없으면 H0STCNI 구독 안 함 → **체결통보 미수신 → 원장(positions_/pnl) 미갱신**. 주문은 나가나 체결 반영이 안 됨. | config에 hts_id 필수화 또는 잔고 폴링 폴백. (현재 config엔 설정됨: `config.json:7`.) |
@@ -318,17 +318,17 @@ FEED/KR_TEST/US_TEST 모드는 `set_console_enabled(false)`로 콘솔 로그를 
 
 ## 검증한 파일 목록
 
-- `Quant/src/main.cpp` (전체, 1048줄)
+- `Quant/src/main.cpp` (전체, 당시 1048줄 — 지금은 325줄, 설정 파싱은 `Quant/src/core/AppConfig.cpp` 243줄·`Quant/src/core/EngineConfigure.cpp` 124줄로 분리)
 - `Quant/include/core/Types.h` (전체)
 - `Quant/src/core/Engine.cpp` (전체) / `Quant/include/core/Engine.h` (전체)
 - `Quant/include/core/RingBuffer.h` (전체)
-- `Quant/src/api/KisClient.cpp` (전체, 1620줄 — 2페이지 분할 확인) / `Quant/include/api/KisClient.h` (전체)
-- `Quant/src/api/WebSocketClient.cpp` (전체, 1294줄) / `Quant/include/api/KisWebSocket.h` (전체)
+- `Quant/src/api/KisClient.cpp` (전체, 당시 1620줄 — 2페이지 분할 확인; D-048로 `Quant/src/api/Kis*.cpp`로 분할됨: KisTransport 578·KisAuth 220·KisAccount 180·KisOrder 392·KisMarket 693·KisIndex 478·KisUniverse 732줄) / `Quant/include/api/KisClient.h` (전체)
+- `Quant/src/api/WebSocketClient.cpp` (전체, 당시 1294줄 — 지금은 940줄) / `Quant/include/api/KisWebSocket.h` (전체)
 - `Quant/include/risk/OrderGate.h` / `Quant/src/risk/OrderGate.cpp` (전체)
 - `Quant/src/ipc/OrderRouter.cpp` / `Quant/include/ipc/OrderRouter.h` (전체)
 - `Quant/include/api/IOrderExecutor.h` (전체)
 - `Quant/include/strategy/StrategyBase.h` / `Quant/include/strategy/MACrossStrategy.h` (전체)
-- `Quant/include/utils/Logger.h` (전체), `Quant/src/utils/Logger.cpp`(placeholder), `Quant/src/utils/Config.cpp`(placeholder)
+- `Quant/include/utils/Logger.h` (전체), `Quant/src/utils/Logger.cpp`(placeholder), `Quant/src/utils/Config.cpp`(placeholder, 이후 삭제)
 - `Quant/config/config.json`, `Quant/config/config_mm_paper.json`
 
 ## 확인 못 한 부분 (본 문서 범위 밖)

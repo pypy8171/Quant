@@ -108,7 +108,7 @@ Notion 커넥터가 연결돼 있다. 개발로그와 장전 시황 브리핑을
 
 ### C. 런타임 자동화 루프 — regime.json 파일 전달
 
-보조 프로세스 `PYQuant/tools/macro_regime_feed.py`가 매크로 국면을 판정해 `regime.json`을 주기 갱신하면, C++ 엔진이 이를 폴링해 `OrderGate::set_entry_halt`를 토글한다. 신규매수만 차단하고 청산은 통과시킨다. 프로세스 간 결합을 파일 하나로 느슨하게 유지하면서 급락 국면에서 신규 진입을 자동 차단한다. 파일이 오래되면(`regime_stale_sec` 초과) stale로 간주해 안전측으로 진입을 막는다.
+보조 프로세스 `PYQuant/tools/macro_regime_feed.py`가 매크로 국면을 판정해 `regime.json`을 주기 갱신하면, C++ 엔진이 이를 폴링해 매수 비율 `entry_scale`·`entry_halt`(신규매수만 차단, 청산은 통과)·`force_liquidate`를 옮기고 라벨로 전략 집합을 고른다(D-083·D-084). 프로세스 간 결합을 파일 하나로 느슨하게 유지하면서 급락 국면에서 신규 진입을 자동 차단한다. 파일이 오래되면(`regime_stale_sec` 초과) stale로 간주해 안전측으로 진입을 막는다.
 
 ### D. 스케줄 루프 — 장전 시황 브리핑
 

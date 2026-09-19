@@ -14,9 +14,9 @@
 
 | | 백테스트 계열 | 실시간 장중 계열 |
 |---|---|---|
-| **바로 쓸 수 있는 것** | 계열 A(01·02·03·06 스터디)의 `equity/trades/holdings` **3-파일 CSV는 표준화**됨 → 곡선·체결 즉시 소비 | `logs/trades_YYYYMMDD.csv`가 **완전 구조화**(`ts_kst,event,order_id,odno,strategy,ticker,side,type,order_qty,order_price,fill_qty,fill_price,status,reason`) |
-| **없는 것(진짜 병목)** | **요약지표(Sharpe/MDD/승률/turnover)가 파일로 export 안 됨** — 콘솔 출력 + 손으로 쓴 md에만. 계열 B(위기 07/08/09)는 스키마 제각각, 08은 데이터파일 자체가 없음 | **포지션 평단·실현손익·스코어·entry_halt가 파일에 없음** — 인메모리 또는 ZMQ에만. `quant_trader.log`는 자유형식 텍스트라 파싱 부적합 |
-| **함정** | `PYQuant/bt_*.json`은 확장자만 json, **실내용은 CSV** | `regime.json`은 엔진 **출력이 아니라 입력**(외부 보조 프로세스 `macro_regime_feed.py`가 씀). ZMQ 브리지는 배선됐으나 `#ifdef HAS_ZMQ`로 **현재 빌드에서 꺼짐** |
+| **바로 쓸 수 있는 것** | 계열 A(01·02·03·06 스터디)의 `equity/trades/holdings` **3-파일 CSV는 표준화**됨 → 곡선·체결 즉시 소비 | `logs/trades_YYYYMMDD.csv`가 **완전 구조화**(`ts_kst,event,order_id,odno,strategy,ticker,side,type,order_qty,order_price,fill_qty,fill_price,status,reason,entry_reason,realized_pnl,seq,strategy_realized_pnl`) |
+| **없는 것(진짜 병목)** | **요약지표(Sharpe/MDD/승률/turnover)가 파일로 export 안 됨** — 콘솔 출력 + 손으로 쓴 md에만. 계열 B(위기 07/08/09)는 스키마 제각각, 08은 데이터파일 자체가 없음 | **포지션 평단·스코어가 파일에 없음** — 인메모리 또는 ZMQ에만(실현손익은 CSV `realized_pnl`, entry_halt·계좌 요약은 운영단말 `STATUS`가 1초마다 준다, D-095). `quant_trader.log`는 자유형식 텍스트라 파싱 부적합 |
+| **함정** | `PYQuant/bt_*.json`은 확장자만 json, **실내용은 CSV** | `regime.json`은 엔진 **출력이 아니라 입력**(외부 보조 프로세스 `macro_regime_feed.py`가 씀). ZMQ 브리지는 vcpkg ZeroMQ로 **켜져 있고** 체결 기록기(`PYQuant/main.py record`)가 TimescaleDB에 적재한다(D-090) |
 
 따라서 **정규화 계약(스키마)을 먼저 정하고**, 대시보드는 그 계약만 읽는다.
 
@@ -126,7 +126,7 @@ python research/studies/09_crisis_strategies/backtest_crisis_strategies.py # →
 }
 ```
 
-- **왜 스냅샷 파일인가**(ZMQ 대신): ZMQ 브리지는 배선돼 있으나 현재 빌드 OFF + vcpkg zeromq 설치·재빌드(한글 TEMP 빌드 마찰) 필요. 스냅샷 파일은 신규 C++ write 코드만으로 의존성 0·즉시 파싱. **ZMQ는 Phase 3에서 켠다**(publish 지점 TRADE/SIGNAL/ORDER/FILL/HEALTH는 이미 배선됨).
+- **왜 스냅샷 파일인가**(ZMQ 대신): 설계 당시 ZMQ 브리지가 빌드에서 꺼져 있어 스냅샷 파일로 시작했다. 지금은 vcpkg ZeroMQ로 켜져 SIGNAL/ORDER/FILL/HEALTH를 체결 기록기가 TimescaleDB에 적재한다(D-090, 틱 적재는 스위치로 기본 off). 스냅샷 파일은 의존성 없이 바로 파싱된다는 이점이 남아 대시보드 입력으로 계속 쓴다.
 - 포지션 평단·실현/미실현 PnL·regime score·entry_halt는 현재 인메모리/ZMQ에만 있으므로, 이 스냅샷이 **유일한 온전한 라이브 관측점**이 된다.
 
 ---
@@ -165,7 +165,7 @@ python research/studies/09_crisis_strategies/backtest_crisis_strategies.py # →
 |---|---|---|---|
 | **P1 백테스트** | `report.py` `metrics.json` exporter + 계열 B 백필 → 백테스트 HTML 대시보드(전략×이벤트 지표표 + equity 곡선 오버레이 + 정직성 라벨) | 0 | exporter/CLI/문서 + 계열 B 백필(08·09, 42행) **완료**, HTML **잔여** |
 | **P2 라이브 MVP** | 엔진 `state_snapshot.json` write(N초) + FastAPI 라이브 뷰(자동갱신) + trades CSV tail | 0 | 예정 |
-| **P3 로드맵 수렴** | ZMQ 켜기(vcpkg zeromq) → collector가 TimescaleDB 적재 → (선택)Grafana 운영 대시보드 | DB+Grafana | 예정 |
+| **P3 로드맵 수렴** | ZMQ 켜기(vcpkg zeromq) → 체결 기록기가 TimescaleDB 적재(끝, D-090) → (선택)Grafana 운영 대시보드 | DB+Grafana | 적재까지 끝, Grafana 미정 |
 
 **사용자 결정(2026-08-18)**: 착수순서=백테스트 먼저 / 라이브 채널=`state_snapshot.json` / 렌더링=FastAPI+HTML.
 

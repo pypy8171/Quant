@@ -22,7 +22,7 @@ git worktree remove ../Quant-wt-<주제>                 # 머지 뒤 정리
 - 문서만 고치는 세션은 메인 트리도 가능하되, 같은 파일을 두 세션이 열지 않는다(`git status --porcelain`으로 먼저 본다).
 - 예약 작업(`_private/_cron/*_task.md`)은 메인 트리에서 돌고 `research/`·`_private/`만 쓴다. 코드 세션은 그 시각에
   `research/STRATEGY_LAB.md`를 건드리지 않는다.
-- worktree는 `Quant/build_win/`을 공유하지 않는다 — 빌드 산출물은 worktree마다 새로 만든다(`$env:TEMP=C:uild_tmp` 회피는 동일).
+- worktree는 `Quant/build_win/`을 공유하지 않는다 — 빌드 산출물은 worktree마다 새로 만든다(`$env:TEMP=C:\build_tmp` 회피는 동일).
 
 ### 세션끼리 순서·충돌을 알아서 정리한다 (상시)
 

@@ -9,7 +9,7 @@ MFC라서 걸린 함정과 지금까지 손댄 이력을 여기에 모은다. **
 ## 1. 무엇인가
 
 엔진(`quant_trader`)이 연 운영단말 포트(기본 127.0.0.1:7100)에 붙어 보유 포지션을 표로 보여 주고, 행을 골라
-수동 매도·매수를 내고, 킬스위치를 당기는 창 하나짜리 프로그램이다. 콘솔 단말 `ops_client`가 하는 일을 화면으로
+수동 매도·매수를 내고, 신규 매수·전략 매도를 따로 멈추고(D-091·D-095), 킬스위치를 당기는 창 하나짜리 프로그램이다. 위에는 계좌 요약 한 줄(평가금·현금·일손익·보유평가·평가손익)이 1초마다 갱신된다. 콘솔 단말 `ops_client`가 하는 일을 화면으로
 옮긴 것이고, 프로토콜 헤더(`Quant/include/ipc/OpsProtocol.h`)를 서버·콘솔과 그대로 공유한다.
 
 ## 2. 파일
@@ -64,7 +64,7 @@ cd c:\Users\<사용자>\source\repos\Quant
 
 인자: `--host`(기본 127.0.0.1) `--port`(7100) `--token`. 토큰은 환경변수 `QUANT_OPS_TOKEN`으로도 받는다.
 
-더블클릭으로 띄우는 길: 바탕화면 `운영단말.lnk`가 메인 트리 `outuildd-release\Quant\ops_terminal.exe`를 가리키고, 토큰은
+더블클릭으로 띄우는 길: 바탕화면 `운영단말.lnk`가 메인 트리 `out\build\x64-release\Quant\ops_terminal.exe`를 가리키고, 토큰은
 사용자 환경변수 `QUANT_OPS_TOKEN`에 있다. 둘 다 `scripts/ops_terminal_shortcut.ps1`이 만든다 — CMake가 `ops_terminal` 링크 뒤
 POST_BUILD로 부르므로 **메인 트리에서 빌드하면 바로가기가 따라온다**(worktree 빌드는 건너뛴다, 지워질 수 있는 경로라).
 단말이 떠 있으면 exe가 잠겨 링크가 LNK1104로 실패한다 — 창을 닫거나 실행 중 exe를 다른 이름으로 옮긴 뒤 빌드한다.
@@ -76,7 +76,7 @@ POST_BUILD로 부르므로 **메인 트리에서 빌드하면 바로가기가 �
 위에서 아래로:
 
 1. 접속란 — 호스트·포트·토큰(가림)·접속/끊기 버튼·연결 상태(끊김/접속 중/연결됨/준비).
-2. 엔진 상태 한 줄 — running·data·signal·order·kill·entry_halt·manual_halt·force_liq·paper·전략 수. 준비 상태에서 1초마다 갱신(`STATUS_REQ`).
+2. 엔진 상태 한 줄 — running·data·signal·order·kill·entry_halt·manual_buy_halt·manual_sell_halt·force_liq·paper·전략 수와 계좌 요약(equity·cash·daily_pnl·position_value·unrealized_pnl). 준비 상태에서 1초마다 갱신(`STATUS_REQ`).
    그 아래 계좌 한 줄 — 총평가·주문가능현금·일손익·보유 평가(평가손익, %). 같은 `STATUS` 응답의 `equity`·`cash`·`daily_pnl`·
    `position_value`·`unrealized_pnl`로 채운다. 앞 셋은 엔진의 잔고 대조 주기(브로커 값)로만 바뀌고, 뒤 둘은 보유분 × 최근 체결가라
    틱마다 움직인다. 평가손익(원, %)은 오른쪽 별도 컨트롤(`IDC_ACCOUNT_PNL`)이라 `OnCtlColor`로 색을 입힌다 — 국내 관례대로

@@ -11,7 +11,7 @@
 
 ## 전략 (Strategy)
 
-프로젝트에 존재하는 전략은 13종이다(C++ 구체 전략 10 + Python 리서치 3). StrategyBase는 공통 인터페이스라 전략 수에서 제외한다.
+프로젝트에 존재하는 전략은 16종이다(C++ 구체 전략 10 + Python 백테스트 전략 6, `PYQuant/strategy/`). StrategyBase는 공통 인터페이스라 전략 수에서 제외한다.
 
 | 약어 / 코드명 | 풀네임 | 정의 | 어원·주의 | 대표 위치 |
 |---|---|---|---|---|
@@ -42,15 +42,15 @@
 | **OrderRouter** | order 스레드에서 실제 KIS 주문을 실행·라우팅(new_route/on_fill) | 거부(REJECTED) 시 drop, 재큐잉 없음(C++). 체결콜백 on_fill로 원장 갱신 | `Quant/src/ipc/OrderRouter.cpp` |
 | **reconcile** (리컨사일) | 로컬 원장 ↔ KIS 실잔고를 재조회로 재동기 | rest 모드처럼 체결콜백이 없을 때 손익 근사 경로 | `Quant/src/core/Engine.cpp` |
 | **kill switch** | 신규·청산 양방향 하드스톱 스위치 | ZMQ 수동명령 / WS 연속 실패로 발동(손익기반 자동킬은 미구현) | `Quant/src/risk/OrderGate.cpp` |
-| **entry_halt** | 신규 진입(BUY)만 차단, 청산(SELL)은 허용하는 플래그 | **OrderGate 전역 플래그**라 켜지면 모든 전략의 신규진입이 함께 막힌다. 매크로 사이드카 regime.json 파일브리지가 토글(→ 구조 국면 `RegimeController`와 다른 축) | `Quant/src/risk/OrderGate.cpp` |
+| **entry_halt** | 신규 진입(BUY)만 차단, 청산(SELL)은 허용하는 플래그 | **OrderGate 전역 플래그**라 켜지면 모든 전략의 신규진입이 함께 막힌다. 매크로 사이드카 regime.json 파일브리지가 토글(운영단말 수동 정지 `manual_buy_halt`와는 다른 플래그, D-091·D-095) | `Quant/src/risk/OrderGate.cpp` |
 | **FORCE_LIQ** | BEAR 등에서 보유 전량을 시장가로 청산하는 강제청산 신호 | `strategy_id="FORCE_LIQ"`. 시장가라 명목 백스톱 우회 방지로 평단을 `reference_price`에 stamp | `Quant/src/core/Engine.cpp` |
 | **UniverseScanner** | 시총·거래대금·등락률 필터로 매매 유니버스를 스캔(scan_devscale / scan_itb) | 정배열 프로브·수급 필터 포함 | `Quant/include/universe/UniverseScanner.h:16` |
 | **StrategyFactory** | config를 읽어 전략 인스턴스를 생성·등록하는 팩토리 | main.cpp에서 분리된 전략 로딩 계층 | `Quant/src/strategy/StrategyFactory.cpp` |
 | **Logger** | 비동기 싱글톤 로거(ms UTC 타임스탬프, 콘솔 + `logs/quant_trader.log`) | hot path는 큐 push만·전용 writer 스레드가 I/O(꼬리 지연(tail) 억제). 큐는 `MpscQueue<Record>` 65,536슬롯(D-045), 가득 차면 새 레코드 드롭+`dropped()`·`flush()`. LOG_INFO/WARN/ERROR/DEBUG 매크로 | `Quant/include/utils/Logger.h` |
-| **bootstrap_ledger** | 기동 시 실계좌 보유분을 OrderGate 원장에 시드(매도수량·평단·손실한도 정합) | config `bootstrap_ledger_from_balance` | `Quant/src/main.cpp` |
+| **bootstrap_ledger** | 기동 시 실계좌 보유분을 OrderGate 원장에 시드(매도수량·평단·손실한도 정합) | config `bootstrap_ledger_from_balance` | `Quant/src/core/EngineConfigure.cpp` |
 | **manage_holdings** | 스캔 유니버스 밖 잔고 보유분에 "청산 전용" 가디언을 부착(신규진입 영구차단) | config `manage_holdings` 블록 | `Quant/config` 전략 블록 |
 | **ZmqBridge / OrderRouter(IPC)** | ZeroMQ 기반 프로세스 간 시세·주문 중계(선택 구성) | Python 오퍼레이터 연동 | `Quant/src/ipc/ZmqBridge.cpp` |
-| **OrderSignal / MarketData** | 전략이 산출한 주문신호(side/type/qty/price/ref_price) / OHLCV+bar_index 시세 | 파이프라인 코어 타입 | `Quant/include/core/Types.h` |
+| **OrderSignal / MarketData** | 전략이 산출한 주문신호(side/type/quantity/price/reference_price) / OHLCV+bar_index 시세 | 파이프라인 코어 타입 | `Quant/include/core/Types.h` |
 | **reference_price** | 시장가(price=0) 주문의 명목 한도(max_notional_per_order/per_ticker) 평가 기준가 | 지정가는 price로 명목 평가, 시장가는 이 값으로 — 시장가의 백스톱 우회 차단. FORCE_LIQ 매도는 평단을 stamp | `Quant/include/core/Types.h` · `Quant/src/risk/OrderGate.cpp` |
 
 ---
@@ -77,10 +77,10 @@
 | **SOX** | 필라델피아 반도체지수 | 미국 반도체 지수(국내 반도체주 선행지표로 관찰) | 위기·SOX선행 전략 맥락 |
 | **VIX / VKOSPI** | 변동성지수 | 미국(VIX)·코스피(VKOSPI) 변동성지수 | 위험국면 관찰 |
 | **mrktCtg** | Market Category | data.go.kr 응답의 시장 구분 리터럴("KOSPI"/"KOSDAQ"/"KONEX") | 유니버스 시장 태깅 |
-| **NXT** | 넥스트레이드(Nextrade) | 2025-03 출범한 국내 대체거래소(ATS). 정규장 밖 프리(08:00~)·애프터(~20:00) 시간대가 있어 같은 종목이 KRX와 다른 가격을 가질 수 있다 | 지금 이 엔진은 KRX(`J`)만 보고 보낸다 |
-| **J / NX / UN** | KIS `FID_COND_MRKT_DIV_CODE` | 시세 조회의 시장 구분 — `J`=KRX, `NX`=NXT, `UN`=통합 | 이 저장소는 전부 `J`로 고정돼 있다(`Quant/src/api/KisMarket.cpp`) |
+| **NXT** | 넥스트레이드(Nextrade) | 2025-03 출범한 국내 대체거래소(ATS). 정규장 밖 프리(08:00~)·애프터(~20:00) 시간대가 있어 같은 종목이 KRX와 다른 가격을 가질 수 있다 | 발주는 config `kis.exchange`(KRX/NXT/SOR)를 따르고 NXT·SOR이면 통합 시세 채널(`H0UN*`)을 구독한다(D-096). REST 시세 조회는 여전히 `J` |
+| **J / NX / UN** | KIS `FID_COND_MRKT_DIV_CODE` | 시세 조회의 시장 구분 — `J`=KRX, `NX`=NXT, `UN`=통합 | REST 시세 조회는 `J`로 고정(`Quant/src/api/KisMarket.cpp`), 발주 거래소는 `kis.exchange`가 따로 정한다(D-096) |
 | **H0NX… / H0UN…** | KIS 실시간 NXT·통합 채널 | 호가 `H0NXASP0`/`H0UNASP0`, 체결 `H0NXCNT0`/`H0UNCNT0` | KRX 전용 `H0STASP0`/`H0STCNT0`와 짝. config `kis.exchange`가 NXT·SOR이면 통합(`H0UN*`)을 구독한다(D-096) |
-| **SOR** | Smart Order Routing | 복수 시장(KRX·NXT) 중 유리한 곳으로 주문을 보내는 최선집행 라우팅 | 발주 시 `EXCG_ID_DVSN_CD`로 고른다. 현재 미사용(KRX 고정) |
+| **SOR** | Smart Order Routing | 복수 시장(KRX·NXT) 중 유리한 곳으로 주문을 보내는 최선집행 라우팅 | 발주 시 `EXCG_ID_DVSN_CD`로 고른다. config `kis.exchange`=`SOR`이면 신규·정정·취소 주문 모두 SOR로 나간다(`Quant/src/api/KisOrder.cpp`의 `kis_order_exchange`, D-096) |
 
 ---
 
@@ -105,8 +105,8 @@
 | **rest_price_feed** | WS 대신 REST 현재가 폴링을 체결 하트비트로 사용 | true면 reconcile 필수 |
 | **is_paper** | 모의(true, openapivts:29443) / 실계좌(false) 스위치 | 시세·주문 도메인 분기 |
 | **fetch_interval_sec** | 데이터 폴링 주기(초) | 장외 시간은 스킵 |
-| **regime / regime.json** | 매크로 사이드카(`macro_regime_feed.py`)가 쓰는 위험국면 파일브리지 | risk_score를 매수 비율 `entry_scale`(0~1)로 옮겨 전략이 명목에 곱하고, 정지선 이하면 entry_halt. 코스피·코스닥·해외·유가 등락표 + 장초 대비 방향표(D-083). ※ 장시작 구조 국면 판정은 별도 축 → `RegimeController` 참조 |
-| **regime_strategies** | `regime.json` 라벨(RISK_ON/NEUTRAL/RISK_OFF)별 전략 집합을 고르는 config 맵 | 라벨이 바뀐 회차에만 `Engine::apply_regime_selection`이 전략 `active_`를 켜고 끈다(신규 진입만). 코스피 200MA로 따로 판정하던 축은 지웠다(D-084·D-085) | `Quant/src/main.cpp` |
+| **regime / regime.json** | 매크로 사이드카(`macro_regime_feed.py`)가 쓰는 위험국면 파일브리지 | risk_score를 매수 비율 `entry_scale`(0~1)로 옮겨 전략이 명목에 곱하고, 정지선 이하면 entry_halt. 코스피·코스닥·해외·유가 등락표 + 장초 대비 방향표(D-083). 라벨→전략 집합은 `regime_strategies` 항목 |
+| **regime_strategies** | `regime.json` 라벨(RISK_ON/NEUTRAL/RISK_OFF)별 전략 집합을 고르는 config 맵 | 라벨이 바뀐 회차에만 `Engine::apply_regime_selection`이 전략 `active_`를 켜고 끈다(신규 진입만). 코스피 200MA로 따로 판정하던 축은 지웠다(D-084·D-085) | `Quant/src/core/EngineConfigure.cpp` |
 | **dedup** (dedup_window_sec) | 동일 전략+종목 중복주문 제거 창 | 1초 내 중복 거부 |
 
 ---
@@ -184,7 +184,7 @@
 |---|---|---|
 | **G1** | 국면→전략 자동선택 | `Quant/src/core/Engine.cpp` |
 | **G3** | 극단 위험회피 시 보유 전량 강제청산(FORCE_LIQ) | `Quant/src/core/Engine.cpp` |
-| **G5** | 기동 시 실계좌 잔고로 OrderGate 원장 시드(bootstrap) | `Quant/src/main.cpp` |
+| **G5** | 기동 시 실계좌 잔고로 OrderGate 원장 시드(bootstrap) | `Quant/src/core/EngineConfigure.cpp` |
 | **H-1** | reserved_(예약수량) 드리프트 정합 | `Quant/src/risk/OrderGate.cpp` |
 | **M-1 / M-2** | 장 마감 재방출 / 청산 재시도 미완료 방지 | `Quant/src/ipc/OrderRouter.cpp` |
 | **MM-1** | 시장조성 1단계(정정·취소 지원 포함) | `Quant/include/strategy/MarketMakingStrategy.h` |

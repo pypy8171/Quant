@@ -1,6 +1,6 @@
 # Quant Trading System — 프로젝트 가이드
 
-> 최종 업데이트: 2026-09-11 (5-스레드 엔진 = 3-스레드 파이프라인 + 체결 소비 + 제어 스레드, D-056. ZMQ IPC·FEP는 목표 아키텍처이며 현 C++ 엔진 탑재 범위는 ARCHITECTURE.md 기준)
+> 최종 업데이트: 2026-09-19 (엔진은 데이터→전략 샤드 M→디스패치→주문 파이프라인에 체결 소비·제어 스레드를 더한 구성, D-071. 현행 요약은 [../ENGINE_ARCHITECTURE.md](../ENGINE_ARCHITECTURE.md), 읽는 순서는 [../CODE_FLOW.md](../CODE_FLOW.md). ZMQ IPC·TimescaleDB는 목표 아키텍처이며 현 C++ 엔진 탑재 범위는 그 두 문서 기준)
 
 ---
 
@@ -22,94 +22,39 @@
 ### 데이터 흐름 다이어그램
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        KIS OpenAPI (한국투자증권)                         │
-│   REST API (OHLCV · 종목정보 · 주문)      WebSocket (실시간 체결 · 호가)  │
-└──────────┬──────────────────────────────────────┬────────────────────────┘
-           │                                      │
-           ▼                                      ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                     C++ Engine  (quant-engine 컨테이너)                   │
-│                                                                          │
-│  ┌─────────────┐  market_queue_  ┌──────────────┐  order_queue_         │
-│  │ Data Thread │ ──RingBuffer──▶ │Strategy Thread│ ──RingBuffer──▶      │
-│  │ REST 폴링   │                 │ on_data()     │                       │
-│  │ (fetch_     │  ob_queue_      │ on_order_book │  ┌──────────────────┐ │
-│  │  interval_  │ ──RingBuffer──▶ │ on_trade()    │  │  Order Thread    │ │
-│  │  sec 주기)  │  td_queue_      │ → OrderSignal │  │  OrderRouter     │ │
-│  └─────────────┘ ──RingBuffer──▶ └──────────────┘  │  .submit()       │ │
-│                                                     │  → OrderGate     │ │
-│  KisWebSocket                                       │  → KisClient     │ │
-│  H0STASP0 → ob_queue_                              └──────┬───────────┘ │
-│  H0STCNT0 → td_queue_ + ZMQ publish_trade                 │             │
-│  HDFSCNT0 → td_queue_ + ZMQ publish_trade                 │             │
-│                                                            ▼             │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │  ZmqBridge (전용 zmq_thread_)                                    │   │
-│  │  PUB tcp://*:5555  TRADE / SIGNAL / ORDER / HEALTH               │   │
-│  │  REP tcp://*:5556  KILL / STATUS (Python Operator 수신)          │   │
-│  └──────────────────────┬───────────────────────────────────────────┘   │
-│                          │                                               │
-│  ┌──────────────────┐    │ (장 중 5초 주기)                               │
-│  │ Control Thread   │    │                                               │
-│  │ WS stale 감지    │    │                                               │
-│  │ → kill switch    │    │                                               │
-│  └──────────────────┘    │                                               │
-└─────────────────────────┼────────────────────────────────────────────────┘
-                           │ ZMQ TCP (Docker 내부 quant-net)
-           ┌───────────────┼──────────────────┐
-           ▼               ▼                  ▼
-┌─────────────────┐ ┌─────────────────┐ ┌──────────────────┐
-│  quant-recorder │ │  quant-python   │ │  Python Operator │
-│  ZMQ SUB :5555  │ │  ZMQ SUB :5555  │ │  ZMQ REQ :5556   │
-│  → TimescaleDB  │ │  콘솔 모니터    │ │  KILL / STATUS   │
-└────────┬────────┘ └─────────────────┘ └──────────────────┘
-         │
-         ▼
-┌─────────────────────────────────────────────────────────┐
-│              TimescaleDB  (quant-tsdb 컨테이너)          │
-│  ticks · signals · orders · health · bars_1d            │
-│  (모두 hypertable — 시간별 자동 파티셔닝)                 │
-└─────────────────────────────────────────────────────────┘
+KIS OpenAPI
+  REST(봉·현재가·주문) ──▶ [데이터 스레드] ──▶ pipeline_.bars_matrix · pipeline_.trade_matrix(데이터 행 data_row)
+  WebSocket(호가·체결) ──▶ [WS 수신 스레드 i = 레인 i] ──▶ pipeline_.order_book_matrix · pipeline_.trade_matrix(행 i)
+  WebSocket(체결통보) ──▶ [WS 수신 스레드] ──▶ pipeline_.fill_queue ──▶ [체결 소비 스레드] ──▶ OrderRouter::on_fill
+
+행렬 열 m ──▶ [샤드 스레드 m] ──▶ pipeline_.shard_out(MpscQueue) ──▶ [전략(디스패치) 스레드]
+          ──▶ pipeline_.order_queue(RingBuffer 1024) ──▶ [주문 스레드] OrderRouter → OrderGate → IOrderExecutor(KisClient)
+
+[제어 스레드]  잔고 대조 · 토큰 선갱신 · WS 단절 판정  (파이프라인 밖)
+ZmqBridge(HAS_ZMQ, 내부 스레드)  PUB :5555 / REP :5556  →  quant-recorder → TimescaleDB  (목표 아키텍처, 3·4절)
+OpsServer(내부 스레드)           운영단말 TCP — 조회·수동주문·KILL (D-043)
 ```
 
-### 스레드 모델 (C++ Engine 내부 — 5-스레드)
+### 스레드 모델 (C++ Engine 내부)
 
-```
-[Data Thread]
-  KIS REST 일봉 폴링 (fetch_interval_sec, 기본 60초)
-  장 중에만 동작 (KR: 09:00~15:30, US: 22:30~05:00 KST)
-  장 시작 감지 → OrderGate.reset_daily()
-       │
-       ▼ RingBuffer<MarketData>[1024]
+스레드 함수는 `Quant/include/core/Engine.h`의 `data_thread_fn`·`shard_thread_fn`(샤드 M개)·`strategy_thread_fn`·
+`order_thread_fn`·`fill_thread_fn`·`control_thread_fn`이고, 큐는 구조체 하나 `pipeline_`(`ShardPipeline`)에 모여 있다.
+다섯 스레드 + 샤드 M개(config `strategy_shards`, 기본 1)에 WS 소켓마다 수신 스레드 하나가 더 붙는다.
 
-[WebSocket recv_thread_ — KisWebSocket 내부]
-  H0STASP0 → ob_queue_[4096]
-  H0STCNT0 / HDFSCNT0 → td_queue_[4096] + ZMQ publish_trade
-  H0STCNI0/9 체결통보 → fill_queue_[1024] (push만, 가득 차면 드롭 계수. D-056)
+| 스레드 | 하는 일 | 큐 |
+|---|---|---|
+| 데이터 | KIS REST 봉·현재가 폴링(`fetch_interval_sec`)·유니버스 재스캔. 매매 창 안에서만 — 정규장 09:00~15:30 + 애프터마켓 16:00~20:00 KST(D-097), 모의계좌(`is_paper`)는 15:30까지(`Quant/src/core/AppConfig.cpp`의 `parse_risk`) | `bars_matrix`(1024)·`trade_matrix` 데이터 행 |
+| WS 수신(레인 i, 소켓마다 하나) | 디코드 뒤 행렬 행 i에 push. 체결통보는 `fill_queue`에 push만(가득 차면 드롭 계수, D-056) | `order_book_matrix`(4096)·`trade_matrix`(4096)·`fill_queue`(1024) |
+| 샤드 m | 자기 열의 틱을 비우고 열 m의 전략을 부른다(종목 해시로 열을 고른다) | `shard_out`(MpscQueue 4096)에 넣는다 |
+| 전략(디스패치) | `SignalDispatcher`가 순번 stamp·신규 차단·교체 진입을 판단하고 주문 큐로 넘긴다 | `order_queue`(RingBuffer 1024, D-073)에 넣는다 |
+| 주문 | `OrderRouter::submit` → `OrderGate::check` → `IOrderExecutor::submit_order`. 호출 간격·재시도는 `OrderPacer` | `order_queue` 소비 |
+| 체결 소비 | `fill_queue` → `OrderRouter::on_fill`(원장·CSV) → 운영단말 방송 | `fill_queue` 소비 |
+| 제어 | 잔고 대조·토큰 선갱신·WS 단절 판정(`feed::Supervisor`)·큐 고수위 로그 | 파이프라인 밖 |
 
-[Fill Thread]
-  fill_queue_ 소비 → OrderRouter::on_fill (원장·CSV) → OpsServer::broadcast(FILL)
-  큐가 비면 condvar에서 자고 WS 수신 스레드가 깨운다
-
-[Strategy Thread]
-  우선순위: ob_queue_ > td_queue_ > market_queue_ (고주파 → 저주파)
-  아이들 시 100µs 슬립
-  신호 발생 → ZMQ publish_signal → order_queue_ push
-       │
-       ▼ RingBuffer<OrderSignal>[256]
-
-[Order Thread]
-  OrderRouter::submit()
-    → OrderGate::check() (11개 검사)
-    → IOrderExecutor::submit_order() (KisClient 또는 Stub)
-    → ZMQ publish_order
-
-[Control Thread]
-  5초 주기: 장 중에서만 WS stale 감지 (30초 미수신 → kill switch)
-  ZmqBridge 전용 zmq_thread_가 REP 소켓 처리 (KILL/STATUS 명령)
-  OpsServer 전용 srv_thread_가 운영단말 TCP 처리 (조회·수동주문 인테이크·KILL, D-043)
-```
+유휴 소비자는 슬립 폴링이 아니라 `Quant/include/core/WakeGate.h`의 `sync::WakeGate`로 잔다 — 생산자가 push 뒤 notify하고
+소비자는 큐가 비면 condvar에서 기다린다(전략 스레드는 200µs yield 뒤). Windows 타이머 격자에서 `sleep_for(100µs)`는
+실측 중앙값(p50) 15.6ms라 그렇다(D-071). 세부 흐름은 [../CODE_FLOW.md](../CODE_FLOW.md), 모듈 책임은
+[../ENGINE_ARCHITECTURE.md](../ENGINE_ARCHITECTURE.md)에 있으니 여기서는 되풀이하지 않는다.
 
 ### 사용 기술 스택
 
@@ -120,7 +65,7 @@
 | WebSocket (C++) | KIS WebSocket (`ops.koreainvestment.com`) |
 | JSON | nlohmann/json (FetchContent 자동 다운로드) |
 | IPC | ZeroMQ (PUB-SUB + REQ-REP) + cppzmq header-only |
-| 락-프리 큐 | 자체 구현 SPSC RingBuffer (`std::atomic`, cache-line 분리) |
+| 락-프리 큐 | 자체 구현 SPSC `RingBuffer`·MPSC `MpscQueue`·수신 N×샤드 M `shard::Matrix` (`std::atomic`, cache-line 분리) |
 | Python | 3.11, requests, pyzmq, psycopg2-binary |
 | 데이터베이스 | TimescaleDB (PostgreSQL 16 확장) |
 | 컨테이너 | Docker + Docker Compose |
@@ -132,128 +77,27 @@
 
 ### 전체 디렉토리
 
-```
-Quant/                              ← 저장소 루트
-├── Quant/                          ← C++ 프로젝트
-│   ├── include/
-│   │   ├── api/
-│   │   │   ├── IOrderExecutor.h    주문 실행 추상 인터페이스 (테스트 격리용)
-│   │   │   ├── KisClient.h         REST API (인증·OHLCV·주문·지수·국내선물 시세 get_future_price/board)
-│   │   │   ├── KisRestDecode.h     REST 분봉 응답 → 집계봉 (헤더 전용 순수 함수, test_kis_decode)
-│   │   │   ├── KisWsDecode.h       실시간 채널 레코드 → 구조체 (헤더 전용 순수 함수, test_ws_decode)
-│   │   │   └── KisWebSocket.h      실시간 체결·호가 WebSocket + stale 감지
-│   │   ├── core/
-│   │   │   ├── AppConfig.h         config.json → typed 설정 한 벌 (json을 읽는 곳은 여기뿐)
-│   │   │   ├── Engine.h            5-스레드 트레이딩 엔진 (+국면→전략 자동선택·강제청산)
-│   │   │   ├── ReconcilePlan.h     잔고 대조 차이 계산 → RECONCILE 행 (헤더 전용 순수 함수, test_reconcile_plan)
-│   │   │   ├── RingBuffer.h        SPSC 락-프리 큐 (cache-line 분리)
-│   │   │   ├── UniverseExit.h      재스캔 이탈·복귀 판정 (연속 부재 → 차단·해제, present 연속 → 복귀; 헤더 전용 순수 함수)
-│   │   │   └── Types.h             MarketData, OrderSignal(+ref_price), Regime/RegimeSnapshot 등
-│   │   ├── ipc/
-│   │   │   ├── OpsProtocol.h       운영단말 프레이밍 (헤더 전용, 단말과 공유)
-│   │   │   ├── OpsServer.h         운영단말 TCP 서버 (select 단일 스레드, 토큰 인증)
-│   │   │   ├── OrderRouter.h       FEP 레이어 (주문 라우팅·이력·통계)
-│   │   │   └── ZmqBridge.h         ZMQ PUB/REP 브리지 (HAS_ZMQ 시 활성)
-│   │   ├── risk/
-│   │   │   └── OrderGate.h         주문 검증 게이트 + Kill Switch + entry_halt (명목 백스톱은 시장가 시 ref_price 평가)
-│   │   ├── strategy/
-│   │   │   ├── StrategyBase.h      전략 인터페이스 (on_data/on_order_book/on_trade)
-│   │   │   ├── MACrossStrategy.h   이동평균 교차 전략
-│   │   │   ├── MomentumStrategy.h  모멘텀 전략
-│   │   │   └── ValueContraryStrategy.h  저PBR 역추세 전략
-│   │   └── utils/
-│   │       ├── Logger.h            비동기 싱글톤 로거 (ms UTC·전용 writer 스레드·밀림 처리·flush)
-│   │       ├── EtfFilter.h         종목명 기반 ETF/ETN 판별 (브랜드 접두사∪상품 토큰, config/etf_name_tokens.json)
-│   │       └── Timer.h             고분해능 타이머
-│   ├── src/
-│   │   ├── main.cpp                진입점 — 초기화 단계 호출 목록 + FEED / KR_TEST / US_TEST / TRADE 분기
-│   │   ├── api/
-│   │   │   ├── KisClientInternal.h 구현 파일 공용 include·상수 (공개 헤더 아님)
-│   │   │   ├── KisTransport.cpp    플랫폼별 HTTP (WinHTTP↔libcurl)·재시도·초당 한도·인증 헤더
-│   │   │   ├── KisAuth.cpp         OAuth2 토큰 발급·캐시
-│   │   │   ├── KisMarket.cpp       주식 일봉·분봉·현재가·펀더멘털
-│   │   │   ├── KisIndex.cpp        지수·수급·선물 시세
-│   │   │   ├── KisOrder.cpp        주문 발주·정정·취소
-│   │   │   ├── KisAccount.cpp      잔고·미체결
-│   │   │   ├── KisUniverse.cpp     순위 조회·유니버스 후보
-│   │   │   ├── WebSocketClient.cpp WebSocket 연결·재연결·구독·파싱 (플랫폼 코드 없음, D-049)
-│   │   │   ├── WsSocket.h          소켓 인터페이스 + 플랫폼 함수 선언(POST·AES)
-│   │   │   ├── WsSocketWin.cpp     WinHTTP 소켓·BCrypt (Windows에서만 링크)
-│   │   │   └── WsSocketPosix.cpp   POSIX 소켓·RFC 6455·libcurl·OpenSSL (Linux에서만 링크)
-│   │   ├── core/
-│   │   │   ├── AppConfig.cpp       parse_config — 키 이름·기본값·검증
-│   │   │   ├── Engine.cpp          5-스레드 라이프사이클
-│   │   │   └── RingBuffer.cpp
-│   │   ├── ipc/
-│   │   │   ├── OpsServer.cpp       운영단말 서버 구현 (accept·프레임 처리·push)
-│   │   │   ├── OrderRouter.cpp     submit / record / stats 구현
-│   │   │   └── ZmqBridge.cpp       전용 zmq_thread_ + 송신 큐 (HAS_ZMQ)
-│   │   ├── risk/
-│   │   │   └── OrderGate.cpp       11개 검사 + 뮤텍스 4개 독립 스코프
-│   │   ├── strategy/
-│   │   │   ├── StrategyBase.cpp
-│   │   │   ├── MACrossStrategy.cpp
-│   │   │   └── MomentumStrategy.cpp
-│   │   └── utils/
-│   │       ├── Logger.cpp
-│   │       └── Timer.cpp
-│   ├── config/
-│   │   └── config.json             ← gitignore (실KIS 인증정보+계좌번호)
-│   ├── tests/
-│   │   ├── test_order_gate.cpp     OrderGate 단위 테스트
-│   │   ├── test_order_router.cpp   OrderRouter 통합 테스트 (6/6 PASS, StubExecutor)
-│   │   ├── test_kis_decode.cpp     REST 분봉 디코더 (숫자·시각·페이지 병합·집계)
-│   │   ├── test_reconcile_plan.cpp 잔고 대조 차이 계산 (원장≠잔고 4갈래·일치는 행 없음)
-│   │   ├── test_ringbuffer.cpp     RingBuffer 기본 동작 검증
-│   │   ├── test_ringbuffer_stress.cpp  SPSC 부하 테스트
-│   │   └── test_pipeline_stress.cpp    E2E 파이프라인 부하 테스트
-│   ├── CMakeLists.txt              빌드 정의 (ZMQ 선택적, FetchContent)
-│   └── Dockerfile                  C++ 2-stage 빌드 (builder/runtime)
-│
-├── PYQuant/                        ← Python 프로젝트
-│   ├── core/
-│   │   ├── __init__.py
-│   │   └── logger.py               setup_logger(name) → 구조화 로깅
-│   ├── kis/
-│   │   ├── __init__.py
-│   │   └── client.py               KisClient (토큰 캐시·KisAuthError·예외 분리·지수 get_index_price·차트 get_chart_ohlcv/get_minute_ohlcv·거래대금 get_volume_ranking)
-│   ├── strategy/
-│   │   ├── __init__.py
-│   │   ├── base.py                 StrategyBase (Python)
-│   │   └── value_contrary.py       저PBR 역추세 전략 (3일 연속 하락 스크리닝)
-│   ├── backtest/
-│   │   ├── __init__.py
-│   │   ├── engine.py               날짜별 시뮬레이션 (look-ahead bias 방지)
-│   │   ├── report.py               수익률·MDD·Sharpe·승률 출력
-│   │   └── regime_scorer.py        옛 C++ 코스피 국면 판정기 미러 + 구조 국면 제거실험 (Track A)
-│   ├── tools/
-│   │   └── index_intraday_logger.py  장중 지수(0001/1001/2001) 30s append-only JSONL forward 적재 (Track B)
-│   ├── tests/
-│   │   └── test_regime_scorer.py   regime_scorer 변형 A의 C++ 라이브 패리티 강제
-│   ├── live/
-│   │   ├── __init__.py
-│   │   └── trader.py               REST 폴링 기반 실시간 트레이더
-│   ├── ipc/
-│   │   ├── __init__.py
-│   │   ├── subscriber.py           ZmqSubscriber + EngineMonitor (콜백 기반)
-│   │   └── operator.py             ZmqOperator (KILL·STATUS 명령 전송)
-│   ├── db/
-│   │   ├── __init__.py
-│   │   ├── client.py               DbClient (psycopg2, 재시도, 5개 insert)
-│   │   └── schema.sql              TimescaleDB hypertable DDL (자동 적용)
-│   ├── main.py                     CLI 진입점 (5개 서브커맨드)
-│   ├── requirements.txt
-│   └── Dockerfile                  python:3.11-slim (ENTRYPOINT + CMD 분리)
-│
-├── docker-compose.yml              4개 서비스 (engine/python/recorder/tsdb)
-├── ARCHITECTURE.md                 전체 아키텍처 상세 리뷰
-├── CODE_REVIEW.md                  코드 리뷰 (버그·설계·개선 항목)
-├── docs/guides/OPS_TERMINAL.md     운영단말 채널 — 프로토콜·설정·ops_client 사용법
-├── docs/guides/MFC_TERMINAL.md     MFC 운영단말 ops_terminal — 빌드 조건·화면·스레드 모델·이력
-├── docs/guides/CPP20_23_GUIDE.md   C++20/23 문법과 프로젝트 적용 자리 — 표준 23 적용 순서(D-070)
-├── docs/guides/PROJECT_GUIDE.md    이 파일
-└── CLAUDE.md                       AI 어시스턴트용 빌드·실행 가이드
-```
+파일 단위 목록은 손으로 유지하지 않는다 — 정본은 [../FILE_INDEX.md](../FILE_INDEX.md)(파일마다 한 줄 설명). 여기서는 디렉터리의 역할만 둔다.
+
+| 경로 | 역할 |
+|---|---|
+| `Quant/include/core` · `Quant/src/core` | 엔진 본체 — `Engine.h`(스레드·`pipeline_`), `AppConfig`(config.json을 읽는 유일한 곳), `Types.h`, 큐(`RingBuffer`·`MpscQueue`·`ShardMatrix`), `SignalDispatcher`·`OrderPacer`·`LedgerReconciler`·`FeedSupervisor`·`BarAggregator` 같은 스레드별 지역 객체, `WakeGate`, 틱 캡처·리플레이 |
+| `Quant/include/api` · `Quant/src/api` | KIS REST(`KisClient`, 구현은 도메인별 `Kis*.cpp`)·WebSocket(`KisWebSocket`, 소켓은 `WsSocketWin.cpp`/`WsSocketPosix.cpp` 파일 단위 분기)·순수 함수 디코더(`KisRestDecode.h`·`KisWsDecode.h`)·인터페이스(`IOrderExecutor`·`IMarketDataSource`) |
+| `Quant/include/risk` · `Quant/src/risk` | `OrderGate`(주문 검증·확정 포지션 원장·kill switch·entry_halt)와 거부 사유 문장 계약 `GateReasons.h`(D-067) |
+| `Quant/include/strategy` · `Quant/src/strategy` | `StrategyBase`와 전략 구현, 타입별 로더 `StrategyFactory.cpp`. 가상 함수는 `on_data`·`on_order_book`·`on_order_book_batch`·`on_trade`·`on_trade_batch`·`on_start`·`on_stop`·`get_watch_specifications`·`wants_daily_bars`·`id`·`describe` |
+| `Quant/include/ipc` · `Quant/src/ipc` | `OrderRouter`(FEP 층 — 라우팅·이력·통계), 운영단말 TCP `OpsServer`·`OpsProtocol`, `ZmqBridge`(HAS_ZMQ일 때만) |
+| `Quant/include/universe` · `Quant/src/universe` | 유니버스 스캔·점수(`UniverseScanner`·`ScoreWeight`·`MaAlign`) |
+| `Quant/include/modes` · `Quant/src/modes` | FEED·KR_TEST·US_TEST 모니터 모드(`Monitors`) |
+| `Quant/include/utils` · `Quant/src/utils` | 비동기 `Logger`, ETF 이름 판별 `EtfFilter`, json 접근 `JsonNode`, `Utf8` |
+| `Quant/src/main.cpp` | 진입점 — 초기화 단계 호출과 FEED / KR_TEST / US_TEST / TRADE 분기 |
+| `Quant/tests` | ctest 단위 테스트 `test_*.cpp`(아래 "단위 테스트")와 벤치 `bench_*.cpp` |
+| `Quant/tools` | 수동 주문·운영단말 클라이언트 `ops_client`·MFC 운영단말 `ops_terminal`·시세 점검 실행파일과 파이썬 조회 스크립트 |
+| `Quant/config` | `config.json`(gitignore — 실KIS 인증정보·계좌번호), 모의용 `config_*_paper.json`, ETF·리츠 이름 목록, 매크로 보조 프로세스가 쓰는 `regime.json`, 유니버스 스캔 결과 |
+| `Quant/CMakeLists.txt` · `Quant/Dockerfile` | 빌드 정의(ZMQ 선택, FetchContent), C++ 2-stage 이미지 |
+| `PYQuant/` | 파이썬 — `kis/`(REST 클라이언트), `strategy/`, `backtest/`, `live/`, `ipc/`(ZMQ 구독·명령), `db/`(TimescaleDB 스키마·적재), `tools/`(매크로 국면·지수 적재 보조 프로세스), `main.py` |
+| `docker-compose.yml` | 4개 서비스(engine/python/recorder/tsdb) — 3절 |
+| `docs/` | 설계·운영 문서. 이 파일 외에 [OPS_TERMINAL.md](OPS_TERMINAL.md)·[MFC_TERMINAL.md](MFC_TERMINAL.md)·[CPP20_23_GUIDE.md](CPP20_23_GUIDE.md), 결정 이력 [../DECISIONS.md](../DECISIONS.md) |
+| `ARCHITECTURE.md` · `CODE_REVIEW.md` | 저장소 루트의 로컬전용 개인 문서(gitignore) — 저장소에 남는 요약은 `docs/ENGINE_ARCHITECTURE.md` |
 
 부속 가이드: [코드 의존 그래프 가이드](CODE_GRAPH_GUIDE.md) — 모듈·파일 의존 그래프 생성, `--impact` 영향범위 질의, 증분빌드 팬아웃 최적화. 그래프 산출물은 [../CODE_GRAPH.md](../CODE_GRAPH.md).
 
@@ -264,7 +108,7 @@ Quant/                              ← 저장소 루트
 | `KR_TEST` | KOSPI 상위 20 + 관심종목 실시간 시세. WS 체결 수신 + ZMQ publish. 주문 없음. Docker 기본값. |
 | `FEED` | WebSocket 호가+체결 5단계 콘솔 표시. 연결·인증 검증용. |
 | `US_TEST` | M7(AAPL·MSFT·NVDA 등) REST 시세 반복 조회. 장 외 시간에도 동작. |
-| `TRADE` | 5-스레드 Engine 실행. 전략 신호 → OrderGate → KIS 실주문. |
+| `TRADE` | Engine 실행(1절 스레드 모델). 전략 신호 → OrderGate → KIS 실주문. |
 
 ### 단위 테스트
 
@@ -579,17 +423,17 @@ cmake --build Quant/build
 ### 주문 흐름 (OrderRouter::submit 내부)
 
 ```
-OrderSignal (전략에서 생성)
+OrderSignal (전략 → SignalDispatcher → pipeline_.order_queue → 주문 스레드)
      │
      ▼
- [1] OrderGate::check()
-     ├─ Kill switch 활성?             → REJECTED
-     ├─ OrderSide::NONE?              → REJECTED
-     ├─ 포지션 한도 초과? (BUY만)    → REJECTED
-     ├─ 일일 손실 한도 초과? (BUY만) → REJECTED
-     ├─ 초당 주문 수 초과?            → REJECTED  (KIS 5건/초)
-     ├─ 분당 주문 수 초과?            → REJECTED  (KIS 20건/분)
-     └─ 중복 신호 (1초 내)?           → REJECTED
+ [1] OrderGate::check()  — 검사 순서의 정본은 이 함수 하나
+     ├─ kill switch · OrderSide::NONE · entry_halt(신규만)
+     ├─ 매매 세션 창 밖(NEW만, D-096·D-097)
+     ├─ 1주문 수량·명목 상한(fat-finger, 시장가는 reference_price)
+     ├─ 종목당 보유 수량·명목 상한, 동시 보유 종목 상한·교체 진입(D-018·D-019)
+     ├─ 총노출 상한 · 일일 손실 한도 · PnL 갱신 정체(신규만)
+     ├─ 중복 신호(dedup_window_sec)
+     └─ 초당·분당 주문 수(기본 5건/초·20건/분, config risk.max_orders_per_sec/min)
      │
      ▼ PASS
  [2] IOrderExecutor::submit_order()
@@ -597,21 +441,23 @@ OrderSignal (전략에서 생성)
      └─ 실패 → 빈 문자열 반환         → REJECTED
      │
      ▼
- [3] ZMQ publish_order(ok=true/false)  → quant-recorder → TimescaleDB
+ [3] ZMQ publish_order(ok=true/false)  → quant-recorder → TimescaleDB (HAS_ZMQ일 때)
  [4] ManagedOrder → history_ deque 저장 (최대 500건)
 ```
 
 ### OrderGate 뮤텍스 구조
 
 ```
-4개 뮤텍스, 각각 독립 스코프 (중첩 락 없음):
-  positions_mtx_  — positions_ map
-  pnl_mtx_        — daily_pnl_
-  rate_mtx_       — deqOrder_times / deqOrder_times_sec
-  dedup_mtx_      — mapLast_signal
+뮤텍스 6개(`Quant/include/risk/OrderGate.h`):
+  positions_mutex_     — positions_ · reserved_ · avg_prices_ · 전략별 서브원장
+  pnl_mutex_           — daily_pnl_
+  rate_mutex_          — order_times_min_ / order_times_sec_
+  deduplicate_mutex_   — last_signal_
+  displace_mutex_      — 교체 진입 후보·쿨다운
+  priority_mutex_      — 점수 우선순위 랭크
 
-중첩 필요 시 반드시 선언 순서대로:
-  positions → pnl → rate → dedup
+[lock-order] check()는 positions_mutex_ 안에서 displace_mutex_·priority_mutex_를 잡는다(보유 스냅샷과 같은 시점).
+  반대 순서는 없고 pnl·rate·dedup은 독립 스코프에서만 잡는다.
 ```
 
 ### 핵심 타입 (`Types.h`)
@@ -632,18 +478,20 @@ struct ManagedOrder {
 
 ### OrderGate 검증 항목 + 테스트 현황
 
-`OrderGate::check()`는 순서대로 아래 검사를 수행한다(약 11개 검사, `OrderGate.cpp:11-199`).
+`OrderGate::check()`(`Quant/src/risk/OrderGate.cpp`)가 순서대로 검사한다. 검사 목록과 순서의 정본은 그 함수 하나고, 거부 지점 개수는 `docs/facts.json`의 `ordergate_rejects`(생성값)로 센다. 아래 표는 설정 키와 기본값 안내다(`Quant/include/risk/OrderGate.h`의 `Config`).
 
 | 검증 항목 | 설정 키 | 기본값 | 테스트 |
 |-----------|---------|--------|--------|
 | Kill switch (전방향 하드스톱) | `set_kill_switch(true)` | false | ✅ |
 | NONE side | — | — | (OrderRouter에서 검증) |
 | Entry halt (신규매수만 차단, 청산 통과) | `set_entry_halt(true)` | false | — |
-| 1주문 수량 상한 (fat-finger) | `max_qty_per_order` | — | — |
-| 1주문 명목 상한 (fat-finger, 시장가는 ref_price) | `max_notional_per_order` | — | — |
+| 매매 세션 창 (NEW만. 정규장 + 애프터마켓, 모의는 정규장만) | `session_open_hhmm`·`session_close_hhmm`·`after_open_hhmm`·`after_close_hhmm`·`after_market` | 0900·1530·1600·2000 | — |
+| 1주문 수량 상한 (fat-finger) | `max_qty_per_order` | 10,000주 | — |
+| 1주문 명목 상한 (fat-finger, 시장가는 reference_price) | `max_notional_per_order` | 5,000만원 | — |
 | 종목당 최대 보유 (positions_+reserved_) | `max_qty_per_ticker` | 100주 | ✅ |
 | 종목당 명목 상한 | `max_notional_per_ticker` | — | — |
-| 동시 보유 종목 상한 (신규 진입만) | `max_concurrent_positions` | — | — |
+| 동시 보유 종목 상한 (신규 진입만) | `max_concurrent_positions` | 0(미적용) | — |
+| 총노출 상한 (보유+예약 명목 합 / 자본) | `max_gross_exposure_pct` | 0(미적용) | — |
 | 일일 최대 손실 | `daily_loss_limit` | -30만원 | ✅ |
 | PnL stale 가드 (신규매수만, control 스레드 감시) | — | — | — |
 | 초당 주문 수 | `max_orders_per_sec` | 5건 | ✅ |
@@ -693,8 +541,9 @@ REP tcp://*:5556  요청/응답
 | [Quant/include/api/IOrderExecutor.h](../../Quant/include/api/IOrderExecutor.h) | 주문 실행 추상 인터페이스 |
 | [Quant/include/ipc/OrderRouter.h](../../Quant/include/ipc/OrderRouter.h) | FEP 라우터 인터페이스 |
 | [Quant/src/ipc/OrderRouter.cpp](../../Quant/src/ipc/OrderRouter.cpp) | submit / record / stats |
-| [Quant/include/risk/OrderGate.h](../../Quant/include/risk/OrderGate.h) | 11개 검사 게이트 |
-| [Quant/src/risk/OrderGate.cpp](../../Quant/src/risk/OrderGate.cpp) | 검증 로직 |
+| [Quant/include/risk/OrderGate.h](../../Quant/include/risk/OrderGate.h) | 주문 검증 게이트·확정 포지션 원장 |
+| [Quant/src/risk/OrderGate.cpp](../../Quant/src/risk/OrderGate.cpp) | 검증 로직 (`check()`가 검사 순서의 정본) |
+| [Quant/include/risk/GateReasons.h](../../Quant/include/risk/GateReasons.h) | 유량 한도 거부 문장 계약 (D-067) |
 | [Quant/include/ipc/ZmqBridge.h](../../Quant/include/ipc/ZmqBridge.h) | ZMQ 브리지 (HAS_ZMQ) |
 | [Quant/src/ipc/ZmqBridge.cpp](../../Quant/src/ipc/ZmqBridge.cpp) | 전용 스레드 + 송신 큐 |
 | [Quant/tests/test_order_gate.cpp](../../Quant/tests/test_order_gate.cpp) | 단위 테스트 |
@@ -704,20 +553,10 @@ REP tcp://*:5556  요청/응답
 
 ## 7. 실제 매매 연결 로드맵
 
-### 현재 상태 (2026-05-20)
+### 현재 상태
 
-```
-C++:
-  KR_TEST ✅  — REST+WebSocket 시세 → ZMQ publish → TimescaleDB
-  TRADE   ⚠️  — 코드 준비됨, 모의투자 검증 필요
-
-Python:
-  백테스팅 ✅  — KIS REST API (look-ahead bias 방지)
-  모니터   ✅  — ZMQ SUB → 콘솔 출력
-  DB 적재  ✅  — ZMQ SUB → TimescaleDB
-  운영     ✅  — ZMQ REQ → C++ 엔진 (KILL/STATUS)
-  LiveTrader ⚠️ — 독립 REST 폴링 방식 (C++ 엔진 미연동)
-```
+이 절에 날짜 스냅샷을 두지 않는다. 엔진이 지금 무엇을 싣고 있는지는 [../ENGINE_ARCHITECTURE.md](../ENGINE_ARCHITECTURE.md),
+왜 그렇게 됐는지와 버린 대안은 [../DECISIONS.md](../DECISIONS.md)를 본다.
 
 ### 단계별 작업
 
@@ -770,15 +609,10 @@ Python LiveTrader → ZmqOperator → C++ Engine → KIS send_order()
 
 ## 8. 디스크 용량 관리
 
-### 현재 용량 현황 (2026-05-20 기준)
+### 현재 용량 현황
 
-| 항목 | 크기 | 비고 |
-|------|------|------|
-| Docker 이미지 | ~3.7 GB | 비활성 이미지 포함 |
-| Docker 빌드 캐시 | ~1.7 GB | builder prune으로 회수 가능 |
-| TimescaleDB 볼륨 | 70 MB~ | 데이터 쌓일수록 증가 |
-| `out/` (VS 빌드) | 96 MB | 로컬 Windows 빌드 산출물 |
-| `Quant/build_win/` | 18 MB | Ninja 빌드 산출물 |
+수치 스냅샷은 두지 않는다 — `docker system df`와 `du -sh out Quant/build_win`으로 그때그때 본다.
+빌드 산출물 위치는 [../ENGINE_ARCHITECTURE.md](../ENGINE_ARCHITECTURE.md), 결정 이력은 [../DECISIONS.md](../DECISIONS.md).
 
 ### 용량 확보
 
