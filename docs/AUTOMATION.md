@@ -89,7 +89,7 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 |---|---|---|
 | `secret-gate.ps1` | PreToolUse (Bash·PowerShell) | app_key·app_secret·계좌번호·개인 이름이 커밋 경로로 새는 것을 차단 |
 | `docs-gate.ps1` | PreToolUse (Bash·PowerShell) | 커밋 전 `sync_impact.py --diff`로 낡은 도장·gen 블록·재생성 실패를 막고(D-075), 문서가 있으면 `check_docs.py` 정합 확인. 링크·색인에 더해 **결정 원장 파생 문서 드리프트**(`sync_ledgers.py --check`)도 여기서 막힌다 |
-| `lexicon-gate.ps1` | PreToolUse (Write·Edit) | 파일에 쓰려는 본문을 `check_plain_language.py --stdin`으로 검사해 쓰지 않기로 한 말(`고아`·`프로브`·`사다리`·`가디언` 등)이 들어가는 순간 막는다. 금지어를 설명하는 글은 본문에 `lexicon-ok` 표시로 통과 | <!-- lexicon-ok: 금지어를 예시로 인용하는 줄 -->
+| `lexicon-gate.ps1` | PreToolUse (Write·Edit) | 파일에 쓰려는 본문을 `check_plain_language.py --stdin`으로 검사해 쓰지 않기로 한 말(`고아`·`사다리`·`가디언` 등, 정본은 `docs/STYLE_GUIDE.md` 대체어 표)이 들어가는 순간 막는다. 금지어를 설명하는 글은 본문에 `lexicon-ok` 표시로 통과 | <!-- lexicon-ok: 금지어를 예시로 인용하는 줄 -->
 | `sync-gate.ps1` | Stop | 턴이 끝날 때 `sync_impact.py --diff --fix` — 낡은 gen 블록은 치환하고, 낡은 도장·재생성 실패·새 힌트가 있으면 턴을 되돌려 그 자리에서 고치게 한다(D-075) |
 | `file-index-gate.ps1` | Stop | 턴이 끝날 때 `file_index.py`로 `docs/FILE_INDEX.md`·`_private/FILE_INDEX.md`를 트리와 맞춘다 — 없어진 파일은 빠지고 날짜 파일·로그는 규칙 표가 설명을 채우며, 설명 없는 새 파일은 `(설명 필요)`로 넣고 턴을 되돌려 그 자리에서 채우게 한다. 커밋 쪽은 `docs-gate.ps1`이 `--check --staged`로 스테이징된 추가·삭제와 색인을 대조한다 |
 | `review-reminder.ps1` | Stop | 코드 변경 뒤 리뷰 누락을 상기 |
