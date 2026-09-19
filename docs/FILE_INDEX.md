@@ -8,8 +8,8 @@
 
 - [(루트)](#루트) — 9개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 81개
-- [Quant](#quant) — 171개
+- [PYQuant](#pyquant) — 82개
+- [Quant](#quant) — 172개
 - [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 182개
