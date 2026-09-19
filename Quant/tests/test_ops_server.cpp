@@ -174,7 +174,7 @@ static void t_hello_first(OpsServer&)
     assert(client.open());
     client.send(OpsMsg::STATUS_REQ, "{}");
     Frame frame;
-    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::ERROR_MSG));
+    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::ERROR_NTF));
     assert(has(frame.body, "HELLO"));
     assert(client.recv(frame) == 0);
 }
@@ -183,9 +183,9 @@ static void t_bad_token(OpsServer&)
 {
     Client client;
     assert(client.open());
-    client.send(OpsMsg::HELLO, "{\"token\":\"wrong\",\"client\":\"t\"}");
+    client.send(OpsMsg::HELLO_REQ, "{\"token\":\"wrong\",\"client\":\"t\"}");
     Frame frame;
-    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::ERROR_MSG));
+    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::ERROR_NTF));
     assert(client.recv(frame) == 0);
 }
 
@@ -193,19 +193,19 @@ static void t_happy_path(OpsServer& ops_server, Fake& forward_key)
 {
     Client client;
     assert(client.open());
-    client.send(OpsMsg::HELLO, "{\"token\":\"secret\",\"client\":\"t\"}");
+    client.send(OpsMsg::HELLO_REQ, "{\"token\":\"secret\",\"client\":\"t\"}");
     Frame frame;
-    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::WELCOME));
+    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::HELLO_ACK));
     assert(has(frame.body, "\"auth\":true"));
-    // WELCOME 직후 스냅샷이 먼저 온다
-    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::POSITIONS));
+    // HELLO_ACK 직후 스냅샷이 먼저 온다
+    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::POSITIONS_NTF));
     assert(has(frame.body, "005930"));
 
     client.send(OpsMsg::STATUS_REQ, "{}");
-    assert(client.expect(OpsMsg::STATUS, frame) && has(frame.body, "running"));
+    assert(client.expect(OpsMsg::STATUS_ACK, frame) && has(frame.body, "running"));
 
-    client.send(OpsMsg::PING, "{}");
-    assert(client.expect(OpsMsg::PONG, frame) && has(frame.body, "ts"));
+    client.send(OpsMsg::PING_REQ, "{}");
+    assert(client.expect(OpsMsg::PING_ACK, frame) && has(frame.body, "ts"));
 
     client.send(OpsMsg::ORDER_REQ, "{\"cid\":\"c1\",\"ticker\":\"005930\",\"side\":\"SELL\",\"qty\":2,\"price\":0}");
     assert(client.expect(OpsMsg::ORDER_ACK, frame));
@@ -223,8 +223,8 @@ static void t_happy_path(OpsServer& ops_server, Fake& forward_key)
     }
 
     // 다른 스레드의 broadcast가 인증된 연결에 push된다
-    ops_server.broadcast(OpsMsg::ORDER_RESULT, "{\"cid\":\"c1\",\"ok\":true}");
-    assert(client.expect(OpsMsg::ORDER_RESULT, frame) && has(frame.body, "c1"));
+    ops_server.broadcast(OpsMsg::ORDER_RESULT_NTF, "{\"cid\":\"c1\",\"ok\":true}");
+    assert(client.expect(OpsMsg::ORDER_RESULT_NTF, frame) && has(frame.body, "c1"));
 
     // 포지션 문자열이 바뀌면 1초 주기로 push
     {
@@ -232,15 +232,15 @@ static void t_happy_path(OpsServer& ops_server, Fake& forward_key)
         forward_key.positions = "{\"positions\":[]}";
     }
 
-    assert(client.expect(OpsMsg::POSITIONS, frame) && frame.body == "{\"positions\":[]}");
+    assert(client.expect(OpsMsg::POSITIONS_NTF, frame) && frame.body == "{\"positions\":[]}");
 
     // 알 수 없는 타입은 ERROR로 답하고 연결은 유지
     client.send(static_cast<OpsMsg>(0x55), "{}");
-    assert(client.expect(OpsMsg::ERROR_MSG, frame));
-    client.send(OpsMsg::PING, "{}");
-    assert(client.expect(OpsMsg::PONG, frame));
+    assert(client.expect(OpsMsg::ERROR_NTF, frame));
+    client.send(OpsMsg::PING_REQ, "{}");
+    assert(client.expect(OpsMsg::PING_ACK, frame));
 
-    client.send(OpsMsg::KILL, "{}");
+    client.send(OpsMsg::KILL_REQ, "{}");
     assert(client.expect(OpsMsg::KILL_ACK, frame) && has(frame.body, "\"ok\":true"));
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     {
@@ -254,9 +254,9 @@ static void t_bad_json(OpsServer&)
 {
     Client client;
     assert(client.open());
-    client.send(OpsMsg::HELLO, "not json");
+    client.send(OpsMsg::HELLO_REQ, "not json");
     Frame frame;
-    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::ERROR_MSG));
+    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::ERROR_NTF));
     assert(client.recv(frame) == 0);
 }
 
@@ -271,16 +271,16 @@ static void t_readonly_without_token()
 
     Client client;
     assert(client.open());
-    client.send(OpsMsg::HELLO, "{\"client\":\"t\"}");
+    client.send(OpsMsg::HELLO_REQ, "{\"client\":\"t\"}");
     Frame frame;
-    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::WELCOME));
+    assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::HELLO_ACK));
     assert(has(frame.body, "\"auth\":false"));
 
     client.send(OpsMsg::ORDER_REQ, "{\"cid\":\"c9\",\"ticker\":\"005930\",\"side\":\"SELL\",\"qty\":1}");
     assert(client.expect(OpsMsg::ORDER_ACK, frame));
     assert(has(frame.body, "\"accepted\":false") && has(frame.body, "ops_token"));
 
-    client.send(OpsMsg::KILL, "{}");
+    client.send(OpsMsg::KILL_REQ, "{}");
     assert(client.expect(OpsMsg::KILL_ACK, frame) && has(frame.body, "\"ok\":false"));
     {
         std::lock_guard<std::mutex> lock(forward_key.mutex);

@@ -133,7 +133,7 @@ const wchar_t* state_text(LinkState link_state)
     case LinkState::Connecting:
         return L"접속 중";
     case LinkState::Connected:
-        return L"연결됨 (WELCOME 대기)";
+        return L"연결됨 (HELLO_ACK 대기)";
     case LinkState::Ready:
         return L"준비";
     default:
@@ -279,7 +279,7 @@ void OpsTerminalDlg::OnConnect()
 
 void OpsTerminalDlg::OnRefresh()
 {
-    if (!link_.send(OpsMsg::POS_REQ, "{}"))
+    if (!link_.send(OpsMsg::POSITIONS_REQ, "{}"))
     {
         log(L"연결이 없어 새로고침을 보내지 못했다.");
     }
@@ -322,7 +322,7 @@ void OpsTerminalDlg::OnKill()
         return;
     }
 
-    if (link_.send(OpsMsg::KILL, "{}"))
+    if (link_.send(OpsMsg::KILL_REQ, "{}"))
     {
         log(L"KILL 전송");
     }
@@ -453,11 +453,11 @@ void OpsTerminalDlg::handle_frame(const ops::Frame& frame)
 
     switch (static_cast<OpsMsg>(frame.type))
     {
-    case OpsMsg::WELCOME:
+    case OpsMsg::HELLO_ACK:
     {
         authentication_ = flag(document, "auth");
         CString text;
-        text.Format(L"WELCOME engine=%s paper=%d auth=%d", from_utf8(text_of(document, "engine")).GetString(), flag(document, "paper") ? 1 : 0,
+        text.Format(L"HELLO_ACK engine=%s paper=%d auth=%d", from_utf8(text_of(document, "engine")).GetString(), flag(document, "paper") ? 1 : 0,
                  authentication_ ? 1 : 0);
         log(text);
 
@@ -470,15 +470,16 @@ void OpsTerminalDlg::handle_frame(const ops::Frame& frame)
         break;
     }
 
-    case OpsMsg::POSITIONS:
+    case OpsMsg::POSITIONS_ACK:
+    case OpsMsg::POSITIONS_NTF:
         apply_positions(frame.body);
         break;
 
-    case OpsMsg::STATUS:
+    case OpsMsg::STATUS_ACK:
         apply_status(frame.body);
         break;
 
-    case OpsMsg::PONG:
+    case OpsMsg::PING_ACK:
         break;
 
     case OpsMsg::ORDER_ACK:
@@ -492,7 +493,7 @@ void OpsTerminalDlg::handle_frame(const ops::Frame& frame)
         break;
     }
 
-    case OpsMsg::ORDER_RESULT:
+    case OpsMsg::ORDER_RESULT_NTF:
     {
         const std::string client_id  = text_of(document, "cid");
         const std::string kis_order_no = text_of(document, "odno");
@@ -521,7 +522,7 @@ void OpsTerminalDlg::handle_frame(const ops::Frame& frame)
         break;
     }
 
-    case OpsMsg::FILL:
+    case OpsMsg::FILL_NTF:
     {
         const std::string kis_order_no = text_of(document, "odno");
         auto              iterator   = odno_to_client_id_.find(kis_order_no);
@@ -554,7 +555,7 @@ void OpsTerminalDlg::handle_frame(const ops::Frame& frame)
 
         break;
 
-    case OpsMsg::ERROR_MSG:
+    case OpsMsg::ERROR_NTF:
         log(L"[서버 오류] " + from_utf8(text_of(document, "msg")));
         break;
 

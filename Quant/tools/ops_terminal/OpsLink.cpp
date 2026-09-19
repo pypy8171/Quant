@@ -129,7 +129,7 @@ void OpsLink::thread_fn()
             backoff = 1000;
             connected_.store(true);
             post_state(LinkState::Connected, "TCP 연결 — HELLO 전송");
-            send(ops::OpsMsg::HELLO, "{\"token\":\"" + token_ + "\",\"client\":\"ops_terminal/0.1\"}");
+            send(ops::OpsMsg::HELLO_REQ, "{\"token\":\"" + token_ + "\",\"client\":\"ops_terminal/0.1\"}");
             session_loop();
             connected_.store(false);
             close_socket();
@@ -283,9 +283,9 @@ void OpsLink::session_loop()
 
                 while (reader.next(frame))
                 {
-                    if (frame.type == static_cast<uint8_t>(ops::OpsMsg::WELCOME))
+                    if (frame.type == static_cast<uint8_t>(ops::OpsMsg::HELLO_ACK))
                     {
-                        post_state(LinkState::Ready, "WELCOME");
+                        post_state(LinkState::Ready, "HELLO_ACK");
                     }
 
                     post_frame(frame);
@@ -317,7 +317,7 @@ void OpsLink::session_loop()
         // 하트비트. PING은 큐를 거치지 않고 out에 직접 붙인다(connected_ 여부와 무관).
         if (ms_since(last_ping) >= kPingEveryMs)
         {
-            auto ping_frame = ops::encode(ops::OpsMsg::PING, "{}");
+            auto ping_frame = ops::encode(ops::OpsMsg::PING_REQ, "{}");
             out.insert(out.end(), ping_frame.begin(), ping_frame.end());
             last_ping = Clock::now();
         }

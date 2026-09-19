@@ -2401,7 +2401,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             {
                 // 게이트·브로커를 지난 최종 결과. 단말은 cid로 자기 ORDER_ACK와 잇고, 전략 주문도
                 //  같은 채널로 보여 운영 화면이 자동매매를 함께 본다.
-                ops_.server->broadcast(ops::OpsMsg::ORDER_RESULT,
+                ops_.server->broadcast(ops::OpsMsg::ORDER_RESULT_NTF,
                                        nlohmann::json{{"cid", signal.client_order_id},
                                                       {"order_id", managed_order.order_id},
                                                       {"odno", managed_order.kis_order_no},
@@ -2471,7 +2471,7 @@ void Engine::fill_thread_fn(std::stop_token stop_token)
 
             if (ops_.server && ops_.server->client_count() > 0)
             {
-                ops_.server->broadcast(ops::OpsMsg::FILL,
+                ops_.server->broadcast(ops::OpsMsg::FILL_NTF,
                                        nlohmann::json{{"odno", fill_notification.kis_order_no},
                                                       {"ticker", fill_notification.ticker},
                                                       {"side", fill_notification.side == OrderSide::BUY ? "BUY" : "SELL"},
@@ -2896,7 +2896,7 @@ void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& e
 
             if (ops_.server)
             {
-                ops_.server->broadcast(ops::OpsMsg::ORDER_RESULT,
+                ops_.server->broadcast(ops::OpsMsg::ORDER_RESULT_NTF,
                                        nlohmann::json{{"cid", ops_order_request.client_id},
                                                       {"order_id", ""},
                                                       {"odno", ""},

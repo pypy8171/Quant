@@ -30,46 +30,49 @@ constexpr uint32_t kMaxBody  = 1u << 20; // 1 MiB — 포지션 스냅샷도 수
 //  0x1_ 조회, 0x2_ 주문, 0x3_ 제어, 0x7F 오류.
 enum class OpsMsg : uint8_t
 {
-    HELLO        = 0x01, // c→s {"token","client"}  첫 프레임이어야 한다
-    WELCOME      = 0x02, // s→c {"ok","auth","engine","paper"}
-    PING         = 0x03, // c→s {}
-    PONG         = 0x04, // s→c {"ts"}
-    STATUS_REQ   = 0x10, // c→s {}
-    STATUS       = 0x11, // s→c {"running","data","signal","order","kill","entry_halt","manual_buy_halt","manual_sell_halt","force_liq","paper","strategies","equity","cash","daily_pnl","position_value","unrealized_pnl"} — 뒤 다섯은 계좌 요약(원). 단말이 1초마다 묻는다
-    POS_REQ      = 0x12, // c→s {}
-    POSITIONS    = 0x13, // s→c {"positions":[{account,ticker,name,quantity,average_price,reserved,last}]} — 변경 시 push도 한다. reserved: 미체결 매도 음수·매수 양수, last: 최근 체결가(틱 없으면 0)
-    ORDER_REQ    = 0x20, // c→s {"cid","ticker","side","qty","price","ref_price"}
-    ORDER_ACK    = 0x21, // s→c {"cid","accepted","msg"} — 인테이크 적재 여부(게이트 통과 아님)
-    ORDER_RESULT = 0x22, // s→c {"cid","order_id","strategy","ticker","side","qty","ok","msg"} — 게이트·브로커 결과
-    FILL         = 0x23, // s→c {"odno","ticker","side","qty","price","time"}
-    KILL         = 0x30, // c→s {}
-    KILL_ACK     = 0x31, // s→c {"ok"}
-    HALT_REQ     = 0x32, // c→s {"side","on"} — 수동 정지 on/off. side는 "BUY"(신규 진입, 없으면 이것)·"SELL"(전략 매도). kill과 달리 되돌릴 수 있다 [why D-091, D-095]
-    HALT_ACK     = 0x33, // s→c {"ok","manual_buy_halt","manual_sell_halt"}
-    ERROR_MSG    = 0x7F, // s→c {"msg"}
+    // 이름 규칙 — 요청/응답 쌍은 *_REQ(c→s)/*_ACK(s→c), 서버가 먼저 미는 통보는 *_NTF(s→c).
+    HELLO_REQ         = 0x01, // c→s {"token","client"}  첫 프레임이어야 한다
+    HELLO_ACK         = 0x02, // s→c {"ok","auth","engine","paper"}
+    PING_REQ          = 0x03, // c→s {}
+    PING_ACK          = 0x04, // s→c {"ts"}
+    STATUS_REQ        = 0x10, // c→s {}
+    STATUS_ACK        = 0x11, // s→c {"running","data","signal","order","kill","entry_halt","manual_buy_halt","manual_sell_halt","force_liq","paper","strategies","equity","cash","daily_pnl","position_value","unrealized_pnl"} — 뒤 다섯은 계좌 요약(원). 단말이 1초마다 묻는다
+    POSITIONS_REQ     = 0x12, // c→s {}
+    POSITIONS_ACK     = 0x13, // s→c {"positions":[{account,ticker,name,quantity,average_price,reserved,last}]} — reserved: 미체결 매도 음수·매수 양수, last: 최근 체결가(틱 없으면 0)
+    POSITIONS_NTF     = 0x14, // s→c 본문은 POSITIONS_ACK와 같다. 인증 직후 1회, 이후 보유분이 바뀌면 1초 주기로 민다
+    ORDER_REQ         = 0x20, // c→s {"cid","ticker","side","qty","price","ref_price"}
+    ORDER_ACK         = 0x21, // s→c {"cid","accepted","msg"} — 인테이크 적재 여부(게이트 통과 아님)
+    ORDER_RESULT_NTF  = 0x22, // s→c {"cid","order_id","strategy","ticker","side","qty","ok","msg"} — 게이트·브로커 결과. 전략 주문도 같은 채널로 온다
+    FILL_NTF          = 0x23, // s→c {"odno","ticker","side","qty","price","time"}
+    KILL_REQ          = 0x30, // c→s {}
+    KILL_ACK          = 0x31, // s→c {"ok"}
+    HALT_REQ          = 0x32, // c→s {"side","on"} — 수동 정지 on/off. side는 "BUY"(신규 진입, 없으면 이것)·"SELL"(전략 매도). kill과 달리 되돌릴 수 있다 [why D-091, D-095]
+    HALT_ACK          = 0x33, // s→c {"ok","manual_buy_halt","manual_sell_halt"}
+    ERROR_NTF         = 0x7F, // s→c {"msg"}
 };
 
 inline const char* message_name(uint8_t message_type)
 {
     switch (static_cast<OpsMsg>(message_type))
     {
-        case OpsMsg::HELLO:        return "HELLO";
-        case OpsMsg::WELCOME:      return "WELCOME";
-        case OpsMsg::PING:         return "PING";
-        case OpsMsg::PONG:         return "PONG";
-        case OpsMsg::STATUS_REQ:   return "STATUS_REQ";
-        case OpsMsg::STATUS:       return "STATUS";
-        case OpsMsg::POS_REQ:      return "POS_REQ";
-        case OpsMsg::POSITIONS:    return "POSITIONS";
-        case OpsMsg::ORDER_REQ:    return "ORDER_REQ";
-        case OpsMsg::ORDER_ACK:    return "ORDER_ACK";
-        case OpsMsg::ORDER_RESULT: return "ORDER_RESULT";
-        case OpsMsg::FILL:         return "FILL";
-        case OpsMsg::KILL:         return "KILL";
-        case OpsMsg::KILL_ACK:     return "KILL_ACK";
-        case OpsMsg::HALT_REQ:     return "HALT_REQ";
-        case OpsMsg::HALT_ACK:     return "HALT_ACK";
-        case OpsMsg::ERROR_MSG:    return "ERROR";
+        case OpsMsg::HELLO_REQ:         return "HELLO_REQ";
+        case OpsMsg::HELLO_ACK:         return "HELLO_ACK";
+        case OpsMsg::PING_REQ:          return "PING_REQ";
+        case OpsMsg::PING_ACK:          return "PING_ACK";
+        case OpsMsg::STATUS_REQ:        return "STATUS_REQ";
+        case OpsMsg::STATUS_ACK:        return "STATUS_ACK";
+        case OpsMsg::POSITIONS_REQ:     return "POSITIONS_REQ";
+        case OpsMsg::POSITIONS_ACK:     return "POSITIONS_ACK";
+        case OpsMsg::POSITIONS_NTF:     return "POSITIONS_NTF";
+        case OpsMsg::ORDER_REQ:         return "ORDER_REQ";
+        case OpsMsg::ORDER_ACK:         return "ORDER_ACK";
+        case OpsMsg::ORDER_RESULT_NTF:  return "ORDER_RESULT_NTF";
+        case OpsMsg::FILL_NTF:          return "FILL_NTF";
+        case OpsMsg::KILL_REQ:          return "KILL_REQ";
+        case OpsMsg::KILL_ACK:          return "KILL_ACK";
+        case OpsMsg::HALT_REQ:          return "HALT_REQ";
+        case OpsMsg::HALT_ACK:          return "HALT_ACK";
+        case OpsMsg::ERROR_NTF:         return "ERROR_NTF";
     }
 
     return "?";

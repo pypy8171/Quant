@@ -27,8 +27,8 @@ enum class LinkState
 {
     Disconnected,
     Connecting,
-    Connected, // TCP 연결됨, WELCOME 대기
-    Ready,     // WELCOME 수신
+    Connected, // TCP 연결됨, HELLO_ACK 대기
+    Ready,     // HELLO_ACK 수신
 };
 
 struct OpsStateMsg

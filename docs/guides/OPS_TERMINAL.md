@@ -62,32 +62,37 @@ Windows에서는 `SO_EXCLUSIVEADDRUSE`로 잡으므로 엔진이 이미 하나 �
 
 ### 메시지
 
+이름 규칙 — 요청/응답 쌍은 `*_REQ`(단말→서버)/`*_ACK`(서버→단말), 서버가 먼저 미는 통보는 `*_NTF`. 타입 번호는 바꾸지 않는다.
+
 | 타입 | 이름 | 방향 | 본문 |
 |---|---|---|---|
-| 0x01 | HELLO | 단말→서버 | `{"token":"…","client":"이름/버전"}` — 연결 뒤 첫 프레임이어야 한다 |
-| 0x02 | WELCOME | 서버→단말 | `{"ok":true,"auth":bool,"engine":"quant_trader","paper":bool}` — 바로 뒤에 POSITIONS 스냅샷이 온다 |
-| 0x03 | PING | 단말→서버 | `{}` |
-| 0x04 | PONG | 서버→단말 | `{"ts":<ms>}` |
+| 0x01 | HELLO_REQ | 단말→서버 | `{"token":"…","client":"이름/버전"}` — 연결 뒤 첫 프레임이어야 한다 |
+| 0x02 | HELLO_ACK | 서버→단말 | `{"ok":true,"auth":bool,"engine":"quant_trader","paper":bool}` — 바로 뒤에 POSITIONS_NTF 스냅샷이 온다 |
+| 0x03 | PING_REQ | 단말→서버 | `{}` |
+| 0x04 | PING_ACK | 서버→단말 | `{"ts":<ms>}` |
 | 0x10 | STATUS_REQ | 단말→서버 | `{}` |
-| 0x11 | STATUS | 서버→단말 | `{"running","data","signal","order","kill","entry_halt","force_liq","paper","strategies"}` |
-| 0x12 | POS_REQ | 단말→서버 | `{}` |
-| 0x13 | POSITIONS | 서버→단말 | `{"positions":[{"account","ticker","name","qty","avg_price","reserved","last"}]}` — 요청 응답이자, 내용이 바뀌면 1초 주기로 push. `reserved`는 부호 있는 미체결 수량: 매도 음수, 매수 양수. `last`는 엔진이 마지막으로 본 체결가(틱이 없던 종목은 0) |
+| 0x11 | STATUS_ACK | 서버→단말 | `{"running","data","signal","order","kill","entry_halt","manual_buy_halt","manual_sell_halt","force_liq","paper","strategies","equity","cash","daily_pnl","position_value","unrealized_pnl"}` |
+| 0x12 | POSITIONS_REQ | 단말→서버 | `{}` |
+| 0x13 | POSITIONS_ACK | 서버→단말 | `{"positions":[{"account","ticker","name","quantity","average_price","reserved","last"}]}` — POSITIONS_REQ의 응답. `reserved`는 부호 있는 미체결 수량: 매도 음수, 매수 양수. `last`는 엔진이 마지막으로 본 체결가(틱이 없던 종목은 0) |
+| 0x14 | POSITIONS_NTF | 서버→전체 | 본문은 POSITIONS_ACK와 같다. 인증 직후 1회, 이후 내용이 바뀌면 1초 주기로 push |
 | 0x20 | ORDER_REQ | 단말→서버 | `{"cid":"…","ticker":"005930","side":"SELL"|"BUY","qty":1,"price":0,"ref_price":0,"account":""}` |
 | 0x21 | ORDER_ACK | 서버→단말 | `{"cid","accepted":bool,"msg"}` — 인테이크 적재 여부. 게이트·브로커 결과가 아니다 |
-| 0x22 | ORDER_RESULT | 서버→전체 | `{"cid","order_id","odno","strategy","ticker","side","qty","price","ok":bool,"msg"}` — 게이트·라우터 결과 |
-| 0x23 | FILL | 서버→전체 | `{"odno","ticker","side","qty","price","time"}` — 체결통보 |
-| 0x30 | KILL | 단말→서버 | `{}` — 킬스위치를 켜고 엔진을 내린다 |
+| 0x22 | ORDER_RESULT_NTF | 서버→전체 | `{"cid","order_id","odno","strategy","ticker","side","qty","price","ok":bool,"msg"}` — 게이트·라우터 결과 |
+| 0x23 | FILL_NTF | 서버→전체 | `{"odno","ticker","side","qty","price","time"}` — 체결통보 |
+| 0x30 | KILL_REQ | 단말→서버 | `{}` — 킬스위치를 켜고 엔진을 내린다 |
 | 0x31 | KILL_ACK | 서버→단말 | `{"ok":bool,"msg"}` |
-| 0x7F | ERROR | 서버→단말 | `{"msg"}` — 규약 위반이면 뒤에 끊고, 알 수 없는 타입이면 연결은 유지 |
+| 0x32 | HALT_REQ | 단말→서버 | `{"side":"BUY"|"SELL","on":bool}` — 수동 정지 on/off. kill과 달리 되돌릴 수 있다(D-091·D-095) |
+| 0x33 | HALT_ACK | 서버→단말 | `{"ok":bool,"manual_buy_halt":bool,"manual_sell_halt":bool}` |
+| 0x7F | ERROR_NTF | 서버→단말 | `{"msg"}` — 규약 위반이면 뒤에 끊고, 알 수 없는 타입이면 연결은 유지 |
 
 규칙
 
-- HELLO가 첫 프레임이 아니면 ERROR 뒤 끊는다. 토큰이 틀리면 같다.
-- `auth=false`(서버에 토큰이 없거나 HELLO에 토큰을 안 냈을 때)면 ORDER_REQ·KILL은 거부 응답만 온다.
+- HELLO_REQ가 첫 프레임이 아니면 ERROR_NTF 뒤 끊는다. 토큰이 틀리면 같다.
+- `auth=false`(서버에 토큰이 없거나 HELLO_REQ에 토큰을 안 냈을 때)면 ORDER_REQ·KILL_REQ·HALT_REQ는 거부 응답만 온다.
 - `cid`는 단말이 붙이는 1~64자 식별자다. 같은 cid의 재전송은 한 번만 처리한다(연결이 끊겨 ACK를 못 받았을 때
   그대로 다시 보내면 된다).
 - `price` 0은 시장가, 양수는 지정가. `ref_price`는 시장가의 명목 한도 평가 기준가로, 0이면 엔진이 평단으로 대체한다.
-- 매도는 strategy_thread에서 매도가능(보유 − 대기 중 매도 reserved)을 넘으면 ORDER_RESULT `ok=false`로 거절된다.
+- 매도는 strategy_thread에서 매도가능(보유 − 대기 중 매도 reserved)을 넘으면 ORDER_RESULT_NTF `ok=false`로 거절된다.
 - 수동 주문은 `strategy_id="MANUAL"`로 게이트·라우터·원장을 전략 주문과 똑같이 지난다. 원장·로그에 `[MANUAL]`로 남는다.
 - push는 인증된 연결에만 간다. 연결마다 송신 대기 4 MiB를 넘으면 서버가 끊는다.
 

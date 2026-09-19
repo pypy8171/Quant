@@ -466,16 +466,16 @@ bool OpsServer::on_frame(Client& client, const ops::Frame& frame)
 
         if (body.is_discarded())
         {
-            send(client, OpsMsg::ERROR_MSG, error_body("본문 JSON 파싱 실패"));
+            send(client, OpsMsg::ERROR_NTF, error_body("본문 JSON 파싱 실패"));
             return false;
         }
     }
 
     if (!client.hello)
     {
-        if (type != OpsMsg::HELLO)
+        if (type != OpsMsg::HELLO_REQ)
         {
-            send(client, OpsMsg::ERROR_MSG, error_body("첫 프레임은 HELLO여야 한다"));
+            send(client, OpsMsg::ERROR_NTF, error_body("첫 프레임은 HELLO_REQ여야 한다"));
             return false;
         }
 
@@ -486,17 +486,17 @@ bool OpsServer::on_frame(Client& client, const ops::Frame& frame)
         if (!token_.empty() && !client.authentication)
         {
             LOG_WARN("[Ops] 토큰 불일치 — 끊음 " + client.name);
-            send(client, OpsMsg::ERROR_MSG, error_body("token 불일치"));
+            send(client, OpsMsg::ERROR_NTF, error_body("token 불일치"));
             return false;
         }
 
         const std::string who = body.value("client", std::string("?"));
         LOG_INFO("[Ops] HELLO " + client.name + " client=" + who + (client.authentication ? " auth" : " read-only"));
-        send(client, OpsMsg::WELCOME, json{{"ok", true}, {"auth", client.authentication}, {"engine", "quant_trader"}, {"paper", paper_}}.dump());
+        send(client, OpsMsg::HELLO_ACK, json{{"ok", true}, {"auth", client.authentication}, {"engine", "quant_trader"}, {"paper", paper_}}.dump());
 
         if (positions_)
         {
-            send(client, OpsMsg::POSITIONS, positions_());
+            send(client, OpsMsg::POSITIONS_NTF, positions_());
         }
 
         return true;
@@ -504,21 +504,21 @@ bool OpsServer::on_frame(Client& client, const ops::Frame& frame)
 
     switch (type)
     {
-        case OpsMsg::PING:
+        case OpsMsg::PING_REQ:
         {
             const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::system_clock::now().time_since_epoch())
                                 .count();
-            send(client, OpsMsg::PONG, json{{"ts", milliseconds}}.dump());
+            send(client, OpsMsg::PING_ACK, json{{"ts", milliseconds}}.dump());
             return true;
         }
 
         case OpsMsg::STATUS_REQ:
-            send(client, OpsMsg::STATUS, status_ ? status_() : "{}");
+            send(client, OpsMsg::STATUS_ACK, status_ ? status_() : "{}");
             return true;
 
-        case OpsMsg::POS_REQ:
-            send(client, OpsMsg::POSITIONS, positions_ ? positions_() : "{\"positions\":[]}");
+        case OpsMsg::POSITIONS_REQ:
+            send(client, OpsMsg::POSITIONS_ACK, positions_ ? positions_() : "{\"positions\":[]}");
             return true;
 
         case OpsMsg::ORDER_REQ:
@@ -580,7 +580,7 @@ bool OpsServer::on_frame(Client& client, const ops::Frame& frame)
             return true;
         }
 
-        case OpsMsg::KILL:
+        case OpsMsg::KILL_REQ:
         {
             if (!client.authentication)
             {
@@ -600,7 +600,7 @@ bool OpsServer::on_frame(Client& client, const ops::Frame& frame)
         }
 
         default:
-            send(client, OpsMsg::ERROR_MSG, error_body(std::string("지원하지 않는 타입 ") + std::to_string(frame.type)));
+            send(client, OpsMsg::ERROR_NTF, error_body(std::string("지원하지 않는 타입 ") + std::to_string(frame.type)));
             return true;
     }
 }
@@ -678,7 +678,7 @@ void OpsServer::push_positions_if_changed()
     {
         if (entry.second.hello)
         {
-            send(entry.second, ops::OpsMsg::POSITIONS, now);
+            send(entry.second, ops::OpsMsg::POSITIONS_NTF, now);
         }
     }
 }

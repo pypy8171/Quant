@@ -31,7 +31,7 @@ static void t_roundtrip_whole()
 // TCP는 recv 경계를 보장하지 않는다 — 헤더 중간·본문 중간에서 끊겨도 프레임이 하나만 나와야 한다.
 static void t_byte_by_byte()
 {
-    auto bytes = ops::encode(OpsMsg::STATUS, "{\"running\":true}");
+    auto bytes = ops::encode(OpsMsg::STATUS_ACK, "{\"running\":true}");
     FrameReader reader;
     Frame frame;
     int received = 0;
@@ -58,9 +58,9 @@ static void t_byte_by_byte()
 // 한 recv에 프레임 두 개 반 — 둘은 나오고 나머지 반은 다음 feed까지 기다린다.
 static void t_two_and_half()
 {
-    auto ping_frame = ops::encode(OpsMsg::PING, "");
-    auto position_frame = ops::encode(OpsMsg::POS_REQ, "{}");
-    auto kill_frame = ops::encode(OpsMsg::KILL, "{\"x\":1}");
+    auto ping_frame = ops::encode(OpsMsg::PING_REQ, "");
+    auto position_frame = ops::encode(OpsMsg::POSITIONS_REQ, "{}");
+    auto kill_frame = ops::encode(OpsMsg::KILL_REQ, "{\"x\":1}");
     std::vector<uint8_t> wire;
     wire.insert(wire.end(), ping_frame.begin(), ping_frame.end());
     wire.insert(wire.end(), position_frame.begin(), position_frame.end());
@@ -69,19 +69,19 @@ static void t_two_and_half()
     FrameReader reader;
     reader.feed(wire.data(), wire.size());
     Frame frame;
-    assert(reader.next(frame) && frame.type == static_cast<uint8_t>(OpsMsg::PING) && frame.body.empty());
-    assert(reader.next(frame) && frame.type == static_cast<uint8_t>(OpsMsg::POS_REQ) && frame.body == "{}");
+    assert(reader.next(frame) && frame.type == static_cast<uint8_t>(OpsMsg::PING_REQ) && frame.body.empty());
+    assert(reader.next(frame) && frame.type == static_cast<uint8_t>(OpsMsg::POSITIONS_REQ) && frame.body == "{}");
     assert(!reader.next(frame));
     assert(reader.pending() == 5);
 
     reader.feed(kill_frame.data() + 5, kill_frame.size() - 5);
-    assert(reader.next(frame) && frame.type == static_cast<uint8_t>(OpsMsg::KILL) && frame.body == "{\"x\":1}");
+    assert(reader.next(frame) && frame.type == static_cast<uint8_t>(OpsMsg::KILL_REQ) && frame.body == "{\"x\":1}");
     assert(!reader.next(frame) && reader.pending() == 0);
 }
 
 static void t_bad_magic_sticks()
 {
-    auto bytes = ops::encode(OpsMsg::PING, "");
+    auto bytes = ops::encode(OpsMsg::PING_REQ, "");
     bytes[1]   = 'X';
     FrameReader reader;
     reader.feed(bytes.data(), bytes.size());
@@ -90,14 +90,14 @@ static void t_bad_magic_sticks()
     assert(reader.bad());
 
     // 이후 정상 프레임을 넣어도 살아나지 않는다 — 호출자가 끊어야 한다
-    auto ok = ops::encode(OpsMsg::PING, "");
+    auto ok = ops::encode(OpsMsg::PING_REQ, "");
     reader.feed(ok.data(), ok.size());
     assert(!reader.next(frame));
 }
 
 static void t_bad_version()
 {
-    auto bytes = ops::encode(OpsMsg::PING, "");
+    auto bytes = ops::encode(OpsMsg::PING_REQ, "");
     bytes[2]   = 2;
     FrameReader reader;
     reader.feed(bytes.data(), bytes.size());
@@ -109,8 +109,8 @@ static void t_oversize_rejected()
 {
     // 인코더: 상한 초과 본문은 빈 벡터
     std::string big(ops::kMaxBody + 1, 'x');
-    assert(ops::encode(OpsMsg::POSITIONS, big).empty());
-    assert(!ops::encode(OpsMsg::POSITIONS, std::string(ops::kMaxBody, 'x')).empty());
+    assert(ops::encode(OpsMsg::POSITIONS_ACK, big).empty());
+    assert(!ops::encode(OpsMsg::POSITIONS_ACK, std::string(ops::kMaxBody, 'x')).empty());
 
     // 디코더: 길이 필드만 상한 넘게 조작 — 본문을 기다리지 않고 즉시 bad
     uint8_t header[8] = {'Q', 'P', ops::kVersion, 0x03, 0x00, 0x10, 0x00, 0x01};
@@ -123,7 +123,7 @@ static void t_oversize_rejected()
 static void t_names()
 {
     assert(std::string(ops::message_name(0x20)) == "ORDER_REQ");
-    assert(std::string(ops::message_name(0x7F)) == "ERROR");
+    assert(std::string(ops::message_name(0x7F)) == "ERROR_NTF");
     assert(std::string(ops::message_name(0x55)) == "?");
 }
 

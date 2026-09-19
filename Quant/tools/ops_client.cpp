@@ -252,12 +252,12 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    connection.send_frame(ops::OpsMsg::HELLO, json{{"token", token}, {"client", "ops_client/0.1"}}.dump());
+    connection.send_frame(ops::OpsMsg::HELLO_REQ, json{{"token", token}, {"client", "ops_client/0.1"}}.dump());
     ops::Frame frame;
 
-    if (connection.recv_frame(frame, 3000) != 1 || frame.type != static_cast<uint8_t>(ops::OpsMsg::WELCOME))
+    if (connection.recv_frame(frame, 3000) != 1 || frame.type != static_cast<uint8_t>(ops::OpsMsg::HELLO_ACK))
     {
-        std::cerr << "WELCOME 없음: " << (frame.body.empty() ? "(응답 없음)" : frame.body) << "\n";
+        std::cerr << "HELLO_ACK 없음: " << (frame.body.empty() ? "(응답 없음)" : frame.body) << "\n";
         return 1;
     }
 
@@ -265,7 +265,7 @@ int main(int argc, char** argv)
     const bool authentication    = welcome.value("auth", false);
     std::cout << "연결됨 paper=" << welcome.value("paper", true) << " auth=" << authentication << "\n";
 
-    // WELCOME 직후 서버가 POSITIONS 스냅샷을 먼저 보낸다 — 명령 응답을 기다릴 때 섞여 들어오므로
+    // HELLO_ACK 직후 서버가 POSITIONS_NTF 스냅샷을 먼저 보낸다 — 명령 응답을 기다릴 때 섞여 들어오므로
     //  타입으로 걸러 받는다.
     auto wait_type = [&](ops::OpsMsg wanted_type, int timeout_ms, ops::Frame& out) -> int
     {
@@ -292,7 +292,7 @@ int main(int argc, char** argv)
                 return 1;
             }
 
-            if (out.type == static_cast<uint8_t>(ops::OpsMsg::ERROR_MSG))
+            if (out.type == static_cast<uint8_t>(ops::OpsMsg::ERROR_NTF))
             {
                 std::cerr << "서버 오류: " << out.body << "\n";
                 return 0;
@@ -304,7 +304,7 @@ int main(int argc, char** argv)
     {
         connection.send_frame(ops::OpsMsg::STATUS_REQ, "{}");
 
-        if (wait_type(ops::OpsMsg::STATUS, 3000, frame) != 1)
+        if (wait_type(ops::OpsMsg::STATUS_ACK, 3000, frame) != 1)
         {
             return 1;
         }
@@ -315,9 +315,9 @@ int main(int argc, char** argv)
 
     if (command == "positions")
     {
-        connection.send_frame(ops::OpsMsg::POS_REQ, "{}");
+        connection.send_frame(ops::OpsMsg::POSITIONS_REQ, "{}");
 
-        if (wait_type(ops::OpsMsg::POSITIONS, 3000, frame) != 1)
+        if (wait_type(ops::OpsMsg::POSITIONS_ACK, 3000, frame) != 1)
         {
             return 1;
         }
@@ -390,7 +390,7 @@ int main(int argc, char** argv)
                 continue;
             }
 
-            if (frame.type == static_cast<uint8_t>(ops::OpsMsg::ORDER_RESULT))
+            if (frame.type == static_cast<uint8_t>(ops::OpsMsg::ORDER_RESULT_NTF))
             {
                 json node = json::parse(frame.body, nullptr, false);
 
@@ -425,7 +425,7 @@ int main(int argc, char** argv)
 
             if (result_code == 1)
             {
-                if (frame.type == static_cast<uint8_t>(ops::OpsMsg::POSITIONS))
+                if (frame.type == static_cast<uint8_t>(ops::OpsMsg::POSITIONS_ACK) || frame.type == static_cast<uint8_t>(ops::OpsMsg::POSITIONS_NTF))
                 {
                     print_positions(json::parse(frame.body, nullptr, false));
                 }
@@ -438,14 +438,14 @@ int main(int argc, char** argv)
             if (std::chrono::steady_clock::now() - last_ping >= std::chrono::seconds(10))
             {
                 last_ping = std::chrono::steady_clock::now();
-                connection.send_frame(ops::OpsMsg::PING, "{}");
+                connection.send_frame(ops::OpsMsg::PING_REQ, "{}");
             }
         }
     }
 
     if (command == "kill")
     {
-        connection.send_frame(ops::OpsMsg::KILL, "{}");
+        connection.send_frame(ops::OpsMsg::KILL_REQ, "{}");
 
         if (wait_type(ops::OpsMsg::KILL_ACK, 3000, frame) != 1)
         {
