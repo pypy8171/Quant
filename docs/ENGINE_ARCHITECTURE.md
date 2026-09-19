@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@2d1fe28 Quant/src/core/Engine.cpp@fd56978 Quant/include/core/DataPoller.h@a570fed Quant/include/core/SignalDispatcher.h@ba313ff Quant/include/core/OrderPacer.h@2de0313 Quant/include/core/LedgerReconciler.h@3ccfee8 Quant/include/core/WakeGate.h@9e8c712 Quant/include/core/BarAggregator.h@fbb210b Quant/include/core/LatencyTrace.h@f26a681 Quant/include/core/ReconcilePlan.h@2e0c742 -->
+<!-- sync: Quant/include/core/Engine.h@60f697d Quant/src/core/Engine.cpp@d6ced59 Quant/include/core/DataPoller.h@a570fed Quant/include/core/SignalDispatcher.h@ba313ff Quant/include/core/OrderPacer.h@2de0313 Quant/include/core/LedgerReconciler.h@3ccfee8 Quant/include/core/WakeGate.h@9e8c712 Quant/include/core/BarAggregator.h@fbb210b Quant/include/core/LatencyTrace.h@f26a681 Quant/include/core/ReconcilePlan.h@2e0c742 -->
 엔진은 락-프리 파이프라인(데이터→전략 샤드→디스패치→주문)에 체결 소비 스레드와 제어 스레드를 더해 다섯 개 + 샤드 M개의 스레드를 실행합니다(config `strategy_shards`, 기본 1):
 
 ```
@@ -59,7 +59,7 @@ FEED·TRADE 두 모드가 같은 클라이언트를 씁니다. REST로 approval 
 
 ### 로깅
 
-<!-- sync: Quant/include/utils/Logger.h@a87a223 -->
+<!-- sync: Quant/include/utils/Logger.h@b00ea4a -->
 싱글톤 `Logger`가 밀리초 단위 UTC 타임스탬프로 콘솔과 `logs/quant_trader.log`(cwd 하위 `logs/` 폴더에 고정, 부모 폴더는 자동 생성)에 기록합니다. 과거 로그는 `logs/archive/`에 보관합니다. 사용 매크로: `LOG_INFO()`, `LOG_WARN()`, `LOG_ERROR()`, `LOG_DEBUG()`. 기본 임계값은 INFO이고 config `"log_level": "DEBUG"`가 봉 닫힘(D-069)·KIS 응답 본문 같은 DEBUG 줄을 연다 — 비교표를 뽑는 날만 켠다(`PYQuant/tools/compare_ws_bars.py`).
 
-**비동기 구조**: 전략·주문 hot path는 레코드를 큐에 push만 하고 즉시 반환하며, 타임스탬프 포맷팅과 파일/콘솔 I/O는 전용 writer 스레드가 담당합니다(저지연은 평균 지연보다 최악 지연(tail latency)이 중요하다는 설계 의도로 디스크 플러시를 hot path에서 분리). 큐는 락 없는 `MpscQueue<Record>`(65,536슬롯)이고 writer는 큐가 비면 condvar에서 자며 생산자는 writer가 "잔다"고 표시한 때만 깨웁니다(D-045). 밀림 처리: 큐가 가득 차면 새 레코드를 드롭하고 `dropped()`로 셉니다(hot path 블로킹 방지). 종료·테스트 직전 정합 확인용 `flush()`를 제공합니다.
+**비동기 구조**: 전략·주문 hot path는 레코드를 큐에 push만 하고 즉시 반환하며, 타임스탬프 포맷팅과 파일/콘솔 I/O는 전용 writer 스레드가 담당합니다(저지연은 평균 지연보다 최악 지연(tail latency)이 중요하다는 설계 의도로 디스크 플러시를 hot path에서 분리). 큐는 락 없는 `MpscQueue<Record>`(65,536슬롯)이고 writer는 큐가 비면 condvar에서 자며 생산자는 writer가 "잔다"고 표시한 때만 깨웁니다(D-045). 밀림 처리: 큐가 가득 차면 새 레코드를 드롭하고 `dropped()`로 셉니다(hot path 블로킹 방지). 종료·테스트 직전 정합 확인용 `flush()`를 제공합니다. 큐·writer 스레드·파일 핸들은 헤더가 아니라 `Quant/src/utils/Logger.cpp`의 `Logger::Implementation`에 있습니다 — 이 헤더를 34개 파일이 직접 포함해, 로거 내부를 한 줄 고칠 때마다 전체가 다시 컴파일됐습니다(80초). 지금은 내부 수정이 `Logger.cpp` 한 파일만 다시 컴파일합니다(16초).

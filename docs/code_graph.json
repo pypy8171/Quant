@@ -619,8 +619,9 @@
     "universe/UniverseScanner.h": [
       "api/KisClient.h"
     ],
-    "utils/Logger.h": [
-      "core/MpscQueue.h"
+    "utils/Logger.cpp": [
+      "core/MpscQueue.h",
+      "utils/Logger.h"
     ]
   },
   "included_by": {
@@ -744,7 +745,7 @@
     "core/MpscQueue.h": [
       "core/Engine.h",
       "core/TickCapture.h",
-      "utils/Logger.h"
+      "utils/Logger.cpp"
     ],
     "core/OrderPacer.h": [
       "core/Engine.h",
@@ -978,7 +979,8 @@
       "strategy/SupplyDemandPullbackStrategy.h",
       "strategy/ThemeStrategy.h",
       "strategy/ValueContraryStrategy.h",
-      "universe/UniverseScanner.cpp"
+      "universe/UniverseScanner.cpp",
+      "utils/Logger.cpp"
     ],
     "utils/Utf8.h": [
       "modes/Monitors.cpp"
@@ -991,7 +993,7 @@
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 26
+      "in_degree": 27
     },
     {
       "header": "core/KstTime.h",

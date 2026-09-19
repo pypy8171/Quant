@@ -56,7 +56,7 @@ graph LR
 | 헤더 | 유입 수 |
 |---|---|
 | `core/Types.h` | 29 |
-| `utils/Logger.h` | 26 |
+| `utils/Logger.h` | 27 |
 | `core/KstTime.h` | 13 |
 | `strategy/StrategyBase.h` | 13 |
 | `api/KisClient.h` | 12 |
@@ -155,7 +155,7 @@ graph LR
     n_universe_UniverseScanner_h["universe/UniverseScanner.h"]
   end
   subgraph utils
-    n_utils_Logger_h["utils/Logger.h"]
+    n_utils_Logger_cpp["utils/Logger.cpp"]
   end
   n_api_IMarketDataSource_h --> n_core_Types_h
   n_api_IOrderExecutor_h --> n_core_Types_h
@@ -385,7 +385,8 @@ graph LR
   n_universe_UniverseScanner_cpp --> n_utils_JsonNode_h
   n_universe_UniverseScanner_cpp --> n_utils_Logger_h
   n_universe_UniverseScanner_h --> n_api_KisClient_h
-  n_utils_Logger_h --> n_core_MpscQueue_h
+  n_utils_Logger_cpp --> n_core_MpscQueue_h
+  n_utils_Logger_cpp --> n_utils_Logger_h
 ```
 
 ## Python import 그래프

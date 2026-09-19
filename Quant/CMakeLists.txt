@@ -514,7 +514,7 @@ if(UNIX)
 endif()
 
 # ─── 테스트 타겟: 비동기 Logger MPSC 큐·flush 계약 (D-045) ───────────────
-add_executable(test_logger tests/test_logger.cpp)
+add_executable(test_logger tests/test_logger.cpp src/utils/Logger.cpp)
 target_include_directories(test_logger PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
