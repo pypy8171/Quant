@@ -13,7 +13,7 @@
 - [docs](#docs) — 56개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 176개
-- [scripts](#scripts) — 54개
+- [scripts](#scripts) — 55개
 - [strategies](#strategies) — 30개
 - [tools](#tools) — 3개
 
@@ -798,6 +798,7 @@
 - [unattended_night.ps1](../scripts/unattended_night.ps1) — 밤사이 무인 이어달리기를 지시서·종료시각과 함께 띄우는 진입 스크립트
 - [unattended_run.ps1](../scripts/unattended_run.ps1) — 긴 작업을 헤드리스 사이클로 쪼개고 사이를 인계 파일로 이어 사람 없이 끝까지 돌린다(-Name, -PromptFile, -Until)
 - [wt_build.cmd](../scripts/wt_build.cmd) — 워크트리에서 VS2022 환경을 잡고 Quant/build_win을 Ninja로 빌드, `test` 인자면 ctest까지
+- [wt_remove.ps1](../scripts/wt_remove.ps1) — 워크트리를 지운다. 안의 `.claude` 정션을 `rmdir`로 먼저 떼고 `git worktree remove`를 부른다(정션을 타고 메인 `.claude/`가 지워진 09-18 사고 재발 방지), 미커밋 변경은 `-Force`일 때만
 
 ### scripts/rename_maps/
 

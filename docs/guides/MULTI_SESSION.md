@@ -13,7 +13,7 @@
 ```bash
 git worktree add ../Quant-wt-<주제> -b wt/<주제>      # 세션 시작 시 1회
 git worktree list                                      # 누가 어디를 잡고 있는지
-git worktree remove ../Quant-wt-<주제>                 # 머지 뒤 정리
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wt_remove.ps1 ../Quant-wt-<주제>   # 머지 뒤 정리(아래 정션 주의)
 ```
 
 - **메인 트리(`Quant/`)는 트레이더 배포 세션 하나만** 쓴다. `Quant/build_win/quant_trader.exe` 교체·감시견 재기동·
@@ -22,6 +22,9 @@ git worktree remove ../Quant-wt-<주제>                 # 머지 뒤 정리
 - 문서만 고치는 세션은 메인 트리도 가능하되, 같은 파일을 두 세션이 열지 않는다(`git status --porcelain`으로 먼저 본다).
 - 예약 작업(`_private/_cron/*_task.md`)은 메인 트리에서 돌고 `research/`·`_private/`만 쓴다. 코드 세션은 그 시각에
   `research/STRATEGY_LAB.md`를 건드리지 않는다.
+- worktree를 지울 때는 `git worktree remove`를 바로 부르지 않고 `scripts/wt_remove.ps1`을 쓴다. 워크트리의 `.claude`는 메인
+  `Quant/.claude`로의 정션인데 `git worktree remove --force`가 정션을 타고 들어가 메인 쪽 hooks·commands·agents·skills를 지운다
+  (09-18 실제 발생, 복구는 다른 워크트리의 사본으로). 스크립트는 정션만 `cmd /c rmdir`로 뗀 뒤 git에 넘긴다.
 - worktree는 `Quant/build_win/`을 공유하지 않는다 — 빌드 산출물은 worktree마다 새로 만든다(`$env:TEMP=C:\build_tmp` 회피는 동일).
 
 ### 세션끼리 순서·충돌을 알아서 정리한다 (상시)
