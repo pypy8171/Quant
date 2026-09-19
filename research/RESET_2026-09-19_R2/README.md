@@ -137,7 +137,7 @@ pytest 전체 96건 통과(09-20 새벽, §10 첫 명령).
 
 | 순서 | 일 | 조건 | 비고 |
 |---|---|---|---|
-| 1 | 이번 밤 산출물 커밋(어댑터 4·공용 코드·스펙 7장·규칙 개정·스터디 19·20·README) | 게이트 `py scripts/commit_gate.py` → 오너 승인 | 남의 미커밋(`docs/HARNESS.md`·`docs/facts.json`·`research/dashboard/*`·스터디 08·09·11·17) 분리 |
+| 1 | (끝) 이번 밤 산출물 커밋 — 1c3d836(2라운드 42파일)·9bab981(남의 미커밋 8건 + 생성기 맞춤 13파일), 둘 다 푸시 | — | 남의 미커밋은 다른 세션이 전부 죽어 있어 같이 올렸다 |
 | 2 | 스터디 20 재실행 | 결정 6 | 약 8분 |
 | 3 | 스터디 19 후속(새 번호) | §3-1 다음 실행 조건 | 상폐사 포함 회사 목록 먼저 |
 | 4 | 관세청·ECOS 월간 발표일 실측(등급 B → A) | 관세청 보도자료 일정 표 | `macro_ingest.py` `published_at` 규칙 교체 |
@@ -149,7 +149,7 @@ pytest 전체 96건 통과(09-20 새벽, §10 첫 명령).
 
 ## 9. 부수 발견·알려진 문제
 
-- `scripts/check_backtest.py` exit 1 — 기존 스터디 08·09 README 드리프트(이번 밤 산출과 무관).
+- `scripts/check_backtest.py` exit 1 — 스터디 07/08/09 README 드리프트. 원인 둘: 생성기가 Windows에서 CRLF로 쓰고, 낱말 정리(D-102)가 README에만 적용돼 생성기 문자열은 옛 스터디 번호였다. 9bab981에서 생성기 쪽을 고쳐(LF 고정·이름 맞춤) 게이트 통과.
 - `research/studies/17_exit_ev/`에 `metrics.json`이 없다(기술통계 스터디라 판정 표가 없음).
 - `PYQuant/features/__init__.py` docstring을 스터디 19 에이전트가 덮어썼다(기능 영향 없음, 정리 대상).
 - 관세청 API는 한 호출 10년 제한(resultCode 99) — 9년 창으로 나눠 부르도록 `fetch_tradedata`를 고쳤다.
