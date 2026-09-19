@@ -982,6 +982,22 @@ group = "감시견·예약작업 — scripts/auto_trade_day.ps1 · eod_timetable
 meaning = "실계좌: 감시견 -Until(애프터마켓 20:00 + 여유)"
 
 [[code_value]]
+id = "health_slow_order_ms"
+file = "scripts/check_runtime_health.py"
+regex = '^SLOW_ORDER_MS = (\d+)'
+unit = "ms"
+group = "감시견·예약작업 — scripts/auto_trade_day.ps1 · eod_timetable.ps1"
+meaning = "주문 접수까지 이보다 오래 걸린 건을 '느린 접수'로 센다(청산 지정가가 시세를 놓치는 기준, T-24)"
+
+[[code_value]]
+id = "health_max_http_timeouts"
+file = "scripts/check_runtime_health.py"
+regex = '^MAX_HTTP_TIMEOUTS = (\d+)'
+unit = "건"
+group = "감시견·예약작업 — scripts/auto_trade_day.ps1 · eod_timetable.ps1"
+meaning = "하루 15초 제한 시간 초과 요청이 이보다 많으면 '잔고 조회 지연' WARN(09-18 192건)"
+
+[[code_value]]
 id = "health_churn_sec"
 file = "scripts/check_runtime_health.py"
 regex = '^CHURN_SEC = (\d+)'

@@ -36,6 +36,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 import _logdir  # noqa: E402
 from log_patterns import PNL_RE, PREV_PNL_RE  # noqa: E402
+import check_runtime_health  # noqa: E402
 
 JOURNAL_DIR = REPO / "strategies" / "DeviationScale" / "live"
 RUN_LOG = REPO / "logs" / "eod_autodoc.log"
@@ -398,6 +399,22 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
         for why, n in log_facts["warns"]:
             add(f"| {why} | {n} |")
         add("")
+
+    # 실행 건전성 — check_runtime_health.py의 행을 그대로 싣는다. 사람이 감시견 로그를 열어
+    # 찾지 않아도 "다음 거래일 확인할 것"이 여기서 자동으로 판정되게 하려는 것이다(FAIL/WARN만 읽으면 된다).
+    add("### 실행 건전성 점검 (`scripts/check_runtime_health.py`)")
+    add("")
+    health_rows = []
+    if log_path is not None:
+        health_rows, _ = check_runtime_health.collect(ymd, Path(log_path))
+    if not health_rows:
+        add("_엔진 시작 기록이 없어 점검 세션 없음._")
+    else:
+        add("| 판정 | 항목 | 내용 |")
+        add("|---|---|---|")
+        for name, ok, level, detail in health_rows:
+            add(f"| {'PASS' if ok else level} | {name} | {detail} |")
+    add("")
 
     add(AUTO_END)
     add("")

@@ -133,10 +133,10 @@ cd {ROOT}; $env:PYTHONUTF8="1"; Start-Process py -ArgumentList 'scripts\dashboar
 
 ## 4. 로그 감시·요약
 
-<!-- sync: scripts/parse_quant_log.py@6a71be6 -->
+<!-- sync: scripts/parse_quant_log.py@8d48796 -->
 
-체결원장(CSV)에 없는 운영 이벤트(ERROR·KIS 거부·게이트 봉쇄·WS 재연결·HTTP 오류·주문·체결)만 뽑는다. 손익은 지어내지
-않고 개수·사유만. 로그는 실행파일 옆 `Quant\build_win\logs\quant_trader.log`다(cwd가 아니라 exe 기준 — 정본 `scripts/_logdir.py`, 루트 `logs\`는 테스트 바이너리 것).
+체결원장(CSV)에 없는 운영 이벤트(ERROR·KIS 거부·게이트 봉쇄·WS 재연결·HTTP 오류·주문·체결·15초 제한 시간 초과·잔고 조회 사이클 걸침)만 뽑는다. 손익은 지어내지
+않고 개수·사유만. 주문이 있는 창은 접수 지연 한 줄을 붙인다 — RTT 중앙값·3초 이상 건수·버킷대기 중앙값과 "서버 응답 지연인지 초당한도 버킷인지" 판정(임계는 `scripts/check_runtime_health.py`가 소유). 로그는 실행파일 옆 `Quant\build_win\logs\quant_trader.log`다(cwd가 아니라 exe 기준 — 정본 `scripts/_logdir.py`, 루트 `logs\`는 테스트 바이너리 것).
 7일 지난 날의 줄은 `archive\quant_trader_<날짜>.log.gz`로 옮겨져 있는데(`maintain.py --rotate-logs`), `--date`를 주면 그 gz를 이어서 읽는다.
 
 ```powershell

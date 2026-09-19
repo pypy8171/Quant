@@ -40,6 +40,8 @@ _HERE = Path(__file__).resolve()
 _REPO = _HERE.parents[1]
 sys.path.insert(0, str(_HERE.parent))
 import _logdir  # noqa: E402
+# 접수 지연 판정(RTT·버킷대기 정규식과 임계)은 건전성 점검과 한 벌이어야 한다 — 그쪽이 소유
+from check_runtime_health import RTT_RE, SLOW_ORDER_MS, BUCKET_WAIT_MS, median  # noqa: E402
 
 # 로그 폴더 규칙은 _logdir 하나다(QUANT_LOG_DIR > 가장 최근에 쓰인 quant_trader.log).
 #  예전에는 저장소 루트 logs/로 못박아, 빌드 폴더에서 돌던 엔진의 로그를 못 찾고도
@@ -73,6 +75,12 @@ def classify(rest: str, lvl: str):
         return ("fill", rest)
     if "[OrderRouter] 접수 [ORD-" in rest:
         return ("order", rest)
+    # 서버가 15초 안에 답을 안 준 요청 — ERROR로 찍히지만 만성 잡음이라 따로 센다(09-18 192건이 ERROR 표본을 덮었다)
+    if "ReceiveResponse 실패: 12002" in rest or "[CURL] 요청 실패: Timeout was reached" in rest:
+        return ("http_timeout", rest)
+    # D-100 — 잔고 조회가 한 사이클을 넘겨 뒤 사이클에서 적용된 건
+    if "잔고 대조: 조회 소요" in rest:
+        return ("recon_slow", rest)
     if "[Strategy] 신호:" in rest:
         return ("signal", rest)
     # 청산차단(수동 확인 필요) — 항상 즉시 노출
@@ -114,6 +122,35 @@ def scan(lines):
         if c:
             buckets.setdefault(c[0], []).append(c[1])
     return buckets, ts_first, ts_last
+
+
+def latency_line(buckets: dict[str, list[str]]) -> str | None:
+    """접수·거부 줄의 RTT·버킷대기로 지연 한 줄. 주문이 없으면 None.
+
+    RTT가 큰데 버킷대기가 작으면 KIS 서버 응답 지연, 버킷대기가 크면 초당한도 버킷 — 사람이 로그를
+    열어 가르지 않도록 여기서 판정까지 적는다.
+    """
+    rtts: list[int] = []
+    waits: list[int] = []
+    for detail in buckets.get("order", []) + buckets.get("kis_reject", []):
+        found = RTT_RE.search(detail)
+        if not found:
+            continue
+        rtts.append(int(found.group(1)))
+        if found.group(2) is not None:
+            waits.append(int(found.group(2)))
+    if not rtts:
+        return None
+    slow = sum(1 for rtt in rtts if rtt >= SLOW_ORDER_MS)
+    line = f"  접수지연: {len(rtts)}건 RTT 중앙값 {median(rtts)}ms, {SLOW_ORDER_MS // 1000}초↑ {slow}건"
+    if not waits:
+        return line + " (버킷대기 계측 없음)"
+    line += f", 버킷대기 중앙값 {median(waits)}ms"
+    if median(waits) >= BUCKET_WAIT_MS:
+        line += " → 초당한도 버킷이 원인"
+    elif slow:
+        line += " → KIS 서버 응답 지연(버킷 아님)"
+    return line
 
 
 # ── 상태(offset) ─────────────────────────────────────────────────────────────
@@ -162,6 +199,8 @@ def watch():
     n_err = len(buckets.get("error", []))
     n_liq = len(buckets.get("liq_block", []))
     n_unmapped = len(buckets.get("fill_unmapped", []))
+    n_timeout = len(buckets.get("http_timeout", []))
+    n_recon_slow = len(buckets.get("recon_slow", []))
 
     # 유의미 판단: 주문·체결·거부·게이트·WS·에러·청산차단·매핑실패 중 하나라도 / HTTP 스파이크
     significant = (any([n_order, n_fill, n_kis, n_gate, n_ws, n_err, n_liq, n_unmapped])
@@ -172,8 +211,13 @@ def watch():
     win = f"{t0[11:16]}–{t1[11:16]}" if t0 else "?"
     head = (f"[감시 {win}] 주문{n_order} 체결{n_fill} KIS거부{n_kis} "
             f"게이트봉쇄{n_gate} WS재연결{n_ws} HTTP오류{n_http} ERROR{n_err}"
-            + (f" 매핑실패{n_unmapped}" if n_unmapped else ""))
+            + (f" 매핑실패{n_unmapped}" if n_unmapped else "")
+            + (f" 제한시간초과{n_timeout}" if n_timeout else "")
+            + (f" 잔고조회걸침{n_recon_slow}" if n_recon_slow else ""))
     out = [head]
+    latency = latency_line(buckets)
+    if latency:
+        out.append(latency)
     # 반드시 즉시 노출할 것: 청산차단·ERROR·KIS거부(사유 원문 샘플 최대 5)
     for cat, label in (("liq_block", "‼ 청산차단"), ("error", "✗ ERROR"),
                        ("kis_reject", "✗ KIS거부")):
@@ -222,6 +266,7 @@ def full(date: str | None, as_json: bool):
         "span": {"first": t0, "last": t1},
         "counts": {k: len(v) for k, v in buckets.items()},
         "gate_reasons": dict(Counter(buckets.get("gate_block", [])).most_common()),
+        "latency": (latency_line(buckets) or "").strip() or None,
         "samples": {
             k: [d[:200] for d in v[:8]]
             for k, v in buckets.items()
@@ -240,9 +285,13 @@ def full(date: str | None, as_json: bool):
         ("KIS거부", "kis_reject"), ("게이트봉쇄", "gate_block"),
         ("WS재연결", "ws_reconnect"), ("HTTP오류", "http_error"),
         ("ERROR", "error"), ("청산차단", "liq_block"),
+        ("제한시간초과", "http_timeout"), ("잔고조회걸침", "recon_slow"),
     ]
     for label, key in order:
         print(f"  {label:9s}: {c.get(key, 0)}")
+    latency = latency_line(buckets)
+    if latency:
+        print(latency)
     if summary["gate_reasons"]:
         print("  게이트봉쇄 사유:")
         for r, n in summary["gate_reasons"].items():

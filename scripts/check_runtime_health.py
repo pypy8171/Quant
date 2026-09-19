@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import gzip
 import re
 import sys
 from pathlib import Path
@@ -35,6 +36,12 @@ BREAKEVEN_RE = re.compile(r"본전탈출\)")
 FILL_RE = re.compile(r"체결통보 ODNO=\d+ (\d{6}) (BUY|SELL) (\d+)주")
 RATE_RE = re.compile(r"EGW00201|초당 거래건수")
 WSFALL_RE = re.compile(r"WS → REST 폴링 폴백")
+# 주문 접수·거부 한 줄의 왕복 시간. 버킷대기는 09-19 이후 바이너리만 찍는다(없으면 None).
+RTT_RE = re.compile(r"\[OrderRouter\] (?:접수|KIS 거부) .*?RTT=(\d+)ms(?: 버킷대기=(\d+)ms)?")
+# D-100 — 잔고 조회가 한 사이클(500ms)을 넘겨 뒤 사이클에서 적용된 건
+RECON_SLOW_RE = re.compile(r"잔고 대조: 조회 소요 (\d+)ms \(사이클 (\d+)회 걸침\)")
+# 서버가 15초 안에 답을 안 준 요청 — WinHTTP 12002·curl 28. 한 요청에 한 줄(재시도 래퍼의 안내 줄은 세지 않는다)
+HTTP_TIMEOUT_RE = re.compile(r"ReceiveResponse 실패: 12002|\[CURL\] 요청 실패: Timeout was reached")
 
 # 임계값. 넘으면 그날 운영이 실제로 상했던 수준이다.
 MAX_STALE_ORDERS = 25     # 유령주문 재부활 — 취소 왕복이 초당한도를 밀어낸다
@@ -43,30 +50,29 @@ GUARD_QUIET_SEC = 90      # 청산 관리 부착 직후 이 시간 안의 본전
 CHURN_SEC = 120           # 같은 종목 매도→매수가 이 안에 오면 회전
 MAX_CHURN = 3
 MAX_RATE_HITS = 50
+SLOW_ORDER_MS = 3000      # 접수까지 이보다 오래 걸리면 청산 지정가가 시세를 놓친다(T-24)
+MAX_SLOW_ORDER_RATIO = 0.2  # 접수 중 이 비율 넘게 느리면 그날 서버(또는 버킷)가 상한 것
+BUCKET_WAIT_MS = 300      # 버킷대기 중앙값이 이 위면 지연의 주범은 서버가 아니라 초당한도 버킷
+MAX_HTTP_TIMEOUTS = 50    # 15초 제한 초과 요청 — 09-18 192건(09-17은 3건)이 잔고 대조를 100초까지 붙잡았다
+
+
+def median(values: list[int]) -> int:
+    if not values:
+        return 0
+    ordered = sorted(values)
+    return ordered[len(ordered) // 2]
 
 
 def secs(m: re.Match) -> int:
     return int(m.group(2)) * 3600 + int(m.group(3)) * 60 + int(m.group(4))
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--date", default=dt.date.today().isoformat())
-    ap.add_argument("--log", default=str(DEFAULT_LOG))
-    # 하루 로그는 누적이라, 방금 고친 결함의 과거 이력까지 같이 잡힌다.
-    #  "고친 뒤로 다시 났나"를 보려면 수정 반영 시각을 준다.
-    ap.add_argument("--since", default="", help="HH:MM — 이 시각 이후만 본다")
-    a = ap.parse_args()
+def collect(date: str, log: Path, since: int = 0):
+    """로그 한 파일에서 그날 점검 행을 만든다.
 
-    since = 0
-    if a.since:
-        hh, _, mm = a.since.partition(":")
-        since = int(hh) * 3600 + int(mm or 0) * 60
-
-    log = Path(a.log)
-    if not log.exists():
-        print(f"로그 없음: {log}")
-        return 1
+    반환 (rows, session_count). rows 원소는 (이름, 통과, 등급, 설명). 세션이 없으면 rows 빈 리스트.
+    eod_autodoc이 마감 문서 4절에 이 표를 그대로 싣는다 — 사람이 따로 돌려 보지 않아도 되게.
+    """
 
     starts: list[int] = []       # 엔진 시작 시각(초)
     last_ts = 0
@@ -76,11 +82,17 @@ def main() -> int:
     fills: list[tuple[int, str, str]] = []
     rate_hits = 0
     ws_fallbacks = 0
+    rtts: list[int] = []
+    bucket_waits: list[int] = []
+    recon_slow: list[tuple[int, int]] = []   # (ms, 사이클)
+    http_timeouts = 0
 
-    with log.open(encoding="utf-8", errors="replace") as f:
-        for line in f:
+    # 7일 지난 날은 archive/quant_trader_<날짜>.log.gz — eod_autodoc이 그 경로를 그대로 넘긴다
+    opener = (lambda: gzip.open(log, "rt", encoding="utf-8", errors="replace")) if log.suffix == ".gz"         else (lambda: log.open(encoding="utf-8", errors="replace"))
+    with opener() as log_file:
+        for line in log_file:
             m = TS_RE.match(line)
-            if not m or m.group(1) != a.date:
+            if not m or m.group(1) != date:
                 continue
             t = secs(m)
             if t < since:
@@ -88,24 +100,33 @@ def main() -> int:
             last_ts = t
             if START_RE.search(line):
                 starts.append(t)
-            mm = STALE_RE.search(line)
-            if mm:
-                stale_max = max(stale_max, int(mm.group(1)))
+            found = STALE_RE.search(line)
+            if found:
+                stale_max = max(stale_max, int(found.group(1)))
             if GUARD_RE.search(line):
                 guard_at.append(t)
             if BREAKEVEN_RE.search(line):
                 breakeven.append(t)
-            mm = FILL_RE.search(line)
-            if mm:
-                fills.append((t, mm.group(1), mm.group(2)))
+            found = FILL_RE.search(line)
+            if found:
+                fills.append((t, found.group(1), found.group(2)))
             if RATE_RE.search(line):
                 rate_hits += 1
             if WSFALL_RE.search(line):
                 ws_fallbacks += 1
+            found = RTT_RE.search(line)
+            if found:
+                rtts.append(int(found.group(1)))
+                if found.group(2) is not None:
+                    bucket_waits.append(int(found.group(2)))
+            found = RECON_SLOW_RE.search(line)
+            if found:
+                recon_slow.append((int(found.group(1)), int(found.group(2))))
+            if HTTP_TIMEOUT_RE.search(line):
+                http_timeouts += 1
 
     if not starts:
-        print(f"{a.date}: 엔진 시작 기록이 없다 — 점검할 세션이 없음")
-        return 0
+        return [], 0
 
     # 세션 길이 — 마지막 세션은 지금까지 살아 있는 것으로 본다.
     bounds = starts + [last_ts]
@@ -129,6 +150,32 @@ def main() -> int:
     def hhmm(t: int) -> str:
         return f"{t // 3600:02d}:{t % 3600 // 60:02d}:{t % 60:02d}"
 
+    # 주문 접수 지연 — RTT가 큰데 버킷대기가 작으면 서버 응답 지연, 버킷대기가 크면 초당한도 압박.
+    slow_orders = sum(1 for rtt in rtts if rtt >= SLOW_ORDER_MS)
+    orders_ok = not rtts or slow_orders <= len(rtts) * MAX_SLOW_ORDER_RATIO
+    if not rtts:
+        order_detail = "주문 없음"
+    else:
+        order_detail = (f"접수·거부 {len(rtts)}건 RTT 중앙값 {median(rtts)}ms, "
+                        f"{SLOW_ORDER_MS // 1000}초↑ {slow_orders}건")
+        if not bucket_waits:
+            order_detail += " — 버킷대기 계측 없음(09-19 이전 바이너리)"
+        elif median(bucket_waits) >= BUCKET_WAIT_MS:
+            order_detail += f", 버킷대기 중앙값 {median(bucket_waits)}ms → 초당한도 버킷이 원인"
+        elif not orders_ok:
+            order_detail += f", 버킷대기 중앙값 {median(bucket_waits)}ms → KIS 서버 응답 지연(버킷 아님)"
+        else:
+            order_detail += f", 버킷대기 중앙값 {median(bucket_waits)}ms"
+
+    # 잔고 조회 지연(D-100) — 조회가 사이클을 넘긴 횟수와 제한 시간 초과 GET. 사이클은 멈추지 않았어야 한다.
+    if recon_slow:
+        worst_ms = max(milliseconds for milliseconds, _ in recon_slow)
+        worst_cycles = max(cycles for _, cycles in recon_slow)
+        recon_detail = (f"사이클 넘긴 조회 {len(recon_slow)}회 (최대 {worst_ms}ms·{worst_cycles}사이클), "
+                        f"제한 시간 초과 {http_timeouts}건 (허용 {MAX_HTTP_TIMEOUTS})")
+    else:
+        recon_detail = f"사이클 넘긴 조회 0회, 제한 시간 초과 {http_timeouts}건 (허용 {MAX_HTTP_TIMEOUTS})"
+
     rows = [
         ("유령주문 재부활", stale_max <= MAX_STALE_ORDERS, "FAIL",
          f"기동 시 미체결 최대 {stale_max}건 (허용 {MAX_STALE_ORDERS})"),
@@ -144,10 +191,38 @@ def main() -> int:
          f"초당 거래건수 거부 {rate_hits}건 (허용 {MAX_RATE_HITS})"),
         ("WS 폴백", ws_fallbacks == 0, "WARN",
          f"REST 폴링 폴백 {ws_fallbacks}회 — 틱 주기 30초"),
+        ("주문 접수 지연", orders_ok, "WARN", order_detail),
+        ("잔고 조회 지연", http_timeouts <= MAX_HTTP_TIMEOUTS, "WARN", recon_detail),
     ]
+    return rows, len(starts)
 
-    scope = f" {a.since}~" if a.since else ""
-    print(f"=== 실행 건전성 점검 {a.date}{scope} (세션 {len(starts)}회) ===")
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--date", default=dt.date.today().isoformat())
+    parser.add_argument("--log", default=str(DEFAULT_LOG))
+    # 하루 로그는 누적이라, 방금 고친 결함의 과거 이력까지 같이 잡힌다.
+    #  "고친 뒤로 다시 났나"를 보려면 수정 반영 시각을 준다.
+    parser.add_argument("--since", default="", help="HH:MM — 이 시각 이후만 본다")
+    arguments = parser.parse_args()
+
+    since = 0
+    if arguments.since:
+        hour_text, _, minute_text = arguments.since.partition(":")
+        since = int(hour_text) * 3600 + int(minute_text or 0) * 60
+
+    log = Path(arguments.log)
+    if not log.exists():
+        print(f"로그 없음: {log}")
+        return 1
+
+    rows, session_count = collect(arguments.date, log, since)
+    if not rows:
+        print(f"{arguments.date}: 엔진 시작 기록이 없다 — 점검할 세션이 없음")
+        return 0
+
+    scope = f" {arguments.since}~" if arguments.since else ""
+    print(f"=== 실행 건전성 점검 {arguments.date}{scope} (세션 {session_count}회) ===")
     bad = 0
     for name, ok, level, detail in rows:
         tag = "PASS" if ok else level

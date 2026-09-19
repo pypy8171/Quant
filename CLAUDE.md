@@ -101,6 +101,8 @@ config에는 **실계좌 인증 정보**가 있다. 모의투자는 `"is_paper":
 `scripts/auto_trade_day.ps1` 소유(exe 교체 → Stop-Process → 감시견 대기, 손으로 띄우면 엔진 둘). LNK1104는 실행 중 프로세스가
 exe를 잠근 것. 재기동 직후 잔고 재시드·`OrderRouter (FEP) 초기화 완료`·체결통보 매칭 1건 확인. 절차 정본 [docs/AUTOMATION.md](docs/AUTOMATION.md).
 **예외 — 물어본다**: 리스크 한도·계좌 전환(모의↔실계좌), 보유분 강제청산, git 커밋·푸시.
+**고친 뒤 확인은 사용자 몫이 아니다** — "다음 거래일 로그를 봐 달라"고 남기지 말고 `scripts/check_runtime_health.py`에 판정 행을
+넣는다(매매일지 4절에 자동으로 실리고, 장중은 `parse_quant_log.py --watch`가 같은 판정을 낸다). 사람이 열어 봐야 하는 확인 항목은 만들지 않는다.
 
 ## 다중 세션 — 세션당 git worktree
 
