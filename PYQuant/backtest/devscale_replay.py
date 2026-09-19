@@ -12,7 +12,7 @@
     지정가 체결은 다음 3분봉 범위로 판정(시가가 이미 넘겨 있으면 시가 체결). 부분체결 없음.
   - 재구성: 봉마다 취소·재발주(min_rebuild_sec=8은 틱이 없어 봉 단위로 근사).
   - 존 이탈·하드 스탑·트레일·15:15: 전량 시장가 = 다음 봉 시가 −1틱. 마지막 봉이면 그 종가.
-  - 비용: backtest/costs.py LIVE(라이브 원장과 같은 수수료 0.015%·매도세 0.18%, 슬리피지·충격 0).
+  - 비용: backtest/costs.py LIVE(라이브 원장과 같은 수수료 0.015%·매도세 0.20%, 슬리피지·충격 0).
 
     py PYQuant/backtest/devscale_replay.py --pairs research/studies/13_trendx_gate/gate_pairs.jsonl \\
         --out research/studies/13_trendx_gate/replay_results.tsv

@@ -244,7 +244,11 @@ def report(merged: pd.DataFrame, codes: list, since: dt.date) -> None:
     v1_keys = set(zip(v1["code"], v1["Date"]))
     flow_keys = set(zip(merged["ticker"], merged["date"]))
     missing = len(v1_keys - flow_keys)
-    print(f"v1 일봉 (종목,날짜) {len(v1_keys):,} 중 수급 없는 조합 {missing:,} = {missing / max(len(v1_keys), 1):.2%} (판정 기준 ≤2%)")
+    missing_ratio = missing / max(len(v1_keys), 1)
+    # 1% ≈ 종목당 연 2~3일. 거래정지·상장 첫 주처럼 원래 숫자가 없는 날은 그 안에 들어오고, 그보다 크면 받는 쪽 실패로 본다
+    #  (09-19 전량 실측 0.48%). 오너 결정 09-20: 2%→1%.
+    verdict = "통과" if missing_ratio <= 0.01 else "실패"
+    print(f"v1 일봉 (종목,날짜) {len(v1_keys):,} 중 수급 없는 조합 {missing:,} = {missing_ratio:.2%} (판정 기준 ≤1%: {verdict})")
 
     for column in ["foreign_hold_pct", "close"]:
         print(f"{column} NaN {merged[column].isna().mean():.2%}")

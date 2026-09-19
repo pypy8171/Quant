@@ -36,7 +36,7 @@ public:
         //   전부 통과하고, 마지막 한 칸은 최상위만 가져간다. [why D-018]
         bool   entry_priority_enabled = false;
         // ── 교체 진입(displacement) — 슬롯이 꽉 찼는데 더 높은 점수가 오면 최약체를 비운다 ──
-        //  교체는 공짜가 아니다. 왕복 비용 0.195%(수수료 0.03% + 세금 0.18% 근사)에 피교체 종목의
+        //  교체는 공짜가 아니다. 왕복 비용 0.23%(수수료 0.03% + 세금 0.20%)에 피교체 종목의
         //  분할 매수가 리셋되므로, 아래 넷으로 회전을 묶는다. [why D-019]
         bool   displace_enabled       = false;
         double displace_min_z_gap     = 0.5;  // σ, 신규가 최약체보다 이만큼 높아야 교체
@@ -172,7 +172,7 @@ public:
         double average_price    = 0.0; // 갱신된 매수 평균단가
         int    net_quantity      = 0;   // 체결 후 순 보유수량
         double commission   = 0.0; // 수수료 (0.015%)
-        double tax          = 0.0; // 거래세 (매도 0.18%)
+        double tax          = 0.0; // 거래세 (매도 0.20%)
         double realized_pnl = 0.0; // 이번 체결 실현손익 (SELL만 양수)
         // SELL인데 원장이 평단을 모를 때 true. 그 경우 realized_pnl은 0으로 두고 daily_pnl에도
         //  더하지 않는다 — (price-0)*quantity가 이익으로 잡히면 일일 손실컷이 무력화된다(C-1).

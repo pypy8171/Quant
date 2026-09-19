@@ -44,7 +44,7 @@ RECON_SLOW_RE = re.compile(r"잔고 대조: 조회 소요 (\d+)ms \(사이클 (\
 HTTP_TIMEOUT_RE = re.compile(r"ReceiveResponse 실패: 12002|\[CURL\] 요청 실패: Timeout was reached")
 # D-101 결정 2 — TRENDX max_universe 0이면 초기 등록이 0종목이어야 한다(스코어 경로 상한은 09-19 수정)
 TRENDX_REGISTER_RE = re.compile(r"TRENDX universe_from_scan: 초기 (\d+)종목 등록")
-# D-101 결정 3 — 마감 청산이 매매 창 안(15:25)에 나가면 이 거부는 0건이다(09-18 2,188건이 25종목 이월을 만들었다)
+# D-101 결정 3 — 마감 청산이 매매 창 안(모의 15:15·실계좌 19:50, 접속매매)에 나가면 이 거부는 0건이다(09-18 2,188건이 25종목 이월을 만들었다)
 SESSION_WINDOW_REJECT_RE = re.compile(r"\[OrderRouter\] 거부 .*세션 창 밖")
 
 # 임계값. 넘으면 그날 운영이 실제로 상했던 수준이다.
@@ -207,7 +207,7 @@ def collect(date: str, log: Path, since: int = 0):
          (f"초기 등록 최대 {max(trendx_registered)}종목 (기대 0, D-101 결정 2)" if trendx_registered
           else "TRENDX 등록 줄 없음 — 전략 미로드 또는 등록 0")),
         ("매매 창 밖 거부", session_window_rejects == 0, "FAIL",
-         f"세션 창 밖 거부 {session_window_rejects}건 (기대 0 — 마감 청산 15:25, D-101 결정 3)"),
+         f"세션 창 밖 거부 {session_window_rejects}건 (기대 0 — 마감 청산 모의 15:15·실계좌 19:50, D-101 결정 3)"),
     ]
     return rows, len(starts)
 

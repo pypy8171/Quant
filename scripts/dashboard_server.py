@@ -287,7 +287,7 @@ def read_log_events(max_events=40):
 #  컬럼이 없던 시절 행은 원장의 매수·매도 체결로 평단을 굴려 재구성한다. 재구성분은
 #  전일 이월분처럼 장부에 매수 기록이 없는 매도를 계산할 수 없어 unknown으로 센다.
 COMMISSION_RATE = 0.00015  # 위탁수수료 0.015% (매수·매도 공통)
-SELL_TAX_RATE = 0.0018     # 증권거래세 0.18% (매도에만)
+SELL_TAX_RATE = 0.0020     # 증권거래세 0.20% (매도에만, 2026년. realized_pnl 열이 없을 때만 쓰는 예비 계산)
 
 
 def _accrue_realized(row, book, acc):

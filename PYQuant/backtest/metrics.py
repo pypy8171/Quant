@@ -25,7 +25,7 @@ import pandas as pd
 
 from backtest.costs import LIVE
 
-# 라이브 원장과 한 소스. 왕복 = 수수료 0.015%×2 + 매도세 0.18% = 0.21% (슬리피지·충격은 LIVE에서 0)
+# 라이브 원장과 한 소스. 왕복 = 수수료 0.015%×2 + 매도세 0.20% = 0.23% (슬리피지·충격은 LIVE에서 0)
 COMMISSION_RATE = LIVE.commission_rate
 TAX_RATE = LIVE.sell_tax_rate
 ROUNDTRIP_COST_PCT = LIVE.roundtrip_percent

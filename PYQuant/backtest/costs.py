@@ -116,7 +116,8 @@ def fill_result(side: str, price: float, quantity: int, specification: CostSpec)
     return FillResult(side, fill_price, quantity, gross, commission, tax, impact, net)
 
 
-# 라이브 원장 값(OrderGate.cpp 14-15행). 매도세 0.18%는 원장 CSV `realized_pnl` 역산(같은 주문 안의
-#  체결가가 다른 두 행에서 Δ주당손익/Δ가격 = 1 − 매도비용률, 334쌍 중앙값 0.1957%)으로 원장이 실제로
-#  이 값을 쓰고 있음을 확인한 것이다. 증권사가 실제 떼는 세율의 독립 근거는 저장소에 없다.
-LIVE = CostSpec(commission_percent=0.015, sell_tax_percent=0.18, slippage_ticks=0, impact_percent=0.0)
+# 라이브 원장 값(OrderGate.cpp 14-15행). 매도세 0.20%는 2026년 증권거래세(코스피 거래세 0.05%+농어촌특별세 0.15%,
+#  코스닥 0.20%). 2026-09-21까지 엔진은 2024년 값 0.18%로 원장을 썼다(원장 CSV `realized_pnl` 역산 334쌍 중앙값
+#  0.1957%로 확인) — 그 원장 행을 다시 계산할 때만 LEDGER_UNTIL_2026_09_21을 쓴다.
+LIVE = CostSpec(commission_percent=0.015, sell_tax_percent=0.20, slippage_ticks=0, impact_percent=0.0)
+LEDGER_UNTIL_2026_09_21 = CostSpec(commission_percent=0.015, sell_tax_percent=0.18, slippage_ticks=0, impact_percent=0.0)

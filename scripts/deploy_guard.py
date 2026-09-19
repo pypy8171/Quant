@@ -27,13 +27,13 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 
-def trading_window_end(config_path: Path) -> dt.time:
-    """모의는 정규장까지, 실계좌는 애프터마켓(D-097)까지 매매 창으로 본다."""
+def trading_window_end(config_path: Path) -> dt.time | None:
+    """모의는 정규장 15:30까지, 실계좌는 애프터마켓 20:00(D-097)까지 매매 창으로 본다. 못 읽으면 None."""
     try:
         config = json.loads(config_path.read_text(encoding="utf-8"))
         is_paper = bool(config.get("kis", {}).get("is_paper", config.get("is_paper", True)))
     except (OSError, ValueError):
-        is_paper = False    # config를 못 읽으면 넓은 쪽(실계좌 창)으로 막는다
+        return None
 
     return dt.time(15, 30) if is_paper else dt.time(20, 0)
 
@@ -51,6 +51,11 @@ def main() -> int:
     now = dt.datetime.now()
     window_end = trading_window_end(Path(arguments.config))
     stamp = now.strftime("%Y-%m-%d %H:%M:%S")
+
+    if window_end is None:
+        print(f"[deploy_guard] {arguments.config}를 읽지 못해 모의/실계좌를 가릴 수 없다 — 경로를 확인한다(--config).",
+              file=sys.stderr)
+        return 1
 
     if not in_trading_window(now, window_end):
         return 0
