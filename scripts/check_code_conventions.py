@@ -14,10 +14,13 @@
                 `.value("k", json::array())`는 오류, 값 range-for는 경고.
   6. 줄 성격  — 파일별 추가·삭제를 주석과 코드로 나눠 보고.
                 --comment-only를 주면 코드 줄 변경이 0이 아닐 때 실패한다.
-  7. 약어 이름 — 추가된 C++ 코드 줄의 식별자가 약어(qty·cnt·idx…)거나 한 글자면 오류.
+  7. 약어 이름 — 추가된 코드 줄의 식별자가 약어(qty·cnt·idx…)거나 한 글자면 오류.
                 판정 표는 리네임에 쓴 scripts/rename_maps/01_fields.json과
                 scripts/rename_frags.py(FRAG·WHOLE·SKIP·WIRE)를 그대로 쓴다.
-                std::·zmq:: 한정 이름, 문자열 리터럴, `[wire]` 줄, 대문자 한 글자(템플릿 인자)는 뺀다.
+                C++은 std::·zmq:: 한정 이름, 문자열 리터럴, `[wire]` 줄, 대문자 한 글자(템플릿 인자)를 뺀다.
+                .py는 정규식 대신 ast로 "그 파일이 이름을 붙이는 자리"(변수·인자·함수·클래스·import 별칭)만
+                본다 — f-문자열 접두사·독스트링 본문·라이브러리 멤버(`frame.iloc`)가 식별자로 잘못 읽히지
+                않게 하려는 것이다. 라이브러리 관례로 굳은 이름(PY_CONVENTION)은 예외.
 
 주석 밀도는 검사하지 않는다. 4절이 밀도를 게이트로 걸지 말라고 정해 두었고,
 집계는 maintain.py --weekly가 리포트로 남긴다.
@@ -31,6 +34,8 @@
 """
 from __future__ import annotations
 
+import ast
+import builtins
 import re
 import subprocess
 import sys
@@ -46,6 +51,7 @@ FIELD_MAP: dict[str, str] = _json.loads((ROOT / "scripts" / "rename_maps" / "01_
 
 CPP_EXT = {".h", ".hpp", ".cpp", ".cc"}
 HASH_EXT = {".py", ".ps1"}
+PY_BUILTIN_NAMES = set(dir(builtins))
 ALLOWED_TAGS = {"inv", "lock-order", "wire", "formula"}
 WHY_TAG_RE = re.compile(r"^why D-\d{3}$")
 TAG_RE = re.compile(r"//\s*\[([A-Za-z][A-Za-z0-9 _./-]*)\]")
@@ -108,6 +114,75 @@ def abbreviation_hits(path: str, text: str) -> list[tuple[str, str]]:
             hits.append((name, renamed))
 
     return hits
+
+
+# 파이썬 관례로 굳어 풀어 쓰지 않는 이름 — TODO T-14의 예외 규정(라이브러리 관례·지표명·단위 접미사)을 이름으로 적는다.
+PY_CONVENTION = {
+    "_",                                        # 쓰지 않는 값
+    "kwargs",                                   # **kwargs
+    "np", "pd", "plt", "mdates", "dt", "ET",    # import 별칭 — 라이브러리 문서가 이 이름으로 설명한다
+    "df",                                       # pandas 데이터프레임
+    "ax", "fig",                                # matplotlib
+    "pnl", "atr", "adx", "rsi", "vwap", "ohlc", # 지표명 — 풀어 쓰면 오히려 못 알아본다
+}
+
+
+def python_abbreviation_hits(path: str, source: str) -> dict[int, list[tuple[str, str]]]:
+    """.py 원문에서 (줄번호 → [(약어, 풀어 쓴 이름)]). 그 파일이 새로 이름을 붙이는 자리만 본다."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return {}   # 문법 오류는 다른 게이트(파이썬 자체)가 잡는다
+
+    basename = Path(path).name
+    found: list[tuple[str, int]] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            found.append((node.name, node.lineno))
+
+            if not isinstance(node, ast.ClassDef):
+                arguments = node.args
+                every = (list(arguments.posonlyargs) + list(arguments.args) + list(arguments.kwonlyargs)
+                         + [one for one in (arguments.vararg, arguments.kwarg) if one is not None])
+
+                for argument in every:
+                    found.append((argument.arg, argument.lineno))
+
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            found.append((node.id, node.lineno))
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                if alias.asname:
+                    found.append((alias.asname, node.lineno))
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            found.append((node.name, node.lineno))
+
+    hits: dict[int, list[tuple[str, str]]] = {}
+
+    for name, lineno in found:
+        if name in PY_CONVENTION or name in PY_BUILTIN_NAMES or name.startswith("__"):
+            continue
+
+        if SINGLE_LETTER_RE.match(name):
+            hits.setdefault(lineno, []).append((name, "풀어 쓴 이름"))
+            continue
+
+        renamed = FIELD_MAP.get(name) or rename_frags.new_name(name, basename, False)
+
+        if renamed != name:
+            hits.setdefault(lineno, []).append((name, renamed))
+
+    return hits
+
+
+def file_source(path: str, staged: bool) -> str:
+    """검사 대상 본문 — 스테이징 검사면 인덱스 내용, --worktree면 작업 트리 파일."""
+    if staged:
+        return git("show", f":{path}")
+
+    target = ROOT / path
+    return target.read_text(encoding="utf-8", errors="replace") if target.exists() else ""
 
 
 for _s in (sys.stdout, sys.stderr):
@@ -276,6 +351,22 @@ def main(argv: list[str]) -> int:
 
             for name, renamed in abbreviation_hits(path, text):
                 print(f"{path}:{ln}: 오류: 약어 이름 `{name}` — `{renamed}`처럼 풀어 쓴다")
+                problems += 1
+
+    # 7-파이썬. 같은 규칙을 .py에 건다. 줄 단위 정규식이 아니라 파일 전체를 ast로 읽고
+    #  추가된 줄에 걸린 이름만 고른다 — 이름을 붙이는 자리가 어디인지는 문법이 알려 준다.
+    for path, items in adds.items():
+        if Path(path).suffix.lower() != ".py":
+            continue
+
+        by_line = python_abbreviation_hits(path, file_source(path, staged))
+
+        if not by_line:
+            continue
+
+        for lineno, _text in items:
+            for name, renamed in by_line.get(lineno, []):
+                print(f"{path}:{lineno}: 오류: 약어 이름 `{name}` — `{renamed}`처럼 풀어 쓴다")
                 problems += 1
 
     # 6. 줄 성격 집계
