@@ -453,7 +453,7 @@
 
 ### docs/guides/
 
-- [AUTOMATION_SCRIPTING_GUIDE.md](guides/AUTOMATION_SCRIPTING_GUIDE.md) — (설명 필요)
+- [AUTOMATION_SCRIPTING_GUIDE.md](guides/AUTOMATION_SCRIPTING_GUIDE.md) — PowerShell·Python 자동화 스크립트를 직접 쓰기 위한 문법·API·설계 패턴 가이드(auto_trade_day·eod_autodoc·dashboard_server 해부)
 - [CODE_GRAPH_GUIDE.md](guides/CODE_GRAPH_GUIDE.md) — 코드 그래프 생성기 사용법
 - [CPP20_23_GUIDE.md](guides/CPP20_23_GUIDE.md) — C++20/23 기능 사용 가이드
 - [LINUX_SETUP.md](guides/LINUX_SETUP.md) — 리눅스 빌드·실행 설정 가이드
