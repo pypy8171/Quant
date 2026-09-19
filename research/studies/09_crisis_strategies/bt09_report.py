@@ -63,10 +63,10 @@ def write_readme(bms, results, sweeps, readme_path):
     # full-curve
     for bm in bms:
         r = results[bm["name"]]
-        bh = r["bh"]
+        buy_and_hold = r["buy_and_hold"]
         L.append(f"\n## 1차 지표 — 단일 연결곡선 · {bm['name']} ({bm['span']}, {bm['nbars']}봉)\n")
-        L.append(f"> 매수 후 보유: 연복리(CAGR) {fmt(bh['cagr'],2)}% · 최대낙폭(MDD) {fmt(bh['mdd'])}% · "
-                 f"샤프(위험조정수익) {fmt(bh['sharpe'],2)} · **Calmar {fmt(bh['calmar'],2)}**\n")
+        L.append(f"> 매수 후 보유: 연복리(CAGR) {fmt(buy_and_hold['cagr'],2)}% · 최대낙폭(MDD) {fmt(buy_and_hold['mdd'])}% · "
+                 f"샤프(위험조정수익) {fmt(buy_and_hold['sharpe'],2)} · **Calmar {fmt(buy_and_hold['calmar'],2)}**\n")
         L.append("| 전략 | 구분 | CAGR% | MDD% | Sharpe | **Calmar** | 낙폭축소%p | 초과CAGR%p | 활성% | 토글 |")
         L.append("|---|---|---|---|---|---|---|---|---|---|")
         for row in r["rows"]:
@@ -75,14 +75,14 @@ def write_readme(bms, results, sweeps, readme_path):
                      f"{fmt(b['mdd'])} | {fmt(b['sharpe'],2)} | **{fmt(b['calmar'],2)}** | "
                      f"{fmt(row['mdd_red'])} | {fmt(row['cagr_delta'],2)} | "
                      f"{fmt(row['active'],0)} | {row['toggles']} |")
-        L.append("\n*낙폭축소%p=|BH MDD|−|전략 MDD|(+면 방어). 초과CAGR%p=전략−BH 연율수익"
-                 "(+면 초과수익). 활성%=신호가 발동해 e≠1인 날 비중(낮으면 대부분 BH와 동일=희소이벤트). "
+        L.append("\n*낙폭축소%p=|매수 후 보유 MDD|−|전략 MDD|(+면 방어). 초과CAGR%p=전략−매수 후 보유 연율수익"
+                 "(+면 초과수익). 활성%=신호가 발동해 e≠1인 날 비중(낮으면 대부분 매수 후 보유와 동일=희소이벤트). "
                  "토글=익스포저 급변 횟수(휘프소 대리).*\n")
 
         # 홀드아웃
         L.append(f"\n### 홀드아웃 격리 · {bm['name']} (2022 잠금, Calmar)\n")
         tb = r["train_bh"]; hb = r["hold_bh"]
-        L.append(f"> 참고 BH — train(2022제외) Calmar {fmt(tb['calmar'],2) if tb else 'NA'} · "
+        L.append(f"> 참고 매수 후 보유 — train(2022제외) Calmar {fmt(tb['calmar'],2) if tb else 'NA'} · "
                  f"holdout(2022) Calmar {fmt(hb['calmar'],2) if hb else 'NA'}\n")
         L.append("| 전략 | train Calmar | holdout(2022) Calmar | train CAGR% | holdout CAGR% |")
         L.append("|---|---|---|---|---|")
@@ -118,10 +118,10 @@ def write_readme(bms, results, sweeps, readme_path):
         if not r["ev_rows"]:
             continue
         L.append(f"\n## 이벤트별 진단 · {bm['name']} (기본비용, 진단용 — best 셀 판정 금지)\n")
-        L.append("방어(C*)=**낙폭축소%p**(+면 덜 빠짐) / 공세(O*)=**초과수익%p**(+면 BH초과). "
+        L.append("방어(C*)=**낙폭축소%p**(+면 덜 빠짐) / 공세(O*)=**초과수익%p**(+면 매수 후 보유초과). "
                  "trough 기준점은 hindsight·평가전용.\n")
         codes = [c for c, *_ in STRATS]
-        L.append("| 이벤트 | 거동 | BH낙폭% | BH수익% | " + " | ".join(codes) + " |")
+        L.append("| 이벤트 | 거동 | 매수 후 보유낙폭% | 매수 후 보유수익% | " + " | ".join(codes) + " |")
         L.append("|---|---|---|---|" + "|".join(["---"] * len(codes)) + "|")
         agg = {c: [] for c in codes}
         side_of = {c: s for c, _, _, s, _, _ in STRATS}
@@ -134,8 +134,8 @@ def write_readme(bms, results, sweeps, readme_path):
                 val = m["mdd_red"] if side_of[c] == "방어" else m["excess"]
                 agg[c].append(val)
                 cells.append(fmt(val))
-            L.append(f"| {row['eid']} | {row['behavior']} | {fmt(row['bh_dd'])} | "
-                     f"{fmt(row['bh_tot'])} | " + " | ".join(cells) + " |")
+            L.append(f"| {row['eid']} | {row['behavior']} | {fmt(row['buy_and_hold_dd'])} | "
+                     f"{fmt(row['buy_and_hold_tot'])} | " + " | ".join(cells) + " |")
         L.append("| **중앙값** | — | — | — | " +
                  " | ".join(fmt(median(agg[c])) for c in codes) + " |")
         L.append("\n*방어전략은 낙폭축소 중앙값이 +일수록, 공세전략은 초과수익 중앙값이 +일수록 "
@@ -157,9 +157,9 @@ def write_readme(bms, results, sweeps, readme_path):
     L.append("- **익스포저(exposure) e**: 위험자산 보유배수(0=현금, 1=100%, 1.2=완만 레버리지). 전략은 이 값을 조절.")
     L.append("- **방어/공세**: 방어=위험시 e를 낮춰 낙폭축소, 공세=기회시 e를 1.2까지 높여 초과수익 추구.")
     L.append("- **MDD·CAGR·Sharpe·Calmar**: 최대낙폭 / 연복리수익 / 위험대비효율 / CAGR÷|MDD|(1차 지표).")
-    L.append("- **낙폭축소%p**: |BH MDD|−|전략 MDD|. +면 그만큼 덜 빠짐(방어 값어치).")
-    L.append("- **초과CAGR%p**: 전략 CAGR − BH CAGR. +면 BH보다 매년 더 벎(공세 값어치).")
-    L.append("- **활성%**: 신호가 실제 발동해 e≠1이던 날 비중. 낮으면 희소이벤트 전략(대부분 BH와 동일).")
+    L.append("- **낙폭축소%p**: |매수 후 보유 MDD|−|전략 MDD|. +면 그만큼 덜 빠짐(방어 값어치).")
+    L.append("- **초과CAGR%p**: 전략 CAGR − 매수 후 보유 CAGR. +면 매수 후 보유보다 매년 더 벎(공세 값어치).")
+    L.append("- **활성%**: 신호가 실제 발동해 e≠1이던 날 비중. 낮으면 희소이벤트 전략(대부분 매수 후 보유와 동일).")
     L.append("- **커버리지**: 그 신호값이 존재한 날 비율. 데이터 시작연도·다운로드 결측을 그대로 노출.")
     L.append("- **홀드아웃(holdout)**: 튜닝에 쓰지 않고 잠가둔 검증구간(여기선 2022). train과 크게 어긋나면 과최적화 신호.")
     L.append("- **원인구분**: 같은 자산변동도 다른 자산의 동조 방향으로 원인(공급/수요·리스크온/오프)을 나눠 대응.")

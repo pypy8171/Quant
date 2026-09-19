@@ -42,9 +42,9 @@ $Roles = @(
   @{ role = "trader";    match = "quant_trader.exe" },
   @{ role = "watchdog";  match = "auto_trade_day.ps1" },
   @{ role = "guard";     match = "auto_trade_guard.ps1" },
-  @{ role = "sidecar";   match = "macro_regime_feed.py" },
+  @{ role = "regime_feed";   match = "macro_regime_feed.py" },
   @{ role = "dashboard"; match = "dashboard_server.py" },
-  @{ role = "notify";    match = "notify_sidecar.py" },
+  @{ role = "notify";    match = "notify_trades.py" },
   @{ role = "universe";  match = "universe_feed.py" },
   @{ role = "prices";    match = "live_prices_feed.py" }
 )

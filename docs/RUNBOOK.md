@@ -21,10 +21,10 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@9d7ed45 scripts/auto_trade_guard.ps1@1a3da84 -->
+<!-- sync: scripts/auto_trade_day.ps1@b2f5bbd scripts/auto_trade_guard.ps1@1827d05 -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 죽으면 다시
-띄운다. 마감 뒤 `scripts/eod_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 트레이더는 이 감시견이 소유한다 —
+띄운다. 마감 뒤 `scripts/market_close_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 트레이더는 이 감시견이 소유한다 —
 손으로 따로 띄우면 엔진이 둘이 된다.
 
 ```powershell
@@ -37,7 +37,7 @@ powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1
 | `-Config Quant\config\config.json` | 실계좌 config로 (기본은 모의 `Quant\config\config_dev_paper.json`) |
 | `-Until 15:35` | 이 시각 이후로는 재기동하지 않는다 (기본 15:35) |
 | `-DryRun` | 무엇을 띄울지만 출력하고 실제로 띄우지 않는다 |
-| `-NoSidecar` / `-NoUniverse` / `-NoDashboard` / `-NoNotify` / `-NoEod` | 해당 단계 건너뛰기 |
+| `-NoRegimeFeed` / `-NoUniverse` / `-NoDashboard` / `-NoNotify` / `-NoMarketClose` | 해당 단계 건너뛰기 |
 
 진행 상태는 `_private\_auto_trade_day.json`(`phase`·`sessions`·`history`), 실행 로그는 `logs\auto_trade_day_YYYYMMDD.log`.
 감시견이 죽으면 잡(Job Object)이 부속 창과 트레이더를 같이 내리고, 감시자 예약작업(평일 08:45부터 5분마다)이 장중이면
@@ -68,7 +68,7 @@ wsl -e docker ps -a --filter name=quant-tsdb
 
 ## 2. 장중 매매를 창 5개로 손으로 띄우기
 
-<!-- sync: PYQuant/tools/macro_regime_feed.py@2201093 PYQuant/tools/universe_feed.py@543096a scripts/notify_sidecar.py@02bb045 -->
+<!-- sync: PYQuant/tools/macro_regime_feed.py@712c14b PYQuant/tools/universe_feed.py@543096a scripts/notify_trades.py@14c08c1 -->
 
 1절 감시견이 도는 날에는 쓰지 않는다(트레이더가 둘이 된다). 대상은 DevScale 모의계좌 `Quant\config\config_dev_paper.json` —
 `Quant\config\config.json`은 실계좌라 장중 시험에 쓰지 않는다. 각 창은 별도 프로세스이고 닫으면 그 부분만 멈춘다.
@@ -104,7 +104,7 @@ cd {ROOT}
 ```powershell
 cd {ROOT}
 $env:PYTHONUTF8 = "1"
-.\PYQuant\.venv-win\Scripts\python.exe scripts\notify_sidecar.py --config Quant\config\config_dev_paper.json --interval 1800
+.\PYQuant\.venv-win\Scripts\python.exe scripts\notify_trades.py --config Quant\config\config_dev_paper.json --interval 1800
 ```
 
 config별 전략: `config_dev_paper.json` DEVIATION_SCALE(일봉 정배열+눌림 게이트, 3분봉 이격 분할 지정가) ·
@@ -112,7 +112,7 @@ config별 전략: `config_dev_paper.json` DEVIATION_SCALE(일봉 정배열+눌�
 
 ## 3. 실시간 대시보드
 
-<!-- sync: scripts/dashboard_server.py@6f5546d -->
+<!-- sync: scripts/dashboard_server.py@8cdf542 -->
 
 엔진 재빌드 없이 이미 있는 데이터(KIS 잔고·`regime.json`·`universe_scan.json`·로그·체결원장)를 브라우저에 3초마다
 표시한다. 종목 행 클릭 → 일/주/5분/3분봉 차트. 라이브 데이터는 이 로컬 서버가 있어야 뜬다(발행 URL 하나로는 안 된다).
@@ -293,7 +293,7 @@ Stop-Process -Id <PID> -Force
 
 ## 12. 매매 알림 수신처 설정 (최초 1회)
 
-<!-- sync: scripts/notify_sidecar.py@02bb045 -->
+<!-- sync: scripts/notify_trades.py@14c08c1 -->
 
 Discord — 서버 → 채널 설정 → 연동 → 웹후크 → 새 웹후크 → URL 복사. 폰 Discord 앱에서 그 채널 알림을 켜면 푸시가 온다.
 `_private\notify.json`(gitignore)에 적는다. 체결과 포지션 요약을 다른 채널로 나누려면 웹후크를 둘 발급해 두 번째 형태로.
@@ -312,7 +312,7 @@ Discord — 서버 → 채널 설정 → 연동 → 웹후크 → 새 웹후크 
 
 ```powershell
 cd {ROOT}
-.\PYQuant\.venv-win\Scripts\python.exe scripts\notify_sidecar.py --config Quant\config\config_dev_paper.json --test
+.\PYQuant\.venv-win\Scripts\python.exe scripts\notify_trades.py --config Quant\config\config_dev_paper.json --test
 ```
 
 ## 13. 다른 세션에 메시지 보내기
@@ -328,4 +328,4 @@ cd {ROOT}
 - `DATA_GO_KR_KEY`: `universe_feed` / `check_datagokr` / `full_universe_dump`에 필요한 환경변수.
 - 백그라운드 실행: `Start-Process py -ArgumentList 'scripts\dashboard_server.py' -WindowStyle Hidden`(종료는 11절). 평소엔 전용 창 포그라운드 + Ctrl+C.
 - 예약작업(마감 문서·스터디·대시보드 동기화)의 시각·등록·복구 명령은 [AUTOMATION.md](AUTOMATION.md) 1절 — 여기 적지 않는다.
-- 마감 후 세션 스킬: `/eod-review` → `/trade-log` → `/dashboard-sync` → `/stock-study` → `/daily`.
+- 마감 후 세션 스킬: `/market-close-review` → `/trade-log` → `/dashboard-sync` → `/stock-study` → `/daily`.

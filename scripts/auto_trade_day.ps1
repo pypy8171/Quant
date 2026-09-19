@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  하루치 자동매매 루프 — 사이드카·유니버스·대시보드를 띄우고 트레이더를 장 마감까지 감시·재기동한다.
+  하루치 자동매매 루프 — 보조 프로세스·유니버스·대시보드를 띄우고 트레이더를 장 마감까지 감시·재기동한다.
 
 .DESCRIPTION
   세 창을 손으로 여는 절차(/intraday-start)를 한 창으로 접었다. 이 스크립트는 사람 판단이
@@ -19,13 +19,13 @@
 param(
   [string]$Config = "Quant\config\config_dev_paper.json",
   [string]$Until = "15:35",          # 이 시각을 넘으면 재기동하지 않는다. 모의는 15:30이 매매 끝. 실계좌 전환 때 20:05(애프터마켓 20:00 + 여유, D-097·T-18)
-  [switch]$NoSidecar,
+  [switch]$NoRegimeFeed,
   [switch]$NoUniverse,
   [switch]$NoDashboard,
   [switch]$NoNotify,                 # 체결·포지션 메신저 알림 창을 띄우지 않는다
   [switch]$NoPrices,                 # 전 종목 시세 파일 전달(네이버 벌크) 창을 띄우지 않는다
   [switch]$NoRecorder,               # ZMQ 체결·주문을 TimescaleDB에 적재하는 창을 띄우지 않는다
-  [switch]$NoEod,                    # 마감 뒤 사실 문서·대시보드 갱신을 건너뛴다
+  [switch]$NoMarketClose,                    # 마감 뒤 사실 문서·대시보드 갱신을 건너뛴다
   [switch]$NoBuild,                  # 기동 전 재빌드를 건너뛴다(exe를 손으로 바꾼 날). 이때는 소스가 exe보다 새면 중단
   [switch]$DryRun
 )
@@ -363,7 +363,7 @@ Save-Status "starting" @{ paper = $paper; head = $head; dirty = $dirty }
 if (-not $DryRun) { [void](Run-Native "py scripts\gen_tuning_sheet.py --config $Config") }
 
 # ─────────────── 부속 창 ───────────────
-if (-not $NoSidecar)   { Start-Window "quant-sidecar"   "& '$py' PYQuant\tools\macro_regime_feed.py --interval 180 --out Quant\config\regime.json" "macro_regime_feed.py" }
+if (-not $NoRegimeFeed)   { Start-Window "quant-regime"   "& '$py' PYQuant\tools\macro_regime_feed.py --interval 180 --out Quant\config\regime.json" "macro_regime_feed.py" }
 if (-not $NoUniverse)  {
   Say "유니버스 스캔(ALL) — 완료까지 기다린다. 이게 없으면 전략이 붙을 종목이 없다."
   if (-not $DryRun) {
@@ -373,7 +373,7 @@ if (-not $NoUniverse)  {
 }
 if (-not $NoPrices)    { Start-Window "quant-prices"    "& '$py' scripts\live_prices_feed.py" "live_prices_feed.py" }
 if (-not $NoDashboard) { Start-Window "quant-dashboard" "py scripts\dashboard_server.py" "dashboard_server.py" }
-if (-not $NoNotify)    { Start-Window "quant-notify"    "& '$py' scripts\notify_sidecar.py --config $Config --interval 1800" "notify_sidecar.py" }
+if (-not $NoNotify)    { Start-Window "quant-notify"    "& '$py' scripts\notify_trades.py --config $Config --interval 1800" "notify_trades.py" }
 # 네이티브 트레이더는 컨테이너가 아니라 ZMQ PUB(127.0.0.1:5555)만 낸다 — docker-compose의
 # quant-recorder는 quant-engine 컨테이너를 구독하므로 이 프로세스를 못 본다(D-090 후속).
 # 같은 호스트에서 직접 구독해 TimescaleDB에 적재한다.
@@ -421,7 +421,7 @@ while ((Get-Date) -lt $deadline) {
   # 세션 기록·크래시 루프 판정(last_exit)이 전부 null을 본다.
   $null = $p.Handle
   if ($script:Job -ne [IntPtr]::Zero) {
-    if (-not [WinJob]::Add($script:Job, $p.Id)) { Say "  트레이더 pid=$($p.Id) 잡 편입 실패 — 워치독이 죽으면 미연결으로 남는다." "WARN" }
+    if (-not [WinJob]::Add($script:Job, $p.Id)) { Say "  트레이더 pid=$($p.Id) 잡 편입 실패 — 워치독이 죽으면 미연결로 남는다." "WARN" }
   }
   Save-Status "running" @{ pid = $p.Id; session = $n }
   # WaitForExit로 통째로 막지 않는다. 트레이더를 기다리는 동안 부속 창 안의 파이썬이
@@ -463,10 +463,10 @@ Save-Status "closed" @{ }
 
 # ─────────────── 마감 뒤 사실 정리 ───────────────
 # 해석(리뷰 문장·개선안)은 클로드가 채우지만, 사실 문서와 대시보드는 사람 없이도 최신이어야 한다.
-if (-not $NoEod -and -not $DryRun) {
-  Say "장 마감 정리 — eod_autodoc(일지 사실 구간 + 리뷰 항목 + 대시보드 재생성)"
-  py scripts\eod_autodoc.py
-  Say "eod_autodoc rc=$LASTEXITCODE"
+if (-not $NoMarketClose -and -not $DryRun) {
+  Say "장 마감 정리 — market_close_autodoc(일지 사실 구간 + 리뷰 항목 + 대시보드 재생성)"
+  py scripts\market_close_autodoc.py
+  Say "market_close_autodoc rc=$LASTEXITCODE"
 
   # 하루 전체 건전성 점검. FAIL이 남았으면 그날 사후검토에서 먼저 다룰 항목이다.
   Say "실행 건전성 점검(하루 전체)"

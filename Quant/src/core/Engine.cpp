@@ -207,14 +207,14 @@ void Engine::apply_regime_selection(Regime regime, bool force_log)
     {
         // FILL 페이로드가 그때그때 이 라벨을 실어 DB의 regime 열을 채운다(주문 시점이 아니라
         // publish 시점 기준 — 국면 전환 중 걸친 체결은 오차가 있을 수 있으나 근사로 충분).
-        zmq_bridge_->set_regime_label(regime_bridge::label_of(regime));
+        zmq_bridge_->set_regime_label(regime_file::label_of(regime));
     }
 #endif
 
     if (force_log || regime != strategy_.last_selected_regime)
     {
         // 국면은 regime.json 라벨로 적는다(RISK_ON·NEUTRAL·RISK_OFF) — 매매일지·대시보드가 이 값을 읽는다. [why D-085]
-        const std::string line = "[RegimeSelect] 국면=" + regime_bridge::label_of(regime) + " → 활성=[" + active_ids +
+        const std::string line = "[RegimeSelect] 국면=" + regime_file::label_of(regime) + " → 활성=[" + active_ids +
                                  "] 비활성=[" + inactive_ids + "]" +
                                  (strategy_.has_regime_map ? "" : " (per-strategy 폴백)");
 
@@ -1472,7 +1472,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
                         // 로그 축소: 전체시장 30행 덤프 대신 "우리 유니버스(★) 교집합만" 남긴다.
                         //  fetch(관측 적재)는 그대로 — 로그 볼륨만 스냅샷당 ~61줄→1~4줄로 줄인다.
-                        //  전체 랭킹 아카이브가 필요하면 별도 sidecar(logs/supply_*.csv)로 후속 분리.
+                        //  전체 랭킹 아카이브가 필요하면 별도 보조 프로세스(logs/supply_*.csv)로 후속 분리.
                         auto dump = [&](const char* label,
                                         const std::vector<KisClient::EstInvestorFlow>& values) -> int
                         {
@@ -1823,7 +1823,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 //  판정보류(valid=false)/stale이면 게이트를 새로 켜지 않는다(유지가 실패안전).
 //  매크로 risk-off 오버레이 축(G2): entry_halt·force_liquidate(강제청산)를 건다.
 //  전략선택 축(apply_regime_selection)과는 별개 관심사다.
-//  판정(stale·시간 상자·1회 로그)은 core/RegimeFileBridge.h의 상태기계가 맡는다. [why D-060]
+//  판정(stale·시간 상자·1회 로그)은 core/RegimeFileJudge.h의 상태기계가 맡는다. [why D-060]
 // 스캔 스레드가 슬리브마다 부른다(20초 간격). 파일은 임시 이름으로 쓰고 바꿔치기해
 //  대시보드가 반쯤 쓰인 JSON을 읽지 않게 한다. 쓰기 실패는 매매와 무관하므로 경고만 남긴다.
 void Engine::set_entry_priority(std::unordered_map<std::string, int> rank,
@@ -1869,12 +1869,12 @@ void Engine::set_entry_priority(std::unordered_map<std::string, int> rank,
     }
 }
 
-// 파일 관측만 한다(존재·나이·파싱). 판정은 RegimeFileBridge::step이 하고, 여기서는 그 결과를
+// 파일 관측만 한다(존재·나이·파싱). 판정은 RegimeFileJudge::step이 하고, 여기서는 그 결과를
 //  OrderGate·force_liquidate_에 옮기고 로그 문구를 붙인다. 원자적 write라 정상은 완전한 json이고
 //  부분/손상은 kUnreadable로 조용히 넘긴다.
-static regime_bridge::Observation observe_regime_file(const std::string& path, int stale_sec)
+static regime_file::Observation observe_regime_file(const std::string& path, int stale_sec)
 {
-    regime_bridge::Observation observation;
+    regime_file::Observation observation;
     std::error_code error_code;
 
     if (!std::filesystem::exists(path, error_code) || error_code)
@@ -1892,12 +1892,12 @@ static regime_bridge::Observation observe_regime_file(const std::string& path, i
 
         if (observation.age_sec > stale_sec)
         {
-            observation.state = regime_bridge::FileState::kStale;
+            observation.state = regime_file::FileState::kStale;
             return observation;
         }
     }
 
-    observation.state = regime_bridge::FileState::kUnreadable;
+    observation.state = regime_file::FileState::kUnreadable;
 
     try
     {
@@ -1910,8 +1910,8 @@ static regime_bridge::Observation observe_regime_file(const std::string& path, i
 
         nlohmann::json doc;
         file >> doc;
-        observation.snapshot  = regime_bridge::parse_snapshot(doc);
-        observation.state = regime_bridge::FileState::kFresh;
+        observation.snapshot  = regime_file::parse_snapshot(doc);
+        observation.state = regime_file::FileState::kFresh;
     }
     catch (const std::exception&)
     {
@@ -1927,11 +1927,11 @@ void Engine::poll_regime_file()
         return; // 기능 미가동(기본)
     }
 
-    const regime_bridge::Observation observation = observe_regime_file(regime_file_, regime_bridge_.stale_sec());
+    const regime_file::Observation observation = observe_regime_file(regime_file_, regime_file_judge_.stale_sec());
     const struct tm kst = ::kst::to_tm(std::time(nullptr));
     // 09:00~15:30을 분으로 편 값(is_kr_market_open과 같은 기준). 개장 전은 음수라 안 걸린다.
-    const regime_bridge::KstClock clock{kst.tm_yday, kst.tm_hour * 60 + kst.tm_min - 540};
-    const regime_bridge::Outcome  out = regime_bridge_.step(observation, clock);
+    const regime_file::KstClock clock{kst.tm_yday, kst.tm_hour * 60 + kst.tm_min - 540};
+    const regime_file::Outcome  out = regime_file_judge_.step(observation, clock);
 
     if (out.log_expiry)
     {
@@ -1943,7 +1943,7 @@ void Engine::poll_regime_file()
     if (out.log_stale)
     {
         LOG_WARN("[Regime] regime.json " + std::to_string(observation.age_sec) + "s 경과(> " +
-                 std::to_string(regime_bridge_.stale_sec()) +
+                 std::to_string(regime_file_judge_.stale_sec()) +
                  "s) — 보조 프로세스 중단 의심, 게이트 신규 변경 보류(현 halt 유지)");
     }
 
@@ -1966,7 +1966,7 @@ void Engine::poll_regime_file()
         apply_regime_selection(*out.selection, /*force_log=*/false);
     }
 
-    // 비율은 halt와 같은 소유권(이 함수만 set). 전략은 다음 계획 회차에 rung 명목에 곱한다.
+    // 비율은 halt와 같은 소유권(이 함수만 set). 전략은 다음 계획 회차에 분할 단계 명목에 곱한다.
     if (out.entry_scale)
     {
         order_gate_.set_entry_scale(*out.entry_scale);
@@ -2039,7 +2039,7 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
         },
         std::chrono::steady_clock::now());
     dispatcher.set_label([this](const std::string& ticker) { return ticker_label(ticker); });
-    dispatcher.set_guardian([this](const std::string& ticker) { return universe_rescan_.guardian_tickers.count(ticker) > 0; });
+    dispatcher.set_exit_managed_check([this](const std::string& ticker) { return universe_rescan_.exit_managed_tickers.count(ticker) > 0; });
     auto push_signal = [&](const OrderSignal& signal) { dispatcher.submit(signal); };
 
     // 기동 점검 — 모의계좌 주문경로 검증용 1회성 시장가 매수(config startup_check).
@@ -2344,8 +2344,8 @@ void Engine::order_thread_fn(std::stop_token stop_token)
 
     // 발주 간격과 거부 재시도는 이 스레드 소유라 조절기를 여기에 둔다. pipeline_.order_queue는 SPSC(생산자=전략 스레드)라
     //  되밀 수 없어 재시도는 조절기의 전용 버퍼에 산다. [why D-065]
-    OrderPacer pacer({order_min_interval_ms_, order_max_retries_}, steady_clock::now());
-    pacer.set_position([this](const std::string& argument, const std::string& ticker) { return order_gate_.position(argument, ticker); });
+    OrderRateLimiter rate_limiter({order_min_interval_ms_, order_max_retries_}, steady_clock::now());
+    rate_limiter.set_position([this](const std::string& argument, const std::string& ticker) { return order_gate_.position(argument, ticker); });
 
     // 구간 지연 CSV. 이 스레드만 쓰므로 지역 객체로 두고, 첫 주문 때 파일을 연다. [why D-071]
     trace::LatencyTrace latency_trace(Logger::instance().path_for("latency_trace.csv"));
@@ -2353,14 +2353,14 @@ void Engine::order_thread_fn(std::stop_token stop_token)
     while (!stop_token.stop_requested())
     {
         // 발주 대상 선택: 만기된 재시도분 우선, 없으면 신규 큐
-        std::optional<OrderPacer::Pending> next = pacer.take_due_retry(steady_clock::now());
+        std::optional<OrderRateLimiter::Pending> next = rate_limiter.take_due_retry(steady_clock::now());
         int64_t                            pop_ns = 0;
 
         if (!next)
         {
             if (auto option = pipeline_.order_queue.pop())
             {
-                next   = OrderPacer::Pending{*option, 0};
+                next   = OrderRateLimiter::Pending{*option, 0};
                 pop_ns = trace::now_ns();
             }
         }
@@ -2368,13 +2368,13 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         if (!next)
         {
             // 재시도 만기가 있으면 그 시각까지, 없으면 100ms 상한(종료 확인). 신규 신호는 전략 스레드의 notify가 깨운다.
-            const auto deadline = pacer.next_retry_at().value_or(steady_clock::now() + 100ms);
+            const auto deadline = rate_limiter.next_retry_at().value_or(steady_clock::now() + 100ms);
             pipeline_.order_wake.wait_until(deadline, stop_token, [this] { return pipeline_.order_queue.empty(); });
             continue;
         }
 
         // 호출 간격 조절 — 직전 KIS 발주 후 min_interval 경과 보장(초당한도 하회로 EGW00201 회피)
-        if (const auto wait = pacer.wait_before_send(steady_clock::now()); wait > steady_clock::duration::zero())
+        if (const auto wait = rate_limiter.wait_before_send(steady_clock::now()); wait > steady_clock::duration::zero())
         {
             std::this_thread::sleep_for(wait);
         }
@@ -2390,7 +2390,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
 
             if (kis_called)
             {
-                pacer.note_sent(steady_clock::now());
+                rate_limiter.note_sent(steady_clock::now());
             }
 
             // 재시도 건은 pop 시각이 첫 시도 것이라 구간이 부풀지 않게 첫 시도만 남긴다.
@@ -2426,12 +2426,12 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             }
             else
             {
-                pacer.on_rejected(*next, managed_order.status, managed_order.reject_reason, steady_clock::now());
+                rate_limiter.on_rejected(*next, managed_order.status, managed_order.reject_reason, steady_clock::now());
             }
         }
         catch (const std::exception& exception)
         {
-            pacer.note_sent(steady_clock::now());
+            rate_limiter.note_sent(steady_clock::now());
             LOG_ERROR("[OrderThread] 예외: " + std::string(exception.what()));
         }
     }
@@ -2707,7 +2707,7 @@ void Engine::control_thread_fn(std::stop_token stop_token)
 
 // ─── 마감 자기 종료 (D-098) ───────────────────────────────────────────────
 //  판정은 SessionEndJudge, 여기는 적용만. "주문 큐가 비었다"는 order_queue 기준이다 — order_thread가 꺼낸 뒤 KIS 왕복
-//  중인 한 건은 stop()의 join이 끝까지 기다리고, OrderPacer의 재시도 큐는 세션 창 밖이라 게이트가 어차피 막는다.
+//  중인 한 건은 stop()의 join이 끝까지 기다리고, OrderRateLimiter의 재시도 큐는 세션 창 밖이라 게이트가 어차피 막는다.
 void Engine::step_session_end()
 {
     const auto kst            = ::kst::to_tm(std::time(nullptr));

@@ -5,7 +5,7 @@ C1 횡단면 12-1 모멘텀 — 재현 가능 하네스 (단일 사전등록 con
 
 재현 정보(각인):
   전략   : CrossMomentumStrategy(top_n=10, rebalance_every=21, lookback=252, skip=20)
-  ablation: vol_adjust False(동일가중 랭킹) vs True(1/σ 위험조정 랭킹) — 사이징은 둘 다 동일가중
+  제거실험: vol_adjust False(동일가중 랭킹) vs True(1/σ 위험조정 랭킹) — 사이징은 둘 다 동일가중
   유니버스: datagokr universe_top(as-of from_date) KOSPI 상위 100 (PIT·survivorship-free)
   데이터  : PYQuant/data/datagokr_source.py, FETCH_FLOOR=20200101, 수정주가 ON
   체결    : 신호=종가 t / 체결=다음봉 시가 / 수수료0.015%+세금0.18%+슬리피지5bp (엔진 CostModel)
@@ -69,7 +69,7 @@ def slice_metrics(res, y0, y1):
     d = _derived_metrics(sub)
     _, mdd, sharpe = BacktestEngine._curve_stats(sub)
     tr = (sub[-1] - sub[0]) / sub[0] * 100 if sub[0] > 0 else 0.0
-    # 벤치(동일가중 BH) 동일 슬라이스
+    # 벤치(동일가중 매수 후 보유) 동일 슬라이스
     bench = res.bench_curve
     btr = None
     if bench:
@@ -148,7 +148,7 @@ def main():
         commit = "unknown"
 
     results = {}
-    # 1) 동일가중 (headline) + 2) 역가중(1/σ) ablation — 기본 비용(slip5bp≈0.31% round trip)
+    # 1) 동일가중 (headline) + 2) 역가중(1/σ) 제거실험 — 기본 비용(slip5bp≈0.31% round trip)
     for va, tag in [(False, "EW"), (True, "VA")]:
         res, full = run_one(src, universe, cost(0.31), va, tag)
         export(res, "cross_momentum_" + {"EW": "equalweight", "VA": "voladj"}[tag])
@@ -183,9 +183,9 @@ def main():
     print(f"{'매도거래수':<16}{ew['ntr']:>18}{va['ntr']:>20}")
     print(f"{'강제청산(상폐)':<16}{ew['forced']:>18}{va['forced']:>20}")
     print("-" * 78)
-    print(f"[벤치 동일가중BH] 수익률 {ew['bench']:+.2f}%  MDD -{ew['bench_mdd']:.2f}%  Sharpe {ew['bench_sharpe']:.2f}")
-    print(f"[KODEX200 BH] {ew['kodex']:+.2f}%" if ew['kodex'] is not None else "[KODEX200] 데이터없음")
-    print(f"[초과수익 α] EW {ew['alpha']:+.2f}%p  |  VA {va['alpha']:+.2f}%p  (vs 동일가중BH)")
+    print(f"[벤치 동일가중매수 후 보유] 수익률 {ew['bench']:+.2f}%  MDD -{ew['bench_mdd']:.2f}%  Sharpe {ew['bench_sharpe']:.2f}")
+    print(f"[KODEX200 매수 후 보유] {ew['kodex']:+.2f}%" if ew['kodex'] is not None else "[KODEX200] 데이터없음")
+    print(f"[초과수익 α] EW {ew['alpha']:+.2f}%p  |  VA {va['alpha']:+.2f}%p  (vs 동일가중매수 후 보유)")
 
     print("\n── 2022 홀드아웃 (동일 곡선 슬라이스, 튜닝 미접촉) ──")
     for tag in ["EW", "VA"]:
@@ -197,7 +197,7 @@ def main():
                   f"  Calmar {h['calmar']:.2f}{bench_s}")
 
     print("\n── 비용 감도 (동일가중, round-trip%) ──")
-    print(f"  {'round-trip':>10}{'총수익%':>12}{'CAGR%':>10}{'Sharpe':>10}{'MDD%':>10}{'α vs BH':>10}")
+    print(f"  {'round-trip':>10}{'총수익%':>12}{'CAGR%':>10}{'Sharpe':>10}{'MDD%':>10}{'α vs BUY_AND_HOLD':>10}")
     for rt in [0.21, 0.31, 0.5, 1.0]:
         c = cost_sens[rt]
         print(f"  {rt:>9.2f}%{c['ret']:>11.2f}{c['cagr']:>10.2f}{c['sharpe']:>10.2f}"
@@ -213,7 +213,7 @@ def main():
         json.dump(dict(commit=commit, window=f"{FROM}~{TO}", universe=f"KOSPI top{UNIV_SIZE}",
                        params=dict(top_n=TOP_N, rebalance_every=RB, lookback=LB, skip=SKIP,
                                    warmup=WARMUP),
-                       ablation="EW(vol_adjust=False) vs VA(vol_adjust=True)",
+                       removal_test="EW(vol_adjust=False) vs VA(vol_adjust=True)",
                        cost="engine default slip5bp ~0.31% round-trip",
                        ew={k: v for k, v in ew.items() if k != "forced_detail"},
                        va={k: v for k, v in va.items() if k != "forced_detail"}),

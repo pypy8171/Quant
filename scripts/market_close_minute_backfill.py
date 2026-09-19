@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""장 마감 뒤 당일 1분봉을 로컬에 쌓는다 — 예약작업 `Quant Minute Backfill`(시각은 scripts/eod_timetable.ps1 — 모의 16:40·실계좌 21:00)이 부른다.
+"""장 마감 뒤 당일 1분봉을 로컬에 쌓는다 — 예약작업 `Quant Minute Backfill`(시각은 scripts/market_close_timetable.ps1 — 모의 16:40·실계좌 21:00)이 부른다.
 왜 따로 있나: `PYQuant/tools/minute_backfill.py`는 날짜별 시점 유니버스(PIT, 그날 아침에 알 수 있던
 종목 목록) 파일을 요구하는데 그 파일은 백필 도구로만 만들어져 왔다. 아침 스캔 산출물
 `Quant/config/universe_scan.json`이 같은 스키마이므로 그것을 오늘 날짜로 옮겨 두고 백필을 돌린다.
@@ -14,7 +14,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-# 예약작업 콘솔은 cp949라 em dash 같은 글자에서 죽는다(scripts/eod_autodoc.py와 같은 처치).
+# 예약작업 콘솔은 cp949라 em dash 같은 글자에서 죽는다(scripts/market_close_autodoc.py와 같은 처치).
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8", errors="replace")
@@ -45,33 +45,33 @@ def main() -> int:
     args = ap.parse_args()
     now = datetime.now(KST)
     if now.weekday() >= 5:
-        print("[eod_minute_backfill] 주말 — 건너뜀")
+        print("[market_close_minute_backfill] 주말 — 건너뜀")
         return 0
     # 장중에 돌면 마감 전까지의 봉만 담긴 파일이 남고, 백필 도구는 그 파일이 있다는 이유로 그날을
     #  건너뛴다(2026-09-11 실수). 마감 뒤에만 돌린다. 마감은 계좌 모드로 갈린다(모의 15:30·실계좌 20:00, T-18·D-097).
     cutoff = market_close_cutoff(Path(args.config))
     if not args.force and (now.hour, now.minute) < cutoff:
-        print(f"[eod_minute_backfill] {cutoff[0]:02d}:{cutoff[1]:02d} 전 — 마감 뒤에 돌린다(--force로 강제)")
+        print(f"[market_close_minute_backfill] {cutoff[0]:02d}:{cutoff[1]:02d} 전 — 마감 뒤에 돌린다(--force로 강제)")
         return 2
     ymd = now.strftime("%Y%m%d")
     pit = PIT_DIR / f"{ymd}.json"
     if not pit.exists():
         if not SCAN.exists():
-            print(f"[eod_minute_backfill] {SCAN} 없음 — 유니버스 스캔이 안 돌았다")
+            print(f"[market_close_minute_backfill] {SCAN} 없음 — 유니버스 스캔이 안 돌았다")
             return 1
         doc = json.loads(SCAN.read_text(encoding="utf-8"))
         # 아침 스캔의 basDt는 전 거래일이어야 오늘의 시점 유니버스다. 며칠 묵은 파일이면 쓰지 않는다.
         bas = str(doc.get("basDt", ""))
         if not bas or (now.date() - datetime.strptime(bas, "%Y%m%d").date()).days > 4:
-            print(f"[eod_minute_backfill] universe_scan.json basDt={bas} — 오늘 것으로 볼 수 없어 건너뜀")
+            print(f"[market_close_minute_backfill] universe_scan.json basDt={bas} — 오늘 것으로 볼 수 없어 건너뜀")
             return 1
         PIT_DIR.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(SCAN, pit)
-        print(f"[eod_minute_backfill] PIT 유니버스 저장 {pit.name} (basDt={bas}, {doc.get('count')}종목)")
+        print(f"[market_close_minute_backfill] PIT 유니버스 저장 {pit.name} (basDt={bas}, {doc.get('count')}종목)")
     day = now.strftime("%Y-%m-%d")
     cmd = [sys.executable, str(REPO / "PYQuant" / "tools" / "minute_backfill.py"),
            "--start", day, "--end", day, "--top-n", "0"]
-    print("[eod_minute_backfill]", " ".join(cmd))
+    print("[market_close_minute_backfill]", " ".join(cmd))
     return subprocess.call(cmd, cwd=str(REPO))
 
 

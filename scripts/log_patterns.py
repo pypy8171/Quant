@@ -18,4 +18,4 @@ PNL_ONLY_RE = re.compile(_PNL_HEAD + r" (-?\d+)원")
 PREV_PNL_RE = re.compile(r"당일손익\(전일대비\): (-?\d+)원 \(전일총자산 (\d+)\)")
 
 # "[Main] manage_holdings: 청산 관리 N종목 부착, 스캔중복 M종목 스킵" — 기동 시 보유분 부착.
-GUARD_ATTACH_RE = re.compile(r"청산 (?:관리|가디언) (\d+)종목 부착")
+GUARD_ATTACH_RE = re.compile(r"청산 (?:관리|가디언) (\d+)종목 부착")  # 뒤쪽은 09-19 이전 로그의 옛 문구

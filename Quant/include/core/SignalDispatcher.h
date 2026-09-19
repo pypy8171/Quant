@@ -43,7 +43,7 @@ public:
     SignalDispatcher(OrderGate& gate, Sink sink, Clock::time_point now);
 
     void set_label(LabelFn label) { label_ = std::move(label); }
-    void set_guardian(GuardFn guardian) { guardian_ = std::move(guardian); }
+    void set_exit_managed_check(GuardFn exit_managed_check) { exit_managed_check_ = std::move(exit_managed_check); }
     void set_liquidation_interval(std::chrono::milliseconds milliseconds) { liquidation_interval_ = milliseconds; }
     void set_trim_at(Clock::time_point at) { trim_at_ = at; }
 
@@ -76,12 +76,12 @@ private:
     OrderGate& gate_;
     Sink       sink_;
     LabelFn    label_;
-    GuardFn    guardian_;
+    GuardFn    exit_managed_check_;
 
     // [inv] 단조 증가, strategy_thread 전용. 게이트 거부·큐 드롭·접수·체결 행이 전부 이 번호를 물고 간다. [why D-038]
     uint64_t sequence_ = 0;
 
-    // 교체 진입 보류 — 최약체 매도를 낸 뒤 수혜 종목의 매수(rung 전부)를 자리가 날 때까지 든다. [why D-019]
+    // 교체 진입 보류 — 최약체 매도를 낸 뒤 수혜 종목의 매수(분할 단계 전부)를 자리가 날 때까지 든다. [why D-019]
     std::vector<OrderSignal> held_;
     std::string              held_ticker_;
     Clock::time_point        held_until_{};

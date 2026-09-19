@@ -22,7 +22,7 @@
       "exchange":       "",
       "pbr_max":        1.0,
       "quantity":       1,
-      "eod_exit_hhmm":  1520
+      "market_close_exit_hhmm":  1520
     }
   ]
 }

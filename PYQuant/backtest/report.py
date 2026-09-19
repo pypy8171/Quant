@@ -19,10 +19,10 @@ def print_report(result: BacktestResult, names: dict | None = None):
     print(f"  승률       : {result.win_rate:.1f}%")
     # ── 벤치마크 대비 (알파 vs 베타 판정) ──
     print(f"  {'-'*56}")
-    print(f"  [벤치마크] 동일가중 buy&hold: {result.bench_return:+.2f}% "
+    print(f"  [벤치마크] 동일가중 매수 후 보유: {result.bench_return:+.2f}% "
           f"(MDD -{result.bench_mdd:.2f}%, 샤프 {result.bench_sharpe:.2f})")
     if result.kodex_return is not None:
-        print(f"             KODEX200 buy&hold: {result.kodex_return:+.2f}%")
+        print(f"             KODEX200 매수 후 보유: {result.kodex_return:+.2f}%")
     # 위험조정까지 본 정직한 판정 — 수익률만 높고 샤프(위험조정수익)가 벤치 미달이면 "더 큰 위험의 대가"
     if result.alpha > 0 and result.sharpe > result.bench_sharpe:
         verdict = "✅ 위험조정 알파(수익↑ & 샤프↑)"
@@ -228,11 +228,11 @@ def export_metrics_json(result: BacktestResult, path: str, *,
 
 
 def overlay_metric_row(*, study_id: str, strategy: str, benchmark: str,
-                       base: dict, bh: dict, window: str = "",
+                       base: dict, buy_and_hold: dict, window: str = "",
                        start_date: str = "", end_date: str = "",
                        honesty_label: str = "robust", extra: dict | None = None) -> dict:
     """계열 B(지수 익스포저 오버레이) 한 행 빌더 — 위기 인과 대응 5법/09의 curve_stats dict를
-    quant.metrics/v1로 정규화. base/bh = {total,cagr,mdd(음수%),sharpe,calmar}.
+    quant.metrics/v1로 정규화. base/매수 후 보유 = {total,cagr,mdd(음수%),sharpe,calmar}.
     mdd를 양수 크기로 정규화(스키마 규약), win_rate/n_trades는 None(오버레이 무의미).
     alpha(초과수익) = 전략 CAGR − 매수 후 보유 CAGR(%p, 초과연율). 저자 규율상 결과는 정직 → 기본 robust."""
     row = metrics_row(
@@ -242,11 +242,11 @@ def overlay_metric_row(*, study_id: str, strategy: str, benchmark: str,
         sharpe=_round(base.get("sharpe")),
         mdd=_round(abs(base["mdd"]) if base.get("mdd") is not None else None),
         calmar=_round(base.get("calmar")),
-        bench_return=_round(bh.get("total")),
-        bench_mdd=_round(abs(bh["mdd"]) if bh.get("mdd") is not None else None),
-        bench_sharpe=_round(bh.get("sharpe")),
-        alpha=_round(base["cagr"] - bh["cagr"]
-                     if base.get("cagr") is not None and bh.get("cagr") is not None else None),
+        bench_return=_round(buy_and_hold.get("total")),
+        bench_mdd=_round(abs(buy_and_hold["mdd"]) if buy_and_hold.get("mdd") is not None else None),
+        bench_sharpe=_round(buy_and_hold.get("sharpe")),
+        alpha=_round(base["cagr"] - buy_and_hold["cagr"]
+                     if base.get("cagr") is not None and buy_and_hold.get("cagr") is not None else None),
         honesty_label=honesty_label)
     if extra:
         row.update(extra)

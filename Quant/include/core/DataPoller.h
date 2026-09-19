@@ -79,9 +79,9 @@ public:
     void set_keep_going(KeepGoingFn keep_going) { keep_going_ = std::move(keep_going); }
     // 종목 간 호출 간격. 실전 도메인 시세는 초당 한도(~20/s)가 있어 무간격으로 몰아치면 뒷종목이 HTTP 500으로
     //  떨어진다 — 150ms면 한도 밑에 깔려 전 종목이 매 사이클 틱을 받는다(종목 수×150ms가 사이클 안에 들게).
-    void set_universe_pacing(std::chrono::milliseconds milliseconds) { universe_pacing_ = milliseconds; }
+    void set_universe_call_interval(std::chrono::milliseconds milliseconds) { universe_call_interval_ = milliseconds; }
     // 보유 보충은 모의 도메인(초당 한도가 낮다)에서도 돌아 300ms.
-    void set_top_up_pacing(std::chrono::milliseconds milliseconds) { top_up_pacing_ = milliseconds; }
+    void set_top_up_call_interval(std::chrono::milliseconds milliseconds) { top_up_call_interval_ = milliseconds; }
 
     // 폴링 모드: KR 현물 spec마다 현재가를 받아 틱으로 흘린다. 반환 = 흘린 틱 수(data_count_ 가산용).
     int poll_universe(const std::vector<WatchSpec>& specifications, std::time_t now_utc);
@@ -104,8 +104,8 @@ private:
     QuoteFn                   quote_;
     TickSink                  sink_;
     KeepGoingFn               keep_going_;
-    std::chrono::milliseconds universe_pacing_{150};
-    std::chrono::milliseconds top_up_pacing_{300};
+    std::chrono::milliseconds universe_call_interval_{150};
+    std::chrono::milliseconds top_up_call_interval_{300};
     std::vector<WatchSpec>    overflow_;    // WS 상한에 밀려 REST로 대신 흘리는 종목. data_thread 전용
     // 종목당 첫 성공·첫 실패만 남긴다 — 대체 경로가 실제로 틱을 흘리는지 로그로 확인할 수 있어야 한다.
     std::unordered_set<std::string> rest_seen_;

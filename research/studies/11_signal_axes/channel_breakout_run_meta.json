@@ -39,7 +39,7 @@
     "calmar": -0.9680709312334104,
     "bench": -18.9733993341448
   },
-  "corr_donchian_cross_momentum": 0.6014084430732226,
-  "corr_donchian_mean_reversion": 0.15878590190303216,
+  "corr_channel_breakout_cross_momentum": 0.6014084430732226,
+  "corr_channel_breakout_mean_reversion": 0.15878590190303216,
   "corr_cross_momentum_mean_reversion": 0.15381976235375328
 }

@@ -1,7 +1,7 @@
 """장 마감 리뷰 탭 항목(quant.review/v1)을 원장·로그 사실에서 만든다.
 
 사실(손익 곡선·거부 사유·세션 수·인시던트 후보)은 이 스크립트가 채우고,
-해석(축·개선안·게이트)은 사람 또는 /eod-review 가 덧쓴다. 기존 항목이 있으면
+해석(축·개선안·게이트)은 사람 또는 /market-close-review 가 덧쓴다. 기존 항목이 있으면
 해석 키는 그대로 두고 사실 키만 갱신한다 — 손으로 쓴 문장을 자동 실행이
 지우지 않게 하려는 것이다.
 
@@ -23,7 +23,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 REVIEWS = REPO / "research" / "dashboard" / "reviews.json"
 
-import eod_collect  # noqa: E402  (경로 주입 뒤에 임포트)
+import market_close_collect  # noqa: E402  (경로 주입 뒤에 임포트)
 
 # 이 스크립트가 소유하는 키. 나머지(axes·improvements·gate·dissent·kpi…)는 손대지 않는다.
 AUTO_KEYS = ("eyebrow", "headline_html", "verdict_html", "meta_html",
@@ -38,8 +38,8 @@ def find_journal(ymd: str) -> str | None:
     hits = sorted((REPO / "strategies").glob(f"*/live/{ymd}.md"))
     if hits:
         return hits[0].relative_to(REPO).as_posix()
-    p = REPO / "docs" / "eod" / f"{ymd}.md"
-    return p.relative_to(REPO).as_posix() if p.exists() else None
+    review_path = REPO / "docs" / "market_close" / f"{ymd}.md"
+    return review_path.relative_to(REPO).as_posix() if review_path.exists() else None
 
 
 def build_pnl(track: list, ymd: str):
@@ -240,7 +240,7 @@ def main() -> int:
     a = ap.parse_args()
 
     ymd = a.date or _date.today().isoformat()
-    pack = eod_collect.build(ymd.replace("-", ""))
+    pack = market_close_collect.build(ymd.replace("-", ""))
     fresh = build_entry(pack)
 
     if not REVIEWS.exists():

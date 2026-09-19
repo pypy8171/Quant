@@ -57,7 +57,7 @@ REASON_CATEGORIES = (
 # 규칙 정의상 손익 부호가 정해지는 범주 — 판정 대상에서 뺀다(승률·평균손익 부호가 정보가 아니다).
 SIGN_FIXED_CATEGORIES = {"익절밴드", "손절", "본전탈출"}
 # 전략 판단이 아닌 묶음 — 표에 남기되 판정하지 않는다.
-NON_STRATEGY_FAMILIES = {"DISPLACE", "ORPHAN", "STARTUP", "MANUAL", "TEST"}
+NON_STRATEGY_FAMILIES = {"DISPLACE", "ORPHAN", "UNLINKED", "STARTUP", "MANUAL", "TEST"}
 
 
 @dataclass
@@ -386,7 +386,7 @@ def write_result_markdown(path: Path, tables: dict[str, Table], cost_tables: dic
         "- 유효 표본은 레그 수가 아니라 **N일**이다. N일=2의 CI는 두 날 값의 범위, 3은 조합 27개뿐이다.",
         "- 익절밴드·손절·본전탈출은 규칙 정의상 손익 부호가 정해져 있어(익절은 이익, 손절은 손실, 본전탈출은 비용만큼 손실) "
         "승률·평균손익 부호가 정보가 아니다. 크기와 빈도만 읽고 판정에서 뺐다.",
-        "- 판정은 구간 A·B의 수익률 CI가 같은 쪽에 있을 때만 난다. 구간 사이에 포지션 크기(`buy_rungs`)가 바뀌어 원/레그는 단위가 다르므로 수익률로 판정한다. \"보류\"·\"판정불가\"가 정상 결과다.",
+        "- 판정은 구간 A·B의 수익률 CI가 같은 쪽에 있을 때만 난다. 구간 사이에 포지션 크기(`buy_split_steps`)가 바뀌어 원/레그는 단위가 다르므로 수익률로 판정한다. \"보류\"·\"판정불가\"가 정상 결과다.",
         "- DISPLACE·ORPHAN·STARTUP·MANUAL은 슬롯 교체·세션 이월·점검·수동이라 참고만 한다. ORPHAN은 어느 전략의 이월분인지 원장으로 확정할 수 없다(README 2절).",
         "- 이 표는 스탑 **거리**를 말하지 않는다(가격 경로 없음). 어떤 청산 규칙이 돈을 잃는지까지만.",
         "",

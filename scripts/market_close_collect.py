@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """장 종료 사실 수집 — 그날 로그·원장에서 검증 가능한 수치만 뽑아 JSON으로 낸다.
 
-/eod-review 커맨드의 1단계다. 판단·원인 추정은 여기서 하지 않는다.
+/market-close-review 커맨드의 1단계다. 판단·원인 추정은 여기서 하지 않는다.
 여기서 나온 숫자만 리뷰 문서의 근거로 쓰고, 로그에 없는 값은 만들지 않는다.
 
 사용:
-  py scripts/eod_collect.py                 # 오늘
-  py scripts/eod_collect.py --date 20260907
-  py scripts/eod_collect.py --md            # 사람이 읽는 요약(기본은 JSON)
+  py scripts/market_close_collect.py                 # 오늘
+  py scripts/market_close_collect.py --date 20260907
+  py scripts/market_close_collect.py --md            # 사람이 읽는 요약(기본은 JSON)
 종료코드: 0=수집 완료, 2=그 날짜의 원장/로그를 못 찾음.
 """
 from __future__ import annotations
@@ -198,7 +198,7 @@ def scan_ledger(csv: Path) -> dict:
 def build(date: str) -> dict:
     log, csv = find_files(date)
     if csv is None:
-        print("[eod_collect] " + date + " 원장을 찾지 못했습니다. 탐색: "
+        print("[market_close_collect] " + date + " 원장을 찾지 못했습니다. 탐색: "
               + ", ".join(str(d) for d in _logdir.candidate_dirs()), file=sys.stderr)
         sys.exit(2)
     ymd = date[:4] + "-" + date[4:6] + "-" + date[6:]

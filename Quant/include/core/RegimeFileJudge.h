@@ -26,7 +26,7 @@ inline constexpr int kDefaultRegimeHaltExpireMin = 0;
 // entry_scale이 없거나 무효일 때의 값(= 비율 제한 없음).
 inline constexpr double kRegimeScaleFull = 1.0;
 
-namespace regime_bridge
+namespace regime_file
 {
 // [wire] regime.json 본문 — PYQuant/tools/macro_regime_feed.py가 임시 파일 뒤 이름 바꾸기로 쓴다.
 struct Snapshot
@@ -150,10 +150,10 @@ struct Outcome
     bool log_scale_change    = false;    // entry_scale 변경(값은 entry_scale)
 };
 
-class RegimeFileBridge
+class RegimeFileJudge
 {
 public:
-    RegimeFileBridge() = default;
+    RegimeFileJudge() = default;
 
     void set_stale_sec(int stale_sec)
     {
@@ -309,4 +309,4 @@ private:
     bool expired_         = false; // 오늘 이미 만료시켰나(로그 1회화 겸용)
     bool liquidation_warned_      = false; // force_liquidate 전이 로그 1회화
 };
-} // namespace regime_bridge
+} // namespace regime_file

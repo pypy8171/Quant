@@ -7,7 +7,7 @@
 알림 쪽이 죽어도 매매는 그대로 돈다.
 
 실행:
-    py scripts/notify_sidecar.py --config Quant/config/config_dev_paper.json
+    py scripts/notify_trades.py --config Quant/config/config_dev_paper.json
 
 수신처 설정 — _private/notify.json (gitignore) 또는 환경변수:
     {

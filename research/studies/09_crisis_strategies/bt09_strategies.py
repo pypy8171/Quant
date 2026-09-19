@@ -220,14 +220,14 @@ def _n4_core(closes, ret, ctx, p):
     n = len(closes)
     rv = bt08.rolling_vol(ret, 20)                     # rv[t] = close t 까지 20일 연율변동성
     if mode == "const":
-        anchor = np.full(n, float(tv_const))
+        target_volatility = np.full(n, float(tv_const))
         warm = 20
     elif mode == "leak":                               # 감사 지적: 전표본(2022 포함) — 비교용만
         tv = float(np.std(ret[1:], ddof=1)) * bt08.ANNUAL if n > 2 else tv_const
-        anchor = np.full(n, tv)
+        target_volatility = np.full(n, tv)
         warm = 20
     else:                                              # expand: 인과 확장창 std(ret[:t])
-        anchor = np.full(n, np.nan)
+        target_volatility = np.full(n, np.nan)
         sx = sx2 = 0.0
         cnt = 0
         for k in range(1, n):                          # ret[0]=0 제외
@@ -235,22 +235,22 @@ def _n4_core(closes, ret, ctx, p):
             sx += r; sx2 += r * r; cnt += 1
             if cnt >= 2:
                 var = (sx2 - sx * sx / cnt) / (cnt - 1)
-                anchor[k] = np.sqrt(var if var > 0 else 0.0) * bt08.ANNUAL
+                target_volatility[k] = np.sqrt(var if var > 0 else 0.0) * bt08.ANNUAL
         warm = 252                                     # 기준점 안정화 후 시작
     e = np.ones(n)
-    prev = 1.0                                         # 직전 커밋 익스포저(초기 BH)
+    previous_exposure = 1.0                                         # 직전 커밋 익스포저(초기 매수 후 보유)
     for t in range(n):
         rvl = rv[t - 1] if t >= 1 else np.nan          # t-1 까지 룩백(당일 종가 제외)
-        tvl = anchor[t - 1] if t >= 1 else np.nan      # 기준점도 t-1 까지(인과)
+        tvl = target_volatility[t - 1] if t >= 1 else np.nan      # 기준점도 t-1 까지(인과)
         if t < warm or not _ok(rvl) or rvl <= 0 or not _ok(tvl) or tvl <= 0:
-            e[t] = prev                                # 워밍업·결측 → 직전 유지(초기 1.0)
+            e[t] = previous_exposure                                # 워밍업·결측 → 직전 유지(초기 1.0)
             continue
         target = min(1.2, max(0.5, tvl / rvl))         # clip(0.5, 1.2)
-        if abs(target - prev) < 0.05:                  # 데드밴드 → 이전 e 유지
-            e[t] = prev
+        if abs(target - previous_exposure) < 0.05:                  # 데드밴드 → 이전 e 유지
+            e[t] = previous_exposure
         else:
             e[t] = target
-            prev = target
+            previous_exposure = target
     return e
 
 

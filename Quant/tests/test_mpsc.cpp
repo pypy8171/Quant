@@ -4,7 +4,7 @@
 // 검증 항목:
 //   ① 무손실   : N 생산자가 각 M건 push → 소비자가 정확히 N*M건 pop (유실/중복 0)
 //   ② 순번 보존 : 각 생산자의 sequence가 소비자에서 0,1,2,... 순서로 도착 (역전/누락 0)
-//   ③ backpressure: 작은 용량에서 push가 false를 반환해도 재시도로 무손실 유지
+//   ③ 밀림 처리: 작은 용량에서 push가 false를 반환해도 재시도로 무손실 유지
 //
 //   ②가 성립하는 이유: 단일 생산자는 순서대로 push하고, Vyukov 큐는 티켓(enqueue_position)
 //   순으로 소비되므로 "생산자별" FIFO가 보존된다. (전역 FIFO는 보장하지 않음)
@@ -46,7 +46,7 @@ bool run_test(const char* name, int number_producers, int per_producer, size_t c
 
                     while (!queue.push(message))
                     {
-                        std::this_thread::yield(); // backpressure: 가득 참 → 양보 후 재시도
+                        std::this_thread::yield(); // 밀림 처리: 가득 참 → 양보 후 재시도
                     }
                 }
             });
@@ -117,7 +117,7 @@ int main()
     ok &= run_test<MpscQueue<Message>>("MPSC", 8, 100000, 1024);
     ok &= run_test<MutexQueue<Message>>("MUTEX", 8, 100000, 1024);
 
-    // 작은 용량 — backpressure 경로를 강하게 태워도 무손실 유지되는지
+    // 작은 용량 — 밀림 처리 경로를 강하게 태워도 무손실 유지되는지
     ok &= run_test<MpscQueue<Message>>("MPSC-tightcap", 16, 50000, 64);
     ok &= run_test<MutexQueue<Message>>("MUTEX-tightcap", 16, 50000, 64);
 

@@ -15,11 +15,11 @@
 
 | 약어 / 코드명 | 풀네임 | 정의 | 어원·주의 | 대표 위치 |
 |---|---|---|---|---|
-| **DevScale** / `DEVIATION_SCALE` | DeviationScaleStrategy | 일봉 정배열(SMA5>10>20>60)+눌림 존 게이트 안에서 3분봉 **이격도** 사다리로 지정가 분할매매 | dev = **deviation(이격도)**, development 아님. 시장가가 아니라 "기다리는" 지정가 예약 | `Quant/include/strategy/DeviationScaleStrategy.h:14` |
+| **DevScale** / `DEVIATION_SCALE` | DeviationScaleStrategy | 일봉 정배열(SMA5>10>20>60)+눌림 존 게이트 안에서 3분봉 **이격도** 분할 매수로 지정가 분할매매 | dev = **deviation(이격도)**, development 아님. 시장가가 아니라 "기다리는" 지정가 예약 | `Quant/include/strategy/DeviationScaleStrategy.h:14` |
 | **ITB** | IntradayBreakout (v2) | 1분 버킷 채널 돌파 + 당일 시가 기준점 기반 장중 자동매매 | 클래스명 `IntradayBreakoutStrategy`, `id()="ITB_"`. 세 글자 확장(In**t**raday **B**reakout)은 관례. 한글 이름은 **장중돌파**. 로그·메모에 보이는 `1TB`는 같은 것을 잘못 적은 것이다(대문자 I를 숫자 1로 읽음). 용량 단위 TB와 무관. 분봉 시점정합 재현 불가 → forward 실증만 | `Quant/include/strategy/IntradayBreakoutStrategy.h::IntradayBreakoutStrategy`, `strategies/README.md` |
 | **MM** / MM-1 | MarketMakingStrategy | mid±half_spread_ticks 양방향 지정가를 걸고 시장이 움직이면 취소·재호가하는 미니 시장조성기 | MM = Market Making. CANCEL+NEW 방식(REPLACE 미사용), 재고 미인지(Phase 1) | `Quant/include/strategy/MarketMakingStrategy.h:10` |
-| **Momentum** | MomentumStrategy | N일 고점 돌파 매수 / N일 저점 이탈 청산 | 돈치안 채널 브레이크아웃(Donchian) | `Quant/include/strategy/MomentumStrategy.h:7` |
-| **SDP** | SupplyDemandPullbackStrategy | 외인·기관 쌍끌이 수급 선별 + 5일선 눌림목 진입(EOD 스윙 / INTRADAY 두 모드) | "쌍끌이" = 외인>0 AND 기관>0. look-ahead 방지로 당일 확정치 제외 | `Quant/include/strategy/SupplyDemandPullbackStrategy.h:18` |
+| **Momentum** | MomentumStrategy | N일 고점 돌파 매수 / N일 저점 이탈 청산 | 돈치안 채널 브레이크아웃(채널 돌파) | `Quant/include/strategy/MomentumStrategy.h:7` |
+| **SDP** | SupplyDemandPullbackStrategy | 외인·기관 쌍끌이 수급 선별 + 5일선 눌림목 진입(일봉 스윙 / INTRADAY 두 모드) | "쌍끌이" = 외인>0 AND 기관>0. look-ahead 방지로 당일 확정치 제외 | `Quant/include/strategy/SupplyDemandPullbackStrategy.h:18` |
 | **ValueContrary** | ValueContraryStrategy | 저PBR 종목 3일 연속 하락 후 반전 매수(4일차 시가 효과) | Contrary = 역발상. KR은 KIS 시총순위, US는 내장 S&P500 | `Quant/include/strategy/ValueContraryStrategy.h:12`, `PYQuant/strategy/value_contrary.py` |
 | **Theme** | ThemeStrategy | 업종 5일 모멘텀 상위 → 급등종목 → 외인+기관 순매수 3단 필터 테마 모멘텀 | 업종코드 테이블 내장 | `Quant/include/strategy/ThemeStrategy.h:13` |
 | **MACross** | MACrossStrategy | 단기 MA가 장기 MA 상향돌파(골든크로스) 매수 / 하향(데드크로스) 매도 | MA = Moving Average | `Quant/include/strategy/MACrossStrategy.h:7` |
@@ -42,13 +42,13 @@
 | **OrderRouter** | order 스레드에서 실제 KIS 주문을 실행·라우팅(new_route/on_fill) | 거부(REJECTED) 시 drop, 재큐잉 없음(C++). 체결콜백 on_fill로 원장 갱신 | `Quant/src/ipc/OrderRouter.cpp` |
 | **reconcile** (리컨사일) | 로컬 원장 ↔ KIS 실잔고를 재조회로 재동기 | rest 모드처럼 체결콜백이 없을 때 손익 근사 경로 | `Quant/src/core/Engine.cpp` |
 | **kill switch** | 신규·청산 양방향 하드스톱 스위치 | ZMQ 수동명령 / WS 연속 실패로 발동(손익기반 자동킬은 미구현) | `Quant/src/risk/OrderGate.cpp` |
-| **entry_halt** | 신규 진입(BUY)만 차단, 청산(SELL)은 허용하는 플래그 | **OrderGate 전역 플래그**라 켜지면 모든 전략의 신규진입이 함께 막힌다. 매크로 사이드카 regime.json 파일브리지가 토글(운영단말 수동 정지 `manual_buy_halt`와는 다른 플래그, D-091·D-095) | `Quant/src/risk/OrderGate.cpp` |
+| **entry_halt** | 신규 진입(BUY)만 차단, 청산(SELL)은 허용하는 플래그 | **OrderGate 전역 플래그**라 켜지면 모든 전략의 신규진입이 함께 막힌다. 매크로 보조 프로세스 regime.json 파일 전달이 토글(운영단말 수동 정지 `manual_buy_halt`와는 다른 플래그, D-091·D-095) | `Quant/src/risk/OrderGate.cpp` |
 | **FORCE_LIQ** | BEAR 등에서 보유 전량을 시장가로 청산하는 강제청산 신호 | `strategy_id="FORCE_LIQ"`. 시장가라 명목 백스톱 우회 방지로 평단을 `reference_price`에 stamp | `Quant/src/core/Engine.cpp` |
 | **UniverseScanner** | 시총·거래대금·등락률 필터로 매매 유니버스를 스캔(scan_devscale / scan_itb) | 정배열 일봉 조회·수급 필터 포함 | `Quant/include/universe/UniverseScanner.h:16` |
 | **StrategyFactory** | config를 읽어 전략 인스턴스를 생성·등록하는 팩토리 | main.cpp에서 분리된 전략 로딩 계층 | `Quant/src/strategy/StrategyFactory.cpp` |
 | **Logger** | 비동기 싱글톤 로거(ms UTC 타임스탬프, 콘솔 + `logs/quant_trader.log`) | hot path는 큐 push만·전용 writer 스레드가 I/O(꼬리 지연(tail) 억제). 큐는 `MpscQueue<Record>` 65,536슬롯(D-045), 가득 차면 새 레코드 드롭+`dropped()`·`flush()`. LOG_INFO/WARN/ERROR/DEBUG 매크로 | `Quant/include/utils/Logger.h` |
 | **bootstrap_ledger** | 기동 시 실계좌 보유분을 OrderGate 원장에 시드(매도수량·평단·손실한도 정합) | config `bootstrap_ledger_from_balance` | `Quant/src/core/EngineConfigure.cpp` |
-| **manage_holdings** | 스캔 유니버스 밖 잔고 보유분에 "청산 전용" 가디언을 부착(신규진입 영구차단) | config `manage_holdings` 블록 | `Quant/config` 전략 블록 |
+| **manage_holdings** | 스캔 유니버스 밖 잔고 보유분에 "청산 전용" 청산 관리를 부착(신규진입 영구차단) | config `manage_holdings` 블록 | `Quant/config` 전략 블록 |
 | **ZmqBridge / OrderRouter(IPC)** | ZeroMQ 기반 프로세스 간 시세·주문 중계(선택 구성) | Python 오퍼레이터 연동 | `Quant/src/ipc/ZmqBridge.cpp` |
 | **OrderSignal / MarketData** | 전략이 산출한 주문신호(side/type/quantity/price/reference_price) / OHLCV+bar_index 시세 | 파이프라인 코어 타입 | `Quant/include/core/Types.h` |
 | **reference_price** | 시장가(price=0) 주문의 명목 한도(max_notional_per_order/per_ticker) 평가 기준가 | 지정가는 price로 명목 평가, 시장가는 이 값으로 — 시장가의 백스톱 우회 차단. FORCE_LIQ 매도는 평단을 stamp | `Quant/include/core/Types.h` · `Quant/src/risk/OrderGate.cpp` |
@@ -90,8 +90,8 @@
 |---|---|---|
 | **dev_buy / dev_sell** | 이격도가 아래로/위로 벌어진 층에서 지정가 매수/매도(%) | dev = deviation. −dev_buy%=재진입, +dev_sell%=분할익절 |
 | **pullback** (pullback_pct) | SMA ±pullback_pct 이내 눌림목 존 판정 폭 | 눌림목 게이트 |
-| **rung / n_rungs** | 이격도 사다리 분할매매의 각 층(가격대) / 층 수 | 물타기 총예산을 n_rungs로 분할 |
-| **reprice** (reprice_move_ticks) | 미체결 사다리를 CANCEL+NEW로 재호가 | SMA가 지정 틱 이상 이동 시 |
+| **분할 단계 / split_step_count** | 이격도 분할 매수 분할매매의 각 층(가격대) / 층 수 | 물타기 총예산을 split_step_count로 분할 |
+| **reprice** (reprice_move_ticks) | 미체결 분할 매수를 CANCEL+NEW로 재호가 | SMA가 지정 틱 이상 이동 시 |
 | **requote** (half_spread_ticks·min_requote_ms) | 시장 이동 시 양방향 견적 재호가·반스프레드·최소간격 | 간격 AND 이동폭 동시조건으로 churn 억제 |
 | **churn** | 과잉 재주문(재호가 반복) | 데드밴드/최소간격 가드로 억제 |
 | **notional** | 주문 명목 금액(자본%×총평가 → 수량 산출) | 명목 사이징 백스톱 |
@@ -100,12 +100,12 @@
 | **risk_off_index_pct** | 지수 등락률이 이 값 이하면 신규 미등록 | 코스피/코스닥 시장별 이중 게이트 |
 | **max_dev_pct** | 정배열이어도 이격 초과면 유니버스 제외(과확장 컷) | 분수 단위(전략 임계는 퍼센트) |
 | **avg_loss_pct** | 보유분 손절 임계(%) | 0이면 손절 비활성 |
-| **eod_exit_hhmm** | 장 마감 강제청산 시각(HHMM) | EOD 청산 |
-| **EOD** | End Of Day, 장 마감(청산·스윙 모드 기준) | — |
+| **market_close_exit_hhmm** | 장 마감 강제청산 시각(HHMM) | 장 마감 청산 |
+| **장 마감(market close)** | 15:30 정규장 종료. 청산 시각·일봉 모드의 기준 | — |
 | **rest_price_feed** | WS 대신 REST 현재가 폴링을 체결 하트비트로 사용 | true면 reconcile 필수 |
 | **is_paper** | 모의(true, openapivts:29443) / 실계좌(false) 스위치 | 시세·주문 도메인 분기 |
 | **fetch_interval_sec** | 데이터 폴링 주기(초) | 장외 시간은 스킵 |
-| **regime / regime.json** | 매크로 사이드카(`macro_regime_feed.py`)가 쓰는 위험국면 파일브리지 | risk_score를 매수 비율 `entry_scale`(0~1)로 옮겨 전략이 명목에 곱하고, 정지선 이하면 entry_halt. 코스피·코스닥·해외·유가 등락표 + 장초 대비 방향표(D-083). 라벨→전략 집합은 `regime_strategies` 항목 |
+| **regime / regime.json** | 매크로 보조 프로세스(`macro_regime_feed.py`)가 쓰는 위험국면 파일 전달 | risk_score를 매수 비율 `entry_scale`(0~1)로 옮겨 전략이 명목에 곱하고, 정지선 이하면 entry_halt. 코스피·코스닥·해외·유가 등락표 + 장초 대비 방향표(D-083). 라벨→전략 집합은 `regime_strategies` 항목 |
 | **regime_strategies** | `regime.json` 라벨(RISK_ON/NEUTRAL/RISK_OFF)별 전략 집합을 고르는 config 맵 | 라벨이 바뀐 회차에만 `Engine::apply_regime_selection`이 전략 `active_`를 켜고 끈다(신규 진입만). 코스피 200MA로 따로 판정하던 축은 지웠다(D-084·D-085) | `Quant/src/core/EngineConfigure.cpp` |
 | **dedup** (dedup_window_sec) | 동일 전략+종목 중복주문 제거 창 | 1초 내 중복 거부 |
 
@@ -121,22 +121,22 @@
 | **Sortino** | Sortino ratio | 하방변동만 벌점한 위험조정수익 | — |
 | **MDD** | Max Drawdown | 최대 낙폭 | 채택 게이트의 1차 기준 |
 | **MTM** | Mark-To-Market | 시가평가 — 미청산 보유를 현재가로 평가한 손익 | 산문 첫 등장은 `시가평가(MTM)`. 실현손익만 보면 손절 0건 구조에서 부호가 승자 쪽으로 기운다 |
-| **BH / FDR** | Benjamini-Hochberg / False Discovery Rate | 다중검정 보정 — 여러 셀을 동시에 검정할 때 오발견율을 q 이하로 묶는 절차 | 산문 첫 등장은 `다중검정 보정(BH, 오발견율 FDR)`. 탐색 격자에만 쓰고 주검정은 보정 없이 1셀 |
+| **매수 후 보유 / FDR** | Benjamini-Hochberg / False Discovery Rate | 다중검정 보정 — 여러 셀을 동시에 검정할 때 오발견율을 q 이하로 묶는 절차 | 산문 첫 등장은 `다중검정 보정(매수 후 보유, 오발견율 FDR)`. 탐색 격자에만 쓰고 주검정은 보정 없이 1셀 |
 | **PF** | Profit Factor | 총이익 ÷ 총손실 | — |
 | **slippage** | 슬리피지 | 체결가와 기대가의 괴리(비용 가정) | 백테스트 비용모델 |
 | **OOS** | Out-Of-Sample | 표본외 검증 구간 | — |
 | **holdout** | 홀드아웃 | 결론 판정에서 격리해 둔 검증 구간 | 2022 홀드아웃 등 |
 | **walk-forward** | walk-forward | 롤링으로 재적합하며 전진 검증 | — |
-| **ablation** | 절제실험 | 요소를 하나씩 제거해 기여도 측정 | BT-10 EOD ablation |
+| **제거실험(removal test)** | 요소 제거 실험 | 요소를 하나씩 제거해 기여도 측정 | BT-10 장 마감 제거실험 |
 | **regime filter** | 국면필터 | 지수 국면으로 신규진입을 게이팅하는 레버 | 지금까지 견고성 확인된 유일 레버 |
-| **regime_scorer** | 구조 국면 스코어러 | C++에서 지운 코스피 200MA 판정기(D-085)를 미러(변형 A)하고 연속화/기울기/오버레이로 확장한 Track A 애블레이션 | `PYQuant/backtest/regime_scorer.py`, study [10](../research/studies/10_regime_scorer/README.md) |
+| **regime_scorer** | 구조 국면 스코어러 | C++에서 지운 코스피 200MA 판정기(D-085)를 미러(변형 A)하고 연속화/기울기/오버레이로 확장한 Track A 제거실험 | `PYQuant/backtest/regime_scorer.py`, study [10](../research/studies/10_regime_scorer/README.md) |
 | **index_intraday_logger** | 장중 지수 forward 로거 | 장중 지수(0001/1001/2001) 30s append-only JSONL 적재 — 지수 PIT 히스토리 부재로 백테스트 불가한 Track B의 유일 검증경로 | `PYQuant/tools/index_intraday_logger.py` |
 | **BT-NN** | Backtest #NN | 백테스트 일련번호(예: BT-08 위기대응, BT-09 위기전략 10종, BT-10 저점매수) | 상세는 research 허브 |
 | **IC** | Information Coefficient | 예측값과 실현수익의 순위상관 | 산문 첫 등장은 `순위상관(IC)`으로 병기한다 |
 | **MAE** | Maximum Adverse Excursion | 진입 후 청산까지 겪은 최대 미실현 손실폭 | 최대낙폭(MDD)과 다르다 — 이쪽은 거래 단위다 |
 | **mcap / mktcap** | market capitalization | 시가총액. 유니버스 산출물의 열 이름 | 열 이름은 그대로 두고 산문에서만 병기한다 |
 | **tv20 / vol20 / lo60** | — | 20일 평균 거래대금 / 20일 평균 거래량 / 60일 최저가 | 유니버스 스캔 산출물의 열 이름 |
-| **LAB** | STRATEGY_LAB | 전략 실험 가설·판정 카탈로그(로컬전용 문서) | GitHub 미포함 |
+| **LAB** | STRATEGY_LAB | 전략 실험 가설·판정 목록(로컬전용 문서) | GitHub 미포함 |
 
 > 계열 프리픽스(M=위기 대응법, N=신규 전략, O/C=위기 전략 후보, H=가설)의 개별 결론과 file:line은 리서치 허브·전략 폴더에서 확인한다. 확장 명문 정의가 코드/공개문서에 없는 라벨은 여기서 단정하지 않는다.
 

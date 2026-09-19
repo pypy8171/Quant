@@ -44,7 +44,7 @@ README_PATH = OUT_DIR / "README.md"
 # ── 사전등록 임계값(기본값). 스윕은 SWEEP 그리드로 전량 공개 ──────────────────
 COST_BASE = 0.0021          # 왕복 거래비용(기본). 감도: 0.0021 / 0.005 / 0.010
 COST_GRID = [0.0021, 0.005, 0.010]
-WARMUP = 252                # 워밍업(200MA + rvol 롤링). 이 구간 e=1.0(BH)
+WARMUP = 252                # 워밍업(200MA + rvol 롤링). 이 구간 e=1.0(매수 후 보유)
 MA_LONG = 200               # M1 추세 이동평균
 MA_SLOPE = 20               # M1 기울기 창(SMA_t vs SMA_{t-20})
 RVOL_WIN = 20               # 실현변동성 창
@@ -174,7 +174,7 @@ def rolling_z(x, win):
 # ════════════════════════════════════════════════════════════════════════════
 # 대응법 5종 → 익스포저 e[t] (t 까지 정보로 결정, ret[t+1] 에 적용)
 # ════════════════════════════════════════════════════════════════════════════
-def expo_bh(closes, ret, vix, params):
+def expo_buy_and_hold(closes, ret, vix, parameters):
     return np.ones(len(closes))
 
 
@@ -185,7 +185,7 @@ def expo_m1_trend(closes, ret, vix, params):
     e = np.ones(len(closes))
     for t in range(len(closes)):
         if t < L + MA_SLOPE or np.isnan(s[t]) or np.isnan(s[t - MA_SLOPE]):
-            e[t] = 1.0  # 워밍업: 판단 불가 → BH
+            e[t] = 1.0  # 워밍업: 판단 불가 → 매수 후 보유
             continue
         up = (closes[t] > s[t]) and (s[t] > s[t - MA_SLOPE])
         e[t] = 1.0 if up else 0.0
@@ -279,7 +279,7 @@ def expo_combo(closes, ret, vix, params):
 
 
 METHODS = [
-    ("BH",    "매수 후 보유(기준선)",              expo_bh,          "상시 100% 보유"),
+    ("BUY_AND_HOLD",    "매수 후 보유(기준선)",              expo_buy_and_hold,          "상시 100% 보유"),
     ("M1",    "200일선 추세게이트",             expo_m1_trend,    "C<200MA·기울기음전 → 현금"),
     ("M2",    "실현변동성 z-score 축소",        expo_m2_volz,     "vol z>1.5 → 50% 축소"),
     ("M3",    "VIX 게이트(2000+)",             expo_m3_vix,      "VIX≥25 반컷·≥30 전액컷"),
@@ -337,7 +337,7 @@ def slice_window(dates, d0, d1):
     return lo, hi
 
 
-def window_maxdd_anchor(closes):
+def window_maxdd_points(closes):
     """창 내 표준 max-drawdown 기준점(peak_idx, trough_idx, dd%). hindsight — 평가전용."""
     n = len(closes)
     if n < 2:
@@ -382,8 +382,8 @@ def build_benchmark(src, name, ticker, start, use_vix):
 def eval_benchmark(bm):
     """벤치마크에 대해 전 대응법 full-curve + 이벤트별 진단."""
     closes, ret, vix, dates = bm["closes"], bm["ret"], bm["vix"], bm["dates"]
-    bh_net, bh_eq = run_curve(closes, ret, expo_bh(closes, ret, vix, {}), 0.0)
-    bh_stats = curve_stats(bh_net, bh_eq)
+    buy_and_hold_net, buy_and_hold_eq = run_curve(closes, ret, expo_buy_and_hold(closes, ret, vix, {}), 0.0)
+    buy_and_hold_statistics = curve_stats(buy_and_hold_net, buy_and_hold_eq)
 
     rows = []          # full-curve (비용별)
     ev_rows = []       # 이벤트별(기본비용)
@@ -397,12 +397,12 @@ def eval_benchmark(bm):
             st = curve_stats(net, eq)
             by_cost[c] = st
         base = by_cost[COST_BASE]
-        # 낙폭축소%p = |BH낙폭| − |룰낙폭| = base − bh (둘 다 음수). +면 덜 빠짐(방어).
-        mdd_red = base["mdd"] - bh_stats["mdd"]
+        # 낙폭축소%p = |매수 후 보유낙폭| − |룰낙폭| = base − 매수 후 보유 (둘 다 음수). +면 덜 빠짐(방어).
+        mdd_red = base["mdd"] - buy_and_hold_statistics["mdd"]
         # 수익반납은 연율(CAGR)로 — 98년 누적 절대%p는 복리로 폭발해 분모 비호환.
-        give = bh_stats["cagr"] - base["cagr"]             # %/yr, +면 방어대가로 수익 포기
+        give = buy_and_hold_statistics["cagr"] - base["cagr"]             # %/yr, +면 방어대가로 수익 포기
         # 방어효율 = 낙폭축소%p / CAGR반납%p. 부호 강등 처리.
-        if code == "BH":
+        if code == "BUY_AND_HOLD":
             eff = "—"
         elif mdd_red <= 0:
             eff = "방어실패"        # 낙폭조차 못 줄임
@@ -422,13 +422,13 @@ def eval_benchmark(bm):
         wc = closes[lo:hi]
         wr = ret[lo:hi].copy()
         wr[0] = 0.0
-        p_i, tr_i, bh_dd = window_maxdd_anchor(wc)
+        p_i, tr_i, buy_and_hold_dd = window_maxdd_points(wc)
         # 회복참여율: trough → +126 거래일
         rec_hi = min(tr_i + 126, len(wc) - 1)
         row = dict(eid=eid, cause=cause, behavior=BEHAVIOR.get(eid, "?"),
-                   window=f"{d0[:7]}~{d1[:7]}", bh_dd=bh_dd, methods={})
+                   window=f"{d0[:7]}~{d1[:7]}", buy_and_hold_dd=buy_and_hold_dd, methods={})
         for code, label, fn, desc in METHODS:
-            if code == "BH":
+            if code == "BUY_AND_HOLD":
                 continue
             e = per_method_e[code][lo:hi]
             # 로컬 곡선(창 시작에서 리셋). 첫날 포지션=e[0].
@@ -442,21 +442,21 @@ def eval_benchmark(bm):
             m_dd = max_drawdown(eq)
             # 회복참여
             if rec_hi > tr_i:
-                bh_rec = float(wc[rec_hi] / wc[tr_i] - 1.0)
+                buy_and_hold_rec = float(wc[rec_hi] / wc[tr_i] - 1.0)
                 m_rec = float(np.prod(1.0 + net[tr_i + 1:rec_hi + 1]) - 1.0)
-                part = (m_rec / bh_rec * 100.0) if abs(bh_rec) > 1e-9 else float("nan")
+                part = (m_rec / buy_and_hold_rec * 100.0) if abs(buy_and_hold_rec) > 1e-9 else float("nan")
             else:
                 part = float("nan")
-            row["methods"][code] = dict(mdd=m_dd, mdd_red=bh_dd_minus(bh_dd, m_dd), part=part)
+            row["methods"][code] = dict(mdd=m_dd, mdd_red=buy_and_hold_dd_minus(buy_and_hold_dd, m_dd), part=part)
         ev_rows.append(row)
 
-    return dict(bh=bh_stats, rows=rows, ev_rows=ev_rows)
+    return dict(buy_and_hold=buy_and_hold_statistics, rows=rows, ev_rows=ev_rows)
 
 
-def bh_dd_minus(bh_dd, m_dd):
-    """낙폭축소%p = |BH낙폭| − |룰낙폭|. 둘 다 음수(%)이므로 = m_dd − bh_dd.
-    예: bh_dd=-40, m_dd=-25 → +15(룰이 덜 빠짐=방어). 음수면 룰이 더 빠짐."""
-    return m_dd - bh_dd
+def buy_and_hold_dd_minus(buy_and_hold_dd, m_dd):
+    """낙폭축소%p = |매수 후 보유낙폭| − |룰낙폭|. 둘 다 음수(%)이므로 = m_dd − buy_and_hold_dd.
+    예: buy_and_hold_dd=-40, m_dd=-25 → +15(룰이 덜 빠짐=방어). 음수면 룰이 더 빠짐."""
+    return m_dd - buy_and_hold_dd
 
 
 def run_sweep(bm):
@@ -522,13 +522,13 @@ def _emit_metrics(bms, results):
     rows_out = []
     for bm in bms:
         r = results[bm["name"]]
-        bh = r["bh"]
+        buy_and_hold = r["buy_and_hold"]
         bench, span = bm["name"], bm["span"]
         d0, d1 = bm["dates"][0], bm["dates"][-1]
         for row in r["rows"]:
             rows_out.append(overlay_metric_row(
                 study_id="BT-08", strategy=row["code"], benchmark=bench,
-                base=row["base"], bh=bh, window=span, start_date=d0, end_date=d1,
+                base=row["base"], buy_and_hold=buy_and_hold, window=span, start_date=d0, end_date=d1,
                 honesty_label="robust",
                 extra={
                     "label": row["label"],
@@ -578,10 +578,10 @@ def write_readme(bms, results, sweeps):
     # ── full-curve 결과(벤치마크별) ──
     for bm in bms:
         r = results[bm["name"]]
-        bh = r["bh"]
+        buy_and_hold = r["buy_and_hold"]
         L.append(f"\n## 1차 지표 — 단일 연결곡선 · {bm['name']} ({bm['span']}, {bm['nbars']}봉)\n")
-        L.append(f"> 매수 후 보유 기준: 총수익 {fmt(bh['total'])}% · 연복리(CAGR) {fmt(bh['cagr'],2)}% · "
-                 f"최대낙폭(MDD) {fmt(bh['mdd'])}% · Sharpe {fmt(bh['sharpe'],2)} · Calmar {fmt(bh['calmar'],2)}\n")
+        L.append(f"> 매수 후 보유 기준: 총수익 {fmt(buy_and_hold['total'])}% · 연복리(CAGR) {fmt(buy_and_hold['cagr'],2)}% · "
+                 f"최대낙폭(MDD) {fmt(buy_and_hold['mdd'])}% · Sharpe {fmt(buy_and_hold['sharpe'],2)} · Calmar {fmt(buy_and_hold['calmar'],2)}\n")
         L.append("| 대응법 | CAGR% | MDD% | Sharpe | **Calmar** | 낙폭축소%p | CAGR반납%p/yr | 방어효율 | 토글수 |")
         L.append("|---|---|---|---|---|---|---|---|---|")
         for row in r["rows"]:
@@ -589,7 +589,7 @@ def write_readme(bms, results, sweeps):
             L.append(f"| {row['code']} {row['label']} | {fmt(b['cagr'],2)} | {fmt(b['mdd'])} | "
                      f"{fmt(b['sharpe'],2)} | **{fmt(b['calmar'],2)}** | {fmt(row['mdd_red'])} | "
                      f"{fmt(row['give'],2)} | {row['eff']} | {row['toggles']} |")
-        L.append("\n*낙폭축소%p = |BH MDD| − |룰 MDD|(+면 덜 빠짐). CAGR반납%p/yr = BH연율수익 − 룰연율수익"
+        L.append("\n*낙폭축소%p = |매수 후 보유 MDD| − |룰 MDD|(+면 덜 빠짐). CAGR반납%p/yr = 매수 후 보유연율수익 − 룰연율수익"
                  "(+면 방어대가로 매년 포기하는 수익률; 98년 누적 절대%p는 복리로 폭발해 분모로 부적합→연율 사용). "
                  "방어효율 = 낙폭축소%p / CAGR반납%p(클수록 값어치; 낙폭↓·수익유지면 '무비용방어', "
                  "낙폭조차 못줄이면 '방어실패'). 토글수 = 익스포저 온↔오프 횟수(휘프소 대리).*\n")
@@ -610,9 +610,9 @@ def write_readme(bms, results, sweeps):
             continue
         L.append(f"\n## 이벤트별 진단 · {bm['name']} (기본비용 0.21%, 진단용 — best 셀 판정 금지)\n")
         L.append("행 = 위기창 로컬 재계산. **낙폭축소%p**(+면 방어) / **회복참여%**(trough→+126일, "
-                 "룰수익/BH수익, 100%=완전참여·낮을수록 반등반납). trough 기준점은 hindsight·평가전용.\n")
-        codes = [c for c, *_ in METHODS if c != "BH"]
-        L.append("| 이벤트 | 거동 | BH낙폭% | " + " | ".join(f"{c} 축소/참여" for c in codes) + " |")
+                 "룰수익/매수 후 보유수익, 100%=완전참여·낮을수록 반등반납). trough 기준점은 hindsight·평가전용.\n")
+        codes = [code for code, *_ in METHODS if code != "BUY_AND_HOLD"]
+        L.append("| 이벤트 | 거동 | 매수 후 보유낙폭% | " + " | ".join(f"{code} 축소/참여" for code in codes) + " |")
         L.append("|---|---|---|" + "|".join(["---"] * len(codes)) + "|")
         # 중앙값 집계
         agg = {c: {"red": [], "part": []} for c in codes}
@@ -626,7 +626,7 @@ def write_readme(bms, results, sweeps):
                     agg[c]["part"].append(m["part"])
                 else:
                     cells.append("NA")
-            L.append(f"| {row['eid']} | {row['behavior']} | {fmt(row['bh_dd'])} | " + " | ".join(cells) + " |")
+            L.append(f"| {row['eid']} | {row['behavior']} | {fmt(row['buy_and_hold_dd'])} | " + " | ".join(cells) + " |")
         L.append("| **중앙값** | — | — | " +
                  " | ".join(f"{fmt(median(agg[c]['red']))}/{fmt(median(agg[c]['part']),0)}" for c in codes) + " |")
 
@@ -650,7 +650,7 @@ def write_readme(bms, results, sweeps):
     L.append("- **Sharpe(샤프)**: 변동성 1단위당 초과수익 — 위험 대비 효율.")
     L.append("- **Calmar(칼마)**: CAGR ÷ |MDD|. 낙폭 대비 수익 — 이 백테스트의 **1차 지표**.")
     L.append("- **실현변동성(rvol)**: 최근 N일 일간수익 표준편차를 연율화. 시장이 얼마나 출렁이는지.")
-    L.append("- **낙폭축소%p**: |BH 낙폭| − |룰 낙폭|. +면 룰이 그만큼 덜 빠졌다는 뜻.")
+    L.append("- **낙폭축소%p**: |매수 후 보유 낙폭| − |룰 낙폭|. +면 룰이 그만큼 덜 빠졌다는 뜻.")
     L.append("- **CAGR반납%p/yr**: 방어의 대가로 매년 포기하는 수익률(연율).")
     L.append("- **방어효율**: 낙폭축소 ÷ CAGR반납. 클수록 '포기한 수익 대비 지킨 낙폭'이 값어치 있다.")
     L.append("- **회복참여율**: 저점 이후 반등 구간에서 룰이 참여한 비율. 낮을수록 반등을 놓침(방어의 대가).")
@@ -661,7 +661,7 @@ def write_readme(bms, results, sweeps):
     L.append("\n## 데이터·방법의 한계\n")
     for bm in bms:
         L.append(f"- **{bm['name']}**: {bm['span']}, {bm['nbars']}봉(~{bm['bpy']:.0f}/년). "
-                 f"워밍업 {WARMUP}봉은 e=1(BH) — 이 구간 방어 없음.")
+                 f"워밍업 {WARMUP}봉은 e=1(매수 후 보유) — 이 구간 방어 없음.")
     L.append("- **VIX(M3)**: ^VIX 실측은 2000-01부터·캐시 끝단(최근) 결측 가능 → 그 구간 M3=중립(1.0), "
              "타 룰에 위임. 2000년 이전 위기(1929·1987·1990·1997·1998)는 M3 미적용.")
     L.append("- **1929·1987**: ^GSPC 풀히스토리에 포함되나 VIX 없음 → 가격룰(M1/M2/M4/M5)만 평가.")

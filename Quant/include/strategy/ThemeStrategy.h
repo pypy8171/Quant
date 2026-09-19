@@ -23,15 +23,15 @@
 //  장 시작 후 첫 이벤트에서 시장가 매수 (1종목당 1회)
 //
 //  [청산 — on_order_book()]
-//  eod_exit_hhmm 도달 시 시장가 청산
+//  market_close_exit_hhmm 도달 시 시장가 청산
 // ─────────────────────────────────────────────────────────────────────────────
 
 // 스크리닝 단계에서 종목·업종마다 KIS REST를 연속 호출하므로 호출 사이에 짧게 쉰다
 // (초당 호출 한도(EGW00201) 회피용 호출 간격 조절 간격). 지수 조회가 더 길다.
 namespace
 {
-constexpr int kThemeIndexPacingMs = 500; // 업종 지수 일봉 조회 후 대기
-constexpr int kThemeRestPacingMs  = 200; // 종목 순위·일봉·수급 조회 후 대기
+constexpr int kThemeIndexIntervalMs = 500; // 업종 지수 일봉 조회 후 대기
+constexpr int kThemeRestIntervalMs  = 200; // 종목 순위·일봉·수급 조회 후 대기
 constexpr size_t kThemeMaxSurgeCandidates = 50; // 거래량 급증 후보 안전 상한
 }
 
@@ -60,13 +60,13 @@ public:
                   double volume_surge_mult,
                   bool institution_filter,
                   int quantity,
-                  int eod_exit_hhmm)
+                  int market_close_exit_hhmm)
         : sector_codes_(std::move(sector_codes)),
           top_n_sectors_(top_n_sectors),
           volume_surge_mult_(volume_surge_mult),
           institution_filter_(institution_filter),
           quantity_(quantity),
-          eod_exit_hhmm_(eod_exit_hhmm)
+          market_close_exit_hhmm_(market_close_exit_hhmm)
     {}
 
     const std::string& id() const override
@@ -82,7 +82,7 @@ public:
                " | vol_surge=" + std::to_string(static_cast<int>(volume_surge_mult_)) + "x" +
                " | inst=" + (institution_filter_ ? "Y" : "N") +
                " | qty=" + std::to_string(quantity_) +
-               " | 장 마감=" + std::to_string(eod_exit_hhmm_);
+               " | market_close=" + std::to_string(market_close_exit_hhmm_);
     }
 
     std::vector<WatchSpec> get_watch_specifications() const override
@@ -134,7 +134,7 @@ public:
         for (const auto& [code, name] : sectors)
         {
             auto bars = kis_->get_index_daily_ohlcv(code, 6);
-            std::this_thread::sleep_for(std::chrono::milliseconds(kThemeIndexPacingMs));
+            std::this_thread::sleep_for(std::chrono::milliseconds(kThemeIndexIntervalMs));
 
             if (bars.size() < 2 || bars[0].close <= 0 || bars.back().close <= 0)
             {
@@ -171,7 +171,7 @@ public:
         {
             const std::string& sector_code = momentum_rank[index].second;
             auto ranked = kis_->fetch_sector_ranking(sector_code, 30);
-            std::this_thread::sleep_for(std::chrono::milliseconds(kThemeRestPacingMs));
+            std::this_thread::sleep_for(std::chrono::milliseconds(kThemeRestIntervalMs));
 
             for (const auto& stock : ranked)
             {
@@ -181,7 +181,7 @@ public:
                 }
 
                 auto bars = kis_->get_daily_ohlcv(stock.ticker, 21);
-                std::this_thread::sleep_for(std::chrono::milliseconds(kThemeRestPacingMs));
+                std::this_thread::sleep_for(std::chrono::milliseconds(kThemeRestIntervalMs));
 
                 if (bars.size() < 5)
                 {
@@ -235,7 +235,7 @@ public:
             for (const auto& ticker : surge_candidates)
             {
                 auto trend = kis_->get_investor_trend(ticker);
-                std::this_thread::sleep_for(std::chrono::milliseconds(kThemeRestPacingMs));
+                std::this_thread::sleep_for(std::chrono::milliseconds(kThemeRestIntervalMs));
 
                 if (trend.foreign_net > 0 && trend.institution_net > 0)
                 {
@@ -331,7 +331,7 @@ private:
         }
 
         // 청산: 매수했고, 아직 청산 안 했고, 청산 시각 도달
-        if (buy_sent_.count(symbol_id) && !sell_sent_.count(symbol_id) && hhmm >= eod_exit_hhmm_)
+        if (buy_sent_.count(symbol_id) && !sell_sent_.count(symbol_id) && hhmm >= market_close_exit_hhmm_)
         {
             sell_sent_.insert(symbol_id);
 
@@ -358,7 +358,7 @@ private:
     double                            volume_surge_mult_;
     bool                              institution_filter_;
     int                               quantity_;
-    int                               eod_exit_hhmm_;
+    int                               market_close_exit_hhmm_;
 
     std::unordered_set<std::string>   candidates_; // 문자열 — 구독 스펙·로그. 틱 경로는 아래 id 집합만 본다
     std::unordered_set<symbol::SymbolId> pending_;    // 매수 대기 후보 id

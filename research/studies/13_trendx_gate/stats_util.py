@@ -1,7 +1,7 @@
-"""scipy 없는 환경용 통계 보조 — t 분포 양측 p값, BH(FDR) 보정, Spearman.
+"""scipy 없는 환경용 통계 보조 — t 분포 양측 p값, Benjamini-Hochberg(FDR) 보정, Spearman.
 
 이 머신의 `py`·`.venv-win` 둘 다 scipy가 없다(2026-09-11 확인). 월 시계열 1표본 t의 p값과
-탐색 격자의 BH 보정만 필요하므로 정규화 불완전 베타를 연분수(Numerical Recipes betacf)로 직접 둔다.
+탐색 격자의 매수 후 보유 보정만 필요하므로 정규화 불완전 베타를 연분수(Numerical Recipes betacf)로 직접 둔다.
 """
 from __future__ import annotations
 
@@ -80,23 +80,23 @@ def one_sample_t(x) -> tuple[float, float, float, int]:
     return float(v.mean()), float(t), t_sf2(t, n - 1), n
 
 
-def bh_qvalues(p: list[float]) -> list[float]:
+def benjamini_hochberg_qvalues(p_values: list[float]) -> list[float]:
     """Benjamini–Hochberg q값. nan은 그대로 둔다."""
-    arr = np.asarray(p, dtype=float)
-    ok = np.isfinite(arr)
-    q = np.full_like(arr, np.nan)
-    pv = arr[ok]
-    m = len(pv)
-    if m == 0:
-        return q.tolist()
-    order = np.argsort(pv)
-    ranked = pv[order] * m / (np.arange(m) + 1)
+    values = np.asarray(p_values, dtype=float)
+    finite_mask = np.isfinite(values)
+    result = np.full_like(values, np.nan)
+    finite_values = values[finite_mask]
+    count = len(finite_values)
+    if count == 0:
+        return result.tolist()
+    order = np.argsort(finite_values)
+    ranked = finite_values[order] * count / (np.arange(count) + 1)
     # 뒤에서부터 누적 최소로 단조성을 맞춘다
     ranked = np.minimum.accumulate(ranked[::-1])[::-1]
-    out = np.empty(m)
-    out[order] = np.minimum(ranked, 1.0)
-    q[ok] = out
-    return q.tolist()
+    ranked_values = np.empty(count)
+    ranked_values[order] = np.minimum(ranked, 1.0)
+    result[finite_mask] = ranked_values
+    return result.tolist()
 
 
 def spearman(x: pd.Series, y: pd.Series) -> float:

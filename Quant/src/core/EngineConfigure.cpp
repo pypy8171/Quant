@@ -48,7 +48,7 @@ void configure_regime_strategies(Engine& engine, const AppConfig& app)
     LOG_INFO("[Engine] 국면→전략 자동선택 맵 " + std::to_string(app.regime_strategies.size()) + "개 국면 적용");
 }
 
-// 기동 스모크 테스트 — 서버 실행 직후 지정 종목을 시장가 1주 매수해, 주문 경로 전체가 살아있는지 최소 점검한다.
+// 기동 점검 — 서버 실행 직후 지정 종목을 시장가 1주 매수해, 주문 경로 전체가 살아있는지 최소 점검한다.
 //  config "startup_check": {"ticker":"005930","qty":1}. 없으면 미가동.
 void configure_startup_check(Engine& engine, const AppConfig& app)
 {
@@ -111,7 +111,7 @@ void configure_risk(Engine& engine, const AppConfig& app)
     }
 
     // 주문 호출 간격 조절(C-2/W-3) — 버스트 청산 EGW00201 회피 + 거부 SELL 재시도.
-    engine.set_order_pacing(app.order_min_interval_ms, app.order_max_retries);
+    engine.set_order_interval(app.order_min_interval_ms, app.order_max_retries);
     LOG_INFO("[Engine] 주문 호출 간격 조절: " + std::to_string(app.order_min_interval_ms) + "ms 간격, 청산 SELL 재시도 " +
              std::to_string(app.order_max_retries) + "회");
 }

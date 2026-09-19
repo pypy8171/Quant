@@ -126,8 +126,8 @@
 
 - [__init__.py](../PYQuant/strategy/__init__.py) — 빈 패키지 초기화 파일
 - [base.py](../PYQuant/strategy/base.py) — 전략 베이스 클래스 정의
+- [channel_breakout.py](../PYQuant/strategy/channel_breakout.py) — 종목별 채널 돌파 전략
 - [cross_momentum.py](../PYQuant/strategy/cross_momentum.py) — 횡단면 모멘텀 전략
-- [donchian_breakout.py](../PYQuant/strategy/donchian_breakout.py) — 종목별 돈치안 채널 돌파 전략
 - [indicators.py](../PYQuant/strategy/indicators.py) — 정배열·이격도 계산 지표 헬퍼
 - [mean_reversion.py](../PYQuant/strategy/mean_reversion.py) — 횡단면 이격도 역추세 전략
 - [strategy_a.py](../PYQuant/strategy/strategy_a.py) — 테마주 5일선 눌림목 추종 전략
@@ -148,7 +148,6 @@
 ### PYQuant/tools/
 
 - [__init__.py](../PYQuant/tools/__init__.py) — 빈 패키지 초기화 파일
-- [ablation_2022.py](../PYQuant/tools/ablation_2022.py) — 2022 폭락장 국면필터 제거실험
 - [check_adjusted.py](../PYQuant/tools/check_adjusted.py) — data.go.kr 수정주가 여부 검증 점검
 - [check_datagokr.py](../PYQuant/tools/check_datagokr.py) — DataGoKrSource 인증·조회 확인용 점검
 - [check_investor_api.py](../PYQuant/tools/check_investor_api.py) — 수급·일봉 API 가용성 검증 스크립트
@@ -171,6 +170,7 @@
 - [naver_flow_backfill.py](../PYQuant/tools/naver_flow_backfill.py) — 네이버 모바일 trend API 수급 이력(외인·기관·개인 순매수 주식수·외인보유율) 백필 → investor_flow_pit.parquet, 종목별 캐시로 재실행 안전
 - [nxt_divergence_check.py](../PYQuant/tools/nxt_divergence_check.py) — KRX·NXT 시세 괴리 측정 도구
 - [pit_universe_backfill.py](../PYQuant/tools/pit_universe_backfill.py) — 거래일별 PIT 유니버스 재구성 도구
+- [regime_removal_test_2022.py](../PYQuant/tools/regime_removal_test_2022.py) — 2022 폭락장 국면필터 제거실험
 - [sweep.py](../PYQuant/tools/sweep.py) — 전략 파라미터 강건성 스윕 도구
 - [universe_feed.py](../PYQuant/tools/universe_feed.py) — 시총·거래대금 유니버스 피드 생성기
 - [walkforward.py](../PYQuant/tools/walkforward.py) — 전진검증 표본외 성과 검증 도구
@@ -221,10 +221,10 @@
 - [MarketSession.h](../Quant/include/core/MarketSession.h) — KRX 정규장 세션 시각 판정
 - [MpscQueue.h](../Quant/include/core/MpscQueue.h) — Vyukov MPSC 락프리 큐
 - [MutexQueue.h](../Quant/include/core/MutexQueue.h) — 뮤텍스+deque 큐 — MpscQueue 벤치 대조군
-- [OrderPacer.h](../Quant/include/core/OrderPacer.h) — 발주 조절기 — 간격·재시도 분류(D-065)
+- [OrderRateLimiter.h](../Quant/include/core/OrderRateLimiter.h) — 발주 조절기 — 간격·재시도 분류(D-065)
 - [PaperExecutor.h](../Quant/include/core/PaperExecutor.h) — 리플레이용 모의 체결기(D-071)
 - [ReconcilePlan.h](../Quant/include/core/ReconcilePlan.h) — 잔고 대조 차이 계산 순수 함수(D-038)
-- [RegimeFileBridge.h](../Quant/include/core/RegimeFileBridge.h) — 매크로 국면 파일 → 진입정지·강제청산 상태기계(D-060)
+- [RegimeFileJudge.h](../Quant/include/core/RegimeFileJudge.h) — 매크로 국면 파일 → 진입정지·강제청산 상태기계(D-060)
 - [ReplaySource.h](../Quant/include/core/ReplaySource.h) — 캡처 파일 리플레이 피드 소스(D-071)
 - [RingBuffer.h](../Quant/include/core/RingBuffer.h) — SPSC 락프리 링버퍼
 - [SessionEndJudge.h](../Quant/include/core/SessionEndJudge.h) — 마감 자기 종료 판정(창 닫힘→유예→큐 비면 종료, D-098)
@@ -311,7 +311,7 @@
 - [Engine.cpp](../Quant/src/core/Engine.cpp) — 엔진 본체 구현 — 생성자·전략 등록·파이프라인
 - [EngineConfigure.cpp](../Quant/src/core/EngineConfigure.cpp) — `Engine::configure(const AppConfig&)` — AppConfig 값을 Engine 세터에 옮기는 배선 5단계(채널·국면맵·기동 점검·시세 키·위험 한도)
 - [LedgerReconciler.cpp](../Quant/src/core/LedgerReconciler.cpp) — 잔고 대조기 구현 — 원장 부트스트랩(D-061)
-- [OrderPacer.cpp](../Quant/src/core/OrderPacer.cpp) — 발주 조절기 구현 — 재시도 분류(D-065)
+- [OrderRateLimiter.cpp](../Quant/src/core/OrderRateLimiter.cpp) — 발주 조절기 구현 — 재시도 분류(D-065)
 - [RingBuffer.cpp](../Quant/src/core/RingBuffer.cpp) — 빈 구현 파일 — 템플릿 헤더 전용
 - [SignalDispatcher.cpp](../Quant/src/core/SignalDispatcher.cpp) — 신호 디스패처 구현 — 강제청산·한도 정리 신호 생성(D-063)
 
@@ -349,8 +349,8 @@
 
 - [bench_feed_ingest.cpp](../Quant/tests/bench_feed_ingest.cpp) — 시세 피드 수신 부하테스트, TCP loopback 네트워크·처리 구간 분해
 - [bench_gate_contention.cpp](../Quant/tests/bench_gate_contention.cpp) — OrderGate 락 경합 벤치(읽기 지연 분포)
-- [bench_hot_path.cpp](../Quant/tests/bench_hot_path.cpp) — hot path 리팩터 전후 비교 벤치(D-071)
 - [bench_intake.cpp](../Quant/tests/bench_intake.cpp) — 멀티생산자 주문 인테이크 큐 부하 벤치(MPSC 대 Mutex)
+- [bench_latency_path.cpp](../Quant/tests/bench_latency_path.cpp) — 지연에 민감한 경로 리팩터 전후 비교 벤치(D-071)
 - [bench_market_firehose.cpp](../Quant/tests/bench_market_firehose.cpp) — 전종목 규모 시세 파이프라인 부하테스트(E2E 지연·처리량)
 - [bench_sleep_res.cpp](../Quant/tests/bench_sleep_res.cpp) — sleep_for·condvar 대기 해상도 실측 도구
 - [bench_wake_gate.cpp](../Quant/tests/bench_wake_gate.cpp) — WakeGate 대 atomic::wait 깨우기 지연 비교 벤치(D-070)
@@ -370,12 +370,12 @@
 - [test_ops_protocol.cpp](../Quant/tests/test_ops_protocol.cpp) — 운영단말 프레이밍 단위 테스트(D-043)
 - [test_ops_server.cpp](../Quant/tests/test_ops_server.cpp) — 운영단말 서버 TCP 왕복 테스트(D-043)
 - [test_order_gate.cpp](../Quant/tests/test_order_gate.cpp) — OrderGate 한도·거부 사유 단위 테스트
-- [test_order_pacer.cpp](../Quant/tests/test_order_pacer.cpp) — 발주 조절기 단위 테스트(재시도 분류·만기, D-065)
+- [test_order_rate_limiter.cpp](../Quant/tests/test_order_rate_limiter.cpp) — 발주 조절기 단위 테스트(재시도 분류·만기, D-065)
 - [test_order_router.cpp](../Quant/tests/test_order_router.cpp) — OrderRouter 통합 테스트(접수·체결·이력)
 - [test_paper_executor.cpp](../Quant/tests/test_paper_executor.cpp) — 모의 체결기 단위 테스트(다음틱 체결·취소·정정)
 - [test_pipeline_stress.cpp](../Quant/tests/test_pipeline_stress.cpp) — 파이프라인 E2E 부하 테스트(WS수신-전략-주문-체결)
 - [test_reconcile_plan.cpp](../Quant/tests/test_reconcile_plan.cpp) — 잔고 대조 차이 계산 순수 함수 단위 테스트(D-038)
-- [test_regime_bridge.cpp](../Quant/tests/test_regime_bridge.cpp) — 매크로 국면 파일 판정기 단위 테스트(D-033·D-060)
+- [test_regime_file_judge.cpp](../Quant/tests/test_regime_file_judge.cpp) — 매크로 국면 파일 판정기 단위 테스트(D-033·D-060)
 - [test_replay_source.cpp](../Quant/tests/test_replay_source.cpp) — 캡처 리플레이 소스 단위 테스트
 - [test_ringbuffer.cpp](../Quant/tests/test_ringbuffer.cpp) — SPSC RingBuffer 정확성·처리량 테스트
 - [test_ringbuffer_stress.cpp](../Quant/tests/test_ringbuffer_stress.cpp) — SPSC RingBuffer 실환경 부하 시뮬레이션(버스트·가변지연)
@@ -446,25 +446,9 @@
 
 - [DASHBOARD_SPEC.md](design/DASHBOARD_SPEC.md) — 대시보드 설계 스펙
 
-### docs/eod/
-
-- [2026-09-03.md](eod/2026-09-03.md) — 09-03 매매 사후검토(체결 0건·지정가 차단)
-- [2026-09-04.md](eod/2026-09-04.md) — 09-04 매매 사후검토(손실 확대·거래정지)
-- [2026-09-07.md](eod/2026-09-07.md) — 09-07 매매 사후검토(노출한도 거부 분석)
-- [2026-09-08.md](eod/2026-09-08.md) — 09-08 매매 사후검토(미매핑 체결 귀속손실)
-- [2026-09-09.md](eod/2026-09-09.md) — 09-09 매매 사후검토(테스트 빌드 원장 오염)
-- [2026-09-10.md](eod/2026-09-10.md) — 09-10 매매 사후검토(진입정지·매크로 게이트)
-- [2026-09-11.md](eod/2026-09-11.md) — 09-11 매매 사후검토(동기 잔고조회 지연)
-- [2026-09-14.md](eod/2026-09-14.md) — 09-14 매매 사후검토
-- [2026-09-15.md](eod/2026-09-15.md) — 09-15 매매 사후검토
-- [2026-09-16.md](eod/2026-09-16.md) — 09-16 매매 사후검토
-- [2026-09-17.md](eod/2026-09-17.md) — 09-17 매매 사후검토
-- [2026-09-18.md](eod/2026-09-18.md) — 09-18 매매 사후검토(마감 청산 창 밖 이월·잔고 이상값)
-- [README.md](eod/README.md) — 장 마감 리뷰 색인
-
 ### docs/guides/
 
-- [AUTOMATION_SCRIPTING_GUIDE.md](guides/AUTOMATION_SCRIPTING_GUIDE.md) — PowerShell·Python 자동화 스크립트를 직접 쓰기 위한 문법·API·설계 패턴 가이드(auto_trade_day·eod_autodoc·dashboard_server 해부)
+- [AUTOMATION_SCRIPTING_GUIDE.md](guides/AUTOMATION_SCRIPTING_GUIDE.md) — PowerShell·Python 자동화 스크립트를 직접 쓰기 위한 문법·API·설계 패턴 가이드(auto_trade_day·market_close_autodoc·dashboard_server 해부)
 - [CODE_GRAPH_GUIDE.md](guides/CODE_GRAPH_GUIDE.md) — 코드 그래프 생성기 사용법
 - [CPP20_23_GUIDE.md](guides/CPP20_23_GUIDE.md) — C++20/23 기능 사용 가이드
 - [LINUX_SETUP.md](guides/LINUX_SETUP.md) — 리눅스 빌드·실행 설정 가이드
@@ -476,6 +460,22 @@
 - [PIPELINE_A_to_Z.md](guides/PIPELINE_A_to_Z.md) — 코드 파이프라인 추적 문서
 - [PROJECT_GUIDE.md](guides/PROJECT_GUIDE.md) — 프로젝트 전반 가이드
 - [REGIME_DRILL_GUIDE.md](guides/REGIME_DRILL_GUIDE.md) — 국면 드릴 절차 가이드
+
+### docs/market_close/
+
+- [2026-09-03.md](market_close/2026-09-03.md) — 09-03 매매 사후검토
+- [2026-09-04.md](market_close/2026-09-04.md) — 09-04 매매 사후검토
+- [2026-09-07.md](market_close/2026-09-07.md) — 09-07 매매 사후검토
+- [2026-09-08.md](market_close/2026-09-08.md) — 09-08 매매 사후검토
+- [2026-09-09.md](market_close/2026-09-09.md) — 09-09 매매 사후검토
+- [2026-09-10.md](market_close/2026-09-10.md) — 09-10 매매 사후검토
+- [2026-09-11.md](market_close/2026-09-11.md) — 09-11 매매 사후검토
+- [2026-09-14.md](market_close/2026-09-14.md) — 09-14 매매 사후검토
+- [2026-09-15.md](market_close/2026-09-15.md) — 09-15 매매 사후검토
+- [2026-09-16.md](market_close/2026-09-16.md) — 09-16 매매 사후검토
+- [2026-09-17.md](market_close/2026-09-17.md) — 09-17 매매 사후검토
+- [2026-09-18.md](market_close/2026-09-18.md) — 09-18 매매 사후검토
+- [README.md](market_close/README.md) — 장 마감 리뷰 색인
 
 ### docs/premarket/
 
@@ -553,12 +553,12 @@
 - [README.md](../research/studies/02_vol_target/README.md) — 변동성 타게팅 사이징 스터디 요약
 - [metrics.json](../research/studies/02_vol_target/metrics.json) — 변동성 타게팅 사이징 지표 데이터
 
-### research/studies/03_2022_ablation/
+### research/studies/03_2022_removal_test/
 
-- [README.md](../research/studies/03_2022_ablation/README.md) — 2022 약세장 국면필터 ON/OFF 제거실험 요약
-- [metrics.json](../research/studies/03_2022_ablation/metrics.json) — 2022 약세장 국면필터 제거실험 지표 데이터
-- [regime_off.md](../research/studies/03_2022_ablation/regime_off.md) — 국면필터 OFF(모멘텀 단독) 매매 원장
-- [regime_on.md](../research/studies/03_2022_ablation/regime_on.md) — 국면필터 ON 매매 원장(체결 없음)
+- [README.md](../research/studies/03_2022_removal_test/README.md) — 2022 약세장 국면필터 ON/OFF 제거실험 요약
+- [metrics.json](../research/studies/03_2022_removal_test/metrics.json) — 2022 약세장 국면필터 제거실험 지표 데이터
+- [regime_off.md](../research/studies/03_2022_removal_test/regime_off.md) — 국면필터 OFF(모멘텀 단독) 매매 원장
+- [regime_on.md](../research/studies/03_2022_removal_test/regime_on.md) — 국면필터 ON 매매 원장(체결 없음)
 
 ### research/studies/06_bear_market/
 
@@ -659,12 +659,12 @@
 ### research/studies/11_signal_axes/
 
 - [README.md](../research/studies/11_signal_axes/README.md) — 신호 3축(횡단면·시계열·역추세) 비교 요약
+- [channel_breakout_run_meta.json](../research/studies/11_signal_axes/channel_breakout_run_meta.json) — 채널 돌파 실행 메타데이터
 - [cross_momentum_run_meta.json](../research/studies/11_signal_axes/cross_momentum_run_meta.json) — 횡단면모멘텀 실행 메타데이터
-- [donchian_breakout_run_meta.json](../research/studies/11_signal_axes/donchian_breakout_run_meta.json) — 돈치안 돌파 실행 메타데이터
 - [mean_reversion_run_meta.json](../research/studies/11_signal_axes/mean_reversion_run_meta.json) — 단기역추세 실행 메타데이터
 - [metrics.json](../research/studies/11_signal_axes/metrics.json) — 신호 3축 나란히 비교 지표 데이터
+- [run_channel_breakout.py](../research/studies/11_signal_axes/run_channel_breakout.py) — 채널 돌파 재현 하네스 스크립트
 - [run_cross_momentum.py](../research/studies/11_signal_axes/run_cross_momentum.py) — 횡단면모멘텀 재현 하네스 스크립트
-- [run_donchian_breakout.py](../research/studies/11_signal_axes/run_donchian_breakout.py) — 돈치안 돌파 재현 하네스 스크립트
 - [run_mean_reversion.py](../research/studies/11_signal_axes/run_mean_reversion.py) — 단기역추세 재현 하네스 스크립트
 
 ### research/studies/12_base_breakout/
@@ -792,16 +792,12 @@
 - [commit_gate.py](../scripts/commit_gate.py) — 커밋 직전 게이트(보안·문체·문서·코드 규약·재현성·커밋명 형식을 한 번에), `py scripts/commit_gate.py --msg-file <파일>`
 - [dashboard_server.py](../scripts/dashboard_server.py) — 모의매매 대시보드 서버
 - [deploy_guard.py](../scripts/deploy_guard.py) — 매매 창 안 트레이더 exe 교체를 막는 가드(A등급 결함은 --hotfix-a로 통과, D-101 결정 1)
-- [eod_autodoc.py](../scripts/eod_autodoc.py) — 장 마감 매매일지 자동생성 스크립트
-- [eod_collect.py](../scripts/eod_collect.py) — 장 마감 사실 수집 스크립트
-- [eod_minute_backfill.py](../scripts/eod_minute_backfill.py) — 장 마감 후 분봉 백필 스크립트
-- [eod_timetable.ps1](../scripts/eod_timetable.ps1) — 마감 자동화 시간표 정본. 감시견 config의 `kis.is_paper`로 모의(매매 끝 15:30·루틴 16:00대)/실계좌(20:00·루틴 20:30) 시간표를 고르고, 예약작업·감시견이 그대로인지 보거나(`-Apply`로) 맞춘다. cron-gate 훅이 `-Lines`를 읽는다 · `-Mode paper|live`로 config 없이 한 모드 시간표만
 - [exit_ev.py](../scripts/exit_ev.py) — 원장 매도 체결을 odno 레그로 합쳐 청산 사유별 승률·기대값·일블록 부트스트랩 CI·판정을 낸다(study 17)
 - [exit_ev_dashboard.py](../scripts/exit_ev_dashboard.py) — study 17 표를 셀별 근거까지 펼치는 정적 HTML 생성기(exit_ev.py 재사용) — 종목명 맵, 규칙 탭(실행 config 값), 백테스트 탭(metrics.json). refresh_dashboard.py 가 매매일 마감 뒤 부른다
 - [exit_ev_dashboard_template.html](../scripts/exit_ev_dashboard_template.html) — exit_ev_dashboard.py 가 JSON을 박아 넣는 화면 템플릿
-- [extract_swap_counterfactual.py](../scripts/extract_swap_counterfactual.py) — 슬롯 교체 가정 비교 표본 추출 스크립트
+- [extract_swap_what_if.py](../scripts/extract_swap_what_if.py) — 슬롯 교체 가정 비교 표본 추출 스크립트
 - [file_index.py](../scripts/file_index.py) — 파일 색인 두 개를 트리와 맞추는 생성·검사 스크립트(Stop 훅·커밋 게이트)
-- [gen_automation_hub.py](../scripts/gen_automation_hub.py) — 자동화 시간표(모의/실계좌)·예약작업 실제 상태·훅 배선·대시보드 링크를 `_private/AUTOMATION_HUB.md` 한 장으로 생성한다. 원본은 `scripts/eod_timetable.ps1`·`_private/dashboards.json`. `maintain.py --daily`와 `gen_facts --apply`가 부른다
+- [gen_automation_hub.py](../scripts/gen_automation_hub.py) — 자동화 시간표(모의/실계좌)·예약작업 실제 상태·훅 배선·대시보드 링크를 `_private/AUTOMATION_HUB.md` 한 장으로 생성한다. 원본은 `scripts/market_close_timetable.ps1`·`_private/dashboards.json`. `maintain.py --daily`와 `gen_facts --apply`가 부른다
 - [gen_code_flow.py](../scripts/gen_code_flow.py) — code_flow.toml의 심볼을 소스에서 찾아 CODE_FLOW.md 생성, --check는 누락·낡음이면 exit 1
 - [gen_code_graph.py](../scripts/gen_code_graph.py) — 코드 의존 그래프 생성 스크립트
 - [gen_facts.py](../scripts/gen_facts.py) — 저장소 사실 집계 스크립트
@@ -812,7 +808,11 @@
 - [log_patterns.py](../scripts/log_patterns.py) — 로그 파싱 공용 정규식 모듈
 - [logs.sh](../scripts/logs.sh) — Docker 컨테이너 로그 확인 스크립트
 - [maintain.py](../scripts/maintain.py) — 유지보수 자동화 진입점 스크립트
-- [notify_sidecar.py](../scripts/notify_sidecar.py) — 매매 알림 발송 보조 프로세스
+- [market_close_autodoc.py](../scripts/market_close_autodoc.py) — 장 마감 매매일지 자동생성 스크립트
+- [market_close_collect.py](../scripts/market_close_collect.py) — 장 마감 사실 수집 스크립트
+- [market_close_minute_backfill.py](../scripts/market_close_minute_backfill.py) — 장 마감 후 분봉 백필 스크립트
+- [market_close_timetable.ps1](../scripts/market_close_timetable.ps1) — 마감 자동화 시간표 정본. 감시견 config의 `kis.is_paper`로 모의(매매 끝 15:30·루틴 16:00대)/실계좌(20:00·루틴 20:30) 시간표를 고르고, 예약작업·감시견이 그대로인지 보거나(`-Apply`로) 맞춘다. cron-gate 훅이 `-Lines`를 읽는다 · `-Mode paper|live`로 config 없이 한 모드 시간표만
+- [notify_trades.py](../scripts/notify_trades.py) — 매매 알림 발송 프로세스
 - [ops_terminal_shortcut.ps1](../scripts/ops_terminal_shortcut.ps1) — 운영단말 바탕화면 바로가기 `운영단말.lnk`와 사용자 환경변수 `QUANT_OPS_TOKEN`을 만든다. `ops_terminal` 링크 뒤 CMake POST_BUILD가 부르고, worktree 빌드는 건너뛴다
 - [parse_quant_log.py](../scripts/parse_quant_log.py) — 매매 로그 파서 스크립트
 - [premarket_routine.py](../scripts/premarket_routine.py) — 루틴 프롬프트 본문 출력(--render)·올린 해시 기록(--mark)·정본과 비교(--check, check_docs 가 부른다)

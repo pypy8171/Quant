@@ -11,15 +11,15 @@
 세션이 꺼져 있어도 돈다. 대신 **PC가 켜져 있어야 한다.** Claude 크론(`CronCreate`)은 세션 한정이고 7일 만에
 만료되므로 지속 자동화에는 쓰지 않는다.
 
-시각은 계좌 모드로 갈린다(아래 블록, 정본 `scripts/eod_timetable.ps1`). 무엇을 만드는지는 그 아래 표.
+시각은 계좌 모드로 갈린다(아래 블록, 정본 `scripts/market_close_timetable.ps1`). 무엇을 만드는지는 그 아래 표.
 
-<!-- gen:eod-timetable -->
+<!-- gen:market-close-timetable -->
 | 작업 이름 | 모의 (is_paper=true) | 실계좌 (is_paper=false) | 실행 |
 |---|---|---|---|
-| `QuantAutoTradeGuard` | 08:45~ 5분마다, -Until 15:35, 7h | 08:45~ 5분마다, -Until 20:05, 11.5h | `powershell -File scripts\eod_timetable.ps1 -Apply` |
-| `Quant EOD AutoDoc` | 16:05 | 20:30 | `py scripts\eod_autodoc.py` |
+| `QuantAutoTradeGuard` | 08:45~ 5분마다, -Until 15:35, 7h | 08:45~ 5분마다, -Until 20:05, 11.5h | `powershell -File scripts\market_close_timetable.ps1 -Apply` |
+| `Quant Market Close AutoDoc` | 16:05 | 20:30 | `py scripts\market_close_autodoc.py` |
 | `Quant Maintain Daily` | 16:20 | 20:45 | `py scripts\maintain.py --daily` |
-| `Quant Minute Backfill` | 16:40 | 21:00 | `py scripts\eod_minute_backfill.py` |
+| `Quant Minute Backfill` | 16:40 | 21:00 | `py scripts\market_close_minute_backfill.py` |
 | `claude_stock_study` | 20:30 | 21:10 | `/stock-study` |
 | `claude_dashboard_sync` | 21:10 | 21:40 | `/dashboard-sync` |
 | `Quant Maintain Weekly` | 21:20 | 21:50 | `py scripts\maintain.py --weekly` |
@@ -28,8 +28,8 @@
 | 작업 이름 | 산출물 |
 |---|---|
 | `QuantAutoTradeGuard` | 워치독이 없으면 하루 루프 기동 (§4). 5분마다 도는 시간 폭(`-Hours`)이 매매 끝 시각을 정한다 |
-| `Quant EOD AutoDoc` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` · **결정 원장 파생 문서**(`sync_ledgers.py`) |
-| `Quant Maintain Daily` | `EOD AutoDoc` 뒤. 먼저 로그 정리(`rotate_logs` — 엔진 로그에서 7일 지난 날의 줄을 `logs/archive/quant_trader_<날짜>.log.gz`로 떼어내고, 감시견 로그는 7일 지나면 gz·90일 지나면 삭제. 엔진이 떠 있으면 엔진 로그는 건너뛴다. 원장 `trades_*.csv`는 손대지 않는다. 옮긴 gz는 잃는 게 아니다 — 날짜를 받는 스크립트(`eod_autodoc`·`eod_collect`·`parse_quant_log --full`·`summarize_trading_day`·`extract_swap_counterfactual`)는 `_logdir.log_sources()`로 그 날짜 gz와 라이브 로그를 이어서 읽으니 지난 날 재생성은 그대로 된다), 이어서 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers` · `gen_automation_hub`(`_private/AUTOMATION_HUB.md`) · `gen_tuning_sheet`(`_private/TUNING_SHEET.md`). 대시보드는 부르지 않는다. 손으로는 `py scripts/maintain.py --rotate-logs [--dry-run]` |
+| `Quant Market Close AutoDoc` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` · **결정 원장 파생 문서**(`sync_ledgers.py`) |
+| `Quant Maintain Daily` | `장 마감 AutoDoc` 뒤. 먼저 로그 정리(`rotate_logs` — 엔진 로그에서 7일 지난 날의 줄을 `logs/archive/quant_trader_<날짜>.log.gz`로 떼어내고, 감시견 로그는 7일 지나면 gz·90일 지나면 삭제. 엔진이 떠 있으면 엔진 로그는 건너뛴다. 원장 `trades_*.csv`는 손대지 않는다. 옮긴 gz는 잃는 게 아니다 — 날짜를 받는 스크립트(`market_close_autodoc`·`market_close_collect`·`parse_quant_log --full`·`summarize_trading_day`·`extract_swap_what_if`)는 `_logdir.log_sources()`로 그 날짜 gz와 라이브 로그를 이어서 읽으니 지난 날 재생성은 그대로 된다), 이어서 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers` · `gen_automation_hub`(`_private/AUTOMATION_HUB.md`) · `gen_tuning_sheet`(`_private/TUNING_SHEET.md`). 대시보드는 부르지 않는다. 손으로는 `py scripts/maintain.py --rotate-logs [--dry-run]` |
 | `Quant Minute Backfill` | 아침 스캔 `Quant/config/universe_scan.json`을 `PYQuant/data/pit_universe/<오늘>.json`으로 옮기고 그날 유니버스 전체의 1분봉을 `PYQuant/data/minute/`에 쌓는다(`PYQuant/tools/minute_backfill.py --top-n 0`, 약 260종목×4콜). 매매 끝 15분 뒤(모의 15:45·실계좌 20:15) 전엔 돌지 않는다(반쪽 파일이 그날치를 건너뛰게 만든다). 대시보드 차트가 같은 파일을 읽는다 |
 | `claude_stock_study` | `claude -p "/stock-study auto"` → `_private/주식_study/{날짜}_재무/` 1종목 · 저널 · 스터디 사이트 |
 | `claude_dashboard_sync` | `claude -p "/dashboard-sync"` → 대시보드·스터디 사이트 HTML 재생성. 아티팩트 재발행은 헤드리스 `claude -p`에 Artifact 도구가 없어 못 한다 — 대화 세션에서 `/dashboard-sync`를 불러 같은 URL로 올린다 |
@@ -48,7 +48,7 @@
 
 ```powershell
 schtasks /query /tn claude_stock_study /v /fo list | Select-String "다음 실행|마지막 결과"
-schtasks /change /tn claude_stock_study /st 20:30    # 예시 — 실제 변경은 scripts/eod_timetable.ps1 -Apply (시각 정본)
+schtasks /change /tn claude_stock_study /st 20:30    # 예시 — 실제 변경은 scripts/market_close_timetable.ps1 -Apply (시각 정본)
 ```
 
 > **2026-09-14~09-18 정지.** 토큰 사용량을 줄이려고 클로드를 부르는 셋 — `claude_stock_study`·`claude_dashboard_sync`
@@ -56,21 +56,21 @@ schtasks /change /tn claude_stock_study /st 20:30    # 예시 — 실제 변경�
 > `Quant Maintain Daily`는 이날 처음 Enable했다. 루틴은 09-19에 프롬프트를 새로 올리며 다시 켰다. 예약작업 둘은 아직 꺼져 있다 —
 > 복구는 `Enable-ScheduledTask -TaskName claude_stock_study`, `Enable-ScheduledTask -TaskName claude_dashboard_sync`.
 
-> **시간표는 계좌 모드로 갈린다 — 정본은 `scripts/eod_timetable.ps1`.** 감시견 예약작업이 넘기는 config의 `kis.is_paper`를 읽어
+> **시간표는 계좌 모드로 갈린다 — 정본은 `scripts/market_close_timetable.ps1`.** 감시견 예약작업이 넘기는 config의 `kis.is_paper`를 읽어
 > 모의면 매매 끝 15:30(KIS 모의 서버가 15:30 뒤 주문을 거부, T-18 2026-09-18 실측)·마감 루틴 16:00대, 실계좌면 애프터마켓 20:00(D-097)
 > 까지 매매·마감 루틴 20:30 시작이다. 인자 없이 돌리면 예정 vs 실제를 표로 보이고 어긋나면 exit 1, `-Apply`는 `schtasks /change`와
 > 감시견 재등록(`-Until`·`-Hours`)까지 한다. `.claude/hooks/cron-gate.ps1`과 위 gen 블록·`_private/AUTOMATION_HUB.md`는 이 스크립트의 `-Lines`를 읽으므로 따로 고칠 것이 없다.
 >
-> 클로드를 부르는 두 작업은 세션 사용량 한도(17시 리셋) 때문에 모의에서도 20:30 뒤다. `scripts/eod_minute_backfill.py`의
+> 클로드를 부르는 두 작업은 세션 사용량 한도(17시 리셋) 때문에 모의에서도 20:30 뒤다. `scripts/market_close_minute_backfill.py`의
 > 장중 실행 거부(모의 15:45·실계좌 20:15)도 같은 config를 읽는다(`--config`, 기본 `config_dev_paper.json`).
 > **실계좌 전환 때 확인할 것:** 실계좌 애프터마켓(NXT·KIS 16:00~20:00) 주문 가능은 검색으로 파악한 것이고 실증이 없다 — 전환 뒤
-> 첫날 16:00 넘어 체결통보 1건을 눈으로 확인하고, `scripts/eod_timetable.ps1 -Apply`를 돌린다(`-Config Quant\config\config.json`).
+> 첫날 16:00 넘어 체결통보 1건을 눈으로 확인하고, `scripts/market_close_timetable.ps1 -Apply`를 돌린다(`-Config Quant\config\config.json`).
 >
 > 그 전 20:00·20:40은 원래 16:00·16:20이었다. 2026-09-07에 두 작업이 모두 세션 사용량 한도(17시 리셋)에 걸려
 > 실패했다(`LastTaskResult=1`). 한도 리셋 뒤로 옮겼다. 2026-09-08~09-11에는 예약작업이 부르는 npm 전역 CLI가 구버전(2.1.162)이라
 > `400 does not support this model`로 실패하고 작업이 Disabled로 남았다. 편집기 확장의 클로드와 npm CLI는 따로 갱신되므로,
 > `LastTaskResult=1`이면 `_private/주식_study/_cron_run.log` 끝을 보고 버전이면 `npm i -g @anthropic-ai/claude-code@latest` 뒤
-> `Enable-ScheduledTask`로 되살린다. 순수 파이썬인 `Quant EOD AutoDoc`은 한도와 무관하다.
+> `Enable-ScheduledTask`로 되살린다. 순수 파이썬인 `Quant Market Close AutoDoc`은 한도와 무관하다.
 
 ## 2. 클라우드 루틴 (Claude)
 
@@ -95,7 +95,7 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 | `sync-gate.ps1` | Stop | 턴이 끝날 때 `sync_impact.py --diff --fix` — 낡은 gen 블록은 치환하고, 낡은 도장·재생성 실패·새 힌트가 있으면 턴을 되돌려 그 자리에서 고치게 한다(D-075) |
 | `file-index-gate.ps1` | Stop | 턴이 끝날 때 `file_index.py`로 `docs/FILE_INDEX.md`·`_private/FILE_INDEX.md`를 트리와 맞춘다 — 없어진 파일은 빠지고 날짜 파일·로그는 규칙 표가 설명을 채우며, 설명 없는 새 파일은 `(설명 필요)`로 넣고 턴을 되돌려 그 자리에서 채우게 한다. 커밋 쪽은 `docs-gate.ps1`이 `--check --staged`로 스테이징된 추가·삭제와 색인을 대조한다 |
 | `review-reminder.ps1` | Stop | 코드 변경 뒤 리뷰 누락을 상기 |
-| `eod-gate.ps1` | SessionStart | 사후검토가 밀린 거래일이 있으면 세션 시작에 알림 |
+| `market-close-gate.ps1` | SessionStart | 사후검토가 밀린 거래일이 있으면 세션 시작에 알림 |
 | `session-board-server.ps1` | SessionStart | `scripts/session_board_server.py`(:8788)를 숨긴 창으로 띄운다 — 트레이더 대시보드가 없어도 세션이 하나라도 열려 있으면 현황판을 보게. 포트가 이미 쓰이면 서버가 스스로 끝나므로 매번 띄운다 |
 | `cron-gate.ps1` | SessionStart | 예약작업이 예정 시각을 넘겨 안 돌았거나 `LastTaskResult≠0`이면 작업 이름·실패 시각·복구 커맨드를 알림 |
 | `dashboard-refresh.ps1` | Stop | 매매일지·백테스트가 `dashboard.html`보다 새것이면 리뷰 항목과 대시보드를 다시 만든다. 같은 훅이 `session_board.py --quiet`로 세션 현황판도 턴마다 다시 쓴다. 낡았는지는 수정시각으로 보므로 편집 도구·스크립트·다른 세션 어느 경로로 고쳤든 걸린다 |
@@ -114,7 +114,7 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 | 층 | 담당 | 하는 일 |
 |---|---|---|
 | 감시자 | `scripts/auto_trade_guard.ps1` | 평일 5분 주기 예약작업. 장중인데 워치독이 없으면 기동한다. 남은 트레이더가 남아 있으면 먼저 내린다 |
-| 워치독 | `scripts/auto_trade_day.ps1` | 사전 점검(중복 프로세스·계좌 모드), 기동 전 `quant_trader` 재빌드(증분, 실패면 `build_failed`로 중단, `-NoBuild`로 생략), 보조 프로세스·유니버스·대시보드·알림·체결 기록기(`quant-recorder`) 기동, KIS 토큰 캐시를 `KIS_TOKEN_CACHE_DIR`로 트레이더와 한 파일로 맞춤, 트레이더를 마감까지 감시·재기동, 마감 뒤 `eod_autodoc.py` 실행 |
+| 워치독 | `scripts/auto_trade_day.ps1` | 사전 점검(중복 프로세스·계좌 모드), 기동 전 `quant_trader` 재빌드(증분, 실패면 `build_failed`로 중단, `-NoBuild`로 생략), 보조 프로세스·유니버스·대시보드·알림·체결 기록기(`quant-recorder`) 기동, KIS 토큰 캐시를 `KIS_TOKEN_CACHE_DIR`로 트레이더와 한 파일로 맞춤, 트레이더를 마감까지 감시·재기동, 마감 뒤 `market_close_autodoc.py` 실행 |
 | 감독 | `.claude/commands/auto-trade-day.md` | 국면 판단, 증분 로그 감시, **무발주 감시**, 결함을 코드/상황으로 분류, 코드면 수정·재빌드, **이슈 대장 누적**, 마감 뒤 해석 문서 |
 
 워치독 상태는 `_private/_auto_trade_day.json` 한 파일에 적힌다(`phase`·`sessions`·`history`). 로그 전체를
@@ -149,7 +149,7 @@ Windows에는 리눅스의 프로세스 그룹 cascade가 없다. 부모가 죽�
 반대 방향, 즉 부속 창 안의 파이썬만 죽는 경우도 잡는다. 창은 `-NoExit`로 띄우므로 안의 스크립트가
 끝나도 빈 창은 남고, 창 목록만 보면 살아 있는 것처럼 보인다. 워치독은 트레이더를 기다리는 동안
 60초마다 `python`/`py` 프로세스의 명령줄을 훑어 등록된 스크립트 이름(`macro_regime_feed.py`,
-`dashboard_server.py`, `notify_sidecar.py`, `live_prices_feed.py`, `main.py record`)이 있는지 확인하고, 없으면 남은 창을 내리고 같은 명령으로
+`dashboard_server.py`, `notify_trades.py`, `live_prices_feed.py`, `main.py record`)이 있는지 확인하고, 없으면 남은 창을 내리고 같은 명령으로
 다시 띄운다. 기동 직후 45초는 아직 파이썬이 뜨는 중일 수 있어 건너뛴다. 알림 보조 프로세스가 조용히
 사라진 것을 사람이 화면을 봐야 아는 상태를 없애기 위한 것이다.
 
@@ -168,11 +168,11 @@ powershell -ExecutionPolicy Bypass -File scripts\auto_trade_guard.ps1 -Uninstall
 
 이 스크립트는 명령줄로 역할을 붙이고, 부모-자식을 한 인스턴스로 묶어(`py → python → python`은
 하나다) 역할별 개수만 본다. 판정은 넷이다 — `정상` / `중복`(가장 최근에 뜬 것을 남긴다) /
-`껍데기`(역할 프로세스가 죽은 `quant-*` 창) / `없음`. <!-- lexicon-ok: 금지어를 예시로 인용하는 줄 -->
+`빈 창`(역할 프로세스가 죽은 `quant-*` 창) / `없음`. <!-- lexicon-ok: 금지어를 예시로 인용하는 줄 -->
 
 ```powershell lexicon-ok
 powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1          # 현황만
-powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -Reap    # 중복·껍데기 정리
+powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -Reap    # 중복·빈 창 정리
 powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -KillAll # 전부 내리고 하루 종료
 ```
 
@@ -202,7 +202,7 @@ powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -KillAll # 전�
 
 마감 작업(6절)은 이 대장을 **입력으로 먼저 읽는다.** `해결`은 다시 고치지 않고 사후검토의 장중 조치 절로
 옮기고, `미해결`만 개선 목록이 된다. 이 구분이 없으면 마감 뒤에 장중에 이미 고친 것을 다시 고친다.
-대장은 `_private/`라 커밋되지 않으므로, 남길 내용은 `docs/eod/YYYY-MM-DD.md`와 매매일지로 옮겨 적는다.
+대장은 `_private/`라 커밋되지 않으므로, 남길 내용은 `docs/market_close/YYYY-MM-DD.md`와 매매일지로 옮겨 적는다.
 
 > 무발주 감시를 의무로 올린 계기는 2026-09-08 오전이다. 분할 매수 기준선 미형성과 명목 한도 전량 거부가
 > 겹쳐 한 시간 동안 한 주도 나가지 않았는데, 크래시가 없어 로그도 워치독도 조용했다.
@@ -214,9 +214,9 @@ powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -KillAll # 전�
 | 매크로 국면 파일 전달 | `PYQuant/tools/macro_regime_feed.py` | 상시 | `regime.json` 갱신 → 엔진이 매수 비율 `entry_scale`·`entry_halt`(신규 매수만 차단)·`force_liquidate`를 옮기고 라벨로 전략 집합을 고른다(D-083·D-084) |
 | 제어 스레드 | `Engine::control_thread_fn` | 상시 | 잔고 대조·손익 갱신 감시, 끊기면 보수정지 |
 | 증분 로그 감시 | `scripts/parse_quant_log.py --watch` | 15~20분 | 유의미한 창일 때만 출력. 조용하면 토큰 0 |
-| 실행 건전성 점검 | `scripts/check_runtime_health.py` | 세션 종료마다(감시견)·마감 뒤 하루 전체 | 유령주문·조기 사망·재기동 투매·회전·초당한도·WS 폴백·주문 접수 지연·잔고 조회 지연을 PASS/WARN/FAIL로 판정. 같은 표를 `eod_autodoc.py`가 매매일지 4절에 싣는다 — 고친 뒤 "다음 날 확인할 것"은 사람이 아니라 여기 행으로 만든다 |
+| 실행 건전성 점검 | `scripts/check_runtime_health.py` | 세션 종료마다(감시견)·마감 뒤 하루 전체 | 유령주문·조기 사망·재기동 투매·회전·초당한도·WS 폴백·주문 접수 지연·잔고 조회 지연을 PASS/WARN/FAIL로 판정. 같은 표를 `market_close_autodoc.py`가 매매일지 4절에 싣는다 — 고친 뒤 "다음 날 확인할 것"은 사람이 아니라 여기 행으로 만든다 |
 | 전 종목 시세 파일 전달 | `scripts/live_prices_feed.py` | 20초(`PRICES_PERIOD_SEC`, D-028) | 네이버 벌크 시세를 100종목씩 묶어 받아 `Quant/config/prices_live.json`으로 떨군다. KIS REST 초당 한도와 무관해서 2,700종목을 20초 주기로 훑을 수 있다. `UniverseScanner`가 이 파일을 읽는다 |
-| 매매 알림 | `scripts/notify_sidecar.py` | 체결 즉시 / 요약 30분 | 당일 체결 원장 CSV를 증분으로 읽어 체결을 바로 보내고, 평단·손익 표는 KIS 잔고조회로 주기 발송 |
+| 매매 알림 | `scripts/notify_trades.py` | 체결 즉시 / 요약 30분 | 당일 체결 원장 CSV를 증분으로 읽어 체결을 바로 보내고, 평단·손익 표는 KIS 잔고조회로 주기 발송 |
 
 ### 매매 알림 보조 프로세스
 
@@ -248,9 +248,9 @@ powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -KillAll # 전�
 `DISCORD_WEBHOOK_FILL`·`DISCORD_WEBHOOK_POSITION`.
 
 ```bash
-py scripts/notify_sidecar.py --config Quant/config/config_dev_paper.json --test        # 수신처 확인
-py scripts/notify_sidecar.py --config Quant/config/config_dev_paper.json --interval 1800
-py scripts/notify_sidecar.py --config … --events FILL,REJECTED --echo                  # 거절도 함께
+py scripts/notify_trades.py --config Quant/config/config_dev_paper.json --test        # 수신처 확인
+py scripts/notify_trades.py --config Quant/config/config_dev_paper.json --interval 1800
+py scripts/notify_trades.py --config … --events FILL,REJECTED --echo                  # 거절도 함께
 ```
 
 ## 6. 마감 뒤 문서 파이프라인
@@ -258,23 +258,23 @@ py scripts/notify_sidecar.py --config … --events FILL,REJECTED --echo         
 사실은 스크립트가, 해석은 사람(또는 클로드)이 쓴다. 이 경계를 지키면 자동 실행이 손으로 쓴 문장을 덮지 않는다.
 
 ```
-scripts/eod_autodoc.py
+scripts/market_close_autodoc.py
   ├─ 매매일지 사실 구간   strategies/<전략>/live/YYYY-MM-DD.md   (수기 일지가 있으면 보존)
   ├─ PYQuant/dashboard/backfill_live.py      → research/dashboard/live.json
   ├─ scripts/build_review_entry.py --date …  → research/dashboard/reviews.json  (사실 키만)
   └─ PYQuant/dashboard/build_dashboard.py    → research/dashboard/dashboard.html
 ```
 
-예약 실행(`Quant EOD AutoDoc`, 시각은 1절 표)만이 아니라 장중에도 돈다. 매매일지·백테스트·장전 브리핑(`docs/premarket/`)을 쓰고 나면 Stop 훅이
+예약 실행(`Quant Market Close AutoDoc`, 시각은 1절 표)만이 아니라 장중에도 돈다. 매매일지·백테스트·장전 브리핑(`docs/premarket/`)을 쓰고 나면 Stop 훅이
 대시보드와 수정시각을 비교해 낡은 만큼만 다시 만든다(브리핑은 생성기만 다시 돈다). 손으로 돌릴 때는 `py scripts/refresh_dashboard.py --if-stale`.
 
 | 스크립트 | 역할 |
 |---|---|
-| `scripts/eod_collect.py` | 원장·로그에서 사실만 뽑는다(세션·거부 히스토그램·라운드트립·주문 공백) |
+| `scripts/market_close_collect.py` | 원장·로그에서 사실만 뽑는다(세션·거부 히스토그램·라운드트립·주문 공백) |
 | `scripts/build_review_entry.py` | 위 사실을 `quant.review/v1` 항목으로 만들어 리뷰 탭에 넣는다. 기존 항목의 해석 키(`axes`·`improvements`·`gate`)는 건드리지 않고, 항목에 `"locked": [...]`가 있으면 그 키도 제외한다. `incidents`는 목록을 새로 만들되 제목이 같은 항목의 `impact_html`(사람이 쓴 영향)은 옮겨 온다 |
 | `scripts/build_study_site.py` | `_private/주식_study/` 전체를 날짜별로 묶어 스터디 사이트 재생성 |
 | `scripts/exit_ev.py` · `scripts/exit_ev_dashboard.py` | 모의 원장 청산 체결을 사유별로 묶어 승률·기대값·CI 표(study 17)와 그 근거를 셀마다 펼쳐 보는 화면(`research/studies/17_exit_ev/exit_ev_dashboard.html`)을 만든다. `refresh_dashboard.py`가 매매일 마감 뒤 부르고(마지막 날 = 원장 최신 파일), 발행본은 `/dashboard-sync` |
-| `scripts/refresh_dashboard.py` | 위 재생성 순서(라이브 백필·리뷰 항목·생성기)를 소유한다. `--if-stale`은 원천 파일이 산출물보다 새것일 때만 돈다. `eod_autodoc.py`와 Stop 훅이 모두 이 스크립트를 부르므로 절차가 한쪽만 고쳐져 갈라지지 않는다. 실행 기록은 `logs/refresh_dashboard.log` |
+| `scripts/refresh_dashboard.py` | 위 재생성 순서(라이브 백필·리뷰 항목·생성기)를 소유한다. `--if-stale`은 원천 파일이 산출물보다 새것일 때만 돈다. `market_close_autodoc.py`와 Stop 훅이 모두 이 스크립트를 부르므로 절차가 한쪽만 고쳐져 갈라지지 않는다. 실행 기록은 `logs/refresh_dashboard.log` |
 | `scripts/token_audit.py` | 세션 기록(`~/.claude/projects/<repo>/*.jsonl`)에서 토큰 사용을 절차(탐색·편집·git·빌드·위임·훅 되돌림)·도구 결과·하네스 주입(CLAUDE.md 재주입·압축 요약)·훅 소요별로 집계해 표로 낸다. `--md docs/reports/TOKEN_AUDIT.md`로 보고서 |
 | `scripts/trade_costs.py` | 체결 원장 `logs/trades_YYYYMMDD.csv`의 날짜별·종목별 매매 비용(수수료·거래세, 요율은 인자)과 실현손익(`realized_pnl` 열)을 `logs/trade_costs.json`에 누적하고 표로 낸다. 거래 빈도와 손익의 경계를 보는 용도. `py scripts/trade_costs.py --days 7` |
 | `scripts/check_docs.py` | 깨진 내부 링크·색인 누락 검사. exit 0이어야 문서 커밋 |
@@ -296,17 +296,17 @@ scripts/eod_autodoc.py
 | `scripts/check_plain_language.py` | 쓰지 않기로 한 말을 검출·치환한다(`--fix`는 뒤 조사까지 맞춘다). 정본은 `docs/STYLE_GUIDE.md`, 게이트는 `lexicon-gate.ps1`과 `@committer` |
 | `scripts/session_board.py` | 살아 있는 세션(`~/.claude/sessions/*.json`)마다 기록 jsonl의 늘어난 꼬리만 읽어 문맥 K/%·턴(모델 호출 수)·압축 횟수·마지막 사용자 요청을 세고, 현황판 `_private/SESSION_CLAIMS.md` 줄과 인계 파일 유무를 붙여 `_private/session_board.json`·`.html`(30초 자동 새로고침)로 쓴다. 파일은 Stop 훅이 턴마다 다시 쓰고, 서버(`:8788`, 트레이더가 돌 때는 대시보드 `:8787/sessions`도)는 파일이 30초보다 낡았으면 요청 때 한 번 더 만든다(어느 세션도 턴을 안 끝내면 훅만으로는 멈춰 있어서). 문맥 50%↑ 노랑, 80%↑ 빨강, 100K↑면 인계 시점 표시(145K↑는 경계를 안 기다리고 알린다). `--facts`·`--skeleton`·`--due`는 인계 훅이 쓴다 |
 | `scripts/session_board_server.py` | 세션 현황판만 내주는 작은 HTTP 서버(`http://127.0.0.1:8788/sessions`, `/sessions.json`). SessionStart 훅이 세션마다 띄우고 포트가 쓰이면 바로 끝난다. 이 저장소의 세션이 2분 연속 없으면 스스로 내려간다 — 프로젝트를 닫으면 같이 사라진다 |
-| `scripts/session_triage.py` | 코드 세션 여럿이 하루 동안 남긴 상태(미푸시·worktree·브랜치·현황판 `_private/SESSION_CLAIMS.md`·인계 파일·배포 exe 뒤에 쌓인 C++ 커밋)를 한 보고서로 모은다. 되돌릴 수 있는 정리만 옵션으로 한다 — `--prune-branches`(main에 들어간 브랜치 `-d`)·`--archive-handoffs`·`--orphan-patch`. worktree 제거·푸시·exe 교체는 하지 않는다. 절차는 `/triage`(로컬 커맨드), 규칙은 CLAUDE.md 다중 세션 절 |
+| `scripts/session_triage.py` | 코드 세션 여럿이 하루 동안 남긴 상태(미푸시·worktree·브랜치·현황판 `_private/SESSION_CLAIMS.md`·인계 파일·배포 exe 뒤에 쌓인 C++ 커밋)를 한 보고서로 모은다. 되돌릴 수 있는 정리만 옵션으로 한다 — `--prune-branches`(main에 들어간 브랜치 `-d`)·`--archive-handoffs`·`--unowned-patch`. worktree 제거·푸시·exe 교체는 하지 않는다. 절차는 `/triage`(로컬 커맨드), 규칙은 CLAUDE.md 다중 세션 절 |
 | `scripts/unattended_run.ps1` | 사람이 자는 동안 지시서 하나를 여러 사이클에 걸쳐 잇는다. 한 사이클은 `claude -p --permission-mode bypassPermissions` 한 번이고, 끝나면 프로세스가 죽으므로 다음 사이클은 문맥 0에서 시작한다 — 대화 세션에서 불가능한 `/clear`를 이렇게 대신한다. 사이클 사이를 잇는 것은 `_private/HANDOFF_<이름>.md` 하나뿐이라, 매 사이클 지시에 '남은 것'을 파일 경로와 다음 명령까지 적으라는 규칙을 붙인다. `-Name`마다 인계·완료표시·로그가 따로라 여러 개를 동시에 돌려도 섞이지 않는다(단, 같은 파일을 고치는 일을 겹쳐 주지 않는다). 모델이 `_private/DONE_<이름>.flag`를 만들면 남은 사이클을 버리고 끝낸다. 한글 지시는 반드시 `-PromptFile`(UTF-8 BOM)로 준다 — `-Prompt`는 PS 5.1 파이프 인코딩 탓에 물음표로 깨진 적이 있다 |
 
-해석을 채우는 커맨드는 `/eod-review`(사후검토 문서) → `/trade-log`(매매일지 해석) → `/dashboard-sync`(아티팩트 재발행)
+해석을 채우는 커맨드는 `/market-close-review`(사후검토 문서) → `/trade-log`(매매일지 해석) → `/dashboard-sync`(아티팩트 재발행)
 → `/stock-study`(종목 학습) → `/daily`(DAILY_LOG prepend) 순이다.
 
 ## 7. 실패했을 때 어디를 보나
 
 | 증상 | 먼저 볼 것 |
 |---|---|
-| 대시보드가 어제에 머물러 있다 | `Quant EOD AutoDoc`의 마지막 결과 → `logs/eod_autodoc.log` |
+| 대시보드가 어제에 머물러 있다 | `Quant Market Close AutoDoc`의 마지막 결과 → `logs/market_close_autodoc.log` |
 | 아티팩트만 낡았다 | 예약작업은 HTML만 다시 만들고 아티팩트는 못 올린다(헤드리스에 Artifact 도구 없음, 09-12 rc=267009). 두 클로드 작업의 액션은 2026-09-19부터 `scripts/run_claude_task.ps1` 래퍼다 — 전에는 stderr 경고 한 줄이 rc=1(거짓 실패)을 만들었고, `claude_stock_study`는 배터리 조건(0x800710E0)으로 안 떴다(조건 해제·한도 PT1H). 대화 세션에서 `/dashboard-sync`로 재발행한다. 다른 실패면 세션 시작 `[CRON]` 알림(`cron-gate.ps1`)과 `_private/_cron_dashboard.log` |
 | 스터디가 리포트만 있고 저널이 없다 | 중도 중단. `/stock-study`를 다시 부르면 새 종목을 고르지 않고 빠진 산출물만 채운다 |
 | 예약작업이 `LastTaskResult=1` | 세션 사용량 한도를 먼저 의심한다(`_private/_cron_dashboard.log`) |

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DeviationScale TRENDX 슬리브의 3분봉 리플레이 — 실행 층(rung 구간·물타기·스탑) 비교용.
+"""DeviationScale TRENDX 슬리브의 3분봉 리플레이 — 실행 층(분할 단계 구간·물타기·스탑) 비교용.
 
 `Quant/include/strategy/DeviationScaleStrategy.h`의 `on_trade_batch` 경로 하나만 옮겼다. 스캐너·주문
 라우터·OrderGate는 옮기지 않는다. 옮긴 규칙과 근사는 README(research/studies/13_trendx_gate/README.md)에
@@ -7,8 +7,8 @@
 
   - 존 게이트: 정배열·이격 밴드 모두 전일 확정 일봉 SMA로 판정한다(엔진은 진입에 fold_today를 쓰지만
     보수적으로 전일 값). 히스테리시스 진입 5~35 / 유지 1~39.
-  - 워밍업: 3분봉 < sma_period(20)이면 기준선 = 일봉 SMA20, BUY rung 차단(베이스 BUY는 허용, 엔진과 같다).
-  - rung 구간: 기준점 = 현재가. 베이스 BUY = 현재가 −1틱, SELL rung = 평단×(1+3%), BUY rung = 현재가×(1−1%).
+  - 워밍업: 3분봉 < sma_period(20)이면 기준선 = 일봉 SMA20, BUY 분할 단계 차단(베이스 BUY는 허용, 엔진과 같다).
+  - 분할 단계 구간: 기준점 = 현재가. 베이스 BUY = 현재가 −1틱, SELL 분할 단계 = 평단×(1+3%), BUY 분할 단계 = 현재가×(1−1%).
     지정가 체결은 다음 3분봉 범위로 판정(시가가 이미 넘겨 있으면 시가 체결). 부분체결 없음.
   - 재구성: 봉마다 취소·재발주(min_rebuild_sec=8은 틱이 없어 봉 단위로 근사).
   - 존 이탈·하드 스탑·트레일·15:15: 전량 시장가 = 다음 봉 시가 −1틱. 마지막 봉이면 그 종가.
@@ -71,8 +71,8 @@ class Params:
     sma_period: int = 20
     dev_sell_pct: float = 3.0
     dev_buy_pct: float = 1.0
-    n_rungs: int = 1
-    buy_rungs: int = 1
+    split_step_count: int = 1
+    buy_split_steps: int = 1
     notional_krw: float = 2_500_000.0
     base_pct: float = 0.015
     max_pct: float = 0.022
@@ -82,16 +82,16 @@ class Params:
     entry_confirm_bars: int = 0          # >0이면 직전 닫힌 봉 N개가 연속 종가 상승일 때만 베이스 BUY
     trail_sma_exit: bool = False
     trail_sma_tol_pct: float = 1.0
-    eod_hhmm: int = 1515
+    market_close_hhmm: int = 1515
     interval_min: int = 3
     max_notional_per_ticker: float = 15_000_000.0   # OrderGate risk.max_notional_per_ticker — 전략 밖 상한
 
 
 VARIANTS = {
-    "v1_current":         Params(buy_rungs=1),
-    "v2_norung":          Params(buy_rungs=0),
-    "v3_norung_stop2.5":  Params(buy_rungs=0, stop_loss_pct=2.5),
-    "v4_norung_stop_trail": Params(buy_rungs=0, stop_loss_pct=2.5, trail_sma_exit=True),
+    "v1_current":         Params(buy_split_steps=1),
+    "v2_norung":          Params(buy_split_steps=0),
+    "v3_norung_stop2.5":  Params(buy_split_steps=0, stop_loss_pct=2.5),
+    "v4_norung_stop_trail": Params(buy_split_steps=0, stop_loss_pct=2.5, trail_sma_exit=True),
 }
 
 # 16_trendx_execution 검증 격자. 기저 v3(=라이브 config_dev_paper TRENDX)에서 한 번에 하나만 바꾼다.
@@ -99,16 +99,16 @@ VARIANTS = {
 #          사실상 손절 없음에 가깝다. 라이브 2.5%와 폭이 비슷한 0.3·0.5배를 같이 둔다.
 #   delay* — 진입을 존 활성화 즉시가 아니라 닫힌 3분봉 N개 연속 종가 상승 확인 뒤로 미룬다.
 EXEC_VARIANTS = {
-    "e0_base_stop2.5":  Params(buy_rungs=0, stop_loss_pct=2.5),
-    "e1_atr0.3":        Params(buy_rungs=0, stop_atr_mult=0.3),
-    "e2_atr0.5":        Params(buy_rungs=0, stop_atr_mult=0.5),
-    "e3_atr1.5":        Params(buy_rungs=0, stop_atr_mult=1.5),
-    "e4_atr2.0":        Params(buy_rungs=0, stop_atr_mult=2.0),
-    "e5_atr2.5":        Params(buy_rungs=0, stop_atr_mult=2.5),
-    "e6_delay1":        Params(buy_rungs=0, stop_loss_pct=2.5, entry_confirm_bars=1),
-    "e7_delay2":        Params(buy_rungs=0, stop_loss_pct=2.5, entry_confirm_bars=2),
-    "e8_delay3":        Params(buy_rungs=0, stop_loss_pct=2.5, entry_confirm_bars=3),
-    "e9_nostop":        Params(buy_rungs=0),
+    "e0_base_stop2.5":  Params(buy_split_steps=0, stop_loss_pct=2.5),
+    "e1_atr0.3":        Params(buy_split_steps=0, stop_atr_mult=0.3),
+    "e2_atr0.5":        Params(buy_split_steps=0, stop_atr_mult=0.5),
+    "e3_atr1.5":        Params(buy_split_steps=0, stop_atr_mult=1.5),
+    "e4_atr2.0":        Params(buy_split_steps=0, stop_atr_mult=2.0),
+    "e5_atr2.5":        Params(buy_split_steps=0, stop_atr_mult=2.5),
+    "e6_delay1":        Params(buy_split_steps=0, stop_loss_pct=2.5, entry_confirm_bars=1),
+    "e7_delay2":        Params(buy_split_steps=0, stop_loss_pct=2.5, entry_confirm_bars=2),
+    "e8_delay3":        Params(buy_split_steps=0, stop_loss_pct=2.5, entry_confirm_bars=3),
+    "e9_nostop":        Params(buy_split_steps=0),
 }
 
 
@@ -197,7 +197,7 @@ def replay_day(bars: pd.DataFrame, moving_averages: dict, parameters: Params, co
     average_20 = moving_averages[20]
     base_share = parameters.base_pct / parameters.max_pct if parameters.max_pct > parameters.base_pct else 1.0
     base_notional = parameters.notional_krw * base_share
-    rung_notional = (parameters.notional_krw - base_notional) / parameters.buy_rungs if parameters.buy_rungs > 0 else 0.0
+    split_step_notional = (parameters.notional_krw - base_notional) / parameters.buy_split_steps if parameters.buy_split_steps > 0 else 0.0
 
     position, average = 0, 0.0
     cost_basis = 0.0                   # 보유분 매입 원가(비용 포함)
@@ -285,8 +285,8 @@ def replay_day(bars: pd.DataFrame, moving_averages: dict, parameters: Params, co
                 else:
                     orders = [("MKT", 0.0, position, tag)]
 
-        if hhmm >= parameters.eod_hhmm:
-            liquidate("eod")
+        if hhmm >= parameters.market_close_hhmm:
+            liquidate("market_close")
             done = True
             continue
         if not hold_zone:
@@ -318,7 +318,7 @@ def replay_day(bars: pd.DataFrame, moving_averages: dict, parameters: Params, co
         if parameters.entry_confirm_bars > 0:
             need = parameters.entry_confirm_bars + 1
             confirmed = len(closes) >= need and all(
-                closes[-rung_index] > closes[-rung_index - 1] for rung_index in range(1, parameters.entry_confirm_bars + 1))
+                closes[-split_step_index] > closes[-split_step_index - 1] for split_step_index in range(1, parameters.entry_confirm_bars + 1))
         if position <= 0 and not in_cooldown and confirmed:
             buy_price = round_tick(c, "BUY")
             if buy_price >= c:
@@ -327,23 +327,23 @@ def replay_day(bars: pd.DataFrame, moving_averages: dict, parameters: Params, co
             if quantity > 0:
                 plan.append(("BUY", buy_price, quantity, "base"))
         if position > 0:
-            per = math.ceil(position / parameters.n_rungs) if parameters.n_rungs > 0 else position
+            per = math.ceil(position / parameters.split_step_count) if parameters.split_step_count > 0 else position
             left = position
-            for rung_index in range(1, parameters.n_rungs + 1):
+            for split_step_index in range(1, parameters.split_step_count + 1):
                 if left <= 0:
                     break
-                sell_price = round_tick(average * (1.0 + parameters.dev_sell_pct * rung_index / 100.0), "SELL")
+                sell_price = round_tick(average * (1.0 + parameters.dev_sell_pct * split_step_index / 100.0), "SELL")
                 if sell_price <= c:
                     sell_price = round_tick(c, "SELL")
                 quantity = min(per, left)
                 plan.append(("SELL", sell_price, quantity, "tp"))
                 left -= quantity
-        if parameters.buy_rungs > 0 and not warming and not in_cooldown:
-            for rung_index in range(1, parameters.buy_rungs + 1):
-                buy_price = round_tick(c * (1.0 - parameters.dev_buy_pct * rung_index / 100.0), "BUY")
-                quantity = int(min(rung_notional, max(room, 0.0)) // buy_price)
+        if parameters.buy_split_steps > 0 and not warming and not in_cooldown:
+            for split_step_index in range(1, parameters.buy_split_steps + 1):
+                buy_price = round_tick(c * (1.0 - parameters.dev_buy_pct * split_step_index / 100.0), "BUY")
+                quantity = int(min(split_step_notional, max(room, 0.0)) // buy_price)
                 if quantity > 0:
-                    plan.append(("BUY", buy_price, quantity, "rung"))
+                    plan.append(("BUY", buy_price, quantity, "split_step"))
         orders = plan
 
     if position > 0:                      # 마지막 봉까지 남았으면 종가 청산(자료 절단)

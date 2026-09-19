@@ -101,10 +101,10 @@ graph LR
     n_core_LatencyTrace_h["core/LatencyTrace.h"]
     n_core_LedgerReconciler_cpp["core/LedgerReconciler.cpp"]
     n_core_LedgerReconciler_h["core/LedgerReconciler.h"]
-    n_core_OrderPacer_cpp["core/OrderPacer.cpp"]
-    n_core_OrderPacer_h["core/OrderPacer.h"]
+    n_core_OrderRateLimiter_cpp["core/OrderRateLimiter.cpp"]
+    n_core_OrderRateLimiter_h["core/OrderRateLimiter.h"]
     n_core_PaperExecutor_h["core/PaperExecutor.h"]
-    n_core_RegimeFileBridge_h["core/RegimeFileBridge.h"]
+    n_core_RegimeFileJudge_h["core/RegimeFileJudge.h"]
     n_core_ReplaySource_h["core/ReplaySource.h"]
     n_core_ShardMatrix_h["core/ShardMatrix.h"]
     n_core_SignalDispatcher_cpp["core/SignalDispatcher.cpp"]
@@ -194,7 +194,7 @@ graph LR
   n_core_AppConfig_cpp --> n_utils_JsonNode_h
   n_core_AppConfig_cpp --> n_utils_Logger_h
   n_core_AppConfig_h --> n_api_KisClient_h
-  n_core_AppConfig_h --> n_core_RegimeFileBridge_h
+  n_core_AppConfig_h --> n_core_RegimeFileJudge_h
   n_core_AppConfig_h --> n_core_Types_h
   n_core_AppConfig_h --> n_risk_OrderGate_h
   n_core_BarAggregator_cpp --> n_core_BarAggregator_h
@@ -217,9 +217,9 @@ graph LR
   n_core_Engine_h --> n_core_FeedSupervisor_h
   n_core_Engine_h --> n_core_LedgerReconciler_h
   n_core_Engine_h --> n_core_MpscQueue_h
-  n_core_Engine_h --> n_core_OrderPacer_h
+  n_core_Engine_h --> n_core_OrderRateLimiter_h
   n_core_Engine_h --> n_core_PaperExecutor_h
-  n_core_Engine_h --> n_core_RegimeFileBridge_h
+  n_core_Engine_h --> n_core_RegimeFileJudge_h
   n_core_Engine_h --> n_core_ReplaySource_h
   n_core_Engine_h --> n_core_RingBuffer_h
   n_core_Engine_h --> n_core_SessionEndJudge_h
@@ -251,18 +251,18 @@ graph LR
   n_core_LedgerReconciler_h --> n_core_KstTime_h
   n_core_LedgerReconciler_h --> n_core_ReconcilePlan_h
   n_core_LedgerReconciler_h --> n_risk_OrderGate_h
-  n_core_OrderPacer_cpp --> n_api_KisErrorCodes_h
-  n_core_OrderPacer_cpp --> n_core_OrderPacer_h
-  n_core_OrderPacer_cpp --> n_risk_GateReasons_h
-  n_core_OrderPacer_cpp --> n_utils_Logger_h
-  n_core_OrderPacer_h --> n_core_Types_h
+  n_core_OrderRateLimiter_cpp --> n_api_KisErrorCodes_h
+  n_core_OrderRateLimiter_cpp --> n_core_OrderRateLimiter_h
+  n_core_OrderRateLimiter_cpp --> n_risk_GateReasons_h
+  n_core_OrderRateLimiter_cpp --> n_utils_Logger_h
+  n_core_OrderRateLimiter_h --> n_core_Types_h
   n_core_PaperExecutor_h --> n_api_IOrderExecutor_h
   n_core_PaperExecutor_h --> n_api_KisErrorCodes_h
   n_core_PaperExecutor_h --> n_api_KisResult_h
   n_core_PaperExecutor_h --> n_api_KisTypes_h
   n_core_PaperExecutor_h --> n_core_MarketSession_h
   n_core_PaperExecutor_h --> n_core_Types_h
-  n_core_RegimeFileBridge_h --> n_core_Types_h
+  n_core_RegimeFileJudge_h --> n_core_Types_h
   n_core_ReplaySource_h --> n_core_IFeedSource_h
   n_core_ReplaySource_h --> n_core_TickCapture_h
   n_core_ShardMatrix_h --> n_core_RingBuffer_h
@@ -470,8 +470,8 @@ graph LR
 | `PYQuant/live/trader.py` | `kis.client`, `strategy.base` |
 | `PYQuant/main.py` | `backtest.engine`, `backtest.report`, `core.logger`, `data.datagokr_source`, `data.krx_source`, `data.universe_kospi`, `data.yfinance_source`, `db.client`, `ipc.operator`, `ipc.subscriber`, `kis.client`, `live.forward_trader`, `live.trader`, `report.account`, `strategy.cross_momentum`, `strategy.mean_reversion`, `strategy.strategy_a`, `strategy.supply_demand_rank`, `strategy.value_contrary` |
 | `PYQuant/strategy/base.py` | `kis.client` |
+| `PYQuant/strategy/channel_breakout.py` | `strategy.base` |
 | `PYQuant/strategy/cross_momentum.py` | `kis.client`, `strategy.base` |
-| `PYQuant/strategy/donchian_breakout.py` | `strategy.base` |
 | `PYQuant/strategy/indicators.py` | `kis.client` |
 | `PYQuant/strategy/mean_reversion.py` | `strategy.base`, `strategy.indicators` |
 | `PYQuant/strategy/strategy_a.py` | `kis.client`, `strategy.base`, `strategy.indicators` |
@@ -484,7 +484,6 @@ graph LR
 | `PYQuant/tests/test_metrics.py` | `backtest.metrics` |
 | `PYQuant/tests/test_regime_scorer.py` | `backtest.regime_scorer` |
 | `PYQuant/tests/test_strategy_a.py` | `kis.client`, `strategy.strategy_a` |
-| `PYQuant/tools/ablation_2022.py` | `main` |
 | `PYQuant/tools/check_adjusted.py` | `data.datagokr_source` |
 | `PYQuant/tools/check_datagokr.py` | `data.datagokr_source` |
 | `PYQuant/tools/check_investor_api.py` | `kis.client` |
@@ -501,24 +500,25 @@ graph LR
 | `PYQuant/tools/month_start_sweep.py` | `data.datagokr_source`, `main` |
 | `PYQuant/tools/nxt_divergence_check.py` | `kis.client` |
 | `PYQuant/tools/pit_universe_backfill.py` | `kis.client`, `tools.universe_feed` |
+| `PYQuant/tools/regime_removal_test_2022.py` | `main` |
 | `PYQuant/tools/sweep.py` | `main` |
 | `PYQuant/tools/universe_feed.py` | `data.datagokr_source` |
 | `PYQuant/tools/walkforward.py` | `backtest.engine`, `main` |
 | `scripts/analyze_slot_cost.py` | `_logdir` |
 | `scripts/backfill_fills_db.py` | `_logdir`, `db.client` |
 | `scripts/backfill_studies.py` | `backtest.report` |
-| `scripts/build_review_entry.py` | `eod_collect` |
+| `scripts/build_review_entry.py` | `market_close_collect` |
 | `scripts/check_code_conventions.py` | `rename_frags` |
 | `scripts/check_runtime_health.py` | `_logdir`, `log_patterns` |
 | `scripts/dashboard_server.py` | `_logdir`, `kis.client`, `naver.theme` |
-| `scripts/eod_autodoc.py` | `_logdir`, `check_runtime_health`, `log_patterns` |
-| `scripts/eod_collect.py` | `_logdir`, `log_patterns` |
 | `scripts/exit_ev.py` | `backtest.costs` |
 | `scripts/exit_ev_dashboard.py` | `_logdir`, `exit_ev`, `gen_tuning_sheet` |
-| `scripts/extract_swap_counterfactual.py` | `_logdir` |
+| `scripts/extract_swap_what_if.py` | `_logdir` |
 | `scripts/gen_automation_hub.py` | `gen_facts` |
 | `scripts/maintain.py` | `_logdir` |
-| `scripts/notify_sidecar.py` | `_logdir`, `dashboard_server`, `kis.client`, `log_patterns` |
+| `scripts/market_close_autodoc.py` | `_logdir`, `check_runtime_health`, `log_patterns` |
+| `scripts/market_close_collect.py` | `_logdir`, `log_patterns` |
+| `scripts/notify_trades.py` | `_logdir`, `dashboard_server`, `kis.client`, `log_patterns` |
 | `scripts/parse_quant_log.py` | `_logdir`, `check_runtime_health` |
 | `scripts/rename_frags.py` | `rename_ids` |
 | `scripts/rename_locals.py` | `rename_ids` |
@@ -533,12 +533,12 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 
 | 파일 | 쓰는 쪽 | 읽는 쪽 | 언급만 |
 |---|---|---|---|
-| `regime.json` | `PYQuant/tools/macro_regime_feed.py` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/AppConfig.cpp`, `Quant/src/core/Engine.cpp`, `scripts/dashboard_server.py`, `scripts/notify_sidecar.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/src/core/EngineConfigure.cpp` |
+| `regime.json` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/Engine.cpp` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/AppConfig.cpp`, `Quant/src/core/Engine.cpp`, `scripts/dashboard_server.py`, `scripts/notify_trades.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/include/core/RegimeFileJudge.h`, `Quant/src/core/EngineConfigure.cpp` |
 | `prices_live.json` | `scripts/live_prices_feed.py` | `scripts/live_prices_feed.py` |  |
-| `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_sidecar.py` |
-| `universe*.json` |  | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/nxt_divergence_check.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseScanner.cpp`, `scripts/eod_minute_backfill.py`, `scripts/exit_ev_dashboard.py`, `scripts/live_prices_feed.py`, `scripts/notify_sidecar.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |
+| `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
+| `universe*.json` |  | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/nxt_divergence_check.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseScanner.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/live_prices_feed.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |
 | `open_orders.txt` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` |  |
-| `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/_logdir.py`, `scripts/build_review_entry.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `Quant/src/main.cpp`, `scripts/_logdir.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/extract_swap_counterfactual.py`, `scripts/notify_sidecar.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `scripts/exit_ev_dashboard.py`, `scripts/maintain.py` |
+| `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/_logdir.py`, `scripts/build_review_entry.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `Quant/src/main.cpp`, `scripts/_logdir.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/extract_swap_what_if.py`, `scripts/notify_trades.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `scripts/exit_ev_dashboard.py`, `scripts/maintain.py` |
 | `kis_token_*.json` | `scripts/commit_gate.py` | `scripts/gen_facts.py` | `PYQuant/kis/client.py`, `Quant/src/api/KisAuth.cpp` |
 
 ## 영향범위 질의 · 기계 소비

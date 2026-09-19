@@ -3,7 +3,7 @@
 """자동화·대시보드를 한 파일에 모은다 → _private/AUTOMATION_HUB.md (gitignore, 통째로 생성물).
 
 손으로 고치는 원본은 둘뿐이다:
-  - 시간표: scripts/eod_timetable.ps1 (모의·실계좌 두 갈래)
+  - 시간표: scripts/market_close_timetable.ps1 (모의·실계좌 두 갈래)
   - 대시보드·링크: _private/dashboards.json
 나머지(예약작업 실제 상태·훅 배선)는 OS와 .claude/settings.json 에서 그때그때 읽는다.
 
@@ -110,23 +110,23 @@ def to_hhmm(text: str) -> str:
 def current_plan(facts: dict, mode_text: str) -> list[dict]:
     """지금 계좌 모드의 시간표 행. 모드를 못 읽으면 모의로 본다."""
     key = "live" if mode_text.startswith("실계좌") else "paper"
-    return (facts.get("eod_timetable") or {}).get(key, [])
+    return (facts.get("market_close_timetable") or {}).get(key, [])
 
 
 def render() -> str:
-    facts = {"eod_timetable": gen_facts.eod_timetable(), "harness": gen_facts.harness()}
+    facts = {"market_close_timetable": gen_facts.market_close_timetable(), "harness": gen_facts.harness()}
     tasks = scheduled_tasks()
     lines = [
         "# 자동화·대시보드 허브 (생성물 — 손으로 고치지 않는다)",
         "",
         f"만든 시각 {datetime.now():%Y-%m-%d %H:%M}. 다시 만들기 `py scripts/gen_automation_hub.py`. "
-        "원본은 시간표 `scripts/eod_timetable.ps1`, 링크 `_private/dashboards.json`. 각 자동화가 무엇을 만드는지·실패하면 어디를 보는지는 `docs/AUTOMATION.md`.",
+        "원본은 시간표 `scripts/market_close_timetable.ps1`, 링크 `_private/dashboards.json`. 각 자동화가 무엇을 만드는지·실패하면 어디를 보는지는 `docs/AUTOMATION.md`.",
         "",
-        f"**지금 계좌 모드: {current_mode(tasks)}** — 모드를 바꾸면 `powershell -File scripts\\eod_timetable.ps1 -Apply -Config <config>` 로 아래 시간표를 예약작업에 옮긴다.",
+        f"**지금 계좌 모드: {current_mode(tasks)}** — 모드를 바꾸면 `powershell -File scripts\\market_close_timetable.ps1 -Apply -Config <config>` 로 아래 시간표를 예약작업에 옮긴다.",
         "",
         "## 1. 마감 자동화 시간표 (평일, KST)",
         "",
-        gen_facts.r_eod_timetable(facts),
+        gen_facts.r_market_close_timetable(facts),
         "",
         "## 2. 예약작업 실제 등록 상태 (Windows 작업 스케줄러, 이 PC)",
         "",
@@ -139,13 +139,13 @@ def render() -> str:
             registered = to_hhmm(task["start"])
             expected = planned.get(task["name"])
             if task["name"] == "QuantAutoTradeGuard":
-                verdict = "감시견(-Until·-Hours 는 `scripts/eod_timetable.ps1` 검사가 본다)"
+                verdict = "감시견(-Until·-Hours 는 `scripts/market_close_timetable.ps1` 검사가 본다)"
             elif expected is None:
-                verdict = "⚠ 시간표에 없음 — `scripts/eod_timetable.ps1` 에 넣거나 작업을 지운다"
+                verdict = "⚠ 시간표에 없음 — `scripts/market_close_timetable.ps1` 에 넣거나 작업을 지운다"
             elif expected == registered:
                 verdict = "일치"
             else:
-                verdict = f"⚠ 예정 {expected} — `scripts/eod_timetable.ps1 -Apply`"
+                verdict = f"⚠ 예정 {expected} — `scripts/market_close_timetable.ps1 -Apply`"
             state = task["state"] if task["state"] == "Enabled" else f"⚠ {task['state']}"
             lines.append(f"| `{task['name']}` | {state} | {registered} | {verdict} | {task['next']} | {task['last']} | {task['result']}{flag} |")
         lines += ["", "마지막 결과 0=성공, 267009=실행 중, 267011=아직 안 돎, 267014=중단. 그 밖의 값은 `docs/AUTOMATION.md` 5절(실패하면 어디를 보나). "

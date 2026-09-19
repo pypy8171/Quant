@@ -56,7 +56,7 @@ curve_stats   = bt08.curve_stats
 max_drawdown  = bt08.max_drawdown
 turnover_toggles = bt08.turnover_toggles
 slice_window  = bt08.slice_window
-window_maxdd_anchor = bt08.window_maxdd_anchor
+window_maxdd_points = bt08.window_maxdd_points
 median        = bt08.median
 fmt           = bt08.fmt
 EVENTS        = bt08.EVENTS
@@ -116,8 +116,8 @@ def build_benchmark(src, name, ticker, start, is_kr):
 
 def eval_benchmark(bm):
     closes, ret, ctx, dates = bm["closes"], bm["ret"], bm["ctx"], bm["dates"]
-    bh_net, bh_eq = run_curve(closes, ret, np.ones(len(closes)), 0.0)
-    bh = curve_stats(bh_net, bh_eq)
+    buy_and_hold_net, buy_and_hold_eq = run_curve(closes, ret, np.ones(len(closes)), 0.0)
+    buy_and_hold = curve_stats(buy_and_hold_net, buy_and_hold_eq)
     hold_mask = _mask_by_dates(dates, HOLDOUT[0], HOLDOUT[1], inside=True)
     train_mask = ~hold_mask
 
@@ -133,8 +133,8 @@ def eval_benchmark(bm):
         net_b, _ = run_curve(closes, ret, e, COST_BASE)
         tr = _stats_on_subset(net_b, train_mask)
         ho = _stats_on_subset(net_b, hold_mask)
-        mdd_red = base["mdd"] - bh["mdd"]                 # +면 덜 빠짐
-        cagr_delta = base["cagr"] - bh["cagr"]           # +면 BH초과수익
+        mdd_red = base["mdd"] - buy_and_hold["mdd"]                 # +면 덜 빠짐
+        cagr_delta = base["cagr"] - buy_and_hold["cagr"]           # +면 매수 후 보유초과수익
         # 활성 커버리지(신호 발동 비율): e != 1.0 인 날 비중
         active = float(np.mean(np.abs(e - 1.0) > 1e-9)) * 100.0
         rows.append(dict(code=code, label=label, side=side, desc=desc, needs=needs,
@@ -152,13 +152,13 @@ def eval_benchmark(bm):
         wc = closes[lo:hi]
         wr = ret[lo:hi].copy()
         wr[0] = 0.0
-        _, _, bh_dd = window_maxdd_anchor(wc)
-        bh_wnet = np.zeros(len(wc))
+        _, _, buy_and_hold_dd = window_maxdd_points(wc)
+        buy_and_hold_wnet = np.zeros(len(wc))
         for t in range(1, len(wc)):
-            bh_wnet[t] = wr[t]
-        bh_wtot = float(np.prod(1.0 + bh_wnet) - 1.0)
+            buy_and_hold_wnet[t] = wr[t]
+        buy_and_hold_wtot = float(np.prod(1.0 + buy_and_hold_wnet) - 1.0)
         row = dict(eid=eid, cause=cause, behavior=BEHAVIOR.get(eid, "?"),
-                   window=f"{d0[:7]}~{d1[:7]}", bh_dd=bh_dd, bh_tot=bh_wtot * 100.0,
+                   window=f"{d0[:7]}~{d1[:7]}", buy_and_hold_dd=buy_and_hold_dd, buy_and_hold_tot=buy_and_hold_wtot * 100.0,
                    methods={})
         for code, label, fn, side, desc, needs in STRATS:
             e = per_e[code][lo:hi]
@@ -171,16 +171,16 @@ def eval_benchmark(bm):
             eq = np.cumprod(1.0 + net)
             m_dd = max_drawdown(eq)
             m_tot = float(eq[-1] - 1.0) * 100.0
-            row["methods"][code] = dict(mdd_red=m_dd - bh_dd, excess=m_tot - bh_wtot * 100.0)
+            row["methods"][code] = dict(mdd_red=m_dd - buy_and_hold_dd, excess=m_tot - buy_and_hold_wtot * 100.0)
         ev_rows.append(row)
 
-    return dict(bh=bh, rows=rows, ev_rows=ev_rows,
-                cov=ctx["_cov"], hold_bh=_stats_on_subset(bh_net, hold_mask),
-                train_bh=_stats_on_subset(bh_net, train_mask))
+    return dict(buy_and_hold=buy_and_hold, rows=rows, ev_rows=ev_rows,
+                cov=ctx["_cov"], hold_bh=_stats_on_subset(buy_and_hold_net, hold_mask),
+                train_bh=_stats_on_subset(buy_and_hold_net, train_mask))
 
 
 def run_sweep(bm):
-    """사전등록 임계값 그리드 전량 → full-curve Calmar. + 절제(ablation) 쌍."""
+    """사전등록 임계값 그리드 전량 → full-curve Calmar. + 절제(제거실험) 쌍."""
     closes, ret, ctx = bm["closes"], bm["ret"], bm["ctx"]
     out = []
 
@@ -217,18 +217,18 @@ def _emit_metrics(bms, results):
     rows_out = []
     for bm in bms:
         r = results[bm["name"]]
-        bh = r["bh"]
+        buy_and_hold = r["buy_and_hold"]
         bench, span = bm["name"], bm["span"]
         d0, d1 = bm["dates"][0], bm["dates"][-1]
         rows_out.append(overlay_metric_row(
-            study_id="BT-09", strategy="BH", benchmark=bench,
-            base=bh, bh=bh, window=span, start_date=d0, end_date=d1,
+            study_id="BT-09", strategy="BUY_AND_HOLD", benchmark=bench,
+            base=buy_and_hold, buy_and_hold=buy_and_hold, window=span, start_date=d0, end_date=d1,
             honesty_label="robust"))
         for row in r["rows"]:
             hold, train = row.get("hold"), row.get("train")
             rows_out.append(overlay_metric_row(
                 study_id="BT-09", strategy=row["code"], benchmark=bench,
-                base=row["base"], bh=bh, window=span, start_date=d0, end_date=d1,
+                base=row["base"], buy_and_hold=buy_and_hold, window=span, start_date=d0, end_date=d1,
                 honesty_label="robust",
                 extra={
                     "side": row["side"], "label": row["label"],
@@ -261,8 +261,8 @@ def main():
     # 콘솔 요약
     for bm in bms:
         r = results[bm["name"]]
-        print(f"\n=== {bm['name']} (BH Calmar {fmt(r['bh']['calmar'],2)}, "
-              f"CAGR {fmt(r['bh']['cagr'],2)}%, MDD {fmt(r['bh']['mdd'])}%) ===")
+        print(f"\n=== {bm['name']} (매수 후 보유 Calmar {fmt(r['buy_and_hold']['calmar'],2)}, "
+              f"CAGR {fmt(r['buy_and_hold']['cagr'],2)}%, MDD {fmt(r['buy_and_hold']['mdd'])}%) ===")
         for row in r["rows"]:
             b = row["base"]
             print(f"  {row['code']} {row['side']} Calmar {fmt(b['calmar'],2):>6} "

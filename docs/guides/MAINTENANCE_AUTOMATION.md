@@ -41,12 +41,12 @@
 |---|---|---|---|
 | 편집 | Write/Edit 훅(lexicon-gate) | 문체 검사만. 코드 리터럴·정규식은 건너뛴다 | 현행 약 2초, 목표 300ms |
 | 커밋 전 | `docs-gate.ps1` 하나. 스테이징 목록을 `.md`와 `.h/.cpp/.py`로 분기(별도 code-gate 파일을 만들지 않는다 — Bash matcher에 훅을 더 얹으면 모든 Bash 호출이 2초씩 더 느려진다) | `.md`: check_docs + check_code_refs. 코드: check_code_refs + gen_facts --check + code_graph 최신 여부. 코드 분기는 도입 1주는 경고만(shadow) | < 5초 |
-| 장 마감 | `eod_autodoc.py`(대시보드 포함) 뒤에 `maintain.py --daily` — 시각은 계좌 모드로 갈린다(`scripts/eod_timetable.ps1`, 표는 `docs/AUTOMATION.md` 1절) | gen_facts → gen_code_graph(C++·Python) → sync_ledgers → gen_automation_hub(`_private/AUTOMATION_HUB.md`). 대시보드는 부르지 않는다(`refresh_dashboard.py`가 소유, 호출자를 늘리면 갈라진다). 결과는 `logs/maintenance.log` | 분 |
-| 주간 | 금요일 예약 `maintain.py --weekly`(`claude_dashboard_sync` 뒤, 시각은 `scripts/eod_timetable.ps1`, `StartWhenAvailable` 켬. 일요일은 이 PC가 켜져 있다는 증거가 없고 cron-gate가 주말을 건너뛰어 미실행 감지도 안 된다) | 미참조 스크립트·에이전트 죽은 경로·부산물 용량·주석 밀도·`settings.json` 훅 배선 양방향 검사(훅 파일 전부 배선됐는가, 배선 경로 전부 실재하는가, BOM UTF-8인가)·`.claude/` 해시 매니페스트 → `docs/reports/MAINTENANCE_WEEKLY.md` | 제한 없음 |
+| 장 마감 | `market_close_autodoc.py`(대시보드 포함) 뒤에 `maintain.py --daily` — 시각은 계좌 모드로 갈린다(`scripts/market_close_timetable.ps1`, 표는 `docs/AUTOMATION.md` 1절) | gen_facts → gen_code_graph(C++·Python) → sync_ledgers → gen_automation_hub(`_private/AUTOMATION_HUB.md`). 대시보드는 부르지 않는다(`refresh_dashboard.py`가 소유, 호출자를 늘리면 갈라진다). 결과는 `logs/maintenance.log` | 분 |
+| 주간 | 금요일 예약 `maintain.py --weekly`(`claude_dashboard_sync` 뒤, 시각은 `scripts/market_close_timetable.ps1`, `StartWhenAvailable` 켬. 일요일은 이 PC가 켜져 있다는 증거가 없고 cron-gate가 주말을 건너뛰어 미실행 감지도 안 된다) | 미참조 스크립트·에이전트 죽은 경로·부산물 용량·주석 밀도·`settings.json` 훅 배선 양방향 검사(훅 파일 전부 배선됐는가, 배선 경로 전부 실재하는가, BOM UTF-8인가)·`.claude/` 해시 매니페스트 → `docs/reports/MAINTENANCE_WEEKLY.md` | 제한 없음 |
 | 세션 시작 | SessionStart 훅(cron-gate 4번째 항목) | 주간 리포트가 N일 낡았거나 빨간 항목이 있으면 한 줄 알림만. 세션 시작에 검사를 돌리지 않는다 | 밀리초 |
 
 `maintain.py --check`는 보고만 한다. 자동 적용·자동 스테이징을 하지 않으며 검사기별로 exit code를 따로 낸다.
-검사 범위는 diff에 걸린 파일만이다. 경로 기반 면제: `docs/reports/**`, `strategies/*/reviews/**`, `docs/eod/**`, `DAILY_LOG.md`.
+검사 범위는 diff에 걸린 파일만이다. 경로 기반 면제: `docs/reports/**`, `strategies/*/reviews/**`, `docs/market_close/**`, `DAILY_LOG.md`.
 `--weekly`는 `.claude/`를 읽기만 하고 보고한다. 훅·에이전트 수정은 사람이 승인한다(`.claude/`는 gitignore라 되돌릴 히스토리가 없다).
 
 ## 3. 생성기와 검사기
@@ -57,9 +57,9 @@
 | `scripts/gen_code_graph.py` | C++ include 그래프(현행) + Python import 그래프 + 프로세스 경계 파일(regime.json·prices_live.json·trades_*.csv) | CODE_GRAPH.md, code_graph.json |
 | `scripts/check_code_refs.py` | 문서의 경로·`파일::심볼` 실재 검사, `파일:숫자` 줄번호 참조 신규 금지. 심볼 매칭은 `\b심볼\b`만 보고 시그니처·오버로드는 보지 않는다. `auto 이름 = [`(람다)·`#define 이름`도 정의로 인정 | docs-gate |
 | `scripts/check_plain_language.py` | 기존 + 코드 모드에서 `re.*(` 인자·dict 키·비교식 우변·키워드 인자 값 보호, `--fix`는 보호 줄을 건너뛰고 경고 | lexicon-gate, committer(승인 후) |
-| `scripts/log_patterns.py` | C++ 로그 문구 정규식의 단일 소유자. 구·신 문구 양쪽 허용 | eod_autodoc, eod_collect, notify_sidecar, summarize_trading_day, check_runtime_health |
-| `scripts/_logdir.py` | 로그·원장 폴더 해석 한 곳(`QUANT_LOG_DIR` 최우선, 원장은 행 수 최대 → 동률 mtime) | eod_autodoc, summarize, dashboard_server, parse_quant_log, analyze_slot_cost |
-| `scripts/maintain.py` | 위를 순서대로 부르는 진입점(`--daily`, `--weekly`, `--check`). 단계마다 `subprocess.run`으로 격리하고 rc는 로그에 남긴다(`eod_autodoc.py`와 같은 패턴) | 예약작업, committer |
+| `scripts/log_patterns.py` | C++ 로그 문구 정규식의 단일 소유자. 구·신 문구 양쪽 허용 | market_close_autodoc, market_close_collect, notify_trades, summarize_trading_day, check_runtime_health |
+| `scripts/_logdir.py` | 로그·원장 폴더 해석 한 곳(`QUANT_LOG_DIR` 최우선, 원장은 행 수 최대 → 동률 mtime) | market_close_autodoc, summarize, dashboard_server, parse_quant_log, analyze_slot_cost |
+| `scripts/maintain.py` | 위를 순서대로 부르는 진입점(`--daily`, `--weekly`, `--check`). 단계마다 `subprocess.run`으로 격리하고 rc는 로그에 남긴다(`market_close_autodoc.py`와 같은 패턴) | 예약작업, committer |
 | `docs/sync_map.json` | 소스 glob → 봐야 할 문서의 역인덱스. `review-reminder.ps1`이 이미 부르는 `git diff HEAD --name-only` 결과에 PS 네이티브(`ConvertFrom-Json`)로 매칭해 문서 이름을 지목한다. `py` 위임 금지(응답마다 0.8초) | Stop 훅 |
 
 스냅샷 문서(그날의 리뷰·리포트·매매일지)는 머리에 `<!-- drift-check: snapshot 2026-09-08 -->`를 달아 검사에서 뺀다.
@@ -138,7 +138,7 @@ config.json을 읽는 곳은 `Quant/src/core/AppConfig.cpp`의 `parse_config()` 
 
 - 모든 에이전트는 개수·경로를 `docs/facts.json`이나 `PROJECT_FACTS.md`의 생성 블록에서 읽는다. 스스로 세지 않고 프롬프트에 박지 않는다.
   현재 거부 지점 수를 프롬프트에 복제한 곳(backtest-runner·planner·reviewer·log-reader·harness-engineer)은 정본 참조로 바꾼다.
-- 문서를 쓰는 에이전트(arch-doc·prep-doc·review-recorder·eod 계열)는 줄번호 참조를 쓰지 않는다.
+- 문서를 쓰는 에이전트(arch-doc·prep-doc·review-recorder·장 마감 계열)는 줄번호 참조를 쓰지 않는다.
 - committer는 커밋 전 `maintain.py --check`를 부른다(check_docs를 포함하므로 호출 하나로 대체). 스크럽 `--fix`는 자동으로 돌리지 않는다.
 - 테스트를 실행하는 에이전트(reviewer·dev-loop)는 반드시 임시 폴더에서 실행한다. 로거는 `QUANT_LOG_DIR` 미설정 시
   실행파일 기준 폴더에 쓰도록 바꿔 cwd 사고를 차단한다.
@@ -159,5 +159,5 @@ config.json을 읽는 곳은 `Quant/src/core/AppConfig.cpp`의 `parse_config()` 
 2. `_logdir.py`와 로거 경로 고정 — 원장 오염 경로 차단.
 3. `check_code_refs.py` + docs-gate 분기(shadow 1주). 이 문서 자신이 첫 검사 대상이다.
 4. `gen_facts.py` + 표식 블록 6개 문서 — 개수 드리프트 종결. 에이전트 프롬프트의 복제 수치 제거.
-5. `gen_code_graph.py` Python 확장 + `maintain.py --daily` 배선(`eod_autodoc` 뒤).
-6. 주간 예약(`Quant Maintain Weekly`, 시각은 `scripts/eod_timetable.ps1`) + `sync_map.json` + review-reminder 지목 + cron-gate 4번째 항목.
+5. `gen_code_graph.py` Python 확장 + `maintain.py --daily` 배선(`market_close_autodoc` 뒤).
+6. 주간 예약(`Quant Maintain Weekly`, 시각은 `scripts/market_close_timetable.ps1`) + `sync_map.json` + review-reminder 지목 + cron-gate 4번째 항목.

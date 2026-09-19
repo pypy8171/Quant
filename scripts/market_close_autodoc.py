@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """장 종료 후 그날 매매를 자동 정리한다 — 일지 생성 + 대시보드 갱신.
 
-    py scripts/eod_autodoc.py                # 오늘
-    py scripts/eod_autodoc.py --date 2026-09-07
-    py scripts/eod_autodoc.py --dry-run      # 파일을 쓰지 않고 결과만 출력
+    py scripts/market_close_autodoc.py                # 오늘
+    py scripts/market_close_autodoc.py --date 2026-09-07
+    py scripts/market_close_autodoc.py --dry-run      # 파일을 쓰지 않고 결과만 출력
 
 이 스크립트는 LLM 없이 도는 결정론 경로다. 로그·원장에서 뽑을 수 있는 사실만 채우고,
-해석이 필요한 자리는 빈 칸으로 남긴다. 해석은 `/eod-review`가 뒤에 붙어서 채운다.
+해석이 필요한 자리는 빈 칸으로 남긴다. 해석은 `/market-close-review`가 뒤에 붙어서 채운다.
 
 기존 일지를 덮지 않는다. 사람이 쓴 일지에는 AUTO 마커가 없으므로 그런 파일은 건드리지 않고,
 자동 생성분(마커 있음)만 최신 로그 기준으로 다시 만든다.
@@ -39,7 +39,7 @@ from log_patterns import PNL_RE, PREV_PNL_RE  # noqa: E402
 import check_runtime_health  # noqa: E402
 
 JOURNAL_DIR = REPO / "strategies" / "DeviationScale" / "live"
-RUN_LOG = REPO / "logs" / "eod_autodoc.log"
+RUN_LOG = REPO / "logs" / "market_close_autodoc.log"
 
 AUTO_BEGIN = "<!-- AUTO:BEGIN -->"
 AUTO_END = "<!-- AUTO:END -->"
@@ -47,7 +47,7 @@ AUTO_END = "<!-- AUTO:END -->"
 LINE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\.\d+ \[(\w+)\s*\] (.*)$")
 SESSION_RE = re.compile(r"=== Quant Trader")
 SIZING_RE = re.compile(r"사이징 백스톱: 종목당 명목 (\d+)원, 동시보유 (\d+)종목")
-FUNNEL_RE = re.compile(r"정배열 프리필터: (.*)$")
+STAGE_PASS_RE = re.compile(r"정배열 프리필터: (.*)$")
 REGIME_RE = re.compile(r"국면=(\w+)")
 NAME_RE = re.compile(r"(\d{6})\(([^)]{1,24})\)")
 NUM_RE = re.compile(r"\d")
@@ -88,7 +88,7 @@ def scan_log(log: Path, ymd: str) -> dict:
     prev_pnl: list[tuple[str, int, int]] = []
     names: dict[str, str] = {}
     warns: Counter = Counter()
-    cur: dict | None = None
+    current: dict | None = None
 
     with contextlib.closing(_logdir.iter_log_lines(ymd, _logdir.dir_of(log))) as lines:
         for raw in lines:
@@ -100,34 +100,34 @@ def scan_log(log: Path, ymd: str) -> dict:
                 continue
 
             if SESSION_RE.search(rest):
-                cur = {"at": hms, "slots": None, "cap": None, "funnel": None,
+                current = {"at": hms, "slots": None, "cap": None, "stage_pass": None,
                        "regime": None, "registered": None, "note": ""}
-                sessions.append(cur)
+                sessions.append(current)
 
             for t, n in NAME_RE.findall(rest):
                 names.setdefault(t, n)
 
-            if cur is not None:
-                s = SIZING_RE.search(rest)
-                if s and cur["slots"] is None:
-                    cur["cap"], cur["slots"] = int(s[1]), int(s[2])
-                s = FUNNEL_RE.search(rest)
-                if s and cur["funnel"] is None:
-                    cur["funnel"] = s[1].strip()
-                    r = re.search(r"등록=(\d+)", s[1])
-                    if r:
-                        cur["registered"] = int(r[1])
-                s = REGIME_RE.search(rest)
-                if s and cur["regime"] is None:
-                    cur["regime"] = s[1]
+            if current is not None:
+                match = SIZING_RE.search(rest)
+                if match and current["slots"] is None:
+                    current["cap"], current["slots"] = int(match[1]), int(match[2])
+                match = STAGE_PASS_RE.search(rest)
+                if match and current["stage_pass"] is None:
+                    current["stage_pass"] = match[1].strip()
+                    registered_match = re.search(r"등록=(\d+)", match[1])
+                    if registered_match:
+                        current["registered"] = int(registered_match[1])
+                match = REGIME_RE.search(rest)
+                if match and current["regime"] is None:
+                    current["regime"] = match[1]
 
-            s = PNL_RE.search(rest)
-            if s:
-                pnl.append((hms, int(s[1]), int(s[2])))
+            match = PNL_RE.search(rest)
+            if match:
+                pnl.append((hms, int(match[1]), int(match[2])))
 
-            s = PREV_PNL_RE.search(rest)
-            if s:
-                prev_pnl.append((hms, int(s[1]), int(s[2])))
+            match = PREV_PNL_RE.search(rest)
+            if match:
+                prev_pnl.append((hms, int(match[1]), int(match[2])))
 
             if lvl in ("WARN", "ERROR"):
                 warns[NUM_RE.sub("N", rest)[:80]] += 1
@@ -260,9 +260,9 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
     add(f"> 손익은 모의(가상) 기준. 로그 `{rel(log_path)}`, 원장 `{csv_path.name}`"
         f"({led.get('n_rows', 0)} 이벤트, {led.get('span', ('', ''))[0][11:19]}~{led.get('span', ('', ''))[1][11:19]}).")
     add("")
-    add(f"> 이 일지는 `scripts/eod_autodoc.py`가 로그·원장에서 자동 생성했다"
+    add(f"> 이 일지는 `scripts/market_close_autodoc.py`가 로그·원장에서 자동 생성했다"
         f"(생성 {datetime.now():%Y-%m-%d %H:%M}). 아래 AUTO 구간은 재실행하면 다시 쓰인다.")
-    add("> 해석·판단이 필요한 자리는 비워 두었다. `/eod-review`로 채운다.")
+    add("> 해석·판단이 필요한 자리는 비워 두었다. `/market-close-review`로 채운다.")
     add("")
     add(AUTO_BEGIN)
     add("")
@@ -336,7 +336,7 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
         cap = f"{won(s['cap'])}원" if s["cap"] else "—"
         add(f"| {i} | {s['at'][:5]} | {s['slots'] or '—'} | {cap} | "
             f"{s['registered'] if s['registered'] is not None else '—'} | "
-            f"{s['regime'] or '—'} | {s['funnel'] or '—'} |")
+            f"{s['regime'] or '—'} | {s['stage_pass'] or '—'} |")
     add("")
     add("> **이 세션에서 무엇을 왜 바꿨나** — 로그로는 알 수 없다. 재기동마다 채워 넣는다.")
     add("")
@@ -489,7 +489,7 @@ def main() -> int:
     compact = ymd.replace("-", "")
     log_path, csv_path = find_files(compact)
 
-    lines = [f"[{datetime.now():%Y-%m-%d %H:%M:%S}] eod_autodoc {ymd}"]
+    lines = [f"[{datetime.now():%Y-%m-%d %H:%M:%S}] market_close_autodoc {ymd}"]
     for l in run_ledger_sync(a.dry_run):
         lines.append("  " + l)
     if csv_path is None:

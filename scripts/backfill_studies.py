@@ -78,9 +78,9 @@ def row_from_meta(sub, *, study_id, strategy, event, window, family="A_portfolio
         **extra)
 
 
-def bh_row_from_meta(sub, *, study_id, window, benchmark="동일가중 매수 후 보유",
-                     strategy="BH", event="동일가중 매수 후 보유", source=""):
-    """벤치(동일가중 매수 후 보유) 기준선 행 — meta의 bench_* 필드로 합성. alpha=0(자기 자신). strategy="BH"는 대시보드 벤치 감지 센티넬(표시는 평이화)."""
+def buy_and_hold_row_from_meta(sub, *, study_id, window, benchmark="동일가중 매수 후 보유",
+                     strategy="BUY_AND_HOLD", event="동일가중 매수 후 보유", source=""):
+    """벤치(동일가중 매수 후 보유) 기준선 행 — meta의 bench_* 필드로 합성. alpha=0(자기 자신). strategy="BUY_AND_HOLD"는 대시보드 벤치 감지 센티넬(표시는 평이화)."""
     return metrics_row(
         study_id=study_id, strategy=strategy, family="A_portfolio", benchmark=benchmark,
         event=event, window=window,
@@ -112,7 +112,7 @@ def build_bt11():
     folder = "11_signal_axes"
     win = "2021-01-01~2024-12-31"
     c1 = load_meta(folder, "cross_momentum_run_meta.json")
-    c3 = load_meta(folder, "donchian_breakout_run_meta.json")
+    c3 = load_meta(folder, "channel_breakout_run_meta.json")
     c4 = load_meta(folder, "mean_reversion_run_meta.json")
 
     def ec(base):   # equity/trades csv repo-relative 경로
@@ -121,7 +121,7 @@ def build_bt11():
 
     rows = []
     # 벤치(동일가중 매수 후 보유) — 세 축 공통 풀이므로 횡단면모멘텀 동일가중(meta key "ew")의 bench_* 하나로 대표
-    rows.append(bh_row_from_meta(c1["ew"], study_id="BT-11", window=win,
+    rows.append(buy_and_hold_row_from_meta(c1["ew"], study_id="BT-11", window=win,
                                  source="11_signal_axes/cross_momentum_run_meta.json"))
     # 횡단면 12-1 모멘텀(회의 코드 C1) — EW(headline) / VA(제거실험)
     e, t = ec("cross_momentum_equalweight")
@@ -136,16 +136,16 @@ def build_bt11():
                               honesty="honest_failure", caveat=CV_COMMON,
                               equity_csv=e, trades_csv=t,
                               source="11_signal_axes/cross_momentum_run_meta.json"))
-    # 20일 채널 돌파(회의 코드 C3, 파일/키 stem: donchian_breakout)
-    e, t = ec("donchian_breakout")
+    # 20일 채널 돌파(회의 코드 C3, 파일/키 stem: channel_breakout)
+    event_meta, table_meta = ec("channel_breakout")
     rows.append(row_from_meta(c3["main"], study_id="BT-11", strategy="채널 돌파",
                               event="20일 채널 돌파(시계열)", window=win,
                               honesty="honest_failure",
                               caveat="2022 홀드아웃에서 매수 후 보유 대비 -10%p 크게 뒤짐(잦은 반전). " + CV_COMMON,
-                              equity_csv=e, trades_csv=t,
-                              source="11_signal_axes/donchian_breakout_run_meta.json"))
+                              equity_csv=event_meta, trades_csv=table_meta,
+                              source="11_signal_axes/channel_breakout_run_meta.json"))
     # 단기 역추세(회의 코드 C4) — A(무필터) / B(눌림 필터)
-    e, t = ec("mean_reversion_nofilter")
+    event_meta, table_meta = ec("mean_reversion_nofilter")
     rows.append(row_from_meta(c4["A"], study_id="BT-11", strategy="단기 역추세(무필터)",
                               event="단기 역추세 · 필터 없음", window=win,
                               honesty="honest_failure", caveat=CV_COMMON,

@@ -1,15 +1,15 @@
 {
-  "eod_timetable": {
+  "market_close_timetable": {
     "paper": [
       {
         "name": "QuantAutoTradeGuard",
         "at": "08:45~ 5분마다, -Until 15:35, 7h",
-        "run": "powershell -File scripts\\eod_timetable.ps1 -Apply"
+        "run": "powershell -File scripts\\market_close_timetable.ps1 -Apply"
       },
       {
-        "name": "Quant EOD AutoDoc",
+        "name": "Quant Market Close AutoDoc",
         "at": "16:05",
-        "run": "py scripts\\eod_autodoc.py"
+        "run": "py scripts\\market_close_autodoc.py"
       },
       {
         "name": "Quant Maintain Daily",
@@ -19,7 +19,7 @@
       {
         "name": "Quant Minute Backfill",
         "at": "16:40",
-        "run": "py scripts\\eod_minute_backfill.py"
+        "run": "py scripts\\market_close_minute_backfill.py"
       },
       {
         "name": "claude_stock_study",
@@ -41,12 +41,12 @@
       {
         "name": "QuantAutoTradeGuard",
         "at": "08:45~ 5분마다, -Until 20:05, 11.5h",
-        "run": "powershell -File scripts\\eod_timetable.ps1 -Apply"
+        "run": "powershell -File scripts\\market_close_timetable.ps1 -Apply"
       },
       {
-        "name": "Quant EOD AutoDoc",
+        "name": "Quant Market Close AutoDoc",
         "at": "20:30",
-        "run": "py scripts\\eod_autodoc.py"
+        "run": "py scripts\\market_close_autodoc.py"
       },
       {
         "name": "Quant Maintain Daily",
@@ -56,7 +56,7 @@
       {
         "name": "Quant Minute Backfill",
         "at": "21:00",
-        "run": "py scripts\\eod_minute_backfill.py"
+        "run": "py scripts\\market_close_minute_backfill.py"
       },
       {
         "name": "claude_stock_study",
@@ -120,12 +120,12 @@
   "strategy_loaders": [],
   "py_strategies": [
     {
-      "name": "CrossMomentumStrategy",
-      "file": "PYQuant/strategy/cross_momentum.py"
+      "name": "ChannelBreakoutStrategy",
+      "file": "PYQuant/strategy/channel_breakout.py"
     },
     {
-      "name": "DonchianBreakoutStrategy",
-      "file": "PYQuant/strategy/donchian_breakout.py"
+      "name": "CrossMomentumStrategy",
+      "file": "PYQuant/strategy/cross_momentum.py"
     },
     {
       "name": "MeanReversionContraryStrategy",
@@ -166,8 +166,8 @@
       "test_data_poller",
       "test_signal_dispatcher",
       "test_bar_aggregator",
-      "test_order_pacer",
-      "test_regime_bridge",
+      "test_order_rate_limiter",
+      "test_regime_file_judge",
       "test_ringbuffer",
       "test_ringbuffer_stress",
       "test_pipeline_stress",
@@ -192,7 +192,7 @@
       "bench_intake",
       "bench_sleep_res",
       "bench_wake_gate",
-      "bench_hot_path",
+      "bench_latency_path",
       "bench_gate_contention",
       "test_account_ledger",
       "test_logger",
@@ -221,8 +221,8 @@
       "test_data_poller",
       "test_signal_dispatcher",
       "test_bar_aggregator",
-      "test_order_pacer",
-      "test_regime_bridge",
+      "test_order_rate_limiter",
+      "test_regime_file_judge",
       "test_ringbuffer",
       "test_ringbuffer_stress",
       "test_pipeline_stress",
@@ -416,20 +416,8 @@
     "us_universe.json"
   ],
   "config_keys": {
-    "top": [
-      "fetch_interval_sec",
-      "kis",
-      "mode",
-      "strategies"
-    ],
-    "strategies": [
-      "eod_exit_hhmm",
-      "exchange",
-      "market",
-      "pbr_max",
-      "quantity",
-      "type"
-    ]
+    "top": [],
+    "strategies": []
   },
   "dir_tree": {
     ".claude": {
@@ -443,8 +431,8 @@
     },
     "docs": {
       "design": {},
-      "eod": {},
       "guides": {},
+      "market_close": {},
       "premarket": {},
       "reports": {}
     },
@@ -466,7 +454,6 @@
       "tools": {}
     },
     "Quant": {
-      "build": {},
       "config": {},
       "include": {},
       "src": {},
@@ -557,7 +544,7 @@
       "start": 855
     },
     {
-      "file": "scripts/eod_autodoc.py",
+      "file": "scripts/market_close_autodoc.py",
       "symbol": "render",
       "lines": 187,
       "start": 245
@@ -578,7 +565,7 @@
       "file": "PYQuant/dashboard/build_dashboard.py",
       "symbol": "render_reviews",
       "lines": 168,
-      "start": 656
+      "start": 657
     },
     {
       "file": "Quant/src/risk/OrderGate.cpp",
@@ -707,7 +694,7 @@
       "start": 1485
     },
     {
-      "file": "scripts/notify_sidecar.py",
+      "file": "scripts/notify_trades.py",
       "symbol": "main",
       "lines": 121,
       "start": 529
@@ -905,7 +892,7 @@
       "start": 672
     },
     {
-      "file": "Quant/include/core/RegimeFileBridge.h",
+      "file": "Quant/include/core/RegimeFileJudge.h",
       "symbol": "step",
       "lines": 85,
       "start": 172

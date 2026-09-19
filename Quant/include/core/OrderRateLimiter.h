@@ -11,7 +11,7 @@
 #include <optional>
 #include <string>
 
-namespace pacing
+namespace order_rate
 {
 enum class Retry
 {
@@ -31,9 +31,9 @@ struct RetryPlan
 //  분당 한도 거부는 창이 비기까지 최대 60초라 20초로 물러난다(1.2초면 3회가 4초 안에 소진돼 같은 드롭이 된다).
 RetryPlan classify(const OrderSignal& signal, int attempts, int max_retries, OrderStatus status,
                    const std::string& reject_reason, std::chrono::milliseconds retry_delay);
-} // namespace pacing
+} // namespace order_rate
 
-class OrderPacer
+class OrderRateLimiter
 {
 public:
     using Clock      = std::chrono::steady_clock;
@@ -51,7 +51,7 @@ public:
         int         attempts = 0; // 이 신호가 이미 KIS에 간 횟수
     };
 
-    OrderPacer(Config config, Clock::time_point now);
+    OrderRateLimiter(Config config, Clock::time_point now);
 
     void set_position(PositionFn fill_notification)
     {

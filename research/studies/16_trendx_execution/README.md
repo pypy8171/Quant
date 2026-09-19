@@ -19,7 +19,7 @@ STRATEGIES.md "검증 필요 가정" 표 #7·#8에 해당한다.
   (a) 기저 대비 짝지은 ΔR > 0 이고 월 시계열 1표본 t의 p < 0.05, (b) 구간을 갈라도 부호가 뒤집히지 않을 것,
   (c) 일봉 4구간 격자에서 2022bear 홀드아웃 단독으로도 악화가 아닐 것. 하나라도 어긋나면 기각 또는 보류.
 - **기저**: 현행 라이브 TRENDX(`Quant/config/config_dev_paper.json`) — entry 5~35 · base_on_price=true ·
-  n_rungs=1 · buy_rungs=0 · dev_sell_pct=3.0 · **stop_loss_pct=2.5** · stop_cooldown_sec=900.
+  split_step_count=1 · buy_split_steps=0 · dev_sell_pct=3.0 · **stop_loss_pct=2.5** · stop_cooldown_sec=900.
   이 config는 읽기만 했고 고치지 않았다.
 - **데이터**: (일봉) `PYQuant/data/bars_all_pit.parquet` 2019-01-02~2026-09-04, 상폐 포함.
   (3분봉) `PYQuant/data/minute/<종목>/<YYYYMMDD>.parquet`을 3분 버킷으로 재표본.
@@ -40,7 +40,7 @@ STRATEGIES.md "검증 필요 가정" 표 #7·#8에 해당한다.
 | 구간 | 2020covid · **2022bear(홀드아웃)** · 2024blackmon · 2026now | 2025-09-11 ~ 2026-05-08 (158일) |
 | 표본 | 게이트 거래 68,966건 / 46개월 | (종목,일) 9,272 · 654종목 / 9개월 |
 | 진입 | 신호 다음날 시가 | 신호 다음 3분봉(지정가·범위 판정) |
-| 청산 | 손절·익절 +3%·20일 보유 | 존 이탈 · 손절 · 익절 rung · 15:15 전량 |
+| 청산 | 손절·익절 +3%·20일 보유 | 존 이탈 · 손절 · 익절 분할 단계 · 15:15 전량 |
 | 재는 것 | 손절 규칙만 바꾼 짝지은 차이 | 손절 폭·진입 시점을 하나씩 바꾼 짝지은 차이 |
 
 - **ATR14** = 참범위 max(H−L, |H−전일C|, |L−전일C|)의 14일 단순평균. 일봉 하네스는 **신호일 종가까지**,

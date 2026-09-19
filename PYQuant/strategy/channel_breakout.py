@@ -1,5 +1,5 @@
 """
-DonchianBreakout — per-stock 시계열(절대) 돌파 추세추종.
+채널 돌파(ChannelBreakout) — per-stock 시계열(절대) 돌파 추세추종.
 
 각 종목 독립 신호. 진입: 종가 ≥ 직전 period일 최고가(당일 미포함, t-1까지). 청산: 종가 ≤ 직전 period일 최저가.
 돌파 상태인 종목을 동일가중 보유하고 청산 신호까지 유지한다. 상태(_in)를 유지하며
@@ -12,7 +12,7 @@ look-ahead 차단: period일 최고/최저는 bars[-(period+1):-1] (직전 perio
 from strategy.base import StrategyBase
 
 
-class DonchianBreakoutStrategy(StrategyBase):
+class ChannelBreakoutStrategy(StrategyBase):
     def __init__(self, period: int = 20, top_n: int = 0):
         super().__init__()
         self.period = period      # 채널 창(거래일)
@@ -21,7 +21,7 @@ class DonchianBreakoutStrategy(StrategyBase):
 
     def id(self) -> str:
         cap = f", top{self.top_n}" if self.top_n else ""
-        return f"DONCHIAN_BREAKOUT (period{self.period}{cap})"
+        return f"CHANNEL_BREAKOUT (period{self.period}{cap})"
 
     def on_start(self, universe):
         return []   # 전 종목 감시

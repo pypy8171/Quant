@@ -149,7 +149,7 @@ def render(spec):
     out.append("")
     stages = spec["stage"]
     for st in stages:
-        out.append(f"- [{st['name']}](#{anchor(st['name'])}) — {len(st.get('step', []))}걸음")
+        out.append(f"- [{st['name']}](#{heading_id(st['name'])}) — {len(st.get('step', []))}걸음")
     out.append("")
 
     by_file = {}
@@ -218,7 +218,7 @@ def render(spec):
     return "\n".join(out) + "\n", errors
 
 
-def anchor(title):
+def heading_id(title):
     # GitHub·VS Code 식 제목 링크 id — 공백은 -, 구두점은 뺀다
     a = title.strip().lower()
     a = re.sub(r"[^\w\s\-가-힣]", "", a)

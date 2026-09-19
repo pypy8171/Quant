@@ -120,9 +120,9 @@ def render(md: str, root_text: str) -> str:
                 out.append("<!--TOC-->")
                 intro_done = True
             heading = line[3:].strip()
-            anchor = "s" + str(len(toc) + 1)
-            toc.append((anchor, heading))
-            out.append(f'<h2 id="{anchor}">{inline(heading)}</h2>')
+            heading_id = "s" + str(len(toc) + 1)
+            toc.append((heading_id, heading))
+            out.append(f'<h2 id="{heading_id}">{inline(heading)}</h2>')
             index += 1
             continue
         if STAMP_RE.match(line):

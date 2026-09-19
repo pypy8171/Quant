@@ -95,7 +95,7 @@ python PYQuant/main.py backtest --strategy momentum --from 2022-01-01 --to 2022-
 ```bash
 # 계열 B — 위기 연구 스크립트가 실행 시 metrics.json 배열 동시 생성(벤치마크×전략)
 python research/studies/08_crisis_response/backtest_crisis_response.py    # → 08_.../metrics.json (14행: 7대응법×2벤치)
-python research/studies/09_crisis_strategies/backtest_crisis_strategies.py # → 09_.../metrics.json (28행: 13전략+BH×2벤치)
+python research/studies/09_crisis_strategies/backtest_crisis_strategies.py # → 09_.../metrics.json (28행: 13전략+매수 후 보유×2벤치)
 #  ※ yfinance 네트워크 필요(^GSPC 1928~/^KS11 1996~). 산출은 quant.metrics/v1, family=B_overlay.
 ```
 

@@ -14,7 +14,7 @@
 행동 옵션은 셋뿐이고 전부 되돌릴 수 있다:
   --prune-branches      main에 들어갔고 worktree가 없는 브랜치를 `git branch -d`
   --archive-handoffs    --handoff-days보다 오래된 인계 파일을 _private/archive/handoff/로 옮긴다
-  --orphan-patch PATH   주인 없는 worktree의 미커밋 변경을 _private/archive/orphans/에 패치로 남긴다(제거는 손으로)
+  --unowned-patch PATH   주인 없는 worktree의 미커밋 변경을 _private/archive/unowned/에 패치로 남긴다(제거는 손으로)
 
 사용:
     py scripts/session_triage.py --live quant-5a,quant-87          # 보고서 stdout
@@ -152,7 +152,7 @@ def section_worktrees(now: dt.datetime, stale_days: float) -> tuple[list[str], l
         elif age > stale_days:
             verdict = f"오래됨(HEAD {age:.0f}일 전)"
         if dirty and verdict.startswith("주인 없음"):
-            actions.append(f"주인 없는 worktree {path}에 미커밋 {len(dirty)}건 — `--orphan-patch {path}`로 패치 보관 뒤 `git worktree remove --force`")
+            actions.append(f"주인 없는 worktree {path}에 미커밋 {len(dirty)}건 — `--unowned-patch {path}`로 패치 보관 뒤 `git worktree remove --force`")
         elif verdict.startswith("주인 없음"):
             actions.append(f"주인 없는 worktree {path} — `git worktree remove {path}`")
         if behind > 0 and verdict == "진행":
@@ -316,8 +316,8 @@ def archive_handoffs(files: list[Path], now: dt.datetime) -> list[str]:
     return out
 
 
-def orphan_patch(path: Path, now: dt.datetime) -> list[str]:
-    dest = PRIVATE / "archive" / "orphans"
+def unowned_patch(path: Path, now: dt.datetime) -> list[str]:
+    dest = PRIVATE / "archive" / "unowned"
     dest.mkdir(parents=True, exist_ok=True)
     name = f"{path.name}_{now.strftime('%Y-%m-%d_%H%M')}"
     head = git("rev-parse", "--short", "HEAD", cwd=path)
@@ -337,7 +337,7 @@ def main() -> int:
     ap.add_argument("--handoff-days", type=float, default=1.0, help="인계 파일이 이 일수보다 오래되면 보관 후보")
     ap.add_argument("--prune-branches", action="store_true")
     ap.add_argument("--archive-handoffs", action="store_true")
-    ap.add_argument("--orphan-patch", metavar="PATH")
+    ap.add_argument("--unowned-patch", metavar="PATH")
     a = ap.parse_args()
 
     now = dt.datetime.now().astimezone()
@@ -371,8 +371,8 @@ def main() -> int:
         done_lines += prune_branches(prunable)
     if a.archive_handoffs and old_handoffs:
         done_lines += archive_handoffs(old_handoffs, now)
-    if a.orphan_patch:
-        done_lines += orphan_patch(Path(a.orphan_patch), now)
+    if a.unowned_patch:
+        done_lines += unowned_patch(Path(a.unowned_patch), now)
     if done_lines:
         report.extend(["## 실행한 행동", *done_lines, ""])
 

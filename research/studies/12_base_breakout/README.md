@@ -253,7 +253,7 @@ episode 6개(2018Q4·2019H2·2020COVID·2022H1·2022Q4·2024Q4)다.
 |---|---|---|
 | 시가 일괄 진입 불가 | `Quant/src/core/Engine.cpp:1931` | 시간창이 09:00~15:30뿐이라 동시호가 구간에 스레드가 잠든다. `ORD_DVSN`도 지정가·시장가 둘뿐 |
 | 동시보유 상한 | `Quant/src/risk/OrderGate.cpp:330` | `max_concurrent_positions = 25`. 26번째부터 거부 |
-| 무손절을 깨는 경로 4개 | `Engine.cpp:1599`·`Engine.cpp:1637`·`StrategyFactory.cpp:405`·`StrategyFactory.cpp:154` | FORCE_LIQ·LIMIT_TRIM·guardian 2% 트레일·장 마감 청산 |
+| 무손절을 깨는 경로 4개 | `Engine.cpp:1599`·`Engine.cpp:1637`·`StrategyFactory.cpp:405`·`StrategyFactory.cpp:154` | FORCE_LIQ·LIMIT_TRIM·청산 관리 2% 트레일·장 마감 청산 |
 | 보유일수 개념 부재 | `Quant/src/risk/OrderGate.cpp:753` | 재기동 시 `opened_at_`에 `now - 24h`를 찍어 모든 보유가 즉시 교체 후보가 된다 |
 | 파는 축과 사는 축 분리 | `Quant/src/core/Engine.cpp:120` | `RegimeController`는 청산 권한이 없고, 청산은 `regime.json` 보조 프로세스만 낸다. 입력이 서로 소인수다 |
 

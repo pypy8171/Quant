@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""교체·슬롯거부 가정 비교(counterfactual) 추출기.
+"""교체·슬롯거부 가정 비교(가정 비교) 추출기.
 
 엔진 로그만 읽어 두 가지 자연실험 표본을 만든다. 코드 재빌드가 필요 없고,
 이미 지나간 날짜도 로그가 남아 있으면 소급해서 뽑을 수 있다.
@@ -12,10 +12,10 @@
 가격은 로그에 흩어진 "현재가=" 관측으로 티커별 타임라인을 만들어 이벤트 시각에
 가장 가까운 값을 붙인다(TOL_SEC 이내). 사후 가격은 네이버 벌크 시세로 받는다.
 
-  py scripts/extract_swap_counterfactual.py [--date 2026-09-08] [--no-fetch]
+  py scripts/extract_swap_what_if.py [--date 2026-09-08] [--no-fetch]
 
-산출: research/runs/swap_counterfactual/<date>_displace.csv
-      research/runs/swap_counterfactual/<date>_rejects.csv
+산출: research/runs/swap_what_if/<date>_displace.csv
+      research/runs/swap_what_if/<date>_rejects.csv
 """
 import argparse
 import bisect
@@ -33,7 +33,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_LOG = os.path.join(ROOT, 'Quant', 'build_win', 'logs', 'quant_trader.log')
 sys.path.insert(0, os.path.join(ROOT, 'scripts'))
 import _logdir  # noqa: E402
-OUTDIR = os.path.join(ROOT, 'research', 'runs', 'swap_counterfactual')
+OUTDIR = os.path.join(ROOT, 'research', 'runs', 'swap_what_if')
 TOL_SEC = 180          # 이벤트 시각과 가격 관측 사이 허용 간격
 CHUNK = 100
 UA = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.naver.com/'}

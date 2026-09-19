@@ -124,7 +124,7 @@ TRADE 모드의 데이터 흐름:
 
 **데이터 변환**: KIS REST JSON `output2[i]`의 `stck_clpr/oprc/hgpr/lwpr/acml_vol`(문자열) → `std::stod/stoll` → `MarketData{close,open,high,low,volume, timestamp=now, bar_index}` (`KisClient.cpp::get_daily_ohlcv`). `timestamp`는 거래소 체결시각이 아니라 **REST 응답 처리 시각**임에 주의 (`Types.h::MarketData`).
 
-### 4.1 ★버그: get_daily_ohlcv 날짜 하드코딩 → 모의서버 HTTP 500 → 전략 굶음
+### 4.1 ★버그: get_daily_ohlcv 날짜 하드코딩 → 모의서버 HTTP 500 → 전략 밀림
 `get_daily_ohlcv()`의 URL이 `FID_INPUT_DATE_1=19000101` … `FID_INPUT_DATE_2=99991231`로 **하드코딩**되어 있다 (`KisClient.cpp::get_daily_ohlcv`):
 
 ```cpp
@@ -132,7 +132,7 @@ TRADE 모드의 데이터 흐름:
 "&FID_INPUT_DATE_2=99991231" + "&FID_PERIOD_DIV_CODE=D" + "&FID_ORG_ADJ_PRC=0";
 ```
 
-- **왜 문제인가**: `inquire-daily-itemchartprice`(TR `FHKST03010100`)는 조회 구간을 합리적 범위(보통 ~100일 이내)로 기대한다. 1900~9999년 전 구간을 요청하면 서버가 처리하지 못해 HTTP 500 또는 빈 `output2`를 반환한다. `http_get`이 빈 문자열/에러를 돌려주면 `get_daily_ohlcv`는 빈 벡터를 반환하고(`KisClient.cpp::get_daily_ohlcv`), DataThread는 `bars.empty()`에서 continue → **market_queue_에 아무것도 push되지 않는다** (`Engine.cpp::data_thread_fn`). 결과적으로 StrategyThread의 `on_data`가 호출되지 않아 MACross 같은 일봉 기반 전략이 **신호를 전혀 내지 못한다**(입력이 굶음).
+- **왜 문제인가**: `inquire-daily-itemchartprice`(TR `FHKST03010100`)는 조회 구간을 합리적 범위(보통 ~100일 이내)로 기대한다. 1900~9999년 전 구간을 요청하면 서버가 처리하지 못해 HTTP 500 또는 빈 `output2`를 반환한다. `http_get`이 빈 문자열/에러를 돌려주면 `get_daily_ohlcv`는 빈 벡터를 반환하고(`KisClient.cpp::get_daily_ohlcv`), DataThread는 `bars.empty()`에서 continue → **market_queue_에 아무것도 push되지 않는다** (`Engine.cpp::data_thread_fn`). 결과적으로 StrategyThread의 `on_data`가 호출되지 않아 MACross 같은 일봉 기반 전략이 **신호를 전혀 내지 못한다**(입력이 밀림).
 - **올바른 값**: 같은 파일의 `get_index_daily_ohlcv`가 쓰는 방식처럼 `DATE_2 = 오늘(KST)`, `DATE_1 = 오늘 - N일`로 유한 구간을 넣어야 한다 (참조 패턴: `KisClient.cpp::get_index_daily_ohlcv`의 `format_date(end_t)` / `end_t - kWindowDays*86400`). count봉을 채우려면 페이지네이션도 함께 필요.
 
 ### 4.2 부차 문제: count=1 폴링과 일봉 반복

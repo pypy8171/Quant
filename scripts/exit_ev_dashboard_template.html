@@ -177,9 +177,9 @@ tr.detail > td { white-space: normal; background: var(--ground); padding: 14px 1
   <h2>4. 읽는 법</h2>
   <ul class="notes">
     <li><b>판정 규칙</b>(사전등록, README 1절): 구간 A(09-08~10)와 B(09-11~18) <b>둘 다</b> 수익률 CI가 0 위면 "기대값 양수", 둘 다 아래면 "기대값 음수", 아니면 "보류". 어느 구간이든 거래일 3일 미만이면 판정불가.</li>
-    <li><b>판정 제외</b>는 숫자가 없다는 뜻이 아니다 — 익절·손절·본전탈출은 규칙이 부호를 정하므로 크기와 빈도만 보고, DISPLACE·ORPHAN은 전략이 아니라 운영이라 규칙 평가를 안 한다. 펼치면 근거는 다 보인다.</li>
+    <li><b>판정 제외</b>는 숫자가 없다는 뜻이 아니다 — 익절·손절·본전탈출은 규칙이 부호를 정하므로 크기와 빈도만 보고, DISPLACE·UNLINKED(옛 이름 ORPHAN)은 전략이 아니라 운영이라 규칙 평가를 안 한다. 펼치면 근거는 다 보인다.</li>
     <li><b>안 잘랐으면 어땠나</b>는 이 표에 없다. 장마감·seed-trail이 손실이라는 것과 그 규칙이 나빴다는 것은 다른 말이고, 가르려면 가격 경로 리플레이(study 16)가 필요하다.</li>
-    <li>ORPHAN은 매수 이력이 없는 종목(재기동 뒤 승계 등)의 청산이라 어느 전략 탓인지 모른다. 평단 미상(pnl=0) 레그 <span id="unknownNote"></span>건은 표에서 뺐다.</li>
+    <li>UNLINKED(옛 이름 ORPHAN)는 매수 이력이 없는 종목(재기동 뒤 승계 등)의 청산이라 어느 전략 탓인지 모른다. 평단 미상(pnl=0) 레그 <span id="unknownNote"></span>건은 표에서 뺐다.</li>
     <li>재현: <code>py scripts/exit_ev.py</code>(표·TSV·RESULT.md) → <code>py scripts/exit_ev_dashboard.py</code>(이 화면). 정본 <code>research/studies/17_exit_ev/README.md</code>. 매일 장 마감 뒤 <code>scripts/refresh_dashboard.py</code>가 다시 만들고 <code>/dashboard-sync</code>가 같은 주소로 재발행한다.</li>
   </ul>
   </div>
@@ -196,7 +196,7 @@ tr.detail > td { white-space: normal; background: var(--ground); padding: 14px 1
   <ul class="notes">
     <li><b>정배열 + 이격 존</b>: 일봉 추세(정배열)가 살아 있는 종목만 고르고, 그 안에서 "얼마나 늘어났나/눌렸나"(이격)로 진입 시점을 정한다. 추세 없는 종목의 되돌림은 되돌림이 아니라 하락이라서 그렇다(D-022).</li>
     <li><b>DEVSCALE은 손절이 없고 TRENDX는 있다</b>: 눌림 매수는 SMA 아래에서 사므로 존 이탈(정배열 깨짐)이 손절 역할을 한다. 추세 확장 매수는 고점 근처에서 사므로 평단 −2.5% 하드스탑을 두었다(D-053, 09-11 적용). 그 전후(구간 A|B) 차이가 왼쪽 탭의 판정 근거다.</li>
-    <li><b>단계 매도(rungs)</b>: 한 번에 다 팔지 않고 +dev_sell_pct 간격으로 나눠 판다 — 되돌림이 더 갈 때 일부를 남기고, 안 갈 때 일부라도 챙긴다(D-036).</li>
+    <li><b>단계 매도(분할 단계)</b>: 한 번에 다 팔지 않고 +dev_sell_pct 간격으로 나눠 판다 — 되돌림이 더 갈 때 일부를 남기고, 안 갈 때 일부라도 챙긴다(D-036).</li>
     <li><b>먼지·재진입 쿨다운</b>: 잔량이 남아 슬롯을 잡는 것과 같은 종목을 몇 분 간격으로 사고파는 것을 막는 운영 규칙. 매매비용이 실현손익의 6배였던 실측(09-18)이 근거다.</li>
     <li><b>ITB 승계분 관리</b>: 재기동 뒤 넘어온 보유분은 매수 근거를 모르므로 신호로 다루지 않고 평단 기준 트레일·본전탈출·하드스탑으로만 정리한다. 이 묶음의 seed-trail이 왼쪽 탭에서 유일한 "보류"다.</li>
     <li>정본: <code>Quant/include/strategy/DeviationScaleStrategy.h</code> 설계 주석, <code>docs/STRATEGIES.md</code>, <code>strategies/DeviationScale/EVOLUTION.md</code>, 결정 D-022·D-036·D-053·D-064·D-081.</li>
@@ -204,7 +204,7 @@ tr.detail > td { white-space: normal; background: var(--ground); padding: 14px 1
   </div>
 
   <div class="tab-panel" data-panel="backtest" hidden>
-  <h2>1. 스터디 한눈에 <small>research/studies/**/metrics.json(quant.metrics/v1) · 벤치마크(BH) 행은 비교 기준</small></h2>
+  <h2>1. 스터디 한눈에 <small>research/studies/**/metrics.json(quant.metrics/v1) · 벤치마크(매수 후 보유) 행은 비교 기준</small></h2>
   <div class="tiles" id="btTiles"></div>
   <div class="table-wrap">
     <table id="btSummary">
@@ -273,7 +273,7 @@ tr.detail > td { white-space: normal; background: var(--ground); padding: 14px 1
 
   // 2. 날짜별 쌓은 막대
   (function drawDaily() {
-    const famColors = {TRENDX: "#245c63", DEVSCALE: "#7fa8ad", ITB: "#b8412d", DISPLACE: "#8a6a1c", ORPHAN: "#7c848c"};
+    const famColors = {TRENDX: "#245c63", DEVSCALE: "#7fa8ad", ITB: "#b8412d", DISPLACE: "#8a6a1c", ORPHAN: "#7c848c", UNLINKED: "#7c848c"};
     const other = "#c9c5bb";
     const fams = D.families.map(f => f.family);
     const W = 900, H = 300, padL = 70, padR = 16, padT = 16, padB = 40;
@@ -422,7 +422,7 @@ tr.detail > td { white-space: normal; background: var(--ground); padding: 14px 1
     `<tr><td><b>${esc(s.study_id)}</b> ${esc(s.name)}<div class="ci">${esc(s.folder)}</div></td><td>${esc(s.family)}</td><td class="r num">${s.n_rows}</td><td class="r num">${s.alpha_positive}/${s.n_rows}</td><td class="r">${pctR(s.alpha_median)}</td><td class="r num">${num(s.sharpe_median)}</td><td class="r">${mddR(s.mdd_median)}</td><td class="wrap ci">${s.windows.map(esc).join(" · ")}</td></tr>`).join("");
   document.getElementById("btStudies").innerHTML = B.studies.map(s => {
     const rows = s.rows.map(r => {
-      const bench = r.strategy === "BH";
+      const bench = r.strategy === "BH" || r.strategy === "BUY_AND_HOLD";
       const flags = [r.oos_flag ? "OOS" : "", r.holdout_flag ? "홀드아웃" : ""].filter(Boolean).join(" ");
       const label = bench ? `<span class="ci">벤치마크</span>` : `<span class="pill ${esc(r.honesty_label || "unlabeled")}">${esc(r.honesty_label || "unlabeled")}</span>`;
       return `<tr${bench ? ' style="color:var(--ink-3)"' : ""}><td><b>${esc(r.strategy)}</b>${r.label ? ` ${esc(r.label)}` : ""}<div class="ci">${esc(r.event || "")} ${esc(r.window || "")} ${flags}</div>${r.caveat ? `<div class="ci wrap">${esc(r.caveat)}</div>` : ""}</td>

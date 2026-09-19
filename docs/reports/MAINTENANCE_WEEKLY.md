@@ -125,18 +125,18 @@
 | `PYQuant/dashboard/build_dashboard.py` | 40 | 1126 | 4% |
 | `PYQuant/kis/client.py` | 26 | 747 | 3% |
 | `scripts/check_backtest.py` | 5 | 144 | 3% |
-| `scripts/eod_autodoc.py` | 15 | 438 | 3% |
-| `scripts/eod_collect.py` | 8 | 235 | 3% |
+| `scripts/market_close_autodoc.py` | 15 | 438 | 3% |
+| `scripts/market_close_collect.py` | 8 | 235 | 3% |
 | `scripts/check_docs.py` | 5 | 150 | 3% |
 | `PYQuant/main.py` | 19 | 585 | 3% |
-| `scripts/notify_sidecar.py` | 21 | 653 | 3% |
+| `scripts/notify_trades.py` | 21 | 653 | 3% |
 | `scripts/check_code_conventions.py` | 6 | 190 | 3% |
 | `PYQuant/backtest/report.py` | 9 | 289 | 3% |
 | `PYQuant/tools/check_kis_investor.py` | 2 | 67 | 3% |
 | `PYQuant/db/client.py` | 12 | 409 | 3% |
 | `PYQuant/tools/pit_universe_backfill.py` | 3 | 105 | 3% |
 | `scripts/gen_facts.py` | 12 | 473 | 3% |
-| `scripts/extract_swap_counterfactual.py` | 5 | 219 | 2% |
+| `scripts/extract_swap_what_if.py` | 5 | 219 | 2% |
 | `PYQuant/tools/check_investor_api.py` | 4 | 176 | 2% |
 | `PYQuant/tools/minute_backfill.py` | 5 | 226 | 2% |
 | `scripts/refresh_dashboard.py` | 4 | 186 | 2% |
@@ -150,7 +150,7 @@
 | `PYQuant/tools/index_intraday_logger.py` | 4 | 216 | 2% |
 | `PYQuant/strategy/supply_demand_rank.py` | 1 | 55 | 2% |
 | `PYQuant/tools/full_universe_dump.py` | 2 | 111 | 2% |
-| `PYQuant/strategy/donchian_breakout.py` | 1 | 56 | 2% |
+| `PYQuant/strategy/channel_breakout.py` | 1 | 56 | 2% |
 | `PYQuant/tests/test_adjust_splits.py` | 1 | 57 | 2% |
 | `PYQuant/tools/check_adjusted.py` | 1 | 69 | 1% |
 | `PYQuant/tools/investor_flow_logger.py` | 3 | 213 | 1% |
@@ -167,7 +167,7 @@
 | `PYQuant/data/asof.py` | 0 | 8 | 0% |
 | `PYQuant/live/trader.py` | 0 | 73 | 0% |
 | `PYQuant/strategy/indicators.py` | 0 | 34 | 0% |
-| `PYQuant/tools/ablation_2022.py` | 0 | 68 | 0% |
+| `PYQuant/tools/regime_removal_test_2022.py` | 0 | 68 | 0% |
 | `PYQuant/tools/check_pykrx.py` | 0 | 28 | 0% |
 | `PYQuant/tools/fullperiod_validate.py` | 0 | 56 | 0% |
 | `PYQuant/tools/nxt_divergence_check.py` | 0 | 138 | 0% |
@@ -385,7 +385,7 @@
 | `Stop` | `.claude/hooks/output-gate.ps1` | 있음 |
 | `Stop` | `.claude/hooks/review-reminder.ps1` | 있음 |
 | `Stop` | `.claude/hooks/dashboard-refresh.ps1` | 있음 |
-| `SessionStart` | `.claude/hooks/eod-gate.ps1` | 있음 |
+| `SessionStart` | `.claude/hooks/market-close-gate.ps1` | 있음 |
 | `SessionStart` | `.claude/hooks/cron-gate.ps1` | 있음 |
 
 | 훅 파일 | 배선 | BOM UTF-8 |
@@ -393,7 +393,7 @@
 | `cron-gate.ps1` | 됨 | 예 |
 | `dashboard-refresh.ps1` | 됨 | 예 |
 | `docs-gate.ps1` | 됨 | 예 |
-| `eod-gate.ps1` | 됨 | 예 |
+| `market-close-gate.ps1` | 됨 | 예 |
 | `lexicon-gate.ps1` | 됨 | 예 |
 | `output-gate.ps1` | 됨 | 예 |
 | `review-reminder.ps1` | 됨 | 예 |

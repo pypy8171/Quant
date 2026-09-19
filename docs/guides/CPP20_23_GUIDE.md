@@ -277,7 +277,7 @@ s.ends_with(".json")
 s.contains("한도")            // s.find("한도") != std::string::npos   (C++23)
 ```
 
-`std::string`·`std::string_view` 둘 다 있다. `Quant/include/risk/GateReasons.h`, `Quant/src/core/OrderPacer.cpp`,
+`std::string`·`std::string_view` 둘 다 있다. `Quant/include/risk/GateReasons.h`, `Quant/src/core/OrderRateLimiter.cpp`,
 `Quant/src/api/KisTransport.cpp`의 16곳.
 
 로그에 응답 앞 200자만 남길 때 `resp.substr(0, 200)`은 새 문자열을 만든다. `std::string_view(resp).substr(0, 200)`은
@@ -415,7 +415,7 @@ auto total = fetch_page(1).and_then(merge_next).transform(to_summary).or_else(lo
 예전 봉투는 실패 상태에서 `r->holdings`가 기본 생성값(빈 벡터)을 돌려줬지만 `expected`에서는 정의되지 않는다.
 호출부 9곳은 전부 `if (!bal) { ...; return; }` 뒤에서만 값을 읽고 있었고, `test_kis_decode`의 그 검사 한 줄만 지웠다.
 
-`std::optional`에도 C++23에서 같은 `transform/and_then/or_else`가 들어왔다. `Quant/include/core/RegimeFileBridge.h`의
+`std::optional`에도 C++23에서 같은 `transform/and_then/or_else`가 들어왔다. `Quant/include/core/RegimeFileJudge.h`의
 `std::optional<bool> entry_halt`를 `if (o.entry_halt) gate.set_entry_halt(*o.entry_halt)` 대신
 `o.entry_halt.transform(apply_halt)`(람다 `apply_halt`가 `gate.set_entry_halt(v)`를 부른다)로 쓸 수 있으나 가독성 이득이 작아 강제하지 않는다.
 

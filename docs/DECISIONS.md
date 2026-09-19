@@ -60,7 +60,7 @@
 |---|---|
 | `sma_period` 20→5 축소 | 기각. 신봉 1개당 기여가 4배 커져 데드밴드를 매 봉 넘긴다. 취소–재주문 처닝이 재현된다(08-10 458210 접수 196·취소 183, 09-03 거부 87건이 같은 실패 모드) |
 | `interval_min` 3→1 | 기각. 버킷 플립이 하루 종일 3배가 되어 REST 부하가 늘고, 기준선 성격은 성격대로 바뀐다 |
-| 전일 분봉으로 SMA 시딩 | 기각. 데이터는 확보 가능하나(아래 D-004) 기준점이 전일 종가대에 고정된다. 갭 3%면 매도 rung이 전부 현재가 아래로 깔려 지정가 매도가 투매가 된다. 봉당 갭/20씩만 수렴 |
+| 전일 분봉으로 SMA 시딩 | 기각. 데이터는 확보 가능하나(아래 D-004) 기준점이 전일 종가대에 고정된다. 갭 3%면 매도 분할 단계가 전부 현재가 아래로 깔려 지정가 매도가 투매가 된다. 봉당 갭/20씩만 수렴 |
 | 당일 시가로 패딩한 합성 SMA20 | 기각. 갭은 흡수되지만 실재하지 않는 통계량을 만들어 쓴다. 아래 채택안이 실재 확정값을 쓰므로 이걸 택할 이유가 없다 |
 | **일봉 기준점 → 3분봉 전환** | **채택 후보.** 09:00 시점에 일봉SMA20은 이미 확정돼 있고 당일 일봉(시가·고저·현재가)은 실시간이다. 합성이 필요 없다 |
 
@@ -69,7 +69,7 @@
 
 **남은 위험**
 - 일봉 기준점에 `dev_sell_pct=1.5`를 그대로 쓰면 안 된다. 존 게이트가 일봉SMA20 대비 −8%~+5%를 허용하므로,
-  현재가가 기준점 위 3%인 정상 상태에서 매도 rung이 현재가 아래로 깔린다. 개장용 밴드는 별도 파라미터가 필요하다.
+  현재가가 기준점 위 3%인 정상 상태에서 매도 분할 단계가 현재가 아래로 깔린다. 개장용 밴드는 별도 파라미터가 필요하다.
 - 일봉 스냅샷 자체가 오염돼 있다(D-005). 새 안은 이 값을 분할 매수 가격 결정에 직접 쓰므로 영향이 커진다.
 - 개장 구간 수익성은 이 저장소에서 측정된 적이 없다. 스터디 11개가 전부 일봉이고 장중 백테스트 하네스가 없다.
   현 단계에서 주장 가능한 것은 "엣지를 추가한다"가 아니라 **"미정의 구간을 정의해 계측 가능하게 만든다"**까지다.
@@ -175,9 +175,9 @@ SMA20에 1/20 가중으로 들어간다는 뜻이다. 추정이 아니라 실측
 **결정**: 분할 매수 기준점을 방향별로 현재가 쪽으로 클램프한다.
 매도 밴드는 `max(sma, 현재가)`, 매수 밴드는 `min(sma, 현재가)`를 기준으로 층을 깐다.
 베이스 매수는 기준선이 현재가 이상이면 현재가 한 틱 아래로 옮긴다.
-스위치는 `ladder_cross_guard`(기본 true).
+스위치는 `split_buy_cross_guard`(기본 true).
 
-**배경**: 분할 매수 구성부에 rung 가격과 현재가를 비교하는 코드가 없었다.
+**배경**: 분할 매수 구성부에 분할 단계 가격과 현재가를 비교하는 코드가 없었다.
 기준선이 현재가에서 멀어지면 한쪽 밴드 전체가 현재가를 넘어가 지정가가 아니라 즉시 체결되는
 시장가가 된다. 08-12 로그에서 존 활성 상태의 이격이 16~25%까지 벌어진 표본이 있다.
 
@@ -286,7 +286,7 @@ SMA20에 1/20 가중으로 들어간다는 뜻이다. 추정이 아니라 실측
 
 **호출 예산**: 하루 1종목 = 4콜. 40종목 × 246일 ≈ 39,000콜, 약 90분.
 장중에는 모의 키가 아니라 실계좌 키로 돌린다 — 초당 한도는 app_key별이라
-같은 키를 쓰면 매매 중인 트레이더의 시세 조회를 굶긴다.
+같은 키를 쓰면 매매 중인 트레이더의 시세 조회를 밀리게 한다.
 
 ---
 
@@ -394,7 +394,7 @@ P(존)=0.521, P(정배열)=0.253, P(둘다)=0.058. 독립이면 0.132여야 하�
 | `--top-n`을 거래대금순으로 재정렬 | 기각. 순서를 바꿔도 "무엇이 그날 후보였나"는 여전히 못 고른다. `--pairs`가 상위 호환 |
 
 **검증**: PIT 전량 재생성(`--market ALL --force`) 246일, 미래정보거부 0, 최신일 275종목(KOSDAQ 146 / KOSPI 129).
-`--pairs` JSONL·JSON 양식 스모크 통과. **C++ 빌드는 아직 안 했다.** 라이브 `universe_scan.json`에
+`--pairs` JSONL·JSON 양식 기동 점검 통과. **C++ 빌드는 아직 안 했다.** 라이브 `universe_scan.json`에
 아직 `market_map`이 없으므로 현재는 하위호환 경로로 동작한다.
 
 **남은 위험**: `market_map`은 스냅샷 시점의 사전이다. 신규 상장·이전 상장 직후 며칠은 `UNKNOWN`으로 떨어져
@@ -862,8 +862,8 @@ BUY NEW 신호 → 슬롯 꽉참? → 보유분 중 점수 최저(z) 찾기
 
 **날짜**: 2026-09-07
 
-**결정**: 장 마감 뒤 그날 매매를 정리하는 경로를 `scripts/eod_autodoc.py` 하나로 만들고,
-Windows 작업 스케줄러(`Quant EOD AutoDoc`, 평일 16:05)에 등록했다. 이 스크립트는 로그·원장에서
+**결정**: 장 마감 뒤 그날 매매를 정리하는 경로를 `scripts/market_close_autodoc.py` 하나로 만들고,
+Windows 작업 스케줄러(`Quant Market Close AutoDoc`, 평일 16:05)에 등록했다. 이 스크립트는 로그·원장에서
 뽑을 수 있는 사실만 채워 `strategies/DeviationScale/live/YYYY-MM-DD.md`를 만들고,
 이어서 `backfill_live.py`·`build_dashboard.py`를 돌려 대시보드를 갱신한다.
 
@@ -879,7 +879,7 @@ Windows 작업 스케줄러(`Quant EOD AutoDoc`, 평일 16:05)에 등록했다. 
 | 대안 | 판단 |
 |---|---|
 | Claude 크론 유지 | 기각. 세션 의존·7일 만료. 지금 뒤처진 원인 그 자체다 |
-| 전부 LLM에 맡김(`/eod-review`만) | 기각. 매일 사람이 세션을 띄워야 하고 토큰도 든다 |
+| 전부 LLM에 맡김(`/market-close-review`만) | 기각. 매일 사람이 세션을 띄워야 하고 토큰도 든다 |
 | 전부 스크립트로(서술까지) | 기각. "왜 바꿨나"는 로그에 없다. 기계가 지어내면 일지가 못 쓰게 된다 |
 | **사실은 스크립트, 해석은 LLM** | **채택.** 스크립트가 AUTO 구간을 채우고 이슈·판단은 빈 칸으로 남긴다 |
 
@@ -1029,11 +1029,11 @@ CLAUDE.md와 DEFERRED_ISSUES D-15를 같이 고쳤다.
 ### D-025 한 종목의 청산 소유권은 하나만 갖는다 (2026-09-08)
 **상태**: 채택
 **원장**: 국면 게이트(`is_active()`)가 틱 경로에서 아무것도 막지 않고 있었다.
-**결정**: 청산 관리가 붙은 티커는 스캔 슬리브의 신규매수 대상에서 뺀다(`Engine::mark_guardian_ticker`).
+**결정**: 청산 관리가 붙은 티커는 스캔 슬리브의 신규매수 대상에서 뺀다(`Engine::mark_exit_managed_ticker`).
 전략 디스패치에 게이트를 실제로 걸되, 막는 것은 **신규 매수뿐**이다 — 매도·취소·정정은 통과한다.
 `OrderGate::set_entry_halt`와 같은 규약이다.
 
-**배경**: `attach_holding_guardians()`가 중복을 거르는 `covered` 집합은 기동 시점에만 채워진다.
+**배경**: `attach_holding_exit_managers()`가 중복을 거르는 `covered` 집합은 기동 시점에만 채워진다.
 주기 재스캔이 나중에 추가한 티커는 여기에 없어, 청산 전용 청산 관리와 진입용 스캔 전략이 같은
 종목에 동시에 붙었다. 한쪽이 턴 물량을 다른 쪽이 곧바로 되사서 수수료만 나갔다.
 게이트 쪽은 더 단순한 문제였다 — `strategy_thread_fn`이 `strategies_` 전체로 스냅샷을 만들어
@@ -1307,7 +1307,7 @@ USD/KRW는 동일 세션이라 종가를 쓰면 그날 09:00 게이트에 미래
 표식 파일 생성. 해제는 30분 유지 시간 뒤부터 로그 `재스캔 이탈 해제`로 나타난다.
 
 **같이 바꾼 것**: `Quant/config/config_dev_paper.json` `max_concurrent_positions` 25 → 40(유니버스
-크기와 맞춤, 사용자 승인). `eod_exit_hhmm` 1600은 그대로다 — 값을 정하지 않았다.
+크기와 맞춤, 사용자 승인). `market_close_exit_hhmm` 1600은 그대로다 — 값을 정하지 않았다.
 
 
 ### D-035 재기동 직후 한도 거부는 호출을 줄여서 막고, 취소할 것이 없는 취소는 거부로 세지 않는다 (2026-09-11)
@@ -1321,7 +1321,7 @@ USD/KRW는 동일 세션이라 종가를 쓰면 그날 09:00 게이트에 미래
    `OrderRouter::kis_calls()` 누적 카운터를 submit 전후로 비교한다. 게이트·ENTRY_HALT의 로컬 거부는
    한도와 무관하다.
 3. 전략이 신규매수 차단(`OrderGate::is_entry_halted`)을 계획 단계에서 읽는다(`StrategyBase::entry_halted`).
-   DevScale은 차단 중 매수 rung을 걷고 풀리면 시그니처가 바뀌어 다시 깐다. 차단이 켜지면 살아 있던
+   DevScale은 차단 중 매수 분할 단계를 걷고 풀리면 시그니처가 바뀌어 다시 깐다. 차단이 켜지면 살아 있던
    매수 예약도 취소된다 — 이 부수효과는 D-033 체류가 떨림을 막는 것으로 받는다.
 4. `scan_itb`의 코스피 게이트도 `latch_risk_off`를 쓴다. 래치는 ITB 전용(`g_itb_kospi_latch`)이라 DevScale
    판정과 섞이지 않는다. 기본값은 재개 임계=차단 임계·체류 0으로 옛 동작과 같다 — 값을 가르는 것은
@@ -1329,7 +1329,7 @@ USD/KRW는 동일 세션이라 종가를 쓰면 그날 09:00 게이트에 미래
 5. 미체결 부속 파일(`open_orders.txt`)은 기동 때 비우지 않는다. 읽은 줄을 `carry_rows_`에 들고
    스냅샷마다 이번 세션 줄과 합쳐 쓰고, 취소가 접수되거나 이미 종료로 확인된 줄만 뺀다. 한도 거부로
    남긴 줄·취소를 마치기 전에 죽은 줄이 다음 재기동에 그대로 넘어간다.
-6. 취소 대상이 없는 취소 요청(거부된 rung·이미 취소·이력 없음)은 `REJECTED`가 아니라 `CANCELLED`로
+6. 취소 대상이 없는 취소 요청(거부된 분할 단계·이미 취소·이력 없음)은 `REJECTED`가 아니라 `CANCELLED`로
    닫는다. 로그는 INFO `취소 불요`, 거부 통계에 안 들어간다. 체결 흔적이 있는 경우만 WARN과
    신규매수 보류(`cancel_miss_`)를 유지한다.
 
@@ -1343,7 +1343,7 @@ USD/KRW는 동일 세션이라 종가를 쓰면 그날 09:00 게이트에 미래
 
 | 안 | 판정 |
 |---|---|
-| 토큰버킷 우선순위를 `/trading/order`로 좁혀 잔고 조회가 주문을 굶기지 않게 | 보류. 호출 수 자체를 줄이는 1이 먼저고, 그 뒤 잔량이 남으면 본다 |
+| 토큰버킷 우선순위를 `/trading/order`로 좁혀 잔고 조회가 주문을 밀리게 하지 않게 | 보류. 호출 수 자체를 줄이는 1이 먼저고, 그 뒤 잔량이 남으면 본다 |
 | 재기동 시 전략별 기준 봉 인덱스 복원(T-03 원안) | 기각. 버스트는 봉 인덱스가 아니라 동시 조회·로컬 거부 간격이 원인이었다 |
 | 부속 파일을 취소 완료 뒤에 비우기 | 기각. 그 사이 이번 세션 줄까지 같이 지워진다 — 합쳐 쓰는 5가 둘 다 지킨다 |
 | 취소 대상 없음을 계속 REJECTED로 두고 로그만 낮추기 | 기각. 대시보드·장 마감 검토의 거부 건수가 실제 거부를 가린다 |
@@ -1544,7 +1544,7 @@ x64-release` 11/11. 실행 중 `quant_trader`는 재빌드하지 않았다 — �
 **결정**: 넷이다.
 1. 수혜 종목 매수는 전략 스레드가 `displace_held`로 들고 있다가 `capacity_full()`이 풀리는 즉시 낸다
    (`displace_slot_hold_sec` 안에서). 안 나면 만료 로그를 남기고 버린다.
-2. 중복 신호 키(§5)에 지정가 가격을 붙인다 — rung은 가격이 다르므로 다른 주문이다.
+2. 중복 신호 키(§5)에 지정가 가격을 붙인다 — 분할 단계는 가격이 다르므로 다른 주문이다.
 3. 잔고 대조는 재동기 모드와 무관하게 `ord_psbl_qty`로 `sellable_`을 매번 맞춘다(`refresh_sellable`).
 4. 체결통보 모드 잔고 대조에서 원장>잔고인 종목은 그 차이가 미체결 매도 이내이고 같은 잔고 수량이 두 번
    연속 보일 때만 잔고로 내린다(`absorb_missed_sell`). 교체 판정이 거절될 때는 사유를 남겨 한도 거부 문구에
@@ -1962,11 +1962,11 @@ interval 집계의 OHLC 병합·거래량 합·정렬(입력 순서 무관)·`ba
 
 ### D-053 추세확장 슬리브의 물타기를 끄고 평단 하드 스탑을 붙인다 — 09-11 회의 반영 (2026-09-11)
 **상태**: 채택 (2026-09-14 월요일 장부터. 09-11 장은 40슬롯·물타기 그대로 마감)
-**원장**: TRENDX는 베이스 1회 매수(`buy_rungs`=0), 평단 −2.5% 하드 스탑(`stop_loss_pct`), 손절 뒤 15분 재진입 금지, 분할 익절는 평단 기준. DEVSCALE은 변경 없음.
+**원장**: TRENDX는 베이스 1회 매수(`buy_split_steps`=0), 평단 −2.5% 하드 스탑(`stop_loss_pct`), 손절 뒤 15분 재진입 금지, 분할 익절는 평단 기준. DEVSCALE은 변경 없음.
 
 **결정**: 여덟 가지를 한 번에 바꾼다. 앞 셋이 전략, 나머지는 그 전략이 돌게 하는 인프라다.
 
-1. **물타기 제거(TRENDX)**. `DeviationScaleStrategy` 파라미터 `buy_rungs`(기본 −1=`n_rungs`, 0=물타기 없음)를
+1. **물타기 제거(TRENDX)**. `DeviationScaleStrategy` 파라미터 `buy_split_steps`(기본 −1=`split_step_count`, 0=물타기 없음)를
    더하고 TRENDX는 0으로 둔다. 존 유지 구간(이격 1~39%)에서 현재가 기준점 −1%에 분할 매수가 계속 깔려
    매수 수량의 89%가 미청산으로 남던 것(회의 §1-4)을 끊는다. 눌림 슬리브(DEVSCALE)는 SMA20 아래 물타기가
    전략의 본체라 그대로 둔다.
@@ -1979,7 +1979,7 @@ interval 집계의 OHLC 병합·거래량 합·정렬(입력 순서 무관)·`ba
 4. **트레일 청산은 코드만**(`trail_sma_exit`, 기본 꺼짐). 3분봉 SMA 아래 `trail_sma_tol_pct`% 이탈 시 청산.
    09-11 21:00 리플레이(`_private/_cron/2026-09-11_2100_task.md` B2)에서 승률·R을 본 뒤 켠다.
 5. **분할 주문 재구성 떨림 축소**(reviewer A5). 데드밴드 기준을 `base_on_price`면 현재가로, 아니면 SMA로
-   통일하고(`last_ladder_reference_`), `min_rebuild_sec` 가드에서 `!live_.empty()` 조건을 뺀다 — 첫 구성 뒤엔 분할 주문가
+   통일하고(`last_split_buy_reference_`), `min_rebuild_sec` 가드에서 `!live_.empty()` 조건을 뺀다 — 첫 구성 뒤엔 분할 주문가
    비어 있어도 간격을 지킨다.
 6. **매매 소유권**(reviewer A6). `Engine::emit_from`이 청산 관리(`ITB_`) 보유 종목에 대해 다른 전략의 신규
    BUY뿐 아니라 신규 SELL도 막는다. 두 전략이 같은 종목을 팔면 잔고보다 많이 팔려 나간다.
@@ -1997,7 +1997,7 @@ interval 집계의 OHLC 병합·거래량 합·정렬(입력 순서 무관)·`ba
 다음 저항 판단(회의 §2)의 재료로 남긴다. 종목별 업종명(`bstp_kor_isnm`)·52주 고가도 `Fundamentals`에 받는다.
 대시보드 차트(`scripts/dashboard_server.py::build_chart`)는 `PYQuant/data/{daily,weekly,minute}/` 로컬
 파케이를 먼저 읽고 KIS에는 마지막 봉 이후 증분만 묻는다(장중 분봉 증분본은 `minute_live/`에 따로 둔다 — 백필 경로에 쓰면 반쪽 파일이 그날치를 막는다). 당일 1분봉은 예약작업 `Quant Minute Backfill`(16:40)이
-그날 유니버스 전체를 쌓는다(`scripts/eod_minute_backfill.py`).
+그날 유니버스 전체를 쌓는다(`scripts/market_close_minute_backfill.py`).
 
 **배경**: `strategies/DeviationScale/MEETING_2026-09-11_TRENDX.md`. 09-08~11 원장에서 TRENDX 완결 왕복 36건
 +0.50%/건(t=0.84), 미청산 22종목 2,908만원, 손절 0건. 실현손익만으로 부호를 말할 수 없고, 청산 유형 중 최악이
@@ -2015,7 +2015,7 @@ interval 집계의 OHLC 병합·거래량 합·정렬(입력 순서 무관)·`ba
 | 슬롯 40→20 | 미룸(회의 §1-5). 분산 차이 2.7%뿐이고 교체 청산이 늘 방향 |
 
 **확인 방법**: `out/build/x64-release`에서 전체 빌드·ctest 13/13(스트레스 제외). 09-14 개장 뒤
-`describe()` 로그에 `rungs=1/buy0 stop=-2.5% sell@avg`, 매수 문맥 로그에 `체결강도=`·`누적거래량/20일평균=`·
+`describe()` 로그에 `split_steps=1/buy0 stop=-2.5% sell@avg`, 매수 문맥 로그에 `체결강도=`·`누적거래량/20일평균=`·
 `250봉고가대비=`가 찍히는지, 첫 손절에 `손절(평단 …)` 태그와 15분 뒤 `entry_on` 복귀를 본다.
 `Quant/build_win`으로의 링크·배포는 09-11 15:35 이후(실행 중 exe 잠금).
 
@@ -2248,7 +2248,7 @@ max는 기준선에서도 0.2~2.3ms가 나온다 — 스케줄러 선점이지 �
 종목·수량으로 나오는지, 한도 초과 때 `잔고 대조: 조회 실패(EGW00201 …)` 한 줄이 찍히고 원장이 유지되는지 본다.
 
 ### D-060 매크로 국면 파일 판정기를 Engine에서 상태기계 헤더로 뗀다 — C-7 (c) 1단계 (2026-09-12)
-**상태**: 채택 (`wt/c2`, ctest 17/17 — `test_regime_bridge` 31건 신설. 실행 중 `quant_trader`는 바꾸지 않았다 —
+**상태**: 채택 (`wt/c2`, ctest 17/17 — `test_regime_file_judge` 31건 신설. 실행 중 `quant_trader`는 바꾸지 않았다 —
 data_thread 경로라 다음 장 시작 전 재기동부터)
 
 **배경**: `Quant/src/core/Engine.cpp`는 3,159줄에 스레드 다섯 개의 본문과 그 사이 상태를 다 들고 있다.
@@ -2259,9 +2259,9 @@ C-7 (c)는 이걸 책임 단위로 나누는 일인데, 한 번에 다섯 조각
 "청산 중엔 안 풀리는가"를 라이브 드릴로만 확인했다(`docs/guides/REGIME_DRILL_GUIDE.md`).
 
 **결정**:
-- `Quant/include/core/RegimeFileBridge.h`(헤더 전용, `regime_bridge` 네임스페이스): 관측값(`Observation` —
+- `Quant/include/core/RegimeFileJudge.h`(헤더 전용, `regime_file` 네임스페이스): 관측값(`Observation` —
   `kMissing`/`kStale`/`kUnreadable`/`kFresh` + `Snapshot`)과 KST 시각(`KstClock{yday, minutes_after_open}`)을
-  받아 `Outcome`을 돌려주는 `RegimeFileBridge::step`. `Outcome`의 `entry_halt`·`force_liquidate`는
+  받아 `Outcome`을 돌려주는 `RegimeFileJudge::step`. `Outcome`의 `entry_halt`·`force_liquidate`는
   `std::optional<bool>` — 값이 없으면 "그대로 둔다". 파일 없음·stale·무효 때 `force_liquidate_` 플래그가
   이전 값을 유지하는 것이 이 표현으로 드러난다(종전에는 `return`의 위치가 그 뜻을 숨겼다).
 - 로그는 헤더가 찍지 않는다. `Outcome`이 "지금이 1회 로그 시점이다"(`log_expiry`·`log_stale`·
@@ -2274,7 +2274,7 @@ C-7 (c)는 이걸 책임 단위로 나누는 일인데, 한 번에 다섯 조각
   `regime_halt_expired_`·`regime_liq_warned_`·`regime_stale_sec_`)와 `kDefaultRegime*` 상수가 헤더로 갔다.
   `Engine`에는 경로(`regime_file_`, 매크로 5분 로그도 읽는다)와 브리지 인스턴스만 남는다. 공개 setter
   (`set_regime_file`·`set_regime_halt_expire_min`)와 `main.cpp` 배선은 그대로다.
-- `Quant/tests/test_regime_bridge.cpp` 31건: 전이 1회 로그, stale 1회 경고와 신선 파일 뒤 재무장, 파일 없음·
+- `Quant/tests/test_regime_file_judge.cpp` 31건: 전이 1회 로그, stale 1회 경고와 신선 파일 뒤 재무장, 파일 없음·
   손상·`valid=false` 때 게이트·플래그 불변, 시간 상자(59분 유지·60분 해제·하루 리셋·파일 없어도 해제·파장 뒤·
   개장 전 무효), `force_liquidate`가 시간 상자를 이기는 것, 형 불량 JSON.
 
@@ -2283,13 +2283,13 @@ C-7 (c)는 이걸 책임 단위로 나누는 일인데, 한 번에 다섯 조각
 
 | 버린 대안 | 이유 |
 |---|---|
-| 다섯 조각(`DataPoller`·`LedgerReconciler`·`RegimeFileBridge`·`SignalDispatcher`·`OrderPacer`)을 한 커밋에 | 기각. `strategy_thread_fn` 515줄·`data_thread_fn` 527줄은 `strat_mutex_`·`last_px_`·재스캔과 얽혀 있어 한 번에 옮기면 diff에서 회귀를 못 읽는다. 조각마다 커밋·D-NNN |
+| 다섯 조각(`DataPoller`·`LedgerReconciler`·`RegimeFileJudge`·`SignalDispatcher`·`OrderRateLimiter`)을 한 커밋에 | 기각. `strategy_thread_fn` 515줄·`data_thread_fn` 527줄은 `strat_mutex_`·`last_px_`·재스캔과 얽혀 있어 한 번에 옮기면 diff에서 회귀를 못 읽는다. 조각마다 커밋·D-NNN |
 | 브리지가 `OrderGate&`와 `std::atomic<bool>&`를 받아 직접 적용 | 기각. 테스트가 `OrderGate.cpp`를 링크해야 하고, "그대로 둔다"가 호출 안 함으로만 남아 시험하기 어렵다. `optional` 결과가 그 사실을 값으로 든다 |
 | 로그 문구까지 헤더로 | 기각. 헤더가 `Logger`를 끌어오면 테스트가 파일 로거를 띄운다. 1회화 규칙(무엇을 언제)만 헤더가 갖고 문구(어떻게)는 Engine이 갖는다 |
 | 파일 읽기도 헤더로(`observe` 인라인) | 기각. `<filesystem>`·`<fstream>`을 순수 헤더에 넣을 이유가 없고, 테스트는 관측값을 직접 만든다 |
 | `KstClock` 대신 `std::chrono::time_point` | 기각. 판정에 필요한 건 tm_yday와 개장 후 분 둘뿐이라 시각 변환을 헤더에 되풀이할 이유가 없다. `utc_plus_hours`는 Engine에 남는다 |
 
-**확인 방법**: `ctest --preset x64-release` 17/17, `test_regime_bridge` 31건. 드릴 절차의 관측 항목 1·2
+**확인 방법**: `ctest --preset x64-release` 17/17, `test_regime_file_judge` 31건. 드릴 절차의 관측 항목 1·2
 (`docs/guides/REGIME_DRILL_GUIDE.md`)가 그대로 성립하는지 다음 드릴 때 본다. 라이브에서는 재기동 뒤
 `[Regime] 신규진입 정지/재개` 줄이 전이마다 한 번, `매크로 진입정지 만료`가 하루 한 번인지 본다.
 
@@ -2329,7 +2329,7 @@ C-7 (c)는 이걸 책임 단위로 나누는 일인데, 한 번에 다섯 조각
   `pnl_stale` 전이·복구.
 
 동작 차이는 셋이고 매매 판단은 바뀌지 않는다. (1) 부트스트랩 재시도 로그가 `n/5` 고정에서 `n/attempts`가 된다.
-(2) `daily_pnl 신선도 복구/상실` 로그 문구가 `daily_pnl 갱신 복구/갱신 끊김`으로 바뀐다(문체 규약). (3) 기준선 <!-- lexicon-ok: 바뀌기 전 로그 문구 인용 -->
+(2) `daily_pnl 갱신 상태 복구/상실` 로그 문구가 `daily_pnl 갱신 복구/갱신 끊김`으로 바뀐다(문체 규약). (3) 기준선 <!-- lexicon-ok: 바뀌기 전 로그 문구 인용 -->
 파일 경로가 `Logger::path_for`에서 주입된 디렉터리 + `create_directories`로 바뀐다 — 같은 폴더, 같은 이름이다.
 
 | 버린 대안 | 이유 |
@@ -2434,7 +2434,7 @@ strategy_thread 경로라 다음 장 시작 전 재기동부터)
   디스패처의 상태 기계가 아니다. `push_signal`로 디스패처 `submit`을 탄다.
 - `Quant/tests/test_signal_dispatcher.cpp` 38건: 순번 부여와 로그 문구(취소의 대상 표기), 비활성 전략의 매수만
   차단·매도·취소 통과, 청산 관리 티커의 `ITB_` 예외와 취소·정정 통과, 교체 진입의 매도-보류-체결 뒤 발주(순번
-  연속)·다음 rung 합류·취소로 비우기·시한 만료·교체 꺼짐, 강제청산 잔량 계산과 2초 스로틀·간격 변경, 한도
+  연속)·다음 분할 단계 합류·취소로 비우기·시한 만료·교체 꺼짐, 강제청산 잔량 계산과 2초 스로틀·간격 변경, 한도
   초과분 계산(미체결 매도 차감·평단 없음 건너뜀)과 20초 뒤 1회성. `Engine.cpp` 2,590 → 2,342줄.
 
 동작 차이는 둘이고 매매 판단은 바뀌지 않는다. (1) 한 루프의 시각을 `loop_now` 하나로 잡아 보류 처리·강제청산
@@ -2498,8 +2498,8 @@ D-013 −0.089R과의 직접 비교 — D-013 표의 "월 동일가중 초과"�
 **확인 방법**: `py research/studies/13_trendx_gate/run_trendx_gate.py --no-pairs` 40초 → `results.tsv`의 `excess_r`·`excess_mw`·`excess_tw`
 세 열. `--sma-prev`는 SMA 한 칸 지연 감도(합산 −0.015, t=−0.97).
 
-### D-065 발주 간격·거부 재시도를 Engine에서 OrderPacer로 뗀다 — C-7 (c) 5단계 (2026-09-12)
-**상태**: 채택 (`wt/c2`, ctest 21/21 — `test_order_pacer` 44건 신설. 실행 중 `quant_trader`는 바꾸지 않았다 —
+### D-065 발주 간격·거부 재시도를 Engine에서 OrderRateLimiter로 뗀다 — C-7 (c) 5단계 (2026-09-12)
+**상태**: 채택 (`wt/c2`, ctest 21/21 — `test_order_rate_limiter` 44건 신설. 실행 중 `quant_trader`는 바꾸지 않았다 —
 order_thread 경로라 다음 장 시작 전 재기동부터)
 
 **배경**: `order_thread_fn`(150줄)은 큐에서 신호를 꺼내 라우터에 넘기는 사이에 세 가지 판단을 끼워 넣고 있었다 —
@@ -2511,18 +2511,18 @@ action 불문 되쏘되 분당 한도는 20초로 물러남, 청산 SELL은 4024
 사슬의 결함이었고 라이브 로그로만 잡았다.
 
 **결정**:
-- `Quant/include/core/OrderPacer.h` + `Quant/src/core/OrderPacer.cpp`: `OrderPacer(Config{min_interval_ms,
+- `Quant/include/core/OrderRateLimiter.h` + `Quant/src/core/OrderRateLimiter.cpp`: `OrderRateLimiter(Config{min_interval_ms,
   max_retries}, now)`가 `take_due_retry(now)`(만기된 재시도 중 목적이 남은 것 하나 — 청산 SELL은 보유 0이면 버림),
   `wait_before_send(now)`(간격까지 남은 시간), `note_sent(now)`(KIS를 실제로 부른 뒤), `on_rejected(pending, status,
   reason, now)`(재시도 예약)를 든다. 보유 수량은 `PositionFn`으로 받는다 — 디스패처(D-063)가 `OrderGate&`를
   직접 받은 것과 달리 여기서 게이트에 묻는 건 `position` 하나라 함수가 가볍고, 테스트가 `Logger`만 링크한다.
-- 거부 분류는 순수 함수 `pacing::classify(sig, attempts, max_retries, status, reason, retry_delay)`
+- 거부 분류는 순수 함수 `order_rate::classify(sig, attempts, max_retries, status, reason, retry_delay)`
   → `RetryPlan{kind, delay}`. 재시도 지연은 `max(min_interval, 1200ms)`(dedup 창 위)이고 조절기가 계산해
   `retry_delay()`로 보인다.
 - 조절기는 `order_thread_fn`의 지역 객체다(D-063과 같은 기준 — 만드는 곳과 쓰는 곳이 같은 스레드). Engine 루프는
   "재시도 → 새 큐 → 간격 대기 → 라우터 → 결과 보고" 다섯 줄로 남고, 운영단말 `ORDER_RESULT` 방송과
   `order_count_`는 Engine에 있다.
-- `Quant/tests/test_order_pacer.cpp` 44건: 분류(접수·횟수 소진·EGW00201·"Rate limit" 머리 일치·분당 20초·
+- `Quant/tests/test_order_rate_limiter.cpp` 44건: 분류(접수·횟수 소진·EGW00201·"Rate limit" 머리 일치·분당 20초·
   청산 SELL·40240000 제외·BUY/취소 제외), 간격(첫 주문 무대기·부분 경과·재시도 지연 하한), 재시도 버퍼(만기 전
   없음·attempts 증가·FIFO 만기·분당 건이 앞을 막음·청산 완료 폐기·횟수 소진). `Engine.cpp` 2,342 → 2,280줄,
   `Engine.cpp`에서 `api/KisErrorCodes.h`·`<deque>` include가 빠졌다.
@@ -2538,7 +2538,7 @@ action 불문 되쏘되 분당 한도는 20초로 물러남, 청산 SELL은 4024
 | 재시도 큐를 만기 순 우선순위 큐로 | 기각. 종전 FIFO를 유지한다 — 분당 거부(20초)가 앞에 있으면 뒤의 1.2초 건도 기다리는 것은 종전과 같고, 그 사이 새 큐는 계속 처리된다. 순서를 바꾸면 동작 차이가 생기는데 지금 그 차이가 필요하다는 근거가 없다 |
 | 라우터의 `ManagedOrder`를 그대로 받는다 | 기각. 조절기가 보는 건 `status`·`reject_reason` 둘이라 값으로 받으면 헤더가 `ipc/OrderRouter.h`를 모른다 |
 
-**확인 방법**: `ctest --preset x64-release` 21/21, `test_order_pacer` 44건. 라이브에서는 재기동 뒤 `[OrderThread]`
+**확인 방법**: `ctest --preset x64-release` 21/21, `test_order_rate_limiter` 44건. 라이브에서는 재기동 뒤 `[OrderThread]`
 로그 세 문구가 종전과 같은 자리에 나오는지, 유량 한도 거부 뒤 1.2초(분당이면 20초) 지나 같은 종목이 다시 나가는지 본다.
 
 ### D-066 시세·봉 읽기를 IMarketDataSource 뒤로 — 국면 판정기의 evaluate()를 가짜 소스로 시험한다 (2026-09-12)
@@ -2583,7 +2583,7 @@ action 불문 되쏘되 분당 한도는 20초로 물러남, 청산 SELL은 4024
 
 **배경**: D-039가 남긴 네 가지가 전부 `Quant/src/core/Engine.cpp` 소유권 때문에 미뤄져 있었다(C-4). Engine 분할
 (D-060~D-065)로 그 자리가 각자 파일로 나와 이제 손댈 수 있다.
-1. 유량 한도 거부를 알아보는 쪽(`pacing::classify`)이 `"Rate limit"`·`"분당"` 문자열을 제 손으로 들고 있었고, 만드는
+1. 유량 한도 거부를 알아보는 쪽(`order_rate::classify`)이 `"Rate limit"`·`"분당"` 문자열을 제 손으로 들고 있었고, 만드는
    쪽(`OrderGate::check`)도 따로 들고 있었다. 한쪽이 문구를 고치면 재시도가 조용히 죽는다 — 실제로 KIS 코드만 보던
    동안 게이트 분당한도 BUY가 드롭된 적이 있다(D-065 배경).
 2. WS 호가 콜백의 `ob_queue_.push(ob)` 결과 버림(C4834). 체결 쪽은 D-055에서 드롭 카운터를 달았는데 호가는 그대로였다.
@@ -2594,8 +2594,8 @@ action 불문 되쏘되 분당 한도는 20초로 물러남, 청산 SELL은 4024
 **결정**:
 - `Quant/include/risk/GateReasons.h`(`namespace gate_reason`): `kRateLimit`("Rate limit 초과")·`kPerMinute`·`kPerSecond`
   상수와 `rate_limit(per_minute, limit)`(문장 조립)·`is_rate_limit(reason)`·`is_per_minute(reason)`. `OrderGate.cpp`가
-  조립하고 `OrderPacer.cpp`가 읽는다. 문장은 그대로다(로그·운영단말 `ORDER_RESULT`·`parse_quant_log.py` 불변).
-  `test_order_pacer`가 `gate_reason::rate_limit(true, 40) == "Rate limit 초과 (분당 40건)"`으로 문장을 고정한다(45건).
+  조립하고 `OrderRateLimiter.cpp`가 읽는다. 문장은 그대로다(로그·운영단말 `ORDER_RESULT`·`parse_quant_log.py` 불변).
+  `test_order_rate_limiter`가 `gate_reason::rate_limit(true, 40) == "Rate limit 초과 (분당 40건)"`으로 문장을 고정한다(45건).
 - 호가 콜백에 `ob_drop_count_`와 첫 넘침 1회 로그(`[WS] 호가 큐 가득 — 호가 폐기 시작 …`) — 체결과 같은 규칙.
 - `OrderGate`·`DeviationScaleStrategy`에 복사 생성·대입 `= delete`와 이유 한 줄.
 - `rtt_ms`는 `std::chrono::milliseconds::rep`.
@@ -2604,9 +2604,9 @@ action 불문 되쏘되 분당 한도는 20초로 물러남, 청산 SELL은 4024
 |---|---|
 | 거부 사유를 `enum class RejectCode`로 구조화해 `ManagedOrder`에 실어 보낸다 | 보류. 사유는 로그·운영단말에 그대로 나가는 문장이고 운영단말 프로토콜(D-043)이 문자열이라, enum을 더하면 두 채널을 같이 유지해야 한다. 지금 필요한 건 "두 곳이 같은 문자열을 본다"이고 그건 상수 한 곳으로 충분하다 |
 | 호가 드롭은 세지 않고 `(void)` 캐스트로 경고만 끈다 | 기각. 체결 큐 넘침을 세어 둔 것이 09-11 정체를 잡았다. 호가도 같은 큐 규칙이다 |
-| `GateReasons.h`를 `OrderGate.h` 안 정적 멤버로 | 기각. `OrderPacer`가 `OrderGate.h`를 include하면 테스트가 게이트 선언(→ `<deque>`·`<atomic>`·PosMap)을 끌어온다. 계약만 든 헤더가 가볍다 |
+| `GateReasons.h`를 `OrderGate.h` 안 정적 멤버로 | 기각. `OrderRateLimiter`가 `OrderGate.h`를 include하면 테스트가 게이트 선언(→ `<deque>`·`<atomic>`·PosMap)을 끌어온다. 계약만 든 헤더가 가볍다 |
 
-**확인 방법**: `ctest --preset x64-release` 21/21, `test_order_pacer` 45건, 빌드 경고 0. 라이브에서는 유량 한도 거부
+**확인 방법**: `ctest --preset x64-release` 21/21, `test_order_rate_limiter` 45건, 빌드 경고 0. 라이브에서는 유량 한도 거부
 로그 문장이 종전과 같고, 호가 큐가 찼을 때 `[WS] 호가 큐 가득` 한 줄이 처음 한 번 나오는지 본다.
 
 ### D-068 3분봉을 WS 체결 틱으로 모은다 — 순수 집계기 조각, REST 봉은 시드와 폴백으로 남긴다 (2026-09-13)
@@ -2837,7 +2837,7 @@ KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 
   안에서 한다(재확인과 wait 사이의 유실 방지). `Quant/tests/test_wake_gate.cpp` 1,000회 왕복 실측 p50 5.8us · p99 11.7us ·
   max 156us — 격자와 무관하다. 생산자 4개 동시 notify 2,000건 유실 0.
 - 배선: 전략 스레드는 200us yield 뒤 `strat_wake_`(cap 10ms), 주문 스레드는 `order_wake_.wait_until(재시도 만기 또는 +100ms)`
-  (`OrderPacer::next_retry_at`), 체결 스레드는 `fill_wake_`(cap 100ms). 생산자 쪽 notify는 `market_queue_`·`ob_queue_`·
+  (`OrderRateLimiter::next_retry_at`), 체결 스레드는 `fill_wake_`(cap 100ms). 생산자 쪽 notify는 `market_queue_`·`ob_queue_`·
   `td_queue_`·`rest_td_queue_`·`manual_inbox_`·`order_queue_`·`fill_queue_` push 뒤 각 한 줄. `Quant/src/main.cpp`가
   `timeBeginPeriod(1)` RAII를 첫 문장으로 잡는다(quant_trader만 `winmm` 링크).
 - 고수위: `RingBuffer::high_water()`(생산자 relaxed 비교 하나) + 제어 스레드가 1분마다 `[큐 고수위]` 한 줄(개장 여부 무관).
@@ -2936,7 +2936,7 @@ KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 
   mux 스레드 하나가 돌아가며 비워 `Engine` 콜백을 부른다(원칙 5 — N×1 SPSC 행렬). 그래서 `Engine` 쪽 캡처·모의
   체결기·`ws_td_queue_` push의 생산자는 여전히 스레드 하나다. 링이 차면 수신 스레드는 버리고 `dropped()`로 센다 —
   기다리면 그 소켓의 전 종목이 밀린다(원칙 3). 한 바퀴에 링당 256개까지만 꺼내 한 소켓이 바빠도 다른 소켓 종목이
-  굶지 않는다. `is_stale`은 소스 하나라도 끊기거나 멈추면 true라 `Engine`이 전체를 다시 잇는다.
+  밀리지 않는다. `is_stale`은 소스 하나라도 끊기거나 멈추면 true라 `Engine`이 전체를 다시 잇는다.
 - 체결통보는 첫 소스만 넘긴다. KIS는 세션마다 같은 통보를 보내므로 둘 이상 받으면 원장이 두 번 센다. config
   `feed_keys`(`[{app_key, app_secret}, …]`)로 세션 키를 더 주면 `Quant/src/main.cpp`가 기본 키와 함께 `KisWebSocket`을
   소켓 수만큼 만들어 `FeedMux`로 묶는다(`Engine::add_feed_config`). KIS는 app_key당 실시간 1세션이라 키가 더 있어야
@@ -3039,7 +3039,7 @@ KIS 41종목으로는 유니버스가 좁아 전략 실증의 의미가 작고, 
 - 측정(`test_shard_matrix` 5절, 원칙 7, 논리 코어 16, Release): 같은 총량 96만 건을 1×1은 소비자당 17ns/건·전체 16ms,
   2×2는 31ns/건·15ms, 4×4는 45ns/건·11ms. 항목 하나의 비용은 N이 늘수록 오른다(생산자가 M개 셀에 흩뿌리고 소비자가
   N개 셀을 훑는다). 행렬이 주는 것은 전략 계산(라우터 뒤 `on_trade`)을 M으로 나누는 것이지 큐 자체의 속도가 아니다 —
-  큐는 애초에 병목이 아니었다(`bench_hot_path` 실측, `docs/reports/PIPELINE_LATENCY_REPORT.md` 결과 ⑥ run3·배경 부하 33%:
+  큐는 애초에 병목이 아니었다(`bench_latency_path` 실측, `docs/reports/PIPELINE_LATENCY_REPORT.md` 결과 ⑥ run3·배경 부하 33%:
   다중 소켓에서 지배 비용은 FeedMux 홉 p50 3~4.6us·p99 10~12us, mux 스레드가 5ms `wait_for`에서 자다 틱마다 condvar로
   깨는 값. 행렬은 수신 스레드가 셀에 바로 넣으므로 이 홉이 없다).
 - 다음 조각이 배선이다: `Engine`의 `td_queue_`·`ob_queue_`를 행렬로, 전략 스레드 본문을 샤드 함수로, `SignalDispatcher`
@@ -3130,7 +3130,7 @@ Engine 콜백(FeedMux 스레드를 지난 뒤)이 찍었고 호가는 캡처 시
 
 - 왜: D-071 Phase 3 표의 마지막 항목(전이 전수 시험)이다. 지금까지 이 전이는 5초 주기 스레드 안의 지역 변수
   (`fail_streak`·`next_try`)라 시계·소켓 없이 시험할 수 없었고, 백오프 상한·폴백 문턱이 바뀌면 장중 실측으로만 확인됐다.
-  `RegimeFileBridge`(D-060)와 같은 꼴 — 관찰을 받고 판정만 답하는 헤더 전용 상태기계, control_thread 전용이라 동기화 없음.
+  `RegimeFileJudge`(D-060)와 같은 꼴 — 관찰을 받고 판정만 답하는 헤더 전용 상태기계, control_thread 전용이라 동기화 없음.
 - 동작은 전과 같다: 장 외 무시, 정상 수신이면 누적 0, 첫 stale은 바로 재연결, 실패 n회째 30×n초(상한 300초) 뒤 재시도,
   연속 3회 실패에 폴백 요구. 한 가지 정리 — 전에는 폴백이 걸리지 않은 채 3회 이상 실패할 때마다 `activate_rest_fallback`을
   다시 불렀는데(불가면 kill switch를 반복 설정), 지금은 문턱에 닿는 첫 실패에서 한 번만 요구한다. 결과는 같다(둘 다 멱등).
@@ -3263,7 +3263,7 @@ resample 자리 일치)·`test_kis_decode`(timestamp −9h). 09-14 장은 `log_l
 
 **남긴 것**: 3번(청산차단 취소 체인)은 이번에 바꾸지 않았다. 배경 스레드로 옮기면 KIS 주문을 주문 스레드 밖에서 내게 되고
 `route`의 접수 등록·게이트 선점 처리를 그 스레드에서 다시 해야 한다. 안전한 모양은 취소만 배경에서 하고 재매도는
-`OrderPacer` 재시도(40240000 SELL을 1회만 되쏘기)로 주문 스레드에 남기는 것인데, 조절기 분류와 테스트를 같이 바꿔야
+`OrderRateLimiter` 재시도(40240000 SELL을 1회만 되쏘기)로 주문 스레드에 남기는 것인데, 조절기 분류와 테스트를 같이 바꿔야
 하므로 별도 D-NNN으로 뺀다. 지금은 40240000이 드물고(09-11 이후 재현 없음) 취소 체인은 그 종목 청산이 막힌 상황이라
 기다릴 가치가 있다.
 
@@ -3277,7 +3277,7 @@ resample 자리 일치)·`test_kis_decode`(timestamp −9h). 09-14 장은 `log_l
 
 **확인 방법**: 기동 뒤 `[큐 고수위] … order=…/1024 … order_dropped=0`. 장중 로그에 `[KIS] 토큰 갱신 시작`이 제어
 스레드 시각(5초 격자)에만 찍히고 주문·전략 로그 사이에 끼지 않으면 선제 갱신이 hot path를 대신한 것이다. 신호 드롭은
-`[전략] 주문 큐 가득 — 신호 버림`이 근거이고, 0이 아니면 주문 스레드가 왜 묶였는지(`OrderPacer` 재시도·KIS 지연)를 본다.
+`[전략] 주문 큐 가득 — 신호 버림`이 근거이고, 0이 아니면 주문 스레드가 왜 묶였는지(`OrderRateLimiter` 재시도·KIS 지연)를 본다.
 
 ---
 
@@ -3518,23 +3518,23 @@ resample 자리 일치)·`test_kis_decode`(timestamp −9h). 09-14 장은 `log_l
 
 **배경**: 평가금 20만원 아래 보유가 슬롯을 차지했고(15:00 스윕 대상 3종목), 매매마다 1주가 남는 일이 반복됐다. 원인을
 로그로 찾았다 — 진입 지정가 매수가 1주만 체결되면 pos>0이 돼 재구성이 잔량 매수를 취소하고(`DeviationScaleStrategy.h`
-베이스 rung 조건 `pos <= 0`) 익절 지정가 1주만 남긴다(375500 09:00:00 1/16 체결 → 09:00:10 잔량 취소, 096770 13:10:45
+베이스 분할 단계 조건 `pos <= 0`) 익절 지정가 1주만 남긴다(375500 09:00:00 1/16 체결 → 09:00:10 잔량 취소, 096770 13:10:45
 1/12 체결 → 13:10:47 취소). TRENDX·DEVSCALE 둘 다 같은 경로다. 마감 청산도 밀렸다 — 15:15 발주 49건 중 29건 체결,
 6종목 1,120만원 이월(직렬 주문 스레드 × 왕복 8초 × 취소 먼저 × 30초 재방출 중복).
 
 **결정**:
-- 먼지 기준 25만원(config 키, 20~30만원 사이에서 시작). 재구성 때 pos×현재가가 기준 아래이고 남은 매수 rung이 없으면
+- 먼지 기준 25만원(config 키, 20~30만원 사이에서 시작). 재구성 때 pos×현재가가 기준 아래이고 남은 매수 분할 단계가 없으면
   시장가로 정리한다.
-- 베이스 목표 수량에 못 미치면 잔량(bq−pos) 매수 rung을 유지한다 — 1주 체결이 진입 완료가 아니다.
+- 베이스 목표 수량에 못 미치면 잔량(bq−pos) 매수 분할 단계를 유지한다 — 1주 체결이 진입 완료가 아니다.
 - ops 수동 SELL 사전 거부(보유=미체결매도)는 라우터 자가정리로 넘기고, 잔고조회 12152는 "주문가능 0"이 아니라 미상으로
   두고 재조회한다.
-- 마감 청산은 ①같은 신호 중복 발주 방지(13:57 096770 BUY 6 두 번 접수) ②매도 먼저·취소 뒤 ③`eod_exit_hhmm` 1505
+- 마감 청산은 ①같은 신호 중복 발주 방지(13:57 096770 BUY 6 두 번 접수) ②매도 먼저·취소 뒤 ③`market_close_exit_hhmm` 1505
   ④취소 전용 레인 순으로 고친다.
 - 유니버스는 data.go.kr T-2를 아예 뺀다(09:58 수정은 거래대금 축만 당일로 바꿨고 08:11 초기 스캔·시총 축은 T-2였다).
   미국 지수 투표는 Yahoo chart NQ=F·ES=F 선물 현재가로 바꾼다(오늘 투표 NQ +0.96%인데 선물은 −1.32%).
 
 **버린 대안**: 먼지 보유를 슬롯 계산에서만 빼기 — 잔존 자체가 회전 비용과 원장 잡음이다. 잔량 취소를 늦추기(타임아웃) —
-근본은 rung 조건이라 시간을 늘려도 1주 뒤 취소는 같다.
+근본은 분할 단계 조건이라 시간을 늘려도 1주 뒤 취소는 같다.
 
 **확인 방법**: 하루 끝 보유 중 평가금 25만원 아래가 0종목, `취소 BUY … 대상=…:B:` 직후 `SELL 1` 익절 발주가 없는지,
 15:05 청산 발주가 15:20 안에 전부 체결되는지.
@@ -3555,7 +3555,7 @@ resample 자리 일치)·`test_kis_decode`(timestamp −9h). 09-14 장은 `log_l
 **결정**:
 - 마감 청산(`DeviationScaleStrategy.h`): 시장가 매도를 먼저 내고 취소는 뒤에 낸다. 전략 쪽 매도가능 클램프(잔고 조회)도
   건너뛰고 원장 보유 전량을 낸다(`emit_liquidation(..., clamp_sellable=false)`). 예약 익절이 묶은 수량은 라우터가 그 자리에서
-  취소하고 전량을 다시 낸다. 뒤따르는 취소 신호는 라우터가 "취소 불요"로 닫아 KIS 호출이 없다. `eod_exit_hhmm`은 1505
+  취소하고 전량을 다시 낸다. 뒤따르는 취소 신호는 라우터가 "취소 불요"로 닫아 KIS 호출이 없다. `market_close_exit_hhmm`은 1505
   (config, 기본값 1515는 그대로).
 - 라우터(`OrderRouter.cpp`) 세 가지: ① 같은 종목·같은 전략의 시장가 매도가 미체결 잔량을 들고 120초 안에 살아 있으면 새
   시장가 매도를 KIS로 보내지 않는다(`kDupMarketSellGuardSec`). ② 매도가능이 모자란 원인이 이 세션 예약매도면 잘라 내지
@@ -3598,7 +3598,7 @@ resample 자리 일치)·`test_kis_decode`(timestamp −9h). 09-14 장은 `log_l
 - 정지선을 스위치 대신 비율로: `entry_scale` = 점수 ≥+2 → 1.0, 0 → 0.7, 정지선 절반 → 0.4, 정지선 이하 → 0(사이는 직선, 0.1 단위).
   (09-18 수정: 1.0이 되는 점수를 +2에서 RISK_ON 기준 `ON_SCORE`(+3)로 옮겼다. 아래 줄에서 RISK_ON을 +3으로 옮길 때 이 점은 +2에 남아
   09-17 09:25 score 2가 NEUTRAL 표시에 매수비율 100%로 나갔다. 이제 NEUTRAL은 최대 0.9, RISK_ON일 때만 1.0.)
-  `RegimeFileBridge`가 값이 바뀐 회차에만 `OrderGate::set_entry_scale`로 넘기고, `DeviationScaleStrategy`가 베이스·물타기 명목에
+  `RegimeFileJudge`가 값이 바뀐 회차에만 `OrderGate::set_entry_scale`로 넘기고, `DeviationScaleStrategy`가 베이스·물타기 명목에
   곱한 뒤 시그니처에 붙여(`S7`) 바뀐 회차에만 분할 매수를 다시 깐다. `entry_halt`는 비율 0과 같은 뜻으로 남는다(옛 필드 호환).
   코스피 −1%면 70%, −2%면 40%처럼 줄고 반등하면 돌아온다.
 - 임계값은 표 범위가 ±10에서 ±18로 늘어난 만큼 비례로 옮긴다: 정지 −4→−7, 청산 −6→−11, RISK_ON +2→+3. 09-14 아침을 새
@@ -3614,7 +3614,7 @@ WTI 수준 표(100달러 위 −1) — 위의 이유로 note만. 급락 강제�
 
 **확인 방법**: 다음 장 `Quant/config/regime.json`에 `KOSPI`·`KOSDAQ`·`WTI` 항목과 `entry_scale`, `source`="Yahoo chart"가 있는지,
 09:0x 이후 `logs/regime_open_ref.json`이 오늘 날짜인지, 트레이더 로그에 `[Regime] 매수비율 0.x` 줄이 값이 바뀔 때만 남는지,
-`test_regime`·`test_regime_bridge` 통과. 대시보드 국면 카드에 "매수비율 xx%"와 각 줄의 "장초 ±x%" 표시.
+`test_regime`·`test_regime_file_judge` 통과. 대시보드 국면 카드에 "매수비율 xx%"와 각 줄의 "장초 ±x%" 표시.
 
 ### D-084 전략 선택 국면의 입력을 코스피 200MA에서 regime.json 라벨로 (2026-09-14)
 
@@ -3626,7 +3626,7 @@ WTI 수준 표(100달러 위 −1) — 위의 이유로 note만. 급락 강제�
 모호하고, 급락에 매수를 아예 막는 문턱값은 지금 단순하게 정할 일이 아니다. 전략은 지표 8개를 보는 축 A를 봐야 한다.
 
 **결정**:
-- `Engine::apply_regime_selection`의 입력을 `regime.json`의 `regime` 라벨로 바꾼다. `RegimeFileBridge::step`이 라벨을
+- `Engine::apply_regime_selection`의 입력을 `regime.json`의 `regime` 라벨로 바꾼다. `RegimeFileJudge::step`이 라벨을
   RISK_ON→BULL·NEUTRAL·RISK_OFF→BEAR로 옮겨 **라벨이 바뀐 회차에만** `Outcome.selection`에 싣고, `poll_regime_file`이 적용한다.
   stale·무효(valid=false)·UNKNOWN·모르는 라벨은 이전 선택 유지 — halt·비율과 같은 "그대로 둔다" 규칙.
 - `RegimeController`는 관찰 로그로만 남긴다. 장 시작·`regime_reeval_sec`마다 `evaluate()`는 돌아 `[Regime]` 줄을 찍지만 전략
@@ -3647,7 +3647,7 @@ WTI 수준 표(100달러 위 −1) — 위의 이유로 note만. 급락 강제�
 
 **확인 방법**: 다음 장 트레이더 로그에 `[RegimeSelect] 국면=NEUTRAL → 활성=[DEVSCALE_…, TRENDX_…]` 줄이 첫 `regime.json` 폴링
 직후 한 번 남고 라벨이 바뀔 때만 다시 남는지, `[Regime] BULL/NEUTRAL/BEAR score=…`(코스피 축) 줄은 계속 찍히되 그 직후
-`[RegimeSelect]`가 따라오지 않는지, `test_regime_bridge`(선택 전이 13 검사 추가)·ctest 34/34 통과.
+`[RegimeSelect]`가 따라오지 않는지, `test_regime_file_judge`(선택 전이 13 검사 추가)·ctest 34/34 통과.
 
 ### D-085 코스피 200일선 국면 판정기(RegimeController)를 지운다 (2026-09-14)
 
@@ -3663,8 +3663,8 @@ WTI 수준 표(100달러 위 −1) — 위의 이유로 note만. 급락 강제�
   (ctest 34→33). `Engine`의 `regime_`·`regime_cfg_`·재평가 버킷(`regime_reeval_interval_sec_`·`regime_bucket_now`)과
   `main.cpp`의 `regime_tuning` 파싱 블록, `Types.h`의 `RegimeSnapshot`을 같이 지운다. config `regime_reeval_sec`·`regime_tuning`
   키는 읽지 않는다(현재 config에 없다). `Regime` enum(BULL/NEUTRAL/BEAR)은 `regime_strategies` 맵의 내부 표현으로 남긴다.
-- `[RegimeSelect] 국면=…` 줄의 국면을 `regime.json` 라벨(RISK_ON/NEUTRAL/RISK_OFF)로 적는다(`regime_bridge::label_of`).
-  `scripts/eod_autodoc.py`의 세션 표 "국면" 열이 이 줄을 읽으므로 내일부터 그 열은 축 A 라벨이다. `[Regime]` 접두어는
+- `[RegimeSelect] 국면=…` 줄의 국면을 `regime.json` 라벨(RISK_ON/NEUTRAL/RISK_OFF)로 적는다(`regime_file::label_of`).
+  `scripts/market_close_autodoc.py`의 세션 표 "국면" 열이 이 줄을 읽으므로 내일부터 그 열은 축 A 라벨이다. `[Regime]` 접두어는
   이제 축 A(매수비율·정지·청산·stale) 줄만 쓴다.
 - D-083의 당일 급락 강제 BEAR는 판정기와 함께 사라진다. 급락에 매수를 막는 문턱은 정하지 않았고(09-14 사용자 판단),
   필요해지면 `PYQuant/tools/macro_regime_feed.py` 투표 항목에 코스피 당일 등락을 넣는 쪽이다.
@@ -3675,7 +3675,7 @@ WTI 수준 표(100달러 위 −1) — 위의 이유로 note만. 급락 강제�
 피드 장애 백업이라는 D-084의 보류 사유는 코스피 하나로 on/off를 정하는 것 자체가 모호하다는 판단과 맞지 않는다.
 
 **확인 방법**: 다음 장 로그에 `[Regime] … score=` 코스피 줄이 없고, `[RegimeSelect] 국면=NEUTRAL`(또는 RISK_ON) 줄이 첫
-`regime.json` 폴링 뒤 한 번 남는지. `docs/eod/` 세션 표 국면 열이 RISK_ON/NEUTRAL/RISK_OFF로 찍히는지. ctest 33/33.
+`regime.json` 폴링 뒤 한 번 남는지. `docs/market_close/` 세션 표 국면 열이 RISK_ON/NEUTRAL/RISK_OFF로 찍히는지. ctest 33/33.
 
 ### D-086 SignalDispatcher의 교체 진입 판단을 한 번의 잠금으로 읽는다 (2026-09-15)
 
@@ -3823,7 +3823,7 @@ recorder는 여러 엔진을 동시에 구독할 수 있어 CLI 플래그로 고
 
 ### D-091 운영단말에 국면과 분리된 수동 매매 정지 스위치를 둔다 (2026-09-18)
 
-**배경**: 신규 진입 정지는 지금 `RegimeFileBridge`가 국면 파일을 읽어 자동으로 걸고 푸는 `entry_halt_` 하나뿐이다.
+**배경**: 신규 진입 정지는 지금 `RegimeFileJudge`가 국면 파일을 읽어 자동으로 걸고 푸는 `entry_halt_` 하나뿐이다.
 장중에 시황이 애매해 사람이 "지금은 새 진입을 잠깐 세우고 싶다"고 판단해도 그 뜻을 걸 자리가 없다 —
 국면 조건이 바뀌면 자동으로 다시 열린다.
 
@@ -3831,9 +3831,9 @@ recorder는 여러 엔진을 동시에 구독할 수 있어 CLI 플래그로 고
 OR로 합쳐 반환한다. `OpsProtocol.h`에 `HALT_REQ=0x32`/`HALT_ACK=0x33`을 추가해 운영단말이 켜고 끄고,
 `OpsServer`가 인증을 거쳐 `OrderGate::set_manual_halt()`를 부른다. `STATUS`에 `manual_halt` 필드를 실어
 단말 버튼 라벨(매매 정지: ON/OFF)이 서버 상태를 그대로 따르게 했다. 국면 자동 정지와 분리한 이유는
-`RegimeFileBridge`의 만료 타이머가 운영자가 건 수동 정지를 국면 갱신 때 같이 풀어버리는 것을 막기 위해서다.
+`RegimeFileJudge`의 만료 타이머가 운영자가 건 수동 정지를 국면 갱신 때 같이 풀어버리는 것을 막기 위해서다.
 
-**버린 대안**: `entry_halt_` 하나를 운영단말도 같이 쓰게 하는 것 — 구현은 가장 짧지만 `RegimeFileBridge`가
+**버린 대안**: `entry_halt_` 하나를 운영단말도 같이 쓰게 하는 것 — 구현은 가장 짧지만 `RegimeFileJudge`가
 국면 파일을 다시 읽는 순간 운영자가 건 정지가 말없이 풀린다. 원인이 다른 두 정지를 하나의 플래그로 묶으면
 "누가 언제 왜 풀었는지"를 로그에서 구분할 수 없어진다.
 
@@ -3951,7 +3951,7 @@ provider·key 핸들을 새로 여닫고 있었다.
 하나로 켠다. 매수 정지는 전과 같이 `is_entry_halted()`에 OR — 전략이 신호를 만들지 않는다. 매도 정지는
 `SignalDispatcher::from_strategy`에서 전략의 SELL NEW만 버린다(종목당 한 번 로그, 정지가 풀리면 로그 표를 비운다).
 **수동 주문(`MANUAL`)과 국면 강제청산(`force_liquidate`)은 막지 않는다** — 운영자가 건 정지가 운영자의 손을 묶으면
-안 되고, 극단 위험회피는 사람 판단보다 위에 둔다. 손절·트레일·마감(`eod_hhmm`) 청산은 전략 신호라 같이 멈춘다 —
+안 되고, 극단 위험회피는 사람 판단보다 위에 둔다. 손절·트레일·마감(`market_close_hhmm`) 청산은 전략 신호라 같이 멈춘다 —
 단말 확인창에 그대로 적었다. 프로토콜은 `HALT_REQ {"side","on"}`(side 없으면 BUY, 옛 단말 호환),
 `HALT_ACK`·`STATUS`에 `manual_buy_halt`·`manual_sell_halt`.
 
@@ -4012,7 +4012,7 @@ provider·key 핸들을 새로 여닫고 있었다.
 - 장 시간: `Engine::is_kr_market_open`을 09:00~20:00으로 넓혔다(피드 감시·개장 전이용). `BarAggregator` 틱 마감
   기본을 15:30→20:00으로 — 3분봉이 애프터마켓에도 이어진다(15:30~16:00은 종가 한 값이라 평평한 봉).
 - 감시견 `scripts/auto_trade_day.ps1` 기본 `-Until` 15:35→20:05.
-- 전략 청산 시각은 config 값 — 실행 config의 `eod_hhmm`을 15:05→19:50으로 올린다(코드 기본값은 그대로).
+- 전략 청산 시각은 config 값 — 실행 config의 `market_close_hhmm`을 15:05→19:50으로 올린다(코드 기본값은 그대로).
 
 **배경**: 애프터마켓 개장으로 하루 매매 시간이 6.5시간→10.5시간(15:30~16:00 제외)이 됐다. 사용자 요청 "오늘부터
 오후 8시까지 진행". 처음에 "정규장이 늘어났다"고 이해했으나 정규장은 그대로고 새 세션이 붙은 것이다.
@@ -4055,7 +4055,7 @@ KILL을 풀려면 `scripts/kill_release.ps1`(표지 파일 삭제 + 감시견 �
 - KILL을 "한 번 재시작"으로 두기 — 운영자가 누른 KILL은 "오늘은 끝"이 맞다. 되돌리는 길은 `kill_release.ps1`.
 
 **남은 위험·경계**:
-- "큐가 비었다"는 `order_queue` 기준이다. order_thread가 꺼내 KIS 왕복 중인 한 건은 `stop()`의 join이 기다리고, `OrderPacer`
+- "큐가 비었다"는 `order_queue` 기준이다. order_thread가 꺼내 KIS 왕복 중인 한 건은 `stop()`의 join이 기다리고, `OrderRateLimiter`
   재시도 큐는 창 밖이라 게이트가 막는다. 유예 뒤 600초(`drain_limit_sec`, 코드 상수)가 지나도 안 비면 강제 종료한다.
 - 창이 닫힌 지 유예+600초보다 지나 처음 관찰되는 기동(밤에 손으로 띄운 TRADE)은 판정하지 않는다 — 예전처럼 사용자가 끈다.
 - 감시견이 창 안에서 재기동한 엔진은 부팅이 끝나는 대로(첫 control 주기) 닫힘을 보고 다음 주기에 내려간다 — 09-19 15:34 실측:
@@ -4123,7 +4123,7 @@ RTT(평균 5.8초)는 같은 서버의 응답 시간이라 클라이언트에서
 
 **확인은 자동으로**: "다음 거래일 로그를 봐 달라"는 사람 몫으로 남기지 않는다. `scripts/check_runtime_health.py`에
 "주문 접수 지연"(RTT 중앙값·3초 이상 건수·버킷대기 중앙값으로 서버 지연인지 버킷인지 판정)과 "잔고 조회 지연"(사이클을 넘긴
-조회 횟수·제한 시간 초과 건수) 두 행을 두고, 그 표를 `eod_autodoc`이 매매일지 4절에 자동으로 싣는다. 장중에는
+조회 횟수·제한 시간 초과 건수) 두 행을 두고, 그 표를 `market_close_autodoc`이 매매일지 4절에 자동으로 싣는다. 장중에는
 `parse_quant_log.py --watch`가 같은 판정을 창마다 한 줄로 낸다.
 
 ### D-101 리셋 헌장 — 데이터는 등급을 붙여 전부 쓰고, walk-forward가 표준이며, 기각된 전략은 라이브에서 내린다 (2026-09-19)
@@ -4157,3 +4157,43 @@ RTT(평균 5.8초)는 같은 서버의 응답 시간이라 클라이언트에서
 
 **확인은 자동으로**: `scripts/check_docs.py`가 헌장·브리핑·회의록의 색인 줄을 검사하고, `scripts/commit_gate.py`가
 `Quant/config/*.json` 전략 키 diff에 `PARAM_LEDGER` 행이 없으면 막는 게이트를 다음 단계에서 붙인다.
+### D-102 쓰지 않기로 한 낱말을 식별자·파일 이름·config 키에서도 뜻별 이름으로 나눈다 (2026-09-19)
+
+**상태**: 채택
+
+**결정**: `docs/STYLE_GUIDE.md`가 산문에서 금지한 낱말이 이름(식별자·파일·CMake 타깃·config 키·원장 태그·예약작업 이름)에
+남아 있으면 산문만 고쳐도 "밀림 처리를 켜는 키는 backpressure" 같은 어긋남이 생긴다. 2677605(probe)와 같은 방식으로 한 번에 <!-- lexicon-ok: 옛 낱말 인용 -->
+정리한다. 낱말 하나에 뜻이 여럿이면 이름도 나눈다.
+
+| 옛 낱말 | 새 이름(코드) | 새 말(산문) |
+|---|---|---|
+| orphan / ORPHAN(원장 태그) | `unlinked_fill` / `UNLINKED` | 미연결 체결 |
+| ladder / rung / `buy_rungs` / `n_rungs` | `split_buy` / `split_step` / `buy_split_steps` / `split_step_count` | 분할 매수 / 분할 단계 |
+| guardian(`attach_holding_guardians`·`mark_guardian_ticker`) | `exit_manager` / `exit_managed` | 청산 관리 |
+| sidecar(`notify_sidecar.py`, 프로세스 역할) | `notify_trades.py` / `regime_feed` | 보조 프로세스 |
+| pacing / OrderPacer / `pacing::` | `OrderRateLimiter` / `order_rate::` / `set_order_interval` | 발주 간격 |
+| funnel(`FUNNEL_RE`, 세션 표 키) | `STAGE_PASS_RE` / `stage_pass` | 단계별 통과율 |
+| hot_path(`bench_hot_path`) | `bench_latency_path` | 영어 산문 "hot path"는 CLAUDE.md 원칙 6의 용어라 그대로 둔다 |
+| counterfactual | `extract_swap_what_if.py` / `what_if` | 가정 비교 |
+| anchor(HTML id·창 기준·문서 참조) | `heading_id` / `window_indices` / `reference_point` / `start_fixed` / `CODE_REFERENCE_RE` / `SEGMENT_START_RE` | 기준점 · 시작 고정 |
+| ablation | `removal_test`(스터디 03 폴더·`regime_removal_test_2022.py`) | 제거실험 | <!-- lexicon-ok: 옛 낱말 인용 -->
+| donchian | `channel_breakout.py` / `run_channel_breakout.py` | 채널 돌파 |
+| BH / B&H(벤치 표식·변수) | `BUY_AND_HOLD` / `buy_and_hold` / `BENCHMARK_SENTINELS` | 매수 후 보유 | <!-- lexicon-ok: 옛 낱말 인용 -->
+| smoke(`config_smoke_paper.json`) | `config_startup_check_paper.json` | 기동 점검 |
+| eod(config 키·스크립트·폴더·예약작업·훅·스킬) | `market_close_*`(`market_close_exit_hhmm`·`market_close_hhmm`·`docs/market_close/`·`Quant Market Close AutoDoc`·`/market-close-review`) | 장 마감 |
+| `EntryMode::EOD` | `EntryMode::DAILY` | 일봉 모드 |
+| RegimeFileBridge / `regime_bridge` | `RegimeFileJudge` / `regime_file` | 국면 파일 판정 |
+| bh(Benjamini-Hochberg, 스터디 13) | `benjamini_hochberg_qvalues` — 동음이의라 뜻대로 풀어 쓴다 | — |
+
+**호환 규칙**: 지난 기록(`strategies/*/live`·`docs/market_close/`·`research/dashboard/*.json`·`_private/archive`)은 손대지 않는다.
+읽는 쪽은 옛 태그도 받는다 — 원장 `ORPHAN`+`UNLINKED`(`scripts/exit_ev.py`·`scripts/dashboard_server.py`·청산 확률표),
+metrics `BH`+`BUY_AND_HOLD`(`PYQuant/dashboard/build_dashboard.py`·`scripts/exit_ev_dashboard.py`), 로그 `가디언`+`청산 관리` <!-- lexicon-ok: 옛 낱말 인용 -->
+(`scripts/log_patterns.py`). config 키는 새 이름만 읽고(D-099와 같다) 로컬 config 셋은 머지할 때 같이 바꾼다. `entry_mode`
+값 `"EOD"`는 `INTRADAY`가 아니면 일봉이라 옛 값으로도 같은 동작이다. `reconcile`(잔고 대조)은 이번에 안 바꿨다 — 별도 판단.
+
+**버린 대안**: 산문만 고치고 이름은 둔다 — D-099 배경의 어긋남 그대로라 뺐다. 옛 config 키를 같이 받는다 — 읽는 곳이
+`StrategyFactory` 한 곳이고 사본이 셋뿐이라 호환 코드가 더 비싸다(D-099와 같은 판단). 산문의 영어 "hot path"까지 바꾼다 —
+설계 원칙의 용어라 뺐다. D-099의 "anchor 영어 식별자는 그대로 둔다"는 이 결정으로 뒤집었다(약어·비유는 이름에서도 뺀다는 규약).
+
+**남은 위험**: 옛 키 이름 config로 띄우면 마감 청산 시각이 코드 기본값으로 돌아간다 — 기동 로그 `market_close=` 값으로 잡는다.
+예약작업 이름이 바뀌어 `scripts/market_close_timetable.ps1 -Apply`로 다시 등록해야 옛 이름 작업이 남지 않는다.

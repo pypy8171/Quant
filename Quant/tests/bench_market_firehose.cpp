@@ -14,7 +14,7 @@
 //   실제 시장 구조 근사다(균등 분포는 비현실적). 티커는 universe_full.json의 실제 상장 코드를
 //   쓰고, 없으면 합성 6자리로 폴백한다.
 //
-// [inv] 측정 관례(bench_intake·test_pipeline_stress와 공통) — pacing은 sleep 금지(Windows
+// [inv] 측정 관례(bench_intake·test_pipeline_stress와 공통) — 간격 조절은 sleep 금지(Windows
 //   부정확)라 busy-wait. 지연 샘플은 소비자 단독 스레드에서만 수집한다(스레드별 독립 vector).
 //   reserve로 미리 잡아 측정 중 재할당(소비자 스톨)을 막는다. 종료 후 드레인 구간 항목은
 //   분위수(percentile) 오염원이라 카운트만 하고 표본에서 뺀다. release 빌드로만 유의미하며
@@ -227,7 +227,7 @@ static inline void bump_high_water_mark(std::atomic<uint64_t>& high_water_mark, 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WS 시뮬레이션 Producer — 총 offered rate를 균등 간격 busy-wait pacing으로 방출,
+// WS 시뮬레이션 Producer — 총 offered rate를 균등 간격 busy-wait 간격 조절로 방출,
 //   종목은 Zipf로 선택, OB/TD는 ob_ratio로 분기.
 // ─────────────────────────────────────────────────────────────────────────────
 static void producer_fn(RingBuffer<MockOrderBook>& order_book_queue,

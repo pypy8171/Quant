@@ -41,7 +41,7 @@ flowchart LR
     SO --> SD[SignalDispatcher::from_strategy] --> OQ[pipeline_.order_queue SPSC]
   end
   subgraph ord[4. 주문 스레드]
-    OQ --> PC[OrderPacer] --> OR[OrderRouter::new_route] --> OG[OrderGate::check] --> KIS[KisClient::submit_order_acknowledgement]
+    OQ --> PC[OrderRateLimiter] --> OR[OrderRouter::new_route] --> OG[OrderGate::check] --> KIS[KisClient::submit_order_acknowledgement]
   end
   subgraph fill[5. 체결 스레드]
     FN[parse_fill_notification] --> FQ[pipeline_.fill_queue SPSC] --> OF[OrderRouter::on_fill] --> OGF[OrderGate::on_fill_confirmed]
@@ -276,7 +276,7 @@ review = [
   [[stage.step]]
   sym = "dispatch::SignalDispatcher::from_strategy"
   file = "Quant/src/core/SignalDispatcher.cpp"
-  what = "비활성 전략의 신규 매수·청산 관리(guardian) 종목의 신규 매수 차단 → `submit`. 판정 함수는 `set_guardian`으로 엔진이 준다"
+  what = "비활성 전략의 신규 매수·청산 관리(청산 관리) 종목의 신규 매수 차단 → `submit`. 판정 함수는 `set_exit_managed_check`으로 엔진이 준다"
   test = "test_signal_dispatcher"
 
   [[stage.step]]
@@ -301,7 +301,7 @@ review = [
 [[stage]]
 id = "order"
 name = "4. 주문 — 큐에서 KIS까지, 거부와 재시도"
-summary = "주문 스레드가 유일한 시퀀서다(원칙 4). 조절기(`OrderPacer`)가 간격·재시도를 정하고, 라우터가 게이트 검사 뒤 KIS에 보내고 ODNO를 기억하며, 구간 지연을 CSV에 남긴다."
+summary = "주문 스레드가 유일한 시퀀서다(원칙 4). 조절기(`OrderRateLimiter`)가 간격·재시도를 정하고, 라우터가 게이트 검사 뒤 KIS에 보내고 ODNO를 기억하며, 구간 지연을 CSV에 남긴다."
 review = [
   "게이트 거부 사유 문장이 `GateReasons.h` 한 곳에서 오는지(D-067) — 조절기가 문장으로 분류하므로 흩어지면 깨진다",
   "청산 SELL의 재시도가 BUY와 다르게 분류되는지(유량 한도는 action 불문, 40240000 제외)",
@@ -315,16 +315,16 @@ review = [
   what = "`take_due_retry` 우선 → 큐 pop → `wait_before_send` → `router->submit` → 성공이면 `note_sent`, 거부면 `on_rejected` → `LatencyTrace::record`. 비면 재시도 만기까지 `wait_until`"
 
   [[stage.step]]
-  sym = "pacing::OrderPacer::wait_before_send"
-  file = "Quant/src/core/OrderPacer.cpp"
+  sym = "order_rate::OrderRateLimiter::wait_before_send"
+  file = "Quant/src/core/OrderRateLimiter.cpp"
   what = "직전 KIS 호출 뒤 최소 간격. `take_due_retry`·`on_rejected`(재시도 분류)·만기 폐기가 같은 파일"
-  test = "test_order_pacer"
+  test = "test_order_rate_limiter"
 
   [[stage.step]]
-  sym = "pacing::OrderPacer::on_rejected"
-  file = "Quant/src/core/OrderPacer.cpp"
+  sym = "order_rate::OrderRateLimiter::on_rejected"
+  file = "Quant/src/core/OrderRateLimiter.cpp"
   what = "거부 → 재시도 여부·다음 시각. 유량 한도 문장은 `GateReasons.h`와 맞춰 본다"
-  test = "test_order_pacer"
+  test = "test_order_rate_limiter"
 
   [[stage.step]]
   sym = "OrderRouter::submit"
@@ -433,8 +433,8 @@ review = [
   [[stage.step]]
   sym = "Engine::poll_regime_file"
   file = "Quant/src/core/Engine.cpp"
-  what = "데이터 스레드가 부른다. `regime.json` 축 — `entry_halt`(신규매수 차단)·`entry_scale`(매수비율)·`force_liquidate`, 그리고 라벨 전이 때 `apply_regime_selection`(전략 집합 선택, D-084). 상태기계는 `RegimeFileBridge.h`"
-  test = "test_regime_bridge"
+  what = "데이터 스레드가 부른다. `regime.json` 축 — `entry_halt`(신규매수 차단)·`entry_scale`(매수비율)·`force_liquidate`, 그리고 라벨 전이 때 `apply_regime_selection`(전략 집합 선택, D-084). 상태기계는 `RegimeFileJudge.h`"
+  test = "test_regime_file_judge"
 
   [[stage.step]]
   sym = "OrderGate::set_manual_halt"
@@ -450,7 +450,7 @@ review = [
   [[stage.step]]
   sym = "Engine::maybe_rescan_universe"
   file = "Quant/src/core/Engine.cpp"
-  what = "유니버스 재스캔 — 빠진 보유 종목은 40초에 신규매수 차단, 600초에 전략 해제(`UniverseExit.h`, D-077). 청산 관리 보유(`guardian_tickers`)는 스캔 신규매수에서 뺀다"
+  what = "유니버스 재스캔 — 빠진 보유 종목은 40초에 신규매수 차단, 600초에 전략 해제(`UniverseExit.h`, D-077). 청산 관리 보유(`exit_managed_tickers`)는 스캔 신규매수에서 뺀다"
   test = "test_signal_dispatcher"
 
   [[stage.step]]

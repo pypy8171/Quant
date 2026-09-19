@@ -13,7 +13,7 @@
 유니버스: 2022-01-01 as-of 1회 생성 후 ON/OFF 공유(유니버스 변수 제거).
 
 사용:  export DATA_GO_KR_KEY='...'
-       python3 PYQuant/tools/ablation_2022.py
+       python3 PYQuant/tools/regime_removal_test_2022.py
 """
 import csv
 import sys
@@ -55,13 +55,13 @@ def main() -> None:
           f"현금화 {on.regime_off}회")
     print("   ⚠️ walk-forward 상승장 드래그(-8%p)와 한 쌍으로 해석: 폭락장 보험료 회수")
 
-    with open("ablation_2022.csv", "w", newline="", encoding="utf-8-sig") as f:
-        w = csv.writer(f)
-        w.writerow(["config", "return_pct", "mdd_pct", "sharpe", "regime_off"])
+    with open("regime_removal_test_2022.csv", "w", newline="", encoding="utf-8-sig") as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(["config", "return_pct", "mdd_pct", "sharpe", "regime_off"])
         for label, r in out.items():
-            w.writerow([label, f"{r.total_return:.2f}", f"{-r.mdd:.2f}",
+            writer.writerow([label, f"{r.total_return:.2f}", f"{-r.mdd:.2f}",
                         f"{r.sharpe:.3f}", r.regime_off])
-    print("📄 ablation_2022.csv 저장")
+    print("📄 regime_removal_test_2022.csv 저장")
 
 
 if __name__ == "__main__":

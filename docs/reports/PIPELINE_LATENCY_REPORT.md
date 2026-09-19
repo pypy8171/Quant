@@ -59,7 +59,7 @@ ws_producer → [ob_q, td_q] → strategy_thread → order_q → order_thread
 - **호가:체결 = 7:3** (OrderBook가 체결보다 잦음).
 
 ### 측정 방법
-- pacing은 busy-wait(Windows `Sleep` 부정확성 회피).
+- 간격 조절은 busy-wait(Windows `Sleep` 부정확성 회피).
 - 지연 샘플은 소비자 단독 스레드에서만 수집한다(스레드별 독립 vector라 data race가 없다).
 - `reserve`로 미리 잡아 측정 중 재할당(소비자 스톨) 차단.
 - 측정창 종료 후 드레인 구간 항목은 percentile 오염원이므로 카운트만 하고 샘플에서 제외.
@@ -188,7 +188,7 @@ recv_ts`(수신 후 처리단), `e2e = order_ts − send_ts`(전체).
 
 09-13에 들어간 변경은 대부분 "틱 한 건당 몇십 ns"짜리 조각이라 위 ①~③의 E2E 하네스로는 보이지 않는다
 (그 하네스는 `RingBuffer`만 쓰는 합성이다). 조각마다 옛 구현을 벤치 안에 그대로 재현해 새 구현과 같은
-입력으로 쟀다. 하네스는 [Quant/tests/bench_hot_path.cpp](../../Quant/tests/bench_hot_path.cpp), 실행 절차는
+입력으로 쟀다. 하네스는 [Quant/tests/bench_latency_path.cpp](../../Quant/tests/bench_latency_path.cpp), 실행 절차는
 [LOAD_TEST_GUIDE.md §4](../guides/LOAD_TEST_GUIDE.md). 종목 2,600개를 LCG로 섞어 접근하고, 시각은
 `steady_clock`(눈금 100ns)이다. 아래 수치는 다른 작업이 CPU를 33% 쓰는 상태에서 뽑은 1회분이라 꼬리(p99 이상)는
 그날 머신 상태를 반영한다. 꼬리를 볼 때는 다른 작업이 없는 머신에서 다시 뽑는다.
@@ -274,8 +274,8 @@ Quant/build_win/bench_feed_ingest.exe sweep --tickers 2600 --start 50000 --step 
 #                                    코스콤측> bench_feed_ingest send --host 127.0.0.1 --port 47001 --rate 100000 --duration 10
 
 # ⑥ 09-13 hot path 조각 옛/새 (인자 없음, 다른 작업 없는 머신에서)
-cmake --build Quant/build_win --target bench_hot_path
-Quant/build_win/bench_hot_path.exe
+cmake --build Quant/build_win --target bench_latency_path
+Quant/build_win/bench_latency_path.exe
 
 # 실 라이브 데이터 병행 실증 (반드시 장 중 09:00–15:30 KST)
 cmake --build Quant/build_win --target feed_latency_measure

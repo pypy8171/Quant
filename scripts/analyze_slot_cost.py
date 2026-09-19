@@ -6,7 +6,7 @@
   거부분 평균 > 진입분 평균  →  상한이 수익을 깎고 있다(비용). 슬롯을 늘리거나 교체를 공격적으로.
   거부분 평균 < 진입분 평균  →  상한이 필터로 작동 중. 넓히면 오히려 손해.
 
-거부 시각의 가격은 extract_swap_counterfactual.py가 뽑아둔 CSV에서, 진입 가격은
+거부 시각의 가격은 extract_swap_what_if.py가 뽑아둔 CSV에서, 진입 가격은
 당일 매매원장의 매수 체결가에서 가져온다. 종가는 FinanceDataReader 일봉.
 
   py scripts/analyze_slot_cost.py --date 2026-09-03 [--date 2026-09-04 ...]
@@ -22,9 +22,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'scripts'))
 import _logdir  # noqa: E402
 
-REJ_DIR = os.path.join(ROOT, 'research', 'runs', 'swap_counterfactual')
+REJ_DIR = os.path.join(ROOT, 'research', 'runs', 'swap_what_if')
 
-# 기동 기동 점검과 수동 TEST 발주는 전략 매매가 아니다. 진입분 모집단에서 뺀다.
+# 기동 점검과 수동 TEST 발주는 전략 매매가 아니다. 진입분 모집단에서 뺀다.
 #  (TEST는 09-04에 005930을 체결가 75000으로 남겼는데 그날 실제 시세는 25만원대였다.
 #   이 한 줄이 진입분 평균을 +26%로 만들어 비교를 통째로 망가뜨렸다.)
 EXCLUDE_STRATEGY = ('STARTUP_CHECK', 'STARTUP_PROBE', 'TEST')   # STARTUP_PROBE 는 09-19 이전 원장의 옛 태그

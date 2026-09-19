@@ -37,7 +37,7 @@ static const std::vector<Regime>* s_pending_regimes = nullptr;
 //  s_scan_covered는 모든 DEVIATION_SCALE 슬리브가 담당하는 티커의 합집합이고, 청산 관리 설정은
 //  마지막으로 manage_holdings.enabled를 켠 슬리브의 것을 쓴다(현재 구성은 하나만 켠다).
 static std::set<std::string> s_scan_covered;
-static json                  s_pending_guardians;
+static json                  s_pending_exit_managers;
 static bool                  s_guard_gated = false;
 static std::vector<Regime>   s_guard_regimes;
 
@@ -159,14 +159,14 @@ static void load_intraday_breakout(StrategyLoadCtx& context, const json& node)
     double epsilon         = node.value("breakout_eps", 0.002);
     double trail_percent   = node.value("trail_pct", 0.010);
     double hard_percent    = node.value("hard_pct", 0.015);
-    int eod_hhmm       = node.value("eod_hhmm", 1515);
+    int market_close_hhmm       = node.value("market_close_hhmm", 1515);
     int cooldown_sec   = node.value("reentry_cooldown_sec", 60);
     int entry_quantity      = node.value("entry_qty", 1); // 신규 돌파 진입 수량(명목 미지정 시)
     double average_loss_percent = node.value("avg_loss_pct", 0.0); // 평단 대비 손절률(0=비활성)
     // ── v2 파라미터(strategies/ITB/SPEC.market_data §2/§3) ──
     double seed_trail_percent      = node.value("seed_trail_pct", 0.0);      // 물린분 기준점 트레일(넓게)
     double exit_near_average_percent   = node.value("exit_near_avg_pct", 0.0);   // 물린분 본전탈출 임계
-    int    no_new_entry_hhmm   = node.value("no_new_entry_hhmm", 0);     // 신규진입 금지 시각(0→eod)
+    int    no_new_entry_hhmm   = node.value("no_new_entry_hhmm", 0);     // 신규진입 금지 시각(0→장 마감)
     double notional_per_position = node.value("notional_per_position", 0.0); // 종목당 명목(원)
 
     if (node.value("universe_from_scan", false))
@@ -204,7 +204,7 @@ static void load_intraday_breakout(StrategyLoadCtx& context, const json& node)
                 {
                     auto strategy = std::make_unique<IntradayBreakoutStrategy>(
                         candidate.ticker, entry_quantity, /*hold_quantity=*/0, /*start_in_position=*/false,
-                        channel_min, epsilon, trail_percent, hard_percent, eod_hhmm, cooldown_sec,
+                        channel_min, epsilon, trail_percent, hard_percent, market_close_hhmm, cooldown_sec,
                         /*average_price=*/0.0, average_loss_percent, seed_trail_percent, exit_near_average_percent,
                         no_new_entry_hhmm, notional_per_position, /*day_open_price=*/candidate.day_open);
                     strategy->set_name(candidate.name);
@@ -237,7 +237,7 @@ static void load_intraday_breakout(StrategyLoadCtx& context, const json& node)
                 {
                     auto strategy = std::make_unique<IntradayBreakoutStrategy>(
                         holding.ticker, entry_quantity, holding.quantity, /*start_in_position=*/true, channel_min, epsilon,
-                        trail_percent, hard_percent, eod_hhmm, cooldown_sec, holding.average_price, average_loss_percent,
+                        trail_percent, hard_percent, market_close_hhmm, cooldown_sec, holding.average_price, average_loss_percent,
                         seed_trail_percent, exit_near_average_percent, no_new_entry_hhmm,
                         /*notional=*/0.0, /*day_open_price=*/0.0);
                     strategy->set_name(holding.name);
@@ -263,7 +263,7 @@ static void load_intraday_breakout(StrategyLoadCtx& context, const json& node)
 
         add_gated(engine, std::make_unique<IntradayBreakoutStrategy>(
             ticker, entry_quantity, /*hold_quantity=*/0, /*start_in_position=*/false,
-            channel_min, epsilon, trail_percent, hard_percent, eod_hhmm, cooldown_sec,
+            channel_min, epsilon, trail_percent, hard_percent, market_close_hhmm, cooldown_sec,
             /*average_price=*/0.0, average_loss_percent, seed_trail_percent, exit_near_average_percent,
             no_new_entry_hhmm, notional_per_position, /*day_open_price=*/0.0));
     }
@@ -291,8 +291,8 @@ static void load_value_contrary(StrategyLoadCtx& context, const json& node)
     Market market = (market_string == "US") ? Market::US : Market::KR;
     std::string exchange = node.value("exchange", "");
     double pbr_max = node.value("pbr_max", 1.0);
-    int eod_hhmm = node.value("eod_exit_hhmm", 1520);
-    add_gated(context.engine, std::make_unique<ValueContraryStrategy>(market, exchange, pbr_max, quantity, eod_hhmm));
+    int market_close_hhmm = node.value("market_close_exit_hhmm", 1520);
+    add_gated(context.engine, std::make_unique<ValueContraryStrategy>(market, exchange, pbr_max, quantity, market_close_hhmm));
 }
 
 // ─── FIXED_INTERVAL ─────────────────────────────────────────────────────────
@@ -375,9 +375,9 @@ static void load_supply_demand_pullback(StrategyLoadCtx& context, const json& no
     short_period.pullback_band     = node.value("pullback_band",     0.01);
     short_period.require_previous_above= node.value("require_prev_above",true);
     short_period.quantity          = node.value("quantity",          10);
-    short_period.eod_exit_hhmm     = node.value("eod_exit_hhmm",    std::string("1500"));
+    short_period.market_close_exit_hhmm     = node.value("market_close_exit_hhmm",    std::string("1500"));
     short_period.stop_below_moving_average     = node.value("stop_below_ma",    0.0);
-    short_period.mode = SupplyDemandPullbackStrategy::EntryMode::from_string(node.value("entry_mode", "EOD"));
+    short_period.mode = SupplyDemandPullbackStrategy::EntryMode::from_string(node.value("entry_mode", "DAILY"));
     add_gated(context.engine, std::make_unique<SupplyDemandPullbackStrategy>(short_period));
 }
 
@@ -403,32 +403,32 @@ static void load_market_making(StrategyLoadCtx& context, const json& node)
 //  스캔 유니버스가 잡지 못한 잔고 보유분(아침에 산 물린분 등)마다 "청산 전용" ITB를
 //  붙인다. 신규진입은 no_new_entry_hhmm=1(항상 과거)로 영구 차단 → 오직 보호·청산만:
 //    seed_trail_percent(넓은 기준점 트레일) + exit_near_average_percent(본전근처 반등청산)
-//    + average_loss_percent(평단손절, 0=비활성) + EOD(eod_exit_hhmm, 기본 2100=장중 강제청산 안 함 — 엔진이 20:00까지 도니 1600은 애프터마켓 청산이 된다, D-097).
+//    + average_loss_percent(평단손절, 0=비활성) + 장 마감(market_close_exit_hhmm, 기본 2100=장중 강제청산 안 함 — 엔진이 20:00까지 도니 1600은 애프터마켓 청산이 된다, D-097).
 //  covered = 이미 스캔 전략이 담당하는 티커(중복 부착 방지). rest_price_feed 합성틱으로 on_trade 구동.
-static void attach_holding_guardians(StrategyLoadCtx& context, const json& guardians_node,
+static void attach_holding_exit_managers(StrategyLoadCtx& context, const json& exit_manager_node,
                                      const std::set<std::string>& covered)
 {
     Engine& engine = context.engine;
-    double seed_trail_display    = guardians_node.value("seed_trail_pct", 2.0);     // 표시용(%)
-    double exit_near_average_display = guardians_node.value("exit_near_avg_pct", 1.0);
+    double seed_trail_display    = exit_manager_node.value("seed_trail_pct", 2.0);     // 표시용(%)
+    double exit_near_average_display = exit_manager_node.value("exit_near_avg_pct", 1.0);
     double seed_trail_percent     = seed_trail_display / 100.0;             // %→비율
     double exit_near_average_percent  = exit_near_average_display / 100.0;
-    double average_loss_percent       = guardians_node.value("avg_loss_pct", 0.0) / 100.0; // 0=비활성
-    int    eod_hhmm           = guardians_node.value("eod_exit_hhmm", 2100);     // 2100=장중 강제청산 안 함(보호만) [why D-097]
-    int    channel_min        = guardians_node.value("channel_min", 10);
-    int    cooldown_sec       = guardians_node.value("reentry_cooldown_sec", 60);
+    double average_loss_percent       = exit_manager_node.value("avg_loss_pct", 0.0) / 100.0; // 0=비활성
+    int    market_close_hhmm           = exit_manager_node.value("market_close_exit_hhmm", 2100);     // 2100=장중 강제청산 안 함(보호만) [why D-097]
+    int    channel_min        = exit_manager_node.value("channel_min", 10);
+    int    cooldown_sec       = exit_manager_node.value("reentry_cooldown_sec", 60);
     // 본전탈출 무장 깊이 — 평단 -arm%까지 실제로 밀려 본 적이 있어야 본전탈출이 켜진다.
     //  이게 없으면 평단 -0.2%로 보유한 종목이 재기동 첫 틱에 전량 청산된다(그건 물린 게
     //  아니라 그냥 본전이다). 부착유예는 재기동 첫 틱과 국면 배선 사이 경합을 막는다.
-    double arm_display           = guardians_node.value("exit_near_avg_arm_pct", 3.0);
+    double arm_display           = exit_manager_node.value("exit_near_avg_arm_pct", 3.0);
     double exit_arm_percent       = arm_display / 100.0;
-    int    guard_warmup_sec   = guardians_node.value("guard_warmup_sec", 60);
+    int    guard_warmup_sec   = exit_manager_node.value("guard_warmup_sec", 60);
     // 이월분 평단 하드스톱 조합안(D-082): 평단 −seed_hard_percent(%) + seed_hard_from_hhmm 이후 + 1분봉 종가
     //  seed_hard_confirm_bars 연속 확인. seed_hard_skip_percent(%)보다 깊게 물린 구형 보유는 제외. 0=비활성.
-    double seed_hard_percent      = guardians_node.value("seed_hard_pct", 0.0) / 100.0;
-    double seed_hard_skip_percent = guardians_node.value("seed_hard_skip_pct", 15.0) / 100.0;
-    int    seed_hard_from     = guardians_node.value("seed_hard_from_hhmm", 915);
-    int    seed_hard_bars     = guardians_node.value("seed_hard_confirm_bars", 3);
+    double seed_hard_percent      = exit_manager_node.value("seed_hard_pct", 0.0) / 100.0;
+    double seed_hard_skip_percent = exit_manager_node.value("seed_hard_skip_pct", 15.0) / 100.0;
+    int    seed_hard_from     = exit_manager_node.value("seed_hard_from_hhmm", 915);
+    int    seed_hard_bars     = exit_manager_node.value("seed_hard_confirm_bars", 3);
 
     KisClient balance_kis(context.kis_config);
 
@@ -464,7 +464,7 @@ static void attach_holding_guardians(StrategyLoadCtx& context, const json& guard
         auto strategy = std::make_unique<IntradayBreakoutStrategy>(
             code, /*entry_quantity=*/0, /*hold_quantity=*/hq, /*start_in_position=*/true,
             channel_min, /*breakout_epsilon=*/0.002, /*trail_percent=*/0.010, /*hard_percent=*/0.015,
-            eod_hhmm, cooldown_sec, /*average_price=*/average_value, average_loss_percent,
+            market_close_hhmm, cooldown_sec, /*average_price=*/average_value, average_loss_percent,
             seed_trail_percent, exit_near_average_percent, /*no_new_entry_hhmm=*/1,
             /*notional=*/0.0, /*day_open_price=*/0.0);
         strategy->set_exit_near_average_arm(exit_arm_percent);
@@ -472,13 +472,13 @@ static void attach_holding_guardians(StrategyLoadCtx& context, const json& guard
         strategy->set_seed_hard_stop(seed_hard_percent, seed_hard_skip_percent, seed_hard_from, seed_hard_bars);
         strategy->set_name(pname);
         engine.register_ticker_name(code, pname); // 로그 라벨(보유분 종목명)
-        engine.mark_guardian_ticker(code);        // 스캔 슬리브의 신규매수에서 제외
+        engine.mark_exit_managed_ticker(code);        // 스캔 슬리브의 신규매수에서 제외
         add_gated(engine, std::move(strategy));
         LOG_INFO("[Main]   + 청산 관리(ITB) " + code + " " + pname + " 보유 " +
                  std::to_string(hq) + "주 @평단 " + std::to_string(static_cast<long long>(average_value)) +
                  " (trail=" + std::to_string(seed_trail_display) + "% 본전탈출=" +
                  std::to_string(exit_near_average_display) + "%(무장 -" + std::to_string(arm_display) + "%) 유예" +
-                 std::to_string(guard_warmup_sec) + "s eod=" + std::to_string(eod_hhmm) + ")");
+                 std::to_string(guard_warmup_sec) + "s market_close=" + std::to_string(market_close_hhmm) + ")");
         ++added;
     }
 
@@ -577,12 +577,12 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
     base.simple_moving_average_period        = node.value("sma_period", 20);
     base.deviation_sell          = node.value("dev_sell_pct", 1.5);
     base.deviation_buy           = node.value("dev_buy_pct", 0.8);
-    base.n_rungs           = node.value("n_rungs", 2);
+    base.split_step_count           = node.value("split_step_count", 2);
     base.add_below_simple_moving_average_only = node.value("add_below_sma_only", true); // 점진 진입: 물타기는 기준선 아래(눌림)에서만
     // 개장 후 3분봉이 안 쌓인 구간(20봉×3분=60분)에 일봉 SMA20을 임시 기준선으로 쓴다.
     //  false면 예전대로 봉이 찰 때까지 발주하지 않는다(개장~10:00 발주 0).
     base.daily_basis_warmup = node.value("daily_basis_warmup", true);
-    base.cross_guard       = node.value("ladder_cross_guard", true);  // 분할 매수 층이 현재가를 넘지 않게 기준점 클램프(D-006)
+    base.cross_guard       = node.value("split_buy_cross_guard", true);  // 분할 매수 층이 현재가를 넘지 않게 기준점 클램프(D-006)
     base.pullback_percent      = node.value("pullback_pct", 2.0);
     base.entry_upper_percent   = node.value("entry_upper_pct", 0.0);   // SMA20 위 진입 허용%(0=순수 눌림만)
     base.zone_hysteresis_percent     = node.value("zone_hyst_pct", 4.0);     // 존 유지 여유폭(%) — 경계 진동 방지
@@ -594,7 +594,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
     base.id_prefix          = node.value("id_prefix", std::string("DEVSCALE"));
     base.entry_lower_percent    = node.value("entry_lower_pct", 0.0);
     base.base_on_price    = node.value("base_on_price", false);
-    base.buy_rungs          = node.value("buy_rungs", -1);
+    base.buy_split_steps          = node.value("buy_split_steps", -1);
     base.stop_loss_percent      = node.value("stop_loss_pct", 0.0);
     base.trail_simple_moving_average_exit     = node.value("trail_sma_exit", false);
     base.trail_simple_moving_average_tolerance_percent  = node.value("trail_sma_tol_pct", 1.0);
@@ -604,7 +604,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
     base.sell_base_average    = node.value("sell_base_average", false);
     base.prefetch_jitter_percent = node.value("prefetch_jitter_pct", 50);
     base.bar_source        = node.value("bar_source", std::string("ws"));   // "ws"(기본)|"rest" (D-069·D-072)
-    base.eod_hhmm          = node.value("eod_exit_hhmm", 1515);
+    base.market_close_hhmm          = node.value("market_close_exit_hhmm", 1515);
     base.interval_min      = node.value("interval_min", 3);
     base.min_action_ms     = node.value("min_action_ms", 3000);
     base.daily_lookback    = node.value("daily_lookback", 70);
@@ -615,7 +615,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
 
     // 이미 보유 중인 종목은 DeviationScale 신규 스캔에서 제외 → 청산 관리가 전담(윈드다운).
     //  시드/전일 물린 보유분에 DevScale 분할 매수가 겹치면 종목당 명목상한(max_percent)을
-    //  초과해 CANCEL 거부·과주문이 난다(073240 사례). 보유분=guardian, 신규만=DevScale로 분리.
+    //  초과해 CANCEL 거부·과주문이 난다(073240 사례). 보유분=청산 관리, 신규만=DevScale로 분리.
     //  manage_holdings.enabled일 때만 적용(청산 관리가 있어야 보유분을 인수하므로).
     std::set<std::string> held;
 
@@ -926,7 +926,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
 
     if (node.contains("manage_holdings") && node["manage_holdings"].value("enabled", false))
     {
-        s_pending_guardians = node["manage_holdings"];
+        s_pending_exit_managers = node["manage_holdings"];
         s_guard_gated       = (s_pending_regimes != nullptr);
         s_guard_regimes     = s_guard_gated ? *s_pending_regimes : std::vector<Regime>{};
     }
@@ -946,9 +946,9 @@ static void load_theme(StrategyLoadCtx& context, const json& node)
     int top_n            = node.value("top_n_sectors", 2);
     double volume_surge     = node.value("volume_surge_mult", 2.0);
     bool institution_filter     = node.value("inst_filter", true);
-    int eod_hhmm         = node.value("eod_exit_hhmm", 1520);
+    int market_close_hhmm         = node.value("market_close_exit_hhmm", 1520);
     add_gated(context.engine, std::make_unique<ThemeStrategy>(
-        sector_codes, top_n, volume_surge, institution_filter, quantity, eod_hhmm));
+        sector_codes, top_n, volume_surge, institution_filter, quantity, market_close_hhmm));
 }
 
 // ─── 전략-국면 매핑 ────────────────────────────────────────────────────────
@@ -990,7 +990,7 @@ static bool parse_active_regimes(const json& node, const std::string& type, std:
 void load_strategies(StrategyLoadCtx& context, const json& strategies)
 {
     // 실사용 현황(config_dev_paper.json 기준, 2026-09-15): DEVIATION_SCALE만 라이브(눌림 DEVSCALE·추격 TRENDX 슬리브 2개).
-    // INTRADAY_BREAKOUT은 이 표로 등록되는 게 아니라 attach_holding_guardians()가 승계 보유분에만 붙이는 청산 전용 가디언.
+    // INTRADAY_BREAKOUT은 이 표로 등록되는 게 아니라 attach_holding_exit_managers()가 승계 보유분에만 붙이는 청산 전용 청산 관리.
     // 나머지(MA_CROSS·MOMENTUM·VALUE_CONTRARY·FIXED_INTERVAL·PRICE_TARGET·SUPPLY_DEMAND_PULLBACK·MARKET_MAKING·THEME)는 현재 config 어디에도 안 걸림 — 죽은 코드는 아니고 미사용.
     static const std::map<StrategyType, void (*)(StrategyLoadCtx&, const json&)> LOADERS = {
         {StrategyType::MA_CROSS, load_moving_average_cross},
@@ -1032,11 +1032,11 @@ void load_strategies(StrategyLoadCtx& context, const json& strategies)
     }
 
     // 전 슬리브의 초기 유니버스가 확정된 뒤에야 "스캔 밖 보유분"을 가릴 수 있다.
-    if (!s_pending_guardians.is_null())
+    if (!s_pending_exit_managers.is_null())
     {
         s_pending_regimes = s_guard_gated ? &s_guard_regimes : nullptr;
-        attach_holding_guardians(context, s_pending_guardians, s_scan_covered);
+        attach_holding_exit_managers(context, s_pending_exit_managers, s_scan_covered);
         s_pending_regimes = nullptr;
-        s_pending_guardians = json();
+        s_pending_exit_managers = json();
     }
 }

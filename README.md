@@ -33,7 +33,7 @@
 - **리스크·주문은 단일 시퀀서** — `OrderGate`와 원장은 샤딩하지 않습니다. 신호마다 순번을 찍어 원장 CSV 전 행에 남기므로 나중에 어떤 신호가 어떤 체결이 됐는지 따라갈 수 있습니다.
 - **시세 끊김** — `feed::Supervisor`가 장 외 무시·재연결 백오프·연속 실패 시 REST 폴백을 판정하고, 제어 스레드는 멈춘 소켓만 다시 잇습니다. 폴백도 안 될 때만 kill switch가 켜집니다.
 - **국면(Regime)은 파일 하나** — 매크로 보조 프로세스가 쓰는 `regime.json`의 라벨(RISK_ON/NEUTRAL/RISK_OFF)이 config `regime_strategies`로 **전략 집합을 고르고**, 같은 파일의 점수가 매수 비율(`entry_scale`)·신규매수 정지(entry halt)·보유 전량 청산(`FORCE_LIQ`)을 냅니다. 코스피 200MA로 따로 판정하던 `RegimeController` 축은 지웠습니다(D-084·D-085).
-- **실계좌 없이 도는 경로** — 캡처한 틱 파일 리플레이, 모의 체결기 `PaperExecutor`, KIS를 링크하지 않는 단위 테스트. 엔진 분해 결과(`DataPoller`·`SignalDispatcher`·`OrderPacer`·`LedgerReconciler`·`RegimeFileBridge`)가 각각 테스트를 가집니다.
+- **실계좌 없이 도는 경로** — 캡처한 틱 파일 리플레이, 모의 체결기 `PaperExecutor`, KIS를 링크하지 않는 단위 테스트. 엔진 분해 결과(`DataPoller`·`SignalDispatcher`·`OrderRateLimiter`·`LedgerReconciler`·`RegimeFileJudge`)가 각각 테스트를 가집니다.
 
 설계 목표는 KIS 41종목 하나의 소켓이 아니라 **전 시장 실시간 피드(2,500+종목)를 받을 수 있는 구조**이고, 지금 구조는 그 1×1 특수 케이스입니다. 8원칙과 단계는 [docs/DECISIONS.md](docs/DECISIONS.md) D-071, 스레드·큐·타입 요약은 [docs/ENGINE_ARCHITECTURE.md](docs/ENGINE_ARCHITECTURE.md), 코드 읽는 순서는 [docs/CODE_FLOW.md](docs/CODE_FLOW.md).
 
@@ -90,7 +90,7 @@ C++ 엔진 전략 10종(`Quant/include/strategy/`), Python 백테스트 전략 6
 
 ## 운영 자동화
 
-장중 매매는 사람이 창을 여는 대신 감시견 스크립트가 맡습니다. `scripts/auto_trade_day.ps1`이 보조 프로세스(매크로 국면·유니버스 스캔·체결 기록기 `PYQuant/main.py record`)·대시보드·트레이더를 순서대로 띄우고(KIS 토큰 캐시는 `KIS_TOKEN_CACHE_DIR`로 한 파일을 같이 씀) 장 마감까지 트레이더가 죽으면 다시 띄우며, 마감 뒤 `scripts/eod_autodoc.py`가 그날 일지의 사실 구간(손익·세션·종목별 사유)과 대시보드를 채웁니다. Windows 예약작업이 이 감시견을 5분마다 확인합니다.
+장중 매매는 사람이 창을 여는 대신 감시견 스크립트가 맡습니다. `scripts/auto_trade_day.ps1`이 보조 프로세스(매크로 국면·유니버스 스캔·체결 기록기 `PYQuant/main.py record`)·대시보드·트레이더를 순서대로 띄우고(KIS 토큰 캐시는 `KIS_TOKEN_CACHE_DIR`로 한 파일을 같이 씀) 장 마감까지 트레이더가 죽으면 다시 띄우며, 마감 뒤 `scripts/market_close_autodoc.py`가 그날 일지의 사실 구간(손익·세션·종목별 사유)과 대시보드를 채웁니다. Windows 예약작업이 이 감시견을 5분마다 확인합니다.
 
 운영 중 손으로 개입할 때는 MFC 운영단말(`Quant/tools/ops_terminal`, 포지션 표·수동 매매·kill switch)이나 콘솔 `ops_client`를 씁니다. 예약작업·훅·마감 파이프라인 전체 목록은 [docs/AUTOMATION.md](docs/AUTOMATION.md), 단말은 [docs/guides/MFC_TERMINAL.md](docs/guides/MFC_TERMINAL.md).
 

@@ -1,5 +1,5 @@
 #pragma once
-// 게이트 거부 사유 문자열의 계약 — 만드는 쪽(OrderGate)과 읽는 쪽(OrderPacer의 재시도 분류)이 같은 정의를 쓴다.
+// 게이트 거부 사유 문자열의 계약 — 만드는 쪽(OrderGate)과 읽는 쪽(OrderRateLimiter의 재시도 분류)이 같은 정의를 쓴다.
 //  사유는 로그·운영단말에 그대로 나가는 문장이라 문자열로 남기되, 부분문자열 검색의 양끝을 여기 한 곳에 둔다. [why D-067]
 #include <string>
 

@@ -974,9 +974,10 @@ def build_criteria(cfg: dict):
 # ─────────────────────────────────────────────────────────────────────────────
 # 원장 strategy 칸에 들어가지만 전략이 아닌 값들. 코드값 그대로 두면 무슨 주문인지 읽히지
 #  않으므로 표시할 때만 한국어로 바꾼다(원장·집계 키는 영문 그대로여야 과거 기록과 맞는다).
-#  notify_sidecar.py가 이 표를 그대로 import해서 쓴다 — 정의는 여기 하나뿐이다.
+#  notify_trades.py가 이 표를 그대로 import해서 쓴다 — 정의는 여기 하나뿐이다.
 STRATEGY_LABEL = {
-    "ORPHAN": "이전 세션 주문",
+    "UNLINKED": "이전 세션 주문",
+    "ORPHAN": "이전 세션 주문",   # 09-19 이전 원장의 옛 태그
     "STARTUP_CHECK": "기동 점검 주문",
     "STARTUP_PROBE": "기동 점검 주문",   # 09-19 이전 원장의 옛 태그
     "TEST": "테스트 주문",
@@ -1470,7 +1471,7 @@ async function tick(){
         ${stale?'<span class="pill bad" style="background:var(--chip)"> STALE '+eb(r._age_sec)+'s</span>':''}</div>
       <div style="margin-top:8px">
         매수비율: <b class="${halt?'bad':(r.entry_scale!=null&&r.entry_scale<1?'warnc':'up')}">${r.entry_scale==null?'—':Math.round(r.entry_scale*100)+'%'}</b>
-        <span class="mut">${halt?'(entry_halt — 신규매수 차단)':'(rung 명목에 곱한다)'}</span><br>
+        <span class="mut">${halt?'(entry_halt — 신규매수 차단)':'(분할 단계 명목에 곱한다)'}</span><br>
         강제청산: <b class="${liq?'bad':''}">${liq?'ON(force_liquidate)':'off'}</b>
       </div>
       ${sum?`<div class="regime-sum">${eb(sum)}</div>`:''}

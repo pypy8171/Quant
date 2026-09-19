@@ -1,6 +1,6 @@
 # 자동화 스크립트 작성 가이드 — PowerShell·Python
 
-`scripts/auto_trade_day.ps1` 같은 운영 스크립트와 `scripts/eod_autodoc.py`·`scripts/dashboard_server.py` 같은 파이썬 자동화를
+`scripts/auto_trade_day.ps1` 같은 운영 스크립트와 `scripts/market_close_autodoc.py`·`scripts/dashboard_server.py` 같은 파이썬 자동화를
 **직접 읽고, 고치고, 처음부터 쓸 수 있게** 되는 것이 이 문서의 목적이다. 저장소 `scripts/`의 `.ps1` 8개·`.py` 42개에 실제로
 쓰인 문법·API·설계 패턴만 다룬다. 쓰이지 않은 기능은 다루지 않는다.
 
@@ -20,14 +20,14 @@
 | `scripts/auto_trade_day.ps1` | 하루 루프 워치독 | 뼈대(2) · FileStream 로그(4.2) · Run-Native(5.3) · Start-Process·Job Object(6) · 상태 파일(15.1) |
 | `scripts/auto_trade_guard.ps1` | 5분 감시자 | 예약작업 등록(8) · Win32_Process 명령줄 판정(6.4) · 날짜 검사(15.1) |
 | `scripts/quant_procs.ps1` | 프로세스 현황·정리 | 역할 판정표·부모-자식 묶기(6.4) · pscustomobject 표(3.2) |
-| `scripts/eod_timetable.ps1` | 시간표 예정 vs 실제 | 예약작업 조회·schtasks(8) · `-Lines` 기계용 출력(13.2) |
+| `scripts/market_close_timetable.ps1` | 시간표 예정 vs 실제 | 예약작업 조회·schtasks(8) · `-Lines` 기계용 출력(13.2) |
 | `scripts/unattended_run.ps1` | 무인 이어달리기 | 인코딩(1.3) · 히어스트링(3.3) · 플래그 파일(15.1) |
 | `scripts/_logdir.py` | 로그·원장 폴더 규칙 | 공용 모듈·후보 탐색(9.3) |
-| `scripts/eod_autodoc.py` | 마감 일지·대시보드 | 로그·CSV 파싱(10) · AUTO 마커 병합(11.1) · subprocess 위임(13.1) |
+| `scripts/market_close_autodoc.py` | 마감 일지·대시보드 | 로그·CSV 파싱(10) · AUTO 마커 병합(11.1) · subprocess 위임(13.1) |
 | `scripts/dashboard_server.py` | 실시간 대시보드 | ThreadingHTTPServer·데몬 스레드·잠금(12) |
 | `scripts/gen_facts.py`·`scripts/gen_automation_hub.py` | 생성물 | gen 블록 치환(11.2) · PowerShell·schtasks 호출(13.2) |
 | `scripts/check_runtime_health.py` | 건전성 점검 | 정규식 검사·종료코드(14) |
-| `scripts/notify_sidecar.py` | 체결 알림 | CSV 증분 읽기(10.3) · 웹훅(13.3) |
+| `scripts/notify_trades.py` | 체결 알림 | CSV 증분 읽기(10.3) · 웹훅(13.3) |
 
 ---
 
@@ -112,7 +112,7 @@ Set-Location $Repo
 | `[CmdletBinding()]` | 스크립트를 cmdlet처럼 만든다. `-Verbose`·`-ErrorAction` 같은 공통 인자가 붙는다 |
 | `param(...)` | 반드시 실행문보다 앞. `[string]`은 기본값 있는 선택 인자, `[switch]`는 있으면 `$true` |
 | `[Parameter(Mandatory = $true)]` | 필수 인자(`scripts/unattended_run.ps1`의 `-Name`) |
-| `[ValidateSet('', 'paper', 'live')]` | 허용값 제한(`scripts/eod_timetable.ps1`의 `-Mode`) |
+| `[ValidateSet('', 'paper', 'live')]` | 허용값 제한(`scripts/market_close_timetable.ps1`의 `-Mode`) |
 | `$ErrorActionPreference = "Stop"` | cmdlet 오류를 예외로 올린다. 조용히 넘어가서 반쯤 된 상태로 계속 도는 것을 막는다. 대신 5.4·6.2절 함정이 생긴다 |
 | `$PSScriptRoot` | 이 `.ps1`이 있는 폴더. `Split-Path -Parent`로 한 단계 올라가면 저장소 루트 |
 | `Set-Location $Repo` | 이후 모든 상대경로의 기준. `quant_trader`는 루트가 아니면 유니버스 파일을 못 찾는다 |
@@ -306,7 +306,7 @@ $paper = [bool](Get-Content $Config -Raw | ConvertFrom-Json).kis.is_paper
 ### 5.1 세 가지 호출법
 
 ```powershell
-py scripts\eod_autodoc.py                       # 그냥 쓴다. 인자에 변수가 없을 때
+py scripts\market_close_autodoc.py                       # 그냥 쓴다. 인자에 변수가 없을 때
 & $py PYQuant\tools\universe_feed.py --market ALL   # & 호출 연산자: 경로가 변수·공백 포함일 때
 & "C:\Program Files\…\cmake.exe" --build …
 cmd /c "`"$vcvars`" >nul 2>&1 && `"$cmake`" --build Quant\build_win --target quant_trader 2>&1"
@@ -441,7 +441,7 @@ $procs | Where-Object { $_.CommandLine -like "*macro_regime_feed.py*" }  # 명�
 
 ```powershell
 Stop-Process -Id $pid_ -Force -ErrorAction SilentlyContinue
-$orphan | Stop-Process -Force
+$미연결 | Stop-Process -Force
 ```
 
 순서 규칙: **자식을 먼저**(pid 큰 것부터). 부모 창을 먼저 죽이면 그 창의 재기동 로직이 돌 수 있다. 트레이더 중복은 자동으로
@@ -523,7 +523,7 @@ Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
 `-MultipleInstances IgnoreNew`는 앞 회차가 아직 돌면 새 회차를 건너뛴다. `-ExecutionTimeLimit`은 멈춘 회차를 강제 종료한다.
 로그온 세션에서 실행해야 창이 보인다(`-LogonType`을 지정하지 않으면 현재 사용자·대화형).
 
-**조회·변경** — `scripts/eod_timetable.ps1`:
+**조회·변경** — `scripts/market_close_timetable.ps1`:
 
 ```powershell
 $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
@@ -537,8 +537,8 @@ $task.Actions[0].Arguments -match '-Until\s+(\S+)'                     # 등록�
 
 # 2부 — Python
 
-파이썬 스크립트는 두 부류다. **마감 뒤 결정론 경로**(`eod_autodoc`·`gen_facts`·`maintain`·`check_*`: 입력 파일을 읽어 문서·JSON을 만들고
-종료코드를 낸다)와 **장중 상주 프로세스**(`dashboard_server`·`notify_sidecar`·`live_prices_feed`: PowerShell 부속 창 안에서 하루 종일 돈다).
+파이썬 스크립트는 두 부류다. **마감 뒤 결정론 경로**(`market_close_autodoc`·`gen_facts`·`maintain`·`check_*`: 입력 파일을 읽어 문서·JSON을 만들고
+종료코드를 낸다)와 **장중 상주 프로세스**(`dashboard_server`·`notify_trades`·`live_prices_feed`: PowerShell 부속 창 안에서 하루 종일 돈다).
 둘 다 표준 라이브러리만으로 짜는 것이 원칙이고(`requests` 하나 예외), 파이썬은 반드시 `py` 런처로 부른다(`python`은 스토어 스텁).
 
 ## 9. 뼈대 — 모든 파이썬 스크립트가 같은 머리를 가진다
@@ -548,9 +548,9 @@ $task.Actions[0].Arguments -match '-Until\s+(\S+)'                     # 등록�
 # -*- coding: utf-8 -*-
 """한 줄 요약.
 
-    py scripts/eod_autodoc.py                # 오늘
-    py scripts/eod_autodoc.py --date 2026-09-07
-    py scripts/eod_autodoc.py --dry-run      # 파일을 쓰지 않고 결과만 출력
+    py scripts/market_close_autodoc.py                # 오늘
+    py scripts/market_close_autodoc.py --date 2026-09-07
+    py scripts/market_close_autodoc.py --dry-run      # 파일을 쓰지 않고 결과만 출력
 
 왜 있는지, 무엇을 안 하는지(예: "LLM 없이 도는 결정론 경로다. 해석이 필요한 자리는 빈 칸으로 남긴다").
 """
@@ -625,7 +625,7 @@ _logdir.find_log(date)     # 고른 원장 옆의 로그
 
 후보 목록을 순서대로 두고 `seen` 집합으로 중복을 거르는 꼴(`candidate_dirs`)이 이런 탐색의 기본형이다.
 **규칙: 둘 이상의 스크립트가 같은 것을 찾으면 그 찾는 법은 모듈 하나로 뺀다.** 정규식도 같다 — `scripts/log_patterns.py`의 `PNL_RE`·`GUARD_ATTACH_RE`를
-`eod_autodoc`·`check_runtime_health`가 같이 쓴다.
+`market_close_autodoc`·`check_runtime_health`가 같이 쓴다.
 
 ---
 
@@ -671,7 +671,7 @@ for r in rows:
 
 ### 10.3 증분 읽기 — 상주 프로세스가 파일을 따라가는 법
 
-`scripts/notify_sidecar.py`는 원장 CSV를 폴링하며 **읽은 위치(offset)** 뒤만 읽어 새 체결을 알린다. 핵심 모양:
+`scripts/notify_trades.py`는 원장 CSV를 폴링하며 **읽은 위치(offset)** 뒤만 읽어 새 체결을 알린다. 핵심 모양:
 
 ```python
 pos = 0
@@ -878,7 +878,7 @@ return lines or [f"refresh_dashboard rc={r.returncode}"]
 - 인자는 **리스트**로(셸 인용 문제 없음). `sys.executable`은 지금 도는 파이썬 — `py`를 다시 찾지 않는다.
 - `cwd=REPO`: PowerShell의 `-WorkingDirectory`. 상대경로를 쓰는 자식은 이게 없으면 조용히 실패한다.
 - `capture_output=True, text=True, encoding="utf-8", errors="replace"` 넷을 항상 같이. 하나라도 빠지면 한글 출력에서 예외.
-- 절차를 두 곳에 적지 않는다: `eod_autodoc`이 대시보드 재생성 순서를 자기 안에 갖지 않고 `refresh_dashboard.py`에 넘기는 이유가 독스트링에 있다("한쪽만 고쳐져 갈라진다").
+- 절차를 두 곳에 적지 않는다: `market_close_autodoc`이 대시보드 재생성 순서를 자기 안에 갖지 않고 `refresh_dashboard.py`에 넘기는 이유가 독스트링에 있다("한쪽만 고쳐져 갈라진다").
 
 ### 13.2 PowerShell·OS 명령을 파이썬에서
 
@@ -991,7 +991,7 @@ starting → running → (재기동 반복) → closed → done
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -DryRun          # 흐름만
 powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1                     # 지금 뭐가 떠 있나(표)
-powershell -ExecutionPolicy Bypass -File scripts\eod_timetable.ps1                   # 예약작업 예정 vs 실제
+powershell -ExecutionPolicy Bypass -File scripts\market_close_timetable.ps1                   # 예약작업 예정 vs 실제
 Get-Content logs\auto_trade_day_20260919.log -Tail 30                                # 로그 꼬리(tail -f 금지 — 4.2절)
 Get-Content _private\_auto_trade_day.json                                            # 상태
 Get-ScheduledTask QuantAutoTradeGuard | Get-ScheduledTaskInfo                        # 마지막 실행·결과 코드
@@ -1100,7 +1100,7 @@ Say "끝 — 세션 $($script:Sessions.Count)회"
 1. 파일은 BOM 있는 UTF-8, 머리 주석에 `.SYNOPSIS/.DESCRIPTION/.EXAMPLE`.
 2. 파이썬은 9절 머리(독스트링·reconfigure·REPO·argparse·SystemExit(main()))를 그대로 쓰고, 옆 스크립트가 이미 찾는 것은 `_logdir`·`log_patterns`를 import한다.
 3. 이름에 약어를 쓰지 않는다(`$cfg`·`$i` 대신 `$config`·`$index`, `CLAUDE.md` 코드 작업 규약). 기존 스크립트의 `$p`·`$n`은 규약 이전 것이다.
-4. 중괄호는 Allman이 규약이나 `.ps1`은 `py scripts/brace_style.py` 대상이 아니다 — 새로 쓰는 것은 `scripts/eod_timetable.ps1` 꼴로 맞춘다.
+4. 중괄호는 Allman이 규약이나 `.ps1`은 `py scripts/brace_style.py` 대상이 아니다 — 새로 쓰는 것은 `scripts/market_close_timetable.ps1` 꼴로 맞춘다.
 5. `docs/AUTOMATION.md` 표에 한 줄(스스로 도는 것이면), `docs/FILE_INDEX.md`에 한 줄.
 6. 부속 프로세스를 새로 띄우면 `scripts/quant_procs.ps1`의 `$Roles`에 역할 조각을 추가한다.
 7. 문구는 [docs/STYLE_GUIDE.md](../STYLE_GUIDE.md) — 로그·주석도 게이트 대상이다.

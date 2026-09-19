@@ -4,7 +4,7 @@
 //  AppConfig.cpp 두 곳에서 끝난다. 전략별 파라미터(`strategies` 배열)만 예외 — 타입마다 키가 달라
 //  strategy/StrategyFactory.cpp가 자기 몫을 읽는다.
 #include "api/KisClient.h"
-#include "core/RegimeFileBridge.h"
+#include "core/RegimeFileJudge.h"
 #include "core/Types.h"
 #include "risk/OrderGate.h"
 
@@ -58,7 +58,7 @@ struct AppConfig
     std::optional<KisConfig> quote_kis;
 
     // ── TRADE: 위험 한도·주문 호출 간격. risk 노드가 없어도 매매 창은 채운다 ──
-    bool              has_risk = false; // false면 order pacing은 Engine 기본값 그대로
+    bool              has_risk = false; // false면 발주 간격은 Engine 기본값 그대로
     OrderGate::Config risk;
     int               order_min_interval_ms = 350;
     int               order_max_retries = 3;

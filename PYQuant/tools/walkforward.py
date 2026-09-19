@@ -1,7 +1,7 @@
 """
 전진검증(walk-forward, OOS=표본외) 검증 — in-sample 고원이 out-of-sample에서도 유지되는지 채점.
 
-스윕(sweep.py)은 전부 IS(in-sample)라 과적합을 못 가린다. 여기서는 anchored walk-forward로
+스윕(sweep.py)은 전부 IS(in-sample)라 과적합을 못 가린다. 여기서는 시작 고정(확장창) walk-forward로
 "한 번도 안 본 미래 구간(OOS)"에서만 성과를 측정한다:
   - 각 폴드: IS(시작~분할점)에서 파라미터 선택(--grid 주면 그리드 최적, 아니면 고정값) →
     그 파라미터로 OOS(다음 1년)를 1회 평가. OOS는 절대 파라미터 선택에 안 쓴다.
@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from main import make_source, select_universe, run_backtest
 from backtest.engine import BacktestEngine
 
-# anchored 폴드: (IS시작, IS끝, OOS시작, OOS끝). IS는 확장창, OOS는 다음 1년.
+# 시작 고정(확장창) 폴드: (IS시작, IS끝, OOS시작, OOS끝). IS는 확장창, OOS는 다음 1년.
 FOLDS = [
     ("2020-01-02", "2022-12-31", "2023-01-01", "2023-12-31"),
     ("2020-01-02", "2023-12-31", "2024-01-01", "2024-12-31"),

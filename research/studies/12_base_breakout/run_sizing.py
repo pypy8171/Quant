@@ -491,32 +491,32 @@ print("\n주: 사건 6개(독립단위)로 켈리를 추정하는 것은 추정�
 
 # ─── 7. 벤치마크 대비 강제 비교 + 켈리 스트레스 ───────────────────────────────
 def section7():
-    hr("7. 매수 후 보유(BH) 대비 — 같은 기간·같은 비용가정·같은 유니버스")
+    hr("7. 매수 후 보유(매수 후 보유) 대비 — 같은 기간·같은 비용가정·같은 유니버스")
     n = 30
     p1 = abs(float(np.percentile(mix_r[n], 1)))
     E = min(0.10 / p1, 1.0)
     bl = A.groupby("event").bench.first()
-    print("규칙: N=30 동일가중, 총노출 E=%.0f%%, 사건 사이 현금. BH = 같은 사건창을 지수로, 같은 E." % (E * 100))
-    print("비용 미반영(왕복 0.31% 적용 시 전략은 사건당 -0.31%p, BH도 사건당 1회라 차이는 거의 안 바뀐다).")
-    print("\n%-12s%12s%12s%12s%12s" % ("event", "전략(계좌)", "BH(계좌)", "차이", "전략-지수(x)"))
-    st, bh = [], []
-    for ev in EVENTS:
-        s = float(port_r[ev][n].mean() * E)
-        b = float(bl[ev] * E)
-        st.append(s)
-        bh.append(b)
+    print("규칙: N=30 동일가중, 총노출 E=%.0f%%, 사건 사이 현금. 매수 후 보유 = 같은 사건창을 지수로, 같은 E." % (E * 100))
+    print("비용 미반영(왕복 0.31% 적용 시 전략은 사건당 -0.31%p, 매수 후 보유도 사건당 1회라 차이는 거의 안 바뀐다).")
+    print("\n%-12s%12s%12s%12s%12s" % ("event", "전략(계좌)", "매수 후 보유(계좌)", "차이", "전략-지수(x)"))
+    strategy_returns, buy_and_hold = [], []
+    for event in EVENTS:
+        strategy_return = float(port_r[event][n].mean() * E)
+        buy_and_hold_return = float(bl[event] * E)
+        strategy_returns.append(strategy_return)
+        buy_and_hold.append(buy_and_hold_return)
         print("%-12s%+11.2f%%%+11.2f%%%+11.2f%%%+11.2f%%" % (
-            ev, s * 100, b * 100, (s - b) * 100, float(port_x[ev][n].mean()) * 100))
-    d = {ev: st[i] - bh[i] for i, ev in enumerate(EVENTS)}
-    o, lo, hi = cluster_boot_ci(d, EP_OF)
-    print("%-12s%+11.2f%%%+11.2f%%%+11.2f%%" % ("사건평균", np.mean(st) * 100, np.mean(bh) * 100, o * 100))
+            event, strategy_return * 100, buy_and_hold_return * 100, (strategy_return - buy_and_hold_return) * 100, float(port_x[event][n].mean()) * 100))
+    difference = {event: strategy_returns[index] - buy_and_hold[index] for index, event in enumerate(EVENTS)}
+    center, low, high = cluster_boot_ci(difference, EP_OF)
+    print("%-12s%+11.2f%%%+11.2f%%%+11.2f%%" % ("사건평균", np.mean(strategy_returns) * 100, np.mean(buy_and_hold) * 100, center * 100))
     print("%-12s%11.1f%%%11.1f%%%+11.1f%%" % (
-        "10사건 복리", (np.prod([1 + v for v in st]) - 1) * 100,
-        (np.prod([1 + v for v in bh]) - 1) * 100,
-        ((np.prod([1 + v for v in st]) - 1) - (np.prod([1 + v for v in bh]) - 1)) * 100))
+        "10사건 복리", (np.prod([1 + value for value in strategy_returns]) - 1) * 100,
+        (np.prod([1 + value for value in buy_and_hold]) - 1) * 100,
+        ((np.prod([1 + value for value in strategy_returns]) - 1) - (np.prod([1 + value for value in buy_and_hold]) - 1)) * 100))
     print("차이 양수 %d/%d  episode-클러스터 95%%CI[%+.2f%%, %+.2f%%]" % (
-        sum(v > 0 for v in d.values()), len(d), lo * 100, hi * 100))
-    print("판정: CI가 0을 포함한다 -> BH 대비 결정적 우위 없음. '우세'라고 쓰지 않는다.")
+        sum(value > 0 for value in difference.values()), len(difference), low * 100, high * 100))
+    print("판정: CI가 0을 포함한다 -> 매수 후 보유 대비 결정적 우위 없음. '우세'라고 쓰지 않는다.")
 
     hr("6-f. 켈리 스트레스 — 왼쪽 꼬리를 실측 밖으로 늘리면 f*가 어떻게 되나")
     v = mix_r[30]

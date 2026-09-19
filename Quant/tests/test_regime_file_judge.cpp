@@ -1,14 +1,14 @@
-// 매크로 국면 파일 판정기(core/RegimeFileBridge.h) 단위 테스트. entry_halt 전이 1회 로그·stale 1회 경고·
+// 매크로 국면 파일 판정기(core/RegimeFileJudge.h) 단위 테스트. entry_halt 전이 1회 로그·stale 1회 경고·
 // 판정 보류(valid=false) 불변·시간 상자(개장 후 N분, 하루 리셋, 파장 뒤 무효, force_liquidate 제외)·
 // force_liquidate 플래그의 "그대로 둔다" 규칙·JSON 형 불량 처리를 고정한다. 헤더 전용이라 파일·로그 없이 돈다.
 // 관련 결정: D-033(시간 상자), D-060(분리), D-083(매수 비율), D-084(전략 선택 라벨).
-// 빌드: cmake --build <directory> --target test_regime_bridge
-#include "core/RegimeFileBridge.h"
+// 빌드: cmake --build <directory> --target test_regime_file_judge
+#include "core/RegimeFileJudge.h"
 
 #include <cassert>
 #include <iostream>
 
-using namespace regime_bridge;
+using namespace regime_file;
 using nlohmann::json;
 
 namespace
@@ -71,7 +71,7 @@ int test_selection()
           selection_of("RISK_OFF") == Regime::BEAR && selection_of("UNKNOWN") == Regime::UNKNOWN &&
           selection_of("bull") == Regime::UNKNOWN);
 
-    RegimeFileBridge bridge;
+    RegimeFileJudge bridge;
     CHECK(bridge.selection_now() == Regime::UNKNOWN);
     Outcome outcome = bridge.step(labeled("NEUTRAL"), at(10));
     CHECK(outcome.selection && *outcome.selection == Regime::NEUTRAL && bridge.selection_now() == Regime::NEUTRAL);
@@ -95,7 +95,7 @@ int test_selection()
 // 매수 비율(D-083): 파일 값이 바뀐 회차에만 실리고, halt·청산이면 0, 없으면 1, 만료로 풀리면 1.
 int test_entry_scale()
 {
-    RegimeFileBridge bridge;
+    RegimeFileJudge bridge;
     Outcome outcome = bridge.step(fresh(true, false, false, 0.7), at(10));
     CHECK(outcome.entry_scale && *outcome.entry_scale == 0.7 && outcome.log_scale_change && bridge.scale_now() == 0.7);
     outcome = bridge.step(fresh(true, false, false, 0.7), at(11));
@@ -114,7 +114,7 @@ int test_entry_scale()
     CHECK(!bridge.step(missing, at(17)).entry_scale);
 
     // 시간 상자로 halt가 풀리면 비율도 1로 돌아온다.
-    RegimeFileBridge test_bridge;
+    RegimeFileJudge test_bridge;
     test_bridge.set_halt_expire_min(60);
     (void) test_bridge.step(fresh(true, true, false, 0.0), at(10));
     outcome = test_bridge.step(missing, at(60));
@@ -142,7 +142,7 @@ int test_parse_snapshot()
 
 int test_halt_transition()
 {
-    RegimeFileBridge bridge;
+    RegimeFileJudge bridge;
     bridge.set_halt_expire_min(0); // 시간 상자 끔
     Outcome outcome = bridge.step(fresh(true, true, false), at(10));
     CHECK(outcome.entry_halt && *outcome.entry_halt && outcome.log_halt_transition && bridge.halt_on());
@@ -159,7 +159,7 @@ int test_halt_transition()
 
 int test_missing_stale_invalid_keep_gate()
 {
-    RegimeFileBridge bridge;
+    RegimeFileJudge bridge;
     bridge.set_halt_expire_min(0);
     (void) bridge.step(fresh(true, true, false), at(10));
     CHECK(bridge.halt_on());
@@ -183,7 +183,7 @@ int test_missing_stale_invalid_keep_gate()
 
 int test_time_box()
 {
-    RegimeFileBridge bridge;
+    RegimeFileJudge bridge;
     bridge.set_halt_expire_min(60);
 
     // 개장 후 10분: halt 걸림. 59분: 아직. 60분: 만료 — 해제 + 하루 1회 로그.
@@ -213,7 +213,7 @@ int test_time_box()
 
 int test_force_liquidate()
 {
-    RegimeFileBridge bridge;
+    RegimeFileJudge bridge;
     bridge.set_halt_expire_min(60);
 
     // entry_halt=false여도 force_liquidate면 halt를 건다. 켜짐 로그 1회.
@@ -238,7 +238,7 @@ int test_force_liquidate()
 
 int test_stale_sec_setter()
 {
-    RegimeFileBridge bridge;
+    RegimeFileJudge bridge;
     CHECK(bridge.stale_sec() == kDefaultRegimeStaleSec);
     bridge.set_stale_sec(0); // 0 이하는 무시
     CHECK(bridge.stale_sec() == kDefaultRegimeStaleSec);
@@ -256,6 +256,6 @@ int main()
         return 1;
     }
 
-    std::cout << "test_regime_bridge: " << g_checks << " checks passed\n";
+    std::cout << "test_regime_file_judge: " << g_checks << " checks passed\n";
     return 0;
 }

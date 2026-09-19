@@ -92,7 +92,7 @@ public:
 
     // ── 한도 클램프 (BUY NEW 전용) ─────────────────────────────────────────
     // 한도를 넘는 수량을 거부하는 대신 한도 안으로 줄여 돌려준다. 분할 매수 전략은 매 틱
-    // 같은 rung을 다시 내므로, 넘친다고 버리면 그 종목은 영원히 발주되지 않고 초당 주문
+    // 같은 분할 단계를 다시 내므로, 넘친다고 버리면 그 종목은 영원히 발주되지 않고 초당 주문
     // 예산만 태운다. 줄여서라도 나가는 편이 의도(부분 진입)에 가깝다.
     // 검사 대상은 수량·명목·포지션·총노출 한도뿐이다. 킬스위치·entry_halt·손실컷 같은
     // "발주 자체를 막는" 게이트는 여기서 손대지 않는다 — 그건 check()가 그대로 거부한다.
@@ -211,8 +211,8 @@ public:
         entry_halt_.store(on);
     }
 
-    // 운영단말(HALT_REQ)이 켜는 수동 정지 — entry_halt_(국면 자동, RegimeFileBridge가 갱신)와
-    //  분리된 플래그다. 같은 변수를 같이 쓰면 RegimeFileBridge의 자동 해제가 사람이 켠 정지를
+    // 운영단말(HALT_REQ)이 켜는 수동 정지 — entry_halt_(국면 자동, RegimeFileJudge가 갱신)와
+    //  분리된 플래그다. 같은 변수를 같이 쓰면 RegimeFileJudge의 자동 해제가 사람이 켠 정지를
     //  모른 채 지워버린다 — is_entry_halted()에서만 OR로 합친다. [why D-091]
     //  매수·매도 따로다(D-095). 매도 정지는 전략이 내는 SELL NEW만 막고(SignalDispatcher::from_strategy),
     //  운영단말 수동 매도와 국면 강제청산(force_liquidate)은 그대로 나간다.
@@ -236,7 +236,7 @@ public:
         return entry_halt_.load() || manual_buy_halt_.load();
     }
 
-    // 매수 명목 비율(0~1). 국면 점수를 스위치가 아니라 비율로 옮긴 값 — 전략이 rung 명목에 곱한다.
+    // 매수 명목 비율(0~1). 국면 점수를 스위치가 아니라 비율로 옮긴 값 — 전략이 분할 단계 명목에 곱한다.
     //  게이트 자체는 이 값으로 주문을 막지 않는다(0이면 entry_halt가 같이 켜진다). [why D-083]
     void set_entry_scale(double entry_scale)
     {

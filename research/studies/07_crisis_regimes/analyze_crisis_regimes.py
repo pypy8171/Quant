@@ -220,28 +220,28 @@ def analyze_event(src, ev, coverage):
         return row
 
     # 기준점 탐색은 [s_start, s_end] 내에서만.
-    anchor = [i for i, b in enumerate(bars) if b.date <= s_end]
-    if not anchor:
+    window_indices = [index for index, bar in enumerate(bars) if bar.date <= s_end]
+    if not window_indices:
         row["note"] = "기준점 탐색창 내 데이터 없음"
         return row
-    a0, a1 = anchor[0], anchor[-1]
+    window_first, window_last = window_indices[0], window_indices[-1]
 
     # ── 기준점 = 표준 최대낙폭(peak→trough 하락폭이 최대인 쌍). ──
     # 스펙의 "창 내 종가 최댓값 첫도달=peak" 단순화는 회복랠리가 직전고점을 넘는
     # 장기창(예: 1997 IMF, 2020 코로나)에서 peak 가 창 후반 회복고점에 꽂혀 폭락을
     # 통째로 놓친다(dd≈0 아티팩트). 위기 특성화의 취지는 '가장 깊은 하락'이므로
     # 표준 max-drawdown 알고리즘으로 대체(결정론적, peak<=trough 보장). 편차는 README 명기.
-    run_max_i = a0
-    trough_i = a0
-    peak_i = a0
-    worst_dd = 0.0
-    for i in range(a0, a1 + 1):
-        if bars[i].close > bars[run_max_i].close:
-            run_max_i = i
-        dd = bars[i].close / bars[run_max_i].close - 1.0
-        if dd < worst_dd:
-            worst_dd = dd
-            trough_i = i
+    run_max_i = window_first
+    trough_i = window_first
+    peak_i = window_first
+    worst_drawdown = 0.0
+    for bar_index in range(window_first, window_last + 1):
+        if bars[bar_index].close > bars[run_max_i].close:
+            run_max_i = bar_index
+        drawdown = bars[bar_index].close / bars[run_max_i].close - 1.0
+        if drawdown < worst_drawdown:
+            worst_drawdown = drawdown
+            trough_i = bar_index
             peak_i = run_max_i
 
     peak_c, trough_c = bars[peak_i].close, bars[trough_i].close

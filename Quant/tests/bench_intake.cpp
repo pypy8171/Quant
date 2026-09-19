@@ -2,7 +2,7 @@
 // 멀티클라이언트 주문 인테이크 부하 벤치(D2) — N개 생산자(클라이언트)가 동시에 OrderSignal을
 //  push하고 단일 소비자(FEP)가 pop한다. 큐 종류(mpsc/mutex)와 소비자 처리지연(exec_delay_us)을
 //  바꿔가며 처리량(orders/seconds)·전 구간(E2E) 지연(중앙값(p50)·상위 1%(p99)·상위 0.1%(p999))·
-//  backpressure·계좌 fairness를 측정한다.
+//  밀림 처리·계좌 fairness를 측정한다.
 //
 // [inv] 측정 범위 — D2는 "큐 자체"를 격리 측정한다. 소비자는 실제 `OrderRouter::submit` 대신
 //   FEP 처리시간을 busy-wait로 시뮬레이션한다(exec_delay_us). 큐 비교(MPSC vs Mutex)가
@@ -16,7 +16,7 @@
 // 사용법: bench_intake [N_producers=8] [duration_sec=3] [mpsc|mutex] [exec_delay_us=0]
 //                      [capacity=65536] [rate_per_producer=0]
 //   rate_per_producer=0 → 풀스로틀(open-loop). 큐가 포화돼 지연은 "큐깊이/처리율" 백로그가
-//     되므로 처리량(throughput)만 신뢰한다. >0이면 목표 rate로 pacing(초당 건수)해 정상 부하의
+//     되므로 처리량(throughput)만 신뢰한다. >0이면 목표 rate로 간격 조절(초당 건수)해 정상 부하의
 //     E2E 지연을 잰다(총 offered = N × rate). 처리능력 미만으로 걸면 큐가 얕게 유지된다.
 
 #include "core/MpscQueue.h"
@@ -73,7 +73,7 @@ struct Result
 {
     long long produced = 0;    // 생산자가 성공적으로 push한 총건수
     long long consumed = 0;    // 소비자가 pop해 처리한 총건수
-    long long push_retries = 0; // backpressure(가득 참)로 재시도한 횟수
+    long long push_retries = 0; // 밀림 처리(가득 참)로 재시도한 횟수
     double dur_sec = 0;
     std::vector<int64_t> latencies_ns;      // E2E 지연 샘플 (소비자 단독 수집)
     std::vector<long long> per_account; // 계좌별 처리건수 (fairness)
@@ -105,7 +105,7 @@ Result run(int count, double duration_sec, int64_t exec_delay_ns, size_t capture
                 base.strategy_id = "BENCH";
                 base.market = Market::KR;
 
-                // rate>0이면 목표 간격으로 pacing (busy-wait). rate=0이면 풀스로틀.
+                // rate>0이면 목표 간격으로 간격 조절 (busy-wait). rate=0이면 풀스로틀.
                 const int64_t interval_ns =
                     (rate_per_producer > 0) ? static_cast<int64_t>(1e9 / rate_per_producer) : 0;
                 int64_t next_emit = now_ns();
@@ -138,7 +138,7 @@ Result run(int count, double duration_sec, int64_t exec_delay_ns, size_t capture
                     else
                     {
                         ++retries;
-                        std::this_thread::yield(); // backpressure: 가득 참 → 양보 후 재시도
+                        std::this_thread::yield(); // 밀림 처리: 가득 참 → 양보 후 재시도
                     }
                 }
 
@@ -318,7 +318,7 @@ int main(int argc, char** argv)
     std::printf("E2E latency (us): p50=%.2f  p99=%.2f  p999=%.2f  max=%.2f\n",
                 percentile_us(result.latencies_ns, 0.50), percentile_us(result.latencies_ns, 0.99), percentile_us(result.latencies_ns, 0.999),
                 result.latencies_ns.empty() ? 0.0 : result.latencies_ns.back() / 1000.0);
-    std::printf("push_retries    : %lld  (backpressure)\n", result.push_retries);
+    std::printf("push_retries    : %lld  (밀림 처리)\n", result.push_retries);
     std::printf("fairness CV     : %.4f  (계좌별 처리건수 편차, 0=완전공평)\n",
                 fairness_condition_variable(result.per_account));
 

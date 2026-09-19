@@ -21,7 +21,7 @@ param(
   [string]$Config = "Quant\config\config_dev_paper.json",
   [string]$Open   = "08:45",   # 이 시각 전에는 기동하지 않는다(장 시작 09:00 전 준비 여유)
   [string]$Until  = "15:35",   # 워치독에 그대로 넘기는 마감 시각. 실계좌 전환 때 20:05(애프터마켓 20:00 + 여유, D-097·T-18)
-  [double]$Hours  = 7,         # -Open 부터 5분마다 몇 시간 도는지. 모의 7(15:45까지), 실계좌 11.5(20:15까지). scripts\eod_timetable.ps1 -Apply 가 넘긴다
+  [double]$Hours  = 7,         # -Open 부터 5분마다 몇 시간 도는지. 모의 7(15:45까지), 실계좌 11.5(20:15까지). scripts\market_close_timetable.ps1 -Apply 가 넘긴다
   [switch]$Install,            # 평일 5분 주기 예약작업 등록
   [switch]$Uninstall,
   [switch]$DryRun
@@ -100,10 +100,10 @@ $live = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAc
 if ($live.Count -gt 0) { Say "워치독 생존(pid=$($live.ProcessId -join ',')) — 할 일 없음."; exit 0 }
 
 # 워치독 없이 남은 트레이더는 감시자가 없다. 두면 다음 기동이 duplicate_process로 막힌다.
-$orphan = @(Get-Process quant_trader -ErrorAction SilentlyContinue)
-if ($orphan.Count -gt 0) {
-  Say "워치독 없이 떠 있는 quant_trader $($orphan.Count)개(pid=$($orphan.Id -join ',')) — 내린다." "WARN"
-  if (-not $DryRun) { $orphan | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
+$leftover_trader = @(Get-Process quant_trader -ErrorAction SilentlyContinue)
+if ($leftover_trader.Count -gt 0) {
+  Say "워치독 없이 떠 있는 quant_trader $($leftover_trader.Count)개(pid=$($leftover_trader.Id -join ',')) — 내린다." "WARN"
+  if (-not $DryRun) { $leftover_trader | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
 }
 
 Say "워치독 없음 — 하루 루프를 기동한다(config=$Config until=$Until)."

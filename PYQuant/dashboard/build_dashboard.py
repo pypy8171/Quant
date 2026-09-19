@@ -335,6 +335,7 @@ COLS_A = [
     ("정직성·비고", "_honesty", "raw"),
 ]
 
+BENCHMARK_SENTINELS = ("BH", "BUY_AND_HOLD")  # metrics.json 벤치 행 표식 — 옛 기록은 "BH", 새 기록은 "BUY_AND_HOLD"
 SIDE_PILL = {"방어": "def", "공세": "off"}
 
 
@@ -347,7 +348,7 @@ _PLAIN_MAP = [
     ("등가중 B&H", "동일가중 매수 후 보유"),
     ("Buy&Hold", "매수 후 보유"),
     ("B&H", "매수 후 보유"),
-    ("정직한 실패", "벤치 못 이김"),
+    ("벤치 못 이김", "벤치 못 이김"),
     ("절제실험(ablation)", "제거실험"),
     ("애블레이션", "제거실험"),
     ("ablation", "제거실험"),
@@ -407,12 +408,12 @@ def table(rows, cols):
     head = "".join(f'<th class="c-{esc(k)}" tabindex="0" role="button" '
                    f'title="클릭·Enter로 정렬">{esc(t)}</th>' for t, k, _ in cols)
     body = []
-    for r in rows:
-        is_bh = r.get("strategy") == "BH"
-        rr = {**r, "strategy": "매수 후 보유"} if is_bh else r  # 벤치 감지는 "BH" 센티넬 유지, 표시만 평이화
-        tds = "".join(f'<td class="c-{esc(k)} k-{esc(kind)}">{cell(rr,k,kind)}</td>'
+    for row in rows:
+        is_buy_and_hold = row.get("strategy") in BENCHMARK_SENTINELS
+        row_shown = {**row, "strategy": "매수 후 보유"} if is_buy_and_hold else row  # 벤치 감지는 "BUY_AND_HOLD"(옛 "BH") 센티넬 유지, 표시만 평이화
+        tds = "".join(f'<td class="c-{esc(k)} k-{esc(kind)}">{cell(row_shown,k,kind)}</td>'
                       for _, k, kind in cols)
-        body.append(f'<tr class="{"bh" if is_bh else ""}">{tds}</tr>')
+        body.append(f'<tr class="{"benchmark" if is_buy_and_hold else ""}">{tds}</tr>')
     return (f'<div class="tw"><table><thead><tr>{head}</tr></thead>'
             f'<tbody>{"".join(body)}</tbody></table></div>')
 
@@ -457,26 +458,26 @@ def render_backtest(rows):
         blocks = [f'<section class="fam"><h2>{esc(title)}</h2><p class="fdesc">{esc(desc)}</p>']
         cols = COLS_B if fam == "B_overlay" else COLS_A
         groups = {}
-        for r in frows:
-            groups.setdefault((r.get("study_id", ""), r.get("benchmark", "")), []).append(r)
+        for row in frows:
+            groups.setdefault((row.get("study_id", ""), row.get("benchmark", "")), []).append(row)
         for (study, bench), grp in sorted(groups.items()):
-            amax = max((abs(r["alpha"]) for r in grp
-                        if r.get("strategy") != "BH" and not _isna(r.get("alpha"))),
+            amax = max((abs(row["alpha"]) for row in grp
+                        if row.get("strategy") not in BENCHMARK_SENTINELS and not _isna(row.get("alpha"))),
                        default=1.0) or 1.0
-            for r in grp:
-                r["_amax"] = amax
+            for row in grp:
+                row["_amax"] = amax
             win = grp[0].get("window", "")
             study_disp = NAME_MAP.get(study[3:5], study) if study.startswith("BT-") else study
             gtitle = " · ".join(x for x in (study_disp, plain(bench)) if x)
-            n_beat = sum(1 for r in grp
-                         if r.get("strategy") != "BH" and not _isna(r.get("alpha"))
-                         and r["alpha"] > 0)
-            n_strat = sum(1 for r in grp if r.get("strategy") != "BH")
-            cap = (f'<span class="gcap">{n_strat}전략 · 매수 후 보유 초과 '
-                   f'<b class="pos">{n_beat}</b>/{n_strat}</span>') if n_strat else ""
+            n_beat = sum(1 for row in grp
+                         if row.get("strategy") not in BENCHMARK_SENTINELS and not _isna(row.get("alpha"))
+                         and row["alpha"] > 0)
+            strategy_count = sum(1 for row in grp if row.get("strategy") not in BENCHMARK_SENTINELS)
+            caption = (f'<span class="gcap">{strategy_count}전략 · 매수 후 보유 초과 '
+                   f'<b class="pos">{n_beat}</b>/{strategy_count}</span>') if strategy_count else ""
             blocks.append(
                 f'<div class="grp"><h3>{esc(gtitle)} '
-                f'<span class="win">{esc(win)}</span> {cap}</h3>'
+                f'<span class="win">{esc(win)}</span> {caption}</h3>'
                 f'{holdout_banner(grp)}{table(grp, cols)}{caveats_block(grp)}</div>')
         blocks.append('</section>')
         sections.append("".join(blocks))
@@ -869,7 +870,7 @@ HTML_TMPL = """<title>퀀트 매매 대시보드</title>
   --grid:rgba(23,27,33,.06);
   /* 구 토큰 — 백테스트/라이브 렌더러 호환(신 팔레트로 리토큰) */
   --card:#FFFFFF; --sub:#5B6472; --pos:#1F9366; --neg:#D23A3F; --zero:#8A94A6;
-  --bh:#FAF0DF; --bhline:#EAD9B0; --flip:#C67F1E; --track:#EDEFF3; --zebra:#F7F8FA;
+  --benchmark:#FAF0DF; --benchmark-line:#EAD9B0; --flip:#C67F1E; --track:#EDEFF3; --zebra:#F7F8FA;
   --b-robust-bg:#E4F3EC; --b-robust-fg:#1F9366;
   --b-hf-bg:#EDEFF3; --b-hf-fg:#5B6472;
   --b-of-bg:#FAF0DF; --b-of-fg:#B7841F;
@@ -943,7 +944,7 @@ section.fam h2{margin:0 0 4px;font-size:17px;font-weight:600}
 .grp h3 .win{color:var(--faint);font-weight:400;font-size:12px}
 .gcap{font-size:11.5px;color:var(--faint);font-weight:400;margin-left:auto}
 .banner{font-size:12px;border-radius:9px;padding:8px 12px;margin:0 0 8px;line-height:1.45}
-.banner.flip{background:var(--b-cr-bg);color:var(--b-cr-fg);border:1px solid var(--bhline)}
+.banner.flip{background:var(--b-cr-bg);color:var(--b-cr-fg);border:1px solid var(--benchmark-line)}
 .tw{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
 table{border-collapse:collapse;width:100%;font-size:12.5px}
 th,td{padding:7px 10px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
@@ -956,12 +957,12 @@ td.k-left,td.k-raw,td.k-strat,td.k-bar{text-align:left}
 th.c-strategy{left:0;z-index:3}
 td.c-strategy{position:sticky;left:0;background:var(--surface);font-weight:700;z-index:1}
 tbody tr:nth-child(even) td.c-strategy{background:var(--zebra)}
-tr.bh td.c-strategy{background:var(--bh)}
+tr.benchmark td.c-strategy{background:var(--benchmark)}
 td.c-label{color:var(--muted);max-width:230px;white-space:normal}
 tbody tr:hover td{background:color-mix(in srgb,var(--accent) 6%,transparent)}
-tr.bh{background:var(--bh)}
-tr.bh td{border-bottom:1px solid var(--bhline)}
-tr.bh td.c-strategy::after{content:" ·기준선";color:var(--faint);font-weight:400;font-size:11px}
+tr.benchmark{background:var(--benchmark)}
+tr.benchmark td{border-bottom:1px solid var(--benchmark-line)}
+tr.benchmark td.c-strategy::after{content:" ·기준선";color:var(--faint);font-weight:400;font-size:11px}
 .pos{color:var(--pos)} .neg{color:var(--neg)} .zero{color:var(--zero)} .na{color:var(--zero)}
 .arw{color:var(--faint)}
 .pill{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
@@ -1262,7 +1263,7 @@ _DARK = """  --bg:#0E1216; --surface:#151B22; --surface-2:#1B222B; --line:#2A333
   --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 22px rgba(0,0,0,.28);
   --grid:rgba(231,236,242,.07);
   --card:#151B22; --sub:#93A0B2; --pos:#3FB98A; --neg:#F0656A; --zero:#66717F;
-  --bh:#2A2113; --bhline:#4A3D1E; --flip:#E8A33D; --track:#1B222B; --zebra:#131920;
+  --benchmark:#2A2113; --benchmark-line:#4A3D1E; --flip:#E8A33D; --track:#1B222B; --zebra:#131920;
   --b-robust-bg:#13251D; --b-robust-fg:#3FB98A;
   --b-hf-bg:#1B222B; --b-hf-fg:#93A0B2;
   --b-of-bg:#2A2113; --b-of-fg:#E8A33D;

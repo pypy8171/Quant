@@ -9,7 +9,7 @@
 |---|---|---|---|
 | [01_momentum_regime/](01_momentum_regime/README.md) | 모멘텀×국면필터 기준선 | 최근 1~5년 | 5런 |
 | [02_vol_target/](02_vol_target/README.md) | 변동성 타게팅 사이징 | 최근 1~5년 | 5런 |
-| [03_2022_ablation/](03_2022_ablation/README.md) | 2022 약세장 regime ON/OFF | ON·OFF | 2런 |
+| [03_2022_removal_test/](03_2022_removal_test/README.md) | 2022 약세장 regime ON/OFF | ON·OFF | 2런 |
 | [06_bear_market/](06_bear_market/README.md) | 하락장 6구간 이벤트 스터디 | 6구간×4전략 | [events/](06_bear_market/events/README.md) |
 
 > 지표 전체(수익률·샤프·MDD·α)는 [BACKTEST_LOG](../BACKTEST_LOG.md) 실행 #1~#3(폴더 01~03), 6구간은 각 이벤트 README.

@@ -97,7 +97,7 @@ flowchart TD
     subgraph 전략_지표계산
         ITB["IntradayBreakoutStrategy.h<br/>on_trade(TradeData)"]
         ITB --> IND["1분 버킷 종가 deque<br/>max_element = 채널 고점"]
-        IND --> TRIG{"버킷마감:<br/>close > 채널고점<br/>& > anchor×(1+eps)?"}
+        IND --> TRIG{"버킷마감:<br/>close > 채널고점<br/>& > 기준가×(1+eps)?"}
         TRIG -->|yes| BUY["시장가 BUY<br/>명목 70만원/현재가"]
         ITB --> EXIT["매 틱 청산:<br/>시드분=넓은트레일 / 신규분=타이트+하드손절"]
     end
@@ -113,7 +113,7 @@ flowchart TD
 
 | 항목 | 파일 | 역할 | 핵심 심볼 |
 |---|---|---|---|
-| 장중 전략(신규) | [Quant/include/strategy/IntradayBreakoutStrategy.h](../Quant/include/strategy/IntradayBreakoutStrategy.h) | 채널돌파 + 시드/신규 분리청산 | `on_trade`, `anchor_px_`, `closes_`, `position_is_seed_` |
+| 장중 전략(신규) | [Quant/include/strategy/IntradayBreakoutStrategy.h](../Quant/include/strategy/IntradayBreakoutStrategy.h) | 채널돌파 + 시드/신규 분리청산 | `on_trade`, `기준가_`, `closes_`, `position_is_seed_` |
 | 전략 베이스 | [Quant/include/strategy/StrategyBase.h](../Quant/include/strategy/StrategyBase.h) | C++ 추상 전략 | `on_trade`, `get_watch_specs`, `is_active` |
 | 원형 전략 | [Quant/include/strategy/MACrossStrategy.h](../Quant/include/strategy/MACrossStrategy.h) | 보유분 시드 패턴 참조 | `on_data`, `start_in_position_` |
 | 확정 스펙 | [ITB_V2_SPEC.md](../strategies/ITB/SPEC.md) | 파라미터·안전장치 협의체 결론 | §0~§6 |

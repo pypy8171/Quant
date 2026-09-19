@@ -141,10 +141,10 @@
     "oos_flag": false,
     "holdout_flag": false,
     "honesty_label": "honest_failure",
-    "equity_csv_path": "research/studies/11_signal_axes/donchian_breakout_equity.csv",
-    "trades_csv_path": "research/studies/11_signal_axes/donchian_breakout_trades.csv",
+    "equity_csv_path": "research/studies/11_signal_axes/channel_breakout_equity.csv",
+    "trades_csv_path": "research/studies/11_signal_axes/channel_breakout_trades.csv",
     "caveat": "2022 홀드아웃에서 매수 후 보유 대비 -10%p 크게 뒤짐(잦은 반전). 생존편향: 유니버스=datagokr 시총상위 스냅샷(캐시∩상위) → α 절대값 신뢰금지, 구성 간 상대비교로만. FETCH_FLOOR=2020이라 워밍업 후 실질신호는 2021~, 홀드아웃 2022는 단일 1점.",
-    "source": "11_signal_axes/donchian_breakout_run_meta.json"
+    "source": "11_signal_axes/channel_breakout_run_meta.json"
   },
   {
     "schema": "quant.metrics/v1",

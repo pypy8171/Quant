@@ -30,7 +30,7 @@ SKIP_DIRS = {"__pycache__", ".git"}
 
 # 자동으로 생기는 파일의 기본 설명. 색인에 이미 설명이 있으면 그쪽이 우선한다. {md}는 MM-DD.
 DEFAULTS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"^docs/eod/\d{4}-(?P<md>\d{2}-\d{2})\.md$"), "{md} 매매 사후검토"),
+    (re.compile(r"^docs/market_close/\d{4}-(?P<md>\d{2}-\d{2})\.md$"), "{md} 매매 사후검토"),
     (re.compile(r"^docs/premarket/\d{4}-(?P<md>\d{2}-\d{2})\.md$"), "{md} 장전 시황 브리핑"),
     (re.compile(r"^strategies/[^/]+/live/\d{4}-(?P<md>\d{2}-\d{2})\.md$"), "{md} 라이브 매매일지"),
     (re.compile(r"^_private/_intraday_issues/\d{4}-(?P<md>\d{2}-\d{2})\.md$"), "{md} 장중 이슈 대장"),
@@ -40,7 +40,7 @@ DEFAULTS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^_private/TRIAGE_\d{4}-(?P<md>\d{2}-\d{2})\.md$"), "{md} 교통정리 판정 보고서"),
     (re.compile(r"^_private/archive/SESSION_CLAIMS_\d{4}-(?P<md>\d{2}-\d{2}).*\.md$"), "{md} 세션 현황판 보관본"),
     (re.compile(r"^_private/archive/handoff/.*\.md$"), "세션 인계 문서 보관본"),
-    (re.compile(r"^_private/archive/orphans/.*\.patch$"), "주인 없는 worktree 편집분 패치 보관"),
+    (re.compile(r"^_private/archive/unowned/.*\.patch$"), "주인 없는 worktree 편집분 패치 보관"),
     (re.compile(r"^_private/주식_study/\d{4}-(?P<md>\d{2}-\d{2})\.md$"), "{md} 주식 스터디 저널"),
     (re.compile(r"^_private/주식_study/\d{4}-(?P<md>\d{2}-\d{2})_재무/README\.md$"), "{md} 재무·사업 분석 종목 색인"),
     (re.compile(r"^_private/주식_study/\d{4}-\d{2}-\d{2}_재무/(?P<name>[^/_]+)_\d{6}\.md$"), "{name} 재무·사업 분석 리포트"),
@@ -136,8 +136,8 @@ def render(rows: OrderedDict[str, str], index_rel: str, title: str, intro: str) 
     out = [f"# {title}", "", intro, "", "## 목차", ""]
     for top, gs in tops.items():
         n = sum(len(groups[g]) for g in gs)
-        anchor = top.strip("()").lower().replace("/", "").replace(".", "")
-        out.append(f"- [{top}](#{anchor}) — {n}개")
+        heading_id = top.strip("()").lower().replace("/", "").replace(".", "")
+        out.append(f"- [{top}](#{heading_id}) — {n}개")
     out.append("")
     for top, gs in tops.items():
         out += [f"## {top}", ""]

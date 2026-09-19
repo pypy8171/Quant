@@ -200,9 +200,9 @@ private:
     //  같은 초·같은 수량·단가의 분할체결은 키가 겹치므로 집합이 아니라 횟수로 센다.
     //  자세한 배경은 on_fill() 주석 참고.
     std::unordered_map<std::string, int> seen_fills_;
-    // 미매핑(ORPHAN) 체결로 이미 반영한 키 (hist_mtx_로 보호). 미연결 주문은 주문수량을 모르니
+    // 미매핑(미연결) 체결로 이미 반영한 키 (hist_mtx_로 보호). 미연결 주문은 주문수량을 모르니
     //  잔량 클램프가 없어 같은 통보의 재전송을 이 키로만 막는다.
-    std::unordered_set<std::string> orphan_fill_keys_;
+    std::unordered_set<std::string> unlinked_fill_keys_;
     // ODNO → 이전 세션이 남긴 주문 사유 (hist_mtx_로 보호). 파일에서 한 번 읽고,
     //  되살린 주문은 지운다(같은 ODNO를 두 번 되살리지 않게).
     std::unordered_map<std::string, OrderReason> order_reasons_;

@@ -147,7 +147,7 @@ void SignalDispatcher::from_strategy(bool active, const std::string& strategy_id
     //  턴 물량을 스캔 전략이 되사는 회전이 나고, 매도가 둘에서 나가면 같은 보유분에 두 장의 매도가 걸린다
     //  (sellable_quantity 클램프가 있어도 순서에 따라 한쪽이 0을 받아 분할 주문을 3초마다 되감는다). 취소·정정은
     //  통과한다 — 이미 낸 주문을 거두는 길까지 막으면 미체결이 미연결 주문이 된다.
-    if (signal.action == OrderAction::NEW && guardian_ && guardian_(signal.ticker) && !strategy_id.starts_with("ITB_"))
+    if (signal.action == OrderAction::NEW && exit_managed_check_ && exit_managed_check_(signal.ticker) && !strategy_id.starts_with("ITB_"))
     {
         if (guard_logged_.insert(signal.ticker).second)
         {
@@ -176,11 +176,11 @@ void SignalDispatcher::submit(const OrderSignal& signal)
     {
         if (signal.action == OrderAction::CANCEL)
         {
-            held_.clear(); // 전략이 분할 매수를 다시 깐다 — 새 rung이 뒤따른다
+            held_.clear(); // 전략이 분할 매수를 다시 깐다 — 새 분할 단계가 뒤따른다
         }
         else if (buy_new && Clock::now() < held_until_ && gate_.capacity_full())
         {
-            held_.push_back(signal); // 아직 자리가 안 났다 — 같은 분할 매수의 다음 rung
+            held_.push_back(signal); // 아직 자리가 안 났다 — 같은 분할 매수의 다음 분할 단계
             return;
         }
     }

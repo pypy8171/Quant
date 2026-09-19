@@ -26,7 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 DEFAULT_GLOBS = ["docs/**/*.md", "README.md", "CLAUDE.md", "strategies/**/*.md"]
-EXEMPT_GLOBS = ["docs/reports/*", "strategies/*/reviews/*", "docs/eod/*", "DAILY_LOG.md"]
+EXEMPT_GLOBS = ["docs/reports/*", "strategies/*/reviews/*", "docs/market_close/*", "DAILY_LOG.md"]
 CODE_DIRS = ["Quant", "PYQuant", "scripts"]
 PATH_PREFIXES = ("Quant/", "PYQuant/", "scripts/", "docs/")
 EXTERNAL = ("http://", "https://", "mailto:", "tel:", "//", "#")
@@ -36,7 +36,7 @@ TICK_RE = re.compile(r"`([^`\n]+)`")
 PATH_IN_TICK_RE = re.compile(r"(?<![\w/.-])((?:Quant|PYQuant|scripts|docs)/[\w./+*{}<>-]+)")
 PLACEHOLDER_HINTS = ("YYYY", "MM-DD", "<", "NN/", "*", "{", "}")
 SYMBOL_RE = re.compile(r"(?<![\w/.-])([\w./-]+\.(?:cpp|h|py))::([A-Za-z_]\w*)")
-ANCHOR_RE = re.compile(r"(?<![\w/.-])([\w./-]+\.(?:cpp|h|py)):(\d+)(?![\w:])")
+CODE_REFERENCE_RE = re.compile(r"(?<![\w/.-])([\w./-]+\.(?:cpp|h|py)):(\d+)(?![\w:])")
 FENCE_RE = re.compile(r"^\s*(```|~~~)")
 SKIP_DIR_NAMES = {"__pycache__", "node_modules", ".git", "logs", "out", "_private"}
 
@@ -199,14 +199,14 @@ def check_doc(doc: Path, idx: CodeIndex, report_all: bool) -> tuple[int, int]:
                     warns += 1
         # (c) 줄번호 참조. 줄번호를 나쁜 예시로 인용해야 하는 줄만 `<!-- drift-check: ok -->`로 뺀다.
         #     펜스 전체를 빼는 것과 달리 (a)·(b) 경로·심볼 검사는 그대로 받는다.
-        for am in ([] if "drift-check: ok" in line else ANCHOR_RE.finditer(line)):
+        for am in ([] if "drift-check: ok" in line else CODE_REFERENCE_RE.finditer(line)):
             if not report_all:
                 if not new_lines_loaded:
                     new_lines = added_lines(rp)
                     new_lines_loaded = True
                 if new_lines is not None and no not in new_lines:
                     continue
-            print(f"{rp}:{no}: line-anchor: {am.group(1)}:{am.group(2)}")
+            print(f"{rp}:{no}: code-reference: {am.group(1)}:{am.group(2)}")
             fails += 1
     return fails, warns
 

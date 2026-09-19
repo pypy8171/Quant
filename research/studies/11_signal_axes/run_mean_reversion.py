@@ -5,7 +5,7 @@ C4 단기 역추세(평균회귀, 코드/파일 stem: mean_reversion) — 이격
 
 재현 정보(각인):
   전략   : MeanReversionContraryStrategy(top_n=10, rebalance_every=5, sma_period=20, dev_max=-8.0)
-  ablation: A(무필터=순수 이격 과매도) vs B(반등양봉+거래량 vol_mult=1.5×SMA20vol)
+  제거실험: A(무필터=순수 이격 과매도) vs B(반등양봉+거래량 vol_mult=1.5×SMA20vol)
   유니버스: datagokr universe_top(as-of FROM) KOSPI 상위 100 (PIT·survivorship-free)
   데이터  : PYQuant/data/datagokr_source.py, FETCH_FLOOR=20200101, 수정주가 ON
   체결    : 신호=종가 t / 체결=다음봉 시가 / 수수료0.015%+세금0.18%+슬리피지5bp (엔진 CostModel)
@@ -209,8 +209,8 @@ def main():
     print(f"{'매도거래수':<18}{A['ntr']:>16}{B['ntr']:>20}")
     print(f"{'강제청산(상폐)':<18}{A['forced']:>16}{B['forced']:>20}")
     print("-" * 82)
-    print(f"[벤치 동일가중BH] 수익률 {A['bench']:+.2f}%  MDD -{A['bench_mdd']:.2f}%  Sharpe {A['bench_sharpe']:.2f}")
-    print(f"[초과수익 α] A {A['alpha']:+.2f}%p  |  B {B['alpha']:+.2f}%p  (vs 동일가중BH)")
+    print(f"[벤치 동일가중매수 후 보유] 수익률 {A['bench']:+.2f}%  MDD -{A['bench_mdd']:.2f}%  Sharpe {A['bench_sharpe']:.2f}")
+    print(f"[초과수익 α] A {A['alpha']:+.2f}%p  |  B {B['alpha']:+.2f}%p  (vs 동일가중매수 후 보유)")
 
     print("\n── 상폐/데이터종료 헤어컷 (i)마지막종가청산 vs (ii)회수0 ──")
     print(f"  {'':<12}{'강제청산건':>10}{'(i)총수익%':>12}{'(i)CAGR':>10}{'(i)MDD':>10}"
@@ -230,7 +230,7 @@ def main():
                   f"Sharpe {h['sharpe']:.2f}  MDD -{h['mdd']:.2f}%  Calmar {h['calmar']:.2f}{bs}")
 
     print("\n── 비용 감도 (필터 B, round-trip%) ──")
-    print(f"  {'round-trip':>10}{'총수익%':>12}{'CAGR%':>10}{'Sharpe':>10}{'MDD%':>10}{'α vs BH':>10}")
+    print(f"  {'round-trip':>10}{'총수익%':>12}{'CAGR%':>10}{'Sharpe':>10}{'MDD%':>10}{'α vs BUY_AND_HOLD':>10}")
     for rt in [0.21, 0.31, 0.5, 1.0]:
         c = cost_sens[rt]
         print(f"  {rt:>9.2f}%{c['ret']:>11.2f}{c['cagr']:>10.2f}{c['sharpe']:>10.2f}{-c['mdd']:>10.2f}{c['alpha']:>10.2f}")

@@ -73,7 +73,7 @@ config에는 **실계좌 인증 정보**가 있다. 모의투자는 `"is_paper":
 
 아티팩트를 새로 발행하거나 URL이 바뀌면 `_private/dashboards.json`에 적는다(gitignore) — `_private/LINKS.md`의 표와
 `_private/AUTOMATION_HUB.md`(자동화 시간표·예약작업 상태·훅·대시보드 링크 한 장)는 거기서 생성된다(`gen_facts --apply`, Stop 훅).
-복붙용 PowerShell 가이드가 바뀌면 `_private/LINKS.md`를 같이 고친다. 예약작업 시각은 `scripts/eod_timetable.ps1`만 고친다(모의/실계좌
+복붙용 PowerShell 가이드가 바뀌면 `_private/LINKS.md`를 같이 고친다. 예약작업 시각은 `scripts/market_close_timetable.ps1`만 고친다(모의/실계좌
 두 갈래, `docs/AUTOMATION.md`의 표는 gen 블록). 저장소에 남는 자동화 목록은 [docs/AUTOMATION.md](docs/AUTOMATION.md).
 
 ### 문서 문체 규약

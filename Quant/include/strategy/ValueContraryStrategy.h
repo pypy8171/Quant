@@ -13,7 +13,7 @@
 // (초당 호출 한도(EGW00201) 회피용 호출 간격 조절 간격).
 namespace
 {
-constexpr int kValueContraryRestPacingMs = 200;
+constexpr int kValueContraryRestIntervalMs = 200;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -28,7 +28,7 @@ constexpr int kValueContraryRestPacingMs = 200;
 //    장 시작 후 첫 이벤트에서 시장가 매수 (4일차 시가 효과)
 //
 //  [청산 — on_order_book() / on_trade()]
-//    eod_exit_hhmm(KST) 도달 시 시장가 청산
+//    market_close_exit_hhmm(KST) 도달 시 시장가 청산
 // ─────────────────────────────────────────────────────────────────────────────
 class ValueContraryStrategy : public StrategyBase
 {
@@ -36,10 +36,10 @@ public:
     // market   : Market::KR 또는 Market::US
     // exchange : US일 때 "NAS" / "NYS" (KR은 무시)
     // pbr_max  : PBR 상한 (0이면 PBR 조건 미적용)
-    // eod_exit_hhmm : 청산 시각 KST (KR=1520, US=0330)
-    ValueContraryStrategy(Market market, std::string exchange, double pbr_max, int quantity, int eod_exit_hhmm)
+    // market_close_exit_hhmm : 청산 시각 KST (KR=1520, US=0330)
+    ValueContraryStrategy(Market market, std::string exchange, double pbr_max, int quantity, int market_close_exit_hhmm)
         : market_(market), exchange_(std::move(exchange)), pbr_max_(pbr_max), quantity_(quantity),
-          eod_exit_hhmm_(eod_exit_hhmm)
+          market_close_exit_hhmm_(market_close_exit_hhmm)
     {
         id_ = std::string("VALUE_CONTRARY_") + (market_ == Market::KR ? "KR" : "US");
     }
@@ -49,7 +49,7 @@ public:
     std::string describe() const override
     {
         return id() + " | PBR<=" + std::to_string(pbr_max_) + " | qty=" + std::to_string(quantity_) +
-               " | 장 마감=" + std::to_string(eod_exit_hhmm_);
+               " | market_close=" + std::to_string(market_close_exit_hhmm_);
     }
 
     // ── 스크리닝 ──────────────────────────────────────────────────────────
@@ -100,7 +100,7 @@ public:
             }
 
             // KIS 초당 거래건수 제한 — 매 호출 후 대기
-            std::this_thread::sleep_for(std::chrono::milliseconds(kValueContraryRestPacingMs));
+            std::this_thread::sleep_for(std::chrono::milliseconds(kValueContraryRestIntervalMs));
 
             // 오늘 미완성 bar 제거 (pre-market or 장 개시 전: volume=0)
             while (!bars.empty() && bars[0].volume == 0)
@@ -231,7 +231,7 @@ private:
         }
 
         // 청산: 매수 보냈고, 청산 안 했고, 청산 시각 도달
-        if (buy_sent_.count(symbol_id) && !sell_sent_.count(symbol_id) && hhmm >= eod_exit_hhmm_)
+        if (buy_sent_.count(symbol_id) && !sell_sent_.count(symbol_id) && hhmm >= market_close_exit_hhmm_)
         {
             sell_sent_.insert(symbol_id);
 
@@ -271,7 +271,7 @@ private:
     std::string id_; // 전략 이름, 생성자에서 한 번
     double pbr_max_;
     int quantity_;
-    int eod_exit_hhmm_;
+    int market_close_exit_hhmm_;
 
     std::unordered_set<std::string>   candidates_; // 문자열 — 구독 스펙·로그. 틱 경로는 아래 id 집합만 본다
     std::unordered_set<symbol::SymbolId> pending_;    // 매수 대기 후보 id

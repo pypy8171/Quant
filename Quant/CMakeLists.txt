@@ -123,7 +123,7 @@ set(ENGINE_SOURCES
   src/core/DataPoller.cpp
   src/core/BarAggregator.cpp
   src/core/SignalDispatcher.cpp
-  src/core/OrderPacer.cpp
+  src/core/OrderRateLimiter.cpp
   src/core/RingBuffer.cpp
   ${KIS_CLIENT_SOURCES}
   ${KIS_WS_SOURCES}
@@ -311,21 +311,21 @@ add_executable(test_bar_aggregator
 )
 target_include_directories(test_bar_aggregator PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-# 발주 조절기(core/OrderPacer) — 보유 수량 조회는 std::function 대역, Logger만 링크 (D-065)
-add_executable(test_order_pacer
-    tests/test_order_pacer.cpp
-    src/core/OrderPacer.cpp
+# 발주 조절기(core/OrderRateLimiter) — 보유 수량 조회는 std::function 대역, Logger만 링크 (D-065)
+add_executable(test_order_rate_limiter
+    tests/test_order_rate_limiter.cpp
+    src/core/OrderRateLimiter.cpp
     src/utils/Logger.cpp
 )
-target_include_directories(test_order_pacer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(test_order_rate_limiter PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(UNIX)
-    target_link_libraries(test_order_pacer PRIVATE pthread)
+    target_link_libraries(test_order_rate_limiter PRIVATE pthread)
 endif()
 
-# 매크로 국면 파일 브리지(core/RegimeFileBridge.h) — 헤더 전용, 파일·로그 없음 (D-060)
-add_executable(test_regime_bridge tests/test_regime_bridge.cpp)
-target_include_directories(test_regime_bridge PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(test_regime_bridge PRIVATE nlohmann_json::nlohmann_json)
+# 매크로 국면 파일 전달(core/RegimeFileJudge.h) — 헤더 전용, 파일·로그 없음 (D-060)
+add_executable(test_regime_file_judge tests/test_regime_file_judge.cpp)
+target_include_directories(test_regime_file_judge PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(test_regime_file_judge PRIVATE nlohmann_json::nlohmann_json)
 
 # ─── 테스트 타겟: SPSC RingBuffer 검증 ───────────────────────────────────
 add_executable(test_ringbuffer tests/test_ringbuffer.cpp)
@@ -489,10 +489,10 @@ if(UNIX)
 endif()
 
 # ─── 벤치 타겟: 09-13 hot path 조각 항목별 옛/새 비교 (D-071 측정 근거, 헤더 전용) ────
-add_executable(bench_hot_path tests/bench_hot_path.cpp)
-target_include_directories(bench_hot_path PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+add_executable(bench_latency_path tests/bench_latency_path.cpp)
+target_include_directories(bench_latency_path PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(UNIX)
-    target_link_libraries(bench_hot_path PRIVATE pthread)
+    target_link_libraries(bench_latency_path PRIVATE pthread)
 endif()
 
 # ─── 벤치 타겟: OrderGate 원장 읽기 vs 쓰기 스레드 경합 (감사 L4, D-058) ────
@@ -538,11 +538,11 @@ set(QUANT_ASSERT_TARGETS
     test_ledger_reconciler
     test_data_poller
     test_signal_dispatcher
-    test_order_pacer
+    test_order_rate_limiter
     test_bar_aggregator
     test_ops_protocol
     test_ops_server
-    test_regime_bridge
+    test_regime_file_judge
     test_ringbuffer
     test_ringbuffer_stress
     test_pipeline_stress

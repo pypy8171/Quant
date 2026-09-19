@@ -92,7 +92,7 @@ int test_universe()
             return price.count(ticker) ? price[ticker] : 0.0;
         },
         [&](const TradeData& trade) { out.push_back(trade); });
-    data_poller.set_universe_pacing(std::chrono::milliseconds(0));
+    data_poller.set_universe_call_interval(std::chrono::milliseconds(0));
 
     // US spec은 건너뛰고, 현재가 0은 틱을 안 흘린다. 시각은 KST HHMMSS.
     const int count = data_poller.poll_universe({specification("A"), specification("US1", Market::US), specification("B"), specification("C")}, kT0);
@@ -120,7 +120,7 @@ int test_overflow()
             return ticker == "A" ? 100.0 : price_b;
         },
         [&](const TradeData& trade) { out.push_back(trade); });
-    data_poller.set_universe_pacing(std::chrono::milliseconds(0));
+    data_poller.set_universe_call_interval(std::chrono::milliseconds(0));
 
     // 등록: 같은 채널은 한 번만, 선물은 다른 채널.
     CHECK(data_poller.add_overflow(specification("A")) && !data_poller.add_overflow(specification("A")) && data_poller.add_overflow(specification("A", Market::KR, true)));
@@ -158,7 +158,7 @@ int test_top_up()
 {
     std::vector<std::pair<std::string, double>> received;
     DataPoller data_poller([](const std::string& ticker) { return ticker == "A" ? 100.0 : 0.0; }, [](const TradeData&) {});
-    data_poller.set_top_up_pacing(std::chrono::milliseconds(0));
+    data_poller.set_top_up_call_interval(std::chrono::milliseconds(0));
 
     // 실패(0)도 그대로 넘긴다 — 0을 버릴지는 받는 쪽(set_last_price)이 정한다. 틱은 흘리지 않는다.
     const int count = data_poller.top_up({"A", "B"}, [&](const std::string& ticker, double price) { received.emplace_back(ticker, price); });

@@ -7,14 +7,14 @@ C3 20일 채널 돌파(종목별 절대 추세추종) — 재현 하네스.
 per-stock 신호로 2021~2024 전 구간 검정. period=20 단일 사전등록(스윕 금지).
 
 재현 정보(각인):
-  전략   : DonchianBreakoutStrategy(period=20)  진입 close≥직전20일최고 / 청산 close≤직전20일최저
+  전략   : ChannelBreakoutStrategy(period=20)  진입 close≥직전20일최고 / 청산 close≤직전20일최저
   유니버스: datagokr universe_top(as-of FROM) KOSPI 상위 100 (PIT, cross_momentum/mean_reversion 동일 풀)
   데이터  : PYQuant/data/datagokr_source.py, FETCH_FLOOR=20200101, 수정주가 ON
   체결    : 신호=종가 t / 체결=다음봉 시가 / 수수료0.015%+세금0.18%+슬리피지5bp
   look-ahead: 20일 최고/최저는 bars[-(period+1):-1](신호봉 t 제외) → 자기참조 누출 없음
   seed    : 난수 미사용(sorted 결정론) / 기간 2021-01-01~2024-12-31 (2022는 동일 곡선 슬라이스)
 
-실행: py research/studies/11_signal_axes/run_donchian_breakout.py   (cwd=repo root, DATA_GO_KR_KEY 필요)
+실행: py research/studies/11_signal_axes/run_channel_breakout.py   (cwd=repo root, DATA_GO_KR_KEY 필요)
 """
 import sys, csv, json, subprocess, statistics
 from pathlib import Path
@@ -32,7 +32,7 @@ OUT = Path(__file__).resolve().parent
 from data.datagokr_source import DataGoKrSource
 from backtest.engine import BacktestEngine, CostModel
 from backtest.report import _derived_metrics, _turnover_proxy
-from strategy.donchian_breakout import DonchianBreakoutStrategy
+from strategy.channel_breakout import ChannelBreakoutStrategy
 
 FROM, TO = "2021-01-01", "2024-12-31"
 PERIOD = 20
@@ -168,21 +168,21 @@ def main():
     dead = {t: d for t, d in last_bar.items() if d < market_last}
     print(f"[census] 시장 마지막거래일={market_last}  데이터종료 종목={len(dead)}건")
 
-    eng = InstrEngine(src, DonchianBreakoutStrategy(period=PERIOD), initial_cash=100_000_000,
+    engine = InstrEngine(src, ChannelBreakoutStrategy(period=PERIOD), initial_cash=100_000_000,
                       cost_model=cost(0.31), target_positions=1, warmup_days=WARMUP)
-    res = eng.run(universe, start_date=FROM, end_date=TO, verbose=False)
-    export(res, "donchian_breakout")
-    S = summ(res, eng.forced_liq)
-    hold = slice_metrics(res, "2022", "2022")
+    result = engine.run(universe, start_date=FROM, end_date=TO, verbose=False)
+    export(result, "channel_breakout")
+    summary = summ(result, engine.forced_liq)
+    hold = slice_metrics(result, "2022", "2022")
 
     cost_sens = {}
     for rt in [0.21, 0.31, 0.5, 1.0]:
-        e = InstrEngine(src, DonchianBreakoutStrategy(period=PERIOD), initial_cash=100_000_000,
+        engine = InstrEngine(src, ChannelBreakoutStrategy(period=PERIOD), initial_cash=100_000_000,
                         cost_model=cost(rt), target_positions=1, warmup_days=WARMUP)
-        cost_sens[rt] = summ(e.run(universe, start_date=FROM, end_date=TO, verbose=False))
+        cost_sens[rt] = summ(engine.run(universe, start_date=FROM, end_date=TO, verbose=False))
 
-    # 상관계수 — donchian vs cross_momentum(EW), donchian vs mean_reversion(B필터), cross_momentum vs mean_reversion
-    dc_eq = load_equity(OUT / "donchian_breakout_equity.csv")
+    # 상관계수 — 채널 돌파 vs cross_momentum(EW), 채널 돌파 vs mean_reversion(B필터), cross_momentum vs mean_reversion
+    dc_eq = load_equity(OUT / "channel_breakout_equity.csv")
     cm_eq = load_equity(OUT / "cross_momentum_equalweight_equity.csv")
     mr_eq = load_equity(OUT / "mean_reversion_filter_equity.csv")
 
@@ -190,13 +190,13 @@ def main():
     print("C3 20일 채널 돌파(시계열, period=20) — 재현 하네스 결과")
     print(f"commit={commit}  기간={FROM}~{TO}  universe=KOSPI top{UNIV_SIZE}  상시 per-stock")
     print("=" * 78)
-    print(f"  실질신호시작 : {S['sigstart']}   평가기간 {S['start']}~{S['end']}")
-    print(f"  총수익률 {S['ret']:+.2f}%   CAGR {S['cagr']:+.2f}%   Sharpe {S['sharpe']:.2f}")
-    print(f"  MDD -{S['mdd']:.2f}%   Calmar {S['calmar']:.2f}   승률 {S['win']:.1f}%")
-    print(f"  turnover(연,proxy) {S['turnover']:.2f}   매수일수 {S['rebals']}   매도거래수 {S['ntr']}")
-    print(f"  보유종목수 avg {S['npos_avg']:.1f} / max {S['npos_max']}   강제청산(상폐) {S['forced']}건")
-    print(f"  [벤치 동일가중BH] {S['bench']:+.2f}%  MDD -{S['bench_mdd']:.2f}%  Sharpe {S['bench_sharpe']:.2f}")
-    print(f"  [초과수익 α] {S['alpha']:+.2f}%p (vs 동일가중BH)")
+    print(f"  실질신호시작 : {summary['sigstart']}   평가기간 {summary['start']}~{summary['end']}")
+    print(f"  총수익률 {summary['ret']:+.2f}%   CAGR {summary['cagr']:+.2f}%   Sharpe {summary['sharpe']:.2f}")
+    print(f"  MDD -{summary['mdd']:.2f}%   Calmar {summary['calmar']:.2f}   승률 {summary['win']:.1f}%")
+    print(f"  turnover(연,proxy) {summary['turnover']:.2f}   매수일수 {summary['rebals']}   매도거래수 {summary['ntr']}")
+    print(f"  보유종목수 avg {summary['npos_avg']:.1f} / max {summary['npos_max']}   강제청산(상폐) {summary['forced']}건")
+    print(f"  [벤치 동일가중매수 후 보유] {summary['bench']:+.2f}%  MDD -{summary['bench_mdd']:.2f}%  Sharpe {summary['bench_sharpe']:.2f}")
+    print(f"  [초과수익 α] {summary['alpha']:+.2f}%p (vs 동일가중매수 후 보유)")
 
     print("\n── 2022 홀드아웃 (동일 곡선 슬라이스, 튜닝 미접촉) ──")
     if hold:
@@ -205,7 +205,7 @@ def main():
               f"Sharpe {hold['sharpe']:.2f}  MDD -{hold['mdd']:.2f}%  Calmar {hold['calmar']:.2f}{bs}")
 
     print("\n── 비용 감도 (round-trip%) ──")
-    print(f"  {'round-trip':>10}{'총수익%':>12}{'CAGR%':>10}{'Sharpe':>10}{'MDD%':>10}{'α vs BH':>10}")
+    print(f"  {'round-trip':>10}{'총수익%':>12}{'CAGR%':>10}{'Sharpe':>10}{'MDD%':>10}{'α vs BUY_AND_HOLD':>10}")
     for rt in [0.21, 0.31, 0.5, 1.0]:
         c = cost_sens[rt]
         print(f"  {rt:>9.2f}%{c['ret']:>11.2f}{c['cagr']:>10.2f}{c['sharpe']:>10.2f}{-c['mdd']:>10.2f}{c['alpha']:>10.2f}")
@@ -218,14 +218,14 @@ def main():
         print(f"  {lbl:<34} corr={corr:+.3f}  (n={n})" if corr is not None
               else f"  {lbl:<34} corr=N/A  (n={n}, CSV 부재?)")
 
-    with open(OUT / "donchian_breakout_run_meta.json", "w", encoding="utf-8") as f:
+    with open(OUT / "channel_breakout_run_meta.json", "w", encoding="utf-8") as meta_file:
         json.dump(dict(commit=commit, window=f"{FROM}~{TO}", universe=f"KOSPI top{UNIV_SIZE}",
                        params=dict(period=PERIOD, warmup=WARMUP), market_last=market_last,
-                       dead_census=len(dead), main=S, holdout2022=hold,
-                       corr_donchian_cross_momentum=daily_ret_corr(dc_eq, cm_eq)[0],
-                       corr_donchian_mean_reversion=daily_ret_corr(dc_eq, mr_eq)[0],
+                       dead_census=len(dead), main=summary, holdout2022=hold,
+                       corr_channel_breakout_cross_momentum=daily_ret_corr(dc_eq, cm_eq)[0],
+                       corr_channel_breakout_mean_reversion=daily_ret_corr(dc_eq, mr_eq)[0],
                        corr_cross_momentum_mean_reversion=daily_ret_corr(cm_eq, mr_eq)[0]),
-                  f, ensure_ascii=False, indent=2, default=str)
+                  meta_file, ensure_ascii=False, indent=2, default=str)
     print(f"\n[산출물] {OUT}")
     return 0
 

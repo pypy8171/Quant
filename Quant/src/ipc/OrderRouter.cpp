@@ -66,7 +66,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
     auto now = std::chrono::system_clock::now();
 
     // 0. 한도 클램프 — 한도를 넘치면 거부 대신 한도 안으로 줄여 낸다.
-    //    분할 매수 전략은 매 틱 같은 rung을 다시 내므로, 넘친다고 버리면 그 종목은 하루 종일
+    //    분할 매수 전략은 매 틱 같은 분할 단계를 다시 내므로, 넘친다고 버리면 그 종목은 하루 종일
     //    한 주도 못 나가면서 초당 주문 예산만 태운다(09-08 오전 126640·293490 반복 거부).
     //    여유가 0이면 손대지 않는다 — 아래 check()가 어느 한도에 걸렸는지 그대로 남기게 둔다.
     OrderSignal signal = in_signal;
@@ -1375,7 +1375,7 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
     if (!found)
     {
         // 취소할 것이 없는 것은 거부가 아니라 끝난 상태다 — 전략은 취소 결과를 안 보고 계획을
-        //  다시 짜므로, 거부된 rung·이미 취소된 rung을 다시 취소하는 요청이 재구성마다 온다
+        //  다시 짜므로, 거부된 분할 단계·이미 취소된 분할 단계를 다시 취소하는 요청이 재구성마다 온다
         //  (09-10~11 이틀 323건, 그중 체결 흔적은 21건). REJECTED로 세면 거부 통계와 경고가
         //  실제 문제(게이트·KIS 거부)를 덮는다. CANCELLED로 닫고, 체결 가능성이 있는 경우만
         //  경고와 매수 보류를 남긴다. [why D-035]
@@ -1787,57 +1787,57 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
     //  2026-09-07 ODNO 0000014893이 이 경우다 — 09:58 접수, 10:38 재시작, 11:07 91주 전량
     //  체결이 통째로 버려져 원장·포지션이 91주(약 498만원) 어긋났다.
     //  체결 자체는 실재하므로 버리지 않고 원장·포지션에 반영한다. 전략 귀속만 알 수 없어
-    //  strategy_id를 "ORPHAN"으로 남긴다(사후 분석에서 구분 가능).
+    //  strategy_id를 "UNLINKED"로 남긴다(사후 분석에서 구분 가능).
     //  선점(reserved_)은 이전 세션과 함께 사라졌다. on_fill_confirmed는 선점 해제를 전제로
     //  reserved_를 깎으므로, 그대로 부르면 음수 선점이 생겨 이후 한도 계산이 왜곡된다.
     //  같은 수량을 on_accept로 먼저 되살린 뒤 해제시켜 순변화를 0으로 맞춘다.
     //  미연결은 history_에 넣지 않으므로(주문수량을 몰라 잔량 클램프가 없다) 같은 통보가 재전송되면
     //  또 여기로 떨어진다. 키(거래일:kis_order_no:시각:수량:단가)로 2회차부터 막는다 — 같은 초·같은
     //  수량·단가로 갈라진 미연결 분할체결은 잃지만, 두 번 쌓는 쪽이 더 큰 사고다(W-6).
-    if (!orphan_fill_keys_.insert(fill_key).second)
+    if (!unlinked_fill_keys_.insert(fill_key).second)
     {
         LOG_WARN(std::format("[OrderRouter] 미매핑 체결 재통보 무시 ODNO={} {} {}주 time={} (같은 키 재수신)", fill_notification.kis_order_no,
                              fill_notification.ticker, fill_notification.filled_quantity, fill_notification.fill_time));
         return;
     }
 
-    ManagedOrder orphan;
-    orphan.order_id           = next_id();
-    orphan.kis_order_no       = fill_notification.kis_order_no;
-    orphan.status             = OrderStatus::FILLED;
-    orphan.confirmed_quantity      = fill_notification.filled_quantity;
-    orphan.signal.strategy_id = "ORPHAN";
-    orphan.signal.ticker      = fill_notification.ticker;
-    orphan.signal.side        = fill_notification.side;
-    orphan.signal.type        = OrderType::LIMIT;
-    orphan.signal.quantity    = fill_notification.filled_quantity;
-    orphan.signal.price       = fill_notification.filled_price;
-    orphan.signal.reason      = "이전 세션 주문 체결(ODNO 미매핑)";
-    orphan.submitted_at       = fill_notification.timestamp;
-    orphan.updated_at         = fill_notification.timestamp;
+    ManagedOrder unlinked_fill;
+    unlinked_fill.order_id           = next_id();
+    unlinked_fill.kis_order_no       = fill_notification.kis_order_no;
+    unlinked_fill.status             = OrderStatus::FILLED;
+    unlinked_fill.confirmed_quantity      = fill_notification.filled_quantity;
+    unlinked_fill.signal.strategy_id = "UNLINKED";
+    unlinked_fill.signal.ticker      = fill_notification.ticker;
+    unlinked_fill.signal.side        = fill_notification.side;
+    unlinked_fill.signal.type        = OrderType::LIMIT;
+    unlinked_fill.signal.quantity    = fill_notification.filled_quantity;
+    unlinked_fill.signal.price       = fill_notification.filled_price;
+    unlinked_fill.signal.reason      = "이전 세션 주문 체결(ODNO 미매핑)";
+    unlinked_fill.submitted_at       = fill_notification.timestamp;
+    unlinked_fill.updated_at         = fill_notification.timestamp;
 
     LOG_WARN(std::format("[OrderRouter] 미매핑 체결 원장 반영 [{}] ODNO={} {} {} {}주 @{} — 이전 세션 주문으로 추정(재시작 전 접수분)",
-                         orphan.order_id, fill_notification.kis_order_no, fill_notification.ticker, fill_notification.side == OrderSide::BUY ? "BUY" : "SELL",
+                         unlinked_fill.order_id, fill_notification.kis_order_no, fill_notification.ticker, fill_notification.side == OrderSide::BUY ? "BUY" : "SELL",
                          fill_notification.filled_quantity, static_cast<int>(fill_notification.filled_price)));
 
-    gate_.on_accept(orphan.signal.account_id, fill_notification.ticker, fill_notification.side,
+    gate_.on_accept(unlinked_fill.signal.account_id, fill_notification.ticker, fill_notification.side,
                     fill_notification.filled_quantity, fill_notification.filled_price);
-    auto result = gate_.on_fill_confirmed(orphan.signal.account_id, fill_notification.ticker, fill_notification.side,
-                                          fill_notification.filled_quantity, fill_notification.filled_price, orphan.signal.strategy_id);
+    auto result = gate_.on_fill_confirmed(unlinked_fill.signal.account_id, fill_notification.ticker, fill_notification.side,
+                                          fill_notification.filled_quantity, fill_notification.filled_price, unlinked_fill.signal.strategy_id);
     lock.unlock(); // 원장 갱신 끝 — 파일 쓰기는 락 밖에서
 
     if (result.basis_unknown)
     {
         LOG_WARN(std::format("[OrderRouter] 평단 미상 SELL 체결 — 실현손익 미산정(0) [{}] {} {}주 @{} (원장 재시드 필요)",
-                             orphan.order_id, fill_notification.ticker, fill_notification.filled_quantity, static_cast<int>(fill_notification.filled_price)));
+                             unlinked_fill.order_id, fill_notification.ticker, fill_notification.filled_quantity, static_cast<int>(fill_notification.filled_price)));
     }
 
-    write_trade_row("FILL", orphan, fill_notification.filled_quantity, fill_notification.filled_price, result.realized_pnl,
+    write_trade_row("FILL", unlinked_fill, fill_notification.filled_quantity, fill_notification.filled_price, result.realized_pnl,
                     result.strategy_realized_pnl);
 #ifdef HAS_ZMQ
     if (zmq_)
     {
-        zmq_->publish_fill(fill_notification, orphan.signal.strategy_id, result.commission, result.tax,
+        zmq_->publish_fill(fill_notification, unlinked_fill.signal.strategy_id, result.commission, result.tax,
                            result.average_price, result.net_quantity,
                            result.realized_pnl);
     }
@@ -1853,7 +1853,7 @@ void OrderRouter::reset_daily()
 {
     std::lock_guard<std::mutex> lock(history_mutex_);
     seen_fills_.clear();
-    orphan_fill_keys_.clear();
+    unlinked_fill_keys_.clear();
     order_id_index_.clear(); // MM-1: client_order_id 인덱스도 장 마감 정리 (당일 주문 장 마감 소멸과 정합)
     // 사유 기록도 거래일이 바뀌면 다시 읽는다(파일이 날짜별이라 어제 것을 들고 있으면 안 된다).
     order_reasons_.clear();

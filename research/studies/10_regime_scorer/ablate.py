@@ -252,20 +252,20 @@ def _curve_stats(rets: list[float]) -> tuple[float, float, float]:
 
 
 def evaluate(records: list[dict], variant: str, bull_th: float, bear_th: float) -> dict:
-    """변형×임계 → 지표. B&H(항상 롱) 베이스라인 동봉."""
-    pos = [is_long(r, variant, bull_th, bear_th) for r in records]
-    strat_rets = [p * r["seg_ret"] for p, r in zip(pos, records)]
-    bh_rets = [r["seg_ret"] for r in records]           # 항상 롱
+    """변형×임계 → 지표. 매수 후 보유(항상 롱) 베이스라인 동봉."""
+    positions = [is_long(record, variant, bull_th, bear_th) for record in records]
+    strategy_returns = [position * record["seg_ret"] for position, record in zip(positions, records)]
+    buy_and_hold_rets = [record["seg_ret"] for record in records]           # 항상 롱
 
-    total, mdd, sharpe = _curve_stats(strat_rets)
-    bh_total, bh_mdd, bh_sharpe = _curve_stats(bh_rets)
+    total, mdd, sharpe = _curve_stats(strategy_returns)
+    buy_and_hold_total, buy_and_hold_mdd, buy_and_hold_sharpe = _curve_stats(buy_and_hold_rets)
 
-    flips = sum(1 for k in range(1, len(pos)) if pos[k] != pos[k - 1])
-    pct_inv = sum(pos) / len(pos) * 100.0
+    flips = sum(1 for index in range(1, len(positions)) if positions[index] != positions[index - 1])
+    invested_percent = sum(positions) / len(positions) * 100.0
     return {
         "total": total, "mdd": mdd, "sharpe": sharpe,
-        "flips": flips, "pct_inv": pct_inv,
-        "bh_total": bh_total, "bh_mdd": bh_mdd, "bh_sharpe": bh_sharpe,
+        "flips": flips, "pct_inv": invested_percent,
+        "buy_and_hold_total": buy_and_hold_total, "buy_and_hold_mdd": buy_and_hold_mdd, "buy_and_hold_sharpe": buy_and_hold_sharpe,
     }
 
 
@@ -293,8 +293,8 @@ def select_threshold(recs_by_win: dict[str, list[dict]], variant: str) -> tuple[
 # 산출물
 # ════════════════════════════════════════════════════════════════════════════
 _COLS = ["window", "variant", "bull_th", "bear_th", "total_ret_pct", "mdd_pct",
-         "sharpe", "flips", "pct_invested", "bh_ret_pct", "bh_mdd_pct",
-         "bh_sharpe", "holdout"]
+         "sharpe", "flips", "pct_invested", "buy_and_hold_ret_pct", "buy_and_hold_mdd_pct",
+         "buy_and_hold_sharpe", "holdout"]
 
 
 def write_summary(rows: list[dict], commit: str) -> None:
@@ -314,7 +314,7 @@ def write_summary(rows: list[dict], commit: str) -> None:
 def write_readme(rows: list[dict], chosen: dict, commit: str) -> None:
     def by(v): return [r for r in rows if r["variant"] == v]
 
-    L = ["# BT-10 · Track A 구조국면 스코어러 애블레이션 (A/B/C/D)", ""]
+    L = ["# BT-10 · Track A 구조국면 스코어러 제거실험 (A/B/C/D)", ""]
     L.append("> 국면 스코어러 4변형을 6개 하락장 창에서 **지수 long/flat 타이밍 필터**로 평가.")
     L.append("> BULL/NEUTRAL=지수 롱, BEAR=현금. 결정=종가(D)·집행=다음봉 시가(D+1). 창별 자본 리셋.")
     L.append("")
@@ -330,15 +330,15 @@ def write_readme(rows: list[dict], chosen: dict, commit: str) -> None:
     L.append("")
 
     L.append("## 창×변형 지표")
-    L.append("| 창 | 변형 | 총수익% | MDD% | 샤프 | flips | 투자% | BH수익% | BH MDD% | BH샤프 | HO |")
+    L.append("| 창 | 변형 | 총수익% | MDD% | 샤프 | flips | 투자% | 매수 후 보유수익% | 매수 후 보유 MDD% | 매수 후 보유샤프 | HO |")
     L.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|:--:|")
     for w in WINDOWS:
         for v in VARIANTS:
             r = next(x for x in rows if x["window"] == w and x["variant"] == v)
             ho = "✅" if r["holdout"] else ""
             L.append(f"| {w} | {v} | {r['total_ret_pct']} | {r['mdd_pct']} | {r['sharpe']} "
-                     f"| {r['flips']} | {r['pct_invested']} | {r['bh_ret_pct']} | {r['bh_mdd_pct']} "
-                     f"| {r['bh_sharpe']} | {ho} |")
+                     f"| {r['flips']} | {r['pct_invested']} | {r['buy_and_hold_ret_pct']} | {r['buy_and_hold_mdd_pct']} "
+                     f"| {r['buy_and_hold_sharpe']} | {ho} |")
     L.append("")
 
     # ── 결론(집계에서 자동 산출) ──
@@ -356,18 +356,18 @@ def write_readme(rows: list[dict], chosen: dict, commit: str) -> None:
     L.append("|---|---:|---:|---:|")
     for v in VARIANTS:
         L.append(f"| {v} | {calib_mean(v,'total_ret_pct'):+.2f} | {calib_mean(v,'mdd_pct'):.2f} | {calib_mean(v,'sharpe'):+.3f} |")
-    # B&H 평균 한 줄(변형 무관, 어느 변형 행이든 동일 세그 → A 기준)
-    bh_r = sum(float(next(x for x in rows if x["window"]==w and x["variant"]=="A")["bh_ret_pct"]) for w in CALIB)/len(CALIB)
-    bh_m = sum(float(next(x for x in rows if x["window"]==w and x["variant"]=="A")["bh_mdd_pct"]) for w in CALIB)/len(CALIB)
-    bh_s = sum(float(next(x for x in rows if x["window"]==w and x["variant"]=="A")["bh_sharpe"]) for w in CALIB)/len(CALIB)
-    L.append(f"| B&H | {bh_r:+.2f} | {bh_m:.2f} | {bh_s:+.3f} |")
+    # 매수 후 보유 평균 한 줄(변형 무관, 어느 변형 행이든 동일 세그 → A 기준)
+    buy_and_hold_r = sum(float(next(row for row in rows if row["window"]==window and row["variant"]=="A")["buy_and_hold_ret_pct"]) for window in CALIB)/len(CALIB)
+    buy_and_hold_m = sum(float(next(row for row in rows if row["window"]==window and row["variant"]=="A")["buy_and_hold_mdd_pct"]) for window in CALIB)/len(CALIB)
+    buy_and_hold_s = sum(float(next(row for row in rows if row["window"]==window and row["variant"]=="A")["buy_and_hold_sharpe"]) for window in CALIB)/len(CALIB)
+    L.append(f"| 매수 후 보유 | {buy_and_hold_r:+.2f} | {buy_and_hold_m:.2f} | {buy_and_hold_s:+.3f} |")
     L.append("")
 
     best_v = max(VARIANTS, key=lambda v: calib_mean(v, "sharpe"))
     L.append(f"- CALIB 평균 샤프 최고 변형: **{best_v}** ({calib_mean(best_v,'sharpe'):+.3f}).")
     ho_best = next(x for x in rows if x["window"] == HOLDOUT and x["variant"] == best_v)
     L.append(f"- 홀드아웃({HOLDOUT}) — {best_v}: 총수익 {ho_best['total_ret_pct']}% / MDD {ho_best['mdd_pct']}% / 샤프 {ho_best['sharpe']} "
-             f"vs B&H 총수익 {ho_best['bh_ret_pct']}% / MDD {ho_best['bh_mdd_pct']}%.")
+             f"vs 매수 후 보유 총수익 {ho_best['buy_and_hold_ret_pct']}% / MDD {ho_best['buy_and_hold_mdd_pct']}%.")
     L.append(f"- 이 표는 **재현 가능한 산출물**이다. 성과 유의성 판정은 @quant-analyst, "
              f"look-ahead·편향 감사는 @bias-auditor 몫.")
     L.append("")
@@ -421,8 +421,8 @@ def main() -> None:
                 "total_ret_pct": f"{m['total']:.2f}", "mdd_pct": f"{m['mdd']:.2f}",
                 "sharpe": f"{m['sharpe']:.3f}", "flips": m["flips"],
                 "pct_invested": f"{m['pct_inv']:.1f}",
-                "bh_ret_pct": f"{m['bh_total']:.2f}", "bh_mdd_pct": f"{m['bh_mdd']:.2f}",
-                "bh_sharpe": f"{m['bh_sharpe']:.3f}",
+                "buy_and_hold_ret_pct": f"{m['buy_and_hold_total']:.2f}", "buy_and_hold_mdd_pct": f"{m['buy_and_hold_mdd']:.2f}",
+                "buy_and_hold_sharpe": f"{m['buy_and_hold_sharpe']:.3f}",
                 "holdout": (w == HOLDOUT),
             })
         print(f"  - {w} 완료")

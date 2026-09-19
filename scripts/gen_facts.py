@@ -323,10 +323,10 @@ def long_functions() -> list[dict]:
     return sorted(out, key=lambda d: (-d["lines"], d["file"], d["symbol"]))
 
 
-def eod_timetable() -> dict:
-    """마감 자동화 시간표 두 갈래(모의·실계좌). 정본은 scripts/eod_timetable.ps1 -Lines -Mode <모드>.
+def market_close_timetable() -> dict:
+    """마감 자동화 시간표 두 갈래(모의·실계좌). 정본은 scripts/market_close_timetable.ps1 -Lines -Mode <모드>.
     PowerShell 이 없는 환경(Linux)에서는 지난 facts.json 값을 그대로 둔다 — 시간표는 Windows 예약작업 얘기라 거기서만 바뀐다."""
-    script = ROOT / "scripts" / "eod_timetable.ps1"
+    script = ROOT / "scripts" / "market_close_timetable.ps1"
     result: dict[str, list[dict]] = {}
     for mode in ("paper", "live"):
         try:
@@ -347,7 +347,7 @@ def eod_timetable() -> dict:
         return result
     if OUT_JSON.exists():
         try:
-            return json.loads(read(OUT_JSON)).get("eod_timetable", {})
+            return json.loads(read(OUT_JSON)).get("market_close_timetable", {})
         except json.JSONDecodeError:
             pass
     return {}
@@ -387,7 +387,7 @@ def dashboards() -> list[dict]:
 
 def collect() -> dict:
     return {
-        "eod_timetable": eod_timetable(),
+        "market_close_timetable": market_close_timetable(),
         "cpp_strategies": cpp_strategies(),
         "strategy_loaders": strategy_loaders(),
         "py_strategies": py_strategies(),
@@ -490,11 +490,11 @@ def r_hooks(f: dict) -> str:
     return "\n".join(rows)
 
 
-def r_eod_timetable(f: dict) -> str:
-    t = f.get("eod_timetable") or {}
-    paper, live = t.get("paper", []), t.get("live", [])
+def r_market_close_timetable(facts: dict) -> str:
+    timetable = facts.get("market_close_timetable") or {}
+    paper, live = timetable.get("paper", []), timetable.get("live", [])
     if not paper or not live:
-        return "| (scripts/eod_timetable.ps1 -Lines 를 못 읽었다) | | | |"
+        return "| (scripts/market_close_timetable.ps1 -Lines 를 못 읽었다) | | | |"
     live_at = {r["name"]: r["at"] for r in live}
     rows = ["| 작업 이름 | 모의 (is_paper=true) | 실계좌 (is_paper=false) | 실행 |", "|---|---|---|---|"]
     for r in paper:
@@ -542,7 +542,7 @@ def r_regime_model(f: dict) -> str:
 
 
 RENDERERS = {
-    "eod-timetable": r_eod_timetable,
+    "market-close-timetable": r_market_close_timetable,
     "dashboards": r_dashboards,
     "harness-counts": r_harness_counts,
     "ordergate-rejects": r_ordergate_rejects,

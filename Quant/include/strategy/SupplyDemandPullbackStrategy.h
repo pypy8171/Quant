@@ -19,7 +19,7 @@
 // (초당 호출 한도(EGW00201) 회피용 호출 간격 조절 간격).
 namespace
 {
-constexpr int kSdpRestPacingMs = 60;
+constexpr int kSdpRestIntervalMs = 60;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -32,13 +32,13 @@ constexpr int kSdpRestPacingMs = 60;
 //      - 누적 외인 순매수 > 0 AND 누적 기관 순매수 > 0
 //    look-ahead 방지: 당일(today_yyyymmdd) 데이터 제외 (장 종료 후 확정치 사용)
 //
-//  [진입 모드 A — EOD 스윙]
+//  [진입 모드 A — 일봉 스윙]
 //    on_data(일봉): 5일선 눌림목 판정 → 당일 BUY (다음날 실질 진입)
 //
 //  [진입 모드 B — INTRADAY 일중]
 //    on_start에서 전일 확정 일봉으로 reference_ma5_ 고정
 //    on_trade/on_order_book에서 장중 5일선 눌림목 터치 포착 → 즉시 BUY
-//    eod_exit_hhmm 또는 moving_average_5 이탈 시 손절/청산
+//    market_close_exit_hhmm 또는 moving_average_5 이탈 시 손절/청산
 // ─────────────────────────────────────────────────────────────────────────────
 class SupplyDemandPullbackStrategy : public StrategyBase
 {
@@ -48,20 +48,20 @@ public:
     class EntryMode
     {
     public:
-        enum Value { EOD, INTRADAY };
+        enum Value { DAILY, INTRADAY };
 
         EntryMode() = default;
         constexpr EntryMode(Value value) : value_(value) {}
         constexpr operator Value() const { return value_; }
 
-        // INTRADAY가 아니면 EOD로 본다(기존 (s=="INTRADAY")?INTRADAY:EOD 관례 유지).
+        // INTRADAY가 아니면 DAILY로 본다(기존 (s=="INTRADAY")?INTRADAY:DAILY 관례 유지).
         static EntryMode from_string(const std::string& text)
         {
-            return text == "INTRADAY" ? EntryMode(INTRADAY) : EntryMode(EOD);
+            return text == "INTRADAY" ? EntryMode(INTRADAY) : EntryMode(DAILY);
         }
 
     private:
-        Value value_ = EOD;
+        Value value_ = DAILY;
     };
 
     struct Params
@@ -75,9 +75,9 @@ public:
         int         moving_average_period        = 5;
         double      pullback_band    = 0.01;   // moving_average_5 ±1% 눌림목 인식 밴드
         bool        require_previous_above = true; // 직전봉이 moving_average_5 위에 있었는지
-        EntryMode   mode             = EntryMode::EOD;
+        EntryMode   mode             = EntryMode::DAILY;
         int         quantity         = 10;
-        std::string eod_exit_hhmm    = "1500"; // INTRADAY 청산 시각
+        std::string market_close_exit_hhmm    = "1500"; // INTRADAY 청산 시각
         double      stop_below_moving_average    = 0.0;    // moving_average_5*(1-stop) 이탈 손절 (0=미사용)
     };
 
@@ -96,7 +96,7 @@ public:
                " | dual>=" + std::to_string(parameters_.min_dual_days) +
                " | band=" + std::to_string(static_cast<int>(parameters_.pullback_band * 100)) + "%" +
                " | qty=" + std::to_string(parameters_.quantity) +
-               " | mode=" + (parameters_.mode == EntryMode::EOD ? "EOD" : "INTRADAY");
+               " | mode=" + (parameters_.mode == EntryMode::DAILY ? "DAILY" : "INTRADAY");
     }
 
     std::vector<WatchSpec> get_watch_specifications() const override
@@ -137,7 +137,7 @@ public:
         {
             const std::string& ticker = stock.ticker;
             auto flows = kis_->get_investor_flow(ticker, parameters_.market_div);
-            std::this_thread::sleep_for(std::chrono::milliseconds(kSdpRestPacingMs));
+            std::this_thread::sleep_for(std::chrono::milliseconds(kSdpRestIntervalMs));
 
             if (flows.empty())
             {
@@ -166,13 +166,13 @@ public:
         // candidates_ 확정 후 O(1) 조회용 set 동기화 (필수 — 누락 시 is_candidate가 항상 false)
         rebuild_set();
 
-        // 3-A. EOD 모드: 최근 일봉으로 moving_average 초기화
-        if (parameters_.mode == EntryMode::EOD)
+        // 3-A. 일봉 모드: 최근 일봉으로 moving_average 초기화
+        if (parameters_.mode == EntryMode::DAILY)
         {
             for (const auto& ticker : candidates_)
             {
                 auto bars = kis_->get_daily_ohlcv(ticker, parameters_.moving_average_period + 2);
-                std::this_thread::sleep_for(std::chrono::milliseconds(kSdpRestPacingMs));
+                std::this_thread::sleep_for(std::chrono::milliseconds(kSdpRestIntervalMs));
                 auto& closes = closes_[symbol_of(ticker)];
 
                 for (auto iterator = bars.rbegin(); iterator != bars.rend(); ++iterator)
@@ -190,7 +190,7 @@ public:
             for (const auto& ticker : candidates_)
             {
                 auto bars = kis_->get_daily_ohlcv(ticker, parameters_.moving_average_period + 2);
-                std::this_thread::sleep_for(std::chrono::milliseconds(kSdpRestPacingMs));
+                std::this_thread::sleep_for(std::chrono::milliseconds(kSdpRestIntervalMs));
 
                 if (static_cast<int>(bars.size()) < parameters_.moving_average_period)
                 {
@@ -218,13 +218,13 @@ public:
         }
     }
 
-    // EOD 모드에서만 일봉을 쓴다. 장중(INTRADAY) 모드면 on_data가 바로 빠져나가므로 폴링도 불필요.
-    bool wants_daily_bars() const override { return parameters_.mode == EntryMode::EOD; }
+    // 일봉 모드에서만 일봉을 쓴다. 장중(INTRADAY) 모드면 on_data가 바로 빠져나가므로 폴링도 불필요.
+    bool wants_daily_bars() const override { return parameters_.mode == EntryMode::DAILY; }
 
-    // ── EOD 모드 진입/청산 (일봉) ─────────────────────────────────────────────
+    // ── 일봉 모드 진입/청산 (일봉) ─────────────────────────────────────────────
     std::optional<OrderSignal> on_data(const MarketData& market_data) override
     {
-        if (parameters_.mode != EntryMode::EOD)
+        if (parameters_.mode != EntryMode::DAILY)
         {
             return std::nullopt;
         }
@@ -307,7 +307,7 @@ public:
         double price = trade.price;
 
         // 청산 시각 도달
-        if (past_hhmm(parameters_.eod_exit_hhmm))
+        if (past_hhmm(parameters_.market_close_exit_hhmm))
         {
             if (held_.count(id))
             {
@@ -485,7 +485,7 @@ private:
     Params                                               parameters_;
     std::vector<std::string>                               candidates_; // 문자열 — 구독 스펙·REST·로그
     std::unordered_set<symbol::SymbolId>                      cand_set_;   // O(1) 조회(id)
-    std::unordered_map<symbol::SymbolId, std::deque<double>>  closes_;     // EOD ma용
+    std::unordered_map<symbol::SymbolId, std::deque<double>>  closes_;     // 일봉 ma용
     std::unordered_map<symbol::SymbolId, double>              reference_ma5_;    // INTRADAY 기준선
     std::unordered_set<symbol::SymbolId>                      held_;       // 보유 종목
 };

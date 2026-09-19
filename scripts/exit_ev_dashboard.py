@@ -9,7 +9,7 @@ scripts/exit_ev.py 의 적재·통계 함수를 그대로 쓰고, 표 한 줄마
     py scripts/exit_ev_dashboard.py                      # 마지막 날 = 원장 최신 파일. research/studies/17_exit_ev/exit_ev_dashboard.html
     py scripts/exit_ev_dashboard.py --last-day 20260925  # 날짜를 고정할 때
 
-매일 장 마감 뒤 scripts/refresh_dashboard.py 가 부르고(예약작업 Quant EOD AutoDoc), 발행본 갱신은 /dashboard-sync 4단계.
+매일 장 마감 뒤 scripts/refresh_dashboard.py 가 부르고(예약작업 Quant Market Close AutoDoc), 발행본 갱신은 /dashboard-sync 4단계.
 데이터는 생성 시점에 본문 JSON으로 박힌다(대시보드 관례와 같다). 손으로 HTML을 고치지 않는다.
 """
 from __future__ import annotations
@@ -37,7 +37,7 @@ UNIVERSE_SCAN = exit_ev.REPO / "Quant" / "config" / "universe_scan.json"
 TICKER_NAMES = exit_ev.REPO / "Quant" / "config" / "ticker_names.json"
 TRADER_LOG = exit_ev.REPO / "Quant" / "build_win" / "logs" / "quant_trader.log"
 STUDIES_DIR = exit_ev.REPO / "research" / "studies"
-NAME_RE = re.compile(r"(\d{6})\(([^)]{1,24})\)")  # eod_autodoc.py 와 같은 모양 — 엔진 로그의 `123456(종목명)`
+NAME_RE = re.compile(r"(\d{6})\(([^)]{1,24})\)")  # market_close_autodoc.py 와 같은 모양 — 엔진 로그의 `123456(종목명)`
 KIS_NAME_RE = re.compile(r'"(?:stck|mksc)_shrn_iscd":"(\d{6})"[^{}]*?"hts_kor_isnm":"([^"]{1,24})"')  # KIS 응답 JSON 한 항목
 LEDGER_FILE_RE = re.compile(r"trades_(\d{8})\.csv$")
 GATE_WORDS = exit_ev.REPO / "_private" / "gate_words.txt"  # commit_gate.py 비공개 단어 — 이 낱말이 든 종목명은 코드만 남긴다
@@ -87,12 +87,12 @@ RULES = (
         "steps": (
             {"phase": "후보", "what": "장중 스캔 점수 상위 {score_top_n}종목(max_universe {max_universe}). 가격 {min_price}원 이상, 거래대금 {min_turnover}원 이상, 코스닥 포함({kosdaq_enabled}). 지수가 {risk_off_index_pct}% 아래면 신규 진입 안 함."},
             {"phase": "진입 조건", "what": "정배열(require_aligned {require_aligned}) 이고 이격이 +{entry_lower_pct}% ~ +{entry_upper_pct}% 안(존). 존은 ±{zone_hyst_pct}% 히스테리시스로 유지 → 실제 보유 구간 약 +{zone_low}% ~ +{zone_high}%."},
-            {"phase": "매수 주문", "what": "존에 들어오고 포지션이 없으면 현재가 기준점(base_on_price {base_on_price}) 지정가 1회. 추가 매수 없음(buy_rungs {buy_rungs}). 금액 = 자산 × {base_pct} (바닥 {notional_floor_krw}원 ~ 상한 {notional_cap_krw}원). 가격이 {reprice_move_ticks}틱 움직이면 {min_rebuild_sec}초 뒤 주문을 다시 짠다."},
-            {"phase": "익절", "what": "평단(sell_base_average {sell_base_average}) + {dev_sell_pct}% 지정가 매도 {n_rungs}단. 체결되면 그 종목은 {reentry_cooldown_sec}초 재진입 금지.", "exit_category": "익절밴드"},
+            {"phase": "매수 주문", "what": "존에 들어오고 포지션이 없으면 현재가 기준점(base_on_price {base_on_price}) 지정가 1회. 추가 매수 없음(buy_split_steps {buy_split_steps}). 금액 = 자산 × {base_pct} (바닥 {notional_floor_krw}원 ~ 상한 {notional_cap_krw}원). 가격이 {reprice_move_ticks}틱 움직이면 {min_rebuild_sec}초 뒤 주문을 다시 짠다."},
+            {"phase": "익절", "what": "평단(sell_base_average {sell_base_average}) + {dev_sell_pct}% 지정가 매도 {split_step_count}단. 체결되면 그 종목은 {reentry_cooldown_sec}초 재진입 금지.", "exit_category": "익절밴드"},
             {"phase": "손절", "what": "평단 − {stop_loss_pct}% 에 닿으면 시장가 전량. 뒤 {stop_cooldown_sec}초 재진입 금지(D-053).", "exit_category": "손절"},
             {"phase": "존 이탈", "what": "정배열이 깨지거나 이격이 존±히스테리시스 밖으로 나가면 시장가 청산.", "exit_category": "존이탈"},
             {"phase": "SMA 트레일", "what": "trail_sma_exit {trail_sma_exit} — 꺼져 있다. 켜면 3분봉 SMA − {trail_sma_tol_pct}% 아래로 내려올 때 청산(09-11 회의, 리플레이 뒤 결정)."},
-            {"phase": "장 마감", "what": "{eod_exit_hhmm} 에 남은 포지션 전량 청산.", "exit_category": "장마감"},
+            {"phase": "장 마감", "what": "{market_close_exit_hhmm} 에 남은 포지션 전량 청산.", "exit_category": "장마감"},
             {"phase": "먼지", "what": "평가금액 {dust_krw}원 미만 잔량은 정리.", "exit_category": "먼지정리"},
         ),
     },
@@ -101,11 +101,11 @@ RULES = (
         "steps": (
             {"phase": "후보", "what": "장중 스캔 상위 {scan_top_n} → 점수 상위 {score_top_n}(max_universe {max_universe}). 가격 {min_price}원 이상, 거래대금 {min_turnover}원 이상. 지수가 {risk_off_index_pct}% 아래면 신규 진입 안 함."},
             {"phase": "진입 조건", "what": "정배열이고 이격이 −{pullback_pct}% ~ +{entry_upper_pct}% 안(존, max_dev_pct {max_dev_pct}). 존 히스테리시스 {zone_hyst_pct}%."},
-            {"phase": "매수 주문", "what": "3분봉(interval_min {interval_min}) SMA{sma_period} 기준 지정가. SMA 아래에서만(add_below_sma_only {add_below_sma_only}). 추가 매수 없음(buy_rungs {buy_rungs}). 금액 = 자산 × {base_pct} (바닥 {notional_floor_krw}원 ~ 상한 {notional_cap_krw}원, 스프레드 가중 {weight_spread})."},
-            {"phase": "익절", "what": "SMA 기준 +{dev_sell_pct}% × 단계, {n_rungs}단 지정가 매도. 체결 뒤 {reentry_cooldown_sec}초 재진입 금지.", "exit_category": "익절밴드"},
+            {"phase": "매수 주문", "what": "3분봉(interval_min {interval_min}) SMA{sma_period} 기준 지정가. SMA 아래에서만(add_below_sma_only {add_below_sma_only}). 추가 매수 없음(buy_split_steps {buy_split_steps}). 금액 = 자산 × {base_pct} (바닥 {notional_floor_krw}원 ~ 상한 {notional_cap_krw}원, 스프레드 가중 {weight_spread})."},
+            {"phase": "익절", "what": "SMA 기준 +{dev_sell_pct}% × 단계, {split_step_count}단 지정가 매도. 체결 뒤 {reentry_cooldown_sec}초 재진입 금지.", "exit_category": "익절밴드"},
             {"phase": "손절", "what": "없음(stop_loss_pct {stop_loss_pct}). 존 이탈이 손절 역할."},
             {"phase": "존 이탈", "what": "정배열이 깨지거나 이격이 존±히스테리시스 밖 → 시장가 청산.", "exit_category": "존이탈"},
-            {"phase": "장 마감", "what": "{eod_exit_hhmm} 에 전량 청산.", "exit_category": "장마감"},
+            {"phase": "장 마감", "what": "{market_close_exit_hhmm} 에 전량 청산.", "exit_category": "장마감"},
             {"phase": "먼지", "what": "평가금액 {dust_krw}원 미만 잔량 정리.", "exit_category": "먼지정리"},
         ),
     },
@@ -116,7 +116,7 @@ RULES = (
             {"phase": "seed 트레일", "what": "고점 대비 −{seed_trail_pct}% 되돌리면 청산.", "exit_category": "seed-trail"},
             {"phase": "본전탈출", "what": "평단 +{exit_near_avg_arm_pct}% 를 한 번 넘긴 뒤(arm) 평단 ±{exit_near_avg_pct}% 로 돌아오면 청산.", "exit_category": "본전탈출"},
             {"phase": "하드스탑", "what": "평단 −{seed_hard_pct}% 를 {seed_hard_confirm_bars}봉 연속 확인하면 청산({seed_hard_from_hhmm} 이후, −{seed_hard_skip_pct}% 넘게 빠진 건 건너뜀).", "exit_category": "trail"},
-            {"phase": "장 마감", "what": "{eod_exit_hhmm} 에 전량 청산.", "exit_category": "장마감"},
+            {"phase": "장 마감", "what": "{market_close_exit_hhmm} 에 전량 청산.", "exit_category": "장마감"},
         ),
     },
     {
@@ -380,7 +380,7 @@ def rules_payload(config_path: Path) -> dict:
 
 
 def backtest_payload() -> dict:
-    """research/studies/**/metrics.json(quant.metrics/v1 배열). 벤치마크 행(strategy == BH)은 비교 기준으로만 쓴다."""
+    """research/studies/**/metrics.json(quant.metrics/v1 배열). 벤치마크 행(strategy == BUY_AND_HOLD(옛 BH))은 비교 기준으로만 쓴다."""
     studies = []
     all_strategy_rows = 0
     beat_bench = 0
@@ -396,7 +396,7 @@ def backtest_payload() -> dict:
 
         study_id = rows[0].get("study_id", "")
         number = study_id.split("-")[-1]
-        strategy_rows = [row for row in rows if row.get("strategy") != "BH"]
+        strategy_rows = [row for row in rows if row.get("strategy") not in ("BH", "BUY_AND_HOLD")]
         alphas = [row["alpha"] for row in strategy_rows if isinstance(row.get("alpha"), (int, float))]
         sharpes = [row["sharpe"] for row in strategy_rows if isinstance(row.get("sharpe"), (int, float))]
         mdds = [row["mdd"] for row in strategy_rows if isinstance(row.get("mdd"), (int, float))]

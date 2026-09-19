@@ -39,7 +39,7 @@ CANCEL_RE = re.compile(r"취소 접수: (\d{6}) 원ODNO=(\d+)")
 # 미연결 체결 — 재기동으로 라우터 기억이 지워진 뒤 들어온 체결. 원장에는 반영되지만
 #  ODNO 매핑이 없어 예전 FILL_RE에 안 걸렸다. 이걸 못 세면 이미 다 채워진 주문이
 #  계속 "미체결"로 남아 다음 기동이 또 취소를 시도한다.
-ORPHAN_FILL_RE = re.compile(
+UNLINKED_FILL_RE = re.compile(
     r"미매핑 체결 원장 반영 \[[^\]]*\] ODNO=(\d+) (\d{6}) (BUY|SELL) (\d+)주")
 # 브로커가 "그 주문 없다"고 답한 기록. 취소 성공(취소 접수)만 종료로 보면, 이미 죽은
 #  주문이 재기동마다 부활한다(2026-09-08: 9회 재기동에 51건까지 누적, 건당 왕복 2~3초를
@@ -62,46 +62,46 @@ def main() -> int:
         return 1
     out = Path(a.out) if a.out else log.parent / "open_orders.txt"
 
-    orders: dict[str, dict] = {}   # odno → {ticker, orgno, side, qty, filled}
+    orders: dict[str, dict] = {}   # order_number → {ticker, orgno, side, quantity, filled}
     cancelled: set[str] = set()
 
     with log.open(encoding="utf-8", errors="replace") as f:
         for line in f:
             if not line.startswith(a.date):
                 continue
-            m = ACCEPT_RE.search(line)
-            if m:
-                tk, side, qty, odno, orgno = m.groups()
-                orders[odno] = {"ticker": tk, "orgno": orgno, "side": side,
-                                "qty": int(qty), "filled": 0}
+            match = ACCEPT_RE.search(line)
+            if match:
+                ticker, side, quantity, order_number, orgno = match.groups()
+                orders[order_number] = {"ticker": ticker, "orgno": orgno, "side": side,
+                                "qty": int(quantity), "filled": 0}
                 continue
-            m = FILL_RE.search(line)
-            if m:
-                odno, _tk, _side, qty = m.groups()
-                if odno in orders:
-                    orders[odno]["filled"] += int(qty)
+            match = FILL_RE.search(line)
+            if match:
+                order_number, _ticker, _side, quantity = match.groups()
+                if order_number in orders:
+                    orders[order_number]["filled"] += int(quantity)
                 continue
-            m = ORPHAN_FILL_RE.search(line)
-            if m:
-                odno, _tk, _side, qty = m.groups()
-                if odno in orders:
-                    orders[odno]["filled"] += int(qty)
+            match = UNLINKED_FILL_RE.search(line)
+            if match:
+                order_number, _ticker, _side, quantity = match.groups()
+                if order_number in orders:
+                    orders[order_number]["filled"] += int(quantity)
                 continue
-            m = CANCEL_RE.search(line)
-            if m:
-                cancelled.add(m.group(2))
+            match = CANCEL_RE.search(line)
+            if match:
+                cancelled.add(match.group(2))
                 continue
-            m = DEAD_RE.search(line) or NOQTY_RE.search(line)
-            if m:
-                cancelled.add(m.group(1))
+            match = DEAD_RE.search(line) or NOQTY_RE.search(line)
+            if match:
+                cancelled.add(match.group(1))
 
     rows = []
-    for odno, o in orders.items():
-        if odno in cancelled:
+    for order_number, order in orders.items():
+        if order_number in cancelled:
             continue
-        remain = o["qty"] - o["filled"]
+        remain = order["qty"] - order["filled"]
         if remain > 0:
-            rows.append(f'{odno}|{o["orgno"]}|{o["ticker"]}|{o["side"]}|{remain}')
+            rows.append(f'{order_number}|{order["orgno"]}|{order["ticker"]}|{order["side"]}|{remain}')
 
     rows.sort()
     body = "\n".join(rows) + ("\n" if rows else "")

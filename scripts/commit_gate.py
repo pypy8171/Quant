@@ -48,7 +48,7 @@ PRIVATE_PATTERNS = [
     (re.compile("-" * 5 + "BEGIN"), "PEM/키 블록"),
     (re.compile(r"\b\d{8}-\d{2}\b"), "계좌번호(8-2) 모양"),
     (re.compile(r"\b\d{6}-[1-4]\d{6}\b"), "주민번호 모양"),
-    (re.compile(r"01[016789]-?\d{3,4}-?\d{4}"), "휴대폰 번호 모양"),
+    (re.compile(r"(?<![\d.])01[016789]-?\d{3,4}-?\d{4}(?!\d)"), "휴대폰 번호 모양"),  # 소수(0.1587…) 안의 숫자열은 제외
     (re.compile(r"[A-Za-z0-9._%+-]+@(gmail|naver|daum|kakao|outlook|hotmail)\.com"), "개인 이메일"),
 ]
 DISMISSIVE = re.compile(r"몰라도 되|몰라도 됨|몰라도 상관|안 ?봐도 되|알 필요 ?없|대충 봐도|안 외워도|몰라도 OK|skip해도")

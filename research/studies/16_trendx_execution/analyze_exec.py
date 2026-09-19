@@ -5,7 +5,7 @@
       (PYQuant/backtest/devscale_replay.py --set exec 가 만든 (변형,종목,날짜) 행)
 출력  research/studies/16_trendx_execution/exec_paired.tsv
 
-단위는 (종목,날짜) 하루 r. 기저 e0_base_stop2.5(=config_dev_paper TRENDX: buy_rungs=0·stop 2.5%)에서
+단위는 (종목,날짜) 하루 r. 기저 e0_base_stop2.5(=config_dev_paper TRENDX: buy_split_steps=0·stop 2.5%)에서
 한 번에 한 가지만 바꾼 변형과 짝지어 차이를 낸다. 진입이 없던 날도 r=0으로 남겨야 "진입을 미뤄
 안 산 날"이 이득/손실로 제대로 세어진다.
 
@@ -107,7 +107,7 @@ def main() -> int:
     pd.set_option("display.max_rows", 200)
     cols = ["variant", "window", "n_pairs", "n_days", "n_months", "entry_rate", "mean_r", "win_rate",
             "breakeven_wr", "net_over_deployed_pct", "paired_dr", "t_month", "p_month", "t_day", "p_day",
-            "beat_months", "mae_med", "exit_stop", "exit_tp", "exit_eod", "exit_zone_exit"]
+            "beat_months", "mae_med", "exit_stop", "exit_tp", "exit_market_close", "exit_zone_exit"]
     cols = [c for c in cols if c in res.columns]
     print(res[cols].to_string(index=False, float_format=lambda x: f"{x:.4f}"))
     print(f"[done] {_HERE / 'exec_paired.tsv'}")

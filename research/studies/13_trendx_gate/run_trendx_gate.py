@@ -3,15 +3,15 @@
 
 라이브 TRENDX(DeviationScale 추세확장 슬리브)는 3분봉 시점정합(PIT) 재현이 안 된다. 여기서는
 일봉으로 "정배열 ∧ 이격 밴드" 게이트가 고른 종목이 같은 날 PIT 풀보다 나은지만 본다.
-실행 층(현재가 기준점 rung 구간·물타기·매도가능 0·재기동)은 이 스크립트가 못 잰다 — README.md 첫 절.
+실행 층(현재가 기준점 분할 단계 구간·물타기·매도가능 0·재기동)은 이 스크립트가 못 잰다 — README.md 첫 절.
 
 귀무가설: 정배열 단독 월초과 −0.089R (docs/DECISIONS.md D-013). 주검정은 현행 설정 1셀
-(이격 5~35 · 저항 off · 손절 없음), 나머지 11셀은 탐색이라 BH(FDR) 0.1로 본다.
+(이격 5~35 · 저항 off · 손절 없음), 나머지 11셀은 탐색이라 Benjamini-Hochberg(FDR) 0.1로 본다.
 
 입력  PYQuant/data/bars_all_pit.parquet (2019-01-02~2026-09-04, 상폐 포함)
 출력  results.tsv · monthly_excess.csv · gate_pairs.jsonl (B2-1 백필 대상)
 
-초과R 열 세 가지(results.tsv). 판정(t·p·beat·q_bh)은 excess_r 하나로만 한다.
+초과R 열 세 가지(results.tsv). 판정(t·p·beat·q_benjamini_hochberg)은 excess_r 하나로만 한다.
   excess_r   일 정합 — 날짜별 (그날 gate 거래 평균 r − 그날 풀 평균 r)을 gate 거래가 있는 날만 내고,
              그 일별 초과를 월 평균한 뒤 월 시계열에 1표본 t. 09-12 bias-auditor 감사 반영.
   excess_mw  월가중 — 월별 gate 평균 r − 월별 풀 평균 r의 평균(감사 전 방식). 풀 쪽에 gate 거래가 없는
@@ -39,7 +39,7 @@ from numpy.lib.stride_tricks import sliding_window_view
 _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parents[2]
 sys.path.insert(0, str(_HERE))
-from stats_util import bh_qvalues, one_sample_t  # noqa: E402
+from stats_util import benjamini_hochberg_qvalues, one_sample_t  # noqa: E402
 
 DATA = _ROOT / "PYQuant" / "data" / "bars_all_pit.parquet"
 
@@ -54,7 +54,7 @@ HOLDOUT = "2022bear"
 
 POOL_N = 500          # 날짜별 20일 평균 거래대금 상위
 MAX_HOLD = 20         # 거래일
-TP_PCT = 3.0          # 익절 rung (dev_sell_pct=3.0)
+TP_PCT = 3.0          # 익절 분할 단계 (dev_sell_pct=3.0)
 COST_PCT = 0.31       # 왕복 비용 — PYQuant/backtest/metrics.py ROUNDTRIP_COST_PCT, D-013과 같은 값
 R_DENOM = 6.0         # R 분모(%). 손절 없는 셀도 같은 분모로 두어 셀끼리 비교되게 한다
 RES_WINDOW = 250      # 저항 필터 롤링 고가 창
@@ -318,11 +318,11 @@ def main() -> int:
                                      "holdout": per == HOLDOUT, **st})
     res = pd.DataFrame(rows)
 
-    # 탐색 11셀 BH — 4구간 합산 월 시계열, 익절 touch 기준
+    # 탐색 11셀 매수 후 보유 — 4구간 합산 월 시계열, 익절 touch 기준
     expl = res[(~res["tp_close"]) & (res["period"] == "all4") & (~res["main"])].copy()
-    q = bh_qvalues(expl["p"].tolist())
-    res["q_bh"] = np.nan
-    res.loc[expl.index, "q_bh"] = q
+    adjusted_p_values = benjamini_hochberg_qvalues(expl["p"].tolist())
+    res["q_benjamini_hochberg"] = np.nan
+    res.loc[expl.index, "q_benjamini_hochberg"] = adjusted_p_values
     tag = args.tag or ("_smaprev" if args.sma_prev else "")
     out = _HERE / f"results{tag}.tsv"
     res.to_csv(out, sep="\t", index=False, float_format="%.4f")
@@ -339,7 +339,7 @@ def main() -> int:
     print(f"[audit] 저항 창<250일 비율(풀∧정배열 행 기준) {(res_short < RES_WINDOW).mean():.3f}, "
           f"<{RES_MIN}일(판정 불가) {(res_short < RES_MIN).mean():.3f}", flush=True)
     view = res[(~res["tp_close"])][["band", "res", "stop", "period", "n", "n_months", "gate_r", "base_r",
-                                    "excess_tw", "excess_mw", "excess_r", "t", "p", "q_bh", "beat", "mae_med",
+                                    "excess_tw", "excess_mw", "excess_r", "t", "p", "q_benjamini_hochberg", "beat", "mae_med",
                                     "hold_mean", "tp_rate", "main"]]
     pd.set_option("display.width", 220)
     pd.set_option("display.max_rows", 200)

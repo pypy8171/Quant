@@ -24,8 +24,8 @@
 //        반등 청산 exit_near_average_percent. 이미 -30% 물린 평단에 -3% 하드손절을 걸어 개장
 //        즉시 시장가 투매하는 자해(v1 결함)를 제거. 반등에 실어 던진다.
 //    (B) 신규 진입분: 타이트 트레일 trail_percent + 진입가 하드손절 hard_percent.
-//    공통: 평단손절(average_loss_percent, 보통 0=비활성), 장 마감(eod_hhmm) 강제청산.
-//  [신규진입 금지]  no_new_entry_hhmm(>0이면 이 시각부터, 아니면 eod_hhmm) 이후 진입 금지
+//    공통: 평단손절(average_loss_percent, 보통 0=비활성), 장 마감(market_close_hhmm) 강제청산.
+//  [신규진입 금지]  no_new_entry_hhmm(>0이면 이 시각부터, 아니면 market_close_hhmm) 이후 진입 금지
 //          — 마감 임박 진입은 트레일 발동 전 장 마감 강제청산되므로.
 //
 //  안전장치: 재진입 쿨다운으로 청산 직후 재매수 폭주 방지. account_id 기본 "" → OrderGate
@@ -37,19 +37,19 @@ public:
     IntradayBreakoutStrategy(std::string ticker, int entry_quantity, int hold_quantity,
                              bool start_in_position, int channel_min = 10,
                              double breakout_epsilon = 0.002, double trail_percent = 0.010,
-                             double hard_percent = 0.015, int eod_hhmm = 1515,
+                             double hard_percent = 0.015, int market_close_hhmm = 1515,
                              int reentry_cooldown_sec = 60,
                              double average_price = 0.0, double average_loss_percent = 0.0,
                              // ── v2 추가 (뒤에 붙여 하위호환) ──
                              double seed_trail_percent = 0.0,      // 물린분 고점 기준 트레일(0→trail_percent)
                              double exit_near_average_percent = 0.0,   // 물린분 본전탈출(평단 -x% 이내, 0=비활성)
-                             int no_new_entry_hhmm = 0,        // 신규진입 금지 시각(0→eod_hhmm)
+                             int no_new_entry_hhmm = 0,        // 신규진입 금지 시각(0→market_close_hhmm)
                              double notional_per_position = 0.0, // 종목당 명목(0→entry_quantity 고정)
                              double day_open_price = 0.0)         // 당일 시가 기준점 주입(0→첫 틱)
         : ticker_(std::move(ticker)), entry_quantity_(entry_quantity), hold_quantity_(hold_quantity),
           start_in_position_(start_in_position), channel_min_(channel_min),
           epsilon_(breakout_epsilon), trail_percent_(trail_percent), hard_percent_(hard_percent),
-          eod_hhmm_(eod_hhmm), cooldown_sec_(reentry_cooldown_sec),
+          market_close_hhmm_(market_close_hhmm), cooldown_sec_(reentry_cooldown_sec),
           average_price_(average_price), average_loss_percent_(average_loss_percent),
           seed_trail_percent_(seed_trail_percent), exit_near_average_percent_(exit_near_average_percent),
           no_new_entry_hhmm_(no_new_entry_hhmm), notional_per_position_(notional_per_position),
@@ -87,7 +87,7 @@ public:
         return "ITB | " + ticker_ + " | ch=" + std::to_string(channel_min_) + "m eps=" +
                std::to_string(epsilon_) + " trail=" + std::to_string(trail_percent_) + " hard=" +
                std::to_string(hard_percent_) + " seed_trail=" + std::to_string(seed_trail_percent_) +
-               " exit_avg=" + std::to_string(exit_near_average_percent_) + " eod=" + std::to_string(eod_hhmm_) +
+               " exit_avg=" + std::to_string(exit_near_average_percent_) + " market_close=" + std::to_string(market_close_hhmm_) +
                " no_entry=" + std::to_string(no_new_entry_hhmm_) + " notional=" +
                std::to_string(static_cast<long long>(notional_per_position_)) + " hold=" +
                std::to_string(hold_quantity_);
@@ -296,11 +296,11 @@ public:
                 why = " (평단손절)";
             }
 
-            bool eod = hhmm >= eod_hhmm_;
+            bool market_close = hhmm >= market_close_hhmm_;
 
-            if (hit || eod)
+            if (hit || market_close)
             {
-                if (eod && !hit)
+                if (market_close && !hit)
                 {
                     why = " (장 마감)";
                 }
@@ -386,7 +386,7 @@ public:
         {
             double high_count = *std::max_element(closes_.begin(), closes_.end());
             bool cooldown_ok = !have_cooldown_ || trade.timestamp >= cooldown_until_;
-            int no_entry_hhmm = (no_new_entry_hhmm_ > 0 ? no_new_entry_hhmm_ : eod_hhmm_);
+            int no_entry_hhmm = (no_new_entry_hhmm_ > 0 ? no_new_entry_hhmm_ : market_close_hhmm_);
             bool session_ok = hhmm < no_entry_hhmm; // 마감 임박 신규진입 금지
 
             if (cooldown_ok && session_ok && bucket_close > high_count &&
@@ -516,7 +516,7 @@ private:
     double epsilon_;      // 진입 버퍼(기준점 대비)
     double trail_percent_;
     double hard_percent_;
-    int eod_hhmm_;    // 마감 강제청산 기준(KST HHMM)
+    int market_close_hhmm_;    // 마감 강제청산 기준(KST HHMM)
     int cooldown_sec_;
     double average_price_ = 0.0;       // 매입 평단(시드분) — 평단손절/본전탈출 기준가
     double average_loss_percent_ = 0.0; // 평단 대비 손절률(0=비활성)
@@ -531,7 +531,7 @@ private:
     int    seed_hard_confirm_bars_ = 3; // 완성 1분봉 종가 연속 확인 개수
     bool   seed_hard_checked_ = false;  // 부착 뒤 첫 판정에서 제외 여부를 정했나
     bool   seed_hard_excluded_ = false; // 구형 보유라 하드스톱 대상에서 뺐나
-    int no_new_entry_hhmm_ = 0;         // 신규진입 금지 시각(0→eod_hhmm)
+    int no_new_entry_hhmm_ = 0;         // 신규진입 금지 시각(0→market_close_hhmm)
     double notional_per_position_ = 0.0; // 종목당 명목(원)
     double day_open_price_ = 0.0;          // 당일 시가 기준점 주입
 

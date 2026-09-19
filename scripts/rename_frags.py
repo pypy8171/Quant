@@ -82,12 +82,12 @@ WHOLE = {
     'psbl_cap': 'possible_quantity_cap', 'got_lane': 'received_lane', 'fut': 'is_future', 'u01': 'uniform01',
     'maxr': 'max_records', 'valb': 'value_bits', 'wurl': 'wide_url', 'word': 'wide_text', 'fund': 'fundamentals',
     'fmt1': 'format_one_decimal', 'tt': 'now_time', 'ap': 'average_price_iterator', 'ar': 'active_regimes',
-    'mh': 'guardians_node', 'pp': 'reserved_price_iterator', 'lg': 'logger', 'oo': 'open_order', 'mk': 'mask_key',
+    'mh': 'exit_manager_node', 'pp': 'reserved_price_iterator', 'lg': 'logger', 'oo': 'open_order', 'mk': 'mask_key',
     'pj': 'parsed_json', 'ep': 'exception_pointers', 'bd': 'business_date', 'iv': 'initialization_vector',
     'av': 'average_value', 'cd': 'cooldown_iterator', 'rv': 'reserved_found', 'mj': 'regime_json',
     'itq': 'quote_iterator', 'itv': 'quote_found', 'itp': 'quote_entry', 'gc': 'gate_config', 'o2': 'output2_node',
     'bq': 'base_quantity', 'oi': 'opened_iterator', 'pt': 'price_target_node', 'dp': 'deviation_params',
-    'rj': 'risk_json', 'lv': 'list_view', 'rq': 'rung_quantity', 'sb': 'buy_sell_code', 'wr': 'write_set',
+    'rj': 'risk_json', 'lv': 'list_view', 'rq': 'split_step_quantity', 'sb': 'buy_sell_code', 'wr': 'write_set',
     'mq': 'market_quote', 'ta': 'thread_a', 'tb': 'thread_b', 'kp': 'kept_row', 'icc': 'common_controls',
     'dx': 'data_exchange', 'hd': 'holding', 'es': 'entry_scale_node', 'nv': 'value_count', 'led': 'ledger_sellable',
     'hp': 'held_position', 'act': 'action_text', 'gcfg': 'gate_config', 'rmap': 'regime_map', 'tmi': 'time_info',
@@ -112,7 +112,7 @@ WHOLE = {
 
 # 파일별 — 같은 짧은 이름이 파일마다 다른 뜻일 때. 토큰 전체와 조각 양쪽에 적용한다.
 PER_FILE = {
-    'RegimeFileBridge.h': {'sc': 'score_node', 'sel': 'selected_regime'},
+    'RegimeFileJudge.h': {'sc': 'score_node', 'sel': 'selected_regime'},
     'StrategyFactory.cpp': {'sc': 'scan_config', 'sp': 'short_period', 'lp': 'long_period', 'sv': 'sleeve_entry'},
     'SupplyDemandPullbackStrategy.h': {'sc': 'score'},
     'UniverseScanner.cpp': {'sc': 'sector_code', 'fp': 'prices_node', 'have': 'cached', 'off': 'risk_off',
@@ -152,7 +152,7 @@ PER_FILE = {
     'test_feed_mux.cpp': {'cap_': 'capacity_', 'pa': 'source_a', 'pb': 'source_b'},
     'TickCapture.h': {'did': 'drained'},
     'bench_wake_gate.cpp': {'rep': 'repeat'},
-    'bench_hot_path.cpp': {'ns_old': 'old_ns', 'ns_new': 'new_ns'},
+    'bench_latency_path.cpp': {'ns_old': 'old_ns', 'ns_new': 'new_ns'},
 }
 
 # 파일별 조각 치환 — 그 파일 안에서는 조각으로 들어가도 같은 뜻일 때만.

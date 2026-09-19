@@ -6,8 +6,8 @@
 정배열을 판정한다. 이 스터디는 그 가운데 **선정 층**(정배열 ∧ 이격 밴드가 고른 종목이 같은 날
 시점정합(PIT) 풀보다 나은가)만 일봉으로 근사한다. 다음은 여기서 못 잰다.
 
-- 실행 층 전부 — 현재가 기준점 rung 구간, 매도가능 0으로 SELL이 건너뛰는 일, 재기동, 8초 재구성.
-- 물타기 rung — 일봉에서는 재현이 안 돼 단일 진입·단일 청산으로 근사했다.
+- 실행 층 전부 — 현재가 기준점 분할 단계 구간, 매도가능 0으로 SELL이 건너뛰는 일, 재기동, 8초 재구성.
+- 물타기 분할 단계 — 일봉에서는 재현이 안 돼 단일 진입·단일 청산으로 근사했다.
 - 정배열 허용치 `align_ma_tol_pct` — 스크립트는 SMA5>10>20>60을 등호 없이 판정한다.
 - 3분봉 실행 층은 뒤의 리플레이 절이 따로 다루는데, 데이터가 09월 4일치라 결론에 올리지 않았다.
 
@@ -102,7 +102,7 @@ IC(`ic_summary.tsv`) 40행 중 판정은 사전등록 가족 4행(TRENDX/DEVSCAL
 
 ## 탐색 결과 — 11셀
 
-4구간 합산 `excess_r` 월 시계열의 p값에 FDR 보정을 건 `q_bh` 열. **탐색에서 좋았던 셀을 주검정으로 승격하지
+4구간 합산 `excess_r` 월 시계열의 p값에 FDR 보정을 건 `q_benjamini_hochberg` 열. **탐색에서 좋았던 셀을 주검정으로 승격하지
 않는다.** q<0.1 두 셀은 기저보다 유의하게 나쁜 쪽이다.
 
 | 밴드 | 저항 | 손절 | 거래 n | excess_tw | excess_mw | **excess_r** | t | p | q | 이긴 달 |
@@ -193,15 +193,15 @@ k=5 −0.072·k=20 −0.292, 2024 k=5 −0.027로 음이고, 양인 구간도 t�
 
 `PYQuant/backtest/devscale_replay.py`가 `Quant/include/strategy/DeviationScaleStrategy.h`의 `on_trade_batch`
 경로 하나를 옮긴 것이다. 존 게이트는 전일 확정 SMA(진입 5~35·유지 1~39), 워밍업은 3분봉 20개 미만이면
-기준선을 일봉 SMA20으로 두고 BUY rung 차단, 기준점은 현재가, SELL rung +3%·BUY rung −1%, 지정가 체결은
+기준선을 일봉 SMA20으로 두고 BUY 분할 단계 차단, 기준점은 현재가, SELL 분할 단계 +3%·BUY 분할 단계 −1%, 지정가 체결은
 다음 3분봉 범위로 판정, 재구성은 봉마다(8초 가드는 틱이 없어 근사), 존 이탈·15:15는 다음 봉 시가 −1틱
 시장가, 비용은 `PYQuant/backtest/engine.py`의 `CostModel`. 변형은 넷이다.
 
 | 변형 | 규칙 |
 |---|---|
-| v1_current | 현행 — BUY rung 1층, 손절 없음 |
-| v2_norung | BUY rung 0(물타기 제거), 손절 없음 |
-| v3_norung_stop2.5 | BUY rung 0 + 평단 −2.5% 하드 스탑 |
+| v1_current | 현행 — BUY 분할 단계 1층, 손절 없음 |
+| v2_norung | BUY 분할 단계 0(물타기 제거), 손절 없음 |
+| v3_norung_stop2.5 | BUY 분할 단계 0 + 평단 −2.5% 하드 스탑 |
 | v4_norung_stop_trail | v3 + 3분봉 SMA20 하향 이탈 트레일 |
 
 ### 데이터 범위
@@ -271,7 +271,7 @@ bias-auditor 09-12 감사: 조건부 → 위 5건 반영(일 정합 초과R 재�
 | `run_trendx_gate.py` | A 하네스 — 격자 12셀 × 4구간 + 합산, 초과R 세 방식(일 정합·월가중·거래가중)·t·FDR q, `gate_pairs.jsonl` 생성(`--no-pairs`로 끔) |
 | `run_score_ic.py` | B — 스캐너 점수 재현, 일별 Spearman IC, 월 시계열 t, 상위 25 초과R |
 | `stats_util.py` | scipy 없는 환경용 t 분포 p값·FDR q·Spearman |
-| `results.tsv` | 셀×구간 결과. `main=True`가 주검정, `q_bh`는 탐색 11셀 합산 행에만 있다. 초과R 세 열 정의는 설정 절 |
+| `results.tsv` | 셀×구간 결과. `main=True`가 주검정, `q_benjamini_hochberg`는 탐색 11셀 합산 행에만 있다. 초과R 세 열 정의는 설정 절 |
 | `results_smaprev.tsv` | 같은 표, 전일 확정 SMA 판정 |
 | `monthly_excess.csv` · `monthly_excess_smaprev.csv` | 셀×구간×월 초과R 시계열 — `excess_r`(일 정합)·`excess_mw`(월가중) |
 | `ic_summary.tsv` · `ic_monthly.csv` | IC 요약과 슬리브×월 시계열 |

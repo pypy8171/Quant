@@ -88,7 +88,7 @@ public:
     }
 
     // 소비자 consumer 스레드에서만 부른다. 마지막으로 꺼낸 생산자의 다음 칸부터 훑어 한 생산자가 몰아쳐도
-    //  다른 생산자의 틱이 굶지 않는다. 열이 전부 비면 nullopt.
+    //  다른 생산자의 틱이 밀리지 않는다. 열이 전부 비면 nullopt.
     [[nodiscard]] std::optional<T> pop(uint32_t consumer)
     {
         uint32_t& next = cursors_[consumer].next;

@@ -25,9 +25,9 @@ int DataPoller::poll_universe(const std::vector<WatchSpec>& specifications, std:
             break;
         }
 
-        if (universe_pacing_.count() > 0)
+        if (universe_call_interval_.count() > 0)
         {
-            std::this_thread::sleep_for(universe_pacing_);
+            std::this_thread::sleep_for(universe_call_interval_);
         }
 
         const double price = quote_(specification.ticker);
@@ -107,9 +107,9 @@ int DataPoller::poll_overflow(const std::vector<WatchSpec>& from_websocket, cons
             break;
         }
 
-        if (universe_pacing_.count() > 0)
+        if (universe_call_interval_.count() > 0)
         {
-            std::this_thread::sleep_for(universe_pacing_);
+            std::this_thread::sleep_for(universe_call_interval_);
         }
 
         const double price = quote_(specification.ticker);
@@ -148,9 +148,9 @@ int DataPoller::top_up(const std::vector<std::string>& tickers,
             break;
         }
 
-        if (top_up_pacing_.count() > 0)
+        if (top_up_call_interval_.count() > 0)
         {
-            std::this_thread::sleep_for(top_up_pacing_);
+            std::this_thread::sleep_for(top_up_call_interval_);
         }
 
         on_price(ticker, quote_(ticker));

@@ -273,7 +273,7 @@ struct Fundamentals
 // 시장 국면 — regime.json 라벨을 옮긴 전략 선택 입력(RISK_ON→BULL, RISK_OFF→BEAR) [why D-084]
 // ─────────────────────────────────────────────────────────────────────────────
 // 시장 국면 — StrategyType과 같은 스마트enum idiom. Regime::from_string으로 config
-//  "active_regimes" 문자열을 파싱한다(regime.json 라벨 파싱은 RegimeFileBridge::selection_of,
+//  "active_regimes" 문자열을 파싱한다(regime.json 라벨 파싱은 RegimeFileJudge::selection_of,
 //  어휘가 달라 여기 합치지 않는다).
 class Regime
 {

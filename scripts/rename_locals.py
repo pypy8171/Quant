@@ -62,7 +62,7 @@ CLASS_NAMES = {
     'std::ifstream': 'file', 'std::ofstream': 'file', 'std::fstream': 'file', 'FILE': 'file',
     'kis_ws::Fields': 'fields', 'Fields': 'fields', 'Frame': 'frame', 'ops::Frame': 'frame', 'PosKey': 'key',
     'Holding': 'holding', 'sync::WakeGate': 'gate', 'WakeGate': 'gate', 'Rig': 'rig', 'RunResult': 'result',
-    'Supervisor': 'supervisor', 'RegimeFileBridge': 'bridge', 'Series': 'series', 'strategy::Router': 'router',
+    'Supervisor': 'supervisor', 'RegimeFileJudge': 'bridge', 'Series': 'series', 'strategy::Router': 'router',
     'Router': 'router', 'FrameReader': 'reader', 'Outcome': 'outcome', 'WatchSpec': 'spec', 'WSADATA': 'wsa_data',
     'Value': 'value', 'LedgerReconciler': 'reconciler', 'Cli': 'cli', 'feed::Record': 'record', 'Regime': 'regime',
     'AccountBalance': 'balance', 'QuoteTable': 'quotes', 'OrderGate::Config': 'config', 'Config': 'config',

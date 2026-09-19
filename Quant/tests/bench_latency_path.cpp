@@ -1,4 +1,4 @@
-// tests/bench_hot_path.cpp
+// tests/bench_latency_path.cpp
 // 09-13 hot path 변경(D-071 Phase 2·3)의 항목별 전후 비교 — 옛 방식을 벤치 안에 최소 복제해 같은 입력으로 잰다.
 //  결과는 `docs/reports/PIPELINE_LATENCY_REPORT.market_data` 결과 ⑥, 절차는 `docs/guides/LOAD_TEST_GUIDE.market_data` §6.
 //  스레드: 항목 1~4는 단일 스레드, 5(캡처)·6(multiplexer)·7(연쇄)은 생산자 1·소비자 1. release 빌드로만 잰다. [why D-071]
@@ -490,7 +490,7 @@ void bench_state_key(const std::vector<std::string>& tickers)
 void bench_capture_at(const std::vector<TradeData>& ticks, double rate_per_s)
 {
     constexpr size_t kTicks = 400'000;
-    const auto file = std::filesystem::temp_directory_path() / "bench_hot_path_capture.bin";
+    const auto file = std::filesystem::temp_directory_path() / "bench_latency_path_capture.bin";
     std::error_code error_code;
     std::filesystem::remove(file, error_code);
     const int64_t gap = rate_per_s > 0 ? static_cast<int64_t>(1e9 / rate_per_s) : 0;
@@ -819,7 +819,7 @@ int main()
     std::system("chcp 65001 > nul");
 #endif
     const auto tickers = make_tickers();
-    std::printf("bench_hot_path — 09-13 hot path 변경 항목별 전후 (release, 종목 %zu개)\n", kSymbols);
+    std::printf("bench_latency_path — 09-13 hot path 변경 항목별 전후 (release, 종목 %zu개)\n", kSymbols);
     bench_decode();
     bench_last_price(tickers);
     bench_router(tickers);

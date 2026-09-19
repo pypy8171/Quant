@@ -50,7 +50,7 @@ STUDIES = {
               ("bt2_5y", "5y", "최근 5년")],
     ),
     "03": dict(
-        folder="03_2022_ablation",
+        folder="03_2022_removal_test",
         title="2022 약세장 격리 표본외(OOS) + 국면필터 ON/OFF 제거실험",
         log_ref="실행 #3",
         question="모멘텀 엣지가 처음 보는 약세장에서 살아남나? 국면필터의 순수 기여는?",

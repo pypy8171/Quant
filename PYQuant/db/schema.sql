@@ -82,7 +82,7 @@ ALTER TABLE fills ADD COLUMN IF NOT EXISTS net_amount NUMERIC(18,4)
     ) STORED;  -- 정산 반영 대금: 매수=지불액, 매도=실수령액
 
 -- ── 포지션 원장 (계좌 현재 상태) ─────────────────────────────────────────────
--- 체결 발생 시 UPSERT, 장 마감 EOD 배치에서도 갱신
+-- 체결 발생 시 UPSERT, 장 마감 배치에서도 갱신
 CREATE TABLE IF NOT EXISTS positions (
     account      TEXT          NOT NULL DEFAULT 'unknown',  -- 브로커 계좌번호 (D-090, PK의 일부)
     ticker       TEXT          NOT NULL,
@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS positions (
 );
 
 -- ── 계좌 일별 스냅샷 (원금추적/기간수익률용) ────────────────────────────────
--- EOD 1회 get_kr_balance() 결과를 적재. account='paper'|'real' 로 모의/실전 분리.
+-- 장 마감 1회 get_kr_balance() 결과를 적재. account='paper'|'real' 로 모의/실전 분리.
 CREATE TABLE IF NOT EXISTS account_snapshots (
     ts             TIMESTAMPTZ   NOT NULL,
     account        TEXT          NOT NULL,   -- 'paper' | 'real'

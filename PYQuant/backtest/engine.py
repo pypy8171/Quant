@@ -42,12 +42,12 @@ class BacktestResult:
     # ── 기간 ──
     start_date:    str = ""    # 첫 평가일
     end_date:      str = ""    # 마지막 평가일(최신 누적 시점)
-    # ── 벤치마크(동일가중 유니버스 buy&hold) / 알파 ──
-    bench_return:  float = 0.0   # 동일가중 buy&hold 수익률(%)
+    # ── 벤치마크(동일가중 유니버스 매수 후 보유) / 알파 ──
+    bench_return:  float = 0.0   # 동일가중 매수 후 보유 수익률(%)
     bench_mdd:     float = 0.0
     bench_sharpe:  float = 0.0
     alpha:         float = 0.0   # 전략 - 동일가중 벤치 (초과수익 %p)
-    kodex_return:  float | None = None   # KODEX200 buy&hold 수익률(%), 데이터 없으면 None
+    kodex_return:  float | None = None   # KODEX200 매수 후 보유 수익률(%), 데이터 없으면 None
     regime_off:    int = 0               # 시장국면 필터로 현금화한 리밸런싱 횟수
     # ── 일별 상태(데일리 export용) ──
     equity_dates:  list = None   # list[str]
@@ -309,8 +309,8 @@ class BacktestEngine:
 
         self.strategy.on_stop()
 
-        # 벤치마크: 유니버스 동일가중 buy&hold + KODEX200(069500) buy&hold — 알파/베타 분리용
-        self._bench_eq  = self._buyhold_equity(list(all_bars.keys()), all_dates, all_bars)
+        # 벤치마크: 유니버스 동일가중 매수 후 보유 + KODEX200(069500) 매수 후 보유 — 알파/베타 분리용
+        self._bench_eq  = self._buy_and_hold_equity(list(all_bars.keys()), all_dates, all_bars)
         kodex_bars = {}
         try:
             kb = self.kis.get_historical_ohlcv("069500", start_date, end_date)
@@ -319,11 +319,11 @@ class BacktestEngine:
         except Exception:
             kodex_bars = {}
         # 지수 ETF 하나는 데이터가 일찍 끝나도 상폐가 아니므로 −100% 처리를 끈다.
-        self._kodex_eq = (self._buyhold_equity(["069500"], all_dates, kodex_bars, delist_to_zero=False)
+        self._kodex_eq = (self._buy_and_hold_equity(["069500"], all_dates, kodex_bars, delist_to_zero=False)
                           if kodex_bars else None)
         return self._calc_result()
 
-    def _buyhold_equity(self, tickers: list[str], all_dates: list[str],
+    def _buy_and_hold_equity(self, tickers: list[str], all_dates: list[str],
                         bars_by_ticker: dict, delist_to_zero: bool = True) -> list[float] | None:
         """초기자금을 종목들에 동일가중 분배해 시작일 시가 매수 후 보유. 일별 평가액 시계열 반환.
         매수 비용(수수료·충격)은 전략과 같은 `self.cost`로 뗀다. 청산 비용은 안 뗀다 — 전략 쪽 최종 equity도
@@ -529,7 +529,7 @@ class BacktestEngine:
         total_return = (final_equity - self.init_cash) / self.init_cash * 100
         _, mdd, sharpe = self._curve_stats(self._equity)
 
-        # 벤치마크(동일가중 유니버스 buy&hold) 통계 + 알파
+        # 벤치마크(동일가중 유니버스 매수 후 보유) 통계 + 알파
         bench_eq = getattr(self, "_bench_eq", None)
         bench_return = bench_mdd = bench_sharpe = 0.0
         if bench_eq:

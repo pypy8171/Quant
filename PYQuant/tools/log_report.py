@@ -45,7 +45,7 @@ from statistics import mean
 # 줄 단위가 아니라 "타임스탬프+레벨" 경계로 레코드를 자른다. 실제 로그에는
 # WS 덤프 라인이 개행 없이 다음 로그와 붙는 경우가 있어(로깅 레이스/중단),
 # 단순 줄 파싱은 뒤에 붙은 레코드를 통째로 놓친다. finditer 분할로 강건화.
-ANCHOR_RE = re.compile(
+SEGMENT_START_RE = re.compile(
     r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) \[(?P<lvl>[A-Z ]{5})\] "
 )
 TS_FMT = "%Y-%m-%d %H:%M:%S.%f"
@@ -157,91 +157,91 @@ class Session:
 
 def parse(path: str) -> list[Session]:
     sessions: list[Session] = []
-    cur: Session | None = None
+    current: Session | None = None
     last_ts: datetime | None = None
 
     with open(path, encoding="utf-8", errors="replace") as fh:
         text = fh.read()
 
-    anchors = list(ANCHOR_RE.finditer(text))
-    for idx, m in enumerate(anchors):
-        seg_start = m.end()
-        seg_end = anchors[idx + 1].start() if idx + 1 < len(anchors) else len(text)
-        seg = text[seg_start:seg_end]
-        nl = seg.find("\n")
-        msg = seg if nl == -1 else seg[:nl]  # 메시지는 첫 줄만 (개행 누락 시 통째 수용)
+    segment_starts = list(SEGMENT_START_RE.finditer(text))
+    for index, match in enumerate(segment_starts):
+        segment_start = match.end()
+        segment_end = segment_starts[index + 1].start() if index + 1 < len(segment_starts) else len(text)
+        segment = text[segment_start:segment_end]
+        newline_at = segment.find("\n")
+        message = segment if newline_at == -1 else segment[:newline_at]  # 메시지는 첫 줄만 (개행 누락 시 통째 수용)
 
-        ts = datetime.strptime(m["ts"], TS_FMT)
-        lvl = m["lvl"].strip()
-        last_ts = ts
+        timestamp = datetime.strptime(match["ts"], TS_FMT)
+        level = match["lvl"].strip()
+        last_ts = timestamp
 
-        if RE_SESSION.match(msg):
-            if cur is not None:
-                cur.end = cur.end or last_ts
-            cur = Session(start=ts)
-            sessions.append(cur)
+        if RE_SESSION.match(message):
+            if current is not None:
+                current.end = current.end or last_ts
+            current = Session(start=timestamp)
+            sessions.append(current)
             continue
-        if cur is None:
+        if current is None:
             # 세션 마커 이전 라인 → 임시 세션으로 수용
-            cur = Session(start=ts)
-            sessions.append(cur)
+            current = Session(start=timestamp)
+            sessions.append(current)
 
-        cur.end = ts
+        current.end = timestamp
 
-        if lvl == "WARN":
-            cur.warns += 1
-        elif lvl == "ERROR":
-            cur.errors += 1
-            cur.error_msgs[msg[:80]] += 1
+        if level == "WARN":
+            current.warns += 1
+        elif level == "ERROR":
+            current.errors += 1
+            current.error_msgs[message[:80]] += 1
 
-        if (mm := RE_CONFIG.match(msg)):
-            cur.config = mm["cfg"]
-        elif (mm := RE_MODE_END.match(msg)):
-            cur.mode = mm["mode"]
-        elif (mm := RE_TOKEN.match(msg)):
-            if "발급" in mm["kind"]:
-                cur.token_new += 1
+        if (matched := RE_CONFIG.match(message)):
+            current.config = matched["cfg"]
+        elif (matched := RE_MODE_END.match(message)):
+            current.mode = matched["mode"]
+        elif (matched := RE_TOKEN.match(message)):
+            if "발급" in matched["kind"]:
+                current.token_new += 1
             else:
-                cur.token_cached += 1
-        elif RE_MKT_OPEN.match(msg):
-            cur.market_opens += 1
-        elif RE_SIGNAL.match(msg):
-            cur.signals += 1
-        elif (mm := RE_ACCEPT.match(msg)):
-            cur.accepted += 1
-            cur.accepted_by_ticker[mm["ticker"]] += 1
-            if (r := RE_RTT.search(msg)):
-                cur.rtts.append(float(r["ms"]))
-        elif (mm := RE_REJECT_GATE.match(msg)):
-            cur.rejected_gate += 1
-            cur.reject_reasons[mm["reason"].strip()] += 1
-        elif (mm := RE_REJECT_KIS.match(msg)):
-            cur.rejected_kis += 1
-            cur.reject_reasons[f"KIS {mm['kind']}"] += 1
-        elif (mm := RE_FILL.match(msg)):
-            cur.partial_fills += 1
-            cur.traded_notional += int(mm["price"]) * int(mm["qty"])
-            if int(mm["cum"]) >= int(mm["tot"]):
-                cur.filled_orders += 1
-        elif RE_CANCEL_OK.match(msg):
-            cur.cancels += 1
-        elif RE_REVISE_OK.match(msg):
-            cur.revises += 1
-        elif RE_CXL_RVS_NG.match(msg):
-            cur.cxl_rvs_fail += 1
-        elif RE_DEDUP.match(msg):
-            cur.dedup += 1
-        elif RE_FILL_MISS.match(msg):
-            cur.fill_miss += 1
-        elif RE_STALE.match(msg):
-            cur.stale += 1
-        elif RE_RECONNECT_OK.match(msg):
-            cur.reconnect_ok += 1
-        elif RE_RECONNECT_NG.match(msg):
-            cur.reconnect_ng += 1
+                current.token_cached += 1
+        elif RE_MKT_OPEN.match(message):
+            current.market_opens += 1
+        elif RE_SIGNAL.match(message):
+            current.signals += 1
+        elif (matched := RE_ACCEPT.match(message)):
+            current.accepted += 1
+            current.accepted_by_ticker[matched["ticker"]] += 1
+            if (rtt_match := RE_RTT.search(message)):
+                current.rtts.append(float(rtt_match["ms"]))
+        elif (matched := RE_REJECT_GATE.match(message)):
+            current.rejected_gate += 1
+            current.reject_reasons[matched["reason"].strip()] += 1
+        elif (matched := RE_REJECT_KIS.match(message)):
+            current.rejected_kis += 1
+            current.reject_reasons[f"KIS {matched['kind']}"] += 1
+        elif (matched := RE_FILL.match(message)):
+            current.partial_fills += 1
+            current.traded_notional += int(matched["price"]) * int(matched["qty"])
+            if int(matched["cum"]) >= int(matched["tot"]):
+                current.filled_orders += 1
+        elif RE_CANCEL_OK.match(message):
+            current.cancels += 1
+        elif RE_REVISE_OK.match(message):
+            current.revises += 1
+        elif RE_CXL_RVS_NG.match(message):
+            current.cxl_rvs_fail += 1
+        elif RE_DEDUP.match(message):
+            current.dedup += 1
+        elif RE_FILL_MISS.match(message):
+            current.fill_miss += 1
+        elif RE_STALE.match(message):
+            current.stale += 1
+        elif RE_RECONNECT_OK.match(message):
+            current.reconnect_ok += 1
+        elif RE_RECONNECT_NG.match(message):
+            current.reconnect_ng += 1
 
-        if RE_KILL.search(msg):
-            cur.kill_events.append((m["ts"], msg))
+        if RE_KILL.search(message):
+            current.kill_events.append((match["ts"], message))
 
     return sessions
 

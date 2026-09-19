@@ -25,11 +25,11 @@
 |---|---|---|---|
 | 모멘텀·국면필터 롤링검증(1~5년) | [BACKTEST_LOG 실행 #1](BACKTEST_LOG.md) | [studies/01_momentum_regime](studies/01_momentum_regime/README.md) | `bt_1y.json`~`bt_5y.json` |
 | 변동성 타게팅 사이징 | [BACKTEST_LOG 실행 #2](BACKTEST_LOG.md) | [studies/02_vol_target](studies/02_vol_target/README.md) | `bt2_1y.json`~`bt2_5y.json` |
-| 2022 약세장 국면필터 제거실험 | [BACKTEST_LOG 실행 #3](BACKTEST_LOG.md) | [studies/03_2022_ablation](studies/03_2022_ablation/README.md) | `bt_2022bear.json`(ON)·`bt_2022bear_noregime.json`(OFF) |
+| 2022 약세장 국면필터 제거실험 | [BACKTEST_LOG 실행 #3](BACKTEST_LOG.md) | [studies/03_2022_removal_test](studies/03_2022_removal_test/README.md) | `bt_2022bear.json`(ON)·`bt_2022bear_noregime.json`(OFF) |
 | 월별 시작시점 스윕 | [BACKTEST_LOG 실행 #4](BACKTEST_LOG.md) | [runs/2026-08-07](runs/2026-08-07_month-start-sweep.md) | `baseline_monthly.json` 외 |
 | 지표 4종 전기간 검증 | [BACKTEST_LOG 실행 #5](BACKTEST_LOG.md) | [runs/2026-08-07](runs/2026-08-07_month-start-sweep.md) | `tools/out/fullperiod.json` |
 | 하락장 유사구간 6구간 비교 | [studies/06_bear_market](studies/06_bear_market/README.md) | [이벤트별 매매 원장](studies/06_bear_market/events/README.md) | `studies/06_bear_market/summary_*.tsv` |
-| 신호 3축 나란히 비교 | [BACKTEST_LOG 실행 #6](BACKTEST_LOG.md) | [studies/11_signal_axes](studies/11_signal_axes/README.md) | `cross_momentum/donchian_breakout/mean_reversion_run_meta.json` → `metrics.json` |
+| 신호 3축 나란히 비교 | [BACKTEST_LOG 실행 #6](BACKTEST_LOG.md) | [studies/11_signal_axes](studies/11_signal_axes/README.md) | `cross_momentum/channel_breakout/mean_reversion_run_meta.json` → `metrics.json` |
 
 ---
 

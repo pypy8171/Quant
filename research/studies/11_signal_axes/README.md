@@ -8,12 +8,12 @@
 
 ## 1. 사전등록 (Pre-registration) — 결과 보기 전 확정
 
-- **가설**: 서로 다른 신호축 중 하나 이상이 같은 유니버스·기간·비용에서 동일가중 BH를 초과한다. 세 축은 성격이 갈린다 — C1은 횡단면 상대순위 추세, C3는 종목별 절대 추세추종(시계열), C4는 단기 과매도 반등(역추세).
-- **사전등록 임계값**: 연결곡선에서 α>0이면서 샤프(위험조정수익)가 벤치를 상회하고, 2022 홀드아웃(격리검증) 단독으로도 BH를 하회하지 않을 것. 하나라도 미달이면 승격 없음.
+- **가설**: 서로 다른 신호축 중 하나 이상이 같은 유니버스·기간·비용에서 동일가중 매수 후 보유를 초과한다. 세 축은 성격이 갈린다 — C1은 횡단면 상대순위 추세, C3는 종목별 절대 추세추종(시계열), C4는 단기 과매도 반등(역추세).
+- **사전등록 임계값**: 연결곡선에서 α>0이면서 샤프(위험조정수익)가 벤치를 상회하고, 2022 홀드아웃(격리검증) 단독으로도 매수 후 보유를 하회하지 않을 것. 하나라도 미달이면 승격 없음.
 - **데이터 소스·기간**: `datagokr_source.DataGoKrSource` (금융위 시점정합 종목단면), 2021-01-01~2024-12-31. FETCH_FLOOR=20200101이라 워밍업 이후 실질 신호는 2021년부터다.
 - **유니버스**: 시점정합(PIT) 종목단면 `universe_top(as-of 2021-01-01)` KOSPI 상위 100 — 세 축 공통 풀.
 - **신호 정의(축별, 단일 사전등록·스윕 금지)**:
-  - 횡단면 모멘텀(회의 코드 C1): 횡단면 12-1 모멘텀(lookback=252, skip=20), 상위 top_n=10 동일가중, 21거래일 리밸런싱. ablation은 동일가중(EW) 대 1/σ 위험조정 랭킹(VA) 두 벌.
+  - 횡단면 모멘텀(회의 코드 C1): 횡단면 12-1 모멘텀(lookback=252, skip=20), 상위 top_n=10 동일가중, 21거래일 리밸런싱. 제거실험은 동일가중(EW) 대 1/σ 위험조정 랭킹(VA) 두 벌.
   - 채널 돌파(회의 코드 C3): 20일 채널 돌파(진입 종가≥직전 20일 최고, 청산 종가≤직전 20일 최저), 상시 per-stock.
   - 단기 역추세(회의 코드 C4, 코드/파일 stem: mean_reversion): 단기 역추세(sma_period=20, dev_max=-8%, top_n=10, 5거래일 리밸런싱). 무필터(A) 대 눌림 필터(B, 반등 양봉+거래량 확인) 두 벌.
 - **비용 가정**: round-trip 0.31%(수수료 0.015%×2 + 세금 0.18% + 슬리피지 5bp)를 기본으로, C1은 0.21/0.31/0.5/1.0% 감도까지.
@@ -79,8 +79,8 @@
 
 - 커밋: `d6df019` (run_meta 각인). seed: 난수 미사용, 집합 순회는 `sorted()`로 결정론.
 - 데이터: `datagokr_source` FETCH_FLOOR=20200101, 수정주가 ON. `DATA_GO_KR_KEY` 필요.
-- 스크립트: [run_cross_momentum.py](run_cross_momentum.py) · [run_donchian_breakout.py](run_donchian_breakout.py) · [run_mean_reversion.py](run_mean_reversion.py) (cwd=repo root에서 실행, 산출물은 이 폴더에 씀).
-- 산출물: `cross_momentum_*`·`donchian_breakout_*`·`mean_reversion_*`의 `_equity.csv`·`_trades.csv`·`_holdings.csv`·`_run_meta.json`.
+- 스크립트: [run_cross_momentum.py](run_cross_momentum.py) · [run_channel_breakout.py](run_channel_breakout.py) · [run_mean_reversion.py](run_mean_reversion.py) (cwd=repo root에서 실행, 산출물은 이 폴더에 씀).
+- 산출물: `cross_momentum_*`·`channel_breakout_*`·`mean_reversion_*`의 `_equity.csv`·`_trades.csv`·`_holdings.csv`·`_run_meta.json`.
 - 지표 정규화: `python scripts/backfill_studies.py` → [metrics.json](metrics.json).
 - 양식: [studies/_TEMPLATE.md](../_TEMPLATE.md) · 규율 [GUARDRAILS.md](../../GUARDRAILS.md).
 

@@ -312,7 +312,7 @@ static inline void bump_high_water_mark(std::atomic<uint64_t>& high_water_mark, 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 코스콤 송신기 — 연결된 소켓으로 Zipf 팬아웃을 offered rate로 방출(busy-wait pacing).
+// 코스콤 송신기 — 연결된 소켓으로 Zipf 팬아웃을 offered rate로 방출(busy-wait 간격 조절).
 //   blocking send_all → 수신측이 못 따라가면 TCP 흐름제어가 send를 지연시킴(밀림 처리).
 //   그 결과 achieved rate < offered면 소켓 경로가 천장에 닿은 것.
 // ─────────────────────────────────────────────────────────────────────────────

@@ -311,7 +311,7 @@ void test_duplicate_fill_ignored()
     assert(recent_b[0].status == OrderStatus::FILLED);
 
     // 주문수량(10주)을 이미 채웠으므로 그 이상은 반영되지 않는다.
-    //  ODNO는 아는 주문이므로 미매핑(ORPHAN) 경로로 새어 포지션이 부풀어도 안 된다.
+    //  ODNO는 아는 주문이므로 미매핑(미연결) 경로로 새어 포지션이 부풀어도 안 된다.
     fill_notification.fill_time = "100005";
     router.on_fill(fill_notification);
     auto h3 = router.recent(1);
@@ -365,10 +365,10 @@ void test_unmapped_fill_duplicate_ignored()
     assert(gate.position("047050") == 100);
 
     // 평단 미상 미연결 SELL — 실현이익을 만들지 않는다(C-1)
-    FillNotification orphan_sell_fill;
-    orphan_sell_fill.kis_order_no = "PREV-SELL"; orphan_sell_fill.ticker = "316140"; orphan_sell_fill.side = OrderSide::SELL;
-    orphan_sell_fill.filled_quantity = 75; orphan_sell_fill.filled_price = 34050.0; orphan_sell_fill.fill_time = "093000";
-    router.on_fill(orphan_sell_fill);
+    FillNotification unlinked_sell_fill;
+    unlinked_sell_fill.kis_order_no = "PREV-SELL"; unlinked_sell_fill.ticker = "316140"; unlinked_sell_fill.side = OrderSide::SELL;
+    unlinked_sell_fill.filled_quantity = 75; unlinked_sell_fill.filled_price = 34050.0; unlinked_sell_fill.fill_time = "093000";
+    router.on_fill(unlinked_sell_fill);
 
     // 위 BUY 100주(91+9, 평단 54700)의 매수 수수료가 발생 즉시 차감돼 있다.
     //  SELL(316140)은 평단 미상이라 0을 더할 뿐 — 실현이익은 안 생긴다(C-1).
@@ -584,7 +584,7 @@ void test_reason_journal_restart_recovery()
     assert(gate.position("047050") == 60);
     assert(gate.reserved("047050") == 40);   // 주문수량 100을 되살리고 60만 해제
 
-    // 전략 귀속이 ORPHAN이 아니라 원래 전략으로 남는다.
+    // 전략 귀속이 미연결이 아니라 원래 전략으로 남는다.
     auto history = router.recent(5);
     bool found = false;
 

@@ -1,12 +1,12 @@
-// 발주 조절기 구현 — order_thread 전용. 재시도 규칙은 pacing::classify 하나에 있다. [why D-065]
-#include "core/OrderPacer.h"
+// 발주 조절기 구현 — order_thread 전용. 재시도 규칙은 order_rate::classify 하나에 있다. [why D-065]
+#include "core/OrderRateLimiter.h"
 #include "api/KisErrorCodes.h"
 #include "risk/GateReasons.h"
 #include "utils/Logger.h"
 
 #include <algorithm>
 
-namespace pacing
+namespace order_rate
 {
 RetryPlan classify(const OrderSignal& signal, int attempts, int max_retries, OrderStatus status,
                    const std::string& reject_reason, std::chrono::milliseconds retry_delay)
@@ -38,9 +38,9 @@ RetryPlan classify(const OrderSignal& signal, int attempts, int max_retries, Ord
 
     return {};
 }
-} // namespace pacing
+} // namespace order_rate
 
-OrderPacer::OrderPacer(Config config, Clock::time_point now)
+OrderRateLimiter::OrderRateLimiter(Config config, Clock::time_point now)
     : config_(config),
       min_interval_(config.min_interval_ms),
       retry_delay_(std::max(config.min_interval_ms, 1200)),
@@ -48,7 +48,7 @@ OrderPacer::OrderPacer(Config config, Clock::time_point now)
 {
 }
 
-std::optional<OrderPacer::Pending> OrderPacer::take_due_retry(Clock::time_point now)
+std::optional<OrderRateLimiter::Pending> OrderRateLimiter::take_due_retry(Clock::time_point now)
 {
     while (!retry_queue_.empty() && now >= retry_queue_.front().not_before)
     {
@@ -72,18 +72,18 @@ std::optional<OrderPacer::Pending> OrderPacer::take_due_retry(Clock::time_point 
     return std::nullopt;
 }
 
-OrderPacer::Clock::duration OrderPacer::wait_before_send(Clock::time_point now) const
+OrderRateLimiter::Clock::duration OrderRateLimiter::wait_before_send(Clock::time_point now) const
 {
     const auto since = now - last_submit_;
     return since >= min_interval_ ? Clock::duration::zero() : Clock::duration(min_interval_ - since);
 }
 
-bool OrderPacer::on_rejected(const Pending& pending, OrderStatus status, const std::string& reject_reason,
+bool OrderRateLimiter::on_rejected(const Pending& pending, OrderStatus status, const std::string& reject_reason,
                              Clock::time_point now)
 {
-    const auto plan = pacing::classify(pending.signal, pending.attempts, config_.max_retries, status, reject_reason, retry_delay_);
+    const auto plan = order_rate::classify(pending.signal, pending.attempts, config_.max_retries, status, reject_reason, retry_delay_);
 
-    if (plan.kind == pacing::Retry::NONE)
+    if (plan.kind == order_rate::Retry::NONE)
     {
         return false;
     }
@@ -92,7 +92,7 @@ bool OrderPacer::on_rejected(const Pending& pending, OrderStatus status, const s
     const std::string tries = " (" + std::to_string(pending.attempts + 1) + "/" + std::to_string(config_.max_retries) +
                               ") 이유=" + reject_reason;
 
-    if (plan.kind == pacing::Retry::RATE_LIMIT)
+    if (plan.kind == order_rate::Retry::RATE_LIMIT)
     {
         const std::string action_text = pending.signal.action == OrderAction::CANCEL    ? "CANCEL"
                                 : pending.signal.action == OrderAction::REPLACE ? "REPLACE"

@@ -9,6 +9,7 @@ Quant/config/config_mm_paper.json
 Quant/config/config_ma_paper.json
 Quant/config/config_itb_paper.json
 Quant/config/config_smoke_paper.json
+Quant/config/config_startup_check_paper.json
 # 실키가 담긴 모든 모의/설정 config는 와일드카드로 근본 차단(신규 config_*_paper.json 누락 방지)
 Quant/config/config_*.json
 Quant/config/.token_cache.json

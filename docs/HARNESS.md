@@ -28,7 +28,7 @@
 | 항목 | 개수 | 이름 |
 |---|---|---|
 | 커맨드 | `16` | `auto-trade-day`, `build`, `comment-diet`, `daily`, `dashboard-sync`, `dev-loop`, `eod-review`, `handoff`, `intraday-start`, `review-apply`, `review-bundle`, `strategy-debate`, `trade-log`, `triage`, `verify-backtest`, `watch` |
-| 에이전트 | `17` | `backtest-runner`, `bias-auditor`, `claude-coach`, `committer`, `data-sourcer`, `harness-engineer`, `interviewer`, `intraday-analyst`, `log-reader`, `market-brief`, `perf-optimizer`, `planner`, `pm`, `prep-doc`, `quant-analyst`, `reviewer`, `strategist` |
+| 에이전트 | `20` | `backtest-runner`, `bias-auditor`, `claude-coach`, `committer`, `data-sourcer`, `fundamental-quant`, `harness-engineer`, `interviewer`, `intraday-analyst`, `log-reader`, `macro-quant`, `market-brief`, `perf-optimizer`, `planner`, `pm`, `prep-doc`, `quant-analyst`, `reviewer`, `risk-behavior`, `strategist` |
 | 스킬 | `1` | `stock-study` |
 | 훅 파일 | `15` | `cron-gate.ps1`, `dashboard-refresh.ps1`, `docs-gate.ps1`, `eod-gate.ps1`, `file-index-gate.ps1`, `handoff-due.ps1`, `handoff-list.ps1`, `lexicon-gate.ps1`, `output-gate.ps1`, `precompact-handoff.ps1`, `resume-work.ps1`, `review-reminder.ps1`, `secret-gate.ps1`, `session-board-server.ps1`, `sync-gate.ps1` |
 | settings.json 훅 배선 | `15` | `PreToolUse:secret-gate.ps1`, `PreToolUse:docs-gate.ps1`, `PreToolUse:lexicon-gate.ps1`, `Stop:output-gate.ps1`, `Stop:sync-gate.ps1`, `Stop:file-index-gate.ps1`, `Stop:review-reminder.ps1`, `Stop:dashboard-refresh.ps1`, `Stop:handoff-due.ps1`, `SessionStart:resume-work.ps1`, `SessionStart:eod-gate.ps1`, `SessionStart:cron-gate.ps1`, `SessionStart:handoff-list.ps1`, `SessionStart:session-board-server.ps1`, `PreCompact:precompact-handoff.ps1` |
@@ -89,7 +89,7 @@ Notion 커넥터가 연결돼 있다. 개발로그와 장전 시황 브리핑을
 `scripts/check_docs.py`를 돌려 드리프트면 차단한다. `lexicon-gate.ps1`은 쓰려는 본문을 `scripts/check_plain_language.py`로 검사한다.
 `sync-gate.ps1`은 턴이 끝날 때 `sync_impact.py --diff --fix`를 돌려 낡은 gen 블록은 치환하고, 낡은 도장·힌트가 있으면
 턴을 되돌려 그 자리에서 고치게 한다(D-075, 정본 [docs/SYNC_MAP.md](SYNC_MAP.md)).
-`output-gate.ps1`·`review-reminder.ps1`·`dashboard-refresh.ps1`은 응답 뒤, `eod-gate.ps1`·`cron-gate.ps1`은
+`output-gate.ps1`·`review-reminder.ps1`·`dashboard-refresh.ps1`은 응답 뒤, `market-close-gate.ps1`·`cron-gate.ps1`은
 세션 시작 때 각각 점검 결과를 알린다.
 
 효과: 실거래 키 유출과 문서 드리프트가 사람의 주의력이 아니라 기계적으로 차단된다. 실거래 키가 저장소에 있는 1인 운영 환경에서 이 층의 가치가 크다. 배선은 `.claude/settings.json`의 `hooks`에 있다.

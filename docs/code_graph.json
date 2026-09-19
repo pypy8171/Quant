@@ -176,10 +176,10 @@
     "core/MarketSession.h": "core",
     "core/MpscQueue.h": "core",
     "core/MutexQueue.h": "core",
-    "core/OrderPacer.h": "core",
+    "core/OrderRateLimiter.h": "core",
     "core/PaperExecutor.h": "core",
     "core/ReconcilePlan.h": "core",
-    "core/RegimeFileBridge.h": "core",
+    "core/RegimeFileJudge.h": "core",
     "core/ReplaySource.h": "core",
     "core/RingBuffer.h": "core",
     "core/SessionEndJudge.h": "core",
@@ -239,7 +239,7 @@
     "core/Engine.cpp": "core",
     "core/EngineConfigure.cpp": "core",
     "core/LedgerReconciler.cpp": "core",
-    "core/OrderPacer.cpp": "core",
+    "core/OrderRateLimiter.cpp": "core",
     "core/RingBuffer.cpp": "core",
     "core/SignalDispatcher.cpp": "core",
     "ipc/OpsServer.cpp": "ipc",
@@ -324,7 +324,7 @@
     ],
     "core/AppConfig.h": [
       "api/KisClient.h",
-      "core/RegimeFileBridge.h",
+      "core/RegimeFileJudge.h",
       "core/Types.h",
       "risk/OrderGate.h"
     ],
@@ -359,9 +359,9 @@
       "core/FeedSupervisor.h",
       "core/LedgerReconciler.h",
       "core/MpscQueue.h",
-      "core/OrderPacer.h",
+      "core/OrderRateLimiter.h",
       "core/PaperExecutor.h",
-      "core/RegimeFileBridge.h",
+      "core/RegimeFileJudge.h",
       "core/ReplaySource.h",
       "core/RingBuffer.h",
       "core/SessionEndJudge.h",
@@ -406,13 +406,13 @@
       "core/ReconcilePlan.h",
       "risk/OrderGate.h"
     ],
-    "core/OrderPacer.cpp": [
+    "core/OrderRateLimiter.cpp": [
       "api/KisErrorCodes.h",
-      "core/OrderPacer.h",
+      "core/OrderRateLimiter.h",
       "risk/GateReasons.h",
       "utils/Logger.h"
     ],
-    "core/OrderPacer.h": [
+    "core/OrderRateLimiter.h": [
       "core/Types.h"
     ],
     "core/PaperExecutor.h": [
@@ -423,7 +423,7 @@
       "core/MarketSession.h",
       "core/Types.h"
     ],
-    "core/RegimeFileBridge.h": [
+    "core/RegimeFileJudge.h": [
       "core/Types.h"
     ],
     "core/ReplaySource.h": [
@@ -656,7 +656,7 @@
     ],
     "api/KisErrorCodes.h": [
       "api/KisClientInternal.h",
-      "core/OrderPacer.cpp",
+      "core/OrderRateLimiter.cpp",
       "core/PaperExecutor.h",
       "ipc/OrderRouter.cpp"
     ],
@@ -754,9 +754,9 @@
       "core/TickCapture.h",
       "utils/Logger.cpp"
     ],
-    "core/OrderPacer.h": [
+    "core/OrderRateLimiter.h": [
       "core/Engine.h",
-      "core/OrderPacer.cpp"
+      "core/OrderRateLimiter.cpp"
     ],
     "core/PaperExecutor.h": [
       "core/Engine.h"
@@ -766,7 +766,7 @@
       "core/LedgerReconciler.h",
       "ipc/OrderRouter.h"
     ],
-    "core/RegimeFileBridge.h": [
+    "core/RegimeFileJudge.h": [
       "core/AppConfig.h",
       "core/Engine.h"
     ],
@@ -824,9 +824,9 @@
       "core/FeedMux.h",
       "core/IFeedSource.h",
       "core/LatencyTrace.h",
-      "core/OrderPacer.h",
+      "core/OrderRateLimiter.h",
       "core/PaperExecutor.h",
-      "core/RegimeFileBridge.h",
+      "core/RegimeFileJudge.h",
       "core/SignalDispatcher.h",
       "core/StrategyShard.h",
       "core/TickCapture.h",
@@ -876,7 +876,7 @@
       "modes/Monitors.cpp"
     ],
     "risk/GateReasons.h": [
-      "core/OrderPacer.cpp",
+      "core/OrderRateLimiter.cpp",
       "risk/OrderGate.cpp"
     ],
     "risk/OrderGate.h": [
@@ -970,7 +970,7 @@
       "core/Engine.cpp",
       "core/EngineConfigure.cpp",
       "core/LedgerReconciler.cpp",
-      "core/OrderPacer.cpp",
+      "core/OrderRateLimiter.cpp",
       "core/SignalDispatcher.cpp",
       "ipc/OpsServer.cpp",
       "ipc/OrderRouter.cpp",
@@ -1115,8 +1115,8 @@
       "PYQuant/report/account.py",
       "PYQuant/strategy/__init__.py",
       "PYQuant/strategy/base.py",
+      "PYQuant/strategy/channel_breakout.py",
       "PYQuant/strategy/cross_momentum.py",
-      "PYQuant/strategy/donchian_breakout.py",
       "PYQuant/strategy/indicators.py",
       "PYQuant/strategy/mean_reversion.py",
       "PYQuant/strategy/strategy_a.py",
@@ -1131,7 +1131,6 @@
       "PYQuant/tests/test_regime_scorer.py",
       "PYQuant/tests/test_strategy_a.py",
       "PYQuant/tools/__init__.py",
-      "PYQuant/tools/ablation_2022.py",
       "PYQuant/tools/check_adjusted.py",
       "PYQuant/tools/check_datagokr.py",
       "PYQuant/tools/check_investor_api.py",
@@ -1154,6 +1153,7 @@
       "PYQuant/tools/naver_flow_backfill.py",
       "PYQuant/tools/nxt_divergence_check.py",
       "PYQuant/tools/pit_universe_backfill.py",
+      "PYQuant/tools/regime_removal_test_2022.py",
       "PYQuant/tools/sweep.py",
       "PYQuant/tools/universe_feed.py",
       "PYQuant/tools/walkforward.py",
@@ -1173,12 +1173,9 @@
       "scripts/commit_gate.py",
       "scripts/dashboard_server.py",
       "scripts/deploy_guard.py",
-      "scripts/eod_autodoc.py",
-      "scripts/eod_collect.py",
-      "scripts/eod_minute_backfill.py",
       "scripts/exit_ev.py",
       "scripts/exit_ev_dashboard.py",
-      "scripts/extract_swap_counterfactual.py",
+      "scripts/extract_swap_what_if.py",
       "scripts/file_index.py",
       "scripts/gen_automation_hub.py",
       "scripts/gen_code_flow.py",
@@ -1189,7 +1186,10 @@
       "scripts/live_prices_feed.py",
       "scripts/log_patterns.py",
       "scripts/maintain.py",
-      "scripts/notify_sidecar.py",
+      "scripts/market_close_autodoc.py",
+      "scripts/market_close_collect.py",
+      "scripts/market_close_minute_backfill.py",
+      "scripts/notify_trades.py",
       "scripts/parse_quant_log.py",
       "scripts/premarket_routine.py",
       "scripts/refresh_dashboard.py",
@@ -1291,11 +1291,11 @@
       "PYQuant/strategy/base.py": [
         "kis.client"
       ],
-      "PYQuant/strategy/cross_momentum.py": [
-        "kis.client",
+      "PYQuant/strategy/channel_breakout.py": [
         "strategy.base"
       ],
-      "PYQuant/strategy/donchian_breakout.py": [
+      "PYQuant/strategy/cross_momentum.py": [
+        "kis.client",
         "strategy.base"
       ],
       "PYQuant/strategy/indicators.py": [
@@ -1345,9 +1345,6 @@
       "PYQuant/tests/test_strategy_a.py": [
         "kis.client",
         "strategy.strategy_a"
-      ],
-      "PYQuant/tools/ablation_2022.py": [
-        "main"
       ],
       "PYQuant/tools/check_adjusted.py": [
         "data.datagokr_source"
@@ -1401,6 +1398,9 @@
         "kis.client",
         "tools.universe_feed"
       ],
+      "PYQuant/tools/regime_removal_test_2022.py": [
+        "main"
+      ],
       "PYQuant/tools/sweep.py": [
         "main"
       ],
@@ -1422,7 +1422,7 @@
         "backtest.report"
       ],
       "scripts/build_review_entry.py": [
-        "eod_collect"
+        "market_close_collect"
       ],
       "scripts/check_code_conventions.py": [
         "rename_frags"
@@ -1436,15 +1436,6 @@
         "kis.client",
         "naver.theme"
       ],
-      "scripts/eod_autodoc.py": [
-        "_logdir",
-        "check_runtime_health",
-        "log_patterns"
-      ],
-      "scripts/eod_collect.py": [
-        "_logdir",
-        "log_patterns"
-      ],
       "scripts/exit_ev.py": [
         "backtest.costs"
       ],
@@ -1453,7 +1444,7 @@
         "exit_ev",
         "gen_tuning_sheet"
       ],
-      "scripts/extract_swap_counterfactual.py": [
+      "scripts/extract_swap_what_if.py": [
         "_logdir"
       ],
       "scripts/gen_automation_hub.py": [
@@ -1462,7 +1453,16 @@
       "scripts/maintain.py": [
         "_logdir"
       ],
-      "scripts/notify_sidecar.py": [
+      "scripts/market_close_autodoc.py": [
+        "_logdir",
+        "check_runtime_health",
+        "log_patterns"
+      ],
+      "scripts/market_close_collect.py": [
+        "_logdir",
+        "log_patterns"
+      ],
+      "scripts/notify_trades.py": [
         "_logdir",
         "dashboard_server",
         "kis.client",
@@ -1495,12 +1495,12 @@
         "scripts/backfill_fills_db.py",
         "scripts/check_runtime_health.py",
         "scripts/dashboard_server.py",
-        "scripts/eod_autodoc.py",
-        "scripts/eod_collect.py",
         "scripts/exit_ev_dashboard.py",
-        "scripts/extract_swap_counterfactual.py",
+        "scripts/extract_swap_what_if.py",
         "scripts/maintain.py",
-        "scripts/notify_sidecar.py",
+        "scripts/market_close_autodoc.py",
+        "scripts/market_close_collect.py",
+        "scripts/notify_trades.py",
         "scripts/parse_quant_log.py",
         "scripts/summarize_trading_day.py"
       ],
@@ -1536,7 +1536,7 @@
         "scripts/backfill_studies.py"
       ],
       "check_runtime_health": [
-        "scripts/eod_autodoc.py",
+        "scripts/market_close_autodoc.py",
         "scripts/parse_quant_log.py"
       ],
       "core.logger": [
@@ -1547,7 +1547,7 @@
         "PYQuant/main.py"
       ],
       "dashboard_server": [
-        "scripts/notify_sidecar.py"
+        "scripts/notify_trades.py"
       ],
       "data.datagokr_source": [
         "PYQuant/main.py",
@@ -1577,9 +1577,6 @@
       "db.client": [
         "PYQuant/main.py",
         "scripts/backfill_fills_db.py"
-      ],
-      "eod_collect": [
-        "scripts/build_review_entry.py"
       ],
       "exit_ev": [
         "scripts/exit_ev_dashboard.py"
@@ -1625,7 +1622,7 @@
         "PYQuant/tools/nxt_divergence_check.py",
         "PYQuant/tools/pit_universe_backfill.py",
         "scripts/dashboard_server.py",
-        "scripts/notify_sidecar.py"
+        "scripts/notify_trades.py"
       ],
       "kis.endpoints": [
         "PYQuant/kis/client.py"
@@ -1638,18 +1635,21 @@
       ],
       "log_patterns": [
         "scripts/check_runtime_health.py",
-        "scripts/eod_autodoc.py",
-        "scripts/eod_collect.py",
-        "scripts/notify_sidecar.py",
+        "scripts/market_close_autodoc.py",
+        "scripts/market_close_collect.py",
+        "scripts/notify_trades.py",
         "scripts/summarize_trading_day.py"
       ],
       "main": [
         "PYQuant/live/forward_trader.py",
-        "PYQuant/tools/ablation_2022.py",
         "PYQuant/tools/fullperiod_validate.py",
         "PYQuant/tools/month_start_sweep.py",
+        "PYQuant/tools/regime_removal_test_2022.py",
         "PYQuant/tools/sweep.py",
         "PYQuant/tools/walkforward.py"
+      ],
+      "market_close_collect": [
+        "scripts/build_review_entry.py"
       ],
       "naver.theme": [
         "PYQuant/tools/fetch_naver_themes.py",
@@ -1671,8 +1671,8 @@
       "strategy.base": [
         "PYQuant/backtest/engine.py",
         "PYQuant/live/trader.py",
+        "PYQuant/strategy/channel_breakout.py",
         "PYQuant/strategy/cross_momentum.py",
-        "PYQuant/strategy/donchian_breakout.py",
         "PYQuant/strategy/mean_reversion.py",
         "PYQuant/strategy/strategy_a.py",
         "PYQuant/strategy/supply_demand_rank.py",
@@ -1889,24 +1889,26 @@
   "boundary_files": {
     "regime.json": {
       "writers": [
-        "PYQuant/tools/macro_regime_feed.py"
+        "PYQuant/tools/macro_regime_feed.py",
+        "Quant/src/core/Engine.cpp"
       ],
       "readers": [
         "PYQuant/tools/macro_regime_feed.py",
         "Quant/src/core/AppConfig.cpp",
         "Quant/src/core/Engine.cpp",
         "scripts/dashboard_server.py",
-        "scripts/notify_sidecar.py"
+        "scripts/notify_trades.py"
       ],
       "mentions": [
         "PYQuant/tools/macro_regime_feed.py",
         "Quant/include/core/AppConfig.h",
         "Quant/include/core/Engine.h",
+        "Quant/include/core/RegimeFileJudge.h",
         "Quant/src/core/AppConfig.cpp",
         "Quant/src/core/Engine.cpp",
         "Quant/src/core/EngineConfigure.cpp",
         "scripts/dashboard_server.py",
-        "scripts/notify_sidecar.py"
+        "scripts/notify_trades.py"
       ]
     },
     "prices_live.json": {
@@ -1942,7 +1944,7 @@
         "scripts/backfill_fills_db.py",
         "scripts/exit_ev.py",
         "scripts/exit_ev_dashboard.py",
-        "scripts/notify_sidecar.py",
+        "scripts/notify_trades.py",
         "scripts/parse_quant_log.py",
         "scripts/trade_costs.py"
       ]
@@ -1955,10 +1957,10 @@
         "PYQuant/tools/nxt_divergence_check.py",
         "PYQuant/tools/universe_feed.py",
         "Quant/src/universe/UniverseScanner.cpp",
-        "scripts/eod_minute_backfill.py",
         "scripts/exit_ev_dashboard.py",
         "scripts/live_prices_feed.py",
-        "scripts/notify_sidecar.py"
+        "scripts/market_close_minute_backfill.py",
+        "scripts/notify_trades.py"
       ],
       "mentions": [
         "PYQuant/main.py",
@@ -1970,10 +1972,10 @@
         "Quant/src/strategy/StrategyFactory.cpp",
         "Quant/src/universe/UniverseScanner.cpp",
         "scripts/dashboard_server.py",
-        "scripts/eod_minute_backfill.py",
         "scripts/exit_ev_dashboard.py",
         "scripts/live_prices_feed.py",
-        "scripts/notify_sidecar.py"
+        "scripts/market_close_minute_backfill.py",
+        "scripts/notify_trades.py"
       ]
     },
     "open_orders.txt": {
@@ -2003,8 +2005,8 @@
         "scripts/_logdir.py",
         "scripts/check_runtime_health.py",
         "scripts/dashboard_server.py",
-        "scripts/extract_swap_counterfactual.py",
-        "scripts/notify_sidecar.py",
+        "scripts/extract_swap_what_if.py",
+        "scripts/notify_trades.py",
         "scripts/parse_quant_log.py",
         "scripts/seed_open_orders.py",
         "scripts/summarize_trading_day.py"
@@ -2018,9 +2020,9 @@
         "scripts/check_runtime_health.py",
         "scripts/dashboard_server.py",
         "scripts/exit_ev_dashboard.py",
-        "scripts/extract_swap_counterfactual.py",
+        "scripts/extract_swap_what_if.py",
         "scripts/maintain.py",
-        "scripts/notify_sidecar.py",
+        "scripts/notify_trades.py",
         "scripts/parse_quant_log.py",
         "scripts/seed_open_orders.py",
         "scripts/summarize_trading_day.py"

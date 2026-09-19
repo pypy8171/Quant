@@ -5,7 +5,7 @@
 #include "core/LedgerReconciler.h"
 #include "core/RingBuffer.h"
 #include "core/WakeGate.h"
-#include "core/OrderPacer.h"
+#include "core/OrderRateLimiter.h"
 #include "core/SignalDispatcher.h"
 #include "core/SymbolTable.h"
 #include "core/TickCapture.h"
@@ -16,7 +16,7 @@
 #include "core/SessionEndJudge.h"
 #include "core/StrategyRouter.h"
 #include "core/StrategyShard.h"
-#include "core/RegimeFileBridge.h"
+#include "core/RegimeFileJudge.h"
 #include "core/Types.h"
 #include "risk/OrderGate.h"
 #include "strategy/StrategyBase.h"
@@ -126,7 +126,7 @@ public:
     // (안 맞으면 매도수량·평단·손실한도 계산이 어긋난다). main이 config로 켠다.
     void set_bootstrap_ledger(bool bootstrap_ledger) { bootstrap_ledger_ = bootstrap_ledger; }
 
-    // 기동 스모크 테스트(smoke test: 전원 켜서 최소한 도는지 보는 점검) — 서버 실행 직후 지정
+    // 기동 점검 — 서버 실행 직후 지정
     //  종목을 시장가로 딱 1회 매수해 주문 경로 전체(OrderRouter→체결통보→원장)가 살아있는지
     //  확인한다. quantity≤0 또는 ticker 빈 문자열이면 미가동.
     //  strategy_thread가 order_queue의 단일 생산자이므로 그 스레드 진입 시 1회만 push한다.
@@ -162,24 +162,24 @@ public:
     // 시장이 위험하면 OrderGate 의 "신규매수 정지" 스위치(entry_halt)를 켜고, 풀리면 끈다
     // (매수만 막고 청산·매도는 그대로 통과). path 빈 문자열이면 기능 미가동(기본).
     // stale_sec(기본 kDefaultRegimeStaleSec)보다 오래된 파일은 보조 프로세스가 죽은 것으로 보고 무시한다.
-    //  판정 규칙은 core/RegimeFileBridge.h가 소유한다. [why D-060]
+    //  판정 규칙은 core/RegimeFileJudge.h가 소유한다. [why D-060]
     void set_regime_file(const std::string& path, int stale_sec = kDefaultRegimeStaleSec)
     {
         regime_file_ = path;
-        regime_bridge_.set_stale_sec(stale_sec);
+        regime_file_judge_.set_stale_sec(stale_sec);
     }
 
     // 매크로 진입정지의 시간 상자. 개장 후 이 분수가 지나면 entry_halt를 스스로 풀고,
     // 그날 매크로 축은 다시 halt를 걸지 못한다. 그 뒤 통제는 장중을 실제로 보는 축
     // (UniverseScanner 코스피 게이트·종목 정배열)이 갖는다. force_liquidate는 대상이 아니다.
     // 0 이하면 만료를 끈다. [why D-033]
-    void set_regime_halt_expire_min(int regime_halt_expire_min) { regime_bridge_.set_halt_expire_min(regime_halt_expire_min); }
+    void set_regime_halt_expire_min(int regime_halt_expire_min) { regime_file_judge_.set_halt_expire_min(regime_halt_expire_min); }
 
     // ── 리스크·주문 ──────────────────────────────────────────────────────────
     // 주문 호출 간격 조절/재시도 (C-2/W-3) — 버스트 청산이 초당한도로 튕겨 유실되는 것 방지.
     //  min_interval_ms 간격으로만 발주(레이트리밋 하회), 거부된 청산 SELL은 order_thread
     //  로컬 큐로 deduplicate 창 밖에서 최대 max_retries회 재시도. 스레드 시작 전에만 호출.
-    void set_order_pacing(int min_interval_ms, int max_retries)
+    void set_order_interval(int min_interval_ms, int max_retries)
     {
         order_min_interval_ms_ = min_interval_ms;
         order_max_retries_ = max_retries;
@@ -281,8 +281,8 @@ public:
     //  청산 관리(청산 전용)과 스캔 전략(진입)이 같은 티커에 동시에 붙으면 한쪽이 턴 것을
     //  다른 쪽이 곧바로 되사서 수수료만 나간다(2026-09-08 금호건설: 13:39:59 전량매도 →
     //  13:40:12 재매수). 기동 시 단일스레드 구간에서만 채우고 전략 스레드는 읽기만 한다.
-    void mark_guardian_ticker(const std::string& ticker) { universe_rescan_.guardian_tickers.insert(ticker); }
-    bool is_guardian_ticker(const std::string& ticker) const { return universe_rescan_.guardian_tickers.count(ticker) > 0; }
+    void mark_exit_managed_ticker(const std::string& ticker) { universe_rescan_.exit_managed_tickers.insert(ticker); }
+    bool is_exit_managed_ticker(const std::string& ticker) const { return universe_rescan_.exit_managed_tickers.count(ticker) > 0; }
 
     void register_ticker_name(const std::string& ticker, const std::string& name);
     // 이름이 있으면 "티커(종목명)", 없으면 티커 원문을 반환.
@@ -333,7 +333,7 @@ private:
 
     // ── 전략 레지스트리·국면·유니버스 보조 ─────────────────────────────────
     StrategyBase::SellableInfo ledger_sellable(const std::string& account, const std::string& ticker) const;
-    // 매크로 레짐 파일 읽기 → RegimeFileBridge 판정 → OrderGate entry_halt·force_liquidate_ 적용 (data_thread 전용)
+    // 매크로 레짐 파일 읽기 → RegimeFileJudge 판정 → OrderGate entry_halt·force_liquidate_ 적용 (data_thread 전용)
     void poll_regime_file();
     void maybe_rescan_universe();  // 주기적 유니버스 재스캔 → 신규 티커 런타임 등록·이탈 티커 해제 (data_thread 전용)
     // 전략 해제는 두 단계다. 뗄 때는 strategy_.list에서 빼고 strategy_.retired로 옮기며 버전을 올린다 —
@@ -415,14 +415,14 @@ private:
     // ── 매크로 레짐 ──────────────────────────────────────────────────────────
     // 매크로 레짐 브리지(data_thread 전용) — regime.json → OrderGate entry_halt. 상태기계는 헤더에, 파일 I/O·로그는 여기.
     std::string                      regime_file_;   // 빈 문자열이면 기능 미가동
-    regime_bridge::RegimeFileBridge  regime_bridge_; // stale·시간 상자·1회 로그 판정 [why D-060]
+    regime_file::RegimeFileJudge  regime_file_judge_; // stale·시간 상자·1회 로그 판정 [why D-060]
     // G3: 극단 위험회피(force_liquidate=TRUE) 시 보유 전량 강제청산 요청 플래그.
     //  data_thread(poll_regime_file)가 set → strategy_thread(order_queue 단일 생산자)가
     //  이 플래그를 보고 매 주기 시장가 전량 매도를 발주(주문큐의 단일생산자·단일소비자(SPSC)
     //  규약 위반 회피 — order_queue에 넣는 스레드를 하나로 유지). 해제 시 중단.
     std::atomic<bool> force_liquidate_{false};
     // ── 주문 설정 ───────────────────────────────────────────────────────────
-    int order_min_interval_ms_ = 350; // 주문 간 최소 간격(milliseconds) — order_thread의 OrderPacer가 쓴다 [why D-065]
+    int order_min_interval_ms_ = 350; // 주문 간 최소 간격(milliseconds) — order_thread의 OrderRateLimiter가 쓴다 [why D-065]
     int order_max_retries_ = 3;       // 거부된 주문의 재시도 횟수(C-2)
 
     // ── 잔고 대조·REST 폴러 ─────────────────────────────────────────────────
@@ -481,7 +481,7 @@ private:
     {
         std::vector<RescanJob> jobs;
         std::unordered_set<std::string> registered_tickers; // 등록된 KR 티커(중복 방지, 슬리브 공유)
-        std::unordered_set<std::string> guardian_tickers;   // 청산 관리 보유 티커(스캔 신규매수 제외)
+        std::unordered_set<std::string> exit_managed_tickers;   // 청산 관리 보유 티커(스캔 신규매수 제외)
     };
     UniverseRescan universe_rescan_;
 

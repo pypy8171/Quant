@@ -18,7 +18,7 @@
 | 백테스트 실행 상세(규칙변경·결과표·해석) | `research/BACKTEST_LOG.md` | `research/BACKTESTS.md` 카드, `research/README.md` 타임라인 |
 | 스터디 내용(방법·결과·종목원장) | `research/studies/<NN>/README.md` | `research/studies/README.md` 색인, `BACKTESTS.md` 카드 |
 | 전략 스펙·실증 | `strategies/<전략>/`(SPEC·live/) | `strategies/README.md` 표, 루트 `README.md` |
-| 장 종료 리뷰(코드·매매·주문 문제와 조치) | `docs/eod/YYYY-MM-DD.md` | `docs/eod/README.md` 목록, `docs/DEFERRED_ISSUES.md`·`docs/DECISIONS.md` 항목 |
+| 장 종료 리뷰(코드·매매·주문 문제와 조치) | `docs/market_close/YYYY-MM-DD.md` | `docs/market_close/README.md` 목록, `docs/DEFERRED_ISSUES.md`·`docs/DECISIONS.md` 항목 |
 | 장전 시황 브리핑(아침 매크로·스탠스) | `docs/premarket/YYYY-MM-DD.md` | `docs/premarket/README.md` 목록, 대시보드 장전 브리핑 탭(생성) |
 | 백테스트 규율 | `research/GUARDRAILS.md` | 각 study README, `bias-auditor` |
 
@@ -33,8 +33,8 @@
 <!-- sync-map:rules -->
 | 소스(바뀌면) | 대표 문서(봐라) | 검사 | 맞출 것 |
 |---|---|---|---|
-| `scripts/eod_timetable.ps1` | `docs/AUTOMATION.md#1. OS 예약작업` | 자동(gen 블록) | 마감 시간표(모의/실계좌)는 gen:eod-timetable 블록. _private/AUTOMATION_HUB.md 는 gen_facts --apply 가 같이 다시 쓴다 |
-| `scripts/eod_timetable.ps1`, `scripts/gen_automation_hub.py` | `docs/guides/MAINTENANCE_AUTOMATION.md#자동화 층`, `.claude/commands/dashboard-sync.md`, `.claude/commands/auto-trade-day.md`, `.claude/skills/stock-study/SKILL.md` | 힌트 | 예약작업 시각을 글로 적은 곳. 시각 숫자는 넣지 말고 허브·시간표 스크립트를 가리키게 한다 |
+| `scripts/market_close_timetable.ps1` | `docs/AUTOMATION.md#1. OS 예약작업` | 자동(gen 블록) | 마감 시간표(모의/실계좌)는 gen:market-close-timetable 블록. _private/AUTOMATION_HUB.md 는 gen_facts --apply 가 같이 다시 쓴다 |
+| `scripts/market_close_timetable.ps1`, `scripts/gen_automation_hub.py` | `docs/guides/MAINTENANCE_AUTOMATION.md#자동화 층`, `.claude/commands/dashboard-sync.md`, `.claude/commands/auto-trade-day.md`, `.claude/skills/stock-study/SKILL.md` | 힌트 | 예약작업 시각을 글로 적은 곳. 시각 숫자는 넣지 말고 허브·시간표 스크립트를 가리키게 한다 |
 | `PYQuant/tools/macro_regime_feed.py` | `docs/premarket/ROUTINE_PROMPT.md#이 시스템의 국면 모델` | 자동(gen 블록) | 루틴 프롬프트 안의 국면 모델(지표 8개·임계·정지/청산선)은 gen:regime-model 블록. 블록이 바뀌면 check_docs 가 '올린 것과 다르다'고 잡는다 → /schedule 로 다시 올리고 premarket_routine.py --mark |
 | `Quant/CMakeLists.txt`, `Quant/tests/test_*.cpp` | `docs/guides/PROJECT_GUIDE.md#단위 테스트` | 자동(gen 블록) | 테스트 타깃 목록·개수는 gen:test-targets 블록이 채운다 |
 | `Quant/include/strategy/*.h`, `Quant/src/strategy/StrategyFactory.cpp`, `PYQuant/strategy/*.py` | `README.md`, `docs/guides/PROJECT_GUIDE.md`, `.claude/PROJECT_FACTS.md` | 자동(gen 블록) | 전략 클래스·로더 표는 gen:cpp-strategies / gen:py-strategies 블록 |
@@ -55,7 +55,7 @@
 | `docs/guides/MAINTENANCE_AUTOMATION.md#4` | `CLAUDE.md#코드 작업 규약`, `scripts/check_code_conventions.py`, `scripts/rename_frags.py` | 힌트 | 규약을 더하거나 예외를 늘리면 검사기 규칙과 판정 표도. 약어 예외는 rename_frags.py의 SKIP·WIRE가 정본 |
 | `docs/sync_map.toml`, `scripts/sync_impact.py`, `scripts/gen_facts.py` | `docs/SYNC_MAP.md`, `docs/AUTOMATION.md#스크립트`, `docs/HARNESS.md` | 자동(명령) `py scripts/sync_impact.py --render --check` | SYNC_MAP.md §2 표는 이 파일에서 생성 |
 | `docs/RUNBOOK.md` | `docs/RUNBOOK.html` | 자동(명령) `py scripts/gen_runbook.py --check` | 운영 런북 HTML 은 RUNBOOK.md 에서 통째로 렌더(gitignore). 코드 블록의 스크립트 경로가 없으면 --check 가 잡는다 |
-| `scripts/auto_trade_day.ps1`, `scripts/auto_trade_guard.ps1`, `scripts/dashboard_server.py`, `scripts/parse_quant_log.py`, `scripts/notify_sidecar.py`, `PYQuant/tools/macro_regime_feed.py`, `PYQuant/tools/universe_feed.py`, `PYQuant/tools/investor_flow_logger.py`, `PYQuant/tools/index_intraday_logger.py`, `docs/guides/OPS_TERMINAL.md`, `docs/guides/MFC_TERMINAL.md` | `docs/RUNBOOK.md` | 도장 | 런북이 인용하는 스크립트 인자·옵션. 절 머리 도장이 낡으면 그 절의 명령을 맞추고 --restamp docs/RUNBOOK.md |
+| `scripts/auto_trade_day.ps1`, `scripts/auto_trade_guard.ps1`, `scripts/dashboard_server.py`, `scripts/parse_quant_log.py`, `scripts/notify_trades.py`, `PYQuant/tools/macro_regime_feed.py`, `PYQuant/tools/universe_feed.py`, `PYQuant/tools/investor_flow_logger.py`, `PYQuant/tools/index_intraday_logger.py`, `docs/guides/OPS_TERMINAL.md`, `docs/guides/MFC_TERMINAL.md` | `docs/RUNBOOK.md` | 도장 | 런북이 인용하는 스크립트 인자·옵션. 절 머리 도장이 낡으면 그 절의 명령을 맞추고 --restamp docs/RUNBOOK.md |
 | `research/COUNCIL_CHARTER.md`, `research/GUARDRAILS.md` | `research/RESEARCH_COUNCIL.md#멤버와 역할`, `.claude/agents/bias-auditor.md`, `.claude/AGENTS.md` | 힌트 | 헌장·규율(D-101)이 바뀌면 회의 멤버 표, 편향 감사관의 대조 기준, 에이전트 색인을 같이 본다 |
 <!-- /sync-map:rules -->
 
@@ -69,8 +69,8 @@
 요약 문단 위에 한 줄을 둔다.
 
 ```md
-<!-- sync: Quant/include/core/OrderPacer.h@3f2a91c Quant/tests/test_order_pacer.cpp@ab12cd3 -->
-주문 스레드는 … `OrderPacer`가 맡습니다(D-065).
+<!-- sync: Quant/include/core/OrderRateLimiter.h@3f2a91c Quant/tests/test_order_rate_limiter.cpp@ab12cd3 -->
+주문 스레드는 … `OrderRateLimiter`가 맡습니다(D-065).
 ```
 
 해시는 그 파일의 git blob 해시 앞 7자다. 소스가 바뀌면 `py scripts/sync_impact.py --diff`가 그 도장을 `[stale]`로 찍고

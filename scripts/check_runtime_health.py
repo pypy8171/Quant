@@ -75,7 +75,7 @@ def collect(date: str, log: Path, since: int = 0):
     """로그 한 파일에서 그날 점검 행을 만든다.
 
     반환 (rows, session_count). rows 원소는 (이름, 통과, 등급, 설명). 세션이 없으면 rows 빈 리스트.
-    eod_autodoc이 마감 문서 4절에 이 표를 그대로 싣는다 — 사람이 따로 돌려 보지 않아도 되게.
+    market_close_autodoc이 마감 문서 4절에 이 표를 그대로 싣는다 — 사람이 따로 돌려 보지 않아도 되게.
     """
 
     starts: list[int] = []       # 엔진 시작 시각(초)
@@ -93,7 +93,7 @@ def collect(date: str, log: Path, since: int = 0):
     trendx_registered: list[int] = []
     session_window_rejects = 0
 
-    # 7일 지난 날은 archive/quant_trader_<날짜>.log.gz — eod_autodoc이 그 경로를 그대로 넘긴다
+    # 7일 지난 날은 archive/quant_trader_<날짜>.log.gz — market_close_autodoc이 그 경로를 그대로 넘긴다
     opener = (lambda: gzip.open(log, "rt", encoding="utf-8", errors="replace")) if log.suffix == ".gz"         else (lambda: log.open(encoding="utf-8", errors="replace"))
     with opener() as log_file:
         for line in log_file:

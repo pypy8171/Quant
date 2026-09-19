@@ -619,8 +619,8 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
     //    중복이 아니다. (같은 side 반복은 여전히 deduplicate — 기존 전략 동작 불변)
     //    스탬프(last_signal_)는 6절 rate 통과 뒤에 찍는다 — rate로 거부된 신호가 deduplicate 창을
     //    소모하면 창 안의 정당한 재시도까지 "중복"으로 막힌다(W-2).
-    //    지정가는 가격까지 키에 넣는다 — 분할 매수는 같은 종목·같은 방향의 rung 여러 개를 한 틱에
-    //    내는데, 주문 스레드가 1초 안에 연달아 처리하면 두 번째 rung부터 "중복"으로 잘렸다
+    //    지정가는 가격까지 키에 넣는다 — 분할 매수는 같은 종목·같은 방향의 분할 단계 여러 개를 한 틱에
+    //    내는데, 주문 스레드가 1초 안에 연달아 처리하면 두 번째 분할 단계부터 "중복"으로 잘렸다
     //    (09-11 10:04 232140 BUY 42@11790·42@11690 둘 다 거부). 같은 가격 반복만 중복이다.
     //    [why D-070] 신호마다 만드는 키라 std::format으로 바꾸지 않았다 — 같은 키를 200만 회 만들어
     //    연결 105ns, format 152ns(reserve+format_to도 145ns). 재는 법은 docs/guides/CPP20_23_GUIDE.market_data 17-1.

@@ -133,7 +133,7 @@ private:
             }
             else if (difference < 0)
             {
-                return false; // 지난 바퀴 데이터가 아직 소비 안 됨 = 큐 가득 참(backpressure)
+                return false; // 지난 바퀴 데이터가 아직 소비 안 됨 = 큐 가득 참(밀림 처리)
             }
             else
             {

@@ -4,9 +4,9 @@
 
 대시보드는 생성 시점에 데이터가 HTML 본문에 박히는 구조라, 원천이 바뀌어도
 생성기를 다시 돌리기 전까지 화면은 예전 것을 보여준다. 이 절차를 아는 곳이
-매매 끝 뒤 예약작업 하나뿐이어서(시각은 scripts/eod_timetable.ps1), 장중에 일지를 고치거나 스터디를 새로 넣으면
+매매 끝 뒤 예약작업 하나뿐이어서(시각은 scripts/market_close_timetable.ps1), 장중에 일지를 고치거나 스터디를 새로 넣으면
 저녁까지 리뷰 탭이 뒤처졌다. 이 스크립트가 그 절차 한 벌을 소유하고,
-`eod_autodoc.py`와 Claude 훅이 여기로 들어온다.
+`market_close_autodoc.py`와 Claude 훅이 여기로 들어온다.
 
     py scripts/refresh_dashboard.py                    # 라이브(오늘) + 백테스트
     py scripts/refresh_dashboard.py --live 2026-09-07  # 그 날짜 리뷰만
@@ -62,7 +62,7 @@ def classify(path: str) -> dict:
 
     if re.fullmatch(r"strategies/[^/]+/live/\d{4}-\d{2}-\d{2}\.md", p) and ymd:
         out["live"] = [ymd]
-    elif re.fullmatch(r"docs/eod/\d{4}-\d{2}-\d{2}\.md", p) and ymd:
+    elif re.fullmatch(r"docs/market_close/\d{4}-\d{2}-\d{2}\.md", p) and ymd:
         out["live"] = [ymd]
     elif re.fullmatch(r"docs/premarket/\d{4}-\d{2}-\d{2}\.md", p):
         out["render"] = True
@@ -77,7 +77,7 @@ def watched() -> list[Path]:
     """대시보드에 실리는 원천 파일들. 여기 없는 것이 바뀌어도 화면은 그대로다."""
     out: list[Path] = []
     out += sorted((REPO / "strategies").glob("*/live/*.md"))
-    out += sorted((REPO / "docs" / "eod").glob("*.md"))
+    out += sorted((REPO / "docs" / "market_close").glob("*.md"))
     out += sorted((REPO / "docs" / "premarket").glob("????-??-??.md"))
     out += sorted((REPO / "research" / "studies").rglob("metrics.json"))
     for n in ("live.json", "reviews.json"):

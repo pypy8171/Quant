@@ -38,7 +38,7 @@ CV_YF = "수정주가(yfinance, 액면분할 반영) — 당시 실호가와 다
 
 
 def A(study_id, strategy, event, *, ret, mdd, sharpe, win, alpha, n,
-      benchmark="등가중 B&H", honesty="robust", caveat="", source="",
+      benchmark="동일가중 매수 후 보유", honesty="robust", caveat="", source="",
       bench_ret=None, window=""):
     """계열 A 한 행 — BACKTEST_LOG 기록값을 quant.metrics/v1로. mdd는 양수 크기."""
     return metrics_row(
@@ -181,7 +181,7 @@ def main():
     plans = [
         ("01_momentum_regime", BT01 + BT04 + BT05),  # CrossMomentum 계열 저널 묶음
         ("02_vol_target", BT02),
-        ("03_2022_ablation", BT03),
+        ("03_2022_removal_test", BT03),
         ("06_bear_market", load_bt06()),
     ]
     total = 0

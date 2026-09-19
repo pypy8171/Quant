@@ -428,7 +428,7 @@ private:
         return true;
     }
 
-    // 링을 돌아가며 비운다. 한 링당 한 바퀴에 kBurst개까지만 — 한 소켓이 바쁘다고 다른 소켓 종목이 굶지 않게.
+    // 링을 돌아가며 비운다. 한 링당 한 바퀴에 kBurst개까지만 — 한 소켓이 바쁘다고 다른 소켓 종목이 밀리지 않게.
     void multiplexer_loop(std::stop_token stop_token)
     {
         static constexpr size_t kBurst = 256;

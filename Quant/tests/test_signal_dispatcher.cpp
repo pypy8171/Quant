@@ -109,7 +109,7 @@ int test_stamp()
 int test_strategy_gate()
 {
     Rig rig(open_config());
-    rig.dispatcher.set_guardian([](const std::string& ticker) { return ticker == "G"; });
+    rig.dispatcher.set_exit_managed_check([](const std::string& ticker) { return ticker == "G"; });
 
     // 비활성 전략: 신규 매수만 막고 매도·취소는 통과.
     rig.dispatcher.from_strategy(false, "DEV_1", signal("A", OrderSide::BUY, 1));
@@ -257,7 +257,7 @@ int test_displace_hold_and_release()
           rig.out[0].strategy_id == "DISPLACE");
     CHECK(rig.dispatcher.held_ticker() == "C" && rig.dispatcher.held_count() == 1);
 
-    // 같은 분할 매수의 다음 rung도 보류에 붙는다. 다른 종목의 매도는 그대로 나간다.
+    // 같은 분할 매수의 다음 분할 단계도 보류에 붙는다. 다른 종목의 매도는 그대로 나간다.
     rig.dispatcher.submit(signal("C", OrderSide::BUY, 2));
     rig.dispatcher.submit(signal("A", OrderSide::SELL, 1));
     CHECK(rig.dispatcher.held_count() == 2 && rig.out.size() == 2 && rig.out[1].ticker == "A");
@@ -287,7 +287,7 @@ int test_displace_cancel_and_expiry()
         seed_full_book(rig.gate);
         rig.dispatcher.submit(signal("C", OrderSide::BUY, 1));
         CHECK(rig.dispatcher.held_count() == 1);
-        // 전략이 분할 매수를 다시 깐다 — 취소가 오면 들고 있던 rung을 비운다(취소 자체는 나간다).
+        // 전략이 분할 매수를 다시 깐다 — 취소가 오면 들고 있던 분할 단계를 비운다(취소 자체는 나간다).
         rig.dispatcher.submit(signal("C", OrderSide::BUY, 0, OrderAction::CANCEL));
         CHECK(rig.dispatcher.held_count() == 0 && rig.out.size() == 2 && rig.out[1].action == OrderAction::CANCEL);
     }
