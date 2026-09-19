@@ -39,7 +39,7 @@
 | 필터① 등락률 | `chg_min ≤ 당일등락률 ≤ chg_max` | `chg_min`/`chg_max` | +0.02 / +0.12 | 이미 강세=모멘텀 / 급등 추격금지 |
 | 필터② 가격 | `price ≥ min_price` | `min_price` | 3000 | 동전주·호가스프레드 배제 |
 | 필터③ 수급(opt) | 외국인 **T-1 확정** 순매수 > 0 | `sd_filter` | true | 장중값은 잠정치 → 전일확정만, 후보 소수에만 조회 |
-| 트리거 | 당일시가 앵커 대비 채널 돌파(완결 1분버킷만) + `>anchor×(1+eps)` | `channel_min`/`breakout_eps`/`anchor_mode` | 5 / 0.002 / "day_open" | 기동시점 독립·자기참조 방지 |
+| 트리거 | 당일시가 기준점 대비 채널 돌파(완결 1분버킷만) + `>기준점×(1+eps)` | `channel_min`/`breakout_eps`/`anchor_mode` | 5 / 0.002 / "day_open" | 기동시점 독립·자기참조 방지 |
 | 레짐 게이트 | 코스피 당일 등락률 `< risk_off_index_pct`면 신규매수 전면중단 | `risk_off_index_pct` | -0.01 | 200MA 레짐 무력 → 지수 등락률 fallback |
 
 **데이터 확정(data-sourcer):**
@@ -51,9 +51,9 @@
 
 ## §2. 매도 기준 (재설계) — 물린분 ≠ 신규분
 
-### (A) 물린 보유분 (start_in_position=true, 앵커≫평단)
+### (A) 물린 보유분 (start_in_position=true, 기준점≫평단)
 - `avg_loss_pct = 0` (**비활성**) — 이미 -30% 아래인데 -3% 스탑은 개장 즉시투매.
-- 당일 앵커(시가) 트레일만, 넓게: `seed_trail_pct ≈ 0.035` (당일 고점 대비 -3.5%).
+- 당일 기준점(시가) 트레일만, 넓게: `seed_trail_pct ≈ 0.035` (당일 고점 대비 -3.5%).
 - 본전 탈출 익절: `px ≥ avg_px × (1 - exit_near_avg_pct)`(평단 -2% 이내) 도달 시 청산 — 개장 투매 아니라 **당일 반등에 실어 던지기**.
 - 장 마감 유지.
 
@@ -104,6 +104,6 @@
 - [ ] C-3: 손익 킬스위치 (Engine 손익 모니터 → `set_kill_switch`)
 - [ ] volume-rank: `KisClient.h/.cpp` `fetch_value_ranking(FHPST01710000, FID_BLNG_CLS_CODE=3)`, RankingStock에 `trade_value` 추가
 - [ ] 스캔 분기: `main.cpp:~947` `universe_from_scan` 신설(필터→수급→레짐→등록 start_in_position=false, 150~200ms 호출 간격 조절)
-- [ ] 전략: `IntradayBreakoutStrategy.h` day_open 앵커 주입, seed_trail_pct/exit_near_avg_pct 분기, no_new_entry_hhmm 분리, 명목→수량
+- [ ] 전략: `IntradayBreakoutStrategy.h` day_open 기준점 주입, seed_trail_pct/exit_near_avg_pct 분기, no_new_entry_hhmm 분리, 명목→수량
 - [ ] risk 블록: `main.cpp` `"risk"` 파서 → `OrderGate::Config` 주입
 - [ ] `config_itb_paper.json` v2 파라미터 반영 + 빌드

@@ -209,10 +209,10 @@ def _n4_core(closes, ret, ctx, p):
       - rvol20 = 최근 20거래일 일수익 std × √252(연율). **t-1 까지 룩백만**(당일 종가 미포함)
         → rolling_vol(ret,20)[t-1]. run_curve 의 e[t-1] 배선과 합쳐 이중 룩어헤드 차단.
       - 데드밴드 0.05: |목표 e − 직전 커밋 e| < 0.05 면 직전 e 유지(미세 토글 억제).
-      - target_vol 앵커는 mode 로 결정(누출 원천 통제):
+      - target_vol 기준점은 mode 로 결정(누출 원천 통제):
           "leak"   : std(ret[전표본])×√252 — 2022 홀드아웃 포함 = **미래정보 누출**(감사 지적, 비교용).
-          "expand" : std(ret[:t])×√252 인과확장창(t 이전만). warmup 252봉 e=1(앵커 안정화 후 시작).
-                     확장창이라 자동 train-only → 2022 홀드아웃 앵커오염 없음.
+          "expand" : std(ret[:t])×√252 인과확장창(t 이전만). warmup 252봉 e=1(기준점 안정화 후 시작).
+                     확장창이라 자동 train-only → 2022 홀드아웃 기준점 오염 없음.
           "const"  : 시장무관 사전등록 상수(기본 15%). 전표본·train 어느 것도 안 봄 = 누출원천 제거.
     20일 후행이라 1987·2020 갭형 급락엔 반응이 늦다(설계상 한계)."""
     mode = p.get("mode", "expand")
@@ -236,12 +236,12 @@ def _n4_core(closes, ret, ctx, p):
             if cnt >= 2:
                 var = (sx2 - sx * sx / cnt) / (cnt - 1)
                 anchor[k] = np.sqrt(var if var > 0 else 0.0) * bt08.ANNUAL
-        warm = 252                                     # 앵커 안정화 후 시작
+        warm = 252                                     # 기준점 안정화 후 시작
     e = np.ones(n)
     prev = 1.0                                         # 직전 커밋 익스포저(초기 BH)
     for t in range(n):
         rvl = rv[t - 1] if t >= 1 else np.nan          # t-1 까지 룩백(당일 종가 제외)
-        tvl = anchor[t - 1] if t >= 1 else np.nan      # 앵커도 t-1 까지(인과)
+        tvl = anchor[t - 1] if t >= 1 else np.nan      # 기준점도 t-1 까지(인과)
         if t < warm or not _ok(rvl) or rvl <= 0 or not _ok(tvl) or tvl <= 0:
             e[t] = prev                                # 워밍업·결측 → 직전 유지(초기 1.0)
             continue
@@ -260,7 +260,7 @@ def expo_n4_voltarget(closes, ret, ctx, p):
 
 
 def expo_n4a_expand(closes, ret, ctx, p):
-    """N4a 변형 — 인과 확장창 앵커 std(ret[:t]). 홀드아웃 자동 순수(누출 제거)."""
+    """N4a 변형 — 인과 확장창 기준점 std(ret[:t]). 홀드아웃 자동 순수(누출 제거)."""
     return _n4_core(closes, ret, ctx, {"mode": "expand"})
 
 

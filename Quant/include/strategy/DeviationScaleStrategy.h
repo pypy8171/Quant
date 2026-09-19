@@ -82,7 +82,7 @@ public:
         int    simple_moving_average_period     = 20;    // 3분봉 기준선 SMA 기간
         double deviation_sell       = 1.5;   // 매도 밴드 이격도(%) — 층당 배수
         double deviation_buy        = 0.8;   // 매수 밴드 이격도(%) — 층당 배수
-        // 교차 가드: 분할 매수 각 층이 현재가를 넘어가지 않도록 앵커를 현재가 쪽으로 클램프한다.
+        // 교차 가드: 분할 매수 각 층이 현재가를 넘어가지 않도록 기준점을 현재가 쪽으로 클램프한다.
         //  기준선이 현재가에서 멀어지면 한쪽 층 전체가 현재가를 넘어가 지정가가 아니라 즉시
         //  체결되는 시장가가 된다(매수는 위, 매도는 아래). 분할 매수의 전제가 깨진다.
         //  해당 층을 '건너뛰지' 않는다 — 건너뛰면 눌림 진입이나 익절이 통째로 사라진다.
@@ -101,7 +101,7 @@ public:
         // 개장 직후 3분봉이 sma_period만큼 안 쌓인 구간(20봉×3분=60분)에서 분할 매수 기준선을
         //  일봉 SMA20으로 대신한다. 그 구간에도 일봉 존 게이트(정배열+눌림)는 이미 통과한 상태라
         //  판단 근거가 없는 게 아니라 기준선 하나가 없을 뿐이다. 기준선이 현재가에서 멀어도
-        //  cross_guard가 앵커를 현재가로 클램프하고, 워밍업 중에는 add_below_simple_moving_average_only 값과
+        //  cross_guard가 기준점을 현재가로 클램프하고, 워밍업 중에는 add_below_simple_moving_average_only 값과
         //  무관하게 물타기 분할 매수를 잠근다(분할 주문 구성부 `!warming`). 베이스 매수·익절 매도는 나간다.
         bool   daily_basis_warmup = true;
         int    reprice_move_ticks = 2; // SMA가 이만큼(틱) 이동하면 재호가
@@ -113,9 +113,9 @@ public:
         //  entry_lower_percent: >0이면 존 하단을 SMA20 "위" 그 지점으로 올린다. 눌림 슬리브가
         //   버리는 이격 +5% 초과 구간을 이 슬리브가 받는다(0=기존 -pullback_percent 하단).
         double entry_lower_percent = 0.0;
-        //  anchor_on_price: 분할 매수 앵커를 SMA20이 아니라 현재가로 잡는다. 이격이 벌어진
-        //   종목은 SMA20 앵커로 깔면 매수층이 시장가에서 5~30% 아래에 놓여 영원히 안 붙는다.
-        bool   anchor_on_price = false;
+        //  base_on_price: 분할 매수 기준점을 SMA20이 아니라 현재가로 잡는다. 이격이 벌어진
+        //   종목은 SMA20 기준점으로 깔면 매수층이 시장가에서 5~30% 아래에 놓여 영원히 안 붙는다.
+        bool   base_on_price = false;
         //  buy_rungs: 되돌림 매수(물타기) 층수. -1이면 n_rungs와 같다(기존 동작), 0이면 베이스
         //   매수만 내고 하방 분할 매수를 깔지 않는다. 방향성 이격 게이트에서 하방 분할 매수는 추세
         //   반전에 그대로 노출된다 — 09-08~11 원장에서 매수 수량의 89%가 미청산으로 남았다.
@@ -137,10 +137,10 @@ public:
         //  dust_krw: 보유 평가금이 이 값(원) 아래이고 깔 매수 rung이 없으면 시장가로 정리한다. 1~5주짜리
         //   잔존 보유가 슬롯 하나를 종일 차지했다(09-14 15:00 스윕 대상 3종목). 0이면 끄기. [why D-081]
         double dust_krw = 250000.0;
-        //  sell_anchor_average: 분할 익절 앵커를 현재가가 아니라 잔고 평단으로 둔다. 현재가 앵커는
+        //  sell_base_average: 분할 익절 기준점을 현재가가 아니라 잔고 평단으로 둔다. 현재가 기준점은
         //   목표가가 값을 따라 올라가 8초 안의 급등에서만 붙는다. 평단 기준이면 +deviation_sell%가
         //   진입 대비 익절이 된다. 목표가가 이미 현재가 아래면 현재가에 지정가를 낸다.
-        bool   sell_anchor_average = false;
+        bool   sell_base_average = false;
         //  prefetch_jitter_percent: 봉 경계 직후 분봉 조회를 종목별로 흩는다(봉 길이의 0~이 비율,
         //   티커 해시로 고정). 50종목이 같은 초에 조회하면 초당 한도(20)에 걸려 뒤쪽이 HTTP 500이다.
         int    prefetch_jitter_percent = 50;
@@ -224,7 +224,7 @@ public:
                "~+" + format_one_decimal(parameters_.entry_upper_percent) + "%" +
                (parameters_.entry_lower_percent > 0.0 ? " lower=+" + format_one_decimal(parameters_.entry_lower_percent) + "%" : "") +
                (parameters_.stop_loss_percent > 0.0 ? " stop=-" + format_one_decimal(parameters_.stop_loss_percent) + "%" : "") +
-               (parameters_.trail_simple_moving_average_exit ? " trail" : "") + (parameters_.sell_anchor_average ? " sell@avg" : "");
+               (parameters_.trail_simple_moving_average_exit ? " trail" : "") + (parameters_.sell_base_average ? " sell@avg" : "");
     }
 
     // 현재가 하트비트만 필요 → trade_only=true(호가 구독 절약). rest 모드에선 DataThread가 주입.
@@ -240,7 +240,7 @@ public:
     {
         symbol_id_ = symbol_of(parameters_.ticker); // 집계기 키·틱 비교·신호 도장 — 여기서 한 번
         live_.clear();
-        last_anchor_ = 0.0;
+        last_ladder_reference_ = 0.0;
         last_position_ = -1;
         last_rebuild_ = std::chrono::steady_clock::time_point{};
         last_ladder_signal_.clear();
@@ -690,15 +690,15 @@ public:
                                                             : equity * (parameters_.max_percent > parameters_.base_percent ? parameters_.max_percent - parameters_.base_percent : 0.0) * multiplier;
         const double rung_notional = parameters_.buy_rungs > 0 ? rung_budget / parameters_.buy_rungs : 0.0;
 
-        // 분할 매수 앵커. 교차 가드가 켜져 있으면 각 방향 층이 현재가를 넘지 않도록 기준선을
+        // 분할 매수 기준점. 교차 가드가 켜져 있으면 각 방향 층이 현재가를 넘지 않도록 기준선을
         //  현재가 쪽으로 당긴다. 이격이 벌어진 상태에서도 분할 매수 간격은 그대로 유지된다.
-        //  anchor_on_price면 기준선을 현재가로 둔다. 이격 +5~30% 구간에서 SMA20을 앵커로
+        //  base_on_price면 기준선을 현재가로 둔다. 이격 +5~30% 구간에서 SMA20을 기준점으로
         //   쓰면 매수층 전부가 시장가에서 그만큼 아래에 깔려 하루 종일 한 주도 안 붙는다.
         //   추세 슬리브는 "지금 값에서 한 호가 아래"로 붙어야 추세에 올라탄다.
         const bool   guard_on   = parameters_.cross_guard && current_price > 0.0;
-        const double base_line  = (parameters_.anchor_on_price && current_price > 0.0) ? current_price : simple_moving_average;
-        const double sell_anchor = guard_on ? (std::max)(base_line, current_price) : base_line;
-        const double buy_anchor  = guard_on ? (std::min)(base_line, current_price) : base_line;
+        const double base_line  = (parameters_.base_on_price && current_price > 0.0) ? current_price : simple_moving_average;
+        const double sell_base_line = guard_on ? (std::max)(base_line, current_price) : base_line;
+        const double buy_base_line  = guard_on ? (std::min)(base_line, current_price) : base_line;
 
         // 베이스: 무포지션이면 기준선 근처 지정가 매수(자본의 base_percent). 부분체결로 보유가 목표에 못 미치면
         //  잔량을 같은 자리에 다시 깐다 — 예전엔 1주만 체결돼도 position>0이라 베이스 rung이 빠졌고, 재구성이 잔량
@@ -752,18 +752,18 @@ public:
         }
 
         // 매도 밴드: 이격 +deviation_sell%*i. 보유분을 n_rungs로 균등 분할(숏 방지).
-        //  sell_anchor_avg면 앵커가 평단이다. 목표가가 현재가 아래면(이미 목표 초과) 현재가에
+        //  sell_base_average면 기준점이 평단이다. 목표가가 현재가 아래면(이미 목표 초과) 현재가에
         //  낸다 — 지정가로 남되 다음 체결에 붙는다.
         int sell_avail = position;
         const int sell_per = parameters_.n_rungs > 0 ? (position + parameters_.n_rungs - 1) / parameters_.n_rungs : position; // ceil
-        const bool   average_anchor = parameters_.sell_anchor_average && last_average_price_ > 0.0;
-        const double sell_base  = average_anchor ? last_average_price_ : sell_anchor;
+        const bool   sell_from_average = parameters_.sell_base_average && last_average_price_ > 0.0;
+        const double sell_base  = sell_from_average ? last_average_price_ : sell_base_line;
 
         for (int rung_index = 1; rung_index <= parameters_.n_rungs && sell_avail > 0; ++rung_index)
         {
             double sell_price = round_to_tick(sell_base * (1.0 + parameters_.deviation_sell * rung_index / 100.0), OrderSide::SELL);
 
-            if (average_anchor && current_price > 0.0 && sell_price <= current_price)
+            if (sell_from_average && current_price > 0.0 && sell_price <= current_price)
             {
                 sell_price = round_to_tick(current_price, OrderSide::SELL);
             }
@@ -781,7 +781,7 @@ public:
         //  점진 진입: add_below_sma_only면 현재가가 3분봉 기준선 아래(실제 눌림)일 때만 물타기를 깐다.
         //  → 활성 즉시 base+물타기를 한꺼번에 예약해 1분 만에 10% 만재되던 성격을 제거. 기준선 위/근처에선
         //    base(+익절 매도레그)만 유지하고, 진짜 눌림이 와야 평단을 낮춘다.
-        //  추세확장 슬리브(anchor_on_price)는 add_below_simple_moving_average_only=false로 돌린다 — 이격이 벌어진
+        //  추세확장 슬리브(base_on_price)는 add_below_simple_moving_average_only=false로 돌린다 — 이격이 벌어진
         //   구간에서 "기준선 아래"는 거의 안 오므로 켜 두면 분할 매수가 영영 안 깔린다. 그 슬리브의
         //   하방 분할 매수 자체는 buy_rungs=0으로 끈다(2026-09-11 회의 §1-4).
         // 워밍업(기준선=일봉SMA20) 구간에는 물타기를 잠근다. 존 진입 조건이 이격 -pullback_percent~
@@ -792,7 +792,7 @@ public:
         {
             for (int buy_rung_index = 1; buy_rung_index <= parameters_.buy_rungs; ++buy_rung_index)
             {
-                double buy_price = round_to_tick(buy_anchor * (1.0 - parameters_.deviation_buy * buy_rung_index / 100.0), OrderSide::BUY);
+                double buy_price = round_to_tick(buy_base_line * (1.0 - parameters_.deviation_buy * buy_rung_index / 100.0), OrderSide::BUY);
                 int    rung_quantity = quantity_for(rung_notional, buy_price);
 
                 if (rung_quantity <= 0)
@@ -856,12 +856,12 @@ public:
             }
         }
 
-        // 데드밴드는 분할 주문 앵커 기준이다. 현재가 앵커(anchor_on_price)에서 SMA로 재면 값이
+        // 데드밴드는 분할 주문 기준점 기준이다. 현재가 기준점(base_on_price)에서 SMA로 재면 값이
         //  틱마다 바뀌는데 데드밴드는 조용하다고 판정해 (b)가 걸리지 않았다(09-11 TRENDX 재구성
         //  669회 vs DEVSCALE 160회).
-        const double anchor_reference   = parameters_.anchor_on_price ? base_line : simple_moving_average;
-        const double reprice_band = parameters_.reprice_move_ticks * tick_size(anchor_reference);
-        const bool   simple_moving_average_quiet    = last_anchor_ > 0.0 && std::fabs(anchor_reference - last_anchor_) < reprice_band;
+        const double ladder_reference   = parameters_.base_on_price ? base_line : simple_moving_average;
+        const double reprice_band = parameters_.reprice_move_ticks * tick_size(ladder_reference);
+        const bool   simple_moving_average_quiet    = last_ladder_reference_ > 0.0 && std::fabs(ladder_reference - last_ladder_reference_) < reprice_band;
 
         // (a) 계획 시그니처+pos가 직전과 동일하면 live 유무와 무관하게 스킵.
         //     매도가능=0이라 아무것도 못 깔아 live_가 빈 채로 남을 때(원장 보유↔매도가능 괴리)
@@ -979,7 +979,7 @@ public:
             }
         }
 
-        last_anchor_ = anchor_reference;
+        last_ladder_reference_ = ladder_reference;
         last_ladder_signal_ = signal;
         last_position_ = position;
         last_rebuild_ = std::chrono::steady_clock::now();
@@ -1484,7 +1484,7 @@ private:
     std::vector<Live> live_;               // 현재 live로 낙관하는 예약들
     std::vector<MarketData> daily_;        // 일봉 캐시(정배열/눌림 판정)
     double equity_ = 0.0;                   // 사이징 기준 자본(총평가금) 스냅샷 — 일별 갱신
-    double last_anchor_ = 0.0;             // 마지막 재구성의 분할 주문 앵커(SMA 또는 현재가) — 데드밴드 기준
+    double last_ladder_reference_ = 0.0;             // 마지막 재구성의 분할 주문 기준점(SMA 또는 현재가) — 데드밴드 기준
     double last_price_ = 0.0;                 // 직전 체결가 — 시장가 청산 reference_price
     double last_average_price_ = 0.0;             // 잔고 평단(sellable_qty가 갱신) — reference_price 폴백
     int64_t last_warm_log_ms_ = 0;         // 봉 부족 로그 스로틀(60초)

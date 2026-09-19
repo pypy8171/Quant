@@ -4,7 +4,7 @@
 >
 > `bias-auditor`는 작업 시작 시 이 파일을 먼저 읽고 각 편향 판정의 대조 기준으로 쓴다. 이 문서에 "확인불가"로 남은 항목은 통과가 아니라 미해결이다.
 >
-> _근거·코드앵커는 2026-08-17 4개 도메인 에이전트(backtest-runner·bias-auditor·data-sourcer·strategist) 합동 심의._
+> _근거·코드 줄번호 참조는 2026-08-17 4개 도메인 에이전트(backtest-runner·bias-auditor·data-sourcer·strategist) 합동 심의._
 
 ---
 
@@ -19,7 +19,7 @@
   4. **단일 진입점·캐시 정합** — 엔진 계약(authenticate/get_historical_ohlcv/prefetch/universe_top/ticker_name) 유지. 소스의 데이터 형태·수정주가·기간을 바꾸면 **캐시(`.yf_cache`) 무효화**(parquet가 티커-only 키잉이라 소스만 바꾸면 오래된 캐시가 조용히 과거를 오염).
 - 헬퍼는 **import 재사용**(새 엔진 분기 금지 = 단일소스 유지).
 
-> _앵커: `engine.py`(체결·비용·결정론 집약), `PYQuant/data/yfinance_source.py`(auto_adjust·캐시), `PYQuant/data/index_source.py`._
+> _줄번호 참조: `engine.py`(체결·비용·결정론 집약), `PYQuant/data/yfinance_source.py`(auto_adjust·캐시), `PYQuant/data/index_source.py`._
 
 ---
 
@@ -48,7 +48,7 @@
 - **익스포저 e[t]는 close t 까지의 정보로 산출**, 수익 = e[t-1] × 지수수익 (`run_curve`: `pos=e[t-1]; net[t]=pos*ret[t]-turn*(cost/2)`).
 - **US→KR 시차**: KR(^KS11) 벤치마크에선 US/글로벌 신호(^GSPC·^IXIC·^VIX·^TNX·^SOX·CL=F·DXY)를 `strict=True`(직전 세션값 `dates_src < d`)로 정렬. 미국장은 한국장 이후 마감 → 같은날 US종가를 KR신호로 쓰면 1일 룩어헤드. (KRW는 동일세션이라 strict 제외.)
 - **매크로 = 신호전용**: 수익곡선 ret[t]는 오직 거래대상 지수 종가로만 생성. TNX/oil/DXY/KRW로 수익곡선 만드는 범주오류 금지.
-- **전역통계 금지 (신설)**: 파생지표·정규화·변동성 앵커는 **롤링/확장창(t 이전만)**으로만 산출한다. 전표본(홀드아웃·미래 포함) mean/std/quantile 정규화는 strict·e[t-1]을 통과해도 **미래정보 누출**이다. (반례: `bt09_strategies.py`의 N4 `leak` mode = 전 구간 변동성 앵커 → 격리·비교 전용, **판정근거 불가**.) 단, 단위·정합성 탐지용 전 구간 상수 통계는 예외로 명시 기재.
+- **전역통계 금지 (신설)**: 파생지표·정규화·변동성 기준점은 **롤링/확장창(t 이전만)**으로만 산출한다. 전표본(홀드아웃·미래 포함) mean/std/quantile 정규화는 strict·e[t-1]을 통과해도 **미래정보 누출**이다. (반례: `bt09_strategies.py`의 N4 `leak` mode = 전 구간 변동성 기준점 → 격리·비교 전용, **판정근거 불가**.) 단, 단위·정합성 탐지용 전 구간 상수 통계는 예외로 명시 기재.
 
 ---
 

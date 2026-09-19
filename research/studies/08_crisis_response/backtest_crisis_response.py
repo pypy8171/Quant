@@ -12,7 +12,7 @@
     데이터는 PYQuant/data/index_source.py 의 IndexSource().get_historical_ohlcv 만 사용.
  2. 지수·매크로 시계열만(종목레벨 breadth/dispersion 금지 — 생존편향).
  3. 룩어헤드 차단: 익스포저 e[t]는 오직 close t 까지의 정보로 산출, 수익은 e[t-1]*ret[t].
-    peak/trough 앵커는 이벤트별 진단(회복참여율 등) *평가에만* 쓰고 신호엔 절대 안 넣음.
+    peak/trough 기준점은 이벤트별 진단(회복참여율 등) *평가에만* 쓰고 신호엔 절대 안 넣음.
  4. 정직성: 1차 지표 = 단일 연결곡선 Calmar/Sharpe 1개(검정 1회). 이벤트별은 진단·중앙값만.
     임계값은 사전등록 + 전체 스윕 공개(best 셀 보고 금지). 비용 0.21/0.5/1.0% 감도.
 
@@ -60,7 +60,7 @@ CB_COOL = 5                 # M4 냉각 거래일
 M5_TARGET_VOL = 0.15        # M5 목표 연율변동성
 ANNUAL = math.sqrt(252.0)
 
-# ── 이벤트 목록(진단용 창). 대표지수 = 창내 max-dd 앵커 기준 ──────────────
+# ── 이벤트 목록(진단용 창). 대표지수 = 창내 max-dd 기준점 기준 ──────────────
 EVENTS = [
     ("1929_great_crash",       "financial",    "^GSPC", "1929-06-01", "1933-06-30"),
     ("1987_black_monday",      "structural",   "^GSPC", "1987-07-01", "1988-06-30"),
@@ -338,7 +338,7 @@ def slice_window(dates, d0, d1):
 
 
 def window_maxdd_anchor(closes):
-    """창 내 표준 max-drawdown 앵커(peak_idx, trough_idx, dd%). hindsight — 평가전용."""
+    """창 내 표준 max-drawdown 기준점(peak_idx, trough_idx, dd%). hindsight — 평가전용."""
     n = len(closes)
     if n < 2:
         return 0, 0, 0.0
@@ -546,7 +546,7 @@ def write_readme(bms, results, sweeps):
     L.append("# 위기 인과적 대응 백테스트\n")
     L.append("> ⚠️ **이 리포트의 범위와 한계.** 이 표는 *엣지 발견이 아니라 인과적 스트레스테스트*다. "
              "익스포저는 오직 **t-1 종가까지의 정보**로 산출(룩어헤드 차단), 수익=e[t-1]×지수수익. "
-             "peak/trough 앵커는 **평가에만** 쓰고 신호엔 절대 미투입. "
+             "peak/trough 기준점은 **평가에만** 쓰고 신호엔 절대 미투입. "
              "방어대상 실질표본 n≈6~9(위기 17건, 방어가 켜지는 slow·L·systemic 소수)라 "
              "**임계값 단일 우승셀 보고 금지** — 사전등록 그리드 전량 공개. "
              "1차 지표=단일 연결곡선 Calmar/샤프(위험조정수익) 1개(검정 1회), 이벤트별은 진단·중앙값만. "
@@ -610,7 +610,7 @@ def write_readme(bms, results, sweeps):
             continue
         L.append(f"\n## 이벤트별 진단 · {bm['name']} (기본비용 0.21%, 진단용 — best 셀 판정 금지)\n")
         L.append("행 = 위기창 로컬 재계산. **낙폭축소%p**(+면 방어) / **회복참여%**(trough→+126일, "
-                 "룰수익/BH수익, 100%=완전참여·낮을수록 반등반납). trough 앵커는 hindsight·평가전용.\n")
+                 "룰수익/BH수익, 100%=완전참여·낮을수록 반등반납). trough 기준점은 hindsight·평가전용.\n")
         codes = [c for c, *_ in METHODS if c != "BH"]
         L.append("| 이벤트 | 거동 | BH낙폭% | " + " | ".join(f"{c} 축소/참여" for c in codes) + " |")
         L.append("|---|---|---|" + "|".join(["---"] * len(codes)) + "|")

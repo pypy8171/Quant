@@ -33,7 +33,7 @@ struct ItbCandidate
 {
     std::string ticker;
     std::string name;
-    double      day_open = 0.0; // 원, 당일 시가 앵커. 0이면 랭킹 스냅샷가로 폴백된다
+    double      day_open = 0.0; // 원, 당일 시가 기준점. 0이면 랭킹 스냅샷가로 폴백된다
 };
 
 // 레짐 위험회피면 빈 목록을 돌려준다(신규 미등록). 실패도 예외가 아니라 빈 목록이다.

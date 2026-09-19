@@ -76,7 +76,7 @@ INDICATORS = (
     ("정배열", "일봉 종가 단순이동평균 SMA5 > SMA10 > SMA20 > SMA60. 마지막 조건(SMA20>SMA60)만 align_ma_tol_pct 허용오차. 장 시작 전 일봉 250개(daily_lookback)로 계산하고 align_refresh_sec 마다 다시 본다."),
     ("이격(%)", "(현재가 ÷ 일봉 SMA20 − 1) × 100. 진입 존은 이 값의 구간이다 — DEVSCALE은 SMA20 아래로 눌린 쪽(−pullback_pct ~ +entry_upper_pct), TRENDX는 SMA20 위로 늘어난 쪽(entry_lower_pct ~ entry_upper_pct)."),
     ("존 히스테리시스", "존 경계에 zone_hyst_pct 를 더한 폭을 벗어나야 '존 이탈'로 본다. 경계에서 들락거리며 사고팔기를 막는다."),
-    ("3분봉 SMA", "주문 가격 기준. interval_min 분봉 sma_period 개의 단순이동평균. anchor_on_price 가 참이면 SMA 대신 현재가에 앵커한다."),
+    ("3분봉 SMA", "주문 가격 기준. interval_min 분봉 sma_period 개의 단순이동평균. base_on_price 가 참이면 SMA 대신 현재가에 기준점한다."),
     ("스캔 점수", "장중 유니버스는 거래대금·등락률·섹터 순위로 점수를 매겨 score_top_n 까지 가져온다(score_w_vol·score_w_liquidity 가중). 가격 min_price 원 미만·거래대금 min_turnover 원 미만은 뺀다."),
 )
 
@@ -87,8 +87,8 @@ RULES = (
         "steps": (
             {"phase": "후보", "what": "장중 스캔 점수 상위 {score_top_n}종목(max_universe {max_universe}). 가격 {min_price}원 이상, 거래대금 {min_turnover}원 이상, 코스닥 포함({kosdaq_enabled}). 지수가 {risk_off_index_pct}% 아래면 신규 진입 안 함."},
             {"phase": "진입 조건", "what": "정배열(require_aligned {require_aligned}) 이고 이격이 +{entry_lower_pct}% ~ +{entry_upper_pct}% 안(존). 존은 ±{zone_hyst_pct}% 히스테리시스로 유지 → 실제 보유 구간 약 +{zone_low}% ~ +{zone_high}%."},
-            {"phase": "매수 주문", "what": "존에 들어오고 포지션이 없으면 현재가 앵커(anchor_on_price {anchor_on_price}) 지정가 1회. 추가 매수 없음(buy_rungs {buy_rungs}). 금액 = 자산 × {base_pct} (바닥 {notional_floor_krw}원 ~ 상한 {notional_cap_krw}원). 가격이 {reprice_move_ticks}틱 움직이면 {min_rebuild_sec}초 뒤 주문을 다시 짠다."},
-            {"phase": "익절", "what": "평단(sell_anchor_avg {sell_anchor_avg}) + {dev_sell_pct}% 지정가 매도 {n_rungs}단. 체결되면 그 종목은 {reentry_cooldown_sec}초 재진입 금지.", "exit_category": "익절밴드"},
+            {"phase": "매수 주문", "what": "존에 들어오고 포지션이 없으면 현재가 기준점(base_on_price {base_on_price}) 지정가 1회. 추가 매수 없음(buy_rungs {buy_rungs}). 금액 = 자산 × {base_pct} (바닥 {notional_floor_krw}원 ~ 상한 {notional_cap_krw}원). 가격이 {reprice_move_ticks}틱 움직이면 {min_rebuild_sec}초 뒤 주문을 다시 짠다."},
+            {"phase": "익절", "what": "평단(sell_base_average {sell_base_average}) + {dev_sell_pct}% 지정가 매도 {n_rungs}단. 체결되면 그 종목은 {reentry_cooldown_sec}초 재진입 금지.", "exit_category": "익절밴드"},
             {"phase": "손절", "what": "평단 − {stop_loss_pct}% 에 닿으면 시장가 전량. 뒤 {stop_cooldown_sec}초 재진입 금지(D-053).", "exit_category": "손절"},
             {"phase": "존 이탈", "what": "정배열이 깨지거나 이격이 존±히스테리시스 밖으로 나가면 시장가 청산.", "exit_category": "존이탈"},
             {"phase": "SMA 트레일", "what": "trail_sma_exit {trail_sma_exit} — 꺼져 있다. 켜면 3분봉 SMA − {trail_sma_tol_pct}% 아래로 내려올 때 청산(09-11 회의, 리플레이 뒤 결정)."},

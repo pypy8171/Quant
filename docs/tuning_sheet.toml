@@ -44,13 +44,13 @@ note = "notional_floor/cap_krw 가 둘 다 >0 이면 원 단위가 우선(D-036)
 [[config_group]]
 name = "전략 신호 — 진입·주문 재구성"
 keys = ["type", "id_prefix", "sma_period", "dev_sell_pct", "dev_buy_pct", "min_dev_pct", "pullback_pct", "entry_upper_pct", "entry_lower_pct", "zone_hyst_pct",
-        "anchor_on_price", "reprice_move_ticks", "min_rebuild_sec", "interval_min", "min_action_ms", "reentry_cooldown_sec", "add_below_sma_only",
+        "base_on_price", "reprice_move_ticks", "min_rebuild_sec", "interval_min", "min_action_ms", "reentry_cooldown_sec", "add_below_sma_only",
         "ladder_cross_guard", "market", "exchange", "quantity", "pbr_max"]
 note = "3분봉 SMA 기준 눌림 매수·이격 매도. 단위 함정: entry_upper_pct 는 퍼센트(5.0), max_dev_pct 는 분수(0.05)인데 같은 임계를 가리킨다."
 
 [[config_group]]
 name = "청산 — 손절·트레일·장마감"
-keys = ["stop_loss_pct", "stop_cooldown_sec", "sell_anchor_avg", "trail_sma_*", "eod_exit_hhmm"]
+keys = ["stop_loss_pct", "stop_cooldown_sec", "sell_base_average", "trail_sma_*", "eod_exit_hhmm"]
 note = "슬리브 자체 보유분의 청산 규칙. 승계 보유분은 아래 manage_holdings 가 따로 본다."
 
 [[config_group]]

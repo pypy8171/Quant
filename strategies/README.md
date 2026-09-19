@@ -22,7 +22,7 @@ strategies/
 | 전략 | SPEC | 최근 실증 | 검증 경로 |
 |------|------|------|------|
 | **DeviationScale** (일봉 정배열+눌림 존 게이트 + 3분봉 이격도 분할매매) | — (3분봉 PIT 재현 불가로 의도적 제외) | [DeviationScale/live/](DeviationScale/live/) (모의계좌 forward 실증 중) | forward 전용 → [BACKTEST_FLOW 트랙 B](../research/BACKTEST_FLOW.md) |
-| **ITB** (IntradayBreakout v2, 1분 버킷 채널 돌파 + 당일 시가앵커) | [ITB/SPEC.md](ITB/SPEC.md) | [ITB/live/](ITB/live/) (모의계좌 forward 관찰 중) | forward 전용 → [BACKTEST_FLOW 트랙 B](../research/BACKTEST_FLOW.md) |
+| **ITB** (IntradayBreakout v2, 1분 버킷 채널 돌파 + 당일 시가 기준점) | [ITB/SPEC.md](ITB/SPEC.md) | [ITB/live/](ITB/live/) (모의계좌 forward 관찰 중) | forward 전용 → [BACKTEST_FLOW 트랙 B](../research/BACKTEST_FLOW.md) |
 
 - **실증 규칙:** 하루 = 라이브 1파일(`live/YYYY-MM-DD.md`). 같은 날은 같은 파일에 갱신, 날짜가 바뀌면 새 파일. `/trade-log`가 `quant_trader.log`에서 재생성한다. 추측·과장 금지, 로그로 검증 가능한 수치만 — 체결통보가 남은 건만 원 단위 실현손익 확정.
 

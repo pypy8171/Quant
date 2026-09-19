@@ -182,6 +182,6 @@ private:
     std::atomic<long long> last_fill_utc_{0};
     std::time_t defer_since_ = 0;             // 연속으로 미루기 시작한 시각(0=안 미루는 중)
     bool   have_baseline_ = false;
-    double baseline_      = 0.0;              // 전일 총자산(없으면 첫 대조 총평가금)(원) — 손실컷 앵커
+    double baseline_      = 0.0;              // 전일 총자산(없으면 첫 대조 총평가금)(원) — 손실컷 기준점
     ledger::ReconcileBreaker breaker_;
 };

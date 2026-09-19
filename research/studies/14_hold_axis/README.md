@@ -32,7 +32,7 @@
   | entry_lower_pct / entry_upper_pct | 5.0 / 35.0 | TRENDX 블록 | 2026-09-15 |
   | zone_hyst_pct → 유지 밴드 | 4.0 → [1.0, 39.0] | TRENDX 블록 | 2026-09-15 |
   | stop_loss_pct | 2.5 | TRENDX 블록 | 2026-09-15 |
-  | dev_sell_pct(익절) | 3.0, `sell_anchor_avg=true` | TRENDX 블록 | 2026-09-15 |
+  | dev_sell_pct(익절) | 3.0, `sell_base_average=true` | TRENDX 블록 | 2026-09-15 |
   | score_top_n / score_w | 25 / trend 1.0, pull 1.0, vol 0.5, liq 0.7 | TRENDX 블록 | 2026-09-15 |
   | 풀 크기 | 500 | 13_trendx_gate와 같게 | 2026-09-07 |
 

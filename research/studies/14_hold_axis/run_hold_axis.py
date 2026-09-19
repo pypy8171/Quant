@@ -55,7 +55,7 @@ ENTRY_LOWER = 5.0       # entry_lower_pct
 ENTRY_UPPER = 35.0      # entry_upper_pct
 ZONE_HYST = 4.0         # zone_hyst_pct — 유지 밴드는 [lower-hyst, upper+hyst]
 STOP_PCT = 2.5          # stop_loss_pct (평단=진입가, 물타기 없음 buy_rungs=0)
-TP_PCT = 3.0            # dev_sell_pct, sell_anchor_avg=true
+TP_PCT = 3.0            # dev_sell_pct, sell_base_average=true
 SCORE_TOP_N = 25        # score_top_n
 W_TREND, W_PULL, W_VOL, W_LIQ = 1.0, 1.0, 0.5, 0.7   # score_w_* (w_supply 미적용)
 Z_CLIP = 2.0            # 횡단면 z ±2σ 클립(UniverseScanner.score_cross_section)

@@ -4,14 +4,14 @@
 위기 레짐 지수레벨 특성화 (엔진 무관, 오프라인).
 
 목적: 역사적 위기 이벤트를 지수·매크로 시계열만으로 기술통계 특성화한다.
-      매매를 하지 않으며(순수 기술통계), peak/trough 앵커는 사후참조(hindsight) 라벨이다.
+      매매를 하지 않으며(순수 기술통계), peak/trough 기준점은 사후참조(hindsight) 라벨이다.
 
 절대 경계(스펙):
  1. 엔진(PYQuant/backtest/engine.py)·yfinance_source.py 절대 미수정. 데이터는
     PYQuant/data/index_source.py 의 IndexSource().get_historical_ohlcv 만 사용.
  2. 종목레벨 breadth/dispersion 금지(생존편향). 지수·매크로만.
  3. FIFO 원장 재사용 금지 — 이 파일은 독립 분석 레이어.
- 4. peak/trough 앵커 = hindsight 라벨. 신호 타이밍 스킬 주장 불가.
+ 4. peak/trough 기준점 = hindsight 라벨. 신호 타이밍 스킬 주장 불가.
  5. n<3 셀은 verdict = "표본부족 — 일반화 금지" 고정. README 상단 배너 하드코딩.
 
 단독 실행:
@@ -50,10 +50,10 @@ VIX_SYSTEMIC = 40.0     # vix_peak >= 40 → systemic
 KRW_SYSTEMIC = 10.0     # krw_chg(%) >= 10 (원화 급락) → systemic
 
 ANNUAL = math.sqrt(252.0)
-RECOVERY_EXT_DAYS = 500  # 앵커창 이후 recovery 탐색용 달력일 여유(peak/trough 앵커는 창 내 고정)
+RECOVERY_EXT_DAYS = 500  # 기준점 탐색창 이후 recovery 탐색용 달력일 여유(peak/trough 기준점은 창 내 고정)
 
 # ── 이벤트 목록 (id, 원인, 대표지수, search_start_ym, search_end_ym, 보조지표) ──
-# 대표지수 = 앵커계산 기준. search창 = 앵커 탐색범위(실제 peak/trough 는 데이터로 결정).
+# 대표지수 = 기준점 계산 기준. search창 = 기준점 탐색범위(실제 peak/trough 는 데이터로 결정).
 EVENTS = [
     ("1929_great_crash",       "financial",      "^GSPC", "1929-06", "1933-06", []),
     ("1987_black_monday",      "structural",     "^GSPC", "1987-07", "1988-06", ["^IXIC", "^TNX"]),
@@ -84,7 +84,7 @@ DATA_FLOOR = {
 BANNER = (
     "> ⚠️ 이 표는 **엣지 발견이 아니라 시나리오 스트레스테스트**다. 위기 표본 n≈17, "
     "거동셀당 1~3개 → 셀단위 전략우열 비교는 통계적으로 무의미. 지수레벨 기술통계만이며 "
-    "개별종목·수급·survivorship 미반영. peak/trough 앵커는 hindsight 라벨(신호타이밍 스킬 "
+    "개별종목·수급·survivorship 미반영. peak/trough 기준점은 hindsight 라벨(신호타이밍 스킬 "
     "주장 불가). 데이터: yfinance 무키, 대표지수 커버리지는 커버리지표 참조."
 )
 
@@ -197,7 +197,7 @@ def analyze_event(src, ev, coverage):
     eid, cause, rep, s_ym, e_ym, aux = ev
     s_start = ym_to_start(s_ym)
     s_end = ym_to_end(e_ym)
-    # recovery 는 앵커창 이후까지 볼 수 있게 다운로드 상한을 여유있게(앵커는 창 내 고정).
+    # recovery 는 기준점 탐색창 이후까지 볼 수 있게 다운로드 상한을 여유있게(기준점은 창 내 고정).
     dl_end = add_days(s_end, RECOVERY_EXT_DAYS)
     today = as_of().isoformat()
     if dl_end > today:
@@ -219,14 +219,14 @@ def analyze_event(src, ev, coverage):
         row["note"] = "대표지수 결측 — 분석불가"
         return row
 
-    # 앵커 탐색은 [s_start, s_end] 내에서만.
+    # 기준점 탐색은 [s_start, s_end] 내에서만.
     anchor = [i for i, b in enumerate(bars) if b.date <= s_end]
     if not anchor:
-        row["note"] = "앵커창 내 데이터 없음"
+        row["note"] = "기준점 탐색창 내 데이터 없음"
         return row
     a0, a1 = anchor[0], anchor[-1]
 
-    # ── 앵커 = 표준 최대낙폭(peak→trough 하락폭이 최대인 쌍). ──
+    # ── 기준점 = 표준 최대낙폭(peak→trough 하락폭이 최대인 쌍). ──
     # 스펙의 "창 내 종가 최댓값 첫도달=peak" 단순화는 회복랠리가 직전고점을 넘는
     # 장기창(예: 1997 IMF, 2020 코로나)에서 peak 가 창 후반 회복고점에 꽂혀 폭락을
     # 통째로 놓친다(dd≈0 아티팩트). 위기 특성화의 취지는 '가장 깊은 하락'이므로
@@ -508,12 +508,12 @@ def write_readme(rows, grid, coverage):
 
     # 방법·경계
     L.append("## 데이터·방법의 한계\n")
-    L.append("- **앵커 = 표준 최대낙폭(max-drawdown)**: search창 내에서 peak→trough 하락폭이 최대인 쌍. "
+    L.append("- **기준점 = 표준 최대낙폭(max-drawdown)**: search창 내에서 peak→trough 하락폭이 최대인 쌍. "
              "스펙 원문의 '창 내 종가 최댓값 첫도달=peak' 단순화는 회복랠리가 직전고점을 넘는 장기창"
              "(1997 IMF·2020 코로나 등)에서 peak 가 창 후반 회복고점에 꽂혀 폭락을 통째로 놓치는 "
              "dd≈0 아티팩트를 만들어 **의도적으로 대체**함(정직한 라벨 우선). 결정론적·peak≤trough 보장.\n")
-    L.append("- peak/trough 는 **search창 내에서만** 앵커(사후참조 hindsight). recovery 만 창 이후 "
-             f"최대 {RECOVERY_EXT_DAYS}일 여유 다운로드로 탐색(앵커는 이동 안 함).\n")
+    L.append("- peak/trough 는 **search창 내에서만** 기준점(사후참조 hindsight). recovery 만 창 이후 "
+             f"최대 {RECOVERY_EXT_DAYS}일 여유 다운로드로 탐색(기준점은 이동 안 함).\n")
     L.append("- 종목레벨 breadth/dispersion·수급·survivorship **미반영**(생존편향 방지 위해 의도적 배제).\n")
     L.append("- FIFO 원장 재사용 안 함 — 매매 왕복 없는 지수곡선 전용 독립 레이어.\n")
     L.append("- 짧은 search창(예: 2008 GFC end=2010-06)에서 지수 완전회복이 창+여유 밖이면 L 로 라벨될 수 있음 — "

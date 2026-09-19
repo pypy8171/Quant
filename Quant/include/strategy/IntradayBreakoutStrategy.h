@@ -15,10 +15,10 @@
 //  입력은 오직 WS/REST 체결 틱(on_trade) — 깨진 REST 일봉 경로(G1/G2)를 우회한다.
 //
 //  [입력]  국내 실시간 체결 채널(H0STCNT0) 틱을 on_trade(TradeData)로 받는다. trade.price=현재가, trade.hhmmss=HHMMSS 정수.
-//  [진입]  1분 버킷 종가가 최근 N분 채널 고점을 상향 돌파 + 당일 앵커 대비 +epsilon 위
+//  [진입]  1분 버킷 종가가 최근 N분 채널 고점을 상향 돌파 + 당일 기준점 대비 +epsilon 위
 //          → 시장가 신규 매수. 버킷 마감 시에만 평가(틱 노이즈/휩쏘 억제).
 //          수량은 notional_per_position>0이면 floor(명목/현재가), 아니면 entry_quantity 고정.
-//          앵커는 day_open_price(>0) 주입 시 당일 시가, 아니면 첫 관측 틱(자기참조 방지).
+//          기준점은 day_open_price(>0) 주입 시 당일 시가, 아니면 첫 관측 틱(자기참조 방지).
 //  [청산]  포지션 성격에 따라 분기(매 틱, 손실통제 우선):
 //    (A) 물린 보유분(position_is_seed_): 고점 기준 넓은 트레일링 스탑 seed_trail_percent + 본전근처
 //        반등 청산 exit_near_average_percent. 이미 -30% 물린 평단에 -3% 하드손절을 걸어 개장
@@ -45,7 +45,7 @@ public:
                              double exit_near_average_percent = 0.0,   // 물린분 본전탈출(평단 -x% 이내, 0=비활성)
                              int no_new_entry_hhmm = 0,        // 신규진입 금지 시각(0→eod_hhmm)
                              double notional_per_position = 0.0, // 종목당 명목(0→entry_quantity 고정)
-                             double day_open_price = 0.0)         // 당일 시가 앵커 주입(0→첫 틱)
+                             double day_open_price = 0.0)         // 당일 시가 기준점 주입(0→첫 틱)
         : ticker_(std::move(ticker)), entry_quantity_(entry_quantity), hold_quantity_(hold_quantity),
           start_in_position_(start_in_position), channel_min_(channel_min),
           epsilon_(breakout_epsilon), trail_percent_(trail_percent), hard_percent_(hard_percent),
@@ -105,7 +105,7 @@ public:
         closes_.clear();
         current_hhmm_ = -1;
         current_bucket_last_ = 0.0;
-        anchor_price_ = 0.0;
+        day_base_price_ = 0.0;
         last_ = 0.0;
         in_position_ = start_in_position_;
         position_is_seed_ = start_in_position_; // 기동 보유분 = 물린 시드분
@@ -150,10 +150,10 @@ public:
         int hhmmss = trade.hhmmss;
         int hhmm = hhmmss / 100;
 
-        // 당일 앵커 — day_open 주입 우선, 아니면 첫 유효 틱. 신규 돌파 기준가.
-        if (anchor_price_ <= 0.0)
+        // 당일 기준점 — day_open 주입 우선, 아니면 첫 유효 틱. 신규 돌파 기준가.
+        if (day_base_price_ <= 0.0)
         {
-            anchor_price_ = (day_open_price_ > 0.0 ? day_open_price_ : price);
+            day_base_price_ = (day_open_price_ > 0.0 ? day_open_price_ : price);
 
             if (in_position_) // 보유분: 트레일은 현재가 기준(물린 평단 무시 → 개장 투매 방지)
             {
@@ -168,9 +168,9 @@ public:
                 }
                 else if (position_is_seed_)
                 {
-                    LOG_INFO("[ITB] 시드 앵커 " + tag() + " 첫 틱 " + price_string(price) + " (저장 고점 없음)");
+                    LOG_INFO("[ITB] 시드 기준점 " + tag() + " 첫 틱 " + price_string(price) + " (저장 고점 없음)");
                     // 첫 틱이 곧 고점이면 그것도 남긴다 — 미끄러지기만 하는 종목은 새 고점이 없어
-                    //  저장 기회가 없고, 다음 재기동이 다시 첫 틱으로 앵커를 내린다.
+                    //  저장 기회가 없고, 다음 재기동이 다시 첫 틱으로 기준점을 내린다.
                     SeedPeakStore::save(ticker_, peak_);
                     last_saved_peak_ = peak_;
                 }
@@ -390,7 +390,7 @@ public:
             bool session_ok = hhmm < no_entry_hhmm; // 마감 임박 신규진입 금지
 
             if (cooldown_ok && session_ok && bucket_close > high_count &&
-                bucket_close > anchor_price_ * (1.0 + epsilon_))
+                bucket_close > day_base_price_ * (1.0 + epsilon_))
             {
                 int quantity = entry_quantity_;
 
@@ -401,7 +401,7 @@ public:
 
                 signal = make_signal(OrderSide::BUY, quantity, bucket_close, trade.timestamp,
                                   "채널돌파 종가=" + price_string(bucket_close) + ">hiN=" + price_string(high_count) +
-                                  " 앵커=" + price_string(anchor_price_));
+                                  " 기준점=" + price_string(day_base_price_));
                 LOG_INFO("[ITB] BUY " + tag() + " qty=" + std::to_string(quantity) + " @" +
                          price_string(bucket_close) + " (돌파 hiN=" + price_string(high_count) + ")");
                 in_position_ = true;
@@ -513,7 +513,7 @@ private:
     int hold_quantity_;    // 현재 보유수량(시드분 또는 진입분) — 매도 전량 기준
     bool start_in_position_;
     int channel_min_; // 채널 창(완성 1분 버킷 개수)
-    double epsilon_;      // 진입 버퍼(앵커 대비)
+    double epsilon_;      // 진입 버퍼(기준점 대비)
     double trail_percent_;
     double hard_percent_;
     int eod_hhmm_;    // 마감 강제청산 기준(KST HHMM)
@@ -533,12 +533,12 @@ private:
     bool   seed_hard_excluded_ = false; // 구형 보유라 하드스톱 대상에서 뺐나
     int no_new_entry_hhmm_ = 0;         // 신규진입 금지 시각(0→eod_hhmm)
     double notional_per_position_ = 0.0; // 종목당 명목(원)
-    double day_open_price_ = 0.0;          // 당일 시가 앵커 주입
+    double day_open_price_ = 0.0;          // 당일 시가 기준점 주입
 
     std::deque<double> closes_; // 완성 1분 버킷 종가(최근 channel_min_개)
     int current_hhmm_ = -1;         // 현재 집계 중 버킷(HHMM)
     double current_bucket_last_ = 0.0;
-    double anchor_price_ = 0.0; // 당일 앵커(시가 또는 첫 틱)
+    double day_base_price_ = 0.0; // 당일 기준점(시가 또는 첫 틱)
     double last_ = 0.0;
     bool in_position_ = false;
     bool position_is_seed_ = false;

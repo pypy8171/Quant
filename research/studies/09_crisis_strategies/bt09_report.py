@@ -119,7 +119,7 @@ def write_readme(bms, results, sweeps, readme_path):
             continue
         L.append(f"\n## 이벤트별 진단 · {bm['name']} (기본비용, 진단용 — best 셀 판정 금지)\n")
         L.append("방어(C*)=**낙폭축소%p**(+면 덜 빠짐) / 공세(O*)=**초과수익%p**(+면 BH초과). "
-                 "trough 앵커는 hindsight·평가전용.\n")
+                 "trough 기준점은 hindsight·평가전용.\n")
         codes = [c for c, *_ in STRATS]
         L.append("| 이벤트 | 거동 | BH낙폭% | BH수익% | " + " | ".join(codes) + " |")
         L.append("|---|---|---|---|" + "|".join(["---"] * len(codes)) + "|")

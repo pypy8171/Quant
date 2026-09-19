@@ -164,7 +164,7 @@ static void load_intraday_breakout(StrategyLoadCtx& context, const json& node)
     int entry_quantity      = node.value("entry_qty", 1); // 신규 돌파 진입 수량(명목 미지정 시)
     double average_loss_percent = node.value("avg_loss_pct", 0.0); // 평단 대비 손절률(0=비활성)
     // ── v2 파라미터(strategies/ITB/SPEC.market_data §2/§3) ──
-    double seed_trail_percent      = node.value("seed_trail_pct", 0.0);      // 물린분 앵커 트레일(넓게)
+    double seed_trail_percent      = node.value("seed_trail_pct", 0.0);      // 물린분 기준점 트레일(넓게)
     double exit_near_average_percent   = node.value("exit_near_avg_pct", 0.0);   // 물린분 본전탈출 임계
     int    no_new_entry_hhmm   = node.value("no_new_entry_hhmm", 0);     // 신규진입 금지 시각(0→eod)
     double notional_per_position = node.value("notional_per_position", 0.0); // 종목당 명목(원)
@@ -402,7 +402,7 @@ static void load_market_making(StrategyLoadCtx& context, const json& node)
 // ─── 보유분 청산 관리 (DEVIATION_SCALE 보조) ───────────────────────────────
 //  스캔 유니버스가 잡지 못한 잔고 보유분(아침에 산 물린분 등)마다 "청산 전용" ITB를
 //  붙인다. 신규진입은 no_new_entry_hhmm=1(항상 과거)로 영구 차단 → 오직 보호·청산만:
-//    seed_trail_percent(넓은 앵커 트레일) + exit_near_average_percent(본전근처 반등청산)
+//    seed_trail_percent(넓은 기준점 트레일) + exit_near_average_percent(본전근처 반등청산)
 //    + average_loss_percent(평단손절, 0=비활성) + EOD(eod_exit_hhmm, 기본 2100=장중 강제청산 안 함 — 엔진이 20:00까지 도니 1600은 애프터마켓 청산이 된다, D-097).
 //  covered = 이미 스캔 전략이 담당하는 티커(중복 부착 방지). rest_price_feed 합성틱으로 on_trade 구동.
 static void attach_holding_guardians(StrategyLoadCtx& context, const json& guardians_node,
@@ -582,7 +582,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
     // 개장 후 3분봉이 안 쌓인 구간(20봉×3분=60분)에 일봉 SMA20을 임시 기준선으로 쓴다.
     //  false면 예전대로 봉이 찰 때까지 발주하지 않는다(개장~10:00 발주 0).
     base.daily_basis_warmup = node.value("daily_basis_warmup", true);
-    base.cross_guard       = node.value("ladder_cross_guard", true);  // 분할 매수 층이 현재가를 넘지 않게 앵커 클램프(D-006)
+    base.cross_guard       = node.value("ladder_cross_guard", true);  // 분할 매수 층이 현재가를 넘지 않게 기준점 클램프(D-006)
     base.pullback_percent      = node.value("pullback_pct", 2.0);
     base.entry_upper_percent   = node.value("entry_upper_pct", 0.0);   // SMA20 위 진입 허용%(0=순수 눌림만)
     base.zone_hysteresis_percent     = node.value("zone_hyst_pct", 4.0);     // 존 유지 여유폭(%) — 경계 진동 방지
@@ -593,7 +593,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
     base.min_rebuild_sec    = node.value("min_rebuild_sec", 0);
     base.id_prefix          = node.value("id_prefix", std::string("DEVSCALE"));
     base.entry_lower_percent    = node.value("entry_lower_pct", 0.0);
-    base.anchor_on_price    = node.value("anchor_on_price", false);
+    base.base_on_price    = node.value("base_on_price", false);
     base.buy_rungs          = node.value("buy_rungs", -1);
     base.stop_loss_percent      = node.value("stop_loss_pct", 0.0);
     base.trail_simple_moving_average_exit     = node.value("trail_sma_exit", false);
@@ -601,7 +601,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
     base.stop_cooldown_sec  = node.value("stop_cooldown_sec", 900);
     base.reentry_cooldown_sec = node.value("reentry_cooldown_sec", 600); // 전량 청산 뒤 재진입 대기(0=끄기)
     base.dust_krw           = node.value("dust_krw", 250000.0);     // 평가금 이 아래 잔존 보유는 시장가 정리(0=끄기)
-    base.sell_anchor_average    = node.value("sell_anchor_avg", false);
+    base.sell_base_average    = node.value("sell_base_average", false);
     base.prefetch_jitter_percent = node.value("prefetch_jitter_pct", 50);
     base.bar_source        = node.value("bar_source", std::string("ws"));   // "ws"(기본)|"rest" (D-069·D-072)
     base.eod_hhmm          = node.value("eod_exit_hhmm", 1515);

@@ -224,7 +224,7 @@ void LedgerReconciler::capture_baseline(double total_evaluation, std::optional<d
     else
     {
         // 전일 총자산(bfdy_tot_asst_evlu_amt)이 있으면 그것이 기준선이다. 첫 대조는 개장 뒤에 돌기
-        //  때문에 그 시점 총평가금을 앵커로 잡으면 이월 보유분의 시초 갭이 손실컷에서 통째로 빠진다
+        //  때문에 그 시점 총평가금을 기준점으로 잡으면 이월 보유분의 시초 갭이 손실컷에서 통째로 빠진다
         //  (09-14: 전일 대비 -140만원인데 게이트는 -25만원만 봐 -100만원 한도가 한 번도 안 걸렸다).
         //  전일 입출금이 있으면 그만큼 어긋나므로 갭을 로그로 남긴다.
         if (previous_day_total && *previous_day_total > 0.0)
@@ -336,13 +336,13 @@ void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)
                 }
 
                 const double delta = total_evaluation - baseline_;
-                gate_.set_daily_pnl(delta); // 손실컷용(세션 앵커) — 리스크게이트 동작 유지
+                gate_.set_daily_pnl(delta); // 손실컷용(세션 기준점) — 리스크게이트 동작 유지
                 gate_.set_equity(total_evaluation); // 총노출 게이트(§3d) 분모 — 총평가금 스냅샷 갱신
                 LOG_INFO("[Engine] 잔고 대조: 당일손익 " + std::to_string(static_cast<long long>(delta)) + "원 (총평가 " +
                          std::to_string(static_cast<long long>(total_evaluation)) + ")");
 
                 // 표시 전용: 전일 총자산(bfdy_tot_asst_evlu_amt) 대비 오늘 손익 — launch 시점과 무관하게
-                //  "전일종가 대비 당일손익"을 찍는다. 손실컷 기준선(세션 앵커)과는 분리(리스크 동작 불변).
+                //  "전일종가 대비 당일손익"을 찍는다. 손실컷 기준선(세션 기준점)과는 분리(리스크 동작 불변).
                 if (balance->previous_day_total_asset && *balance->previous_day_total_asset > 0.0)
                 {
                     const double day_delta = total_evaluation - *balance->previous_day_total_asset;

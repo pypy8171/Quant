@@ -13,12 +13,12 @@ STRATEGIES.md "검증 필요 가정" 표 #7·#8에 해당한다.
 
 - **가설 #7 (ATR 스탑)**: 고정 −2.5% 손절은 종목 변동성을 무시해서 변동성 큰 종목을 너무 일찍 턴다.
   일봉 ATR14 × 1.5/2.0/2.5로 바꾸면 같은 신호에서 성과가 좋아진다.
-- **가설 #8 (진입 지연)**: 존 활성화 즉시(anchor_on_price=true) 사는 대신 **닫힌 3분봉 2개 연속 종가 상승**을
+- **가설 #8 (진입 지연)**: 존 활성화 즉시(base_on_price=true) 사는 대신 **닫힌 3분봉 2개 연속 종가 상승**을
   확인하고 사면 진입 직후 역행이 줄어든다.
 - **사전등록 임계값**: 라이브 반영 후보가 되려면 **방향과 크기 둘 다** 유의해야 한다 —
   (a) 기저 대비 짝지은 ΔR > 0 이고 월 시계열 1표본 t의 p < 0.05, (b) 구간을 갈라도 부호가 뒤집히지 않을 것,
   (c) 일봉 4구간 격자에서 2022bear 홀드아웃 단독으로도 악화가 아닐 것. 하나라도 어긋나면 기각 또는 보류.
-- **기저**: 현행 라이브 TRENDX(`Quant/config/config_dev_paper.json`) — entry 5~35 · anchor_on_price=true ·
+- **기저**: 현행 라이브 TRENDX(`Quant/config/config_dev_paper.json`) — entry 5~35 · base_on_price=true ·
   n_rungs=1 · buy_rungs=0 · dev_sell_pct=3.0 · **stop_loss_pct=2.5** · stop_cooldown_sec=900.
   이 config는 읽기만 했고 고치지 않았다.
 - **데이터**: (일봉) `PYQuant/data/bars_all_pit.parquet` 2019-01-02~2026-09-04, 상폐 포함.

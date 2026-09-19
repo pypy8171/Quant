@@ -219,7 +219,7 @@ def render(spec):
 
 
 def anchor(title):
-    # GitHub·VS Code 식 제목 앵커 — 공백은 -, 구두점은 뺀다
+    # GitHub·VS Code 식 제목 링크 id — 공백은 -, 구두점은 뺀다
     a = title.strip().lower()
     a = re.sub(r"[^\w\s\-가-힣]", "", a)
     return re.sub(r"\s+", "-", a)

@@ -1448,9 +1448,9 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& config
             }
         }
 
-        // 통과 → 신규 진입 유니버스로 등록(당일 시가 앵커 주입).
-        //  ⚠️ 앵커는 랭킹 스냅샷 현재가(r.price)가 아니라 실제 당일 시가여야 함.
-        //  갭업일엔 스냅샷=장중 고점 근처라 앵커가 고점에 고정되어 돌파 진입이 영구 차단됨.
+        // 통과 → 신규 진입 유니버스로 등록(당일 시가 기준점 주입).
+        //  ⚠️ 기준점은 랭킹 스냅샷 현재가(r.price)가 아니라 실제 당일 시가여야 함.
+        //  갭업일엔 스냅샷=장중 고점 근처라 기준점이 고점에 고정되어 돌파 진입이 영구 차단됨.
         //  inquire-price(FHKST01010100)의 stck_oprc로 진짜 시가를 조회, 0이면 r.price 폴백.
         double day_open = scan_kis.get_fundamentals(ranked.ticker).open;
 
@@ -1462,7 +1462,7 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& config
         out.push_back({ranked.ticker, ranked.name, day_open});
         LOG_INFO("[Main]   + ITB 스캔 " + ranked.ticker + " " + ranked.name + " (등락 " +
                  std::to_string(ranked.change_rate) + "% 가격 " +
-                 std::to_string(static_cast<long long>(ranked.price)) + " 시가앵커 " +
+                 std::to_string(static_cast<long long>(ranked.price)) + " 시가 기준점 " +
                  std::to_string(static_cast<long long>(day_open)) + " 거래대금 " +
                  std::to_string(static_cast<long long>(ranked.trade_value)) + ")");
         ++added;

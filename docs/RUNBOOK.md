@@ -191,7 +191,7 @@ $env:TEMP = "C:\build_tmp"; $env:TMP = "C:\build_tmp"
 
 ## 7. forward 데이터 적재 (조회 전용 · 주문 없음)
 
-<!-- sync: PYQuant/tools/investor_flow_logger.py@41e5901 PYQuant/tools/index_intraday_logger.py@34fde54 -->
+<!-- sync: PYQuant/tools/investor_flow_logger.py@41e5901 PYQuant/tools/index_intraday_logger.py@89dbbb5 -->
 
 외국인·기관 확정 수급(장 마감 후 18:10 KST 이후):
 
