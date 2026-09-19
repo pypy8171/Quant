@@ -5,14 +5,14 @@
 두 곳에서 읽는다.
   1. 실행 중인 config(감시견 상태 파일 _private/_auto_trade_day.json 의 config, 없으면 Quant/config/config_dev_paper.json).
      키·값·`//` 주석을 그대로 싣는다. 비밀 키(앱키·계좌)는 뺀다.
-  2. 코드에 박힌 상수 — docs/tuning_sheet.toml 의 [[anchor]] 가 파일·정규식으로 가리킨다. 값은 소스에서 그때그때 뽑으므로
+  2. 코드에 박힌 상수 — docs/tuning_sheet.toml 의 [[code_value]] 가 파일·정규식으로 가리킨다. 값은 소스에서 그때그때 뽑으므로
      코드를 고치면 시트도 따라온다. 정규식이 못 잡으면 --check 가 exit 1 로 막는다(턴 끝 sync-gate · 커밋 docs-gate).
 
 시트를 손으로 고치지 않는다. 수치를 바꾸려면 시트의 "어디서" 칸이 가리키는 config 키나 파일:줄을 고친다.
 
 사용:
     py scripts/gen_tuning_sheet.py                 # 생성(= --apply)
-    py scripts/gen_tuning_sheet.py --check         # 시트가 낡았거나 앵커가 깨졌으면 exit 1
+    py scripts/gen_tuning_sheet.py --check         # 시트가 낡았거나 코드 수치를 못 찾으면 exit 1
     py scripts/gen_tuning_sheet.py --config <경로>  # 다른 config 기준으로
 """
 from __future__ import annotations
@@ -192,7 +192,7 @@ def config_rows(config_path: Path, spec: dict) -> tuple[list[dict], dict[str, st
     return rows, comments
 
 
-# ----------------------------- 코드 앵커 -----------------------------
+# ----------------------------- 코드 수치(줄번호 참조) -----------------------------
 
 def config_override_label(config_key: str, config_values: dict[str, list]) -> str:
     """config_key 가 실행 중 config 에 있으면 그 값(들)을, 없으면 코드 기본값이 적용 중이라는 표시를 만든다."""
@@ -205,32 +205,32 @@ def config_override_label(config_key: str, config_values: dict[str, list]) -> st
     return f"config `{config_key}` 가 덮어씀: {shown}"
 
 
-def anchor_rows(spec: dict, config_values: dict[str, list]) -> tuple[list[dict], list[str]]:
-    """[[anchor]] 마다 파일을 열어 정규식 첫 그룹을 값으로 뽑는다. 실패는 errors 에 적는다.
-    config_values 는 실행 중 config 의 {마지막 조각: [값…]} — config_key 가 있는 앵커에 덮어쓰기 여부를 붙인다."""
+def code_value_rows(spec: dict, config_values: dict[str, list]) -> tuple[list[dict], list[str]]:
+    """[[code_value]] 마다 파일을 열어 정규식 첫 그룹을 값으로 뽑는다. 실패는 errors 에 적는다.
+    config_values 는 실행 중 config 의 {마지막 조각: [값…]} — config_key 가 있는 항목에 덮어쓰기 여부를 붙인다."""
     rows, errors = [], []
-    for anchor in spec.get("anchor", []):
-        path = ROOT / anchor["file"]
+    for item in spec.get("code_value", []):
+        path = ROOT / item["file"]
         if not path.is_file():
-            errors.append(f"{anchor['id']}: 파일 없음 {anchor['file']}")
+            errors.append(f"{item['id']}: 파일 없음 {item['file']}")
             continue
         text = path.read_text(encoding="utf-8-sig", errors="replace")
-        match = re.search(anchor["regex"], text, re.M)
+        match = re.search(item["regex"], text, re.M)
         if not match:
-            errors.append(f"{anchor['id']}: 정규식이 {anchor['file']} 에서 안 잡힘 — {anchor['regex']}")
+            errors.append(f"{item['id']}: {item['file']} 에서 이 수치 줄을 못 찾음(변수 이름이 바뀌었으면 docs/tuning_sheet.toml 의 찾기 패턴을 고친다) — {item['regex']}")
             continue
         line = text.count("\n", 0, match.start()) + 1
         value = match.group(1) if match.groups() else match.group(0)
         rows.append({
             "kind": "code",
-            "key": anchor["id"],
+            "key": item["id"],
             "value": value,
-            "unit": anchor.get("unit", ""),
-            "group": anchor.get("group", "기타"),
-            "meaning": anchor.get("meaning", ""),
-            "where": f"[{anchor['file']}:{line}](../{anchor['file']}#L{line})",
-            "config_key": anchor.get("config_key", ""),
-            "config_override": config_override_label(anchor["config_key"], config_values) if anchor.get("config_key") else "",
+            "unit": item.get("unit", ""),
+            "group": item.get("group", "기타"),
+            "meaning": item.get("meaning", ""),
+            "where": f"[{item['file']}:{line}](../{item['file']}#L{line})",
+            "config_key": item.get("config_key", ""),
+            "config_override": config_override_label(item["config_key"], config_values) if item.get("config_key") else "",
         })
     return rows, errors
 
@@ -287,7 +287,7 @@ def render(config_path: Path, rows: list[dict], errors: list[str], spec: dict) -
     out.append("코드 상수의 목록(어느 파일의 어느 줄을 볼지)은 `docs/tuning_sheet.toml` 이 정본이다.")
     out.append("")
     if errors:
-        out.append("## ⚠ 앵커 실패 — 코드가 바뀌어 값을 못 뽑았다. `docs/tuning_sheet.toml` 의 정규식을 고친다")
+        out.append("## ⚠ 못 찾은 코드 수치 — 코드가 바뀌어 값을 못 뽑았다. `docs/tuning_sheet.toml` 의 찾기 패턴을 고친다")
         out.append("")
         for error in errors:
             out.append(f"- {error}")
@@ -321,12 +321,12 @@ def render(config_path: Path, rows: list[dict], errors: list[str], spec: dict) -
     out.append("## 3. 묶음별 전체 — 데이터 소스·엔진·리스크·전략")
     out.append("")
     order = [group["name"] for group in spec.get("config_group", [])]
-    for group in spec.get("anchor_group", []):
+    for group in spec.get("code_value_group", []):
         if group["name"] not in order:
             order.append(group["name"])
     if "기타" not in order:
         order.append("기타")
-    notes = {group["name"]: group.get("note", "") for group in spec.get("config_group", []) + spec.get("anchor_group", [])}
+    notes = {group["name"]: group.get("note", "") for group in spec.get("config_group", []) + spec.get("code_value_group", [])}
     by_group: dict[str, list[dict]] = {}
     for row in rows:
         by_group.setdefault(row["group"], []).append(row)
@@ -378,7 +378,7 @@ def value_with_unit(row: dict) -> str:
 
 
 def fill_placeholders(text: str, rows: list[dict], errors: list[str], where: str) -> str:
-    """{이름} 을 앵커 id 또는 config 키(마지막 조각)의 실제 값으로 바꾼다. 슬리브마다 다르면 "/" 로 잇는다."""
+    """{이름} 을 코드 수치 id 또는 config 키(마지막 조각)의 실제 값으로 바꾼다. 슬리브마다 다르면 "/" 로 잇는다."""
     by_code = {row["key"]: row for row in rows if row["kind"] == "code"}
     by_config: dict[str, list[dict]] = {}
 
@@ -395,7 +395,7 @@ def fill_placeholders(text: str, rows: list[dict], errors: list[str], where: str
         if name in by_config:
             return "/".join(dict.fromkeys(value_with_unit(row) for row in by_config[name]))
 
-        errors.append(f"cycle {where}: {{{name}}} 을 앵커 id 나 config 키에서 못 찾음")
+        errors.append(f"cycle {where}: {{{name}}} 을 코드 수치 id 나 config 키에서 못 찾음")
         return f"{{{name}?}}"
 
     return PLACEHOLDER.sub(substitute, text)
@@ -442,7 +442,7 @@ def build(argv: list[str]) -> tuple[str, str, list[str]]:
     for row in rows:
         config_values.setdefault(row["key"], []).append(row["value"])
 
-    code_rows, errors = anchor_rows(spec, config_values)
+    code_rows, errors = code_value_rows(spec, config_values)
     all_rows = rows + code_rows
     sheet = render(config_path, all_rows, errors, spec)
     cycle = render_cycle(config_path, all_rows, errors, spec)
@@ -459,7 +459,7 @@ def main(argv: list[str]) -> int:
 
         if stale or errors:
             for error in errors:
-                print(f"[anchor] {error}")
+                print(f"[코드 수치] {error}")
 
             for name in stale:
                 print(f"{name}: 낡음 (py scripts/gen_tuning_sheet.py 로 재생성)")
@@ -475,9 +475,9 @@ def main(argv: list[str]) -> int:
         path.write_text(text, encoding="utf-8", newline="\n")
 
     for error in errors:
-        print(f"[anchor] {error}")
+        print(f"[코드 수치] {error}")
 
-    print(f"[ok] wrote {rel(OUT)} · {rel(OUT_CYCLE)} ({len(errors)} 앵커 실패)")
+    print(f"[ok] wrote {rel(OUT)} · {rel(OUT_CYCLE)} (못 찾은 코드 수치 {len(errors)}개)")
     return 1 if errors else 0
 
 

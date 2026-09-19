@@ -211,7 +211,8 @@ def check_staged(r: Report, comment_only: bool) -> list[str]:
             r.ask(f"템플릿 {s}이 스테이징됨 — 내용이 자리표시자뿐인지 눈으로 확인")
     r.passed(f"보안 스캔(경로·시크릿·개인정보·비공개 단어 {len(words)}개)")
     # (d-2) 평이화 게이트
-    md = [s for s in staged if s.endswith(".md") and os.path.exists(s)]
+    # .toml 도 넣는다 — 시트 명세(docs/tuning_sheet.toml)의 뜻풀이 문장이 산문이라 그렇다(2026-09-19).
+    md = [s for s in staged if s.endswith((".md", ".toml")) and os.path.exists(s)]
     data_islands = [s for s in staged if s in ("research/dashboard/reviews.json", "research/dashboard/live.json")]
     if md or data_islands:
         rc, out = run(["py", "scripts/check_plain_language.py", *md, *data_islands])
