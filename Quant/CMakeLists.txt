@@ -581,6 +581,12 @@ endforeach()
 enable_testing()
 set(QUANT_TEST_RUN_DIR ${CMAKE_CURRENT_BINARY_DIR}/test_run)
 file(MAKE_DIRECTORY ${QUANT_TEST_RUN_DIR})
+# 산출물 자기 정리 — test_run/logs에 며칠치 latency_trace.csv·order_reasons_*.txt가 쌓이면
+#  test_latency_trace·test_tick_capture·test_replay_source·test_engine이 ctest에서만 실패한다(단독 실행은
+#  통과). 픽스처 하나가 매 ctest 시작 때 그 폴더를 비우고, 아래 모든 테스트가 그 픽스처를 요구한다.
+add_test(NAME test_run_clean_logs
+    COMMAND ${CMAKE_COMMAND} -E rm -rf ${QUANT_TEST_RUN_DIR}/logs)
+set_tests_properties(test_run_clean_logs PROPERTIES FIXTURES_SETUP quant_test_run_logs)
 foreach(_qt IN LISTS QUANT_ASSERT_TARGETS)
     if(_qt STREQUAL "test_ringbuffer_stress")
         add_test(NAME ${_qt} COMMAND ${_qt} 3 WORKING_DIRECTORY ${QUANT_TEST_RUN_DIR})
@@ -590,6 +596,7 @@ foreach(_qt IN LISTS QUANT_ASSERT_TARGETS)
         add_test(NAME ${_qt} COMMAND ${_qt} WORKING_DIRECTORY ${QUANT_TEST_RUN_DIR})
     endif()
     set_tests_properties(${_qt} PROPERTIES TIMEOUT 120
+        FIXTURES_REQUIRED quant_test_run_logs
         ENVIRONMENT "QUANT_LOG_DIR=${QUANT_TEST_RUN_DIR}/logs")
 endforeach()
 
