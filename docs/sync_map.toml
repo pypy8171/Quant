@@ -15,6 +15,18 @@
 #   note  = 무엇을 맞춰야 하는지 한 줄
 
 [[rule]]
+src = ["scripts/eod_timetable.ps1"]
+deps = ["docs/AUTOMATION.md#1. OS 예약작업"]
+check = "gen"
+note = "마감 시간표(모의/실계좌)는 gen:eod-timetable 블록. _private/AUTOMATION_HUB.md 는 gen_facts --apply 가 같이 다시 쓴다"
+
+[[rule]]
+src = ["scripts/eod_timetable.ps1", "scripts/gen_automation_hub.py"]
+deps = ["docs/guides/MAINTENANCE_AUTOMATION.md#자동화 층", ".claude/commands/dashboard-sync.md", ".claude/commands/auto-trade-day.md", ".claude/skills/stock-study/SKILL.md"]
+check = "hint"
+note = "예약작업 시각을 글로 적은 곳. 시각 숫자는 넣지 말고 허브·시간표 스크립트를 가리키게 한다"
+
+[[rule]]
 src = ["Quant/CMakeLists.txt", "Quant/tests/test_*.cpp"]
 deps = ["docs/guides/PROJECT_GUIDE.md#단위 테스트"]
 check = "gen"

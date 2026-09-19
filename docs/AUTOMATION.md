@@ -11,15 +11,33 @@
 세션이 꺼져 있어도 돈다. 대신 **PC가 켜져 있어야 한다.** Claude 크론(`CronCreate`)은 세션 한정이고 7일 만에
 만료되므로 지속 자동화에는 쓰지 않는다.
 
-| 작업 이름 | 시각 | 실행 | 산출물 |
+시각은 계좌 모드로 갈린다(아래 블록, 정본 `scripts/eod_timetable.ps1`). 무엇을 만드는지는 그 아래 표.
+
+<!-- gen:eod-timetable -->
+| 작업 이름 | 모의 (is_paper=true) | 실계좌 (is_paper=false) | 실행 |
 |---|---|---|---|
-| `QuantAutoTradeGuard` | 평일 08:45부터 5분마다 7시간(15:45까지) | `powershell -File scripts/auto_trade_guard.ps1` | 워치독이 없으면 하루 루프 기동 (§4) |
-| `Quant EOD AutoDoc` | 평일 16:05 | `python scripts/eod_autodoc.py` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` · **결정 원장 파생 문서**(`sync_ledgers.py`) |
-| `claude_stock_study` | 평일 20:30 | `claude -p "/stock-study auto"` | `_private/주식_study/{날짜}_재무/` 1종목 · 저널 · 스터디 사이트 |
-| `claude_dashboard_sync` | 평일 21:10 | `claude -p "/dashboard-sync"` | 대시보드·스터디 사이트 HTML 재생성. 아티팩트 재발행은 헤드리스 `claude -p`에 Artifact 도구가 없어 못 한다 — 대화 세션에서 `/dashboard-sync`를 불러 같은 URL로 올린다 |
-| `Quant Maintain Daily` | 평일 16:20 | `python scripts/maintain.py --daily` | `EOD AutoDoc`(16:05) 뒤. 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers`. 대시보드는 부르지 않는다 |
-| `Quant Maintain Weekly` | 금요일 21:20 | `python scripts/maintain.py --weekly` | `claude_dashboard_sync`(21:10) 뒤. 미참조 스크립트 · 에이전트 죽은 경로 · 부산물 용량 · 주석 밀도 · 훅 배선 양방향 검사 → `docs/reports/MAINTENANCE_WEEKLY.md` |
-| `Quant Minute Backfill` | 평일 16:40 | `python scripts/eod_minute_backfill.py` | 아침 스캔 `Quant/config/universe_scan.json`을 `PYQuant/data/pit_universe/<오늘>.json`으로 옮기고 그날 유니버스 전체의 1분봉을 `PYQuant/data/minute/`에 쌓는다(`PYQuant/tools/minute_backfill.py --top-n 0`, 약 260종목×4콜). 15:45 전엔 돌지 않는다(반쪽 파일이 그날치를 건너뛰게 만든다). 대시보드 차트가 같은 파일을 읽는다 |
+| `QuantAutoTradeGuard` | 08:45~ 5분마다, -Until 15:35, 7h | 08:45~ 5분마다, -Until 20:05, 11.5h | `powershell -File scripts\eod_timetable.ps1 -Apply` |
+| `Quant EOD AutoDoc` | 16:05 | 20:30 | `py scripts\eod_autodoc.py` |
+| `Quant Maintain Daily` | 16:20 | 20:45 | `py scripts\maintain.py --daily` |
+| `Quant Minute Backfill` | 16:40 | 21:00 | `py scripts\eod_minute_backfill.py` |
+| `claude_stock_study` | 20:30 | 21:10 | `/stock-study` |
+| `claude_dashboard_sync` | 21:10 | 21:40 | `/dashboard-sync` |
+| `Quant Maintain Weekly` | 21:20 | 21:50 | `py scripts\maintain.py --weekly` |
+<!-- /gen -->
+
+| 작업 이름 | 산출물 |
+|---|---|
+| `QuantAutoTradeGuard` | 워치독이 없으면 하루 루프 기동 (§4). 5분마다 도는 시간 폭(`-Hours`)이 매매 끝 시각을 정한다 |
+| `Quant EOD AutoDoc` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` · **결정 원장 파생 문서**(`sync_ledgers.py`) |
+| `Quant Maintain Daily` | `EOD AutoDoc` 뒤. 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers` · `gen_automation_hub`(`_private/AUTOMATION_HUB.md`). 대시보드는 부르지 않는다 |
+| `Quant Minute Backfill` | 아침 스캔 `Quant/config/universe_scan.json`을 `PYQuant/data/pit_universe/<오늘>.json`으로 옮기고 그날 유니버스 전체의 1분봉을 `PYQuant/data/minute/`에 쌓는다(`PYQuant/tools/minute_backfill.py --top-n 0`, 약 260종목×4콜). 매매 끝 15분 뒤(모의 15:45·실계좌 20:15) 전엔 돌지 않는다(반쪽 파일이 그날치를 건너뛰게 만든다). 대시보드 차트가 같은 파일을 읽는다 |
+| `claude_stock_study` | `claude -p "/stock-study auto"` → `_private/주식_study/{날짜}_재무/` 1종목 · 저널 · 스터디 사이트 |
+| `claude_dashboard_sync` | `claude -p "/dashboard-sync"` → 대시보드·스터디 사이트 HTML 재생성. 아티팩트 재발행은 헤드리스 `claude -p`에 Artifact 도구가 없어 못 한다 — 대화 세션에서 `/dashboard-sync`를 불러 같은 URL로 올린다 |
+| `Quant Maintain Weekly` | 금요일, `claude_dashboard_sync` 뒤. 미참조 스크립트 · 에이전트 죽은 경로 · 부산물 용량 · 주석 밀도 · 훅 배선 양방향 검사 → `docs/reports/MAINTENANCE_WEEKLY.md` |
+
+**한곳에서 보기:** 시간표·예약작업의 실제 등록 상태(켜짐·다음 실행·마지막 결과)·훅·대시보드 링크를 `_private/AUTOMATION_HUB.md`
+한 파일에 모은다. `py scripts/gen_automation_hub.py`가 만들고 `Quant Maintain Daily`·`gen_facts --apply`(Stop 훅 `sync-gate.ps1`)가
+다시 만든다. 대시보드를 새로 발행하거나 URL이 바뀌면 `_private/dashboards.json`에 적는다 — 허브와 `_private/LINKS.md`의 표는 거기서 생성된다.
 
 확인·수정:
 
@@ -28,7 +46,7 @@ schtasks /query /tn claude_stock_study /v /fo list | Select-String "다음 실�
 schtasks /change /tn claude_stock_study /st 20:30
 ```
 
-> **2026-09-14~09-18 정지.** 토큰 사용량을 줄이려고 클로드를 부르는 셋 — `claude_stock_study`·`claude_dashboard_sync`
+> **2026-09-14~09-18 정지, 09-19 다시 켬.** 토큰 사용량을 줄이려고 클로드를 부르는 셋 — `claude_stock_study`·`claude_dashboard_sync`
 > (둘 다 `Disable-ScheduledTask`)과 2절의 장전 시황 브리핑 루틴(enabled=false) — 을 금요일까지 껐다. 순수 파이썬 작업은
 > 그대로 돌고 `Quant Maintain Daily`는 이날 처음 Enable했다. 복구는 `Enable-ScheduledTask -TaskName claude_stock_study`,
 > `Enable-ScheduledTask -TaskName claude_dashboard_sync`, 루틴은 `/schedule`에서 켠다.
@@ -36,12 +54,7 @@ schtasks /change /tn claude_stock_study /st 20:30
 > **시간표는 계좌 모드로 갈린다 — 정본은 `scripts/eod_timetable.ps1`.** 감시견 예약작업이 넘기는 config의 `kis.is_paper`를 읽어
 > 모의면 매매 끝 15:30(KIS 모의 서버가 15:30 뒤 주문을 거부, T-18 2026-09-18 실측)·마감 루틴 16:00대, 실계좌면 애프터마켓 20:00(D-097)
 > 까지 매매·마감 루틴 20:30 시작이다. 인자 없이 돌리면 예정 vs 실제를 표로 보이고 어긋나면 exit 1, `-Apply`는 `schtasks /change`와
-> 감시견 재등록(`-Until`·`-Hours`)까지 한다. `.claude/hooks/cron-gate.ps1`은 이 스크립트의 `-Lines`를 읽으므로 따로 고칠 것이 없다.
->
-> | 계좌 | 감시견 -Until | `Quant EOD AutoDoc` | Maintain Daily | Minute Backfill | stock_study | dashboard_sync | Maintain Weekly(금) |
-> |---|---|---|---|---|---|---|---|
-> | 모의(지금) | 15:35, 7h | 16:05 | 16:20 | 16:40 | 20:30 | 21:10 | 21:20 |
-> | 실계좌 | 20:05, 11.5h | 20:30 | 20:45 | 21:00 | 21:10 | 21:40 | 21:50 |
+> 감시견 재등록(`-Until`·`-Hours`)까지 한다. `.claude/hooks/cron-gate.ps1`과 위 gen 블록·`_private/AUTOMATION_HUB.md`는 이 스크립트의 `-Lines`를 읽으므로 따로 고칠 것이 없다.
 >
 > 클로드를 부르는 두 작업은 세션 사용량 한도(17시 리셋) 때문에 모의에서도 20:30 뒤다. `scripts/eod_minute_backfill.py`의
 > 장중 실행 거부(모의 15:45·실계좌 20:15)도 같은 config를 읽는다(`--config`, 기본 `config_dev_paper.json`).

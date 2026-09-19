@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""장 마감 뒤 당일 1분봉을 로컬에 쌓는다 — 예약작업 `Quant Minute Backfill`(평일 16:40)이 부른다.
+"""장 마감 뒤 당일 1분봉을 로컬에 쌓는다 — 예약작업 `Quant Minute Backfill`(시각은 scripts/eod_timetable.ps1 — 모의 16:40·실계좌 21:00)이 부른다.
 왜 따로 있나: `PYQuant/tools/minute_backfill.py`는 날짜별 시점 유니버스(PIT, 그날 아침에 알 수 있던
 종목 목록) 파일을 요구하는데 그 파일은 백필 도구로만 만들어져 왔다. 아침 스캔 산출물
 `Quant/config/universe_scan.json`이 같은 스키마이므로 그것을 오늘 날짜로 옮겨 두고 백필을 돌린다.

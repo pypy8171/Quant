@@ -33,6 +33,8 @@
 <!-- sync-map:rules -->
 | 소스(바뀌면) | 대표 문서(봐라) | 검사 | 맞출 것 |
 |---|---|---|---|
+| `scripts/eod_timetable.ps1` | `docs/AUTOMATION.md#1. OS 예약작업` | 자동(gen 블록) | 마감 시간표(모의/실계좌)는 gen:eod-timetable 블록. _private/AUTOMATION_HUB.md 는 gen_facts --apply 가 같이 다시 쓴다 |
+| `scripts/eod_timetable.ps1`, `scripts/gen_automation_hub.py` | `docs/guides/MAINTENANCE_AUTOMATION.md#자동화 층`, `.claude/commands/dashboard-sync.md`, `.claude/commands/auto-trade-day.md`, `.claude/skills/stock-study/SKILL.md` | 힌트 | 예약작업 시각을 글로 적은 곳. 시각 숫자는 넣지 말고 허브·시간표 스크립트를 가리키게 한다 |
 | `Quant/CMakeLists.txt`, `Quant/tests/test_*.cpp` | `docs/guides/PROJECT_GUIDE.md#단위 테스트` | 자동(gen 블록) | 테스트 타깃 목록·개수는 gen:test-targets 블록이 채운다 |
 | `Quant/include/strategy/*.h`, `Quant/src/strategy/StrategyFactory.cpp`, `PYQuant/strategy/*.py` | `README.md`, `docs/guides/PROJECT_GUIDE.md`, `.claude/PROJECT_FACTS.md` | 자동(gen 블록) | 전략 클래스·로더 표는 gen:cpp-strategies / gen:py-strategies 블록 |
 | `.claude/commands/*.md`, `.claude/agents/*.md`, `.claude/skills/**`, `.claude/hooks/*.ps1`, `.claude/settings.json` | `docs/HARNESS.md`, `docs/AUTOMATION.md#훅` | 자동(gen 블록) | 개수·훅 배선표는 gen:harness-counts / gen:hooks 블록. 훅이 하는 일 설명 문단은 stamp |

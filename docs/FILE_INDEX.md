@@ -10,10 +10,10 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 81개
 - [Quant](#quant) — 169개
-- [docs](#docs) — 56개
+- [docs](#docs) — 57개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 176개
-- [scripts](#scripts) — 56개
+- [scripts](#scripts) — 57개
 - [strategies](#strategies) — 30개
 - [tools](#tools) — 3개
 
@@ -453,6 +453,7 @@
 
 ### docs/guides/
 
+- [AUTOMATION_SCRIPTING_GUIDE.md](guides/AUTOMATION_SCRIPTING_GUIDE.md) — (설명 필요)
 - [CODE_GRAPH_GUIDE.md](guides/CODE_GRAPH_GUIDE.md) — 코드 그래프 생성기 사용법
 - [CPP20_23_GUIDE.md](guides/CPP20_23_GUIDE.md) — C++20/23 기능 사용 가이드
 - [LINUX_SETUP.md](guides/LINUX_SETUP.md) — 리눅스 빌드·실행 설정 가이드
@@ -767,9 +768,10 @@
 - [eod_autodoc.py](../scripts/eod_autodoc.py) — 장 마감 매매일지 자동생성 스크립트
 - [eod_collect.py](../scripts/eod_collect.py) — 장 마감 사실 수집 스크립트
 - [eod_minute_backfill.py](../scripts/eod_minute_backfill.py) — 장 마감 후 분봉 백필 스크립트
-- [eod_timetable.ps1](../scripts/eod_timetable.ps1) — 마감 자동화 시간표 정본. 감시견 config의 `kis.is_paper`로 모의(매매 끝 15:30·루틴 16:00대)/실계좌(20:00·루틴 20:30) 시간표를 고르고, 예약작업·감시견이 그대로인지 보거나(`-Apply`로) 맞춘다. cron-gate 훅이 `-Lines`를 읽는다
+- [eod_timetable.ps1](../scripts/eod_timetable.ps1) — 마감 자동화 시간표 정본. 감시견 config의 `kis.is_paper`로 모의(매매 끝 15:30·루틴 16:00대)/실계좌(20:00·루틴 20:30) 시간표를 고르고, 예약작업·감시견이 그대로인지 보거나(`-Apply`로) 맞춘다. cron-gate 훅이 `-Lines`를 읽는다 · `-Mode paper|live`로 config 없이 한 모드 시간표만
 - [extract_swap_counterfactual.py](../scripts/extract_swap_counterfactual.py) — 슬롯 교체 가정 비교 표본 추출 스크립트
 - [file_index.py](../scripts/file_index.py) — 파일 색인 두 개를 트리와 맞추는 생성·검사 스크립트(Stop 훅·커밋 게이트)
+- [gen_automation_hub.py](../scripts/gen_automation_hub.py) — 자동화 시간표(모의/실계좌)·예약작업 실제 상태·훅 배선·대시보드 링크를 `_private/AUTOMATION_HUB.md` 한 장으로 생성한다. 원본은 `scripts/eod_timetable.ps1`·`_private/dashboards.json`. `maintain.py --daily`와 `gen_facts --apply`가 부른다
 - [gen_code_flow.py](../scripts/gen_code_flow.py) — code_flow.toml의 심볼을 소스에서 찾아 CODE_FLOW.md 생성, --check는 누락·낡음이면 exit 1
 - [gen_code_graph.py](../scripts/gen_code_graph.py) — 코드 의존 그래프 생성 스크립트
 - [gen_facts.py](../scripts/gen_facts.py) — 저장소 사실 집계 스크립트

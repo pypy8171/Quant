@@ -36,8 +36,10 @@ EXTERNAL_PREFIXES = ("http://", "https://", "mailto:", "tel:", "//")
 
 
 def tracked_files() -> set[str]:
+    # 추적 파일 + 아직 add 하지 않은 새 파일(ignore 제외). scripts/file_index.py 가 색인에 넣는 집합과 같아야
+    # 다른 세션이 둔 미추적 문서 하나가 색인 줄(file_index)과 링크 검사(여기)를 서로 어긋나게 해 커밋을 막지 않는다.
     out = subprocess.run(
-        ["git", "-C", str(REPO), "ls-files"],
+        ["git", "-C", str(REPO), "ls-files", "--cached", "--others", "--exclude-standard"],
         capture_output=True, text=True, encoding="utf-8", check=True,
     ).stdout
     return {line.strip() for line in out.splitlines() if line.strip()}

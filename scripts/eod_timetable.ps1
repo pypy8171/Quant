@@ -3,6 +3,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/eod_timetable.ps1                 # 예정 vs 실제, 어긋나면 exit 1
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/eod_timetable.ps1 -Apply          # schtasks 시각 변경 + 감시견 재등록
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/eod_timetable.ps1 -Lines          # "이름<TAB>HH:MM<TAB>대응" (cron-gate 훅이 읽는다)
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/eod_timetable.ps1 -Lines -Mode live   # config 안 읽고 그 모드 시간표만 (gen_facts·허브 생성기가 두 모드를 뽑는다)
 # 규칙:
 #   - 모의(is_paper=true): KIS 모의 서버가 15:30 뒤 주문을 거부한다(T-18, 2026-09-18 실측). 매매 끝 15:30, 마감 루틴 16:00대.
 #   - 실계좌(is_paper=false): 애프터마켓 16:00~20:00(D-097)까지 매매, 마감 루틴 20:30 시작. 실계좌 애프터마켓 주문은
@@ -14,7 +15,8 @@
 param(
     [string]$Config = $null,
     [switch]$Apply,
-    [switch]$Lines
+    [switch]$Lines,
+    [ValidateSet('', 'paper', 'live')][string]$Mode = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,7 +24,17 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 
 # ── 계좌 모드 ──
-if (-not $Config)
+if ($Mode -and $Apply)
+{
+    Write-Host "[eod_timetable] -Mode 는 보기용이다. 적용은 config 로 모드를 읽는다(-Apply -Config <파일>)"
+    exit 1
+}
+
+if ($Mode)
+{
+    $paper = ($Mode -eq 'paper')
+}
+elseif (-not $Config)
 {
     $Config = 'Quant\config\config_dev_paper.json'
     $guardTask = Get-ScheduledTask -TaskName 'QuantAutoTradeGuard' -ErrorAction SilentlyContinue
@@ -33,9 +45,13 @@ if (-not $Config)
     }
 }
 
-$configPath = if ([IO.Path]::IsPathRooted($Config)) { $Config } else { Join-Path $repo $Config }
-$paper = [bool](Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json).kis.is_paper
-$mode = if ($paper) { '모의' } else { '실계좌' }
+if (-not $Mode)
+{
+    $configPath = if ([IO.Path]::IsPathRooted($Config)) { $Config } else { Join-Path $repo $Config }
+    $paper = [bool](Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json).kis.is_paper
+}
+
+$modeLabel = if ($paper) { '모의' } else { '실계좌' }
 
 # ── 두 시간표 ──
 if ($paper)
@@ -76,6 +92,8 @@ $fix = @{
 
 if ($Lines)
 {
+    "{0}`t{1}`t{2}" -f 'QuantAutoTradeGuard', ('08:45~ 5분마다, -Until {0}, {1}h' -f $until, $guardHours), 'powershell -File scripts\eod_timetable.ps1 -Apply'
+
     foreach ($name in $plan.Keys)
     {
         "{0}`t{1}`t{2}" -f $name, $plan[$name], $fix[$name]
@@ -101,7 +119,7 @@ $guard = Get-ScheduledTask -TaskName 'QuantAutoTradeGuard' -ErrorAction Silently
 $guardUntil = if ($guard -and $guard.Actions[0].Arguments -match '-Until\s+(\S+)') { $Matches[1] } else { $null }
 $guardDuration = if ($guard) { [Xml.XmlConvert]::ToTimeSpan($guard.Triggers[0].Repetition.Duration).TotalHours } else { $null }
 
-Write-Host ("[eod_timetable] 계좌 모드 {0} (config={1})" -f $mode, $Config)
+Write-Host ("[eod_timetable] 계좌 모드 {0} (config={1})" -f $modeLabel, $Config)
 $drift = 0
 
 foreach ($name in $plan.Keys)

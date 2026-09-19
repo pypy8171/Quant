@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """유지관리 진입점. 생성기·검사기를 순서대로 부르고 rc를 남긴다.
 
-  --daily   gen_facts --apply → gen_code_graph --json → sync_ledgers. 대시보드는 부르지 않는다.
+  --daily   gen_facts --apply → gen_code_graph --json → sync_ledgers → gen_automation_hub. 대시보드는 부르지 않는다.
   --check   check_docs → check_code_refs --diff-only → gen_facts --check → gen_code_graph --check → sync_impact --stamps.
             보고만 한다. 자동 수정·스테이징 없음. 하나라도 실패면 exit 1.
   --weekly  미참조 스크립트·에이전트 죽은 경로·부산물 용량·주석 밀도·훅 배선·.claude 해시 매니페스트
@@ -83,6 +83,7 @@ def daily() -> int:
     ]
     if (ROOT / "scripts" / "sync_ledgers.py").exists():
         steps.append(("sync_ledgers", [PY, "scripts/sync_ledgers.py"]))
+    steps.append(("gen_automation_hub", [PY, "scripts/gen_automation_hub.py"]))  # _private/AUTOMATION_HUB.md — 예약작업 실제 상태를 날마다 새로 읽는다
     worst = 0
     for name, cmd in steps:
         rc, _, _ = run_step(name, cmd)

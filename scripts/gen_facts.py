@@ -2,8 +2,9 @@
 # -*- coding: utf-8 -*-
 """저장소를 세어 docs/facts.json을 만들고, 문서의 <!-- gen:이름 --> 블록을 그 값으로 채운다.
 
-셀 수 있는 것(전략·로더·거부 지점·빌드 타깃·하네스·config 키·디렉터리 트리·긴 함수)은
-손으로 적지 않고 여기서 생성한다. 생성기는 블록 범위만 치환하고 파일의 나머지는 건드리지 않는다.
+셀 수 있는 것(전략·로더·거부 지점·빌드 타깃·하네스·config 키·디렉터리 트리·긴 함수·마감 시간표)은
+손으로 적지 않고 여기서 생성한다. 대시보드 링크 표(gen:dashboards)는 _private/dashboards.json 에서 오고
+facts.json 에는 담지 않는다(링크는 git 에 올리지 않는다). 생성기는 블록 범위만 치환하고 파일의 나머지는 건드리지 않는다.
 블록이 없는 문서는 건너뛴다(블록을 넣는 일은 문서 쪽 작업이다).
 
 사용:
@@ -17,6 +18,7 @@ import ast
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -35,7 +37,10 @@ TARGET_DOCS = [
     "docs/GLOSSARY.md",
     "README.md",
     "docs/guides/CODE_GRAPH_GUIDE.md",
+    "docs/AUTOMATION.md",
+    "_private/LINKS.md",      # gitignore. 없으면 건너뛴다. 대시보드 표(gen:dashboards)는 _private/dashboards.json 에서 온다
 ]
+DASHBOARDS_JSON = ROOT / "_private" / "dashboards.json"
 
 # 트리·함수 스캔에서 빼는 폴더. 점으로 시작하는 폴더는 .claude만 남긴다(.venv·캐시가 크다).
 EXCLUDE_DIR_NAMES = {"_private", "logs", "out", ".git", "__pycache__", "node_modules"}
@@ -310,8 +315,49 @@ def long_functions() -> list[dict]:
     return sorted(out, key=lambda d: (-d["lines"], d["file"], d["symbol"]))
 
 
+def eod_timetable() -> dict:
+    """마감 자동화 시간표 두 갈래(모의·실계좌). 정본은 scripts/eod_timetable.ps1 -Lines -Mode <모드>.
+    PowerShell 이 없는 환경(Linux)에서는 지난 facts.json 값을 그대로 둔다 — 시간표는 Windows 예약작업 얘기라 거기서만 바뀐다."""
+    script = ROOT / "scripts" / "eod_timetable.ps1"
+    result: dict[str, list[dict]] = {}
+    for mode in ("paper", "live"):
+        try:
+            run = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
+                                  "-Lines", "-Mode", mode], capture_output=True, text=True, encoding="utf-8",
+                                 errors="replace", timeout=60)
+        except (OSError, subprocess.TimeoutExpired):
+            run = None
+        if run is None or run.returncode != 0:
+            break
+        rows = []
+        for line in run.stdout.splitlines():
+            parts = line.rstrip("\r").split("\t")
+            if len(parts) == 3:
+                rows.append({"name": parts[0], "at": parts[1], "run": parts[2]})
+        result[mode] = rows
+    if len(result) == 2:
+        return result
+    if OUT_JSON.exists():
+        try:
+            return json.loads(read(OUT_JSON)).get("eod_timetable", {})
+        except json.JSONDecodeError:
+            pass
+    return {}
+
+
+def dashboards() -> list[dict]:
+    """_private/dashboards.json — 발행본·로컬 대시보드·루틴 목록(링크 포함, gitignore). facts.json 에는 넣지 않는다."""
+    if not DASHBOARDS_JSON.exists():
+        return []
+    try:
+        return json.loads(read(DASHBOARDS_JSON))
+    except json.JSONDecodeError:
+        return []
+
+
 def collect() -> dict:
     return {
+        "eod_timetable": eod_timetable(),
         "cpp_strategies": cpp_strategies(),
         "strategy_loaders": strategy_loaders(),
         "py_strategies": py_strategies(),
@@ -413,7 +459,34 @@ def r_hooks(f: dict) -> str:
     return "\n".join(rows)
 
 
+def r_eod_timetable(f: dict) -> str:
+    t = f.get("eod_timetable") or {}
+    paper, live = t.get("paper", []), t.get("live", [])
+    if not paper or not live:
+        return "| (scripts/eod_timetable.ps1 -Lines 를 못 읽었다) | | | |"
+    live_at = {r["name"]: r["at"] for r in live}
+    rows = ["| 작업 이름 | 모의 (is_paper=true) | 실계좌 (is_paper=false) | 실행 |", "|---|---|---|---|"]
+    for r in paper:
+        rows.append(f"| {bt(r['name'])} | {r['at']} | {live_at.get(r['name'], '?')} | {bt(r['run'])} |")
+    return "\n".join(rows)
+
+
+def r_dashboards(f: dict) -> str:
+    items = dashboards()
+    if not items:
+        return "| (_private/dashboards.json 없음) | | |"
+    kinds = {"artifact": "발행본(웹 URL)", "routine": "클라우드 routine", "server": "로컬 서버(먼저 띄운다)", "local": "로컬 파일"}
+    rows = ["| 종류 | 페이지 | 링크 | 갱신 주체 |", "|---|---|---|---|"]
+    for d in items:
+        target = d.get("url") or d.get("path") or ""
+        link = f"<{target}>" if target.startswith("http") else bt(target)
+        rows.append(f"| {kinds.get(d.get('kind', ''), d.get('kind', ''))} | **{d['name']}** — {d.get('desc', '')} | {link} | {d.get('refreshed_by', '')} |")
+    return "\n".join(rows)
+
+
 RENDERERS = {
+    "eod-timetable": r_eod_timetable,
+    "dashboards": r_dashboards,
     "harness-counts": r_harness_counts,
     "ordergate-rejects": r_ordergate_rejects,
     "cpp-strategies": r_cpp_strategies,
@@ -483,6 +556,11 @@ def main(argv: list[str]) -> int:
             print(f"{d}: 치환 {', '.join('gen:' + s for s in stale)}")
         else:
             print(f"{d}: 낡은 블록 {', '.join('gen:' + s for s in stale)} (--apply로 치환)")
+    if apply:
+        # 허브(_private/AUTOMATION_HUB.md)는 통째로 생성물이라 블록 비교 없이 같이 다시 쓴다. 실패해도 블록 치환 결과는 유효하다.
+        hub = ROOT / "scripts" / "gen_automation_hub.py"
+        if hub.exists():
+            subprocess.run([sys.executable, str(hub)], capture_output=True, timeout=120)
     return rc
 
 

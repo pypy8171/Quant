@@ -1,4 +1,80 @@
 {
+  "eod_timetable": {
+    "paper": [
+      {
+        "name": "QuantAutoTradeGuard",
+        "at": "08:45~ 5분마다, -Until 15:35, 7h",
+        "run": "powershell -File scripts\\eod_timetable.ps1 -Apply"
+      },
+      {
+        "name": "Quant EOD AutoDoc",
+        "at": "16:05",
+        "run": "py scripts\\eod_autodoc.py"
+      },
+      {
+        "name": "Quant Maintain Daily",
+        "at": "16:20",
+        "run": "py scripts\\maintain.py --daily"
+      },
+      {
+        "name": "Quant Minute Backfill",
+        "at": "16:40",
+        "run": "py scripts\\eod_minute_backfill.py"
+      },
+      {
+        "name": "claude_stock_study",
+        "at": "20:30",
+        "run": "/stock-study"
+      },
+      {
+        "name": "claude_dashboard_sync",
+        "at": "21:10",
+        "run": "/dashboard-sync"
+      },
+      {
+        "name": "Quant Maintain Weekly",
+        "at": "21:20",
+        "run": "py scripts\\maintain.py --weekly"
+      }
+    ],
+    "live": [
+      {
+        "name": "QuantAutoTradeGuard",
+        "at": "08:45~ 5분마다, -Until 20:05, 11.5h",
+        "run": "powershell -File scripts\\eod_timetable.ps1 -Apply"
+      },
+      {
+        "name": "Quant EOD AutoDoc",
+        "at": "20:30",
+        "run": "py scripts\\eod_autodoc.py"
+      },
+      {
+        "name": "Quant Maintain Daily",
+        "at": "20:45",
+        "run": "py scripts\\maintain.py --daily"
+      },
+      {
+        "name": "Quant Minute Backfill",
+        "at": "21:00",
+        "run": "py scripts\\eod_minute_backfill.py"
+      },
+      {
+        "name": "claude_stock_study",
+        "at": "21:10",
+        "run": "/stock-study"
+      },
+      {
+        "name": "claude_dashboard_sync",
+        "at": "21:40",
+        "run": "/dashboard-sync"
+      },
+      {
+        "name": "Quant Maintain Weekly",
+        "at": "21:50",
+        "run": "py scripts\\maintain.py --weekly"
+      }
+    ]
+  },
   "cpp_strategies": [
     {
       "name": "DeviationScaleStrategy",

@@ -41,8 +41,8 @@
 |---|---|---|---|
 | 편집 | Write/Edit 훅(lexicon-gate) | 문체 검사만. 코드 리터럴·정규식은 건너뛴다 | 현행 약 2초, 목표 300ms |
 | 커밋 전 | `docs-gate.ps1` 하나. 스테이징 목록을 `.md`와 `.h/.cpp/.py`로 분기(별도 code-gate 파일을 만들지 않는다 — Bash matcher에 훅을 더 얹으면 모든 Bash 호출이 2초씩 더 느려진다) | `.md`: check_docs + check_code_refs. 코드: check_code_refs + gen_facts --check + code_graph 최신 여부. 코드 분기는 도입 1주는 경고만(shadow) | < 5초 |
-| 장 마감 | 16:05 `eod_autodoc.py`(대시보드 포함) 뒤에 `maintain.py --daily` | gen_facts → gen_code_graph(C++·Python) → sync_ledgers. 대시보드는 부르지 않는다(`refresh_dashboard.py`가 소유, 호출자를 늘리면 갈라진다). 결과는 `logs/maintenance.log` | 분 |
-| 주간 | 금요일 20:50 예약 `maintain.py --weekly`(`claude_dashboard_sync` 20:40 뒤, `StartWhenAvailable` 켬. 일요일은 이 PC가 켜져 있다는 증거가 없고 cron-gate가 주말을 건너뛰어 미실행 감지도 안 된다) | 미참조 스크립트·에이전트 죽은 경로·부산물 용량·주석 밀도·`settings.json` 훅 배선 양방향 검사(훅 파일 전부 배선됐는가, 배선 경로 전부 실재하는가, BOM UTF-8인가)·`.claude/` 해시 매니페스트 → `docs/reports/MAINTENANCE_WEEKLY.md` | 제한 없음 |
+| 장 마감 | `eod_autodoc.py`(대시보드 포함) 뒤에 `maintain.py --daily` — 시각은 계좌 모드로 갈린다(`scripts/eod_timetable.ps1`, 표는 `docs/AUTOMATION.md` 1절) | gen_facts → gen_code_graph(C++·Python) → sync_ledgers → gen_automation_hub(`_private/AUTOMATION_HUB.md`). 대시보드는 부르지 않는다(`refresh_dashboard.py`가 소유, 호출자를 늘리면 갈라진다). 결과는 `logs/maintenance.log` | 분 |
+| 주간 | 금요일 예약 `maintain.py --weekly`(`claude_dashboard_sync` 뒤, 시각은 `scripts/eod_timetable.ps1`, `StartWhenAvailable` 켬. 일요일은 이 PC가 켜져 있다는 증거가 없고 cron-gate가 주말을 건너뛰어 미실행 감지도 안 된다) | 미참조 스크립트·에이전트 죽은 경로·부산물 용량·주석 밀도·`settings.json` 훅 배선 양방향 검사(훅 파일 전부 배선됐는가, 배선 경로 전부 실재하는가, BOM UTF-8인가)·`.claude/` 해시 매니페스트 → `docs/reports/MAINTENANCE_WEEKLY.md` | 제한 없음 |
 | 세션 시작 | SessionStart 훅(cron-gate 4번째 항목) | 주간 리포트가 N일 낡았거나 빨간 항목이 있으면 한 줄 알림만. 세션 시작에 검사를 돌리지 않는다 | 밀리초 |
 
 `maintain.py --check`는 보고만 한다. 자동 적용·자동 스테이징을 하지 않으며 검사기별로 exit code를 따로 낸다.
@@ -156,5 +156,5 @@ config.json을 읽는 곳은 `Quant/src/core/AppConfig.cpp`의 `parse_config()` 
 2. `_logdir.py`와 로거 경로 고정 — 원장 오염 경로 차단.
 3. `check_code_refs.py` + docs-gate 분기(shadow 1주). 이 문서 자신이 첫 검사 대상이다.
 4. `gen_facts.py` + 표식 블록 6개 문서 — 개수 드리프트 종결. 에이전트 프롬프트의 복제 수치 제거.
-5. `gen_code_graph.py` Python 확장 + `maintain.py --daily` 16:05 배선(`eod_autodoc` 뒤).
+5. `gen_code_graph.py` Python 확장 + `maintain.py --daily` 배선(`eod_autodoc` 뒤).
 6. 주간 예약(금 20:50) + `sync_map.json` + review-reminder 지목 + cron-gate 4번째 항목.
