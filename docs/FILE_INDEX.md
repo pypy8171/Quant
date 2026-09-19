@@ -13,7 +13,7 @@
 - [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 185개
-- [scripts](#scripts) — 68개
+- [scripts](#scripts) — 69개
 - [strategies](#strategies) — 31개
 - [tools](#tools) — 3개
 
@@ -791,6 +791,7 @@
 - [claude_restore.ps1](../scripts/claude_restore.ps1) — 그 거울에서 `.claude/`를 되돌린다. 기본은 빠진 것만 채우고 `-Mirror`는 거울과 똑같이, `-From`으로 `daily\날짜` 스냅샷 지정. 세션이 스스로 부를 수 있게 `settings.json` allow에 열려 있다
 - [commit_gate.py](../scripts/commit_gate.py) — 커밋 직전 게이트(보안·문체·문서·코드 규약·재현성·커밋명 형식을 한 번에), `py scripts/commit_gate.py --msg-file <파일>`
 - [dashboard_server.py](../scripts/dashboard_server.py) — 모의매매 대시보드 서버
+- [deploy_guard.py](../scripts/deploy_guard.py) — 매매 창 안 트레이더 exe 교체를 막는 가드(A등급 결함은 --hotfix-a로 통과, D-101 결정 1)
 - [eod_autodoc.py](../scripts/eod_autodoc.py) — 장 마감 매매일지 자동생성 스크립트
 - [eod_collect.py](../scripts/eod_collect.py) — 장 마감 사실 수집 스크립트
 - [eod_minute_backfill.py](../scripts/eod_minute_backfill.py) — 장 마감 후 분봉 백필 스크립트

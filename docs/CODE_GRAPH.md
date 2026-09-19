@@ -434,7 +434,7 @@ graph LR
   p_PYQuant_live -->|2| p_PYQuant_kis
   p_PYQuant_live --> p_PYQuant_strategy
   p_PYQuant_strategy -->|6| p_PYQuant_kis
-  p_PYQuant_tests -->|3| p_PYQuant_backtest
+  p_PYQuant_tests -->|5| p_PYQuant_backtest
   p_PYQuant_tests -->|2| p_PYQuant_data
   p_PYQuant_tests -->|3| p_PYQuant_kis
   p_PYQuant_tests -->|4| p_PYQuant_strategy
@@ -443,7 +443,7 @@ graph LR
   p_PYQuant_tools -->|6| p_PYQuant_data
   p_PYQuant_tools -->|10| p_PYQuant_kis
   p_PYQuant_tools --> p_PYQuant_naver
-  p_scripts --> p_PYQuant_backtest
+  p_scripts -->|3| p_PYQuant_backtest
   p_scripts --> p_PYQuant_db
   p_scripts -->|2| p_PYQuant_kis
   p_scripts --> p_PYQuant_naver
@@ -451,8 +451,10 @@ graph LR
 
 | 파일 | 내부 import |
 |---|---|
-| `PYQuant/backtest/devscale_replay.py` | `backtest.engine` |
-| `PYQuant/backtest/engine.py` | `data.index_source`, `kis.client`, `strategy.base` |
+| `PYQuant/backtest/devscale_replay.py` | `backtest.costs` |
+| `PYQuant/backtest/engine.py` | `backtest.costs`, `backtest.ledger`, `data.index_source`, `kis.client`, `strategy.base` |
+| `PYQuant/backtest/ledger.py` | `backtest.costs` |
+| `PYQuant/backtest/metrics.py` | `backtest.costs` |
 | `PYQuant/backtest/report.py` | `backtest.engine` |
 | `PYQuant/dashboard/backfill_series_a.py` | `backtest.report` |
 | `PYQuant/data/datagokr_source.py` | `kis.client` |
@@ -477,6 +479,7 @@ graph LR
 | `PYQuant/strategy/value_contrary.py` | `kis.client`, `strategy.base` |
 | `PYQuant/tests/test_adjust_splits.py` | `data.datagokr_source` |
 | `PYQuant/tests/test_backtest_engine.py` | `backtest.engine`, `data.krx_source`, `kis.client`, `strategy.supply_demand_rank`, `strategy.value_contrary` |
+| `PYQuant/tests/test_costs_golden.py` | `backtest.costs`, `backtest.ledger` |
 | `PYQuant/tests/test_indicators.py` | `kis.client`, `strategy.indicators` |
 | `PYQuant/tests/test_metrics.py` | `backtest.metrics` |
 | `PYQuant/tests/test_regime_scorer.py` | `backtest.regime_scorer` |
@@ -508,18 +511,20 @@ graph LR
 | `scripts/check_code_conventions.py` | `rename_frags` |
 | `scripts/check_runtime_health.py` | `_logdir`, `log_patterns` |
 | `scripts/dashboard_server.py` | `_logdir`, `kis.client`, `naver.theme` |
-| `scripts/eod_autodoc.py` | `_logdir`, `log_patterns` |
+| `scripts/eod_autodoc.py` | `_logdir`, `check_runtime_health`, `log_patterns` |
 | `scripts/eod_collect.py` | `_logdir`, `log_patterns` |
+| `scripts/exit_ev.py` | `backtest.costs` |
 | `scripts/exit_ev_dashboard.py` | `_logdir`, `exit_ev`, `gen_tuning_sheet` |
 | `scripts/extract_swap_counterfactual.py` | `_logdir` |
 | `scripts/gen_automation_hub.py` | `gen_facts` |
 | `scripts/maintain.py` | `_logdir` |
 | `scripts/notify_sidecar.py` | `_logdir`, `dashboard_server`, `kis.client`, `log_patterns` |
-| `scripts/parse_quant_log.py` | `_logdir` |
+| `scripts/parse_quant_log.py` | `_logdir`, `check_runtime_health` |
 | `scripts/rename_frags.py` | `rename_ids` |
 | `scripts/rename_locals.py` | `rename_ids` |
 | `scripts/session_board_server.py` | `session_board` |
 | `scripts/summarize_trading_day.py` | `_logdir`, `log_patterns` |
+| `scripts/trade_costs.py` | `backtest.costs` |
 
 ## 프로세스 경계 파일
 

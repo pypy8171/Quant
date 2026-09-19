@@ -1078,8 +1078,10 @@
   "python": {
     "files": [
       "PYQuant/backtest/__init__.py",
+      "PYQuant/backtest/costs.py",
       "PYQuant/backtest/devscale_replay.py",
       "PYQuant/backtest/engine.py",
+      "PYQuant/backtest/ledger.py",
       "PYQuant/backtest/metrics.py",
       "PYQuant/backtest/regime_scorer.py",
       "PYQuant/backtest/report.py",
@@ -1123,6 +1125,7 @@
       "PYQuant/tests/__init__.py",
       "PYQuant/tests/test_adjust_splits.py",
       "PYQuant/tests/test_backtest_engine.py",
+      "PYQuant/tests/test_costs_golden.py",
       "PYQuant/tests/test_indicators.py",
       "PYQuant/tests/test_metrics.py",
       "PYQuant/tests/test_regime_scorer.py",
@@ -1147,6 +1150,8 @@
       "PYQuant/tools/macro_regime_feed.py",
       "PYQuant/tools/minute_backfill.py",
       "PYQuant/tools/month_start_sweep.py",
+      "PYQuant/tools/naver_bars_backfill.py",
+      "PYQuant/tools/naver_flow_backfill.py",
       "PYQuant/tools/nxt_divergence_check.py",
       "PYQuant/tools/pit_universe_backfill.py",
       "PYQuant/tools/sweep.py",
@@ -1167,6 +1172,7 @@
       "scripts/check_runtime_health.py",
       "scripts/commit_gate.py",
       "scripts/dashboard_server.py",
+      "scripts/deploy_guard.py",
       "scripts/eod_autodoc.py",
       "scripts/eod_collect.py",
       "scripts/eod_minute_backfill.py",
@@ -1202,12 +1208,20 @@
     ],
     "edges": {
       "PYQuant/backtest/devscale_replay.py": [
-        "backtest.engine"
+        "backtest.costs"
       ],
       "PYQuant/backtest/engine.py": [
+        "backtest.costs",
+        "backtest.ledger",
         "data.index_source",
         "kis.client",
         "strategy.base"
+      ],
+      "PYQuant/backtest/ledger.py": [
+        "backtest.costs"
+      ],
+      "PYQuant/backtest/metrics.py": [
+        "backtest.costs"
       ],
       "PYQuant/backtest/report.py": [
         "backtest.engine"
@@ -1313,6 +1327,10 @@
         "kis.client",
         "strategy.supply_demand_rank",
         "strategy.value_contrary"
+      ],
+      "PYQuant/tests/test_costs_golden.py": [
+        "backtest.costs",
+        "backtest.ledger"
       ],
       "PYQuant/tests/test_indicators.py": [
         "kis.client",
@@ -1420,11 +1438,15 @@
       ],
       "scripts/eod_autodoc.py": [
         "_logdir",
+        "check_runtime_health",
         "log_patterns"
       ],
       "scripts/eod_collect.py": [
         "_logdir",
         "log_patterns"
+      ],
+      "scripts/exit_ev.py": [
+        "backtest.costs"
       ],
       "scripts/exit_ev_dashboard.py": [
         "_logdir",
@@ -1447,7 +1469,8 @@
         "log_patterns"
       ],
       "scripts/parse_quant_log.py": [
-        "_logdir"
+        "_logdir",
+        "check_runtime_health"
       ],
       "scripts/rename_frags.py": [
         "rename_ids"
@@ -1461,6 +1484,9 @@
       "scripts/summarize_trading_day.py": [
         "_logdir",
         "log_patterns"
+      ],
+      "scripts/trade_costs.py": [
+        "backtest.costs"
       ]
     },
     "imported_by": {
@@ -1478,13 +1504,25 @@
         "scripts/parse_quant_log.py",
         "scripts/summarize_trading_day.py"
       ],
-      "backtest.engine": [
+      "backtest.costs": [
         "PYQuant/backtest/devscale_replay.py",
+        "PYQuant/backtest/engine.py",
+        "PYQuant/backtest/ledger.py",
+        "PYQuant/backtest/metrics.py",
+        "PYQuant/tests/test_costs_golden.py",
+        "scripts/exit_ev.py",
+        "scripts/trade_costs.py"
+      ],
+      "backtest.engine": [
         "PYQuant/backtest/report.py",
         "PYQuant/live/forward_trader.py",
         "PYQuant/main.py",
         "PYQuant/tests/test_backtest_engine.py",
         "PYQuant/tools/walkforward.py"
+      ],
+      "backtest.ledger": [
+        "PYQuant/backtest/engine.py",
+        "PYQuant/tests/test_costs_golden.py"
       ],
       "backtest.metrics": [
         "PYQuant/tests/test_metrics.py"
@@ -1496,6 +1534,10 @@
         "PYQuant/dashboard/backfill_series_a.py",
         "PYQuant/main.py",
         "scripts/backfill_studies.py"
+      ],
+      "check_runtime_health": [
+        "scripts/eod_autodoc.py",
+        "scripts/parse_quant_log.py"
       ],
       "core.logger": [
         "PYQuant/db/client.py",
@@ -1780,7 +1822,7 @@
       {
         "from": "PYQuant/tests",
         "to": "PYQuant/backtest",
-        "weight": 3
+        "weight": 5
       },
       {
         "from": "PYQuant/tests",
@@ -1825,7 +1867,7 @@
       {
         "from": "scripts",
         "to": "PYQuant/backtest",
-        "weight": 1
+        "weight": 3
       },
       {
         "from": "scripts",

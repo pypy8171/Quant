@@ -42,6 +42,10 @@ RTT_RE = re.compile(r"\[OrderRouter\] (?:접수|KIS 거부) .*?RTT=(\d+)ms(?: �
 RECON_SLOW_RE = re.compile(r"잔고 대조: 조회 소요 (\d+)ms \(사이클 (\d+)회 걸침\)")
 # 서버가 15초 안에 답을 안 준 요청 — WinHTTP 12002·curl 28. 한 요청에 한 줄(재시도 래퍼의 안내 줄은 세지 않는다)
 HTTP_TIMEOUT_RE = re.compile(r"ReceiveResponse 실패: 12002|\[CURL\] 요청 실패: Timeout was reached")
+# D-101 결정 2 — TRENDX max_universe 0이면 초기 등록이 0종목이어야 한다(스코어 경로 상한은 09-19 수정)
+TRENDX_REGISTER_RE = re.compile(r"TRENDX universe_from_scan: 초기 (\d+)종목 등록")
+# D-101 결정 3 — 마감 청산이 매매 창 안(15:25)에 나가면 이 거부는 0건이다(09-18 2,188건이 25종목 이월을 만들었다)
+SESSION_WINDOW_REJECT_RE = re.compile(r"\[OrderRouter\] 거부 .*세션 창 밖")
 
 # 임계값. 넘으면 그날 운영이 실제로 상했던 수준이다.
 MAX_STALE_ORDERS = 25     # 유령주문 재부활 — 취소 왕복이 초당한도를 밀어낸다
@@ -86,6 +90,8 @@ def collect(date: str, log: Path, since: int = 0):
     bucket_waits: list[int] = []
     recon_slow: list[tuple[int, int]] = []   # (ms, 사이클)
     http_timeouts = 0
+    trendx_registered: list[int] = []
+    session_window_rejects = 0
 
     # 7일 지난 날은 archive/quant_trader_<날짜>.log.gz — eod_autodoc이 그 경로를 그대로 넘긴다
     opener = (lambda: gzip.open(log, "rt", encoding="utf-8", errors="replace")) if log.suffix == ".gz"         else (lambda: log.open(encoding="utf-8", errors="replace"))
@@ -124,6 +130,10 @@ def collect(date: str, log: Path, since: int = 0):
                 recon_slow.append((int(found.group(1)), int(found.group(2))))
             if HTTP_TIMEOUT_RE.search(line):
                 http_timeouts += 1
+            if found := TRENDX_REGISTER_RE.search(line):
+                trendx_registered.append(int(found.group(1)))
+            if SESSION_WINDOW_REJECT_RE.search(line):
+                session_window_rejects += 1
 
     if not starts:
         return [], 0
@@ -193,6 +203,11 @@ def collect(date: str, log: Path, since: int = 0):
          f"REST 폴링 폴백 {ws_fallbacks}회 — 틱 주기 30초"),
         ("주문 접수 지연", orders_ok, "WARN", order_detail),
         ("잔고 조회 지연", http_timeouts <= MAX_HTTP_TIMEOUTS, "WARN", recon_detail),
+        ("TRENDX 정지", max(trendx_registered, default=0) == 0, "FAIL",
+         (f"초기 등록 최대 {max(trendx_registered)}종목 (기대 0, D-101 결정 2)" if trendx_registered
+          else "TRENDX 등록 줄 없음 — 전략 미로드 또는 등록 0")),
+        ("매매 창 밖 거부", session_window_rejects == 0, "FAIL",
+         f"세션 창 밖 거부 {session_window_rejects}건 (기대 0 — 마감 청산 15:25, D-101 결정 3)"),
     ]
     return rows, len(starts)
 

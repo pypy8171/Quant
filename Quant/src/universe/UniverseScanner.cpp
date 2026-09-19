@@ -1312,6 +1312,13 @@ std::vector<std::string> rank_and_truncate(const DevScanCfg& config, std::vector
         take_n = static_cast<std::size_t>(config.score_top_n);
     }
 
+    // max_universe(=max_register)는 스코어 경로에도 상한이다 — 0이면 등록 없음(전략 정지용, D-101 결정 2).
+    //  이 줄이 없으면 max_universe 0에 score_top_n 25가 25종목을 그대로 등록한다.
+    if (config.max_register >= 0 && static_cast<std::size_t>(config.max_register) < take_n)
+    {
+        take_n = static_cast<std::size_t>(config.max_register);
+    }
+
     std::vector<std::string> out;
     out.reserve(take_n);
 
