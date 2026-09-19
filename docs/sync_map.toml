@@ -62,7 +62,7 @@ note = "코드 흐름 문서의 줄 링크·시그니처는 재생성(fix_cmd). 
 [[rule]]
 src = ["Quant/include/**/*.h", "Quant/src/**/*.cpp", "scripts/*.py", "scripts/*.ps1", "PYQuant/tools/*.py", "PYQuant/data/*.py",
        "docs/tuning_sheet.toml", "scripts/gen_tuning_sheet.py"]
-deps = ["_private/TUNING_SHEET.md"]
+deps = ["_private/TUNING_SHEET.md", "_private/TUNING_CYCLE.md"]
 check = "script"
 cmd = "py scripts/gen_tuning_sheet.py --check"
 fix_cmd = "py scripts/gen_tuning_sheet.py"

@@ -27,6 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = ROOT / "docs" / "tuning_sheet.toml"
 OUT = ROOT / "_private" / "TUNING_SHEET.md"
+OUT_CYCLE = ROOT / "_private" / "TUNING_CYCLE.md"
 STATUS = ROOT / "_private" / "_auto_trade_day.json"
 DEFAULT_CONFIG = "Quant/config/config_dev_paper.json"
 
@@ -349,9 +350,89 @@ def render(config_path: Path, rows: list[dict], errors: list[str], spec: dict) -
     return "\n".join(out) + "\n"
 
 
+# ----------------------------- 매매 사이클 요약판 -----------------------------
+
+PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_]+)\}")
+
+
+def value_with_unit(row: dict) -> str:
+    unit = row.get("unit", "")
+    value = fmt_value(row["value"])
+
+    if unit in ("초", "ms", "분"):
+        seconds = float(row["value"]) * PERIOD_UNITS[unit]
+        return human_period(seconds) if unit != "ms" or seconds >= 1 else f"{value}{unit}"
+
+    if unit == "hhmm":
+        return f"{str(row['value']).zfill(4)[:2]}:{str(row['value']).zfill(4)[2:]}"
+
+    if unit in ("%", "회", "점"):
+        return f"{value}{unit}"
+
+    try:
+        number = float(str(row["value"]))
+    except (TypeError, ValueError):
+        return value
+
+    return f"{int(number):,}" if number.is_integer() and abs(number) >= 1000 else value
+
+
+def fill_placeholders(text: str, rows: list[dict], errors: list[str], where: str) -> str:
+    """{이름} 을 앵커 id 또는 config 키(마지막 조각)의 실제 값으로 바꾼다. 슬리브마다 다르면 "/" 로 잇는다."""
+    by_code = {row["key"]: row for row in rows if row["kind"] == "code"}
+    by_config: dict[str, list[dict]] = {}
+
+    for row in rows:
+        if row["kind"] == "config":
+            by_config.setdefault(row["key"], []).append(row)
+
+    def substitute(match: re.Match) -> str:
+        name = match.group(1)
+
+        if name in by_code:
+            return value_with_unit(by_code[name])
+
+        if name in by_config:
+            return "/".join(dict.fromkeys(value_with_unit(row) for row in by_config[name]))
+
+        errors.append(f"cycle {where}: {{{name}}} 을 앵커 id 나 config 키에서 못 찾음")
+        return f"{{{name}?}}"
+
+    return PLACEHOLDER.sub(substitute, text)
+
+
+def render_cycle(config_path: Path, rows: list[dict], errors: list[str], spec: dict) -> str:
+    out: list[str] = []
+    out.append("# 매매 사이클 — 어떤 데이터가 어디서 몇 초마다 (요약판)")
+    out.append("")
+    out.append(f"`py scripts/gen_tuning_sheet.py` 가 만든다 — **손으로 고치지 않는다.** 기준 config: `{rel(config_path)}`. "
+               "값은 config·코드에서 읽은 실제 값이고, 문장은 `docs/tuning_sheet.toml` 의 `[[cycle]]` 이 정본이다.")
+    out.append("모든 수치·근거 줄은 `_private/TUNING_SHEET.md`(상세판).")
+    out.append("")
+    out.append("| 단계 | 어디서 | 무엇을 | 얼마나 자주 | 어디에 쓰이나 |")
+    out.append("|---|---|---|---|---|")
+
+    for step in spec.get("cycle", []):
+        cells = [fill_placeholders(step.get(field, ""), rows, errors, step.get("step", "?"))
+                 for field in ("step", "source", "what", "every", "used_for")]
+        out.append("| " + " | ".join(cell(text) for text in cells) + " |")
+
+    out.append("")
+    out.append("## 한 줄 시간표")
+    out.append("")
+    periods = []
+
+    for step in spec.get("cycle", []):
+        every = fill_placeholders(step.get("every", ""), rows, [], "")
+        periods.append(f"- {step.get('step', '')}: {every}")
+
+    out.extend(periods)
+    return "\n".join(out) + "\n"
+
+
 # ----------------------------- main -----------------------------
 
-def build(argv: list[str]) -> tuple[str, list[str]]:
+def build(argv: list[str]) -> tuple[str, str, list[str]]:
     with open(SPEC, "rb") as handle:
         spec = tomllib.load(handle)
     config_path = running_config_path(argv)
@@ -362,25 +443,41 @@ def build(argv: list[str]) -> tuple[str, list[str]]:
         config_values.setdefault(row["key"], []).append(row["value"])
 
     code_rows, errors = anchor_rows(spec, config_values)
-    return render(config_path, rows + code_rows, errors, spec), errors
+    all_rows = rows + code_rows
+    sheet = render(config_path, all_rows, errors, spec)
+    cycle = render_cycle(config_path, all_rows, errors, spec)
+    return sheet, cycle, errors
 
 
 def main(argv: list[str]) -> int:
-    text, errors = build(argv)
+    sheet, cycle, errors = build(argv)
+    outputs = ((OUT, sheet), (OUT_CYCLE, cycle))
+
     if "--check" in argv:
-        current = OUT.read_text(encoding="utf-8-sig") if OUT.exists() else ""
-        if current.replace("\r\n", "\n") != text or errors:
+        stale = [rel(path) for path, text in outputs
+                 if (path.read_text(encoding="utf-8-sig") if path.exists() else "").replace("\r\n", "\n") != text]
+
+        if stale or errors:
             for error in errors:
                 print(f"[anchor] {error}")
-            print(f"{rel(OUT)}: 낡음 (py scripts/gen_tuning_sheet.py 로 재생성)")
+
+            for name in stale:
+                print(f"{name}: 낡음 (py scripts/gen_tuning_sheet.py 로 재생성)")
+
             return 1
-        print(f"{rel(OUT)}: 최신")
+
+        print(f"{rel(OUT)} · {rel(OUT_CYCLE)}: 최신")
         return 0
+
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(text, encoding="utf-8", newline="\n")
+
+    for path, text in outputs:
+        path.write_text(text, encoding="utf-8", newline="\n")
+
     for error in errors:
         print(f"[anchor] {error}")
-    print(f"[ok] wrote {rel(OUT)} ({len(errors)} 앵커 실패)")
+
+    print(f"[ok] wrote {rel(OUT)} · {rel(OUT_CYCLE)} ({len(errors)} 앵커 실패)")
     return 1 if errors else 0
 
 

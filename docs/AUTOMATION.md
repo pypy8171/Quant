@@ -40,7 +40,7 @@
 다시 만든다. 대시보드를 새로 발행하거나 URL이 바뀌면 `_private/dashboards.json`에 적는다 — 허브와 `_private/LINKS.md`의 표는 거기서 생성된다.
 
 **매매 수치·주기 한 장:** 장중에 무엇이 몇 초마다 도는지(REST 속도·유니버스 리스캔·WS 재연결·주문 간격·감시견 간격)와 config 키·코드 상수 값을
-`_private/TUNING_SHEET.md` 한 파일로 본다. `py scripts/gen_tuning_sheet.py`가 실행 중 config(`_private/_auto_trade_day.json`)와
+`_private/TUNING_SHEET.md`(상세판)와 `_private/TUNING_CYCLE.md`(요약판 — 매매 사이클 10단계, 어떤 데이터가 어디서 몇 초마다) 두 파일로 본다. `py scripts/gen_tuning_sheet.py`가 실행 중 config(`_private/_auto_trade_day.json`)와
 `docs/tuning_sheet.toml`(어느 파일의 어느 상수를 볼지)에서 만든다. 값이 바뀌면 Stop 훅 `sync-gate.ps1`이 매 턴 `--check`로 잡아 다시 쓰고,
 감시견 기동과 `Quant Maintain Daily`도 부른다. 수치를 조율할 때는 시트의 "어디서" 칸이 가리키는 config 키나 파일:줄을 고친다.
 
@@ -265,6 +265,7 @@ scripts/eod_autodoc.py
 | `scripts/eod_collect.py` | 원장·로그에서 사실만 뽑는다(세션·거부 히스토그램·라운드트립·주문 공백) |
 | `scripts/build_review_entry.py` | 위 사실을 `quant.review/v1` 항목으로 만들어 리뷰 탭에 넣는다. 기존 항목의 해석 키(`axes`·`improvements`·`gate`)는 건드리지 않고, 항목에 `"locked": [...]`가 있으면 그 키도 제외한다. `incidents`는 목록을 새로 만들되 제목이 같은 항목의 `impact_html`(사람이 쓴 영향)은 옮겨 온다 |
 | `scripts/build_study_site.py` | `_private/주식_study/` 전체를 날짜별로 묶어 스터디 사이트 재생성 |
+| `scripts/exit_ev.py` · `scripts/exit_ev_dashboard.py` | 모의 원장 청산 체결을 사유별로 묶어 승률·기대값·CI 표(study 17)와 그 근거를 셀마다 펼쳐 보는 화면(`research/studies/17_exit_ev/exit_ev_dashboard.html`)을 만든다. 손으로만 돈다(표본이 쌓이면 `--last-day`) |
 | `scripts/refresh_dashboard.py` | 위 재생성 순서(라이브 백필·리뷰 항목·생성기)를 소유한다. `--if-stale`은 원천 파일이 산출물보다 새것일 때만 돈다. `eod_autodoc.py`와 Stop 훅이 모두 이 스크립트를 부르므로 절차가 한쪽만 고쳐져 갈라지지 않는다. 실행 기록은 `logs/refresh_dashboard.log` |
 | `scripts/token_audit.py` | 세션 기록(`~/.claude/projects/<repo>/*.jsonl`)에서 토큰 사용을 절차(탐색·편집·git·빌드·위임·훅 되돌림)·도구 결과·하네스 주입(CLAUDE.md 재주입·압축 요약)·훅 소요별로 집계해 표로 낸다. `--md docs/reports/TOKEN_AUDIT.md`로 보고서 |
 | `scripts/trade_costs.py` | 체결 원장 `logs/trades_YYYYMMDD.csv`의 날짜별·종목별 매매 비용(수수료·거래세, 요율은 인자)과 실현손익(`realized_pnl` 열)을 `logs/trade_costs.json`에 누적하고 표로 낸다. 거래 빈도와 손익의 경계를 보는 용도. `py scripts/trade_costs.py --days 7` |
@@ -277,7 +278,7 @@ scripts/eod_autodoc.py
 | `scripts/gen_facts.py` | 저장소를 세어 `docs/facts.json`을 만들고, 문서의 `<!-- gen:이름 -->` 블록을 그 값으로 채운다. 하네스 개수·훅 배선처럼 손으로 세면 반드시 어긋나는 숫자가 대상이다. KIS 토큰 캐시 파일명은 실 키 앞부분이 들어가므로 가려서 쓴다 |
 | `scripts/gen_code_graph.py` | 헤더 포함 관계로 모듈 그래프를 만들어 `docs/CODE_GRAPH.md`·`code_graph.dot`·`code_graph.json`을 생성한다. `--impact <파일>`은 그 파일을 고쳤을 때 재검증 대상을 파일을 열지 않고 뽑는다 |
 | `scripts/gen_code_flow.py` | `docs/code_flow.toml`(읽는 순서·심볼·볼 것)에서 `docs/CODE_FLOW.md`를 만든다. 줄 번호·시그니처는 소스에서 찾아 채우므로 코드가 옮겨가도 링크가 따라가고, 심볼이 사라지면 `--check`가 exit 1로 막아 명세를 고치게 한다. sync-gate가 `fix_cmd`로 턴 끝마다 재생성한다(D-078) |
-| `scripts/gen_tuning_sheet.py` | `docs/tuning_sheet.toml`(config 묶음·단위, 코드 상수 앵커)과 실행 중 config에서 `_private/TUNING_SHEET.md`를 만든다. 값은 소스에서 정규식으로 읽으므로 코드를 고치면 시트가 따라오고, 정규식이 안 잡히면 `--check`가 exit 1로 명세를 고치게 한다. config 는 gitignore 라 git diff 로 못 잡아 sync-gate 가 매 턴 `--check` 를 돈다 |
+| `scripts/gen_tuning_sheet.py` | `docs/tuning_sheet.toml`(config 묶음·단위, 코드 상수 앵커)과 실행 중 config에서 `_private/TUNING_SHEET.md`(상세판)와 `_private/TUNING_CYCLE.md`(요약판, `[[cycle]]` 문장의 `{이름}` 을 실제 값으로 채움)를 만든다. 값은 소스에서 정규식으로 읽으므로 코드를 고치면 시트가 따라오고, 정규식이 안 잡히면 `--check`가 exit 1로 명세를 고치게 한다. config 는 gitignore 라 git diff 로 못 잡아 sync-gate 가 매 턴 `--check` 를 돈다 |
 | `scripts/brace_style.py` | 중괄호와 블록 앞뒤 빈 줄을 기계적으로 맞춘다(`.clang-format`의 Allman·`InsertBraces`와 같은 규칙). 손으로 맞추지 않는다 |
 | `scripts/check_plain_language.py` | 쓰지 않기로 한 말을 검출·치환한다(`--fix`는 뒤 조사까지 맞춘다). 정본은 `docs/STYLE_GUIDE.md`, 게이트는 `lexicon-gate.ps1`과 `@committer` |
 | `scripts/session_board.py` | 살아 있는 세션(`~/.claude/sessions/*.json`)마다 기록 jsonl의 늘어난 꼬리만 읽어 문맥 K/%·턴(모델 호출 수)·압축 횟수·마지막 사용자 요청을 세고, 현황판 `_private/SESSION_CLAIMS.md` 줄과 인계 파일 유무를 붙여 `_private/session_board.json`·`.html`(30초 자동 새로고침)로 쓴다. 파일은 Stop 훅이 턴마다 다시 쓰고, 서버(`:8788`, 트레이더가 돌 때는 대시보드 `:8787/sessions`도)는 파일이 30초보다 낡았으면 요청 때 한 번 더 만든다(어느 세션도 턴을 안 끝내면 훅만으로는 멈춰 있어서). 문맥 50%↑ 노랑, 80%↑ 빨강, 100K↑면 인계 시점 표시(145K↑는 경계를 안 기다리고 알린다). `--facts`·`--skeleton`·`--due`는 인계 훅이 쓴다 |

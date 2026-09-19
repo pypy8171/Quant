@@ -1029,3 +1029,77 @@ regex = 'def _theme_loop\(interval=([\d.]+)\)'
 unit = "초"
 group = "알림·대시보드 사이드카"
 meaning = "네이버 테마 조회 주기"
+
+# ----------------------------- 매매 사이클 요약판 -----------------------------
+# _private/TUNING_CYCLE.md — "어떤 데이터가 어디서 몇 초마다" 를 흐름 순서로 한 줄씩. 값은 {앵커 id} 또는 {config 키(마지막 조각)} 로 적으면
+# 생성기가 실제 값·단위로 바꾼다(config 키가 슬리브마다 다르면 값을 "/" 로 이어 붙인다). 못 찾는 이름은 --check 실패.
+
+[[cycle]]
+step = "① 전 종목 시총·거래대금 → 후보 파일"
+source = "data.go.kr(전 종목 약 2,700, 전영업일 스냅샷·하루 1회 캐시) + 네이버 실시간(시총·거래대금을 덮어씀)"
+what = "시장(코스피·코스닥)별 시총 top{universe_n_mktcap} ∪ 거래대금 top{universe_n_turnover}, 거래대금 ≥ {universe_min_turnover}원 → `Quant/config/universe_scan.json`(약 280종목)"
+every = "감시견이 10시 전 {watchdog_universe_rescan_min_before_10}, 10시 뒤 {watchdog_universe_rescan_min_after_10}마다, {watchdog_universe_rescan_stop_hhmm} 까지"
+used_for = "③ 후보 합집합의 한 축. ② 가 현재가를 받을 종목 목록(market_map)"
+
+[[cycle]]
+step = "② 전 종목 현재가"
+source = "네이버 polling API — universe_scan.json 의 market_map 전 종목(약 2,700)을 {naver_prices_chunk}종목씩"
+what = "현재가·등락률·거래대금 → `Quant/config/prices_live.json`"
+every = "{naver_prices_period_sec} (scripts/live_prices_feed.py, 파일이 {scanner_prices_stale_warn_sec} 넘게 낡으면 경고)"
+used_for = "④ 이격(max_dev_pct)·가격 필터(min_price {min_price}원)·거래대금 필터(min_turnover). KIS REST 를 안 쓰려고 네이버로"
+
+[[cycle]]
+step = "③ 후보 합집합"
+source = "KIS 랭킹 REST — 시총 상위·거래대금 상위(요청 {scan_top_n}·{value_top_n}, 서버가 축당 {kis_ranking_rows_fixed}행 고정) + 업종 등락 상위 축(업종별 {sector_top_n}종목, 26콜 × {scanner_sector_call_sleep_ms} 간격) + ① 파일"
+what = "이 세 축을 합친 후보 목록"
+every = "{union_refresh_sec}"
+used_for = "④ 가 판정할 종목 풀(슬리브별 최대 {align_probe_max}종목)"
+
+[[cycle]]
+step = "④ 정배열·이격 판정 → 등록 유니버스"
+source = "KIS 일봉 REST {scanner_align_daily_n}봉(종목·일 1회 캐시, 첫 스캔은 종목당 {scanner_daily_probe_sleep_ms} 간격으로 최대 {align_probe_max}종목, 슬리브별) + ② 현재가"
+what = "정배열(SMA 순서)·이격·점수 → 상위 {max_universe}종목 등록(슬리브별), 빠진 종목은 {rescan_block_after_sec} 연속 부재면 신규매수 차단(D-077)"
+every = "{rescan_interval_sec} (캐시가 찬 뒤엔 KIS REST 0, 파일만 읽음)"
+used_for = "⑤ 구독 목록. 전략이 신호를 볼 종목"
+
+[[cycle]]
+step = "⑤ 실시간 틱"
+source = "KIS WebSocket 체결가 — 세션당 {ws_max_subs}(체결통보 1 포함). 넘치는 종목은 KIS REST 현재가를 {poller_universe_pacing_ms} 간격으로 순환"
+what = "틱(가격·수량·시각) → 종목 id 샤드 큐 → 전략"
+every = "틱 도착 즉시. {feed_stale_sec} 동안 틱이 없으면 재연결(간격 {feed_backoff_step_sec}×n, 상한 {feed_backoff_max_sec})"
+used_for = "⑥ 봉·신호. 보유 종목은 {poller_top_up_stale_sec} 넘게 틱이 없으면 REST 로 보충"
+
+[[cycle]]
+step = "⑥ 3분봉 · 신호"
+source = "⑤ 틱을 {interval_min}봉으로 묶음 + 봉 경계마다 KIS 분봉 REST 보충(종목별 지연 분산 {default_prefetch_jitter_pct})"
+what = "SMA{sma_period} 대비 이격으로 눌림 매수·이격 매도(DEVSCALE) — 주문 재구성 최소 {min_rebuild_sec}"
+every = "봉 마감(3분)마다 판단, 틱마다 가격 갱신"
+used_for = "⑧ 주문"
+
+[[cycle]]
+step = "⑦ 국면(매크로)"
+source = "PYQuant/tools/macro_regime_feed.py — 지수·환율·미국 선물 등 점수화"
+what = "`Quant/config/regime.json` (점수 ≤ {regime_halt_score} 진입 정지, ≤ {regime_liq_score} 청산)"
+every = "{watchdog_regime_interval_arg} (엔진은 파일이 {regime_stale_sec} 넘으면 불신)"
+used_for = "⑧ 신규 진입 허용 여부"
+
+[[cycle]]
+step = "⑧ 주문"
+source = "OrderGate(단일 시퀀서) → KIS 주문 REST"
+what = "슬롯 {max_concurrent_positions}개, 발주 간격 {order_min_interval_ms}, 거부 재시도 {order_max_retries}. 모의 REST 버킷 {kis_rest_refill_paper}를 대시보드 잔고조회({dashboard_warm_loop_sec})와 나눠 쓴다"
+every = "신호가 날 때. 주문 창 {session_open_hhmm}~{session_close_hhmm} (+ 애프터마켓 {default_risk_after_open_hhmm}~{default_risk_after_close_hhmm}, after_market 켰을 때)"
+used_for = "체결"
+
+[[cycle]]
+step = "⑨ 체결·잔고 대조"
+source = "KIS WebSocket 체결통보(즉시) + KIS 잔고 REST"
+what = "원장 갱신, 잔고와 어긋나면 재시드(체결 직후 {ledger_post_fill_defer_sec} 연기, 잔고에 없는 보유는 {ledger_prune_position_age_sec} 뒤 제거)"
+every = "잔고 조회 {fetch_interval_sec} (data_thread)"
+used_for = "포지션·손익. 연속 {ledger_pnl_stale_streak} 실패면 신규 매수 정지"
+
+[[cycle]]
+step = "⑩ 마감"
+source = "엔진 control_thread({engine_control_interval_sec})"
+what = "{eod_exit_hhmm} 전량 취소·청산(슬리브 / 승계 가디언 순, 21:00 은 장중 청산 없음), 마지막 창 뒤 {session_end_grace_sec} 유예 후 스스로 종료(D-098)"
+every = "하루 1회"
+used_for = "다음 날 기동은 감시견·예약작업(docs/AUTOMATION.md)"
