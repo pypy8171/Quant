@@ -271,10 +271,12 @@
       "claude-coach",
       "committer",
       "data-sourcer",
+      "fundamental-quant",
       "harness-engineer",
       "interviewer",
       "intraday-analyst",
       "log-reader",
+      "macro-quant",
       "market-brief",
       "perf-optimizer",
       "planner",
@@ -282,6 +284,7 @@
       "prep-doc",
       "quant-analyst",
       "reviewer",
+      "risk-behavior",
       "strategist"
     ],
     "skills": [
@@ -306,7 +309,7 @@
     ],
     "counts": {
       "commands": 16,
-      "agents": 17,
+      "agents": 20,
       "skills": 1,
       "hooks": 15,
       "hook_wirings": 15
@@ -405,7 +408,6 @@
     ]
   },
   "configs": [
-    "config_dev_paper.json",
     "etf_name_tokens.json",
     "etf_prefixes.json",
     "reit_name_suffixes.json",
@@ -414,8 +416,20 @@
     "us_universe.json"
   ],
   "config_keys": {
-    "top": [],
-    "strategies": []
+    "top": [
+      "fetch_interval_sec",
+      "kis",
+      "mode",
+      "strategies"
+    ],
+    "strategies": [
+      "eod_exit_hhmm",
+      "exchange",
+      "market",
+      "pbr_max",
+      "quantity",
+      "type"
+    ]
   },
   "dir_tree": {
     ".claude": {
@@ -452,6 +466,7 @@
       "tools": {}
     },
     "Quant": {
+      "build": {},
       "config": {},
       "include": {},
       "src": {},
@@ -484,7 +499,7 @@
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::data_thread_fn",
-      "lines": 501,
+      "lines": 503,
       "start": 1315
     },
     {
@@ -527,7 +542,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::strategy_thread_fn",
       "lines": 206,
-      "start": 2003
+      "start": 2005
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
@@ -542,6 +557,12 @@
       "start": 855
     },
     {
+      "file": "scripts/eod_autodoc.py",
+      "symbol": "render",
+      "lines": 187,
+      "start": 245
+    },
+    {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::connect_feed",
       "lines": 179,
@@ -552,12 +573,6 @@
       "symbol": "OrderRouter::cancel_route",
       "lines": 174,
       "start": 1304
-    },
-    {
-      "file": "scripts/eod_autodoc.py",
-      "symbol": "render",
-      "lines": 171,
-      "start": 244
     },
     {
       "file": "PYQuant/dashboard/build_dashboard.py",
@@ -596,16 +611,16 @@
       "start": 191
     },
     {
+      "file": "PYQuant/backtest/engine.py",
+      "symbol": "run",
+      "lines": 158,
+      "start": 167
+    },
+    {
       "file": "Quant/src/ipc/OpsServer.cpp",
       "symbol": "OpsServer::on_frame",
       "lines": 150,
       "start": 457
-    },
-    {
-      "file": "PYQuant/backtest/engine.py",
-      "symbol": "run",
-      "lines": 146,
-      "start": 168
     },
     {
       "file": "PYQuant/main.py",
@@ -650,10 +665,16 @@
       "start": 267
     },
     {
+      "file": "scripts/check_runtime_health.py",
+      "symbol": "collect",
+      "lines": 128,
+      "start": 70
+    },
+    {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::shard_thread_fn",
       "lines": 126,
-      "start": 2210
+      "start": 2212
     },
     {
       "file": "scripts/token_audit.py",
@@ -666,6 +687,12 @@
       "symbol": "ZmqBridge::thread_fn",
       "lines": 125,
       "start": 64
+    },
+    {
+      "file": "Quant/src/core/LedgerReconciler.cpp",
+      "symbol": "LedgerReconciler::reconcile",
+      "lines": 124,
+      "start": 291
     },
     {
       "file": "Quant/src/api/WsSocketPosix.cpp",
@@ -722,16 +749,10 @@
       "start": 83
     },
     {
-      "file": "scripts/check_runtime_health.py",
-      "symbol": "main",
-      "lines": 107,
-      "start": 52
-    },
-    {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::control_thread_fn",
       "lines": 106,
-      "start": 2599
+      "start": 2601
     },
     {
       "file": "Quant/src/api/WsSocketPosix.cpp",
@@ -755,19 +776,13 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::order_thread_fn",
       "lines": 101,
-      "start": 2338
+      "start": 2340
     },
     {
       "file": "Quant/include/strategy/SupplyDemandPullbackStrategy.h",
       "symbol": "on_start",
       "lines": 100,
       "start": 120
-    },
-    {
-      "file": "Quant/src/core/LedgerReconciler.cpp",
-      "symbol": "LedgerReconciler::reconcile",
-      "lines": 100,
-      "start": 291
     },
     {
       "file": "scripts/rename_locals.py",
@@ -863,7 +878,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::drain_manual_inbox",
       "lines": 89,
-      "start": 2907
+      "start": 2909
     },
     {
       "file": "Quant/src/universe/UniverseScanner.cpp",
@@ -917,7 +932,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::start_ops_server",
       "lines": 82,
-      "start": 2767
+      "start": 2769
     }
   ],
   "regime_model": {

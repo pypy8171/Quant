@@ -304,7 +304,7 @@ scripts/eod_autodoc.py
 | 증상 | 먼저 볼 것 |
 |---|---|
 | 대시보드가 어제에 머물러 있다 | `Quant EOD AutoDoc`의 마지막 결과 → `logs/eod_autodoc.log` |
-| 아티팩트만 낡았다 | 예약작업은 HTML만 다시 만들고 아티팩트는 못 올린다(헤드리스에 Artifact 도구 없음, 09-12 rc=267009). 대화 세션에서 `/dashboard-sync`로 재발행한다. 다른 실패면 세션 시작 `[CRON]` 알림(`cron-gate.ps1`)과 `_private/_cron_dashboard.log` |
+| 아티팩트만 낡았다 | 예약작업은 HTML만 다시 만들고 아티팩트는 못 올린다(헤드리스에 Artifact 도구 없음, 09-12 rc=267009). 두 클로드 작업의 액션은 2026-09-19부터 `scripts/run_claude_task.ps1` 래퍼다 — 전에는 stderr 경고 한 줄이 rc=1(거짓 실패)을 만들었고, `claude_stock_study`는 배터리 조건(0x800710E0)으로 안 떴다(조건 해제·한도 PT1H). 대화 세션에서 `/dashboard-sync`로 재발행한다. 다른 실패면 세션 시작 `[CRON]` 알림(`cron-gate.ps1`)과 `_private/_cron_dashboard.log` |
 | 스터디가 리포트만 있고 저널이 없다 | 중도 중단. `/stock-study`를 다시 부르면 새 종목을 고르지 않고 빠진 산출물만 채운다 |
 | 예약작업이 `LastTaskResult=1` | 세션 사용량 한도를 먼저 의심한다(`_private/_cron_dashboard.log`) |
 | 트레이더가 계속 죽는다 | `_private/_auto_trade_day.json`의 `history`에서 종료 코드·지속 시간 |

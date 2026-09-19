@@ -56,6 +56,7 @@
 | `docs/sync_map.toml`, `scripts/sync_impact.py`, `scripts/gen_facts.py` | `docs/SYNC_MAP.md`, `docs/AUTOMATION.md#스크립트`, `docs/HARNESS.md` | 자동(명령) `py scripts/sync_impact.py --render --check` | SYNC_MAP.md §2 표는 이 파일에서 생성 |
 | `docs/RUNBOOK.md` | `docs/RUNBOOK.html` | 자동(명령) `py scripts/gen_runbook.py --check` | 운영 런북 HTML 은 RUNBOOK.md 에서 통째로 렌더(gitignore). 코드 블록의 스크립트 경로가 없으면 --check 가 잡는다 |
 | `scripts/auto_trade_day.ps1`, `scripts/auto_trade_guard.ps1`, `scripts/dashboard_server.py`, `scripts/parse_quant_log.py`, `scripts/notify_sidecar.py`, `PYQuant/tools/macro_regime_feed.py`, `PYQuant/tools/universe_feed.py`, `PYQuant/tools/investor_flow_logger.py`, `PYQuant/tools/index_intraday_logger.py`, `docs/guides/OPS_TERMINAL.md`, `docs/guides/MFC_TERMINAL.md` | `docs/RUNBOOK.md` | 도장 | 런북이 인용하는 스크립트 인자·옵션. 절 머리 도장이 낡으면 그 절의 명령을 맞추고 --restamp docs/RUNBOOK.md |
+| `research/COUNCIL_CHARTER.md`, `research/GUARDRAILS.md` | `research/RESEARCH_COUNCIL.md#멤버와 역할`, `.claude/agents/bias-auditor.md`, `.claude/AGENTS.md` | 힌트 | 헌장·규율(D-101)이 바뀌면 회의 멤버 표, 편향 감사관의 대조 기준, 에이전트 색인을 같이 본다 |
 <!-- /sync-map:rules -->
 
 > `research/BACKTEST_LOG.md`는 **소스(소유자)**라 위 표의 "대표"가 아니다 — 다른 문서가 이걸 링크한다.

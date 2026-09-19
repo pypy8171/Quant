@@ -12,7 +12,7 @@
     지정가 체결은 다음 3분봉 범위로 판정(시가가 이미 넘겨 있으면 시가 체결). 부분체결 없음.
   - 재구성: 봉마다 취소·재발주(min_rebuild_sec=8은 틱이 없어 봉 단위로 근사).
   - 존 이탈·하드 스탑·트레일·15:15: 전량 시장가 = 다음 봉 시가 −1틱. 마지막 봉이면 그 종가.
-  - 비용: engine.CostModel(수수료 0.015%·세금 0.18%·슬리피지 5bp).
+  - 비용: backtest/costs.py LIVE(라이브 원장과 같은 수수료 0.015%·매도세 0.18%, 슬리피지·충격 0).
 
     py PYQuant/backtest/devscale_replay.py --pairs research/studies/13_trendx_gate/gate_pairs.jsonl \\
         --out research/studies/13_trendx_gate/replay_results.tsv
@@ -33,7 +33,7 @@ _PYQUANT = Path(__file__).resolve().parents[1]
 _REPO = _PYQUANT.parent
 if str(_PYQUANT) not in sys.path:
     sys.path.insert(0, str(_PYQUANT))
-from backtest.engine import CostModel  # noqa: E402
+from backtest.costs import LIVE, CostSpec, fill_result  # noqa: E402
 
 MINUTE_DIR = _PYQUANT / "data" / "minute"
 DAILY_PARQUET = _PYQUANT / "data" / "bars_all_pit.parquet"
@@ -188,18 +188,18 @@ def aligned(sm: dict, tol_pct: float) -> bool:
     return sm[5] > sm[10] and sm[10] > sm[20] and sm[20] > sm[60] * (1.0 - tol_pct / 100.0)
 
 
-def replay_day(bars: pd.DataFrame, smas: dict, p: Params, cost: CostModel, atr14: float = 0.0) -> dict:
+def replay_day(bars: pd.DataFrame, moving_averages: dict, parameters: Params, cost: CostSpec, atr14: float = 0.0) -> dict:
     """하루 리플레이. 반환: 체결 수·손익·MAE·최대 투입 명목.
 
-    atr14는 **전일 확정 일봉**까지로 만든 ATR14(원). p.stop_atr_mult>0일 때만 쓴다.
+    atr14는 **전일 확정 일봉**까지로 만든 ATR14(원). parameters.stop_atr_mult>0일 때만 쓴다.
     """
-    al = aligned(smas, p.align_tol_pct)
-    s20 = smas[20]
-    base_share = p.base_pct / p.max_pct if p.max_pct > p.base_pct else 1.0
-    base_notional = p.notional_krw * base_share
-    rung_notional = (p.notional_krw - base_notional) / p.buy_rungs if p.buy_rungs > 0 else 0.0
+    al = aligned(moving_averages, parameters.align_tol_pct)
+    average_20 = moving_averages[20]
+    base_share = parameters.base_pct / parameters.max_pct if parameters.max_pct > parameters.base_pct else 1.0
+    base_notional = parameters.notional_krw * base_share
+    rung_notional = (parameters.notional_krw - base_notional) / parameters.buy_rungs if parameters.buy_rungs > 0 else 0.0
 
-    pos, avg = 0, 0.0
+    position, average = 0, 0.0
     cost_basis = 0.0                   # 보유분 매입 원가(비용 포함)
     max_deployed = 0.0
     realized = 0.0                     # 순손익(비용 반영)
@@ -215,32 +215,32 @@ def replay_day(bars: pd.DataFrame, smas: dict, p: Params, cost: CostModel, atr14
     n = len(bars)
     done = False
 
-    def fill_buy(px: float, q: int) -> None:
-        nonlocal pos, avg, cost_basis, buys, buy_notional, max_deployed
-        c = cost.buy_total_cost(px, q)
-        avg = (avg * pos + px * q) / (pos + q)
-        pos += q
-        cost_basis += c
+    def fill_buy(price: float, quantity: int) -> None:
+        nonlocal position, average, cost_basis, buys, buy_notional, max_deployed
+        buy_net = fill_result("BUY", price, quantity, cost).net
+        average = (average * position + price * quantity) / (position + quantity)
+        position += quantity
+        cost_basis += buy_net
         max_deployed = max(max_deployed, cost_basis)
         buys += 1
-        buy_notional += px * q
+        buy_notional += price * quantity
 
-    def fill_sell(px: float, q: int, tag: str) -> None:
-        nonlocal pos, avg, cost_basis, realized, gross, sells, sell_notional
-        q = min(q, pos)
-        if q <= 0:
+    def fill_sell(price: float, quantity: int, tag: str) -> None:
+        nonlocal position, average, cost_basis, realized, gross, sells, sell_notional
+        quantity = min(quantity, position)
+        if quantity <= 0:
             return
-        proceeds = cost.sell_net_proceeds(px, q)
-        basis = cost_basis * q / pos
+        proceeds = fill_result("SELL", price, quantity, cost).net
+        basis = cost_basis * quantity / position
         realized += proceeds - basis
-        gross += (px - avg) * q
+        gross += (price - average) * quantity
         cost_basis -= basis
-        pos -= q
+        position -= quantity
         sells += 1
-        sell_notional += px * q
+        sell_notional += price * quantity
         exits[tag] = exits.get(tag, 0) + 1
-        if pos == 0:
-            avg, cost_basis = 0.0, 0.0
+        if position == 0:
+            average, cost_basis = 0.0, 0.0
 
     arr = bars[["open", "high", "low", "close", "hhmm"]].to_numpy(dtype=float)   # 봉당 .iloc 회피(같은 값)
     for i in range(n):
@@ -248,30 +248,30 @@ def replay_day(bars: pd.DataFrame, smas: dict, p: Params, cost: CostModel, atr14
         hhmm = int(arr[i, 4])
         # 1) 직전 봉에서 낸 주문을 이 봉 범위로 체결 판정한다. 하락봉이면 BUY부터, 상승봉이면 SELL부터.
         up = c >= o
-        for kind, px, q, tag in sorted(orders, key=lambda x: (x[0] != ("SELL" if up else "BUY"))):
+        for kind, price, quantity, tag in sorted(orders, key=lambda x: (x[0] != ("SELL" if up else "BUY"))):
             if kind == "MKT":
-                fill_sell(round_tick(o - tick_size(o), "BUY"), q, tag)
+                fill_sell(round_tick(o - tick_size(o), "BUY"), quantity, tag)
             elif kind == "BUY":
-                if o <= px:
-                    fill_buy(o, q)
-                elif l <= px:
-                    fill_buy(px, q)
+                if o <= price:
+                    fill_buy(o, quantity)
+                elif l <= price:
+                    fill_buy(price, quantity)
             elif kind == "SELL":
-                if o >= px:
-                    fill_sell(o, q, tag)
-                elif h >= px:
-                    fill_sell(px, q, tag)
+                if o >= price:
+                    fill_sell(o, quantity, tag)
+                elif h >= price:
+                    fill_sell(price, quantity, tag)
         orders = []
         closes.append(c)
-        if pos > 0 and avg > 0:
-            mae = min(mae, (l / avg - 1.0) * 100.0)
+        if position > 0 and average > 0:
+            mae = min(mae, (l / average - 1.0) * 100.0)
         if done:
             continue
         # 2) 존 게이트 — 전일 확정 SMA, 현재가는 봉 종가
-        dev = (c - s20) / s20 * 100.0
-        up_th = p.entry_upper_pct + (p.zone_hyst_pct if in_zone else 0.0)
-        low_th = p.entry_lower_pct - (p.zone_hyst_pct if in_zone else 0.0)
-        band = low_th <= dev <= up_th
+        deviation = (c - average_20) / average_20 * 100.0
+        up_threshold = parameters.entry_upper_pct + (parameters.zone_hyst_pct if in_zone else 0.0)
+        low_threshold = parameters.entry_lower_pct - (parameters.zone_hyst_pct if in_zone else 0.0)
+        band = low_threshold <= deviation <= up_threshold
         zone = al and band
         hold_zone = zone
         in_zone = zone
@@ -279,75 +279,75 @@ def replay_day(bars: pd.DataFrame, smas: dict, p: Params, cost: CostModel, atr14
 
         def liquidate(tag: str) -> None:
             nonlocal orders
-            if pos > 0:
+            if position > 0:
                 if last_bar:
-                    fill_sell(c, pos, tag)
+                    fill_sell(c, position, tag)
                 else:
-                    orders = [("MKT", 0.0, pos, tag)]
+                    orders = [("MKT", 0.0, position, tag)]
 
-        if hhmm >= p.eod_hhmm:
+        if hhmm >= parameters.eod_hhmm:
             liquidate("eod")
             done = True
             continue
         if not hold_zone:
             liquidate("zone_exit")
             continue
-        stop_px = 0.0                     # 0이면 손절 없음
-        if p.stop_atr_mult > 0 and atr14 > 0:
-            stop_px = avg - p.stop_atr_mult * atr14
-        elif p.stop_loss_pct > 0:
-            stop_px = avg * (1.0 - p.stop_loss_pct / 100.0)
-        if stop_px > 0 and pos > 0 and c <= stop_px:
+        stop_price = 0.0                     # 0이면 손절 없음
+        if parameters.stop_atr_mult > 0 and atr14 > 0:
+            stop_price = average - parameters.stop_atr_mult * atr14
+        elif parameters.stop_loss_pct > 0:
+            stop_price = average * (1.0 - parameters.stop_loss_pct / 100.0)
+        if stop_price > 0 and position > 0 and c <= stop_price:
             liquidate("stop")
-            cooldown_until = i + p.stop_cooldown_bars
+            cooldown_until = i + parameters.stop_cooldown_bars
             continue
         if not zone:
             continue
-        warming = len(closes) < p.sma_period
-        sma = s20 if warming else float(np.mean(closes[-p.sma_period:]))
-        if p.trail_sma_exit and not warming and pos > 0 and c < sma * (1.0 - p.trail_sma_tol_pct / 100.0):
+        warming = len(closes) < parameters.sma_period
+        simple_moving_average = average_20 if warming else float(np.mean(closes[-parameters.sma_period:]))
+        if parameters.trail_sma_exit and not warming and position > 0 and c < simple_moving_average * (1.0 - parameters.trail_sma_tol_pct / 100.0):
             liquidate("trail")
-            cooldown_until = i + p.stop_cooldown_bars     # 엔진도 트레일 뒤 같은 쿨다운(L469)
+            cooldown_until = i + parameters.stop_cooldown_bars     # 엔진도 트레일 뒤 같은 쿨다운(L469)
             continue
         in_cooldown = i < cooldown_until
-        room = p.max_notional_per_ticker - pos * avg       # 게이트 명목 상한(전략은 누적 상한이 없다)
+        room = parameters.max_notional_per_ticker - position * average       # 게이트 명목 상한(전략은 누적 상한이 없다)
         plan = []
         # 진입 확인 — 닫힌 봉만 본다. closes[-1]은 방금 닫힌 이 봉이고 주문은 다음 봉에서 체결되므로
         # 미완성 봉 종가를 보는 look-ahead가 아니다. N=2면 closes[-1]>closes[-2]>closes[-3].
         confirmed = True
-        if p.entry_confirm_bars > 0:
-            need = p.entry_confirm_bars + 1
+        if parameters.entry_confirm_bars > 0:
+            need = parameters.entry_confirm_bars + 1
             confirmed = len(closes) >= need and all(
-                closes[-k] > closes[-k - 1] for k in range(1, p.entry_confirm_bars + 1))
-        if pos <= 0 and not in_cooldown and confirmed:
-            bp = round_tick(c, "BUY")
-            if bp >= c:
-                bp = round_tick(c - tick_size(c), "BUY")
-            q = int(base_notional // bp)
-            if q > 0:
-                plan.append(("BUY", bp, q, "base"))
-        if pos > 0:
-            per = math.ceil(pos / p.n_rungs) if p.n_rungs > 0 else pos
-            left = pos
-            for k in range(1, p.n_rungs + 1):
+                closes[-rung_index] > closes[-rung_index - 1] for rung_index in range(1, parameters.entry_confirm_bars + 1))
+        if position <= 0 and not in_cooldown and confirmed:
+            buy_price = round_tick(c, "BUY")
+            if buy_price >= c:
+                buy_price = round_tick(c - tick_size(c), "BUY")
+            quantity = int(base_notional // buy_price)
+            if quantity > 0:
+                plan.append(("BUY", buy_price, quantity, "base"))
+        if position > 0:
+            per = math.ceil(position / parameters.n_rungs) if parameters.n_rungs > 0 else position
+            left = position
+            for rung_index in range(1, parameters.n_rungs + 1):
                 if left <= 0:
                     break
-                sp = round_tick(avg * (1.0 + p.dev_sell_pct * k / 100.0), "SELL")
-                if sp <= c:
-                    sp = round_tick(c, "SELL")
-                q = min(per, left)
-                plan.append(("SELL", sp, q, "tp"))
-                left -= q
-        if p.buy_rungs > 0 and not warming and not in_cooldown:
-            for k in range(1, p.buy_rungs + 1):
-                bp = round_tick(c * (1.0 - p.dev_buy_pct * k / 100.0), "BUY")
-                q = int(min(rung_notional, max(room, 0.0)) // bp)
-                if q > 0:
-                    plan.append(("BUY", bp, q, "rung"))
+                sell_price = round_tick(average * (1.0 + parameters.dev_sell_pct * rung_index / 100.0), "SELL")
+                if sell_price <= c:
+                    sell_price = round_tick(c, "SELL")
+                quantity = min(per, left)
+                plan.append(("SELL", sell_price, quantity, "tp"))
+                left -= quantity
+        if parameters.buy_rungs > 0 and not warming and not in_cooldown:
+            for rung_index in range(1, parameters.buy_rungs + 1):
+                buy_price = round_tick(c * (1.0 - parameters.dev_buy_pct * rung_index / 100.0), "BUY")
+                quantity = int(min(rung_notional, max(room, 0.0)) // buy_price)
+                if quantity > 0:
+                    plan.append(("BUY", buy_price, quantity, "rung"))
         orders = plan
 
-    if pos > 0:                      # 마지막 봉까지 남았으면 종가 청산(자료 절단)
-        fill_sell(closes[-1], pos, "trunc")
+    if position > 0:                      # 마지막 봉까지 남았으면 종가 청산(자료 절단)
+        fill_sell(closes[-1], position, "trunc")
     ret_pct = realized / max_deployed * 100.0 if max_deployed > 0 else 0.0
     return {"buys": buys, "sells": sells, "buy_notional": buy_notional, "sell_notional": sell_notional,
             "gross_pnl": gross, "net_pnl": realized, "max_deployed": max_deployed, "ret_pct": ret_pct,
@@ -365,7 +365,7 @@ def load_pairs(path: Path) -> list[tuple[str, str]]:
 
 
 def run(pairs: list[tuple[str, str]], variants: dict[str, Params], since: str, until: str) -> pd.DataFrame:
-    cost = CostModel()
+    cost = LIVE
     book = DailyBook({t for t, _ in pairs})
     rows, missing, short, no_sma = [], 0, 0, 0
     for t, ymd in pairs:

@@ -122,7 +122,7 @@ def test_cost_is_pure_subtraction():
         no_cost = simulate(d, rule).ret_pct.iloc[0]
     finally:
         M.ROUNDTRIP_COST_PCT = COST
-    check("비용 차감분 = 0.31%p", no_cost - with_cost, COST, 1e-9)
+    check("비용 차감분 = ROUNDTRIP_COST_PCT", no_cost - with_cost, COST, 1e-9)
 
 
 def main():

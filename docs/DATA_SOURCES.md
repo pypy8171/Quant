@@ -36,3 +36,18 @@
 - data.go.kr: 환경변수 `DATA_GO_KR_KEY`(없으면 즉시 에러).
 - KIS: `Quant/config/config_dev_paper.json`(모의)·`Quant/config/config.json`(실계좌)의 `app_key`·`app_secret`. 토큰 캐시 `Quant/config/kis_token_*.json`은 파이썬 `PYQuant/kis/client.py`와 엔진이 공유한다.
 - 네이버·FDR: 키 없음. 비공식 경로라 형식이 바뀌면 끊긴다 — 호출자는 마지막 성공 파일로 버틴다.
+
+## 리셋 회의(D-101, 2026-09-19) 뒤 새로 확인한 경로
+
+백테스트 데이터 마트(`research/RESET_2026-09-19.md` §2-C)에 쓰려고 실호출로 확인했다. 어느 것도 키가 없다.
+
+| 경로 | 주는 것 | 깊이·PIT | 상태 |
+|---|---|---|---|
+| `m.stock.naver.com/api/stock/{code}/trend?bizdate=YYYYMMDD&pageSize=60` | 일별 외국인·기관 순매수, 외국인 보유 주식수·비율 | 2009-10~, 보유 주식수는 그날 값이라 PIT-A | 살아 있음 → `PYQuant/tools/naver_flow_backfill.py`(R-2) |
+| `fchart.stock.naver.com/siseJson.naver` | 일봉 OHLCV | 1990~ | 살아 있음 → `PYQuant/tools/naver_bars_backfill.py`(R-2, 2020 이전 일봉 보강) |
+| `finance.naver.com/item/frgn.naver`(구 HTML) | (예전 외국인 보유비율 경로) | — | **2026-09 302로 죽음**. 위 trend API로 바꿨다 |
+| KIND `kind.krx.co.kr/corpgeneral/delcompany.do`(POST) | 상장폐지 종목·일자 | 전 기간 | 살아 있음. FDR 상폐 목록(995행)과 교차 확인용 |
+| `m.stock.naver.com/api/research/company`, `…/api/stock/{code}/integration`(`consensusInfo`) | 증권사 리서치 목록·목표가 컨센서스 | 게시일 기준 PIT-A | 살아 있음. 대시보드 리서치 뷰어(R-7) 입력 후보 |
+
+- TimescaleDB(5432)는 이 PC에서 닫혀 있어 마트 저장은 parquet(`PYQuant/data/`)이 1순위다.
+- 아직 키를 못 받은 것 4건(FRED·ECOS·DART·관세청)은 §5 오너 결정에 올라가 있다.

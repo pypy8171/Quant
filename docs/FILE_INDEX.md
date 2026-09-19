@@ -8,12 +8,12 @@
 
 - [(루트)](#루트) — 9개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 82개
+- [PYQuant](#pyquant) — 87개
 - [Quant](#quant) — 172개
 - [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 182개
-- [scripts](#scripts) — 67개
+- [research](#research) — 185개
+- [scripts](#scripts) — 68개
 - [strategies](#strategies) — 31개
 - [tools](#tools) — 3개
 
@@ -53,8 +53,10 @@
 ### PYQuant/backtest/
 
 - [__init__.py](../PYQuant/backtest/__init__.py) — 빈 패키지 초기화 파일
+- [costs.py](../PYQuant/backtest/costs.py) — 체결 비용 정의 한 소스. CostSpec(수수료·매도세·호가 슬리피지·충격)·fill_result·tick_size·LIVE(원장 OrderGate.cpp와 같은 요율)
 - [devscale_replay.py](../PYQuant/backtest/devscale_replay.py) — DevScale 3분봉 리플레이 백테스트 도구
 - [engine.py](../PYQuant/backtest/engine.py) — 일봉 백테스트 엔진과 비용모델
+- [ledger.py](../PYQuant/backtest/ledger.py) — 백테스트 평단 원장 PositionLedger. 매수 평단·부분 매도 평단 유지·전량 매도 리셋·실현손익을 OrderGate::on_fill_confirmed와 같은 규칙으로
 - [metrics.py](../PYQuant/backtest/metrics.py) — 손절·트레일 경로 시뮬레이션과 R배수 지표
 - [regime_scorer.py](../PYQuant/backtest/regime_scorer.py) — 국면 스코어러 C++ 미러와 연속화 실험
 - [report.py](../PYQuant/backtest/report.py) — 백테스트 결과 콘솔 출력
@@ -137,6 +139,7 @@
 - [__init__.py](../PYQuant/tests/__init__.py) — 빈 패키지 초기화 파일
 - [test_adjust_splits.py](../PYQuant/tests/test_adjust_splits.py) — 수정주가 분할 보정 회귀 테스트
 - [test_backtest_engine.py](../PYQuant/tests/test_backtest_engine.py) — 백테스트 엔진 리팩터 회귀 테스트
+- [test_costs_golden.py](../PYQuant/tests/test_costs_golden.py) — costs·ledger 골든 테스트 10케이스. C++ OrderGate 수식·원장 CSV 실제 행과 0원 오차, 상수는 C++ 소스에서 다시 읽어 대조
 - [test_indicators.py](../PYQuant/tests/test_indicators.py) — 지표 함수 pytest 검증
 - [test_metrics.py](../PYQuant/tests/test_metrics.py) — 경로 시뮬레이션 손계산 검증
 - [test_regime_scorer.py](../PYQuant/tests/test_regime_scorer.py) — 국면 스코어러 패리티·성질 검증
@@ -164,6 +167,8 @@
 - [macro_regime_feed.py](../PYQuant/tools/macro_regime_feed.py) — 매크로 지표 기반 국면 게이트 발행기
 - [minute_backfill.py](../PYQuant/tools/minute_backfill.py) — 거래일별 1분봉 백필 도구
 - [month_start_sweep.py](../PYQuant/tools/month_start_sweep.py) — 매매 시작월 민감도 스윕 도구
+- [naver_bars_backfill.py](../PYQuant/tools/naver_bars_backfill.py) — 네이버 siseJson 일봉 1990~ 전량 백필 → bars_all_pit_v2.parquet(v1 스키마 + 외인보유율), 끝에 005930 종가 v1 일치 검사
+- [naver_flow_backfill.py](../PYQuant/tools/naver_flow_backfill.py) — 네이버 모바일 trend API 수급 이력(외인·기관·개인 순매수 주식수·외인보유율) 백필 → investor_flow_pit.parquet, 종목별 캐시로 재실행 안전
 - [nxt_divergence_check.py](../PYQuant/tools/nxt_divergence_check.py) — KRX·NXT 시세 괴리 측정 도구
 - [pit_universe_backfill.py](../PYQuant/tools/pit_universe_backfill.py) — 거래일별 PIT 유니버스 재구성 도구
 - [sweep.py](../PYQuant/tools/sweep.py) — 전략 파라미터 강건성 스윕 도구
@@ -504,9 +509,12 @@
 - [BACKTESTS.md](../research/BACKTESTS.md) — 계열 A/B 백테스트 목록 한눈에 보기 표
 - [BACKTEST_FLOW.md](../research/BACKTEST_FLOW.md) — 장중 매매 실증 흐름도(트랙 A/B) 정리
 - [BACKTEST_LOG.md](../research/BACKTEST_LOG.md) — 백테스트 실행 저널 누적 기록
+- [COUNCIL_CHARTER.md](../research/COUNCIL_CHARTER.md) — 리서치 회의 헌장(D-101): 시니어 기준·PIT 등급제·walk-forward 3층 게이트·기각 전략 라이브 제거
 - [GUARDRAILS.md](../research/GUARDRAILS.md) — 백테스트 규율(엔진·데이터 단일소스 등) 문서
 - [README.md](../research/README.md) — research 허브(계열 A/B 개요) 문서
 - [RESEARCH_COUNCIL.md](../research/RESEARCH_COUNCIL.md) — 리서치 회의 프로토콜과 멤버 역할표
+- [RESET_2026-09-19.md](../research/RESET_2026-09-19.md) — 2026-09-19 리셋 회의 결론(D-101): 진단·월요일 config·백테스트 재건·데이터 마트·판정 기준·오너 결정 목록
+- [RESET_2026-09-19_BRIEF.md](../research/RESET_2026-09-19_BRIEF.md) — 2026-09-19 리셋 회의 브리핑(오너 지시·백테스트·장중·데이터 현황·외부 진단)
 
 ### research/dashboard/
 
@@ -812,6 +820,7 @@
 - [rename_frags.py](../scripts/rename_frags.py) — 합성 식별자 안의 약어 조각(qty·cfg·mtx…)을 풀어쓰는 3단계 도구(D-092). 조각·전체·파일별 표와 KIS 전문 조각 제외 규칙을 안에 둔다
 - [rename_ids.py](../scripts/rename_ids.py) — 약어 식별자 치환 도구(D-092). 매핑 json을 받아 C++ 식별자만 바꾸고 문자열 리터럴·#include는 두며 주석은 바꾼다
 - [rename_locals.py](../scripts/rename_locals.py) — 한 글자 지역변수·매개변수를 선언 범위 안에서만 풀어쓰는 도구(D-092), --override로 못 고른 이름 지정
+- [run_claude_task.ps1](../scripts/run_claude_task.ps1) — 예약작업이 헤드리스 클로드를 부르는 래퍼(cmd 리다이렉션으로 stderr 경고를 rc=1로 만들지 않고 UTF-8 로그에 붙인다)
 - [seed_open_orders.py](../scripts/seed_open_orders.py) — 미체결 주문 상태 복구 스크립트
 - [session_board.py](../scripts/session_board.py) — 살아 있는 Claude 세션의 현황판(이름·브랜치·문맥 K/%·턴·압축·마지막 요청·현황판 줄·인계 파일)을 `_private/session_board.json`·`.html`로 쓴다. `--skeleton`은 인계 파일 뼈대, `--due`는 인계 시점 판정(훅용)
 - [session_board_server.py](../scripts/session_board_server.py) — 세션 현황판 HTTP 서버(:8788, SessionStart 훅이 띄우고 세션이 다 닫히면 내려감)

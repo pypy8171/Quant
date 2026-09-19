@@ -322,6 +322,9 @@ def unreferenced_scripts() -> list[str]:
 
 PATH_TOKEN = re.compile(r"(?<![\w/.-])((?:Quant|PYQuant|scripts|docs|research|strategies|_private|\.claude)/[\w./+*{}<>-]+)")
 PLACEHOLDER_HINTS = ("*", "{", "}", "<", ">", "YYYY", "NN")
+# 리뷰 왕복 때만 생기거나 저장소 밖에 있는 문서 — 없는 게 정상이라 죽은 경로로 안 센다.
+TRANSIENT_DOCS = {"CODE_REVIEW.md", "REVIEW_PROMPT.md", "MEMORY.md"}
+ROOT_DOC_TOKEN = re.compile(r"[A-Z][A-Z0-9_]+\.md")
 LINK_RE = re.compile(r"\[[^\]]*\]\(\s*(<[^>]+>|[^)\s]+)")
 
 
@@ -339,6 +342,11 @@ def dead_paths_in_claude() -> list[tuple[str, int, str]]:
                 refs = []
                 for m in re.finditer(r"`([^`]+)`", ln):
                     refs += [x.rstrip(".,;:") for x in PATH_TOKEN.findall(m.group(1))]
+                    # 루트 문서를 이름만으로 적은 것(`STRATEGIES.md` 같은 대문자 .md)도 잡는다 —
+                    # 접두어가 없어 PATH_TOKEN이 놓쳤고, 2026-09-19 옮겨진 뒤 6파일이 죽은 채 남아 있었다.
+                    bare = m.group(1).strip()
+                    if ROOT_DOC_TOKEN.fullmatch(bare) and bare not in TRANSIENT_DOCS and not (ROOT / ".claude" / bare).exists():
+                        refs.append(bare)
                 for m in LINK_RE.finditer(ln):
                     t = m.group(1).strip("<>").split("#")[0]
                     if t and not t.startswith(("http", "mailto", "#")):

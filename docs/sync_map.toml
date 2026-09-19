@@ -162,3 +162,9 @@ src = ["scripts/auto_trade_day.ps1", "scripts/auto_trade_guard.ps1", "scripts/da
 deps = ["docs/RUNBOOK.md"]
 check = "stamp"
 note = "런북이 인용하는 스크립트 인자·옵션. 절 머리 도장이 낡으면 그 절의 명령을 맞추고 --restamp docs/RUNBOOK.md"
+
+[[rule]]
+src = ["research/COUNCIL_CHARTER.md", "research/GUARDRAILS.md"]
+deps = ["research/RESEARCH_COUNCIL.md#멤버와 역할", ".claude/agents/bias-auditor.md", ".claude/AGENTS.md"]
+check = "hint"
+note = "헌장·규율(D-101)이 바뀌면 회의 멤버 표, 편향 감사관의 대조 기준, 에이전트 색인을 같이 본다"

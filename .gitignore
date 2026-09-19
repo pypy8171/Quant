@@ -97,6 +97,7 @@ PYQuant/data/daily/
 PYQuant/data/weekly/
 PYQuant/data/minute_live/
 PYQuant/data/themes/
+PYQuant/data/ticks_raw/
 
 # config 백업·임시본(실키 포함 가능) — 확장자로 안 끝나는 이름도 막는다
 Quant/config/*.bak*
@@ -107,3 +108,4 @@ Quant/config/universe_full.json
 
 # MSVC 리소스 컴파일러 임시 파일
 Quant/tools/ops_terminal/RC*
+PYQuant/data/cache/

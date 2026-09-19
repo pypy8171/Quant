@@ -2,29 +2,22 @@
 백테스팅 엔진
 과거 일봉 데이터로 전략을 시뮬레이션
 """
+from bisect import bisect_right
 from dataclasses import dataclass, field
 from typing import Optional
 from kis.client import Bar, KisClient, OrderSignal
 from strategy.base import StrategyBase
+from backtest.costs import CostSpec, LIVE, fill_result
+from backtest.ledger import PositionLedger
 import time
 
 
-@dataclass
-class CostModel:
-    """거래 비용 모델 (한국 현물)"""
-    commission_rate: float = 0.00015  # 수수료 0.015% (증권사별 상이)
-    tax_rate:        float = 0.0018   # 거래세 0.18% (매도 시만)
-    slippage_bps:    float = 5.0      # 슬리피지 5bp
-
-    def buy_total_cost(self, price: float, qty: int) -> float:
-        """매수 총비용 (체결금액 + 수수료 + 슬리피지)"""
-        notional = price * qty
-        return notional * (1 + self.commission_rate + self.slippage_bps / 10_000)
-
-    def sell_net_proceeds(self, price: float, qty: int) -> float:
-        """매도 실수령액 (체결금액 - 수수료 - 거래세 - 슬리피지)"""
-        notional = price * qty
-        return notional * (1 - self.commission_rate - self.tax_rate - self.slippage_bps / 10_000)
+def CostModel(commission_rate: float = LIVE.commission_rate, tax_rate: float = LIVE.sell_tax_rate,
+              slippage_bps: float = 0.0) -> CostSpec:
+    """옛 호출부(11_signal_axes 등) 호환 — 비율 인자를 `backtest.costs.CostSpec`으로 옮긴다.
+    옛 slippage_bps(체결금액 대비 양쪽 비용)는 impact_pct로 간다. 새 코드는 `costs.LIVE`를 직접 쓴다."""
+    return CostSpec(commission_percent=commission_rate * 100.0, sell_tax_percent=tax_rate * 100.0,
+                    slippage_ticks=0, impact_percent=slippage_bps / 100.0)
 
 
 @dataclass
@@ -126,7 +119,7 @@ class _AsOfKisAdapter:
 class BacktestEngine:
     def __init__(self, kis: KisClient, strategy: StrategyBase,
                  initial_cash: float = 10_000_000,
-                 cost_model: CostModel | None = None,
+                 cost_model: CostSpec | None = None,
                  target_positions: int = 10,
                  warmup_days: int = 14,
                  regime_on: bool = False, regime_ma: int = 200,
@@ -137,7 +130,7 @@ class BacktestEngine:
         self.strategy   = strategy
         self.init_cash  = initial_cash
         self.cash       = initial_cash
-        self.cost       = cost_model or CostModel()
+        self.cost       = cost_model or LIVE     # 비용은 라이브 원장과 한 소스(backtest/costs.py)
         self.target_positions = target_positions   # TARGET_WEIGHT 동일가중 분모
         self.warmup_days = warmup_days             # start_date 이전 워밍업 일수(모멘텀 lookback)
         self.regime_on = regime_on                 # 시장국면 필터(하락장 현금화) on/off
@@ -155,11 +148,17 @@ class BacktestEngine:
         self._trades:   list[Trade] = []
         self._equity:   list[float] = []      # 날짜별 포트폴리오 평가금액 (현금 + 보유 포지션 시가)
         self._equity_dates: list[str] = []    # _equity와 1:1 정렬된 거래일
-        self._positions: dict[str, int] = {}  # ticker → 현재 보유 수량
+        self._ledger = PositionLedger()       # 보유 수량·평단·실현손익 — 라이브 OrderGate와 같은 규칙
+        self._date_index: dict[str, list[str]] = {}   # ticker → 정렬된 봉 날짜(이분 탐색용)
         self._names:    dict[str, str] = {}   # ticker → 종목명 (소스가 제공 시)
         self._daily_cash: list[float] = []    # 일별 현금 잔고 (상태 export용)
         self._daily_npos: list[int] = []      # 일별 보유 종목수 (상태 export용)
         self._daily_holdings: list = []       # 일별 보유 상세 [[(ticker,qty,value),...], ...]
+
+    @property
+    def _positions(self) -> dict[str, int]:
+        """ticker → 보유 수량. 원장이 정본이고 이 뷰는 읽기 전용이다."""
+        return self._ledger.holdings()
 
     def _label(self, code: str) -> str:
         nm = self._names.get(code)
@@ -190,11 +189,12 @@ class BacktestEngine:
         for i, ticker in enumerate(universe):
             if verbose:
                 print(f"\r  데이터 수집 중... {i+1}/{len(universe)} ({ticker})", end="", flush=True)
-            bars = self.kis.get_historical_ohlcv(ticker, pre_start, end_date)
+            bars = sorted(self.kis.get_historical_ohlcv(ticker, pre_start, end_date), key=lambda bar: bar.date)
             sim  = [b for b in bars if b.date >= start_date]
             if sim:
                 raw_bars[ticker] = bars
                 all_bars[ticker] = sim
+                self._date_index[ticker] = [bar.date for bar in bars]
             if per_sleep:
                 time.sleep(per_sleep)
         if verbose:
@@ -244,13 +244,23 @@ class BacktestEngine:
         # 3. 날짜 순으로 시뮬레이션
         all_dates = sorted({b.date for bars in all_bars.values() for b in bars})
 
+        # 종목별 커서 — 봉이 날짜순으로 정렬돼 있으므로 "date까지 보이는 봉"은 앞에서부터 cursor개.
+        #  커서는 앞으로만 움직여 전 기간 합쳐 O(봉 수). 전략에 넘기는 리스트는 접두 슬라이스(얕은 복사)라
+        #  미래 봉이 구조적으로 들어갈 수 없다. 신호는 종가 확정 후, 체결은 다음 봉 시가.
+        cursor: dict[str, int] = {ticker: 0 for ticker in watch}
+
         for date in all_dates:
-            # 해당 날짜까지 보이는 봉 — raw_bars(워밍업 포함 전체)에서, 미래 차단. watch 순서 보존.
             visible_all: dict[str, list[Bar]] = {}
             for ticker in watch:
-                vis = [b for b in raw_bars.get(ticker, []) if b.date <= date]
-                if vis:
-                    visible_all[ticker] = vis
+                bars = raw_bars.get(ticker)
+                if not bars:
+                    continue
+                position = cursor[ticker]
+                while position < len(bars) and bars[position].date <= date:
+                    position += 1
+                cursor[ticker] = position
+                if position > 0:
+                    visible_all[ticker] = bars[:position]
 
             # 수급도 date 미만으로 잘라 전달 (T-1 확정만 — look-ahead·발표시차 차단)
             flow_visible = {t: [f for f in all_flow.get(t, []) if f.date < date]
@@ -286,7 +296,7 @@ class BacktestEngine:
             port_value = self.cash
             holds: list = []
             for t, qty in self._positions.items():
-                day_bar = next((b for b in raw_bars.get(t, []) if b.date == date), None)
+                day_bar = self._bar_on(t, date, raw_bars)
                 if day_bar:
                     val = qty * day_bar.close
                     port_value += val
@@ -308,14 +318,18 @@ class BacktestEngine:
                 kodex_bars["069500"] = kb
         except Exception:
             kodex_bars = {}
-        self._kodex_eq = (self._buyhold_equity(["069500"], all_dates, kodex_bars)
+        # 지수 ETF 하나는 데이터가 일찍 끝나도 상폐가 아니므로 −100% 처리를 끈다.
+        self._kodex_eq = (self._buyhold_equity(["069500"], all_dates, kodex_bars, delist_to_zero=False)
                           if kodex_bars else None)
         return self._calc_result()
 
     def _buyhold_equity(self, tickers: list[str], all_dates: list[str],
-                        bars_by_ticker: dict) -> list[float] | None:
-        """초기자금을 종목들에 동일가중 분배해 시작일 매수 후 보유. 일별 평가액 시계열 반환.
-        결측일/상폐 후엔 마지막 종가로 평가(전방채움). 벤치마크 비교용(비용 미반영 — 보수적)."""
+                        bars_by_ticker: dict, delist_to_zero: bool = True) -> list[float] | None:
+        """초기자금을 종목들에 동일가중 분배해 시작일 시가 매수 후 보유. 일별 평가액 시계열 반환.
+        매수 비용(수수료·충격)은 전략과 같은 `self.cost`로 뗀다. 청산 비용은 안 뗀다 — 전략 쪽 최종 equity도
+        보유분을 평가액 그대로 두므로 같은 잣대다.
+        결측일(거래정지)은 마지막 종가로 평가하고, 마지막 봉 이후(상폐·데이터 종료)는 0원(−100%)이다.
+        전방채움으로 상폐 손실을 감추면 벤치마크가 살아남은 종목만 세는 것이 된다."""
         present = {t: bars for t in tickers
                    if (bars := bars_by_ticker.get(t)) }
         n = len(present)
@@ -324,10 +338,12 @@ class BacktestEngine:
         alloc = self.init_cash / n
         shares: dict[str, float] = {}
         close_map: dict[str, dict] = {}
+        last_bar_date: dict[str, str] = {}
         for t, bars in present.items():
-            p0 = bars[0].open if bars[0].open > 0 else bars[0].close
-            shares[t] = (alloc / p0) if p0 > 0 else 0.0
+            first_price = bars[0].open if bars[0].open > 0 else bars[0].close
+            shares[t] = (alloc / (first_price * (1.0 + self.cost.buy_cost_rate))) if first_price > 0 else 0.0
             close_map[t] = {b.date: b.close for b in bars}
+            last_bar_date[t] = max(bar.date for bar in bars)
         last_close = {t: 0.0 for t in present}
         eq: list[float] = []
         for d in all_dates:
@@ -336,9 +352,30 @@ class BacktestEngine:
                 c = close_map[t].get(d)
                 if c is not None:
                     last_close[t] = c
+                elif delist_to_zero and d > last_bar_date[t]:
+                    last_close[t] = 0.0
                 v += shares[t] * last_close[t]
             eq.append(v)
         return eq
+
+    def _bar_on(self, ticker: str, date: str, all_bars: dict):
+        """date 당일 봉. 없으면 None. 정렬된 날짜 배열을 이분 탐색한다."""
+        bars = all_bars.get(ticker)
+        if not bars:
+            return None
+        dates = self._date_index.get(ticker)
+        if dates is None or len(dates) != len(bars):
+            return next((bar for bar in bars if bar.date == date), None)
+        position = bisect_right(dates, date) - 1
+        return bars[position] if position >= 0 and dates[position] == date else None
+
+    def _next_bar_index(self, ticker: str, date: str, all_bars: dict) -> int:
+        """date 다음 봉의 인덱스(없으면 len). 정렬된 날짜 배열을 이분 탐색한다."""
+        bars = all_bars.get(ticker, [])
+        dates = self._date_index.get(ticker)
+        if dates is None or len(dates) != len(bars):
+            return next((index for index, bar in enumerate(bars) if bar.date > date), len(bars))
+        return bisect_right(dates, date)
 
     def _market_risk_on(self, visible: dict, date: str) -> bool:
         """국면 판정. index 모드=지수 200MA(매끄러움, whipsaw 적음), breadth 모드=유니버스 이평위 비율.
@@ -349,17 +386,17 @@ class BacktestEngine:
         return market_risk_on(visible, self.regime_ma, self.regime_thresh)
 
     def _execute(self, sig, date: str, all_bars: dict):
-        """신호를 다음 봉 시가로 체결(look-ahead 방지). cash/positions/trades 갱신.
-        order_type=="TARGET_WEIGHT"면 엔진이 동일가중 사이징: BUY=floor(직전equity/N/price), SELL=전량."""
+        """신호를 다음 봉 시가로 체결(look-ahead 방지). cash/원장/trades 갱신.
+        비용·평단·실현손익은 `PositionLedger`(라이브 OrderGate와 같은 규칙)가 계산한다."""
         bars = all_bars.get(sig.ticker, [])
-        future = [b for b in bars if b.date > date]
-        if future:
-            price = future[0].open if future[0].open > 0 else future[0].close
+        next_index = self._next_bar_index(sig.ticker, date, all_bars)
+        if next_index < len(bars):
+            next_bar = bars[next_index]
+            price = next_bar.open if next_bar.open > 0 else next_bar.close
         elif sig.side == "SELL":
             # 미래봉 없음(상폐/데이터종료) + 매도 → 마지막 알려진 종가로 강제 청산(W-1).
             # 자본이 포지션에 영구 잠겨 equity에서 증발하는 것 방지.
-            past = [b for b in bars if b.date <= date]
-            price = past[-1].close if past else 0.0
+            price = bars[next_index - 1].close if next_index > 0 else 0.0
         else:
             return  # 미래봉 없음 + 매수 → 체결 불가
         if price <= 0:
@@ -370,32 +407,28 @@ class BacktestEngine:
             return
 
         if sig.side == "BUY":
-            total_cost = self.cost.buy_total_cost(price, qty)
+            total_cost = fill_result("BUY", price, qty, self.cost).net
             if self.cash >= total_cost:
-                self.cash -= total_cost
-                self._positions[sig.ticker] = self._positions.get(sig.ticker, 0) + qty
-                self._trades.append(Trade(sig.ticker, "BUY", date, price, qty))
+                filled = self._ledger.on_fill(sig.ticker, "BUY", price, qty, self.cost)
+                self.cash -= filled.fill.net
+                self._trades.append(Trade(sig.ticker, "BUY", date, filled.fill.price, qty))
         elif sig.side == "SELL":
-            held = self._positions.get(sig.ticker, 0)
+            held = self._ledger.quantity(sig.ticker)
             sell_qty = min(qty, held)  # 보유 수량 초과 매도 방지
             if sell_qty > 0:
-                buy = next((t for t in reversed(self._trades)
-                            if t.ticker == sig.ticker and t.side == "BUY"), None)
-                entry_price = buy.price if buy else price
-                proceeds = self.cost.sell_net_proceeds(price, sell_qty)
-                pnl = proceeds - entry_price * sell_qty
-                self.cash += proceeds
-                self._positions[sig.ticker] = held - sell_qty
-                if self._positions[sig.ticker] == 0:
-                    del self._positions[sig.ticker]
-                self._trades.append(Trade(sig.ticker, "SELL", date, price, sell_qty, pnl))
+                # 손익 = (체결가 − 평단) × 수량 − 매도 수수료·세금. 매수 수수료는 매수 시점에 원장이 뺐다.
+                filled = self._ledger.on_fill(sig.ticker, "SELL", price, sell_qty, self.cost)
+                self.cash += filled.fill.net
+                self._trades.append(Trade(sig.ticker, "SELL", date, filled.fill.price, sell_qty, filled.realized_pnl))
 
     def _peek_next_open(self, ticker: str, date: str, all_bars: dict):
         """다음 봉 시가(체결가) 미리보기 — 사이징용. 없으면 None."""
-        fut = [b for b in all_bars.get(ticker, []) if b.date > date]
-        if not fut:
+        bars = all_bars.get(ticker, [])
+        next_index = self._next_bar_index(ticker, date, all_bars)
+        if next_index >= len(bars):
             return None
-        return fut[0].open if fut[0].open > 0 else fut[0].close
+        next_bar = bars[next_index]
+        return next_bar.open if next_bar.open > 0 else next_bar.close
 
     def _vol_exposure(self) -> float:
         """변동성 타게팅 노출계수 ∈ (0,1]. 최근 vol_window 일간 포트수익률의 연환산 실현변동성이
@@ -432,7 +465,7 @@ class BacktestEngine:
         equity   = self._equity[-1] if self._equity else self.init_cash
         expo     = self._vol_exposure()
         invest_equity = equity * expo
-        cost_rate = self.cost.commission_rate + self.cost.slippage_bps / 10_000
+        cost_rate = self.cost.buy_cost_rate
         slot_val = invest_equity / max(1, len(target))   # 슬롯당 목표 평가금액
 
         # 2a. expo<1: 목표를 유지하는 보유분도 슬롯 목표가치 초과분만큼 매도(전체 노출을 expo로 수렴).

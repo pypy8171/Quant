@@ -14,7 +14,7 @@
     먼저 맞은 것으로 본다(최악 가정).
   - 손절 체결가는 손절선 그 자체로 본다. 갭하락으로 시가가 손절선 아래면 시가로 체결한다.
   - 보유 상한일에 남아 있으면 그날 종가로 청산한다.
-비용은 engine.CostModel과 같은 값을 쓴다(왕복 0.31%).
+비용은 backtest/costs.py `LIVE`(라이브 원장과 같은 값)에서 왕복 비용률을 가져온다.
 """
 from __future__ import annotations
 
@@ -23,11 +23,12 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-# engine.CostModel과 같은 값. 왕복 = 수수료 0.015%×2 + 세 0.18% + 슬리피지 5bp×2 = 0.31%
-COMMISSION_RATE = 0.00015
-TAX_RATE = 0.0018
-SLIPPAGE_BPS = 5.0
-ROUNDTRIP_COST_PCT = (COMMISSION_RATE * 2 + TAX_RATE + SLIPPAGE_BPS / 10_000 * 2) * 100
+from backtest.costs import LIVE
+
+# 라이브 원장과 한 소스. 왕복 = 수수료 0.015%×2 + 매도세 0.18% = 0.21% (슬리피지·충격은 LIVE에서 0)
+COMMISSION_RATE = LIVE.commission_rate
+TAX_RATE = LIVE.sell_tax_rate
+ROUNDTRIP_COST_PCT = LIVE.roundtrip_percent
 
 
 @dataclass

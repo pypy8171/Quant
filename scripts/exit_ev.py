@@ -21,6 +21,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+if str(REPO / "PYQuant") not in sys.path:
+    sys.path.insert(0, str(REPO / "PYQuant"))
+from backtest.costs import LIVE  # noqa: E402
 DEFAULT_LEDGER_DIR = REPO / "Quant" / "build_win" / "logs"
 DEFAULT_OUT = REPO / "research" / "studies" / "17_exit_ev"
 
@@ -32,10 +35,11 @@ BOOTSTRAP_ROUNDS = 2000
 BOOTSTRAP_SEED = 20260919
 MIN_DAYS_FOR_VERDICT = 3
 
-# realized_pnl은 엔진이 매도 수수료 0.015% + 거래세 0.18%를 뺀 값(OrderGate.cpp realized_pnl 계산). 매수 수수료는 안 뺐다.
-SELL_COST_RATE_IN_LEDGER = 0.00195
+# realized_pnl은 엔진이 매도 수수료 + 거래세를 뺀 값(OrderGate.cpp realized_pnl 계산). 매수 수수료는 안 뺐다.
+#  요율은 backtest/costs.py LIVE(원장과 한 소스, 0.015% + 0.18% = 0.195%).
+SELL_COST_RATE_IN_LEDGER = LIVE.sell_cost_rate
 # 비용 감도는 원장 값에 **추가로** 빼는 비율 — 0(원장 그대로), 매수 수수료, 슬리피지 근사, 보수적.
-EXTRA_COST_RATES = (0.0, 0.00015, 0.003, 0.008)
+EXTRA_COST_RATES = (0.0, LIVE.commission_rate, 0.003, 0.008)
 
 # 청산 사유 문자열 → 범주. 숫자를 지운 뒤 앞에서부터 처음 맞는 것(seed-trail이 trail보다 앞).
 REASON_CATEGORIES = (

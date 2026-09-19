@@ -181,7 +181,14 @@ def configs() -> list[str]:
     d = ROOT / "Quant" / "config"
     if not d.exists():
         return []
-    return sorted(TOKEN_NAME_RE.sub("kis_token_<REDACTED>.json", p.name) for p in d.glob("*.json"))
+    # git이 추적하는 파일만 싣는다 — 실계좌 config·토큰 캐시·장중 산출물(prices_live·universe_*)은 이 PC에만 있는
+    # 로컬 파일이라 목록에 들어가면 facts.json이 기계마다 달라지고 커밋 diff에 이름이 남는다(2026-09-19 확인).
+    try:
+        tracked = subprocess.run(["git", "ls-files", "--", str(d)], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
+        names = {Path(tracked_path).name for tracked_path in tracked if tracked_path.endswith(".json")}
+    except (subprocess.CalledProcessError, OSError):
+        names = {path.name for path in d.glob("*.json")}
+    return sorted(TOKEN_NAME_RE.sub("kis_token_<REDACTED>.json", name) for name in names)
 
 
 def config_keys() -> dict:
