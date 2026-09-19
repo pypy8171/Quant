@@ -44,6 +44,7 @@ BACKFILL_LIVE = "PYQuant/dashboard/backfill_live.py"
 REVIEW_ENTRY = "scripts/build_review_entry.py"
 BACKFILL_STUDIES = "scripts/backfill_studies.py"
 BUILD_DASHBOARD = "PYQuant/dashboard/build_dashboard.py"
+EXIT_EV_DASHBOARD = "scripts/exit_ev_dashboard.py"  # 청산 확률표(study 17) — 원장 최신 날짜까지 다시 센다
 
 _DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 
@@ -145,6 +146,9 @@ def refresh(live_dates: list[str], backtest: bool, render: bool, dry: bool) -> t
         if rc:
             lines.append(f"중단 — {script} 실패(rc={rc}), 생성기를 돌리지 않음")
             return lines, rc
+    if live_dates:
+        # 청산 확률표는 매매 대시보드와 별개 HTML이라 실패해도 매매 대시보드 생성은 막지 않는다. rc는 로그에 남는다.
+        _run(EXIT_EV_DASHBOARD, [], dry, lines)
     return lines, _run(BUILD_DASHBOARD, [], dry, lines)
 
 

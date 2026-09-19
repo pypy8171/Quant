@@ -51,10 +51,10 @@ schtasks /query /tn claude_stock_study /v /fo list | Select-String "다음 실�
 schtasks /change /tn claude_stock_study /st 20:30
 ```
 
-> **2026-09-14~09-18 정지, 09-19 다시 켬.** 토큰 사용량을 줄이려고 클로드를 부르는 셋 — `claude_stock_study`·`claude_dashboard_sync`
-> (둘 다 `Disable-ScheduledTask`)과 2절의 장전 시황 브리핑 루틴(enabled=false) — 을 금요일까지 껐다. 순수 파이썬 작업은
-> 그대로 돌고 `Quant Maintain Daily`는 이날 처음 Enable했다. 복구는 `Enable-ScheduledTask -TaskName claude_stock_study`,
-> `Enable-ScheduledTask -TaskName claude_dashboard_sync`, 루틴은 `/schedule`에서 켠다.
+> **2026-09-14~09-18 정지.** 토큰 사용량을 줄이려고 클로드를 부르는 셋 — `claude_stock_study`·`claude_dashboard_sync`
+> (둘 다 `Disable-ScheduledTask`)과 2절의 장전 시황 브리핑 루틴(enabled=false) — 을 껐다. 순수 파이썬 작업은 그대로 돌고
+> `Quant Maintain Daily`는 이날 처음 Enable했다. 루틴은 09-19에 프롬프트를 새로 올리며 다시 켰다. 예약작업 둘은 아직 꺼져 있다 —
+> 복구는 `Enable-ScheduledTask -TaskName claude_stock_study`, `Enable-ScheduledTask -TaskName claude_dashboard_sync`.
 
 > **시간표는 계좌 모드로 갈린다 — 정본은 `scripts/eod_timetable.ps1`.** 감시견 예약작업이 넘기는 config의 `kis.is_paper`를 읽어
 > 모의면 매매 끝 15:30(KIS 모의 서버가 15:30 뒤 주문을 거부, T-18 2026-09-18 실측)·마감 루틴 16:00대, 실계좌면 애프터마켓 20:00(D-097)
@@ -76,7 +76,7 @@ schtasks /change /tn claude_stock_study /st 20:30
 
 | 루틴 | 시각 | 내용 |
 |---|---|---|
-| 장전 시황 브리핑 | 평일 08:30 KST | `market-brief` 결과를 세션으로 전달(발행은 08:42~08:45쯤). 정본은 `docs/premarket/YYYY-MM-DD.md`(노션은 09-11분까지). 루틴 프롬프트에 KST 날짜가 없어 제목·본문이 하루 늦는 결함이 있다 — `docs/premarket/README.md`. 링크는 `_private/LINKS.md` |
+| 장전 시황 브리핑 | 평일 08:30 KST | 간밤 시장과 국면 모델(지표 8개) 기준 스탠스를 노션 페이지로 쓴다(발행은 08:42~08:45쯤). 프롬프트 정본은 `docs/premarket/ROUTINE_PROMPT.md`(국면 모델은 gen 블록, 올린 것과 다르면 `check_docs`가 잡는다). md 정본 `docs/premarket/YYYY-MM-DD.md`로 옮기는 것은 아침 세션(`/auto-trade-day` 1단계). 링크는 `_private/LINKS.md` |
 
 PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이 저장소 파일을 만들지는 않는다.
 
@@ -265,7 +265,7 @@ scripts/eod_autodoc.py
 | `scripts/eod_collect.py` | 원장·로그에서 사실만 뽑는다(세션·거부 히스토그램·라운드트립·주문 공백) |
 | `scripts/build_review_entry.py` | 위 사실을 `quant.review/v1` 항목으로 만들어 리뷰 탭에 넣는다. 기존 항목의 해석 키(`axes`·`improvements`·`gate`)는 건드리지 않고, 항목에 `"locked": [...]`가 있으면 그 키도 제외한다. `incidents`는 목록을 새로 만들되 제목이 같은 항목의 `impact_html`(사람이 쓴 영향)은 옮겨 온다 |
 | `scripts/build_study_site.py` | `_private/주식_study/` 전체를 날짜별로 묶어 스터디 사이트 재생성 |
-| `scripts/exit_ev.py` · `scripts/exit_ev_dashboard.py` | 모의 원장 청산 체결을 사유별로 묶어 승률·기대값·CI 표(study 17)와 그 근거를 셀마다 펼쳐 보는 화면(`research/studies/17_exit_ev/exit_ev_dashboard.html`)을 만든다. 손으로만 돈다(표본이 쌓이면 `--last-day`) |
+| `scripts/exit_ev.py` · `scripts/exit_ev_dashboard.py` | 모의 원장 청산 체결을 사유별로 묶어 승률·기대값·CI 표(study 17)와 그 근거를 셀마다 펼쳐 보는 화면(`research/studies/17_exit_ev/exit_ev_dashboard.html`)을 만든다. `refresh_dashboard.py`가 매매일 마감 뒤 부르고(마지막 날 = 원장 최신 파일), 발행본은 `/dashboard-sync` |
 | `scripts/refresh_dashboard.py` | 위 재생성 순서(라이브 백필·리뷰 항목·생성기)를 소유한다. `--if-stale`은 원천 파일이 산출물보다 새것일 때만 돈다. `eod_autodoc.py`와 Stop 훅이 모두 이 스크립트를 부르므로 절차가 한쪽만 고쳐져 갈라지지 않는다. 실행 기록은 `logs/refresh_dashboard.log` |
 | `scripts/token_audit.py` | 세션 기록(`~/.claude/projects/<repo>/*.jsonl`)에서 토큰 사용을 절차(탐색·편집·git·빌드·위임·훅 되돌림)·도구 결과·하네스 주입(CLAUDE.md 재주입·압축 요약)·훅 소요별로 집계해 표로 낸다. `--md docs/reports/TOKEN_AUDIT.md`로 보고서 |
 | `scripts/trade_costs.py` | 체결 원장 `logs/trades_YYYYMMDD.csv`의 날짜별·종목별 매매 비용(수수료·거래세, 요율은 인자)과 실현손익(`realized_pnl` 열)을 `logs/trade_costs.json`에 누적하고 표로 낸다. 거래 빈도와 손익의 경계를 보는 용도. `py scripts/trade_costs.py --days 7` |
@@ -279,6 +279,8 @@ scripts/eod_autodoc.py
 | `scripts/gen_code_graph.py` | 헤더 포함 관계로 모듈 그래프를 만들어 `docs/CODE_GRAPH.md`·`code_graph.dot`·`code_graph.json`을 생성한다. `--impact <파일>`은 그 파일을 고쳤을 때 재검증 대상을 파일을 열지 않고 뽑는다 |
 | `scripts/gen_code_flow.py` | `docs/code_flow.toml`(읽는 순서·심볼·볼 것)에서 `docs/CODE_FLOW.md`를 만든다. 줄 번호·시그니처는 소스에서 찾아 채우므로 코드가 옮겨가도 링크가 따라가고, 심볼이 사라지면 `--check`가 exit 1로 막아 명세를 고치게 한다. sync-gate가 `fix_cmd`로 턴 끝마다 재생성한다(D-078) |
 | `scripts/gen_tuning_sheet.py` | `docs/tuning_sheet.toml`(config 묶음·단위, 코드 수치(줄번호 참조))과 실행 중 config에서 `_private/TUNING_SHEET.md`(상세판)와 `_private/TUNING_CYCLE.md`(요약판, `[[cycle]]` 문장의 `{이름}` 을 실제 값으로 채움)를 만든다. 값은 소스에서 정규식으로 읽으므로 코드를 고치면 시트가 따라오고, 정규식이 안 잡히면 `--check`가 exit 1로 명세를 고치게 한다. config 는 gitignore 라 git diff 로 못 잡아 sync-gate 가 매 턴 `--check` 를 돈다 |
+| `scripts/gen_runbook.py` | 운영 명령 정본 `docs/RUNBOOK.md`를 복사 버튼 달린 `docs/RUNBOOK.html`(gitignore, 절대경로 치환)로 렌더한다. `gen_facts --apply`가 허브와 같이 부르고, `--check`(check_docs)는 코드 블록의 스크립트 경로가 실재하는지 본다. 인용 스크립트의 인자가 바뀌면 절 머리 도장이 낡음으로 잡힌다 |
+| `scripts/premarket_routine.py` | 장전 시황 브리핑 루틴 프롬프트 정본 `docs/premarket/ROUTINE_PROMPT.md`의 본문 출력(`--render`)·올린 해시 기록(`--mark`)·정본과 비교(`--check`, check_docs가 부른다). 루틴 갱신 자체는 세션(`/schedule`)이 한다 |
 | `scripts/brace_style.py` | 중괄호와 블록 앞뒤 빈 줄을 기계적으로 맞춘다(`.clang-format`의 Allman·`InsertBraces`와 같은 규칙). 손으로 맞추지 않는다 |
 | `scripts/check_plain_language.py` | 쓰지 않기로 한 말을 검출·치환한다(`--fix`는 뒤 조사까지 맞춘다). 정본은 `docs/STYLE_GUIDE.md`, 게이트는 `lexicon-gate.ps1`과 `@committer` |
 | `scripts/session_board.py` | 살아 있는 세션(`~/.claude/sessions/*.json`)마다 기록 jsonl의 늘어난 꼬리만 읽어 문맥 K/%·턴(모델 호출 수)·압축 횟수·마지막 사용자 요청을 세고, 현황판 `_private/SESSION_CLAIMS.md` 줄과 인계 파일 유무를 붙여 `_private/session_board.json`·`.html`(30초 자동 새로고침)로 쓴다. 파일은 Stop 훅이 턴마다 다시 쓰고, 서버(`:8788`, 트레이더가 돌 때는 대시보드 `:8787/sessions`도)는 파일이 30초보다 낡았으면 요청 때 한 번 더 만든다(어느 세션도 턴을 안 끝내면 훅만으로는 멈춰 있어서). 문맥 50%↑ 노랑, 80%↑ 빨강, 100K↑면 인계 시점 표시(145K↑는 경계를 안 기다리고 알린다). `--facts`·`--skeleton`·`--due`는 인계 훅이 쓴다 |

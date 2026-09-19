@@ -10,11 +10,11 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 81개
 - [Quant](#quant) — 171개
-- [docs](#docs) — 58개
+- [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 176개
-- [scripts](#scripts) — 58개
-- [strategies](#strategies) — 30개
+- [research](#research) — 182개
+- [scripts](#scripts) — 64개
+- [strategies](#strategies) — 31개
 - [tools](#tools) — 3개
 
 ## (루트)
@@ -424,6 +424,7 @@
 - [HARNESS.md](HARNESS.md) — 하네스·루프 엔지니어링 문서
 - [OPTIMIZATION_REVIEW.md](OPTIMIZATION_REVIEW.md) — 코드 전수 최적화 리뷰
 - [REALTIME_READINESS_REVIEW.md](REALTIME_READINESS_REVIEW.md) — 외부 리뷰 항목 검증 문서
+- [RUNBOOK.md](RUNBOOK.md) — 운영 명령 복붙용 정본. gen_runbook.py 가 RUNBOOK.html(gitignore)로 렌더, 절 머리 도장으로 인용 스크립트 변경을 잡는다
 - [STYLE_GUIDE.md](STYLE_GUIDE.md) — 문서 문체 규칙집
 - [SYNC_MAP.md](SYNC_MAP.md) — 문서 동기화·드리프트 방지 지도
 - [code_flow.toml](code_flow.toml) — CODE_FLOW.md의 정본 명세 — 단계·걸음·심볼·볼 것(줄 번호 없음)
@@ -478,6 +479,7 @@
 - [2026-09-10.md](premarket/2026-09-10.md) — 09-10 장전 시황 브리핑
 - [2026-09-11.md](premarket/2026-09-11.md) — 09-11 장전 시황 브리핑
 - [README.md](premarket/README.md) — 장전 브리핑 색인(날짜 결함 설명)
+- [ROUTINE_PROMPT.md](premarket/ROUTINE_PROMPT.md) — 장전 시황 브리핑 클라우드 루틴 프롬프트 정본. 국면 모델 표는 gen:regime-model, 올린 해시는 premarket_routine.py --mark
 
 ### docs/reports/
 
@@ -746,6 +748,15 @@
 - [exec_replay_days.tsv](../research/studies/16_trendx_execution/exec_replay_days.tsv) — 16번 3분봉 리플레이 입력 원본(일별)
 - [run_atr_stop.py](../research/studies/16_trendx_execution/run_atr_stop.py) — 16번 ATR 손절 백테스트 하네스
 
+### research/studies/17_exit_ev/
+
+- [README.md](../research/studies/17_exit_ev/README.md) — study 17 청산 사유별 조건부 기대값: 사전등록·편향·결과·재현·수정 이력
+- [RESULT.md](../research/studies/17_exit_ev/RESULT.md) — exit_ev.py 가 만든 결과 표(묶음 합계·전체·구간 A/B·비용 감도)
+- [exit_ev_all.tsv](../research/studies/17_exit_ev/exit_ev_all.tsv) — 전 구간 셀별 통계·CI(생성물)
+- [exit_ev_dashboard.html](../research/studies/17_exit_ev/exit_ev_dashboard.html) — 청산 사유별 승률·기대값·CI와 근거(날짜·종목·레그)·매매 규칙(실행 config 수치)·백테스트 스터디 세 탭 화면(생성물, exit_ev_dashboard.py, 매매일 마감 뒤 자동)
+- [exit_ev_segment_a.tsv](../research/studies/17_exit_ev/exit_ev_segment_a.tsv) — 구간 A(09-08~10) 셀별 통계·CI(생성물)
+- [exit_ev_segment_b.tsv](../research/studies/17_exit_ev/exit_ev_segment_b.tsv) — 구간 B(09-11~18) 셀별 통계·CI(생성물)
+
 ## scripts
 
 ### scripts/
@@ -772,12 +783,16 @@
 - [eod_collect.py](../scripts/eod_collect.py) — 장 마감 사실 수집 스크립트
 - [eod_minute_backfill.py](../scripts/eod_minute_backfill.py) — 장 마감 후 분봉 백필 스크립트
 - [eod_timetable.ps1](../scripts/eod_timetable.ps1) — 마감 자동화 시간표 정본. 감시견 config의 `kis.is_paper`로 모의(매매 끝 15:30·루틴 16:00대)/실계좌(20:00·루틴 20:30) 시간표를 고르고, 예약작업·감시견이 그대로인지 보거나(`-Apply`로) 맞춘다. cron-gate 훅이 `-Lines`를 읽는다 · `-Mode paper|live`로 config 없이 한 모드 시간표만
+- [exit_ev.py](../scripts/exit_ev.py) — 원장 매도 체결을 odno 레그로 합쳐 청산 사유별 승률·기대값·일블록 부트스트랩 CI·판정을 낸다(study 17)
+- [exit_ev_dashboard.py](../scripts/exit_ev_dashboard.py) — study 17 표를 셀별 근거까지 펼치는 정적 HTML 생성기(exit_ev.py 재사용) — 종목명 맵, 규칙 탭(실행 config 값), 백테스트 탭(metrics.json). refresh_dashboard.py 가 매매일 마감 뒤 부른다
+- [exit_ev_dashboard_template.html](../scripts/exit_ev_dashboard_template.html) — exit_ev_dashboard.py 가 JSON을 박아 넣는 화면 템플릿
 - [extract_swap_counterfactual.py](../scripts/extract_swap_counterfactual.py) — 슬롯 교체 가정 비교 표본 추출 스크립트
 - [file_index.py](../scripts/file_index.py) — 파일 색인 두 개를 트리와 맞추는 생성·검사 스크립트(Stop 훅·커밋 게이트)
 - [gen_automation_hub.py](../scripts/gen_automation_hub.py) — 자동화 시간표(모의/실계좌)·예약작업 실제 상태·훅 배선·대시보드 링크를 `_private/AUTOMATION_HUB.md` 한 장으로 생성한다. 원본은 `scripts/eod_timetable.ps1`·`_private/dashboards.json`. `maintain.py --daily`와 `gen_facts --apply`가 부른다
 - [gen_code_flow.py](../scripts/gen_code_flow.py) — code_flow.toml의 심볼을 소스에서 찾아 CODE_FLOW.md 생성, --check는 누락·낡음이면 exit 1
 - [gen_code_graph.py](../scripts/gen_code_graph.py) — 코드 의존 그래프 생성 스크립트
 - [gen_facts.py](../scripts/gen_facts.py) — 저장소 사실 집계 스크립트
+- [gen_runbook.py](../scripts/gen_runbook.py) — docs/RUNBOOK.md → docs/RUNBOOK.html 렌더({ROOT} 치환·복사 버튼). --check 는 코드 블록의 스크립트 경로 존재 검사
 - [gen_tuning_sheet.py](../scripts/gen_tuning_sheet.py) — 실행 중 config(`_private/_auto_trade_day.json` 의 config)와 `docs/tuning_sheet.toml` 코드 수치로 `_private/TUNING_SHEET.md`(상세)·`_private/TUNING_CYCLE.md`(요약)를 만든다. 주기 표(초 환산 정렬)·시각 표·묶음별 전체 표. `--check`는 낡음·코드 수치 실패면 exit 1, sync-gate가 매 턴 돌리고 감시견 기동·`maintain --daily`도 부른다
 - [kill_release.ps1](../scripts/kill_release.ps1) — 킬스위치 해제: `_private/state/kill_today_<날짜>` 표지 파일을 지우고 감시견 상태파일을 옆으로 치워 가드가 5분 안에 감시견을 다시 띄우게 한다(D-098)
 - [live_prices_feed.py](../scripts/live_prices_feed.py) — 전종목 실시간 시세 보조 프로세스
@@ -787,6 +802,7 @@
 - [notify_sidecar.py](../scripts/notify_sidecar.py) — 매매 알림 발송 보조 프로세스
 - [ops_terminal_shortcut.ps1](../scripts/ops_terminal_shortcut.ps1) — 운영단말 바탕화면 바로가기 `운영단말.lnk`와 사용자 환경변수 `QUANT_OPS_TOKEN`을 만든다. `ops_terminal` 링크 뒤 CMake POST_BUILD가 부르고, worktree 빌드는 건너뛴다
 - [parse_quant_log.py](../scripts/parse_quant_log.py) — 매매 로그 파서 스크립트
+- [premarket_routine.py](../scripts/premarket_routine.py) — 루틴 프롬프트 본문 출력(--render)·올린 해시 기록(--mark)·정본과 비교(--check, check_docs 가 부른다)
 - [quant_procs.ps1](../scripts/quant_procs.ps1) — 실행 프로세스 점검·정리 스크립트
 - [refresh_dashboard.py](../scripts/refresh_dashboard.py) — 대시보드·리뷰 재생성 스크립트
 - [rename_frags.py](../scripts/rename_frags.py) — 합성 식별자 안의 약어 조각(qty·cfg·mtx…)을 풀어쓰는 3단계 도구(D-092). 조각·전체·파일별 표와 KIS 전문 조각 제외 규칙을 안에 둔다
@@ -825,6 +841,10 @@
 - [MEETING_2026-09-11_TRENDX.md](../strategies/DeviationScale/MEETING_2026-09-11_TRENDX.md) — TRENDX 전략 검토 회의록
 - [MEETING_2026-09-18_RISKON_SLOTS.md](../strategies/DeviationScale/MEETING_2026-09-18_RISKON_SLOTS.md) — 강세장 슬롯·점수·재진입 회의록(재진입 쿨다운·DEVSCALE 물타기 끔·캡 400만)
 - [MEETING_2026-09-18_TURNOVER_COST.md](../strategies/DeviationScale/MEETING_2026-09-18_TURNOVER_COST.md) — 잦은 매매 원인 회의록(매도 76%가 비신호 경로, 교체 상한 복원→하루 1회 진입 게이트)
+
+### strategies/DeviationScale/evidence/
+
+- [exit_ev_table.md](../strategies/DeviationScale/evidence/exit_ev_table.md) — 청산 규칙 config 키(실행값) ↔ study 17 표 행 대응과 결론
 
 ### strategies/DeviationScale/live/
 

@@ -1,0 +1,435 @@
+<title>청산 확률표</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --ground: #f6f5f1;
+  --paper: #ffffff;
+  --ink: #1d2126;
+  --ink-2: #4c545d;
+  --ink-3: #7c848c;
+  --line: #dcdad3;
+  --line-2: #ebe9e3;
+  --accent: #245c63;
+  --accent-soft: #dfeced;
+  --gain: #b8412d;
+  --gain-soft: #f6e1dc;
+  --loss: #2d5aa8;
+  --loss-soft: #dde6f5;
+  --hold: #8a6a1c;
+  --hold-soft: #f3ead2;
+  --mute-soft: #eeede8;
+  --font-body: "IBM Plex Sans KR", "Pretendard", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "Consolas", "D2Coding", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #15181b; --paper: #1d2125; --ink: #e8e6e0; --ink-2: #b4b2ab; --ink-3: #7e8288;
+    --line: #33383d; --line-2: #282c30; --accent: #6fb3ba; --accent-soft: #1f3336;
+    --gain: #e2735e; --gain-soft: #3a231e; --loss: #7ea1e0; --loss-soft: #1f2a3f;
+    --hold: #d1a64a; --hold-soft: #35301f; --mute-soft: #26292c;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #15181b; --paper: #1d2125; --ink: #e8e6e0; --ink-2: #b4b2ab; --ink-3: #7e8288;
+  --line: #33383d; --line-2: #282c30; --accent: #6fb3ba; --accent-soft: #1f3336;
+  --gain: #e2735e; --gain-soft: #3a231e; --loss: #7ea1e0; --loss-soft: #1f2a3f;
+  --hold: #d1a64a; --hold-soft: #35301f; --mute-soft: #26292c;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.55; }
+.page { max-width: 1180px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 64px; }
+h1 { font-size: 24px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { font-size: 17px; font-weight: 600; margin: 40px 0 10px; letter-spacing: -0.01em; }
+h2 small { font-weight: 400; color: var(--ink-3); font-size: 13px; margin-left: 8px; }
+p { margin: 0 0 8px; max-width: 74ch; }
+.sub { color: var(--ink-2); }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.gain { color: var(--gain); }
+.loss { color: var(--loss); }
+.eyebrow { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 18px; }
+.tile { background: var(--paper); border: 1px solid var(--line); padding: 12px 14px; }
+.tile .v { font-family: var(--font-mono); font-size: 22px; font-weight: 500; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.tile .k { font-size: 12px; color: var(--ink-3); }
+.tile .n { font-size: 12px; color: var(--ink-2); margin-top: 4px; }
+
+.claims { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.claim { background: var(--paper); border-left: 3px solid var(--accent); padding: 12px 14px; }
+.claim .q { font-weight: 600; margin-bottom: 6px; }
+.claim .e { color: var(--ink); margin-bottom: 6px; }
+.claim .l { color: var(--ink-2); font-size: 13px; }
+.claim .l::before { content: "한계 · "; color: var(--ink-3); }
+
+.chart { background: var(--paper); border: 1px solid var(--line); padding: 12px 14px 8px; overflow-x: auto; }
+.chart svg { display: block; width: 100%; height: auto; min-width: 560px; }
+.chart .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--ink-2); margin-top: 6px; }
+.legend i { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 8px 0 12px; font-size: 13px; color: var(--ink-2); }
+.controls label { display: inline-flex; gap: 6px; align-items: center; }
+select { font: inherit; padding: 3px 6px; background: var(--paper); color: var(--ink); border: 1px solid var(--line); }
+.table-wrap { overflow-x: auto; background: var(--paper); border: 1px solid var(--line); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--line-2); white-space: nowrap; vertical-align: top; }
+th { font-weight: 500; color: var(--ink-3); font-size: 12px; background: var(--paper); position: sticky; top: env(safe-area-inset-top, 0px); }
+td.r, th.r { text-align: right; }
+tr.cell { cursor: pointer; }
+tr.cell:hover td { background: var(--mute-soft); }
+tr.cell.open td { background: var(--accent-soft); }
+tr.cell td:first-child::before { content: "▸ "; color: var(--ink-3); }
+tr.cell.open td:first-child::before { content: "▾ "; }
+.ci { color: var(--ink-3); font-size: 12px; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 2px; font-size: 12px; white-space: nowrap; }
+.pill.hold { background: var(--hold-soft); color: var(--hold); }
+.pill.neg { background: var(--loss-soft); color: var(--loss); }
+.pill.pos { background: var(--gain-soft); color: var(--gain); }
+.pill.ex { background: var(--mute-soft); color: var(--ink-2); }
+.pill.na { background: var(--mute-soft); color: var(--ink-3); }
+tr.detail > td { white-space: normal; background: var(--ground); padding: 14px 14px 18px; border-bottom: 1px solid var(--line); }
+.detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.box { background: var(--paper); border: 1px solid var(--line); padding: 10px 12px; overflow-x: auto; min-width: 0; }
+.box td.wrap, .rule td.wrap, .study td.wrap, #btSummary td.wrap { white-space: normal; }
+.nb { white-space: nowrap; }
+.box h4 { margin: 0 0 6px; font-size: 12px; font-weight: 500; color: var(--ink-3); letter-spacing: 0.04em; }
+.box table { font-size: 12px; }
+.box th { position: static; }
+.why { list-style: none; padding: 0; margin: 0; }
+.why li { padding: 4px 0 4px 14px; position: relative; }
+.why li::before { content: ""; position: absolute; left: 0; top: 12px; width: 6px; height: 6px; background: var(--accent); }
+.meaning { padding: 8px 10px; border-left: 3px solid var(--hold); background: var(--paper); margin-bottom: 12px; }
+.hist { display: grid; grid-template-columns: repeat(14, 1fr); gap: 2px; align-items: end; height: 90px; margin-top: 6px; }
+.hist .bar { background: var(--loss); min-height: 1px; position: relative; }
+.hist .bar.pos { background: var(--gain); }
+.hist .bar span { position: absolute; top: -15px; left: 0; right: 0; text-align: center; font-size: 10px; color: var(--ink-3); font-family: var(--font-mono); }
+.hist-labels { display: grid; grid-template-columns: repeat(14, 1fr); font-size: 9px; color: var(--ink-3); font-family: var(--font-mono); margin-top: 2px; }
+.hist-labels span { text-align: center; overflow: hidden; }
+.legs-toggle { font: inherit; font-size: 12px; background: none; border: 1px solid var(--line); color: var(--ink-2); padding: 3px 9px; cursor: pointer; margin-top: 8px; }
+.legs-toggle:focus-visible, tr.cell:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.legs-wrap { max-height: 360px; overflow: auto; margin-top: 8px; border: 1px solid var(--line-2); }
+.foot { color: var(--ink-3); font-size: 12px; margin-top: 8px; }
+.notes { color: var(--ink-2); font-size: 13px; }
+.notes li { margin-bottom: 4px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 22px 0 6px; overflow-x: auto; }
+.tabs button { font: inherit; font-size: 14px; font-weight: 500; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--ink-2); padding: 8px 14px; cursor: pointer; white-space: nowrap; }
+.tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.rule { background: var(--paper); border: 1px solid var(--line); padding: 14px 16px; margin-top: 14px; }
+.rule h3 { margin: 0 0 4px; font-size: 16px; }
+.rule .one { color: var(--ink-2); font-size: 13px; margin: 0 0 10px; }
+.rule .scope { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); }
+.rule table td:first-child { white-space: nowrap; font-weight: 500; }
+.rule .keys { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); margin-top: 3px; }
+.rule .keys span { display: inline-block; margin-right: 8px; }
+.rule .outcome { white-space: nowrap; line-height: 1.7; }
+.rule td.wrap { min-width: 420px; }
+.rule .outcome a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); cursor: pointer; }
+.indicators dt { font-weight: 600; margin-top: 8px; }
+.indicators dd { margin: 2px 0 0; color: var(--ink-2); font-size: 13px; }
+.study { background: var(--paper); border: 1px solid var(--line); padding: 12px 16px; margin-top: 12px; }
+.study summary { cursor: pointer; font-weight: 500; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; }
+.study summary .meta { color: var(--ink-3); font-size: 12px; font-family: var(--font-mono); font-weight: 400; }
+.study .table-wrap { margin-top: 10px; }
+.study td .wrap { white-space: normal; max-width: 520px; }
+.pill.robust { background: var(--gain-soft); color: var(--gain); }
+.pill.honest_failure { background: var(--loss-soft); color: var(--loss); }
+.pill.overfit_suspect, .pill.context_required { background: var(--hold-soft); color: var(--hold); }
+.pill.unlabeled { background: var(--mute-soft); color: var(--ink-3); }
+@media (prefers-reduced-motion: no-preference) { tr.cell td { transition: background .12s; } }
+@media (max-width: 600px) { .tile .v { font-size: 18px; } th, td { padding: 6px 7px; } }
+</style>
+
+<div class="page">
+  <div class="eyebrow">모의 원장 · 청산 사유별 조건부 기대값 (study 17)</div>
+  <h1>어떤 이유로 팔았을 때 어떻게 됐나</h1>
+  <p class="sub" id="lede"></p>
+  <div class="tiles" id="tiles"></div>
+
+  <div class="tabs" role="tablist">
+    <button type="button" role="tab" data-tab="live" aria-selected="true">장중 매매 — 청산 사유별 통계</button>
+    <button type="button" role="tab" data-tab="rules" aria-selected="false">매매 규칙 — 어떤 지표·수치로 사고 파나</button>
+    <button type="button" role="tab" data-tab="backtest" aria-selected="false">백테스트 — 스터디별 결과</button>
+  </div>
+
+  <div class="tab-panel" data-panel="live">
+  <h2>1. 이 화면이 증명하는 것과 못 하는 것</h2>
+  <div class="claims" id="claims"></div>
+
+  <h2>2. 날짜별 청산 손익 <small>묶음(전략)별 쌓기 · 09-11 세로선이 config 변경(구간 A|B)</small></h2>
+  <div class="chart" id="daily"></div>
+
+  <h2>3. 청산 사유별 통계·확률 <small>줄을 누르면 왜 그 숫자인지 펼쳐진다</small></h2>
+  <div class="controls">
+    <label>묶음 <select id="familyFilter"><option value="">전체</option></select></label>
+    <label><input type="checkbox" id="targetOnly"> 판정 대상만(부호 고정·운영 묶음 제외)</label>
+    <span id="rowCount"></span>
+  </div>
+  <div class="table-wrap">
+    <table id="cells">
+      <thead><tr>
+        <th>묶음 · 사유</th><th class="r">레그/일</th><th class="r">승률</th><th class="r">레그당 평균</th><th class="r">합계</th><th class="r">수익률</th><th>판정</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="foot">승률·평균·수익률 아래 회색 구간은 거래일 블록 부트스트랩 95% CI(같은 날 레그는 독립이 아니라 날 단위로 뽑는다). 수익률 = 합계 ÷ 매입원가. 손익은 매도 수수료 0.015%+거래세 0.18% 차감 후, 매수 수수료는 안 뺐다(비용 감도는 펼친 줄 안).</p>
+
+  <h2>4. 읽는 법</h2>
+  <ul class="notes">
+    <li><b>판정 규칙</b>(사전등록, README 1절): 구간 A(09-08~10)와 B(09-11~18) <b>둘 다</b> 수익률 CI가 0 위면 "기대값 양수", 둘 다 아래면 "기대값 음수", 아니면 "보류". 어느 구간이든 거래일 3일 미만이면 판정불가.</li>
+    <li><b>판정 제외</b>는 숫자가 없다는 뜻이 아니다 — 익절·손절·본전탈출은 규칙이 부호를 정하므로 크기와 빈도만 보고, DISPLACE·ORPHAN은 전략이 아니라 운영이라 규칙 평가를 안 한다. 펼치면 근거는 다 보인다.</li>
+    <li><b>안 잘랐으면 어땠나</b>는 이 표에 없다. 장마감·seed-trail이 손실이라는 것과 그 규칙이 나빴다는 것은 다른 말이고, 가르려면 가격 경로 리플레이(study 16)가 필요하다.</li>
+    <li>ORPHAN은 매수 이력이 없는 종목(재기동 뒤 승계 등)의 청산이라 어느 전략 탓인지 모른다. 평단 미상(pnl=0) 레그 <span id="unknownNote"></span>건은 표에서 뺐다.</li>
+    <li>재현: <code>py scripts/exit_ev.py</code>(표·TSV·RESULT.md) → <code>py scripts/exit_ev_dashboard.py</code>(이 화면). 정본 <code>research/studies/17_exit_ev/README.md</code>. 매일 장 마감 뒤 <code>scripts/refresh_dashboard.py</code>가 다시 만들고 <code>/dashboard-sync</code>가 같은 주소로 재발행한다.</li>
+  </ul>
+  </div>
+
+  <div class="tab-panel" data-panel="rules" hidden>
+  <h2>1. 지표 정의 <small>두 전략이 같은 지표를 다른 구간으로 쓴다</small></h2>
+  <p class="notes" id="rulesLede"></p>
+  <dl class="indicators" id="indicators"></dl>
+
+  <h2>2. 전략별 매수·매도 규칙과 그 결과 <small>수치는 실행 중 config 값 · 오른쪽 "결과"는 왼쪽 탭의 같은 사유 셀</small></h2>
+  <div id="rules"></div>
+
+  <h2>3. 왜 이 규칙들인가</h2>
+  <ul class="notes">
+    <li><b>정배열 + 이격 존</b>: 일봉 추세(정배열)가 살아 있는 종목만 고르고, 그 안에서 "얼마나 늘어났나/눌렸나"(이격)로 진입 시점을 정한다. 추세 없는 종목의 되돌림은 되돌림이 아니라 하락이라서 그렇다(D-022).</li>
+    <li><b>DEVSCALE은 손절이 없고 TRENDX는 있다</b>: 눌림 매수는 SMA 아래에서 사므로 존 이탈(정배열 깨짐)이 손절 역할을 한다. 추세 확장 매수는 고점 근처에서 사므로 평단 −2.5% 하드스탑을 두었다(D-053, 09-11 적용). 그 전후(구간 A|B) 차이가 왼쪽 탭의 판정 근거다.</li>
+    <li><b>단계 매도(rungs)</b>: 한 번에 다 팔지 않고 +dev_sell_pct 간격으로 나눠 판다 — 되돌림이 더 갈 때 일부를 남기고, 안 갈 때 일부라도 챙긴다(D-036).</li>
+    <li><b>먼지·재진입 쿨다운</b>: 잔량이 남아 슬롯을 잡는 것과 같은 종목을 몇 분 간격으로 사고파는 것을 막는 운영 규칙. 매매비용이 실현손익의 6배였던 실측(09-18)이 근거다.</li>
+    <li><b>ITB 승계분 관리</b>: 재기동 뒤 넘어온 보유분은 매수 근거를 모르므로 신호로 다루지 않고 평단 기준 트레일·본전탈출·하드스탑으로만 정리한다. 이 묶음의 seed-trail이 왼쪽 탭에서 유일한 "보류"다.</li>
+    <li>정본: <code>Quant/include/strategy/DeviationScaleStrategy.h</code> 설계 주석, <code>docs/STRATEGIES.md</code>, <code>strategies/DeviationScale/EVOLUTION.md</code>, 결정 D-022·D-036·D-053·D-064·D-081.</li>
+  </ul>
+  </div>
+
+  <div class="tab-panel" data-panel="backtest" hidden>
+  <h2>1. 스터디 한눈에 <small>research/studies/**/metrics.json(quant.metrics/v1) · 벤치마크(BH) 행은 비교 기준</small></h2>
+  <div class="tiles" id="btTiles"></div>
+  <div class="table-wrap">
+    <table id="btSummary">
+      <thead><tr><th>스터디</th><th>묶음</th><th class="r">전략 행</th><th class="r">벤치 이김</th><th class="r">α 중앙값</th><th class="r">Sharpe 중앙값</th><th class="r">MDD 중앙값</th><th>구간</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="foot">α = 전략 총수익 − 같은 구간 벤치마크 총수익. 정직성 표식(honesty_label)은 스터디가 스스로 붙인 것 — robust(홀드아웃 통과)·honest_failure(못 이겼고 그대로 적음)·overfit_suspect(학습 구간만 좋음)·context_required(조건부)·unlabeled.</p>
+
+  <h2>2. 스터디별 전략 행 <small>펼치면 전략·구간·이벤트별 지표</small></h2>
+  <div id="btStudies"></div>
+
+  <h2>3. 읽는 법</h2>
+  <ul class="notes">
+    <li>여기 수치는 일봉 포트폴리오·오버레이 백테스트(2018~2025, 국면·위기 구간)다. 왼쪽 탭의 장중 매매(3분봉·모의 원장)와는 전략도 시간축도 다르다 — 한 화면에 둔 이유는 "결과를 같은 방식(통계·정직성 표식)으로 본다"를 보이기 위해서다.</li>
+    <li>honest_failure 가 많은 것이 정상이다. 벤치마크를 못 이긴 결과를 지우지 않고 그대로 두는 것이 이 저장소의 규칙이다(research/studies/README.md).</li>
+    <li>장중 전략(DEVSCALE·TRENDX)의 오프라인 백테스트는 아직 없다 — 3분봉 데이터가 forward 적재뿐이라 그렇다. 그 자리는 왼쪽 탭의 원장 통계가 대신한다.</li>
+  </ul>
+  </div>
+</div>
+
+<script id="payload" type="application/json">__PAYLOAD__</script>
+<script>
+(function () {
+  const D = JSON.parse(document.getElementById("payload").textContent);
+  const won = v => (v == null ? "—" : (v >= 0 ? "+" : "−") + Math.abs(Math.round(v)).toLocaleString("ko-KR"));
+  const pct = (v, d = 2) => (v == null ? "—" : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d) + "%");
+  const pct0 = v => (v == null ? "—" : (v * 100).toFixed(0) + "%");
+  const sign = v => (v > 0 ? "gain" : v < 0 ? "loss" : "");
+  const day = s => s.slice(4, 6) + "-" + s.slice(6);
+  const ci = (lo, hi, f) => (lo == null ? "" : `<div class="ci">[${f(lo)}, ${f(hi)}]</div>`);
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+  const stock = t => (t.name ? `${esc(t.name)} <span class="ci num">${esc(t.ticker)}</span>` : `<span class="num">${esc(t.ticker)}</span>`);
+
+  // 탭 — 마지막에 본 탭은 이 브라우저에만 기억한다.
+  const tabs = [...document.querySelectorAll(".tabs [role=tab]")], panels = [...document.querySelectorAll(".tab-panel")];
+  function showTab(name) {
+    if (!tabs.some(t => t.dataset.tab === name)) name = "live";
+    tabs.forEach(t => t.setAttribute("aria-selected", String(t.dataset.tab === name)));
+    panels.forEach(p => { p.hidden = p.dataset.panel !== name; });
+    try { localStorage.setItem("exit_ev_tab", name); } catch (e) {}
+  }
+  tabs.forEach(t => t.addEventListener("click", () => showTab(t.dataset.tab)));
+  let savedTab = "live";
+  try { savedTab = localStorage.getItem("exit_ev_tab") || "live"; } catch (e) {}
+  showTab(location.hash === "#rules" || location.hash === "#backtest" ? location.hash.slice(1) : savedTab);
+
+  // 머리말·타일
+  document.getElementById("lede").textContent =
+    `${D.ledger_dir}/trades_${D.first_day}~${D.last_day}.csv, ${D.n_days}거래일의 매도 체결을 사유별로 묶었다. ` +
+    `청산 한 건(레그)이 단위이고, 확률은 승률·수익률과 그 95% CI로 적는다. 생성 ${D.generated}, 부트스트랩 ${D.rounds.toLocaleString()}회(seed ${D.seed}).`;
+  const targets = D.cells.filter(c => !c.excluded);
+  const decided = targets.filter(c => c.verdict === "기대값 음수" || c.verdict === "기대값 양수").length;
+  const held = targets.filter(c => c.verdict === "보류").length;
+  document.getElementById("tiles").innerHTML = [
+    ["청산 레그", D.n_legs.toLocaleString(), `${D.n_days}거래일 · 평단 미상 ${D.unknown_basis_total}건 제외`],
+    ["합계 손익", `<span class="${sign(D.total_pnl)}">${won(D.total_pnl)}</span>`, "매도 비용 차감 후"],
+    ["레그 승률", pct0(D.win_rate), `중앙값 ${won(D.median_pnl)}원`],
+    ["셀(묶음×사유)", D.cells.length, `판정 대상 ${targets.length} · 판정 ${decided} · 보류 ${held}`],
+  ].map(([k, v, n]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
+  document.getElementById("unknownNote").textContent = D.unknown_basis_total;
+
+  // 1. 주장 대조
+  document.getElementById("claims").innerHTML = D.claims.map(c =>
+    `<div class="claim"><div class="q">“${esc(c.claim)}”</div><div class="e">${esc(c.evidence)}</div><div class="l">${esc(c.limit)}</div></div>`).join("");
+
+  // 2. 날짜별 쌓은 막대
+  (function drawDaily() {
+    const famColors = {TRENDX: "#245c63", DEVSCALE: "#7fa8ad", ITB: "#b8412d", DISPLACE: "#8a6a1c", ORPHAN: "#7c848c"};
+    const other = "#c9c5bb";
+    const fams = D.families.map(f => f.family);
+    const W = 900, H = 300, padL = 70, padR = 16, padT = 16, padB = 40;
+    const days = D.daily;
+    let maxPos = 0, maxNeg = 0;
+    days.forEach(d => {
+      let p = 0, n = 0;
+      fams.forEach(f => { const v = d.per_family[f] || 0; if (v > 0) p += v; else n += v; });
+      maxPos = Math.max(maxPos, p); maxNeg = Math.min(maxNeg, n);
+    });
+    const step = 500000;
+    const top = Math.ceil(maxPos / step) * step || step, bot = Math.floor(maxNeg / step) * step || -step;
+    const y = v => padT + (top - v) / (top - bot) * (H - padT - padB);
+    const bw = (W - padL - padR) / days.length;
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="날짜별 청산 손익">`;
+    for (let v = bot; v <= top; v += step) {
+      svg += `<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" stroke="${v === 0 ? "var(--ink-3)" : "var(--line-2)"}" stroke-width="${v === 0 ? 1.2 : 1}"/>`;
+      svg += `<text x="${padL - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="var(--ink-3)" font-family="var(--font-mono)">${(v / 10000).toFixed(0)}만</text>`;
+    }
+    days.forEach((d, i) => {
+      const x0 = padL + i * bw + bw * 0.18, w = bw * 0.64;
+      let up = 0, down = 0;
+      fams.forEach(f => {
+        const v = d.per_family[f] || 0; if (!v) return;
+        const col = famColors[f] || other;
+        if (v > 0) { svg += `<rect x="${x0}" y="${y(up + v)}" width="${w}" height="${y(up) - y(up + v)}" fill="${col}"><title>${day(d.day)} ${f} ${won(v)}</title></rect>`; up += v; }
+        else { svg += `<rect x="${x0}" y="${y(down)}" width="${w}" height="${y(down + v) - y(down)}" fill="${col}" opacity="0.75"><title>${day(d.day)} ${f} ${won(v)}</title></rect>`; down += v; }
+      });
+      svg += `<text x="${x0 + w / 2}" y="${H - padB + 16}" text-anchor="middle" font-size="11" fill="var(--ink-2)" font-family="var(--font-mono)">${day(d.day)}</text>`;
+      svg += `<text x="${x0 + w / 2}" y="${H - padB + 30}" text-anchor="middle" font-size="10" fill="${d.pnl >= 0 ? "var(--gain)" : "var(--loss)"}" font-family="var(--font-mono)">${won(d.pnl / 10000).replace(/,/g, "")}만</text>`;
+      if (i > 0 && days[i - 1].segment === "A" && d.segment === "B") {
+        const xs = padL + i * bw;
+        svg += `<line x1="${xs}" x2="${xs}" y1="${padT}" y2="${H - padB}" stroke="var(--hold)" stroke-dasharray="4 3"/>`;
+        svg += `<text x="${xs + 4}" y="${padT + 10}" font-size="10" fill="var(--hold)">B: stop_loss 2.5 도입</text>`;
+        svg += `<text x="${xs - 4}" y="${padT + 10}" text-anchor="end" font-size="10" fill="var(--hold)">A</text>`;
+      }
+    });
+    svg += "</svg>";
+    const legend = fams.map(f => `<span><i style="background:${famColors[f] || other}"></i>${f}${D.families.find(x => x.family === f).non_strategy ? " (운영)" : ""}</span>`).join("");
+    document.getElementById("daily").innerHTML = svg + `<div class="legend">${legend}</div>`;
+  })();
+
+  // 3. 셀 표
+  const pillClass = v => v === "보류" ? "hold" : v === "기대값 음수" ? "neg" : v === "기대값 양수" ? "pos" : v.startsWith("판정 제외") ? "ex" : "na";
+  const famSel = document.getElementById("familyFilter");
+  [...new Set(D.cells.map(c => c.family))].forEach(f => { const o = document.createElement("option"); o.value = f; o.textContent = f; famSel.appendChild(o); });
+  const tbody = document.querySelector("#cells tbody");
+  const open = new Set();
+
+  function segRow(label, s) {
+    if (!s) return `<tr><td>${label}</td><td colspan="4" class="ci">레그 없음</td></tr>`;
+    return `<tr><td>${label}</td><td class="r num">${s.n_legs}/${s.n_days}</td><td class="r num">${pct0(s.win_rate)}</td><td class="r num ${sign(s.total_pnl)}">${won(s.total_pnl)}</td><td class="r num ${sign(s.return_pct)}">${pct(s.return_pct)}${ci(s.return_pct_low, s.return_pct_high, v => pct(v))}</td></tr>`;
+  }
+
+  function detail(c) {
+    const maxCount = Math.max(1, ...c.histogram.map(b => b.count));
+    const hist = `<div class="hist">${c.histogram.map(b => `<div class="bar ${b.negative ? "" : "pos"}" style="height:${b.count / maxCount * 100}%"><span>${b.count || ""}</span></div>`).join("")}</div>
+      <div class="hist-labels">${c.histogram.map(b => `<span>${b.low || "<"}${b.low && b.high ? "~" : ""}${b.high || (b.low ? "≤" : "")}</span>`).join("")}</div>`;
+    const days = c.by_day.map(d => `<tr><td class="num">${day(d.day)} <span class="ci">${d.segment}</span></td><td class="r num">${d.n_legs}</td><td class="r num">${d.wins}/${d.n_legs}</td><td class="r num ${sign(d.pnl)}">${won(d.pnl)}</td><td class="r num ${sign(d.return_pct)}">${pct(d.return_pct)}</td></tr>`).join("");
+    const tickers = c.by_ticker.map(t => `<tr><td>${stock(t)}</td><td class="r num">${t.n_legs}</td><td class="r num">${t.wins}/${t.n_legs}</td><td class="r num ${sign(t.pnl)}">${won(t.pnl)}</td><td class="r num ${sign(t.return_pct)}">${pct(t.return_pct)}</td><td class="ci wrap">${t.days.map(d => `<span class="nb">${day(d)}</span>`).join(" ")}</td></tr>`).join("");
+    const cost = c.cost.map(r => `<tr><td class="num">+${r.extra_cost_pct.toFixed(3)}%</td><td class="r num">${pct0(r.win_rate)}</td><td class="r num ${sign(r.total_pnl)}">${won(r.total_pnl)}</td><td class="r num ${sign(r.return_pct)}">${pct(r.return_pct)}</td></tr>`).join("");
+    const legs = c.legs.map(l => `<tr><td class="num">${day(l.day)}</td><td>${stock(l)}</td><td class="r num">${l.quantity.toLocaleString()}</td><td class="r num">${Math.round(l.cost_basis).toLocaleString()}</td><td class="r num">${Math.round(l.sell_notional).toLocaleString()}</td><td class="r num ${sign(l.pnl)}">${won(l.pnl)}</td><td class="r num ${sign(l.return_pct)}">${pct(l.return_pct)}</td><td class="r num ci">${l.rows}</td></tr>`).join("");
+    return `
+      <div class="meaning"><b>${esc(c.verdict)}</b> — ${esc(c.verdict_meaning)}${c.unknown_basis ? ` 평단 미상으로 뺀 행 ${c.unknown_basis}건.` : ""}</div>
+      <div class="detail-grid">
+        <div class="box"><h4>왜 이 숫자인가</h4><ul class="why">${c.why.map(w => `<li>${esc(w)}</li>`).join("")}</ul></div>
+        <div class="box"><h4>구간 비교 (판정 근거)</h4><table><thead><tr><th>구간</th><th class="r">레그/일</th><th class="r">승률</th><th class="r">합계</th><th class="r">수익률 · CI</th></tr></thead><tbody>${segRow("전체", c.all)}${segRow(`A ${day(D.first_day)}~${day(D.segment_a_last_day)}`, c.segment_a)}${segRow(`B ${day(D.segment_b_first_day)}~${day(D.last_day)}`, c.segment_b)}</tbody></table>
+          <h4 style="margin-top:12px">레그 수익률 분포 (%)</h4>${hist}</div>
+        <div class="box"><h4>날짜별</h4><table><thead><tr><th>날</th><th class="r">레그</th><th class="r">이긴/전체</th><th class="r">손익</th><th class="r">수익률</th></tr></thead><tbody>${days}</tbody></table></div>
+        <div class="box"><h4>종목별 (|손익| 상위 12)</h4><table><thead><tr><th>종목</th><th class="r">레그</th><th class="r">이긴/전체</th><th class="r">손익</th><th class="r">수익률</th><th>날</th></tr></thead><tbody>${tickers}</tbody></table></div>
+        <div class="box"><h4>비용을 더 빼면 (추가 비용률)</h4><table><thead><tr><th>추가</th><th class="r">승률</th><th class="r">합계</th><th class="r">수익률</th></tr></thead><tbody>${cost}</tbody></table>
+          <div class="ci" style="margin-top:6px">0.015% 매수 수수료 · 0.3% 슬리피지 근사 · 0.8% 보수적</div></div>
+      </div>
+      <button class="legs-toggle" type="button" data-legs>레그 ${c.legs.length}건 전체 보기</button>
+      <div class="legs-wrap" hidden><table><thead><tr><th>날</th><th>종목</th><th class="r">수량</th><th class="r">매입원가</th><th class="r">매도금액</th><th class="r">손익</th><th class="r">수익률</th><th class="r">체결행</th></tr></thead><tbody>${legs}</tbody></table></div>`;
+  }
+
+  function render() {
+    const fam = famSel.value, only = document.getElementById("targetOnly").checked;
+    const rows = D.cells.filter(c => (!fam || c.family === fam) && (!only || !c.excluded));
+    document.getElementById("rowCount").textContent = `${rows.length}줄`;
+    tbody.innerHTML = rows.map((c, i) => {
+      const key = c.family + "|" + c.category, a = c.all;
+      return `<tr class="cell${open.has(key) ? " open" : ""}" data-key="${esc(key)}" tabindex="0">
+        <td><b>${esc(c.family)}</b> · ${esc(c.category)}</td>
+        <td class="r num">${a.n_legs}/${a.n_days}</td>
+        <td class="r num">${pct0(a.win_rate)}${ci(a.win_rate_low, a.win_rate_high, pct0)}</td>
+        <td class="r num ${sign(a.mean_pnl)}">${won(a.mean_pnl)}${ci(a.mean_pnl_low, a.mean_pnl_high, won)}</td>
+        <td class="r num ${sign(a.total_pnl)}">${won(a.total_pnl)}</td>
+        <td class="r num ${sign(a.return_pct)}">${pct(a.return_pct)}${ci(a.return_pct_low, a.return_pct_high, v => pct(v))}</td>
+        <td><span class="pill ${pillClass(c.verdict)}">${esc(c.verdict)}</span></td></tr>` +
+        (open.has(key) ? `<tr class="detail"><td colspan="7">${detail(c)}</td></tr>` : "");
+    }).join("");
+  }
+  tbody.addEventListener("click", e => {
+    const btn = e.target.closest("[data-legs]");
+    if (btn) { const w = btn.nextElementSibling; w.hidden = !w.hidden; btn.textContent = (w.hidden ? "레그 전체 보기" : "레그 접기"); return; }
+    const tr = e.target.closest("tr.cell"); if (!tr) return;
+    const k = tr.dataset.key; open.has(k) ? open.delete(k) : open.add(k); render();
+  });
+  tbody.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target.matches("tr.cell")) { e.preventDefault(); e.target.click(); } });
+  famSel.addEventListener("change", render);
+  document.getElementById("targetOnly").addEventListener("change", render);
+  // 처음 열 때 유일한 보류 셀은 펼쳐 둔다 — 근거를 보는 화면이라 그렇다.
+  D.cells.filter(c => c.verdict === "보류").forEach(c => open.add(c.family + "|" + c.category));
+  render();
+
+  // 규칙 탭 — 실행 config 값으로 채운 규칙 + 같은 사유 셀의 결과
+  const R = D.rules;
+  const cellOf = (family, category) => D.cells.find(c => c.family === family && c.category === category);
+  document.getElementById("rulesLede").textContent =
+    `수치는 ${R.config_path} 의 실행 값이다(생성 ${D.generated}). 값이 "없음"이면 config에 키가 없어 코드 기본값이 쓰인다는 뜻이다.`;
+  document.getElementById("indicators").innerHTML = R.indicators.map(i => `<dt>${esc(i.name)}</dt><dd>${esc(i.text)}</dd>`).join("");
+  document.getElementById("rules").innerHTML = R.blocks.map(b => {
+    const rows = b.steps.map(s => {
+      const c = s.exit_category ? cellOf(b.family, s.exit_category) : null, a = c && c.all;
+      const outcome = !s.exit_category ? "" : !c
+        ? `<span class="ci">원장에 '${esc(s.exit_category)}' 청산 없음</span>`
+        : `<a data-open-cell="${esc(b.family + "|" + s.exit_category)}">${esc(s.exit_category)} ${a.n_legs}레그</a><br><span class="num ${sign(a.total_pnl)}">${won(a.total_pnl)}</span> · 승률 ${pct0(a.win_rate)} · <span class="num ${sign(a.return_pct)}">${pct(a.return_pct)}</span><br><span class="pill ${pillClass(c.verdict)}">${esc(c.verdict)}</span>`;
+      const keys = s.keys.length ? `<div class="keys">${s.keys.map(k => `<span>${esc(k.key)}=${esc(k.value)}</span>`).join("")}</div>` : "";
+      return `<tr><td>${esc(s.phase)}</td><td class="wrap">${esc(s.what)}${keys}</td><td class="outcome">${outcome}</td></tr>`;
+    }).join("");
+    return `<div class="rule"><h3>${esc(b.title)} <span class="scope">${esc(b.config_scope)}</span></h3><p class="one">${esc(b.one_line)}</p>
+      <div class="table-wrap"><table><thead><tr><th>단계</th><th>규칙 (수치는 실행 값)</th><th>원장 결과 (같은 사유 셀)</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }).join("");
+  document.getElementById("rules").addEventListener("click", e => {
+    const a = e.target.closest("[data-open-cell]"); if (!a) return;
+    open.add(a.dataset.openCell); famSel.value = ""; document.getElementById("targetOnly").checked = false; render(); showTab("live");
+    const tr = tbody.querySelector(`tr.cell[data-key="${CSS.escape(a.dataset.openCell)}"]`); if (tr) tr.scrollIntoView({ block: "start" });
+  });
+
+  // 백테스트 탭 — metrics.json 요약과 전략 행
+  const B = D.backtest;
+  const num = (v, d = 2) => (v == null ? "—" : Number(v).toFixed(d));
+  // metrics.json 의 수익·MDD·α·승률은 이미 % 단위, MDD는 낙폭 크기(양수)
+  const pctR = v => (v == null ? "—" : `<span class="num ${sign(v)}">${pct(v, 1)}</span>`);
+  const mddR = v => (v == null ? "—" : `<span class="num loss">−${Math.abs(v).toFixed(1)}%</span>`);
+  const honesty = Object.entries(B.honesty).sort((x, y) => y[1] - x[1]).map(([k, v]) => `${k} ${v}`).join(" · ");
+  document.getElementById("btTiles").innerHTML = [
+    ["스터디", B.n_studies, "metrics.json 있는 폴더"],
+    ["전략 행", B.n_strategy_rows, "전략×구간×이벤트, 벤치마크 제외"],
+    ["벤치마크 이김", `${B.beat_bench} / ${B.n_strategy_rows}`, "α > 0 인 행"],
+    ["정직성 표식", `<span style="font-size:13px">${honesty || "—"}</span>`, "스터디가 스스로 붙인 것"],
+  ].map(([k, v, n]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
+  document.querySelector("#btSummary tbody").innerHTML = B.studies.map(s =>
+    `<tr><td><b>${esc(s.study_id)}</b> ${esc(s.name)}<div class="ci">${esc(s.folder)}</div></td><td>${esc(s.family)}</td><td class="r num">${s.n_rows}</td><td class="r num">${s.alpha_positive}/${s.n_rows}</td><td class="r">${pctR(s.alpha_median)}</td><td class="r num">${num(s.sharpe_median)}</td><td class="r">${mddR(s.mdd_median)}</td><td class="wrap ci">${s.windows.map(esc).join(" · ")}</td></tr>`).join("");
+  document.getElementById("btStudies").innerHTML = B.studies.map(s => {
+    const rows = s.rows.map(r => {
+      const bench = r.strategy === "BH";
+      const flags = [r.oos_flag ? "OOS" : "", r.holdout_flag ? "홀드아웃" : ""].filter(Boolean).join(" ");
+      const label = bench ? `<span class="ci">벤치마크</span>` : `<span class="pill ${esc(r.honesty_label || "unlabeled")}">${esc(r.honesty_label || "unlabeled")}</span>`;
+      return `<tr${bench ? ' style="color:var(--ink-3)"' : ""}><td><b>${esc(r.strategy)}</b>${r.label ? ` ${esc(r.label)}` : ""}<div class="ci">${esc(r.event || "")} ${esc(r.window || "")} ${flags}</div>${r.caveat ? `<div class="ci wrap">${esc(r.caveat)}</div>` : ""}</td>
+        <td class="r">${pctR(r.total_return)}</td><td class="r">${pctR(r.cagr)}</td><td class="r num">${num(r.sharpe)}</td><td class="r">${mddR(r.mdd)}</td><td class="r num">${num(r.calmar)}</td><td class="r num">${r.win_rate == null ? "—" : num(r.win_rate, 0) + "%"}</td><td class="r num">${r.n_trades == null ? "—" : r.n_trades}</td><td class="r">${bench ? "—" : pctR(r.alpha)}</td><td class="r">${pctR(r.bench_return)}</td><td>${label}</td></tr>`;
+    }).join("");
+    return `<details class="study"><summary>${esc(s.study_id)} ${esc(s.name)} <span class="meta">${s.n_rows}행 · 벤치 이김 ${s.alpha_positive} · ${esc(s.family)}</span></summary>
+      <div class="table-wrap"><table><thead><tr><th>전략 · 구간</th><th class="r">총수익</th><th class="r">CAGR</th><th class="r">Sharpe</th><th class="r">MDD</th><th class="r">Calmar</th><th class="r">승률</th><th class="r">거래</th><th class="r">α</th><th class="r">벤치</th><th>표식</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
+  }).join("");
+})();
+</script>
