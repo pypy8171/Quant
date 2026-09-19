@@ -10,10 +10,10 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 81개
 - [Quant](#quant) — 171개
-- [docs](#docs) — 57개
+- [docs](#docs) — 58개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 176개
-- [scripts](#scripts) — 57개
+- [scripts](#scripts) — 58개
 - [strategies](#strategies) — 30개
 - [tools](#tools) — 3개
 
@@ -432,6 +432,7 @@
 - [facts.json](facts.json) — 저장소 사실 자동집계 DB
 - [sync_map.json](sync_map.json) — 문서 동기화 대상 매핑(JSON)
 - [sync_map.toml](sync_map.toml) — 문서 동기화 대상 매핑(TOML 정본)
+- [tuning_sheet.toml](tuning_sheet.toml) — 장중 매매 수치·주기 시트(`_private/TUNING_SHEET.md`)의 정본 명세 — config 키 묶음·단위와 코드 상수 앵커(파일·정규식·의미). 값은 안 적고 생성기가 소스에서 읽는다
 
 ### docs/design/
 
@@ -777,6 +778,7 @@
 - [gen_code_flow.py](../scripts/gen_code_flow.py) — code_flow.toml의 심볼을 소스에서 찾아 CODE_FLOW.md 생성, --check는 누락·낡음이면 exit 1
 - [gen_code_graph.py](../scripts/gen_code_graph.py) — 코드 의존 그래프 생성 스크립트
 - [gen_facts.py](../scripts/gen_facts.py) — 저장소 사실 집계 스크립트
+- [gen_tuning_sheet.py](../scripts/gen_tuning_sheet.py) — 실행 중 config(`_private/_auto_trade_day.json` 의 config)와 `docs/tuning_sheet.toml` 앵커로 `_private/TUNING_SHEET.md`를 만든다. 주기 표(초 환산 정렬)·시각 표·묶음별 전체 표. `--check`는 낡음·앵커 실패면 exit 1, sync-gate가 매 턴 돌리고 감시견 기동·`maintain --daily`도 부른다
 - [kill_release.ps1](../scripts/kill_release.ps1) — 킬스위치 해제: `_private/state/kill_today_<날짜>` 표지 파일을 지우고 감시견 상태파일을 옆으로 치워 가드가 5분 안에 감시견을 다시 띄우게 한다(D-098)
 - [live_prices_feed.py](../scripts/live_prices_feed.py) — 전종목 실시간 시세 보조 프로세스
 - [log_patterns.py](../scripts/log_patterns.py) — 로그 파싱 공용 정규식 모듈

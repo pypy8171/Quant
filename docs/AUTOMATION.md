@@ -29,7 +29,7 @@
 |---|---|
 | `QuantAutoTradeGuard` | 워치독이 없으면 하루 루프 기동 (§4). 5분마다 도는 시간 폭(`-Hours`)이 매매 끝 시각을 정한다 |
 | `Quant EOD AutoDoc` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` · **결정 원장 파생 문서**(`sync_ledgers.py`) |
-| `Quant Maintain Daily` | `EOD AutoDoc` 뒤. 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers` · `gen_automation_hub`(`_private/AUTOMATION_HUB.md`). 대시보드는 부르지 않는다 |
+| `Quant Maintain Daily` | `EOD AutoDoc` 뒤. 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers` · `gen_automation_hub`(`_private/AUTOMATION_HUB.md`) · `gen_tuning_sheet`(`_private/TUNING_SHEET.md`). 대시보드는 부르지 않는다 |
 | `Quant Minute Backfill` | 아침 스캔 `Quant/config/universe_scan.json`을 `PYQuant/data/pit_universe/<오늘>.json`으로 옮기고 그날 유니버스 전체의 1분봉을 `PYQuant/data/minute/`에 쌓는다(`PYQuant/tools/minute_backfill.py --top-n 0`, 약 260종목×4콜). 매매 끝 15분 뒤(모의 15:45·실계좌 20:15) 전엔 돌지 않는다(반쪽 파일이 그날치를 건너뛰게 만든다). 대시보드 차트가 같은 파일을 읽는다 |
 | `claude_stock_study` | `claude -p "/stock-study auto"` → `_private/주식_study/{날짜}_재무/` 1종목 · 저널 · 스터디 사이트 |
 | `claude_dashboard_sync` | `claude -p "/dashboard-sync"` → 대시보드·스터디 사이트 HTML 재생성. 아티팩트 재발행은 헤드리스 `claude -p`에 Artifact 도구가 없어 못 한다 — 대화 세션에서 `/dashboard-sync`를 불러 같은 URL로 올린다 |
@@ -38,6 +38,11 @@
 **한곳에서 보기:** 시간표·예약작업의 실제 등록 상태(켜짐·다음 실행·마지막 결과)·훅·대시보드 링크를 `_private/AUTOMATION_HUB.md`
 한 파일에 모은다. `py scripts/gen_automation_hub.py`가 만들고 `Quant Maintain Daily`·`gen_facts --apply`(Stop 훅 `sync-gate.ps1`)가
 다시 만든다. 대시보드를 새로 발행하거나 URL이 바뀌면 `_private/dashboards.json`에 적는다 — 허브와 `_private/LINKS.md`의 표는 거기서 생성된다.
+
+**매매 수치·주기 한 장:** 장중에 무엇이 몇 초마다 도는지(REST 속도·유니버스 리스캔·WS 재연결·주문 간격·감시견 간격)와 config 키·코드 상수 값을
+`_private/TUNING_SHEET.md` 한 파일로 본다. `py scripts/gen_tuning_sheet.py`가 실행 중 config(`_private/_auto_trade_day.json`)와
+`docs/tuning_sheet.toml`(어느 파일의 어느 상수를 볼지)에서 만든다. 값이 바뀌면 Stop 훅 `sync-gate.ps1`이 매 턴 `--check`로 잡아 다시 쓰고,
+감시견 기동과 `Quant Maintain Daily`도 부른다. 수치를 조율할 때는 시트의 "어디서" 칸이 가리키는 config 키나 파일:줄을 고친다.
 
 확인·수정:
 
@@ -271,6 +276,7 @@ scripts/eod_autodoc.py
 | `scripts/gen_facts.py` | 저장소를 세어 `docs/facts.json`을 만들고, 문서의 `<!-- gen:이름 -->` 블록을 그 값으로 채운다. 하네스 개수·훅 배선처럼 손으로 세면 반드시 어긋나는 숫자가 대상이다. KIS 토큰 캐시 파일명은 실 키 앞부분이 들어가므로 가려서 쓴다 |
 | `scripts/gen_code_graph.py` | 헤더 포함 관계로 모듈 그래프를 만들어 `docs/CODE_GRAPH.md`·`code_graph.dot`·`code_graph.json`을 생성한다. `--impact <파일>`은 그 파일을 고쳤을 때 재검증 대상을 파일을 열지 않고 뽑는다 |
 | `scripts/gen_code_flow.py` | `docs/code_flow.toml`(읽는 순서·심볼·볼 것)에서 `docs/CODE_FLOW.md`를 만든다. 줄 번호·시그니처는 소스에서 찾아 채우므로 코드가 옮겨가도 링크가 따라가고, 심볼이 사라지면 `--check`가 exit 1로 막아 명세를 고치게 한다. sync-gate가 `fix_cmd`로 턴 끝마다 재생성한다(D-078) |
+| `scripts/gen_tuning_sheet.py` | `docs/tuning_sheet.toml`(config 묶음·단위, 코드 상수 앵커)과 실행 중 config에서 `_private/TUNING_SHEET.md`를 만든다. 값은 소스에서 정규식으로 읽으므로 코드를 고치면 시트가 따라오고, 정규식이 안 잡히면 `--check`가 exit 1로 명세를 고치게 한다. config 는 gitignore 라 git diff 로 못 잡아 sync-gate 가 매 턴 `--check` 를 돈다 |
 | `scripts/brace_style.py` | 중괄호와 블록 앞뒤 빈 줄을 기계적으로 맞춘다(`.clang-format`의 Allman·`InsertBraces`와 같은 규칙). 손으로 맞추지 않는다 |
 | `scripts/check_plain_language.py` | 쓰지 않기로 한 말을 검출·치환한다(`--fix`는 뒤 조사까지 맞춘다). 정본은 `docs/STYLE_GUIDE.md`, 게이트는 `lexicon-gate.ps1`과 `@committer` |
 | `scripts/session_board.py` | 살아 있는 세션(`~/.claude/sessions/*.json`)마다 기록 jsonl의 늘어난 꼬리만 읽어 문맥 K/%·턴(모델 호출 수)·압축 횟수·마지막 사용자 요청을 세고, 현황판 `_private/SESSION_CLAIMS.md` 줄과 인계 파일 유무를 붙여 `_private/session_board.json`·`.html`(30초 자동 새로고침)로 쓴다. 파일은 Stop 훅이 턴마다 다시 쓰고, 서버(`:8788`, 트레이더가 돌 때는 대시보드 `:8787/sessions`도)는 파일이 30초보다 낡았으면 요청 때 한 번 더 만든다(어느 세션도 턴을 안 끝내면 훅만으로는 멈춰 있어서). 문맥 50%↑ 노랑, 80%↑ 빨강, 100K↑면 인계 시점 표시(145K↑는 경계를 안 기다리고 알린다). `--facts`·`--skeleton`·`--due`는 인계 훅이 쓴다 |

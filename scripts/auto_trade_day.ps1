@@ -359,6 +359,9 @@ $py = if (Test-Path $VenvPy) { $VenvPy } else { Say "venv 없음 — 보조 프�
 
 Save-Status "starting" @{ paper = $paper; head = $head; dirty = $dirty }
 
+# 수치·주기 시트(_private/TUNING_SHEET.md)를 오늘 띄우는 config 기준으로 다시 쓴다. 실패해도 매매와 무관하다.
+if (-not $DryRun) { [void](Run-Native "py scripts\gen_tuning_sheet.py --config $Config") }
+
 # ─────────────── 부속 창 ───────────────
 if (-not $NoSidecar)   { Start-Window "quant-sidecar"   "& '$py' PYQuant\tools\macro_regime_feed.py --interval 180 --out Quant\config\regime.json" "macro_regime_feed.py" }
 if (-not $NoUniverse)  {
