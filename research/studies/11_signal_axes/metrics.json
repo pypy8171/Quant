@@ -2,7 +2,7 @@
   {
     "schema": "quant.metrics/v1",
     "study_id": "BT-11",
-    "strategy": "BH",
+    "strategy": "BUY_AND_HOLD",
     "family": "A_portfolio",
     "benchmark": "동일가중 매수 후 보유",
     "event": "동일가중 매수 후 보유",
@@ -176,8 +176,8 @@
     "oos_flag": false,
     "holdout_flag": false,
     "honesty_label": "honest_failure",
-    "equity_csv_path": "research/studies/11_signal_axes/mean_reversion_nofilter_equity.csv",
-    "trades_csv_path": "research/studies/11_signal_axes/mean_reversion_nofilter_trades.csv",
+    "equity_csv_path": "research/studies/11_signal_axes/cross_momentum_voladj_equity.csv",
+    "trades_csv_path": "research/studies/11_signal_axes/cross_momentum_voladj_trades.csv",
     "caveat": "생존편향: 유니버스=datagokr 시총상위 스냅샷(캐시∩상위) → α 절대값 신뢰금지, 구성 간 상대비교로만. FETCH_FLOOR=2020이라 워밍업 후 실질신호는 2021~, 홀드아웃 2022는 단일 1점.",
     "source": "11_signal_axes/mean_reversion_run_meta.json"
   },
@@ -216,4 +216,4 @@
     "caveat": "눌림 필터(반등 양봉+거래량 확인)로 무필터 대비 α 개선(-34.7→-22.7%p). 2022 홀드아웃 -14.2% vs 매수 후 보유 -19.0%(+4.77%p 상회) — 하락장 국한 방어 단서지, 전천후 엣지 아님. 생존편향: 유니버스=datagokr 시총상위 스냅샷(캐시∩상위) → α 절대값 신뢰금지, 구성 간 상대비교로만. FETCH_FLOOR=2020이라 워밍업 후 실질신호는 2021~, 홀드아웃 2022는 단일 1점.",
     "source": "11_signal_axes/mean_reversion_run_meta.json"
   }
-]
+]

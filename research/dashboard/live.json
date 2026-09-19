@@ -1,6 +1,6 @@
 {
   "schema": "quant.live/v1",
-  "generated": "2026-09-18 23:05",
+  "generated": "2026-09-19 23:23",
   "journals": [
     {
       "date": "2026-09-18",
@@ -183,7 +183,7 @@
       "strategy": "ITB",
       "path": "strategies/ITB/live/2026-08-07.md",
       "title": "라이브 모의 매매 일지 — 2026-08-07 (금)",
-      "strat_line": "ITB v2(1분 버킷 채널 돌파 + 당일 시가앵커) — 지표 기반 자동매매. (S3만 FIXED_INTERVAL 강제매매)",
+      "strat_line": "ITB v2(1분 버킷 채널 돌파 + 당일 시가 기준점) — 지표 기반 자동매매. (S3만 FIXED_INTERVAL 강제매매)",
       "summary": ""
     }
   ],
@@ -1718,4 +1718,4 @@
       "fill_events": 522
     }
   ]
-}
+}

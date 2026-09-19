@@ -2,7 +2,7 @@
   {
     "schema": "quant.metrics/v1",
     "study_id": "BT-08",
-    "strategy": "BH",
+    "strategy": "BUY_AND_HOLD",
     "family": "B_overlay",
     "benchmark": "US(^GSPC)",
     "event": "full_curve",
@@ -261,7 +261,7 @@
   {
     "schema": "quant.metrics/v1",
     "study_id": "BT-08",
-    "strategy": "BH",
+    "strategy": "BUY_AND_HOLD",
     "family": "B_overlay",
     "benchmark": "KR(^KS11)",
     "event": "full_curve",

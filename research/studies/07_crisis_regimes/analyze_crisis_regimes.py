@@ -369,7 +369,7 @@ def write_tsv(rows):
             else:
                 cells.append(str(v))
         lines.append("\t".join(cells))
-    TSV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    TSV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
 def build_grid(rows):
@@ -519,7 +519,7 @@ def write_readme(rows, grid, coverage):
     L.append("- 짧은 search창(예: 2008 GFC end=2010-06)에서 지수 완전회복이 창+여유 밖이면 L 로 라벨될 수 있음 — "
              "이는 **회복 미탐지**이지 영구 L 이 아님(캡 아티팩트). 개별 판단 시 주의.\n")
 
-    README_PATH.write_text("\n".join(L), encoding="utf-8")
+    README_PATH.write_text("\n".join(L), encoding="utf-8", newline="\n")
 
 
 def main():

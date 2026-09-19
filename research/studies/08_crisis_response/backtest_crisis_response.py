@@ -555,13 +555,13 @@ def write_readme(bms, results, sweeps):
 
     # ── 논의 요약 ──
     L.append("## 논의(strategist ↔ reviewer) 핵심 결론\n")
-    L.append("- **사전 방어의 한계**: BT-07 rvol_pre·직전월수익을 보면 대부분 위기는 고점 직전까지 "
+    L.append("- **사전 방어의 한계**: 위기 레짐 지수레벨 특성화 rvol_pre·직전월수익을 보면 대부분 위기는 고점 직전까지 "
              "조용·강세다. 사전 디리스킹이 실제로 켜질 위기는 **slow·L·systemic 소수(2000·2008·2022)** 뿐이고, "
              "**fast·U(2020·2023·2024)는 폭락 전날까지 정상**이라 사전 방어가 원천 불가하다.\n")
     L.append("- **당일 방어의 원리적 한계**: 일간 -4%는 *종가에만* 확정되므로 그 급락 몸통은 "
              "e[t-1]=1로 **이미 맞은 뒤**다. 종가-종가 인과 구조에서 서킷브레이커(M4)는 "
              "**당일 몸통을 못 막고 꼬리(익일 이후)만 자른다.** '당일 대응'의 정직한 답이다.\n")
-    L.append("- **방어와 수익의 상충(BT-06 계승)**: 방어룰은 낙폭만 보면 다 좋아 보인다. 그래서 "
+    L.append("- **방어와 수익의 상충(하락장 유사구간 6구간 비교 계승)**: 방어룰은 낙폭만 보면 다 좋아 보인다. 그래서 "
              "**낙폭 감소가 아니라 전 구간(위기+정상+회복) 순효과**로 평가한다 — 방어효율·회복참여율·휘프소.\n")
 
     # ── 대응법 5종 ──
@@ -671,9 +671,9 @@ def write_readme(bms, results, sweeps):
     L.append("- **자유도**: 5룰 임계값 노브 ~17개 vs 방어대상 실질표본 n≈6~9. 사전등록 그리드 전량공개로 "
              "곡선맞춤을 노출하되, '발견'이 아닌 '스트레스테스트'로 프레이밍.")
     L.append(f"\n---\n생성 스크립트: `research/studies/08_crisis_response/backtest_crisis_response.py`"
-             f"(단독실행, IndexSource 전용, 결정론적 재현). 관련: BT-06(regime 필터의 방어·수익 상충)·BT-07(위기 특성화).\n")
+             f"(단독실행, IndexSource 전용, 결정론적 재현). 관련: 하락장 유사구간 6구간 비교(regime 필터의 방어·수익 상충)·위기 레짐 지수레벨 특성화(위기 특성화).\n")
 
-    README_PATH.write_text("\n".join(L), encoding="utf-8")
+    README_PATH.write_text("\n".join(L), encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":

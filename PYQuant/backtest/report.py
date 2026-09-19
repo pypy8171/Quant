@@ -184,8 +184,8 @@ def metrics_row(**over) -> dict:
 def _write_metrics(path: str, payload):
     """metrics 파일 쓰기(단일 객체 또는 배열). ensure_ascii=False, indent=2."""
     import json
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    with open(path, "w", encoding="utf-8", newline="\n") as file_handle:
+        json.dump(payload, file_handle, ensure_ascii=False, indent=2)
 
 
 def export_metrics_json(result: BacktestResult, path: str, *,

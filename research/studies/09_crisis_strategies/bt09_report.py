@@ -30,7 +30,7 @@ WARMUP = bt08.WARMUP
 def write_readme(bms, results, sweeps, readme_path):
     L = []
     L.append("# 위기 대응·수익추구 전략 10종 인과 백테스트\n")
-    L.append("> ⚠️ **이 리포트의 범위와 한계.** BT-08의 방어 5종(M1~M5)을 넘어, 시장 도메인 지식(지표·이벤트·"
+    L.append("> ⚠️ **이 리포트의 범위와 한계.** 위기 인과 대응 5법의 방어 5종(M1~M5)을 넘어, 시장 도메인 지식(지표·이벤트·"
              "크로스에셋 연관)에서 도출한 **방어 5 + 공세 5 = 10전략**을 동일 규율로 검증한다. "
              "익스포저 e[t]는 **오직 t-1 종가까지의 정보**(수익=e[t-1]×지수수익). "
              "**US→KR 시차**: KR 벤치마크에선 US계열 신호(^GSPC·^VIX·^TNX·^SOX·CL=F·DXY)를 "
@@ -46,7 +46,7 @@ def write_readme(bms, results, sweeps, readme_path):
              "방어 C1), 금리는 잠잠한데 유가만↑이면 수요견인(리스크온·공세 O4). 같은 유가상승도 "
              "금리 동조 방향으로 성격이 갈린다.\n")
     L.append("- **국면 의존성**: 추세장에선 추세추종, 횡보·약세장에선 평균회귀 — 하나의 규칙이 "
-             "두 국면에서 반대로 작동(O1). BT-06 레짐필터의 방어·수익 상충을 잇는다.\n")
+             "두 국면에서 반대로 작동(O1). 하락장 유사구간 6구간 비교 레짐필터의 방어·수익 상충을 잇는다.\n")
     L.append("- **크로스에셋 확인은 사전방어가 아니다**(reviewer 경고): VIX·DXY·KRW 동시 리스크오프"
              "(C2)나 롤오버 재진입(O5)은 **동행·반응** 신호다. '위기 전에 미리 안다'가 아니라 "
              "'이미 벌어지는 리스크오프에 규율 있게 반응'으로만 주장한다.\n")
@@ -183,6 +183,6 @@ def write_readme(bms, results, sweeps, readme_path):
     L.append("- **자유도**: 10전략 임계값 다수 vs 성격별 실질표본 n≈6~9. 사전등록+전량스윕+홀드아웃"
              "(2022)으로 곡선맞춤을 노출하되 '발견'이 아닌 '규율검증'으로 프레이밍.")
     L.append(f"\n---\n생성 스크립트: `research/studies/09_crisis_strategies/backtest_crisis_strategies.py`"
-             f"(단독실행, IndexSource 전용, BT-08 엔진 재사용, 결정론적 재현). 관련: BT-06·BT-07·BT-08.\n")
+             f"(단독실행, IndexSource 전용, 위기 인과 대응 5법 엔진 재사용, 결정론적 재현). 관련: 하락장 유사구간 6구간 비교·위기 레짐 지수레벨 특성화·위기 인과 대응 5법.\n")
 
-    readme_path.write_text("\n".join(L), encoding="utf-8")
+    readme_path.write_text("\n".join(L), encoding="utf-8", newline="\n")
