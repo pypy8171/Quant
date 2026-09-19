@@ -33,11 +33,20 @@ schtasks /change /tn claude_stock_study /st 20:30
 > 그대로 돌고 `Quant Maintain Daily`는 이날 처음 Enable했다. 복구는 `Enable-ScheduledTask -TaskName claude_stock_study`,
 > `Enable-ScheduledTask -TaskName claude_dashboard_sync`, 루틴은 `/schedule`에서 켠다.
 
-> 2026-09-18 낮에 장 마감 자동화 전부를 20:00 뒤로 옮겼다가(KRX 애프터마켓 16:00~20:00, D-097) 같은 날 저녁에 되돌렸다 —
-> KIS 모의 서버는 15:30 뒤 주문을 받지 않아 모의로 도는 동안은 하루가 15:30에 끝난다(T-18). 실계좌로 전환하면
-> 감시견 `-Until 20:05`, `Quant EOD AutoDoc` 20:10 → Maintain Daily 20:20 → Minute Backfill 20:25 → stock_study 20:30 →
-> dashboard_sync 21:10 → Maintain Weekly 21:20으로 다시 올린다. 지금 순서는 `Quant EOD AutoDoc` 16:05 → Maintain Daily 16:20 → Minute Backfill 16:40 →
-> stock_study 20:30(1종목) → dashboard_sync 21:10 → Maintain Weekly 21:20.
+> **시간표는 계좌 모드로 갈린다 — 정본은 `scripts/eod_timetable.ps1`.** 감시견 예약작업이 넘기는 config의 `kis.is_paper`를 읽어
+> 모의면 매매 끝 15:30(KIS 모의 서버가 15:30 뒤 주문을 거부, T-18 2026-09-18 실측)·마감 루틴 16:00대, 실계좌면 애프터마켓 20:00(D-097)
+> 까지 매매·마감 루틴 20:30 시작이다. 인자 없이 돌리면 예정 vs 실제를 표로 보이고 어긋나면 exit 1, `-Apply`는 `schtasks /change`와
+> 감시견 재등록(`-Until`·`-Hours`)까지 한다. `.claude/hooks/cron-gate.ps1`은 이 스크립트의 `-Lines`를 읽으므로 따로 고칠 것이 없다.
+>
+> | 계좌 | 감시견 -Until | `Quant EOD AutoDoc` | Maintain Daily | Minute Backfill | stock_study | dashboard_sync | Maintain Weekly(금) |
+> |---|---|---|---|---|---|---|---|
+> | 모의(지금) | 15:35, 7h | 16:05 | 16:20 | 16:40 | 20:30 | 21:10 | 21:20 |
+> | 실계좌 | 20:05, 11.5h | 20:30 | 20:45 | 21:00 | 21:10 | 21:40 | 21:50 |
+>
+> 클로드를 부르는 두 작업은 세션 사용량 한도(17시 리셋) 때문에 모의에서도 20:30 뒤다. `scripts/eod_minute_backfill.py`의
+> 장중 실행 거부(모의 15:45·실계좌 20:15)도 같은 config를 읽는다(`--config`, 기본 `config_dev_paper.json`).
+> **실계좌 전환 때 확인할 것:** 실계좌 애프터마켓(NXT·KIS 16:00~20:00) 주문 가능은 검색으로 파악한 것이고 실증이 없다 — 전환 뒤
+> 첫날 16:00 넘어 체결통보 1건을 눈으로 확인하고, `scripts/eod_timetable.ps1 -Apply`를 돌린다(`-Config Quant\config\config.json`).
 >
 > 그 전 20:00·20:40은 원래 16:00·16:20이었다. 2026-09-07에 두 작업이 모두 세션 사용량 한도(17시 리셋)에 걸려
 > 실패했다(`LastTaskResult=1`). 한도 리셋 뒤로 옮겼다. 2026-09-08~09-11에는 예약작업이 부르는 npm 전역 CLI가 구버전(2.1.162)이라

@@ -27,19 +27,31 @@ SCAN = REPO / "Quant" / "config" / "universe_scan.json"
 PIT_DIR = REPO / "PYQuant" / "data" / "pit_universe"
 
 
+def market_close_cutoff(config: Path) -> tuple[int, int]:
+    """감시견이 쓰는 설정의 kis.is_paper 로 마감 컷오프를 고른다. 못 읽으면 모의 기준(보수적)."""
+    try:
+        paper = bool(json.loads(config.read_text(encoding="utf-8"))["kis"]["is_paper"])
+    except (OSError, ValueError, KeyError, TypeError):
+        paper = True
+    return (15, 45) if paper else (20, 15)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="장 마감 뒤 당일 1분봉 백필(예약작업용)")
     ap.add_argument("--force", action="store_true",
-                    help="15:45 전이라도 돈다. 장중에 돌리면 반쪽 파일이 남아 그날치가 건너뛰어진다")
+                    help="마감 전이라도 돈다. 장중에 돌리면 반쪽 파일이 남아 그날치가 건너뛰어진다")
+    ap.add_argument("--config", default=str(REPO / "Quant" / "config" / "config_dev_paper.json"),
+                    help="kis.is_paper 를 읽을 설정(감시견이 쓰는 것과 같은 파일). 모의면 15:45, 실계좌면 20:15 뒤에만 돈다")
     args = ap.parse_args()
     now = datetime.now(KST)
     if now.weekday() >= 5:
         print("[eod_minute_backfill] 주말 — 건너뜀")
         return 0
     # 장중에 돌면 마감 전까지의 봉만 담긴 파일이 남고, 백필 도구는 그 파일이 있다는 이유로 그날을
-    #  건너뛴다(2026-09-11 실수). 마감 뒤에만 돌린다.
-    if not args.force and (now.hour, now.minute) < (15, 45):
-        print("[eod_minute_backfill] 15:45 전 — 마감 뒤에 돌린다(--force로 강제)")
+    #  건너뛴다(2026-09-11 실수). 마감 뒤에만 돌린다. 마감은 계좌 모드로 갈린다(모의 15:30·실계좌 20:00, T-18·D-097).
+    cutoff = market_close_cutoff(Path(args.config))
+    if not args.force and (now.hour, now.minute) < cutoff:
+        print(f"[eod_minute_backfill] {cutoff[0]:02d}:{cutoff[1]:02d} 전 — 마감 뒤에 돌린다(--force로 강제)")
         return 2
     ymd = now.strftime("%Y%m%d")
     pit = PIT_DIR / f"{ymd}.json"
