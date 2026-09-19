@@ -429,6 +429,10 @@ target_link_libraries(test_app_config PRIVATE quant_engine)
 add_executable(test_feed_supervisor tests/test_feed_supervisor.cpp)
 target_include_directories(test_feed_supervisor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# ─── 테스트 타깃: 마감 자기 종료 판정 — 창 닫힘→유예→큐 비면 종료, 배출 한도 강제, 늦은 기동 무판정 (헤더 전용, D-098) ──
+add_executable(test_session_end tests/test_session_end.cpp)
+target_include_directories(test_session_end PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # ─── 테스트 타겟: 수신 N × 전략 샤드 M SPSC 행렬(종목 해시 샤딩·라운드로빈·종목 안 순서) + 처리량 측정 (헤더 전용, D-071) ──
 add_executable(test_shard_matrix tests/test_shard_matrix.cpp)
 target_include_directories(test_shard_matrix PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -551,6 +555,7 @@ set(QUANT_ASSERT_TARGETS
     test_paper_executor
     test_feed_mux
     test_feed_supervisor
+    test_session_end
     test_engine
     test_app_config
     test_shard_matrix

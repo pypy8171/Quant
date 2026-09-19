@@ -125,6 +125,7 @@ void parse_risk(const json& document, AppConfig& app)
     risk.session_close_min   = replaying ? 0 : hhmm_to_minute(risk_node.value("session_close_hhmm", 1530));
     risk.after_open_min      = (replaying || !after_market) ? 0 : hhmm_to_minute(risk_node.value("after_open_hhmm", 1600));
     risk.after_close_min     = (replaying || !after_market) ? 0 : hhmm_to_minute(risk_node.value("after_close_hhmm", 2000));
+    app.session_end_grace_sec = risk_node.value("session_end_grace_sec", app.session_end_grace_sec);
     app.has_risk             = document.contains("risk");
 
     if (!app.has_risk)

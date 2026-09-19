@@ -181,6 +181,7 @@
     "core/RegimeFileBridge.h": "core",
     "core/ReplaySource.h": "core",
     "core/RingBuffer.h": "core",
+    "core/SessionEndJudge.h": "core",
     "core/ShardMatrix.h": "core",
     "core/SignalDispatcher.h": "core",
     "core/StrategyRouter.h": "core",
@@ -360,6 +361,7 @@
       "core/RegimeFileBridge.h",
       "core/ReplaySource.h",
       "core/RingBuffer.h",
+      "core/SessionEndJudge.h",
       "core/SignalDispatcher.h",
       "core/StrategyRouter.h",
       "core/StrategyShard.h",
@@ -767,6 +769,9 @@
       "core/Engine.h",
       "core/FeedMux.h",
       "core/ShardMatrix.h"
+    ],
+    "core/SessionEndJudge.h": [
+      "core/Engine.h"
     ],
     "core/ShardMatrix.h": [
       "core/StrategyShard.h"

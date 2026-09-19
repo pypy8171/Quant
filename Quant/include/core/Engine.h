@@ -13,6 +13,7 @@
 #include "core/PaperExecutor.h"
 #include "core/FeedMux.h"
 #include "core/FeedSupervisor.h"
+#include "core/SessionEndJudge.h"
 #include "core/StrategyRouter.h"
 #include "core/StrategyShard.h"
 #include "core/RegimeFileBridge.h"
@@ -34,6 +35,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -185,6 +187,15 @@ public:
 
     // OrderGate 위험 한도를 config로 주입(스레드 시작 전에만). 기본값은 OrderGate::Config.
     void set_risk_config(const OrderGate::Config& risk_config) { order_gate_.set_config(risk_config); }
+    // 마감 자기 종료 — 마지막 매매 창이 닫히는 분과 유예 초(스레드 시작 전에만). close_min 0이면 판정 없음. [why D-098]
+    void set_session_end(int close_min, int grace_sec)
+    {
+        session_end::Config config;
+        config.close_min = close_min;
+        config.grace_sec = grace_sec;
+        session_end_     = session_end::Judge(config);
+    }
+
     // 슬롯 수 조회 — 스캐너가 "베이스 총합이 목표 노출을 넘지 않도록" 배수를 정규화할 때 쓴다.
     //  위험 config는 전략 로딩보다 먼저 주입되므로(main.cpp) 이 시점에 이미 유효하다.
     int risk_max_positions() const { return order_gate_.config().max_concurrent_positions; }
@@ -288,7 +299,9 @@ public:
         return running_.load();
     }
 
-    void request_shutdown();                     // running_ 내리고 다섯 스레드에 정지 요청. KILL 핸들러·시그널 핸들러·stop()이 부른다. join은 stop()만
+    // running_ 내리고 다섯 스레드에 정지 요청. KILL 핸들러·시그널 핸들러·마감 판정·stop()이 부른다. join은 stop()만.
+    //  reason은 로그 한 줄로 남는다 — 종료가 요청된 것인지 죽은 것인지 로그만으로 가르기 위해서다(D-20). [why D-098]
+    void request_shutdown(std::string_view reason);
 
 private:
     // ── start() 단계 분리 (가독성용, 로직은 그대로) ────────────────────────────
@@ -350,6 +363,10 @@ private:
     bool activate_rest_fallback(const std::string& reason);
     // WS가 돌아왔을 때 원래 피드로 복귀. 처음부터 폴링이었으면(rest_price_feed=true) 아무것도 안 한다.
     void deactivate_rest_fallback();
+    // 마감 자기 종료 한 주기 — 판정(session_end_)에 따라 로그·_private/state 표지 파일·request_shutdown. control_thread 전용.
+    void step_session_end();
+    // 감시견이 읽는 표지 파일 — _private/state/<name>_<KST 날짜>. 있으면 감시견이 그날 재기동하지 않는다. [why D-098]
+    void write_state_marker(std::string_view name, std::string_view body) const;
 
 private:
     // ── 기본 설정·기동 점검 ─────────────────────────────────────────────────
@@ -507,6 +524,7 @@ private:
     std::jthread control_thread_;
 
     std::atomic<bool> running_{false};
+    session_end::Judge session_end_; // 마감 자기 종료 판정(control_thread 전용). 기본은 창 0 = 판정 없음 [why D-098]
 
 #ifdef HAS_ZMQ
     std::unique_ptr<ZmqBridge> zmq_bridge_;

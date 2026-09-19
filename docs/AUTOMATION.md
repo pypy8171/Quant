@@ -112,6 +112,13 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 훑는 대신 이 파일을 읽는다. 30초 미만 종료가 3연속이면 `phase=crash_loop`로 스스로 멈춘다 — 재기동으로
 풀리지 않는 배선 문제를 계좌에 대고 반복하지 않기 위해서다.
 
+재기동하지 않는 날은 엔진이 표지 파일로 알린다(D-098). 마지막 매매 창이 닫히고 `risk.session_end_grace_sec`(기본 120초)
+뒤 주문 큐가 비면 엔진이 `_private/state/session_done_<날짜>`를 쓰고 스스로 내려가고, 운영단말·ZMQ `KILL`은
+`_private/state/kill_today_<날짜>`를 쓴다. 워치독은 재기동 직전에 두 파일을 보고 있으면 `phase=closed`로 끝낸다.
+`-Until`은 이 길이 막혔을 때의 백업이다. `taskkill`은 파일을 안 쓰므로 장중 exe 교체는 그대로 5초 뒤 재기동된다.
+KILL을 풀고 다시 매매하려면 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/kill_release.ps1` — 표지
+파일을 지우고 워치독 상태파일을 옆으로 치워 감시자가 다음 주기(5분 안)에 워치독을 다시 띄운다. 엔진을 손으로 띄우지 않는다.
+
 ### 프로세스 수명 — 잡(Job Object)과 감시자
 
 Windows에는 리눅스의 프로세스 그룹 cascade가 없다. 부모가 죽어도 자식은 그대로 남아서, 워치독이
@@ -283,6 +290,8 @@ scripts/eod_autodoc.py
 | 스터디가 리포트만 있고 저널이 없다 | 중도 중단. `/stock-study`를 다시 부르면 새 종목을 고르지 않고 빠진 산출물만 채운다 |
 | 예약작업이 `LastTaskResult=1` | 세션 사용량 한도를 먼저 의심한다(`_private/_cron_dashboard.log`) |
 | 트레이더가 계속 죽는다 | `_private/_auto_trade_day.json`의 `history`에서 종료 코드·지속 시간 |
+| 엔진이 내려간 뒤 워치독이 다시 띄우지 않는다 | `_private/state/session_done_<날짜>`·`kill_today_<날짜>`가 있는지(D-098). 마감 자기 종료는 정상, KILL이면 원인을 없앤 뒤 `scripts/kill_release.ps1` |
+| 로그가 `[Engine] 종료 요청 — …` 줄 없이 끊겼다 | 요청된 종료가 아니라 죽은 것이다 — 실행파일 옆 `logs/crash_<pid>.dmp`(있으면 예외)·워치독 `history`의 exit 코드 |
 
 ## 8. 아직 자동화하지 않은 것
 

@@ -9,7 +9,7 @@
 - [(루트)](#루트) — 9개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 81개
-- [Quant](#quant) — 169개
+- [Quant](#quant) — 171개
 - [docs](#docs) — 57개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 176개
@@ -220,6 +220,7 @@
 - [RegimeFileBridge.h](../Quant/include/core/RegimeFileBridge.h) — 매크로 국면 파일 → 진입정지·강제청산 상태기계(D-060)
 - [ReplaySource.h](../Quant/include/core/ReplaySource.h) — 캡처 파일 리플레이 피드 소스(D-071)
 - [RingBuffer.h](../Quant/include/core/RingBuffer.h) — SPSC 락프리 링버퍼
+- [SessionEndJudge.h](../Quant/include/core/SessionEndJudge.h) — 마감 자기 종료 판정(창 닫힘→유예→큐 비면 종료, D-098)
 - [ShardMatrix.h](../Quant/include/core/ShardMatrix.h) — 수신 N×전략 샤드 M SPSC 링 행렬(D-071)
 - [SignalDispatcher.h](../Quant/include/core/SignalDispatcher.h) — 신호 디스패처 — 순번 stamp·슬롯 교체 판단(D-063)
 - [StrategyRouter.h](../Quant/include/core/StrategyRouter.h) — 종목 id → 구독 전략 목록 라우터
@@ -371,6 +372,7 @@
 - [test_replay_source.cpp](../Quant/tests/test_replay_source.cpp) — 캡처 리플레이 소스 단위 테스트
 - [test_ringbuffer.cpp](../Quant/tests/test_ringbuffer.cpp) — SPSC RingBuffer 정확성·처리량 테스트
 - [test_ringbuffer_stress.cpp](../Quant/tests/test_ringbuffer_stress.cpp) — SPSC RingBuffer 실환경 부하 시뮬레이션(버스트·가변지연)
+- [test_session_end.cpp](../Quant/tests/test_session_end.cpp) — 마감 자기 종료 판정 단위 테스트(D-098)
 - [test_shard_matrix.cpp](../Quant/tests/test_shard_matrix.cpp) — 수신 N×전략 샤드 M 링 행렬 단위 테스트
 - [test_signal_dispatcher.cpp](../Quant/tests/test_signal_dispatcher.cpp) — 신호 디스패처 단위 테스트(교체진입·강제청산·유니버스 이탈)
 - [test_strategy_router.cpp](../Quant/tests/test_strategy_router.cpp) — 종목 id 전략 라우터 단위 테스트, 틱당 시간 측정
@@ -775,6 +777,7 @@
 - [gen_code_flow.py](../scripts/gen_code_flow.py) — code_flow.toml의 심볼을 소스에서 찾아 CODE_FLOW.md 생성, --check는 누락·낡음이면 exit 1
 - [gen_code_graph.py](../scripts/gen_code_graph.py) — 코드 의존 그래프 생성 스크립트
 - [gen_facts.py](../scripts/gen_facts.py) — 저장소 사실 집계 스크립트
+- [kill_release.ps1](../scripts/kill_release.ps1) — 킬스위치 해제: `_private/state/kill_today_<날짜>` 표지 파일을 지우고 감시견 상태파일을 옆으로 치워 가드가 5분 안에 감시견을 다시 띄우게 한다(D-098)
 - [live_prices_feed.py](../scripts/live_prices_feed.py) — 전종목 실시간 시세 보조 프로세스
 - [log_patterns.py](../scripts/log_patterns.py) — 로그 파싱 공용 정규식 모듈
 - [logs.sh](../scripts/logs.sh) — Docker 컨테이너 로그 확인 스크립트

@@ -113,10 +113,10 @@ OpsServer(내부 스레드)           운영단말 TCP — 조회·수동주문�
 ### 단위 테스트
 
 <!-- gen:test-targets -->
-단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다 — 실행 타깃 `34`개.
+단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다 — 실행 타깃 `35`개.
 
 ```bash
-cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_ops_server test_ops_protocol test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_bar_aggregator test_order_pacer test_regime_bridge test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_wake_gate test_symbol_table test_tick_capture test_replay_source test_paper_executor test_feed_mux test_engine test_app_config test_feed_supervisor test_shard_matrix test_strategy_shard test_strategy_router test_latency_trace test_mpsc test_account_ledger test_logger
+cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_ops_server test_ops_protocol test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_bar_aggregator test_order_pacer test_regime_bridge test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_wake_gate test_symbol_table test_tick_capture test_replay_source test_paper_executor test_feed_mux test_engine test_app_config test_feed_supervisor test_session_end test_shard_matrix test_strategy_shard test_strategy_router test_latency_trace test_mpsc test_account_ledger test_logger
 ```
 <!-- /gen -->
 테스트 이름은 각각 원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·잔고 대조 계산·잔고 대조기·REST 현재가 폴러·신호 디스패처·발주 조절기·운영단말 프로토콜/서버·비동기 로거·매크로 국면 파일 판정기·N분봉 집계기·소비자 깨우기 조각·구간 지연 CSV·종목 id 테이블·틱 캡처·캡처 리플레이 소스·모의 체결기·피드 소스 mux·수신 N×샤드 M 링 행렬·전략 샤드·종목 id 전략 라우터·WS 피드 감독기·시험용 시세로 도는 Engine 한 바퀴(레인 1×샤드 1, 2×2, 캡처 리플레이)를 가리킨다.
@@ -486,6 +486,7 @@ struct ManagedOrder {
 | NONE side | — | — | (OrderRouter에서 검증) |
 | Entry halt (신규매수만 차단, 청산 통과) | `set_entry_halt(true)` | false | — |
 | 매매 세션 창 (NEW만. 정규장 + 애프터마켓, 모의는 정규장만) | `session_open_hhmm`·`session_close_hhmm`·`after_open_hhmm`·`after_close_hhmm`·`after_market` | 0900·1530·1600·2000 | — |
+| 마감 자기 종료 유예 (게이트 아님 — 마지막 창 닫힘 뒤 이 초가 지나 주문 큐가 비면 엔진 종료, D-098) | `session_end_grace_sec` | 120 | `test_session_end` |
 | 1주문 수량 상한 (fat-finger) | `max_qty_per_order` | 10,000주 | — |
 | 1주문 명목 상한 (fat-finger, 시장가는 reference_price) | `max_notional_per_order` | 5,000만원 | — |
 | 종목당 최대 보유 (positions_+reserved_) | `max_qty_per_ticker` | 100주 | ✅ |

@@ -220,6 +220,7 @@ graph LR
   n_core_Engine_h --> n_core_RegimeFileBridge_h
   n_core_Engine_h --> n_core_ReplaySource_h
   n_core_Engine_h --> n_core_RingBuffer_h
+  n_core_Engine_h --> n_core_SessionEndJudge_h
   n_core_Engine_h --> n_core_SignalDispatcher_h
   n_core_Engine_h --> n_core_StrategyRouter_h
   n_core_Engine_h --> n_core_StrategyShard_h

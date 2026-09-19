@@ -70,7 +70,7 @@ void signal_handler(int)
 
     if (g_engine)
     {
-        g_engine->request_shutdown();
+        g_engine->request_shutdown("시그널(Ctrl+C·콘솔 종료)");
     }
 }
 

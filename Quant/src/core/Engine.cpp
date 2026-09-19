@@ -671,7 +671,8 @@ void Engine::setup_zmq_bridge()
             {
                 LOG_WARN("[ZMQ] KILL 명령 수신 — 신규 주문 차단 + 엔진 종료");
                 order_gate_.set_kill_switch(true);
-                request_shutdown();
+                write_state_marker("kill_today", "ZMQ KILL");
+                request_shutdown("ZMQ KILL 명령");
                 return "OK";
             }
 
@@ -1216,9 +1217,13 @@ StrategyBase::SellableInfo Engine::ledger_sellable(const std::string& account, c
     return sellable_info;
 }
 
-void Engine::request_shutdown()
+void Engine::request_shutdown(std::string_view reason)
 {
-    running_.store(false, std::memory_order_release);
+    // 이미 내려가는 중이면 사유를 다시 적지 않는다 — stop()이 KILL 뒤에 한 번 더 부른다.
+    if (running_.exchange(false, std::memory_order_acq_rel))
+    {
+        LOG_WARN("[Engine] 종료 요청 — " + std::string(reason));
+    }
 
     for (std::jthread* thread : {&data_thread_, &strategy_thread_, &order_thread_, &fill_thread_, &control_thread_})
     {
@@ -1236,7 +1241,7 @@ void Engine::stop()
     // 정지 요청과 회수를 나눈다. KILL이 먼저 running_을 내렸어도 join은 여기서 한다 — 예전엔 running_ exchange로
     //  조기 반환해 KILL 뒤 소멸 경로가 join 없이 std::thread를 부쉈다(joinable이면 terminate). 회수는 한 번만: 두 번째
     //  호출은 joinable이 없어 돌아간다.
-    request_shutdown();
+    request_shutdown("stop() 호출(main 종료 경로)");
 
     if (!data_thread_.joinable())
     {
@@ -2642,6 +2647,8 @@ void Engine::control_thread_fn(std::stop_token stop_token)
             }
         }
 
+        step_session_end(); // 마감 자기 종료 — WS 유무와 무관하게 매 주기 [why D-098]
+
         if (!feed_.websocket)
         {
             continue;
@@ -2698,6 +2705,63 @@ void Engine::control_thread_fn(std::stop_token stop_token)
     }
 }
 
+// ─── 마감 자기 종료 (D-098) ───────────────────────────────────────────────
+//  판정은 SessionEndJudge, 여기는 적용만. "주문 큐가 비었다"는 order_queue 기준이다 — order_thread가 꺼낸 뒤 KIS 왕복
+//  중인 한 건은 stop()의 join이 끝까지 기다리고, OrderPacer의 재시도 큐는 세션 창 밖이라 게이트가 어차피 막는다.
+void Engine::step_session_end()
+{
+    const auto kst            = ::kst::to_tm(std::time(nullptr));
+    const int  now_sec_of_day = kst.tm_hour * 3600 + kst.tm_min * 60 + kst.tm_sec;
+    const bool orders_pending = !pipeline_.order_queue.empty();
+    const auto step           = session_end_.observe(now_sec_of_day, orders_pending);
+
+    switch (step)
+    {
+    case session_end::Judge::Step::kNone:
+        return;
+
+    case session_end::Judge::Step::kClosed:
+        LOG_INFO("[Engine] 마지막 매매 창 닫힘 — " + std::to_string(session_end_.config().grace_sec) +
+                 "초 유예 뒤 주문 큐가 비면 스스로 종료한다");
+        return;
+
+    case session_end::Judge::Step::kShutdown:
+        write_state_marker("session_done", "마감 자기 종료(주문 큐 비움)");
+        request_shutdown("마감 자기 종료 — 창 닫힘 + 유예 " + std::to_string(session_end_.config().grace_sec) + "초, 주문 큐 비움");
+        return;
+
+    case session_end::Judge::Step::kShutdownForced:
+        LOG_ERROR("[Engine] 마감 뒤 " + std::to_string(session_end_.config().drain_limit_sec) + "초가 지나도 주문 큐 " +
+                  std::to_string(pipeline_.order_queue.size()) + "건이 남아 강제 종료한다");
+        write_state_marker("session_done", "마감 자기 종료(배출 한도 초과, 강제)");
+        request_shutdown("마감 자기 종료 — 배출 한도 초과(강제)");
+        return;
+    }
+}
+
+// 표지 파일은 repo 루트 기준 상대 경로다 — 트레이더는 반드시 repo 루트에서 띄운다(감시견도 같은 경로를 본다).
+//  실패해도 엔진은 멈추지 않는다 — 그러면 감시견이 -Until 마감 판정으로 되돌아갈 뿐이다.
+void Engine::write_state_marker(std::string_view name, std::string_view body) const
+{
+    const auto kst = ::kst::to_tm(std::time(nullptr));
+    char       date_buffer[16];
+    std::snprintf(date_buffer, sizeof(date_buffer), "%04d-%02d-%02d", kst.tm_year + 1900, kst.tm_mon + 1, kst.tm_mday);
+    const std::filesystem::path path = std::filesystem::path("_private") / "state" / (std::string(name) + "_" + date_buffer);
+
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    std::ofstream out(path, std::ios::app);
+
+    if (!out)
+    {
+        LOG_ERROR("[Engine] 표지 파일 쓰기 실패: " + path.string());
+        return;
+    }
+
+    out << std::string(body) << " " << std::put_time(&kst, "%H:%M:%S") << '\n';
+    LOG_INFO("[Engine] 표지 파일 기록: " + path.string() + " — " + std::string(body));
+}
+
 // ─── 운영단말(OpsServer) 배선 ─────────────────────────────────────────────
 //  서버 스레드에서 불리는 콜백은 큐에 넣거나 스냅샷을 읽기만 한다. 주문은 strategy_thread가
 //  drain_manual_inbox에서 OrderSignal로 바꿔 push_signal로 낸다. [why D-043]
@@ -2720,7 +2784,8 @@ void Engine::start_ops_server()
         {
             LOG_WARN("[Ops] KILL — 신규 주문 차단 + 엔진 종료");
             order_gate_.set_kill_switch(true);
-            request_shutdown();
+            write_state_marker("kill_today", "운영단말 KILL");
+            request_shutdown("운영단말 KILL");
         });
     ops_.server->set_halt_handler(
         [this](const std::string& side, bool on)

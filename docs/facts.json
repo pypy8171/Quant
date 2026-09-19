@@ -183,6 +183,7 @@
       "test_engine",
       "test_app_config",
       "test_feed_supervisor",
+      "test_session_end",
       "test_shard_matrix",
       "test_strategy_shard",
       "test_strategy_router",
@@ -234,6 +235,7 @@
       "test_engine",
       "test_app_config",
       "test_feed_supervisor",
+      "test_session_end",
       "test_shard_matrix",
       "test_strategy_shard",
       "test_strategy_router",
@@ -242,7 +244,7 @@
       "test_account_ledger",
       "test_logger"
     ],
-    "count": 34
+    "count": 35
   },
   "harness": {
     "commands": [
@@ -403,43 +405,17 @@
     ]
   },
   "configs": [
-    ".token_cache.json",
-    "config.json",
     "config_dev_paper.json",
-    "config_itb_paper.json",
-    "config_ma_paper.json",
-    "config_mm_paper.json",
-    "config_paper.json",
-    "config_smoke_paper.json",
     "etf_name_tokens.json",
     "etf_prefixes.json",
-    "kis_token_<REDACTED>.json",
-    "kis_token_<REDACTED>.json",
-    "kis_token_<REDACTED>.json",
-    "prices_live.json",
-    "regime.json",
     "reit_name_suffixes.json",
     "reit_names.json",
     "ticker_names.json",
-    "universe_full.json",
-    "universe_scan.json",
     "us_universe.json"
   ],
   "config_keys": {
-    "top": [
-      "fetch_interval_sec",
-      "kis",
-      "mode",
-      "strategies"
-    ],
-    "strategies": [
-      "eod_exit_hhmm",
-      "exchange",
-      "market",
-      "pbr_max",
-      "quantity",
-      "type"
-    ]
+    "top": [],
+    "strategies": []
   },
   "dir_tree": {
     ".claude": {
@@ -475,7 +451,6 @@
       "tools": {}
     },
     "Quant": {
-      "build": {},
       "config": {},
       "include": {},
       "src": {},
@@ -509,7 +484,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::data_thread_fn",
       "lines": 501,
-      "start": 1312
+      "start": 1317
     },
     {
       "file": "Quant/src/risk/OrderGate.cpp",
@@ -551,7 +526,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::strategy_thread_fn",
       "lines": 206,
-      "start": 2000
+      "start": 2005
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
@@ -569,7 +544,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::connect_feed",
       "lines": 179,
-      "start": 893
+      "start": 894
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
@@ -671,7 +646,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::shard_thread_fn",
       "lines": 126,
-      "start": 2207
+      "start": 2212
     },
     {
       "file": "scripts/token_audit.py",
@@ -754,8 +729,8 @@
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::control_thread_fn",
-      "lines": 104,
-      "start": 2596
+      "lines": 106,
+      "start": 2601
     },
     {
       "file": "Quant/src/api/WsSocketPosix.cpp",
@@ -773,7 +748,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::order_thread_fn",
       "lines": 101,
-      "start": 2335
+      "start": 2340
     },
     {
       "file": "Quant/include/strategy/SupplyDemandPullbackStrategy.h",
@@ -881,7 +856,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::drain_manual_inbox",
       "lines": 89,
-      "start": 2844
+      "start": 2909
     },
     {
       "file": "Quant/src/universe/UniverseScanner.cpp",
@@ -934,8 +909,8 @@
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::start_ops_server",
-      "lines": 81,
-      "start": 2705
+      "lines": 82,
+      "start": 2769
     }
   ]
 }

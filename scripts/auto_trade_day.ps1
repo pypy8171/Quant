@@ -432,6 +432,13 @@ while ((Get-Date) -lt $deadline) {
 
   if ((Get-Date) -ge $deadline) { Say "마감 시각 도달 — 재기동하지 않는다."; break }
 
+  # 엔진이 스스로 내려간 날은 재기동하지 않는다 — exit 코드로는 자기 종료와 크래시를 가를 수 없어 표지 파일로 본다(D-098).
+  #  session_done_<날짜>: 마지막 매매 창 + 유예가 지나 엔진이 큐를 비우고 종료. kill_today_<날짜>: 운영단말·ZMQ KILL.
+  #  KILL을 풀고 다시 띄우려면 scripts/kill_release.ps1(표지 파일을 지운다) — 이 창을 닫으면 가드가 5분 안에 다시 띄운다.
+  $today = Get-Date -Format yyyy-MM-dd
+  if (Test-Path "_private\state\session_done_$today") { Say "엔진이 마감 자기 종료 — 재기동하지 않는다."; break }
+  if (Test-Path "_private\state\kill_today_$today")   { Say "운영자 KILL — 오늘은 재기동하지 않는다(풀려면 scripts/kill_release.ps1)." "WARN"; break }
+
   if ($secs -lt 30) {
     $shortRuns++
     if ($shortRuns -ge 3) {

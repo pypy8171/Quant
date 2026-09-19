@@ -8,7 +8,7 @@
 ```bash
 cmake --preset x64-release && cmake --build out/build/x64-release     # Windows(VS2022/Ninja). x64-debug도 같다
 cmake -DCMAKE_BUILD_TYPE=Release -B Quant/build -S Quant && cmake --build Quant/build   # Linux(libcurl4-openssl-dev 필요)
-ctest --preset x64-release          # 단위 테스트 34개. 수동 Ninja 레이아웃은 ctest --test-dir Quant/build_win
+ctest --preset x64-release          # 단위 테스트 35개. 수동 Ninja 레이아웃은 ctest --test-dir Quant/build_win
 ./Quant/build_win/quant_trader Quant/config/config.json               # 반드시 repo 루트에서
 ```
 

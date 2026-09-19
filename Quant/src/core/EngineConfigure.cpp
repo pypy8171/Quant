@@ -5,6 +5,8 @@
 #include "core/Engine.h"
 #include "utils/Logger.h"
 
+#include <algorithm>
+
 namespace
 {
 
@@ -82,6 +84,8 @@ void configure_risk(Engine& engine, const AppConfig& app)
 {
     const OrderGate::Config& risk = app.risk;
     engine.set_risk_config(risk);
+    // 마감 자기 종료 — 마지막 창(애프터마켓이 있으면 20:00, 없으면 15:30)이 기준. 창이 0/0이면 판정 없음. [why D-098]
+    engine.set_session_end(std::max(risk.session_close_min, risk.after_close_min), app.session_end_grace_sec);
 
     if (!app.has_risk)
     {

@@ -4030,3 +4030,34 @@ provider·key 핸들을 새로 여닫고 있었다.
   시드는 정규장 봉까지.
 - DeviationScale의 REST 갱신 루프 창(08:50~15:35, `Quant/include/strategy/DeviationScaleStrategy.h`)은 그대로다 —
   일봉·자본은 하루 한 번이라 영향 없다.
+
+### D-098 엔진이 마감 뒤 스스로 내려가고, 감시견은 표지 파일로 "재기동하지 않는 날"을 안다 (2026-09-19)
+
+**결정**: 마지막 매매 창(정규장 15:30, 애프터마켓이 켜져 있으면 20:00)이 닫히고 `risk.session_end_grace_sec`(기본 120초)이
+지나 주문 큐가 비면 엔진이 `_private/state/session_done_<KST 날짜>`를 쓰고 `request_shutdown`으로 내려간다. 판정은 헤더 전용
+`Quant/include/core/SessionEndJudge.h`(테스트 `test_session_end`), 적용은 `Engine::step_session_end`(control_thread 5초 주기).
+운영단말·ZMQ `KILL`은 같은 자리에 `kill_today_<날짜>`를 쓴다. 감시견 `scripts/auto_trade_day.ps1`은 재기동 직전에 두 파일을 보고
+있으면 그날은 다시 띄우지 않는다. `request_shutdown`은 사유 문자열을 받아 `[Engine] 종료 요청 — <사유>` 한 줄을 남긴다.
+KILL을 풀려면 `scripts/kill_release.ps1`(표지 파일 삭제 + 감시견 상태파일 치움 → 가드가 5분 안에 재기동).
+
+**배경**: 엔진에 "하루가 끝났다"는 개념이 없어 감시견 `-Until`(마감+5분) 강제 종료에 기댔고, 감시견 루프는 exit 코드를 판단에
+쓰지 않아 자기 종료와 크래시를 가르지 못했다. 그래서 KILL을 눌러도 5초 뒤 되살아났고(실질 "재시작", `docs/guides/MFC_TERMINAL.md`
+5절 6번), exit=-1 종료의 사유가 로그에 없었다(`docs/DEFERRED_ISSUES.md` D-20). 마감 뒤 큐에 남은 주문을 강제 종료가 끊는 길도
+있었다(D-19의 일부).
+
+**대안 비교**:
+- 감시견이 exit 코드로 가른다 — 크래시(-1)와 `std::exit(-1)` 경로를 못 가르고, 엔진이 종료 사유를 아는 쪽이 감시견보다 낫다.
+- 엔진이 파이프·소켓으로 감시견에 알린다 — 감시견이 죽어 있으면 못 듣는다. 파일은 누가 먼저 죽든 남는다.
+- 표지 파일(채택) — 한 줄 `Test-Path`. 날짜가 이름에 있어 어제 파일이 오늘을 막지 않는다. `taskkill`은 파일을 안 쓰므로
+  장중 exe 교체 절차(`docs/AUTOMATION.md`)는 그대로다.
+- KILL을 "한 번 재시작"으로 두기 — 운영자가 누른 KILL은 "오늘은 끝"이 맞다. 되돌리는 길은 `kill_release.ps1`.
+
+**남은 위험·경계**:
+- "큐가 비었다"는 `order_queue` 기준이다. order_thread가 꺼내 KIS 왕복 중인 한 건은 `stop()`의 join이 기다리고, `OrderPacer`
+  재시도 큐는 창 밖이라 게이트가 막는다. 유예 뒤 600초(`drain_limit_sec`, 코드 상수)가 지나도 안 비면 강제 종료한다.
+- 창이 닫힌 지 유예+600초보다 지나 처음 관찰되는 기동(밤에 손으로 띄운 TRADE)은 판정하지 않는다 — 예전처럼 사용자가 끈다.
+- 감시견이 창 안에서 재기동한 엔진은 부팅이 끝나는 대로(첫 control 주기) 닫힘을 보고 다음 주기에 내려간다 — 09-19 15:34 실측:
+  15:36 창, 15:36:33 부팅 완료·닫힘 관찰, 15:36:38 표지 파일·종료.
+- 표지 파일은 repo 루트 기준 상대 경로다 — 트레이더를 다른 디렉터리에서 띄우면 감시견이 못 본다(그때는 `-Until` 판정이 남는다).
+- 감시견 창이 장중에 사라지는 D-19의 원래 사례(Job Object가 엔진을 끊음)는 이 결정이 다루지 않는다.
+
