@@ -38,6 +38,7 @@ TARGET_DOCS = [
     "README.md",
     "docs/guides/CODE_GRAPH_GUIDE.md",
     "docs/AUTOMATION.md",
+    "docs/premarket/ROUTINE_PROMPT.md",   # 루틴 프롬프트 안의 국면 모델(gen:regime-model)
     "_private/LINKS.md",      # gitignore. 없으면 건너뛴다. 대시보드 표(gen:dashboards)는 _private/dashboards.json 에서 온다
 ]
 DASHBOARDS_JSON = ROOT / "_private" / "dashboards.json"
@@ -345,6 +346,28 @@ def eod_timetable() -> dict:
     return {}
 
 
+def regime_model() -> dict:
+    """국면 판정 모델 — 정본은 PYQuant/tools/macro_regime_feed.py 의 SYMBOLS·THRESHOLDS·INTRA_SYMBOLS·HALT/LIQ/ON_SCORE.
+    import 하지 않고(numpy·환경변수 부작용) ast 로 리터럴만 읽는다. 같은 이름이 두 번 대입되면(환경변수 덮어쓰기) 첫 값."""
+    import ast
+    src = ROOT / "PYQuant" / "tools" / "macro_regime_feed.py"
+    if not src.exists():
+        return {}
+    wanted = {"SYMBOLS", "THRESHOLDS", "INTRA_SYMBOLS", "HALT_SCORE", "LIQ_SCORE", "ON_SCORE"}
+    found: dict = {}
+    for node in ast.parse(read(src)).body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            name = node.targets[0].id
+            if name in wanted and name not in found:
+                try:
+                    found[name] = ast.literal_eval(node.value)
+                except ValueError:
+                    pass
+    if not wanted <= found.keys():
+        return {}
+    return {"file": rel(src), **found}
+
+
 def dashboards() -> list[dict]:
     """_private/dashboards.json — 발행본·로컬 대시보드·루틴 목록(링크 포함, gitignore). facts.json 에는 넣지 않는다."""
     if not DASHBOARDS_JSON.exists():
@@ -369,6 +392,7 @@ def collect() -> dict:
         "config_keys": config_keys(),
         "dir_tree": dir_tree(),
         "long_functions": long_functions(),
+        "regime_model": regime_model(),
     }
 
 
@@ -484,6 +508,32 @@ def r_dashboards(f: dict) -> str:
     return "\n".join(rows)
 
 
+def r_regime_model(f: dict) -> str:
+    m = f.get("regime_model") or {}
+    if not m:
+        return "| (PYQuant/tools/macro_regime_feed.py 를 못 읽었다) | | | |"
+    rows = ["| 지표 | 오르면 | 1표 임계(등락폭) | 2표 임계 |", "|---|---|---|---|"]
+    for key, meta in m["SYMBOLS"].items():
+        th = m["THRESHOLDS"].get(key, {})
+        side = "위험선호 +1" if meta.get("vote_dir", 0) > 0 else "위험회피 −1"
+        rows.append(f"| {meta.get('label', key)} | {side} | {th.get('warn', '?')}% | {th.get('strong', '?')}% |")
+    intra = []
+    for key, meta in m["INTRA_SYMBOLS"].items():
+        label = m["SYMBOLS"].get(key, {}).get("label", key)
+        verb = "오르면" if meta.get("vote_dir", 0) > 0 else "내리면"
+        intra.append(f"{label} {meta.get('warn')}% 이상 {verb} +1")
+    n = len(m["SYMBOLS"]) * 2 + len(m["INTRA_SYMBOLS"])
+    halt, liq, on = m["HALT_SCORE"], m["LIQ_SCORE"], m["ON_SCORE"]
+    rows += [
+        "",
+        f"- 점수 = 위 {len(m['SYMBOLS'])}개 방향표의 합 + 장초 대비표(개장 09:00 기준점에서 {', '.join(intra)} — 각 ±1). 범위 −{n}~+{n}.",
+        f"- **RISK_ON**: 점수 ≥ {on:+d} · **NEUTRAL**: 그 사이 · **RISK_OFF**: 점수 ≤ {halt} → `entry_halt`(신규 진입 정지) · 점수 ≤ {liq} → `force_liquidate`(보유 전량 시장가 청산).",
+        f"- 매수 비율 `entry_scale`: 정지선({halt}) 0% → 정지선의 절반({halt / 2:g}) 40% → 0점 70% → {on:+d} 이상 100% (사이는 직선, 0.1 단위).",
+        "- 유효 지표가 절반 미만이면 UNKNOWN(판정 보류).",
+    ]
+    return "\n".join(rows)
+
+
 RENDERERS = {
     "eod-timetable": r_eod_timetable,
     "dashboards": r_dashboards,
@@ -497,6 +547,7 @@ RENDERERS = {
     "config-keys": r_config_keys,
     "long-functions": r_long_functions,
     "hooks": r_hooks,
+    "regime-model": r_regime_model,
 }
 
 
@@ -558,9 +609,11 @@ def main(argv: list[str]) -> int:
             print(f"{d}: 낡은 블록 {', '.join('gen:' + s for s in stale)} (--apply로 치환)")
     if apply:
         # 허브(_private/AUTOMATION_HUB.md)는 통째로 생성물이라 블록 비교 없이 같이 다시 쓴다. 실패해도 블록 치환 결과는 유효하다.
-        hub = ROOT / "scripts" / "gen_automation_hub.py"
-        if hub.exists():
-            subprocess.run([sys.executable, str(hub)], capture_output=True, timeout=120)
+        # 런북(docs/RUNBOOK.html)도 docs/RUNBOOK.md 에서 통째로 렌더한다.
+        for name in ("gen_automation_hub.py", "gen_runbook.py"):
+            script = ROOT / "scripts" / name
+            if script.exists():
+                subprocess.run([sys.executable, str(script)], capture_output=True, timeout=120)
     return rc
 
 

@@ -27,6 +27,12 @@ check = "hint"
 note = "예약작업 시각을 글로 적은 곳. 시각 숫자는 넣지 말고 허브·시간표 스크립트를 가리키게 한다"
 
 [[rule]]
+src = ["PYQuant/tools/macro_regime_feed.py"]
+deps = ["docs/premarket/ROUTINE_PROMPT.md#이 시스템의 국면 모델"]
+check = "gen"
+note = "루틴 프롬프트 안의 국면 모델(지표 8개·임계·정지/청산선)은 gen:regime-model 블록. 블록이 바뀌면 check_docs 가 '올린 것과 다르다'고 잡는다 → /schedule 로 다시 올리고 premarket_routine.py --mark"
+
+[[rule]]
 src = ["Quant/CMakeLists.txt", "Quant/tests/test_*.cpp"]
 deps = ["docs/guides/PROJECT_GUIDE.md#단위 테스트"]
 check = "gen"
@@ -66,7 +72,7 @@ deps = ["_private/TUNING_SHEET.md", "_private/TUNING_CYCLE.md"]
 check = "script"
 cmd = "py scripts/gen_tuning_sheet.py --check"
 fix_cmd = "py scripts/gen_tuning_sheet.py"
-note = "장중 매매 수치·주기 시트는 재생성(fix_cmd). config 변경은 git diff 에 안 잡히므로 sync-gate 가 매 턴 --check 를 따로 돈다. 앵커 정규식이 안 잡히면 tuning_sheet.toml 을 고친다"
+note = "장중 매매 수치·주기 시트는 재생성(fix_cmd). config 변경은 git diff 에 안 잡히므로 sync-gate 가 매 턴 --check 를 따로 돈다. code_value 정규식이 안 잡히면 tuning_sheet.toml 을 고친다"
 
 [[rule]]
 src = ["docs/DECISIONS.md", "Quant/config/config_dev_paper.json"]
@@ -142,3 +148,17 @@ deps = ["docs/SYNC_MAP.md", "docs/AUTOMATION.md#스크립트", "docs/HARNESS.md"
 check = "script"
 cmd = "py scripts/sync_impact.py --render --check"
 note = "SYNC_MAP.md §2 표는 이 파일에서 생성"
+
+[[rule]]
+src = ["docs/RUNBOOK.md"]
+deps = ["docs/RUNBOOK.html"]
+check = "script"
+cmd = "py scripts/gen_runbook.py --check"
+fix_cmd = "py scripts/gen_runbook.py"
+note = "운영 런북 HTML 은 RUNBOOK.md 에서 통째로 렌더(gitignore). 코드 블록의 스크립트 경로가 없으면 --check 가 잡는다"
+
+[[rule]]
+src = ["scripts/auto_trade_day.ps1", "scripts/auto_trade_guard.ps1", "scripts/dashboard_server.py", "scripts/parse_quant_log.py", "scripts/notify_sidecar.py", "PYQuant/tools/macro_regime_feed.py", "PYQuant/tools/universe_feed.py", "PYQuant/tools/investor_flow_logger.py", "PYQuant/tools/index_intraday_logger.py", "docs/guides/OPS_TERMINAL.md", "docs/guides/MFC_TERMINAL.md"]
+deps = ["docs/RUNBOOK.md"]
+check = "stamp"
+note = "런북이 인용하는 스크립트 인자·옵션. 절 머리 도장이 낡으면 그 절의 명령을 맞추고 --restamp docs/RUNBOOK.md"

@@ -35,12 +35,13 @@
 |---|---|---|---|
 | `scripts/eod_timetable.ps1` | `docs/AUTOMATION.md#1. OS 예약작업` | 자동(gen 블록) | 마감 시간표(모의/실계좌)는 gen:eod-timetable 블록. _private/AUTOMATION_HUB.md 는 gen_facts --apply 가 같이 다시 쓴다 |
 | `scripts/eod_timetable.ps1`, `scripts/gen_automation_hub.py` | `docs/guides/MAINTENANCE_AUTOMATION.md#자동화 층`, `.claude/commands/dashboard-sync.md`, `.claude/commands/auto-trade-day.md`, `.claude/skills/stock-study/SKILL.md` | 힌트 | 예약작업 시각을 글로 적은 곳. 시각 숫자는 넣지 말고 허브·시간표 스크립트를 가리키게 한다 |
+| `PYQuant/tools/macro_regime_feed.py` | `docs/premarket/ROUTINE_PROMPT.md#이 시스템의 국면 모델` | 자동(gen 블록) | 루틴 프롬프트 안의 국면 모델(지표 8개·임계·정지/청산선)은 gen:regime-model 블록. 블록이 바뀌면 check_docs 가 '올린 것과 다르다'고 잡는다 → /schedule 로 다시 올리고 premarket_routine.py --mark |
 | `Quant/CMakeLists.txt`, `Quant/tests/test_*.cpp` | `docs/guides/PROJECT_GUIDE.md#단위 테스트` | 자동(gen 블록) | 테스트 타깃 목록·개수는 gen:test-targets 블록이 채운다 |
 | `Quant/include/strategy/*.h`, `Quant/src/strategy/StrategyFactory.cpp`, `PYQuant/strategy/*.py` | `README.md`, `docs/guides/PROJECT_GUIDE.md`, `.claude/PROJECT_FACTS.md` | 자동(gen 블록) | 전략 클래스·로더 표는 gen:cpp-strategies / gen:py-strategies 블록 |
 | `.claude/commands/*.md`, `.claude/agents/*.md`, `.claude/skills/**`, `.claude/hooks/*.ps1`, `.claude/settings.json` | `docs/HARNESS.md`, `docs/AUTOMATION.md#훅` | 자동(gen 블록) | 개수·훅 배선표는 gen:harness-counts / gen:hooks 블록. 훅이 하는 일 설명 문단은 stamp |
 | `Quant/include/**/*.h`, `Quant/src/**/*.cpp` | `docs/CODE_GRAPH.md` | 자동(명령) `py scripts/gen_code_graph.py --check` | #include 그래프는 손편집 금지, 재생성 |
 | `Quant/include/**/*.h`, `Quant/src/**/*.cpp`, `docs/code_flow.toml`, `scripts/gen_code_flow.py` | `docs/CODE_FLOW.md` | 자동(명령) `py scripts/gen_code_flow.py --check` | 코드 흐름 문서의 줄 링크·시그니처는 재생성(fix_cmd). 심볼이 사라지면 code_flow.toml의 sym을 고친다 |
-| `Quant/include/**/*.h`, `Quant/src/**/*.cpp`, `scripts/*.py`, `scripts/*.ps1`, `PYQuant/tools/*.py`, `PYQuant/data/*.py`, `docs/tuning_sheet.toml`, `scripts/gen_tuning_sheet.py` | `_private/TUNING_SHEET.md`, `_private/TUNING_CYCLE.md` | 자동(명령) `py scripts/gen_tuning_sheet.py --check` | 장중 매매 수치·주기 시트는 재생성(fix_cmd). config 변경은 git diff 에 안 잡히므로 sync-gate 가 매 턴 --check 를 따로 돈다. 앵커 정규식이 안 잡히면 tuning_sheet.toml 을 고친다 |
+| `Quant/include/**/*.h`, `Quant/src/**/*.cpp`, `scripts/*.py`, `scripts/*.ps1`, `PYQuant/tools/*.py`, `PYQuant/data/*.py`, `docs/tuning_sheet.toml`, `scripts/gen_tuning_sheet.py` | `_private/TUNING_SHEET.md`, `_private/TUNING_CYCLE.md` | 자동(명령) `py scripts/gen_tuning_sheet.py --check` | 장중 매매 수치·주기 시트는 재생성(fix_cmd). config 변경은 git diff 에 안 잡히므로 sync-gate 가 매 턴 --check 를 따로 돈다. code_value 정규식이 안 잡히면 tuning_sheet.toml 을 고친다 |
 | `docs/DECISIONS.md`, `Quant/config/config_dev_paper.json` | `research/STRATEGY_LAB.md`, `.claude/PROJECT_FACTS.md` | 자동(명령) `py scripts/sync_ledgers.py --check` | **원장**:·**음성결과**: 줄에서 마커 구간 생성 |
 | `Quant/include/core/*.h`, `Quant/src/core/*.cpp`, `Quant/src/main.cpp` | `docs/ENGINE_ARCHITECTURE.md#아키텍처`, `docs/guides/PROJECT_GUIDE.md` | 도장 | 스레드 모델·모듈 책임 요약 문단. 헤더의 공개 역할이 바뀌면 문단을 고치고 --restamp |
 | `Quant/include/api/*.h`, `Quant/src/api/*.cpp` | `docs/ENGINE_ARCHITECTURE.md#KIS API 클라이언트`, `docs/ENGINE_ARCHITECTURE.md#WebSocket 클라이언트` | 도장 | 파일 분할·인터페이스·채널 목록 요약 |
@@ -53,6 +54,8 @@
 | `docs/STYLE_GUIDE.md` | `CLAUDE.md#문서 문체 규약`, `.claude/hooks/lexicon-gate.ps1`, `scripts/check_plain_language.py` | 힌트 | 금지 표현을 추가했으면 게이트 두 곳의 사전도 |
 | `docs/guides/MAINTENANCE_AUTOMATION.md#4` | `CLAUDE.md#코드 작업 규약`, `scripts/check_code_conventions.py`, `scripts/rename_frags.py` | 힌트 | 규약을 더하거나 예외를 늘리면 검사기 규칙과 판정 표도. 약어 예외는 rename_frags.py의 SKIP·WIRE가 정본 |
 | `docs/sync_map.toml`, `scripts/sync_impact.py`, `scripts/gen_facts.py` | `docs/SYNC_MAP.md`, `docs/AUTOMATION.md#스크립트`, `docs/HARNESS.md` | 자동(명령) `py scripts/sync_impact.py --render --check` | SYNC_MAP.md §2 표는 이 파일에서 생성 |
+| `docs/RUNBOOK.md` | `docs/RUNBOOK.html` | 자동(명령) `py scripts/gen_runbook.py --check` | 운영 런북 HTML 은 RUNBOOK.md 에서 통째로 렌더(gitignore). 코드 블록의 스크립트 경로가 없으면 --check 가 잡는다 |
+| `scripts/auto_trade_day.ps1`, `scripts/auto_trade_guard.ps1`, `scripts/dashboard_server.py`, `scripts/parse_quant_log.py`, `scripts/notify_sidecar.py`, `PYQuant/tools/macro_regime_feed.py`, `PYQuant/tools/universe_feed.py`, `PYQuant/tools/investor_flow_logger.py`, `PYQuant/tools/index_intraday_logger.py`, `docs/guides/OPS_TERMINAL.md`, `docs/guides/MFC_TERMINAL.md` | `docs/RUNBOOK.md` | 도장 | 런북이 인용하는 스크립트 인자·옵션. 절 머리 도장이 낡으면 그 절의 명령을 맞추고 --restamp docs/RUNBOOK.md |
 <!-- /sync-map:rules -->
 
 > `research/BACKTEST_LOG.md`는 **소스(소유자)**라 위 표의 "대표"가 아니다 — 다른 문서가 이걸 링크한다.

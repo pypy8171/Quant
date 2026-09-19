@@ -135,9 +135,34 @@ def check_ledgers() -> list[str]:
     return [ln.strip() for ln in (r.stdout or r.stderr).splitlines() if ln.strip()]
 
 
+def check_routine_prompt() -> list[str]:
+    """장전 시황 브리핑 루틴 프롬프트 정본(docs/premarket/ROUTINE_PROMPT.md)이 클라우드에 올린 것과 같은지.
+    비교는 premarket_routine.py --check 에 위임한다(해시는 _private/dashboards.json, 없으면 통과)."""
+    script = os.path.join(REPO, "scripts", "premarket_routine.py")
+    if not os.path.exists(script):
+        return []
+    r = subprocess.run([sys.executable, script, "--check"], cwd=REPO,
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode == 0:
+        return []
+    return [ln.strip() for ln in (r.stdout or r.stderr).splitlines() if ln.strip()]
+
+
+def check_runbook() -> list[str]:
+    """운영 런북 정본(docs/RUNBOOK.md) 코드 블록이 가리키는 스크립트가 다 있는지. gen_runbook.py --check 에 위임한다."""
+    script = os.path.join(REPO, "scripts", "gen_runbook.py")
+    if not os.path.exists(script):
+        return []
+    r = subprocess.run([sys.executable, script, "--check"], cwd=REPO,
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode == 0:
+        return []
+    return [ln.strip() for ln in (r.stdout or r.stderr).splitlines() if ln.strip()]
+
+
 def main() -> int:
     tracked = tracked_files()
-    problems = check_links(tracked) + check_coverage(tracked) + check_ledgers()
+    problems = check_links(tracked) + check_coverage(tracked) + check_ledgers() + check_routine_prompt() + check_runbook()
     if not problems:
         print("문서 드리프트 검사 통과 — 깨진 내부 링크 0, 색인 커버리지 정합.")
         return 0
