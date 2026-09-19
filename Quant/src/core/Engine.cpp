@@ -1390,6 +1390,8 @@ void Engine::data_thread_fn(std::stop_token stop_token)
             // 매 사이클 잔고 대조. 폴링 모드는 원장까지 덮어쓰고(체결콜백 부재 보완),
             //  WS 모드는 총평가금·일손익만 갱신한다. WS 모드에서 이걸 건너뛰면 equity가 0에
             //  머물러 총노출 게이트가 조용히 통과만 하고, 일간손실 한도의 기준값도 안 움직인다.
+            //  잔고 조회 자체는 대조기가 뒤 스레드에서 돌리고 여기서는 짧게만 기다리므로(기본 500ms) 서버가
+            //  늦어도 아래 재선점 정리·시세 보충은 제때 돈다. 늦은 응답은 다음 사이클이 집는다.
             const auto reconcile_start = cycle_clock::now();
             ledger_->reconcile(/*resync_positions=*/rest_now, std::time(nullptr));
             reconcile_ms = ms_between(reconcile_start, cycle_clock::now());

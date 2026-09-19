@@ -302,11 +302,35 @@ void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)
         return;
     }
 
+    // 조회를 뒤 스레드에 맡기고 상한만큼만 기다린다. 늦으면 이번 사이클은 여기서 끝 — 원장·게이트는 그대로.
+    if (!pending_fetch_.valid())
+    {
+        pending_fetch_  = std::async(std::launch::async, fetch_);
+        pending_since_  = std::chrono::steady_clock::now();
+        pending_cycles_ = 0;
+    }
+
+    if (pending_fetch_.wait_for(fetch_wait_budget_) != std::future_status::ready)
+    {
+        ++pending_cycles_;
+        LOG_DEBUG("[Engine] 잔고 대조: 조회 응답 대기 중(" + std::to_string(pending_cycles_) + "사이클째) — 사이클은 계속 돈다");
+        return;
+    }
+
+    if (pending_cycles_ > 0)
+    {
+        const auto waited_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::steady_clock::now() - pending_since_)
+                                   .count();
+        LOG_INFO("[Engine] 잔고 대조: 조회 소요 " + std::to_string(waited_ms) + "ms (사이클 " +
+                 std::to_string(pending_cycles_) + "회 걸침)");
+    }
+
     bool responded = false; // 잔고 응답을 실제 파싱했는가(서킷브레이커 판정용)
 
     try
     {
-        const KisResult<AccountBalance> balance = fetch_();
+        const KisResult<AccountBalance> balance = pending_fetch_.get(); // get()이 future를 비워 다음 사이클이 새로 띄운다
 
         if (!balance)
         {

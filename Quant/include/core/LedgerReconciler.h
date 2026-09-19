@@ -1,7 +1,8 @@
 #pragma once
 // 브로커 잔고(REST inquire-balance) → 원장(OrderGate) 대조기. 기동 시드(bootstrap)·주기 대조(reconcile)·
 //  당일 손익 기준선(파일 영속)·잔고조회 서킷브레이커를 한 단위로 든다. Engine의 data_thread가 부르고
-//  start()의 단일스레드 구간에서 bootstrap을 한 번 부른다 — 동기화는 없다.
+//  start()의 단일스레드 구간에서 bootstrap을 한 번 부른다 — 동기화는 없다. 잔고 조회(fetch_)만 std::async로
+//  뒤 스레드에서 돌고, 그 결과를 원장에 적용하는 일은 부른 스레드가 한다.
 //  브로커 호출·대조 행 기록·종목명 등록은 std::function으로 받아 KIS 없이 시험한다. [why D-061]
 #include "api/KisResult.h"
 #include "api/KisTypes.h"
@@ -14,6 +15,7 @@
 #include <ctime>
 #include <filesystem>
 #include <functional>
+#include <future>
 #include <optional>
 #include <string>
 
@@ -142,6 +144,8 @@ public:
     void set_baseline_directory(std::filesystem::path directory) { baseline_directory_ = std::move(directory); }
     void set_prune_age_sec(int prune_age_sec) { prune_age_sec_ = prune_age_sec; }
     void set_post_fill_defer(int seconds, int max_sec) { post_fill_defer_sec_ = seconds; post_fill_defer_max_sec_ = max_sec; }
+    // 한 사이클이 잔고 응답을 기다려 주는 상한. 넘기면 조회는 뒤에서 계속 돌고 다음 사이클이 결과를 집는다.
+    void set_fetch_wait_budget(std::chrono::milliseconds budget) { fetch_wait_budget_ = budget; }
 
     // 체결통보 시각. 체결 소비 스레드가 부르고 reconcile(제어 스레드)이 읽는다 — 이 값만 원자적이다.
     void note_fill(std::time_t now_utc) { last_fill_utc_.store(static_cast<long long>(now_utc), std::memory_order_relaxed); }
@@ -154,7 +158,12 @@ public:
     // 주기 대조. resync_positions=true(폴링 모드)면 미체결 선점(reserved_)을 비우고 실보유로 원장을 덮어쓴다.
     //  체결통보가 오는 WS 모드에서는 원장이 이미 체결로 갱신되고 reserved_에는 살아 있는 지정가 주문이
     //  잡혀 있으므로 false로 불러 총평가금·일손익·매도가능수량만 갱신한다. now_utc는 기준선 파일 날짜용.
+    //  잔고 조회(fetch_)는 별도 스레드에서 돌리고 이 함수는 fetch_wait_budget_만 기다린다 — 모의 서버가
+    //  잔고 응답에 20~100초를 쓴 날(09-18) 이 한 호출이 데이터 사이클(재스캔·시세 보충)을 통째로 세웠다.
+    //  응답이 늦으면 다음 사이클이 결과를 집어 적용한다. 원장·게이트 갱신은 여전히 부른 스레드에서만 한다.
     void reconcile(bool resync_positions, std::time_t now_utc);
+
+    bool fetch_in_flight() const { return pending_fetch_.valid(); }
 
     // 이번 대조를 체결 직후라서 미루는가. reconcile이 먼저 묻고, 미뤘으면 조회를 안 한다(서킷브레이커 집계 밖).
     bool defer_after_fill(std::time_t now_utc);
@@ -184,4 +193,10 @@ private:
     bool   have_baseline_ = false;
     double baseline_      = 0.0;              // 전일 총자산(없으면 첫 대조 총평가금)(원) — 손실컷 기준점
     ledger::ReconcileBreaker breaker_;
+    // 진행 중인 잔고 조회. 소멸자가 결과를 기다리므로(std::async) 이 객체는 fetch_가 쓰는 클라이언트보다
+    //  먼저 사라져야 한다 — Engine에서는 ledger_가 feed_ 뒤에 선언돼 먼저 소멸한다. [inv]
+    std::future<KisResult<AccountBalance>> pending_fetch_;
+    std::chrono::steady_clock::time_point  pending_since_{};
+    int pending_cycles_ = 0;                  // 결과를 못 집고 지나간 사이클 수(로그용)
+    std::chrono::milliseconds fetch_wait_budget_{500};
 };

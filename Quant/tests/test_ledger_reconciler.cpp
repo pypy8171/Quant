@@ -6,10 +6,12 @@
 #include "core/LedgerReconciler.h"
 #include "utils/Logger.h"
 
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <thread>
 #include <vector>
 
 namespace
@@ -284,6 +286,38 @@ int test_reconcile_failure()
     CHECK(calls == 3 && !gate.is_pnl_stale() && reconciler.breaker().fail_streak() == 0 && gate.position("A") == 1);
     return 0;
 }
+
+// 8) 느린 잔고 응답: 조회가 대기 상한을 넘기면 reconcile은 곧 돌아오고(사이클을 안 붙잡음) 원장은 그대로,
+//    응답이 도착한 뒤의 다음 reconcile이 결과를 적용한다. 09-18 모의 서버가 잔고에 20~100초를 쓴 사례.
+int test_reconcile_slow_fetch()
+{
+    wipe_baselines();
+    OrderGate gate;
+    std::atomic<int> calls{0};
+    LedgerReconciler reconciler(gate, [&]
+    {
+        ++calls;
+        std::this_thread::sleep_for(std::chrono::milliseconds(600));
+        return ok_balance({hold("A", 3, 100.0, 3)}, 1000000.0, 500000.0, 990000.0);
+    });
+    reconciler.set_baseline_directory(baseline_directory());
+    reconciler.set_fetch_wait_budget(std::chrono::milliseconds(50));
+
+    const auto first_call = std::chrono::steady_clock::now();
+    reconciler.reconcile(true, kT0);
+    const auto first_elapsed = std::chrono::steady_clock::now() - first_call;
+    CHECK(first_elapsed < std::chrono::milliseconds(400) && reconciler.fetch_in_flight());
+    CHECK(gate.position("A") == 0 && calls == 1);
+
+    reconciler.reconcile(true, kT0); // 아직 응답 전 — 새 조회를 띄우지 않는다
+    CHECK(calls == 1 && reconciler.fetch_in_flight() && gate.position("A") == 0);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(700));
+    reconciler.reconcile(true, kT0); // 응답이 와 있다 — 적용하고 future를 비운다
+    CHECK(gate.position("A") == 3 && gate.equity() == 1000000.0 && !reconciler.fetch_in_flight());
+    CHECK(reconciler.breaker().fail_streak() == 0 && calls == 1);
+    return 0;
+}
 } // namespace
 
 int main()
@@ -295,7 +329,7 @@ int main()
     }
 
     if (test_breaker() || test_names() || test_bootstrap() || test_reconcile_rest() || test_reconcile_websocket() ||
-        test_reconcile_post_fill_defer() || test_reconcile_failure())
+        test_reconcile_post_fill_defer() || test_reconcile_failure() || test_reconcile_slow_fetch())
     {
         return 1;
     }

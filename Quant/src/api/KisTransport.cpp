@@ -5,6 +5,11 @@
 
 // 재시도 없이 즉시 실패 스코프 깊이(스레드별). 0보다 크면 조회 재시도를 하지 않는다.
 static thread_local int g_fastfail_depth = 0;
+// 직전 단발 시도가 "서버가 제한 시간 안에 답을 안 준" 실패였는가(WinHTTP 12002·curl 28). 재시도 래퍼가 읽는다.
+//  이 실패는 이미 수신 제한 시간(15초)만큼 기다린 뒤라 다시 보내면 또 그만큼 걸린다 — 09-18 모의 서버가 잔고
+//  조회에 195번 이렇게 답했고 재시도 3회가 한 조회를 45초 넘게 붙잡았다. 다른 전송 실패(빈 응답 12152·연결 끊김)는
+//  바로 다시 보내면 대개 붙으므로 재시도를 유지한다.
+static thread_local bool g_last_attempt_timed_out = false;
 
 KisClient::FastFailScope::FastFailScope() { ++g_fastfail_depth; }
 KisClient::FastFailScope::~FastFailScope() { --g_fastfail_depth; }
@@ -157,6 +162,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
 {
     transport_ok = false;
     status_code = 0;
+    g_last_attempt_timed_out = false;
     auto other_crack_url = crack_url(url);
 
     HINTERNET connect_handle = acquire_connection(other_crack_url);
@@ -202,6 +208,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
         char errbuf[128];
         snprintf(errbuf, sizeof(errbuf), "[WinHTTP] ReceiveResponse 실패: %lu", error);
         LOG_ERROR(std::string(errbuf) + "  url=" + url);
+        g_last_attempt_timed_out = (error == ERROR_WINHTTP_TIMEOUT);
         WinHttpCloseHandle(request_handle);
         thread_connection.reset();
         return "";
@@ -253,7 +260,7 @@ static bool is_rate_limited(const std::string& body)
            body.find("초당 거래건수") != std::string::npos;
 }
 
-// 재시도 래퍼. ⚠ 조회(GET) 요청(여러 번 보내도 서버 상태 불변이라 재시도 안전)만 재시도한다 — (a) 전송 계층 실패(12152 등), (b) 5xx 서버 일시장애.
+// 재시도 래퍼. ⚠ 조회(GET) 요청(여러 번 보내도 서버 상태 불변이라 재시도 안전)만 재시도한다 — (a) 전송 계층 실패(12152 등, 제한 시간 초과 12002는 제외), (b) 5xx 서버 일시장애.
 //  KIS 시세/일봉 TR은 부하 시 간헐 HTTP 500을 뱉는데(전송은 정상, transport_ok=true), 이때 일봉이 <60봉으로
 //  잘려 스캔 후보가 통째로 탈락한다 → 조회(GET)에 한해 5xx도 재시도해 후보 유실을 막는다.
 //  주문 등 POST는 재시도하지 않는다 — 빈 응답(12152)이 "미접수"라는 보장이 없어(서버엔 접수됐을 수 있음)
@@ -289,6 +296,14 @@ static std::string winhttp_request(const std::string& method, const std::string&
             return response;
         }
 
+        // 수신 제한 시간을 넘긴 실패는 재시도하지 않는다 — 느린 서버에 같은 요청을 다시 넣어 봐야 같은 시간이
+        //  또 간다. 호출자(잔고 대조 등)가 자기 주기에 다시 부른다.
+        if (!transport_ok && g_last_attempt_timed_out)
+        {
+            LOG_WARN("[WinHTTP] 수신 제한 시간 초과 — 재시도 없이 실패 처리  url=" + url);
+            return response;
+        }
+
         if (attempt < max_attempts)
         {
             LOG_WARN("[WinHTTP] " + std::string(transport_ok ? "HTTP " + std::to_string(status) : "전송 실패") +
@@ -321,6 +336,7 @@ static std::string curl_request_once(const std::string& method, const std::strin
 {
     transport_ok = false;
     status_code = 0;
+    g_last_attempt_timed_out = false;
     CURL* curl = curl_easy_init();
 
     if (!curl)
@@ -353,6 +369,7 @@ static std::string curl_request_once(const std::string& method, const std::strin
     if (result_code != CURLE_OK)
     {
         LOG_ERROR(std::string("[CURL] 요청 실패: ") + curl_easy_strerror(result_code));
+        g_last_attempt_timed_out = (result_code == CURLE_OPERATION_TIMEDOUT);
     }
     else
     {
@@ -393,6 +410,12 @@ static std::string curl_request(const std::string& method, const std::string& ur
 
         if (rate_limited && attempt >= 2)
         {
+            return response;
+        }
+
+        if (!transport_ok && g_last_attempt_timed_out) // WinHTTP 경로와 같은 규약 — 제한 시간 초과는 재시도 없음
+        {
+            LOG_WARN("[CURL] 수신 제한 시간 초과 — 재시도 없이 실패 처리  url=" + url);
             return response;
         }
 
