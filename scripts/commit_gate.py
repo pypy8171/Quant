@@ -191,6 +191,11 @@ def check_staged(r: Report, comment_only: bool) -> list[str]:
                     if re.search(r"config\.json$|\.token|kis_token|\.env$|\.pem$|\.key$", t) and not t.endswith(".example")]
     for t in tracked_leak:
         r.block(f"추적 중인 시크릿 파일: {t} (git rm --cached)")
+    # (a-2) 스테이징 뒤 또 바뀐 파일 — `git commit -- <경로>`(pathspec 커밋)는 인덱스가 아니라 작업 트리를 담는다.
+    staged_paths = set(staged)
+    restaged_needed = [path for path in git("diff", "--name-only").splitlines() if path in staged_paths]
+    for path in restaged_needed:
+        r.ask(f"스테이징 뒤 작업 트리가 또 바뀐 파일: {path} — 경로를 적어 커밋하면(`git commit -- <경로>`) 지금 검사한 인덱스가 아니라 그 작업 트리 내용이 들어간다. 경로 없이 커밋하거나 `git add`로 맞춘 뒤 게이트를 다시 돌린다")
     # (b) 내용
     diff = git("diff", "--cached", "-U0")
     words = private_words()
