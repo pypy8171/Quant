@@ -1,6 +1,7 @@
 #pragma once
 #include "api/IMarketDataSource.h"
 #include "api/IOrderExecutor.h"
+#include "api/KisEndpoints.h"
 #include "api/KisResult.h"
 #include "api/KisTypes.h"
 #include "core/Types.h"
@@ -314,8 +315,7 @@ private:
 
     std::string base_url() const
     {
-        return config_.is_paper ? "https://openapivts.koreainvestment.com:29443"
-                             : "https://openapi.koreainvestment.com:9443";
+        return std::string(kis_endpoints::rest_base_url(config_.is_paper));
     }
 
     KisConfig config_;

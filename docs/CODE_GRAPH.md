@@ -162,6 +162,7 @@ graph LR
   n_api_KisAccount_cpp --> n_api_KisRestDecode_h
   n_api_KisClient_h --> n_api_IMarketDataSource_h
   n_api_KisClient_h --> n_api_IOrderExecutor_h
+  n_api_KisClient_h --> n_api_KisEndpoints_h
   n_api_KisClient_h --> n_api_KisResult_h
   n_api_KisClient_h --> n_api_KisTypes_h
   n_api_KisClient_h --> n_core_Types_h
@@ -182,6 +183,7 @@ graph LR
   n_api_KisWebSocket_h --> n_core_Types_h
   n_api_KisWsDecode_h --> n_core_MarketSession_h
   n_api_KisWsDecode_h --> n_core_Types_h
+  n_api_WebSocketClient_cpp --> n_api_KisEndpoints_h
   n_api_WebSocketClient_cpp --> n_api_KisWebSocket_h
   n_api_WebSocketClient_cpp --> n_api_KisWsDecode_h
   n_api_WebSocketClient_cpp --> n_core_WakeGate_h
@@ -461,7 +463,7 @@ graph LR
 | `PYQuant/db/client.py` | `core.logger` |
 | `PYQuant/ipc/operator.py` | `core.logger` |
 | `PYQuant/ipc/subscriber.py` | `core.logger` |
-| `PYQuant/kis/client.py` | `core.logger` |
+| `PYQuant/kis/client.py` | `core.logger`, `kis.endpoints` |
 | `PYQuant/live/forward_trader.py` | `backtest.engine`, `kis.client`, `main` |
 | `PYQuant/live/trader.py` | `kis.client`, `strategy.base` |
 | `PYQuant/main.py` | `backtest.engine`, `backtest.report`, `core.logger`, `data.datagokr_source`, `data.krx_source`, `data.universe_kospi`, `data.yfinance_source`, `db.client`, `ipc.operator`, `ipc.subscriber`, `kis.client`, `live.forward_trader`, `live.trader`, `report.account`, `strategy.cross_momentum`, `strategy.mean_reversion`, `strategy.strategy_a`, `strategy.supply_demand_rank`, `strategy.value_contrary` |

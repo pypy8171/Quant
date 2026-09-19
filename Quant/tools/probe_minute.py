@@ -7,6 +7,9 @@
 #   기본: config_itb_paper.json  005930(삼성전자)  자동(현재 KST, 장전이면 133000)  4페이지
 # 모의/실계좌 각각 config를 바꿔 두 번 돌려 비교하세요.
 import json, sys, urllib.request, urllib.parse, urllib.error
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # 저장소 루트 — PYQuant 패키지
+from PYQuant.kis.endpoints import rest_base_url
 from datetime import datetime, timezone, timedelta
 
 path   = sys.argv[1] if len(sys.argv) > 1 else "Quant/config/config_itb_paper.json"
@@ -15,8 +18,7 @@ pages  = int(sys.argv[4]) if len(sys.argv) > 4 else 4
 
 cfg  = json.load(open(path, encoding="utf-8"))["kis"]
 paper = cfg.get("is_paper")
-BASE = "https://openapivts.koreainvestment.com:29443" if paper \
-       else "https://openapi.koreainvestment.com:9443"
+BASE = rest_base_url(bool(paper))
 
 # 기준시각: 인자 우선, 아니면 현재 KST. 장 시작(0900) 전이면 직전 마감 시각으로.
 if len(sys.argv) > 3:

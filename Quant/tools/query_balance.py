@@ -2,11 +2,13 @@
 # 모의계좌 잔고 조회(연속조회 포함). 사용: python3 Quant/tools/query_balance.py [config경로]
 # 기본 config: Quant/config/config_itb_paper.json (kis 블록의 모의 키/계좌 사용)
 import json, sys, urllib.request, urllib.parse
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # 저장소 루트 — PYQuant 패키지
+from PYQuant.kis.endpoints import rest_base_url
 
 path = sys.argv[1] if len(sys.argv) > 1 else "Quant/config/config_itb_paper.json"
 cfg = json.load(open(path, encoding="utf-8"))["kis"]
-BASE = "https://openapivts.koreainvestment.com:29443" if cfg.get("is_paper") \
-       else "https://openapi.koreainvestment.com:9443"
+BASE = rest_base_url(bool(cfg.get("is_paper")))
 
 tok = json.load(urllib.request.urlopen(urllib.request.Request(
     BASE + "/oauth2/tokenP",

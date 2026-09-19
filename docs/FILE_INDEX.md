@@ -102,6 +102,7 @@
 
 - [__init__.py](../PYQuant/kis/__init__.py) — 빈 패키지 초기화 파일
 - [client.py](../PYQuant/kis/client.py) — KIS REST API 파이썬 클라이언트
+- [endpoints.py](../PYQuant/kis/endpoints.py) — KIS 접속점(모의·실계좌 REST URL, WebSocket 포트) 파이썬 정본, C++ KisEndpoints.h와 짝
 
 ### PYQuant/live/
 
@@ -192,6 +193,7 @@
 - [IMarketDataSource.h](../Quant/include/api/IMarketDataSource.h) — 시세·봉 읽기 인터페이스 — 전략·스캔이 KIS 의존 없이 시세 접근(D-066)
 - [IOrderExecutor.h](../Quant/include/api/IOrderExecutor.h) — 주문 실행 인터페이스 — OrderAck·OpenOrder 정의(D-039)
 - [KisClient.h](../Quant/include/api/KisClient.h) — KIS REST 클라이언트 선언과 KisConfig
+- [KisEndpoints.h](../Quant/include/api/KisEndpoints.h) — KIS 접속점(모의·실계좌 REST URL, WebSocket 호스트·포트) 한 곳
 - [KisErrorCodes.h](../Quant/include/api/KisErrorCodes.h) — KIS 주문 거부 오류코드 문자열 상수
 - [KisRestDecode.h](../Quant/include/api/KisRestDecode.h) — KIS REST JSON 응답 디코드 순수 함수(D-051·D-059)
 - [KisResult.h](../Quant/include/api/KisResult.h) — KIS REST 결과 봉투 — 값과 실패를 구분(D-059·D-070)

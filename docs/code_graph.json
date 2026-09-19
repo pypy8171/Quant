@@ -156,6 +156,7 @@
     "api/IMarketDataSource.h": "api",
     "api/IOrderExecutor.h": "api",
     "api/KisClient.h": "api",
+    "api/KisEndpoints.h": "api",
     "api/KisErrorCodes.h": "api",
     "api/KisRestDecode.h": "api",
     "api/KisResult.h": "api",
@@ -267,6 +268,7 @@
     "api/KisClient.h": [
       "api/IMarketDataSource.h",
       "api/IOrderExecutor.h",
+      "api/KisEndpoints.h",
       "api/KisResult.h",
       "api/KisTypes.h",
       "core/Types.h"
@@ -303,6 +305,7 @@
       "core/Types.h"
     ],
     "api/WebSocketClient.cpp": [
+      "api/KisEndpoints.h",
       "api/KisWebSocket.h",
       "api/KisWsDecode.h",
       "core/WakeGate.h",
@@ -646,6 +649,10 @@
       "strategy/ThemeStrategy.h",
       "strategy/ValueContraryStrategy.h",
       "universe/UniverseScanner.h"
+    ],
+    "api/KisEndpoints.h": [
+      "api/KisClient.h",
+      "api/WebSocketClient.cpp"
     ],
     "api/KisErrorCodes.h": [
       "api/KisClientInternal.h",
@@ -1095,6 +1102,7 @@
       "PYQuant/ipc/subscriber.py",
       "PYQuant/kis/__init__.py",
       "PYQuant/kis/client.py",
+      "PYQuant/kis/endpoints.py",
       "PYQuant/live/__init__.py",
       "PYQuant/live/forward_trader.py",
       "PYQuant/live/trader.py",
@@ -1233,7 +1241,8 @@
         "core.logger"
       ],
       "PYQuant/kis/client.py": [
-        "core.logger"
+        "core.logger",
+        "kis.endpoints"
       ],
       "PYQuant/live/forward_trader.py": [
         "backtest.engine",
@@ -1575,6 +1584,9 @@
         "PYQuant/tools/probe_kis_investor.py",
         "scripts/dashboard_server.py",
         "scripts/notify_sidecar.py"
+      ],
+      "kis.endpoints": [
+        "PYQuant/kis/client.py"
       ],
       "live.forward_trader": [
         "PYQuant/main.py"

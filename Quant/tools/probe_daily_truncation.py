@@ -5,14 +5,16 @@
 # 사용: py Quant/tools/probe_daily_truncation.py [config경로] [종목,종목,...]
 #   기본: config_dev_paper.json  005930,000660,161890
 import json, sys, urllib.request, urllib.parse, urllib.error
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # 저장소 루트 — PYQuant 패키지
+from PYQuant.kis.endpoints import rest_base_url
 from datetime import datetime, timezone, timedelta
 
 path    = sys.argv[1] if len(sys.argv) > 1 else "Quant/config/config_dev_paper.json"
 tickers = (sys.argv[2] if len(sys.argv) > 2 else "005930,000660,161890").split(",")
 
 cfg   = json.load(open(path, encoding="utf-8"))["kis"]
-BASE  = "https://openapivts.koreainvestment.com:29443" if cfg.get("is_paper") \
-        else "https://openapi.koreainvestment.com:9443"
+BASE = rest_base_url(bool(cfg.get("is_paper")))
 now_kst = datetime.now(timezone(timedelta(hours=9)))
 d2 = now_kst.strftime("%Y%m%d")
 d1 = (now_kst - timedelta(days=120)).strftime("%Y%m%d")

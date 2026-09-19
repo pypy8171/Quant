@@ -10,6 +10,8 @@ import requests
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
+
+from .endpoints import REST_BASE_URL_PAPER, REST_BASE_URL_REAL
 from typing import Optional
 
 from core.logger import setup_logger
@@ -95,8 +97,8 @@ class AccountSummary:
 
 
 class KisClient:
-    REAL_URL  = "https://openapi.koreainvestment.com:9443"
-    PAPER_URL = "https://openapivts.koreainvestment.com:29443"
+    REAL_URL  = REST_BASE_URL_REAL   # 접속점 정본은 endpoints.py
+    PAPER_URL = REST_BASE_URL_PAPER
 
     def __init__(self, app_key: str, app_secret: str,
                  account_no: str, account_type: str = "01",

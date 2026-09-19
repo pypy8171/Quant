@@ -1,6 +1,7 @@
 // api/WebSocketClient.cpp — KIS 실시간 WebSocket 클라이언트의 플랫폼 독립 부분.
 //  연결·재연결·백오프·구독 복원·프레임 파싱이 한 벌이고, 소켓 자체는 WsSocket(WsSocketWin/WsSocketPosix)이 맡는다.
 //  스레드: recv_loop 전용 스레드가 sock_를 소유하고 바꾼다. data_thread는 send_text(send_mutex_)만 지난다. [why D-049]
+#include "api/KisEndpoints.h"
 #include "api/KisWebSocket.h"
 #include "WsSocket.h"
 #include "api/KisWsDecode.h"
@@ -15,11 +16,6 @@
 #include <thread>
 
 using json = nlohmann::json;
-
-// KIS 실시간 WebSocket 접속점 — 모의투자와 실계좌는 포트만 다르다.
-static constexpr const char* kWsHost = "ops.koreainvestment.com";
-static constexpr int kWsPortPaper = 31000; // 모의투자
-static constexpr int kWsPortReal  = 21000; // 실계좌
 
 // 수신 시각. 소켓 읽기 스레드가 디코드 직후 찍는다 — 호가·체결이 같은 시계를 쓰므로 뒤 단계(multiplexer·샤드)가 도착 순서를
 //  되돌릴 수 있다. 구간 지연 CSV의 출발점도 이 값이다. [why D-071]
@@ -100,12 +96,13 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specifications)
         return false;
     }
 
-    const int port = config_.is_paper ? kWsPortPaper : kWsPortReal;
-    auto socket = websocket_platform::make_socket();
+    const int         port = kis_endpoints::websocket_port(config_.is_paper);
+    const std::string host(kis_endpoints::kWebSocketHost);
+    auto              socket = websocket_platform::make_socket();
 
-    if (!socket->open(kWsHost, port))
+    if (!socket->open(host, port))
     {
-        LOG_ERROR("[WS] WebSocket 연결 실패: " + std::string(kWsHost) + ":" + std::to_string(port));
+        LOG_ERROR("[WS] WebSocket 연결 실패: " + host + ":" + std::to_string(port));
         return false;
     }
 
@@ -215,7 +212,7 @@ void KisWebSocket::recv_loop(std::stop_token stop_token)
 
         auto fresh = websocket_platform::make_socket();
 
-        if (!fresh->open(kWsHost, config_.is_paper ? kWsPortPaper : kWsPortReal))
+        if (!fresh->open(std::string(kis_endpoints::kWebSocketHost), kis_endpoints::websocket_port(config_.is_paper)))
         {
             LOG_ERROR("[WS] 재연결: WebSocket 연결 실패");
             continue;
@@ -303,8 +300,7 @@ void KisWebSocket::set_fill_callback(FillCb on_fill)
 
 bool KisWebSocket::get_approval_key()
 {
-    std::string base =
-        config_.is_paper ? "https://openapivts.koreainvestment.com:29443" : "https://openapi.koreainvestment.com:9443";
+    const std::string base(kis_endpoints::rest_base_url(config_.is_paper));
 
     json request = {{"grant_type", "client_credentials"}, {"appkey", config_.app_key}, {"secretkey", config_.app_secret}};
 

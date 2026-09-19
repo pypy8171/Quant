@@ -5,6 +5,9 @@
 # 사용: python3 Quant/tools/probe_daily.py [config경로] [종목코드] [일수N]
 #   기본: config_itb_paper.json  005930  120
 import json, sys, urllib.request, urllib.parse, urllib.error
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # 저장소 루트 — PYQuant 패키지
+from PYQuant.kis.endpoints import rest_base_url
 from datetime import datetime, timezone, timedelta
 
 path   = sys.argv[1] if len(sys.argv) > 1 else "Quant/config/config_itb_paper.json"
@@ -13,8 +16,7 @@ days   = int(sys.argv[3]) if len(sys.argv) > 3 else 120
 
 cfg   = json.load(open(path, encoding="utf-8"))["kis"]
 paper = cfg.get("is_paper")
-BASE  = "https://openapivts.koreainvestment.com:29443" if paper \
-        else "https://openapi.koreainvestment.com:9443"
+BASE = rest_base_url(bool(paper))
 
 now_kst = datetime.now(timezone(timedelta(hours=9)))
 d2 = now_kst.strftime("%Y%m%d")
