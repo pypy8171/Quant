@@ -4197,3 +4197,35 @@ metrics `BH`+`BUY_AND_HOLD`(`PYQuant/dashboard/build_dashboard.py`·`scripts/exi
 
 **남은 위험**: 옛 키 이름 config로 띄우면 마감 청산 시각이 코드 기본값으로 돌아간다 — 기동 로그 `market_close=` 값으로 잡는다.
 예약작업 이름이 바뀌어 `scripts/market_close_timetable.ps1 -Apply`로 다시 등록해야 옛 이름 작업이 남지 않는다.
+
+### D-103 회의는 파일로 끝난다 — 리서치 에이전트가 코드·데이터를 직접 쓰고, 파이썬 적재 코드는 메인 트리에서 한다 (2026-09-20)
+
+**상태**: 채택
+
+**배경**: 키 4개(`dart`·`fred`·`ecos`·`datagokr`)를 09-19에 발급받았는데 09-20 00:30까지 그것을 읽는 어댑터가 0개였고, 리셋 회의 16명이
+낸 것은 문서 16장뿐이었다(오너 지적). 원인은 인원이 아니라 셋 — ① 리서치 에이전트 8명 중 Write가 있는 것은 backtest-runner 하나,
+② 헌장 §4 산출물 네 항목이 전부 서술이라 잘 지킬수록 문서가 나옴, ③ 회의 절차 8단계에 "구현 실행"이 없고 CLAUDE.md 다중 세션 규칙이
+파이썬 적재 코드까지 worktree 대상으로 읽혔다(`research/RESET_2026-09-19_R2/harness-engineer.md`).
+
+**결정**:
+1. 회의 산출물은 코드(`.py`)·데이터(`.parquet`)·숫자(`metrics.json`) 중 하나 이상이 **파일로 생겨야 끝난다**. 헌장 §4에 ⑤ "이번 턴에 만든 파일"을
+   넣고, 비면 결론이 아니라 메모다(`research/COUNCIL_CHARTER.md` §4).
+2. 리서치 에이전트는 `PYQuant/`·`research/`·`scripts/`·`strategies/`를 **직접 쓴다** — data-sourcer(Write·Edit·WebFetch)·fundamental-quant·
+   macro-quant·strategist·risk-behavior(Write·Edit)·quant-analyst·market-brief(Write). 감사 역할(bias-auditor·reviewer·pm·planner·
+   harness-engineer)은 읽기 유지. `Quant/src`·`Quant/config`·`docs/DECISIONS.md`·`CLAUDE.md`·git 커밋은 메인 세션이 승인 뒤 한다.
+3. 엔진 빌드와 무관한 파이썬 적재·리서치 코드(`PYQuant/tools/*`·`research/studies/*`)는 **메인 트리에서** 만든다. worktree 규칙은 C++ 엔진·
+   공용 파일에만 적용한다(CLAUDE.md 다중 세션 절 한 줄).
+4. 회의 절차에 7.5 "구현 실행"을 넣는다 — 5~7에서 정한 파일 이름마다 담당 에이전트를 같은 턴에 병렬로 띄우고, 위임 프롬프트에 "만들 파일 경로·
+   판정 기준·재실행 명령"을 넣는다. 사회자(메인)는 코드를 쓰지 않고 취합·커밋만 한다(`research/RESEARCH_COUNCIL.md`).
+5. 키 값은 `PYQuant/data/keys.py::load_key("<이름>")` 한 곳에서만 읽고 어디에도 찍지 않는다. 소스·키 이름·어댑터·저장·등급은 헌장 §5 표가 정본이다.
+
+**첫 적용(같은 밤)**: `PYQuant/tools/dart_fin_history_fill.py`(DART 주요계정 2015~2026, 1,920호출 1,002초, `PYQuant/data/fin/fin_point_in_time.parquet`),
+`PYQuant/tools/macro_ingest.py`(FRED 14시리즈 59,555행·ECOS 11시리즈 25,938행, `PYQuant/data/macro/*.parquet` 25개), `PYQuant/tools/naver_research_fetch.py`.
+2라운드 스펙 7장은 `research/RESET_2026-09-19_R2/`.
+
+**버린 대안**: data-engineer 에이전트 신설 — data-sourcer와 소스 지식이 겹치고 라우팅만 흐려져 뺐다. 메인 세션이 코드를 직접 짠다 — 16명 결과를
+취합하는 사이 문맥이 소진돼 코드 차례가 안 오는 것이 이번 실패의 형태라 뺐다. "키는 오너 발급 뒤" 순서 유지 — 키 없이도 엔드포인트·캐시·조인은
+짤 수 있었으므로 뺐다.
+
+**남은 위험**: `.claude/agents/*.md`는 로컬 전용이라 tools 줄 개정은 오너가 스크립트로 적용해야 한다(자동 모드 분류기가 세션의 `.claude/` 편집을 막는다).
+쓰기 범위는 `tools:` 줄로 경로를 제한할 수 없어 본문 규칙에 의존한다 — 위반은 `git diff` 검토와 `scripts/commit_gate.py`가 잡는다.

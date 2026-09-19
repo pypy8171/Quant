@@ -254,9 +254,9 @@
       "daily",
       "dashboard-sync",
       "dev-loop",
-      "eod-review",
       "handoff",
       "intraday-start",
+      "market-close-review",
       "review-apply",
       "review-bundle",
       "strategy-debate",
@@ -294,11 +294,11 @@
       "cron-gate.ps1",
       "dashboard-refresh.ps1",
       "docs-gate.ps1",
-      "eod-gate.ps1",
       "file-index-gate.ps1",
       "handoff-due.ps1",
       "handoff-list.ps1",
       "lexicon-gate.ps1",
+      "market-close-gate.ps1",
       "output-gate.ps1",
       "precompact-handoff.ps1",
       "resume-work.ps1",
@@ -378,8 +378,8 @@
       {
         "event": "SessionStart",
         "matcher": "",
-        "hook_file": "eod-gate.ps1",
-        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\eod-gate.ps1"
+        "hook_file": "market-close-gate.ps1",
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\market-close-gate.ps1"
       },
       {
         "event": "SessionStart",
@@ -416,8 +416,20 @@
     "us_universe.json"
   ],
   "config_keys": {
-    "top": [],
-    "strategies": []
+    "top": [
+      "fetch_interval_sec",
+      "kis",
+      "mode",
+      "strategies"
+    ],
+    "strategies": [
+      "exchange",
+      "market",
+      "market_close_exit_hhmm",
+      "pbr_max",
+      "quantity",
+      "type"
+    ]
   },
   "dir_tree": {
     ".claude": {
@@ -444,6 +456,7 @@
       "dashboard": {},
       "data": {},
       "db": {},
+      "features": {},
       "ipc": {},
       "kis": {},
       "live": {},
@@ -454,6 +467,7 @@
       "tools": {}
     },
     "Quant": {
+      "build": {},
       "config": {},
       "include": {},
       "src": {},
@@ -462,6 +476,7 @@
     },
     "research": {
       "dashboard": {},
+      "RESET_2026-09-19_R2": {},
       "runs": {},
       "studies": {}
     },
@@ -628,6 +643,12 @@
       "start": 94
     },
     {
+      "file": "scripts/check_runtime_health.py",
+      "symbol": "collect",
+      "lines": 139,
+      "start": 74
+    },
+    {
       "file": "Quant/src/api/KisAuth.cpp",
       "symbol": "KisClient::issue_token",
       "lines": 135,
@@ -650,12 +671,6 @@
       "symbol": "main",
       "lines": 129,
       "start": 267
-    },
-    {
-      "file": "scripts/check_runtime_health.py",
-      "symbol": "collect",
-      "lines": 128,
-      "start": 70
     },
     {
       "file": "Quant/src/core/Engine.cpp",
@@ -781,7 +796,7 @@
       "file": "Quant/src/universe/UniverseScanner.cpp",
       "symbol": "scan_itb",
       "lines": 97,
-      "start": 1378
+      "start": 1385
     },
     {
       "file": "Quant/src/core/Engine.cpp",

@@ -20,10 +20,10 @@
 옛 규칙(`research/GUARDRAILS.md` ②-b "6조건 미증명 시 금지")은 **폐기**한다. 새 규칙:
 
 1. **구할 수 있는 데이터는 전부 가져온다.** 무료·유료·스크래핑·API·수동 다운로드 모두. 출처와 수집 시각을 남긴다.
-2. **PIT 품질을 등급으로 붙인다.** 금지 대신 표시한다.
-   - `PIT-A`: 시점정합 완전(발효일 있는 이력, 상장폐지 종목 포함)
-   - `PIT-B`: 시점정합 부분(발표일 근사·재작성 가능성 있음·생존편향 일부)
-   - `PIT-C`: 현재 스냅샷의 과거 투영(생존편향 있음) 또는 forward 적재 시작 뒤만 유효
+2. **시점 고정(point-in-time) 품질을 등급으로 붙인다.** 금지 대신 표시한다.
+   - `시점 고정 A`: 시점정합 완전(발효일 있는 이력, 상장폐지 종목 포함)
+   - `시점 고정 B`: 시점정합 부분(발표일 근사·재작성 가능성 있음·생존편향 일부)
+   - `시점 고정 C`: 현재 스냅샷의 과거 투영(생존편향 있음) 또는 forward 적재 시작 뒤만 유효
 3. **등급이 낮은 데이터도 쓴다.** 단, 결과에 등급을 같이 적고, 등급이 낮을수록 결론의 강도를 낮춘다("방향 관찰" → "조건부" → "채택").
 4. **forward 적재는 오늘 시작한다.** 백테스트가 안 되는 데이터(수급·호가·뉴스)는 "안 된다"가 아니라 "오늘부터 쌓으면 N개월 뒤 된다"이고, 그 적재를 오늘 배선한다.
 
@@ -36,6 +36,25 @@
 
 ## 4. 회의 산출물
 
-각 에이전트는 자기 영역의 결론을 **① 지금 상태 진단 ② 바꿀 것(우선순위 3개 이내) ③ 첫 실행 단계(파일·명령·데이터 소스) ④ 판정 기준(숫자)** 네 항목으로 낸다. 서술만 하고 끝내지 않는다.
+각 에이전트는 자기 영역의 결론을 **① 지금 상태 진단 ② 바꿀 것(우선순위 3개 이내) ③ 첫 실행 단계(파일·명령·데이터 소스) ④ 판정 기준(숫자) ⑤ 이번 턴에 만든 파일(저장소 루트 기준 경로 · 행 수 또는 크기 · 재실행 명령 한 줄)** 다섯 항목으로 낸다.
+⑤가 비어 있으면 그 결론은 회의 결론이 아니라 메모다 — 문서에 "미완료"로 표시하고 다음 세션 첫 작업으로 잇는다.
+산출물 우선순위: 코드(`.py`) > 데이터(`.parquet`) > 숫자(`metrics.json`) > 문서(`.md`). 문서는 앞 셋의 요약이지 대체가 아니다.
+쓰기 범위: `PYQuant/` · `research/` · `scripts/` · `strategies/`는 에이전트가 직접 쓴다. `Quant/src`·`Quant/config`·`docs/DECISIONS.md`·`CLAUDE.md`·git 커밋은 메인 세션이 승인 뒤 한다(D-103).
+
+## 5. 데이터 소스 표 (키 값은 어디에도 찍지 않는다 — `_private/keys.json`, 로더는 `PYQuant/data/keys.py::load_key("<이름>")`)
+
+| 소스 | 키 이름 | 어댑터 | 저장(parquet, append-only) | 등급 |
+|---|---|---|---|---|
+| DART OpenAPI | `dart` | `PYQuant/tools/dart_fin_history_fill.py`(fnlttMultiAcnt 주요계정 2015~) — 매출총이익·영업현금흐름은 `fnlttSinglAcntAll` 추가 필요 | `PYQuant/data/fin/` | B (corpCode가 현재 목록) |
+| FRED / ALFRED 판본 | `fred` | `PYQuant/tools/macro_ingest.py --source fred` (14시리즈 2005~) | `PYQuant/data/macro/` | A |
+| 한국은행 ECOS | `ecos` | `PYQuant/tools/macro_ingest.py --source ecos` (11시리즈 2005~) | 같음 | B |
+| 관세청 수출입(10일·20일·월) | data.go.kr `datagokr` — 서비스별 활용신청 필요(15157908·15157901) | `PYQuant/tools/macro_ingest.py --source tradedata` | 같음 | B |
+| data.go.kr 금융위 | `datagokr` | `PYQuant/data/datagokr_source.py` | `PYQuant/.datagokr_cache/` | A |
+| KRX·KIND(상폐·공시) | 키 없음(POST) | `PYQuant/tools/pit_universe_backfill.py` | `PYQuant/data/pit_universe/` | A |
+| 네이버 시세·수급 | 키 없음 | `PYQuant/tools/naver_bars_backfill.py`·`naver_flow_backfill.py` | `bars_all_pit*.parquet`·`investor_flow_pit.parquet` | A |
+| 네이버 리서치·컨센서스 | 키 없음 | `PYQuant/tools/naver_research_fetch.py` | `PYQuant/data/research/`·`consensus/` | B·C |
+| investing·tradingeconomics 캘린더 | 키 없음(HTML) | 없음 — 만들 것 | `PYQuant/data/macro/calendar.json` | B |
+
+공통 규약: 열 `ticker, effective_date, published_at, value, grade, fetched_at`. 캐시는 소스별 `PYQuant/data/cache/<source>/`, 재실행하면 있는 묶음은 건너뛴다. 실패는 `_failed.txt`에 적고 계속 간다. 시점 고정 조인은 `PYQuant/data/point_in_time.py::as_of_join` 하나(만들 것). 어댑터 칸이 "없음"이면 그 칸을 채우는 것이 담당 에이전트의 첫 산출물이다.
 
 관련: [research/RESEARCH_COUNCIL.md](RESEARCH_COUNCIL.md)(회의 절차), [research/GUARDRAILS.md](GUARDRAILS.md)(편향 방지 — ②-b는 이 헌장으로 대체), [docs/DECISIONS.md](../docs/DECISIONS.md) D-101.

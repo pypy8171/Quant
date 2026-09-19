@@ -113,6 +113,7 @@ exe를 잠근 것. 재기동 직후 잔고 재시드·`OrderRouter (FEP) 초기�
 `_private/SESSION_CLAIMS.md`에 자기 줄을 적고 남의 줄은 안 건드린다. 남이 잡은 파일은 먼저 묻고, 공용 파일(`Engine.cpp/.h`·
 `CLAUDE.md`·`docs/DECISIONS.md`·`Quant/CMakeLists.txt`)은 줄 단위 최소 편집. 머지는 큐 순서대로 `rebase main` → ctest → `--ff-only`,
 통보는 `ListAgents`로 이름을 확인해 지목(브로드캐스트 금지). 교통정리(`/triage`)는 사용자가 시킬 때만.
+엔진 빌드와 무관한 파이썬 적재·리서치 코드(`PYQuant/tools/*`·`research/studies/*`)는 메인 트리에서 바로 만든다(D-103).
 
 ## 토큰 이코노미 (매 작업 적용)
 

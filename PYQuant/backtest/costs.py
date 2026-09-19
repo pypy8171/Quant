@@ -121,3 +121,29 @@ def fill_result(side: str, price: float, quantity: int, specification: CostSpec)
 #  0.1957%로 확인) — 그 원장 행을 다시 계산할 때만 LEDGER_UNTIL_2026_09_21을 쓴다.
 LIVE = CostSpec(commission_percent=0.015, sell_tax_percent=0.20, slippage_ticks=0, impact_percent=0.0)
 LEDGER_UNTIL_2026_09_21 = CostSpec(commission_percent=0.015, sell_tax_percent=0.18, slippage_ticks=0, impact_percent=0.0)
+
+# 스터디용 세 벌(리셋 2라운드 `research/RESET_2026-09-19_R2/fundamental-quant.md` §2-4). 스터디는 이 셋만 쓰고 `LIVE`를 직접 쓰지 않는다 —
+#  LIVE는 슬리피지 0틱이라 원장 재계산에는 맞지만 앞으로의 체결을 낮게 잡는다. 판정은 MID, 세 벌 결과를 모두 적는다.
+#  왕복 비용(%) = 수수료 양쪽 + 매도세 + 충격 양쪽 + 호가 단위 슬리피지(가격에 따라 0.02~0.1%). 만원대 주식 기준 대략 LOW 0.23 / MID 0.35 / HIGH 0.55.
+RESEARCH_LOW = CostSpec(commission_percent=0.015, sell_tax_percent=0.20, slippage_ticks=0, impact_percent=0.0)
+RESEARCH_MID = CostSpec(commission_percent=0.015, sell_tax_percent=0.20, slippage_ticks=1, impact_percent=0.05)
+RESEARCH_HIGH = CostSpec(commission_percent=0.015, sell_tax_percent=0.20, slippage_ticks=2, impact_percent=0.12)
+RESEARCH_BY_LEVEL = {"low": RESEARCH_LOW, "mid": RESEARCH_MID, "high": RESEARCH_HIGH}
+
+
+def side_cost_percent_at_price(specification: CostSpec, side: str, price: float) -> float:
+    """한쪽(매수 또는 매도) 체결금액 대비 비용률(%) — 호가 단위 슬리피지를 그 가격의 틱으로 환산해 더한다.
+
+    월별 리밸 스터디가 매수·매도 금액에 각각 곱한다. 매도에만 거래세가 붙는다.
+    """
+    if side not in ("BUY", "SELL"):
+        raise ValueError(f"side는 BUY|SELL: {side!r}")
+
+    tick_percent = tick_size(price) * specification.slippage_ticks / price * 100.0 if price > 0 else 0.0
+    base = specification.buy_cost_rate if side == "BUY" else specification.sell_cost_rate
+    return base * 100.0 + tick_percent
+
+
+def roundtrip_percent_at_price(specification: CostSpec, price: float) -> float:
+    """가격을 알 때의 왕복 비용률(%) = 매수쪽 + 매도쪽."""
+    return side_cost_percent_at_price(specification, "BUY", price) + side_cost_percent_at_price(specification, "SELL", price)

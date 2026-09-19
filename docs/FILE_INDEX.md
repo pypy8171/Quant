@@ -8,11 +8,11 @@
 
 - [(루트)](#루트) — 9개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 87개
+- [PYQuant](#pyquant) — 100개
 - [Quant](#quant) — 172개
 - [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 185개
+- [research](#research) — 201개
 - [scripts](#scripts) — 69개
 - [strategies](#strategies) — 31개
 - [tools](#tools) — 3개
@@ -60,6 +60,7 @@
 - [metrics.py](../PYQuant/backtest/metrics.py) — 손절·트레일 경로 시뮬레이션과 R배수 지표
 - [regime_scorer.py](../PYQuant/backtest/regime_scorer.py) — 국면 스코어러 C++ 미러와 연속화 실험
 - [report.py](../PYQuant/backtest/report.py) — 백테스트 결과 콘솔 출력
+- [stats.py](../PYQuant/backtest/stats.py) — 판정 통계 한 벌(scipy 없음): 1표본·뉴이-웨스트 t, 블록·일 블록 부트스트랩, Benjamini-Hochberg q, Deflated Sharpe, 순위 IC·분위 스프레드, walk-forward 창, ±1 격자, 필요 표본 수, 성과 요약(metrics.json v2 열 이름). 스터디 13 stats_util 정본
 
 ### PYQuant/config/
 
@@ -83,7 +84,9 @@
 - [asof.py](../PYQuant/data/asof.py) — 백테스트 기준일 계산 헬퍼
 - [datagokr_source.py](../PYQuant/data/datagokr_source.py) — 공공데이터포털 기반 시세·유니버스 소스
 - [index_source.py](../PYQuant/data/index_source.py) — yfinance 기반 지수 일봉 소스
+- [keys.py](../PYQuant/data/keys.py) — 외부 API 키 로더 `load_key("dart"|"fred"|"ecos"|"datagokr")`, `_private/keys.json` 한 곳에서만 읽고 값은 어디에도 찍지 않는다(D-103)
 - [krx_source.py](../PYQuant/data/krx_source.py) — pykrx 기반 시세·수급·유니버스 소스
+- [point_in_time.py](../PYQuant/data/point_in_time.py) — 시점 고정 조인 `as_of_join`: 기준일에 이미 발효된 최신 행만 붙인다(merge_asof 래퍼, 정정 공시는 늦은 published_at 우선, max_age로 옛 값 차단)
 - [trend7_codes.json](../PYQuant/data/trend7_codes.json) — 종목명-코드-시장 매핑 목록
 - [universe_kospi.py](../PYQuant/data/universe_kospi.py) — 정적 코스피 대형·중형주 유니버스 목록
 - [yfinance_source.py](../PYQuant/data/yfinance_source.py) — yfinance 기반 과거 구간 일봉 소스
@@ -93,6 +96,12 @@
 - [__init__.py](../PYQuant/db/__init__.py) — 빈 패키지 초기화 파일
 - [client.py](../PYQuant/db/client.py) — TimescaleDB 저장 클라이언트
 - [schema.sql](../PYQuant/db/schema.sql) — TimescaleDB 테이블 스키마 정의
+
+### PYQuant/features/
+
+- [__init__.py](../PYQuant/features/__init__.py) — 시점 고정 피처 패키지 표시(백테스트·라이브 공용)
+- [fundamental.py](../PYQuant/features/fundamental.py) — 재무 팩터 `compute(as_of)`: 유니버스 필터(보통주·유동성·시총·금융 제외) 뒤 PBR·ROE(TTM)·z 복합 점수. 스터디 19(저PBR×고ROE)와 장전 잡이 같은 함수를 쓴다
+- [regime_axes.py](../PYQuant/features/regime_axes.py) — 성장·물가·유동성·위험선호 네 축 국면 점수와 노출 배수 `score(as_of)` — 백테스트와 라이브가 같은 함수, `published_at < 결정일` 행만 본다
 
 ### PYQuant/ipc/
 
@@ -142,7 +151,10 @@
 - [test_costs_golden.py](../PYQuant/tests/test_costs_golden.py) — costs·ledger 골든 테스트 10케이스. C++ OrderGate 수식·원장 CSV 실제 행과 0원 오차, 상수는 C++ 소스에서 다시 읽어 대조
 - [test_indicators.py](../PYQuant/tests/test_indicators.py) — 지표 함수 pytest 검증
 - [test_metrics.py](../PYQuant/tests/test_metrics.py) — 경로 시뮬레이션 손계산 검증
+- [test_point_in_time.py](../PYQuant/tests/test_point_in_time.py) — `as_of_join` 테스트 5건: 미래 행 차단·정정 우선·첫 공시 전 결측·max_age·왼쪽 순서 보존
+- [test_regime_axes.py](../PYQuant/tests/test_regime_axes.py) — regime_axes 시점 고정 테스트 — as_of 뒤 발표 행을 바꾸거나 지워도 점수가 같은지, 데드밴드·배수 반올림 검증
 - [test_regime_scorer.py](../PYQuant/tests/test_regime_scorer.py) — 국면 스코어러 패리티·성질 검증
+- [test_stats.py](../PYQuant/tests/test_stats.py) — backtest.stats 검산 14건: 뉴이-웨스트 lag=0 동치, 스터디 17 TRENDX CI·스터디 11 샤프·MDD·스터디 13 t·q 골든 재현, walk-forward 9창/5창, 무작위 점수 IC≈0
 - [test_strategy_a.py](../PYQuant/tests/test_strategy_a.py) — Strategy A 필터 로직 pytest 검증
 
 ### PYQuant/tools/
@@ -157,17 +169,21 @@
 - [check_pykrx_flow.py](../PYQuant/tools/check_pykrx_flow.py) — pykrx 수급 데이터 검증 스크립트
 - [check_sector_index.py](../PYQuant/tools/check_sector_index.py) — 업종 지수 TR 라이브 점검
 - [compare_ws_bars.py](../PYQuant/tools/compare_ws_bars.py) — WS 1분봉과 REST 분봉 비교표 생성
+- [dart_fin_history_fill.py](../PYQuant/tools/dart_fin_history_fill.py) — DART 주요계정(fnlttMultiAcnt) 2015~ 전 상장사를 100종목 묶음으로 받아 원본·정리본 parquet(PYQuant/data/fin/)에 append-only 적재, 발효일은 rcept_no 앞 8자리
+- [dart_shares_history_fill.py](../PYQuant/tools/dart_shares_history_fill.py) — 상장주식수 시점 고정 표 적재: 2015~2019 DART stockTotqySttus 사업보고서(B) + 2020~ data.go.kr 월말 스냅샷(A) → `PYQuant/data/fin/shares_point_in_time.parquet`
 - [fetch_naver_themes.py](../PYQuant/tools/fetch_naver_themes.py) — 네이버 테마 스냅샷 수집 도구
 - [full_universe_dump.py](../PYQuant/tools/full_universe_dump.py) — KRX 상장 전종목 코드 덤프 도구
 - [fullperiod_validate.py](../PYQuant/tools/fullperiod_validate.py) — 시작월 스윕 결론 전기간 재검증
 - [index_intraday_logger.py](../PYQuant/tools/index_intraday_logger.py) — 장중 지수 스냅샷 forward 적재 로거
 - [investor_flow_logger.py](../PYQuant/tools/investor_flow_logger.py) — 수급 장마감 확정치 forward 적재 로거
 - [log_report.py](../PYQuant/tools/log_report.py) — quant_trader 로그 운용 리포트 생성기
+- [macro_ingest.py](../PYQuant/tools/macro_ingest.py) — FRED(ALFRED 판본, A)·ECOS(B)·관세청 10일 잠정치(B) 거시 시계열을 시점 고정 스키마로 PYQuant/data/macro/<source>_<series>.parquet에 append-only 적재
 - [macro_regime_feed.py](../PYQuant/tools/macro_regime_feed.py) — 매크로 지표 기반 국면 게이트 발행기
 - [minute_backfill.py](../PYQuant/tools/minute_backfill.py) — 거래일별 1분봉 백필 도구
 - [month_start_sweep.py](../PYQuant/tools/month_start_sweep.py) — 매매 시작월 민감도 스윕 도구
 - [naver_bars_backfill.py](../PYQuant/tools/naver_bars_backfill.py) — 네이버 siseJson 일봉 1990~ 전량 백필 → bars_all_pit_v2.parquet(v1 스키마 + 외인보유율), 끝에 005930 종가 v1 일치 검사
 - [naver_flow_backfill.py](../PYQuant/tools/naver_flow_backfill.py) — 네이버 모바일 trend API 수급 이력(외인·기관·개인 순매수 주식수·외인보유율) 백필 → investor_flow_pit.parquet, 종목별 캐시로 재실행 안전
+- [naver_research_fetch.py](../PYQuant/tools/naver_research_fetch.py) — 네이버 증권 리서치 목록·PDF 본문·컨센서스를 받아 PYQuant/data/research/·consensus/에 저장(장중 대시보드 리서치 패널 입력, 등급 B·C)
 - [nxt_divergence_check.py](../PYQuant/tools/nxt_divergence_check.py) — KRX·NXT 시세 괴리 측정 도구
 - [pit_universe_backfill.py](../PYQuant/tools/pit_universe_backfill.py) — 거래일별 PIT 유니버스 재구성 도구
 - [regime_removal_test_2022.py](../PYQuant/tools/regime_removal_test_2022.py) — 2022 폭락장 국면필터 제거실험
@@ -516,6 +532,17 @@
 - [RESET_2026-09-19.md](../research/RESET_2026-09-19.md) — 2026-09-19 리셋 회의 결론(D-101): 진단·월요일 config·백테스트 재건·데이터 마트·판정 기준·오너 결정 목록
 - [RESET_2026-09-19_BRIEF.md](../research/RESET_2026-09-19_BRIEF.md) — 2026-09-19 리셋 회의 브리핑(오너 지시·백테스트·장중·데이터 현황·외부 진단)
 
+### research/RESET_2026-09-19_R2/
+
+- [README.md](../research/RESET_2026-09-19_R2/README.md) — 리셋 2라운드 종합 색인: 결과 한눈에·데이터 적재 현황·스터디 19/20 판정·공용 코드·D-103·보고 7장·오너 결정 6건·남은 일·명령 모음
+- [bias-auditor.md](../research/RESET_2026-09-19_R2/bias-auditor.md) — 리셋 2라운드: 스터디 11·13·15·17 기각 근거(2022 재사용·비용 상수 네 갈래·상폐 커버 B등급·리플레이 체결 낙관)와 새 sim.py·run_spec.py 설계
+- [fundamental-quant.md](../research/RESET_2026-09-19_R2/fundamental-quant.md) — 리셋 2라운드: 재무 팩터 후보 3개(저PBR×고ROE·PEAD·GP/A×발생액) 사전등록 스펙과 fin_point_in_time 스키마·features/fundamental.py 계약
+- [harness-engineer.md](../research/RESET_2026-09-19_R2/harness-engineer.md) — 리셋 2라운드: 회의가 코드를 못 낸 구조 원인 3개(쓰기 권한·산출물 형식·절차)와 에이전트별 tools·문단 개정안(D-103)
+- [macro-quant.md](../research/RESET_2026-09-19_R2/macro-quant.md) — 리셋 2라운드: 거시 네 축 27시리즈 국면 오버레이 사전등록 스펙(z·데드밴드·배수), 발표 이벤트 정지, 스터디 20 파일 계획
+- [quant-analyst.md](../research/RESET_2026-09-19_R2/quant-analyst.md) — 리셋 2라운드: 스터디 17개 재판정(살아남은 엣지 0)·라이브 9거래일 왕복 t값·채택 표준 5층(뉴이-웨스트·walk-forward·격자·FDR·부트스트랩)·metrics v2 열
+- [risk-behavior.md](../research/RESET_2026-09-19_R2/risk-behavior.md) — 리셋 2라운드: 계좌 손실 5단(D1~M1)·결합 사이징식·심리 편향을 엔진 규칙으로 옮긴 표, A등급 후보(ODNO 미매핑 체결 재기록)
+- [strategist.md](../research/RESET_2026-09-19_R2/strategist.md) — 리셋 2라운드: 전략 슬리브 6개(S1 저변동성·S2 수급·S3 PEAD·S4 거시·S5 DEVSCALE 소액·S6 공시 배제)와 TARGET_BASKET 로더·자본 배분 오너 결정 3건
+
 ### research/dashboard/
 
 - [dashboard.html](../research/dashboard/dashboard.html) — 퀀트 매매 대시보드 페이지
@@ -705,7 +732,7 @@
 - [results_smaprev.tsv](../research/studies/13_trendx_gate/results_smaprev.tsv) — 전일 확정 SMA 감도 결과 데이터
 - [run_score_ic.py](../research/studies/13_trendx_gate/run_score_ic.py) — 스캐너 점수 순위상관 검정 스크립트
 - [run_trendx_gate.py](../research/studies/13_trendx_gate/run_trendx_gate.py) — TRENDX 게이트 일봉 근사 백테스트 스크립트
-- [stats_util.py](../research/studies/13_trendx_gate/stats_util.py) — scipy 없는 환경용 통계 보조 함수 모음
+- [stats_util.py](../research/studies/13_trendx_gate/stats_util.py) — `PYQuant/backtest/stats.py`로 넘기는 얇은 층(옛 튜플 인터페이스 유지). 스터디 13·14·16이 쓴다
 
 ### research/studies/14_hold_axis/
 
@@ -766,6 +793,21 @@
 - [exit_ev_dashboard.html](../research/studies/17_exit_ev/exit_ev_dashboard.html) — 청산 사유별 승률·기대값·CI와 근거(날짜·종목·레그)·매매 규칙(실행 config 수치)·백테스트 스터디 세 탭 화면(생성물, exit_ev_dashboard.py, 매매일 마감 뒤 자동)
 - [exit_ev_segment_a.tsv](../research/studies/17_exit_ev/exit_ev_segment_a.tsv) — 구간 A(09-08~10) 셀별 통계·CI(생성물)
 - [exit_ev_segment_b.tsv](../research/studies/17_exit_ev/exit_ev_segment_b.tsv) — 구간 B(09-11~18) 셀별 통계·CI(생성물)
+
+### research/studies/19_fundamental_factors/
+
+- [PREREG.md](../research/studies/19_fundamental_factors/PREREG.md) — 스터디 19 사전등록: 신호·유니버스·비용 세 벌·walk-forward 5창·합격 숫자·격자 18칸(결과 전 확정)
+- [README.md](../research/studies/19_fundamental_factors/README.md) — 스터디 19 결과 표(세 층 판정·비용 감도·walk-forward·격자)와 판정 한 줄. run_pbr_roe.py가 생성
+- [metrics.json](../research/studies/19_fundamental_factors/metrics.json) — 스터디 19 판정 숫자(sample_n·holdout·sharpe·mdd·t_stat·walk_forward_windows_positive·trials_prior·cost_level·grade + 격자·IC·데이터 지문)
+- [run_pbr_roe.py](../research/studies/19_fundamental_factors/run_pbr_roe.py) — 스터디 19 하네스: 월 리밸 상위 N 동일가중(버퍼 2N)·틱 환산 비용·walk-forward·격자·5분위 IC → metrics.json·csv·README
+
+### research/studies/20_macro_overlay/
+
+- [PREREG.md](../research/studies/20_macro_overlay/PREREG.md) — 스터디 20 사전등록 — 가설·고정 설계·합격 7항목·격자 27셀·스펙과 다르게 한 곳
+- [README.md](../research/studies/20_macro_overlay/README.md) — 스터디 20 거시 국면 오버레이 결과 — 코스피 매수 후 보유 대비 낙폭·CAGR·판정표, `macro_apply=false`
+- [build_axes.py](../research/studies/20_macro_overlay/build_axes.py) — 스터디 20 네 축 국면 표 생성 — `regime_axes`를 전 기간 평일에 돌려 `out/axes_<cell>.parquet`로 저장
+- [metrics.json](../research/studies/20_macro_overlay/metrics.json) — 스터디 20 숫자 정본 — 셀별 CAGR·MDD·Calmar·판정 7항목·연도 창·격자 54런·입력 해시
+- [overlay_backtest.py](../research/studies/20_macro_overlay/overlay_backtest.py) — 스터디 20 오버레이 백테스트 — 축 표에서 노출을 만들어 코스피 시가 수익에 곱하고 사전등록 7항목을 판정, `metrics.json` 기록
 
 ## scripts
 
