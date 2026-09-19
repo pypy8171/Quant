@@ -81,7 +81,11 @@ Write-Host "[wt_add] 정션: $link -> $(Join-Path $repo '.claude')"
 $locals = @(
     '_private\gate_words.txt',
     'research\STRATEGY_LAB.md',
-    'Quant\config\config_dev_paper.json'
+    'Quant\config\config_dev_paper.json',
+    # 아래 셋은 docs/RUNBOOK.md 코드 블록이 가리켜서, 없으면 워크트리의 check_docs.py 가 막힌다
+    'Quant\config\config_mm_paper.json',
+    'Quant\config\regime.json',
+    'Quant\config\universe_scan.json'
 )
 
 foreach ($relative in $locals)
