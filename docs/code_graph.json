@@ -1160,18 +1160,22 @@
       "scripts/eod_autodoc.py",
       "scripts/eod_collect.py",
       "scripts/eod_minute_backfill.py",
+      "scripts/exit_ev.py",
+      "scripts/exit_ev_dashboard.py",
       "scripts/extract_swap_counterfactual.py",
       "scripts/file_index.py",
       "scripts/gen_automation_hub.py",
       "scripts/gen_code_flow.py",
       "scripts/gen_code_graph.py",
       "scripts/gen_facts.py",
+      "scripts/gen_runbook.py",
       "scripts/gen_tuning_sheet.py",
       "scripts/live_prices_feed.py",
       "scripts/log_patterns.py",
       "scripts/maintain.py",
       "scripts/notify_sidecar.py",
       "scripts/parse_quant_log.py",
+      "scripts/premarket_routine.py",
       "scripts/refresh_dashboard.py",
       "scripts/rename_frags.py",
       "scripts/rename_ids.py",
@@ -1411,6 +1415,14 @@
         "_logdir",
         "log_patterns"
       ],
+      "scripts/exit_ev_dashboard.py": [
+        "_logdir",
+        "exit_ev",
+        "gen_tuning_sheet"
+      ],
+      "scripts/extract_swap_counterfactual.py": [
+        "_logdir"
+      ],
       "scripts/gen_automation_hub.py": [
         "gen_facts"
       ],
@@ -1448,6 +1460,8 @@
         "scripts/dashboard_server.py",
         "scripts/eod_autodoc.py",
         "scripts/eod_collect.py",
+        "scripts/exit_ev_dashboard.py",
+        "scripts/extract_swap_counterfactual.py",
         "scripts/maintain.py",
         "scripts/notify_sidecar.py",
         "scripts/parse_quant_log.py",
@@ -1514,8 +1528,14 @@
       "eod_collect": [
         "scripts/build_review_entry.py"
       ],
+      "exit_ev": [
+        "scripts/exit_ev_dashboard.py"
+      ],
       "gen_facts": [
         "scripts/gen_automation_hub.py"
+      ],
+      "gen_tuning_sheet": [
+        "scripts/exit_ev_dashboard.py"
       ],
       "ipc.operator": [
         "PYQuant/main.py"
@@ -1847,12 +1867,15 @@
     "trades_*.csv": {
       "writers": [
         "Quant/src/ipc/OrderRouter.cpp",
-        "scripts/backfill_fills_db.py"
+        "scripts/backfill_fills_db.py",
+        "scripts/exit_ev_dashboard.py"
       ],
       "readers": [
         "PYQuant/dashboard/backfill_live.py",
         "Quant/src/ipc/OrderRouter.cpp",
         "scripts/backfill_fills_db.py",
+        "scripts/exit_ev.py",
+        "scripts/exit_ev_dashboard.py",
         "scripts/parse_quant_log.py",
         "scripts/trade_costs.py"
       ],
@@ -1861,6 +1884,8 @@
         "Quant/src/ipc/OrderRouter.cpp",
         "scripts/_logdir.py",
         "scripts/backfill_fills_db.py",
+        "scripts/exit_ev.py",
+        "scripts/exit_ev_dashboard.py",
         "scripts/notify_sidecar.py",
         "scripts/parse_quant_log.py",
         "scripts/trade_costs.py"
@@ -1875,6 +1900,7 @@
         "PYQuant/tools/universe_feed.py",
         "Quant/src/universe/UniverseScanner.cpp",
         "scripts/eod_minute_backfill.py",
+        "scripts/exit_ev_dashboard.py",
         "scripts/live_prices_feed.py",
         "scripts/notify_sidecar.py"
       ],
@@ -1889,6 +1915,7 @@
         "Quant/src/universe/UniverseScanner.cpp",
         "scripts/dashboard_server.py",
         "scripts/eod_minute_backfill.py",
+        "scripts/exit_ev_dashboard.py",
         "scripts/live_prices_feed.py",
         "scripts/notify_sidecar.py"
       ]
@@ -1910,6 +1937,7 @@
     "quant_trader.log": {
       "writers": [
         "PYQuant/tools/log_report.py",
+        "scripts/_logdir.py",
         "scripts/build_review_entry.py",
         "scripts/summarize_trading_day.py"
       ],
@@ -1919,8 +1947,6 @@
         "scripts/_logdir.py",
         "scripts/check_runtime_health.py",
         "scripts/dashboard_server.py",
-        "scripts/eod_autodoc.py",
-        "scripts/eod_collect.py",
         "scripts/extract_swap_counterfactual.py",
         "scripts/notify_sidecar.py",
         "scripts/parse_quant_log.py",
@@ -1935,8 +1961,7 @@
         "scripts/build_review_entry.py",
         "scripts/check_runtime_health.py",
         "scripts/dashboard_server.py",
-        "scripts/eod_autodoc.py",
-        "scripts/eod_collect.py",
+        "scripts/exit_ev_dashboard.py",
         "scripts/extract_swap_counterfactual.py",
         "scripts/maintain.py",
         "scripts/notify_sidecar.py",
