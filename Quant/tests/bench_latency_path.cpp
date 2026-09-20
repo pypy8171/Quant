@@ -294,10 +294,54 @@ void bench_last_price(const std::vector<std::string>& tickers)
         g_sink += table.intern(tickers[next_index(size)]);
     });
 
+    // 수신 스레드가 여럿일 때(D-071 목표) 같은 표를 동시에 읽는 비용 — 스레드 4개가 각자 kIters번 조회,
+    // 벽시계 / kIters = 스레드 하나가 본 ns/op. 읽기 락(shared_mutex)은 여기서 카운터 경합이 드러난다.
+    constexpr int kReaderThreads = 4;
+    std::atomic<int> ready{0};
+    std::atomic<bool> go{false};
+    std::vector<std::thread> readers;
+    readers.reserve(kReaderThreads);
+
+    for (int thread_index = 0; thread_index < kReaderThreads; ++thread_index)
+    {
+        readers.emplace_back([&, thread_index]
+        {
+            size_t  local_size = static_cast<size_t>(thread_index) + 1;
+            int64_t local_sink = 0; // 스레드마다 따로 — g_sink를 같이 쓰면 그 줄의 캐시라인 경합을 재게 된다
+            ready.fetch_add(1);
+
+            while (!go.load(std::memory_order_acquire))
+            {
+            }
+
+            for (size_t index = 0; index < kIters; ++index)
+            {
+                local_sink += table.intern(tickers[next_index(local_size)]);
+            }
+
+            g_sink += local_sink;
+        });
+    }
+
+    while (ready.load() < kReaderThreads)
+    {
+    }
+
+    const int64_t multi_start = now_ns();
+    go.store(true, std::memory_order_release);
+
+    for (auto& reader : readers)
+    {
+        reader.join();
+    }
+
+    const double intern_multi_ns = static_cast<double>(now_ns() - multi_start) / static_cast<double>(kIters);
+
     std::printf("  %-44s %9s  %9s  %7s\n", "항목", "옛 ns", "새 ns", "배");
     row("set_last_px(틱마다)", old_set, new_set);
     row("last_px(운영단말·발주 기준가)", old_get, new_get);
     print_row("(잔여) SymbolTable::intern(문자열) 틱마다", intern_ns);
+    print_row("SymbolTable::intern 수신 스레드 4개 동시(스레드당)", intern_multi_ns);
 }
 
 // ─── 3. 라우터 — 전 전략 방문 vs 종목 id 디스패치 (780597a) ───────────────────────

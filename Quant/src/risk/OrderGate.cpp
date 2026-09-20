@@ -1575,7 +1575,7 @@ OrderGate::PosKey OrderGate::lookup_key(const OrderSignal& signal) const
 
 std::string OrderGate::ticker_of(const PosKey& key) const
 {
-    return symbols_->name(key.symbol);
+    return symbols_->name(key.symbol).string();
 }
 
 const std::string& OrderGate::account_of(const PosKey& key) const

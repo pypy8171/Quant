@@ -2,6 +2,7 @@
 // 빌드: cmake --build <directory> --target test_symbol_table
 #include "core/SymbolTable.h"
 
+#include <atomic>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -96,6 +97,66 @@ int main()
             const std::string name = "T" + std::to_string((index * 7 + innermost_index * 13) % 200);
             CHECK(seen[innermost_index][index] == shared.lookup(name));
         }
+    }
+
+    // 6. 쓰기 1 + 읽기 3 동시 — 읽는 쪽은 락이 없으니, 넣는 중인 종목을 보면 kNone이거나 정확한 id·이름 왕복이어야 한다.
+    //    (버킷 발행 순서가 어긋나면 id는 보이는데 이름이 비어 있거나 다른 이름이 나온다)
+    {
+        constexpr int             kCount = 4000;
+        symbol::SymbolTable       racing(kCount + 1);
+        std::atomic<bool>         writer_done{false};
+        std::atomic<int>          mismatches{0};
+        std::vector<std::thread>  readers;
+
+        for (int reader_index = 0; reader_index < 3; ++reader_index)
+        {
+            readers.emplace_back(
+                [&]
+                {
+                    while (!writer_done.load(std::memory_order_acquire))
+                    {
+                        for (int index = 0; index < kCount; ++index)
+                        {
+                            const std::string name = "R" + std::to_string(index);
+                            const auto        id   = racing.lookup(name);
+
+                            if (id != symbol::kNone && !(racing.name(id) == name))
+                            {
+                                mismatches.fetch_add(1);
+                            }
+
+                            if (id != symbol::kNone && id > racing.size())
+                            {
+                                mismatches.fetch_add(1);
+                            }
+                        }
+                    }
+                });
+        }
+
+        for (int index = 0; index < kCount; ++index)
+        {
+            CHECK(racing.intern("R" + std::to_string(index)) == static_cast<symbol::SymbolId>(index + 1));
+        }
+
+        writer_done.store(true, std::memory_order_release);
+
+        for (auto& reader : readers)
+        {
+            reader.join();
+        }
+
+        CHECK(mismatches.load() == 0);
+        CHECK(racing.size() == kCount);
+    }
+
+    // 7. 15자 넘는 티커는 잘린 채 저장된다 — 같은 앞 15자는 같은 id.
+    {
+        symbol::SymbolTable truncating;
+        const auto          long_id = truncating.intern("ABCDEFGHIJKLMNOPQR");
+        CHECK(long_id != symbol::kNone);
+        CHECK(truncating.intern("ABCDEFGHIJKLMNO") == long_id);
+        CHECK(truncating.name(long_id) == "ABCDEFGHIJKLMNO");
     }
 
     std::cout << "test_symbol_table: " << g_checks << " checks passed\n";
