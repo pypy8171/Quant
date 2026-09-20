@@ -2748,21 +2748,21 @@ void Engine::start_ops_server()
                 return "가격은 0 이상";
             }
 
-            {
-                std::lock_guard<std::mutex> lock(ops_.manual_client_id_mutex);
+            // 재전송 차단: 있나 확인 → 큐에 넣기 → 들어갔을 때만 cid 기록. 세 줄이 한 락 안이라 서버 스레드가
+            //  늘어도 같은 cid가 두 번 큐에 들어가지 않는다. [inv] 지금은 OpsServer 스레드 하나만 부른다.
+            std::lock_guard<std::mutex> lock(ops_.manual_client_id_mutex);
 
-                if (!ops_.manual_cids.insert(ops_order_request.client_id).second)
-                {
-                    return "중복 cid — 이미 접수";
-                }
+            if (ops_.manual_cids.count(ops_order_request.client_id) != 0)
+            {
+                return "중복 cid — 이미 접수";
             }
 
             if (!ops_.manual_inbox.push(ops_order_request))
             {
-                std::lock_guard<std::mutex> lock(ops_.manual_client_id_mutex);
-                ops_.manual_cids.erase(ops_order_request.client_id);
                 return "수동주문 인테이크 가득 참";
             }
+
+            ops_.manual_cids.insert(ops_order_request.client_id);
 
             pipeline_.strategy_wake.notify();
             return std::string();
