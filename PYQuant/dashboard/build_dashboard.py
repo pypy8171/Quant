@@ -1224,7 +1224,7 @@ VARIANTS = {
                "schemas": "quant.metrics/v1 · quant.live/v1 · quant.review/v1",
                "tabs": ("studies", "live", "reviews", "premarket")},
     # 공개본의 라이브 탭은 일지 원문을 싣지 않는다(계좌·세션 이름이 든 서술) — 날짜별 요약 표와 일지 제목만.
-    "public": {"out": OUT_PUBLIC, "title": "퀀트 백테스트 스터디", "brand": "백테스트 스터디",
+    "public": {"out": OUT_PUBLIC, "title": "퀀트 백테스트·모의매매 결과", "brand": "백테스트·모의매매 결과",
                "schemas": "quant.metrics/v1 · quant.live/v1", "tabs": ("studies", "live"), "public": True},
     "rounds": {"out": OUT_ROUNDS, "title": "퀀트 리서치 라운드",   "brand": "리서치 라운드",
                "schemas": "research/RESET_*", "tabs": ("rounds",)},
