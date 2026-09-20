@@ -316,7 +316,7 @@ public:
                 //  보유에는 트레일도 하드손절도 15:15 마감청산도 안 붙는다 — 판 걸 또 파는 것보다
                 //  산 걸 방치하는 쪽이 비싸다. exit_pending_tick은 SELL을 낸 뒤라 0이 "체결 완료"
                 //  지만, 여기는 내기 전이라 0이 "아직 안 보임"과 갈리지 않는다.
-                const int ledger_quantity = confirmed_position("", ticker_);
+                const int ledger_quantity = confirmed_position("", symbol_id_, ticker_);
 
                 if (hold_quantity_ > 0 && ledger_quantity >= hold_quantity_)
                 {
@@ -433,7 +433,7 @@ private:
     //  체결 뒤 남은 재발주는 게이트가 안 잡고 브로커가 거부하므로 횟수 상한으로 스팸을 끊는다.
     std::optional<OrderSignal> exit_pending_tick(double price, std::chrono::system_clock::time_point timestamp)
     {
-        const int position = confirmed_position("", ticker_); // make_signal의 account_id=""와 같은 키
+        const int position = confirmed_position("", symbol_id_, ticker_); // make_signal의 account_id=""와 같은 키
         const auto now = std::chrono::steady_clock::now();
 
         if (position <= 0)

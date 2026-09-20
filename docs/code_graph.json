@@ -109,7 +109,7 @@
     {
       "from": "risk",
       "to": "core",
-      "weight": 2
+      "weight": 3
     },
     {
       "from": "strategy",
@@ -525,6 +525,7 @@
       "risk/OrderGate.h"
     ],
     "risk/OrderGate.h": [
+      "core/SymbolTable.h",
       "core/Types.h"
     ],
     "strategy/DeviationScaleStrategy.h": [
@@ -804,7 +805,8 @@
       "core/ShardMatrix.h",
       "core/StrategyRouter.h",
       "core/StrategyShard.h",
-      "core/Types.h"
+      "core/Types.h",
+      "risk/OrderGate.h"
     ],
     "core/TickCapture.h": [
       "core/Engine.h",
@@ -1023,12 +1025,12 @@
       "in_degree": 8
     },
     {
-      "header": "core/WakeGate.h",
+      "header": "core/SymbolTable.h",
       "in_degree": 7
     },
     {
-      "header": "core/SymbolTable.h",
-      "in_degree": 6
+      "header": "core/WakeGate.h",
+      "in_degree": 7
     },
     {
       "header": "risk/OrderGate.h",
@@ -1160,6 +1162,7 @@
       "PYQuant/tools/fullperiod_validate.py",
       "PYQuant/tools/index_intraday_logger.py",
       "PYQuant/tools/investor_flow_logger.py",
+      "PYQuant/tools/kind_delisted_fill.py",
       "PYQuant/tools/log_report.py",
       "PYQuant/tools/macro_ingest.py",
       "PYQuant/tools/macro_regime_feed.py",
@@ -2061,6 +2064,7 @@
         "PYQuant/tools/log_report.py",
         "scripts/_logdir.py",
         "scripts/build_review_entry.py",
+        "scripts/dashboard_server.py",
         "scripts/summarize_trading_day.py"
       ],
       "readers": [

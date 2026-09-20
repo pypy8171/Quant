@@ -214,6 +214,15 @@ if(UNIX)
     target_link_libraries(test_order_gate PRIVATE pthread)
 endif()
 
+# ─── 벤치: OrderGate 원장 조회 — 문자열 키 대 정수 키 (D-105 결정 3) ──────────
+add_executable(bench_order_gate_position tests/bench_order_gate_position.cpp src/risk/OrderGate.cpp)
+target_include_directories(bench_order_gate_position PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(bench_order_gate_position PRIVATE pthread)
+endif()
+add_test(NAME bench_order_gate_position COMMAND bench_order_gate_position)
+set_tests_properties(bench_order_gate_position PROPERTIES TIMEOUT 60)
+
 # ─── 테스트 타겟: OrderRouter 통합 테스트 (StubOrderExecutor, KIS 불필요) ──
 add_executable(test_order_router
     tests/test_order_router.cpp

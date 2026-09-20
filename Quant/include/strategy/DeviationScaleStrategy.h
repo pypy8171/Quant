@@ -338,7 +338,7 @@ public:
             //  (09-14 15:15 청산 신호 41건 중 접수 3건, 6종목 1,120만원 이월). 전략 쪽 매도가능 클램프(잔고 조회
             //  1회, 09-11 마감엔 종목당 13초)도 건너뛴다 — 예약 익절이 묶은 수량은 라우터가 그 자리에서 취소하고
             //  전량을 낸다(청산차단 자가정리). 뒤따르는 취소는 라우터가 "취소 불요"로 닫는다. [why D-082]
-            int position = confirmed_position(parameters_.account, parameters_.ticker);
+            int position = confirmed_position(parameters_.account, symbol_id_, parameters_.ticker);
             const std::string tag = "장 마감(" + std::to_string(hhmm) + ")";
             emit_liquidation(out, position, std::chrono::steady_clock::now(), tag, /*max_backoff_ms=*/300000,
                              /*clamp_sellable=*/false); // 백오프(자체 로깅)
@@ -520,7 +520,7 @@ public:
 
         if (!hold_zone)
         {
-            int position = confirmed_position(parameters_.account, parameters_.ticker);
+            int position = confirmed_position(parameters_.account, symbol_id_, parameters_.ticker);
 
             if (position > 0)
             {
@@ -543,7 +543,7 @@ public:
         //  보유가 있으면 60초에 한 번 직접 채운다(REST 1회).
         if (parameters_.stop_loss_percent > 0.0)
         {
-            const int position = confirmed_position(parameters_.account, parameters_.ticker);
+            const int position = confirmed_position(parameters_.account, symbol_id_, parameters_.ticker);
 
             // [inv] 평단 캐시는 보유 수량이 바뀐 뒤 쓰지 않는다. 전량 청산 뒤 재진입하면 원장 평단은 새 체결가로
             //  바뀌는데 캐시는 옛 평단이라, 새 체결 직후 스탑이 바로 걸려 15초 왕복 매매가 났다(09-14 067290:
@@ -629,7 +629,7 @@ public:
         if (parameters_.trail_simple_moving_average_exit && !warming &&
             current_price < simple_moving_average * (1.0 - parameters_.trail_simple_moving_average_tolerance_percent / 100.0))
         {
-            const int position = confirmed_position(parameters_.account, parameters_.ticker);
+            const int position = confirmed_position(parameters_.account, symbol_id_, parameters_.ticker);
 
             if (position > 0)
             {
@@ -654,7 +654,7 @@ public:
             }
         }
 
-        int position = confirmed_position(parameters_.account, parameters_.ticker);
+        int position = confirmed_position(parameters_.account, symbol_id_, parameters_.ticker);
 
         // 스탑 청산이 아직 진행 중이면(청산을 냈는데 보유가 줄지 않음) 재구성하지 않는다. 시장가 스탑이 체결되기 전에
         //  다음 하트비트가 익절 지정가 매도를 다시 깔면, 라우터가 매도가능 0을 풀려고 살아 있는 스탑 주문을 취소하려 든다

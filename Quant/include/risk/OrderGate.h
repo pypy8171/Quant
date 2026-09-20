@@ -1,11 +1,14 @@
 #pragma once
+#include "core/SymbolTable.h"
 #include "core/Types.h"
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -86,6 +89,20 @@ public:
     // 위험 한도 주입 — 반드시 order_thread 시작 전에만 호출(config_는 check()에서 락 없이 읽힘).
     void set_config(const Config& config) { config_ = config; }
     const Config& config() const { return config_; }
+
+    // 종목 id 테이블 주입 — Engine이 자기 SymbolTable을 넘겨 신호의 symbol_id와 원장 키가 같은 번호를 쓴다.
+    //  nullptr이면 자체 테이블(단독 테스트·벤치). [inv] 원장에 첫 키가 생기기 전에 부른다 — 뒤에 바꾸면
+    //  이미 든 키의 번호가 다른 테이블의 것이 된다.
+    void set_symbol_table(symbol::SymbolTable* table) noexcept
+    {
+        symbols_ = table ? table : &own_symbols_;
+    }
+
+    // 원장이 아는 종목 id(모르면 kNone). 전략이 기동 시 한 번 받아 두고 position(account, id)로 묻는다.
+    [[nodiscard]] symbol::SymbolId symbol_id_of(std::string_view ticker) const
+    {
+        return symbols_->lookup(ticker);
+    }
 
     // ── 주문 검증 (true = 통과, false = 거부) ──────────────────────────────
     bool check(const OrderSignal& signal, std::string& reject_reason);
@@ -364,6 +381,8 @@ public:
     // ── 조회 ─────────────────────────────────────────────────────────────────
     // 계좌 지정 버전(주 경로) + account="" 하위호환(단일 계좌).
     int    position(const std::string& account, const std::string& ticker) const;
+    // 정수 id 버전 — 전략이 틱마다 부르는 경로(ITB 청산 대기·DevScale 장 마감 블록). 문자열 해시가 없다. [why D-105]
+    int    position(const std::string& account, symbol::SymbolId symbol) const;
     int    reserved(const std::string& account, const std::string& ticker) const;
     double average_price(const std::string& account, const std::string& ticker) const;
     int    position(const std::string& ticker) const { return position(std::string(), ticker); }
@@ -384,31 +403,49 @@ private:
     // 원장 파티션 키 — 계좌별 독립. 두 필드를 따로 들어 "A"+"B:C"와 "A:B"+"C"가 섞이지 않고(W-1),
     //  키에서 (account,ticker)를 되찾는 파싱이 없다. 문자열 하나로 합치던 때는 역파싱이 정리·교체·
     //  스냅샷 세 곳에 복제돼 있었고 키 하나 만들 때마다 힙 할당이 났다. [why D-057]
+    //  두 필드 모두 정수 id — 종목은 SymbolTable(Engine이 set_symbol_table로 넘긴 것, 없으면 자체 테이블),
+    //  계좌는 account_names_ 인덱스. 문자열 두 개이던 때는 조회 한 번이 34~40 ns였고 대부분이 문자열
+    //  해시였다. 문자열은 로그·계획·스냅샷에서 ticker_of()·account_of()로 되찾는다. [why D-105]
+    static constexpr uint32_t kUnknownAccount = UINT32_MAX;
+
     struct PosKey
     {
-        std::string account;
-        std::string ticker;
+        uint32_t         account = kUnknownAccount;
+        symbol::SymbolId symbol  = symbol::kNone;
 
         bool operator==(const PosKey&) const = default;
     };
 
     struct PosKeyHash
     {
-        size_t operator()(const PosKey& key) const
+        size_t operator()(const PosKey& key) const noexcept
         {
-            // boost::hash_combine 모양. 두 필드를 xor만 하면 (a,b)와 (b,a)가 같은 버킷에 간다.
-            const size_t account_hash = std::hash<std::string>{}(key.account);
-            const size_t ticker_hash = std::hash<std::string>{}(key.ticker);
-            return account_hash ^ (ticker_hash + 0x9e3779b9u + (account_hash << 6) + (account_hash >> 2));
+            // 두 32비트를 64비트 하나로 붙여 곱셈으로 섞는다. xor만 하면 (a,b)와 (b,a)가 같은 버킷에 간다.
+            const uint64_t packed = (static_cast<uint64_t>(key.account) << 32) | key.symbol;
+            const uint64_t mixed  = packed * 0x9e3779b97f4a7c15ull;
+            return static_cast<size_t>(mixed ^ (mixed >> 29));
         }
     };
 
     template <class V>
     using PosMap = std::unordered_map<PosKey, V, PosKeyHash>;
 
-    static PosKey make_key(const std::string& account, const std::string& ticker)
+    // 쓰기 경로(체결·시드·선점) — 처음 보는 계좌·종목을 등록한다. 종목 테이블이 가득 차면 던진다.
+    //  [inv] positions_mutex_를 잡고 부른다(account_names_가 그 락으로 보호된다).
+    PosKey make_key(std::string_view account, std::string_view ticker);
+    // 읽기 경로(조회·정리·게이트) — 등록하지 않는다. 모르는 계좌·종목이면 원장에 없는 키가 나와 find가 빈다.
+    //  [inv] positions_mutex_를 잡고 부른다.
+    [[nodiscard]] PosKey lookup_key(std::string_view account, std::string_view ticker) const;
+    [[nodiscard]] PosKey lookup_key(std::string_view account, symbol::SymbolId symbol) const;
+    // 신호는 수신 스레드가 찍은 symbol_id를 이미 들고 있다 — Engine 테이블을 쓸 때만 그 id를 믿는다
+    //  (자체 테이블이면 다른 테이블의 id라 문자열로 찾는다).
+    [[nodiscard]] PosKey lookup_key(const OrderSignal& signal) const;
+    [[nodiscard]] std::string ticker_of(const PosKey& key) const;
+    [[nodiscard]] const std::string& account_of(const PosKey& key) const;
+
+    [[nodiscard]] const symbol::SymbolTable& symbols() const noexcept
     {
-        return PosKey{account, ticker};
+        return *symbols_;
     }
 
     // 선점 해제의 유일한 경로 — 취소 통보(on_cancel)와 체결 통보(on_fill_confirmed)가 함께 쓴다.
@@ -438,7 +475,12 @@ private:
     mutable std::unordered_map<std::string, std::string> displace_decline_; // 신규 종목 → 직전 교체 거절 사유(거부 문구용)
     int         displace_count_ = 0;     // 당일 교체 횟수(reset_daily에서 0으로)
 
+    // 종목 id 테이블 — Engine 것을 가리키거나(set_symbol_table) 자체 테이블. 테이블 자체가 락을 든다.
+    symbol::SymbolTable  own_symbols_;
+    symbol::SymbolTable* symbols_ = &own_symbols_;
+
     mutable std::mutex positions_mutex_;
+    std::vector<std::string> account_names_{std::string()}; // 계좌 id → 문자열. [0]은 ""(단일 계좌 하위호환). positions_mutex_ 보호
     PosMap<int>    reserved_;    // (account,ticker) → 미체결 선점 수량 (BUY +, SELL -). 재주문 차단용
     PosMap<double> reserved_price_; // (account,ticker) → 미체결 선점가(§3d 총노출 계산용). reserved_와 동일 생명주기로 정리
     PosMap<int>    positions_;   // (account,ticker) → 실체결 순보유 수량 (양수=롱)

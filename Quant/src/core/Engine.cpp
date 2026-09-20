@@ -21,6 +21,8 @@ using namespace std::chrono_literals;
 Engine::Engine(KisConfig kis_config, int fetch_interval_sec)
     : kis_config_(std::move(kis_config)), fetch_interval_sec_(fetch_interval_sec)
 {
+    // 원장 키의 종목 번호를 신호·틱과 같은 테이블에서 받는다. 첫 시드·체결 전에 묶어야 한다. [why D-105]
+    order_gate_.set_symbol_table(&symbols_.table);
 }
 
 Engine::~Engine()
@@ -57,6 +59,9 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     strategy->set_account_kis(feed_.kis.get()); // 잔고·매도가능수량은 계좌를 가진 주문 클라이언트로
     strategy->set_position_provider([this](const std::string& account, const std::string& ticker) {
         return order_gate_.position(account, ticker);
+    });
+    strategy->set_position_provider_by_id([this](const std::string& account, symbol::SymbolId symbol) {
+        return order_gate_.position(account, symbol);
     });
     strategy->set_entry_halt_provider([this] { return order_gate_.is_entry_halted(); });
     strategy->set_entry_scale_provider([this] { return order_gate_.entry_scale(); });
@@ -831,6 +836,9 @@ void Engine::start_strategies()
         // D2: 확정 포지션 접근자 주입 — 전략이 OrderGate 원장(WS/REST 공용)을 진실원천으로 읽음.
         strategy->set_position_provider([this](const std::string& account, const std::string& ticker) {
             return order_gate_.position(account, ticker);
+        });
+        strategy->set_position_provider_by_id([this](const std::string& account, symbol::SymbolId symbol) {
+            return order_gate_.position(account, symbol);
         });
         strategy->set_entry_halt_provider([this] { return order_gate_.is_entry_halted(); });
         strategy->set_entry_scale_provider([this] { return order_gate_.entry_scale(); });

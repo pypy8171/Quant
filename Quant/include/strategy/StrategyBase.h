@@ -121,6 +121,23 @@ public:
         return position_provider_ ? position_provider_(account, ticker) : 0;
     }
 
+    // 정수 id 버전 — 틱마다 묻는 전략(ITB 청산 대기·DevScale 장 마감 블록)이 쓴다. 문자열 해시가 없다.
+    //  id가 kNone(배선 전)이거나 id 제공자가 없으면 문자열 버전으로 돌아간다. [why D-105]
+    void set_position_provider_by_id(std::function<int(const std::string&, symbol::SymbolId)> provider)
+    {
+        position_provider_by_id_ = std::move(provider);
+    }
+
+    int confirmed_position(const std::string& account, symbol::SymbolId symbol, const std::string& ticker) const
+    {
+        if (symbol != symbol::kNone && position_provider_by_id_)
+        {
+            return position_provider_by_id_(account, symbol);
+        }
+
+        return confirmed_position(account, ticker);
+    }
+
     // 신규매수 차단(OrderGate::is_entry_halted) 접근자 주입 — Engine이 바인딩한다.
     //  게이트는 라우터 앞에서 매수를 거부하지만 전략은 그걸 모르고 같은 계획을 유지하므로,
     //  차단이 풀려도 분할 매수를 다시 깔지 않았다(09-10 결함 C). 전략이 계획 단계에서 읽게 한다.
@@ -207,6 +224,7 @@ protected:
     KisClient* kis_ = nullptr;         // non-owning; lifetime guaranteed by Engine
     KisClient* account_kis_ = nullptr; // non-owning; 계좌 조회용(미주입 시 kis_ 사용)
     std::function<int(const std::string&, const std::string&)> position_provider_; // 결제완료 확정 포지션(D2=결제일 T+2)
+    std::function<int(const std::string&, symbol::SymbolId)> position_provider_by_id_; // 같은 원장, 종목 정수 id로 [why D-105]
     std::function<bool()> entry_halt_provider_; // 신규매수 차단 여부(OrderGate). 미주입=false
     std::function<double()> entry_scale_provider_; // 매수 명목 비율(OrderGate). 미주입=1.0
     std::function<SellableInfo(const std::string&, const std::string&)> sellable_provider_; // 원장 매도가능·평단

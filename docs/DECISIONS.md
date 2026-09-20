@@ -4275,10 +4275,16 @@ metrics `BH`+`BUY_AND_HOLD`(`PYQuant/dashboard/build_dashboard.py`·`scripts/exi
    최단 표기 + `.0`. `Quant/tests/bench_zmq_publish.cpp`가 그 동일성을 ctest에서 검사하고 비용을 잰다: 수신 스레드 비용
    ~1,000 ns/틱 → ~26 ns/틱. 토픽은 `enum class Topic`이라 enqueue마다 문자열 비교 세 번이 없어졌다. TRADE 링은 8,192칸 —
    송신 루프가 한 바퀴에 REP 폴링 10 ms를 쉬므로 처리량 상한이 용량×100건/s이고, 예전 1,000칸은 10만 건/s에서 넘쳤다.
-3. ②(`OrderGate::position`)는 **이번에 안 했다**. 얻는 것은 문자열 두 개 해시(~20 ns) 대신 배열 인덱스인데 같은 자리의
-   `positions_mutex_`가 그만큼 들고, 도는 조건도 청산 대기·마감 뒤뿐이다. 반면 원장 키(`PosKey{account, ticker}`)를 id로 바꾸려면
-   위험 원장에 `SymbolTable`을 꽂고 키 접근 8곳을 고쳐야 한다 — 원칙 4의 단일 시퀀서를 성능 수치 없이 건드리지 않는다.
-   틱마다 도는 자리가 생기면 그때 잰다.
+3. ②는 원장 키를 정수로 바꿨다 — `PosKey{account, ticker}` 문자열 두 개 → `PosKey{계좌 id(uint32), 종목 id(SymbolId)}`.
+   종목 id는 Engine이 `set_symbol_table(&symbols_.table)`로 꽂아 준 같은 테이블에서 받으므로 신호의 `symbol_id`를 그대로 키로
+   쓴다(`lookup_key(signal)`; 자체 테이블일 때만 문자열로 찾는다). 계좌는 기동 중 몇 개뿐이라 `positions_mutex_` 아래 벡터
+   선형 비교로 번호를 매긴다. 쓰기 경로(`make_key` — 체결·시드·선점)만 등록하고, 읽기 경로(`lookup_key` — 조회·정리·게이트)는
+   등록하지 않는다. 문자열이 필요한 세 곳(정리 루프·교체 계획·스냅샷)은 `ticker_of()`·`account_of()`로 되찾는다.
+   전략은 `StrategyBase::confirmed_position(account, symbol_id, ticker)`로 묻고 Engine이 `position(account, SymbolId)`를 배선한다
+   (id가 없으면 문자열 버전으로 돌아간다). 실측(`Quant/tests/bench_order_gate_position.cpp`, 25종목 보유·무작위 1천만 회):
+   `position(account, ticker)` 34~40 ns/조회(예전 키) → 문자열 버전 28~29 ns(키 생성의 힙 할당이 없어짐), **id 버전 13 ns**.
+   남는 것은 `positions_mutex_`와 맵 한 번이다. 처음엔 "성능 수치 없이 단일 시퀀서를 건드리지 않는다"고 미뤘으나, 원칙 7은
+   동작 불변(ctest)과 전후 측정이 붙은 리팩터를 막지 않는다 — 오너 지적으로 같은 날 마쳤다.
 
 **버린 대안**: 숫자 파싱 희소 배열(위, 코드 공간이 둘로 갈라짐). TRADE를 예전 문자열 큐에 두고 dump만 송신 스레드로 미루기 —
 `std::string` payload를 큐에 넣는 순간 힙 할당과 뮤텍스가 수신 스레드에 남는다. RingBuffer(SPSC) — WS 레인이 둘 이상이면 같은

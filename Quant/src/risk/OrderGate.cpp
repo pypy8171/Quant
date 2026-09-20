@@ -4,6 +4,7 @@
 #include <ctime>
 #include <format>
 #include <iostream>
+#include <stdexcept>
 #include <unordered_set>
 
 using Clock = std::chrono::steady_clock;
@@ -71,7 +72,7 @@ int OrderGate::clamp_buy_quantity(const OrderSignal& signal)
     if (signal.side == OrderSide::SELL && signal.action == OrderAction::NEW && quantity > 0)
     {
         std::lock_guard<std::mutex> lock(positions_mutex_);
-        const PosKey key = make_key(signal.account_id, signal.ticker);
+        const PosKey key = lookup_key(signal);
         auto position_iterator = positions_.find(key);
 
         if (position_iterator == positions_.end() || position_iterator->second <= 0)
@@ -128,7 +129,7 @@ int OrderGate::clamp_buy_quantity(const OrderSignal& signal)
 
     {
         std::lock_guard<std::mutex> lock(positions_mutex_);
-        const PosKey key = make_key(signal.account_id, signal.ticker);
+        const PosKey key = lookup_key(signal);
         auto position_iterator = positions_.find(key);
         auto reserved_iterator = reserved_.find(key);
         const int current_quantity = (position_iterator != positions_.end() ? position_iterator->second : 0) +
@@ -325,7 +326,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
     if (signal.side == OrderSide::BUY)
     {
         std::lock_guard<std::mutex> lock(positions_mutex_);
-        const PosKey key = make_key(signal.account_id, signal.ticker);
+        const PosKey key = lookup_key(signal);
         int filled = positions_.count(key) ? positions_[key] : 0;
         int reserved   = reserved_.count(key)  ? reserved_[key]  : 0;
         int current_quantity = filled + reserved;
@@ -502,10 +503,10 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
                                 continue;
                             }
 
-                            // positions_/reserved_는 계좌 합성키를 쓴다(make_key). entry_rank_는
+                            // positions_/reserved_는 계좌 합성키를 쓴다(lookup_key). entry_rank_는
                             //  순수 티커라 그대로 조회하면 언제나 미보유로 잡혀 유효 랭크가
                             //  전체 랭크와 같아진다.
-                            const PosKey hk = make_key(signal.account_id, entry.first);
+                            const PosKey hk = lookup_key(signal.account_id, entry.first);
                             auto position_iterator = positions_.find(hk);
                             auto ir = reserved_.find(hk);
                             const bool taken = (position_iterator != positions_.end() && position_iterator->second > 0) ||
@@ -787,7 +788,7 @@ std::vector<std::string> OrderGate::prune_positions(const std::vector<std::strin
 
     for (auto iterator = positions_.begin(); iterator != positions_.end();)
     {
-        const std::string& ticker = iterator->first.ticker;
+        const std::string ticker = ticker_of(iterator->first);
 
         if (iterator->second <= 0 || live.count(ticker))
         {
@@ -824,7 +825,7 @@ std::vector<std::string> OrderGate::prune_reservations(const std::vector<std::st
 
     for (auto iterator = reserved_.begin(); iterator != reserved_.end();)
     {
-        const std::string& ticker = iterator->first.ticker;
+        const std::string ticker = ticker_of(iterator->first);
 
         if (live.count(ticker))
         {
@@ -866,7 +867,7 @@ OrderGate::SellableView OrderGate::sellable_view(const std::string& account, con
 {
     SellableView sellable_view;
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    const PosKey key = make_key(account, ticker);
+    const PosKey key = lookup_key(account, ticker);
     auto position_iterator = positions_.find(key);
 
     if (position_iterator == positions_.end() || position_iterator->second <= 0)
@@ -1324,8 +1325,8 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
                 continue;
             }
 
-            const PosKey&      key = entry.first;
-            const std::string& ticker  = key.ticker;
+            const PosKey&     key    = entry.first;
+            const std::string ticker = ticker_of(key);
 
             if (ticker == new_ticker)
             {
@@ -1387,14 +1388,14 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
                 continue;
             }
 
-            if (best_key.ticker.empty() || cand_z < worst_z)
+            if (best_key.symbol == symbol::kNone || cand_z < worst_z)
             {
                 best_key = key;
                 worst_z  = cand_z;
             }
         }
 
-        if (best_key.ticker.empty())
+        if (best_key.symbol == symbol::kNone)
         {
             why = "내보낼 보유 종목 없음(전부 최소 보유 미달·매도 중·매도 불가)";
         }
@@ -1414,8 +1415,8 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
     {
         std::lock_guard<std::mutex> lock(positions_mutex_);
 
-        plan.account = best_key.account;
-        plan.ticker  = best_key.ticker;
+        plan.account = account_of(best_key);
+        plan.ticker  = ticker_of(best_key);
         auto position_iterator = positions_.find(best_key);
         auto reserved_found  = reserved_.find(best_key);
         const int sell_pending = (reserved_found != reserved_.end() && reserved_found->second < 0) ? -reserved_found->second : 0;
@@ -1512,25 +1513,102 @@ void OrderGate::reset_daily()
     // average_prices_ / positions_ 는 영속 원장 — 장 시작에 초기화하지 않는다
 }
 
+// ─── 원장 키 — (계좌 id, 종목 id) ─────────────────────────────────────────────
+//  계좌는 기동 중 몇 개뿐이라 벡터를 앞에서부터 비교한다(해시보다 싸다). positions_mutex_ 아래에서만 부른다.
+OrderGate::PosKey OrderGate::make_key(std::string_view account, std::string_view ticker)
+{
+    uint32_t account_id = kUnknownAccount;
+
+    for (size_t index = 0; index < account_names_.size(); ++index)
+    {
+        if (account_names_[index] == account)
+        {
+            account_id = static_cast<uint32_t>(index);
+            break;
+        }
+    }
+
+    if (account_id == kUnknownAccount)
+    {
+        account_id = static_cast<uint32_t>(account_names_.size());
+        account_names_.emplace_back(account);
+    }
+
+    const symbol::SymbolId symbol = symbols_->intern(ticker);
+
+    if (symbol == symbol::kNone)
+    {
+        throw std::runtime_error(std::format("OrderGate: 종목 테이블이 가득 차 원장 키를 못 만든다 ticker={} capacity={}",
+                                             ticker, symbols_->capacity()));
+    }
+
+    return PosKey{account_id, symbol};
+}
+
+OrderGate::PosKey OrderGate::lookup_key(std::string_view account, symbol::SymbolId symbol) const
+{
+    for (size_t index = 0; index < account_names_.size(); ++index)
+    {
+        if (account_names_[index] == account)
+        {
+            return PosKey{static_cast<uint32_t>(index), symbol};
+        }
+    }
+
+    return PosKey{kUnknownAccount, symbol};
+}
+
+OrderGate::PosKey OrderGate::lookup_key(std::string_view account, std::string_view ticker) const
+{
+    return lookup_key(account, symbols_->lookup(ticker));
+}
+
+OrderGate::PosKey OrderGate::lookup_key(const OrderSignal& signal) const
+{
+    if (symbols_ != &own_symbols_ && signal.symbol_id != symbol::kNone)
+    {
+        return lookup_key(signal.account_id, signal.symbol_id);
+    }
+
+    return lookup_key(signal.account_id, signal.ticker);
+}
+
+std::string OrderGate::ticker_of(const PosKey& key) const
+{
+    return symbols_->name(key.symbol);
+}
+
+const std::string& OrderGate::account_of(const PosKey& key) const
+{
+    return account_names_[key.account];
+}
+
 // ─── 조회 (계좌별) ───────────────────────────────────────────────────────────
 int OrderGate::position(const std::string& account, const std::string& ticker) const
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    auto iterator = positions_.find(make_key(account, ticker));
+    auto iterator = positions_.find(lookup_key(account, ticker));
+    return (iterator != positions_.end()) ? iterator->second : 0;
+}
+
+int OrderGate::position(const std::string& account, symbol::SymbolId symbol) const
+{
+    std::lock_guard<std::mutex> lock(positions_mutex_);
+    auto iterator = positions_.find(lookup_key(account, symbol));
     return (iterator != positions_.end()) ? iterator->second : 0;
 }
 
 int OrderGate::reserved(const std::string& account, const std::string& ticker) const
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    auto iterator = reserved_.find(make_key(account, ticker));
+    auto iterator = reserved_.find(lookup_key(account, ticker));
     return (iterator != reserved_.end()) ? iterator->second : 0;
 }
 
 double OrderGate::average_price(const std::string& account, const std::string& ticker) const
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    auto iterator = average_prices_.find(make_key(account, ticker));
+    auto iterator = average_prices_.find(lookup_key(account, ticker));
     return (iterator != average_prices_.end()) ? iterator->second : 0.0;
 }
 
@@ -1539,7 +1617,7 @@ OrderGate::EntrySnapshot OrderGate::entry_snapshot(const std::string& account, c
     EntrySnapshot snapshot;
     std::lock_guard<std::mutex> lock(positions_mutex_);
 
-    const auto key = make_key(account, ticker);
+    const auto key = lookup_key(account, ticker);
     auto position_iterator = positions_.find(key);
     snapshot.position = (position_iterator != positions_.end()) ? position_iterator->second : 0;
 
@@ -1599,8 +1677,8 @@ std::vector<OrderGate::HeldPos> OrderGate::snapshot_positions() const
 
         const PosKey& key = entry.first;
         HeldPos held_position;
-        held_position.account = key.account;
-        held_position.ticker  = key.ticker;
+        held_position.account = account_of(key);
+        held_position.ticker  = ticker_of(key);
         held_position.quantity     = entry.second;
         auto average_price_iterator = average_prices_.find(key);
         held_position.average_price = (average_price_iterator != average_prices_.end()) ? average_price_iterator->second : 0.0;
