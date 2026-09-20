@@ -10,9 +10,14 @@ namespace bars
 {
 namespace
 {
+// 장 시간 필터를 끄는 창 — 시드·닫기 판정은 하루 전체를 본다.
+constexpr int kWholeDayOpenHhmm  = 0;
+constexpr int kWholeDayCloseHhmm = 2359;
+
 int64_t day_key(const struct tm& time_parts)
 {
-    return static_cast<int64_t>(time_parts.tm_year) * 400 + time_parts.tm_yday;
+    constexpr int64_t kYearStride = 400; // tm_yday(0~365)가 넘치지 않는 연도 자릿수
+    return static_cast<int64_t>(time_parts.tm_year) * kYearStride + time_parts.tm_yday;
 }
 } // namespace
 
@@ -171,7 +176,7 @@ int BarAggregator::close_stale(symbol::SymbolId symbol_id, std::time_t now_utc)
     }
 
     // 장 시간 필터는 걸지 않는다 — 15:31의 시계가 15:30 봉을 닫아야 한다. hhmmss가 비어 있으니 now의 KST 분이 자리다.
-    const BarSlot now_slot = slot_of(0, now_utc, config_.interval_min, 0, 2359);
+    const BarSlot now_slot = slot_of(0, now_utc, config_.interval_min, kWholeDayOpenHhmm, kWholeDayCloseHhmm);
 
     if (!now_slot.valid() || !(iterator->second.live.slot < now_slot))
     {
@@ -308,7 +313,7 @@ int BarAggregator::seed(symbol::SymbolId symbol_id, const std::vector<MarketData
         }
 
         // REST 봉의 timestamp는 버킷의 마지막 1분 시각이라 같은 버킷에 든다. 장 시간 필터는 시드에 걸지 않는다.
-        const BarSlot slot = slot_of(kst::hhmmss_int(timestamp), timestamp, config_.interval_min, 0, 2359);
+        const BarSlot slot = slot_of(kst::hhmmss_int(timestamp), timestamp, config_.interval_min, kWholeDayOpenHhmm, kWholeDayCloseHhmm);
 
         if (!slot.valid())
         {

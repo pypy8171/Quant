@@ -11,6 +11,20 @@ namespace kst
 inline constexpr int                kOffsetSec = 9 * 3600;
 inline constexpr std::chrono::hours kOffset{9};
 
+// 하루 중 분(minute-of-day, 00:00 = 0). 장 시간 판정·국면 파일 시계·마감 창이 같은 눈금을 쓴다 — 시각을 숫자로 흩어 두면
+//  애프터마켓 같은 창 변경(D-097) 때 한 곳을 놓친다. 주문 창 자체는 OrderGate 세션 창이 따로 자른다.
+inline constexpr int kKrMarketOpenMinute       = 9 * 60;       // 09:00 정규장 개장
+inline constexpr int kKrRegularCloseMinute     = 15 * 60 + 30; // 15:30 정규장 마감
+inline constexpr int kKrAfterMarketCloseMinute = 20 * 60;      // 20:00 애프터마켓 마감(2026-09-14 개장) [why D-097]
+inline constexpr int kKrRegularSessionMinutes  = kKrRegularCloseMinute - kKrMarketOpenMinute; // 390
+inline constexpr int kUsMarketOpenMinute       = 22 * 60 + 30; // 22:30 KST = ET 09:30
+inline constexpr int kUsMarketCloseMinute      = 5 * 60;       // 익일 05:00 KST = ET 16:00
+
+inline int minute_of_day(const struct tm& time_parts)
+{
+    return time_parts.tm_hour * 60 + time_parts.tm_min;
+}
+
 // KST 벽시계를 UTC 눈금에 얹은 값. floor<days>·year_month_day·hh_mm_ss 분해의 입력이다.
 inline std::chrono::sys_seconds wall(std::time_t now_utc)
 {

@@ -650,9 +650,9 @@ void Engine::setup_shards()
                 : (feed_.replay_file.empty() && !feed_.extra_feed_cfgs.empty()) ? static_cast<uint32_t>(feed_.extra_feed_cfgs.size() + 1)
                                                                       : 1u;
     pipeline_.data_row = pipeline_.websocket_lanes;
-    pipeline_.order_book_matrix.reshape(pipeline_.websocket_lanes, shard_count, 4096);
-    pipeline_.trade_matrix.reshape(pipeline_.websocket_lanes + 1, shard_count, 4096);
-    pipeline_.bars_matrix.reshape(1, shard_count, 1024);
+    pipeline_.order_book_matrix.reshape(pipeline_.websocket_lanes, shard_count, ShardPipeline::kTickCellCapacity);
+    pipeline_.trade_matrix.reshape(pipeline_.websocket_lanes + 1, shard_count, ShardPipeline::kTickCellCapacity);
+    pipeline_.bars_matrix.reshape(1, shard_count, ShardPipeline::kBarCellCapacity);
 
     for (uint32_t shard_index = 0; shard_index < shard_count; ++shard_index)
     {
@@ -1838,8 +1838,10 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                                      std::to_string(rescan_ms) + "ms 잔고대조=" + std::to_string(reconcile_ms) +
                                      "ms 시세보충=" + std::to_string(top_up_ms) + "ms)";
 
-            // 2초를 넘긴 사이클만 INFO — 재스캔 주기(20초)를 갉아먹기 시작하는 값이다. 나머지는 DEBUG.
-            if (body_ms >= 2000)
+            // 이 값을 넘긴 사이클만 INFO — 재스캔 주기(20초)를 갉아먹기 시작하는 값이다. 나머지는 DEBUG.
+            constexpr long long kSlowCycleLogMs = 2000;
+
+            if (body_ms >= kSlowCycleLogMs)
             {
                 LOG_INFO(line);
             }
@@ -2014,8 +2016,8 @@ void Engine::poll_regime_file()
 
     const regime_file::Observation observation = observe_regime_file(regime_file_, regime_file_judge_.stale_sec());
     const struct tm kst = ::kst::to_tm(std::time(nullptr));
-    // 09:00~15:30을 분으로 편 값(is_kr_market_open과 같은 기준). 개장 전은 음수라 안 걸린다.
-    const regime_file::KstClock clock{kst.tm_yday, kst.tm_hour * 60 + kst.tm_min - 540};
+    // 09:00 기준 분(is_kr_market_open과 같은 눈금). 개장 전은 음수라 안 걸린다.
+    const regime_file::KstClock clock{kst.tm_yday, ::kst::minute_of_day(kst) - ::kst::kKrMarketOpenMinute};
     const regime_file::Outcome  out = regime_file_judge_.step(observation, clock);
 
     if (out.log_expiry)
@@ -2111,7 +2113,7 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
                 //  조건이 남아 있으면 다음 틱·봉이 다시 만든다(FORCE_LIQ는 2초마다 재발주). [why D-073]
                 const auto count = pipeline_.order_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
 
-                if (count == 1 || count % 100 == 0)
+                if (count == 1 || count % ShardPipeline::kDropLogEvery == 0)
                 {
                     LOG_WARN("[전략] 주문 큐 가득 — 신호 버림 " + signal.ticker + " " +
                              (signal.side == OrderSide::BUY ? "BUY" : "SELL") + " (누적 " + std::to_string(count) + ")");
@@ -2227,7 +2229,7 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
         {
             const auto count = pipeline_.shard_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
 
-            if (count == 1 || count % 100 == 0)
+            if (count == 1 || count % ShardPipeline::kDropLogEvery == 0)
             {
                 LOG_WARN("[Shard " + std::to_string(row) + "] 봉투 큐 가득 — 신호 버림 " + signal.ticker + " (누적 " +
                          std::to_string(count) + ")");
@@ -2505,8 +2507,8 @@ bool Engine::is_kr_market_open() const
 
     // 09:00~20:00 KST — 정규장 09:00~15:30, 장후 종가 15:30~16:00, 애프터마켓 16:00~20:00(2026-09-14 개장). 피드 감시·
     //  개장 전이 판단용이고, 실제 주문 창은 OrderGate 세션 창이 따로 자른다. [why D-097]
-    int row = kst.tm_hour * 60 + kst.tm_min;
-    return row >= 540 && row < 1200;
+    const int minute = ::kst::minute_of_day(kst);
+    return minute >= ::kst::kKrMarketOpenMinute && minute < ::kst::kKrAfterMarketCloseMinute;
 }
 
 // 미국 정규장: ET 09:30~16:00 = KST 22:30~05:00 (다음날)
@@ -2519,10 +2521,9 @@ bool Engine::is_us_market_open() const
         return false;
     }
 
-    int row = kst.tm_hour * 60 + kst.tm_min;
-    // 미국 정규장(KST 22:30~익일 05:00): 하루 분(min) 기준으로 당일 1350~1439분 또는
-    //  익일 0~299분(05:00 직전까지). 하루는 최대 1439분이라 1500분은 존재하지 않는다.
-    return (row >= 1350) || (row < 300);
+    // 자정을 넘는 창이라 당일 22:30 이후 또는 익일 05:00 이전 — 두 조건을 OR로 잇는다.
+    const int minute = ::kst::minute_of_day(kst);
+    return (minute >= ::kst::kUsMarketOpenMinute) || (minute < ::kst::kUsMarketCloseMinute);
 }
 
 bool Engine::is_any_market_open() const
@@ -2609,7 +2610,7 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                 shard_high_water += std::to_string(sh->high_water());
             }
 
-            LOG_INFO("[큐 고수위] shard=" + shard_high_water + "/4096 shard_out=" + std::to_string(pipeline_.shard_out.size()) + "/" +
+            LOG_INFO("[큐 고수위] shard=" + shard_high_water + "/" + std::to_string(ShardPipeline::kTickCellCapacity) + " shard_out=" + std::to_string(pipeline_.shard_out.size()) + "/" +
                      std::to_string(pipeline_.shard_out.capacity()) + " shard_dropped=" +
                      std::to_string(pipeline_.shard_dropped.load(std::memory_order_relaxed)) + " order=" +
                      std::to_string(pipeline_.order_queue.high_water()) + "/" + std::to_string(pipeline_.order_queue.capacity()) +

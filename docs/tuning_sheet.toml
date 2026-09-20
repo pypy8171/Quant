@@ -512,11 +512,19 @@ meaning = "장 밖 시간 data_thread 대기"
 
 [[code_value]]
 id = "engine_kr_open_window_min"
-file = "Quant/src/core/Engine.cpp"
-regex = 'return row >= (\d+ && row < \d+);'
+file = "Quant/include/core/KstTime.h"
+regex = 'kKrMarketOpenMinute\s*=\s*(\d+ \* 60);'
 unit = "분(0시 기준)"
 group = "엔진 — 스레드 주기·장 시간"
-meaning = "is_kr_market_open — 피드 감시·사이클 활성 창(540=09:00, 1200=20:00). 주문 창은 OrderGate 가 따로"
+meaning = "is_kr_market_open 시작 — 피드 감시·사이클 활성 창의 개장(09:00). 주문 창은 OrderGate 가 따로"
+
+[[code_value]]
+id = "engine_kr_close_window_min"
+file = "Quant/include/core/KstTime.h"
+regex = 'kKrAfterMarketCloseMinute\s*=\s*(\d+ \* 60);'
+unit = "분(0시 기준)"
+group = "엔진 — 스레드 주기·장 시간"
+meaning = "is_kr_market_open 끝 — 애프터마켓 마감(20:00, D-097)"
 
 [[code_value]]
 id = "session_open_hhmm"
@@ -596,8 +604,8 @@ config_key = "order_max_retries"
 
 [[code_value]]
 id = "order_retry_delay_floor_ms"
-file = "Quant/src/core/OrderRateLimiter.cpp"
-regex = 'retry_delay_\(std::max\(config\.min_interval_ms, (\d+)\)\)'
+file = "Quant/include/core/OrderRateLimiter.h"
+regex = 'kRetryDelayFloorMs\s*=\s*(\d+);'
 unit = "ms"
 group = "주문 — 발주 속도·재시도·청산 백오프"
 meaning = "거부 재시도 지연 하한(초당 한도 거부 뒤 1초 넘겨야 통과)"
@@ -605,8 +613,8 @@ meaning = "거부 재시도 지연 하한(초당 한도 거부 뒤 1초 넘겨�
 [[code_value]]
 id = "order_per_min_limit_retry_ms"
 file = "Quant/src/core/OrderRateLimiter.cpp"
-regex = 'per_min \? std::chrono::milliseconds\((\d+)\)'
-unit = "ms"
+regex = 'kPerMinuteBackoff\{(\d+)\};'
+unit = "s"
 group = "주문 — 발주 속도·재시도·청산 백오프"
 meaning = "분당 한도 거부면 이만큼 뒤 재시도"
 

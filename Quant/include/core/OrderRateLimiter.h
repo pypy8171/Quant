@@ -39,6 +39,9 @@ public:
     using Clock      = std::chrono::steady_clock;
     using PositionFn = std::function<int(const std::string& account, const std::string& ticker)>; // 현재 보유 수량
 
+    // 재시도 간격 하한 — OrderGate deduplicate 창(1초) 위여야 같은 신호로 안 막힌다.
+    static constexpr int kRetryDelayFloorMs = 1200;
+
     struct Config
     {
         int min_interval_ms = 350; // KIS 발주 간 최소 간격
@@ -105,7 +108,7 @@ private:
 
     Config                    config_;
     std::chrono::milliseconds min_interval_;
-    std::chrono::milliseconds retry_delay_; // max(min_interval, 1200ms) — deduplicate 창 위
+    std::chrono::milliseconds retry_delay_; // max(min_interval, kRetryDelayFloorMs) — deduplicate 창 위
     Clock::time_point         last_submit_;
     PositionFn                position_;
     std::deque<Retry>         retry_queue_;

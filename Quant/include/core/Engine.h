@@ -480,23 +480,30 @@ private:
     //  넣는다. 한 열 안에서 종목 순서는 지켜진다(원칙 2). 전략 객체를 두 샤드 스레드가 만지는 일은 없다. [why D-071] [why D-110]
     struct ShardPipeline
     {
+        // 큐 용량. 셀 하나(행렬 원소)·shard_out은 틱 폭주를 받는 크기, 주문·체결은 KIS 왕복 몇 초를 받는 크기다.
+        //  고수위 로그가 같은 상수로 분모를 찍는다 — 여기만 바꾸면 로그도 따라온다.
+        static constexpr size_t   kTickCellCapacity   = 4096;
+        static constexpr size_t   kBarCellCapacity    = 1024;
+        static constexpr size_t   kOrderQueueCapacity = 1024;
+        static constexpr size_t   kFillQueueCapacity  = 1024;
+        static constexpr uint64_t kDropLogEvery       = 100; // 큐 가득으로 버린 신호는 첫 건과 이 배수마다만 WARN
         uint32_t                  websocket_lanes        = 1;    // WS 수신 스레드 수 = 소켓 수. start()가 행 수로 쓴다
         uint32_t                  data_row        = 1;    // trade_matrix의 데이터 스레드 행 = websocket_lanes
         uint32_t                  strategy_shards = 1;    // config. start()가 열 수로 쓴다(상한 shard::kMaxShards)
         uint32_t                  next_shard      = 0;    // 다음 전략에 줄 샤드(라운드로빈 커서). strategy_.mutex 하에서
         shard::RouteTable         routes;                 // 종목 id → 그 종목을 보는 샤드 마스크. 수신 스레드가 틱마다 읽는다
-        shard::Matrix<OrderBook>  order_book_matrix{1, 1, 4096};   // 호가 (국내) — WS 수신 스레드 행 N. 행·열 수는 start()의 reshape
-        shard::Matrix<TradeData>  trade_matrix{2, 1, 4096};   // 체결 (미국 + 국내) — WS 수신 스레드 행 N + 데이터 스레드 행
-        shard::Matrix<MarketData> bars_matrix{1, 1, 1024}; // 일봉 — 데이터 스레드 행(index 0)만
+        shard::Matrix<OrderBook>  order_book_matrix{1, 1, kTickCellCapacity};   // 호가 (국내) — WS 수신 스레드 행 N. 행·열 수는 start()의 reshape
+        shard::Matrix<TradeData>  trade_matrix{2, 1, kTickCellCapacity};   // 체결 (미국 + 국내) — WS 수신 스레드 행 N + 데이터 스레드 행
+        shard::Matrix<MarketData> bars_matrix{1, 1, kBarCellCapacity}; // 일봉 — 데이터 스레드 행(index 0)만
         std::vector<std::unique_ptr<strategy::Shard>> shards;           // 열 m을 비우는 샤드. start()가 만든다
         std::vector<std::jthread>                  shard_threads;
         // 샤드 → 전략(디스패치) 스레드. 생산자가 M이라 MPSC(원칙 5). 가득 차면 버리고 센다 — order_dropped와 같은 규칙.
-        MpscQueue<strategy::Emitted> shard_out{4096};
+        MpscQueue<strategy::Emitted> shard_out{kTickCellCapacity};
         std::atomic<uint64_t>     shard_dropped{0};
-        RingBuffer<OrderSignal> order_queue{1024}; // 주문 스레드가 KIS 왕복에 묶이는 몇 초를 받는다 [why D-073]
+        RingBuffer<OrderSignal> order_queue{kOrderQueueCapacity}; // 주문 스레드가 KIS 왕복에 묶이는 몇 초를 받는다 [why D-073]
         // 체결통보. WS 수신 스레드는 여기 push만 하고 원장 반영(OrderRouter::on_fill)은 fill_thread가 한다 —
         //  체결 하나 처리(history_mutex_·CSV 쓰기) 동안 전 종목 틱 수신이 멈추지 않게. [why D-056]
-        RingBuffer<FillNotification> fill_queue{1024};
+        RingBuffer<FillNotification> fill_queue{kFillQueueCapacity};
         std::atomic<uint64_t> fill_dropped{0};   // fill_queue 가득 차 버린 체결통보 수. 0이 아니면 잔고 대조가 원장을 메운다
         std::atomic<uint64_t> order_dropped{0};  // order_queue 가득 차 버린 신호 수. [큐 고수위] 줄에 같이 찍힌다
         // 소비자 깨우기 — 생산자가 push 뒤 notify, 소비자는 큐가 비면 잔다. 1ms 폴링은 Windows 타이머 격자 때문에
@@ -528,7 +535,8 @@ private:
     struct OpsChannel
     {
         std::unique_ptr<OpsServer>      server;
-        MpscQueue<OpsOrderReq>          manual_inbox{256};
+        static constexpr size_t         kManualInboxCapacity = 256; // 단말 수동주문은 사람이 치는 속도라 이만큼이면 남는다
+        MpscQueue<OpsOrderReq>          manual_inbox{kManualInboxCapacity};
         std::string                     bind_address;
         int                             port = 0;
         std::string                     token;

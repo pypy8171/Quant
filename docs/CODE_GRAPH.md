@@ -57,7 +57,7 @@ graph LR
 |---|---|
 | `core/Types.h` | 29 |
 | `utils/Logger.h` | 27 |
-| `core/KstTime.h` | 13 |
+| `core/KstTime.h` | 14 |
 | `strategy/StrategyBase.h` | 13 |
 | `api/KisClient.h` | 12 |
 | `core/MarketSession.h` | 8 |
@@ -265,6 +265,7 @@ graph LR
   n_core_PaperExecutor_h --> n_core_MarketSession_h
   n_core_PaperExecutor_h --> n_core_SymbolTable_h
   n_core_PaperExecutor_h --> n_core_Types_h
+  n_core_RegimeFileJudge_h --> n_core_KstTime_h
   n_core_RegimeFileJudge_h --> n_core_Types_h
   n_core_ReplaySource_h --> n_core_IFeedSource_h
   n_core_ReplaySource_h --> n_core_TickCapture_h

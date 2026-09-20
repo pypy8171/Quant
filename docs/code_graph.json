@@ -427,6 +427,7 @@
       "core/Types.h"
     ],
     "core/RegimeFileJudge.h": [
+      "core/KstTime.h",
       "core/Types.h"
     ],
     "core/ReplaySource.h": [
@@ -731,6 +732,7 @@
       "core/DataPoller.cpp",
       "core/Engine.cpp",
       "core/LedgerReconciler.h",
+      "core/RegimeFileJudge.h",
       "ipc/OrderRouter.cpp",
       "modes/Monitors.cpp",
       "risk/OrderGate.cpp",
@@ -1019,7 +1021,7 @@
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 13
+      "in_degree": 14
     },
     {
       "header": "strategy/StrategyBase.h",

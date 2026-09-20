@@ -24,8 +24,10 @@ RetryPlan classify(const OrderSignal& signal, int attempts, int max_retries, Ord
     //  앞엣것만 보던 동안 게이트 분당한도에 걸린 BUY가 조용히 드롭됐다.
     if (reject_reason.find(kis_error::kRateLimit) != std::string::npos || gate_reason::is_rate_limit(reject_reason))
     {
+        // 분당 한도는 창이 비기까지 최대 60초 — 짧게 되쏘면 재시도 3회가 몇 초 안에 소진돼 같은 드롭이 된다.
+        constexpr std::chrono::seconds kPerMinuteBackoff{20};
         const bool per_min = gate_reason::is_per_minute(reject_reason);
-        return {Retry::RATE_LIMIT, per_min ? std::chrono::milliseconds(20000) : retry_delay};
+        return {Retry::RATE_LIMIT, per_min ? std::chrono::milliseconds(kPerMinuteBackoff) : retry_delay};
     }
 
     // 청산 SELL 유실 방지(C-2). BUY는 제외: 빈-ODNO 응답이 실제로는 접수됐을 수 있어 재시도가 중복주문을 낳는다.
@@ -44,7 +46,7 @@ RetryPlan classify(const OrderSignal& signal, int attempts, int max_retries, Ord
 OrderRateLimiter::OrderRateLimiter(Config config, Clock::time_point now)
     : config_(config),
       min_interval_(config.min_interval_ms),
-      retry_delay_(std::max(config.min_interval_ms, 1200)),
+      retry_delay_(std::max(config.min_interval_ms, kRetryDelayFloorMs)),
       last_submit_(now - min_interval_) // 첫 주문은 기다리지 않는다
 {
 }

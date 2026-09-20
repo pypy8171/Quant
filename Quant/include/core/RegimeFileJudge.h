@@ -3,6 +3,7 @@
 //  파일 읽기·로그·OrderGate 적용은 Engine(data_thread)이 하고, 여기는 관측값과 KST 시각을 받아
 //  "게이트를 어떻게 바꿀지"만 답하는 상태기계다 — 시간 상자(D-033)의 하루 리셋·1회 로그 규칙을
 //  I/O 없이 시험하려고 뗐다. data_thread 전용이라 동기화는 없다. [why D-060]
+#include "core/KstTime.h"
 #include "core/Types.h"
 
 #include <nlohmann/json.hpp>
@@ -130,7 +131,7 @@ struct Observation
 struct KstClock
 {
     int yesterday               = 0;    // tm_yday — 만료 상태를 하루 단위로 되돌리는 기준
-    int minutes_after_open = -540; // 09:00 기준 분(is_kr_market_open과 같은 축). 개장 전은 음수
+    int minutes_after_open = -kst::kKrMarketOpenMinute; // 09:00 기준 분(is_kr_market_open과 같은 눈금). 개장 전은 음수
 };
 
 // 한 번의 폴링이 바깥에 요구하는 것. 값이 없는 optional은 "그대로 둔다"는 뜻이다 —
@@ -285,7 +286,7 @@ private:
         }
 
         // [inv] 09:00~15:30 안에서만 만료가 성립한다 — 파장 뒤·개장 전은 걸리지 않는다.
-        return clock.minutes_after_open >= halt_expire_min_ && clock.minutes_after_open < 390;
+        return clock.minutes_after_open >= halt_expire_min_ && clock.minutes_after_open < kst::kKrRegularSessionMinutes;
     }
 
     // 만료 로그는 하루 한 번. 처음 만료시킨 호출만 true.

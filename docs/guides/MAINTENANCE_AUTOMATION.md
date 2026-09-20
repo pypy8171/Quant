@@ -117,6 +117,16 @@ static·reinterpret·const 세 가지를 겸해 무엇을 의도했는지 코드
   클래스·import 별칭)만 보므로, f-문자열 접두사나 독스트링 본문, 남의 라이브러리 멤버(`frame.iloc`)는 걸리지 않는다.
   파이썬 관례로 굳은 이름(`np`·`pd`·`df`·`ax`·`kwargs`·`_`)은 검사기의 `PY_CONVENTION` 집합에 적어 예외로 둔다.
 
+숫자 표기 — 뜻이 있는 숫자는 이름을 붙인다. 식(비교·산술·인자)에 맨 숫자를 두지 않고 `constexpr` 상수(`kKrMarketOpenMinute`·
+`kTickCellCapacity`)나 config로 뺀다. 이유는 위와 같다 — `row < 1200`은 아는 사람에게만 20:00이고, 창이 바뀔 때(D-097) 흩어진
+숫자를 하나 놓치면 장중 결함이 된다. 시각은 `Quant/include/core/KstTime.h`의 분 상수, 큐 용량은 `Engine::ShardPipeline`의 상수,
+거래소 규칙 표(`Quant/include/core/TickSize.h`)는 `constexpr` 표에 `[formula]`와 출처를 붙인다.
+
+- 이름을 붙이는 자리는 그대로 둔다: `constexpr`·`enum`·`case`·`#define`, 멤버 기본값(`int stale_sec = 30;`), json 기본값
+  (`node.value("interval_sec", 300)` — 키가 이름이다), 배열 크기·템플릿 인자·시프트·chrono 리터럴(`100ms`), 10의 거듭제곱(단위
+  환산), 문자열 안, `Quant/tests/`(고정값이 곧 검증 대상).
+- 검사는 `../quant-devtools/check_code_conventions.py` 8번 규칙이 추가된 C++ 코드 줄만 본다(오류, 세 자리 이상).
+
 초기화 위치 — 초기화는 세 목록에만 쓴다. 프로세스 수준(콘솔·로거·인자·설정·크래시 핸들러·모드 분기)은
 `Quant/src/main.cpp`의 `main()` 호출 목록, 설정값을 엔진 세터에 옮기는 배선은 `Engine::configure(const AppConfig&)`
 (`Quant/src/core/EngineConfigure.cpp`)의 호출 목록, 엔진 수준(샤드·인증·주문 라우터·원장·전략·피드·스레드)은
