@@ -153,12 +153,53 @@ static HINTERNET acquire_connection(const WinHttpResult& win_http_result)
 }
 } // namespace
 
+// 전송 직전에 헤더 목록에 덧입히는 것. 호출자가 만든 헤더 벡터는 그대로 두고(복사 0), 전송부가 줄을 하나씩
+//  만들 때 authorization 줄만 지금 토큰으로 바꿔 내보내고, 없으면 Content-Type 줄을 덧붙인다. [why D-108]
+//  호출자들은 헤더를 먼저 조립하고 http_get/http_post가 그 뒤에 ensure_authenticated()를 부르므로, 갱신이
+//  일어난 요청은 옛 토큰(기동 직후 첫 호출이면 빈 토큰)으로 나간다 — 그래서 전송 직전에 다시 찍는다.
+struct HeaderOverlay
+{
+    // 지금 토큰으로 만든 "authorization: Bearer …" 줄. 있으면 헤더의 authorization 줄 대신 이것을 보낸다
+    //  (oauth2 발급 요청은 nullptr). [inv] 전송이 끝날 때까지 살아 있는 문자열(http_get/http_post의 지역 변수)
+    const std::string* bearer_line = nullptr;
+    bool ensure_json_content_type = false; // Content-Type 줄이 없으면 하나 덧붙인다(KIS는 GET에도 요구)
+};
+
+// 헤더 벡터에 오버레이를 입혀 보낼 줄을 차례로 emit(const std::string&)에 넘긴다. 문자열을 새로 만들지 않는다.
+template <typename Emit>
+static void emit_header_lines(const std::vector<std::string>& headers, const HeaderOverlay& overlay, Emit&& emit)
+{
+    static const std::string kJsonContentType = "Content-Type: application/json; charset=utf-8";
+    bool has_content_type = false;
+
+    for (const auto& header : headers)
+    {
+        if (overlay.bearer_line && (header.starts_with("authorization:") || header.starts_with("Authorization:")))
+        {
+            emit(*overlay.bearer_line);
+            continue;
+        }
+
+        if (header.find("Content-Type") != std::string::npos)
+        {
+            has_content_type = true;
+        }
+
+        emit(header);
+    }
+
+    if (overlay.ensure_json_content_type && !has_content_type)
+    {
+        emit(kJsonContentType);
+    }
+}
+
 // 단발 시도. transport_ok = HTTP 응답을 실제로 받았는가(상태코드 무관, 4xx/5xx도 true).
 //  false = 전송 계층 실패(핸들 생성/SendRequest/ReceiveResponse 실패 — 예: 12152). 이때만 재시도 대상.
 //  session_handle/hConnect는 상주(keep-alive)라 매 호출 hReq만 열고 닫는다. 전송 실패 시 상주 연결을 파기한다.
 static std::string winhttp_request_once(const std::string& method, const std::string& url,
-                                        const std::vector<std::string>& headers, const std::string& body,
-                                        bool& transport_ok, int& status_code)
+                                        const std::vector<std::string>& headers, const HeaderOverlay& overlay,
+                                        const std::string& body, bool& transport_ok, int& status_code)
 {
     transport_ok = false;
     status_code = 0;
@@ -182,11 +223,11 @@ static std::string winhttp_request_once(const std::string& method, const std::st
         return "";
     }
 
-    for (auto& header : headers)
+    emit_header_lines(headers, overlay, [request_handle](const std::string& line)
     {
-        auto wh = to_wstring(header + "\r\n");
-        WinHttpAddRequestHeaders(request_handle, wh.c_str(), (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
-    }
+        auto wide_line = to_wstring(line + "\r\n");
+        WinHttpAddRequestHeaders(request_handle, wide_line.c_str(), static_cast<DWORD>(-1), WINHTTP_ADDREQ_FLAG_ADD);
+    });
 
     LPVOID pBody = body.empty() ? nullptr : (LPVOID)body.c_str();
     DWORD cbBody = (DWORD)body.size();
@@ -266,7 +307,8 @@ static bool is_rate_limited(const std::string& body)
 //  주문 등 POST는 재시도하지 않는다 — 빈 응답(12152)이 "미접수"라는 보장이 없어(서버엔 접수됐을 수 있음)
 //  블라인드 재시도는 이중주문 위험. POST 실패는 호출자가 잔고 대조로 확정해야 한다.
 static std::string winhttp_request(const std::string& method, const std::string& url,
-                                   const std::vector<std::string>& headers, const std::string& body)
+                                   const std::vector<std::string>& headers, const HeaderOverlay& overlay,
+                                   const std::string& body)
 {
     constexpr int      kMaxGetAttempts    = 3;   // 조회(GET) 최대 시도(원 시도 + 재시도 2)
     constexpr unsigned kRetryBackoffMsBase = 500; // 선형 백오프 기준(attempt배: 500ms, 1000ms)
@@ -278,7 +320,7 @@ static std::string winhttp_request(const std::string& method, const std::string&
     {
         bool transport_ok = false;
         int status = 0;
-        response = winhttp_request_once(method, url, headers, body, transport_ok, status);
+        response = winhttp_request_once(method, url, headers, overlay, body, transport_ok, status);
         // 재시도 대상: 전송 실패(항상) 또는 조회(GET)의 5xx. 그 외(2xx/4xx)는 즉시 반환.
         const bool retryable = !transport_ok || (idempotent && status >= 500);
 
@@ -331,8 +373,8 @@ static size_t write_callback(char* pointer, size_t size, size_t nmemb, std::stri
 // 단발 시도. transport_ok = HTTP 응답을 받았는가(CURLE_OK; 4xx/5xx도 true).
 //  curl_easy_perform은 HTTP 응답을 받으면(상태코드 무관) CURLE_OK, 전송 실패(타임아웃·연결단절 등)만 비-OK.
 static std::string curl_request_once(const std::string& method, const std::string& url,
-                                     const std::vector<std::string>& headers, const std::string& body,
-                                     bool& transport_ok, int& status_code)
+                                     const std::vector<std::string>& headers, const HeaderOverlay& overlay,
+                                     const std::string& body, bool& transport_ok, int& status_code)
 {
     transport_ok = false;
     status_code = 0;
@@ -347,10 +389,10 @@ static std::string curl_request_once(const std::string& method, const std::strin
     std::string response;
     curl_slist* hlist = nullptr;
 
-    for (auto& header : headers)
+    emit_header_lines(headers, overlay, [&hlist](const std::string& line)
     {
-        hlist = curl_slist_append(hlist, header.c_str());
-    }
+        hlist = curl_slist_append(hlist, line.c_str());
+    });
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hlist);
@@ -386,7 +428,8 @@ static std::string curl_request_once(const std::string& method, const std::strin
 
 // 재시도 래퍼. ⚠ 조회(GET) 요청만 재시도 — 전송 계층 실패 또는 5xx(WinHTTP 경로와 동일 규약 — 주문 POST 제외).
 static std::string curl_request(const std::string& method, const std::string& url,
-                                const std::vector<std::string>& headers, const std::string& body)
+                                const std::vector<std::string>& headers, const HeaderOverlay& overlay,
+                                const std::string& body)
 {
     constexpr int kMaxGetAttempts     = 3;   // 조회(GET) 최대 시도(원 시도 + 재시도 2)
     constexpr int kRetryBackoffMsBase = 500; // 선형 백오프 기준(attempt배: 500ms, 1000ms)
@@ -398,7 +441,7 @@ static std::string curl_request(const std::string& method, const std::string& ur
     {
         bool transport_ok = false;
         int status = 0;
-        response = curl_request_once(method, url, headers, body, transport_ok, status);
+        response = curl_request_once(method, url, headers, overlay, body, transport_ok, status);
         const bool retryable = !transport_ok || (idempotent && status >= 500);
 
         if (!retryable)
@@ -504,52 +547,27 @@ void KisClient::note_rate_limited()
     rate_tokens_ = 0.0; // 다음 호출은 리필을 기다린다(≈1초치)
 }
 
-// 헤더 목록의 authorization 줄을 지금 토큰으로 덮어쓴다. 호출자들은 헤더를 먼저 조립하고
-//  http_get/http_post가 그 뒤에 ensure_authenticated()를 부르므로, 갱신이 일어난 요청은 옛 토큰
-//  (기동 직후 첫 호출이면 빈 토큰)으로 나간다. authorization 줄이 없는 헤더(oauth2)는 그대로 둔다.
-static void kis_stamp_bearer(std::vector<std::string>& headers, const std::string& token)
+std::string KisClient::http_get(const std::string& url, const std::vector<std::string>& headers)
 {
-    for (auto& header : headers)
-    {
-        if (header.starts_with("authorization:") || header.starts_with("Authorization:"))
-        {
-            header = "authorization: Bearer " + token;
-            return;
-        }
-    }
-}
+    // KIS API는 GET에도 Content-Type: application/json 요구 — 없으면 전송부가 덧붙인다
+    HeaderOverlay overlay;
+    overlay.ensure_json_content_type = true;
+    std::string bearer_line;
 
-std::string KisClient::http_get(const std::string& url, std::vector<std::string> headers)
-{
     // oauth2 토큰 발급 엔드포인트가 아닌 경우에만 자동 갱신 (재귀 방지)
     if (url.find("oauth2") == std::string::npos)
     {
         ensure_authenticated();
-        kis_stamp_bearer(headers, token());
+        bearer_line = "authorization: Bearer ";
+        append_token(bearer_line);
+        overlay.bearer_line = &bearer_line;
     }
 
     rate_limit_acquire(url);
-
-    // KIS API는 GET에도 Content-Type: application/json 요구
-    bool has_ct = false;
-
-    for (auto& request_header : headers)
-    {
-        if (request_header.find("Content-Type") != std::string::npos)
-        {
-            has_ct = true;
-            break;
-        }
-    }
-
-    if (!has_ct)
-    {
-        headers.push_back("Content-Type: application/json; charset=utf-8");
-    }
 #ifdef _WIN32
-    std::string response = winhttp_request("GET", url, headers, "");
+    std::string response = winhttp_request("GET", url, headers, overlay, "");
 #else
-    std::string response = curl_request("GET", url, headers, "");
+    std::string response = curl_request("GET", url, headers, overlay, "");
 #endif
 
     if (is_rate_limited(response))
@@ -560,20 +578,25 @@ std::string KisClient::http_get(const std::string& url, std::vector<std::string>
     return response;
 }
 
-std::string KisClient::http_post(const std::string& url, std::vector<std::string> headers, const std::string& body)
+std::string KisClient::http_post(const std::string& url, const std::vector<std::string>& headers, const std::string& body)
 {
+    HeaderOverlay overlay;
+    std::string   bearer_line;
+
     if (url.find("oauth2") == std::string::npos)
     {
         ensure_authenticated();
-        kis_stamp_bearer(headers, token());
+        bearer_line = "authorization: Bearer ";
+        append_token(bearer_line);
+        overlay.bearer_line = &bearer_line;
     }
 
     rate_limit_acquire(url);
 
 #ifdef _WIN32
-    std::string response = winhttp_request("POST", url, headers, body);
+    std::string response = winhttp_request("POST", url, headers, overlay, body);
 #else
-    std::string response = curl_request("POST", url, headers, body);
+    std::string response = curl_request("POST", url, headers, overlay, body);
 #endif
 
     if (is_rate_limited(response))
@@ -585,12 +608,17 @@ std::string KisClient::http_post(const std::string& url, std::vector<std::string
 }
 
 // 공용 인증 헤더 — bearer·appkey·appsecret·tr_id 네 줄에 호출별 항목을 더한다.
-//  bearer는 http_get/http_post가 ensure_authenticated 뒤 최신 토큰으로 다시 찍는다(kis_stamp_bearer).
+//  bearer는 http_get/http_post가 ensure_authenticated 뒤 최신 토큰으로 다시 찍는다(HeaderOverlay).
 std::vector<std::string> KisClient::authentication_headers(const std::string& transaction_id,
                                                  std::initializer_list<std::string> extra) const
 {
-    std::vector<std::string> parts = {"authorization: Bearer " + token(), "appkey: " + config_.app_key,
-                                  "appsecret: " + config_.app_secret, "tr_id: " + transaction_id};
+    std::vector<std::string> parts;
+    parts.reserve(4 + extra.size());
+    parts.emplace_back("authorization: Bearer ");
+    append_token(parts.back());
+    parts.emplace_back("appkey: " + config_.app_key);
+    parts.emplace_back("appsecret: " + config_.app_secret);
+    parts.emplace_back("tr_id: " + transaction_id);
     parts.insert(parts.end(), extra.begin(), extra.end());
     return parts;
 }

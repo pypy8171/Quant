@@ -14,6 +14,7 @@
 #include "core/Types.h"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -21,6 +22,7 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -101,19 +103,26 @@ inline std::vector<MarketData> aggregate_minutes(std::vector<RawMinute>& raw_min
     });
 
     std::vector<MarketData> ascending; // 과거→최신 집계봉
-    std::string current_date;          // 열려 있는 버킷의 날짜·번호 — 문자열을 이어 붙여 키를 만들지 않는다
+    // 열려 있는 버킷의 날짜·번호 — 문자열을 이어 붙여 키를 만들지 않는다.
+    //  [inv] current_date는 raw_minutes 원소의 date를 본다 — 루프 동안 raw_minutes를 고치지 않는다
+    std::string_view current_date;
     int current_bucket = -1;
 
     for (const auto& raw : raw_minutes)
     {
+        // "HHMM…" 앞 네 자리만 읽는다 — substr 임시 없이 자리에서 숫자로 바꾼다
         int hour = 0, minute = 0;
 
-        try
+        if (raw.hour.size() < 4)
         {
-            hour = std::stoi(raw.hour.substr(0, 2));
-            minute = std::stoi(raw.hour.substr(2, 2));
+            continue;
         }
-        catch (...)
+
+        const char* hour_text = raw.hour.data();
+        const auto  hour_result = std::from_chars(hour_text, hour_text + 2, hour);
+        const auto  minute_result = std::from_chars(hour_text + 2, hour_text + 4, minute);
+
+        if (hour_result.ec != std::errc{} || minute_result.ec != std::errc{})
         {
             continue;
         }
@@ -122,7 +131,7 @@ inline std::vector<MarketData> aggregate_minutes(std::vector<RawMinute>& raw_min
 
         if (bucket != current_bucket || raw.date != current_date)
         {
-            MarketData market_data;
+            MarketData& market_data = ascending.emplace_back();
             market_data.ticker = ticker;
             market_data.market = Market::KR;
             market_data.open = raw.open;
@@ -131,7 +140,6 @@ inline std::vector<MarketData> aggregate_minutes(std::vector<RawMinute>& raw_min
             market_data.close = raw.close;
             market_data.volume = raw.volume;
             market_data.timestamp = std::chrono::system_clock::from_time_t(parse_dt(raw.date, raw.hour) - kst::kOffsetSec);
-            ascending.push_back(std::move(market_data));
             current_date = raw.date;
             current_bucket = bucket;
         }

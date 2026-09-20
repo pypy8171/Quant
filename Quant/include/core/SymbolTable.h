@@ -119,8 +119,8 @@ public:
     //  삽입만 write_mutex_로 직렬화한다. [why D-071]
     SymbolId intern(std::string_view ticker)
     {
-        const Words    key  = words_of(ticker);
-        const uint64_t hash = hash_of(key);
+        const TickerWords key = words_of(ticker);
+        const uint64_t    hash = hash_of(key);
 
         if (const SymbolId found = find(key, hash); found != kNone)
         {
@@ -166,7 +166,7 @@ public:
 
     [[nodiscard]] SymbolId lookup(std::string_view ticker) const
     {
-        const Words key = words_of(ticker);
+        const TickerWords key = words_of(ticker);
         return find(key, hash_of(key));
     }
 
@@ -203,12 +203,12 @@ private:
 
     // Ticker 16바이트를 uint64 둘로 본 것 — 비교·해시가 길이별 memcmp 호출 대신 정수 두 번이 된다.
     //  low = data[0..7], high = data[8..14] + 마지막 바이트에 length. 남는 바이트는 0.
-    struct Words
+    struct TickerWords
     {
         uint64_t low  = 0;
         uint64_t high = 0;
 
-        friend bool operator==(const Words& words_a, const Words& words_b)
+        friend bool operator==(const TickerWords& words_a, const TickerWords& words_b)
         {
             return words_a.low == words_b.low && words_a.high == words_b.high;
         }
@@ -219,20 +219,20 @@ private:
     //  바이트를 아래 자리부터 쌓으므로 리틀 엔디언에서만 Ticker의 메모리 배치와 같다.
     static_assert(std::endian::native == std::endian::little);
 
-    static Words words_of(const Ticker& ticker)
+    static TickerWords words_of(const Ticker& ticker)
     {
         static_assert(sizeof(Ticker) == 16);
-        Words words;
+        TickerWords words;
         std::memcpy(&words.low, &ticker, 8);
         std::memcpy(&words.high, reinterpret_cast<const char*>(&ticker) + 8, 8);
         return words;
     }
 
     // Ticker::assign과 같은 규칙으로 자른다(kMax 넘으면 잘림).
-    static Words words_of(std::string_view text)
+    static TickerWords words_of(std::string_view text)
     {
         const size_t length = text.size() < Ticker::kMax ? text.size() : Ticker::kMax;
-        Words        words;
+        TickerWords        words;
 
         for (size_t index = 0; index < length; ++index)
         {
@@ -252,14 +252,14 @@ private:
         return words;
     }
 
-    static bool same_words(const Ticker& ticker, const Words& key)
+    static bool same_words(const Ticker& ticker, const TickerWords& key)
     {
         return words_of(ticker) == key;
     }
 
     // [formula] Ticker 16바이트를 uint64 둘로 읽어 곱셈 믹스 — 종목 코드는 여섯 자리 숫자열이라 앞 8바이트만으로는
     //  하위 비트가 몰린다. splitmix64 상수.
-    static uint64_t hash_of(const Words& words)
+    static uint64_t hash_of(const TickerWords& words)
     {
         const uint64_t low  = words.low;
         const uint64_t high = words.high;
@@ -273,7 +273,7 @@ private:
     }
 
     // 선형 탐사. 빈 버킷(kNone)을 만나면 없는 것 — 삭제가 없고 절반 넘게 차지 않아 반드시 끝난다.
-    [[nodiscard]] SymbolId find(const Words& key, uint64_t hash) const
+    [[nodiscard]] SymbolId find(const TickerWords& key, uint64_t hash) const
     {
         for (size_t slot = static_cast<size_t>(hash) & bucket_mask_;; slot = (slot + 1) & bucket_mask_)
         {
