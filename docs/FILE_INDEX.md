@@ -8,11 +8,11 @@
 
 - [(루트)](#루트) — 10개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 101개
-- [Quant](#quant) — 172개
+- [PYQuant](#pyquant) — 102개
+- [Quant](#quant) — 178개
 - [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 216개
+- [research](#research) — 240개
 - [scripts](#scripts) — 38개
 - [strategies](#strategies) — 31개
 - [tools](#tools) — 3개
@@ -803,6 +803,21 @@
 - [exit_ev_all.tsv](../research/studies/17_exit_ev/exit_ev_all.tsv) — 전 구간 셀별 통계·CI(생성물)
 - [exit_ev_segment_a.tsv](../research/studies/17_exit_ev/exit_ev_segment_a.tsv) — 구간 A(09-08~10) 셀별 통계·CI(생성물)
 - [exit_ev_segment_b.tsv](../research/studies/17_exit_ev/exit_ev_segment_b.tsv) — 구간 B(09-11~18) 셀별 통계·CI(생성물)
+
+### research/studies/18_factor_harness/
+
+- [PREREG.md](../research/studies/18_factor_harness/PREREG.md) — 스터디 18 사전등록: 저변동성 신호(250일 0.7·20일 0.3 −z)·유니버스(재무 필터 없음)·23과 같은 세 층·7창·6/7 합격선
+- [README.md](../research/studies/18_factor_harness/README.md) — 스터디 18 결과: 하한 30억·50억 둘 다 미달(t 0.72·1.10), MDD는 유니버스의 3분의 2, walk-forward·크기 3분위·관찰창 표
+- [metrics.json](../research/studies/18_factor_harness/metrics.json) — 스터디 18 합본 지표(하한별 중심 칸·벤치마크 MDD·판정·재현 정보)
+- [run_low_volatility.py](../research/studies/18_factor_harness/run_low_volatility.py) — 스터디 18 하네스: 22 하네스를 불러 신호 함수만 저변동성으로 바꿔 끼우고 하한 30억·50억을 돌린다
+
+### research/studies/18_factor_harness/floor_30/
+
+- [metrics.json](../research/studies/18_factor_harness/floor_30/metrics.json) — 하한 30억 유니버스의 22 형식 전체 지표(격자 27칸·비용 감도·시총가중·용량·상폐 보유)
+
+### research/studies/18_factor_harness/floor_50/
+
+- [metrics.json](../research/studies/18_factor_harness/floor_50/metrics.json) — 하한 50억 유니버스의 같은 지표
 
 ### research/studies/19_fundamental_factors/
 

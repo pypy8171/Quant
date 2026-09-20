@@ -1,0 +1,644 @@
+{
+  "study": "18_factor_harness/floor_50",
+  "sample_n": 54739,
+  "period": "2016-04~2026-08",
+  "holdout": "2019-01~2025-12 (walk-forward 검증 7창 합)",
+  "sharpe": 0.40327079692886303,
+  "mdd": 36.0487477255975,
+  "t_stat": 1.0969722697538853,
+  "walk_forward_windows_positive": 5,
+  "walk_forward_windows": 7,
+  "trials_prior": 27,
+  "cost_level": "mid",
+  "cost_spec": {
+    "commission_percent": 0.015,
+    "sell_tax_percent": 0.2,
+    "slippage_ticks": 1,
+    "impact_percent": 0.05
+  },
+  "grade": "B",
+  "verdict": {
+    "layer1": false,
+    "layer2": false,
+    "layer3": true,
+    "overall": "미달",
+    "small_only": false,
+    "one_line": "저PBR×고ROE 상위 30 동일가중(w=0.7, 분기 리밸)은 비용 MID 뒤 판정 구간 초과수익 연 +6.36%(t 1.10), walk-forward 5/7창 양수, 이웃 6/6 양수. 시총가중은 연 +13.12%, 용량(10% 한도) 중앙값 172억."
+  },
+  "center_cell": {
+    "top_n": 30,
+    "value_weight": 0.7,
+    "rebalance_months": 3,
+    "buffer_rank": 60
+  },
+  "center_judgment": {
+    "months": 84,
+    "excess_monthly_mean": 0.005298484532455504,
+    "excess_t": 1.0969722697538853,
+    "excess_monthly_std": 0.044268587471181245,
+    "excess_t_newey_west": 1.127924099165395,
+    "excess_annual": 0.06358181438946606,
+    "net_annual_return": 0.051377314177327715,
+    "sharpe": 0.40327079692886303,
+    "max_drawdown_percent": 36.0487477255975,
+    "benchmark_annual_return": -0.02517898421841258,
+    "turnover_oneway_monthly": 0.05748268796180691,
+    "cost_drag_annual": 0.004116962113787023
+  },
+  "center_full": {
+    "months": 125,
+    "excess_monthly_mean": 0.007357779388893194,
+    "excess_t": 1.64332249918051,
+    "excess_monthly_std": 0.05005863086891512,
+    "excess_t_newey_west": 1.6885193948877673,
+    "excess_annual": 0.08829335266671832,
+    "net_annual_return": 0.046470125851969524,
+    "sharpe": 0.36619501596918574,
+    "max_drawdown_percent": 41.48597615361116,
+    "benchmark_annual_return": -0.058390328370535816,
+    "turnover_oneway_monthly": 0.06514722202032637,
+    "cost_drag_annual": 0.00427794723239104
+  },
+  "observation_window": {
+    "months": 8,
+    "excess_monthly_mean": 0.013103515648015061,
+    "excess_t": 0.3242101499307975,
+    "excess_monthly_std": 0.11431578899147016,
+    "excess_t_newey_west": 0.36798274538571657,
+    "excess_annual": 0.15724218777618074,
+    "net_annual_return": 0.2562213745518245,
+    "sharpe": 0.9739813835431195,
+    "max_drawdown_percent": 14.712857503801741,
+    "benchmark_annual_return": -0.01005820990971884,
+    "turnover_oneway_monthly": 0.07675425187547556,
+    "cost_drag_annual": 0.0052198715737102955
+  },
+  "cost_sensitivity": {
+    "low": {
+      "months": 84,
+      "excess_monthly_mean": 0.005509354526292269,
+      "excess_t": 1.140074800549492,
+      "excess_monthly_std": 0.04429013628739686,
+      "excess_t_newey_west": 1.1727782977146897,
+      "excess_annual": 0.06611225431550723,
+      "net_annual_return": 0.05399599573870395,
+      "sharpe": 0.4191320503531537,
+      "max_drawdown_percent": 35.91190993069405,
+      "benchmark_annual_return": -0.02517898421841258,
+      "turnover_oneway_monthly": 0.05748268796180691,
+      "cost_drag_annual": 0.0015865221877458709
+    },
+    "mid": {
+      "months": 84,
+      "excess_monthly_mean": 0.005298484532455504,
+      "excess_t": 1.0969722697538853,
+      "excess_monthly_std": 0.044268587471181245,
+      "excess_t_newey_west": 1.127924099165395,
+      "excess_annual": 0.06358181438946606,
+      "net_annual_return": 0.051377314177327715,
+      "sharpe": 0.40327079692886303,
+      "max_drawdown_percent": 36.0487477255975,
+      "benchmark_annual_return": -0.02517898421841258,
+      "turnover_oneway_monthly": 0.05748268796180691,
+      "cost_drag_annual": 0.004116962113787023
+    },
+    "high": {
+      "months": 84,
+      "excess_monthly_mean": 0.005064621463434019,
+      "excess_t": 1.0490562338998515,
+      "excess_monthly_std": 0.044247411096744065,
+      "excess_t_newey_west": 1.0781550279362073,
+      "excess_annual": 0.060775457561208224,
+      "net_annual_return": 0.04847848547209477,
+      "sharpe": 0.38559917780320435,
+      "max_drawdown_percent": 36.19945770159932,
+      "benchmark_annual_return": -0.02517898421841258,
+      "turnover_oneway_monthly": 0.05748268796180691,
+      "cost_drag_annual": 0.006923318942044846
+    }
+  },
+  "walkforward": [
+    {
+      "validation_year": 2019,
+      "train_years": "2016-2018",
+      "train_months": 33,
+      "chosen_top_n": 40,
+      "chosen_value_weight": 0.7,
+      "chosen_rebalance_months": 3,
+      "train_sharpe": 1.2115657256950179,
+      "test_months": 12,
+      "test_excess_annual": 0.025619388942547165,
+      "test_excess_t": 0.2452662960599476,
+      "center_test_excess_annual": -0.001985997902471826,
+      "sign": 1
+    },
+    {
+      "validation_year": 2020,
+      "train_years": "2017-2019",
+      "train_months": 36,
+      "chosen_top_n": 40,
+      "chosen_value_weight": 0.9,
+      "chosen_rebalance_months": 3,
+      "train_sharpe": 1.035624733846857,
+      "test_months": 12,
+      "test_excess_annual": -0.21159995794891834,
+      "test_excess_t": -1.5669930901486162,
+      "center_test_excess_annual": -0.2582619189594921,
+      "sign": -1
+    },
+    {
+      "validation_year": 2021,
+      "train_years": "2018-2020",
+      "train_months": 36,
+      "chosen_top_n": 40,
+      "chosen_value_weight": 0.9,
+      "chosen_rebalance_months": 6,
+      "train_sharpe": -0.09576542270415903,
+      "test_months": 12,
+      "test_excess_annual": 0.0497797260760002,
+      "test_excess_t": 0.495116289298003,
+      "center_test_excess_annual": 0.03622637318189842,
+      "sign": 1
+    },
+    {
+      "validation_year": 2022,
+      "train_years": "2019-2021",
+      "train_months": 36,
+      "chosen_top_n": 40,
+      "chosen_value_weight": 0.9,
+      "chosen_rebalance_months": 6,
+      "train_sharpe": -0.24069868595609212,
+      "test_months": 12,
+      "test_excess_annual": 0.3154340650102599,
+      "test_excess_t": 2.1069854450950616,
+      "center_test_excess_annual": 0.3299388499760386,
+      "sign": 1
+    },
+    {
+      "validation_year": 2023,
+      "train_years": "2020-2022",
+      "train_months": 36,
+      "chosen_top_n": 40,
+      "chosen_value_weight": 0.9,
+      "chosen_rebalance_months": 6,
+      "train_sharpe": 0.42561063642781854,
+      "test_months": 12,
+      "test_excess_annual": -0.03441118631985182,
+      "test_excess_t": -0.2166603344541971,
+      "center_test_excess_annual": -0.006932687049329311,
+      "sign": -1
+    },
+    {
+      "validation_year": 2024,
+      "train_years": "2021-2023",
+      "train_months": 36,
+      "chosen_top_n": 30,
+      "chosen_value_weight": 0.7,
+      "chosen_rebalance_months": 1,
+      "train_sharpe": 0.9172521654197249,
+      "test_months": 12,
+      "test_excess_annual": 0.3121013121992695,
+      "test_excess_t": 1.5920558375478564,
+      "center_test_excess_annual": 0.2789065829556765,
+      "sign": 1
+    },
+    {
+      "validation_year": 2025,
+      "train_years": "2022-2024",
+      "train_months": 36,
+      "chosen_top_n": 30,
+      "chosen_value_weight": 0.5,
+      "chosen_rebalance_months": 1,
+      "train_sharpe": 1.3612177962400425,
+      "test_months": 12,
+      "test_excess_annual": 0.09019172156693572,
+      "test_excess_t": 0.5664183798467785,
+      "center_test_excess_annual": 0.06718149852394201,
+      "sign": 1
+    }
+  ],
+  "robustness_neighbors_positive": 6,
+  "robustness_neighbors": 6,
+  "robustness_center_sharpe_ratio": 0.753082227214668,
+  "robustness": [
+    {
+      "top_n": 20,
+      "value_weight": 0.5,
+      "rebalance_months": 1,
+      "excess_annual": 0.06821819481412117,
+      "excess_t": 1.1275987280024136,
+      "sharpe": 0.42848666229091475,
+      "max_drawdown_percent": 34.80668320689392,
+      "turnover_oneway_monthly": 0.14413974785215125
+    },
+    {
+      "top_n": 20,
+      "value_weight": 0.5,
+      "rebalance_months": 3,
+      "excess_annual": 0.03849825794006398,
+      "excess_t": 0.6106945662851831,
+      "sharpe": 0.22949479779079876,
+      "max_drawdown_percent": 38.510718045240885,
+      "turnover_oneway_monthly": 0.07424619006852662
+    },
+    {
+      "top_n": 20,
+      "value_weight": 0.5,
+      "rebalance_months": 6,
+      "excess_annual": 0.06283575526175939,
+      "excess_t": 0.9965154735221573,
+      "sharpe": 0.38432267071278053,
+      "max_drawdown_percent": 32.90921479741013,
+      "turnover_oneway_monthly": 0.04717691663575244
+    },
+    {
+      "top_n": 20,
+      "value_weight": 0.7,
+      "rebalance_months": 1,
+      "excess_annual": 0.06895428896516216,
+      "excess_t": 1.1489729330120328,
+      "sharpe": 0.4410539095298357,
+      "max_drawdown_percent": 35.95581706532205,
+      "turnover_oneway_monthly": 0.10760488217365693
+    },
+    {
+      "top_n": 20,
+      "value_weight": 0.7,
+      "rebalance_months": 3,
+      "excess_annual": 0.055985910880079405,
+      "excess_t": 0.922162426688674,
+      "sharpe": 0.3661079438875162,
+      "max_drawdown_percent": 34.550307536836804,
+      "turnover_oneway_monthly": 0.06166894220839807
+    },
+    {
+      "top_n": 20,
+      "value_weight": 0.7,
+      "rebalance_months": 6,
+      "excess_annual": 0.048742598804077775,
+      "excess_t": 0.7897114677247801,
+      "sharpe": 0.3089169285413139,
+      "max_drawdown_percent": 33.41967918729485,
+      "turnover_oneway_monthly": 0.041506153535078395
+    },
+    {
+      "top_n": 20,
+      "value_weight": 0.9,
+      "rebalance_months": 1,
+      "excess_annual": 0.0653353127654187,
+      "excess_t": 1.0526230964520382,
+      "sharpe": 0.40539330747318764,
+      "max_drawdown_percent": 40.94972429906648,
+      "turnover_oneway_monthly": 0.0941930251411047
+    },
+    {
+      "top_n": 20,
+      "value_weight": 0.9,
+      "rebalance_months": 3,
+      "excess_annual": 0.06461140844767885,
+      "excess_t": 1.0484611691361327,
+      "sharpe": 0.41319345269957747,
+      "max_drawdown_percent": 34.25131508327155,
+      "turnover_oneway_monthly": 0.06324176695241161
+    },
+    {
+      "top_n": 20,
+      "value_weight": 0.9,
+      "rebalance_months": 6,
+      "excess_annual": 0.04474194412608708,
+      "excess_t": 0.7099753142710068,
+      "sharpe": 0.27542596839503475,
+      "max_drawdown_percent": 36.09418705279749,
+      "turnover_oneway_monthly": 0.0410166627867586
+    },
+    {
+      "top_n": 30,
+      "value_weight": 0.5,
+      "rebalance_months": 1,
+      "excess_annual": 0.08571784597936016,
+      "excess_t": 1.4822203093456283,
+      "sharpe": 0.5354937115172547,
+      "max_drawdown_percent": 36.2026827256726,
+      "turnover_oneway_monthly": 0.12437321107569058
+    },
+    {
+      "top_n": 30,
+      "value_weight": 0.5,
+      "rebalance_months": 3,
+      "excess_annual": 0.060135464799120186,
+      "excess_t": 1.0670992133327797,
+      "sharpe": 0.38154806077177233,
+      "max_drawdown_percent": 36.64523599898128,
+      "turnover_oneway_monthly": 0.06561097087379524
+    },
+    {
+      "top_n": 30,
+      "value_weight": 0.5,
+      "rebalance_months": 6,
+      "excess_annual": 0.06138759757722614,
+      "excess_t": 1.0690361374313526,
+      "sharpe": 0.3810103858974969,
+      "max_drawdown_percent": 36.71652443011307,
+      "turnover_oneway_monthly": 0.04068416891453099
+    },
+    {
+      "top_n": 30,
+      "value_weight": 0.7,
+      "rebalance_months": 1,
+      "excess_annual": 0.07997116198137971,
+      "excess_t": 1.410432266817825,
+      "sharpe": 0.5080301909599189,
+      "max_drawdown_percent": 35.51548400679687,
+      "turnover_oneway_monthly": 0.097460776736697
+    },
+    {
+      "top_n": 30,
+      "value_weight": 0.7,
+      "rebalance_months": 3,
+      "excess_annual": 0.06358181438946606,
+      "excess_t": 1.0969722697538853,
+      "sharpe": 0.40327079692886303,
+      "max_drawdown_percent": 36.0487477255975,
+      "turnover_oneway_monthly": 0.05748268796180691
+    },
+    {
+      "top_n": 30,
+      "value_weight": 0.7,
+      "rebalance_months": 6,
+      "excess_annual": 0.057377510657667836,
+      "excess_t": 0.9724492368209223,
+      "sharpe": 0.35294669351495767,
+      "max_drawdown_percent": 35.5253010530032,
+      "turnover_oneway_monthly": 0.03562231444020893
+    },
+    {
+      "top_n": 30,
+      "value_weight": 0.9,
+      "rebalance_months": 1,
+      "excess_annual": 0.061005774219860386,
+      "excess_t": 1.054161392163287,
+      "sharpe": 0.37013676549760643,
+      "max_drawdown_percent": 38.27626185708065,
+      "turnover_oneway_monthly": 0.10033420130170952
+    },
+    {
+      "top_n": 30,
+      "value_weight": 0.9,
+      "rebalance_months": 3,
+      "excess_annual": 0.05965514092882638,
+      "excess_t": 1.018770217762547,
+      "sharpe": 0.3657268029643044,
+      "max_drawdown_percent": 35.36521381199582,
+      "turnover_oneway_monthly": 0.059946326708949164
+    },
+    {
+      "top_n": 30,
+      "value_weight": 0.9,
+      "rebalance_months": 6,
+      "excess_annual": 0.061157659237860894,
+      "excess_t": 1.053892267123052,
+      "sharpe": 0.3684553677193069,
+      "max_drawdown_percent": 34.97861078838057,
+      "turnover_oneway_monthly": 0.03666310215166446
+    },
+    {
+      "top_n": 40,
+      "value_weight": 0.5,
+      "rebalance_months": 1,
+      "excess_annual": 0.07830945048803328,
+      "excess_t": 1.373140310175277,
+      "sharpe": 0.49406030562208836,
+      "max_drawdown_percent": 34.01943548288184,
+      "turnover_oneway_monthly": 0.1165048503278748
+    },
+    {
+      "top_n": 40,
+      "value_weight": 0.5,
+      "rebalance_months": 3,
+      "excess_annual": 0.07070084126213119,
+      "excess_t": 1.289538008110639,
+      "sharpe": 0.44033246091389977,
+      "max_drawdown_percent": 36.774849309266095,
+      "turnover_oneway_monthly": 0.06157805905722712
+    },
+    {
+      "top_n": 40,
+      "value_weight": 0.5,
+      "rebalance_months": 6,
+      "excess_annual": 0.07328961753950083,
+      "excess_t": 1.2998292238563625,
+      "sharpe": 0.45789418533527887,
+      "max_drawdown_percent": 35.26237654106454,
+      "turnover_oneway_monthly": 0.034815083344707363
+    },
+    {
+      "top_n": 40,
+      "value_weight": 0.7,
+      "rebalance_months": 1,
+      "excess_annual": 0.08257388480056291,
+      "excess_t": 1.465654915264371,
+      "sharpe": 0.5082695410813064,
+      "max_drawdown_percent": 33.82542403487419,
+      "turnover_oneway_monthly": 0.09836582187003814
+    },
+    {
+      "top_n": 40,
+      "value_weight": 0.7,
+      "rebalance_months": 3,
+      "excess_annual": 0.07481777949258203,
+      "excess_t": 1.343317812773331,
+      "sharpe": 0.45931349386160825,
+      "max_drawdown_percent": 35.61676278711726,
+      "turnover_oneway_monthly": 0.053390982029552655
+    },
+    {
+      "top_n": 40,
+      "value_weight": 0.7,
+      "rebalance_months": 6,
+      "excess_annual": 0.07149011082385051,
+      "excess_t": 1.2641341023849624,
+      "sharpe": 0.42922867680869936,
+      "max_drawdown_percent": 34.38297483011639,
+      "turnover_oneway_monthly": 0.03213936971449494
+    },
+    {
+      "top_n": 40,
+      "value_weight": 0.9,
+      "rebalance_months": 1,
+      "excess_annual": 0.06027501143373201,
+      "excess_t": 1.0736175088780437,
+      "sharpe": 0.36469226783175634,
+      "max_drawdown_percent": 35.69397876572194,
+      "turnover_oneway_monthly": 0.1028025055103434
+    },
+    {
+      "top_n": 40,
+      "value_weight": 0.9,
+      "rebalance_months": 3,
+      "excess_annual": 0.08195877495681238,
+      "excess_t": 1.4681271833314966,
+      "sharpe": 0.4986209977815238,
+      "max_drawdown_percent": 33.16640966717128,
+      "turnover_oneway_monthly": 0.05582656459592055
+    },
+    {
+      "top_n": 40,
+      "value_weight": 0.9,
+      "rebalance_months": 6,
+      "excess_annual": 0.08277486134236464,
+      "excess_t": 1.4765730981327516,
+      "sharpe": 0.49300343769577715,
+      "max_drawdown_percent": 34.555139715026435,
+      "turnover_oneway_monthly": 0.03401581449230531
+    }
+  ],
+  "factor_diagnostics": {
+    "full_period": {
+      "months": 125,
+      "ic_mean": 0.16578461749852288,
+      "ic_t": 11.696447009118094,
+      "icir": 1.0461620243044862,
+      "quintile_monthly_mean_ew": [
+        -0.02632135753571813,
+        -0.00549847434192186,
+        0.005937345754943021,
+        0.00683013549625133,
+        0.006182217903765874
+      ],
+      "quintile_monotonic_spearman": 0.8999999999999998,
+      "q5_q1_annual_ew": 0.390042905273808,
+      "q5_q1_t_ew": 5.220445808593251
+    },
+    "judgment_period": {
+      "months": 84,
+      "ic_mean": 0.1687132121345166,
+      "ic_t": 10.925645756527402,
+      "icir": 1.1920856832276163,
+      "quintile_monthly_mean_ew": [
+        -0.022765776642172237,
+        -0.003171230521832674,
+        0.010066467300813012,
+        0.007788705518995881,
+        0.007219880215419822
+      ],
+      "quintile_monotonic_spearman": 0.6,
+      "q5_q1_annual_ew": 0.3598278822911047,
+      "q5_q1_t_ew": 4.247983546586723
+    }
+  },
+  "cap_weighted": {
+    "months": 84,
+    "excess_monthly_mean": 0.010934325453969065,
+    "excess_t": 2.0690126049716224,
+    "excess_monthly_std": 0.04843602590500686,
+    "excess_t_newey_west": 2.201462439350212,
+    "excess_annual": 0.13121190544762878,
+    "net_annual_return": 0.11328156503409237,
+    "sharpe": 0.6105648180339697,
+    "max_drawdown_percent": 27.600058274090834,
+    "benchmark_annual_return": -0.02517898421841258,
+    "turnover_oneway_monthly": 0.026334372633740537,
+    "cost_drag_annual": 0.0018503495010936584
+  },
+  "cap_over_equal_ratio": 2.063670354606417,
+  "center_vs_cap_benchmark_annual": 0.01074447574042618,
+  "cap_weighted_vs_cap_benchmark_annual": 0.07837456679858888,
+  "size_buckets": {
+    "소형": {
+      "months": 84,
+      "excess_monthly_mean": 0.012119687369362572,
+      "excess_t": 2.1836434791274506,
+      "excess_monthly_std": 0.05086854635400176,
+      "excess_t_newey_west": 2.638939148602637,
+      "excess_annual": 0.14543624843235087,
+      "net_annual_return": 0.030538919814992127,
+      "sharpe": 0.24323982564098953,
+      "max_drawdown_percent": 49.442916468625,
+      "benchmark_annual_return": -0.10710482647243147,
+      "turnover_oneway_monthly": 0.283969986209577,
+      "cost_drag_annual": 0.020382943125911497
+    },
+    "중형": {
+      "months": 84,
+      "excess_monthly_mean": 0.003471105675731691,
+      "excess_t": 0.6063166904385747,
+      "excess_monthly_std": 0.05246962438960863,
+      "excess_t_newey_west": 0.7078970778728833,
+      "excess_annual": 0.04165326810878029,
+      "net_annual_return": 0.03607484326553778,
+      "sharpe": 0.2687627964010349,
+      "max_drawdown_percent": 38.20514361758359,
+      "benchmark_annual_return": -0.007801785219022972,
+      "turnover_oneway_monthly": 0.20757048854814528,
+      "cost_drag_annual": 0.014690035690770358
+    },
+    "대형": {
+      "months": 84,
+      "excess_monthly_mean": -0.0007912463371502417,
+      "excess_t": -0.15986403125262214,
+      "excess_monthly_std": 0.04536287750204045,
+      "excess_t_newey_west": -0.16688230513673755,
+      "excess_annual": -0.0094949560458029,
+      "net_annual_return": 0.037435139354461855,
+      "sharpe": 0.3305198650122594,
+      "max_drawdown_percent": 32.4261748145185,
+      "benchmark_annual_return": 0.03671782880632324,
+      "turnover_oneway_monthly": 0.05490278214784544,
+      "cost_drag_annual": 0.0038803661044286087
+    }
+  },
+  "capacity": {
+    "rebalance_months": 28,
+    "limit_10pct": {
+      "median_billion_krw": 172.08066456388883,
+      "p10_billion_krw": 155.35214852595,
+      "min_billion_krw": 151.84101015
+    },
+    "limit_5pct": {
+      "median_billion_krw": 86.04033228194442,
+      "p10_billion_krw": 77.676074262975,
+      "min_billion_krw": 75.920505075
+    }
+  },
+  "delisted_holdings": {
+    "count": 0
+  },
+  "universe_size_median": 429,
+  "first_signal_month": "2016-04",
+  "ttm_fallback_share": 0.0,
+  "benchmark": "같은 달 유니버스 동일가중, 비용 없음",
+  "dividends": "제외(일봉에 배당 없음, 보수적)",
+  "seed": 20260920,
+  "git_commit": "306de4b",
+  "data_fingerprint": {
+    "PYQuant/data/fin/fin_point_in_time.parquet": {
+      "size": 16256419,
+      "sha256_size_mtime": "1f2156565b956c84"
+    },
+    "PYQuant/data/fin/shares_point_in_time.parquet": {
+      "size": 518390,
+      "sha256_size_mtime": "c7182c4da35d9b86"
+    },
+    "PYQuant/data/bars_all_pit_v2.parquet": {
+      "size": 258869646,
+      "sha256_size_mtime": "608ccd173c9929a6"
+    },
+    "membership": {
+      "size": 120749
+    }
+  },
+  "generated_at": "2026-09-20T16:58:51",
+  "rerun_command": "py research/studies/18_factor_harness/run_low_volatility.py --cost mid",
+  "elapsed_seconds": 26.2,
+  "turnover_floor_billion_krw": 50,
+  "layer2_min_positive": 6,
+  "signal": {
+    "z_value": "-z(log σ_250d)",
+    "z_quality": "-z(log σ_20d)"
+  },
+  "benchmark_judgment": {
+    "annual_return": -0.02517898421841258,
+    "sharpe": -0.00767474608112828,
+    "max_drawdown_percent": 55.11341228934431
+  }
+}

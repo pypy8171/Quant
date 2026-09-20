@@ -1,0 +1,377 @@
+{
+  "study": "18_factor_harness/low_volatility_top30_w07_quarterly_floor30_50",
+  "sample_n": 73881,
+  "period": "2016-04~2026-08",
+  "holdout": "2019-01~2025-12 (walk-forward 검증 7창 합)",
+  "sharpe": 0.3535985831260586,
+  "mdd": 36.697300360309356,
+  "t_stat": 0.7216625757047577,
+  "walk_forward_windows_positive": 4,
+  "walk_forward_windows": 7,
+  "trials_prior": 27,
+  "cost_level": "mid",
+  "cost_spec": {
+    "commission_percent": 0.015,
+    "sell_tax_percent": 0.2,
+    "slippage_ticks": 1,
+    "impact_percent": 0.05
+  },
+  "grade": "B",
+  "signal": {
+    "z_value": "-z(log σ_250d)",
+    "z_quality": "-z(log σ_20d)"
+  },
+  "verdict": {
+    "overall": "미달",
+    "one_line": "하한 30억: 초과수익 연 +4.34%(t 0.72), 창 4/7, 이웃 6/6, MDD 36.7%(유니버스 51.9%) → 미달. 하한 50억: 연 +6.36%(t 1.10), 창 5/7, 이웃 6/6, MDD 36.0%(유니버스 55.1%) → 미달.",
+    "floor_30": {
+      "layer1": false,
+      "layer2": false,
+      "layer3": false,
+      "overall": "미달",
+      "small_only": false,
+      "one_line": "저PBR×고ROE 상위 30 동일가중(w=0.7, 분기 리밸)은 비용 MID 뒤 판정 구간 초과수익 연 +4.34%(t 0.72), walk-forward 4/7창 양수, 이웃 6/6 양수. 시총가중은 연 +12.15%, 용량(10% 한도) 중앙값 106억."
+    },
+    "floor_50": {
+      "layer1": false,
+      "layer2": false,
+      "layer3": true,
+      "overall": "미달",
+      "small_only": false,
+      "one_line": "저PBR×고ROE 상위 30 동일가중(w=0.7, 분기 리밸)은 비용 MID 뒤 판정 구간 초과수익 연 +6.36%(t 1.10), walk-forward 5/7창 양수, 이웃 6/6 양수. 시총가중은 연 +13.12%, 용량(10% 한도) 중앙값 172억."
+    }
+  },
+  "layer2_min_positive": 6,
+  "turnover_floors_billion_krw": [
+    30,
+    50
+  ],
+  "by_floor": {
+    "30": {
+      "center_judgment": {
+        "months": 84,
+        "excess_monthly_mean": 0.0036168614317444205,
+        "excess_t": 0.7216625757047577,
+        "excess_monthly_std": 0.045934324009940186,
+        "excess_t_newey_west": 0.7427243227382846,
+        "excess_annual": 0.043402337180933045,
+        "net_annual_return": 0.04372288377366318,
+        "sharpe": 0.3535985831260586,
+        "max_drawdown_percent": 36.697300360309356,
+        "benchmark_annual_return": -0.012672954577491513,
+        "turnover_oneway_monthly": 0.059760094091524746,
+        "cost_drag_annual": 0.0042733088313088976
+      },
+      "benchmark_judgment": {
+        "annual_return": -0.012672954577491846,
+        "sharpe": 0.052021488236214365,
+        "max_drawdown_percent": 51.92349656049778
+      },
+      "observation_window": {
+        "months": 8,
+        "excess_monthly_mean": 0.0022152847471810094,
+        "excess_t": 0.0573452337909105,
+        "excess_monthly_std": 0.10926403213925738,
+        "excess_t_newey_west": 0.07149345276460149,
+        "excess_annual": 0.026583416966172113,
+        "net_annual_return": 0.09745396932553985,
+        "sharpe": 0.4987575521963371,
+        "max_drawdown_percent": 14.791858584254317,
+        "benchmark_annual_return": -0.017860641926661258,
+        "turnover_oneway_monthly": 0.10471462097677597,
+        "cost_drag_annual": 0.007115314688555241
+      },
+      "walk_forward_windows_positive": 4,
+      "robustness_neighbors_positive": 6,
+      "robustness_center_sharpe_ratio": 0.657264047164126,
+      "cap_weighted": {
+        "months": 84,
+        "excess_monthly_mean": 0.010123933868573288,
+        "excess_t": 1.8040680808287166,
+        "excess_monthly_std": 0.051432308765368535,
+        "excess_t_newey_west": 1.8256052513764736,
+        "excess_annual": 0.12148720642287945,
+        "net_annual_return": 0.11475333544170097,
+        "sharpe": 0.597346390624762,
+        "max_drawdown_percent": 29.027493628559615,
+        "benchmark_annual_return": -0.012672954577491513,
+        "turnover_oneway_monthly": 0.024458795037749656,
+        "cost_drag_annual": 0.0017278703944639965
+      },
+      "size_buckets": {
+        "소형": {
+          "months": 84,
+          "excess_monthly_mean": -0.0002681200055252736,
+          "excess_t": -0.05132188756583897,
+          "excess_monthly_std": 0.0478813340244088,
+          "excess_t_newey_west": -0.057414535160143665,
+          "excess_annual": -0.0032174400663032834,
+          "net_annual_return": -0.05296438173303175,
+          "sharpe": -0.10966582390198677,
+          "max_drawdown_percent": 59.7312720028193,
+          "benchmark_annual_return": -0.05261309777970369,
+          "turnover_oneway_monthly": 0.2921734752515439,
+          "cost_drag_annual": 0.02102065819512402
+        },
+        "중형": {
+          "months": 84,
+          "excess_monthly_mean": 0.0014644104022299884,
+          "excess_t": 0.2668120570190325,
+          "excess_monthly_std": 0.050303360287956934,
+          "excess_t_newey_west": 0.2783015130719788,
+          "excess_annual": 0.017572924826759862,
+          "net_annual_return": 0.022273188686932288,
+          "sharpe": 0.21139377742964252,
+          "max_drawdown_percent": 40.41960672113774,
+          "benchmark_annual_return": -0.008028070952705968,
+          "turnover_oneway_monthly": 0.2192749210957685,
+          "cost_drag_annual": 0.01576817888327697
+        },
+        "대형": {
+          "months": 84,
+          "excess_monthly_mean": -0.0012364150571040496,
+          "excess_t": -0.25461567452832157,
+          "excess_monthly_std": 0.044506023441476805,
+          "excess_t_newey_west": -0.2512947530532506,
+          "excess_annual": -0.014836980685248595,
+          "net_annual_return": 0.010675892008503274,
+          "sharpe": 0.14596311991743965,
+          "max_drawdown_percent": 37.21597250603967,
+          "benchmark_annual_return": 0.01710063211309687,
+          "turnover_oneway_monthly": 0.05045687231136477,
+          "cost_drag_annual": 0.0035962726070956946
+        }
+      },
+      "capacity": {
+        "rebalance_months": 28,
+        "limit_10pct": {
+          "median_billion_krw": 106.15400310975002,
+          "p10_billion_krw": 92.73939791100001,
+          "min_billion_krw": 90.951558375
+        },
+        "limit_5pct": {
+          "median_billion_krw": 53.07700155487501,
+          "p10_billion_krw": 46.369698955500006,
+          "min_billion_krw": 45.4757791875
+        }
+      },
+      "universe_size_median": 583,
+      "factor_diagnostics": {
+        "full_period": {
+          "months": 125,
+          "ic_mean": 0.15378370254126783,
+          "ic_t": 11.346523163989227,
+          "icir": 1.0148638841182362,
+          "quintile_monthly_mean_ew": [
+            -0.022872554101890395,
+            -0.0012904052074602032,
+            0.004397409715702048,
+            0.007040495727977016,
+            0.0058509327841018265
+          ],
+          "quintile_monotonic_spearman": 0.8999999999999998,
+          "q5_q1_annual_ew": 0.3446818426319067,
+          "q5_q1_t_ew": 4.93768871235666
+        },
+        "judgment_period": {
+          "months": 84,
+          "ic_mean": 0.15678448554208013,
+          "ic_t": 10.663633406166083,
+          "icir": 1.163497792071806,
+          "quintile_monthly_mean_ew": [
+            -0.019702039962659682,
+            -0.00024115174377837978,
+            0.009613860236324592,
+            0.007791687478058827,
+            0.007246247983479882
+          ],
+          "quintile_monotonic_spearman": 0.6,
+          "q5_q1_annual_ew": 0.32337945535367474,
+          "q5_q1_t_ew": 4.2148017567065175
+        }
+      },
+      "verdict": {
+        "layer1": false,
+        "layer2": false,
+        "layer3": false,
+        "overall": "미달",
+        "small_only": false,
+        "one_line": "저PBR×고ROE 상위 30 동일가중(w=0.7, 분기 리밸)은 비용 MID 뒤 판정 구간 초과수익 연 +4.34%(t 0.72), walk-forward 4/7창 양수, 이웃 6/6 양수. 시총가중은 연 +12.15%, 용량(10% 한도) 중앙값 106억."
+      }
+    },
+    "50": {
+      "center_judgment": {
+        "months": 84,
+        "excess_monthly_mean": 0.005298484532455504,
+        "excess_t": 1.0969722697538853,
+        "excess_monthly_std": 0.044268587471181245,
+        "excess_t_newey_west": 1.127924099165395,
+        "excess_annual": 0.06358181438946606,
+        "net_annual_return": 0.051377314177327715,
+        "sharpe": 0.40327079692886303,
+        "max_drawdown_percent": 36.0487477255975,
+        "benchmark_annual_return": -0.02517898421841258,
+        "turnover_oneway_monthly": 0.05748268796180691,
+        "cost_drag_annual": 0.004116962113787023
+      },
+      "benchmark_judgment": {
+        "annual_return": -0.02517898421841258,
+        "sharpe": -0.00767474608112828,
+        "max_drawdown_percent": 55.11341228934431
+      },
+      "observation_window": {
+        "months": 8,
+        "excess_monthly_mean": 0.013103515648015061,
+        "excess_t": 0.3242101499307975,
+        "excess_monthly_std": 0.11431578899147016,
+        "excess_t_newey_west": 0.36798274538571657,
+        "excess_annual": 0.15724218777618074,
+        "net_annual_return": 0.2562213745518245,
+        "sharpe": 0.9739813835431195,
+        "max_drawdown_percent": 14.712857503801741,
+        "benchmark_annual_return": -0.01005820990971884,
+        "turnover_oneway_monthly": 0.07675425187547556,
+        "cost_drag_annual": 0.0052198715737102955
+      },
+      "walk_forward_windows_positive": 5,
+      "robustness_neighbors_positive": 6,
+      "robustness_center_sharpe_ratio": 0.753082227214668,
+      "cap_weighted": {
+        "months": 84,
+        "excess_monthly_mean": 0.010934325453969065,
+        "excess_t": 2.0690126049716224,
+        "excess_monthly_std": 0.04843602590500686,
+        "excess_t_newey_west": 2.201462439350212,
+        "excess_annual": 0.13121190544762878,
+        "net_annual_return": 0.11328156503409237,
+        "sharpe": 0.6105648180339697,
+        "max_drawdown_percent": 27.600058274090834,
+        "benchmark_annual_return": -0.02517898421841258,
+        "turnover_oneway_monthly": 0.026334372633740537,
+        "cost_drag_annual": 0.0018503495010936584
+      },
+      "size_buckets": {
+        "소형": {
+          "months": 84,
+          "excess_monthly_mean": 0.012119687369362572,
+          "excess_t": 2.1836434791274506,
+          "excess_monthly_std": 0.05086854635400176,
+          "excess_t_newey_west": 2.638939148602637,
+          "excess_annual": 0.14543624843235087,
+          "net_annual_return": 0.030538919814992127,
+          "sharpe": 0.24323982564098953,
+          "max_drawdown_percent": 49.442916468625,
+          "benchmark_annual_return": -0.10710482647243147,
+          "turnover_oneway_monthly": 0.283969986209577,
+          "cost_drag_annual": 0.020382943125911497
+        },
+        "중형": {
+          "months": 84,
+          "excess_monthly_mean": 0.003471105675731691,
+          "excess_t": 0.6063166904385747,
+          "excess_monthly_std": 0.05246962438960863,
+          "excess_t_newey_west": 0.7078970778728833,
+          "excess_annual": 0.04165326810878029,
+          "net_annual_return": 0.03607484326553778,
+          "sharpe": 0.2687627964010349,
+          "max_drawdown_percent": 38.20514361758359,
+          "benchmark_annual_return": -0.007801785219022972,
+          "turnover_oneway_monthly": 0.20757048854814528,
+          "cost_drag_annual": 0.014690035690770358
+        },
+        "대형": {
+          "months": 84,
+          "excess_monthly_mean": -0.0007912463371502417,
+          "excess_t": -0.15986403125262214,
+          "excess_monthly_std": 0.04536287750204045,
+          "excess_t_newey_west": -0.16688230513673755,
+          "excess_annual": -0.0094949560458029,
+          "net_annual_return": 0.037435139354461855,
+          "sharpe": 0.3305198650122594,
+          "max_drawdown_percent": 32.4261748145185,
+          "benchmark_annual_return": 0.03671782880632324,
+          "turnover_oneway_monthly": 0.05490278214784544,
+          "cost_drag_annual": 0.0038803661044286087
+        }
+      },
+      "capacity": {
+        "rebalance_months": 28,
+        "limit_10pct": {
+          "median_billion_krw": 172.08066456388883,
+          "p10_billion_krw": 155.35214852595,
+          "min_billion_krw": 151.84101015
+        },
+        "limit_5pct": {
+          "median_billion_krw": 86.04033228194442,
+          "p10_billion_krw": 77.676074262975,
+          "min_billion_krw": 75.920505075
+        }
+      },
+      "universe_size_median": 429,
+      "factor_diagnostics": {
+        "full_period": {
+          "months": 125,
+          "ic_mean": 0.16578461749852288,
+          "ic_t": 11.696447009118094,
+          "icir": 1.0461620243044862,
+          "quintile_monthly_mean_ew": [
+            -0.02632135753571813,
+            -0.00549847434192186,
+            0.005937345754943021,
+            0.00683013549625133,
+            0.006182217903765874
+          ],
+          "quintile_monotonic_spearman": 0.8999999999999998,
+          "q5_q1_annual_ew": 0.390042905273808,
+          "q5_q1_t_ew": 5.220445808593251
+        },
+        "judgment_period": {
+          "months": 84,
+          "ic_mean": 0.1687132121345166,
+          "ic_t": 10.925645756527402,
+          "icir": 1.1920856832276163,
+          "quintile_monthly_mean_ew": [
+            -0.022765776642172237,
+            -0.003171230521832674,
+            0.010066467300813012,
+            0.007788705518995881,
+            0.007219880215419822
+          ],
+          "quintile_monotonic_spearman": 0.6,
+          "q5_q1_annual_ew": 0.3598278822911047,
+          "q5_q1_t_ew": 4.247983546586723
+        }
+      },
+      "verdict": {
+        "layer1": false,
+        "layer2": false,
+        "layer3": true,
+        "overall": "미달",
+        "small_only": false,
+        "one_line": "저PBR×고ROE 상위 30 동일가중(w=0.7, 분기 리밸)은 비용 MID 뒤 판정 구간 초과수익 연 +6.36%(t 1.10), walk-forward 5/7창 양수, 이웃 6/6 양수. 시총가중은 연 +13.12%, 용량(10% 한도) 중앙값 172억."
+      }
+    }
+  },
+  "seed": 20260920,
+  "git_commit": "306de4b",
+  "data_fingerprint": {
+    "PYQuant/data/fin/fin_point_in_time.parquet": {
+      "size": 16256419,
+      "sha256_size_mtime": "1f2156565b956c84"
+    },
+    "PYQuant/data/fin/shares_point_in_time.parquet": {
+      "size": 518390,
+      "sha256_size_mtime": "c7182c4da35d9b86"
+    },
+    "PYQuant/data/bars_all_pit_v2.parquet": {
+      "size": 258869646,
+      "sha256_size_mtime": "608ccd173c9929a6"
+    },
+    "membership": {
+      "size": 120749
+    }
+  },
+  "generated_at": "2026-09-20T16:58:51",
+  "rerun_command": "py research/studies/18_factor_harness/run_low_volatility.py --cost mid",
+  "elapsed_seconds": 61.2
+}
