@@ -442,9 +442,10 @@ graph LR
   p_PYQuant --> p_PYQuant_core
   p_PYQuant -->|4| p_PYQuant_data
   p_PYQuant --> p_PYQuant_db
+  p_PYQuant --> p_PYQuant_features
   p_PYQuant -->|2| p_PYQuant_ipc
   p_PYQuant --> p_PYQuant_kis
-  p_PYQuant -->|2| p_PYQuant_live
+  p_PYQuant -->|3| p_PYQuant_live
   p_PYQuant --> p_PYQuant_report
   p_PYQuant -->|5| p_PYQuant_strategy
   p_PYQuant_backtest --> p_PYQuant_data
@@ -457,9 +458,10 @@ graph LR
   p_PYQuant_ipc -->|2| p_PYQuant_core
   p_PYQuant_kis --> p_PYQuant_core
   p_PYQuant_live --> p_PYQuant
-  p_PYQuant_live --> p_PYQuant_backtest
+  p_PYQuant_live -->|2| p_PYQuant_backtest
+  p_PYQuant_live --> p_PYQuant_features
   p_PYQuant_live -->|2| p_PYQuant_kis
-  p_PYQuant_live --> p_PYQuant_strategy
+  p_PYQuant_live -->|2| p_PYQuant_strategy
   p_PYQuant_strategy -->|6| p_PYQuant_kis
   p_PYQuant_tests -->|6| p_PYQuant_backtest
   p_PYQuant_tests -->|3| p_PYQuant_data
@@ -497,9 +499,10 @@ graph LR
 | `PYQuant/ipc/operator.py` | `core.logger` |
 | `PYQuant/ipc/subscriber.py` | `core.logger` |
 | `PYQuant/kis/client.py` | `core.logger`, `kis.endpoints` |
+| `PYQuant/live/basket_forward.py` | `backtest.engine`, `features`, `strategy.cross_momentum` |
 | `PYQuant/live/forward_trader.py` | `backtest.engine`, `kis.client`, `main` |
 | `PYQuant/live/trader.py` | `kis.client`, `strategy.base` |
-| `PYQuant/main.py` | `backtest.engine`, `backtest.report`, `core.logger`, `data.datagokr_source`, `data.krx_source`, `data.universe_kospi`, `data.yfinance_source`, `db.client`, `ipc.operator`, `ipc.subscriber`, `kis.client`, `live.forward_trader`, `live.trader`, `report.account`, `strategy.cross_momentum`, `strategy.mean_reversion`, `strategy.strategy_a`, `strategy.supply_demand_rank`, `strategy.value_contrary` |
+| `PYQuant/main.py` | `backtest.engine`, `backtest.report`, `core.logger`, `data.datagokr_source`, `data.krx_source`, `data.universe_kospi`, `data.yfinance_source`, `db.client`, `features.fundamental`, `ipc.operator`, `ipc.subscriber`, `kis.client`, `live.basket_forward`, `live.forward_trader`, `live.trader`, `report.account`, `strategy.cross_momentum`, `strategy.mean_reversion`, `strategy.strategy_a`, `strategy.supply_demand_rank`, `strategy.value_contrary` |
 | `PYQuant/strategy/base.py` | `kis.client` |
 | `PYQuant/strategy/channel_breakout.py` | `strategy.base` |
 | `PYQuant/strategy/cross_momentum.py` | `kis.client`, `strategy.base` |

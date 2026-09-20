@@ -1172,6 +1172,7 @@
       "PYQuant/kis/client.py",
       "PYQuant/kis/endpoints.py",
       "PYQuant/live/__init__.py",
+      "PYQuant/live/basket_forward.py",
       "PYQuant/live/forward_trader.py",
       "PYQuant/live/trader.py",
       "PYQuant/main.py",
@@ -1314,6 +1315,11 @@
         "core.logger",
         "kis.endpoints"
       ],
+      "PYQuant/live/basket_forward.py": [
+        "backtest.engine",
+        "features",
+        "strategy.cross_momentum"
+      ],
       "PYQuant/live/forward_trader.py": [
         "backtest.engine",
         "kis.client",
@@ -1332,9 +1338,11 @@
         "data.universe_kospi",
         "data.yfinance_source",
         "db.client",
+        "features.fundamental",
         "ipc.operator",
         "ipc.subscriber",
         "kis.client",
+        "live.basket_forward",
         "live.forward_trader",
         "live.trader",
         "report.account",
@@ -1571,6 +1579,7 @@
       ],
       "backtest.engine": [
         "PYQuant/backtest/report.py",
+        "PYQuant/live/basket_forward.py",
         "PYQuant/live/forward_trader.py",
         "PYQuant/main.py",
         "PYQuant/tests/test_backtest_engine.py",
@@ -1646,9 +1655,11 @@
         "scripts/exit_ev_dashboard.py"
       ],
       "features": [
+        "PYQuant/live/basket_forward.py",
         "PYQuant/tests/test_regime_axes.py"
       ],
       "features.fundamental": [
+        "PYQuant/main.py",
         "PYQuant/tools/minute_backfill_pairs.py"
       ],
       "gen_tuning_sheet": [
@@ -1694,6 +1705,9 @@
       "kis.endpoints": [
         "PYQuant/kis/client.py"
       ],
+      "live.basket_forward": [
+        "PYQuant/main.py"
+      ],
       "live.forward_trader": [
         "PYQuant/main.py"
       ],
@@ -1736,6 +1750,7 @@
         "PYQuant/strategy/value_contrary.py"
       ],
       "strategy.cross_momentum": [
+        "PYQuant/live/basket_forward.py",
         "PYQuant/main.py"
       ],
       "strategy.indicators": [
@@ -1788,6 +1803,11 @@
       },
       {
         "from": "PYQuant",
+        "to": "PYQuant/features",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant",
         "to": "PYQuant/ipc",
         "weight": 2
       },
@@ -1799,7 +1819,7 @@
       {
         "from": "PYQuant",
         "to": "PYQuant/live",
-        "weight": 2
+        "weight": 3
       },
       {
         "from": "PYQuant",
@@ -1864,6 +1884,11 @@
       {
         "from": "PYQuant/live",
         "to": "PYQuant/backtest",
+        "weight": 2
+      },
+      {
+        "from": "PYQuant/live",
+        "to": "PYQuant/features",
         "weight": 1
       },
       {
@@ -1874,7 +1899,7 @@
       {
         "from": "PYQuant/live",
         "to": "PYQuant/strategy",
-        "weight": 1
+        "weight": 2
       },
       {
         "from": "PYQuant/strategy",

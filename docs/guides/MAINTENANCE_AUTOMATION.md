@@ -127,6 +127,14 @@ static·reinterpret·const 세 가지를 겸해 무엇을 의도했는지 코드
   환산), 문자열 안, `Quant/tests/`(고정값이 곧 검증 대상).
 - 검사는 `../quant-devtools/check_code_conventions.py` 8번 규칙이 추가된 C++ 코드 줄만 본다(오류, 세 자리 이상).
 
+컨테이너 키 표기 — `std::unordered_map<std::string, …>`·`std::unordered_set<std::string>`은 가급적 쓰지 않는다.
+문자열 해시는 길이만큼 바이트를 읽으므로 키 길이에 따라 비용이 달라지고, 조회마다 비교도 길이에 비례한다. 종목은
+`symbol::SymbolId`(`Quant/include/core/SymbolTable.h`), 전략은 `strategy_table::StrategyId`, 주문번호는 `uint64_t`, 체결 키는
+`fill_key::FillKey`로 기동 때 한 번 정수로 바꾸고 그 뒤로는 정수 키나 배열 인덱스로 찾는다(D-112 — 체결 키 296 → 31 ns).
+"절대"가 아니라 "가급적"인 이유는 입력 자체가 문자열인 경계가 있어서다 — config 열거값, REST·WebSocket 응답 필드,
+캡처 파일 헤더, 운영단말이 넘기는 cid. 그런 자리는 문자열 키를 써도 되고, 대신 왜 문자열인지 한 줄 주석을 붙인다
+(예: `Quant/include/core/FeedMux.h`의 `assign_`, `Quant/include/core/DataPoller.h`의 `rest_seen_`).
+
 초기화 위치 — 초기화는 세 목록에만 쓴다. 프로세스 수준(콘솔·로거·인자·설정·크래시 핸들러·모드 분기)은
 `Quant/src/main.cpp`의 `main()` 호출 목록, 설정값을 엔진 세터에 옮기는 배선은 `Engine::configure(const AppConfig&)`
 (`Quant/src/core/EngineConfigure.cpp`)의 호출 목록, 엔진 수준(샤드·인증·주문 라우터·원장·전략·피드·스레드)은
