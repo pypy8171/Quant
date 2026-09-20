@@ -82,8 +82,8 @@ public:
         last_submit_ = now;
     }
 
-    // 거부 결과를 보고 재시도를 예약한다. 예약했으면 true.
-    bool on_rejected(const Pending& pending, OrderStatus status, const std::string& reject_reason, Clock::time_point now);
+    // 거부 결과를 보고 재시도를 예약한다. 예약했으면 true. pending은 재시도 버퍼로 옮겨 담는 자리라 값으로 받는다(sink).
+    bool on_rejected(Pending pending, OrderStatus status, const std::string& reject_reason, Clock::time_point now);
 
     std::size_t retry_count() const
     {

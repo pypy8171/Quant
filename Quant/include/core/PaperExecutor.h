@@ -23,6 +23,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace feed
@@ -149,7 +150,7 @@ public:
                 open_order.psbl_qty              = item.signal.quantity;
                 open_order.ord_unpr              = item.signal.price;
                 open_order.side                  = item.signal.side;
-                out.push_back(open_order);
+                out.push_back(std::move(open_order));
             }
         }
 
@@ -211,7 +212,7 @@ public:
                 --open_orders_;
             }
 
-            callback = on_fill_;
+            callback = on_fill_; // 락 밖에서 부르려 뜬 사본 — set_fill_callback이 사이에 갈아끼워도 안전하다
         }
 
         fills_ += fills.size();
@@ -236,11 +237,10 @@ public:
         {
             const double last  = symbol_id < last_price_.size() ? last_price_[symbol_id] : 0.0;
             const double price = last > 0.0 ? last : book_entry.average_price;
-            Holding      out   = book_entry;
+            Holding&     out   = balance.holdings.emplace_back(book_entry);
             out.evaluation_pnl    = (price - book_entry.average_price) * book_entry.quantity;
             out.sellable_quantity = book_entry.quantity - pending_sell_locked(symbol_id);
             evaluation += price * book_entry.quantity;
-            balance.holdings.push_back(out);
         }
 
         balance.total_evaluation_amount  = evaluation;

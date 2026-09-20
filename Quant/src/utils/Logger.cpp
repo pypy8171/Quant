@@ -356,6 +356,7 @@ void Logger::set_base_directory(const std::filesystem::path& directory)
     implementation_->base_directory_ready_ = false;
 }
 
+// 값으로 돌려주는 것은 의도한 복사다 — 락 안에서 뜬 스냅샷이라, 참조를 내주면 set_base_directory와 경쟁한다.
 std::filesystem::path Logger::base_directory()
 {
     std::lock_guard<std::mutex> lock(implementation_->config_mutex_);

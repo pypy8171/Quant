@@ -13,7 +13,7 @@ constexpr int kSessionCloseHHMM = 1530;  // 15:30 정규장 종료
 // "HHMMSS"(또는 "HHMM") 앞 4자리를 HHMM 정수로. 형식 불량이면 0.
 // 앞 4자리가 전부 숫자여야 한다 — stoi는 "1a"를 1로 받아 "1a30"이 130(장 밖이지만 유효값)으로 새고,
 // "+930"은 930으로 장중 판정된다.
-inline int parse_hhmm(const std::string& ticker)
+inline int parse_hhmm(std::string_view ticker)
 {
     if (ticker.size() < 4)
     {
@@ -37,7 +37,7 @@ inline bool in_session(int hhmm)
     return hhmm >= kSessionOpenHHMM && hhmm < kSessionCloseHHMM;
 }
 
-inline bool in_session_string(const std::string& ticker)
+inline bool in_session_string(std::string_view ticker)
 {
     return in_session(parse_hhmm(ticker));
 }

@@ -55,7 +55,7 @@ constexpr std::array<int, 256> kBase64Table = make_base64_table();
 
 } // namespace
 
-std::string KisWebSocket::base64_decode(const std::string& in)
+std::string KisWebSocket::base64_decode(std::string_view in)
 {
     std::string out;
     int value = 0, value_bits = -8;
@@ -366,8 +366,10 @@ void KisWebSocket::subscribe_specification(const WatchSpec& specification)
     else
     {
         // 미국: HDFSCNT0, tr_key = "EXCH|SYMBOL"
-        std::string exch = specification.exchange.empty() ? "NAS" : specification.exchange;
-        send_subscribe("HDFSCNT0", exch + "|" + specification.ticker);
+        std::string tr_key(specification.exchange.empty() ? std::string_view("NAS") : std::string_view(specification.exchange));
+        tr_key += '|';
+        tr_key += specification.ticker;
+        send_subscribe("HDFSCNT0", tr_key);
     }
 }
 
@@ -484,13 +486,13 @@ void KisWebSocket::subscribe_all()
 
     std::vector<WatchSpec> skipped;
 
-    for (const auto& specification : snapshot)
+    for (auto& specification : snapshot) // 밀린 항목은 snapshot에서 옮긴다 — 이 뒤로 snapshot을 안 쓴다
     {
         const int need = specification_channel_count(specification);
 
         if (used + need > kMaxWsSubs)
         {
-            skipped.push_back(specification);
+            skipped.push_back(std::move(specification));
             continue;
         }
 
@@ -507,7 +509,7 @@ void KisWebSocket::subscribe_all()
         //  틱 없이 조용히 매매하지 않는다(09-11 청산 관리 시드 13종목, 465770 −6%에도 무반응).
         std::lock_guard<std::mutex> lock(specifications_mutex_);
 
-        for (const auto& specification : skipped)
+        for (auto& specification : skipped)
         {
             for (auto iterator = specifications_.begin(); iterator != specifications_.end(); ++iterator)
             {
@@ -519,7 +521,7 @@ void KisWebSocket::subscribe_all()
                 }
             }
 
-            overflow_specifications_.push_back(specification);
+            overflow_specifications_.push_back(std::move(specification));
         }
 
         LOG_WARN("[WS] 구독 상한 " + std::to_string(kMaxWsSubs) + " 도달 — 시세 " +
@@ -627,15 +629,15 @@ void KisWebSocket::handle_data_frame(const std::string& message)
     {
         if (aes_key_.empty() || aes_iv_.empty())
         {
-            LOG_WARN("[WS] 암호화 프레임 수신했으나 key/iv 미확보 — drop tr_id=" + std::string(transaction_id));
+            LOG_WARN(std::string("[WS] 암호화 프레임 수신했으나 key/iv 미확보 — drop tr_id=").append(transaction_id));
             return;
         }
 
-        plain = websocket_platform::aes_cbc_decrypt(base64_decode(std::string(data)), aes_key_, aes_iv_);
+        plain = websocket_platform::aes_cbc_decrypt(base64_decode(data), aes_key_, aes_iv_);
 
         if (plain.empty())
         {
-            LOG_WARN("[WS] 체결통보 복호화 실패 tr_id=" + std::string(transaction_id));
+            LOG_WARN(std::string("[WS] 체결통보 복호화 실패 tr_id=").append(transaction_id));
             return;
         }
 
@@ -647,7 +649,7 @@ void KisWebSocket::handle_data_frame(const std::string& message)
     // 복호 평문은 ^구분 다필드(체결통보 23필드). 너무 적으면 키 불일치/손상 의심 (C-1)
     if (!plain.empty() && fields_.size() < kis_websocket::kMinFieldsFill)
     {
-        LOG_WARN("[WS] 체결통보 복호 평문 비정상(필드부족) — 키 불일치/손상 의심 tr_id=" + std::string(transaction_id));
+        LOG_WARN(std::string("[WS] 체결통보 복호 평문 비정상(필드부족) — 키 불일치/손상 의심 tr_id=").append(transaction_id));
         return;
     }
 

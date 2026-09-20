@@ -40,6 +40,7 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
                 std::chrono::seconds(config_.daily_cache_ttl_sec))
         {
             size_t total = (std::min)(static_cast<size_t>(count), iterator->second.bars.size());
+            // 락 안에서 뜬 사본 — 반환값이 락 밖으로 나가고 timestamp도 새로 찍으므로 복사가 맞다.
             std::vector<MarketData> hit(iterator->second.bars.begin(), iterator->second.bars.begin() + total);
             auto now = std::chrono::system_clock::now();
 
@@ -92,8 +93,7 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
                           "?FID_COND_MRKT_DIV_CODE=J" + "&FID_INPUT_ISCD=" + ticker + "&FID_INPUT_DATE_1=" + from_date +
                           "&FID_INPUT_DATE_2=" + to_date + "&FID_PERIOD_DIV_CODE=" + period + "&FID_ORG_ADJ_PRC=0";
 
-        std::vector<std::string> headers = authentication_headers("FHKST03010100");
-        std::string response = http_get(url, headers);
+        std::string response = http_get(url, authentication_headers("FHKST03010100"));
         ++pages_fetched;
 
         if (response.empty())
@@ -138,13 +138,13 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
 
                 MarketData market_data;
                 market_data.ticker = ticker;
-                market_data.close = std::stod(item["stck_clpr"].get<std::string>());
-                market_data.open = std::stod(item["stck_oprc"].get<std::string>());
-                market_data.high = std::stod(item["stck_hgpr"].get<std::string>());
-                market_data.low = std::stod(item["stck_lwpr"].get<std::string>());
-                market_data.volume = std::stoll(item["acml_vol"].get<std::string>());
+                market_data.close = std::stod(item["stck_clpr"].get_ref<const std::string&>());
+                market_data.open = std::stod(item["stck_oprc"].get_ref<const std::string&>());
+                market_data.high = std::stod(item["stck_hgpr"].get_ref<const std::string&>());
+                market_data.low = std::stod(item["stck_lwpr"].get_ref<const std::string&>());
+                market_data.volume = std::stoll(item["acml_vol"].get_ref<const std::string&>());
                 market_data.timestamp = std::chrono::system_clock::now();
-                result.push_back(market_data);
+                result.push_back(std::move(market_data));
             }
         }
         catch (const std::exception& exception)
@@ -166,7 +166,7 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
             break;
         }
 
-        last_oldest = oldest;
+        last_oldest = std::move(oldest);
         page_end = oldest_t - 86400;
     }
 
@@ -197,7 +197,7 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
         auto& cache_entry = daily_cache_[ckey];
         cache_entry.at = std::chrono::steady_clock::now();
         cache_entry.requested = count;
-        cache_entry.bars = result;
+        cache_entry.bars = result; // 캐시가 한 벌, 호출자가 한 벌 — 둘 다 필요한 복사
     }
 
     return result;
@@ -304,7 +304,7 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
             previous = "090000";
         }
 
-        hour = previous;
+        hour = std::move(previous);
         std::this_thread::sleep_for(std::chrono::milliseconds(120)); // rate limit 여유
     }
 
@@ -401,7 +401,7 @@ std::vector<MarketData> KisClient::get_daily_minute_ohlcv(const std::string& tic
             previous = "090000";
         }
 
-        hour = previous;
+        hour = std::move(previous);
         std::this_thread::sleep_for(std::chrono::milliseconds(120));
     }
 
@@ -413,9 +413,7 @@ double KisClient::get_current_price(const std::string& ticker)
     std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/inquire-price" + "?FID_COND_MRKT_DIV_CODE=J" +
                       "&FID_INPUT_ISCD=" + ticker;
 
-    std::vector<std::string> headers = authentication_headers("FHKST01010100");
-
-    std::string response = http_get(url, headers);
+    std::string response = http_get(url, authentication_headers("FHKST01010100"));
 
     if (response.empty())
     {
@@ -425,7 +423,7 @@ double KisClient::get_current_price(const std::string& ticker)
     try
     {
         auto document = json::parse(response);
-        return std::stod(document["output"]["stck_prpr"].get<std::string>());
+        return std::stod(document["output"]["stck_prpr"].get_ref<const std::string&>());
     }
     catch (...)
     {
@@ -438,12 +436,10 @@ Fundamentals KisClient::get_fundamentals(const std::string& ticker)
     std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/inquire-price" + "?FID_COND_MRKT_DIV_CODE=J" +
                       "&FID_INPUT_ISCD=" + ticker;
 
-    std::vector<std::string> headers = authentication_headers("FHKST01010100");
-
     Fundamentals fundamentals;
     fundamentals.ticker = ticker;
 
-    std::string response = http_get(url, headers);
+    std::string response = http_get(url, authentication_headers("FHKST01010100"));
 
     if (response.empty())
     {
@@ -454,7 +450,7 @@ Fundamentals KisClient::get_fundamentals(const std::string& ticker)
     {
         auto document = json::parse(response);
         auto& out = document["output"];
-        auto parse_d = [&](const std::string& key) -> double
+        auto parse_d = [&](const char* key) -> double
         {
             std::string text = out.value(key, "");
 
@@ -503,9 +499,7 @@ std::vector<MarketData> KisClient::get_us_daily_ohlcv(const std::string& ticker,
     std::string url = base_url() + "/uapi/overseas-price/v1/quotations/dailyprice" + "?AUTH=" + "&EXCD=" + exchange +
                       "&SYMB=" + ticker + "&GUBN=0" + "&BYMD=" + "&MODP=0";
 
-    std::vector<std::string> headers = authentication_headers("HHDFS76240000", {"custtype: P"});
-
-    std::string response = http_get(url, headers);
+    std::string response = http_get(url, authentication_headers("HHDFS76240000", {"custtype: P"}));
 
     if (response.empty())
     {
@@ -533,14 +527,16 @@ std::vector<MarketData> KisClient::get_us_daily_ohlcv(const std::string& ticker,
             market_data.ticker = ticker;
             market_data.market = Market::US;
             // KIS 해외 일봉 필드: clos/open/high/low/tvol
-            auto parse_d = [](const json& node, const std::string& key) -> double
+            auto parse_d = [](const json& node, const char* key) -> double
             {
-                if (!node.contains(key))
+                const auto found = node.find(key);
+
+                if (found == node.end())
                 {
                     return 0.0;
                 }
 
-                std::string text = node[key].is_string() ? node[key].get<std::string>() : node[key].dump();
+                const std::string text = found->is_string() ? found->get<std::string>() : found->dump();
 
                 try
                 {
@@ -574,7 +570,7 @@ std::vector<MarketData> KisClient::get_us_daily_ohlcv(const std::string& ticker,
 
             if (market_data.close > 0.0)
             {
-                result.push_back(market_data);
+                result.push_back(std::move(market_data));
             }
 
             if (static_cast<int>(result.size()) >= count)
@@ -601,12 +597,10 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
     std::string url =
         base_url() + "/uapi/overseas-price/v1/quotations/price-detail" + "?AUTH=&EXCD=" + exchange + "&SYMB=" + ticker;
 
-    std::vector<std::string> headers = authentication_headers("HHDFS00000300", {"custtype: P"});
-
     Fundamentals fundamentals;
     fundamentals.ticker = ticker;
 
-    std::string response = http_get(url, headers);
+    std::string response = http_get(url, authentication_headers("HHDFS00000300", {"custtype: P"}));
 
     if (response.empty())
     {
@@ -629,7 +623,7 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
         }
 
         const auto& out = document[out_key];
-        auto parse_dbl = [&](const std::string& key) -> double
+        auto parse_dbl = [&](const char* key) -> double
         {
             std::string text = out.value(key, "");
 
@@ -647,7 +641,7 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
                 return 0.0;
             }
         };
-        auto parse_i64 = [&](const std::string& key) -> int64_t
+        auto parse_i64 = [&](const char* key) -> int64_t
         {
             std::string text = out.value(key, "");
 

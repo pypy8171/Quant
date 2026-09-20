@@ -105,7 +105,7 @@ private:
             {
                 document["date"] = parsed.value("date", "");
                 document["peaks"] = parsed.contains("peaks") && parsed["peaks"].is_object()
-                                 ? parsed["peaks"]
+                                 ? std::move(parsed["peaks"]) // parsed는 여기서 버려지므로 옮긴다
                                  : nlohmann::json::object();
             }
         }

@@ -16,6 +16,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -135,8 +136,9 @@ public:
 
             for (const auto& specification : specifications)
             {
-                const auto iterator = assign_.find(key(specification));
-                size_t     index;
+                std::string specification_key = key(specification);
+                const auto  iterator          = assign_.find(specification_key);
+                size_t      index;
 
                 if (iterator != assign_.end())
                 {
@@ -145,7 +147,7 @@ public:
                 else
                 {
                     index = next++ % sources_.size();
-                    assign_.emplace(key(specification), index);
+                    assign_.emplace(std::move(specification_key), index);
                 }
 
                 per_source[index].push_back(specification);
@@ -182,7 +184,8 @@ public:
         size_t index;
         {
             std::lock_guard<std::mutex> lock(assign_mutex_);
-            const auto                  iterator = assign_.find(key(specification));
+            std::string                 specification_key = key(specification);
+            const auto                  iterator          = assign_.find(specification_key);
 
             if (iterator != assign_.end())
             {
@@ -191,7 +194,7 @@ public:
             else
             {
                 index = least_loaded_locked();
-                assign_.emplace(key(specification), index);
+                assign_.emplace(std::move(specification_key), index);
             }
         }
 
@@ -229,7 +232,7 @@ public:
         for (auto& source : sources_)
         {
             auto part = source->take_overflow_specifications();
-            out.insert(out.end(), part.begin(), part.end());
+            out.insert(out.end(), std::make_move_iterator(part.begin()), std::make_move_iterator(part.end()));
         }
 
         if (!out.empty())
@@ -302,8 +305,9 @@ public:
 
             for (const auto& specification : specifications)
             {
-                const auto iterator = assign_.find(key(specification));
-                size_t     index;
+                std::string specification_key = key(specification);
+                const auto  iterator          = assign_.find(specification_key);
+                size_t      index;
 
                 if (iterator != assign_.end())
                 {
@@ -318,7 +322,7 @@ public:
                         index = (index + 1) % sources_.size();
                     }
 
-                    assign_.emplace(key(specification), index);
+                    assign_.emplace(std::move(specification_key), index);
                 }
 
                 if (dead[index])

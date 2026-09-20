@@ -3,6 +3,8 @@
 #include "core/LatencyTrace.h"
 #include "utils/Logger.h"
 
+#include <utility>
+
 namespace dispatch
 {
 std::vector<OrderSignal> force_liquidation_orders(const std::vector<OrderGate::HeldPos>& held, const ReservedFn& reserved)
@@ -108,9 +110,8 @@ SignalDispatcher::SignalDispatcher(OrderGate& gate, Sink sink, Clock::time_point
 {
 }
 
-void SignalDispatcher::emit(const OrderSignal& in)
+void SignalDispatcher::emit(OrderSignal signal)
 {
-    OrderSignal signal = in;
     signal.sequence         = ++sequence_;
     signal.signal_at_ns = trace::now_ns();
     LOG_INFO("[Strategy] 신호: " + dispatch::describe(signal, label(signal.ticker)));
@@ -161,7 +162,7 @@ void SignalDispatcher::from_strategy(bool active, const std::string& strategy_id
     submit(signal);
 }
 
-void SignalDispatcher::submit(const OrderSignal& signal)
+void SignalDispatcher::submit(OrderSignal signal)
 {
     // 교체 진입 — 슬롯이 꽉 찬 상태에서 더 높은 점수의 신규 종목이 오면 최약체를 먼저 비운다. 비우고 끝내는
     //  이유: 매도 체결은 비동기라 같은 틱에 매수를 붙이면 노출이 이중 계상된다. 게이트가 빈 자리를 이 종목에게
@@ -180,7 +181,7 @@ void SignalDispatcher::submit(const OrderSignal& signal)
         }
         else if (buy_new && Clock::now() < held_until_ && gate_.capacity_full())
         {
-            held_.push_back(signal); // 아직 자리가 안 났다 — 같은 분할 매수의 다음 분할 단계
+            held_.push_back(std::move(signal)); // 아직 자리가 안 났다 — 같은 분할 매수의 다음 분할 단계
             return;
         }
     }
@@ -209,18 +210,18 @@ void SignalDispatcher::submit(const OrderSignal& signal)
             event.reason      = plan.reason;
             LOG_INFO("[Displace] " + label(plan.ticker) + " 전량 매도 " + std::to_string(plan.quantity) + "주 — " +
                      plan.reason);
-            emit(event);
+            emit(std::move(event));
             gate_.note_displacement(plan, signal.ticker);
             held_.clear();
             held_ticker_ = signal.ticker;
             held_until_  = Clock::now() +
                           std::chrono::seconds(gate_config.displace_slot_hold_sec > 0 ? gate_config.displace_slot_hold_sec : 120);
-            held_.push_back(signal); // 매도 체결로 자리가 나면 flush_held가 낸다
+            held_.push_back(std::move(signal)); // 매도 체결로 자리가 나면 flush_held가 낸다
             return;
         }
     }
 
-    emit(signal);
+    emit(std::move(signal));
 }
 
 void SignalDispatcher::flush_held(Clock::time_point now)
@@ -251,9 +252,9 @@ void SignalDispatcher::flush_held(Clock::time_point now)
 
     LOG_INFO("[Displace] 자리가 나 보류 매수 " + std::to_string(held_.size()) + "건 발주 " + label(held_ticker_));
 
-    for (const auto& held_signal : held_)
+    for (auto& held_signal : held_)
     {
-        emit(held_signal);
+        emit(std::move(held_signal)); // 바로 아래에서 비우므로 옮겨 보낸다
     }
 
     held_.clear();
@@ -270,11 +271,11 @@ void SignalDispatcher::force_liquidate(Clock::time_point now)
 
     last_liquidation_ = now;
 
-    for (const auto& liquidation_signal : dispatch::force_liquidation_orders(gate_.snapshot_positions(),
-                                                    [this](const std::string& argument, const std::string& ticker)
-                                                    { return gate_.reserved(argument, ticker); }))
+    for (auto& liquidation_signal : dispatch::force_liquidation_orders(gate_.snapshot_positions(),
+                                              [this](const std::string& argument, const std::string& ticker)
+                                              { return gate_.reserved(argument, ticker); }))
     {
-        submit(liquidation_signal);
+        submit(std::move(liquidation_signal));
     }
 }
 
@@ -290,12 +291,12 @@ void SignalDispatcher::trim_excess_once(Clock::time_point now)
 
     trim_done_ = true;
 
-    for (const auto& trim_signal : dispatch::trim_orders(gate_.snapshot_positions(), gate_.config().max_notional_per_ticker,
-                                               [this](const std::string& argument, const std::string& ticker)
-                                               { return gate_.reserved(argument, ticker); }))
+    for (auto& trim_signal : dispatch::trim_orders(gate_.snapshot_positions(), gate_.config().max_notional_per_ticker,
+                                         [this](const std::string& argument, const std::string& ticker)
+                                         { return gate_.reserved(argument, ticker); }))
     {
         LOG_WARN("[Engine] 한도 초과분 정리 " + label(trim_signal.ticker) + " 매도 " + std::to_string(trim_signal.quantity) + "주 — " +
                  trim_signal.reason);
-        submit(trim_signal);
+        submit(std::move(trim_signal));
     }
 }

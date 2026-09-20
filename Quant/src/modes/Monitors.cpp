@@ -218,7 +218,7 @@ int run_feed(const KisConfig& kis_config, const std::vector<std::string>& ticker
         WatchSpec fs;
         fs.ticker = fcode;
         fs.is_future = true;
-        specifications.push_back(fs);
+        specifications.push_back(std::move(fs));
     }
 
     if (kis_config.is_paper && !futures.empty())
@@ -435,7 +435,7 @@ int run_kr_test(const KisConfig& kis_config, const std::atomic<bool>& running)
         std::cout.flush();
         {
             std::lock_guard<std::mutex> lock(cache_mutex);
-            cache[code] = stock_price;
+            cache[code] = std::move(stock_price);
             display_order.push_back(code);
         }
 
@@ -562,7 +562,7 @@ int run_kr_test(const KisConfig& kis_config, const std::atomic<bool>& running)
 
     while (running.load())
     {
-        std::map<std::string, StockPrice> snapshot;
+        std::map<std::string, StockPrice> snapshot; // 락 안에서 뜬 사본 — 화면을 그리는 동안 WS 콜백이 cache를 고친다
         {
             std::lock_guard<std::mutex> lock(cache_mutex);
             snapshot = cache;
@@ -615,7 +615,7 @@ int run_kr_test(const KisConfig& kis_config, const std::atomic<bool>& running)
                 index_line += segment;
             }
 
-            lines.push_back(index_line);
+            lines.push_back(std::move(index_line));
         }
 
         // ── KOSPI 상위 20 (구분선 + 헤더 각 1줄) ─────────────────────
@@ -759,7 +759,7 @@ int run_us_test(const KisConfig& kis_config, const std::atomic<bool>& running)
 
                     {
                         std::lock_guard<std::mutex> lock(cache_mutex);
-                        cache[ticker] = {us_fundamentals, bars, time_buffer};
+                        cache[ticker] = {std::move(us_fundamentals), std::move(bars), time_buffer};
                     }
 
                     // KIS rate limit: 종목당 최소 200ms 간격
@@ -825,7 +825,7 @@ int run_us_test(const KisConfig& kis_config, const std::atomic<bool>& running)
             if (fundamentals.last > 0.0)
             {
                 any_ok = true;
-                std::string direction = (fundamentals.rate > 0) ? "▲" : (fundamentals.rate < 0 ? "▼" : "-");
+                const char* direction = (fundamentals.rate > 0) ? "▲" : (fundamentals.rate < 0 ? "▼" : "-");
                 std::cout << std::setprecision(2) << "    현재가: $" << fundamentals.last << " " << direction << std::showpos
                           << std::setprecision(2) << fundamentals.rate << "%"
                           << " (" << fundamentals.difference << ")\n"

@@ -519,15 +519,13 @@ static void kis_stamp_bearer(std::vector<std::string>& headers, const std::strin
     }
 }
 
-std::string KisClient::http_get(const std::string& url, const std::vector<std::string>& headers)
+std::string KisClient::http_get(const std::string& url, std::vector<std::string> headers)
 {
-    auto request_headers = headers;
-
     // oauth2 토큰 발급 엔드포인트가 아닌 경우에만 자동 갱신 (재귀 방지)
     if (url.find("oauth2") == std::string::npos)
     {
         ensure_authenticated();
-        kis_stamp_bearer(request_headers, token());
+        kis_stamp_bearer(headers, token());
     }
 
     rate_limit_acquire(url);
@@ -535,7 +533,7 @@ std::string KisClient::http_get(const std::string& url, const std::vector<std::s
     // KIS API는 GET에도 Content-Type: application/json 요구
     bool has_ct = false;
 
-    for (auto& request_header : request_headers)
+    for (auto& request_header : headers)
     {
         if (request_header.find("Content-Type") != std::string::npos)
         {
@@ -546,12 +544,12 @@ std::string KisClient::http_get(const std::string& url, const std::vector<std::s
 
     if (!has_ct)
     {
-        request_headers.push_back("Content-Type: application/json; charset=utf-8");
+        headers.push_back("Content-Type: application/json; charset=utf-8");
     }
 #ifdef _WIN32
-    std::string response = winhttp_request("GET", url, request_headers, "");
+    std::string response = winhttp_request("GET", url, headers, "");
 #else
-    std::string response = curl_request("GET", url, request_headers, "");
+    std::string response = curl_request("GET", url, headers, "");
 #endif
 
     if (is_rate_limited(response))
@@ -562,23 +560,20 @@ std::string KisClient::http_get(const std::string& url, const std::vector<std::s
     return response;
 }
 
-std::string KisClient::http_post(const std::string& url, const std::vector<std::string>& headers,
-                                 const std::string& body)
+std::string KisClient::http_post(const std::string& url, std::vector<std::string> headers, const std::string& body)
 {
-    auto request_headers = headers;
-
     if (url.find("oauth2") == std::string::npos)
     {
         ensure_authenticated();
-        kis_stamp_bearer(request_headers, token());
+        kis_stamp_bearer(headers, token());
     }
 
     rate_limit_acquire(url);
 
 #ifdef _WIN32
-    std::string response = winhttp_request("POST", url, request_headers, body);
+    std::string response = winhttp_request("POST", url, headers, body);
 #else
-    std::string response = curl_request("POST", url, request_headers, body);
+    std::string response = curl_request("POST", url, headers, body);
 #endif
 
     if (is_rate_limited(response))

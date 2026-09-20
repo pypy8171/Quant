@@ -5,11 +5,13 @@
 #include "strategy/StrategyBase.h"
 #include "utils/Logger.h"
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <ctime>
 #include <deque>
 #include <set>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -120,6 +122,13 @@ public:
     void on_start() override
     {
         if (!kis_) { LOG_ERROR("[SDP] KisClient 없음"); return; }
+
+        // past_hhmm은 틱마다 불려 잘못된 값을 조용히 "아직 아님"으로 보므로, 여기서 한 번 소리 내어 잡는다.
+        if (!valid_hhmm(parameters_.market_close_exit_hhmm))
+        {
+            LOG_WARN("[SDP] market_close_exit_hhmm 형식 오류 '" + parameters_.market_close_exit_hhmm +
+                     "' — 마감 청산이 걸리지 않는다 (HHMM 네 자리 숫자여야 한다)");
+        }
 
         candidates_.clear();
         closes_.clear();
@@ -469,6 +478,22 @@ private:
         return kst::date_yyyymmdd(std::time(nullptr));
     }
 
+    static bool valid_hhmm(const std::string& hhmm)
+    {
+        if (hhmm.size() != 4)
+        {
+            return false;
+        }
+
+        int  hours          = 0;
+        int  minutes        = 0;
+        auto hours_result   = std::from_chars(hhmm.data(), hhmm.data() + 2, hours);
+        auto minutes_result = std::from_chars(hhmm.data() + 2, hhmm.data() + 4, minutes);
+        return hours_result.ec == std::errc() && minutes_result.ec == std::errc() &&
+               hours_result.ptr == hhmm.data() + 2 && minutes_result.ptr == hhmm.data() + 4 &&
+               hours < 24 && minutes < 60;
+    }
+
     static bool past_hhmm(const std::string& hhmm)
     {
         if (hhmm.size() < 4)
@@ -478,7 +503,18 @@ private:
 
         const auto time_of_day    = kst::time_of_day(std::time(nullptr));
         const int  now    = static_cast<int>(time_of_day.hours().count() * 100 + time_of_day.minutes().count());
-        const int  target = std::stoi(hhmm.substr(0, 2)) * 100 + std::stoi(hhmm.substr(2, 2));
+        // substr 없이 자리 그대로 읽는다 — 틱마다 불리는 자리라 임시 문자열을 만들지 않는다.
+        int  hours          = 0;
+        int  minutes        = 0;
+        auto hours_result   = std::from_chars(hhmm.data(), hhmm.data() + 2, hours);
+        auto minutes_result = std::from_chars(hhmm.data() + 2, hhmm.data() + 4, minutes);
+
+        if (hours_result.ec != std::errc() || minutes_result.ec != std::errc())
+        {
+            return false; // 숫자가 아닌 설정값은 "아직 아님"으로 본다
+        }
+
+        const int target = hours * 100 + minutes;
         return now >= target;
     }
 

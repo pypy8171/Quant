@@ -110,20 +110,16 @@ public:
             return;
         }
 
-        // 스캔 대상 업종 결정
-        std::vector<std::pair<std::string,std::string>> sectors;
+        // 스캔 대상 업종 결정 — 기본 표(KOSPI_SECTORS)는 복사하지 않고 참조로 본다.
+        std::vector<std::pair<std::string,std::string>> configured_sectors;
 
-        if (sector_codes_.empty())
+        for (const auto& code : sector_codes_)
         {
-            sectors = KOSPI_SECTORS;
+            configured_sectors.push_back({code, code});
         }
-        else
-        {
-            for (const auto& code : sector_codes_)
-            {
-                sectors.push_back({code, code});
-            }
-        }
+
+        const std::vector<std::pair<std::string,std::string>>& sectors =
+            sector_codes_.empty() ? KOSPI_SECTORS : configured_sectors;
 
         // ── Step 1: 업종 5일 모멘텀 계산 ─────────────────────────────────
         LOG_INFO("[ThemeStrategy] Step1 — 업종 모멘텀 계산 (" +
@@ -173,7 +169,7 @@ public:
             auto ranked = kis_->fetch_sector_ranking(sector_code, 30);
             std::this_thread::sleep_for(std::chrono::milliseconds(kThemeRestIntervalMs));
 
-            for (const auto& stock : ranked)
+            for (auto& stock : ranked) // ranked는 이 반복 뒤 버려지므로 티커를 옮긴다
             {
                 if (surge_candidates.size() >= kThemeMaxSurgeCandidates)
                 {
@@ -211,7 +207,7 @@ public:
                     LOG_INFO("[ThemeStrategy] 거래량 급증: " + stock.ticker +
                              " " + stock.name +
                              " (배수: " + std::to_string(surge).substr(0, 4) + "x)");
-                    surge_candidates.push_back(stock.ticker);
+                    surge_candidates.push_back(std::move(stock.ticker));
                 }
             }
         }
@@ -223,16 +219,16 @@ public:
         if (!institution_filter_)
         {
             // 필터 미적용 시 surge_candidates 바로 사용
-            for (const auto& ticker : surge_candidates)
+            for (auto& ticker : surge_candidates)
             {
-                candidates_.insert(ticker);
+                candidates_.insert(std::move(ticker));
             }
         }
         else
         {
             LOG_INFO("[ThemeStrategy] Step3 — 수급 필터 (외국인+기관 동시 순매수)");
 
-            for (const auto& ticker : surge_candidates)
+            for (auto& ticker : surge_candidates)
             {
                 auto trend = kis_->get_investor_trend(ticker);
                 std::this_thread::sleep_for(std::chrono::milliseconds(kThemeRestIntervalMs));
@@ -242,7 +238,7 @@ public:
                     LOG_INFO("[ThemeStrategy] 수급 통과: " + ticker +
                              " 외국인=" + std::to_string(trend.foreign_net) +
                              " 기관=" + std::to_string(trend.institution_net));
-                    candidates_.insert(ticker);
+                    candidates_.insert(std::move(ticker));
                 }
             }
         }
@@ -313,7 +309,11 @@ private:
         {
             buy_sent_.insert(symbol_id);
             pending_.erase(symbol_id);
-            candidates_.erase(std::string(ticker));
+
+            if (auto found = candidates_.find(ticker); found != candidates_.end())
+            {
+                candidates_.erase(found);
+            }
 
             OrderSignal signal;
             signal.ticker      = ticker;
@@ -360,7 +360,7 @@ private:
     int                               quantity_;
     int                               market_close_exit_hhmm_;
 
-    std::unordered_set<std::string>   candidates_; // 문자열 — 구독 스펙·로그. 틱 경로는 아래 id 집합만 본다
+    std::unordered_set<std::string, TransparentStringHash, std::equal_to<>> candidates_; // 문자열 — 구독 스펙·로그. 틱 경로는 아래 id 집합만 본다. string_view로 찾는다
     std::unordered_set<symbol::SymbolId> pending_;    // 매수 대기 후보 id
     std::unordered_set<symbol::SymbolId> buy_sent_;
     std::unordered_set<symbol::SymbolId> sell_sent_;

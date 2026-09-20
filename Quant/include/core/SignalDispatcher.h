@@ -52,7 +52,8 @@ public:
     void from_strategy(bool active, const std::string& strategy_id, const OrderSignal& signal);
 
     // 운영단말·강제청산 등 전략 밖에서 온 신호. 교체 진입 판단을 거쳐 emit한다.
-    void submit(const OrderSignal& signal);
+    //  값으로 받는다 — 보류 목록에 넣거나 순번을 찍어 내보내는 sink라, 임시로 온 신호는 이동으로 들어온다.
+    void submit(OrderSignal signal);
 
     // 교체 매도가 체결돼 자리가 났으면 보류 매수를 낸다. 예약 시한이 지나면 버린다. 루프 머리마다 부른다.
     void flush_held(Clock::time_point now);
@@ -69,8 +70,8 @@ public:
     bool               trim_done() const { return trim_done_; }
 
 private:
-    // 순번 stamp → 로그 → 싱크. 큐에 넣는 유일한 길.
-    void        emit(const OrderSignal& in);
+    // 순번 stamp → 로그 → 싱크. 큐에 넣는 유일한 길. 값으로 받아 그 자리에서 순번을 찍는다(sink).
+    void        emit(OrderSignal signal);
     std::string label(const std::string& ticker) const { return label_ ? label_(ticker) : ticker; }
 
     OrderGate& gate_;

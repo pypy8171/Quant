@@ -9,6 +9,18 @@
 
 class KisClient;
 
+// 문자열 집합·맵을 std::string_view로 찾기 위한 해시 — 조회마다 std::string을 만들지 않는다.
+//  std::unordered_set<std::string, TransparentStringHash, std::equal_to<>> 로 쓴다.
+struct TransparentStringHash
+{
+    using is_transparent = void;
+
+    size_t operator()(std::string_view text) const
+    {
+        return std::hash<std::string_view>{}(text);
+    }
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // StrategyBase  —  모든 전략이 구현해야 하는 인터페이스
 // ─────────────────────────────────────────────────────────────────────────────

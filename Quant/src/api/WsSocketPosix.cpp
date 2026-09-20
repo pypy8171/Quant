@@ -269,9 +269,38 @@ bool websocket_recv_frame_linux(int descriptor, std::string& out, std::string& e
             return false;
         }
 
-        std::vector<uint8_t> payload(static_cast<size_t>(length));
+        if (opcode == 0x8)
+        {
+            error = "서버 close 프레임";
+            return false;
+        }
 
-        if (length > 0 && !socket_recv_all(descriptor, payload.data(), static_cast<size_t>(length)))
+        // 데이터 프레임(시작 0x1/0x2, 이어지는 0x0)은 message에 바로 받는다 — 중간 버퍼에 받아 다시 붙이지 않는다.
+        //  제어 프레임(ping)과 버릴 프레임만 따로 받는다.
+        const bool is_data_start = (opcode == 0x1 || opcode == 0x2);
+        const bool is_continuation = (opcode == 0x0 && in_message);
+        std::vector<uint8_t> control_payload;
+        uint8_t* payload = nullptr;
+        const size_t payload_size = static_cast<size_t>(length);
+
+        if (is_data_start || is_continuation)
+        {
+            if (is_data_start)
+            {
+                message.clear();
+            }
+
+            const size_t offset = message.size();
+            message.resize(offset + payload_size);
+            payload = reinterpret_cast<uint8_t*>(message.data()) + offset;
+        }
+        else
+        {
+            control_payload.resize(payload_size);
+            payload = control_payload.data();
+        }
+
+        if (payload_size > 0 && !socket_recv_all(descriptor, payload, payload_size))
         {
             error = "recv 실패/종료";
             return false;
@@ -279,44 +308,28 @@ bool websocket_recv_frame_linux(int descriptor, std::string& out, std::string& e
 
         if (masked)
         {
-            for (size_t payload_index = 0; payload_index < payload.size(); ++payload_index)
+            for (size_t payload_index = 0; payload_index < payload_size; ++payload_index)
             {
                 payload[payload_index] ^= mask_key[payload_index % 4];
             }
-        }
-
-        if (opcode == 0x8)
-        {
-            error = "서버 close 프레임";
-            return false;
         }
 
         if (opcode == 0x9)
         {
             // Ping(0x9) → Pong(0xA). 제어 프레임 payload는 125B 이하라 1바이트 길이로 충분하다.
             std::vector<uint8_t> pong = {0x8A, uint8_t(0x80 | (length & 0x7F)), 0x00, 0x00, 0x00, 0x00};
-            pong.insert(pong.end(), payload.begin(), payload.end());
+            pong.insert(pong.end(), control_payload.begin(), control_payload.end());
             ::send(descriptor, pong.data(), pong.size(), MSG_NOSIGNAL);
             continue;
         }
 
-        if (opcode == 0x1 || opcode == 0x2)
+        if (is_data_start)
         {
-            message.assign(payload.begin(), payload.end());
             in_message = true;
         }
-        else if (opcode == 0x0)
+        else if (!is_continuation)
         {
-            if (!in_message)
-            {
-                continue; // 시작 프레임 없는 continuation — 버린다
-            }
-
-            message.append(payload.begin(), payload.end());
-        }
-        else
-        {
-            continue; // pong(0xA)·예약 opcode — 메시지가 아니다
+            continue; // 시작 프레임 없는 continuation·pong(0xA)·예약 opcode — 메시지가 아니다
         }
 
         if (fin)
@@ -395,7 +408,7 @@ public:
         return descriptor_.load() >= 0;
     }
 
-    std::string last_error() const override
+    const std::string& last_error() const override
     {
         return last_error_;
     }
@@ -462,7 +475,7 @@ std::string websocket_platform::aes_cbc_decrypt(const std::string& cipher, const
 
     std::string out(cipher.size() + 16, '\0');
     int length = 0, total = 0;
-    std::string result;
+    bool ok = false;
 
     if (EVP_DecryptInit_ex(context, EVP_aes_256_cbc(), nullptr,
             reinterpret_cast<const unsigned char*>(key.data()),
@@ -478,10 +491,17 @@ std::string websocket_platform::aes_cbc_decrypt(const std::string& cipher, const
                 reinterpret_cast<unsigned char*>(&out[0]) + total, &length) == 1)
         {
             total += length;
-            result.assign(out.data(), total);
+            ok = true;
         }
     }
 
     EVP_CIPHER_CTX_free(context);
-    return result;
+
+    if (!ok)
+    {
+        return "";
+    }
+
+    out.resize(static_cast<size_t>(total)); // 복호 버퍼를 그대로 돌려준다 — 새 문자열로 옮겨 담지 않는다
+    return out;
 }

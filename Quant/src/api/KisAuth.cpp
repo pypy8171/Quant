@@ -121,7 +121,7 @@ bool KisClient::issue_token()
                         // 만료 10분 전까지 사용
                         if (exp_t - now_t > 600)
                         {
-                            set_token(token, std::chrono::system_clock::from_time_t(exp_t));
+                            set_token(std::move(token), std::chrono::system_clock::from_time_t(exp_t));
                             LOG_INFO("[KIS] 캐시 토큰 재사용 (만료: " + expires + ")");
                             return true;
                         }
@@ -149,7 +149,7 @@ bool KisClient::issue_token()
     try
     {
         auto document = json::parse(response);
-        const std::string token = document["access_token"].get<std::string>();
+        std::string token = document["access_token"].get<std::string>();
 
         // 만료 시각 저장 (KIS 응답 필드: access_token_token_expired)
         std::string expires = document.value("access_token_token_expired", "");
@@ -180,11 +180,10 @@ bool KisClient::issue_token()
             }
         }
 
-        set_token(token, expires_at);
-
         // 캐시 파일에 저장 — temp 작성 후 atomic rename (C-2).
         // 읽는 쪽(Python balance)이 스트리밍 중인 truncated JSON을 보지 않게 한다.
         json cache_j = {{"access_token", token}, {"expires_at", expires}};
+        set_token(std::move(token), expires_at);
         std::string temporary_path = cache_path + ".tmp";
         {
             std::ofstream cf(temporary_path);

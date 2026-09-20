@@ -139,7 +139,12 @@ inline std::vector<std::string> load_list(const std::string& filename,
             }
         }
 
-        return out.empty() ? fallback : out;
+        if (out.empty())
+        {
+            return fallback;
+        }
+
+        return out; // 지역 변수라 복사 없이 옮겨진다(삼항식은 fallback 형에 맞춰 한 번 더 베꼈다)
     }
     catch (...)
     {

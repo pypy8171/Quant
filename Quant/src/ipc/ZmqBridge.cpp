@@ -142,7 +142,7 @@ void ZmqBridge::thread_fn()
             catch (const zmq::error_t& zmq_error)
             {
                 ++drop_count_;
-                LOG_WARN(std::string("[ZMQ] publish 실패 topic=") + std::string(topic_text) + " : " + zmq_error.what());
+                LOG_WARN(std::string("[ZMQ] publish 실패 topic=") + topic_name(topic) + " : " + zmq_error.what());
             }
         };
 
@@ -176,11 +176,12 @@ void ZmqBridge::thread_fn()
                 std::string reply_string = "OK";
                 bool        allowed   = true;
                 const auto  space_position        = command.find(' ');
-                const std::string verb = command.substr(0, space_position);
+                // 동사·토큰은 command 안을 가리키는 뷰다 — 비교에만 쓰고, 아래 resize 전까지만 유효하다.
+                const std::string_view verb = std::string_view(command).substr(0, space_position);
 
                 if (verb == "KILL")
                 {
-                    const std::string given = (space_position == std::string::npos) ? std::string() : command.substr(space_position + 1);
+                    const std::string_view given = (space_position == std::string::npos) ? std::string_view() : std::string_view(command).substr(space_position + 1);
 
                     if (control_token_.empty() || given != control_token_)
                     {
@@ -191,7 +192,7 @@ void ZmqBridge::thread_fn()
                     }
                     else
                     {
-                        command = verb;
+                        command.resize(verb.size()); // "KILL <token>" → "KILL"
                     }
                 }
 

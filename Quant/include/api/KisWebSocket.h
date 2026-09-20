@@ -132,7 +132,7 @@ private:
     void parse_fill_notification(kis_websocket::Fields fields);
 
     // 체결통보(H0STCNI) 복호화 — base64는 여기, AES-256-CBC는 플랫폼별(websocket_platform::aes_cbc_decrypt)
-    static std::string base64_decode(const std::string& in);
+    static std::string base64_decode(std::string_view in);
 
     KisConfig config_;
     std::string approval_key_; // KIS 실시간 WS 접속 승인키 (REST로 발급, 세션 내 재사용)

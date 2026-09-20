@@ -35,9 +35,7 @@ KisResult<AccountBalance> KisClient::get_balance()
                           "&FUND_STTL_ICLD_YN=N&FNCG_AMT_AUTO_RDPT_YN=N&PRCS_DVSN=00" +
                           "&CTX_AREA_FK100=" + forward_key + "&CTX_AREA_NK100=" + next_key;
 
-        std::vector<std::string> headers = authentication_headers(transaction_id, {"tr_cont: " + continuation});
-
-        std::string response = http_get(url, headers);
+        std::string response = http_get(url, authentication_headers(transaction_id, {"tr_cont: " + continuation}));
 
         // [inv] 어느 페이지든 못 받으면 전체가 실패다. 2페이지째가 빠진 부분 목록을 성공으로 돌려주면 호출자의
         //  유령 정리(prune_positions)가 그 페이지의 실보유를 걷어낸다 — 빈 목록 가드로는 못 잡는 구멍.
@@ -73,7 +71,7 @@ KisResult<AccountBalance> KisClient::get_balance()
         }
 
         forward_key = rtrim(document.value("ctx_area_fk100", ""));
-        next_key = next_key_next;
+        next_key = std::move(next_key_next);
         continuation = "N";
     }
 
@@ -115,9 +113,7 @@ std::vector<OpenOrder> KisClient::get_open_orders()
                           "&INQR_DVSN_1=0&INQR_DVSN_2=0" +
                           "&CTX_AREA_FK100=" + forward_key + "&CTX_AREA_NK100=" + next_key;
 
-        std::vector<std::string> headers = authentication_headers(transaction_id, {"tr_cont: " + continuation});
-
-        std::string response = http_get(url, headers);
+        std::string response = http_get(url, authentication_headers(transaction_id, {"tr_cont: " + continuation}));
 
         if (response.empty())
         {
@@ -159,7 +155,7 @@ std::vector<OpenOrder> KisClient::get_open_orders()
 
                 if (!open_order.ticker.empty() && open_order.psbl_qty > 0)
                 {
-                    result.push_back(open_order);
+                    result.push_back(std::move(open_order));
                 }
             }
         }
@@ -172,7 +168,7 @@ std::vector<OpenOrder> KisClient::get_open_orders()
         }
 
         forward_key = rtrim(document.value("ctx_area_fk100", ""));
-        next_key = next_key_next;
+        next_key = std::move(next_key_next);
         continuation = "N";
     }
 

@@ -162,7 +162,12 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
 
         for (const auto& gone_ticker : gone)
         {
-            list += (list.empty() ? "" : ",") + gone_ticker;
+            if (!list.empty())
+            {
+                list += ',';
+            }
+
+            list += gone_ticker;
         }
 
         LOG_WARN("[Engine] 잔고 대조: 잔고에 없는 원장 보유 " + std::to_string(gone.size()) + "종목 정리 (" + list + ")");

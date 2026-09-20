@@ -66,7 +66,8 @@ score_to_mult(const std::unordered_map<std::string, double>& scores,
     const double standard_deviation = std::sqrt(variance);
 
     // 분산이 없으면(전 종목 동점) 차등이 의미 없다. 총합 정규화만 걸고 배수는 균등하게 둔다.
-    std::vector<std::pair<std::string, double>> raw;
+    //  티커는 scores의 키를 가리킨다 — 이 함수 안에서 scores에 삽입이 없어 포인터가 산다.
+    std::vector<std::pair<const std::string*, double>> raw;
     raw.reserve(count);
 
     for (const auto& entry : scores)
@@ -80,11 +81,11 @@ score_to_mult(const std::unordered_map<std::string, double>& scores,
             ratio = 1.0 + spread * z_score / 2.0;
         }
 
-        raw.emplace_back(entry.first, ratio);
+        raw.emplace_back(&entry.first, ratio);
     }
 
     // 상위 slots개의 raw 합으로 정규화(내림차순 정렬 후 앞에서 slots개).
-    std::ranges::sort(raw, std::ranges::greater{}, &std::pair<std::string, double>::second);
+    std::ranges::sort(raw, std::ranges::greater{}, &std::pair<const std::string*, double>::second);
     const size_t take = std::min(static_cast<size_t>(slots), raw.size());
     double sum_top = 0.0;
 
@@ -102,7 +103,7 @@ score_to_mult(const std::unordered_map<std::string, double>& scores,
 
     for (const auto& entry : raw)
     {
-        multiplier[entry.first] = entry.second * scale;
+        multiplier[*entry.first] = entry.second * scale;
     }
 
     return multiplier;
@@ -153,16 +154,24 @@ score_to_z(const std::unordered_map<std::string, double>& scores)
 inline std::unordered_map<std::string, int>
 score_to_rank(const std::unordered_map<std::string, double>& scores)
 {
-    std::vector<std::pair<std::string, double>> values(scores.begin(), scores.end());
+    //  정렬은 scores의 원소를 가리키는 포인터로 한다 — 티커를 베끼지 않고, scores에 삽입이 없어 포인터가 산다.
+    using ScoreEntry = std::pair<const std::string, double>;
+    std::vector<const ScoreEntry*> values;
+    values.reserve(scores.size());
+
+    for (const auto& entry : scores)
+    {
+        values.push_back(&entry);
+    }
+
     std::sort(values.begin(), values.end(),
-              [](const std::pair<std::string, double>& pair_a,
-                 const std::pair<std::string, double>& pair_b)
-              { return pair_a.second != pair_b.second ? pair_a.second > pair_b.second : pair_a.first < pair_b.first; });
+              [](const ScoreEntry* entry_a, const ScoreEntry* entry_b)
+              { return entry_a->second != entry_b->second ? entry_a->second > entry_b->second : entry_a->first < entry_b->first; });
     std::unordered_map<std::string, int> rank;
 
     for (size_t index = 0; index < values.size(); ++index)
     {
-        rank[values[index].first] = static_cast<int>(index) + 1;
+        rank[values[index]->first] = static_cast<int>(index) + 1;
     }
 
     return rank;

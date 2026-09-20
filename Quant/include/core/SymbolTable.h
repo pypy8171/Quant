@@ -5,6 +5,7 @@
 #pragma once
 
 #include <atomic>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -13,7 +14,6 @@
 #include <ostream>
 #include <string>
 #include <string_view>
-#include <utility>
 
 namespace symbol
 {
@@ -119,7 +119,7 @@ public:
     //  삽입만 write_mutex_로 직렬화한다. [why D-071]
     SymbolId intern(std::string_view ticker)
     {
-        const Ticker   key(ticker);
+        const Words    key  = words_of(ticker);
         const uint64_t hash = hash_of(key);
 
         if (const SymbolId found = find(key, hash); found != kNone)
@@ -157,7 +157,8 @@ public:
 
         // [inv] 발행 순서 — names_[id]를 채운 뒤 버킷에 id를 release로 놓는다. 읽는 쪽은 버킷을 acquire로 읽으므로
         //  id를 본 순간 names_[id]는 완성돼 있다. count_도 그 뒤에 올려 name(id)·size()가 같은 보장을 받는다.
-        names_[id] = key;
+        //  Ticker는 새로 넣을 때만 만든다 — 조회 경로는 워드 쌍으로 끝난다.
+        names_[id].assign(ticker);
         buckets_[slot].store(id, std::memory_order_release);
         count_.store(id + 1, std::memory_order_release);
         return id;
@@ -165,7 +166,7 @@ public:
 
     [[nodiscard]] SymbolId lookup(std::string_view ticker) const
     {
-        const Ticker key(ticker);
+        const Words key = words_of(ticker);
         return find(key, hash_of(key));
     }
 
@@ -200,27 +201,68 @@ private:
         return count;
     }
 
-    // Ticker 16바이트를 uint64 둘로 — 비교·해시가 길이별 memcmp 호출 대신 정수 두 번이 된다(남는 바이트는 0으로 채워져 있다).
-    static std::pair<uint64_t, uint64_t> words_of(const Ticker& ticker)
+    // Ticker 16바이트를 uint64 둘로 본 것 — 비교·해시가 길이별 memcmp 호출 대신 정수 두 번이 된다.
+    //  low = data[0..7], high = data[8..14] + 마지막 바이트에 length. 남는 바이트는 0.
+    struct Words
     {
-        static_assert(sizeof(Ticker) == 16);
         uint64_t low  = 0;
         uint64_t high = 0;
-        std::memcpy(&low, &ticker, 8);
-        std::memcpy(&high, reinterpret_cast<const char*>(&ticker) + 8, 8);
-        return {low, high};
+
+        friend bool operator==(const Words& words_a, const Words& words_b)
+        {
+            return words_a.low == words_b.low && words_a.high == words_b.high;
+        }
+    };
+
+    // [inv] 아래 두 words_of는 같은 문자열에 같은 워드를 내야 한다 — 하나는 names_의 Ticker를 그대로 읽고, 하나는
+    //  string_view에서 Ticker를 거치지 않고 바로 만든다(조회마다 16바이트 임시 객체를 채우고 다시 읽던 두 단계를 한 단계로).
+    //  바이트를 아래 자리부터 쌓으므로 리틀 엔디언에서만 Ticker의 메모리 배치와 같다.
+    static_assert(std::endian::native == std::endian::little);
+
+    static Words words_of(const Ticker& ticker)
+    {
+        static_assert(sizeof(Ticker) == 16);
+        Words words;
+        std::memcpy(&words.low, &ticker, 8);
+        std::memcpy(&words.high, reinterpret_cast<const char*>(&ticker) + 8, 8);
+        return words;
     }
 
-    static bool same_words(const Ticker& ticker_a, const Ticker& ticker_b)
+    // Ticker::assign과 같은 규칙으로 자른다(kMax 넘으면 잘림).
+    static Words words_of(std::string_view text)
     {
-        return words_of(ticker_a) == words_of(ticker_b);
+        const size_t length = text.size() < Ticker::kMax ? text.size() : Ticker::kMax;
+        Words        words;
+
+        for (size_t index = 0; index < length; ++index)
+        {
+            const uint64_t byte = static_cast<uint8_t>(text[index]);
+
+            if (index < 8)
+            {
+                words.low |= byte << (index * 8);
+            }
+            else
+            {
+                words.high |= byte << ((index - 8) * 8);
+            }
+        }
+
+        words.high |= static_cast<uint64_t>(length) << 56;
+        return words;
+    }
+
+    static bool same_words(const Ticker& ticker, const Words& key)
+    {
+        return words_of(ticker) == key;
     }
 
     // [formula] Ticker 16바이트를 uint64 둘로 읽어 곱셈 믹스 — 종목 코드는 여섯 자리 숫자열이라 앞 8바이트만으로는
     //  하위 비트가 몰린다. splitmix64 상수.
-    static uint64_t hash_of(const Ticker& ticker)
+    static uint64_t hash_of(const Words& words)
     {
-        const auto [low, high] = words_of(ticker);
+        const uint64_t low  = words.low;
+        const uint64_t high = words.high;
         uint64_t mixed = (low ^ 0x9E3779B97F4A7C15ULL) * 0xBF58476D1CE4E5B9ULL;
         mixed ^= mixed >> 31;
         mixed ^= high * 0x94D049BB133111EBULL;
@@ -231,7 +273,7 @@ private:
     }
 
     // 선형 탐사. 빈 버킷(kNone)을 만나면 없는 것 — 삭제가 없고 절반 넘게 차지 않아 반드시 끝난다.
-    [[nodiscard]] SymbolId find(const Ticker& key, uint64_t hash) const
+    [[nodiscard]] SymbolId find(const Words& key, uint64_t hash) const
     {
         for (size_t slot = static_cast<size_t>(hash) & bucket_mask_;; slot = (slot + 1) & bucket_mask_)
         {

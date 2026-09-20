@@ -4,6 +4,7 @@
 #include "strategy/StrategyBase.h"
 #include "utils/Logger.h"
 #include <chrono>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <unordered_set>
@@ -75,8 +76,8 @@ public:
             // KOSPI(J) + KOSDAQ(W) 합산
             auto kospi = kis_->fetch_universe_by_pbr(pbr_max_ > 0 ? pbr_max_ : 999.0, "J");
             auto kosdaq = kis_->fetch_universe_by_pbr(pbr_max_ > 0 ? pbr_max_ : 999.0, "W");
-            universe.insert(universe.end(), kospi.begin(), kospi.end());
-            universe.insert(universe.end(), kosdaq.begin(), kosdaq.end());
+            universe = std::move(kospi);
+            universe.insert(universe.end(), std::make_move_iterator(kosdaq.begin()), std::make_move_iterator(kosdaq.end()));
         }
         else
         {
@@ -85,8 +86,8 @@ public:
 
         LOG_INFO("[ValueContrary] Universe 크기: " + std::to_string(universe.size()));
 
-        // 2. 3일 연속 하락 필터
-        for (const auto& ticker : universe)
+        // 2. 3일 연속 하락 필터 — universe는 이 반복 뒤 버려지므로 후보 티커를 옮긴다
+        for (auto& ticker : universe)
         {
             std::vector<MarketData> bars;
 
@@ -122,9 +123,9 @@ public:
                 continue;
             }
 
-            candidates_.insert(ticker);
             LOG_INFO("[ValueContrary] 후보: " + ticker + "  종가 " + std::to_string(bars[0].close) + " < " +
                      std::to_string(bars[1].close) + " < " + std::to_string(bars[2].close));
+            candidates_.insert(std::move(ticker));
         }
 
         LOG_INFO("[ValueContrary] 후보 확정: " + std::to_string(candidates_.size()) + "종목");
@@ -149,7 +150,7 @@ public:
             specification.ticker = ticker;
             specification.market = market_;
             specification.exchange = exchange_;
-            specifications.push_back(specification);
+            specifications.push_back(std::move(specification));
         }
 
         return specifications;
@@ -212,7 +213,11 @@ private:
         {
             buy_sent_.insert(symbol_id);
             pending_.erase(symbol_id);
-            candidates_.erase(std::string(ticker));
+
+            if (auto found = candidates_.find(ticker); found != candidates_.end())
+            {
+                candidates_.erase(found);
+            }
 
             OrderSignal signal;
             signal.ticker = ticker;
@@ -273,7 +278,7 @@ private:
     int quantity_;
     int market_close_exit_hhmm_;
 
-    std::unordered_set<std::string>   candidates_; // 문자열 — 구독 스펙·로그. 틱 경로는 아래 id 집합만 본다
+    std::unordered_set<std::string, TransparentStringHash, std::equal_to<>> candidates_; // 문자열 — 구독 스펙·로그. 틱 경로는 아래 id 집합만 본다. string_view로 찾는다
     std::unordered_set<symbol::SymbolId> pending_;    // 매수 대기 후보 id
     std::unordered_set<symbol::SymbolId> buy_sent_;
     std::unordered_set<symbol::SymbolId> sell_sent_;

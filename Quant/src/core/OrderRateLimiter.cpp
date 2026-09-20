@@ -5,6 +5,7 @@
 #include "utils/Logger.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace order_rate
 {
@@ -78,7 +79,7 @@ OrderRateLimiter::Clock::duration OrderRateLimiter::wait_before_send(Clock::time
     return since >= min_interval_ ? Clock::duration::zero() : Clock::duration(min_interval_ - since);
 }
 
-bool OrderRateLimiter::on_rejected(const Pending& pending, OrderStatus status, const std::string& reject_reason,
+bool OrderRateLimiter::on_rejected(Pending pending, OrderStatus status, const std::string& reject_reason,
                              Clock::time_point now)
 {
     const auto plan = order_rate::classify(pending.signal, pending.attempts, config_.max_retries, status, reject_reason, retry_delay_);
@@ -88,13 +89,12 @@ bool OrderRateLimiter::on_rejected(const Pending& pending, OrderStatus status, c
         return false;
     }
 
-    retry_queue_.push_back({pending.signal, pending.attempts + 1, now + plan.delay});
     const std::string tries = " (" + std::to_string(pending.attempts + 1) + "/" + std::to_string(config_.max_retries) +
                               ") 이유=" + reject_reason;
 
     if (plan.kind == order_rate::Retry::RATE_LIMIT)
     {
-        const std::string action_text = pending.signal.action == OrderAction::CANCEL    ? "CANCEL"
+        const char* action_text = pending.signal.action == OrderAction::CANCEL    ? "CANCEL"
                                 : pending.signal.action == OrderAction::REPLACE ? "REPLACE"
                                                                        : "NEW";
         LOG_WARN("[OrderThread] 유량한도 거부 → 재시도 예약 " + pending.signal.ticker + " " + action_text + tries);
@@ -104,5 +104,6 @@ bool OrderRateLimiter::on_rejected(const Pending& pending, OrderStatus status, c
         LOG_WARN("[OrderThread] 청산 SELL 거부 → 재시도 예약 " + pending.signal.ticker + tries);
     }
 
+    retry_queue_.push_back({std::move(pending.signal), pending.attempts + 1, now + plan.delay});
     return true;
 }

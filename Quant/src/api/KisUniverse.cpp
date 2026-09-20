@@ -99,9 +99,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
                       "&FID_TRGT_EXLS_CLS_CODE=0" + "&FID_RANK_SORT_CLS_CODE=0" +
                       "&FID_INPUT_PRICE_1=" + "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
 
-    std::vector<std::string> headers = authentication_headers("FHPST01720000");
-
-    std::string response = http_get(url, headers);
+    std::string response = http_get(url, authentication_headers("FHPST01720000"));
 
     if (response.empty())
     {
@@ -116,7 +114,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
     try
     {
         auto document = json::parse(response);
-        auto safe_d = [](const nlohmann::json& node, const std::string& key) -> double
+        auto safe_d = [](const nlohmann::json& node, const char* key) -> double
         {
             std::string text = node.value(key, "");
 
@@ -134,7 +132,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
                 return 0.0;
             }
         };
-        auto safe_i = [](const nlohmann::json& node, const std::string& key) -> int64_t
+        auto safe_i = [](const nlohmann::json& node, const char* key) -> int64_t
         {
             std::string text = node.value(key, "");
 
@@ -194,15 +192,15 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
             if (is_etf_name(name)) { ++drop_etf; continue; }
 
             RankingStock stock;
-            stock.ticker = ticker;
-            stock.name = name;
+            stock.ticker = std::move(ticker);
+            stock.name = std::move(name);
             stock.price = safe_d(item, "stck_prpr");
             stock.change = safe_d(item, "prdy_vrss");
             stock.change_rate = safe_d(item, "prdy_ctrt");
             stock.volume = safe_i(item, "acml_vol");
             stock.pbr = safe_d(item, "hts_pbr");
             stock.per = safe_d(item, "hts_per");
-            result.push_back(stock);
+            result.push_back(std::move(stock));
         }
 
         // 진단: raw 행수 vs 필터 후. raw가 ~30 고정이면 페이지네이션 필요, ETF드롭이 크면 API단 제외로 회복.
@@ -250,9 +248,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
                       "&FID_TRGT_CLS_CODE=111111111" + "&FID_TRGT_EXLS_CLS_CODE=000000" +
                       "&FID_INPUT_PRICE_1=" + "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
 
-    std::vector<std::string> headers = authentication_headers("FHPST01710000");
-
-    std::string response = http_get(url, headers);
+    std::string response = http_get(url, authentication_headers("FHPST01710000"));
 
     if (response.empty())
     {
@@ -267,7 +263,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
     try
     {
         auto document = json::parse(response);
-        auto safe_d = [](const nlohmann::json& node, const std::string& key) -> double
+        auto safe_d = [](const nlohmann::json& node, const char* key) -> double
         {
             std::string text = node.value(key, "");
 
@@ -285,7 +281,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
                 return 0.0;
             }
         };
-        auto safe_i = [](const nlohmann::json& node, const std::string& key) -> int64_t
+        auto safe_i = [](const nlohmann::json& node, const char* key) -> int64_t
         {
             std::string text = node.value(key, "");
 
@@ -349,14 +345,14 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
             if (is_etf_name(name)) { ++drop_etf; continue; }
 
             RankingStock stock;
-            stock.ticker = ticker;
-            stock.name = name;
+            stock.ticker = std::move(ticker);
+            stock.name = std::move(name);
             stock.price = safe_d(item, "stck_prpr");
             stock.change = safe_d(item, "prdy_vrss");
             stock.change_rate = safe_d(item, "prdy_ctrt");
             stock.volume = safe_i(item, "acml_vol");
             stock.trade_value = safe_d(item, "acml_tr_pbmn"); // 누적 거래대금(원)
-            result.push_back(stock);
+            result.push_back(std::move(stock));
         }
 
         // 진단: raw 행수 vs 필터 후. raw가 ~30 고정이면 페이지네이션 필요, ETF드롭이 크면 API단 제외로 회복.
@@ -405,9 +401,7 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
                       "&FID_INPUT_ISCD=" + market + "&FID_DIV_CLS_CODE=0" +
                       "&FID_RANK_SORT_CLS_CODE=" + sort + "&FID_ETC_CLS_CODE=" + etc_cls;
 
-    std::vector<std::string> headers = authentication_headers("FHPTJ04400000");
-
-    std::string response = http_get(url, headers);
+    std::string response = http_get(url, authentication_headers("FHPTJ04400000"));
 
     if (response.empty())
     {
@@ -421,7 +415,7 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
     {
         auto document = json::parse(response);
         // 스키마 확정 전: 파싱 결과가 비면 원문을 로깅해 필드명/구조를 눈으로 확인한다.
-        auto safe_i = [](const nlohmann::json& node, const std::string& key) -> int64_t
+        auto safe_i = [](const nlohmann::json& node, const char* key) -> int64_t
         {
             std::string text = node.value(key, "");
 
@@ -432,7 +426,7 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
 
             try { return std::stoll(text); } catch (...) { return 0; }
         };
-        auto safe_d = [](const nlohmann::json& node, const std::string& key) -> double
+        auto safe_d = [](const nlohmann::json& node, const char* key) -> double
         {
             std::string text = node.value(key, "");
 
@@ -508,9 +502,7 @@ std::vector<std::string> KisClient::fetch_universe_by_pbr(double max_pbr, const 
                       "&FID_TRGT_EXLS_CLS_CODE=0" + "&FID_RANK_SORT_CLS_CODE=0" +
                       "&FID_INPUT_PRICE_1=" + "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
 
-    std::vector<std::string> headers = authentication_headers("FHPST01720000");
-
-    std::string response = http_get(url, headers);
+    std::string response = http_get(url, authentication_headers("FHPST01720000"));
 
     if (response.empty())
     {
@@ -555,7 +547,7 @@ std::vector<std::string> KisClient::fetch_universe_by_pbr(double max_pbr, const 
                 }
             }
 
-            result.push_back(ticker);
+            result.push_back(std::move(ticker));
         }
     }
     catch (const std::exception& exception)
@@ -636,13 +628,11 @@ std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
         "&FID_VOL_CNT="
         "&FID_RSFL_RATE1=&FID_RSFL_RATE2=";
 
-    std::vector<std::string> headers = authentication_headers("FHPST01700000");
-
     std::vector<RankingStock> result;
 
     try
     {
-        auto response = http_get(url, headers);
+        auto response = http_get(url, authentication_headers("FHPST01700000"));
 
         if (response.empty())
         {
@@ -665,10 +655,10 @@ std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
             return result;
         }
 
-        auto number_of = [](const nlohmann::json& node, const std::string& key) -> double {
+        auto number_of = [](const nlohmann::json& node, const char* key) -> double {
             try { return std::stod(node.value(key, "0")); } catch (...) { return 0.0; }
         };
-        auto to_int64 = [](const nlohmann::json& node, const std::string& key) -> int64_t {
+        auto to_int64 = [](const nlohmann::json& node, const char* key) -> int64_t {
             try { return std::stoll(node.value(key, "0")); } catch (...) { return 0; }
         };
         auto is_normal_ticker = [](const std::string& ticker) {
@@ -705,12 +695,12 @@ std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
             }
 
             RankingStock stock;
-            stock.ticker      = ticker;
+            stock.ticker      = std::move(ticker);
             stock.name        = item.value("hts_kor_isnm", "");
             stock.price       = number_of(item, "stck_prpr");
             stock.change_rate = number_of(item, "prdy_ctrt");
             stock.volume      = to_int64(item, "acml_vol");
-            result.push_back(stock);
+            result.push_back(std::move(stock));
         }
 
         // 30행을 다 받아놓고 앞의 count행만 쓰면 그 업종 최고 상승주를 버린다(이미 지불한

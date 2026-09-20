@@ -125,7 +125,7 @@ public:
                     daily_lookup.close21   = value[15].get<double>();
                 }
 
-                map_[iterator.key()] = daily_lookup;
+                map_[iterator.key()] = std::move(daily_lookup);
                 ++count;
             }
         }
@@ -207,7 +207,7 @@ public:
             return false;
         }
 
-        out = iterator->second;
+        out = iterator->second;   // 복사가 맞다 — 락 밖에서 쓰는 스냅샷이고 재조회가 같은 항목을 덮어쓴다
         return true;
     }
 
@@ -229,7 +229,8 @@ public:
                                                   int budget, std::size_t& considered) const
     {
         const std::time_t now_t = std::time(nullptr);
-        std::vector<std::pair<std::time_t, std::string>> stale;
+        // 티커는 cand의 원소를 가리킨다 — 이 함수 안에서만 산다.
+        std::vector<std::pair<std::time_t, const std::string*>> stale;
         {
             std::lock_guard<std::mutex> lock(mutex_);
 
@@ -247,18 +248,18 @@ public:
                     continue;
                 }
 
-                stale.emplace_back(iterator->second.at, candidate);
+                stale.emplace_back(iterator->second.at, &candidate);
             }
         }
 
-        std::ranges::sort(stale, {}, &std::pair<std::time_t, std::string>::first);
+        std::ranges::sort(stale, {}, &std::pair<std::time_t, const std::string*>::first);
         considered = stale.size();
         const std::size_t take = std::min<std::size_t>(stale.size(), static_cast<std::size_t>(budget));
         std::unordered_set<std::string> out;
 
         for (std::size_t take_index = 0; take_index < take; ++take_index)
         {
-            out.insert(stale[take_index].second);
+            out.insert(*stale[take_index].second);
         }
 
         return out;
@@ -304,8 +305,8 @@ struct CandidateSet
     int  etf_drop  = 0;
     int  reit_drop = 0;
 
-    // 중복이면 false. 이름은 로그 라벨과 out_names에 쓴다.
-    bool add(const std::string& ticker, const std::string& name)
+    // 중복이면 false. 이름은 로그 라벨과 out_names에 쓴다. name은 sink — 값으로 받아 옮겨 넣는다.
+    bool add(const std::string& ticker, std::string name)
     {
         if (!seen.insert(ticker).second)
         {
@@ -313,7 +314,7 @@ struct CandidateSet
         }
 
         tickers.push_back(ticker);
-        names[ticker] = name;
+        names[ticker] = std::move(name);
         return true;
     }
 
@@ -572,9 +573,7 @@ void load_quote_table(const DevScanCfg& config, QuoteTable& quotes)
             const auto found = document.find(key);
             return (found != document.end() && found->is_number()) ? found->get<double>() : 0.0;
         };
-        const auto prices_node = parsed_json.is_object() ? parsed_json.find("prices") : parsed_json.end();
-        const nlohmann::json pm =
-            (prices_node != parsed_json.end() && prices_node->is_object()) ? *prices_node : nlohmann::json::object();
+        const nlohmann::json& pm = jsonx::object_or_empty(parsed_json, "prices");
         int bad = 0;
 
         for (auto iterator = pm.begin(); iterator != pm.end(); ++iterator)
@@ -600,7 +599,7 @@ void load_quote_table(const DevScanCfg& config, QuoteTable& quotes)
 
             if (name_node != iterator.value().end() && name_node->is_string())
             {
-                market_quote.name = name_node->get<std::string>();
+                market_quote.name = name_node->get_ref<const std::string&>();
             }
         }
 
@@ -697,7 +696,7 @@ void take_universe_file(const DevScanCfg& config, CandidateSet& candidates)
             {
                 if (iterator.value().is_string())
                 {
-                    candidates.market[iterator.key()] = iterator.value().get<std::string>();
+                    candidates.market[iterator.key()] = iterator.value().get_ref<const std::string&>();
                 }
             }
 
@@ -716,7 +715,7 @@ void take_universe_file(const DevScanCfg& config, CandidateSet& candidates)
                 continue;
             }
 
-            const std::string name = element.value("name", std::string());
+            std::string name = element.value("name", std::string());
 
             if (excluded_by_name(name, candidates.etf_drop, candidates.reit_drop))
             {
@@ -736,7 +735,7 @@ void take_universe_file(const DevScanCfg& config, CandidateSet& candidates)
                 continue;
             }
 
-            if (!candidates.add(ticker, name))
+            if (!candidates.add(ticker, std::move(name)))
             {
                 ++duplicate;
                 continue;
@@ -784,21 +783,18 @@ void take_sector_ranking(KisClient& kis, const DevScanCfg& config, QuoteTable& q
         }
 
         ++sec_ok;
-        std::vector<KisClient::RankingStock> strong;
-        strong.reserve(rows.size());
-
-        for (const auto& row : rows)
+        // 약세 행은 제자리에서 걷어낸다 — 통과 행을 새 벡터로 베끼지 않는다.
+        std::erase_if(rows, [&](const KisClient::RankingStock& row)
         {
             if (row.change_rate < config.sector_min_change)
             {
                 ++sec_weak;
-                continue;
+                return true;
             }
 
-            strong.push_back(row);
-        }
-
-        take_ranking(strong, config, quotes, candidates);
+            return false;
+        });
+        take_ranking(rows, config, quotes, candidates);
     }
 
     LOG_INFO("[Main] DEVSCALE 업종 등락률 축: " + std::to_string(sec_ok) + "/" +
@@ -820,21 +816,24 @@ void take_full_market(const DevScanCfg& config, const QuoteTable& quotes, Candid
 
     const std::size_t before_fm = candidates.tickers.size();
     int no_name = 0;
-    std::vector<std::string> tickers;
+    // market의 키를 가리키는 포인터로 정렬한다 — 아래 add()는 tickers·names·seen만 건드려 market의 키가 산다.
+    std::vector<const std::string*> tickers;
     tickers.reserve(candidates.market.size());
 
     for (const auto& entry : candidates.market)
     {
         if (entry.first.size() == 6)
         {
-            tickers.push_back(entry.first);
+            tickers.push_back(&entry.first);
         }
     }
 
-    std::sort(tickers.begin(), tickers.end());
+    std::sort(tickers.begin(), tickers.end(),
+              [](const std::string* ticker_a, const std::string* ticker_b) { return *ticker_a < *ticker_b; });
 
-    for (const auto& ticker : tickers)
+    for (const std::string* ticker_pointer : tickers)
     {
+        const std::string& ticker = *ticker_pointer;
         auto quote_iterator = quotes.find(ticker);
 
         if (quote_iterator == quotes.end() || quote_iterator->second.name.empty())
@@ -881,7 +880,7 @@ void collect_candidates(KisClient& kis, const DevScanCfg& config, const std::str
             if (g_candidate_cache.date_yyyymmdd == date_yyyymmdd && !g_candidate_cache.tickers.empty() &&
                 std::time(nullptr) - g_candidate_cache.at < config.union_refresh_sec)
             {
-                candidates = g_candidate_cache;
+                candidates = g_candidate_cache;   // 복사가 맞다 — 캐시는 락 아래 남고 호출자는 락 밖에서 자기 사본을 쓴다
                 age  = static_cast<long long>(std::time(nullptr) - g_candidate_cache.at);
             }
         }
@@ -912,7 +911,7 @@ void collect_candidates(KisClient& kis, const DevScanCfg& config, const std::str
         std::lock_guard<std::mutex> lock(g_candidate_mutex);
         candidates.date_yyyymmdd = date_yyyymmdd;
         candidates.at  = std::time(nullptr);
-        g_candidate_cache   = candidates;
+        g_candidate_cache   = candidates;   // 복사가 맞다 — 호출자가 candidates를 계속 쓰고 캐시는 다음 재스캔까지 남는다
     }
 }
 
@@ -1324,17 +1323,19 @@ std::vector<std::string> rank_and_truncate(const DevScanCfg& config, std::vector
 
     for (std::size_t take_index = 0; take_index < take_n; ++take_index)
     {
-        out.push_back(passed[take_index].ticker);
+        Features& feature = passed[take_index];
 
         if (out_names)
         {
-            (*out_names)[passed[take_index].ticker] = candidates.name_of(passed[take_index].ticker);
+            (*out_names)[feature.ticker] = candidates.name_of(feature.ticker);
         }
 
         if (out_scores)
         {
-            (*out_scores)[passed[take_index].ticker] = passed[take_index].score;
+            (*out_scores)[feature.ticker] = feature.score;
         }
+
+        out.push_back(std::move(feature.ticker));   // passed는 여기서 끝난다 — 마지막에 옮긴다
     }
 
     if (config.score_top_n > 0)
@@ -1422,7 +1423,7 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& config
     auto rank = scan_kis.fetch_value_ranking(config.scan_top_n, "J");
     int added = 0;
 
-    for (const auto& ranked : rank)
+    for (auto& ranked : rank)
     {
         if (added >= config.max_register)
         {
@@ -1466,12 +1467,12 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& config
             day_open = ranked.price;
         }
 
-        out.push_back({ranked.ticker, ranked.name, day_open});
         LOG_INFO("[Main]   + ITB 스캔 " + ranked.ticker + " " + ranked.name + " (등락 " +
                  std::to_string(ranked.change_rate) + "% 가격 " +
                  std::to_string(static_cast<long long>(ranked.price)) + " 시가 기준점 " +
                  std::to_string(static_cast<long long>(day_open)) + " 거래대금 " +
                  std::to_string(static_cast<long long>(ranked.trade_value)) + ")");
+        out.push_back({std::move(ranked.ticker), std::move(ranked.name), day_open});   // rank는 여기서 끝난다
         ++added;
     }
 

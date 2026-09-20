@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <string_view>
 
 namespace trace
 {
@@ -33,7 +34,7 @@ inline int64_t segment_us(int64_t from_ns, int64_t to_ns)
     return (to_ns - from_ns) / 1000;
 }
 
-inline std::string csv_header()
+inline std::string_view csv_header()
 {
     return "utc_ms,seq,ticker,strategy,side,action,tick_to_signal_us,signal_to_pop_us,pop_to_done_us,total_us,kis_called,"
            "accepted\n";

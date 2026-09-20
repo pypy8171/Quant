@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -55,9 +56,10 @@ inline std::vector<Row> plan(const std::vector<Held>& ledger, const std::vector<
         by_ticker[ledger_entry.ticker] = &ledger_entry;
     }
 
-    std::unordered_set<std::string> seen;
-    std::unordered_set<std::string> gone(pruned.begin(), pruned.end());
-    std::vector<Row>                rows;
+    // [inv] 두 집합은 문자열을 베끼지 않고 broker·pruned의 원소를 가리킨다 — 이 함수 안에서만 산다.
+    std::unordered_set<std::string_view> seen;
+    std::unordered_set<std::string_view> gone(pruned.begin(), pruned.end());
+    std::vector<Row>                     rows;
 
     for (const auto& broker_entry : broker)
     {

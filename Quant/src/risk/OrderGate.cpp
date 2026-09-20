@@ -388,7 +388,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 
                 // 교체 진입이 켜져 있으면 여기 오는 BUY는 교체 판정에서 떨어진 것이다. 그 사유를
                 //  같이 적지 않으면 한도 문구만 남아 "교체가 안 도는 것"으로 읽힌다(09-11 11:21).
-                std::string decline;
+                bool declined = false;
                 {
                     // [lock-order] positions_mutex_ → displace_mutex_. 반대 순서로 겹쳐 잡는 곳은 없다
                     //  (plan_displacement·note_displacement는 displace_mtx_를 단독 구간으로만 쓴다).
@@ -397,15 +397,13 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 
                     if (di != displace_decline_.end())
                     {
-                        decline = di->second;
+                        reason_text += " — 교체 보류: ";
+                        reason_text += di->second;
+                        declined = true;
                     }
                 }
 
-                if (!decline.empty())
-                {
-                    reason_text += " — 교체 보류: " + decline;
-                }
-                else
+                if (!declined)
                 {
                     reason_text += " — 신규 종목 진입 정지";
                 }
@@ -421,7 +419,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
             if (config_.displace_enabled)
             {
                 const auto now = Clock::now();
-                std::string blocked_by;
+                bool blocked = false;
                 bool cooling = false;
                 {
                     std::lock_guard<std::mutex> lock(displace_mutex_);
@@ -451,7 +449,8 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
                         }
                         else
                         {
-                            blocked_by = slot_reserved_for_;
+                            blocked = true;
+                            reject_reason = "교체로 비운 슬롯 예약분 (" + slot_reserved_for_ + ") — 다른 종목 진입 보류";
                         }
                     }
                 }
@@ -462,9 +461,8 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
                     return false;
                 }
 
-                if (!blocked_by.empty())
+                if (blocked)
                 {
-                    reject_reason = "교체로 비운 슬롯 예약분 (" + blocked_by + ") — 다른 종목 진입 보류";
                     return false;
                 }
             }
@@ -625,7 +623,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
     //    (09-11 10:04 232140 BUY 42@11790·42@11690 둘 다 거부). 같은 가격 반복만 중복이다.
     //    [why D-070] 신호마다 만드는 키라 std::format으로 바꾸지 않았다 — 같은 키를 200만 회 만들어
     //    연결 105ns, format 152ns(reserve+format_to도 145ns). 재는 법은 docs/guides/CPP20_23_GUIDE.market_data 17-1.
-    const std::string deduplicate_key = signal.account_id + ":" + signal.strategy_id + ":" + signal.ticker + ":" +
+    std::string deduplicate_key = signal.account_id + ":" + signal.strategy_id + ":" + signal.ticker + ":" +
                                   std::to_string(static_cast<int>(signal.side)) +
                                   (signal.type == OrderType::LIMIT
                                        ? ":" + std::to_string(static_cast<long long>(signal.price))
@@ -688,7 +686,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
     // 모든 검사를 지난 신호만 deduplicate 창을 연다.
     {
         std::lock_guard<std::mutex> lock(deduplicate_mutex_);
-        last_signal_[deduplicate_key] = Clock::now();
+        last_signal_[std::move(deduplicate_key)] = Clock::now();
     }
 
     return true;
@@ -782,15 +780,16 @@ std::vector<std::string> OrderGate::prune_positions(const std::vector<std::strin
                                                     int min_age_sec)
 {
     std::vector<std::string> gone;
-    const std::unordered_set<std::string> live(live_tickers.begin(), live_tickers.end());
+    // [inv] 뷰 집합은 live_tickers를 가리킨다 — 이 함수 안에서만 산다.
+    const std::unordered_set<std::string_view> live(live_tickers.begin(), live_tickers.end());
     std::lock_guard<std::mutex> lock(positions_mutex_);
     const auto now = Clock::now();
 
     for (auto iterator = positions_.begin(); iterator != positions_.end();)
     {
-        const std::string ticker = ticker_of(iterator->first);
+        const symbol::Ticker ticker = ticker_of(iterator->first);
 
-        if (iterator->second <= 0 || live.count(ticker))
+        if (iterator->second <= 0 || live.count(ticker.view()))
         {
             ++iterator;
             continue;
@@ -807,7 +806,7 @@ std::vector<std::string> OrderGate::prune_positions(const std::vector<std::strin
             continue;
         }
 
-        gone.push_back(ticker);
+        gone.emplace_back(ticker.view());
         average_prices_.erase(iterator->first);
         opened_at_.erase(iterator->first);
         sellable_.erase(iterator->first);
@@ -820,20 +819,21 @@ std::vector<std::string> OrderGate::prune_positions(const std::vector<std::strin
 std::vector<std::string> OrderGate::prune_reservations(const std::vector<std::string>& live_tickers)
 {
     std::vector<std::string> gone;
-    const std::unordered_set<std::string> live(live_tickers.begin(), live_tickers.end());
+    // [inv] 뷰 집합은 live_tickers를 가리킨다 — 이 함수 안에서만 산다.
+    const std::unordered_set<std::string_view> live(live_tickers.begin(), live_tickers.end());
     std::lock_guard<std::mutex> lock(positions_mutex_);
 
     for (auto iterator = reserved_.begin(); iterator != reserved_.end();)
     {
-        const std::string ticker = ticker_of(iterator->first);
+        const symbol::Ticker ticker = ticker_of(iterator->first);
 
-        if (live.count(ticker))
+        if (live.count(ticker.view()))
         {
             ++iterator;
             continue;
         }
 
-        gone.push_back(ticker);
+        gone.emplace_back(ticker.view());
         reserved_price_.erase(iterator->first);
         iterator = reserved_.erase(iterator);
     }
@@ -1235,11 +1235,14 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
     DisplacePlan plan;
 
     // 거절 사유는 한 곳에서 기록한다(뒤의 거부 문구가 읽는다). 락 안에서는 부르지 않는다.
-    auto decline = [&](const std::string& why) -> DisplacePlan
+    auto decline = [&](std::string why) -> DisplacePlan
     {
-        plan.reason = why;
-        std::lock_guard<std::mutex> lock(displace_mutex_);
-        displace_decline_[new_ticker] = why;
+        {
+            std::lock_guard<std::mutex> lock(displace_mutex_);
+            displace_decline_[new_ticker] = why;
+        }
+
+        plan.reason = std::move(why);
         return plan;
     };
 
@@ -1262,6 +1265,7 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
     }
 
     // (1) 신규 종목의 점수. 점수를 모르면 교체 근거가 없다.
+    // 복사가 맞다 — priority_mutex_를 쥔 채 positions_mutex_를 잡지 않는 락 순서 규약이라 락 밖으로 사본을 들고 나온다.
     std::unordered_map<std::string, double> items;
     {
         std::lock_guard<std::mutex> lock(priority_mutex_);
@@ -1325,15 +1329,15 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
                 continue;
             }
 
-            const PosKey&     key    = entry.first;
-            const std::string ticker = ticker_of(key);
+            const PosKey&        key    = entry.first;
+            const symbol::Ticker ticker = ticker_of(key);
 
             if (ticker == new_ticker)
             {
                 continue;
             }
 
-            auto zi = items.find(ticker);
+            auto zi = items.find(ticker.string());
             double cand_z = 0.0;
 
             if (zi != items.end())
@@ -1416,7 +1420,7 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
         std::lock_guard<std::mutex> lock(positions_mutex_);
 
         plan.account = account_of(best_key);
-        plan.ticker  = ticker_of(best_key);
+        plan.ticker  = ticker_of(best_key).string();
         auto position_iterator = positions_.find(best_key);
         auto reserved_found  = reserved_.find(best_key);
         const int sell_pending = (reserved_found != reserved_.end() && reserved_found->second < 0) ? -reserved_found->second : 0;
@@ -1573,9 +1577,9 @@ OrderGate::PosKey OrderGate::lookup_key(const OrderSignal& signal) const
     return lookup_key(signal.account_id, signal.ticker);
 }
 
-std::string OrderGate::ticker_of(const PosKey& key) const
+symbol::Ticker OrderGate::ticker_of(const PosKey& key) const
 {
-    return symbols_->name(key.symbol).string();
+    return symbols_->name(key.symbol);
 }
 
 const std::string& OrderGate::account_of(const PosKey& key) const
@@ -1678,7 +1682,7 @@ std::vector<OrderGate::HeldPos> OrderGate::snapshot_positions() const
         const PosKey& key = entry.first;
         HeldPos held_position;
         held_position.account = account_of(key);
-        held_position.ticker  = ticker_of(key);
+        held_position.ticker  = ticker_of(key).string();
         held_position.quantity     = entry.second;
         auto average_price_iterator = average_prices_.find(key);
         held_position.average_price = (average_price_iterator != average_prices_.end()) ? average_price_iterator->second : 0.0;

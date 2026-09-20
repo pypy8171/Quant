@@ -184,7 +184,14 @@ void Engine::apply_regime_selection(Regime regime, bool force_log)
     }
 
     auto append = [](std::string& csv, const std::string& id)
-    { csv += csv.empty() ? id : ", " + id; };
+    {
+        if (!csv.empty())
+        {
+            csv += ", ";
+        }
+
+        csv += id;
+    };
 
     std::string active_ids, inactive_ids;
 
@@ -212,14 +219,14 @@ void Engine::apply_regime_selection(Regime regime, bool force_log)
     {
         // FILL 페이로드가 그때그때 이 라벨을 실어 DB의 regime 열을 채운다(주문 시점이 아니라
         // publish 시점 기준 — 국면 전환 중 걸친 체결은 오차가 있을 수 있으나 근사로 충분).
-        zmq_bridge_->set_regime_label(regime_file::label_of(regime));
+        zmq_bridge_->set_regime_label(std::string(regime_file::label_of(regime)));
     }
 #endif
 
     if (force_log || regime != strategy_.last_selected_regime)
     {
         // 국면은 regime.json 라벨로 적는다(RISK_ON·NEUTRAL·RISK_OFF) — 매매일지·대시보드가 이 값을 읽는다. [why D-085]
-        const std::string line = "[RegimeSelect] 국면=" + regime_file::label_of(regime) + " → 활성=[" + active_ids +
+        const std::string line = std::string("[RegimeSelect] 국면=").append(regime_file::label_of(regime)) + " → 활성=[" + active_ids +
                                  "] 비활성=[" + inactive_ids + "]" +
                                  (strategy_.has_regime_map ? "" : " (per-strategy 폴백)");
 
@@ -786,9 +793,8 @@ void Engine::initialize_data_poller()
             KisClient* quote_client = feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get();
             return quote_client ? quote_client->get_current_price(ticker) : 0.0;
         },
-        [this](const TradeData& in)
+        [this](TradeData trade)
         {
-            TradeData trade = in;
             trade.symbol_id       = symbols_.table.intern(trade.ticker);
             const auto consumer = pipeline_.trade_matrix.consumer_of(trade.symbol_id);
 
@@ -875,9 +881,9 @@ void Engine::collect_watch_specifications()
             {
                 std::string key = (specification.market == Market::US ? "US:" : "KR:") + specification.exchange + ":" + specification.ticker;
 
-                if (seen.insert(key).second)
+                if (seen.insert(std::move(key)).second)
                 {
-                    watch_specifications_.push_back(specification);
+                    watch_specifications_.push_back(std::move(specification)); // get_watch_specifications()가 준 임시 벡터라 옮겨도 된다
                 }
             }
         }
@@ -996,7 +1002,7 @@ void Engine::connect_feed()
                        },
                        [this](uint32_t lane, const TradeData& in)
                        {
-                           // push가 어차피 한 번 복사하므로 여기서 복사해 id를 찍고 move로 넣는다. 수신 시각은
+                           // 트리비얼 복사 타입이라 이동이 곧 복사다 — 여기서 한 번 복사해 id를 찍고 push가 셀에 한 번 더 베낀다. 수신 시각은
                            //  수신 스레드가 디코드 시점에 찍은 값을 지키고, 안 찍힌 소스만 여기서 찍는다.
                            TradeData trade = in;
                            trade.symbol_id       = symbols_.table.intern(trade.ticker);
@@ -1185,6 +1191,7 @@ void Engine::set_last_price(const std::string& ticker, double price)
     set_last_price(symbols_.table.intern(ticker), price);
 }
 
+// 값으로 돌려준다 — ticker_names_는 뮤텍스 아래 갱신되므로 락을 벗어난 참조는 쓸 수 없다.
 std::string Engine::ticker_label(const std::string& ticker) const
 {
     std::lock_guard<std::mutex> lock(ticker_names_mutex_);
@@ -1198,6 +1205,7 @@ std::string Engine::ticker_label(const std::string& ticker) const
     return ticker;
 }
 
+// 값으로 돌려준다 — 위와 같은 이유(락 밖 참조 금지).
 std::string Engine::ticker_name(const std::string& ticker) const
 {
     std::lock_guard<std::mutex> lock(ticker_names_mutex_);
@@ -2267,7 +2275,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         {
             if (auto option = pipeline_.order_queue.pop())
             {
-                next   = OrderRateLimiter::Pending{*option, 0};
+                next   = OrderRateLimiter::Pending{std::move(*option), 0};
                 pop_ns = trace::now_ns();
             }
         }
@@ -2333,7 +2341,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             }
             else
             {
-                rate_limiter.on_rejected(*next, managed_order.status, managed_order.reject_reason, steady_clock::now());
+                rate_limiter.on_rejected(std::move(*next), managed_order.status, managed_order.reject_reason, steady_clock::now());
             }
         }
         catch (const std::exception& exception)
@@ -2525,7 +2533,12 @@ void Engine::control_thread_fn(std::stop_token stop_token)
 
             for (const auto& sh : pipeline_.shards)
             {
-                shard_high_water += (shard_high_water.empty() ? "" : ",") + std::to_string(sh->high_water());
+                if (!shard_high_water.empty())
+                {
+                    shard_high_water += ',';
+                }
+
+                shard_high_water += std::to_string(sh->high_water());
             }
 
             LOG_INFO("[큐 고수위] shard=" + shard_high_water + "/4096 shard_out=" + std::to_string(pipeline_.shard_out.size()) + "/" +
@@ -2665,7 +2678,7 @@ void Engine::write_state_marker(std::string_view name, std::string_view body) co
         return;
     }
 
-    out << std::string(body) << " " << std::put_time(&kst, "%H:%M:%S") << '\n';
+    out << body << " " << std::put_time(&kst, "%H:%M:%S") << '\n';
     LOG_INFO("[Engine] 표지 파일 기록: " + path.string() + " — " + std::string(body));
 }
 

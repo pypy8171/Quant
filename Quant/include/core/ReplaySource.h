@@ -11,6 +11,8 @@
 #include <mutex>
 #include <stop_token>
 #include <string>
+#include <string_view>
+#include <functional>
 #include <thread>
 #include <unordered_set>
 #include <vector>
@@ -182,11 +184,22 @@ private:
         connected_.store(false, std::memory_order_release);
     }
 
-    bool pass(const char* ticker) const
+    bool pass(std::string_view ticker) const
     {
         std::lock_guard<std::mutex> lock(filter_mutex_);
         return filter_.empty() || filter_.count(ticker) > 0;
     }
+
+    // 문자열 집합을 string_view로 찾게 하는 해시 — 레코드마다 std::string을 만들지 않는다.
+    struct TransparentStringHash
+    {
+        using is_transparent = void;
+
+        size_t operator()(std::string_view text) const noexcept
+        {
+            return std::hash<std::string_view>{}(text);
+        }
+    };
 
     // 정지 요청에 50ms 안에 응답하도록 잘라 잔다. 시계 격자(2ms)보다 짧은 간격은 sleep 없이 지나간다.
     static void pace(const std::stop_token& stop_token, int64_t wait_ns)
@@ -218,8 +231,8 @@ private:
     OrderBookCb           on_order_book_;
     TradeCb               on_trade_;
 
-    mutable std::mutex              filter_mutex_;
-    std::unordered_set<std::string> filter_; // 비어 있으면 전 종목
+    mutable std::mutex                                                       filter_mutex_;
+    std::unordered_set<std::string, TransparentStringHash, std::equal_to<>> filter_; // 비어 있으면 전 종목
 
     std::jthread          thread_;
     std::atomic<bool>     connected_{false};

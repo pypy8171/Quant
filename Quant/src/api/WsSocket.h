@@ -24,7 +24,7 @@ public:
     // 두 번 불러도 된다.
     virtual void close() = 0;
     virtual bool is_open() const = 0;
-    virtual std::string last_error() const = 0;
+    virtual const std::string& last_error() const = 0; // [inv] 소켓 객체가 사는 동안만 유효. recv_message를 부른 스레드가 읽는다
 };
 
 namespace websocket_platform

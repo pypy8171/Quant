@@ -12,6 +12,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 
 // regime.json 이 이 초(seconds)보다 오래되면 보조 프로세스가 죽은 것으로 보고 신뢰하지 않는다(페일세이프).
 // config "regime_stale_sec" 로 덮어쓸 수 있고, 미지정 시 이 기본값을 쓴다.
@@ -98,8 +99,8 @@ inline Regime selection_of(const std::string& label)
     return Regime::UNKNOWN;
 }
 
-// 선택 국면 → 파일 라벨(selection_of의 역방향). 로그·일지는 파일 라벨로 적는다. [why D-085]
-inline std::string label_of(Regime regime)
+// 선택 국면 → 파일 라벨(selection_of의 역방향). 로그·일지는 파일 라벨로 적는다. 리터럴이라 수명은 정적이다. [why D-085]
+inline std::string_view label_of(Regime regime)
 {
     switch (regime)
     {

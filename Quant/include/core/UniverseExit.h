@@ -66,8 +66,8 @@ template <typename OwnedMap, typename InScanSet, typename HeldSet, typename Rese
 inline std::string pick_evict_candidate(const OwnedMap& owned, const InScanSet& in_scan, const HeldSet& held,
                                          ReservedFn&& reserved, AbsentSecFn&& absent_sec)
 {
-    std::string best;
-    long long   best_absent_sec = -1;
+    const std::string* best            = nullptr; // owned의 원소를 가리킨다 — 마지막에 한 번만 베낀다
+    long long          best_absent_sec = -1;
 
     for (const auto& entry : owned)
     {
@@ -80,13 +80,13 @@ inline std::string pick_evict_candidate(const OwnedMap& owned, const InScanSet& 
 
         const long long seconds = absent_sec(ticker);
 
-        if (seconds > best_absent_sec || (seconds == best_absent_sec && (best.empty() || ticker < best)))
+        if (seconds > best_absent_sec || (seconds == best_absent_sec && (best == nullptr || ticker < *best)))
         {
-            best            = ticker;
+            best            = &ticker;
             best_absent_sec = seconds;
         }
     }
 
-    return best;
+    return best == nullptr ? std::string() : *best;
 }
 } // namespace universe_exit

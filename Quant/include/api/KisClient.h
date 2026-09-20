@@ -292,8 +292,9 @@ public:
     std::vector<std::string> fetch_us_universe_by_pbr(double max_pbr, const std::string& exchange = "NAS");
 
 private:
-    std::string http_get(const std::string& url, const std::vector<std::string>& headers);
-    std::string http_post(const std::string& url, const std::vector<std::string>& headers, const std::string& body);
+    // headers는 값으로 받아 그 자리에서 bearer를 다시 찍는다 — 호출자가 임시로 넘기면 복사가 없다.
+    std::string http_get(const std::string& url, std::vector<std::string> headers);
+    std::string http_post(const std::string& url, std::vector<std::string> headers, const std::string& body);
     // 인증 헤더 네 줄(bearer·appkey·appsecret·transaction_id) + 호출별 추가 항목. 구현 파일 전부가 쓴다. [why D-048]
     std::vector<std::string> authentication_headers(const std::string& transaction_id,
                                           std::initializer_list<std::string> extra = {}) const;

@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -131,7 +132,8 @@ static void on_terminate()
     }
     catch (const std::exception& exception)
     {
-        why += " — " + std::string(exception.what());
+        why += " — ";
+        why += exception.what();
     }
     catch (...)
     {
@@ -183,7 +185,7 @@ static CommandLine parse_command_line(int argc, char* argv[])
 
     for (int index = 1; index < argc; ++index)
     {
-        const std::string argument = argv[index];
+        const std::string_view argument = argv[index];
 
         if (argument == "KR_TEST" || argument == "US_TEST" || argument == "FEED" || argument == "TRADE")
         {

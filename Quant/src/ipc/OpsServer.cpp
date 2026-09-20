@@ -199,7 +199,7 @@ size_t OpsServer::client_count() const
     return clients_.size();
 }
 
-void OpsServer::broadcast(ops::OpsMsg type, const std::string& body)
+void OpsServer::broadcast(ops::OpsMsg type, std::string body)
 {
     if (!running_.load())
     {
@@ -207,7 +207,7 @@ void OpsServer::broadcast(ops::OpsMsg type, const std::string& body)
     }
 
     std::lock_guard<std::mutex> lock(broadcast_mutex_);
-    broadcast_.emplace_back(type, body);
+    broadcast_.emplace_back(type, std::move(body));
 }
 
 // ─── 서버 스레드 ─────────────────────────────────────────────────────────────
@@ -383,10 +383,9 @@ void OpsServer::accept_one()
             return;
         }
 
+        LOG_INFO("[Ops] 연결 " + client.name);
         clients_.emplace(descriptor, std::move(client));
     }
-
-    LOG_INFO("[Ops] 연결 " + std::string(ip_text) + ":" + std::to_string(ntohs(peer.sin_port)));
 }
 
 void OpsServer::on_readable(Client& client)
@@ -671,14 +670,14 @@ void OpsServer::push_positions_if_changed()
         return;
     }
 
-    last_positions_json_ = now;
+    last_positions_json_ = std::move(now);
     std::lock_guard<std::mutex> lock(clients_mutex_);
 
     for (auto& entry : clients_)
     {
         if (entry.second.hello)
         {
-            send(entry.second, ops::OpsMsg::POSITIONS_NTF, now);
+            send(entry.second, ops::OpsMsg::POSITIONS_NTF, last_positions_json_);
         }
     }
 }

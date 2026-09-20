@@ -4359,3 +4359,36 @@ string 생성 + 락)은 리플레이 전용이라 다음 순서(wt/symbol-id의 
 - `.gitattributes`의 `linguist-vendored`로 파이썬을 통계에서 숨기기 — 우리가 쓴 코드를 남의 것으로 표시하는 것이라 신뢰 문제.
 - 저장소 안 gitignore 폴더 — 버전 관리가 없어 지워지면 끝(2026-09-18·19 `.claude/` 두 번 삭제 경험).
 - `scripts/` 이름 바꾸기 — 위 배경.
+
+### D-108 C++ 전체를 훑어 안 해도 되는 복사를 뺀다 — "작으니 괜찮다"는 판단을 두지 않는다 (2026-09-20)
+
+**상태**: 채택
+
+**배경**: `SymbolTable::lookup(string_view)`가 조회마다 `Ticker` 임시 객체(16바이트)를 만들고 `words_of`로 다시 읽는 두 단계를
+거쳤다. 리뷰에서 "힙 할당 없는 16바이트 스택 복사라 문제되는 복사는 아니다"라고 넘어갔고, 사용자가 그 판단 자체를 문제 삼았다 —
+규약(`docs/guides/MAINTENANCE_AUTOMATION.md` §4 "복사 표기")은 "안 해도 되는 복사는 만들지 않는다"이지 "작은 복사는 봐준다"가
+아니다. 그 한 자리를 빼자 조회가 25.4 → 10.9 ns(단일 스레드, 3회 중앙값), 수신 스레드 4개 동시 19.6 → 11.4 ns로 떨어졌다.
+크기로 봐주던 판단이 hot path 절반을 먹고 있었으니, 같은 눈으로 `Quant/src`·`Quant/include` 101파일 3.2만 줄을 전부 다시 읽었다.
+
+**결정**:
+- 복사 여부는 크기가 아니라 "없어도 동작이 같은가"로만 가른다. 의도한 복사(락 안 스냅샷·이후 고칠 사본·스레드 경계)는
+  그 자리에 이유를 한 줄 적는다 — 적히지 않은 복사는 지워도 되는 복사로 본다.
+- 이번에 뺀 것(50파일, 약 230곳): 조회의 `Ticker` 임시(`SymbolTable.h`), 1초마다 수십 KB 포지션 JSON 사본(`OpsServer.cpp`),
+  전 종목 시세 JSON 객체 통째 복사(`UniverseScanner.cpp` `prices` 노드), config 하위 트리 static 복사(`StrategyFactory.cpp`),
+  전 종목 키 문자열 벡터 복사 후 정렬(`ScoreWeight.h`·`UniverseScanner.cpp` → 포인터 정렬), 레코드마다 `std::string` 임시를
+  만들던 `unordered_set<std::string>::count(const char*)`(`ReplaySource.h`·`ThemeStrategy.h`·`ValueContraryStrategy.h` → 투명 해시),
+  리눅스 WebSocket 프레임을 중간 버퍼에 받아 다시 붙이던 것(`WsSocketPosix.cpp`), 그 외 값 파라미터→`const&`/sink+move,
+  `push_back`→`std::move`, `get<std::string>()`→`get_ref`, 리터럴 반환 `std::string`→`string_view`, 람다 값 캡처→참조.
+- `TradeData`·`OrderBook`은 `is_trivially_copyable`이라 이동이 곧 복사다 — `ShardMatrix::push_to` 우측값 오버로드는 만들지 않고
+  "move로 넣는다"던 `Engine.cpp` 주석만 바로잡았다.
+- `SupplyDemandPullbackStrategy::past_hhmm`의 `stoi`→`from_chars` 전환으로 잘못된 설정값이 예외 대신 조용히 "아직 아님"이 되므로
+  `on_start`에서 한 번 형식을 검증해 WARN을 남긴다(무음 실패를 두지 않는다).
+
+**검증**: ctest 38/38, `check_code_conventions.py` 위반 0, 리뷰(댕글링·이동 뒤 사용·락 스냅샷·스레드 경계·예외 변화·`c_str` 가정)
+결함 0. `WsSocketPosix.cpp`는 Windows에서 컴파일되지 않아 분기별 대조로만 확인 — 리눅스 빌드 때 `test_feed_mux`류가 아니라
+실제 접속으로 본다.
+
+**버린 대안**:
+- 문제된 `SymbolTable` 한 곳만 고치기 — 같은 판단으로 쓴 자리가 저장소 전체에 있을 것이라는 지적이 맞았다(약 230곳).
+- 성능 측정으로 자리를 고르기(원칙 7) — 이 규약은 성능이 아니라 문법이다. 측정 없이도 지우는 것이 맞고, hot path(`SymbolTable`)만
+  전후를 붙였다.

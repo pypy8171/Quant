@@ -70,7 +70,7 @@ class DataPoller
 {
 public:
     using QuoteFn       = std::function<double(const std::string& ticker)>; // 현재가(원). 실패·파싱 불가 = 0
-    using TickSink      = std::function<void(const TradeData&)>;            // 큐 push. 가득 찼을 때 기다림은 호출자 몫
+    using TickSink      = std::function<void(TradeData)>;                   // 큐 push(값으로 넘겨 sink가 옮긴다). 가득 찼을 때 기다림은 호출자 몫
     using ResubscribeFn = std::function<bool(const WatchSpec&)>;            // WS 재구독 시도. true = 슬롯 확보
     using KeepGoingFn   = std::function<bool()>;                            // running_ — 종료 중이면 루프를 끊는다
 

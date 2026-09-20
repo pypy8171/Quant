@@ -128,13 +128,13 @@ public:
         // ── 기존 견적 취소 (있으면) ─────────────────────────────────────────
         if (!bid_order_id_.empty())
         {
-            out.push_back(make_cancel(bid_order_id_, OrderSide::BUY));
+            out.push_back(make_cancel(std::move(bid_order_id_), OrderSide::BUY));
             bid_order_id_.clear();
         }
 
         if (!ask_order_id_.empty())
         {
-            out.push_back(make_cancel(ask_order_id_, OrderSide::SELL));
+            out.push_back(make_cancel(std::move(ask_order_id_), OrderSide::SELL));
             ask_order_id_.clear();
         }
 
@@ -175,7 +175,7 @@ private:
         return signal;
     }
 
-    OrderSignal make_cancel(const std::string& original_order_id, OrderSide side)
+    OrderSignal make_cancel(std::string original_order_id, OrderSide side) // sink: 취소할 주문 id를 신호로 옮긴다
     {
         OrderSignal signal;
         signal.ticker         = ticker_;
@@ -186,7 +186,7 @@ private:
         signal.strategy_id    = id();
         signal.market         = Market::KR;
         signal.action         = OrderAction::CANCEL;
-        signal.original_client_order_id = original_order_id;
+        signal.original_client_order_id = std::move(original_order_id);
         signal.timestamp      = std::chrono::system_clock::now();
         return signal;
     }

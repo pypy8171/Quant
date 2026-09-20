@@ -82,8 +82,8 @@ public:
     bool running() const { return running_.load(); }
     int  port() const { return port_; }
 
-    // 모든 인증된 연결로 push. 어느 스레드에서든 부를 수 있다.
-    void broadcast(ops::OpsMsg type, const std::string& body);
+    // 모든 인증된 연결로 push. 어느 스레드에서든 부를 수 있다. body는 큐로 옮겨 넣는 sink라 값으로 받는다.
+    void broadcast(ops::OpsMsg type, std::string body);
 
     size_t client_count() const;
 

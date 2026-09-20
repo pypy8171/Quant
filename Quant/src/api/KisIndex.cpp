@@ -23,7 +23,7 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
     auto format_date = [](time_t time_value) -> std::string { return kst::format_ymd(kst::utc_date(time_value)); };
     // 일봉 timestamp는 그 날짜의 UTC 정오 — 날짜 경계 회피. 읽는 쪽도 같은 기준으로 날짜를 뽑는다.
     auto parse_ymd = [](const std::string& text) -> time_t { return kis_rest::parse_dt(text, "120000"); };
-    auto number_of = [](const nlohmann::json& node, const std::string& key) -> double {
+    auto number_of = [](const nlohmann::json& node, const char* key) -> double {
         try { return std::stod(node.value(key, "0")); } catch (...) { return 0.0; }
     };
 
@@ -96,12 +96,12 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
                     market_data.timestamp = std::chrono::system_clock::from_time_t(parse_ymd(business_date));
                 }
 
-                result.push_back(market_data);
+                result.push_back(std::move(market_data));
                 ++added;
 
                 if (!business_date.empty() && (page_oldest.empty() || business_date < page_oldest))
                 {
-                    page_oldest = business_date;
+                    page_oldest = std::move(business_date);
                 }
 
                 if (static_cast<int>(result.size()) >= count)
@@ -115,8 +115,8 @@ std::vector<MarketData> KisClient::get_index_daily_ohlcv(const std::string& sect
                 break;  // 새 데이터 없음 → 종료
             }
 
-            oldest_seen = page_oldest;
             time_t ot = parse_ymd(page_oldest);
+            oldest_seen = std::move(page_oldest);
 
             if (ot == 0)
             {
@@ -157,14 +157,12 @@ KisClient::InvestorTrend KisClient::get_investor_trend(const std::string& ticker
         "?FID_COND_MRKT_DIV_CODE=J"
         "&FID_INPUT_ISCD=" + ticker;
 
-    std::vector<std::string> headers = authentication_headers("FHKST01010900");
-
     InvestorTrend result;
     result.ticker = ticker;
 
     try
     {
-        auto response = http_get(url, headers);
+        auto response = http_get(url, authentication_headers("FHKST01010900"));
 
         if (response.empty())
         {
@@ -188,7 +186,7 @@ KisClient::InvestorTrend KisClient::get_investor_trend(const std::string& ticker
 
         const auto& latest = array[0];
 
-        auto to_int64 = [](const nlohmann::json& node, const std::string& key) -> int64_t {
+        auto to_int64 = [](const nlohmann::json& node, const char* key) -> int64_t {
             try { return std::stoll(node.value(key, "0")); } catch (...) { return 0; }
         };
         result.foreign_net = to_int64(latest, "frgn_ntby_qty");  // 외국인 순매수
@@ -215,13 +213,11 @@ std::vector<InvestorFlow> KisClient::get_investor_flow(const std::string& ticker
         "?FID_COND_MRKT_DIV_CODE=" + market_div +
         "&FID_INPUT_ISCD=" + ticker;
 
-    std::vector<std::string> headers = authentication_headers("FHKST01010900");
-
     std::vector<InvestorFlow> result;
 
     try
     {
-        auto response = http_get(url, headers);
+        auto response = http_get(url, authentication_headers("FHKST01010900"));
 
         if (response.empty())
         {
@@ -235,7 +231,7 @@ std::vector<InvestorFlow> KisClient::get_investor_flow(const std::string& ticker
             return result;
         }
 
-        auto to_int64 = [](const nlohmann::json& node, const std::string& key) -> int64_t {
+        auto to_int64 = [](const nlohmann::json& node, const char* key) -> int64_t {
             std::string text = node.value(key, "");
 
             if (text.empty())
@@ -246,7 +242,7 @@ std::vector<InvestorFlow> KisClient::get_investor_flow(const std::string& ticker
             // KIS 부호 있는 수치 문자열: 앞에 + / - 포함 가능
             try { return std::stoll(text); } catch (...) { return 0; }
         };
-        auto number_of = [](const nlohmann::json& node, const std::string& key) -> double {
+        auto number_of = [](const nlohmann::json& node, const char* key) -> double {
             std::string text = node.value(key, "");
 
             if (text.empty())
@@ -288,14 +284,12 @@ KisClient::IndexPrice KisClient::get_index_price(const std::string& ticker)
     std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/inquire-index-price"
                       + "?FID_COND_MRKT_DIV_CODE=U&FID_INPUT_ISCD=" + ticker;
 
-    std::vector<std::string> headers = authentication_headers("FHPUP02100000", {"Content-Type: application/json"});
-
     IndexPrice index_price;
     index_price.ticker = ticker;
 
     try
     {
-        auto response = http_get(url, headers);
+        auto response = http_get(url, authentication_headers("FHPUP02100000", {"Content-Type: application/json"}));
         auto document = json::parse(response, nullptr, false);
 
         if (document.is_discarded() || !document.contains("output"))
@@ -343,14 +337,12 @@ KisClient::FuturePrice KisClient::get_future_price(const std::string& issue_code
     std::string url = base_url() + "/uapi/domestic-futureoption/v1/quotations/inquire-price"
                       + "?FID_COND_MRKT_DIV_CODE=" + market_div + "&FID_INPUT_ISCD=" + issue_code;
 
-    std::vector<std::string> headers = authentication_headers("FHMIF10000000", {"Content-Type: application/json"});
-
     FuturePrice future_price;
     future_price.issue_code = issue_code;
 
     try
     {
-        auto response = http_get(url, headers);
+        auto response = http_get(url, authentication_headers("FHMIF10000000", {"Content-Type: application/json"}));
         auto document = json::parse(response, nullptr, false);
 
         if (document.is_discarded())
@@ -371,7 +363,7 @@ KisClient::FuturePrice KisClient::get_future_price(const std::string& issue_code
             {
                 if (document.contains(key))
                 {
-                    dump += std::string(key) + "=" + document[key].dump() + "  ";
+                    dump.append(key).append("=").append(document[key].dump()).append("  ");
                 }
             }
 
@@ -440,11 +432,9 @@ KisResult<std::vector<FutureContract>> KisClient::get_future_board(const std::st
                       + "?FID_COND_MRKT_DIV_CODE=" + market_div + "&FID_COND_SCR_DIV_CODE=20503"
                       + "&FID_COND_MRKT_CLS_CODE=" + market_cls;
 
-    std::vector<std::string> headers = authentication_headers("FHPIF05030200", {"Content-Type: application/json"});
-
     try
     {
-        auto response = http_get(url, headers);
+        auto response = http_get(url, authentication_headers("FHPIF05030200", {"Content-Type: application/json"}));
         auto document = json::parse(response, nullptr, false);
 
         if (document.is_discarded())

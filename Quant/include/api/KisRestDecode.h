@@ -28,7 +28,8 @@ namespace kis_rest
 {
 
 // 문자열 숫자 필드 → double. 키 없음·빈 값·파싱 실패·문자열이 아닌 값은 0.
-inline double number(const nlohmann::json& node, const std::string& key)
+//  키는 리터럴이라 const char* — json이 투명 비교자를 써서 std::string을 만들지 않는다.
+inline double number(const nlohmann::json& node, const char* key)
 {
     try
     {
@@ -100,7 +101,8 @@ inline std::vector<MarketData> aggregate_minutes(std::vector<RawMinute>& raw_min
     });
 
     std::vector<MarketData> ascending; // 과거→최신 집계봉
-    std::string current_key;
+    std::string current_date;          // 열려 있는 버킷의 날짜·번호 — 문자열을 이어 붙여 키를 만들지 않는다
+    int current_bucket = -1;
 
     for (const auto& raw : raw_minutes)
     {
@@ -117,9 +119,8 @@ inline std::vector<MarketData> aggregate_minutes(std::vector<RawMinute>& raw_min
         }
 
         int bucket = (hour * 60 + minute) / interval_min;
-        std::string key = raw.date + ":" + std::to_string(bucket);
 
-        if (key != current_key)
+        if (bucket != current_bucket || raw.date != current_date)
         {
             MarketData market_data;
             market_data.ticker = ticker;
@@ -130,8 +131,9 @@ inline std::vector<MarketData> aggregate_minutes(std::vector<RawMinute>& raw_min
             market_data.close = raw.close;
             market_data.volume = raw.volume;
             market_data.timestamp = std::chrono::system_clock::from_time_t(parse_dt(raw.date, raw.hour) - kst::kOffsetSec);
-            ascending.push_back(market_data);
-            current_key = key;
+            ascending.push_back(std::move(market_data));
+            current_date = raw.date;
+            current_bucket = bucket;
         }
         else
         {
@@ -146,9 +148,8 @@ inline std::vector<MarketData> aggregate_minutes(std::vector<RawMinute>& raw_min
 
     for (auto iterator = ascending.rbegin(); iterator != ascending.rend() && static_cast<int>(result.size()) < count; ++iterator)
     {
-        MarketData market_data = *iterator;
-        market_data.bar_index = static_cast<int>(result.size());
-        result.push_back(market_data);
+        result.push_back(std::move(*iterator)); // ascending은 여기서 끝나는 지역 변수라 옮겨도 된다
+        result.back().bar_index = static_cast<int>(result.size() - 1);
     }
 
     return result;
@@ -190,14 +191,14 @@ inline std::string parse_minute_page(const nlohmann::json& array, std::vector<Ra
         }
 
         RawMinute raw_minute;
-        raw_minute.date = data;
-        raw_minute.hour = ticker;
+        raw_minute.date = std::move(data);
+        raw_minute.hour = std::move(ticker);
         raw_minute.open = number(item, "stck_oprc");
         raw_minute.high = number(item, "stck_hgpr");
         raw_minute.low = number(item, "stck_lwpr");
         raw_minute.close = number(item, "stck_prpr");
         raw_minute.volume = static_cast<int64_t>(number(item, "cntg_vol"));
-        raw_minutes.push_back(raw_minute);
+        raw_minutes.push_back(std::move(raw_minute));
         ++added_out;
     }
 
@@ -206,7 +207,7 @@ inline std::string parse_minute_page(const nlohmann::json& array, std::vector<Ra
 
 // 문자열 숫자 필드 → optional<double>. 키 없음·빈 값·숫자 아님은 비어 있음 — number()의 0과 달리 "없다"를 남긴다.
 //  잔고 요약처럼 0원과 필드 부재를 구분해야 하는 곳에 쓴다.
-inline std::optional<double> option_number(const nlohmann::json& node, const std::string& key)
+inline std::optional<double> option_number(const nlohmann::json& node, const char* key)
 {
     std::string text;
 

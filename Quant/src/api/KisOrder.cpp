@@ -11,7 +11,13 @@
 static std::string kis_reject_code(const json& document)
 {
     std::string code = document.value("msg_cd", std::string(""));
-    return code.empty() ? std::string(kis_error::kUnknown) : code;
+
+    if (code.empty())
+    {
+        return kis_error::kUnknown;
+    }
+
+    return code;
 }
 
 // 국내 주문구분. KRX 애프터마켓(16:00~20:00)은 시장가(01)를 받지 않고 지정가·최우선·최유리만 받으므로,
@@ -124,7 +130,7 @@ bool KisClient::send_order(const OrderSignal& signal)
         return false;
     }
 
-    bool ok = (document["rt_cd"].get<std::string>() == "0");
+    bool ok = (document["rt_cd"].get_ref<const std::string&>() == "0");
 
     if (ok)
     {
@@ -197,7 +203,7 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
         return OrderAck::fail(kis_error::kTransport);
     }
 
-    if (document["rt_cd"].get<std::string>() != "0")
+    if (document["rt_cd"].get_ref<const std::string&>() != "0")
     {
         LOG_ERROR("[KIS] 주문 오류: " + document.value("msg1", std::string("")));
         return OrderAck::fail(kis_reject_code(document));
@@ -259,7 +265,7 @@ OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& o
         return OrderAck::fail(kis_error::kTransport);
     }
 
-    if (document["rt_cd"].get<std::string>() != "0")
+    if (document["rt_cd"].get_ref<const std::string&>() != "0")
     {
         // 이미 체결/취소된 주문이면 KIS가 거부 → 자가치유(호출부가 reserved 미변경). 로그만.
         LOG_WARN("[KIS] 취소 거부: " + ticker + " ODNO=" + orig_odno + " — " +
@@ -270,7 +276,7 @@ OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& o
     std::string cancel_order_no = jsonx::object_or_empty(document, "output").value("ODNO", "");
     LOG_INFO("[KIS] 취소 접수: " + ticker + " 원ODNO=" + orig_odno +
              " 취소ODNO=" + cancel_order_no);
-    return OrderAck{cancel_order_no, std::string(), std::string()};
+    return OrderAck{std::move(cancel_order_no), std::string(), std::string()};
 }
 
 OrderAck KisClient::revise_order(const std::string& ticker, const std::string& orig_odno,
@@ -317,7 +323,7 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
         return OrderAck::fail(kis_error::kTransport);
     }
 
-    if (document["rt_cd"].get<std::string>() != "0")
+    if (document["rt_cd"].get_ref<const std::string&>() != "0")
     {
         LOG_WARN("[KIS] 정정 거부: " + ticker + " ODNO=" + orig_odno + " — " +
                  document.value("msg1", std::string("")));
@@ -328,7 +334,7 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
     std::string new_order_no = jsonx::object_or_empty(document, "output").value("ODNO", "");
     LOG_INFO("[KIS] 정정 접수: " + ticker + " 원ODNO=" + orig_odno +
              " 새ODNO=" + new_order_no + " @" + std::to_string(static_cast<int>(new_price)));
-    return OrderAck{new_order_no, std::string(), std::string()};
+    return OrderAck{std::move(new_order_no), std::string(), std::string()};
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -376,7 +382,7 @@ bool KisClient::send_us_order(const OrderSignal& signal)
         return false;
     }
 
-    bool ok = (document["rt_cd"].get<std::string>() == "0");
+    bool ok = (document["rt_cd"].get_ref<const std::string&>() == "0");
 
     if (ok)
     {

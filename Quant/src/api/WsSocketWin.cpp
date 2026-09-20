@@ -182,7 +182,7 @@ public:
         return hWebSocket_.load() != nullptr;
     }
 
-    std::string last_error() const override
+    const std::string& last_error() const override
     {
         return last_error_;
     }
@@ -271,10 +271,12 @@ std::string websocket_platform::http_post_json(const std::string& url, const std
 
         while (WinHttpQueryDataAvailable(request_handle, &avail) && avail > 0)
         {
-            std::string chunk(avail, '\0');
+            // 응답 버퍼에 바로 받는다 — 조각 문자열을 만들어 다시 붙이지 않는다.
+            const size_t offset = response.size();
+            response.resize(offset + avail);
             DWORD read = 0;
-            WinHttpReadData(request_handle, &chunk[0], avail, &read);
-            response.append(chunk, 0, read);
+            WinHttpReadData(request_handle, &response[offset], avail, &read);
+            response.resize(offset + read);
         }
     }
 
@@ -361,16 +363,16 @@ std::string websocket_platform::aes_cbc_decrypt(const std::string& cipher, const
     std::vector<UCHAR> ivbuf(initialization_vector.begin(), initialization_vector.begin() + 16); // BCrypt가 IV를 갱신하므로 매 호출 복사
     std::string out(cipher.size(), '\0');
     ULONG outLen = 0;
-    std::string result;
 
     if (BCryptDecrypt(state.key_handle,
                       reinterpret_cast<PUCHAR>(const_cast<char*>(cipher.data())), static_cast<ULONG>(cipher.size()),
                       nullptr, ivbuf.data(), static_cast<ULONG>(ivbuf.size()),
                       reinterpret_cast<PUCHAR>(&out[0]), static_cast<ULONG>(out.size()), &outLen,
-                      BCRYPT_BLOCK_PADDING) == 0)
+                      BCRYPT_BLOCK_PADDING) != 0)
     {
-        result.assign(out.data(), outLen);
+        return "";
     }
 
-    return result;
+    out.resize(outLen); // 복호 버퍼를 그대로 돌려준다 — 새 문자열로 옮겨 담지 않는다
+    return out;
 }

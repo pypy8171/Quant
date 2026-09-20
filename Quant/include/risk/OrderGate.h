@@ -440,7 +440,8 @@ private:
     // 신호는 수신 스레드가 찍은 symbol_id를 이미 들고 있다 — Engine 테이블을 쓸 때만 그 id를 믿는다
     //  (자체 테이블이면 다른 테이블의 id라 문자열로 찾는다).
     [[nodiscard]] PosKey lookup_key(const OrderSignal& signal) const;
-    [[nodiscard]] std::string ticker_of(const PosKey& key) const;
+    // 16바이트 값이라 힙 할당이 없다 — std::string이 필요한 자리(계획·스냅샷)만 .string()으로 만든다.
+    [[nodiscard]] symbol::Ticker ticker_of(const PosKey& key) const;
     [[nodiscard]] const std::string& account_of(const PosKey& key) const;
 
     [[nodiscard]] const symbol::SymbolTable& symbols() const noexcept

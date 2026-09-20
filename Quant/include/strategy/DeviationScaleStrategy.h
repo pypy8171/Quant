@@ -395,12 +395,12 @@ public:
         if (websocket_bars_)
         {
             // 날짜가 바뀌면 집계기를 비운다 — REST 분봉은 당일치만 돌려주므로 어제 봉이 SMA에 섞이면 뜻이 다르다.
-            const std::string today = kst_ymd();
+            std::string today = kst_ymd();
 
             if (aggregator_day_ != today)
             {
                 aggregator_.clear(symbol_id_);
-                aggregator_day_        = today;
+                aggregator_day_        = std::move(today);
                 reseed_pending_ = true;
             }
 
@@ -435,8 +435,8 @@ public:
 
             // 판단 봉은 1분봉을 interval_min으로 접은 것이다 — 틱이 살아 있으면 집계기 스냅샷([0]=진행 중 분),
             //  REST 대체 틱이면 REST 1분봉. 두 길이 같은 resample을 지나므로 자리·계산이 같다. [why D-072]
-            const std::vector<MarketData> local = bars::resample(aggregator_.snapshot(symbol_id_, 0), parameters_.interval_min,
-                                                                 parameters_.simple_moving_average_period + 1);
+            std::vector<MarketData> local = bars::resample(aggregator_.snapshot(symbol_id_, 0), parameters_.interval_min,
+                                                           parameters_.simple_moving_average_period + 1);
 
             // 다음 REST 조회를 받을지 프리페치 스레드에 알린다. 워밍업(SMA 창 + 진행 봉)이 끝나고 틱이 살아 있으면
             //  REST는 쉰다.
@@ -446,7 +446,7 @@ public:
 
             if (local_bars)
             {
-                bars = local; // 종가는 이미 방금 틱
+                bars = std::move(local); // 종가는 이미 방금 틱
             }
             else
             {
@@ -508,11 +508,11 @@ public:
         if (zone != last_zone_ || zone_log_ts_.time_since_epoch().count() == 0 ||
             now - zone_log_ts_ >= std::chrono::seconds(60))
         {
-            LOG_INFO("[" + id() + "] " + display() + " 존 판정 " + std::string(zone ? "활성" : "대기") +
-                     " | 정배열=" + std::string(aligned ? "Y" : "N") +
+            LOG_INFO("[" + id() + "] " + display() + " 존 판정 " + (zone ? "활성" : "대기") +
+                     " | 정배열=" + (aligned ? "Y" : "N") +
                      " 일봉SMA20=" + format_one_decimal(d_s20) + " 현재가=" + format_one_decimal(current_price) +
                      " 이격=" + format_one_decimal(deviation20_percent) + "% (진입밴드 " + format_one_decimal(low_threshold) + "%~" + format_one_decimal(up_threshold) +
-                     "%) 유지=" + std::string(hold_zone ? "Y" : "N") +
+                     "%) 유지=" + (hold_zone ? "Y" : "N") +
                      " 일봉수=" + std::to_string(daily_.size()));
             last_zone_    = zone;
             zone_log_ts_  = now;
@@ -815,8 +815,8 @@ public:
 
         for (const auto& split_step : plan)
         {
-            signal += std::string(split_step.side == OrderSide::BUY ? "B" : "S") + format_one_decimal(split_step.price) +
-                   "x" + std::to_string(split_step.quantity) + "|";
+            signal += split_step.side == OrderSide::BUY ? "B" : "S";
+            signal += format_one_decimal(split_step.price) + "x" + std::to_string(split_step.quantity) + "|";
         }
 
         // G1 국면 게이트: 비활성 국면(regime→전략 자동선택에서 미선택)에선 매수(진입·물타기)
@@ -980,11 +980,11 @@ public:
         }
 
         last_split_buy_reference_ = split_buy_reference;
-        last_split_buy_signal_ = signal;
+        last_split_buy_signal_ = std::move(signal);
         last_position_ = position;
         last_rebuild_ = std::chrono::steady_clock::now();
         LOG_INFO("[" + id() + "] 분할 매수 재구성 sma=" + format_one_decimal(simple_moving_average) +
-                 std::string(warming ? "(일봉)" : "") + " src=" + (local_bars ? "ws" : "rest") + " px=" + format_one_decimal(current_price) +
+                 (warming ? "(일봉)" : "") + " src=" + (local_bars ? "ws" : "rest") + " px=" + format_one_decimal(current_price) +
                  " pos=" + std::to_string(position) + " live=" + std::to_string(live_.size()) +
                  " 명목=" + std::to_string(static_cast<long long>(base_notional + split_step_budget)) + "원");
     }
@@ -1081,7 +1081,7 @@ private:
                         double equity = fetch_equity();
                         std::lock_guard<std::mutex> lock(snap_mutex_);
                         snap_daily_      = std::move(daily_ohlcv);
-                        snap_daily_date_ = today;
+                        snap_daily_date_ = std::move(today);
                         snap_equity_     = equity;
                     }
                 }
@@ -1160,7 +1160,7 @@ private:
         static std::string s_ymd;
         static double      static_equity = 0.0;
         std::lock_guard<std::mutex> lock(s_mutex);
-        const std::string today = kst_ymd();
+        std::string today = kst_ymd();
 
         if (s_ymd == today && static_equity > 0.0)
         {
@@ -1186,7 +1186,7 @@ private:
 
         if (equity > 0.0)
         {
-            s_ymd = today;
+            s_ymd = std::move(today);
             static_equity  = equity;
         }
 
@@ -1237,8 +1237,8 @@ private:
         signal.account_id  = parameters_.account;
         signal.reason      = reason; // G4: 판단 근거를 신호에 실어 영속
         signal.timestamp   = std::chrono::system_clock::now();
-        out.push_back(signal);
-        live_.push_back({order_id, side});
+        out.push_back(std::move(signal));
+        live_.push_back({std::move(order_id), side});
     }
 
     // 미체결 전량 취소. 발주가 있었으면 true.
@@ -1249,7 +1249,7 @@ private:
             return false;
         }
 
-        for (const auto& live_entry : live_)
+        for (auto& live_entry : live_) // live_는 아래에서 비우므로 주문 id를 옮긴다
         {
             OrderSignal signal;
             signal.ticker          = parameters_.ticker;
@@ -1260,10 +1260,10 @@ private:
             signal.strategy_id     = id();
             signal.market          = Market::KR;
             signal.action          = OrderAction::CANCEL;
-            signal.original_client_order_id = live_entry.order_id;
+            signal.original_client_order_id = std::move(live_entry.order_id);
             signal.account_id      = parameters_.account;
             signal.timestamp       = std::chrono::system_clock::now();
-            out.push_back(signal);
+            out.push_back(std::move(signal));
         }
 
         live_.clear();
