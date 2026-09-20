@@ -159,8 +159,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/core/SignalDispatcher.cpp:165` · `void SignalDispatcher::submit(OrderSignal signal)` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
 35. [`dispatch::SignalDispatcher::force_liquidate`](../Quant/src/core/SignalDispatcher.cpp#L263) — 보유 전량 시장가 매도를 2초 간격 재발주. `reference_price`가 여기서 찍히는지 본다  
    `Quant/src/core/SignalDispatcher.cpp:263` · `void SignalDispatcher::force_liquidate(Clock::time_point now)` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
-36. [`Engine::drain_manual_inbox`](../Quant/src/core/Engine.cpp#L2829) — 운영단말 수동 주문(`ops_.manual_inbox`)이 같은 싱크로 들어온다 — 생산자를 늘리지 않기 위해 이 스레드가 꺼낸다  
-   `Quant/src/core/Engine.cpp:2829` · `void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& emit)`
+36. [`Engine::drain_manual_inbox`](../Quant/src/core/Engine.cpp#L2834) — 운영단말 수동 주문(`ops_.manual_inbox`)이 같은 싱크로 들어온다 — 생산자를 늘리지 않기 위해 이 스레드가 꺼낸다  
+   `Quant/src/core/Engine.cpp:2834` · `void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& emit)`
 
 리뷰할 때 볼 것:
 

@@ -23,6 +23,28 @@ using SymbolId = uint32_t;
 // 0은 "아직 id를 안 받았다". 기본 초기화된 TradeData·OrderBook이 이 값이라 배선이 빠진 경로가 드러난다.
 constexpr SymbolId kNone = 0;
 
+// 국내 현물 종목코드 자릿수 — 거래소 규격이라 config가 아니라 상수다(6이 아니면 종목이 아니다).
+constexpr size_t kKoreanTickerLength = 6;
+
+// 국내 현물 종목코드인가 — 숫자 6자리. 운영단말 수동주문·유니버스 스캔·거래소 종목 목록이 같은 판정을 쓴다.
+inline bool is_korean_ticker(std::string_view ticker) noexcept
+{
+    if (ticker.size() != kKoreanTickerLength)
+    {
+        return false;
+    }
+
+    for (char character : ticker)
+    {
+        if (character < '0' || character > '9')
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 // 틱·호가·봉 구조체가 드는 종목 코드 — std::string 대신 고정 배열이라 구조체가 trivially copyable이고 링 복사가
 //  memcpy다. 문자열이 필요한 곳(로그·REST·캡처 파일·화면)은 view()·string()로 꺼낸다. 최대 15자, 넘치면 잘린다
 //  (KIS 현물 6·선물 8·미국 티커). 암시적으로 string_view가 되지만 std::string은 되지 않는다 — hot path에서

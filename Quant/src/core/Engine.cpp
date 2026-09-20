@@ -2715,15 +2715,20 @@ void Engine::start_ops_server()
         });
     ops_.server->set_halt_provider(
         [this] { return std::make_pair(order_gate_.is_manual_buy_halted(), order_gate_.is_manual_sell_halted()); });
+    // 수동주문 입력 상한 — 운영 중 바꿀 값이 아니라 config가 아닌 상수다. cid는 중복 방지 set의 키라 길이를 막고,
+    // 수량은 오타를 거르는 선일 뿐 실제 한도는 OrderGate가 본다.
+    constexpr size_t kManualOrderClientIdMaxLength = 64;
+    constexpr int    kManualOrderMaxQuantity       = 100000;
+
     ops_.server->set_order_handler(
         [this](const OpsOrderReq& ops_order_request) -> std::string
         {
-            if (ops_order_request.client_id.empty() || ops_order_request.client_id.size() > 64)
+            if (ops_order_request.client_id.empty() || ops_order_request.client_id.size() > kManualOrderClientIdMaxLength)
             {
                 return "cid는 1~64자";
             }
 
-            if (ops_order_request.ticker.size() != 6 || !std::all_of(ops_order_request.ticker.begin(), ops_order_request.ticker.end(), ::isdigit))
+            if (!symbol::is_korean_ticker(ops_order_request.ticker))
             {
                 return "ticker는 6자리 숫자";
             }
@@ -2733,7 +2738,7 @@ void Engine::start_ops_server()
                 return "side는 SELL|BUY";
             }
 
-            if (ops_order_request.quantity <= 0 || ops_order_request.quantity > 100000)
+            if (ops_order_request.quantity <= 0 || ops_order_request.quantity > kManualOrderMaxQuantity)
             {
                 return "qty 범위 1~100000";
             }

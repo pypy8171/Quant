@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@ee052b4 Quant/src/core/Engine.cpp@b55054f Quant/include/core/DataPoller.h@70a5160 Quant/include/core/SignalDispatcher.h@0499d3f Quant/include/core/OrderRateLimiter.h@49193e4 Quant/include/core/LedgerReconciler.h@f122289 Quant/include/core/WakeGate.h@9e8c712 Quant/include/core/BarAggregator.h@fbb210b Quant/include/core/LatencyTrace.h@54aae27 Quant/include/core/ReconcilePlan.h@8f50382 -->
+<!-- sync: Quant/include/core/Engine.h@ee052b4 Quant/src/core/Engine.cpp@72dd16f Quant/include/core/DataPoller.h@70a5160 Quant/include/core/SignalDispatcher.h@0499d3f Quant/include/core/OrderRateLimiter.h@49193e4 Quant/include/core/LedgerReconciler.h@f122289 Quant/include/core/WakeGate.h@9e8c712 Quant/include/core/BarAggregator.h@fbb210b Quant/include/core/LatencyTrace.h@54aae27 Quant/include/core/ReconcilePlan.h@8f50382 -->
 엔진은 락-프리 파이프라인(데이터→전략 샤드→디스패치→주문)에 체결 소비 스레드와 제어 스레드를 더해 다섯 개 + 샤드 M개의 스레드를 실행합니다(config `strategy_shards`, 기본 1):
 
 ```

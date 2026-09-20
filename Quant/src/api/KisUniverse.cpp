@@ -160,23 +160,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
         auto is_etf_name = [&](const std::string& name)
         { return etf_filter::is_etf_like(name, ETF_PREFIXES, ETF_TOKENS); };
         // KOSPI 보통주 티커는 반드시 6자리 숫자
-        auto is_normal_ticker = [](const std::string& ticker)
-        {
-            if (ticker.size() != 6)
-            {
-                return false;
-            }
-
-            for (char character : ticker)
-            {
-                if (character < '0' || character > '9')
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        };
+        auto is_normal_ticker = [](const std::string& ticker) { return symbol::is_korean_ticker(ticker); };
 
         // API 응답 키: "output" (단일 배열)
         auto& array = document.contains("output2") ? document["output2"] : document["output"];
@@ -307,23 +291,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
             load_string_list("etf_name_tokens.json", "", etf_filter::default_tokens(), "ETF 토큰");
         auto is_etf_name = [&](const std::string& name)
         { return etf_filter::is_etf_like(name, ETF_PREFIXES, ETF_TOKENS); };
-        auto is_normal_ticker = [](const std::string& ticker)
-        {
-            if (ticker.size() != 6)
-            {
-                return false;
-            }
-
-            for (char character : ticker)
-            {
-                if (character < '0' || character > '9')
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        };
+        auto is_normal_ticker = [](const std::string& ticker) { return symbol::is_korean_ticker(ticker); };
 
         // volume-rank 응답 배열 키: "output" (표준). output2도 방어적으로 수용.
         auto& array = document.contains("output") ? document["output"] : document["output2"];
@@ -661,22 +629,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
         auto to_int64 = [](const nlohmann::json& node, const char* key) -> int64_t {
             try { return std::stoll(node.value(key, "0")); } catch (...) { return 0; }
         };
-        auto is_normal_ticker = [](const std::string& ticker) {
-            if (ticker.size() != 6)
-            {
-                return false;
-            }
-
-            for (char character : ticker)
-            {
-                if (character < '0' || character > '9')
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        };
+        auto is_normal_ticker = [](const std::string& ticker) { return symbol::is_korean_ticker(ticker); };
 
         auto& array = document.contains("output2") ? document["output2"] : document["output"];
 

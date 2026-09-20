@@ -822,7 +822,7 @@ void take_full_market(const DevScanCfg& config, const QuoteTable& quotes, Candid
 
     for (const auto& entry : candidates.market)
     {
-        if (entry.first.size() == 6)
+        if (entry.first.size() == symbol::kKoreanTickerLength)
         {
             tickers.push_back(&entry.first);
         }
