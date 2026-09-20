@@ -1,6 +1,7 @@
 # 19. 저PBR × 고ROE 복합 — 사전등록 (2026-09-20 00:40, 결과 보기 전)
 
 > 정본 스펙: `research/RESET_2026-09-19_R2/fundamental-quant.md` §2·§3 후보 1. 여기 적은 숫자는 결과가 나온 뒤 고치지 않는다.
+> 합격 숫자의 뜻과 출처(계산한 값·관행·고른 값 구분): [../READING_NUMBERS.md](../READING_NUMBERS.md).
 > 바꿔야 하면 새 번호 스터디로 간다. 판정 층은 `research/COUNCIL_CHARTER.md` §3.
 
 ## 가설

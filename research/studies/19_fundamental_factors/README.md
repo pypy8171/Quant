@@ -3,6 +3,7 @@
 > 한 줄 요약: 저PBR×고ROE 상위 30 동일가중은 비용 MID 뒤 판정 구간 초과수익 연 +6.99%(t 1.14), walk-forward 4/5창 양수, 이웃 4/5 양수. 상태: **미달**.
 > 사전등록 `research/studies/19_fundamental_factors/PREREG.md`(결과 전 확정), 스펙 `research/RESET_2026-09-19_R2/fundamental-quant.md` 후보 1.
 > 데이터 등급 B — 재무 표가 corpCode 현재 목록 기반이라 옛 상폐사 일부가 빠진다. 배당 제외(보수적).
+> 숫자 읽는 법(t·창·문턱의 출처): [../READING_NUMBERS.md](../READING_NUMBERS.md). 이 스터디의 t 1.14 = 판정 구간 60개월 월 초과수익 평균 +0.583% ÷ 표준오차 0.511%(표준편차 3.961% ÷ √60) — 평균이 우연 폭의 1.1배라 미달.
 
 ## 1. 판정 (비용 MID, 판정 구간 2021-01~2025-12 (walk-forward 검증 5창 합))
 

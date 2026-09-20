@@ -18,6 +18,7 @@ import argparse
 import datetime
 import hashlib
 import json
+import math
 import subprocess
 import sys
 import time
@@ -168,6 +169,7 @@ def excess_summary(curve: pd.DataFrame) -> dict:
     newey = stats.newey_west_t(excess, NEWEY_WEST_LAG)
     performance = stats.performance_summary(curve["net"], periods_per_year=12)
     return {"months": int(len(curve)), "excess_monthly_mean": test.mean, "excess_t": test.t_statistic,
+            "excess_monthly_std": float(excess.std(ddof=1)),
             "excess_t_newey_west": newey.t_statistic, "excess_annual": float(excess.mean() * 12),
             "net_annual_return": performance["annual_return"], "sharpe": performance["sharpe"],
             "max_drawdown_percent": performance["max_drawdown_percent"],
@@ -303,6 +305,7 @@ def clean(value):
 
 def write_readme(metrics: dict, walk_rows: list, robustness_rows: list) -> None:
     judgment = metrics["center_judgment"]
+    standard_error = judgment["excess_monthly_std"] / math.sqrt(judgment["months"])
     cost_rows = "\n".join(f"| {level} | {values['excess_annual'] * 100:.2f}% | {values['excess_t']:.2f} | {values['sharpe']:.2f} | "
                           f"{values['max_drawdown_percent']:.1f}% | {values['cost_drag_annual'] * 100:.2f}% |"
                           for level, values in metrics["cost_sensitivity"].items())
@@ -317,6 +320,7 @@ def write_readme(metrics: dict, walk_rows: list, robustness_rows: list) -> None:
 
 > 한 줄 요약: {verdict['one_line']} 상태: **{verdict['overall']}**.
 > 사전등록 `research/studies/19_fundamental_factors/PREREG.md`(결과 전 확정), 스펙 `research/RESET_2026-09-19_R2/fundamental-quant.md` 후보 1.
+> 숫자 읽는 법(t·창·문턱의 출처): [../READING_NUMBERS.md](../READING_NUMBERS.md). 이 스터디의 t {judgment['excess_t']:.2f} = 판정 구간 {judgment['months']}개월 월 초과수익 평균 {judgment['excess_monthly_mean'] * 100:+.3f}% ÷ 표준오차 {standard_error * 100:.3f}%(표준편차 {judgment['excess_monthly_std'] * 100:.3f}% ÷ √{judgment['months']}). 2.0은 통계학 관행(우연 5%)이고, 5창 중 3창은 동전 던지기도 50% 통과하는 약한 기준이다.
 > 데이터 등급 {metrics['grade']} — 재무 표가 corpCode 현재 목록 기반이라 옛 상폐사 일부가 빠진다. 배당 제외(보수적).
 
 ## 1. 판정 (비용 {metrics['cost_level'].upper()}, 판정 구간 {metrics['holdout']})

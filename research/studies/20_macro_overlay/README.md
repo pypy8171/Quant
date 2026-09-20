@@ -2,6 +2,7 @@
 
 > 한 줄 요약: 성장·물가·유동성·위험선호 네 축 국면 배수를 코스피 매수 후 보유에 곱했더니 1999~2025 전 구간에서 낙폭은 거의 그대로(−56.0% → −55.3%)이고 연 1.35%p를 반납했다. 사전등록 7항목 중 2개만 통과. 상태: **초과수익 없음(`macro_apply=false`)** — 표시만 한다.
 > 첫 실행(2026-09-20). 정본 스펙 [research/RESET_2026-09-19_R2/macro-quant.md](../../RESET_2026-09-19_R2/macro-quant.md), 사전등록 [PREREG.md](PREREG.md), 숫자 [metrics.json](metrics.json).
+> 숫자 읽는 법(t·뉴이-웨스트·Calmar·DSR·문턱의 출처): [../READING_NUMBERS.md](../READING_NUMBERS.md). 문턱 2.0·1.5는 통계학 관행, 16/27·20%·1.0%p는 고른 값이다.
 
 ---
 

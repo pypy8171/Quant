@@ -2,6 +2,7 @@
 
 > 한 줄 요약: 스터디 20의 위험선호·유동성 배수를 매일 다시 계산하지 않고 축 구간이 바뀐 날에만 바꿨더니, 노출 변경 비용은 27년 누적 12.2% → 5.7%로 절반 아래로 줄었지만 결과는 그대로다 — 낙폭 −56.0% → −54.0%(3.7% 감소), 연 1.03%p 반납, 월 초과수익 t −1.54. 사전등록 7항목 중 2개만 통과(20과 같은 두 개). 상태: **초과수익 없음(`macro_apply=false`)** — 표시만 한다. 비용이 원인이 아니었다.
 > 첫 실행(2026-09-20). 스터디 20([../20_macro_overlay/README.md](../20_macro_overlay/README.md))의 재실행. 정본 스펙 [research/RESET_2026-09-19_R2/macro-quant.md](../../RESET_2026-09-19_R2/macro-quant.md) §2-3, 사전등록 [PREREG.md](PREREG.md), 숫자 [metrics.json](metrics.json).
+> 숫자 읽는 법(t·뉴이-웨스트·Calmar·DSR·문턱의 출처): [../READING_NUMBERS.md](../READING_NUMBERS.md). 문턱 2.0·1.5는 통계학 관행, 16/27·20%·1.0%p는 고른 값이다.
 
 ---
 

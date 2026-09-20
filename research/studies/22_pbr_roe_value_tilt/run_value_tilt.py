@@ -16,6 +16,7 @@ import argparse
 import datetime
 import importlib.util
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -270,6 +271,7 @@ def delisted_summary(dropped_rows: list, all_returns: dict, months: list) -> tup
 
 def write_readme(metrics: dict, walk_rows: list, robustness_rows: list) -> None:
     judgment = metrics["center_judgment"]
+    standard_error = judgment["excess_monthly_std"] / math.sqrt(judgment["months"])
     verdict = metrics["verdict"]
     diagnostics = metrics["factor_diagnostics"]["judgment_period"]
     cost_rows = "\n".join(f"| {level} | {values['excess_annual'] * 100:.2f}% | {values['excess_t']:.2f} | {values['sharpe']:.2f} | "
@@ -291,6 +293,7 @@ def write_readme(metrics: dict, walk_rows: list, robustness_rows: list) -> None:
 
 > 한 줄 요약: {verdict['one_line']} 상태: **{verdict['overall']}**.
 > 사전등록 `research/studies/22_pbr_roe_value_tilt/PREREG.md`(결과 전 확정). 스터디 19의 격자에서 눈에 띈 칸을 미리 중심으로 못 박고 다시 잰 것.
+> 숫자 읽는 법(t·창·문턱의 출처): [../READING_NUMBERS.md](../READING_NUMBERS.md). 이 스터디의 t {judgment['excess_t']:.2f} = 판정 구간 {judgment['months']}개월 월 초과수익 평균 {judgment['excess_monthly_mean'] * 100:+.3f}% ÷ 표준오차 {standard_error * 100:.3f}%(표준편차 {judgment['excess_monthly_std'] * 100:.3f}% ÷ √{judgment['months']}). 2.0은 통계학 관행(우연 5%)이고, 5창 중 3창은 동전 던지기도 50% 통과하는 약한 기준이다.
 > 데이터 등급 {metrics['grade']} — 일봉은 KIND 상폐사 보강 뒤 A(3,680종목), 재무는 2016년 이후 끝난 회사의 81%만 붙어 B. 배당 제외(보수적).
 
 ## 1. 판정 (비용 {metrics['cost_level'].upper()}, 판정 구간 {metrics['holdout']})

@@ -2,6 +2,7 @@
 
 > 한 줄 요약: 저PBR×고ROE 상위 30 동일가중(w=0.7, 분기 리밸)은 비용 MID 뒤 판정 구간 초과수익 연 +15.70%(t 2.41), walk-forward 4/5창 양수, 이웃 6/6 양수. 시총가중은 연 +10.02%, 용량(10% 한도) 중앙값 32억. 상태: **채택 후보**.
 > 사전등록 `research/studies/22_pbr_roe_value_tilt/PREREG.md`(결과 전 확정). 스터디 19의 격자에서 눈에 띈 칸을 미리 중심으로 못 박고 다시 잰 것.
+> 숫자 읽는 법(t·창·문턱의 출처): [../READING_NUMBERS.md](../READING_NUMBERS.md). 이 스터디의 t 2.41 = 판정 구간 60개월 월 초과수익 평균 +1.308% ÷ 표준오차 0.542%(표준편차 4.198% ÷ √60). 2.0은 통계학 관행(우연 5%)이고, 5창 중 3창은 동전 던지기도 50% 통과하는 약한 기준이다.
 > 데이터 등급 B — 일봉은 KIND 상폐사 보강 뒤 A(3,680종목), 재무는 2016년 이후 끝난 회사의 81%만 붙어 B. 배당 제외(보수적).
 
 ## 1. 판정 (비용 MID, 판정 구간 2021-01~2025-12 (walk-forward 검증 5창 합))
@@ -117,5 +118,5 @@ Q5−Q1 동일가중 연 +25.67% (t 4.04).
 
 ## 7. 재현
 
-`py research/studies/22_pbr_roe_value_tilt/run_value_tilt.py --cost mid` · 커밋 d1acb9b · seed 20260920(난수 없음) · 데이터 지문은 metrics.json `data_fingerprint`.
+`py research/studies/22_pbr_roe_value_tilt/run_value_tilt.py --cost mid` · 커밋 e171db3 · seed 20260920(난수 없음) · 데이터 지문은 metrics.json `data_fingerprint`.
 산출물: metrics.json · curves.csv · walkforward.csv · robustness.csv · quintiles.csv · holdings.csv · size_buckets.csv · capacity.csv · delisted_holdings.csv.

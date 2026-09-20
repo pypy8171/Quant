@@ -408,5 +408,27 @@
       "research/studies/22_pbr_roe_value_tilt/metrics.json",
       "research/studies/22_pbr_roe_value_tilt/run_value_tilt.py"
     ]
+  },
+  {
+    "number": "23",
+    "title": "저PBR × 고ROE 가치 기울임 — 거래대금 하한 30억·50억, 7창, 창 기준 6/7",
+    "series": "종목레벨",
+    "period": "2016-04~2026-08(125개월), 판정 2019-01~2025-12(84개월)",
+    "status": "채택 후보(forward 검증 대기)",
+    "question": "22의 초과수익이 거래 얇은 종목(20일 평균 거래대금 10~30억)에 기댄 것인지. 하한을 30억·50억으로 올린 유니버스에서도 상위 30 동일가중(w=0.7, 분기 리밸)이 유니버스 동일가중을 이기는가. 동시에 층 ②를 5창 중 3(동전 던지기 50% 통과)에서 7창 중 6(6%)으로 조이고 판정 구간을 2019~2025로 넓힌다.",
+    "method": "22 하네스를 그대로 불러 거래대금 하한(fundamental.MIN_TURNOVER_KRW)·검증 연도(2019~2025)·판정 시작(2019-01)·층 ② 문턱(6/7)만 바꿔 30억·50억 두 유니버스를 따로 돌린다. 중심 칸 N=30·w=0.7·분기, 격자 27칸, 비용 MID, 시총가중·크기 3분위·용량 10%·5%·관찰창 2026-01~08은 22와 같은 정의.",
+    "data": "22와 같다 — bars_all_pit_v2(3,680종목, 상폐 939) + membership.parquet, DART 시점 고정 재무(B). 월 유니버스 중앙값 877 → 하한 30억 526, 50억 390.",
+    "result": "하한 30억: 순초과수익 연 +13.48%(t 2.82, 뉴이-웨스트 3.28), walk-forward 6/7창 양수(2020만 −1.38%), 이웃 6/6·샤프 비 0.86, 시총가중 +7.72%, 크기 3분위 소·중·대 +17.4/+8.6/+9.4%, 용량 10% 한도 96억. 하한 50억: +10.76%(t 2.20, 2.34), 6/7(2020 −4.79%), 6/6·0.81, 시총가중 +8.89%, 크기 +17.0/+9.4/+4.3%, 용량 158억. 둘 다 세 층 통과. 용량은 22의 3배·5배 근처로 정합. 관찰창 2026-01~08 연 +49.55%(t 1.87)·+41.08%(t 1.59).",
+    "verdict": "채택 후보(forward 검증 대기) — 22의 초과수익은 거래 얇은 종목 의존이 아니다. 다만 중심 칸은 19·22 결과를 보고 고른 것이라 새로 본 것은 2019·2020 창과 올린 하한뿐, 확정은 forward에서.",
+    "why": "하한을 올려도 t·이웃·시총가중이 유지되고 용량이 30억→96억·158억으로 커졌다. 초과수익이 +15.7%→+13.5%→+10.8%로 줄어드는 것은 소형주 쪽 초과수익 일부가 하한에 잘려 나간 것(크기 3분위에서 소형 +17%가 가장 크다). 2020년 창이 두 유니버스 모두 음수이고, 2019 창의 학습은 33개월뿐이다. walk-forward가 고른 칸은 대개 (20·0.9·1)로 중심(30·0.7·3)과 달라 창별 결과는 중심 칸의 성적이 아니다.",
+    "followup": "(1) 모의 소액 forward: 분기 리밸 상위 30, 하한 30억으로 관찰창을 쌓는다(R2 §7 오너 결정). (2) 재무 상폐사 보강(DART corpCode 옛 목록)으로 등급 A. (3) 2020년 음수 창의 원인(코로나 급락기 저PBR 부진)은 국면 조건을 붙이지 않고 기록만 한다.",
+    "files": [
+      "research/studies/23_value_tilt_liquidity_floor/README.md",
+      "research/studies/23_value_tilt_liquidity_floor/PREREG.md",
+      "research/studies/23_value_tilt_liquidity_floor/metrics.json",
+      "research/studies/23_value_tilt_liquidity_floor/run_liquidity_floor.py",
+      "research/studies/23_value_tilt_liquidity_floor/floor_30/metrics.json",
+      "research/studies/23_value_tilt_liquidity_floor/floor_50/metrics.json"
+    ]
   }
 ]

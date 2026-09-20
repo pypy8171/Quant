@@ -12,7 +12,7 @@
 - [Quant](#quant) — 173개
 - [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 208개
+- [research](#research) — 216개
 - [scripts](#scripts) — 69개
 - [strategies](#strategies) — 31개
 - [tools](#tools) — 3개
@@ -558,10 +558,12 @@
 ### research/studies/
 
 - [.gitignore](../research/studies/.gitignore) — 스터디 폴더 gitignore
+- [READING_NUMBERS.md](../research/studies/READING_NUMBERS.md) — 스터디 숫자 읽는 법: t·walk-forward 창·격자·IC·Calmar·용량의 뜻과 문턱(2.0·3/5·70%)의 출처(계산·관행·고른 값 구분), 가짜 전략 통과 확률 표
 - [README.md](../research/studies/README.md) — 폴더형 백테스트 스터디 인덱스 문서
 - [_TEMPLATE.md](../research/studies/_TEMPLATE.md) — 백테스트 결과 표준 템플릿
-- [index.json](../research/studies/index.json) — 스터디 21건 색인(번호·질문·방법·데이터·결과·판정·왜·후속·파일). 대시보드 "스터디 · 백테스트 결과" 카드의 원천
+- [index.json](../research/studies/index.json) — 스터디 23건 색인(번호·질문·방법·데이터·결과·판정·왜·후속·파일). 대시보드 "스터디 · 백테스트 결과" 카드의 원천
 - [render_studies.py](../research/studies/render_studies.py) — 모멘텀·국면필터 롤링검증(1~5년)/02/03 매매 원장 렌더러 스크립트
+- [threshold_check.py](../research/studies/threshold_check.py) — 합격선 검증: 효과 0인 가짜 전략 40만 개로 t ≥ 2.0 통과 비율·격자 최고 칸 문제·창 동전 던지기 확률을 센다(READING_NUMBERS.md의 표)
 
 ### research/studies/01_momentum_regime/
 
@@ -823,6 +825,21 @@
 - [README.md](../research/studies/22_pbr_roe_value_tilt/README.md) — 스터디 22 결과 표(세 층 판정·비용 감도·walk-forward·격자·시총가중·크기 3분위·용량·상폐 보유 기록). run_value_tilt.py가 생성
 - [metrics.json](../research/studies/22_pbr_roe_value_tilt/metrics.json) — 스터디 22 판정 숫자(19와 같은 키 + cap_weighted·size_buckets·capacity·delisted_holdings·observation_window)
 - [run_value_tilt.py](../research/studies/22_pbr_roe_value_tilt/run_value_tilt.py) — 스터디 22 하네스: 19의 달력·신호·통계를 빌려 쓰고 중심 셀·격자 27칸·walk-forward(리밸 축)·시총가중·크기 분위·용량·상폐 기록을 더한다
+
+### research/studies/23_value_tilt_liquidity_floor/
+
+- [PREREG.md](../research/studies/23_value_tilt_liquidity_floor/PREREG.md) — 스터디 23 사전등록(2026-09-20 16:05, 결과 보기 전) — 22와 다른 점(하한 30억·50억, 7창 2019~2025, 층 ② 6/7), 합격 숫자, 판정 규칙, 숫자의 뜻
+- [README.md](../research/studies/23_value_tilt_liquidity_floor/README.md) — 스터디 23 결과(생성) — 하한 30억·50억 두 유니버스 판정 표, 창별 검증, 이웃, 시총가중·크기 3분위·용량, 관찰창. 둘 다 세 층 통과 → 채택 후보
+- [metrics.json](../research/studies/23_value_tilt_liquidity_floor/metrics.json) — 스터디 23 합본 지표(생성) — verdict(overall·floor_30·floor_50), 유니버스별 판정·창·이웃·용량 요약, 22 참조값. 대시보드 원천
+- [run_liquidity_floor.py](../research/studies/23_value_tilt_liquidity_floor/run_liquidity_floor.py) — 스터디 23 하네스 — 22 하네스를 불러 거래대금 하한·검증 연도·판정 시작·층 ② 문턱만 바꿔 30억·50억을 따로 돌리고 합본 metrics.json·README.md를 쓴다
+
+### research/studies/23_value_tilt_liquidity_floor/floor_30/
+
+- [metrics.json](../research/studies/23_value_tilt_liquidity_floor/floor_30/metrics.json) — 하한 30억 유니버스의 22 형식 전체 지표(생성)
+
+### research/studies/23_value_tilt_liquidity_floor/floor_50/
+
+- [metrics.json](../research/studies/23_value_tilt_liquidity_floor/floor_50/metrics.json) — 하한 50억 유니버스의 22 형식 전체 지표(생성)
 
 ## scripts
 
