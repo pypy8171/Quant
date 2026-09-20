@@ -641,7 +641,7 @@ void Engine::setup_shards()
         }
     }
 
-    // [inv] WS 레인 수 = 소켓 수 — 아래 feed_.websocket 생성과 같은 조건(리플레이·소켓 하나면 1, feed_keys가 있으면 1+N)이라
+    // [inv] WS 수신 스레드 수 = 소켓 수 — 아래 feed_.websocket 생성과 같은 조건(리플레이·소켓 하나면 1, feed_keys가 있으면 1+N)이라
     //  feed_.websocket->lanes()와 같다. 소켓을 만들기 전에 행 수가 필요해 config로 센다.
     pipeline_.websocket_lanes = feed_.feed_override ? feed_.feed_override->lanes()
                 : (feed_.replay_file.empty() && !feed_.extra_feed_cfgs.empty()) ? static_cast<uint32_t>(feed_.extra_feed_cfgs.size() + 1)
@@ -779,7 +779,7 @@ void Engine::initialize_ledger_reconciler()
 void Engine::initialize_data_poller()
 {
     // REST 현재가 폴러. 시세는 시세 전용 클라이언트가 있으면 그쪽(실전 도메인 초당 한도가 높다). [why D-062]
-    //  [lock-order] 데이터 스레드는 pipeline_.trade_matrix의 WS 레인 행에 넣지 않는다 — 폴러의 틱은 자기 행(pipeline_.data_row)으로 간다.
+    //  [lock-order] 데이터 스레드는 pipeline_.trade_matrix의 WS 수신 스레드 행에 넣지 않는다 — 폴러의 틱은 자기 행(pipeline_.data_row)으로 간다.
     poller_ = std::make_unique<DataPoller>(
         [this](const std::string& ticker)
         {
@@ -912,7 +912,7 @@ void Engine::connect_feed()
     if (feed_.feed_override)
     {
         feed_.websocket = std::move(feed_.feed_override);
-        LOG_INFO("[Engine] 주입된 피드 소스(레인 " + std::to_string(feed_.websocket->lanes()) + "개)");
+        LOG_INFO("[Engine] 주입된 피드 소스(수신 스레드 " + std::to_string(feed_.websocket->lanes()) + "개)");
     }
     else if (!feed_.replay_file.empty())
     {
@@ -925,7 +925,7 @@ void Engine::connect_feed()
     }
     else
     {
-        // 소켓 여럿 — 첫 소스가 기본 키다(체결통보는 첫 소스만 받는다). 레인 모드라 소켓 i의 수신 스레드가
+        // 소켓 여럿 — 첫 소스가 기본 키다(체결통보는 첫 소스만 받는다). 직접 호출 모드라 소켓 i의 수신 스레드가
         //  행렬의 행 i에 직접 넣는다(multiplexer 스레드 없음). 소켓이 하나면 FeedMux를 끼우지 않는다.
         std::vector<std::unique_ptr<feed::IFeedSource>> socks;
         socks.push_back(std::make_unique<KisWebSocket>(kis_config_));
@@ -936,7 +936,7 @@ void Engine::connect_feed()
         }
 
         feed_.websocket = std::make_unique<feed::FeedMux>(std::move(socks));
-        LOG_INFO("[Engine] WS 소켓 " + std::to_string(feed_.extra_feed_cfgs.size() + 1) + "개를 FeedMux 레인 " +
+        LOG_INFO("[Engine] WS 소켓 " + std::to_string(feed_.extra_feed_cfgs.size() + 1) + "개를 FeedMux 수신 스레드 " +
                  std::to_string(pipeline_.websocket_lanes) + "개로 묶는다");
     }
 
@@ -961,7 +961,7 @@ void Engine::connect_feed()
         }
     }
 
-    // 레인 = 이 콜백을 부르는 수신 스레드 번호 = 행렬의 행. 한 행은 그 스레드만 넣는다(SPSC 셀, 원칙 5).
+    // 수신 스레드 = 이 콜백을 부르는 수신 스레드 번호 = 행렬의 행. 한 행은 그 스레드만 넣는다(SPSC 셀, 원칙 5).
     feed_.websocket->set_lane_callbacks([this](uint32_t lane, const OrderBook& in)
                        {
                            OrderBook order_book = in;
@@ -1012,7 +1012,7 @@ void Engine::connect_feed()
                            }
 
                            // 모의 체결은 틱 스레드에서 — 체결통보 큐의 생산자가 이 스레드 하나로 남는다
-                           //  (feed_.paper는 리플레이·피드 주입 전용이고 둘 다 레인 하나다).
+                           //  (feed_.paper는 리플레이·피드 주입 전용이고 둘 다 수신 스레드 하나다).
                            if (feed_.paper)
                            {
                                feed_.paper->on_tick(trade);

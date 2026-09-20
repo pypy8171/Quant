@@ -223,7 +223,7 @@ int main()
                   << nanoseconds(end_time, later_time) / kN << "ns/틱 (sink " << sink << ' ' << accumulator << ")\n";
     }
 
-    // 8. 생산자 여럿(FeedMux 레인) — 스레드 4개가 500건씩 동시에 넣어도 쓴 수 + 버린 수 = 2000이고 파일도 그만큼이다.
+    // 8. 생산자 여럿(FeedMux 수신 스레드) — 스레드 4개가 500건씩 동시에 넣어도 쓴 수 + 버린 수 = 2000이고 파일도 그만큼이다.
     {
         {
             feed::TickCapture        capture(path, 4096);

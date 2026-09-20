@@ -1,6 +1,6 @@
 // 실시간 틱·호가의 append-only 이진 캡처와 그 리더. 수신 스레드는 고정 크기 레코드를 MPSC 큐에 넣기만 하고
 //  파일 쓰기는 기록 스레드가 한다. 리플레이 백테스트의 입력이 이 파일이다. [why D-071]
-//  스레드: on_trade/on_book은 WS 수신 스레드 여럿(FeedMux 레인마다 하나)이 부른다 — 생산자가 여럿이라 큐는 MpscQueue
+//  스레드: on_trade/on_book은 WS 수신 스레드 여럿(FeedMux 수신 스레드마다 하나)이 부른다 — 생산자가 여럿이라 큐는 MpscQueue
 //  (원칙 5). 기록 스레드 하나가 pop. TickReader는 단일 스레드용.
 #pragma once
 

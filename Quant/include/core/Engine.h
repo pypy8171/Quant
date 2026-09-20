@@ -140,7 +140,7 @@ public:
     uint64_t signal_count() const { return signal_count_.load(std::memory_order_relaxed); }
     uint64_t order_count() const { return order_count_.load(std::memory_order_relaxed); }
 
-    // start()가 실제로 잡은 수신 레인(행)·전략 샤드(열) 수 — config와 다를 수 있다(걸치는 전략이 있으면 샤드 1). 기동 뒤에만 뜻이 있다.
+    // start()가 실제로 잡은 수신 스레드(행)·전략 샤드(열) 수 — config와 다를 수 있다(걸치는 전략이 있으면 샤드 1). 기동 뒤에만 뜻이 있다.
     uint32_t websocket_lanes() const { return pipeline_.websocket_lanes; }
     uint32_t shard_count() const { return static_cast<uint32_t>(pipeline_.shards.size()); }
 
@@ -390,7 +390,7 @@ private:
         std::unique_ptr<feed::PaperExecutor> paper; // 리플레이·피드 주입일 때만. OrderRouter·대조기가 kis 대신 본다
         std::unique_ptr<feed::IFeedSource>   feed_override; // set_feed_source가 준 소스. start()가 ws로 옮기고 kis는 비운다 [why D-071]
         std::string                        capture_directory;
-        std::unique_ptr<feed::TickCapture> capture; // WS 수신 스레드(레인마다 하나)가 on_*를 부른다 — 큐는 MPSC
+        std::unique_ptr<feed::TickCapture> capture; // WS 수신 스레드(소켓마다 하나)가 on_*를 부른다 — 큐는 MPSC
     };
     FeedState feed_;
     // ── 매크로 레짐 ──────────────────────────────────────────────────────────
@@ -467,16 +467,16 @@ private:
     UniverseRescan universe_rescan_;
 
     // ── N×M 샤드 파이프라인·큐 ──────────────────────────────────────────────
-    // 수신 N × 전략 샤드 M 링 행렬. 셀 하나의 생산자는 스레드 하나다 — WS 레인 i(소켓 i의 수신 스레드)는 행 i, 체결은
+    // 수신 N × 전략 샤드 M 링 행렬. 셀 하나의 생산자는 스레드 하나다 — WS 수신 스레드 i(소켓 i의 수신 스레드)는 행 i, 체결은
     //  데이터 스레드 행(REST 대체 틱, 행 data_row)을 더 둔다(D-053이 두 큐로 풀던 것을 행으로 푼다). 열은 종목 해시
     //  (원칙 2). 전략은 자기 종목의 열 하나가 맡는다(strategy::owner_shard) — 전략 객체를 두 샤드 스레드가 만지면 안 된다. [why D-071]
     struct ShardPipeline
     {
-        uint32_t                  websocket_lanes        = 1;    // WS 수신 스레드(레인) 수 = 소켓 수. start()가 행 수로 쓴다
+        uint32_t                  websocket_lanes        = 1;    // WS 수신 스레드 수 = 소켓 수. start()가 행 수로 쓴다
         uint32_t                  data_row        = 1;    // trade_matrix의 데이터 스레드 행 = websocket_lanes
         uint32_t                  strategy_shards = 1;    // config. start()가 열 수로 쓴다(걸치는 전략이 있으면 1)
-        shard::Matrix<OrderBook>  order_book_matrix{1, 1, 4096};   // 호가 (국내) — WS 레인 행 N. 행·열 수는 start()의 reshape
-        shard::Matrix<TradeData>  trade_matrix{2, 1, 4096};   // 체결 (미국 + 국내) — WS 레인 행 N + 데이터 스레드 행
+        shard::Matrix<OrderBook>  order_book_matrix{1, 1, 4096};   // 호가 (국내) — WS 수신 스레드 행 N. 행·열 수는 start()의 reshape
+        shard::Matrix<TradeData>  trade_matrix{2, 1, 4096};   // 체결 (미국 + 국내) — WS 수신 스레드 행 N + 데이터 스레드 행
         shard::Matrix<MarketData> bars_matrix{1, 1, 1024}; // 일봉 — 데이터 스레드 행(index 0)만
         std::vector<std::unique_ptr<strategy::Shard>> shards;           // 열 m을 비우는 샤드. start()가 만든다
         std::vector<std::jthread>                  shard_threads;

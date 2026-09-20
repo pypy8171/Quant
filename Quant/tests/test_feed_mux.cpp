@@ -431,8 +431,8 @@ int main()
         CHECK(!multiplexer.connect({specification("A")}) && multiplexer.source_count() == 0);
     }
 
-    // 6. 레인 모드: 소스 i가 쏜 이벤트는 그 스레드에서 레인 i를 달고 바로 온다 — multiplexer 스레드도 링도 안 거친다.
-    //    체결통보는 첫 소스만, 역시 그 스레드에서. 소스 하나짜리 기본 구현은 lanes()=1, 레인 0.
+    // 6. 직접 호출 모드: 소스 i가 쏜 이벤트는 그 스레드에서 번호 i를 달고 바로 온다 — multiplexer 스레드도 링도 안 거친다.
+    //    체결통보는 첫 소스만, 역시 그 스레드에서. 소스 하나짜리 기본 구현은 lanes()=1, 수신 스레드 0.
     {
         auto  fake_source_a  = std::make_unique<FakeSource>(40);
         auto  fake_source_b  = std::make_unique<FakeSource>(40);
@@ -445,7 +445,7 @@ int main()
         CHECK(multiplexer.lanes() == 2);
 
         std::mutex                        mutex;
-        std::vector<std::pair<uint32_t, std::thread::id>> seen; // (레인, 부른 스레드)
+        std::vector<std::pair<uint32_t, std::thread::id>> seen; // (수신 스레드 번호, 부른 스레드)
         std::vector<std::string>          tickers;
         std::atomic<int>                  fills{0};
         std::thread::id                   fill_thread;

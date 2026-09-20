@@ -29,7 +29,7 @@ flowchart LR
     WS[KisWebSocket::recv_loop] --> DEC[kis_websocket::decode_*] --> CB[Engine WS 콜백]
   end
   subgraph mx[SPSC 링 행렬]
-    CB --> TD[pipeline_.trade_matrix / order_book_matrix (행=수신 레인, 열=샤드)]
+    CB --> TD[pipeline_.trade_matrix / order_book_matrix (행=수신 스레드, 열=샤드)]
     DP[DataPoller REST 대체 틱] --> TD
   end
   subgraph shard[2. 샤드 스레드 M]
@@ -95,13 +95,13 @@ review = [
   [[stage.step]]
   sym = "Engine::start"
   file = "Quant/src/core/Engine.cpp"
-  what = "도우미 호출 목록이 기동 순서다 — `setup_shards`(행렬 `reshape`, 행=수신 레인+폴러, 열=샤드) → ZMQ → 모의 체결기 → 라우터·대조기·폴러 → `try_bootstrap_ledger`(원장 시드) → `start_strategies` → 구독 목록 → `connect_feed` → `spawn_threads`"
+  what = "도우미 호출 목록이 기동 순서다 — `setup_shards`(행렬 `reshape`, 행=수신 스레드+폴러, 열=샤드) → ZMQ → 모의 체결기 → 라우터·대조기·폴러 → `try_bootstrap_ledger`(원장 시드) → `start_strategies` → 구독 목록 → `connect_feed` → `spawn_threads`"
 
   [[stage.step]]
   sym = "Engine::connect_feed (WS 콜백 설치)"
   file = "Quant/src/core/Engine.cpp"
   match = "set_lane_callbacks\\("
-  what = "소켓 레인 i의 호가·체결 콜백. 종목 id로 열을 고르고(`consumer_of`) `pipeline_.trade_matrix`·`order_book_matrix`의 자기 행에 `push_to` — 가득 차면 버리고 센다(블로킹 금지)"
+  what = "소켓 수신 스레드 i의 호가·체결 콜백. 종목 id로 열을 고르고(`consumer_of`) `pipeline_.trade_matrix`·`order_book_matrix`의 자기 행에 `push_to` — 가득 차면 버리고 센다(블로킹 금지)"
 
   [[stage.step]]
   sym = "Engine::spawn_threads"
@@ -169,7 +169,7 @@ review = [
   [[stage.step]]
   sym = "feed::FeedMux"
   file = "Quant/include/core/FeedMux.h"
-  what = "소켓 여럿을 한 `IFeedSource`로. 레인 모드면 소켓 i 스레드가 행 i로 직접 push(mux 스레드 없음). 체결통보는 첫 소켓만"
+  what = "소켓 여럿을 한 `IFeedSource`로. 직접 호출 모드면 소켓 i 스레드가 행 i로 직접 push(mux 스레드 없음). 체결통보는 첫 소켓만"
   test = "test_feed_mux"
 
   [[stage.step]]

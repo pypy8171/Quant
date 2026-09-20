@@ -1,7 +1,7 @@
 // Engine 한 바퀴 단위 테스트. 시험용 피드 소스를 주입해 KIS·소켓 없이 틱→샤드→전략→디스패치→주문 스레드→모의 체결→
-// 체결 소비 스레드→원장(보유)까지 도는지, 주입 모드가 브로커 없이 기동·종료하는지 고정한다. 케이스는 둘 — 레인 1×샤드 1과
-// 레인 2×샤드 2(종목 둘이 서로 다른 레인에서 들어와 서로 다른 열에서 판단된다). 관련 결정: D-071(Phase 3·Phase 4 앞단계).
-// 스레드: 테스트 스레드가 피드 소스의 수신 스레드 역할(레인 0..N-1)을 하고 나머지는 Engine이 띄운다.
+// 체결 소비 스레드→원장(보유)까지 도는지, 주입 모드가 브로커 없이 기동·종료하는지 고정한다. 케이스는 둘 — 수신 스레드 1×샤드 1과
+// 수신 스레드 2×샤드 2(종목 둘이 서로 다른 수신 스레드에서 들어와 서로 다른 열에서 판단된다). 관련 결정: D-071(Phase 3·Phase 4 앞단계).
+// 스레드: 테스트 스레드가 피드 소스의 수신 스레드 역할(수신 스레드 0..N-1)을 하고 나머지는 Engine이 띄운다.
 // 빌드: cmake --build <directory> --target test_engine
 #include "core/Engine.h"
 #include "core/IFeedSource.h"
@@ -39,7 +39,7 @@ int g_checks = 0;
     } while (0)
 
 // 콜백을 받아 두고 테스트가 부르는 대로 틱을 내보내는 피드 소스. 연결·구독은 기록만 하고 성공이라 답한다.
-//  lanes()를 N으로 답해 Engine이 행렬 행을 N개 잡게 한다 — 실제 소켓 N개(FeedMux 레인 모드)와 같은 자리.
+//  lanes()를 N으로 답해 Engine이 행렬 행을 N개 잡게 한다 — 실제 소켓 N개(FeedMux 직접 호출 모드)와 같은 자리.
 class FakeFeed : public feed::IFeedSource
 {
 public:
@@ -95,7 +95,7 @@ public:
     bool                   is_connected() const override { return connected_.load(); }
     bool                   is_stale(int) const override { return false; }
 
-    // 수신 스레드가 디코드 직후 부르는 자리 — 여기서는 테스트 스레드가 레인 lane의 역할을 한다.
+    // 수신 스레드가 디코드 직후 부르는 자리 — 여기서는 테스트 스레드가 수신 스레드 lane의 역할을 한다.
     void emit_trade(uint32_t lane, const std::string& ticker, double price, int32_t hhmmss)
     {
         TradeData trade;
@@ -182,7 +182,7 @@ private:
     bool          fired_ = false;
 };
 
-// 종목 i는 레인 i % lanes에서 들어온다. 종목마다 전략 하나. 종목 수만큼 주문·체결·보유가 잡히면 통과.
+// 종목 i는 수신 스레드 i % lanes에서 들어온다. 종목마다 전략 하나. 종목 수만큼 주문·체결·보유가 잡히면 통과.
 int run_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& tickers)
 {
     using namespace std::chrono_literals;
@@ -205,7 +205,7 @@ int run_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& ti
     engine.set_feed_source(std::move(feed_owned), 1'000'000.0);
     engine.start();
 
-    // 1. 브로커 없이 떴고, 소스는 전략들의 구독 종목으로 연결됐고, 행렬은 요청한 레인×샤드 그대로다(샤드 1 폴백 없음).
+    // 1. 브로커 없이 떴고, 소스는 전략들의 구독 종목으로 연결됐고, 행렬은 요청한 수신 스레드×샤드 그대로다(샤드 1 폴백 없음).
     CHECK(engine.is_running());
     CHECK(feed->is_connected());
     CHECK(feed->specifications().size() == tickers.size());
@@ -318,7 +318,7 @@ int run_replay_case()
     engine.set_replay(path.string(), 1.0, 1'000'000.0);
     engine.start();
 
-    // 1. KIS 없이 떴고 레인은 하나다.
+    // 1. KIS 없이 떴고 수신 스레드은 하나다.
     CHECK(engine.is_running());
     CHECK(engine.websocket_lanes() == 1);
 

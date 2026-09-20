@@ -20,7 +20,7 @@
 //  bind 주소는 set_bind_address로 바꾼다. KILL은 "KILL <token>" 형식이어야 하고 token 미설정이면 거부.
 //
 //  ZMQ 소켓은 스레드 세이프하지 않아 전용 zmq_thread_에서만 사용한다.
-//  다른 스레드는 enqueue()로 메시지를 전달한다. TRADE만 예외다 — 수신 스레드(레인 여럿)가 틱마다 부르는
+//  다른 스레드는 enqueue()로 메시지를 전달한다. TRADE만 예외다 — 수신 스레드(여럿일 수 있다)가 틱마다 부르는
 //  자리라 JSON도 뮤텍스도 없이 TradeData를 MpscQueue에 memcpy로 넣고, 문자열은 송신 스레드가 만든다.
 //  수신 스레드 비용 ~1,000 ns/틱 → ~26 ns/틱(tests/bench_zmq_publish.cpp, 2026-09-20). [why D-071]
 // ─────────────────────────────────────────────────────────────────────────────
@@ -111,7 +111,7 @@ private:
     std::mutex queue_mutex_;
     std::queue<Message> send_queue_;
     MpscQueue<TradeEnvelope> trade_queue_;
-    std::string              trade_payload_; // 송신 스레드 전용 재사용 버퍼 // 생산자 = WS 레인 수(둘 이상일 수 있다) → MPSC [why D-071 원칙 5]
+    std::string              trade_payload_; // 송신 스레드 전용 재사용 버퍼 // 생산자 = WS 수신 스레드 수(둘 이상일 수 있다) → MPSC [why D-071 원칙 5]
 
     CmdHandler command_handler_;
     std::atomic<uint64_t> drop_count_{0};

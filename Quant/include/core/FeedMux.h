@@ -1,11 +1,11 @@
 // 피드 소스 여러 개를 한 IFeedSource로 묶는다 — Engine은 소켓이 몇 개든 하나만 본다. 소켓마다 수신 스레드가 따로
-//  돌고(원칙 1), 종목은 한 소스에만 배정된다(원칙 2). 콜백 전달은 두 모드다 — 레인 모드(set_lane_callbacks)는 소스 i의
-//  수신 스레드가 레인 i를 달고 Engine 콜백을 직접 부른다(Engine의 N행 행렬이 소비자라 생산자를 모을 이유가 없다, 원칙 5).
+//  돌고(원칙 1), 종목은 한 소스에만 배정된다(원칙 2). 콜백 전달은 두 모드다 — 직접 호출 모드(set_lane_callbacks)는 소스 i의
+//  수신 스레드가 번호 i를 달고 Engine 콜백을 직접 부른다(Engine의 N행 행렬이 소비자라 생산자를 모을 이유가 없다, 원칙 5).
 //  multiplexer 모드(set_callbacks)는 소스당 SPSC 링 하나를 multiplexer 스레드 하나가 돌아가며 비워 콜백을 부른다 — 소비자가 하나여야
 //  하는 쪽(시험·단일 큐)만 쓴다. 소켓이 하나면 끼우지 않는다.
-// 스레드: 레인 모드는 소스의 수신 스레드가 콜백까지. multiplexer 모드는 수신 스레드가 push, multiplexer 스레드가 pop·콜백.
+// 스레드: 직접 호출 모드는 소스의 수신 스레드가 콜백까지. multiplexer 모드는 수신 스레드가 push, multiplexer 스레드가 pop·콜백.
 //  connect/subscribe는 Engine의 제어·데이터 스레드. 체결통보는 첫 소스만 넘긴다 — KIS는 세션마다 같은 통보를
-//  보내므로 둘 이상 받으면 원장이 두 번 센다. 레인 모드에서도 첫 소스 스레드 하나만 부르므로 통보 큐는 SPSC로 남는다. [why D-071]
+//  보내므로 둘 이상 받으면 원장이 두 번 센다. 직접 호출 모드에서도 첫 소스 스레드 하나만 부르므로 통보 큐는 SPSC로 남는다. [why D-071]
 #pragma once
 #include "core/IFeedSource.h"
 #include "core/RingBuffer.h"
@@ -61,7 +61,7 @@ public:
         return static_cast<uint32_t>(sources_.size());
     }
 
-    // 레인 모드 — 소스 i의 수신 스레드가 레인 i를 달고 Engine 콜백을 직접 부른다. 링·multiplexer 스레드를 거치지 않는다.
+    // 직접 호출 모드 — 소스 i의 수신 스레드가 번호 i를 달고 Engine 콜백을 직접 부른다. 링·multiplexer 스레드를 거치지 않는다.
     //  set_callbacks와 같이 쓰지 않는다(나중에 부른 쪽이 소스 콜백을 덮는다).
     void set_lane_callbacks(LaneOrderBookCb on_order_book, LaneTradeCb on_trade) override
     {
@@ -490,8 +490,8 @@ private:
 
     OrderBookCb     on_order_book_;    // multiplexer 모드
     TradeCb         on_trade_; // multiplexer 모드
-    LaneOrderBookCb lane_order_book_;    // 레인 모드
-    LaneTradeCb     lane_trade_; // 레인 모드
+    LaneOrderBookCb lane_order_book_;    // 직접 호출 모드
+    LaneTradeCb     lane_trade_; // 직접 호출 모드
     FillCb          on_fill_;
     bool            lane_mode_ = false; // 수신 스레드가 돌기 전(connect 전)에 정해진다
 

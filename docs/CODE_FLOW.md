@@ -18,7 +18,7 @@ flowchart LR
     WS[KisWebSocket::recv_loop] --> DEC[kis_websocket::decode_*] --> CB[Engine WS 콜백]
   end
   subgraph mx[SPSC 링 행렬]
-    CB --> TD[pipeline_.trade_matrix / order_book_matrix (행=수신 레인, 열=샤드)]
+    CB --> TD[pipeline_.trade_matrix / order_book_matrix (행=수신 스레드, 열=샤드)]
     DP[DataPoller REST 대체 틱] --> TD
   end
   subgraph shard[2. 샤드 스레드 M]
@@ -67,9 +67,9 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/strategy/StrategyFactory.cpp:990` · `void load_strategies(StrategyLoadCtx& context, const json& strategies)`
 6. [`Engine::add_strategy`](../Quant/src/core/Engine.cpp#L33) — 전략 등록. 심볼 해석기(`set_symbol_resolver` → `SymbolTable::intern`)가 여기서 주입된다  
    `Quant/src/core/Engine.cpp:33` · `void Engine::add_strategy(std::unique_ptr<StrategyBase> strategy)`
-7. [`Engine::start`](../Quant/src/core/Engine.cpp#L1096) — 도우미 호출 목록이 기동 순서다 — `setup_shards`(행렬 `reshape`, 행=수신 레인+폴러, 열=샤드) → ZMQ → 모의 체결기 → 라우터·대조기·폴러 → `try_bootstrap_ledger`(원장 시드) → `start_strategies` → 구독 목록 → `connect_feed` → `spawn_threads`  
+7. [`Engine::start`](../Quant/src/core/Engine.cpp#L1096) — 도우미 호출 목록이 기동 순서다 — `setup_shards`(행렬 `reshape`, 행=수신 스레드+폴러, 열=샤드) → ZMQ → 모의 체결기 → 라우터·대조기·폴러 → `try_bootstrap_ledger`(원장 시드) → `start_strategies` → 구독 목록 → `connect_feed` → `spawn_threads`  
    `Quant/src/core/Engine.cpp:1096` · `void Engine::start()`
-8. [`Engine::connect_feed (WS 콜백 설치)`](../Quant/src/core/Engine.cpp#L965) — 소켓 레인 i의 호가·체결 콜백. 종목 id로 열을 고르고(`consumer_of`) `pipeline_.trade_matrix`·`order_book_matrix`의 자기 행에 `push_to` — 가득 차면 버리고 센다(블로킹 금지)  
+8. [`Engine::connect_feed (WS 콜백 설치)`](../Quant/src/core/Engine.cpp#L965) — 소켓 수신 스레드 i의 호가·체결 콜백. 종목 id로 열을 고르고(`consumer_of`) `pipeline_.trade_matrix`·`order_book_matrix`의 자기 행에 `push_to` — 가득 차면 버리고 센다(블로킹 금지)  
    `Quant/src/core/Engine.cpp:965` · `feed_.websocket->set_lane_callbacks([this] (uint32_t lane, const OrderBook& in) …`
 9. [`Engine::spawn_threads`](../Quant/src/core/Engine.cpp#L1083) — data·strategy·order·fill·control 다섯 jthread + 샤드 M. stop_token이 첫 인자라 람다로 감싼다  
    `Quant/src/core/Engine.cpp:1083` · `data_thread_     = std::jthread([this] (std::stop_token stop_token) { data_thread_fn(stop_token); });`
@@ -100,7 +100,7 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/include/api/KisWsDecode.h:226` · `inline Decode decode_orderbook(Fields fields, OrderBook& order_book)` · 시험 [test_ws_decode](../Quant/tests/test_ws_decode.cpp)
 17. [`shard::Matrix::push_to`](../Quant/include/core/ShardMatrix.h#L85) — 행(생산자)×열(소비자) SPSC 셀에 push. `consumer_of(sym)`이 종목 해시로 열을 고른다(원칙 2)  
    `Quant/include/core/ShardMatrix.h:85` · `[[nodiscard]] bool push_to(uint32_t producer, uint32_t consumer, const T& value)` · 시험 [test_shard_matrix](../Quant/tests/test_shard_matrix.cpp)
-18. [`feed::FeedMux`](../Quant/include/core/FeedMux.h#L33) — 소켓 여럿을 한 `IFeedSource`로. 레인 모드면 소켓 i 스레드가 행 i로 직접 push(mux 스레드 없음). 체결통보는 첫 소켓만  
+18. [`feed::FeedMux`](../Quant/include/core/FeedMux.h#L33) — 소켓 여럿을 한 `IFeedSource`로. 직접 호출 모드면 소켓 i 스레드가 행 i로 직접 push(mux 스레드 없음). 체결통보는 첫 소켓만  
    `Quant/include/core/FeedMux.h:33` · `class FeedMux final : public IFeedSource` · 시험 [test_feed_mux](../Quant/tests/test_feed_mux.cpp)
 19. [`Engine::data_thread_fn`](../Quant/src/core/Engine.cpp#L1323) — REST 축 — 봉 폴링·`poll_regime_file`(국면)·잔고 대조·유니버스 재스캔·하루 경계(`new_trading_day`·`reset_daily`). 폴러의 대체 틱은 `pipeline_.trade_matrix`의 자기 행(`data_row`)으로 간다  
    `Quant/src/core/Engine.cpp:1323` · `void Engine::data_thread_fn(std::stop_token stop_token)`
