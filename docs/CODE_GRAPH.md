@@ -37,13 +37,13 @@ graph LR
   modes -->|3| core
   modes --> ipc
   modes -->|2| utils
-  risk -->|3| core
+  risk -->|4| core
   strategy -->|5| api
-  strategy -->|19| core
+  strategy -->|20| core
   strategy -->|3| universe
   strategy -->|10| utils
   universe --> api
-  universe -->|2| core
+  universe -->|4| core
   universe -->|3| utils
   utils --> core
 ```
@@ -60,8 +60,8 @@ graph LR
 | `core/KstTime.h` | 15 |
 | `strategy/StrategyBase.h` | 13 |
 | `api/KisClient.h` | 12 |
+| `core/SymbolTable.h` | 12 |
 | `core/MarketSession.h` | 8 |
-| `core/SymbolTable.h` | 8 |
 | `core/WakeGate.h` | 7 |
 
 ## 파일 단위 상세
@@ -104,6 +104,7 @@ graph LR
     n_core_OrderRateLimiter_cpp["core/OrderRateLimiter.cpp"]
     n_core_OrderRateLimiter_h["core/OrderRateLimiter.h"]
     n_core_PaperExecutor_h["core/PaperExecutor.h"]
+    n_core_ReconcilePlan_h["core/ReconcilePlan.h"]
     n_core_RegimeFileJudge_h["core/RegimeFileJudge.h"]
     n_core_ReplaySource_h["core/ReplaySource.h"]
     n_core_ShardMatrix_h["core/ShardMatrix.h"]
@@ -115,6 +116,7 @@ graph LR
     n_core_TickCapture_h["core/TickCapture.h"]
     n_core_TickSize_h["core/TickSize.h"]
     n_core_Types_h["core/Types.h"]
+    n_core_UniverseExit_h["core/UniverseExit.h"]
   end
   subgraph ipc
     n_ipc_OpsServer_cpp["ipc/OpsServer.cpp"]
@@ -153,6 +155,7 @@ graph LR
     n_strategy_ValueContraryStrategy_h["strategy/ValueContraryStrategy.h"]
   end
   subgraph universe
+    n_universe_ScoreWeight_h["universe/ScoreWeight.h"]
     n_universe_UniverseScanner_cpp["universe/UniverseScanner.cpp"]
     n_universe_UniverseScanner_h["universe/UniverseScanner.h"]
   end
@@ -266,6 +269,7 @@ graph LR
   n_core_PaperExecutor_h --> n_core_MarketSession_h
   n_core_PaperExecutor_h --> n_core_SymbolTable_h
   n_core_PaperExecutor_h --> n_core_Types_h
+  n_core_ReconcilePlan_h --> n_core_SymbolTable_h
   n_core_RegimeFileJudge_h --> n_core_KstTime_h
   n_core_RegimeFileJudge_h --> n_core_Types_h
   n_core_ReplaySource_h --> n_core_IFeedSource_h
@@ -291,7 +295,9 @@ graph LR
   n_core_TickCapture_h --> n_core_Types_h
   n_core_TickCapture_h --> n_core_WakeGate_h
   n_core_TickSize_h --> n_core_Types_h
+  n_core_Types_h --> n_core_StrategyTable_h
   n_core_Types_h --> n_core_SymbolTable_h
+  n_core_UniverseExit_h --> n_core_SymbolTable_h
   n_ipc_OpsServer_cpp --> n_ipc_OpsServer_h
   n_ipc_OpsServer_cpp --> n_utils_Logger_h
   n_ipc_OpsServer_h --> n_ipc_OpsProtocol_h
@@ -303,6 +309,7 @@ graph LR
   n_ipc_OrderRouter_h --> n_api_IOrderExecutor_h
   n_ipc_OrderRouter_h --> n_core_ReconcilePlan_h
   n_ipc_OrderRouter_h --> n_core_Types_h
+  n_ipc_OrderRouter_h --> n_ipc_FillKey_h
   n_ipc_OrderRouter_h --> n_ipc_ZmqBridge_h
   n_ipc_OrderRouter_h --> n_risk_OrderGate_h
   n_ipc_ZmqBridge_cpp --> n_ipc_ZmqBridge_h
@@ -328,6 +335,7 @@ graph LR
   n_risk_OrderGate_cpp --> n_core_KstTime_h
   n_risk_OrderGate_cpp --> n_risk_GateReasons_h
   n_risk_OrderGate_cpp --> n_risk_OrderGate_h
+  n_risk_OrderGate_h --> n_core_StrategyTable_h
   n_risk_OrderGate_h --> n_core_SymbolTable_h
   n_risk_OrderGate_h --> n_core_Types_h
   n_strategy_DevScaleRules_h --> n_core_Types_h
@@ -356,6 +364,7 @@ graph LR
   n_strategy_PriceTargetStrategy_h --> n_utils_Logger_h
   n_strategy_SeedPeakStore_h --> n_core_KstTime_h
   n_strategy_SeedPeakStore_h --> n_utils_Logger_h
+  n_strategy_StrategyBase_h --> n_core_StrategyTable_h
   n_strategy_StrategyBase_h --> n_core_Types_h
   n_strategy_StrategyFactory_cpp --> n_core_Engine_h
   n_strategy_StrategyFactory_cpp --> n_core_KstTime_h
@@ -391,6 +400,7 @@ graph LR
   n_strategy_ValueContraryStrategy_h --> n_core_MarketSession_h
   n_strategy_ValueContraryStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_ValueContraryStrategy_h --> n_utils_Logger_h
+  n_universe_ScoreWeight_h --> n_core_SymbolTable_h
   n_universe_UniverseScanner_cpp --> n_core_KstTime_h
   n_universe_UniverseScanner_cpp --> n_core_Types_h
   n_universe_UniverseScanner_cpp --> n_universe_MaAlign_h
@@ -399,6 +409,8 @@ graph LR
   n_universe_UniverseScanner_cpp --> n_utils_JsonNode_h
   n_universe_UniverseScanner_cpp --> n_utils_Logger_h
   n_universe_UniverseScanner_h --> n_api_KisClient_h
+  n_universe_UniverseScanner_h --> n_core_SymbolTable_h
+  n_universe_UniverseScanner_h --> n_universe_ScoreWeight_h
   n_utils_Logger_cpp --> n_core_MpscQueue_h
   n_utils_Logger_cpp --> n_utils_Logger_h
 ```
@@ -458,6 +470,7 @@ graph LR
   p_PYQuant_tools -->|5| p_PYQuant
   p_PYQuant_tools --> p_PYQuant_backtest
   p_PYQuant_tools -->|7| p_PYQuant_data
+  p_PYQuant_tools --> p_PYQuant_features
   p_PYQuant_tools -->|10| p_PYQuant_kis
   p_PYQuant_tools --> p_PYQuant_naver
   p_scripts -->|3| p_PYQuant_backtest
@@ -519,6 +532,7 @@ graph LR
 | `PYQuant/tools/index_intraday_logger.py` | `kis.client` |
 | `PYQuant/tools/investor_flow_logger.py` | `kis.client` |
 | `PYQuant/tools/minute_backfill.py` | `kis.client` |
+| `PYQuant/tools/minute_backfill_pairs.py` | `features.fundamental` |
 | `PYQuant/tools/month_start_sweep.py` | `data.datagokr_source`, `main` |
 | `PYQuant/tools/nxt_divergence_check.py` | `kis.client` |
 | `PYQuant/tools/pit_universe_backfill.py` | `kis.client`, `tools.universe_feed` |

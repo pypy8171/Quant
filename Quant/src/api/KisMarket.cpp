@@ -238,7 +238,7 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
     const int kMaxPages  = (std::min)(20, need_1min / 25 + 3); // (): windows.h min 매크로 회피
 
     std::vector<kis_rest::RawMinute> raw_minutes;
-    std::unordered_set<std::string> seen; // date+hour 중복(페이지 경계) 제거
+    std::unordered_set<uint64_t> seen; // 날짜·시각 정수 키 — 페이지 경계 중복 제거
 
     for (int page = 0; page < kMaxPages && static_cast<int>(raw_minutes.size()) < need_1min; ++page)
     {
@@ -342,7 +342,7 @@ std::vector<MarketData> KisClient::get_daily_minute_ohlcv(const std::string& tic
     const int kMaxPages = (std::min)(6, need_1min / 110 + 2); // (): windows.h min 매크로 회피
 
     std::vector<kis_rest::RawMinute> raw_minutes;
-    std::unordered_set<std::string> seen;
+    std::unordered_set<uint64_t> seen; // 날짜·시각 정수 키 — 페이지 경계 중복 제거
 
     for (int page = 0; page < kMaxPages && static_cast<int>(raw_minutes.size()) < need_1min; ++page)
     {

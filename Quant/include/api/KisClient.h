@@ -348,7 +348,7 @@ private:
         std::vector<MarketData> bars;
     };
     mutable std::mutex daily_cache_mutex_;
-    std::unordered_map<std::string, DailyCacheEntry> daily_cache_;
+    std::unordered_map<std::string, DailyCacheEntry> daily_cache_; // 키는 REST 인자 그대로 — 이 클라이언트는 종목 테이블을 모른다(HTTP 왕복당 한 번)
 
     // 초당 호출 한도 토큰버킷 — 인스턴스(=app_key)당 하나. 한도는 app_key 단위라 시세 클라이언트와
     //  주문 클라이언트가 각각 자기 예산을 쓴다. 모든 호출이 http_get/http_post를 지나므로

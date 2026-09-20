@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@9934ddd Quant/src/core/Engine.cpp@ab38b55 Quant/include/core/DataPoller.h@70a5160 Quant/include/core/SignalDispatcher.h@0499d3f Quant/include/core/OrderRateLimiter.h@deac415 Quant/include/core/LedgerReconciler.h@f122289 Quant/include/core/WakeGate.h@9e8c712 Quant/include/core/BarAggregator.h@fbb210b Quant/include/core/LatencyTrace.h@54aae27 Quant/include/core/ReconcilePlan.h@8f50382 -->
+<!-- sync: Quant/include/core/Engine.h@1a5acb5 Quant/src/core/Engine.cpp@5ced03e Quant/include/core/DataPoller.h@6d196bc Quant/include/core/SignalDispatcher.h@3b18d7e Quant/include/core/OrderRateLimiter.h@deac415 Quant/include/core/LedgerReconciler.h@f122289 Quant/include/core/WakeGate.h@9e8c712 Quant/include/core/BarAggregator.h@fbb210b Quant/include/core/LatencyTrace.h@54aae27 Quant/include/core/ReconcilePlan.h@e44b1c1 -->
 엔진은 락-프리 파이프라인(데이터→전략 샤드→디스패치→주문)에 체결 소비 스레드와 제어 스레드를 더해 다섯 개 + 샤드 M개의 스레드를 실행합니다(config `strategy_shards`, 기본 1):
 
 ```
@@ -28,8 +28,8 @@
 
 ### 핵심 타입 (`Quant/include/core/Types.h`)
 
-<!-- sync: Quant/include/core/Types.h@e129086 -->
-`MarketData`(OHLCV + bar_index), `OrderSignal`(side/type/quantity/price/**reference_price** + strategy_id, 종목 id `symbol_id`는 전략 스레드가 큐에 넣기 전에 찍는다), `Position`, `OrderBook`(5단계 호가, 채널 `H0STASP0`/선물 `H0IFASP0`), `TradeData`(실시간 체결, 채널 `H0STCNT0`/선물 `H0IFCNT0`; 호가·체결 모두 종목 id `symbol_id`와 정수 시각 `hhmmss`를 들고, 봉·호가·체결의 `ticker`는 `symbol::Ticker` 15자 고정 배열이라 세 구조체는 trivially copyable이다 — 문자열은 `.str()`, D-071), `WatchSpec`(FEED 구독 종목 명세 — `is_future` 플래그로 현·선 채널 선택), `Regime`(enum: BULL/NEUTRAL/BEAR/UNKNOWN), `RegimeSnapshot`(장 시작 국면 판정 결과 — score·200MA·정배열/역배열·지수 이평 분해).
+<!-- sync: Quant/include/core/Types.h@8b04f57 -->
+`MarketData`(OHLCV + bar_index), `OrderSignal`(side/type/quantity/price/**reference_price** + strategy_id, 종목 id `symbol_id`는 전략 스레드가 큐에 넣기 전에 찍고, 전략 번호 `strategy_index`·주문 번호 `client_order_number`는 정수라 게이트·라우터가 문자열 없이 찾는다, D-112), `Position`, `OrderBook`(5단계 호가, 채널 `H0STASP0`/선물 `H0IFASP0`), `TradeData`(실시간 체결, 채널 `H0STCNT0`/선물 `H0IFCNT0`; 호가·체결 모두 종목 id `symbol_id`와 정수 시각 `hhmmss`를 들고, 봉·호가·체결의 `ticker`는 `symbol::Ticker` 15자 고정 배열이라 세 구조체는 trivially copyable이다 — 문자열은 `.str()`, D-071), `WatchSpec`(FEED 구독 종목 명세 — `is_future` 플래그로 현·선 채널 선택), `Regime`(enum: BULL/NEUTRAL/BEAR/UNKNOWN), `RegimeSnapshot`(장 시작 국면 판정 결과 — score·200MA·정배열/역배열·지수 이평 분해).
 
 > `OrderSignal.reference_price`는 시장가(price=0) 주문의 명목 한도 평가 기준가다. 지정가는 `price`로 명목을 재지만 시장가는 `price`가 0이라 이 값이 없으면 명목 백스톱이 우회된다(특히 급락장 강제청산의 시장가 전량매도). 발주 측이 직전 현재가/평단을 stamp한다.
 
@@ -49,7 +49,7 @@
 
 ### KIS API 클라이언트 (`Quant/include/api/KisClient.h`, 구현은 `Quant/src/api/Kis*.cpp` 7파일)
 
-<!-- sync: Quant/include/api/KisClient.h@9ffe4c1 Quant/include/api/KisResult.h@654719e Quant/include/api/KisTypes.h@57ffdb9 Quant/include/api/KisRestDecode.h@5bbb213 Quant/include/api/IOrderExecutor.h@625dd34 Quant/include/api/IMarketDataSource.h@8c8d745 -->
+<!-- sync: Quant/include/api/KisClient.h@4a1c274 Quant/include/api/KisResult.h@654719e Quant/include/api/KisTypes.h@57ffdb9 Quant/include/api/KisRestDecode.h@7884fee Quant/include/api/IOrderExecutor.h@625dd34 Quant/include/api/IMarketDataSource.h@8c8d745 -->
 클래스는 하나고 구현이 도메인별로 나뉩니다(D-048): `KisTransport.cpp`(플랫폼별 HTTP — Windows는 WinHTTP, Linux는 libcurl — 재시도·초당 한도·공용 인증 헤더 `authentication_headers()`), `KisAuth.cpp`(OAuth2 토큰 발급·캐시), `KisMarket.cpp`(주식 시세 — 분봉 페이지 병합·집계는 순수 함수 헤더 `Quant/include/api/KisRestDecode.h`, D-051), `KisIndex.cpp`(지수·수급·선물), `KisOrder.cpp`(주문 — config `kis.exchange`(KRX/NXT/SOR)가 `EXCG_ID_DVSN_CD`와 tr_id `TTTC0012U/0011U/0013U`를 정한다, D-096), `KisAccount.cpp`(잔고·미체결), `KisUniverse.cpp`(순위·유니버스). 구현끼리만 쓰는 include·상수는 `Quant/src/api/KisClientInternal.h`. 주요 메서드: `authenticate()`, `get_chart_ohlcv()`, `get_current_price()`, `send_order()`, 국내 선물 시세 `get_future_price()`(단일 시세)·`get_future_board()`(전광판, 그릭스 포함). 새 REST 호출은 인증 헤더 네 줄을 손으로 쓰지 말고 `authentication_headers(tr_id, {추가 항목})`을 씁니다. 공개 헤더는 `nlohmann::json`을 내보내지 않습니다 — 잔고 `get_balance()`·전광판 `get_future_board()`는 `KisResult<T>`(`Quant/include/api/KisResult.h`, 실패 코드 동반) 봉투에 값 타입(`Quant/include/api/KisTypes.h`)을 담아 돌려주고, 응답 필드 해석은 `Quant/include/api/KisRestDecode.h`의 순수 함수가 맡습니다(D-059). 인터페이스는 둘을 구현합니다 — 주문 `IOrderExecutor`(`Quant/include/api/IOrderExecutor.h`, D-039)와 읽기 전용 시세·봉 `IMarketDataSource`(`Quant/include/api/IMarketDataSource.h`, D-066 — 현재가·일봉·분봉·지수 일봉·지수 현재값·해외 일봉). 순위·수급·잔고는 인터페이스 밖입니다. 주문 스레드가 초당 한도 버킷에서 기다린 시간은 `IOrderExecutor::rate_limit_wait_ns_this_thread()`로 재서 접수·거부 로그의 `버킷대기=`에 남깁니다(전송 분리 여부는 이 숫자로 정한다, T-13-2). 모의·실계좌 REST 접속점(호스트·포트)은 `Quant/include/api/KisEndpoints.h`의 `rest_base_url()` 한 곳에서 옵니다 — 파이썬 쪽 같은 표는 `PYQuant/kis/endpoints.py`입니다(T-13-3).
 
 ### WebSocket 클라이언트 (`Quant/include/api/KisWebSocket.h`, 구현은 `Quant/src/api/WebSocketClient.cpp` + `WsSocketWin.cpp`/`WsSocketPosix.cpp`)

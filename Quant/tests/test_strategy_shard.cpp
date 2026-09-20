@@ -214,8 +214,9 @@ int main()
                     strategy::Emitted emitted;
                     emitted.signal           = signal;
                     emitted.signal.tick_at_ns = tick_ns;
-                    emitted.strategy_id   = stop_token->id();
-                    emitted.active        = stop_token->is_active();
+                    emitted.signal.strategy_index = stop_token->strategy_index();
+                    emitted.active                = stop_token->is_active();
+                    emitted.exit_manager          = stop_token->is_exit_manager();
                     sink.out.push_back(std::move(emitted));
                     sink.last_tick_ns = tick_ns;
                 },
@@ -273,12 +274,12 @@ int main()
 
         for (const auto& emitted : sink1.out)
         {
-            if (emitted.strategy_id == "ALL")
+            if (emitted.signal.strategy_id == "ALL")
             {
                 inactive_seen = inactive_seen || !emitted.active;
             }
 
-            id_ok = id_ok && (emitted.strategy_id == "A" || emitted.strategy_id == "ALL") && emitted.signal.side == OrderSide::BUY;
+            id_ok = id_ok && (emitted.signal.strategy_id == "A" || emitted.signal.strategy_id == "ALL") && emitted.signal.side == OrderSide::BUY;
         }
 
         CHECK(inactive_seen && id_ok);

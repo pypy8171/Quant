@@ -3,17 +3,19 @@
 #include "core/LatencyTrace.h"
 #include "utils/Logger.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace dispatch
 {
-std::vector<OrderSignal> force_liquidation_orders(const std::vector<OrderGate::HeldPos>& held, const ReservedFn& reserved)
+std::vector<OrderSignal> force_liquidation_orders(const std::vector<OrderGate::HeldPos>& held, const ReservedFn& reserved,
+                                                  strategy_table::StrategyId strategy)
 {
     std::vector<OrderSignal> out;
 
     for (const auto& holding : held)
     {
-        const int reserved_quantity         = reserved(holding.account, holding.ticker);
+        const int reserved_quantity         = reserved(holding.account, holding.symbol);
         const int sell_pending = (reserved_quantity < 0) ? -reserved_quantity : 0; // 이미 낸 미체결 매도
         const int sellable     = holding.quantity - sell_pending;
 
@@ -24,13 +26,15 @@ std::vector<OrderSignal> force_liquidation_orders(const std::vector<OrderGate::H
 
         OrderSignal signal;
         signal.ticker      = holding.ticker;
+        signal.symbol_id   = holding.symbol;
         signal.account_id  = holding.account;
         signal.side        = OrderSide::SELL;
         signal.type        = OrderType::MARKET;
         signal.quantity    = sellable;
         signal.price       = 0.0;
         signal.reference_price   = holding.average_price;
-        signal.strategy_id = "FORCE_LIQ";
+        signal.strategy_id    = "FORCE_LIQ";
+        signal.strategy_index = strategy;
         signal.reason      = "강제청산(force_liquidate) 보유=" + std::to_string(holding.quantity) +
                         " 미체결매도=" + std::to_string(sell_pending);
         out.push_back(std::move(signal));
@@ -40,7 +44,7 @@ std::vector<OrderSignal> force_liquidation_orders(const std::vector<OrderGate::H
 }
 
 std::vector<OrderSignal> trim_orders(const std::vector<OrderGate::HeldPos>& held, double cap_notional,
-                                     const ReservedFn& reserved)
+                                     const ReservedFn& reserved, strategy_table::StrategyId strategy)
 {
     std::vector<OrderSignal> out;
 
@@ -64,7 +68,7 @@ std::vector<OrderSignal> trim_orders(const std::vector<OrderGate::HeldPos>& held
             continue;
         }
 
-        const int reserved_quantity = reserved(holding.account, holding.ticker);
+        const int reserved_quantity = reserved(holding.account, holding.symbol);
 
         if (reserved_quantity < 0)
         {
@@ -78,13 +82,15 @@ std::vector<OrderSignal> trim_orders(const std::vector<OrderGate::HeldPos>& held
 
         OrderSignal signal;
         signal.ticker      = holding.ticker;
+        signal.symbol_id   = holding.symbol;
         signal.account_id  = holding.account;
         signal.side        = OrderSide::SELL;
         signal.type        = OrderType::MARKET;
         signal.quantity    = excess;
         signal.price       = 0.0;
         signal.reference_price   = holding.average_price;
-        signal.strategy_id = "LIMIT_TRIM";
+        signal.strategy_id    = "LIMIT_TRIM";
+        signal.strategy_index = strategy;
         signal.reason      = "종목당 명목 한도 초과분 정리 보유=" + std::to_string(holding.quantity) +
                         " 한도수량=" + std::to_string(cap_quantity) +
                         " 평단=" + std::to_string(static_cast<long long>(holding.average_price));
@@ -106,8 +112,37 @@ std::string describe(const OrderSignal& signal, const std::string& label)
 } // namespace dispatch
 
 SignalDispatcher::SignalDispatcher(OrderGate& gate, Sink sink, Clock::time_point now)
-    : gate_(gate), sink_(std::move(sink)), last_liquidation_(now), trim_at_(now + std::chrono::seconds(20))
+    : gate_(gate), sink_(std::move(sink)), force_liquidation_index_(gate.strategy_index_of("FORCE_LIQ")),
+      limit_trim_index_(gate.strategy_index_of("LIMIT_TRIM")), displace_index_(gate.strategy_index_of("DISPLACE")),
+      guard_logged_(gate.symbols().capacity(), false), sell_halt_logged_(gate.symbols().capacity(), false),
+      last_liquidation_(now), trim_at_(now + std::chrono::seconds(20))
 {
+}
+
+std::string SignalDispatcher::held_ticker() const
+{
+    return held_symbol_ == symbol::kNone ? std::string() : gate_.symbols().name(held_symbol_).string();
+}
+
+symbol::SymbolId SignalDispatcher::symbol_of(const OrderSignal& signal)
+{
+    return signal.symbol_id != symbol::kNone ? signal.symbol_id : gate_.intern_symbol(signal.ticker);
+}
+
+bool SignalDispatcher::mark_once(std::vector<bool>& flags, symbol::SymbolId symbol)
+{
+    if (symbol >= flags.size())
+    {
+        return false; // 테이블 밖 번호(kNone 포함)는 로그를 세지 않는다
+    }
+
+    if (flags[symbol])
+    {
+        return false;
+    }
+
+    flags[symbol] = true;
+    return true;
 }
 
 void SignalDispatcher::emit(OrderSignal signal)
@@ -118,7 +153,7 @@ void SignalDispatcher::emit(OrderSignal signal)
     sink_(signal);
 }
 
-void SignalDispatcher::from_strategy(bool active, const std::string& strategy_id, const OrderSignal& signal)
+void SignalDispatcher::from_strategy(bool active, bool exit_manager, const OrderSignal& signal)
 {
     // 국면·유니버스 게이트 적용 지점(active = 국면 축 AND 유니버스 축, D-077). set_active로 표시만 해 두고 여기서 보지 않으면
     //  국면-전략 자동선택이 아무것도 막지 않는다(2026-09-08 확인). 비활성 전략이 보유분을 못 팔면 보호가 사라진다.
@@ -131,29 +166,31 @@ void SignalDispatcher::from_strategy(bool active, const std::string& strategy_id
     //  같이 멈춘다는 뜻이다. 수동 주문(MANUAL)은 이 함수를 지나지 않고, 국면 강제청산은 force_liquidate()가 따로 낸다.
     if (signal.action == OrderAction::NEW && signal.side == OrderSide::SELL && gate_.is_manual_sell_halted())
     {
-        if (sell_halt_logged_.insert(signal.ticker).second)
+        if (mark_once(sell_halt_logged_, symbol_of(signal)))
         {
-            LOG_WARN("[Engine] 수동 매도 정지 — 전략 매도 차단 " + label(signal.ticker) + " (요청 " + strategy_id + ")");
+            sell_halt_logged_any_ = true;
+            LOG_WARN("[Engine] 수동 매도 정지 — 전략 매도 차단 " + label(signal.ticker) + " (요청 " + signal.strategy_id + ")");
         }
 
         return;
     }
 
-    if (!sell_halt_logged_.empty() && !gate_.is_manual_sell_halted())
+    if (sell_halt_logged_any_ && !gate_.is_manual_sell_halted())
     {
-        sell_halt_logged_.clear();
+        std::fill(sell_halt_logged_.begin(), sell_halt_logged_.end(), false);
+        sell_halt_logged_any_ = false;
     }
 
     // 청산 관리가 맡은 티커는 스캔 슬리브가 새로 사지도, 팔지도 않는다. 소유자를 하나로 두지 않으면 청산 관리가
     //  턴 물량을 스캔 전략이 되사는 회전이 나고, 매도가 둘에서 나가면 같은 보유분에 두 장의 매도가 걸린다
     //  (sellable_quantity 클램프가 있어도 순서에 따라 한쪽이 0을 받아 분할 주문을 3초마다 되감는다). 취소·정정은
     //  통과한다 — 이미 낸 주문을 거두는 길까지 막으면 미체결이 미연결 주문이 된다.
-    if (signal.action == OrderAction::NEW && exit_managed_check_ && exit_managed_check_(signal.ticker) && !strategy_id.starts_with("ITB_"))
+    if (signal.action == OrderAction::NEW && !exit_manager && exit_managed_check_ && exit_managed_check_(symbol_of(signal)))
     {
-        if (guard_logged_.insert(signal.ticker).second)
+        if (mark_once(guard_logged_, symbol_of(signal)))
         {
             LOG_INFO("[Engine] 청산 관리 보유종목 신규 " + std::string(signal.side == OrderSide::BUY ? "매수" : "매도") +
-                     " 차단 " + label(signal.ticker) + " (요청 " + strategy_id + ") — 매매 소유권은 청산 관리에 있다");
+                     " 차단 " + label(signal.ticker) + " (요청 " + signal.strategy_id + ") — 매매 소유권은 청산 관리에 있다");
         }
 
         return;
@@ -173,7 +210,10 @@ void SignalDispatcher::submit(OrderSignal signal)
     const auto& gate_config    = gate_.config();
     const bool  buy_new = signal.side == OrderSide::BUY && signal.action == OrderAction::NEW;
 
-    if (!held_ticker_.empty() && signal.ticker == held_ticker_)
+    // 여기서 한 번 찍어 두면 게이트·교체 계획·보류 비교가 전부 이 번호로 간다.
+    signal.symbol_id = symbol_of(signal);
+
+    if (held_symbol_ != symbol::kNone && signal.symbol_id == held_symbol_)
     {
         if (signal.action == OrderAction::CANCEL)
         {
@@ -194,26 +234,28 @@ void SignalDispatcher::submit(OrderSignal signal)
     if (gate_config.displace_enabled && buy_new && snapshot.position == 0 && snapshot.reserved == 0 &&
         (snapshot.slots_full || gate_.capacity_full()))
     {
-        const auto plan = gate_.plan_displacement(signal.account_id, signal.ticker);
+        const auto plan = gate_.plan_displacement(signal.account_id, signal.symbol_id);
 
         if (plan.ok)
         {
             OrderSignal event;
             event.ticker      = plan.ticker;
+            event.symbol_id   = plan.symbol;
             event.account_id  = plan.account;
             event.side        = OrderSide::SELL;
             event.type        = OrderType::MARKET;
             event.quantity    = plan.quantity;
             event.price       = 0.0;
             event.reference_price   = plan.average_price; // 시장가 명목 백스톱이 우회되지 않게 평단을 stamp
-            event.strategy_id = "DISPLACE";
+            event.strategy_id    = "DISPLACE";
+            event.strategy_index = displace_index_;
             event.reason      = plan.reason;
             LOG_INFO("[Displace] " + label(plan.ticker) + " 전량 매도 " + std::to_string(plan.quantity) + "주 — " +
                      plan.reason);
             emit(std::move(event));
-            gate_.note_displacement(plan, signal.ticker);
+            gate_.note_displacement(plan, signal.symbol_id);
             held_.clear();
-            held_ticker_ = signal.ticker;
+            held_symbol_ = signal.symbol_id;
             held_until_  = Clock::now() +
                           std::chrono::seconds(gate_config.displace_slot_hold_sec > 0 ? gate_config.displace_slot_hold_sec : 120);
             held_.push_back(std::move(signal)); // 매도 체결로 자리가 나면 flush_held가 낸다
@@ -226,7 +268,7 @@ void SignalDispatcher::submit(OrderSignal signal)
 
 void SignalDispatcher::flush_held(Clock::time_point now)
 {
-    if (held_ticker_.empty())
+    if (held_symbol_ == symbol::kNone)
     {
         return;
     }
@@ -236,12 +278,12 @@ void SignalDispatcher::flush_held(Clock::time_point now)
     {
         if (!held_.empty())
         {
-            LOG_WARN("[Displace] 보류 매수 만료 " + label(held_ticker_) + " " + std::to_string(held_.size()) +
+            LOG_WARN("[Displace] 보류 매수 만료 " + label(held_symbol_) + " " + std::to_string(held_.size()) +
                      "건 — 자리가 안 나 버린다");
         }
 
         held_.clear();
-        held_ticker_.clear();
+        held_symbol_ = symbol::kNone;
         return;
     }
 
@@ -250,7 +292,7 @@ void SignalDispatcher::flush_held(Clock::time_point now)
         return;
     }
 
-    LOG_INFO("[Displace] 자리가 나 보류 매수 " + std::to_string(held_.size()) + "건 발주 " + label(held_ticker_));
+    LOG_INFO("[Displace] 자리가 나 보류 매수 " + std::to_string(held_.size()) + "건 발주 " + label(held_symbol_));
 
     for (auto& held_signal : held_)
     {
@@ -271,9 +313,10 @@ void SignalDispatcher::force_liquidate(Clock::time_point now)
 
     last_liquidation_ = now;
 
-    for (auto& liquidation_signal : dispatch::force_liquidation_orders(gate_.snapshot_positions(),
-                                              [this](const std::string& argument, const std::string& ticker)
-                                              { return gate_.reserved(argument, ticker); }))
+    for (auto& liquidation_signal : dispatch::force_liquidation_orders(
+             gate_.snapshot_positions(),
+             [this](const std::string& account, symbol::SymbolId symbol) { return gate_.reserved(account, symbol); },
+             force_liquidation_index_))
     {
         submit(std::move(liquidation_signal));
     }
@@ -291,9 +334,10 @@ void SignalDispatcher::trim_excess_once(Clock::time_point now)
 
     trim_done_ = true;
 
-    for (auto& trim_signal : dispatch::trim_orders(gate_.snapshot_positions(), gate_.config().max_notional_per_ticker,
-                                         [this](const std::string& argument, const std::string& ticker)
-                                         { return gate_.reserved(argument, ticker); }))
+    for (auto& trim_signal : dispatch::trim_orders(
+             gate_.snapshot_positions(), gate_.config().max_notional_per_ticker,
+             [this](const std::string& account, symbol::SymbolId symbol) { return gate_.reserved(account, symbol); },
+             limit_trim_index_))
     {
         LOG_WARN("[Engine] 한도 초과분 정리 " + label(trim_signal.ticker) + " 매도 " + std::to_string(trim_signal.quantity) + "주 — " +
                  trim_signal.reason);

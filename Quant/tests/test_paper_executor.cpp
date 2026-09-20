@@ -60,12 +60,12 @@ int main()
     // 1. 시장가 매수: 접수 시점엔 체결 없음, 다음 틱 가격에 체결. 장부·현금 반영.
     {
         const auto acknowledgement = executor.submit_order_acknowledgement(signal("005930", OrderSide::BUY, 10, 0.0, 70000.0));
-        CHECK(acknowledgement.ok() && acknowledgement.kis_order_no == "P000000001" && acknowledgement.krx_forwarding_org_no == "PAPER");
+        CHECK(acknowledgement.ok() && acknowledgement.kis_order_no == "9000000001" && acknowledgement.krx_forwarding_org_no == "PAPER");
         CHECK(fills.empty() && executor.open_count() == 1);
         executor.on_tick(tick("000660", 100000.0, 90100)); // 다른 종목 틱은 무관
         CHECK(fills.empty());
         executor.on_tick(tick("005930", 70100.0, 90101));
-        CHECK(fills.size() == 1 && fills[0].kis_order_no == "P000000001" && fills[0].filled_quantity == 10);
+        CHECK(fills.size() == 1 && fills[0].kis_order_no == "9000000001" && fills[0].filled_quantity == 10);
         CHECK(near(fills[0].filled_price, 70100.0) && fills[0].fill_time == "090101" &&
               fills[0].side == OrderSide::BUY);
         CHECK(executor.open_count() == 0 && executor.fills() == 1);

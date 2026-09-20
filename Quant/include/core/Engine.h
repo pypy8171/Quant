@@ -192,11 +192,14 @@ public:
     int risk_max_positions() const { return order_gate_.config().max_concurrent_positions; }
     // 점수 랭크를 게이트에 주입 — 슬롯이 꽉 차갈수록 상위 점수만 통과시킨다.
     //  같은 표를 로그 폴더 entry_scores.json에도 남겨 대시보드가 보유 종목을 점수순으로 보인다. [why D-047]
-    void set_entry_priority(std::unordered_map<std::string, int> rank,
-                            std::unordered_map<std::string, double> zscores, int total);
+    //  항목은 종목 id(symbols().intern)·랭크·z — 문자열 표는 없다. [why D-112]
+    void set_entry_priority(const std::vector<OrderGate::PriorityEntry>& entries, int total);
     // 현재 보유(롱) 원장 스냅샷 — 유니버스 재스캔의 "보유분 제외"가 매회 최신 잔고를 보게 한다.
     //  기동 시 1회 조회한 잔고를 계속 쓰면 청산된 종목이 세션 내내 후보에서 빠진다.
     std::vector<OrderGate::HeldPos> held_positions() const { return order_gate_.snapshot_positions(); }
+    // 종목 테이블 — 문자열 티커는 경계(설정·잔고·스캔 응답)에서 여기로 한 번 번호가 되고 그 뒤로는 id로 다닌다. [why D-112]
+    symbol::SymbolTable&       symbols() noexcept { return symbols_.table; }
+    const symbol::SymbolTable& symbols() const noexcept { return symbols_.table; }
 
     // ── 유니버스 재스캔 ─────────────────────────────────────────────────────
     // 주기적 유니버스 재스캔(동적 등록). universe_fn: 시세 클라이언트로 유니버스 티커 목록 산출.
@@ -209,9 +212,10 @@ public:
     //  등록(차트 조회)과 해제가 도는 회전이 나므로 유지 시간을 둔다.
     // block_after_sec: 같은 시계로 이만큼 빠져 있으면 떼기 전에 신규매수부터 막는다(≤0이면 안 막음).
     //  return_confirm: 막힌 종목이 다시 보여도 이 횟수 연속이어야 푼다. 판정은 core/UniverseExit.h [why D-077].
+    //  universe_fn·factory는 종목 id로 말한다 — 스캐너가 응답의 문자열 티커를 symbols()에 한 번 넣고 id를 준다.
     void set_universe_rescan(
-        std::function<std::vector<std::string>(KisClient&)> universe_fn,
-        std::function<std::unique_ptr<StrategyBase>(const std::string&)> factory,
+        std::function<std::vector<symbol::SymbolId>(KisClient&)> universe_fn,
+        std::function<std::unique_ptr<StrategyBase>(symbol::SymbolId)> factory,
         int interval_sec, size_t max_registered = 0, int drop_after_sec = 0,
         int block_after_sec = 0, int return_confirm = 2)
     {
@@ -220,6 +224,7 @@ public:
         RescanJob rescan_job;
         rescan_job.universe_fn    = std::move(universe_fn);
         rescan_job.factory        = std::move(factory);
+        rescan_job.owned.resize(symbols_.table.capacity()); // 종목 id 인덱스 — id는 용량을 넘지 않는다
         rescan_job.interval_sec   = interval_sec;
         rescan_job.max_registered = max_registered;
         rescan_job.drop_after_sec = drop_after_sec;
@@ -231,7 +236,7 @@ public:
     // 기동 때 add_strategy로 넣은 유니버스 종목을 마지막 set_universe_rescan 슬리브의 소유로 잡는다.
     //  재스캔이 등록한 종목만 소유로 두면 기동 종목은 하루 종일 차단·해제 밖이라 순위에서 밀려도 남는다.
     //  스레드 시작 전에만, set_universe_rescan 바로 뒤에 부른다 [why D-077].
-    void seed_universe_rescan(const std::vector<std::string>& tickers);
+    void seed_universe_rescan(const std::vector<symbol::SymbolId>& symbols);
 
     // ── G1: 국면→전략 자동선택 ──────────────────────────────────────────────
     // 국면(BULL/NEUTRAL/BEAR)별 활성 전략 id 목록(권위적 선택자). 스레드 시작 전에만.
@@ -272,14 +277,34 @@ public:
     //  청산 관리(청산 전용)과 스캔 전략(진입)이 같은 티커에 동시에 붙으면 한쪽이 턴 것을
     //  다른 쪽이 곧바로 되사서 수수료만 나간다(2026-09-08 금호건설: 13:39:59 전량매도 →
     //  13:40:12 재매수). 기동 시 단일스레드 구간에서만 채우고 전략 스레드는 읽기만 한다.
-    void mark_exit_managed_ticker(const std::string& ticker) { universe_rescan_.exit_managed_tickers.insert(ticker); }
-    bool is_exit_managed_ticker(const std::string& ticker) const { return universe_rescan_.exit_managed_tickers.count(ticker) > 0; }
+    //  종목 id 인덱스 비트 — 잔고 응답의 문자열 티커는 여기서 한 번 번호가 된다.
+    void mark_exit_managed_ticker(const std::string& ticker) { mark_exit_managed(symbols_.table.intern(ticker)); }
+    void mark_exit_managed(symbol::SymbolId symbol)
+    {
+        if (symbol != symbol::kNone && symbol < symbols_.exit_managed.size())
+        {
+            symbols_.exit_managed[symbol] = true;
+        }
+    }
 
-    void register_ticker_name(const std::string& ticker, const std::string& name);
+    bool is_exit_managed(symbol::SymbolId symbol) const
+    {
+        return symbol < symbols_.exit_managed.size() && symbols_.exit_managed[symbol];
+    }
+
+    //  이름은 종목 id 인덱스 배열에 둔다 — 문자열 티커를 받는 겹정의는 경계(로그 라벨·잔고 응답)용이고 안에서 id로 바꾼다.
+    void register_ticker_name(symbol::SymbolId symbol, const std::string& name);
+    void register_ticker_name(const std::string& ticker, const std::string& name)
+    {
+        register_ticker_name(symbols_.table.intern(ticker), name);
+    }
+
     // 이름이 있으면 "티커(종목명)", 없으면 티커 원문을 반환.
+    std::string ticker_label(symbol::SymbolId symbol) const;
     std::string ticker_label(const std::string& ticker) const;
     // 등록된 종목명(hts_kor_isnm)만 반환, 없으면 빈 문자열. 전략에 이름을 주입해 로그에 노출할 때 사용.
-    std::string ticker_name(const std::string& ticker) const;
+    std::string ticker_name(symbol::SymbolId symbol) const;
+    std::string ticker_name(const std::string& ticker) const { return ticker_name(symbols_.table.lookup(ticker)); }
 
     // ── 수명주기 ─────────────────────────────────────────────────────────────
     void start();
@@ -326,6 +351,8 @@ private:
     StrategyBase::SellableInfo ledger_sellable(const std::string& account, const std::string& ticker) const;
     // 매크로 레짐 파일 읽기 → RegimeFileJudge 판정 → OrderGate entry_halt·force_liquidate_ 적용 (data_thread 전용)
     void poll_regime_file();
+    // 전략 번호·청산 관리 여부를 등록 때 한 번 정한다 — 신호 봉투가 이 값을 싣는다. [why D-112]
+    void assign_strategy_identity(StrategyBase& strategy);
     void maybe_rescan_universe();  // 주기적 유니버스 재스캔 → 신규 티커 런타임 등록·이탈 티커 해제 (data_thread 전용)
     // 전략 해제는 두 단계다. 뗄 때는 strategy_.list에서 빼고 strategy_.retired로 옮기며 버전을 올린다 —
     //  strategy_thread의 옛 스냅샷이 아직 그 포인터를 들고 있을 수 있어서 바로 지우지 않는다.
@@ -450,8 +477,8 @@ private:
     //  — 공유 카운트로 세면 한 슬리브가 다른 슬리브의 자리를 먹는다.
     struct RescanJob
     {
-        std::function<std::vector<std::string>(KisClient&)> universe_fn;
-        std::function<std::unique_ptr<StrategyBase>(const std::string&)> factory;
+        std::function<std::vector<symbol::SymbolId>(KisClient&)> universe_fn;
+        std::function<std::unique_ptr<StrategyBase>(symbol::SymbolId)> factory;
         int    interval_sec   = 0;
         size_t max_registered = 0;
         size_t registered     = 0;
@@ -460,18 +487,33 @@ private:
         int    return_confirm  = 2;
         bool   empty_scan_warned = false; // 빈 스캔 결과 WARN은 연속 구간당 한 번
         std::chrono::steady_clock::time_point last_run{};
-        std::unordered_map<std::string, StrategyBase*> owned; // 이 슬리브가 소유한 티커 → 전략(차단·해제 대상)
-        // 연속 부재 시계 — 마지막으로 보인 스캔 시각. 첫 부재 스캔에서 직전 스캔 시각으로 놓는다.
-        std::unordered_map<std::string, std::chrono::steady_clock::time_point> absent_since;
-        std::unordered_map<std::string, int> present_streak; // 차단 중 연속 present 스캔 수(복귀 확인)
+        // 이 슬리브가 소유한 종목(차단·해제 대상) — 종목 id 인덱스. strategy가 nullptr이면 소유가 아니다.
+        struct Owned
+        {
+            StrategyBase* strategy = nullptr;
+            // 연속 부재 시계 — 마지막으로 보인 스캔 시각. 첫 부재 스캔에서 직전 스캔 시각으로 놓는다. 0=부재 아님.
+            std::chrono::steady_clock::time_point absent_since{};
+            int present_streak = 0; // 차단 중 연속 present 스캔 수(복귀 확인)
+        };
+        std::vector<Owned>            owned;     // symbols_.table.capacity() 크기
+        std::vector<symbol::SymbolId> owned_ids; // 순회용 소유 id 목록(owned[id].strategy != nullptr인 id 전부)
     };
     struct UniverseRescan
     {
         std::vector<RescanJob> jobs;
-        std::unordered_set<std::string> registered_tickers; // 등록된 KR 티커(중복 방지, 슬리브 공유)
-        std::unordered_set<std::string> exit_managed_tickers;   // 청산 관리 보유 티커(스캔 신규매수 제외)
+        std::vector<bool>      registered;           // 등록된 KR 종목(id 인덱스, 중복 방지, 슬리브 공유)
+        size_t                 registered_count = 0; // registered의 true 수
     };
     UniverseRescan universe_rescan_;
+    bool rescan_is_registered(symbol::SymbolId symbol) const
+    {
+        return symbol < universe_rescan_.registered.size() && universe_rescan_.registered[symbol];
+    }
+
+    void rescan_set_registered(symbol::SymbolId symbol, bool on);
+    // 소유 종목 하나를 떼어 retired로 넘긴다 — 점수 교체·이탈 해제가 같은 절차를 쓴다. make_line은 해제 로그 문장.
+    void retire_owned(RescanJob& job, symbol::SymbolId symbol,
+                      const std::function<std::string(const StrategyBase&)>& make_line);
 
     // ── N×M 샤드 파이프라인·큐 ──────────────────────────────────────────────
     // 수신 N × 전략 샤드 M 링 행렬. 셀 하나의 생산자는 스레드 하나다 — WS 수신 스레드 i(소켓 i의 수신 스레드)는 행 i, 체결은
@@ -541,7 +583,9 @@ private:
         int                             port = 0;
         std::string                     token;
         std::mutex                      manual_client_id_mutex;
-        std::unordered_set<std::string> manual_cids; // 재전송 중복 차단(세션 내)
+        // 재전송 중복 차단(세션 내). cid는 운영단말이 준 문자열 그 자체라 문자열 집합 — 해시로 줄이면 충돌이
+        //  정상 주문을 "중복"으로 거부할 수 있고, 세션당 수십 건이라 얻는 것도 없다.
+        std::unordered_set<std::string> manual_cids;
     };
     OpsChannel ops_;
     void        start_ops_server();
@@ -559,6 +603,8 @@ private:
 
     // ── 리스크 게이트·주문 라우터 ────────────────────────────────────────────
     OrderGate order_gate_;
+    // 수동주문("MANUAL")의 전략 번호 — 게이트 테이블에서 한 번 받는다. order_gate_ 뒤에 선언해야 한다.
+    const strategy_table::StrategyId manual_strategy_index_ = order_gate_.strategy_index_of("MANUAL");
     std::unique_ptr<OrderRouter> order_router_; // 주문 전처리·중계 레이어(증권업계 용어로 FEP, Front-End Processor). start() 이후 유효
 
     // ── 구독 스펙 ─────────────────────────────────────────────────────────────
@@ -570,11 +616,6 @@ private:
     // ── ZMQ ──────────────────────────────────────────────────────────────────
     std::string zmq_bind_address_ = "127.0.0.1";
     std::string zmq_control_token_;
-
-    // ── 종목명 캐시 ──────────────────────────────────────────────────────────
-    // 티커→종목명 라벨(로그 표시용). 여러 스레드가 접근해 ticker_names_mu_로 보호.
-    std::unordered_map<std::string, std::string> ticker_names_;
-    mutable std::mutex ticker_names_mutex_;
 
     // ── 심볼·현재가 캐시 ──────────────────────────────────────────────────────
     struct SymbolCache
@@ -590,8 +631,17 @@ private:
         //  틱이 없던 종목은 0.
         std::unique_ptr<std::atomic<double>[]>  last_price_array{std::make_unique<std::atomic<double>[]>(table.capacity())};
         std::unique_ptr<std::atomic<int64_t>[]> last_price_at_ns{std::make_unique<std::atomic<int64_t>[]>(table.capacity())};
+
+        // 청산 관리가 붙은 종목(id 인덱스). 기동 시 단일스레드 구간에서만 켜고 전략 스레드는 읽기만 한다.
+        std::vector<bool> exit_managed{std::vector<bool>(table.capacity(), false)};
     };
     SymbolCache symbols_;
+
+    // ── 종목명 캐시 ──────────────────────────────────────────────────────────
+    // 종목 id→종목명 라벨(로그 표시용, 빈 문자열=없음). 여러 스레드가 접근해 ticker_names_mutex_로 보호.
+    //  [inv] symbols_ 뒤에 선언한다 — 크기가 table.capacity()로 초기화된다.
+    std::vector<std::string> ticker_names_{std::vector<std::string>(symbols_.table.capacity())};
+    mutable std::mutex       ticker_names_mutex_;
 
     double                                  last_price(symbol::SymbolId id) const noexcept;
     double                                  last_price(const std::string& ticker) const;

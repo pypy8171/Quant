@@ -1,14 +1,63 @@
 #pragma once
 
+#include "core/SymbolTable.h"
+
 #include <algorithm>
-#include <functional>
 #include <cmath>
-#include <string>
-#include <unordered_map>
+#include <cstddef>
+#include <numeric>
 #include <vector>
 
 namespace universe
 {
+
+// 스캐너가 매긴 종목 하나의 종합 점수. 종목은 id — 문자열 티커는 스캐너가 응답을 받는 자리에서 한 번 번호가 되고,
+//  그 뒤 점수·랭크·배수는 전부 이 번호로 다닌다. [why D-112]
+struct SymbolScore
+{
+    symbol::SymbolId symbol;
+    double           score;
+};
+
+using ScoreList = std::vector<SymbolScore>;
+
+// 아래 세 함수의 결과는 입력 ScoreList와 같은 순서의 배열이다(결과[i]가 scores[i]의 값). 종목 id로 찾고 싶으면
+//  호출자가 자기 id 배열에 옮겨 담는다(StrategyFactory의 DevScaleScoreState처럼).
+
+// 평균·표준편차 — 셋이 같은 식을 쓴다.
+struct ScoreMoments
+{
+    double mean               = 0.0;
+    double standard_deviation = 0.0;
+};
+
+inline ScoreMoments score_moments(const ScoreList& scores)
+{
+    ScoreMoments moments;
+
+    if (scores.empty())
+    {
+        return moments;
+    }
+
+    for (const SymbolScore& entry : scores)
+    {
+        moments.mean += entry.score;
+    }
+
+    moments.mean /= static_cast<double>(scores.size());
+    double variance = 0.0;
+
+    for (const SymbolScore& entry : scores)
+    {
+        const double deviation = entry.score - moments.mean;
+        variance += deviation * deviation;
+    }
+
+    variance /= static_cast<double>(scores.size());
+    moments.standard_deviation = std::sqrt(variance);
+    return moments;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 종합 점수 → 종목별 비중 배수
@@ -29,70 +78,36 @@ namespace universe
 //
 //  σ가 사실상 0이거나 입력이 비면 전부 1.0을 돌려준다(균등 폴백 — 배선 전 동작과 동일).
 // ─────────────────────────────────────────────────────────────────────────────
-inline std::unordered_map<std::string, double>
-score_to_mult(const std::unordered_map<std::string, double>& scores,
-              double spread, double target_total_percent, double base_percent, int slots)
+inline std::vector<double> score_to_mult(const ScoreList& scores, double spread, double target_total_percent,
+                                         double base_percent, int slots)
 {
-    std::unordered_map<std::string, double> multiplier;
+    std::vector<double> multiplier(scores.size(), 1.0);
 
-    if (scores.empty())
+    if (scores.empty() || !(spread > 0.0) || !(target_total_percent > 0.0) || !(base_percent > 0.0) || slots <= 0)
     {
         return multiplier;
     }
 
-    for (const auto& entry : scores)
-    {
-        multiplier[entry.first] = 1.0;
-    }
-
-    if (!(spread > 0.0) || !(target_total_percent > 0.0) || !(base_percent > 0.0) || slots <= 0)
-    {
-        return multiplier;
-    }
-
-    const size_t count = scores.size();
-    double mean = 0.0;
-
-    for (const auto& entry : scores)
-    {
-        mean += entry.second;
-    }
-
-    mean /= static_cast<double>(count);
-    double variance = 0.0;
-
-    for (const auto& entry : scores) { const double deviation = entry.second - mean; variance += deviation * deviation; }
-    variance /= static_cast<double>(count);
-    const double standard_deviation = std::sqrt(variance);
+    const ScoreMoments moments = score_moments(scores);
 
     // 분산이 없으면(전 종목 동점) 차등이 의미 없다. 총합 정규화만 걸고 배수는 균등하게 둔다.
-    //  티커는 scores의 키를 가리킨다 — 이 함수 안에서 scores에 삽입이 없어 포인터가 산다.
-    std::vector<std::pair<const std::string*, double>> raw;
-    raw.reserve(count);
+    std::vector<double> raw(scores.size(), 1.0);
 
-    for (const auto& entry : scores)
+    if (moments.standard_deviation > 1e-12)
     {
-        double ratio = 1.0;
-
-        if (standard_deviation > 1e-12)
+        for (size_t index = 0; index < scores.size(); ++index)
         {
-            double z_score = (entry.second - mean) / standard_deviation;
-            z_score = std::max(-2.0, std::min(2.0, z_score));
-            ratio = 1.0 + spread * z_score / 2.0;
+            double z_score = (scores[index].score - moments.mean) / moments.standard_deviation;
+            z_score        = std::max(-2.0, std::min(2.0, z_score));
+            raw[index]     = 1.0 + spread * z_score / 2.0;
         }
-
-        raw.emplace_back(&entry.first, ratio);
     }
 
-    // 상위 slots개의 raw 합으로 정규화(내림차순 정렬 후 앞에서 slots개).
-    std::ranges::sort(raw, std::ranges::greater{}, &std::pair<const std::string*, double>::second);
-    const size_t take = std::min(static_cast<size_t>(slots), raw.size());
-    double sum_top = 0.0;
-
-    for (size_t take_index = 0; take_index < take; ++take_index)
-    {
-        sum_top += raw[take_index].second;
-    }
+    // 상위 slots개의 raw 합으로 정규화 — 정렬은 사본으로 하고 raw의 순서(입력 순서)는 지킨다.
+    std::vector<double> sorted_raw = raw;
+    std::ranges::sort(sorted_raw, std::ranges::greater{});
+    const size_t take    = std::min(static_cast<size_t>(slots), sorted_raw.size());
+    const double sum_top = std::accumulate(sorted_raw.begin(), sorted_raw.begin() + static_cast<std::ptrdiff_t>(take), 0.0);
 
     if (!(sum_top > 1e-12))
     {
@@ -101,9 +116,9 @@ score_to_mult(const std::unordered_map<std::string, double>& scores,
 
     const double scale = target_total_percent / (base_percent * sum_top);
 
-    for (const auto& entry : raw)
+    for (size_t index = 0; index < raw.size(); ++index)
     {
-        multiplier[*entry.first] = entry.second * scale;
+        multiplier[index] = raw[index] * scale;
     }
 
     return multiplier;
@@ -111,67 +126,45 @@ score_to_mult(const std::unordered_map<std::string, double>& scores,
 
 // 종합 점수 → 표준화 점수(z, ±2 클립). 랭크는 "몇 번째"만 알려주므로 교체 판정처럼
 //  "얼마나 더 좋은지"를 봐야 하는 곳에서 쓴다. 분산이 없으면 전부 0을 돌려준다.
-inline std::unordered_map<std::string, double>
-score_to_z(const std::unordered_map<std::string, double>& scores)
+inline std::vector<double> score_to_z(const ScoreList& scores)
 {
-    std::unordered_map<std::string, double> out;
+    std::vector<double> out(scores.size(), 0.0);
+    const ScoreMoments  moments = score_moments(scores);
 
-    if (scores.empty())
+    if (moments.standard_deviation <= 1e-12)
     {
         return out;
     }
 
-    double mean = 0.0;
-
-    for (const auto& entry : scores)
+    for (size_t index = 0; index < scores.size(); ++index)
     {
-        mean += entry.second;
-    }
-
-    mean /= static_cast<double>(scores.size());
-    double variance = 0.0;
-
-    for (const auto& entry : scores) { const double deviation = entry.second - mean; variance += deviation * deviation; }
-    variance /= static_cast<double>(scores.size());
-    const double standard_deviation = std::sqrt(variance);
-
-    for (const auto& entry : scores)
-    {
-        double value = 0.0;
-
-        if (standard_deviation > 1e-12)
-        {
-            value = std::max(-2.0, std::min(2.0, (entry.second - mean) / standard_deviation));
-        }
-
-        out[entry.first] = value;
+        out[index] = std::max(-2.0, std::min(2.0, (scores[index].score - moments.mean) / moments.standard_deviation));
     }
 
     return out;
 }
 
-// 종합 점수 → 진입 우선순위 랭크(1=최고). 동점은 티커 사전순으로 갈라 결정론을 유지한다.
-inline std::unordered_map<std::string, int>
-score_to_rank(const std::unordered_map<std::string, double>& scores)
+// 종합 점수 → 진입 우선순위 랭크(1=최고). 동점은 티커 사전순으로 갈라 결정론을 유지한다 — 이름은 여기서만 본다.
+inline std::vector<int> score_to_rank(const ScoreList& scores, const symbol::SymbolTable& symbols)
 {
-    //  정렬은 scores의 원소를 가리키는 포인터로 한다 — 티커를 베끼지 않고, scores에 삽입이 없어 포인터가 산다.
-    using ScoreEntry = std::pair<const std::string, double>;
-    std::vector<const ScoreEntry*> values;
-    values.reserve(scores.size());
+    std::vector<size_t> order(scores.size());
+    std::iota(order.begin(), order.end(), size_t{0});
+    std::sort(order.begin(), order.end(), [&](size_t index_a, size_t index_b) {
+        const SymbolScore& entry_a = scores[index_a];
+        const SymbolScore& entry_b = scores[index_b];
 
-    for (const auto& entry : scores)
+        if (entry_a.score != entry_b.score)
+        {
+            return entry_a.score > entry_b.score;
+        }
+
+        return symbols.name(entry_a.symbol).view() < symbols.name(entry_b.symbol).view();
+    });
+    std::vector<int> rank(scores.size(), 0);
+
+    for (size_t position = 0; position < order.size(); ++position)
     {
-        values.push_back(&entry);
-    }
-
-    std::sort(values.begin(), values.end(),
-              [](const ScoreEntry* entry_a, const ScoreEntry* entry_b)
-              { return entry_a->second != entry_b->second ? entry_a->second > entry_b->second : entry_a->first < entry_b->first; });
-    std::unordered_map<std::string, int> rank;
-
-    for (size_t index = 0; index < values.size(); ++index)
-    {
-        rank[values[index]->first] = static_cast<int>(index) + 1;
+        rank[order[position]] = static_cast<int>(position) + 1;
     }
 
     return rank;

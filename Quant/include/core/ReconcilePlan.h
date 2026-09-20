@@ -3,11 +3,12 @@
 //  OrderRouter::record_reconcile이 logs/trades_YYYYMMDD.csv에 남긴다. [why D-038] 대사 단계 귀속.
 #pragma once
 
+#include "core/SymbolTable.h"
+
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <string_view>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace reconcile
@@ -15,9 +16,10 @@ namespace reconcile
 
 struct Held
 {
-    std::string ticker;
-    int         quantity = 0;
-    double      average = 0.0;   // 원. 브로커는 pchs_avg_pric(소수 넷째 자리), 원장은 체결가 가중평균
+    std::string      ticker;                        // 행 출력용 라벨
+    int              quantity = 0;
+    double           average  = 0.0;                // 원. 브로커는 pchs_avg_pric(소수 넷째 자리), 원장은 체결가 가중평균
+    symbol::SymbolId symbol   = symbol::kNone;      // 맞춰 보는 키. 호출부가 원장 id·브로커 티커 intern으로 채운다 [why D-112]
 };
 
 // OrderRouter::ReconcileNote와 같은 모양. 라우터 헤더를 끌어오지 않으려고 여기서 정의하고 라우터가 별칭으로 쓴다.
@@ -47,19 +49,40 @@ inline bool average_differs(double amount, double base)
 //  - 원장에만 있는 종목: pruned에 들어 있으면 PRUNE(엔진이 이미 걷어냄), 아니면 KEEP(갓 열린 포지션 유예).
 //  브로커 quantity<=0 항목은 보유가 아니므로 건너뛴다. 순서는 브로커 목록 → 원장 목록으로 결정적이다.
 inline std::vector<Row> plan(const std::vector<Held>& ledger, const std::vector<Held>& broker, bool resync,
-                             const std::vector<std::string>& pruned, const std::string& note)
+                             const std::vector<symbol::SymbolId>& pruned, const std::string& note)
 {
-    std::unordered_map<std::string, const Held*> by_ticker;
+    // 종목 id 인덱스 표 세 개 — 크기는 세 목록의 가장 큰 id+1.
+    symbol::SymbolId top = 0;
+
+    for (const auto& entry : ledger)
+    {
+        top = (std::max)(top, entry.symbol);
+    }
+
+    for (const auto& entry : broker)
+    {
+        top = (std::max)(top, entry.symbol);
+    }
+
+    for (const symbol::SymbolId symbol : pruned)
+    {
+        top = (std::max)(top, symbol);
+    }
+
+    std::vector<const Held*> by_symbol(static_cast<size_t>(top) + 1, nullptr);
+    std::vector<bool>        seen(by_symbol.size(), false);
+    std::vector<bool>        gone(by_symbol.size(), false);
+    std::vector<Row>         rows;
 
     for (const auto& ledger_entry : ledger)
     {
-        by_ticker[ledger_entry.ticker] = &ledger_entry;
+        by_symbol[ledger_entry.symbol] = &ledger_entry;
     }
 
-    // [inv] 두 집합은 문자열을 베끼지 않고 broker·pruned의 원소를 가리킨다 — 이 함수 안에서만 산다.
-    std::unordered_set<std::string_view> seen;
-    std::unordered_set<std::string_view> gone(pruned.begin(), pruned.end());
-    std::vector<Row>                     rows;
+    for (const symbol::SymbolId symbol : pruned)
+    {
+        gone[symbol] = true;
+    }
 
     for (const auto& broker_entry : broker)
     {
@@ -68,10 +91,10 @@ inline std::vector<Row> plan(const std::vector<Held>& ledger, const std::vector<
             continue;
         }
 
-        seen.insert(broker_entry.ticker);
-        const auto iterator  = by_ticker.find(broker_entry.ticker);
-        const int  ledger_quantity  = (iterator == by_ticker.end()) ? 0 : iterator->second->quantity;
-        const auto ledger_average = (iterator == by_ticker.end()) ? 0.0 : iterator->second->average;
+        seen[broker_entry.symbol]    = true;
+        const Held* ledger_entry     = by_symbol[broker_entry.symbol];
+        const int   ledger_quantity  = ledger_entry ? ledger_entry->quantity : 0;
+        const auto  ledger_average   = ledger_entry ? ledger_entry->average : 0.0;
 
         if (ledger_quantity == broker_entry.quantity && !average_differs(ledger_average, broker_entry.average))
         {
@@ -83,12 +106,12 @@ inline std::vector<Row> plan(const std::vector<Held>& ledger, const std::vector<
 
     for (const auto& ledger_entry : ledger)
     {
-        if (ledger_entry.quantity <= 0 || seen.count(ledger_entry.ticker))
+        if (ledger_entry.quantity <= 0 || seen[ledger_entry.symbol])
         {
             continue;
         }
 
-        rows.push_back(Row{ledger_entry.ticker, ledger_entry.quantity, 0, ledger_entry.average, 0.0, gone.count(ledger_entry.ticker) ? "PRUNE" : "KEEP", note});
+        rows.push_back(Row{ledger_entry.ticker, ledger_entry.quantity, 0, ledger_entry.average, 0.0, gone[ledger_entry.symbol] ? "PRUNE" : "KEEP", note});
     }
 
     return rows;

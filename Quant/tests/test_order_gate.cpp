@@ -269,11 +269,10 @@ void test_displace_picks_weakest()
     OrderGate gate(displace_config());
     gate.seed_position("", "A", 10, 1000.0);
     gate.seed_position("", "B", 10, 1000.0);
-    gate.set_entry_priority({{"A", 1}, {"B", 2}, {"C", 3}},
-                            {{"A", 0.9}, {"B", -0.8}, {"C", 1.5}}, 3);
+    gate.set_entry_priority({{gate.intern_symbol("A"), 1, 0.9}, {gate.intern_symbol("B"), 2, -0.8}, {gate.intern_symbol("C"), 3, 1.5}}, 3);
 
     assert(gate.slots_full());
-    auto plan = gate.plan_displacement("", "C");
+    auto plan = gate.plan_displacement("", gate.intern_symbol("C"));
     assert(plan.ok);
     assert(plan.ticker == "B");   // z가 더 낮은 쪽
     assert(plan.quantity == 10);
@@ -286,9 +285,8 @@ void test_displace_needs_score_gap()
     gate.seed_position("", "A", 10, 1000.0);
     gate.seed_position("", "B", 10, 1000.0);
     // C가 B보다 0.3σ 높을 뿐 — 임계 0.5σ 미달이라 교체하지 않는다.
-    gate.set_entry_priority({{"A", 1}, {"B", 2}, {"C", 3}},
-                            {{"A", 0.9}, {"B", 0.1}, {"C", 0.4}}, 3);
-    assert(!gate.plan_displacement("", "C").ok);
+    gate.set_entry_priority({{gate.intern_symbol("A"), 1, 0.9}, {gate.intern_symbol("B"), 2, 0.1}, {gate.intern_symbol("C"), 3, 0.4}}, 3);
+    assert(!gate.plan_displacement("", gate.intern_symbol("C")).ok);
     PASS("displace_needs_score_gap");
 }
 
@@ -297,8 +295,8 @@ void test_displace_skips_unscored_holdings()
     OrderGate gate(displace_config());
     gate.seed_position("", "A", 10, 1000.0);  // 점수 있음
     gate.seed_position("", "Z", 10, 1000.0);  // 점수 없음(청산 관리 보유분)
-    gate.set_entry_priority({{"A", 1}, {"C", 2}}, {{"A", 1.2}, {"C", 1.9}}, 2);
-    auto plan = gate.plan_displacement("", "C");
+    gate.set_entry_priority({{gate.intern_symbol("A"), 1, 1.2}, {gate.intern_symbol("C"), 2, 1.9}}, 2);
+    auto plan = gate.plan_displacement("", gate.intern_symbol("C"));
     // Z는 후보가 아니고 A는 격차(0.7σ)가 임계를 넘으므로 A가 뽑혀야 한다.
     assert(plan.ok);
     assert(plan.ticker == "A");
@@ -319,10 +317,9 @@ void test_displace_min_hold_blocks()
     assert(gate.check(b2, reason));
     gate.on_fill_confirmed("", "B", OrderSide::BUY, 10, 1000.0);
 
-    gate.set_entry_priority({{"A", 1}, {"B", 2}, {"C", 3}},
-                            {{"A", 0.9}, {"B", -0.8}, {"C", 1.5}}, 3);
+    gate.set_entry_priority({{gate.intern_symbol("A"), 1, 0.9}, {gate.intern_symbol("B"), 2, -0.8}, {gate.intern_symbol("C"), 3, 1.5}}, 3);
     assert(gate.slots_full());
-    assert(!gate.plan_displacement("", "C").ok); // 최소 보유 시간 미달
+    assert(!gate.plan_displacement("", gate.intern_symbol("C")).ok); // 최소 보유 시간 미달
     PASS("displace_min_hold_blocks");
 }
 
@@ -331,12 +328,11 @@ void test_displace_reserves_slot_and_cooldown()
     OrderGate gate(displace_config());
     gate.seed_position("", "A", 10, 1000.0);
     gate.seed_position("", "B", 10, 1000.0);
-    gate.set_entry_priority({{"A", 1}, {"B", 2}, {"C", 3}, {"D", 4}},
-                            {{"A", 0.9}, {"B", -0.8}, {"C", 1.5}, {"D", 1.4}}, 4);
+    gate.set_entry_priority({{gate.intern_symbol("A"), 1, 0.9}, {gate.intern_symbol("B"), 2, -0.8}, {gate.intern_symbol("C"), 3, 1.5}, {gate.intern_symbol("D"), 4, 1.4}}, 4);
 
-    auto plan = gate.plan_displacement("", "C");
+    auto plan = gate.plan_displacement("", gate.intern_symbol("C"));
     assert(plan.ok && plan.ticker == "B");
-    gate.note_displacement(plan, "C");
+    gate.note_displacement(plan, gate.intern_symbol("C"));
 
     // B 전량 매도가 체결돼 슬롯이 하나 비었다.
     gate.on_fill_confirmed("", "B", OrderSide::SELL, 10, 1000.0);
@@ -369,12 +365,11 @@ void test_displace_daily_cap()
     OrderGate gate(config);
     gate.seed_position("", "A", 10, 1000.0);
     gate.seed_position("", "B", 10, 1000.0);
-    gate.set_entry_priority({{"A", 1}, {"B", 2}, {"C", 3}},
-                            {{"A", 0.9}, {"B", -0.8}, {"C", 1.5}}, 3);
-    auto plan_a = gate.plan_displacement("", "C");
+    gate.set_entry_priority({{gate.intern_symbol("A"), 1, 0.9}, {gate.intern_symbol("B"), 2, -0.8}, {gate.intern_symbol("C"), 3, 1.5}}, 3);
+    auto plan_a = gate.plan_displacement("", gate.intern_symbol("C"));
     assert(plan_a.ok);
-    gate.note_displacement(plan_a, "C");
-    assert(!gate.plan_displacement("", "C").ok); // 하루 1회 소진
+    gate.note_displacement(plan_a, gate.intern_symbol("C"));
+    assert(!gate.plan_displacement("", gate.intern_symbol("C")).ok); // 하루 1회 소진
     PASS("displace_daily_cap");
 }
 

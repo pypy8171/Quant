@@ -1,6 +1,9 @@
 #pragma once
+#include "core/SymbolTable.h"
+
 #include <algorithm>
 #include <string>
+#include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 유니버스 이탈·복귀 판정의 순수 부분. Engine::maybe_rescan_universe(data_thread)가 시계·스캔 결과를 넣어
@@ -59,34 +62,33 @@ inline bool judge_return(int present_streak, const Thresholds& thread, bool in_u
 }
 
 // 등록 상한이 찼을 때 자리를 내줄 후보 — 오늘 스캔 top-N에 없고(점수 밀림) 미보유·미선점인 등록 종목 중
-//  부재가 가장 오래된 것(absent_sec 최댓값). owned가 unordered_map이라 순회 순서가 해시 상태에 달리므로,
-//  부재 시간이 같을 때는(또는 부재 추적이 없을 때는 전부 0으로 같을 때는) 티커 문자열로 마저 정해
-//  입력이 같으면 항상 같은 종목을 고른다 — 순회 순서에 기대지 않는다 [why D-087].
-template <typename OwnedMap, typename InScanSet, typename HeldSet, typename ReservedFn, typename AbsentSecFn>
-inline std::string pick_evict_candidate(const OwnedMap& owned, const InScanSet& in_scan, const HeldSet& held,
-                                         ReservedFn&& reserved, AbsentSecFn&& absent_sec)
+//  부재가 가장 오래된 것(absent_sec 최댓값). 종목은 id로 말한다 — in_scan·held는 id 인덱스 비트.
+//  owned의 순서는 등록·해제 이력에 달리므로, 부재 시간이 같을 때는(부재 추적이 없어 전부 0일 때 포함)
+//  id가 작은 쪽(먼저 번호를 받은 종목)으로 마저 정해 입력이 같으면 항상 같은 종목을 고른다 [why D-087].
+//  없으면 symbol::kNone.
+template <typename ReservedFn, typename AbsentSecFn>
+inline symbol::SymbolId pick_evict_candidate(const std::vector<symbol::SymbolId>& owned, const std::vector<bool>& in_scan,
+                                             const std::vector<bool>& held, ReservedFn&& reserved, AbsentSecFn&& absent_sec)
 {
-    const std::string* best            = nullptr; // owned의 원소를 가리킨다 — 마지막에 한 번만 베낀다
-    long long          best_absent_sec = -1;
+    symbol::SymbolId best            = symbol::kNone;
+    long long        best_absent_sec = -1;
 
-    for (const auto& entry : owned)
+    for (symbol::SymbolId symbol : owned)
     {
-        const auto& ticker = entry.first;
-
-        if (in_scan.count(ticker) || held.count(ticker) || reserved(ticker) != 0)
+        if ((symbol < in_scan.size() && in_scan[symbol]) || (symbol < held.size() && held[symbol]) || reserved(symbol) != 0)
         {
             continue;
         }
 
-        const long long seconds = absent_sec(ticker);
+        const long long seconds = absent_sec(symbol);
 
-        if (seconds > best_absent_sec || (seconds == best_absent_sec && (best == nullptr || ticker < *best)))
+        if (seconds > best_absent_sec || (seconds == best_absent_sec && symbol < best))
         {
-            best            = &ticker;
+            best            = symbol;
             best_absent_sec = seconds;
         }
     }
 
-    return best == nullptr ? std::string() : *best;
+    return best;
 }
 } // namespace universe_exit

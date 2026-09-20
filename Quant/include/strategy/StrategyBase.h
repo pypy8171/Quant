@@ -1,4 +1,5 @@
 #pragma once
+#include "core/StrategyTable.h"
 #include "core/Types.h"
 #include <atomic>
 #include <functional>
@@ -106,6 +107,15 @@ public:
     //  부른다 — 종목이 여러 개여도 객체는 스레드 하나만 만진다. 스레드 시작 전·전략 목록 락 하에서만 바꾼다. [why D-110]
     uint32_t shard_index() const { return shard_index_; }
     void     set_shard_index(uint32_t shard_index) { shard_index_ = shard_index; }
+
+    // 전략 번호(OrderGate::strategy_index_of(id())) — Engine이 등록 때 한 번 정한다. 신호 봉투가 이 번호를 싣고,
+    //  게이트의 서브원장·중복 신호 키가 문자열 id 대신 이 번호를 쓴다. [why D-112]
+    strategy_table::StrategyId strategy_index() const { return strategy_index_; }
+    void                       set_strategy_index(strategy_table::StrategyId index) { strategy_index_ = index; }
+
+    // 청산 관리 전략(ITB_ 계열)인가 — 청산 관리 보유 종목의 신규 차단을 면제받는다. Engine이 등록 때 id로 한 번 정한다.
+    bool is_exit_manager() const { return exit_manager_; }
+    void set_exit_manager(bool exit_manager) { exit_manager_ = exit_manager; }
 
     // Engine이 unique_ptr<KisClient>로 수명을 관리한다.
     // set_kis()는 Engine::start() 내부에서만 호출되며, 전략 소멸 전에 Engine이 먼저 종료된다.
@@ -249,5 +259,7 @@ protected:
     std::atomic<bool> active_{true};      // 국면 게이트(Engine이 설정). 기본 true=통과 (G-1)
     std::atomic<bool> in_universe_{true}; // 유니버스 재스캔 게이트(Engine이 설정). 미등록 전략은 늘 true
     uint32_t          shard_index_ = 0;   // 소유 샤드. Engine::setup_shards·register_strategy_runtime가 쓴다
+    strategy_table::StrategyId strategy_index_ = strategy_table::kNone; // 전략 번호. Engine이 등록 때 정한다
+    bool                       exit_manager_   = false;                 // ITB_ 계열. Engine이 등록 때 정한다
     std::vector<Regime> active_regimes_ = {Regime::BULL, Regime::NEUTRAL, Regime::BEAR};
 };

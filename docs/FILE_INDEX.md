@@ -252,6 +252,7 @@
 - [SignalDispatcher.h](../Quant/include/core/SignalDispatcher.h) — 신호 디스패처 — 순번 stamp·슬롯 교체 판단(D-063)
 - [StrategyRouter.h](../Quant/include/core/StrategyRouter.h) — 종목 id → 구독 전략 목록 라우터
 - [StrategyShard.h](../Quant/include/core/StrategyShard.h) — 전략 샤드 — 링 행렬 열 하나 소비(D-071)
+- [StrategyTable.h](../Quant/include/core/StrategyTable.h) — 전략 이름 ↔ 정수 번호 표 — 등록 때 한 번 번호를 주고 신호·서브원장은 번호로 다닌다(D-112)
 - [SymbolTable.h](../Quant/include/core/SymbolTable.h) — 종목 문자열 ↔ 정수 id 테이블(D-071)
 - [TickCapture.h](../Quant/include/core/TickCapture.h) — 틱·호가 append-only 이진 캡처와 리더(D-071)
 - [TickSize.h](../Quant/include/core/TickSize.h) — KRX 호가단위 표
@@ -261,6 +262,7 @@
 
 ### Quant/include/ipc/
 
+- [FillKey.h](../Quant/include/ipc/FillKey.h) — 체결통보 중복 키 — 날짜·주문번호·시각·수량·가격 정수 5개와 해시(D-112)
 - [OpsProtocol.h](../Quant/include/ipc/OpsProtocol.h) — 운영단말 ↔ 엔진 TCP 프레이밍 프로토콜(D-043)
 - [OpsServer.h](../Quant/include/ipc/OpsServer.h) — 운영단말 TCP 서버 선언(D-043)
 - [OrderRouter.h](../Quant/include/ipc/OrderRouter.h) — 주문 전처리·중계(FEP) 라우팅 레이어 선언
@@ -374,6 +376,7 @@
 - [bench_latency_path.cpp](../Quant/tests/bench_latency_path.cpp) — 지연에 민감한 경로 리팩터 전후 비교 벤치(D-071)
 - [bench_market_firehose.cpp](../Quant/tests/bench_market_firehose.cpp) — 전종목 규모 시세 파이프라인 부하테스트(E2E 지연·처리량)
 - [bench_order_gate_position.cpp](../Quant/tests/bench_order_gate_position.cpp) — OrderGate 원장 조회 벤치: 키가 (계좌, 종목) 문자열일 때와 정수 id일 때의 position() 비용(D-105 결정 3)
+- [bench_order_path_keys.cpp](../Quant/tests/bench_order_path_keys.cpp) — 주문 경로 키 벤치: 중복 신호 키·우선순위 표·서브원장·체결 키를 문자열과 정수로 잰다(D-112)
 - [bench_sleep_res.cpp](../Quant/tests/bench_sleep_res.cpp) — sleep_for·condvar 대기 해상도 실측 도구
 - [bench_wake_gate.cpp](../Quant/tests/bench_wake_gate.cpp) — WakeGate 대 atomic::wait 깨우기 지연 비교 벤치(D-070)
 - [bench_zmq_publish.cpp](../Quant/tests/bench_zmq_publish.cpp) — ZmqBridge::publish_trade가 수신 스레드에 얹는 비용 벤치 + TRADE 와이어 포맷이 예전 dump()와 같은지 검사(ctest)

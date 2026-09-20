@@ -17,8 +17,6 @@
 #include <string>
 #include <string_view>
 #include <thread>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace universe
@@ -55,8 +53,9 @@ struct DailyLookup
     double close21  = 0.0;                 // 21봉 전 종가(≈1개월 수익률 분모)
 };
 
-// 일봉 요약 캐시. 스캔 스레드 하나가 쓰지만 재조회 대상 선정과 조회가 같은 맵을
-//  보므로 락으로 감싼다. 디스크 사본은 장중 재기동 대비다 — 메모리 캐시가 비면 후보
+// 일봉 요약 캐시 — 종목 id 인덱스 배열(date_yyyymmdd가 비면 없음). 스캔 스레드 하나가 쓰지만 재조회 대상
+//  선정과 조회가 같은 표를 보므로 락으로 감싼다. [inv] 프로세스 안 종목 테이블은 하나다(OrderGate 것) — id는 지워지지
+//  않으므로 전역 캐시가 id를 들어도 된다. 파일은 문자열 티커로 쓰고 읽을 때 intern한다. 디스크 사본은 장중 재기동 대비다 — 메모리 캐시가 비면 후보
 //  수백 건의 일봉을 150ms 간격으로 다시 받아야 하고 그동안 발주 경로의 REST까지 밀린다.
 //  확정된 과거 일봉이라 같은 거래일 안에서는 그대로 재사용해도 된다. 파일은 거래일별로
 //  나누므로 날짜가 바뀌면 자연히 무시된다.
@@ -64,7 +63,7 @@ class DailyLookupCache
 {
 public:
     // 프로세스당 거래일 1회. 읽기 실패는 캐시 미스와 결과가 같으므로 경고만 남긴다.
-    void load_today(const std::string& date_yyyymmdd)
+    void load_today(const std::string& date_yyyymmdd, symbol::SymbolTable& symbols)
     {
         if (loaded_ == date_yyyymmdd)
         {
@@ -92,11 +91,19 @@ public:
             }
 
             std::lock_guard<std::mutex> lock(mutex_);
+            reserve_locked(symbols.capacity());
 
             for (auto iterator = document.begin(); iterator != document.end(); ++iterator)
             {
                 // 12칸은 구버전 파일이다 — 뒤 4칸(저항·거래량 축)은 0으로 두고 그대로 쓴다.
                 if (!iterator.value().is_array() || iterator.value().size() < 12)
+                {
+                    continue;
+                }
+
+                const symbol::SymbolId symbol = symbols.intern(iterator.key()); // 파일의 문자열 티커 — 여기서 id가 된다
+
+                if (symbol == symbol::kNone)
                 {
                     continue;
                 }
@@ -125,7 +132,7 @@ public:
                     daily_lookup.close21   = value[15].get<double>();
                 }
 
-                map_[iterator.key()] = std::move(daily_lookup);
+                by_symbol_[symbol] = std::move(daily_lookup);
                 ++count;
             }
         }
@@ -142,7 +149,7 @@ public:
     }
 
     // 쓰다 만 파일을 다음 기동이 읽지 않도록 임시 파일에 쓰고 바꿔치운다.
-    void save_today(const std::string& date_yyyymmdd) const
+    void save_today(const std::string& date_yyyymmdd, const symbol::SymbolTable& symbols) const
     {
         // [wire] 값 순서: bars, average_5, average_10, average_20, average_60, close, r5, r10, r20, r60, atr_percent, at,
         //  hi250, pivot_high, average_vol20, close21 (뒤 4칸은 나중에 붙었다 — 읽을 때 없어도 된다)
@@ -150,16 +157,16 @@ public:
         {
             std::lock_guard<std::mutex> lock(mutex_);
 
-            for (const auto& entry : map_)
+            for (symbol::SymbolId symbol = 1; symbol < by_symbol_.size(); ++symbol)
             {
-                const DailyLookup& daily_lookup = entry.second;
+                const DailyLookup& daily_lookup = by_symbol_[symbol];
 
                 if (daily_lookup.date_yyyymmdd != date_yyyymmdd)
                 {
                     continue;
                 }
 
-                document[entry.first] = nlohmann::json::array({daily_lookup.bars, daily_lookup.average_5, daily_lookup.average_10, daily_lookup.average_20, daily_lookup.average_60,
+                document[symbols.name(symbol).string()] = nlohmann::json::array({daily_lookup.bars, daily_lookup.average_5, daily_lookup.average_10, daily_lookup.average_20, daily_lookup.average_60,
                                                      daily_lookup.close, daily_lookup.r5, daily_lookup.r10, daily_lookup.r20, daily_lookup.r60,
                                                      daily_lookup.atr_percent, static_cast<long long>(daily_lookup.at),
                                                      daily_lookup.hi250, daily_lookup.pivot_high, daily_lookup.average_vol20, daily_lookup.close21});
@@ -197,24 +204,24 @@ public:
     }
 
     // 오늘치가 있으면 채우고 true. 날짜가 다르면 미스로 본다.
-    bool get(const std::string& ticker, const std::string& date_yyyymmdd, DailyLookup& out) const
+    bool get(symbol::SymbolId symbol, const std::string& date_yyyymmdd, DailyLookup& out) const
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        auto iterator = map_.find(ticker);
 
-        if (iterator == map_.end() || iterator->second.date_yyyymmdd != date_yyyymmdd)
+        if (symbol >= by_symbol_.size() || by_symbol_[symbol].date_yyyymmdd != date_yyyymmdd)
         {
             return false;
         }
 
-        out = iterator->second;   // 복사가 맞다 — 락 밖에서 쓰는 스냅샷이고 재조회가 같은 항목을 덮어쓴다
+        out = by_symbol_[symbol];   // 복사가 맞다 — 락 밖에서 쓰는 스냅샷이고 재조회가 같은 항목을 덮어쓴다
         return true;
     }
 
-    void put(const std::string& ticker, const DailyLookup& daily_lookup)
+    void put(symbol::SymbolId symbol, const DailyLookup& daily_lookup)
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        map_[ticker] = daily_lookup;
+        reserve_locked(static_cast<size_t>(symbol) + 1);
+        by_symbol_[symbol] = daily_lookup;
     }
 
     // 장중 재조회 대상 고르기 — 판정 재료인 현재가는 장중 내내 변하지만 일봉 요약은
@@ -224,42 +231,44 @@ public:
     //  그래서 가장 오래 안 본 순으로 예산만큼만 다시 본다. 재스캔이 반복되면 후보 전체를
     //  순회하게 되고, 한 바퀴에 걸리는 시간은 후보수/예산 × 재스캔주기다.
     //  미조회분은 넣지 않는다 — 어차피 미스라 조회 경로로 간다.
-    std::unordered_set<std::string> stale_targets(const std::vector<std::string>& cand,
-                                                  const std::string& date_yyyymmdd, std::time_t fresh_sec,
-                                                  int budget, std::size_t& considered) const
+    //  반환은 종목 id 인덱스 비트(캐시 표 크기) — 대상이 없으면 빈 벡터.
+    std::vector<bool> stale_targets(const std::vector<symbol::SymbolId>& cand, const std::string& date_yyyymmdd,
+                                    std::time_t fresh_sec, int budget, std::size_t& considered) const
     {
         const std::time_t now_t = std::time(nullptr);
-        // 티커는 cand의 원소를 가리킨다 — 이 함수 안에서만 산다.
-        std::vector<std::pair<std::time_t, const std::string*>> stale;
+        std::vector<std::pair<std::time_t, symbol::SymbolId>> stale;
+        std::vector<bool>                                     out;
         {
             std::lock_guard<std::mutex> lock(mutex_);
 
-            for (const auto& candidate : cand)
+            for (const symbol::SymbolId candidate : cand)
             {
-                auto iterator = map_.find(candidate);
-
-                if (iterator == map_.end() || iterator->second.date_yyyymmdd != date_yyyymmdd)
+                if (candidate >= by_symbol_.size() || by_symbol_[candidate].date_yyyymmdd != date_yyyymmdd)
                 {
                     continue;
                 }
 
-                if (now_t - iterator->second.at < fresh_sec)
+                if (now_t - by_symbol_[candidate].at < fresh_sec)
                 {
                     continue;
                 }
 
-                stale.emplace_back(iterator->second.at, &candidate);
+                stale.emplace_back(by_symbol_[candidate].at, candidate);
+            }
+
+            if (!stale.empty())
+            {
+                out.assign(by_symbol_.size(), false);
             }
         }
 
-        std::ranges::sort(stale, {}, &std::pair<std::time_t, const std::string*>::first);
+        std::ranges::sort(stale, {}, &std::pair<std::time_t, symbol::SymbolId>::first);
         considered = stale.size();
         const std::size_t take = std::min<std::size_t>(stale.size(), static_cast<std::size_t>(budget));
-        std::unordered_set<std::string> out;
 
         for (std::size_t take_index = 0; take_index < take; ++take_index)
         {
-            out.insert(*stale[take_index].second);
+            out[stale[take_index].second] = true;
         }
 
         return out;
@@ -271,9 +280,17 @@ private:
         return Logger::instance().path_for("daily_lookup_" + date_yyyymmdd + ".json").string();
     }
 
-    mutable std::mutex mutex_;
-    std::unordered_map<std::string, DailyLookup> map_;
-    std::string loaded_;
+    void reserve_locked(size_t size)
+    {
+        if (by_symbol_.size() < size)
+        {
+            by_symbol_.resize(size);
+        }
+    }
+
+    mutable std::mutex       mutex_;
+    std::vector<DailyLookup> by_symbol_; // 종목 id 인덱스
+    std::string              loaded_;
 };
 DailyLookupCache g_lookup_cache;
 
@@ -286,58 +303,114 @@ struct MarketQuote
     double      volume  = 0.0;   // 당일 누적 거래량(주). 0=미제공
     std::string name;         // 시세 파일이 준 종목명. 비면 미제공
 };
-using QuoteTable = std::unordered_map<std::string, MarketQuote>;
+// 종목 id 인덱스(종목 테이블 capacity 크기). price>0이 "있음"이다.
+using QuoteTable = std::vector<MarketQuote>;
+
+// 시장 구분 — 파일의 "KOSPI"/"KOSDAQ" 문자열은 읽는 자리에서 한 번 이 값이 된다.
+enum class Market : uint8_t
+{
+    Unlisted = 0, // 사전(market_map)에 없음
+    Unknown,      // 사전에 있으나 코스피·코스닥 보통주가 아님(ETN 등) — 코스닥과 같은 보수 판정
+    Kospi,
+    Kosdaq,
+};
+
+Market market_from_text(std::string_view text)
+{
+    if (text == "KOSPI")
+    {
+        return Market::Kospi;
+    }
+
+    if (text == "KOSDAQ")
+    {
+        return Market::Kosdaq;
+    }
+
+    return Market::Unknown;
+}
 
 // 후보 합집합 — 수집 축들이 공유하는 누적기이자 그대로 재사용 캐시의 몸통이다.
 //  [why D-028] 랭킹·업종 축은 KIS REST 23콜(업종 20콜은 100ms 간격)이라 재스캔을 20초로
 //  당기면 이 축만으로 초당 한도를 먹는다. 반면 정배열·이격·점수를 다시 매기는 데 필요한 건
 //  일봉 캐시와 시세 표뿐이라 REST가 0이다. 그래서 "누가 후보인가"(비싼 축)와
 //  "그 중 누가 좋은가"(싼 축)의 주기를 분리한다.
+//  종목은 id로 든다 — 응답·파일의 문자열 티커는 붓는 자리(take_*)에서 intern한다. [why D-112]
 struct CandidateSet
 {
+    static constexpr uint32_t kNoSlot = UINT32_MAX;
+
     std::string date_yyyymmdd;
     std::time_t at = 0;
-    std::vector<std::string> tickers;                       // 등록 순서 = 일봉 점검 우선순위
-    std::unordered_map<std::string, std::string> names;
-    std::unordered_map<std::string, std::string> market;    // 티커→"KOSPI"/"KOSDAQ"
-    std::unordered_set<std::string> seen;
+    std::vector<symbol::SymbolId> symbols;       // 등록 순서 = 일봉 점검 우선순위
+    std::vector<std::string>      names;         // symbols와 같은 순서
+    std::vector<uint32_t>         slot_of;       // 종목 id → symbols 자리. kNoSlot=미등록(옛 seen)
+    std::vector<Market>           market;        // 종목 id → 시장. Unlisted=사전에 없음
+    std::vector<symbol::SymbolId> market_listed; // 사전에 올라온 종목(전 종목 확장 축의 원천)
     bool have_market_map = false;
     int  etf_drop  = 0;
     int  reit_drop = 0;
 
-    // 중복이면 false. 이름은 로그 라벨과 out_names에 쓴다. name은 sink — 값으로 받아 옮겨 넣는다.
-    bool add(const std::string& ticker, std::string name)
+    explicit CandidateSet(size_t capacity = 0) : slot_of(capacity, kNoSlot), market(capacity, Market::Unlisted) {}
+
+    void reserve_symbol(symbol::SymbolId symbol)
     {
-        if (!seen.insert(ticker).second)
+        if (symbol >= slot_of.size())
+        {
+            slot_of.resize(static_cast<size_t>(symbol) + 1, kNoSlot);
+            market.resize(static_cast<size_t>(symbol) + 1, Market::Unlisted);
+        }
+    }
+
+    // 중복이면 false. 이름은 로그 라벨과 ScanResult.names에 쓴다. name은 sink — 값으로 받아 옮겨 넣는다.
+    bool add(symbol::SymbolId symbol, std::string name)
+    {
+        reserve_symbol(symbol);
+
+        if (slot_of[symbol] != kNoSlot)
         {
             return false;
         }
 
-        tickers.push_back(ticker);
-        names[ticker] = std::move(name);
+        slot_of[symbol] = static_cast<uint32_t>(symbols.size());
+        symbols.push_back(symbol);
+        names.push_back(std::move(name));
         return true;
     }
 
-    // [inv] 반환 뷰는 candidates 수명 안, names에 삽입이 없는 구간에서만 유효하다(재해시가 뷰를 끊는다).
-    std::string_view name_of(const std::string& ticker) const
+    void set_market(symbol::SymbolId symbol, Market value)
     {
-        auto iterator = names.find(ticker);
-        return iterator != names.end() ? std::string_view(iterator->second) : std::string_view{};
+        reserve_symbol(symbol);
+
+        if (market[symbol] == Market::Unlisted)
+        {
+            market_listed.push_back(symbol);
+        }
+
+        market[symbol] = value;
+    }
+
+    // [inv] 반환 뷰는 candidates 수명 안, names에 삽입이 없는 구간에서만 유효하다(재할당이 뷰를 끊는다).
+    std::string_view name_of(symbol::SymbolId symbol) const
+    {
+        if (symbol >= slot_of.size() || slot_of[symbol] == kNoSlot)
+        {
+            return {};
+        }
+
+        return names[slot_of[symbol]];
     }
 
     // market_map이 있는데도 사전에 없는 티커는 코스피·코스닥 보통주가 아니다(ETN 등).
     //  사전이 없는 구 파일에서는 태그 없는 후보를 KOSPI로 간주해 기존 동작을 유지한다.
-    //  [inv] name_of와 같다 — 반환 뷰는 market에 삽입이 없는 구간에서만 유효하다.
-    std::string_view market_of(const std::string& ticker) const
+    Market market_of(symbol::SymbolId symbol) const
     {
-        auto iterator = market.find(ticker);
-
-        if (iterator != market.end() && !iterator->second.empty())
+        if (symbol < market.size() && market[symbol] != Market::Unlisted)
         {
-            return iterator->second;
+            return market[symbol];
         }
 
-        return have_market_map ? std::string_view("UNKNOWN") : std::string_view("KOSPI");
+        return have_market_map ? Market::Unknown : Market::Kospi;
     }
 };
 CandidateSet g_candidate_cache;
@@ -460,9 +533,9 @@ struct MarketGate
     bool closed() const { return !kospi_pass && !kosdaq_pass; }
 
     // 시장 미상은 코스닥과 같은 보수 판정(닫혀 있으면 드롭).
-    bool allows(std::string_view mask_key) const
+    bool allows(Market market) const
     {
-        if (mask_key == "KOSDAQ" || mask_key == "UNKNOWN")
+        if (market == Market::Kosdaq || market == Market::Unknown)
         {
             return kosdaq_pass;
         }
@@ -546,8 +619,10 @@ std::string local_ymd()
 // 전 종목 장중 시세 파일. 네이버 벌크를 묶어오므로 KIS 초당 한도를 쓰지 않고 후보 전체의
 //  현재가를 얻는다. 이게 있어야 정배열·이격을 매 재스캔마다 다시 판정한다.
 //  실패는 경고만 내고 표를 비운 채 돌아간다 — 그러면 랭킹 축 스냅샷가만 쓰게 된다.
-void load_quote_table(const DevScanCfg& config, QuoteTable& quotes)
+void load_quote_table(const DevScanCfg& config, QuoteTable& quotes, symbol::SymbolTable& symbols)
 {
+    quotes.assign(symbols.capacity(), MarketQuote{});
+
     if (config.prices_file.empty())
     {
         return;
@@ -574,7 +649,8 @@ void load_quote_table(const DevScanCfg& config, QuoteTable& quotes)
             return (found != document.end() && found->is_number()) ? found->get<double>() : 0.0;
         };
         const nlohmann::json& pm = jsonx::object_or_empty(parsed_json, "prices");
-        int bad = 0;
+        int bad    = 0;
+        int loaded = 0;
 
         for (auto iterator = pm.begin(); iterator != pm.end(); ++iterator)
         {
@@ -591,8 +667,16 @@ void load_quote_table(const DevScanCfg& config, QuoteTable& quotes)
                 continue;
             }
 
-            MarketQuote& market_quote = quotes[iterator.key()];
+            const symbol::SymbolId symbol = symbols.intern(iterator.key()); // 파일의 문자열 티커 — 여기서 id가 된다
+
+            if (symbol == symbol::kNone)
+            {
+                continue;
+            }
+
+            MarketQuote& market_quote = quotes[symbol];
             market_quote.price  = price;
+            ++loaded;
             market_quote.value = number(iterator.value(), "val");
             market_quote.volume = number(iterator.value(), "vol");
             const auto name_node = iterator.value().find("nm");
@@ -607,7 +691,7 @@ void load_quote_table(const DevScanCfg& config, QuoteTable& quotes)
         const std::time_t timestamp =
             (timestamp_iterator != parsed_json.end() && timestamp_iterator->is_number()) ? static_cast<std::time_t>(timestamp_iterator->get<long long>()) : 0;
         const std::time_t age = std::time(nullptr) - timestamp;
-        LOG_INFO("[Main] 전 종목 시세: " + std::to_string(quotes.size()) +
+        LOG_INFO("[Main] 전 종목 시세: " + std::to_string(loaded) +
                  "종목 (" + std::to_string(static_cast<long long>(age)) + "초 전 갱신)");
 
         if (bad > 0)
@@ -635,8 +719,8 @@ void load_quote_table(const DevScanCfg& config, QuoteTable& quotes)
 }
 
 // 랭킹 응답을 후보 집합에 붓는다. 스냅샷가는 중복분에도 반영한다 — 표의 현재가를 최신으로 둔다.
-void take_ranking(const std::vector<KisClient::RankingStock>& rank, const DevScanCfg& config,
-                  QuoteTable& quotes, CandidateSet& candidates)
+void take_ranking(const std::vector<KisClient::RankingStock>& rank, const DevScanCfg& config, QuoteTable& quotes,
+                  CandidateSet& candidates, symbol::SymbolTable& symbols)
 {
     for (const auto& ranked : rank)
     {
@@ -655,12 +739,19 @@ void take_ranking(const std::vector<KisClient::RankingStock>& rank, const DevSca
             continue;
         }
 
-        if (ranked.price > 0.0)
+        const symbol::SymbolId symbol = symbols.intern(ranked.ticker); // REST 응답의 문자열 티커 — 여기서 id가 된다
+
+        if (symbol == symbol::kNone)
         {
-            quotes[ranked.ticker].price = ranked.price;
+            continue;
         }
 
-        candidates.add(ranked.ticker, ranked.name);
+        if (ranked.price > 0.0)
+        {
+            quotes[symbol].price = ranked.price;
+        }
+
+        candidates.add(symbol, ranked.name);
     }
 }
 
@@ -668,7 +759,7 @@ void take_ranking(const std::vector<KisClient::RankingStock>& rank, const DevSca
 //  후보 집합 맨 앞에 넣어 일봉 조회 우선순위를 준다. 파일이 없으면 조용히 스킵한다(하위호환).
 //  전종목 코드→시장 사전(market_map)을 top-N보다 먼저 적재해, KIS 랭킹축 티커의 시장도
 //  해석되게 한다 — 없으면 kosdaq_enabled 게이트가 그쪽으로 샌다.
-void take_universe_file(const DevScanCfg& config, CandidateSet& candidates)
+void take_universe_file(const DevScanCfg& config, CandidateSet& candidates, symbol::SymbolTable& symbols)
 {
     if (config.universe_file.empty())
     {
@@ -694,13 +785,21 @@ void take_universe_file(const DevScanCfg& config, CandidateSet& candidates)
         {
             for (auto iterator = document["market_map"].begin(); iterator != document["market_map"].end(); ++iterator)
             {
-                if (iterator.value().is_string())
+                // 사전은 코스피·코스닥 보통주 6자리만 — ETN 등 다른 길이는 종목 테이블에 넣지 않는다.
+                if (!iterator.value().is_string() || iterator.key().size() != symbol::kKoreanTickerLength)
                 {
-                    candidates.market[iterator.key()] = iterator.value().get_ref<const std::string&>();
+                    continue;
+                }
+
+                const symbol::SymbolId symbol = symbols.intern(iterator.key());
+
+                if (symbol != symbol::kNone)
+                {
+                    candidates.set_market(symbol, market_from_text(iterator.value().get_ref<const std::string&>()));
                 }
             }
 
-            candidates.have_market_map = !candidates.market.empty();
+            candidates.have_market_map = !candidates.market_listed.empty();
         }
 
         const nlohmann::json& array = jsonx::array_or_empty(document, "universe");
@@ -735,13 +834,20 @@ void take_universe_file(const DevScanCfg& config, CandidateSet& candidates)
                 continue;
             }
 
-            if (!candidates.add(ticker, std::move(name)))
+            const symbol::SymbolId symbol = symbols.intern(ticker); // 파일의 문자열 티커 — 여기서 id가 된다
+
+            if (symbol == symbol::kNone)
+            {
+                continue;
+            }
+
+            if (!candidates.add(symbol, std::move(name)))
             {
                 ++duplicate;
                 continue;
             }
 
-            candidates.market[ticker] = element.value("market", std::string());   // 시장별 risk_off 게이트용
+            candidates.set_market(symbol, market_from_text(element.value("market", std::string())));   // 시장별 risk_off 게이트용
             ++added_file;
         }
 
@@ -759,14 +865,15 @@ void take_universe_file(const DevScanCfg& config, CandidateSet& candidates)
 // 업종 등락률 축 — 다른 축과 data.go.kr 축이 전부 전일 이전 상태를 보는 것과 달리 이 축만
 //  장중을 본다. 등락률 내림차순이라 상위 N행이 곧 지금 강한 종목이고, 업종을 순회하므로
 //  한 섹터가 집합을 독식하지 않는다. 정배열·과확장 판정은 뒤 프리필터가 그대로 한다.
-void take_sector_ranking(KisClient& kis, const DevScanCfg& config, QuoteTable& quotes, CandidateSet& candidates)
+void take_sector_ranking(KisClient& kis, const DevScanCfg& config, QuoteTable& quotes, CandidateSet& candidates,
+                         symbol::SymbolTable& symbols)
 {
     if (config.sector_codes.empty())
     {
         return;
     }
 
-    const std::size_t before = candidates.tickers.size();
+    const std::size_t before = candidates.symbols.size();
     int sec_ok = 0, sec_weak = 0;
 
     for (const auto& sector_code : config.sector_codes)
@@ -794,82 +901,78 @@ void take_sector_ranking(KisClient& kis, const DevScanCfg& config, QuoteTable& q
 
             return false;
         });
-        take_ranking(rows, config, quotes, candidates);
+        take_ranking(rows, config, quotes, candidates, symbols);
     }
 
     LOG_INFO("[Main] DEVSCALE 업종 등락률 축: " + std::to_string(sec_ok) + "/" +
              std::to_string(config.sector_codes.size()) + "업종 응답, 신규 " +
-             std::to_string(candidates.tickers.size() - before) + "종목 union (약세컷 " +
+             std::to_string(candidates.symbols.size() - before) + "종목 union (약세컷 " +
              std::to_string(sec_weak) + ")");
 }
 
 // 전 종목 확장 — market_map(코스피+코스닥 전체)을 후보로 붓는다. 종목명은 시세 표에서
 //  가져와 ETF·리츠 필터를 그대로 적용한다(이름이 없으면 버린다).
-//  티커를 정렬해 순회한다. 해시맵 순서로 돌면 같은 입력에서도 후보 순서가 실행마다 달라지고,
-//  align_lookup_max로 잘리는 지점이 함께 바뀌어 유니버스가 재현되지 않는다.
-void take_full_market(const DevScanCfg& config, const QuoteTable& quotes, CandidateSet& candidates)
+//  티커 문자열 순으로 순회한다. 종목 id는 intern 순서라 실행마다 달라지고, 그 순서로 돌면 같은 입력에서도
+//  align_lookup_max로 잘리는 지점이 함께 바뀌어 유니버스가 재현되지 않는다. Ticker는 고정 길이라 비교가 싸다.
+void take_full_market(const DevScanCfg& config, const QuoteTable& quotes, CandidateSet& candidates,
+                      const symbol::SymbolTable& symbols)
 {
     if (!config.full_market || !candidates.have_market_map)
     {
         return;
     }
 
-    const std::size_t before_fm = candidates.tickers.size();
+    const std::size_t before_fm = candidates.symbols.size();
     int no_name = 0;
-    // market의 키를 가리키는 포인터로 정렬한다 — 아래 add()는 tickers·names·seen만 건드려 market의 키가 산다.
-    std::vector<const std::string*> tickers;
-    tickers.reserve(candidates.market.size());
+    std::vector<std::pair<symbol::Ticker, symbol::SymbolId>> listed;
+    listed.reserve(candidates.market_listed.size());
 
-    for (const auto& entry : candidates.market)
+    for (const symbol::SymbolId symbol : candidates.market_listed)
     {
-        if (entry.first.size() == symbol::kKoreanTickerLength)
-        {
-            tickers.push_back(&entry.first);
-        }
+        listed.emplace_back(symbols.name(symbol), symbol);
     }
 
-    std::sort(tickers.begin(), tickers.end(),
-              [](const std::string* ticker_a, const std::string* ticker_b) { return *ticker_a < *ticker_b; });
+    std::sort(listed.begin(), listed.end(),
+              [](const auto& entry_a, const auto& entry_b) { return entry_a.first.view() < entry_b.first.view(); });
 
-    for (const std::string* ticker_pointer : tickers)
+    for (const auto& [ticker, symbol] : listed)
     {
-        const std::string& ticker = *ticker_pointer;
-        auto quote_iterator = quotes.find(ticker);
+        const MarketQuote& quote = quotes[symbol];
 
-        if (quote_iterator == quotes.end() || quote_iterator->second.name.empty())
+        if (quote.price <= 0.0 || quote.name.empty())
         {
             ++no_name;
             continue;
         }
 
-        if (excluded_by_name(quote_iterator->second.name, candidates.etf_drop, candidates.reit_drop))
+        if (excluded_by_name(quote.name, candidates.etf_drop, candidates.reit_drop))
         {
             continue;
         }
 
-        if (quote_iterator->second.price < config.min_price)
+        if (quote.price < config.min_price)
         {
             continue;
         }
 
-        if (config.max_price > 0.0 && quote_iterator->second.price > config.max_price)
+        if (config.max_price > 0.0 && quote.price > config.max_price)
         {
             continue;
         }
 
-        candidates.add(ticker, quote_iterator->second.name);
+        candidates.add(symbol, quote.name);
     }
 
-    LOG_INFO("[Main] 전 종목 확장: 신규 " + std::to_string(candidates.tickers.size() - before_fm) +
+    LOG_INFO("[Main] 전 종목 확장: 신규 " + std::to_string(candidates.symbols.size() - before_fm) +
              "종목 union (시세없음 " + std::to_string(no_name) + ", 총 후보 " +
-             std::to_string(candidates.tickers.size()) + ")");
+             std::to_string(candidates.symbols.size()) + ")");
 }
 
 // 후보 합집합을 채운다. union_refresh_sec 안에 다시 불리면 수집을 통째로 건너뛰고
 //  지난 집합을 그대로 쓴다 — 이 단계만 KIS REST 23콜이고 이후 재판정은 0콜이다(D-028).
 //  0이면 매 호출 새로 모은다(기존 동작).
 void collect_candidates(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd,
-                        QuoteTable& quotes, CandidateSet& candidates)
+                        QuoteTable& quotes, CandidateSet& candidates, symbol::SymbolTable& symbols)
 {
     if (config.union_refresh_sec > 0)
     {
@@ -877,7 +980,7 @@ void collect_candidates(KisClient& kis, const DevScanCfg& config, const std::str
         {
             std::lock_guard<std::mutex> lock(g_candidate_mutex);
 
-            if (g_candidate_cache.date_yyyymmdd == date_yyyymmdd && !g_candidate_cache.tickers.empty() &&
+            if (g_candidate_cache.date_yyyymmdd == date_yyyymmdd && !g_candidate_cache.symbols.empty() &&
                 std::time(nullptr) - g_candidate_cache.at < config.union_refresh_sec)
             {
                 candidates = g_candidate_cache;   // 복사가 맞다 — 캐시는 락 아래 남고 호출자는 락 밖에서 자기 사본을 쓴다
@@ -889,7 +992,7 @@ void collect_candidates(KisClient& kis, const DevScanCfg& config, const std::str
         {
             // 현재가·거래대금은 시세 표에서 방금 읽은 값을 쓴다. 랭킹 축이 실어오던
             //  스냅샷가는 재사용분에 없지만, 네이버 쪽이 더 최신이라 판정에는 그편이 낫다.
-            LOG_INFO("[Main] DEVSCALE 후보 합집합 재사용: " + std::to_string(candidates.tickers.size()) +
+            LOG_INFO("[Main] DEVSCALE 후보 합집합 재사용: " + std::to_string(candidates.symbols.size()) +
                      "종목 (" + std::to_string(age) +
                      "초 전 수집, 갱신주기 " + std::to_string(config.union_refresh_sec) + "초)");
             return;
@@ -897,14 +1000,14 @@ void collect_candidates(KisClient& kis, const DevScanCfg& config, const std::str
     }
 
     // 정배열 프리필터로 상당수가 탈락하므로 여기선 max_register로 자르지 않고 넓게 모은다.
-    take_universe_file(config, candidates);
-    take_ranking(kis.fetch_kr_ranking(config.scan_top_n, "J"), config, quotes, candidates);            // 시총 상위
-    take_ranking(kis.fetch_value_ranking(config.value_top_n, "J", "3"), config, quotes, candidates);   // 거래대금 상위
+    take_universe_file(config, candidates, symbols);
+    take_ranking(kis.fetch_kr_ranking(config.scan_top_n, "J"), config, quotes, candidates, symbols);            // 시총 상위
+    take_ranking(kis.fetch_value_ranking(config.value_top_n, "J", "3"), config, quotes, candidates, symbols);   // 거래대금 상위
     // 랭킹 TR은 축마다 상위 30행 고정(연속조회 불가)이라 정렬축을 하나 더 union해 집합을 넓힌다.
     //  거래증가율(1)은 대형주에 편중된 시총·거래대금축과 겹침이 적어(중소형 모멘텀) 정배열 후보를 늘린다.
-    take_ranking(kis.fetch_value_ranking(config.value_top_n, "J", "1"), config, quotes, candidates);   // 거래증가율 상위
-    take_sector_ranking(kis, config, quotes, candidates);
-    take_full_market(config, quotes, candidates);
+    take_ranking(kis.fetch_value_ranking(config.value_top_n, "J", "1"), config, quotes, candidates, symbols);   // 거래증가율 상위
+    take_sector_ranking(kis, config, quotes, candidates, symbols);
+    take_full_market(config, quotes, candidates, symbols);
 
     if (config.union_refresh_sec > 0)
     {
@@ -1006,8 +1109,8 @@ DailyLookup fetch_daily_lookup(KisClient& kis, const DevScanCfg& config, const s
 //   정규화하고 ±2σ에서 자른 뒤 가중합한다(스케일-프리 + 이상치 1종목 지배 차단).
 struct Features
 {
-    std::string ticker;
-    double trend, pull, volume, turnover, score;
+    symbol::SymbolId symbol;
+    double           trend, pull, volume, turnover, score;
 };
 
 struct LookupStats
@@ -1026,30 +1129,32 @@ struct LookupStats
 //  캡하되 캐시 히트는 예산을 쓰지 않는다. 정배열 규칙은 MaAlign.h의 quant::moving_average::aligned 하나를 전략과 같이 쓴다.
 std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd,
                                    const CandidateSet& candidates, const QuoteTable& quotes,
-                                   const MarketGate& gate, LookupStats& statistics)
+                                   const MarketGate& gate, LookupStats& statistics, symbol::SymbolTable& symbols)
 {
     std::vector<Features> passed;
-    std::unordered_set<std::string> refresh_set;
+    std::vector<bool>     refresh_set; // 종목 id 인덱스, 비면 대상 없음
+    std::size_t           refresh_count = 0;
 
     if (config.align_refresh_max > 0)
     {
         std::size_t stale_n = 0;
-        refresh_set = g_lookup_cache.stale_targets(candidates.tickers, date_yyyymmdd,
+        refresh_set = g_lookup_cache.stale_targets(candidates.symbols, date_yyyymmdd,
                                                   static_cast<std::time_t>(config.align_refresh_sec),
                                                   config.align_refresh_max, stale_n);
 
         if (stale_n > 0)
         {
+            refresh_count = static_cast<std::size_t>(std::count(refresh_set.begin(), refresh_set.end(), true));
             LOG_INFO("[Main] DEVSCALE 일봉 재조회: 대상 " + std::to_string(stale_n) +
-                     "종목 중 " + std::to_string(refresh_set.size()) + "건 (예산 " +
+                     "종목 중 " + std::to_string(refresh_count) + "건 (예산 " +
                      std::to_string(config.align_refresh_max) + ", 재조회 기준 " +
                      std::to_string(config.align_refresh_sec) + "초)");
         }
     }
 
-    for (const auto& ticker : candidates.tickers)
+    for (const symbol::SymbolId symbol : candidates.symbols)
     {
-        if (!gate.allows(candidates.market_of(ticker)))
+        if (!gate.allows(candidates.market_of(symbol)))
         {
             continue;   // 시장 risk_off 게이트. 일봉 조회 비용도 여기서 아낀다
         }
@@ -1058,9 +1163,7 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
         //  먹는다. 거래대금을 모르는 후보는 통과시킨다(기존 동작 유지).
         if (config.min_turnover > 0.0)
         {
-            auto quote_found = quotes.find(ticker);
-
-            if (quote_found != quotes.end() && quote_found->second.value > 0.0 && quote_found->second.value < config.min_turnover)
+            if (quotes[symbol].value > 0.0 && quotes[symbol].value < config.min_turnover)
             {
                 ++statistics.illiquid;
                 continue;
@@ -1074,8 +1177,8 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
         }
 
         DailyLookup daily_lookup;
-        bool cached = g_lookup_cache.get(ticker, date_yyyymmdd, daily_lookup);
-        const bool refresh_me = refresh_set.find(ticker) != refresh_set.end();   // 대상은 전부 오늘치가 있다
+        bool       cached     = g_lookup_cache.get(symbol, date_yyyymmdd, daily_lookup);
+        const bool refresh_me = symbol < refresh_set.size() && refresh_set[symbol];   // 대상은 전부 오늘치가 있다
 
         if (!cached || refresh_me)
         {
@@ -1109,13 +1212,13 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
 
                 const auto fetch_start = std::chrono::steady_clock::now();
                 const std::uint64_t wait_before_ns = KisClient::rate_wait_ns_this_thread();
-                daily_lookup = fetch_daily_lookup(kis, config, ticker, date_yyyymmdd);
+                daily_lookup = fetch_daily_lookup(kis, config, symbols.name(symbol).string(), date_yyyymmdd); // REST는 문자열
                 statistics.rest_ms += std::chrono::duration_cast<std::chrono::milliseconds>(
                                      std::chrono::steady_clock::now() - fetch_start).count();
                 statistics.wait_ms += static_cast<long long>(
                     (KisClient::rate_wait_ns_this_thread() - wait_before_ns) / 1000000ULL);
                 ++statistics.fetched;
-                g_lookup_cache.put(ticker, daily_lookup);
+                g_lookup_cache.put(symbol, daily_lookup);
             }
         }
         else
@@ -1134,20 +1237,13 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
         // 오늘 가격을 최신 봉으로 접어 넣어 SMA를 다시 계산한다. 일봉 캐시는 include_today=false라
         //  전일치에서 멈춰 있고, 그대로 쓰면 정배열 판정이 하루 종일 얼어붙어 재스캔이 같은 종목만
         //  돌려준다. 시세 표의 현재가를 쓰므로 REST 추가 없이 매 재스캔마다 다시 판정한다.
-        double price = daily_lookup.close;
+        double price    = daily_lookup.close;
         double turnover = 0.0;
+
+        if (quotes[symbol].price > 0.0)
         {
-            auto quote_entry = quotes.find(ticker);
-
-            if (quote_entry != quotes.end())
-            {
-                if (quote_entry->second.price > 0.0)
-                {
-                    price = quote_entry->second.price;
-                }
-
-                turnover = quote_entry->second.value;
-            }
+            price    = quotes[symbol].price;
+            turnover = quotes[symbol].value;
         }
 
         quant::moving_average::SimpleMovingAverages previous;
@@ -1179,7 +1275,7 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
             continue;
         }
 
-        passed.push_back({ticker, trend, pull, daily_lookup.atr_percent, turnover, 0.0});
+        passed.push_back({symbol, trend, pull, daily_lookup.atr_percent, turnover, 0.0});
         ++statistics.aligned;
     }
 
@@ -1298,10 +1394,7 @@ void score_cross_section(const DevScanCfg& config, std::vector<Features>& passed
 // 3단: 점수 내림차순으로 등록한다. score_top_n>0이면 상위 N만 남긴다.
 //  절단이 없어도 정렬은 한다 — 등록 순서가 그대로 진입 우선순위라, 안 정렬하면
 //  유니버스 파일 순서(시총·거래대금)가 우선순위를 먹는다.
-std::vector<std::string> rank_and_truncate(const DevScanCfg& config, std::vector<Features>& passed,
-                                           const CandidateSet& candidates,
-                                           std::unordered_map<std::string, std::string>* out_names,
-                                           std::unordered_map<std::string, double>* out_scores)
+ScanResult rank_and_truncate(const DevScanCfg& config, std::vector<Features>& passed, const CandidateSet& candidates)
 {
     std::ranges::sort(passed, std::ranges::greater{}, &Features::score);
     std::size_t take_n = passed.size();
@@ -1318,24 +1411,17 @@ std::vector<std::string> rank_and_truncate(const DevScanCfg& config, std::vector
         take_n = static_cast<std::size_t>(config.max_register);
     }
 
-    std::vector<std::string> out;
-    out.reserve(take_n);
+    ScanResult out;
+    out.symbols.reserve(take_n);
+    out.names.reserve(take_n);
+    out.scores.reserve(take_n);
 
     for (std::size_t take_index = 0; take_index < take_n; ++take_index)
     {
-        Features& feature = passed[take_index];
-
-        if (out_names)
-        {
-            (*out_names)[feature.ticker] = candidates.name_of(feature.ticker);
-        }
-
-        if (out_scores)
-        {
-            (*out_scores)[feature.ticker] = feature.score;
-        }
-
-        out.push_back(std::move(feature.ticker));   // passed는 여기서 끝난다 — 마지막에 옮긴다
+        const Features& feature = passed[take_index];
+        out.symbols.push_back(feature.symbol);
+        out.names.emplace_back(candidates.name_of(feature.symbol));
+        out.scores.push_back({feature.symbol, feature.score});
     }
 
     if (config.score_top_n > 0)
@@ -1350,31 +1436,25 @@ std::vector<std::string> rank_and_truncate(const DevScanCfg& config, std::vector
     return out;
 }
 
-// 프리필터 risk_off — 기존 동작(후보 앞에서부터 max_register개).
-std::vector<std::string> take_first_n(const DevScanCfg& config, const CandidateSet& candidates,
-                                      const MarketGate& gate,
-                                      std::unordered_map<std::string, std::string>* out_names)
+// 프리필터 risk_off — 기존 동작(후보 앞에서부터 max_register개). 점수는 없다.
+ScanResult take_first_n(const DevScanCfg& config, const CandidateSet& candidates, const MarketGate& gate)
 {
-    std::vector<std::string> out;
+    ScanResult out;
 
-    for (const auto& ticker : candidates.tickers)
+    for (const symbol::SymbolId symbol : candidates.symbols)
     {
-        if (!gate.allows(candidates.market_of(ticker)))
+        if (!gate.allows(candidates.market_of(symbol)))
         {
             continue;
         }
 
-        if (static_cast<int>(out.size()) >= config.max_register)
+        if (static_cast<int>(out.symbols.size()) >= config.max_register)
         {
             break;
         }
 
-        out.push_back(ticker);
-
-        if (out_names)
-        {
-            (*out_names)[ticker] = candidates.name_of(ticker);
-        }
+        out.symbols.push_back(symbol);
+        out.names.emplace_back(candidates.name_of(symbol));
     }
 
     return out;
@@ -1484,9 +1564,7 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& config
 // DeviationScale 유니버스 선정. 단계는 넷이고 비용이 다르다 — 후보 합집합 수집만 KIS REST를
 //  쓰고(D-028로 주기 분리), 정배열·이격·점수 재판정은 일봉 캐시와 시세 표만 본다.
 //  스캔 스레드에서만 부른다. 실패는 예외 대신 빈 목록으로 돌려준다.
-std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
-                                       std::unordered_map<std::string, std::string>* out_mapNames,
-                                       std::unordered_map<std::string, double>* out_mapScores)
+ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::SymbolTable& symbols)
 {
     // 계측(문항 2): 단계별 경과를 요약 로그에 붙인다 — "일봉조회=0인데 40초"가 어느 단계인지 가르기 위해.
     using scan_clock = std::chrono::steady_clock;
@@ -1495,10 +1573,10 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
     { return std::chrono::duration_cast<std::chrono::milliseconds>(scan_clock::now() - from).count(); };
 
     const std::string date_yyyymmdd = local_ymd();   // 일봉 캐시·후보 집합 캐시의 거래일 키
-    g_lookup_cache.load_today(date_yyyymmdd);         // 장중 재기동 시 일봉 재조회를 막는다
+    g_lookup_cache.load_today(date_yyyymmdd, symbols); // 장중 재기동 시 일봉 재조회를 막는다
 
     QuoteTable quotes;
-    load_quote_table(config, quotes);
+    load_quote_table(config, quotes, symbols);
 
     const MarketGate gate = build_market_gate(kis, config);
     const long long gate_ms = ms_since(scan_start);   // 시세 파일 적재 + 지수 조회(REST)
@@ -1512,23 +1590,23 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
         return {};
     }
 
-    CandidateSet candidates;
-    const auto collect_start = scan_clock::now();
-    collect_candidates(kis, config, date_yyyymmdd, quotes, candidates);
+    CandidateSet candidates(symbols.capacity());
+    const auto   collect_start = scan_clock::now();
+    collect_candidates(kis, config, date_yyyymmdd, quotes, candidates, symbols);
     const long long collect_ms = ms_since(collect_start);   // KIS 랭킹 REST + 파일 union
 
     if (!config.require_aligned)
     {
-        return take_first_n(config, candidates, gate, out_mapNames);
+        return take_first_n(config, candidates, gate);
     }
 
     LookupStats statistics;
     const auto lookup_start = scan_clock::now();
-    std::vector<Features> passed = lookup_and_filter(kis, config, date_yyyymmdd, candidates, quotes, gate, statistics);
+    std::vector<Features> passed = lookup_and_filter(kis, config, date_yyyymmdd, candidates, quotes, gate, statistics, symbols);
     const long long lookup_ms = ms_since(lookup_start);
     const auto score_start = scan_clock::now();
     score_cross_section(config, passed);
-    std::vector<std::string> out = rank_and_truncate(config, passed, candidates, out_mapNames, out_mapScores);
+    ScanResult out = rank_and_truncate(config, passed, candidates);
     const long long score_ms = ms_since(score_start);
 
     // 새로 받은 일봉이 있을 때만 파일을 갱신한다. 히트만 났으면 내용이 같다.
@@ -1536,12 +1614,12 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
 
     if (statistics.fetched > 0)
     {
-        g_lookup_cache.save_today(date_yyyymmdd);
+        g_lookup_cache.save_today(date_yyyymmdd, symbols);
     }
 
     const long long save_ms = ms_since(save_start);
 
-    LOG_INFO("[Main] DEVSCALE 정배열 프리필터: 후보=" + std::to_string(candidates.tickers.size()) +
+    LOG_INFO("[Main] DEVSCALE 정배열 프리필터: 후보=" + std::to_string(candidates.symbols.size()) +
              " ETF드롭=" + std::to_string(candidates.etf_drop) +
              " 리츠드롭=" + std::to_string(candidates.reit_drop) +
              " 검사=" + std::to_string(statistics.looked_up) +
@@ -1554,7 +1632,7 @@ std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
              " 과확장컷=" + std::to_string(statistics.overext) +
              " 거래대금미달=" + std::to_string(statistics.illiquid) +
              " 예산소진=" + std::to_string(statistics.budget_skipped) +
-             " 등록=" + std::to_string(out.size()));
+             " 등록=" + std::to_string(out.symbols.size()));
     // 단계별 경과 — 검사는 REST 시간과 버킷 대기를 따로 보여 "REST가 아니라면 어디서 새는지" 가른다.
     LOG_INFO("[Main] DEVSCALE 스캔 계측: 전체=" + std::to_string(ms_since(scan_start)) +
              "ms 게이트=" + std::to_string(gate_ms) + "ms 수집=" + std::to_string(collect_ms) +

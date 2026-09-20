@@ -46,7 +46,7 @@ struct StubOrderExecutor : IOrderExecutor
     int         fail_next = 0;
     std::string error_code;
 
-    explicit StubOrderExecutor(bool flag, std::string output = "A000000042")
+    explicit StubOrderExecutor(bool flag, std::string output = "0000000042")
         : succeed(flag), kis_order_no(std::move(output))
     {
     }
@@ -78,7 +78,7 @@ struct StubOrderExecutor : IOrderExecutor
                           int, double) override
     {
         ++revise_calls;
-        return revise_ok ? OrderAck{"R000000001", std::string(), std::string()} : OrderAck::fail("E_TEST");
+        return revise_ok ? OrderAck{"0000000001", std::string(), std::string()} : OrderAck::fail("E_TEST");
     }
 };
 
@@ -191,13 +191,13 @@ void test_gate_rejected()
 void test_kis_accepted()
 {
     OrderGate         gate(relaxed_config());
-    StubOrderExecutor stub(true, "K000012345");
+    StubOrderExecutor stub(true, "0000012345");
     OrderRouter       router(gate, stub);
 
     auto managed_order = router.submit(make_signal("005930", OrderSide::BUY, 1));
 
     assert(managed_order.status == OrderStatus::ACCEPTED);
-    assert(managed_order.kis_order_no == "K000012345");
+    assert(managed_order.kis_order_no == "0000012345");
     assert(stub.call_count == 1);
 
     auto statistics = router.statistics();
@@ -285,14 +285,14 @@ void test_order_id_sequence()
 void test_duplicate_fill_ignored()
 {
     OrderGate         gate(relaxed_config());
-    StubOrderExecutor stub(true, "K000077");
+    StubOrderExecutor stub(true, "0000000077");
     OrderRouter       router(gate, stub);
 
     (void)router.submit(make_signal("005930", OrderSide::BUY, 10)); // ACCEPTED, ODNO=K000077
 
     // 부분체결 5주 통보
     FillNotification fill_notification;
-    fill_notification.kis_order_no         = "K000077";
+    fill_notification.kis_order_no         = "0000000077";
     fill_notification.ticker       = "005930";
     fill_notification.side         = OrderSide::BUY;
     fill_notification.filled_quantity   = 5;
@@ -329,12 +329,12 @@ void test_duplicate_fill_ignored()
 void test_unmapped_fill_applied()
 {
     OrderGate         gate(relaxed_config());
-    StubOrderExecutor stub(true, "K000555");
+    StubOrderExecutor stub(true, "0000000555");
     OrderRouter       router(gate, stub);
 
     // 이 라우터가 낸 적 없는 ODNO의 체결통보
     FillNotification fill_notification;
-    fill_notification.kis_order_no = "PREV-SESSION"; fill_notification.ticker = "047050"; fill_notification.side = OrderSide::BUY;
+    fill_notification.kis_order_no = "0000009001"; fill_notification.ticker = "047050"; fill_notification.side = OrderSide::BUY;
     fill_notification.filled_quantity = 91; fill_notification.filled_price = 54700.0; fill_notification.fill_time = "110707";
     router.on_fill(fill_notification);
 
@@ -349,11 +349,11 @@ void test_unmapped_fill_applied()
 void test_unmapped_fill_duplicate_ignored()
 {
     OrderGate         gate(relaxed_config());
-    StubOrderExecutor stub(true, "K000556");
+    StubOrderExecutor stub(true, "0000000556");
     OrderRouter       router(gate, stub);
 
     FillNotification fill_notification;
-    fill_notification.kis_order_no = "PREV-SESSION"; fill_notification.ticker = "047050"; fill_notification.side = OrderSide::BUY;
+    fill_notification.kis_order_no = "0000009001"; fill_notification.ticker = "047050"; fill_notification.side = OrderSide::BUY;
     fill_notification.filled_quantity = 91; fill_notification.filled_price = 54700.0; fill_notification.fill_time = "110707";
     router.on_fill(fill_notification);
     router.on_fill(fill_notification);                    // WS 재구독 재전송
@@ -366,7 +366,7 @@ void test_unmapped_fill_duplicate_ignored()
 
     // 평단 미상 미연결 SELL — 실현이익을 만들지 않는다(C-1)
     FillNotification unlinked_sell_fill;
-    unlinked_sell_fill.kis_order_no = "PREV-SELL"; unlinked_sell_fill.ticker = "316140"; unlinked_sell_fill.side = OrderSide::SELL;
+    unlinked_sell_fill.kis_order_no = "0000009002"; unlinked_sell_fill.ticker = "316140"; unlinked_sell_fill.side = OrderSide::SELL;
     unlinked_sell_fill.filled_quantity = 75; unlinked_sell_fill.filled_price = 34050.0; unlinked_sell_fill.fill_time = "093000";
     router.on_fill(unlinked_sell_fill);
 
@@ -384,7 +384,7 @@ void test_unmapped_fill_duplicate_ignored()
 void test_cross_day_fill_not_deduped()
 {
     OrderGate         gate(relaxed_config());
-    StubOrderExecutor stub(true, "K000077");
+    StubOrderExecutor stub(true, "0000000077");
     OrderRouter       router(gate, stub);
     (void)router.submit(make_signal("005930", OrderSide::BUY, 10));
 
@@ -395,7 +395,7 @@ void test_cross_day_fill_not_deduped()
     };
 
     FillNotification fill_notification;
-    fill_notification.kis_order_no = "K000077"; fill_notification.ticker = "005930"; fill_notification.side = OrderSide::BUY;
+    fill_notification.kis_order_no = "0000000077"; fill_notification.ticker = "005930"; fill_notification.side = OrderSide::BUY;
     fill_notification.filled_quantity = 5; fill_notification.filled_price = 75000.0; fill_notification.fill_time = "100000";
 
     fill_notification.timestamp = make_timestamp(2024, 1, 10);   // 거래일 1
@@ -414,11 +414,12 @@ void test_cross_day_fill_not_deduped()
 void test_cancel_releases_reserved()
 {
     OrderGate         gate(relaxed_config());
-    StubOrderExecutor stub(true, "K000111");
+    StubOrderExecutor stub(true, "0000000111");
     OrderRouter       router(gate, stub);
 
     OrderSignal buy = make_signal("005930", OrderSide::BUY, 10);
-    buy.client_order_id  = "MM:B:1";
+    buy.client_order_id     = "MM:B:1";
+    buy.client_order_number = 1;
     auto managed_order = router.submit(buy);
     assert(managed_order.status == OrderStatus::ACCEPTED);
     assert(managed_order.krx_forwarding_org_no == "ORG000001");       // submit_order_ack가 조직번호 캡처
@@ -428,7 +429,8 @@ void test_cancel_releases_reserved()
     cancel.ticker          = "005930";
     cancel.strategy_id     = "MM";
     cancel.action          = OrderAction::CANCEL;
-    cancel.original_client_order_id = "MM:B:1";
+    cancel.original_client_order_id     = "MM:B:1";
+    cancel.original_client_order_number = 1;
     auto cancel_acknowledgement = router.submit(cancel);
 
     assert(cancel_acknowledgement.status == OrderStatus::CANCELLED);
@@ -442,13 +444,14 @@ void test_cancel_releases_reserved()
 void test_cancel_unknown_order_id()
 {
     OrderGate         gate(relaxed_config());
-    StubOrderExecutor stub(true, "K000222");
+    StubOrderExecutor stub(true, "0000000222");
     OrderRouter       router(gate, stub);
 
     OrderSignal cancel;
     cancel.ticker          = "005930";
     cancel.action          = OrderAction::CANCEL;
-    cancel.original_client_order_id = "NOPE";
+    cancel.original_client_order_id     = "NOPE";
+    cancel.original_client_order_number = 999; // 이력에 없는 번호
     auto cancel_acknowledgement = router.submit(cancel);
 
     assert(cancel_acknowledgement.status == OrderStatus::CANCELLED); // 거부가 아니라 끝난 상태 — 거부 통계에 안 들어간다
@@ -461,16 +464,17 @@ void test_cancel_unknown_order_id()
 void test_partial_fill_then_cancel()
 {
     OrderGate         gate(relaxed_config());
-    StubOrderExecutor stub(true, "K000333");
+    StubOrderExecutor stub(true, "0000000333");
     OrderRouter       router(gate, stub);
 
     OrderSignal buy = make_signal("005930", OrderSide::BUY, 10);
-    buy.client_order_id  = "MM:B:1";
+    buy.client_order_id     = "MM:B:1";
+    buy.client_order_number = 1;
     (void)router.submit(buy);
     assert(gate.reserved("005930") == 10);
 
     FillNotification fill_notification;
-    fill_notification.kis_order_no = "K000333"; fill_notification.ticker = "005930"; fill_notification.side = OrderSide::BUY;
+    fill_notification.kis_order_no = "0000000333"; fill_notification.ticker = "005930"; fill_notification.side = OrderSide::BUY;
     fill_notification.filled_quantity = 4; fill_notification.filled_price = 75000.0; fill_notification.fill_time = "100000";
     router.on_fill(fill_notification);
     assert(gate.reserved("005930") == 6);   // 10 - 4
@@ -479,7 +483,8 @@ void test_partial_fill_then_cancel()
     OrderSignal cancel;
     cancel.ticker          = "005930";
     cancel.action          = OrderAction::CANCEL;
-    cancel.original_client_order_id = "MM:B:1";
+    cancel.original_client_order_id     = "MM:B:1";
+    cancel.original_client_order_number = 1;
     auto cancel_acknowledgement = router.submit(cancel);
 
     assert(cancel_acknowledgement.status == OrderStatus::CANCELLED);
@@ -493,15 +498,16 @@ void test_partial_fill_then_cancel()
 void test_cancel_after_full_fill_selfheal()
 {
     OrderGate         gate(relaxed_config());
-    StubOrderExecutor stub(true, "K000444");
+    StubOrderExecutor stub(true, "0000000444");
     OrderRouter       router(gate, stub);
 
     OrderSignal buy = make_signal("005930", OrderSide::BUY, 10);
-    buy.client_order_id  = "MM:B:1";
+    buy.client_order_id     = "MM:B:1";
+    buy.client_order_number = 1;
     (void)router.submit(buy);
 
     FillNotification fill_notification;
-    fill_notification.kis_order_no = "K000444"; fill_notification.ticker = "005930"; fill_notification.side = OrderSide::BUY;
+    fill_notification.kis_order_no = "0000000444"; fill_notification.ticker = "005930"; fill_notification.side = OrderSide::BUY;
     fill_notification.filled_quantity = 10; fill_notification.filled_price = 75000.0; fill_notification.fill_time = "100000";
     router.on_fill(fill_notification);
     assert(gate.reserved("005930") == 0);
@@ -510,7 +516,8 @@ void test_cancel_after_full_fill_selfheal()
     OrderSignal cancel;
     cancel.ticker          = "005930";
     cancel.action          = OrderAction::CANCEL;
-    cancel.original_client_order_id = "MM:B:1";
+    cancel.original_client_order_id     = "MM:B:1";
+    cancel.original_client_order_number = 1;
     auto cancel_acknowledgement = router.submit(cancel);
 
     assert(cancel_acknowledgement.status == OrderStatus::CANCELLED); // 이미 FILLED → 취소 대상 없음(거부가 아니라 끝난 상태)
@@ -525,11 +532,12 @@ void test_cancel_after_full_fill_selfheal()
 void test_replace_reserves_new_quantity()
 {
     OrderGate         gate(relaxed_config());
-    StubOrderExecutor stub(true, "K000555");
+    StubOrderExecutor stub(true, "0000000555");
     OrderRouter       router(gate, stub);
 
     OrderSignal buy = make_signal("005930", OrderSide::BUY, 10);
-    buy.client_order_id  = "MM:B:1";
+    buy.client_order_id     = "MM:B:1";
+    buy.client_order_number = 1;
     (void)router.submit(buy);
     assert(gate.reserved("005930") == 10);
 
@@ -540,12 +548,14 @@ void test_replace_reserves_new_quantity()
     rep.quantity        = 8;
     rep.price           = 74000.0;
     rep.action          = OrderAction::REPLACE;
-    rep.original_client_order_id = "MM:B:1";
-    rep.client_order_id      = "MM:B:2";
+    rep.original_client_order_id     = "MM:B:1";
+    rep.original_client_order_number = 1;
+    rep.client_order_id              = "MM:B:2";
+    rep.client_order_number          = 2;
     auto rm = router.submit(rep);
 
     assert(rm.status == OrderStatus::ACCEPTED);
-    assert(rm.kis_order_no == "R000000001");
+    assert(rm.kis_order_no == "0000000001");
     assert(stub.revise_calls == 1);
     assert(gate.reserved("005930") == 8);   // 10 해제 후 8 재선점
     PASS("replace_reserves_new_qty");
@@ -564,7 +574,7 @@ void test_reason_journal_restart_recovery()
     // 1차 세션 — 접수까지만 하고 끝난다(체결 전 재기동).
     {
         OrderGate         gate(relaxed_config());
-        StubOrderExecutor stub(true, "R000777");
+        StubOrderExecutor stub(true, "0000000777");
         OrderRouter       router(gate, stub);
         auto managed_order = router.submit(buy);
         assert(managed_order.status == OrderStatus::ACCEPTED);
@@ -573,11 +583,11 @@ void test_reason_journal_restart_recovery()
 
     // 2차 세션 — 메모리 이력이 빈 상태에서 같은 ODNO의 체결이 들어온다.
     OrderGate         gate(relaxed_config());
-    StubOrderExecutor stub(true, "R000888");
+    StubOrderExecutor stub(true, "0000000888");
     OrderRouter       router(gate, stub);
 
     FillNotification fill_notification;
-    fill_notification.kis_order_no = "R000777"; fill_notification.ticker = "047050"; fill_notification.side = OrderSide::BUY;
+    fill_notification.kis_order_no = "0000000777"; fill_notification.ticker = "047050"; fill_notification.side = OrderSide::BUY;
     fill_notification.filled_quantity = 60; fill_notification.filled_price = 54700.0; fill_notification.fill_time = "110707";
     router.on_fill(fill_notification);
 
@@ -590,7 +600,7 @@ void test_reason_journal_restart_recovery()
 
     for (const auto& history_entry : history)
     {
-        if (history_entry.kis_order_no == "R000777")
+        if (history_entry.kis_order_no == "0000000777")
         {
             found = true;
             assert(history_entry.signal.strategy_id == "DEVSCALE");
@@ -613,7 +623,7 @@ void test_reason_journal_restart_recovery()
 void test_reconcile_row_written()
 {
     OrderGate         gate(relaxed_config());
-    StubOrderExecutor stub(true, "K000201");
+    StubOrderExecutor stub(true, "0000000201");
     OrderRouter       router(gate, stub);
 
     (void)router.submit(make_signal("005930", OrderSide::BUY, 10)); // ACCEPTED, 미체결 → live_orders=1
@@ -645,7 +655,7 @@ void test_reconcile_row_written()
 void test_sequence_propagates_to_rows()
 {
     OrderGate         gate(relaxed_config());
-    StubOrderExecutor stub(true, "K000202");
+    StubOrderExecutor stub(true, "0000000202");
     OrderRouter       router(gate, stub);
 
     OrderSignal signal = make_signal("005930", OrderSide::BUY, 3);
@@ -655,7 +665,7 @@ void test_sequence_propagates_to_rows()
     assert(managed_order.signal.sequence == 77);
 
     FillNotification fill_notification;
-    fill_notification.kis_order_no         = "K000202";
+    fill_notification.kis_order_no         = "0000000202";
     fill_notification.ticker       = "005930";
     fill_notification.side         = OrderSide::BUY;
     fill_notification.filled_quantity   = 3;
@@ -683,7 +693,7 @@ void test_sequence_propagates_to_rows()
 void test_blocked_sell_releases_reservation()
 {
     OrderGate         gate(relaxed_config());
-    StubOrderExecutor stub(true, "K000301");
+    StubOrderExecutor stub(true, "0000000301");
     OrderRouter       router(gate, stub);
     stub.paper = true;
 
@@ -699,7 +709,7 @@ void test_blocked_sell_releases_reservation()
     assert(gate.reserved("005930") == -8);       // 매도 선점(부호는 게이트 규약)
 
     // 시장가 청산이 40240000으로 막힘 → 예약매도 취소 → 재매도 접수
-    stub.kis_order_no      = "K000302";
+    stub.kis_order_no      = "0000000302";
     stub.fail_next = 1;
     stub.error_code  = "40240000";
     OrderSignal liquidation = make_signal("005930", OrderSide::SELL, 8);
@@ -708,7 +718,7 @@ void test_blocked_sell_releases_reservation()
     liquidation.reference_price   = 75000.0;
     auto acknowledgement_b         = router.submit(liquidation);
     assert(acknowledgement_b.status == OrderStatus::ACCEPTED);
-    assert(acknowledgement_b.kis_order_no == "K000302");
+    assert(acknowledgement_b.kis_order_no == "0000000302");
     assert(stub.cancel_calls == 1 && stub.last_cancel_quantity == 8);
 
     // 원주문은 CANCELLED, 선점은 재매도분만
@@ -716,7 +726,7 @@ void test_blocked_sell_releases_reservation()
 
     for (const auto& history_entry : router.recent(10))
     {
-        if (history_entry.kis_order_no == "K000301")
+        if (history_entry.kis_order_no == "0000000301")
         {
             original_cancelled = (history_entry.status == OrderStatus::CANCELLED);
         }
@@ -727,8 +737,8 @@ void test_blocked_sell_releases_reservation()
 
     // 원장에 CANCELLED 행이 남는다(재매도 ACCEPTED 행 앞).
     auto rows = tail_trade_rows(2);
-    assert(split_csv(rows[0])[1] == "CANCELLED" && split_csv(rows[0])[3] == "K000301");
-    assert(split_csv(rows[1])[1] == "ACCEPTED" && split_csv(rows[1])[3] == "K000302");
+    assert(split_csv(rows[0])[1] == "CANCELLED" && split_csv(rows[0])[3] == "0000000301");
+    assert(split_csv(rows[1])[1] == "ACCEPTED" && split_csv(rows[1])[3] == "0000000302");
     PASS("blocked_sell_releases_reservation");
 }
 

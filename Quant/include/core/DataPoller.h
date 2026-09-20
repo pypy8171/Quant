@@ -108,6 +108,7 @@ private:
     std::chrono::milliseconds top_up_call_interval_{300};
     std::vector<WatchSpec>    overflow_;    // WS 상한에 밀려 REST로 대신 흘리는 종목. data_thread 전용
     // 종목당 첫 성공·첫 실패만 남긴다 — 대체 경로가 실제로 틱을 흘리는지 로그로 확인할 수 있어야 한다.
+    //  문자열인 이유: 소스 계층은 종목 테이블 앞이라 WatchSpec.ticker(문자열)만 있다. REST 왕복당 한 번.
     std::unordered_set<std::string> rest_seen_;
     std::unordered_set<std::string> rest_failed_;
 };

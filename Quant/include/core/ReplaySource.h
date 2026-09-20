@@ -232,6 +232,8 @@ private:
     TradeCb               on_trade_;
 
     mutable std::mutex                                                       filter_mutex_;
+    // 문자열인 이유: 캡처 파일 레코드의 티커가 문자열이고 소스 계층은 종목 테이블 앞이다(라이브 소켓과 같은 자리).
+    //  string_view로 찾아 레코드마다 복사는 없다.
     std::unordered_set<std::string, TransparentStringHash, std::equal_to<>> filter_; // 비어 있으면 전 종목
 
     std::jthread          thread_;

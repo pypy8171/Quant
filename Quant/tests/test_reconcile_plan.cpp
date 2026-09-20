@@ -14,6 +14,9 @@ namespace
 using reconcile::Held;
 using reconcile::Row;
 
+// 종목 id는 호출부(LedgerReconciler)가 원장·잔고 티커에서 채운다 — 여기서는 티커마다 고정 번호를 준다:
+//  005930=1, 000660=2, 035420=3, 068270=4.
+
 int g_pass = 0;
 
 #define CHECK(condition)                                                                                                  \
@@ -47,16 +50,16 @@ int main()
 {
     // 1) 전부 일치 → 행 없음. 소수점 아래 평단 차이(0.4원)는 일치로 본다.
     {
-        std::vector<Held> ledger{{"005930", 10, 71000.0}, {"000660", 3, 120000.0}};
-        std::vector<Held> broker{{"005930", 10, 71000.4}, {"000660", 3, 120000.0}};
+        std::vector<Held> ledger{{"005930", 10, 71000.0, 1}, {"000660", 3, 120000.0, 2}};
+        std::vector<Held> broker{{"005930", 10, 71000.4, 1}, {"000660", 3, 120000.0, 2}};
         auto rows = reconcile::plan(ledger, broker, /*resync=*/true, {}, "mode=REST");
         CHECK(rows.empty());
     }
 
     // 2) 수량 어긋남 — REST(resync)면 OVERWRITE, WS면 KEEP. 값은 덮어쓰기 전 원장 값 그대로.
     {
-        std::vector<Held> ledger{{"005930", 10, 71000.0}};
-        std::vector<Held> broker{{"005930", 12, 71100.0}};
+        std::vector<Held> ledger{{"005930", 10, 71000.0, 1}};
+        std::vector<Held> broker{{"005930", 12, 71100.0, 1}};
         auto rest = reconcile::plan(ledger, broker, true, {}, "mode=REST");
         CHECK(rest.size() == 1);
         CHECK(rest[0].ticker == "005930");
@@ -72,8 +75,8 @@ int main()
 
     // 3) 수량은 같고 평단만 1원 이상 어긋남 → 행이 난다(체결 하나가 다른 가격으로 들어갔다는 신호).
     {
-        std::vector<Held> ledger{{"005930", 10, 71000.0}};
-        std::vector<Held> broker{{"005930", 10, 71001.0}};
+        std::vector<Held> ledger{{"005930", 10, 71000.0, 1}};
+        std::vector<Held> broker{{"005930", 10, 71001.0, 1}};
         auto rows = reconcile::plan(ledger, broker, true, {}, "");
         CHECK(rows.size() == 1);
         CHECK(rows[0].action == "OVERWRITE");
@@ -83,9 +86,9 @@ int main()
     // 4) 원장에만 있는 종목 — 엔진이 걷어낸(pruned) 것은 PRUNE, 유예된 것은 KEEP. 브로커 쪽은 0.
     //    브로커에만 있는 종목은 원장 0으로 OVERWRITE. 순서는 브로커 목록 → 원장 목록.
     {
-        std::vector<Held> ledger{{"005930", 10, 71000.0}, {"035420", 5, 200000.0}, {"000660", 3, 120000.0}};
-        std::vector<Held> broker{{"005930", 10, 71000.0}, {"068270", 2, 150000.0}};
-        auto rows = reconcile::plan(ledger, broker, true, {"035420"}, "mode=REST");
+        std::vector<Held> ledger{{"005930", 10, 71000.0, 1}, {"035420", 5, 200000.0, 3}, {"000660", 3, 120000.0, 2}};
+        std::vector<Held> broker{{"005930", 10, 71000.0, 1}, {"068270", 2, 150000.0, 4}};
+        auto rows = reconcile::plan(ledger, broker, true, {3}, "mode=REST");
         CHECK(rows.size() == 3);
         CHECK(rows[0].ticker == "068270" && rows[0].action == "OVERWRITE");
         CHECK(rows[0].ledger_quantity == 0 && rows[0].broker_quantity == 2 && rows[0].ledger_average == 0.0);
@@ -102,8 +105,8 @@ int main()
 
     // 5) 브로커 quantity<=0·빈 티커는 보유가 아니다 — 원장에 없어도 행이 나지 않고, 원장에 있으면 원장 쪽 KEEP으로 잡힌다.
     {
-        std::vector<Held> ledger{{"005930", 10, 71000.0}};
-        std::vector<Held> broker{{"005930", 0, 0.0}, {"", 4, 100.0}};
+        std::vector<Held> ledger{{"005930", 10, 71000.0, 1}};
+        std::vector<Held> broker{{"005930", 0, 0.0, 1}, {"", 4, 100.0}};
         auto rows = reconcile::plan(ledger, broker, false, {}, "");
         CHECK(rows.size() == 1);
         CHECK(rows[0].ticker == "005930" && rows[0].action == "KEEP" && rows[0].broker_quantity == 0);
@@ -111,7 +114,7 @@ int main()
 
     // 6) 원장 quantity<=0 항목은 대조 대상이 아니다.
     {
-        std::vector<Held> ledger{{"005930", 0, 0.0}};
+        std::vector<Held> ledger{{"005930", 0, 0.0, 1}};
         std::vector<Held> broker{};
         CHECK(reconcile::plan(ledger, broker, true, {}, "").empty());
     }

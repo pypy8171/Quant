@@ -71,7 +71,7 @@ void seed_full_book(OrderGate& gate)
 {
     gate.seed_position("", "A", 10, 1000.0);
     gate.seed_position("", "B", 10, 1000.0);
-    gate.set_entry_priority({{"A", 1}, {"B", 2}, {"C", 3}}, {{"A", 0.9}, {"B", -0.8}, {"C", 1.5}}, 3);
+    gate.set_entry_priority({{gate.intern_symbol("A"), 1, 0.9}, {gate.intern_symbol("B"), 2, -0.8}, {gate.intern_symbol("C"), 3, 1.5}}, 3);
 }
 
 struct Rig
@@ -109,24 +109,25 @@ int test_stamp()
 int test_strategy_gate()
 {
     Rig rig(open_config());
-    rig.dispatcher.set_exit_managed_check([](const std::string& ticker) { return ticker == "G"; });
+    const symbol::SymbolId symbol_g = rig.gate.intern_symbol("G");
+    rig.dispatcher.set_exit_managed_check([symbol_g](symbol::SymbolId symbol) { return symbol == symbol_g; });
 
     // 비활성 전략: 신규 매수만 막고 매도·취소는 통과.
-    rig.dispatcher.from_strategy(false, "DEV_1", signal("A", OrderSide::BUY, 1));
+    rig.dispatcher.from_strategy(false, false, signal("A", OrderSide::BUY, 1));
     CHECK(rig.out.empty());
-    rig.dispatcher.from_strategy(false, "DEV_1", signal("A", OrderSide::SELL, 1));
-    rig.dispatcher.from_strategy(false, "DEV_1", signal("A", OrderSide::BUY, 0, OrderAction::CANCEL));
+    rig.dispatcher.from_strategy(false, false, signal("A", OrderSide::SELL, 1));
+    rig.dispatcher.from_strategy(false, false, signal("A", OrderSide::BUY, 0, OrderAction::CANCEL));
     CHECK(rig.out.size() == 2 && rig.out[1].action == OrderAction::CANCEL);
 
     // 청산 관리 티커: ITB_ 밖 전략의 신규는 매수·매도 다 막고, 취소·정정과 ITB_는 통과.
-    rig.dispatcher.from_strategy(true, "DEV_1", signal("G", OrderSide::BUY, 1));
-    rig.dispatcher.from_strategy(true, "DEV_1", signal("G", OrderSide::SELL, 1));
+    rig.dispatcher.from_strategy(true, false, signal("G", OrderSide::BUY, 1));
+    rig.dispatcher.from_strategy(true, false, signal("G", OrderSide::SELL, 1));
     CHECK(rig.out.size() == 2);
-    rig.dispatcher.from_strategy(true, "DEV_1", signal("G", OrderSide::SELL, 0, OrderAction::REPLACE));
-    rig.dispatcher.from_strategy(true, "ITB_1", signal("G", OrderSide::BUY, 1));
+    rig.dispatcher.from_strategy(true, false, signal("G", OrderSide::SELL, 0, OrderAction::REPLACE));
+    rig.dispatcher.from_strategy(true, true, signal("G", OrderSide::BUY, 1));
     CHECK(rig.out.size() == 4 && rig.out[3].strategy_id == "T");
     // 청산 관리 밖 티커는 어느 전략이든 통과.
-    rig.dispatcher.from_strategy(true, "DEV_1", signal("H", OrderSide::BUY, 1));
+    rig.dispatcher.from_strategy(true, false, signal("H", OrderSide::BUY, 1));
     CHECK(rig.out.size() == 5);
 
     // 전략이 디스패처에 주는 active는 국면 축과 유니버스 축의 AND다 — 어느 한쪽이 닫히면 신규매수가 막힌다 (D-077).
@@ -160,20 +161,20 @@ int test_manual_sell_halt()
     rig.gate.set_manual_halt(OrderSide::SELL, true);
     CHECK(rig.gate.is_manual_sell_halted() && !rig.gate.is_manual_buy_halted() && !rig.gate.is_entry_halted());
 
-    rig.dispatcher.from_strategy(true, "DEV_1", signal("A", OrderSide::SELL, 1));
+    rig.dispatcher.from_strategy(true, false, signal("A", OrderSide::SELL, 1));
     CHECK(rig.out.empty());
-    rig.dispatcher.from_strategy(true, "DEV_1", signal("A", OrderSide::BUY, 1));
-    rig.dispatcher.from_strategy(true, "DEV_1", signal("A", OrderSide::SELL, 0, OrderAction::CANCEL));
+    rig.dispatcher.from_strategy(true, false, signal("A", OrderSide::BUY, 1));
+    rig.dispatcher.from_strategy(true, false, signal("A", OrderSide::SELL, 0, OrderAction::CANCEL));
     CHECK(rig.out.size() == 2 && rig.out[0].side == OrderSide::BUY && rig.out[1].action == OrderAction::CANCEL);
 
     rig.gate.set_manual_halt(OrderSide::SELL, false);
-    rig.dispatcher.from_strategy(true, "DEV_1", signal("A", OrderSide::SELL, 1));
+    rig.dispatcher.from_strategy(true, false, signal("A", OrderSide::SELL, 1));
     CHECK(rig.out.size() == 3 && rig.out[2].side == OrderSide::SELL);
 
     // 매수 정지는 is_entry_halted()로만 드러난다(전략이 신호를 안 만든다) — 디스패처는 매도를 막지 않는다.
     rig.gate.set_manual_halt(OrderSide::BUY, true);
     CHECK(rig.gate.is_entry_halted() && !rig.gate.is_manual_sell_halted());
-    rig.dispatcher.from_strategy(true, "DEV_1", signal("A", OrderSide::SELL, 1));
+    rig.dispatcher.from_strategy(true, false, signal("A", OrderSide::SELL, 1));
     CHECK(rig.out.size() == 4);
     return 0;
 }
@@ -214,33 +215,38 @@ int test_universe_exit_judge()
 int test_universe_evict_pick()
 {
     using namespace universe_exit;
-    std::map<std::string, int> owned{{"A", 1}, {"B", 2}, {"C", 3}};
-    auto reserved0  = [](const std::string&) { return 0; };
-    auto no_absence = [](const std::string&) -> long long { return 0; };
+    // 종목 A·B·C = id 1·2·3. 순회 목록은 일부러 등록 순서를 뒤섞어 순서에 기대지 않음을 같이 본다.
+    constexpr symbol::SymbolId kA = 1;
+    constexpr symbol::SymbolId kB = 2;
+    constexpr symbol::SymbolId kC = 3;
+    const std::vector<symbol::SymbolId> owned{kC, kA, kB};
+    auto bits = [](std::initializer_list<symbol::SymbolId> symbols) {
+        std::vector<bool> out(8, false);
+
+        for (symbol::SymbolId symbol : symbols)
+        {
+            out[symbol] = true;
+        }
+
+        return out;
+    };
+    auto reserved0  = [](symbol::SymbolId) { return 0; };
+    auto no_absence = [](symbol::SymbolId) -> long long { return 0; };
 
     // A만 오늘 top-N 밖(미보유) — A가 후보.
-    CHECK(pick_evict_candidate(owned, std::set<std::string>{"B", "C"}, std::set<std::string>{}, reserved0,
-                                no_absence) == "A");
+    CHECK(pick_evict_candidate(owned, bits({kB, kC}), bits({}), reserved0, no_absence) == kA);
     // 전부 오늘 top-N 안이면 내줄 게 없다.
-    CHECK(pick_evict_candidate(owned, std::set<std::string>{"A", "B", "C"}, std::set<std::string>{}, reserved0,
-                                no_absence)
-              .empty());
+    CHECK(pick_evict_candidate(owned, bits({kA, kB, kC}), bits({}), reserved0, no_absence) == symbol::kNone);
     // top-N 밖이어도 보유 중이면 대상 아님.
-    CHECK(pick_evict_candidate(owned, std::set<std::string>{"B", "C"}, std::set<std::string>{"A"}, reserved0,
-                                no_absence)
-              .empty());
+    CHECK(pick_evict_candidate(owned, bits({kB, kC}), bits({kA}), reserved0, no_absence) == symbol::kNone);
     // top-N 밖이어도 선점(reserved) 중이면 대상 아님.
-    auto reserved_a = [](const std::string& ticker) { return ticker == "A" ? 1 : 0; };
-    CHECK(pick_evict_candidate(owned, std::set<std::string>{"B", "C"}, std::set<std::string>{}, reserved_a,
-                                no_absence)
-              .empty());
+    auto reserved_a = [](symbol::SymbolId symbol) { return symbol == kA ? 1 : 0; };
+    CHECK(pick_evict_candidate(owned, bits({kB, kC}), bits({}), reserved_a, no_absence) == symbol::kNone);
     // 부재 시간이 다르면 가장 오래 밖에 있던 쪽(B)을 고른다 — owned 순회 순서와 무관.
-    auto absence_b_longer = [](const std::string& ticker) -> long long { return ticker == "B" ? 900 : 100; };
-    CHECK(pick_evict_candidate(owned, std::set<std::string>{}, std::set<std::string>{}, reserved0,
-                                absence_b_longer) == "B");
-    // 부재 시간이 전부 같으면(추적 없음 포함) 티커 문자열 순으로 고정 — 맵 순회 순서에 기대지 않는다.
-    CHECK(pick_evict_candidate(owned, std::set<std::string>{}, std::set<std::string>{}, reserved0, no_absence) ==
-          "A");
+    auto absence_b_longer = [](symbol::SymbolId symbol) -> long long { return symbol == kB ? 900 : 100; };
+    CHECK(pick_evict_candidate(owned, bits({}), bits({}), reserved0, absence_b_longer) == kB);
+    // 부재 시간이 전부 같으면(추적 없음 포함) id가 작은 쪽으로 고정 — 목록 순서(C·A·B)에 기대지 않는다.
+    CHECK(pick_evict_candidate(owned, bits({}), bits({}), reserved0, no_absence) == kA);
     return 0;
 }
 
@@ -317,15 +323,17 @@ int test_displace_cancel_and_expiry()
 
 int test_force_liquidation_orders()
 {
-    std::vector<OrderGate::HeldPos> held = {{"", "A", 10, 100.0}, {"", "B", 5, 200.0}, {"", "C", 3, 300.0}};
-    const auto reserved                  = [](const std::string&, const std::string& ticker)
+    // 종목 id는 스냅샷에 실려 온다 — 미체결 조회도 그 id로 묻는다.
+    constexpr symbol::SymbolId kA = 1, kB = 2, kC = 3;
+    std::vector<OrderGate::HeldPos> held = {{"", "A", 10, 100.0, kA}, {"", "B", 5, 200.0, kB}, {"", "C", 3, 300.0, kC}};
+    const auto reserved                  = [](const std::string&, symbol::SymbolId symbol)
     {
-        if (ticker == "A")
+        if (symbol == kA)
         {
             return -4; // 미체결 매도 4
         }
 
-        if (ticker == "B")
+        if (symbol == kB)
         {
             return -5; // 전량 이미 매도 중
         }
@@ -343,15 +351,16 @@ int test_force_liquidation_orders()
 
 int test_trim_orders()
 {
+    constexpr symbol::SymbolId      kA = 1, kB = 2, kC = 3, kD = 4;
     std::vector<OrderGate::HeldPos> held = {
-        {"", "A", 10, 100.0}, // 한도수량 10 — 초과 없음
-        {"", "B", 20, 100.0}, // 초과 10, 미체결 매도 3 → 7
-        {"", "C", 20, 0.0},   // 평단 없음 — 건너뜀
-        {"", "D", 15, 100.0}, // 초과 5, 미체결 매도 10 → 0
+        {"", "A", 10, 100.0, kA}, // 한도수량 10 — 초과 없음
+        {"", "B", 20, 100.0, kB}, // 초과 10, 미체결 매도 3 → 7
+        {"", "C", 20, 0.0, kC},   // 평단 없음 — 건너뜀
+        {"", "D", 15, 100.0, kD}, // 초과 5, 미체결 매도 10 → 0
     };
-    const auto reserved = [](const std::string&, const std::string& ticker)
+    const auto reserved = [](const std::string&, symbol::SymbolId symbol)
     {
-        return ticker == "B" ? -3 : (ticker == "D" ? -10 : 0);
+        return symbol == kB ? -3 : (symbol == kD ? -10 : 0);
     };
     const auto out = dispatch::trim_orders(held, 1000.0, reserved);
     CHECK(out.size() == 1 && out[0].ticker == "B" && out[0].quantity == 7 && out[0].strategy_id == "LIMIT_TRIM" &&

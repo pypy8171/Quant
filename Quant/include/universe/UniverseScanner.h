@@ -1,7 +1,9 @@
 #pragma once
 #include "api/KisClient.h"
+#include "core/SymbolTable.h"
+#include "universe/ScoreWeight.h"
+
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -89,12 +91,19 @@ struct DevScanCfg
     int    risk_off_dwell_sec         = 600;    // 초, 상태 변경 후 최소 체류. 0=끄기 [why D-033]
 };
 
+// 스캔 결과 — 세 배열은 같은 순서(symbols[i]의 이름이 names[i], 점수가 scores[i].score).
+//  응답의 문자열 티커는 스캐너 안에서 종목 테이블에 한 번 들어가고, 밖으로는 id만 나간다. [why D-112]
+//  scores는 점수 경로(require_aligned)에서만 채워진다 — 프리필터만 쓴 스캔은 비어 있다.
+struct ScanResult
+{
+    std::vector<symbol::SymbolId> symbols;
+    std::vector<std::string>      names;
+    ScoreList                     scores;
+};
+
 // 초기 등록·주기적 재스캔이 공용으로 호출한다(config는 값 복사 캡처라 std::function 저장이 안전).
-//  레짐 위험회피면 빈 목록을 돌려준다. 실패도 예외가 아니라 빈 목록이다.
-//  out_names·out_scores(옵션)를 주면 등록 티커의 종목명과 종합점수를 채운다.
+//  레짐 위험회피면 빈 결과를 돌려준다. 실패도 예외가 아니라 빈 결과다.
 //  등록 순서가 곧 진입 우선순위다. 점수 → 비중 배수 변환은 `ScoreWeight.h`가 한다. [why D-018]
-std::vector<std::string> scan_devscale(KisClient& kis, const DevScanCfg& config,
-                                       std::unordered_map<std::string, std::string>* out_names = nullptr,
-                                       std::unordered_map<std::string, double>* out_scores = nullptr);
+ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::SymbolTable& symbols);
 
 } // namespace universe

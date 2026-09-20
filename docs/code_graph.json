@@ -109,7 +109,7 @@
     {
       "from": "risk",
       "to": "core",
-      "weight": 3
+      "weight": 4
     },
     {
       "from": "strategy",
@@ -119,7 +119,7 @@
     {
       "from": "strategy",
       "to": "core",
-      "weight": 19
+      "weight": 20
     },
     {
       "from": "strategy",
@@ -139,7 +139,7 @@
     {
       "from": "universe",
       "to": "core",
-      "weight": 2
+      "weight": 4
     },
     {
       "from": "universe",
@@ -188,12 +188,14 @@
     "core/SignalDispatcher.h": "core",
     "core/StrategyRouter.h": "core",
     "core/StrategyShard.h": "core",
+    "core/StrategyTable.h": "core",
     "core/SymbolTable.h": "core",
     "core/TickCapture.h": "core",
     "core/TickSize.h": "core",
     "core/Types.h": "core",
     "core/UniverseExit.h": "core",
     "core/WakeGate.h": "core",
+    "ipc/FillKey.h": "ipc",
     "ipc/OpsProtocol.h": "ipc",
     "ipc/OpsServer.h": "ipc",
     "ipc/OrderRouter.h": "ipc",
@@ -427,6 +429,9 @@
       "core/SymbolTable.h",
       "core/Types.h"
     ],
+    "core/ReconcilePlan.h": [
+      "core/SymbolTable.h"
+    ],
     "core/RegimeFileJudge.h": [
       "core/KstTime.h",
       "core/Types.h"
@@ -473,6 +478,10 @@
       "core/Types.h"
     ],
     "core/Types.h": [
+      "core/StrategyTable.h",
+      "core/SymbolTable.h"
+    ],
+    "core/UniverseExit.h": [
       "core/SymbolTable.h"
     ],
     "ipc/OpsServer.cpp": [
@@ -493,6 +502,7 @@
       "api/IOrderExecutor.h",
       "core/ReconcilePlan.h",
       "core/Types.h",
+      "ipc/FillKey.h",
       "ipc/ZmqBridge.h",
       "risk/OrderGate.h"
     ],
@@ -532,6 +542,7 @@
       "risk/OrderGate.h"
     ],
     "risk/OrderGate.h": [
+      "core/StrategyTable.h",
       "core/SymbolTable.h",
       "core/Types.h"
     ],
@@ -580,6 +591,7 @@
       "utils/Logger.h"
     ],
     "strategy/StrategyBase.h": [
+      "core/StrategyTable.h",
       "core/Types.h"
     ],
     "strategy/StrategyFactory.cpp": [
@@ -626,6 +638,9 @@
       "strategy/StrategyBase.h",
       "utils/Logger.h"
     ],
+    "universe/ScoreWeight.h": [
+      "core/SymbolTable.h"
+    ],
     "universe/UniverseScanner.cpp": [
       "core/KstTime.h",
       "core/Types.h",
@@ -636,7 +651,9 @@
       "utils/Logger.h"
     ],
     "universe/UniverseScanner.h": [
-      "api/KisClient.h"
+      "api/KisClient.h",
+      "core/SymbolTable.h",
+      "universe/ScoreWeight.h"
     ],
     "utils/Logger.cpp": [
       "core/MpscQueue.h",
@@ -817,15 +834,24 @@
     "core/StrategyShard.h": [
       "core/Engine.h"
     ],
+    "core/StrategyTable.h": [
+      "core/Types.h",
+      "risk/OrderGate.h",
+      "strategy/StrategyBase.h"
+    ],
     "core/SymbolTable.h": [
       "core/Engine.h",
       "core/PaperExecutor.h",
+      "core/ReconcilePlan.h",
       "core/ShardMatrix.h",
       "core/ShardRoutes.h",
       "core/StrategyRouter.h",
       "core/StrategyShard.h",
       "core/Types.h",
-      "risk/OrderGate.h"
+      "core/UniverseExit.h",
+      "risk/OrderGate.h",
+      "universe/ScoreWeight.h",
+      "universe/UniverseScanner.h"
     ],
     "core/TickCapture.h": [
       "core/Engine.h",
@@ -879,6 +905,9 @@
       "core/TickCapture.h",
       "ipc/OrderRouter.cpp",
       "strategy/DeviationScaleStrategy.h"
+    ],
+    "ipc/FillKey.h": [
+      "ipc/OrderRouter.h"
     ],
     "ipc/OpsProtocol.h": [
       "ipc/OpsServer.h"
@@ -974,7 +1003,8 @@
       "universe/UniverseScanner.cpp"
     ],
     "universe/ScoreWeight.h": [
-      "strategy/StrategyFactory.cpp"
+      "strategy/StrategyFactory.cpp",
+      "universe/UniverseScanner.h"
     ],
     "universe/UniverseScanner.h": [
       "strategy/StrategyFactory.cpp",
@@ -1045,11 +1075,11 @@
       "in_degree": 12
     },
     {
-      "header": "core/MarketSession.h",
-      "in_degree": 8
+      "header": "core/SymbolTable.h",
+      "in_degree": 12
     },
     {
-      "header": "core/SymbolTable.h",
+      "header": "core/MarketSession.h",
       "in_degree": 8
     },
     {
@@ -1191,6 +1221,7 @@
       "PYQuant/tools/macro_ingest.py",
       "PYQuant/tools/macro_regime_feed.py",
       "PYQuant/tools/minute_backfill.py",
+      "PYQuant/tools/minute_backfill_pairs.py",
       "PYQuant/tools/month_start_sweep.py",
       "PYQuant/tools/naver_bars_backfill.py",
       "PYQuant/tools/naver_flow_backfill.py",
@@ -1425,6 +1456,9 @@
       "PYQuant/tools/minute_backfill.py": [
         "kis.client"
       ],
+      "PYQuant/tools/minute_backfill_pairs.py": [
+        "features.fundamental"
+      ],
       "PYQuant/tools/month_start_sweep.py": [
         "data.datagokr_source",
         "main"
@@ -1613,6 +1647,9 @@
       ],
       "features": [
         "PYQuant/tests/test_regime_axes.py"
+      ],
+      "features.fundamental": [
+        "PYQuant/tools/minute_backfill_pairs.py"
       ],
       "gen_tuning_sheet": [
         "scripts/exit_ev_dashboard.py"
@@ -1888,6 +1925,11 @@
         "from": "PYQuant/tools",
         "to": "PYQuant/data",
         "weight": 7
+      },
+      {
+        "from": "PYQuant/tools",
+        "to": "PYQuant/features",
+        "weight": 1
       },
       {
         "from": "PYQuant/tools",

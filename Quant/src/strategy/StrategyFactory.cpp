@@ -20,13 +20,12 @@
 #include "utils/Logger.h"
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <map>
 #include <memory>
 #include <mutex>
-#include <set>
-#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -39,9 +38,31 @@ using json = nlohmann::json;
 static const std::vector<Regime>* s_pending_regimes = nullptr;
 
 // 보유분 청산 관리 부착은 슬리브 하나가 아니라 전 슬리브가 등록된 뒤에 한 번만 한다.
-//  s_scan_covered는 모든 DEVIATION_SCALE 슬리브가 담당하는 티커의 합집합이고, 청산 관리 설정은
+//  s_scan_covered는 모든 DEVIATION_SCALE 슬리브가 담당하는 종목(id 인덱스 비트)의 합집합이고, 청산 관리 설정은
 //  마지막으로 manage_holdings.enabled를 켠 슬리브의 것을 쓴다(현재 구성은 하나만 켠다).
-static std::set<std::string> s_scan_covered;
+static std::vector<bool> s_scan_covered;
+
+// 종목 id 인덱스 비트를 켠다 — 배열은 종목 테이블 용량만큼 한 번만 늘린다.
+static void mark_symbol(std::vector<bool>& bits, symbol::SymbolId symbol, size_t capacity)
+{
+    if (symbol == symbol::kNone)
+    {
+        return;
+    }
+
+    if (symbol >= bits.size())
+    {
+        bits.resize(std::max<size_t>(capacity, symbol + 1), false);
+    }
+
+    bits[symbol] = true;
+}
+
+static bool has_symbol(const std::vector<bool>& bits, symbol::SymbolId symbol)
+{
+    return symbol != symbol::kNone && symbol < bits.size() && bits[symbol];
+}
+
 static const json*           s_pending_exit_managers = nullptr; // config 노드를 가리킨다 — load_strategies 안에서만 유효
 static bool                  s_guard_gated = false;
 static std::vector<Regime>   s_guard_regimes;
@@ -57,8 +78,8 @@ static void add_gated(Engine& engine, std::unique_ptr<StrategyBase> strategy)
 }
 
 // 재스캔처럼 Engine이 나중에 factory를 직접 부르는 경로용 — 국면을 factory 안에 묶는다.
-static std::function<std::unique_ptr<StrategyBase>(const std::string&)>
-gate_factory(std::function<std::unique_ptr<StrategyBase>(const std::string&)> factory)
+static std::function<std::unique_ptr<StrategyBase>(symbol::SymbolId)>
+gate_factory(std::function<std::unique_ptr<StrategyBase>(symbol::SymbolId)> factory)
 {
     if (!s_pending_regimes)
     {
@@ -66,8 +87,8 @@ gate_factory(std::function<std::unique_ptr<StrategyBase>(const std::string&)> fa
     }
 
     std::vector<Regime> active_regimes = *s_pending_regimes; // 람다가 이 스코프보다 오래 살아 사본이 필요하다
-    return [factory = std::move(factory), active_regimes = std::move(active_regimes)](const std::string& ticker) {
-        auto strategy = factory(ticker);
+    return [factory = std::move(factory), active_regimes = std::move(active_regimes)](symbol::SymbolId symbol) {
+        auto strategy = factory(symbol);
 
         if (strategy)
         {
@@ -431,9 +452,9 @@ static std::set<std::string> tickers_bought_recently(const std::string& id_prefi
 //  붙인다. 신규진입은 no_new_entry_hhmm=1(항상 과거)로 영구 차단 → 오직 보호·청산만:
 //    seed_trail_percent(넓은 기준점 트레일) + exit_near_average_percent(본전근처 반등청산)
 //    + average_loss_percent(평단손절, 0=비활성) + 장 마감(market_close_exit_hhmm, 기본 2100=장중 강제청산 안 함 — 엔진이 20:00까지 도니 1600은 애프터마켓 청산이 된다, D-097).
-//  covered = 이미 스캔 전략이 담당하는 티커(중복 부착 방지). rest_price_feed 합성틱으로 on_trade 구동.
+//  covered = 이미 스캔 전략이 담당하는 종목(id 인덱스 비트, 중복 부착 방지). rest_price_feed 합성틱으로 on_trade 구동.
 static void attach_holding_exit_managers(StrategyLoadCtx& context, const json& exit_manager_node,
-                                     const std::set<std::string>& covered)
+                                     const std::vector<bool>& covered)
 {
     Engine& engine = context.engine;
     double seed_trail_display    = exit_manager_node.value("seed_trail_pct", 2.0);     // 표시용(%)
@@ -482,7 +503,7 @@ static void attach_holding_exit_managers(StrategyLoadCtx& context, const json& e
         const int    hq = holding.quantity;
         const double average_value = holding.average_price;
 
-        if (covered.count(code)) // 스캔 전략이 이미 담당 → 이중 부착 방지
+        if (has_symbol(covered, engine.symbols().lookup(code))) // 스캔 전략이 이미 담당 → 이중 부착 방지(잔고 티커는 문자열)
         {
             ++skipped;
             continue;
@@ -518,28 +539,28 @@ static void attach_holding_exit_managers(StrategyLoadCtx& context, const json& e
 //  스캔(초기=메인 스레드, 재스캔=데이터 스레드)이 쓰고 팩토리가 읽으므로 뮤텍스로 감싼다.
 //  이미 등록된 전략의 배수는 갱신하지 않는다 — 분할 매수 도중에 예산이 바뀌면 남은 층 예산과
 //  평단이 어긋난다. 재스캔으로 새로 붙는 종목만 최신 배수를 받는다.
+//  두 배열 다 종목 id 인덱스(0=값 없음), 크기는 종목 테이블 용량. [why D-112]
 struct DevScaleScoreState
 {
-    std::mutex                              mutex;
-    std::unordered_map<std::string, double> multiplier;
-    std::unordered_map<std::string, double> krw; // 종목당 명목 총액(원). 원 사이징이 켜진 슬리브만 채운다
+    std::mutex          mutex;
+    std::vector<double> multiplier;
+    std::vector<double> krw; // 종목당 명목 총액(원). 원 사이징이 켜진 슬리브만 채운다
+
+    explicit DevScaleScoreState(size_t capacity) : multiplier(capacity, 0.0), krw(capacity, 0.0) {}
 };
 
-// 점수 z → 종목당 명목(원). z≤0은 바닥, z≥cap_z는 천장, 사이는 직선.
+// 점수 z → 종목당 명목(원). z≤0은 바닥, z≥cap_z는 천장, 사이는 직선. 결과는 scores와 같은 순서.
 //  [formula] krw = floor + (capture − floor) × clamp(z / cap_z, 0, 1)
 //  천장은 "풀 안에서 확실히 강하다"(z)만 본다. 절대 산포 조건(모두 비슷한 장에서는 천장을 닫는
 //  것)은 점수 이력이 쌓인 뒤 붙인다 — 지금은 이력이 없어 임계를 정할 근거가 없다.
-static std::unordered_map<std::string, double>
-score_to_krw(const std::unordered_map<std::string, double>& scores,
-             double floor_krw, double cap_krw, double cap_z)
+static std::vector<double> score_to_krw(const universe::ScoreList& scores, double floor_krw, double cap_krw, double cap_z)
 {
-    std::unordered_map<std::string, double> out;
-    auto z_scores = universe::score_to_z(scores);
+    std::vector<double> out = universe::score_to_z(scores);
 
-    for (const auto& entry : z_scores)
+    for (double& value : out)
     {
-        double factor = cap_z > 0.0 ? (std::max)(0.0, (std::min)(1.0, entry.second / cap_z)) : 0.0;
-        out[entry.first] = floor_krw + (cap_krw - floor_krw) * factor;
+        const double factor = cap_z > 0.0 ? (std::max)(0.0, (std::min)(1.0, value / cap_z)) : 0.0;
+        value               = floor_krw + (cap_krw - floor_krw) * factor;
     }
 
     return out;
@@ -551,10 +572,12 @@ score_to_krw(const std::unordered_map<std::string, double>& scores,
 //  번갈아 스캔하는 지금 구성에서는 바가 절반만 작동하는 셈이었다.
 //  슬리브별 z는 각자의 풀 안에서 정규화된 값이라 슬리브를 넘는 비교는 근사다. 그래도
 //  랭크가 통째로 사라지는 것보다는 낫다.
+//  슬리브 키는 설정의 id_prefix 문자열 그대로(둘뿐, 스캔당 한 번 찾는다). 종목은 id로 든다.
 struct EntryPriorityMerger
 {
-    std::mutex                                                    mutex;
-    std::map<std::string, std::unordered_map<std::string, double>> by_sleeve;
+    std::mutex                                 mutex;
+    std::map<std::string, universe::ScoreList> by_sleeve;
+    std::vector<int32_t>                       slot_by_symbol; // 합칠 때 종목 id → merged 위치(-1=아직 없음), 재사용
 };
 
 static EntryPriorityMerger& priority_merger()
@@ -565,31 +588,60 @@ static EntryPriorityMerger& priority_merger()
 
 // 한 슬리브의 점수를 갱신하고, 전 슬리브를 합친 랭크를 엔진에 넣는다.
 //  scores는 sink — 슬리브 표에 옮겨 넣는다.
-static void publish_entry_priority(Engine& engine, const std::string& sleeve,
-                                   std::unordered_map<std::string, double> scores)
+static void publish_entry_priority(Engine& engine, const std::string& sleeve, universe::ScoreList scores)
 {
-    std::unordered_map<std::string, double> merged;
+    universe::ScoreList merged;
     {
-        std::lock_guard<std::mutex> lock(priority_merger().mutex);
-        priority_merger().by_sleeve[sleeve] = std::move(scores);
+        EntryPriorityMerger&        merger = priority_merger();
+        std::lock_guard<std::mutex> lock(merger.mutex);
+        merger.by_sleeve[sleeve] = std::move(scores);
 
-        for (const auto& sleeve_entry : priority_merger().by_sleeve)
+        if (merger.slot_by_symbol.size() < engine.symbols().capacity())
         {
-            for (const auto& entry : sleeve_entry.second)
+            merger.slot_by_symbol.assign(engine.symbols().capacity(), -1);
+        }
+
+        for (const auto& sleeve_entry : merger.by_sleeve)
+        {
+            for (const universe::SymbolScore& entry : sleeve_entry.second)
             {
-                auto iterator = merged.find(entry.first);
+                if (entry.symbol == symbol::kNone || entry.symbol >= merger.slot_by_symbol.size())
+                {
+                    continue;
+                }
+
+                int32_t& slot = merger.slot_by_symbol[entry.symbol];
 
                 // 같은 종목이 두 슬리브에 올라오면 높은 점수를 남긴다.
-                if (iterator == merged.end() || entry.second > iterator->second)
+                if (slot < 0)
                 {
-                    merged[entry.first] = entry.second;
+                    slot = static_cast<int32_t>(merged.size());
+                    merged.push_back(entry);
+                }
+                else if (entry.score > merged[static_cast<size_t>(slot)].score)
+                {
+                    merged[static_cast<size_t>(slot)].score = entry.score;
                 }
             }
         }
+
+        for (const universe::SymbolScore& entry : merged) // 다음 호출을 위해 건드린 칸만 되돌린다
+        {
+            merger.slot_by_symbol[entry.symbol] = -1;
+        }
     }
 
-    engine.set_entry_priority(universe::score_to_rank(merged), universe::score_to_z(merged),
-                              static_cast<int>(merged.size()));
+    const std::vector<int>    rank = universe::score_to_rank(merged, engine.symbols());
+    const std::vector<double> z_score = universe::score_to_z(merged);
+    std::vector<OrderGate::PriorityEntry> entries;
+    entries.reserve(merged.size());
+
+    for (size_t index = 0; index < merged.size(); ++index)
+    {
+        entries.push_back({merged[index].symbol, rank[index], z_score[index]});
+    }
+
+    engine.set_entry_priority(entries, static_cast<int>(merged.size()));
 }
 
 static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
@@ -643,15 +695,17 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
     base.daily_lookback    = node.value("daily_lookback", 70);
     base.account           = node.value("account", std::string());
 
-    // 스캔/단일로 실제 DeviationScale이 담당하는 티커 — 보유분 청산 관리 중복 부착 방지.
-    std::set<std::string> covered;
+    // 스캔/단일로 실제 DeviationScale이 담당하는 종목(id 인덱스 비트) — 보유분 청산 관리 중복 부착 방지.
+    const size_t      symbol_capacity = engine.symbols().capacity();
+    std::vector<bool> covered(symbol_capacity, false);
 
     // 이미 보유 중인 종목은 DeviationScale 신규 스캔에서 제외 → 청산 관리가 전담(윈드다운).
     //  시드/전일 물린 보유분에 DevScale 분할 매수가 겹치면 종목당 명목상한(max_percent)을
     //  초과해 CANCEL 거부·과주문이 난다(073240 사례). 보유분=청산 관리, 신규만=DevScale로 분리.
     //  manage_holdings.enabled일 때만 적용(청산 관리가 있어야 보유분을 인수하므로).
-    std::set<std::string> held;
-    std::set<std::string> reinstated; // 보유 중인 당일 매수분 — 스캔에 없어도 등록하고 청산 관리는 안 붙인다
+    std::vector<bool>             held(symbol_capacity, false);
+    size_t                        held_count = 0;
+    std::vector<symbol::SymbolId> reinstated; // 보유 중인 최근 매수분 — 스캔에 없어도 등록하고 청산 관리는 안 붙인다
 
     if (node.contains("manage_holdings") && node["manage_holdings"].value("enabled", false))
     {
@@ -669,7 +723,8 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
             {
                 for (const Holding& holding : balance->holdings)
                 {
-                    held.insert(holding.ticker);
+                    mark_symbol(held, engine.symbols().intern(holding.ticker), symbol_capacity); // 잔고 티커는 문자열
+                    ++held_count;
                 }
             }
 
@@ -681,14 +736,18 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
 
                 for (const std::string& ticker : tickers_bought_recently(base.id_prefix, lookback_days))
                 {
-                    if (held.erase(ticker) > 0)
+                    const symbol::SymbolId symbol = engine.symbols().intern(ticker); // 원장 CSV의 문자열 티커 — 여기서 id가 된다
+
+                    if (has_symbol(held, symbol))
                     {
-                        reinstated.insert(ticker);
+                        held[symbol] = false;
+                        --held_count;
+                        reinstated.push_back(symbol);
                     }
                 }
             }
 
-            LOG_INFO("[Main] DEVSCALE: 보유분 " + std::to_string(held.size()) +
+            LOG_INFO("[Main] DEVSCALE: 보유분 " + std::to_string(held_count) +
                      "종목 스캔 제외(청산 관리 전담), " + (base.market_close_hhmm >= devscale_rules::kNoMarketCloseHhmm ? "최근 매수분 " : "당일 매수분 ") +
                      std::to_string(reinstated.size()) + "종목 재인수");
         }
@@ -702,27 +761,26 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
     //  &engine 참조 캡처: factory는 engine에 저장(set_universe_rescan)되어 engine 생존 중에만
     //   호출되므로 참조 수명 안전. 스캔이 register_ticker_name으로 이름을 먼저 등록하므로
     //   여기서 조회해 전략에 주입 → 로그에 "티커(종목명)" 노출(id()·데이터키는 티커 그대로).
-    auto score_state = std::make_shared<DevScaleScoreState>();
+    auto score_state = std::make_shared<DevScaleScoreState>(symbol_capacity);
 
-    auto factory = [base, &engine, score_state](const std::string& ticker) -> std::unique_ptr<StrategyBase>
+    auto factory = [base, &engine, score_state](symbol::SymbolId symbol) -> std::unique_ptr<StrategyBase>
     {
         DeviationScaleStrategy::Params deviation_parameters = base;
-        deviation_parameters.ticker = ticker;
-        deviation_parameters.name   = engine.ticker_name(ticker);
+        deviation_parameters.ticker = engine.symbols().name(symbol).string(); // 전략 파라미터·id()는 아직 문자열
+        deviation_parameters.name   = engine.ticker_name(symbol);
+
+        if (symbol < score_state->multiplier.size())
         {
             std::lock_guard<std::mutex> lock(score_state->mutex);
-            auto iterator = score_state->multiplier.find(ticker);
 
-            if (iterator != score_state->multiplier.end() && iterator->second > 0.0)
+            if (score_state->multiplier[symbol] > 0.0)
             {
-                deviation_parameters.size_mult = iterator->second;
+                deviation_parameters.size_mult = score_state->multiplier[symbol];
             }
 
-            auto krw_iterator = score_state->krw.find(ticker);
-
-            if (krw_iterator != score_state->krw.end() && krw_iterator->second > 0.0)
+            if (score_state->krw[symbol] > 0.0)
             {
-                deviation_parameters.notional_krw = krw_iterator->second;
+                deviation_parameters.notional_krw = score_state->krw[symbol];
             }
         }
 
@@ -828,58 +886,54 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
         auto scan_fn = [scan_config, &engine, score_state, weight_spread, weight_target, weight_base, sleeve_id = base.id_prefix,
                         krw_on, krw_floor, krw_cap, krw_cap_z](KisClient& kis)
         {
-            std::unordered_map<std::string, std::string> names_by_ticker;
-            std::unordered_map<std::string, double>      scores_by_ticker;
-            auto scanned_tickers = universe::scan_devscale(kis, scan_config, &names_by_ticker, &scores_by_ticker);
+            // 스캐너가 응답의 문자열 티커를 종목 테이블에 한 번 넣고 id·이름·점수를 준다.
+            universe::ScanResult scan = universe::scan_devscale(kis, scan_config, engine.symbols());
 
-            for (auto& entry : names_by_ticker)
+            for (size_t index = 0; index < scan.symbols.size(); ++index)
             {
-                engine.register_ticker_name(entry.first, entry.second);
+                engine.register_ticker_name(scan.symbols[index], scan.names[index]);
             }
 
             // 점수의 두 가지 용도 — (a) 누가 먼저 슬롯을 차지하는가(랭크), (b) 얼마를 사는가(배수).
-            auto multiplier = universe::score_to_mult(scores_by_ticker, weight_spread, weight_target, weight_base,
-                                                engine.risk_max_positions());
+            const std::vector<double> multiplier = universe::score_to_mult(scan.scores, weight_spread, weight_target,
+                                                                           weight_base, engine.risk_max_positions());
             {
                 std::lock_guard<std::mutex> lock(score_state->mutex);
 
                 // 팩토리는 전략 생성 시점에 한 번만 읽으므로, 여기서 값을 덮어써도
                 //  이미 분할 매수를 타는 전략의 예산은 흔들리지 않는다(신규 등록분에만 반영).
-                for (auto& entry : multiplier)
+                for (size_t index = 0; index < scan.scores.size(); ++index)
                 {
-                    score_state->multiplier[entry.first] = entry.second;
+                    const symbol::SymbolId symbol = scan.scores[index].symbol;
+
+                    if (symbol < score_state->multiplier.size())
+                    {
+                        score_state->multiplier[symbol] = multiplier[index];
+                    }
                 }
 
                 if (krw_on)
                 {
-                    for (auto& entry : score_to_krw(scores_by_ticker, krw_floor, krw_cap, krw_cap_z))
+                    const std::vector<double> krw = score_to_krw(scan.scores, krw_floor, krw_cap, krw_cap_z);
+
+                    for (size_t index = 0; index < scan.scores.size(); ++index)
                     {
-                        score_state->krw[entry.first] = entry.second;
+                        const symbol::SymbolId symbol = scan.scores[index].symbol;
+
+                        if (symbol < score_state->krw.size())
+                        {
+                            score_state->krw[symbol] = krw[index];
+                        }
                     }
                 }
             }
 
-            publish_entry_priority(engine, sleeve_id, std::move(scores_by_ticker));
-            return scanned_tickers;
+            publish_entry_priority(engine, sleeve_id, std::move(scan.scores));
+            return std::move(scan.symbols);
         };
-        auto drop_held = [](std::vector<std::string>& scanned_tickers, const std::set<std::string>& parts)
+        auto drop_held = [](std::vector<symbol::SymbolId>& scanned, const std::vector<bool>& parts)
         {
-            if (parts.empty())
-            {
-                return;
-            }
-
-            std::vector<std::string> keep;
-
-            for (auto& scanned_ticker : scanned_tickers) // 원본은 아래 swap으로 버려지므로 옮긴다
-            {
-                if (!parts.count(scanned_ticker))
-                {
-                    keep.push_back(std::move(scanned_ticker));
-                }
-            }
-
-            scanned_tickers.swap(keep);
+            std::erase_if(scanned, [&parts](symbol::SymbolId symbol) { return has_symbol(parts, symbol); });
         };
 
         // 초기 등록용 — load_strategies는 engine.start()(bootstrap_ledger 포함) 전에 돌아
@@ -887,37 +941,37 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
         //  이 함수 안에서 한 번만 부르므로 참조로 잡는다(universe_rescan은 엔진에 저장되어 사본이 필요하다).
         auto universe_initialize = [&scan_fn, &drop_held, &held, &reinstated](KisClient& kis)
         {
-            auto scanned_tickers = scan_fn(kis);
-            drop_held(scanned_tickers, held);
+            auto scanned = scan_fn(kis);
+            drop_held(scanned, held);
 
-            for (const std::string& ticker : reinstated) // 오늘 스캔에서 빠졌어도 보유분이라 맡는다
+            for (const symbol::SymbolId symbol : reinstated) // 오늘 스캔에서 빠졌어도 보유분이라 맡는다
             {
-                if (std::find(scanned_tickers.begin(), scanned_tickers.end(), ticker) == scanned_tickers.end())
+                if (std::find(scanned.begin(), scanned.end(), symbol) == scanned.end())
                 {
-                    scanned_tickers.push_back(ticker);
+                    scanned.push_back(symbol);
                 }
             }
 
-            return scanned_tickers;
+            return scanned;
         };
         // 주기적 재스캔용 — 매회 OrderGate 원장에서 현재 보유를 다시 읽는다. 청산 관리가 청산한
         //  종목은 그 시점부터 다시 후보가 된다(기동 스냅샷 고정이 유니버스를 굳히던 문제).
         //  이미 등록된 종목은 재스캔이 추가만 하므로 자기 보유분으로 등록이 풀리진 않는다.
         auto universe_rescan = [scan_fn, drop_held, &engine](KisClient& kis)
         {
-            auto scanned_tickers = scan_fn(kis);
-            std::set<std::string> current;
+            auto              scanned = scan_fn(kis);
+            std::vector<bool> current(engine.symbols().capacity(), false);
 
-            for (auto& held_position : engine.held_positions()) // 스냅샷 사본이라 티커를 옮긴다
+            for (const auto& held_position : engine.held_positions())
             {
-                current.insert(std::move(held_position.ticker));
+                mark_symbol(current, held_position.symbol, current.size());
             }
 
-            drop_held(scanned_tickers, current);
-            return scanned_tickers;
+            drop_held(scanned, current);
+            return scanned;
         };
 
-        std::vector<std::string> seeded; // 기동 등록 종목 — 재스캔 슬리브의 소유로 넘겨 차단·해제 대상에 넣는다
+        std::vector<symbol::SymbolId> seeded; // 기동 등록 종목 — 재스캔 슬리브의 소유로 넘겨 차단·해제 대상에 넣는다
 
         if (!context.has_quote_kis)
         {
@@ -933,15 +987,15 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
             }
             else
             {
-                auto tickers = universe_initialize(scan_kis);
-                int  added   = 0;
+                const std::vector<symbol::SymbolId> scanned = universe_initialize(scan_kis);
+                int                                 added   = 0;
 
-                for (auto& ticker : tickers) // tickers는 이 반복 뒤 버려지므로 마지막 자리에서 옮긴다
+                for (symbol::SymbolId symbol : scanned)
                 {
-                    add_gated(engine, factory(ticker));
-                    covered.insert(ticker); // 청산 관리 중복 부착 방지용
-                    LOG_INFO("[Main]   + " + base.id_prefix + " 초기 " + ticker);
-                    seeded.push_back(std::move(ticker));
+                    add_gated(engine, factory(symbol));
+                    mark_symbol(covered, symbol, symbol_capacity); // 청산 관리 중복 부착 방지용
+                    LOG_INFO("[Main]   + " + base.id_prefix + " 초기 " + engine.symbols().name(symbol).string());
+                    seeded.push_back(symbol);
                     ++added;
                 }
 
@@ -972,8 +1026,9 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
             return;
         }
 
-        add_gated(engine, factory(ticker));
-        covered.insert(std::move(ticker));
+        const symbol::SymbolId symbol = engine.symbols().intern(ticker); // 설정의 문자열 티커는 여기서 id가 된다
+        add_gated(engine, factory(symbol));
+        mark_symbol(covered, symbol, symbol_capacity);
     }
 
     // 보유분 청산 관리 — 스캔에 안 잡힌 잔고 보유분에 청산 전용 ITB 부착(옵션).
@@ -981,7 +1036,18 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
     //  뒤에 로드되는 슬리브(TRENDX)가 방금 산 종목이 "스캔 밖 보유분"으로 보여 청산 관리가
     //  겹쳐 붙고, 그 청산 관리의 seed-trail 매도가 슬리브의 잔여 매도와 같은 주식을 두고
     //  경합한다(09-11 09:26~ ITB_112610·267250·014530 매도가능수량 0 거부 반복).
-    s_scan_covered.insert(covered.begin(), covered.end());
+    if (s_scan_covered.size() < covered.size())
+    {
+        s_scan_covered.resize(covered.size(), false);
+    }
+
+    for (size_t symbol = 0; symbol < covered.size(); ++symbol)
+    {
+        if (covered[symbol])
+        {
+            s_scan_covered[symbol] = true;
+        }
+    }
 
     if (node.contains("manage_holdings") && node["manage_holdings"].value("enabled", false))
     {

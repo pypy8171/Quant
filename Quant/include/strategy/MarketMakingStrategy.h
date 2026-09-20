@@ -69,6 +69,8 @@ public:
         symbol_id_ = symbol_of(ticker_);
         bid_order_id_.clear();
         ask_order_id_.clear();
+        bid_order_number_ = 0;
+        ask_order_number_ = 0;
         last_mid_ = 0.0;
         last_requote_ = std::chrono::steady_clock::time_point{};
         sequence_ = 0;
@@ -128,21 +130,25 @@ public:
         // ── 기존 견적 취소 (있으면) ─────────────────────────────────────────
         if (!bid_order_id_.empty())
         {
-            out.push_back(make_cancel(std::move(bid_order_id_), OrderSide::BUY));
+            out.push_back(make_cancel(std::move(bid_order_id_), bid_order_number_, OrderSide::BUY));
             bid_order_id_.clear();
+            bid_order_number_ = 0;
         }
 
         if (!ask_order_id_.empty())
         {
-            out.push_back(make_cancel(std::move(ask_order_id_), OrderSide::SELL));
+            out.push_back(make_cancel(std::move(ask_order_id_), ask_order_number_, OrderSide::SELL));
             ask_order_id_.clear();
+            ask_order_number_ = 0;
         }
 
         // ── 신규 양방향 지정가 ──────────────────────────────────────────────
-        bid_order_id_ = next_order_id("B");
-        ask_order_id_ = next_order_id("A");
-        out.push_back(make_new(bid_order_id_, OrderSide::BUY, desired_bid));
-        out.push_back(make_new(ask_order_id_, OrderSide::SELL, desired_ask));
+        bid_order_id_     = next_order_id("B");
+        ask_order_id_     = next_order_id("A");
+        bid_order_number_ = next_client_order_number();
+        ask_order_number_ = next_client_order_number();
+        out.push_back(make_new(bid_order_id_, bid_order_number_, OrderSide::BUY, desired_bid));
+        out.push_back(make_new(ask_order_id_, ask_order_number_, OrderSide::SELL, desired_ask));
 
         last_mid_     = mid_price;
         last_requote_ = now;
@@ -158,7 +164,7 @@ private:
         return id() + ":" + tag + ":" + std::to_string(++sequence_);
     }
 
-    OrderSignal make_new(const std::string& order_id, OrderSide side, double price)
+    OrderSignal make_new(const std::string& order_id, uint64_t order_number, OrderSide side, double price)
     {
         OrderSignal signal;
         signal.ticker      = ticker_;
@@ -171,11 +177,12 @@ private:
         signal.market      = Market::KR;
         signal.action      = OrderAction::NEW;
         signal.client_order_id  = order_id;
+        signal.client_order_number = order_number;
         signal.timestamp   = std::chrono::system_clock::now();
         return signal;
     }
 
-    OrderSignal make_cancel(std::string original_order_id, OrderSide side) // sink: 취소할 주문 id를 신호로 옮긴다
+    OrderSignal make_cancel(std::string original_order_id, uint64_t original_order_number, OrderSide side) // sink: 취소할 주문 id를 신호로 옮긴다
     {
         OrderSignal signal;
         signal.ticker         = ticker_;
@@ -186,7 +193,8 @@ private:
         signal.strategy_id    = id();
         signal.market         = Market::KR;
         signal.action         = OrderAction::CANCEL;
-        signal.original_client_order_id = std::move(original_order_id);
+        signal.original_client_order_id     = std::move(original_order_id);
+        signal.original_client_order_number = original_order_number;
         signal.timestamp      = std::chrono::system_clock::now();
         return signal;
     }
@@ -202,6 +210,8 @@ private:
     // 상태 — order_thread가 아닌 strategy_thread에서만 접근(on_order_book_batch 단일 호출자).
     std::string bid_order_id_;  // 현재 live 매수 견적 client_order_id ("" = 없음/낙관)
     std::string ask_order_id_;  // 현재 live 매도 견적 client_order_id
+    uint64_t    bid_order_number_ = 0; // 같은 견적의 주문 번호 — 취소 키
+    uint64_t    ask_order_number_ = 0;
     double last_mid_ = 0.0;
     std::chrono::steady_clock::time_point last_requote_{};
     uint64_t sequence_ = 0;

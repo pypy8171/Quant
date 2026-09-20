@@ -1,11 +1,14 @@
 #pragma once
+#include "core/StrategyTable.h"
 #include "core/SymbolTable.h"
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <type_traits>
-#include <unordered_map>
+#include <utility>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 시장 구분
@@ -106,7 +109,10 @@ struct OrderSignal
     // 지정가는 price로 명목을 평가하지만 시장가는 price가 0이라, 이 값이 없으면 명목 백스톱이
     // 우회된다(특히 급락장 강제청산의 시장가 전량매도). 발주 측이 마지막 체결가를 stamp한다.
     double reference_price = 0.0;
-    std::string strategy_id;
+    std::string strategy_id; // 로그·원장 CSV·ZMQ용 이름. 키로는 쓰지 않는다 — 아래 strategy_index가 키다.
+    // 전략 번호(StrategyTable). 엔진이 전략 등록 때 매기고 emit에서 찍는다. 게이트 서브원장·중복 신호 키는 이 번호로
+    //  찾는다 — 신호마다 "계좌:전략:종목:방향" 문자열을 만들어 해시하던 것을 정수 4개로 바꿨다. [why D-112]
+    strategy_table::StrategyId strategy_index = strategy_table::kNone;
     Market market = Market::KR;
     std::string exchange; // US only: "NAS", "NYS"
     std::chrono::system_clock::time_point timestamp;
@@ -114,8 +120,12 @@ struct OrderSignal
 
     // ── 주문 생명주기 관리 (MM-1) — 전부 기본값, 비파괴 확장 ─────────────────
     OrderAction action = OrderAction::NEW; // 기본 NEW라 기존 전략은 이 필드를 몰라도 동일 동작
-    std::string client_order_id;                // 전략이 부여하는 주문 식별자 (취소/정정 추적용)
-    std::string original_client_order_id;           // CANCEL/REPLACE 대상 원주문 client_order_id
+    std::string client_order_id;                // 전략이 부여하는 주문 이름 — 로그·원장 CSV·운영단말 응답용. 키가 아니다
+    std::string original_client_order_id;           // CANCEL/REPLACE 대상 원주문 이름(로그용)
+    // 주문 번호 — 신호를 만들 때 next_client_order_number()로 한 번 받는다. 라우터는 취소·정정 대상을 이 번호로
+    //  찾는다(문자열 이름을 이력 전체와 비교하던 것을 정수 색인으로 바꿨다). 0=없음. [why D-112]
+    uint64_t client_order_number          = 0;
+    uint64_t original_client_order_number = 0;
 
     // ── 판단 근거 (G4) — 비파괴 확장, 기본 빈값 ──────────────────────────────
     // 전략이 이 신호를 낸 "이유"(충족된 지표·조건 요약). 신호와 한 레코드로 영속되어
@@ -218,10 +228,42 @@ enum class OrderStatus
     CANCELLED   // 취소
 };
 
+// 자릿수 문자열 → 정수. KIS 주문번호(ODNO "0000014893")·체결시각("110707")처럼 전문이 자릿수로 주는 값을
+//  받는 자리에서 한 번 바꾼다. 빈 문자열이나 숫자 아닌 글자가 섞이면 0.
+inline uint64_t digits_to_number(std::string_view digits) noexcept
+{
+    if (digits.empty())
+    {
+        return 0;
+    }
+
+    uint64_t value = 0;
+
+    for (const char character : digits)
+    {
+        if (character < '0' || character > '9')
+        {
+            return 0;
+        }
+
+        value = value * 10 + static_cast<uint64_t>(character - '0');
+    }
+
+    return value;
+}
+
+// 주문 번호 발급 — 프로세스 안에서 단조 증가. 전략·수동주문이 신호를 만들 때 한 번 부른다. [why D-112]
+inline uint64_t next_client_order_number() noexcept
+{
+    static std::atomic<uint64_t> counter{0};
+    return ++counter;
+}
+
 struct ManagedOrder
 {
     std::string   order_id;       // 내부 순번 ID  "ORD-000001"
-    std::string   kis_order_no;   // KIS 접수번호  ODNO
+    std::string   kis_order_no;   // KIS 접수번호  ODNO (전문·로그용 문자열)
+    uint64_t      kis_order_number = 0; // 같은 값의 정수 — 체결통보 매칭 색인 키. 0=미접수 [why D-112]
     std::string   krx_forwarding_org_no;      // KRX_FWDG_ORD_ORGNO — 정정/취소 필수 입력 (원주문 조직번호). 빈값=미보존
     OrderSignal   signal;
     OrderStatus   status{OrderStatus::PENDING};
@@ -291,16 +333,24 @@ public:
     constexpr operator Value() const { return value_; }
 
     // 매칭 실패는 UNKNOWN — 호출자(parse_active_regimes)가 경고 로그로 판단한다.
-    static Regime from_string(const std::string& text)
+    //  이름 셋을 컴파일 시점 표로 훑는다 — 해시 맵은 첫 호출에 힙을 잡고 호출마다 문자열 해시를 도는데, 항목 셋에는 비교가 더 싸다.
+    static Regime from_string(std::string_view text)
     {
-        static const std::unordered_map<std::string, Value> NAMES = {
+        static constexpr std::pair<std::string_view, Value> kNames[] = {
             {"BULL", BULL},
             {"NEUTRAL", NEUTRAL},
             {"BEAR", BEAR},
         };
 
-        auto iterator = NAMES.find(text);
-        return iterator != NAMES.end() ? Regime(iterator->second) : Regime(UNKNOWN);
+        for (const auto& [name, value] : kNames)
+        {
+            if (name == text)
+            {
+                return Regime(value);
+            }
+        }
+
+        return Regime(UNKNOWN);
     }
 
 private:
@@ -334,9 +384,11 @@ public:
 
     // config "type" 문자열 → StrategyType. 디스패치·로그 비교를 문자열이 아닌 enum값으로 하기 위함
     //  (hot path는 아니지만 오탈자 비교·string 해시를 매 로드마다 반복할 이유가 없다). 매칭 실패는 UNKNOWN.
-    static StrategyType from_string(const std::string& text)
+    //  입력이 설정 파일의 문자열이라 문자열 비교 자체는 남는다. 열 항목을 컴파일 시점 표로 훑는다 — 해시 맵은 첫 호출에
+    //  힙을 잡고 호출마다 해시를 도는데, 이 크기에는 비교가 더 싸고 정적 초기화 순서 문제도 없다.
+    static StrategyType from_string(std::string_view text)
     {
-        static const std::unordered_map<std::string, Value> NAMES = {
+        static constexpr std::pair<std::string_view, Value> kNames[] = {
             {"MA_CROSS", MA_CROSS},
             {"INTRADAY_BREAKOUT", INTRADAY_BREAKOUT},
             {"MOMENTUM", MOMENTUM},
@@ -349,8 +401,15 @@ public:
             {"THEME", THEME},
         };
 
-        auto iterator = NAMES.find(text);
-        return iterator != NAMES.end() ? StrategyType(iterator->second) : StrategyType(UNKNOWN);
+        for (const auto& [name, value] : kNames)
+        {
+            if (name == text)
+            {
+                return StrategyType(value);
+            }
+        }
+
+        return StrategyType(UNKNOWN);
     }
 
 private:

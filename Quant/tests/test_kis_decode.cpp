@@ -69,7 +69,7 @@ int test_parse_dt()
 int test_parse_minute_page()
 {
     std::vector<kis_rest::RawMinute> raw_minutes;
-    std::unordered_set<std::string> seen;
+    std::unordered_set<uint64_t> seen;
     int added = -1;
 
     // 페이지 1: 최신→과거. 짧은 시각 행은 버리고 커서에도 안 잡힌다.

@@ -33,7 +33,15 @@ Engine::~Engine()
 void Engine::add_strategy(std::unique_ptr<StrategyBase> strategy)
 {
     LOG_INFO("[Engine] 전략 등록: " + strategy->describe());
+    assign_strategy_identity(*strategy);
     strategy_.list.push_back(std::move(strategy));
+}
+
+void Engine::assign_strategy_identity(StrategyBase& strategy)
+{
+    // 이름은 여기서만 본다 — 접두 "ITB_"가 청산 관리 전략(청산 관리 보유 종목 차단 면제)이다.
+    strategy.set_strategy_index(order_gate_.strategy_index_of(strategy.id()));
+    strategy.set_exit_manager(strategy.id().starts_with("ITB_"));
 }
 
 // 런타임(장중) 전략 등록. start()의 초기화 루프와 동일한 준비를 하되, strategy_.list
@@ -61,6 +69,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
         return ledger_sellable(account, ticker);
     });
     strategy->set_symbol_resolver([this](std::string_view ticker) { return symbols_.table.intern(ticker); });
+    assign_strategy_identity(*strategy);
 
     try
     {
@@ -89,7 +98,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     {
         if (specification.market == Market::KR)
         {
-            universe_rescan_.registered_tickers.insert(specification.ticker);
+            rescan_set_registered(symbols_.table.intern(specification.ticker), true);
         }
 
         bool exists = false;
@@ -239,29 +248,112 @@ void Engine::apply_regime_selection(Regime regime, bool force_log)
 }
 
 // 기동 유니버스를 마지막 재스캔 슬리브의 소유로 — 스레드 시작 전 호출 전용(strategy_.list를 락 없이 읽는다).
-void Engine::seed_universe_rescan(const std::vector<std::string>& tickers)
+void Engine::seed_universe_rescan(const std::vector<symbol::SymbolId>& symbols)
 {
-    if (universe_rescan_.jobs.empty() || tickers.empty())
+    if (universe_rescan_.jobs.empty() || symbols.empty())
     {
         return;
     }
 
-    auto& job = universe_rescan_.jobs.back();
-    std::unordered_set<std::string> wanted_tickers(tickers.begin(), tickers.end());
+    auto&             job = universe_rescan_.jobs.back();
+    std::vector<bool> wanted(job.owned.size(), false);
+
+    for (symbol::SymbolId symbol : symbols)
+    {
+        if (symbol != symbol::kNone && symbol < wanted.size())
+        {
+            wanted[symbol] = true;
+        }
+    }
 
     for (auto& strategy : strategy_.list)
     {
         for (const auto& specification : strategy->get_watch_specifications())
         {
-            if (specification.market == Market::KR && wanted_tickers.count(specification.ticker) && !job.owned.count(specification.ticker))
+            if (specification.market != Market::KR)
             {
-                job.owned[specification.ticker] = strategy.get();
+                continue;
+            }
+
+            // 구독 스펙의 티커는 문자열이라 여기서 id로 바꾼다(기동 1회).
+            const symbol::SymbolId symbol = symbols_.table.intern(specification.ticker);
+
+            if (symbol < wanted.size() && wanted[symbol] && job.owned[symbol].strategy == nullptr)
+            {
+                job.owned[symbol].strategy = strategy.get();
+                job.owned_ids.push_back(symbol);
                 ++job.registered;   // 상한은 소유 수로 센다 — 떼면 줄어드는 자리에 기동 종목도 든다
             }
         }
     }
 
-    LOG_INFO("[Engine] 재스캔 소유 시드: " + std::to_string(job.owned.size()) + "종목 (기동 유니버스)");
+    LOG_INFO("[Engine] 재스캔 소유 시드: " + std::to_string(job.owned_ids.size()) + "종목 (기동 유니버스)");
+}
+
+void Engine::rescan_set_registered(symbol::SymbolId symbol, bool on)
+{
+    if (symbol == symbol::kNone)
+    {
+        return;
+    }
+
+    if (symbol >= universe_rescan_.registered.size())
+    {
+        universe_rescan_.registered.resize(std::max<size_t>(symbols_.table.capacity(), symbol + 1), false);
+    }
+
+    if (universe_rescan_.registered[symbol] == on)
+    {
+        return;
+    }
+
+    universe_rescan_.registered[symbol] = on;
+    universe_rescan_.registered_count += on ? 1 : (universe_rescan_.registered_count > 0 ? -1 : 0);
+}
+
+void Engine::retire_owned(RescanJob& job, symbol::SymbolId symbol,
+                          const std::function<std::string(const StrategyBase&)>& make_line)
+{
+    if (symbol >= job.owned.size() || job.owned[symbol].strategy == nullptr)
+    {
+        return;
+    }
+
+    StrategyBase* pointer = job.owned[symbol].strategy;
+    // 옛 스냅샷이 새 스냅샷으로 바뀔 때까지 틱은 계속 온다 — 그 사이 신규매수만 막는다.
+    pointer->set_active(false);
+
+    std::unique_ptr<StrategyBase> victim;
+    uint64_t version = 0;
+    {
+        std::lock_guard<std::mutex> lock(strategy_.mutex);
+        auto strategy_iterator = std::find_if(strategy_.list.begin(), strategy_.list.end(),
+                                [pointer](const std::unique_ptr<StrategyBase>& strategy) { return strategy.get() == pointer; });
+
+        if (strategy_iterator != strategy_.list.end())
+        {
+            victim = std::move(*strategy_iterator);
+            strategy_.list.erase(strategy_iterator);
+        }
+
+        version = strategy_.version.fetch_add(1, std::memory_order_release) + 1;
+        rebuild_routes_locked();
+    }
+
+    if (victim)
+    {
+        LOG_INFO(make_line(*victim));
+        strategy_.retired.push_back(Retired{std::move(victim), version});
+    }
+
+    rescan_set_registered(symbol, false);
+    job.owned[symbol] = RescanJob::Owned{};
+    std::erase(job.owned_ids, symbol);
+
+    if (job.registered > 0)
+    {
+        --job.registered;
+    }
 }
 
 // 주기적 유니버스 재스캔 — universe_fn_으로 티커 목록을 산출해 미등록 종목은 런타임 등록하고,
@@ -301,12 +393,12 @@ void Engine::maybe_rescan_universe()
         const auto previous_run = job.last_run.time_since_epoch().count() != 0 ? job.last_run : now_steady;
         job.last_run = now_steady;
 
-        std::vector<std::string> tickers;
+        std::vector<symbol::SymbolId> scanned;
         const auto scan_call_start = std::chrono::steady_clock::now();
 
         try
         {
-            tickers = job.universe_fn(*scan_kis);
+            scanned = job.universe_fn(*scan_kis);
         }
         catch (const std::exception& exception)
         {
@@ -327,7 +419,7 @@ void Engine::maybe_rescan_universe()
             const long long gap_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now_steady - previous_run).count();
             LOG_INFO("[Engine] 유니버스 재스캔 계측: 경과=" + std::to_string(scan_ms) + "ms 간격=" +
                      std::to_string(gap_ms) + "ms(설정 " + std::to_string(job.interval_sec * 1000) + "ms) 결과=" +
-                     std::to_string(tickers.size()) + "종목 이 슬리브 등록=" + std::to_string(job.registered));
+                     std::to_string(scanned.size()) + "종목 이 슬리브 등록=" + std::to_string(job.registered));
         }
 
         int  added  = 0;
@@ -336,67 +428,40 @@ void Engine::maybe_rescan_universe()
         // 상한에 닿았을 때 자리를 내줄 후보 — 오늘 스캔 top-N에 없고(점수 밀림) 미보유인 등록 종목.
         //  누적 등록만 세면 한 번 자리 잡은 종목이 오늘 순위와 무관하게 영영 남는다 [why D-087].
         //  이탈 판정(아래)도 같은 스캔·같은 보유 스냅샷을 쓴다 — 두 번 찍으면 그 사이 체결로 어긋날 수 있다.
-        std::unordered_set<std::string> in_scan(tickers.begin(), tickers.end());
-        std::unordered_set<std::string> held;
+        const size_t      extent = job.owned.size();
+        std::vector<bool> in_scan(extent, false);
+        std::vector<bool> held(extent, false);
 
-        for (const auto& snapshot_position : order_gate_.snapshot_positions())
+        for (symbol::SymbolId symbol : scanned)
         {
-            if (snapshot_position.quantity != 0 || order_gate_.reserved(snapshot_position.account, snapshot_position.ticker) != 0)
+            if (symbol != symbol::kNone && symbol < extent)
             {
-                held.insert(snapshot_position.ticker);
+                in_scan[symbol] = true;
             }
         }
 
-        auto retire_owned_for_evict = [&](const std::string& ticker, const std::string& beneficiary)
+        for (const auto& snapshot_position : order_gate_.snapshot_positions())
         {
-            auto owned_iterator = job.owned.find(ticker);
-
-            if (owned_iterator == job.owned.end())
+            if (snapshot_position.symbol < extent &&
+                (snapshot_position.quantity != 0 || order_gate_.reserved(snapshot_position.account, snapshot_position.symbol) != 0))
             {
-                return;
+                held[snapshot_position.symbol] = true;
             }
+        }
 
-            StrategyBase* pointer = owned_iterator->second;
-            pointer->set_active(false);
-
-            std::unique_ptr<StrategyBase> victim;
-            uint64_t version = 0;
-            {
-                std::lock_guard<std::mutex> lock(strategy_.mutex);
-                auto strategy_iterator = std::find_if(strategy_.list.begin(), strategy_.list.end(),
-                                        [pointer](const std::unique_ptr<StrategyBase>& strategy) { return strategy.get() == pointer; });
-
-                if (strategy_iterator != strategy_.list.end())
-                {
-                    victim = std::move(*strategy_iterator);
-                    strategy_.list.erase(strategy_iterator);
-                }
-
-                version = strategy_.version.fetch_add(1, std::memory_order_release) + 1;
-                rebuild_routes_locked();
-            }
-
-            if (victim)
-            {
-                LOG_INFO("[Engine] 재스캔 점수 교체 — 오늘 순위 밖·미보유 해제: " + victim->describe() +
-                         " → " + beneficiary);
-                strategy_.retired.push_back(Retired{std::move(victim), version});
-            }
-
-            universe_rescan_.registered_tickers.erase(ticker);
-            job.owned.erase(owned_iterator);
-            job.absent_since.erase(ticker);
-            job.present_streak.erase(ticker);
-
-            if (job.registered > 0)
-            {
-                --job.registered;
-            }
+        // 선점(reserved)은 기본 계좌 기준 — 예전 문자열 겹정의 reserved(ticker)와 같은 계좌 규칙이다.
+        auto reserved_of = [this](symbol::SymbolId symbol) { return order_gate_.reserved(std::string(), symbol); };
+        auto absent_sec_of = [&job, now_steady](symbol::SymbolId symbol) -> long long
+        {
+            const auto since = job.owned[symbol].absent_since;
+            return since.time_since_epoch().count() == 0
+                       ? 0LL
+                       : std::chrono::duration_cast<std::chrono::seconds>(now_steady - since).count();
         };
 
-        for (auto& code : tickers)
+        for (symbol::SymbolId code : scanned)
         {
-            if (code.empty() || universe_rescan_.registered_tickers.count(code))
+            if (code == symbol::kNone || code >= extent || rescan_is_registered(code))
             {
                 continue;
             }
@@ -404,24 +469,19 @@ void Engine::maybe_rescan_universe()
             // 상한에 닿으면 오늘 순위 밖·미보유 종목을 찾아 그 자리를 내준다. 없으면 더 등록하지 않는다.
             if (job.max_registered > 0 && job.registered >= job.max_registered)
             {
-                const std::string victim_ticker = universe_exit::pick_evict_candidate(
-                    job.owned, in_scan, held,
-                    [this](const std::string& ticker) { return order_gate_.reserved(ticker); },
-                    [&job, now_steady](const std::string& ticker) -> long long
-                    {
-                        auto iterator = job.absent_since.find(ticker);
-                        return iterator == job.absent_since.end()
-                                   ? 0LL
-                                   : std::chrono::duration_cast<std::chrono::seconds>(now_steady - iterator->second).count();
-                    });
+                const symbol::SymbolId victim_symbol =
+                    universe_exit::pick_evict_candidate(job.owned_ids, in_scan, held, reserved_of, absent_sec_of);
 
-                if (victim_ticker.empty())
+                if (victim_symbol == symbol::kNone)
                 {
                     capped = true;
                     break;
                 }
 
-                retire_owned_for_evict(victim_ticker, code);
+                retire_owned(job, victim_symbol, [this, code](const StrategyBase& victim) {
+                    return "[Engine] 재스캔 점수 교체 — 오늘 순위 밖·미보유 해제: " + victim.describe() + " → " +
+                           symbols_.table.name(code).string();
+                });
             }
 
             auto strategy = job.factory(code);
@@ -435,10 +495,11 @@ void Engine::maybe_rescan_universe()
             StrategyBase* raw = strategy.get();
             register_strategy_runtime(std::move(strategy));
 
-            // on_start 예외로 등록이 거부됐으면 universe_rescan_.registered_tickers에 안 들어간다.
-            if (universe_rescan_.registered_tickers.count(code))
+            // on_start 예외로 등록이 거부됐으면 registered에 안 들어간다.
+            if (rescan_is_registered(code))
             {
-                job.owned[code] = raw;
+                job.owned[code].strategy = raw;
+                job.owned_ids.push_back(code);
                 ++added;
                 ++job.registered;
             }
@@ -448,7 +509,7 @@ void Engine::maybe_rescan_universe()
         {
             LOG_INFO("[Engine] 유니버스 재스캔 완료: +" + std::to_string(added) +
                      "종목 (이 슬리브 " + std::to_string(job.registered) + ", 전체 " +
-                     std::to_string(universe_rescan_.registered_tickers.size()) + "종목)" +
+                     std::to_string(universe_rescan_.registered_count) + "종목)" +
                      (capped ? " — 등록 상한 " + std::to_string(job.max_registered) +
                                    " 도달, 신규 등록 중단"
                              : ""));
@@ -461,12 +522,12 @@ void Engine::maybe_rescan_universe()
 
         // 빈 결과는 이탈 근거가 아니다 — 스캐너는 지수 조회 실패·위험회피 때 예외 대신 빈 목록을 돌려준다.
         //  그대로 부재로 세면 한 번의 실패에 소유 전부가 차단·해제된다. 시계도 세우지 않고 건너뛴다.
-        if (tickers.empty() && !job.owned.empty())
+        if (scanned.empty() && !job.owned_ids.empty())
         {
             if (!job.empty_scan_warned)
             {
                 LOG_WARN("[Engine] 유니버스 재스캔 결과 없음 — 이탈 판정 건너뜀(소유 " +
-                         std::to_string(job.owned.size()) + "종목, 다음 결과까지 유지)");
+                         std::to_string(job.owned_ids.size()) + "종목, 다음 결과까지 유지)");
                 job.empty_scan_warned = true;
             }
 
@@ -478,28 +539,30 @@ void Engine::maybe_rescan_universe()
         // 이탈 판정. universe_fn은 보유 종목을 결과에서 이미 빼고 주므로(drop_held) 빠져 있다는
         //  것만으로는 이탈이 아니다 — in_scan·held는 위에서 이미 찍은 같은 스냅샷을 그대로 쓴다.
         const universe_exit::Thresholds thread{job.block_after_sec, job.drop_after_sec, job.return_confirm};
-        std::vector<std::string> drop;
+        std::vector<symbol::SymbolId> drop;
 
-        for (const auto& [owned_ticker, pointer] : job.owned)
+        for (symbol::SymbolId owned_symbol : job.owned_ids)
         {
+            RescanJob::Owned& owned   = job.owned[owned_symbol];
+            StrategyBase*     pointer = owned.strategy;
             // 시계는 하나(연속 부재), 임계값은 둘 — block_after_sec에 신규매수를 막고 drop_after_sec에 뗀다.
             //  복귀는 present가 return_confirm회 연속일 때만 — 경계 종목이 한 번 보이자마자 풀리면 사고팔기를
             //  반복한다. 보유 종목은 스캔 결과에서 빠져 오므로(drop_held) 보유를 이탈로 보지 않는다 —
             //  분할 매수 추가는 전략 자신의 정배열 게이트가 판단한다 [why D-077].
-            const bool present = in_scan.count(owned_ticker) || held.count(owned_ticker) || order_gate_.reserved(owned_ticker) != 0;
+            const bool present = in_scan[owned_symbol] || held[owned_symbol] || reserved_of(owned_symbol) != 0;
 
             if (present)
             {
-                job.absent_since.erase(owned_ticker);
+                owned.absent_since = {};
 
                 if (!pointer->in_universe())
                 {
-                    const int streak = ++job.present_streak[owned_ticker];
+                    const int streak = ++owned.present_streak;
 
                     if (universe_exit::judge_return(streak, thread, /*in_universe=*/false))
                     {
                         pointer->set_in_universe(true);
-                        job.present_streak.erase(owned_ticker);
+                        owned.present_streak = 0;
                         LOG_INFO("[Engine] 유니버스 복귀 → 신규매수 허용: " + pointer->describe() + " (present " +
                                  std::to_string(streak) + "회 연속)");
                     }
@@ -508,15 +571,14 @@ void Engine::maybe_rescan_universe()
                 continue;
             }
 
-            job.present_streak.erase(owned_ticker);
-            auto iterator = job.absent_since.find(owned_ticker);
+            owned.present_streak = 0;
 
-            if (iterator == job.absent_since.end())
+            if (owned.absent_since.time_since_epoch().count() == 0)
             {
-                iterator = job.absent_since.emplace(owned_ticker, previous_run).first;
+                owned.absent_since = previous_run;
             }
 
-            const auto absent_sec = std::chrono::duration_cast<std::chrono::seconds>(now_steady - iterator->second).count();
+            const auto absent_sec = std::chrono::duration_cast<std::chrono::seconds>(now_steady - owned.absent_since).count();
 
             switch (universe_exit::judge_absent(absent_sec, thread, pointer->in_universe()))
             {
@@ -526,58 +588,26 @@ void Engine::maybe_rescan_universe()
                          std::to_string(absent_sec) + "초 부재, 해제는 " + std::to_string(job.drop_after_sec) + "초)");
                 break;
             case universe_exit::Absent::DROP:
-                drop.push_back(owned_ticker);
+                drop.push_back(owned_symbol);
                 break;
             case universe_exit::Absent::KEEP:
                 break;
             }
         }
 
-        for (const auto& dropped_ticker : drop)
+        for (symbol::SymbolId dropped_symbol : drop)
         {
-            StrategyBase* pointer = job.owned[dropped_ticker];
-            // 옛 스냅샷이 새 스냅샷으로 바뀔 때까지 틱은 계속 온다 — 그 사이 신규매수만 막는다.
-            pointer->set_active(false);
-            std::unique_ptr<StrategyBase> victim;
-            uint64_t version = 0;
-            {
-                std::lock_guard<std::mutex> lock(strategy_.mutex);
-                auto strategy_iterator = std::find_if(strategy_.list.begin(), strategy_.list.end(),
-                                        [pointer](const std::unique_ptr<StrategyBase>& strategy) { return strategy.get() == pointer; });
-
-                if (strategy_iterator != strategy_.list.end())
-                {
-                    victim = std::move(*strategy_iterator);
-                    strategy_.list.erase(strategy_iterator);
-                }
-
-                version = strategy_.version.fetch_add(1, std::memory_order_release) + 1;
-                rebuild_routes_locked();
-            }
-
-            if (victim)
-            {
-                LOG_INFO("[Engine] 재스캔 이탈 해제: " + victim->describe() + " — " +
-                         std::to_string(job.drop_after_sec) + "초 이상 유니버스 밖, 보유·선점 없음");
-                strategy_.retired.push_back(Retired{std::move(victim), version});
-            }
-
-            universe_rescan_.registered_tickers.erase(dropped_ticker);
-            job.owned.erase(dropped_ticker);
-            job.absent_since.erase(dropped_ticker);
-            job.present_streak.erase(dropped_ticker);
-
-            if (job.registered > 0)
-            {
-                --job.registered;
-            }
+            retire_owned(job, dropped_symbol, [&job](const StrategyBase& victim) {
+                return "[Engine] 재스캔 이탈 해제: " + victim.describe() + " — " + std::to_string(job.drop_after_sec) +
+                       "초 이상 유니버스 밖, 보유·선점 없음";
+            });
         }
 
         if (!drop.empty())
         {
             LOG_INFO("[Engine] 유니버스 재스캔 해제: -" + std::to_string(drop.size()) +
                      "종목 (이 슬리브 " + std::to_string(job.registered) + ", 전체 " +
-                     std::to_string(universe_rescan_.registered_tickers.size()) + "종목)");
+                     std::to_string(universe_rescan_.registered_count) + "종목)");
         }
     }
 }
@@ -918,6 +948,7 @@ void Engine::collect_watch_specifications()
     // 전략별 구독 스펙 수집 (중복 제거)
     watch_specifications_.clear();
     {
+        // 키가 "시장:거래소:티커" 문자열 셋의 조합이고 설정에서 온 스펙을 기동 때 한 번 거르는 자리라 문자열 집합을 쓴다.
         std::unordered_set<std::string> seen;
 
         for (auto& strategy : strategy_.list)
@@ -936,14 +967,15 @@ void Engine::collect_watch_specifications()
 
     LOG_INFO("[Engine] WS 구독 종목: " + std::to_string(watch_specifications_.size()) + "개");
 
-    // 재스캔 중복 방지 시드 — 기동 유니버스에 이미 등록된 KR 티커 기록.
-    universe_rescan_.registered_tickers.clear();
+    // 재스캔 중복 방지 시드 — 기동 유니버스에 이미 등록된 KR 종목 기록(스펙의 문자열 티커는 여기서 id가 된다).
+    universe_rescan_.registered.assign(symbols_.table.capacity(), false);
+    universe_rescan_.registered_count = 0;
 
     for (auto& specification : watch_specifications_)
     {
         if (specification.market == Market::KR)
         {
-            universe_rescan_.registered_tickers.insert(specification.ticker);
+            rescan_set_registered(symbols_.table.intern(specification.ticker), true);
         }
     }
 }
@@ -1213,15 +1245,20 @@ void Engine::start()
 
 // ─── 티커→종목명 라벨 (로그 가독성) ─────────────────────────────────────────
 //  스캔·청산 관리 부착 스레드가 write, 전략 스레드 신호 로그가 read라 뮤텍스로 보호.
-void Engine::register_ticker_name(const std::string& ticker, const std::string& name)
+void Engine::register_ticker_name(symbol::SymbolId symbol, const std::string& name)
 {
     if (name.empty())
     {
         return;
     }
 
+    if (symbol == symbol::kNone || symbol >= ticker_names_.size())
+    {
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(ticker_names_mutex_);
-    ticker_names_[ticker] = name;
+    ticker_names_[symbol] = name;
 }
 
 double Engine::last_price(symbol::SymbolId id) const noexcept
@@ -1258,31 +1295,41 @@ void Engine::set_last_price(const std::string& ticker, double price)
 }
 
 // 값으로 돌려준다 — ticker_names_는 뮤텍스 아래 갱신되므로 락을 벗어난 참조는 쓸 수 없다.
-std::string Engine::ticker_label(const std::string& ticker) const
+std::string Engine::ticker_label(symbol::SymbolId symbol) const
 {
-    std::lock_guard<std::mutex> lock(ticker_names_mutex_);
-    auto iterator = ticker_names_.find(ticker);
+    std::string label = symbols_.table.name(symbol).string();
+    const std::string name = ticker_name(symbol);
 
-    if (iterator != ticker_names_.end() && !iterator->second.empty())
+    if (!name.empty())
     {
-        return ticker + "(" + iterator->second + ")";
+        label += "(" + name + ")";
     }
 
-    return ticker;
+    return label;
+}
+
+std::string Engine::ticker_label(const std::string& ticker) const
+{
+    const symbol::SymbolId symbol = symbols_.table.lookup(ticker);
+
+    if (symbol == symbol::kNone)
+    {
+        return ticker; // 테이블에 없는 티커(외국 종목·오타)는 원문 그대로
+    }
+
+    return ticker_label(symbol);
 }
 
 // 값으로 돌려준다 — 위와 같은 이유(락 밖 참조 금지).
-std::string Engine::ticker_name(const std::string& ticker) const
+std::string Engine::ticker_name(symbol::SymbolId symbol) const
 {
-    std::lock_guard<std::mutex> lock(ticker_names_mutex_);
-    auto iterator = ticker_names_.find(ticker);
-
-    if (iterator != ticker_names_.end())
+    if (symbol == symbol::kNone || symbol >= ticker_names_.size())
     {
-        return iterator->second;
+        return std::string();
     }
 
-    return std::string();
+    std::lock_guard<std::mutex> lock(ticker_names_mutex_);
+    return ticker_names_[symbol];
 }
 
 // 전략에 주는 매도가능수량. 게이트 clamp와 같은 식(possible_quantity_cap - pending)이라 전략이 낸 수량이 게이트에서
@@ -1538,13 +1585,18 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                     if (equity_quote_client && (est_flow_tick % kEstFlowLogEveryNTicks) == 0)
                     {
                         // 우리 유니버스(watch) 티커 집합 — 교집합만 강조 로깅.
-                        std::unordered_set<std::string> ours;
+                        std::vector<bool> ours(symbols_.table.capacity(), false);
 
                         for (const auto& watch_specification : watch_specifications_)
                         {
                             if (watch_specification.market == Market::KR)
                             {
-                                ours.insert(watch_specification.ticker);
+                                const symbol::SymbolId symbol = symbols_.table.lookup(watch_specification.ticker);
+
+                                if (symbol != symbol::kNone)
+                                {
+                                    ours[symbol] = true;
+                                }
                             }
                         }
 
@@ -1562,7 +1614,9 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
                             for (const auto& flow_f : values)
                             {
-                                if (ours.count(flow_f.ticker) == 0)
+                                const symbol::SymbolId flow_symbol = symbols_.table.lookup(flow_f.ticker); // 응답 티커는 문자열
+
+                                if (flow_symbol == symbol::kNone || !ours[flow_symbol])
                                 {
                                     continue; // 우리 종목만 로깅
                                 }
@@ -1913,18 +1967,16 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 //  판정(stale·시간 상자·1회 로그)은 core/RegimeFileJudge.h의 상태기계가 맡는다. [why D-060]
 // 스캔 스레드가 슬리브마다 부른다(20초 간격). 파일은 임시 이름으로 쓰고 바꿔치기해
 //  대시보드가 반쯤 쓰인 JSON을 읽지 않게 한다. 쓰기 실패는 매매와 무관하므로 경고만 남긴다.
-void Engine::set_entry_priority(std::unordered_map<std::string, int> rank,
-                                std::unordered_map<std::string, double> items, int total)
+void Engine::set_entry_priority(const std::vector<OrderGate::PriorityEntry>& entries, int total)
 {
     nlohmann::json scores = nlohmann::json::object();
 
-    for (const auto& entry : rank)
+    for (const auto& entry : entries)
     {
-        auto zit = items.find(entry.first);
-        scores[entry.first] = {{"rank", entry.second}, {"z", zit == items.end() ? 0.0 : zit->second}};
+        scores[symbols_.table.name(entry.symbol).string()] = {{"rank", entry.rank}, {"z", entry.z_score}};
     }
 
-    order_gate_.set_entry_priority(std::move(rank), std::move(items), total);
+    order_gate_.set_entry_priority(entries, total);
 
     static std::mutex file_mutex; // 두 슬리브가 겹쳐 불러도 파일은 한 번에 하나만 쓴다
     std::lock_guard<std::mutex> lock(file_mutex);
@@ -2126,7 +2178,7 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
         },
         std::chrono::steady_clock::now());
     dispatcher.set_label([this](const std::string& ticker) { return ticker_label(ticker); });
-    dispatcher.set_exit_managed_check([this](const std::string& ticker) { return universe_rescan_.exit_managed_tickers.count(ticker) > 0; });
+    dispatcher.set_exit_managed_check([this](symbol::SymbolId symbol) { return is_exit_managed(symbol); });
     auto push_signal = [&](const OrderSignal& signal) { dispatcher.submit(signal); };
 
     // 틱은 샤드 스레드가 돌린다(shard_thread_fn). 여기는 샤드가 보낸 봉투와 수동주문을 디스패처 한 곳으로 모아
@@ -2159,7 +2211,7 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
             // 샤드가 보낸 신호 봉투 — 국면 게이트(비활성 전략의 신규 매수)와 청산 관리 티커 차단은 디스패처가 한다.
             while (auto entry = pipeline_.shard_out.pop())
             {
-                dispatcher.from_strategy(entry->active, entry->strategy_id, entry->signal);
+                dispatcher.from_strategy(entry->active, entry->exit_manager, entry->signal);
                 did_work = true;
             }
         }
@@ -2221,8 +2273,9 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
             emitted.signal.symbol_id = symbols_.table.intern(emitted.signal.ticker);
         }
 
-        emitted.strategy_id = strategy->id();
-        emitted.active      = strategy->is_active();
+        emitted.signal.strategy_index = strategy->strategy_index();
+        emitted.active                = strategy->is_active();
+        emitted.exit_manager          = strategy->is_exit_manager();
 
         // 전략 스레드가 정체돼 봉투 큐가 찬 상태 — 기다리면 이 샤드의 틱이 밀린다. 신호를 버리고 센다(D-073과 같은 규칙).
         if (!pipeline_.shard_out.push(std::move(emitted)))
@@ -2980,8 +3033,10 @@ void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& e
         signal.quantity    = ops_order_request.quantity;
         signal.price       = ops_order_request.price;
         signal.reference_price   = reference;
-        signal.strategy_id = "MANUAL";
+        signal.strategy_id    = "MANUAL";
+        signal.strategy_index = manual_strategy_index_;
         signal.client_order_id  = ops_order_request.client_id;
+        signal.client_order_number = next_client_order_number();
         signal.reason      = "운영단말 수동주문 cid=" + ops_order_request.client_id;
         signal.timestamp   = std::chrono::system_clock::now();
         LOG_INFO("[Ops] 수동주문 → 게이트 cid=" + ops_order_request.client_id + " " + ops_order_request.ticker + " " + ops_order_request.side + " " + std::to_string(ops_order_request.quantity) +

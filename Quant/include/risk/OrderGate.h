@@ -1,4 +1,5 @@
 #pragma once
+#include "core/StrategyTable.h"
 #include "core/SymbolTable.h"
 #include "core/Types.h"
 #include <atomic>
@@ -6,6 +7,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -104,6 +106,30 @@ public:
         return symbols_->lookup(ticker);
     }
 
+    // 종목을 테이블에 등록하고 id를 돌려준다 — 우선순위 표·테스트가 원장보다 먼저 종목을 알 때 쓴다.
+    [[nodiscard]] symbol::SymbolId intern_symbol(std::string_view ticker)
+    {
+        return symbols_->intern(ticker);
+    }
+
+    // 원장이 쓰는 종목 테이블(읽기) — id를 로그용 문자열로 되돌릴 때만 쓴다.
+    [[nodiscard]] const symbol::SymbolTable& symbols() const noexcept
+    {
+        return *symbols_;
+    }
+
+    // 전략 번호 테이블 — 원장 서브원장·중복 신호 키가 쓰는 번호. 엔진이 전략을 등록할 때, 디스패처·라우터가
+    //  "FORCE_LIQ"·"UNLINKED" 같은 고정 이름을 생성자에서 한 번 받아 둔다. 신호마다 부르지 않는다. [why D-112]
+    [[nodiscard]] strategy_table::StrategyId strategy_index_of(std::string_view strategy_id)
+    {
+        return strategies_.intern(strategy_id);
+    }
+
+    [[nodiscard]] const strategy_table::StrategyTable& strategy_table() const noexcept
+    {
+        return strategies_;
+    }
+
     // ── 주문 검증 (true = 통과, false = 거부) ──────────────────────────────
     bool check(const OrderSignal& signal, std::string& reject_reason);
 
@@ -199,14 +225,14 @@ public:
         double strategy_realized_pnl  = 0.0; // 이번 체결의 strategy_id 기준 실현손익 (SELL만)
         bool   strategy_basis_unknown = false; // strategy_id가 비었거나 그 전략의 평단을 모를 때 true
     };
-    // strategy_id: OrderSignal.strategy_id(예: "TRENDX_108490"). 빈 문자열이면 서브원장 갱신을 건너뛴다.
+    // strategy: OrderSignal.strategy_index(strategy_index_of로 받은 번호). kNone이면 서브원장 갱신을 건너뛴다.
     FillResult on_fill_confirmed(const std::string& account, const std::string& ticker,
                                  OrderSide side, int quantity, double price,
-                                 const std::string& strategy_id = std::string());
+                                 strategy_table::StrategyId strategy = strategy_table::kNone);
     FillResult on_fill_confirmed(const std::string& ticker, OrderSide side,
                                  int quantity, double price)
     {
-        return on_fill_confirmed(std::string(), ticker, side, quantity, price, std::string());
+        return on_fill_confirmed(std::string(), ticker, side, quantity, price, strategy_table::kNone);
     }
 
     // ── Kill switch ─────────────────────────────────────────────────────────
@@ -269,32 +295,37 @@ public:
     //  total은 랭크의 모집단 크기(등록 종목 수). 비어 있으면 우선순위 바는 동작하지 않는다.
     //  z는 같은 점수의 표준화값 — 랭크는 "몇 번째"만 알려주고 "얼마나 더 좋은지"는 못 알려준다.
     //  교체는 격차가 잡음보다 큰지를 봐야 하므로 z가 따로 필요하다.
-    void set_entry_priority(std::unordered_map<std::string, int> rank,
-                            std::unordered_map<std::string, double> items, int total)
+    //  종목은 id로 받는다(intern_symbol·symbol_id_of). 표는 id 배열 세 개(랭크·"나보다 위" 수·z)로 굳혀
+    //  check()가 "나보다 위인데 아직 안 산 종목 수"를 원장 순회(보유·선점 ≤ 슬롯 수) 안에서 정수 조회로 센다 —
+    //  문자열 맵 전체를 돌며 항목마다 해시하던 것(300종목 4.2µs)을 없앤다. 표는 통째로 바꿔 끼우고(shared_ptr)
+    //  읽는 쪽은 포인터만 복사하므로 plan_displacement가 맵을 복사해 락 밖으로 들고 나오던 일도 없다. [why D-112]
+    struct PriorityEntry
     {
-        std::lock_guard<std::mutex> lock(priority_mutex_);
-        entry_rank_  = std::move(rank);
-        entry_z_     = std::move(items);
-        entry_total_ = total;
-    }
+        symbol::SymbolId symbol = symbol::kNone;
+        int              rank   = 0;   // 1=최고
+        double           z_score = 0.0; // 종합점수 표준화값
+    };
+    void set_entry_priority(const std::vector<PriorityEntry>& entries, int total);
 
     // ── 교체 진입 ────────────────────────────────────────────────────────────
     //  슬롯이 꽉 찬 상태에서 new_ticker가 들어오려 할 때, 비워 줄 최약체를 고른다.
     //  고르기만 하고 주문은 내지 않는다 — 발주는 order_queue_ 단일 생산자인 전략 스레드 몫이다.
     struct DisplacePlan
     {
-        bool        ok = false;
-        std::string account;      // 비울 종목의 계좌
-        std::string ticker;       // 비울 종목
+        bool             ok = false;
+        std::string      account;      // 비울 종목의 계좌
+        std::string      ticker;       // 비울 종목(발주·로그용 문자열)
+        symbol::SymbolId symbol = symbol::kNone; // 비울 종목 id(쿨다운 기록용)
         int         quantity = 0;      // 매도할 수량(미체결 매도 제외)
         double      average_price = 0.0;
         double      victim_z = 0.0;
         double      new_z = 0.0;
         std::string reason;       // 로그·원장에 남길 사유
     };
-    DisplacePlan plan_displacement(const std::string& account, const std::string& new_ticker) const;
-    // 교체를 실제로 발주했을 때 호출 — 쿨다운·횟수·슬롯 예약을 기록한다.
-    void note_displacement(const DisplacePlan& plan, const std::string& beneficiary);
+    //  new_symbol은 신호의 symbol_id(원장 테이블 번호). 모르는 종목(kNone)은 점수가 없어 거절된다.
+    DisplacePlan plan_displacement(const std::string& account, symbol::SymbolId new_symbol) const;
+    // 교체를 실제로 발주했을 때 호출 — 쿨다운·횟수·슬롯 예약을 기록한다. beneficiary는 자리를 받을 종목 id.
+    void note_displacement(const DisplacePlan& plan, symbol::SymbolId beneficiary);
     // 동시 보유 슬롯이 꽉 찼는가(신규 종목을 열 자리가 없는가).
     bool slots_full() const;
     // 열린 슬롯 수 — 보유 수량 > 0인 종목 + 보유 없이 매수 선점만 있는 종목. positions_mtx_를 잡는다.
@@ -343,11 +374,13 @@ public:
     //  (09-09 관측). 정본은 둘로 갈린다 — 실보유는 브로커 잔고, 선점은 라우터 미체결 이력.
     //  live_tickers = 그 정본이 살아 있다고 답한 종목. 여기 없는 항목만 걷어낸다.
     //  min_age_sec 안에 열린 포지션은 잔고 스냅샷이 방금 체결을 아직 못 봤을 수 있어 남긴다.
-    //  반환값은 걷어낸 종목 코드(호출부가 로그로 남긴다).
-    std::vector<std::string> prune_positions(const std::vector<std::string>& live_tickers,
-                                             int min_age_sec);
+    //  반환값은 걷어낸 종목 id(호출부가 로그·대조 행에 쓴다).
+    std::vector<symbol::SymbolId> prune_positions(const std::vector<std::string>& live_tickers, int min_age_sec);
 
     // 선점은 접수 때만 생기므로 라우터 이력이 정본이다. 살아있는 주문이 없는 선점을 푼다.
+    //  live_symbols는 종목 id 인덱스 비트(라우터가 이력의 symbol_id로 만든다). 문자열 판은 브로커 잔고처럼
+    //  입력이 문자열인 곳용.
+    std::vector<std::string> prune_reservations(const std::vector<bool>& live_symbols);
     std::vector<std::string> prune_reservations(const std::vector<std::string>& live_tickers);
 
     // 미체결 매도를 브로커에서 취소한 뒤 매도가능수량을 되돌린다. 취소는 KIS에서 수량을 푸는데
@@ -384,6 +417,7 @@ public:
     // 정수 id 버전 — 전략이 틱마다 부르는 경로(ITB 청산 대기·DevScale 장 마감 블록). 문자열 해시가 없다. [why D-105]
     int    position(const std::string& account, symbol::SymbolId symbol) const;
     int    reserved(const std::string& account, const std::string& ticker) const;
+    int    reserved(const std::string& account, symbol::SymbolId symbol) const;
     double average_price(const std::string& account, const std::string& ticker) const;
     int    position(const std::string& ticker) const { return position(std::string(), ticker); }
     int    reserved(const std::string& ticker) const { return reserved(std::string(), ticker); }
@@ -393,7 +427,15 @@ public:
     // ── 보유 포지션 스냅샷 (G3 강제청산) — net>0 실보유분만 락 하 복사 반환 ──────
     //  data_thread가 아닌 strategy_thread(order_queue_ 단일 생산자)가 force_liquidate 시
     //  이 목록으로 전량 시장가 매도를 발주한다.
-    struct HeldPos { std::string account; std::string ticker; int quantity; double average_price; };
+    // symbol은 원장 키의 종목 id — 강제청산·한도 정리가 미체결 잔량을 물을 때 문자열 대신 이 번호로 묻는다.
+    struct HeldPos
+    {
+        std::string      account;
+        std::string      ticker;
+        int              quantity;
+        double           average_price;
+        symbol::SymbolId symbol = symbol::kNone;
+    };
     std::vector<HeldPos> snapshot_positions() const;
 
 private:
@@ -440,14 +482,16 @@ private:
     // 신호는 수신 스레드가 찍은 symbol_id를 이미 들고 있다 — Engine 테이블을 쓸 때만 그 id를 믿는다
     //  (자체 테이블이면 다른 테이블의 id라 문자열로 찾는다).
     [[nodiscard]] PosKey lookup_key(const OrderSignal& signal) const;
+    // check() 전용 — 처음 보는 계좌·종목을 등록해 중복 신호 키가 모르는 계좌끼리 겹치지 않게 한다.
+    //  [inv] positions_mutex_를 잡고 부른다.
+    [[nodiscard]] PosKey register_key(const OrderSignal& signal);
+    // 계좌 문자열 → 계좌 번호. create면 처음 보는 계좌를 등록한다. [inv] positions_mutex_를 잡고 부른다.
+    [[nodiscard]] uint32_t account_index(std::string_view account, bool create);
     // 16바이트 값이라 힙 할당이 없다 — std::string이 필요한 자리(계획·스냅샷)만 .string()으로 만든다.
     [[nodiscard]] symbol::Ticker ticker_of(const PosKey& key) const;
+    // 종목 문자열 목록 → 종목 id 비트(테이블 용량 크기). 유령 정리 두 곳이 쓴다.
+    [[nodiscard]] std::vector<bool> live_symbols(const std::vector<std::string>& live_tickers) const;
     [[nodiscard]] const std::string& account_of(const PosKey& key) const;
-
-    [[nodiscard]] const symbol::SymbolTable& symbols() const noexcept
-    {
-        return *symbols_;
-    }
 
     // 선점 해제의 유일한 경로 — 취소 통보(on_cancel)와 체결 통보(on_fill_confirmed)가 함께 쓴다.
     //  없는 선점은 손대지 않고, 과잉 해제는 0에서 멈춘다. 규칙이 두 곳에 갈라져 있으면 한쪽만
@@ -464,17 +508,29 @@ private:
     std::atomic<double> available_cash_{0.0}; // 주문가능현금 스냅샷. 잔고 대조가 갱신, clamp_buy_qty가 락 없이 읽음
     std::atomic<double> equity_{0.0};      // 총평가금 스냅샷(§3d 총노출 게이트 분모). 잔고 대조가 갱신, check()가 락 없이 읽음
 
-    mutable std::mutex priority_mutex_;
-    std::unordered_map<std::string, int> entry_rank_; // ticker → 종합점수 랭크(1=최고)
-    int entry_total_ = 0;                             // 랭크 모집단 크기(등록 종목 수)
-    std::unordered_map<std::string, double> entry_z_; // ticker → 종합점수 z (교체 격차 판정용)
+    // 진입 우선순위 표 — 종목 id로 인덱스하는 배열. 재스캔이 새 표를 만들어 통째로 바꿔 끼운다(불변 스냅샷).
+    //  읽는 쪽(check·plan_displacement)은 priority_mutex_ 아래에서 포인터만 복사하고 락 밖에서 읽는다 —
+    //  positions_mutex_를 쥔 채 priority_mutex_를 잡는 일이 없어 락 순서 제약이 사라졌다. [why D-112]
+    struct PriorityTable
+    {
+        std::vector<int32_t>          rank_by_symbol;  // id → 랭크(0=없음)
+        std::vector<int32_t>          below_by_symbol; // id → 나보다 랭크가 낮은(점수 높은) 표 항목 수
+        std::vector<double>           z_by_symbol;     // id → 종합점수 z
+        int                           total = 0;       // 랭크 모집단 크기(등록 종목 수)
+    };
+    [[nodiscard]] std::shared_ptr<const PriorityTable> priority_snapshot() const;
+    [[nodiscard]] static int  rank_of(const PriorityTable& table, symbol::SymbolId symbol) noexcept;
+    [[nodiscard]] static bool z_of(const PriorityTable& table, symbol::SymbolId symbol, double& z_score) noexcept;
+
+    mutable std::mutex                   priority_mutex_;
+    std::shared_ptr<const PriorityTable> priority_; // nullptr이면 표 없음(우선순위 바 미동작)
 
     mutable std::mutex displace_mutex_;
-    std::unordered_map<std::string, TimePoint> displace_cooldown_; // 밀려난 종목 → 재진입 허용 시각
-    std::string slot_reserved_for_;      // 비운 슬롯을 쓸 종목(다른 종목이 가로채지 못하게)
-    TimePoint   slot_reserved_until_{};  // 예약 만료 시각
-    mutable std::unordered_map<std::string, std::string> displace_decline_; // 신규 종목 → 직전 교체 거절 사유(거부 문구용)
-    int         displace_count_ = 0;     // 당일 교체 횟수(reset_daily에서 0으로)
+    std::vector<TimePoint> displace_cooldown_until_; // 밀려난 종목 id → 재진입 허용 시각(기본값 = 없음). 종목 테이블 용량만큼
+    symbol::SymbolId slot_reserved_for_ = symbol::kNone; // 비운 슬롯을 쓸 종목(다른 종목이 가로채지 못하게)
+    TimePoint        slot_reserved_until_{};          // 예약 만료 시각
+    mutable std::unordered_map<symbol::SymbolId, std::string> displace_decline_; // 신규 종목 id → 직전 교체 거절 사유(거부 문구용)
+    int              displace_count_ = 0;             // 당일 교체 횟수(reset_daily에서 0으로)
 
     // 종목 id 테이블 — Engine 것을 가리키거나(set_symbol_table) 자체 테이블. 테이블 자체가 락을 든다.
     symbol::SymbolTable  own_symbols_;
@@ -494,10 +550,30 @@ private:
     PosMap<int>       missed_sell_seen_; // (account,ticker) → 직전 대조에서 본 잔고 수량(2회 연속 확인용)
     PosMap<TimePoint> opened_at_;        // (account,ticker) → 포지션이 0에서 열린 시각(교체 최소 보유 판정)
 
-    // strategy_id별 서브원장(D-089, 손익 귀속 전용) — positions_/avg_prices_와 같은 락(positions_mutex_)으로 보호.
-    //  키는 strategy_id 그대로(예: "TRENDX_108490") — 이미 (슬리브,종목)을 유일하게 담아 계좌 축은 안 섞는다.
-    std::unordered_map<std::string, int>    strategy_positions_;
-    std::unordered_map<std::string, double> strategy_average_prices_;
+    // 전략별 서브원장(D-089, 손익 귀속 전용) — positions_/avg_prices_와 같은 락(positions_mutex_)으로 보호.
+    //  키는 (전략 번호, 종목 id). 전략 이름 문자열 하나가 키이던 때는 한 전략이 여러 종목을 사면 평단이 섞였다
+    //  (DEVSCALE이 A·B를 같이 들면 A 매도의 손익이 B 매수가에 물렸다). 계좌 축은 종목 원장이 든다. [why D-112]
+    struct StrategyKey
+    {
+        strategy_table::StrategyId strategy = strategy_table::kNone;
+        symbol::SymbolId           symbol   = symbol::kNone;
+
+        bool operator==(const StrategyKey&) const = default;
+    };
+
+    struct StrategyKeyHash
+    {
+        size_t operator()(const StrategyKey& key) const noexcept
+        {
+            const uint64_t packed = (static_cast<uint64_t>(key.strategy) << 32) | key.symbol;
+            const uint64_t mixed  = packed * 0x9e3779b97f4a7c15ull;
+            return static_cast<size_t>(mixed ^ (mixed >> 29));
+        }
+    };
+
+    strategy_table::StrategyTable                            strategies_; // 전략 이름 → 번호. 자체 소유(엔진·디스패처·라우터가 이 표를 쓴다)
+    std::unordered_map<StrategyKey, int, StrategyKeyHash>    strategy_positions_;
+    std::unordered_map<StrategyKey, double, StrategyKeyHash> strategy_average_prices_;
 
     mutable std::mutex pnl_mutex_;
     double daily_pnl_{0.0};
@@ -506,6 +582,31 @@ private:
     std::deque<TimePoint> order_times_min_; // 최근 1분 내 주문 시각 (분당 제한)
     std::deque<TimePoint> order_times_sec_; // 최근 1초 내 주문 시각 (초당 제한)
 
+    // 중복 신호 키 — (계좌 번호, 전략 번호, 종목 id, 방향, 지정가). 문자열 "계좌:전략:종목:방향[:가격]"을 신호마다
+    //  이어 붙여 해시하던 것(105ns + 해시)을 정수 다섯 개로 바꿨다. 시장가는 price 0. [why D-112]
+    struct SignalKey
+    {
+        uint32_t                   account  = kUnknownAccount;
+        strategy_table::StrategyId strategy = strategy_table::kNone;
+        symbol::SymbolId           symbol   = symbol::kNone;
+        int32_t                    side     = 0;
+        int64_t                    price    = 0;
+
+        bool operator==(const SignalKey&) const = default;
+    };
+
+    struct SignalKeyHash
+    {
+        size_t operator()(const SignalKey& key) const noexcept
+        {
+            uint64_t mixed = (static_cast<uint64_t>(key.account) << 32) | key.symbol;
+            mixed          = (mixed ^ (static_cast<uint64_t>(key.strategy) << 8) ^ static_cast<uint64_t>(key.side)) *
+                    0x9e3779b97f4a7c15ull;
+            mixed ^= static_cast<uint64_t>(key.price) * 0xbf58476d1ce4e5b9ull;
+            return static_cast<size_t>(mixed ^ (mixed >> 31));
+        }
+    };
+
     mutable std::mutex deduplicate_mutex_;
-    std::unordered_map<std::string, TimePoint> last_signal_; // "strategy:ticker" → 마지막 신호 시각
+    std::unordered_map<SignalKey, TimePoint, SignalKeyHash> last_signal_; // 신호 키 → 마지막 신호 시각
 };

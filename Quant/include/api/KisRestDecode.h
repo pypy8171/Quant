@@ -163,11 +163,13 @@ inline std::vector<MarketData> aggregate_minutes(std::vector<RawMinute>& raw_min
     return result;
 }
 
-// output2(최신→과거) 한 페이지 → raws에 누적. seen(date+hour)으로 페이지 경계 중복을 걸러내고,
+// output2(최신→과거) 한 페이지 → raws에 누적. seen(날짜·시각을 한 정수로)으로 페이지 경계 중복을 걸러내고,
 //  이 페이지에서 가장 이른 HHMMSS를 돌려준다(역페이징 커서 — 날짜 필터·중복과 무관하게 모든 행을 본다).
 //  date_filter가 비어 있지 않으면 그 날짜 행만 취한다. added_out은 이번 호출로 raws에 더한 행 수.
+constexpr uint64_t kTimeDigitsSpan = 1'000'000; // HHMMSS 여섯 자리 — 날짜를 그 위 자리로 올린다
+
 inline std::string parse_minute_page(const nlohmann::json& array, std::vector<RawMinute>& raw_minutes,
-                                     std::unordered_set<std::string>& seen, const std::string& date_filter,
+                                     std::unordered_set<uint64_t>& seen, const std::string& date_filter,
                                      int& added_out)
 {
     std::string page_earliest;
@@ -193,7 +195,8 @@ inline std::string parse_minute_page(const nlohmann::json& array, std::vector<Ra
             continue; // 요청 날짜 밖 행 방어
         }
 
-        if (!seen.insert(data + ticker).second)
+        // YYYYMMDD·HHMMSS 두 자릿수 문자열을 정수 하나로 — 행마다 문자열을 붙여 해시하지 않는다.
+        if (!seen.insert(digits_to_number(data) * kTimeDigitsSpan + digits_to_number(ticker)).second)
         {
             continue; // 페이지 경계 중복
         }

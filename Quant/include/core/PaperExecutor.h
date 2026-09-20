@@ -407,10 +407,11 @@ private:
         }
     }
 
+    // 모의 ODNO — 실전문처럼 자릿수 10개(라우터가 정수로 바꿔 색인한다, D-112). 앞자리 9는 모의 표시.
     std::string next_odno_locked()
     {
         char buffer[16];
-        std::snprintf(buffer, sizeof(buffer), "P%09llu", static_cast<unsigned long long>(next_odno_++));
+        std::snprintf(buffer, sizeof(buffer), "9%09llu", static_cast<unsigned long long>(next_odno_++));
         return buffer;
     }
 

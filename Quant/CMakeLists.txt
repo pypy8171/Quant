@@ -223,6 +223,15 @@ endif()
 add_test(NAME bench_order_gate_position COMMAND bench_order_gate_position)
 set_tests_properties(bench_order_gate_position PROPERTIES TIMEOUT 60)
 
+# ─── 벤치: 주문 경로 문자열 키 — check() 중복 키·진입 우선순위 표·전략 서브원장, 정수 키 전환 전후 ──
+add_executable(bench_order_path_keys tests/bench_order_path_keys.cpp src/risk/OrderGate.cpp)
+target_include_directories(bench_order_path_keys PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(bench_order_path_keys PRIVATE pthread)
+endif()
+add_test(NAME bench_order_path_keys COMMAND bench_order_path_keys)
+set_tests_properties(bench_order_path_keys PROPERTIES TIMEOUT 120)
+
 # ─── 테스트 타겟: OrderRouter 통합 테스트 (StubOrderExecutor, KIS 불필요) ──
 add_executable(test_order_router
     tests/test_order_router.cpp

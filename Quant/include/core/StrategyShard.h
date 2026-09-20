@@ -26,9 +26,9 @@ namespace strategy
 //  디스패치 스레드는 전략 객체를 보지 않는다.
 struct Emitted
 {
-    OrderSignal signal;
-    std::string strategy_id;
-    bool        active = true; // StrategyBase::is_active() — 국면 축 AND 유니버스 축
+    OrderSignal signal;        // strategy_index·symbol_id가 찍혀 있다 — 봉투에 전략 이름 문자열을 따로 싣지 않는다 [why D-112]
+    bool        active       = true;  // StrategyBase::is_active() — 국면 축 AND 유니버스 축
+    bool        exit_manager = false; // StrategyBase::is_exit_manager() — 청산 관리 보유 종목 차단을 면제받는 전략
 };
 
 // 샤드가 비우는 세 행렬. 생산자 행은 호출자가 정한다(수신 스레드·데이터 스레드).

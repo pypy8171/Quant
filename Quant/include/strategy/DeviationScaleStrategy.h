@@ -1326,8 +1326,9 @@ private:
             return; // quantity=0 NEW 발주 억제 — 게이트 거부·로그 노이즈 원천 차단(SELL은 상위서도 클램프)
         }
 
-        std::string order_id = next_order_id(side == OrderSide::BUY ? "B" : "S");
-        OrderSignal signal;
+        std::string    order_id     = next_order_id(side == OrderSide::BUY ? "B" : "S");
+        const uint64_t order_number = next_client_order_number(); // 라우터가 취소 대상을 찾는 키. 문자열은 로그용
+        OrderSignal    signal;
         signal.ticker      = parameters_.ticker;
         signal.symbol_id         = symbol_id_;
         signal.side        = side;
@@ -1338,11 +1339,12 @@ private:
         signal.market      = Market::KR;
         signal.action      = OrderAction::NEW;
         signal.client_order_id  = order_id;
+        signal.client_order_number = order_number;
         signal.account_id  = parameters_.account;
         signal.reason      = reason; // G4: 판단 근거를 신호에 실어 영속
         signal.timestamp   = std::chrono::system_clock::now();
         out.push_back(std::move(signal));
-        live_.push_back({std::move(order_id), side});
+        live_.push_back({std::move(order_id), order_number, side});
     }
 
     // 미체결 전량 취소. 발주가 있었으면 true.
@@ -1364,7 +1366,8 @@ private:
             signal.strategy_id     = id();
             signal.market          = Market::KR;
             signal.action          = OrderAction::CANCEL;
-            signal.original_client_order_id = std::move(live_entry.order_id);
+            signal.original_client_order_id     = std::move(live_entry.order_id);
+            signal.original_client_order_number = live_entry.order_number;
             signal.account_id      = parameters_.account;
             signal.timestamp       = std::chrono::system_clock::now();
             out.push_back(std::move(signal));
@@ -1581,7 +1584,12 @@ private:
         return std::string(byte_value);
     }
 
-    struct Live { std::string order_id; OrderSide side; };
+    struct Live
+    {
+        std::string order_id;     // 로그용 이름
+        uint64_t    order_number; // 취소 키
+        OrderSide   side;
+    };
 
     Params parameters_;
     std::string id_; // 전략 이름, 생성자에서 한 번

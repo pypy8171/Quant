@@ -4466,3 +4466,37 @@ string 생성 + 락)은 리플레이 전용이라 다음 순서(wt/symbol-id의 
 - 진입 시각을 늦추기(09:30~13:00) — 개선 없음.
 - C++ 엔진 리플레이 하네스로 먼저 검증 — DevScale이 벽시계·REST 프리페치에 묶여 가상 시계·파일 시세원부터 만들어야 해
   며칠짜리다. 파이썬 리플레이로 방향을 잡고 엔진 하네스는 뒤 큐에 둔다.
+
+### D-112 엔진 안 문자열 키를 전부 정수 id로 — 종목·전략·주문번호·체결 키 (2026-09-21)
+
+**상태**: 채택
+
+**배경**: 원칙 6(hot path에 문자열 없음)은 틱 경로에만 적용돼 있었다. 주문·체결·재스캔·잔고 대조·스캐너에는
+`unordered_map<std::string, …>`이 39곳 남아 신호마다 "계좌:전략:종목:방향" 문자열을 만들어 해시하고, 체결통보마다
+"날짜:주문번호:시각:수량:가격" 문자열을 만들었다. 라우터 이력의 `order_id_index_`는 아무도 읽지 않는 죽은 맵이었고,
+`entry_z_`는 읽을 때마다 맵 전체를 복사했다. 사용자가 "느린 경로라 둬도 된다"는 판단을 물리고 전부 고치기로 했다 —
+개발은 어떤 경로든 최적으로 한다.
+
+**결정**:
+- 종목은 `symbol::SymbolId`, 전략은 `strategy_table::StrategyId`(등록 때 한 번, `StrategyBase::strategy_index`), 주문은 정수
+  번호(`next_client_order_number()`가 프로세스 안에서 발급, KIS ODNO는 `digits_to_number`로 정수화)로 든다. 문자열은
+  로그 라벨로만 남는다.
+- 게이트: 원장·선점·중복 신호 키·서브원장·우선순위 표 전부 정수 키. 서브원장은 (전략, 종목)이 키 — 전에는 (계좌, 종목)
+  하나뿐이라 DEVSCALE이 A·B를 같이 들면 A 매도 손익이 B 매수가에 물렸다. 우선순위 표는 id 배열 세 개를 스냅샷 포인터로
+  바꿔 끼워 락 순서 제약이 사라졌다.
+- 라우터: 이력 색인은 `history_base_` + `slot_by_order_number_`·`slot_by_client_number_`(정수→절대 순번), 체결 중복 키는
+  `fill_key::FillKey`(정수 5개), `order_reasons_`·`cancel_miss_`도 정수. `order_id_index_`·`find_live_by_order_id` 삭제.
+  되살린 기록에 symbol_id·strategy_index를 채우지 않던 버그를 같이 고쳤다. 모의 ODNO는 실전문처럼 자릿수 10개(`9%09llu`).
+- 엔진 재스캔·`ScoreWeight`·`UniverseExit`·스캐너(`CandidateSet`·`QuoteTable`·`DailyLookupCache`)·잔고 대조(`reconcile::Held.symbol`)·
+  분봉 페이지 중복 키(날짜·시각 정수)도 id 배열. 문자열 티커는 경계(설정·REST 응답·캡처 파일·JSON 캐시)에서 한 번 intern한다.
+- 남긴 문자열 컨테이너는 입력 자체가 문자열인 경계뿐이고 자리마다 이유 한 줄을 달았다: 소스 계층(`FeedMux.assign_`·
+  `DataPoller.rest_seen_`·`ReplaySource.filter_` — 종목 테이블 앞), `KisClient.daily_cache_`(REST 인자), FEED 표시 모드,
+  수동주문 cid, 구독 스펙 문자열.
+
+**검증**: ctest 39/39. `Quant/tests/bench_order_path_keys.cpp`(전후, ns): SELL 161.3→148.0, BUY NEW 588.8→455.6,
+on_fill_confirmed 72.5→65.8, 체결 키 296.4→31.2.
+
+**버린 대안**:
+- 느린 경로(재스캔·기동·잔고 대조)는 문자열 유지 — 사용자가 물렸다. 같은 자료를 두 표기로 들면 경계마다 변환이 생기고
+  그 변환이 다시 버그 자리가 된다(되살린 기록의 빈 symbol_id가 그 예).
+- 문자열 키를 `string_view` 투명 해시로만 바꾸기 — 복사는 줄지만 해시·비교 비용과 두 표기 문제는 그대로다.

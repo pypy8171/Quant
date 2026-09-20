@@ -87,7 +87,8 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
 
     for (const auto& held_position : gate_.snapshot_positions())
     {
-        ledger_before.push_back(reconcile::Held{held_position.ticker, held_position.quantity, held_position.average_price});
+        ledger_before.push_back(reconcile::Held{held_position.ticker, held_position.quantity, held_position.average_price,
+                                                held_position.symbol});
     }
 
     std::vector<reconcile::Held> broker_now;
@@ -111,7 +112,7 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
         const int    quantity  = holding.quantity;
         const double average_value = holding.average_price;
         held.push_back(code);
-        broker_now.push_back(reconcile::Held{code, quantity, average_value});
+        broker_now.push_back(reconcile::Held{code, quantity, average_value, gate_.intern_symbol(code)}); // 잔고 응답의 문자열 티커 — 여기서 id가 된다
 
         if (resync_positions)
         {
@@ -149,7 +150,7 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
     //  수 없어 가드는 남긴다. 빈 응답을 정본으로 믿고 지우면 원장이 통째로 날아가고 엔진은 미보유로
     //  읽어 같은 종목을 다시 산다(09-09 14:04, 재기동 직후 한도 폭주 중에 25종목 전부 정리됨).
     //  진짜로 빈 계좌라면 걷어낼 것도 없으니 건너뛰어 잃는 것이 없다.
-    const auto gone = held.empty() ? std::vector<std::string>{} : gate_.prune_positions(held, prune_age_sec_);
+    const auto gone = held.empty() ? std::vector<symbol::SymbolId>{} : gate_.prune_positions(held, prune_age_sec_);
 
     if (held.empty())
     {
@@ -160,14 +161,14 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
     {
         std::string list;
 
-        for (const auto& gone_ticker : gone)
+        for (const symbol::SymbolId gone_symbol : gone)
         {
             if (!list.empty())
             {
                 list += ',';
             }
 
-            list += gone_ticker;
+            list += gate_.symbols().name(gone_symbol).view();
         }
 
         LOG_WARN("[Engine] 잔고 대조: 잔고에 없는 원장 보유 " + std::to_string(gone.size()) + "종목 정리 (" + list + ")");

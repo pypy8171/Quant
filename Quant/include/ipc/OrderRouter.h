@@ -1,5 +1,6 @@
 #pragma once
 #include "core/Types.h"
+#include "ipc/FillKey.h"
 #include "core/ReconcilePlan.h"
 #include "risk/OrderGate.h"
 #include "api/IOrderExecutor.h"
@@ -46,11 +47,11 @@ public:
     OrderRouter(OrderGate& gate, IOrderExecutor& kis,
                 ZmqBridge* zmq = nullptr,
                 OrderRouterConfig config = OrderRouterConfig())
-        : gate_(gate), kis_(kis), config_(config), zmq_(zmq) {}
+        : gate_(gate), kis_(kis), config_(config), zmq_(zmq), unlinked_strategy_index_(gate.strategy_index_of("UNLINKED")) {}
 #else
     OrderRouter(OrderGate& gate, IOrderExecutor& kis,
                 OrderRouterConfig config = OrderRouterConfig())
-        : gate_(gate), kis_(kis), config_(config) {}
+        : gate_(gate), kis_(kis), config_(config), unlinked_strategy_index_(gate.strategy_index_of("UNLINKED")) {}
 #endif
 
     // ── 주문 제출 — 검증 → KIS 전송 → 상태 기록 ─────────────────────────
@@ -159,9 +160,20 @@ private:
     //  예약 없음/취소 실패 시 빈 acknowledgement. 이전 세션·수동 예약이 보유수량을 묶은 경우를 해소.
     //  취소한 예약이 이번 세션 주문이면 history_를 CANCELLED로 닫고 게이트 선점을 푼다(C-2).
     [[nodiscard]] OrderAck reconcile_blocked_sell(const OrderSignal& signal);
-    // client_oid로 아직 살아있는(ACCEPTED, 미체결 잔량>0) 주문을 history_에서 찾는다.
-    // 호출자는 반드시 hist_mtx_를 보유해야 한다. 반환 포인터는 lock 보유 동안만 유효.
-    ManagedOrder* find_live_by_order_id(const std::string& client_order_id);
+    // 주문 번호로 아직 살아있는(ACCEPTED, 미체결 잔량>0) 주문을 찾는다. 색인 한 번 — 이력을 훑지 않는다.
+    // 호출자는 반드시 history_mutex_를 보유해야 한다. 반환 포인터는 lock 보유 동안만 유효.
+    ManagedOrder* find_live_by_client_number(uint64_t client_order_number);
+
+    // ── 이력 색인 (history_mutex_ 아래) ─────────────────────────────────────
+    //  history_는 deque라 앞을 잘라내면 위치가 밀린다. 항목마다 이력 순번(맨 앞이 history_base_)을 매기고
+    //  색인은 순번을 든다 — 잘라내도 순번은 그대로라 색인 값이 안 죽는다. 같은 키가 다시 오면 최신 항목이 이긴다.
+    void          push_history_locked(ManagedOrder managed_order);   // 뒤에 넣고 두 색인에 등록
+    void          pop_history_front_locked();                        // 앞을 빼고 그 항목의 색인을 지운다
+    ManagedOrder* history_at_locked(uint64_t history_sequence);
+    ManagedOrder* find_by_order_number_locked(uint64_t kis_order_number);   // ODNO 정수
+    ManagedOrder* find_by_client_number_locked(uint64_t client_order_number);
+    // 신호의 종목 id — 배선이 빠진 경로(테스트·수동)만 문자열로 한 번 채운다.
+    symbol::SymbolId symbol_of(const OrderSignal& signal);
 
     // ── ODNO → 주문 사유 기록 ────────────────────────────────────────────────
     //  history_는 메모리에만 있어 재기동하면 이전 세션 주문의 ODNO를 잊는다. 그 주문이
@@ -193,28 +205,35 @@ private:
 #ifdef HAS_ZMQ
     ZmqBridge*       zmq_ = nullptr;
 #endif
+    // 미매핑 체결("UNLINKED")의 전략 번호 — 생성자에서 한 번 받는다. [why D-112]
+    const strategy_table::StrategyId unlinked_strategy_index_;
 
     mutable std::mutex       history_mutex_;
     std::deque<ManagedOrder> history_;
-    // 체결통보 키 → 그 키로 들어온 통보 횟수 (hist_mtx_로 보호).
+    uint64_t                 history_base_ = 0; // history_.front()의 이력 순번
+    // ODNO 정수 → 이력 순번, 주문 번호 → 이력 순번 (history_mutex_로 보호). 체결통보·취소·정정이 이력을
+    //  훑는 대신 여기서 한 번 찾는다. [why D-112]
+    std::unordered_map<uint64_t, uint64_t> slot_by_order_number_;
+    std::unordered_map<uint64_t, uint64_t> slot_by_client_number_;
+
+    using FillKey     = fill_key::FillKey;     // 정의는 ipc/FillKey.h
+    using FillKeyHash = fill_key::FillKeyHash;
+    // 체결통보 키 → 그 키로 들어온 통보 횟수 (history_mutex_로 보호).
     //  같은 초·같은 수량·단가의 분할체결은 키가 겹치므로 집합이 아니라 횟수로 센다.
     //  자세한 배경은 on_fill() 주석 참고.
-    std::unordered_map<std::string, int> seen_fills_;
-    // 미매핑(미연결) 체결로 이미 반영한 키 (hist_mtx_로 보호). 미연결 주문은 주문수량을 모르니
+    std::unordered_map<FillKey, int, FillKeyHash> seen_fills_;
+    // 미매핑(미연결) 체결로 이미 반영한 키 (history_mutex_로 보호). 미연결 주문은 주문수량을 모르니
     //  잔량 클램프가 없어 같은 통보의 재전송을 이 키로만 막는다.
-    std::unordered_set<std::string> unlinked_fill_keys_;
-    // ODNO → 이전 세션이 남긴 주문 사유 (hist_mtx_로 보호). 파일에서 한 번 읽고,
+    std::unordered_set<FillKey, FillKeyHash> unlinked_fill_keys_;
+    // ODNO 정수 → 이전 세션이 남긴 주문 사유 (history_mutex_로 보호). 파일에서 한 번 읽고,
     //  되살린 주문은 지운다(같은 ODNO를 두 번 되살리지 않게).
-    std::unordered_map<std::string, OrderReason> order_reasons_;
+    std::unordered_map<uint64_t, OrderReason> order_reasons_;
     bool order_reasons_loaded_ = false;
-    // MM-1: client_order_id → order_id 존재 힌트 (hist_mtx_로 보호). 실제 ManagedOrder는
-    //   history_ 스캔으로 해석(deque 요소는 pop_front로 소멸 가능 → 안정 핸들 아님).
-    std::unordered_map<std::string, std::string> order_id_index_;
-    // 취소가 "취소 대상 없음"으로 되돌아온 종목 → 그 시각 (hist_mtx_로 보호).
+    // 취소가 "취소 대상 없음"으로 되돌아온 종목 → 그 시각 (history_mutex_로 보호, 종목 id 인덱스, 0=없음).
     //  전략은 취소 결과를 보지 못한 채 재구성 주문을 이어 내므로, 원주문이 이미 체결돼
     //  있었으면 대체 주문이 그대로 중복 매수가 된다(09-09 033790·108490 5건).
     //  다음 재구성 주기까지 그 종목의 신규 주문을 짧게 막는다.
-    std::unordered_map<std::string, std::chrono::steady_clock::time_point> cancel_miss_;
+    std::vector<std::chrono::steady_clock::time_point> cancel_miss_;
     // 부속 파일 스냅샷 번호. history_mutex_ 아래에서 올리고, io_mutex_ 아래에서 "마지막으로 쓴 번호"와 비교한다.
     uint64_t open_orders_sequence_         = 0;
     // 이전 세션에서 넘어온 미체결 줄(kis_order_no|orgno|ticker|side|remaining). 취소 스레드가 한 건씩 정리한다.
