@@ -140,6 +140,8 @@ def main() -> int:
                     help="(종목,날짜) 쌍 파일(JSONL 또는 JSON). 날짜별 대상 종목을 밖에서 "
                          "정한다 — PIT 절단의 선정 편향을 피하려면 이 모드를 쓴다.")
     ap.add_argument("--config", default="Quant/config/config_dev_paper.json")
+    ap.add_argument("--section", default="kis",
+                    help="config 안 KIS 계정 절. 모의 kis 는 초당 2콜 상한이라 느리다 — 시세 계정 quote_kis(실전 도메인)는 초당 20콜")
     ap.add_argument("--out-dir", default=str(_OUT_DIR))
     ap.add_argument("--sleep", type=float, default=0.10,
                     help="종목 간 대기(초). 페이지 간 대기는 클라이언트가 따로 건다.")
@@ -168,8 +170,8 @@ def main() -> int:
         print("[minute_backfill] pandas 필요")
         return 1
 
-    c = from_config(args.config)
-    if not c.authenticate():
+    client = from_config(args.config, args.section)
+    if not client.authenticate():
         print("[minute_backfill] KIS 인증 실패")
         return 1
 
@@ -190,7 +192,7 @@ def main() -> int:
             if _already_done(dst) and not args.force:
                 skipped += 1
                 continue
-            rows = c.get_past_minute_ohlcv(t, ymd, count=400)
+            rows = client.get_past_minute_ohlcv(t, ymd, count=400)
             if not rows:
                 empty += 1
                 continue

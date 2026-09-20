@@ -119,3 +119,6 @@ PYQuant/data/cache/
 
 # KIND 회사명→종목코드 조회 캐시(kind_delisted_fill.py 재생성 가능, 회사명에 비공개 단어가 섞인다)
 PYQuant/data/universe/kind_name_to_code.json
+
+# 스터디 24 리플레이 종목일 표(수십~수백 MB, 요약 *_summary.txt·월 표만 남긴다)
+research/studies/24_devscale_exit_lines/*_days.tsv

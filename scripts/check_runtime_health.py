@@ -46,6 +46,17 @@ HTTP_TIMEOUT_RE = re.compile(r"ReceiveResponse 실패: 12002|\[CURL\] 요청 실
 TRENDX_REGISTER_RE = re.compile(r"TRENDX universe_from_scan: 초기 (\d+)종목 등록")
 # D-101 결정 3 — 마감 청산이 매매 창 안(모의 15:15·실계좌 19:50, 접속매매)에 나가면 이 거부는 0건이다(09-18 2,188건이 25종목 이월을 만들었다)
 SESSION_WINDOW_REJECT_RE = re.compile(r"\[OrderRouter\] 거부 .*세션 창 밖")
+SIGNAL_RE = re.compile(r"\[Strategy\] 신호: \[([A-Z_+0-9]+)\] (\d{6})(?:\([^)]*\))? (BUY|SELL) (\d+)")
+ITB_ATTACH_RE = re.compile(r"\[Main\]   \+ ITB (\d{6}) ")
+# 09-20 청산선 재설정(config_dev_paper.json "//exit_09-20") — 12일 원장에서 손실을 낸 네 경로가 닫혔는지 본다:
+#  교체 매도(728체결 -89만)는 0건, 승계 직후 매도(부착 90초 안 47건 -43만, 유예 분기 버그)는 0건,
+#  손절 뒤 같은 날 같은 종목 재매수(쿨다운 21600초)는 0건, 손절이 매수의 25%를 넘으면 -2.0%가 잡음에 걸리는 것(예측 21%).
+DEVSCALE_STOP_RE = re.compile(r"신호: \[DEVSCALE_(\d{6})\] \d{6}.* SELL \d+ \| 근거: 청산:손절\(평단")
+MAX_STOP_PER_BUY = 0.25
+# D-111 넘김·진입 필터(09-21 리플레이): 장 마감 청산을 끄고(market_close_exit_hhmm 2400) 전일 ATR·개장 이격으로 그날 진입을
+#  거른다. 두 행은 새 바이너리 표식(진입 필터 판정 줄)이 있는 날만 판정한다 — 배포 전 로그에서는 건너뛴다.
+DEVSCALE_CLOSE_EXIT_RE = re.compile(r"신호: \[DEVSCALE_(\d{6})\] \d{6}.* SELL \d+ \| 근거: 청산:장 마감\(")
+DEVSCALE_ENTRY_FILTER_RE = re.compile(r"\[DEVSCALE_(\d{6})\] 진입 필터 (통과|차단)\(")
 
 # 임계값. 넘으면 그날 운영이 실제로 상했던 수준이다.
 MAX_STALE_ORDERS = 25     # 유령주문 재부활 — 취소 왕복이 초당한도를 밀어낸다
@@ -92,6 +103,11 @@ def collect(date: str, log: Path, since: int = 0):
     http_timeouts = 0
     trendx_registered: list[int] = []
     session_window_rejects = 0
+    signals: list[tuple[int, str, str, str]] = []  # (초, 전략 id, 종목, BUY|SELL)
+    itb_attached: list[str] = []
+    devscale_stops: list[tuple[int, str]] = []     # (초, 종목) — DEVSCALE 손절 신호
+    devscale_close_exits: list[tuple[int, str]] = []   # (초, 종목) — DEVSCALE 장 마감 청산 신호(넘김 모드면 0이어야 한다)
+    entry_filter: dict[str, int] = {"통과": 0, "차단": 0}  # 진입 필터 판정 줄 수
 
     # 7일 지난 날은 archive/quant_trader_<날짜>.log.gz — market_close_autodoc이 그 경로를 그대로 넘긴다
     opener = (lambda: gzip.open(log, "rt", encoding="utf-8", errors="replace")) if log.suffix == ".gz"         else (lambda: log.open(encoding="utf-8", errors="replace"))
@@ -100,22 +116,22 @@ def collect(date: str, log: Path, since: int = 0):
             m = TS_RE.match(line)
             if not m or m.group(1) != date:
                 continue
-            t = secs(m)
-            if t < since:
+            second = secs(m)
+            if second < since:
                 continue
-            last_ts = t
+            last_ts = second
             if START_RE.search(line):
-                starts.append(t)
+                starts.append(second)
             found = STALE_RE.search(line)
             if found:
                 stale_max = max(stale_max, int(found.group(1)))
             if GUARD_RE.search(line):
-                guard_at.append(t)
+                guard_at.append(second)
             if BREAKEVEN_RE.search(line):
-                breakeven.append(t)
+                breakeven.append(second)
             found = FILL_RE.search(line)
             if found:
-                fills.append((t, found.group(1), found.group(2)))
+                fills.append((second, found.group(1), found.group(2)))
             if RATE_RE.search(line):
                 rate_hits += 1
             if WSFALL_RE.search(line):
@@ -134,6 +150,16 @@ def collect(date: str, log: Path, since: int = 0):
                 trendx_registered.append(int(found.group(1)))
             if SESSION_WINDOW_REJECT_RE.search(line):
                 session_window_rejects += 1
+            if found := SIGNAL_RE.search(line):
+                signals.append((second, found.group(1), found.group(2), found.group(3)))
+            if found := ITB_ATTACH_RE.search(line):
+                itb_attached.append(found.group(1))
+            if found := DEVSCALE_STOP_RE.search(line):
+                devscale_stops.append((second, found.group(1)))
+            if found := DEVSCALE_CLOSE_EXIT_RE.search(line):
+                devscale_close_exits.append((second, found.group(1)))
+            if found := DEVSCALE_ENTRY_FILTER_RE.search(line):
+                entry_filter[found.group(2)] += 1
 
     if not starts:
         return [], 0
@@ -150,15 +176,15 @@ def collect(date: str, log: Path, since: int = 0):
     # 회전 — 같은 종목 매도 체결 뒤 CHURN_SEC 안에 매수 체결.
     churn = 0
     last_sell: dict[str, int] = {}
-    for t, tk, side in fills:
+    for second, ticker, side in fills:
         if side == "SELL":
-            last_sell[tk] = t
-        elif tk in last_sell and t - last_sell[tk] <= CHURN_SEC:
+            last_sell[ticker] = second
+        elif ticker in last_sell and second - last_sell[ticker] <= CHURN_SEC:
             churn += 1
-            del last_sell[tk]
+            del last_sell[ticker]
 
-    def hhmm(t: int) -> str:
-        return f"{t // 3600:02d}:{t % 3600 // 60:02d}:{t % 60:02d}"
+    def hhmm(second: int) -> str:
+        return f"{second // 3600:02d}:{second % 3600 // 60:02d}:{second % 60:02d}"
 
     # 주문 접수 지연 — RTT가 큰데 버킷대기가 작으면 서버 응답 지연, 버킷대기가 크면 초당한도 압박.
     slow_orders = sum(1 for rtt in rtts if rtt >= SLOW_ORDER_MS)
@@ -186,15 +212,52 @@ def collect(date: str, log: Path, since: int = 0):
     else:
         recon_detail = f"사이클 넘긴 조회 0회, 제한 시간 초과 {http_timeouts}건 (허용 {MAX_HTTP_TIMEOUTS})"
 
+    # 09-20 청산선 재설정 — 네 손실 경로. 승계 직후 매도는 그 종목의 마지막 부착 시각 기준.
+    displace_sells = [(second, ticker) for second, sid, ticker, side in signals if sid == "DISPLACE" and side == "SELL"]
+    #  부착은 묶음 한 줄(청산 관리 N종목 부착)로만 찍히므로 그 시각 기준.
+    itb_early_sells = [(second, ticker) for second, sid, ticker, side in signals
+                       if sid.startswith("ITB_") and side == "SELL"
+                       and any(0 <= second - attach_t <= GUARD_QUIET_SEC for attach_t in guard_at)]
+    stop_rebuys = [(buy_t, ticker) for buy_t, sid, ticker, side in signals
+                   if sid.startswith("DEVSCALE_") and side == "BUY"
+                   and any(stop_ticker == ticker and buy_t > stop_t for stop_t, stop_ticker in devscale_stops)]
+    devscale_buys = sum(1 for _, sid, _, side in signals if sid.startswith("DEVSCALE_") and side == "BUY")
+    stop_ratio = len(devscale_stops) / devscale_buys if devscale_buys else 0.0
+
+    filter_judged = entry_filter["통과"] + entry_filter["차단"]
+    devscale_v2 = filter_judged > 0     # 진입 필터 줄이 있으면 D-111 넘김 바이너리
+
+    def devscale_v2_row(name: str, ok: bool, level: str, detail: str):
+        if not devscale_v2:
+            return (name, True, level, "진입 필터 판정 줄 없음(D-111 배포 전 바이너리) — 판정 안 함")
+        return (name, ok, level, detail)
+
     rows = [
+        devscale_v2_row("장 마감 청산(넘김)", not devscale_close_exits, "FAIL",
+                        f"DEVSCALE 장 마감 청산 신호 {len(devscale_close_exits)}건 (기대 0 — market_close_exit_hhmm 2400, D-111)"
+                        + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in devscale_close_exits[:5])}" if devscale_close_exits else "")),
+        devscale_v2_row("진입 필터 판정", entry_filter["차단"] > 0, "WARN",
+                        f"진입 필터 통과 {entry_filter['통과']} / 차단 {entry_filter['차단']} 종목 (리플레이 기대: 존 안 종목의 절반쯤 차단, 차단 0이면 필터 값이 안 실린 것)"),
+        ("교체 매도", not displace_sells, "FAIL",
+         f"교체 매도 신호 {len(displace_sells)}건 (기대 0 — displace_enabled false, 09-20)"
+         + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in displace_sells[:5])}" if displace_sells else "")),
+        ("승계 직후 매도", not itb_early_sells, "FAIL",
+         f"청산 관리 부착 {GUARD_QUIET_SEC}초 내 매도 {len(itb_early_sells)}건 (기대 0 — guard_warmup_sec 0 우회, 09-20)"
+         + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in itb_early_sells[:5])}" if itb_early_sells else "")),
+        ("손절 뒤 당일 재매수", not stop_rebuys, "FAIL",
+         f"DEVSCALE 손절 {len(devscale_stops)}건 뒤 같은 종목 재매수 {len(stop_rebuys)}건 (기대 0 — stop_cooldown_sec 21600)"
+         + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in stop_rebuys[:5])}" if stop_rebuys else "")),
+        ("손절 비율", devscale_buys < 20 or stop_ratio <= MAX_STOP_PER_BUY, "WARN",
+         f"DEVSCALE 손절 {len(devscale_stops)} / 매수 신호 {devscale_buys} = {stop_ratio:.0%} (허용 {MAX_STOP_PER_BUY:.0%}, 분봉 예측 21% — 넘으면 -2.0%가 잡음에 걸리는 것)"
+         + (" — 표본 20건 미만, 판정 보류" if devscale_buys < 20 else "")),
         ("유령주문 재부활", stale_max <= MAX_STALE_ORDERS, "FAIL",
          f"기동 시 미체결 최대 {stale_max}건 (허용 {MAX_STALE_ORDERS})"),
         ("조기 사망 세션", not short, "FAIL",
          f"{MIN_SESSION_SEC}초 미만 종료 {len(short)}회"
-         + (f" — {', '.join(hhmm(t) for t in short[:5])}" if short else "")),
+         + (f" — {', '.join(hhmm(second) for second in short[:5])}" if short else "")),
         ("재기동 투매", not dump, "FAIL",
          f"청산 관리 부착 {GUARD_QUIET_SEC}초 내 본전탈출 {len(dump)}건"
-         + (f" — {', '.join(hhmm(t) for t in dump[:5])}" if dump else "")),
+         + (f" — {', '.join(hhmm(second) for second in dump[:5])}" if dump else "")),
         ("매도→재매수 회전", churn <= MAX_CHURN, "FAIL",
          f"{CHURN_SEC}초 내 반대매매 {churn}회 (허용 {MAX_CHURN})"),
         ("초당한도 압박", rate_hits <= MAX_RATE_HITS, "WARN",

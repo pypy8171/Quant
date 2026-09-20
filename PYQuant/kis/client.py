@@ -891,16 +891,17 @@ class KisClient:
 
 
 # ── config.json에서 자동 로드 ────────────────────────────────────────────────
-def from_config(config_path: str = None) -> KisClient:
+def from_config(config_path: str = None, section: str = "kis") -> KisClient:
+    """section: "kis"(주문 계정) 또는 "quote_kis"(시세 계정 — 실전 도메인, 초당 20콜. 백필처럼 시세만 많이 읽을 때)."""
     if config_path is None:
         config_path = Path(__file__).parents[2] / "Quant" / "config" / "config.json"
     with open(config_path, encoding="utf-8") as f:
         cfg = json.load(f)
-    k = cfg["kis"]
+    section_config = cfg[section]
     return KisClient(
-        app_key      = k["app_key"],
-        app_secret   = k["app_secret"],
-        account_no   = k["account_no"],
-        account_type = k.get("account_type", "01"),
-        is_paper     = k.get("is_paper", False),
+        app_key      = section_config["app_key"],
+        app_secret   = section_config["app_secret"],
+        account_no   = section_config.get("account_no", ""),  # 시세 계정 절엔 계좌번호가 없다
+        account_type = section_config.get("account_type", "01"),
+        is_paper     = section_config.get("is_paper", False),
     )

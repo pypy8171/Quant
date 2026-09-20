@@ -430,5 +430,27 @@
       "research/studies/23_value_tilt_liquidity_floor/floor_30/metrics.json",
       "research/studies/23_value_tilt_liquidity_floor/floor_50/metrics.json"
     ]
+  },
+  {
+    "number": "24",
+    "title": "DevScale 눌림 슬리브 청산선·하룻밤 넘김·진입 필터 — 1분봉 리플레이 격자 229개",
+    "series": "장중 · 실행",
+    "period": "2025-09-19~2026-09-18(1년, 시총∪거래대금 상위 100, 32,883 종목일)",
+    "status": "채택(D-111, 09-21 모의계좌 반영)",
+    "question": "모의계좌 DevScale(SMA 정렬 존 + SMA20 이격 −8~+5% + 3분봉 기준선 매수)이 다른 기계(교체·ITB 청산) 없이 스스로 돈을 버는 청산 규칙이 있는가.",
+    "method": "PYQuant/backtest/devscale_replay.py — 1분봉을 3분봉으로 묶어 슬리브 규칙을 그대로 재생, 왕복 비용 0.215%, 건당 435만. 익절 1~8 × 손절 3~8·없음 × 트레일 × 진입 시각 × 넘김 × 전일 ATR14/SMA20 상한 3.5~6 × 개장 이격 −3~0. 요약은 summarize_grid.py(종목일 표 기준).",
+    "data": "PYQuant/data/minute/<종목>/<날짜>.parquet(KIS 1분봉 백필, minute_backfill_pairs.py) + 일봉 SMA/ATR.",
+    "result": "당일 청산: 모든 조합 세후 마이너스(비용 전 −0.19~+0.04%/건). 넘김 + 익절 3.0·손절 6.5·ATR≤4·이격≥−1: 세후 +0.342%/건, 387건/년, 7/13달 플러스, +279만/년, 평균 투입 832만, 최악 달 −126만. 익절 3 이상·손절 6~7 평평, ATR 5.5부터 0.04%로 절벽. 건당 금액 435만→1,500만에 %는 거의 비례.",
+    "verdict": "채택 — 넘김·진입 필터·익절 3.0·손절 6.5를 09-21 모의계좌 config에 넣었다. 표본 한 해라 꼬리가 두껍다(상위 5종목 +230만·하위 5종목 −164만).",
+    "why": "15:15 강제 청산이 손실의 큰 몫이고, 전일 변동성이 높은 날의 진입이 손실 대부분을 냈다. 이웃 칸이 평평한 곳을 골라 과최적화를 피했다.",
+    "followup": "배포 뒤 check_runtime_health.py 행(장 마감 청산 0건·진입 필터 판정)과 매매일지로 잰다. 슬롯 25·OrderGate·국면 배율이 없는 리플레이라 총액은 상대 비교용 — C++ 엔진 리플레이 하네스는 뒤 큐. 백테스트 대시보드는 T-27.",
+    "files": [
+      "research/studies/24_devscale_exit_lines/README.md",
+      "research/studies/24_devscale_exit_lines/summarize_grid.py",
+      "research/studies/24_devscale_exit_lines/carry_fine_grid_summary.txt",
+      "research/studies/24_devscale_exit_lines/carry_wide_grid_summary.txt",
+      "research/studies/24_devscale_exit_lines/carry_wide2_grid_summary.txt",
+      "research/studies/24_devscale_exit_lines/carry_wide3_grid_summary.txt"
+    ]
   }
 ]

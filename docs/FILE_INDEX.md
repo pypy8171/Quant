@@ -182,6 +182,7 @@
 - [macro_ingest.py](../PYQuant/tools/macro_ingest.py) — FRED(ALFRED 판본, A)·ECOS(B)·관세청 10일 잠정치(B) 거시 시계열을 시점 고정 스키마로 PYQuant/data/macro/<source>_<series>.parquet에 append-only 적재
 - [macro_regime_feed.py](../PYQuant/tools/macro_regime_feed.py) — 매크로 지표 기반 국면 게이트 발행기
 - [minute_backfill.py](../PYQuant/tools/minute_backfill.py) — 거래일별 1분봉 백필 도구
+- [minute_backfill_pairs.py](../PYQuant/tools/minute_backfill_pairs.py) — 리플레이용 1분봉 백필 — (종목, 날짜) 짝 목록(json)을 받아 없는 날만 KIS에서 받아 parquet에 붙인다
 - [month_start_sweep.py](../PYQuant/tools/month_start_sweep.py) — 매매 시작월 민감도 스윕 도구
 - [naver_bars_backfill.py](../PYQuant/tools/naver_bars_backfill.py) — 네이버 siseJson 일봉 1990~ 전량 백필 → bars_all_pit_v2.parquet(v1 스키마 + 외인보유율), 끝에 005930 종가 v1 일치 검사
 - [naver_flow_backfill.py](../PYQuant/tools/naver_flow_backfill.py) — 네이버 모바일 trend API 수급 이력(외인·기관·개인 순매수 주식수·외인보유율) 백필 → investor_flow_pit.parquet, 종목별 캐시로 재실행 안전
@@ -842,6 +843,27 @@
 ### research/studies/23_value_tilt_liquidity_floor/floor_50/
 
 - [metrics.json](../research/studies/23_value_tilt_liquidity_floor/floor_50/metrics.json) — 하한 50억 유니버스의 22 형식 전체 지표(생성)
+
+### research/studies/24_devscale_exit_lines/
+
+- [README.md](../research/studies/24_devscale_exit_lines/README.md) — 스터디 24 — DevScale 청산선·하룻밤 넘김·진입 필터 1년 리플레이 결과와 채택값(D-111)
+- [carry_filter_grid.tsv](../research/studies/24_devscale_exit_lines/carry_filter_grid.tsv) — 넘김 + 전일 ATR·개장 이격 필터 격자 월 표(1차)
+- [carry_filter_grid2.tsv](../research/studies/24_devscale_exit_lines/carry_filter_grid2.tsv) — 넘김 + 필터 격자 월 표(2차, 익절·손절 조합 추가)
+- [carry_fine_grid.tsv](../research/studies/24_devscale_exit_lines/carry_fine_grid.tsv) — 촘촘한 격자 20개(익절 3 × 손절 5.5~7 × ATR 4~6) 월 표
+- [carry_fine_grid_summary.txt](../research/studies/24_devscale_exit_lines/carry_fine_grid_summary.txt) — 촘촘한 격자 요약(변형별 세후 %/건·건수·플러스 달·총액) — 채택값 근거
+- [carry_grid.tsv](../research/studies/24_devscale_exit_lines/carry_grid.tsv) — 하룻밤 넘김만 켠 청산선 격자 월 표
+- [carry_wide2_grid.tsv](../research/studies/24_devscale_exit_lines/carry_wide2_grid.tsv) — 넓은 격자 2차 36개(손절 없음·8 포함) 월 표
+- [carry_wide2_grid_summary.txt](../research/studies/24_devscale_exit_lines/carry_wide2_grid_summary.txt) — 넓은 격자 2차 요약
+- [carry_wide3_grid.tsv](../research/studies/24_devscale_exit_lines/carry_wide3_grid.tsv) — 넓은 격자 3차 45개(ATR 3.5~6 × 이격 −3~0) 월 표
+- [carry_wide3_grid_summary.txt](../research/studies/24_devscale_exit_lines/carry_wide3_grid_summary.txt) — 넓은 격자 3차 요약
+- [carry_wide_grid.tsv](../research/studies/24_devscale_exit_lines/carry_wide_grid.tsv) — 넓은 격자 1차 108개(익절 1~8 × 손절 3~6 × ATR × 이격) 월 표
+- [carry_wide_grid_summary.txt](../research/studies/24_devscale_exit_lines/carry_wide_grid_summary.txt) — 넓은 격자 1차 요약
+- [entry_filter_grid.tsv](../research/studies/24_devscale_exit_lines/entry_filter_grid.tsv) — 당일 청산 규칙에 진입 필터만 얹은 격자 월 표
+- [entry_grid.tsv](../research/studies/24_devscale_exit_lines/entry_grid.tsv) — 진입 시각(09:30~13:00) 격자 월 표 — 개선 없음
+- [live_grid.tsv](../research/studies/24_devscale_exit_lines/live_grid.tsv) — 모의계좌 규칙(당일 청산) 청산선 격자 월 표 — 세후 플러스 조합 없음
+- [notional_grid.tsv](../research/studies/24_devscale_exit_lines/notional_grid.tsv) — 건당 금액 435만~1,500만 격자 월 표 — 거의 비례
+- [smoke.tsv](../research/studies/24_devscale_exit_lines/smoke.tsv) — 리플레이 동작 확인용 소표본 결과
+- [summarize_grid.py](../research/studies/24_devscale_exit_lines/summarize_grid.py) — 격자 월 표와 짝 `_days.tsv`를 읽어 변형별 세후 %/건·건수·플러스 달·총액·투입을 요약한다
 
 ## scripts
 

@@ -4446,7 +4446,7 @@ string 생성 + 락)은 리플레이 전용이라 다음 순서(wt/symbol-id의 
   (첫 틱 고가 대비 1% 트레일)로 떨어져 부착 90초 안에 47건이 팔렸다.
 
 **검증**: 1년 리플레이(`PYQuant/backtest/devscale_replay.py`, 2025-09-19~2026-09-18 시총∪거래대금 상위 100, 32,883 종목일,
-왕복 비용 0.215%). 요약은 `research/studies/19_devscale_exit_lines/summarize_grid.py`(종목일 표 `_days.tsv`로 센다 — 월 표는
+왕복 비용 0.215%). 요약은 `research/studies/24_devscale_exit_lines/summarize_grid.py`(종목일 표 `_days.tsv`로 센다 — 월 표는
 매수 없는 날을 빼서 넘긴 보유를 판 날이 빠지는 버그가 있었고 `monthly_table`에서 고쳤다).
 - 당일 청산(라이브 규칙) 안에서는 어떤 청산선 조합도 세후 플러스가 아니다(비용 전 −0.19~+0.04%/건). 넘김만 켜면 비용 전
   +0.10%·세후 −0.13%, 넘김 + ATR≤5·이격≥−3 + 익절 1.2·손절 3.0이 세후 +0.025%/건(1,343건).
