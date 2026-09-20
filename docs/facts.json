@@ -172,6 +172,7 @@
       "test_ringbuffer_stress",
       "test_pipeline_stress",
       "bench_ticker_lookup",
+      "bench_zmq_publish",
       "bench_market_firehose",
       "bench_feed_ingest",
       "test_wake_gate",
@@ -574,7 +575,7 @@
       "file": "PYQuant/dashboard/build_dashboard.py",
       "symbol": "render_reviews",
       "lines": 168,
-      "start": 1033
+      "start": 1050
     },
     {
       "file": "Quant/src/risk/OrderGate.cpp",
@@ -643,6 +644,12 @@
       "start": 74
     },
     {
+      "file": "Quant/src/ipc/ZmqBridge.cpp",
+      "symbol": "ZmqBridge::thread_fn",
+      "lines": 137,
+      "start": 90
+    },
+    {
       "file": "Quant/src/api/KisAuth.cpp",
       "symbol": "KisClient::issue_token",
       "lines": 135,
@@ -677,12 +684,6 @@
       "symbol": "scan",
       "lines": 126,
       "start": 147
-    },
-    {
-      "file": "Quant/src/ipc/ZmqBridge.cpp",
-      "symbol": "ZmqBridge::thread_fn",
-      "lines": 125,
-      "start": 64
     },
     {
       "file": "Quant/src/core/LedgerReconciler.cpp",
@@ -797,6 +798,12 @@
       "symbol": "scan_itb",
       "lines": 97,
       "start": 1385
+    },
+    {
+      "file": "PYQuant/dashboard/build_dashboard.py",
+      "symbol": "render_live",
+      "lines": 96,
+      "start": 863
     },
     {
       "file": "Quant/src/core/Engine.cpp",

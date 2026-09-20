@@ -8,8 +8,8 @@
   2. `strategies/<전략>/live/YYYY-MM-DD.md` — 서술형 매매 일지. 제목·전략줄·한 줄 결과만
      뽑아 카드로 링크(원문은 md 그대로 — 대시보드는 요약+링크만).
 
-정직성: 모의계좌(paper)·주문흐름 요약이다. 체결가·실현손익은 체결통보 원장(별도)에 있으므로
-여기선 '무엇을 몇 번 발주/거부/취소했나'만 집계하고 손익을 지어내지 않는다.
+정직성: 모의계좌(paper) 주문흐름 요약이다. '무엇을 몇 번 발주/거부/취소했나'와 원장 체결 행의
+실현손익 합(매도측 비용을 뺀 원장 값 그대로)만 집계하고, 평가손익은 지어내지 않는다.
 
 실행:  python PYQuant/dashboard/backfill_live.py
 """
@@ -62,6 +62,9 @@ def rollup_trades():
 def _rollup_one(p: Path, date: str):
     status, event, strat, tickers, sides = Counter(), Counter(), Counter(), set(), Counter()
     total = 0
+    # 체결 행의 원장 실현손익 합과 양쪽 대금. 원장 값은 매도측 비용(수수료·거래세)을 이미 뺀 것이라
+    #  여기서 비용을 다시 빼지 않는다(scripts/market_close_autodoc.py 4절과 같은 기준).
+    realized, buy_notional, sell_notional = 0.0, 0.0, 0.0
     try:
         with open(p, encoding="utf-8-sig") as f:
             for r in csv.DictReader(f):
@@ -83,6 +86,14 @@ def _rollup_one(p: Path, date: str):
                 t = (r.get("ticker") or "").strip()
                 if t:
                     tickers.add(t)
+
+                if (r.get("event") or "").strip() == "FILL":
+                    notional = float(r.get("fill_qty") or 0) * float(r.get("fill_price") or 0)
+                    realized += float(r.get("realized_pnl") or 0)
+                    if (r.get("side") or "").strip() == "BUY":
+                        buy_notional += notional
+                    else:
+                        sell_notional += notional
     except Exception as e:
         print(f"  ! 스킵 {p}: {e}", file=sys.stderr)
         return None
@@ -98,6 +109,9 @@ def _rollup_one(p: Path, date: str):
         # filled = 최종 상태가 체결인 주문 수. fill_events = 체결통보 낱건 수(부분체결 포함).
         "filled": status.get("FILLED", 0) + status.get("EXECUTED", 0),
         "fill_events": event.get("FILL", 0) + event.get("FILLED", 0),
+        "realized_pnl": round(realized),
+        "buy_notional": round(buy_notional),
+        "sell_notional": round(sell_notional),
     }
 
 

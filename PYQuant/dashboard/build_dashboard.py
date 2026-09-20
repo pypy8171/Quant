@@ -860,17 +860,28 @@ def holdout_banner(rows):
 
 # ── 백테스트 탭 ───────────────────────────────────────────────────────────────
 # ── 라이브 탭 ─────────────────────────────────────────────────────────────────
-def render_live(live):
+def render_live(live, public=False):
+    """public=True면 일지 본문을 싣지 않는다 — 원문에는 계좌번호·세션 이름·오너 지시가 섞여 있다."""
     journals = live.get("journals", [])
     order_log = live.get("order_log", [])
     stamp = live.get("generated") or ""
     tail = (f' <span class="win">갱신 {esc(stamp)} · 일지 {len(journals)}건 · '
             f'원장 {len(order_log)}일</span>' if stamp else "")
     out = ['<section class="fam"><h2>라이브(모의) 매매 기록</h2>'
-           '<p class="fdesc">KIS 모의계좌(paper) 실증. 아래 <b>매매 일지</b>는 서술 원문 링크, '
-           '<b>주문 로그</b>는 <code>logs/trades_*.csv</code> 일자별 롤업. '
-           '체결 열은 최종 상태가 체결인 주문 수이고, 실현손익은 여기서 집계하지 않는다.'
+           '<p class="fdesc">KIS 모의계좌(paper) 실증. <b>주문 로그</b>는 <code>logs/trades_*.csv</code> 일자별 롤업 — '
+           '체결 열은 최종 상태가 체결인 주문 수, 실현손익은 원장 체결 행의 합(매도측 수수료·거래세를 뺀 값)이고 '
+           '평가손익은 넣지 않는다. '
+           + ('<b>매매 일지</b>는 제목만 싣는다(원문은 저장소 <code>strategies/&lt;전략&gt;/live/</code>).'
+              if public else '<b>매매 일지</b>는 카드 클릭으로 원문이 펼쳐진다.')
            + tail + '</p>']
+
+    # 날짜별 실현손익 한 줄 요약(원장 값이 있는 날만)
+    pnl_days = [day for day in order_log if day.get("realized_pnl") is not None]
+    if pnl_days:
+        total_pnl = sum(day["realized_pnl"] for day in pnl_days)
+        wins = sum(1 for day in pnl_days if day["realized_pnl"] > 0)
+        out.append(f'<p class="fdesc">실현손익 누계 <b class="{"pos" if total_pnl >= 0 else "neg"}">'
+                   f'{num(total_pnl, 0)}원</b> · {len(pnl_days)}일 중 이익일 {wins}일</p>')
 
     # 매매 일지 카드
     if journals:
@@ -883,7 +894,7 @@ def render_live(live):
             # <details>라 JS 없이도 펼쳐진다.
             body = ""
             try:
-                body = (_REPO / rel).read_text(encoding="utf-8") if rel else ""
+                body = (_REPO / rel).read_text(encoding="utf-8") if (rel and not public) else ""
             except OSError:
                 body = ""
             inner = (f'<summary>'
@@ -895,11 +906,13 @@ def render_live(live):
                 body_lines = [line for line in body.splitlines() if not line.startswith("# ")]
                 inner += (f'<div class="jsrc">{esc(rel)}</div>'
                           f'<div class="jbody">{_md_block(body_lines)}</div>')
+            elif public:
+                inner += f'<div class="jsrc">{esc(rel)}</div>'
             else:
                 inner += f'<div class="jsrc">원문을 찾지 못했다 — {esc(rel)}</div>'
             cards.append(f'<details class="card jcard">{inner}</details>')
         out.append('<div class="grp"><h3>매매 일지 <span class="win">'
-                   '(카드 클릭 = 원문 펼치기)</span></h3>'
+                   + ('(제목만)' if public else '(카드 클릭 = 원문 펼치기)') + '</span></h3>'
                    f'<div class="cards">{"".join(cards)}</div></div>')
 
     # 주문 로그 롤업
@@ -924,14 +937,18 @@ def render_live(live):
                 f'<td class="k-int"><span class="{"pos" if o.get("filled") else "zero"}">'
                 f'{num(o.get("filled"),0)}</span></td>'
                 f'<td class="k-int">{num(o.get("n_tickers"),0)}</td>'
-                f'<td class="k-bar"><span class="stack">{"".join(seg)}</span></td>'
+                + (f'<td class="k-int"><span class="{"pos" if o["realized_pnl"] >= 0 else "neg"}">'
+                   f'{num(o["realized_pnl"],0)}</span></td>'
+                   f'<td class="k-int">{num((o.get("buy_notional",0)+o.get("sell_notional",0))/1e6,1)}</td>'
+                   if o.get("realized_pnl") is not None else '<td class="k-int">–</td><td class="k-int">–</td>')
+                + f'<td class="k-bar"><span class="stack">{"".join(seg)}</span></td>'
                 f'<td class="k-left cstrat">{strat}</td></tr>')
         out.append(
             '<div class="grp"><h3>주문 로그 요약 <span class="win">'
             '(접수=초록·취소=회색·거부=빨강)</span></h3>'
             '<div class="tw"><table><thead><tr>'
             '<th>일자</th><th>총주문</th><th>접수</th><th>취소</th><th>거부</th>'
-            '<th>체결</th><th>종목수</th><th>상태 비율</th><th>전략</th></tr></thead>'
+            '<th>체결</th><th>종목수</th><th>실현손익(원)</th><th>매매대금(백만)</th><th>상태 비율</th><th>전략</th></tr></thead>'
             f'<tbody>{"".join(rows)}</tbody></table></div></div>')
 
     if not journals and not order_log:
@@ -1206,8 +1223,9 @@ VARIANTS = {
     "ops":    {"out": OUT_HTML,   "title": "퀀트 매매 대시보드",   "brand": "매매 대시보드",
                "schemas": "quant.metrics/v1 · quant.live/v1 · quant.review/v1",
                "tabs": ("studies", "live", "reviews", "premarket")},
+    # 공개본의 라이브 탭은 일지 원문을 싣지 않는다(계좌·세션 이름이 든 서술) — 날짜별 요약 표와 일지 제목만.
     "public": {"out": OUT_PUBLIC, "title": "퀀트 백테스트 스터디", "brand": "백테스트 스터디",
-               "schemas": "quant.metrics/v1", "tabs": ("studies",)},
+               "schemas": "quant.metrics/v1 · quant.live/v1", "tabs": ("studies", "live"), "public": True},
     "rounds": {"out": OUT_ROUNDS, "title": "퀀트 리서치 라운드",   "brand": "리서치 라운드",
                "schemas": "research/RESET_*", "tabs": ("rounds",)},
 }
@@ -1226,7 +1244,7 @@ def render(rows, live, reviews, premarket, rounds, study_index, variant="ops"):
                       lambda: render_studies(study_index, rows)),
         "live":      ("tab-live", "라이브 매매",
                       [(len(live.get("journals", [])), "매매일지"), (len(live.get("order_log", [])), "주문로그일")],
-                      lambda: render_live(live)),
+                      lambda: render_live(live, public=variant_specification.get("public", False))),
         "reviews":   ("tab-rv", "리뷰", [(len(reviews), "리뷰")], lambda: render_reviews(reviews)),
         "premarket": ("tab-pm", "장전 브리핑", [(len(premarket), "장전 브리핑")], lambda: render_premarket(premarket)),
         "rounds":    ("tab-rd", "리서치 라운드", [(len(rounds), "리서치 라운드")], lambda: render_rounds(rounds)),

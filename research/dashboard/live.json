@@ -1,6 +1,6 @@
 {
   "schema": "quant.live/v1",
-  "generated": "2026-09-20 13:02",
+  "generated": "2026-09-20 15:39",
   "journals": [
     {
       "date": "2026-09-18",
@@ -212,7 +212,10 @@
       "rejected": 179,
       "cancelled": 198,
       "filled": 0,
-      "fill_events": 0
+      "fill_events": 0,
+      "realized_pnl": 0,
+      "buy_notional": 0,
+      "sell_notional": 0
     },
     {
       "date": "2026-08-11",
@@ -237,7 +240,10 @@
       "rejected": 206,
       "cancelled": 96,
       "filled": 0,
-      "fill_events": 0
+      "fill_events": 0,
+      "realized_pnl": 0,
+      "buy_notional": 0,
+      "sell_notional": 0
     },
     {
       "date": "2026-08-12",
@@ -263,7 +269,10 @@
       "rejected": 273,
       "cancelled": 233,
       "filled": 0,
-      "fill_events": 0
+      "fill_events": 0,
+      "realized_pnl": 0,
+      "buy_notional": 0,
+      "sell_notional": 0
     },
     {
       "date": "2026-08-13",
@@ -289,7 +298,10 @@
       "rejected": 116,
       "cancelled": 26,
       "filled": 0,
-      "fill_events": 0
+      "fill_events": 0,
+      "realized_pnl": 0,
+      "buy_notional": 0,
+      "sell_notional": 0
     },
     {
       "date": "2026-08-14",
@@ -316,7 +328,10 @@
       "rejected": 28,
       "cancelled": 2,
       "filled": 0,
-      "fill_events": 0
+      "fill_events": 0,
+      "realized_pnl": 0,
+      "buy_notional": 0,
+      "sell_notional": 0
     },
     {
       "date": "2026-08-18",
@@ -361,7 +376,10 @@
       "rejected": 104,
       "cancelled": 0,
       "filled": 0,
-      "fill_events": 0
+      "fill_events": 0,
+      "realized_pnl": 0,
+      "buy_notional": 0,
+      "sell_notional": 0
     },
     {
       "date": "2026-08-19",
@@ -391,7 +409,10 @@
       "rejected": 29,
       "cancelled": 1,
       "filled": 0,
-      "fill_events": 0
+      "fill_events": 0,
+      "realized_pnl": 0,
+      "buy_notional": 0,
+      "sell_notional": 0
     },
     {
       "date": "2026-08-20",
@@ -427,7 +448,10 @@
       "rejected": 139,
       "cancelled": 22,
       "filled": 0,
-      "fill_events": 0
+      "fill_events": 0,
+      "realized_pnl": 0,
+      "buy_notional": 0,
+      "sell_notional": 0
     },
     {
       "date": "2026-08-21",
@@ -458,7 +482,10 @@
       "rejected": 57,
       "cancelled": 0,
       "filled": 0,
-      "fill_events": 0
+      "fill_events": 0,
+      "realized_pnl": 0,
+      "buy_notional": 0,
+      "sell_notional": 0
     },
     {
       "date": "2026-08-25",
@@ -484,7 +511,10 @@
       "rejected": 2,
       "cancelled": 2,
       "filled": 0,
-      "fill_events": 0
+      "fill_events": 0,
+      "realized_pnl": 0,
+      "buy_notional": 0,
+      "sell_notional": 0
     },
     {
       "date": "2026-09-03",
@@ -529,7 +559,10 @@
       "rejected": 177,
       "cancelled": 12,
       "filled": 0,
-      "fill_events": 0
+      "fill_events": 0,
+      "realized_pnl": 0,
+      "buy_notional": 0,
+      "sell_notional": 0
     },
     {
       "date": "2026-09-04",
@@ -580,7 +613,10 @@
       "rejected": 132,
       "cancelled": 49,
       "filled": 18,
-      "fill_events": 73
+      "fill_events": 73,
+      "realized_pnl": 0,
+      "buy_notional": 36017300,
+      "sell_notional": 34256600
     },
     {
       "date": "2026-09-07",
@@ -668,7 +704,10 @@
       "rejected": 252,
       "cancelled": 43,
       "filled": 68,
-      "fill_events": 124
+      "fill_events": 124,
+      "realized_pnl": 0,
+      "buy_notional": 70888185,
+      "sell_notional": 64465850
     },
     {
       "date": "2026-09-08",
@@ -758,7 +797,10 @@
       "rejected": 373,
       "cancelled": 208,
       "filled": 250,
-      "fill_events": 561
+      "fill_events": 561,
+      "realized_pnl": 606540,
+      "buy_notional": 116893670,
+      "sell_notional": 186661345
     },
     {
       "date": "2026-09-09",
@@ -841,7 +883,10 @@
       "rejected": 631,
       "cancelled": 61,
       "filled": 117,
-      "fill_events": 230
+      "fill_events": 230,
+      "realized_pnl": -141379,
+      "buy_notional": 53081920,
+      "sell_notional": 110793060
     },
     {
       "date": "2026-09-10",
@@ -922,7 +967,10 @@
       "rejected": 829,
       "cancelled": 48,
       "filled": 34,
-      "fill_events": 157
+      "fill_events": 157,
+      "realized_pnl": 396026,
+      "buy_notional": 13621510,
+      "sell_notional": 65532190
     },
     {
       "date": "2026-09-11",
@@ -1030,7 +1078,10 @@
       "rejected": 826,
       "cancelled": 359,
       "filled": 175,
-      "fill_events": 387
+      "fill_events": 387,
+      "realized_pnl": 179508,
+      "buy_notional": 116241300,
+      "sell_notional": 79807095
     },
     {
       "date": "2026-09-14",
@@ -1168,7 +1219,10 @@
       "rejected": 486,
       "cancelled": 490,
       "filled": 228,
-      "fill_events": 708
+      "fill_events": 708,
+      "realized_pnl": -1418795,
+      "buy_notional": 191047375,
+      "sell_notional": 218831214
     },
     {
       "date": "2026-09-15",
@@ -1301,7 +1355,10 @@
       "rejected": 798,
       "cancelled": 859,
       "filled": 276,
-      "fill_events": 680
+      "fill_events": 680,
+      "realized_pnl": -138634,
+      "buy_notional": 164037280,
+      "sell_notional": 178694730
     },
     {
       "date": "2026-09-16",
@@ -1449,7 +1506,10 @@
       "rejected": 1158,
       "cancelled": 846,
       "filled": 204,
-      "fill_events": 712
+      "fill_events": 712,
+      "realized_pnl": -682210,
+      "buy_notional": 169257425,
+      "sell_notional": 142658500
     },
     {
       "date": "2026-09-17",
@@ -1591,7 +1651,10 @@
       "rejected": 567,
       "cancelled": 777,
       "filled": 168,
-      "fill_events": 784
+      "fill_events": 784,
+      "realized_pnl": -23596,
+      "buy_notional": 146515305,
+      "sell_notional": 179934130
     },
     {
       "date": "2026-09-18",
@@ -1715,7 +1778,10 @@
       "rejected": 3637,
       "cancelled": 447,
       "filled": 156,
-      "fill_events": 522
+      "fill_events": 522,
+      "realized_pnl": 67128,
+      "buy_notional": 170642500,
+      "sell_notional": 105015257
     }
   ]
 }

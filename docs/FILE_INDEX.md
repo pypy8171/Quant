@@ -9,7 +9,7 @@
 - [(루트)](#루트) — 10개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 101개
-- [Quant](#quant) — 172개
+- [Quant](#quant) — 173개
 - [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 208개
@@ -370,9 +370,9 @@
 - [bench_intake.cpp](../Quant/tests/bench_intake.cpp) — 멀티생산자 주문 인테이크 큐 부하 벤치(MPSC 대 Mutex)
 - [bench_latency_path.cpp](../Quant/tests/bench_latency_path.cpp) — 지연에 민감한 경로 리팩터 전후 비교 벤치(D-071)
 - [bench_market_firehose.cpp](../Quant/tests/bench_market_firehose.cpp) — 전종목 규모 시세 파이프라인 부하테스트(E2E 지연·처리량)
-- [bench_zmq_publish.cpp](../Quant/tests/bench_zmq_publish.cpp) — ZmqBridge::publish_trade가 수신 스레드에 얹는 비용 벤치 + TRADE 와이어 포맷이 예전 dump()와 같은지 검사(ctest)
 - [bench_sleep_res.cpp](../Quant/tests/bench_sleep_res.cpp) — sleep_for·condvar 대기 해상도 실측 도구
 - [bench_wake_gate.cpp](../Quant/tests/bench_wake_gate.cpp) — WakeGate 대 atomic::wait 깨우기 지연 비교 벤치(D-070)
+- [bench_zmq_publish.cpp](../Quant/tests/bench_zmq_publish.cpp) — ZmqBridge::publish_trade가 수신 스레드에 얹는 비용 벤치 + TRADE 와이어 포맷이 예전 dump()와 같은지 검사(ctest)
 - [test_account_ledger.cpp](../Quant/tests/test_account_ledger.cpp) — 계좌별 원장 파티셔닝(다계좌 독립성) 단위 테스트
 - [test_app_config.cpp](../Quant/tests/test_app_config.cpp) — config.json → AppConfig 경계 단위 테스트(기본값·오버라이드·feed_keys 상속·risk·regime_strategies)
 - [test_bar_aggregator.cpp](../Quant/tests/test_bar_aggregator.cpp) — N분봉 집계기 단위 테스트(D-068·D-072)
