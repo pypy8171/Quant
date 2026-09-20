@@ -46,6 +46,12 @@ HTTP_TIMEOUT_RE = re.compile(r"ReceiveResponse 실패: 12002|\[CURL\] 요청 실
 TRENDX_REGISTER_RE = re.compile(r"TRENDX universe_from_scan: 초기 (\d+)종목 등록")
 # D-101 결정 3 — 마감 청산이 매매 창 안(모의 15:15·실계좌 19:50, 접속매매)에 나가면 이 거부는 0건이다(09-18 2,188건이 25종목 이월을 만들었다)
 SESSION_WINDOW_REJECT_RE = re.compile(r"\[OrderRouter\] 거부 .*세션 창 밖")
+# D-109 — 목표 비중표 바스켓. 격리 3종(청산관리·교체·DEVSCALE)과 재기동 중복 방지가 실제로 지켜졌는지 로그로 본다.
+BASKET_LOADED_RE = re.compile(r"\[BASKET_\w+\] 목표 비중표 읽음 as_of=(\d{8})")
+BASKET_ORDER_RE = re.compile(r"\[BASKET_\w+\] 주문: (\d{6}) (매수|매도) (\d+)주")
+BASKET_RUN_START_RE = re.compile(r"\[BASKET_\w+\] 오늘 집행 시작")
+BASKET_RUN_END_RE = re.compile(r"\[BASKET_\w+\] 오늘 집행 끝")
+BASKET_WINDOW_CLOSED_RE = re.compile(r"\[BASKET_\w+\] 집행 창 종료")
 SIGNAL_RE = re.compile(r"\[Strategy\] 신호: \[([A-Z_+0-9]+)\] (\d{6})(?:\([^)]*\))? (BUY|SELL) (\d+)")
 ITB_ATTACH_RE = re.compile(r"\[Main\]   \+ ITB (\d{6}) ")
 # 09-20 청산선 재설정(config_dev_paper.json "//exit_09-20") — 12일 원장에서 손실을 낸 네 경로가 닫혔는지 본다:
@@ -69,6 +75,7 @@ SLOW_ORDER_MS = 3000      # 접수까지 이보다 오래 걸리면 청산 지�
 MAX_SLOW_ORDER_RATIO = 0.2  # 접수 중 이 비율 넘게 느리면 그날 서버(또는 버킷)가 상한 것
 BUCKET_WAIT_MS = 300      # 버킷대기 중앙값이 이 위면 지연의 주범은 서버가 아니라 초당한도 버킷
 MAX_HTTP_TIMEOUTS = 50    # 15초 제한 초과 요청 — 09-18 192건(09-17은 3건)이 잔고 대조를 100초까지 붙잡았다
+BASKET_BUY_LEG_DEADLINE = 15 * 3600 + 5 * 60  # 매수 레그는 15:05까지 끝나야 마감 청산(15:15)과 겹치지 않는다(D-109)
 
 
 def median(values: list[int]) -> int:
@@ -103,6 +110,11 @@ def collect(date: str, log: Path, since: int = 0):
     http_timeouts = 0
     trendx_registered: list[int] = []
     session_window_rejects = 0
+    basket_as_of: list[str] = []                 # 목표 비중표 읽음 줄의 as_of(YYYYMMDD)
+    basket_orders: list[tuple[int, str, str]] = []  # (초, 종목, 매수|매도) — 바스켓이 낸 주문
+    basket_run_end: list[int] = []
+    basket_window_closed = 0
+    basket_lines = 0
     signals: list[tuple[int, str, str, str]] = []  # (초, 전략 id, 종목, BUY|SELL)
     itb_attached: list[str] = []
     devscale_stops: list[tuple[int, str]] = []     # (초, 종목) — DEVSCALE 손절 신호
@@ -150,6 +162,16 @@ def collect(date: str, log: Path, since: int = 0):
                 trendx_registered.append(int(found.group(1)))
             if SESSION_WINDOW_REJECT_RE.search(line):
                 session_window_rejects += 1
+            if "[BASKET_" in line:
+                basket_lines += 1
+            if found := BASKET_LOADED_RE.search(line):
+                basket_as_of.append(found.group(1))
+            if found := BASKET_ORDER_RE.search(line):
+                basket_orders.append((second, found.group(1), found.group(2)))
+            if BASKET_RUN_END_RE.search(line):
+                basket_run_end.append(second)
+            if BASKET_WINDOW_CLOSED_RE.search(line):
+                basket_window_closed += 1
             if found := SIGNAL_RE.search(line):
                 signals.append((second, found.group(1), found.group(2), found.group(3)))
             if found := ITB_ATTACH_RE.search(line):
@@ -212,9 +234,28 @@ def collect(date: str, log: Path, since: int = 0):
     else:
         recon_detail = f"사이클 넘긴 조회 0회, 제한 시간 초과 {http_timeouts}건 (허용 {MAX_HTTP_TIMEOUTS})"
 
+    # 바스켓(D-109) — 소유 종목은 그날 바스켓이 낸 주문·신호에서 모은다(파일을 다시 읽지 않는다 — 로그가 그날의 정본).
+    basket_tickers = {ticker for _, ticker, _ in basket_orders} | {ticker for _, sid, ticker, _ in signals if sid.startswith("BASKET_")}
+    basket_itb = sorted(set(itb_attached) & basket_tickers)
+    foreign_sells = [(second, sid, ticker) for second, sid, ticker, side in signals
+                     if side == "SELL" and ticker in basket_tickers and not sid.startswith("BASKET_")]
+    order_counts: dict[tuple[str, str], int] = {}
+    for _, ticker, side in basket_orders:
+        order_counts[(ticker, side)] = order_counts.get((ticker, side), 0) + 1
+    basket_duplicates = sorted(f"{ticker} {side}" for (ticker, side), count in order_counts.items() if count > 1)
+    date_compact = date.replace("-", "")
+    basket_file_ok = bool(basket_as_of) and basket_as_of[-1] == date_compact
+    buy_leg_ok = basket_window_closed == 0 and (not basket_orders or (basket_run_end and max(basket_run_end) <= BASKET_BUY_LEG_DEADLINE))
+    basket_skip = basket_lines == 0   # TARGET_BASKET 미로드(배포 전 날짜) — 판정하지 않는다
+
+    def basket_row(name: str, ok: bool, level: str, detail: str):
+        if basket_skip:
+            return (name, True, level, "TARGET_BASKET 줄 없음(미로드)")
+        return (name, ok, level, detail)
+
     # 09-20 청산선 재설정 — 네 손실 경로. 승계 직후 매도는 그 종목의 마지막 부착 시각 기준.
     displace_sells = [(second, ticker) for second, sid, ticker, side in signals if sid == "DISPLACE" and side == "SELL"]
-    #  부착은 묶음 한 줄(청산 관리 N종목 부착)로만 찍히므로 그 시각 기준.
+    #  부착은 묶음 한 줄(청산 관리 N종목 부착)로만 찍히므로 그 시각 기준 — 종목별 줄(+ ITB)은 D-109 바이너리부터.
     itb_early_sells = [(second, ticker) for second, sid, ticker, side in signals
                        if sid.startswith("ITB_") and side == "SELL"
                        and any(0 <= second - attach_t <= GUARD_QUIET_SEC for attach_t in guard_at)]
@@ -271,6 +312,21 @@ def collect(date: str, log: Path, since: int = 0):
           else "TRENDX 등록 줄 없음 — 전략 미로드 또는 등록 0")),
         ("매매 창 밖 거부", session_window_rejects == 0, "FAIL",
          f"세션 창 밖 거부 {session_window_rejects}건 (기대 0 — 마감 청산 모의 15:15·실계좌 19:50, D-101 결정 3)"),
+        basket_row("바스켓 파일 당일", basket_file_ok, "FAIL",
+                   (f"목표 비중표 as_of={basket_as_of[-1]} (기대 {date_compact}, 08:40 작성기)" if basket_as_of
+                    else "목표 비중표 읽음 줄 없음 — 08:40 작성기 미실행 또는 파일 검증 실패")),
+        basket_row("바스켓 청산관리 부착", not basket_itb, "FAIL",
+                   f"바스켓 종목에 ITB 부착 {len(basket_itb)}건 (기대 0, D-109 격리 1)"
+                   + (f" — {', '.join(basket_itb[:5])}" if basket_itb else "")),
+        basket_row("바스켓 타전략 매도", not foreign_sells, "FAIL",
+                   f"바스켓 종목을 다른 전략이 판 신호 {len(foreign_sells)}건 (기대 0 — 교체·15:15 청산·초과분 정리, D-109 격리 2·3)"
+                   + (f" — {', '.join(f'{hhmm(second)} {sid} {ticker}' for second, sid, ticker in foreign_sells[:3])}" if foreign_sells else "")),
+        basket_row("바스켓 재기동 중복", not basket_duplicates, "FAIL",
+                   f"같은 종목·방향 주문 2회 이상 {len(basket_duplicates)}건 (기대 0, 상태 파일 선기록)"
+                   + (f" — {', '.join(basket_duplicates[:5])}" if basket_duplicates else "")),
+        basket_row("바스켓 매수 레그 시각", buy_leg_ok, "WARN",
+                   (f"집행 끝 {hhmm(max(basket_run_end))} (기한 15:05), 창 종료 이월 {basket_window_closed}회, 주문 {len(basket_orders)}건"
+                    if basket_run_end else f"집행 끝 줄 없음, 창 종료 이월 {basket_window_closed}회, 주문 {len(basket_orders)}건")),
     ]
     return rows, len(starts)
 

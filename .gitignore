@@ -80,6 +80,9 @@ _private/
 # forward-test(모의매매) 로컬 산출물 — 상태/중복방지 키/P&L (절대 커밋 금지)
 PYQuant/live/.forward_state.json
 PYQuant/live/forward_pnl.csv
+# 모의 바스켓 실행기 상태·목표 비중표(PYQuant/live/basket_forward.py 산출물, 로컬 전용)
+PYQuant/live/.basket_state.json
+PYQuant/live/basket_targets/
 
 # 런타임 산출물 — P&L 베이스라인·모니터 상태·장중 캡처 데이터 (로컬 전용, 커밋 금지)
 pnl_baseline_*.txt

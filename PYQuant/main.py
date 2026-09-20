@@ -21,6 +21,11 @@ from pathlib import Path
 # python/ 폴더를 패키지 루트로
 sys.path.insert(0, str(Path(__file__).parent))
 
+# 예약작업·cp949 콘솔에서도 한글·대시(—)가 깨지지 않게 표준출력을 UTF-8로 둔다.
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="replace")
+
 from core.logger import setup_logger
 from kis.client import from_config, KisAuthError
 
@@ -440,6 +445,42 @@ def cmd_forward(args):
         logger.error(f"인증 오류: {e}")
 
 
+def command_basket(arguments):
+    """바스켓 목표 비중표 작성(주문 없음): 가치 기울임(스터디 22·23) + 국면 모멘텀(02·03) 두 슬리브의 목표를
+    Quant/config/basket_targets.json에 쓴다. 집행은 엔진 TARGET_BASKET 슬리브 몫이다(D-109)."""
+    from pathlib import Path
+    from features.fundamental import FundamentalData
+    from live.basket_forward import BasketTargetsWriter, MomentumSleeve, ValueTiltSleeve
+    data = FundamentalData.load()
+    sleeves = []
+    shares = {}
+
+    if not arguments.no_value:
+        sleeves.append(ValueTiltSleeve(data, top_n=arguments.value_top_n, value_weight=arguments.value_weight,
+                                       turnover_floor_krw=arguments.value_floor_billion * 100_000_000))
+        shares["VALUE"] = arguments.value_share
+
+    if not arguments.no_momentum:
+        # 시세는 VALUE와 같은 네이버 일봉 패널 — data.go.kr 시세는 하루 늦는다.
+        sleeves.append(MomentumSleeve(data, top_n=arguments.momentum_top_n, regime_on=not arguments.no_regime))
+        shares["MOMENTUM"] = 1.0 - arguments.value_share if not arguments.no_value else 1.0
+
+    if not sleeves:
+        logger.error("슬리브가 없다 — --no-value와 --no-momentum을 같이 줄 수 없다")
+        return
+
+    writer_kwargs = {}
+
+    if arguments.out:
+        writer_kwargs["output_path"] = Path(arguments.out)
+
+    if arguments.state:
+        writer_kwargs["state_path"] = Path(arguments.state)
+
+    writer = BasketTargetsWriter(sleeves, shares, data.bars.close.index, data.bars.close.iloc[-1], **writer_kwargs)
+    writer.run_once(force=set(arguments.force))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Python 퀀트 트레이딩")
     sub = parser.add_subparsers(dest="cmd")
@@ -565,6 +606,23 @@ def main():
     fp.add_argument("--universe-size", dest="universe_size", type=int, default=200)
     fp.add_argument("--kosdaq-size", dest="kosdaq_size", type=int, default=100)
 
+    # ── basket (모의계좌 바스켓 forward — 가치 기울임 + 국면 모멘텀) ────────────
+    bk = sub.add_parser("basket", help="가치 기울임+국면 모멘텀 두 슬리브의 목표 비중표 작성(주문 없음, 집행은 엔진 TARGET_BASKET)")
+    bk.add_argument("--out", default=None, help="비중표 출력 경로(기본 Quant/config/basket_targets.json)")
+    bk.add_argument("--state", default=None, help="리밸 상태 파일 경로(기본 PYQuant/live/.basket_state.json)")
+    bk.add_argument("--force", nargs="*", default=[], choices=["VALUE", "MOMENTUM", "all"],
+                    help="리밸 주기 무시하고 이 슬리브의 목표를 다시 뽑는다")
+    bk.add_argument("--value-share", dest="value_share", type=float, default=0.5, help="가치 슬리브 예산 비율(나머지는 모멘텀)")
+    bk.add_argument("--value-top-n", dest="value_top_n", type=int, default=30)
+    bk.add_argument("--value-weight", dest="value_weight", type=float, default=0.7)
+    bk.add_argument("--value-floor-billion", dest="value_floor_billion", type=float, default=30,
+                    help="가치 유니버스 20일 평균 거래대금 하한(억)")
+    bk.add_argument("--momentum-top-n", dest="momentum_top_n", type=int, default=30)
+    bk.add_argument("--no-regime", dest="no_regime", action="store_true",
+                    help="모멘텀 슬리브의 breadth 국면 게이트를 끈다(기본 ON — 스터디 03: OFF는 2022년 -35%, ON은 현금)")
+    bk.add_argument("--no-value", dest="no_value", action="store_true")
+    bk.add_argument("--no-momentum", dest="no_momentum", action="store_true")
+
     args = parser.parse_args()
 
     if args.cmd == "backtest":
@@ -583,6 +641,8 @@ def main():
         cmd_operate(args)
     elif args.cmd == "forward":
         cmd_forward(args)
+    elif args.cmd == "basket":
+        command_basket(args)
     else:
         parser.print_help()
 

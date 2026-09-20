@@ -8,8 +8,8 @@
 
 - [(루트)](#루트) — 10개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 102개
-- [Quant](#quant) — 184개
+- [PYQuant](#pyquant) — 103개
+- [Quant](#quant) — 185개
 - [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 240개
@@ -119,6 +119,7 @@
 ### PYQuant/live/
 
 - [__init__.py](../PYQuant/live/__init__.py) — 빈 패키지 초기화 파일
+- [basket_forward.py](../PYQuant/live/basket_forward.py) — 바스켓 목표 비중표 작성기 — 두 슬리브(가치·모멘텀) 목표 종목을 뽑아 Quant/config/basket_targets.json을 쓴다, 주문 없음 (D-109)
 - [forward_trader.py](../PYQuant/live/forward_trader.py) — 검증 전략의 모의계좌 forward 실행기
 - [trader.py](../PYQuant/live/trader.py) — REST 폴링 방식 실전 매매 실행기
 
@@ -201,6 +202,10 @@
 - [CMakeLists.txt](../Quant/CMakeLists.txt) — 빌드 설정 — C++23, 플랫폼별 컴파일 옵션(ASan/TSan), 타깃 정의
 - [Dockerfile](../Quant/Dockerfile) — 리눅스 컨테이너 빌드(2단계: 빌드+런타임) 설정
 - [quant_trader.pid](../Quant/quant_trader.pid) — 실행 중 프로세스 PID 파일
+
+### Quant/PYQuant/data/ticks_raw/
+
+- [ticks_1789918454.bin](../Quant/PYQuant/data/ticks_raw/ticks_1789918454.bin) — (설명 필요)
 
 ### Quant/config/
 

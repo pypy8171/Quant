@@ -11,7 +11,7 @@
 #   - 계좌 모드는 감시견 예약작업(QuantAutoTradeGuard)이 넘기는 config의 kis.is_paper 로 읽는다. 최상위·quote_kis 의 is_paper 는
 #     시세 계정이라 보지 않는다(scripts/auto_trade_day.ps1 와 같은 이유).
 #   - 클로드를 부르는 두 작업(claude_stock_study·claude_dashboard_sync)은 세션 사용량 한도(17시 리셋) 때문에 모의에서도 20:30 뒤다.
-#   - 순서는 고정: 장 마감 AutoDoc → Maintain Daily → Minute Backfill → stock_study → dashboard_sync → Maintain Weekly(금).
+#   - 순서는 고정: 바스켓 비중표(08:40, 장 전) → 장 마감 AutoDoc → Maintain Daily → Minute Backfill → stock_study → dashboard_sync → Maintain Weekly(금).
 param(
     [string]$Config = $null,
     [switch]$Apply,
@@ -57,6 +57,7 @@ $modeLabel = if ($paper) { '모의' } else { '실계좌' }
 if ($paper)
 {
     $plan = [ordered]@{
+        'Quant Basket Targets'  = '08:40'
         'Quant Market Close AutoDoc'     = '16:05'
         'Quant Maintain Daily'  = '16:20'
         'Quant Minute Backfill' = '16:40'
@@ -70,6 +71,7 @@ if ($paper)
 else
 {
     $plan = [ordered]@{
+        'Quant Basket Targets'  = '08:40'
         'Quant Market Close AutoDoc'     = '20:30'
         'Quant Maintain Daily'  = '20:45'
         'Quant Minute Backfill' = '21:00'
@@ -82,6 +84,7 @@ else
 }
 
 $fix = @{
+    'Quant Basket Targets'  = 'py PYQuant\main.py basket'
     'Quant Market Close AutoDoc'     = 'py scripts\market_close_autodoc.py'
     'Quant Maintain Daily'  = 'py scripts\maintain.py --daily'
     'Quant Minute Backfill' = 'py scripts\market_close_minute_backfill.py'
