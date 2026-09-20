@@ -112,3 +112,6 @@ Quant/config/universe_full.json
 # MSVC 리소스 컴파일러 임시 파일
 Quant/tools/ops_terminal/RC*
 PYQuant/data/cache/
+
+# KIND 회사명→종목코드 조회 캐시(kind_delisted_fill.py 재생성 가능, 회사명에 비공개 단어가 섞인다)
+PYQuant/data/universe/kind_name_to_code.json

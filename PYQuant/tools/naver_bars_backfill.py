@@ -67,7 +67,13 @@ def fetch_text(code: str, end_date: str, sleep_seconds: float) -> str:
             request = urllib.request.Request(url, headers=HEADERS)
 
             with urllib.request.urlopen(request, timeout=30) as response:
-                body = response.read().decode("utf-8").strip()
+                raw = response.read()
+
+            try:
+                body = raw.decode("utf-8").strip()
+            except UnicodeDecodeError:
+                # 자료가 없는 상폐 종목은 헤더 한 줄만 EUC-KR로 온다(2026-09-20 실측, 034280)
+                body = raw.decode("cp949", errors="replace").strip()
 
             time.sleep(sleep_seconds)
             return body

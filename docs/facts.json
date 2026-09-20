@@ -541,12 +541,6 @@
       "start": 1610
     },
     {
-      "file": "Quant/src/core/Engine.cpp",
-      "symbol": "Engine::strategy_thread_fn",
-      "lines": 206,
-      "start": 2005
-    },
-    {
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::reconcile_blocked_sell",
       "lines": 190,
@@ -676,7 +670,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::shard_thread_fn",
       "lines": 126,
-      "start": 2212
+      "start": 2111
     },
     {
       "file": "scripts/token_audit.py",
@@ -754,7 +748,13 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::control_thread_fn",
       "lines": 106,
-      "start": 2601
+      "start": 2500
+    },
+    {
+      "file": "Quant/src/core/Engine.cpp",
+      "symbol": "Engine::strategy_thread_fn",
+      "lines": 105,
+      "start": 2005
     },
     {
       "file": "Quant/src/api/WsSocketPosix.cpp",
@@ -778,7 +778,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::order_thread_fn",
       "lines": 101,
-      "start": 2340
+      "start": 2239
     },
     {
       "file": "Quant/include/strategy/SupplyDemandPullbackStrategy.h",
@@ -880,7 +880,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::drain_manual_inbox",
       "lines": 89,
-      "start": 2909
+      "start": 2808
     },
     {
       "file": "Quant/src/universe/UniverseScanner.cpp",
@@ -934,7 +934,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::start_ops_server",
       "lines": 82,
-      "start": 2769
+      "start": 2668
     }
   ],
   "regime_model": {

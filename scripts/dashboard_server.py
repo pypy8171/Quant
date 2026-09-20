@@ -16,6 +16,8 @@
   - 콘솔 이벤트(신호/주문/체결/거부): logs/quant_trader.log tail 분류
   - 당일 체결 원장                 : logs/trades_YYYYMMDD.csv
   - 거래대금 상위 N종목(스냅샷)     : KisClient.get_volume_ranking()
+  - 종목 뉴스·속보                 : 네이버 증권 모바일 API(보유 전부 + 유니버스 25종목씩 순환, 1분)
+  - 증권사 리서치                  : PYQuant/data/research/latest.json (naver_research_fetch.py --pages 2 를 기동 때·매시간 돌려 갱신)
 
 실행:
   py scripts/dashboard_server.py                       # 기본 config_dev_paper.json, 포트 8787
@@ -705,6 +707,114 @@ def _theme_snapshot_loop(hour=8, minute=30):
         time.sleep(max(60.0, (nxt - now).total_seconds()))
 
 
+# ── 뉴스·리서치 (네이버 증권 모바일 API, 오너 요청 2026-09-20) ────────────────────────
+# 종목 뉴스는 보유 종목 전부 + 유니버스를 한 번에 NEWS_BATCH개씩 돌아가며 1분마다 받는다(278종목이면 약 11분에 한 바퀴).
+# 속보·주요뉴스는 시장 전체 목록 API. 기사는 id(언론사+기사번호)로 합쳐 최근 NEWS_KEEP건만 남긴다.
+# 증권사 보고서는 PYQuant/tools/naver_research_fetch.py가 쓴 latest.json을 읽는다(기동 때·매시간 --pages 2로 갱신).
+NEWS_STOCK_URL = "https://m.stock.naver.com/api/news/stock/{code}?pageSize={size}&page=1"
+NEWS_LIST_URL = "https://m.stock.naver.com/api/news/list?category={category}&pageSize={size}"
+NEWS_HEADERS = {"User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/128 Mobile Safari/537.36"}
+NEWS_CATEGORIES = {"flashnews": "속보", "mainnews": "주요"}
+NEWS_KEEP = 300
+NEWS_BATCH = 25
+NEWS_STATE = {"items": {}, "cursor": 0}
+RESEARCH_LATEST = REPO / "PYQuant" / "data" / "research" / "latest.json"
+RESEARCH_CACHE = {"mtime": None, "reports": []}
+
+
+def _news_get_json(url: str):
+    import urllib.request
+    request = urllib.request.Request(url, headers=NEWS_HEADERS)
+    with urllib.request.urlopen(request, timeout=15) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _news_item(raw: dict, code: str, name: str, tag: str) -> dict:
+    """종목 API(officeId·articleId·datetime·title·body)와 목록 API(oid·aid·dt·tit·subcontent)의 필드명이 다르다."""
+    office_id = str(raw.get("officeId") or raw.get("oid") or "")
+    article_id = str(raw.get("articleId") or raw.get("aid") or "")
+    stamp = str(raw.get("datetime") or raw.get("dt") or "")[:12]
+    return {"id": office_id + article_id, "ts": stamp,
+            "time": f"{stamp[4:6]}-{stamp[6:8]} {stamp[8:10]}:{stamp[10:12]}" if len(stamp) >= 12 else "",
+            "title": raw.get("title") or raw.get("tit") or "", "press": raw.get("officeName") or raw.get("ohnm") or "",
+            "code": code, "name": name, "tag": tag,
+            "body": re.sub(r"\s+", " ", (raw.get("body") or raw.get("subcontent") or "")).replace('"', "'")[:160],
+            "url": f"https://n.news.naver.com/mnews/article/{office_id}/{article_id}"}
+
+
+def _news_targets(uni_path: Path) -> tuple:
+    balance = _live_get("balance")
+    held = [((position.get("ticker") or "").strip(), position.get("name") or "") for position in (balance.get("positions") or [])]
+    held = [(code, name) for code, name in held if re.fullmatch(r"\d{6}", code)]
+    universe = [(entry.get("ticker"), entry.get("name") or "") for entry in (read_universe(uni_path).get("universe") or [])]
+    universe = [(code, name) for code, name in universe if code]
+    cursor = NEWS_STATE["cursor"]
+    rotate = universe[cursor:cursor + NEWS_BATCH]
+    NEWS_STATE["cursor"] = 0 if cursor + NEWS_BATCH >= len(universe) else cursor + NEWS_BATCH
+    targets = dict(held)
+    for code, name in rotate:
+        targets.setdefault(code, name)
+    return targets, [code for code, _ in held]
+
+
+def _news_loop(uni_path: Path, interval=60.0):
+    while True:
+        try:
+            targets, held_codes = _news_targets(uni_path)
+            fresh = {}
+            for category, tag in NEWS_CATEGORIES.items():
+                for raw in _news_get_json(NEWS_LIST_URL.format(category=category, size=20)):
+                    item = _news_item(raw, "", "", tag)
+                    fresh[item["id"]] = item
+            for code, name in targets.items():
+                payload = _news_get_json(NEWS_STOCK_URL.format(code=code, size=5))
+                for block in payload:
+                    for raw in block.get("items") or []:
+                        item = _news_item(raw, code, name, "종목")
+                        fresh[item["id"]] = item
+                time.sleep(0.2)
+            items = NEWS_STATE["items"]
+            items.update(fresh)
+            rows = sorted(items.values(), key=lambda item: item["ts"], reverse=True)[:NEWS_KEEP]
+            NEWS_STATE["items"] = {row["id"]: row for row in rows}
+            _live_set("kr_news", {"rows": rows, "asof": datetime.now(KST).strftime("%H:%M"),
+                                  "held": held_codes, "covered": len(targets)})
+        except Exception as error:
+            _live_err("kr_news", str(error))
+        time.sleep(interval)
+
+
+def _research_refresh_loop(interval=3600.0):
+    """기동 때와 한 시간마다 목록 2쪽씩 받아 latest.json을 새로 쓴다(이미 본 보고서는 건너뛰어 4초쯤). PDF는 받지 않는다."""
+    while True:
+        try:
+            subprocess.run([sys.executable, str(REPO / "PYQuant" / "tools" / "naver_research_fetch.py"), "--pages", "2"],
+                           cwd=str(REPO), timeout=600, capture_output=True)
+        except Exception as error:
+            print(f"[대시보드] 리서치 갱신 실패: {error}", file=sys.stderr, flush=True)
+        time.sleep(interval)
+
+
+def read_research(watch_codes: set) -> dict:
+    """증권사 보고서 latest.json — 종목 보고서는 보유·유니버스 종목만, 시장·산업·경제는 최근 것 그대로."""
+    try:
+        mtime = os.path.getmtime(RESEARCH_LATEST)
+    except OSError as error:
+        return {"__error__": f"리서치 latest.json 없음: {error} — py PYQuant/tools/naver_research_fetch.py"}
+    if RESEARCH_CACHE["mtime"] != mtime:
+        raw = json.loads(RESEARCH_LATEST.read_text(encoding="utf-8"))
+        keep = ["category", "research_category", "title", "broker", "item_code", "item_name",
+                "write_date", "opinion", "goal_price", "prev_goal_price", "end_url"]
+        RESEARCH_CACHE["reports"] = [{key: report.get(key) for key in keep} for report in raw.get("reports") or []]
+        RESEARCH_CACHE["asof"] = raw.get("generated_at")
+        RESEARCH_CACHE["mtime"] = mtime
+    reports = RESEARCH_CACHE["reports"]
+    company = [report for report in reports if report["category"] == "company" and report.get("item_code") in watch_codes]
+    market = [report for report in reports if report["category"] != "company"]
+    return {"asof": RESEARCH_CACHE.get("asof"), "company": company[:60], "market": market[:40],
+            "n_company_all": sum(1 for report in reports if report["category"] == "company")}
+
+
 def _warm_loop(kis: KisClient, quote: KisClient, interval=5.0, flow_every=6):
     tick = 0
     while True:
@@ -1011,6 +1121,9 @@ def build_state(kis, quote, cfg, regime_path, uni_path):
         "kr_sector": _live_get("kr_sector"),
         "kr_theme": _live_get("kr_theme"),
         "holding_themes": holding_themes(_bal),
+        "kr_news": _live_get("kr_news"),
+        "research": read_research({(position.get("ticker") or "").strip() for position in ((_bal or {}).get("positions") or [])}
+                                  | {entry.get("ticker") for entry in (_uni.get("universe") or [])}),
         "universe": _uni,
         "entry_scores": read_entry_scores(),
         "criteria": build_criteria(cfg),
@@ -1174,7 +1287,7 @@ td.l,th.l{text-align:left}
 .sec-scroll{max-height:560px}.sec-h{color:var(--mut);font-size:11px;background:var(--panel2)}.sec-hot{font-weight:700}
 .sec-d td{padding:0 8px 8px 24px;border-bottom:1px solid var(--bd)}.sec-d table{font-size:11px}.sec-d td td,.sec-d th{padding:2px 6px;border:0}.sec-d th{position:static}
 .th-rs{color:var(--mut);font-size:10px;max-width:420px;white-space:normal}
-#secsort,#secgrp,#thsort{background:var(--panel2);color:var(--fg);border:1px solid var(--bd);border-radius:6px;font-size:11px}
+#secsort,#secgrp,#thsort,#nwfilter,#rstab,#nwq{background:var(--panel2);color:var(--fg);border:1px solid var(--bd);border-radius:6px;font-size:11px}
 /* 보유 종목은 옆 국면 카드 높이만큼 채우고 넘칠 때만 스크롤. 절대 배치라 표 길이가 행 높이를 키우지 않는다. */
 .card.fill{position:relative;min-height:340px}
 .card.fill .scroll{position:absolute;top:38px;left:14px;right:14px;bottom:12px;max-height:none}
@@ -1192,6 +1305,7 @@ td.l,th.l{text-align:left}
 small.err{color:var(--dn)}
 .muted{color:var(--mut);font-size:11px;margin-top:6px}
 .clk{cursor:pointer}.clk:hover td{background:var(--panel2)}
+tr.hl td{background:rgba(120,180,255,.08)}
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:50;align-items:center;justify-content:center}
 .modal-bg.on{display:flex}
 .modal{background:var(--panel);border:1px solid var(--bd);border-radius:12px;width:min(920px,94vw);max-height:92vh;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4)}
@@ -1265,6 +1379,19 @@ small.err{color:var(--dn)}
     <thead><tr><th class="l">테마</th><th>보유</th><th class="l">종목</th></tr></thead>
     <tbody></tbody></table></div></div>
 
+  <div class="card col6"><h2>종목 뉴스 <span class="mut" id="nwnote"></span>
+    <span class="mut" style="float:right">보기: <select id="nwfilter"><option value="all">전체</option><option value="held">보유 종목</option><option value="stock">종목 뉴스만</option><option value="flash">속보·주요</option></select>
+    <input id="nwq" placeholder="종목명·코드" style="width:90px;background:var(--panel2);color:inherit;border:1px solid var(--line);border-radius:4px;padding:1px 4px"></span></h2>
+    <div class="scroll sec-scroll"><table id="news">
+    <thead><tr><th>시각</th><th class="l">종목</th><th class="l">제목</th><th class="l">언론사</th></tr></thead>
+    <tbody></tbody></table></div></div>
+
+  <div class="card col6"><h2>증권사 리서치 <span class="mut" id="rsnote"></span>
+    <span class="mut" style="float:right">보기: <select id="rstab"><option value="company">종목 (보유·유니버스)</option><option value="market">시장·산업·경제</option></select> · 제목 클릭 → 보고서</span></h2>
+    <div class="scroll sec-scroll"><table id="research">
+    <thead><tr><th>날짜</th><th class="l">종목/분류</th><th class="l">제목</th><th class="l">증권사</th><th class="l">의견</th><th>목표가</th></tr></thead>
+    <tbody></tbody></table></div></div>
+
   <div class="card col12"><h2>당일 체결 원장 <span class="mut" id="trdate"></span> <span class="mut" style="float:right">행 클릭 → 차트</span></h2><div class="scroll"><table id="trades">
     <thead><tr><th>시각</th><th class="l">이벤트</th><th class="l">전략</th><th class="l">종목</th><th class="l">방향</th><th>주문</th><th>체결</th><th>체결가</th><th class="l">상태</th><th class="l">사유</th></tr></thead>
     <tbody></tbody></table></div></div>
@@ -1306,6 +1433,10 @@ function withNames(msg){
 document.getElementById('secsort').addEventListener('change',renderSector);
 document.getElementById('secgrp').addEventListener('change',renderSector);
 document.getElementById('thsort').addEventListener('change',renderTheme);
+document.getElementById('nwfilter').addEventListener('change',renderNews);
+document.getElementById('nwq').addEventListener('input',renderNews);
+document.getElementById('rstab').addEventListener('change',renderResearch);
+document.querySelector('#news tbody').addEventListener('click',e=>{const c=e.target.closest('.nw-name'); if(c&&c.dataset.q){document.getElementById('nwq').value=c.dataset.q; renderNews();}});
 let lastTheme={}, lastHT={};
 // 테마 순위 — 266개를 당일 등락률(구성 종목 단순평균)로 세운다. 소형주 상한가 하나가 평균을 끌어올리므로
 //  상승/하락 종목 수를 같이 보인다. '보유'는 일일 스냅샷 역색인으로 센 보유 종목 수.
@@ -1326,6 +1457,30 @@ function renderHT(){
   let html=(h.rows||[]).map(r=>`<tr class="clk" data-th="${r.no}"><td class="l">${eb(r.name)}</td><td>${r.n}</td><td class="l mut th-rs">${eb(r.names.join(' · '))}</td></tr>`).join('');
   if((h.untagged||[]).length) html+=`<tr><td class="l mut">테마 없음</td><td class="mut">${h.untagged.length}</td><td class="l mut th-rs">${eb(h.untagged.join(' · '))}</td></tr>`;
   tb.innerHTML=html||'<tr><td class="l mut" colspan="3">겹치는 테마 없음</td></tr>';
+}
+let lastNews={}, lastResearch={};
+function renderNews(){
+  const n=lastNews; const tb=document.querySelector('#news tbody'); const tn=document.getElementById('nwnote');
+  if(n.__error__){ tb.innerHTML='<tr><td class="l err" colspan="4">뉴스 조회 실패: '+eb(n.__error__)+'</td></tr>'; tn.textContent=''; return; }
+  const mode=document.getElementById('nwfilter').value, q=(document.getElementById('nwq').value||'').trim();
+  const held=new Set(n.held||[]);
+  let rows=(n.rows||[]);
+  if(mode==='held') rows=rows.filter(r=>held.has(r.code));
+  else if(mode==='stock') rows=rows.filter(r=>r.code);
+  else if(mode==='flash') rows=rows.filter(r=>!r.code);
+  if(q) rows=rows.filter(r=>(r.name||'').includes(q)||(r.code||'').includes(q)||(r.title||'').includes(q));
+  tn.textContent=(n.asof?'· '+n.asof+' 갱신 · '+(n.rows||[]).length+'건 · 종목 '+(n.covered||0)+'개 순환':'')+(n._stale_err?' · 갱신 지연':'');
+  tb.innerHTML=rows.length? rows.slice(0,120).map(r=>`<tr class="${held.has(r.code)?'hl':''}"><td class="mut" style="white-space:nowrap">${eb(r.time)}</td><td class="l clk nw-name" data-q="${eb(r.name||'')}">${r.code?eb(r.name):'<span class="mut">'+eb(r.tag)+'</span>'}</td><td class="l"><a href="${eb(r.url)}" target="_blank" rel="noopener" title="${eb(r.body)}" style="color:inherit">${eb(r.title)}</a></td><td class="l mut">${eb(r.press)}</td></tr>`).join('')
+    : '<tr><td class="l mut" colspan="4">기사 없음</td></tr>';
+}
+function renderResearch(){
+  const rs=lastResearch; const tb=document.querySelector('#research tbody'); const tn=document.getElementById('rsnote');
+  if(rs.__error__){ tb.innerHTML='<tr><td class="l err" colspan="6">'+eb(rs.__error__)+'</td></tr>'; tn.textContent=''; return; }
+  const tab=document.getElementById('rstab').value; const rows=rs[tab]||[];
+  tn.textContent=(rs.asof?'· 적재 '+rs.asof.slice(0,16)+' · 종목 보고서 '+(rs.company||[]).length+'/'+(rs.n_company_all||0)+'건':'');
+  const goal=r=>r.goal_price?Number(r.goal_price).toLocaleString()+(r.prev_goal_price&&r.prev_goal_price!==r.goal_price?' <span class="'+(r.goal_price>r.prev_goal_price?'up':'dn')+'">'+(r.goal_price>r.prev_goal_price?'▲':'▼')+'</span>':''):'';
+  tb.innerHTML=rows.length? rows.map(r=>`<tr><td class="mut" style="white-space:nowrap">${eb((r.write_date||'').slice(5))}</td><td class="l">${eb(r.item_name||r.research_category||'')}</td><td class="l"><a href="${eb(r.end_url||'#')}" target="_blank" rel="noopener" style="color:inherit">${eb(r.title)}</a></td><td class="l mut">${eb(r.broker||'')}</td><td class="l">${eb(r.opinion||'')}</td><td>${goal(r)}</td></tr>`).join('')
+    : '<tr><td class="l mut" colspan="6">'+(tab==='company'?'보유·유니버스 종목 보고서 없음':'보고서 없음')+'</td></tr>';
 }
 let lastSector={};
 function renderSector(){
@@ -1528,6 +1683,7 @@ async function tick(){
 
   lastSector=s.kr_sector||{}; renderSector();
   lastTheme=s.kr_theme||{}; lastHT=s.holding_themes||{}; renderTheme(); renderHT();
+  lastNews=s.kr_news||{}; lastResearch=s.research||{}; renderNews(); renderResearch();
 
   // 원장
   const SL=s.labels||{}; const t=s.trades||{}; document.getElementById('trdate').textContent=(t.date||'')+(t.total?(' · 총 '+t.total+'행'):'');
@@ -1751,6 +1907,8 @@ def main():
     # 잔고·랭킹은 백그라운드로 수집 → HTTP 요청 스레드가 KIS 지연에 물리지 않음
     threading.Thread(target=_warm_loop, args=(kis, quote), daemon=True).start()
     threading.Thread(target=_sector_loop, args=(quote,), daemon=True).start()
+    threading.Thread(target=_news_loop, args=(uni_path,), daemon=True).start()
+    threading.Thread(target=_research_refresh_loop, daemon=True).start()
     if fetch_theme_list is not None:
         threading.Thread(target=_theme_loop, daemon=True).start()
         threading.Thread(target=_theme_snapshot_loop, daemon=True).start()

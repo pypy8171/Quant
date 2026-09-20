@@ -1,0 +1,4 @@
+# GitHub 언어 통계(linguist)에서 생성물을 뺀다 — 대시보드 HTML은 파이썬 스크립트 산출물이라
+# 소스 언어 비율(C++/Python)을 가린다. 손으로 쓰는 템플릿(scripts/*_template.html)은 남긴다.
+research/dashboard/*.html linguist-generated=true
+research/studies/**/*.html linguist-generated=true

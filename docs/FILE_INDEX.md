@@ -6,9 +6,9 @@
 
 ## 목차
 
-- [(루트)](#루트) — 9개
+- [(루트)](#루트) — 10개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 100개
+- [PYQuant](#pyquant) — 102개
 - [Quant](#quant) — 172개
 - [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
@@ -22,6 +22,7 @@
 - [.clang-format](../.clang-format) — 클랭포맷 스타일 설정(Allman 중괄호 강제)
 - [.dockerignore](../.dockerignore) — Docker 빌드 제외 목록
 - [.env.example](../.env.example) — Docker Compose 환경변수 예시 파일
+- [.gitattributes](../.gitattributes) — GitHub 언어 통계에서 대시보드 생성 HTML 제외(linguist-generated)
 - [.gitignore](../.gitignore) — 빌드 산출물·시크릿·로그 제외 목록
 - [CLAUDE.md](../CLAUDE.md) — 저장소 빌드·설계 가이드 문서
 - [CMakeLists.txt](../CMakeLists.txt) — 최상위 CMake 프로젝트 정의
@@ -176,6 +177,7 @@
 - [fullperiod_validate.py](../PYQuant/tools/fullperiod_validate.py) — 시작월 스윕 결론 전기간 재검증
 - [index_intraday_logger.py](../PYQuant/tools/index_intraday_logger.py) — 장중 지수 스냅샷 forward 적재 로거
 - [investor_flow_logger.py](../PYQuant/tools/investor_flow_logger.py) — 수급 장마감 확정치 forward 적재 로거
+- [kind_delisted_fill.py](../PYQuant/tools/kind_delisted_fill.py) — KIND 상장폐지 목록(2000~) 적재·종목코드 붙이기·패널에 없는 상폐사 일봉 보강(--fill-bars)
 - [log_report.py](../PYQuant/tools/log_report.py) — quant_trader 로그 운용 리포트 생성기
 - [macro_ingest.py](../PYQuant/tools/macro_ingest.py) — FRED(ALFRED 판본, A)·ECOS(B)·관세청 10일 잠정치(B) 거시 시계열을 시점 고정 스키마로 PYQuant/data/macro/<source>_<series>.parquet에 append-only 적재
 - [macro_regime_feed.py](../PYQuant/tools/macro_regime_feed.py) — 매크로 지표 기반 국면 게이트 발행기
@@ -841,7 +843,7 @@
 - [claude_backup.ps1](../scripts/claude_backup.ps1) — 메인 트리 `.claude/`(훅·명령·에이전트·스킬·settings)를 저장소 밖 `%USERPROFILE%\.claudeackups\Quant\latest`에 거울로 복사하고 하루 한 번 `daily\날짜` 스냅샷(14일 보관). Stop 훅·`maintain --daily`·`wt_remove` 가 부른다. 원본이 20파일 미만이면 이미 지워진 것으로 보고 거울을 덮어쓰지 않는다
 - [claude_restore.ps1](../scripts/claude_restore.ps1) — 그 거울에서 `.claude/`를 되돌린다. 기본은 빠진 것만 채우고 `-Mirror`는 거울과 똑같이, `-From`으로 `daily\날짜` 스냅샷 지정. 세션이 스스로 부를 수 있게 `settings.json` allow에 열려 있다
 - [commit_gate.py](../scripts/commit_gate.py) — 커밋 직전 게이트(보안·문체·문서·코드 규약·재현성·커밋명 형식을 한 번에), `py scripts/commit_gate.py --msg-file <파일>`
-- [dashboard_server.py](../scripts/dashboard_server.py) — 모의매매 대시보드 서버
+- [dashboard_server.py](../scripts/dashboard_server.py) — 장중 매매 대시보드 서버(계좌·보유·국면·유니버스·차트·테마·종목 뉴스·증권사 리서치)
 - [deploy_guard.py](../scripts/deploy_guard.py) — 매매 창 안 트레이더 exe 교체를 막는 가드(A등급 결함은 --hotfix-a로 통과, D-101 결정 1)
 - [exit_ev.py](../scripts/exit_ev.py) — 원장 매도 체결을 odno 레그로 합쳐 청산 사유별 승률·기대값·일블록 부트스트랩 CI·판정을 낸다(study 17)
 - [exit_ev_dashboard.py](../scripts/exit_ev_dashboard.py) — study 17 표를 셀별 근거까지 펼치는 정적 HTML 생성기(exit_ev.py 재사용) — 종목명 맵, 규칙 탭(실행 config 값), 백테스트 탭(metrics.json). refresh_dashboard.py 가 매매일 마감 뒤 부른다
