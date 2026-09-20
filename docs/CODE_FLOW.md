@@ -263,8 +263,8 @@ SIGINT·운영단말 종료 → `request_shutdown` → `stop`. 체결 큐는 비
 
 62. [`feed::ReplaySource`](../Quant/include/core/ReplaySource.h#L21) — 캡처 파일 → `IFeedSource`. 내보낼 때 `received_ns`를 다시 찍는다. config `replay_file`·`replay_speed`  
    `Quant/include/core/ReplaySource.h:21` · `class ReplaySource final : public IFeedSource` · 시험 [test_replay_source](../Quant/tests/test_replay_source.cpp)
-63. [`feed::PaperExecutor`](../Quant/include/core/PaperExecutor.h#L27) — `IOrderExecutor` 모의 체결기 — 주문 즉시 체결통보를 만들어 같은 `pipeline_.fill_queue` 경로로 넣는다  
-   `Quant/include/core/PaperExecutor.h:27` · `class PaperExecutor final : public IOrderExecutor` · 시험 [test_paper_executor](../Quant/tests/test_paper_executor.cpp)
+63. [`feed::PaperExecutor`](../Quant/include/core/PaperExecutor.h#L31) — `IOrderExecutor` 모의 체결기 — 주문 즉시 체결통보를 만들어 같은 `pipeline_.fill_queue` 경로로 넣는다  
+   `Quant/include/core/PaperExecutor.h:31` · `class PaperExecutor final : public IOrderExecutor` · 시험 [test_paper_executor](../Quant/tests/test_paper_executor.cpp)
 64. [`sync::WakeGate`](../Quant/include/core/WakeGate.h#L16) — 소비자 잠·깨우기 한 조각. 전략·주문·체결·샤드 유휴가 전부 이걸 쓴다  
    `Quant/include/core/WakeGate.h:16` · `class WakeGate` · 시험 [test_wake_gate](../Quant/tests/test_wake_gate.cpp)
 

@@ -2,9 +2,12 @@
 #include "ipc/ZmqBridge.h"
 #include "utils/Logger.h"
 
+#include <charconv>
 #include <chrono>
+#include <cstring>
 #include <nlohmann/json.hpp>
-#include <sstream>
+#include <string_view>
+#include <type_traits>
 
 using json = nlohmann::json;
 using namespace std::chrono;
@@ -15,12 +18,35 @@ namespace
 // 송신 큐 상한(밀림 처리). 원장 정합에 직결되는 토픽(FILL/ORDER/SIGNAL)은 훨씬 크게 잡아
 // 구독자 지연에도 최대한 보존하고, 고빈도 TRADE/HEALTH는 작게 잡아 메모리 폭주를 막는다.
 constexpr size_t kCriticalQueueCap = 100000; // FILL/ORDER/SIGNAL 하드캡
-constexpr size_t kNormalQueueCap   = 1000;   // TRADE/HEALTH 하드캡
+constexpr size_t kNormalQueueCap   = 1000;   // HEALTH 하드캡
+// TRADE 링 용량. 송신 루프가 한 바퀴에 REP 폴링 10 ms를 쉬므로 초당 처리량 상한은 (용량 × 100)건이다 —
+//  1,000이면 10만 건/s로 장 초반 전 시장 피드가 넘친다. 봉투 하나 ~100 B라 8,192칸은 1 MB가 안 된다.
+constexpr size_t kTradeQueueCap    = 8192;
 constexpr auto   kReplyPollTimeout = 10ms;   // REP 명령 수신 폴링 1회 대기 시간
+
+// 정수·실수를 JSON 숫자 표기로 붙인다. 실수는 nlohmann과 같은 최단 왕복 표기 + 정수처럼 보이면 ".0"을 붙여
+//  구독자(PYQuant/ipc/subscriber.py)가 받는 문자열이 예전 dump()와 글자 단위로 같다.
+template <typename Number>
+void append_number(std::string& out, Number value)
+{
+    char       buffer[32];
+    const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
+    const std::string_view text(buffer, static_cast<size_t>(result.ptr - buffer));
+    out.append(text);
+
+    if constexpr (std::is_floating_point_v<Number>)
+    {
+        if (text.find_first_of(".eEn") == std::string_view::npos) // n: nan/inf는 dump()도 null인데 시세엔 없다
+        {
+            out.append(".0");
+        }
+    }
+}
 } // namespace
 
 // ─── 생성자/소멸자 ──────────────────────────────────────────────────────────
-ZmqBridge::ZmqBridge(int pub_port, int rep_port) : pub_port_(pub_port), rep_port_(rep_port)
+ZmqBridge::ZmqBridge(int pub_port, int rep_port)
+    : pub_port_(pub_port), rep_port_(rep_port), trade_queue_(kTradeQueueCap)
 {
 }
 
@@ -92,21 +118,21 @@ void ZmqBridge::thread_fn()
             std::swap(local, send_queue_);
         }
 
-        while (!local.empty())
+        // 멀티파트: frame1=topic, frame2=payload. 두 프레임 다 dontwait — 이 스레드가 REP 폴링도 맡아
+        //  전송에서 멈추면 명령 채널까지 같이 선다. PUB는 HWM에서 드롭이 정상 동작이다.
+        const auto send_frames = [&](Topic topic, std::string_view payload)
         {
-            auto& front = local.front();
-            // 멀티파트: frame1=topic, frame2=payload. 두 프레임 다 dontwait — 이 스레드가 REP 폴링도 맡아
-            //  전송에서 멈추면 명령 채널까지 같이 선다. PUB는 HWM에서 드롭이 정상 동작이다.
-            zmq::message_t t_frame(front.topic.size());
-            zmq::message_t payload_frame(front.payload.size());
-            std::memcpy(t_frame.data(), front.topic.data(), front.topic.size());
-            std::memcpy(payload_frame.data(), front.payload.data(), front.payload.size());
+            const std::string_view topic_text = topic_name(topic);
+            zmq::message_t         topic_frame(topic_text.size());
+            zmq::message_t         payload_frame(payload.size());
+            std::memcpy(topic_frame.data(), topic_text.data(), topic_text.size());
+            std::memcpy(payload_frame.data(), payload.data(), payload.size());
 
             try
             {
-                if (publish_socket.send(t_frame, zmq::send_flags::sndmore | zmq::send_flags::dontwait))
+                if (publish_socket.send(topic_frame, zmq::send_flags::sndmore | zmq::send_flags::dontwait))
                 {
-                    publish_socket.send(payload_frame, zmq::send_flags::dontwait);
+                    (void)publish_socket.send(payload_frame, zmq::send_flags::dontwait);
                 }
                 else
                 {
@@ -116,10 +142,22 @@ void ZmqBridge::thread_fn()
             catch (const zmq::error_t& zmq_error)
             {
                 ++drop_count_;
-                LOG_WARN(std::string("[ZMQ] publish 실패 topic=") + front.topic + " : " + zmq_error.what());
+                LOG_WARN(std::string("[ZMQ] publish 실패 topic=") + std::string(topic_text) + " : " + zmq_error.what());
             }
+        };
 
+        while (!local.empty())
+        {
+            const auto& front = local.front();
+            send_frames(front.topic, front.payload);
             local.pop();
+        }
+
+        // 1b. TRADE 링 소진 — 문자열은 여기서 만든다(버퍼 하나를 돌려 쓴다). 링 용량이 한 바퀴 상한이다.
+        while (const auto envelope = trade_queue_.pop())
+        {
+            format_trade(*envelope, trade_payload_);
+            send_frames(Topic::Trade, trade_payload_);
         }
 
         // 2. 명령 수신 (REP, kReplyPollTimeout 타임아웃)
@@ -130,7 +168,7 @@ void ZmqBridge::thread_fn()
             if (items[0].revents & ZMQ_POLLIN)
             {
                 zmq::message_t request;
-                rep.recv(request, zmq::recv_flags::none);
+                (void)rep.recv(request, zmq::recv_flags::none); // POLLIN 뒤라 실패는 예외로만 온다
                 std::string command(static_cast<char*>(request.data()), request.size());
 
                 // KILL만 토큰을 요구한다: "KILL <token>". 토큰 미설정·불일치면 핸들러에 닿지 않는다.
@@ -188,12 +226,26 @@ void ZmqBridge::thread_fn()
 }
 
 // ─── 메시지 enqueue (스레드-안전) ───────────────────────────────────────────
-void ZmqBridge::enqueue(std::string topic, std::string payload)
+const char* ZmqBridge::topic_name(Topic topic)
+{
+    switch (topic)
+    {
+    case Topic::Trade:  return "TRADE";
+    case Topic::Signal: return "SIGNAL";
+    case Topic::Order:  return "ORDER";
+    case Topic::Health: return "HEALTH";
+    case Topic::Fill:   return "FILL";
+    }
+
+    return "UNKNOWN";
+}
+
+void ZmqBridge::enqueue(Topic topic, std::string payload)
 {
     std::lock_guard<std::mutex> lock(queue_mutex_);
     // (C8) 토픽별 drop 차등 — 원장 정합성에 직결되는 FILL/ORDER/SIGNAL은
-    // 고빈도 TRADE/HEALTH보다 훨씬 큰 하드캡까지 보존한다.
-    const bool critical = (topic == "FILL" || topic == "ORDER" || topic == "SIGNAL");
+    // HEALTH보다 훨씬 큰 하드캡까지 보존한다. TRADE는 이 큐를 거치지 않는다(trade_queue_).
+    const bool   critical = (topic == Topic::Fill || topic == Topic::Order || topic == Topic::Signal);
     const size_t capacity = critical ? kCriticalQueueCap : kNormalQueueCap;
 
     if (send_queue_.size() >= capacity)
@@ -202,7 +254,7 @@ void ZmqBridge::enqueue(std::string topic, std::string payload)
 
         if (critical)
         {
-            LOG_ERROR("[ZMQ] 치명적 메시지 drop! topic=" + topic +
+            LOG_ERROR(std::string("[ZMQ] 치명적 메시지 drop! topic=") + topic_name(topic) +
                       " queue=" + std::to_string(send_queue_.size()) +
                       " (구독자 다운 의심) — 원장 불일치 위험");
         }
@@ -210,7 +262,7 @@ void ZmqBridge::enqueue(std::string topic, std::string payload)
         return;
     }
 
-    send_queue_.push({std::move(topic), std::move(payload)});
+    send_queue_.push({topic, std::move(payload)});
 }
 
 // ─── 이벤트별 publish 헬퍼 ─────────────────────────────────────────────────
@@ -232,14 +284,32 @@ static const char* action_string(OrderAction order_action)
 
 void ZmqBridge::publish_trade(const TradeData& trade)
 {
-    json document;
-    document["ts"] = now_ms();
-    document["ticker"] = trade.ticker;
-    document["price"] = trade.price;
-    document["volume"] = trade.quantity;
-    document["direction"] = trade.direction; // 1=매수, 5=매도
-    document["market"] = (trade.market == Market::US ? "US" : "KR");
-    enqueue("TRADE", document.dump());
+    // 수신 스레드 쪽은 memcpy 한 번뿐. 링이 차면 버린다 — TRADE는 원장과 무관해 예전 큐 상한과 같은 정책이다.
+    if (!trade_queue_.push(TradeEnvelope{now_ms(), trade}))
+    {
+        ++drop_count_;
+    }
+}
+
+// 예전 nlohmann dump()와 같은 문자열: 키는 알파벳순, 실수는 최단 표기 + ".0". 티커는 거래소 코드(숫자·영대문자)라
+//  이스케이프할 글자가 없다 — 따옴표·역슬래시가 섞인 코드는 거래소가 내지 않는다.
+void ZmqBridge::format_trade(const TradeEnvelope& envelope, std::string& out)
+{
+    const TradeData& trade = envelope.trade;
+    out.clear();
+    out.append("{\"direction\":");
+    append_number(out, trade.direction); // 1=매수, 5=매도
+    out.append(",\"market\":\"");
+    out.append(trade.market == Market::US ? "US" : "KR");
+    out.append("\",\"price\":");
+    append_number(out, trade.price);
+    out.append(",\"ticker\":\"");
+    out.append(trade.ticker.view());
+    out.append("\",\"ts\":");
+    append_number(out, envelope.ts_ms);
+    out.append(",\"volume\":");
+    append_number(out, trade.quantity);
+    out.push_back('}');
 }
 
 void ZmqBridge::publish_signal(const OrderSignal& signal)
@@ -254,7 +324,7 @@ void ZmqBridge::publish_signal(const OrderSignal& signal)
     document["price"] = signal.price;
     document["market"] = (signal.market == Market::US ? "US" : "KR");
     document["gated"] = false; // 게이트(OrderGate) 이전 발행 — 거부될 수 있다. 결과는 ORDER 토픽.
-    enqueue("SIGNAL", document.dump());
+    enqueue(Topic::Signal, document.dump());
 }
 
 void ZmqBridge::publish_order(const OrderSignal& signal, bool ok)
@@ -270,7 +340,7 @@ void ZmqBridge::publish_order(const OrderSignal& signal, bool ok)
     document["ok"] = ok;
     document["market"] = (signal.market == Market::US ? "US" : "KR");
     document["account"] = account_no_;
-    enqueue("ORDER", document.dump());
+    enqueue(Topic::Order, document.dump());
 }
 
 void ZmqBridge::publish_health(uint64_t data_count, uint64_t signal_count, uint64_t order_count)
@@ -281,7 +351,7 @@ void ZmqBridge::publish_health(uint64_t data_count, uint64_t signal_count, uint6
     document["signal"] = signal_count;
     document["order"] = order_count;
     document["drop"]  = drop_count_.load();
-    enqueue("HEALTH", document.dump());
+    enqueue(Topic::Health, document.dump());
 }
 
 void ZmqBridge::publish_fill(const FillNotification& fill_notification, const std::string& strategy_id,
@@ -303,7 +373,7 @@ void ZmqBridge::publish_fill(const FillNotification& fill_notification, const st
     document["account"]      = account_no_;
     document["strategy"]     = strategy_id;
     document["regime"]       = regime_label_;
-    enqueue("FILL", document.dump());
+    enqueue(Topic::Fill, document.dump());
 }
 
 #endif // HAS_ZMQ

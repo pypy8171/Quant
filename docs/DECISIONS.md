@@ -4248,3 +4248,38 @@ metrics `BH`+`BUY_AND_HOLD`(`PYQuant/dashboard/build_dashboard.py`·`scripts/exi
 `scripts/dashboard_server.py`)은 과거 데이터를 읽어야 하니 그대로 둔다. D-034 결정 2와 "잔고 조회로 대체 기각" 행은 이 결정으로 닫는다.
 
 **버린 대안**: config에서 `qty: 0`으로만 끄기 — 코드가 남아 읽는 사람이 계속 배워야 하고, 다시 켤 이유가 없다.
+### D-105 티커 정수 id 경로를 모의 체결기·ZMQ 시세 발행까지 넓힌다 — "100~200배"는 벤치 오류, 실측 40배 (2026-09-20)
+
+**상태**: 채택
+
+**배경**: "KIS가 주는 문자열 티커를 안에서는 정수로 들고 조회·갱신을 하면 vector·array가 `unordered_map<string>`보다
+100~200배 빠르지 않나"(오너, `Quant/tests/test_ticker.cpp` 결과 근거). 구조는 이미 그렇게 되어 있다(D-071 원칙 6,
+`symbol::SymbolTable::intern`이 수신 스레드에서 한 번, 그 뒤 샤드·전략·봉 집계는 id 배열). 남은 질문은 둘 — 그 수치가
+맞는가, 틱마다 아직 문자열 키를 뒤지는 자리가 어디인가.
+
+**측정**(원칙 7, MSVC /O2, 2,700종목, 무작위 1천만 회, `Quant/tests/test_ticker.cpp` 머리 주석에 남김):
+- `unordered_map<string>::find` 12 ns, `vector[id]` 0.3 ns → 40배. 예전 벤치의 "100~200배"는 배열 루프 결과를 아무 데도 안 써서
+  컴파일러가 루프를 통째로 지운 것(0 ms)이었다. 체크섬을 출력하게 고쳤다.
+- `SymbolTable::intern` 28 ns — 순수 맵 조회의 두 배가 `shared_mutex` 값이다(이번엔 손대지 않음, 후보로 남김).
+- 숫자 코드를 파싱해 100만 칸 희소 배열로 직접 인덱스하면 3 ns지만 알파벳 섞인 코드(`0N123A` 등)를 못 담아 경로가 둘이 된다 —
+  `intern` 한 번으로 모든 코드가 같은 id 공간에 들어가므로 채택하지 않았다.
+- 틱마다 도는 문자열 키 조회 세 곳: ① `PaperExecutor::on_tick`(리플레이·모의 체결, 틱마다 대기 주문 맵 조회), ② ITB 청산 대기와
+  DevScale 장 마감 블록의 `OrderGate::position(account, ticker)`(조건부 — 청산 대기 중·마감 뒤에만), ③ `ZmqBridge::publish_trade`
+  (TimescaleDB 적재 때 켜는 브리지 — 수신 스레드에서 nlohmann json 조립·dump·뮤텍스 큐 push).
+
+**결정**:
+1. `PaperExecutor`는 `SymbolTable&`을 받아 대기 주문·마지막가를 `symbol_id` 배열로 든다(`on_tick(const TradeData&)`). 대기 주문
+   없는 종목 틱은 배열 한 칸 보고 끝난다. 실측 37 ns/틱 → 14.5 ns/틱, 남는 것은 뮤텍스다.
+2. `ZmqBridge`의 TRADE는 수신 스레드가 `TradeEnvelope{ts, TradeData}`를 `MpscQueue`에 memcpy로 넣고(생산자 = WS 레인 수, 원칙 5),
+   JSON 문자열은 송신 스레드가 재사용 버퍼에 만든다. 와이어 포맷은 예전 `dump()`와 글자 단위로 같다 — 키 알파벳순, 실수는
+   최단 표기 + `.0`. `Quant/tests/bench_zmq_publish.cpp`가 그 동일성을 ctest에서 검사하고 비용을 잰다: 수신 스레드 비용
+   ~1,000 ns/틱 → ~26 ns/틱. 토픽은 `enum class Topic`이라 enqueue마다 문자열 비교 세 번이 없어졌다. TRADE 링은 8,192칸 —
+   송신 루프가 한 바퀴에 REP 폴링 10 ms를 쉬므로 처리량 상한이 용량×100건/s이고, 예전 1,000칸은 10만 건/s에서 넘쳤다.
+3. ②(`OrderGate::position`)는 **이번에 안 했다**. 얻는 것은 문자열 두 개 해시(~20 ns) 대신 배열 인덱스인데 같은 자리의
+   `positions_mutex_`가 그만큼 들고, 도는 조건도 청산 대기·마감 뒤뿐이다. 반면 원장 키(`PosKey{account, ticker}`)를 id로 바꾸려면
+   위험 원장에 `SymbolTable`을 꽂고 키 접근 8곳을 고쳐야 한다 — 원칙 4의 단일 시퀀서를 성능 수치 없이 건드리지 않는다.
+   틱마다 도는 자리가 생기면 그때 잰다.
+
+**버린 대안**: 숫자 파싱 희소 배열(위, 코드 공간이 둘로 갈라짐). TRADE를 예전 문자열 큐에 두고 dump만 송신 스레드로 미루기 —
+`std::string` payload를 큐에 넣는 순간 힙 할당과 뮤텍스가 수신 스레드에 남는다. RingBuffer(SPSC) — WS 레인이 둘 이상이면 같은
+칸을 덮어쓴다.

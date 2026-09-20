@@ -1,6 +1,7 @@
 #pragma once
 #ifdef HAS_ZMQ
 
+#include "core/MpscQueue.h"
 #include "core/Types.h"
 #include <atomic>
 #include <functional>
@@ -19,7 +20,9 @@
 //  bind 주소는 set_bind_address로 바꾼다. KILL은 "KILL <token>" 형식이어야 하고 token 미설정이면 거부.
 //
 //  ZMQ 소켓은 스레드 세이프하지 않아 전용 zmq_thread_에서만 사용한다.
-//  다른 스레드는 enqueue()로 메시지를 전달한다.
+//  다른 스레드는 enqueue()로 메시지를 전달한다. TRADE만 예외다 — 수신 스레드(레인 여럿)가 틱마다 부르는
+//  자리라 JSON도 뮤텍스도 없이 TradeData를 MpscQueue에 memcpy로 넣고, 문자열은 송신 스레드가 만든다.
+//  수신 스레드 비용 ~1,000 ns/틱 → ~26 ns/틱(tests/bench_zmq_publish.cpp, 2026-09-20). [why D-071]
 // ─────────────────────────────────────────────────────────────────────────────
 class ZmqBridge
 {
@@ -64,14 +67,35 @@ public:
 
     uint64_t drop_count() const { return drop_count_.load(); }
 
+    // TRADE 전용 봉투 — ts는 부른 시각(수신 스레드)이라 송신이 밀려도 바뀌지 않는다. trivially copyable.
+    struct TradeEnvelope
+    {
+        int64_t   ts_ms = 0;
+        TradeData trade;
+    };
+
+    // TRADE 페이로드 문자열. 공개인 이유는 bench_zmq_publish가 예전 dump()와 글자 단위로 같은지 검사해서다.
+    static void format_trade(const TradeEnvelope& envelope, std::string& out);
+
 private:
+    // 토픽은 정수로 들고 이름은 송신 직전에 붙인다 — enqueue마다 문자열 비교 세 번을 하지 않으려고.
+    enum class Topic : uint8_t
+    {
+        Trade,
+        Signal,
+        Order,
+        Health,
+        Fill
+    };
+
     struct Message
     {
-        std::string topic;
+        Topic       topic;
         std::string payload;
     };
 
-    void enqueue(std::string topic, std::string payload);
+    void enqueue(Topic topic, std::string payload);
+    static const char* topic_name(Topic topic);
     void thread_fn();
 
     int pub_port_;
@@ -86,6 +110,8 @@ private:
 
     std::mutex queue_mutex_;
     std::queue<Message> send_queue_;
+    MpscQueue<TradeEnvelope> trade_queue_;
+    std::string              trade_payload_; // 송신 스레드 전용 재사용 버퍼 // 생산자 = WS 레인 수(둘 이상일 수 있다) → MPSC [why D-071 원칙 5]
 
     CmdHandler command_handler_;
     std::atomic<uint64_t> drop_count_{0};

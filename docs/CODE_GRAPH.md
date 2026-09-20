@@ -26,7 +26,7 @@ graph LR
   core -->|3| strategy
   core -->|8| utils
   ipc -->|2| api
-  ipc -->|5| core
+  ipc -->|6| core
   ipc --> risk
   ipc -->|3| utils
   main -->|3| core
@@ -62,7 +62,7 @@ graph LR
 | `api/KisClient.h` | 12 |
 | `core/MarketSession.h` | 8 |
 | `core/WakeGate.h` | 7 |
-| `risk/OrderGate.h` | 6 |
+| `core/SymbolTable.h` | 6 |
 
 ## 파일 단위 상세
 
@@ -261,6 +261,7 @@ graph LR
   n_core_PaperExecutor_h --> n_api_KisResult_h
   n_core_PaperExecutor_h --> n_api_KisTypes_h
   n_core_PaperExecutor_h --> n_core_MarketSession_h
+  n_core_PaperExecutor_h --> n_core_SymbolTable_h
   n_core_PaperExecutor_h --> n_core_Types_h
   n_core_RegimeFileJudge_h --> n_core_Types_h
   n_core_ReplaySource_h --> n_core_IFeedSource_h
@@ -301,6 +302,7 @@ graph LR
   n_ipc_OrderRouter_h --> n_risk_OrderGate_h
   n_ipc_ZmqBridge_cpp --> n_ipc_ZmqBridge_h
   n_ipc_ZmqBridge_cpp --> n_utils_Logger_h
+  n_ipc_ZmqBridge_h --> n_core_MpscQueue_h
   n_ipc_ZmqBridge_h --> n_core_Types_h
   n_main_cpp --> n_core_AppConfig_h
   n_main_cpp --> n_core_Engine_h

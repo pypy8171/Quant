@@ -734,7 +734,7 @@ void Engine::setup_paper_executor(bool offline)
     // KIS가 없으면 주문·잔고는 모의 체결기가 받는다. [why D-071]
     if (offline)
     {
-        feed_.paper = std::make_unique<feed::PaperExecutor>(feed_.replay_cash);
+        feed_.paper = std::make_unique<feed::PaperExecutor>(feed_.replay_cash, symbols_.table);
         LOG_INFO("[Engine] 모의 체결기: 현금 " + std::to_string(static_cast<long long>(feed_.replay_cash)) + "원");
     }
 }
@@ -1007,7 +1007,7 @@ void Engine::connect_feed()
                            //  (feed_.paper는 리플레이·피드 주입 전용이고 둘 다 레인 하나다).
                            if (feed_.paper)
                            {
-                               feed_.paper->on_tick(in.ticker, in.price, in.hhmmss);
+                               feed_.paper->on_tick(trade);
                            }
 
                            // 전략 스레드가 멈추면 큐가 차고 틱이 여기서 사라진다 — 세어 두고

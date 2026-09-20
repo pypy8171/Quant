@@ -358,6 +358,17 @@ endif()
 add_executable(bench_ticker_lookup tests/test_ticker.cpp)
 target_include_directories(bench_ticker_lookup PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# ─── 벤치 타겟: ZmqBridge::publish_trade가 수신 스레드에 얹는 비용 (원칙 3 전후 측정) ──
+if(ZMQ_FOUND)
+  add_executable(bench_zmq_publish tests/bench_zmq_publish.cpp src/ipc/ZmqBridge.cpp src/utils/Logger.cpp)
+  target_include_directories(bench_zmq_publish PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${ZMQ_INC} ${cppzmq_SOURCE_DIR})
+  target_link_libraries(bench_zmq_publish PRIVATE ${ZMQ_LIB} nlohmann_json::nlohmann_json)
+  # 벤치이지만 와이어 포맷 검사(예전 dump()와 같은 문자열)를 겸해 ctest에도 건다. 아래 픽스처 블록보다 앞이라
+  #  픽스처 없이 등록한다 — 로그 폴더를 쓰지 않는다.
+  add_test(NAME bench_zmq_publish COMMAND bench_zmq_publish)
+  set_tests_properties(bench_zmq_publish PROPERTIES TIMEOUT 60)
+endif()
+
 # ─── 벤치 타겟: 전종목 규모 시세 파이프라인 부하 (market firehose) ────────
 add_executable(bench_market_firehose tests/bench_market_firehose.cpp)
 target_include_directories(bench_market_firehose PRIVATE

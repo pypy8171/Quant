@@ -54,7 +54,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 5
+      "weight": 6
     },
     {
       "from": "ipc",
@@ -421,6 +421,7 @@
       "api/KisResult.h",
       "api/KisTypes.h",
       "core/MarketSession.h",
+      "core/SymbolTable.h",
       "core/Types.h"
     ],
     "core/RegimeFileJudge.h": [
@@ -493,6 +494,7 @@
       "utils/Logger.h"
     ],
     "ipc/ZmqBridge.h": [
+      "core/MpscQueue.h",
       "core/Types.h"
     ],
     "main.cpp": [
@@ -752,6 +754,7 @@
     "core/MpscQueue.h": [
       "core/Engine.h",
       "core/TickCapture.h",
+      "ipc/ZmqBridge.h",
       "utils/Logger.cpp"
     ],
     "core/OrderRateLimiter.h": [
@@ -797,6 +800,7 @@
     ],
     "core/SymbolTable.h": [
       "core/Engine.h",
+      "core/PaperExecutor.h",
       "core/ShardMatrix.h",
       "core/StrategyRouter.h",
       "core/StrategyShard.h",
@@ -1023,12 +1027,12 @@
       "in_degree": 7
     },
     {
-      "header": "risk/OrderGate.h",
+      "header": "core/SymbolTable.h",
       "in_degree": 6
     },
     {
-      "header": "core/SymbolTable.h",
-      "in_degree": 5
+      "header": "risk/OrderGate.h",
+      "in_degree": 6
     },
     {
       "header": "api/KisErrorCodes.h",
@@ -1040,6 +1044,10 @@
     },
     {
       "header": "core/Engine.h",
+      "in_degree": 4
+    },
+    {
+      "header": "core/MpscQueue.h",
       "in_degree": 4
     },
     {
@@ -1068,10 +1076,6 @@
     },
     {
       "header": "core/AppConfig.h",
-      "in_degree": 3
-    },
-    {
-      "header": "core/DataPoller.h",
       "in_degree": 3
     }
   ],

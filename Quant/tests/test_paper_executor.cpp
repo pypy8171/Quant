@@ -1,6 +1,7 @@
 // PaperExecutor 단위 테스트 — 다음 틱 체결, 지정가 대기, 매도가능·현금 한도 거부, 취소·정정, 장부/잔고.
 // 빌드: cmake --build <directory> --target test_paper_executor
 #include "core/PaperExecutor.h"
+#include "core/SymbolTable.h"
 
 #include <iostream>
 #include <string>
@@ -33,6 +34,16 @@ OrderSignal signal(const std::string& ticker, OrderSide side, int quantity, doub
     return signal;
 }
 
+// 테스트 틱 — id는 안 찍는다. 체결기가 테이블로 푸는 경로(옛 경로·주입 피드)를 같이 검사한다.
+TradeData tick(std::string_view ticker, double price, int32_t hhmmss)
+{
+    TradeData trade;
+    trade.ticker = ticker;
+    trade.price  = price;
+    trade.hhmmss = hhmmss;
+    return trade;
+}
+
 bool near(double amount, double base)
 {
     return amount > base - 1e-6 && amount < base + 1e-6;
@@ -41,7 +52,8 @@ bool near(double amount, double base)
 
 int main()
 {
-    feed::PaperExecutor           executor(1'000'000.0);
+    symbol::SymbolTable           symbols;
+    feed::PaperExecutor           executor(1'000'000.0, symbols);
     std::vector<FillNotification> fills;
     executor.set_fill_callback([&fills](const FillNotification& fill_notification) { fills.push_back(fill_notification); });
 
@@ -50,9 +62,9 @@ int main()
         const auto acknowledgement = executor.submit_order_acknowledgement(signal("005930", OrderSide::BUY, 10, 0.0, 70000.0));
         CHECK(acknowledgement.ok() && acknowledgement.kis_order_no == "P000000001" && acknowledgement.krx_forwarding_org_no == "PAPER");
         CHECK(fills.empty() && executor.open_count() == 1);
-        executor.on_tick("000660", 100000.0, 90100); // 다른 종목 틱은 무관
+        executor.on_tick(tick("000660", 100000.0, 90100)); // 다른 종목 틱은 무관
         CHECK(fills.empty());
-        executor.on_tick("005930", 70100.0, 90101);
+        executor.on_tick(tick("005930", 70100.0, 90101));
         CHECK(fills.size() == 1 && fills[0].kis_order_no == "P000000001" && fills[0].filled_quantity == 10);
         CHECK(near(fills[0].filled_price, 70100.0) && fills[0].fill_time == "090101" &&
               fills[0].side == OrderSide::BUY);
@@ -68,14 +80,14 @@ int main()
     {
         const auto acknowledgement = executor.submit_order_acknowledgement(signal("005930", OrderSide::SELL, 4, 71000.0));
         CHECK(acknowledgement.ok());
-        executor.on_tick("005930", 70500.0, 90200);
+        executor.on_tick(tick("005930", 70500.0, 90200));
         CHECK(fills.size() == 1);
         const auto balance = executor.balance();
         CHECK(balance.has_value() && balance->holdings[0].sellable_quantity && *balance->holdings[0].sellable_quantity == 6);
         const auto opens = executor.get_open_orders();
         CHECK(opens.size() == 1 && opens[0].kis_order_no == acknowledgement.kis_order_no && opens[0].psbl_qty == 4 &&
               opens[0].side == OrderSide::SELL);
-        executor.on_tick("005930", 71200.0, 90300);
+        executor.on_tick(tick("005930", 71200.0, 90300));
         CHECK(fills.size() == 2 && fills[1].side == OrderSide::SELL && near(fills[1].filled_price, 71200.0));
         CHECK(near(executor.cash(), 1'000'000.0 - 701'000.0 + 4 * 71200.0));
     }
@@ -112,7 +124,7 @@ int main()
         CHECK(executor.get_open_orders()[0].kis_order_no == revise_result.kis_order_no && executor.get_open_orders()[0].psbl_qty == 3);
         const auto gone = executor.cancel_order("005930", submit_order_acknowledgement.kis_order_no, "PAPER", 0, true);
         CHECK(!gone.ok() && gone.error_code == "E_PAPER_NO_ORDER");
-        executor.on_tick("005930", 70000.0, 90400);
+        executor.on_tick(tick("005930", 70000.0, 90400));
         CHECK(fills.size() == 3 && fills[2].kis_order_no == revise_result.kis_order_no && fills[2].filled_quantity == 3);
         const auto balance = executor.balance();
         CHECK(balance.has_value() && balance->holdings.size() == 1 && balance->holdings[0].quantity == 3);
@@ -122,7 +134,7 @@ int main()
     {
         const auto submit_order_acknowledgement = executor.submit_order_acknowledgement(signal("005930", OrderSide::SELL, 3, 0.0, 70000.0));
         CHECK(submit_order_acknowledgement.ok());
-        executor.on_tick("005930", 69000.0, 90500);
+        executor.on_tick(tick("005930", 69000.0, 90500));
         const auto balance = executor.balance();
         CHECK(balance.has_value() && balance->holdings.empty());
         CHECK(executor.is_paper());
