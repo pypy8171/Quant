@@ -46,14 +46,6 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
         return;
     }
 
-    if (pipeline_.shards.size() > 1 && !strategy::owner_shard(*strategy, static_cast<uint32_t>(pipeline_.shards.size()),
-                                                  [this](std::string_view ticker) { return symbols_.table.intern(ticker); }))
-    {
-        LOG_ERROR("[Engine] 런타임 전략 등록 거부 — " + strategy->id() + "의 종목이 여러 샤드에 걸친다(샤드 " +
-                  std::to_string(pipeline_.shards.size()) + "개)");
-        return;
-    }
-
     // 런타임 등록 전략도 차트 조회는 실전 시세키로(분봉 모의 HTTP500 회피) — start()와 동일 패턴.
     strategy->set_kis(feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get());
     strategy->set_account_kis(feed_.kis.get()); // 잔고·매도가능수량은 계좌를 가진 주문 클라이언트로
@@ -134,8 +126,10 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
 
     {
         std::lock_guard<std::mutex> lock(strategy_.mutex);
+        assign_shard(*strategy);
         strategy_.list.push_back(std::move(strategy));
         strategy_.version.fetch_add(1, std::memory_order_release);
+        rebuild_routes_locked();
     }
 }
 
@@ -379,6 +373,7 @@ void Engine::maybe_rescan_universe()
                 }
 
                 version = strategy_.version.fetch_add(1, std::memory_order_release) + 1;
+                rebuild_routes_locked();
             }
 
             if (victim)
@@ -557,6 +552,7 @@ void Engine::maybe_rescan_universe()
                 }
 
                 version = strategy_.version.fetch_add(1, std::memory_order_release) + 1;
+                rebuild_routes_locked();
             }
 
             if (victim)
@@ -630,22 +626,22 @@ void Engine::setup_shards()
     //  stop() 뒤 다시 start()하면 옛 샤드(스레드는 join 뒤)를 버리고 새로 만든다.
     pipeline_.shard_threads.clear();
     pipeline_.shards.clear();
+    // 샤드 수는 config 그대로(상한은 마스크 폭). 전략은 등록 순 라운드로빈으로 샤드 하나씩 갖는다 — 종목이 몇 개든
+    //  객체는 스레드 하나만 만지므로 걸침 검사·1 폴백이 없다. [why D-110]
     uint32_t shard_count = pipeline_.strategy_shards;
 
-    // 한 전략의 종목이 여러 열에 걸치면 샤드 둘이 그 전략을 같이 만진다 — 그 config는 받지 않고 1로 돌린다.
-    //  기동 전략은 아직 id가 없어 여기서 intern한다(on_start의 symbol_of와 같은 테이블).
-    if (shard_count > 1)
+    if (shard_count > shard::kMaxShards)
     {
-        for (const auto& registered_strategy : strategy_.list)
-        {
-            if (!strategy::owner_shard(*registered_strategy, shard_count, [this](std::string_view ticker) { return symbols_.table.intern(ticker); }))
-            {
-                LOG_WARN("[Engine] strategy_shards=" + std::to_string(shard_count) + " 무시 — 전략 " + registered_strategy->id() +
-                         "의 종목이 여러 샤드에 걸친다(또는 구독 종목 없음). 샤드 1개로 돈다");
-                shard_count = 1;
-                break;
-            }
-        }
+        LOG_WARN("[Engine] strategy_shards=" + std::to_string(shard_count) + " → " + std::to_string(shard::kMaxShards) + "(마스크 폭 상한)");
+        shard_count = shard::kMaxShards;
+    }
+
+    pipeline_.next_shard = 0;
+
+    for (const auto& registered_strategy : strategy_.list)
+    {
+        registered_strategy->set_shard_index(pipeline_.next_shard);
+        pipeline_.next_shard = (pipeline_.next_shard + 1) % shard_count;
     }
 
     // [inv] WS 수신 스레드 수 = 소켓 수 — 아래 feed_.websocket 생성과 같은 조건(리플레이·소켓 하나면 1, feed_keys가 있으면 1+N)이라
@@ -663,8 +659,54 @@ void Engine::setup_shards()
         pipeline_.shards.push_back(std::make_unique<strategy::Shard>(shard_index, strategy::ShardQueues{pipeline_.order_book_matrix, pipeline_.trade_matrix, pipeline_.bars_matrix}));
     }
 
+    if (pipeline_.routes.capacity() != symbols_.table.capacity())
+    {
+        pipeline_.routes.reset(symbols_.table.capacity());
+    }
+
+    rebuild_routes_locked(); // 스레드 시작 전이라 락 없이
+
     LOG_INFO("[Engine] 전략 샤드 " + std::to_string(shard_count) + "개 (config strategy_shards=" +
              std::to_string(pipeline_.strategy_shards) + ")");
+}
+
+void Engine::assign_shard(StrategyBase& strategy)
+{
+    const auto shard_count = static_cast<uint32_t>(pipeline_.shards.size());
+    strategy.set_shard_index(shard_count <= 1 ? 0u : pipeline_.next_shard);
+    pipeline_.next_shard = shard_count <= 1 ? 0u : (pipeline_.next_shard + 1) % shard_count;
+}
+
+void Engine::rebuild_routes_locked()
+{
+    auto draft = pipeline_.routes.draft();
+
+    for (const auto& registered_strategy : strategy_.list)
+    {
+        const auto specifications = registered_strategy->get_watch_specifications();
+
+        // 구독을 안 밝힌 전략은 전부 받는다(Router와 같은 규칙) — 그 샤드는 모든 종목을 받는다.
+        if (specifications.empty())
+        {
+            draft.add_all(registered_strategy->shard_index());
+            continue;
+        }
+
+        for (const auto& watch_specification : specifications)
+        {
+            const symbol::SymbolId id = symbols_.table.intern(watch_specification.ticker);
+
+            if (id == symbol::kNone)
+            {
+                draft.add_all(registered_strategy->shard_index()); // 테이블이 찼다 — 틱을 놓치는 것보다 낫다
+                break;
+            }
+
+            draft.add(id, registered_strategy->shard_index());
+        }
+    }
+
+    pipeline_.routes.commit(draft);
 }
 
 #ifdef HAS_ZMQ
@@ -796,14 +838,17 @@ void Engine::initialize_data_poller()
         [this](TradeData trade)
         {
             trade.symbol_id       = symbols_.table.intern(trade.ticker);
-            const auto consumer = pipeline_.trade_matrix.consumer_of(trade.symbol_id);
 
-            while (!pipeline_.trade_matrix.push_to(pipeline_.data_row, consumer, trade) && running_.load(std::memory_order_acquire))
+            shard::for_each_shard(pipeline_.routes.mask(trade.symbol_id), pipeline_.trade_matrix.consumer_of(trade.symbol_id),
+                                  [&](uint32_t consumer)
             {
-                std::this_thread::sleep_for(1ms);
-            }
+                while (!pipeline_.trade_matrix.push_to(pipeline_.data_row, consumer, trade) && running_.load(std::memory_order_acquire))
+                {
+                    std::this_thread::sleep_for(1ms);
+                }
 
-            pipeline_.shards[consumer]->wake().notify();
+                pipeline_.shards[consumer]->wake().notify();
+            });
         });
     poller_->set_keep_going([this] { return running_.load(std::memory_order_acquire); });
 }
@@ -985,9 +1030,22 @@ void Engine::connect_feed()
                            }
 
                            // 호가도 체결과 같은 규칙 — 버린 수를 세고 넘침이 시작될 때 한 번 남긴다.
-                           const auto consumer = pipeline_.order_book_matrix.consumer_of(order_book.symbol_id);
+                           //  이 종목을 보는 샤드 전부에 넣는다(아무도 안 보면 해시 열 하나). [why D-110]
+                           bool dropped = false;
 
-                           if (!pipeline_.order_book_matrix.push_to(lane, consumer, order_book))
+                           shard::for_each_shard(pipeline_.routes.mask(order_book.symbol_id),
+                                                 pipeline_.order_book_matrix.consumer_of(order_book.symbol_id), [&](uint32_t consumer)
+                           {
+                               if (!pipeline_.order_book_matrix.push_to(lane, consumer, order_book))
+                               {
+                                   dropped = true;
+                                   return;
+                               }
+
+                               pipeline_.shards[consumer]->wake().notify();
+                           });
+
+                           if (dropped)
                            {
                                if (order_book_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
                                {
@@ -997,8 +1055,6 @@ void Engine::connect_feed()
 
                                return;
                            }
-
-                           pipeline_.shards[consumer]->wake().notify();
                        },
                        [this](uint32_t lane, const TradeData& in)
                        {
@@ -1026,9 +1082,21 @@ void Engine::connect_feed()
 
                            // 전략 스레드가 멈추면 큐가 차고 틱이 여기서 사라진다 — 세어 두고
                            //  넘침이 시작될 때 한 번 남긴다(09-11 15:15 잔고 조회 정체). [why D-055]
-                           const auto consumer = pipeline_.trade_matrix.consumer_of(trade.symbol_id);
+                           bool dropped = false;
 
-                           if (!pipeline_.trade_matrix.push_to(lane, consumer, trade))
+                           shard::for_each_shard(pipeline_.routes.mask(trade.symbol_id), pipeline_.trade_matrix.consumer_of(trade.symbol_id),
+                                                 [&](uint32_t consumer)
+                           {
+                               if (!pipeline_.trade_matrix.push_to(lane, consumer, trade))
+                               {
+                                   dropped = true;
+                                   return;
+                               }
+
+                               pipeline_.shards[consumer]->wake().notify();
+                           });
+
+                           if (dropped)
                            {
                                if (trade_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
                                {
@@ -1038,8 +1106,6 @@ void Engine::connect_feed()
 
                                return;
                            }
-
-                           pipeline_.shards[consumer]->wake().notify();
 #ifdef HAS_ZMQ
                            if (zmq_bridge_)
                            {
@@ -1736,14 +1802,17 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                         auto& market_data = bars[0];
                         market_data.bar_index = static_cast<int>(data_count_.load());
                         market_data.symbol_id       = symbols_.table.intern(market_data.ticker);
-                        const auto consumer = pipeline_.bars_matrix.consumer_of(market_data.symbol_id);
 
-                        while (!pipeline_.bars_matrix.push_to(0, consumer, market_data) && !stop_token.stop_requested())
+                        shard::for_each_shard(pipeline_.routes.mask(market_data.symbol_id), pipeline_.bars_matrix.consumer_of(market_data.symbol_id),
+                                              [&](uint32_t consumer)
                         {
-                            std::this_thread::sleep_for(1ms);
-                        }
+                            while (!pipeline_.bars_matrix.push_to(0, consumer, market_data) && !stop_token.stop_requested())
+                            {
+                                std::this_thread::sleep_for(1ms);
+                            }
 
-                        pipeline_.shards[consumer]->wake().notify();
+                            pipeline_.shards[consumer]->wake().notify();
+                        });
                         ++data_count_;
                     }
                 }
@@ -2186,12 +2255,11 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
                 std::lock_guard<std::mutex> lock(strategy_.mutex);
                 snapshot.clear();
                 snapshot.reserve(strategy_.list.size());
-                const auto shard_count = static_cast<uint32_t>(pipeline_.shards.size());
 
-                // 자기 열의 전략만 — 다른 열의 전략은 이 샤드에 틱이 오지 않으니 라우터에 둘 이유가 없다. M=1이면 전부.
+                // 자기 샤드가 소유한 전략만 — 다른 샤드의 전략 객체는 여기서 만지지 않는다. M=1이면 전부.
                 for (auto& strategy : strategy_.list)
                 {
-                    if (strategy::owner_shard(*strategy, shard_count, symbol_id_of).value_or(0u) == row)
+                    if (strategy->shard_index() == row)
                     {
                         snapshot.push_back(strategy.get());
                     }

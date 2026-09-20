@@ -15,6 +15,7 @@
 #include "core/FeedSupervisor.h"
 #include "core/SessionEndJudge.h"
 #include "core/StrategyRouter.h"
+#include "core/ShardRoutes.h"
 #include "core/StrategyShard.h"
 #include "core/RegimeFileJudge.h"
 #include "core/Types.h"
@@ -143,6 +144,8 @@ public:
     // start()가 실제로 잡은 수신 스레드(행)·전략 샤드(열) 수 — config와 다를 수 있다(걸치는 전략이 있으면 샤드 1). 기동 뒤에만 뜻이 있다.
     uint32_t websocket_lanes() const { return pipeline_.websocket_lanes; }
     uint32_t shard_count() const { return static_cast<uint32_t>(pipeline_.shards.size()); }
+    // 종목 id의 틱을 받는 샤드 마스크(시험·진단용). 0이면 아무 전략도 안 보는 종목이다.
+    shard::ShardMask route_mask(symbol::SymbolId symbol_id) const { return pipeline_.routes.mask(symbol_id); }
 
     // ── 매크로 레짐 브리지 ──────────────────────────────────────────────────
     // 매크로 레짐 보조 프로세스 브리지(2026-08-09 회의 Task 3). Python macro_regime_feed.py가
@@ -329,6 +332,10 @@ private:
     //  strategy_thread가 새 스냅샷을 만든 뒤(strategy_.seen_version ≥ 뗀 시점 버전) on_stop·파기한다.
     //  force=true는 종료 경로(strategy_thread 합류 뒤)에서 전부 비운다.
     void reap_retired(bool force);
+    // 전략 → 샤드 배정을 마치고 종목 → 샤드 마스크 표를 다시 만든다. strategy_.mutex 하에서(스레드 시작 전은 락 없이). [why D-110]
+    void rebuild_routes_locked();
+    // 새 전략에 샤드를 하나 준다 — 등록 순 라운드로빈. 스레드 시작 전·strategy_.mutex 하에서만.
+    void assign_shard(StrategyBase& strategy);
     // G1: 현재 국면 r에 맞춰 전략별 active 플래그 재선택. 선택 결정을 로그로 기록(국면 변화
     //  또는 force_log 시). data_thread 전용(strategy_.list 반복은 이 스레드에서만 mutate).
     void apply_regime_selection(Regime regime, bool force_log);
@@ -468,13 +475,16 @@ private:
 
     // ── N×M 샤드 파이프라인·큐 ──────────────────────────────────────────────
     // 수신 N × 전략 샤드 M 링 행렬. 셀 하나의 생산자는 스레드 하나다 — WS 수신 스레드 i(소켓 i의 수신 스레드)는 행 i, 체결은
-    //  데이터 스레드 행(REST 대체 틱, 행 data_row)을 더 둔다(D-053이 두 큐로 풀던 것을 행으로 푼다). 열은 종목 해시
-    //  (원칙 2). 전략은 자기 종목의 열 하나가 맡는다(strategy::owner_shard) — 전략 객체를 두 샤드 스레드가 만지면 안 된다. [why D-071]
+    //  데이터 스레드 행(REST 대체 틱, 행 data_row)을 더 둔다(D-053이 두 큐로 풀던 것을 행으로 푼다). 열은 전략 단위다 —
+    //  전략 객체는 샤드 하나가 갖고(등록 순 라운드로빈, StrategyBase::shard_index), 종목 틱은 routes가 준 마스크의 샤드 전부에
+    //  넣는다. 한 열 안에서 종목 순서는 지켜진다(원칙 2). 전략 객체를 두 샤드 스레드가 만지는 일은 없다. [why D-071] [why D-110]
     struct ShardPipeline
     {
         uint32_t                  websocket_lanes        = 1;    // WS 수신 스레드 수 = 소켓 수. start()가 행 수로 쓴다
         uint32_t                  data_row        = 1;    // trade_matrix의 데이터 스레드 행 = websocket_lanes
-        uint32_t                  strategy_shards = 1;    // config. start()가 열 수로 쓴다(걸치는 전략이 있으면 1)
+        uint32_t                  strategy_shards = 1;    // config. start()가 열 수로 쓴다(상한 shard::kMaxShards)
+        uint32_t                  next_shard      = 0;    // 다음 전략에 줄 샤드(라운드로빈 커서). strategy_.mutex 하에서
+        shard::RouteTable         routes;                 // 종목 id → 그 종목을 보는 샤드 마스크. 수신 스레드가 틱마다 읽는다
         shard::Matrix<OrderBook>  order_book_matrix{1, 1, 4096};   // 호가 (국내) — WS 수신 스레드 행 N. 행·열 수는 start()의 reshape
         shard::Matrix<TradeData>  trade_matrix{2, 1, 4096};   // 체결 (미국 + 국내) — WS 수신 스레드 행 N + 데이터 스레드 행
         shard::Matrix<MarketData> bars_matrix{1, 1, 1024}; // 일봉 — 데이터 스레드 행(index 0)만

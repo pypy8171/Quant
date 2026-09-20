@@ -1,6 +1,7 @@
-// 전략 샤드 — 링 행렬의 열 하나(호가·체결·봉)를 비우고 라우터로 그 종목을 보는 전략만 방문한다. 종목 해시로 나뉜 열이라
-//  한 종목은 한 샤드만 지나고(원칙 2), 신호는 봉투에 담아 싱크로 넘길 뿐 순번·슬롯·교체·강제청산 같은 종목 횡단 판단은
-//  디스패치 스레드 몫이다(원칙 4). 전략 객체는 샤드 안에서만 만진다 — 샤드가 여럿이면 전략 집합도 샤드마다 하나다.
+// 전략 샤드 — 링 행렬의 열 하나(호가·체결·봉)를 비우고 라우터로 그 종목을 보는 전략만 방문한다. 열은 전략 단위로 나뉜다 —
+//  전략 객체는 샤드 하나가 갖고(StrategyBase::shard_index), 종목 틱은 그 종목을 보는 샤드 전부에 들어온다(ShardRoutes.h).
+//  한 샤드 안에서는 종목 순서가 지켜지고(원칙 2), 신호는 봉투에 담아 싱크로 넘길 뿐 순번·슬롯·교체·강제청산 같은 종목 횡단
+//  판단은 디스패치 스레드 몫이다(원칙 4). 전략 객체는 샤드 안에서만 만진다. [why D-110]
 // 스레드: 샤드 스레드 하나가 rebuild·step을 부른다. wake는 생산자가 push 뒤 notify한다.
 //  [why D-071]
 #pragma once
@@ -15,54 +16,12 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace strategy
 {
-// 전략을 맡을 샤드. 구독 종목이 전부 한 열로 해시되면 그 열, 아니면(종목이 여러 열에 걸치거나 구독을 안 밝혔거나
-//  아직 id가 없으면) 없음 — 그 전략은 샤드 둘이 같이 만지게 되므로 M>1로 띄우면 안 된다. M이 1이면 언제나 0.
-//  종목마다 전략 하나인 지금 전략(DevScale_*·ITB_*)은 전부 한 열이다. [why D-071]
-template <typename SymbolIdOf>
-std::optional<uint32_t> owner_shard(const StrategyBase& strategy, uint32_t shards, SymbolIdOf&& symbol_id_of)
-{
-    if (shards <= 1)
-    {
-        return 0u;
-    }
-
-    const auto              specifications = strategy.get_watch_specifications();
-    std::optional<uint32_t> owner;
-
-    if (specifications.empty())
-    {
-        return std::nullopt;
-    }
-
-    for (const auto& watch_specification : specifications)
-    {
-        const symbol::SymbolId id = symbol_id_of(watch_specification.ticker);
-
-        if (id == symbol::kNone)
-        {
-            return std::nullopt;
-        }
-
-        const uint32_t row = shard::shard_of(id, shards);
-
-        if (owner && *owner != row)
-        {
-            return std::nullopt;
-        }
-
-        owner = row;
-    }
-
-    return owner;
-}
-
 // 샤드가 디스패치 스레드로 보내는 봉투. 게이트 판단에 필요한 전략 상태를 샤드 스레드에서 읽어 같이 싣는다 —
 //  디스패치 스레드는 전략 객체를 보지 않는다.
 struct Emitted

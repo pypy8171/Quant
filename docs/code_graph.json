@@ -184,6 +184,7 @@
     "core/RingBuffer.h": "core",
     "core/SessionEndJudge.h": "core",
     "core/ShardMatrix.h": "core",
+    "core/ShardRoutes.h": "core",
     "core/SignalDispatcher.h": "core",
     "core/StrategyRouter.h": "core",
     "core/StrategyShard.h": "core",
@@ -365,6 +366,7 @@
       "core/ReplaySource.h",
       "core/RingBuffer.h",
       "core/SessionEndJudge.h",
+      "core/ShardRoutes.h",
       "core/SignalDispatcher.h",
       "core/StrategyRouter.h",
       "core/StrategyShard.h",
@@ -433,6 +435,9 @@
     ],
     "core/ShardMatrix.h": [
       "core/RingBuffer.h",
+      "core/SymbolTable.h"
+    ],
+    "core/ShardRoutes.h": [
       "core/SymbolTable.h"
     ],
     "core/SignalDispatcher.cpp": [
@@ -788,6 +793,9 @@
     "core/ShardMatrix.h": [
       "core/StrategyShard.h"
     ],
+    "core/ShardRoutes.h": [
+      "core/Engine.h"
+    ],
     "core/SignalDispatcher.h": [
       "core/Engine.h",
       "core/SignalDispatcher.cpp"
@@ -803,6 +811,7 @@
       "core/Engine.h",
       "core/PaperExecutor.h",
       "core/ShardMatrix.h",
+      "core/ShardRoutes.h",
       "core/StrategyRouter.h",
       "core/StrategyShard.h",
       "core/Types.h",
@@ -1026,7 +1035,7 @@
     },
     {
       "header": "core/SymbolTable.h",
-      "in_degree": 7
+      "in_degree": 8
     },
     {
       "header": "core/WakeGate.h",

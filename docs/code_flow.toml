@@ -199,7 +199,7 @@ review = [
   "전략이 문자열로 종목을 비교하는 곳이 있는지 — `same_symbol`/`trade.symbol_id` 정수 비교여야 한다(원칙 6)",
   "전략 `on_*`이 블로킹 I/O(REST)를 직접 부르는지 — DeviationScale은 프리페치 스레드로 뺐다",
   "`reference_price`를 시장가 신호에 찍는지 — 없으면 명목 백스톱이 우회된다(Types.h 주석)",
-  "한 전략의 구독 종목이 열 둘에 걸치지 않는지(`owner_shard` 경고)",
+  "전략 객체를 만지는 곳이 자기 샤드 스레드뿐인지 — 종목 틱은 `RouteTable` 마스크로 그 샤드에 온다(D-110)",
 ]
 
   [[stage.step]]

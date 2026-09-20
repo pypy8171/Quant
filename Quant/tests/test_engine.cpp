@@ -182,6 +182,133 @@ private:
     bool          fired_ = false;
 };
 
+// 전략 하나가 종목 여럿을 본다 — 종목마다 첫 틱에 1주 매수. 샤드가 둘 이상일 때 이 전략의 종목이 여러 열로 흩어지면
+//  옛 설계는 샤드를 1로 내렸다. 지금은 전략이 샤드 하나를 갖고 종목 틱이 그 샤드로 온다. [why D-110]
+class BuyEachOnce : public StrategyBase
+{
+public:
+    explicit BuyEachOnce(std::vector<std::string> tickers) : tickers_(std::move(tickers)), id_("BuyEachOnce") {}
+
+    const std::string& id() const override { return id_; }
+    std::string describe() const override { return "종목마다 첫 틱에 1주 매수"; }
+    std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
+
+    void on_start() override
+    {
+        for (const auto& ticker : tickers_)
+        {
+            symbol_ids_.push_back(symbol_of(ticker));
+        }
+
+        fired_.assign(tickers_.size(), false);
+    }
+
+    std::vector<WatchSpec> get_watch_specifications() const override
+    {
+        std::vector<WatchSpec> specifications;
+
+        for (const auto& ticker : tickers_)
+        {
+            WatchSpec specification;
+            specification.ticker = ticker;
+            specifications.push_back(specification);
+        }
+
+        return specifications;
+    }
+
+    std::optional<OrderSignal> on_trade(const TradeData& trade) override
+    {
+        for (size_t index = 0; index < tickers_.size(); ++index)
+        {
+            if (fired_[index] || !same_symbol(symbol_ids_[index], tickers_[index], trade.symbol_id, trade.ticker.string()))
+            {
+                continue;
+            }
+
+            fired_[index] = true;
+            OrderSignal signal;
+            signal.ticker          = tickers_[index];
+            signal.symbol_id       = trade.symbol_id;
+            signal.side            = OrderSide::BUY;
+            signal.type            = OrderType::MARKET;
+            signal.quantity        = 1;
+            signal.reference_price = trade.price;
+            signal.strategy_id     = id();
+            return signal;
+        }
+
+        return std::nullopt;
+    }
+
+    const std::vector<symbol::SymbolId>& symbol_ids() const { return symbol_ids_; }
+
+private:
+    std::vector<std::string>      tickers_;
+    std::string                   id_;
+    std::vector<symbol::SymbolId> symbol_ids_;
+    std::vector<bool>             fired_;
+};
+
+// 다종목 전략 하나 + 샤드 여럿. 샤드 수가 config 그대로 서고(1 폴백 없음), 종목 전부의 마스크가 그 전략의 샤드 하나이며,
+//  종목 수만큼 주문·보유가 잡히면 통과.
+int run_spanning_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& tickers)
+{
+    using namespace std::chrono_literals;
+    std::cout << "case spanning lanes=" << lanes << " shards=" << shards << " tickers=" << tickers.size() << "\n";
+
+    auto  feed_owned = std::make_unique<FakeFeed>(lanes);
+    auto* feed       = feed_owned.get();
+    auto  strategy_owned = std::make_unique<BuyEachOnce>(tickers);
+    auto* strategy       = strategy_owned.get();
+
+    Engine engine(KisConfig{});
+    engine.set_strategy_shards(shards);
+    engine.add_strategy(std::move(strategy_owned));
+    engine.set_feed_source(std::move(feed_owned), 1'000'000.0);
+    engine.start();
+
+    CHECK(engine.is_running());
+    CHECK(engine.shard_count() == shards);
+    CHECK(strategy->shard_index() < shards);
+
+    for (const auto symbol_id : strategy->symbol_ids())
+    {
+        CHECK(engine.route_mask(symbol_id) == shard::mask_of(strategy->shard_index()));
+    }
+
+    for (size_t ticker_index = 0; ticker_index < tickers.size(); ++ticker_index)
+    {
+        feed->emit_trade(static_cast<uint32_t>(ticker_index) % lanes, tickers[ticker_index], 70000.0, 93001);
+    }
+
+    std::vector<OrderGate::HeldPos> held;
+    const auto                      deadline = std::chrono::steady_clock::now() + 8s;
+
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        for (size_t ticker_index = 0; ticker_index < tickers.size(); ++ticker_index)
+        {
+            feed->emit_trade(static_cast<uint32_t>(ticker_index) % lanes, tickers[ticker_index], 70100.0, 93002);
+        }
+
+        held = engine.held_positions();
+
+        if (held.size() >= tickers.size())
+        {
+            break;
+        }
+
+        std::this_thread::sleep_for(10ms);
+    }
+
+    CHECK(held.size() == tickers.size());
+    CHECK(engine.signal_count() == tickers.size());
+    engine.stop();
+    CHECK(!engine.is_running());
+    return 0;
+}
+
 // 종목 i는 수신 스레드 i % lanes에서 들어온다. 종목마다 전략 하나. 종목 수만큼 주문·체결·보유가 잡히면 통과.
 int run_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& tickers)
 {
@@ -212,13 +339,15 @@ int run_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& ti
     CHECK(engine.websocket_lanes() == lanes);
     CHECK(engine.shard_count() == shards);
 
-    // 2. 종목들이 실제로 서로 다른 열에 떨어진다(샤드가 둘 이상일 때) — 같은 열이면 N×M을 시험한 것이 아니다.
+    // 2. 전략들이 실제로 서로 다른 샤드에 배정됐고(등록 순 라운드로빈), 각 종목 틱은 그 전략의 샤드로만 간다 —
+    //  같은 샤드면 N×M을 시험한 것이 아니다. [why D-110]
     {
         std::set<uint32_t> cols;
 
         for (auto* stop_token : strategies)
         {
-            cols.insert(shard::shard_of(stop_token->symbol_id(), shards));
+            cols.insert(stop_token->shard_index());
+            CHECK(engine.route_mask(stop_token->symbol_id()) == shard::mask_of(stop_token->shard_index()));
         }
 
         CHECK(cols.size() == std::min<size_t>(shards, tickers.size()));
@@ -365,6 +494,11 @@ int main()
     }
 
     if (const int result_code = run_case(2, 2, {"005930", "000660"}); result_code != 0)
+    {
+        return result_code;
+    }
+
+    if (const int result_code = run_spanning_case(2, 4, {"005930", "000660", "005380"}); result_code != 0)
     {
         return result_code;
     }

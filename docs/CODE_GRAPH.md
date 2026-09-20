@@ -61,7 +61,7 @@ graph LR
 | `strategy/StrategyBase.h` | 13 |
 | `api/KisClient.h` | 12 |
 | `core/MarketSession.h` | 8 |
-| `core/SymbolTable.h` | 7 |
+| `core/SymbolTable.h` | 8 |
 | `core/WakeGate.h` | 7 |
 
 ## 파일 단위 상세
@@ -107,6 +107,7 @@ graph LR
     n_core_RegimeFileJudge_h["core/RegimeFileJudge.h"]
     n_core_ReplaySource_h["core/ReplaySource.h"]
     n_core_ShardMatrix_h["core/ShardMatrix.h"]
+    n_core_ShardRoutes_h["core/ShardRoutes.h"]
     n_core_SignalDispatcher_cpp["core/SignalDispatcher.cpp"]
     n_core_SignalDispatcher_h["core/SignalDispatcher.h"]
     n_core_StrategyRouter_h["core/StrategyRouter.h"]
@@ -223,6 +224,7 @@ graph LR
   n_core_Engine_h --> n_core_ReplaySource_h
   n_core_Engine_h --> n_core_RingBuffer_h
   n_core_Engine_h --> n_core_SessionEndJudge_h
+  n_core_Engine_h --> n_core_ShardRoutes_h
   n_core_Engine_h --> n_core_SignalDispatcher_h
   n_core_Engine_h --> n_core_StrategyRouter_h
   n_core_Engine_h --> n_core_StrategyShard_h
@@ -268,6 +270,7 @@ graph LR
   n_core_ReplaySource_h --> n_core_TickCapture_h
   n_core_ShardMatrix_h --> n_core_RingBuffer_h
   n_core_ShardMatrix_h --> n_core_SymbolTable_h
+  n_core_ShardRoutes_h --> n_core_SymbolTable_h
   n_core_SignalDispatcher_cpp --> n_core_LatencyTrace_h
   n_core_SignalDispatcher_cpp --> n_core_SignalDispatcher_h
   n_core_SignalDispatcher_cpp --> n_utils_Logger_h

@@ -3,6 +3,7 @@
 //  전략 계산이 든 틱을 샤드 1·2·4가 나눠 받을 때의 벽시계 측정(원칙 7).
 // 빌드: cmake --build <directory> --target test_strategy_shard
 #include "core/ShardMatrix.h"
+#include "core/ShardRoutes.h"
 #include "core/StrategyShard.h"
 #include "core/SymbolTable.h"
 #include "core/Types.h"
@@ -432,46 +433,45 @@ int main()
         }
     }
 
-    // 4. owner_shard — 전략이 어느 샤드 것인가. M=1이면 언제나 0. 종목 하나면 그 종목의 열, 여럿이 같은 열이면 그 열,
-    //  열이 갈리거나 구독을 안 밝혔거나 id를 못 받으면 없음(M>1로 띄우면 안 되는 전략).
+    // 4. RouteTable — 종목 id → 그 종목을 보는 샤드 마스크. 전략은 샤드 하나가 갖고, 종목 하나를 여러 샤드의 전략이 보면
+    //  마스크에 그 샤드들이 다 선다. 구독을 안 밝힌 전략은 모든 종목의 마스크에 자기 샤드를 더한다. 아무도 안 보면 0
+    //  (호출자가 해시 열로 보낸다). [why D-110]
     {
-        std::vector<std::string> same, split;
-        const uint32_t           row_count   = 4;
-        const auto               first_shard_index  = shard::shard_of(table.intern("A00001"), row_count);
-        same.push_back("A00001");
+        shard::RouteTable routes(table.capacity());
+        const auto        id_a = table.intern("R00001");
+        const auto        id_b = table.intern("R00002");
+        const auto        id_c = table.intern("R00003");
 
-        for (int index = 2; index < 40 && (same.size() < 3 || split.size() < 2); ++index)
-        {
-            const std::string ticker  = "A000" + std::to_string(10 + index);
-            const auto        shard_index = shard::shard_of(table.intern(ticker), row_count);
+        CHECK(routes.mask(id_a) == 0);
+        CHECK(routes.mask(symbol::kNone) == 0);
 
-            if (shard_index == first_shard_index && same.size() < 3)
-            {
-                same.push_back(ticker);
-            }
-            else if (shard_index != first_shard_index && split.size() < 2)
-            {
-                split.push_back(ticker);
-            }
-        }
+        auto draft = routes.draft();
+        draft.add(id_a, 0);  // 샤드0 전략이 A
+        draft.add(id_a, 2);  // 샤드2 전략도 A — 걸치는 종목
+        draft.add(id_b, 1);  // 샤드1 전략이 B
+        routes.commit(draft);
 
-        CHECK(same.size() == 3 && split.size() == 2);
-        FakeStrategy one("one", {same[0]});
-        FakeStrategy three("three", same);
-        FakeStrategy spanning("spanning", {same[0], split[0]});
-        FakeStrategy all("all", {});
-        const auto   lookup = [&](std::string_view ticker) { return table.lookup(ticker); };
+        CHECK(routes.mask(id_a) == (shard::mask_of(0) | shard::mask_of(2)));
+        CHECK(routes.mask(id_b) == shard::mask_of(1));
+        CHECK(routes.mask(id_c) == 0);
 
-        CHECK(strategy::owner_shard(one, 1, symbol_id_of) == std::optional<uint32_t>(0u));
-        CHECK(strategy::owner_shard(spanning, 1, symbol_id_of) == std::optional<uint32_t>(0u));
-        CHECK(strategy::owner_shard(all, 1, symbol_id_of) == std::optional<uint32_t>(0u));
-        CHECK(strategy::owner_shard(one, row_count, symbol_id_of) == std::optional<uint32_t>(first_shard_index));
-        CHECK(strategy::owner_shard(three, row_count, symbol_id_of) == std::optional<uint32_t>(first_shard_index));
-        CHECK(!strategy::owner_shard(spanning, row_count, symbol_id_of));
-        CHECK(!strategy::owner_shard(all, row_count, symbol_id_of));
-        FakeStrategy unknown("unknown", {"Z99999"});
-        CHECK(!strategy::owner_shard(unknown, row_count, lookup));
-        CHECK(strategy::owner_shard(unknown, row_count, symbol_id_of).has_value());
+        // 전부 받는 전략이 샤드3에 오면 모든 종목에 3이 더해진다. 다시 만들면 옛 항목은 사라진다.
+        auto second = routes.draft();
+        second.add(id_b, 1);
+        second.add_all(3);
+        routes.commit(second);
+
+        CHECK(routes.mask(id_a) == shard::mask_of(3));
+        CHECK(routes.mask(id_b) == (shard::mask_of(1) | shard::mask_of(3)));
+        CHECK(routes.mask(symbol::kNone) == shard::mask_of(3));
+
+        // for_each_shard — 낮은 번호부터, 0이면 fallback 하나만.
+        std::vector<uint32_t> visited;
+        shard::for_each_shard(shard::mask_of(5) | shard::mask_of(0) | shard::mask_of(63), 9, [&](uint32_t shard_index) { visited.push_back(shard_index); });
+        CHECK((visited == std::vector<uint32_t>{0, 5, 63}));
+        visited.clear();
+        shard::for_each_shard(0, 9, [&](uint32_t shard_index) { visited.push_back(shard_index); });
+        CHECK((visited == std::vector<uint32_t>{9}));
     }
 
     std::cout << "test_strategy_shard: " << g_checks << " checks passed\n";

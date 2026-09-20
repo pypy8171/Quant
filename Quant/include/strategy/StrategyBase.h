@@ -102,6 +102,11 @@ public:
         return active_.load(std::memory_order_relaxed) && in_universe_.load(std::memory_order_relaxed);
     }
 
+    // 이 전략 객체를 돌리는 샤드(스레드) 번호. Engine이 등록할 때 정하고(라운드로빈) 그 샤드 스레드만 on_trade 등을
+    //  부른다 — 종목이 여러 개여도 객체는 스레드 하나만 만진다. 스레드 시작 전·전략 목록 락 하에서만 바꾼다. [why D-110]
+    uint32_t shard_index() const { return shard_index_; }
+    void     set_shard_index(uint32_t shard_index) { shard_index_ = shard_index; }
+
     // Engine이 unique_ptr<KisClient>로 수명을 관리한다.
     // set_kis()는 Engine::start() 내부에서만 호출되며, 전략 소멸 전에 Engine이 먼저 종료된다.
     void set_kis(KisClient* kis)
@@ -243,5 +248,6 @@ protected:
     SymbolResolver symbol_resolver_; // 종목 문자열 → id(SymbolTable::intern). 미주입=kNone
     std::atomic<bool> active_{true};      // 국면 게이트(Engine이 설정). 기본 true=통과 (G-1)
     std::atomic<bool> in_universe_{true}; // 유니버스 재스캔 게이트(Engine이 설정). 미등록 전략은 늘 true
+    uint32_t          shard_index_ = 0;   // 소유 샤드. Engine::setup_shards·register_strategy_runtime가 쓴다
     std::vector<Regime> active_regimes_ = {Regime::BULL, Regime::NEUTRAL, Regime::BEAR};
 };

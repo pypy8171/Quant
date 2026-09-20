@@ -247,6 +247,7 @@
 - [RingBuffer.h](../Quant/include/core/RingBuffer.h) — SPSC 락프리 링버퍼
 - [SessionEndJudge.h](../Quant/include/core/SessionEndJudge.h) — 마감 자기 종료 판정(창 닫힘→유예→큐 비면 종료, D-098)
 - [ShardMatrix.h](../Quant/include/core/ShardMatrix.h) — 수신 N×전략 샤드 M SPSC 링 행렬(D-071)
+- [ShardRoutes.h](../Quant/include/core/ShardRoutes.h) — 종목 id → 그 종목을 보는 샤드 비트마스크 표(D-110)
 - [SignalDispatcher.h](../Quant/include/core/SignalDispatcher.h) — 신호 디스패처 — 순번 stamp·슬롯 교체 판단(D-063)
 - [StrategyRouter.h](../Quant/include/core/StrategyRouter.h) — 종목 id → 구독 전략 목록 라우터
 - [StrategyShard.h](../Quant/include/core/StrategyShard.h) — 전략 샤드 — 링 행렬 열 하나 소비(D-071)
