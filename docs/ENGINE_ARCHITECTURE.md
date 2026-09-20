@@ -1,7 +1,7 @@
 # 엔진 아키텍처 요약
 
 `CLAUDE.md`에서 옮겨 온 스레드 모델·핵심 타입·국면·KIS·WebSocket·로깅 요약이다(2026-09-14, 매 호출의 문맥 바닥을 줄이려고).
-헤더의 공개 역할이 바뀌면 이 문단을 고치고 `py scripts/sync_impact.py --restamp docs/ENGINE_ARCHITECTURE.md`로 도장을 갱신한다
+헤더의 공개 역할이 바뀌면 이 문단을 고치고 `py ../quant-devtools/sync_impact.py --restamp docs/ENGINE_ARCHITECTURE.md`로 도장을 갱신한다
 (규칙은 `docs/sync_map.toml`). 읽는 순서로 따라가는 코드 흐름은 [CODE_FLOW.md](CODE_FLOW.md), 결정 이력은 [DECISIONS.md](DECISIONS.md).
 
 ## 아키텍처

@@ -1165,7 +1165,7 @@ WebSocket 업그레이드도 12152로 계속 실패했다. 취소가 끝난 14:1
 ### D-031 문서가 코드를 가리킬 때는 줄번호가 아니라 심볼로 가리킨다 (2026-09-09)
 **상태**: 채택
 **결정**: 문서에서 코드를 가리킬 때 `파일:숫자` 대신 `파일::심볼`을 쓴다. 새로 추가되는
-줄번호 참조는 `scripts/check_code_refs.py`가 막는다. 스냅샷 문서는 머리에
+줄번호 참조는 `../quant-devtools/check_code_refs.py`가 막는다. 스냅샷 문서는 머리에
 `drift-check: snapshot`, 줄번호 참조를 예시로 인용해야 하는 줄은 줄 끝에 `drift-check: ok`로 뺀다.
 
 **배경**: 줄번호 참조가 어긋나도 아무 신호가 없다. `docs/guides/REGIME_DRILL_GUIDE.md`의 줄번호 참조 7개는
@@ -1198,7 +1198,7 @@ WebSocket 업그레이드도 12152로 계속 실패했다. 취소가 끝난 14:1
 
 ### D-032 주간 리포트는 `_private/` 아래 이름을 옮겨 적지 않는다 (2026-09-09)
 **상태**: 채택
-**결정**: `scripts/maintain.py --weekly`의 죽은 경로 표에서 `_private/` 하위 경로는 `_private/…`로
+**결정**: `../quant-devtools/maintain.py --weekly`의 죽은 경로 표에서 `_private/` 하위 경로는 `_private/…`로
 접두어까지만 적는다. 파일:줄은 그대로 남기므로 고칠 위치는 짚힌다.
 
 **배경**: `docs/reports/MAINTENANCE_WEEKLY.md`는 추적 대상인데, 죽은 경로 표가 `.claude/` 안의
@@ -1215,7 +1215,7 @@ WebSocket 업그레이드도 12152로 계속 실패했다. 취소가 끝난 14:1
 | 생성 시점에 마스킹한다 | 채택. 되살아나도 이름이 안 실린다 |
 
 **근거**: 생성물을 손으로 고치면 다음 생성에서 되살아난다. `docs/facts.json`의 KIS 토큰 캐시
-파일명도 같은 이유로 생성기(`scripts/gen_facts.py`)에서 막았다.
+파일명도 같은 이유로 생성기(`../quant-devtools/gen_facts.py`)에서 막았다.
 
 ### D-033 매크로 진입정지는 개장 게이트로 한정하고, 장중 통제는 장중을 보는 축에 넘긴다 (2026-09-10)
 **상태**: 채택(시간 상자·히스테리시스·관측), 일부 미결(`HALT_SCORE` 값)
@@ -2400,7 +2400,7 @@ WS 폴백 중 WS가 되살아나면 SPSC 큐에 생산자가 둘이 되는 구�
 한 번 나오는지, `WS 슬롯 확보 — … 구독 복귀`가 뜨면 그 종목의 REST 로그가 더 안 나오는지 본다. 폴링 모드면
 `data_count_`(운영단말 상태)가 사이클마다 유니버스 수만큼 오르는지 본다.
 
-같은 커밋에서 두 가지를 같이 고쳤다. `scripts/brace_style.py`가 매크로의 `} while (0)` 꼬리(`;` 없음)를 제어문으로
+같은 커밋에서 두 가지를 같이 고쳤다. `../quant-devtools/brace_style.py`가 매크로의 `} while (0)` 꼬리(`;` 없음)를 제어문으로
 보고 다음 문장을 중괄호로 감싸던 것 — D-061 커밋의 `Quant/tests/test_ledger_reconciler.cpp`가 이 때문에 컴파일되지
 않는 상태로 들어갔다(테스트 실행 뒤에 스크립트를 돌렸다). 스크립트는 그 꼬리를 건너뛰고, 테스트 파일은 원래대로
 돌렸다. 앞으로 스크립트는 빌드 전에 돌린다.
@@ -2458,7 +2458,7 @@ strategy_thread 경로라 다음 장 시작 전 재기동부터)
 `한도 초과분 정리`가 보유 중 한도 넘는 종목에만 한 번 나오는지 본다.
 
 같은 커밋에서 D-062 커밋(69af404)의 `Quant/tests/test_data_poller.cpp`를 고쳤다. 그 커밋도 빌드 뒤에
-`scripts/brace_style.py`(수정 전 판)를 돌려 매크로 꼬리 다음 줄에 `{` 하나가 들어간 채 들어갔다 — D-062 본문의
+`../quant-devtools/brace_style.py`(수정 전 판)를 돌려 매크로 꼬리 다음 줄에 `{` 하나가 들어간 채 들어갔다 — D-062 본문의
 "앞으로 스크립트는 빌드 전에 돌린다"를 그 커밋 자신이 지키지 못했다. 이번엔 스크립트를 빌드 전에 돌렸고,
 `} while (0)` 뒤에 `{`가 남은 파일이 없는지 grep으로 확인했다.
 
@@ -3292,7 +3292,7 @@ resample 자리 일치)·`test_kis_decode`(timestamp −9h). 09-14 장은 `log_l
 
 **결정**:
 - 셀 수 있는 것은 동기화하지 않고 생성한다. CLAUDE.md의 테스트 타깃 목록·개수를 `<!-- gen:test-targets -->` 블록으로
-  옮겼다(`scripts/gen_facts.py`). 새 요약을 쓸 때의 순서는 생성 → 도장 → 링크만.
+  옮겼다(`../quant-devtools/gen_facts.py`). 새 요약을 쓸 때의 순서는 생성 → 도장 → 링크만.
 - 의존은 `docs/sync_map.toml`에 기계 형식으로 둔다(소스 glob → 대표 문서, 검사 종류 gen/script/stamp/hint).
   `docs/SYNC_MAP.md` §2 표는 이 파일에서 `sync_impact.py --render`가 만든다.
 - 요약 문단은 어느 소스의 어느 버전을 보고 쓴 것인지 도장을 남긴다 — `<!-- sync: 경로@blob해시7 -->`. 소스가 바뀌면
@@ -3314,7 +3314,7 @@ resample 자리 일치)·`test_kis_decode`(timestamp −9h). 09-14 장은 `log_l
 | PyYAML 맵 | 기각. 이 머신에 없다. `tomllib`이 표준이다 |
 
 **확인 방법**: 헤더 하나를 고치고 턴을 끝내면 `[SYNC-GATE]`가 그 헤더를 도장한 문단(`CLAUDE.md:행`)만 찍는다.
-`py scripts/sync_impact.py --stamps`가 "도장 전부 최신"이면 커밋이 통과한다. `py scripts/maintain.py --check`에
+`py ../quant-devtools/sync_impact.py --stamps`가 "도장 전부 최신"이면 커밋이 통과한다. `py ../quant-devtools/maintain.py --check`에
 `sync_impact --stamps` 단계가 들어 있다.
 
 ### D-074 주기가 다른 데이터끼리 어긋나는 자리를 맞춘다 — 봉은 시계로도 닫고, 체결 직후 잔고 대조는 미루고, 국면 재평가는 벽시계 경계에 (2026-09-13)
@@ -3463,7 +3463,7 @@ resample 자리 일치)·`test_kis_decode`(timestamp −9h). 09-14 장은 `log_l
 **결정**:
 - 정본은 `docs/code_flow.toml`이다. 단계(`[[stage]]`)와 걸음(`[[stage.step]]`)에 심볼(`Class::method`·`ns::fn`·타입)·파일·
   볼 것 한 줄·덮는 테스트만 적는다. 줄 번호는 적지 않는다.
-- `scripts/gen_code_flow.py`가 심볼을 소스에서 찾아(`.cpp`면 `Qual::name(` 정의 줄 우선, 호출처럼 보이는 줄은 버리고,
+- `../quant-devtools/gen_code_flow.py`가 심볼을 소스에서 찾아(`.cpp`면 `Qual::name(` 정의 줄 우선, 호출처럼 보이는 줄은 버리고,
   남은 것 중 들여쓰기가 가장 얕은 줄) `docs/CODE_FLOW.md`를 만든다 — `파일#L줄` 링크·시그니처 한 줄·시험 링크·파일별
   역색인·단계별 "리뷰할 때 볼 것". 이름 없는 자리(람다·블록)는 `match` 정규식으로 가리킨다.
 - `docs/sync_map.toml`에 `check = "script"` 규칙을 두고 `fix_cmd`를 새로 받는다 — `sync_impact.py --diff --fix`(Stop 훅
@@ -3481,7 +3481,7 @@ resample 자리 일치)·`test_kis_decode`(timestamp −9h). 09-14 장은 `log_l
 - `docs/CODE_GRAPH.md`(include 그래프)에 합치는 것 — 그래프는 "무엇이 무엇을 아는가", 흐름은 "무엇이 먼저 도는가"라
   독자와 갱신 규칙이 다르다.
 
-**확인 방법**: `py scripts/gen_code_flow.py --check`가 exit 0(60걸음 전부 해석). 함수 이름을 하나 바꾼 뒤 `--check`가
+**확인 방법**: `py ../quant-devtools/gen_code_flow.py --check`가 exit 0(60걸음 전부 해석). 함수 이름을 하나 바꾼 뒤 `--check`가
 `[missing]`으로 exit 1을 내고, `sync_impact.py --diff --fix`가 `[script] ... 재생성함`을 찍는지. VS Code 미리보기에서
 `Engine::start` 링크가 `Quant/src/core/Engine.cpp`의 그 줄로 열리는지.
 
@@ -3849,18 +3849,18 @@ OR로 합쳐 반환한다. `OpsProtocol.h`에 `HALT_REQ=0x32`/`HALT_ACK=0x33`을
 **상태**: 끝 (1·2·3단계 적용, main 머지 32abf64, 빌드·ctest 33/33). 이후 규약으로 굳힘 — 새 코드도 약어 금지, 검사기 7번 규칙
 
 **결정**: `Quant/` C++ 식별자에서 약어를 풀어 쓴다. 1단계는 구조체 필드와 지배적 약어 94개
-(`scripts/rename_maps/01_fields.json`, 126파일 6,487곳, 예: `td`→`trade`, `sym`→`symbol_id`, `ob`→`order_book`,
+(`../quant-devtools/rename_maps/01_fields.json`, 126파일 6,487곳, 예: `td`→`trade`, `sym`→`symbol_id`, `ob`→`order_book`,
 `sig`→`signal`, `recv_ns`→`received_ns`)와 네임스페이스 `sym`→`symbol`. 2단계는 한 글자 지역변수 약 1,200곳과
 다의어 약어(`ms`·`sc`·`rc`·`spec`, `_pct`→`_percent`, `ma_`→`moving_average_`, `ws`→`websocket`)다.
-치환 도구는 `scripts/rename_ids.py`(문자열 리터럴·주석 안의 전문 설명은 건드리지 않는다).
+치환 도구는 `../quant-devtools/rename_ids.py`(문자열 리터럴·주석 안의 전문 설명은 건드리지 않는다).
 3단계는 합성 이름 안의 약어 조각(`qty`→`quantity`, `cfg`→`config`, `mtx`→`mutex`, `px`→`price`, `ack`→`acknowledgement` 등)과
-짧은 지역 이름 전체(`akis`→`account_kis`, `clk`→`steady_clock`, `Pctl`→`PercentileSummary`)를 `scripts/rename_frags.py`로
+짧은 지역 이름 전체(`akis`→`account_kis`, `clk`→`steady_clock`, `Pctl`→`PercentileSummary`)를 `../quant-devtools/rename_frags.py`로
 8,941곳/133파일 바꿨다. 조각 표·전체 표·파일별 표를 나눠 같은 조각이 파일마다 다른 뜻일 때(`sc`·`sp`·`col`)를 가른다.
 
 **배경**: 사용자 지시. 필드와 지역변수가 두세 글자 약어라 처음 읽는 사람이 구조체 정의를 열어 봐야 뜻이 잡혔다.
 전환 뒤 이것을 코드 규약으로 굳혔다(2026-09-18, `docs/guides/MAINTENANCE_AUTOMATION.md` 4절 "이름 표기"): 새 코드도
 약어를 쓰지 않는다. 이유는 순서다 — 읽고 고치는 사람이 도메인 용어를 아직 익히는 중이라, 코드에서 온전한 말로 매번 만나야
-익숙해진다. 줄이는 것은 익숙해진 뒤에 해도 늦지 않다. `scripts/check_code_conventions.py` 7번 규칙이 추가된 줄을 같은 표
+익숙해진다. 줄이는 것은 익숙해진 뒤에 해도 늦지 않다. `../quant-devtools/check_code_conventions.py` 7번 규칙이 추가된 줄을 같은 표
 (`01_fields.json`·`rename_frags.py`)로 판정한다.
 
 **규칙(버린 대안 포함)**:
@@ -4157,7 +4157,7 @@ RTT(평균 5.8초)는 같은 서버의 응답 시간이라 클라이언트에서
 **남은 위험**: 데이터를 넓히면 다중검정 수가 늘어난다 — PREREG와 시도 수 기록으로 막는다(bias-auditor 안). 등급 C 데이터로
 라이브 파라미터를 정하는 일은 금지한다. 라이브 config 변경 중 리스크 한도·계좌 전환은 여전히 오너 승인 사항이다.
 
-**확인은 자동으로**: `scripts/check_docs.py`가 헌장·브리핑·회의록의 색인 줄을 검사하고, `scripts/commit_gate.py`가
+**확인은 자동으로**: `../quant-devtools/check_docs.py`가 헌장·브리핑·회의록의 색인 줄을 검사하고, `../quant-devtools/commit_gate.py`가
 `Quant/config/*.json` 전략 키 diff에 `PARAM_LEDGER` 행이 없으면 막는 게이트를 다음 단계에서 붙인다.
 ### D-102 쓰지 않기로 한 낱말을 식별자·파일 이름·config 키에서도 뜻별 이름으로 나눈다 (2026-09-19)
 
@@ -4230,7 +4230,7 @@ metrics `BH`+`BUY_AND_HOLD`(`PYQuant/dashboard/build_dashboard.py`·`scripts/exi
 짤 수 있었으므로 뺐다.
 
 **남은 위험**: `.claude/agents/*.md`는 로컬 전용이라 tools 줄 개정은 오너가 스크립트로 적용해야 한다(자동 모드 분류기가 세션의 `.claude/` 편집을 막는다).
-쓰기 범위는 `tools:` 줄로 경로를 제한할 수 없어 본문 규칙에 의존한다 — 위반은 `git diff` 검토와 `scripts/commit_gate.py`가 잡는다.
+쓰기 범위는 `tools:` 줄로 경로를 제한할 수 없어 본문 규칙에 의존한다 — 위반은 `git diff` 검토와 `../quant-devtools/commit_gate.py`가 잡는다.
 
 ### D-104 기동 점검(삼성전자 1주 시장가 매수·되팔기)을 뗀다 (2026-09-20)
 
@@ -4332,3 +4332,30 @@ metrics `BH`+`BUY_AND_HOLD`(`PYQuant/dashboard/build_dashboard.py`·`scripts/exi
 
 같은 점검에서 나온 나머지 둘(`ReplaySource::pass`의 틱마다 락 + `set<string>::count`, `PaperExecutor::on_tick`의 틱마다
 string 생성 + 락)은 리플레이 전용이라 다음 순서(wt/symbol-id의 PaperExecutor id 키 작업 뒤).
+
+### D-107 scripts/ 두 갈래 — 개발 도구는 저장소 밖 `../quant-devtools/`로 (2026-09-20)
+
+**상태**: 채택
+
+**배경**: 공개 저장소의 언어 통계가 Python 49.5 / C++ 47.4였고, 파이썬 내역(PYQuant 863KB·scripts 728KB·research/studies 538KB)에서
+`scripts/`의 절반은 매매와 무관한 문서 게이트·생성기·클로드 세션 도구였다. 저장소를 여는 사람이 매매 엔진보다 하네스 코드를 먼저 만난다.
+사용자 결정: "올라가야 하는 것만 올리고 나머지는 뺀다. 두 개로 갈라라."
+
+**결정**:
+- `scripts/`에는 매매 운영·리서치 산출 스크립트만 남긴다(감시견·예약작업·대시보드·매매일지·스터디 사이트). 폴더 이름은 바꾸지 않는다 —
+  작업 스케줄러 7개와 감시견이 절대 경로로 박혀 있고 장중 재기동 절차가 이 경로라, 이름을 바꾸면 얻는 것 없이 재등록 위험만 생긴다.
+- 개발 도구 29개 + `rename_maps/`는 저장소 밖 형제 폴더 `../quant-devtools/`(자체 git, 비공개)로 옮긴다: 문서·규약 게이트(commit_gate·check_*·
+  brace_style·sync_impact·file_index), 생성기(gen_*·sync_ledgers·maintain), 클로드 작업 환경(claude_backup/restore·unattended_*·session_*·
+  token_audit·wt_*), 일회성 리네임(rename_*). 워크트리 어디서든 `../quant-devtools`가 같은 곳을 가리켜 정션이 필요 없고 한글 경로
+  리터럴도 피한다.
+- 옮긴 도구는 저장소 루트를 `__file__`로 세지 않는다 — `repo_root.py`: 환경변수 `QUANT_REPO` → 현재 폴더의 git 작업 트리(워크트리면
+  그 워크트리) → 현재 폴더. PowerShell 도구(백업·복원·워크트리)는 `--git-common-dir`로 메인 트리를 잡는다. 도구끼리는 같은 폴더
+  (`Path(__file__).parent`)로 부르고, 남은 운영 스크립트는 `ROOT/scripts/…` 그대로.
+- `docs/sync_map.toml`에서 옮긴 도구를 `src`·`deps`에서 뺐다(저장소 밖 파일은 트리거될 수 없다). `cmd`·`fix_cmd`는 새 경로.
+- `.claude/`(정션으로 전 워크트리 공용)의 훅·설정·명령·에이전트는 `../quant-devtools/…`를 부른다. 폴더가 먼저 있어야 하므로 순서는
+  폴더·파일 이동 → 훅 경로 → 저장소 커밋.
+
+**버린 대안**:
+- `.gitattributes`의 `linguist-vendored`로 파이썬을 통계에서 숨기기 — 우리가 쓴 코드를 남의 것으로 표시하는 것이라 신뢰 문제.
+- 저장소 안 gitignore 폴더 — 버전 관리가 없어 지워지면 끝(2026-09-18·19 `.claude/` 두 번 삭제 경험).
+- `scripts/` 이름 바꾸기 — 위 배경.

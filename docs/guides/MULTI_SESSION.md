@@ -1,8 +1,8 @@
 # 다중 세션 운영 — worktree·현황판·머지 큐·교통정리
 
 세션 여럿이 같은 저장소에서 코드를 바꿀 때의 절차 정본. `CLAUDE.md`의 "다중 세션" 절은 이 문서의 요약이고,
-판정 스크립트는 `scripts/session_triage.py`, 교통정리 절차는 `.claude/commands/triage.md`(로컬), 세션 현황판은
-`scripts/session_board.py`(웹 `http://127.0.0.1:8788/sessions`, 세션이 열려 있는 동안 `scripts/session_board_server.py`가 내준다), 인계 절차는 `.claude/commands/handoff.md`(로컬)다.
+판정 스크립트는 `../quant-devtools/session_triage.py`, 교통정리 절차는 `.claude/commands/triage.md`(로컬), 세션 현황판은
+`../quant-devtools/session_board.py`(웹 `http://127.0.0.1:8788/sessions`, 세션이 열려 있는 동안 `../quant-devtools/session_board_server.py`가 내준다), 인계 절차는 `.claude/commands/handoff.md`(로컬)다.
 
 ## 다중 세션 — 세션당 git worktree
 
@@ -13,7 +13,7 @@
 ```bash
 git worktree add ../Quant-wt-<주제> -b wt/<주제>      # 세션 시작 시 1회
 git worktree list                                      # 누가 어디를 잡고 있는지
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wt_remove.ps1 ../Quant-wt-<주제>   # 머지 뒤 정리(아래 정션 주의)
+powershell -NoProfile -ExecutionPolicy Bypass -File ../quant-devtools/wt_remove.ps1 ../Quant-wt-<주제>   # 머지 뒤 정리(아래 정션 주의)
 ```
 
 - **메인 트리(`Quant/`)는 트레이더 배포 세션 하나만** 쓴다. `Quant/build_win/quant_trader.exe` 교체·감시견 재기동·
@@ -22,13 +22,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wt_remove.ps1 ../Qua
 - 문서만 고치는 세션은 메인 트리도 가능하되, 같은 파일을 두 세션이 열지 않는다(`git status --porcelain`으로 먼저 본다).
 - 예약 작업(`_private/_cron/*_task.md`)은 메인 트리에서 돌고 `research/`·`_private/`만 쓴다. 코드 세션은 그 시각에
   `research/STRATEGY_LAB.md`를 건드리지 않는다.
-- worktree를 지울 때는 `git worktree remove`를 바로 부르지 않고 `scripts/wt_remove.ps1`을 쓴다. 워크트리의 `.claude`는 메인
+- worktree를 지울 때는 `git worktree remove`를 바로 부르지 않고 `../quant-devtools/wt_remove.ps1`을 쓴다. 워크트리의 `.claude`는 메인
   `Quant/.claude`로의 정션인데 `git worktree remove --force`가 정션을 타고 들어가 메인 쪽 hooks·commands·agents·skills를 지운다
-  (09-18·09-19 두 번 발생). 스크립트는 정션만 `cmd /c rmdir`로 뗀 뒤 git에 넘기고, 지우기 전 `scripts/claude_backup.ps1`로
-  거울을 뜬 다음 지운 뒤 메인 `.claude/hooks`가 없으면 `scripts/claude_restore.ps1`로 스스로 되돌린다. Bash에서 `rmdir`과
+  (09-18·09-19 두 번 발생). 스크립트는 정션만 `cmd /c rmdir`로 뗀 뒤 git에 넘기고, 지우기 전 `../quant-devtools/claude_backup.ps1`로
+  거울을 뜬 다음 지운 뒤 메인 `.claude/hooks`가 없으면 `../quant-devtools/claude_restore.ps1`로 스스로 되돌린다. Bash에서 `rmdir`과
   `git worktree remove`를 `&&`·`;`로 잇지 않는다 — 앞이 실패해도 뒤가 도는 것이 09-19 사고였다.
 - `.claude/`는 gitignore라 git에 없다. 거울은 `%USERPROFILE%\.claudeackups\Quant\latest`(Stop 훅이 매 턴 갱신)와
-  `daily\날짜`(14일 보관). 되돌리기는 `powershell -File scripts/claude_restore.ps1 [-From <daily\날짜>] [-Mirror]`.
+  `daily\날짜`(14일 보관). 되돌리기는 `powershell -File ../quant-devtools/claude_restore.ps1 [-From <daily\날짜>] [-Mirror]`.
 - worktree는 `Quant/build_win/`을 공유하지 않는다 — 빌드 산출물은 worktree마다 새로 만든다(`$env:TEMP=C:\build_tmp` 회피는 동일).
 
 ### 세션끼리 순서·충돌을 알아서 정리한다 (상시)
@@ -43,7 +43,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wt_remove.ps1 ../Qua
 3. 남이 잡은 파일을 만져야 하면 그 세션에 먼저 묻는다. 공용 파일(`Quant/src/core/Engine.cpp`·`Quant/include/core/Engine.h`·
    `CLAUDE.md`·`docs/DECISIONS.md`·`Quant/CMakeLists.txt`)은 줄 단위 최소 편집 — `docs/DECISIONS.md`는 꼬리에 자기 절만,
    `CLAUDE.md`는 자기 줄만 고치고 행 번호를 알린다.
-4. `py scripts/brace_style.py`는 인자 없이 돌리지 않는다(전체가 바뀌어 남의 diff에 섞인다). 자기 파일만 지정한다.
+4. `py ../quant-devtools/brace_style.py`는 인자 없이 돌리지 않는다(전체가 바뀌어 남의 diff에 섞인다). 자기 파일만 지정한다.
 5. D-NNN은 현황판에 먼저 적고 쓴다.
 6. 한 단계가 머지되면 다음 단계를 큐 끝에 붙이고 이어간다. 사용자 승인은 커밋(커밋명 승인 게이트)만 받는다.
 
@@ -51,7 +51,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wt_remove.ps1 ../Qua
 
 세션이 여럿이면 완료 행·인계 파일·머지된 브랜치·주인 없는 worktree가 쌓이고, 어느 세션도 남의 것을 치우지 않으니 아무도 치우지 않는다
 (09-13 실측: 머지 큐 22행 중 완료 20, 인계 파일 6개, 09-11 detached worktree 하나가 이틀 남음). 그래서 **교통정리는 코드 작업과
-별개의 역할**이고, 하루 끝(또는 머지 큐 완료 행이 8개를 넘으면) 세션 하나가 `/triage`로 맡는다. 판정은 `scripts/session_triage.py`가
+별개의 역할**이고, 하루 끝(또는 머지 큐 완료 행이 8개를 넘으면) 세션 하나가 `/triage`로 맡는다. 판정은 `../quant-devtools/session_triage.py`가
 하고(main 미푸시·worktree 앞뒤·머지된 브랜치·현황판 완료/진행·죽은 세션·인계 파일 나이·배포 exe 뒤처짐), 절차는
 `.claude/commands/triage.md`. 교통정리 세션만 남의 완료 행을 `_private/archive/`로 옮길 수 있다 — 옮기기 전에 진행 중인 세션에
 "현황판 동결"을 지목해서 알리고, 끝나면 "압축 완료"를 보낸다. 되돌릴 수 있는 것(머지된 브랜치 삭제·인계 파일 보관·주인 없는 트리 패치 보관)은

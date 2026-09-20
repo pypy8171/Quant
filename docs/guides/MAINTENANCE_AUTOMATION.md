@@ -53,13 +53,13 @@
 
 | 스크립트 | 역할 | 소비자 |
 |---|---|---|
-| `scripts/gen_facts.py` | 저장소를 세어 `docs/facts.json`을 만들고 표식 블록을 블록 범위로 치환한다. 항목: C++ 전략·전략 로더·Python 전략, OrderGate 거부 지점(`reject_reason =` 개수), 빌드 타깃·ctest 배선 여부, 커맨드·에이전트·스킬·훅(settings.json)·config 파일, 디렉터리 트리, config 키, 80줄 초과 함수. `_private/`·`logs/`·`out/`·`build_*/`는 제외하고 경로는 저장소 상대로만 찍는다 | PROJECT_FACTS.md, HARNESS.md, PROJECT_GUIDE.md, GLOSSARY.md, README.md, CODE_GRAPH_GUIDE.md |
-| `scripts/gen_code_graph.py` | C++ include 그래프(현행) + Python import 그래프 + 프로세스 경계 파일(regime.json·prices_live.json·trades_*.csv) | CODE_GRAPH.md, code_graph.json |
-| `scripts/check_code_refs.py` | 문서의 경로·`파일::심볼` 실재 검사, `파일:숫자` 줄번호 참조 신규 금지. 심볼 매칭은 `\b심볼\b`만 보고 시그니처·오버로드는 보지 않는다. `auto 이름 = [`(람다)·`#define 이름`도 정의로 인정 | docs-gate |
-| `scripts/check_plain_language.py` | 기존 + 코드 모드에서 `re.*(` 인자·dict 키·비교식 우변·키워드 인자 값 보호, `--fix`는 보호 줄을 건너뛰고 경고 | lexicon-gate, committer(승인 후) |
+| `../quant-devtools/gen_facts.py` | 저장소를 세어 `docs/facts.json`을 만들고 표식 블록을 블록 범위로 치환한다. 항목: C++ 전략·전략 로더·Python 전략, OrderGate 거부 지점(`reject_reason =` 개수), 빌드 타깃·ctest 배선 여부, 커맨드·에이전트·스킬·훅(settings.json)·config 파일, 디렉터리 트리, config 키, 80줄 초과 함수. `_private/`·`logs/`·`out/`·`build_*/`는 제외하고 경로는 저장소 상대로만 찍는다 | PROJECT_FACTS.md, HARNESS.md, PROJECT_GUIDE.md, GLOSSARY.md, README.md, CODE_GRAPH_GUIDE.md |
+| `../quant-devtools/gen_code_graph.py` | C++ include 그래프(현행) + Python import 그래프 + 프로세스 경계 파일(regime.json·prices_live.json·trades_*.csv) | CODE_GRAPH.md, code_graph.json |
+| `../quant-devtools/check_code_refs.py` | 문서의 경로·`파일::심볼` 실재 검사, `파일:숫자` 줄번호 참조 신규 금지. 심볼 매칭은 `\b심볼\b`만 보고 시그니처·오버로드는 보지 않는다. `auto 이름 = [`(람다)·`#define 이름`도 정의로 인정 | docs-gate |
+| `../quant-devtools/check_plain_language.py` | 기존 + 코드 모드에서 `re.*(` 인자·dict 키·비교식 우변·키워드 인자 값 보호, `--fix`는 보호 줄을 건너뛰고 경고 | lexicon-gate, committer(승인 후) |
 | `scripts/log_patterns.py` | C++ 로그 문구 정규식의 단일 소유자. 구·신 문구 양쪽 허용 | market_close_autodoc, market_close_collect, notify_trades, summarize_trading_day, check_runtime_health |
 | `scripts/_logdir.py` | 로그·원장 폴더 해석 한 곳(`QUANT_LOG_DIR` 최우선, 원장은 행 수 최대 → 동률 mtime) | market_close_autodoc, summarize, dashboard_server, parse_quant_log, analyze_slot_cost |
-| `scripts/maintain.py` | 위를 순서대로 부르는 진입점(`--daily`, `--weekly`, `--check`). 단계마다 `subprocess.run`으로 격리하고 rc는 로그에 남긴다(`market_close_autodoc.py`와 같은 패턴) | 예약작업, committer |
+| `../quant-devtools/maintain.py` | 위를 순서대로 부르는 진입점(`--daily`, `--weekly`, `--check`). 단계마다 `subprocess.run`으로 격리하고 rc는 로그에 남긴다(`market_close_autodoc.py`와 같은 패턴) | 예약작업, committer |
 | `docs/sync_map.json` | 소스 glob → 봐야 할 문서의 역인덱스. `review-reminder.ps1`이 이미 부르는 `git diff HEAD --name-only` 결과에 PS 네이티브(`ConvertFrom-Json`)로 매칭해 문서 이름을 지목한다. `py` 위임 금지(응답마다 0.8초) | Stop 훅 |
 
 스냅샷 문서(그날의 리뷰·리포트·매매일지)는 머리에 `<!-- drift-check: snapshot 2026-09-08 -->`를 달아 검사에서 뺀다.
@@ -84,7 +84,7 @@
 const 제거는 `const_cast<T>(x)`다. 미사용 인자 관용구 `(void)x;`만 예외다. 이유는 두 가지다 — C스타일은 한 문법이
 static·reinterpret·const 세 가지를 겸해 무엇을 의도했는지 코드만 보고는 알 수 없고, `(int)`처럼 짧아 grep으로 훑을 수도
 없다. 값이 잘리거나 부호가 뒤집히는 것을 막아주지는 않으니(동작은 `static_cast`도 같다), 범위가 걱정되면 캐스트 말고
-호출측 가드나 `std::cmp_less` 같은 안전 비교를 쓴다. 검사는 `scripts/check_code_conventions.py` 5번 규칙이 추가된 줄만 본다.
+호출측 가드나 `std::cmp_less` 같은 안전 비교를 쓴다. 검사는 `../quant-devtools/check_code_conventions.py` 5번 규칙이 추가된 줄만 본다.
 
 복사 표기 — 안 해도 되는 복사는 만들지 않는다. 측정해서 느린 곳을 고치라는 원칙 7과 충돌하지 않는다. 여기서 말하는 것은
 성능이 아니라 문법이다. 복사가 필요 없는 자리에 복사를 쓰면 읽는 사람이 "왜 여기서 값을 떠 가나"를 매번 다시 판단해야 한다.
@@ -98,7 +98,7 @@ static·reinterpret·const 세 가지를 겸해 무엇을 의도했는지 코드
 - 복사가 의도한 것이면(락 안에서 뜬 스냅샷, 호출자가 나중에 고칠 사본) 왜 복사인지 주석으로 남긴다. 그래야 다음 사람이
   지우지 않는다. `KisClient::token()`이 그 예다.
 
-검사는 `scripts/check_code_conventions.py` 5번 규칙이 추가된 줄만 본다. json 쪽은 오류, 값 range-for는 원소 타입을 알 수
+검사는 `../quant-devtools/check_code_conventions.py` 5번 규칙이 추가된 줄만 본다. json 쪽은 오류, 값 range-for는 원소 타입을 알 수
 없어 경고다. 나머지 셋은 기계로 가릴 수 없으니 리뷰에서 본다.
 
 이름 표기 — 약어를 쓰지 않는다. 변수·인자·멤버·함수·타입 모두 풀어 쓴다(`qty`→`quantity`, `cfg`→`config`, `it`→`iterator`,
@@ -111,8 +111,8 @@ static·reinterpret·const 세 가지를 겸해 무엇을 의도했는지 코드
   `p50`·`p99`), 단위 접미사(`_ns`·`_ms`·`_us`·`_sec`·`_min`), 표준 라이브러리·OS 멤버(`std::`·`zmq::` 한정 이름, `.str()`·`.ec`·
   `tm_min`·`sin_addr`), `argc`·`argv`·`ok`·`now`, 네임스페이스 별칭 `fs`.
 - 길어지는 것은 감수한다. `simple_moving_average_20`이 `sma20`보다 길지만, 읽는 사람이 이동평균이라는 말을 한 번 더 본다.
-- 검사는 `scripts/check_code_conventions.py` 7번 규칙이 추가된 코드 줄만 본다(오류). 판정 표는 리네임에 쓴
-  `scripts/rename_maps/01_fields.json`·`scripts/rename_frags.py`를 그대로 쓰므로, 예외를 늘리려면 그 표(SKIP·WIRE)를 고친다.
+- 검사는 `../quant-devtools/check_code_conventions.py` 7번 규칙이 추가된 코드 줄만 본다(오류). 판정 표는 리네임에 쓴
+  `../quant-devtools/rename_maps/01_fields.json`·`../quant-devtools/rename_frags.py`를 그대로 쓰므로, 예외를 늘리려면 그 표(SKIP·WIRE)를 고친다.
 - `.py`도 같은 규칙을 받는다(T-14 ②). 다만 줄 단위 정규식이 아니라 `ast`로 그 파일이 이름을 붙이는 자리(변수·인자·함수·
   클래스·import 별칭)만 보므로, f-문자열 접두사나 독스트링 본문, 남의 라이브러리 멤버(`frame.iloc`)는 걸리지 않는다.
   파이썬 관례로 굳은 이름(`np`·`pd`·`df`·`ax`·`kwargs`·`_`)은 검사기의 `PY_CONVENTION` 집합에 적어 예외로 둔다.

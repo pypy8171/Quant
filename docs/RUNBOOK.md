@@ -1,9 +1,9 @@
 # 운영 런북 (RUNBOOK) — PowerShell 복붙용
 
-이 파일이 운영 명령의 정본이다. `py scripts/gen_runbook.py`가 `docs/RUNBOOK.html`(복사 버튼 달린 로컬 페이지, 경로에
+이 파일이 운영 명령의 정본이다. `py ../quant-devtools/gen_runbook.py`가 `docs/RUNBOOK.html`(복사 버튼 달린 로컬 페이지, 경로에
 사용자명이 들어가 gitignore)로 렌더하고, `gen_facts --apply`(Stop 훅)가 매번 같이 돌린다. 본문의 `{ROOT}`는 렌더 때
 저장소 절대경로로 바뀐다. 각 절 머리의 `<!-- sync: -->` 도장은 그 절이 인용하는 스크립트가 바뀌면 낡음으로 잡힌다 —
-절을 확인해 고치고 `py scripts/sync_impact.py --restamp docs/RUNBOOK.md`. 코드 블록 안의 스크립트 경로가 사라지면
+절을 확인해 고치고 `py ../quant-devtools/sync_impact.py --restamp docs/RUNBOOK.md`. 코드 블록 안의 스크립트 경로가 사라지면
 `gen_runbook.py --check`(check_docs)가 잡는다.
 
 절차 문서와의 역할 나눔: 왜·언제는 [AUTOMATION.md](AUTOMATION.md)(예약작업·감시견·하루 흐름), 세션이 따라가는
@@ -129,7 +129,7 @@ cd {ROOT}; $env:PYTHONUTF8="1"; Start-Process py -ArgumentList 'scripts\dashboar
 cd {ROOT}; $env:PYTHONUTF8="1"; Start-Process py -ArgumentList 'scripts\dashboard_server.py','--config','Quant\config\config_mm_paper.json','--port','8790' -WorkingDirectory (Get-Location); while(-not (Test-NetConnection 127.0.0.1 -Port 8790 -InformationLevel Quiet)){Start-Sleep 1}; Start-Process chrome "http://127.0.0.1:8790"
 ```
 
-종료는 서버 창을 닫거나 Ctrl+C. 세션 현황판은 `http://127.0.0.1:8788/sessions`(`scripts\session_board.py`).
+종료는 서버 창을 닫거나 Ctrl+C. 세션 현황판은 `http://127.0.0.1:8788/sessions`(`../quant-devtools\session_board.py`).
 
 ## 4. 로그 감시·요약
 
@@ -149,7 +149,7 @@ cd {ROOT}
 
 ## 5. 운영단말 (수동 매도)
 
-<!-- sync: docs/guides/OPS_TERMINAL.md@e53b5bb docs/guides/MFC_TERMINAL.md@7c29946 -->
+<!-- sync: docs/guides/OPS_TERMINAL.md@e53b5bb docs/guides/MFC_TERMINAL.md@e3e83e5 -->
 
 토큰은 `Quant\config\config_dev_paper.json`의 `ops_token`. 가이드 [guides/OPS_TERMINAL.md](guides/OPS_TERMINAL.md).
 
@@ -214,13 +214,13 @@ $env:PYTHONUTF8 = "1"
 
 ```powershell
 cd {ROOT}
-.\PYQuant\.venv-win\Scripts\python.exe scripts\check_docs.py               # 문서 드리프트 (0=통과, Stop 훅과 같음)
-py scripts\gen_facts.py --check                                             # gen 블록 낡음 (--apply 로 치환)
-py scripts\check_code_conventions.py                                        # 중괄호·캐스트·약어 이름
-py scripts\check_plain_language.py                                          # 금지 표현 (--fix 로 치환)
+.\PYQuant\.venv-win\Scripts\python.exe ../quant-devtools\check_docs.py               # 문서 드리프트 (0=통과, Stop 훅과 같음)
+py ../quant-devtools\gen_facts.py --check                                             # gen 블록 낡음 (--apply 로 치환)
+py ../quant-devtools\check_code_conventions.py                                        # 중괄호·캐스트·약어 이름
+py ../quant-devtools\check_plain_language.py                                          # 금지 표현 (--fix 로 치환)
 .\PYQuant\.venv-win\Scripts\python.exe scripts\check_backtest.py            # 위기 스터디 재현성 (0=PASS)
-.\PYQuant\.venv-win\Scripts\python.exe scripts\gen_code_graph.py            # 코드 의존 그래프 → docs\CODE_GRAPH.md
-.\PYQuant\.venv-win\Scripts\python.exe scripts\gen_code_graph.py --impact core/Types.h
+.\PYQuant\.venv-win\Scripts\python.exe ../quant-devtools\gen_code_graph.py            # 코드 의존 그래프 → docs\CODE_GRAPH.md
+.\PYQuant\.venv-win\Scripts\python.exe ../quant-devtools\gen_code_graph.py --impact core/Types.h
 .\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\log_report.py Quant\build_win\logs\quant_trader.log --md report.md --html report.html
 ```
 

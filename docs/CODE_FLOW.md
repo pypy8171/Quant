@@ -1,7 +1,7 @@
 # 실시간 매매 코드 흐름 (CODE_FLOW)
 
-<!-- drift-check: snapshot — 줄 번호는 생성 시점 소스 기준, scripts/gen_code_flow.py가 다시 만든다 -->
-> 자동 생성물. 손편집 금지 — 읽는 순서는 `docs/code_flow.toml`에 적고 `py scripts/gen_code_flow.py`로 다시 만든다.
+<!-- drift-check: snapshot — 줄 번호는 생성 시점 소스 기준, ../quant-devtools/gen_code_flow.py가 다시 만든다 -->
+> 자동 생성물. 손편집 금지 — 읽는 순서는 `docs/code_flow.toml`에 적고 `py ../quant-devtools/gen_code_flow.py`로 다시 만든다.
 > 줄 번호·시그니처는 생성 시점의 소스에서 찍었다. 심볼이 사라지면 `--check`가 막는다(D-078).
 
 TRADE 모드에서 틱 하나가 들어와 주문이 나가고 체결이 원장에 닿기까지를 **읽는 순서대로** 나열한 문서다.

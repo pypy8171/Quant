@@ -2,13 +2,13 @@
 
 클라우드 루틴 `장전 시황 브리핑 routine`(평일 08:30 KST 기동, 링크는 `_private/LINKS.md`)에 올라가 있는 프롬프트의
 정본이다. 루틴은 저장소를 못 읽으므로(깃허브 미연결) 프롬프트 안에 국면 모델을 같이 적는다 — 그 부분은 아래
-`gen:regime-model` 블록이고, `PYQuant/tools/macro_regime_feed.py`의 지표·임계가 바뀌면 `py scripts/gen_facts.py --apply`가
+`gen:regime-model` 블록이고, `PYQuant/tools/macro_regime_feed.py`의 지표·임계가 바뀌면 `py ../quant-devtools/gen_facts.py --apply`가
 다시 채운다.
 
 **올리는 절차.** 이 파일의 `<!-- prompt-start -->`~`<!-- prompt-end -->` 사이가 프롬프트 본문이다.
 ① `py scripts/premarket_routine.py --render`로 본문을 뽑아 `/schedule`(RemoteTrigger update)로 루틴에 올린다.
 ② 올린 뒤 `py scripts/premarket_routine.py --mark`가 본문 해시를 `_private/dashboards.json` 루틴 행(`prompt_sha`)에 적는다.
-③ 그 뒤 본문이 바뀌면 `python scripts/check_docs.py`(Stop 훅)가 "루틴 프롬프트가 올린 것과 다르다"고 잡는다 — 다시 ①②.
+③ 그 뒤 본문이 바뀌면 `python ../quant-devtools/check_docs.py`(Stop 훅)가 "루틴 프롬프트가 올린 것과 다르다"고 잡는다 — 다시 ①②.
 
 루틴의 출력은 노션 페이지다. `docs/premarket/YYYY-MM-DD.md`로 옮기는 것은 아침 세션(`/auto-trade-day` 1단계)이
 한다 — 형식은 `docs/premarket/README.md`.

@@ -22,7 +22,7 @@
 ### ② 스킬/커맨드 — 도구
 
 `.claude/commands/`와 `.claude/skills/` 아래에 있다. 자연어나 슬래시로 호출하면 정해진 절차가 로드된다.
-개수와 목록은 `py scripts/gen_facts.py --apply`가 아래 표를 채운다.
+개수와 목록은 `py ../quant-devtools/gen_facts.py --apply`가 아래 표를 채운다.
 
 <!-- gen:harness-counts -->
 | 항목 | 개수 | 이름 |
@@ -85,8 +85,8 @@ Notion 커넥터가 연결돼 있다. 개발로그와 장전 시황 브리핑을
 <!-- /gen -->
 
 하는 일은 이렇다. `secret-gate.ps1`은 `git commit`/`push`를 가로채 스테이징 diff에서 실거래 키·계좌번호·개인정보
-패턴을 스캔해 발견 시 차단한다. `docs-gate.ps1`은 커밋 전 `scripts/sync_impact.py`로 낡은 도장·gen 블록을 막고, `.md`가 있으면
-`scripts/check_docs.py`를 돌려 드리프트면 차단한다. `lexicon-gate.ps1`은 쓰려는 본문을 `scripts/check_plain_language.py`로 검사한다.
+패턴을 스캔해 발견 시 차단한다. `docs-gate.ps1`은 커밋 전 `../quant-devtools/sync_impact.py`로 낡은 도장·gen 블록을 막고, `.md`가 있으면
+`../quant-devtools/check_docs.py`를 돌려 드리프트면 차단한다. `lexicon-gate.ps1`은 쓰려는 본문을 `../quant-devtools/check_plain_language.py`로 검사한다.
 `sync-gate.ps1`은 턴이 끝날 때 `sync_impact.py --diff --fix`를 돌려 낡은 gen 블록은 치환하고, 낡은 도장·힌트가 있으면
 턴을 되돌려 그 자리에서 고치게 한다(D-075, 정본 [docs/SYNC_MAP.md](SYNC_MAP.md)).
 `output-gate.ps1`·`review-reminder.ps1`·`dashboard-refresh.ps1`은 응답 뒤, `market-close-gate.ps1`·`cron-gate.ps1`은
@@ -161,4 +161,4 @@ ninja가 조용히 스킵한다).
 - `.claude/`(에이전트·커맨드·훅)는 gitignore 로컬 전용이다. 여기의 변경은 커밋되지 않고 VSCode 재시작 후 적용된다(훅은 즉시 적용). 스크립트·보조 프로세스는 저장소에 있다.
 - PowerShell 훅은 UTF-8 BOM으로 저장하고 한글 경로 리터럴을 피한다(`$PSScriptRoot`에서 repo 루트를 유도). PowerShell 5.1이 BOM 없는 UTF-8 한글을 시스템 코드페이지로 오독하기 때문이다.
 - 에이전트 개수·목록이 바뀌면 `.claude/AGENTS.md`의 빠른 참조 개수와 목록을 함께 갱신한다.
-- 이 문서를 저장소 색인에 넣을 때는 [docs/SYNC_MAP.md](SYNC_MAP.md)의 의존 표에 등록해 `scripts/check_docs.py` 게이트를 통과시킨다.
+- 이 문서를 저장소 색인에 넣을 때는 [docs/SYNC_MAP.md](SYNC_MAP.md)의 의존 표에 등록해 `../quant-devtools/check_docs.py` 게이트를 통과시킨다.

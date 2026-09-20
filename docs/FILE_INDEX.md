@@ -2,18 +2,18 @@
 
 저장소의 추적 파일 전부를 폴더별로 한 줄씩 적은 색인이다. 찾을 때는 Ctrl+F로 파일명이나 낱말을 검색한다. 링크는 이 문서 기준 상대 경로다. 개인 파일(`_private/`)은 `_private/FILE_INDEX.md`에 따로 있다.
 
-이 문서는 `py scripts/file_index.py`가 다시 쓴다 — 설명은 이 문서의 줄이 정본이고, 새 파일은 `(설명 필요)`로 들어오니 그 자리에서 채운다. 턴 끝 Stop 훅과 커밋 게이트가 빠진 파일·남은 자리표시자를 잡는다.
+이 문서는 `py ../quant-devtools/file_index.py`가 다시 쓴다 — 설명은 이 문서의 줄이 정본이고, 새 파일은 `(설명 필요)`로 들어오니 그 자리에서 채운다. 턴 끝 Stop 훅과 커밋 게이트가 빠진 파일·남은 자리표시자를 잡는다.
 
 ## 목차
 
 - [(루트)](#루트) — 10개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 101개
-- [Quant](#quant) — 171개
+- [Quant](#quant) — 172개
 - [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 216개
-- [scripts](#scripts) — 69개
+- [scripts](#scripts) — 38개
 - [strategies](#strategies) — 31개
 - [tools](#tools) — 3개
 
@@ -367,10 +367,10 @@
 
 - [bench_feed_ingest.cpp](../Quant/tests/bench_feed_ingest.cpp) — 시세 피드 수신 부하테스트, TCP loopback 네트워크·처리 구간 분해
 - [bench_gate_contention.cpp](../Quant/tests/bench_gate_contention.cpp) — OrderGate 락 경합 벤치(읽기 지연 분포)
-- [bench_order_gate_position.cpp](../Quant/tests/bench_order_gate_position.cpp) — OrderGate 원장 조회 벤치: 키가 (계좌, 종목) 문자열일 때와 정수 id일 때의 position() 비용(D-105 결정 3)
 - [bench_intake.cpp](../Quant/tests/bench_intake.cpp) — 멀티생산자 주문 인테이크 큐 부하 벤치(MPSC 대 Mutex)
 - [bench_latency_path.cpp](../Quant/tests/bench_latency_path.cpp) — 지연에 민감한 경로 리팩터 전후 비교 벤치(D-071)
 - [bench_market_firehose.cpp](../Quant/tests/bench_market_firehose.cpp) — 전종목 규모 시세 파이프라인 부하테스트(E2E 지연·처리량)
+- [bench_order_gate_position.cpp](../Quant/tests/bench_order_gate_position.cpp) — OrderGate 원장 조회 벤치: 키가 (계좌, 종목) 문자열일 때와 정수 id일 때의 position() 비용(D-105 결정 3)
 - [bench_sleep_res.cpp](../Quant/tests/bench_sleep_res.cpp) — sleep_for·condvar 대기 해상도 실측 도구
 - [bench_wake_gate.cpp](../Quant/tests/bench_wake_gate.cpp) — WakeGate 대 atomic::wait 깨우기 지연 비교 벤치(D-070)
 - [bench_zmq_publish.cpp](../Quant/tests/bench_zmq_publish.cpp) — ZmqBridge::publish_trade가 수신 스레드에 얹는 비용 벤치 + TRADE 와이어 포맷이 예전 dump()와 같은지 검사(ctest)
@@ -444,7 +444,7 @@
 - [DECISIONS.md](DECISIONS.md) — 설계 결정 원장(D-NNN)
 - [DEFERRED_ISSUES.md](DEFERRED_ISSUES.md) — 보류된 코드 이슈 목록
 - [ENGINE_ARCHITECTURE.md](ENGINE_ARCHITECTURE.md) — 엔진 아키텍처 요약(스레드 모델·핵심 타입·국면·KIS·WebSocket·로깅), CLAUDE.md에서 옮김, sync 도장 보유
-- [FILE_INDEX.md](FILE_INDEX.md) — 이 파일 — 저장소 전체 파일 한 줄 색인(`scripts/file_index.py`가 생성)
+- [FILE_INDEX.md](FILE_INDEX.md) — 이 파일 — 저장소 전체 파일 한 줄 색인(`../quant-devtools/file_index.py`가 생성)
 - [GLOSSARY.md](GLOSSARY.md) — 전략 약어 용어집
 - [HARNESS.md](HARNESS.md) — 하네스·루프 엔지니어링 문서
 - [OPTIMIZATION_REVIEW.md](OPTIMIZATION_REVIEW.md) — 코드 전수 최적화 리뷰
@@ -850,37 +850,22 @@
 - [auto_trade_guard.ps1](../scripts/auto_trade_guard.ps1) — 자동매매 감시견 스크립트
 - [backfill_fills_db.py](../scripts/backfill_fills_db.py) — 과거 체결 원장 CSV를 TimescaleDB fills 테이블에 적재하는 스크립트
 - [backfill_studies.py](../scripts/backfill_studies.py) — 스터디 결과 메트릭 백필 스크립트
-- [brace_style.py](../scripts/brace_style.py) — 중괄호 스타일 강제 스크립트
 - [build.sh](../scripts/build.sh) — Docker 이미지 빌드 스크립트
 - [build_review_entry.py](../scripts/build_review_entry.py) — 장 마감 리뷰 항목 생성 스크립트
 - [build_study_site.py](../scripts/build_study_site.py) — 주식 스터디 리더 사이트 생성 스크립트
 - [check_backtest.py](../scripts/check_backtest.py) — 백테스트 재현성 검사 스크립트
-- [check_code_conventions.py](../scripts/check_code_conventions.py) — 코드 컨벤션 검사 스크립트
-- [check_code_refs.py](../scripts/check_code_refs.py) — 문서 코드 참조 검사 스크립트
-- [check_docs.py](../scripts/check_docs.py) — 문서 링크·색인 검사 스크립트
-- [check_plain_language.py](../scripts/check_plain_language.py) — 문체 담백성 검사 스크립트
 - [check_runtime_health.py](../scripts/check_runtime_health.py) — 실행 로그 장애 패턴 검사 스크립트
-- [claude_backup.ps1](../scripts/claude_backup.ps1) — 메인 트리 `.claude/`(훅·명령·에이전트·스킬·settings)를 저장소 밖 `%USERPROFILE%\.claudeackups\Quant\latest`에 거울로 복사하고 하루 한 번 `daily\날짜` 스냅샷(14일 보관). Stop 훅·`maintain --daily`·`wt_remove` 가 부른다. 원본이 20파일 미만이면 이미 지워진 것으로 보고 거울을 덮어쓰지 않는다
-- [claude_restore.ps1](../scripts/claude_restore.ps1) — 그 거울에서 `.claude/`를 되돌린다. 기본은 빠진 것만 채우고 `-Mirror`는 거울과 똑같이, `-From`으로 `daily\날짜` 스냅샷 지정. 세션이 스스로 부를 수 있게 `settings.json` allow에 열려 있다
-- [commit_gate.py](../scripts/commit_gate.py) — 커밋 직전 게이트(보안·문체·문서·코드 규약·재현성·커밋명 형식을 한 번에), `py scripts/commit_gate.py --msg-file <파일>`
 - [dashboard_server.py](../scripts/dashboard_server.py) — 장중 매매 대시보드 서버(계좌·보유·국면·유니버스·차트·테마·종목 뉴스·증권사 리서치)
 - [deploy_guard.py](../scripts/deploy_guard.py) — 매매 창 안 트레이더 exe 교체를 막는 가드(A등급 결함은 --hotfix-a로 통과, D-101 결정 1)
 - [exit_ev.py](../scripts/exit_ev.py) — 원장 매도 체결을 odno 레그로 합쳐 청산 사유별 승률·기대값·일블록 부트스트랩 CI·판정을 낸다(study 17)
 - [exit_ev_dashboard.py](../scripts/exit_ev_dashboard.py) — study 17 표를 셀별 근거까지 펼치는 정적 HTML 생성기(exit_ev.py 재사용) — 종목명 맵, 규칙 탭(실행 config 값), 백테스트 탭(metrics.json). refresh_dashboard.py 가 매매일 마감 뒤 부른다
 - [exit_ev_dashboard_template.html](../scripts/exit_ev_dashboard_template.html) — exit_ev_dashboard.py 가 JSON을 박아 넣는 화면 템플릿
 - [extract_swap_what_if.py](../scripts/extract_swap_what_if.py) — 슬롯 교체 가정 비교 표본 추출 스크립트
-- [file_index.py](../scripts/file_index.py) — 파일 색인 두 개를 트리와 맞추는 생성·검사 스크립트(Stop 훅·커밋 게이트)
-- [gen_automation_hub.py](../scripts/gen_automation_hub.py) — 자동화 시간표(모의/실계좌)·예약작업 실제 상태·훅 배선·대시보드 링크를 `_private/AUTOMATION_HUB.md` 한 장으로 생성한다. 원본은 `scripts/market_close_timetable.ps1`·`_private/dashboards.json`. `maintain.py --daily`와 `gen_facts --apply`가 부른다
-- [gen_code_flow.py](../scripts/gen_code_flow.py) — code_flow.toml의 심볼을 소스에서 찾아 CODE_FLOW.md 생성, --check는 누락·낡음이면 exit 1
-- [gen_code_graph.py](../scripts/gen_code_graph.py) — 코드 의존 그래프 생성 스크립트
-- [gen_facts.py](../scripts/gen_facts.py) — 저장소 사실 집계 스크립트
-- [gen_runbook.py](../scripts/gen_runbook.py) — docs/RUNBOOK.md → docs/RUNBOOK.html 렌더({ROOT} 치환·복사 버튼). --check 는 코드 블록의 스크립트 경로 존재 검사
 - [gen_tuning_sheet.py](../scripts/gen_tuning_sheet.py) — 실행 중 config(`_private/_auto_trade_day.json` 의 config)와 `docs/tuning_sheet.toml` 코드 수치로 `_private/TUNING_SHEET.md`(상세)·`_private/TUNING_CYCLE.md`(요약)를 만든다. 주기 표(초 환산 정렬)·시각 표·묶음별 전체 표. `--check`는 낡음·코드 수치 실패면 exit 1, sync-gate가 매 턴 돌리고 감시견 기동·`maintain --daily`도 부른다
 - [kill_release.ps1](../scripts/kill_release.ps1) — 킬스위치 해제: `_private/state/kill_today_<날짜>` 표지 파일을 지우고 감시견 상태파일을 옆으로 치워 가드가 5분 안에 감시견을 다시 띄우게 한다(D-098)
 - [live_prices_feed.py](../scripts/live_prices_feed.py) — 전종목 실시간 시세 보조 프로세스
 - [log_patterns.py](../scripts/log_patterns.py) — 로그 파싱 공용 정규식 모듈
 - [logs.sh](../scripts/logs.sh) — Docker 컨테이너 로그 확인 스크립트
-- [maintain.py](../scripts/maintain.py) — 유지보수 자동화 진입점 스크립트
 - [market_close_autodoc.py](../scripts/market_close_autodoc.py) — 장 마감 매매일지 자동생성 스크립트
 - [market_close_collect.py](../scripts/market_close_collect.py) — 장 마감 사실 수집 스크립트
 - [market_close_minute_backfill.py](../scripts/market_close_minute_backfill.py) — 장 마감 후 분봉 백필 스크립트
@@ -891,31 +876,12 @@
 - [premarket_routine.py](../scripts/premarket_routine.py) — 루틴 프롬프트 본문 출력(--render)·올린 해시 기록(--mark)·정본과 비교(--check, check_docs 가 부른다)
 - [quant_procs.ps1](../scripts/quant_procs.ps1) — 실행 프로세스 점검·정리 스크립트
 - [refresh_dashboard.py](../scripts/refresh_dashboard.py) — 대시보드·리뷰 재생성 스크립트
-- [rename_frags.py](../scripts/rename_frags.py) — 합성 식별자 안의 약어 조각(qty·cfg·mtx…)을 풀어쓰는 3단계 도구(D-092). 조각·전체·파일별 표와 KIS 전문 조각 제외 규칙을 안에 둔다
-- [rename_ids.py](../scripts/rename_ids.py) — 약어 식별자 치환 도구(D-092). 매핑 json을 받아 C++ 식별자만 바꾸고 문자열 리터럴·#include는 두며 주석은 바꾼다
-- [rename_locals.py](../scripts/rename_locals.py) — 한 글자 지역변수·매개변수를 선언 범위 안에서만 풀어쓰는 도구(D-092), --override로 못 고른 이름 지정
 - [run_claude_task.ps1](../scripts/run_claude_task.ps1) — 예약작업이 헤드리스 클로드를 부르는 래퍼(cmd 리다이렉션으로 stderr 경고를 rc=1로 만들지 않고 UTF-8 로그에 붙인다)
 - [seed_open_orders.py](../scripts/seed_open_orders.py) — 미체결 주문 상태 복구 스크립트
-- [session_board.py](../scripts/session_board.py) — 살아 있는 Claude 세션의 현황판(이름·브랜치·문맥 K/%·턴·압축·마지막 요청·현황판 줄·인계 파일)을 `_private/session_board.json`·`.html`로 쓴다. `--skeleton`은 인계 파일 뼈대, `--due`는 인계 시점 판정(훅용)
-- [session_board_server.py](../scripts/session_board_server.py) — 세션 현황판 HTTP 서버(:8788, SessionStart 훅이 띄우고 세션이 다 닫히면 내려감)
-- [session_triage.py](../scripts/session_triage.py) — 다중 세션 현황 취합 스크립트
 - [start.sh](../scripts/start.sh) — Docker Compose 기동 스크립트
 - [stop.sh](../scripts/stop.sh) — Docker Compose 종료 스크립트
 - [summarize_trading_day.py](../scripts/summarize_trading_day.py) — 일일 매매 사실 요약 스크립트
-- [sync_impact.py](../scripts/sync_impact.py) — 문서 동기화 드리프트 검사 스크립트
-- [sync_ledgers.py](../scripts/sync_ledgers.py) — 결정 원장 파생 문서 생성 스크립트
-- [token_audit.py](../scripts/token_audit.py) — 세션 기록(jsonl)에서 토큰 사용을 절차·도구·하네스 주입·압축·훅별로 집계해 표로 낸다(--days, --session, --md)
 - [trade_costs.py](../scripts/trade_costs.py) — 체결 원장(trades_YYYYMMDD.csv)의 날짜별·종목별 매매 비용(수수료·거래세)과 실현손익을 누적 JSON(logs/trade_costs.json)과 표로 낸다(--days, --symbol)
-- [unattended_night.ps1](../scripts/unattended_night.ps1) — 밤사이 무인 이어달리기를 지시서·종료시각과 함께 띄우는 진입 스크립트
-- [unattended_run.ps1](../scripts/unattended_run.ps1) — 긴 작업을 헤드리스 사이클로 쪼개고 사이를 인계 파일로 이어 사람 없이 끝까지 돌린다(-Name, -PromptFile, -Until)
-- [wt_add.ps1](../scripts/wt_add.ps1) — 세션용 워크트리를 만든다. `git worktree add` 뒤 메인 트리 `.claude`로 정션을 걸고(이미 걸려 있으면 `cmd /c rmdir`로 링크만 뗀다), 검사기가 찾는 로컬 전용 파일 3개를 복사한다. 지울 때는 `wt_remove.ps1`.
-- [wt_build.cmd](../scripts/wt_build.cmd) — 워크트리에서 VS2022 환경을 잡고 Quant/build_win을 Ninja로 빌드, `test` 인자면 ctest까지
-- [wt_remove.ps1](../scripts/wt_remove.ps1) — 워크트리를 지운다. 안의 `.claude` 정션을 `rmdir`로 먼저 떼고 `git worktree remove`를 부른다(정션을 타고 메인 `.claude/`가 지워진 09-18 사고 재발 방지), 미커밋 변경은 `-Force`일 때만
-
-### scripts/rename_maps/
-
-- [01_fields.json](../scripts/rename_maps/01_fields.json) — 1단계에 적용한 약어→풀네임 매핑 94개(rename_ids.py 입력)
-- [02_locals_override.txt](../scripts/rename_maps/02_locals_override.txt) — rename_locals.py가 자동으로 못 고른 한 글자 이름의 수동 지정(경로:줄:글자=새이름)
 
 ## strategies
 

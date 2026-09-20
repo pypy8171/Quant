@@ -21,11 +21,11 @@
 | `scripts/auto_trade_guard.ps1` | 5분 감시자 | 예약작업 등록(8) · Win32_Process 명령줄 판정(6.4) · 날짜 검사(15.1) |
 | `scripts/quant_procs.ps1` | 프로세스 현황·정리 | 역할 판정표·부모-자식 묶기(6.4) · pscustomobject 표(3.2) |
 | `scripts/market_close_timetable.ps1` | 시간표 예정 vs 실제 | 예약작업 조회·schtasks(8) · `-Lines` 기계용 출력(13.2) |
-| `scripts/unattended_run.ps1` | 무인 이어달리기 | 인코딩(1.3) · 히어스트링(3.3) · 플래그 파일(15.1) |
+| `../quant-devtools/unattended_run.ps1` | 무인 이어달리기 | 인코딩(1.3) · 히어스트링(3.3) · 플래그 파일(15.1) |
 | `scripts/_logdir.py` | 로그·원장 폴더 규칙 | 공용 모듈·후보 탐색(9.3) |
 | `scripts/market_close_autodoc.py` | 마감 일지·대시보드 | 로그·CSV 파싱(10) · AUTO 마커 병합(11.1) · subprocess 위임(13.1) |
 | `scripts/dashboard_server.py` | 실시간 대시보드 | ThreadingHTTPServer·데몬 스레드·잠금(12) |
-| `scripts/gen_facts.py`·`scripts/gen_automation_hub.py` | 생성물 | gen 블록 치환(11.2) · PowerShell·schtasks 호출(13.2) |
+| `../quant-devtools/gen_facts.py`·`../quant-devtools/gen_automation_hub.py` | 생성물 | gen 블록 치환(11.2) · PowerShell·schtasks 호출(13.2) |
 | `scripts/check_runtime_health.py` | 건전성 점검 | 정규식 검사·종료코드(14) |
 | `scripts/notify_trades.py` | 체결 알림 | CSV 증분 읽기(10.3) · 웹훅(13.3) |
 
@@ -75,7 +75,7 @@ $OutputEncoding = New-Object System.Text.UTF8Encoding($false)  # 네이티브 ex
 ```
 
 그리고 **파일 자체는 BOM 있는 UTF-8**로 저장한다(각 `.ps1` 첫 바이트가 `﻿`). 5.1은 BOM이 없으면 파일을 ANSI로 읽어
-한글 문자열 리터럴이 깨진다. `scripts/unattended_run.ps1` 머리 주석에 "2026-09-17 첫 시험에서 실제로 깨졌다"가 이 이유다.
+한글 문자열 리터럴이 깨진다. `../quant-devtools/unattended_run.ps1` 머리 주석에 "2026-09-17 첫 시험에서 실제로 깨졌다"가 이 이유다.
 
 파일에 쓸 때도 `-Encoding utf8`을 명시한다(`Set-Content`·`Add-Content`는 기본이 ANSI).
 
@@ -111,7 +111,7 @@ Set-Location $Repo
 | `<# .SYNOPSIS … #>` | 주석 기반 도움말. `Get-Help scripts\auto_trade_day.ps1`이 읽는다. **왜**를 여기 쓴다 |
 | `[CmdletBinding()]` | 스크립트를 cmdlet처럼 만든다. `-Verbose`·`-ErrorAction` 같은 공통 인자가 붙는다 |
 | `param(...)` | 반드시 실행문보다 앞. `[string]`은 기본값 있는 선택 인자, `[switch]`는 있으면 `$true` |
-| `[Parameter(Mandatory = $true)]` | 필수 인자(`scripts/unattended_run.ps1`의 `-Name`) |
+| `[Parameter(Mandatory = $true)]` | 필수 인자(`../quant-devtools/unattended_run.ps1`의 `-Name`) |
 | `[ValidateSet('', 'paper', 'live')]` | 허용값 제한(`scripts/market_close_timetable.ps1`의 `-Mode`) |
 | `$ErrorActionPreference = "Stop"` | cmdlet 오류를 예외로 올린다. 조용히 넘어가서 반쯤 된 상태로 계속 도는 것을 막는다. 대신 5.4·6.2절 함정이 생긴다 |
 | `$PSScriptRoot` | 이 `.ps1`이 있는 폴더. `Split-Path -Parent`로 한 단계 올라가면 저장소 루트 |
@@ -719,7 +719,7 @@ def write_journal(path: Path, body: str, dry: bool) -> str:
 ### 11.2 gen 블록 — 문서 안의 표를 사실 파일에서 채운다
 
 `docs/AUTOMATION.md`의 시간표 표처럼 **손으로 적으면 반드시 낡는 숫자·표**는 `<!-- gen:이름 --> … <!-- /gen -->` 블록으로 두고
-`scripts/gen_facts.py`가 `docs/facts.json`의 값으로 치환한다:
+`../quant-devtools/gen_facts.py`가 `docs/facts.json`의 값으로 치환한다:
 
 ```python
 GEN_RE = re.compile(r"(<!--\s*gen:([A-Za-z0-9_-]+)[^>]*-->)(.*?)(<!--\s*/gen(?::[A-Za-z0-9_-]+)?\s*-->)", re.S)
@@ -1100,7 +1100,7 @@ Say "끝 — 세션 $($script:Sessions.Count)회"
 1. 파일은 BOM 있는 UTF-8, 머리 주석에 `.SYNOPSIS/.DESCRIPTION/.EXAMPLE`.
 2. 파이썬은 9절 머리(독스트링·reconfigure·REPO·argparse·SystemExit(main()))를 그대로 쓰고, 옆 스크립트가 이미 찾는 것은 `_logdir`·`log_patterns`를 import한다.
 3. 이름에 약어를 쓰지 않는다(`$cfg`·`$i` 대신 `$config`·`$index`, `CLAUDE.md` 코드 작업 규약). 기존 스크립트의 `$p`·`$n`은 규약 이전 것이다.
-4. 중괄호는 Allman이 규약이나 `.ps1`은 `py scripts/brace_style.py` 대상이 아니다 — 새로 쓰는 것은 `scripts/market_close_timetable.ps1` 꼴로 맞춘다.
+4. 중괄호는 Allman이 규약이나 `.ps1`은 `py ../quant-devtools/brace_style.py` 대상이 아니다 — 새로 쓰는 것은 `scripts/market_close_timetable.ps1` 꼴로 맞춘다.
 5. `docs/AUTOMATION.md` 표에 한 줄(스스로 도는 것이면), `docs/FILE_INDEX.md`에 한 줄.
 6. 부속 프로세스를 새로 띄우면 `scripts/quant_procs.ps1`의 `$Roles`에 역할 조각을 추가한다.
 7. 문구는 [docs/STYLE_GUIDE.md](../STYLE_GUIDE.md) — 로그·주석도 게이트 대상이다.

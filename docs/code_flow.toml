@@ -1,6 +1,6 @@
 # code_flow.toml — 실시간 매매(TRADE) 코드 흐름을 읽는 순서 (기계용, D-078)
 #
-# docs/CODE_FLOW.md는 이 파일에서 `py scripts/gen_code_flow.py`가 만든다 — 문서를 손으로 고치지 말고 여기를 고친다.
+# docs/CODE_FLOW.md는 이 파일에서 `py ../quant-devtools/gen_code_flow.py`가 만든다 — 문서를 손으로 고치지 말고 여기를 고친다.
 # 줄 번호는 여기 없다. 생성기가 심볼을 소스에서 찾아 `파일#L줄` 링크와 시그니처 한 줄을 채우고, 심볼이 사라지면
 # `--check`가 exit 1로 막는다(턴 끝 sync-gate·커밋 docs-gate). 그러니 여기 적을 것은 "무엇을 어느 순서로 보나"뿐이다.
 #

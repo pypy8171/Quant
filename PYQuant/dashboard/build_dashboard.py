@@ -771,7 +771,7 @@ _PLAIN_MAP = [
 ]
 
 # study_id(BT-NN) → 사람이 읽는 서술형 이름. metrics.json엔 기계 키를 남기고 표시만 교체.
-# 정본: docs/STYLE_GUIDE.md · scripts/check_plain_language.py NAME_MAP과 동기 유지.
+# 정본: docs/STYLE_GUIDE.md · ../quant-devtools/check_plain_language.py NAME_MAP과 동기 유지.
 NAME_MAP = {
     "01": "모멘텀·국면필터 롤링검증(1~5년)", "02": "변동성 타게팅 사이징",
     "03": "2022 약세장 국면필터 제거실험",  "04": "월별 시작시점 스윕",

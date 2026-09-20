@@ -1,7 +1,7 @@
 # 문서 문체 규약 (AI 문체 회피)
 
 이 프로젝트의 문서 문체 정본이다. [CLAUDE.md](../CLAUDE.md)가 요약과 적용 범위를 두고 여기를 가리킨다.
-`scripts/commit_gate.py`의 문체 검사가 이 문서를 게이트로 쓴다.
+`../quant-devtools/commit_gate.py`의 문체 검사가 이 문서를 게이트로 쓴다.
 
 
 담백·겸손하게 쓴다. 수치·표·코드·링크·다이어그램은 절대 불변, 아래는 피한다:
@@ -79,11 +79,11 @@
 
 전문용어를 한국어로 옮기기 애매하면 한국어(영어) 병기로 쓴다: 취소·재주문 반복(churn), 잦은 반전(whipsaw), 대체 경로(fallback). 코드 식별자·설정키·필드명(`daily_pnl`, `regime_stale_sec`, `sellable_quantity()`)은 산문 규칙과 무관하게 그대로 둔다.
 
-**자동 게이트**. 위 대체어 표는 `scripts/check_plain_language.py`가 기계적으로 검사한다(정규식 규칙 `RULES`, 백테스트 서술형 이름 `NAME_MAP`). 산문 `.md`, 대시보드 데이터섬(`research/dashboard/reviews.json`·`live.json`), 그리고 화면·로그에 그대로 나오는 코드 주석·문구(`Quant/**/*.h`·`*.cpp`, `scripts/**/*.py`·`*.ps1`, `.claude/` 커맨드·에이전트 문서)를 스캔하며, 이 문서와 `docs/GLOSSARY.md`는 용어 정의를 담으므로 스스로 파괴하지 않도록 제외한다.
+**자동 게이트**. 위 대체어 표는 `../quant-devtools/check_plain_language.py`가 기계적으로 검사한다(정규식 규칙 `RULES`, 백테스트 서술형 이름 `NAME_MAP`). 산문 `.md`, 대시보드 데이터섬(`research/dashboard/reviews.json`·`live.json`), 그리고 화면·로그에 그대로 나오는 코드 주석·문구(`Quant/**/*.h`·`*.cpp`, `scripts/**/*.py`·`*.ps1`, `.claude/` 커맨드·에이전트 문서)를 스캔하며, 이 문서와 `docs/GLOSSARY.md`는 용어 정의를 담으므로 스스로 파괴하지 않도록 제외한다.
 
 ```bash
-python scripts/check_plain_language.py          # 검출(드리프트 시 exit 1)
-python scripts/check_plain_language.py --fix     # 자동 치환 후 잔여 보고
+python ../quant-devtools/check_plain_language.py          # 검출(드리프트 시 exit 1)
+python ../quant-devtools/check_plain_language.py --fix     # 자동 치환 후 잔여 보고
 ```
 
 `--fix`는 치환한 구절 바로 뒤의 조사를 끝 글자 받침에 맞춰 고친다("가디언이" → "청산 관리가"). 다만 멀리 떨어진 조사와 중복 어구("청산 관리 관리")는 못 잡으므로 치환 뒤 한 번 훑어본다. 새 표현을 금지어로 추가할 때는 이 표와 게이트의 `RULES`를 함께 갱신한다.

@@ -1,8 +1,8 @@
 # sync_map.toml — 소스가 바뀌면 같이 봐야 할 대표 문서 (기계용, D-075)
 #
-# docs/SYNC_MAP.md §2 표의 기계 형식이다. scripts/sync_impact.py가 읽어
+# docs/SYNC_MAP.md §2 표의 기계 형식이다. ../quant-devtools/sync_impact.py가 읽어
 # "바뀐 파일 → 봐야 할 문서"를 찍는다. 표를 손으로 둘 다 고치지 말고 여기만 고친다 —
-# SYNC_MAP.md §2는 `py scripts/sync_impact.py --render`가 만든다.
+# SYNC_MAP.md §2는 `py ../quant-devtools/sync_impact.py --render`가 만든다.
 #
 # 항목:
 #   src   = 바뀌면 트리거되는 파일 glob 목록 (저장소 루트 기준, ** 허용)
@@ -21,7 +21,7 @@ check = "gen"
 note = "마감 시간표(모의/실계좌)는 gen:market-close-timetable 블록. _private/AUTOMATION_HUB.md 는 gen_facts --apply 가 같이 다시 쓴다"
 
 [[rule]]
-src = ["scripts/market_close_timetable.ps1", "scripts/gen_automation_hub.py"]
+src = ["scripts/market_close_timetable.ps1"]
 deps = ["docs/guides/MAINTENANCE_AUTOMATION.md#자동화 층", ".claude/commands/dashboard-sync.md", ".claude/commands/auto-trade-day.md", ".claude/skills/stock-study/SKILL.md"]
 check = "hint"
 note = "예약작업 시각을 글로 적은 곳. 시각 숫자는 넣지 말고 허브·시간표 스크립트를 가리키게 한다"
@@ -54,15 +54,15 @@ note = "개수·훅 배선표는 gen:harness-counts / gen:hooks 블록. 훅이 �
 src = ["Quant/include/**/*.h", "Quant/src/**/*.cpp"]
 deps = ["docs/CODE_GRAPH.md"]
 check = "script"
-cmd = "py scripts/gen_code_graph.py --check"
+cmd = "py ../quant-devtools/gen_code_graph.py --check"
 note = "#include 그래프는 손편집 금지, 재생성"
 
 [[rule]]
-src = ["Quant/include/**/*.h", "Quant/src/**/*.cpp", "docs/code_flow.toml", "scripts/gen_code_flow.py"]
+src = ["Quant/include/**/*.h", "Quant/src/**/*.cpp", "docs/code_flow.toml"]
 deps = ["docs/CODE_FLOW.md"]
 check = "script"
-cmd = "py scripts/gen_code_flow.py --check"
-fix_cmd = "py scripts/gen_code_flow.py"
+cmd = "py ../quant-devtools/gen_code_flow.py --check"
+fix_cmd = "py ../quant-devtools/gen_code_flow.py"
 note = "코드 흐름 문서의 줄 링크·시그니처는 재생성(fix_cmd). 심볼이 사라지면 code_flow.toml의 sym을 고친다"
 
 [[rule]]
@@ -78,7 +78,7 @@ note = "장중 매매 수치·주기 시트는 재생성(fix_cmd). config 변경
 src = ["docs/DECISIONS.md", "Quant/config/config_dev_paper.json"]
 deps = ["research/STRATEGY_LAB.md", ".claude/PROJECT_FACTS.md"]
 check = "script"
-cmd = "py scripts/sync_ledgers.py --check"
+cmd = "py ../quant-devtools/sync_ledgers.py --check"
 note = "**원장**:·**음성결과**: 줄에서 마커 구간 생성"
 
 [[rule]]
@@ -121,7 +121,7 @@ note = "새 스크립트는 AUTOMATION.md 표에 행. 검사기·생성기면 SY
 src = ["research/studies/*/README.md"]
 deps = ["research/studies/README.md", "research/BACKTESTS.md", "research/README.md"]
 check = "script"
-cmd = "py scripts/check_docs.py"
+cmd = "py ../quant-devtools/check_docs.py"
 note = "색인 등재는 check_docs가 잡는다. 요지 1줄·타임라인 서사는 사람"
 
 [[rule]]
@@ -132,29 +132,29 @@ note = "표에 SPEC·실증·검증경로 행"
 
 [[rule]]
 src = ["docs/STYLE_GUIDE.md"]
-deps = ["CLAUDE.md#문서 문체 규약", ".claude/hooks/lexicon-gate.ps1", "scripts/check_plain_language.py"]
+deps = ["CLAUDE.md#문서 문체 규약", ".claude/hooks/lexicon-gate.ps1"]
 check = "hint"
 note = "금지 표현을 추가했으면 게이트 두 곳의 사전도"
 
 [[rule]]
 src = ["docs/guides/MAINTENANCE_AUTOMATION.md#4"]
-deps = ["CLAUDE.md#코드 작업 규약", "scripts/check_code_conventions.py", "scripts/rename_frags.py"]
+deps = ["CLAUDE.md#코드 작업 규약"]
 check = "hint"
 note = "규약을 더하거나 예외를 늘리면 검사기 규칙과 판정 표도. 약어 예외는 rename_frags.py의 SKIP·WIRE가 정본"
 
 [[rule]]
-src = ["docs/sync_map.toml", "scripts/sync_impact.py", "scripts/gen_facts.py"]
+src = ["docs/sync_map.toml"]
 deps = ["docs/SYNC_MAP.md", "docs/AUTOMATION.md#스크립트", "docs/HARNESS.md"]
 check = "script"
-cmd = "py scripts/sync_impact.py --render --check"
+cmd = "py ../quant-devtools/sync_impact.py --render --check"
 note = "SYNC_MAP.md §2 표는 이 파일에서 생성"
 
 [[rule]]
 src = ["docs/RUNBOOK.md"]
 deps = ["docs/RUNBOOK.html"]
 check = "script"
-cmd = "py scripts/gen_runbook.py --check"
-fix_cmd = "py scripts/gen_runbook.py"
+cmd = "py ../quant-devtools/gen_runbook.py --check"
+fix_cmd = "py ../quant-devtools/gen_runbook.py"
 note = "운영 런북 HTML 은 RUNBOOK.md 에서 통째로 렌더(gitignore). 코드 블록의 스크립트 경로가 없으면 --check 가 잡는다"
 
 [[rule]]

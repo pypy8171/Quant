@@ -29,14 +29,14 @@
 |---|---|
 | `QuantAutoTradeGuard` | 워치독이 없으면 하루 루프 기동 (§4). 5분마다 도는 시간 폭(`-Hours`)이 매매 끝 시각을 정한다 |
 | `Quant Market Close AutoDoc` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` · **결정 원장 파생 문서**(`sync_ledgers.py`) |
-| `Quant Maintain Daily` | `장 마감 AutoDoc` 뒤. 먼저 로그 정리(`rotate_logs` — 엔진 로그에서 7일 지난 날의 줄을 `logs/archive/quant_trader_<날짜>.log.gz`로 떼어내고, 감시견 로그는 7일 지나면 gz·90일 지나면 삭제. 엔진이 떠 있으면 엔진 로그는 건너뛴다. 원장 `trades_*.csv`는 손대지 않는다. 옮긴 gz는 잃는 게 아니다 — 날짜를 받는 스크립트(`market_close_autodoc`·`market_close_collect`·`parse_quant_log --full`·`summarize_trading_day`·`extract_swap_what_if`)는 `_logdir.log_sources()`로 그 날짜 gz와 라이브 로그를 이어서 읽으니 지난 날 재생성은 그대로 된다), 이어서 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers` · `gen_automation_hub`(`_private/AUTOMATION_HUB.md`) · `gen_tuning_sheet`(`_private/TUNING_SHEET.md`). 대시보드는 부르지 않는다. 손으로는 `py scripts/maintain.py --rotate-logs [--dry-run]` |
+| `Quant Maintain Daily` | `장 마감 AutoDoc` 뒤. 먼저 로그 정리(`rotate_logs` — 엔진 로그에서 7일 지난 날의 줄을 `logs/archive/quant_trader_<날짜>.log.gz`로 떼어내고, 감시견 로그는 7일 지나면 gz·90일 지나면 삭제. 엔진이 떠 있으면 엔진 로그는 건너뛴다. 원장 `trades_*.csv`는 손대지 않는다. 옮긴 gz는 잃는 게 아니다 — 날짜를 받는 스크립트(`market_close_autodoc`·`market_close_collect`·`parse_quant_log --full`·`summarize_trading_day`·`extract_swap_what_if`)는 `_logdir.log_sources()`로 그 날짜 gz와 라이브 로그를 이어서 읽으니 지난 날 재생성은 그대로 된다), 이어서 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers` · `gen_automation_hub`(`_private/AUTOMATION_HUB.md`) · `gen_tuning_sheet`(`_private/TUNING_SHEET.md`). 대시보드는 부르지 않는다. 손으로는 `py ../quant-devtools/maintain.py --rotate-logs [--dry-run]` |
 | `Quant Minute Backfill` | 아침 스캔 `Quant/config/universe_scan.json`을 `PYQuant/data/pit_universe/<오늘>.json`으로 옮기고 그날 유니버스 전체의 1분봉을 `PYQuant/data/minute/`에 쌓는다(`PYQuant/tools/minute_backfill.py --top-n 0`, 약 260종목×4콜). 매매 끝 15분 뒤(모의 15:45·실계좌 20:15) 전엔 돌지 않는다(반쪽 파일이 그날치를 건너뛰게 만든다). 대시보드 차트가 같은 파일을 읽는다 |
 | `claude_stock_study` | `claude -p "/stock-study auto"` → `_private/주식_study/{날짜}_재무/` 1종목 · 저널 · 스터디 사이트 |
 | `claude_dashboard_sync` | `claude -p "/dashboard-sync"` → 대시보드·스터디 사이트 HTML 재생성. 아티팩트 재발행은 헤드리스 `claude -p`에 Artifact 도구가 없어 못 한다 — 대화 세션에서 `/dashboard-sync`를 불러 같은 URL로 올린다 |
 | `Quant Maintain Weekly` | 금요일, `claude_dashboard_sync` 뒤. 미참조 스크립트 · 에이전트 죽은 경로 · 부산물 용량 · 주석 밀도 · 훅 배선 양방향 검사 → `docs/reports/MAINTENANCE_WEEKLY.md` |
 
 **한곳에서 보기:** 시간표·예약작업의 실제 등록 상태(켜짐·다음 실행·마지막 결과)·훅·대시보드 링크를 `_private/AUTOMATION_HUB.md`
-한 파일에 모은다. `py scripts/gen_automation_hub.py`가 만들고 `Quant Maintain Daily`·`gen_facts --apply`(Stop 훅 `sync-gate.ps1`)가
+한 파일에 모은다. `py ../quant-devtools/gen_automation_hub.py`가 만들고 `Quant Maintain Daily`·`gen_facts --apply`(Stop 훅 `sync-gate.ps1`)가
 다시 만든다. 대시보드를 새로 발행하거나 URL이 바뀌면 `_private/dashboards.json`에 적는다 — 허브와 `_private/LINKS.md`의 표는 거기서 생성된다.
 
 **매매 수치·주기 한 장:** 장중에 무엇이 몇 초마다 도는지(REST 속도·유니버스 리스캔·WS 재연결·주문 간격·감시견 간격)와 config 키·코드 상수 값을
@@ -96,7 +96,7 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 | `file-index-gate.ps1` | Stop | 턴이 끝날 때 `file_index.py`로 `docs/FILE_INDEX.md`·`_private/FILE_INDEX.md`를 트리와 맞춘다 — 없어진 파일은 빠지고 날짜 파일·로그는 규칙 표가 설명을 채우며, 설명 없는 새 파일은 `(설명 필요)`로 넣고 턴을 되돌려 그 자리에서 채우게 한다. 커밋 쪽은 `docs-gate.ps1`이 `--check --staged`로 스테이징된 추가·삭제와 색인을 대조한다 |
 | `review-reminder.ps1` | Stop | 코드 변경 뒤 리뷰 누락을 상기 |
 | `market-close-gate.ps1` | SessionStart | 사후검토가 밀린 거래일이 있으면 세션 시작에 알림 |
-| `session-board-server.ps1` | SessionStart | `scripts/session_board_server.py`(:8788)를 숨긴 창으로 띄운다 — 트레이더 대시보드가 없어도 세션이 하나라도 열려 있으면 현황판을 보게. 포트가 이미 쓰이면 서버가 스스로 끝나므로 매번 띄운다 |
+| `session-board-server.ps1` | SessionStart | `../quant-devtools/session_board_server.py`(:8788)를 숨긴 창으로 띄운다 — 트레이더 대시보드가 없어도 세션이 하나라도 열려 있으면 현황판을 보게. 포트가 이미 쓰이면 서버가 스스로 끝나므로 매번 띄운다 |
 | `cron-gate.ps1` | SessionStart | 예약작업이 예정 시각을 넘겨 안 돌았거나 `LastTaskResult≠0`이면 작업 이름·실패 시각·복구 커맨드를 알림 |
 | `dashboard-refresh.ps1` | Stop | 매매일지·백테스트가 `dashboard.html`보다 새것이면 리뷰 항목과 대시보드를 다시 만든다. 같은 훅이 `session_board.py --quiet`로 세션 현황판도 턴마다 다시 쓴다. 낡았는지는 수정시각으로 보므로 편집 도구·스크립트·다른 세션 어느 경로로 고쳤든 걸린다 |
 | `handoff-due.ps1` | Stop | 인계할 때가 되면 exit 2로 턴을 되돌려 `/handoff`를 밟게 한다. 갈래가 둘이다 — ①작업 경계: 이 턴에 HEAD가 바뀌었고(커밋 직후) 문맥이 100K를 넘었다. ②압축 임박: 경계가 아니어도 문맥이 145K를 넘었다(커밋을 하지 않는 세션은 ①이 오지 않아 자동 압축까지 가므로). ②는 압축 구간마다 한 번만 알린다. 판정은 `session_board.py --due`(세션별 직전 HEAD와 알린 이력을 `_private/session_board.state.json`에 둠) |
@@ -268,6 +268,11 @@ scripts/market_close_autodoc.py
 예약 실행(`Quant Market Close AutoDoc`, 시각은 1절 표)만이 아니라 장중에도 돈다. 매매일지·백테스트·장전 브리핑(`docs/premarket/`)을 쓰고 나면 Stop 훅이
 대시보드와 수정시각을 비교해 낡은 만큼만 다시 만든다(브리핑은 생성기만 다시 돈다). 손으로 돌릴 때는 `py scripts/refresh_dashboard.py --if-stale`.
 
+`scripts/`에는 매매 운영·리서치 산출 스크립트만 남긴다. 문서·규약 게이트, 생성기, 클로드 작업 환경 도구는 저장소 밖 형제 폴더
+`../quant-devtools/`(자체 git, D-107)에 있다 — 아래 표에서 `../quant-devtools/…`로 적힌 행이 그것이다. 그 도구들은 저장소 루트를
+`__file__`이 아니라 현재 폴더가 속한 git 작업 트리(환경변수 `QUANT_REPO`가 있으면 그것)로 잡으니, 훅·게이트·예약작업은 저장소 루트를
+현재 폴더로 놓고 부른다.
+
 | 스크립트 | 역할 |
 |---|---|
 | `scripts/market_close_collect.py` | 원장·로그에서 사실만 뽑는다(세션·거부 히스토그램·라운드트립·주문 공백) |
@@ -275,29 +280,29 @@ scripts/market_close_autodoc.py
 | `scripts/build_study_site.py` | `_private/주식_study/` 전체를 날짜별로 묶어 스터디 사이트 재생성 |
 | `scripts/exit_ev.py` · `scripts/exit_ev_dashboard.py` | 모의 원장 청산 체결을 사유별로 묶어 승률·기대값·CI 표(study 17)와 그 근거를 셀마다 펼쳐 보는 화면(`research/studies/17_exit_ev/exit_ev_dashboard.html`)을 만든다. `refresh_dashboard.py`가 매매일 마감 뒤 부르고(마지막 날 = 원장 최신 파일), 발행본은 `/dashboard-sync` |
 | `scripts/refresh_dashboard.py` | 위 재생성 순서(라이브 백필·리뷰 항목·생성기)를 소유한다. `--if-stale`은 원천 파일이 산출물보다 새것일 때만 돈다. `market_close_autodoc.py`와 Stop 훅이 모두 이 스크립트를 부르므로 절차가 한쪽만 고쳐져 갈라지지 않는다. 실행 기록은 `logs/refresh_dashboard.log` |
-| `scripts/token_audit.py` | 세션 기록(`~/.claude/projects/<repo>/*.jsonl`)에서 토큰 사용을 절차(탐색·편집·git·빌드·위임·훅 되돌림)·도구 결과·하네스 주입(CLAUDE.md 재주입·압축 요약)·훅 소요별로 집계해 표로 낸다. `--md docs/reports/TOKEN_AUDIT.md`로 보고서 |
+| `../quant-devtools/token_audit.py` | 세션 기록(`~/.claude/projects/<repo>/*.jsonl`)에서 토큰 사용을 절차(탐색·편집·git·빌드·위임·훅 되돌림)·도구 결과·하네스 주입(CLAUDE.md 재주입·압축 요약)·훅 소요별로 집계해 표로 낸다. `--md docs/reports/TOKEN_AUDIT.md`로 보고서 |
 | `scripts/trade_costs.py` | 체결 원장 `logs/trades_YYYYMMDD.csv`의 날짜별·종목별 매매 비용(수수료·거래세, 요율은 인자)과 실현손익(`realized_pnl` 열)을 `logs/trade_costs.json`에 누적하고 표로 낸다. 거래 빈도와 손익의 경계를 보는 용도. `py scripts/trade_costs.py --days 7` |
-| `scripts/check_docs.py` | 깨진 내부 링크·색인 누락 검사. exit 0이어야 문서 커밋 |
-| `scripts/sync_impact.py` | 바뀐 파일을 `docs/sync_map.toml`의 규칙과 대조해 봐야 할 문서를 찍고, 문서 안 `<!-- sync: 경로@해시 -->` 도장으로 낡은 문단을 집어낸다. `--fix`는 gen 블록 치환, `--restamp`는 도장 갱신, `--render`는 `docs/SYNC_MAP.md` §2 표 생성. Stop 훅과 커밋 훅이 부른다(D-075) |
-| `scripts/commit_gate.py` | 커밋 직전 게이트 — 스테이징 diff의 보안(시크릿·개인정보·비공개 단어)·문체·문서 드리프트·코드 규약·재현성과 커밋 메시지 형식(`--msg-file`)을 한 번에 본다. 0 통과·1 차단·3 사람 판단 남음. 돌 때마다 규칙별 견본으로 자기 시험을 하고, 통과하면 `.claude/commit-gate.state`에 스테이징 트리 해시를 적어 `secret-gate.ps1` 훅이 게이트를 건너뛴 커밋을 막게 한다. 비공개 단어 목록은 `_private/gate_words.txt`에서 읽는다(없으면 차단) |
-| `scripts/check_code_conventions.py` | 스테이징된 코드 변경의 규약 검사 — 중괄호(`brace_style.py --check`), 없는 D-NNN 참조, 규약에 없는 주석 태그, C스타일 캐스트(값은 `static_cast`·포인터는 `reinterpret_cast`, `(void)x;`는 예외), json 노드 깊은 복사·값 range-for, 약어 이름(`qty`·`it`·한 글자 — 리네임 표 `rename_maps/01_fields.json`·`rename_frags.py`로 판정, `.py`는 `ast`로 그 파일이 정의하는 이름만 보고 `np`·`df` 같은 관례는 예외), 주석·코드 줄 성격 집계. `--comment-only`는 코드 줄이 섞였는지 본다. 밀도는 보지 않는다(정본 `docs/guides/MAINTENANCE_AUTOMATION.md` 4절이 밀도를 게이트로 걸지 말라고 정해 두었다) |
-| `scripts/maintain.py` | 위 검사기를 한 번에 돌리는 진입점. `--check`는 `check_docs` → `check_code_refs --diff-only` → `gen_facts --check` → `gen_code_graph --check` → `sync_impact --stamps` 순으로 묶어 표로 요약한다. `--weekly`는 파일별 주석 밀도와 태그 없는 긴 블록을 `docs/reports/MAINTENANCE_WEEKLY.md`에 남긴다 |
-| `scripts/check_code_refs.py` | 문서가 가리키는 코드 참조가 실재하는지 검사한다 — 경로, `파일::심볼`, 줄번호 참조. 줄번호 참조는 코드가 움직이면 조용히 어긋나므로 새로 추가된 줄에서 막고 `파일::심볼`로 쓰게 한다 |
-| `scripts/gen_facts.py` | 저장소를 세어 `docs/facts.json`을 만들고, 문서의 `<!-- gen:이름 -->` 블록을 그 값으로 채운다. 하네스 개수·훅 배선처럼 손으로 세면 반드시 어긋나는 숫자가 대상이다. KIS 토큰 캐시 파일명은 실 키 앞부분이 들어가므로 가려서 쓴다 |
-| `scripts/gen_code_graph.py` | 헤더 포함 관계로 모듈 그래프를 만들어 `docs/CODE_GRAPH.md`·`code_graph.dot`·`code_graph.json`을 생성한다. `--impact <파일>`은 그 파일을 고쳤을 때 재검증 대상을 파일을 열지 않고 뽑는다 |
-| `scripts/gen_code_flow.py` | `docs/code_flow.toml`(읽는 순서·심볼·볼 것)에서 `docs/CODE_FLOW.md`를 만든다. 줄 번호·시그니처는 소스에서 찾아 채우므로 코드가 옮겨가도 링크가 따라가고, 심볼이 사라지면 `--check`가 exit 1로 막아 명세를 고치게 한다. sync-gate가 `fix_cmd`로 턴 끝마다 재생성한다(D-078) |
+| `../quant-devtools/check_docs.py` | 깨진 내부 링크·색인 누락 검사. exit 0이어야 문서 커밋 |
+| `../quant-devtools/sync_impact.py` | 바뀐 파일을 `docs/sync_map.toml`의 규칙과 대조해 봐야 할 문서를 찍고, 문서 안 `<!-- sync: 경로@해시 -->` 도장으로 낡은 문단을 집어낸다. `--fix`는 gen 블록 치환, `--restamp`는 도장 갱신, `--render`는 `docs/SYNC_MAP.md` §2 표 생성. Stop 훅과 커밋 훅이 부른다(D-075) |
+| `../quant-devtools/commit_gate.py` | 커밋 직전 게이트 — 스테이징 diff의 보안(시크릿·개인정보·비공개 단어)·문체·문서 드리프트·코드 규약·재현성과 커밋 메시지 형식(`--msg-file`)을 한 번에 본다. 0 통과·1 차단·3 사람 판단 남음. 돌 때마다 규칙별 견본으로 자기 시험을 하고, 통과하면 `.claude/commit-gate.state`에 스테이징 트리 해시를 적어 `secret-gate.ps1` 훅이 게이트를 건너뛴 커밋을 막게 한다. 비공개 단어 목록은 `_private/gate_words.txt`에서 읽는다(없으면 차단) |
+| `../quant-devtools/check_code_conventions.py` | 스테이징된 코드 변경의 규약 검사 — 중괄호(`brace_style.py --check`), 없는 D-NNN 참조, 규약에 없는 주석 태그, C스타일 캐스트(값은 `static_cast`·포인터는 `reinterpret_cast`, `(void)x;`는 예외), json 노드 깊은 복사·값 range-for, 약어 이름(`qty`·`it`·한 글자 — 리네임 표 `rename_maps/01_fields.json`·`rename_frags.py`로 판정, `.py`는 `ast`로 그 파일이 정의하는 이름만 보고 `np`·`df` 같은 관례는 예외), 주석·코드 줄 성격 집계. `--comment-only`는 코드 줄이 섞였는지 본다. 밀도는 보지 않는다(정본 `docs/guides/MAINTENANCE_AUTOMATION.md` 4절이 밀도를 게이트로 걸지 말라고 정해 두었다) |
+| `../quant-devtools/maintain.py` | 위 검사기를 한 번에 돌리는 진입점. `--check`는 `check_docs` → `check_code_refs --diff-only` → `gen_facts --check` → `gen_code_graph --check` → `sync_impact --stamps` 순으로 묶어 표로 요약한다. `--weekly`는 파일별 주석 밀도와 태그 없는 긴 블록을 `docs/reports/MAINTENANCE_WEEKLY.md`에 남긴다 |
+| `../quant-devtools/check_code_refs.py` | 문서가 가리키는 코드 참조가 실재하는지 검사한다 — 경로, `파일::심볼`, 줄번호 참조. 줄번호 참조는 코드가 움직이면 조용히 어긋나므로 새로 추가된 줄에서 막고 `파일::심볼`로 쓰게 한다 |
+| `../quant-devtools/gen_facts.py` | 저장소를 세어 `docs/facts.json`을 만들고, 문서의 `<!-- gen:이름 -->` 블록을 그 값으로 채운다. 하네스 개수·훅 배선처럼 손으로 세면 반드시 어긋나는 숫자가 대상이다. KIS 토큰 캐시 파일명은 실 키 앞부분이 들어가므로 가려서 쓴다 |
+| `../quant-devtools/gen_code_graph.py` | 헤더 포함 관계로 모듈 그래프를 만들어 `docs/CODE_GRAPH.md`·`code_graph.dot`·`code_graph.json`을 생성한다. `--impact <파일>`은 그 파일을 고쳤을 때 재검증 대상을 파일을 열지 않고 뽑는다 |
+| `../quant-devtools/gen_code_flow.py` | `docs/code_flow.toml`(읽는 순서·심볼·볼 것)에서 `docs/CODE_FLOW.md`를 만든다. 줄 번호·시그니처는 소스에서 찾아 채우므로 코드가 옮겨가도 링크가 따라가고, 심볼이 사라지면 `--check`가 exit 1로 막아 명세를 고치게 한다. sync-gate가 `fix_cmd`로 턴 끝마다 재생성한다(D-078) |
 | `scripts/gen_tuning_sheet.py` | `docs/tuning_sheet.toml`(config 묶음·단위, 코드 수치(줄번호 참조))과 실행 중 config에서 `_private/TUNING_SHEET.md`(상세판)와 `_private/TUNING_CYCLE.md`(요약판, `[[cycle]]` 문장의 `{이름}` 을 실제 값으로 채움)를 만든다. 값은 소스에서 정규식으로 읽으므로 코드를 고치면 시트가 따라오고, 정규식이 안 잡히면 `--check`가 exit 1로 명세를 고치게 한다. config 는 gitignore 라 git diff 로 못 잡아 sync-gate 가 매 턴 `--check` 를 돈다 |
-| `scripts/claude_backup.ps1` | 메인 트리 `.claude/`를 저장소 밖(`%USERPROFILE%\.claudeackups\Quant\latest`)에 거울로 뜬다. Stop 훅이 매 턴, `maintain --daily`가 하루 한 번, `wt_remove.ps1`이 지우기 전에 부른다. `daily\날짜` 스냅샷은 14일 보관 |
-| `scripts/claude_restore.ps1` | 그 거울에서 `.claude/`를 되돌린다(기본은 빠진 것만, `-Mirror`는 완전 일치, `-From`으로 날짜 스냅샷). 세션이 스스로 부를 수 있게 allow에 열려 있다 |
-| `scripts/wt_add.ps1` | 세션용 워크트리를 만든다 — `git worktree add` + 메인 트리 `.claude`로 정션 + gitignore 로컬 파일(`_private/gate_words.txt`·`research/STRATEGY_LAB.md`·`Quant/config/config_dev_paper.json`·`config_mm_paper.json`·`regime.json`·`universe_scan.json`) 복사. 설치를 손으로 치면 `.claude`를 지우는 줄이 섞여 메인 `.claude/`가 날아간다(09-18·09-19). 제거는 `wt_remove.ps1` |
-| `scripts/gen_runbook.py` | 운영 명령 정본 `docs/RUNBOOK.md`를 복사 버튼 달린 `docs/RUNBOOK.html`(gitignore, 절대경로 치환)로 렌더한다. `gen_facts --apply`가 허브와 같이 부르고, `--check`(check_docs)는 코드 블록의 스크립트 경로가 실재하는지 본다. 인용 스크립트의 인자가 바뀌면 절 머리 도장이 낡음으로 잡힌다 |
+| `../quant-devtools/claude_backup.ps1` | 메인 트리 `.claude/`를 저장소 밖(`%USERPROFILE%\.claude\backups\Quant\latest`)에 거울로 뜬다. Stop 훅이 매 턴, `maintain --daily`가 하루 한 번, `wt_remove.ps1`이 지우기 전에 부른다. `daily\날짜` 스냅샷은 14일 보관 |
+| `../quant-devtools/claude_restore.ps1` | 그 거울에서 `.claude/`를 되돌린다(기본은 빠진 것만, `-Mirror`는 완전 일치, `-From`으로 날짜 스냅샷). 세션이 스스로 부를 수 있게 allow에 열려 있다 |
+| `../quant-devtools/wt_add.ps1` | 세션용 워크트리를 만든다 — `git worktree add` + 메인 트리 `.claude`로 정션 + gitignore 로컬 파일(`_private/gate_words.txt`·`research/STRATEGY_LAB.md`·`Quant/config/config_dev_paper.json`·`config_mm_paper.json`·`regime.json`·`universe_scan.json`) 복사. 설치를 손으로 치면 `.claude`를 지우는 줄이 섞여 메인 `.claude/`가 날아간다(09-18·09-19). 제거는 `wt_remove.ps1` |
+| `../quant-devtools/gen_runbook.py` | 운영 명령 정본 `docs/RUNBOOK.md`를 복사 버튼 달린 `docs/RUNBOOK.html`(gitignore, 절대경로 치환)로 렌더한다. `gen_facts --apply`가 허브와 같이 부르고, `--check`(check_docs)는 코드 블록의 스크립트 경로가 실재하는지 본다. 인용 스크립트의 인자가 바뀌면 절 머리 도장이 낡음으로 잡힌다 |
 | `scripts/premarket_routine.py` | 장전 시황 브리핑 루틴 프롬프트 정본 `docs/premarket/ROUTINE_PROMPT.md`의 본문 출력(`--render`)·올린 해시 기록(`--mark`)·정본과 비교(`--check`, check_docs가 부른다). 루틴 갱신 자체는 세션(`/schedule`)이 한다 |
-| `scripts/brace_style.py` | 중괄호와 블록 앞뒤 빈 줄을 기계적으로 맞춘다(`.clang-format`의 Allman·`InsertBraces`와 같은 규칙). 손으로 맞추지 않는다 |
-| `scripts/check_plain_language.py` | 쓰지 않기로 한 말을 검출·치환한다(`--fix`는 뒤 조사까지 맞춘다). 정본은 `docs/STYLE_GUIDE.md`, 게이트는 `lexicon-gate.ps1`과 `@committer` |
-| `scripts/session_board.py` | 살아 있는 세션(`~/.claude/sessions/*.json`)마다 기록 jsonl의 늘어난 꼬리만 읽어 문맥 K/%·턴(모델 호출 수)·압축 횟수·마지막 사용자 요청을 세고, 현황판 `_private/SESSION_CLAIMS.md` 줄과 인계 파일 유무를 붙여 `_private/session_board.json`·`.html`(30초 자동 새로고침)로 쓴다. 파일은 Stop 훅이 턴마다 다시 쓰고, 서버(`:8788`, 트레이더가 돌 때는 대시보드 `:8787/sessions`도)는 파일이 30초보다 낡았으면 요청 때 한 번 더 만든다(어느 세션도 턴을 안 끝내면 훅만으로는 멈춰 있어서). 문맥 50%↑ 노랑, 80%↑ 빨강, 100K↑면 인계 시점 표시(145K↑는 경계를 안 기다리고 알린다). `--facts`·`--skeleton`·`--due`는 인계 훅이 쓴다 |
-| `scripts/session_board_server.py` | 세션 현황판만 내주는 작은 HTTP 서버(`http://127.0.0.1:8788/sessions`, `/sessions.json`). SessionStart 훅이 세션마다 띄우고 포트가 쓰이면 바로 끝난다. 이 저장소의 세션이 2분 연속 없으면 스스로 내려간다 — 프로젝트를 닫으면 같이 사라진다 |
-| `scripts/session_triage.py` | 코드 세션 여럿이 하루 동안 남긴 상태(미푸시·worktree·브랜치·현황판 `_private/SESSION_CLAIMS.md`·인계 파일·배포 exe 뒤에 쌓인 C++ 커밋)를 한 보고서로 모은다. 되돌릴 수 있는 정리만 옵션으로 한다 — `--prune-branches`(main에 들어간 브랜치 `-d`)·`--archive-handoffs`·`--unowned-patch`. worktree 제거·푸시·exe 교체는 하지 않는다. 절차는 `/triage`(로컬 커맨드), 규칙은 CLAUDE.md 다중 세션 절 |
-| `scripts/unattended_run.ps1` | 사람이 자는 동안 지시서 하나를 여러 사이클에 걸쳐 잇는다. 한 사이클은 `claude -p --permission-mode bypassPermissions` 한 번이고, 끝나면 프로세스가 죽으므로 다음 사이클은 문맥 0에서 시작한다 — 대화 세션에서 불가능한 `/clear`를 이렇게 대신한다. 사이클 사이를 잇는 것은 `_private/HANDOFF_<이름>.md` 하나뿐이라, 매 사이클 지시에 '남은 것'을 파일 경로와 다음 명령까지 적으라는 규칙을 붙인다. `-Name`마다 인계·완료표시·로그가 따로라 여러 개를 동시에 돌려도 섞이지 않는다(단, 같은 파일을 고치는 일을 겹쳐 주지 않는다). 모델이 `_private/DONE_<이름>.flag`를 만들면 남은 사이클을 버리고 끝낸다. 한글 지시는 반드시 `-PromptFile`(UTF-8 BOM)로 준다 — `-Prompt`는 PS 5.1 파이프 인코딩 탓에 물음표로 깨진 적이 있다 |
+| `../quant-devtools/brace_style.py` | 중괄호와 블록 앞뒤 빈 줄을 기계적으로 맞춘다(`.clang-format`의 Allman·`InsertBraces`와 같은 규칙). 손으로 맞추지 않는다 |
+| `../quant-devtools/check_plain_language.py` | 쓰지 않기로 한 말을 검출·치환한다(`--fix`는 뒤 조사까지 맞춘다). 정본은 `docs/STYLE_GUIDE.md`, 게이트는 `lexicon-gate.ps1`과 `@committer` |
+| `../quant-devtools/session_board.py` | 살아 있는 세션(`~/.claude/sessions/*.json`)마다 기록 jsonl의 늘어난 꼬리만 읽어 문맥 K/%·턴(모델 호출 수)·압축 횟수·마지막 사용자 요청을 세고, 현황판 `_private/SESSION_CLAIMS.md` 줄과 인계 파일 유무를 붙여 `_private/session_board.json`·`.html`(30초 자동 새로고침)로 쓴다. 파일은 Stop 훅이 턴마다 다시 쓰고, 서버(`:8788`, 트레이더가 돌 때는 대시보드 `:8787/sessions`도)는 파일이 30초보다 낡았으면 요청 때 한 번 더 만든다(어느 세션도 턴을 안 끝내면 훅만으로는 멈춰 있어서). 문맥 50%↑ 노랑, 80%↑ 빨강, 100K↑면 인계 시점 표시(145K↑는 경계를 안 기다리고 알린다). `--facts`·`--skeleton`·`--due`는 인계 훅이 쓴다 |
+| `../quant-devtools/session_board_server.py` | 세션 현황판만 내주는 작은 HTTP 서버(`http://127.0.0.1:8788/sessions`, `/sessions.json`). SessionStart 훅이 세션마다 띄우고 포트가 쓰이면 바로 끝난다. 이 저장소의 세션이 2분 연속 없으면 스스로 내려간다 — 프로젝트를 닫으면 같이 사라진다 |
+| `../quant-devtools/session_triage.py` | 코드 세션 여럿이 하루 동안 남긴 상태(미푸시·worktree·브랜치·현황판 `_private/SESSION_CLAIMS.md`·인계 파일·배포 exe 뒤에 쌓인 C++ 커밋)를 한 보고서로 모은다. 되돌릴 수 있는 정리만 옵션으로 한다 — `--prune-branches`(main에 들어간 브랜치 `-d`)·`--archive-handoffs`·`--unowned-patch`. worktree 제거·푸시·exe 교체는 하지 않는다. 절차는 `/triage`(로컬 커맨드), 규칙은 CLAUDE.md 다중 세션 절 |
+| `../quant-devtools/unattended_run.ps1` | 사람이 자는 동안 지시서 하나를 여러 사이클에 걸쳐 잇는다. 한 사이클은 `claude -p --permission-mode bypassPermissions` 한 번이고, 끝나면 프로세스가 죽으므로 다음 사이클은 문맥 0에서 시작한다 — 대화 세션에서 불가능한 `/clear`를 이렇게 대신한다. 사이클 사이를 잇는 것은 `_private/HANDOFF_<이름>.md` 하나뿐이라, 매 사이클 지시에 '남은 것'을 파일 경로와 다음 명령까지 적으라는 규칙을 붙인다. `-Name`마다 인계·완료표시·로그가 따로라 여러 개를 동시에 돌려도 섞이지 않는다(단, 같은 파일을 고치는 일을 겹쳐 주지 않는다). 모델이 `_private/DONE_<이름>.flag`를 만들면 남은 사이클을 버리고 끝낸다. 한글 지시는 반드시 `-PromptFile`(UTF-8 BOM)로 준다 — `-Prompt`는 PS 5.1 파이프 인코딩 탓에 물음표로 깨진 적이 있다 |
 
 해석을 채우는 커맨드는 `/market-close-review`(사후검토 문서) → `/trade-log`(매매일지 해석) → `/dashboard-sync`(아티팩트 재발행)
 → `/stock-study`(종목 학습) → `/daily`(DAILY_LOG prepend) 순이다.
@@ -318,4 +323,4 @@ scripts/market_close_autodoc.py
 
 - 예약작업 실패의 **자동 복구** — `cron-gate.ps1`이 알리기까지다. 다시 돌리는 것은 사람이 커맨드를 부른다.
 - 유니버스 재스캔은 두 겹이다 — 엔진 안 `Engine::maybe_rescan_universe`(`rescan_interval_sec`, D-077·D-087)와 감시견의 스캔 파일 갱신(10:00 전 3분, 뒤 10분). 둘을 하나로 합치는 것은 미정.
-- 커밋·푸시 — 커밋명·파일 목록 승인 게이트를 일부러 유지한다. 검사는 `scripts/commit_gate.py`가 하고 `git commit`은 승인 뒤 메인 세션이 친다.
+- 커밋·푸시 — 커밋명·파일 목록 승인 게이트를 일부러 유지한다. 검사는 `../quant-devtools/commit_gate.py`가 하고 `git commit`은 승인 뒤 메인 세션이 친다.

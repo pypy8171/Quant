@@ -145,7 +145,7 @@ cid→ODNO 대응은 단말이 든다. `ORDER_RESULT_NTF`에 둘이 같이 오�
 - 컨트롤 ID를 더하면 `resource.h`와 `OpsTerminal.rc` 둘 다.
 - 프로토콜 메시지를 더하면 `Quant/include/ipc/OpsProtocol.h`가 정본이고, 단말은 `handle_frame`의 `switch`에 가지 하나.
 - 빌드 옵션·필요 구성 요소가 바뀌면 3절과 `CLAUDE.md` 빌드 절.
-- 편집 뒤 `py scripts/brace_style.py Quant/tools/ops_terminal/<고친 파일>`(인자 없이 돌리지 않는다).
+- 편집 뒤 `py ../quant-devtools/brace_style.py Quant/tools/ops_terminal/<고친 파일>`(인자 없이 돌리지 않는다).
 
 ## 9. 이력
 

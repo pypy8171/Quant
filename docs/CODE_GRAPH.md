@@ -1,6 +1,6 @@
 # 코드 의존 그래프 (Code Graph)
 
-> 자동 생성물. 손편집 금지 — 코드가 바뀌면 `py scripts/gen_code_graph.py` 로 재생성한다.
+> 자동 생성물. 손편집 금지 — 코드가 바뀌면 `py ../quant-devtools/gen_code_graph.py` 로 재생성한다.
 > `Quant/include`·`Quant/src` 의 로컬 `#include "..."` 관계에서 뽑았다. 표준/외부 헤더는 제외.
 
 ## 모듈 의존 그래프
@@ -521,21 +521,15 @@ graph LR
 | `scripts/backfill_fills_db.py` | `_logdir`, `db.client` |
 | `scripts/backfill_studies.py` | `backtest.report` |
 | `scripts/build_review_entry.py` | `market_close_collect` |
-| `scripts/check_code_conventions.py` | `rename_frags` |
 | `scripts/check_runtime_health.py` | `_logdir`, `log_patterns` |
 | `scripts/dashboard_server.py` | `_logdir`, `kis.client`, `naver.theme` |
 | `scripts/exit_ev.py` | `backtest.costs` |
 | `scripts/exit_ev_dashboard.py` | `_logdir`, `exit_ev`, `gen_tuning_sheet` |
 | `scripts/extract_swap_what_if.py` | `_logdir` |
-| `scripts/gen_automation_hub.py` | `gen_facts` |
-| `scripts/maintain.py` | `_logdir` |
 | `scripts/market_close_autodoc.py` | `_logdir`, `check_runtime_health`, `log_patterns` |
 | `scripts/market_close_collect.py` | `_logdir`, `log_patterns` |
 | `scripts/notify_trades.py` | `_logdir`, `dashboard_server`, `kis.client`, `log_patterns` |
 | `scripts/parse_quant_log.py` | `_logdir`, `check_runtime_health` |
-| `scripts/rename_frags.py` | `rename_ids` |
-| `scripts/rename_locals.py` | `rename_ids` |
-| `scripts/session_board_server.py` | `session_board` |
 | `scripts/summarize_trading_day.py` | `_logdir`, `log_patterns` |
 | `scripts/trade_costs.py` | `backtest.costs` |
 
@@ -551,16 +545,16 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 | `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
 | `universe*.json` |  | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/nxt_divergence_check.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseScanner.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/live_prices_feed.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |
 | `open_orders.txt` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` |  |
-| `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/_logdir.py`, `scripts/build_review_entry.py`, `scripts/dashboard_server.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `Quant/src/main.cpp`, `scripts/_logdir.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/extract_swap_what_if.py`, `scripts/notify_trades.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `scripts/exit_ev_dashboard.py`, `scripts/maintain.py` |
-| `kis_token_*.json` | `scripts/commit_gate.py` | `scripts/gen_facts.py` | `PYQuant/kis/client.py`, `Quant/src/api/KisAuth.cpp` |
+| `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/_logdir.py`, `scripts/build_review_entry.py`, `scripts/dashboard_server.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `Quant/src/main.cpp`, `scripts/_logdir.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/extract_swap_what_if.py`, `scripts/notify_trades.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `scripts/exit_ev_dashboard.py` |
+| `kis_token_*.json` |  |  | `PYQuant/kis/client.py`, `Quant/src/api/KisAuth.cpp` |
 
 ## 영향범위 질의 · 기계 소비
 
 편집·커밋 전 영향범위(재검증/재빌드 대상)를 파일 열지 않고 뽑는다:
 
 ```bash
-py scripts/gen_code_graph.py --impact core/Types.h
-py scripts/gen_code_graph.py --json   # docs/code_graph.json
+py ../quant-devtools/gen_code_graph.py --impact core/Types.h
+py ../quant-devtools/gen_code_graph.py --json   # docs/code_graph.json
 ```
 
 `docs/code_graph.dot` 도 생성했다. Graphviz가 있으면 SVG로 렌더할 수 있다.

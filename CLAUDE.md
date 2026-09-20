@@ -46,13 +46,16 @@ config에는 **실계좌 인증 정보**가 있다. 모의투자는 `"is_paper":
 
 ## 작업 규약
 
+게이트·생성기·워크트리 도구는 저장소 밖 `../quant-devtools/`(자체 git, D-107)에 있다 — 저장소 루트에서 `py ../quant-devtools/<도구>.py`로 부른다.
+`scripts/`에는 매매 운영·리서치 산출 스크립트만 남긴다.
+
 ### 문서 동기화
 
 색인·요약·도장이 트리와 어긋나는 것을 훅이 막는다 — 정본 [docs/SYNC_MAP.md](docs/SYNC_MAP.md), 규칙 `docs/sync_map.toml`.
 파일을 찾을 때는 [docs/FILE_INDEX.md](docs/FILE_INDEX.md)·`_private/FILE_INDEX.md`(새 파일은 `(설명 필요)` 줄만 채운다).
 낡은 문서는 기억으로 찾지 않는다(D-075): Stop 훅 `sync-gate.ps1`이 낡은 도장을 잡으면 그 자리에서 문단을 고치고
-`py scripts/sync_impact.py --restamp <문서>`. 새 요약 문단은 **gen 블록 → 도장 → 링크만** 순으로 고르고, 동기화 대상은 늘리지 않는다.
-검사는 `python scripts/check_docs.py`(exit 1 = 드리프트). MFC 단말을 고쳤으면 [docs/guides/MFC_TERMINAL.md](docs/guides/MFC_TERMINAL.md)를
+`py ../quant-devtools/sync_impact.py --restamp <문서>`. 새 요약 문단은 **gen 블록 → 도장 → 링크만** 순으로 고르고, 동기화 대상은 늘리지 않는다.
+검사는 `python ../quant-devtools/check_docs.py`(exit 1 = 드리프트). MFC 단말을 고쳤으면 [docs/guides/MFC_TERMINAL.md](docs/guides/MFC_TERMINAL.md)를
 같은 커밋에서, 실행 인자·접속 방법이 바뀌면 `_private/LINKS.md`도. main에 머지한 뒤 **메인 트리에서**
 `cmake --build out/build/x64-release --target ops_terminal`까지 돌린다 — 바탕화면 `운영단말.lnk`(사용자가 더블클릭으로 띄움)는
 그 빌드가 POST_BUILD로 갱신한다(`scripts/ops_terminal_shortcut.ps1`, worktree 빌드는 건너뜀).
@@ -60,7 +63,7 @@ config에는 **실계좌 인증 정보**가 있다. 모의투자는 `"is_paper":
 ### 커밋 절차
 
 메인 세션이 직접 한다(`@committer`는 히스토리 세탁·force-push·헝크 분할만). ① 스테이징 후
-`py scripts/commit_gate.py --msg-file <메시지 파일>`(`[차단]`은 고치기 전 커밋 금지, `[확인]`은 판정을 적는다) → ② 응답에 커밋명과
+`py ../quant-devtools/commit_gate.py --msg-file <메시지 파일>`(`[차단]`은 고치기 전 커밋 금지, `[확인]`은 판정을 적는다) → ② 응답에 커밋명과
 파일 목록을 **파이프라인 순서(입력 → 처리 → 산출·문서)로, 파일마다 바뀐 함수 줄로 가는 하이퍼링크(`경로#L줄`)와 한 줄 설명**을 붙여 보여주고 승인("커밋" 한마디가
 이 단계 시작) → ③ `git commit`. 푸시는 사용자가 말할 때만. 스테이징을 바꿨으면 게이트 재실행.
 커밋 제목은 `type(범위): 한국어 제목`, 쉬운 말로(정본 [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md)).
@@ -81,7 +84,7 @@ config에는 **실계좌 인증 정보**가 있다. 모의투자는 `"is_paper":
 
 담백·겸손하게. 정본 [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md)(과장·설교조 회피, 금지 표현 표). 적용 범위는 설계 문서·매매일지·
 스터디 리포트·대시보드 `*_html`·커밋 메시지·**코드 주석·로그 문구**까지. 게이트는 쓰는 순간 `lexicon-gate.ps1`, 커밋 직전
-`scripts/commit_gate.py`. 검출·치환은 `python scripts/check_plain_language.py [--fix]`.
+`../quant-devtools/commit_gate.py`. 검출·치환은 `python ../quant-devtools/check_plain_language.py [--fix]`.
 
 ### 코드 작업 규약
 
@@ -92,8 +95,8 @@ config에는 **실계좌 인증 정보**가 있다. 모의투자는 `"is_paper":
 `const&`나 `std::string_view`(수명은 `[inv]`), json 노드는 `value(k, json::array())` 대신 `find()` 참조, range-for는
 `const auto&`, 값 전달은 `std::move`로 받는 sink만. **이름에 약어를 쓰지 않는다** — `qty`·`cfg`·`it`·`i` 대신 `quantity`·`config`·
 `iterator`·`index`. 읽는 사람이 용어를 먼저 익히는 것이 우선이라 그렇다(예외는 전문 필드·지표명·단위 접미사·표준 멤버, 정본 4절
-"이름 표기"). 정리는 `py scripts/brace_style.py <자기 파일만>`,
-검사는 `py scripts/check_code_conventions.py [--comment-only]`.
+"이름 표기"). 정리는 `py ../quant-devtools/brace_style.py <자기 파일만>`,
+검사는 `py ../quant-devtools/check_code_conventions.py [--comment-only]`.
 
 ## 장중 운영 — A등급 결함만 장중에 고친다 (D-101 결정 1)
 

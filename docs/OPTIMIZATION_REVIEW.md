@@ -179,7 +179,7 @@ Engine을 두 개 만들면 공유된다. 멤버 필드로 옮긴다.
   그걸 우선 읽고 추정은 폴백으로만 둔다.
 
 ### R8. `.clang-format`은 있는데 게이트가 없다
-포맷 검사를 `scripts/check_docs.py`와 같은 위치(커밋 전)에 붙일지 정한다.
+포맷 검사를 `../quant-devtools/check_docs.py`와 같은 위치(커밋 전)에 붙일지 정한다.
 
 ---
 

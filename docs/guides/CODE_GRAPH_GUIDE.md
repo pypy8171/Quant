@@ -4,7 +4,7 @@
 
 ## 무엇인가
 
-[../../scripts/gen_code_graph.py](../../scripts/gen_code_graph.py)가 `Quant/include`·`Quant/src`를 스캔해 로컬 `#include "..."` 관계를 뽑는다. 표준·외부 헤더는 제외하고, 모듈(api·core·ipc·modes·risk·strategy·universe·utils·main) 간 의존과 파일 단위 정의존/역의존을 만든다.
+`../quant-devtools/gen_code_graph.py`가 `Quant/include`·`Quant/src`를 스캔해 로컬 `#include "..."` 관계를 뽑는다. 표준·외부 헤더는 제외하고, 모듈(api·core·ipc·modes·risk·strategy·universe·utils·main) 간 의존과 파일 단위 정의존/역의존을 만든다.
 
 산출물 네 가지:
 
@@ -16,8 +16,8 @@
 ## 생성·재생성
 
 ```bash
-py scripts/gen_code_graph.py            # md + dot
-py scripts/gen_code_graph.py --json     # md + dot + json
+py ../quant-devtools/gen_code_graph.py            # md + dot
+py ../quant-devtools/gen_code_graph.py --json     # md + dot + json
 ```
 
 산출물은 자동 생성물이라 손으로 고치지 않는다. 코드가 바뀌면 스크립트를 다시 돌려 갱신한다(이 프로젝트 생성기 규약과 동일). 파이썬은 `py` 런처로 실행한다.
@@ -27,7 +27,7 @@ py scripts/gen_code_graph.py --json     # md + dot + json
 특정 헤더를 건드릴 때 재검증·재빌드해야 할 대상을 파일을 열지 않고 뽑는다. 직접 include와 전이(헤더를 타고 번지는) 포함을 함께 센다.
 
 ```bash
-py scripts/gen_code_graph.py --impact core/Types.h
+py ../quant-devtools/gen_code_graph.py --impact core/Types.h
 ```
 
 출력은 직접/전이 파일 목록과 영향 모듈 집합이다. 예로 `core/Types.h`는 직접 13개·전이 포함 33개·8개 모듈에 걸린다.
