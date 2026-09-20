@@ -276,6 +276,7 @@
 
 ### Quant/include/strategy/
 
+- [DevScaleRules.h](../Quant/include/strategy/DevScaleRules.h) — DevScale 순수 판정(무장 후 고가 트레일·원장 매수 종목·ATR14·전일 변동성 진입 허용·넘김 상수, D-111)
 - [DeviationScaleStrategy.h](../Quant/include/strategy/DeviationScaleStrategy.h) — 일봉 정배열+3분봉 이격도 분할매매 전략
 - [FixedIntervalStrategy.h](../Quant/include/strategy/FixedIntervalStrategy.h) — 고정 종목 주기 매수/매도 테스트용 전략
 - [IntradayBreakoutStrategy.h](../Quant/include/strategy/IntradayBreakoutStrategy.h) — 장중 채널 돌파 전략(ITB v2)
@@ -379,6 +380,7 @@
 - [test_app_config.cpp](../Quant/tests/test_app_config.cpp) — config.json → AppConfig 경계 단위 테스트(기본값·오버라이드·feed_keys 상속·risk·regime_strategies)
 - [test_bar_aggregator.cpp](../Quant/tests/test_bar_aggregator.cpp) — N분봉 집계기 단위 테스트(D-068·D-072)
 - [test_data_poller.cpp](../Quant/tests/test_data_poller.cpp) — REST 현재가 폴러 단위 테스트(D-053·D-062)
+- [test_devscale_rules.cpp](../Quant/tests/test_devscale_rules.cpp) — DevScale 순수 판정 단위 테스트 25검사(트레일 경계·원장 읽기·ATR·진입 허용, D-111)
 - [test_engine.cpp](../Quant/tests/test_engine.cpp) — Engine 한 바퀴 단위 테스트(시험용 시세 주입, KIS·소켓 없이 틱→주문→모의 체결→원장, 수신 스레드 1×샤드 1과 2×2, 캡처 파일 리플레이는 KIS 없이)
 - [test_feed_mux.cpp](../Quant/tests/test_feed_mux.cpp) — 다중 소켓 피드 묶음(FeedMux) 단위 테스트
 - [test_feed_supervisor.cpp](../Quant/tests/test_feed_supervisor.cpp) — WS 피드 감독기 단위 테스트

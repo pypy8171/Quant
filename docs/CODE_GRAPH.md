@@ -39,7 +39,7 @@ graph LR
   modes -->|2| utils
   risk -->|3| core
   strategy -->|5| api
-  strategy -->|17| core
+  strategy -->|19| core
   strategy -->|3| universe
   strategy -->|10| utils
   universe --> api
@@ -55,9 +55,9 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 29 |
+| `core/Types.h` | 30 |
 | `utils/Logger.h` | 27 |
-| `core/KstTime.h` | 14 |
+| `core/KstTime.h` | 15 |
 | `strategy/StrategyBase.h` | 13 |
 | `api/KisClient.h` | 12 |
 | `core/MarketSession.h` | 8 |
@@ -136,6 +136,7 @@ graph LR
     n_risk_OrderGate_h["risk/OrderGate.h"]
   end
   subgraph strategy
+    n_strategy_DevScaleRules_h["strategy/DevScaleRules.h"]
     n_strategy_DeviationScaleStrategy_h["strategy/DeviationScaleStrategy.h"]
     n_strategy_FixedIntervalStrategy_h["strategy/FixedIntervalStrategy.h"]
     n_strategy_IntradayBreakoutStrategy_h["strategy/IntradayBreakoutStrategy.h"]
@@ -329,12 +330,14 @@ graph LR
   n_risk_OrderGate_cpp --> n_risk_OrderGate_h
   n_risk_OrderGate_h --> n_core_SymbolTable_h
   n_risk_OrderGate_h --> n_core_Types_h
+  n_strategy_DevScaleRules_h --> n_core_Types_h
   n_strategy_DeviationScaleStrategy_h --> n_api_KisClient_h
   n_strategy_DeviationScaleStrategy_h --> n_core_BarAggregator_h
   n_strategy_DeviationScaleStrategy_h --> n_core_DataPoller_h
   n_strategy_DeviationScaleStrategy_h --> n_core_KstTime_h
   n_strategy_DeviationScaleStrategy_h --> n_core_TickSize_h
   n_strategy_DeviationScaleStrategy_h --> n_core_WakeGate_h
+  n_strategy_DeviationScaleStrategy_h --> n_strategy_DevScaleRules_h
   n_strategy_DeviationScaleStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_DeviationScaleStrategy_h --> n_universe_MaAlign_h
   n_strategy_DeviationScaleStrategy_h --> n_utils_Logger_h
@@ -355,8 +358,10 @@ graph LR
   n_strategy_SeedPeakStore_h --> n_utils_Logger_h
   n_strategy_StrategyBase_h --> n_core_Types_h
   n_strategy_StrategyFactory_cpp --> n_core_Engine_h
+  n_strategy_StrategyFactory_cpp --> n_core_KstTime_h
   n_strategy_StrategyFactory_cpp --> n_core_Types_h
   n_strategy_StrategyFactory_cpp --> n_core_UniverseExit_h
+  n_strategy_StrategyFactory_cpp --> n_strategy_DevScaleRules_h
   n_strategy_StrategyFactory_cpp --> n_strategy_DeviationScaleStrategy_h
   n_strategy_StrategyFactory_cpp --> n_strategy_FixedIntervalStrategy_h
   n_strategy_StrategyFactory_cpp --> n_strategy_IntradayBreakoutStrategy_h
@@ -546,7 +551,7 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 |---|---|---|---|
 | `regime.json` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/Engine.cpp` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/AppConfig.cpp`, `Quant/src/core/Engine.cpp`, `scripts/dashboard_server.py`, `scripts/notify_trades.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/include/core/RegimeFileJudge.h`, `Quant/src/core/EngineConfigure.cpp` |
 | `prices_live.json` | `scripts/live_prices_feed.py` | `scripts/live_prices_feed.py` |  |
-| `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
+| `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderRouter.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
 | `universe*.json` |  | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/nxt_divergence_check.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseScanner.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/live_prices_feed.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |
 | `open_orders.txt` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` |  |
 | `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/_logdir.py`, `scripts/build_review_entry.py`, `scripts/dashboard_server.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `Quant/src/main.cpp`, `scripts/_logdir.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/extract_swap_what_if.py`, `scripts/notify_trades.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `scripts/exit_ev_dashboard.py` |

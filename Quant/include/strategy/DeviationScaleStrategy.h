@@ -5,6 +5,7 @@
 #include "core/KstTime.h"
 #include "core/TickSize.h"
 #include "core/WakeGate.h"
+#include "strategy/DevScaleRules.h"
 #include "strategy/StrategyBase.h"
 #include "universe/MaAlign.h"
 #include "utils/Logger.h"
@@ -35,8 +36,11 @@
 //       - 이격도가 위로 벌어지는 지점(+deviation_sell%·split_step_count층)에 지정가 매도(분할 익절).
 //       - 평균으로 되돌아오는 지점(−deviation_buy%·buy_split_steps층)에 지정가 매수(재진입). buy_split_steps=0이면
 //         되돌림 매수(물타기)를 깔지 않는다 — 추세확장 슬리브의 기본이다.
-//   • 청산: 존 이탈(유지 게이트) · 평단 대비 stop_loss_percent 하드 스탑 · 3분봉 기준선 이탈
-//     트레일(옵션) · market_close_hhmm 장 마감. 스탑·트레일 뒤에는 stop_cooldown_sec 동안 재진입을 막는다.
+//   • 청산: 존 이탈(유지 게이트) · 평단 대비 stop_loss_percent 하드 스탑 · 평단 +trail_arm_percent 무장 뒤
+//     최고가 대비 −trail_percent 트레일(옵션) · 3분봉 기준선 이탈 트레일(옵션) · market_close_hhmm 장 마감(2400이면 안 팔고
+//     다음 날로 넘긴다). 스탑·트레일 뒤에는 stop_cooldown_sec 동안 재진입을 막는다.
+//   • 하루 단위 진입 필터(옵션): 전일 ATR14/SMA20이 entry_atr_max_percent를 넘거나 개장 봉 이격이
+//     entry_open_deviation_[min|max]_percent 밖이면 그날은 새로 사지 않는다(보유분 관리는 그대로).
 //   • 시장가가 아니라 지정가 예약을 미리 걸어 "기다리는" 매매. 3분봉이 갱신되거나 SMA가
 //     reprice_move_ticks 이상 이동하면 미체결 분할 매수를 CANCEL+NEW로 재호가(MM-1 패턴).
 //
@@ -141,6 +145,18 @@ public:
         //   목표가가 값을 따라 올라가 8초 안의 급등에서만 붙는다. 평단 기준이면 +deviation_sell%가
         //   진입 대비 익절이 된다. 목표가가 이미 현재가 아래면 현재가에 지정가를 낸다.
         bool   sell_base_average = false;
+        //  trail_arm_percent / trail_percent: 보유 중 현재가가 평단 대비 +trail_arm_percent(%)에 한 번 닿으면(무장)
+        //   그 뒤 보유 구간 최고가 대비 −trail_percent(%)에서 전량 청산한다. 고정 익절은 오른 만큼을 못 먹고,
+        //   무장 없는 트레일은 진입 직후 흔들림에 팔린다. 0이면 끄기. 1년 리플레이(09-21, 3,135 종목일)에서
+        //   무장 1.0/트레일 1.0 + 익절 3.0이 라이브 설정보다 손실 22% 적었다. [why D-111]
+        double trail_arm_percent = 0.0;
+        double trail_percent = 1.0;
+        // 하루 단위 진입 필터 — 전일 ATR14/SMA20(%) 상한과 개장 봉(09:03) 종가의 SMA20 이격(%) 범위. 하루에 한 번
+        //   판정해 그날 새 진입만 막는다. 1년 리플레이(09-21)에서 ATR≤5·이격≥−3이 비용 전 +0.10 → +0.26%/건,
+        //   ATR 상한이 낮을수록 단조로 좋아졌다. 0/−99/99면 끔. [why D-111]
+        double entry_atr_max_percent = 0.0;
+        double entry_open_deviation_min_percent = -99.0;
+        double entry_open_deviation_max_percent = 99.0;
         //  prefetch_jitter_percent: 봉 경계 직후 분봉 조회를 종목별로 흩는다(봉 길이의 0~이 비율,
         //   티커 해시로 고정). 50종목이 같은 초에 조회하면 초당 한도(20)에 걸려 뒤쪽이 HTTP 500이다.
         int    prefetch_jitter_percent = 50;
@@ -224,7 +240,12 @@ public:
                "~+" + format_one_decimal(parameters_.entry_upper_percent) + "%" +
                (parameters_.entry_lower_percent > 0.0 ? " lower=+" + format_one_decimal(parameters_.entry_lower_percent) + "%" : "") +
                (parameters_.stop_loss_percent > 0.0 ? " stop=-" + format_one_decimal(parameters_.stop_loss_percent) + "%" : "") +
-               (parameters_.trail_simple_moving_average_exit ? " trail" : "") + (parameters_.sell_base_average ? " sell@avg" : "");
+               (parameters_.trail_simple_moving_average_exit ? " trail" : "") + (parameters_.sell_base_average ? " sell@avg" : "") +
+               (parameters_.trail_arm_percent > 0.0 ? " peak-trail" : "") +
+               (parameters_.entry_atr_max_percent > 0.0 ? " atr<=" + format_one_decimal(parameters_.entry_atr_max_percent) + "%" : "") +
+               (parameters_.entry_open_deviation_min_percent > -99.0
+                    ? " open_dev>=" + format_one_decimal(parameters_.entry_open_deviation_min_percent) + "%" : "") +
+               (parameters_.market_close_hhmm >= devscale_rules::kNoMarketCloseHhmm ? " carry" : "");
     }
 
     // 현재가 하트비트만 필요 → trade_only=true(호가 구독 절약). rest 모드에선 DataThread가 주입.
@@ -261,6 +282,9 @@ public:
         average_position_seen_ = 0;
         base_target_quantity_ = 0;
         peak_position_ = 0;
+        hold_peak_price_ = 0.0;
+        entry_filter_date_.clear();
+        day_entry_allowed_ = true;
         // 집계기 이력은 지우지 않는다(재등록 경로에서 같은 날이면 그대로 쓸 수 있다). 날짜가 바뀌었으면
         //  on_trade_batch의 날짜 검사가 비운다. 시드는 다시 받는다.
         seeded_version_ = 0;
@@ -340,7 +364,7 @@ public:
             //  전량을 낸다(청산차단 자가정리). 뒤따르는 취소는 라우터가 "취소 불요"로 닫는다. [why D-082]
             int position = confirmed_position(parameters_.account, symbol_id_, parameters_.ticker);
             const std::string tag = "장 마감(" + std::to_string(hhmm) + ")";
-            emit_liquidation(out, position, std::chrono::steady_clock::now(), tag, /*max_backoff_ms=*/300000,
+            emit_liquidation(out, position, std::chrono::steady_clock::now(), tag, kMarketCloseBackoffMs,
                              /*clamp_sellable=*/false); // 백오프(자체 로깅)
             bool cancelled = cancel_all(out);
 
@@ -573,9 +597,43 @@ public:
                 cancel_all(out);
                 const std::string tag = "손절(평단 " + format_one_decimal(last_average_price_) + " -" + format_one_decimal(parameters_.stop_loss_percent) + "%)";
                 // 스탑은 지수 백오프 상한을 30초로 둔다 — 5분 보류는 손절이 아니다.
-                emit_liquidation(out, position, now, tag, /*max_backoff_ms=*/30000);
+                emit_liquidation(out, position, now, tag, kLiquidationBackoffMs);
                 stop_cooldown_until_ = now + std::chrono::seconds(parameters_.stop_cooldown_sec);
                 return;
+            }
+        }
+
+        // ── 무장 후 고가 트레일: 평단 대비 +trail_arm_percent에 닿은 뒤 최고가 대비 −trail_percent면 청산 ──
+        //  최고가는 보유 구간 동안 현재가로 갱신하고 보유가 0이면 비운다. 평단은 위 스탑 블록이 채운 캐시를 쓴다
+        //  (스탑이 꺼져 있으면 여기서 채운다). 무장 여부는 따로 들고 있지 않다 — 최고가 ≥ 평단×(1+무장%)이면 무장이다.
+        if (parameters_.trail_arm_percent > 0.0)
+        {
+            const int position = confirmed_position(parameters_.account, symbol_id_, parameters_.ticker);
+
+            if (position <= 0)
+            {
+                hold_peak_price_ = 0.0;
+            }
+            else
+            {
+                if (last_average_price_ <= 0.0 && ledger_sellable(parameters_.account, parameters_.ticker))
+                {
+                    (void)sellable_quantity();
+                }
+
+                hold_peak_price_ = (std::max)(hold_peak_price_, current_price);
+
+                if (devscale_rules::peak_trail_triggered(hold_peak_price_, last_average_price_, current_price,
+                                                         parameters_.trail_arm_percent, parameters_.trail_percent))
+                {
+                    cancel_all(out);
+                    const std::string tag = "트레일(고가 " + format_one_decimal(hold_peak_price_) + " -" +
+                                            format_one_decimal(parameters_.trail_percent) + "%, 평단 " +
+                                            format_one_decimal(last_average_price_) + ")";
+                    emit_liquidation(out, position, now, tag, kLiquidationBackoffMs);
+                    stop_cooldown_until_ = now + std::chrono::seconds(parameters_.stop_cooldown_sec);
+                    return;
+                }
             }
         }
 
@@ -634,7 +692,7 @@ public:
             if (position > 0)
             {
                 cancel_all(out);
-                emit_liquidation(out, position, now, "3분봉 기준선 이탈(" + format_one_decimal(simple_moving_average) + ")", /*max_backoff_ms=*/30000);
+                emit_liquidation(out, position, now, "3분봉 기준선 이탈(" + format_one_decimal(simple_moving_average) + ")", kLiquidationBackoffMs);
                 stop_cooldown_until_ = now + std::chrono::seconds(parameters_.stop_cooldown_sec);
                 return;
             }
@@ -655,6 +713,13 @@ public:
         }
 
         int position = confirmed_position(parameters_.account, symbol_id_, parameters_.ticker);
+
+        // ── 하루 단위 진입 필터(전일 ATR·개장 이격) — 보유가 없을 때만 새 진입을 막는다 ──
+        if (position <= 0 && !day_entry_allowed(current_price, daily_averages_previous.average_20, hhmm))
+        {
+            cancel_all(out);
+            return;
+        }
 
         // 스탑 청산이 아직 진행 중이면(청산을 냈는데 보유가 줄지 않음) 재구성하지 않는다. 시장가 스탑이 체결되기 전에
         //  다음 하트비트가 익절 지정가 매도를 다시 깔면, 라우터가 매도가능 0을 풀려고 살아 있는 스탑 주문을 취소하려 든다
@@ -991,6 +1056,45 @@ public:
 
 private:
     // ── 지표 (indicators.py 이식, bars[0]=최신) ──────────────────────────────
+    // 하루 단위 진입 필터 판정 — 그날 첫 평가(개장 봉이 닫힌 09:03 이후)에서 한 번 정하고 하루 동안 고정한다.
+    //  개장 이격은 그 첫 평가의 현재가로 잰다(재기동이 늦으면 그 시각 가격 — 갭 회피가 목적이라 근사로 충분).
+    //  09:03 전에는 판정을 못 하므로 진입을 미룬다(그 구간은 봉 부족으로 어차피 안 산다).
+    bool day_entry_allowed(double current_price, double previous_sma20, int hhmm)
+    {
+        const bool filter_off = parameters_.entry_atr_max_percent <= 0.0 &&
+                                parameters_.entry_open_deviation_min_percent <= -99.0 &&
+                                parameters_.entry_open_deviation_max_percent >= 99.0;
+
+        if (filter_off)
+        {
+            return true;
+        }
+
+        const std::string today = kst_ymd();
+
+        if (entry_filter_date_ != today)
+        {
+            if (hhmm < kOpenDeviationSampleHhmm || previous_sma20 <= 0.0)
+            {
+                return false;
+            }
+
+            const double atr_percent = devscale_rules::average_true_range(daily_, kAtrPeriod) / previous_sma20 * 100.0;
+            const double open_deviation_percent = (current_price - previous_sma20) / previous_sma20 * 100.0;
+            entry_filter_date_ = today;
+            day_entry_allowed_ = devscale_rules::entry_day_allowed(atr_percent, open_deviation_percent,
+                                                                   parameters_.entry_atr_max_percent,
+                                                                   parameters_.entry_open_deviation_min_percent,
+                                                                   parameters_.entry_open_deviation_max_percent);
+            LOG_INFO("[" + id() + "] 진입 필터 " + (day_entry_allowed_ ? "통과" : "차단") +
+                     "(ATR14 " + format_one_decimal(atr_percent) + "% 개장 이격 " + format_one_decimal(open_deviation_percent) +
+                     "% 기준 ATR<=" + format_one_decimal(parameters_.entry_atr_max_percent) + " 이격>=" +
+                     format_one_decimal(parameters_.entry_open_deviation_min_percent) + ")");
+        }
+
+        return day_entry_allowed_;
+    }
+
     static double simple_moving_average_close(const std::vector<MarketData>& bars, int period)
     {
         if (static_cast<int>(bars.size()) < period || period <= 0)
@@ -1491,6 +1595,13 @@ private:
     int    last_position_ = -1;                  // 마지막 재구성 시 포지션(데드밴드 가드)
     int    base_target_quantity_ = 0;            // 베이스 분할 단계를 처음 깔 때의 목표 수량(부분체결 잔량 기준, 보유 0이면 초기화)
     int    peak_position_ = 0;                   // 이번 보유 구간의 최대 보유 수량(목표에 닿았으면 베이스 잔량을 더 깔지 않음)
+    double hold_peak_price_ = 0.0;               // 이번 보유 구간의 최고 현재가(무장 후 트레일 기준, 보유 0이면 초기화)
+    std::string entry_filter_date_;              // 진입 필터를 판정한 날(KST YYYYMMDD) — 하루 한 번
+    bool   day_entry_allowed_ = true;            // 그날 새 진입 허용 여부(진입 필터 판정 결과)
+    static constexpr int kOpenDeviationSampleHhmm = 903;   // 개장 봉(3분) 종가 시각 — 이 뒤 첫 평가에서 개장 이격을 잰다
+    static constexpr int kAtrPeriod = 14;
+    static constexpr int kLiquidationBackoffMs = 30000;    // 손절·트레일·기준선 이탈 청산의 재시도 상한(ms)
+    static constexpr int kMarketCloseBackoffMs = 300000;   // 장 마감 청산의 재시도 상한(ms) — 마감까지 계속 민다
     std::string last_split_buy_signal_;          // 마지막 발주 분할 매수 시그니처(no-change 가드)
     std::chrono::steady_clock::time_point last_work_{};   // 스로틀
     std::chrono::steady_clock::time_point last_rebuild_{}; // 마지막 분할 매수 전면 재구성

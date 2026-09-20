@@ -119,7 +119,7 @@
     {
       "from": "strategy",
       "to": "core",
-      "weight": 17
+      "weight": 19
     },
     {
       "from": "strategy",
@@ -202,6 +202,7 @@
     "risk/GateReasons.h": "risk",
     "risk/OrderGate.h": "risk",
     "strategy/DeviationScaleStrategy.h": "strategy",
+    "strategy/DevScaleRules.h": "strategy",
     "strategy/FixedIntervalStrategy.h": "strategy",
     "strategy/IntradayBreakoutStrategy.h": "strategy",
     "strategy/MACrossStrategy.h": "strategy",
@@ -534,6 +535,9 @@
       "core/SymbolTable.h",
       "core/Types.h"
     ],
+    "strategy/DevScaleRules.h": [
+      "core/Types.h"
+    ],
     "strategy/DeviationScaleStrategy.h": [
       "api/KisClient.h",
       "core/BarAggregator.h",
@@ -541,6 +545,7 @@
       "core/KstTime.h",
       "core/TickSize.h",
       "core/WakeGate.h",
+      "strategy/DevScaleRules.h",
       "strategy/StrategyBase.h",
       "universe/MaAlign.h",
       "utils/Logger.h"
@@ -579,8 +584,10 @@
     ],
     "strategy/StrategyFactory.cpp": [
       "core/Engine.h",
+      "core/KstTime.h",
       "core/Types.h",
       "core/UniverseExit.h",
+      "strategy/DevScaleRules.h",
       "strategy/DeviationScaleStrategy.h",
       "strategy/FixedIntervalStrategy.h",
       "strategy/IntradayBreakoutStrategy.h",
@@ -738,6 +745,7 @@
       "risk/OrderGate.cpp",
       "strategy/DeviationScaleStrategy.h",
       "strategy/SeedPeakStore.h",
+      "strategy/StrategyFactory.cpp",
       "strategy/SupplyDemandPullbackStrategy.h",
       "universe/UniverseScanner.cpp"
     ],
@@ -853,6 +861,7 @@
       "main.cpp",
       "modes/Monitors.cpp",
       "risk/OrderGate.h",
+      "strategy/DevScaleRules.h",
       "strategy/StrategyBase.h",
       "strategy/StrategyFactory.cpp",
       "strategy/SupplyDemandPullbackStrategy.h",
@@ -903,6 +912,10 @@
       "core/SignalDispatcher.h",
       "ipc/OrderRouter.h",
       "risk/OrderGate.cpp"
+    ],
+    "strategy/DevScaleRules.h": [
+      "strategy/DeviationScaleStrategy.h",
+      "strategy/StrategyFactory.cpp"
     ],
     "strategy/DeviationScaleStrategy.h": [
       "strategy/StrategyFactory.cpp"
@@ -1013,7 +1026,7 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 29
+      "in_degree": 30
     },
     {
       "header": "utils/Logger.h",
@@ -1021,7 +1034,7 @@
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 14
+      "in_degree": 15
     },
     {
       "header": "strategy/StrategyBase.h",
@@ -1954,6 +1967,7 @@
         "PYQuant/dashboard/backfill_live.py",
         "PYQuant/tests/test_stats.py",
         "Quant/src/ipc/OrderRouter.cpp",
+        "Quant/src/strategy/StrategyFactory.cpp",
         "scripts/backfill_fills_db.py",
         "scripts/exit_ev.py",
         "scripts/exit_ev_dashboard.py",
@@ -1964,6 +1978,7 @@
         "PYQuant/dashboard/backfill_live.py",
         "PYQuant/tests/test_stats.py",
         "Quant/src/ipc/OrderRouter.cpp",
+        "Quant/src/strategy/StrategyFactory.cpp",
         "scripts/_logdir.py",
         "scripts/backfill_fills_db.py",
         "scripts/exit_ev.py",

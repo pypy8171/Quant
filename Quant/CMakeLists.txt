@@ -332,6 +332,9 @@ if(UNIX)
 endif()
 
 # 매크로 국면 파일 전달(core/RegimeFileJudge.h) — 헤더 전용, 파일·로그 없음 (D-060)
+add_executable(test_devscale_rules tests/test_devscale_rules.cpp)
+target_include_directories(test_devscale_rules PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 add_executable(test_regime_file_judge tests/test_regime_file_judge.cpp)
 target_include_directories(test_regime_file_judge PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(test_regime_file_judge PRIVATE nlohmann_json::nlohmann_json)
@@ -563,6 +566,7 @@ set(QUANT_ASSERT_TARGETS
     test_ops_protocol
     test_ops_server
     test_regime_file_judge
+    test_devscale_rules
     test_ringbuffer
     test_ringbuffer_stress
     test_pipeline_stress

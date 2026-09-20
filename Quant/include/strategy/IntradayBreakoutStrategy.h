@@ -271,9 +271,11 @@ public:
                     why = " (본전탈출)";
                 }
             }
-            else
+            else if (!position_is_seed_)
             {
                 // (B) 신규 진입분: 타이트 트레일 + 진입가 하드손절.
+                // [inv] 유예 중인 시드는 여기로 오지 않는다. 그냥 else였을 때 유예 중 시드가 이 분기(첫 틱 고가 대비
+                //  1% 트레일)로 떨어져 부착 90초 안에 47건이 팔렸다(09-04~18 −43만).
                 double trail_stop = peak_ * (1.0 - trail_percent_);
                 double hard_stop = entry_price_ * (1.0 - hard_percent_);
 

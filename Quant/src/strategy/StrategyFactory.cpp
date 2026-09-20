@@ -1,7 +1,9 @@
 #include "strategy/StrategyFactory.h"
 #include "core/Engine.h"
+#include "core/KstTime.h"
 #include "core/Types.h"
 #include "core/UniverseExit.h"
+#include "strategy/DevScaleRules.h"
 #include "strategy/DeviationScaleStrategy.h"
 #include "strategy/FixedIntervalStrategy.h"
 #include "strategy/IntradayBreakoutStrategy.h"
@@ -16,7 +18,10 @@
 #include "universe/UniverseScanner.h"
 #include "utils/JsonNode.h"
 #include "utils/Logger.h"
+#include <algorithm>
+#include <chrono>
 #include <cstdlib>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -399,6 +404,28 @@ static void load_market_making(StrategyLoadCtx& context, const json& node)
         std::move(ticker), market_making_quantity, half_spread_ticks, requote_move_ticks, min_requote_ms));
 }
 
+// 오늘 이 슬리브(id_prefix)가 산 종목 — 체결 원장 logs/trades_YYYYMMDD.csv(OrderRouter가 쓴다)의 FILL·BUY 행.
+//  재기동 때 보유분을 전부 청산 관리(ITB)로 넘기면 당일 매수분도 익절선 없이 트레일에만 걸린다(09-04~18 승계 매도
+//  725체결 −190만). 분할 매수가 없으면(buy_split_steps 0) 명목 상한 초과 위험이 없어 DevScale이 그대로 맡는다.
+//  파일이 없거나(첫 기동) 못 읽으면 빈 집합 — 그때는 기존대로 청산 관리가 맡는다.
+//  넘김 모드(market_close_exit_hhmm 2400)는 전날 산 것도 DevScale 보유라 lookback_days만큼 지난 원장까지 본다.
+static std::set<std::string> tickers_bought_recently(const std::string& id_prefix, int lookback_days)
+{
+    std::set<std::string> bought;
+    const std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+
+    constexpr std::time_t kSecondsPerDay = 86400;
+
+    for (int day_offset = 0; day_offset <= lookback_days; ++day_offset)
+    {
+        const std::string date = kst::date_yyyymmdd(now - static_cast<std::time_t>(day_offset) * kSecondsPerDay);
+        std::ifstream ledger(Logger::instance().path_for("trades_" + date + ".csv"));
+        bought.merge(devscale_rules::tickers_bought_from_ledger(ledger, id_prefix));
+    }
+
+    return bought;
+}
+
 // ─── 보유분 청산 관리 (DEVIATION_SCALE 보조) ───────────────────────────────
 //  스캔 유니버스가 잡지 못한 잔고 보유분(아침에 산 물린분 등)마다 "청산 전용" ITB를
 //  붙인다. 신규진입은 no_new_entry_hhmm=1(항상 과거)로 영구 차단 → 오직 보호·청산만:
@@ -603,6 +630,11 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
     base.reentry_cooldown_sec = node.value("reentry_cooldown_sec", 600); // 전량 청산 뒤 재진입 대기(0=끄기)
     base.dust_krw           = node.value("dust_krw", 250000.0);     // 평가금 이 아래 잔존 보유는 시장가 정리(0=끄기)
     base.sell_base_average    = node.value("sell_base_average", false);
+    base.trail_arm_percent    = node.value("trail_arm_pct", 0.0);
+    base.trail_percent        = node.value("trail_pct", 1.0);
+    base.entry_atr_max_percent            = node.value("entry_atr_max_pct", 0.0);
+    base.entry_open_deviation_min_percent = node.value("entry_open_dev_min_pct", -99.0);
+    base.entry_open_deviation_max_percent = node.value("entry_open_dev_max_pct", 99.0);
     base.prefetch_jitter_percent = node.value("prefetch_jitter_pct", 50);
     base.bar_source        = node.value("bar_source", std::string("ws"));   // "ws"(기본)|"rest" (D-069·D-072)
     base.market_close_hhmm          = node.value("market_close_exit_hhmm", 1515);
@@ -619,6 +651,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
     //  초과해 CANCEL 거부·과주문이 난다(073240 사례). 보유분=청산 관리, 신규만=DevScale로 분리.
     //  manage_holdings.enabled일 때만 적용(청산 관리가 있어야 보유분을 인수하므로).
     std::set<std::string> held;
+    std::set<std::string> reinstated; // 보유 중인 당일 매수분 — 스캔에 없어도 등록하고 청산 관리는 안 붙인다
 
     if (node.contains("manage_holdings") && node["manage_holdings"].value("enabled", false))
     {
@@ -640,8 +673,24 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
                 }
             }
 
+            // 당일 매수분은 DevScale이 다시 맡는다(재인수). 분할 매수가 있으면 기존대로 청산 관리에 넘긴다.
+            //  넘김 모드면 최근 20일 원장까지 봐서 전날 넘긴 보유도 되찾는다.
+            if (base.buy_split_steps == 0)
+            {
+                const int lookback_days = base.market_close_hhmm >= devscale_rules::kNoMarketCloseHhmm ? 20 : 0;
+
+                for (const std::string& ticker : tickers_bought_recently(base.id_prefix, lookback_days))
+                {
+                    if (held.erase(ticker) > 0)
+                    {
+                        reinstated.insert(ticker);
+                    }
+                }
+            }
+
             LOG_INFO("[Main] DEVSCALE: 보유분 " + std::to_string(held.size()) +
-                     "종목 스캔 제외(청산 관리 전담)");
+                     "종목 스캔 제외(청산 관리 전담), " + (base.market_close_hhmm >= devscale_rules::kNoMarketCloseHhmm ? "최근 매수분 " : "당일 매수분 ") +
+                     std::to_string(reinstated.size()) + "종목 재인수");
         }
         else
         {
@@ -836,10 +885,19 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
         // 초기 등록용 — load_strategies는 engine.start()(bootstrap_ledger 포함) 전에 돌아
         //  OrderGate 원장이 아직 비어 있다. 기동 시 직접 조회한 잔고 스냅샷을 쓴다.
         //  이 함수 안에서 한 번만 부르므로 참조로 잡는다(universe_rescan은 엔진에 저장되어 사본이 필요하다).
-        auto universe_initialize = [&scan_fn, &drop_held, &held](KisClient& kis)
+        auto universe_initialize = [&scan_fn, &drop_held, &held, &reinstated](KisClient& kis)
         {
             auto scanned_tickers = scan_fn(kis);
             drop_held(scanned_tickers, held);
+
+            for (const std::string& ticker : reinstated) // 오늘 스캔에서 빠졌어도 보유분이라 맡는다
+            {
+                if (std::find(scanned_tickers.begin(), scanned_tickers.end(), ticker) == scanned_tickers.end())
+                {
+                    scanned_tickers.push_back(ticker);
+                }
+            }
+
             return scanned_tickers;
         };
         // 주기적 재스캔용 — 매회 OrderGate 원장에서 현재 보유를 다시 읽는다. 청산 관리가 청산한
