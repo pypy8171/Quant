@@ -39,9 +39,9 @@ graph LR
   modes -->|2| utils
   risk -->|4| core
   strategy -->|5| api
-  strategy -->|20| core
+  strategy -->|22| core
   strategy -->|3| universe
-  strategy -->|10| utils
+  strategy -->|11| utils
   universe --> api
   universe -->|4| core
   universe -->|3| utils
@@ -55,10 +55,10 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 30 |
-| `utils/Logger.h` | 27 |
-| `core/KstTime.h` | 15 |
-| `strategy/StrategyBase.h` | 13 |
+| `core/Types.h` | 31 |
+| `utils/Logger.h` | 28 |
+| `core/KstTime.h` | 16 |
+| `strategy/StrategyBase.h` | 14 |
 | `api/KisClient.h` | 12 |
 | `core/SymbolTable.h` | 12 |
 | `core/MarketSession.h` | 8 |
@@ -151,6 +151,10 @@ graph LR
     n_strategy_StrategyFactory_cpp["strategy/StrategyFactory.cpp"]
     n_strategy_StrategyFactory_h["strategy/StrategyFactory.h"]
     n_strategy_SupplyDemandPullbackStrategy_h["strategy/SupplyDemandPullbackStrategy.h"]
+    n_strategy_TargetBasketPlan_cpp["strategy/TargetBasketPlan.cpp"]
+    n_strategy_TargetBasketPlan_h["strategy/TargetBasketPlan.h"]
+    n_strategy_TargetBasketStrategy_cpp["strategy/TargetBasketStrategy.cpp"]
+    n_strategy_TargetBasketStrategy_h["strategy/TargetBasketStrategy.h"]
     n_strategy_ThemeStrategy_h["strategy/ThemeStrategy.h"]
     n_strategy_ValueContraryStrategy_h["strategy/ValueContraryStrategy.h"]
   end
@@ -380,6 +384,7 @@ graph LR
   n_strategy_StrategyFactory_cpp --> n_strategy_PriceTargetStrategy_h
   n_strategy_StrategyFactory_cpp --> n_strategy_StrategyFactory_h
   n_strategy_StrategyFactory_cpp --> n_strategy_SupplyDemandPullbackStrategy_h
+  n_strategy_StrategyFactory_cpp --> n_strategy_TargetBasketStrategy_h
   n_strategy_StrategyFactory_cpp --> n_strategy_ThemeStrategy_h
   n_strategy_StrategyFactory_cpp --> n_strategy_ValueContraryStrategy_h
   n_strategy_StrategyFactory_cpp --> n_universe_ScoreWeight_h
@@ -392,6 +397,13 @@ graph LR
   n_strategy_SupplyDemandPullbackStrategy_h --> n_core_Types_h
   n_strategy_SupplyDemandPullbackStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_SupplyDemandPullbackStrategy_h --> n_utils_Logger_h
+  n_strategy_TargetBasketPlan_cpp --> n_strategy_TargetBasketPlan_h
+  n_strategy_TargetBasketPlan_h --> n_core_Types_h
+  n_strategy_TargetBasketStrategy_cpp --> n_core_KstTime_h
+  n_strategy_TargetBasketStrategy_cpp --> n_strategy_TargetBasketStrategy_h
+  n_strategy_TargetBasketStrategy_cpp --> n_utils_Logger_h
+  n_strategy_TargetBasketStrategy_h --> n_strategy_StrategyBase_h
+  n_strategy_TargetBasketStrategy_h --> n_strategy_TargetBasketPlan_h
   n_strategy_ThemeStrategy_h --> n_api_KisClient_h
   n_strategy_ThemeStrategy_h --> n_core_MarketSession_h
   n_strategy_ThemeStrategy_h --> n_strategy_StrategyBase_h
@@ -442,10 +454,9 @@ graph LR
   p_PYQuant --> p_PYQuant_core
   p_PYQuant -->|4| p_PYQuant_data
   p_PYQuant --> p_PYQuant_db
-  p_PYQuant --> p_PYQuant_features
   p_PYQuant -->|2| p_PYQuant_ipc
   p_PYQuant --> p_PYQuant_kis
-  p_PYQuant -->|3| p_PYQuant_live
+  p_PYQuant -->|2| p_PYQuant_live
   p_PYQuant --> p_PYQuant_report
   p_PYQuant -->|5| p_PYQuant_strategy
   p_PYQuant_backtest --> p_PYQuant_data
@@ -458,10 +469,9 @@ graph LR
   p_PYQuant_ipc -->|2| p_PYQuant_core
   p_PYQuant_kis --> p_PYQuant_core
   p_PYQuant_live --> p_PYQuant
-  p_PYQuant_live -->|2| p_PYQuant_backtest
-  p_PYQuant_live --> p_PYQuant_features
+  p_PYQuant_live --> p_PYQuant_backtest
   p_PYQuant_live -->|2| p_PYQuant_kis
-  p_PYQuant_live -->|2| p_PYQuant_strategy
+  p_PYQuant_live --> p_PYQuant_strategy
   p_PYQuant_strategy -->|6| p_PYQuant_kis
   p_PYQuant_tests -->|6| p_PYQuant_backtest
   p_PYQuant_tests -->|3| p_PYQuant_data
@@ -499,10 +509,9 @@ graph LR
 | `PYQuant/ipc/operator.py` | `core.logger` |
 | `PYQuant/ipc/subscriber.py` | `core.logger` |
 | `PYQuant/kis/client.py` | `core.logger`, `kis.endpoints` |
-| `PYQuant/live/basket_forward.py` | `backtest.engine`, `features`, `strategy.cross_momentum` |
 | `PYQuant/live/forward_trader.py` | `backtest.engine`, `kis.client`, `main` |
 | `PYQuant/live/trader.py` | `kis.client`, `strategy.base` |
-| `PYQuant/main.py` | `backtest.engine`, `backtest.report`, `core.logger`, `data.datagokr_source`, `data.krx_source`, `data.universe_kospi`, `data.yfinance_source`, `db.client`, `features.fundamental`, `ipc.operator`, `ipc.subscriber`, `kis.client`, `live.basket_forward`, `live.forward_trader`, `live.trader`, `report.account`, `strategy.cross_momentum`, `strategy.mean_reversion`, `strategy.strategy_a`, `strategy.supply_demand_rank`, `strategy.value_contrary` |
+| `PYQuant/main.py` | `backtest.engine`, `backtest.report`, `core.logger`, `data.datagokr_source`, `data.krx_source`, `data.universe_kospi`, `data.yfinance_source`, `db.client`, `ipc.operator`, `ipc.subscriber`, `kis.client`, `live.forward_trader`, `live.trader`, `report.account`, `strategy.cross_momentum`, `strategy.mean_reversion`, `strategy.strategy_a`, `strategy.supply_demand_rank`, `strategy.value_contrary` |
 | `PYQuant/strategy/base.py` | `kis.client` |
 | `PYQuant/strategy/channel_breakout.py` | `strategy.base` |
 | `PYQuant/strategy/cross_momentum.py` | `kis.client`, `strategy.base` |

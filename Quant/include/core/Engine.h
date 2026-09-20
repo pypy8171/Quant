@@ -201,6 +201,11 @@ public:
     symbol::SymbolTable&       symbols() noexcept { return symbols_.table; }
     const symbol::SymbolTable& symbols() const noexcept { return symbols_.table; }
 
+    // 바스켓 슬리브 소유 종목 — 슬롯·교체·강제청산 밖(OrderGate::set_slot_exempt). 바스켓 로더가 기동 때, 전략이 파일을
+    //  다시 읽을 때 넣고, DEVSCALE 재스캔이 이 목록을 유니버스에서 뺀다(같은 종목을 두 슬리브가 들지 않게). [why D-109]
+    void set_slot_exempt_tickers(const std::vector<std::string>& tickers) { order_gate_.set_slot_exempt(tickers); }
+    std::vector<symbol::SymbolId> slot_exempt_symbols() const { return order_gate_.slot_exempt_symbols(); }
+
     // ── 유니버스 재스캔 ─────────────────────────────────────────────────────
     // 주기적 유니버스 재스캔(동적 등록). universe_fn: 시세 클라이언트로 유니버스 티커 목록 산출.
     // factory: 티커 → 전략 인스턴스 생성. interval_sec: 재스캔 주기(초, ≤0이면 비활성).

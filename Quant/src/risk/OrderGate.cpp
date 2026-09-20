@@ -360,8 +360,9 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
         // 3c. 동시 보유 종목 상한 — "새 종목"을 여는 BUY NEW에만 적용(기존 보유·예약 종목은 통과).
         //     총노출 제어: 실보유(positions_>0)∪예약(reserved_>0) 종목 수가 상한이면 신규 진입 차단.
         //     기존 보유·예약이 있는 종목(filled>0 또는 reserved!=0)은 새로 여는 게 아니므로 예외.
+        //     바스켓 슬리브 소유 종목(slot_exempt_)은 상한을 세지도, 상한에 걸리지도 않는다 [why D-109].
         if (config_.max_concurrent_positions > 0 && signal.action == OrderAction::NEW &&
-            filled == 0 && reserved == 0)
+            filled == 0 && reserved == 0 && !slot_exempt_.contains(key.symbol))
         {
             size_t open = 0;
             size_t held = 0;   // 그중 실보유. 거부 문구에서 유령 선점과 갈라 보려고 따로 센다
@@ -386,7 +387,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 
             for (const auto& entry : positions_)
             {
-                if (entry.second > 0)
+                if (entry.second > 0 && !slot_exempt_.contains(entry.first.symbol))
                 {
                     ++open;
                     ++held;
@@ -396,7 +397,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 
             for (const auto& entry : reserved_)
             {
-                if (entry.second > 0)
+                if (entry.second > 0 && !slot_exempt_.contains(entry.first.symbol))
                 {
                     auto iterator = positions_.find(entry.first);
 
@@ -1181,7 +1182,7 @@ size_t OrderGate::open_slot_count() const
 
     for (const auto& entry : positions_)
     {
-        if (entry.second > 0)
+        if (entry.second > 0 && !slot_exempt_.contains(entry.first.symbol))
         {
             ++open;
         }
@@ -1189,7 +1190,7 @@ size_t OrderGate::open_slot_count() const
 
     for (const auto& entry : reserved_)
     {
-        if (entry.second > 0)
+        if (entry.second > 0 && !slot_exempt_.contains(entry.first.symbol))
         {
             auto iterator = positions_.find(entry.first);
 
@@ -1345,7 +1346,7 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
 
             const PosKey& key = entry.first;
 
-            if (key.symbol == new_symbol)
+            if (key.symbol == new_symbol || slot_exempt_.contains(key.symbol)) // 바스켓 소유 종목은 교체 후보가 아니다 [why D-109]
             {
                 continue;
             }
@@ -1810,8 +1811,43 @@ std::vector<OrderGate::HeldPos> OrderGate::snapshot_positions() const
         held_position.quantity     = entry.second;
         auto average_price_iterator = average_prices_.find(key);
         held_position.average_price = (average_price_iterator != average_prices_.end()) ? average_price_iterator->second : 0.0;
+        held_position.slot_exempt   = slot_exempt_.contains(key.symbol);
         out.push_back(std::move(held_position));
     }
 
+    return out;
+}
+
+void OrderGate::set_slot_exempt(const std::vector<std::string>& tickers)
+{
+    std::unordered_set<symbol::SymbolId> next;
+    next.reserve(tickers.size());
+
+    for (const auto& ticker : tickers)
+    {
+        const symbol::SymbolId symbol = symbols_->intern(ticker);
+
+        if (symbol != symbol::kNone)
+        {
+            next.insert(symbol);
+        }
+    }
+
+    std::lock_guard<std::mutex> lock(positions_mutex_);
+    slot_exempt_ = std::move(next);
+}
+
+bool OrderGate::is_slot_exempt(symbol::SymbolId symbol) const
+{
+    std::lock_guard<std::mutex> lock(positions_mutex_);
+    return slot_exempt_.contains(symbol);
+}
+
+std::vector<symbol::SymbolId> OrderGate::slot_exempt_symbols() const
+{
+    std::vector<symbol::SymbolId> out;
+    std::lock_guard<std::mutex>   lock(positions_mutex_);
+    out.assign(slot_exempt_.begin(), slot_exempt_.end());
+    std::sort(out.begin(), out.end()); // 집합 순서는 해시 순 — 호출자가 같은 입력에 같은 순서를 받게 한다
     return out;
 }

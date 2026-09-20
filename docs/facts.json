@@ -109,6 +109,10 @@
       "file": "Quant/include/strategy/SupplyDemandPullbackStrategy.h"
     },
     {
+      "name": "TargetBasketStrategy",
+      "file": "Quant/include/strategy/TargetBasketStrategy.h"
+    },
+    {
       "name": "ThemeStrategy",
       "file": "Quant/include/strategy/ThemeStrategy.h"
     },
@@ -171,6 +175,8 @@
       "test_order_rate_limiter",
       "test_devscale_rules",
       "test_regime_file_judge",
+      "test_target_basket_plan",
+      "test_target_basket_strategy",
       "test_ringbuffer",
       "test_ringbuffer_stress",
       "test_pipeline_stress",
@@ -228,6 +234,8 @@
       "test_order_rate_limiter",
       "test_devscale_rules",
       "test_regime_file_judge",
+      "test_target_basket_plan",
+      "test_target_basket_strategy",
       "test_ringbuffer",
       "test_ringbuffer_stress",
       "test_pipeline_stress",
@@ -249,7 +257,7 @@
       "test_account_ledger",
       "test_logger"
     ],
-    "count": 36
+    "count": 38
   },
   "harness": {
     "commands": [
@@ -421,20 +429,8 @@
     "us_universe.json"
   ],
   "config_keys": {
-    "top": [
-      "fetch_interval_sec",
-      "kis",
-      "mode",
-      "strategies"
-    ],
-    "strategies": [
-      "exchange",
-      "market",
-      "market_close_exit_hhmm",
-      "pbr_max",
-      "quantity",
-      "type"
-    ]
+    "top": [],
+    "strategies": []
   },
   "dir_tree": {
     ".claude": {
@@ -472,7 +468,6 @@
       "tools": {}
     },
     "Quant": {
-      "build": {},
       "config": {},
       "include": {},
       "src": {},
@@ -510,14 +505,14 @@
     {
       "file": "Quant/src/risk/OrderGate.cpp",
       "symbol": "OrderGate::check",
-      "lines": 467,
+      "lines": 468,
       "start": 229
     },
     {
       "file": "Quant/src/strategy/StrategyFactory.cpp",
       "symbol": "load_deviation_scale",
-      "lines": 412,
-      "start": 647
+      "lines": 418,
+      "start": 651
     },
     {
       "file": "Quant/include/strategy/IntradayBreakoutStrategy.h",
@@ -547,7 +542,7 @@
       "file": "Quant/src/risk/OrderGate.cpp",
       "symbol": "OrderGate::plan_displacement",
       "lines": 216,
-      "start": 1255
+      "start": 1256
     },
     {
       "file": "PYQuant/backtest/devscale_replay.py",
@@ -608,6 +603,12 @@
       "symbol": "on_start",
       "lines": 161,
       "start": 101
+    },
+    {
+      "file": "Quant/src/strategy/TargetBasketPlan.cpp",
+      "symbol": "make_plan",
+      "lines": 161,
+      "start": 150
     },
     {
       "file": "PYQuant/backtest/engine.py",
@@ -697,7 +698,13 @@
       "file": "Quant/src/strategy/StrategyFactory.cpp",
       "symbol": "load_intraday_breakout",
       "lines": 117,
-      "start": 180
+      "start": 184
+    },
+    {
+      "file": "Quant/src/strategy/TargetBasketStrategy.cpp",
+      "symbol": "TargetBasketStrategy::run_pass",
+      "lines": 116,
+      "start": 307
     },
     {
       "file": "PYQuant/tools/universe_feed.py",
@@ -722,6 +729,12 @@
       "symbol": "Engine::control_thread_fn",
       "lines": 111,
       "start": 2638
+    },
+    {
+      "file": "Quant/src/strategy/TargetBasketPlan.cpp",
+      "symbol": "parse_targets",
+      "lines": 110,
+      "start": 26
     },
     {
       "file": "PYQuant/tools/walkforward.py",

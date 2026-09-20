@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@1a5acb5 Quant/src/core/Engine.cpp@5ced03e Quant/include/core/DataPoller.h@6d196bc Quant/include/core/SignalDispatcher.h@3b18d7e Quant/include/core/OrderRateLimiter.h@deac415 Quant/include/core/LedgerReconciler.h@f122289 Quant/include/core/WakeGate.h@9e8c712 Quant/include/core/BarAggregator.h@fbb210b Quant/include/core/LatencyTrace.h@54aae27 Quant/include/core/ReconcilePlan.h@e44b1c1 -->
+<!-- sync: Quant/include/core/Engine.h@483d1ae Quant/src/core/Engine.cpp@5ced03e Quant/include/core/DataPoller.h@6d196bc Quant/include/core/SignalDispatcher.h@9d1555f Quant/include/core/OrderRateLimiter.h@deac415 Quant/include/core/LedgerReconciler.h@f122289 Quant/include/core/WakeGate.h@9e8c712 Quant/include/core/BarAggregator.h@fbb210b Quant/include/core/LatencyTrace.h@54aae27 Quant/include/core/ReconcilePlan.h@e44b1c1 -->
 엔진은 락-프리 파이프라인(데이터→전략 샤드→디스패치→주문)에 체결 소비 스레드와 제어 스레드를 더해 다섯 개 + 샤드 M개의 스레드를 실행합니다(config `strategy_shards`, 기본 1):
 
 ```
@@ -28,7 +28,7 @@
 
 ### 핵심 타입 (`Quant/include/core/Types.h`)
 
-<!-- sync: Quant/include/core/Types.h@8b04f57 -->
+<!-- sync: Quant/include/core/Types.h@6052334 -->
 `MarketData`(OHLCV + bar_index), `OrderSignal`(side/type/quantity/price/**reference_price** + strategy_id, 종목 id `symbol_id`는 전략 스레드가 큐에 넣기 전에 찍고, 전략 번호 `strategy_index`·주문 번호 `client_order_number`는 정수라 게이트·라우터가 문자열 없이 찾는다, D-112), `Position`, `OrderBook`(5단계 호가, 채널 `H0STASP0`/선물 `H0IFASP0`), `TradeData`(실시간 체결, 채널 `H0STCNT0`/선물 `H0IFCNT0`; 호가·체결 모두 종목 id `symbol_id`와 정수 시각 `hhmmss`를 들고, 봉·호가·체결의 `ticker`는 `symbol::Ticker` 15자 고정 배열이라 세 구조체는 trivially copyable이다 — 문자열은 `.str()`, D-071), `WatchSpec`(FEED 구독 종목 명세 — `is_future` 플래그로 현·선 채널 선택), `Regime`(enum: BULL/NEUTRAL/BEAR/UNKNOWN), `RegimeSnapshot`(장 시작 국면 판정 결과 — score·200MA·정배열/역배열·지수 이평 분해).
 
 > `OrderSignal.reference_price`는 시장가(price=0) 주문의 명목 한도 평가 기준가다. 지정가는 `price`로 명목을 재지만 시장가는 `price`가 0이라 이 값이 없으면 명목 백스톱이 우회된다(특히 급락장 강제청산의 시장가 전량매도). 발주 측이 직전 현재가/평단을 stamp한다.

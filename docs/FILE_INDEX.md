@@ -9,7 +9,7 @@
 - [(루트)](#루트) — 10개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 102개
-- [Quant](#quant) — 178개
+- [Quant](#quant) — 184개
 - [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 240개
@@ -291,6 +291,8 @@
 - [StrategyBase.h](../Quant/include/strategy/StrategyBase.h) — 전략 기반 인터페이스
 - [StrategyFactory.h](../Quant/include/strategy/StrategyFactory.h) — config strategies 배열 파싱·등록 로더
 - [SupplyDemandPullbackStrategy.h](../Quant/include/strategy/SupplyDemandPullbackStrategy.h) — 수급 선별+5일선 눌림목 진입 전략
+- [TargetBasketPlan.h](../Quant/include/strategy/TargetBasketPlan.h) — 목표 비중표 파일 계약(schema·슬리브·행)과 "목표 − 보유 = 주문" 계획 구조체 (D-109)
+- [TargetBasketStrategy.h](../Quant/include/strategy/TargetBasketStrategy.h) — 바스켓 슬리브 전략 — 집행 창·두 레그·상태 파일·소유 종목 sink 선언 (D-109)
 - [ThemeStrategy.h](../Quant/include/strategy/ThemeStrategy.h) — 3단 필터 테마 모멘텀 전략
 - [ValueContraryStrategy.h](../Quant/include/strategy/ValueContraryStrategy.h) — 저PBR 3일 연속 하락 반전 매수 전략
 
@@ -358,6 +360,8 @@
 - [MomentumStrategy.cpp](../Quant/src/strategy/MomentumStrategy.cpp) — 빈 placeholder 파일
 - [StrategyBase.cpp](../Quant/src/strategy/StrategyBase.cpp) — 빈 placeholder 파일
 - [StrategyFactory.cpp](../Quant/src/strategy/StrategyFactory.cpp) — 전략 로더 구현 — config 파싱·국면 부착
+- [TargetBasketPlan.cpp](../Quant/src/strategy/TargetBasketPlan.cpp) — 목표 비중표 파싱·검증과 밴드·DROP·liquidate_all 규칙으로 매도/매수 계획을 만든다
+- [TargetBasketStrategy.cpp](../Quant/src/strategy/TargetBasketStrategy.cpp) — 파일 재읽기, 14:40~15:00 매도→매수 레그, 종목:방향 하루 한 번(상태 파일 먼저 쓰기), 남의 틱을 심장박동으로
 
 ### Quant/src/universe/
 
@@ -412,6 +416,8 @@
 - [test_strategy_router.cpp](../Quant/tests/test_strategy_router.cpp) — 종목 id 전략 라우터 단위 테스트, 틱당 시간 측정
 - [test_strategy_shard.cpp](../Quant/tests/test_strategy_shard.cpp) — 전략 샤드 단위 테스트(열 소비 순서·다건 발주)
 - [test_symbol_table.cpp](../Quant/tests/test_symbol_table.cpp) — 종목 id 테이블 단위 테스트(부여 순서·동시성)
+- [test_target_basket_plan.cpp](../Quant/tests/test_target_basket_plan.cpp) — 비중표 파싱 실패 6종·밴드·채우기·DROP·두 슬리브 합산·liquidate_all·순자산 계산 고정
+- [test_target_basket_strategy.cpp](../Quant/tests/test_target_basket_strategy.cpp) — 원장·시각 주입으로 집행 창·두 레그·예산·재기동 중복 방지·창 끝·dry_run 고정
 - [test_tick_capture.cpp](../Quant/tests/test_tick_capture.cpp) — 틱 캡처·리더 왕복·이어쓰기 단위 테스트
 - [test_ticker.cpp](../Quant/tests/test_ticker.cpp) — 티커 조회 방식 7가지(std::map·unordered_map·SymbolTable::intern·정수 id 배열·숫자 파싱 희소 배열·틱당 소비자 4곳 모델)를 2,700종목·1천만 회로 재는 벤치(체크섬 출력으로 데드코드 제거를 막는다)
 - [test_wake_gate.cpp](../Quant/tests/test_wake_gate.cpp) — WakeGate 소비자 깨우기 단위 테스트

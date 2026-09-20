@@ -119,7 +119,7 @@
     {
       "from": "strategy",
       "to": "core",
-      "weight": 20
+      "weight": 22
     },
     {
       "from": "strategy",
@@ -129,7 +129,7 @@
     {
       "from": "strategy",
       "to": "utils",
-      "weight": 10
+      "weight": 11
     },
     {
       "from": "universe",
@@ -215,6 +215,8 @@
     "strategy/StrategyBase.h": "strategy",
     "strategy/StrategyFactory.h": "strategy",
     "strategy/SupplyDemandPullbackStrategy.h": "strategy",
+    "strategy/TargetBasketPlan.h": "strategy",
+    "strategy/TargetBasketStrategy.h": "strategy",
     "strategy/ThemeStrategy.h": "strategy",
     "strategy/ValueContraryStrategy.h": "strategy",
     "universe/MaAlign.h": "universe",
@@ -255,6 +257,8 @@
     "strategy/MomentumStrategy.cpp": "strategy",
     "strategy/StrategyBase.cpp": "strategy",
     "strategy/StrategyFactory.cpp": "strategy",
+    "strategy/TargetBasketPlan.cpp": "strategy",
+    "strategy/TargetBasketStrategy.cpp": "strategy",
     "universe/UniverseScanner.cpp": "universe",
     "utils/Logger.cpp": "utils",
     "utils/Timer.cpp": "utils"
@@ -609,6 +613,7 @@
       "strategy/PriceTargetStrategy.h",
       "strategy/StrategyFactory.h",
       "strategy/SupplyDemandPullbackStrategy.h",
+      "strategy/TargetBasketStrategy.h",
       "strategy/ThemeStrategy.h",
       "strategy/ValueContraryStrategy.h",
       "universe/ScoreWeight.h",
@@ -625,6 +630,21 @@
       "core/Types.h",
       "strategy/StrategyBase.h",
       "utils/Logger.h"
+    ],
+    "strategy/TargetBasketPlan.cpp": [
+      "strategy/TargetBasketPlan.h"
+    ],
+    "strategy/TargetBasketPlan.h": [
+      "core/Types.h"
+    ],
+    "strategy/TargetBasketStrategy.cpp": [
+      "core/KstTime.h",
+      "strategy/TargetBasketStrategy.h",
+      "utils/Logger.h"
+    ],
+    "strategy/TargetBasketStrategy.h": [
+      "strategy/StrategyBase.h",
+      "strategy/TargetBasketPlan.h"
     ],
     "strategy/ThemeStrategy.h": [
       "api/KisClient.h",
@@ -764,6 +784,7 @@
       "strategy/SeedPeakStore.h",
       "strategy/StrategyFactory.cpp",
       "strategy/SupplyDemandPullbackStrategy.h",
+      "strategy/TargetBasketStrategy.cpp",
       "universe/UniverseScanner.cpp"
     ],
     "core/LatencyTrace.h": [
@@ -891,6 +912,7 @@
       "strategy/StrategyBase.h",
       "strategy/StrategyFactory.cpp",
       "strategy/SupplyDemandPullbackStrategy.h",
+      "strategy/TargetBasketPlan.h",
       "universe/UniverseScanner.cpp"
     ],
     "core/UniverseExit.h": [
@@ -982,6 +1004,7 @@
       "strategy/MomentumStrategy.h",
       "strategy/PriceTargetStrategy.h",
       "strategy/SupplyDemandPullbackStrategy.h",
+      "strategy/TargetBasketStrategy.h",
       "strategy/ThemeStrategy.h",
       "strategy/ValueContraryStrategy.h"
     ],
@@ -991,6 +1014,14 @@
     ],
     "strategy/SupplyDemandPullbackStrategy.h": [
       "strategy/StrategyFactory.cpp"
+    ],
+    "strategy/TargetBasketPlan.h": [
+      "strategy/TargetBasketPlan.cpp",
+      "strategy/TargetBasketStrategy.h"
+    ],
+    "strategy/TargetBasketStrategy.h": [
+      "strategy/StrategyFactory.cpp",
+      "strategy/TargetBasketStrategy.cpp"
     ],
     "strategy/ThemeStrategy.h": [
       "strategy/StrategyFactory.cpp"
@@ -1044,6 +1075,7 @@
       "strategy/SeedPeakStore.h",
       "strategy/StrategyFactory.cpp",
       "strategy/SupplyDemandPullbackStrategy.h",
+      "strategy/TargetBasketStrategy.cpp",
       "strategy/ThemeStrategy.h",
       "strategy/ValueContraryStrategy.h",
       "universe/UniverseScanner.cpp",
@@ -1056,19 +1088,19 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 30
+      "in_degree": 31
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 27
+      "in_degree": 28
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 15
+      "in_degree": 16
     },
     {
       "header": "strategy/StrategyBase.h",
-      "in_degree": 13
+      "in_degree": 14
     },
     {
       "header": "api/KisClient.h",
@@ -1172,7 +1204,6 @@
       "PYQuant/kis/client.py",
       "PYQuant/kis/endpoints.py",
       "PYQuant/live/__init__.py",
-      "PYQuant/live/basket_forward.py",
       "PYQuant/live/forward_trader.py",
       "PYQuant/live/trader.py",
       "PYQuant/main.py",
@@ -1315,11 +1346,6 @@
         "core.logger",
         "kis.endpoints"
       ],
-      "PYQuant/live/basket_forward.py": [
-        "backtest.engine",
-        "features",
-        "strategy.cross_momentum"
-      ],
       "PYQuant/live/forward_trader.py": [
         "backtest.engine",
         "kis.client",
@@ -1338,11 +1364,9 @@
         "data.universe_kospi",
         "data.yfinance_source",
         "db.client",
-        "features.fundamental",
         "ipc.operator",
         "ipc.subscriber",
         "kis.client",
-        "live.basket_forward",
         "live.forward_trader",
         "live.trader",
         "report.account",
@@ -1579,7 +1603,6 @@
       ],
       "backtest.engine": [
         "PYQuant/backtest/report.py",
-        "PYQuant/live/basket_forward.py",
         "PYQuant/live/forward_trader.py",
         "PYQuant/main.py",
         "PYQuant/tests/test_backtest_engine.py",
@@ -1655,11 +1678,9 @@
         "scripts/exit_ev_dashboard.py"
       ],
       "features": [
-        "PYQuant/live/basket_forward.py",
         "PYQuant/tests/test_regime_axes.py"
       ],
       "features.fundamental": [
-        "PYQuant/main.py",
         "PYQuant/tools/minute_backfill_pairs.py"
       ],
       "gen_tuning_sheet": [
@@ -1705,9 +1726,6 @@
       "kis.endpoints": [
         "PYQuant/kis/client.py"
       ],
-      "live.basket_forward": [
-        "PYQuant/main.py"
-      ],
       "live.forward_trader": [
         "PYQuant/main.py"
       ],
@@ -1750,7 +1768,6 @@
         "PYQuant/strategy/value_contrary.py"
       ],
       "strategy.cross_momentum": [
-        "PYQuant/live/basket_forward.py",
         "PYQuant/main.py"
       ],
       "strategy.indicators": [
@@ -1803,11 +1820,6 @@
       },
       {
         "from": "PYQuant",
-        "to": "PYQuant/features",
-        "weight": 1
-      },
-      {
-        "from": "PYQuant",
         "to": "PYQuant/ipc",
         "weight": 2
       },
@@ -1819,7 +1831,7 @@
       {
         "from": "PYQuant",
         "to": "PYQuant/live",
-        "weight": 3
+        "weight": 2
       },
       {
         "from": "PYQuant",
@@ -1884,11 +1896,6 @@
       {
         "from": "PYQuant/live",
         "to": "PYQuant/backtest",
-        "weight": 2
-      },
-      {
-        "from": "PYQuant/live",
-        "to": "PYQuant/features",
         "weight": 1
       },
       {
@@ -1899,7 +1906,7 @@
       {
         "from": "PYQuant/live",
         "to": "PYQuant/strategy",
-        "weight": 2
+        "weight": 1
       },
       {
         "from": "PYQuant/strategy",

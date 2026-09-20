@@ -12,6 +12,7 @@
 //   7. SELL은 포지션 한도 미적용
 //   8. 중복 신호는 rate slot 소모 안 함 (C5 fix)
 //   9. SELL on_accept은 포지션 0 미만 방지 (C6 fix)
+//  18. 바스켓 슬롯 제외 — 제외 종목은 동시보유 상한·빈 슬롯 수·교체 후보에 안 들고 snapshot에 표시된다 (D-109)
 //  17. 시장가 1주문 명목 백스톱 — BUY는 ref_price로 거부, SELL은 경고만 하고 통과,
 //      reference_price 없으면 검사 자체가 없음(게이트가 못 잡는 현행을 기록)
 
@@ -509,6 +510,56 @@ void test_session_window()
     PASS("session_window");
 }
 
+// ─── 바스켓 슬롯 제외(D-109) ────────────────────────────────────────────
+//  바스켓 슬리브가 든 종목은 장중 전략의 슬롯을 먹지 않는다. 상한 2에서 제외 종목 둘을 채워도 새 BUY가 통과하고,
+//  open_slot_count·plan_displacement 후보·snapshot_positions 표시가 같은 집합을 본다.
+void test_slot_exempt()
+{
+    OrderGate gate(displace_config()); // 상한 2, 교체 켜짐
+    gate.set_slot_exempt({"BK1", "BK2"});
+    gate.seed_position("", "BK1", 10, 1000.0);
+    gate.seed_position("", "BK2", 10, 1000.0);
+    assert(!gate.slots_full());
+    assert(gate.open_slot_count() == 0); // 열린 슬롯(차지한 자리) 수 — 제외 종목은 세지 않는다
+
+    std::string reason;
+    auto        buy_a = make_signal("A", OrderSide::BUY, 10);
+    assert(gate.check(buy_a, reason)); // 제외 종목 둘은 상한 계산에 없다
+    gate.on_fill_confirmed("", "A", OrderSide::BUY, 10, 1000.0);
+    auto buy_b = make_signal("B", OrderSide::BUY, 10);
+    assert(gate.check(buy_b, reason));
+    gate.on_fill_confirmed("", "B", OrderSide::BUY, 10, 1000.0);
+    assert(gate.slots_full());
+    auto buy_c = make_signal("C", OrderSide::BUY, 10);
+    assert(!gate.check(buy_c, reason)); // 장중 종목 둘로 꽉 참
+
+    // 제외 종목은 상한이 꽉 차도 추가 매수가 된다(바스켓 채우기).
+    auto buy_bk1 = make_signal("BK1", OrderSide::BUY, 5);
+    assert(gate.check(buy_bk1, reason));
+
+    // 교체 후보에도 안 든다 — 점수가 가장 낮은 BK1 대신 B가 뽑힌다.
+    gate.set_entry_priority({{gate.intern_symbol("A"), 1, 0.9}, {gate.intern_symbol("B"), 2, -0.8}, {gate.intern_symbol("C"), 3, 1.5}, {gate.intern_symbol("BK1"), 4, -5.0}}, 4);
+    auto plan = gate.plan_displacement("", gate.intern_symbol("C"));
+    assert(plan.ok && plan.ticker == "B");
+
+    // snapshot 표시와 티커 목록.
+    size_t exempt_count = 0;
+
+    for (const auto& held : gate.snapshot_positions())
+    {
+        exempt_count += held.slot_exempt ? 1 : 0;
+    }
+
+    assert(exempt_count == 2);
+    const auto exempt_symbols = gate.slot_exempt_symbols(); // 오름차순 id
+    assert(exempt_symbols.size() == 2 && exempt_symbols[0] == gate.symbol_id_of("BK1") && exempt_symbols[1] == gate.symbol_id_of("BK2"));
+
+    // 집합을 갈아 끼우면 이전 것은 풀린다.
+    gate.set_slot_exempt({"BK1"});
+    assert(gate.slot_exempt_symbols().size() == 1 && gate.slot_exempt_symbols()[0] == gate.symbol_id_of("BK1"));
+    PASS("slot_exempt");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -535,6 +586,7 @@ int main()
     test_displace_daily_cap();
     test_entry_snapshot_matches_separate_calls();
     test_session_window();
+    test_slot_exempt();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

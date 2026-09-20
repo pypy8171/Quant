@@ -2,6 +2,7 @@
 #include "core/SignalDispatcher.h"
 #include "core/LatencyTrace.h"
 #include "utils/Logger.h"
+#include <algorithm>
 
 #include <algorithm>
 #include <utility>
@@ -302,6 +303,15 @@ void SignalDispatcher::flush_held(Clock::time_point now)
     held_.clear();
 }
 
+// 강제청산·초과 정리가 보는 보유분 — 바스켓 슬리브 소유 종목은 뺀다. 국면 강제청산은 스캔 슬리브의 당일 포지션을
+//  거두는 장치이고, 바스켓은 파일이 DROP을 적을 때만 판다(전량 청산은 파일의 liquidate_all 뿐). [why D-109]
+std::vector<OrderGate::HeldPos> SignalDispatcher::scan_sleeve_positions() const
+{
+    auto held = gate_.snapshot_positions();
+    std::erase_if(held, [](const OrderGate::HeldPos& position) { return position.slot_exempt; });
+    return held;
+}
+
 void SignalDispatcher::force_liquidate(Clock::time_point now)
 {
     // entry_halt가 함께 켜져 SELL만 통과한다. 대량은 fat-finger·초당 한도에 일부 막힐 수 있으나 다음 주기에
@@ -314,7 +324,7 @@ void SignalDispatcher::force_liquidate(Clock::time_point now)
     last_liquidation_ = now;
 
     for (auto& liquidation_signal : dispatch::force_liquidation_orders(
-             gate_.snapshot_positions(),
+             scan_sleeve_positions(),
              [this](const std::string& account, symbol::SymbolId symbol) { return gate_.reserved(account, symbol); },
              force_liquidation_index_))
     {
@@ -335,7 +345,7 @@ void SignalDispatcher::trim_excess_once(Clock::time_point now)
     trim_done_ = true;
 
     for (auto& trim_signal : dispatch::trim_orders(
-             gate_.snapshot_positions(), gate_.config().max_notional_per_ticker,
+             scan_sleeve_positions(), gate_.config().max_notional_per_ticker,
              [this](const std::string& account, symbol::SymbolId symbol) { return gate_.reserved(account, symbol); },
              limit_trim_index_))
     {

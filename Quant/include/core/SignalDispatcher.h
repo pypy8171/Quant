@@ -64,6 +64,8 @@ public:
     // 교체 매도가 체결돼 자리가 났으면 보류 매수를 낸다. 예약 시한이 지나면 버린다. 루프 머리마다 부른다.
     void flush_held(Clock::time_point now);
 
+    std::vector<OrderGate::HeldPos> scan_sleeve_positions() const; // 바스켓 소유 종목을 뺀 보유분 [why D-109]
+
     // 강제청산 재발주 — liq_interval마다 보유 전량(미체결 매도 제외) 시장가 매도. force_liquidate 동안 매 루프 부른다.
     void force_liquidate(Clock::time_point now);
 

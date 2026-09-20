@@ -2,7 +2,8 @@
 //  대신해 Engine 없이 순번 부여, 비활성 전략·청산 관리 티커 차단, 교체 진입의 매도-보류-발주·만료·취소, 강제청산
 //  잔량 계산과 스로틀, 한도 초과분 정리의 1회성, 전략 활성 플래그(국면·유니버스 AND), 유니버스 이탈·복귀 판정과
 //  등록 상한 교체 후보 선택(core/UniverseExit.h)을 고정한다. OrderGate·Logger를 링크한다.
-//  관련 결정: D-019(교체 진입), D-038(순번), D-063(분리), D-077(유니버스 이탈), D-087(등록층 점수 교체).
+//  바스켓 슬롯 제외 종목은 강제청산·초과분 정리가 건드리지 않는 것도 본다.
+//  관련 결정: D-019(교체 진입), D-038(순번), D-063(분리), D-077(유니버스 이탈), D-087(등록층 점수 교체), D-109(바스켓 슬리브).
 // 빌드: cmake --build <directory> --target test_signal_dispatcher
 #include "core/SignalDispatcher.h"
 #include "core/UniverseExit.h"
@@ -415,6 +416,27 @@ int test_trim_once()
     CHECK(second_rig.out.empty() && second_rig.dispatcher.trim_done());
     return 0;
 }
+
+// 바스켓 슬리브 종목(D-109)은 장중 스캔 슬리브의 것이 아니다 — 15:15 강제청산과 명목 한도 초과분 정리가 건너뛴다.
+int test_sleeve_scan_skips_basket()
+{
+    auto config                    = open_config();
+    config.max_notional_per_ticker = 1000.0;
+    Rig rig(config);
+    rig.gate.set_slot_exempt({"BK"});
+    rig.gate.seed_position("", "BK", 50, 100.0); // 명목 5,000 > 한도 1,000이지만 바스켓 것
+    rig.gate.seed_position("", "A", 20, 100.0);
+
+    const auto sleeve = rig.dispatcher.scan_sleeve_positions();
+    CHECK(sleeve.size() == 1 && sleeve[0].ticker == "A");
+
+    rig.dispatcher.trim_excess_once(rig.start_time + std::chrono::seconds(20));
+    CHECK(rig.out.size() == 1 && rig.out[0].ticker == "A" && rig.out[0].quantity == 10);
+
+    rig.dispatcher.force_liquidate(rig.start_time + std::chrono::seconds(22));
+    CHECK(rig.out.size() == 2 && rig.out[1].ticker == "A" && rig.out[1].strategy_id == "FORCE_LIQ");
+    return 0;
+}
 } // namespace
 
 int main()
@@ -427,7 +449,7 @@ int main()
 
     if (test_stamp() || test_strategy_gate() || test_manual_sell_halt() || test_universe_exit_judge() || test_universe_evict_pick() ||
         test_displace_hold_and_release() || test_displace_cancel_and_expiry() || test_force_liquidation_orders() ||
-        test_trim_orders() || test_force_liquidation_throttle() || test_trim_once())
+        test_trim_orders() || test_force_liquidation_throttle() || test_trim_once() || test_sleeve_scan_skips_basket())
     {
         return 1;
     }

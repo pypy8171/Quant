@@ -375,7 +375,8 @@ public:
         SUPPLY_DEMAND_PULLBACK,
         MARKET_MAKING,
         DEVIATION_SCALE,
-        THEME
+        THEME,
+        TARGET_BASKET // 목표 비중표(파일)를 원장과 맞추는 바스켓 슬리브 [why D-109]
     };
 
     StrategyType() = default;
@@ -399,6 +400,7 @@ public:
             {"MARKET_MAKING", MARKET_MAKING},
             {"DEVIATION_SCALE", DEVIATION_SCALE},
             {"THEME", THEME},
+            {"TARGET_BASKET", TARGET_BASKET},
         };
 
         for (const auto& [name, value] : kNames)

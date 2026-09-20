@@ -130,6 +130,8 @@ set(ENGINE_SOURCES
   src/strategy/StrategyBase.cpp
   src/strategy/MACrossStrategy.cpp
   src/strategy/MomentumStrategy.cpp
+  src/strategy/TargetBasketPlan.cpp
+  src/strategy/TargetBasketStrategy.cpp
   src/risk/OrderGate.cpp
   src/utils/Logger.cpp
   src/utils/Timer.cpp
@@ -347,6 +349,24 @@ target_include_directories(test_devscale_rules PRIVATE ${CMAKE_CURRENT_SOURCE_DI
 add_executable(test_regime_file_judge tests/test_regime_file_judge.cpp)
 target_include_directories(test_regime_file_judge PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(test_regime_file_judge PRIVATE nlohmann_json::nlohmann_json)
+
+# 목표 비중표 바스켓(strategy/TargetBasketPlan) — 파일 파싱·검증과 "목표 − 보유 = 주문" 계산, 순수 조각 (D-109)
+add_executable(test_target_basket_plan tests/test_target_basket_plan.cpp src/strategy/TargetBasketPlan.cpp)
+target_include_directories(test_target_basket_plan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(test_target_basket_plan PRIVATE nlohmann_json::nlohmann_json)
+
+# 바스켓 전략 본체 — 원장·시각을 주입해 집행 창·두 레그·하루 한 번 규칙을 본다. Logger를 링크한다 (D-109)
+add_executable(test_target_basket_strategy
+    tests/test_target_basket_strategy.cpp
+    src/strategy/TargetBasketStrategy.cpp
+    src/strategy/TargetBasketPlan.cpp
+    src/utils/Logger.cpp
+)
+target_include_directories(test_target_basket_strategy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(test_target_basket_strategy PRIVATE nlohmann_json::nlohmann_json)
+if(UNIX)
+    target_link_libraries(test_target_basket_strategy PRIVATE pthread)
+endif()
 
 # ─── 테스트 타겟: SPSC RingBuffer 검증 ───────────────────────────────────
 add_executable(test_ringbuffer tests/test_ringbuffer.cpp)
@@ -576,6 +596,8 @@ set(QUANT_ASSERT_TARGETS
     test_ops_server
     test_regime_file_judge
     test_devscale_rules
+    test_target_basket_plan
+    test_target_basket_strategy
     test_ringbuffer
     test_ringbuffer_stress
     test_pipeline_stress

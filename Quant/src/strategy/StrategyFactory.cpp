@@ -12,6 +12,7 @@
 #include "strategy/MomentumStrategy.h"
 #include "strategy/PriceTargetStrategy.h"
 #include "strategy/SupplyDemandPullbackStrategy.h"
+#include "strategy/TargetBasketStrategy.h"
 #include "strategy/ThemeStrategy.h"
 #include "strategy/ValueContraryStrategy.h"
 #include "universe/ScoreWeight.h"
@@ -41,6 +42,9 @@ static const std::vector<Regime>* s_pending_regimes = nullptr;
 //  s_scan_covered는 모든 DEVIATION_SCALE 슬리브가 담당하는 종목(id 인덱스 비트)의 합집합이고, 청산 관리 설정은
 //  마지막으로 manage_holdings.enabled를 켠 슬리브의 것을 쓴다(현재 구성은 하나만 켠다).
 static std::vector<bool> s_scan_covered;
+// 바스켓 슬리브(TARGET_BASKET)가 소유한 종목(id 인덱스 비트) — DEVSCALE 초기 유니버스와 청산 관리 부착에서 뺀다.
+//  바스켓 로더가 먼저 돌아 채운다 [why D-109].
+static std::vector<bool> s_basket_owned;
 
 // 종목 id 인덱스 비트를 켠다 — 배열은 종목 테이블 용량만큼 한 번만 늘린다.
 static void mark_symbol(std::vector<bool>& bits, symbol::SymbolId symbol, size_t capacity)
@@ -703,9 +707,10 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
     //  시드/전일 물린 보유분에 DevScale 분할 매수가 겹치면 종목당 명목상한(max_percent)을
     //  초과해 CANCEL 거부·과주문이 난다(073240 사례). 보유분=청산 관리, 신규만=DevScale로 분리.
     //  manage_holdings.enabled일 때만 적용(청산 관리가 있어야 보유분을 인수하므로).
-    std::vector<bool>             held(symbol_capacity, false);
+    std::vector<bool>             held = s_basket_owned; // 바스켓 소유 종목은 처음부터 이 슬리브의 후보가 아니다 [why D-109]
     size_t                        held_count = 0;
     std::vector<symbol::SymbolId> reinstated; // 보유 중인 최근 매수분 — 스캔에 없어도 등록하고 청산 관리는 안 붙인다
+    held.resize(std::max(held.size(), symbol_capacity), false);
 
     if (node.contains("manage_holdings") && node["manage_holdings"].value("enabled", false))
     {
@@ -738,7 +743,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
                 {
                     const symbol::SymbolId symbol = engine.symbols().intern(ticker); // 원장 CSV의 문자열 티커 — 여기서 id가 된다
 
-                    if (has_symbol(held, symbol))
+                    if (has_symbol(held, symbol) && !has_symbol(s_basket_owned, symbol)) // 바스켓 것은 바스켓이 인수한다 [why D-109]
                     {
                         held[symbol] = false;
                         --held_count;
@@ -967,6 +972,11 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
                 mark_symbol(current, held_position.symbol, current.size());
             }
 
+            for (const symbol::SymbolId basket_symbol : engine.slot_exempt_symbols()) // 바스켓 소유 종목(파일이 바뀌면 여기서 따라온다) [why D-109]
+            {
+                mark_symbol(current, basket_symbol, current.size());
+            }
+
             drop_held(scanned, current);
             return scanned;
         };
@@ -1113,10 +1123,53 @@ static bool parse_active_regimes(const json& node, const std::string& type, std:
     return true;
 }
 
+// ─── TARGET_BASKET ──────────────────────────────────────────────────────────
+//  목표 비중표 바스켓. 소유 종목을 OrderGate 슬롯 계산 밖에 두고(set_slot_exempt_tickers) s_basket_owned·s_scan_covered에
+//  넣어 DEVSCALE 유니버스와 청산 관리 부착에서 뺀다 — 그래서 load_strategies가 이 타입을 먼저 돈다. [why D-109]
+static void load_target_basket(StrategyLoadCtx& context, const json& node)
+{
+    TargetBasketStrategy::Params parameters;
+    parameters.label                = node.value("label", std::string("MAIN"));
+    parameters.account              = node.value("account", std::string());
+    parameters.targets_file         = node.value("targets_file", parameters.targets_file);
+    parameters.state_file           = node.value("state_file", parameters.state_file);
+    parameters.capital_krw          = node.value("capital_krw", 0.0);
+    parameters.band                 = node.value("band_pct", 10.0) / 100.0;
+    parameters.window_start_hhmm    = node.value("window_start_hhmm", 1440);
+    parameters.window_end_hhmm      = node.value("window_end_hhmm", 1500);
+    parameters.buy_leg_delay_sec    = node.value("buy_leg_delay_sec", 90);
+    parameters.max_signals_per_pass = node.value("max_signals_per_pass", 3);
+    parameters.reload_sec           = node.value("reload_sec", 60);
+    parameters.dry_run              = node.value("dry_run", false);
+
+    if (parameters.capital_krw <= 0.0)
+    {
+        LOG_WARN("[Main] TARGET_BASKET capital_krw 없음 — 등록 건너뜀");
+        return;
+    }
+
+    Engine& engine = context.engine;
+    auto    strategy = std::make_unique<TargetBasketStrategy>(
+        std::move(parameters), [&engine](const std::vector<std::string>& tickers) { engine.set_slot_exempt_tickers(tickers); });
+    strategy->load_targets(); // 기동 때 파일이 있으면 소유 종목을 지금 확정한다(뒤에 도는 DEVSCALE 로더가 본다)
+
+    const size_t symbol_capacity = engine.symbols().capacity();
+
+    for (const auto& ticker : strategy->owned_tickers()) // 목표 비중표 파일의 문자열 티커 — 여기서 id가 된다
+    {
+        const symbol::SymbolId symbol = engine.symbols().intern(ticker);
+        mark_symbol(s_basket_owned, symbol, symbol_capacity);
+        mark_symbol(s_scan_covered, symbol, symbol_capacity);
+    }
+
+    LOG_INFO("[Main] TARGET_BASKET " + strategy->describe() + " 소유 종목 " + std::to_string(strategy->owned_tickers().size()) + "개");
+    add_gated(engine, std::move(strategy));
+}
+
 // ─── 디스패치 ───────────────────────────────────────────────────────────────
 void load_strategies(StrategyLoadCtx& context, const json& strategies)
 {
-    // 실사용 현황(config_dev_paper.json 기준, 2026-09-15): DEVIATION_SCALE만 라이브(눌림 DEVSCALE·추격 TRENDX 슬리브 2개).
+    // 실사용 현황(config_dev_paper.json 기준, 2026-09-22): DEVIATION_SCALE(눌림 DEVSCALE, TRENDX는 D-101로 꺼짐) + TARGET_BASKET(가치·모멘텀 바스켓, D-109).
     // INTRADAY_BREAKOUT은 이 표로 등록되는 게 아니라 attach_holding_exit_managers()가 승계 보유분에만 붙이는 청산 전용 청산 관리.
     // 나머지(MA_CROSS·MOMENTUM·VALUE_CONTRARY·FIXED_INTERVAL·PRICE_TARGET·SUPPLY_DEMAND_PULLBACK·MARKET_MAKING·THEME)는 현재 config 어디에도 안 걸림 — 죽은 코드는 아니고 미사용.
     static const std::map<StrategyType, void (*)(StrategyLoadCtx&, const json&)> LOADERS = {
@@ -1130,10 +1183,31 @@ void load_strategies(StrategyLoadCtx& context, const json& strategies)
         {StrategyType::MARKET_MAKING, load_market_making},
         {StrategyType::DEVIATION_SCALE, load_deviation_scale},
         {StrategyType::THEME, load_theme},
+        {StrategyType::TARGET_BASKET, load_target_basket},
     };
 
-    for (auto& strategy : strategies)
+    // 바스켓 슬리브를 먼저 — 그 소유 종목을 DEVSCALE 유니버스·청산 관리 부착에서 빼야 하므로 config 순서와 무관하게 앞에 둔다 [why D-109].
+    std::vector<const json*> ordered;
+
+    for (const auto& strategy : strategies)
     {
+        if (StrategyType::from_string(strategy.value("type", std::string())) == StrategyType::TARGET_BASKET)
+        {
+            ordered.push_back(&strategy);
+        }
+    }
+
+    for (const auto& strategy : strategies)
+    {
+        if (StrategyType::from_string(strategy.value("type", std::string())) != StrategyType::TARGET_BASKET)
+        {
+            ordered.push_back(&strategy);
+        }
+    }
+
+    for (const json* strategy_node : ordered)
+    {
+        const json& strategy = *strategy_node;
         std::string type = strategy.value("type", std::string());
         size_t n_before = context.engine.strategy_count();
 
