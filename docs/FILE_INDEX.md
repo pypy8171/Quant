@@ -8,7 +8,7 @@
 
 - [(루트)](#루트) — 10개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 102개
+- [PYQuant](#pyquant) — 101개
 - [Quant](#quant) — 172개
 - [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
@@ -547,9 +547,6 @@
 
 ### research/dashboard/
 
-- [dashboard.html](../research/dashboard/dashboard.html) — 퀀트 매매 대시보드 페이지(운영용: 스터디·라이브·리뷰·장전 브리핑)
-- [dashboard_public.html](../research/dashboard/dashboard_public.html) — 공개용 스터디 페이지(README 링크 대상, 생성기가 금지 패턴을 거른 뒤 씀)
-- [dashboard_rounds.html](../research/dashboard/dashboard_rounds.html) — 리서치 라운드 문서·회의 보고 전문 페이지(비공개 발행)
 - [live.json](../research/dashboard/live.json) — 라이브 매매일지 링크 모음 데이터
 - [reviews.json](../research/dashboard/reviews.json) — 실증 사후검토 데이터
 
@@ -795,7 +792,6 @@
 - [README.md](../research/studies/17_exit_ev/README.md) — study 17 청산 사유별 조건부 기대값: 사전등록·편향·결과·재현·수정 이력
 - [RESULT.md](../research/studies/17_exit_ev/RESULT.md) — exit_ev.py 가 만든 결과 표(묶음 합계·전체·구간 A/B·비용 감도)
 - [exit_ev_all.tsv](../research/studies/17_exit_ev/exit_ev_all.tsv) — 전 구간 셀별 통계·CI(생성물)
-- [exit_ev_dashboard.html](../research/studies/17_exit_ev/exit_ev_dashboard.html) — 청산 사유별 승률·기대값·CI와 근거(날짜·종목·레그)·매매 규칙(실행 config 수치)·백테스트 스터디 세 탭 화면(생성물, exit_ev_dashboard.py, 매매일 마감 뒤 자동)
 - [exit_ev_segment_a.tsv](../research/studies/17_exit_ev/exit_ev_segment_a.tsv) — 구간 A(09-08~10) 셀별 통계·CI(생성물)
 - [exit_ev_segment_b.tsv](../research/studies/17_exit_ev/exit_ev_segment_b.tsv) — 구간 B(09-11~18) 셀별 통계·CI(생성물)
 
@@ -819,6 +815,13 @@
 - [PREREG.md](../research/studies/21_macro_overlay_hold/PREREG.md) — 스터디 21 사전등록 — 스터디 20 재실행, 배수를 축 구간 변경 시에만 갱신(오너 결정 6), 합격 7항목은 20 그대로
 - [README.md](../research/studies/21_macro_overlay_hold/README.md) — 스터디 21 결과 — 비용 12.2%→5.7%인데 기각(같은 2항목만 통과), 원인은 국면 라벨 지연
 - [metrics.json](../research/studies/21_macro_overlay_hold/metrics.json) — 스터디 21 숫자 정본 — 셀별 CAGR·MDD·판정 7항목·격자 54런·`scale_update`·입력 해시
+
+### research/studies/22_pbr_roe_value_tilt/
+
+- [PREREG.md](../research/studies/22_pbr_roe_value_tilt/PREREG.md) — 스터디 22 사전등록: 19와 다른 점(중심 N=30·w=0.7·분기 리밸, 격자 27칸)·추가 표 4개 정의·합격 숫자(결과 전 확정)
+- [README.md](../research/studies/22_pbr_roe_value_tilt/README.md) — 스터디 22 결과 표(세 층 판정·비용 감도·walk-forward·격자·시총가중·크기 3분위·용량·상폐 보유 기록). run_value_tilt.py가 생성
+- [metrics.json](../research/studies/22_pbr_roe_value_tilt/metrics.json) — 스터디 22 판정 숫자(19와 같은 키 + cap_weighted·size_buckets·capacity·delisted_holdings·observation_window)
+- [run_value_tilt.py](../research/studies/22_pbr_roe_value_tilt/run_value_tilt.py) — 스터디 22 하네스: 19의 달력·신호·통계를 빌려 쓰고 중심 셀·격자 27칸·walk-forward(리밸 축)·시총가중·크기 분위·용량·상폐 기록을 더한다
 
 ## scripts
 
