@@ -51,7 +51,7 @@ public:
     //  보유 종목의 NEW는 ITB_ 전략이 아니면 종목당 한 번 로그하고 버린다.
     void from_strategy(bool active, const std::string& strategy_id, const OrderSignal& signal);
 
-    // 운영단말·기동 점검·강제청산 등 전략 밖에서 온 신호. 교체 진입 판단을 거쳐 emit한다.
+    // 운영단말·강제청산 등 전략 밖에서 온 신호. 교체 진입 판단을 거쳐 emit한다.
     void submit(const OrderSignal& signal);
 
     // 교체 매도가 체결돼 자리가 났으면 보류 매수를 낸다. 예약 시한이 지나면 버린다. 루프 머리마다 부른다.

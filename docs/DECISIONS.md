@@ -1279,6 +1279,8 @@ USD/KRW는 동일 세션이라 종가를 쓰면 그날 09:00 게이트에 미래
 회귀였고, 보류에 10초 시간 상자(`kCancelMissGuardSec`)를 씌워 스스로 풀리게 했다.
 
 ### D-034 재스캔은 뗄 수도 있어야 하고, 기동 점검 주식은 그날 되판다 (2026-09-11)
+
+> 결정 2(기동 점검 하루 1회·되팔기)는 D-104(2026-09-20)로 닫혔다 — 기동 점검 자체를 뗐다.
 **상태**: 채택
 
 **결정**: 둘이다.
@@ -4229,3 +4231,20 @@ metrics `BH`+`BUY_AND_HOLD`(`PYQuant/dashboard/build_dashboard.py`·`scripts/exi
 
 **남은 위험**: `.claude/agents/*.md`는 로컬 전용이라 tools 줄 개정은 오너가 스크립트로 적용해야 한다(자동 모드 분류기가 세션의 `.claude/` 편집을 막는다).
 쓰기 범위는 `tools:` 줄로 경로를 제한할 수 없어 본문 규칙에 의존한다 — 위반은 `git diff` 검토와 `scripts/commit_gate.py`가 잡는다.
+
+### D-104 기동 점검(삼성전자 1주 시장가 매수·되팔기)을 뗀다 (2026-09-20)
+
+**상태**: 채택
+
+**배경**: 기동 점검은 서버가 뜨자마자 005930 1주를 시장가로 사서 주문 경로(발주→체결통보→원장)가 살아있는지 보던 절차다(D-034에서
+하루 1회·되팔기로 다듬었다). 지금은 재기동 직후 잔고 재시드·`OrderRouter (FEP) 초기화 완료` 로그·첫 체결통보 매칭 1건을
+`scripts/check_runtime_health.py`와 `parse_quant_log.py --watch`가 판정하고, 원장 대조(`reconcile`)도 주기로 돈다. 실제 주문을 내지 않고도
+같은 것을 확인할 수 있는데, 점검 주문은 남아서 원장 태그 `STARTUP_CHECK`·표식 파일·되팔기 타임아웃·config 블록·로그 줄을 끌고 다녔다
+(09-09 재기동 13회에 13주 누적, 09-14 장전 거부).
+
+**결정**: 코드·config·문서에서 전부 뗀다 — `Engine::set_startup_check`와 멤버 7개, `strategy_thread_fn`의 발주·되팔기 블록,
+`configure_startup_check`, `AppConfig::startup_check_*`, config 키 `startup_check`, 튜닝 시트 `startup_check_window_hhmmss`.
+옛 원장에 남은 `STARTUP_CHECK`·`STARTUP_PROBE` 태그를 집계에서 빼는 스크립트 쪽(`scripts/market_close_autodoc.py`·`scripts/analyze_slot_cost.py`·
+`scripts/dashboard_server.py`)은 과거 데이터를 읽어야 하니 그대로 둔다. D-034 결정 2와 "잔고 조회로 대체 기각" 행은 이 결정으로 닫는다.
+
+**버린 대안**: config에서 `qty: 0`으로만 끄기 — 코드가 남아 읽는 사람이 계속 배워야 하고, 다시 켤 이유가 없다.

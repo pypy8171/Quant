@@ -2042,50 +2042,6 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
     dispatcher.set_exit_managed_check([this](const std::string& ticker) { return universe_rescan_.exit_managed_tickers.count(ticker) > 0; });
     auto push_signal = [&](const OrderSignal& signal) { dispatcher.submit(signal); };
 
-    // 기동 점검 — 모의계좌 주문경로 검증용 1회성 시장가 매수(config startup_check).
-    //  이 스레드가 pipeline_.order_queue 단일 생산자라 여기서 딱 1번 push하면 SPSC 위반 없음.
-    //  하루 한 번만 — 표식 파일이 있으면 재기동에서는 건너뛴다. 체결이 확인되면 되판다(아래 루프).
-    //  장 전(09:00 전)에는 내지 않는다 — 08:5x 기동에서 시장가가 40570000(장전 거부)으로 튕겼는데 표식은
-    //  남아 그날 점검이 없었다(09-14). 루프에서 09:00 이 되면 낸다. 120초 안에 체결이 없으면(거부·미체결)
-    //  표식을 지워 다음 기동에서 다시 낸다.
-    const auto startup_check_marker = Logger::instance().path_for("startup_check_" + ledger::kst_ymd(std::time(nullptr)));
-    auto fire_startup_check = [&]()
-    {
-        startup_check_fired_ = true;
-        std::error_code error_code;
-
-        if (std::filesystem::exists(startup_check_marker, error_code))
-        {
-            LOG_INFO("[Engine] 기동 점검 — 오늘 이미 냈다(" + startup_check_marker.filename().string() + "), 건너뜀");
-            return;
-        }
-
-        std::ofstream(startup_check_marker) << "fired\n";
-        int base = 0;
-
-        for (const auto& snapshot_position : order_gate_.snapshot_positions())
-        {
-            if (snapshot_position.ticker == startup_check_ticker_)
-            {
-                base += snapshot_position.quantity;
-            }
-        }
-
-        OrderSignal check_order;
-        check_order.ticker      = startup_check_ticker_;
-        check_order.side        = OrderSide::BUY;
-        check_order.type        = OrderType::MARKET;
-        check_order.quantity    = startup_check_quantity_;
-        check_order.price       = 0.0;
-        check_order.strategy_id = "STARTUP_CHECK";
-        LOG_INFO("[Engine] 기동 점검 — " + check_order.ticker + " 시장가 BUY " +
-                 std::to_string(check_order.quantity) + "주 (모의계좌 주문경로 검증, 체결되면 되판다)");
-        push_signal(check_order);
-        startup_check_base_quantity_ = base;
-        startup_check_fired_at_ = std::chrono::steady_clock::now();
-        startup_check_settled_  = false;
-    };
-
     // 틱은 샤드 스레드가 돌린다(shard_thread_fn). 여기는 샤드가 보낸 봉투와 수동주문을 디스패처 한 곳으로 모아
     //  순번·슬롯·교체·강제청산 같은 종목 횡단 판단을 한 스레드에서 한다(원칙 4). [why D-071]
     // 유휴 전이: 마지막 일 뒤 이 시간은 yield로 돌고, 넘기면 pipeline_.strategy_wake에서 잔다. [why D-071]
@@ -2104,63 +2060,6 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
         if (force_liquidate_.load(std::memory_order_relaxed))
         {
             dispatcher.force_liquidate(loop_now);
-        }
-
-        // 기동 점검 — 09:00~15:20 KST 안에서만 낸다. 그 전 기동은 루프가 09:00 을 넘길 때 낸다.
-        if (!startup_check_fired_ && !startup_check_ticker_.empty() && startup_check_quantity_ > 0)
-        {
-            const int32_t hhmmss = kst::hhmmss_int(std::time(nullptr));
-
-            if (hhmmss >= 90000 && hhmmss < 152000)
-            {
-                fire_startup_check();
-            }
-        }
-
-        // 기동 점검 되팔기 — 보유가 base+quantity 이상이면 체결로 보고 같은 수량을 시장가로 판다.
-        //  체결통보를 직접 보지 않고 원장 수량으로 판정한다(원장이 진실원천). 120초 안에 안 늘면
-        //  접수 거부·미체결로 보고 포기하고 표식을 지운다 — 다음 기동에서 다시 낸다.
-        if (!startup_check_settled_)
-        {
-            const auto  now_time_point = std::chrono::steady_clock::now();
-            int         quantity   = 0;
-            std::string account;
-
-            for (const auto& snapshot_position : order_gate_.snapshot_positions())
-            {
-                if (snapshot_position.ticker == startup_check_ticker_)
-                {
-                    quantity += snapshot_position.quantity;
-                    account = snapshot_position.account;
-                }
-            }
-
-            if (quantity >= startup_check_base_quantity_ + startup_check_quantity_)
-            {
-                OrderSignal back;
-                back.ticker      = startup_check_ticker_;
-                back.account_id  = account;
-                back.side        = OrderSide::SELL;
-                back.type        = OrderType::MARKET;
-                back.quantity    = startup_check_quantity_;
-                back.price       = 0.0;
-                back.reference_price   = order_gate_.average_price(account, startup_check_ticker_);
-                back.strategy_id = "STARTUP_CHECK";
-                back.reason      = "기동 점검 되팔기";
-                LOG_INFO("[Engine] 기동 점검 체결 확인(보유 " + std::to_string(startup_check_base_quantity_) +
-                         "→" + std::to_string(quantity) + ") — " + back.ticker + " 시장가 SELL " +
-                         std::to_string(back.quantity) + "주로 되판다");
-                push_signal(back);
-                startup_check_settled_ = true;
-            }
-            else if (now_time_point - startup_check_fired_at_ > std::chrono::seconds(120))
-            {
-                std::error_code error_code;
-                std::filesystem::remove(startup_check_marker, error_code);
-                LOG_WARN("[Engine] 기동 점검 120초 안에 체결 확인 못 함(보유 " + std::to_string(quantity) +
-                         ") — 되팔기 생략, 표식을 지워 다음 기동에서 다시 낸다");
-                startup_check_settled_ = true;
-            }
         }
 
         // 종목당 명목 한도 초과분 정리 — 기동 20초 뒤(잔고 시드가 끝난 뒤) 한 번.

@@ -80,7 +80,7 @@ review = [
   [[stage.step]]
   sym = "Engine::configure"
   file = "Quant/src/core/EngineConfigure.cpp"
-  what = "AppConfig 값을 엔진 세터로 — 채널(ZMQ·운영단말)·국면별 전략 집합·기동 점검·시세 전용 KIS·리스크(게이트 한도·매매 창) 다섯 묶음"
+  what = "AppConfig 값을 엔진 세터로 — 채널(ZMQ·운영단말)·국면별 전략 집합·시세 전용 KIS·리스크(게이트 한도·매매 창) 네 묶음"
 
   [[stage.step]]
   sym = "load_strategies"
@@ -263,7 +263,7 @@ id = "dispatch"
 name = "3. 디스패치 — 신호가 주문 큐에 들어가기 전 판단"
 summary = "디스패치 스레드는 `pipeline_.shard_out`의 단일 소비자이자 `pipeline_.order_queue`의 단일 생산자다. 순번 stamp·비활성 차단·청산 관리 종목 차단·교체 진입·강제청산 재발주·한도 초과 정리를 한 객체(`SignalDispatcher`)가 맡고, 싱크는 큐 push와 ZMQ 신호 발행을 같이 한다."
 review = [
-  "`pipeline_.order_queue.push`가 이 스레드에서만 일어나는지(SPSC 불변식) — 수동 주문(`ops_.manual_inbox`)·기동 점검 매수도 여기서 합류하는지",
+  "`pipeline_.order_queue.push`가 이 스레드에서만 일어나는지(SPSC 불변식) — 수동 주문(`ops_.manual_inbox`)도 여기서 합류하는지",
   "큐가 차면 기다리지 않고 버리고 세는지(`order_dropped`, D-073)",
   "교체 진입(displace) — 최약체 매도가 나간 뒤에만 매수가 풀리는지(`flush_held`)",
 ]
@@ -271,7 +271,7 @@ review = [
   [[stage.step]]
   sym = "Engine::strategy_thread_fn"
   file = "Quant/src/core/Engine.cpp"
-  what = "루프 한 바퀴: `flush_held` → `drain_manual_inbox` → 강제청산(2초 재발주) → 기동 점검 매수·되팔기(하루 1회) → `trim_excess_once`(기동 20초 뒤 1회) → `pipeline_.shard_out` 비우기(`from_strategy`) → 잠(상한 10ms). 국면 파일은 데이터 스레드가 읽는다(6절)"
+  what = "루프 한 바퀴: `flush_held` → `drain_manual_inbox` → 강제청산(2초 재발주) → `trim_excess_once`(기동 20초 뒤 1회) → `pipeline_.shard_out` 비우기(`from_strategy`) → 잠(상한 10ms). 국면 파일은 데이터 스레드가 읽는다(6절)"
 
   [[stage.step]]
   sym = "dispatch::SignalDispatcher::from_strategy"

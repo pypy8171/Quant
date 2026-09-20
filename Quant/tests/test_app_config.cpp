@@ -47,7 +47,6 @@ int main()
         CHECK(app.replay_file.empty());
         CHECK(app.regime_stale_sec == kDefaultRegimeStaleSec);
         CHECK(!app.has_regime_strategies);
-        CHECK(!app.has_startup_check);
         CHECK(!app.quote_kis.has_value());
         CHECK(!app.has_risk);
         CHECK(app.risk.session_open_min == 9 * 60);
@@ -142,14 +141,12 @@ int main()
     {
         json document = minimal_document();
         document["regime_strategies"] = {{"RISK_ON", {"DevScale_*"}}, {"BEAR", {"ITB"}}, {"SIDEWAYS", {"x"}}};
-        document["startup_check"]     = {{"ticker", "005930"}, {"qty", 1}};
         document["strategies"]        = json::array({{{"type", "DEVSCALE"}}});
         const AppConfig app = parse_config(document, "");
         CHECK(app.has_regime_strategies);
         CHECK(app.regime_strategies.size() == 2);
         CHECK(app.regime_strategies.at(Regime::BULL).at(0) == "DevScale_*");
         CHECK(app.regime_strategies.at(Regime::BEAR).at(0) == "ITB");
-        CHECK(app.has_startup_check && app.startup_check_ticker == "005930" && app.startup_check_quantity == 1);
         CHECK(app.strategies.size() == 1);
     }
 

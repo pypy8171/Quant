@@ -1085,6 +1085,7 @@
       "PYQuant/backtest/metrics.py",
       "PYQuant/backtest/regime_scorer.py",
       "PYQuant/backtest/report.py",
+      "PYQuant/backtest/stats.py",
       "PYQuant/core/__init__.py",
       "PYQuant/core/logger.py",
       "PYQuant/dashboard/backfill_live.py",
@@ -1094,11 +1095,16 @@
       "PYQuant/data/asof.py",
       "PYQuant/data/datagokr_source.py",
       "PYQuant/data/index_source.py",
+      "PYQuant/data/keys.py",
       "PYQuant/data/krx_source.py",
+      "PYQuant/data/point_in_time.py",
       "PYQuant/data/universe_kospi.py",
       "PYQuant/data/yfinance_source.py",
       "PYQuant/db/__init__.py",
       "PYQuant/db/client.py",
+      "PYQuant/features/__init__.py",
+      "PYQuant/features/fundamental.py",
+      "PYQuant/features/regime_axes.py",
       "PYQuant/ipc/__init__.py",
       "PYQuant/ipc/operator.py",
       "PYQuant/ipc/subscriber.py",
@@ -1128,7 +1134,10 @@
       "PYQuant/tests/test_costs_golden.py",
       "PYQuant/tests/test_indicators.py",
       "PYQuant/tests/test_metrics.py",
+      "PYQuant/tests/test_point_in_time.py",
+      "PYQuant/tests/test_regime_axes.py",
       "PYQuant/tests/test_regime_scorer.py",
+      "PYQuant/tests/test_stats.py",
       "PYQuant/tests/test_strategy_a.py",
       "PYQuant/tools/__init__.py",
       "PYQuant/tools/check_adjusted.py",
@@ -1140,17 +1149,21 @@
       "PYQuant/tools/check_pykrx_flow.py",
       "PYQuant/tools/check_sector_index.py",
       "PYQuant/tools/compare_ws_bars.py",
+      "PYQuant/tools/dart_fin_history_fill.py",
+      "PYQuant/tools/dart_shares_history_fill.py",
       "PYQuant/tools/fetch_naver_themes.py",
       "PYQuant/tools/full_universe_dump.py",
       "PYQuant/tools/fullperiod_validate.py",
       "PYQuant/tools/index_intraday_logger.py",
       "PYQuant/tools/investor_flow_logger.py",
       "PYQuant/tools/log_report.py",
+      "PYQuant/tools/macro_ingest.py",
       "PYQuant/tools/macro_regime_feed.py",
       "PYQuant/tools/minute_backfill.py",
       "PYQuant/tools/month_start_sweep.py",
       "PYQuant/tools/naver_bars_backfill.py",
       "PYQuant/tools/naver_flow_backfill.py",
+      "PYQuant/tools/naver_research_fetch.py",
       "PYQuant/tools/nxt_divergence_check.py",
       "PYQuant/tools/pit_universe_backfill.py",
       "PYQuant/tools/regime_removal_test_2022.py",
@@ -1248,6 +1261,9 @@
       "PYQuant/db/client.py": [
         "core.logger"
       ],
+      "PYQuant/features/fundamental.py": [
+        "data.point_in_time"
+      ],
       "PYQuant/ipc/operator.py": [
         "core.logger"
       ],
@@ -1339,8 +1355,18 @@
       "PYQuant/tests/test_metrics.py": [
         "backtest.metrics"
       ],
+      "PYQuant/tests/test_point_in_time.py": [
+        "data.point_in_time"
+      ],
+      "PYQuant/tests/test_regime_axes.py": [
+        "features"
+      ],
       "PYQuant/tests/test_regime_scorer.py": [
         "backtest.regime_scorer"
+      ],
+      "PYQuant/tests/test_stats.py": [
+        "backtest",
+        "exit_ev"
       ],
       "PYQuant/tests/test_strategy_a.py": [
         "kis.client",
@@ -1366,6 +1392,9 @@
       ],
       "PYQuant/tools/compare_ws_bars.py": [
         "kis.client"
+      ],
+      "PYQuant/tools/dart_shares_history_fill.py": [
+        "data.keys"
       ],
       "PYQuant/tools/fetch_naver_themes.py": [
         "naver.theme"
@@ -1504,6 +1533,9 @@
         "scripts/parse_quant_log.py",
         "scripts/summarize_trading_day.py"
       ],
+      "backtest": [
+        "PYQuant/tests/test_stats.py"
+      ],
       "backtest.costs": [
         "PYQuant/backtest/devscale_replay.py",
         "PYQuant/backtest/engine.py",
@@ -1562,10 +1594,17 @@
       "data.index_source": [
         "PYQuant/backtest/engine.py"
       ],
+      "data.keys": [
+        "PYQuant/tools/dart_shares_history_fill.py"
+      ],
       "data.krx_source": [
         "PYQuant/data/universe_kospi.py",
         "PYQuant/main.py",
         "PYQuant/tests/test_backtest_engine.py"
+      ],
+      "data.point_in_time": [
+        "PYQuant/features/fundamental.py",
+        "PYQuant/tests/test_point_in_time.py"
       ],
       "data.universe_kospi": [
         "PYQuant/data/yfinance_source.py",
@@ -1579,7 +1618,11 @@
         "scripts/backfill_fills_db.py"
       ],
       "exit_ev": [
+        "PYQuant/tests/test_stats.py",
         "scripts/exit_ev_dashboard.py"
+      ],
+      "features": [
+        "PYQuant/tests/test_regime_axes.py"
       ],
       "gen_facts": [
         "scripts/gen_automation_hub.py"
@@ -1785,6 +1828,11 @@
         "weight": 1
       },
       {
+        "from": "PYQuant/features",
+        "to": "PYQuant/data",
+        "weight": 1
+      },
+      {
         "from": "PYQuant/ipc",
         "to": "PYQuant/core",
         "weight": 2
@@ -1822,12 +1870,22 @@
       {
         "from": "PYQuant/tests",
         "to": "PYQuant/backtest",
-        "weight": 5
+        "weight": 6
       },
       {
         "from": "PYQuant/tests",
         "to": "PYQuant/data",
-        "weight": 2
+        "weight": 3
+      },
+      {
+        "from": "PYQuant/tests",
+        "to": "PYQuant/exit_ev",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant/tests",
+        "to": "PYQuant/features",
+        "weight": 1
       },
       {
         "from": "PYQuant/tests",
@@ -1852,7 +1910,7 @@
       {
         "from": "PYQuant/tools",
         "to": "PYQuant/data",
-        "weight": 6
+        "weight": 7
       },
       {
         "from": "PYQuant/tools",
@@ -1930,6 +1988,7 @@
       ],
       "readers": [
         "PYQuant/dashboard/backfill_live.py",
+        "PYQuant/tests/test_stats.py",
         "Quant/src/ipc/OrderRouter.cpp",
         "scripts/backfill_fills_db.py",
         "scripts/exit_ev.py",
@@ -1939,6 +1998,7 @@
       ],
       "mentions": [
         "PYQuant/dashboard/backfill_live.py",
+        "PYQuant/tests/test_stats.py",
         "Quant/src/ipc/OrderRouter.cpp",
         "scripts/_logdir.py",
         "scripts/backfill_fills_db.py",

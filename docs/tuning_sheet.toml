@@ -575,14 +575,6 @@ unit = "초"
 group = "엔진 — 스레드 주기·장 시간"
 meaning = "유예 뒤 큐 배출 한도, 넘으면 강제 종료"
 
-[[code_value]]
-id = "startup_check_window_hhmmss"
-file = "Quant/src/core/Engine.cpp"
-regex = 'if \(hhmmss >= (\d+ && hhmmss < \d+)\)'
-unit = "hhmmss"
-group = "엔진 — 스레드 주기·장 시간"
-meaning = "기동 점검 주문(startup_check)을 내는 창"
-
 # --- 주문 ---
 [[code_value]]
 id = "order_min_interval_default_ms"

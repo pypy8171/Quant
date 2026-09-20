@@ -220,14 +220,6 @@ AppConfig parse_config(const json& document, const std::string& mode_override)
         }
     }
 
-    if (document.contains("startup_check"))
-    {
-        const json& startup_check_node = document["startup_check"];
-        app.has_startup_check          = true;
-        app.startup_check_ticker       = startup_check_node.value("ticker", std::string());
-        app.startup_check_quantity     = startup_check_node.value("qty", 0);
-    }
-
     if (document.contains("quote_kis"))
     {
         app.quote_kis = parse_quote_kis(document["quote_kis"], app.kis);

@@ -48,24 +48,6 @@ void configure_regime_strategies(Engine& engine, const AppConfig& app)
     LOG_INFO("[Engine] 국면→전략 자동선택 맵 " + std::to_string(app.regime_strategies.size()) + "개 국면 적용");
 }
 
-// 기동 점검 — 서버 실행 직후 지정 종목을 시장가 1주 매수해, 주문 경로 전체가 살아있는지 최소 점검한다.
-//  config "startup_check": {"ticker":"005930","qty":1}. 없으면 미가동.
-void configure_startup_check(Engine& engine, const AppConfig& app)
-{
-    if (!app.has_startup_check)
-    {
-        return;
-    }
-
-    engine.set_startup_check(app.startup_check_ticker, app.startup_check_quantity);
-
-    if (!app.startup_check_ticker.empty() && app.startup_check_quantity > 0)
-    {
-        LOG_INFO("[Engine] 기동 점검 설정: " + app.startup_check_ticker + " 시장가 " +
-                 std::to_string(app.startup_check_quantity) + "주 (모의계좌 주문경로 검증)");
-    }
-}
-
 // 시세 전용(실전 도메인) 키: 모의(openapivts)는 시세 REST가 HTTP 500이므로 시세만 실전으로 조회.
 //  스캔 유니버스 분기(universe_from_scan)도 이 실전 키로 거래대금 랭킹/지수를 조회한다(StrategyLoadCtx).
 void configure_quote_kis(Engine& engine, const AppConfig& app)
@@ -122,7 +104,6 @@ void Engine::configure(const AppConfig& app)
 {
     configure_channels(*this, app);
     configure_regime_strategies(*this, app);
-    configure_startup_check(*this, app);
     configure_quote_kis(*this, app);
     configure_risk(*this, app);
 }

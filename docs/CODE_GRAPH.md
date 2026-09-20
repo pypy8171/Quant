@@ -403,6 +403,8 @@ graph LR
   p_PYQuant_dashboard["PYQuant/dashboard"]
   p_PYQuant_data["PYQuant/data"]
   p_PYQuant_db["PYQuant/db"]
+  p_PYQuant_exit_ev["PYQuant/exit_ev"]
+  p_PYQuant_features["PYQuant/features"]
   p_PYQuant_ipc["PYQuant/ipc"]
   p_PYQuant_kis["PYQuant/kis"]
   p_PYQuant_live["PYQuant/live"]
@@ -427,6 +429,7 @@ graph LR
   p_PYQuant_dashboard --> p_PYQuant_backtest
   p_PYQuant_data -->|4| p_PYQuant_kis
   p_PYQuant_db --> p_PYQuant_core
+  p_PYQuant_features --> p_PYQuant_data
   p_PYQuant_ipc -->|2| p_PYQuant_core
   p_PYQuant_kis --> p_PYQuant_core
   p_PYQuant_live --> p_PYQuant
@@ -434,13 +437,15 @@ graph LR
   p_PYQuant_live -->|2| p_PYQuant_kis
   p_PYQuant_live --> p_PYQuant_strategy
   p_PYQuant_strategy -->|6| p_PYQuant_kis
-  p_PYQuant_tests -->|5| p_PYQuant_backtest
-  p_PYQuant_tests -->|2| p_PYQuant_data
+  p_PYQuant_tests -->|6| p_PYQuant_backtest
+  p_PYQuant_tests -->|3| p_PYQuant_data
+  p_PYQuant_tests --> p_PYQuant_exit_ev
+  p_PYQuant_tests --> p_PYQuant_features
   p_PYQuant_tests -->|3| p_PYQuant_kis
   p_PYQuant_tests -->|4| p_PYQuant_strategy
   p_PYQuant_tools -->|5| p_PYQuant
   p_PYQuant_tools --> p_PYQuant_backtest
-  p_PYQuant_tools -->|6| p_PYQuant_data
+  p_PYQuant_tools -->|7| p_PYQuant_data
   p_PYQuant_tools -->|10| p_PYQuant_kis
   p_PYQuant_tools --> p_PYQuant_naver
   p_scripts -->|3| p_PYQuant_backtest
@@ -463,6 +468,7 @@ graph LR
 | `PYQuant/data/universe_kospi.py` | `data.krx_source` |
 | `PYQuant/data/yfinance_source.py` | `data.universe_kospi`, `kis.client` |
 | `PYQuant/db/client.py` | `core.logger` |
+| `PYQuant/features/fundamental.py` | `data.point_in_time` |
 | `PYQuant/ipc/operator.py` | `core.logger` |
 | `PYQuant/ipc/subscriber.py` | `core.logger` |
 | `PYQuant/kis/client.py` | `core.logger`, `kis.endpoints` |
@@ -482,7 +488,10 @@ graph LR
 | `PYQuant/tests/test_costs_golden.py` | `backtest.costs`, `backtest.ledger` |
 | `PYQuant/tests/test_indicators.py` | `kis.client`, `strategy.indicators` |
 | `PYQuant/tests/test_metrics.py` | `backtest.metrics` |
+| `PYQuant/tests/test_point_in_time.py` | `data.point_in_time` |
+| `PYQuant/tests/test_regime_axes.py` | `features` |
 | `PYQuant/tests/test_regime_scorer.py` | `backtest.regime_scorer` |
+| `PYQuant/tests/test_stats.py` | `backtest`, `exit_ev` |
 | `PYQuant/tests/test_strategy_a.py` | `kis.client`, `strategy.strategy_a` |
 | `PYQuant/tools/check_adjusted.py` | `data.datagokr_source` |
 | `PYQuant/tools/check_datagokr.py` | `data.datagokr_source` |
@@ -491,6 +500,7 @@ graph LR
 | `PYQuant/tools/check_market_flow.py` | `kis.client` |
 | `PYQuant/tools/check_sector_index.py` | `kis.client` |
 | `PYQuant/tools/compare_ws_bars.py` | `kis.client` |
+| `PYQuant/tools/dart_shares_history_fill.py` | `data.keys` |
 | `PYQuant/tools/fetch_naver_themes.py` | `naver.theme` |
 | `PYQuant/tools/full_universe_dump.py` | `data.datagokr_source` |
 | `PYQuant/tools/fullperiod_validate.py` | `data.datagokr_source`, `main`, `tools.month_start_sweep` |
@@ -535,7 +545,7 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 |---|---|---|---|
 | `regime.json` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/Engine.cpp` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/AppConfig.cpp`, `Quant/src/core/Engine.cpp`, `scripts/dashboard_server.py`, `scripts/notify_trades.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/include/core/RegimeFileJudge.h`, `Quant/src/core/EngineConfigure.cpp` |
 | `prices_live.json` | `scripts/live_prices_feed.py` | `scripts/live_prices_feed.py` |  |
-| `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
+| `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
 | `universe*.json` |  | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/nxt_divergence_check.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseScanner.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/live_prices_feed.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |
 | `open_orders.txt` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` |  |
 | `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/_logdir.py`, `scripts/build_review_entry.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `Quant/src/main.cpp`, `scripts/_logdir.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/extract_swap_what_if.py`, `scripts/notify_trades.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `scripts/exit_ev_dashboard.py`, `scripts/maintain.py` |
