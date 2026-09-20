@@ -9,7 +9,7 @@
 - [(루트)](#루트) — 10개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 101개
-- [Quant](#quant) — 173개
+- [Quant](#quant) — 171개
 - [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 216개
@@ -413,9 +413,7 @@
 ### Quant/tools/
 
 - [bench_rest_pool.cpp](../Quant/tools/bench_rest_pool.cpp) — REST 커넥션 풀링 효과 측정 벤치
-- [check_daily.py](../Quant/tools/check_daily.py) — 일봉 REST 확보 가능성 점검 스크립트(유한 날짜창 검증)
 - [check_daily_truncation.py](../Quant/tools/check_daily_truncation.py) — 일봉 당일봉 절단 전후 이동평균 비교 검증 스크립트(D-005)
-- [check_minute.py](../Quant/tools/check_minute.py) — 당일 분봉 REST 확보 가능성 점검 스크립트
 - [feed_latency_measure.cpp](../Quant/tools/feed_latency_measure.cpp) — 실 KIS WS 다세션 시세 수신 지연 측정 도구
 - [future_quote_check.cpp](../Quant/tools/future_quote_check.cpp) — 국내 선물 시세 조회 점검 도구(필드명 확정용)
 - [manual_order.cpp](../Quant/tools/manual_order.cpp) — 수동 주문 도구(모의계좌 접수-체결 확인)
