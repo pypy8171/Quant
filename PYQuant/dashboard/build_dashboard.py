@@ -56,7 +56,10 @@ LIVE_JSON = OUT_DIR / "live.json"
 REVIEWS_JSON = OUT_DIR / "reviews.json"
 PREMARKET_DIR = _REPO / "docs" / "premarket"
 RESEARCH_DIR = _REPO / "research"          # 리셋 라운드 종합 문서(research/RESET_*.md · RESET_*/README.md)
-OUT_HTML = OUT_DIR / "dashboard.html"
+OUT_HTML = OUT_DIR / "dashboard.html"            # 운영용: 스터디·라이브·리뷰·장전 브리핑
+OUT_PUBLIC = OUT_DIR / "dashboard_public.html"   # 공개용: 스터디만(README 링크 대상, 발행 전 _PUBLIC_FORBIDDEN 검사)
+OUT_ROUNDS = OUT_DIR / "dashboard_rounds.html"   # 리서치 라운드만 — 작업 과정 문서라 공개본과 섞지 않는다
+STUDY_INDEX = STUDIES / "index.json"   # 스터디마다 질문·방법·데이터·결과·왜를 손으로 적은 정본(번호순 카드 탭의 원천)
 
 HONESTY = {
     "robust":          ("견고", "look-ahead 차단·비용·홀드아웃 등 방법론이 견고. 승패는 지표값이 말함."),
@@ -303,6 +306,9 @@ def _md_table(rows):
     return '<div class="tw"><table class="md-tbl">' + "".join(html_rows) + "</table></div>"
 
 
+_MD_SKIP = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,}|<!--.*?-->)\s*$")
+
+
 def _md_block(lines):
     """문단·불릿·인용·표·코드 울타리·소제목이 있는 마크다운 조각을 HTML로."""
     out, para, ul, tbl, code = [], [], [], [], None
@@ -343,6 +349,10 @@ def _md_block(lines):
             tbl.append(line)
             continue
         flush_tbl()
+        if _MD_SKIP.match(line):   # 구분선 `---`·자동 생성 마커 `<!-- AUTO:BEGIN -->` — 파일 안 표시일 뿐 화면에 실을 내용이 아니다
+            flush_para()
+            flush_ul()
+            continue
         heading = re.match(r"(#{2,4})\s+(.*)", line)
         if heading:
             flush_para()
@@ -420,6 +430,195 @@ def render_rounds(items):
                 f'<div class="pm-body">{_md_block(attachment["lines"])}</div></details>'
                 for attachment in item.get("attachments", []))
             + '</details>')
+    out.append("</section>")
+    return "".join(out)
+
+
+# ─── 스터디 색인 (research/studies/index.json) ───────────────────────────────
+#  백테스트 탭은 숫자 표라 "어떤 모멘텀인지·어떤 하락장인지"가 안 보인다. 스터디마다 사람이 적은
+#  질문·방법·데이터·결과·판정·왜·후속을 번호순 카드로 싣는다. 표가 없는 스터디(README만)도 여기엔 있다.
+_STUDY_FIELDS = [("question", "질문"), ("method", "방법"), ("data", "데이터·기간"), ("result", "결과"),
+                 ("verdict", "판정"), ("why", "왜"), ("followup", "후속·반영")]
+# 용어 풀이 — 스터디 카드 안에서 처음 나올 때 한 번만 괄호로 붙이고, 표 머리와 탭 위 '용어 풀이' 상자에도 같은 문장을 쓴다.
+# (정규식, 보이는 이름, 쉬운 말). 겹치는 낱말은 긴 것을 앞에 둔다(국면필터가 국면보다 먼저 잡히게).
+_GLOSSARY = [
+    (r"샤프|Sharpe", "샤프", "위험 한 단위당 얻은 수익, 1을 넘으면 쓸 만함"),
+    (r"MDD", "MDD", "최대 낙폭, 고점에서 가장 많이 빠진 비율"),
+    (r"CAGR", "CAGR", "연평균 수익률"),
+    (r"Calmar", "Calmar", "연평균 수익 ÷ 최대 낙폭"),
+    (r"승률", "승률", "이익으로 끝난 거래의 비율"),
+    (r"α|알파", "α", "기준선(매수 후 보유) 대비 초과 수익"),
+    (r"국면\s?필터|regime|국면", "국면", "시장이 오르는 때인지 내리는 때인지의 구분"),
+    (r"모멘텀", "모멘텀", "최근 많이 오른 것이 더 오른다는 성질"),
+    (r"변동성 타게팅|실현변동성|변동성", "변동성", "가격이 흔들리는 정도"),
+    (r"동일가중", "동일가중", "종목마다 같은 금액"),
+    (r"이동평균|\bMA\d*\b", "MA", "이동평균, 최근 N일 평균 가격 선"),
+    (r"홀드아웃", "홀드아웃", "만들 때 안 본 구간으로 하는 검증"),
+    (r"표본외|OOS", "표본외", "만들 때 안 본 구간"),
+    (r"벤치마크|벤치", "벤치", "비교 기준선, 여기서는 매수 후 보유"),
+    (r"유니버스", "유니버스", "살 수 있는 종목 후보 전체"),
+    (r"노출", "노출", "돈을 실제로 넣어 둔 비중"),
+    (r"VIX", "VIX", "미국 시장 공포지수"),
+    (r"리밸런스", "리밸런스", "정한 비중대로 다시 맞추기"),
+    (r"생존편향", "생존편향", "망한 회사가 목록에서 빠져 결과가 좋아 보이는 왜곡"),
+    (r"ATR", "ATR", "하루 평균 가격 변동폭"),
+    (r"\bIC\b", "IC", "신호와 다음 수익의 상관, 예측력"),
+    (r"이격", "이격", "평균선에서 얼마나 떨어졌나"),
+    (r"PIT|시점 고정", "시점 고정", "그때 실제로 알 수 있던 값만 씀"),
+    (r"breadth", "breadth", "상승 종목 비율"),
+    (r"팩터", "팩터", "수익을 가르는 종목 특성"),
+    (r"눌림", "눌림", "오르던 중 잠깐 내린 자리"),
+    (r"분위", "분위", "값 순서로 나눈 묶음"),
+    (r"슬리피지", "슬리피지", "주문 가격과 실제 체결 가격의 차이"),
+    (r"오버레이", "오버레이", "종목은 안 고르고 켜고 끄기만 덧씌움"),
+    (r"\bbp\b", "bp", "1bp=0.01%"),
+    (r"드래그", "드래그", "비용이 수익을 갉아먹는 몫"),
+    (r"턴오버|turnover", "턴오버", "얼마나 자주 갈아탔나"),
+    (r"소르티노|Sortino", "소르티노", "내릴 때 흔들림만 따진 샤프"),
+]
+_GLOSSARY_COMPILED = [(re.compile(pattern), plain_text) for pattern, _, plain_text in _GLOSSARY]
+
+
+def annotate_terms(text, seen):
+    """카드 하나 안에서 용어가 처음 나올 때만 뒤에 (쉬운 말)을 붙인다. 백틱 코드 안은 건드리지 않는다."""
+    parts = text.split("`")
+    for part_index in range(0, len(parts), 2):
+        part = parts[part_index]
+        for pattern, plain_text in _GLOSSARY_COMPILED:
+            if pattern.pattern in seen:
+                continue
+            match = pattern.search(part)
+            if match:
+                seen.add(pattern.pattern)
+                part = part[:match.end()] + f"({plain_text})" + part[match.end():]
+        parts[part_index] = part
+    return "`".join(parts)
+
+
+def render_glossary():
+    items = "".join(f"<li><b>{esc(name)}</b> — {esc(plain_text)}</li>" for _, name, plain_text in _GLOSSARY)
+    return ('<details class="pm glossary"><summary><span class="pm-sum"><b>용어 풀이</b> · 카드 본문에는 처음 나올 때 괄호로 같은 풀이가 붙는다</span></summary>'
+            f'<div class="pm-body"><ul class="glossary-list">{items}</ul></div></details>')
+
+
+# 표 머리 아래 작은 글씨로 붙는 풀이
+_COLUMN_PLAIN = {
+    "total_return": "기간 전체 수익", "mdd": "최대 낙폭", "sharpe": "위험 대비 수익", "win_rate": "이익 거래 비율",
+    "n_trades": "거래 횟수", "alpha": "기준선 대비", "cagr": "연평균 수익", "calmar": "연수익÷최대낙폭",
+    "mdd_red": "낙폭 얼마나 줄였나", "active_pct": "돈 넣어 둔 기간 비율", "_holdout": "안 본 구간 검증",
+    "_honesty": "믿을 수 있나",
+}
+_STATUS_CLASS = {"통과": "pos", "기각": "neg", "음성": "neg", "보류": "zero", "예약": "zero", "참고": "zero"}
+
+
+def load_study_index():
+    if not STUDY_INDEX.exists():
+        return []
+    try:
+        items = json.loads(STUDY_INDEX.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        print(f"  ! {STUDY_INDEX} 읽기 실패: {error}", file=sys.stderr)
+        return []
+    return sorted((item for item in items if item.get("number")), key=lambda item: item["number"])
+
+
+_SERIES_KO = {"index-macro": "지수·거시"}   # 색인의 계열 표기 중 영문 하나만 우리말로
+
+_STUDY_NOTES = """<div class="notes">
+  <h3>읽는 법 · 규율</h3>
+  <ul>
+    <li><b>계열 분리</b> — 계열 B(지수 오버레이)는 종목 포트폴리오(계열 A)와 <b>직접 비교 불가</b>. 표를 계열·벤치마크로 나눈 이유.</li>
+    <li><b>CAGR·Calmar가 1차</b> — 창 길이가 다르면(예 98년 vs 30년) <code>총수익%</code>는 복리로 부풀어 직접 비교 불가. 연환산한 <code>CAGR%</code>·<code>Calmar</code>를 먼저 보고, 총수익%(raw)는 참고로 둔다.</li>
+    <li><b>초과CAGR(막대)</b> = 전략 CAGR − 매수 후 보유 CAGR(%p). 0 중심 바, +초록/−빨강. 그룹 최대치로 스케일.</li>
+    <li><b>정직성·비고</b> — <span class="cav">⚠</span>에 마우스=편향/해석 주의(생존편향·비참여·소표본·수정주가). 표 아래 <b>비고</b>에 전문.</li>
+    <li><b>맥락필수</b> 라벨 — regime-ON 비참여(현금)처럼 헤드라인 숫자가 오독을 부르는 행. 초록 '견고'와 구분.</li>
+    <li><b>홀드아웃 배너</b> — 학습구간 Calmar + → 2022 − 전환(표본외 붕괴). 예뻐 보인 지표가 지우면 안 되는 사실.</li>
+  </ul>
+</div>"""
+
+
+def _study_tables(study_rows):
+    """한 스터디의 숫자 표 — 벤치마크별 한 그룹. 열은 계열(A 종목 / B 지수 오버레이)로 고른다."""
+    groups = {}
+    for row in study_rows:
+        groups.setdefault(row.get("benchmark", ""), []).append(row)
+    out = []
+    for bench, group_rows in sorted(groups.items()):
+        family = group_rows[0].get("family", "A_portfolio")
+        cols = COLS_B if family == "B_overlay" else COLS_A
+        amax = max((abs(row["alpha"]) for row in group_rows
+                    if row.get("strategy") not in BENCHMARK_SENTINELS and not _isna(row.get("alpha"))),
+                   default=1.0) or 1.0
+        for row in group_rows:
+            row["_amax"] = amax
+        win = group_rows[0].get("window", "")
+        gtitle = " · ".join(part for part in (FAMILY[family][0], plain(bench)) if part)
+        n_beat = sum(1 for row in group_rows
+                     if row.get("strategy") not in BENCHMARK_SENTINELS and not _isna(row.get("alpha"))
+                     and row["alpha"] > 0)
+        strategy_count = sum(1 for row in group_rows if row.get("strategy") not in BENCHMARK_SENTINELS)
+        caption = (f'<span class="gcap">{strategy_count}전략 · 매수 후 보유 초과 '
+                   f'<b class="pos">{n_beat}</b>/{strategy_count}</span>') if strategy_count else ""
+        out.append(
+            f'<div class="group_rows"><h3>{esc(gtitle)} <span class="win">{esc(win)}</span> {caption}</h3>'
+            f'{holdout_banner(group_rows)}{table(group_rows, cols)}{caveats_block(group_rows)}</div>')
+    return "".join(out)
+
+
+def render_studies(items, rows):
+    """스터디 한 건 = 카드 하나. 위쪽은 사람이 적은 설명(index.json), 아래쪽은 그 번호의 숫자 표(metrics.json)."""
+    by_study = {}
+    for row in rows:
+        study_id = str(row.get("study_id", ""))
+        if study_id.startswith("BT-"):
+            by_study.setdefault(study_id[3:5], []).append(row)
+    if not items and not by_study:
+        return ('<section class="fam"><h2>스터디 · 백테스트 결과</h2>'
+                '<p class="empty">스터디가 없습니다. <code>research/studies/index.json</code>·<code>metrics.json</code>을 두면 실립니다.</p></section>')
+    known = {item["number"] for item in items}
+    # 표는 있는데 색인에 없는 번호 — 제목만이라도 카드로 세운다
+    items = list(items) + [{"number": number, "title": NAME_MAP.get(number, f"BT-{number}"), "status": ""}
+                           for number in sorted(by_study) if number not in known]
+    items.sort(key=lambda item: item["number"])
+    out = ['<section class="fam"><h2>스터디 · 백테스트 결과 '
+           f'<span class="sub">{len(items)}건 · 번호순. 무엇을 물었고 어떻게 했고 어떤 데이터로 무엇이 나왔는지 한 장씩,'
+           ' 숫자 표가 있는 스터디는 그 표까지 같은 카드에</span></h2>',
+           render_glossary(),
+           '<div class="tw si-nav"><table><thead><tr><th>번호</th><th>제목</th><th>계열</th><th>기간</th><th>판정</th><th>숫자 표</th></tr></thead><tbody>']
+    for item in items:
+        number = item["number"]
+        status = item.get("status", "")
+        status_class = _STATUS_CLASS.get(status[:2], "zero")
+        series = _SERIES_KO.get(item.get("series", ""), item.get("series", ""))
+        out.append(
+            f'<tr><td class="mono"><a href="#study-{number}" data-study="{number}">{esc(number)}</a></td>'
+            f'<td><a href="#study-{number}" data-study="{number}">{_md_inline(item.get("title", ""))}</a></td>'
+            f'<td>{esc(series)}</td><td class="mono">{esc(item.get("period", ""))}</td>'
+            f'<td><b class="{status_class}">{esc(status)}</b></td>'
+            f'<td>{f"{len(by_study[number])}행" if number in by_study else "README만"}</td></tr>')
+    out.append('</tbody></table></div>')
+    for item in items:
+        number = item["number"]
+        status = item.get("status", "")
+        status_class = _STATUS_CLASS.get(status[:2], "zero")
+        seen_terms = set()
+        body = "".join(
+            f'<div class="si-row"><div class="si-key">{label}</div><div class="si-val">{_md_inline(annotate_terms(item.get(key, ""), seen_terms))}</div></div>'
+            for key, label in _STUDY_FIELDS if item.get(key))
+        files = " · ".join(esc(path) for path in item.get("files", []))
+        tables = _study_tables(by_study[number]) if number in by_study else ""
+        out.append(
+            f'<details class="pm si-card" id="study-{number}"><summary>'
+            f'<span class="pm-sum"><b class="mono">스터디 {esc(number)}</b> · {_md_inline(item.get("title", ""))}'
+            f' <b class="si-status {status_class}">{esc(status)}</b>'
+            + (f' <span class="pill p-strat si-has">숫자 표</span>' if tables else "")
+            + f'</span><span class="pm-pub">{esc(item.get("period", ""))}</span></summary>'
+            f'<div class="pm-body si-body">{body}'
+            + (f'<div class="si-row"><div class="si-key">파일</div><div class="si-val mono">{files}</div></div>' if files else "")
+            + '</div>'
+            + (f'<div class="si-tables">{tables}</div>' if tables else "")
+            + '</details>')
+    out.append(_STUDY_NOTES)
     out.append("</section>")
     return "".join(out)
 
@@ -623,8 +822,10 @@ def cell(r, key, kind):
 
 
 def table(rows, cols):
-    head = "".join(f'<th class="c-{esc(k)}" tabindex="0" role="button" '
-                   f'title="클릭·Enter로 정렬">{esc(t)}</th>' for t, k, _ in cols)
+    head = "".join(f'<th class="c-{esc(key)}" tabindex="0" role="button" '
+                   f'title="클릭·Enter로 정렬">{esc(label)}'
+                   + (f'<small class="th-plain">{esc(_COLUMN_PLAIN[key])}</small>' if key in _COLUMN_PLAIN else "")
+                   + '</th>' for label, key, _ in cols)
     body = []
     for row in rows:
         is_buy_and_hold = row.get("strategy") in BENCHMARK_SENTINELS
@@ -658,50 +859,6 @@ def holdout_banner(rows):
 
 
 # ── 백테스트 탭 ───────────────────────────────────────────────────────────────
-def render_backtest(rows):
-    fams = {}
-    for r in rows:
-        fams.setdefault(r.get("family", "A_portfolio"), []).append(r)
-
-    sections = []
-    for fam in ("B_overlay", "A_portfolio"):
-        frows = fams.get(fam, [])
-        title, desc = FAMILY[fam]
-        if not frows:
-            sections.append(f'<section class="fam"><h2>{esc(title)}</h2>'
-                            f'<p class="fdesc">{esc(desc)}</p>'
-                            f'<p class="empty">아직 이 계열의 <code>metrics.json</code>이 없습니다. '
-                            f'백필 producer를 실행하면 자동으로 채워집니다.</p></section>')
-            continue
-        blocks = [f'<section class="fam"><h2>{esc(title)}</h2><p class="fdesc">{esc(desc)}</p>']
-        cols = COLS_B if fam == "B_overlay" else COLS_A
-        groups = {}
-        for row in frows:
-            groups.setdefault((row.get("study_id", ""), row.get("benchmark", "")), []).append(row)
-        for (study, bench), grp in sorted(groups.items()):
-            amax = max((abs(row["alpha"]) for row in grp
-                        if row.get("strategy") not in BENCHMARK_SENTINELS and not _isna(row.get("alpha"))),
-                       default=1.0) or 1.0
-            for row in grp:
-                row["_amax"] = amax
-            win = grp[0].get("window", "")
-            study_disp = NAME_MAP.get(study[3:5], study) if study.startswith("BT-") else study
-            gtitle = " · ".join(x for x in (study_disp, plain(bench)) if x)
-            n_beat = sum(1 for row in grp
-                         if row.get("strategy") not in BENCHMARK_SENTINELS and not _isna(row.get("alpha"))
-                         and row["alpha"] > 0)
-            strategy_count = sum(1 for row in grp if row.get("strategy") not in BENCHMARK_SENTINELS)
-            caption = (f'<span class="gcap">{strategy_count}전략 · 매수 후 보유 초과 '
-                   f'<b class="pos">{n_beat}</b>/{strategy_count}</span>') if strategy_count else ""
-            blocks.append(
-                f'<div class="grp"><h3>{esc(gtitle)} '
-                f'<span class="win">{esc(win)}</span> {caption}</h3>'
-                f'{holdout_banner(grp)}{table(grp, cols)}{caveats_block(grp)}</div>')
-        blocks.append('</section>')
-        sections.append("".join(blocks))
-    return "".join(sections)
-
-
 # ── 라이브 탭 ─────────────────────────────────────────────────────────────────
 def render_live(live):
     journals = live.get("journals", [])
@@ -735,8 +892,9 @@ def render_live(live):
                      f'<div class="ctitle">{esc(c.get("title",""))}</div>'
                      f'<div class="csumm">{esc(summ)}</div></summary>')
             if body:
+                body_lines = [line for line in body.splitlines() if not line.startswith("# ")]
                 inner += (f'<div class="jsrc">{esc(rel)}</div>'
-                          f'<pre class="jbody">{esc(body)}</pre>')
+                          f'<div class="jbody">{_md_block(body_lines)}</div>')
             else:
                 inner += f'<div class="jsrc">원문을 찾지 못했다 — {esc(rel)}</div>'
             cards.append(f'<details class="card jcard">{inner}</details>')
@@ -1043,39 +1201,68 @@ def render_reviews(reviews):
 
 
 # ── 렌더 ──────────────────────────────────────────────────────────────────────
-def render(rows, live, reviews, premarket, rounds):
-    n_studies = len({r.get("study_id", "") for r in rows if r.get("study_id")})
+# 발행본 셋. 운영용은 매매 정보까지, 공개용은 스터디만, 리서치 라운드는 작업 과정 문서라 따로.
+VARIANTS = {
+    "ops":    {"out": OUT_HTML,   "title": "퀀트 매매 대시보드",   "brand": "매매 대시보드",
+               "schemas": "quant.metrics/v1 · quant.live/v1 · quant.review/v1",
+               "tabs": ("studies", "live", "reviews", "premarket")},
+    "public": {"out": OUT_PUBLIC, "title": "퀀트 백테스트 스터디", "brand": "백테스트 스터디",
+               "schemas": "quant.metrics/v1", "tabs": ("studies",)},
+    "rounds": {"out": OUT_ROUNDS, "title": "퀀트 리서치 라운드",   "brand": "리서치 라운드",
+               "schemas": "research/RESET_*", "tabs": ("rounds",)},
+}
+
+# 공개본에 있으면 안 되는 것 — 세션 이름·비공개 폴더·키 이름·계좌번호 꼴. 걸리면 파일을 안 쓴다.
+_PUBLIC_FORBIDDEN = [re.compile(pattern) for pattern in
+                     (r"\bquant-[0-9a-f]{2}\b", r"_private", r"app_?key", r"app_?secret", r"\b\d{8}-\d{2}\b")]
+
+
+def render(rows, live, reviews, premarket, rounds, study_index, variant="ops"):
+    variant_specification = VARIANTS[variant]
     n_fam = len({r.get("family", "A_portfolio") for r in rows})
-    over = (f'<div class="stat"><b>{len(rows)}</b>백테스트행</div>'
-            f'<div class="stat"><b>{n_studies}</b>스터디</div>'
-            f'<div class="stat"><b>{n_fam}</b>계열</div>'
-            f'<div class="stat"><b>{len(live.get("journals",[]))}</b>매매일지</div>'
-            f'<div class="stat"><b>{len(live.get("order_log",[]))}</b>주문로그일</div>'
-            f'<div class="stat"><b>{len(reviews)}</b>리뷰</div>'
-            f'<div class="stat"><b>{len(premarket)}</b>장전 브리핑</div>'
-            f'<div class="stat"><b>{len(rounds)}</b>리서치 라운드</div>')
-    legend = "".join(
-        f'<span class="badge b-{esc(k)}" title="{esc(v[1])}">{esc(v[0])}</span>'
-        for k, v in HONESTY.items())
+    tabs = {   # id, 단추 이름, 개요 칸들, 본문
+        "studies":   ("tab-si", "스터디 · 백테스트 결과",
+                      [(len(study_index), "스터디"), (len(rows), "백테스트행"), (n_fam, "계열")],
+                      lambda: render_studies(study_index, rows)),
+        "live":      ("tab-live", "라이브 매매",
+                      [(len(live.get("journals", [])), "매매일지"), (len(live.get("order_log", [])), "주문로그일")],
+                      lambda: render_live(live)),
+        "reviews":   ("tab-rv", "리뷰", [(len(reviews), "리뷰")], lambda: render_reviews(reviews)),
+        "premarket": ("tab-pm", "장전 브리핑", [(len(premarket), "장전 브리핑")], lambda: render_premarket(premarket)),
+        "rounds":    ("tab-rd", "리서치 라운드", [(len(rounds), "리서치 라운드")], lambda: render_rounds(rounds)),
+    }
+    buttons, panels, over = [], [], []
+    for index, key in enumerate(variant_specification["tabs"]):
+        button_identifier, label, overview_counts, body = tabs[key]
+        panel_id = button_identifier.replace("tab-", "panel-")
+        selected = "true" if index == 0 else "false"
+        buttons.append(f'  <button class="tab-btn" role="tab" id="{button_identifier}" aria-controls="{panel_id}" '
+                       f'aria-selected="{selected}">{label}</button>')
+        panels.append(f'<div class="panel" id="{panel_id}" role="tabpanel" aria-labelledby="{button_identifier}"'
+                      f'{"" if index == 0 else " hidden"}>\n{body()}\n</div>')
+        over.extend(f'<div class="stat"><b>{count}</b>{name}</div>' for count, name in overview_counts)
+    legend = ('<div class="legend"><span class="lbl">정직성:</span>' + "".join(
+        f'<span class="badge b-{esc(grade)}" title="{esc(grade_label[1])}">{esc(grade_label[0])}</span>' for grade, grade_label in HONESTY.items())
+        + '</div>') if "studies" in variant_specification["tabs"] else ""
 
     tpl = HTML_TMPL
     repl = {
+        "@@TITLE@@": variant_specification["title"],
+        "@@BRAND@@": variant_specification["brand"],
+        "@@SCHEMAS@@": variant_specification["schemas"],
         "@@GEN@@": date.today().isoformat(),
-        "@@OVERVIEW@@": over,
+        "@@OVERVIEW@@": "".join(over),
         "@@LEGEND@@": legend,
-        "@@BACKTEST@@": render_backtest(rows),
-        "@@LIVE@@": render_live(live),
-        "@@REVIEWS@@": render_reviews(reviews),
-        "@@PREMARKET@@": render_premarket(premarket),
-        "@@ROUNDS@@": render_rounds(rounds),
-        "@@DATA@@": html.escape(json.dumps(rows, ensure_ascii=False), quote=True),
+        "@@TABS@@": "\n".join(buttons),
+        "@@PANELS@@": "\n\n".join(panels),
+        "@@DATA@@": html.escape(json.dumps(rows if "studies" in variant_specification["tabs"] else [], ensure_ascii=False), quote=True),
     }
-    for k, v in repl.items():
-        tpl = tpl.replace(k, v)
+    for placeholder, value in repl.items():
+        tpl = tpl.replace(placeholder, value)
     return tpl
 
 
-HTML_TMPL = """<title>퀀트 매매 대시보드</title>
+HTML_TMPL = """<title>@@TITLE@@</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 :root{
@@ -1214,9 +1401,14 @@ tr.benchmark td.c-strategy::after{content:" ·기준선";color:var(--faint);font
 .jcard[open]{grid-column:1/-1;cursor:default}
 .jcard[open] .csumm{-webkit-line-clamp:unset;display:block}
 .jsrc{margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--faint)}
-.jbody{margin-top:6px;max-height:60vh;overflow:auto;white-space:pre-wrap;word-break:break-word;
-  font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--ink);
+.jbody{margin-top:6px;max-height:60vh;overflow:auto;word-break:break-word;
+  font-size:13px;line-height:1.6;color:var(--ink);
   background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.jbody h3,.jbody h4,.jbody h5{margin:14px 0 6px;font-size:13.5px}
+.jbody p{margin:6px 0}
+.jbody ul{margin:6px 0 6px 18px}
+.jbody blockquote{margin:6px 0;padding:6px 10px;border-left:3px solid var(--accent);background:var(--surface-2)}
+.jbody table{font-size:12px;margin:8px 0}
 .chead{display:flex;gap:8px;align-items:center;margin-bottom:6px}
 .cdate{font-family:var(--mono);font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
 .ctitle{font-weight:700;font-size:13.5px;margin-bottom:5px;line-height:1.35}
@@ -1260,6 +1452,23 @@ section.fam h2 .sub{color:var(--faint);font-weight:400;font-size:12px;margin-lef
 .pm-body table.md-tbl th{position:static;cursor:default}
 .pm-body{max-width:none}
 .rd-att{margin:8px 0 0 16px}
+.si-link{font-size:11.5px;font-weight:400;color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent)}
+.si-nav td a{color:var(--ink);text-decoration:none;border-bottom:1px dotted var(--faint)}
+.si-nav td,.si-nav th{white-space:normal;text-align:left;vertical-align:top}
+.si-status{font-size:11.5px;margin-left:6px}
+.si-body{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;font-size:13px}
+.si-row{display:contents}
+.si-key{color:var(--muted);font-weight:600;white-space:nowrap}
+.si-val{line-height:1.6}
+.si-has{font-size:11px;margin-left:6px}
+.si-tables{margin-top:14px;padding-top:10px;border-top:1px dashed var(--line)}
+.th-plain{display:block;font-weight:400;font-size:10px;color:var(--faint);white-space:nowrap}
+.glossary{margin:10px 0 14px}
+.glossary-list{columns:3;column-gap:24px;margin:0;padding-left:18px;font-size:12.5px;line-height:1.6}
+.glossary-list li{break-inside:avoid}
+@media (max-width:900px){.glossary-list{columns:1}}
+.si-tables .grp h3{font-size:13.5px}
+@media (max-width:600px){.si-body{grid-template-columns:1fr}.si-key{margin-top:6px}}
 
 /* ============ 리뷰 (사후검토) ============ */
 .review{padding:6px 0 10px}
@@ -1386,58 +1595,25 @@ section.fam h2 .sub{color:var(--faint);font-weight:400;font-size:12px;margin-lef
 
 <div class="topbar">
   <div class="wrap row">
-    <span class="brand"><span class="dot"></span>Quant <span class="sub">매매 대시보드</span></span>
+    <span class="brand"><span class="dot"></span>Quant <span class="sub">@@BRAND@@</span></span>
     <span class="spacer"></span>
     <button class="tzbtn" id="tz" aria-label="테마 전환"><span id="tzi">◐</span><span id="tzt">테마</span></button>
   </div>
 </div>
 
 <header class="head wrap">
-  <h1>퀀트 매매 대시보드 <span class="v">quant.metrics/v1 · quant.live/v1 · quant.review/v1</span></h1>
+  <h1>@@TITLE@@ <span class="v">@@SCHEMAS@@</span></h1>
   <div class="gen">생성 @@GEN@@ · 데이터 계약(정규화 스키마)만 렌더 · 계열·비교군 분리</div>
   <div class="overview">@@OVERVIEW@@</div>
-  <div class="legend"><span class="lbl">정직성:</span>@@LEGEND@@</div>
+  @@LEGEND@@
 </header>
 
 <div class="wrap">
 <div class="tabs" role="tablist">
-  <button class="tab-btn" role="tab" id="tab-bt" aria-controls="panel-bt" aria-selected="true">백테스트</button>
-  <button class="tab-btn" role="tab" id="tab-live" aria-controls="panel-live" aria-selected="false">라이브 매매</button>
-  <button class="tab-btn" role="tab" id="tab-rv" aria-controls="panel-rv" aria-selected="false">리뷰</button>
-  <button class="tab-btn" role="tab" id="tab-pm" aria-controls="panel-pm" aria-selected="false">장전 브리핑</button>
-  <button class="tab-btn" role="tab" id="tab-rd" aria-controls="panel-rd" aria-selected="false">리서치 라운드</button>
+@@TABS@@
 </div>
 
-<div class="panel" id="panel-bt" role="tabpanel" aria-labelledby="tab-bt">
-@@BACKTEST@@
-<div class="notes">
-  <h3>읽는 법 · 규율</h3>
-  <ul>
-    <li><b>계열 분리</b> — 계열 B(지수 오버레이)는 종목 포트폴리오(계열 A)와 <b>직접 비교 불가</b>. 표를 계열·벤치마크로 나눈 이유.</li>
-    <li><b>CAGR·Calmar가 1차</b> — 창 길이가 다르면(예 98년 vs 30년) <code>총수익%</code>는 복리로 부풀어 직접 비교 불가. 연환산한 <code>CAGR%</code>·<code>Calmar</code>를 먼저 보고, 총수익%(raw)는 참고로 둔다.</li>
-    <li><b>초과CAGR(막대)</b> = 전략 CAGR − 매수 후 보유 CAGR(%p). 0 중심 바, +초록/−빨강. 그룹 최대치로 스케일.</li>
-    <li><b>정직성·비고</b> — <span class="cav">⚠</span>에 마우스=편향/해석 주의(생존편향·비참여·소표본·수정주가). 표 아래 <b>비고</b>에 전문.</li>
-    <li><b>맥락필수</b> 라벨 — regime-ON 비참여(현금)처럼 헤드라인 숫자가 오독을 부르는 행. 초록 '견고'와 구분.</li>
-    <li><b>홀드아웃 배너</b> — 학습구간 Calmar + → 2022 − 전환(표본외 붕괴). 예뻐 보인 지표가 지우면 안 되는 사실.</li>
-  </ul>
-</div>
-</div>
-
-<div class="panel" id="panel-live" role="tabpanel" aria-labelledby="tab-live" hidden>
-@@LIVE@@
-</div>
-
-<div class="panel" id="panel-rv" role="tabpanel" aria-labelledby="tab-rv" hidden>
-@@REVIEWS@@
-</div>
-
-<div class="panel" id="panel-pm" role="tabpanel" aria-labelledby="tab-pm" hidden>
-@@PREMARKET@@
-</div>
-
-<div class="panel" id="panel-rd" role="tabpanel" aria-labelledby="tab-rd" hidden>
-@@ROUNDS@@
-</div>
+@@PANELS@@
 </div>
 
 <script id="mdata" type="application/json">@@DATA@@</script>
@@ -1461,6 +1637,14 @@ section.fam h2 .sub{color:var(--faint);font-weight:400;font-size:12px;margin-lef
   btns.forEach(function(b){
     b.addEventListener('click',function(){sel(b.id);});
     b.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();sel(b.id);}});
+  });
+  // 스터디 번호 링크(색인 표) → 그 카드를 펼친다
+  [].slice.call(document.querySelectorAll('a[data-study]')).forEach(function(a){
+    a.addEventListener('click',function(e){
+      e.preventDefault();sel('tab-si');
+      var card=document.getElementById('study-'+a.getAttribute('data-study'));
+      if(card){card.open=true;card.scrollIntoView({behavior:'smooth',block:'start'});}
+    });
   });
 })();
 // 헤더 클릭 정렬(숫자/텍스트 자동). JS 없이도 표는 이미 완성됨.
@@ -1515,15 +1699,23 @@ def main():
     reviews = load_reviews()
     premarket = load_premarket()
     rounds = load_rounds()
+    study_index = load_study_index()
     if not rows:
         print("! metrics.json을 찾지 못했습니다.", file=sys.stderr)
-    OUT_HTML.write_text(render(rows, live, reviews, premarket, rounds), encoding="utf-8")
+    for variant, variant_specification in VARIANTS.items():
+        page = render(rows, live, reviews, premarket, rounds, study_index, variant)
+        if variant == "public":
+            hits = [pattern.pattern for pattern in _PUBLIC_FORBIDDEN if pattern.search(page)]
+            if hits:
+                print(f"! 공개본에 금지 패턴 {hits} — {variant_specification['out'].name}을 쓰지 않는다", file=sys.stderr)
+                continue
+        variant_specification["out"].write_text(page, encoding="utf-8")
+        print(f"✅ 대시보드 생성({variant}): {variant_specification['out']}")
     fams = {}
     for r in rows:
         f = r.get("family", "A_portfolio")
         fams[f] = fams.get(f, 0) + 1
-    print(f"✅ 대시보드 생성: {OUT_HTML}")
-    print(f"   백테스트 {len(rows)}행 · 계열 {dict(fams)} · "
+    print(f"   스터디 {len(study_index)} · 백테스트 {len(rows)}행 · 계열 {dict(fams)} · "
           f"라이브 일지 {len(live.get('journals',[]))}·주문 {len(live.get('order_log',[]))} · "
           f"리뷰 {len(reviews)} · 장전 브리핑 {len(premarket)} · 리서치 라운드 {len(rounds)}")
 

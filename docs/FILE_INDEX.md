@@ -12,7 +12,7 @@
 - [Quant](#quant) — 172개
 - [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 205개
+- [research](#research) — 208개
 - [scripts](#scripts) — 69개
 - [strategies](#strategies) — 31개
 - [tools](#tools) — 3개
@@ -545,7 +545,9 @@
 
 ### research/dashboard/
 
-- [dashboard.html](../research/dashboard/dashboard.html) — 퀀트 매매 대시보드 페이지
+- [dashboard.html](../research/dashboard/dashboard.html) — 퀀트 매매 대시보드 페이지(운영용: 스터디·라이브·리뷰·장전 브리핑)
+- [dashboard_public.html](../research/dashboard/dashboard_public.html) — 공개용 스터디 페이지(README 링크 대상, 생성기가 금지 패턴을 거른 뒤 씀)
+- [dashboard_rounds.html](../research/dashboard/dashboard_rounds.html) — 리서치 라운드 문서·회의 보고 전문 페이지(비공개 발행)
 - [live.json](../research/dashboard/live.json) — 라이브 매매일지 링크 모음 데이터
 - [reviews.json](../research/dashboard/reviews.json) — 실증 사후검토 데이터
 
@@ -558,6 +560,7 @@
 - [.gitignore](../research/studies/.gitignore) — 스터디 폴더 gitignore
 - [README.md](../research/studies/README.md) — 폴더형 백테스트 스터디 인덱스 문서
 - [_TEMPLATE.md](../research/studies/_TEMPLATE.md) — 백테스트 결과 표준 템플릿
+- [index.json](../research/studies/index.json) — 스터디 21건 색인(번호·질문·방법·데이터·결과·판정·왜·후속·파일). 대시보드 "스터디 · 백테스트 결과" 카드의 원천
 - [render_studies.py](../research/studies/render_studies.py) — 모멘텀·국면필터 롤링검증(1~5년)/02/03 매매 원장 렌더러 스크립트
 
 ### research/studies/01_momentum_regime/

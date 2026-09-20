@@ -580,7 +580,7 @@
       "file": "PYQuant/dashboard/build_dashboard.py",
       "symbol": "render_reviews",
       "lines": 168,
-      "start": 657
+      "start": 1033
     },
     {
       "file": "Quant/src/risk/OrderGate.cpp",
