@@ -12,7 +12,7 @@
 - [Quant](#quant) — 172개
 - [docs](#docs) — 60개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 202개
+- [research](#research) — 205개
 - [scripts](#scripts) — 69개
 - [strategies](#strategies) — 31개
 - [tools](#tools) — 3개
@@ -808,6 +808,12 @@
 - [build_axes.py](../research/studies/20_macro_overlay/build_axes.py) — 스터디 20 네 축 국면 표 생성 — `regime_axes`를 전 기간 평일에 돌려 `out/axes_<cell>.parquet`로 저장
 - [metrics.json](../research/studies/20_macro_overlay/metrics.json) — 스터디 20 숫자 정본 — 셀별 CAGR·MDD·Calmar·판정 7항목·연도 창·격자 54런·입력 해시
 - [overlay_backtest.py](../research/studies/20_macro_overlay/overlay_backtest.py) — 스터디 20 오버레이 백테스트 — 축 표에서 노출을 만들어 코스피 시가 수익에 곱하고 사전등록 7항목을 판정, `metrics.json` 기록
+
+### research/studies/21_macro_overlay_hold/
+
+- [PREREG.md](../research/studies/21_macro_overlay_hold/PREREG.md) — 스터디 21 사전등록 — 스터디 20 재실행, 배수를 축 구간 변경 시에만 갱신(오너 결정 6), 합격 7항목은 20 그대로
+- [README.md](../research/studies/21_macro_overlay_hold/README.md) — 스터디 21 결과 — 비용 12.2%→5.7%인데 기각(같은 2항목만 통과), 원인은 국면 라벨 지연
+- [metrics.json](../research/studies/21_macro_overlay_hold/metrics.json) — 스터디 21 숫자 정본 — 셀별 CAGR·MDD·판정 7항목·격자 54런·`scale_update`·입력 해시
 
 ## scripts
 

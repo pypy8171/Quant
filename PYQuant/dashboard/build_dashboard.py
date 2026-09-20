@@ -55,6 +55,7 @@ OUT_DIR = _REPO / "research" / "dashboard"
 LIVE_JSON = OUT_DIR / "live.json"
 REVIEWS_JSON = OUT_DIR / "reviews.json"
 PREMARKET_DIR = _REPO / "docs" / "premarket"
+RESEARCH_DIR = _REPO / "research"          # 리셋 라운드 종합 문서(research/RESET_*.md · RESET_*/README.md)
 OUT_HTML = OUT_DIR / "dashboard.html"
 
 HONESTY = {
@@ -86,9 +87,123 @@ def discover(root: Path):
             except Exception as e:
                 print(f"  ! 스킵(파싱실패) {p}: {e}", file=sys.stderr)
                 continue
-            for r in (data if isinstance(data, list) else [data]):
-                r["_src"] = str(p.relative_to(_REPO)).replace("\\", "/")
-                rows.append(r)
+            source = str(p.relative_to(_REPO)).replace("\\", "/")
+            if isinstance(data, dict):
+                data = normalize_study_dict(data, source)
+            for row in data:
+                row["_src"] = source
+                rows.append(row)
+    return rows
+
+
+# ── 스터디 고유 스키마 → 정규화 행 ───────────────────────────────────────────
+# 스터디 19·20·21은 러너가 자기 스키마(dict)로 metrics.json을 쓴다. 표에 실을 수 있게 quant.metrics/v1 행으로
+# 바꾼다 — 숫자는 파일 값 그대로, 비고(caveat)에 "왜 그 결과인지"를 파일 안 진단 수치로 적는다.
+def normalize_study_dict(data, source):
+    schema = data.get("schema", "")
+    if schema == "quant.metrics/macro_overlay.v1":
+        return normalize_macro_overlay(data)
+    if "center_judgment" in data and str(data.get("study", "")).startswith("19_"):
+        return normalize_fundamental_factor(data)
+    return [data]
+
+
+_REGIME_KO = {"contraction": "수축", "expansion": "확장", "overheat": "과열", "recovery": "회복"}
+_CHECK_KO = {
+    "1_exp_minus_con_t": "① 확장−수축 월수익 t", "2_windows_pos_of_27": "② 연도 창 Calmar 개선",
+    "3_neighbors_same_sign": "③ 이웃 6셀 같은 부호", "4_mdd_rel_reduction": "④ MDD 20% 감소",
+    "5_cagr_giveback_pp": "⑤ CAGR 반납 ≤1%p", "6_transitions_per_year": "⑥ 전환 ≤6회/년",
+    "7_excess_month_t": "⑦ 월 초과수익 t·DSR",
+}
+_SCALE_UPDATE_KO = {"daily": "배수 매일 갱신", "on_state_change": "배수는 축 구간 변경 시만 갱신"}
+
+
+def normalize_macro_overlay(data):
+    """스터디 20·21(거시 국면 오버레이 × 코스피). 셀마다 한 행 + 매수 후 보유 한 행."""
+    study_id = data.get("study_id", "")
+    cells = data.get("cells", {})
+    if not cells:
+        return []
+    first = next(iter(cells.values()))
+    window = first.get("period", data.get("period", ""))
+    bench = "코스피 매수 후 보유"
+    common = {"schema": "quant.metrics/v1", "study_id": study_id, "family": "B_overlay",
+              "benchmark": bench, "window": window, "side": "long"}
+    rows = [dict(common, strategy="BUY_AND_HOLD", label="코스피 지수, 노출 1.0 고정",
+                 cagr=first["cagr_bh"] * 100, calmar=first["calmar_bh"], mdd=-first["mdd_bh"] * 100,
+                 sharpe=first["sharpe_bh"], alpha=0.0, mdd_red=0.0, total_return=None, active_pct=100.0,
+                 honesty_label="robust")]
+    for name, cell in cells.items():
+        checks = cell.get("checks", {})
+        passed = [_CHECK_KO[key] for key, ok in checks.items() if key in _CHECK_KO and ok]
+        failed = [_CHECK_KO[key] for key, ok in checks.items() if key in _CHECK_KO and not ok]
+        means = cell.get("regime_month_mean_pct", {})
+        since = cell.get("diagnostic_since_axes_valid") or {}
+        why = []
+        why.append(f"사전등록 7항목 중 {len(passed)} 통과({', '.join(passed) or '없음'}), "
+                   f"미달 {len(failed)}({', '.join(failed) or '없음'}) → macro_apply={str(cell.get('macro_apply')).lower()}.")
+        why.append(f"노출 변경 비용 누적 {cell.get('total_cost_pct', 0):.1f}%, 평균 노출 {cell.get('exposure_mean', 1):.2f}, "
+                   f"노출<1 일수 {cell.get('days_exposure_below_1', 0):,}/{cell.get('sample_n', 0):,}, "
+                   f"월 초과수익 t {cell.get('excess_month_t', float('nan')):.2f}, DSR p {cell.get('dsr_p', float('nan')):.2f}, "
+                   f"연도 창 개선 {cell.get('windows_pos_of_27', 0)}/{cell.get('windows_total', 27)}.")
+        if means:
+            order = sorted(means.items(), key=lambda pair: -pair[1])
+            why.append("국면별 코스피 월수익 평균 " + " · ".join(
+                f"{_REGIME_KO.get(regime, regime)} {mean:+.2f}%" for regime, mean in order) + ".")
+            if order[0][0] == "contraction":
+                why.append("왜: '수축' 라벨이 붙은 달의 코스피가 가장 많이 올랐다 — 월간 거시 발표 지연으로 국면 라벨이 "
+                           "저점 뒤에야 찍혀, 수축 배수 0.5가 가장 좋은 달을 잘라 낸다. 비용이 아니라 라벨 지연이 원인.")
+        if since:
+            why.append(f"축이 켜진 {since.get('from', '?')} 이후만 보면 MDD {since['mdd_bh']*100:.1f}% → "
+                       f"{since['mdd_ov']*100:.1f}%, CAGR {since['cagr_bh']*100:.2f}% → {since['cagr_ov']*100:.2f}%"
+                       f"(낙폭 방어는 있으나 반납이 합격선을 넘는다).")
+        label = (f"{_SCALE_UPDATE_KO.get(cell.get('scale_update', 'daily'), cell.get('scale_update'))} · "
+                 f"{'네 축(성장·물가·유동성·위험선호)' if name == 'four_axis' else '시장 축만' if name == 'market_only' else name}"
+                 f" · 격자 {len(cell.get('grid', []) or [])}셀 · 비용 {cell.get('cost_bp', 0):.0f}bp")
+        rows.append(dict(common, strategy=name, label=label,
+                         cagr=cell["cagr_ov"] * 100, calmar=cell["calmar_ov"], mdd=-cell["mdd_ov"] * 100,
+                         sharpe=cell["sharpe_ov"], alpha=(cell["cagr_ov"] - cell["cagr_bh"]) * 100,
+                         mdd_red=(cell["mdd_ov"] - cell["mdd_bh"]) * 100, total_return=None,   # 둘 다 음수, 덜 빠진 만큼 +
+                         active_pct=cell.get("exposure_mean", 1.0) * 100,
+                         honesty_label="honest_failure" if not cell.get("macro_apply") else "robust",
+                         caveat=" ".join(why)))
+    return rows
+
+
+def normalize_fundamental_factor(data):
+    """스터디 19(재무 팩터, 월 리밸런스 동일가중). 판정 구간 60개월 숫자 한 행 + 벤치 한 행."""
+    center = data.get("center_judgment", {})
+    verdict = data.get("verdict", {})
+    months = center.get("months", 0)
+    years = months / 12.0 if months else 0.0
+    net_annual = center.get("net_annual_return", 0.0)
+    bench_annual = center.get("benchmark_annual_return", 0.0)
+    study_id = "BT-" + str(data.get("study", "")).split("_")[0]
+    common = {"schema": "quant.metrics/v1", "study_id": study_id, "family": "A_portfolio",
+              "benchmark": data.get("benchmark", ""), "window": data.get("period", ""), "side": "long"}
+    rows = [dict(common, strategy="BUY_AND_HOLD", event=f"판정 구간 {data.get('holdout', '')} · 연 {bench_annual*100:+.2f}%",
+                 total_return=((1 + bench_annual) ** years - 1) * 100 if years else None,
+                 mdd=None, sharpe=None, win_rate=None, n_trades=None, alpha=0.0, honesty_label="robust")]
+    layers = [("1 초과수익 t≥2", verdict.get("layer1")), ("2 walk-forward", verdict.get("layer2")),
+              ("3 ±1 이웃", verdict.get("layer3"))]
+    why = [verdict.get("one_line", ""),
+           "3층 판정: " + " · ".join(f"{name} {'통과' if ok else '미달'}" for name, ok in layers)
+           + f" → {verdict.get('overall', '?')}.",
+           f"연 순수익 {net_annual*100:.2f}%(벤치 {bench_annual*100:+.2f}%), 비용 연 {center.get('cost_drag_annual', 0)*100:.2f}%p, "
+           f"편도 회전 월 {center.get('turnover_oneway_monthly', 0)*100:.0f}%, 뉴이-웨스트 t {center.get('excess_t_newey_west', 0):.2f}, "
+           f"격자 {data.get('trials_prior', '?')}셀 중 중심 샤프/최대 {data.get('robustness_center_sharpe_ratio', 0):.2f}. "
+           f"유니버스 중앙값 {data.get('universe_size_median', '?')}종목, 등급 {data.get('grade', '?')}(DART 회사 목록이 현재 기준이라 "
+           "옛 상폐사 일부 누락 — 생존 편향 상한 미측정).",
+           "왜: 방향은 맞으나 60개월 표본에서 t 1.14는 우연과 구분이 안 된다. 다음 실행은 상폐사 포함 회사 목록 뒤 새 번호로."]
+    rows.append(dict(common, strategy=str(data.get("study", "")).split("/")[-1],
+                     event=f"비용 {data.get('cost_level', '?')} · walk-forward {data.get('walk_forward_windows_positive')}/"
+                           f"{data.get('walk_forward_windows')}창 양수 · 이웃 {data.get('robustness_neighbors_positive')}/"
+                           f"{data.get('robustness_neighbors')} 양수",
+                     total_return=((1 + net_annual) ** years - 1) * 100 if years else None,
+                     mdd=float(data.get("mdd", 0.0)), sharpe=data.get("sharpe"), win_rate=None, n_trades=None,
+                     alpha=center.get("excess_annual", 0.0) * 100,
+                     honesty_label="honest_failure" if verdict.get("overall") != "통과" else "robust",
+                     caveat=" ".join(sentence for sentence in why if sentence)))
     return rows
 
 
@@ -175,9 +290,22 @@ def _md_inline(s):
     return s
 
 
+def _md_table(rows):
+    """`| a | b |` 줄 묶음 → 표. 둘째 줄이 `|---|` 구분선이면 첫 줄을 머리로."""
+    cells = [[text.strip() for text in row.strip().strip("|").split("|")] for row in rows]
+    has_head = len(cells) > 1 and all(re.fullmatch(r":?-{2,}:?", text) for text in cells[1])
+    body = cells[2:] if has_head else cells
+    html_rows = []
+    if has_head:
+        html_rows.append("<tr>" + "".join(f"<th>{_md_inline(text)}</th>" for text in cells[0]) + "</tr>")
+    for row in body:
+        html_rows.append("<tr>" + "".join(f"<td>{_md_inline(text)}</td>" for text in row) + "</tr>")
+    return '<div class="tw"><table class="md-tbl">' + "".join(html_rows) + "</table></div>"
+
+
 def _md_block(lines):
-    """문단·불릿·인용만 있는 마크다운 조각을 HTML로."""
-    out, para, ul = [], [], []
+    """문단·불릿·인용·표·코드 울타리·소제목이 있는 마크다운 조각을 HTML로."""
+    out, para, ul, tbl, code = [], [], [], [], None
 
     def flush_para():
         if para:
@@ -189,9 +317,39 @@ def _md_block(lines):
             out.append("<ul>" + "".join(f"<li>{_md_inline(x)}</li>" for x in ul) + "</ul>")
             ul.clear()
 
+    def flush_tbl():
+        if tbl:
+            out.append(_md_table(tbl))
+            tbl.clear()
+
     for raw in lines:
         line = raw.rstrip()
-        if line.startswith("- "):
+        if code is not None:
+            if line.startswith("```"):
+                out.append(f"<pre>{esc(chr(10).join(code))}</pre>")
+                code = None
+            else:
+                code.append(line)
+            continue
+        if line.startswith("```"):
+            flush_para()
+            flush_ul()
+            flush_tbl()
+            code = []
+            continue
+        if line.lstrip().startswith("|"):
+            flush_para()
+            flush_ul()
+            tbl.append(line)
+            continue
+        flush_tbl()
+        heading = re.match(r"(#{2,4})\s+(.*)", line)
+        if heading:
+            flush_para()
+            flush_ul()
+            level = min(len(heading.group(1)) + 1, 5)
+            out.append(f"<h{level}>{_md_inline(heading.group(2))}</h{level}>")
+        elif line.startswith("- "):
             flush_para()
             ul.append(line[2:])
         elif not line.strip():
@@ -206,6 +364,63 @@ def _md_block(lines):
             para.append(line.strip())
     flush_para()
     flush_ul()
+    flush_tbl()
+    if code is not None:
+        out.append(f"<pre>{esc(chr(10).join(code))}</pre>")
+    return "".join(out)
+
+
+def load_rounds():
+    """research/RESET_*/README.md · research/RESET_*.md 를 최신순으로. 한 라운드에 한 일·결과·남은 일이 전부 든 문서다."""
+    files = sorted(RESEARCH_DIR.glob("RESET_*/README.md"), reverse=True) + \
+            sorted(RESEARCH_DIR.glob("RESET_*.md"), reverse=True)
+    items = []
+    for path in files:
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError as error:
+            print(f"  ! {path} 읽기 실패: {error}", file=sys.stderr)
+            continue
+        title = next((line[2:].strip() for line in lines if line.startswith("# ")), path.stem)
+        body = [line for line in lines if not line.startswith("# ")]
+        summary = next((line[1:].strip() for line in body if line.startswith(">")), "")
+        attachments = []
+        if path.name == "README.md":   # 라운드 폴더의 나머지 장(회의 보고 등)도 같이 싣는다 — 색인만 남고 본문이 사라지지 않게
+            for sibling in sorted(path.parent.glob("*.md")):
+                if sibling == path:
+                    continue
+                sibling_lines = sibling.read_text(encoding="utf-8", errors="replace").splitlines()
+                sibling_title = next((line[2:].strip() for line in sibling_lines if line.startswith("# ")), sibling.stem)
+                attachments.append({"title": sibling_title, "file": str(sibling.relative_to(_REPO)).replace("\\", "/"),
+                                    "lines": [line for line in sibling_lines if not line.startswith("# ")]})
+        items.append({"title": title, "file": str(path.relative_to(_REPO)).replace("\\", "/"),
+                      "summary": summary, "lines": body, "attachments": attachments})
+    return items
+
+
+def render_rounds(items):
+    if not items:
+        return ('<section class="fam"><h2>리서치 라운드</h2>'
+                '<p class="empty">라운드 문서가 없습니다. <code>research/RESET_*/README.md</code>에 두면 실립니다.</p></section>')
+    out = ['<section class="fam"><h2>리서치 라운드 '
+           f'<span class="sub">{len(items)}건 · 회의 결론·데이터 적재·공용 코드·스터디 판정·오너 결정·남은 일을 한 장씩 그대로 싣는다'
+           ' — 스터디 숫자는 백테스트 탭에도 있다</span></h2>']
+    for index, item in enumerate(items):
+        out.append(
+            f'<details class="pm"{" open" if index == 0 else ""}>'
+            '<summary>'
+            f'<span class="pm-sum">{_md_inline(item["title"])}</span>'
+            f'<span class="pm-pub">{esc(item["file"])}</span>'
+            '</summary>'
+            f'<div class="pm-body">{_md_block(item["lines"])}</div>'
+            + "".join(
+                '<details class="pm rd-att"><summary>'
+                f'<span class="pm-sum">{_md_inline(attachment["title"])}</span>'
+                f'<span class="pm-pub">{esc(attachment["file"])}</span></summary>'
+                f'<div class="pm-body">{_md_block(attachment["lines"])}</div></details>'
+                for attachment in item.get("attachments", []))
+            + '</details>')
+    out.append("</section>")
     return "".join(out)
 
 
@@ -365,6 +580,9 @@ NAME_MAP = {
     "07": "위기 레짐 지수레벨 특성화",      "08": "위기 인과 대응 5법",
     "09": "위기 대응·수익추구 전략 10종",   "10": "구조 국면 스코어러 제거실험",
     "11": "신호 3축 나란히 비교",
+    "19": "재무 팩터 저PBR×고ROE 상위 30",
+    "20": "거시 네 축 국면 오버레이(배수 매일 갱신)",
+    "21": "거시 네 축 국면 오버레이(축 구간 변경 시만 갱신)",
 }
 
 
@@ -825,7 +1043,7 @@ def render_reviews(reviews):
 
 
 # ── 렌더 ──────────────────────────────────────────────────────────────────────
-def render(rows, live, reviews, premarket):
+def render(rows, live, reviews, premarket, rounds):
     n_studies = len({r.get("study_id", "") for r in rows if r.get("study_id")})
     n_fam = len({r.get("family", "A_portfolio") for r in rows})
     over = (f'<div class="stat"><b>{len(rows)}</b>백테스트행</div>'
@@ -834,7 +1052,8 @@ def render(rows, live, reviews, premarket):
             f'<div class="stat"><b>{len(live.get("journals",[]))}</b>매매일지</div>'
             f'<div class="stat"><b>{len(live.get("order_log",[]))}</b>주문로그일</div>'
             f'<div class="stat"><b>{len(reviews)}</b>리뷰</div>'
-            f'<div class="stat"><b>{len(premarket)}</b>장전 브리핑</div>')
+            f'<div class="stat"><b>{len(premarket)}</b>장전 브리핑</div>'
+            f'<div class="stat"><b>{len(rounds)}</b>리서치 라운드</div>')
     legend = "".join(
         f'<span class="badge b-{esc(k)}" title="{esc(v[1])}">{esc(v[0])}</span>'
         for k, v in HONESTY.items())
@@ -848,6 +1067,7 @@ def render(rows, live, reviews, premarket):
         "@@LIVE@@": render_live(live),
         "@@REVIEWS@@": render_reviews(reviews),
         "@@PREMARKET@@": render_premarket(premarket),
+        "@@ROUNDS@@": render_rounds(rounds),
         "@@DATA@@": html.escape(json.dumps(rows, ensure_ascii=False), quote=True),
     }
     for k, v in repl.items():
@@ -1032,6 +1252,14 @@ section.fam h2 .sub{color:var(--faint);font-weight:400;font-size:12px;margin-lef
 .pm-body ul{margin:0 0 10px;padding-left:20px}
 .pm-body li{margin:4px 0}
 .pm-body blockquote{margin:0 0 10px;padding-left:12px;border-left:3px solid var(--line);color:var(--muted)}
+.pm-body h4{font-size:13.5px;margin:14px 0 4px;color:var(--ink)}
+.pm-body h5{font-size:13px;margin:10px 0 4px;color:var(--muted)}
+.pm-body pre{margin:0 0 10px;padding:8px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;font-family:var(--mono);font-size:11.5px;overflow-x:auto;white-space:pre}
+.pm-body .tw{margin:0 0 12px}
+.pm-body table.md-tbl th,.pm-body table.md-tbl td{text-align:left;white-space:normal;vertical-align:top;font-size:12px}
+.pm-body table.md-tbl th{position:static;cursor:default}
+.pm-body{max-width:none}
+.rd-att{margin:8px 0 0 16px}
 
 /* ============ 리뷰 (사후검토) ============ */
 .review{padding:6px 0 10px}
@@ -1177,6 +1405,7 @@ section.fam h2 .sub{color:var(--faint);font-weight:400;font-size:12px;margin-lef
   <button class="tab-btn" role="tab" id="tab-live" aria-controls="panel-live" aria-selected="false">라이브 매매</button>
   <button class="tab-btn" role="tab" id="tab-rv" aria-controls="panel-rv" aria-selected="false">리뷰</button>
   <button class="tab-btn" role="tab" id="tab-pm" aria-controls="panel-pm" aria-selected="false">장전 브리핑</button>
+  <button class="tab-btn" role="tab" id="tab-rd" aria-controls="panel-rd" aria-selected="false">리서치 라운드</button>
 </div>
 
 <div class="panel" id="panel-bt" role="tabpanel" aria-labelledby="tab-bt">
@@ -1204,6 +1433,10 @@ section.fam h2 .sub{color:var(--faint);font-weight:400;font-size:12px;margin-lef
 
 <div class="panel" id="panel-pm" role="tabpanel" aria-labelledby="tab-pm" hidden>
 @@PREMARKET@@
+</div>
+
+<div class="panel" id="panel-rd" role="tabpanel" aria-labelledby="tab-rd" hidden>
+@@ROUNDS@@
 </div>
 </div>
 
@@ -1281,9 +1514,10 @@ def main():
     live = load_live()
     reviews = load_reviews()
     premarket = load_premarket()
+    rounds = load_rounds()
     if not rows:
         print("! metrics.json을 찾지 못했습니다.", file=sys.stderr)
-    OUT_HTML.write_text(render(rows, live, reviews, premarket), encoding="utf-8")
+    OUT_HTML.write_text(render(rows, live, reviews, premarket, rounds), encoding="utf-8")
     fams = {}
     for r in rows:
         f = r.get("family", "A_portfolio")
@@ -1291,7 +1525,7 @@ def main():
     print(f"✅ 대시보드 생성: {OUT_HTML}")
     print(f"   백테스트 {len(rows)}행 · 계열 {dict(fams)} · "
           f"라이브 일지 {len(live.get('journals',[]))}·주문 {len(live.get('order_log',[]))} · "
-          f"리뷰 {len(reviews)} · 장전 브리핑 {len(premarket)}")
+          f"리뷰 {len(reviews)} · 장전 브리핑 {len(premarket)} · 리서치 라운드 {len(rounds)}")
 
 
 if __name__ == "__main__":

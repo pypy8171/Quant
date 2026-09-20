@@ -71,6 +71,12 @@
   `m_R = 1.0 (R ≥ −1) / 0.75 (−2 ≤ R < −1) / 0.5 (R < −2)`, `entry_halt = (R < −2.5)`.
   `m_L = clip(1 + 0.1·min(L, 0), 0.8, 1.0)` — 유동성은 조이기만 한다.
   **최종** `macro_scale = round(clip(base · m_R · m_L, 0, 1), 2)`(0.05 단위).
+- **배수 갱신 주기(오너 결정 6, 2026-09-20, 스터디 21부터)**: `m_R`·`m_L`도 매일 다시 계산하지 않고 **축 상태가 바뀐 날에만** 바꾼다.
+  위험선호는 구간 3개(경계 −1·−2 → 1.0/0.75/0.5), 유동성은 구간 3개(경계 −0.5·−1.5 → 1.0/0.9/0.8)로 끊고, 구간 이동은 성장·물가 부호와
+  같은 데드밴드 δ 이력 규칙(경계를 δ만큼 넘어야 옮김)을 쓴다. 그러면 `macro_scale`은 국면·위험선호 구간·유동성 구간 중 하나가 바뀐 날에만
+  움직인다. 스터디 20의 매일 갱신은 노출 변경 비용을 27년 누적 12.2%(`four_axis`)·17.8%(`market_only`) 냈다(§3-2). `entry_halt`는 그대로 매일 판정한다.
+  코드: `PYQuant/features/regime_axes.py::Parameters.scale_update = "on_state_change"`. 버린 대안 "월 1회"는 국면 재판정(월간 발표일)과
+  주기가 겹쳐 위험선호 축이 사실상 죽는다.
 - `force_liquidate`는 이 오버레이가 **내지 않는다**. 강제 청산은 `LossLadder`(§E)만 소유한다. 현 등락표의 `LIQ_SCORE −11`은 폐기.
 - 배선: `regime.json`에 `macro_regime`(확장/과열/수축/회복)·`macro_axes {G,P,L,R}`·`macro_scale`·`macro_apply(bool)`를 추가. 판정 전(`macro_apply=false`)엔 엔진이 `entry_scale`에 곱하지 않고 로그 `[매크로]`에만 적는다. 판정 통과 뒤 `entry_scale = min(기존 등락표 scale, macro_scale)` → `OrderGate::set_entry_scale`. 전략별 슬롯 수는 `slots × macro_scale` 내림(수축 20→10).
 

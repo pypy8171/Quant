@@ -19,6 +19,7 @@
 | 공용 코드 | 통계 표준 `stats.py`, 시점 고정 조인 `point_in_time.py`, 팩터 `features/`, 키 로더 `keys.py` | 끝, 테스트 통과 | §4 |
 | 스터디 19 재무 | 저PBR×고ROE 상위 30, 격자 18, walk-forward 5창 | **미달**(3층 중 1층 통과) | §3-1, `research/studies/19_fundamental_factors/` |
 | 스터디 20 거시 | 네 축 국면 배수 × 코스피, 1999~2025, 격자 27 | **기각**(7항목 중 2 통과) | §3-2, `research/studies/20_macro_overlay/` |
+| 스터디 21 거시 재실행 | 20 + 배수를 축 구간 변경 시에만 갱신(결정 6) | **기각**(비용 12.2%→5.7%인데 같은 2항목만 통과) | §3-2, `research/studies/21_macro_overlay_hold/` |
 | 규칙·하네스 | D-103: 회의는 파일로 끝남, 리서치 에이전트 쓰기 권한, 파이썬 적재는 메인 트리 | 저장소 문서 끝, `.claude/` 오너 실행 끝 | §5, `docs/DECISIONS.md` D-103 |
 | 회의 보고 | 7장(전략·리스크·재무·거시·편향·판정·하네스) | 끝 | §6 |
 | 오너 결정 | 6건 대기 + A등급 후보 1건 | **대기** | §7 |
@@ -75,6 +76,7 @@
 - 원인 진단: 일간 배수(0.05 단위)가 노출 변경 비용을 27년 17.8%나 냈다. 국면 신호가 나빠서가 아니라 **배수 갱신 주기를 스펙이 정하지 않아** 비용이 초과수익을 먹었다.
 - 통과한 것: 룩어헤드 차단(`published_at` 단조 배열, 테스트 `PYQuant/tests/test_regime_axes.py`)과 백테스트·라이브가 같은 함수 `PYQuant/features/regime_axes.py::score(as_of, cell)`를 쓰는 구조.
 - 다음 실행 조건: `research/RESET_2026-09-19_R2/macro-quant.md`에 **배수 갱신 주기(월 1회 또는 축 부호 변경 시)**를 추가 사전등록한 뒤 재실행(약 8분).
+- **재실행 결과(스터디 21, 2026-09-20, 결정 6 = 축 상태 변경 시)**: 비용은 12.2% → 5.7%로 줄었지만 연복리 6.64%(반납 1.03%p), 최대 낙폭 −54.0%(3.7% 감소), 월 초과수익 t −1.54 — 같은 2항목만 통과, 기각. 위 원인 진단은 절반만 맞았다: 비용을 빼도 남는 반납은 국면 라벨 지연(수축 달의 코스피 월수익이 +1.40%로 가장 높다) 때문이라 갱신 주기로는 안 고쳐진다. `research/studies/21_macro_overlay_hold/README.md` §5.
 
 ### 3-3. 두 스터디가 같이 말하는 것
 
@@ -130,7 +132,7 @@ pytest 전체 96건 통과(09-20 새벽, §10 첫 명령).
 | 3 | S5(저변동 바스켓) 4슬롯 | `strategist.md` §3 | 스터디 18(H10)부터 시작 못 함 |
 | 4 | 재무 슬리브 별도 계좌 여부 | `fundamental-quant.md` §4 | 전략별 손익 귀속 수정(3-c)과 묶임 |
 | 5 | 실계좌 마감 청산 15:20 → 15:15 정정 여부 | `_private/HANDOFF_quant-88.md` 남은 것 2 | 모의(15:15)와 실계좌(15:20) 불일치 지속 |
-| 6 | 스터디 20 배수 갱신 주기(월 1회 / 부호 변경 시) | §3-2 | 재실행 못 함 |
+| 6 | (끝, 2026-09-20) 스터디 20 배수 갱신 주기 → **축 상태 변경 시**로 정함, 스터디 21로 재실행·기각 | §3-2 | — |
 | A등급 후보 | 047050 재기동마다 `이전 세션 주문 체결(ODNO 미매핑)` 재기록 — 원장 중복 가능 | `risk-behavior.md` | 월요일 장 전 `on_fill_confirmed` ODNO 중복 차단 확인 |
 
 ## 8. 남은 일 (순서대로)
@@ -138,7 +140,7 @@ pytest 전체 96건 통과(09-20 새벽, §10 첫 명령).
 | 순서 | 일 | 조건 | 비고 |
 |---|---|---|---|
 | 1 | (끝) 이번 밤 산출물 커밋 — 1c3d836(2라운드 42파일)·9bab981(남의 미커밋 8건 + 생성기 맞춤 13파일), 둘 다 푸시 | — | 남의 미커밋은 다른 세션이 전부 죽어 있어 같이 올렸다 |
-| 2 | 스터디 20 재실행 | 결정 6 | 약 8분 |
+| 2 | (끝) 스터디 20 재실행 = 스터디 21, 기각 | 결정 6 | 다음 재실행은 국면 라벨 지연을 줄인 뒤(21 README §8) |
 | 3 | 스터디 19 후속(새 번호) | §3-1 다음 실행 조건 | 상폐사 포함 회사 목록 먼저 |
 | 4 | 관세청·ECOS 월간 발표일 실측(등급 B → A) | 관세청 보도자료 일정 표 | `macro_ingest.py` `published_at` 규칙 교체 |
 | 5 | 빠진 거시 시리즈 7개 적재 | 소스 확인 | 스터디 20 README 목록 |
@@ -169,7 +171,7 @@ PYTHONIOENCODING=utf-8 py PYQuant/tools/dart_fin_history_fill.py --from 2015
 PYTHONIOENCODING=utf-8 py PYQuant/tools/naver_research_fetch.py
 # 스터디 19
 py research/studies/19_fundamental_factors/run_pbr_roe.py --cost mid
-# 스터디 20 (약 8분)
+# 스터디 20 (약 8분) — 21 은 같은 명령에 --scale-update on_state_change --study-dir research/studies/21_macro_overlay_hold
 py research/studies/20_macro_overlay/build_axes.py --cell market_only && py research/studies/20_macro_overlay/build_axes.py --cell four_axis
 py research/studies/20_macro_overlay/overlay_backtest.py --cell market_only && py research/studies/20_macro_overlay/overlay_backtest.py --cell four_axis
 # 문서·낱말 검사

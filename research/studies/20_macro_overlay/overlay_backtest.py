@@ -31,9 +31,10 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from PYQuant.features import regime_axes  # noqa: E402
 
-STUDY_DIRECTORY = Path(__file__).resolve().parent
+STUDY_DIRECTORY = Path(__file__).resolve().parent   # --study-dir 로 바꾼다(스터디 21 은 이 러너를 그대로 쓴다)
 OUTPUT_DIRECTORY = STUDY_DIRECTORY / "out"
 METRICS_PATH = STUDY_DIRECTORY / "metrics.json"
+SCALE_UPDATE = "daily"                             # --scale-update. 격자·축소판의 Parameters 에도 같이 들어간다
 KOSPI_PATH = regime_axes.INDEX_CACHE_DIRECTORY / "idx__KS11_1996-01-01_2026-08-15_adj.parquet"
 
 PERIOD_START = pd.Timestamp("1999-01-01")
@@ -358,7 +359,7 @@ def run_grid(cell_name: str, bars: pd.DataFrame, as_of: str, raw_by_rule: dict) 
 
     for deadband, window_months, base_contraction in grid_cells():
         parameters = regime_axes.Parameters(deadband=deadband, window_months=window_months,
-                                            base_contraction=base_contraction)
+                                            base_contraction=base_contraction, scale_update=SCALE_UPDATE)
         prepared_list = [regime_axes.prepare_series(rule, parameters, raw_by_rule[rule.name])
                          for rule in regime_axes.rules_for_cell(cell_name)]
         axes = regime_axes.build_axes_table(calendar, cell_name, parameters, prepared_list)
@@ -466,6 +467,7 @@ def cell_metrics(cell_name: str, result: dict, checks: dict, grid_rows: list[dic
     metrics["neighbors_same_sign"] = neighbors_same_sign
     metrics["dsr_p"] = dsr_p
     metrics["cost_bp"] = COST_RATE * 10000.0
+    metrics["scale_update"] = SCALE_UPDATE
     metrics["trials_prior"] = TRIALS_PRIOR
     metrics["checks"] = checks
     metrics["macro_apply"] = bool(checks["all_pass"]) or bool(reduced and reduced["checks"]["all_pass"])
@@ -486,7 +488,7 @@ def write_metrics(cell_name: str, metrics: dict) -> dict:
     mirror = cells[primary]
     document = {
         "schema": "quant.metrics/macro_overlay.v1",
-        "study_id": "BT-20",
+        "study_id": "BT-" + STUDY_DIRECTORY.name.split("_")[0],
         "primary_cell": primary,
         "sample_n": mirror["sample_n"],
         "period": mirror["period"],
@@ -501,7 +503,7 @@ def write_metrics(cell_name: str, metrics: dict) -> dict:
         "trials_prior": TRIALS_PRIOR,
         "macro_apply": mirror["macro_apply"],
         "git_commit": git_commit(),
-        "prereg": "research/studies/20_macro_overlay/PREREG.md",
+        "prereg": (STUDY_DIRECTORY / "PREREG.md").relative_to(REPO_ROOT).as_posix(),
     }
     METRICS_PATH.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return document
@@ -510,11 +512,19 @@ def write_metrics(cell_name: str, metrics: dict) -> dict:
 # ----------------------------------------------------------------------------- 진입점
 
 def main() -> int:
+    global STUDY_DIRECTORY, OUTPUT_DIRECTORY, METRICS_PATH, SCALE_UPDATE
     parser = argparse.ArgumentParser(description="거시 국면 오버레이 백테스트")
     parser.add_argument("--cell", choices=["market_only", "four_axis"], default="four_axis")
     parser.add_argument("--as-of", default="2026-08-14")
     parser.add_argument("--skip-grid", action="store_true", help="격자 27셀을 건너뛴다(③·⑦ dsr 은 미판정)")
+    parser.add_argument("--scale-update", choices=["daily", "on_state_change"], default="daily",
+                        help="배수 갱신 규칙. build_axes.py 에 준 값과 같아야 한다(axes 표는 그 값으로 만들어졌다)")
+    parser.add_argument("--study-dir", default=str(STUDY_DIRECTORY), help="axes 표를 읽고 산출물을 남길 스터디 폴더")
     arguments = parser.parse_args()
+    STUDY_DIRECTORY = Path(arguments.study_dir).resolve()
+    OUTPUT_DIRECTORY = STUDY_DIRECTORY / "out"
+    METRICS_PATH = STUDY_DIRECTORY / "metrics.json"
+    SCALE_UPDATE = arguments.scale_update
     cell_name = arguments.cell
     axes_path = OUTPUT_DIRECTORY / f"axes_{cell_name}.parquet"
 
@@ -549,7 +559,7 @@ def main() -> int:
 
     if checks["only_5_fails"]:
         print(f"[{cell_name}] ⑤만 미달 → 축소판(수축 배수만) 한 번 더", flush=True)
-        parameters = regime_axes.Parameters(risk_only_base=True)
+        parameters = regime_axes.Parameters(risk_only_base=True, scale_update=SCALE_UPDATE)
         prepared_list = [regime_axes.prepare_series(rule, parameters, raw_by_rule[rule.name]) for rule in rules]
         reduced_axes = regime_axes.build_axes_table(regime_axes.decision_calendar(arguments.as_of), cell_name,
                                                     parameters, prepared_list)

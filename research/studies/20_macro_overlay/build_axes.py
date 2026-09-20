@@ -23,7 +23,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from PYQuant.features import regime_axes  # noqa: E402
 
-STUDY_DIRECTORY = Path(__file__).resolve().parent
+STUDY_DIRECTORY = Path(__file__).resolve().parent   # --study-dir 로 바꾼다(스터디 21 은 이 러너를 그대로 쓴다)
 OUTPUT_DIRECTORY = STUDY_DIRECTORY / "out"
 DEFAULT_AS_OF = "2026-08-14"   # 코스피 캐시 마지막 봉
 
@@ -35,16 +35,22 @@ def build(cell: str, as_of: str, parameters: regime_axes.Parameters) -> pd.DataF
 
 
 def main() -> int:
+    global OUTPUT_DIRECTORY
     parser = argparse.ArgumentParser(description="네 축 국면 표")
     parser.add_argument("--cell", choices=["market_only", "four_axis"], default="four_axis")
     parser.add_argument("--as-of", default=DEFAULT_AS_OF)
     parser.add_argument("--deadband", type=float, default=0.25)
     parser.add_argument("--window-months", type=int, default=120)
     parser.add_argument("--base-contraction", type=float, default=0.5)
+    parser.add_argument("--scale-update", choices=["daily", "on_state_change"], default="daily",
+                        help="배수 갱신 규칙(regime_axes.Parameters.scale_update). 스터디 20 은 daily, 21 은 on_state_change")
+    parser.add_argument("--study-dir", default=str(STUDY_DIRECTORY), help="산출물을 남길 스터디 폴더")
     arguments = parser.parse_args()
+    OUTPUT_DIRECTORY = Path(arguments.study_dir).resolve() / "out"
 
     parameters = regime_axes.Parameters(deadband=arguments.deadband, window_months=arguments.window_months,
-                                        base_contraction=arguments.base_contraction)
+                                        base_contraction=arguments.base_contraction,
+                                        scale_update=arguments.scale_update)
     table = build(arguments.cell, arguments.as_of, parameters)
     OUTPUT_DIRECTORY.mkdir(parents=True, exist_ok=True)
     axes_path = OUTPUT_DIRECTORY / f"axes_{arguments.cell}.parquet"
@@ -66,7 +72,7 @@ def main() -> int:
         "cell": arguments.cell,
         "as_of": arguments.as_of,
         "parameters": {"deadband": parameters.deadband, "window_months": parameters.window_months,
-                       "base_contraction": parameters.base_contraction},
+                       "base_contraction": parameters.base_contraction, "scale_update": parameters.scale_update},
         "rows": int(len(table)),
         "first_growth_valid": _first_valid(table, "growth"),
         "first_inflation_valid": _first_valid(table, "inflation"),

@@ -14,6 +14,10 @@
   변환 → robust z(중앙값·MAD, 창 W·최소 관측 수, ±clip) → 축 = Σ 가중·부호·z / Σ|가중| (유효 시리즈 2개 미만이면 NaN)
   → 성장·물가 부호는 데드밴드 이력 규칙으로만 바뀐다(월간 발표가 새로 보인 날에만 재판정)
   → 국면 4개 → 기본 배수 → 위험선호·유동성 일간 배수 → macro_scale (0.05 단위, 0~1).
+  배수 갱신 규칙(Parameters.scale_update, 스터디 21 사전등록·오너 결정 6):
+    "daily"           위험선호·유동성 배수를 매 결정일 값으로 다시 계산한다(스터디 20).
+    "on_state_change" 위험선호·유동성도 성장·물가처럼 상태(구간)를 데드밴드 이력 규칙으로만 바꾸고, 배수는 상태의
+                      함수다. 그래서 macro_scale 은 국면·위험선호 구간·유동성 구간 중 하나가 바뀐 날에만 움직인다.
 
 공개 함수
   score(as_of, cell="four_axis", parameters=Parameters()) -> dict   라이브·검증 공용. as_of 뒤에 발표된 값은 결과를 못 바꾼다.
@@ -61,6 +65,7 @@ class Parameters:
     minimum_days: int = 250
     clip: float = 3.0
     risk_only_base: bool = False   # 축소판: 수축 배수만 적용하고 위험선호·유동성 일간 배수는 끈다
+    scale_update: str = "daily"    # "daily" | "on_state_change" — 모듈 설명 "배수 갱신 규칙"
 
     @property
     def window_days(self) -> int:
@@ -488,6 +493,40 @@ def liquidity_multiplier(liquidity: float) -> float:
     return float(np.clip(1.0 + 0.1 * min(liquidity, 0.0), 0.8, 1.0))
 
 
+# 상태 구간: 값이 구간 경계를 데드밴드만큼 넘어야 옮겨 간다(next_sign 과 같은 이력 규칙을 구간 여러 개로 넓힌 것).
+# 위험선호 경계 −1·−2 는 risk_multiplier 의 문턱 그대로, 유동성 경계 −0.5·−1.5 는 liquidity_multiplier(1+0.1·L) 를
+# 0.1 단위(1.0·0.9·0.8)로 끊었을 때의 중간점이다.
+RISK_STATE_BOUNDS = (-1.0, -2.0)
+RISK_STATE_MULTIPLIERS = (1.0, 0.75, 0.5)
+LIQUIDITY_STATE_BOUNDS = (-0.5, -1.5)
+LIQUIDITY_STATE_MULTIPLIERS = (1.0, 0.9, 0.8)
+
+
+def initial_state(value: float, bounds: tuple[float, ...]) -> int | None:
+    """첫 유효값의 구간(데드밴드 없이). NaN 이면 None(아직 미초기화)."""
+    if np.isnan(value):
+        return None
+
+    return int(sum(value < bound for bound in bounds))
+
+
+def next_state(previous: int, value: float, bounds: tuple[float, ...], deadband: float) -> int:
+    """구간 이력 규칙. 아래 경계를 deadband 만큼 더 내려가면 한 칸 아래로, 위 경계를 deadband 만큼 더 올라가면
+    한 칸 위로. 하루에 여러 칸도 옮긴다. NaN 이면 그대로."""
+    if np.isnan(value):
+        return previous
+
+    state = previous
+
+    while state < len(bounds) and value < bounds[state] - deadband:
+        state += 1
+
+    while state > 0 and value > bounds[state - 1] + deadband:
+        state -= 1
+
+    return state
+
+
 def macro_scale_of(base: float, multiplier_risk: float, multiplier_liquidity: float) -> float:
     return float(np.clip(round(base * multiplier_risk * multiplier_liquidity * 20.0) / 20.0, 0.0, 1.0))
 
@@ -513,7 +552,13 @@ def build_axes_table(decision_dates: pd.DatetimeIndex, cell: str = "four_axis",
     sign_inflation = "-"
     growth_initialized = False
     inflation_initialized = False
+    hold_states = parameters.scale_update == "on_state_change"
+    risk_state = None
+    liquidity_state = None
     rows = []
+
+    if parameters.scale_update not in ("daily", "on_state_change"):
+        raise ValueError(f"scale_update 는 daily 또는 on_state_change: {parameters.scale_update}")
 
     for position in range(len(dates)):
         if new_release[position]:
@@ -535,6 +580,14 @@ def build_axes_table(decision_dates: pd.DatetimeIndex, cell: str = "four_axis",
         if parameters.risk_only_base:
             multiplier_risk = 1.0
             multiplier_liquidity = 1.0
+        elif hold_states:
+            risk_state = (initial_state(risk[position], RISK_STATE_BOUNDS) if risk_state is None
+                          else next_state(risk_state, risk[position], RISK_STATE_BOUNDS, parameters.deadband))
+            liquidity_state = (initial_state(liquidity[position], LIQUIDITY_STATE_BOUNDS) if liquidity_state is None
+                               else next_state(liquidity_state, liquidity[position], LIQUIDITY_STATE_BOUNDS,
+                                               parameters.deadband))
+            multiplier_risk = 1.0 if risk_state is None else RISK_STATE_MULTIPLIERS[risk_state]
+            multiplier_liquidity = 1.0 if liquidity_state is None else LIQUIDITY_STATE_MULTIPLIERS[liquidity_state]
         else:
             multiplier_risk = risk_multiplier(risk[position])
             multiplier_liquidity = liquidity_multiplier(liquidity[position])

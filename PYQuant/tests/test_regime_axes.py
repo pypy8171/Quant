@@ -69,3 +69,26 @@ def test_macro_scale_rounds_to_five_hundredths_and_clips():
     assert regime_axes.liquidity_multiplier(2.0) == 1.0
     assert regime_axes.risk_multiplier(-1.5) == 0.75
     assert regime_axes.risk_multiplier(-2.5) == 0.5
+
+
+def test_state_hysteresis_moves_only_beyond_bound_plus_deadband():
+    bounds = regime_axes.RISK_STATE_BOUNDS
+    assert regime_axes.initial_state(-1.5, bounds) == 1
+    assert regime_axes.initial_state(float("nan"), bounds) is None
+    assert regime_axes.next_state(0, -1.2, bounds, 0.25) == 0      # 경계 −1 을 데드밴드만큼 못 넘음
+    assert regime_axes.next_state(0, -1.3, bounds, 0.25) == 1
+    assert regime_axes.next_state(1, -0.8, bounds, 0.25) == 1      # 위로도 −1+0.25 를 넘어야 한다
+    assert regime_axes.next_state(1, -0.7, bounds, 0.25) == 0
+    assert regime_axes.next_state(0, -2.5, bounds, 0.25) == 2      # 하루에 두 칸
+    assert regime_axes.next_state(2, float("nan"), bounds, 0.25) == 2
+
+
+@pytest.mark.skipif(not regime_axes.MACRO_DIRECTORY.exists(), reason="거시 parquet 없음")
+def test_on_state_change_scale_moves_only_with_regime_or_state():
+    table = regime_axes.build_axes_table(regime_axes.decision_calendar(AS_OF), "four_axis",
+                                         regime_axes.Parameters(scale_update="on_state_change"))
+    state = table[["regime", "multiplier_risk", "multiplier_liquidity"]]
+    scale_changed = table["macro_scale"] != table["macro_scale"].shift(1)
+    state_changed = (state != state.shift(1)).any(axis=1)
+    assert not (scale_changed.iloc[1:] & ~state_changed.iloc[1:]).any()
+    assert set(table["multiplier_liquidity"].unique()) <= set(regime_axes.LIQUIDITY_STATE_MULTIPLIERS)
