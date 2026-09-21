@@ -3,6 +3,109 @@
  "_comment": "실증 사후검토(post-mortem) 데이터 계약. build_dashboard.py render_reviews()가 이 파일만 읽어 '리뷰' 탭을 렌더한다. *_html 필드는 신뢰된 인라인 HTML(작성자=본인), 그 외는 이스케이프. 새 리뷰는 reviews 배열에 append.",
  "reviews": [
   {
+   "id": "2026-09-21_session_review",
+   "strategy": "ITB · DEVSCALE",
+   "eyebrow": "세션 리뷰 · 09-21 · 원장/로그 자동 집계",
+   "headline_html": "09-21 세션 정리 — 전일대비 +160,094원",
+   "verdict_html": "원장 288이벤트(접수 34 · 체결 106 · 거부 126), 재기동 5회. 전일 종가 대비 종료 손익은 +160,094원이다. 세션 시작을 0으로 잡은 잔고 대조 카운터로는 +160,094원인데, 재기동마다 기준이 옮겨가고 간밤 갭이 빠지므로 하루의 성과는 앞의 값으로 읽는다. 여기까지는 원장·로그에서 기계로 뽑은 사실이고, 원인과 다음 조치는 아래 항목에 사람이 적는다.",
+   "meta_html": [
+    "근거 로그 <span class=\"mono\">quant_trader.log</span> · 원장 <span class=\"mono\">288</span>이벤트",
+    "재기동 <span class=\"mono\">5</span>회 · 접수 <span class=\"mono\">34</span> / 체결 <span class=\"mono\">106</span> / 거부 <span class=\"mono\">126</span>",
+    "전략별 이벤트 <span class=\"mono\">ITB_158430 45</span> · <span class=\"mono\">ITB_356680 32</span> · <span class=\"mono\">ITB_017900 21</span> · <span class=\"mono\">ITB_004020 17</span>"
+   ],
+   "doc_path": "strategies/DeviationScale/live/2026-09-21.md",
+   "log_path": "Quant/build_win/logs/quant_trader.log",
+   "incidents": [
+    {
+     "sev": "거부",
+     "when": "09-21 종일",
+     "title": "주문 거부 45건 — 같은 시장가 매도 진행 중 [ORD-N 미체결 N주] — 중복 발주 생략",
+     "desc_html": "원장 REJECTED 사유 상위. 정규화 문구 <span class=\"mono\">같은 시장가 매도 진행 중 [ORD-N 미체결 N주] — 중복 발주 생략</span>.",
+     "evidence": "Quant/build_win/logs/trades_20260921.csv · REJECTED 45건",
+     "impact_html": ""
+    },
+    {
+     "sev": "거부",
+     "when": "09-21 종일",
+     "title": "주문 거부 10건 — 같은 시장가 매도 진행 중 [ORD-N 미체결 6주] — 중복 발주 생략",
+     "desc_html": "원장 REJECTED 사유 상위. 정규화 문구 <span class=\"mono\">같은 시장가 매도 진행 중 [ORD-N 미체결 6주] — 중복 발주 생략</span>.",
+     "evidence": "Quant/build_win/logs/trades_20260921.csv · REJECTED 10건",
+     "impact_html": ""
+    },
+    {
+     "sev": "거부",
+     "when": "09-21 종일",
+     "title": "주문 거부 8건 — KIS API 거부 (빈 ODNO) [N]",
+     "desc_html": "원장 REJECTED 사유 상위. 정규화 문구 <span class=\"mono\">KIS API 거부 (빈 ODNO) [N]</span>.",
+     "evidence": "Quant/build_win/logs/trades_20260921.csv · REJECTED 8건",
+     "impact_html": ""
+    },
+    {
+     "sev": "로그",
+     "when": "09-21 종일",
+     "title": "ERROR/WARN 564건 — [WinHTTP] HTTP N (초당 한도) — 재시도 2/3  url=https://",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[WinHTTP] HTTP N (초당 한도) — 재시도 2/3  url=https://openapi.koreainvestment.com:N/ua</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 564건",
+     "impact_html": ""
+    },
+    {
+     "sev": "로그",
+     "when": "09-21 종일",
+     "title": "ERROR/WARN 323건 — [WinHTTP] HTTP N  url=https://openapi.koreainves",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[WinHTTP] HTTP N  url=https://openapi.koreainvestment.com:N/uapi/domestic-stock/</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 323건",
+     "impact_html": ""
+    },
+    {
+     "sev": "로그",
+     "when": "09-21 종일",
+     "title": "ERROR/WARN 241건 — [WinHTTP] HTTP N  url=https://openapi.koreainves",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[WinHTTP] HTTP N  url=https://openapi.koreainvestment.com:N/uapi/domestic-stock/</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 241건",
+     "impact_html": ""
+    },
+    {
+     "sev": "공백",
+     "when": "13:41~15:15",
+     "title": "주문 이벤트 공백 93.7분",
+     "desc_html": "접수·체결·거부가 한 건도 없는 최장 구간. 신호 고갈인지 배관 정지인지는 로그로 갈라야 한다.",
+     "evidence": "Quant/build_win/logs/trades_20260921.csv",
+     "impact_html": ""
+    }
+   ],
+   "pnl": {
+    "title_html": "09-21 세션 당일손익 <span class=\"u\">KRW · 잔고 대조 폴링에서 시작·고점·저점·마감 4점</span>",
+    "series": [
+     {
+      "t": "09:00",
+      "v": 229080
+     },
+     {
+      "t": "09:03",
+      "v": -24594
+     },
+     {
+      "t": "09:08",
+      "v": 537198
+     },
+     {
+      "t": "15:31",
+      "v": 160094
+     }
+    ],
+    "floor": -24594,
+    "ceil": 537198,
+    "gridlines": [
+     600000,
+     300000,
+     0,
+     -300000
+    ],
+    "last_label": "세션손익",
+    "note_html": "고점 <b class=\"pos\">+537,198</b>@09:08 · 저점 <b class=\"neg\">−24,594</b>@09:03 · 마감 <b>+160,094</b>@15:31. 폴링 342건 중 4점만 표시했다(연속 곡선 아님)."
+   }
+  },
+  {
    "id": "2026-09-18_session_review",
    "strategy": "TRENDX · DEVSCALE",
    "eyebrow": "세션 리뷰 · 09-18 · 원장/로그 자동 집계",

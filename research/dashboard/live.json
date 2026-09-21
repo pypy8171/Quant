@@ -1,7 +1,15 @@
 {
   "schema": "quant.live/v1",
-  "generated": "2026-09-20 18:43",
+  "generated": "2026-09-21 21:13",
   "journals": [
+    {
+      "date": "2026-09-21",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-09-21.md",
+      "title": "라이브 모의 매매 일지 — 2026-09-21 (월)",
+      "strat_line": "DeviationScale (DEVSCALE) 정배열눌림 지정가 분할 매수 + ITB 청산 관리(전일 보유분).",
+      "summary": ""
+    },
     {
       "date": "2026-09-18",
       "strategy": "DeviationScale",
@@ -1782,6 +1790,63 @@
       "realized_pnl": 67128,
       "buy_notional": 170642500,
       "sell_notional": 105015257
+    },
+    {
+      "date": "2026-09-21",
+      "path": "Quant/build_win/logs/trades_20260921.csv",
+      "total": 288,
+      "by_status": {
+        "REJECTED": 126,
+        "ACCEPTED": 117,
+        "FILLED": 23,
+        "KEEP": 13,
+        "CANCELLED": 9
+      },
+      "by_strategy": {
+        "ITB_158430": 45,
+        "ITB_356680": 32,
+        "ITB_017900": 21,
+        "ITB_004020": 17,
+        "ITB_060370": 16,
+        "DEVSCALE_001120": 16,
+        "ITB_126730": 15,
+        "": 13,
+        "ITB_375500": 13,
+        "DEVSCALE_453340": 12,
+        "ITB_413630": 12,
+        "ITB_003350": 11,
+        "ITB_092870": 9,
+        "ITB_004310": 8,
+        "ITB_327260": 6,
+        "ITB_001820": 6,
+        "DEVSCALE_006360": 5,
+        "ITB_093370": 5,
+        "ITB_108490": 5,
+        "DEVSCALE_012750": 4,
+        "ITB_028050": 3,
+        "DEVSCALE_373220": 2,
+        "DEVSCALE_293490": 2,
+        "ITB_272210": 2,
+        "DEVSCALE_316140": 2,
+        "ITB_032820": 2,
+        "ITB_103590": 2,
+        "DEVSCALE_065350": 1,
+        "DEVSCALE_105560": 1
+      },
+      "by_side": {
+        "SELL": 245,
+        "BUY": 30,
+        "NONE": 13
+      },
+      "n_tickers": 28,
+      "accepted": 117,
+      "rejected": 126,
+      "cancelled": 9,
+      "filled": 23,
+      "fill_events": 106,
+      "realized_pnl": -144276,
+      "buy_notional": 4035550,
+      "sell_notional": 42919720
     }
   ]
 }
