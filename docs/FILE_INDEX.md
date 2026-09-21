@@ -67,8 +67,8 @@
 
 ### PYQuant/config/
 
-- [bench_market_open.json](../PYQuant/config/bench_market_open.json) — (설명 필요)
-- [bench_market_open_stress.json](../PYQuant/config/bench_market_open_stress.json) — (설명 필요)
+- [bench_market_open.json](../PYQuant/config/bench_market_open.json) — bench_market_open.py 기본 파라미터(종목 수·동시호가 구간 길이·틱/주문 개수·쏠림 비율)
+- [bench_market_open_stress.json](../PYQuant/config/bench_market_open_stress.json) — bench_market_open.py 스트레스 시나리오(부하를 기본값보다 높여 DB 한계 확인용)
 - [default_universe.json](../PYQuant/config/default_universe.json) — 기본 코스피·코스닥 유니버스 목록
 - [strategy_a.json](../PYQuant/config/strategy_a.json) — Strategy A 테마·종목·백테스트 파라미터
 
@@ -76,7 +76,7 @@
 
 - [__init__.py](../PYQuant/core/__init__.py) — 빈 패키지 초기화 파일
 - [logger.py](../PYQuant/core/logger.py) — 콘솔 로거 설정 헬퍼
-- [proc_watch.py](../PYQuant/core/proc_watch.py) — (설명 필요)
+- [proc_watch.py](../PYQuant/core/proc_watch.py) — psutil로 quant_trader.exe CPU/메모리/스레드 수를 주기 표본해 proc_stats에 적재
 
 ### PYQuant/dashboard/
 
@@ -111,15 +111,15 @@
 
 ### PYQuant/grafana/provisioning/dashboards/
 
-- [provider.yml](../PYQuant/grafana/provisioning/dashboards/provider.yml) — (설명 필요)
+- [provider.yml](../PYQuant/grafana/provisioning/dashboards/provider.yml) — 그라파나가 json/ 아래 대시보드 정의를 자동 로드하도록 지정하는 프로바이더 설정
 
 ### PYQuant/grafana/provisioning/dashboards/json/
 
-- [ops.json](../PYQuant/grafana/provisioning/dashboards/json/ops.json) — (설명 필요)
+- [ops.json](../PYQuant/grafana/provisioning/dashboards/json/ops.json) — 운영 대시보드 정의(엔진 CPU/메모리·DB부하 벤치·원장 이벤트 패널)
 
 ### PYQuant/grafana/provisioning/datasources/
 
-- [tsdb.yml](../PYQuant/grafana/provisioning/datasources/tsdb.yml) — (설명 필요)
+- [tsdb.yml](../PYQuant/grafana/provisioning/datasources/tsdb.yml) — 그라파나 PostgreSQL 데이터소스로 TimescaleDB 접속 정보 등록
 
 ### PYQuant/ipc/
 
@@ -179,7 +179,7 @@
 ### PYQuant/tools/
 
 - [__init__.py](../PYQuant/tools/__init__.py) — 빈 패키지 초기화 파일
-- [bench_market_open.py](../PYQuant/tools/bench_market_open.py) — (설명 필요)
+- [bench_market_open.py](../PYQuant/tools/bench_market_open.py) — 개장 동시호가 부하를 재현해 틱·신호·주문·체결을 bench_* 테이블에 적재하는 벤치마크
 - [check_adjusted.py](../PYQuant/tools/check_adjusted.py) — data.go.kr 수정주가 여부 검증 점검
 - [check_datagokr.py](../PYQuant/tools/check_datagokr.py) — DataGoKrSource 인증·조회 확인용 점검
 - [check_investor_api.py](../PYQuant/tools/check_investor_api.py) — 수급·일봉 API 가용성 검증 스크립트
