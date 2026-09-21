@@ -355,7 +355,7 @@ private:
     MpscQueue<Record>      queue_;
     std::FILE*             file_ = nullptr;
     std::thread            writer_;
-    sync::WakeGate         wake_;
+    wake::WakeGate         wake_;
     std::atomic<bool>      running_{false};
     std::atomic<bool>      flush_request_{false};
     std::atomic<uint64_t>  offered_{0};

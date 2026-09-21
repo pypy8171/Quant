@@ -31,6 +31,7 @@ for _s in (sys.stdout, sys.stderr):
 
 TS_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2}):(\d{2})\.(\d{3})")
 START_RE = re.compile(r"퀀트 엔진 시작")
+PLATFORM_RE = re.compile(r"\[Main\] 실행 플랫폼 (Windows|Linux)")
 STALE_RE = re.compile(r"이전 세션 미체결 (\d+)건 발견")
 BREAKEVEN_RE = re.compile(r"본전탈출\)")
 FILL_RE = re.compile(r"체결통보 ODNO=\d+ (\d{6}) (BUY|SELL) (\d+)주")
@@ -120,6 +121,7 @@ def collect(date: str, log: Path, since: int = 0):
     devscale_stops: list[tuple[int, str]] = []     # (초, 종목) — DEVSCALE 손절 신호
     devscale_close_exits: list[tuple[int, str]] = []   # (초, 종목) — DEVSCALE 장 마감 청산 신호(넘김 모드면 0이어야 한다)
     entry_filter: dict[str, int] = {"통과": 0, "차단": 0}  # 진입 필터 판정 줄 수
+    platforms: list[str] = []                    # 기동마다 찍히는 실행 플랫폼(Windows|Linux)
 
     # 7일 지난 날은 archive/quant_trader_<날짜>.log.gz — market_close_autodoc이 그 경로를 그대로 넘긴다
     opener = (lambda: gzip.open(log, "rt", encoding="utf-8", errors="replace")) if log.suffix == ".gz"         else (lambda: log.open(encoding="utf-8", errors="replace"))
@@ -134,6 +136,8 @@ def collect(date: str, log: Path, since: int = 0):
             last_ts = second
             if START_RE.search(line):
                 starts.append(second)
+            if found := PLATFORM_RE.search(line):
+                platforms.append(found.group(1))
             found = STALE_RE.search(line)
             if found:
                 stale_max = max(stale_max, int(found.group(1)))
@@ -279,6 +283,9 @@ def collect(date: str, log: Path, since: int = 0):
                         + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in devscale_close_exits[:5])}" if devscale_close_exits else "")),
         devscale_v2_row("진입 필터 판정", entry_filter["차단"] > 0, "WARN",
                         f"진입 필터 통과 {entry_filter['통과']} / 차단 {entry_filter['차단']} 종목 (리플레이 기대: 존 안 종목의 절반쯤 차단, 차단 0이면 필터 값이 안 실린 것)"),
+        # 리눅스 실행일(09-22~)은 Windows 감시견이 -NoTrader라 Windows 기동이 0이어야 한다. 둘이 섞이면 같은 계좌에 엔진 둘.
+        ("실행 플랫폼", len(set(platforms)) <= 1, "FAIL",
+         "·".join(f"{name} {platforms.count(name)}회" for name in sorted(set(platforms))) or "플랫폼 줄 없음(구 exe)"),
         ("교체 매도", not displace_sells, "FAIL",
          f"교체 매도 신호 {len(displace_sells)}건 (기대 0 — displace_enabled false, 09-20)"
          + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in displace_sells[:5])}" if displace_sells else "")),

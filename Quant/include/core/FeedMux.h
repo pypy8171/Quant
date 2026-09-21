@@ -504,7 +504,7 @@ private:
     //  연결·증분 구독 때만 만진다(틱 경로 아님).
     std::unordered_map<std::string, size_t> assign_; // key(specification) → 소스 index. 한 종목은 한 소스에만
 
-    sync::WakeGate        wake_;
+    wake::WakeGate        wake_;
     std::atomic<uint64_t> dropped_{0};
     std::jthread          multiplexer_thread_; // 멤버 선언 순서상 마지막 — 소멸자가 먼저 세운다
 };

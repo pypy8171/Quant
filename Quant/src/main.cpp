@@ -284,6 +284,11 @@ int main(int argc, char* argv[])
     Logger::instance().set_base_directory(Logger::default_base_directory());
     Logger::instance().initialize(Logger::instance().path_for("quant_trader.log"), LogLevel::INFO);
     LOG_INFO("=== Quant Trader v2.0 ===");
+#ifdef _WIN32
+    LOG_INFO("[Main] 실행 플랫폼 Windows");
+#else
+    LOG_INFO("[Main] 실행 플랫폼 Linux"); // 같은 날 두 플랫폼이 찍히면 같은 계좌에 엔진이 둘이다 — check_runtime_health '실행 플랫폼' 행
+#endif
     const CommandLine command_line = parse_command_line(argc, argv); // 4.
     AppConfig app;
 

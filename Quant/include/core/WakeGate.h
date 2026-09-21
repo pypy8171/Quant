@@ -8,7 +8,7 @@
 #include <mutex>
 #include <stop_token>
 
-namespace sync
+namespace wake
 {
 
 // 왜 sleep_for 폴링이 아닌가: Windows 기본 타이머 격자에서 sleep_for(100us)·(1ms)가 실측 p50 15.6ms,
@@ -118,4 +118,4 @@ bool sleep_unless_stopped(std::stop_token stop_token, std::chrono::duration<Repr
     return !condition_variable.wait_for(lock, stop_token, duration, [&] { return stop_token.stop_requested(); });
 }
 
-} // namespace sync
+} // namespace wake

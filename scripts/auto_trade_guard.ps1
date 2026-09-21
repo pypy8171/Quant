@@ -89,6 +89,12 @@ if (Test-Path $Status) {
       Say "오늘 phase=$($st.phase) — 되살리지 않는다(원인을 없앤 뒤 손으로 기동)."
       exit 0
     }
+    # 트레이더를 다른 곳(리눅스)이 띄운 날(-NoTrader, trader=external)은 Windows 트레이더를 절대 띄우지 않는다.
+    # 감시견 창이 죽었다고 평소 루프를 되살리면 같은 계좌에 엔진이 둘이 된다(09-11 이중 발주).
+    if (([datetime]$st.updated).Date -eq $now.Date -and "$($st.trader)" -eq "external") {
+      Say "오늘 trader=external(리눅스가 띄움) — Windows 트레이더를 띄우지 않는다."
+      exit 0
+    }
   } catch { Say "상태파일을 읽지 못했다($($_.Exception.Message)) — 없는 셈 치고 진행." "WARN" }
 }
 

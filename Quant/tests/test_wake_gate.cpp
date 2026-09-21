@@ -37,7 +37,7 @@ int main()
 {
     // 1. still_idle이 false면 자지 않고 바로 돌아온다(큐에 이미 일이 있는 경우).
     {
-        sync::WakeGate gate;
+        wake::WakeGate gate;
         const auto start_time = Clock::now();
         gate.wait_for(500ms, [] { return false; });
         CHECK(Clock::now() - start_time < 50ms);
@@ -46,7 +46,7 @@ int main()
 
     // 2. 지난 만기는 바로 돌아온다.
     {
-        sync::WakeGate gate;
+        wake::WakeGate gate;
         const auto start_time = Clock::now();
         gate.wait_until(Clock::now() - 1ms, [] { return true; });
         CHECK(Clock::now() - start_time < 50ms);
@@ -54,7 +54,7 @@ int main()
 
     // 3. 만기가 있으면 notify 없이도 그 시각에 깬다(주문 재시도 경로).
     {
-        sync::WakeGate gate;
+        wake::WakeGate gate;
         const auto start_time = Clock::now();
         gate.wait_until(start_time + 30ms, [] { return true; });
         const auto took = Clock::now() - start_time;
@@ -65,7 +65,7 @@ int main()
     // 4. 생산자 push+notify가 상한(1s)보다 훨씬 먼저 소비자를 깨운다 — 1,000회 왕복이 신호 유실 없이 끝나야 한다.
     //    유실이 한 번이라도 나면 그 회차가 1s를 다 자므로 총 시간이 튄다.
     {
-        sync::WakeGate         gate;
+        wake::WakeGate         gate;
         RingBuffer<int>  queue{64};
         std::atomic<bool>      stop{false};
         std::atomic<int>       consumed{0};
@@ -135,7 +135,7 @@ int main()
 
     // 5. 생산자 여럿이 동시에 notify해도 소비자는 전부 받는다.
     {
-        sync::WakeGate        gate;
+        wake::WakeGate        gate;
         RingBuffer<int> queue{4096};
         std::atomic<bool>     stop{false};
         std::atomic<int>      consumed{0};
@@ -193,7 +193,7 @@ int main()
 
     // 6. stop_token 오버로드 — 정지 요청이 오면 capture(2s) 전에 깬다. 정지가 이미 요청돼 있으면 자지 않는다.
     {
-        sync::WakeGate   gate;
+        wake::WakeGate   gate;
         std::stop_source source;
         const auto       start_time = Clock::now();
         std::jthread     stopper([&] { std::this_thread::sleep_for(50ms); source.request_stop(); });
@@ -214,7 +214,7 @@ int main()
 
     // 7. 정지 요청 없이 push+notify만으로도 stop_token 오버로드가 깬다(기존 경로와 같은 동작).
     {
-        sync::WakeGate      gate;
+        wake::WakeGate      gate;
         std::stop_source    source;
         std::atomic<bool>   ready{false};
         const auto          start_time = Clock::now();
@@ -228,14 +228,14 @@ int main()
     {
         std::stop_source source;
         const auto       start_time = Clock::now();
-        CHECK(sync::sleep_unless_stopped(source.get_token(), 30ms));
+        CHECK(wake::sleep_unless_stopped(source.get_token(), 30ms));
         CHECK(Clock::now() - start_time >= 25ms);
 
         std::jthread stopper([&] { std::this_thread::sleep_for(50ms); source.request_stop(); });
         const auto   end_time = Clock::now();
-        CHECK(!sync::sleep_unless_stopped(source.get_token(), 5s));
+        CHECK(!wake::sleep_unless_stopped(source.get_token(), 5s));
         CHECK(Clock::now() - end_time < 1s);
-        CHECK(!sync::sleep_unless_stopped(source.get_token(), 5s)); // 이미 정지 — 바로 false
+        CHECK(!wake::sleep_unless_stopped(source.get_token(), 5s)); // 이미 정지 — 바로 false
     }
 
     std::cout << "test_wake_gate: " << g_checks << " checks passed\n";

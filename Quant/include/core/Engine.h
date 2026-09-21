@@ -569,9 +569,9 @@ private:
         std::atomic<uint64_t> order_dropped{0};  // order_queue 가득 차 버린 신호 수. [큐 고수위] 줄에 같이 찍힌다
         // 소비자 깨우기 — 생산자가 push 뒤 notify, 소비자는 큐가 비면 잔다. 1ms 폴링은 Windows 타이머 격자 때문에
         //  실측 p50 15.6ms였다(bench_sleep_res). [why D-071]
-        sync::WakeGate fill_wake;  // fill_thread ← WS 수신 스레드
-        sync::WakeGate strategy_wake; // strategy_thread ← 샤드·운영단말 스레드. 샤드 자신의 게이트는 Shard::wake()
-        sync::WakeGate order_wake; // order_thread ← strategy_thread
+        wake::WakeGate fill_wake;  // fill_thread ← WS 수신 스레드
+        wake::WakeGate strategy_wake; // strategy_thread ← 샤드·운영단말 스레드. 샤드 자신의 게이트는 Shard::wake()
+        wake::WakeGate order_wake; // order_thread ← strategy_thread
     };
     ShardPipeline pipeline_;
 

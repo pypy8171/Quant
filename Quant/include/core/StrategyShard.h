@@ -55,7 +55,7 @@ public:
         return index_;
     }
 
-    [[nodiscard]] sync::WakeGate& wake() noexcept
+    [[nodiscard]] wake::WakeGate& wake() noexcept
     {
         return wake_;
     }
@@ -180,7 +180,7 @@ private:
     uint32_t                 index_;
     ShardQueues              queue_;
     Router                   router_;
-    sync::WakeGate           wake_;
+    wake::WakeGate           wake_;
     std::atomic<uint64_t>    seen_version_{0};
     std::vector<OrderSignal> batch_buffer_; // 다건 발주 재사용 버퍼 — 틱마다 할당하지 않는다
 };

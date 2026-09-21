@@ -57,6 +57,8 @@ static constexpr int kCancelMissGuardSec = 10;
 //  발주 스레드가 밀리면 통보까지 몇 분이 걸릴 수 있어 전략 백오프(30초)보다 길게 잡는다. 지나면 통보를 잃은
 //  것으로 보고 놓아준다 — 그 뒤는 게이트 선점 클램프·자가정리가 막는다.
 static constexpr int kDupMarketSellGuardSec = 120;
+// 기동 직후 유령 지정가를 하나씩 취소할 때 취소 사이에 두는 간격(ms). 초당 거래건수 상한(EGW00201)을 피할 만큼만.
+static constexpr int kStaleCancelGapMs = 400;
 
 ManagedOrder OrderRouter::submit(const OrderSignal& signal)
 {
@@ -1040,7 +1042,7 @@ void OrderRouter::cancel_stale_orders_async()
             rewrite_open_orders();
 
             // 초당 거래건수 상한(EGW00201)에 걸리지 않게 간격을 둔다. 정지 요청이 오면 바로 깬다.
-            sync::sleep_unless_stopped(stop_token, std::chrono::milliseconds(400));
+            wake::sleep_unless_stopped(stop_token, std::chrono::milliseconds(kStaleCancelGapMs));
         }
 
         LOG_INFO("[OrderRouter] 이전 세션 미체결 정리 완료: " + std::to_string(cancelled) + "건 취소 접수");

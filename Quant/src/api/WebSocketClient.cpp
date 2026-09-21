@@ -192,7 +192,7 @@ void KisWebSocket::recv_loop(std::stop_token stop_token)
 
         // ── 지수 백오프 재연결 ─────────────────────────────────────────
         LOG_WARN("[WS] " + std::to_string(retry_sec) + "초 후 재연결 시도");
-        sync::sleep_unless_stopped(stop_token, std::chrono::seconds(retry_sec));
+        wake::sleep_unless_stopped(stop_token, std::chrono::seconds(retry_sec));
         retry_sec = std::min(retry_sec * 2, 30);
 
         if (!connected_.load() || stop_token.stop_requested())

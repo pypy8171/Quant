@@ -51,7 +51,7 @@ OpsServer(내부 스레드)           운영단말 TCP — 조회·수동주문�
 | 체결 소비 | `fill_queue` → `OrderRouter::on_fill`(원장·CSV) → 운영단말 방송 | `fill_queue` 소비 |
 | 제어 | 잔고 대조·토큰 선갱신·WS 단절 판정(`feed::Supervisor`)·큐 고수위 로그 | 파이프라인 밖 |
 
-유휴 소비자는 슬립 폴링이 아니라 `Quant/include/core/WakeGate.h`의 `sync::WakeGate`로 잔다 — 생산자가 push 뒤 notify하고
+유휴 소비자는 슬립 폴링이 아니라 `Quant/include/core/WakeGate.h`의 `wake::WakeGate`로 잔다 — 생산자가 push 뒤 notify하고
 소비자는 큐가 비면 condvar에서 기다린다(전략 스레드는 200µs yield 뒤). Windows 타이머 격자에서 `sleep_for(100µs)`는
 실측 중앙값(p50) 15.6ms라 그렇다(D-071). 세부 흐름은 [../CODE_FLOW.md](../CODE_FLOW.md), 모듈 책임은
 [../ENGINE_ARCHITECTURE.md](../ENGINE_ARCHITECTURE.md)에 있으니 여기서는 되풀이하지 않는다.

@@ -14,6 +14,7 @@
   powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1
   powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -Config Quant\config\config.json -Until 15:35
   powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -DryRun
+  powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -NoTrader   # 트레이더는 리눅스(WSL)에서 손으로 띄우는 날
 #>
 [CmdletBinding()]
 param(
@@ -27,6 +28,7 @@ param(
   [switch]$NoRecorder,               # ZMQ 체결·주문을 TimescaleDB에 적재하는 창을 띄우지 않는다
   [switch]$NoMarketClose,                    # 마감 뒤 사실 문서·대시보드 갱신을 건너뛴다
   [switch]$NoBuild,                  # 기동 전 재빌드를 건너뛴다(exe를 손으로 바꾼 날). 이때는 소스가 exe보다 새면 중단
+  [switch]$NoTrader,                 # 트레이더를 이 창이 띄우지 않는다(리눅스 등 다른 곳이 띄우는 날). 부속 창·유니버스 갱신·마감 정리는 그대로
   [switch]$DryRun
 )
 
@@ -307,7 +309,7 @@ if ($dup) {
   Save-Status "aborted" @{ error = "duplicate_process"; pids = @($dup.Id) }
   exit 2
 }
-if (-not (Test-Path $Exe))     { Say "실행파일 없음: $Exe — /build 먼저." "ERROR"; Save-Status "aborted" @{ error = "no_exe" }; exit 2 }
+if (-not $NoTrader -and -not (Test-Path $Exe)) { Say "실행파일 없음: $Exe — /build 먼저." "ERROR"; Save-Status "aborted" @{ error = "no_exe" }; exit 2 }
 if (-not (Test-Path $Config))  { Say "config 없음: $Config" "ERROR"; Save-Status "aborted" @{ error = "no_config" }; exit 2 }
 
 # 낡은 바이너리로 매매하지 않는다. 예전엔 소스가 exe보다 새면 중단하고 사람이 /build를 돌렸는데,
@@ -316,7 +318,9 @@ if (-not (Test-Path $Config))  { Say "config 없음: $Config" "ERROR"; Save-Stat
 $head  = (git rev-parse --short HEAD 2>$null)
 $dirty = @(git status --porcelain Quant\src Quant\include 2>$null).Count
 if ($dirty -gt 0) { Say "메인 트리에 미커밋 소스 변경 $dirty 건 — 그대로 빌드에 들어간다." "WARN" }
-if ($NoBuild) {
+if ($NoTrader) {
+  Say "-NoTrader — Windows exe를 쓰지 않으므로 재빌드 생략"
+} elseif ($NoBuild) {
   $src = Get-ChildItem -Recurse -File "Quant\src", "Quant\include" -ErrorAction SilentlyContinue |
          Sort-Object LastWriteTime -Descending | Select-Object -First 1
   if ($src -and $src.LastWriteTime -gt (Get-Item $Exe).LastWriteTime) {
@@ -330,6 +334,10 @@ if ($NoBuild) {
   # /build 커맨드와 같은 배선 — 한글 %TEMP%의 LNK1104 회피, vcvars64로 MSVC 환경, cmake는 절대경로.
   if (-not (Test-Path C:\build_tmp)) { New-Item -ItemType Directory -Force C:\build_tmp | Out-Null }
   $env:TEMP = 'C:\build_tmp'; $env:TMP = 'C:\build_tmp'
+  # 헤더 의존 추적 — cl의 /showIncludes 한글 접두어는 콘솔 코드페이지 바이트로 나오고 ninja는 configure 때 적은 바이트와 비교한다.
+  #  Quant\build_win은 UTF-8(65001)로 configure돼 있고 이 창도 34행에서 UTF-8이다. 코드페이지가 다르면 deps 0 → 헤더가 바뀌어도
+  #  재컴파일이 안 된다(09-21 08:20 크래시 루프, 낡은 오브젝트). 여기서 한 번 더 못박는다.
+  cmd /c 'chcp 65001 >nul'; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
   $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
   $cmake  = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
   Say "재빌드 시작 — HEAD $head, 타깃 quant_trader"
@@ -394,7 +402,14 @@ if ((Get-Date) -ge $deadline) { Say "이미 $Until 을 지났다. 매매하지 �
 $crashWindow   = [timespan]::FromMinutes(30)
 $crashMaxExits = 3
 $exitTimes     = @()
-while ((Get-Date) -lt $deadline) {
+if ($NoTrader) {
+  # 트레이더는 다른 곳(리눅스)이 띄운다 — 같은 계좌에 Windows 트레이더까지 띄우면 이중 발주다(09-11).
+  # 이 창은 부속 창 생존·유니버스 갱신만 하며 마감까지 기다리고, 마감 뒤 사실 정리는 평소와 같이 한다.
+  Say "-NoTrader — 트레이더를 띄우지 않는다. 부속 창만 지키며 $Until 까지 기다린다."
+  Save-Status "running" @{ trader = "external" }
+  while ((Get-Date) -lt $deadline) { Start-Sleep -Seconds 60; Restore-Windows; Refresh-Universe }
+}
+while (-not $NoTrader -and (Get-Date) -lt $deadline) {
   $n = $script:Sessions.Count + 1
   Say "세션 #$n 기동 — $Exe $Config"
   if ($DryRun) { Say "  (dry) 트레이더 기동 생략, 루프 종료"; break }
@@ -484,3 +499,11 @@ if ((Test-Path $reaper) -and -not $DryRun) {
 
 Say "하루 루프 종료 — 세션 $($script:Sessions.Count)회, 로그 $RunLog"
 Save-Status "done" @{ }
+
+# 부속 창은 Job Object로 이 프로세스에 묶여 있지만, 이 창은 -NoExit로 떠 있어 잡 핸들이 안 닫힌다 — 시세·국면·알림
+#  폴러가 밤새 REST를 부르고 창 5개가 남는다(09-21 16:20 사용자 확인). 기동 때 쓰는 정리기를 -KillAll로 한 번 더 불러
+#  역할 프로세스·창을 전부 내린다. 이 창(watchdog 역할)도 같이 닫히므로 이 줄이 마지막이어야 한다.
+if ((Test-Path $reaper) -and -not $DryRun) {
+  Say "부속 프로세스 정리 — quant_procs.ps1 -KillAll"
+  & powershell -ExecutionPolicy Bypass -NoProfile -File $reaper -KillAll -Quiet 2>&1 | ForEach-Object { if ("$_".Trim()) { Write-RunLog "    $_" } }
+}

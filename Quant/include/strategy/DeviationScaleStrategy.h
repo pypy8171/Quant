@@ -1235,7 +1235,7 @@ private:
             }
 
             // min_action_ms를 자되 정지 요청이 오면 바로 깬다.
-            if (!sync::sleep_unless_stopped(stop_token, std::chrono::milliseconds(parameters_.min_action_ms)))
+            if (!wake::sleep_unless_stopped(stop_token, std::chrono::milliseconds(parameters_.min_action_ms)))
             {
                 break;
             }

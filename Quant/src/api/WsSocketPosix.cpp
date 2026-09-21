@@ -19,7 +19,7 @@
 namespace
 {
 
-size_t curl_write_callback(char* cursor, size_t size, size_t name, std::string* out)
+size_t append_response_body(char* cursor, size_t size, size_t name, std::string* out)
 {
     out->append(cursor, size * name);
     return size * name;
@@ -441,7 +441,7 @@ std::string websocket_platform::http_post_json(const std::string& url, const std
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, append_response_body);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);

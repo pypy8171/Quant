@@ -505,7 +505,7 @@ meaning = "업종 지수·매크로 모니터 로그 주기(fetch 30초면 5분)
 [[code_value]]
 id = "engine_offhours_sleep_sec"
 file = "Quant/src/core/Engine.cpp"
-regex = 'sync::sleep_unless_stopped\(stop_token, (\d+)s\);'
+regex = 'wake::sleep_unless_stopped\(stop_token, (\d+)s\);'
 unit = "초"
 group = "엔진 — 스레드 주기·장 시간"
 meaning = "장 밖 시간 data_thread 대기"

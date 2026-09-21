@@ -15,6 +15,60 @@ KisClient::FastFailScope::FastFailScope() { ++g_fastfail_depth; }
 KisClient::FastFailScope::~FastFailScope() { --g_fastfail_depth; }
 
 // ═══════════════════════════════════════════════════════════════════════════
+//  플랫폼 공용 — 헤더 오버레이·초당 한도 판정 (WinHTTP·libcurl 둘 다 쓴다)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// 전송 직전에 헤더 목록에 덧입히는 것. 호출자가 만든 헤더 벡터는 그대로 두고(복사 0), 전송부가 줄을 하나씩
+//  만들 때 authorization 줄만 지금 토큰으로 바꿔 내보내고, 없으면 Content-Type 줄을 덧붙인다. [why D-108]
+//  호출자들은 헤더를 먼저 조립하고 http_get/http_post가 그 뒤에 ensure_authenticated()를 부르므로, 갱신이
+//  일어난 요청은 옛 토큰(기동 직후 첫 호출이면 빈 토큰)으로 나간다 — 그래서 전송 직전에 다시 찍는다.
+struct HeaderOverlay
+{
+    // 지금 토큰으로 만든 "authorization: Bearer …" 줄. 있으면 헤더의 authorization 줄 대신 이것을 보낸다
+    //  (oauth2 발급 요청은 nullptr). [inv] 전송이 끝날 때까지 살아 있는 문자열(http_get/http_post의 지역 변수)
+    const std::string* bearer_line = nullptr;
+    bool ensure_json_content_type = false; // Content-Type 줄이 없으면 하나 덧붙인다(KIS는 GET에도 요구)
+};
+
+// 헤더 벡터에 오버레이를 입혀 보낼 줄을 차례로 emit(const std::string&)에 넘긴다. 문자열을 새로 만들지 않는다.
+template <typename Emit>
+static void emit_header_lines(const std::vector<std::string>& headers, const HeaderOverlay& overlay, Emit&& emit)
+{
+    static const std::string kJsonContentType = "Content-Type: application/json; charset=utf-8";
+    bool has_content_type = false;
+
+    for (const auto& header : headers)
+    {
+        if (overlay.bearer_line && (header.starts_with("authorization:") || header.starts_with("Authorization:")))
+        {
+            emit(*overlay.bearer_line);
+            continue;
+        }
+
+        if (header.find("Content-Type") != std::string::npos)
+        {
+            has_content_type = true;
+        }
+
+        emit(header);
+    }
+
+    if (overlay.ensure_json_content_type && !has_content_type)
+    {
+        emit(kJsonContentType);
+    }
+}
+
+// 초당 호출 한도 초과 신호. KIS는 이걸 HTTP 500으로도 돌려줘서 상태코드만으로는 일시 서버
+//  장애와 구분이 안 된다 — 바디의 코드로 가른다. 한도 초과에 즉시 재시도하면 호출량을 1→3배로
+//  늘려 초과를 더 키운다(양의 되먹임). 한도 창이 1초라 150·300ms 백오프도 같은 창 안에 떨어진다.
+static bool is_rate_limited(const std::string& body)
+{
+    return body.find("EGW00201") != std::string::npos ||
+           body.find("초당 거래건수") != std::string::npos;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 //  플랫폼별 HTTP 구현
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -153,46 +207,6 @@ static HINTERNET acquire_connection(const WinHttpResult& win_http_result)
 }
 } // namespace
 
-// 전송 직전에 헤더 목록에 덧입히는 것. 호출자가 만든 헤더 벡터는 그대로 두고(복사 0), 전송부가 줄을 하나씩
-//  만들 때 authorization 줄만 지금 토큰으로 바꿔 내보내고, 없으면 Content-Type 줄을 덧붙인다. [why D-108]
-//  호출자들은 헤더를 먼저 조립하고 http_get/http_post가 그 뒤에 ensure_authenticated()를 부르므로, 갱신이
-//  일어난 요청은 옛 토큰(기동 직후 첫 호출이면 빈 토큰)으로 나간다 — 그래서 전송 직전에 다시 찍는다.
-struct HeaderOverlay
-{
-    // 지금 토큰으로 만든 "authorization: Bearer …" 줄. 있으면 헤더의 authorization 줄 대신 이것을 보낸다
-    //  (oauth2 발급 요청은 nullptr). [inv] 전송이 끝날 때까지 살아 있는 문자열(http_get/http_post의 지역 변수)
-    const std::string* bearer_line = nullptr;
-    bool ensure_json_content_type = false; // Content-Type 줄이 없으면 하나 덧붙인다(KIS는 GET에도 요구)
-};
-
-// 헤더 벡터에 오버레이를 입혀 보낼 줄을 차례로 emit(const std::string&)에 넘긴다. 문자열을 새로 만들지 않는다.
-template <typename Emit>
-static void emit_header_lines(const std::vector<std::string>& headers, const HeaderOverlay& overlay, Emit&& emit)
-{
-    static const std::string kJsonContentType = "Content-Type: application/json; charset=utf-8";
-    bool has_content_type = false;
-
-    for (const auto& header : headers)
-    {
-        if (overlay.bearer_line && (header.starts_with("authorization:") || header.starts_with("Authorization:")))
-        {
-            emit(*overlay.bearer_line);
-            continue;
-        }
-
-        if (header.find("Content-Type") != std::string::npos)
-        {
-            has_content_type = true;
-        }
-
-        emit(header);
-    }
-
-    if (overlay.ensure_json_content_type && !has_content_type)
-    {
-        emit(kJsonContentType);
-    }
-}
 
 // 단발 시도. transport_ok = HTTP 응답을 실제로 받았는가(상태코드 무관, 4xx/5xx도 true).
 //  false = 전송 계층 실패(핸들 생성/SendRequest/ReceiveResponse 실패 — 예: 12152). 이때만 재시도 대상.
@@ -290,15 +304,6 @@ static std::string winhttp_request_once(const std::string& method, const std::st
     }
 
     return response;
-}
-
-// 초당 호출 한도 초과 신호. KIS는 이걸 HTTP 500으로도 돌려줘서 상태코드만으로는 일시 서버
-//  장애와 구분이 안 된다 — 바디의 코드로 가른다. 한도 초과에 즉시 재시도하면 호출량을 1→3배로
-//  늘려 초과를 더 키운다(양의 되먹임). 한도 창이 1초라 150·300ms 백오프도 같은 창 안에 떨어진다.
-static bool is_rate_limited(const std::string& body)
-{
-    return body.find("EGW00201") != std::string::npos ||
-           body.find("초당 거래건수") != std::string::npos;
 }
 
 // 재시도 래퍼. ⚠ 조회(GET) 요청(여러 번 보내도 서버 상태 불변이라 재시도 안전)만 재시도한다 — (a) 전송 계층 실패(12152 등, 제한 시간 초과 12002는 제외), (b) 5xx 서버 일시장애.

@@ -7,6 +7,8 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h> // MoveFileExA — 토큰 캐시 원자 교체
+#else
+#include <curl/curl.h> // curl_global_init/cleanup — 프로세스당 한 번
 #endif
 
 // ═══════════════════════════════════════════════════════════════════════════

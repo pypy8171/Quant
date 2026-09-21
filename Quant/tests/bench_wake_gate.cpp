@@ -118,7 +118,7 @@ int main()
     for (int repeat = 0; repeat < 3; ++repeat)
     {
         {
-            sync::WakeGate gate;
+            wake::WakeGate gate;
             run("condvar ", gate, [&](RingBuffer<int>& queue, std::atomic<bool>& stop)
             {
                 gate.wait_for(1s, [&] { return queue.empty() && !stop.load(std::memory_order_acquire); });

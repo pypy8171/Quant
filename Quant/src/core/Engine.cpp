@@ -1478,7 +1478,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
         if (!market_now)
         {
-            sync::sleep_unless_stopped(stop_token, 60s); // 정지 요청이면 바로 깬다 — 장 외 종료가 60초를 기다리지 않는다
+            wake::sleep_unless_stopped(stop_token, 60s); // 정지 요청이면 바로 깬다 — 장 외 종료가 60초를 기다리지 않는다
             continue;
         }
 
@@ -1933,7 +1933,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
             {
                 const int step = (slice < cycle - slept) ? slice : (cycle - slept);
 
-                if (!sync::sleep_unless_stopped(stop_token, std::chrono::seconds(step)))
+                if (!wake::sleep_unless_stopped(stop_token, std::chrono::seconds(step)))
                 {
                     break;
                 }
@@ -2645,7 +2645,7 @@ void Engine::control_thread_fn(std::stop_token stop_token)
     constexpr int kTokenEvery = 60; // 5초 × 60 = 5분
     int token_tick = 0;
 
-    while (sync::sleep_unless_stopped(stop_token, std::chrono::seconds(kCheckIntervalSec)))
+    while (wake::sleep_unless_stopped(stop_token, std::chrono::seconds(kCheckIntervalSec)))
     {
 
         if (++high_water_tick >= kHighWaterEvery)
