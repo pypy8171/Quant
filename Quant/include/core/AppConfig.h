@@ -31,6 +31,9 @@ struct AppConfig
     bool                   bootstrap_ledger_from_balance = false;
     bool                   rest_price_feed = false;
     std::string            capture_directory;
+    // reserved_(미체결 선점) 로컬 저널 폴더. capture_directory와 독립 — 틱 캡처를 안 켜도 이건 켤 수 있다
+    //  (저장량이 틱의 몇 만분의 1이라 항상 켜도 부담이 없다). 빈 문자열=끔. [why D-101 reserved_ 드리프트]
+    std::string            reservation_journal_directory;
     unsigned               strategy_shards = 1;
     std::vector<KisConfig> feed_keys; // 추가 WS 세션 키(D-071 원칙 1). 기본 키와 계좌·모의 여부 같고 hts_id 없음
     std::string            replay_file;  // 비어 있지 않으면 캡처 파일 리플레이(D-071 원칙 8)

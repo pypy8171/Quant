@@ -194,6 +194,7 @@ AppConfig parse_config(const json& document, const std::string& mode_override)
     app.bootstrap_ledger_from_balance = document.value("bootstrap_ledger_from_balance", false);
     app.rest_price_feed               = document.value("rest_price_feed", false);
     app.capture_directory             = document.value("capture_dir", std::string());
+    app.reservation_journal_directory = document.value("reservation_journal_dir", std::string());
     app.strategy_shards               = document.value("strategy_shards", 1u);
     app.feed_keys                     = parse_feed_keys(document, app.kis);
     app.replay_file                   = document.value("replay_file", std::string());

@@ -2,10 +2,12 @@
 #include "core/StrategyTable.h"
 #include "core/SymbolTable.h"
 #include "core/Types.h"
+#include "risk/ReservationJournal.h"
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <deque>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -117,6 +119,25 @@ public:
     [[nodiscard]] const symbol::SymbolTable& symbols() const noexcept
     {
         return *symbols_;
+    }
+
+    // reserved_ 로컬 저널 — 재기동으로 사라지는 미체결 선점을 복구한다(D-101). 저널 파일을 열고 그 자리에서
+    //  바로 리플레이해 reserved_/reserved_price_를 되살린다. [inv] Engine이 첫 신호 전, set_symbol_table
+    //  직후에 한 번만 부른다. 실계좌 복수 프로세스가 같은 경로를 공유하면 안 된다(파일 하나 = 원장 하나).
+    void set_journal(std::filesystem::path file)
+    {
+        journal_ = std::make_unique<reservation_journal::ReservationJournal>(std::move(file));
+
+        if (!journal_->ok())
+        {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(positions_mutex_);
+        reservation_journal::ReservationJournal::replay(
+            journal_->path(),
+            [this](std::string_view account, std::string_view ticker, int delta, double price)
+            { apply_reservation_delta(account, ticker, delta, price); });
     }
 
     // 전략 번호 테이블 — 원장 서브원장·중복 신호 키가 쓰는 번호. 엔진이 전략을 등록할 때, 디스패처·라우터가
@@ -509,6 +530,10 @@ private:
     //  고쳐지므로 여기 하나만 둔다. 호출 전에 positions_mtx_를 잡아야 한다(내부에서 잡지 않음).
     void release_reservation(const PosKey& key, int delta);
 
+    // on_accept의 reserved_/reserved_price_ 갱신 본체 — 저널 리플레이(set_journal)도 이걸 그대로 써서
+    //  기동 시 복구된 상태가 실시간 경로와 같은 규칙을 거친다. [inv] positions_mutex_를 잡고 부른다.
+    void apply_reservation_delta(std::string_view account, std::string_view ticker, int delta, double price);
+
     Config config_;
     std::atomic<bool> kill_switch_{false};
     std::atomic<bool> entry_halt_{false};  // 신규 진입(BUY NEW)만 정지, SELL 청산은 통과 — 국면 리스크용
@@ -551,6 +576,8 @@ private:
     std::vector<std::string> account_names_{std::string()}; // 계좌 id → 문자열. [0]은 ""(단일 계좌 하위호환). positions_mutex_ 보호
     PosMap<int>    reserved_;    // (account,ticker) → 미체결 선점 수량 (BUY +, SELL -). 재주문 차단용
     PosMap<double> reserved_price_; // (account,ticker) → 미체결 선점가(§3d 총노출 계산용). reserved_와 동일 생명주기로 정리
+    // reserved_의 로컬 durable 저널 — set_journal() 이전엔 nullptr(저널 없이 기존 동작, 테스트·벤치 기본).
+    std::unique_ptr<reservation_journal::ReservationJournal> journal_;
     PosMap<int>    positions_;   // (account,ticker) → 실체결 순보유 수량 (양수=롱)
     PosMap<double> average_prices_;
     // account:ticker -> 매도가능수량. 보유수량과 다르다: 기동 전 세션이 남긴 미체결 매도,

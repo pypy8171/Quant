@@ -21,7 +21,7 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@b2f5bbd scripts/auto_trade_guard.ps1@1827d05 -->
+<!-- sync: scripts/auto_trade_day.ps1@0abd4fd scripts/auto_trade_guard.ps1@74bf998 -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 죽으면 다시
 띄운다. 마감 뒤 `scripts/market_close_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 트레이더는 이 감시견이 소유한다 —
@@ -38,6 +38,7 @@ powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1
 | `-Until 15:35` | 이 시각 이후로는 재기동하지 않는다 (기본 15:35) |
 | `-DryRun` | 무엇을 띄울지만 출력하고 실제로 띄우지 않는다 |
 | `-NoRegimeFeed` / `-NoUniverse` / `-NoDashboard` / `-NoNotify` / `-NoMarketClose` | 해당 단계 건너뛰기 |
+| `-NoTrader` | 트레이더를 띄우지 않는다 — 리눅스(WSL)가 띄우는 날. 부속 창·유니버스·마감 정리는 그대로. 아래 1.1절 |
 
 진행 상태는 `_private\_auto_trade_day.json`(`phase`·`sessions`·`history`), 실행 로그는 `logs\auto_trade_day_YYYYMMDD.log`.
 감시견이 죽으면 잡(Job Object)이 부속 창과 트레이더를 같이 내리고, 감시자 예약작업(평일 08:45부터 5분마다)이 장중이면
@@ -53,6 +54,31 @@ powershell -ExecutionPolicy Bypass -File scripts\auto_trade_guard.ps1 -Uninstall
 오늘 `phase`가 멈춤 사유(`crash_loop`·`aborted`·`done`·`closed`·`past_deadline`)면 감시자는 되살리지 않는다 — 원인을 없앤 뒤
 손으로 한 번 띄우면 그다음부터 다시 감시자가 맡는다. 사유별 뜻과 감시견 로그 정리는 [AUTOMATION.md](AUTOMATION.md) 4절.
 감시견 로그에 `tail -f`를 걸지 않는다(파일 잠금으로 감시견이 죽는다) — `Get-Content -Tail`로 본다.
+
+### 1.1 트레이더를 리눅스(WSL2)에서 띄우는 날
+
+같은 계좌에 엔진은 하나여야 한다. Windows 쪽은 `-NoTrader`로 띄워 부속 창·유니버스·마감 정리만 맡기고(상태파일에
+`trader=external`이 남아 감시자 예약작업도 그날은 Windows 트레이더를 띄우지 않는다), 트레이더는 WSL에서 손으로 띄운다.
+로그는 `QUANT_LOG_DIR`로 Windows 쪽 `Quant\build_win\logs`에 쓰게 해서 `parse_quant_log.py`·`check_runtime_health.py`·
+`market_close_autodoc.py`가 평소처럼 읽는다. 엔진은 마감 뒤 스스로 내려간다(D-098). 순서: 08:40까지 Windows 창 → 08:50 WSL 창.
+
+```powershell
+cd {ROOT}
+powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -NoTrader   # 08:45 감시자보다 먼저 띄운다
+py scripts\seed_open_orders.py      # 08:50 두 번째 창에서 — 미체결 복원(감시견이 트레이더 앞에 하던 일)
+```
+
+```bash
+wsl -d Ubuntu-24.04 -u root
+cd /mnt/c/Users/PYH/source/repos/Quant                     # 반드시 repo 루트 — 표지 파일·캡처 경로가 상대 경로다
+export TZ=Asia/Seoul
+export KIS_TOKEN_CACHE_DIR=$PWD/Quant/config QUANT_LOG_DIR=$PWD/Quant/build_win/logs
+~/quant-build/quant_trader Quant/config/config_dev_paper.json TRADE
+```
+
+빌드가 없으면 `cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -B ~/quant-build -S Quant && ninja -C ~/quant-build quant_trader`
+(Ubuntu-24.04·GCC 13, `libcurl4-openssl-dev libssl-dev`). 그날 판정은 `check_runtime_health.py`의 `실행 플랫폼` 행 —
+같은 날 Windows·Linux가 섞이면 FAIL(엔진 둘).
 
 `quant-recorder`(ZMQ→TimescaleDB)가 붙는 DB는 WSL2(Ubuntu-22.04) 안의 Docker가 낸다. 감시견이 `quant-wsl-keepalive`
 창(`wsl -e sleep infinity`)을 같이 띄워 배포판을 붙잡는다(단발 `wsl -e` 호출은 끝나자마자 배포판이 내려간다, 09-16 실측).

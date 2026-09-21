@@ -203,6 +203,7 @@
     "modes/Monitors.h": "modes",
     "risk/GateReasons.h": "risk",
     "risk/OrderGate.h": "risk",
+    "risk/ReservationJournal.h": "risk",
     "strategy/DeviationScaleStrategy.h": "strategy",
     "strategy/DevScaleRules.h": "strategy",
     "strategy/FixedIntervalStrategy.h": "strategy",
@@ -548,7 +549,8 @@
     "risk/OrderGate.h": [
       "core/StrategyTable.h",
       "core/SymbolTable.h",
-      "core/Types.h"
+      "core/Types.h",
+      "risk/ReservationJournal.h"
     ],
     "strategy/DevScaleRules.h": [
       "core/Types.h"
@@ -964,6 +966,9 @@
       "ipc/OrderRouter.h",
       "risk/OrderGate.cpp"
     ],
+    "risk/ReservationJournal.h": [
+      "risk/OrderGate.h"
+    ],
     "strategy/DevScaleRules.h": [
       "strategy/DeviationScaleStrategy.h",
       "strategy/StrategyFactory.cpp"
@@ -1172,6 +1177,7 @@
       "PYQuant/backtest/__init__.py",
       "PYQuant/backtest/costs.py",
       "PYQuant/backtest/devscale_replay.py",
+      "PYQuant/backtest/devscale_replay_rescue.py",
       "PYQuant/backtest/engine.py",
       "PYQuant/backtest/ledger.py",
       "PYQuant/backtest/metrics.py",
@@ -1180,6 +1186,7 @@
       "PYQuant/backtest/stats.py",
       "PYQuant/core/__init__.py",
       "PYQuant/core/logger.py",
+      "PYQuant/core/proc_watch.py",
       "PYQuant/dashboard/backfill_live.py",
       "PYQuant/dashboard/backfill_series_a.py",
       "PYQuant/dashboard/build_dashboard.py",
@@ -1204,6 +1211,7 @@
       "PYQuant/kis/client.py",
       "PYQuant/kis/endpoints.py",
       "PYQuant/live/__init__.py",
+      "PYQuant/live/basket_forward.py",
       "PYQuant/live/forward_trader.py",
       "PYQuant/live/trader.py",
       "PYQuant/main.py",
@@ -1232,6 +1240,7 @@
       "PYQuant/tests/test_stats.py",
       "PYQuant/tests/test_strategy_a.py",
       "PYQuant/tools/__init__.py",
+      "PYQuant/tools/bench_market_open.py",
       "PYQuant/tools/check_adjusted.py",
       "PYQuant/tools/check_datagokr.py",
       "PYQuant/tools/check_investor_api.py",
@@ -1295,6 +1304,9 @@
       "PYQuant/backtest/devscale_replay.py": [
         "backtest.costs"
       ],
+      "PYQuant/backtest/devscale_replay_rescue.py": [
+        "backtest.costs"
+      ],
       "PYQuant/backtest/engine.py": [
         "backtest.costs",
         "backtest.ledger",
@@ -1310,6 +1322,9 @@
       ],
       "PYQuant/backtest/report.py": [
         "backtest.engine"
+      ],
+      "PYQuant/core/proc_watch.py": [
+        "core.logger"
       ],
       "PYQuant/dashboard/backfill_series_a.py": [
         "backtest.report"
@@ -1346,6 +1361,11 @@
         "core.logger",
         "kis.endpoints"
       ],
+      "PYQuant/live/basket_forward.py": [
+        "backtest.engine",
+        "features",
+        "strategy.cross_momentum"
+      ],
       "PYQuant/live/forward_trader.py": [
         "backtest.engine",
         "kis.client",
@@ -1358,15 +1378,18 @@
       "PYQuant/main.py": [
         "backtest.engine",
         "backtest.report",
+        "core",
         "core.logger",
         "data.datagokr_source",
         "data.krx_source",
         "data.universe_kospi",
         "data.yfinance_source",
         "db.client",
+        "features.fundamental",
         "ipc.operator",
         "ipc.subscriber",
         "kis.client",
+        "live.basket_forward",
         "live.forward_trader",
         "live.trader",
         "report.account",
@@ -1443,6 +1466,10 @@
       "PYQuant/tests/test_strategy_a.py": [
         "kis.client",
         "strategy.strategy_a"
+      ],
+      "PYQuant/tools/bench_market_open.py": [
+        "core.logger",
+        "db.client"
       ],
       "PYQuant/tools/check_adjusted.py": [
         "data.datagokr_source"
@@ -1594,6 +1621,7 @@
       ],
       "backtest.costs": [
         "PYQuant/backtest/devscale_replay.py",
+        "PYQuant/backtest/devscale_replay_rescue.py",
         "PYQuant/backtest/engine.py",
         "PYQuant/backtest/ledger.py",
         "PYQuant/backtest/metrics.py",
@@ -1603,6 +1631,7 @@
       ],
       "backtest.engine": [
         "PYQuant/backtest/report.py",
+        "PYQuant/live/basket_forward.py",
         "PYQuant/live/forward_trader.py",
         "PYQuant/main.py",
         "PYQuant/tests/test_backtest_engine.py",
@@ -1627,12 +1656,17 @@
         "scripts/market_close_autodoc.py",
         "scripts/parse_quant_log.py"
       ],
+      "core": [
+        "PYQuant/main.py"
+      ],
       "core.logger": [
+        "PYQuant/core/proc_watch.py",
         "PYQuant/db/client.py",
         "PYQuant/ipc/operator.py",
         "PYQuant/ipc/subscriber.py",
         "PYQuant/kis/client.py",
-        "PYQuant/main.py"
+        "PYQuant/main.py",
+        "PYQuant/tools/bench_market_open.py"
       ],
       "dashboard_server": [
         "scripts/notify_trades.py"
@@ -1671,6 +1705,7 @@
       ],
       "db.client": [
         "PYQuant/main.py",
+        "PYQuant/tools/bench_market_open.py",
         "scripts/backfill_fills_db.py"
       ],
       "exit_ev": [
@@ -1678,9 +1713,11 @@
         "scripts/exit_ev_dashboard.py"
       ],
       "features": [
+        "PYQuant/live/basket_forward.py",
         "PYQuant/tests/test_regime_axes.py"
       ],
       "features.fundamental": [
+        "PYQuant/main.py",
         "PYQuant/tools/minute_backfill_pairs.py"
       ],
       "gen_tuning_sheet": [
@@ -1726,6 +1763,9 @@
       "kis.endpoints": [
         "PYQuant/kis/client.py"
       ],
+      "live.basket_forward": [
+        "PYQuant/main.py"
+      ],
       "live.forward_trader": [
         "PYQuant/main.py"
       ],
@@ -1768,6 +1808,7 @@
         "PYQuant/strategy/value_contrary.py"
       ],
       "strategy.cross_momentum": [
+        "PYQuant/live/basket_forward.py",
         "PYQuant/main.py"
       ],
       "strategy.indicators": [
@@ -1806,7 +1847,7 @@
       {
         "from": "PYQuant",
         "to": "PYQuant/core",
-        "weight": 1
+        "weight": 2
       },
       {
         "from": "PYQuant",
@@ -1816,6 +1857,11 @@
       {
         "from": "PYQuant",
         "to": "PYQuant/db",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant",
+        "to": "PYQuant/features",
         "weight": 1
       },
       {
@@ -1831,7 +1877,7 @@
       {
         "from": "PYQuant",
         "to": "PYQuant/live",
-        "weight": 2
+        "weight": 3
       },
       {
         "from": "PYQuant",
@@ -1896,6 +1942,11 @@
       {
         "from": "PYQuant/live",
         "to": "PYQuant/backtest",
+        "weight": 2
+      },
+      {
+        "from": "PYQuant/live",
+        "to": "PYQuant/features",
         "weight": 1
       },
       {
@@ -1906,7 +1957,7 @@
       {
         "from": "PYQuant/live",
         "to": "PYQuant/strategy",
-        "weight": 1
+        "weight": 2
       },
       {
         "from": "PYQuant/strategy",
@@ -1955,8 +2006,18 @@
       },
       {
         "from": "PYQuant/tools",
+        "to": "PYQuant/core",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant/tools",
         "to": "PYQuant/data",
         "weight": 7
+      },
+      {
+        "from": "PYQuant/tools",
+        "to": "PYQuant/db",
+        "weight": 1
       },
       {
         "from": "PYQuant/tools",
@@ -2115,7 +2176,6 @@
       ],
       "readers": [
         "PYQuant/tools/compare_ws_bars.py",
-        "Quant/src/main.cpp",
         "scripts/_logdir.py",
         "scripts/check_runtime_health.py",
         "scripts/dashboard_server.py",

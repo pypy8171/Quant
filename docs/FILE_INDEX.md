@@ -8,14 +8,14 @@
 
 - [(루트)](#루트) — 10개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 104개
-- [Quant](#quant) — 184개
+- [PYQuant](#pyquant) — 111개
+- [Quant](#quant) — 185개
 - [crash](#crash) — 1개
-- [docs](#docs) — 61개
+- [docs](#docs) — 62개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
 - [scripts](#scripts) — 38개
-- [strategies](#strategies) — 31개
+- [strategies](#strategies) — 32개
 - [tools](#tools) — 3개
 
 ## (루트)
@@ -67,6 +67,8 @@
 
 ### PYQuant/config/
 
+- [bench_market_open.json](../PYQuant/config/bench_market_open.json) — (설명 필요)
+- [bench_market_open_stress.json](../PYQuant/config/bench_market_open_stress.json) — (설명 필요)
 - [default_universe.json](../PYQuant/config/default_universe.json) — 기본 코스피·코스닥 유니버스 목록
 - [strategy_a.json](../PYQuant/config/strategy_a.json) — Strategy A 테마·종목·백테스트 파라미터
 
@@ -74,6 +76,7 @@
 
 - [__init__.py](../PYQuant/core/__init__.py) — 빈 패키지 초기화 파일
 - [logger.py](../PYQuant/core/logger.py) — 콘솔 로거 설정 헬퍼
+- [proc_watch.py](../PYQuant/core/proc_watch.py) — (설명 필요)
 
 ### PYQuant/dashboard/
 
@@ -105,6 +108,18 @@
 - [__init__.py](../PYQuant/features/__init__.py) — 시점 고정 피처 패키지 표시(백테스트·라이브 공용)
 - [fundamental.py](../PYQuant/features/fundamental.py) — 재무 팩터 `compute(as_of)`: 유니버스 필터(보통주·유동성·시총·금융 제외) 뒤 PBR·ROE(TTM)·z 복합 점수. 스터디 19(저PBR×고ROE)와 장전 잡이 같은 함수를 쓴다
 - [regime_axes.py](../PYQuant/features/regime_axes.py) — 성장·물가·유동성·위험선호 네 축 국면 점수와 노출 배수 `score(as_of)` — 백테스트와 라이브가 같은 함수, `published_at < 결정일` 행만 본다
+
+### PYQuant/grafana/provisioning/dashboards/
+
+- [provider.yml](../PYQuant/grafana/provisioning/dashboards/provider.yml) — (설명 필요)
+
+### PYQuant/grafana/provisioning/dashboards/json/
+
+- [ops.json](../PYQuant/grafana/provisioning/dashboards/json/ops.json) — (설명 필요)
+
+### PYQuant/grafana/provisioning/datasources/
+
+- [tsdb.yml](../PYQuant/grafana/provisioning/datasources/tsdb.yml) — (설명 필요)
 
 ### PYQuant/ipc/
 
@@ -164,6 +179,7 @@
 ### PYQuant/tools/
 
 - [__init__.py](../PYQuant/tools/__init__.py) — 빈 패키지 초기화 파일
+- [bench_market_open.py](../PYQuant/tools/bench_market_open.py) — (설명 필요)
 - [check_adjusted.py](../PYQuant/tools/check_adjusted.py) — data.go.kr 수정주가 여부 검증 점검
 - [check_datagokr.py](../PYQuant/tools/check_datagokr.py) — DataGoKrSource 인증·조회 확인용 점검
 - [check_investor_api.py](../PYQuant/tools/check_investor_api.py) — 수급·일봉 API 가용성 검증 스크립트
@@ -279,6 +295,7 @@
 
 - [GateReasons.h](../Quant/include/risk/GateReasons.h) — 게이트 거부 사유 문자열 계약(D-067)
 - [OrderGate.h](../Quant/include/risk/OrderGate.h) — 주문 전 위험 검증 게이트
+- [ReservationJournal.h](../Quant/include/risk/ReservationJournal.h) — reserved_(미체결 선점) 로컬 append-only 저널, 재기동 복구용(D-101)
 
 ### Quant/include/strategy/
 
@@ -489,6 +506,7 @@
 ### docs/guides/
 
 - [AUTOMATION_SCRIPTING_GUIDE.md](guides/AUTOMATION_SCRIPTING_GUIDE.md) — PowerShell·Python 자동화 스크립트를 직접 쓰기 위한 문법·API·설계 패턴 가이드(auto_trade_day·market_close_autodoc·dashboard_server 해부)
+- [BENCH_MARKET_OPEN_GUIDE.md](guides/BENCH_MARKET_OPEN_GUIDE.md) — 개장 동시호가 DB 부하 벤치마크(bench_market_open.py --call-auction) 실행 가이드, config 파라미터 표·Grafana/SQL 검증 포함
 - [CODE_GRAPH_GUIDE.md](guides/CODE_GRAPH_GUIDE.md) — 코드 그래프 생성기 사용법
 - [CPP20_23_GUIDE.md](guides/CPP20_23_GUIDE.md) — C++20/23 기능 사용 가이드
 - [LINUX_SETUP.md](guides/LINUX_SETUP.md) — 리눅스 빌드·실행 설정 가이드
@@ -515,6 +533,7 @@
 - [2026-09-16.md](market_close/2026-09-16.md) — 09-16 매매 사후검토
 - [2026-09-17.md](market_close/2026-09-17.md) — 09-17 매매 사후검토
 - [2026-09-18.md](market_close/2026-09-18.md) — 09-18 매매 사후검토
+- [2026-09-21.md](market_close/2026-09-21.md) — 09-21 매매 사후검토(D-023 SEH 크래시 재발·재시도로 해소, A등급 결함 없음)
 - [README.md](market_close/README.md) — 장 마감 리뷰 색인
 
 ### docs/premarket/
@@ -991,6 +1010,7 @@
 - [2026-09-16.md](../strategies/DeviationScale/live/2026-09-16.md) — 09-16 라이브 매매일지
 - [2026-09-17.md](../strategies/DeviationScale/live/2026-09-17.md) — 09-17 라이브 매매일지
 - [2026-09-18.md](../strategies/DeviationScale/live/2026-09-18.md) — 09-18 라이브 매매일지
+- [2026-09-21.md](../strategies/DeviationScale/live/2026-09-21.md) — 09-21 라이브 매매일지
 
 ### strategies/DeviationScale/reviews/
 

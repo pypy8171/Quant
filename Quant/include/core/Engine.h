@@ -29,6 +29,7 @@
 #include "core/MpscQueue.h"
 #include <atomic>
 #include <chrono>
+#include <filesystem>
 #include <functional>
 #include <stop_token>
 #include <map>
@@ -93,6 +94,19 @@ public:
     // WS 틱·호가 캡처 폴더(빈 문자열이면 끔). 기동마다 ticks_<UTC시각>.bin 하나. REST 대체 틱은 raw 피드가
     //  아니라 캡처하지 않는다. [why D-071]
     void set_capture_directory(const std::string& directory) { feed_.capture_directory = directory; }
+
+    // reserved_(미체결 선점) 로컬 저널 경로 — 같은 폴더에 reserved.journal 고정 파일 하나(틱 캡처와 달리
+    //  기동마다 새 파일을 안 만든다, 다음 기동이 리플레이해야 하므로). 빈 문자열이면 저널 없이 기존 동작.
+    //  [inv] set_symbol_table 뒤, start() 전에 부른다(reserved_에 첫 키가 생기기 전). [why D-101 reserved_ 드리프트]
+    void set_reservation_journal_path(const std::string& directory)
+    {
+        if (directory.empty())
+        {
+            return;
+        }
+
+        order_gate_.set_journal(std::filesystem::path(directory) / "reserved.journal");
+    }
 
     // 전략 샤드 수(config `strategy_shards`, 기본 1). 스레드 시작 전에만. 전략 하나가 여러 샤드에 걸치면 start()가 1로 내린다.
     void set_strategy_shards(uint32_t strategy_shards) { pipeline_.strategy_shards = strategy_shards == 0 ? 1u : strategy_shards; }

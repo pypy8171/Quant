@@ -700,9 +700,21 @@ void OrderGate::on_accept(const std::string& account, const std::string& ticker,
                           OrderSide side, int quantity, double price)
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    const PosKey key = make_key(account, ticker);
     int delta = (side == OrderSide::BUY) ? quantity : -quantity;  // BUY 선점 +, SELL 선점 -
-    int next  = (reserved_.count(key) ? reserved_[key] : 0) + delta;
+    apply_reservation_delta(account, ticker, delta, price);
+
+    if (journal_)
+    {
+        journal_->append(account, ticker, delta, price);
+    }
+}
+
+// on_accept 본체 + 저널 리플레이(set_journal) 공용 — 재기동 복구가 실시간 경로와 같은 규칙을 탄다.
+//  [inv] positions_mutex_를 잡고 부른다.
+void OrderGate::apply_reservation_delta(std::string_view account, std::string_view ticker, int delta, double price)
+{
+    const PosKey key  = make_key(account, ticker);
+    int          next = (reserved_.count(key) ? reserved_[key] : 0) + delta;
 
     if (next == 0)
     {
@@ -755,6 +767,13 @@ void OrderGate::release_reservation(const PosKey& key, int delta)
     {
         reserved_[key] = result;
     }
+
+    // 실제로 적용된 변화량(클램프 후)을 저널에 남긴다 — 리플레이가 같은 결과를 내야 하므로 원본
+    //  delta가 아니라 result - current를 쓴다. price=0(선점가 유지)로 남긴다 — 해제는 노출가를 바꾸지 않는다.
+    if (journal_)
+    {
+        journal_->append(account_of(key), ticker_of(key).view(), result - current, 0.0);
+    }
 }
 
 void OrderGate::on_cancel(const std::string& account, const std::string& ticker,
@@ -776,6 +795,11 @@ void OrderGate::reset_reserved()
     std::lock_guard<std::mutex> lock(positions_mutex_);
     reserved_.clear();
     reserved_price_.clear();
+
+    if (journal_)
+    {
+        journal_->truncate();
+    }
 }
 
 // ─── 유령 슬롯 정리 ─────────────────────────────────────────────────────────
