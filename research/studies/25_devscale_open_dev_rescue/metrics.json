@@ -1,0 +1,115 @@
+{
+  "ticker_days": 32883,
+  "candidate_days_aligned_atr_ok": 1284,
+  "blocked_by_open_deviation": 34,
+  "blocked_share_of_candidates": 0.0265,
+  "variants": {
+    "base_0903": {
+      "buys": 387,
+      "net_pct": 0.3416273925839626,
+      "net_per_buy": 7197.03488372093,
+      "months_pos": 7,
+      "net_total_man": 278.52525,
+      "worst_month_man": -126.05256920000001,
+      "rescued_days": 0
+    },
+    "rescue_1000": {
+      "buys": 389,
+      "net_pct": 0.33965538658010586,
+      "net_per_buy": 7149.462724935733,
+      "months_pos": 7,
+      "net_total_man": 278.1141,
+      "worst_month_man": -126.05256920000001,
+      "rescued_days": 240
+    },
+    "rescue_1030": {
+      "buys": 390,
+      "net_pct": 0.33804273880475766,
+      "net_per_buy": 7121.380564102564,
+      "months_pos": 7,
+      "net_total_man": 277.733842,
+      "worst_month_man": -126.05256920000001,
+      "rescued_days": 279
+    },
+    "rescue_1100": {
+      "buys": 390,
+      "net_pct": 0.33762744976014836,
+      "net_per_buy": 7112.661307692308,
+      "months_pos": 7,
+      "net_total_man": 277.393791,
+      "worst_month_man": -126.05256920000001,
+      "rescued_days": 290
+    },
+    "rescue_1200": {
+      "buys": 388,
+      "net_pct": 0.3407439283905787,
+      "net_per_buy": 7178.374793814432,
+      "months_pos": 7,
+      "net_total_man": 278.520942,
+      "worst_month_man": -126.05256920000001,
+      "rescued_days": 300
+    },
+    "rescue_1330": {
+      "buys": 387,
+      "net_pct": 0.3416273925839626,
+      "net_per_buy": 7197.03488372093,
+      "months_pos": 7,
+      "net_total_man": 278.52525,
+      "worst_month_man": -126.05256920000001,
+      "rescued_days": 310
+    },
+    "dev_filter_off": {
+      "buys": 396,
+      "net_pct": 0.3233446977954935,
+      "net_per_buy": 6808.689469696969,
+      "months_pos": 7,
+      "net_total_man": 269.624103,
+      "worst_month_man": -126.05256920000001,
+      "rescued_days": 0
+    }
+  },
+  "rescue_detail": {
+    "dev_filter_off": {
+      "rescued_days": 0,
+      "rescued_days_aligned": 0,
+      "rescued_days_with_buy": 0,
+      "buys_delta_vs_base": 9,
+      "net_delta_won": -89011
+    },
+    "rescue_1000": {
+      "rescued_days": 240,
+      "rescued_days_aligned": 8,
+      "rescued_days_with_buy": 2,
+      "buys_delta_vs_base": 2,
+      "net_delta_won": -4112
+    },
+    "rescue_1030": {
+      "rescued_days": 279,
+      "rescued_days_aligned": 10,
+      "rescued_days_with_buy": 3,
+      "buys_delta_vs_base": 3,
+      "net_delta_won": -7914
+    },
+    "rescue_1100": {
+      "rescued_days": 290,
+      "rescued_days_aligned": 10,
+      "rescued_days_with_buy": 3,
+      "buys_delta_vs_base": 3,
+      "net_delta_won": -11315
+    },
+    "rescue_1200": {
+      "rescued_days": 300,
+      "rescued_days_aligned": 8,
+      "rescued_days_with_buy": 1,
+      "buys_delta_vs_base": 1,
+      "net_delta_won": -43
+    },
+    "rescue_1330": {
+      "rescued_days": 310,
+      "rescued_days_aligned": 7,
+      "rescued_days_with_buy": 0,
+      "buys_delta_vs_base": 0,
+      "net_delta_won": 0
+    }
+  }
+}

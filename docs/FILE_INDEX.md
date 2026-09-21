@@ -8,11 +8,12 @@
 
 - [(루트)](#루트) — 10개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 103개
-- [Quant](#quant) — 185개
-- [docs](#docs) — 60개
+- [PYQuant](#pyquant) — 104개
+- [Quant](#quant) — 184개
+- [crash](#crash) — 1개
+- [docs](#docs) — 61개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 240개
+- [research](#research) — 245개
 - [scripts](#scripts) — 38개
 - [strategies](#strategies) — 31개
 - [tools](#tools) — 3개
@@ -56,6 +57,7 @@
 - [__init__.py](../PYQuant/backtest/__init__.py) — 빈 패키지 초기화 파일
 - [costs.py](../PYQuant/backtest/costs.py) — 체결 비용 정의 한 소스. CostSpec(수수료·매도세·호가 슬리피지·충격)·fill_result·tick_size·LIVE(원장 OrderGate.cpp와 같은 요율)
 - [devscale_replay.py](../PYQuant/backtest/devscale_replay.py) — DevScale 3분봉 리플레이 백테스트 도구
+- [devscale_replay_rescue.py](../PYQuant/backtest/devscale_replay_rescue.py) — devscale_replay.py 복사본, 개장 이격 조건에 10:30 등 재평가(구제) 시점을 얹어 비교하는 스터디 25 전용 변형
 - [engine.py](../PYQuant/backtest/engine.py) — 일봉 백테스트 엔진과 비용모델
 - [ledger.py](../PYQuant/backtest/ledger.py) — 백테스트 평단 원장 PositionLedger. 매수 평단·부분 매도 평단 유지·전량 매도 리셋·실현손익을 OrderGate::on_fill_confirmed와 같은 규칙으로
 - [metrics.py](../PYQuant/backtest/metrics.py) — 손절·트레일 경로 시뮬레이션과 R배수 지표
@@ -202,10 +204,6 @@
 - [CMakeLists.txt](../Quant/CMakeLists.txt) — 빌드 설정 — C++23, 플랫폼별 컴파일 옵션(ASan/TSan), 타깃 정의
 - [Dockerfile](../Quant/Dockerfile) — 리눅스 컨테이너 빌드(2단계: 빌드+런타임) 설정
 - [quant_trader.pid](../Quant/quant_trader.pid) — 실행 중 프로세스 PID 파일
-
-### Quant/PYQuant/data/ticks_raw/
-
-- [ticks_1789918454.bin](../Quant/PYQuant/data/ticks_raw/ticks_1789918454.bin) — (설명 필요)
 
 ### Quant/config/
 
@@ -451,6 +449,12 @@
 - [pch.h](../Quant/tools/ops_terminal/pch.h) — 운영단말 공용 선행 헤더(winsock·MFC)
 - [resource.h](../Quant/tools/ops_terminal/resource.h) — 운영단말 리소스 ID 정의
 
+## crash
+
+### crash/
+
+- [crash_46408.dmp](../crash/crash_46408.dmp) — (설명 필요)
+
 ## docs
 
 ### docs/
@@ -521,6 +525,7 @@
 - [2026-09-09.md](premarket/2026-09-09.md) — 09-09 장전 시황 브리핑
 - [2026-09-10.md](premarket/2026-09-10.md) — 09-10 장전 시황 브리핑
 - [2026-09-11.md](premarket/2026-09-11.md) — 09-11 장전 시황 브리핑
+- [2026-09-21.md](premarket/2026-09-21.md) — 09-21 장전 시황 브리핑
 - [README.md](premarket/README.md) — 장전 브리핑 색인(날짜 결함 설명)
 - [ROUTINE_PROMPT.md](premarket/ROUTINE_PROMPT.md) — 장전 시황 브리핑 클라우드 루틴 프롬프트 정본. 국면 모델 표는 gen:regime-model, 올린 해시는 premarket_routine.py --mark
 
@@ -893,6 +898,14 @@
 - [notional_grid.tsv](../research/studies/24_devscale_exit_lines/notional_grid.tsv) — 건당 금액 435만~1,500만 격자 월 표 — 거의 비례
 - [smoke.tsv](../research/studies/24_devscale_exit_lines/smoke.tsv) — 리플레이 동작 확인용 소표본 결과
 - [summarize_grid.py](../research/studies/24_devscale_exit_lines/summarize_grid.py) — 격자 월 표와 짝 `_days.tsv`를 읽어 변형별 세후 %/건·건수·플러스 달·총액·투입을 요약한다
+
+### research/studies/25_devscale_open_dev_rescue/
+
+- [README.md](../research/studies/25_devscale_open_dev_rescue/README.md) — 스터디 25 — 개장 이격 재평가(구제) 시점 비교 리플레이 결과, D-111 채택값 대비 개선 없어 기각
+- [metrics.json](../research/studies/25_devscale_open_dev_rescue/metrics.json) — 변형별 세후 %/건·건수·플러스 달·총액 지표(json)
+- [rescue_grid.tsv](../research/studies/25_devscale_open_dev_rescue/rescue_grid.tsv) — 구제 시점 격자(09:03 단독·10:00·10:30·11:00·12:00·13:30·이격 조건 끔) 월 표
+- [rescue_grid_summary.txt](../research/studies/25_devscale_open_dev_rescue/rescue_grid_summary.txt) — 구제 시점 격자 요약 — 09:03 단독 대비 구제안 차이는 잡음 수준
+- [summarize_rescue.py](../research/studies/25_devscale_open_dev_rescue/summarize_rescue.py) — rescue_grid.tsv와 짝 _days.tsv를 읽어 변형별 지표를 요약한다
 
 ## scripts
 
