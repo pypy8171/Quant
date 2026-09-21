@@ -26,6 +26,12 @@ KisResult<AccountBalance> KisClient::get_balance()
 
     AccountBalance balance;
     std::string forward_key, next_key, continuation;
+    // 초당 한도(EGW00201)는 HTTP 200 본문으로 오므로 전송 계층 재시도가 못 잡는다. 기동 직후 인증·시세·잔고가
+    //  같은 초에 몰려 한 번 걸리면 보유분 스캔 제외·청산 관리 부착이 통째로 빠진다(09-21 08:31). 한도 창 1초를
+    //  넘겨 같은 페이지를 한 번만 더 부른다 — 전송 계층과 같은 규칙(부하가 원인이면 재시도를 겹치지 않는다).
+    constexpr int      kRateLimitRetries   = 1;
+    constexpr unsigned kRateLimitBackoffMs = 1100;
+    int                rate_limit_retries  = 0;
 
     for (int page = 0; page < 30; ++page) // 안전 상한(무한루프 방지)
     {
@@ -56,8 +62,22 @@ KisResult<AccountBalance> KisClient::get_balance()
         //  (09-11 09:17 재기동 시드 0건 → 3분간 빈 원장).
         if (document.value("rt_cd", "") != "0")
         {
+            const std::string message_code = document.value("msg_cd", "");
+
+            if (message_code == kis_error::kRateLimit && rate_limit_retries < kRateLimitRetries)
+            {
+                ++rate_limit_retries;
+                LOG_WARN("[KIS] 잔고 조회 초당 한도(page=" + std::to_string(page) + ") — " +
+                         std::to_string(kRateLimitBackoffMs) + "ms 뒤 같은 페이지 재시도 " +
+                         std::to_string(rate_limit_retries) + "/" + std::to_string(kRateLimitRetries));
+                std::this_thread::sleep_for(std::chrono::milliseconds(kRateLimitBackoffMs));
+                --page; // 같은 페이지(같은 연속조회 키)를 다시 부른다
+
+                continue;
+            }
+
             LOG_WARN("[KIS] 잔고 조회 응답 오류(page=" + std::to_string(page) + ") " +
-                     document.value("msg_cd", "") + " " + document.value("msg1", ""));
+                     message_code + " " + document.value("msg1", ""));
             return kis_fail(document.value("msg_cd", "rt_cd"), document.value("msg1", ""));
         }
 
