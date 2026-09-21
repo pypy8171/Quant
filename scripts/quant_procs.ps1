@@ -46,7 +46,8 @@ $Roles = @(
   @{ role = "dashboard"; match = "dashboard_server.py" },
   @{ role = "notify";    match = "notify_trades.py" },
   @{ role = "universe";  match = "universe_feed.py" },
-  @{ role = "prices";    match = "live_prices_feed.py" }
+  @{ role = "prices";    match = "live_prices_feed.py" },
+  @{ role = "recorder";  match = "main.py record" }   # ZMQ 틱 기록기(auto_trade_day가 띄움)
 )
 
 $all  = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine })

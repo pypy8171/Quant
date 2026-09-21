@@ -1,6 +1,7 @@
 requests>=2.31.0
 pyzmq>=25.0.0
 psycopg2-binary>=2.9.0
+psutil>=5.9.0   # 엔진 프로세스 CPU/메모리 표본 수집(procwatch, 그라파나 서버자원 패널)
 # 백테스트 데이터(수급/OHLCV/시총)
 pykrx>=1.0.45
 pandas>=2.0.0

@@ -270,6 +270,18 @@ def cmd_record(args):
         db.close()
 
 
+def command_procwatch(arguments):
+    from db.client import DbClient
+    from core import proc_watch
+
+    db = DbClient()
+    db.ensure_proc_statistics_table()
+    try:
+        proc_watch.run(db, process_name=arguments.process_name, interval=arguments.interval)
+    finally:
+        db.close()
+
+
 def cmd_operate(args):
     with ZmqOperator(host=args.host, rep_port=args.port) as op:
         if args.action == "status":
@@ -585,6 +597,11 @@ def main():
     rp.add_argument("--record-ticks", action="store_true",
                     help="체결 틱(TRADE)도 ticks 테이블에 넣는다 (기본: 안 넣음)")
 
+    # ── procwatch (엔진 프로세스 CPU/메모리 표본 → 그라파나) ─────────────────────
+    pw = sub.add_parser("procwatch", help="엔진 프로세스 CPU/메모리 표본 수집 → TimescaleDB(proc_stats)")
+    pw.add_argument("--process-name", dest="process_name", default="quant_trader.exe")
+    pw.add_argument("--interval", type=float, default=5.0, help="표본 주기(초)")
+
     # ── operate ─────────────────────────────────────────────────────────────
     op = sub.add_parser("operate", help="C++ 엔진 원격 제어")
     op.add_argument("action", choices=["status", "kill"], help="실행할 명령")
@@ -637,6 +654,8 @@ def main():
         cmd_monitor(args)
     elif args.cmd == "record":
         cmd_record(args)
+    elif args.cmd == "procwatch":
+        command_procwatch(args)
     elif args.cmd == "operate":
         cmd_operate(args)
     elif args.cmd == "forward":

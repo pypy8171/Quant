@@ -295,6 +295,162 @@ class DbClient:
         except Exception as e:
             logger.error(f"ensure_fills_amount_columns 실패: {e}")
 
+    def ensure_proc_statistics_table(self):
+        """기존 DB에도 proc_stats 테이블이 있도록 보장. schema.sql은 fresh init에만 적용된다."""
+        ddl = [
+            "CREATE TABLE IF NOT EXISTS proc_stats ("
+            " ts TIMESTAMPTZ NOT NULL, process_name TEXT NOT NULL, pid INTEGER,"
+            " cpu_percent DOUBLE PRECISION, memory_mb DOUBLE PRECISION, thread_count INTEGER)",
+            "CREATE INDEX IF NOT EXISTS proc_stats_name_ts ON proc_stats (process_name, ts DESC)",
+        ]
+        try:
+            with self._conn.cursor() as cursor:
+                for stmt in ddl:
+                    cursor.execute(stmt)
+                try:
+                    cursor.execute("SELECT create_hypertable('proc_stats','ts', if_not_exists => TRUE)")
+                except Exception:
+                    pass
+        except Exception as error:
+            logger.error(f"ensure_proc_statistics_table 실패: {error}")
+
+    def insert_proc_stat(self, data: dict):
+        try:
+            _require(data, "process_name", "cpu_percent", "memory_mb")
+            with self._conn.cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO proc_stats(ts,process_name,pid,cpu_percent,memory_mb,thread_count)"
+                    " VALUES (%s,%s,%s,%s,%s,%s)",
+                    (
+                        datetime.now(timezone.utc),
+                        data["process_name"],
+                        data.get("pid"),
+                        data["cpu_percent"],
+                        data["memory_mb"],
+                        data.get("thread_count"),
+                    ),
+                )
+        except Exception as error:
+            logger.error(f"insert_proc_stat 실패 (data={data}): {error}")
+
+    # ── 벤치마크(bench_*) — bench_market_open.py 전용, 실계좌/모의계좌 원장과 분리 ──────
+
+    def ensure_bench_tables(self):
+        """기존 DB에도 bench_* 테이블이 있도록 보장. schema.sql은 fresh init에만 적용된다."""
+        ddl = [
+            "CREATE TABLE IF NOT EXISTS bench_ticks ("
+            " ts TIMESTAMPTZ NOT NULL, ticker TEXT NOT NULL, price NUMERIC(18,4),"
+            " volume BIGINT, direction SMALLINT, market TEXT DEFAULT 'KR')",
+            "CREATE INDEX IF NOT EXISTS bench_ticks_ticker_ts ON bench_ticks (ticker, ts DESC)",
+            "CREATE TABLE IF NOT EXISTS bench_signals ("
+            " ts TIMESTAMPTZ NOT NULL, strategy TEXT, ticker TEXT NOT NULL, side TEXT,"
+            " qty INTEGER, price NUMERIC(18,4), market TEXT DEFAULT 'KR')",
+            "CREATE INDEX IF NOT EXISTS bench_signals_ticker_ts ON bench_signals (ticker, ts DESC)",
+            "CREATE TABLE IF NOT EXISTS bench_orders ("
+            " ts TIMESTAMPTZ NOT NULL, ticker TEXT NOT NULL, side TEXT, qty INTEGER,"
+            " price NUMERIC(18,4), ok BOOLEAN, market TEXT DEFAULT 'KR', account TEXT)",
+            "CREATE INDEX IF NOT EXISTS bench_orders_ticker_ts ON bench_orders (ticker, ts DESC)",
+            "CREATE TABLE IF NOT EXISTS bench_fills ("
+            " ts TIMESTAMPTZ NOT NULL, odno TEXT NOT NULL, ticker TEXT NOT NULL, side TEXT NOT NULL,"
+            " filled_qty INTEGER NOT NULL, filled_price NUMERIC(18,4) NOT NULL,"
+            " commission NUMERIC(18,4), tax NUMERIC(18,4), market TEXT DEFAULT 'KR', account TEXT)",
+            "CREATE INDEX IF NOT EXISTS bench_fills_ticker_ts ON bench_fills (ticker, ts DESC)",
+            "CREATE TABLE IF NOT EXISTS bench_positions ("
+            " account TEXT NOT NULL DEFAULT 'bench', ticker TEXT NOT NULL,"
+            " quantity INTEGER NOT NULL DEFAULT 0, avg_price NUMERIC(18,4) NOT NULL DEFAULT 0,"
+            " realized_pnl NUMERIC(18,4) NOT NULL DEFAULT 0, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),"
+            " PRIMARY KEY (account, ticker))",
+        ]
+        try:
+            with self._conn.cursor() as cursor:
+                for stmt in ddl:
+                    cursor.execute(stmt)
+                for table in ("bench_ticks", "bench_signals", "bench_orders", "bench_fills"):
+                    try:
+                        cursor.execute(f"SELECT create_hypertable('{table}','ts', if_not_exists => TRUE)")
+                    except Exception:
+                        pass
+        except Exception as error:
+            logger.error(f"ensure_bench_tables 실패: {error}")
+
+    def truncate_bench_tables(self):
+        """벤치마크 재실행 전 이전 결과 비우기."""
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.execute("TRUNCATE bench_ticks, bench_signals, bench_orders, bench_fills, bench_positions")
+        except Exception as error:
+            logger.error(f"truncate_bench_tables 실패: {error}")
+
+    def insert_bench_ticks_batch(self, records: list[tuple]):
+        """records: (ts, ticker, price, volume, direction, market) 튜플 리스트."""
+        if not records:
+            return
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.executemany(
+                    "INSERT INTO bench_ticks(ts,ticker,price,volume,direction,market) VALUES (%s,%s,%s,%s,%s,%s)",
+                    records,
+                )
+        except Exception as error:
+            logger.error(f"insert_bench_ticks_batch 실패 ({len(records)}건): {error}")
+
+    def insert_bench_signals_batch(self, records: list[tuple]):
+        """records: (ts, strategy, ticker, side, qty, price, market) 튜플 리스트."""
+        if not records:
+            return
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.executemany(
+                    "INSERT INTO bench_signals(ts,strategy,ticker,side,qty,price,market) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    records,
+                )
+        except Exception as error:
+            logger.error(f"insert_bench_signals_batch 실패 ({len(records)}건): {error}")
+
+    def insert_bench_orders_batch(self, records: list[tuple]):
+        """records: (ts, ticker, side, qty, price, ok, market, account) 튜플 리스트."""
+        if not records:
+            return
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.executemany(
+                    "INSERT INTO bench_orders(ts,ticker,side,qty,price,ok,market,account) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                    records,
+                )
+        except Exception as error:
+            logger.error(f"insert_bench_orders_batch 실패 ({len(records)}건): {error}")
+
+    def insert_bench_fills_batch(self, records: list[tuple]):
+        """records: (ts, odno, ticker, side, filled_qty, filled_price, commission, tax, market, account) 튜플 리스트."""
+        if not records:
+            return
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.executemany(
+                    "INSERT INTO bench_fills(ts,odno,ticker,side,filled_qty,filled_price,commission,tax,market,account)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    records,
+                )
+        except Exception as error:
+            logger.error(f"insert_bench_fills_batch 실패 ({len(records)}건): {error}")
+
+    def upsert_bench_position(self, ticker: str, quantity: int, average_price: float,
+                              realized_pnl: float, account: str = "bench"):
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO bench_positions(account,ticker,quantity,avg_price,realized_pnl,updated_at)"
+                    " VALUES (%s,%s,%s,%s,%s,NOW())"
+                    " ON CONFLICT (account,ticker) DO UPDATE SET"
+                    "   quantity=EXCLUDED.quantity,"
+                    "   avg_price=EXCLUDED.avg_price,"
+                    "   realized_pnl=EXCLUDED.realized_pnl,"
+                    "   updated_at=NOW()",
+                    (account, ticker, quantity, average_price, realized_pnl),
+                )
+        except Exception as error:
+            logger.error(f"upsert_bench_position 실패 ({account}:{ticker}): {error}")
+
     def insert_regime(self, data: dict):
         """국면 스냅샷 1건 적재. date를 PK로 UPSERT (장 시작 1회 → 하루 1행)."""
         try:

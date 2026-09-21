@@ -149,3 +149,80 @@ CREATE TABLE IF NOT EXISTS regime (
 -- (상황→행동→결과) 삼각형 완성. 지금 안 붙이면 소급 불가.
 ALTER TABLE signals ADD COLUMN IF NOT EXISTS regime TEXT;
 ALTER TABLE fills   ADD COLUMN IF NOT EXISTS regime TEXT;
+
+-- ── 엔진 프로세스 자원 표본 (procwatch, 그라파나 서버자원 패널) ──────────────
+-- ZMQ HEALTH에는 처리건수만 있고 CPU/메모리가 없어 별도로 표본을 뜬다.
+CREATE TABLE IF NOT EXISTS proc_stats (
+    ts            TIMESTAMPTZ  NOT NULL,
+    process_name  TEXT         NOT NULL,
+    pid           INTEGER,
+    cpu_percent   DOUBLE PRECISION,   -- psutil Process.cpu_percent(interval) — 코어 100%=1개 코어 풀가동
+    memory_mb     DOUBLE PRECISION,   -- RSS
+    thread_count  INTEGER
+);
+SELECT create_hypertable('proc_stats', 'ts', if_not_exists => TRUE);
+CREATE INDEX IF NOT EXISTS proc_stats_name_ts ON proc_stats (process_name, ts DESC);
+
+-- ── 벤치마크용 테스트 테이블 (bench_market_open.py) ───────────────────────────
+-- 실거래 테이블(ticks/signals/orders/fills/positions)과 같은 모양으로 별도 유지 —
+-- 개장 폭주를 재현해 DB 부하를 측정할 때 실계좌/모의계좌 원장을 건드리지 않으려고 분리했다.
+CREATE TABLE IF NOT EXISTS bench_ticks (
+    ts         TIMESTAMPTZ  NOT NULL,
+    ticker     TEXT         NOT NULL,
+    price      NUMERIC(18,4),
+    volume     BIGINT,
+    direction  SMALLINT,
+    market     TEXT DEFAULT 'KR'
+);
+SELECT create_hypertable('bench_ticks', 'ts', if_not_exists => TRUE);
+CREATE INDEX IF NOT EXISTS bench_ticks_ticker_ts ON bench_ticks (ticker, ts DESC);
+
+CREATE TABLE IF NOT EXISTS bench_signals (
+    ts         TIMESTAMPTZ  NOT NULL,
+    strategy   TEXT,
+    ticker     TEXT         NOT NULL,
+    side       TEXT,
+    qty        INTEGER,
+    price      NUMERIC(18,4),
+    market     TEXT DEFAULT 'KR'
+);
+SELECT create_hypertable('bench_signals', 'ts', if_not_exists => TRUE);
+CREATE INDEX IF NOT EXISTS bench_signals_ticker_ts ON bench_signals (ticker, ts DESC);
+
+CREATE TABLE IF NOT EXISTS bench_orders (
+    ts         TIMESTAMPTZ  NOT NULL,
+    ticker     TEXT         NOT NULL,
+    side       TEXT,
+    qty        INTEGER,
+    price      NUMERIC(18,4),
+    ok         BOOLEAN,
+    market     TEXT DEFAULT 'KR',
+    account    TEXT
+);
+SELECT create_hypertable('bench_orders', 'ts', if_not_exists => TRUE);
+CREATE INDEX IF NOT EXISTS bench_orders_ticker_ts ON bench_orders (ticker, ts DESC);
+
+CREATE TABLE IF NOT EXISTS bench_fills (
+    ts           TIMESTAMPTZ   NOT NULL,
+    odno         TEXT          NOT NULL,
+    ticker       TEXT          NOT NULL,
+    side         TEXT          NOT NULL,
+    filled_qty   INTEGER       NOT NULL,
+    filled_price NUMERIC(18,4) NOT NULL,
+    commission   NUMERIC(18,4),
+    tax          NUMERIC(18,4),
+    market       TEXT DEFAULT 'KR',
+    account      TEXT
+);
+SELECT create_hypertable('bench_fills', 'ts', if_not_exists => TRUE);
+CREATE INDEX IF NOT EXISTS bench_fills_ticker_ts ON bench_fills (ticker, ts DESC);
+
+CREATE TABLE IF NOT EXISTS bench_positions (
+    account      TEXT          NOT NULL DEFAULT 'bench',
+    ticker       TEXT          NOT NULL,
+    quantity     INTEGER       NOT NULL DEFAULT 0,
+    avg_price    NUMERIC(18,4) NOT NULL DEFAULT 0,
+    realized_pnl NUMERIC(18,4) NOT NULL DEFAULT 0,
+    updated_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (account, ticker)
+);

@@ -95,6 +95,28 @@ services:
     networks:
       - quant-net
 
+  # ── 관측성 대시보드 (TimescaleDB 시계열을 웹페이지로) ──────────────────────
+  grafana:
+    image: grafana/grafana-oss:latest
+    container_name: quant-grafana
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      TZ: Asia/Seoul
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-changeme}
+      TSDB_PASSWORD: ${TSDB_PASSWORD:-changeme}
+      # 기본 플러그인(elasticsearch 등) 백그라운드 설치가 기동 초반 불안정을 일으켜 끔 — 이 프로젝트엔 불필요
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./PYQuant/grafana/provisioning:/etc/grafana/provisioning:ro
+    restart: unless-stopped
+    networks:
+      - quant-net
+
 networks:
   quant-net:
     driver: bridge
@@ -102,3 +124,4 @@ networks:
 volumes:
   tsdb-data:
   token-cache:
+  grafana-data:

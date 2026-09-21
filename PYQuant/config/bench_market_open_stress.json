@@ -1,0 +1,17 @@
+{
+  "symbols": 2700,
+  "preopen_real_minutes": 10.0,
+  "preopen_seconds": 70.0,
+  "preopen_ticks": 40000,
+  "preopen_orders": 1500,
+  "symbol_skew": 1.2,
+  "top2_share": 0.45,
+  "top2_split": 0.55,
+  "auction_value_krw": 700000000000,
+  "auction_first_chunk_ratio": 1.0,
+  "auction_seconds": 0.5,
+  "dead_zone_seconds": 0.5,
+  "post_open_seconds": 90.0,
+  "post_open_multiplier": 8.0,
+  "flush_interval": 0.5
+}

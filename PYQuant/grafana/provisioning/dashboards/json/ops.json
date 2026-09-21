@@ -1,0 +1,307 @@
+{
+  "title": "Quant Ops",
+  "uid": "quant-ops",
+  "timezone": "Asia/Seoul",
+  "editable": true,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "F-1 피드 공백 (마지막 틱 이후 경과 초)",
+      "description": "장중 10초 초과 경고, 60초 초과 위험 — KIS WS 정각+2초 단절 재연결 1.03초 실측 기준",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "tsdb" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, EXTRACT(EPOCH FROM NOW() - MAX(ts)) AS gap_sec FROM ticks;",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 10 },
+              { "color": "red", "value": 60 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "F-1 초당 틱 유입량",
+      "gridPos": { "h": 6, "w": 18, "x": 6, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "tsdb" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT time_bucket('1 second', ts) AS time, COUNT(*) AS ticks_per_sec\nFROM ticks WHERE $__timeFilter(ts) GROUP BY 1 ORDER BY 1;",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "F-4 당일 재기동 횟수",
+      "description": "health.data_cnt가 직전보다 작아지면 새 프로세스 — 09-16 65분에 10회 재기동 사건",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 6 },
+      "datasource": { "type": "postgres", "uid": "tsdb" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, COUNT(*) AS restarts FROM (\n  SELECT data_cnt - LAG(data_cnt) OVER (ORDER BY ts) AS d\n  FROM health WHERE ts::date = CURRENT_DATE) s WHERE d < 0;",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 3 },
+              { "color": "red", "value": 6 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "F-3 30초 사이클당 틱/주문 증가분",
+      "gridPos": { "h": 6, "w": 18, "x": 6, "y": 6 },
+      "datasource": { "type": "postgres", "uid": "tsdb" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time,\n       GREATEST(data_cnt - LAG(data_cnt) OVER (ORDER BY ts), 0) AS ticks_per_cycle,\n       GREATEST(order_cnt - LAG(order_cnt) OVER (ORDER BY ts), 0) AS orders_per_cycle\nFROM health WHERE $__timeFilter(ts) ORDER BY ts;",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "DB 활성 커넥션 수",
+      "description": "pg_stat_activity — 엔진(record)·PYQuant CLI 합산 연결 수",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 12 },
+      "datasource": { "type": "postgres", "uid": "tsdb" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, COUNT(*) AS connections FROM pg_stat_activity WHERE datname = current_database();",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 30 },
+              { "color": "red", "value": 60 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "DB 캐시 히트율 (%)",
+      "description": "pg_stat_database — 낮으면 디스크 I/O 부하로 이어짐, 90% 밑이면 확인 필요",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 18 },
+      "datasource": { "type": "postgres", "uid": "tsdb" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, ROUND(100.0 * SUM(blks_hit) / NULLIF(SUM(blks_hit) + SUM(blks_read), 0), 2) AS cache_hit_pct FROM pg_stat_database WHERE datname = current_database();",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 90 },
+              { "color": "green", "value": 95 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "테이블별 초당 insert (매매 중 DB 쓰기 부하)",
+      "description": "ticks/signals/orders/fills/health — 장중 쿼리로 실제 부하가 발생하는지 확인",
+      "gridPos": { "h": 24, "w": 18, "x": 6, "y": 12 },
+      "datasource": { "type": "postgres", "uid": "tsdb" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT time_bucket('10 second', ts) AS time, COUNT(*) AS ticks FROM ticks WHERE $__timeFilter(ts) GROUP BY 1 ORDER BY 1;",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT time_bucket('10 second', ts) AS time, COUNT(*) AS signals FROM signals WHERE $__timeFilter(ts) GROUP BY 1 ORDER BY 1;",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT time_bucket('10 second', ts) AS time, COUNT(*) AS orders FROM orders WHERE $__timeFilter(ts) GROUP BY 1 ORDER BY 1;",
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT time_bucket('10 second', ts) AS time, COUNT(*) AS fills FROM fills WHERE $__timeFilter(ts) GROUP BY 1 ORDER BY 1;",
+          "refId": "D"
+        },
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT time_bucket('10 second', ts) AS time, COUNT(*) AS health FROM health WHERE $__timeFilter(ts) GROUP BY 1 ORDER BY 1;",
+          "refId": "E"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "포지션 보유 종목 수",
+      "description": "positions는 insert가 아니라 체결마다 UPSERT — 수량 0이 아닌 행 수",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 24 },
+      "datasource": { "type": "postgres", "uid": "tsdb" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, COUNT(*) AS holdings FROM positions WHERE quantity <> 0;",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "포지션 갱신 지연 (초)",
+      "description": "마지막 체결 이후 positions 갱신까지 걸린 시간 — 오래 멈춰 있으면 record 프로세스 점검",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 30 },
+      "datasource": { "type": "postgres", "uid": "tsdb" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, EXTRACT(EPOCH FROM NOW() - MAX(updated_at)) AS lag_sec FROM positions;",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "엔진 프로세스 CPU 사용률 (%)",
+      "description": "procwatch(psutil) 수집 — quant_trader.exe, 코어 1개 풀가동=100%",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+      "datasource": { "type": "postgres", "uid": "tsdb" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time, cpu_percent FROM proc_stats WHERE $__timeFilter(ts) AND process_name = 'quant_trader.exe' ORDER BY ts;",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "엔진 프로세스 메모리 (MB)",
+      "description": "procwatch(psutil) 수집 — RSS",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
+      "datasource": { "type": "postgres", "uid": "tsdb" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time, memory_mb FROM proc_stats WHERE $__timeFilter(ts) AND process_name = 'quant_trader.exe' ORDER BY ts;",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "decmbytes" }, "overrides": [] }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "벤치마크 테이블별 초당 insert (bench_market_open.py)",
+      "description": "bench_ticks/signals/orders/fills — 실계좌 원장과 분리된 부하 재현 결과, tools/bench_market_open.py 실행 중에만 값이 참",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 44 },
+      "datasource": { "type": "postgres", "uid": "tsdb" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT time_bucket('2 second', ts) AS time, COUNT(*) AS bench_ticks FROM bench_ticks WHERE $__timeFilter(ts) GROUP BY 1 ORDER BY 1;",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT time_bucket('2 second', ts) AS time, COUNT(*) AS bench_signals FROM bench_signals WHERE $__timeFilter(ts) GROUP BY 1 ORDER BY 1;",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT time_bucket('2 second', ts) AS time, COUNT(*) AS bench_orders FROM bench_orders WHERE $__timeFilter(ts) GROUP BY 1 ORDER BY 1;",
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "postgres", "uid": "tsdb" },
+          "format": "time_series",
+          "rawSql": "SELECT time_bucket('2 second', ts) AS time, COUNT(*) AS bench_fills FROM bench_fills WHERE $__timeFilter(ts) GROUP BY 1 ORDER BY 1;",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    }
+  ]
+}
