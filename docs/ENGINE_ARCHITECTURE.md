@@ -9,7 +9,7 @@
 ### 스레드 모델
 
 <!-- sync: Quant/include/core/Engine.h@4acbc32 Quant/src/core/Engine.cpp@52d5459 Quant/include/core/DataPoller.h@6d196bc Quant/include/core/SignalDispatcher.h@9d1555f Quant/include/core/OrderRateLimiter.h@deac415 Quant/include/core/LedgerReconciler.h@f122289 Quant/include/core/WakeGate.h@60f8954 Quant/include/core/BarAggregator.h@fbb210b Quant/include/core/LatencyTrace.h@489b3ab Quant/include/core/ReconcilePlan.h@e44b1c1 -->
-엔진은 락-프리 파이프라인(데이터→전략 샤드→디스패치→주문)에 체결 소비 스레드와 제어 스레드를 더해 다섯 개 + 샤드 M개의 스레드를 실행하고, 전략의 무거운 REST 미리 당기기는 공용 프리페치 풀(코어/4, 2~8개 고정)이 맡습니다. 각 스레드는 기동 직후 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름(DataThread·Strategy·Shard N·Order·Fill·Control, 소켓 수신은 WsRecv)을 붙여 procwatch의 스레드별 CPU 표와 디버거에 그 이름으로 보입니다(config `strategy_shards`, 기본 1):
+엔진은 락-프리 파이프라인(데이터→전략 샤드→디스패치→주문)에 체결 소비 스레드와 제어 스레드를 더해 다섯 개 + 샤드 M개의 스레드를 실행하고, 전략의 무거운 REST 미리 당기기는 공용 프리페치 풀(코어/4, 2~8개 고정)이 맡습니다. 각 스레드는 기동 직후 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름(DataThread·Strategy·Shard N·Order·Fill·Control, 소켓 수신은 WsRecv, 프리페치 풀은 Prefetch N)을 붙여 procwatch의 스레드별 CPU 표와 디버거에 그 이름으로 보입니다(config `strategy_shards`, 기본 1):
 
 ```
 [데이터 스레드]  →  pipeline_.bars_matrix·pipeline_.trade_matrix (링 행렬 행)  →  [샤드 스레드 m]  →  pipeline_.shard_out (MpscQueue)  →  [전략(디스패치) 스레드]  →  pipeline_.order_queue  →  [주문 스레드]

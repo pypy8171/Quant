@@ -24,7 +24,7 @@ graph LR
   core -->|3| ipc
   core -->|6| risk
   core -->|3| strategy
-  core -->|10| utils
+  core -->|11| utils
   ipc -->|2| api
   ipc -->|6| core
   ipc --> risk
@@ -40,7 +40,7 @@ graph LR
   risk -->|5| core
   risk --> utils
   strategy -->|5| api
-  strategy -->|22| core
+  strategy -->|23| core
   strategy --> risk
   strategy -->|3| universe
   strategy -->|11| utils
@@ -64,7 +64,7 @@ graph LR
 | `api/KisClient.h` | 12 |
 | `core/SymbolTable.h` | 12 |
 | `core/MarketSession.h` | 8 |
-| `core/WakeGate.h` | 7 |
+| `core/WakeGate.h` | 8 |
 
 ## 파일 단위 상세
 
@@ -106,6 +106,7 @@ graph LR
     n_core_OrderRateLimiter_cpp["core/OrderRateLimiter.cpp"]
     n_core_OrderRateLimiter_h["core/OrderRateLimiter.h"]
     n_core_PaperExecutor_h["core/PaperExecutor.h"]
+    n_core_PrefetchPool_h["core/PrefetchPool.h"]
     n_core_ReconcilePlan_h["core/ReconcilePlan.h"]
     n_core_RegimeFileJudge_h["core/RegimeFileJudge.h"]
     n_core_ReplaySource_h["core/ReplaySource.h"]
@@ -236,6 +237,7 @@ graph LR
   n_core_Engine_h --> n_core_MpscQueue_h
   n_core_Engine_h --> n_core_OrderRateLimiter_h
   n_core_Engine_h --> n_core_PaperExecutor_h
+  n_core_Engine_h --> n_core_PrefetchPool_h
   n_core_Engine_h --> n_core_RegimeFileJudge_h
   n_core_Engine_h --> n_core_ReplaySource_h
   n_core_Engine_h --> n_core_RingBuffer_h
@@ -282,6 +284,8 @@ graph LR
   n_core_PaperExecutor_h --> n_core_MarketSession_h
   n_core_PaperExecutor_h --> n_core_SymbolTable_h
   n_core_PaperExecutor_h --> n_core_Types_h
+  n_core_PrefetchPool_h --> n_core_WakeGate_h
+  n_core_PrefetchPool_h --> n_utils_ThreadName_h
   n_core_ReconcilePlan_h --> n_core_SymbolTable_h
   n_core_RegimeFileJudge_h --> n_core_KstTime_h
   n_core_RegimeFileJudge_h --> n_core_Types_h
@@ -363,6 +367,7 @@ graph LR
   n_strategy_DeviationScaleStrategy_h --> n_core_BarAggregator_h
   n_strategy_DeviationScaleStrategy_h --> n_core_DataPoller_h
   n_strategy_DeviationScaleStrategy_h --> n_core_KstTime_h
+  n_strategy_DeviationScaleStrategy_h --> n_core_PrefetchPool_h
   n_strategy_DeviationScaleStrategy_h --> n_core_TickSize_h
   n_strategy_DeviationScaleStrategy_h --> n_core_WakeGate_h
   n_strategy_DeviationScaleStrategy_h --> n_strategy_DevScaleRules_h

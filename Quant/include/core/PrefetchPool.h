@@ -1,5 +1,6 @@
 #pragma once
 #include "core/WakeGate.h"
+#include "utils/ThreadName.h"
 
 #include <chrono>
 #include <cstddef>
@@ -7,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -172,6 +174,10 @@ private:
     //  밀려도 같은 작업이 두 스레드에서 같은 주기에 겹쳐 돌지 않는다.
     void worker_loop(std::stop_token stop_token, std::size_t worker_index)
     {
+        // 이름이 없으면 리눅스는 만든 쪽 comm(quant_trader)을 물려받아 그라파나 "스레드별 CPU" 범례에서
+        //  엔진 스레드와 구분되지 않는다. 샤드와 같은 "이름 번호" 꼴로 붙인다. [why D-115]
+        thread_name::set_current("Prefetch " + std::to_string(worker_index));
+
         std::vector<std::shared_ptr<Slot>> mine;
 
         while (!stop_token.stop_requested())

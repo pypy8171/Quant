@@ -51,7 +51,7 @@ OpsServer(내부 스레드)           운영단말 TCP — 조회·수동주문�
 | 주문 | `OrderRouter::submit` → `OrderGate::check` → `IOrderExecutor::submit_order`. 호출 간격·재시도는 `OrderRateLimiter` | `order_queue` 소비 |
 | 체결 소비 | `fill_queue` → `OrderRouter::on_fill`(원장·CSV) → 운영단말 방송 | `fill_queue` 소비 |
 | 제어 | 잔고 대조·토큰 선갱신·WS 단절 판정(`feed::Supervisor`)·큐 고수위 로그 | 파이프라인 밖 |
-| 프리페치 풀(코어/4, 2~8개) | 전략이 `on_start`에서 맡긴 함수를 주기마다 부른다(일봉·분봉 REST). 수는 전략 수와 무관하게 고정이고 `Engine::start()`에서 미리 띄운다 | 파이프라인 밖 — 전략이 스냅샷 포인터로 받아 간다 |
+| 프리페치 풀(코어/4, 2~8개, 이름 `Prefetch N`) | 전략이 `on_start`에서 맡긴 함수를 주기마다 부른다(일봉·분봉 REST). 수는 전략 수와 무관하게 고정이고 `Engine::start()`에서 미리 띄운다 | 파이프라인 밖 — 전략이 스냅샷 포인터로 받아 간다 |
 
 유휴 소비자는 슬립 폴링이 아니라 `Quant/include/core/WakeGate.h`의 `wake::WakeGate`로 잔다 — 생산자가 push 뒤 notify하고
 소비자는 큐가 비면 condvar에서 기다린다(전략 스레드는 200µs yield 뒤). Windows 타이머 격자에서 `sleep_for(100µs)`는

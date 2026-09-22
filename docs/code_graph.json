@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 10
+      "weight": 11
     },
     {
       "from": "ipc",
@@ -455,7 +455,8 @@
       "core/Types.h"
     ],
     "core/PrefetchPool.h": [
-      "core/WakeGate.h"
+      "core/WakeGate.h",
+      "utils/ThreadName.h"
     ],
     "core/ReconcilePlan.h": [
       "core/SymbolTable.h"
@@ -1141,6 +1142,7 @@
     "utils/ThreadName.h": [
       "api/WebSocketClient.cpp",
       "core/Engine.cpp",
+      "core/PrefetchPool.h",
       "ipc/OpsServer.cpp",
       "ipc/ZmqBridge.cpp",
       "utils/Logger.cpp"
@@ -1189,7 +1191,7 @@
     },
     {
       "header": "utils/ThreadName.h",
-      "in_degree": 5
+      "in_degree": 6
     },
     {
       "header": "api/KisErrorCodes.h",
