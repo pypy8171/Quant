@@ -177,12 +177,13 @@ public:
             return kNone;
         }
 
-        // [inv] 발행 순서 — names_[id]를 채운 뒤 버킷에 id를 release로 놓는다. 읽는 쪽은 버킷을 acquire로 읽으므로
-        //  id를 본 순간 names_[id]는 완성돼 있다. count_도 그 뒤에 올려 name(id)·size()가 같은 보장을 받는다.
-        //  Ticker는 새로 넣을 때만 만든다 — 조회 경로는 워드 쌍으로 끝난다.
+        // [inv] 발행 순서 — names_[id]를 채우고, count_를 올리고, 마지막에 버킷에 id를 release로 놓는다. 읽는 쪽은
+        //  버킷을 acquire로 읽으므로 id를 본 순간 names_[id]와 count_(>id)가 둘 다 보인다 — name(id)가 빈 값을 내지
+        //  않는다. 버킷을 count_보다 먼저 놓으면 그 사이에 lookup은 id를 주는데 name(id)는 빈 Ticker를 준다
+        //  (test_symbol_table 6번이 부하 아래서 40번에 5번 잡았다, 09-22). Ticker는 새로 넣을 때만 만든다.
         names_[id].assign(ticker);
-        buckets_[slot].store(id, std::memory_order_release);
         count_.store(id + 1, std::memory_order_release);
+        buckets_[slot].store(id, std::memory_order_release);
         return id;
     }
 
