@@ -9,11 +9,11 @@
 - [(루트)](#루트) — 10개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 113개
-- [Quant](#quant) — 194개
+- [Quant](#quant) — 195개
 - [docs](#docs) — 69개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
-- [scripts](#scripts) — 39개
+- [scripts](#scripts) — 40개
 - [strategies](#strategies) — 33개
 - [tools](#tools) — 3개
 
@@ -453,6 +453,7 @@
 - [test_wake_gate.cpp](../Quant/tests/test_wake_gate.cpp) — WakeGate 소비자 깨우기 단위 테스트
 - [test_ws_decode.cpp](../Quant/tests/test_ws_decode.cpp) — KIS 실시간 채널 디코더 단위 테스트(D-037)
 - [test_ws_frame.cpp](../Quant/tests/test_ws_frame.cpp) — WS 다건 프레임 분리·분봉 커서 시각 산술 단위 테스트
+- [tsan.supp](../Quant/tests/tsan.supp) — TSAN 회차가 지울 보고 목록 — 지금은 libzmq 한 줄(계측 없이 링크되는 라이브러리라 자기 안의 fd 동기화가 TSAN에 안 보인다). `scripts/tsan_round.sh`가 읽는다
 
 ### Quant/tools/
 
@@ -986,6 +987,7 @@
 - [stop.sh](../scripts/stop.sh) — Docker Compose 종료 스크립트
 - [summarize_trading_day.py](../scripts/summarize_trading_day.py) — 일일 매매 사실 요약 스크립트
 - [trade_costs.py](../scripts/trade_costs.py) — 체결 원장(trades_YYYYMMDD.csv)의 날짜별·종목별 매매 비용(수수료·거래세)과 실현손익을 누적 JSON(logs/trade_costs.json)과 표로 낸다(--days, --symbol)
+- [tsan_round.sh](../scripts/tsan_round.sh) — ThreadSanitizer 회차(WSL2) — Debug+TSAN으로 짓고 벤치를 뺀 ctest를 한 판 돌려 스레드 경합을 찾는다. 동시성 코드를 고친 워크트리가 머지 전에 부른다. 결과 한 줄은 `_private/state/tsan_last.json`(`check_runtime_health.py` "TSAN 회차" 행이 읽는다), 원문은 `logs/tsan/`
 
 ## strategies
 

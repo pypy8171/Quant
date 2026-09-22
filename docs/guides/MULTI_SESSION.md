@@ -40,6 +40,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ../quant-devtools/wt_remove.
 1. 세션 시작·새 단계 시작 때 현황판을 읽고 자기 줄(세션 이름·브랜치·D-NNN·파일 목록)을 적는다. 없으면 만든다. 남의 줄은 고치지 않는다.
 2. 머지 큐 순서대로만 main에 넣는다. `git rebase main` → 전체 ctest → `git merge --ff-only`를 한 세션씩. "머지 시작"·"머지 완료 <sha>"를
    나머지 코드 세션에 보낸다. 순서를 바꾸려면 앞뒤 세션에 먼저 말한다. 푸시는 사용자가 말할 때만.
+   스레드가 여럿 붙는 코드(`Quant/src/core`·`src/risk`·`src/ipc`·`src/feed`와 각 `include/`)를 고쳤으면 ctest와 함께
+   WSL2에서 `bash scripts/tsan_round.sh` 한 판(증분 5~10분)을 돌리고 경합 보고 0건을 확인한 뒤 머지한다.
+   경합은 Release ctest를 그대로 통과하므로 여기서 안 잡으면 다음 장중에 값이 어긋나서야 안다(D-116 후속).
 3. 남이 잡은 파일을 만져야 하면 그 세션에 먼저 묻는다. 공용 파일(`Quant/src/core/Engine.cpp`·`Quant/include/core/Engine.h`·
    `CLAUDE.md`·`docs/DECISIONS.md`·`Quant/CMakeLists.txt`)은 줄 단위 최소 편집 — `docs/DECISIONS.md`는 꼬리에 자기 절만,
    `CLAUDE.md`는 자기 줄만 고치고 행 번호를 알린다.

@@ -4721,8 +4721,21 @@ hang은 아예 못 잡지만 심장박동 문턱 5ms는 셋 다 문턱 그대로
   메모리를 더 잡는 기성 큐와 의미가 다르고, Windows 빌드 의존도 크다. 새 큐를 또 만들 일이 생기면 헤더 하나인
   moodycamel을 먼저 본다.
 
-**후속**: `-DQUANT_TSAN=ON`이 `Quant/CMakeLists.txt:15`에 있는데 정기로 도는 자리가 없다. 리눅스 야간 회차 하나와
-`scripts/check_runtime_health.py` 판정 행을 붙이는 것이 남았다.
+**후속**(2026-09-22 끝): `-DQUANT_TSAN=ON`이 `Quant/CMakeLists.txt:15`에 있는데 부르는 자리가 없었다.
+`scripts/tsan_round.sh`(WSL2)를 붙이고, 스레드가 여럿 붙는 코드를 고친 워크트리는 main에 ff 머지하기 전에
+한 판 돌리도록 머지 절차에 넣었다([docs/guides/MULTI_SESSION.md](guides/MULTI_SESSION.md)).
+**시각을 정해 두지 않은 이유**: 야간 예약으로 돌리면 아무도 그 코드를 안 건드린 날에도 30분을 쓰고,
+정작 경합을 넣은 머지는 다음 밤까지 main에 들어가 있게 된다. 도는 이유가 생기는 때가 머지 직전이다.
+결과는 `scripts/check_runtime_health.py`의 "TSAN 회차" 행이 판정한다 — 경합 보고·테스트 실패는 FAIL,
+마지막 회차가 본 커밋 뒤로 `src/core`·`src/risk`·`src/ipc`·`src/feed`가 바뀌었으면 WARN이다(날짜가 아니라
+바뀐 횟수로 재는 것도 같은 이유다). 벤치 3종은 뺀다(TSAN에서 처리량 숫자에 뜻이 없고 `TIMEOUT 60`에 걸린다).
+첫 회차가 셋을 잡았다. ① 41개 중 33개가 `unexpected memory mapping`으로 떨어진 것 — 경합이 아니라
+요즘 커널의 주소 무작위화와 TSAN이 안 맞는 것이라, 스크립트가 `setarch -R`로 그것을 끄고 ctest를 부른다.
+② `test_strategy_shard`의 세대 교차 검사가 첫 `commit` 전의 빈 표(마스크 0)를 읽고 그것을 "두 세대를
+섞었다"로 센 것 — Release에서는 첫 `commit`이 늘 먼저 끝나 안 걸렸다. 세대 A를 올려 두고 읽는 쪽을 띄우게 고쳤다.
+③ `test_engine`에서 libzmq 안의 fd 경합 보고 — 소켓을 만든 스레드와 libzmq 자기 IO 스레드가 스택 양쪽을
+차지한다. 계측 없이 링크되는 라이브러리라 그 안의 동기화가 TSAN에 안 보이는 것이고, `Quant/tests/tsan.supp`
+한 줄로 지운다. 이 파일에 넣는 기준은 "우리가 고칠 수 없고 그 라이브러리 안에서 끝나는 보고"뿐이다.
 ### D-115 프리페치를 전략당 스레드에서 공용 고정 스레드 풀로 — 스냅샷은 포인터로 넘긴다 (2026-09-22)
 
 **상태**: 채택

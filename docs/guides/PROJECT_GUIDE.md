@@ -115,10 +115,10 @@ OpsServer(내부 스레드)           운영단말 TCP — 조회·수동주문�
 ### 단위 테스트
 
 <!-- gen:test-targets -->
-단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다 — 실행 타깃 `39`개.
+단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다 — 실행 타깃 `40`개.
 
 ```bash
-cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_ops_server test_ops_protocol test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_bar_aggregator test_order_rate_limiter test_devscale_rules test_regime_file_judge test_target_basket_plan test_target_basket_strategy test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_wake_gate test_symbol_table test_tick_capture test_replay_source test_paper_executor test_feed_mux test_engine test_app_config test_feed_supervisor test_session_end test_shard_matrix test_strategy_shard test_strategy_router test_latency_trace test_mpsc test_account_ledger test_protective_orders test_logger
+cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_ops_server test_ops_protocol test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_bar_aggregator test_order_rate_limiter test_devscale_rules test_regime_file_judge test_target_basket_plan test_target_basket_strategy test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_wake_gate test_symbol_table test_prefetch_pool test_tick_capture test_replay_source test_paper_executor test_feed_mux test_engine test_app_config test_feed_supervisor test_session_end test_shard_matrix test_strategy_shard test_strategy_router test_latency_trace test_mpsc test_account_ledger test_protective_orders test_logger
 ```
 <!-- /gen -->
 테스트 이름은 각각 원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·잔고 대조 계산·잔고 대조기·REST 현재가 폴러·신호 디스패처·발주 조절기·운영단말 프로토콜/서버·비동기 로거·매크로 국면 파일 판정기·N분봉 집계기·소비자 깨우기 조각·구간 지연 CSV·종목 id 테이블·틱 캡처·캡처 리플레이 소스·모의 체결기·피드 소스 mux·수신 N×샤드 M 링 행렬·전략 샤드·종목 id 전략 라우터·WS 피드 감독기·시험용 시세로 도는 Engine 한 바퀴(수신 스레드 1×샤드 1, 2×2, 캡처 리플레이)를 가리킨다.
@@ -128,6 +128,10 @@ ctest --preset x64-release          # 저장소 루트에서. 스트레스 2종�
 ctest --test-dir Quant/build_win    # 수동 Ninja 레이아웃일 때
 ```
 Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 있다(ASAN과 배타).
+그 회차는 WSL2 저장소 루트에서 `bash scripts/tsan_round.sh [--clean]`로 돌린다 —
+스레드가 여럿 붙는 코드(`src/core`·`src/risk`·`src/ipc`·`src/feed`)를 고친 워크트리는 main에 머지하기 전에
+한 판 돌린다([MULTI_SESSION.md](MULTI_SESSION.md) 머지 절차). 결과 판정은
+`scripts/check_runtime_health.py`의 "TSAN 회차" 행이 하고, 경합 보고 원문은 `logs/tsan/`에 남는다.
 
 ---
 

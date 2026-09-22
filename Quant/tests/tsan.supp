@@ -1,0 +1,10 @@
+# ThreadSanitizer 회차(scripts/tsan_round.sh)가 지울 보고 목록.
+#
+# 넣는 기준은 하나다 — 우리가 고칠 수 없고, 그 라이브러리 안에서 시작해 그 안에서 끝나는 보고.
+# 우리 코드가 스택에 섞인 보고는 넣지 않는다. 지우면 그날 경합을 놓친다.
+
+# libzmq — 계측 없이 링크되는 공유 라이브러리라 자기 안의 동기화가 TSAN 에 안 보인다.
+#  소켓을 만든 스레드(ZmqBridge)와 libzmq 자기 IO 스레드(ZMQbg/IO/0)가 같은 fd 를 만지는 것을
+#  socket() 쓰기 대 epoll_ctl() 읽기의 경합으로 찍는다. 스택 양쪽이 모두 libzmq.so 안이다
+#  (2026-09-22 첫 회차 test_engine).
+called_from_lib:libzmq.so

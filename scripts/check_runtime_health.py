@@ -12,7 +12,9 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import gzip
+import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -22,6 +24,11 @@ import _logdir  # noqa: E402
 from log_patterns import GUARD_ATTACH_RE as GUARD_RE  # noqa: E402
 
 DEFAULT_LOG = _logdir.log_dir() / "quant_trader.log"
+# ThreadSanitizer 회차가 남기는 한 줄 요약. scripts/tsan_round.sh 가 쓴다.
+TSAN_STATE = REPO / "_private" / "state" / "tsan_last.json"
+# 그 회차가 본 커밋 뒤로 여기가 바뀌었으면 회차를 다시 돌 때다 — 스레드가 여럿 붙는 코드만 고른다.
+TSAN_WATCH_PATHS = ("Quant/include/core", "Quant/src/core", "Quant/include/risk", "Quant/src/risk",
+                    "Quant/include/ipc", "Quant/src/ipc", "Quant/include/feed", "Quant/src/feed")
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -336,6 +343,75 @@ def queue_latency_row(date: str) -> tuple:
             f"HEALTH {metric_rows}건, 버린 건수 {dropped} (기대 0), 고수위 샤드 {float(shard_percent):.1f}%"
             f"·주문 큐 {float(order_percent):.1f}%, 전체 지연 p99 "
             + (f"{total_p99 / 1000:.0f}ms" if total_p99 >= 0 else "표본 없음"))
+
+
+def tsan_stale_commits(commit: str) -> int:
+    """그 커밋 뒤로 스레드가 여럿 붙는 코드가 몇 번 바뀌었나. -1 = 셀 수 없음.
+
+    날짜로 재면 아무도 그 코드를 안 건드린 주에도 경보가 울린다. 바뀐 횟수로 재면
+    "돌 이유가 생겼는데 안 돌았다"만 걸린다.
+    """
+    if not commit or commit == "unknown":
+        return -1
+
+    try:
+        counted = subprocess.run(["git", "rev-list", "--count", f"{commit}..HEAD", "--", *TSAN_WATCH_PATHS],
+                                 cwd=REPO, capture_output=True, text=True, timeout=20)
+
+        if counted.returncode != 0:
+            return -1
+
+        return int(counted.stdout.strip() or 0)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return -1
+
+
+def tsan_row(date: str) -> tuple:
+    """ThreadSanitizer 회차(scripts/tsan_round.sh)가 돌았는지, 경합 보고가 났는지.
+
+    스레드 경합은 Release 테스트를 그대로 통과한다 — 값이 어긋난 채 장중까지 가서야 드러난다.
+    그래서 마지막 회차 뒤로 동시성 코드가 바뀐 것도 경보로 본다(D-116 후속).
+    """
+    try:
+        state = json.loads(TSAN_STATE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return ("TSAN 회차", True, "WARN",
+                "회차 기록 없음 — WSL2 저장소 루트에서 bash scripts/tsan_round.sh")
+    except (OSError, ValueError) as error:
+        return ("TSAN 회차", True, "WARN", f"회차 기록을 못 읽음 — 판정 안 함 ({str(error).strip()[:80]})")
+
+    stage = str(state.get("stage", "?"))
+    finished = str(state.get("finished", ""))[:10]
+    races = int(state.get("races", 0))
+    tests_failed = int(state.get("tests_failed", 0))
+    tests_total = int(state.get("tests_total", 0))
+    failed_names = [str(name) for name in state.get("failed_names", [])]
+    commit = str(state.get("commit", "?"))
+    minutes = int(state.get("elapsed_sec", 0)) // 60
+
+    # 빌드·설정이 안 된 회차는 그 자체가 경합 판정이 아니다 — 고칠 곳이 다르므로 WARN으로 둔다.
+    if stage != "done":
+        return ("TSAN 회차", True, "WARN",
+                f"{finished} 회차가 {stage} 에서 멈췄다 (커밋 {commit}) — logs/tsan/ 의 그 회차 로그 끝을 본다")
+
+    if races or tests_failed:
+        detail = (f"{finished} 회차 (커밋 {commit}, {minutes}분): 테스트 {tests_total - tests_failed}/{tests_total}, "
+                  f"경합 보고 {races}건 (기대 0)")
+        if failed_names:
+            detail += f" — 떨어진 테스트 {', '.join(failed_names[:5])}"
+        return ("TSAN 회차", False, "FAIL", detail)
+
+    stale = tsan_stale_commits(commit)
+
+    if stale > 0:
+        return ("TSAN 회차", True, "WARN",
+                f"{finished} 회차(커밋 {commit}) 뒤로 스레드가 여럿 붙는 코드가 {stale}번 바뀌었다 — "
+                f"머지 전에 bash scripts/tsan_round.sh")
+
+    return ("TSAN 회차", True, "FAIL",
+            f"{finished} 회차 (커밋 {commit}, {minutes}분): 테스트 {tests_total - tests_failed}/{tests_total}, "
+            f"경합 보고 {races}건, 그 뒤 동시성 코드 변경 "
+            + (f"{stale}건" if stale >= 0 else "셀 수 없음"))
 
 
 def order_latency_breakdown_row(date: str) -> tuple:
@@ -671,6 +747,7 @@ def collect(date: str, log: Path, since: int = 0):
         *feed_ledger_rows(date),
         queue_latency_row(date),
         order_latency_breakdown_row(date),
+        tsan_row(date),
     ]
     return rows, len(starts)
 

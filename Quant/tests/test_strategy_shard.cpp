@@ -487,6 +487,15 @@ int main()
         const shard::ShardMask generation_a = shard::mask_of(1);
         const shard::ShardMask generation_b = shard::mask_of(2);
 
+        // 세대 A를 먼저 올려 두고 읽는 쪽을 띄운다. 빈 표의 mask()는 0이라, 첫 commit 전에 읽으면
+        //  그 0을 "두 세대를 섞었다"로 세게 된다 — 여기서 보려는 것은 세대와 세대 사이의 창이다.
+        //  Release에서는 첫 commit이 먼저 끝나 안 걸렸고, TSAN 회차(계측으로 5~15배 느리다)에서 드러났다.
+        {
+            auto first = routes.draft();
+            first.add(id_a, 1);
+            routes.commit(first);
+        }
+
         std::atomic<bool> keep_going{true};
         std::atomic<int>  mixed{0};
 
