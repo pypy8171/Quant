@@ -361,7 +361,7 @@ int main(int argc, char* argv[])
 
     if (mode == Mode::KR_TEST)
     {
-        return run_kr_test(app.kis, g_running);
+        return run_kr_test(app.kis, app.zmq_pub_port, app.zmq_rep_port, g_running);
     }
 
     if (mode == Mode::US_TEST)

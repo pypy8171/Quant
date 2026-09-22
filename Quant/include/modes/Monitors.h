@@ -16,7 +16,7 @@ int run_feed(const KisConfig& kis_config, const std::vector<std::string>& ticker
              const std::vector<std::string>& futures, const std::atomic<bool>& running);
 
 // KR_TEST — KOSPI 시총 상위 20 + 관심종목 fundamentals(REST) + 체결(WS) 1초 표시.
-int run_kr_test(const KisConfig& kis_config, const std::atomic<bool>& running);
+int run_kr_test(const KisConfig& kis_config, int zmq_pub_port, int zmq_rep_port, const std::atomic<bool>& running);
 
 // US_TEST — 미국 대형 기술주 7종(M7=Magnificent Seven) REST 시세(장 외에도 동작) 500ms 표시.
 int run_us_test(const KisConfig& kis_config, const std::atomic<bool>& running);

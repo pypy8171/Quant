@@ -744,7 +744,7 @@ void Engine::rebuild_routes_locked()
 #ifdef HAS_ZMQ
 void Engine::setup_zmq_bridge()
 {
-    zmq_bridge_ = std::make_unique<ZmqBridge>();
+    zmq_bridge_ = std::make_unique<ZmqBridge>(zmq_pub_port_, zmq_rep_port_);
     zmq_bridge_->set_bind_address(zmq_bind_address_);
     zmq_bridge_->set_control_token(zmq_control_token_);
     zmq_bridge_->set_account_no(kis_config_.account_no); // 실계좌·모의계좌 원장 분리용 [why D-090]
@@ -894,7 +894,7 @@ bool Engine::try_open_ledger_journal()
 
     // 오늘 파일을 열고 처음부터 다시 적용한다 — 재기동 전 선점·체결·대조가 원장에 되살아난다. 못 열면 원장 없이
     //  주문이 나가는 셈이라 기동을 거부한다(감시견이 다시 띄운다). [why D-113]
-    if (!order_gate_.set_journal(std::filesystem::path(ledger_journal_directory_), kst::date_yyyymmdd(std::time(nullptr)),
+    if (!order_gate_.set_journal(utf8::path_from_utf8(ledger_journal_directory_), kst::date_yyyymmdd(std::time(nullptr)),
                                  ledger_journal_fsync_))
     {
         LOG_ERROR("[Engine] 원장 저널을 못 열어 기동하지 않는다: " + ledger_journal_directory_);

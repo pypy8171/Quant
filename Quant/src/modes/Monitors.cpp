@@ -271,7 +271,7 @@ int run_feed(const KisConfig& kis_config, const std::vector<std::string>& ticker
 //   [WS 실시간] H0STCNT0 체결 구독 → 가격 캐시 업데이트
 //   [화면] 1초 주기로 캐시 출력
 // ═══════════════════════════════════════════════════════════════════════════
-int run_kr_test(const KisConfig& kis_config, const std::atomic<bool>& running)
+int run_kr_test(const KisConfig& kis_config, int zmq_pub_port, int zmq_rep_port, const std::atomic<bool>& running)
 {
     // UTF-8 유틸 — utils/Utf8.h 참조
     auto utf8_pad_right = [](const std::string& text, int time_value) { return utf8::pad_right(text, time_value); };
@@ -450,8 +450,11 @@ int run_kr_test(const KisConfig& kis_config, const std::atomic<bool>& running)
     Logger::instance().set_console_enabled(false);
 
 #ifdef HAS_ZMQ
-    auto zmq_br = std::make_unique<ZmqBridge>();
+    auto zmq_br = std::make_unique<ZmqBridge>(zmq_pub_port, zmq_rep_port);
     zmq_br->start();
+#else
+    (void)zmq_pub_port;
+    (void)zmq_rep_port;
 #endif
 
     KisWebSocket websocket(kis_config);

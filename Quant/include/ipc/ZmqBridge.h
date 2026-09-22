@@ -16,7 +16,7 @@
 // ZmqBridge  —  C++ 엔진과 Python 레이어 간 프로세스간 통신(IPC, Inter-Process Communication)
 //
 //  ZMQ(ZeroMQ) 소켓 두 개로 통신한다:
-//  PUB  tcp://127.0.0.1:5555  — 엔진이 발행(publish). 체결/시그널/주문/헬스를 구독자에게 단방향 송신.
+//  PUB  tcp://127.0.0.1:5555  — 엔진이 발행(publish). 포트는 config `zmq_pub_port`·`zmq_rep_port`(기본 5555·5556). 체결/시그널/주문/헬스를 구독자에게 단방향 송신.
 //  REP  tcp://127.0.0.1:5556  — Python이 명령 전송(KILL / STATUS / PAUSE / RESUME), 엔진이 응답(reply).
 //  bind 주소는 set_bind_address로 바꾼다. KILL은 "KILL <token>" 형식이어야 하고 token 미설정이면 거부.
 //

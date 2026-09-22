@@ -277,6 +277,13 @@ public:
         zmq_control_token_ = token;
     }
 
+    // ZMQ 포트(config `zmq_pub_port`·`zmq_rep_port`). 한 기계에 엔진이 둘이면 뒤에 뜬 쪽이 bind에 실패하므로 설정으로 뺐다.
+    void set_zmq_ports(int pub_port, int rep_port)
+    {
+        zmq_pub_port_ = pub_port;
+        zmq_rep_port_ = rep_port;
+    }
+
     // 운영단말 TCP 채널(config `ops_bind_addr`·`ops_port`·`ops_token`). port 0이면 열지 않는다.
     //  스레드 시작 전에만. 루프백이 아닌 주소는 token이 있어야 서버가 뜬다(OpsServer::start).
     void set_ops_control(const std::string& bind_address, int port, const std::string& token)
@@ -638,6 +645,8 @@ private:
     // ── ZMQ ──────────────────────────────────────────────────────────────────
     std::string zmq_bind_address_ = "127.0.0.1";
     std::string zmq_control_token_;
+    int         zmq_pub_port_ = 5555;
+    int         zmq_rep_port_ = 5556;
 
     // ── 심볼·현재가 캐시 ──────────────────────────────────────────────────────
     struct SymbolCache
