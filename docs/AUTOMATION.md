@@ -222,7 +222,7 @@ powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -KillAll # 전�
 | 매크로 국면 파일 전달 | `PYQuant/tools/macro_regime_feed.py` | 상시 | `regime.json` 갱신 → 엔진이 매수 비율 `entry_scale`·`entry_halt`(신규 매수만 차단)·`force_liquidate`를 옮기고 라벨로 전략 집합을 고른다(D-083·D-084) |
 | 제어 스레드 | `Engine::control_thread_fn` | 상시 | 잔고 대조·손익 갱신 감시, 끊기면 보수정지 |
 | 증분 로그 감시 | `scripts/parse_quant_log.py --watch` | 15~20분 | 유의미한 창일 때만 출력. 조용하면 토큰 0 |
-| 실행 건전성 점검 | `scripts/check_runtime_health.py` | 세션 종료마다(감시견)·마감 뒤 하루 전체 | 유령주문·조기 사망·재기동 투매·회전·초당한도·WS 폴백·주문 접수 지연·잔고 조회 지연을 PASS/WARN/FAIL로 판정. 같은 표를 `market_close_autodoc.py`가 매매일지 4절에 싣는다 — 고친 뒤 "다음 날 확인할 것"은 사람이 아니라 여기 행으로 만든다 |
+| 실행 건전성 점검 | `scripts/check_runtime_health.py` | 세션 종료마다(감시견)·마감 뒤 하루 전체 | 유령주문·조기 사망·재기동 투매·회전·초당한도·WS 폴백·주문 접수 지연·잔고 조회 지연·전략 박동(끊김·여유)·주문 통로 무결을 PASS/WARN/FAIL로 판정. 같은 표를 `market_close_autodoc.py`가 매매일지 4절에 싣는다 — 고친 뒤 "다음 날 확인할 것"은 사람이 아니라 여기 행으로 만든다 |
 | 전 종목 시세 파일 전달 | `scripts/live_prices_feed.py` | 20초(`PRICES_PERIOD_SEC`, D-028) | 네이버 벌크 시세를 100종목씩 묶어 받아 `Quant/config/prices_live.json`으로 떨군다. KIS REST 초당 한도와 무관해서 2,700종목을 20초 주기로 훑을 수 있다. `UniverseScanner`가 이 파일을 읽는다 |
 | 매매 알림 | `scripts/notify_trades.py` | 체결 즉시 / 요약 30분 | 당일 체결 원장 CSV를 증분으로 읽어 체결을 바로 보내고, 평단·손익 표는 KIS 잔고조회로 주기 발송 |
 

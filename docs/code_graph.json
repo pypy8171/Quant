@@ -29,7 +29,7 @@
     {
       "from": "core",
       "to": "ipc",
-      "weight": 3
+      "weight": 5
     },
     {
       "from": "core",
@@ -54,7 +54,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 7
+      "weight": 8
     },
     {
       "from": "ipc",
@@ -209,8 +209,10 @@
     "core/UniverseExit.h": "core",
     "core/WakeGate.h": "core",
     "ipc/FillKey.h": "ipc",
+    "ipc/Heartbeat.h": "ipc",
     "ipc/OpsProtocol.h": "ipc",
     "ipc/OpsServer.h": "ipc",
+    "ipc/OrderChannel.h": "ipc",
     "ipc/OrderRouter.h": "ipc",
     "ipc/ZmqBridge.h": "ipc",
     "modes/Monitors.h": "modes",
@@ -291,8 +293,10 @@
     "core/UniverseExit.cpp": "core",
     "core/WakeGate.cpp": "core",
     "ipc/FillKey.cpp": "ipc",
+    "ipc/Heartbeat.cpp": "ipc",
     "ipc/OpsProtocol.cpp": "ipc",
     "ipc/OpsServer.cpp": "ipc",
+    "ipc/OrderChannel.cpp": "ipc",
     "ipc/OrderRouter.cpp": "ipc",
     "ipc/ZmqBridge.cpp": "ipc",
     "modes/Monitors.cpp": "modes",
@@ -465,7 +469,9 @@
       "core/TickCapture.h",
       "core/Types.h",
       "core/WakeGate.h",
+      "ipc/Heartbeat.h",
       "ipc/OpsServer.h",
+      "ipc/OrderChannel.h",
       "ipc/OrderRouter.h",
       "ipc/ZmqBridge.h",
       "risk/OrderGate.h",
@@ -648,6 +654,9 @@
     "ipc/FillKey.cpp": [
       "ipc/FillKey.h"
     ],
+    "ipc/Heartbeat.cpp": [
+      "ipc/Heartbeat.h"
+    ],
     "ipc/OpsProtocol.cpp": [
       "ipc/OpsProtocol.h"
     ],
@@ -658,6 +667,12 @@
     ],
     "ipc/OpsServer.h": [
       "ipc/OpsProtocol.h"
+    ],
+    "ipc/OrderChannel.cpp": [
+      "ipc/OrderChannel.h"
+    ],
+    "ipc/OrderChannel.h": [
+      "core/Types.h"
     ],
     "ipc/OrderRouter.cpp": [
       "api/KisErrorCodes.h",
@@ -1186,6 +1201,7 @@
       "core/TickCapture.h",
       "core/TickSize.h",
       "core/Types.cpp",
+      "ipc/OrderChannel.h",
       "ipc/OrderRouter.h",
       "ipc/ZmqBridge.h",
       "main.cpp",
@@ -1219,6 +1235,10 @@
       "ipc/FillKey.cpp",
       "ipc/OrderRouter.h"
     ],
+    "ipc/Heartbeat.h": [
+      "core/Engine.h",
+      "ipc/Heartbeat.cpp"
+    ],
     "ipc/OpsProtocol.h": [
       "ipc/OpsProtocol.cpp",
       "ipc/OpsServer.h"
@@ -1226,6 +1246,10 @@
     "ipc/OpsServer.h": [
       "core/Engine.h",
       "ipc/OpsServer.cpp"
+    ],
+    "ipc/OrderChannel.h": [
+      "core/Engine.h",
+      "ipc/OrderChannel.cpp"
     ],
     "ipc/OrderRouter.h": [
       "core/Engine.h",
@@ -1422,7 +1446,7 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 34
+      "in_degree": 35
     },
     {
       "header": "utils/Logger.h",

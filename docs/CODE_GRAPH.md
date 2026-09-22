@@ -21,12 +21,12 @@ graph LR
   api -->|11| core
   api -->|7| utils
   core -->|11| api
-  core -->|3| ipc
+  core -->|5| ipc
   core -->|6| risk
   core -->|3| strategy
   core -->|12| utils
   ipc -->|2| api
-  ipc -->|7| core
+  ipc -->|8| core
   ipc --> risk
   ipc -->|5| utils
   main -->|3| core
@@ -57,7 +57,7 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 34 |
+| `core/Types.h` | 35 |
 | `utils/Logger.h` | 30 |
 | `core/KstTime.h` | 17 |
 | `strategy/StrategyBase.h` | 15 |
@@ -150,9 +150,12 @@ graph LR
   end
   subgraph ipc
     n_ipc_FillKey_cpp["ipc/FillKey.cpp"]
+    n_ipc_Heartbeat_cpp["ipc/Heartbeat.cpp"]
     n_ipc_OpsProtocol_cpp["ipc/OpsProtocol.cpp"]
     n_ipc_OpsServer_cpp["ipc/OpsServer.cpp"]
     n_ipc_OpsServer_h["ipc/OpsServer.h"]
+    n_ipc_OrderChannel_cpp["ipc/OrderChannel.cpp"]
+    n_ipc_OrderChannel_h["ipc/OrderChannel.h"]
     n_ipc_OrderRouter_cpp["ipc/OrderRouter.cpp"]
     n_ipc_OrderRouter_h["ipc/OrderRouter.h"]
     n_ipc_ZmqBridge_cpp["ipc/ZmqBridge.cpp"]
@@ -307,7 +310,9 @@ graph LR
   n_core_Engine_h --> n_core_TickCapture_h
   n_core_Engine_h --> n_core_Types_h
   n_core_Engine_h --> n_core_WakeGate_h
+  n_core_Engine_h --> n_ipc_Heartbeat_h
   n_core_Engine_h --> n_ipc_OpsServer_h
+  n_core_Engine_h --> n_ipc_OrderChannel_h
   n_core_Engine_h --> n_ipc_OrderRouter_h
   n_core_Engine_h --> n_ipc_ZmqBridge_h
   n_core_Engine_h --> n_risk_OrderGate_h
@@ -397,11 +402,14 @@ graph LR
   n_core_UniverseExit_h --> n_core_SymbolTable_h
   n_core_WakeGate_cpp --> n_core_WakeGate_h
   n_ipc_FillKey_cpp --> n_ipc_FillKey_h
+  n_ipc_Heartbeat_cpp --> n_ipc_Heartbeat_h
   n_ipc_OpsProtocol_cpp --> n_ipc_OpsProtocol_h
   n_ipc_OpsServer_cpp --> n_ipc_OpsServer_h
   n_ipc_OpsServer_cpp --> n_utils_Logger_h
   n_ipc_OpsServer_cpp --> n_utils_ThreadName_h
   n_ipc_OpsServer_h --> n_ipc_OpsProtocol_h
+  n_ipc_OrderChannel_cpp --> n_ipc_OrderChannel_h
+  n_ipc_OrderChannel_h --> n_core_Types_h
   n_ipc_OrderRouter_cpp --> n_api_KisErrorCodes_h
   n_ipc_OrderRouter_cpp --> n_core_KstTime_h
   n_ipc_OrderRouter_cpp --> n_core_LatencyTrace_h

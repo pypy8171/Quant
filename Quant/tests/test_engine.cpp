@@ -2,6 +2,7 @@
 // 체결 소비 스레드→원장(보유)까지 도는지, 주입 모드가 브로커 없이 기동·종료하는지 고정한다. 케이스는 둘 — 수신 스레드 1×샤드 1과
 // 수신 스레드 2×샤드 2(종목 둘이 서로 다른 수신 스레드에서 들어와 서로 다른 열에서 판단된다). 관련 결정: D-071(Phase 3·Phase 4 앞단계).
 // 스레드: 테스트 스레드가 피드 소스의 수신 스레드 역할(수신 스레드 0..N-1)을 하고 나머지는 Engine이 띄운다.
+// 케이스 하나 더 — 보호 주문 한 주기를 두 스레드가 같이 잡지 못하는지(D-114 전략 사망 마무리).
 // 빌드: cmake --build <directory> --target test_engine
 #include "core/Engine.h"
 #include "core/IFeedSource.h"
@@ -419,6 +420,70 @@ int run_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& ti
 
 // 캡처 파일을 틀어 같은 한 바퀴를 돈다 — set_replay만으로 KIS 없이 뜨는지. 첫 틱 70000이 매수 신호를 내고 뒤따르는
 //  70100 틱 중 하나가 시장가를 체결시킨다. 캡처 간격 20ms·speed 1이라 주문이 큐를 지나는 사이에도 틱이 계속 온다.
+// 보호 주문 한 주기는 한 스레드만 잡는다. 평소 주인은 전략 스레드고 전략이 죽으면 주문 스레드가 이어받는데,
+//  멈췄던 전략이 깨어나면 둘 다 같은 주기를 보게 된다 — 둘 다 잡으면 같은 청산이 두 번 나간다(A등급).
+//  스레드 넷이 같은 시각으로 한꺼번에 달려들어도 참이 하나뿐인지 본다. [why D-114]
+int run_protective_claim_case()
+{
+    std::cout << "case protective claim\n";
+
+    Engine engine(KisConfig{});
+    // 발행 채널을 열지 않는다 — 열면 운영 리코더가 이 테스트를 물어 실거래 DB에 넣는다.
+    engine.set_zmq_enabled(false);
+
+    constexpr int  kThreads    = 4;
+    constexpr int  kAttempts   = 2000;
+    const auto     fixed_now   = std::chrono::steady_clock::now();
+    std::atomic<int> claimed{0};
+    std::atomic<int> ready{0};
+
+    {
+        std::vector<std::thread> racers;
+
+        for (int index = 0; index < kThreads; ++index)
+        {
+            racers.emplace_back(
+                [&]
+                {
+                    // 넷이 같은 자리에서 출발해야 경합이 실제로 겹친다.
+                    ready.fetch_add(1);
+
+                    while (ready.load() < kThreads)
+                    {
+                        std::this_thread::yield();
+                    }
+
+                    for (int attempt = 0; attempt < kAttempts; ++attempt)
+                    {
+                        if (engine.claim_protective_cycle(fixed_now))
+                        {
+                            claimed.fetch_add(1);
+                        }
+                    }
+                });
+        }
+
+        for (auto& racer : racers)
+        {
+            racer.join();
+        }
+    }
+
+    // 같은 시각으로 8,000번 달려들어도 참은 딱 한 번이다.
+    CHECK(claimed.load() == 1);
+
+    // 간격(기본 200ms)이 아직 안 찼으면 계속 거짓이다.
+    CHECK(!engine.claim_protective_cycle(fixed_now + std::chrono::milliseconds(199)));
+
+    // 간격이 차면 다시 한 번만 참이다.
+    const auto next_now = fixed_now + std::chrono::milliseconds(200);
+    CHECK(engine.claim_protective_cycle(next_now));
+    CHECK(!engine.claim_protective_cycle(next_now));
+
+    std::cout << "  보호 주기 잡기 OK (경합 " << (kThreads * kAttempts) << "회에 참 1회)\n";
+    return 0;
+}
+
 int run_replay_case()
 {
     using namespace std::chrono_literals;
@@ -515,6 +580,11 @@ int main()
     }
 
     if (const int result_code = run_replay_case(); result_code != 0)
+    {
+        return result_code;
+    }
+
+    if (const int result_code = run_protective_claim_case(); result_code != 0)
     {
         return result_code;
     }

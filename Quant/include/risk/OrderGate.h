@@ -325,6 +325,10 @@ public:
     //  운영단말 수동 매도와 국면 강제청산(force_liquidate)은 그대로 나간다.
     void set_manual_halt(OrderSide side, bool on);
 
+    // 전략 스레드가 죽어 주문 쪽이 마무리에 들어갔을 때 켜는 진입 정지. 앞의 둘과 따로 두는 이유는 D-091과 같다 —
+    //  한 원천의 자동 해제가 다른 원천이 켠 정지를 모른 채 지운다. 박동이 돌아오면 주문 스레드가 끈다. [why D-114]
+    void set_strategy_down_halt(bool on);
+
     bool is_manual_buy_halted() const
     {
         return manual_buy_halt_.load();
@@ -337,7 +341,7 @@ public:
 
     bool is_entry_halted() const
     {
-        return entry_halt_.load() || manual_buy_halt_.load();
+        return entry_halt_.load() || manual_buy_halt_.load() || strategy_down_halt_.load();
     }
 
     // 매수 명목 비율(0~1). 국면 점수를 스위치가 아니라 비율로 옮긴 값 — 전략이 분할 단계 명목에 곱한다.
@@ -579,6 +583,7 @@ private:
     std::atomic<bool> kill_switch_{false};
     std::atomic<bool> entry_halt_{false};  // 신규 진입(BUY NEW)만 정지, SELL 청산은 통과 — 국면 리스크용
     std::atomic<bool> manual_buy_halt_{false};  // 운영단말 HALT_REQ(BUY)가 켜는 수동 진입 정지 — entry_halt_와 별도 원천 [why D-091]
+    std::atomic<bool> strategy_down_halt_{false};  // 전략 사망 마무리가 켜는 진입 정지 — 위 둘과 별도 원천 [why D-114]
     std::atomic<bool> manual_sell_halt_{false}; // 운영단말 HALT_REQ(SELL)가 켜는 전략 매도 정지 [why D-095]
     std::atomic<double> entry_scale_{1.0}; // 매수 명목 비율(0~1). 국면 점수의 비례판 [why D-083]
     std::atomic<bool> pnl_stale_{false};   // 잔고 대조 정체 → daily_pnl 미갱신, BUY NEW 보수 정지(B2)

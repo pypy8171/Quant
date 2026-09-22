@@ -27,6 +27,8 @@
 #ifdef HAS_ZMQ
 #include "ipc/ZmqBridge.h"
 #endif
+#include "ipc/Heartbeat.h"
+#include "ipc/OrderChannel.h"
 #include "ipc/OrderRouter.h"
 #include "ipc/OpsServer.h"
 #include "core/MpscQueue.h"
@@ -166,26 +168,12 @@ public:
         uint64_t shard_dropped    = 0;
         uint64_t order_dropped    = 0;
         uint64_t fill_dropped     = 0;
+        uint64_t order_duplicate  = 0; // 주문 쪽이 같은 순번을 두 번 받아 거른 수. 0이 아니면 통로가 샜다
+        uint64_t order_response_dropped = 0; // 전략이 답을 안 가져가 버린 수
+        int64_t  strategy_beat_gap_max_ns = 0; // 전략 박동의 가장 긴 공백. 사망 문턱의 근거
     };
 
-    QueueStatistics queue_statistics() const
-    {
-        QueueStatistics statistics;
-
-        for (const auto& shard : pipeline_.shards)
-        {
-            statistics.shard_high_water = std::max(statistics.shard_high_water, shard->high_water());
-        }
-
-        statistics.shard_out_size   = pipeline_.shard_out.size();
-        statistics.trade_dropped    = trade_drop_count_.load(std::memory_order_relaxed);
-        statistics.order_high_water = pipeline_.order_queue.high_water();
-        statistics.fill_high_water  = pipeline_.fill_queue.high_water();
-        statistics.shard_dropped    = pipeline_.shard_dropped.load(std::memory_order_relaxed);
-        statistics.order_dropped    = pipeline_.order_dropped.load(std::memory_order_relaxed);
-        statistics.fill_dropped     = pipeline_.fill_dropped.load(std::memory_order_relaxed);
-        return statistics;
-    }
+    QueueStatistics queue_statistics() const;
 
     // ── 매크로 레짐 브리지 ──────────────────────────────────────────────────
     // 매크로 레짐 보조 프로세스 브리지(2026-08-09 회의 Task 3). Python macro_regime_feed.py가
@@ -341,6 +329,11 @@ public:
     //  reason은 로그 한 줄로 남는다 — 종료가 요청된 것인지 죽은 것인지 로그만으로 가르기 위해서다(D-20). [why D-098]
     void request_shutdown(std::string_view reason);
 
+    // 보호 주문 한 주기를 부른 스레드가 맡는다. 평소 주인은 전략 스레드고 전략이 죽으면 주문 스레드가 이어받는데,
+    //  멈췄던 전략이 깨어나면 둘 다 살아 있을 수 있다 — 시각을 원자로 밀어 잡은 쪽만 참을 받는다.
+    //  같은 주기를 둘 다 잡으면 같은 청산이 두 번 나간다(A등급). 공개는 test_engine이 경합을 직접 보기 위해서다. [why D-114]
+    bool claim_protective_cycle(std::chrono::steady_clock::time_point now);
+
 private:
     // ── start() 단계 분리 (가독성용, 로직은 그대로) ────────────────────────────
     void setup_shards();
@@ -375,6 +368,11 @@ private:
 
     // 보호 주문 표 한 주기 — 원장 보유 스냅샷·현재가로 청산을 만들어 디스패처로 보낸다. strategy_thread 전용. [why D-114]
     void run_protective_orders(SignalDispatcher& dispatcher, std::chrono::steady_clock::time_point now);
+    std::vector<OrderSignal> build_protective_orders(std::chrono::steady_clock::time_point now);
+    // 전략 생사에 따라 주문 쪽 마무리를 켜고 끈다. 주문 스레드는 안 내려간다 — 보유분을 지키는 것이 남은 일이다.
+    //  [inv] order_thread에서만 부른다(OrderRouter::submit의 단일 스레드 규약). [why D-114]
+    void track_strategy_liveness(ipc::HeartbeatMonitor::Step step, bool just_died,
+                                 std::chrono::steady_clock::time_point now);
 
     // ── 전략 레지스트리·국면·유니버스 보조 ─────────────────────────────────
     StrategyBase::SellableInfo ledger_sellable(const std::string& account, const std::string& ticker) const;
@@ -563,6 +561,7 @@ private:
         static constexpr size_t   kBarCellCapacity    = 1024;
         static constexpr size_t   kOrderQueueCapacity = 1024;
         static constexpr size_t   kFillQueueCapacity  = 1024;
+        static constexpr size_t   kOrderResponseCapacity = 1024; // 요청 하나에 답 하나 — 요청 큐와 같은 크기 [why D-114]
         static constexpr uint64_t kDropLogEvery       = 100; // 큐 가득으로 버린 신호는 첫 건과 이 배수마다만 WARN
         uint32_t                  websocket_lanes        = 1;    // WS 수신 스레드 수 = 소켓 수. start()가 행 수로 쓴다
         uint32_t                  data_row        = 1;    // trade_matrix의 데이터 스레드 행 = websocket_lanes
@@ -583,6 +582,17 @@ private:
         RingBuffer<FillNotification> fill_queue{kFillQueueCapacity};
         std::atomic<uint64_t> fill_dropped{0};   // fill_queue 가득 차 버린 체결통보 수. 0이 아니면 잔고 대조가 원장을 메운다
         std::atomic<uint64_t> order_dropped{0};  // order_queue 가득 차 버린 신호 수. [큐 고수위] 줄에 같이 찍힌다
+        // 주문 → 전략 응답. 생산자가 주문 스레드 하나라 SPSC. 레코드에 문자열·포인터가 없어 단계 4에서
+        //  공유메모리 링으로 그대로 옮겨 간다 — 지금은 같은 프로세스의 큐다. [why D-114]
+        RingBuffer<ipc::OrderResponse> order_response_queue{kOrderResponseCapacity};
+        std::atomic<uint64_t> order_response_dropped{0}; // 전략이 답을 안 가져가 버린 응답 수
+        std::atomic<uint64_t> order_duplicate{0};        // 주문 쪽이 같은 순번을 두 번 받아 거른 수. 0이 아니면 통로가 샜다
+        // 전략 스레드가 한 바퀴마다 찍고 주문 스레드가 공백만 보고 생사를 판정한다. 프로세스가 갈려도
+        //  판정 방식은 그대로다 — 공유메모리의 int64 하나가 된다. [why D-114]
+        ipc::Heartbeat strategy_heartbeat;
+    // 주문 스레드가 본 가장 긴 박동 공백(나노초). 문턱을 감으로 정하지 않으려고 밖으로 낸다 — 부하 하네스의
+    //  beat_gap_max_ms 열과 [큐 고수위] 줄, check_runtime_health의 판정 행이 이 값 하나를 본다. [why D-114]
+    std::atomic<int64_t> strategy_beat_gap_max_ns{0};
         // 소비자 깨우기 — 생산자가 push 뒤 notify, 소비자는 큐가 비면 잔다. 1ms 폴링은 Windows 타이머 격자 때문에
         //  실측 p50 15.6ms였다(bench_sleep_res). [why D-071]
         wake::WakeGate fill_wake;  // fill_thread ← WS 수신 스레드
@@ -659,7 +669,10 @@ private:
     // 보호 주문 표 — 전략(샤드 스레드)가 등록하고 strategy_thread(주문 시퀀서)가 본다. 표 자체가 잠금을 가진다. [why D-114]
     risk::ProtectiveOrderBook             protective_book_;
     std::chrono::milliseconds             protective_interval_{kProtectiveIntervalMsDefault};
-    std::chrono::steady_clock::time_point protective_next_{}; // 다음에 표를 볼 시각. strategy_thread 전용
+    // 다음에 표를 볼 시각(steady_clock 틱). 전략·주문 두 스레드가 잡으러 오므로 원자다 — claim_protective_cycle만 민다.
+    std::atomic<std::chrono::steady_clock::rep> protective_next_ticks_{0};
+    // 전략이 죽어 주문 쪽이 마무리에 들어간 국면. 주문 스레드만 쓰고 HEALTH·판정 행이 읽는다. [why D-114]
+    std::atomic<bool> strategy_wound_down_{false};
     int         zmq_pub_port_ = 5555;
     int         zmq_rep_port_ = 5556;
 

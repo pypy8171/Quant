@@ -665,6 +665,30 @@ void Engine::reap_retired(bool force)
 }
 
 // ─── start() 단계 분리 (가독성용, 로직은 그대로) ──────────────────────────────
+// 큐 수위·버린 건수를 한 번에 모은다. 읽기 전용이라 어느 스레드에서 불러도 된다 — 값마다 relaxed로 읽으므로
+//  한 시점의 일관된 단면은 아니다. 수위·버린 수는 추세만 보면 되는 값이라 그걸로 충분하다.
+Engine::QueueStatistics Engine::queue_statistics() const
+{
+    QueueStatistics statistics;
+
+    for (const auto& shard : pipeline_.shards)
+    {
+        statistics.shard_high_water = std::max(statistics.shard_high_water, shard->high_water());
+    }
+
+    statistics.shard_out_size   = pipeline_.shard_out.size();
+    statistics.trade_dropped    = trade_drop_count_.load(std::memory_order_relaxed);
+    statistics.order_high_water = pipeline_.order_queue.high_water();
+    statistics.fill_high_water  = pipeline_.fill_queue.high_water();
+    statistics.shard_dropped    = pipeline_.shard_dropped.load(std::memory_order_relaxed);
+    statistics.order_dropped    = pipeline_.order_dropped.load(std::memory_order_relaxed);
+    statistics.fill_dropped     = pipeline_.fill_dropped.load(std::memory_order_relaxed);
+    statistics.order_duplicate  = pipeline_.order_duplicate.load(std::memory_order_relaxed);
+    statistics.order_response_dropped = pipeline_.order_response_dropped.load(std::memory_order_relaxed);
+    statistics.strategy_beat_gap_max_ns = pipeline_.strategy_beat_gap_max_ns.load(std::memory_order_relaxed);
+    return statistics;
+}
+
 void Engine::setup_shards()
 {
     // 샤드는 WS 콜백·데이터 스레드가 push 뒤 깨우므로 소켓을 열기 전에 만든다. 스레드는 아래에서 같이 띄운다.
@@ -2279,22 +2303,93 @@ void Engine::poll_regime_file()
 // 보호 주문 표 한 주기. 전략이 등록해 둔 규칙과 원장 보유·현재가만으로 청산을 만든다 — 전략 코드를 한 줄도 안 봐도 된다는 것이
 //  이 단계의 요점이다. 프로세스를 가르면 이 함수가 주문 프로세스로 간다(단계 4). [why D-114]
 //  시퀀서 하나만 부른다 — strategy_thread 전용이라 protective_next_는 잠금이 필요 없다. [inv]
+bool Engine::claim_protective_cycle(std::chrono::steady_clock::time_point now)
+{
+    const auto now_ticks      = now.time_since_epoch().count();
+    const auto interval_ticks =
+        std::chrono::duration_cast<std::chrono::steady_clock::duration>(protective_interval_).count();
+    auto       due_ticks      = protective_next_ticks_.load(std::memory_order_relaxed);
+
+    while (now_ticks >= due_ticks)
+    {
+        // 잡은 쪽만 참을 받는다. 진 쪽은 due_ticks가 갱신돼 다시 재면 이미 미래라 그대로 빠져나간다.
+        if (protective_next_ticks_.compare_exchange_weak(due_ticks, now_ticks + interval_ticks,
+                                                         std::memory_order_acq_rel, std::memory_order_relaxed))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+std::vector<OrderSignal> Engine::build_protective_orders(std::chrono::steady_clock::time_point now)
+{
+    return protective_book_.evaluate(
+        order_gate_.snapshot_positions(), [this](symbol::SymbolId symbol) { return last_price(symbol); },
+        [this](const std::string& account, symbol::SymbolId symbol) { return order_gate_.reserved(account, symbol); }, now);
+}
+
 void Engine::run_protective_orders(SignalDispatcher& dispatcher, std::chrono::steady_clock::time_point now)
 {
-    if (now < protective_next_ || !protective_book_.enabled())
+    if (!protective_book_.enabled() || !claim_protective_cycle(now))
     {
         return;
     }
 
-    protective_next_ = now + protective_interval_;
-
-    auto orders = protective_book_.evaluate(
-        order_gate_.snapshot_positions(), [this](symbol::SymbolId symbol) { return last_price(symbol); },
-        [this](const std::string& account, symbol::SymbolId symbol) { return order_gate_.reserved(account, symbol); }, now);
-
-    for (auto& protective_signal : orders)
+    for (auto& protective_signal : build_protective_orders(now))
     {
         dispatcher.submit(std::move(protective_signal));
+    }
+}
+
+// 마무리 순서: ① 새 진입을 끊고 ② 감시견에 알리고 ③ 보유분은 보호 주문 표가 지킨다.
+//  저널은 여기서 따로 안 민다 — 표를 들고 있는 쪽(주문·원장)이 살아 있고 append마다 이미 fflush한다.
+//  [inv] order_thread 전용. 여기서 부르는 OrderRouter::submit이 단일 스레드를 전제한다. [why D-114]
+void Engine::track_strategy_liveness(ipc::HeartbeatMonitor::Step step, bool just_died,
+                                     std::chrono::steady_clock::time_point now)
+{
+    // 박동이 돌아왔다 — 감시견이 전략을 다시 띄웠거나 멈췄던 스레드가 깨어났다. 정지를 안 풀면 그날 내내 못 산다.
+    if (step == ipc::HeartbeatMonitor::Step::kHealthy &&
+        strategy_wound_down_.exchange(false, std::memory_order_relaxed))
+    {
+        order_gate_.set_strategy_down_halt(false);
+        LOG_WARN("[마무리] 전략 박동이 돌아왔다 — 신규 진입 정지를 푼다");
+    }
+
+    if (just_died)
+    {
+        // 새 진입을 끊는다. 막는 자리는 게이트가 아니라 전략 쪽 창구(set_entry_halt_provider)라, 샤드 스레드에서
+        //  도는 전략들이 신규 매수를 더 만들지 않는다 — 멈췄던 전략 스레드가 깨어나 밀린 신호를 쏟는 것을 막는다.
+        //  청산(SELL)·취소는 그대로 통과한다 — 급락장에 청산이 미완료로 남지 않게(entry_halt와 같은 규칙).
+        order_gate_.set_strategy_down_halt(true);
+        strategy_wound_down_.store(true, std::memory_order_relaxed);
+        LOG_ERROR("[마무리] 전략 박동이 끊겼다 — 신규 진입 정지, 보호 주문은 주문 스레드가 이어받는다");
+    }
+
+    if (!strategy_wound_down_.load(std::memory_order_relaxed) || order_router_ == nullptr ||
+        !protective_book_.enabled())
+    {
+        return;
+    }
+
+    if (!claim_protective_cycle(now))
+    {
+        return;
+    }
+
+    // 전략 코드를 한 줄도 안 보고 표와 원장 보유·현재가만으로 청산을 만든다. 디스패처를 안 거치는 이유는
+    //  그것이 전략 스레드 소유이기 때문이다 — 게이트 판정은 OrderRouter::submit 안에서 그대로 돈다.
+    for (auto& protective_signal : build_protective_orders(now))
+    {
+        try
+        {
+            order_router_->submit(protective_signal);
+        }
+        catch (const std::exception& exception)
+        {
+            LOG_ERROR("[마무리] 보호 주문 발주 실패 " + protective_signal.ticker + ": " + exception.what());
+        }
     }
 }
 
@@ -2303,11 +2398,15 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
     thread_name::set_current("Strategy");
     LOG_INFO("[StrategyThread] 시작");
 
+    // 주문 쪽에 보내 놓고 답을 기다리는 순번. 지금은 같은 프로세스라 답이 늦어도 굴러가지만, 단계 4에서
+    //  프로세스가 갈리면 이것이 재전송 후보를 고르는 유일한 근거다. 상한은 요청 큐와 같다. [why D-114]
+    ipc::PendingRequests pending_requests(ShardPipeline::kOrderQueueCapacity);
+
     // 신호 순번·교체 보류·차단 로그는 이 스레드 소유라 디스패처를 여기에 둔다. 싱크가 pipeline_.order_queue에 넣는 유일한
     //  자리 — 단일 생산자 규약은 이 람다가 이 스레드에서만 불린다는 데 기댄다. [why D-063]
     SignalDispatcher dispatcher(
         order_gate_,
-        [this](const OrderSignal& signal)
+        [this, &pending_requests](const OrderSignal& signal)
         {
             ++signal_count_;
 #ifdef HAS_ZMQ
@@ -2333,6 +2432,8 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
             }
 
             pipeline_.order_wake.notify();
+            // 보냈다고 적는다. 답이 오면 지워지고, 문턱을 넘게 안 오면 재전송 후보로 나온다. [why D-114]
+            pending_requests.note_sent(signal.sequence, trace::now_ns());
         },
         std::chrono::steady_clock::now());
     dispatcher.set_label([this](const std::string& ticker) { return ticker_label(ticker); });
@@ -2344,9 +2445,23 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
     // 유휴 전이: 마지막 일 뒤 이 시간은 yield로 돌고, 넘기면 pipeline_.strategy_wake에서 잔다. [why D-071]
     constexpr auto kStratSpinBudget = std::chrono::microseconds(200);
     std::chrono::steady_clock::time_point idle_since{};
+    // 봉투가 몰리면 아래 비우기 한 번이 길어진다 — 2,700종목·초당 1,400만 건에서 3,702ms를 쟀다(한 바퀴 머리에서만
+    //  찍었을 때). 그동안 주문 쪽이 멀쩡한 전략을 죽었다고 본다. 비우는 중에도 이 건수마다 한 번 찍는다 —
+    //  relaxed 저장 하나가 봉투 256개에 나뉘어 한 건당 비용은 사실상 없다. [why D-114]
+    constexpr uint32_t kBeatEveryEnvelopes = 256;
 
     while (!stop_token.stop_requested())
     {
+        // 살아 있다고 찍는다 — 주문 쪽이 이 값의 공백만 보고 판정한다. 한 바퀴가 길어지면 공백도 길어지니
+        //  부하 아래 실측(HeartbeatMonitor::max_gap_ns)으로 문턱을 정한다. [why D-114]
+        pipeline_.strategy_heartbeat.beat(trace::now_ns());
+
+        // 주문 쪽 답을 걷어 기다리던 것에서 지운다.
+        while (auto response = pipeline_.order_response_queue.pop())
+        {
+            pending_requests.note_response(response->sequence);
+        }
+
         const auto loop_now = std::chrono::steady_clock::now();
         dispatcher.flush_held(loop_now);
 
@@ -2370,10 +2485,18 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
         try
         {
             // 샤드가 보낸 신호 봉투 — 국면 게이트(비활성 전략의 신규 매수)와 청산 관리 티커 차단은 디스패처가 한다.
+            uint32_t envelopes_since_beat = 0;
+
             while (auto entry = pipeline_.shard_out.pop())
             {
                 dispatcher.from_strategy(entry->active, entry->exit_manager, entry->signal);
                 did_work = true;
+
+                if (++envelopes_since_beat >= kBeatEveryEnvelopes)
+                {
+                    envelopes_since_beat = 0;
+                    pipeline_.strategy_heartbeat.beat(trace::now_ns());
+                }
             }
         }
         catch (const std::exception& exception)
@@ -2551,8 +2674,34 @@ void Engine::order_thread_fn(std::stop_token stop_token)
     // 구간 지연 CSV. 이 스레드만 쓰므로 지역 객체로 두고, 첫 주문 때 파일을 연다. [why D-071]
     trace::LatencyTrace latency_trace(Logger::instance().path_for("latency_trace.csv"));
 
+    // 같은 순번을 두 번 받으면 이중 발주다(A등급). 생산자가 하나인 지금은 안 생기지만 단계 4에서
+    //  공유메모리로 바뀌면 재전송이 생긴다 — 거르는 자리를 먼저 둔다. 창은 요청 큐 크기다. [why D-114]
+    ipc::DuplicateFilter duplicate_filter(ShardPipeline::kOrderQueueCapacity);
+    ipc::HeartbeatMonitor strategy_monitor;
+
+    // 결과를 전략 쪽으로 돌려준다. 지금은 같은 프로세스의 큐고, 단계 4에서 공유메모리로 바뀌어도
+    //  레코드는 그대로다. [inv] 순번 0은 통로 밖에서 들어온 신호라 맞출 짝이 없어 답하지 않는다. [why D-114]
+    auto answer = [this](uint64_t sequence, ipc::OrderResult result, uint64_t kis_order_number, std::string_view reason)
+    {
+        if (sequence == 0)
+        {
+            return;
+        }
+
+        if (!pipeline_.order_response_queue.push(
+                ipc::make_response(sequence, result, kis_order_number, reason, trace::now_ns())))
+        {
+            pipeline_.order_response_dropped.fetch_add(1, std::memory_order_relaxed);
+        }
+    };
+
     while (!stop_token.stop_requested())
     {
+        // 전략이 살아 있는가 — 박동 공백만 본다. 사망이어도 주문 스레드는 안 내려간다(보유분을 지켜야 한다).
+        const auto step = strategy_monitor.observe(trace::now_ns(), pipeline_.strategy_heartbeat.last_ns());
+        pipeline_.strategy_beat_gap_max_ns.store(strategy_monitor.max_gap_ns(), std::memory_order_relaxed);
+        track_strategy_liveness(step, strategy_monitor.take_dead_once(), steady_clock::now());
+
         // 발주 대상 선택: 만기된 재시도분 우선, 없으면 신규 큐
         std::optional<OrderRateLimiter::Pending> next = rate_limiter.take_due_retry(steady_clock::now());
         int64_t                            pop_ns = 0;
@@ -2561,6 +2710,15 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         {
             if (auto option = pipeline_.order_queue.pop())
             {
+                if (option->sequence != 0 && !duplicate_filter.accept(option->sequence))
+                {
+                    const auto count = pipeline_.order_duplicate.fetch_add(1, std::memory_order_relaxed) + 1;
+                    LOG_WARN("[주문] 같은 순번을 다시 받아 거른다 순번=" + std::to_string(option->sequence) +
+                             " (누적 " + std::to_string(count) + ")");
+                    answer(option->sequence, ipc::OrderResult::kDuplicate, 0, "같은 순번");
+                    continue;
+                }
+
                 next   = OrderRateLimiter::Pending{std::move(*option), 0};
                 pop_ns = trace::now_ns();
             }
@@ -2583,6 +2741,8 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         // 이 sleep은 우리가 스스로 줄 세운 시간이다 — pop→반환 한 덩이에 섞어 두면 증권사가 느린 것처럼 읽힌다. [why D-071]
         const int64_t      send_ready_ns = pop_ns != 0 ? trace::now_ns() : 0;
         const OrderSignal& signal        = next->signal;
+        // next는 아래에서 재시도 버퍼로 옮겨진다(sink). 답할 순번은 그 전에 챙겨 둔다.
+        const uint64_t     request_sequence = signal.sequence;
 
         try
         {
@@ -2629,16 +2789,25 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             if (managed_order.status == OrderStatus::ACCEPTED)
             {
                 ++order_count_;
+                answer(request_sequence, ipc::OrderResult::kAccepted, ipc::to_order_number(managed_order.kis_order_no), "");
             }
             else
             {
-                rate_limiter.on_rejected(std::move(*next), managed_order.status, managed_order.reject_reason, steady_clock::now());
+                // 재시도를 예약했으면 아직 끝이 아니다 — 답은 마지막 한 번만 보낸다(전략은 답 하나로 기다림을 지운다).
+                const bool will_retry = rate_limiter.on_rejected(std::move(*next), managed_order.status,
+                                                                 managed_order.reject_reason, steady_clock::now());
+
+                if (!will_retry)
+                {
+                    answer(request_sequence, ipc::OrderResult::kRejected, 0, managed_order.reject_reason);
+                }
             }
         }
         catch (const std::exception& exception)
         {
             rate_limiter.note_sent(steady_clock::now());
             LOG_ERROR("[OrderThread] 예외: " + std::string(exception.what()));
+            answer(request_sequence, ipc::OrderResult::kFailed, 0, exception.what());
         }
     }
 
@@ -2811,6 +2980,8 @@ void Engine::control_thread_fn(std::stop_token stop_token)
     constexpr int kCheckIntervalSec = 5;
     // 큐 고수위는 장 외에도 찍는다 — 큐 크기가 맞는지의 근거가 되므로 WS 유무·개장 여부와 무관하다. [why D-071]
     constexpr int kHighWaterEvery = 12; // 5초 × 12 = 1분
+    // 박동 공백은 나노초로 들고 다니다가 찍을 때만 밀리초로 줄인다.
+    constexpr int64_t kNanosecondsPerMillisecond = 1'000'000;
     int high_water_tick = 0;
     constexpr int kTokenEvery = 60; // 5초 × 60 = 5분
     int token_tick = 0;
@@ -2839,7 +3010,13 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                      std::to_string(pipeline_.order_queue.high_water()) + "/" + std::to_string(pipeline_.order_queue.capacity()) +
                      " fill=" + std::to_string(pipeline_.fill_queue.high_water()) + "/" + std::to_string(pipeline_.fill_queue.capacity()) +
                      " fill_dropped=" + std::to_string(pipeline_.fill_dropped.load(std::memory_order_relaxed)) +
-                     " order_dropped=" + std::to_string(pipeline_.order_dropped.load(std::memory_order_relaxed)));
+                     " order_dropped=" + std::to_string(pipeline_.order_dropped.load(std::memory_order_relaxed)) +
+                     " order_duplicate=" + std::to_string(pipeline_.order_duplicate.load(std::memory_order_relaxed)) +
+                     " order_response_dropped=" +
+                     std::to_string(pipeline_.order_response_dropped.load(std::memory_order_relaxed)) +
+                     " beat_gap_max=" +
+                     std::to_string(pipeline_.strategy_beat_gap_max_ns.load(std::memory_order_relaxed) /
+                                    kNanosecondsPerMillisecond) + "ms");
         }
 
         if (++token_tick >= kTokenEvery)

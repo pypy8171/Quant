@@ -139,7 +139,9 @@ set(HEADER_IMPL_SOURCES
   src/core/UniverseExit.cpp
   src/core/WakeGate.cpp
   src/ipc/FillKey.cpp
+  src/ipc/Heartbeat.cpp
   src/ipc/OpsProtocol.cpp
+  src/ipc/OrderChannel.cpp
   src/risk/GateReasons.cpp
   src/risk/LedgerJournal.cpp
   src/risk/ProtectiveOrders.cpp
@@ -671,6 +673,24 @@ if(UNIX)
     target_link_libraries(test_protective_orders PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: 전략↔주문 요청·응답 통로 (D-114 단계 2) ─────────────
+add_executable(test_order_channel tests/test_order_channel.cpp src/ipc/OrderChannel.cpp src/core/Types.cpp)
+target_include_directories(test_order_channel PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_order_channel PRIVATE pthread)
+endif()
+
+# ─── 테스트 타겟: 심장박동 전이 (D-114 단계 2) ───────────────────
+add_executable(test_heartbeat tests/test_heartbeat.cpp src/ipc/Heartbeat.cpp)
+target_include_directories(test_heartbeat PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_heartbeat PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟: 비동기 Logger MPSC 큐·flush 계약 (D-045) ───────────────
 add_executable(test_logger tests/test_logger.cpp src/utils/Logger.cpp)
 target_include_directories(test_logger PRIVATE
@@ -726,6 +746,8 @@ set(QUANT_ASSERT_TARGETS
     test_account_ledger
     test_logger
     test_protective_orders
+    test_order_channel
+    test_heartbeat
 )
 foreach(_qt IN LISTS QUANT_ASSERT_TARGETS)
     if(MSVC)

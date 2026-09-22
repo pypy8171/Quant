@@ -813,7 +813,8 @@ const char* kCsvHeader = "lanes,shards,tickers,seconds,order_every,zipf,strategy
                          "shard_high_water,order_high_water,fill_high_water,trade_dropped,shard_dropped,order_dropped,fill_dropped,"
                          "latency_samples,p50_us,p99_us,max_us,started_at,"
                          "source,sweep_ms,feed_sweeps,feed_calls,feed_failures,feed_quotes,feed_megabytes,"
-                         "feed_sweep_average_ms,feed_sweep_max_ms,feed_overruns";
+                         "feed_sweep_average_ms,feed_sweep_max_ms,feed_overruns,"
+                         "beat_gap_max_ms";
 
 std::string to_csv_row(const Options& options, const RunResult& result)
 {
@@ -845,7 +846,9 @@ std::string to_csv_row(const Options& options, const RunResult& result)
         << options.source << ',' << options.sweep_milliseconds << ','
         << result.feed_sweeps << ',' << result.feed_calls << ',' << result.feed_failures << ',' << result.feed_quotes << ','
         << result.feed_megabytes << ',' << result.feed_sweep_average_ms << ',' << result.feed_sweep_max_ms << ','
-        << result.feed_overruns;
+        << result.feed_overruns << ','
+        // 전략 박동의 가장 긴 공백. 사망 문턱은 이 열의 최대값 위에 둔다 — 밑에 두면 멀쩡한 전략을 죽었다고 본다.
+        << static_cast<double>(result.queues.strategy_beat_gap_max_ns) / 1'000'000.0;
     return row.str();
 }
 

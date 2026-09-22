@@ -18,6 +18,7 @@
 //  19. 원장 저널 — 재기동 리플레이가 보유·평단·선점·매도가능·당일손익·현금을 되살린다 (D-113)
 //  20. 원장 저널 — 쓰다 만 꼬리(전원 장애)는 리플레이가 거기서 멈추고 다음 기동이 잘라 낸다
 //  21. 원장 저널 — 한 레코드가 깨지면(CRC 불일치) 그 앞까지만 적용하고 뒤는 버린다
+//  22. 진입 정지 원천 셋(국면·사람·전략 사망)이 서로를 안 지운다 (D-114)
 
 #include "risk/OrderGate.h"
 #include "core/KstTime.h"
@@ -450,6 +451,47 @@ void test_market_sell_without_reference_price_bypasses_notional()
 }
 
 // ─── 테스트: 매매 세션 창(D-096) — 창 밖 NEW는 거부, 창 안·창 없음(0/0)·CANCEL은 통과 ──────────
+// 진입 정지는 원천이 셋이다 — 국면(RegimeFileJudge가 자동으로 켜고 끈다)·사람(운영단말)·전략 사망(주문 스레드).
+//  한 원천의 해제가 다른 원천이 켠 정지를 지우면 급락장에 신규 매수가 되살아난다. OR로만 합치는지 본다. [why D-114]
+void test_halt_sources_are_independent()
+{
+    OrderGate::Config config;
+    OrderGate         gate(config);
+
+    assert(!gate.is_entry_halted());
+
+    // 전략이 죽어 주문 스레드가 켠다.
+    gate.set_strategy_down_halt(true);
+    assert(gate.is_entry_halted());
+
+    // 국면이 "위험 없음"으로 자동 해제해도 전략 사망 정지는 남는다.
+    gate.set_entry_halt(false);
+    assert(gate.is_entry_halted());
+
+    // 사람이 수동 정지를 풀어도 남는다.
+    gate.set_manual_halt(OrderSide::BUY, false);
+    assert(gate.is_entry_halted());
+
+    // 박동이 돌아와 주문 스레드가 끄면 비로소 풀린다.
+    gate.set_strategy_down_halt(false);
+    assert(!gate.is_entry_halted());
+
+    // 거꾸로도 같다 — 전략 사망 해제가 국면·사람이 켠 정지를 못 지운다.
+    gate.set_entry_halt(true);
+    gate.set_manual_halt(OrderSide::BUY, true);
+    gate.set_strategy_down_halt(true);
+    gate.set_strategy_down_halt(false);
+    assert(gate.is_entry_halted());
+    assert(gate.is_manual_buy_halted());
+
+    gate.set_entry_halt(false);
+    assert(gate.is_entry_halted()); // 사람이 켠 것이 남아 있다
+    gate.set_manual_halt(OrderSide::BUY, false);
+    assert(!gate.is_entry_halted());
+
+    std::cout << "[PASS] 진입 정지 원천 셋이 서로를 안 지운다\n";
+}
+
 void test_session_window()
 {
     // 지금 KST 분 — 창을 "지금을 품는 구간"과 "지금을 피하는 구간"으로 만들어 시계에 기대지 않는다.
@@ -783,6 +825,7 @@ int main()
     test_displace_daily_cap();
     test_entry_snapshot_matches_separate_calls();
     test_session_window();
+    test_halt_sources_are_independent();
     test_slot_exempt();
     test_journal_replay_rebuilds_ledger();
     test_journal_truncates_broken_tail();

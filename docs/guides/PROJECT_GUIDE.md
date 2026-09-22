@@ -47,8 +47,8 @@ OpsServer(내부 스레드)           운영단말 TCP — 조회·수동주문�
 | 데이터 | KIS REST 봉·현재가 폴링(`fetch_interval_sec`)·유니버스 재스캔. 매매 창 안에서만 — 정규장 09:00~15:30 + 애프터마켓 16:00~20:00 KST(D-097), 모의계좌(`is_paper`)는 15:30까지(`Quant/src/core/AppConfig.cpp`의 `parse_risk`) | `bars_matrix`(1024)·`trade_matrix` 데이터 행 |
 | WS 수신(수신 스레드 i, 소켓마다 하나) | 디코드 뒤 행렬 행 i에 push. 체결통보는 `fill_queue`에 push만(가득 차면 드롭 계수, D-056) | `order_book_matrix`(4096)·`trade_matrix`(4096)·`fill_queue`(1024) |
 | 샤드 m | 자기 열의 틱을 비우고 자기가 가진 전략을 부른다(전략은 등록 순 라운드로빈으로 샤드 하나가 갖고, 종목 틱은 그 종목을 보는 샤드 전부에 들어온다 — D-110) | `shard_out`(MpscQueue 4096)에 넣는다 |
-| 전략(디스패치) | `SignalDispatcher`가 순번 stamp·신규 차단·교체 진입을 판단하고 주문 큐로 넘긴다 | `order_queue`(RingBuffer 1024, D-073)에 넣는다 |
-| 주문 | `OrderRouter::submit` → `OrderGate::check` → `IOrderExecutor::submit_order`. 호출 간격·재시도는 `OrderRateLimiter` | `order_queue` 소비 |
+| 전략(디스패치) | `SignalDispatcher`가 순번 stamp·신규 차단·교체 진입을 판단하고 주문 큐로 넘긴다. 주문 쪽 답을 비우고 살아 있다는 박동을 찍는다(봉투 256건마다 한 번, D-114 단계 2) | `order_queue`(RingBuffer 1024, D-073)에 넣고 `order_response` 소비 |
+| 주문 | `OrderRouter::submit` → `OrderGate::check` → `IOrderExecutor::submit_order`. 호출 간격·재시도는 `OrderRateLimiter`. 전략 박동이 끊기면 신규 진입을 끊고 보호 주문 표를 이어받는다 — 이 스레드는 내려가지 않는다(D-114 단계 2) | `order_queue` 소비 · `order_response`(RingBuffer 1024)에 넣는다 |
 | 체결 소비 | `fill_queue` → `OrderRouter::on_fill`(원장·CSV) → 운영단말 방송 | `fill_queue` 소비 |
 | 제어 | 잔고 대조·토큰 선갱신·WS 단절 판정(`feed::Supervisor`)·큐 고수위 로그 | 파이프라인 밖 |
 | 프리페치 풀(코어/4, 2~8개, 이름 `Prefetch N`) | 전략이 `on_start`에서 맡긴 함수를 주기마다 부른다(일봉·분봉 REST). 수는 전략 수와 무관하게 고정이고 `Engine::start()`에서 미리 띄운다 | 파이프라인 밖 — 전략이 스냅샷 포인터로 받아 간다 |

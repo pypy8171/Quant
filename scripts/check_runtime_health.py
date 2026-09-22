@@ -100,9 +100,20 @@ MAX_RATE_RETRIES = 10     # 초당 한도로 되보낸 HTTP 요청 — 09-22 37�
 LEDGER_REPLAY_RE = re.compile(r"\[Engine\] 원장 저널 리플레이: (\d+)건 \(마지막 seq (\d+)(, 꼬리 잘림)?\)")
 LEDGER_RESOLVE_RE = re.compile(r"\[Engine\] 원장 미결 주문 대조: 되살림 (\d+)건 · 선점해제 (\d+)건 · 저널기록실패 (\d+)건")
 LEDGER_WRITE_FAIL_RE = re.compile(r"\[OrderRouter\] 원장 저널 기록 실패")
+# 전략 사망 마무리(D-114 단계 2) — 주문 스레드가 전략 박동 공백만 보고 낸 판정.
+BEAT_DEAD_RE = re.compile(r"\[마무리\] 전략 박동이 끊겼다")
+BEAT_BACK_RE = re.compile(r"\[마무리\] 전략 박동이 돌아왔다")
+# [큐 고수위] 줄 꼬리 — 없으면 D-114 배포 전 바이너리라 이 세 행을 판정하지 않는다.
+BEAT_GAP_RE = re.compile(r"beat_gap_max=(\d+)ms")
+ORDER_DUPLICATE_RE = re.compile(r"order_duplicate=(\d+)")
+ORDER_RESPONSE_DROP_RE = re.compile(r"order_response_dropped=(\d+)")
 
 BASKET_BUY_LEG_DEADLINE = 15 * 3600 + 5 * 60  # 매수 레그는 15:05까지 끝나야 마감 청산(15:15)과 겹치지 않는다(D-109)
 
+
+# 전략 박동 문턱 — Quant/include/ipc/Heartbeat.h의 HeartbeatConfig 기본값과 같은 값이다(D-114 단계 2).
+BEAT_SUSPECT_MS = 250
+BEAT_DEAD_MS = 1000
 
 def median(values: list[int]) -> int:
     if not values:
@@ -524,6 +535,11 @@ def collect(date: str, log: Path, since: int = 0):
     ledger_released = 0                          # 재기동 때 선점만 푼 주문(KIS가 모르는 주문)
     ledger_start_failures = 0                    # 기동 시점 저널 기록 실패 누계(기동마다 한 줄)
     ledger_write_fails = 0                       # 장중 저널 기록 실패로 안 나간 주문
+    beat_dead = 0                                # 주문 스레드가 전략을 죽었다고 본 횟수
+    beat_back = 0                                # 박동이 돌아와 진입 정지를 푼 횟수
+    beat_gap_max = -1                            # 전략 박동의 가장 긴 공백(ms). -1이면 그 줄이 없는 구 exe
+    order_duplicate = 0                          # 주문 쪽이 같은 순번을 두 번 받아 거른 수
+    order_response_dropped = 0                   # 전략이 답을 안 가져가 버린 수
 
     # 7일 지난 날은 archive/quant_trader_<날짜>.log.gz — market_close_autodoc이 그 경로를 그대로 넘긴다
     opener = (lambda: gzip.open(log, "rt", encoding="utf-8", errors="replace")) if log.suffix == ".gz"         else (lambda: log.open(encoding="utf-8", errors="replace"))
@@ -552,6 +568,16 @@ def collect(date: str, log: Path, since: int = 0):
                 ledger_start_failures = max(ledger_start_failures, int(found.group(3)))
             if LEDGER_WRITE_FAIL_RE.search(line):
                 ledger_write_fails += 1
+            if BEAT_DEAD_RE.search(line):
+                beat_dead += 1
+            if BEAT_BACK_RE.search(line):
+                beat_back += 1
+            if found := BEAT_GAP_RE.search(line):
+                beat_gap_max = max(beat_gap_max, int(found.group(1)))
+            if found := ORDER_DUPLICATE_RE.search(line):
+                order_duplicate = max(order_duplicate, int(found.group(1)))
+            if found := ORDER_RESPONSE_DROP_RE.search(line):
+                order_response_dropped = max(order_response_dropped, int(found.group(1)))
             if GUARD_RE.search(line):
                 guard_at.append(second)
             if BREAKEVEN_RE.search(line):
@@ -713,7 +739,25 @@ def collect(date: str, log: Path, since: int = 0):
             return (name, True, level, "진입 필터 판정 줄 없음(D-111 배포 전 바이너리) — 판정 안 함")
         return (name, ok, level, detail)
 
+    # 통로·박동(D-114 단계 2) — [큐 고수위] 꼬리가 없으면 그 이전 바이너리다. 없는 기능을 실패로 적지 않는다.
+    channel_skip = beat_gap_max < 0
+
+    def channel_row(name: str, ok: bool, level: str, detail: str):
+        if channel_skip:
+            return (name, True, level, "통로 수치 줄 없음(D-114 단계 2 배포 전 바이너리) — 판정 안 함")
+        return (name, ok, level, detail)
+
     rows = [
+        # 사망 판정이 한 번이라도 났으면 그날 그만큼 신규 진입이 막혔다. 공백 문턱은 부하 실측 24ms 위의 1,000ms다.
+        channel_row("전략 박동", beat_dead == 0, "FAIL",
+                    f"사망 판정 {beat_dead}회 · 복귀 {beat_back}회 · 가장 긴 공백 {beat_gap_max}ms"
+                    f" (기대 0회, 사망 문턱 {BEAT_DEAD_MS}ms — 판정이 나면 그 사이 신규 매수가 막힌다)"),
+        # 문턱 아래여도 의심 문턱을 넘은 날은 전략 스레드가 한 바퀴에 오래 붙들린 것이라 미리 본다.
+        channel_row("전략 박동 여유", beat_gap_max <= BEAT_SUSPECT_MS, "WARN",
+                    f"가장 긴 공백 {beat_gap_max}ms (의심 문턱 {BEAT_SUSPECT_MS}ms, 부하 하네스 실측 24ms)"),
+        # 통로가 새면 같은 주문이 두 번 가거나 전략이 답을 영영 못 받아 기다림 표가 샌다.
+        channel_row("주문 통로 무결", order_duplicate == 0 and order_response_dropped == 0, "FAIL",
+                    f"중복 거름 {order_duplicate}건 · 버린 응답 {order_response_dropped}건 (둘 다 기대 0)"),
         devscale_v2_row("장 마감 청산(넘김)", not devscale_close_exits, "FAIL",
                         f"DEVSCALE 장 마감 청산 신호 {len(devscale_close_exits)}건 (기대 0 — market_close_exit_hhmm 2400, D-111)"
                         + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in devscale_close_exits[:5])}" if devscale_close_exits else "")),

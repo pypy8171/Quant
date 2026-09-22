@@ -2234,6 +2234,11 @@ void OrderGate::set_entry_halt(bool on)
     entry_halt_.store(on);
 }
 
+void OrderGate::set_strategy_down_halt(bool on)
+{
+    strategy_down_halt_.store(on);
+}
+
 void OrderGate::set_manual_halt(OrderSide side, bool on)
 {
     (side == OrderSide::SELL ? manual_sell_halt_ : manual_buy_halt_).store(on);
