@@ -102,6 +102,36 @@ Get-Content logs\bench_latency_path.txt
 - 이 정도 나오면 정상(09-13 실측, 배경 부하 33%): 시각 디코드 36→4ns, 전략 40개 디스패치 70→10ns, 연쇄 p50 200ns,
   최대속도 2.5M 틱/s, 100k/s 투입률에서 캡처·mux 드롭 0. 결과 표는 리포트 결과 ⑥.
 
+## 5. 함수별 CPU 비중 — perf 핫스팟 (리눅스)
+
+위 네 하네스는 "얼마나 걸리나"를 준다. "어느 함수가 CPU를 먹나"는 안 나온다. 그건 perf로 따로 받는데 윈도우에는 붙일
+도구가 없어서 WSL(Ubuntu-24.04) 리눅스 빌드로 받는다. 엔진을 통째로 다시 안 짜도 하네스 타깃 하나만 만들면 된다.
+
+```bash
+# 1) 리눅스 빌드 — 한 번만. 빌드 트리는 /root/quant-build 에 이미 잡혀 있다(Release).
+wsl -d Ubuntu-24.04 -- cmake --build /root/quant-build --target bench_market_firehose
+
+# 2) 표본 뜨기. /usr/bin/perf 래퍼는 WSL2 커널 버전이 달라 거부하니 linux-tools 바이너리를 직접 부른다.
+wsl -d Ubuntu-24.04 -- /usr/lib/linux-tools-6.8.0-139/perf record -q -e cpu-clock -F 499 -o /root/fh.data -- /root/quant-build/bench_market_firehose load --tickers 2600 --rate 200000 --duration 15
+
+# 3) 표 읽기
+wsl -d Ubuntu-24.04 -- /usr/lib/linux-tools-6.8.0-139/perf report -i /root/fh.data --stdio -n -q --no-children --sort dso,sym --percent-limit 0.5
+```
+
+장중에 돌릴 일이 있으면 `record` 앞에 `taskset -c 8-15`를 붙여 코어를 묶는다. 트레이더가 쓰는 코어를 통째로 가져가지 않는다.
+상주 프로세스(트레이더 자신)에 붙일 때는 이 절차를 손으로 하지 않아도 된다 — `PYQuant/core/proc_watch.py`가 같은 perf를
+주기로 돌려 `proc_hotspots` 표에 넣는다(그라파나 패널 25). 다만 CPU 5% 아래에서는 안 뜬다.
+
+읽을 때 두 가지를 같이 본다. 안 그러면 병목을 잘못 짚는다.
+
+- **소비 루프(`strategy_fn`·`order_fn`)의 비중은 일한 시간이 아니라 기다린 시간이다.** 이 하네스는 sleep을 안 쓰고
+  busy-wait으로 돈다(윈도우 sleep이 부정확해서 그렇게 짰다). 기다리는 동안도 CPU 표본으로 잡히니 두 함수가 30%대로
+  나오는 것은 정상이고 병목이 아니다.
+- **시계 읽기 비중의 상당 부분은 측정 비용이다.** 하네스가 지연을 재려고 메시지마다 타임스탬프를 찍는다. 이 숫자를
+  라이브 엔진의 시계 비용으로 옮겨 적으면 안 된다.
+
+결과는 리포트 결과 ⑦.
+
 ## 노브 — 수치 바꿔가며 보기
 
 | 노브 | 뜻 | 예 |
