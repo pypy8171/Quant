@@ -10,11 +10,10 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 111개
 - [Quant](#quant) — 185개
-- [crash](#crash) — 1개
 - [docs](#docs) — 63개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
-- [scripts](#scripts) — 38개
+- [scripts](#scripts) — 39개
 - [strategies](#strategies) — 32개
 - [tools](#tools) — 3개
 
@@ -465,12 +464,6 @@
 - [OpsTerminalDlg.h](../Quant/tools/ops_terminal/OpsTerminalDlg.h) — 운영단말 메인 대화상자 선언
 - [pch.h](../Quant/tools/ops_terminal/pch.h) — 운영단말 공용 선행 헤더(winsock·MFC)
 - [resource.h](../Quant/tools/ops_terminal/resource.h) — 운영단말 리소스 ID 정의
-
-## crash
-
-### crash/
-
-- [crash_46408.dmp](../crash/crash_46408.dmp) — (설명 필요)
 
 ## docs
 
@@ -933,6 +926,7 @@
 - [_logdir.py](../scripts/_logdir.py) — 로그·원장 경로 탐색 헬퍼
 - [analyze_slot_cost.py](../scripts/analyze_slot_cost.py) — 보유 슬롯 한도 비용 분석 스크립트
 - [auto_trade_day.ps1](../scripts/auto_trade_day.ps1) — 일일 자동매매 기동 스크립트
+- [auto_trade_day.sh](../scripts/auto_trade_day.sh) — 리눅스(WSL2) 쪽 하루 루프 — 트레이더만 띄우고 마감까지 재기동(부속 창·마감 정리는 `auto_trade_day.ps1 -NoTrader`). 상태 `_private/_auto_trade_linux.json`, 절차 `docs/RUNBOOK.md` 1.1절
 - [auto_trade_guard.ps1](../scripts/auto_trade_guard.ps1) — 자동매매 감시견 스크립트
 - [backfill_fills_db.py](../scripts/backfill_fills_db.py) — 과거 체결 원장 CSV를 TimescaleDB fills 테이블에 적재하는 스크립트
 - [backfill_studies.py](../scripts/backfill_studies.py) — 스터디 결과 메트릭 백필 스크립트

@@ -407,6 +407,7 @@ if ($NoTrader) {
   # 이 창은 부속 창 생존·유니버스 갱신만 하며 마감까지 기다리고, 마감 뒤 사실 정리는 평소와 같이 한다.
   Say "-NoTrader — 트레이더를 띄우지 않는다. 부속 창만 지키며 $Until 까지 기다린다."
   Save-Status "running" @{ trader = "external" }
+  if ($DryRun) { Say "  (dry) $Until 까지 60초마다 부속 창 생존·유니버스 갱신만 한다"; exit 0 }
   while ((Get-Date) -lt $deadline) { Start-Sleep -Seconds 60; Restore-Windows; Refresh-Universe }
 }
 while (-not $NoTrader -and (Get-Date) -lt $deadline) {

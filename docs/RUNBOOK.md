@@ -21,7 +21,7 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@0abd4fd scripts/auto_trade_guard.ps1@74bf998 -->
+<!-- sync: scripts/auto_trade_day.ps1@9c1b50d scripts/auto_trade_guard.ps1@74bf998 -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 죽으면 다시
 띄운다. 마감 뒤 `scripts/market_close_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 트레이더는 이 감시견이 소유한다 —
@@ -58,27 +58,25 @@ powershell -ExecutionPolicy Bypass -File scripts\auto_trade_guard.ps1 -Uninstall
 ### 1.1 트레이더를 리눅스(WSL2)에서 띄우는 날
 
 같은 계좌에 엔진은 하나여야 한다. Windows 쪽은 `-NoTrader`로 띄워 부속 창·유니버스·마감 정리만 맡기고(상태파일에
-`trader=external`이 남아 감시자 예약작업도 그날은 Windows 트레이더를 띄우지 않는다), 트레이더는 WSL에서 손으로 띄운다.
+`trader=external`이 남아 감시자 예약작업도 그날은 Windows 트레이더를 띄우지 않는다), 트레이더는 리눅스 쪽 하루 루프
+`scripts/auto_trade_day.sh`가 맡는다 — 기동 전 검사(WSL·Windows 양쪽 중복 프로세스, 모의계좌 확인), `ninja` 증분 재빌드,
+미체결 복원(`seed_open_orders.py`), 마감(`--until`, 기본 15:35)까지 죽으면 재기동, 30분 안 3회 종료면 크래시 루프로 멈춤(`exit 3`).
 로그는 `QUANT_LOG_DIR`로 Windows 쪽 `Quant\build_win\logs`에 쓰게 해서 `parse_quant_log.py`·`check_runtime_health.py`·
-`market_close_autodoc.py`가 평소처럼 읽는다. 엔진은 마감 뒤 스스로 내려간다(D-098). 순서: 08:40까지 Windows 창 → 08:50 WSL 창.
+`market_close_autodoc.py`가 평소처럼 읽는다. 엔진은 마감 뒤 스스로 내려간다(D-098). 마감 정리는 Windows 창이 한다.
+순서: 08:40까지 Windows 창 → 이어서 cmd 창(wsl). 둘 다 08:45 감시자보다 먼저.
 
 ```powershell
 cd {ROOT}
-powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -NoTrader   # 08:45 감시자보다 먼저 띄운다
-py scripts\seed_open_orders.py      # 08:50 두 번째 창에서 — 미체결 복원(감시견이 트레이더 앞에 하던 일)
+powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -NoTrader   # 창 1 — 부속 창·유니버스·마감 정리
+cmd /k wsl -d Ubuntu-24.04 -u root -e bash scripts/auto_trade_day.sh          # 창 2 — 트레이더(cwd 가 /mnt/c/… 저장소 루트로 넘어간다)
 ```
 
-```bash
-wsl -d Ubuntu-24.04 -u root
-cd /mnt/c/Users/PYH/source/repos/Quant                     # 반드시 repo 루트 — 표지 파일·캡처 경로가 상대 경로다
-export TZ=Asia/Seoul
-export KIS_TOKEN_CACHE_DIR=$PWD/Quant/config QUANT_LOG_DIR=$PWD/Quant/build_win/logs
-~/quant-build/quant_trader Quant/config/config_dev_paper.json TRADE
-```
-
-빌드가 없으면 `cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -B ~/quant-build -S Quant && ninja -C ~/quant-build quant_trader`
-(Ubuntu-24.04·GCC 13, `libcurl4-openssl-dev libssl-dev`). 그날 판정은 `check_runtime_health.py`의 `실행 플랫폼` 행 —
-같은 날 Windows·Linux가 섞이면 FAIL(엔진 둘).
+리눅스 쪽 상태는 `_private/_auto_trade_linux.json`(`phase`·`pid`·`sessions`·`history`·`error`), 실행 로그는
+`logs/auto_trade_linux_YYYYMMDD.log`. `error` 값은 Windows 표와 같고 `duplicate_process_windows`(Windows 트레이더가 떠 있음)·
+`not_paper`(모의계좌 아님)·`stale_exe`(`--no-build`인데 소스가 더 새것)·`no_build_dir`가 더 있다. 미리 보기는
+`bash scripts/auto_trade_day.sh --dry-run`. 빌드 폴더가 없으면 `cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -B ~/quant-build -S Quant`
+(Ubuntu-24.04·GCC 13, `libcurl4-openssl-dev libssl-dev libzmq3-dev`; 다른 자리면 `QUANT_LINUX_BUILD`). 그날 판정은
+`check_runtime_health.py`의 `실행 플랫폼` 행 — 같은 날 Windows·Linux가 섞이면 FAIL(엔진 둘).
 
 `quant-recorder`(ZMQ→TimescaleDB)가 붙는 DB는 WSL2(Ubuntu-22.04) 안의 Docker가 낸다. 감시견이 `quant-wsl-keepalive`
 창(`wsl -e sleep infinity`)을 같이 띄워 배포판을 붙잡는다(단발 `wsl -e` 호출은 끝나자마자 배포판이 내려간다, 09-16 실측).
