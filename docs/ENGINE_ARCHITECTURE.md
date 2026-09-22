@@ -26,6 +26,24 @@
 - 원장은 메모리에만 두지 않습니다 — 주문을 KIS로 보내기 **전에** `Quant/include/risk/LedgerJournal.h`가 오늘 파일(`ledger_YYYYMMDD.bin`, 16바이트 헤더 + 192바이트 고정 레코드·순번·CRC32)에 INTENT를 적고 선점을 잡습니다. 못 적으면 선점을 되돌리고 주문을 보내지 않고, 저널을 못 열면 엔진이 기동하지 않습니다. 기동은 그 파일을 처음부터 다시 적용해(리플레이) 보유·평단·매도가능·선점·현금·당일손익을 되쌓은 다음 잔고 시드와 대조하고, 결말을 못 본 주문은 KIS 미체결조회와 맞춰 되살리거나 선점만 풉니다. DB는 하류 복제본입니다(`PYQuant/tools/ledger_recorder.py`가 파일 꼬리를 따라 읽어 적재, D-113).
 - 대사 단계 귀속(D-038): 전략 스레드가 신호마다 `OrderSignal.seq`를 단조 stamp하고 라우터가 원장 CSV 전 행에 같은 번호를 남깁니다. 잔고 대조는 덮어쓰기·정리 전 원장 값으로 `core/ReconcilePlan.h`(순수 함수)가 어긋난 종목만 골라 `RECONCILE` 행(`OVERWRITE|PRUNE|KEEP`)을 씁니다.
 
+### 남는 것과 가는 곳
+
+엔진은 같은 사건을 네 군데에 따로 남긴다. 넷은 서로 상류·하류가 아니라 각자 독립이라, 하나가 막혀도 나머지는 남는다.
+
+| 남는 것 | 무엇이 | 형식 | 켜는 설정 | DB까지 |
+|---|---|---|---|---|
+| 거래 원장 `logs/trades_YYYYMMDD.csv` | 주문 종착 상태·체결·잔고 대조 | 텍스트(CSV) | 없음 — 늘 켜짐 | 상시 경로 없음. 빠진 체결만 [scripts/backfill_fills_db.py](../scripts/backfill_fills_db.py)로 뒤에 채운다 |
+| 원장 저널 `ledger_YYYYMMDD.bin` | 주문 의도·접수·거부·체결·취소·조정·시드·현금·당일손익 | 바이너리 — 192바이트 고정 레코드, 순번·CRC32 ([LedgerJournal.h](../Quant/include/risk/LedgerJournal.h)) | `ledger_journal_dir` | [PYQuant/tools/ledger_recorder.py](../PYQuant/tools/ledger_recorder.py)가 파일 꼬리를 따라 읽어 `ledger_events` |
+| 시세 캡처 `ticks_<기동시각>.bin` | 체결·호가·일봉·그날 유니버스 | 바이너리 — QTCAP v2 ([TickCapture.h](../Quant/include/core/TickCapture.h)) | `capture_dir` | 안 간다. 리플레이 백테스트 입력이다 |
+| ZMQ 발행 | 체결틱·신호·주문·체결·엔진 상태 | 토픽 한 프레임 + JSON 한 프레임 ([ZmqBridge.cpp](../Quant/src/ipc/ZmqBridge.cpp)) | `zmq_pub_port` (ZeroMQ가 링크돼 있으면 늘 켜짐) | [PYQuant/main.py](../PYQuant/main.py) `record`가 구독해 표 6개에 넣는다 |
+
+읽을 때 헷갈리기 쉬운 세 가지.
+
+- 주문은 **ZMQ 발행이 CSV 기록보다 먼저** 나간다. CSV가 발행의 상류가 아니다.
+- 시세는 캡처와 발행이 담는 것이 다르다 — 호가와 일봉은 캡처에만 있고 발행되지 않는다.
+- 잃는 방식이 다르다. 저널은 못 적으면 주문을 아예 안 보내고(그래서 정본), 캡처는 큐가 차면 버리고 센 다음 넘어가며,
+  ZMQ는 구독자가 느리면 큐 상한에서 버린다. 되짚을 근거로 삼을 것은 저널이고 DB는 그 복제본이다.
+
 ### 핵심 타입 (`Quant/include/core/Types.h`)
 
 <!-- sync: Quant/include/core/Types.h@6052334 -->
