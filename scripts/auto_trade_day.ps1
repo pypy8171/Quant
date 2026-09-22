@@ -433,6 +433,12 @@ if (-not $NoRecorder) {
   # 있어 /proc를 그 배포판에서 읽고, Windows exe 날은 psutil로 본다.
   $procwatchArgs = if ($NoTrader) { "--wsl-distro Ubuntu-24.04" } else { "" }
   Start-Window "quant-procwatch" "& '$py' PYQuant\main.py procwatch $procwatchArgs" "main.py procwatch"
+  # 원장 저널 파일(D-113) → TimescaleDB 복제. 2초 주기로 꼬리를 따라가고, DB가 없으면 그냥 죽는다 —
+  #  되살릴 때 안 읽은 구간부터 따라잡으므로 잃는 것이 없다. 폴더는 config의 ledger_journal_dir(엔진과 같은 곳).
+  $ledgerDir = ""
+  try { $ledgerDir = (Get-Content $Config -Raw | ConvertFrom-Json).ledger_journal_dir } catch { }
+  if (-not $ledgerDir) { $ledgerDir = "Quant\build_win\logs"; Say "config 에서 ledger_journal_dir 을 못 읽었다 — $ledgerDir 로 띄운다." "WARN" }
+  Start-Window "quant-ledger"    "& '$py' PYQuant\tools\ledger_recorder.py --dir '$ledgerDir'" "ledger_recorder.py"
 }
 
 # ─────────────── 감시 루프 ───────────────

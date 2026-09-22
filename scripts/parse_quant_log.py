@@ -70,7 +70,10 @@ def classify(rest: str, lvl: str):
         return ("fill_dup", rest)
     if "체결통보 매핑 실패" in rest:
         return ("fill_unmapped", rest)
-    # 체결 (주문접수보다 먼저 검사 — 둘 다 OrderRouter)
+    # 체결 (주문접수보다 먼저 검사 — 둘 다 OrderRouter). "체결통보 AES key/iv 확보"는 WS 연결 준비 줄이라
+    # 체결이 아니다 — 재기동·재연결마다 찍혀 09-22 감시 창에 체결 2건으로 부풀었다
+    if "AES key" in rest:
+        return None
     if "체결 확인" in rest or ("체결" in rest and "통보" in rest):
         return ("fill", rest)
     if "[OrderRouter] 접수 [ORD-" in rest:

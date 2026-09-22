@@ -21,10 +21,10 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@a69d4fc scripts/auto_trade_guard.ps1@74bf998 -->
+<!-- sync: scripts/auto_trade_day.ps1@db182dd scripts/auto_trade_guard.ps1@74bf998 -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 죽으면 다시
-띄운다. 마감 뒤 `scripts/market_close_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 트레이더는 이 감시견이 소유한다 —
+띄운다. 마감 뒤 `scripts/market_close_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 부속 창에는 체결 기록기·엔진 자원 표본기와 원장 저널 적재기(`quant-ledger`)가 있는데, 저널 적재기는 엔진이 주문 전에 파일로 적어 둔 원장(D-113)을 DB로 따라 적는다 — 죽어도 되살아나면 안 읽은 구간부터 따라잡는다. 트레이더는 이 감시견이 소유한다 —
 손으로 따로 띄우면 엔진이 둘이 된다. 기동 전에 이미 떠 있는 `quant_trader`가 있으면 중단하는데, config에 `replay_file`이
 있는 프로세스(워크트리의 리플레이 측정)는 증권사에 주문을 내지 않으므로 세지 않는다.
 
@@ -161,7 +161,7 @@ cd {ROOT}; $env:PYTHONUTF8="1"; Start-Process py -ArgumentList 'scripts\dashboar
 
 ## 4. 로그 감시·요약
 
-<!-- sync: scripts/parse_quant_log.py@2da4db6 -->
+<!-- sync: scripts/parse_quant_log.py@6057b64 -->
 
 체결원장(CSV)에 없는 운영 이벤트(원장 저널 기록 실패·ERROR·KIS 거부·게이트 봉쇄·WS 재연결·HTTP 오류·주문·체결·15초 제한 시간 초과·잔고 조회 사이클 걸침)만 뽑는다. 손익은 지어내지
 않고 개수·사유만. 주문이 있는 창은 접수 지연 한 줄을 붙인다 — RTT 중앙값·3초 이상 건수·버킷대기 중앙값과 "서버 응답 지연인지 초당한도 버킷인지" 판정(임계는 `scripts/check_runtime_health.py`가 소유). 로그는 실행파일 옆 `Quant\build_win\logs\quant_trader.log`다(cwd가 아니라 exe 기준 — 정본 `scripts/_logdir.py`, 루트 `logs\`는 테스트 바이너리 것).

@@ -365,6 +365,17 @@ void Engine::maybe_rescan_universe()
 {
     reap_retired(/*force=*/false);
 
+    // 마지막 매매 창이 닫혔으면 더 스캔하지 않는다 — 여기서 새로 붙는 전략은 첫 봉에 진입 신호를 내는데
+    // 게이트가 세션 창 밖으로 전부 막는다. 09-22 마감에 005257이 15:30:30에 붙어 매수를 냈고, 하루 판정이
+    // "매매 창 밖 거부 1건"으로 FAIL 났다. 자기 종료 유예(120초)는 주문 큐를 비우라고 있는 시간이지
+    // 새 종목을 담으라고 있는 시간이 아니다. 창 0(리플레이·테스트)이면 판정하지 않는다
+    const int last_close_min = session_end_.config().close_min;
+
+    if (last_close_min > 0 && kst::sec_of_day(std::time(nullptr)) >= last_close_min * 60)
+    {
+        return;
+    }
+
     if (universe_rescan_.jobs.empty())
     {
         return;

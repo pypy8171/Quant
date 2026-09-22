@@ -120,8 +120,15 @@ def import_psycopg2():
     except ImportError:
         pass
 
-    for site_packages in sorted(REPO.glob("PYQuant/.venv*/Lib/site-packages")) + \
-            sorted(REPO.glob("PYQuant/.venv*/lib/python*/site-packages")):
+    # 윈도우 venv(Lib/site-packages)와 리눅스 venv(lib/python*/site-packages)는 서로 붙이지 않는다 —
+    # WSL에서 윈도우 psycopg2를 붙였다가 wheel 안 os.add_dll_directory 호출로 AttributeError가 나
+    # 마감 판정이 통째로 죽었다(2026-09-22 리눅스 첫날)
+    if sys.platform == "win32":
+        candidates = sorted(REPO.glob("PYQuant/.venv*/Lib/site-packages"))
+    else:
+        candidates = sorted(REPO.glob("PYQuant/.venv*/lib/python*/site-packages"))
+
+    for site_packages in candidates:
         if not site_packages.is_dir():
             continue
 
@@ -130,7 +137,9 @@ def import_psycopg2():
         try:
             import psycopg2
             return psycopg2
-        except ImportError:
+        except Exception:
+            # ImportError만 잡으면 안 된다 — 다른 플랫폼용 wheel은 import 도중 AttributeError 같은
+            # 것을 던지고, 그것이 판정기 전체를 끝내 버린다. 붙인 경로를 되돌리고 다음 후보로 간다
             sys.path.pop()
 
     return None
@@ -545,7 +554,7 @@ def collect(date: str, log: Path, since: int = 0):
                    f"되살림 {ledger_restored}건 · 선점해제 {ledger_released}건 · 꼬리 잘림 {ledger_truncated}회"
                    f" (리플레이 최대 {max(ledger_replays, default=0)}건 — 선점해제는 원장에 적고 KIS엔 안 간 주문,"
                    f" 꼬리 잘림은 쓰다 만 레코드)"),
-        ("조기 사망 세션", not short, "FAIL",
+        ("일찍 끝난 세션", not short, "FAIL",
          f"{MIN_SESSION_SEC}초 미만 종료 {len(short)}회"
          + (f" — {', '.join(hhmm(second) for second in short[:5])}" if short else "")),
         ("재기동 투매", not dump, "FAIL",

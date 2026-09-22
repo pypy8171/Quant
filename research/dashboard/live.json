@@ -1,7 +1,15 @@
 {
   "schema": "quant.live/v1",
-  "generated": "2026-09-21 21:13",
+  "generated": "2026-09-22 18:41",
   "journals": [
+    {
+      "date": "2026-09-22",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-09-22.md",
+      "title": "라이브 모의 매매 일지 — 2026-09-22 (화)",
+      "strat_line": "DeviationScale (DEVSCALE) 정배열눌림 지정가 분할 매수 + ITB 청산 관리(전일 보유분).",
+      "summary": ""
+    },
     {
       "date": "2026-09-21",
       "strategy": "DeviationScale",
@@ -1847,6 +1855,54 @@
       "realized_pnl": -144276,
       "buy_notional": 4035550,
       "sell_notional": 42919720
+    },
+    {
+      "date": "2026-09-22",
+      "path": "Quant/build_win/logs/trades_20260922.csv",
+      "total": 138,
+      "by_status": {
+        "ACCEPTED": 88,
+        "CANCELLED": 23,
+        "FILLED": 17,
+        "REJECTED": 6,
+        "KEEP": 4
+      },
+      "by_strategy": {
+        "DEVSCALE_096530": 40,
+        "DEVSCALE_033100": 15,
+        "DEVSCALE_005830": 9,
+        "DEVSCALE_105560": 9,
+        "DEVSCALE_055550": 7,
+        "DEVSCALE_316140": 7,
+        "buy_once_005930": 6,
+        "BuyEachOnce": 6,
+        "DEVSCALE_005010": 6,
+        "DEVSCALE_023810": 5,
+        "DEVSCALE_001120": 4,
+        "DEVSCALE_453340": 4,
+        "": 4,
+        "DEVSCALE_012750": 3,
+        "DEVSCALE_086790": 3,
+        "DEVSCALE_065350": 3,
+        "DEVSCALE_373220": 2,
+        "buy_once_000660": 2,
+        "DEVSCALE_000325": 2,
+        "DEVSCALE_005257": 1
+      },
+      "by_side": {
+        "BUY": 76,
+        "SELL": 58,
+        "NONE": 4
+      },
+      "n_tickers": 19,
+      "accepted": 88,
+      "rejected": 6,
+      "cancelled": 23,
+      "filled": 17,
+      "fill_events": 38,
+      "realized_pnl": -137636,
+      "buy_notional": 9209090,
+      "sell_notional": 12767120
     }
   ]
 }

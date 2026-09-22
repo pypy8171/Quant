@@ -3,6 +3,84 @@
  "_comment": "실증 사후검토(post-mortem) 데이터 계약. build_dashboard.py render_reviews()가 이 파일만 읽어 '리뷰' 탭을 렌더한다. *_html 필드는 신뢰된 인라인 HTML(작성자=본인), 그 외는 이스케이프. 새 리뷰는 reviews 배열에 append.",
  "reviews": [
   {
+   "id": "2026-09-22_session_review",
+   "strategy": "DEVSCALE · buy_once",
+   "eyebrow": "세션 리뷰 · 09-22 · 원장/로그 자동 집계",
+   "headline_html": "09-22 세션 정리 — 전일대비 −65,182원",
+   "verdict_html": "원장 138이벤트(접수 67 · 체결 38 · 거부 6), 재기동 7회. 당일 라운드트립 1건 중 이익 0건, 라운드트립 실현 −20원(당일 양변 확인분·비용 제외). 전일 종가 대비 종료 손익은 −65,182원이다. 세션 시작을 0으로 잡은 잔고 대조 카운터로는 +48,318원인데, 재기동마다 기준이 옮겨가고 간밤 갭이 빠지므로 하루의 성과는 앞의 값으로 읽는다. 여기까지는 원장·로그에서 기계로 뽑은 사실이고, 원인과 다음 조치는 아래 항목에 사람이 적는다.",
+   "meta_html": [
+    "근거 로그 <span class=\"mono\">quant_trader.log</span> · 원장 <span class=\"mono\">138</span>이벤트",
+    "재기동 <span class=\"mono\">7</span>회 · 접수 <span class=\"mono\">67</span> / 체결 <span class=\"mono\">38</span> / 거부 <span class=\"mono\">6</span>",
+    "전략별 이벤트 <span class=\"mono\">DEVSCALE_096530 27</span> · <span class=\"mono\">DEVSCALE_033100 11</span> · <span class=\"mono\">DEVSCALE_005830 9</span> · <span class=\"mono\">DEVSCALE_105560 7</span>"
+   ],
+   "doc_path": "strategies/DeviationScale/live/2026-09-22.md",
+   "log_path": "Quant/build_win/logs/quant_trader.log",
+   "incidents": [
+    {
+     "sev": "로그",
+     "when": "09-22 종일",
+     "title": "ERROR/WARN 28건 — [CURL] 요청 실패: Timeout was reached",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[CURL] 요청 실패: Timeout was reached</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 28건",
+     "impact_html": ""
+    },
+    {
+     "sev": "로그",
+     "when": "09-22 종일",
+     "title": "ERROR/WARN 21건 — [CURL] 수신 제한 시간 초과 — 재시도 없이 실패 처리  url=https://o",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[CURL] 수신 제한 시간 초과 — 재시도 없이 실패 처리  url=https://openapivts.koreainvestment.com:N/</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 21건",
+     "impact_html": ""
+    },
+    {
+     "sev": "로그",
+     "when": "09-22 종일",
+     "title": "ERROR/WARN 21건 — [Engine] 잔고 대조: 조회 실패(transport 잔고 응답 없음(page=0)",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[Engine] 잔고 대조: 조회 실패(transport 잔고 응답 없음(page=0))</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 21건",
+     "impact_html": ""
+    },
+    {
+     "sev": "공백",
+     "when": "13:00~15:30",
+     "title": "주문 이벤트 공백 149.9분",
+     "desc_html": "접수·체결·거부가 한 건도 없는 최장 구간. 신호 고갈인지 배관 정지인지는 로그로 갈라야 한다.",
+     "evidence": "Quant/build_win/logs/trades_20260922.csv",
+     "impact_html": ""
+    }
+   ],
+   "pnl": {
+    "title_html": "09-22 세션 당일손익 <span class=\"u\">KRW · 잔고 대조 폴링에서 시작·고점·저점·마감 4점</span>",
+    "series": [
+     {
+      "t": "01:08",
+      "v": 113500
+     },
+     {
+      "t": "09:01",
+      "v": 191008
+     },
+     {
+      "t": "14:11",
+      "v": 24663
+     },
+     {
+      "t": "15:31",
+      "v": 48318
+     }
+    ],
+    "floor": 24663,
+    "ceil": 191008,
+    "gridlines": [
+     200000,
+     100000,
+     0
+    ],
+    "last_label": "세션손익",
+    "note_html": "고점 <b class=\"pos\">+191,008</b>@09:01 · 저점 <b class=\"neg\">+24,663</b>@14:11 · 마감 <b>+48,318</b>@15:31. 폴링 325건 중 4점만 표시했다(연속 곡선 아님)."
+   }
+  },
+  {
    "id": "2026-09-21_session_review",
    "strategy": "ITB · DEVSCALE",
    "eyebrow": "세션 리뷰 · 09-21 · 원장/로그 자동 집계",

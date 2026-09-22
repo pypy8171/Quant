@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@4acbc32 Quant/src/core/Engine.cpp@99a1af8 Quant/include/core/DataPoller.h@6d196bc Quant/include/core/SignalDispatcher.h@9d1555f Quant/include/core/OrderRateLimiter.h@deac415 Quant/include/core/LedgerReconciler.h@f122289 Quant/include/core/WakeGate.h@60f8954 Quant/include/core/BarAggregator.h@fbb210b Quant/include/core/LatencyTrace.h@489b3ab Quant/include/core/ReconcilePlan.h@e44b1c1 -->
+<!-- sync: Quant/include/core/Engine.h@4acbc32 Quant/src/core/Engine.cpp@52d5459 Quant/include/core/DataPoller.h@6d196bc Quant/include/core/SignalDispatcher.h@9d1555f Quant/include/core/OrderRateLimiter.h@deac415 Quant/include/core/LedgerReconciler.h@f122289 Quant/include/core/WakeGate.h@60f8954 Quant/include/core/BarAggregator.h@fbb210b Quant/include/core/LatencyTrace.h@489b3ab Quant/include/core/ReconcilePlan.h@e44b1c1 -->
 
 ```
 [데이터 스레드]  →  pipeline_.bars_matrix·pipeline_.trade_matrix (링 행렬 행)  →  [샤드 스레드 m]  →  pipeline_.shard_out (MpscQueue)  →  [전략(디스패치) 스레드]  →  pipeline_.order_queue  →  [주문 스레드]
