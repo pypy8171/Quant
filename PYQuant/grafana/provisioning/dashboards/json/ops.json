@@ -13,8 +13,8 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "F-1 피드 공백 (마지막 틱 이후 경과 초)",
-      "description": "장중 10초 초과 경고, 60초 초과 위험 — KIS WS 정각+2초 단절 재연결 1.03초 실측 기준",
+      "title": "시세 끊김 — 마지막 체결이 들어온 뒤 흐른 시간(초)",
+      "description": "관측 항목 F-1. 장중 10초 초과 경고, 60초 초과 위험 — KIS WS 정각+2초 단절 재연결 1.03초 실측 기준",
       "gridPos": {
         "h": 6,
         "w": 6,
@@ -63,7 +63,7 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "F-1 초당 틱 유입량",
+      "title": "초당 들어온 체결 건수 (DB 기록 기준)",
       "gridPos": {
         "h": 6,
         "w": 18,
@@ -81,7 +81,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT time_bucket('1 second', ts) AS time, COUNT(*) AS ticks_per_sec\nFROM ticks WHERE $__timeFilter(ts) GROUP BY 1 ORDER BY 1;",
+          "rawSql": "SELECT time_bucket('1 second', ts) AS time, COUNT(*) AS \"초당 체결\"\nFROM ticks WHERE $__timeFilter(ts) GROUP BY 1 ORDER BY 1;",
           "refId": "A"
         }
       ],
@@ -95,8 +95,8 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "F-4 당일 재기동 횟수",
-      "description": "health.data_cnt가 직전보다 작아지면 새 프로세스 — 09-16 65분에 10회 재기동 사건",
+      "title": "오늘 엔진 재기동 횟수",
+      "description": "관측 항목 F-4. health.data_cnt가 직전보다 작아지면 새 프로세스 — 09-16 65분에 10회 재기동 사건",
       "gridPos": {
         "h": 6,
         "w": 6,
@@ -145,7 +145,7 @@
     {
       "id": 4,
       "type": "timeseries",
-      "title": "F-3 30초 사이클당 틱/주문 증가분",
+      "title": "30초마다 늘어난 체결·주문 건수 (엔진 자체 카운터)",
       "gridPos": {
         "h": 6,
         "w": 18,
@@ -163,7 +163,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time,\n       GREATEST(data_cnt - LAG(data_cnt) OVER (ORDER BY ts), 0) AS ticks_per_cycle,\n       GREATEST(order_cnt - LAG(order_cnt) OVER (ORDER BY ts), 0) AS orders_per_cycle\nFROM health WHERE $__timeFilter(ts) ORDER BY ts;",
+          "rawSql": "SELECT ts AS time,\n       GREATEST(data_cnt - LAG(data_cnt) OVER (ORDER BY ts), 0) AS \"30초당 체결\",\n       GREATEST(order_cnt - LAG(order_cnt) OVER (ORDER BY ts), 0) AS \"30초당 주문\"\nFROM health WHERE $__timeFilter(ts) ORDER BY ts;",
           "refId": "A"
         }
       ],
