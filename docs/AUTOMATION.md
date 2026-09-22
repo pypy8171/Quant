@@ -98,6 +98,7 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 | `sync-gate.ps1` | Stop | 턴이 끝날 때 `sync_impact.py --diff --fix` — 낡은 gen 블록은 치환하고, 낡은 도장·재생성 실패·새 힌트가 있으면 턴을 되돌려 그 자리에서 고치게 한다(D-075) |
 | `file-index-gate.ps1` | Stop | 턴이 끝날 때 `file_index.py`로 `docs/FILE_INDEX.md`·`_private/FILE_INDEX.md`를 트리와 맞춘다 — 없어진 파일은 빠지고 날짜 파일·로그는 규칙 표가 설명을 채우며, 설명 없는 새 파일은 `(설명 필요)`로 넣고 턴을 되돌려 그 자리에서 채우게 한다. 커밋 쪽은 `docs-gate.ps1`이 `--check --staged`로 스테이징된 추가·삭제와 색인을 대조한다 |
 | `review-reminder.ps1` | Stop | 코드 변경 뒤 리뷰 누락을 상기 |
+| `push-summary.ps1` | PostToolUse (Bash·PowerShell) | `git push`가 끝나면 이번 푸시에 담긴 내용을 요약해 보여주게 한다 — 푸시 범위·커밋 제목·파일마다 바뀐 줄로 가는 링크와 한 줄 설명·남은 확인. 푸시가 아닌 명령과 거절된 푸시에는 아무것도 하지 않는다 |
 | `market-close-gate.ps1` | SessionStart | 사후검토가 밀린 거래일이 있으면 세션 시작에 알림 |
 | `session-board-server.ps1` | SessionStart | `../quant-devtools/session_board_server.py`(:8788)를 숨긴 창으로 띄운다 — 트레이더 대시보드가 없어도 세션이 하나라도 열려 있으면 현황판을 보게. 포트가 이미 쓰이면 서버가 스스로 끝나므로 매번 띄운다 |
 | `cron-gate.ps1` | SessionStart | 예약작업이 예정 시각을 넘겨 안 돌았거나 `LastTaskResult≠0`이면 작업 이름·실패 시각·복구 커맨드를 알림 |
