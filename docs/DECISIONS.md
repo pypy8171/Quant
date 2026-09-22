@@ -4882,5 +4882,10 @@ hang은 아예 못 잡지만 심장박동 문턱 5ms는 셋 다 문턱 그대로
 - **`.inl` 로 내리고 헤더 끝에서 include**: 컴파일 비용은 헤더에 몸통이 있는 것과 같다. 파일 수만 는다.
 - **타깃마다 필요한 `.cpp` 를 나열**: 시험·벤치 타깃이 많아 타깃을 하나 더할 때마다 링크 오류를 보고 고치게 된다.
 
-**남은 위험**: 지금은 사람이 지키는 규칙이다. `../quant-devtools/check_code_conventions.py` 에 헤더 안 함수 몸통
-검사를 붙이는 것이 남았다 — 위 예외 셋을 그대로 구현해야 해서 이번 변경에 같이 넣지 않았다.
+**뒤에 붙인 것**(2026-09-22): `../quant-devtools/check_code_conventions.py` 규칙 9 — `Quant/**.h` 에 남은 함수 몸통을
+찾는다. 예외 셋(template·`requires`, `constexpr`·`consteval`, 분기 없는 다섯 줄 이하 접근자)을 그대로 구현했다.
+파일 전체를 읽지만 이번 변경이 건드린 줄에 걸린 몸통만 말한다 — 남이 오래전에 둔 것까지 들추면 그 파일을 스친
+커밋이 전부 막힌다. 지금 트리에 걸리는 자리는 아홉이다(`Quant/include/core/PrefetchPool.h` 다섯,
+`Quant/include/core/Engine.h:172`, `Quant/include/ipc/ZmqBridge.h:42`,
+`Quant/include/strategy/IntradayBreakoutStrategy.h:76`, `Quant/include/strategy/MomentumStrategy.h:30`) —
+그 파일을 다음에 고치는 세션이 같이 내린다.

@@ -154,6 +154,11 @@ config.json을 읽는 곳은 `Quant/src/core/AppConfig.cpp`의 `parse_config()` 
 (`int size() const { return count_; }`), 멤버 기본값. 헤더에 몸통이 있으면 그 헤더를 include 하는 번역 단위마다 같은
 몸통을 다시 컴파일하고, 몸통 한 줄을 고쳐도 그 헤더를 건드린 파일이 전부 다시 빌드된다(D-118).
 
+- 검사는 `../quant-devtools/check_code_conventions.py` 9번 규칙이 이번 변경이 건드린 줄에 걸친 몸통만 본다(오류). 중괄호 깊이를
+  따라가며 함수 몸통만 골라내므로 람다·멤버 초기화자·제어문은 걸리지 않는다.
+- 통과하는 것은 셋이다 — template·`requires`가 붙은 것, `constexpr`·`consteval`·`static_assert`, 분기·반복이 없는 5줄 이하 몸통.
+  `Quant/tests/`·`Quant/tools/` 아래 헤더는 보지 않는다(실행 타깃에 안 들어간다).
+
 주석을 줄이는 작업(에이전트 포함)의 확인 절차:
 1. 지우기 전에 그 주장이 지금 코드와 맞는지 확인한다. 틀린 주석을 D-NNN으로 옮기면 오류를 정본에 승격시킨다.
 2. 삭제 줄에서 숫자·식별자·ID(`\d+%`, 날짜, `[A-Z]-?\d+`, `§\d`)를 뽑아 각각이 남은 주석·DECISIONS·대상 문서 중 한 곳에 있는지 목록으로 보고한다. 없으면 삭제하지 않는다.
