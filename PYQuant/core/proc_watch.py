@@ -12,7 +12,7 @@ import re
 import subprocess
 import time
 
-from core.logger import setup_logger
+from core.logger import attach_file_handler, setup_logger
 
 logger = setup_logger("quant.procwatch")
 
@@ -42,7 +42,8 @@ pid=$(pgrep -x "$1" | head -1); [ -z "$pid" ] && exit 0
 # /usr/bin/perf 래퍼는 커널 버전이 다르면(WSL2) 거부하므로 linux-tools의 실제 바이너리를 먼저 찾는다
 perf_bin=$(ls /usr/lib/linux-tools/*/perf 2>/dev/null | tail -1); [ -z "$perf_bin" ] && perf_bin=$(command -v perf); [ -z "$perf_bin" ] && { echo "NOPERF"; exit 0; }
 "$perf_bin" record -q -e cpu-clock -F 499 -p "$pid" -o /tmp/quant_procwatch_perf.data -- sleep "$2" >/dev/null 2>&1
-"$perf_bin" report -i /tmp/quant_procwatch_perf.data --stdio -n -q --sort dso,sym --percent-limit 0.3 2>/dev/null | head -60
+# --percent-limit은 낮게 둔다 — 0.3%로 자르면 표본이 적은 회차에서 비율 합이 90%대로 빠져 표를 못 믿는다
+"$perf_bin" report -i /tmp/quant_procwatch_perf.data --stdio -n -q --no-children --sort dso,sym --percent-limit 0.05 2>/dev/null | head -150
 '''
 # perf report -n 한 줄:  "    12.34%       123  quant_trader  [.] Engine::foo(...)"
 _PERF_LINE = re.compile(r"^\s*([\d.]+)%\s+(\d+)\s+(\S+)\s+\[[.k]\]\s+(.+?)\s*$")
@@ -55,6 +56,11 @@ class LinuxProcSampler:
         self.process_name = process_name
         self.wsl_distro = wsl_distro
         self._previous = None      # (monotonic, pid, proc_ticks, {thread_id: (name, ticks)})
+
+    def reset(self):
+        """다음 표본을 기준점부터 다시 잡는다 — 수집이 한 번 실패한 뒤 이어서 차분을 내면
+        그 사이 시간이 통째로 한 표본에 몰려 CPU%가 실제보다 크게 나온다."""
+        self._previous = None
 
     def _shell(self, script: str, *arguments: str, timeout: float) -> str:
         command = ["bash", "-c", script, "procwatch", *arguments]
@@ -183,18 +189,37 @@ def _run_psutil(db, process_name: str, interval: float):
         except (psutil.NoSuchProcess, psutil.AccessDenied) as error:
             logger.warning(f"표본 수집 중 프로세스 사라짐(name={process_name}): {error}")
             time.sleep(interval)
+        except Exception as error:
+            # [inv] 리눅스 경로와 같은 약속 — 어떤 예외로도 이 루프를 나가지 않는다.
+            logger.warning(f"표본 수집 실패 — 이어서 간다: {error}")
+            time.sleep(interval)
 
 
-def _run_linux(db, process_name: str, interval: float, wsl_distro: str, perf_interval: float, perf_seconds: float):
+def _run_linux(db, process_name: str, interval: float, wsl_distro: str, perf_interval: float, perf_seconds: float,
+               perf_cpu_floor: float):
     sampler = LinuxProcSampler(process_name, wsl_distro)
     where = f"wsl:{wsl_distro}" if wsl_distro else "local"
-    logger.info(f"/proc 표본({where}) — perf 핫스팟 {'매 %.0f초 %.0f초 표본' % (perf_interval, perf_seconds) if perf_interval > 0 else '끔'}")
+    logger.info(f"/proc 표본({where}) — perf 핫스팟 {'매 %.0f초 %.0f초 표본(CPU %.1f%% 이상일 때만)' % (perf_interval, perf_seconds, perf_cpu_floor) if perf_interval > 0 else '끔'}")
     was_missing = False
     perf_supported = perf_interval > 0
     last_perf = 0.0
+    consecutive_failures = 0
 
     while True:
-        sample = sampler.sample()
+        # [inv] 이 루프는 어떤 예외로도 빠져나가지 않는다 — 여기서 나가면 수집이 끝나고 그 뒤 하루가 통째로 빈다.
+        #  WSL 호출은 배포판이 잠들거나 perf 직후면 몇 초씩 밀려 subprocess timeout이 실제로 난다
+        #  (2026-09-22 09:32~09:44 12분 공백). 한 번 늦은 것과 영영 죽은 것을 구분해 늦은 쪽은 이어서 간다.
+        try:
+            sample = sampler.sample()
+        except Exception as error:
+            consecutive_failures += 1
+            backoff = min(interval * consecutive_failures, 60.0)
+            logger.warning(f"표본 수집 실패 {consecutive_failures}회째 — {backoff:.0f}초 뒤 다시 시도: {error}")
+            sampler.reset()
+            time.sleep(backoff)
+            continue
+
+        consecutive_failures = 0
 
         if sample is None:
             if sampler._previous is None and not was_missing:
@@ -213,24 +238,37 @@ def _run_linux(db, process_name: str, interval: float, wsl_distro: str, perf_int
                     f"mem={sample['memory_mb']:.0f}MB threads={sample['thread_count']} "
                     f"top={', '.join('%s %.1f%%' % (row['thread_name'], row['cpu_percent']) for row in busiest)}")
 
+        # 노는 프로세스에서 뜬 표본은 읽을 수 없다 — 499Hz로 10초를 떠도 CPU 1%면 표본이 50개뿐이라
+        #  상위 함수 비율이 표본 몇 개로 정해진다. 바쁠 때만 떠서 표본이 모이는 회차만 남긴다.
         if perf_supported and time.monotonic() - last_perf >= perf_interval:
-            last_perf = time.monotonic()
-            rows = sampler.hotspots(perf_seconds)
-
-            if rows is None:
-                perf_supported = False
-                logger.warning("perf가 없어 함수별 핫스팟은 건너뛴다(apt install linux-tools-generic)")
+            if sample["cpu_percent"] < perf_cpu_floor:
+                logger.info(f"핫스팟 건너뜀 — CPU {sample['cpu_percent']:.1f}% < 기준 {perf_cpu_floor:.1f}%")
             else:
-                db.insert_proc_hotspots(rows)
-                logger.info(f"핫스팟 {len(rows)}행: " + ", ".join(f"{row['symbol'][:40]} {row['self_percent']:.1f}%"
-                                                                 for row in rows[:3]))
-            sampler.sample()   # perf 동안의 CPU를 표본 하나로 몰지 않도록 기준점을 다시 잡는다
+                last_perf = time.monotonic()
+
+                try:
+                    rows = sampler.hotspots(perf_seconds)
+                except Exception as error:
+                    rows = []
+                    logger.warning(f"핫스팟 표본 실패 — 이번 회차만 건너뛴다: {error}")
+
+                if rows is None:
+                    perf_supported = False
+                    logger.warning("perf가 없어 함수별 핫스팟은 건너뛴다(apt install linux-tools-generic)")
+                elif rows:
+                    db.insert_proc_hotspots(rows)
+                    total_samples = sum(row["samples"] for row in rows)
+                    logger.info(f"핫스팟 {len(rows)}행 표본 {total_samples}개: "
+                                + ", ".join(f"{row['symbol'][:40]} {row['self_percent']:.1f}%" for row in rows[:3]))
+
+                sampler.reset()   # perf 동안의 CPU를 표본 하나로 몰지 않도록 기준점을 다시 잡는다
 
         time.sleep(interval)
 
 
 def run(db, process_name: str = "", interval: float = 5.0, wsl_distro: str = "",
-        perf_interval: float = 300.0, perf_seconds: float = 10.0):
+        perf_interval: float = 300.0, perf_seconds: float = 10.0, perf_cpu_floor: float = 5.0,
+        log_file: str = ""):
     """무한 루프 — process_name을 매 주기 다시 찾는다(재기동으로 pid가 바뀌어도 이어서 수집).
     프로세스가 없으면 조용히 대기(엔진 기동 전·장 마감 후가 정상 상태)."""
     on_linux = platform.system() == "Linux" or bool(wsl_distro)
@@ -238,9 +276,17 @@ def run(db, process_name: str = "", interval: float = 5.0, wsl_distro: str = "",
     if not process_name:
         process_name = "quant_trader" if on_linux else "quant_trader.exe"
 
+    if not log_file:
+        # 엔진 말고 다른 프로세스(부하 하네스 bench_engine_load 등)를 볼 때는 로그를 따로 쓴다 —
+        #  두 수집기가 한 파일을 회전시키면 Windows에서 잠금으로 깨진다.
+        engine_names = ("quant_trader", "quant_trader.exe")
+        log_file = "logs/procwatch.log" if process_name in engine_names             else f"logs/procwatch_{process_name}.log"
+
+    attach_file_handler(logger, log_file)
+
     logger.info(f"프로세스 자원 수집 시작: name={process_name} interval={interval}초 (Ctrl+C로 종료)")
 
     if on_linux:
-        _run_linux(db, process_name, interval, wsl_distro, perf_interval, perf_seconds)
+        _run_linux(db, process_name, interval, wsl_distro, perf_interval, perf_seconds, perf_cpu_floor)
     else:
         _run_psutil(db, process_name, interval)
