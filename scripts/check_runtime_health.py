@@ -90,23 +90,64 @@ def secs(m: re.Match) -> int:
     return int(m.group(2)) * 3600 + int(m.group(3)) * 60 + int(m.group(4))
 
 
-def resource_sampling_row(date: str) -> tuple:
+def tsdb_password() -> str:
+    """저장소 루트 .env의 TSDB_PASSWORD(감시견·리코더와 같은 출처). 없으면 빈 문자열."""
+    environment_file = REPO / ".env"
+
+    if not environment_file.exists():
+        return ""
+
+    for line in environment_file.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("TSDB_PASSWORD="):
+            return line.split("=", 1)[1].strip()
+
+    return ""
+
+
+def import_psycopg2():
+    """psycopg2는 PYQuant venv에만 깔려 있다 — 감시견이 전역 py로 이 스크립트를 부르면 import가 실패해
+    DB를 보는 판정이 통째로 '판정 안 함'으로 넘어간다(2026-09-22 하루 내내 그랬다). 호출 쪽을 고치면
+    감시견 두 갈래(ps1·sh)를 다 건드려야 하니, 여기서 venv의 site-packages를 찾아 붙여 본다.
+    C 확장이라 파이썬 버전이 다르면 붙여도 import가 실패한다 — 그때는 그대로 None."""
+    try:
+        import psycopg2
+        return psycopg2
+    except ImportError:
+        pass
+
+    for site_packages in sorted(REPO.glob("PYQuant/.venv*/Lib/site-packages")) + \
+            sorted(REPO.glob("PYQuant/.venv*/lib/python*/site-packages")):
+        if not site_packages.is_dir():
+            continue
+
+        sys.path.append(str(site_packages))
+
+        try:
+            import psycopg2
+            return psycopg2
+        except ImportError:
+            sys.path.pop()
+
+    return None
+
+
+def resource_sampling_rows(date: str) -> list:
     """procwatch가 그날 엔진 자원 표본(proc_stats)을 적재했고 스레드 이름이 실렸는지 — 09-22 리눅스 첫날
     그라파나 CPU·메모리 패널이 비어 있던 것(psutil이 WSL 프로세스를 못 봄)을 다시 겪지 않기 위한 행.
     DB 접속 정보는 저장소 루트 .env의 TSDB_PASSWORD(감시견과 같은 출처)."""
-    password = ""
-    environment_file = REPO / ".env"
-
-    if environment_file.exists():
-        for line in environment_file.read_text(encoding="utf-8", errors="replace").splitlines():
-            if line.startswith("TSDB_PASSWORD="):
-                password = line.split("=", 1)[1].strip()
+    password = tsdb_password()
 
     if not password:
-        return ("자원 표본 적재", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함")
+        return [("자원 표본 적재", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함"),
+                ("자원 표본 공백", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함")]
+
+    psycopg2 = import_psycopg2()
+
+    if psycopg2 is None:
+        return [("자원 표본 적재", False, "WARN", "psycopg2 없음 — venv(PYQuant/.venv*)로 부르거나 pip install psycopg2-binary"),
+                ("자원 표본 공백", False, "WARN", "psycopg2 없음 — 위와 같다")]
 
     try:
-        import psycopg2
         connection = psycopg2.connect(host="localhost", port=5432, dbname="quant", user="quant",
                                       password=password, connect_timeout=3)
         with connection.cursor() as cursor:
@@ -118,15 +159,87 @@ def resource_sampling_row(date: str) -> tuple:
                 "SELECT COUNT(DISTINCT thread_name) FROM proc_thread_stats"
                 " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s AND thread_name NOT LIKE 'quant_trader%%'", (date,))
             named_threads = cursor.fetchone()[0]
+            # 표본 사이가 얼마나 벌어졌나 — 행수만 보면 중간에 통째로 빈 구간을 못 잡는다
+            #  (2026-09-22 09:32~09:44 12분 공백을 하루 판정이 PASS로 넘겼다)
+            cursor.execute(
+                "SELECT COALESCE(MAX(gap), 0), COALESCE(TO_CHAR(MAX(ts) AT TIME ZONE 'Asia/Seoul', 'HH24:MI:SS'), '-')"
+                " FROM (SELECT ts, EXTRACT(EPOCH FROM ts - LAG(ts) OVER (ORDER BY ts)) gap FROM proc_stats"
+                "       WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s) sampled", (date,))
+            max_gap_seconds, last_sample = cursor.fetchone()
 
         connection.close()
     except Exception as error:   # DB가 없거나 잠든 날은 판정을 미룬다
-        return ("자원 표본 적재", True, "WARN", f"DB 조회 실패 — 판정 안 함 ({str(error).strip()[:80]})")
+        return [("자원 표본 적재", True, "WARN", f"DB 조회 실패 — 판정 안 함 ({str(error).strip()[:80]})"),
+                ("자원 표본 공백", True, "WARN", "DB 조회 실패 — 판정 안 함")]
 
     # 장중 6시간 30분을 5초 주기로 떠도 4,000행이 넘고, 절반만 떠도 2,000행쯤 — 300행이면 몇십 분만 돌다 죽은 것
-    return ("자원 표본 적재", sample_count >= 300, "WARN",
-            f"proc_stats {sample_count}행 (기대 300 이상, 5초 주기·장중 내내), 이름 붙은 스레드 {named_threads}종"
-            + (" — 0이면 스레드 이름 배포 전 바이너리거나 Windows psutil 경로" if named_threads == 0 else ""))
+    # 공백 기준 120초: 주기 5초 + perf 표본 10초 + 재기동 대기를 다 더해도 그 안이다.
+    return [("자원 표본 적재", sample_count >= 300, "WARN",
+             f"proc_stats {sample_count}행 (기대 300 이상, 5초 주기·장중 내내), 이름 붙은 스레드 {named_threads}종"
+             + (" — 0이면 스레드 이름 배포 전 바이너리거나 Windows psutil 경로" if named_threads == 0 else "")),
+            ("자원 표본 공백", float(max_gap_seconds) <= 120, "WARN",
+             f"가장 긴 공백 {float(max_gap_seconds):.0f}초 (기대 120 이하), 마지막 표본 {last_sample}"
+             + (" — 수집기가 죽었다 되살아난 구간이다. logs/procwatch.log를 본다" if float(max_gap_seconds) > 120 else ""))]
+
+
+def feed_ledger_rows(date: str) -> list:
+    """리코더가 그날 적재한 체결 틱과 원장 계좌를 본다 — 09-22 실측한 두 가지를 다시 겪지 않기 위한 행.
+
+    ① 체결 틱이 ticks 표에 안 들어가면 그라파나 "피드 지연"·"초당 틱 유입" 패널이 며칠 전 시각을
+       가리킨다(피드는 멀쩡한데 화면만 죽는다).
+    ② Engine을 그대로 띄우는 테스트·부하 하네스가 같은 ZMQ 포트(5555)에 bind하면 리코더가 그쪽을
+       잡는다. 09-22 장중에 합성 주문 52건·체결 58건이 계좌 없이 운영 표에 들어갔다.
+    """
+    password = tsdb_password()
+
+    if not password:
+        return [("피드 적재", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함"),
+                ("원장 계좌 단일", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함")]
+
+    psycopg2 = import_psycopg2()
+
+    if psycopg2 is None:
+        return [("피드 적재", False, "WARN", "psycopg2 없음 — venv(PYQuant/.venv*)로 부르거나 pip install psycopg2-binary"),
+                ("원장 계좌 단일", False, "WARN", "psycopg2 없음 — 위와 같다")]
+
+    try:
+        connection = psycopg2.connect(host="localhost", port=5432, dbname="quant", user="quant",
+                                      password=password, connect_timeout=3)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*), COUNT(DISTINCT ticker) FROM ticks"
+                " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s", (date,))
+            tick_count, tick_tickers = cursor.fetchone()
+            cursor.execute(
+                "SELECT COALESCE(MAX(data_cnt), 0) FROM health"
+                " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s", (date,))
+            data_count = cursor.fetchone()[0]
+            accounts = {}
+
+            for table in ("orders", "fills"):
+                cursor.execute(
+                    f"SELECT COALESCE(NULLIF(TRIM(account), ''), '(빈칸)'), COUNT(*) FROM {table}"
+                    " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s GROUP BY 1", (date,))
+
+                for account, count in cursor.fetchall():
+                    accounts[account] = accounts.get(account, 0) + count
+
+        connection.close()
+    except Exception as error:   # DB가 없거나 잠든 날은 판정을 미룬다
+        detail = f"DB 조회 실패 — 판정 안 함 ({str(error).strip()[:80]})"
+        return [("피드 적재", True, "WARN", detail), ("원장 계좌 단일", True, "WARN", detail)]
+
+    # 27종목을 장중 내내 받으면 수만 건이다. 1,000건이면 리코더가 잠깐만 붙어 있던 것
+    feed_row = ("피드 적재", tick_count >= 1000 and data_count > 0, "WARN",
+                f"ticks {tick_count}행·{tick_tickers}종목, HEALTH data 최대 {data_count}"
+                + (" — data가 0이면 WS 경로 계수 배포 전 바이너리" if data_count == 0 else ""))
+    # 한 계좌 = 한 프로세스다(다계좌는 계좌당 프로세스). 두 종류가 보이면 남의 엔진 데이터가 섞인 것
+    ledger_row = ("원장 계좌 단일", len(accounts) <= 1, "FAIL",
+                  "주문·체결 계좌 " + (", ".join(f"{name} {count}건" for name, count in sorted(accounts.items())) or "행 없음")
+                  + (" — 기대 1종. 다른 엔진이 같은 ZMQ 포트를 물었다(PYQuant/main.py record --account)"
+                     if len(accounts) > 1 else ""))
+
+    return [feed_row, ledger_row]
 
 
 def collect(date: str, log: Path, since: int = 0):
@@ -373,7 +486,8 @@ def collect(date: str, log: Path, since: int = 0):
         basket_row("바스켓 매수 레그 시각", buy_leg_ok, "WARN",
                    (f"집행 끝 {hhmm(max(basket_run_end))} (기한 15:05), 창 종료 이월 {basket_window_closed}회, 주문 {len(basket_orders)}건"
                     if basket_run_end else f"집행 끝 줄 없음, 창 종료 이월 {basket_window_closed}회, 주문 {len(basket_orders)}건")),
-        resource_sampling_row(date),
+        *resource_sampling_rows(date),
+        *feed_ledger_rows(date),
     ]
     return rows, len(starts)
 

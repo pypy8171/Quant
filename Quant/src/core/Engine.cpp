@@ -1096,6 +1096,11 @@ void Engine::connect_feed()
                            TradeData trade = in;
                            trade.symbol_id       = symbols_.table.intern(trade.ticker);
 
+                           // 받은 체결을 센다. 예전엔 REST 폴링 경로(data_thread_fn)에서만 올려서, WS로만 도는
+                           //  구성(DevScale 27종목)에서는 HEALTH의 data가 늘 0이었다 — 그라파나 "초당 틱 처리량"이
+                           //  항상 0선이고, 이 값이 줄어드는 것으로 재기동을 세는 패널도 영영 0이었다.
+                           data_count_.fetch_add(1, std::memory_order_relaxed);
+
                            if (trade.received_ns == 0)
                            {
                                trade.received_ns = trace::now_ns();

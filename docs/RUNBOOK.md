@@ -21,11 +21,12 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@07f6f3a scripts/auto_trade_guard.ps1@74bf998 -->
+<!-- sync: scripts/auto_trade_day.ps1@a69d4fc scripts/auto_trade_guard.ps1@74bf998 -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 죽으면 다시
 띄운다. 마감 뒤 `scripts/market_close_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 트레이더는 이 감시견이 소유한다 —
-손으로 따로 띄우면 엔진이 둘이 된다.
+손으로 따로 띄우면 엔진이 둘이 된다. 기동 전에 이미 떠 있는 `quant_trader`가 있으면 중단하는데, config에 `replay_file`이
+있는 프로세스(워크트리의 리플레이 측정)는 증권사에 주문을 내지 않으므로 세지 않는다.
 
 ```powershell
 cd {ROOT}

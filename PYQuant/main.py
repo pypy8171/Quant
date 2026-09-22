@@ -15,8 +15,13 @@ Python 퀀트 트레이딩 시스템 진입점
 """
 import argparse
 import sys
+import time
 import unicodedata
 from pathlib import Path
+
+# 리코더 틱 배치 — 27종목이면 초당 수십 건, 전 시장으로 넓히면 수천 건이다. 건수와 시간 중 먼저 닿는 쪽에서 비운다.
+TICK_FLUSH_ROWS = 500
+TICK_FLUSH_SECONDS = 5.0
 
 # python/ 폴더를 패키지 루트로
 sys.path.insert(0, str(Path(__file__).parent))
@@ -244,7 +249,34 @@ def cmd_record(args):
     db.ensure_fills_amount_columns()
 
     monitor = EngineMonitor(host=args.host, pub_port=args.port)
+
+    # 엔진이 아닌 것이 같은 포트를 물 수 있다. Engine 을 그대로 띄우는 테스트·부하 하네스(test_engine·
+    #  bench_engine_load)도 setup_zmq_bridge 로 127.0.0.1:5555 에 bind 하는데, 트레이더가 WSL 안에 있으면
+    #  Windows 쪽 bind 가 생기는 순간 이 리코더가 그쪽을 잡는다 — 09-22 장중에 합성 주문 46건·체결 51건이
+    #  운영 표에 들어갔다. 주문·체결 메시지에는 계좌번호가 실려 오므로(ZmqBridge::publish_order/publish_fill)
+    #  기대한 계좌가 아니면 버린다. 원장이 걸린 두 표만이라도 남의 데이터를 안 받게 하는 방어다.
+    expected_account = (args.account or "").strip()
+    rejected_accounts: set[str] = set()
+
+    def is_our_account(data: dict) -> bool:
+        if not expected_account:
+            return True
+
+        seen = str(data.get("account", "")).strip()
+
+        if seen == expected_account:
+            return True
+
+        if seen not in rejected_accounts:
+            rejected_accounts.add(seen)
+            logger.warning(f"REC 버림 계좌 '{seen}' — 기대 '{expected_account}'. 다른 엔진이 같은 ZMQ 포트를 쓰고 있다.")
+
+        return False
+
     def _rec_fill(d):
+        if not is_our_account(d):
+            return
+
         db.insert_fill(d)
         db.upsert_position(d["ticker"], d["net_qty"], d["avg_price"],
                            d.get("realized_pnl", 0.0),
@@ -255,12 +287,38 @@ def cmd_record(args):
                     f"avg={d.get('avg_price'):,.0f}  "
                     f"pnl={sg}{d.get('realized_pnl', 0):,.0f}")
 
-    # 체결 틱은 읽는 곳이 없어 기본은 안 넣는다 — 리플레이 입력은 엔진의 .bin 캡처(capture_dir)가 맡는다.
+    # 체결 틱은 리플레이 입력이 아니라(그건 엔진의 .bin 캡처가 맡는다) 그라파나 "피드 지연"·"초당 틱 유입"
+    #  패널의 재료다. 틱마다 insert+commit 하면 커밋이 초당 수십 번이고 로그도 그만큼 불어나므로, 모아서
+    #  executemany 로 한 번에 넣고 로그는 flush 단위로만 남긴다. flush 조건은 건수·시간 둘 다 — 조용한 구간에도
+    #  버퍼가 몇 분씩 묶여 있으면 피드 지연 패널이 실제보다 늦게 보인다.
+    tick_buffer: list[dict] = []
+    tick_flush_deadline = [time.monotonic() + TICK_FLUSH_SECONDS]
+    tick_total = [0]
+
+    def flush_ticks(force: bool = False):
+        if not tick_buffer:
+            tick_flush_deadline[0] = time.monotonic() + TICK_FLUSH_SECONDS
+            return
+
+        if not force and len(tick_buffer) < TICK_FLUSH_ROWS and time.monotonic() < tick_flush_deadline[0]:
+            return
+
+        db.insert_trade_batch(tick_buffer)
+        tick_total[0] += len(tick_buffer)
+        logger.info(f"REC TRADE  {len(tick_buffer)}건 적재 (누적 {tick_total[0]})")
+        tick_buffer.clear()
+        tick_flush_deadline[0] = time.monotonic() + TICK_FLUSH_SECONDS
+
+    def _rec_health(data: dict):
+        flush_ticks(force=True)       # 30초 주기 HEALTH 가 조용한 구간의 flush 시계 노릇을 한다
+        db.insert_health(data)
+        logger.info(f"REC HEALTH data={data.get('data')} sig={data.get('signal')} ord={data.get('order')}")
+
     if args.record_ticks:
-        monitor.on_trade = lambda d: (db.insert_trade(d), logger.info(f"REC TRADE  {d.get('ticker')} {d.get('price'):,.0f}"))
+        monitor.on_trade = lambda d: (tick_buffer.append(d), flush_ticks())
     monitor.on_signal = lambda d: (db.insert_signal(d), logger.info(f"REC SIGNAL {d.get('ticker')} {d.get('side')}"))
-    monitor.on_order  = lambda d: (db.insert_order(d),  logger.info(f"REC ORDER  {d.get('ticker')} {'OK' if d.get('ok') else 'FAIL'}"))
-    monitor.on_health = lambda d: (db.insert_health(d), logger.info(f"REC HEALTH data={d.get('data')} sig={d.get('signal')} ord={d.get('order')}"))
+    monitor.on_order  = lambda d: is_our_account(d) and (db.insert_order(d),  logger.info(f"REC ORDER  {d.get('ticker')} {'OK' if d.get('ok') else 'FAIL'}"))
+    monitor.on_health = _rec_health
     monitor.on_fill   = _rec_fill
 
     logger.info(f"ZMQ({args.host}:{args.port}) → TimescaleDB 적재 시작 (Ctrl+C로 종료)")
@@ -599,6 +657,9 @@ def main():
     rp.add_argument("--port",   type=int, default=5555)
     rp.add_argument("--record-ticks", action="store_true",
                     help="체결 틱(TRADE)도 ticks 테이블에 넣는다 (기본: 안 넣음)")
+    rp.add_argument("--account", default="",
+                    help="이 계좌번호의 주문·체결만 넣는다. 테스트·부하 하네스가 같은 ZMQ 포트를 물었을 때 "
+                         "남의 합성 데이터가 운영 표에 섞이는 것을 막는다 (기본: 안 거름)")
 
     # ── procwatch (엔진 프로세스 CPU/메모리 표본 → 그라파나) ─────────────────────
     pw = sub.add_parser("procwatch", help="엔진 프로세스 CPU/메모리 표본 수집 → TimescaleDB(proc_stats)")

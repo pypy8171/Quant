@@ -302,7 +302,37 @@ if ((Test-Path $reaper) -and -not $DryRun) {
   } catch { Say "남은 프로세스 정리 실패($($_.Exception.Message)) — 손으로 확인할 것." "WARN" }
 }
 
-$dup = Get-Process quant_trader -ErrorAction SilentlyContinue
+# 이름이 quant_trader라고 다 발주하는 것은 아니다. 리플레이 측정용 프로세스는 config에 replay_file이
+#  있어 저장된 체결을 다시 먹일 뿐 증권사에 주문을 내지 않는다(워크트리 세션이 장중에도 돌린다).
+#  그것까지 중복으로 보면 부속 워치독이 못 뜬다 — 09-22 실측. 판정이 안 서면 막는 쪽으로 남긴다.
+function Test-ReplayOnly([System.Diagnostics.Process]$traderProcess)
+{
+  $commandLine = (Get-CimInstance Win32_Process -Filter "ProcessId=$($traderProcess.Id)" -ErrorAction SilentlyContinue).CommandLine
+
+  if (-not $commandLine) { return $false }
+
+  $configArgument = [regex]::Matches($commandLine, '"[^"]+"|\S+') |
+                    ForEach-Object { $_.Value.Trim('"') } |
+                    Where-Object { $_ -like "*.json" } | Select-Object -Last 1
+
+  if (-not $configArgument) { return $false }
+
+  # exe는 <저장소>\Quant\build_win\quant_trader.exe — 세 단계 올라가면 그 트리의 루트다.
+  $repoRoot = Split-Path (Split-Path (Split-Path $traderProcess.Path -Parent) -Parent) -Parent
+
+  foreach ($candidatePath in @($configArgument, (Join-Path $repoRoot $configArgument)))
+  {
+    if (Test-Path $candidatePath)
+    {
+      try { return [bool]((Get-Content $candidatePath -Raw | ConvertFrom-Json).replay_file) }
+      catch { return $false }
+    }
+  }
+
+  return $false
+}
+
+$dup = @(Get-Process quant_trader -ErrorAction SilentlyContinue | Where-Object { -not (Test-ReplayOnly $_) })
 if ($dup) {
   # 두 프로세스가 같은 계좌에 발주하면 원장이 깨진다. 자동으로 정리하지 않고 멈춘다.
   Say "quant_trader가 이미 $($dup.Count)개 떠 있다. 중복 발주를 막기 위해 중단한다." "ERROR"
@@ -390,7 +420,15 @@ if (-not $NoRecorder) {
   Start-Window "quant-wsl-keepalive" "while (`$true) { wsl -e sleep infinity; Start-Sleep -Seconds 2 }" ""
   Say "TimescaleDB 사전 점검 — WSL Docker 깨우기"
   Wait-Tsdb
-  Start-Window "quant-recorder"  "& '$py' PYQuant\main.py record --host localhost --port 5555" "main.py record"
+  # --record-ticks: 체결 틱을 ticks 표에 모아 넣는다(배치). 그라파나 "피드 지연"·"초당 틱 유입" 패널이
+  #  이 표를 읽는다 — 없으면 피드가 멀쩡해도 패널이 며칠 전 시각을 가리킨다.
+  # --account: 이 계좌의 주문·체결만 받는다. Engine 을 그대로 띄우는 테스트·부하 하네스가 같은 5555에
+  #  bind 하면 리코더가 그쪽을 잡아 합성 데이터가 운영 표에 섞인다(09-22 장중 실측).
+  $recorderAccount = ""
+  try { $recorderAccount = (Get-Content $Config -Raw | ConvertFrom-Json).kis.account_no } catch { }
+  if (-not $recorderAccount) { Say "config 에서 kis.account_no 를 못 읽었다 — 리코더 계좌 거르기 없이 띄운다." "WARN" }
+  $recorderArgs = if ($recorderAccount) { "--account $recorderAccount" } else { "" }
+  Start-Window "quant-recorder"  "& '$py' PYQuant\main.py record --host localhost --port 5555 --record-ticks $recorderArgs" "main.py record"
   # 엔진 자원(CPU·메모리·스레드별 CPU·perf 함수 핫스팟) → 그라파나 ops. -NoTrader 날은 엔진이 WSL(Ubuntu-24.04)에
   # 있어 /proc를 그 배포판에서 읽고, Windows exe 날은 psutil로 본다.
   $procwatchArgs = if ($NoTrader) { "--wsl-distro Ubuntu-24.04" } else { "" }
