@@ -1093,8 +1093,8 @@
     {
       "id": 25,
       "type": "stat",
-      "title": "수집 공백 — 함수 핫스팟 (proc_hotspots)",
-      "description": "perf 표본은 기본 300초마다 뜬다(procwatch --perf-interval). 빨강이면 perf가 없거나 권한이 없는 것 — 아래 '함수별 CPU 자기 시간' 표가 옛 표본이라는 뜻이다.",
+      "title": "마지막 함수 핫스팟 표본 이후 경과 (경보 아님)",
+      "description": "perf 표본은 그 회차 엔진 CPU가 5%를 넘을 때만 뜬다(procwatch). 평범한 장에서는 엔진이 1~2%라 몇 시간씩 안 쌓이는 것이 정상이고, 그래서 색으로 경보하지 않는다. 건너뛴 이유는 logs/procwatch.log의 \"핫스팟 건너뜀\" 줄에 남는다.",
       "gridPos": {
         "h": 4,
         "w": 8,
@@ -1123,16 +1123,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "text",
                 "value": null
-              },
-              {
-                "color": "orange",
-                "value": 600
-              },
-              {
-                "color": "red",
-                "value": 900
               }
             ]
           }
