@@ -101,6 +101,19 @@ inline void put_string(char* destination, size_t capacity, std::string_view text
 }
 
 // CRC32(IEEE 802.3, zlib과 같은 다항식) — 표는 컴파일 타임에 만든다.
+// path::string()은 와이드 경로를 프로세스 코드페이지로 되돌린다 — 사용자 폴더 이름에 한글이 들어 있으면
+//  매핑이 없어 예외를 던지고, 저널을 못 열면 엔진이 기동을 거부한다. Windows에서는 와이드 그대로 연다. [why D-113]
+inline std::FILE* open_journal_file(const std::filesystem::path& file, const char* mode)
+{
+#ifdef _WIN32
+    const std::wstring wide_mode(mode, mode + std::strlen(mode));
+
+    return _wfopen(file.c_str(), wide_mode.c_str());
+#else
+    return std::fopen(file.c_str(), mode);
+#endif
+}
+
 namespace detail
 {
 // CRC32 표 크기 — 한 바이트가 가질 수 있는 값의 수.
@@ -175,7 +188,7 @@ public:
         }
 
         next_sequence_ = existing.last_sequence + 1;
-        file_     = std::fopen(path_.string().c_str(), "ab");
+        file_     = open_journal_file(path_, "ab");
 
         if (file_ == nullptr)
         {
@@ -199,7 +212,7 @@ public:
             // 꼬리의 깨진 레코드는 리플레이가 무시했다. 그 뒤에 이어 쓰면 판독기도 같은 자리에서 멈추므로 잘라 낸다.
             close();
             std::filesystem::resize_file(path_, sizeof(FileHeader) + existing.applied * sizeof(Record), error_code);
-            file_ = std::fopen(path_.string().c_str(), "ab");
+            file_ = open_journal_file(path_, "ab");
         }
     }
 
@@ -271,7 +284,7 @@ public:
     static ReplayResult replay(const std::filesystem::path& file, const std::function<void(const Record&)>& apply)
     {
         ReplayResult result;
-        std::FILE*   handle = std::fopen(file.string().c_str(), "rb");
+        std::FILE*   handle = open_journal_file(file, "rb");
 
         if (handle == nullptr)
         {

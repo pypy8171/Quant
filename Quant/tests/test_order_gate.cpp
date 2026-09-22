@@ -731,6 +731,32 @@ void test_journal_stops_at_corrupt_record()
     PASS("journal_stops_at_corrupt_record");
 }
 
+// ─── 테스트 22: 코드페이지에 없는 글자가 든 폴더 ──────────────────────────
+void test_journal_opens_on_non_codepage_path()
+{
+    // U+3400은 Windows 한국어 코드페이지(CP949)에 매핑이 없다. 경로를 좁은 문자열로 되돌려 열면
+    //  여기서 예외가 나고, 저널을 못 열면 엔진이 기동을 거부한다 — 실제로 리플레이 기동이 그렇게 죽었다.
+    const std::filesystem::path directory =
+        std::filesystem::temp_directory_path() / std::wstring(L"quant_ledger_test_㐀");
+    std::error_code error_code;
+    std::filesystem::remove_all(directory, error_code);
+    std::filesystem::create_directories(directory, error_code);
+
+    const std::string date = "20260922";
+    OrderGate         gate(journal_config());
+    assert(gate.set_journal(directory, date, false));
+    gate.seed_position("ACC1", "005930", 10, 70000.0);
+    assert(gate.journal_failures() == 0);
+
+    OrderGate restarted(journal_config());
+    assert(restarted.set_journal(directory, date, false));
+    assert(restarted.journal_replay().header_ok);
+    assert(restarted.position("ACC1", "005930") == 10);
+
+    std::filesystem::remove_all(directory, error_code);
+    PASS("journal_opens_on_non_codepage_path");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -761,6 +787,7 @@ int main()
     test_journal_replay_rebuilds_ledger();
     test_journal_truncates_broken_tail();
     test_journal_stops_at_corrupt_record();
+    test_journal_opens_on_non_codepage_path();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }
