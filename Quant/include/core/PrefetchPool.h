@@ -34,14 +34,21 @@ public:
     using Work   = std::function<void()>;
     using TaskId = uint64_t; // 0은 "없음"
 
-    // 코어 수로 정하는 기본값. 작업이 REST 대기(블로킹 HTTP)라 코어를 다 쓸 이유는 없고,
-    //  KIS 초당 한도가 진짜 상한이라 스레드를 늘려도 호출이 줄서기만 한다. 2~8로 접는다.
+    // 코어 수 / 4를 기본값으로 2~8에 접는다(16코어 = 4개). 필요한 수는 (작업 수 x 호출 지연 / 주기)로
+    //  나오는데 지금 부하는 41종목 x 3초라 그 값이 1이 안 된다 — 4개면 네 배 여유다. 상한 8은 측정에서
+    //  온 자리다(bench_prefetch_pool, 2026-09-22: 계산형 200us x 2700개가 8스레드에서 포화. 그 위로는
+    //  처리량이 안 늘고 스레드만 는다). 대기형은 공식이 수백을 요구하지만 그때 늘릴 것은 스레드가 아니라
+    //  입력이다 — 왕복 지연을 없애거나(WS 푸시) 작업 수를 줄인다(배치 조회). [why D-115]
     static std::size_t recommended_thread_count()
     {
-        const unsigned int cores = std::thread::hardware_concurrency();
-        const std::size_t  half  = cores == 0 ? 2u : static_cast<std::size_t>(cores) / 2u;
-        return half < 2u ? 2u : (half > 8u ? 8u : half);
+        const unsigned int cores    = std::thread::hardware_concurrency();
+        const std::size_t  quartered = cores == 0 ? 2u : static_cast<std::size_t>(cores) / 4u;
+        return quartered < 2u ? 2u : (quartered > 8u ? 8u : quartered);
     }
+
+    // 스레드를 미리 띄운다. Engine이 기동에서 한 번 부르면 장중에 전략이 붙어도 스레드를 새로 만들지 않는다.
+    //  여러 번 불러도 안전하다(이미 떠 있으면 아무것도 안 한다).
+    void start() { start_threads(); }
 
     Pool(std::size_t thread_count, std::chrono::milliseconds period)
         : thread_count_(thread_count < 1u ? 1u : thread_count)
@@ -169,6 +176,7 @@ private:
 
         while (!stop_token.stop_requested())
         {
+            const auto cycle_start = std::chrono::steady_clock::now();
             mine.clear();
             {
                 std::lock_guard<std::mutex> lock(registry_mutex_);
@@ -197,7 +205,18 @@ private:
                 }
             }
 
-            if (!wake::sleep_unless_stopped(stop_token, period_))
+            // 주기는 '쉬는 시간'이 아니라 '도는 간격'이다 — 한 바퀴에 쓴 시간을 빼고 잔다.
+            //  빼지 않으면 달성 간격이 주기 + 배치 시간으로 밀린다(2,700개 계산형에서 1.0s 주기가 1.5s로).
+            //  이미 주기를 넘겨 썼으면 쉬지 않고 다음 바퀴로 간다. [why D-115]
+            const auto spent = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - cycle_start);
+
+            if (spent >= period_)
+            {
+                continue;
+            }
+
+            if (!wake::sleep_unless_stopped(stop_token, period_ - spent))
             {
                 break;
             }

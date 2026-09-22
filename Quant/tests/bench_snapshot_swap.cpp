@@ -1,5 +1,5 @@
 // 평가 1회가 스냅샷을 잡는 비용 — 전(벡터 복사) vs 후(shared_ptr 교체) vs 락 없이 atomic<shared_ptr> 하나.
-//  일봉 250봉 + 3분봉 63봉. [why D-114]
+//  일봉 250봉 + 3분봉 63봉. [why D-115]
 // 빌드: cmake --build <directory> --target bench_snapshot_swap   (ctest 밖, 부하 하네스 관례)
 // 결과 기록: docs/reports/stresstest/2026-09-22_prefetch_pool.md
 #include "core/Types.h"

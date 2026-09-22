@@ -423,6 +423,13 @@ endif()
 add_executable(bench_snapshot_swap tests/bench_snapshot_swap.cpp)
 target_include_directories(bench_snapshot_swap PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# ─── 벤치 타겟: 프리페치 풀이 작업 N개를 주기 T로 버티는가 — 스레드 수 스윕 (D-115) ──
+add_executable(bench_prefetch_pool tests/bench_prefetch_pool.cpp)
+target_include_directories(bench_prefetch_pool PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(bench_prefetch_pool PRIVATE pthread)
+endif()
+
 # ─── 벤치 타겟: 시세 피드 수신·처리 부하 (TCP loopback, KOSCOM→broker) ────
 add_executable(bench_feed_ingest tests/bench_feed_ingest.cpp)
 target_include_directories(bench_feed_ingest PRIVATE

@@ -404,7 +404,8 @@
 - [bench_intake.cpp](../Quant/tests/bench_intake.cpp) — 멀티생산자 주문 인테이크 큐 부하 벤치(MPSC 대 Mutex)
 - [bench_latency_path.cpp](../Quant/tests/bench_latency_path.cpp) — 지연에 민감한 경로 리팩터 전후 비교 벤치(D-071)
 - [bench_market_firehose.cpp](../Quant/tests/bench_market_firehose.cpp) — 전종목 규모 시세 파이프라인 부하테스트(E2E 지연·처리량)
-- [bench_snapshot_swap.cpp](../Quant/tests/bench_snapshot_swap.cpp) — 평가 1회가 봉 스냅샷을 잡는 비용, 벡터 복사 vs 포인터 교체(D-114, ctest 밖)
+- [bench_snapshot_swap.cpp](../Quant/tests/bench_snapshot_swap.cpp) — 평가 1회가 봉 스냅샷을 잡는 비용, 벡터 복사 vs 포인터 교체(D-115, ctest 밖)
+- [bench_prefetch_pool.cpp](../Quant/tests/bench_prefetch_pool.cpp) — 프리페치 풀이 작업 N개를 주기 T로 버티는가, 스레드 수 스윕(계산형·대기형 + 이웃 스레드 지연·메모리, D-115, ctest 밖)
 - [bench_order_gate_position.cpp](../Quant/tests/bench_order_gate_position.cpp) — OrderGate 원장 조회 벤치: 키가 (계좌, 종목) 문자열일 때와 정수 id일 때의 position() 비용(D-105 결정 3)
 - [bench_order_path_keys.cpp](../Quant/tests/bench_order_path_keys.cpp) — 주문 경로 키 벤치: 중복 신호 키·우선순위 표·서브원장·체결 키를 문자열과 정수로 잰다(D-112)
 - [bench_peer_failure.cpp](../Quant/tests/bench_peer_failure.cpp) — 프로세스 경계 고장 실측 벤치: 공유메모리 한 방향 지연, crash·exit·hang 감지 지연, append+flush 비용(D-071 큐 34)
@@ -558,8 +559,10 @@
 - [MAINTENANCE_WEEKLY.md](reports/MAINTENANCE_WEEKLY.md) — 주간 유지보수 현황 보고서
 - [MDC_BLOCK_REPORT.md](reports/MDC_BLOCK_REPORT.md) — KRX 데이터 차단 진단 보고서
 - [PIPELINE_LATENCY_REPORT.md](reports/PIPELINE_LATENCY_REPORT.md) — 파이프라인 지연 벤치마크 보고서
-- [stresstest/2026-09-22_prefetch_pool.md](reports/stresstest/2026-09-22_prefetch_pool.md) — 부하 회차: 프리페치 전략당 스레드→공용 풀, 스냅샷 복사 492→10ns(D-114)
+- [stresstest/2026-09-22_prefetch_pool.md](reports/stresstest/2026-09-22_prefetch_pool.md) — 부하 회차: 프리페치 전략당 스레드→공용 풀, 스냅샷 복사 492→10ns(D-115)
+- [stresstest/2026-09-22_prefetch_pool_threads.md](reports/stresstest/2026-09-22_prefetch_pool_threads.md) — 부하 회차: 프리페치 풀 스레드 수 스윕, 주기를 지연→비율로(D-115 후속)
 - [stresstest/data/2026-09-22_bench_snapshot_swap.csv](reports/stresstest/data/2026-09-22_bench_snapshot_swap.csv) — 위 회차 원자료(bench_snapshot_swap 1차 5회 + atomic 열 2차 5회)
+- [stresstest/data/2026-09-22_bench_prefetch_pool.csv](reports/stresstest/data/2026-09-22_bench_prefetch_pool.csv) — 위 회차 원자료(계산형·대기형·이웃 지연 스윕 37행, tag로 회차 구분)
 - [TOKEN_AUDIT.md](reports/TOKEN_AUDIT.md) — 최근 7일 세션 기록의 토큰 사용 감사(절차·도구·하네스 주입·압축·훅별 표), `py scripts/token_audit.py --md`로 다시 만든다
 
 ## linux_practice

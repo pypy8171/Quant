@@ -1300,6 +1300,9 @@ void Engine::start()
 
     resolve_open_intents();
 
+    // 프리페치 스레드는 전략이 붙기 전에 미리 띄운다 — 장중 전략 등록이 스레드를 새로 만들지 않게. [why D-115]
+    prefetch_pool_.start();
+
     start_strategies();
     collect_watch_specifications();
 

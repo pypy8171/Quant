@@ -4,7 +4,7 @@
 > [Quant/tests/test_prefetch_pool.cpp](../../../Quant/tests/test_prefetch_pool.cpp)(스레드 수 단언)
 > 측정일: 2026-09-22 / 빌드: Release(NDEBUG), Ninja+MSVC / 머신: Windows, 16 HW threads
 > 원자료: [data/2026-09-22_bench_snapshot_swap.csv](data/2026-09-22_bench_snapshot_swap.csv)
-> 기준 커밋: main 6369412 위 `wt/prefetch-pool` / 결정: [docs/DECISIONS.md](../../DECISIONS.md) D-114
+> 기준 커밋: main 6369412 위 `wt/prefetch-pool` / 결정: [docs/DECISIONS.md](../../DECISIONS.md) D-115
 
 ## 1. 왜 쟀나
 
@@ -71,8 +71,8 @@ MSVC의 `atomic<shared_ptr>`는 안에서 스핀락을 쓰므로 경합이 생�
 
 ## 4. 그래서 무엇을 정했나
 
-D-114 채택. 스레드 수를 종목 수에서 떼어 냈고, 평가 경로의 스냅샷 복사를 없앴다. 상세와 버린 대안은
-[docs/DECISIONS.md](../../DECISIONS.md) D-114.
+D-115 채택. 스레드 수를 종목 수에서 떼어 냈고, 평가 경로의 스냅샷 복사를 없앴다. 상세와 버린 대안은
+[docs/DECISIONS.md](../../DECISIONS.md) D-115.
 
 ## 5. 이 측정의 한계
 

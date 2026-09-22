@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <iostream>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -135,6 +136,63 @@ int test_stop()
 
 } // namespace
 
+// start()는 작업이 하나도 없어도 스레드를 미리 띄운다 — 장중 전략 등록이 스레드를 만들지 않게. [why D-115]
+int test_start_precreates_threads()
+{
+    prefetch::Pool pool(4, std::chrono::milliseconds(20));
+    CHECK(pool.thread_count() == 0);
+    pool.start();
+    CHECK(pool.thread_count() == 4);
+
+    // 여러 번 불러도 늘지 않고, 그 뒤 작업을 맡겨도 그대로다.
+    pool.start();
+    std::atomic<int> runs{0};
+    pool.add([&runs] { runs.fetch_add(1); });
+    CHECK(wait_until([&runs] { return runs.load() >= 2; }, std::chrono::seconds(3)));
+    CHECK(pool.thread_count() == 4);
+    pool.stop();
+    return 0;
+}
+
+// 주기는 '일이 끝난 뒤 쉬는 시간'이 아니라 '도는 간격'이다 — 작업이 주기의 절반을 먹어도
+//  간격은 주기에 가깝게 유지된다(안 빼면 주기 + 작업시간으로 밀린다). [why D-115]
+int test_period_excludes_work_time()
+{
+    const auto period = std::chrono::milliseconds(120);
+    const auto work   = std::chrono::milliseconds(60);
+
+    std::vector<std::chrono::steady_clock::time_point> stamps;
+    std::mutex                                         stamps_mutex;
+
+    prefetch::Pool pool(1, period);
+    pool.add([&stamps, &stamps_mutex, work] {
+        {
+            std::lock_guard<std::mutex> lock(stamps_mutex);
+            stamps.push_back(std::chrono::steady_clock::now());
+        }
+
+        std::this_thread::sleep_for(work);
+    });
+
+    CHECK(wait_until(
+        [&stamps, &stamps_mutex] {
+            std::lock_guard<std::mutex> lock(stamps_mutex);
+            return stamps.size() >= 5;
+        },
+        std::chrono::seconds(5)));
+    pool.stop();
+
+    std::lock_guard<std::mutex> lock(stamps_mutex);
+    const auto                  span =
+        std::chrono::duration_cast<std::chrono::milliseconds>(stamps.back() - stamps.front());
+    const auto average = span / static_cast<int>(stamps.size() - 1);
+
+    // 작업시간을 빼지 않으면 평균 간격이 180ms 언저리가 된다. 넉넉히 160ms 아래면 뺀 것이다.
+    CHECK(average < std::chrono::milliseconds(160));
+    CHECK(average >= std::chrono::milliseconds(100));
+    return 0;
+}
+
 int main()
 {
     struct Case
@@ -150,6 +208,8 @@ int main()
         {"remove_stops_calls", test_remove_stops_calls},
         {"remove_waits_for_running_work", test_remove_waits_for_running_work},
         {"stop", test_stop},
+        {"start_precreates_threads", test_start_precreates_threads},
+        {"period_excludes_work_time", test_period_excludes_work_time},
     };
 
     for (const auto& one : cases)
