@@ -11,6 +11,7 @@
 #include "core/TickCapture.h"
 #include "core/ReplaySource.h"
 #include "core/PaperExecutor.h"
+#include "core/PrefetchPool.h"
 #include "core/FeedMux.h"
 #include "core/FeedSupervisor.h"
 #include "core/SessionEndJudge.h"
@@ -492,6 +493,12 @@ private:
     // REST 현재가 폴러(폴링 모드 유니버스·WS 넘침 대체·보유 보충). start()에서 feed_.kis 뒤에 만들고
     //  data_thread만 부른다 — 넘침 목록이 여기로 옮겨가며 watch_specifications_mutex_ 보호에서 빠졌다. [why D-062]
     std::unique_ptr<DataPoller> poller_;
+
+    // 무거운 REST를 미리 당기는 공용 프리페치 풀. 전략보다 먼저 선언해 나중에 사라지게 둔다
+    //  — 전략 소멸자가 자기 작업을 떼는 동안 풀이 살아 있어야 한다. [why D-071]
+    static constexpr int kPrefetchPeriodMs = 3000; // 일봉은 1일 1회·분봉은 봉 경계마다라 초 단위로 충분(전략 하트비트 기본값과 같다)
+    prefetch::Pool prefetch_pool_{prefetch::Pool::recommended_thread_count(),
+                                  std::chrono::milliseconds(kPrefetchPeriodMs)};
 
     // ── 전략 레지스트리 ──────────────────────────────────────────────────────
     // 뗀 전략 대기열 항목(data_thread 전용). version=뗀 직후의 strategy_.version.

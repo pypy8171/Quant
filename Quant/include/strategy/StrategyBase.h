@@ -11,6 +11,11 @@
 
 class KisClient;
 
+namespace prefetch
+{
+class Pool;
+}
+
 // 문자열 집합·맵을 std::string_view로 찾기 위한 해시 — 조회마다 std::string을 만들지 않는다.
 //  std::unordered_set<std::string, TransparentStringHash, std::equal_to<>> 로 쓴다.
 struct TransparentStringHash
@@ -123,6 +128,14 @@ public:
     void set_kis(KisClient* kis)
     {
         kis_ = kis;
+    }
+
+    // 무거운 REST를 미리 당기는 공용 프리페치 풀. Engine이 소유하며 set_kis()와 같은 자리에서
+    //  주입한다 — 전략마다 스레드를 띄우지 않기 위한 것이다. [why D-071]
+    //  [inv] 풀은 Engine이 들고 있고 전략보다 늦게 사라진다(set_kis와 같은 수명 보장).
+    void set_prefetch_pool(prefetch::Pool* pool)
+    {
+        prefetch_pool_ = pool;
     }
 
     // 계좌 조회(잔고·매도가능수량·총평가금) 전용 클라이언트 주입.
@@ -299,6 +312,7 @@ protected:
     }
 
     KisClient* kis_ = nullptr;         // non-owning; lifetime guaranteed by Engine
+    prefetch::Pool* prefetch_pool_ = nullptr; // non-owning; Engine 소유(미주입이면 프리페치 없음)
     KisClient* account_kis_ = nullptr; // non-owning; 계좌 조회용(미주입 시 kis_ 사용)
     std::function<int(const std::string&, const std::string&)> position_provider_; // 결제완료 확정 포지션(D2=결제일 T+2)
     std::function<int(const std::string&, symbol::SymbolId)> position_provider_by_id_; // 같은 원장, 종목 정수 id로 [why D-105]

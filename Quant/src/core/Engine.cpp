@@ -59,6 +59,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     // 런타임 등록 전략도 차트 조회는 실전 시세키로(분봉 모의 HTTP500 회피) — start()와 동일 패턴.
     strategy->set_kis(feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get());
     strategy->set_account_kis(feed_.kis.get()); // 잔고·매도가능수량은 계좌를 가진 주문 클라이언트로
+    strategy->set_prefetch_pool(&prefetch_pool_);  // 프리페치는 전략마다 스레드를 띄우지 않고 공용 풀이 돌린다 [why D-071]
     strategy->set_position_provider([this](const std::string& account, const std::string& ticker) {
         return order_gate_.position(account, ticker);
     });
@@ -968,6 +969,7 @@ void Engine::start_strategies()
         //  시세 전용 클라이언트에는 account_no가 없어 has_account()가 false가 되고,
         //  그러면 매도가능수량이 항상 0으로 떨어져 익절·존이탈청산·장 마감청산이 전부 발주되지 않는다.
         strategy->set_account_kis(feed_.kis.get());
+        strategy->set_prefetch_pool(&prefetch_pool_); // 프리페치는 전략마다 스레드를 띄우지 않고 공용 풀이 돌린다 [why D-071]
         // D2: 확정 포지션 접근자 주입 — 전략이 OrderGate 원장(WS/REST 공용)을 진실원천으로 읽음.
         strategy->set_position_provider([this](const std::string& account, const std::string& ticker) {
             return order_gate_.position(account, ticker);
@@ -1505,6 +1507,7 @@ void Engine::stop()
     }
 
     reap_retired(/*force=*/true);
+    prefetch_pool_.stop(); // 전략이 전부 자기 작업을 뗀 뒤 스레드를 접는다
     print_statistics();
     LOG_INFO("[Engine] 종료 완료");
 }

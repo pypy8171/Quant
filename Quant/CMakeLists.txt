@@ -419,6 +419,10 @@ if(UNIX)
     target_link_libraries(bench_market_firehose PRIVATE pthread)
 endif()
 
+# ─── 벤치 타겟: 평가 1회가 스냅샷을 잡는 비용 — 벡터 복사 vs 포인터 교체 (D-114) ──
+add_executable(bench_snapshot_swap tests/bench_snapshot_swap.cpp)
+target_include_directories(bench_snapshot_swap PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # ─── 벤치 타겟: 시세 피드 수신·처리 부하 (TCP loopback, KOSCOM→broker) ────
 add_executable(bench_feed_ingest tests/bench_feed_ingest.cpp)
 target_include_directories(bench_feed_ingest PRIVATE
@@ -454,6 +458,13 @@ if(UNIX)
 endif()
 
 # ─── 테스트 타겟: TickCapture 왕복·이어 쓰기·잘린 꼬리·큐 넘침 (헤더 전용, D-071) ──
+# ─── 테스트 타겟: prefetch::Pool 고정 스레드·등록·해제·정지 (헤더 전용, D-071) ──
+add_executable(test_prefetch_pool tests/test_prefetch_pool.cpp)
+target_include_directories(test_prefetch_pool PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(test_prefetch_pool PRIVATE pthread)
+endif()
+
 add_executable(test_tick_capture tests/test_tick_capture.cpp)
 target_include_directories(test_tick_capture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(UNIX)
@@ -624,6 +635,7 @@ set(QUANT_ASSERT_TARGETS
     test_latency_trace
     test_symbol_table
     test_tick_capture
+    test_prefetch_pool
     test_replay_source
     test_paper_executor
     test_feed_mux

@@ -263,6 +263,7 @@
 - [OrderRateLimiter.h](../Quant/include/core/OrderRateLimiter.h) — 발주 조절기 — 간격·재시도 분류(D-065)
 - [PaperExecutor.h](../Quant/include/core/PaperExecutor.h) — 리플레이용 모의 체결기(D-071)
 - [ReconcilePlan.h](../Quant/include/core/ReconcilePlan.h) — 잔고 대조 차이 계산 순수 함수(D-038)
+- [PrefetchPool.h](../Quant/include/core/PrefetchPool.h) — 무거운 REST를 미리 당기는 작업을 고정 스레드가 나눠 맡는 공용 풀(D-071)
 - [RegimeFileJudge.h](../Quant/include/core/RegimeFileJudge.h) — 매크로 국면 파일 → 진입정지·강제청산 상태기계(D-060)
 - [ReplaySource.h](../Quant/include/core/ReplaySource.h) — 캡처 파일 리플레이 피드 소스(D-071)
 - [RingBuffer.h](../Quant/include/core/RingBuffer.h) — SPSC 락프리 링버퍼
@@ -403,6 +404,7 @@
 - [bench_intake.cpp](../Quant/tests/bench_intake.cpp) — 멀티생산자 주문 인테이크 큐 부하 벤치(MPSC 대 Mutex)
 - [bench_latency_path.cpp](../Quant/tests/bench_latency_path.cpp) — 지연에 민감한 경로 리팩터 전후 비교 벤치(D-071)
 - [bench_market_firehose.cpp](../Quant/tests/bench_market_firehose.cpp) — 전종목 규모 시세 파이프라인 부하테스트(E2E 지연·처리량)
+- [bench_snapshot_swap.cpp](../Quant/tests/bench_snapshot_swap.cpp) — 평가 1회가 봉 스냅샷을 잡는 비용, 벡터 복사 vs 포인터 교체(D-114, ctest 밖)
 - [bench_order_gate_position.cpp](../Quant/tests/bench_order_gate_position.cpp) — OrderGate 원장 조회 벤치: 키가 (계좌, 종목) 문자열일 때와 정수 id일 때의 position() 비용(D-105 결정 3)
 - [bench_order_path_keys.cpp](../Quant/tests/bench_order_path_keys.cpp) — 주문 경로 키 벤치: 중복 신호 키·우선순위 표·서브원장·체결 키를 문자열과 정수로 잰다(D-112)
 - [bench_peer_failure.cpp](../Quant/tests/bench_peer_failure.cpp) — 프로세스 경계 고장 실측 벤치: 공유메모리 한 방향 지연, crash·exit·hang 감지 지연, append+flush 비용(D-071 큐 34)
@@ -433,6 +435,7 @@
 - [test_protective_orders.cpp](../Quant/tests/test_protective_orders.cpp) — 보호 주문 표 단위 테스트: 전략 없이 가격 경로만으로 청산이 나가는지 검증(D-114 단계 1)
 - [test_reconcile_plan.cpp](../Quant/tests/test_reconcile_plan.cpp) — 잔고 대조 차이 계산 순수 함수 단위 테스트(D-038)
 - [test_regime_file_judge.cpp](../Quant/tests/test_regime_file_judge.cpp) — 매크로 국면 파일 판정기 단위 테스트(D-033·D-060)
+- [test_prefetch_pool.cpp](../Quant/tests/test_prefetch_pool.cpp) — 프리페치 풀 고정 스레드·주기 실행·해제 대기·정지 단위 테스트
 - [test_replay_source.cpp](../Quant/tests/test_replay_source.cpp) — 캡처 리플레이 소스 단위 테스트
 - [test_ringbuffer.cpp](../Quant/tests/test_ringbuffer.cpp) — SPSC RingBuffer 정확성·처리량 테스트
 - [test_ringbuffer_stress.cpp](../Quant/tests/test_ringbuffer_stress.cpp) — SPSC RingBuffer 실환경 부하 시뮬레이션(버스트·가변지연)
@@ -555,6 +558,8 @@
 - [MAINTENANCE_WEEKLY.md](reports/MAINTENANCE_WEEKLY.md) — 주간 유지보수 현황 보고서
 - [MDC_BLOCK_REPORT.md](reports/MDC_BLOCK_REPORT.md) — KRX 데이터 차단 진단 보고서
 - [PIPELINE_LATENCY_REPORT.md](reports/PIPELINE_LATENCY_REPORT.md) — 파이프라인 지연 벤치마크 보고서
+- [stresstest/2026-09-22_prefetch_pool.md](reports/stresstest/2026-09-22_prefetch_pool.md) — 부하 회차: 프리페치 전략당 스레드→공용 풀, 스냅샷 복사 492→10ns(D-114)
+- [stresstest/data/2026-09-22_bench_snapshot_swap.csv](reports/stresstest/data/2026-09-22_bench_snapshot_swap.csv) — 위 회차 원자료(bench_snapshot_swap 1차 5회 + atomic 열 2차 5회)
 - [TOKEN_AUDIT.md](reports/TOKEN_AUDIT.md) — 최근 7일 세션 기록의 토큰 사용 감사(절차·도구·하네스 주입·압축·훅별 표), `py scripts/token_audit.py --md`로 다시 만든다
 
 ## linux_practice

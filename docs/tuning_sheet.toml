@@ -559,12 +559,20 @@ group = "엔진 — 스레드 주기·장 시간"
 meaning = "이 뒤의 틱은 봉에 안 넣는다(애프터마켓 마감 체결까지)"
 
 [[code_value]]
-id = "devscale_prefetch_window"
+id = "devscale_prefetch_window_open"
 file = "Quant/include/strategy/DeviationScaleStrategy.h"
-regex = 'hhmm >= (\d+ && hhmm <= \d+);'
+regex = 'static constexpr int kPrefetchWindowOpenHhmm\s*=\s*(\d+);'
 unit = "hhmm"
 group = "엔진 — 스레드 주기·장 시간"
-meaning = "DEVSCALE 이 분봉·일봉 REST 를 당기는 창(월~금)"
+meaning = "DEVSCALE 이 분봉·일봉 REST 를 당기는 창의 시작(월~금)"
+
+[[code_value]]
+id = "devscale_prefetch_window_close"
+file = "Quant/include/strategy/DeviationScaleStrategy.h"
+regex = 'static constexpr int kPrefetchWindowCloseHhmm\s*=\s*(\d+);'
+unit = "hhmm"
+group = "엔진 — 스레드 주기·장 시간"
+meaning = "DEVSCALE 이 분봉·일봉 REST 를 당기는 창의 끝(월~금)"
 
 [[code_value]]
 id = "session_end_grace_sec"

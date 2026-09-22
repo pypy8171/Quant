@@ -3,6 +3,7 @@
 #include "core/BarAggregator.h"
 #include "core/DataPoller.h"
 #include "core/KstTime.h"
+#include "core/PrefetchPool.h"
 #include "core/TickSize.h"
 #include "core/WakeGate.h"
 #include "strategy/DevScaleRules.h"
@@ -17,6 +18,7 @@
 #include <cstdio>
 #include <ctime>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <stop_token>
 #include <string>
@@ -213,7 +215,7 @@ public:
         }
     }
 
-    // 프리페치 스레드·스냅샷 뮤텍스를 안고 있다 — 복사 대상이 아니다.
+    // 프리페치 등록·스냅샷 뮤텍스를 안고 있다 — 복사 대상이 아니다.
     DeviationScaleStrategy(const DeviationScaleStrategy&)            = delete;
     DeviationScaleStrategy& operator=(const DeviationScaleStrategy&) = delete;
 
@@ -275,7 +277,7 @@ public:
         liquidation_last_position_ = -1;
         liquidation_fail_streak_ = 0;
         last_work_ = std::chrono::steady_clock::time_point{};
-        daily_.clear();
+        daily_.reset();
         equity_ = 0.0;
         sequence_ = 0;
         last_zone_ = false;
@@ -297,17 +299,21 @@ public:
         seed_wanted_.store(true, std::memory_order_relaxed);
         {
             std::lock_guard<std::mutex> lock(snap_mutex_);
-            snap_daily_.clear();
+            snap_daily_.reset();
             snap_daily_date_.clear();
             snap_equity_ = 0.0;
-            snap_bars_.clear();
+            snap_bars_.reset();
             snap_bars_bucket_ = -1;
         }
 
         LOG_INFO("[" + id() + "] 시작 — " + describe());
-        // set_kis()가 on_start 직전 호출됨(Engine start/재스캔 둘 다) → kis_ 확정. 여기서 프리페치 기동.
-        stop_prefetch(); // 재등록 경로 대비 — 이전 스레드의 정지·join을 여기서 끝낸다
-        prefetch_thread_ = std::jthread([this](std::stop_token stop_token) { prefetch_loop(stop_token); });
+        // set_kis()·set_prefetch_pool()이 on_start 직전 호출됨(Engine start/재스캔 둘 다) → 여기서 프리페치 등록.
+        stop_prefetch(); // 재등록 경로 대비 — 이전 등록의 해제를 여기서 끝낸다
+
+        if (prefetch_pool_)
+        {
+            prefetch_task_ = prefetch_pool_->add([this] { prefetch_once(); });
+        }
     }
 
     void on_stop() override
@@ -402,24 +408,28 @@ public:
         }
 
         // ── 프리페치 스냅샷 스냅(일봉·자본·3분봉). 아직 준비 전이면 다음 하트비트 대기 ──
-        //  무거운 REST는 프리페치 스레드가 미리 당겨둔다. 여기선 락을 짧게 잡고 복사만.
-        std::vector<MarketData> bars;
+        //  무거운 REST는 공용 프리페치 풀이 미리 당겨둔다. 여기선 락을 짧게 잡고 포인터만 잡는다.
+        BarSnapshot snapshot_bars;
         int      bars_bucket  = -1;
         uint64_t bars_version = 0;
         {
             std::lock_guard<std::mutex> lock(snap_mutex_);
 
-            if (snap_daily_.empty())
+            if (!snap_daily_)
             {
                 return; // 일봉 미준비 — 프리페치 대기
             }
 
-            daily_  = snap_daily_;
+            daily_  = snap_daily_; // 포인터 하나 — 벡터 복사가 아니다
             equity_ = snap_equity_;
-            bars    = snap_bars_;
-            bars_bucket  = snap_bars_bucket_;
-            bars_version = snap_bars_version_;
+            snapshot_bars = snap_bars_;
+            bars_bucket   = snap_bars_bucket_;
+            bars_version  = snap_bars_version_;
         }
+
+        // 판단 봉은 아래에서 접거나 진행 봉 종가를 덮으므로 이 평가가 소유해야 한다. 체결이 살아 있으면
+        //  집계기에서 새로 만들어지고, 그 경로에서는 스냅샷을 아예 복사하지 않는다.
+        std::vector<MarketData> bars;
 
         const bool local_bars = websocket_bars_ && websocket_live_;
 
@@ -437,15 +447,15 @@ public:
 
             // 새 REST 스냅샷(1분봉)은 한 번만 시드한다. 닫힌 자리는 REST가 이기고 빈 자리는 채워지므로,
             //  폴백 동안 못 본 분·구독 뒤 늦게 붙은 종목의 앞 분이 여기서 메워진다.
-            if (!bars.empty() && bars_version != seeded_version_)
+            if (snapshot_bars && !snapshot_bars->empty() && bars_version != seeded_version_)
             {
                 const int  before = aggregator_.closed_count(symbol_id_);
-                const int  added  = aggregator_.seed(symbol_id_, bars);
+                const int  added  = aggregator_.seed(symbol_id_, *snapshot_bars);
                 const bool first  = seeded_version_ == 0;
                 seeded_version_   = bars_version;
                 reseed_pending_   = false;
                 const std::string line = "[" + id() + "] 봉 시드 src=" + (local_bars ? "ws" : "rest") +
-                                         " REST " + std::to_string(bars.size()) + "봉, 새 " + std::to_string(added) +
+                                         " REST " + std::to_string(snapshot_bars->size()) + "봉, 새 " + std::to_string(added) +
                                          ", 닫힌 " + std::to_string(aggregator_.closed_count(symbol_id_)) + "(전 " + std::to_string(before) + ")" +
                                          ", 진행 " + (aggregator_.current_slot(symbol_id_).valid() ? "있음" : "없음");
 
@@ -479,10 +489,15 @@ public:
             {
                 bars = std::move(local); // 종가는 이미 방금 틱
             }
-            else
+            else if (snapshot_bars)
             {
-                bars = bars::resample(bars, parameters_.interval_min, parameters_.simple_moving_average_period + 1);
+                bars = bars::resample(*snapshot_bars, parameters_.interval_min, parameters_.simple_moving_average_period + 1);
             }
+        }
+        else if (snapshot_bars)
+        {
+            // bar_source=rest — 아래 진행 봉 종가 덮어쓰기가 값을 고치므로 이 경로만 스냅샷을 복사한다.
+            bars = *snapshot_bars;
         }
 
         // 진행 중인 봉(bars[0])의 종가를 방금 들어온 체결가로 덮는다. 프리페치가 봉 주기당
@@ -497,8 +512,8 @@ public:
         // 오늘 현재가를 이동평균에 접어 넣는다. 접지 않으면 정배열도 SMA20도 하루 종일
         //  전일 값이라, 장중에 이평이 깨져도 존은 활성으로 남고 이격만 움직인다.
         //  스캐너(UniverseScanner)와 같은 식·같은 허용오차를 쓴다(MaAlign.h).
-        const quant::moving_average::SimpleMovingAverages daily_averages_previous = daily_simple_moving_averages_previous(daily_);
-        const quant::moving_average::SimpleMovingAverages daily_averages   = daily_simple_moving_averages(daily_, current_price);
+        const quant::moving_average::SimpleMovingAverages daily_averages_previous = daily_simple_moving_averages_previous(*daily_);
+        const quant::moving_average::SimpleMovingAverages daily_averages   = daily_simple_moving_averages(*daily_, current_price);
         // 축이 둘이다. 접은 정배열은 진입만 연다. 유지·청산은 전일 확정 정배열로 판정한다.
         //  접은 값은 min_action_ms(3초)마다 뒤집힐 수 있는데 존 이탈에 붙은 행위가 보유 전량
         //  시장가 매도다. 09-10 일봉 캐시(정배열 통과 128종목)로 재면 average_5>s10이 73%에서 가장
@@ -544,7 +559,7 @@ public:
                      " 일봉SMA20=" + format_one_decimal(d_s20) + " 현재가=" + format_one_decimal(current_price) +
                      " 이격=" + format_one_decimal(deviation20_percent) + "% (진입밴드 " + format_one_decimal(low_threshold) + "%~" + format_one_decimal(up_threshold) +
                      "%) 유지=" + (hold_zone ? "Y" : "N") +
-                     " 일봉수=" + std::to_string(daily_.size()));
+                     " 일봉수=" + std::to_string(daily_->size()));
             last_zone_    = zone;
             zone_log_ts_  = now;
         }
@@ -997,16 +1012,16 @@ public:
         std::string entry_context;
         {
             double volume20 = 0.0, hi250 = 0.0;
-            const size_t value_count = (std::min)(daily_.size(), static_cast<size_t>(20));
+            const size_t value_count = (std::min)(daily_->size(), static_cast<size_t>(20));
 
             for (size_t index = 0; index < value_count; ++index)
             {
-                volume20 += static_cast<double>(daily_[index].volume);
+                volume20 += static_cast<double>((*daily_)[index].volume);
             }
 
             volume20 = value_count > 0 ? volume20 / static_cast<double>(value_count) : 0.0;
 
-            for (const auto& daily_bar : daily_)
+            for (const auto& daily_bar : *daily_)
             {
                 hi250 = (std::max)(hi250, daily_bar.high);
             }
@@ -1096,7 +1111,7 @@ private:
                 return false;
             }
 
-            const double atr_percent = devscale_rules::average_true_range(daily_, kAtrPeriod) / previous_sma20 * 100.0;
+            const double atr_percent = devscale_rules::average_true_range(*daily_, kAtrPeriod) / previous_sma20 * 100.0;
             const double open_deviation_percent = (current_price - previous_sma20) / previous_sma20 * 100.0;
             entry_filter_date_ = today;
             day_entry_allowed_ = devscale_rules::entry_day_allowed(atr_percent, open_deviation_percent,
@@ -1168,105 +1183,98 @@ private:
     //    종목의 느린 REST가 전 전략을 막던 head-output_file-line 블로킹을 없앤다. 발주·매도가능
     //    (sellable_quantity)은 원장 최신성을 위해 동기 유지. 여기서 부르는 KIS 메서드는 전부
     //    읽기전용(get_daily_ohlcv·get_minute_ohlcv·get_balance, 동시호출 감사 완료).
-    void prefetch_loop(std::stop_token stop_token)
+    //  주기(min_action_ms)와 스레드는 공용 풀이 가진다 — 이 함수는 한 주기에 한 번 불린다. [why D-071]
+    void prefetch_once()
     {
-        while (!stop_token.stop_requested())
+        // 장 밖에서는 받아봐야 같은 응답이다. KIS 분봉은 기준시각을 15:30으로 클램프하므로
+        //  (KisClient.cpp) 장 마감 후엔 종일 같은 봉을 다시 받고, 그 호출이 초당 한도를
+        //  차지해 다른 조회를 500으로 밀어낸다. 발주는 어차피 장중에만 나가므로 건너뛴다.
+        //  창은 08:50~15:35로 장 마감 청산(15:15)까지 덮는다.
+        const int hhmm = kst_hhmm();
+        const int wday = kst_tm().tm_wday;
+        const bool in_session = (wday >= 1 && wday <= 5) && hhmm >= kPrefetchWindowOpenHhmm && hhmm <= kPrefetchWindowCloseHhmm;
+
+        if (kis_ && in_session)
         {
-            // 장 밖에서는 받아봐야 같은 응답이다. KIS 분봉은 기준시각을 15:30으로 클램프하므로
-            //  (KisClient.cpp) 장 마감 후엔 종일 같은 봉을 다시 받고, 그 호출이 초당 한도를
-            //  차지해 다른 조회를 500으로 밀어낸다. 발주는 어차피 장중에만 나가므로 건너뛴다.
-            //  창은 08:50~15:35로 장 마감 청산(15:15)까지 덮는다.
-            const int hhmm = kst_hhmm();
-            const int wday = kst_tm().tm_wday;
-            const bool in_session = (wday >= 1 && wday <= 5) && hhmm >= 850 && hhmm <= 1535;
-
-            if (kis_ && in_session)
+            // 일봉·자본: 날짜 바뀌면 1회 갱신(장중엔 사실상 1일 1회).
+            std::string today = kst_ymd();
+            bool need_daily;
             {
-                // 일봉·자본: 날짜 바뀌면 1회 갱신(장중엔 사실상 1일 1회).
-                std::string today = kst_ymd();
-                bool need_daily;
+                std::lock_guard<std::mutex> lock(snap_mutex_);
+                need_daily = !snap_daily_ || snap_daily_date_ != today;
+            }
+
+            if (need_daily)
+            {
+                auto daily_ohlcv = kis_->get_daily_ohlcv(parameters_.ticker, parameters_.daily_lookback);
+
+                // 일봉이 비면(500·휴장) 스냅샷을 안 채우므로 need_daily가 참으로 남아
+                //  다음 주기에 또 온다. 그때 잔고까지 같이 부르면 한도 초과 상황에서
+                //  호출을 오히려 늘린다 — 일봉이 온 경우에만 잔고를 부른다.
+                if (!daily_ohlcv.empty())
                 {
+                    double equity = fetch_equity();
                     std::lock_guard<std::mutex> lock(snap_mutex_);
-                    need_daily = snap_daily_.empty() || snap_daily_date_ != today;
-                }
-
-                if (need_daily)
-                {
-                    auto daily_ohlcv = kis_->get_daily_ohlcv(parameters_.ticker, parameters_.daily_lookback);
-
-                    // 일봉이 비면(500·휴장) 스냅샷을 안 채우므로 need_daily가 참으로 남아
-                    //  다음 주기에 또 온다. 그때 잔고까지 같이 부르면 한도 초과 상황에서
-                    //  호출을 오히려 늘린다 — 일봉이 온 경우에만 잔고를 부른다.
-                    if (!daily_ohlcv.empty())
-                    {
-                        double equity = fetch_equity();
-                        std::lock_guard<std::mutex> lock(snap_mutex_);
-                        snap_daily_      = std::move(daily_ohlcv);
-                        snap_daily_date_ = std::move(today);
-                        snap_equity_     = equity;
-                    }
-                }
-
-                // 3분봉: 봉이 바뀔 때만 갱신한다. 이 조회는 페이지네이션이라 1회에 HTTP GET이
-                //  세 번 나가는데(당일 63분치 1분봉을 다시 받아 집계), 그중 마감된 봉은 불변이고
-                //  달라지는 건 진행 중인 봉 하나뿐이다. 그 하나는 아래 on_trade_batch가 들어오는
-                //  체결 틱으로 덮으므로 SMA 값은 같게 유지되면서 조회는 봉 주기당 1회로 준다.
-                //  bar_source=ws면 이 조회는 시드용이다 — 첫 스냅샷, 그리고 전략 스레드가 원할 때(워밍업·
-                //  REST 대체 틱·출처 전환 뒤)만 봉마다 한 번 받고, 틱이 살아 있고 봉이 찼으면 쉰다. 이때는
-                //  1분봉 그대로 받는다(같은 63분치·같은 GET 수) — 접는 건 전략 스레드의 resample이다. [why D-072]
-                const int bucket = kst_bar_bucket(parameters_.interval_min);
-                bool need_bars;
-                {
-                    std::lock_guard<std::mutex> lock(snap_mutex_);
-                    need_bars = snap_bars_.empty() || snap_bars_bucket_ != bucket;
-
-                    if (need_bars && websocket_bars_ && !snap_bars_.empty() &&
-                        !seed_wanted_.load(std::memory_order_relaxed))
-                    {
-                        need_bars = false;
-                    }
-
-                    // 봉 경계 직후 종목별 지터만큼 미룬다(첫 스냅샷은 바로). 진행 중인 봉은
-                    //  on_trade_batch의 체결가 덮어쓰기가 채우므로 늦게 받아도 SMA는 같다.
-                    if (need_bars && !snap_bars_.empty() &&
-                        kst_sec_into_bucket(parameters_.interval_min) < prefetch_jitter_sec_)
-                    {
-                        need_bars = false;
-                    }
-                }
-
-                if (need_bars)
-                {
-                    auto bars = websocket_bars_
-                                    ? kis_->get_minute_ohlcv(parameters_.ticker, (parameters_.simple_moving_average_period + 1) * parameters_.interval_min, 1)
-                                    : kis_->get_minute_ohlcv(parameters_.ticker, parameters_.simple_moving_average_period + 1, parameters_.interval_min);
-
-                    if (!bars.empty())
-                    {
-                        std::lock_guard<std::mutex> lock(snap_mutex_);
-                        snap_bars_        = std::move(bars);
-                        snap_bars_bucket_ = bucket;
-                        ++snap_bars_version_;
-                    }
+                    snap_daily_      = std::make_shared<const std::vector<MarketData>>(std::move(daily_ohlcv));
+                    snap_daily_date_ = std::move(today);
+                    snap_equity_     = equity;
                 }
             }
 
-            // min_action_ms를 자되 정지 요청이 오면 바로 깬다.
-            if (!wake::sleep_unless_stopped(stop_token, std::chrono::milliseconds(parameters_.min_action_ms)))
+            // 3분봉: 봉이 바뀔 때만 갱신한다. 이 조회는 페이지네이션이라 1회에 HTTP GET이
+            //  세 번 나가는데(당일 63분치 1분봉을 다시 받아 집계), 그중 마감된 봉은 불변이고
+            //  달라지는 건 진행 중인 봉 하나뿐이다. 그 하나는 아래 on_trade_batch가 들어오는
+            //  체결 틱으로 덮으므로 SMA 값은 같게 유지되면서 조회는 봉 주기당 1회로 준다.
+            //  bar_source=ws면 이 조회는 시드용이다 — 첫 스냅샷, 그리고 전략 스레드가 원할 때(워밍업·
+            //  REST 대체 틱·출처 전환 뒤)만 봉마다 한 번 받고, 틱이 살아 있고 봉이 찼으면 쉰다. 이때는
+            //  1분봉 그대로 받는다(같은 63분치·같은 GET 수) — 접는 건 전략 스레드의 resample이다. [why D-072]
+            const int bucket = kst_bar_bucket(parameters_.interval_min);
+            bool need_bars;
             {
-                break;
+                std::lock_guard<std::mutex> lock(snap_mutex_);
+                need_bars = !snap_bars_ || snap_bars_bucket_ != bucket;
+
+                if (need_bars && websocket_bars_ && snap_bars_ &&
+                    !seed_wanted_.load(std::memory_order_relaxed))
+                {
+                    need_bars = false;
+                }
+
+                // 봉 경계 직후 종목별 지터만큼 미룬다(첫 스냅샷은 바로). 진행 중인 봉은
+                //  on_trade_batch의 체결가 덮어쓰기가 채우므로 늦게 받아도 SMA는 같다.
+                if (need_bars && snap_bars_ &&
+                    kst_sec_into_bucket(parameters_.interval_min) < prefetch_jitter_sec_)
+                {
+                    need_bars = false;
+                }
+            }
+
+            if (need_bars)
+            {
+                auto bars = websocket_bars_
+                                ? kis_->get_minute_ohlcv(parameters_.ticker, (parameters_.simple_moving_average_period + 1) * parameters_.interval_min, 1)
+                                : kis_->get_minute_ohlcv(parameters_.ticker, parameters_.simple_moving_average_period + 1, parameters_.interval_min);
+
+                if (!bars.empty())
+                {
+                    std::lock_guard<std::mutex> lock(snap_mutex_);
+                    snap_bars_        = std::make_shared<const std::vector<MarketData>>(std::move(bars));
+                    snap_bars_bucket_ = bucket;
+                    ++snap_bars_version_;
+                }
             }
         }
     }
 
+    // 등록 해제. 돌아온 뒤에는 prefetch_once()가 실행 중이지도, 다시 불리지도 않는다.
     void stop_prefetch()
     {
-        prefetch_thread_.request_stop();
-
-        if (prefetch_thread_.joinable())
+        if (prefetch_pool_ && prefetch_task_ != 0)
         {
-            prefetch_thread_.join();
+            prefetch_pool_->remove(prefetch_task_);
         }
+
+        prefetch_task_ = 0;
     }
 
     // 사이징 기준 자본(총평가금) 조회. output2 tot_evlu_amt(없으면 nass_amt). 알 수 없으면 0.
@@ -1426,7 +1434,7 @@ private:
         }
 
         std::lock_guard<std::mutex> lock(snap_mutex_);
-        return snap_bars_.empty() ? 0.0 : snap_bars_[0].close;
+        return snap_bars_ && !snap_bars_->empty() ? (*snap_bars_)[0].close : 0.0;
     }
 
     // ── 청산 발주: 매도가능분 클램프 + 지수 백오프 ───────────────────────────
@@ -1611,7 +1619,9 @@ private:
     Params parameters_;
     std::string id_; // 전략 이름, 생성자에서 한 번
     std::vector<Live> live_;               // 현재 live로 낙관하는 예약들
-    std::vector<MarketData> daily_;        // 일봉 캐시(정배열/눌림 판정)
+    // [inv] on_trade_batch가 스냅샷에서 잡는다. null이면 그 자리에서 return하므로, 아래 판정
+    //  함수들이 불리는 시점에는 항상 유효하다.
+    std::shared_ptr<const std::vector<MarketData>> daily_; // 이번 평가가 붙잡은 일봉(정배열/눌림 판정)
     double equity_ = 0.0;                   // 사이징 기준 자본(총평가금) 스냅샷 — 일별 갱신
     double last_split_buy_reference_ = 0.0;             // 마지막 재구성의 분할 주문 기준점(SMA 또는 현재가) — 데드밴드 기준
     double last_price_ = 0.0;                 // 직전 체결가 — 시장가 청산 reference_price
@@ -1624,6 +1634,8 @@ private:
     std::string entry_filter_date_;              // 진입 필터를 판정한 날(KST YYYYMMDD) — 하루 한 번
     bool   day_entry_allowed_ = true;            // 그날 새 진입 허용 여부(진입 필터 판정 결과)
     static constexpr int kOpenDeviationSampleHhmm = 903;   // 개장 봉(3분) 종가 시각 — 이 뒤 첫 평가에서 개장 이격을 잰다
+    static constexpr int kPrefetchWindowOpenHhmm  = 850;   // 프리페치 REST를 부르는 창(KST). 장 마감 청산(15:15)까지 덮는다
+    static constexpr int kPrefetchWindowCloseHhmm = 1535;
     static constexpr int kAtrPeriod = 14;
     static constexpr int kLiquidationBackoffMs = 30000;    // 손절·트레일·기준선 이탈 청산의 재시도 상한(ms)
     static constexpr int kMarketCloseBackoffMs = 300000;   // 장 마감 청산의 재시도 상한(ms) — 마감까지 계속 민다
@@ -1645,12 +1657,16 @@ private:
     uint64_t sequence_ = 0;
 
     // ── 프리페치(무거운 REST를 공유 전략 스레드 밖으로) ──────────────────────
-    std::jthread            prefetch_thread_;   // 정지는 stop_token, join은 stop_prefetch()가 명시(멤버 소멸 순서 앞)
+    prefetch::Pool::TaskId  prefetch_task_ = 0;   // 풀 등록 번호(0=없음). 해제는 stop_prefetch()가 명시(멤버 소멸 순서 앞)
     std::mutex              snap_mutex_;               // 아래 snap_* 보호
-    std::vector<MarketData> snap_daily_;             // 일봉 스냅샷
+    // 스냅샷은 포인터를 바꿔 넘긴다 — 평가마다 일봉 250봉(20KB)을 복사하지 않기 위해서다. 한 번 담은
+    //  벡터는 const라 아무도 고치지 않고, 읽는 쪽은 자기 shared_ptr로 수명을 붙잡는다. [why D-071]
+    using BarSnapshot = std::shared_ptr<const std::vector<MarketData>>;
+
+    BarSnapshot             snap_daily_;             // 일봉 스냅샷(미수신이면 null)
     std::string             snap_daily_date_;        // 스냅샷 기준일(KST YYYYMMDD)
     double                  snap_equity_ = 0.0;      // 자본 스냅샷(raw, 폴백 미적용)
-    std::vector<MarketData> snap_bars_;              // 3분봉 스냅샷
+    BarSnapshot             snap_bars_;              // 3분봉 스냅샷(미수신이면 null)
     int snap_bars_bucket_ = -1;                      // 그 스냅샷을 받은 봉 번호(kst_bar_bucket)
     uint64_t snap_bars_version_ = 0;                 // 받을 때마다 +1 — 전략 스레드가 새 스냅샷만 시드한다
 

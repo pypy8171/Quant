@@ -124,7 +124,7 @@
     {
       "from": "strategy",
       "to": "core",
-      "weight": 22
+      "weight": 23
     },
     {
       "from": "strategy",
@@ -188,6 +188,7 @@
     "core/MutexQueue.h": "core",
     "core/OrderRateLimiter.h": "core",
     "core/PaperExecutor.h": "core",
+    "core/PrefetchPool.h": "core",
     "core/ReconcilePlan.h": "core",
     "core/RegimeFileJudge.h": "core",
     "core/ReplaySource.h": "core",
@@ -387,6 +388,7 @@
       "core/MpscQueue.h",
       "core/OrderRateLimiter.h",
       "core/PaperExecutor.h",
+      "core/PrefetchPool.h",
       "core/RegimeFileJudge.h",
       "core/ReplaySource.h",
       "core/RingBuffer.h",
@@ -451,6 +453,9 @@
       "core/MarketSession.h",
       "core/SymbolTable.h",
       "core/Types.h"
+    ],
+    "core/PrefetchPool.h": [
+      "core/WakeGate.h"
     ],
     "core/ReconcilePlan.h": [
       "core/SymbolTable.h"
@@ -588,6 +593,7 @@
       "core/BarAggregator.h",
       "core/DataPoller.h",
       "core/KstTime.h",
+      "core/PrefetchPool.h",
       "core/TickSize.h",
       "core/WakeGate.h",
       "strategy/DevScaleRules.h",
@@ -851,6 +857,10 @@
     "core/PaperExecutor.h": [
       "core/Engine.h"
     ],
+    "core/PrefetchPool.h": [
+      "core/Engine.h",
+      "strategy/DeviationScaleStrategy.h"
+    ],
     "core/ReconcilePlan.h": [
       "core/Engine.cpp",
       "core/LedgerReconciler.h",
@@ -957,6 +967,7 @@
       "api/WebSocketClient.cpp",
       "core/Engine.h",
       "core/FeedMux.h",
+      "core/PrefetchPool.h",
       "core/StrategyShard.h",
       "core/TickCapture.h",
       "ipc/OrderRouter.cpp",
@@ -1170,7 +1181,7 @@
     },
     {
       "header": "core/WakeGate.h",
-      "in_degree": 7
+      "in_degree": 8
     },
     {
       "header": "risk/OrderGate.h",

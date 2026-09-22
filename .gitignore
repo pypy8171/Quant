@@ -59,6 +59,8 @@ PYQuant/.index_cache/
 *.parquet
 # 백테스트 출력물(CSV — 결과/보유/체결 덤프, 로컬 전용)
 *.csv
+# 예외 — 부하테스트 원자료는 남긴다. 분리 전후 비교의 기준선이라 리포트만으로는 부족하다(수 KB)
+!docs/reports/stresstest/data/*.csv
 
 # 개인용 리뷰/분석 문서 — 커밋 제외
 SESSION_HUB.md
