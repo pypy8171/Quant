@@ -37,7 +37,7 @@ inline std::FILE* open_capture_file(const std::filesystem::path& file, const cha
 }
 
 // ── 파일 형식 v1·v2 ─────────────────────────────────────────────────────────────
-//  머리 16바이트: "QTCAP\0" + version(uint8=1) + pad(1) + 시작 utc_ms(int64, LE).
+//  머리 16바이트: "QTCAP\0" + version(uint8=kFormatVersion, 지금 2) + pad(1) + 시작 utc_ms(int64, LE).
 //  레코드: uint16 length(본문 바이트) + uint8 kind(1=체결 2=호가 3=봉 4=유니버스) + uint8 version + 본문. 본문은 아래 POD를 그대로 쓴다
 //  (LE, x64 정렬 그대로). 꼬리가 잘려 있으면 리더가 그 앞까지만 돌려준다.
 // v2에서 봉·유니버스 레코드가 늘었다. 리더는 v1도 그대로 읽는다 — 09-21까지 받아 둔 파일이 있다.
