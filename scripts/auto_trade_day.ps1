@@ -391,6 +391,10 @@ if (-not $NoRecorder) {
   Say "TimescaleDB 사전 점검 — WSL Docker 깨우기"
   Wait-Tsdb
   Start-Window "quant-recorder"  "& '$py' PYQuant\main.py record --host localhost --port 5555" "main.py record"
+  # 엔진 자원(CPU·메모리·스레드별 CPU·perf 함수 핫스팟) → 그라파나 ops. -NoTrader 날은 엔진이 WSL(Ubuntu-24.04)에
+  # 있어 /proc를 그 배포판에서 읽고, Windows exe 날은 psutil로 본다.
+  $procwatchArgs = if ($NoTrader) { "--wsl-distro Ubuntu-24.04" } else { "" }
+  Start-Window "quant-procwatch" "& '$py' PYQuant\main.py procwatch $procwatchArgs" "main.py procwatch"
 }
 
 # ─────────────── 감시 루프 ───────────────

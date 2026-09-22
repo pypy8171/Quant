@@ -158,10 +158,37 @@ CREATE TABLE IF NOT EXISTS proc_stats (
     pid           INTEGER,
     cpu_percent   DOUBLE PRECISION,   -- psutil Process.cpu_percent(interval) — 코어 100%=1개 코어 풀가동
     memory_mb     DOUBLE PRECISION,   -- RSS
-    thread_count  INTEGER
+    thread_count  INTEGER,
+    core_count    INTEGER             -- 그 기계의 논리 코어 수 — cpu_percent/100 이 몇 코어를 쓰는지 읽을 때 분모
 );
 SELECT create_hypertable('proc_stats', 'ts', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS proc_stats_name_ts ON proc_stats (process_name, ts DESC);
+
+-- 스레드별 CPU (리눅스 /proc/<pid>/task/*/stat 차분). thread_name은 엔진이 붙인 이름(DataThread·Shard 0 …)
+CREATE TABLE IF NOT EXISTS proc_thread_stats (
+    ts            TIMESTAMPTZ  NOT NULL,
+    process_name  TEXT         NOT NULL,
+    pid           INTEGER,
+    tid           INTEGER,
+    thread_name   TEXT,
+    cpu_percent   DOUBLE PRECISION
+);
+SELECT create_hypertable('proc_thread_stats', 'ts', if_not_exists => TRUE);
+CREATE INDEX IF NOT EXISTS proc_thread_stats_name_ts ON proc_thread_stats (thread_name, ts DESC);
+
+-- 함수별 자기 시간 비율 (perf record -e cpu-clock 표본, 한 회차 = 같은 ts)
+CREATE TABLE IF NOT EXISTS proc_hotspots (
+    ts             TIMESTAMPTZ  NOT NULL,
+    process_name   TEXT         NOT NULL,
+    pid            INTEGER,
+    sample_seconds DOUBLE PRECISION,
+    symbol         TEXT         NOT NULL,
+    shared_object  TEXT,
+    self_percent   DOUBLE PRECISION,
+    samples        BIGINT
+);
+SELECT create_hypertable('proc_hotspots', 'ts', if_not_exists => TRUE);
+CREATE INDEX IF NOT EXISTS proc_hotspots_ts ON proc_hotspots (ts DESC);
 
 -- ── 벤치마크용 테스트 테이블 (bench_market_open.py) ───────────────────────────
 -- 실거래 테이블(ticks/signals/orders/fills/positions)과 같은 모양으로 별도 유지 —

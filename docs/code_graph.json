@@ -19,7 +19,7 @@
     {
       "from": "api",
       "to": "utils",
-      "weight": 6
+      "weight": 7
     },
     {
       "from": "core",
@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 8
+      "weight": 9
     },
     {
       "from": "ipc",
@@ -64,7 +64,7 @@
     {
       "from": "ipc",
       "to": "utils",
-      "weight": 3
+      "weight": 5
     },
     {
       "from": "main",
@@ -226,6 +226,7 @@
     "utils/EtfFilter.h": "utils",
     "utils/JsonNode.h": "utils",
     "utils/Logger.h": "utils",
+    "utils/ThreadName.h": "utils",
     "utils/Utf8.h": "utils",
     "main.cpp": "main",
     "api/KisAccount.cpp": "api",
@@ -318,7 +319,8 @@
       "api/KisWebSocket.h",
       "api/KisWsDecode.h",
       "core/WakeGate.h",
-      "utils/Logger.h"
+      "utils/Logger.h",
+      "utils/ThreadName.h"
     ],
     "api/WsSocketPosix.cpp": [
       "utils/Logger.h"
@@ -358,7 +360,8 @@
       "core/LatencyTrace.h",
       "core/ReconcilePlan.h",
       "core/UniverseExit.h",
-      "utils/Logger.h"
+      "utils/Logger.h",
+      "utils/ThreadName.h"
     ],
     "core/Engine.h": [
       "api/KisClient.h",
@@ -491,7 +494,8 @@
     ],
     "ipc/OpsServer.cpp": [
       "ipc/OpsServer.h",
-      "utils/Logger.h"
+      "utils/Logger.h",
+      "utils/ThreadName.h"
     ],
     "ipc/OpsServer.h": [
       "ipc/OpsProtocol.h"
@@ -513,7 +517,8 @@
     ],
     "ipc/ZmqBridge.cpp": [
       "ipc/ZmqBridge.h",
-      "utils/Logger.h"
+      "utils/Logger.h",
+      "utils/ThreadName.h"
     ],
     "ipc/ZmqBridge.h": [
       "core/MpscQueue.h",
@@ -679,7 +684,8 @@
     ],
     "utils/Logger.cpp": [
       "core/MpscQueue.h",
-      "utils/Logger.h"
+      "utils/Logger.h",
+      "utils/ThreadName.h"
     ]
   },
   "included_by": {
@@ -1086,6 +1092,13 @@
       "universe/UniverseScanner.cpp",
       "utils/Logger.cpp"
     ],
+    "utils/ThreadName.h": [
+      "api/WebSocketClient.cpp",
+      "core/Engine.cpp",
+      "ipc/OpsServer.cpp",
+      "ipc/ZmqBridge.cpp",
+      "utils/Logger.cpp"
+    ],
     "utils/Utf8.h": [
       "modes/Monitors.cpp"
     ]
@@ -1128,6 +1141,10 @@
       "in_degree": 6
     },
     {
+      "header": "utils/ThreadName.h",
+      "in_degree": 5
+    },
+    {
       "header": "api/KisErrorCodes.h",
       "in_degree": 4
     },
@@ -1165,10 +1182,6 @@
     },
     {
       "header": "api/KisWebSocket.h",
-      "in_degree": 3
-    },
-    {
-      "header": "core/AppConfig.h",
       "in_degree": 3
     }
   ],

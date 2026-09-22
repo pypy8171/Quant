@@ -116,7 +116,7 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 | 층 | 담당 | 하는 일 |
 |---|---|---|
 | 감시자 | `scripts/auto_trade_guard.ps1` | 평일 5분 주기 예약작업. 장중인데 워치독이 없으면 기동한다. 남은 트레이더가 남아 있으면 먼저 내린다 |
-| 워치독 | `scripts/auto_trade_day.ps1` | 사전 점검(중복 프로세스·계좌 모드), 기동 전 `quant_trader` 재빌드(증분, 실패면 `build_failed`로 중단, `-NoBuild`로 생략), 보조 프로세스·유니버스·대시보드·알림·체결 기록기(`quant-recorder`) 기동, KIS 토큰 캐시를 `KIS_TOKEN_CACHE_DIR`로 트레이더와 한 파일로 맞춤, 트레이더를 마감까지 감시·재기동, 마감 뒤 `market_close_autodoc.py` 실행 |
+| 워치독 | `scripts/auto_trade_day.ps1` | 사전 점검(중복 프로세스·계좌 모드), 기동 전 `quant_trader` 재빌드(증분, 실패면 `build_failed`로 중단, `-NoBuild`로 생략), 보조 프로세스·유니버스·대시보드·알림·체결 기록기(`quant-recorder`)·엔진 자원 표본기(`quant-procwatch`, 리눅스 트레이더면 `--wsl-distro Ubuntu-24.04`) 기동, KIS 토큰 캐시를 `KIS_TOKEN_CACHE_DIR`로 트레이더와 한 파일로 맞춤, 트레이더를 마감까지 감시·재기동, 마감 뒤 `market_close_autodoc.py` 실행 |
 | 워치독(리눅스) | `scripts/auto_trade_day.sh` | 트레이더를 WSL2에서 띄우는 날의 하루 루프 — 사전 점검(WSL·Windows 양쪽 중복 프로세스, 모의계좌), `ninja` 증분 재빌드, 미체결 복원, 마감까지 감시·재기동, 크래시 루프 판정. 부속 창·마감 정리는 Windows 워치독 `-NoTrader`가 맡는다. 상태 `_private/_auto_trade_linux.json`. 절차 `docs/RUNBOOK.md` 1.1절 |
 | 감독 | `.claude/commands/auto-trade-day.md` | 국면 판단, 증분 로그 감시, **무발주 감시**, 결함을 코드/상황으로 분류, 코드면 수정·재빌드, **이슈 대장 누적**, 마감 뒤 해석 문서 |
 

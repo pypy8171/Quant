@@ -19,16 +19,16 @@ graph LR
   ipc[ipc]
   utils[utils]
   api -->|11| core
-  api -->|6| utils
+  api -->|7| utils
   core -->|10| api
   core -->|3| ipc
   core -->|5| risk
   core -->|3| strategy
-  core -->|8| utils
+  core -->|9| utils
   ipc -->|2| api
   ipc -->|6| core
   ipc --> risk
-  ipc -->|3| utils
+  ipc -->|5| utils
   main -->|3| core
   main --> modes
   main --> strategy
@@ -197,6 +197,7 @@ graph LR
   n_api_WebSocketClient_cpp --> n_api_KisWsDecode_h
   n_api_WebSocketClient_cpp --> n_core_WakeGate_h
   n_api_WebSocketClient_cpp --> n_utils_Logger_h
+  n_api_WebSocketClient_cpp --> n_utils_ThreadName_h
   n_api_WsSocketPosix_cpp --> n_utils_Logger_h
   n_api_WsSocketWin_cpp --> n_utils_Logger_h
   n_core_AppConfig_cpp --> n_core_AppConfig_h
@@ -219,6 +220,7 @@ graph LR
   n_core_Engine_cpp --> n_core_ReconcilePlan_h
   n_core_Engine_cpp --> n_core_UniverseExit_h
   n_core_Engine_cpp --> n_utils_Logger_h
+  n_core_Engine_cpp --> n_utils_ThreadName_h
   n_core_Engine_h --> n_api_KisClient_h
   n_core_Engine_h --> n_api_KisWebSocket_h
   n_core_Engine_h --> n_core_DataPoller_h
@@ -304,6 +306,7 @@ graph LR
   n_core_UniverseExit_h --> n_core_SymbolTable_h
   n_ipc_OpsServer_cpp --> n_ipc_OpsServer_h
   n_ipc_OpsServer_cpp --> n_utils_Logger_h
+  n_ipc_OpsServer_cpp --> n_utils_ThreadName_h
   n_ipc_OpsServer_h --> n_ipc_OpsProtocol_h
   n_ipc_OrderRouter_cpp --> n_api_KisErrorCodes_h
   n_ipc_OrderRouter_cpp --> n_core_KstTime_h
@@ -318,6 +321,7 @@ graph LR
   n_ipc_OrderRouter_h --> n_risk_OrderGate_h
   n_ipc_ZmqBridge_cpp --> n_ipc_ZmqBridge_h
   n_ipc_ZmqBridge_cpp --> n_utils_Logger_h
+  n_ipc_ZmqBridge_cpp --> n_utils_ThreadName_h
   n_ipc_ZmqBridge_h --> n_core_MpscQueue_h
   n_ipc_ZmqBridge_h --> n_core_Types_h
   n_main_cpp --> n_core_AppConfig_h
@@ -426,6 +430,7 @@ graph LR
   n_universe_UniverseScanner_h --> n_universe_ScoreWeight_h
   n_utils_Logger_cpp --> n_core_MpscQueue_h
   n_utils_Logger_cpp --> n_utils_Logger_h
+  n_utils_Logger_cpp --> n_utils_ThreadName_h
 ```
 
 ## Python import 그래프

@@ -21,7 +21,7 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@9c1b50d scripts/auto_trade_guard.ps1@74bf998 -->
+<!-- sync: scripts/auto_trade_day.ps1@07f6f3a scripts/auto_trade_guard.ps1@74bf998 -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 죽으면 다시
 띄운다. 마감 뒤 `scripts/market_close_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 트레이더는 이 감시견이 소유한다 —
@@ -80,7 +80,10 @@ cmd /k wsl -d Ubuntu-24.04 -u root -e bash scripts/auto_trade_day.sh          # 
 
 `quant-recorder`(ZMQ→TimescaleDB)가 붙는 DB는 WSL2(Ubuntu-22.04) 안의 Docker가 낸다. 감시견이 `quant-wsl-keepalive`
 창(`wsl -e sleep infinity`)을 같이 띄워 배포판을 붙잡는다(단발 `wsl -e` 호출은 끝나자마자 배포판이 내려간다, 09-16 실측).
-DB가 안 떠도 매매는 돈다 — recorder 적재만 빠진다. 손으로 확인:
+DB가 안 떠도 매매는 돈다 — recorder 적재만 빠진다. 엔진 CPU·메모리·스레드별 CPU·함수별 자기 시간(perf)은 `quant-procwatch`
+창(`py PYQuant/main.py procwatch --wsl-distro Ubuntu-24.04`)이 5초마다 `/proc`를 읽어 적재하고 그라파나 "Quant Ops"의 엔진 패널이
+그것을 그린다 — 그날 적재 여부는 `check_runtime_health.py`의 `자원 표본 적재` 행. perf는 `sudo apt install linux-tools-generic`
+(없으면 함수별 패널만 빈다). 손으로 확인:
 
 ```powershell
 wsl -l -v                                                            # Ubuntu-22.04가 Running인지

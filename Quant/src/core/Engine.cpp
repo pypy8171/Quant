@@ -4,6 +4,7 @@
 #include "core/LatencyTrace.h"
 #include "core/ReconcilePlan.h"
 #include "utils/Logger.h"
+#include "utils/ThreadName.h"
 #include <algorithm>
 #include <functional>
 #include <chrono>
@@ -1443,6 +1444,7 @@ void Engine::stop()
 // ─── 데이터 수집 스레드 ───────────────────────────────────────────────────
 void Engine::data_thread_fn(std::stop_token stop_token)
 {
+    thread_name::set_current("DataThread");
     LOG_INFO("[DataThread] 시작");
     bool was_market_open = false;
 
@@ -2143,6 +2145,7 @@ void Engine::poll_regime_file()
 // 아이들 시 100µs 슬립 → 저지연 유지
 void Engine::strategy_thread_fn(std::stop_token stop_token)
 {
+    thread_name::set_current("Strategy");
     LOG_INFO("[StrategyThread] 시작");
 
     // 신호 순번·교체 보류·차단 로그는 이 스레드 소유라 디스패처를 여기에 둔다. 싱크가 pipeline_.order_queue에 넣는 유일한
@@ -2250,6 +2253,7 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
 void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
 {
     auto& shard = *pipeline_.shards[row];
+    thread_name::set_current("Shard " + std::to_string(row));
     LOG_INFO("[Shard " + std::to_string(row) + "] 시작");
 
     // strategy_.list 무락 순회용 StrategyBase* 스냅샷. data_thread의 재스캔 등록·해제가
@@ -2378,6 +2382,7 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
 void Engine::order_thread_fn(std::stop_token stop_token)
 {
     using std::chrono::steady_clock;
+    thread_name::set_current("Order");
     LOG_INFO("[OrderThread] 시작");
 
     // 발주 간격과 거부 재시도는 이 스레드 소유라 조절기를 여기에 둔다. pipeline_.order_queue는 SPSC(생산자=전략 스레드)라
@@ -2483,6 +2488,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
 //  on_fill이 던지면 스레드가 죽어 이후 체결이 전부 큐에 쌓이므로 건마다 잡아 로그로 남긴다. [why D-056]
 void Engine::fill_thread_fn(std::stop_token stop_token)
 {
+    thread_name::set_current("Fill");
     LOG_INFO("[FillThread] 시작");
 
     // 정지 요청 뒤에도 큐를 비운다 — stop()이 WS를 끊은 다음 join하므로 남은 통보가 여기서 빠진다.
@@ -2637,6 +2643,7 @@ void Engine::deactivate_rest_fallback()
 
 void Engine::control_thread_fn(std::stop_token stop_token)
 {
+    thread_name::set_current("Control");
     using namespace std::chrono_literals;
     constexpr int kCheckIntervalSec = 5;
     // 큐 고수위는 장 외에도 찍는다 — 큐 크기가 맞는지의 근거가 되므로 WS 유무·개장 여부와 무관하다. [why D-071]

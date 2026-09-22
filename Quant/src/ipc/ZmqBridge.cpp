@@ -1,6 +1,7 @@
 #ifdef HAS_ZMQ
 #include "ipc/ZmqBridge.h"
 #include "utils/Logger.h"
+#include "utils/ThreadName.h"
 
 #include <charconv>
 #include <chrono>
@@ -89,6 +90,7 @@ void ZmqBridge::stop()
 // ─── 스레드 본체 (ZMQ 소켓은 이 스레드에서만 사용) ─────────────────────────
 void ZmqBridge::thread_fn()
 {
+    thread_name::set_current("ZmqBridge");
     zmq::context_t context{1};
     zmq::socket_t publish_socket{context, zmq::socket_type::pub};
     zmq::socket_t rep{context, zmq::socket_type::rep};

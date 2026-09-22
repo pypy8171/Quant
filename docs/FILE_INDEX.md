@@ -9,7 +9,7 @@
 - [(루트)](#루트) — 10개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 111개
-- [Quant](#quant) — 185개
+- [Quant](#quant) — 186개
 - [docs](#docs) — 63개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
@@ -75,7 +75,7 @@
 
 - [__init__.py](../PYQuant/core/__init__.py) — 빈 패키지 초기화 파일
 - [logger.py](../PYQuant/core/logger.py) — 콘솔 로거 설정 헬퍼
-- [proc_watch.py](../PYQuant/core/proc_watch.py) — psutil로 quant_trader.exe CPU/메모리/스레드 수를 주기 표본해 proc_stats에 적재
+- [proc_watch.py](../PYQuant/core/proc_watch.py) — 엔진 자원 표본기: Windows는 psutil(CPU/메모리/스레드 수→proc_stats), 리눅스·WSL은 /proc로 스레드별 CPU(proc_thread_stats)와 perf 함수별 자기 시간(proc_hotspots)까지 적재
 
 ### PYQuant/dashboard/
 
@@ -326,6 +326,7 @@
 - [EtfFilter.h](../Quant/include/utils/EtfFilter.h) — ETF·ETN 종목명 판별 필터
 - [JsonNode.h](../Quant/include/utils/JsonNode.h) — json 하위 노드를 복사 없이 참조로 집어 오는 헬퍼(jsonx::array_or_empty·object_or_empty)
 - [Logger.h](../Quant/include/utils/Logger.h) — 비동기 로거 — MPSC 큐+writer 스레드(D-045)
+- [ThreadName.h](../Quant/include/utils/ThreadName.h) — 현재 스레드에 이름을 붙인다(리눅스 pthread_setname_np·Windows SetThreadDescription) — procwatch 스레드별 CPU 표에 그 이름이 실린다
 - [Utf8.h](../Quant/include/utils/Utf8.h) — UTF-8 터미널 표시폭 계산·패딩 유틸
 
 ### Quant/src/

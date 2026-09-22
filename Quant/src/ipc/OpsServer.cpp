@@ -1,6 +1,7 @@
 // 운영단말 TCP 서버 구현. 스레드 소유권: 소켓 전부 srv_thread_. [why D-043]
 #include "ipc/OpsServer.h"
 #include "utils/Logger.h"
+#include "utils/ThreadName.h"
 
 #include <chrono>
 #include <cstring>
@@ -214,6 +215,7 @@ void OpsServer::broadcast(ops::OpsMsg type, std::string body)
 
 void OpsServer::thread_fn()
 {
+    thread_name::set_current("OpsServer");
     auto last_position_push = std::chrono::steady_clock::now();
 
     while (running_.load())

@@ -70,16 +70,17 @@ class DbClient:
                 "(하드코딩 기본값 제거됨). 로컬 개발은 .env.example 참고."
             )
 
-        # DB가 준비될 때까지 재시도 (Docker 기동 순서 대응)
+        self._connect_parameters = dict(host=host, port=port, dbname=db, user=user, password=password)
+        self._connect(retries, retry_interval)
+
+    def _connect(self, retries: int, retry_interval: float):
+        """DB가 준비될 때까지 재시도 (Docker 기동 순서 대응)."""
         for attempt in range(1, retries + 1):
             try:
-                self._conn = psycopg2.connect(
-                    host=host, port=port, dbname=db,
-                    user=user, password=password,
-                    connect_timeout=5,
-                )
+                self._conn = psycopg2.connect(connect_timeout=5, **self._connect_parameters)
                 self._conn.autocommit = True
-                logger.info(f"연결 완료: {user}@{host}:{port}/{db}")
+                parameters = self._connect_parameters
+                logger.info(f"연결 완료: {parameters['user']}@{parameters['host']}:{parameters['port']}/{parameters['dbname']}")
                 return
             except psycopg2.OperationalError as e:
                 if attempt == retries:
@@ -87,13 +88,22 @@ class DbClient:
                 logger.info(f"연결 대기 중... ({attempt}/{retries}): {e}")
                 time.sleep(retry_interval)
 
+    def _cursor(self):
+        """커서를 연다. DB 컨테이너 재기동 등으로 연결이 끊겼으면(psycopg2가 closed를 세운다) 한 번 다시 붙는다 —
+        리코더는 하루 종일 떠 있어서, 연결이 한 번 끊기면 남은 체결이 전부 빠지는 일을 막는다."""
+        if self._conn.closed:
+            logger.warning("DB 연결이 끊겨 있어 다시 붙는다")
+            self._connect(retries=3, retry_interval=2.0)
+
+        return self._conn.cursor()
+
     # ── 이벤트 insert ──────────────────────────────────────────────────────────
 
     def insert_trade(self, data: dict):
         try:
             _require(data, "ts", "ticker", "price")
-            with self._conn.cursor() as cur:
-                cur.execute(
+            with self._cursor() as cursor:
+                cursor.execute(
                     "INSERT INTO ticks(ts,ticker,price,volume,direction,market)"
                     " VALUES (%s,%s,%s,%s,%s,%s)",
                     (
@@ -111,8 +121,8 @@ class DbClient:
     def insert_signal(self, data: dict):
         try:
             _require(data, "ts", "strategy", "ticker", "side", "qty")
-            with self._conn.cursor() as cur:
-                cur.execute(
+            with self._cursor() as cursor:
+                cursor.execute(
                     "INSERT INTO signals(ts,strategy,ticker,side,qty,price,market,regime)"
                     " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                     (
@@ -132,8 +142,8 @@ class DbClient:
     def insert_order(self, data: dict):
         try:
             _require(data, "ts", "ticker", "side", "qty", "ok")
-            with self._conn.cursor() as cur:
-                cur.execute(
+            with self._cursor() as cursor:
+                cursor.execute(
                     "INSERT INTO orders(ts,ticker,side,qty,price,ok,market,account)"
                     " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                     (
@@ -153,8 +163,8 @@ class DbClient:
     def insert_health(self, data: dict):
         try:
             _require(data, "ts")
-            with self._conn.cursor() as cur:
-                cur.execute(
+            with self._cursor() as cursor:
+                cursor.execute(
                     "INSERT INTO health(ts,data_cnt,signal_cnt,order_cnt)"
                     " VALUES (%s,%s,%s,%s)",
                     (
@@ -186,8 +196,8 @@ class DbClient:
         if not valid:
             return
         try:
-            with self._conn.cursor() as cur:
-                cur.executemany(
+            with self._cursor() as cursor:
+                cursor.executemany(
                     "INSERT INTO ticks(ts,ticker,price,volume,direction,market)"
                     " VALUES (%s,%s,%s,%s,%s,%s)",
                     valid,
@@ -200,8 +210,8 @@ class DbClient:
         try:
             _require(data, "ts", "odno", "ticker", "side", "filled_qty", "filled_price")
             ts = data["ts"] if isinstance(data["ts"], datetime) else _ms_to_dt(data["ts"])
-            with self._conn.cursor() as cur:
-                cur.execute(
+            with self._cursor() as cursor:
+                cursor.execute(
                     "INSERT INTO fills"
                     "(ts,odno,ticker,side,filled_qty,filled_price,commission,tax,market,regime,strategy,account)"
                     " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
@@ -230,8 +240,8 @@ class DbClient:
         PK가 (account,ticker)라 계좌를 안 넘기면 'unknown' 계좌로 쌓인다 — 실계좌·모의계좌
         원장이 섞이는 것(D-090)보다는 안전한 기본값."""
         try:
-            with self._conn.cursor() as cur:
-                cur.execute(
+            with self._cursor() as cursor:
+                cursor.execute(
                     "INSERT INTO positions(account,ticker,quantity,avg_price,realized_pnl,updated_at)"
                     " VALUES (%s,%s,%s,%s,%s,NOW())"
                     " ON CONFLICT (account,ticker) DO UPDATE SET"
@@ -246,8 +256,8 @@ class DbClient:
 
     def insert_bar(self, ticker: str, ts: datetime, o: float, h: float,
                    lo: float, c: float, vol: int, market: str = "KR"):
-        with self._conn.cursor() as cur:
-            cur.execute(
+        with self._cursor() as cursor:
+            cursor.execute(
                 "INSERT INTO bars_1d(ts,ticker,open,high,low,close,volume,market)"
                 " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"
                 " ON CONFLICT (ticker,ts) DO NOTHING",
@@ -268,9 +278,9 @@ class DbClient:
             "ALTER TABLE fills   ADD COLUMN IF NOT EXISTS regime TEXT",
         ]
         try:
-            with self._conn.cursor() as cur:
+            with self._cursor() as cursor:
                 for stmt in ddl:
-                    cur.execute(stmt)
+                    cursor.execute(stmt)
         except Exception as e:
             logger.error(f"ensure_regime_tables 실패: {e}")
 
@@ -289,38 +299,96 @@ class DbClient:
             " ) STORED",
         ]
         try:
-            with self._conn.cursor() as cur:
+            with self._cursor() as cursor:
                 for stmt in ddl:
-                    cur.execute(stmt)
+                    cursor.execute(stmt)
         except Exception as e:
             logger.error(f"ensure_fills_amount_columns 실패: {e}")
 
     def ensure_proc_statistics_table(self):
-        """기존 DB에도 proc_stats 테이블이 있도록 보장. schema.sql은 fresh init에만 적용된다."""
+        """기존 DB에도 proc_stats·proc_thread_stats·proc_hotspots 표가 있도록 보장. schema.sql은 fresh init에만 적용된다."""
         ddl = [
             "CREATE TABLE IF NOT EXISTS proc_stats ("
             " ts TIMESTAMPTZ NOT NULL, process_name TEXT NOT NULL, pid INTEGER,"
             " cpu_percent DOUBLE PRECISION, memory_mb DOUBLE PRECISION, thread_count INTEGER)",
             "CREATE INDEX IF NOT EXISTS proc_stats_name_ts ON proc_stats (process_name, ts DESC)",
+            "ALTER TABLE proc_stats ADD COLUMN IF NOT EXISTS core_count INTEGER",
+            "CREATE TABLE IF NOT EXISTS proc_thread_stats ("
+            " ts TIMESTAMPTZ NOT NULL, process_name TEXT NOT NULL, pid INTEGER, tid INTEGER,"
+            " thread_name TEXT, cpu_percent DOUBLE PRECISION)",
+            "CREATE INDEX IF NOT EXISTS proc_thread_stats_name_ts ON proc_thread_stats (thread_name, ts DESC)",
+            "CREATE TABLE IF NOT EXISTS proc_hotspots ("
+            " ts TIMESTAMPTZ NOT NULL, process_name TEXT NOT NULL, pid INTEGER, sample_seconds DOUBLE PRECISION,"
+            " symbol TEXT NOT NULL, shared_object TEXT, self_percent DOUBLE PRECISION, samples BIGINT)",
+            "CREATE INDEX IF NOT EXISTS proc_hotspots_ts ON proc_hotspots (ts DESC)",
         ]
         try:
-            with self._conn.cursor() as cursor:
+            with self._cursor() as cursor:
                 for stmt in ddl:
                     cursor.execute(stmt)
-                try:
-                    cursor.execute("SELECT create_hypertable('proc_stats','ts', if_not_exists => TRUE)")
-                except Exception:
-                    pass
+
+                for table in ("proc_stats", "proc_thread_stats", "proc_hotspots"):
+                    try:
+                        cursor.execute(f"SELECT create_hypertable('{table}','ts', if_not_exists => TRUE)")
+                    except Exception:
+                        pass
         except Exception as error:
             logger.error(f"ensure_proc_statistics_table 실패: {error}")
+
+    def ensure_query_statistics(self) -> bool:
+        """pg_stat_statements 확장을 켠다(쿼리별 호출 수·누적 시간). 서버가 shared_preload_libraries에
+        그 모듈을 싣고 떠야만 켜지므로(docker-compose.yml timescaledb command), 못 켜면 False."""
+        try:
+            with self._cursor() as cursor:
+                cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements")
+                cursor.execute("SELECT 1 FROM pg_stat_statements LIMIT 1")
+
+            return True
+        except Exception as error:
+            logger.warning(f"pg_stat_statements 못 켬 — DB 컨테이너를 docker-compose.yml의 command로 다시 띄워야 한다: {error}")
+            return False
+
+    def insert_proc_thread_statistics(self, rows: list):
+        """스레드별 CPU 표본 한 묶음(같은 ts). rows: [{process_name,pid,tid,thread_name,cpu_percent}]"""
+        if not rows:
+            return
+
+        try:
+            now = datetime.now(timezone.utc)
+            with self._cursor() as cursor:
+                cursor.executemany(
+                    "INSERT INTO proc_thread_stats(ts,process_name,pid,tid,thread_name,cpu_percent)"
+                    " VALUES (%s,%s,%s,%s,%s,%s)",
+                    [(now, row["process_name"], row.get("pid"), row.get("tid"), row.get("thread_name"),
+                      row.get("cpu_percent")) for row in rows],
+                )
+        except Exception as error:
+            logger.error(f"insert_proc_thread_stats 실패 ({len(rows)}행): {error}")
+
+    def insert_proc_hotspots(self, rows: list):
+        """perf 표본 한 회차의 함수별 자기 시간 비율. rows: [{process_name,pid,sample_seconds,symbol,shared_object,self_percent,samples}]"""
+        if not rows:
+            return
+
+        try:
+            now = datetime.now(timezone.utc)
+            with self._cursor() as cursor:
+                cursor.executemany(
+                    "INSERT INTO proc_hotspots(ts,process_name,pid,sample_seconds,symbol,shared_object,self_percent,samples)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                    [(now, row["process_name"], row.get("pid"), row.get("sample_seconds"), row["symbol"],
+                      row.get("shared_object"), row.get("self_percent"), row.get("samples")) for row in rows],
+                )
+        except Exception as error:
+            logger.error(f"insert_proc_hotspots 실패 ({len(rows)}행): {error}")
 
     def insert_proc_stat(self, data: dict):
         try:
             _require(data, "process_name", "cpu_percent", "memory_mb")
-            with self._conn.cursor() as cursor:
+            with self._cursor() as cursor:
                 cursor.execute(
-                    "INSERT INTO proc_stats(ts,process_name,pid,cpu_percent,memory_mb,thread_count)"
-                    " VALUES (%s,%s,%s,%s,%s,%s)",
+                    "INSERT INTO proc_stats(ts,process_name,pid,cpu_percent,memory_mb,thread_count,core_count)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s)",
                     (
                         datetime.now(timezone.utc),
                         data["process_name"],
@@ -328,6 +396,7 @@ class DbClient:
                         data["cpu_percent"],
                         data["memory_mb"],
                         data.get("thread_count"),
+                        data.get("core_count"),
                     ),
                 )
         except Exception as error:
@@ -362,7 +431,7 @@ class DbClient:
             " PRIMARY KEY (account, ticker))",
         ]
         try:
-            with self._conn.cursor() as cursor:
+            with self._cursor() as cursor:
                 for stmt in ddl:
                     cursor.execute(stmt)
                 for table in ("bench_ticks", "bench_signals", "bench_orders", "bench_fills"):
@@ -376,7 +445,7 @@ class DbClient:
     def truncate_bench_tables(self):
         """벤치마크 재실행 전 이전 결과 비우기."""
         try:
-            with self._conn.cursor() as cursor:
+            with self._cursor() as cursor:
                 cursor.execute("TRUNCATE bench_ticks, bench_signals, bench_orders, bench_fills, bench_positions")
         except Exception as error:
             logger.error(f"truncate_bench_tables 실패: {error}")
@@ -386,7 +455,7 @@ class DbClient:
         if not records:
             return
         try:
-            with self._conn.cursor() as cursor:
+            with self._cursor() as cursor:
                 cursor.executemany(
                     "INSERT INTO bench_ticks(ts,ticker,price,volume,direction,market) VALUES (%s,%s,%s,%s,%s,%s)",
                     records,
@@ -399,7 +468,7 @@ class DbClient:
         if not records:
             return
         try:
-            with self._conn.cursor() as cursor:
+            with self._cursor() as cursor:
                 cursor.executemany(
                     "INSERT INTO bench_signals(ts,strategy,ticker,side,qty,price,market) VALUES (%s,%s,%s,%s,%s,%s,%s)",
                     records,
@@ -412,7 +481,7 @@ class DbClient:
         if not records:
             return
         try:
-            with self._conn.cursor() as cursor:
+            with self._cursor() as cursor:
                 cursor.executemany(
                     "INSERT INTO bench_orders(ts,ticker,side,qty,price,ok,market,account) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                     records,
@@ -425,7 +494,7 @@ class DbClient:
         if not records:
             return
         try:
-            with self._conn.cursor() as cursor:
+            with self._cursor() as cursor:
                 cursor.executemany(
                     "INSERT INTO bench_fills(ts,odno,ticker,side,filled_qty,filled_price,commission,tax,market,account)"
                     " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
@@ -437,7 +506,7 @@ class DbClient:
     def upsert_bench_position(self, ticker: str, quantity: int, average_price: float,
                               realized_pnl: float, account: str = "bench"):
         try:
-            with self._conn.cursor() as cursor:
+            with self._cursor() as cursor:
                 cursor.execute(
                     "INSERT INTO bench_positions(account,ticker,quantity,avg_price,realized_pnl,updated_at)"
                     " VALUES (%s,%s,%s,%s,%s,NOW())"
@@ -457,8 +526,8 @@ class DbClient:
             _require(data, "date", "regime", "score")
             ts = data.get("ts")
             ts = ts if isinstance(ts, datetime) else (_ms_to_dt(ts) if ts else datetime.now(timezone.utc))
-            with self._conn.cursor() as cur:
-                cur.execute(
+            with self._cursor() as cursor:
+                cursor.execute(
                     "INSERT INTO regime"
                     "(date,regime,score,above_ma200,aligned_bull,aligned_bear,index_close,ts)"
                     " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"
@@ -503,12 +572,12 @@ class DbClient:
             " ON cash_flows (account, ts DESC)",
         ]
         try:
-            with self._conn.cursor() as cur:
+            with self._cursor() as cursor:
                 for stmt in ddl:
-                    cur.execute(stmt)
+                    cursor.execute(stmt)
                 # account_snapshots를 하이퍼테이블로 (가능할 때만 — TimescaleDB 없으면 무시)
                 try:
-                    cur.execute("SELECT create_hypertable('account_snapshots','ts',"
+                    cursor.execute("SELECT create_hypertable('account_snapshots','ts',"
                                 "if_not_exists => TRUE)")
                 except Exception:
                     pass
@@ -519,12 +588,12 @@ class DbClient:
                                 total_pnl: float, total_pnl_rate: float, ts=None):
         try:
             ts = ts or datetime.now(timezone.utc)
-            with self._conn.cursor() as cur:
+            with self._cursor() as cursor:
                 # 같은 날 중복 적재 방지 (C-2): 하이퍼테이블이라 (account,date) UNIQUE가 까다로워
                 # 동일 (account, 날짜) 기존 행을 제거 후 삽입 → 하루 1행 보장(결정적 begin/end)
-                cur.execute("DELETE FROM account_snapshots"
+                cursor.execute("DELETE FROM account_snapshots"
                             " WHERE account=%s AND ts::date = %s::date", (account, ts))
-                cur.execute(
+                cursor.execute(
                     "INSERT INTO account_snapshots"
                     "(ts,account,cash,total_eval,total_pnl,total_pnl_rate)"
                     " VALUES (%s,%s,%s,%s,%s,%s)",
@@ -539,8 +608,8 @@ class DbClient:
             if flow_type not in ("DEPOSIT", "WITHDRAW"):
                 raise ValueError(f"flow_type은 DEPOSIT/WITHDRAW: {flow_type}")
             ts = ts or datetime.now(timezone.utc)
-            with self._conn.cursor() as cur:
-                cur.execute(
+            with self._cursor() as cursor:
+                cursor.execute(
                     "INSERT INTO cash_flows(ts,account,flow_type,amount,memo)"
                     " VALUES (%s,%s,%s,%s,%s)",
                     (ts, account, flow_type, abs(float(amount)), memo),
@@ -551,10 +620,10 @@ class DbClient:
     def _query(self, sql: str, params: tuple) -> list[dict]:
         # SQL 예외를 삼키지 않는다 (C-3): []를 반환하면 "조회 실패"와 "무데이터"가 구분 불가 →
         # 자금 리포트가 DB 오류를 '거래 없음'으로 오인할 수 있다. 예외를 전파해 호출측이 인지하게 한다.
-        with self._conn.cursor() as cur:
-            cur.execute(sql, params)
-            cols = [c[0] for c in cur.description]
-            return [dict(zip(cols, row)) for row in cur.fetchall()]
+        with self._cursor() as cursor:
+            cursor.execute(sql, params)
+            column_names = [column[0] for column in cursor.description]
+            return [dict(zip(column_names, row)) for row in cursor.fetchall()]
 
     def get_snapshots(self, account: str, start=None, end=None) -> list[dict]:
         sql = ("SELECT ts,cash,total_eval,total_pnl,total_pnl_rate FROM account_snapshots"

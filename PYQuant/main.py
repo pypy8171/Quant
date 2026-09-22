@@ -276,8 +276,11 @@ def command_procwatch(arguments):
 
     db = DbClient()
     db.ensure_proc_statistics_table()
+    db.ensure_query_statistics()   # 그라파나 "DB 부하 쿼리" 표의 원천(pg_stat_statements)
     try:
-        proc_watch.run(db, process_name=arguments.process_name, interval=arguments.interval)
+        proc_watch.run(db, process_name=arguments.process_name, interval=arguments.interval,
+                       wsl_distro=arguments.wsl_distro, perf_interval=arguments.perf_interval,
+                       perf_seconds=arguments.perf_seconds)
     finally:
         db.close()
 
@@ -599,8 +602,14 @@ def main():
 
     # ── procwatch (엔진 프로세스 CPU/메모리 표본 → 그라파나) ─────────────────────
     pw = sub.add_parser("procwatch", help="엔진 프로세스 CPU/메모리 표본 수집 → TimescaleDB(proc_stats)")
-    pw.add_argument("--process-name", dest="process_name", default="quant_trader.exe")
+    pw.add_argument("--process-name", dest="process_name", default="",
+                    help="기본은 Windows quant_trader.exe / 리눅스·WSL quant_trader")
     pw.add_argument("--interval", type=float, default=5.0, help="표본 주기(초)")
+    pw.add_argument("--wsl-distro", dest="wsl_distro", default="",
+                    help="Windows에서 WSL 안의 엔진을 볼 때 배포판 이름(예: Ubuntu-24.04) — /proc를 읽어 스레드별 CPU까지")
+    pw.add_argument("--perf-interval", dest="perf_interval", type=float, default=300.0,
+                    help="perf 함수별 핫스팟 표본 주기(초), 0이면 끔 (리눅스·WSL만)")
+    pw.add_argument("--perf-seconds", dest="perf_seconds", type=float, default=10.0, help="perf 한 회차 표본 길이(초)")
 
     # ── operate ─────────────────────────────────────────────────────────────
     op = sub.add_parser("operate", help="C++ 엔진 원격 제어")

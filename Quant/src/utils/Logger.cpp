@@ -1,4 +1,5 @@
 #include "utils/Logger.h"
+#include "utils/ThreadName.h"
 
 #include "core/MpscQueue.h"
 
@@ -144,6 +145,7 @@ struct Logger::Implementation
     // writer 스레드 단독. 큐가 비면 yield 몇 번 뒤 condvar에서 잔다 — 로그는 지연보다 hot path 비간섭이 우선이다.
     void writer_loop(std::stop_token stop_token)
     {
+        thread_name::set_current("LogWriter");
         int idle = 0;
         size_t since_flush = 0;
 

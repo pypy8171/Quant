@@ -90,6 +90,45 @@ def secs(m: re.Match) -> int:
     return int(m.group(2)) * 3600 + int(m.group(3)) * 60 + int(m.group(4))
 
 
+def resource_sampling_row(date: str) -> tuple:
+    """procwatch가 그날 엔진 자원 표본(proc_stats)을 적재했고 스레드 이름이 실렸는지 — 09-22 리눅스 첫날
+    그라파나 CPU·메모리 패널이 비어 있던 것(psutil이 WSL 프로세스를 못 봄)을 다시 겪지 않기 위한 행.
+    DB 접속 정보는 저장소 루트 .env의 TSDB_PASSWORD(감시견과 같은 출처)."""
+    password = ""
+    environment_file = REPO / ".env"
+
+    if environment_file.exists():
+        for line in environment_file.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("TSDB_PASSWORD="):
+                password = line.split("=", 1)[1].strip()
+
+    if not password:
+        return ("자원 표본 적재", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함")
+
+    try:
+        import psycopg2
+        connection = psycopg2.connect(host="localhost", port=5432, dbname="quant", user="quant",
+                                      password=password, connect_timeout=3)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*), COUNT(DISTINCT process_name) FROM proc_stats"
+                " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s", (date,))
+            sample_count, process_kinds = cursor.fetchone()
+            cursor.execute(
+                "SELECT COUNT(DISTINCT thread_name) FROM proc_thread_stats"
+                " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s AND thread_name NOT LIKE 'quant_trader%%'", (date,))
+            named_threads = cursor.fetchone()[0]
+
+        connection.close()
+    except Exception as error:   # DB가 없거나 잠든 날은 판정을 미룬다
+        return ("자원 표본 적재", True, "WARN", f"DB 조회 실패 — 판정 안 함 ({str(error).strip()[:80]})")
+
+    # 장중 6시간 30분을 5초 주기로 떠도 4,000행이 넘고, 절반만 떠도 2,000행쯤 — 300행이면 몇십 분만 돌다 죽은 것
+    return ("자원 표본 적재", sample_count >= 300, "WARN",
+            f"proc_stats {sample_count}행 (기대 300 이상, 5초 주기·장중 내내), 이름 붙은 스레드 {named_threads}종"
+            + (" — 0이면 스레드 이름 배포 전 바이너리거나 Windows psutil 경로" if named_threads == 0 else ""))
+
+
 def collect(date: str, log: Path, since: int = 0):
     """로그 한 파일에서 그날 점검 행을 만든다.
 
@@ -334,6 +373,7 @@ def collect(date: str, log: Path, since: int = 0):
         basket_row("바스켓 매수 레그 시각", buy_leg_ok, "WARN",
                    (f"집행 끝 {hhmm(max(basket_run_end))} (기한 15:05), 창 종료 이월 {basket_window_closed}회, 주문 {len(basket_orders)}건"
                     if basket_run_end else f"집행 끝 줄 없음, 창 종료 이월 {basket_window_closed}회, 주문 {len(basket_orders)}건")),
+        resource_sampling_row(date),
     ]
     return rows, len(starts)
 

@@ -58,6 +58,10 @@ services:
       - tsdb-data:/var/lib/postgresql/data
       # 최초 기동 시 스키마 자동 적용
       - ./PYQuant/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    # pg_stat_statements: 쿼리별 호출 수·누적 시간(그라파나 "DB 부하 상위 쿼리" 표). 서버 기동 시 실어야만
+    # CREATE EXTENSION이 되고(main.py procwatch가 켠다), track_io_timing은 그 표의 디스크 읽기 시간 열이다.
+    command: ["postgres", "-c", "shared_preload_libraries=timescaledb,pg_stat_statements",
+              "-c", "pg_stat_statements.track=all", "-c", "track_io_timing=on"]
     ports:
       - "5432:5432"
     healthcheck:

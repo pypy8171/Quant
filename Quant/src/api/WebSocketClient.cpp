@@ -7,6 +7,7 @@
 #include "api/KisWsDecode.h"
 #include "core/WakeGate.h"
 #include "utils/Logger.h"
+#include "utils/ThreadName.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -141,6 +142,7 @@ void KisWebSocket::send_text(const std::string& message)
 //       여기서 락 없이 읽어도 된다. data_thread의 send_text와는 교체·close를 send_mutex_ 아래서 해서 갈린다.
 void KisWebSocket::recv_loop(std::stop_token stop_token)
 {
+    thread_name::set_current("WsRecv");
     LOG_INFO("[WS] 수신 스레드 시작");
     std::string message;
     int retry_sec = 1;
