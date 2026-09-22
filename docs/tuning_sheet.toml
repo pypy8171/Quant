@@ -282,10 +282,18 @@ meaning = "정배열 판정에 종목당 받는 일봉 길이(SMA60 + 여유)"
 [[code_value]]
 id = "scanner_daily_lookup_sleep_ms"
 file = "Quant/src/universe/UniverseScanner.cpp"
-regex = 'sleep_for\(std::chrono::milliseconds\((150)\)\);'
+regex = 'kDailyLookupSleepMs\s*=\s*(150);'
 unit = "ms"
 group = "KIS REST — 일봉·분봉·랭킹 조회"
-meaning = "정배열 판정 일봉 조회 종목 간 간격(캐시 히트 제외) — align_lookup_max 800 이면 첫 스캔 ≥ 2분"
+meaning = "정배열 판정 일봉 조회 종목 간 간격, 실계좌(캐시 히트 제외) — align_lookup_max 800 이면 첫 스캔 ≥ 2분"
+
+[[code_value]]
+id = "scanner_daily_lookup_sleep_paper_ms"
+file = "Quant/src/universe/UniverseScanner.cpp"
+regex = 'kDailyLookupSleepPaperMs\s*=\s*(600);'
+unit = "ms"
+group = "KIS REST — 일봉·분봉·랭킹 조회"
+meaning = "같은 간격의 모의계좌 값 — 모의는 키 한도가 초당 2건이라 150ms면 버킷이 계속 밀린다(09-22 초당 한도 재시도 37건)"
 
 [[code_value]]
 id = "scanner_sector_call_sleep_ms"
@@ -1081,7 +1089,7 @@ used_for = "④ 가 판정할 종목 풀(슬리브별 최대 {align_lookup_max}�
 
 [[cycle]]
 step = "④ 정배열·이격 판정 → 등록 유니버스"
-source = "KIS 일봉 REST {scanner_align_daily_n}봉(종목·일 1회 캐시, 첫 스캔은 종목당 {scanner_daily_lookup_sleep_ms} 간격으로 최대 {align_lookup_max}종목, 슬리브별) + ② 현재가"
+source = "KIS 일봉 REST {scanner_align_daily_n}봉(종목·일 1회 캐시, 첫 스캔은 종목당 {scanner_daily_lookup_sleep_ms}(모의 {scanner_daily_lookup_sleep_paper_ms}) 간격으로 최대 {align_lookup_max}종목, 슬리브별) + ② 현재가"
 what = "정배열(SMA 순서)·이격·점수 → 상위 {max_universe}종목 등록(슬리브별), 빠진 종목은 {rescan_block_after_sec} 연속 부재면 신규매수 차단(D-077)"
 every = "{rescan_interval_sec} (캐시가 찬 뒤엔 KIS REST 0, 파일만 읽음)"
 used_for = "⑤ 구독 목록. 전략이 신호를 볼 종목"

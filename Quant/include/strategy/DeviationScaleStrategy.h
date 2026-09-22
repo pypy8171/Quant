@@ -1281,19 +1281,30 @@ private:
     //  프리페치 스레드에서 호출(읽기전용). 폴백(fallback_equity) 적용은 호출측(on_trade_batch, line equity).
     // 총평가금은 계좌 하나의 값이라 종목마다 다시 부를 이유가 없다. 전략 스레드가 종목 수만큼
     //  있어 기동 직후 같은 잔고 조회가 40건 동시에 나갔고, 모의 키 2건/초 한도를 주문까지
-    //  끌어내렸다(09-11 09:18 EGW00201). 프로세스 공용으로 하루 한 번만 부르고, 실패(0)는
-    //  캐시하지 않아 다음 종목이 다시 시도한다. 뮤텍스를 조회 동안 잡아 동시 진입도 한 번으로 접는다.
+    //  끌어내렸다(09-11 09:18 EGW00201). 프로세스 공용으로 하루 한 번만 부르고, 뮤텍스를 조회 동안
+    //  잡아 동시 진입도 한 번으로 접는다.
+    // 실패(0)도 60초 쿨다운을 둔다 — 성공만 캐시하면 조회가 실패했을 때 프리페치 풀 주기(3초)마다
+    //  전 종목이 각자 다시 부르고, 그 부하가 다시 실패를 키운다(09-22: 잔고조회 실패 21건과
+    //  초당 한도 재시도 37건이 같이 올랐다). 쿨다운 안에는 0을 돌려 호출측 폴백에 맡긴다.
     double fetch_equity()
     {
+        constexpr std::chrono::seconds kRetryCooldown{60}; // 조회 실패 뒤 다시 부르지 않는 시간
+
         static std::mutex  s_mutex;
         static std::string s_ymd;
         static double      static_equity = 0.0;
+        static std::chrono::steady_clock::time_point s_retry_after{}; // 실패 쿨다운이 끝나는 시각
         std::lock_guard<std::mutex> lock(s_mutex);
         std::string today = kst_ymd();
 
         if (s_ymd == today && static_equity > 0.0)
         {
             return static_equity;
+        }
+
+        if (std::chrono::steady_clock::now() < s_retry_after)
+        {
+            return 0.0; // 직전 조회가 실패했다 — 쿨다운 안에는 서버를 다시 때리지 않는다
         }
 
         double equity = 0.0;
@@ -1317,6 +1328,12 @@ private:
         {
             s_ymd = std::move(today);
             static_equity  = equity;
+        }
+        else
+        {
+            s_retry_after = std::chrono::steady_clock::now() + kRetryCooldown;
+            LOG_WARN("[DEVSCALE] 기준자본(총평가금) 조회 실패 — " + std::to_string(kRetryCooldown.count()) +
+                     "초 쿨다운, 그 안에는 폴백 자본으로 간다");
         }
 
         return equity;

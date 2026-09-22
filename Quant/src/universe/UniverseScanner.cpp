@@ -1205,9 +1205,15 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
                 //  09-08 하루 149건 났고 CANCEL뿐 아니라 NEW에도 걸려 진입이 4초씩 밀렸다.
                 //  같은 날 주문 RTT p50이 09시 381ms에서 10시 1870ms로 단조증가한 것도 계좌 단위
                 //  REST 누적 부하로 보여 150ms로 올린다. 캐시 히트 경로에는 걸리지 않는다.
+                // 모의계좌는 키 한도가 초당 2건이라 150ms(초당 6.7건)로는 버킷이 계속 밀린다 —
+                //  09-22에 초당 한도 재시도 37건이 났다. 모의면 600ms(초당 1.7건)로 벌려 한도 안쪽에서 돈다.
+                constexpr int kDailyLookupSleepMs      = 150; // 실계좌 — 키 한도 초당 20건
+                constexpr int kDailyLookupSleepPaperMs = 600; // 모의계좌 — 키 한도 초당 2건
+
                 if (statistics.fetched > 0)
                 {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(
+                        kis.is_paper() ? kDailyLookupSleepPaperMs : kDailyLookupSleepMs));
                 }
 
                 const auto fetch_start = std::chrono::steady_clock::now();

@@ -137,8 +137,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/core/BarAggregator.cpp:199` · `bool BarAggregator::on_tick(const TradeData& trade)` · 시험 [test_bar_aggregator](../Quant/tests/test_bar_aggregator.cpp)
 30. [`bars::resample`](../Quant/include/core/BarAggregator.h#L44) — 1분봉 → `interval_min` 봉. 판단은 언제나 이 봉으로(D-072)  
    `Quant/include/core/BarAggregator.h:44` · `std::vector<MarketData> resample(const std::vector<MarketData>& bars_1m, int interval_min, int max_count = 0);` · 시험 [test_bar_aggregator](../Quant/tests/test_bar_aggregator.cpp)
-31. [`DeviationScaleStrategy::emit_liquidation`](../Quant/include/strategy/DeviationScaleStrategy.h#L1449) — 청산 신호 조립 — 시장가면 `reference_price` 스탬프, 매도 가능 수량은 원장 접근자(`sellable_quantity`, 동기 잔고조회 금지)  
-   `Quant/include/strategy/DeviationScaleStrategy.h:1449` · `bool emit_liquidation(std::vector<OrderSignal>& out, int position, …`
+31. [`DeviationScaleStrategy::emit_liquidation`](../Quant/include/strategy/DeviationScaleStrategy.h#L1466) — 청산 신호 조립 — 시장가면 `reference_price` 스탬프, 매도 가능 수량은 원장 접근자(`sellable_quantity`, 동기 잔고조회 금지)  
+   `Quant/include/strategy/DeviationScaleStrategy.h:1466` · `bool emit_liquidation(std::vector<OrderSignal>& out, int position, …`
 
 리뷰할 때 볼 것:
 

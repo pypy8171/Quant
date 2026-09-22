@@ -50,6 +50,15 @@ RTT_RE = re.compile(r"\[OrderRouter\] (?:접수|KIS 거부) .*?RTT=(\d+)ms(?: �
 RECON_SLOW_RE = re.compile(r"잔고 대조: 조회 소요 (\d+)ms \(사이클 (\d+)회 걸침\)")
 # 서버가 15초 안에 답을 안 준 요청 — WinHTTP 12002·curl 28. 한 요청에 한 줄(재시도 래퍼의 안내 줄은 세지 않는다)
 HTTP_TIMEOUT_RE = re.compile(r"ReceiveResponse 실패: 12002|\[CURL\] 요청 실패: Timeout was reached")
+# 재시도 없이 버린 요청(제한 시간 초과). 위 HTTP_TIMEOUT_RE는 시도 하나가 시간을 넘긴 것이고, 이쪽은 그래서 포기한 호출이다.
+CURL_GIVEUP_RE = re.compile(r"수신 제한 시간 초과 — 재시도 없이 실패 처리")
+# 전송 한 겹이 초당 한도(EGW00201 응답)를 보고 같은 요청을 되보낸 줄. 주문 거부(RATE_RE)와는 다른 층이다.
+RATE_RETRY_RE = re.compile(r"\(초당 한도\) — 재시도")
+# 프리페치의 기준자본 조회가 실패해 쿨다운에 들어간 줄(쿨다운이 60초라 하루 최대 수백 건이 아니라 수 건이어야 한다).
+EQUITY_FAIL_RE = re.compile(r"기준자본\(총평가금\) 조회 실패")
+# 잔고조회 연속 실패로 신규 매수만 멈춘 창(B2). 켜짐↔풀림을 짝지어 누적 분을 잰다.
+B2_ON_RE = re.compile(r"BUY NEW 보수 정지\(B2\)")
+B2_OFF_RE = re.compile(r"신규 진입 정지 해제\(B2\)")
 # D-101 결정 2 — TRENDX max_universe 0이면 초기 등록이 0종목이어야 한다(스코어 경로 상한은 09-19 수정)
 TRENDX_REGISTER_RE = re.compile(r"TRENDX universe_from_scan: 초기 (\d+)종목 등록")
 # D-101 결정 3 — 마감 청산이 매매 창 안(모의 15:15·실계좌 19:50, 접속매매)에 나가면 이 거부는 0건이다(09-18 2,188건이 25종목 이월을 만들었다)
@@ -83,6 +92,10 @@ SLOW_ORDER_MS = 3000      # 접수까지 이보다 오래 걸리면 청산 지�
 MAX_SLOW_ORDER_RATIO = 0.2  # 접수 중 이 비율 넘게 느리면 그날 서버(또는 버킷)가 상한 것
 BUCKET_WAIT_MS = 300      # 버킷대기 중앙값이 이 위면 지연의 주범은 서버가 아니라 초당한도 버킷
 MAX_HTTP_TIMEOUTS = 50    # 15초 제한 초과 요청 — 09-18 192건(09-17은 3건)이 잔고 대조를 100초까지 붙잡았다
+# 아래 셋은 2026-09-22 리눅스 첫 거래일에 관측한 값을 고친 뒤의 기대치로 잡은 것이다(리뷰 docs/market_close/2026-09-22.md).
+MAX_CURL_GIVEUPS = 5      # 수신 제한 시간 초과로 재시도 없이 버린 요청 — 09-22 21건. 연결 재사용을 넣었으니 줄어야 한다
+MAX_EQUITY_FAILS = 3      # 기준자본 조회 실패 — 09-22엔 로그가 없었고 쿨다운과 같이 들어갔다. 쿨다운이 60초라 하루 상한이 곧 이 수다
+MAX_RATE_RETRIES = 10     # 초당 한도로 되보낸 HTTP 요청 — 09-22 37건. 모의 스캔 간격을 600ms로 벌렸으니 줄어야 한다
 # 원장 저널(D-113) — 기동 줄 둘과 장중 기록 실패. 저널에 못 적은 주문은 아예 나가지 않는다.
 LEDGER_REPLAY_RE = re.compile(r"\[Engine\] 원장 저널 리플레이: (\d+)건 \(마지막 seq (\d+)(, 꼬리 잘림)?\)")
 LEDGER_RESOLVE_RE = re.compile(r"\[Engine\] 원장 미결 주문 대조: 되살림 (\d+)건 · 선점해제 (\d+)건 · 저널기록실패 (\d+)건")
@@ -487,6 +500,11 @@ def collect(date: str, log: Path, since: int = 0):
     bucket_waits: list[int] = []
     recon_slow: list[tuple[int, int]] = []   # (ms, 사이클)
     http_timeouts = 0
+    curl_giveups = 0
+    rate_retries = 0
+    equity_fails = 0
+    b2_on: list[int] = []    # BUY NEW 보수 정지가 켜진 초
+    b2_off: list[int] = []   # 풀린 초
     trendx_registered: list[int] = []
     session_window_rejects = 0
     basket_as_of: list[str] = []                 # 목표 비중표 읽음 줄의 as_of(YYYYMMDD)
@@ -555,6 +573,16 @@ def collect(date: str, log: Path, since: int = 0):
                 recon_slow.append((int(found.group(1)), int(found.group(2))))
             if HTTP_TIMEOUT_RE.search(line):
                 http_timeouts += 1
+            if CURL_GIVEUP_RE.search(line):
+                curl_giveups += 1
+            if RATE_RETRY_RE.search(line):
+                rate_retries += 1
+            if EQUITY_FAIL_RE.search(line):
+                equity_fails += 1
+            if B2_ON_RE.search(line):
+                b2_on.append(second)
+            if B2_OFF_RE.search(line):
+                b2_off.append(second)
             if found := TRENDX_REGISTER_RE.search(line):
                 trendx_registered.append(int(found.group(1)))
             if SESSION_WINDOW_REJECT_RE.search(line):
@@ -674,6 +702,12 @@ def collect(date: str, log: Path, since: int = 0):
             return (name, True, level, "원장 저널 줄 없음(D-113 배포 전 바이너리) — 판정 안 함")
         return (name, ok, level, detail)
 
+    # 보수 정지(B2) 누적 분. 풀림 줄이 없으면 그 창은 장 끝(15:30)까지 열려 있던 것으로 본다.
+    b2_minutes = 0
+    for on_second in b2_on:
+        off_second = next((second for second in b2_off if second >= on_second), 15 * 3600 + 30 * 60)
+        b2_minutes += max(0, off_second - on_second) // 60
+
     def devscale_v2_row(name: str, ok: bool, level: str, detail: str):
         if not devscale_v2:
             return (name, True, level, "진입 필터 판정 줄 없음(D-111 배포 전 바이너리) — 판정 안 함")
@@ -719,6 +753,18 @@ def collect(date: str, log: Path, since: int = 0):
          f"{CHURN_SEC}초 내 반대매매 {churn}회 (허용 {MAX_CHURN})"),
         ("초당한도 압박", rate_hits <= MAX_RATE_HITS, "WARN",
          f"초당 거래건수 거부 {rate_hits}건 (허용 {MAX_RATE_HITS})"),
+        ("HTTP 연결 재사용", curl_giveups <= MAX_CURL_GIVEUPS, "WARN",
+         f"제한 시간 초과로 버린 요청 {curl_giveups}건 (허용 {MAX_CURL_GIVEUPS}, 09-22 21건)"
+         " — 넘으면 스레드별 상주 핸들이 안 살아 매 요청이 TCP+TLS를 다시 맺는 것"),
+        ("초당한도 되보냄", rate_retries <= MAX_RATE_RETRIES, "WARN",
+         f"초당 한도로 되보낸 요청 {rate_retries}건 (허용 {MAX_RATE_RETRIES}, 09-22 37건)"
+         " — 넘으면 스캐너 종목 간 간격이 계좌 한도보다 촘촘한 것"),
+        ("기준자본 조회", equity_fails <= MAX_EQUITY_FAILS, "WARN",
+         f"프리페치 기준자본 조회 실패 {equity_fails}건 (허용 {MAX_EQUITY_FAILS})"
+         " — 실패는 60초 쿨다운이라 이보다 많으면 장 내내 실패한 것이고, 그날 사이징은 폴백 자본으로 갔다"),
+        ("보수 정지 누적", b2_minutes == 0, "WARN",
+         f"BUY NEW 보수 정지(B2) 누적 {b2_minutes}분 / {len(b2_on)}회 (기대 0 — 잔고조회가 끊기면 그 시간만큼 신규 매수가 없다)"
+         + (f" — {', '.join(hhmm(second) for second in b2_on[:5])}" if b2_on else "")),
         ("WS 폴백", ws_fallbacks == 0, "WARN",
          f"REST 폴링 폴백 {ws_fallbacks}회 — 틱 주기 30초"),
         ("주문 접수 지연", orders_ok, "WARN", order_detail),

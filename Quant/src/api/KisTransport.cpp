@@ -368,12 +368,67 @@ static std::string winhttp_request(const std::string& method, const std::string&
 #else
 // ─── Linux: libcurl ────────────────────────────────────────────────────────
 #include <curl/curl.h>
+#include <cstdlib> // std::getenv(QUANT_HTTP_NOPOOL)
 
 static size_t write_callback(char* pointer, size_t size, size_t nmemb, std::string* data)
 {
     data->append(pointer, size * nmemb);
     return size * nmemb;
 }
+
+// ─── 커넥션 풀(리눅스): 스레드별 easy 핸들 상주로 keep-alive 재사용 ────────
+//  위 WinHttpConn과 같은 기조다. 요청마다 curl_easy_init/cleanup을 하면 호출 하나가 TCP+TLS
+//  핸드쉐이크를 다시 낸다(2026-09-22 리눅스 첫 거래일: CURL 타임아웃 28건이 09~10시에 몰렸다).
+//  easy 핸들은 자기 연결 캐시를 들고 있으므로 상주시키고 curl_easy_reset()만 하면 같은 호스트에 재사용된다
+//  (reset은 옵션만 지우고 살아 있는 연결·DNS 캐시는 남긴다). 스레드별 소유라 락이 없다.
+//  전송 계층 실패 시 핸들을 파기해 다음 호출이 새 연결을 맺는다(끊긴 keep-alive 복구).
+//  [why D-119] `_private/PROJECT_FACTS.md` P-2("커넥션 풀링, 450표본에서 지연 이득 없음")과는 대상이 다르다 —
+//  그 측정은 이미 재사용하던 윈도우 WinHTTP에 풀을 더 얹고 재었던 것이고, 여기는 재사용 자체가 없던 것을 넣는다.
+namespace
+{
+struct CurlHandle
+{
+    CURL* handle = nullptr;
+
+    ~CurlHandle() { reset(); }
+    void reset()
+    {
+        if (handle)
+        {
+            curl_easy_cleanup(handle);
+            handle = nullptr;
+        }
+    }
+};
+
+// 스레드별 상주 핸들. 프로그램은 호스트 하나만 부르므로 호스트별 구분은 두지 않는다 —
+// libcurl이 핸들 안 연결 캐시에서 (호스트,포트)를 보고 골라 쓴다.
+static thread_local CurlHandle thread_curl;
+
+// 풀링 해제 스위치 — 윈도우 경로와 같은 환경변수. QUANT_HTTP_NOPOOL=1이면 매 요청 뒤 핸들을 파기해
+// 풀링 도입 전(요청마다 TCP+TLS 재수립) 거동을 그대로 재현한다. 측정용으로만 쓴다.
+static bool http_nopool()
+{
+    static const bool disabled = [] {
+        const char* end = std::getenv("QUANT_HTTP_NOPOOL");
+        return end && *end == '1';
+    }();
+    return disabled;
+}
+
+// 상주 핸들 확보. 실패 시 nullptr.
+static CURL* acquire_curl()
+{
+    if (thread_curl.handle)
+    {
+        curl_easy_reset(thread_curl.handle); // 옵션만 초기화 — 워밍된 연결은 남는다
+        return thread_curl.handle;
+    }
+
+    thread_curl.handle = curl_easy_init();
+    return thread_curl.handle;
+}
+} // namespace
 
 // 단발 시도. transport_ok = HTTP 응답을 받았는가(CURLE_OK; 4xx/5xx도 true).
 //  curl_easy_perform은 HTTP 응답을 받으면(상태코드 무관) CURLE_OK, 전송 실패(타임아웃·연결단절 등)만 비-OK.
@@ -384,7 +439,7 @@ static std::string curl_request_once(const std::string& method, const std::strin
     transport_ok = false;
     status_code = 0;
     g_last_attempt_timed_out = false;
-    CURL* curl = curl_easy_init();
+    CURL* curl = acquire_curl();
 
     if (!curl)
     {
@@ -403,7 +458,9 @@ static std::string curl_request_once(const std::string& method, const std::strin
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hlist);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);          // 작업 전체
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 3000L); // 연결만 — 연결과 수신을 갈라 본다
+    curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);        // 상주 연결이 중간 장비에 끊기지 않게
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
 
     if (method == "POST")
@@ -426,8 +483,14 @@ static std::string curl_request_once(const std::string& method, const std::strin
         status_code = static_cast<int>(http_code);
     }
 
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, nullptr); // 상주 핸들에 곧 풀 목록을 남기지 않는다
     curl_slist_free_all(hlist);
-    curl_easy_cleanup(curl);
+
+    if (!transport_ok || http_nopool())
+    {
+        thread_curl.reset(); // 끊긴 keep-alive 복구 — 다음 호출이 새로 맺는다
+    }
+
     return response;
 }
 
