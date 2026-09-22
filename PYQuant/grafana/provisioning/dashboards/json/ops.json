@@ -19,7 +19,7 @@
         "h": 6,
         "w": 6,
         "x": 0,
-        "y": 0
+        "y": 4
       },
       "datasource": {
         "type": "postgres",
@@ -68,7 +68,7 @@
         "h": 6,
         "w": 18,
         "x": 6,
-        "y": 0
+        "y": 4
       },
       "datasource": {
         "type": "postgres",
@@ -101,7 +101,7 @@
         "h": 6,
         "w": 6,
         "x": 0,
-        "y": 6
+        "y": 10
       },
       "datasource": {
         "type": "postgres",
@@ -150,7 +150,7 @@
         "h": 6,
         "w": 18,
         "x": 6,
-        "y": 6
+        "y": 10
       },
       "datasource": {
         "type": "postgres",
@@ -183,7 +183,7 @@
         "h": 6,
         "w": 6,
         "x": 0,
-        "y": 12
+        "y": 16
       },
       "datasource": {
         "type": "postgres",
@@ -233,7 +233,7 @@
         "h": 6,
         "w": 6,
         "x": 0,
-        "y": 18
+        "y": 22
       },
       "datasource": {
         "type": "postgres",
@@ -283,7 +283,7 @@
         "h": 24,
         "w": 18,
         "x": 6,
-        "y": 12
+        "y": 16
       },
       "datasource": {
         "type": "postgres",
@@ -352,7 +352,7 @@
         "h": 6,
         "w": 6,
         "x": 0,
-        "y": 24
+        "y": 28
       },
       "datasource": {
         "type": "postgres",
@@ -385,7 +385,7 @@
         "h": 6,
         "w": 6,
         "x": 0,
-        "y": 30
+        "y": 34
       },
       "datasource": {
         "type": "postgres",
@@ -418,7 +418,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 36
+        "y": 40
       },
       "datasource": {
         "type": "postgres",
@@ -451,7 +451,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 36
+        "y": 40
       },
       "datasource": {
         "type": "postgres",
@@ -484,7 +484,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 94
+        "y": 98
       },
       "datasource": {
         "type": "postgres",
@@ -544,7 +544,7 @@
         "h": 6,
         "w": 6,
         "x": 0,
-        "y": 44
+        "y": 48
       },
       "datasource": {
         "type": "postgres",
@@ -604,7 +604,7 @@
         "h": 6,
         "w": 6,
         "x": 6,
-        "y": 44
+        "y": 48
       },
       "datasource": {
         "type": "postgres",
@@ -650,7 +650,7 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 44
+        "y": 48
       },
       "datasource": {
         "type": "postgres",
@@ -689,7 +689,7 @@
         "h": 12,
         "w": 12,
         "x": 0,
-        "y": 54
+        "y": 58
       },
       "datasource": {
         "type": "postgres",
@@ -753,7 +753,7 @@
         "h": 12,
         "w": 12,
         "x": 12,
-        "y": 54
+        "y": 58
       },
       "datasource": {
         "type": "postgres",
@@ -815,7 +815,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 66
+        "y": 70
       },
       "datasource": {
         "type": "postgres",
@@ -849,7 +849,7 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 74
+        "y": 78
       },
       "datasource": {
         "type": "postgres",
@@ -880,13 +880,13 @@
     {
       "id": 20,
       "type": "timeseries",
-      "title": "큐가 가득 차 버린 건수 (기동 후 누적)",
-      "description": "0이 아니면 그만큼 틱·주문·체결통보가 파이프라인에서 빠졌다는 뜻이다. 계단이 생긴 시각이 폭주 시각이다.",
+      "title": "버린 건수 (기동 후 누적) — 큐 가득 참 + ZMQ 발행",
+      "description": "앞의 셋은 큐가 가득 차 버린 틱·주문·체결통보다 — 0이 아니면 그만큼 파이프라인에서 빠졌다. 'ZMQ 발행'은 관측 경로에서 버린 건수라 매매에는 영향이 없지만, 대시보드가 듬성해지는 원인이다. 계단이 생긴 시각이 폭주 시각이다.",
       "gridPos": {
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 74
+        "y": 78
       },
       "datasource": {
         "type": "postgres",
@@ -899,7 +899,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, dropped_shard AS \"샤드→전략\", dropped_order AS \"주문 큐\", dropped_fill AS \"체결 큐\" FROM health WHERE $__timeFilter(ts) AND dropped_shard IS NOT NULL ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, dropped_shard AS \"샤드→전략\", dropped_order AS \"주문 큐\", dropped_fill AS \"체결 큐\", drop_cnt AS \"ZMQ 발행\" FROM health WHERE $__timeFilter(ts) AND (dropped_shard IS NOT NULL OR drop_cnt IS NOT NULL) ORDER BY ts;",
           "refId": "A"
         }
       ],
@@ -925,7 +925,7 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 84
+        "y": 88
       },
       "datasource": {
         "type": "postgres",
@@ -962,7 +962,7 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 84
+        "y": 88
       },
       "datasource": {
         "type": "postgres",
@@ -985,6 +985,156 @@
           "custom": {
             "fillOpacity": 0,
             "lineWidth": 2
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "수집 공백 — 자원 표본 (proc_stats)",
+      "description": "procwatch가 5초마다 넣는다. 빨강이면 수집기가 죽었거나 WSL 프로세스를 못 보고 있다는 뜻이고, 아래 CPU·메모리 그래프는 그때부터 옛 값을 그대로 그린다. 장이 끝나면 당연히 빨강이다.",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "tsdb"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "tsdb"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, EXTRACT(EPOCH FROM NOW() - MAX(ts)) AS gap_sec FROM proc_stats;",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 120
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "수집 공백 — 엔진 HEALTH (health)",
+      "description": "엔진 제어 스레드가 30초마다 내는 생존 신호. 빨강이면 엔진이 멎었거나 ZMQ 리코더가 죽은 것이다.",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "tsdb"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "tsdb"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, EXTRACT(EPOCH FROM NOW() - MAX(ts)) AS gap_sec FROM health;",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 120
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "수집 공백 — 함수 핫스팟 (proc_hotspots)",
+      "description": "perf 표본은 기본 300초마다 뜬다(procwatch --perf-interval). 빨강이면 perf가 없거나 권한이 없는 것 — 아래 '함수별 CPU 자기 시간' 표가 옛 표본이라는 뜻이다.",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "tsdb"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "tsdb"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, EXTRACT(EPOCH FROM NOW() - MAX(ts)) AS gap_sec FROM proc_hotspots;",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 600
+              },
+              {
+                "color": "red",
+                "value": 900
+              }
+            ]
           }
         },
         "overrides": []

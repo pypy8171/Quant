@@ -301,7 +301,7 @@ CREATE TABLE orders ( ts, ticker, side, qty, price, ok BOOLEAN, market );
 SELECT create_hypertable('orders', 'ts');
 
 -- 엔진 상태 (ZMQ HEALTH) — 큐 고수위·버린 건수·구간 지연 p50/p99 열이 뒤에 더 붙는다(PYQuant/db/schema.sql)
-CREATE TABLE health ( ts, data_cnt, signal_cnt, order_cnt, queue_*, dropped_*, *_p50_us, *_p99_us );
+CREATE TABLE health ( ts, data_cnt, signal_cnt, order_cnt, drop_cnt, queue_*, dropped_*, *_p50_us, *_p99_us );
 SELECT create_hypertable('health', 'ts');
 
 -- KIS REST 일봉 (bars_1d) — ON CONFLICT DO NOTHING (중복 방지)

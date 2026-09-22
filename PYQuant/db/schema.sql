@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS health (
     data_cnt   BIGINT       DEFAULT 0,
     signal_cnt BIGINT       DEFAULT 0,
     order_cnt  BIGINT       DEFAULT 0,
+    drop_cnt   BIGINT,      -- ZMQ 발행이 버린 건수(구독자가 못 따라오거나 소켓이 막힐 때)
     queue_shard_high_water   BIGINT,   -- 샤드 셀 가운데 가장 높았던 깊이
     queue_shard_capacity     BIGINT,
     queue_shard_out_size     BIGINT,   -- 샤드 → 전략 큐의 지금 깊이(누적 최대가 아니다)

@@ -12,6 +12,7 @@ logger = setup_logger("quant.db")
 
 try:
     import psycopg2
+    from psycopg2.extras import execute_values
     _PG_AVAILABLE = True
 except ImportError:
     _PG_AVAILABLE = False
@@ -163,6 +164,7 @@ class DbClient:
 
     # 엔진이 HEALTH에 싣는 큐·지연 열. 옛 엔진(이 필드를 안 싣는 exe)이 보낸 행은 NULL로 들어간다.
     _HEALTH_METRIC_COLUMNS = (
+        "drop_cnt",
         "queue_shard_high_water",
         "queue_shard_capacity",
         "queue_shard_out_size",
@@ -184,6 +186,9 @@ class DbClient:
         "total_p50_us",
         "total_p99_us",
     )
+
+    # 열 이름과 payload 키가 다른 것. 엔진은 예전부터 "drop"을 보냈는데 적재기가 버리고 있었다.
+    _HEALTH_COLUMN_KEYS = {"drop_cnt": "drop"}
 
     def ensure_health_metric_columns(self):
         """기존 DB의 health 표에도 큐·지연 열이 있도록 보장. schema.sql은 DB를 새로 만들 때만 돈다."""
@@ -215,7 +220,8 @@ class DbClient:
                         data.get("data", 0),
                         data.get("signal", 0),
                         data.get("order", 0),
-                        *(data.get(name) for name in self._HEALTH_METRIC_COLUMNS),
+                        *(data.get(self._HEALTH_COLUMN_KEYS.get(name, name))
+                          for name in self._HEALTH_METRIC_COLUMNS),
                     ),
                 )
         except Exception as e:
@@ -399,10 +405,11 @@ class DbClient:
 
         try:
             now = datetime.now(timezone.utc)
-            with self._cursor() as cursor:
-                cursor.executemany(
+            with self._cursor() as cursor:   # 표본 하나가 스레드 수만큼 왕복하지 않도록 한 문장으로 보낸다
+                execute_values(
+                    cursor,
                     "INSERT INTO proc_thread_stats(ts,process_name,pid,tid,thread_name,cpu_percent)"
-                    " VALUES (%s,%s,%s,%s,%s,%s)",
+                    " VALUES %s",
                     [(now, row["process_name"], row.get("pid"), row.get("tid"), row.get("thread_name"),
                       row.get("cpu_percent")) for row in rows],
                 )
@@ -416,10 +423,11 @@ class DbClient:
 
         try:
             now = datetime.now(timezone.utc)
-            with self._cursor() as cursor:
-                cursor.executemany(
+            with self._cursor() as cursor:   # 위와 같은 이유로 한 문장
+                execute_values(
+                    cursor,
                     "INSERT INTO proc_hotspots(ts,process_name,pid,sample_seconds,symbol,shared_object,self_percent,samples)"
-                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                    " VALUES %s",
                     [(now, row["process_name"], row.get("pid"), row.get("sample_seconds"), row["symbol"],
                       row.get("shared_object"), row.get("self_percent"), row.get("samples")) for row in rows],
                 )
