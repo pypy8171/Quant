@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 9
+      "weight": 10
     },
     {
       "from": "ipc",
@@ -361,7 +361,8 @@
       "core/ReconcilePlan.h",
       "core/UniverseExit.h",
       "utils/Logger.h",
-      "utils/ThreadName.h"
+      "utils/ThreadName.h",
+      "utils/Utf8.h"
     ],
     "core/Engine.h": [
       "api/KisClient.h",
@@ -1102,6 +1103,7 @@
       "utils/Logger.cpp"
     ],
     "utils/Utf8.h": [
+      "core/Engine.cpp",
       "modes/Monitors.cpp"
     ]
   },

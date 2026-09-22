@@ -23,6 +23,19 @@
 namespace feed
 {
 
+// path::string()은 와이드 경로를 프로세스 코드페이지로 되돌리는데, 사용자 폴더 이름에 한글이 들어 있으면
+//  코드페이지에 매핑이 없어 예외를 던진다 — 리플레이가 기동 중에 죽었다(09-22 실측).
+//  Windows에서는 와이드 경로 그대로 _wfopen에 넘긴다. [why D-071]
+inline std::FILE* open_capture_file(const std::filesystem::path& file, const char* mode)
+{
+#ifdef _WIN32
+    const std::wstring wide_mode(mode, mode + std::strlen(mode));
+    return _wfopen(file.c_str(), wide_mode.c_str());
+#else
+    return std::fopen(file.c_str(), mode);
+#endif
+}
+
 // ── 파일 형식 v1 ─────────────────────────────────────────────────────────────
 //  머리 16바이트: "QTCAP\0" + version(uint8=1) + pad(1) + 시작 utc_ms(int64, LE).
 //  레코드: uint16 length(본문 바이트) + uint8 kind(1=체결 2=호가) + uint8 version(1) + 본문. 본문은 아래 POD를 그대로 쓴다
@@ -176,7 +189,7 @@ public:
     {
         std::error_code error_code;
         std::filesystem::create_directories(path_.parent_path(), error_code);
-        file_ = std::fopen(path_.string().c_str(), "ab");
+        file_ = open_capture_file(path_, "ab");
 
         if (file_ == nullptr)
         {
@@ -369,7 +382,7 @@ class TickReader
 public:
     explicit TickReader(const std::filesystem::path& file)
     {
-        file_ = std::fopen(file.string().c_str(), "rb");
+        file_ = open_capture_file(file, "rb");
 
         if (file_ == nullptr)
         {

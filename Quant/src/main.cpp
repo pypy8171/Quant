@@ -8,6 +8,7 @@
 #include <chrono>
 #include <csignal>
 #include <cstdio>
+#include <cstring>
 #include <exception>
 #include <cstdlib>
 #include <filesystem>
@@ -147,6 +148,34 @@ static void on_terminate()
 }
 
 #ifdef _WIN32
+// MSVC는 C++ throw를 SEH 0xE06D7363으로 올린다. 받는 곳이 없으면 std::terminate가 아니라 이 필터로 오는 길이 있어
+//  코드만 남고 무엇이 던져졌는지는 안 남았다(09-22 리플레이 기동 실측). ExceptionInformation[1]이 던져진 객체라
+//  std::exception으로 보고 what()을 읽는다 — 아니면 접근 위반이 나므로 __except로 받는다. 이 함수 안에는 소멸자가
+//  필요한 객체를 두지 않는다(MSVC는 __try와 같이 못 쓴다).
+constexpr DWORD kMsvcCxxExceptionCode = 0xE06D7363UL;
+
+static bool copy_thrown_what(const EXCEPTION_RECORD* record, char* destination, size_t destination_size)
+{
+    __try
+    {
+        const auto* thrown = reinterpret_cast<const std::exception*>(record->ExceptionInformation[1]);
+        const char* text = thrown->what();
+
+        if (text == nullptr)
+        {
+            return false;
+        }
+
+        strncpy_s(destination, destination_size, text, _TRUNCATE);
+        return true;
+    }
+
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
 // 코드 한 줄("SEH 0xC0000005")만으로는 어느 스레드의 어느 명령인지 알 수 없다(09-14 09:46 실측 —
 //  재스캔 직후 접근 위반, 위치 불명). 사유에 주소·스레드를 붙이고 로그 옆에 미니덤프를 남긴다.
 static LONG WINAPI on_seh(EXCEPTION_POINTERS* exception_pointers)
@@ -157,6 +186,18 @@ static LONG WINAPI on_seh(EXCEPTION_POINTERS* exception_pointers)
                   record ? record->ExceptionCode : 0UL, record ? record->ExceptionAddress : nullptr,
                   GetCurrentThreadId());
     std::string why = buffer;
+
+    if (record != nullptr && record->ExceptionCode == kMsvcCxxExceptionCode && record->NumberParameters >= 2)
+    {
+        char what_buffer[512] = {};
+
+        if (copy_thrown_what(record, what_buffer, sizeof(what_buffer)))
+        {
+            why += " what=";
+            why += what_buffer;
+        }
+    }
+
     why += write_minidump("crash", exception_pointers);
     log_and_die(why);
     return EXCEPTION_EXECUTE_HANDLER;

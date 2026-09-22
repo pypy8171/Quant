@@ -5,6 +5,7 @@
 #include "core/ReconcilePlan.h"
 #include "utils/Logger.h"
 #include "utils/ThreadName.h"
+#include "utils/Utf8.h"
 #include <algorithm>
 #include <functional>
 #include <chrono>
@@ -1040,7 +1041,7 @@ void Engine::connect_feed()
     }
     else if (!feed_.replay_file.empty())
     {
-        feed_.websocket = std::make_unique<feed::ReplaySource>(feed_.replay_file, feed_.replay_speed);
+        feed_.websocket = std::make_unique<feed::ReplaySource>(utf8::path_from_utf8(feed_.replay_file), feed_.replay_speed);
         LOG_INFO("[Engine] 리플레이 소스: " + feed_.replay_file + " (speed " + std::to_string(feed_.replay_speed) + ")");
     }
     else if (feed_.extra_feed_cfgs.empty())
@@ -1071,17 +1072,17 @@ void Engine::connect_feed()
         const auto now_s = std::chrono::duration_cast<std::chrono::seconds>(
                                std::chrono::system_clock::now().time_since_epoch())
                                .count();
-        const std::filesystem::path file =
-            std::filesystem::path(feed_.capture_directory) / ("ticks_" + std::to_string(now_s) + ".bin");
+        const std::string           file_name = "ticks_" + std::to_string(now_s) + ".bin";
+        const std::filesystem::path file      = utf8::path_from_utf8(feed_.capture_directory) / file_name;
         feed_.capture = std::make_unique<feed::TickCapture>(file);
 
         if (feed_.capture->ok())
         {
-            LOG_INFO("[Engine] 틱 캡처 시작: " + file.string());
+            LOG_INFO("[Engine] 틱 캡처 시작: " + feed_.capture_directory + "/" + file_name);
         }
         else
         {
-            LOG_WARN("[Engine] 틱 캡처 파일을 열지 못해 캡처 없이 간다: " + file.string());
+            LOG_WARN("[Engine] 틱 캡처 파일을 열지 못해 캡처 없이 간다: " + feed_.capture_directory + "/" + file_name);
         }
     }
 

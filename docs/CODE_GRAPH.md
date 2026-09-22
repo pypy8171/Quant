@@ -24,7 +24,7 @@ graph LR
   core -->|3| ipc
   core -->|5| risk
   core -->|3| strategy
-  core -->|9| utils
+  core -->|10| utils
   ipc -->|2| api
   ipc -->|6| core
   ipc --> risk
@@ -221,6 +221,7 @@ graph LR
   n_core_Engine_cpp --> n_core_UniverseExit_h
   n_core_Engine_cpp --> n_utils_Logger_h
   n_core_Engine_cpp --> n_utils_ThreadName_h
+  n_core_Engine_cpp --> n_utils_Utf8_h
   n_core_Engine_h --> n_api_KisClient_h
   n_core_Engine_h --> n_api_KisWebSocket_h
   n_core_Engine_h --> n_core_DataPoller_h
