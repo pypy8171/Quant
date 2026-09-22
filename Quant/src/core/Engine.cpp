@@ -1079,6 +1079,13 @@ void Engine::connect_feed()
         if (feed_.capture->ok())
         {
             LOG_INFO("[Engine] 틱 캡처 시작: " + feed_.capture_directory + "/" + file_name);
+
+            // 그날 무엇을 구독했는지를 파일 머리에 남긴다 — 호가가 비어 있는 종목이 trade_only인지 파일만 보고 알 수 있게.
+            for (const auto& specification : watch_specifications_)
+            {
+                feed_.capture->on_universe(specification.ticker, static_cast<uint8_t>(specification.market),
+                                           symbols_.table.intern(specification.ticker), specification.trade_only);
+            }
         }
         else
         {
@@ -1906,6 +1913,11 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                         auto& market_data = bars[0];
                         market_data.bar_index = static_cast<int>(data_count_.load());
                         market_data.symbol_id       = symbols_.table.intern(market_data.ticker);
+
+                        if (feed_.capture)
+                        {
+                            feed_.capture->on_bar(market_data, feed::kDailyBarSeconds); // 리플레이가 일봉 전략도 재현하도록 [why D-071]
+                        }
 
                         shard::for_each_shard(pipeline_.routes.mask(market_data.symbol_id), pipeline_.bars_matrix.consumer_of(market_data.symbol_id),
                                               [&](uint32_t consumer)

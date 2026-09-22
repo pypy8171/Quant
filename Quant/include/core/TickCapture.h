@@ -36,13 +36,20 @@ inline std::FILE* open_capture_file(const std::filesystem::path& file, const cha
 #endif
 }
 
-// ── 파일 형식 v1 ─────────────────────────────────────────────────────────────
+// ── 파일 형식 v1·v2 ─────────────────────────────────────────────────────────────
 //  머리 16바이트: "QTCAP\0" + version(uint8=1) + pad(1) + 시작 utc_ms(int64, LE).
-//  레코드: uint16 length(본문 바이트) + uint8 kind(1=체결 2=호가) + uint8 version(1) + 본문. 본문은 아래 POD를 그대로 쓴다
+//  레코드: uint16 length(본문 바이트) + uint8 kind(1=체결 2=호가 3=봉 4=유니버스) + uint8 version + 본문. 본문은 아래 POD를 그대로 쓴다
 //  (LE, x64 정렬 그대로). 꼬리가 잘려 있으면 리더가 그 앞까지만 돌려준다.
-constexpr uint8_t kFormatVersion = 1;
-constexpr uint8_t kKindTrade     = 1;
-constexpr uint8_t kKindBook      = 2;
+// v2에서 봉·유니버스 레코드가 늘었다. 리더는 v1도 그대로 읽는다 — 09-21까지 받아 둔 파일이 있다.
+//  레코드 종류가 늘어도 옛 리더가 안 깨지도록, 모르는 종류는 멈추지 않고 길이만큼 건너뛴다. [why D-071]
+constexpr uint8_t kFormatVersion       = 2;
+constexpr uint8_t kFormatVersionOldest = 1; // 리더가 받아 주는 가장 낮은 버전
+constexpr uint8_t kKindTrade           = 1;
+constexpr uint8_t kKindBook            = 2;
+constexpr uint8_t kKindBar             = 3; // 파이프라인에 들어간 봉(일봉 폴링·기동용 과거 봉)
+constexpr uint8_t kKindUniverse        = 4; // 그날 무엇을 보기로 했는지
+constexpr int32_t kDailyBarSeconds     = 86400; // BarBody.interval_sec의 일봉 값
+constexpr uint16_t kMaxRecordBytes     = 4096; // 이보다 긴 레코드는 깨진 것으로 본다(모르는 종류를 건너뛸 때의 안전선)
 constexpr size_t  kTickerMax     = 12; // KIS 현물 6자리·선물 8자리·미국 티커. 넘치면 잘린다.
 constexpr size_t  kTimeMax       = 8;  // HHMMSS
 
@@ -74,9 +81,56 @@ struct BookBody
     OrderBookLevel bids[5];
 };
 
-static_assert(std::is_trivially_copyable_v<TradeBody> && std::is_trivially_copyable_v<BookBody>);
-static_assert(sizeof(Common) == 48 && sizeof(TradeBody) == 80 && sizeof(BookBody) == 208,
-              "파일 형식 v1의 본문 크기 — 바뀌면 kFormatVersion을 올린다");
+// 봉(MarketData). 체결·호가와 달리 HTTP로 받아 파이프라인에 넣는데, 그 값이 리플레이에 안 남아
+//  일봉을 쓰는 전략은 같은 날을 다시 돌려도 같은 자리에서 시작하지 못한다. 들어가는 자리에서 같이 적는다.
+struct BarBody
+{
+    Common  common;
+    int32_t bar_index    = 0; // MarketData.bar_index — 파이프라인에 들어간 순번
+    int32_t interval_sec = 0; // 60=1분봉, 86400=일봉
+    double  open         = 0.0;
+    double  high         = 0.0;
+    double  low          = 0.0;
+    double  close        = 0.0;
+    int64_t volume       = 0;
+};
+
+// 그날 무엇을 보기로 했는지. 종목 수와 구독 내용은 날마다 달라서, 이것 없이는 호가가 왜 비어 있는지
+//  같은 질문을 파일만 보고 답할 수 없다(09-21 캡처가 그랬다).
+struct UniverseBody
+{
+    Common  common;
+    uint8_t trade_only = 0; // 1이면 체결만 구독 — 이 종목의 호가는 파일에 없다
+    uint8_t pad[7]     = {};
+};
+
+static_assert(std::is_trivially_copyable_v<TradeBody> && std::is_trivially_copyable_v<BookBody>
+              && std::is_trivially_copyable_v<BarBody> && std::is_trivially_copyable_v<UniverseBody>);
+static_assert(sizeof(Common) == 48 && sizeof(TradeBody) == 80 && sizeof(BookBody) == 208
+              && sizeof(BarBody) == 96 && sizeof(UniverseBody) == 56,
+              "파일 형식의 본문 크기 — 바뀌면 kFormatVersion을 올린다");
+
+// 종류마다 파일에 쓰는 본문 길이. 0이면 이 리더가 모르는 종류라는 뜻이고, 그때는 길이만큼 건너뛴다.
+inline uint16_t body_bytes_of(uint8_t kind)
+{
+    switch (kind)
+    {
+        case kKindTrade:
+            return static_cast<uint16_t>(sizeof(TradeBody));
+
+        case kKindBook:
+            return static_cast<uint16_t>(sizeof(BookBody));
+
+        case kKindBar:
+            return static_cast<uint16_t>(sizeof(BarBody));
+
+        case kKindUniverse:
+            return static_cast<uint16_t>(sizeof(UniverseBody));
+
+        default:
+            return 0;
+    }
+}
 
 // 큐 원소. 호가 크기라 체결도 200바이트를 차지하지만 큐는 메모리라 상관없고, 파일에는 kind에 맞는 길이만 쓴다.
 struct Record
@@ -84,8 +138,10 @@ struct Record
     uint8_t kind = 0;
     union
     {
-        TradeBody trade;
-        BookBody  book;
+        TradeBody    trade;
+        BookBody     book;
+        BarBody      bar;
+        UniverseBody universe;
     };
 
     Record() : trade{}
@@ -259,6 +315,50 @@ public:
         enqueue(std::move(record));
     }
 
+    // 봉 하나. 일봉 폴링은 사이클마다 종목 수만큼이라 hot path가 아니다.
+    void on_bar(const MarketData& bar, int32_t interval_sec) noexcept
+    {
+        if (file_ == nullptr)
+        {
+            return;
+        }
+
+        Record record;
+        record.kind                    = kKindBar;
+        record.bar                     = BarBody{};
+        record.bar.common.wall_us      = wall_us_of(bar.timestamp);
+        record.bar.common.symbol_id    = bar.symbol_id;
+        record.bar.common.market       = static_cast<uint8_t>(bar.market);
+        put_string(record.bar.common.ticker, kTickerMax, bar.ticker.string());
+        record.bar.bar_index    = bar.bar_index;
+        record.bar.interval_sec = interval_sec;
+        record.bar.open         = bar.open;
+        record.bar.high         = bar.high;
+        record.bar.low          = bar.low;
+        record.bar.close        = bar.close;
+        record.bar.volume       = bar.volume;
+        enqueue(std::move(record));
+    }
+
+    // 그날 구독하기로 한 종목 하나. 구독을 거는 자리에서 한 번씩 부른다.
+    void on_universe(std::string_view ticker, uint8_t market, uint32_t symbol_id, bool trade_only) noexcept
+    {
+        if (file_ == nullptr)
+        {
+            return;
+        }
+
+        Record record;
+        record.kind                        = kKindUniverse;
+        record.universe                    = UniverseBody{};
+        record.universe.common.wall_us     = wall_us_of(std::chrono::system_clock::now());
+        record.universe.common.market      = market;
+        record.universe.common.symbol_id   = symbol_id;
+        put_string(record.universe.common.ticker, kTickerMax, ticker);
+        record.universe.trade_only = trade_only ? 1 : 0;
+        enqueue(std::move(record));
+    }
+
     // 큐가 빌 때까지 기다리고 파일을 flush한다. 종료·테스트용 — hot path에서 부르지 않는다.
     void flush()
     {
@@ -314,13 +414,18 @@ private:
 
     void write_one(const Record& record)
     {
-        const uint16_t length = record.kind == kKindTrade ? static_cast<uint16_t>(sizeof(TradeBody))
-                                                  : static_cast<uint16_t>(sizeof(BookBody));
-        const uint8_t  header[4] = {static_cast<uint8_t>(length & 0xFF), static_cast<uint8_t>(length >> 8), record.kind,
+        const uint16_t length = body_bytes_of(record.kind);
+
+        if (length == 0)
+        {
+            return; // 쓰는 쪽이 모르는 종류를 만들었다는 뜻 — 파일에 길이 없는 레코드를 남기지 않는다.
+        }
+
+        const uint8_t header[4] = {static_cast<uint8_t>(length & 0xFF), static_cast<uint8_t>(length >> 8), record.kind,
                                  kFormatVersion};
         std::fwrite(header, 1, sizeof(header), file_);
-        std::fwrite(record.kind == kKindTrade ? static_cast<const void*>(&record.trade) : static_cast<const void*>(&record.book), 1,
-                    length, file_);
+        // union 멤버들은 같은 자리에서 시작한다. 길이는 위에서 종류로 정했다.
+        std::fwrite(static_cast<const void*>(&record.trade), 1, length, file_);
         written_.fetch_add(1, std::memory_order_release);
     }
 
@@ -392,7 +497,8 @@ public:
         std::array<char, 16> head{};
 
         if (std::fread(head.data(), 1, head.size(), file_) != head.size() || std::memcmp(head.data(), "QTCAP", 6) != 0 ||
-            head[6] != static_cast<char>(kFormatVersion))
+            static_cast<uint8_t>(head[6]) < kFormatVersionOldest ||
+            static_cast<uint8_t>(head[6]) > kFormatVersion)
         {
             std::fclose(file_);
             file_ = nullptr;
@@ -423,45 +529,59 @@ public:
         return start_utc_ms_;
     }
 
-    // 다음 레코드. 끝이거나 꼬리가 잘렸거나 모르는 kind면 false — 그 뒤로는 계속 false.
+    // 다음 레코드. 끝이거나 꼬리가 잘렸으면 false — 그 뒤로는 계속 false.
+    //  모르는 종류는 길이만큼 건너뛰고 다음으로 간다 — 나중에 늘어난 종류가 옛 리더를 세우지 않게. [why D-071]
     bool next(Record& out)
     {
-        if (file_ == nullptr)
+        while (true)
         {
-            return false;
-        }
+            if (file_ == nullptr)
+            {
+                return false;
+            }
 
-        uint8_t header[4];
+            uint8_t header[4];
 
-        if (std::fread(header, 1, sizeof(header), file_) != sizeof(header))
-        {
-            return stop();
-        }
+            if (std::fread(header, 1, sizeof(header), file_) != sizeof(header))
+            {
+                return stop();
+            }
 
-        const uint16_t length  = static_cast<uint16_t>(header[0] | (header[1] << 8));
-        const uint8_t  kind = header[2];
-        void*          destination  = nullptr;
+            const uint16_t length   = static_cast<uint16_t>(header[0] | (header[1] << 8));
+            const uint8_t  kind     = header[2];
+            const uint16_t expected = body_bytes_of(kind);
 
-        if (kind == kKindTrade && length == sizeof(TradeBody))
-        {
-            destination = &out.trade;
-        }
-        else if (kind == kKindBook && length == sizeof(BookBody))
-        {
-            destination = &out.book;
-        }
-        else
-        {
-            return stop();
-        }
+            if (expected == 0)
+            {
+                // 모르는 종류. 길이가 터무니없으면 파일이 깨진 것으로 본다.
+                if (length > kMaxRecordBytes || std::fseek(file_, length, SEEK_CUR) != 0)
+                {
+                    return stop();
+                }
 
-        if (std::fread(destination, 1, length, file_) != length)
-        {
-            return stop();
-        }
+                skipped_ += 1;
+                continue;
+            }
 
-        out.kind = kind;
-        return true;
+            if (length != expected)
+            {
+                return stop(); // 아는 종류인데 길이가 다르다 — 형식이 깨졌다.
+            }
+
+            if (std::fread(static_cast<void*>(&out.trade), 1, length, file_) != length)
+            {
+                return stop();
+            }
+
+            out.kind = kind;
+            return true;
+        }
+    }
+
+    // 모르는 종류라 건너뛴 레코드 수. 옛 리더로 새 파일을 읽었을 때 얼마를 못 봤는지 알려면 필요하다.
+    [[nodiscard]] uint64_t skipped() const noexcept
+    {
+        return skipped_;
     }
 
 private:
@@ -474,6 +594,7 @@ private:
 
     std::FILE* file_           = nullptr;
     int64_t    start_utc_ms_ = 0;
+    uint64_t   skipped_        = 0;
 };
 
 } // namespace feed

@@ -1,4 +1,5 @@
-// TickCapture/TickReader 단위 테스트 — 왕복 필드 보존, 이어 쓰기(머리 한 번), 잘린 꼬리, 없는 파일, 큐 넘침 계수.
+// TickCapture/TickReader 단위 테스트 — 왕복 필드 보존, 이어 쓰기(머리 한 번), 잘린 꼬리, 없는 파일, 큐 넘침 계수,
+// v2 레코드(봉·유니버스), 모르는 종류 건너뛰기, 옛 버전 머리 수용.
 // 빌드: cmake --build <directory> --target test_tick_capture
 #include "core/RingBuffer.h"
 #include "core/TickCapture.h"
@@ -261,6 +262,114 @@ int main()
         }
 
         CHECK(count == 2000);
+    }
+
+    std::filesystem::remove(path);
+
+    // 7. v2 레코드(봉·유니버스)가 필드 그대로 돌아온다. 체결 사이에 섞여도 순서가 지켜진다.
+    {
+        {
+            feed::TickCapture capture(path);
+            capture.on_universe("005930", 1, 7, true);
+            MarketData bar;
+            bar.ticker    = symbol::Ticker("005930");
+            bar.open      = 70000.0;
+            bar.high      = 70500.0;
+            bar.low       = 69900.0;
+            bar.close     = 70200.0;
+            bar.volume    = 12345;
+            bar.bar_index = 3;
+            bar.symbol_id = 7;
+            bar.timestamp = std::chrono::system_clock::now();
+            capture.on_bar(bar, feed::kDailyBarSeconds);
+            capture.on_trade(make_trade(1));
+            capture.flush();
+        }
+
+        feed::TickReader reader(path);
+        feed::Record     record;
+        CHECK(reader.next(record) && record.kind == feed::kKindUniverse);
+        CHECK(std::string(record.universe.common.ticker) == "005930" && record.universe.common.symbol_id == 7 &&
+              record.universe.trade_only == 1);
+        CHECK(reader.next(record) && record.kind == feed::kKindBar);
+        CHECK(std::string(record.bar.common.ticker) == "005930" && record.bar.common.symbol_id == 7 &&
+              record.bar.bar_index == 3 && record.bar.interval_sec == feed::kDailyBarSeconds);
+        CHECK(record.bar.open == 70000.0 && record.bar.high == 70500.0 && record.bar.low == 69900.0 &&
+              record.bar.close == 70200.0 && record.bar.volume == 12345);
+        CHECK(reader.next(record) && record.kind == feed::kKindTrade);
+        CHECK(!reader.next(record));
+        CHECK(reader.skipped() == 0);
+    }
+
+    std::filesystem::remove(path);
+
+    // 8. 모르는 종류(99)는 길이만큼 건너뛰고 다음 레코드를 준다. 너무 긴 길이는 깨진 파일로 보고 멈춘다.
+    //    파일은 손으로 만든다 — 지금 쓰는 쪽은 모르는 종류를 못 쓰게 막아 두었다.
+    {
+        auto write_header = [](std::FILE* file, uint8_t version)
+        {
+            const char    magic[8]     = {'Q', 'T', 'C', 'A', 'P', '\0', static_cast<char>(version), 0};
+            const int64_t start_utc_ms = 0;
+            std::fwrite(magic, 1, sizeof(magic), file);
+            std::fwrite(&start_utc_ms, 1, sizeof(start_utc_ms), file);
+        };
+        auto write_record = [](std::FILE* file, uint8_t kind, uint16_t length, const void* body)
+        {
+            const uint8_t header[4] = {static_cast<uint8_t>(length & 0xFF), static_cast<uint8_t>(length >> 8), kind,
+                                       feed::kFormatVersion};
+            std::fwrite(header, 1, sizeof(header), file);
+            std::fwrite(body, 1, length, file);
+        };
+        const feed::TradeBody trade_body = feed::to_body(make_trade(5));
+        const char            junk[20]   = {};
+
+        {
+            std::FILE* file = std::fopen(path.string().c_str(), "wb");
+            write_header(file, feed::kFormatVersion);
+            write_record(file, feed::kKindTrade, sizeof(trade_body), &trade_body);
+            write_record(file, 99, sizeof(junk), junk);
+            write_record(file, feed::kKindTrade, sizeof(trade_body), &trade_body);
+            std::fclose(file);
+        }
+
+        {
+            feed::TickReader reader(path);
+            feed::Record     record;
+            CHECK(reader.next(record) && record.kind == feed::kKindTrade);
+            CHECK(reader.next(record) && record.kind == feed::kKindTrade);
+            CHECK(!reader.next(record));
+            CHECK(reader.skipped() == 1);
+        }
+
+        {
+            std::FILE* file = std::fopen(path.string().c_str(), "wb");
+            write_header(file, feed::kFormatVersion);
+            write_record(file, feed::kKindTrade, sizeof(trade_body), &trade_body);
+            const uint8_t huge[4] = {0xFF, 0xFF, 99, feed::kFormatVersion}; // 길이 65535 — 상한을 넘는다
+            std::fwrite(huge, 1, sizeof(huge), file);
+            std::fclose(file);
+            feed::TickReader reader(path);
+            feed::Record     record;
+            CHECK(reader.next(record) && record.kind == feed::kKindTrade);
+            CHECK(!reader.next(record));
+        }
+
+        // 9. 머리 버전 1(09-21까지의 파일)은 읽고, 미래 버전은 거절한다.
+        {
+            std::FILE* file = std::fopen(path.string().c_str(), "wb");
+            write_header(file, 1);
+            write_record(file, feed::kKindTrade, sizeof(trade_body), &trade_body);
+            std::fclose(file);
+            feed::TickReader old_reader(path);
+            feed::Record     record;
+            CHECK(old_reader.ok() && old_reader.next(record) && record.kind == feed::kKindTrade);
+
+            file = std::fopen(path.string().c_str(), "wb");
+            write_header(file, static_cast<uint8_t>(feed::kFormatVersion + 1));
+            std::fclose(file);
+            feed::TickReader future_reader(path);
+            CHECK(!future_reader.ok());
+        }
     }
 
     std::filesystem::remove(path);

@@ -138,6 +138,12 @@ private:
 
         while (!stop_token.stop_requested() && reader.next(record))
         {
+            // 봉 시드·유니버스는 재생할 시세가 아니다. 기동 재현에 쓰는 것은 큐 34 ③에서 붙인다. [why D-071]
+            if (record.kind != kKindTrade && record.kind != kKindBook)
+            {
+                continue;
+            }
+
             const Common& common = record.kind == kKindTrade ? record.trade.common : record.book.common;
 
             if (!pass(common.ticker))
