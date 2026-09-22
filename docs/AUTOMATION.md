@@ -291,6 +291,7 @@ scripts/market_close_autodoc.py
 | `../quant-devtools/token_audit.py` | 세션 기록(`~/.claude/projects/<repo>/*.jsonl`)에서 토큰 사용을 절차(탐색·편집·git·빌드·위임·훅 되돌림)·도구 결과·하네스 주입(CLAUDE.md 재주입·압축 요약)·훅 소요별로 집계해 표로 낸다. `--md docs/reports/TOKEN_AUDIT.md`로 보고서 |
 | `scripts/stresstest_flow_profile.py` | 엔진이 남긴 체결 캡처(QTCAP)에서 종목별 초당 건수를 재고, 순위별 몫을 멱법칙으로 전 종목 규모까지 늘려 부하 프로파일 JSON을 만든다. 부하 하네스가 `--profile`로 읽어 실제 장만큼의 유량을 민다. 절차는 `docs/reports/stresstest/README.md` 6절 |
 | `scripts/stresstest_join_procwatch.py` | 부하 회차 CSV(`bench_engine_load`의 `started_at` 열)와 `logs/procwatch_<이름>.log`의 `cpu=` 줄을 시각으로 맞춰 구성별 CPU 평균·최대(코어 수)·스레드 최대를 낸다. 표본 없는 구성은 빈칸. 절차는 `docs/reports/stresstest/README.md` 5절 |
+| `scripts/make_load_test_config.py` | 부하시험용 config(`Quant/config/config_load_test.json`)를 만든다. KIS 자리에 `exchange::ZmqOrderFeed`가 들어가고 종목마다 `FIXED_INTERVAL` 전략이 걸려, 바깥에서 들어온 주문이 오더북·전략·게이트·원장까지 다 지나간다. 인증 정보는 더미라 실계좌 config 와 섞이지 않는다. 주문을 밀어 넣는 쪽은 `PYQuant/tools/load_injector.py`(같은 `--seed` 면 같은 입력) |
 | `scripts/trade_costs.py` | 체결 원장 `logs/trades_YYYYMMDD.csv`의 날짜별·종목별 매매 비용(수수료·거래세, 요율은 인자)과 실현손익(`realized_pnl` 열)을 `logs/trade_costs.json`에 누적하고 표로 낸다. 거래 빈도와 손익의 경계를 보는 용도. `py scripts/trade_costs.py --days 7` |
 | `../quant-devtools/check_docs.py` | 깨진 내부 링크·색인 누락 검사. exit 0이어야 문서 커밋 |
 | `../quant-devtools/sync_impact.py` | 바뀐 파일을 `docs/sync_map.toml`의 규칙과 대조해 봐야 할 문서를 찍고, 문서 안 `<!-- sync: 경로@해시 -->` 도장으로 낡은 문단을 집어낸다. `--fix`는 gen 블록 치환, `--restamp`는 도장 갱신, `--render`는 `docs/SYNC_MAP.md` §2 표 생성. Stop 훅과 커밋 훅이 부른다(D-075) |

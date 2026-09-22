@@ -17,6 +17,9 @@ Quant/config/kis_token_*.json
 Quant/config/regime.json
 # 유니버스 피드(universe_feed.py) 매일 재생성 산출물 — 스냅샷 커밋 시 히스토리 churn 방지(시크릿 없음)
 Quant/config/universe_scan.json
+
+# 부하시험 종목 순번표 — 엔진이 기동할 때마다 다시 적는다(ZmqOrderFeed::connect 의 universe_out). 시크릿 없음
+Quant/config/load_test_universe.json
 Quant/config/prices_live.json
 # 바스켓 목표 비중표(basket_forward.py 매일 생성)·엔진 상태 파일 — 산출물이라 커밋하지 않는다(D-109)
 Quant/config/basket_targets.json

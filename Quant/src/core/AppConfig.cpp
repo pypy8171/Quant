@@ -137,7 +137,8 @@ int hhmm_to_minute(int hhmm)
 void parse_risk(const json& document, AppConfig& app)
 {
     const json& risk_node   = jsonx::object_or_empty(document, "risk");
-    const bool  replaying    = !app.replay_file.empty();
+    // 부하시험도 밤에 돌리므로 리플레이와 같이 장 시간 창을 끈다 — 창이 닫혀 있으면 주문이 전부 거부된다.
+    const bool  replaying    = !app.replay_file.empty() || app.load_test_enabled;
     const bool  after_market = risk_node.value("after_market", true) && !app.kis.is_paper;
     OrderGate::Config& risk  = app.risk;
     risk.session_open_min    = replaying ? 0 : hhmm_to_minute(risk_node.value("session_open_hhmm", 900));
@@ -220,6 +221,15 @@ AppConfig parse_config(const json& document, const std::string& mode_override)
     app.replay_file                   = document.value("replay_file", std::string());
     app.replay_speed                  = document.value("replay_speed", app.replay_speed);
     app.replay_cash                   = document.value("replay_cash", app.replay_cash);
+
+    const json& load_test_node        = jsonx::object_or_empty(document, "load_test");
+    app.load_test_enabled             = load_test_node.value("enabled", false);
+    app.load_test_lanes               = load_test_node.value("lanes", app.load_test_lanes);
+    app.load_test_base_port           = load_test_node.value("base_port", app.load_test_base_port);
+    app.load_test_bind_address        = load_test_node.value("bind_addr", app.load_test_bind_address);
+    app.load_test_session_hhmmss      = load_test_node.value("session_start_hhmmss", 0);
+    app.load_test_universe_out        = load_test_node.value("universe_out", std::string());
+
     app.regime_file                   = document.value("regime_file", std::string());
     app.regime_stale_sec              = document.value("regime_stale_sec", app.regime_stale_sec);
     app.regime_halt_expire_min        = document.value("regime_halt_expire_min", app.regime_halt_expire_min);

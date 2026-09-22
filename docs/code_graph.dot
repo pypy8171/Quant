@@ -3,6 +3,7 @@ digraph code_graph {
   node [shape=box, style=rounded, fontname="Consolas"];
   "api";
   "core";
+  "exchange";
   "ipc";
   "main";
   "modes";
@@ -17,6 +18,8 @@ digraph code_graph {
   "core" -> "risk" [label="7"];
   "core" -> "strategy" [label="3"];
   "core" -> "utils" [label="12"];
+  "exchange" -> "core" [label="7"];
+  "exchange" -> "utils" [label="2"];
   "ipc" -> "api" [label="2"];
   "ipc" -> "core" [label="10"];
   "ipc" -> "risk" [label="1"];

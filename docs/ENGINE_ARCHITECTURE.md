@@ -77,6 +77,16 @@
 <!-- sync: Quant/include/api/KisWebSocket.h@cc33d67 Quant/src/api/WebSocketClient.cpp@80bd779 Quant/src/api/WsSocket.h@5f6fa3f -->
 FEED·TRADE 두 모드가 같은 클라이언트를 씁니다. REST로 approval key를 발급받고, `ops.koreainvestment.com:31000`(모의) 또는 `:21000`(실거래, 호스트·포트 상수는 `Quant/include/api/KisEndpoints.h`)에 연결한 뒤 구독한 채널의 파싱된 구조체를 등록된 콜백으로 전달합니다. 구독 채널은 종목당 `WatchSpec`으로 정하며, 국내 현물 호가 `H0STASP0`·체결 `H0STCNT0`(config `kis.exchange`가 NXT·SOR이면 KRX+NXT 통합 `H0UNASP0`·`H0UNCNT0`, D-096), 국내 선물 호가 `H0IFASP0`·체결 `H0IFCNT0`(`WatchSpec.is_future=true`로 선택), 미국 체결 `HDFSCNT0`을 지원합니다. 선물 체결에는 매수/매도 방향 코드가 없어 `direction`을 0으로 둡니다. 최초 연결·재연결 경로에 흩어져 있던 구독 하드코딩은 `subscribe_all()` 한 곳으로 통합되어, 재연결 시 선물 채널이 누락되던 불일치를 없앴습니다. 국내 선물 실시간은 실계좌 WS 도메인 전용이라 모의(`is_paper=true`)에서는 지원되지 않습니다. 소켓 계층은 `Quant/src/api/WsSocket.h`의 `WsSocket` 인터페이스 뒤에 있고(D-049) 플랫폼당 한 파일만 링크되므로, 연결·재연결·백오프·구독은 `WebSocketClient.cpp`에 플랫폼 코드 없이 한 벌입니다. 공개 헤더는 `<windows.h>`를 끌어오지 않습니다. 엔진은 소켓을 `feed::IFeedSource`(`Quant/include/core/IFeedSource.h`)로만 보며 — `Engine::set_feed_source`로 소스를 직접 주거나 config `replay_file`로 캡처 파일을 틀면 KIS 없이 기동해(인증·계좌·유니버스 스캔 없음, 종목은 config `tickers`) 주문·잔고를 모의 체결기가 받는다(`test_engine`이 시험용 시세로 수신 스레드 1×샤드 1과 2×2를, 캡처 파일로 리플레이를 한 바퀴씩 돈다, D-071) — config `feed_keys`로 세션 키를 더 주면 `Quant/include/core/FeedMux.h`의 `feed::FeedMux`가 소켓 여럿을 한 소스로 묶어(종목은 한 소켓에만, 체결통보는 `hts_id`를 가진 소켓 하나만 — `feed_keys` 항목에 `fill_notice: true`를 주면 그 키로 옮긴다, D-114 단계 3) 구독 상한이 소켓 수만큼 늡니다. 소켓 하나가 멈추면 그 소켓만 자기 배정 종목으로 다시 잇고 나머지 소켓의 틱은 그 사이에도 흐릅니다(`reconnect_stale`, D-071, `test_feed_mux`). 엔진은 직접 호출 모드로 받는다 — 소켓 i의 수신 스레드가 번호 i를 달고 콜백을 직접 불러 행렬의 행 i에 넣고(`IFeedSource::lanes()`·`set_lane_callbacks`, mux 스레드 없음), 틱 캡처 큐는 그래서 `MpscQueue`다(D-071, `test_feed_mux`). 캡처 파일(`Quant/include/core/TickCapture.h`, 형식 v2)에는 체결·호가 외에 그날 구독한 종목 목록(체결만 받는지 표시 포함)과 일봉 폴링이 파이프라인에 넣은 봉이 같이 남고, 리더는 v1 파일도 읽으며 모르는 레코드 종류는 길이만큼 건너뛴다 — 리플레이(`Quant/include/core/ReplaySource.h`)는 체결·호가만 재생한다(D-071, `test_tick_capture`). 체결통보(`H0STCNI0`)는 `^`로 나뉜 스물여섯 칸이고 체결 한 건마다 붙는 고유번호가 없습니다 — 식별자는 주문번호와 원주문번호 둘뿐이라 체결 한 건을 가리키는 키는 라우터가 만듭니다(`Quant/include/ipc/FillKey.h`, D-121). 최소 폭은 체결 한 건을 만드는 데 꼭 있어야 하는 열네 칸으로 두고 그 뒤 칸은 있으면 읽습니다 — 폭을 올리면 짧은 전문이 통째로 버려지고 그건 체결 누락입니다.
 
+### 부하시험 피드 (`Quant/include/exchange/ZmqOrderFeed.h`)
+
+스레드 모델은 그대로입니다. `exchange::ZmqOrderFeed`도 `feed::IFeedSource` 구현이라 KIS 소켓이 앉던 자리에 그대로 들어가고
+(`Engine::set_feed_source`), 수신 스레드 수는 config `load_test.lanes`가 정합니다. 바깥에서 ZMQ로 들어온 가상 주문을
+`exchange::MatchingEngine`(`Quant/include/exchange/MatchingEngine.h`)의 종목별 오더북에 넣어 단일가·연속매매로 맞추고,
+거기서 난 체결을 시세처럼 파이프라인에 올립니다. 전문 형식은 `Quant/include/exchange/OrderWire.h`(머리 16바이트 + 32바이트
+고정 레코드)이고 파이썬 짝은 `PYQuant/tools/load_injector.py`입니다. config 는 `scripts/make_load_test_config.py`가 만듭니다.
+`ZmqOrderFeed::Options::start_receive_threads`를 false 로 두면 소켓도 스레드도 없이 `ingest()`로 바이트를 직접 먹일 수 있어
+한 스레드에서 디버거를 붙일 수 있습니다(`Quant/tests/test_zmq_order_feed.cpp`·`Quant/tests/test_matching_engine.cpp`).
+
 ### 로깅
 
 <!-- sync: Quant/include/utils/Logger.h@0b595bb -->

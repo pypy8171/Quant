@@ -138,6 +138,9 @@ set(HEADER_IMPL_SOURCES
   src/core/Types.cpp
   src/core/UniverseExit.cpp
   src/core/WakeGate.cpp
+  src/exchange/MatchingEngine.cpp
+  src/exchange/OrderWire.cpp
+  src/exchange/ZmqOrderFeed.cpp
   src/ipc/FillKey.cpp
   src/ipc/Heartbeat.cpp
   src/ipc/OpsProtocol.cpp
@@ -563,6 +566,14 @@ endif()
 add_executable(test_paper_executor tests/test_paper_executor.cpp)
 target_include_directories(test_paper_executor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# ─── 테스트 타겟: 부하시험용 거래소 매칭 엔진 — 호가 격자·동시호가 적재·단일가 일괄 체결·연속매매 (헤더 전용, D-071) ──
+add_executable(test_matching_engine tests/test_matching_engine.cpp)
+target_include_directories(test_matching_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# ─── 테스트 타겟: 부하시험 주문 수신단 — 주문 전문 읽기/적기·종목 순번 배선·체결 올리기 (헤더 전용, D-071) ──
+add_executable(test_zmq_order_feed tests/test_zmq_order_feed.cpp)
+target_include_directories(test_zmq_order_feed PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # ─── 테스트 타겟: FeedMux 종목 배정·소스별 스레드 → mux 스레드 하나·증분/넘침·체결통보 첫 소스 (헤더 전용, D-071) ──
 add_executable(test_feed_mux tests/test_feed_mux.cpp)
 target_include_directories(test_feed_mux PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -771,6 +782,8 @@ set(QUANT_ASSERT_TARGETS
     test_prefetch_pool
     test_replay_source
     test_paper_executor
+    test_matching_engine
+    test_zmq_order_feed
     test_feed_mux
     test_feed_supervisor
     test_session_end
