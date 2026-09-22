@@ -203,20 +203,24 @@ def feed_ledger_rows(date: str) -> list:
        가리킨다(피드는 멀쩡한데 화면만 죽는다).
     ② Engine을 그대로 띄우는 테스트·부하 하네스가 같은 ZMQ 포트(5555)에 bind하면 리코더가 그쪽을
        잡는다. 09-22 장중에 합성 주문 52건·체결 58건이 계좌 없이 운영 표에 들어갔다.
+    ③ 신호는 주문·체결과 달리 계좌를 안 싣고 발행했다. 그것을 고친 뒤로 `signals.account`가 비어 있으면
+       배포 전 exe가 떠 있다는 뜻이고, 받는 쪽 계좌 필터가 전부 떨궈 signals 적재가 통째로 멈춘다.
     """
     password = tsdb_password()
 
     if not password:
         return [("피드 적재", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함"),
                 ("개장부터 적재", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함"),
-                ("원장 계좌 단일", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함")]
+                ("원장 계좌 단일", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함"),
+                ("신호 계좌 적재", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함")]
 
     psycopg2 = import_psycopg2()
 
     if psycopg2 is None:
         return [("피드 적재", False, "WARN", "psycopg2 없음 — venv(PYQuant/.venv*)로 부르거나 pip install psycopg2-binary"),
                 ("개장부터 적재", False, "WARN", "psycopg2 없음 — 위와 같다"),
-                ("원장 계좌 단일", False, "WARN", "psycopg2 없음 — 위와 같다")]
+                ("원장 계좌 단일", False, "WARN", "psycopg2 없음 — 위와 같다"),
+                ("신호 계좌 적재", False, "WARN", "psycopg2 없음 — 위와 같다")]
 
     try:
         connection = psycopg2.connect(host="localhost", port=5432, dbname="quant", user="quant",
@@ -241,11 +245,19 @@ def feed_ledger_rows(date: str) -> list:
                 for account, count in cursor.fetchall():
                     accounts[account] = accounts.get(account, 0) + count
 
+            cursor.execute(
+                "SELECT COUNT(*), COUNT(*) FILTER (WHERE COALESCE(TRIM(account), '') = '') FROM signals"
+                " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s", (date,))
+            signal_count, signal_no_account = cursor.fetchone()
+            cursor.execute(
+                "SELECT COUNT(*) FROM orders WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s", (date,))
+            order_count = cursor.fetchone()[0]
+
         connection.close()
     except Exception as error:   # DB가 없거나 잠든 날은 판정을 미룬다
         detail = f"DB 조회 실패 — 판정 안 함 ({str(error).strip()[:80]})"
         return [("피드 적재", True, "WARN", detail), ("개장부터 적재", True, "WARN", detail),
-                ("원장 계좌 단일", True, "WARN", detail)]
+                ("원장 계좌 단일", True, "WARN", detail), ("신호 계좌 적재", True, "WARN", detail)]
 
     # 27종목을 장중 내내 받으면 수만 건이다. 1,000건이면 리코더가 잠깐만 붙어 있던 것
     feed_row = ("피드 적재", tick_count >= 1000 and data_count > 0, "WARN",
@@ -266,7 +278,20 @@ def feed_ledger_rows(date: str) -> list:
                    + (" — 09:05 뒤다. 리코더가 개장 뒤에 (다시) 떴거나 --record-ticks 없이 떴다"
                       "(scripts/auto_trade_day.ps1 quant-recorder 줄)" if first_tick_late else ""))
 
-    return [feed_row, opening_row, ledger_row]
+    # 신호에 계좌가 실리는지. 주문은 났는데 신호가 0이면 받는 쪽 계좌 필터가 전부 떨군 것이고(옛 exe가 떠 있다),
+    #  신호는 들어왔는데 계좌가 비면 그 행으로는 남의 엔진 신호를 가려낼 수 없다.
+    if order_count > 0 and signal_count == 0:
+        signal_row = ("신호 계좌 적재", False, "FAIL",
+                      f"주문 {order_count}건인데 신호 0건 — 계좌를 안 싣는 배포 전 exe가 떠 있고"
+                      " PYQuant/main.py 계좌 필터가 전부 떨궜다. exe와 파이썬을 같이 올린다")
+    elif signal_count == 0:
+        signal_row = ("신호 계좌 적재", True, "WARN", "신호·주문 모두 없는 날 — 판정 안 함")
+    else:
+        signal_row = ("신호 계좌 적재", signal_no_account == 0, "FAIL",
+                      f"신호 {signal_count}건 중 계좌 없음 {signal_no_account}건"
+                      + (" — 배포 전 exe가 섞여 있다" if signal_no_account else ""))
+
+    return [feed_row, opening_row, ledger_row, signal_row]
 
 
 def queue_latency_row(date: str) -> tuple:
