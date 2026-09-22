@@ -12,6 +12,7 @@ ctest --preset x64-release          # 단위 테스트. 수동 Ninja 레이아�
 ./Quant/build_win/quant_trader Quant/config/config.json               # 반드시 repo 루트에서. 감시견·실행 중 exe도 이 트리(RUNBOOK 6절)
 ```
 
+ctest 앞에 `py ../quant-devtools/check_build_ready.py` — 빌드 폴더가 둘이라 낡은 exe를 시험하기 쉽다(밀린 빌드·ninja 헤더 의존 0을 잡는다).
 테스트 타깃 목록·이름 풀이·TSAN은 [docs/guides/PROJECT_GUIDE.md](docs/guides/PROJECT_GUIDE.md) "단위 테스트".
 헤드리스 MSVC 빌드가 LNK1104로 실패하면 메모리 `build_win_temp_workaround`.
 
