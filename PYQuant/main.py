@@ -320,7 +320,7 @@ def cmd_record(args):
     #  없으므로 들어오기 전에 버린다 — 09-22 장중 부하 하네스의 합성 틱이 09:42~09:57 사이 운영 표에 섞였다.
     if args.record_ticks:
         monitor.on_trade = lambda d: is_our_account(d) and (tick_buffer.append(d), flush_ticks())
-    monitor.on_signal = lambda d: (db.insert_signal(d), logger.info(f"REC SIGNAL {d.get('ticker')} {d.get('side')}"))
+    monitor.on_signal = lambda d: is_our_account(d) and (db.insert_signal(d), logger.info(f"REC SIGNAL {d.get('ticker')} {d.get('side')}"))
     monitor.on_order  = lambda d: is_our_account(d) and (db.insert_order(d),  logger.info(f"REC ORDER  {d.get('ticker')} {'OK' if d.get('ok') else 'FAIL'}"))
     monitor.on_health = _rec_health
     monitor.on_fill   = _rec_fill

@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS signals (
     side       TEXT,            -- BUY / SELL
     qty        INTEGER,
     price      NUMERIC(18,4),
-    market     TEXT DEFAULT 'KR'
+    market     TEXT DEFAULT 'KR',
+    regime     TEXT,           -- 그때의 국면 stamp (엔진이 안 실으면 NULL)
+    account    TEXT            -- 브로커 계좌번호 (실계좌·모의계좌 분리, D-090)
 );
 SELECT create_hypertable('signals', 'ts', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS signals_ticker_ts ON signals (ticker, ts DESC);

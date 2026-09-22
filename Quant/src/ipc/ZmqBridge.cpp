@@ -329,6 +329,8 @@ void ZmqBridge::publish_signal(const OrderSignal& signal)
     document["price"] = signal.price;
     document["market"] = (signal.market == Market::US ? "US" : "KR");
     document["gated"] = false; // 게이트(OrderGate) 이전 발행 — 거부될 수 있다. 결과는 ORDER 토픽.
+    document["account"] = account_no_; // 받는 쪽이 남의 엔진 신호를 거르는 키 — ORDER·FILL과 같은 값
+    document["regime"] = regime_label_; // 그때의 국면 — 신호를 국면별로 되짚을 때 쓴다
     enqueue(Topic::Signal, document.dump());
 }
 

@@ -125,8 +125,8 @@ class DbClient:
             _require(data, "ts", "strategy", "ticker", "side", "qty")
             with self._cursor() as cursor:
                 cursor.execute(
-                    "INSERT INTO signals(ts,strategy,ticker,side,qty,price,market,regime)"
-                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                    "INSERT INTO signals(ts,strategy,ticker,side,qty,price,market,regime,account)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (
                         _ms_to_dt(data["ts"]),
                         data["strategy"],
@@ -136,6 +136,7 @@ class DbClient:
                         data.get("price"),
                         data.get("market", "KR"),
                         data.get("regime"),   # 그때의 국면 stamp (없으면 NULL)
+                        data.get("account"),  # 옛 엔진(이 필드를 안 싣는 exe)이 보낸 행은 NULL
                     ),
                 )
         except Exception as e:
