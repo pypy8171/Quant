@@ -609,6 +609,8 @@ private:
     ShardPipeline pipeline_;
     // 구간 지연 분포 — 주문 스레드가 넣고 데이터 스레드가 HEALTH에 분위수로 싣는다(원자 버킷이라 락 없음). [why D-071]
     trace::PipelineLatency pipeline_latency_;
+    // [inv] 직전 HEALTH 때 뜬 버킷 사본. 데이터 스레드만 읽고 쓴다 — 다른 스레드가 건드리면 구간 분위수가 어긋난다.
+    trace::PipelineSnapshot previous_latency_snapshot_;
 
     // ── 스레드 핸들 ──────────────────────────────────────────────────────────
     std::jthread data_thread_;

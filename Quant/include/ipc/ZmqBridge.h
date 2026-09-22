@@ -3,6 +3,7 @@
 
 #include "core/MpscQueue.h"
 #include "core/Types.h"
+#include <array>
 #include <atomic>
 #include <functional>
 #include <mutex>
@@ -79,6 +80,19 @@ public:
         int64_t  pop_to_done_p99_us     = -1;
         int64_t  total_p50_us           = -1;
         int64_t  total_p99_us           = -1;
+
+        // 직전 HEALTH 이후에 들어온 표본만의 구간 분위수. 누적 분위수는 한 번 튀면 안 내려와
+        //  "언제 느려졌나"를 못 본다 — 그래서 같은 구간을 두 벌 싣는다. 표본이 없으면 -1. [why D-071]
+        struct IntervalSegment
+        {
+            std::string_view name;        // health 열 이름 앞머리(<name>_p50_interval_us)
+            int64_t          p50_us = -1;
+            int64_t          p99_us = -1;
+        };
+
+        // [inv] name이 빈 칸은 안 싣는다 — 엔진이 구간 수만큼만 채운다.
+        std::array<IntervalSegment, 16> interval_segments{};
+        uint64_t                        interval_samples = 0; // 이번 구간에 들어온 주문 표본 수
     };
 
     void publish_health(const HealthSnapshot& snapshot);

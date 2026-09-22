@@ -26,7 +26,7 @@ graph LR
   core -->|3| strategy
   core -->|11| utils
   ipc -->|2| api
-  ipc -->|6| core
+  ipc -->|7| core
   ipc --> risk
   ipc -->|5| utils
   main -->|3| core
@@ -321,6 +321,7 @@ graph LR
   n_ipc_OpsServer_h --> n_ipc_OpsProtocol_h
   n_ipc_OrderRouter_cpp --> n_api_KisErrorCodes_h
   n_ipc_OrderRouter_cpp --> n_core_KstTime_h
+  n_ipc_OrderRouter_cpp --> n_core_LatencyTrace_h
   n_ipc_OrderRouter_cpp --> n_core_WakeGate_h
   n_ipc_OrderRouter_cpp --> n_ipc_OrderRouter_h
   n_ipc_OrderRouter_cpp --> n_utils_Logger_h

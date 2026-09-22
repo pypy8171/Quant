@@ -146,14 +146,47 @@ int main()
     CHECK(histogram.percentile(0.50) >= 500 && histogram.percentile(0.50) < 500 * 113 / 100);
     CHECK(histogram.percentile(0.99) >= 990 && histogram.percentile(0.99) < 990 * 113 / 100);
 
-    // 구간 넷을 한 번에 채운다 — tick_ns가 0인 신호는 tick_to_signal만 표본이 안 잡힌다.
+    // 구간을 한 번에 채운다 — tick_ns가 0인 신호는 tick_to_signal만 표본이 안 잡힌다.
     trace::PipelineLatency pipeline_latency;
-    pipeline_latency.add(trace::Marks{0, 1000, 3000, 9000});
+    pipeline_latency.add(trace::Marks{0, 1000, 3000, 5000, 9000}, OrderStageTiming{});
     CHECK(pipeline_latency.tick_to_signal.count() == 0);
     CHECK(pipeline_latency.signal_to_pop.count() == 1);
+    CHECK(pipeline_latency.pop_to_send.count() == 1);      // 3000→5000ns = 호출 간격 조절 대기
     CHECK(pipeline_latency.pop_to_done.count() == 1);
     CHECK(pipeline_latency.total.count() == 1);
     CHECK(pipeline_latency.total.percentile(0.50) >= 8);   // 8000ns = 8us
+    // 라우터 구간은 기본값 -1이라 표본이 안 잡힌다 — 게이트 앞에서 끝난 주문이 분포를 끌어내리지 않게.
+    CHECK(pipeline_latency.gate.count() == 0);
+    CHECK(pipeline_latency.transport.count() == 0);
+
+    // 라우터가 값을 실어 오면 그 구간만 표본이 는다.
+    pipeline_latency.add(trace::Marks{0, 1000, 3000, 5000, 9000},
+                         OrderStageTiming{.gate_us        = 40,
+                                          .journal_us     = 900,
+                                          .bucket_wait_us = 150000,
+                                          .transport_us   = 210000});
+    CHECK(pipeline_latency.gate.count() == 1);
+    CHECK(pipeline_latency.journal.count() == 1);
+    CHECK(pipeline_latency.bucket_wait.count() == 1);
+    CHECK(pipeline_latency.transport.count() == 1);
+    CHECK(pipeline_latency.transport.percentile(0.50) >= 210000);
+
+    // 구간 분포: 사본을 뜬 뒤 들어온 표본만 잡힌다 — 누적 분위수와 달리 지난 값이 안 남는다. [why D-071]
+    trace::PipelineSnapshot before;
+    before.capture(pipeline_latency);
+    const int transport_index = 6; // segment_names()의 "transport" 자리
+    CHECK(trace::PipelineLatency::segment_names()[transport_index] == "transport");
+    CHECK(trace::percentile_of_difference(before.segments[transport_index], before.segments[transport_index],
+                                          0.50) == -1);
+
+    pipeline_latency.add(trace::Marks{0, 1000, 3000, 5000, 9000}, OrderStageTiming{.transport_us = 3000});
+    trace::PipelineSnapshot after;
+    after.capture(pipeline_latency);
+    // 누적은 210ms가 섞여 p99를 끌어올리지만, 구간은 방금 들어온 3ms만 본다.
+    CHECK(pipeline_latency.transport.percentile(0.99) >= 210000);
+    const int64_t interval_p99 =
+        trace::percentile_of_difference(before.segments[transport_index], after.segments[transport_index], 0.99);
+    CHECK(interval_p99 >= 3000 && interval_p99 < 3000 * 113 / 100);
 
     std::cout << "test_latency_trace: " << g_checks << " checks passed\n";
     return 0;

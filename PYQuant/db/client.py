@@ -4,6 +4,7 @@ TimescaleDB 클라이언트 — ZMQ 이벤트 및 KIS 일봉 데이터 저장
 """
 import os
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from core.logger import setup_logger
@@ -20,6 +21,32 @@ except ImportError:
 
 def _ms_to_dt(ts_ms: int) -> datetime:
     return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+
+
+class WriteMeter:
+    """표별 DB 쓰기 시간을 모은다 — 적재기가 체감한 시간(왕복·대기 포함)이라 서버 쪽 통계(pg_stat_statements)와
+    다르다. 어느 쪽이 느린지는 둘을 나란히 놓아야 보인다. HEALTH 주기(30초)마다 비운다."""
+
+    def __init__(self):
+        self._tables: dict[str, dict] = {}
+
+    def record(self, table: str, rows: int, elapsed_ms: float) -> None:
+        entry = self._tables.get(table)
+
+        if entry is None:
+            entry = {"calls": 0, "row_count": 0, "total_ms": 0.0, "max_ms": 0.0}
+            self._tables[table] = entry
+
+        entry["calls"] += 1
+        entry["row_count"] += rows
+        entry["total_ms"] += elapsed_ms
+        entry["max_ms"] = max(entry["max_ms"], elapsed_ms)
+
+    def drain(self) -> dict:
+        """모은 것을 돌려주고 비운다 — 다음 구간은 0부터 센다(누적이면 그래프가 안 내려온다)."""
+        drained = self._tables
+        self._tables = {}
+        return drained
 
 
 def _require(data: dict, *keys: str) -> None:
@@ -73,6 +100,9 @@ class DbClient:
 
         self._connect_parameters = dict(host=host, port=port, dbname=db, user=user, password=password)
         self._health_columns_ready = False   # 첫 HEALTH에서 한 번 ALTER TABLE을 돌린다
+        # [inv] 적재기는 스레드 하나가 돌린다 — 여러 스레드가 쓰면 표별 합계가 어긋난다.
+        self.write_meter           = WriteMeter()
+        self._write_statistics_ready    = False   # db_write_stats도 첫 HEALTH에서 한 번 만든다
         self._connect(retries, retry_interval)
 
     def _connect(self, retries: int, retry_interval: float):
@@ -98,6 +128,17 @@ class DbClient:
             self._connect(retries=3, retry_interval=2.0)
 
         return self._conn.cursor()
+
+    @contextmanager
+    def _timed_write(self, table: str, rows: int = 1):
+        """쓰기 한 번에 걸린 시간을 표별로 모은다. 재는 것이 적재를 막지 않게 예외는 그대로 위로 보낸다 —
+        실패한 쓰기도 걸린 시간은 남는다(느려서 실패한 것인지 보려면 그 시간이 필요하다)."""
+        started = time.perf_counter()
+
+        try:
+            yield
+        finally:
+            self.write_meter.record(table, rows, (time.perf_counter() - started) * 1000.0)
 
     # ── 이벤트 insert ──────────────────────────────────────────────────────────
 
@@ -145,7 +186,7 @@ class DbClient:
     def insert_order(self, data: dict):
         try:
             _require(data, "ts", "ticker", "side", "qty", "ok")
-            with self._cursor() as cursor:
+            with self._timed_write("orders"), self._cursor() as cursor:
                 cursor.execute(
                     "INSERT INTO orders(ts,ticker,side,qty,price,ok,market,account)"
                     " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
@@ -162,6 +203,21 @@ class DbClient:
                 )
         except Exception as e:
             logger.error(f"insert_order 실패 (data={data}): {e}")
+
+    # 구간 지연의 구간 이름. 엔진의 trace::PipelineLatency::segment_names()와 같은 말이어야 한다 —
+    #  엔진이 "<구간>_p50_interval_us" 키로 보내고 여기서 같은 이름의 열에 넣는다.
+    #  [wire] Quant/include/core/LatencyTrace.h
+    _LATENCY_SEGMENTS = (
+        "tick_to_signal",  # 체결 수신 → 신호
+        "signal_to_pop",   # 신호 → 주문 큐에서 꺼냄
+        "pop_to_send",     # 꺼냄 → 호출 간격 조절 끝(우리가 스스로 줄 세운 시간)
+        "gate",            # 주문 게이트 판정
+        "journal",         # 원장 선기록(디스크)
+        "bucket_wait",     # 증권사 초당한도 버킷 줄서기
+        "transport",       # 증권사 REST 왕복
+        "pop_to_done",     # 꺼냄 → 라우터 반환(위 다섯을 품은 한 덩이)
+        "total",           # 체결 수신 → 라우터 반환
+    )
 
     # 엔진이 HEALTH에 싣는 큐·지연 열. 옛 엔진(이 필드를 안 싣는 exe)이 보낸 행은 NULL로 들어간다.
     _HEALTH_METRIC_COLUMNS = (
@@ -186,6 +242,12 @@ class DbClient:
         "pop_to_done_p99_us",
         "total_p50_us",
         "total_p99_us",
+        "latency_interval_samples",
+        # 직전 HEALTH 이후에 들어온 표본만의 분위수. 위의 누적 분위수는 한 번 튀면 안 내려와
+        #  "언제 느려졌나"를 못 본다 — 두 벌을 같이 싣는 이유다. (genexp의 바깥 반복자는 클래스 몸통에서 평가된다)
+        *(f"{segment}_p{percentile}_interval_us"
+          for segment in _LATENCY_SEGMENTS
+          for percentile in (50, 99)),
     )
 
     # 열 이름과 payload 키가 다른 것. 엔진은 예전부터 "drop"을 보냈는데 적재기가 버리고 있었다.
@@ -212,7 +274,7 @@ class DbClient:
             names = ",".join(self._HEALTH_METRIC_COLUMNS)
             placeholders = ",".join(["%s"] * (4 + len(self._HEALTH_METRIC_COLUMNS)))
 
-            with self._cursor() as cursor:
+            with self._timed_write("health"), self._cursor() as cursor:
                 cursor.execute(
                     f"INSERT INTO health(ts,data_cnt,signal_cnt,order_cnt,{names})"
                     f" VALUES ({placeholders})",
@@ -227,6 +289,50 @@ class DbClient:
                 )
         except Exception as e:
             logger.error(f"insert_health 실패 (data={data}): {e}")
+
+        self._flush_write_statistics()   # HEALTH 주기(30초)가 곧 DB 쓰기 시간의 구간이다
+
+    def ensure_write_statistics_table(self):
+        """적재기가 체감한 DB 쓰기 시간을 담을 표. schema.sql은 DB를 새로 만들 때만 도니 여기서도 보장한다."""
+        try:
+            with self._cursor() as cursor:
+                cursor.execute(
+                    "CREATE TABLE IF NOT EXISTS db_write_stats ("
+                    " ts TIMESTAMPTZ NOT NULL, table_name TEXT NOT NULL, calls INTEGER,"
+                    " row_count BIGINT, total_ms DOUBLE PRECISION, max_ms DOUBLE PRECISION)"
+                )
+                cursor.execute(
+                    "SELECT create_hypertable('db_write_stats','ts',if_not_exists=>TRUE,migrate_data=>TRUE)"
+                )
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_db_write_stats_table ON db_write_stats(table_name, ts DESC)"
+                )
+
+            self._write_statistics_ready = True
+        except Exception as error:
+            logger.error(f"ensure_write_statistics_table 실패: {error}")
+
+    def _flush_write_statistics(self):
+        """모은 쓰기 시간을 표별로 한 행씩 남기고 비운다. 여기서 실패해도 적재는 계속된다 — 관측은 적재를 막지 않는다."""
+        drained = self.write_meter.drain()
+
+        if not drained:
+            return
+
+        if not self._write_statistics_ready:
+            self.ensure_write_statistics_table()
+
+        try:
+            now = datetime.now(timezone.utc)
+            with self._cursor() as cursor:
+                execute_values(
+                    cursor,
+                    "INSERT INTO db_write_stats(ts,table_name,calls,row_count,total_ms,max_ms) VALUES %s",
+                    [(now, table, entry["calls"], entry["row_count"], entry["total_ms"], entry["max_ms"])
+                     for table, entry in drained.items()],
+                )
+        except Exception as error:
+            logger.error(f"db_write_stats 적재 실패 ({len(drained)}표): {error}")
 
     def insert_trade_batch(self, records: list[dict]):
         """고빈도 tick 배치 insert — executemany로 개별 autocommit 부하 감소."""
@@ -247,7 +353,7 @@ class DbClient:
         if not valid:
             return
         try:
-            with self._cursor() as cursor:
+            with self._timed_write("ticks", len(valid)), self._cursor() as cursor:
                 cursor.executemany(
                     "INSERT INTO ticks(ts,ticker,price,volume,direction,market)"
                     " VALUES (%s,%s,%s,%s,%s,%s)",
@@ -261,7 +367,7 @@ class DbClient:
         try:
             _require(data, "ts", "odno", "ticker", "side", "filled_qty", "filled_price")
             ts = data["ts"] if isinstance(data["ts"], datetime) else _ms_to_dt(data["ts"])
-            with self._cursor() as cursor:
+            with self._timed_write("fills"), self._cursor() as cursor:
                 cursor.execute(
                     "INSERT INTO fills"
                     "(ts,odno,ticker,side,filled_qty,filled_price,commission,tax,market,regime,strategy,account)"
@@ -391,7 +497,7 @@ class DbClient:
         if not rows:
             return 0
         try:
-            with self._conn.cursor() as cursor:
+            with self._timed_write("ledger_events", len(rows)), self._conn.cursor() as cursor:
                 cursor.executemany(
                     "INSERT INTO ledger_events"
                     "(trade_date,seq,ts,kind,account,ticker,side,order_type,order_id,odno,"
@@ -515,7 +621,8 @@ class DbClient:
 
         try:
             now = datetime.now(timezone.utc)
-            with self._cursor() as cursor:   # 표본 하나가 스레드 수만큼 왕복하지 않도록 한 문장으로 보낸다
+            # 표본 하나가 스레드 수만큼 왕복하지 않도록 한 문장으로 보낸다
+            with self._timed_write("proc_thread_stats", len(rows)), self._cursor() as cursor:
                 execute_values(
                     cursor,
                     "INSERT INTO proc_thread_stats(ts,process_name,pid,tid,thread_name,cpu_percent)"
@@ -547,7 +654,7 @@ class DbClient:
     def insert_proc_stat(self, data: dict):
         try:
             _require(data, "process_name", "cpu_percent", "memory_mb")
-            with self._cursor() as cursor:
+            with self._timed_write("proc_stats"), self._cursor() as cursor:
                 cursor.execute(
                     "INSERT INTO proc_stats(ts,process_name,pid,cpu_percent,memory_mb,thread_count,core_count)"
                     " VALUES (%s,%s,%s,%s,%s,%s,%s)",

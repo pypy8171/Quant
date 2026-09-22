@@ -313,6 +313,60 @@ def queue_latency_row(date: str) -> tuple:
             + (f"{total_p99 / 1000:.0f}ms" if total_p99 >= 0 else "표본 없음"))
 
 
+def order_latency_breakdown_row(date: str) -> tuple:
+    """주문 한 건이 어디서 시간을 썼는지. 우리 쪽 구간(리스크 점검·원장 선기록)만 판정하고
+    증권사 쪽(초당 한도 대기·왕복)은 수치만 적는다 — 우리가 줄일 수 없는 것으로 FAIL을 내면 판정이 무뎌진다.
+
+    누적 열이 아니라 구간 열(직전 HEALTH 이후)을 본다. 누적은 기동 후 한 번 튄 값이 하루 내내 남아
+    '오늘 느렸나'에 답하지 못한다."""
+    password = tsdb_password()
+
+    if not password:
+        return ("주문 구간 지연", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함")
+
+    psycopg2 = import_psycopg2()
+
+    if psycopg2 is None:
+        return ("주문 구간 지연", False, "WARN",
+                "psycopg2 없음 — venv(PYQuant/.venv*)로 부르거나 pip install psycopg2-binary")
+
+    try:
+        connection = psycopg2.connect(host="localhost", port=5432, dbname="quant", user="quant",
+                                      password=password, connect_timeout=3)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT COALESCE(SUM(latency_interval_samples), 0),"
+                " COALESCE(MAX(gate_p99_interval_us), -1),"
+                " COALESCE(MAX(journal_p99_interval_us), -1),"
+                " COALESCE(MAX(pop_to_send_p99_interval_us), -1),"
+                " COALESCE(MAX(bucket_wait_p99_interval_us), -1),"
+                " COALESCE(MAX(transport_p99_interval_us), -1)"
+                " FROM health WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s", (date,))
+            samples, gate, journal, rate_limit, bucket_wait, transport = cursor.fetchone()
+
+        connection.close()
+    except psycopg2.errors.UndefinedColumn:   # 열을 아직 안 만든 DB — 새 적재기가 첫 HEALTH에서 만든다
+        return ("주문 구간 지연", True, "WARN", "health 표에 구간 열 없음 — 적재기 배포 전")
+    except Exception as error:   # DB가 없거나 잠든 날은 판정을 미룬다
+        return ("주문 구간 지연", True, "WARN", f"DB 조회 실패 — 판정 안 함 ({str(error).strip()[:80]})")
+
+    if samples == 0:
+        return ("주문 구간 지연", True, "WARN", "그날 주문이 없어 구간 표본이 없다 — 판정 안 함")
+
+    def milliseconds(value) -> str:
+        return f"{value / 1000:.1f}ms" if value >= 0 else "표본 없음"
+
+    # 우리 쪽 두 구간의 한도. 리스크 점검은 락을 품은 메모리 연산이고 원장 선기록은 로컬 파일 쓰기라
+    # 정상이면 1ms 아래다 — 50ms를 넘으면 락 경합이나 디스크 쪽에 무언가 생긴 것이다.
+    limit_us = 50_000
+    ours_ok  = max(gate, journal) < limit_us
+
+    return ("주문 구간 지연", ours_ok, "FAIL",
+            f"주문 {samples}건 — 우리 쪽: 리스크 점검 {milliseconds(gate)}·원장 선기록 {milliseconds(journal)}"
+            f" (한도 {limit_us // 1000}ms), 증권사 쪽: 초당 한도 대기 {milliseconds(bucket_wait)}"
+            f"·왕복 {milliseconds(transport)}, 우리가 건 호출 간격 조절 {milliseconds(rate_limit)}")
+
+
 def collect(date: str, log: Path, since: int = 0):
     """로그 한 파일에서 그날 점검 행을 만든다.
 
@@ -591,6 +645,7 @@ def collect(date: str, log: Path, since: int = 0):
         *resource_sampling_rows(date),
         *feed_ledger_rows(date),
         queue_latency_row(date),
+        order_latency_breakdown_row(date),
     ]
     return rows, len(starts)
 

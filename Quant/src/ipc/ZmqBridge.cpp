@@ -379,6 +379,23 @@ void ZmqBridge::publish_health(const HealthSnapshot& snapshot)
     document["pop_to_done_p99_us"]       = snapshot.pop_to_done_p99_us;
     document["total_p50_us"]             = snapshot.total_p50_us;
     document["total_p99_us"]             = snapshot.total_p99_us;
+
+    // 구간 분위수 — 이름은 엔진이 실어 보낸다(trace::PipelineLatency::segment_names). 열 이름을 여기서 또
+    //  적으면 구간을 하나 늘릴 때마다 두 군데를 고치게 된다. [wire] PYQuant/db/client.py _HEALTH_METRIC_COLUMNS
+    document["latency_interval_samples"] = snapshot.interval_samples;
+
+    for (const auto& segment : snapshot.interval_segments)
+    {
+        if (segment.name.empty())
+        {
+            continue;
+        }
+
+        const std::string prefix(segment.name);
+        document[prefix + "_p50_interval_us"] = segment.p50_us;
+        document[prefix + "_p99_interval_us"] = segment.p99_us;
+    }
+
     enqueue(Topic::Health, document.dump());
 }
 

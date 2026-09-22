@@ -2059,6 +2059,28 @@ void Engine::data_thread_fn(std::stop_token stop_token)
             snapshot.pop_to_done_p99_us     = pipeline_latency_.pop_to_done.percentile(0.99);
             snapshot.total_p50_us           = pipeline_latency_.total.percentile(0.50);
             snapshot.total_p99_us           = pipeline_latency_.total.percentile(0.99);
+
+            // 직전 사본과 빼 이번 구간만의 분포를 낸다 — 분위수끼리는 뺄 수 없어 버킷을 통째로 떠서 뺀다.
+            //  사본은 이 스레드만 들고 있다(데이터 스레드 지역 상태). [inv] [why D-071]
+            trace::PipelineSnapshot current;
+            current.capture(pipeline_latency_);
+            const auto names = trace::PipelineLatency::segment_names();
+
+            for (int index = 0; index < trace::PipelineLatency::kSegmentCount; ++index)
+            {
+                snapshot.interval_segments[index] = {names[index],
+                                                     trace::percentile_of_difference(
+                                                         previous_latency_snapshot_.segments[index],
+                                                         current.segments[index], 0.50),
+                                                     trace::percentile_of_difference(
+                                                         previous_latency_snapshot_.segments[index],
+                                                         current.segments[index], 0.99)};
+            }
+
+            snapshot.interval_samples = current.segments.back().count -
+                                        std::min(previous_latency_snapshot_.segments.back().count,
+                                                 current.segments.back().count);
+            previous_latency_snapshot_ = current;
             zmq_bridge_->publish_health(snapshot);
         }
 #endif
@@ -2555,7 +2577,9 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             std::this_thread::sleep_for(wait);
         }
 
-        const OrderSignal& signal = next->signal;
+        // 이 sleep은 우리가 스스로 줄 세운 시간이다 — pop→반환 한 덩이에 섞어 두면 증권사가 느린 것처럼 읽힌다. [why D-071]
+        const int64_t      send_ready_ns = pop_ns != 0 ? trace::now_ns() : 0;
+        const OrderSignal& signal        = next->signal;
 
         try
         {
@@ -2572,9 +2596,11 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             // 재시도 건은 pop 시각이 첫 시도 것이라 구간이 부풀지 않게 첫 시도만 남긴다.
             if (next->attempts == 0)
             {
-                const trace::Marks marks{signal.tick_at_ns, signal.signal_at_ns, pop_ns, trace::now_ns()};
+                const trace::Marks marks{signal.tick_at_ns, signal.signal_at_ns, pop_ns, send_ready_ns,
+                                         trace::now_ns()};
                 latency_trace.record(signal, marks, kis_called, managed_order.status == OrderStatus::ACCEPTED);
-                pipeline_latency_.add(marks);   // 같은 값을 분포로도 — HEALTH가 분위수를 싣는다
+                // 같은 값을 분포로도 — HEALTH가 분위수를 싣는다. 라우터 안 구간은 managed_order가 실어 왔다.
+                pipeline_latency_.add(marks, managed_order.stages);
             }
 
             // 단말이 없으면 JSON 직렬화를 건너뛴다 — 주문 스레드 hot path에서 받는 이 없는 문자열을 만들지 않는다.

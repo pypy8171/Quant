@@ -99,7 +99,7 @@
 ### PYQuant/db/
 
 - [__init__.py](../PYQuant/db/__init__.py) — 빈 패키지 초기화 파일
-- [client.py](../PYQuant/db/client.py) — TimescaleDB 저장 클라이언트
+- [client.py](../PYQuant/db/client.py) — TimescaleDB 저장 클라이언트(표별 DB 쓰기 시간을 재서 db_write_stats에 30초마다 남긴다)
 - [schema.sql](../PYQuant/db/schema.sql) — TimescaleDB 테이블 스키마 정의
 
 ### PYQuant/features/
@@ -114,7 +114,7 @@
 
 ### PYQuant/grafana/provisioning/dashboards/json/
 
-- [ops.json](../PYQuant/grafana/provisioning/dashboards/json/ops.json) — 운영 대시보드 정의(엔진 CPU/메모리·DB부하 벤치·원장 이벤트 패널)
+- [ops.json](../PYQuant/grafana/provisioning/dashboards/json/ops.json) — 운영 대시보드 정의(엔진 CPU/메모리·DB부하 벤치·원장 이벤트·구간 지연·주문 시간 분해 패널)
 
 ### PYQuant/grafana/provisioning/datasources/
 
@@ -255,7 +255,7 @@
 - [FeedSupervisor.h](../Quant/include/core/FeedSupervisor.h) — WS stale→재연결 백오프→폴백 요구 판정 상태기계(D-071)
 - [IFeedSource.h](../Quant/include/core/IFeedSource.h) — 실시간 피드 소스 인터페이스(D-071)
 - [KstTime.h](../Quant/include/core/KstTime.h) — UTC → KST 시각 분해 변환 유틸
-- [LatencyTrace.h](../Quant/include/core/LatencyTrace.h) — 신호 구간 지연을 CSV로 남기는 기록기
+- [LatencyTrace.h](../Quant/include/core/LatencyTrace.h) — 신호 구간 지연을 CSV로 남기는 기록기 + 구간 아홉 개의 히스토그램·사본 비교(D-117)
 - [LedgerReconciler.h](../Quant/include/core/LedgerReconciler.h) — 브로커 잔고 ↔ 원장 대조기(D-061)
 - [MarketSession.h](../Quant/include/core/MarketSession.h) — KRX 정규장 세션 시각 판정
 - [MpscQueue.h](../Quant/include/core/MpscQueue.h) — Vyukov MPSC 락프리 큐

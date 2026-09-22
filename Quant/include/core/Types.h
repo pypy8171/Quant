@@ -259,6 +259,17 @@ inline uint64_t next_client_order_number() noexcept
     return ++counter;
 }
 
+// 주문 하나가 OrderRouter 안에서 쓴 시간(us). -1은 그 구간을 안 지났다 — 게이트 거부는 원장·전송이 없다.
+// 주문 스레드가 이 값을 구간 분포에 넣는다. pop→반환을 한 덩이로 두면 게이트·원장 디스크·초당한도 줄서기·
+// 망 왕복 중 누구 탓인지 못 가른다. [why D-071] [wire] Quant/include/core/LatencyTrace.h PipelineLatency::add
+struct OrderStageTiming
+{
+    int64_t gate_us        = -1; // 라우터 진입 → 게이트 판정 끝(한도 클램프·예약매도 정리·check)
+    int64_t journal_us     = -1; // 원장 선기록(take_intent — 디스크에 닿는다) [why D-113]
+    int64_t bucket_wait_us = -1; // 증권사 초당한도 버킷에서 줄 선 시간
+    int64_t transport_us   = -1; // 증권사 REST 왕복(버킷 대기 뺀 몫)
+};
+
 struct ManagedOrder
 {
     std::string   order_id;       // 내부 순번 ID  "ORD-000001"
@@ -269,6 +280,7 @@ struct ManagedOrder
     OrderStatus   status{OrderStatus::PENDING};
     std::string   reject_reason;
     int           confirmed_quantity = 0; // 누적 체결 수량 (부분체결 추적)
+    OrderStageTiming stages;      // 라우터 안 구간 시간 — 관측용, 매매 판단에는 안 쓴다
     std::chrono::system_clock::time_point submitted_at;
     std::chrono::system_clock::time_point updated_at;
 };

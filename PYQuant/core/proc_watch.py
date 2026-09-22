@@ -290,10 +290,13 @@ def _run_linux(db, process_name: str, interval: float, wsl_distro: str, perf_int
 
 
 def run(db, process_name: str = "", interval: float = 5.0, wsl_distro: str = "",
-        perf_interval: float = 300.0, perf_seconds: float = 10.0, perf_cpu_floor: float = 5.0,
+        perf_interval: float = 300.0, perf_seconds: float = 30.0, perf_cpu_floor: float = 5.0,
         log_file: str = ""):
     """무한 루프 — process_name을 매 주기 다시 찾는다(재기동으로 pid가 바뀌어도 이어서 수집).
-    프로세스가 없으면 조용히 대기(엔진 기동 전·장 마감 후가 정상 상태)."""
+    프로세스가 없으면 조용히 대기(엔진 기동 전·장 마감 후가 정상 상태).
+
+    perf_seconds가 30초인 이유: 09-22 회차는 10초에 표본이 27개뿐이라 함수 순위가 우연이었다(1개 = 3.7%).
+    엔진이 거의 놀고 있어서 생긴 일이라 근본 해결은 부하를 올리는 것이고, 이 값은 그때까지의 완화다."""
     on_linux = platform.system() == "Linux" or bool(wsl_distro)
 
     if not process_name:

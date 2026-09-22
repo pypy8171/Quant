@@ -54,7 +54,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 6
+      "weight": 7
     },
     {
       "from": "ipc",
@@ -524,6 +524,7 @@
     "ipc/OrderRouter.cpp": [
       "api/KisErrorCodes.h",
       "core/KstTime.h",
+      "core/LatencyTrace.h",
       "core/WakeGate.h",
       "ipc/OrderRouter.h",
       "utils/Logger.h"
@@ -829,7 +830,8 @@
     "core/LatencyTrace.h": [
       "core/Engine.cpp",
       "core/Engine.h",
-      "core/SignalDispatcher.cpp"
+      "core/SignalDispatcher.cpp",
+      "ipc/OrderRouter.cpp"
     ],
     "core/LedgerReconciler.h": [
       "core/Engine.h",
@@ -1206,6 +1208,10 @@
       "in_degree": 4
     },
     {
+      "header": "core/LatencyTrace.h",
+      "in_degree": 4
+    },
+    {
       "header": "core/MpscQueue.h",
       "in_degree": 4
     },
@@ -1227,10 +1233,6 @@
     },
     {
       "header": "api/KisResult.h",
-      "in_degree": 3
-    },
-    {
-      "header": "api/KisWebSocket.h",
       "in_degree": 3
     }
   ],

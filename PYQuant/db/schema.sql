@@ -70,7 +70,27 @@ CREATE TABLE IF NOT EXISTS health (
     pop_to_done_p50_us       BIGINT,
     pop_to_done_p99_us       BIGINT,
     total_p50_us             BIGINT,
-    total_p99_us             BIGINT
+    total_p99_us             BIGINT,
+    -- 아래는 직전 HEALTH 이후 들어온 주문만 본 분위수다. 위 누적 열은 기동 후 전부를 담아 한 번 치솟으면 내려오지 않는다.
+    latency_interval_samples BIGINT,   -- 이번 구간에 들어온 주문 건수(0이면 아래 값은 전부 -1)
+    tick_to_signal_p50_interval_us BIGINT,
+    tick_to_signal_p99_interval_us BIGINT,
+    signal_to_pop_p50_interval_us  BIGINT,
+    signal_to_pop_p99_interval_us  BIGINT,
+    pop_to_send_p50_interval_us    BIGINT,   -- 우리가 스스로 건 호출 간격 조절 대기
+    pop_to_send_p99_interval_us    BIGINT,
+    gate_p50_interval_us           BIGINT,   -- 리스크 점검(락 포함)
+    gate_p99_interval_us           BIGINT,
+    journal_p50_interval_us        BIGINT,   -- 원장 선기록(D-113)
+    journal_p99_interval_us        BIGINT,
+    bucket_wait_p50_interval_us    BIGINT,   -- 증권사 초당 한도 대기
+    bucket_wait_p99_interval_us    BIGINT,
+    transport_p50_interval_us      BIGINT,   -- 증권사 왕복(한도 대기를 뺀 것)
+    transport_p99_interval_us      BIGINT,
+    pop_to_done_p50_interval_us    BIGINT,
+    pop_to_done_p99_interval_us    BIGINT,
+    total_p50_interval_us          BIGINT,
+    total_p99_interval_us          BIGINT
 );
 SELECT create_hypertable('health', 'ts', if_not_exists => TRUE);
 
@@ -215,6 +235,19 @@ CREATE TABLE IF NOT EXISTS proc_hotspots (
 SELECT create_hypertable('proc_hotspots', 'ts', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS proc_hotspots_ts ON proc_hotspots (ts DESC);
 
+-- 적재기가 체감한 DB 쓰기 시간(표별, HEALTH 주기마다 한 행). 서버 쪽 통계(pg_stat_statements)는 서버 안에서 쓴 시간만
+-- 보여 주므로 왕복·대기가 빠진다 — 어느 쪽이 느린지는 둘을 나란히 놓아야 갈린다.
+CREATE TABLE IF NOT EXISTS db_write_stats (
+    ts         TIMESTAMPTZ  NOT NULL,
+    table_name TEXT         NOT NULL,
+    calls      INTEGER,
+    row_count  BIGINT,
+    total_ms   DOUBLE PRECISION,
+    max_ms     DOUBLE PRECISION
+);
+SELECT create_hypertable('db_write_stats', 'ts', if_not_exists => TRUE);
+CREATE INDEX IF NOT EXISTS db_write_stats_table_ts ON db_write_stats (table_name, ts DESC);
+
 -- 관측 표 압축·보존 (2026-09-22 실측). 5초 주기 시계열이라 ts·process_name·thread_name이 반복돼 압축비가 잘 나온다.
 -- 최근 일주일은 장중에 그대로 읽어야 해서 그 앞은 건드리지 않는다. 삭제는 스레드별 CPU만 — 나머지 둘은
 -- 1년에 합쳐 1.1 GB라 지우는 값어치가 없고, proc_stats는 "작년 이맘때 대비"를 볼 수 있는 유일한 표다.
@@ -230,6 +263,11 @@ SELECT add_retention_policy('proc_thread_stats', INTERVAL '90 days', if_not_exis
 ALTER TABLE proc_hotspots SET (timescaledb.compress,
     timescaledb.compress_segmentby = 'process_name', timescaledb.compress_orderby = 'ts DESC');
 SELECT add_compression_policy('proc_hotspots', INTERVAL '7 days', if_not_exists => TRUE);
+
+-- 30초에 표 수만큼(대여섯 행)이라 양이 적다. 그래도 1년이면 500만 행이라 압축은 건다.
+ALTER TABLE db_write_stats SET (timescaledb.compress,
+    timescaledb.compress_segmentby = 'table_name', timescaledb.compress_orderby = 'ts DESC');
+SELECT add_compression_policy('db_write_stats', INTERVAL '7 days', if_not_exists => TRUE);
 
 -- ── 벤치마크용 테스트 테이블 (bench_market_open.py) ───────────────────────────
 -- 실거래 테이블(ticks/signals/orders/fills/positions)과 같은 모양으로 별도 유지 —

@@ -1,6 +1,7 @@
 #include "ipc/OrderRouter.h"
 #include "api/KisErrorCodes.h"
 #include "core/KstTime.h"
+#include "core/LatencyTrace.h"
 #include "utils/Logger.h"
 #include <algorithm>
 #include <array>
@@ -76,6 +77,8 @@ ManagedOrder OrderRouter::submit(const OrderSignal& signal)
 ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
 {
     auto now = std::chrono::system_clock::now();
+    // 구간 계측 시작. 여기부터 게이트 판정 끝까지가 gate_us — 주문 스레드가 HEALTH 분포에 넣는다. [why D-071]
+    const int64_t route_entered_ns = trace::now_ns();
 
     // 0. 한도 클램프 — 한도를 넘치면 거부 대신 한도 안으로 줄여 낸다.
     //    분할 매수 전략은 매 틱 같은 분할 단계를 다시 내므로, 넘친다고 버리면 그 종목은 하루 종일
@@ -244,8 +247,9 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
 
     if (!reject_reason.empty() || (!freed && !gate_.check(signal, reject_reason)))
     {
-        managed_order.status        = OrderStatus::REJECTED;
-        managed_order.reject_reason = reject_reason;
+        managed_order.status          = OrderStatus::REJECTED;
+        managed_order.reject_reason   = reject_reason;
+        managed_order.stages.gate_us  = (trace::now_ns() - route_entered_ns) / 1000;
         ++rejected_count_;
         LOG_WARN("[OrderRouter] 거부 [" + managed_order.order_id + "] " +
                  signal.ticker + " → " + reject_reason);
@@ -264,10 +268,13 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
     //    RTT 안에는 초당 한도 버킷 대기(rate_limit_acquire)가 섞여 있어 그 몫을 따로 적는다 — 09-14~18 RTT p50 2초가
     //    망 지연인지 버킷 줄서기인지 이 숫자 없이는 못 가른다. 전송 스레드 분리(T-13-2)는 이 값을 보고 정한다. [why D-071]
     managed_order.status = OrderStatus::SUBMITTED;
+    managed_order.stages.gate_us = (trace::now_ns() - route_entered_ns) / 1000;
     const auto send_thread = std::chrono::steady_clock::now();
     const std::uint64_t bucket_wait_before_ns = kis_.rate_limit_wait_ns_this_thread();
     std::chrono::milliseconds::rep rtt_ms = 0; // count()의 타입 그대로 — MSVC는 long long이라 long이면 잘린다(C4244)
     std::chrono::milliseconds::rep bucket_wait_ms = 0;
+
+    const int64_t journal_started_ns = trace::now_ns();
 
     // 원장 먼저, 전송은 그 다음 — 적히지 않은 주문은 나가지 않는다. 재기동은 이 INTENT로 미결 주문을 안다. [why D-113]
     if (!freed && !take_intent(signal, order_reference))
@@ -290,6 +297,9 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
         intent_taken = true;
     }
 
+    const int64_t transport_started_ns = trace::now_ns();
+    managed_order.stages.journal_us    = (transport_started_ns - journal_started_ns) / 1000;
+
     try
     {
         if (!freed) // 예약매도 취소 뒤 재발주가 이미 접수됐으면 그 결과를 쓴다
@@ -303,6 +313,14 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
                      .count();
         bucket_wait_ms = static_cast<std::chrono::milliseconds::rep>(
             (kis_.rate_limit_wait_ns_this_thread() - bucket_wait_before_ns) / 1000000ULL);
+
+        // 같은 대기를 us로도 남긴다 — ms로 자르면 버킷 대기가 0인지 0.9ms인지 구분이 안 된다.
+        //  전송 시간은 버킷 줄서기를 뺀 몫이다. 뺀 값이 음수면(시계 해상도) 0으로 둔다.
+        const int64_t bucket_wait_us = static_cast<int64_t>(
+            (kis_.rate_limit_wait_ns_this_thread() - bucket_wait_before_ns) / 1000ULL);
+        managed_order.stages.bucket_wait_us = bucket_wait_us;
+        managed_order.stages.transport_us =
+            std::max<int64_t>(0, (trace::now_ns() - transport_started_ns) / 1000 - bucket_wait_us);
     }
     catch (const std::exception& exception)
     {
