@@ -329,6 +329,6 @@ CREATE TABLE IF NOT EXISTS ledger_offsets (
     journal_file TEXT          PRIMARY KEY,   -- 파일 이름만(경로 제외) — 기계를 옮겨도 이어진다
     trade_date   DATE          NOT NULL,
     byte_offset  BIGINT        NOT NULL DEFAULT 0,
-    last_seq     BIGINT        NOT NULL DEFAULT 0,
+    last_sequence BIGINT       NOT NULL DEFAULT 0,
     updated_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
