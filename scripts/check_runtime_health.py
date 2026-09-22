@@ -107,6 +107,9 @@ BEAT_BACK_RE = re.compile(r"\[마무리\] 전략 박동이 돌아왔다")
 BEAT_GAP_RE = re.compile(r"beat_gap_max=(\d+)ms")
 ORDER_DUPLICATE_RE = re.compile(r"order_duplicate=(\d+)")
 ORDER_RESPONSE_DROP_RE = re.compile(r"order_response_dropped=(\d+)")
+# 장부 사본(D-114 단계 2.5) — 낸 판 수와, 한 계좌만 담는 사본에 못 실은 남의 계좌 줄 수.
+LEDGER_GEN_RE = re.compile(r"ledger_gen=(\d+)")
+LEDGER_FOREIGN_RE = re.compile(r"ledger_foreign=(\d+)")
 
 BASKET_BUY_LEG_DEADLINE = 15 * 3600 + 5 * 60  # 매수 레그는 15:05까지 끝나야 마감 청산(15:15)과 겹치지 않는다(D-109)
 
@@ -540,6 +543,8 @@ def collect(date: str, log: Path, since: int = 0):
     beat_gap_max = -1                            # 전략 박동의 가장 긴 공백(ms). -1이면 그 줄이 없는 구 exe
     order_duplicate = 0                          # 주문 쪽이 같은 순번을 두 번 받아 거른 수
     order_response_dropped = 0                   # 전략이 답을 안 가져가 버린 수
+    ledger_gen = 0                               # 장부 사본이 낸 판 수
+    ledger_foreign = -1                          # 사본에 못 실은 남의 계좌 줄 수. -1이면 그 줄이 없는 구 exe
 
     # 7일 지난 날은 archive/quant_trader_<날짜>.log.gz — market_close_autodoc이 그 경로를 그대로 넘긴다
     opener = (lambda: gzip.open(log, "rt", encoding="utf-8", errors="replace")) if log.suffix == ".gz"         else (lambda: log.open(encoding="utf-8", errors="replace"))
@@ -578,6 +583,10 @@ def collect(date: str, log: Path, since: int = 0):
                 order_duplicate = max(order_duplicate, int(found.group(1)))
             if found := ORDER_RESPONSE_DROP_RE.search(line):
                 order_response_dropped = max(order_response_dropped, int(found.group(1)))
+            if found := LEDGER_GEN_RE.search(line):
+                ledger_gen = max(ledger_gen, int(found.group(1)))
+            if found := LEDGER_FOREIGN_RE.search(line):
+                ledger_foreign = max(ledger_foreign, int(found.group(1)))
             if GUARD_RE.search(line):
                 guard_at.append(second)
             if BREAKEVEN_RE.search(line):
@@ -747,6 +756,12 @@ def collect(date: str, log: Path, since: int = 0):
             return (name, True, level, "통로 수치 줄 없음(D-114 단계 2 배포 전 바이너리) — 판정 안 함")
         return (name, ok, level, detail)
 
+    # 장부 사본(D-114 단계 2.5) — 이 줄은 박동 줄보다 늦게 붙었으므로 따로 건너뛴다.
+    def ledger_row(name: str, ok: bool, level: str, detail: str):
+        if ledger_foreign < 0:
+            return (name, True, level, "사본 수치 줄 없음(D-114 단계 2.5 배포 전 바이너리) — 판정 안 함")
+        return (name, ok, level, detail)
+
     rows = [
         # 사망 판정이 한 번이라도 났으면 그날 그만큼 신규 진입이 막혔다. 공백 문턱은 부하 실측 24ms 위의 1,000ms다.
         channel_row("전략 박동", beat_dead == 0, "FAIL",
@@ -758,6 +773,9 @@ def collect(date: str, log: Path, since: int = 0):
         # 통로가 새면 같은 주문이 두 번 가거나 전략이 답을 영영 못 받아 기다림 표가 샌다.
         channel_row("주문 통로 무결", order_duplicate == 0 and order_response_dropped == 0, "FAIL",
                     f"중복 거름 {order_duplicate}건 · 버린 응답 {order_response_dropped}건 (둘 다 기대 0)"),
+        # 사본은 한 계좌만 담는다(계좌당 프로세스). 남의 계좌 줄이 세어지면 전략이 보는 장부가 원장과 다르다.
+        ledger_row("장부 사본 어긋남", ledger_foreign == 0, "FAIL",
+                   f"다른 계좌 줄 {ledger_foreign}건 · 낸 판 {ledger_gen}판 (어긋남 기대 0)"),
         devscale_v2_row("장 마감 청산(넘김)", not devscale_close_exits, "FAIL",
                         f"DEVSCALE 장 마감 청산 신호 {len(devscale_close_exits)}건 (기대 0 — market_close_exit_hhmm 2400, D-111)"
                         + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in devscale_close_exits[:5])}" if devscale_close_exits else "")),

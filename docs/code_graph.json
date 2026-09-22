@@ -29,7 +29,7 @@
     {
       "from": "core",
       "to": "ipc",
-      "weight": 5
+      "weight": 6
     },
     {
       "from": "core",
@@ -54,7 +54,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 8
+      "weight": 9
     },
     {
       "from": "ipc",
@@ -110,6 +110,11 @@
       "from": "risk",
       "to": "core",
       "weight": 5
+    },
+    {
+      "from": "risk",
+      "to": "ipc",
+      "weight": 1
     },
     {
       "from": "risk",
@@ -210,6 +215,7 @@
     "core/WakeGate.h": "core",
     "ipc/FillKey.h": "ipc",
     "ipc/Heartbeat.h": "ipc",
+    "ipc/LedgerSnapshot.h": "ipc",
     "ipc/OpsProtocol.h": "ipc",
     "ipc/OpsServer.h": "ipc",
     "ipc/OrderChannel.h": "ipc",
@@ -294,6 +300,7 @@
     "core/WakeGate.cpp": "core",
     "ipc/FillKey.cpp": "ipc",
     "ipc/Heartbeat.cpp": "ipc",
+    "ipc/LedgerSnapshot.cpp": "ipc",
     "ipc/OpsProtocol.cpp": "ipc",
     "ipc/OpsServer.cpp": "ipc",
     "ipc/OrderChannel.cpp": "ipc",
@@ -470,6 +477,7 @@
       "core/Types.h",
       "core/WakeGate.h",
       "ipc/Heartbeat.h",
+      "ipc/LedgerSnapshot.h",
       "ipc/OpsServer.h",
       "ipc/OrderChannel.h",
       "ipc/OrderRouter.h",
@@ -657,6 +665,12 @@
     "ipc/Heartbeat.cpp": [
       "ipc/Heartbeat.h"
     ],
+    "ipc/LedgerSnapshot.cpp": [
+      "ipc/LedgerSnapshot.h"
+    ],
+    "ipc/LedgerSnapshot.h": [
+      "core/SymbolTable.h"
+    ],
     "ipc/OpsProtocol.cpp": [
       "ipc/OpsProtocol.h"
     ],
@@ -729,6 +743,7 @@
     ],
     "risk/OrderGate.cpp": [
       "core/KstTime.h",
+      "ipc/LedgerSnapshot.h",
       "risk/GateReasons.h",
       "risk/OrderGate.h"
     ],
@@ -1164,6 +1179,7 @@
       "core/SymbolTable.cpp",
       "core/Types.h",
       "core/UniverseExit.h",
+      "ipc/LedgerSnapshot.h",
       "risk/OrderGate.h",
       "universe/ScoreWeight.h",
       "universe/UniverseScanner.h"
@@ -1238,6 +1254,11 @@
     "ipc/Heartbeat.h": [
       "core/Engine.h",
       "ipc/Heartbeat.cpp"
+    ],
+    "ipc/LedgerSnapshot.h": [
+      "core/Engine.h",
+      "ipc/LedgerSnapshot.cpp",
+      "risk/OrderGate.cpp"
     ],
     "ipc/OpsProtocol.h": [
       "ipc/OpsProtocol.cpp",
@@ -1461,11 +1482,11 @@
       "in_degree": 15
     },
     {
-      "header": "api/KisClient.h",
-      "in_degree": 13
+      "header": "core/SymbolTable.h",
+      "in_degree": 14
     },
     {
-      "header": "core/SymbolTable.h",
+      "header": "api/KisClient.h",
       "in_degree": 13
     },
     {

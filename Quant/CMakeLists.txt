@@ -142,6 +142,7 @@ set(HEADER_IMPL_SOURCES
   src/ipc/Heartbeat.cpp
   src/ipc/OpsProtocol.cpp
   src/ipc/OrderChannel.cpp
+  src/ipc/LedgerSnapshot.cpp
   src/risk/GateReasons.cpp
   src/risk/LedgerJournal.cpp
   src/risk/ProtectiveOrders.cpp
@@ -277,7 +278,7 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/config/config.json)
 endif()
 
 # ─── 테스트 타겟: OrderGate 단위 테스트 ──────────────────────────────────
-add_executable(test_order_gate tests/test_order_gate.cpp src/risk/OrderGate.cpp)
+add_executable(test_order_gate tests/test_order_gate.cpp src/risk/OrderGate.cpp src/ipc/LedgerSnapshot.cpp)
 target_include_directories(test_order_gate PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(UNIX)
     target_link_libraries(test_order_gate PRIVATE pthread)
@@ -682,6 +683,15 @@ if(UNIX)
     target_link_libraries(test_order_channel PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: 장부 사본 (D-114 단계 2.5) ──────────────────────
+add_executable(test_ledger_snapshot tests/test_ledger_snapshot.cpp src/ipc/LedgerSnapshot.cpp)
+target_include_directories(test_ledger_snapshot PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_ledger_snapshot PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟: 심장박동 전이 (D-114 단계 2) ───────────────────
 add_executable(test_heartbeat tests/test_heartbeat.cpp src/ipc/Heartbeat.cpp)
 target_include_directories(test_heartbeat PRIVATE
@@ -748,6 +758,7 @@ set(QUANT_ASSERT_TARGETS
     test_protective_orders
     test_order_channel
     test_heartbeat
+    test_ledger_snapshot
 )
 foreach(_qt IN LISTS QUANT_ASSERT_TARGETS)
     if(MSVC)

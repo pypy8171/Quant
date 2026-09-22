@@ -19,8 +19,10 @@
 //  20. 원장 저널 — 쓰다 만 꼬리(전원 장애)는 리플레이가 거기서 멈추고 다음 기동이 잘라 낸다
 //  21. 원장 저널 — 한 레코드가 깨지면(CRC 불일치) 그 앞까지만 적용하고 뒤는 버린다
 //  22. 진입 정지 원천 셋(국면·사람·전략 사망)이 서로를 안 지운다 (D-114)
+//  23. 장부 사본이 원본과 같은 값을 싣는다 — 보유·선점·매도가능·평단·면제·전역값 전부 (D-114)
 
 #include "risk/OrderGate.h"
+#include "ipc/LedgerSnapshot.h"
 #include "core/KstTime.h"
 #include <algorithm>
 #include <cassert>
@@ -568,6 +570,10 @@ void test_slot_exempt()
     gate.seed_position("", "BK2", 10, 1000.0);
     assert(!gate.slots_full());
     assert(gate.open_slot_count() == 0); // 열린 슬롯(차지한 자리) 수 — 제외 종목은 세지 않는다
+    // 자리 세는 곳이 다섯이다. 하나라도 면제를 빼먹으면 전략과 게이트가 딴 판단을 한다 —
+    //  entry_snapshot이 빼먹던 때는 교체를 켠 날 멀쩡한 보유를 팔아 이미 있던 자리를 만들었다.
+    assert(!gate.entry_snapshot("", "Z").slots_full);
+    assert(gate.entry_snapshot("", "Z").slots_full == gate.slots_full());
 
     std::string reason;
     auto        buy_a = make_signal("A", OrderSide::BUY, 10);
@@ -607,6 +613,91 @@ void test_slot_exempt()
     PASS("slot_exempt");
 }
 
+
+// ─── 테스트 23: 장부 사본이 원본과 같은 값을 싣는다 (D-114 단계 2.5) ──────────
+//   전략 쪽이 OrderGate 대신 읽을 사본이다. 사본이 원본과 한 자리라도 다르면 전략이 딴 장부를 보고
+//   매매하게 되므로, 사본의 모든 칸을 원본 접근자와 맞춰 본다.
+void test_publish_ledger_matches_gate()
+{
+    auto config = displace_config();
+    config.max_concurrent_positions = 3;
+    OrderGate gate(config);
+
+    gate.set_slot_exempt({"BK1"});
+    gate.seed_position("", "A", 10, 1000.0);
+    gate.seed_position("", "B", 5, 2000.0);
+    gate.seed_position("", "BK1", 7, 500.0);   // 슬롯 면제 — 자리를 안 먹는다
+    gate.refresh_sellable("", "A", 4);          // 매도가능이 보유보다 적은 경우
+    gate.on_accept("", "A", OrderSide::SELL, 2, 1000.0);  // 미체결 매도 — 선점은 음수
+    gate.on_accept("", "C", OrderSide::BUY, 3, 700.0);    // 보유 없이 매수 선점만
+
+    ipc::LedgerSnapshot snapshot;
+    gate.publish_ledger(snapshot);
+
+    assert(snapshot.generation() == 1);
+    assert(gate.ledger_foreign_account_rows() == 0);
+
+    // ① 보유 전체가 그대로 실렸는가 — 원본 snapshot_positions()와 한 줄씩 맞춰 본다.
+    for (const auto& held : gate.snapshot_positions())
+    {
+        const ipc::LedgerRow row = snapshot.row(held.symbol);
+        assert(row.position == held.quantity);
+        assert(row.average_price == held.average_price);
+        assert((row.slot_exempt != 0) == held.slot_exempt);
+    }
+
+    // ② 매도가능 — 원본 sellable_view()의 셈(상한 - 미체결 매도, 음수면 0)과 같아야 한다.
+    for (const char* ticker : {"A", "B", "BK1"})
+    {
+        const auto view     = gate.sellable_view("", ticker);
+        const int  expected = (view.possible_quantity_cap > view.pending) ? (view.possible_quantity_cap - view.pending) : 0;
+        assert(snapshot.row(gate.symbol_id_of(ticker)).sellable == expected);
+    }
+
+    // ③ 진입 판단 셋 — 원본 entry_snapshot()과 보유·선점이 같아야 한다.
+    for (const char* ticker : {"A", "B", "C", "Z"})
+    {
+        const auto original = gate.entry_snapshot("", ticker);
+        const auto copy     = snapshot.entry(gate.symbol_id_of(ticker));
+        assert(copy.position == original.position);
+        assert(copy.reserved == original.reserved);
+    }
+
+    // ④ 미체결 선점의 부호가 살아 있는가 — 매도는 음수, 매수는 양수.
+    assert(snapshot.row(gate.symbol_id_of("A")).reserved == -2);
+    assert(snapshot.row(gate.symbol_id_of("C")).reserved == 3);
+    assert(snapshot.row(gate.symbol_id_of("C")).position == 0); // 보유 없이 선점만
+
+    // ⑤ 전역값 — 열린 자리 수와 여력은 원본과 같은 답이어야 한다.
+    //  A·B·C 셋이 자리를 먹고 BK1은 면제라 3/3이다.
+    const ipc::LedgerGlobals globals = snapshot.globals();
+    assert(globals.open_slot_count == static_cast<int32_t>(gate.open_slot_count()));
+    assert(globals.open_slot_count == 3);
+    assert((globals.capacity_full != 0) == gate.capacity_full());
+    assert(globals.max_concurrent_positions == config.max_concurrent_positions);
+    assert(globals.displace_enabled == (config.displace_enabled ? 1 : 0));
+
+    // ⑥ 진입 정지는 세 원천의 OR이다 [why D-091]
+    gate.set_strategy_down_halt(true);
+    gate.publish_ledger(snapshot);
+    assert(snapshot.globals().entry_halted == 1);
+    gate.set_strategy_down_halt(false);
+
+    // ⑦ 판이 바뀌면 사라진 종목은 사본에서도 사라진다 — 낡은 보유가 남으면 이중 발주가 된다.
+    gate.on_fill_confirmed("", "B", OrderSide::SELL, 5, 2000.0); // 전량 매도 체결 — 장부에서 빠진다
+    gate.publish_ledger(snapshot);
+    assert(snapshot.row(gate.symbol_id_of("B")).position == 0);
+    assert(snapshot.row(gate.symbol_id_of("A")).position == 10); // 남은 종목은 그대로
+
+    // ⑧ 다른 계좌 줄은 싣지 않고 센다 — 한 프로세스는 한 계좌만 다룬다.
+    const uint64_t before = gate.ledger_foreign_account_rows();
+    gate.seed_position("OTHER", "A", 99, 1234.0);
+    gate.publish_ledger(snapshot);
+    assert(gate.ledger_foreign_account_rows() > before);
+    assert(snapshot.row(gate.symbol_id_of("A")).position == 10); // 남의 계좌 값이 덮지 않았다
+
+    PASS("publish_ledger_matches_gate");
+}
 
 // ─── 원장 저널 공통 ────────────────────────────────────────────────────────
 //  테스트마다 빈 폴더 하나 — 남아 있던 파일을 리플레이해 앞 테스트가 뒤 테스트를 오염시키지 않게.
@@ -827,6 +918,7 @@ int main()
     test_session_window();
     test_halt_sources_are_independent();
     test_slot_exempt();
+    test_publish_ledger_matches_gate();
     test_journal_replay_rebuilds_ledger();
     test_journal_truncates_broken_tail();
     test_journal_stops_at_corrupt_record();

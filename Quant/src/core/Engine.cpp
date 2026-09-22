@@ -2809,6 +2809,10 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             LOG_ERROR("[OrderThread] 예외: " + std::string(exception.what()));
             answer(request_sequence, ipc::OrderResult::kFailed, 0, exception.what());
         }
+
+        // 장부가 바뀌었으니 사본을 한 판 낸다. 큐가 비어 쉬는 회차는 위에서 continue로 빠지므로
+        //  여기는 실제로 주문을 다룬 회차뿐이다 — 쉼 없이 판을 내면 읽는 쪽이 굶는다. [why D-114]
+        order_gate_.publish_ledger(*ledger_snapshot_);
     }
 
     LOG_INFO("[OrderThread] 종료");
@@ -2866,6 +2870,9 @@ void Engine::fill_thread_fn(std::stop_token stop_token)
         {
             LOG_ERROR("[FillThread] 체결 반영 예외 " + fill_notification.ticker + " ODNO=" + fill_notification.kis_order_no + ": " + exception.what());
         }
+
+        // 체결로 보유·평단·매도가능이 바뀌었다. 접수 쪽 발행과는 OrderGate의 발행 잠금이 줄을 세운다.
+        order_gate_.publish_ledger(*ledger_snapshot_);
     }
 
     LOG_INFO("[FillThread] 종료 (드롭 " + std::to_string(pipeline_.fill_dropped.load(std::memory_order_relaxed)) + "건)");
@@ -3016,7 +3023,10 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                      std::to_string(pipeline_.order_response_dropped.load(std::memory_order_relaxed)) +
                      " beat_gap_max=" +
                      std::to_string(pipeline_.strategy_beat_gap_max_ns.load(std::memory_order_relaxed) /
-                                    kNanosecondsPerMillisecond) + "ms");
+                                    kNanosecondsPerMillisecond) + "ms" +
+                     // 장부 사본 — 몇 판 나왔는지와 못 실은 남의 계좌 줄 수. 뒤엣것은 0이어야 한다. [why D-114]
+                     " ledger_gen=" + std::to_string(ledger_snapshot_->generation()) +
+                     " ledger_foreign=" + std::to_string(order_gate_.ledger_foreign_account_rows()));
         }
 
         if (++token_tick >= kTokenEvery)

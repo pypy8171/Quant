@@ -29,6 +29,11 @@
 //   displace·prio를 쥔 채 positions를 잡는 경로는 두지 않는다(plan_displacement는 비중첩).
 //   pnl·rate·dedup은 독립 스코프에서만 획득한다.
 // ─────────────────────────────────────────────────────────────────────────────
+namespace ipc
+{
+class LedgerSnapshot; // 장부 사본. 구현(.cpp)에서만 include한다 — 배선은 OrderGate → ipc 한 방향 [why D-114]
+}
+
 class OrderGate
 {
 public:
@@ -498,6 +503,21 @@ public:
     };
     std::vector<HeldPos> snapshot_positions() const;
 
+    // ── 장부 사본 발행 (D-114 단계 2.5) ──────────────────────────────────────
+    //  전략 쪽이 읽을 사본을 한 판 낸다. 종목별 값(보유·선점·매도가능·평단·슬롯면제)과 전역값을
+    //  positions_mutex_ 한 번으로 함께 담는다 — 따로 담으면 판 안에서 서로 안 맞는다. [why D-086]
+    //  장부를 바꾼 스레드가 부른다 — 접수(주문 스레드)와 체결(체결 스레드) 둘이라 발행끼리는
+    //  ledger_publish_mutex_로 줄을 세운다. 읽는 쪽은 그 잠금을 안 잡는다.
+    //  [lock-order] ledger_publish_mutex_ → positions_mutex_. 이 잠금을 잡는 곳은 여기뿐이라 고리가 없다.
+    void publish_ledger(ipc::LedgerSnapshot& snapshot) const;
+
+    // 사본에 못 실은 줄 수 — 한 프로세스는 한 계좌만 다루는데(엔진 안 다계좌 금지) 다른 계좌 줄이
+    //  원장에 섞여 들어온 경우다. 0이 아니면 판정 행이 잡는다.
+    [[nodiscard]] uint64_t ledger_foreign_account_rows() const
+    {
+        return ledger_foreign_account_rows_.load(std::memory_order_relaxed);
+    }
+
     // ── 슬롯 계산 밖 종목(바스켓 슬리브 소유) ─────────────────────────────────
     //  동시 보유 상한(3c)·교체 후보·강제청산·초과 정리는 전부 "원장 전체 = 스캔 슬리브 것"으로 세는데, 목표 비중표로
     //  60종목을 드는 바스켓이 같은 원장에 들어오면 상한 20에 걸려 매수가 거부되고 교체가 바스켓을 먼저 판다.
@@ -641,6 +661,10 @@ private:
     PosMap<int>       missed_sell_seen_; // (account,ticker) → 직전 대조에서 본 잔고 수량(2회 연속 확인용)
     PosMap<TimePoint> opened_at_;        // (account,ticker) → 포지션이 0에서 열린 시각(교체 최소 보유 판정)
     std::unordered_set<symbol::SymbolId> slot_exempt_; // 슬롯 계산 밖 종목(바스켓 소유). positions_mutex_ 보호 [why D-109]
+    // 발행끼리 줄 세우는 잠금 — 사본의 판 번호는 한 번에 한 스레드만 뒤집어야 한다.
+    mutable std::mutex ledger_publish_mutex_;
+    // 사본에 못 실은 다른 계좌 줄의 누적 수. publish_ledger만 쓴다.
+    mutable std::atomic<uint64_t> ledger_foreign_account_rows_{0};
 
     // 전략별 서브원장(D-089, 손익 귀속 전용) — positions_/avg_prices_와 같은 락(positions_mutex_)으로 보호.
     //  키는 (전략 번호, 종목 id). 전략 이름 문자열 하나가 키이던 때는 한 전략이 여러 종목을 사면 평단이 섞였다

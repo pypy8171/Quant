@@ -21,12 +21,12 @@ graph LR
   api -->|11| core
   api -->|7| utils
   core -->|11| api
-  core -->|5| ipc
+  core -->|6| ipc
   core -->|6| risk
   core -->|3| strategy
   core -->|12| utils
   ipc -->|2| api
-  ipc -->|8| core
+  ipc -->|9| core
   ipc --> risk
   ipc -->|5| utils
   main -->|3| core
@@ -38,6 +38,7 @@ graph LR
   modes --> ipc
   modes -->|2| utils
   risk -->|5| core
+  risk --> ipc
   risk --> utils
   strategy -->|5| api
   strategy -->|23| core
@@ -61,8 +62,8 @@ graph LR
 | `utils/Logger.h` | 30 |
 | `core/KstTime.h` | 17 |
 | `strategy/StrategyBase.h` | 15 |
+| `core/SymbolTable.h` | 14 |
 | `api/KisClient.h` | 13 |
-| `core/SymbolTable.h` | 13 |
 | `core/MarketSession.h` | 9 |
 | `core/WakeGate.h` | 9 |
 
@@ -151,6 +152,8 @@ graph LR
   subgraph ipc
     n_ipc_FillKey_cpp["ipc/FillKey.cpp"]
     n_ipc_Heartbeat_cpp["ipc/Heartbeat.cpp"]
+    n_ipc_LedgerSnapshot_cpp["ipc/LedgerSnapshot.cpp"]
+    n_ipc_LedgerSnapshot_h["ipc/LedgerSnapshot.h"]
     n_ipc_OpsProtocol_cpp["ipc/OpsProtocol.cpp"]
     n_ipc_OpsServer_cpp["ipc/OpsServer.cpp"]
     n_ipc_OpsServer_h["ipc/OpsServer.h"]
@@ -311,6 +314,7 @@ graph LR
   n_core_Engine_h --> n_core_Types_h
   n_core_Engine_h --> n_core_WakeGate_h
   n_core_Engine_h --> n_ipc_Heartbeat_h
+  n_core_Engine_h --> n_ipc_LedgerSnapshot_h
   n_core_Engine_h --> n_ipc_OpsServer_h
   n_core_Engine_h --> n_ipc_OrderChannel_h
   n_core_Engine_h --> n_ipc_OrderRouter_h
@@ -403,6 +407,8 @@ graph LR
   n_core_WakeGate_cpp --> n_core_WakeGate_h
   n_ipc_FillKey_cpp --> n_ipc_FillKey_h
   n_ipc_Heartbeat_cpp --> n_ipc_Heartbeat_h
+  n_ipc_LedgerSnapshot_cpp --> n_ipc_LedgerSnapshot_h
+  n_ipc_LedgerSnapshot_h --> n_core_SymbolTable_h
   n_ipc_OpsProtocol_cpp --> n_ipc_OpsProtocol_h
   n_ipc_OpsServer_cpp --> n_ipc_OpsServer_h
   n_ipc_OpsServer_cpp --> n_utils_Logger_h
@@ -446,6 +452,7 @@ graph LR
   n_risk_GateReasons_cpp --> n_risk_GateReasons_h
   n_risk_LedgerJournal_cpp --> n_risk_LedgerJournal_h
   n_risk_OrderGate_cpp --> n_core_KstTime_h
+  n_risk_OrderGate_cpp --> n_ipc_LedgerSnapshot_h
   n_risk_OrderGate_cpp --> n_risk_GateReasons_h
   n_risk_OrderGate_cpp --> n_risk_OrderGate_h
   n_risk_OrderGate_h --> n_core_StrategyTable_h

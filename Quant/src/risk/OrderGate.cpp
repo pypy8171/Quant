@@ -1,4 +1,6 @@
 #include "risk/OrderGate.h"
+
+#include "ipc/LedgerSnapshot.h"
 #include "risk/GateReasons.h"
 #include "core/KstTime.h"
 #include <algorithm>
@@ -2095,11 +2097,15 @@ OrderGate::EntrySnapshot OrderGate::entry_snapshot(const std::string& account, c
 
     if (config_.max_concurrent_positions > 0)
     {
+        // 바스켓 슬리브 소유 종목은 자리를 안 먹는다 — check()·slots_full()·plan_displacement()와 같은 규칙이다.
+        //  여기만 빼먹고 세던 때는, 교체를 켠 날 바스켓을 든 계좌에서 "자리 꽉 참"이 잘못 나고
+        //  plan_displacement가 자리 남음을 따로 안 보기 때문에 멀쩡한 최약체를 팔아 이미 있던 자리를 만들었다.
+        //  [why D-109]
         size_t open = 0;
 
         for (const auto& entry : positions_)
         {
-            if (entry.second > 0)
+            if (entry.second > 0 && !slot_exempt_.contains(entry.first.symbol))
             {
                 ++open;
             }
@@ -2107,7 +2113,7 @@ OrderGate::EntrySnapshot OrderGate::entry_snapshot(const std::string& account, c
 
         for (const auto& entry : reserved_)
         {
-            if (entry.second > 0)
+            if (entry.second > 0 && !slot_exempt_.contains(entry.first.symbol))
             {
                 auto iterator = positions_.find(entry.first);
 
@@ -2157,6 +2163,166 @@ std::vector<OrderGate::HeldPos> OrderGate::snapshot_positions() const
     }
 
     return out;
+}
+
+// ─── 장부 사본 발행 (D-114 단계 2.5) ─────────────────────────────────────────
+//  전략 쪽이 OrderGate를 직접 부르는 자리를 이 사본 하나로 바꾸기 위한 채우기다. 지금은 채우기만 하고
+//  읽는 쪽은 없다 — 배선은 뒤에 한다. 한 바퀴에 한 번 부르므로 사본을 읽는 쪽이 굶지 않는다.
+//
+//  [inv] 판 안에서는 사본을 읽지 않는다. 판 번호가 홀수인 동안 읽는 쪽 함수(collect_rows·row)는
+//  짝수가 될 때까지 도는데, 그 짝수를 만드는 것이 자기 자신이라 영영 안 끝난다.
+//  그래서 미체결(reserved_)을 먼저 싣고 보유(positions_)를 돌 때 매도가능을 같이 셈한다.
+void OrderGate::publish_ledger(ipc::LedgerSnapshot& snapshot) const
+{
+    // 발행끼리 줄을 세운다. 판 번호를 둘이 동시에 뒤집으면 짝수인 순간이 안 와 읽는 쪽이 굶는다.
+    std::lock_guard<std::mutex> publish_lock(ledger_publish_mutex_);
+
+    // 자기 원자변수가 지키는 값들은 positions_mutex_ 밖에서 읽는다 — 잠금을 쥔 구간을 좁게 둔다.
+    const double equity = equity_.load(std::memory_order_relaxed);
+
+    snapshot.begin_publish();
+
+    ipc::LedgerGlobals& globals      = snapshot.globals_for_write();
+    globals.entry_scale              = entry_scale_.load();
+    globals.max_notional_per_ticker  = config_.max_notional_per_ticker;
+    globals.displace_unscored_z      = config_.displace_unscored_z;
+    globals.max_concurrent_positions = config_.max_concurrent_positions;
+    globals.displace_enabled         = config_.displace_enabled ? 1 : 0;
+    // 세 원천을 OR한 결과만 싣는다. 어느 원천이 켰는지는 주문 쪽 일이다 — 한 원천의 자동 해제가
+    //  다른 원천을 지우면 안 되므로 원천 자체는 가르지 않는다. [why D-091]
+    globals.entry_halted             = (entry_halt_.load() || manual_buy_halt_.load() || strategy_down_halt_.load()) ? 1 : 0;
+    globals.manual_sell_halted       = manual_sell_halt_.load() ? 1 : 0;
+
+    uint64_t foreign_rows = 0;
+
+    {
+        std::lock_guard<std::mutex> lock(positions_mutex_);
+
+        // 어느 계좌를 싣는가 — 한 프로세스는 한 계좌만 다룬다. 가장 작은 계좌 번호를 이번 판의 계좌로
+        //  삼고(같은 원장이면 판마다 같은 답이 나온다), 다른 계좌 줄은 싣지 않고 센다.
+        uint32_t account = kUnknownAccount;
+
+        for (const auto& entry : positions_)
+        {
+            if (entry.second != 0 && entry.first.account < account)
+            {
+                account = entry.first.account;
+            }
+        }
+
+        for (const auto& entry : reserved_)
+        {
+            if (entry.second != 0 && entry.first.account < account)
+            {
+                account = entry.first.account;
+            }
+        }
+
+        size_t open_slots = 0;
+        double gross      = 0.0;
+
+        // ① 미체결 선점 먼저. 보유를 돌 때 매도가능(상한 - 미체결 매도)을 한 번에 셈하기 위해서다.
+        for (const auto& entry : reserved_)
+        {
+            const PosKey& key = entry.first;
+
+            if (entry.second == 0)
+            {
+                continue;
+            }
+
+            if (key.account != account)
+            {
+                ++foreign_rows;
+                continue;
+            }
+
+            const bool exempt = slot_exempt_.contains(key.symbol);
+
+            ipc::LedgerRow& row = snapshot.row_for_write(key.symbol);
+            row.reserved        = entry.second;
+            row.slot_exempt     = exempt ? 1 : 0;
+
+            if (entry.second > 0)
+            {
+                const auto position_iterator = positions_.find(key);
+
+                // 보유 없이 매수 선점만 있는 종목도 자리를 하나 문다.
+                if (!exempt && (position_iterator == positions_.end() || position_iterator->second <= 0))
+                {
+                    ++open_slots;
+                }
+
+                const auto reserved_price_iterator = reserved_price_.find(key);
+                gross += entry.second * ((reserved_price_iterator != reserved_price_.end()) ? reserved_price_iterator->second : 0.0);
+            }
+        }
+
+        // ② 보유. 매도가능은 sellable_view()와 같은 셈이다 — 보유와 KIS 상한 중 작은 쪽에서 미체결 매도를 뺀다.
+        for (const auto& entry : positions_)
+        {
+            const PosKey& key = entry.first;
+
+            if (entry.second == 0)
+            {
+                continue; // 닫힌 자리는 사본에 없는 것과 같다
+            }
+
+            if (key.account != account)
+            {
+                ++foreign_rows;
+                continue;
+            }
+
+            const auto   average_price_iterator = average_prices_.find(key);
+            const double average_price = (average_price_iterator != average_prices_.end()) ? average_price_iterator->second : 0.0;
+            const bool   exempt        = slot_exempt_.contains(key.symbol);
+
+            ipc::LedgerRow& row = snapshot.row_for_write(key.symbol);
+            row.position        = entry.second;
+            row.average_price   = average_price;
+            row.slot_exempt     = exempt ? 1 : 0;
+
+            if (entry.second > 0)
+            {
+                if (!exempt)
+                {
+                    ++open_slots;
+                }
+
+                gross += entry.second * average_price;
+
+                int        sellable_limit    = entry.second;
+                const auto sellable_iterator = sellable_.find(key);
+
+                if (sellable_iterator != sellable_.end() && sellable_iterator->second < sellable_limit)
+                {
+                    sellable_limit = sellable_iterator->second;
+                }
+
+                const int pending_sell = (row.reserved < 0) ? -row.reserved : 0;
+                row.sellable = (sellable_limit > pending_sell) ? (sellable_limit - pending_sell) : 0;
+            }
+        }
+
+        // 자리(슬롯)와 예산(총노출) 중 하나만 막혀도 신규 종목을 열 여력이 없다. capacity_full()과 같은 셈이다.
+        //  [inv] 슬롯 면제 종목은 자리를 먹지 않는다 — check()·open_slot_count()·entry_snapshot()과 같은
+        //  규칙이다. 자리 세는 곳이 다섯인데 셈이 하나라도 다르면 전략과 게이트가 딴 판단을 한다. [why D-109]
+        const bool slots_are_full = config_.max_concurrent_positions > 0
+                                    && open_slots >= static_cast<size_t>(config_.max_concurrent_positions);
+        const bool budget_is_full = config_.max_gross_exposure_percent > 0.0 && equity > 0.0
+                                    && gross >= config_.max_gross_exposure_percent * equity * 0.95;
+
+        globals.open_slot_count = static_cast<int32_t>(open_slots);
+        globals.capacity_full   = (slots_are_full || budget_is_full) ? 1 : 0;
+    }
+
+    snapshot.end_publish();
+
+    if (foreign_rows != 0)
+    {
+        ledger_foreign_account_rows_.fetch_add(foreign_rows, std::memory_order_relaxed);
+    }
 }
 
 void OrderGate::set_slot_exempt(const std::vector<std::string>& tickers)

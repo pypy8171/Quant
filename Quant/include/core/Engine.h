@@ -29,6 +29,7 @@
 #endif
 #include "ipc/Heartbeat.h"
 #include "ipc/OrderChannel.h"
+#include "ipc/LedgerSnapshot.h"
 #include "ipc/OrderRouter.h"
 #include "ipc/OpsServer.h"
 #include "core/MpscQueue.h"
@@ -655,6 +656,10 @@ private:
     // 수동주문("MANUAL")의 전략 번호 — 게이트 테이블에서 한 번 받는다. order_gate_ 뒤에 선언해야 한다.
     const strategy_table::StrategyId manual_strategy_index_ = order_gate_.strategy_index_of("MANUAL");
     std::unique_ptr<OrderRouter> order_router_; // 주문 전처리·중계 레이어(증권업계 용어로 FEP, Front-End Processor). start() 이후 유효
+    // 전략 쪽이 읽을 장부 사본. 장부가 바뀔 때마다 order_gate_가 여기에 한 판을 낸다.
+    //  지금은 채우기만 한다 — 읽는 자리를 옮기는 것은 뒤 단계다. 290KB라 Engine을 스택에 두는 경우를
+    //  생각해 힙에 둔다. 단계 4에서 이 자리가 공유메모리로 바뀐다. [why D-114]
+    std::unique_ptr<ipc::LedgerSnapshot> ledger_snapshot_ = std::make_unique<ipc::LedgerSnapshot>();
 
     // ── 구독 스펙 ─────────────────────────────────────────────────────────────
     // 전략에서 수집한 구독 스펙 (on_start 이후 확정)
