@@ -10,7 +10,7 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 111개
 - [Quant](#quant) — 186개
-- [docs](#docs) — 63개
+- [docs](#docs) — 64개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
 - [scripts](#scripts) — 39개
@@ -539,6 +539,7 @@
 - [2026-09-10.md](premarket/2026-09-10.md) — 09-10 장전 시황 브리핑
 - [2026-09-11.md](premarket/2026-09-11.md) — 09-11 장전 시황 브리핑
 - [2026-09-21.md](premarket/2026-09-21.md) — 09-21 장전 시황 브리핑
+- [2026-09-22.md](premarket/2026-09-22.md) — 09-22 장전 시황 브리핑
 - [README.md](premarket/README.md) — 장전 브리핑 색인(날짜 결함 설명)
 - [ROUTINE_PROMPT.md](premarket/ROUTINE_PROMPT.md) — 장전 시황 브리핑 클라우드 루틴 프롬프트 정본. 국면 모델 표는 gen:regime-model, 올린 해시는 premarket_routine.py --mark
 
