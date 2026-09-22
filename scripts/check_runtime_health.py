@@ -76,6 +76,11 @@ SLOW_ORDER_MS = 3000      # 접수까지 이보다 오래 걸리면 청산 지�
 MAX_SLOW_ORDER_RATIO = 0.2  # 접수 중 이 비율 넘게 느리면 그날 서버(또는 버킷)가 상한 것
 BUCKET_WAIT_MS = 300      # 버킷대기 중앙값이 이 위면 지연의 주범은 서버가 아니라 초당한도 버킷
 MAX_HTTP_TIMEOUTS = 50    # 15초 제한 초과 요청 — 09-18 192건(09-17은 3건)이 잔고 대조를 100초까지 붙잡았다
+# 원장 저널(D-113) — 기동 줄 둘과 장중 기록 실패. 저널에 못 적은 주문은 아예 나가지 않는다.
+LEDGER_REPLAY_RE = re.compile(r"\[Engine\] 원장 저널 리플레이: (\d+)건 \(마지막 seq (\d+)(, 꼬리 잘림)?\)")
+LEDGER_RESOLVE_RE = re.compile(r"\[Engine\] 원장 미결 주문 대조: 되살림 (\d+)건 · 선점해제 (\d+)건 · 저널기록실패 (\d+)건")
+LEDGER_WRITE_FAIL_RE = re.compile(r"\[OrderRouter\] 원장 저널 기록 실패")
+
 BASKET_BUY_LEG_DEADLINE = 15 * 3600 + 5 * 60  # 매수 레그는 15:05까지 끝나야 마감 청산(15:15)과 겹치지 않는다(D-109)
 
 
@@ -331,6 +336,12 @@ def collect(date: str, log: Path, since: int = 0):
     devscale_close_exits: list[tuple[int, str]] = []   # (초, 종목) — DEVSCALE 장 마감 청산 신호(넘김 모드면 0이어야 한다)
     entry_filter: dict[str, int] = {"통과": 0, "차단": 0}  # 진입 필터 판정 줄 수
     platforms: list[str] = []                    # 기동마다 찍히는 실행 플랫폼(Windows|Linux)
+    ledger_replays: list[int] = []               # 기동마다 원장 저널에서 되적용한 레코드 수
+    ledger_truncated = 0                         # 꼬리 잘린 기동 수 — 쓰다 만 레코드, 곧 비정상 종료 흔적
+    ledger_restored = 0                          # 재기동 때 이력에 되살린 미체결 주문
+    ledger_released = 0                          # 재기동 때 선점만 푼 주문(KIS가 모르는 주문)
+    ledger_start_failures = 0                    # 기동 시점 저널 기록 실패 누계(기동마다 한 줄)
+    ledger_write_fails = 0                       # 장중 저널 기록 실패로 안 나간 주문
 
     # 7일 지난 날은 archive/quant_trader_<날짜>.log.gz — market_close_autodoc이 그 경로를 그대로 넘긴다
     opener = (lambda: gzip.open(log, "rt", encoding="utf-8", errors="replace")) if log.suffix == ".gz"         else (lambda: log.open(encoding="utf-8", errors="replace"))
@@ -350,6 +361,15 @@ def collect(date: str, log: Path, since: int = 0):
             found = STALE_RE.search(line)
             if found:
                 stale_max = max(stale_max, int(found.group(1)))
+            if found := LEDGER_REPLAY_RE.search(line):
+                ledger_replays.append(int(found.group(1)))
+                ledger_truncated += 1 if found.group(3) else 0
+            if found := LEDGER_RESOLVE_RE.search(line):
+                ledger_restored += int(found.group(1))
+                ledger_released += int(found.group(2))
+                ledger_start_failures = max(ledger_start_failures, int(found.group(3)))
+            if LEDGER_WRITE_FAIL_RE.search(line):
+                ledger_write_fails += 1
             if GUARD_RE.search(line):
                 guard_at.append(second)
             if BREAKEVEN_RE.search(line):
@@ -481,6 +501,15 @@ def collect(date: str, log: Path, since: int = 0):
     filter_judged = entry_filter["통과"] + entry_filter["차단"]
     devscale_v2 = filter_judged > 0     # 진입 필터 줄이 있으면 D-111 넘김 바이너리
 
+    # 원장 저널(D-113) — 리플레이 줄이 없으면 저널 이전 바이너리다. 없는 기능을 실패로 적지 않는다.
+    ledger_skip = not ledger_replays
+    ledger_failures = ledger_start_failures + ledger_write_fails
+
+    def ledger_row(name: str, ok: bool, level: str, detail: str):
+        if ledger_skip:
+            return (name, True, level, "원장 저널 줄 없음(D-113 배포 전 바이너리) — 판정 안 함")
+        return (name, ok, level, detail)
+
     def devscale_v2_row(name: str, ok: bool, level: str, detail: str):
         if not devscale_v2:
             return (name, True, level, "진입 필터 판정 줄 없음(D-111 배포 전 바이너리) — 판정 안 함")
@@ -509,6 +538,13 @@ def collect(date: str, log: Path, since: int = 0):
          + (" — 표본 20건 미만, 판정 보류" if devscale_buys < 20 else "")),
         ("유령주문 재부활", stale_max <= MAX_STALE_ORDERS, "FAIL",
          f"기동 시 미체결 최대 {stale_max}건 (허용 {MAX_STALE_ORDERS})"),
+        ledger_row("원장 저널 기록", ledger_failures == 0, "FAIL",
+                   f"저널 기록 실패 {ledger_failures}건 (기대 0 — 못 적은 주문은 보내지 않으니 그만큼 매매가 빈다."
+                   f" 기동 {ledger_start_failures}건 · 장중 {ledger_write_fails}건)"),
+        ledger_row("원장 재기동 대조", ledger_released == 0 and ledger_truncated == 0, "WARN",
+                   f"되살림 {ledger_restored}건 · 선점해제 {ledger_released}건 · 꼬리 잘림 {ledger_truncated}회"
+                   f" (리플레이 최대 {max(ledger_replays, default=0)}건 — 선점해제는 원장에 적고 KIS엔 안 간 주문,"
+                   f" 꼬리 잘림은 쓰다 만 레코드)"),
         ("조기 사망 세션", not short, "FAIL",
          f"{MIN_SESSION_SEC}초 미만 종료 {len(short)}회"
          + (f" — {', '.join(hhmm(second) for second in short[:5])}" if short else "")),

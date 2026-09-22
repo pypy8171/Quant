@@ -305,7 +305,7 @@ summary = "주문 스레드가 유일한 시퀀서다(원칙 4). 조절기(`Orde
 review = [
   "게이트 거부 사유 문장이 `GateReasons.h` 한 곳에서 오는지(D-067) — 조절기가 문장으로 분류하므로 흩어지면 깨진다",
   "청산 SELL의 재시도가 BUY와 다르게 분류되는지(유량 한도는 action 불문, 40240000 제외)",
-  "`on_accept`가 KIS ack 뒤에만 불려 `reserved_`가 선점되는지 — 거부인데 선점되면 슬롯이 샌다",
+  "`on_intent`가 KIS 전송 **앞**에 불려 원장에 적히고 선점되는지(D-113) — 못 적으면 주문이 나가면 안 된다",
   "시장가 명목 검사가 `reference_price`로 되는지(`price`=0)",
 ]
 
@@ -335,7 +335,7 @@ review = [
   [[stage.step]]
   sym = "OrderRouter::new_route"
   file = "Quant/src/ipc/OrderRouter.cpp"
-  what = "`clamp_buy_quantity` → 매도가능수량 0이면 `reconcile_blocked_sell` → 시장가 매도 중복 가드(`history_`) → `gate_.check` → `kis_.submit_order_acknowledgement`(ODNO) → `gate_.on_accept` → `record`·`write_trade_row`(`seq` 동반). 실패 경로마다 무엇이 되돌려지는지"
+  what = "`clamp_buy_quantity` → 매도가능수량 0이면 `reconcile_blocked_sell` → 시장가 매도 중복 가드(`history_`) → `gate_.check` → `take_intent`(원장 INTENT 선기록·선점, 실패면 전송 안 함) → `kis_.submit_order_acknowledgement`(ODNO) → `gate_.on_accepted` → `record`·`write_trade_row`(`seq` 동반). 실패 경로마다 무엇이 되돌려지는지"
   test = "test_order_router"
 
   [[stage.step]]
@@ -357,9 +357,9 @@ review = [
   test = "test_order_gate"
 
   [[stage.step]]
-  sym = "OrderGate::on_accept"
+  sym = "OrderGate::on_intent"
   file = "Quant/src/risk/OrderGate.cpp"
-  what = "`reserved_` 선점(슬롯·현금). 체결·취소에서 되돌리는 짝은 `on_fill_confirmed`·`on_cancel`"
+  what = "전송 **전에** 원장 저널에 INTENT를 적고 `reserved_`를 선점한다(슬롯·현금). 기록에 실패하면 선점을 되돌리고 거짓을 준다 — 그 주문은 나가지 않는다(D-113). 접수 뒤 짝은 `on_accepted`, 되돌리는 짝은 `on_fill_confirmed`·`on_cancel`·`on_reject`"
   test = "test_order_gate"
 
   [[stage.step]]

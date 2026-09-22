@@ -355,6 +355,82 @@ class DbClient:
         except Exception as e:
             logger.error(f"ensure_fills_amount_columns 실패: {e}")
 
+    # ── 원장 이벤트 (D-113) — 정본은 파일, 여기는 그 복제본 ──────────────────
+    def ensure_ledger_tables(self):
+        """기존 DB에도 ledger_events·ledger_offsets가 있도록 보장 — schema.sql과 같은 DDL."""
+        ddl = [
+            "CREATE TABLE IF NOT EXISTS ledger_events ("
+            " trade_date DATE NOT NULL, seq BIGINT NOT NULL, ts TIMESTAMPTZ NOT NULL,"
+            " kind TEXT NOT NULL, account TEXT, ticker TEXT, side TEXT, order_type TEXT,"
+            " order_id BIGINT, odno BIGINT, quantity INTEGER, reserved_qty INTEGER,"
+            " sellable INTEGER, price NUMERIC(18,4), cash NUMERIC(18,4), equity NUMERIC(18,4),"
+            " pnl NUMERIC(18,4), strategy TEXT, reason TEXT,"
+            " PRIMARY KEY (trade_date, seq))",
+            "CREATE INDEX IF NOT EXISTS ledger_events_ts ON ledger_events (ts DESC)",
+            "CREATE INDEX IF NOT EXISTS ledger_events_ticker_ts ON ledger_events (ticker, ts DESC)",
+            "CREATE INDEX IF NOT EXISTS ledger_events_order ON ledger_events (trade_date, order_id)",
+            "CREATE TABLE IF NOT EXISTS ledger_offsets ("
+            " journal_file TEXT PRIMARY KEY, trade_date DATE NOT NULL,"
+            " byte_offset BIGINT NOT NULL DEFAULT 0, last_sequence BIGINT NOT NULL DEFAULT 0,"
+            " updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
+        ]
+        try:
+            with self._conn.cursor() as cursor:
+                for stmt in ddl:
+                    cursor.execute(stmt)
+        except Exception as error:
+            logger.error(f"ensure_ledger_tables 실패: {error}")
+
+    def insert_ledger_events(self, rows: list[tuple]) -> int:
+        """원장 레코드를 한 번에 넣는다. 이미 있는 (trade_date, seq)는 조용히 건너뛴다.
+
+        rows 원소는 ledger_recorder가 만드는 19개 값 튜플이다. 같은 파일을 두 번 읽어도
+        원장이 부풀지 않는 것이 이 함수의 유일한 약속 — 멱등 키가 PK다.
+        """
+        if not rows:
+            return 0
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.executemany(
+                    "INSERT INTO ledger_events"
+                    "(trade_date,seq,ts,kind,account,ticker,side,order_type,order_id,odno,"
+                    " quantity,reserved_qty,sellable,price,cash,equity,pnl,strategy,reason)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+                    " ON CONFLICT (trade_date, seq) DO NOTHING",
+                    rows,
+                )
+            return len(rows)
+        except Exception as error:
+            logger.error(f"insert_ledger_events 실패 ({len(rows)}건): {error}")
+            return 0
+
+    def get_ledger_offset(self, journal_file: str) -> tuple[int, int]:
+        """(바이트 위치, 마지막 seq). 처음 보는 파일이면 (0, 0)."""
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.execute("SELECT byte_offset, last_sequence FROM ledger_offsets WHERE journal_file = %s",
+                            (journal_file,))
+                row = cursor.fetchone()
+                return (int(row[0]), int(row[1])) if row else (0, 0)
+        except Exception as error:
+            logger.error(f"get_ledger_offset 실패 ({journal_file}): {error}")
+            return (0, 0)
+
+    def set_ledger_offset(self, journal_file: str, trade_date, byte_offset: int, last_sequence: int):
+        """읽은 데까지를 적는다. 레코드 적재가 성공한 뒤에만 부른다 — 반대로 하면 그 구간이 비어버린다."""
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO ledger_offsets(journal_file,trade_date,byte_offset,last_sequence,updated_at)"
+                    " VALUES (%s,%s,%s,%s,NOW())"
+                    " ON CONFLICT (journal_file) DO UPDATE SET"
+                    "  byte_offset = EXCLUDED.byte_offset, last_sequence = EXCLUDED.last_sequence,"
+                    "  updated_at = NOW()",
+                    (journal_file, trade_date, byte_offset, last_sequence),
+                )
+        except Exception as error:
+            logger.error(f"set_ledger_offset 실패 ({journal_file}): {error}")
+
     def ensure_proc_statistics_table(self):
         """기존 DB에도 proc_stats·proc_thread_stats·proc_hotspots 표가 있도록 보장. schema.sql은 fresh init에만 적용된다."""
         ddl = [

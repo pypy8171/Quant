@@ -347,7 +347,7 @@ graph LR
   n_risk_OrderGate_h --> n_core_StrategyTable_h
   n_risk_OrderGate_h --> n_core_SymbolTable_h
   n_risk_OrderGate_h --> n_core_Types_h
-  n_risk_OrderGate_h --> n_risk_ReservationJournal_h
+  n_risk_OrderGate_h --> n_risk_LedgerJournal_h
   n_strategy_DevScaleRules_h --> n_core_Types_h
   n_strategy_DeviationScaleStrategy_h --> n_api_KisClient_h
   n_strategy_DeviationScaleStrategy_h --> n_core_BarAggregator_h
@@ -490,9 +490,9 @@ graph LR
   p_PYQuant_tests -->|4| p_PYQuant_strategy
   p_PYQuant_tools -->|5| p_PYQuant
   p_PYQuant_tools --> p_PYQuant_backtest
-  p_PYQuant_tools --> p_PYQuant_core
+  p_PYQuant_tools -->|2| p_PYQuant_core
   p_PYQuant_tools -->|7| p_PYQuant_data
-  p_PYQuant_tools --> p_PYQuant_db
+  p_PYQuant_tools -->|2| p_PYQuant_db
   p_PYQuant_tools --> p_PYQuant_features
   p_PYQuant_tools -->|10| p_PYQuant_kis
   p_PYQuant_tools --> p_PYQuant_naver
@@ -558,6 +558,7 @@ graph LR
 | `PYQuant/tools/fullperiod_validate.py` | `data.datagokr_source`, `main`, `tools.month_start_sweep` |
 | `PYQuant/tools/index_intraday_logger.py` | `kis.client` |
 | `PYQuant/tools/investor_flow_logger.py` | `kis.client` |
+| `PYQuant/tools/ledger_recorder.py` | `core.logger`, `db.client` |
 | `PYQuant/tools/minute_backfill.py` | `kis.client` |
 | `PYQuant/tools/minute_backfill_pairs.py` | `features.fundamental` |
 | `PYQuant/tools/month_start_sweep.py` | `data.datagokr_source`, `main` |

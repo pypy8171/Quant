@@ -194,7 +194,8 @@ AppConfig parse_config(const json& document, const std::string& mode_override)
     app.bootstrap_ledger_from_balance = document.value("bootstrap_ledger_from_balance", false);
     app.rest_price_feed               = document.value("rest_price_feed", false);
     app.capture_directory             = document.value("capture_dir", std::string());
-    app.reservation_journal_directory = document.value("reservation_journal_dir", std::string());
+    app.ledger_journal_directory      = document.value("ledger_journal_dir", std::string());
+    app.ledger_journal_fsync          = document.value("ledger_journal_fsync", false);
     app.strategy_shards               = document.value("strategy_shards", 1u);
     app.feed_keys                     = parse_feed_keys(document, app.kis);
     app.replay_file                   = document.value("replay_file", std::string());
@@ -205,6 +206,8 @@ AppConfig parse_config(const json& document, const std::string& mode_override)
     app.regime_halt_expire_min        = document.value("regime_halt_expire_min", app.regime_halt_expire_min);
     app.zmq_bind_address              = document.value("zmq_bind_addr", std::string());
     app.zmq_control_token             = document.value("zmq_control_token", std::string());
+    app.zmq_pub_port                  = document.value("zmq_pub_port", app.zmq_pub_port);
+    app.zmq_rep_port                  = document.value("zmq_rep_port", app.zmq_rep_port);
     app.ops_bind_address              = document.value("ops_bind_addr", std::string());
     app.ops_port                      = document.value("ops_port", 0);
     app.ops_token                     = document.value("ops_token", std::string());

@@ -884,6 +884,46 @@ void Engine::initialize_data_poller()
     poller_->set_keep_going([this] { return running_.load(std::memory_order_acquire); });
 }
 
+bool Engine::try_open_ledger_journal()
+{
+    if (ledger_journal_directory_.empty())
+    {
+        return true;
+    }
+
+    // 오늘 파일을 열고 처음부터 다시 적용한다 — 재기동 전 선점·체결·대조가 원장에 되살아난다. 못 열면 원장 없이
+    //  주문이 나가는 셈이라 기동을 거부한다(감시견이 다시 띄운다). [why D-113]
+    if (!order_gate_.set_journal(std::filesystem::path(ledger_journal_directory_), kst::date_yyyymmdd(std::time(nullptr)),
+                                 ledger_journal_fsync_))
+    {
+        LOG_ERROR("[Engine] 원장 저널을 못 열어 기동하지 않는다: " + ledger_journal_directory_);
+        return false;
+    }
+
+    const auto& replay = order_gate_.journal_replay();
+    LOG_INFO("[Engine] 원장 저널 리플레이: " + std::to_string(replay.applied) + "건 (마지막 seq " +
+             std::to_string(replay.last_sequence) + (replay.truncated_tail ? ", 꼬리 잘림" : "") + ")");
+    return true;
+}
+
+// 저널 리플레이가 남긴 미결 주문 — 엔진이 죽은 순간 호가창에 살아 있었을 주문이다. 잔고 시드가 끝난 뒤에 부른다:
+//  체결로 닫힌 주문은 시드가 이미 보유에 반영했고, 여기서는 주문 쪽(이력·선점)만 맞춘다. [why D-113]
+void Engine::resolve_open_intents()
+{
+    const auto intents = order_gate_.open_intents();
+
+    if (intents.empty())
+    {
+        LOG_INFO("[Engine] 원장 미결 주문 대조: 되살림 0건 · 선점해제 0건 · 저널기록실패 " +
+                 std::to_string(order_gate_.journal_failures()) + "건");
+        return;
+    }
+
+    const auto adopted = order_router_->adopt_open_intents(intents);
+    LOG_INFO("[Engine] 원장 미결 주문 대조: 되살림 " + std::to_string(adopted.restored) + "건 · 선점해제 " +
+             std::to_string(adopted.released) + "건 · 저널기록실패 " + std::to_string(order_gate_.journal_failures()) + "건");
+}
+
 bool Engine::try_bootstrap_ledger()
 {
     // G5: 실계좌 보유분을 원장에 시드 (스레드 시작 전, 단일스레드 구간)
@@ -1230,10 +1270,12 @@ void Engine::start()
     initialize_ledger_reconciler();
     initialize_data_poller();
 
-    if (!try_bootstrap_ledger())
+    if (!try_open_ledger_journal() || !try_bootstrap_ledger())
     {
         return;
     }
+
+    resolve_open_intents();
 
     start_strategies();
     collect_watch_specifications();

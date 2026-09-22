@@ -202,8 +202,8 @@
     "ipc/ZmqBridge.h": "ipc",
     "modes/Monitors.h": "modes",
     "risk/GateReasons.h": "risk",
+    "risk/LedgerJournal.h": "risk",
     "risk/OrderGate.h": "risk",
-    "risk/ReservationJournal.h": "risk",
     "strategy/DeviationScaleStrategy.h": "strategy",
     "strategy/DevScaleRules.h": "strategy",
     "strategy/FixedIntervalStrategy.h": "strategy",
@@ -556,7 +556,7 @@
       "core/StrategyTable.h",
       "core/SymbolTable.h",
       "core/Types.h",
-      "risk/ReservationJournal.h"
+      "risk/LedgerJournal.h"
     ],
     "strategy/DevScaleRules.h": [
       "core/Types.h"
@@ -966,6 +966,9 @@
       "core/OrderRateLimiter.cpp",
       "risk/OrderGate.cpp"
     ],
+    "risk/LedgerJournal.h": [
+      "risk/OrderGate.h"
+    ],
     "risk/OrderGate.h": [
       "core/AppConfig.h",
       "core/Engine.h",
@@ -973,9 +976,6 @@
       "core/SignalDispatcher.h",
       "ipc/OrderRouter.h",
       "risk/OrderGate.cpp"
-    ],
-    "risk/ReservationJournal.h": [
-      "risk/OrderGate.h"
     ],
     "strategy/DevScaleRules.h": [
       "strategy/DeviationScaleStrategy.h",
@@ -1273,6 +1273,8 @@
       "PYQuant/tools/index_intraday_logger.py",
       "PYQuant/tools/investor_flow_logger.py",
       "PYQuant/tools/kind_delisted_fill.py",
+      "PYQuant/tools/ledger_dump.py",
+      "PYQuant/tools/ledger_recorder.py",
       "PYQuant/tools/log_report.py",
       "PYQuant/tools/macro_ingest.py",
       "PYQuant/tools/macro_regime_feed.py",
@@ -1527,6 +1529,10 @@
       "PYQuant/tools/investor_flow_logger.py": [
         "kis.client"
       ],
+      "PYQuant/tools/ledger_recorder.py": [
+        "core.logger",
+        "db.client"
+      ],
       "PYQuant/tools/minute_backfill.py": [
         "kis.client"
       ],
@@ -1681,7 +1687,8 @@
         "PYQuant/ipc/subscriber.py",
         "PYQuant/kis/client.py",
         "PYQuant/main.py",
-        "PYQuant/tools/bench_market_open.py"
+        "PYQuant/tools/bench_market_open.py",
+        "PYQuant/tools/ledger_recorder.py"
       ],
       "dashboard_server": [
         "scripts/notify_trades.py"
@@ -1721,6 +1728,7 @@
       "db.client": [
         "PYQuant/main.py",
         "PYQuant/tools/bench_market_open.py",
+        "PYQuant/tools/ledger_recorder.py",
         "scripts/backfill_fills_db.py"
       ],
       "exit_ev": [
@@ -2022,7 +2030,7 @@
       {
         "from": "PYQuant/tools",
         "to": "PYQuant/core",
-        "weight": 1
+        "weight": 2
       },
       {
         "from": "PYQuant/tools",
@@ -2032,7 +2040,7 @@
       {
         "from": "PYQuant/tools",
         "to": "PYQuant/db",
-        "weight": 1
+        "weight": 2
       },
       {
         "from": "PYQuant/tools",

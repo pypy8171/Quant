@@ -31,9 +31,10 @@ struct AppConfig
     bool                   bootstrap_ledger_from_balance = false;
     bool                   rest_price_feed = false;
     std::string            capture_directory;
-    // reserved_(미체결 선점) 로컬 저널 폴더. capture_directory와 독립 — 틱 캡처를 안 켜도 이건 켤 수 있다
-    //  (저장량이 틱의 몇 만분의 1이라 항상 켜도 부담이 없다). 빈 문자열=끔. [why D-101 reserved_ 드리프트]
-    std::string            reservation_journal_directory;
+    // 원장 저널 폴더(ledger_YYYYMMDD.bin). capture_directory와 독립 — 틱 캡처를 안 켜도 이건 켠다(저장량이 틱의
+    //  몇 만분의 1). 빈 문자열=끔(테스트·벤치만). fsync=append마다 디스크 동기화. [why D-113]
+    std::string            ledger_journal_directory;
+    bool                   ledger_journal_fsync = false;
     unsigned               strategy_shards = 1;
     std::vector<KisConfig> feed_keys; // 추가 WS 세션 키(D-071 원칙 1). 기본 키와 계좌·모의 여부 같고 hts_id 없음
     std::string            replay_file;  // 비어 있지 않으면 캡처 파일 리플레이(D-071 원칙 8)
@@ -44,6 +45,9 @@ struct AppConfig
     int                    regime_halt_expire_min = kDefaultRegimeHaltExpireMin;
     std::string            zmq_bind_address;
     std::string            zmq_control_token;
+    // 한 기계에 엔진이 둘 이상 뜨면 포트가 겹쳐 뒤에 뜬 쪽이 ZMQ 없이 돈다 — 그래서 설정으로 뺀다.
+    int                    zmq_pub_port = 5555; // 시세·주문 발행(PUB)
+    int                    zmq_rep_port = 5556; // 제어 명령(REP)
     std::string            ops_bind_address;
     int                    ops_port = 0;
     std::string            ops_token;

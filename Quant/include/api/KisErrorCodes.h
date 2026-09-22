@@ -12,4 +12,6 @@ inline constexpr const char* kUnknown = "E_UNKNOWN";
 inline constexpr const char* kRateLimit = "EGW00201";
 // 주문가능수량 없음("잔고내역이 없습니다") — 보유분이 예약매도·미결제로 묶여 매도 불가.
 inline constexpr const char* kNoSellableQty = "40240000";
+// 자체 코드 — 원장 저널에 INTENT를 못 적어 KIS로 보내지 않았다. 적히지 않은 주문은 나가지 않는다. [why D-113]
+inline constexpr const char* kLedgerWriteFailed = "E_LEDGER";
 } // namespace kis_error

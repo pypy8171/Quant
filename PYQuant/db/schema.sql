@@ -292,3 +292,43 @@ CREATE TABLE IF NOT EXISTS bench_positions (
     updated_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     PRIMARY KEY (account, ticker)
 );
+
+-- ── 원장 이벤트 (D-113) ─────────────────────────────────────────────────────
+-- 정본은 엔진이 주문 직전에 적는 파일 ledger_YYYYMMDD.bin이고, 이 테이블은 그 파일을 따라 적는
+-- 복제본이다. 적재기(PYQuant/tools/ledger_recorder.py)가 파일을 꼬리부터 읽어 넣는다.
+-- 같은 줄을 두 번 넣어도 원장이 부풀지 않도록 (trade_date, seq)가 PK다 — seq는 파일 안에서만
+-- 증가하므로 날짜를 같이 잡아야 유일해진다.
+CREATE TABLE IF NOT EXISTS ledger_events (
+    trade_date   DATE          NOT NULL,   -- 저널 파일 헤더의 YYYYMMDD
+    seq          BIGINT        NOT NULL,   -- 파일 안 1부터 증가
+    ts           TIMESTAMPTZ   NOT NULL,   -- 엔진이 그 줄을 적은 시각
+    kind         TEXT          NOT NULL,   -- SEED/INTENT/ACCEPT/REJECT/FILL/CANCEL/ADJUST/RESET_RESERVED/CASH/DAILY_PNL
+    account      TEXT,
+    ticker       TEXT,
+    side         TEXT,                     -- BUY / SELL / NONE
+    order_type   TEXT,                     -- MARKET / LIMIT
+    order_id     BIGINT,                   -- 엔진 내부 주문번호(ORD-NNNNNN)
+    odno         BIGINT,                   -- KIS 주문번호
+    quantity     INTEGER,
+    reserved_qty INTEGER,                  -- ADJUST — 맞춘 뒤 선점(BUY +, SELL -)
+    sellable     INTEGER,
+    price        NUMERIC(18,4),
+    cash         NUMERIC(18,4),
+    equity       NUMERIC(18,4),
+    pnl          NUMERIC(18,4),
+    strategy     TEXT,
+    reason       TEXT,
+    PRIMARY KEY (trade_date, seq)
+);
+CREATE INDEX IF NOT EXISTS ledger_events_ts        ON ledger_events (ts DESC);
+CREATE INDEX IF NOT EXISTS ledger_events_ticker_ts ON ledger_events (ticker, ts DESC);
+CREATE INDEX IF NOT EXISTS ledger_events_order     ON ledger_events (trade_date, order_id);
+
+-- 적재기가 어디까지 읽었는지 — 파일 바이트 위치. 내렸다 올리면 여기서부터 이어 읽는다.
+CREATE TABLE IF NOT EXISTS ledger_offsets (
+    journal_file TEXT          PRIMARY KEY,   -- 파일 이름만(경로 제외) — 기계를 옮겨도 이어진다
+    trade_date   DATE          NOT NULL,
+    byte_offset  BIGINT        NOT NULL DEFAULT 0,
+    last_seq     BIGINT        NOT NULL DEFAULT 0,
+    updated_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);

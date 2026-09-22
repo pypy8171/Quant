@@ -69,6 +69,21 @@ public:
     using ReconcileNote = reconcile::Row;   // 필드는 core/ReconcilePlan.h. Engine의 plan() 결과를 그대로 받는다
     void record_reconcile(const ReconcileNote& note);
 
+    // ── 재기동 대조 — 원장 저널이 남긴 미결 주문 (D-113) ──────────────────────
+    //  저널 리플레이가 "INTENT는 적혔는데 닫히지 않은" 주문을 준다. KIS 미체결조회와 맞춰
+    //  ① 아직 호가창에 살아 있는 것은 history_에 ACCEPTED로 되살린다 — 늦은 체결통보가 ODNO로
+    //     매칭돼 전략까지 이어진다(안 되살리면 미매핑 체결로 떨어져 귀속이 "UNLINKED"가 된다).
+    //  ② KIS가 모르는 것은 선점을 푼다 — 체결됐다면 잔고 대조가 이미 보유를 맞췄고, 안 나갔다면
+    //     선점만 남아 그 종목을 하루 종일 막는다.
+    //  모의투자는 미체결조회 TR이 없어(§reconcile_blocked_sell) 되살릴 근거가 없다 — 접수된 것만
+    //   되살리고 나머지는 푼다. [inv] 스레드 시작 전, 잔고 시드 뒤에 한 번.
+    struct AdoptResult
+    {
+        int restored = 0; // history_에 되살린 미체결 주문
+        int released = 0; // 선점만 푼 주문(KIS가 모르는 것)
+    };
+    AdoptResult adopt_open_intents(const std::vector<OrderGate::OpenIntent>& intents);
+
     // 살아있는 주문이 없는데 게이트에 남은 선점을 푼다. 선점은 접수 때만 생기므로
     //  라우터 이력이 정본이다. 모의투자는 미체결조회(inquire-psbl-rvsecncl)를 지원하지 않아
     //  브로커에 물어볼 수가 없고, 통보를 한 번 놓치면 선점이 슬롯을 물고 하루를 간다.
@@ -159,7 +174,13 @@ private:
     //  시장가 매도를 1회 재시도한다(장중 자가 청산 정리). 성공 시 kis_order_no 채운 OrderAck,
     //  예약 없음/취소 실패 시 빈 acknowledgement. 이전 세션·수동 예약이 보유수량을 묶은 경우를 해소.
     //  취소한 예약이 이번 세션 주문이면 history_를 CANCELLED로 닫고 게이트 선점을 푼다(C-2).
-    [[nodiscard]] OrderAck reconcile_blocked_sell(const OrderSignal& signal);
+    //  reference/intent_taken: 재매도도 원장에 INTENT를 적은 뒤에만 나간다. 이미 적었으면(본 경로가 먼저 보낸 뒤
+    //  40240000으로 돌아온 경우) 다시 적지 않는다. [why D-113]
+    [[nodiscard]] OrderAck reconcile_blocked_sell(const OrderSignal& signal, const OrderGate::OrderRef& reference,
+                                                  bool& intent_taken);
+
+    // KIS 전송 직전 원장 기록 — 선점을 잡고 INTENT를 적는다. 거짓이면 파일에 안 적혀 주문을 보내지 않는다.
+    [[nodiscard]] bool take_intent(const OrderSignal& signal, const OrderGate::OrderRef& reference);
     // 주문 번호로 아직 살아있는(ACCEPTED, 미체결 잔량>0) 주문을 찾는다. 색인 한 번 — 이력을 훑지 않는다.
     // 호출자는 반드시 history_mutex_를 보유해야 한다. 반환 포인터는 lock 보유 동안만 유효.
     ManagedOrder* find_live_by_client_number(uint64_t client_order_number);

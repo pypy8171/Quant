@@ -15,12 +15,17 @@
 //  18. 바스켓 슬롯 제외 — 제외 종목은 동시보유 상한·빈 슬롯 수·교체 후보에 안 들고 snapshot에 표시된다 (D-109)
 //  17. 시장가 1주문 명목 백스톱 — BUY는 ref_price로 거부, SELL은 경고만 하고 통과,
 //      reference_price 없으면 검사 자체가 없음(게이트가 못 잡는 현행을 기록)
+//  19. 원장 저널 — 재기동 리플레이가 보유·평단·선점·매도가능·당일손익·현금을 되살린다 (D-113)
+//  20. 원장 저널 — 쓰다 만 꼬리(전원 장애)는 리플레이가 거기서 멈추고 다음 기동이 잘라 낸다
+//  21. 원장 저널 — 한 레코드가 깨지면(CRC 불일치) 그 앞까지만 적용하고 뒤는 버린다
 
 #include "risk/OrderGate.h"
 #include "core/KstTime.h"
 #include <algorithm>
 #include <cassert>
+#include <cstdio>
 #include <ctime>
+#include <filesystem>
 #include <iostream>
 #include <thread>
 #include <chrono>
@@ -560,6 +565,172 @@ void test_slot_exempt()
     PASS("slot_exempt");
 }
 
+
+// ─── 원장 저널 공통 ────────────────────────────────────────────────────────
+//  테스트마다 빈 폴더 하나 — 남아 있던 파일을 리플레이해 앞 테스트가 뒤 테스트를 오염시키지 않게.
+static std::filesystem::path make_journal_directory(const std::string& name)
+{
+    const std::filesystem::path directory = std::filesystem::temp_directory_path() / ("quant_ledger_test_" + name);
+    std::error_code             error_code;
+    std::filesystem::remove_all(directory, error_code);
+    std::filesystem::create_directories(directory, error_code);
+    return directory;
+}
+
+static OrderGate::Config journal_config()
+{
+    OrderGate::Config config;
+    config.max_quantity_per_ticker = 1000;
+    config.max_orders_per_min      = 1000;
+    config.max_orders_per_sec      = 1000;
+    config.deduplicate_window_sec  = 0.0;
+    return config;
+}
+
+// 한 거래일치 사건을 저널에 적고 그 파일 경로를 돌려준다 — 리플레이 테스트 3개가 같은 장면을 쓴다.
+static std::filesystem::path write_sample_day(const std::filesystem::path& directory, const std::string& date)
+{
+    OrderGate gate(journal_config());
+    assert(gate.set_journal(directory, date, false));
+    assert(gate.journal_open());
+
+    gate.seed_position("ACC1", "005930", 10, 70000.0, 10);                                                 // 1 SEED
+    assert(gate.on_intent("ACC1", "005930", OrderSide::BUY, 5, 71000.0,
+                          OrderGate::OrderRef{11, 0, OrderType::LIMIT}));                                  // 2 INTENT
+    gate.on_accepted("ACC1", "005930", OrderSide::BUY, 5, OrderGate::OrderRef{11, 991, OrderType::LIMIT}); // 3 ACCEPT
+    gate.on_fill_confirmed("ACC1", "005930", OrderSide::BUY, 3, 71000.0, strategy_table::kNone,
+                           OrderGate::OrderRef{11, 991, OrderType::LIMIT});                                // 4 FILL
+    // 보내고 거부당한 주문 — 선점이 잡혔다 풀린다
+    assert(gate.on_intent("ACC1", "000660", OrderSide::BUY, 7, 200000.0,
+                          OrderGate::OrderRef{12, 0, OrderType::MARKET}));                                 // 5 INTENT
+    gate.on_reject("ACC1", "000660", OrderSide::BUY, 7, OrderGate::OrderRef{12, 0, OrderType::MARKET},
+                   "KIS 거부");                                                                            // 6 REJECT
+    gate.set_daily_pnl(-12345.0);                                                                          // 7 DAILY_PNL
+    gate.set_available_cash(4500000.0);                                                                    // 8 CASH
+    gate.set_equity(9900000.0);                                                                            // 9 CASH
+
+    assert(gate.position("ACC1", "005930") == 13);
+    assert(gate.reserved("ACC1", "005930") == 2);
+    assert(gate.reserved("ACC1", "000660") == 0);
+    assert(gate.journal_failures() == 0);
+    return gate.journal_path();
+}
+
+// 저널 파일 끝에서 몇 바이트를 잘라 낸다 — 쓰다 만 마지막 레코드(전원 장애) 흉내.
+static void truncate_tail_bytes(const std::filesystem::path& file, uintmax_t bytes)
+{
+    std::error_code error_code;
+    const uintmax_t size = std::filesystem::file_size(file, error_code);
+    assert(size > bytes);
+    std::filesystem::resize_file(file, size - bytes, error_code);
+    assert(!error_code);
+}
+
+// ─── 테스트 19: 재기동 리플레이가 원장을 되살린다 ──────────────────────────
+void test_journal_replay_rebuilds_ledger()
+{
+    const std::filesystem::path directory = make_journal_directory("replay");
+    const std::string           date      = "20260922";
+    write_sample_day(directory, date);
+
+    OrderGate restarted(journal_config());
+    assert(restarted.set_journal(directory, date, false));
+
+    const auto& replayed = restarted.journal_replay();
+    assert(replayed.header_ok);
+    assert(replayed.applied == 9);
+    assert(!replayed.truncated_tail);
+    assert(replayed.last_sequence == 9);
+
+    assert(restarted.position("ACC1", "005930") == 13);
+    assert(restarted.reserved("ACC1", "005930") == 2);   // 5주 중 3주 체결 → 잔량 2주 선점
+    assert(restarted.reserved("ACC1", "000660") == 0);   // 거부된 주문의 선점은 안 남는다
+    const double average = restarted.average_price("ACC1", "005930");
+    assert(average > 70229.0 && average < 70232.0);      // (10*70000 + 3*71000)/13 = 70230.77
+    assert(restarted.sellable_view("ACC1", "005930").possible_quantity_cap == 13); // 시드 10 + 매수체결 3
+    assert(restarted.daily_pnl() < -12344.0 && restarted.daily_pnl() > -12346.0);
+    assert(restarted.available_cash() > 4499999.0 && restarted.available_cash() < 4500001.0);
+    assert(restarted.equity() > 9899999.0 && restarted.equity() < 9900001.0);
+    assert(restarted.journal_failures() == 0);
+
+    // 미결 주문 — 5주 중 3주만 체결돼 결말을 못 본 주문 하나가 남는다(거부된 000660은 닫혔다).
+    const auto intents = restarted.open_intents();
+    assert(intents.size() == 1);
+    assert(intents[0].order_id == 11 && intents[0].kis_order_number == 991);
+    assert(intents[0].ticker == "005930" && intents[0].remaining == 2 && intents[0].accepted);
+
+    // 이어 적기 — 리플레이한 만큼 건너뛴 번호부터 붙는다(같은 번호를 두 번 쓰면 뒤 기동이 헷갈린다).
+    assert(restarted.on_intent("ACC1", "005930", OrderSide::SELL, 4, 72000.0,
+                               OrderGate::OrderRef{13, 0, OrderType::LIMIT}));
+    assert(restarted.reserved("ACC1", "005930") == -2); // 매수 잔량 2 - 매도 선점 4
+
+    std::error_code error_code;
+    std::filesystem::remove_all(directory, error_code);
+    PASS("journal_replay_rebuilds_ledger");
+}
+
+// ─── 테스트 20: 쓰다 만 꼬리 ───────────────────────────────────────────────
+void test_journal_truncates_broken_tail()
+{
+    const std::filesystem::path directory = make_journal_directory("tail");
+    const std::string           date      = "20260922";
+    const std::filesystem::path file      = write_sample_day(directory, date);
+
+    // 마지막 CASH 레코드를 절반만 남긴다 — fwrite 도중 전원이 나간 모습.
+    truncate_tail_bytes(file, sizeof(ledger_journal::Record) / 2);
+
+    OrderGate restarted(journal_config());
+    assert(restarted.set_journal(directory, date, false));
+
+    const auto& replayed = restarted.journal_replay();
+    assert(replayed.truncated_tail);
+    assert(replayed.applied == 8);                        // 온전한 8건까지만
+    assert(restarted.position("ACC1", "005930") == 13);   // 보유는 그대로
+    assert(restarted.equity() == 0.0);                    // 잘린 CASH는 안 적용된다
+
+    // 잘린 꼬리는 파일에서도 떨어져 나가 다음 레코드가 경계에 맞게 붙는다 — 파이썬 판독기가 같은 자리를 본다.
+    std::error_code error_code;
+    assert(std::filesystem::file_size(restarted.journal_path(), error_code) ==
+           sizeof(ledger_journal::FileHeader) + 8 * sizeof(ledger_journal::Record));
+
+    std::filesystem::remove_all(directory, error_code);
+    PASS("journal_truncates_broken_tail");
+}
+
+// ─── 테스트 21: 깨진 레코드 ────────────────────────────────────────────────
+void test_journal_stops_at_corrupt_record()
+{
+    const std::filesystem::path directory = make_journal_directory("crc");
+    const std::string           date      = "20260922";
+    const std::filesystem::path file      = write_sample_day(directory, date);
+
+    // 4번째 레코드(FILL) 한 바이트를 뒤집는다 — 디스크가 조용히 썩은 경우.
+    const long offset = static_cast<long>(sizeof(ledger_journal::FileHeader) + 3 * sizeof(ledger_journal::Record)) + 32;
+    std::FILE* handle = std::fopen(file.string().c_str(), "r+b");
+    assert(handle != nullptr);
+    assert(std::fseek(handle, offset, SEEK_SET) == 0);
+    unsigned char byte = 0;
+    assert(std::fread(&byte, 1, 1, handle) == 1);
+    byte ^= 0xFFu;
+    assert(std::fseek(handle, offset, SEEK_SET) == 0);
+    assert(std::fwrite(&byte, 1, 1, handle) == 1);
+    std::fclose(handle);
+
+    OrderGate restarted(journal_config());
+    assert(restarted.set_journal(directory, date, false));
+
+    const auto& replayed = restarted.journal_replay();
+    assert(replayed.truncated_tail);
+    assert(replayed.applied == 3);                       // SEED·INTENT·ACCEPT까지
+    assert(restarted.position("ACC1", "005930") == 10);  // 체결 전 보유
+    assert(restarted.reserved("ACC1", "005930") == 5);   // 선점은 아직 안 풀렸다
+    assert(restarted.daily_pnl() == 0.0);
+
+    std::error_code error_code;
+    std::filesystem::remove_all(directory, error_code);
+    PASS("journal_stops_at_corrupt_record");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -587,6 +758,9 @@ int main()
     test_entry_snapshot_matches_separate_calls();
     test_session_window();
     test_slot_exempt();
+    test_journal_replay_rebuilds_ledger();
+    test_journal_truncates_broken_tail();
+    test_journal_stops_at_corrupt_record();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

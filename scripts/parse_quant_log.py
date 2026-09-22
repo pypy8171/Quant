@@ -83,6 +83,9 @@ def classify(rest: str, lvl: str):
         return ("recon_slow", rest)
     if "[Strategy] 신호:" in rest:
         return ("signal", rest)
+    # 원장 저널에 못 적어 안 나간 주문(D-113) — ERROR 묶음에 섞이면 묻힌다. 못 적은 수만큼 매매가 빈다.
+    if "원장 저널 기록 실패" in rest:
+        return ("ledger_fail", rest)
     # 청산차단(수동 확인 필요) — 항상 즉시 노출
     if "청산차단" in rest:
         return ("liq_block", rest)
@@ -201,9 +204,10 @@ def watch():
     n_unmapped = len(buckets.get("fill_unmapped", []))
     n_timeout = len(buckets.get("http_timeout", []))
     n_recon_slow = len(buckets.get("recon_slow", []))
+    n_ledger = len(buckets.get("ledger_fail", []))
 
     # 유의미 판단: 주문·체결·거부·게이트·WS·에러·청산차단·매핑실패 중 하나라도 / HTTP 스파이크
-    significant = (any([n_order, n_fill, n_kis, n_gate, n_ws, n_err, n_liq, n_unmapped])
+    significant = (any([n_order, n_fill, n_kis, n_gate, n_ws, n_err, n_liq, n_unmapped, n_ledger])
                    or n_http > HTTP_SPIKE)
     if not significant:
         return
@@ -213,16 +217,17 @@ def watch():
             f"게이트봉쇄{n_gate} WS재연결{n_ws} HTTP오류{n_http} ERROR{n_err}"
             + (f" 매핑실패{n_unmapped}" if n_unmapped else "")
             + (f" 제한시간초과{n_timeout}" if n_timeout else "")
-            + (f" 잔고조회걸침{n_recon_slow}" if n_recon_slow else ""))
+            + (f" 잔고조회걸침{n_recon_slow}" if n_recon_slow else "")
+            + (f" 원장기록실패{n_ledger}" if n_ledger else ""))
     out = [head]
     latency = latency_line(buckets)
     if latency:
         out.append(latency)
     # 반드시 즉시 노출할 것: 청산차단·ERROR·KIS거부(사유 원문 샘플 최대 5)
-    for cat, label in (("liq_block", "‼ 청산차단"), ("error", "✗ ERROR"),
+    for category, label in (("ledger_fail", "‼ 원장기록실패"), ("liq_block", "‼ 청산차단"), ("error", "✗ ERROR"),
                        ("kis_reject", "✗ KIS거부")):
-        for d in buckets.get(cat, [])[:5]:
-            out.append(f"  {label}: {d[:160]}")
+        for detail in buckets.get(category, [])[:5]:
+            out.append(f"  {label}: {detail[:160]}")
     # 게이트 봉쇄 사유 히스토그램
     if n_gate:
         hist = Counter(buckets["gate_block"]).most_common(4)

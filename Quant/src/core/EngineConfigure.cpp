@@ -16,7 +16,7 @@ void configure_channels(Engine& engine, const AppConfig& app)
     engine.set_bootstrap_ledger(app.bootstrap_ledger_from_balance);
     engine.set_rest_price_feed(app.rest_price_feed);
     engine.set_capture_directory(app.capture_directory);
-    engine.set_reservation_journal_path(app.reservation_journal_directory);
+    engine.set_ledger_journal(app.ledger_journal_directory, app.ledger_journal_fsync);
     engine.set_strategy_shards(app.strategy_shards);
 
     for (const auto& feed_key : app.feed_keys)

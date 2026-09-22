@@ -2,7 +2,7 @@
 #include "core/StrategyTable.h"
 #include "core/SymbolTable.h"
 #include "core/Types.h"
-#include "risk/ReservationJournal.h"
+#include "risk/LedgerJournal.h"
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -121,24 +121,64 @@ public:
         return *symbols_;
     }
 
-    // reserved_ 로컬 저널 — 재기동으로 사라지는 미체결 선점을 복구한다(D-101). 저널 파일을 열고 그 자리에서
-    //  바로 리플레이해 reserved_/reserved_price_를 되살린다. [inv] Engine이 첫 신호 전, set_symbol_table
-    //  직후에 한 번만 부른다. 실계좌 복수 프로세스가 같은 경로를 공유하면 안 된다(파일 하나 = 원장 하나).
-    void set_journal(std::filesystem::path file)
+    // 원장 저널 — 원장을 바꾸는 모든 사건(시드·주문 의도·접수·거부·체결·취소·대조·현금)을 바꾸기 전에 파일에 적고,
+    //  재기동은 오늘 파일을 처음부터 다시 적용해 원장을 되살린다. directory/ledger_<date>.bin을 열고 그 자리에서
+    //  리플레이한다. 거짓이면 파일을 못 연 것 — Engine은 기동을 거부한다(원장 없이 주문을 내지 않는다). [why D-113]
+    //  [inv] Engine이 첫 신호 전, set_symbol_table 직후에 한 번만 부른다. 실계좌 복수 프로세스가 같은 경로를
+    //  공유하면 안 된다(파일 하나 = 원장 하나).
+    [[nodiscard]] bool set_journal(const std::filesystem::path& directory, std::string_view date_yyyymmdd, bool fsync);
+
+    [[nodiscard]] bool journal_open() const noexcept
     {
-        journal_ = std::make_unique<reservation_journal::ReservationJournal>(std::move(file));
-
-        if (!journal_->ok())
-        {
-            return;
-        }
-
-        std::lock_guard<std::mutex> lock(positions_mutex_);
-        reservation_journal::ReservationJournal::replay(
-            journal_->path(),
-            [this](std::string_view account, std::string_view ticker, int delta, double price)
-            { apply_reservation_delta(account, ticker, delta, price); });
+        return journal_ && journal_->ok();
     }
+
+    // 기동 리플레이 결과 — 재기동 대조가 로그·판정 행에 쓴다(적용 레코드 수, 꼬리 잘림 여부).
+    [[nodiscard]] const ledger_journal::ReplayResult& journal_replay() const noexcept
+    {
+        return replay_result_;
+    }
+
+    // 지금 쓰고 있는 저널 파일 경로(저널이 없으면 빈 경로). 테스트·점검 도구가 파일을 직접 읽을 때 쓴다.
+    [[nodiscard]] std::filesystem::path journal_path() const
+    {
+        return journal_ ? journal_->path() : std::filesystem::path();
+    }
+
+    // append 실패 누계. 0이 아니면 파일이 원장보다 뒤처진 것이다 — 되돌릴 수 없는 사건(체결·대조)은 원장에는
+    //  반영하고 실패만 센다. 건강 판정(check_runtime_health.py)이 이 값을 읽는다.
+    [[nodiscard]] uint64_t journal_failures() const noexcept
+    {
+        return journal_failures_.load(std::memory_order_relaxed);
+    }
+
+    // 리플레이가 남긴 미결 주문 — INTENT는 적혔는데 체결·취소·거부로 닫히지 않은 것들. 엔진이 죽은 순간
+    //  거래소 호가창에 살아 있었을 주문이다. 재기동 대조(Engine::resolve_open_intents)가 KIS 미체결조회와
+    //  맞춰, 살아 있으면 라우터 이력에 되살리고(늦은 체결통보가 전략까지 이어진다) 없으면 선점을 푼다. [why D-113]
+    struct OpenIntent
+    {
+        uint64_t    order_id         = 0;
+        uint64_t    kis_order_number = 0; // ACCEPT를 못 본 주문은 0 — 접수됐는지조차 모른다는 뜻
+        std::string account;
+        std::string ticker;
+        std::string strategy_name;
+        OrderSide   side      = OrderSide::BUY;
+        OrderType   type      = OrderType::MARKET;
+        int         remaining = 0;   // 아직 안 닫힌 수량
+        double      price     = 0.0;
+        bool        accepted  = false;
+    };
+
+    // 주문번호 오름차순 — 적힌 순서대로 본다. 리플레이 뒤에만 채워져 있다.
+    [[nodiscard]] std::vector<OpenIntent> open_intents() const;
+
+    // 주문 하나를 저널 레코드에 잇는 이름표 — 주문 사건(INTENT·ACCEPT·REJECT·FILL·CANCEL)이 같이 받는다.
+    struct OrderRef
+    {
+        uint64_t  order_id         = 0; // OrderSignal.client_order_number
+        uint64_t  kis_order_number = 0; // KIS ODNO 정수(접수 전 0)
+        OrderType type             = OrderType::MARKET;
+    };
 
     // 전략 번호 테이블 — 원장 서브원장·중복 신호 키가 쓰는 번호. 엔진이 전략을 등록할 때, 디스패처·라우터가
     //  "FORCE_LIQ"·"UNLINKED" 같은 고정 이름을 생성자에서 한 번 받아 둔다. 신호마다 부르지 않는다. [why D-112]
@@ -168,12 +208,25 @@ public:
     int clamp_buy_quantity(const OrderSignal& signal);
 
     // ── 상태 업데이트 ───────────────────────────────────────────────────────
-    // KIS 접수(주문번호 ODNO 수신) 시 reserved_에 선점만 기록(실체결 원장 positions_는 불변).
-    // check()는 positions_ + reserved_ 합산으로 한도를 보므로 미체결 주문이 과잉 주문을 차단한다.
-    // 체결(on_fill_confirmed) 시 reserved_가 해제되고 positions_/average_price가 갱신된다.
-    // 원장은 (account_id:ticker)로 파티셔닝 — 계좌별 독립. 아래 4-argument 오버로드는 account="" 하위호환.
-    void on_accept(const std::string& account, const std::string& ticker,
-                   OrderSide side, int quantity, double price);
+    // 주문 생명주기는 증권사 원장 순서를 따른다: KIS 전송 직전 on_intent(선점 + INTENT 기록) → 응답에 따라
+    //  on_accepted(ACCEPT) 또는 on_reject(선점 해제 + REJECT) → 체결통보 on_fill_confirmed(FILL) / 취소 on_cancel(CANCEL).
+    //  check()는 positions_ + reserved_ 합산으로 한도를 보므로 미체결 주문이 과잉 주문을 차단한다.
+    //  원장은 (account_id:ticker)로 파티셔닝 — 계좌별 독립. [why D-113]
+    // KIS 전송 직전 — 선점(reserved_)을 잡고 INTENT를 적는다. 거짓이면 저널에 적히지 않아 선점도 되돌린 것이다 —
+    //  라우터는 그 주문을 보내지 않고 거부한다(적히지 않은 주문은 나가지 않는다).
+    [[nodiscard]] bool on_intent(const std::string& account, const std::string& ticker, OrderSide side, int quantity,
+                                 double price, const OrderRef& reference, strategy_table::StrategyId strategy = strategy_table::kNone);
+    // KIS 접수(주문번호 확보). 원장 상태는 그대로, INTENT를 ACCEPT로 확정한다.
+    void on_accepted(const std::string& account, const std::string& ticker, OrderSide side, int quantity, const OrderRef& reference);
+    // KIS 거부·전송 예외 — INTENT가 잡은 선점을 풀고 REJECT를 적는다. reason은 KIS 메시지·예외 문구.
+    void on_reject(const std::string& account, const std::string& ticker, OrderSide side, int quantity, const OrderRef& reference,
+                   std::string_view reason);
+    // 접수 뒤 선점 — 라우터가 on_intent로 옮겨 가기 전 이름. 저널에는 INTENT(order_id 0)로 남는다. 테스트 전용으로 남긴다.
+    void on_accept(const std::string& account, const std::string& ticker, OrderSide side, int quantity, double price)
+    {
+        (void)on_intent(account, ticker, side, quantity, price, OrderRef{});
+    }
+
     void on_accept(const std::string& ticker, OrderSide side, int quantity, double price)
     {
         on_accept(std::string(), ticker, side, quantity, price);
@@ -184,23 +237,19 @@ public:
     //  BUY 전용 손실컷이 동작하지 못한다.
     //  Engine이 잔고 재조회로 당일 기준선 대비 평가금 델타를 계산해 이 값으로 직접 덮어쓴다.
     //  (add_realized_pnl은 누적, 이건 절대치 세팅 — 잔고 대조 전용)
-    void set_daily_pnl(double pnl)
-    {
-        std::lock_guard<std::mutex> lock(pnl_mutex_);
-        daily_pnl_ = pnl;
-    }
+    void set_daily_pnl(double pnl);
 
     // ── 총노출 게이트용 자본 주입 (§3d) ──────────────────────────────────────
     // 잔고 대조 스레드가 총평가금(tot_evlu_amt) 갱신 시 호출. check()가 락 없이 읽도록 atomic.
     // 0이면 §3d 게이트 비활성(자본 미상 시 폴백 안전 — 종목당·동시보유 백스톱이 커버).
-    void set_equity(double equity) { equity_.store(equity, std::memory_order_relaxed); }
+    void set_equity(double equity);
     double equity() const { return equity_.load(std::memory_order_relaxed); }
 
     // 주문가능현금(원). 잔고 대조가 output2에서 읽어 넣는다. 0=미주입(클램프 비활성).
     //  총평가금(equity_)과 다르다 — 평가금이 1억이어도 미체결 지정가와 미결제 매수가
     //  현금을 묶으면 살 수 없다. 이 값이 없으면 게이트가 그걸 모른 채 계속 발주하고
     //  KIS가 40250000으로 전량 거부한다(2026-09-08 59건).
-    void set_available_cash(double available_cash) { available_cash_.store(available_cash, std::memory_order_relaxed); }
+    void set_available_cash(double available_cash);
     double available_cash() const { return available_cash_.load(std::memory_order_relaxed); }
 
     // ── 원장 부트스트랩 (G5) — 기동 시 실계좌 보유분을 원장에 시드 ─────────────
@@ -224,7 +273,8 @@ public:
     // quantity = 취소된 미체결 잔량(>0). reserved_만 감소 — positions_/average_price는 불변(취소는 체결 아님).
     // 방향은 on_fill_confirmed의 선점 해제와 동일: BUY 선점(+)은 -quantity, SELL 선점(-)은 +quantity.
     // 호출 규약: 반드시 KIS 취소 성공(rt_cd=="0") 이후에만 호출 — 실패 시 호출하면 이중해제.
-    void on_cancel(const std::string& account, const std::string& ticker, OrderSide side, int quantity);
+    void on_cancel(const std::string& account, const std::string& ticker, OrderSide side, int quantity,
+                   const OrderRef& reference = OrderRef{});
     void on_cancel(const std::string& ticker, OrderSide side, int quantity)
     {
         on_cancel(std::string(), ticker, side, quantity);
@@ -248,9 +298,11 @@ public:
         bool   strategy_basis_unknown = false; // strategy_id가 비었거나 그 전략의 평단을 모를 때 true
     };
     // strategy: OrderSignal.strategy_index(strategy_index_of로 받은 번호). kNone이면 서브원장 갱신을 건너뛴다.
+    //  reference: 이 체결이 속한 주문(저널 FILL 레코드용). 라우터가 ODNO를 못 이은 체결은 비워 둔다.
     FillResult on_fill_confirmed(const std::string& account, const std::string& ticker,
                                  OrderSide side, int quantity, double price,
-                                 strategy_table::StrategyId strategy = strategy_table::kNone);
+                                 strategy_table::StrategyId strategy = strategy_table::kNone,
+                                 const OrderRef& reference = OrderRef{});
     FillResult on_fill_confirmed(const std::string& ticker, OrderSide side,
                                  int quantity, double price)
     {
@@ -530,9 +582,23 @@ private:
     //  고쳐지므로 여기 하나만 둔다. 호출 전에 positions_mtx_를 잡아야 한다(내부에서 잡지 않음).
     void release_reservation(const PosKey& key, int delta);
 
-    // on_accept의 reserved_/reserved_price_ 갱신 본체 — 저널 리플레이(set_journal)도 이걸 그대로 써서
+    // on_intent의 reserved_/reserved_price_ 갱신 본체 — 저널 리플레이(apply_record)도 이걸 그대로 써서
     //  기동 시 복구된 상태가 실시간 경로와 같은 규칙을 거친다. [inv] positions_mutex_를 잡고 부른다.
     void apply_reservation_delta(std::string_view account, std::string_view ticker, int delta, double price);
+
+    // ── 저널 ────────────────────────────────────────────────────────────────
+    // 레코드 하나를 붙인다(계좌·종목을 채워서). 리플레이 중이거나 저널이 없으면 참(적을 것이 없다). 실패는 세고
+    //  stderr 한 줄 — 되돌릴지는 호출자가 정한다(INTENT만 되돌린다). [lock-order] positions_mutex_ → journal_mutex_.
+    //  CASH·DAILY_PNL은 positions_mutex_ 없이 journal_mutex_만 잡는다.
+    bool journal_append(ledger_journal::Record& record, std::string_view account, std::string_view ticker);
+    // 잔고 대조가 맞춘 종목의 지금 상태(보유·평단·매도가능·선점) 한 줄 — 리플레이는 이 값을 그대로 놓는다.
+    //  [inv] positions_mutex_를 잡고 부른다.
+    void journal_adjust(const PosKey& key, std::string_view reason);
+    // 리플레이 — 레코드 한 줄을 실시간 경로와 같은 함수로 원장에 적용한다. journal_append는 replaying_로 막힌다.
+    void apply_record(const ledger_journal::Record& record);
+    void apply_adjust_locked(const PosKey& key, const ledger_journal::Record& record);
+    // 리플레이 중에만 미결 주문을 센다 — 실시간 경로는 라우터 history_가 같은 것을 안다(hot path에 더 얹지 않는다).
+    void track_open_intent(const ledger_journal::Record& record);
 
     Config config_;
     std::atomic<bool> kill_switch_{false};
@@ -576,8 +642,15 @@ private:
     std::vector<std::string> account_names_{std::string()}; // 계좌 id → 문자열. [0]은 ""(단일 계좌 하위호환). positions_mutex_ 보호
     PosMap<int>    reserved_;    // (account,ticker) → 미체결 선점 수량 (BUY +, SELL -). 재주문 차단용
     PosMap<double> reserved_price_; // (account,ticker) → 미체결 선점가(§3d 총노출 계산용). reserved_와 동일 생명주기로 정리
-    // reserved_의 로컬 durable 저널 — set_journal() 이전엔 nullptr(저널 없이 기존 동작, 테스트·벤치 기본).
-    std::unique_ptr<reservation_journal::ReservationJournal> journal_;
+    // 원장 저널 — set_journal() 이전엔 nullptr(저널 없이 동작, 테스트·벤치 기본). replaying_은 set_journal 안에서만
+    //  참(스레드 시작 전)이라 락 없이 읽는다. [why D-113]
+    std::unique_ptr<ledger_journal::LedgerJournal> journal_;
+    std::mutex                   journal_mutex_;
+    ledger_journal::ReplayResult replay_result_;
+    bool                         replaying_ = false;
+    std::atomic<uint64_t>        journal_failures_{0};
+    // 리플레이가 남긴 미결 주문. set_journal 안에서만 쓰이고(스레드 시작 전) 그 뒤로는 읽기만 한다.
+    std::unordered_map<uint64_t, OpenIntent> open_intents_;
     PosMap<int>    positions_;   // (account,ticker) → 실체결 순보유 수량 (양수=롱)
     PosMap<double> average_prices_;
     // account:ticker -> 매도가능수량. 보유수량과 다르다: 기동 전 세션이 남긴 미체결 매도,

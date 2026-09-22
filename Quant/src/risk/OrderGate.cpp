@@ -695,21 +695,72 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
     return true;
 }
 
-// ─── 접수 후 선점 (reserved_만 갱신, 실체결 원장 positions_는 불변) ──────────────
-void OrderGate::on_accept(const std::string& account, const std::string& ticker,
-                          OrderSide side, int quantity, double price)
+// ─── 주문 의도 — 전송 직전 선점 + INTENT 기록 (실체결 원장 positions_는 불변) ────────
+namespace
+{
+ledger_journal::Record make_order_record(ledger_journal::Kind kind, OrderSide side, int quantity,
+                                         const OrderGate::OrderRef& reference)
+{
+    ledger_journal::Record record;
+    record.kind             = static_cast<uint16_t>(kind);
+    record.side             = static_cast<uint8_t>(static_cast<OrderSide::Value>(side));
+    record.order_type       = static_cast<uint8_t>(reference.type);
+    record.order_id         = reference.order_id;
+    record.kis_order_number = reference.kis_order_number;
+    record.quantity         = quantity;
+    return record;
+}
+} // namespace
+
+bool OrderGate::on_intent(const std::string& account, const std::string& ticker, OrderSide side, int quantity,
+                          double price, const OrderRef& reference, strategy_table::StrategyId strategy)
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    int delta = (side == OrderSide::BUY) ? quantity : -quantity;  // BUY 선점 +, SELL 선점 -
+    const PosKey key   = make_key(account, ticker);
+    const int    delta = (side == OrderSide::BUY) ? quantity : -quantity; // BUY 선점 +, SELL 선점 -
+    const auto   previous_price_iterator = reserved_price_.find(key);
+    const bool   had_price               = previous_price_iterator != reserved_price_.end();
+    const double previous_price          = had_price ? previous_price_iterator->second : 0.0;
     apply_reservation_delta(account, ticker, delta, price);
 
-    if (journal_)
+    ledger_journal::Record record = make_order_record(ledger_journal::Kind::INTENT, side, quantity, reference);
+    record.price                  = price;
+    ledger_journal::put_string(record.strategy, sizeof(record.strategy), strategies_.name(strategy));
+
+    if (journal_append(record, account, ticker))
     {
-        journal_->append(account, ticker, delta, price);
+        return true;
     }
+
+    // 적히지 않은 선점은 되돌린다 — 파일에 없는 주문은 나가지 않는다. 선점가도 직전 값으로.
+    apply_reservation_delta(account, ticker, -delta, 0.0);
+
+    if (had_price && reserved_.count(key))
+    {
+        reserved_price_[key] = previous_price;
+    }
+
+    return false;
 }
 
-// on_accept 본체 + 저널 리플레이(set_journal) 공용 — 재기동 복구가 실시간 경로와 같은 규칙을 탄다.
+void OrderGate::on_accepted(const std::string& account, const std::string& ticker, OrderSide side, int quantity,
+                            const OrderRef& reference)
+{
+    ledger_journal::Record record = make_order_record(ledger_journal::Kind::ACCEPT, side, quantity, reference);
+    journal_append(record, account, ticker);
+}
+
+void OrderGate::on_reject(const std::string& account, const std::string& ticker, OrderSide side, int quantity,
+                          const OrderRef& reference, std::string_view reason)
+{
+    std::lock_guard<std::mutex> lock(positions_mutex_);
+    release_reservation(make_key(account, ticker), (side == OrderSide::BUY) ? -quantity : quantity);
+    ledger_journal::Record record = make_order_record(ledger_journal::Kind::REJECT, side, quantity, reference);
+    ledger_journal::put_string(record.reason, sizeof(record.reason), reason);
+    journal_append(record, account, ticker);
+}
+
+// on_intent 본체 + 저널 리플레이(apply_record) 공용 — 재기동 복구가 실시간 경로와 같은 규칙을 탄다.
 //  [inv] positions_mutex_를 잡고 부른다.
 void OrderGate::apply_reservation_delta(std::string_view account, std::string_view ticker, int delta, double price)
 {
@@ -767,17 +818,10 @@ void OrderGate::release_reservation(const PosKey& key, int delta)
     {
         reserved_[key] = result;
     }
-
-    // 실제로 적용된 변화량(클램프 후)을 저널에 남긴다 — 리플레이가 같은 결과를 내야 하므로 원본
-    //  delta가 아니라 result - current를 쓴다. price=0(선점가 유지)로 남긴다 — 해제는 노출가를 바꾸지 않는다.
-    if (journal_)
-    {
-        journal_->append(account_of(key), ticker_of(key).view(), result - current, 0.0);
-    }
 }
 
-void OrderGate::on_cancel(const std::string& account, const std::string& ticker,
-                          OrderSide side, int quantity)
+void OrderGate::on_cancel(const std::string& account, const std::string& ticker, OrderSide side, int quantity,
+                          const OrderRef& reference)
 {
     if (quantity <= 0)
     {
@@ -787,6 +831,8 @@ void OrderGate::on_cancel(const std::string& account, const std::string& ticker,
     std::lock_guard<std::mutex> lock(positions_mutex_);
     // BUY 선점은 +였으므로 -quantity, SELL 선점은 -였으므로 +quantity (해제 = 반대부호 가산)
     release_reservation(make_key(account, ticker), (side == OrderSide::BUY) ? -quantity : quantity);
+    ledger_journal::Record record = make_order_record(ledger_journal::Kind::CANCEL, side, quantity, reference);
+    journal_append(record, account, ticker);
 }
 
 // ─── 선점 전면 초기화 (REST 잔고 대조 전용) ──────────────────────────────────
@@ -795,11 +841,264 @@ void OrderGate::reset_reserved()
     std::lock_guard<std::mutex> lock(positions_mutex_);
     reserved_.clear();
     reserved_price_.clear();
+    ledger_journal::Record record;
+    record.kind = static_cast<uint16_t>(ledger_journal::Kind::RESET_RESERVED);
+    journal_append(record, std::string_view(), std::string_view());
+}
 
-    if (journal_)
+// ─── 저널 ────────────────────────────────────────────────────────────────────
+bool OrderGate::set_journal(const std::filesystem::path& directory, std::string_view date_yyyymmdd, bool fsync)
+{
+    journal_ = std::make_unique<ledger_journal::LedgerJournal>(directory, date_yyyymmdd, fsync);
+
+    if (!journal_->ok())
     {
-        journal_->truncate();
+        std::cerr << std::format("[OrderGate] 원장 저널을 못 열었다: {}\n", journal_->path().string());
+        return false;
     }
+
+    replaying_     = true;
+    replay_result_ = ledger_journal::LedgerJournal::replay(
+        journal_->path(), [this](const ledger_journal::Record& record) { apply_record(record); });
+    replaying_ = false;
+    // 꼬리를 잘랐는지는 파일을 열 때만 알 수 있다 — 자르고 난 뒤 다시 읽으면 멀쩡해 보인다.
+    replay_result_.truncated_tail = journal_->opened().truncated_tail;
+    return true;
+}
+
+bool OrderGate::journal_append(ledger_journal::Record& record, std::string_view account, std::string_view ticker)
+{
+    if (replaying_ || !journal_)
+    {
+        return true;
+    }
+
+    ledger_journal::put_string(record.account, sizeof(record.account), account);
+    ledger_journal::put_string(record.ticker, sizeof(record.ticker), ticker);
+    std::lock_guard<std::mutex> lock(journal_mutex_);
+
+    if (journal_->append(record))
+    {
+        return true;
+    }
+
+    journal_failures_.fetch_add(1, std::memory_order_relaxed);
+    std::cerr << std::format("[OrderGate] 원장 저널 기록 실패 kind={} {} {} — 파일이 원장보다 뒤처졌다\n", record.kind,
+                             account, ticker);
+    return false;
+}
+
+void OrderGate::journal_adjust(const PosKey& key, std::string_view reason)
+{
+    ledger_journal::Record record;
+    record.kind = static_cast<uint16_t>(ledger_journal::Kind::ADJUST);
+    const auto position_iterator = positions_.find(key);
+    const auto average_iterator  = average_prices_.find(key);
+    const auto sellable_iterator = sellable_.find(key);
+    const auto reserved_iterator = reserved_.find(key);
+    record.quantity          = position_iterator != positions_.end() ? position_iterator->second : 0;
+    record.price             = average_iterator != average_prices_.end() ? average_iterator->second : 0.0;
+    record.sellable          = sellable_iterator != sellable_.end() ? sellable_iterator->second : -1;
+    record.reserved_quantity = reserved_iterator != reserved_.end() ? reserved_iterator->second : 0;
+    ledger_journal::put_string(record.reason, sizeof(record.reason), reason);
+    journal_append(record, account_of(key), ticker_of(key).view());
+}
+
+std::vector<OrderGate::OpenIntent> OrderGate::open_intents() const
+{
+    std::vector<OpenIntent> intents;
+    intents.reserve(open_intents_.size());
+
+    for (const auto& [order_id, intent] : open_intents_)
+    {
+        intents.push_back(intent);
+    }
+
+    std::sort(intents.begin(), intents.end(),
+              [](const OpenIntent& left, const OpenIntent& right) { return left.order_id < right.order_id; });
+    return intents;
+}
+
+// INTENT가 열고 FILL·CANCEL·REJECT가 닫는다 — 남은 것이 "보냈는데 결말을 못 본" 주문이다. 주문번호가 0인
+//  레코드(시드·대조·현금)와 라우터가 번호를 못 붙인 주문은 셈에서 뺀다(닫을 방법이 없어 영원히 남는다).
+void OrderGate::track_open_intent(const ledger_journal::Record& record)
+{
+    using ledger_journal::Kind;
+
+    if (record.order_id == 0)
+    {
+        return;
+    }
+
+    const Kind kind = static_cast<Kind>(record.kind);
+
+    if (kind == Kind::INTENT)
+    {
+        OpenIntent& intent   = open_intents_[record.order_id];
+        intent.order_id      = record.order_id;
+        intent.account       = record.account;
+        intent.ticker        = record.ticker;
+        intent.strategy_name = record.strategy;
+        intent.side  = record.side == static_cast<uint8_t>(OrderSide::SELL) ? OrderSide::SELL : OrderSide::BUY;
+        intent.type  = record.order_type == static_cast<uint8_t>(OrderType::LIMIT) ? OrderType::LIMIT : OrderType::MARKET;
+        intent.price = record.price;
+        intent.remaining += record.quantity;
+        return;
+    }
+
+    auto iterator = open_intents_.find(record.order_id);
+
+    if (iterator == open_intents_.end())
+    {
+        return;
+    }
+
+    if (kind == Kind::ACCEPT)
+    {
+        iterator->second.accepted         = true;
+        iterator->second.kis_order_number = record.kis_order_number;
+        return;
+    }
+
+    if (kind != Kind::FILL && kind != Kind::CANCEL && kind != Kind::REJECT)
+    {
+        return;
+    }
+
+    iterator->second.remaining -= record.quantity;
+
+    if (iterator->second.remaining <= 0)
+    {
+        open_intents_.erase(iterator);
+    }
+}
+
+void OrderGate::apply_record(const ledger_journal::Record& record)
+{
+    using ledger_journal::Kind;
+    track_open_intent(record);
+    const std::string account(record.account);
+    const std::string ticker(record.ticker);
+    const OrderSide   side = record.side == static_cast<uint8_t>(OrderSide::SELL) ? OrderSide::SELL : OrderSide::BUY;
+    const int         release = (side == OrderSide::BUY) ? -record.quantity : record.quantity;
+
+    switch (static_cast<Kind>(record.kind))
+    {
+    case Kind::SEED:
+        seed_position(account, ticker, record.quantity, record.price, record.sellable);
+        break;
+
+    case Kind::INTENT:
+    {
+        std::lock_guard<std::mutex> lock(positions_mutex_);
+        apply_reservation_delta(account, ticker, (side == OrderSide::BUY) ? record.quantity : -record.quantity,
+                                record.price);
+        break;
+    }
+
+    case Kind::ACCEPT:
+        break; // 상태 변화 없음 — 미결 INTENT를 가리는 것은 재기동 대조(Engine) 몫
+
+    case Kind::REJECT:
+    case Kind::CANCEL:
+    {
+        std::lock_guard<std::mutex> lock(positions_mutex_);
+        release_reservation(make_key(account, ticker), release);
+        break;
+    }
+
+    case Kind::FILL:
+        on_fill_confirmed(account, ticker, side, record.quantity, record.price,
+                          record.strategy[0] != '\0' ? strategies_.intern(record.strategy) : strategy_table::kNone);
+        break;
+
+    case Kind::ADJUST:
+    {
+        std::lock_guard<std::mutex> lock(positions_mutex_);
+        apply_adjust_locked(make_key(account, ticker), record);
+        break;
+    }
+
+    case Kind::RESET_RESERVED:
+        reset_reserved();
+        break;
+
+    case Kind::CASH:
+        available_cash_.store(record.cash, std::memory_order_relaxed);
+        equity_.store(record.equity, std::memory_order_relaxed);
+        break;
+
+    case Kind::DAILY_PNL:
+        set_daily_pnl(record.pnl);
+        break;
+    }
+}
+
+void OrderGate::apply_adjust_locked(const PosKey& key, const ledger_journal::Record& record)
+{
+    if (record.quantity > 0)
+    {
+        positions_[key]      = record.quantity;
+        average_prices_[key] = record.price;
+        sellable_[key]       = (record.sellable >= 0 && record.sellable < record.quantity) ? record.sellable : record.quantity;
+
+        if (!opened_at_.count(key))
+        {
+            opened_at_[key] = Clock::now() - std::chrono::hours(24);
+        }
+    }
+    else
+    {
+        positions_.erase(key);
+        average_prices_.erase(key);
+        sellable_.erase(key);
+        opened_at_.erase(key);
+    }
+
+    if (record.reserved_quantity != 0)
+    {
+        reserved_[key] = record.reserved_quantity;
+    }
+    else
+    {
+        reserved_.erase(key);
+        reserved_price_.erase(key);
+    }
+
+    missed_sell_seen_.erase(key);
+}
+
+void OrderGate::set_daily_pnl(double pnl)
+{
+    {
+        std::lock_guard<std::mutex> lock(pnl_mutex_);
+        daily_pnl_ = pnl;
+    }
+
+    ledger_journal::Record record;
+    record.kind = static_cast<uint16_t>(ledger_journal::Kind::DAILY_PNL);
+    record.pnl  = pnl;
+    journal_append(record, std::string_view(), std::string_view());
+}
+
+void OrderGate::set_equity(double equity)
+{
+    equity_.store(equity, std::memory_order_relaxed);
+    ledger_journal::Record record;
+    record.kind   = static_cast<uint16_t>(ledger_journal::Kind::CASH);
+    record.cash   = available_cash_.load(std::memory_order_relaxed);
+    record.equity = equity;
+    journal_append(record, std::string_view(), std::string_view());
+}
+
+void OrderGate::set_available_cash(double available_cash)
+{
+    available_cash_.store(available_cash, std::memory_order_relaxed);
+    ledger_journal::Record record;
+    record.kind   = static_cast<uint16_t>(ledger_journal::Kind::CASH);
+    record.cash   = available_cash;
+    record.equity = equity_.load(std::memory_order_relaxed);
+    journal_append(record, std::string_view(), std::string_view());
 }
 
 // ─── 유령 슬롯 정리 ─────────────────────────────────────────────────────────
@@ -848,11 +1147,13 @@ std::vector<symbol::SymbolId> OrderGate::prune_positions(const std::vector<std::
             continue;
         }
 
-        gone.push_back(iterator->first.symbol);
-        average_prices_.erase(iterator->first);
-        opened_at_.erase(iterator->first);
-        sellable_.erase(iterator->first);
+        const PosKey key = iterator->first;
+        gone.push_back(key.symbol);
+        average_prices_.erase(key);
+        opened_at_.erase(key);
+        sellable_.erase(key);
         iterator = positions_.erase(iterator);
+        journal_adjust(key, "prune_positions");
     }
 
     return gone;
@@ -876,9 +1177,11 @@ std::vector<std::string> OrderGate::prune_reservations(const std::vector<bool>& 
             continue;
         }
 
-        gone.emplace_back(ticker_of(iterator->first).view());
-        reserved_price_.erase(iterator->first);
+        const PosKey key = iterator->first;
+        gone.emplace_back(ticker_of(key).view());
+        reserved_price_.erase(key);
         iterator = reserved_.erase(iterator);
+        journal_adjust(key, "prune_reservations");
     }
 
     return gone;
@@ -904,6 +1207,7 @@ void OrderGate::restore_sellable(const std::string& account, const std::string& 
     const int current = (strategy_iterator != sellable_.end()) ? strategy_iterator->second : 0;
     const int restored = current + quantity;
     sellable_[key] = (restored > position_iterator->second) ? position_iterator->second : restored;
+    journal_adjust(key, "restore_sellable");
 }
 
 OrderGate::SellableView OrderGate::sellable_view(const std::string& account, const std::string& ticker) const
@@ -952,6 +1256,7 @@ void OrderGate::refresh_sellable(const std::string& account, const std::string& 
     const int sell_pending = (reserved_iterator != reserved_.end() && reserved_iterator->second < 0) ? -reserved_iterator->second : 0;
     const int sellable     = ord_psbl_qty + sell_pending;
     sellable_[key] = (sellable > position_iterator->second) ? position_iterator->second : sellable;
+    journal_adjust(key, "refresh_sellable");
 }
 
 int OrderGate::absorb_missed_sell(const std::string& account, const std::string& ticker, int balance_quantity)
@@ -1006,6 +1311,7 @@ int OrderGate::absorb_missed_sell(const std::string& account, const std::string&
         sellable_iterator->second = balance_quantity;
     }
 
+    journal_adjust(key, "absorb_missed_sell");
     return difference;
 }
 
@@ -1036,12 +1342,19 @@ void OrderGate::seed_position(const std::string& account, const std::string& tic
     // 기동 시드는 "오늘 산 것"이 아니다. 최소 보유 시간 판정에서 즉시 교체 대상이 되도록
     //  과거 시각으로 찍는다(전일 물린 보유분을 15분 붙잡아 둘 이유가 없다).
     opened_at_[key] = Clock::now() - std::chrono::hours(24);
+
+    ledger_journal::Record record;
+    record.kind     = static_cast<uint16_t>(ledger_journal::Kind::SEED);
+    record.quantity = quantity;
+    record.price    = average;
+    record.sellable = sellable;
+    journal_append(record, account, ticker);
 }
 
 // ─── 체결 확인 — average_price 재계산 + 실현손익 적립 ──────────────────────────
 OrderGate::FillResult OrderGate::on_fill_confirmed(
     const std::string& account, const std::string& ticker, OrderSide side, int quantity, double price,
-    strategy_table::StrategyId strategy)
+    strategy_table::StrategyId strategy, const OrderRef& reference)
 {
     FillResult result;
     result.commission = price * quantity * kCommissionRate;                              // 수수료 0.015%
@@ -1168,6 +1481,13 @@ OrderGate::FillResult OrderGate::on_fill_confirmed(
             //  종목의 슬롯을 점유로 세어 비운 자리가 그날 내내 열리지 않는다.
             release_reservation(key, quantity);
         }
+
+        // FILL 기록 — 같은 락 안이라 파일 순서가 원장 갱신 순서와 같다. 실현손익은 참고용(리플레이는 다시 계산한다).
+        ledger_journal::Record record = make_order_record(ledger_journal::Kind::FILL, side, quantity, reference);
+        record.price                  = price;
+        record.pnl                    = result.realized_pnl;
+        ledger_journal::put_string(record.strategy, sizeof(record.strategy), strategies_.name(strategy));
+        journal_append(record, account, ticker);
     }
 
     if (side == OrderSide::BUY)
@@ -1526,10 +1846,7 @@ void OrderGate::note_displacement(const DisplacePlan& plan, symbol::SymbolId ben
 // ─── 일별 리셋 (장 시작 시) ─────────────────────────────────────────────────
 void OrderGate::reset_daily()
 {
-    {
-        std::lock_guard<std::mutex> lock(pnl_mutex_);
-        daily_pnl_ = 0.0;
-    }
+    set_daily_pnl(0.0); // 저널에도 DAILY_PNL 0 — 리셋 전 체결이 리플레이로 되살아나지 않게
 
     {
         std::lock_guard<std::mutex> lock(rate_mutex_);
