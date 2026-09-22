@@ -23,10 +23,11 @@ namespace
 constexpr size_t kTickerCount = 2700;
 constexpr size_t kTickCount   = 2'000'000;
 
-// 예전 publish_trade가 만들던 문자열 그대로.
-std::string legacy_payload(const ZmqBridge::TradeEnvelope& envelope)
+// 예전 publish_trade가 만들던 문자열 그대로(계좌 필드만 뒤에 얹었다).
+std::string legacy_payload(const ZmqBridge::TradeEnvelope& envelope, const std::string& account)
 {
     nlohmann::json document;
+    document["account"]   = account;
     document["ts"]        = envelope.ts_ms;
     document["ticker"]    = envelope.trade.ticker;
     document["price"]     = envelope.trade.price;
@@ -51,8 +52,9 @@ bool wire_format_matches()
         envelope.trade.quantity  = static_cast<int64_t>(index) * 1000;
         envelope.trade.direction = index % 2 == 0 ? 1 : 5;
         envelope.trade.market    = index == 3 ? Market::US : Market::KR;
-        ZmqBridge::format_trade(envelope, actual);
-        const std::string expected = legacy_payload(envelope);
+        const std::string account = index % 3 == 0 ? "" : "acct-01";
+        ZmqBridge::format_trade(envelope, account, actual);
+        const std::string expected = legacy_payload(envelope, account);
 
         if (actual != expected)
         {

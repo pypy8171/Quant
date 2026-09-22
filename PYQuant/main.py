@@ -269,7 +269,9 @@ def cmd_record(args):
 
         if seen not in rejected_accounts:
             rejected_accounts.add(seen)
-            logger.warning(f"REC 버림 계좌 '{seen}' — 기대 '{expected_account}'. 다른 엔진이 같은 ZMQ 포트를 쓰고 있다.")
+            reason = ("계좌 없이 온 메시지 — 계좌를 안 주는 하네스이거나 account 필드 이전 엔진 바이너리다"
+                      if not seen else "다른 엔진이 같은 ZMQ 포트를 쓰고 있다")
+            logger.warning(f"REC 버림 계좌 '{seen}' — 기대 '{expected_account}'. {reason}.")
 
         return False
 
@@ -314,8 +316,10 @@ def cmd_record(args):
         db.insert_health(data)
         logger.info(f"REC HEALTH data={data.get('data')} sig={data.get('signal')} ord={data.get('order')}")
 
+    # 틱에도 계좌가 실린다(ZmqBridge::format_trade). ticks 표에는 계좌 열이 없어 주문·체결처럼 뒤에서 가려낼 수
+    #  없으므로 들어오기 전에 버린다 — 09-22 장중 부하 하네스의 합성 틱이 09:42~09:57 사이 운영 표에 섞였다.
     if args.record_ticks:
-        monitor.on_trade = lambda d: (tick_buffer.append(d), flush_ticks())
+        monitor.on_trade = lambda d: is_our_account(d) and (tick_buffer.append(d), flush_ticks())
     monitor.on_signal = lambda d: (db.insert_signal(d), logger.info(f"REC SIGNAL {d.get('ticker')} {d.get('side')}"))
     monitor.on_order  = lambda d: is_our_account(d) and (db.insert_order(d),  logger.info(f"REC ORDER  {d.get('ticker')} {'OK' if d.get('ok') else 'FAIL'}"))
     monitor.on_health = _rec_health

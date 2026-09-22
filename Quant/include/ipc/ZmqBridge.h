@@ -8,6 +8,7 @@
 #include <mutex>
 #include <queue>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <zmq.hpp>
 
@@ -103,8 +104,10 @@ public:
         TradeData trade;
     };
 
-    // TRADE 페이로드 문자열. 공개인 이유는 bench_zmq_publish가 예전 dump()와 글자 단위로 같은지 검사해서다.
-    static void format_trade(const TradeEnvelope& envelope, std::string& out);
+    // TRADE 페이로드 문자열. 공개인 이유는 bench_zmq_publish가 nlohmann dump()와 글자 단위로 같은지 검사해서다.
+    //  account는 주문·체결과 같은 계좌 표식 — 리코더가 남의 엔진(같은 5555에 bind한 테스트·부하 하네스)의 틱을
+    //  ticks 표에 섞지 않도록 거르는 근거다(09-22 장중 실측). 하네스는 계좌를 안 주므로 빈 문자열로 나간다.
+    static void format_trade(const TradeEnvelope& envelope, std::string_view account, std::string& out);
 
 private:
     // 토픽은 정수로 들고 이름은 송신 직전에 붙인다 — enqueue마다 문자열 비교 세 번을 하지 않으려고.

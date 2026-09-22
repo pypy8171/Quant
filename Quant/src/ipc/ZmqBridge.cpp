@@ -158,7 +158,7 @@ void ZmqBridge::thread_fn()
         // 1b. TRADE 링 소진 — 문자열은 여기서 만든다(버퍼 하나를 돌려 쓴다). 링 용량이 한 바퀴 상한이다.
         while (const auto envelope = trade_queue_.pop())
         {
-            format_trade(*envelope, trade_payload_);
+            format_trade(*envelope, account_no_, trade_payload_);
             send_frames(Topic::Trade, trade_payload_);
         }
 
@@ -294,13 +294,15 @@ void ZmqBridge::publish_trade(const TradeData& trade)
     }
 }
 
-// 예전 nlohmann dump()와 같은 문자열: 키는 알파벳순, 실수는 최단 표기 + ".0". 티커는 거래소 코드(숫자·영대문자)라
-//  이스케이프할 글자가 없다 — 따옴표·역슬래시가 섞인 코드는 거래소가 내지 않는다.
-void ZmqBridge::format_trade(const TradeEnvelope& envelope, std::string& out)
+// nlohmann dump()와 같은 문자열: 키는 알파벳순, 실수는 최단 표기 + ".0". 티커는 거래소 코드(숫자·영대문자),
+//  계좌는 숫자·하이픈이라 이스케이프할 글자가 없다 — 따옴표·역슬래시가 섞인 값은 거래소·증권사가 내지 않는다.
+void ZmqBridge::format_trade(const TradeEnvelope& envelope, std::string_view account, std::string& out)
 {
     const TradeData& trade = envelope.trade;
     out.clear();
-    out.append("{\"direction\":");
+    out.append("{\"account\":\"");
+    out.append(account);
+    out.append("\",\"direction\":");
     append_number(out, trade.direction); // 1=매수, 5=매도
     out.append(",\"market\":\"");
     out.append(trade.market == Market::US ? "US" : "KR");

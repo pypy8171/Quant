@@ -528,7 +528,8 @@ cmake --build Quant/build_win --target test_order_router
 PUB tcp://*:5555  멀티파트: [topic bytes][JSON payload bytes]
 
 topic    payload 예시
-TRADE    {"ts":1716220800000,"ticker":"005930","price":65000,"volume":1234,"direction":1,"market":"KR"}
+TRADE    {"account":"<계좌>","ts":1716220800000,"ticker":"005930","price":65000,"volume":1234,"direction":1,"market":"KR"}
+         account는 주문·체결과 같은 계좌 표식 — 리코더(main.py record --account)가 남의 엔진 틱을 거르는 근거. 계좌 없는 하네스는 ""
 SIGNAL   {"ts":...,"strategy":"VALUE_CONTRARY","ticker":"005930","side":"BUY","qty":1,"price":0,"market":"KR"}
 ORDER    {"ts":...,"ticker":"005930","side":"BUY","qty":1,"price":0,"ok":true,"market":"KR"}
 HEALTH   {"ts":...,"data":123,"signal":5,"order":3,"drop":0,

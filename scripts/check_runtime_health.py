@@ -194,12 +194,14 @@ def feed_ledger_rows(date: str) -> list:
 
     if not password:
         return [("피드 적재", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함"),
+                ("개장부터 적재", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함"),
                 ("원장 계좌 단일", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함")]
 
     psycopg2 = import_psycopg2()
 
     if psycopg2 is None:
         return [("피드 적재", False, "WARN", "psycopg2 없음 — venv(PYQuant/.venv*)로 부르거나 pip install psycopg2-binary"),
+                ("개장부터 적재", False, "WARN", "psycopg2 없음 — 위와 같다"),
                 ("원장 계좌 단일", False, "WARN", "psycopg2 없음 — 위와 같다")]
 
     try:
@@ -207,9 +209,10 @@ def feed_ledger_rows(date: str) -> list:
                                       password=password, connect_timeout=3)
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT COUNT(*), COUNT(DISTINCT ticker) FROM ticks"
+                "SELECT COUNT(*), COUNT(DISTINCT ticker),"
+                " TO_CHAR(MIN(ts AT TIME ZONE 'Asia/Seoul'), 'HH24:MI:SS') FROM ticks"
                 " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s", (date,))
-            tick_count, tick_tickers = cursor.fetchone()
+            tick_count, tick_tickers, first_tick_time = cursor.fetchone()
             cursor.execute(
                 "SELECT COALESCE(MAX(data_cnt), 0) FROM health"
                 " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s", (date,))
@@ -227,7 +230,8 @@ def feed_ledger_rows(date: str) -> list:
         connection.close()
     except Exception as error:   # DB가 없거나 잠든 날은 판정을 미룬다
         detail = f"DB 조회 실패 — 판정 안 함 ({str(error).strip()[:80]})"
-        return [("피드 적재", True, "WARN", detail), ("원장 계좌 단일", True, "WARN", detail)]
+        return [("피드 적재", True, "WARN", detail), ("개장부터 적재", True, "WARN", detail),
+                ("원장 계좌 단일", True, "WARN", detail)]
 
     # 27종목을 장중 내내 받으면 수만 건이다. 1,000건이면 리코더가 잠깐만 붙어 있던 것
     feed_row = ("피드 적재", tick_count >= 1000 and data_count > 0, "WARN",
@@ -239,7 +243,16 @@ def feed_ledger_rows(date: str) -> list:
                   + (" — 기대 1종. 다른 엔진이 같은 ZMQ 포트를 물었다(PYQuant/main.py record --account)"
                      if len(accounts) > 1 else ""))
 
-    return [feed_row, ledger_row]
+    # 리코더는 감시견이 개장 전에 띄우므로 첫 틱은 09:00 동시호가 체결이어야 한다. 09-22에 감시견이
+    #  --record-ticks 없이 띄운 리코더를 09:42에 손으로 다시 띄워 42분치가 비었다 — 그날 안에 다시 안 보이도록
+    #  첫 틱 시각을 본다. 틱이 아예 없는 날은 위 "피드 적재" 행이 이미 잡으므로 여기서는 넘어간다.
+    first_tick_late = tick_count > 0 and first_tick_time > "09:05:00"
+    opening_row = ("개장부터 적재", not first_tick_late, "WARN",
+                   f"첫 틱 {first_tick_time or '없음'}"
+                   + (" — 09:05 뒤다. 리코더가 개장 뒤에 (다시) 떴거나 --record-ticks 없이 떴다"
+                      "(scripts/auto_trade_day.ps1 quant-recorder 줄)" if first_tick_late else ""))
+
+    return [feed_row, opening_row, ledger_row]
 
 
 def queue_latency_row(date: str) -> tuple:
