@@ -164,8 +164,25 @@ py scripts\stresstest_flow_profile.py PYQuant\data\ticks_raw\ticks_<epoch>.bin -
 [reports/stresstest/README.md](../reports/stresstest/README.md) 6절, 결과는
 [B회차 기준선](../reports/stresstest/2026-09-22_B_pre_split_baseline.md).
 
+### 실제 장 시세를 받아 전 종목 규모가 정말 되는지 볼 때
+
+위 명령들은 유량을 하네스가 만든다. "2,700종목을 주기마다 실제로 받아 전략·주문까지 되는가"는 **장중에**
+`--source http`로 잰다 — 실제 장 시세를 한 바퀴씩 통째로 받아 같은 레인으로 흘린다.
+
+```powershell
+.\Quant\build_win\bench_engine_load.exe run --tickers 2700 --lanes 4 --shards 4 --seconds 300 `
+    --source http --sweep-ms 1000 --strategy itb --channel-min 2 `
+    --out docs\reports\stresstest\data\<날짜>_C_http_1hz.csv
+```
+
+결과의 `feed_failures`가 0이 아니면 값을 못 받은 것이다(빈 본문도 실패로 센다). 같은 주소를 라이브 트레이더가
+같은 IP로 부르므로 이쪽이 실패하면 실매매 시세도 같이 먼다 — 절차와 확인한 사실은
+[reports/stresstest/README.md](../reports/stresstest/README.md) 7절과
+[C회차](../reports/stresstest/2026-09-22_C_http_1hz_feed.md).
+
 노브 전체·열 읽는 법·실측값은 [reports/stresstest/README.md](../reports/stresstest/README.md)에 있다.
-ctest에 붙이지 않았다 — 수십 초씩 코어를 다 쓴다. **장중에는 돌리지 않는다.**
+ctest에 붙이지 않았다 — 수십 초씩 코어를 다 쓴다. **장중에는 돌리지 않는다**(`--source http`만 예외다 — 장이
+열려 있어야 뜻이 있고, 트레이더와 같은 기계에서 돌리지 않는다).
 
 ## 노브 — 수치 바꿔가며 보기
 

@@ -3,6 +3,8 @@
 //  KisClient 구현은 도메인별 7파일이다 — 목록은 Quant/source/api/KisClientInternal.h. [why D-048]
 #include "KisClientInternal.h"
 
+#include "api/HttpGet.h"
+
 // 재시도 없이 즉시 실패 스코프 깊이(스레드별). 0보다 크면 조회 재시도를 하지 않는다.
 static thread_local int g_fastfail_depth = 0;
 // 직전 단발 시도가 "서버가 제한 시간 안에 답을 안 준" 실패였는가(WinHTTP 12002·curl 28). 재시도 래퍼가 읽는다.
@@ -105,17 +107,25 @@ struct WinHttpResult
 static WinHttpResult crack_url(const std::string& url)
 {
     WinHttpResult win_http_result{};
-    std::wstring wide_url = to_wstring(url);
-    wchar_t host[512]{}, path[4096]{};
-    URL_COMPONENTS url_components{};
+    std::wstring  wide_url = to_wstring(url);
+    wchar_t       host[512]{};
+    // 경로 버퍼는 URL 길이로 잡는다. 4096자로 고정돼 있었는데, 종목 수백 개를 한 URL에 묶는 조회는 그보다 길어
+    //  분해가 실패했다 — 반환값을 안 보던 탓에 빈 경로로 요청이 나가 응답이 통째로 비었다(09-22, 675종목 4,725자).
+    std::vector<wchar_t> path(wide_url.size() + 1); // 값을 안 주면 0으로 채워진다
+    URL_COMPONENTS       url_components{};
     url_components.dwStructSize = sizeof(url_components);
     url_components.lpszHostName = host;
-    url_components.dwHostNameLength = (DWORD)std::size(host);
-    url_components.lpszUrlPath = path;
-    url_components.dwUrlPathLength = (DWORD)std::size(path);
-    WinHttpCrackUrl(wide_url.c_str(), 0, 0, &url_components);
+    url_components.dwHostNameLength = static_cast<DWORD>(std::size(host));
+    url_components.lpszUrlPath = path.data();
+    url_components.dwUrlPathLength = static_cast<DWORD>(path.size());
+
+    if (!WinHttpCrackUrl(wide_url.c_str(), 0, 0, &url_components))
+    {
+        return win_http_result; // 호스트가 빈 결과 — 부르는 쪽이 전송 실패로 읽는다
+    }
+
     win_http_result.host = host;
-    win_http_result.path = path;
+    win_http_result.path = path.data();
     win_http_result.port = url_components.nPort;
     win_http_result.https = (url_components.nScheme == INTERNET_SCHEME_HTTPS);
     return win_http_result;
@@ -244,7 +254,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
     });
 
     LPVOID pBody = body.empty() ? nullptr : (LPVOID)body.c_str();
-    DWORD cbBody = (DWORD)body.size();
+    DWORD cbBody = static_cast<DWORD>(body.size());
 
     if (!WinHttpSendRequest(request_handle, WINHTTP_NO_ADDITIONAL_HEADERS, 0, pBody, cbBody, cbBody, 0))
     {
@@ -551,6 +561,26 @@ static std::string curl_request(const std::string& method, const std::string& ur
 //  EGW00201을 돌려주는데, 어느 쪽이든 그 호출은 버려지고 재시도가 붙어 호출량이 더 는다.
 //  버킷은 인스턴스(=app_key)마다 따로다 — 한도가 app_key 단위라 시세 클라이언트와 주문
 //  클라이언트의 예산은 서로 무관하다. 총 호출량을 줄이지는 못하고 순서만 고르게 만든다.
+// ═══════════════════════════════════════════════════════════════════════════
+//  KIS 밖 주소 — 인증도 한도 버킷도 없는 GET
+// ═══════════════════════════════════════════════════════════════════════════
+
+namespace http
+{
+
+std::string get(const std::string& url, const std::vector<std::string>& headers)
+{
+    // 헤더를 덧입히지 않는다 — 부르는 쪽이 준 것만 그대로 나간다. KIS 토큰도 Content-Type도 붙이지 않는다.
+    HeaderOverlay overlay;
+#ifdef _WIN32
+    return winhttp_request("GET", url, headers, overlay, "");
+#else
+    return curl_request("GET", url, headers, overlay, "");
+#endif
+}
+
+} // namespace http
+
 namespace
 {
 thread_local std::uint64_t t_rate_wait_ns = 0;   // 스레드별 버킷 대기 누적 — rate_wait_ns_this_thread()

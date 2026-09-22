@@ -9,11 +9,11 @@
 - [(루트)](#루트) — 10개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 113개
-- [Quant](#quant) — 195개
-- [docs](#docs) — 69개
+- [Quant](#quant) — 245개
+- [docs](#docs) — 87개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
-- [scripts](#scripts) — 40개
+- [scripts](#scripts) — 42개
 - [strategies](#strategies) — 33개
 - [tools](#tools) — 3개
 
@@ -234,6 +234,7 @@
 
 ### Quant/include/api/
 
+- [HttpGet.h](../Quant/include/api/HttpGet.h) — KIS 말고 다른 곳에 GET 한 번 보낼 때 쓰는 함수 하나. 윈도·리눅스 전송부는 KisTransport.cpp 것을 그대로 쓴다 — 토큰·헤더를 안 덧붙인다
 - [IMarketDataSource.h](../Quant/include/api/IMarketDataSource.h) — 시세·봉 읽기 인터페이스 — 전략·스캔이 KIS 의존 없이 시세 접근(D-066)
 - [IOrderExecutor.h](../Quant/include/api/IOrderExecutor.h) — 주문 실행 인터페이스 — OrderAck·OpenOrder 정의(D-039)
 - [KisClient.h](../Quant/include/api/KisClient.h) — KIS REST 클라이언트 선언과 KisConfig
@@ -253,6 +254,7 @@
 - [Engine.h](../Quant/include/core/Engine.h) — 엔진 클래스 선언 — 파이프라인 스레드 배선
 - [FeedMux.h](../Quant/include/core/FeedMux.h) — 피드 소스 여러 개를 한 소스로 묶는 mux(D-071)
 - [FeedSupervisor.h](../Quant/include/core/FeedSupervisor.h) — WS stale→재연결 백오프→폴백 요구 판정 상태기계(D-071)
+- [HttpQuoteFeed.h](../Quant/include/core/HttpQuoteFeed.h) — 전 종목 시세를 주기마다 HTTP로 통째로 받는 피드의 설정·계수기·응답 구조체. 왜 있는지(KIS 41종목 한계)와 조심할 것이 머리말에 있다
 - [IFeedSource.h](../Quant/include/core/IFeedSource.h) — 실시간 피드 소스 인터페이스(D-071)
 - [KstTime.h](../Quant/include/core/KstTime.h) — UTC → KST 시각 분해 변환 유틸
 - [LatencyTrace.h](../Quant/include/core/LatencyTrace.h) — 신호 구간 지연을 CSV로 남기는 기록기 + 구간 아홉 개의 히스토그램·사본 비교(D-117)
@@ -366,6 +368,7 @@
 - [EngineConfigure.cpp](../Quant/src/core/EngineConfigure.cpp) — `Engine::configure(const AppConfig&)` — AppConfig 값을 Engine 세터에 옮기는 배선 4단계(채널·국면맵·시세 키·위험 한도)
 - [FeedMux.cpp](../Quant/src/core/FeedMux.cpp) — FeedMux.h 구현 — 피드 소스 여러 개를 한 소스로 묶는 mux(D-071)
 - [FeedSupervisor.cpp](../Quant/src/core/FeedSupervisor.cpp) — FeedSupervisor.h 구현 — WS stale→재연결 백오프→폴백 요구 판정 상태기계(D-071)
+- [HttpQuoteFeed.cpp](../Quant/src/core/HttpQuoteFeed.cpp) — 위 피드의 구현. 수신 스레드마다 자기 몲의 종목을 한 번에 받아 파싱해 엔진 큐로 밀고, 한 바퀴 시간·실패 수를 센다
 - [IFeedSource.cpp](../Quant/src/core/IFeedSource.cpp) — IFeedSource.h 구현 — 피드 소스 인터페이스의 기본 동작(레인 콜백 등록·stale 재연결 기본값, D-071)
 - [KstTime.cpp](../Quant/src/core/KstTime.cpp) — KstTime.h 구현 — UTC → KST 시각 분해 변환 유틸
 - [LatencyTrace.cpp](../Quant/src/core/LatencyTrace.cpp) — LatencyTrace.h 구현 — 신호 구간 지연을 CSV로 남기는 기록기
@@ -411,8 +414,8 @@
 
 ### Quant/src/strategy/
 
-- [DeviationScaleStrategy.cpp](../Quant/src/strategy/DeviationScaleStrategy.cpp) — DeviationScaleStrategy.h 구현 — 일봉 정배열+3분봉 이격도 분할매매 전략
 - [DevScaleRules.cpp](../Quant/src/strategy/DevScaleRules.cpp) — DevScaleRules.h 구현 — DevScale 순수 판정(무장 후 고가 트레일·원장 매수 종목·ATR14·전일 변동성 진입 허용·넘김 상수, D-111)
+- [DeviationScaleStrategy.cpp](../Quant/src/strategy/DeviationScaleStrategy.cpp) — DeviationScaleStrategy.h 구현 — 일봉 정배열+3분봉 이격도 분할매매 전략
 - [FixedIntervalStrategy.cpp](../Quant/src/strategy/FixedIntervalStrategy.cpp) — FixedIntervalStrategy.h 구현 — 고정 종목 주기 매수/매도 테스트용 전략
 - [IntradayBreakoutStrategy.cpp](../Quant/src/strategy/IntradayBreakoutStrategy.cpp) — IntradayBreakoutStrategy.h 구현 — 장중 채널 돌파 전략(ITB v2)
 - [MACrossStrategy.cpp](../Quant/src/strategy/MACrossStrategy.cpp) — MACrossStrategy.h 구현 — 골든/데드크로스 이평 전략
@@ -614,6 +617,7 @@
 
 - [2026-09-22_A_cpu_sampled.md](reports/stresstest/2026-09-22_A_cpu_sampled.md) — 09-22 A회차. 같은 39구성에 프로세스 CPU·스레드 표본을 붙임. 8레인은 10코어만 쓰고도 느려짐(다툼), 주문 경로는 CPU 2코어 밑(I/O 대기)
 - [2026-09-22_B_pre_split_baseline.md](reports/stresstest/2026-09-22_B_pre_split_baseline.md) — 09-22 B회차. 프로세스 분리 전 기준선 — 실측 유량·실전략·발행·DB를 켜고 잰 수치와 비교 규칙, 측정 코드 해시 1fcec45
+- [2026-09-22_C_http_1hz_feed.md](reports/stresstest/2026-09-22_C_http_1hz_feed.md) — C회차. 실제 장에서 2,700종목을 1초마다 받아 전략·주문까지 되는지 쟀다(된다, 한 바퀴 107ms). 7초 주기 비교와 이 시세로 못 하는 전략도 같이
 - [2026-09-22_engine_full_path.md](reports/stresstest/2026-09-22_engine_full_path.md) — 09-22 엔진 전 구간 부하 실측. 천장은 샤드→전략 큐 40만/초와 주문 경로 초당 200건대
 - [2026-09-22_prefetch_pool.md](reports/stresstest/2026-09-22_prefetch_pool.md) — 부하 회차: 프리페치 전략당 스레드→공용 풀, 스냅샷 복사 492→10ns(D-115)
 - [2026-09-22_prefetch_pool_threads.md](reports/stresstest/2026-09-22_prefetch_pool_threads.md) — 부하 회차: 프리페치 풀 스레드 수 스윕, 주기를 지연→비율로(D-115 후속)
@@ -629,6 +633,8 @@
 - [2026-09-22_B_joined.csv](reports/stresstest/data/2026-09-22_B_joined.csv) — B회차 하네스 행과 수집기 표본을 시각으로 맞춘 표(구간별 CPU 코어 수·스레드 최대)
 - [2026-09-22_B_pre_split.csv](reports/stresstest/data/2026-09-22_B_pre_split.csv) — B회차 하네스 원자료 6행(유량 3구간 × 전략 counter·itb, 발행 켬)
 - [2026-09-22_B_procwatch_samples.csv](reports/stresstest/data/2026-09-22_B_procwatch_samples.csv) — B회차 procwatch 2초 표본(CPU %·메모리 MB·스레드)
+- [2026-09-22_C_http_1hz.csv](reports/stresstest/data/2026-09-22_C_http_1hz.csv) — C회차 1초 주기 원자료
+- [2026-09-22_C_http_7s.csv](reports/stresstest/data/2026-09-22_C_http_7s.csv) — C회차 7초 주기 원자료
 - [2026-09-22_bench_engine_load.csv](reports/stresstest/data/2026-09-22_bench_engine_load.csv) — 1차 회차 하네스 원자료 39행(+헤더 중복 2줄, 시각 열 없음)
 - [2026-09-22_bench_prefetch_pool.csv](reports/stresstest/data/2026-09-22_bench_prefetch_pool.csv) — 위 회차 원자료(계산형·대기형·이웃 지연 스윕 37행, tag로 회차 구분)
 - [2026-09-22_bench_snapshot_swap.csv](reports/stresstest/data/2026-09-22_bench_snapshot_swap.csv) — 위 회차 원자료(bench_snapshot_swap 1차 5회 + atomic 열 2차 5회)

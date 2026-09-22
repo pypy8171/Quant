@@ -20,11 +20,11 @@ graph LR
   utils[utils]
   api -->|11| core
   api -->|7| utils
-  core -->|10| api
+  core -->|11| api
   core -->|3| ipc
   core -->|6| risk
   core -->|3| strategy
-  core -->|11| utils
+  core -->|12| utils
   ipc -->|2| api
   ipc -->|7| core
   ipc --> risk
@@ -57,8 +57,8 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 33 |
-| `utils/Logger.h` | 29 |
+| `core/Types.h` | 34 |
+| `utils/Logger.h` | 30 |
 | `core/KstTime.h` | 17 |
 | `strategy/StrategyBase.h` | 15 |
 | `api/KisClient.h` | 13 |
@@ -84,6 +84,7 @@ graph LR
     n_api_KisOrder_cpp["api/KisOrder.cpp"]
     n_api_KisRestDecode_cpp["api/KisRestDecode.cpp"]
     n_api_KisRestDecode_h["api/KisRestDecode.h"]
+    n_api_KisTransport_cpp["api/KisTransport.cpp"]
     n_api_KisWebSocket_cpp["api/KisWebSocket.cpp"]
     n_api_KisWebSocket_h["api/KisWebSocket.h"]
     n_api_KisWsDecode_cpp["api/KisWsDecode.cpp"]
@@ -105,6 +106,8 @@ graph LR
     n_core_FeedMux_cpp["core/FeedMux.cpp"]
     n_core_FeedMux_h["core/FeedMux.h"]
     n_core_FeedSupervisor_cpp["core/FeedSupervisor.cpp"]
+    n_core_HttpQuoteFeed_cpp["core/HttpQuoteFeed.cpp"]
+    n_core_HttpQuoteFeed_h["core/HttpQuoteFeed.h"]
     n_core_IFeedSource_cpp["core/IFeedSource.cpp"]
     n_core_IFeedSource_h["core/IFeedSource.h"]
     n_core_KstTime_cpp["core/KstTime.cpp"]
@@ -242,6 +245,7 @@ graph LR
   n_api_KisRestDecode_h --> n_api_KisTypes_h
   n_api_KisRestDecode_h --> n_core_KstTime_h
   n_api_KisRestDecode_h --> n_core_Types_h
+  n_api_KisTransport_cpp --> n_api_HttpGet_h
   n_api_KisWebSocket_cpp --> n_api_KisWebSocket_h
   n_api_KisWebSocket_h --> n_api_KisClient_h
   n_api_KisWebSocket_h --> n_api_KisWsDecode_h
@@ -318,6 +322,10 @@ graph LR
   n_core_FeedMux_h --> n_core_Types_h
   n_core_FeedMux_h --> n_core_WakeGate_h
   n_core_FeedSupervisor_cpp --> n_core_FeedSupervisor_h
+  n_core_HttpQuoteFeed_cpp --> n_api_HttpGet_h
+  n_core_HttpQuoteFeed_cpp --> n_core_HttpQuoteFeed_h
+  n_core_HttpQuoteFeed_cpp --> n_utils_Logger_h
+  n_core_HttpQuoteFeed_h --> n_core_Types_h
   n_core_IFeedSource_cpp --> n_core_IFeedSource_h
   n_core_IFeedSource_h --> n_core_Types_h
   n_core_KstTime_cpp --> n_core_KstTime_h

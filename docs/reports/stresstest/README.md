@@ -15,11 +15,14 @@ D-071 설계 원칙 7은 "성능을 이유로 고칠 때만 먼저 잰다"이다
 
 ## 회차 색인
 
+이 폴더의 회차뿐 아니라 저장소 전체의 부하·성능 측정 열세 번을 그래프로 모은 장이 따로 있다 — 저장소 `README.md`의 "결과 보기" 표에서 열 수 있다. 숫자는 아래 회차 문서와 `data/`의 CSV, 그리고 `docs/reports/PIPELINE_LATENCY_REPORT.md`·`docs/reports/FEED_MEASURE.md`가 정본이고, 그 장은 보기만 쉽게 한 것이다.
+
 | 날짜 | 문서 | 하네스 | 무엇을 바꿔가며 쟀나 | 결론 한 줄 |
 |---|---|---|---|---|
 | 2026-09-22 | [엔진 전 구간 부하](2026-09-22_engine_full_path.md) | `bench_engine_load` | 수신 스레드 1·2·4·8 × 전략 샤드 1·2·4·8, 투입 유량 100~800,000건/초 | 천장은 수신부가 아니라 **샤드→전략 스레드 큐(약 40만/초)**와 **주문 경로(초당 200건대)**다 |
 | 2026-09-22 | [A회차 — CPU·스레드 표본을 붙여서](2026-09-22_A_cpu_sampled.md) | `bench_engine_load` + `procwatch` | 위와 같은 39구성, 프로세스 CPU·메모리·스레드를 2초마다 | 8레인은 **16코어 중 10개만 쓰고도 느려진다** → 코어 부족이 아니라 스레드 다툼. 주문 경로는 CPU 2코어 밑 → I/O 대기 |
 | 2026-09-22 | [B회차 — 프로세스 분리 전 기준선](2026-09-22_B_pre_split_baseline.md) | `bench_engine_load` + `procwatch` + 리코더 | 실측 캡처에서 뽑은 유량 4구간(초당 1,592~73,315) × 실전략(ITB)·카운터, 발행·DB 켬 | 단일 프로세스는 **실제 장 최대 유량을 0.2코어로 드롭 없이** 받는다. 좁은 곳은 발행→DB(신호 5.8%만 적재)와 주문 경로(초당 300건대) |
+| 2026-09-22 | [C회차 — 전 종목 1초 피드로 전략·주문까지](2026-09-22_C_http_1hz_feed.md) | `bench_engine_load --source http` | 실제 장에서 2,700종목을 주기마다 통째로 받아 전략·주문까지. 주기 1초 vs 7초 | **된다** — 한 바퀴 107ms, 주문 지연 p99 243ms로 1초 예산 안. 다만 시세는 초당 184건으로 실제 체결의 1/8이라 체결 하나하나를 보는 전략은 못 태운다 |
 
 1차·A회차는 **단일 엔진 안쪽 경로의 천장 탐색**이다 — 발행·DB를 끄고 실제 장보다 10~100배 위 유량을 밀었다. 프로세스 분리
 전후 비교의 **분리 전 기준선은 [B회차](2026-09-22_B_pre_split_baseline.md)**(실측 유량 프로파일·발행·DB 켬·실전략, 코드 해시 명기)가
@@ -129,6 +132,26 @@ Quant\build_win\bench_engine_load.exe run --tickers 2700 --lanes 4 --shards 4 --
 `--strategy itb`는 종목마다 `IntradayBreakoutStrategy` 하나를 붙인다(2,700개, 라이브와 같은 배치). 이 전략은 분봉이 쌓여야
 채널이 생기므로 `--clock-speed`로 합성 장시계를 빠르게 돌리고 `--channel-min`으로 채널을 짧게 잡는다. 둘을 빼면 신호가 0이다.
 
+### 7. 실제 장 시세를 주기마다 통째로 받아 재기(C회차 방식)
+
+합성 유량은 "엔진이 이만큼을 견디는가"에 답하고, "이만큼을 실제로 받아올 수 있는가"에는 답하지 못한다. 후자는
+**장중에** 실제 장 시세를 붙여 잰다. 유량을 우리가 정하지 않으므로 `--rate`·`--profile`·`--clock-speed`는 안 쓴다.
+
+```powershell
+.\Quant\build_win\bench_engine_load.exe run --tickers 2700 --lanes 4 --shards 4 --seconds 300 `
+    --source http --sweep-ms 1000 --strategy itb --channel-min 2 `
+    --out docs\reports\stresstest\data\<날짜>_C_http_1hz.csv
+```
+
+결과 열 중 `feed_`로 시작하는 것이 피드 쪽 값이다 — `feed_sweeps`(돈 바퀴) · `feed_calls`/`feed_failures`(요청과
+빈 응답) · `feed_quotes`(응답에 실려 온 종목 수 합) · `feed_megabytes` · `feed_sweep_average_ms`/`feed_sweep_max_ms` ·
+`feed_overruns`(한 바퀴가 주기를 넘긴 횟수).
+
+**`feed_failures`가 0이 아니면 값을 못 받은 것이다.** 빈 본문도 실패로 센다. 같은 주소를 라이브 트레이더의
+유니버스 스캔(`scripts/live_prices_feed.py`)이 같은 IP로 부르므로, 여기가 실패하면 실매매 시세가 같이 먼다.
+주기·묶음을 줄여도 실패가 이어지면 그날은 그만 돌린다. 결과와 이 엔드포인트를 두고 확인한 사실은
+[C회차](2026-09-22_C_http_1hz_feed.md) 7절.
+
 ### 주의
 
 - **장중에는 돌리지 않는다.** 코어를 다 쓴다. 트레이더가 떠 있으면 그쪽에 돌아갈 CPU가 없다.
@@ -158,6 +181,9 @@ Quant\build_win\bench_engine_load.exe run --tickers 2700 --lanes 4 --shards 4 --
 | `--channel-min N` | `itb` 전략의 채널 길이(분). 짧은 구간을 잴 때 줄인다 | 10 |
 | `--clock-speed X` | 합성 장시계 배속. 09:00에서 시작해 실제 1초가 장 X초로 흐른다 | 1.0 |
 | `--zmq-bind <주소>` | 발행(ZMQ) 켬. 라이브가 쓰는 `127.0.0.1`과 겹치면 안 된다 | 없음(발행 끔) |
+| `--source synthetic\|http` | `synthetic`은 하네스가 유량을 만든다. `http`는 실제 장 시세를 주기마다 통째로 받아 유량을 시장이 정한다(장중에만 뜻이 있다) | synthetic |
+| `--sweep-ms N` | `http` 한 바퀴 주기(ms). 1000과 7000 두 값으로 쟀다 | 1000 |
+| `--codes-per-call N` | `http` 한 요청에 묶을 종목 수. 레인 하나가 맡은 종목이 이보다 많으면 여러 번 나눠 부른다 | 900 |
 
 ## 결과 열 읽는 법
 

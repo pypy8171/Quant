@@ -30,6 +30,8 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+
+#include "core/HttpQuoteFeed.h"
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -144,6 +146,19 @@ public:
     std::vector<WatchSpec> take_overflow_specifications() override { return {}; }
     bool                   is_connected() const override { return connected_.load(); }
     bool                   is_stale(int) const override { return false; }
+
+    // 바깥 피드가 이미 만든 체결을 그대로 넘긴다 — 값은 시장이 정하고 하네스는 어느 레인이 낸 것인지만 고른다.
+    void emit_trade_data(uint32_t lane, const TradeData& trade)
+    {
+        if (lane_trade_)
+        {
+            lane_trade_(lane, trade);
+        }
+        else if (on_trade_)
+        {
+            on_trade_(trade);
+        }
+    }
 
     // 수신 스레드가 디코드 직후 부르는 자리. 종목 id는 Engine 쪽 콜백이 찾는다 — 그 조회도 재는 대상이다.
     void emit_trade(uint32_t lane, const std::string& ticker, double price, int32_t hhmmss)
@@ -439,6 +454,9 @@ struct Options
     std::string           zmq_bind;                  // 비면 발행 안 함. 라이브(127.0.0.1)와 겹치지 않는 주소를 준다
     double                clock_speed   = 1.0;       // 합성 장시계 배속 — 지표 전략이 분봉을 쌓으려면 시각이 흘러야 한다
     int                   channel_minutes = 10;      // itb 전략의 채널 길이(분). 짧은 구간을 잴 때 줄인다
+    std::string           source        = "synthetic"; // synthetic(합성 생성기) | http(실제 장 시세를 주기마다 통째로)
+    int                   sweep_milliseconds = 1000;   // http 한 바퀴 주기. 1000과 7000 두 값으로 재다
+    size_t                codes_per_call     = 900;    // http 한 요청에 묶을 종목 수(900까지 전부 돌아오는 것을 쟀다)
 };
 
 std::vector<uint32_t> parse_number_list(const std::string& text)
@@ -542,6 +560,15 @@ struct RunResult
     Engine::QueueStatistics queues;
     LatencySummary latency;
     std::string    started_at; // 벽시계 HH:MM:SS — 바깥 자원 수집기(procwatch) 표본과 이 행을 시각으로 맞추는 열쇠
+    // 아래는 --source http 일 때만 찬다. 합성 생성기에서는 전부 0이다.
+    uint64_t       feed_sweeps        = 0; // 돈 바퀴 수(레인별 합)
+    uint64_t       feed_calls         = 0;
+    uint64_t       feed_failures      = 0; // 빈 응답·종목 0건
+    uint64_t       feed_quotes        = 0; // 응답에 들어 있던 종목 수 합
+    uint64_t       feed_megabytes     = 0;
+    double         feed_sweep_average_ms  = 0.0;
+    double         feed_sweep_max_ms  = 0.0;
+    uint64_t       feed_overruns      = 0; // 한 바퀴가 주기를 넘긴 횟수
 };
 
 std::string wall_clock_now()
@@ -640,7 +667,10 @@ RunResult run_once(const Options& options, const std::vector<std::string>& unive
 
     constexpr size_t kBatch = 256; // 시각 확인·유량 조절 주기. 건마다 steady_clock을 부르면 그게 측정 대상을 가린다
 
-    for (uint32_t lane = 0; lane < lanes; ++lane)
+    // 실제 장 시세를 쓰면 합성 생성기는 띄우지 않는다 — 유량을 시장이 정하므로 여기서 만들 것이 없다.
+    const uint32_t generator_lanes = options.source == "http" ? 0 : lanes;
+
+    for (uint32_t lane = 0; lane < generator_lanes; ++lane)
     {
         generators.emplace_back([&, lane]() {
             // [inv] 종목 하나는 수신 스레드 하나만 내보낸다 — 종목 안 순서 보장(원칙 1·2).
@@ -718,6 +748,45 @@ RunResult run_once(const Options& options, const std::vector<std::string>& unive
         });
     }
 
+    std::unique_ptr<feed::HttpQuoteFeed> web_feed;
+
+    if (options.source == "http")
+    {
+        feed::HttpQuoteFeed::Config feed_config;
+        feed_config.codes              = universe;
+        feed_config.lane_count         = lanes;
+        feed_config.sweep_period       = std::chrono::milliseconds(options.sweep_milliseconds);
+        feed_config.max_codes_per_call = options.codes_per_call;
+        // [inv] 레인 배정은 피드가 정하고 여기서는 그대로 따른다 — 한 종목은 한 레인만 낸다(원칙 1·2).
+        web_feed = std::make_unique<feed::HttpQuoteFeed>(std::move(feed_config), [&](size_t lane, TradeData trade)
+        {
+            feed->emit_trade_data(static_cast<uint32_t>(lane), trade);
+            emitted.fetch_add(1, std::memory_order_relaxed);
+        });
+        web_feed->start();
+
+        while (!stop.load(std::memory_order_relaxed) && std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+
+        web_feed->stop();
+        const feed::HttpQuoteFeed::Counters& feed_counters = web_feed->counters();
+        result.feed_sweeps    = feed_counters.sweeps.load();
+        result.feed_calls     = feed_counters.calls.load();
+        result.feed_failures  = feed_counters.call_failures.load();
+        result.feed_quotes    = feed_counters.quotes_received.load();
+        result.feed_overruns  = feed_counters.sweep_overruns.load();
+        result.feed_megabytes = feed_counters.bytes_received.load() / (1024 * 1024);
+        result.feed_sweep_max_ms = static_cast<double>(feed_counters.sweep_micros_max.load()) / 1000.0;
+
+        if (result.feed_sweeps > 0)
+        {
+            result.feed_sweep_average_ms =
+                static_cast<double>(feed_counters.sweep_micros_total.load()) / static_cast<double>(result.feed_sweeps) / 1000.0;
+        }
+    }
+
     for (auto& generator : generators)
     {
         generator.join();
@@ -742,7 +811,9 @@ RunResult run_once(const Options& options, const std::vector<std::string>& unive
 const char* kCsvHeader = "lanes,shards,tickers,seconds,order_every,zipf,strategy,zmq,rate,elapsed_sec,ticks_emitted,offered_per_sec,"
                          "accepted_per_sec,drop_pct,signals,orders,orders_per_sec,"
                          "shard_high_water,order_high_water,fill_high_water,trade_dropped,shard_dropped,order_dropped,fill_dropped,"
-                         "latency_samples,p50_us,p99_us,max_us,started_at";
+                         "latency_samples,p50_us,p99_us,max_us,started_at,"
+                         "source,sweep_ms,feed_sweeps,feed_calls,feed_failures,feed_quotes,feed_megabytes,"
+                         "feed_sweep_average_ms,feed_sweep_max_ms,feed_overruns";
 
 std::string to_csv_row(const Options& options, const RunResult& result)
 {
@@ -770,7 +841,11 @@ std::string to_csv_row(const Options& options, const RunResult& result)
         << result.queues.trade_dropped << ',' << result.queues.shard_dropped << ',' << result.queues.order_dropped << ','
         << result.queues.fill_dropped << ','
         << result.latency.samples << ',' << result.latency.p50_us << ',' << result.latency.p99_us << ',' << result.latency.max_us << ','
-        << result.started_at;
+        << result.started_at << ','
+        << options.source << ',' << options.sweep_milliseconds << ','
+        << result.feed_sweeps << ',' << result.feed_calls << ',' << result.feed_failures << ',' << result.feed_quotes << ','
+        << result.feed_megabytes << ',' << result.feed_sweep_average_ms << ',' << result.feed_sweep_max_ms << ','
+        << result.feed_overruns;
     return row.str();
 }
 
@@ -846,6 +921,19 @@ int main(int argc, char** argv)
         else if (argument == "--universe")
         {
             options.universe_path = value;
+        }
+        else if (argument == "--source")
+        {
+            // synthetic = 합성 생성기(유량을 우리가 정한다) | http = 실제 장 시세(유량을 시장이 정한다)
+            options.source = value;
+        }
+        else if (argument == "--sweep-ms")
+        {
+            options.sweep_milliseconds = std::stoi(value);
+        }
+        else if (argument == "--codes-per-call")
+        {
+            options.codes_per_call = static_cast<size_t>(std::stoul(value));
         }
         else if (argument == "--profile")
         {

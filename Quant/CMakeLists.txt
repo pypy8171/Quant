@@ -172,6 +172,7 @@ set(ENGINE_SOURCES
   src/core/EngineConfigure.cpp
   src/core/LedgerReconciler.cpp
   src/core/DataPoller.cpp
+  src/core/HttpQuoteFeed.cpp
   src/core/BarAggregator.cpp
   src/core/SignalDispatcher.cpp
   src/core/OrderRateLimiter.cpp

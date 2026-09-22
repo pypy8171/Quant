@@ -24,7 +24,7 @@
     {
       "from": "core",
       "to": "api",
-      "weight": 10
+      "weight": 11
     },
     {
       "from": "core",
@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 11
+      "weight": 12
     },
     {
       "from": "ipc",
@@ -163,6 +163,7 @@
     }
   ],
   "file_module": {
+    "api/HttpGet.h": "api",
     "api/IMarketDataSource.h": "api",
     "api/IOrderExecutor.h": "api",
     "api/KisClient.h": "api",
@@ -179,6 +180,7 @@
     "core/Engine.h": "core",
     "core/FeedMux.h": "core",
     "core/FeedSupervisor.h": "core",
+    "core/HttpQuoteFeed.h": "core",
     "core/IFeedSource.h": "core",
     "core/KstTime.h": "core",
     "core/LatencyTrace.h": "core",
@@ -265,6 +267,7 @@
     "core/EngineConfigure.cpp": "core",
     "core/FeedMux.cpp": "core",
     "core/FeedSupervisor.cpp": "core",
+    "core/HttpQuoteFeed.cpp": "core",
     "core/IFeedSource.cpp": "core",
     "core/KstTime.cpp": "core",
     "core/LatencyTrace.cpp": "core",
@@ -368,6 +371,9 @@
       "api/KisTypes.h",
       "core/KstTime.h",
       "core/Types.h"
+    ],
+    "api/KisTransport.cpp": [
+      "api/HttpGet.h"
     ],
     "api/KisWebSocket.cpp": [
       "api/KisWebSocket.h"
@@ -482,6 +488,14 @@
     ],
     "core/FeedSupervisor.cpp": [
       "core/FeedSupervisor.h"
+    ],
+    "core/HttpQuoteFeed.cpp": [
+      "api/HttpGet.h",
+      "core/HttpQuoteFeed.h",
+      "utils/Logger.h"
+    ],
+    "core/HttpQuoteFeed.h": [
+      "core/Types.h"
     ],
     "core/IFeedSource.cpp": [
       "core/IFeedSource.h"
@@ -914,6 +928,10 @@
     ]
   },
   "included_by": {
+    "api/HttpGet.h": [
+      "api/KisTransport.cpp",
+      "core/HttpQuoteFeed.cpp"
+    ],
     "api/IMarketDataSource.h": [
       "api/KisClient.h"
     ],
@@ -1002,6 +1020,9 @@
     "core/FeedSupervisor.h": [
       "core/Engine.h",
       "core/FeedSupervisor.cpp"
+    ],
+    "core/HttpQuoteFeed.h": [
+      "core/HttpQuoteFeed.cpp"
     ],
     "core/IFeedSource.h": [
       "api/KisWebSocket.h",
@@ -1154,6 +1175,7 @@
       "core/DataPoller.h",
       "core/Engine.h",
       "core/FeedMux.h",
+      "core/HttpQuoteFeed.h",
       "core/IFeedSource.h",
       "core/LatencyTrace.h",
       "core/OrderRateLimiter.h",
@@ -1359,6 +1381,7 @@
       "core/DataPoller.cpp",
       "core/Engine.cpp",
       "core/EngineConfigure.cpp",
+      "core/HttpQuoteFeed.cpp",
       "core/LedgerReconciler.cpp",
       "core/OrderRateLimiter.cpp",
       "core/SignalDispatcher.cpp",
@@ -1399,11 +1422,11 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 33
+      "in_degree": 34
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 29
+      "in_degree": 30
     },
     {
       "header": "core/KstTime.h",
@@ -1605,6 +1628,7 @@
       "scripts/premarket_routine.py",
       "scripts/refresh_dashboard.py",
       "scripts/seed_open_orders.py",
+      "scripts/stresstest_flow_profile.py",
       "scripts/stresstest_join_procwatch.py",
       "scripts/summarize_trading_day.py",
       "scripts/trade_costs.py"
