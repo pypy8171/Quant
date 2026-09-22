@@ -156,22 +156,44 @@ def find_process(process_name: str):
     return None
 
 
+MISSING_REPEAT_SEC = 300.0
+
+
+def warn_missing(process_name: str, missing_since: float, last_warning: float) -> tuple:
+    """찾는 프로세스가 없을 때 경고를 한 번만 찍고 마는 대신 5분마다 기다린 시간과 함께 다시 찍는다.
+    한 번만 찍으면 이름을 잘못 준 것과 아직 안 뜬 것을 영영 구분할 수 없다 — 창은 멀쩡해 보이는데
+    표가 비어 있게 된다(2026-09-22 부하 회차 준비 중 발견). 돌려주는 값은 (처음 없어진 시각, 마지막 경고 시각)."""
+    now = time.monotonic()
+
+    if not missing_since:
+        logger.warning(f"프로세스 미기동(name={process_name}) — 뜰 때까지 대기")
+        return now, now
+
+    if now - last_warning >= MISSING_REPEAT_SEC:
+        logger.warning(f"프로세스 미기동(name={process_name}) — {(now - missing_since) / 60:.0f}분째 대기. "
+                       f"이름이 맞는지 본다(윈도우는 .exe까지, 리눅스는 pgrep -x 기준)")
+        return missing_since, now
+
+    return missing_since, last_warning
+
+
 def _run_psutil(db, process_name: str, interval: float):
     if not _PSUTIL_AVAILABLE:
         raise RuntimeError("psutil이 설치되지 않았습니다: pip install psutil")
 
     core_count = psutil.cpu_count(logical=True)
-    was_missing = False
+    missing_since = 0.0
+    last_missing_warning = 0.0
 
     while True:
         process = find_process(process_name)
         if process is None:
-            if not was_missing:
-                logger.warning(f"프로세스 미기동(name={process_name}) — 뜰 때까지 대기")
-                was_missing = True
+            missing_since, last_missing_warning = warn_missing(
+                process_name, missing_since, last_missing_warning)
             time.sleep(interval)
             continue
-        was_missing = False
+
+        missing_since = 0.0
         try:
             cpu_percent = process.cpu_percent(interval=interval)  # 이 구간 동안 대기하며 측정
             memory_mb = process.memory_info().rss / (1024 * 1024)
@@ -200,7 +222,8 @@ def _run_linux(db, process_name: str, interval: float, wsl_distro: str, perf_int
     sampler = LinuxProcSampler(process_name, wsl_distro)
     where = f"wsl:{wsl_distro}" if wsl_distro else "local"
     logger.info(f"/proc 표본({where}) — perf 핫스팟 {'매 %.0f초 %.0f초 표본(CPU %.1f%% 이상일 때만)' % (perf_interval, perf_seconds, perf_cpu_floor) if perf_interval > 0 else '끔'}")
-    was_missing = False
+    missing_since = 0.0
+    last_missing_warning = 0.0
     perf_supported = perf_interval > 0
     last_perf = 0.0
     consecutive_failures = 0
@@ -222,14 +245,14 @@ def _run_linux(db, process_name: str, interval: float, wsl_distro: str, perf_int
         consecutive_failures = 0
 
         if sample is None:
-            if sampler._previous is None and not was_missing:
-                logger.warning(f"프로세스 미기동(name={process_name}) — 뜰 때까지 대기")
-                was_missing = True
+            if sampler._previous is None:
+                missing_since, last_missing_warning = warn_missing(
+                    process_name, missing_since, last_missing_warning)
 
             time.sleep(interval)
             continue
 
-        was_missing = False
+        missing_since = 0.0
         threads = sample.pop("threads")
         db.insert_proc_stat(sample)
         db.insert_proc_thread_statistics(threads)
@@ -280,7 +303,7 @@ def run(db, process_name: str = "", interval: float = 5.0, wsl_distro: str = "",
         # 엔진 말고 다른 프로세스(부하 하네스 bench_engine_load 등)를 볼 때는 로그를 따로 쓴다 —
         #  두 수집기가 한 파일을 회전시키면 Windows에서 잠금으로 깨진다.
         engine_names = ("quant_trader", "quant_trader.exe")
-        log_file = "logs/procwatch.log" if process_name in engine_names             else f"logs/procwatch_{process_name}.log"
+        log_file = "logs/procwatch.log" if process_name in engine_names             else f"logs/procwatch_{process_name.removesuffix('.exe')}.log"
 
     attach_file_handler(logger, log_file)
 
