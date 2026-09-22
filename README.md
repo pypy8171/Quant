@@ -13,6 +13,7 @@
 | 백테스트 스터디 22건의 질문, 방법, 데이터, 결과, 판정. 모의계좌 매매의 날짜별 주문·체결·실현손익 | [퀀트 백테스트·모의매매 결과](https://claude.ai/artifact/LuFGpPCgBhrNgDVNc3obrq) |
 | 스터디별 코드와 숫자 표 | [research/studies/](research/studies/), 색인은 [research/README.md](research/README.md) |
 | 날짜별 매매일지(무엇을 왜 사고팔았고 무엇이 거부됐는지) | [strategies/DeviationScale/live/](strategies/DeviationScale/live/), 전략 색인은 [strategies/README.md](strategies/README.md) |
+| 엔진이 1초에 몇 건까지 받고 어디서 막히는지 — 측정 열세 번을 그래프와 표로 | [부하 시험 결과 한 장](https://claude.ai/artifact/2HR69XdJRKU4puWt3aoMz7) |
 | 설계를 바꾼 이유와 버린 대안 | [docs/DECISIONS.md](docs/DECISIONS.md) |
 
 ## 지금 어디까지 왔나
