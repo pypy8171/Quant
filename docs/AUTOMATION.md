@@ -134,6 +134,9 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 장중 exe 교체 자체는 D-101 결정 1로 A등급 결함(체결 누락·이중 발주·원장 불일치·주문 불능)일 때만이다 —
 `C:/build_tmp/relink.cmd`가 먼저 `py scripts/deploy_guard.py`를 부르고, 매매 창 안이면 exit 1로 링크를 막는다(A등급은
 `--hotfix-a "사유"`, 사유는 `_private/deploy_guard.log`에 남는다). 리팩터·이름·문서·성능 반영은 장 마감 뒤 감시견의 기동 전 빌드가 한다.
+창 끝은 **지금 도는 트레이더·감시견이 실제로 연 config**의 `is_paper`로 잡는다 — 모의면 15:30, 실계좌면 20:00이고,
+둘 다 안 돌고 있으면 바꿔도 깨질 매매가 없어 그냥 통과한다(`--config <경로>`로 특정 config를 지정할 수도 있다).
+전에는 경로를 `Quant/config/config.json`으로 고정해 읽어, 모의로 돌던 날에도 실계좌 20:00을 적용해 마감 뒤 배포를 막았다.
 KILL을 풀고 다시 매매하려면 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/kill_release.ps1` — 표지
 파일을 지우고 워치독 상태파일을 옆으로 치워 감시자가 다음 주기(5분 안)에 워치독을 다시 띄운다. 엔진을 손으로 띄우지 않는다.
 
