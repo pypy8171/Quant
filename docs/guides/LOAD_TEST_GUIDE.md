@@ -147,6 +147,23 @@ wsl -d Ubuntu-24.04 -- /usr/lib/linux-tools-6.8.0-139/perf report -i /root/fh.da
 .\Quant\build_win\bench_engine_load.exe sweep --tickers 2700 --lanes 4 --shards 4 --seconds 5 --rate-list 100000,200000,400000,800000 --out logs\bench_engine_load.csv
 ```
 
+### 실제 장만큼만 밀어 분리 전후를 비교할 때
+
+위 두 명령은 천장 탐색이라 실제 장의 10~100배를 민다. 프로세스 분리 전후 비교는 **실측 유량·실전략·발행·DB를 켜고**
+재야 비교할 자리가 생긴다. 유량은 엔진이 남긴 체결 캡처에서 뽑는다.
+
+```powershell
+# 1) 캡처 → 유량 프로파일(종목별 몫 + 환산 초당 건수)
+py scripts\stresstest_flow_profile.py PYQuant\data\ticks_raw\ticks_<epoch>.bin --symbols 2700 --out docs\reports\stresstest\data\<날짜>_flow_profile.json
+
+# 2) 실전략 2,700개 + 발행 켬. 라이브가 127.0.0.1:5555를 쓰므로 바인드 주소를 달리한다
+.\Quant\build_win\bench_engine_load.exe run --tickers 2700 --lanes 4 --shards 4 --seconds 20 --profile docs\reports\stresstest\data\<날짜>_flow_profile.json --profile-rate p99 --strategy itb --channel-min 2 --clock-speed 30 --zmq-bind 127.0.0.2 --out docs\reports\stresstest\data\<날짜>_B_pre_split.csv
+```
+
+발행을 켜면 리코더를 `TSDB_DB=quant_test`로 띄워 받는다 — 실거래 DB에 시험 주문이 들어가지 않게 가른다. 절차 전체는
+[reports/stresstest/README.md](../reports/stresstest/README.md) 6절, 결과는
+[B회차 기준선](../reports/stresstest/2026-09-22_B_pre_split_baseline.md).
+
 노브 전체·열 읽는 법·실측값은 [reports/stresstest/README.md](../reports/stresstest/README.md)에 있다.
 ctest에 붙이지 않았다 — 수십 초씩 코어를 다 쓴다. **장중에는 돌리지 않는다.**
 

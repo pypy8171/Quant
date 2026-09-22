@@ -289,6 +289,7 @@ scripts/market_close_autodoc.py
 | `scripts/exit_ev.py` · `scripts/exit_ev_dashboard.py` | 모의 원장 청산 체결을 사유별로 묶어 승률·기대값·CI 표(study 17)와 그 근거를 셀마다 펼쳐 보는 화면(`research/studies/17_exit_ev/exit_ev_dashboard.html`)을 만든다. `refresh_dashboard.py`가 매매일 마감 뒤 부르고(마지막 날 = 원장 최신 파일), 발행본은 `/dashboard-sync` |
 | `scripts/refresh_dashboard.py` | 위 재생성 순서(라이브 백필·리뷰 항목·생성기)를 소유한다. `--if-stale`은 원천 파일이 산출물보다 새것일 때만 돈다. `market_close_autodoc.py`와 Stop 훅이 모두 이 스크립트를 부르므로 절차가 한쪽만 고쳐져 갈라지지 않는다. 실행 기록은 `logs/refresh_dashboard.log` |
 | `../quant-devtools/token_audit.py` | 세션 기록(`~/.claude/projects/<repo>/*.jsonl`)에서 토큰 사용을 절차(탐색·편집·git·빌드·위임·훅 되돌림)·도구 결과·하네스 주입(CLAUDE.md 재주입·압축 요약)·훅 소요별로 집계해 표로 낸다. `--md docs/reports/TOKEN_AUDIT.md`로 보고서 |
+| `scripts/stresstest_flow_profile.py` | 엔진이 남긴 체결 캡처(QTCAP)에서 종목별 초당 건수를 재고, 순위별 몫을 멱법칙으로 전 종목 규모까지 늘려 부하 프로파일 JSON을 만든다. 부하 하네스가 `--profile`로 읽어 실제 장만큼의 유량을 민다. 절차는 `docs/reports/stresstest/README.md` 6절 |
 | `scripts/stresstest_join_procwatch.py` | 부하 회차 CSV(`bench_engine_load`의 `started_at` 열)와 `logs/procwatch_<이름>.log`의 `cpu=` 줄을 시각으로 맞춰 구성별 CPU 평균·최대(코어 수)·스레드 최대를 낸다. 표본 없는 구성은 빈칸. 절차는 `docs/reports/stresstest/README.md` 5절 |
 | `scripts/trade_costs.py` | 체결 원장 `logs/trades_YYYYMMDD.csv`의 날짜별·종목별 매매 비용(수수료·거래세, 요율은 인자)과 실현손익(`realized_pnl` 열)을 `logs/trade_costs.json`에 누적하고 표로 낸다. 거래 빈도와 손익의 경계를 보는 용도. `py scripts/trade_costs.py --days 7` |
 | `../quant-devtools/check_docs.py` | 깨진 내부 링크·색인 누락 검사. exit 0이어야 문서 커밋 |

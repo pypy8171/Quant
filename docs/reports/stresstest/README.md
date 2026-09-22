@@ -19,12 +19,14 @@ D-071 설계 원칙 7은 "성능을 이유로 고칠 때만 먼저 잰다"이다
 |---|---|---|---|---|
 | 2026-09-22 | [엔진 전 구간 부하](2026-09-22_engine_full_path.md) | `bench_engine_load` | 수신 스레드 1·2·4·8 × 전략 샤드 1·2·4·8, 투입 유량 100~800,000건/초 | 천장은 수신부가 아니라 **샤드→전략 스레드 큐(약 40만/초)**와 **주문 경로(초당 200건대)**다 |
 | 2026-09-22 | [A회차 — CPU·스레드 표본을 붙여서](2026-09-22_A_cpu_sampled.md) | `bench_engine_load` + `procwatch` | 위와 같은 39구성, 프로세스 CPU·메모리·스레드를 2초마다 | 8레인은 **16코어 중 10개만 쓰고도 느려진다** → 코어 부족이 아니라 스레드 다툼. 주문 경로는 CPU 2코어 밑 → I/O 대기 |
+| 2026-09-22 | [B회차 — 프로세스 분리 전 기준선](2026-09-22_B_pre_split_baseline.md) | `bench_engine_load` + `procwatch` + 리코더 | 실측 캡처에서 뽑은 유량 4구간(초당 1,592~73,315) × 실전략(ITB)·카운터, 발행·DB 켬 | 단일 프로세스는 **실제 장 최대 유량을 0.2코어로 드롭 없이** 받는다. 좁은 곳은 발행→DB(신호 5.8%만 적재)와 주문 경로(초당 300건대) |
 
 1차·A회차는 **단일 엔진 안쪽 경로의 천장 탐색**이다 — 발행·DB를 끄고 실제 장보다 10~100배 위 유량을 밀었다. 프로세스 분리
-전후 비교의 **분리 전 기준선은 B회차**(실측 유량 프로파일·발행·DB 켬·실전략, 코드 해시 명기)가 맡는다. 두 문서의 한계 절에 같은 말이 있다.
+전후 비교의 **분리 전 기준선은 [B회차](2026-09-22_B_pre_split_baseline.md)**(실측 유량 프로파일·발행·DB 켬·실전략, 코드 해시 명기)가
+맡는다. 두 문서의 한계 절에 같은 말이 있다.
 
 원자료는 [data/](data/)에 `<날짜>_<하네스>.csv` 로 둔다. 자원 표본을 같이 받은 회차는 `<날짜>_<회차>_procwatch_samples.csv`(수집기 원자료)와
-`<날짜>_<회차>_joined.csv`(하네스 행과 시각으로 맞춘 표)를 옆에 둔다.
+`<날짜>_<회차>_joined.csv`(하네스 행과 시각으로 맞춘 표)를 옆에 둔다. 실측 유량 프로파일은 `<날짜>_flow_profile.json`이다.
 
 ## 직접 돌려 보기
 
@@ -100,6 +102,33 @@ py scripts\stresstest_join_procwatch.py docs\reports\stresstest\data\<날짜>_A_
 수집기는 프로세스 CPU만 받는다 — 머신 전체를 같이 보려면 창 3에서
 `powershell Get-Counter '\Processor(_Total)\% Processor Time' -Continuous -SampleInterval 2`를 켠다.
 
+### 6. 실측 유량·발행·DB를 켜고 재기(B회차 방식)
+
+프로세스 분리 전후를 비교하려면 실제 장에서 오는 만큼의 유량을 밀고, 발행·DB까지 켜야 한다.
+
+```cmd
+:: (1) 캡처에서 유량 프로파일을 뽑는다. 입력은 엔진이 capture_dir에 남긴 ticks_<epoch>.bin
+py scripts\stresstest_flow_profile.py PYQuant\data\ticks_raw\ticks_<epoch>.bin ^
+    --symbols 2700 --out docs\reports\stresstest\data\<날짜>_flow_profile.json
+```
+
+```cmd
+:: (2) 시험 DB를 쓰는 리코더를 띄운다. 실거래 DB(quant)에 시험 주문이 들어가지 않게 DB를 가른다
+set TSDB_DB=quant_test
+PYQuant\.venv-win\Scripts\python.exe PYQuant\main.py record --host 127.0.0.2 --port 5555
+```
+
+```cmd
+:: (3) 하네스. 라이브 트레이더가 127.0.0.1:5555를 쓰므로 바인드 주소를 달리한다
+Quant\build_win\bench_engine_load.exe run --tickers 2700 --lanes 4 --shards 4 --seconds 20 ^
+    --profile docs\reports\stresstest\data\<날짜>_flow_profile.json --profile-rate p99 ^
+    --strategy itb --channel-min 2 --clock-speed 30 --zmq-bind 127.0.0.2 ^
+    --out docs\reports\stresstest\data\<날짜>_B_pre_split.csv
+```
+
+`--strategy itb`는 종목마다 `IntradayBreakoutStrategy` 하나를 붙인다(2,700개, 라이브와 같은 배치). 이 전략은 분봉이 쌓여야
+채널이 생기므로 `--clock-speed`로 합성 장시계를 빠르게 돌리고 `--channel-min`으로 채널을 짧게 잡는다. 둘을 빼면 신호가 0이다.
+
 ### 주의
 
 - **장중에는 돌리지 않는다.** 코어를 다 쓴다. 트레이더가 떠 있으면 그쪽에 돌아갈 CPU가 없다.
@@ -123,6 +152,12 @@ py scripts\stresstest_join_procwatch.py docs\reports\stresstest\data\<날짜>_A_
 | `--universe <경로>` | 종목 목록 파일 | `Quant/config/universe_full.json` |
 | `--out <경로>` | CSV 이어쓰기 | 없음(화면만) |
 | `--log-level debug\|info\|warn\|error` | 로그 하한. 기본 error — 건마다 찍는 로그의 파일 쓰기가 재려는 구간보다 길다 | error |
+| `--profile <경로>` | 실측 유량 프로파일 JSON. 종목별 몫(`rank_shares`)이 `--zipf`를 대신한다 | 없음(합성 zipf) |
+| `--profile-rate p50\|p90\|p99\|max` | 프로파일의 환산 초당 건수 중 어느 구간을 쓸지. `--rate` 대신 쓴다 | 없음 |
+| `--strategy counter\|itb` | `counter`는 체결마다 주문(파이프라인 천장용), `itb`는 종목마다 실전략 하나 | counter |
+| `--channel-min N` | `itb` 전략의 채널 길이(분). 짧은 구간을 잴 때 줄인다 | 10 |
+| `--clock-speed X` | 합성 장시계 배속. 09:00에서 시작해 실제 1초가 장 X초로 흐른다 | 1.0 |
+| `--zmq-bind <주소>` | 발행(ZMQ) 켬. 라이브가 쓰는 `127.0.0.1`과 겹치면 안 된다 | 없음(발행 끔) |
 
 ## 결과 열 읽는 법
 
@@ -138,6 +173,8 @@ py scripts\stresstest_join_procwatch.py docs\reports\stresstest\data\<날짜>_A_
 | `shard_dropped` | 샤드 → 전략 스레드 큐에서 버린 신호 수 |
 | `order_dropped` | 전략 스레드 → 주문 큐에서 버린 신호 수 |
 | `p50_us` / `p99_us` / `max_us` | 주문 한 건의 전 구간 지연(마이크로초). 엔진이 쓰는 `latency_trace.csv`에서 이번 실행분만 읽는다 |
+| `strategy` | 그 구성이 쓴 전략(`counter` 또는 `itb`) |
+| `zmq` | 발행 바인드 주소, 껐으면 `off` |
 | `started_at` | 구성 시작 벽시계(HH:MM:SS). 5절의 수집기 표본과 이 행을 맞추는 열쇠 |
 
 회계가 맞는지는 `ticks_emitted == signals + shard_dropped + trade_dropped` 로 확인한다(주문 켠 구성 기준).

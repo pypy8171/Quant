@@ -613,6 +613,7 @@
 ### docs/reports/stresstest/
 
 - [2026-09-22_A_cpu_sampled.md](reports/stresstest/2026-09-22_A_cpu_sampled.md) — 09-22 A회차. 같은 39구성에 프로세스 CPU·스레드 표본을 붙임. 8레인은 10코어만 쓰고도 느려짐(다툼), 주문 경로는 CPU 2코어 밑(I/O 대기)
+- [2026-09-22_B_pre_split_baseline.md](reports/stresstest/2026-09-22_B_pre_split_baseline.md) — 09-22 B회차. 프로세스 분리 전 기준선 — 실측 유량·실전략·발행·DB를 켜고 잰 수치와 비교 규칙, 측정 코드 해시 1fcec45
 - [2026-09-22_engine_full_path.md](reports/stresstest/2026-09-22_engine_full_path.md) — 09-22 엔진 전 구간 부하 실측. 천장은 샤드→전략 큐 40만/초와 주문 경로 초당 200건대
 - [2026-09-22_prefetch_pool.md](reports/stresstest/2026-09-22_prefetch_pool.md) — 부하 회차: 프리페치 전략당 스레드→공용 풀, 스냅샷 복사 492→10ns(D-115)
 - [2026-09-22_prefetch_pool_threads.md](reports/stresstest/2026-09-22_prefetch_pool_threads.md) — 부하 회차: 프리페치 풀 스레드 수 스윕, 주기를 지연→비율로(D-115 후속)
@@ -624,9 +625,14 @@
 - [2026-09-22_A_cpu_sampled.csv](reports/stresstest/data/2026-09-22_A_cpu_sampled.csv) — A회차 하네스 원자료 39행(`started_at` 열 있음)
 - [2026-09-22_A_joined.csv](reports/stresstest/data/2026-09-22_A_joined.csv) — A회차 하네스 행과 수집기 표본을 시각으로 맞춘 표(구성별 CPU 코어 수·스레드 최대)
 - [2026-09-22_A_procwatch_samples.csv](reports/stresstest/data/2026-09-22_A_procwatch_samples.csv) — A회차 procwatch 2초 표본 125개(CPU %·메모리 MB·스레드)
+- [2026-09-22_B_cpu.csv](reports/stresstest/data/2026-09-22_B_cpu.csv) — B회차 실전략(ITB) 4구간 하네스 원자료 4행(자원 표본을 같이 받은 실행)
+- [2026-09-22_B_joined.csv](reports/stresstest/data/2026-09-22_B_joined.csv) — B회차 하네스 행과 수집기 표본을 시각으로 맞춘 표(구간별 CPU 코어 수·스레드 최대)
+- [2026-09-22_B_pre_split.csv](reports/stresstest/data/2026-09-22_B_pre_split.csv) — B회차 하네스 원자료 6행(유량 3구간 × 전략 counter·itb, 발행 켬)
+- [2026-09-22_B_procwatch_samples.csv](reports/stresstest/data/2026-09-22_B_procwatch_samples.csv) — B회차 procwatch 2초 표본(CPU %·메모리 MB·스레드)
 - [2026-09-22_bench_engine_load.csv](reports/stresstest/data/2026-09-22_bench_engine_load.csv) — 1차 회차 하네스 원자료 39행(+헤더 중복 2줄, 시각 열 없음)
 - [2026-09-22_bench_prefetch_pool.csv](reports/stresstest/data/2026-09-22_bench_prefetch_pool.csv) — 위 회차 원자료(계산형·대기형·이웃 지연 스윕 37행, tag로 회차 구분)
 - [2026-09-22_bench_snapshot_swap.csv](reports/stresstest/data/2026-09-22_bench_snapshot_swap.csv) — 위 회차 원자료(bench_snapshot_swap 1차 5회 + atomic 열 2차 5회)
+- [2026-09-22_flow_profile.json](reports/stresstest/data/2026-09-22_flow_profile.json) — 09-21 체결 캡처에서 뽑은 유량 프로파일. 관측 39종목 891,670건 → 2,700종목 환산 초당 p50 1,592·p99 17,446·최대 73,315과 순위별 몫
 
 ## linux_practice
 
@@ -1040,6 +1046,7 @@
 - [seed_open_orders.py](../scripts/seed_open_orders.py) — 미체결 주문 상태 복구 스크립트
 - [start.sh](../scripts/start.sh) — Docker Compose 기동 스크립트
 - [stop.sh](../scripts/stop.sh) — Docker Compose 종료 스크립트
+- [stresstest_flow_profile.py](../scripts/stresstest_flow_profile.py) — 체결 캡처(QTCAP)에서 종목별 유량을 재고 순위별 몫을 멱법칙으로 늘려 전 종목 규모의 부하 프로파일 JSON을 만든다
 - [stresstest_join_procwatch.py](../scripts/stresstest_join_procwatch.py) — 부하 회차 CSV의 `started_at`과 procwatch 로그 표본을 시각으로 맞춰 구성별 CPU 평균·최대(코어 수)·스레드 최대를 낸다
 - [summarize_trading_day.py](../scripts/summarize_trading_day.py) — 일일 매매 사실 요약 스크립트
 - [trade_costs.py](../scripts/trade_costs.py) — 체결 원장(trades_YYYYMMDD.csv)의 날짜별·종목별 매매 비용(수수료·거래세)과 실현손익을 누적 JSON(logs/trade_costs.json)과 표로 낸다(--days, --symbol)

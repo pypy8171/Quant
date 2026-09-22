@@ -1,0 +1,5 @@
+lanes,shards,tickers,seconds,order_every,zipf,strategy,zmq,rate,elapsed_sec,ticks_emitted,offered_per_sec,accepted_per_sec,drop_pct,signals,orders,orders_per_sec,shard_high_water,order_high_water,fill_high_water,trade_dropped,shard_dropped,order_dropped,fill_dropped,latency_samples,p50_us,p99_us,max_us,started_at
+4,4,2700,20,1,1.0,itb,127.0.0.2,1592,20.6,32768,1591,1591,0.0,34,34,1,256,10,10,0,0,0,0,34,6521.0,35544.0,35544.0,13:41:30
+4,4,2700,20,1,1.0,itb,127.0.0.2,5469,20.0,109568,5464,5464,0.0,42,42,2,256,9,9,0,0,0,0,42,3647.0,17541.0,17541.0,13:41:53
+4,4,2700,20,1,1.0,itb,127.0.0.2,17446,20.0,349184,17437,17437,0.0,52,50,2,256,9,8,0,0,0,0,52,2678.0,50005.0,50005.0,13:42:15
+4,4,2700,20,1,1.0,itb,127.0.0.2,73315,20.0,1466368,73266,73266,0.0,55,55,2,512,16,7,0,0,0,0,55,3693.0,81883.0,81883.0,13:42:37

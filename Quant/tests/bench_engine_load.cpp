@@ -15,6 +15,7 @@
 
 #include "core/Engine.h"
 #include "strategy/StrategyBase.h"
+#include "strategy/IntradayBreakoutStrategy.h"
 #include "utils/Logger.h"
 
 #include <algorithm>
@@ -253,6 +254,127 @@ private:
     uint64_t                      ticks_seen_ = 0; // 자기 샤드 스레드만 만진다
 };
 
+// ── 실측 유량 프로파일 ───────────────────────────────────────────────────────
+// scripts/stresstest_flow_profile.py가 캡처한 실체결에서 뽑은 JSON이다. 여기서 두 가지를 읽는다.
+//  rank_shares: 순위별 체결 몫(대형주 편중의 실제 모양) → 뽑기표. scaled_trades_per_second: 전 종목 환산 초당 건수.
+// 합성 zipf 계수 대신 이것을 쓰는 이유는, 프로세스 분리 전후 비교는 실제 장이 주는 만큼에서 재야 뜻이 있기 때문이다.
+std::vector<double> load_rank_shares(const std::string& path)
+{
+    std::vector<double> shares;
+    std::ifstream       file(path);
+
+    if (!file)
+    {
+        return shares;
+    }
+
+    const std::string body((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    const size_t      key_at = body.find("\"rank_shares\"");
+
+    if (key_at == std::string::npos)
+    {
+        return shares;
+    }
+
+    const size_t open_at  = body.find('[', key_at);
+    const size_t close_at = open_at == std::string::npos ? std::string::npos : body.find(']', open_at);
+
+    if (close_at == std::string::npos)
+    {
+        return shares;
+    }
+
+    std::stringstream stream(body.substr(open_at + 1, close_at - open_at - 1));
+    std::string       token;
+
+    while (std::getline(stream, token, ','))
+    {
+        try
+        {
+            shares.push_back(std::stod(token));
+        }
+        catch (const std::exception&)
+        {
+            // 공백·줄바꿈만 있는 토큰은 건너뛴다
+        }
+    }
+
+    return shares;
+}
+
+// scaled_trades_per_second의 p50·p90·p99·max 중 하나를 읽는다. 없으면 0(=최대 속도).
+uint64_t load_profile_rate(const std::string& path, const std::string& key)
+{
+    std::ifstream file(path);
+
+    if (!file)
+    {
+        return 0;
+    }
+
+    const std::string body((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    const size_t      block_at = body.find("\"scaled_trades_per_second\"");
+
+    if (block_at == std::string::npos)
+    {
+        return 0;
+    }
+
+    const size_t key_at = body.find("\"" + key + "\"", block_at);
+
+    if (key_at == std::string::npos)
+    {
+        return 0;
+    }
+
+    const size_t colon_at = body.find(':', key_at);
+
+    if (colon_at == std::string::npos)
+    {
+        return 0;
+    }
+
+    return static_cast<uint64_t>(std::stoull(body.substr(colon_at + 1, 32)));
+}
+
+// 몫 벡터(합이 1일 필요는 없다)로 뽑기표를 만든다. 아래 Zipf 판과 같은 방식 — 누적합에 균등 격자를 쏘고 한 번 섞는다.
+std::vector<uint32_t> build_pick_table_from_weights(const std::vector<double>& weights, size_t table_size)
+{
+    std::vector<uint32_t> table;
+
+    if (weights.empty())
+    {
+        return table;
+    }
+
+    std::vector<double> cumulative(weights.size());
+    double              total = 0.0;
+
+    for (size_t rank = 0; rank < weights.size(); ++rank)
+    {
+        total += weights[rank] > 0.0 ? weights[rank] : 0.0;
+        cumulative[rank] = total;
+    }
+
+    if (total <= 0.0)
+    {
+        return table;
+    }
+
+    table.reserve(table_size);
+
+    for (size_t slot = 0; slot < table_size; ++slot)
+    {
+        const double target = total * (static_cast<double>(slot) + 0.5) / static_cast<double>(table_size);
+        const auto   found  = std::lower_bound(cumulative.begin(), cumulative.end(), target);
+        table.push_back(static_cast<uint32_t>(std::min<size_t>(std::distance(cumulative.begin(), found), weights.size() - 1)));
+    }
+
+    std::mt19937 generator(20260922u);
+    std::shuffle(table.begin(), table.end(), generator);
+    return table;
+}
+
 // ── 거래량 쏠림(Zipf) ────────────────────────────────────────────────────────
 // 실제 장은 대형주 몇 개가 체결 대부분을 차지한다. 종목을 균등하게 도는 루프로는 큐가 실제로 터지는
 //  국면(한 종목·한 샤드에 몰리는 순간)을 재현하지 못한다. 뽑기표를 미리 만들고 한 번 섞어 두었다가
@@ -312,6 +434,11 @@ struct Options
     double                zipf          = 1.0; // 0이면 종목 균등
     std::string           universe_path = "Quant/config/universe_full.json";
     std::string           out_path;
+    std::string           profile_path;              // 실측 유량 프로파일 JSON. 주면 zipf 대신 이 몫을 쓴다
+    std::string           strategy_kind = "counter"; // counter(카운터) | itb(장중 돌파 — 체결마다 분봉·채널 계산)
+    std::string           zmq_bind;                  // 비면 발행 안 함. 라이브(127.0.0.1)와 겹치지 않는 주소를 준다
+    double                clock_speed   = 1.0;       // 합성 장시계 배속 — 지표 전략이 분봉을 쌓으려면 시각이 흘러야 한다
+    int                   channel_minutes = 10;      // itb 전략의 채널 길이(분). 짧은 구간을 잴 때 줄인다
 };
 
 std::vector<uint32_t> parse_number_list(const std::string& text)
@@ -439,23 +566,38 @@ RunResult run_once(const Options& options, const std::vector<std::string>& unive
         std::filesystem::remove(Logger::instance().path_for(leftover), ignored);
     }
 
+    // 프로파일은 구성마다 다시 읽는다(수 KB) — 측정 구간 밖이라 비용이 없다.
+    const std::vector<double> rank_shares = options.profile_path.empty() ? std::vector<double>{} : load_rank_shares(options.profile_path);
+
     auto  feed_owned = std::make_unique<LoadFeed>(lanes);
     auto* feed       = feed_owned.get();
 
     Engine engine(KisConfig{});
     engine.set_strategy_shards(shards);
 
-    // 샤드 하나가 전략 하나를 소유한다 — 샤드 M개를 쓰려면 전략도 M개다. 종목은 겹치지 않게 나눈다. [why D-110]
-    for (uint32_t shard_index = 0; shard_index < shards; ++shard_index)
+    if (options.strategy_kind == "itb")
     {
-        std::vector<std::string> slice;
-
-        for (size_t index = shard_index; index < universe.size(); index += shards)
+        // 라이브와 같은 배치 — 종목마다 전략 하나다(IntradayBreakoutStrategy는 종목 하나를 받는다).
+        //  체결마다 1분 버킷을 쌓고 채널 최고가·트레일을 계산하므로, 카운터 전략이 안 재는 전략 CPU가 여기 들어온다.
+        for (const std::string& ticker : universe)
         {
-            slice.push_back(universe[index]);
+            engine.add_strategy(std::make_unique<IntradayBreakoutStrategy>(ticker, 1, 0, false, options.channel_minutes));
         }
+    }
+    else
+    {
+        // 샤드 하나가 전략 하나를 소유한다 — 샤드 M개를 쓰려면 전략도 M개다. 종목은 겹치지 않게 나눈다. [why D-110]
+        for (uint32_t shard_index = 0; shard_index < shards; ++shard_index)
+        {
+            std::vector<std::string> slice;
 
-        engine.add_strategy(std::make_unique<OrderSpam>("load_" + std::to_string(shard_index), std::move(slice), options.order_every));
+            for (size_t index = shard_index; index < universe.size(); index += shards)
+            {
+                slice.push_back(universe[index]);
+            }
+
+            engine.add_strategy(std::make_unique<OrderSpam>("load_" + std::to_string(shard_index), std::move(slice), options.order_every));
+        }
     }
 
     // 한도는 전부 풀어 둔다 — 여기서 재는 것은 파이프라인의 천장이다.
@@ -472,7 +614,15 @@ RunResult run_once(const Options& options, const std::vector<std::string>& unive
     engine.set_risk_config(risk);
     engine.set_order_interval(0, 0); // 주문마다 자는 350ms를 없앤다 — 안 풀면 초당 세 건이 천장이다
     // 구독자 없는 발행 채널은 아예 열지 않는다 — 주문마다 나는 drop 로그의 파일 I/O가 측정 대상을 덮는다.
-    engine.set_zmq_enabled(false);
+    //  --zmq-bind를 주면 켠다. 그때는 리코더가 붙어 ORDER·FILL을 DB까지 가져가는 구간까지 재는 것이고,
+    //  주소는 라이브 트레이더(127.0.0.1:5555)와 겹치지 않아야 한다 — 겹치면 bind가 실패해 다리가 조용히 선다.
+    engine.set_zmq_enabled(!options.zmq_bind.empty());
+
+    if (!options.zmq_bind.empty())
+    {
+        engine.set_zmq_control(options.zmq_bind, "");
+    }
+
     engine.set_feed_source(std::move(feed_owned), 1e15);
     engine.start();
 
@@ -501,10 +651,32 @@ RunResult run_once(const Options& options, const std::vector<std::string>& unive
                 slice.push_back(index);
             }
 
-            const std::vector<uint32_t> pick_table = build_pick_table(slice.size(), options.zipf, 8192);
-            uint64_t                    sent       = 0;
-            size_t                      cursor     = 0;
-            double                      price      = 70000.0;
+            // 프로파일을 주면 이 레인이 맡은 종목의 순위별 몫으로 뽑기표를 만든다(실측 편중). 없으면 합성 zipf.
+            std::vector<uint32_t> pick_table;
+
+            if (!rank_shares.empty())
+            {
+                std::vector<double> weights;
+                weights.reserve(slice.size());
+
+                for (const size_t index : slice)
+                {
+                    weights.push_back(index < rank_shares.size() ? rank_shares[index] : 0.0);
+                }
+
+                pick_table = build_pick_table_from_weights(weights, 8192);
+            }
+
+            if (pick_table.empty())
+            {
+                pick_table = build_pick_table(slice.size(), options.zipf, 8192);
+            }
+
+            uint64_t                    sent          = 0;
+            size_t                      cursor        = 0;
+            double                      price         = 70000.0;
+            uint64_t                    random_state  = 0x9E3779B97F4A7C15ull ^ (lane + 1);
+            std::vector<double>         prices(slice.size(), 70000.0);
 
             if (slice.empty() || pick_table.empty())
             {
@@ -513,10 +685,23 @@ RunResult run_once(const Options& options, const std::vector<std::string>& unive
 
             while (!stop.load(std::memory_order_relaxed) && std::chrono::steady_clock::now() < deadline)
             {
+                // 배치마다 한 번만 시각을 만든다 — 건마다 now()를 부르면 그 호출이 재려는 구간을 가린다.
+                //  09:00에서 시작해 clock_speed 배로 흐른다. 지표 전략은 이 hhmmss로 분봉을 자른다.
+                const double  synthetic_elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started_at).count() * options.clock_speed;
+                const int32_t synthetic_second  = 9 * 3600 + static_cast<int32_t>(synthetic_elapsed);
+                const int32_t hhmmss            = (synthetic_second / 3600) * 10000 + ((synthetic_second / 60) % 60) * 100 + synthetic_second % 60;
+
                 for (size_t step = 0; step < kBatch; ++step)
                 {
-                    price = price > 71000.0 ? 70000.0 : price + 1.0;
-                    feed->emit_trade(lane, universe[slice[pick_table[cursor]]], price, 93000);
+                    // 종목마다 제 가격을 걷게 한다 — 한 값을 모든 종목에 쓰면 지표 전략이 재현할 수 없는 계단을 본다.
+                    const uint32_t pick = pick_table[cursor];
+                    double&        last = prices[pick];
+                    random_state ^= random_state << 13;
+                    random_state ^= random_state >> 7;
+                    random_state ^= random_state << 17;
+                    last *= 1.0 + (static_cast<double>(static_cast<int32_t>(random_state & 0xFFFF) - 32768) / 32768.0) * 0.0008;
+                    price = last;
+                    feed->emit_trade(lane, universe[slice[pick]], price, hhmmss);
                     cursor = cursor + 1 == pick_table.size() ? 0 : cursor + 1;
                     ++sent;
                 }
@@ -554,7 +739,7 @@ RunResult run_once(const Options& options, const std::vector<std::string>& unive
 }
 
 // offered_per_sec = 내보낸 유량, accepted_per_sec = 샤드까지 들어간 유량(= goodput). 둘이 갈라지는 지점이 그 구성의 천장이다.
-const char* kCsvHeader = "lanes,shards,tickers,seconds,order_every,zipf,rate,elapsed_sec,ticks_emitted,offered_per_sec,"
+const char* kCsvHeader = "lanes,shards,tickers,seconds,order_every,zipf,strategy,zmq,rate,elapsed_sec,ticks_emitted,offered_per_sec,"
                          "accepted_per_sec,drop_pct,signals,orders,orders_per_sec,"
                          "shard_high_water,order_high_water,fill_high_water,trade_dropped,shard_dropped,order_dropped,fill_dropped,"
                          "latency_samples,p50_us,p99_us,max_us,started_at";
@@ -573,7 +758,9 @@ std::string to_csv_row(const Options& options, const RunResult& result)
     row.setf(std::ios::fixed);
     row.precision(1);
     row << result.lanes << ',' << result.shards << ',' << options.universe_size << ',' << options.seconds << ','
-        << options.order_every << ',' << options.zipf << ',' << options.ticks_per_sec << ','
+        << options.order_every << ',' << options.zipf << ','
+        << options.strategy_kind << ',' << (options.zmq_bind.empty() ? "off" : options.zmq_bind) << ','
+        << options.ticks_per_sec << ','
         << result.elapsed_sec << ',' << result.ticks_emitted << ','
         << static_cast<uint64_t>(static_cast<double>(result.ticks_emitted) / seconds) << ','
         << static_cast<uint64_t>(static_cast<double>(accepted) / seconds) << ',' << drop_percent << ','
@@ -598,7 +785,8 @@ int main(int argc, char** argv)
     // 건마다 찍히는 INFO·WARN의 파일 I/O가 재려는 구간보다 길다 — 기본은 ERROR만 남기고 --log-level로 푼다.
     Logger::instance().initialize(Logger::instance().path_for("bench_engine_load.log"), LogLevel::ERROR);
 
-    Options options;
+    Options     options;
+    std::string profile_rate_key; // --profile-rate p50|p90|p99|max
     std::string mode = argc > 1 && argv[1][0] != '-' ? argv[1] : "run";
 
     for (int index = 1; index < argc; ++index)
@@ -659,6 +847,31 @@ int main(int argc, char** argv)
         {
             options.universe_path = value;
         }
+        else if (argument == "--profile")
+        {
+            options.profile_path = value;
+        }
+        else if (argument == "--profile-rate")
+        {
+            // p50 | p90 | p99 | max — 프로파일의 전 종목 환산 초당 건수를 그대로 유량으로 쓴다
+            profile_rate_key = value;
+        }
+        else if (argument == "--strategy")
+        {
+            options.strategy_kind = value;
+        }
+        else if (argument == "--channel-min")
+        {
+            options.channel_minutes = std::stoi(value);
+        }
+        else if (argument == "--clock-speed")
+        {
+            options.clock_speed = std::stod(value);
+        }
+        else if (argument == "--zmq-bind")
+        {
+            options.zmq_bind = value;
+        }
         else if (argument == "--out")
         {
             options.out_path = value;
@@ -683,6 +896,22 @@ int main(int argc, char** argv)
                 Logger::instance().set_min_level(LogLevel::ERROR);
             }
         }
+    }
+
+    // 유량을 실측 프로파일에서 가져온다 — 손으로 적은 숫자 대신 캡처가 정한 값으로 재려는 것이다.
+    if (!profile_rate_key.empty() && !options.profile_path.empty())
+    {
+        const uint64_t profile_rate = load_profile_rate(options.profile_path, profile_rate_key);
+
+        if (profile_rate == 0)
+        {
+            std::cerr << "[부하] 프로파일에서 " << profile_rate_key << " 유량을 못 읽는다: " << options.profile_path << "\n";
+            return 1;
+        }
+
+        options.rate_list = {profile_rate};
+        std::cout << "[부하] 실측 프로파일 " << options.profile_path << " · " << profile_rate_key
+                  << " → 초당 " << profile_rate << "건\n";
     }
 
     const std::vector<std::string> universe = load_universe(options.universe_path, options.universe_size);
