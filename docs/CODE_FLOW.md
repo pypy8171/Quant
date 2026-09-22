@@ -231,8 +231,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/core/Engine.cpp:2721` · `void Engine::control_thread_fn(std::stop_token stop_token)`
 54. [`Engine::poll_regime_file`](../Quant/src/core/Engine.cpp#L2140) — 데이터 스레드가 부른다. `regime.json` 축 — `entry_halt`(신규매수 차단)·`entry_scale`(매수비율)·`force_liquidate`, 그리고 라벨 전이 때 `apply_regime_selection`(전략 집합 선택, D-084). 상태기계는 `RegimeFileJudge.h`  
    `Quant/src/core/Engine.cpp:2140` · `void Engine::poll_regime_file()` · 시험 [test_regime_file_judge](../Quant/tests/test_regime_file_judge.cpp)
-55. [`OrderGate::set_manual_halt`](../Quant/include/risk/OrderGate.h#L336) — 운영단말 HALT_REQ의 수동 정지 — 신규 매수·전략 매도를 따로 끈다. 국면의 `entry_halt_`와는 다른 플래그고 `is_entry_halted`에서만 OR로 합친다(D-091)  
-   `Quant/include/risk/OrderGate.h:336` · `void set_manual_halt(OrderSide side, bool on)` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
+55. [`OrderGate::set_manual_halt`](../Quant/include/risk/OrderGate.h#L350) — 운영단말 HALT_REQ의 수동 정지 — 신규 매수·전략 매도를 따로 끈다. 국면의 `entry_halt_`와는 다른 플래그고 `is_entry_halted`에서만 OR로 합친다(D-091)  
+   `Quant/include/risk/OrderGate.h:350` · `void set_manual_halt(OrderSide side, bool on)` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
 56. [`Engine::apply_regime_selection`](../Quant/src/core/Engine.cpp#L155) — 국면 → `regime_strategies` 집합으로 전략 활성/비활성. 청산은 하지 않는다  
    `Quant/src/core/Engine.cpp:155` · `void Engine::apply_regime_selection(Regime regime, bool force_log)`
 57. [`Engine::maybe_rescan_universe`](../Quant/src/core/Engine.cpp#L362) — 유니버스 재스캔 — 빠진 보유 종목은 40초에 신규매수 차단, 600초에 전략 해제(`UniverseExit.h`, D-077). 청산 관리 보유(`exit_managed_tickers`)는 스캔 신규매수에서 뺀다  

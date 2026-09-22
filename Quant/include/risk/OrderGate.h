@@ -273,8 +273,16 @@ public:
     // quantity = 취소된 미체결 잔량(>0). reserved_만 감소 — positions_/average_price는 불변(취소는 체결 아님).
     // 방향은 on_fill_confirmed의 선점 해제와 동일: BUY 선점(+)은 -quantity, SELL 선점(-)은 +quantity.
     // 호출 규약: 반드시 KIS 취소 성공(rt_cd=="0") 이후에만 호출 — 실패 시 호출하면 이중해제.
+    // reference 기본값을 `= OrderRef{}`로 두지 않는다 — 중첩 구조체의 멤버 기본값은 바깥 클래스가 끝나야 읽히는데
+    //  GCC는 기본 인자에서 그것을 요구해 컴파일을 거부한다(리눅스 빌드 09-22). 인자 없는 겹정의 본문은 그 뒤에
+    //  읽히므로 거기서 만든다. 아래 on_fill_confirmed도 같다.
     void on_cancel(const std::string& account, const std::string& ticker, OrderSide side, int quantity,
-                   const OrderRef& reference = OrderRef{});
+                   const OrderRef& reference);
+    void on_cancel(const std::string& account, const std::string& ticker, OrderSide side, int quantity)
+    {
+        on_cancel(account, ticker, side, quantity, OrderRef{});
+    }
+
     void on_cancel(const std::string& ticker, OrderSide side, int quantity)
     {
         on_cancel(std::string(), ticker, side, quantity);
@@ -301,8 +309,14 @@ public:
     //  reference: 이 체결이 속한 주문(저널 FILL 레코드용). 라우터가 ODNO를 못 이은 체결은 비워 둔다.
     FillResult on_fill_confirmed(const std::string& account, const std::string& ticker,
                                  OrderSide side, int quantity, double price,
-                                 strategy_table::StrategyId strategy = strategy_table::kNone,
-                                 const OrderRef& reference = OrderRef{});
+                                 strategy_table::StrategyId strategy, const OrderRef& reference);
+    FillResult on_fill_confirmed(const std::string& account, const std::string& ticker,
+                                 OrderSide side, int quantity, double price,
+                                 strategy_table::StrategyId strategy = strategy_table::kNone)
+    {
+        return on_fill_confirmed(account, ticker, side, quantity, price, strategy, OrderRef{});
+    }
+
     FillResult on_fill_confirmed(const std::string& ticker, OrderSide side,
                                  int quantity, double price)
     {
