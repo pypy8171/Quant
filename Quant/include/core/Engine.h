@@ -77,13 +77,7 @@ public:
     void add_strategy(std::unique_ptr<StrategyBase> strategy);
 
     // 직전 추가된 전략에 활성 국면 설정 (main.cpp config 파싱용)
-    void set_last_active_regimes(const std::vector<Regime>& last_active_regimes)
-    {
-        if (!strategy_.list.empty())
-        {
-            strategy_.list.back()->set_active_regimes(last_active_regimes);
-        }
-    }
+    void set_last_active_regimes(const std::vector<Regime>& last_active_regimes);
 
     size_t strategy_count() const { return strategy_.list.size(); }
 
@@ -167,11 +161,7 @@ public:
     // (매수만 막고 청산·매도는 그대로 통과). path 빈 문자열이면 기능 미가동(기본).
     // stale_sec(기본 kDefaultRegimeStaleSec)보다 오래된 파일은 보조 프로세스가 죽은 것으로 보고 무시한다.
     //  판정 규칙은 core/RegimeFileJudge.h가 소유한다. [why D-060]
-    void set_regime_file(const std::string& path, int stale_sec = kDefaultRegimeStaleSec)
-    {
-        regime_file_ = path;
-        regime_file_judge_.set_stale_sec(stale_sec);
-    }
+    void set_regime_file(const std::string& path, int stale_sec = kDefaultRegimeStaleSec);
 
     // 매크로 진입정지의 시간 상자. 개장 후 이 분수가 지나면 entry_halt를 스스로 풀고,
     // 그날 매크로 축은 다시 halt를 걸지 못한다. 그 뒤 통제는 장중을 실제로 보는 축
@@ -192,13 +182,7 @@ public:
     // OrderGate 위험 한도를 config로 주입(스레드 시작 전에만). 기본값은 OrderGate::Config.
     void set_risk_config(const OrderGate::Config& risk_config) { order_gate_.set_config(risk_config); }
     // 마감 자기 종료 — 마지막 매매 창이 닫히는 분과 유예 초(스레드 시작 전에만). close_min 0이면 판정 없음. [why D-098]
-    void set_session_end(int close_min, int grace_sec)
-    {
-        session_end::Config config;
-        config.close_min = close_min;
-        config.grace_sec = grace_sec;
-        session_end_     = session_end::Judge(config);
-    }
+    void set_session_end(int close_min, int grace_sec);
 
     // 슬롯 수 조회 — 스캐너가 "베이스 총합이 목표 노출을 넘지 않도록" 배수를 정규화할 때 쓴다.
     //  위험 config는 전략 로딩보다 먼저 주입되므로(main.cpp) 이 시점에 이미 유효하다.
@@ -235,21 +219,7 @@ public:
         std::function<std::vector<symbol::SymbolId>(KisClient&)> universe_fn,
         std::function<std::unique_ptr<StrategyBase>(symbol::SymbolId)> factory,
         int interval_sec, size_t max_registered = 0, int drop_after_sec = 0,
-        int block_after_sec = 0, int return_confirm = 2)
-    {
-        // 슬리브마다 한 번씩 부른다 — 덮어쓰지 않고 쌓는다. 예전에는 단일 슬롯이라
-        //  두 번째 호출이 첫 번째를 조용히 지웠다(먼저 건 재스캔이 사라짐).
-        RescanJob rescan_job;
-        rescan_job.universe_fn    = std::move(universe_fn);
-        rescan_job.factory        = std::move(factory);
-        rescan_job.owned.resize(symbols_.table.capacity()); // 종목 id 인덱스 — id는 용량을 넘지 않는다
-        rescan_job.interval_sec   = interval_sec;
-        rescan_job.max_registered = max_registered;
-        rescan_job.drop_after_sec = drop_after_sec;
-        rescan_job.block_after_sec = block_after_sec;
-        rescan_job.return_confirm  = return_confirm;
-        universe_rescan_.jobs.push_back(std::move(rescan_job));
-    }
+        int block_after_sec = 0, int return_confirm = 2);
 
     // 기동 때 add_strategy로 넣은 유니버스 종목을 마지막 set_universe_rescan 슬리브의 소유로 잡는다.
     //  재스캔이 등록한 종목만 소유로 두면 기동 종목은 하루 종일 차단·해제 밖이라 순위에서 밀려도 남는다.
@@ -269,15 +239,7 @@ public:
 
     // ZMQ 제어 채널. bind 주소 기본 127.0.0.1(모든 인터페이스 노출 금지), token이 비면 KILL은
     //  거부된다(config `zmq_control_token`). 스레드 시작 전에만. HAS_ZMQ가 꺼진 빌드에선 무시.
-    void set_zmq_control(const std::string& bind_address, const std::string& token)
-    {
-        if (!bind_address.empty())
-        {
-            zmq_bind_address_ = bind_address;
-        }
-
-        zmq_control_token_ = token;
-    }
+    void set_zmq_control(const std::string& bind_address, const std::string& token);
 
     // ZMQ 포트(config `zmq_pub_port`·`zmq_rep_port`). 한 기계에 엔진이 둘이면 뒤에 뜬 쪽이 bind에 실패하므로 설정으로 뺐다.
     void set_zmq_ports(int pub_port, int rep_port)
@@ -291,14 +253,7 @@ public:
     static constexpr int kProtectiveIntervalMsDefault = 200;   // 표를 보는 간격
     static constexpr int kProtectiveRetryMsDefault    = 30000; // 청산이 안 먹힐 때 다시 내는 간격
 
-    void set_protective_orders(const std::string& mode, int interval_ms, int retry_ms)
-    {
-        protective_book_.set_mode(risk::protective_mode_from_string(mode));
-        protective_interval_ =
-            std::chrono::milliseconds(interval_ms > 0 ? interval_ms : kProtectiveIntervalMsDefault);
-        protective_book_.set_retry_interval(
-            std::chrono::milliseconds(retry_ms > 0 ? retry_ms : kProtectiveRetryMsDefault));
-    }
+    void set_protective_orders(const std::string& mode, int interval_ms, int retry_ms);
 
     // 운영단말 TCP 채널(config `ops_bind_addr`·`ops_port`·`ops_token`). port 0이면 열지 않는다.
     //  스레드 시작 전에만. 루프백이 아닌 주소는 token이 있어야 서버가 뜬다(OpsServer::start).
@@ -318,13 +273,7 @@ public:
     //  13:40:12 재매수). 기동 시 단일스레드 구간에서만 채우고 전략 스레드는 읽기만 한다.
     //  종목 id 인덱스 비트 — 잔고 응답의 문자열 티커는 여기서 한 번 번호가 된다.
     void mark_exit_managed_ticker(const std::string& ticker) { mark_exit_managed(symbols_.table.intern(ticker)); }
-    void mark_exit_managed(symbol::SymbolId symbol)
-    {
-        if (symbol != symbol::kNone && symbol < symbols_.exit_managed.size())
-        {
-            symbols_.exit_managed[symbol] = true;
-        }
-    }
+    void mark_exit_managed(symbol::SymbolId symbol);
 
     bool is_exit_managed(symbol::SymbolId symbol) const
     {
@@ -333,10 +282,7 @@ public:
 
     //  이름은 종목 id 인덱스 배열에 둔다 — 문자열 티커를 받는 겹정의는 경계(로그 라벨·잔고 응답)용이고 안에서 id로 바꾼다.
     void register_ticker_name(symbol::SymbolId symbol, const std::string& name);
-    void register_ticker_name(const std::string& ticker, const std::string& name)
-    {
-        register_ticker_name(symbols_.table.intern(ticker), name);
-    }
+    void register_ticker_name(const std::string& ticker, const std::string& name);
 
     // 이름이 있으면 "티커(종목명)", 없으면 티커 원문을 반환.
     std::string ticker_label(symbol::SymbolId symbol) const;

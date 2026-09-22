@@ -33,11 +33,7 @@ public:
     }
 
     // 수신 스레드 번호를 달아 부르는 콜백. 기본은 수신 스레드 0 하나로 set_callbacks에 얹는다 — 소켓 여럿을 묶는 구현만 덮어쓴다.
-    virtual void set_lane_callbacks(LaneOrderBookCb on_order_book, LaneTradeCb on_trade)
-    {
-        set_callbacks([callback = std::move(on_order_book)](const OrderBook& order_book) { callback(0, order_book); },
-                      [callback = std::move(on_trade)](const TradeData& trade) { callback(0, trade); });
-    }
+    virtual void set_lane_callbacks(LaneOrderBookCb on_order_book, LaneTradeCb on_trade);
 
     // 체결통보가 없는 소스(리플레이)는 등록을 무시한다 — 주문은 어차피 REST 라우터가 낸다.
     virtual void set_fill_callback(FillCb) {}
@@ -57,11 +53,7 @@ public:
     // 멈춘 연결을 다시 잇는다. specs는 지금 봐야 할 종목 전체(재스캔 추가분 포함). 소켓 하나면 끊고 specs로 다시 잇는
     //  것이고, 소켓 여럿을 묶은 소스는 멈춘 것만 자기 종목으로 다시 잇는다(FeedMux) — 살아 있는 소켓의 틱은 그 사이에도
     //  흐른다. 다시 이은 연결이 전부 성공하면 true. 제어 스레드만 부른다. [why D-071]
-    virtual bool reconnect_stale(const std::vector<WatchSpec>& specifications, int /*threshold_sec*/)
-    {
-        disconnect();
-        return connect(specifications);
-    }
+    virtual bool reconnect_stale(const std::vector<WatchSpec>& specifications, int /*threshold_sec*/);
 };
 
 } // namespace feed

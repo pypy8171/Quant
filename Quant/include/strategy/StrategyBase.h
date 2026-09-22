@@ -169,15 +169,7 @@ public:
         position_provider_by_id_ = std::move(provider);
     }
 
-    int confirmed_position(const std::string& account, symbol::SymbolId symbol, const std::string& ticker) const
-    {
-        if (symbol != symbol::kNone && position_provider_by_id_)
-        {
-            return position_provider_by_id_(account, symbol);
-        }
-
-        return confirmed_position(account, ticker);
-    }
+    int confirmed_position(const std::string& account, symbol::SymbolId symbol, const std::string& ticker) const;
 
     // 신규매수 차단(OrderGate::is_entry_halted) 접근자 주입 — Engine이 바인딩한다.
     //  게이트는 라우터 앞에서 매수를 거부하지만 전략은 그걸 모르고 같은 계획을 유지하므로,
@@ -219,15 +211,7 @@ public:
         sellable_provider_ = std::move(provider);
     }
 
-    std::optional<SellableInfo> ledger_sellable(const std::string& account, const std::string& ticker) const
-    {
-        if (!sellable_provider_)
-        {
-            return std::nullopt;
-        }
-
-        return sellable_provider_(account, ticker);
-    }
+    std::optional<SellableInfo> ledger_sellable(const std::string& account, const std::string& ticker) const;
 
     // 보호 주문 표 주입 — Engine이 전략 등록 때 넣는다. 미주입이면 아래 arm_protective가 아무것도 하지 않는다. [why D-114]
     //  수명은 Engine이 가진다 — 표는 Engine 멤버고 전략보다 늦게 죽는다. [inv]
@@ -254,32 +238,9 @@ protected:
     // 보호 주문 등록 — "이 종목은 평단 -stop_loss_percent면 판다"를 주문 쪽 표에 미리 올려둔다.
     //  전략이 멈춰도 그 표만 보고 청산이 나간다. 조건이 없으면(전부 0) 해제로 친다. [why D-114]
     void arm_protective(const std::string& account, const std::string& ticker, symbol::SymbolId symbol,
-                        double stop_loss_percent, double trail_arm_percent, double trail_percent)
-    {
-        if (protective_registry_ == nullptr)
-        {
-            return;
-        }
+                        double stop_loss_percent, double trail_arm_percent, double trail_percent);
 
-        risk::ProtectiveRule rule;
-        rule.account           = account;
-        rule.ticker            = ticker;
-        rule.symbol            = symbol;
-        rule.stop_loss_percent = stop_loss_percent;
-        rule.trail_arm_percent = trail_arm_percent;
-        rule.trail_percent     = trail_percent;
-        rule.owner             = id();
-        rule.owner_index       = strategy_index_;
-        protective_registry_->arm(rule);
-    }
-
-    void disarm_protective(const std::string& account, symbol::SymbolId symbol)
-    {
-        if (protective_registry_ != nullptr)
-        {
-            protective_registry_->disarm(account, symbol);
-        }
-    }
+    void disarm_protective(const std::string& account, symbol::SymbolId symbol);
 
     // 표가 이 종목의 청산을 맡았는가. true면 전략은 자기 손절·트레일 판정을 건너뛰다.
     bool protective_owns(const std::string& account, symbol::SymbolId symbol) const
@@ -294,15 +255,7 @@ protected:
     }
 
     // 틱이 내 종목인가. 둘 다 id가 있으면 정수 비교, 한쪽이라도 kNone(주입 전·시험)이면 문자열.
-    static bool same_symbol(symbol::SymbolId symbol_id_a, std::string_view a_ticker, symbol::SymbolId symbol_id_b, std::string_view b_ticker)
-    {
-        if (symbol_id_a != symbol::kNone && symbol_id_b != symbol::kNone)
-        {
-            return symbol_id_a == symbol_id_b;
-        }
-
-        return a_ticker == b_ticker;
-    }
+    static bool same_symbol(symbol::SymbolId symbol_id_a, std::string_view a_ticker, symbol::SymbolId symbol_id_b, std::string_view b_ticker);
 
     // 잔고·매도가능수량·총평가금을 조회할 클라이언트. 주입됐으면 그쪽, 아니면 시세 클라이언트.
     //  (호출측은 지금까지처럼 has_account()로 한 번 더 확인한다.)

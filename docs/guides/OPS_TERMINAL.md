@@ -7,7 +7,7 @@
 
 | 파일 | 역할 |
 |---|---|
-| `Quant/include/ipc/OpsProtocol.h` | 프레임 인코더·디코더(`FrameReader`). 헤더 전용, 의존 없음 — 서버·콘솔 단말·MFC 단말이 같은 파일을 쓴다 |
+| `Quant/include/ipc/OpsProtocol.h` | 프레임 인코더·디코더(`FrameReader`) 선언. 구현은 `Quant/src/ipc/OpsProtocol.cpp`(D-118), 의존 없음 — 서버·콘솔 단말·MFC 단말이 같은 파일을 쓴다 |
 | `Quant/include/ipc/OpsServer.h`, `Quant/src/ipc/OpsServer.cpp` | 서버. 소켓 전부를 전용 스레드 하나가 `select()`로 다룬다 |
 | `Quant/src/core/Engine.cpp` (`start_ops_server`·`drain_manual_inbox`·`ops_*_json`) | 엔진 쪽 배선 — 수동 주문을 strategy_thread에서 `OrderSignal`로 바꾼다 |
 | `Quant/tools/ops_client.cpp` | C++ 콘솔 단말. 왕복 검증·운영용 |

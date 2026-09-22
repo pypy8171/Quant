@@ -41,10 +41,7 @@ public:
     void initialize(const std::filesystem::path& filepath, LogLevel min_level = LogLevel::INFO);
 
     // 기동 뒤 임계값만 바꾼다(config "log_level"). 봉 닫힘처럼 하루 한 번 켜 보는 DEBUG 줄을 위해 있다.
-    void set_min_level(LogLevel min_level)
-    {
-        min_level_.store(min_level, std::memory_order_relaxed);
-    }
+    void set_min_level(LogLevel min_level);
 
     // 매크로가 인자 문자열을 만들기 전에 묻는다. DEBUG 줄은 KIS 응답 본문 substr·봉 닫힘 포맷처럼 결합 비용이 있는데
     //  기본 임계값 INFO에서는 그 문자열이 만들어진 뒤 log()에서 버려지고 있었다. [why D-071]
@@ -67,25 +64,13 @@ public:
     // hot path: 임계값 아래면 바로 돌아가고, 아니면 시각 스탬프만 찍어 큐에 넘긴다(포맷팅은 writer가 한다).
     void log(LogLevel level, const std::string& message);
 
-    void info(const std::string& message)
-    {
-        log(LogLevel::INFO, message);
-    }
+    void info(const std::string& message);
 
-    void warn(const std::string& message)
-    {
-        log(LogLevel::WARN, message);
-    }
+    void warn(const std::string& message);
 
-    void error(const std::string& message)
-    {
-        log(LogLevel::ERROR, message);
-    }
+    void error(const std::string& message);
 
-    void debug(const std::string& message)
-    {
-        log(LogLevel::DEBUG, message);
-    }
+    void debug(const std::string& message);
 
     // 이 호출 전에 반환된 log()가 모두 파일/콘솔에 반영될 때까지 블로킹(테스트·종료 직전 정합 확인용).
     void flush();

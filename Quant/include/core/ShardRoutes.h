@@ -22,6 +22,9 @@ using ShardMask = uint64_t;
 // 마스크 폭. 전략 샤드 수의 상한이다 — 코어 수보다 훨씬 크다.
 constexpr uint32_t kMaxShards = 64;
 
+// 기본 종목 칸 수 — SymbolTable 의 기본 용량과 같게 잡는다.
+constexpr size_t kDefaultSymbolCapacity = 8192;
+
 [[nodiscard]] constexpr ShardMask mask_of(uint32_t shard_index) noexcept
 {
     return ShardMask{1} << shard_index;
@@ -31,19 +34,13 @@ class RouteTable
 {
 public:
     // symbol_capacity: SymbolTable::capacity()와 같게 — id는 그 미만이라 배열 인덱스로 바로 쓴다.
-    explicit RouteTable(size_t symbol_capacity = 8192)
-    {
-        publish(std::make_unique<Snapshot>(symbol_capacity));
-    }
+    explicit RouteTable(size_t symbol_capacity = kDefaultSymbolCapacity);
 
     RouteTable(const RouteTable&)            = delete;
     RouteTable& operator=(const RouteTable&) = delete;
 
     // 용량을 종목 테이블에 맞춘다. 읽는 스레드가 없을 때(기동 전)만.
-    void reset(size_t symbol_capacity)
-    {
-        publish(std::make_unique<Snapshot>(symbol_capacity));
-    }
+    void reset(size_t symbol_capacity);
 
     // 다시 만들 때 쓰는 초안. 쓰는 스레드가 채운 뒤 commit으로 한 번에 넘긴다.
     struct Draft
@@ -53,18 +50,9 @@ public:
 
         explicit Draft(size_t symbol_capacity) : masks(symbol_capacity, 0) {}
 
-        void add(symbol::SymbolId id, uint32_t shard_index)
-        {
-            if (id != symbol::kNone && id < masks.size())
-            {
-                masks[id] |= mask_of(shard_index);
-            }
-        }
+        void add(symbol::SymbolId id, uint32_t shard_index);
 
-        void add_all(uint32_t shard_index)
-        {
-            all |= mask_of(shard_index);
-        }
+        void add_all(uint32_t shard_index);
     };
 
     [[nodiscard]] Draft draft() const
@@ -76,27 +64,10 @@ public:
     //  종목마다 원자 store를 하나씩 놓던 때는 표가 반쯤 바뀐 상태(종목 A는 새 마스크, 종목 B는 옛 마스크)가 보였고,
     //  all_을 마스크보다 먼저 놓아 새 샤드가 자기 종목 마스크보다 먼저 틱을 받기도 했다. 공개 지점이 하나면
     //  그런 중간 상태가 아예 없다. [why D-116]
-    void commit(const Draft& draft)
-    {
-        auto snapshot = std::make_unique<Snapshot>(draft.masks.size());
-        snapshot->masks = draft.masks;
-        snapshot->all   = draft.all;
-        publish(std::move(snapshot));
-    }
+    void commit(const Draft& draft);
 
     // id의 틱을 받을 샤드들. 아무도 안 보는 종목이면 0 — 호출자가 기본 열(해시)로 보내 현재가 캐시는 채운다.
-    [[nodiscard]] ShardMask mask(symbol::SymbolId id) const noexcept
-    {
-        // [inv] 여기서 acquire 하나로 표 전체가 보인다 — 아래 masks는 평범한 읽기다.
-        const Snapshot* snapshot = current_.load(std::memory_order_acquire);
-
-        if (id == symbol::kNone || id >= snapshot->masks.size())
-        {
-            return snapshot->all;
-        }
-
-        return snapshot->masks[id] | snapshot->all;
-    }
+    [[nodiscard]] ShardMask mask(symbol::SymbolId id) const noexcept;
 
     [[nodiscard]] size_t capacity() const noexcept
     {
@@ -115,13 +86,7 @@ private:
 
     // [inv] 지난 표는 안 지운다 — 읽는 스레드가 아직 그 포인터를 들고 있을 수 있고, 여기엔 그것을 기다릴 장치가 없다.
     //  표 하나가 종목 8,192개 기준 64KB고 새로 만드는 것은 전략이 늘거나 줄 때뿐이라(기동 때 전략 수만큼) 수 MB에서 멈춘다.
-    void publish(std::unique_ptr<Snapshot> snapshot)
-    {
-        const Snapshot* published = snapshot.get();
-
-        retired_.push_back(std::move(snapshot));
-        current_.store(published, std::memory_order_release);
-    }
+    void publish(std::unique_ptr<Snapshot> snapshot);
 
     std::vector<std::unique_ptr<Snapshot>> retired_;   // 지금 표와 지난 표 전부. 쓰는 쪽에서만 만진다.
     std::atomic<const Snapshot*>           current_{nullptr};

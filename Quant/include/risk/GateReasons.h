@@ -12,11 +12,7 @@ inline constexpr char kPerMinute[] = "분당";
 inline constexpr char kPerSecond[] = "초당";
 
 // "Rate limit 초과 (초당 N건)" / "Rate limit 초과 (분당 N건)"
-inline std::string rate_limit(bool per_minute, int limit)
-{
-    return std::string(kRateLimit) + " (" + (per_minute ? kPerMinute : kPerSecond) + " " + std::to_string(limit) +
-           "건)";
-}
+std::string rate_limit(bool per_minute, int limit);
 
 inline bool is_rate_limit(const std::string& reason)
 {

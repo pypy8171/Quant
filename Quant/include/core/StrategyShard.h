@@ -86,12 +86,7 @@ public:
     }
 
     // 세 열 가운데 가장 높았던 셀 — [큐 고수위] 줄.
-    [[nodiscard]] size_t high_water() const noexcept
-    {
-        size_t high_water = queue_.order_book.high_water(index_);
-        high_water        = high_water < queue_.trade.high_water(index_) ? queue_.trade.high_water(index_) : high_water;
-        return high_water < queue_.bars.high_water(index_) ? queue_.bars.high_water(index_) : high_water;
-    }
+    [[nodiscard]] size_t high_water() const noexcept;
 
     // 한 바퀴 — 호가 전부, 체결 전부, 봉 하나. 돌려주는 값은 하나라도 처리했나.
     //  emit(StrategyBase*, const OrderSignal&, tick_ns): 신호 봉투를 만드는 자리. tick_ns는 체결 경로만 0이 아니다.

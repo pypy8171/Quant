@@ -37,45 +37,7 @@ public:
     // now_sec_of_day: KST 자정부터의 초. orders_pending: 주문 큐에 아직 꺼내지 않은 신호가 있는가.
     //  창이 닫힌 뒤 grace+drain_limit보다 늦게 처음 관찰되면(밤에 손으로 띄운 TRADE 기동) 판정하지 않는다 —
     //  그런 기동은 예전처럼 사용자가 끈다. 감시견이 창 안에서 재기동한 엔진은 유예 뒤 정상으로 내려간다.
-    Step observe(int now_sec_of_day, bool orders_pending)
-    {
-        if (config_.close_min <= 0 || done_)
-        {
-            return Step::kNone;
-        }
-
-        const int since_close = now_sec_of_day - config_.close_min * 60;
-
-        if (since_close < 0 || since_close > config_.grace_sec + config_.drain_limit_sec)
-        {
-            return Step::kNone;
-        }
-
-        if (!closed_seen_)
-        {
-            closed_seen_ = true;
-            return Step::kClosed;
-        }
-
-        if (since_close < config_.grace_sec)
-        {
-            return Step::kNone;
-        }
-
-        if (!orders_pending)
-        {
-            done_ = true;
-            return Step::kShutdown;
-        }
-
-        if (since_close >= config_.grace_sec + config_.drain_limit_sec)
-        {
-            done_ = true;
-            return Step::kShutdownForced;
-        }
-
-        return Step::kNone;
-    }
+    Step observe(int now_sec_of_day, bool orders_pending);
 
 private:
     Config config_;

@@ -53,52 +53,10 @@ class ReconcileBreaker
 {
 public:
     // 이번 사이클을 건너뛰어야 하면 true(남은 스킵을 하나 소모한다).
-    bool take_skip()
-    {
-        if (skip_remaining_ <= 0)
-        {
-            return false;
-        }
-
-        --skip_remaining_;
-        return true;
-    }
+    bool take_skip();
 
     // responded = 잔고 응답을 실제로 파싱했는가.
-    BreakerOutcome on_result(bool responded)
-    {
-        BreakerOutcome out;
-
-        if (responded)
-        {
-            out.log_recovered = fail_streak_ > 0;
-            out.log_stale_off = fail_streak_ >= kPnlStaleStreak;
-            fail_streak_      = 0;
-            skip_remaining_   = 0;
-            out.pnl_stale     = false;
-            return out;
-        }
-
-        ++fail_streak_;
-        int capture = fail_streak_ - 1;
-
-        if (capture > 3)
-        {
-            capture = 3; // 백오프 상한: 2^3 = 8 사이클
-        }
-
-        skip_remaining_  = 1 << capture;
-        out.skip_cycles  = skip_remaining_;
-        out.log_backoff  = true;
-        out.log_stale_on = fail_streak_ == kPnlStaleStreak;
-
-        if (fail_streak_ >= kPnlStaleStreak)
-        {
-            out.pnl_stale = true;
-        }
-
-        return out;
-    }
+    BreakerOutcome on_result(bool responded);
 
     int fail_streak() const { return fail_streak_; }
     int skip_remaining() const { return skip_remaining_; }
@@ -116,17 +74,7 @@ inline std::string kst_ymd(std::time_t now_utc)
 
 // 기준선 파일명. 계좌번호를 넣어 같은 거래일에 계좌를 갈아끼면(모의계좌 재발급 등) 옛 계좌 기준선을
 //  재사용해 당일손익이 오염되는 것을 막는다(계좌 바뀌면 새로 캡처).
-inline std::string baseline_file_name(const std::string& date_yyyymmdd, const std::string& account)
-{
-    std::string name = "pnl_baseline_" + date_yyyymmdd;
-
-    if (!account.empty())
-    {
-        name += "_" + account;
-    }
-
-    return name + ".txt";
-}
+std::string baseline_file_name(const std::string& date_yyyymmdd, const std::string& account);
 } // namespace ledger
 
 class LedgerReconciler

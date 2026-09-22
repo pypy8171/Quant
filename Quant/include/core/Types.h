@@ -230,34 +230,10 @@ enum class OrderStatus
 
 // 자릿수 문자열 → 정수. KIS 주문번호(ODNO "0000014893")·체결시각("110707")처럼 전문이 자릿수로 주는 값을
 //  받는 자리에서 한 번 바꾼다. 빈 문자열이나 숫자 아닌 글자가 섞이면 0.
-inline uint64_t digits_to_number(std::string_view digits) noexcept
-{
-    if (digits.empty())
-    {
-        return 0;
-    }
-
-    uint64_t value = 0;
-
-    for (const char character : digits)
-    {
-        if (character < '0' || character > '9')
-        {
-            return 0;
-        }
-
-        value = value * 10 + static_cast<uint64_t>(character - '0');
-    }
-
-    return value;
-}
+uint64_t digits_to_number(std::string_view digits) noexcept;
 
 // 주문 번호 발급 — 프로세스 안에서 단조 증가. 전략·수동주문이 신호를 만들 때 한 번 부른다. [why D-112]
-inline uint64_t next_client_order_number() noexcept
-{
-    static std::atomic<uint64_t> counter{0};
-    return ++counter;
-}
+uint64_t next_client_order_number() noexcept;
 
 // 주문 하나가 OrderRouter 안에서 쓴 시간(us). -1은 그 구간을 안 지났다 — 게이트 거부는 원장·전송이 없다.
 // 주문 스레드가 이 값을 구간 분포에 넣는다. pop→반환을 한 덩이로 두면 게이트·원장 디스크·초당한도 줄서기·
@@ -346,24 +322,7 @@ public:
 
     // 매칭 실패는 UNKNOWN — 호출자(parse_active_regimes)가 경고 로그로 판단한다.
     //  이름 셋을 컴파일 시점 표로 훑는다 — 해시 맵은 첫 호출에 힙을 잡고 호출마다 문자열 해시를 도는데, 항목 셋에는 비교가 더 싸다.
-    static Regime from_string(std::string_view text)
-    {
-        static constexpr std::pair<std::string_view, Value> kNames[] = {
-            {"BULL", BULL},
-            {"NEUTRAL", NEUTRAL},
-            {"BEAR", BEAR},
-        };
-
-        for (const auto& [name, value] : kNames)
-        {
-            if (name == text)
-            {
-                return Regime(value);
-            }
-        }
-
-        return Regime(UNKNOWN);
-    }
+    static Regime from_string(std::string_view text);
 
 private:
     Value value_ = UNKNOWN;
@@ -399,32 +358,7 @@ public:
     //  (hot path는 아니지만 오탈자 비교·string 해시를 매 로드마다 반복할 이유가 없다). 매칭 실패는 UNKNOWN.
     //  입력이 설정 파일의 문자열이라 문자열 비교 자체는 남는다. 열 항목을 컴파일 시점 표로 훑는다 — 해시 맵은 첫 호출에
     //  힙을 잡고 호출마다 해시를 도는데, 이 크기에는 비교가 더 싸고 정적 초기화 순서 문제도 없다.
-    static StrategyType from_string(std::string_view text)
-    {
-        static constexpr std::pair<std::string_view, Value> kNames[] = {
-            {"MA_CROSS", MA_CROSS},
-            {"INTRADAY_BREAKOUT", INTRADAY_BREAKOUT},
-            {"MOMENTUM", MOMENTUM},
-            {"VALUE_CONTRARY", VALUE_CONTRARY},
-            {"FIXED_INTERVAL", FIXED_INTERVAL},
-            {"PRICE_TARGET", PRICE_TARGET},
-            {"SUPPLY_DEMAND_PULLBACK", SUPPLY_DEMAND_PULLBACK},
-            {"MARKET_MAKING", MARKET_MAKING},
-            {"DEVIATION_SCALE", DEVIATION_SCALE},
-            {"THEME", THEME},
-            {"TARGET_BASKET", TARGET_BASKET},
-        };
-
-        for (const auto& [name, value] : kNames)
-        {
-            if (name == text)
-            {
-                return StrategyType(value);
-            }
-        }
-
-        return StrategyType(UNKNOWN);
-    }
+    static StrategyType from_string(std::string_view text);
 
 private:
     Value value_ = UNKNOWN;
@@ -454,25 +388,7 @@ public:
 
     // config/argv "mode" 문자열 → Mode. 모르는 값(과거 "TRADE" 포함)은 TRADE로 낙하 —
     //  기존 if/else 체인이 FEED/KR_TEST/US_TEST만 걸러내고 나머지를 TRADE 경로로 흘리던 것과 동일하다.
-    static Mode from_string(const std::string& text)
-    {
-        if (text == "FEED")
-        {
-            return Mode(FEED);
-        }
-
-        if (text == "KR_TEST")
-        {
-            return Mode(KR_TEST);
-        }
-
-        if (text == "US_TEST")
-        {
-            return Mode(US_TEST);
-        }
-
-        return Mode(TRADE);
-    }
+    static Mode from_string(const std::string& text);
 
 private:
     Value value_ = TRADE;

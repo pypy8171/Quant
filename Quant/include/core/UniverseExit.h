@@ -22,15 +22,7 @@ struct Thresholds
 };
 
 // 차단이 해제보다 늦으면 뜻이 없다 — 해제 시각에 맞춘다. 값이 바뀌었으면 호출자가 WARN을 남긴다.
-inline int clamp_block(int block_after_sec, int drop_after_sec)
-{
-    if (drop_after_sec > 0 && block_after_sec > drop_after_sec)
-    {
-        return drop_after_sec;
-    }
-
-    return block_after_sec;
-}
+int clamp_block(int block_after_sec, int drop_after_sec);
 
 enum class Absent
 {
@@ -40,20 +32,7 @@ enum class Absent
 };
 
 // 연속 부재 absent_sec로 판정. 이미 차단된 종목(in_universe=false)에는 BLOCK을 다시 내지 않는다.
-inline Absent judge_absent(long long absent_sec, const Thresholds& thread, bool in_universe)
-{
-    if (thread.drop_after_sec > 0 && absent_sec >= thread.drop_after_sec)
-    {
-        return Absent::DROP;
-    }
-
-    if (in_universe && thread.block_after_sec > 0 && absent_sec >= thread.block_after_sec)
-    {
-        return Absent::BLOCK;
-    }
-
-    return Absent::KEEP;
-}
+Absent judge_absent(long long absent_sec, const Thresholds& thread, bool in_universe);
 
 // 차단 상태에서 present 스캔이 return_confirm회 연속이면 true(차단 해제). return_confirm≤1은 1회로 본다.
 inline bool judge_return(int present_streak, const Thresholds& thread, bool in_universe)

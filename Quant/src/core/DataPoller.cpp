@@ -159,3 +159,39 @@ int DataPoller::top_up(const std::vector<std::string>& tickers,
 
     return count;
 }
+
+namespace poller
+{
+TradeData make_tick(const std::string& ticker, double price, int32_t hhmmss,
+                    std::chrono::system_clock::time_point timestamp)
+{
+    TradeData trade;
+    trade.ticker = ticker;
+    trade.hhmmss = hhmmss;
+    trade.price = price;
+    trade.quantity = 0;
+    trade.direction = 0;
+    trade.market = Market::KR;
+    trade.timestamp = timestamp;
+    return trade;
+}
+
+std::vector<std::string> select_stale(const std::vector<std::string>& held, const LastSeenFn& last_seen,
+                                      std::chrono::steady_clock::time_point cutoff)
+{
+    std::vector<std::string> out;
+
+    for (const auto& held_ticker : held)
+    {
+        const auto at = last_seen(held_ticker);
+
+        if (!at || *at < cutoff)
+        {
+            out.push_back(held_ticker);
+        }
+    }
+
+    return out;
+}
+
+} // namespace poller

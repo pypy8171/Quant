@@ -20,16 +20,7 @@ public:
     // [lock-order] push(release) → seq_cst fence → sleeping 읽기. 소비자는 sleeping 쓰기 → fence → 큐 확인.
     //  양쪽 다 store-fence-load라 둘 중 하나는 상대 store를 본다. notify는 락 안에서 한다 — 소비자가 "큐 비었다"
     //  확인과 wait 사이에 있을 때 락 없이 notify하면 그 신호가 새고 상한(capture)까지 잔다.
-    void notify()
-    {
-        std::atomic_thread_fence(std::memory_order_seq_cst);
-
-        if (sleeping_.load(std::memory_order_relaxed))
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            condition_variable_.notify_one();
-        }
-    }
+    void notify();
 
     // 소비자: 큐가 비었을 때 부른다. still_idle()이 true인 동안만 잔다(재확인으로 유실 방지). capture은 종료·주기 작업의
     //  상한이지 깨우는 수단이 아니다. 잔 뒤 돌아오면 호출자가 큐를 다시 본다.

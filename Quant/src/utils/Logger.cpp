@@ -405,3 +405,28 @@ uint64_t Logger::dropped() const noexcept
 {
     return implementation_->dropped_.load(std::memory_order_relaxed);
 }
+
+void Logger::set_min_level(LogLevel min_level)
+{
+    min_level_.store(min_level, std::memory_order_relaxed);
+}
+
+void Logger::info(const std::string& message)
+{
+    log(LogLevel::INFO, message);
+}
+
+void Logger::warn(const std::string& message)
+{
+    log(LogLevel::WARN, message);
+}
+
+void Logger::error(const std::string& message)
+{
+    log(LogLevel::ERROR, message);
+}
+
+void Logger::debug(const std::string& message)
+{
+    log(LogLevel::DEBUG, message);
+}

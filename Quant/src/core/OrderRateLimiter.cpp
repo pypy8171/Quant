@@ -109,3 +109,13 @@ bool OrderRateLimiter::on_rejected(Pending pending, OrderStatus status, const st
     retry_queue_.push_back({std::move(pending.signal), pending.attempts + 1, now + plan.delay});
     return true;
 }
+
+std::optional<OrderRateLimiter::Clock::time_point> OrderRateLimiter::next_retry_at() const
+{
+    if (retry_queue_.empty())
+    {
+        return std::nullopt;
+    }
+
+    return retry_queue_.front().not_before;
+}

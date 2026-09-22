@@ -42,37 +42,13 @@ inline std::chrono::year_month_day utc_date(std::time_t time_value)
     return std::chrono::year_month_day{std::chrono::floor<std::chrono::days>(std::chrono::sys_seconds{std::chrono::seconds{time_value}})};
 }
 
-inline std::chrono::hh_mm_ss<std::chrono::seconds> time_of_day(std::time_t now_utc)
-{
-    const auto wall_time = wall(now_utc);
-    return std::chrono::hh_mm_ss{wall_time - std::chrono::floor<std::chrono::days>(wall_time)};
-}
+std::chrono::hh_mm_ss<std::chrono::seconds> time_of_day(std::time_t now_utc);
 
 // YYYYMMDD. 날짜만 있는 값(지수 일봉의 UTC 날짜 등)을 같은 모양으로 찍을 때도 쓴다.
-inline std::string format_ymd(std::chrono::year_month_day year_month_day)
-{
-    return std::format("{:04}{:02}{:02}", static_cast<int>(year_month_day.year()), static_cast<unsigned>(year_month_day.month()),
-                       static_cast<unsigned>(year_month_day.day()));
-}
+std::string format_ymd(std::chrono::year_month_day year_month_day);
 
 // 주어진 초를 옮기지 않고 struct tm으로 분해한다. tm_isdst는 0.
-inline struct tm decompose(std::chrono::sys_seconds sys_seconds)
-{
-    using namespace std::chrono;
-    const sys_days       day_start = floor<days>(sys_seconds);
-    const year_month_day date_yyyymmdd{day_start};
-    const hh_mm_ss       time_of_day{sys_seconds - day_start};
-    struct tm            out{};
-    out.tm_year = static_cast<int>(date_yyyymmdd.year()) - 1900;
-    out.tm_mon  = static_cast<int>(static_cast<unsigned>(date_yyyymmdd.month())) - 1;
-    out.tm_mday = static_cast<int>(static_cast<unsigned>(date_yyyymmdd.day()));
-    out.tm_hour = static_cast<int>(time_of_day.hours().count());
-    out.tm_min  = static_cast<int>(time_of_day.minutes().count());
-    out.tm_sec  = static_cast<int>(time_of_day.seconds().count());
-    out.tm_wday = static_cast<int>(weekday{day_start}.c_encoding());
-    out.tm_yday = static_cast<int>((day_start - sys_days{date_yyyymmdd.year() / January / 1}).count());
-    return out;
-}
+struct tm decompose(std::chrono::sys_seconds sys_seconds);
 
 // struct tm 모양이 필요한 곳(봉 슬롯의 tm_yday, 장 시간의 tm_wday)을 위해 남긴다.
 inline struct tm to_tm(std::time_t now_utc)
@@ -87,33 +63,14 @@ inline std::string date_yyyymmdd(std::time_t now_utc)
 }
 
 // 틱 시각 HHMMSS. REST 대체 틱의 TradeData.time이 WS 체결(H0STCNT0)과 같은 모양을 갖게 한다.
-inline std::string hhmmss(std::time_t now_utc)
-{
-    const auto now_time_of_day = time_of_day(now_utc);
-    return std::format("{:02}{:02}{:02}", now_time_of_day.hours().count(), now_time_of_day.minutes().count(), now_time_of_day.seconds().count());
-}
+std::string hhmmss(std::time_t now_utc);
 
 // 틱 시각 HHMMSS 정수(TradeData.hhmmss). REST 대체 틱·시계 닫힘이 WS 틱과 같은 값을 갖게 한다. [why D-071]
-inline int32_t hhmmss_int(std::time_t now_utc)
-{
-    const auto now_time_of_day = time_of_day(now_utc);
-    return static_cast<int32_t>(now_time_of_day.hours().count() * 10000 + now_time_of_day.minutes().count() * 100 + now_time_of_day.seconds().count());
-}
+int32_t hhmmss_int(std::time_t now_utc);
 
 // 원장 CSV 행 시각 "YYYY-MM-DD HH:MM:SS".
-inline std::string datetime(std::time_t now_utc)
-{
-    const auto today = date(now_utc);
-    const auto now_time_of_day = time_of_day(now_utc);
-    return std::format("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", static_cast<int>(today.year()),
-                       static_cast<unsigned>(today.month()), static_cast<unsigned>(today.day()), now_time_of_day.hours().count(),
-                       now_time_of_day.minutes().count(), now_time_of_day.seconds().count());
-}
+std::string datetime(std::time_t now_utc);
 
 // KST 자정부터 흐른 초 [0, 86400). 벽시계 경계(정각·5분)에 맞춘 주기 작업이 쓴다.
-inline int sec_of_day(std::time_t now_utc)
-{
-    const struct tm local_time = to_tm(now_utc);
-    return local_time.tm_hour * 3600 + local_time.tm_min * 60 + local_time.tm_sec;
-}
+int sec_of_day(std::time_t now_utc);
 } // namespace kst

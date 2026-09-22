@@ -38,16 +38,7 @@ public:
 
     // ring_capacity는 소스당 링 슬롯 수(2의 거듭제곱으로 올림). 가득 차면 수신 스레드는 버리고 dropped()로 센다 —
     //  막히면 소켓 뒤로 밀려 그 소스의 모든 종목이 늦어진다(원칙 3).
-    explicit FeedMux(std::vector<std::unique_ptr<IFeedSource>> sources, size_t ring_capacity = 1u << 16)
-        : sources_(std::move(sources))
-    {
-        lanes_.reserve(sources_.size());
-
-        for (size_t source_index = 0; source_index < sources_.size(); ++source_index)
-        {
-            lanes_.push_back(std::make_unique<Lane>(ring_capacity));
-        }
-    }
+    explicit FeedMux(std::vector<std::unique_ptr<IFeedSource>> sources, size_t ring_capacity = 1u << 16);
 
     ~FeedMux() override
     {
@@ -64,289 +55,35 @@ public:
 
     // 직접 호출 모드 — 소스 i의 수신 스레드가 번호 i를 달고 Engine 콜백을 직접 부른다. 링·multiplexer 스레드를 거치지 않는다.
     //  set_callbacks와 같이 쓰지 않는다(나중에 부른 쪽이 소스 콜백을 덮는다).
-    void set_lane_callbacks(LaneOrderBookCb on_order_book, LaneTradeCb on_trade) override
-    {
-        lane_order_book_    = std::move(on_order_book);
-        lane_trade_ = std::move(on_trade);
-        lane_mode_  = true;
-
-        for (size_t source_index = 0; source_index < sources_.size(); ++source_index)
-        {
-            const uint32_t lane = static_cast<uint32_t>(source_index);
-            sources_[source_index]->set_callbacks([this, lane](const OrderBook& order_book) { lane_order_book_(lane, order_book); },
-                                       [this, lane](const TradeData& trade) { lane_trade_(lane, trade); });
-        }
-    }
+    void set_lane_callbacks(LaneOrderBookCb on_order_book, LaneTradeCb on_trade) override;
 
     // multiplexer 모드 — 소스마다 "자기 링에 push" 콜백을 등록하고 multiplexer 스레드를 띄운다. Engine 콜백은 multiplexer 스레드에서만 불린다.
-    void set_callbacks(OrderBookCb on_order_book, TradeCb on_trade) override
-    {
-        on_order_book_     = std::move(on_order_book);
-        on_trade_  = std::move(on_trade);
-        lane_mode_ = false;
+    void set_callbacks(OrderBookCb on_order_book, TradeCb on_trade) override;
 
-        for (size_t source_index = 0; source_index < sources_.size(); ++source_index)
-        {
-            Lane* lane = lanes_[source_index].get();
-            sources_[source_index]->set_callbacks([this, lane](const OrderBook& order_book) { enqueue(*lane, Event{order_book}); },
-                                       [this, lane](const TradeData& trade) { enqueue(*lane, Event{trade}); });
-        }
-
-        if (!multiplexer_thread_.joinable())
-        {
-            multiplexer_thread_ = std::jthread([this](std::stop_token stop_token) { multiplexer_loop(stop_token); });
-        }
-    }
-
-    void set_fill_callback(FillCb callback) override
-    {
-        on_fill_ = std::move(callback);
-
-        if (!sources_.empty())
-        {
-            // 모드는 부르는 시점에 본다 — set_callbacks/set_lane_callbacks와 등록 순서에 매이지 않게.
-            Lane* lane = lanes_[0].get();
-            sources_[0]->set_fill_callback(
-                [this, lane](const FillNotification& fill_notification)
-                {
-                    if (lane_mode_)
-                    {
-                        on_fill_(fill_notification);
-                        return;
-                    }
-
-                    enqueue(*lane, Event{fill_notification});
-                });
-        }
-    }
+    void set_fill_callback(FillCb callback) override;
 
     // specs를 소스에 고르게 나눠(i % N) 각각 connect한다. 이미 배정된 종목은 그 소스를 지킨다(재연결).
     //  하나라도 실패하면 전부 끊고 false — Engine의 재연결 판단이 소스 단위가 아니라 하나이기 때문이다.
-    bool connect(const std::vector<WatchSpec>& specifications) override
-    {
-        if (sources_.empty())
-        {
-            return false;
-        }
+    bool connect(const std::vector<WatchSpec>& specifications) override;
 
-        std::vector<std::vector<WatchSpec>> per_source(sources_.size());
-        {
-            std::lock_guard<std::mutex> lock(assign_mutex_);
-            size_t                      next = 0;
-
-            for (const auto& specification : specifications)
-            {
-                std::string specification_key = key(specification);
-                const auto  iterator          = assign_.find(specification_key);
-                size_t      index;
-
-                if (iterator != assign_.end())
-                {
-                    index = iterator->second;
-                }
-                else
-                {
-                    index = next++ % sources_.size();
-                    assign_.emplace(std::move(specification_key), index);
-                }
-
-                per_source[index].push_back(specification);
-            }
-        }
-
-        for (size_t source_index = 0; source_index < sources_.size(); ++source_index)
-        {
-            if (!sources_[source_index]->connect(per_source[source_index]))
-            {
-                for (size_t inner_index = 0; inner_index < source_index; ++inner_index)
-                {
-                    sources_[inner_index]->disconnect();
-                }
-
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    void disconnect() override
-    {
-        for (auto& source : sources_)
-        {
-            source->disconnect();
-        }
-    }
+    void disconnect() override;
 
     // 새 종목은 배정 수가 가장 적은 소스로. 상한에 걸려 그 소스 목록에서도 빠지면 배정을 지워 has_spec이 false가 된다.
-    bool subscribe_incremental(const WatchSpec& specification) override
-    {
-        size_t index;
-        {
-            std::lock_guard<std::mutex> lock(assign_mutex_);
-            std::string                 specification_key = key(specification);
-            const auto                  iterator          = assign_.find(specification_key);
+    bool subscribe_incremental(const WatchSpec& specification) override;
 
-            if (iterator != assign_.end())
-            {
-                index = iterator->second;
-            }
-            else
-            {
-                index = least_loaded_locked();
-                assign_.emplace(std::move(specification_key), index);
-            }
-        }
+    bool has_specification(const WatchSpec& specification) const override;
 
-        const bool sent = sources_[index]->subscribe_incremental(specification);
+    std::vector<WatchSpec> take_overflow_specifications() override;
 
-        if (!sent && !sources_[index]->has_specification(specification))
-        {
-            std::lock_guard<std::mutex> lock(assign_mutex_);
-            assign_.erase(key(specification));
-        }
-
-        return sent;
-    }
-
-    bool has_specification(const WatchSpec& specification) const override
-    {
-        std::optional<size_t> index;
-        {
-            std::lock_guard<std::mutex> lock(assign_mutex_);
-            const auto                  iterator = assign_.find(key(specification));
-
-            if (iterator != assign_.end())
-            {
-                index = iterator->second;
-            }
-        }
-
-        return index && sources_[*index]->has_specification(specification);
-    }
-
-    std::vector<WatchSpec> take_overflow_specifications() override
-    {
-        std::vector<WatchSpec> out;
-
-        for (auto& source : sources_)
-        {
-            auto part = source->take_overflow_specifications();
-            out.insert(out.end(), std::make_move_iterator(part.begin()), std::make_move_iterator(part.end()));
-        }
-
-        if (!out.empty())
-        {
-            std::lock_guard<std::mutex> lock(assign_mutex_);
-
-            for (const auto& out_event : out)
-            {
-                assign_.erase(key(out_event));
-            }
-        }
-
-        return out;
-    }
-
-    bool is_connected() const override
-    {
-        for (const auto& source : sources_)
-        {
-            if (source->is_connected())
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    bool is_connected() const override;
 
     // 소스 하나라도 끊겼거나 멈췄으면 stale — 어느 것인지는 reconnect_stale이 다시 가려 그것만 잇는다.
-    bool is_stale(int threshold_sec) const override
-    {
-        for (const auto& source : sources_)
-        {
-            if (!source->is_connected() || source->is_stale(threshold_sec))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    bool is_stale(int threshold_sec) const override;
 
     // 멈췄거나 끊긴 소스만 자기 배정 종목으로 다시 잇는다. 배정이 없는 종목(넘침 회수분 등)은 다시 잇는 소스에 돌아가며
     //  붙인다. 전부 멈췄으면(또는 멈춘 것이 없는데 불렸으면) 기본 동작 — 전부 끊고 전부 다시 — 과 같다.
     //  실패한 소스는 끊긴 채 남아 다음 판정에서 다시 멈춘 것으로 잡힌다.
-    bool reconnect_stale(const std::vector<WatchSpec>& specifications, int threshold_sec) override
-    {
-        std::vector<bool> dead(sources_.size(), false);
-        size_t            dead_n = 0;
-
-        for (size_t source_index = 0; source_index < sources_.size(); ++source_index)
-        {
-            if (!sources_[source_index]->is_connected() || sources_[source_index]->is_stale(threshold_sec))
-            {
-                dead[source_index] = true;
-                ++dead_n;
-            }
-        }
-
-        if (dead_n == 0 || dead_n == sources_.size())
-        {
-            disconnect();
-            return connect(specifications);
-        }
-
-        std::vector<std::vector<WatchSpec>> per_source(sources_.size());
-        {
-            std::lock_guard<std::mutex> lock(assign_mutex_);
-            size_t                      next = 0;
-
-            for (const auto& specification : specifications)
-            {
-                std::string specification_key = key(specification);
-                const auto  iterator          = assign_.find(specification_key);
-                size_t      index;
-
-                if (iterator != assign_.end())
-                {
-                    index = iterator->second;
-                }
-                else
-                {
-                    index = next++ % sources_.size();
-
-                    while (!dead[index])
-                    {
-                        index = (index + 1) % sources_.size();
-                    }
-
-                    assign_.emplace(std::move(specification_key), index);
-                }
-
-                if (dead[index])
-                {
-                    per_source[index].push_back(specification);
-                }
-            }
-        }
-
-        bool ok = true;
-
-        for (size_t source_index = 0; source_index < sources_.size(); ++source_index)
-        {
-            if (!dead[source_index])
-            {
-                continue;
-            }
-
-            sources_[source_index]->disconnect();
-            ok = sources_[source_index]->connect(per_source[source_index]) && ok;
-        }
-
-        return ok;
-    }
+    bool reconnect_stale(const std::vector<WatchSpec>& specifications, int threshold_sec) override;
 
     [[nodiscard]] size_t source_count() const noexcept
     {
@@ -365,12 +102,7 @@ public:
     }
 
     // 종목이 어느 소스에 배정됐는지. 없으면 nullopt. 테스트·진단용.
-    [[nodiscard]] std::optional<size_t> source_of(const WatchSpec& specification) const
-    {
-        std::lock_guard<std::mutex> lock(assign_mutex_);
-        const auto                  iterator = assign_.find(key(specification));
-        return iterator == assign_.end() ? std::nullopt : std::optional<size_t>(iterator->second);
-    }
+    [[nodiscard]] std::optional<size_t> source_of(const WatchSpec& specification) const;
 
 private:
     struct Lane
@@ -386,108 +118,16 @@ private:
     }
 
     // 수신 스레드에서. 링이 차면 버린다 — 여기서 기다리면 그 소켓의 전 종목이 밀린다.
-    void enqueue(Lane& lane, Event&& event)
-    {
-        if (!lane.ring.push(std::move(event)))
-        {
-            dropped_.fetch_add(1, std::memory_order_relaxed);
-            return;
-        }
+    void enqueue(Lane& lane, Event&& event);
 
-        wake_.notify();
-    }
+    size_t least_loaded_locked() const;
 
-    size_t least_loaded_locked() const
-    {
-        std::vector<size_t> load(sources_.size(), 0);
-
-        for (const auto& [assignment, index] : assign_)
-        {
-            ++load[index];
-        }
-
-        size_t best = 0;
-
-        for (size_t load_index = 1; load_index < load.size(); ++load_index)
-        {
-            if (load[load_index] < load[best])
-            {
-                best = load_index;
-            }
-        }
-
-        return best;
-    }
-
-    bool all_empty() const
-    {
-        for (const auto& lane : lanes_)
-        {
-            if (!lane->ring.empty())
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
+    bool all_empty() const;
 
     // 링을 돌아가며 비운다. 한 링당 한 바퀴에 kBurst개까지만 — 한 소켓이 바쁘다고 다른 소켓 종목이 밀리지 않게.
-    void multiplexer_loop(std::stop_token stop_token)
-    {
-        static constexpr size_t kBurst = 256;
+    void multiplexer_loop(std::stop_token stop_token);
 
-        while (!stop_token.stop_requested())
-        {
-            bool any = false;
-
-            for (auto& lane : lanes_)
-            {
-                for (size_t burst_index = 0; burst_index < kBurst; ++burst_index)
-                {
-                    auto event = lane->ring.pop();
-
-                    if (!event)
-                    {
-                        break;
-                    }
-
-                    any = true;
-                    dispatch(*event);
-                }
-            }
-
-            if (!any)
-            {
-                wake_.wait_for(std::chrono::milliseconds(5), stop_token, [this] { return all_empty(); });
-            }
-        }
-    }
-
-    void dispatch(Event& event)
-    {
-        if (auto* trade = std::get_if<TradeData>(&event))
-        {
-            if (on_trade_)
-            {
-                on_trade_(*trade);
-            }
-        }
-        else if (auto* order_book = std::get_if<OrderBook>(&event))
-        {
-            if (on_order_book_)
-            {
-                on_order_book_(*order_book);
-            }
-        }
-        else if (auto* fill_notification = std::get_if<FillNotification>(&event))
-        {
-            if (on_fill_)
-            {
-                on_fill_(*fill_notification);
-            }
-        }
-    }
+    void dispatch(Event& event);
 
     std::vector<std::unique_ptr<IFeedSource>> sources_;
     std::vector<std::unique_ptr<Lane>>        lanes_; // sources_와 같은 index

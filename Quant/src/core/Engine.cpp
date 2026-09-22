@@ -3211,3 +3211,74 @@ void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& e
         emit(signal);
     }
 }
+
+void Engine::set_last_active_regimes(const std::vector<Regime>& last_active_regimes)
+{
+    if (!strategy_.list.empty())
+    {
+        strategy_.list.back()->set_active_regimes(last_active_regimes);
+    }
+}
+
+void Engine::set_regime_file(const std::string& path, int stale_sec)
+{
+    regime_file_ = path;
+    regime_file_judge_.set_stale_sec(stale_sec);
+}
+
+void Engine::set_session_end(int close_min, int grace_sec)
+{
+    session_end::Config config;
+    config.close_min = close_min;
+    config.grace_sec = grace_sec;
+    session_end_ = session_end::Judge(config);
+}
+
+void Engine::set_universe_rescan(std::function<std::vector<symbol::SymbolId>(KisClient&)> universe_fn,
+                                 std::function<std::unique_ptr<StrategyBase>(symbol::SymbolId)> factory,
+                                 int interval_sec, size_t max_registered, int drop_after_sec, int block_after_sec,
+                                 int return_confirm)
+{
+    // 슬리브마다 한 번씩 부른다 — 덮어쓰지 않고 쌓는다. 예전에는 단일 슬롯이라
+    //  두 번째 호출이 첫 번째를 조용히 지웠다(먼저 건 재스캔이 사라짐).
+    RescanJob rescan_job;
+    rescan_job.universe_fn = std::move(universe_fn);
+    rescan_job.factory = std::move(factory);
+    rescan_job.owned.resize(symbols_.table.capacity()); // 종목 id 인덱스 — id는 용량을 넘지 않는다
+    rescan_job.interval_sec = interval_sec;
+    rescan_job.max_registered = max_registered;
+    rescan_job.drop_after_sec = drop_after_sec;
+    rescan_job.block_after_sec = block_after_sec;
+    rescan_job.return_confirm = return_confirm;
+    universe_rescan_.jobs.push_back(std::move(rescan_job));
+}
+
+void Engine::set_zmq_control(const std::string& bind_address, const std::string& token)
+{
+    if (!bind_address.empty())
+    {
+        zmq_bind_address_ = bind_address;
+    }
+
+    zmq_control_token_ = token;
+}
+
+void Engine::set_protective_orders(const std::string& mode, int interval_ms, int retry_ms)
+{
+    protective_book_.set_mode(risk::protective_mode_from_string(mode));
+    protective_interval_ = std::chrono::milliseconds(interval_ms > 0 ? interval_ms : kProtectiveIntervalMsDefault);
+    protective_book_.set_retry_interval(std::chrono::milliseconds(retry_ms > 0 ? retry_ms : kProtectiveRetryMsDefault));
+}
+
+void Engine::mark_exit_managed(symbol::SymbolId symbol)
+{
+    if (symbol != symbol::kNone && symbol < symbols_.exit_managed.size())
+    {
+        symbols_.exit_managed[symbol] = true;
+    }
+}
+
+void Engine::register_ticker_name(const std::string& ticker, const std::string& name)
+{
+    register_ticker_name(symbols_.table.intern(ticker), name);
+}

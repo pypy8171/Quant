@@ -2192,3 +2192,83 @@ std::vector<symbol::SymbolId> OrderGate::slot_exempt_symbols() const
     std::sort(out.begin(), out.end()); // 집합 순서는 해시 순 — 호출자가 같은 입력에 같은 순서를 받게 한다
     return out;
 }
+
+void OrderGate::on_accept(const std::string& account, const std::string& ticker, OrderSide side, int quantity,
+                          double price)
+{
+    (void)on_intent(account, ticker, side, quantity, price, OrderRef{});
+}
+
+void OrderGate::on_accept(const std::string& ticker, OrderSide side, int quantity, double price)
+{
+    on_accept(std::string(), ticker, side, quantity, price);
+}
+
+void OrderGate::seed_position(const std::string& account, const std::string& ticker, int quantity, double average_price)
+{
+    seed_position(account, ticker, quantity, average_price, -1);
+}
+
+void OrderGate::seed_position(const std::string& ticker, int quantity, double average_price)
+{
+    seed_position(std::string(), ticker, quantity, average_price, -1);
+}
+
+void OrderGate::on_cancel(const std::string& account, const std::string& ticker, OrderSide side, int quantity)
+{
+    on_cancel(account, ticker, side, quantity, OrderRef{});
+}
+
+void OrderGate::on_cancel(const std::string& ticker, OrderSide side, int quantity)
+{
+    on_cancel(std::string(), ticker, side, quantity);
+}
+
+void OrderGate::set_kill_switch(bool on)
+{
+    kill_switch_.store(on);
+}
+
+void OrderGate::set_entry_halt(bool on)
+{
+    entry_halt_.store(on);
+}
+
+void OrderGate::set_manual_halt(OrderSide side, bool on)
+{
+    (side == OrderSide::SELL ? manual_sell_halt_ : manual_buy_halt_).store(on);
+}
+
+void OrderGate::set_entry_scale(double entry_scale)
+{
+    entry_scale_.store(entry_scale);
+}
+
+void OrderGate::set_pnl_stale(bool on)
+{
+    pnl_stale_.store(on);
+}
+
+size_t OrderGate::PosKeyHash::operator()(const PosKey& key) const noexcept
+{
+    // 두 32비트를 64비트 하나로 붙여 곱셈으로 섞는다. xor만 하면 (a,b)와 (b,a)가 같은 버킷에 간다.
+    const uint64_t packed = (static_cast<uint64_t>(key.account) << 32) | key.symbol;
+    const uint64_t mixed = packed * 0x9e3779b97f4a7c15ull;
+    return static_cast<size_t>(mixed ^ (mixed >> 29));
+}
+
+size_t OrderGate::StrategyKeyHash::operator()(const StrategyKey& key) const noexcept
+{
+    const uint64_t packed = (static_cast<uint64_t>(key.strategy) << 32) | key.symbol;
+    const uint64_t mixed = packed * 0x9e3779b97f4a7c15ull;
+    return static_cast<size_t>(mixed ^ (mixed >> 29));
+}
+
+size_t OrderGate::SignalKeyHash::operator()(const SignalKey& key) const noexcept
+{
+    uint64_t mixed = (static_cast<uint64_t>(key.account) << 32) | key.symbol;
+    mixed =
+        (mixed ^ (static_cast<uint64_t>(key.strategy) << 8) ^ static_cast<uint64_t>(key.side)) * 0x9e3779b97f4a7c15ull;
+    mixed ^= static_cast<uint64_t>(key.price) * 0xbf58476d1ce4e5b9ull;
+    return static_cast<size_t>(mixed ^ (mixed >> 31));
+}

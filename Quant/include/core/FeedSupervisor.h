@@ -44,35 +44,9 @@ public:
 
     const SupervisorConfig& config() const { return config_; }
 
-    Step observe(bool market_open, bool stale, clock::time_point now)
-    {
-        if (!market_open)
-        {
-            return Step::kIdle;
-        }
+    Step observe(bool market_open, bool stale, clock::time_point now);
 
-        if (!stale)
-        {
-            fail_streak_ = 0;
-            return Step::kHealthy;
-        }
-
-        return now < next_try_ ? Step::kWaitBackoff : Step::kReconnect;
-    }
-
-    After on_reconnect(bool ok, clock::time_point now)
-    {
-        if (ok)
-        {
-            fail_streak_ = 0;
-            return After::kNone;
-        }
-
-        ++fail_streak_;
-        last_backoff_sec_ = std::min(config_.backoff_step_sec * fail_streak_, config_.backoff_max_sec);
-        next_try_         = now + std::chrono::seconds(last_backoff_sec_);
-        return fail_streak_ == config_.fallback_after_fails ? After::kFallback : After::kNone;
-    }
+    After on_reconnect(bool ok, clock::time_point now);
 
     int fail_streak() const { return fail_streak_; }
     int last_backoff_sec() const { return last_backoff_sec_; } // 직전 실패가 정한 대기(초), 로그용

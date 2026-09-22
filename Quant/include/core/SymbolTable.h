@@ -27,23 +27,7 @@ constexpr SymbolId kNone = 0;
 constexpr size_t kKoreanTickerLength = 6;
 
 // 국내 현물 종목코드인가 — 숫자 6자리. 운영단말 수동주문·유니버스 스캔·거래소 종목 목록이 같은 판정을 쓴다.
-inline bool is_korean_ticker(std::string_view ticker) noexcept
-{
-    if (ticker.size() != kKoreanTickerLength)
-    {
-        return false;
-    }
-
-    for (char character : ticker)
-    {
-        if (character < '0' || character > '9')
-        {
-            return false;
-        }
-    }
-
-    return true;
-}
+bool is_korean_ticker(std::string_view ticker) noexcept;
 
 // 틱·호가·봉 구조체가 드는 종목 코드 — std::string 대신 고정 배열이라 구조체가 trivially copyable이고 링 복사가
 //  memcpy다. 문자열이 필요한 곳(로그·REST·캡처 파일·화면)은 view()·string()로 꺼낸다. 최대 15자, 넘치면 잘린다
@@ -59,28 +43,13 @@ struct Ticker
     constexpr Ticker() = default;
 
     // string_view 하나만 받는다(const char*·std::string은 그 뒤에 선다) — 두 갈래를 두면 `t == "005930"`이 모호해진다.
-    Ticker(std::string_view text)
-    {
-        assign(text);
-    }
+    Ticker(std::string_view text);
 
     // 바이트 루프다 — 길이가 실행 시간에 정해지는 memcpy·memset은 인라인되지 않아 호출 둘이 붙는데, 종목 코드는
     //  여섯 자리라 루프가 더 짧다(SymbolTable 조회 벤치 25.6 → 측정값은 D-106).
-    void assign(std::string_view text)
-    {
-        length = static_cast<uint8_t>(text.size() < kMax ? text.size() : kMax);
+    void assign(std::string_view text);
 
-        for (size_t index = 0; index < kMax; ++index)
-        {
-            data[index] = index < length ? text[index] : '\0';
-        }
-    }
-
-    Ticker& operator=(std::string_view text)
-    {
-        assign(text);
-        return *this;
-    }
+    Ticker& operator=(std::string_view text);
 
     [[nodiscard]] std::string_view view() const
     {
@@ -139,59 +108,9 @@ public:
     // 있으면 그 id, 없으면 새 id. 가득 차면 kNone — 호출 쪽은 문자열 경로로 돌아간다.
     //  읽기(수신 스레드가 틱마다 한 번)는 락도 원자 카운터 갱신도 없다 — 버킷 하나 acquire 읽기와 16바이트 비교.
     //  삽입만 write_mutex_로 직렬화한다. [why D-071]
-    SymbolId intern(std::string_view ticker)
-    {
-        const TickerWords key = words_of(ticker);
-        const uint64_t    hash = hash_of(key);
+    SymbolId intern(std::string_view ticker);
 
-        if (const SymbolId found = find(key, hash); found != kNone)
-        {
-            return found;
-        }
-
-        std::lock_guard<std::mutex> write_lock(write_mutex_);
-        size_t                      slot = static_cast<size_t>(hash) & bucket_mask_;
-
-        // 락을 잡은 뒤 다시 탐사 — 다른 쓰기 스레드가 먼저 넣었을 수 있다. 빈 칸이 곧 넣을 자리.
-        while (true)
-        {
-            const SymbolId id = buckets_[slot].load(std::memory_order_relaxed);
-
-            if (id == kNone)
-            {
-                break;
-            }
-
-            if (same_words(names_[id], key))
-            {
-                return id;
-            }
-
-            slot = (slot + 1) & bucket_mask_;
-        }
-
-        const SymbolId id = count_.load(std::memory_order_relaxed);
-
-        if (id >= capacity_)
-        {
-            return kNone;
-        }
-
-        // [inv] 발행 순서 — names_[id]를 채우고, count_를 올리고, 마지막에 버킷에 id를 release로 놓는다. 읽는 쪽은
-        //  버킷을 acquire로 읽으므로 id를 본 순간 names_[id]와 count_(>id)가 둘 다 보인다 — name(id)가 빈 값을 내지
-        //  않는다. 버킷을 count_보다 먼저 놓으면 그 사이에 lookup은 id를 주는데 name(id)는 빈 Ticker를 준다
-        //  (test_symbol_table 6번이 부하 아래서 40번에 5번 잡았다, 09-22). Ticker는 새로 넣을 때만 만든다.
-        names_[id].assign(ticker);
-        count_.store(id + 1, std::memory_order_release);
-        buckets_[slot].store(id, std::memory_order_release);
-        return id;
-    }
-
-    [[nodiscard]] SymbolId lookup(std::string_view ticker) const
-    {
-        const TickerWords key = words_of(ticker);
-        return find(key, hash_of(key));
-    }
+    [[nodiscard]] SymbolId lookup(std::string_view ticker) const;
 
     // 모르는 id면 빈 Ticker. 값으로 돌려준다(16바이트, 할당 없음) — 배열이 고정이라 참조도 안전하지만
     //  호출 쪽이 수명을 생각할 일이 없게 값이다.
@@ -212,17 +131,7 @@ public:
     }
 
 private:
-    static size_t bucket_count_for(size_t capacity)
-    {
-        size_t count = 16;
-
-        while (count < capacity * 2)
-        {
-            count <<= 1;
-        }
-
-        return count;
-    }
+    static size_t bucket_count_for(size_t capacity);
 
     // Ticker 16바이트를 uint64 둘로 본 것 — 비교·해시가 길이별 memcmp 호출 대신 정수 두 번이 된다.
     //  low = data[0..7], high = data[8..14] + 마지막 바이트에 length. 남는 바이트는 0.
@@ -242,38 +151,10 @@ private:
     //  바이트를 아래 자리부터 쌓으므로 리틀 엔디언에서만 Ticker의 메모리 배치와 같다.
     static_assert(std::endian::native == std::endian::little);
 
-    static TickerWords words_of(const Ticker& ticker)
-    {
-        static_assert(sizeof(Ticker) == 16);
-        TickerWords words;
-        std::memcpy(&words.low, &ticker, 8);
-        std::memcpy(&words.high, reinterpret_cast<const char*>(&ticker) + 8, 8);
-        return words;
-    }
+    static TickerWords words_of(const Ticker& ticker);
 
     // Ticker::assign과 같은 규칙으로 자른다(kMax 넘으면 잘림).
-    static TickerWords words_of(std::string_view text)
-    {
-        const size_t length = text.size() < Ticker::kMax ? text.size() : Ticker::kMax;
-        TickerWords        words;
-
-        for (size_t index = 0; index < length; ++index)
-        {
-            const uint64_t byte = static_cast<uint8_t>(text[index]);
-
-            if (index < 8)
-            {
-                words.low |= byte << (index * 8);
-            }
-            else
-            {
-                words.high |= byte << ((index - 8) * 8);
-            }
-        }
-
-        words.high |= static_cast<uint64_t>(length) << 56;
-        return words;
-    }
+    static TickerWords words_of(std::string_view text);
 
     static bool same_words(const Ticker& ticker, const TickerWords& key)
     {
@@ -282,37 +163,10 @@ private:
 
     // [formula] Ticker 16바이트를 uint64 둘로 읽어 곱셈 믹스 — 종목 코드는 여섯 자리 숫자열이라 앞 8바이트만으로는
     //  하위 비트가 몰린다. splitmix64 상수.
-    static uint64_t hash_of(const TickerWords& words)
-    {
-        const uint64_t low  = words.low;
-        const uint64_t high = words.high;
-        uint64_t mixed = (low ^ 0x9E3779B97F4A7C15ULL) * 0xBF58476D1CE4E5B9ULL;
-        mixed ^= mixed >> 31;
-        mixed ^= high * 0x94D049BB133111EBULL;
-        mixed ^= mixed >> 29;
-        mixed *= 0xBF58476D1CE4E5B9ULL;
-        mixed ^= mixed >> 32;
-        return mixed;
-    }
+    static uint64_t hash_of(const TickerWords& words);
 
     // 선형 탐사. 빈 버킷(kNone)을 만나면 없는 것 — 삭제가 없고 절반 넘게 차지 않아 반드시 끝난다.
-    [[nodiscard]] SymbolId find(const TickerWords& key, uint64_t hash) const
-    {
-        for (size_t slot = static_cast<size_t>(hash) & bucket_mask_;; slot = (slot + 1) & bucket_mask_)
-        {
-            const SymbolId id = buckets_[slot].load(std::memory_order_acquire);
-
-            if (id == kNone)
-            {
-                return kNone;
-            }
-
-            if (same_words(names_[id], key))
-            {
-                return id;
-            }
-        }
-    }
+    [[nodiscard]] SymbolId find(const TickerWords& key, uint64_t hash) const;
 
     const size_t                                capacity_;
     const size_t                                bucket_mask_;

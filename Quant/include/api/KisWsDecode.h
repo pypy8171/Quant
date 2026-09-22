@@ -31,22 +31,7 @@ using Fields = std::span<const std::string_view>;
 
 // delim으로 나눠 out에 뷰를 채운다. out은 비운 뒤 재사용하므로 용량이 잡힌 뒤로는 할당이 없다.
 //  빈 토큰도 자리로 남기고 마지막 토큰은 delim 없이 끝나도 넣는다("a^^b" → {"a","","b"}).
-inline void split_fields(std::string_view text, char delim, std::vector<std::string_view>& out)
-{
-    out.clear();
-    size_t start = 0;
-
-    for (size_t index = 0; index < text.size(); ++index)
-    {
-        if (text[index] == delim)
-        {
-            out.emplace_back(text.data() + start, index - start);
-            start = index + 1;
-        }
-    }
-
-    out.emplace_back(text.data() + start, text.size() - start);
-}
+void split_fields(std::string_view text, char delim, std::vector<std::string_view>& out);
 
 // 다건 프레임의 데이터부(^-구분 필드 전체)를 레코드 단위로 본다. 순수 함수 — 단위 테스트 대상.
 //  KIS 원문 스펙이 리포에 없어 채널별 절대 폭을 하드코딩하지 않고, 레코드 폭이 채널마다 고정이라는
@@ -63,34 +48,7 @@ struct Records
     Fields operator[](size_t result) const noexcept { return all.subspan(result * width, width); }
 };
 
-inline Records split_records(Fields fields, int count, size_t min_fields) noexcept
-{
-    Records out;
-
-    if (count <= 1 || fields.empty())
-    {
-        return out;
-    }
-
-    const size_t total = static_cast<size_t>(count);
-
-    if (fields.size() % total != 0)
-    {
-        return out;
-    }
-
-    const size_t width = fields.size() / total;
-
-    if (width < min_fields || width == 0)
-    {
-        return out;
-    }
-
-    out.all = fields;
-    out.width = width;
-    out.count = total;
-    return out;
-}
+Records split_records(Fields fields, int count, size_t min_fields) noexcept;
 
 enum class Decode
 {
@@ -122,52 +80,7 @@ inline const char* number_begin(std::string_view text) noexcept
     return (!text.empty() && text[0] == '+') ? text.data() + 1 : text.data();
 }
 
-inline bool to_double(std::string_view text, double& out) noexcept
-{
-    const char* begin = number_begin(text);
-    const char* other_end = text.data() + text.size();
-
-    if (begin == other_end)
-    {
-        return false;
-    }
-
-#if defined(__cpp_lib_to_chars)
-    double item = 0.0;
-    auto   parse_result = std::from_chars(begin, other_end, item);
-
-    if (parse_result.ec != std::errc() || parse_result.ptr != other_end)
-    {
-        return false;
-    }
-
-    out = item;
-    return true;
-#else
-    // strtod는 앞 공백을 건너뛰고 로케일을 보며 널 종료를 요구한다 — KIS 전문은 ASCII 숫자만 오므로
-    //  스택 버퍼에 옮겨 끝 포인터만 확인한다. 32자를 넘는 숫자 필드는 없다.
-    char buffer[32];
-    const size_t length = static_cast<size_t>(other_end - begin);
-
-    if (length >= sizeof(buffer))
-    {
-        return false;
-    }
-
-    std::memcpy(buffer, begin, length);
-    buffer[length] = '\0';
-    char*  end = nullptr;
-    double value   = std::strtod(buffer, &end);
-
-    if (end != buffer + length)
-    {
-        return false;
-    }
-
-    out = value;
-    return true;
-#endif
-}
+bool to_double(std::string_view text, double& out) noexcept;
 
 template <typename Int> inline bool to_integer(std::string_view text, Int& out) noexcept
 {
@@ -202,167 +115,38 @@ inline bool to_int(std::string_view text, int& out) noexcept
 }
 
 // 5단계 호가 블록. 현물·선물이 시작 위치만 다르고 배열 규칙은 같다.
-inline bool fill_levels(Fields fields, size_t ask_price, size_t ask_quantity, size_t bid_price,
-                        size_t bid_quantity, OrderBook& order_book)
-{
-    bool ok = true;
-
-    for (size_t index = 0; index < 5; ++index)
-    {
-        ok &= to_double(fields[ask_price + index], order_book.asks[index].price);
-        ok &= to_i64(fields[ask_quantity + index], order_book.asks[index].quantity);
-        ok &= to_double(fields[bid_price + index], order_book.bids[index].price);
-        ok &= to_i64(fields[bid_quantity + index], order_book.bids[index].quantity);
-    }
-
-    return ok;
-}
+bool fill_levels(Fields fields, size_t ask_price, size_t ask_quantity, size_t bid_price,
+                        size_t bid_quantity, OrderBook& order_book);
 
 } // namespace detail
 
 // ─── 국내 현물 호가 (H0STASP0) ───────────────────────────────────────────
 // [wire] [0]종목코드 [1]시각 [2]시간구분 [3-12]매도호가1-10 [13-22]매수호가1-10 [23-32]매도잔량1-10 [33-42]매수잔량1-10.
 //        전문은 10단계, 여기서는 앞 5단계만 쓴다(asks[i]=f[3+i]/f[23+i], bids[i]=f[13+i]/f[33+i]).
-inline Decode decode_orderbook(Fields fields, OrderBook& order_book)
-{
-    if (fields.size() < kMinFieldsOrderbook)
-    {
-        return Decode::kShort;
-    }
-
-    order_book.ticker = fields[0];
-    order_book.hhmmss = krx::parse_hhmmss(fields[1]);
-    order_book.timestamp = std::chrono::system_clock::now();
-    return detail::fill_levels(fields, 3, 23, 13, 33, order_book) ? Decode::kOk : Decode::kBadNumber;
-}
+Decode decode_orderbook(Fields fields, OrderBook& order_book);
 
 // ─── 국내 현물 체결 (H0STCNT0) ───────────────────────────────────────────
 // [wire] [0]종목코드 [1]체결시간 [2]현재가 [12]체결량 [13]누적거래량 [18]체결강도(CTTR)
 //        [21]체결구분(1=매수,5=매도). 13·18은 보조 필드라 숫자가 아니어도 실패로 치지 않는다(0).
-inline Decode decode_kr_trade(Fields fields, TradeData& trade)
-{
-    if (fields.size() < kMinFieldsKrTrade)
-    {
-        return Decode::kShort;
-    }
-
-    trade.ticker = fields[0];
-    trade.hhmmss = krx::parse_hhmmss(fields[1]);
-    trade.market = Market::KR;
-    trade.timestamp = std::chrono::system_clock::now();
-    bool ok = detail::to_double(fields[2], trade.price);
-    ok &= detail::to_i64(fields[12], trade.quantity);
-    ok &= detail::to_int(fields[21], trade.direction);
-
-    if (!detail::to_i64(fields[13], trade.accumulated_volume))
-    {
-        trade.accumulated_volume = 0;
-    }
-
-    if (!detail::to_double(fields[18], trade.strength))
-    {
-        trade.strength = 0.0;
-    }
-
-    return ok ? Decode::kOk : Decode::kBadNumber;
-}
+Decode decode_kr_trade(Fields fields, TradeData& trade);
 
 // ─── 미국 체결 (HDFSCNT0) ────────────────────────────────────────────────
 // [wire] [0]종목코드 [1]체결시간(KST) [2]현재가 [8]체결량 [20]방향(미검증 — 20필드 이하면 0)
-inline Decode decode_us_trade(Fields fields, TradeData& trade)
-{
-    if (fields.size() < kMinFieldsUsTrade)
-    {
-        return Decode::kShort;
-    }
-
-    trade.ticker = fields[0];
-    trade.hhmmss = krx::parse_hhmmss(fields[1]);
-    trade.market = Market::US;
-    trade.timestamp = std::chrono::system_clock::now();
-    bool ok = detail::to_double(fields[2], trade.price);
-    ok &= detail::to_i64(fields[8], trade.quantity);
-    trade.direction = 0;
-
-    if (fields.size() > 20)
-    {
-        ok &= detail::to_int(fields[20], trade.direction);
-    }
-
-    return ok ? Decode::kOk : Decode::kBadNumber;
-}
+Decode decode_us_trade(Fields fields, TradeData& trade);
 
 // ─── 국내 선물 체결 (H0IFCNT0) ───────────────────────────────────────────
 // [wire] [0]종목코드 [1]체결시각 [5]현재가 [9]단위체결량 [10]누적거래량 [18]미결제약정. 방향 코드가 없어 direction=0.
-inline Decode decode_future_trade(Fields fields, TradeData& trade)
-{
-    if (fields.size() < kMinFieldsFutTrade)
-    {
-        return Decode::kShort;
-    }
-
-    trade.ticker = fields[0];
-    trade.hhmmss = krx::parse_hhmmss(fields[1]);
-    trade.market = Market::KR; // 선물도 국내 세션. 소비 측은 종목코드로 현·선을 구분한다.
-    trade.direction = 0;
-    trade.timestamp = std::chrono::system_clock::now();
-    bool ok = detail::to_double(fields[5], trade.price);
-    ok &= detail::to_i64(fields[9], trade.quantity);
-    return ok ? Decode::kOk : Decode::kBadNumber;
-}
+Decode decode_future_trade(Fields fields, TradeData& trade);
 
 // ─── 국내 선물 호가 (H0IFASP0) ───────────────────────────────────────────
 // [wire] [0]종목코드 [1]시각 [2-6]매도호가 [7-11]매수호가 [12-21]호가건수(건너뜀) [22-26]매도잔량 [27-31]매수잔량
-inline Decode decode_future_orderbook(Fields fields, OrderBook& order_book)
-{
-    if (fields.size() < kMinFieldsFutOrderbook)
-    {
-        return Decode::kShort;
-    }
-
-    order_book.ticker = fields[0];
-    order_book.hhmmss = krx::parse_hhmmss(fields[1]);
-    order_book.timestamp = std::chrono::system_clock::now();
-    return detail::fill_levels(fields, 2, 22, 7, 27, order_book) ? Decode::kOk : Decode::kBadNumber;
-}
+Decode decode_future_orderbook(Fields fields, OrderBook& order_book);
 
 // ─── 체결통보 (H0STCNI0 실거래 / H0STCNI9 모의) ──────────────────────────
 // [wire] [2]ODER_NO [4]SELN_BYOV_CLS(01=매도,02=매수) [8]STCK_SHRN_ISCD [9]CNTG_QTY [10]CNTG_UNPR
 //        [11]STCK_CNTG_HOUR [13]CNTG_YN(1=접수/정정/취소/거부 통보, 2=체결 — 모의 실측 확인)
 //        [11]체결시각(HHMMSS) [13]CNTG_YN(1=접수/정정/취소/거부 통보, 2=체결통보)
 // 체결통보(2)만 kOk. 원장에 들어가는 값이라 매매구분·수량·단가 어느 하나라도 못 읽으면 채우지 않는다.
-inline Decode decode_fill(Fields fields, FillNotification& fill_notification)
-{
-    if (fields.size() < kMinFieldsFill)
-    {
-        return Decode::kShort;
-    }
-
-    if (fields[13] != "2")
-    {
-        return Decode::kSkip;
-    }
-
-    if (fields[4] == "02")
-    {
-        fill_notification.side = OrderSide::BUY;
-    }
-    else if (fields[4] == "01")
-    {
-        fill_notification.side = OrderSide::SELL;
-    }
-    else
-    {
-        return Decode::kBadSide;
-    }
-
-    fill_notification.kis_order_no = fields[2];
-    fill_notification.ticker = fields[8];
-    fill_notification.fill_time = fields[11];
-    fill_notification.timestamp = std::chrono::system_clock::now();
-    bool ok = detail::to_int(fields[9], fill_notification.filled_quantity);
-    ok &= detail::to_double(fields[10], fill_notification.filled_price);
-    return ok ? Decode::kOk : Decode::kBadNumber;
-}
+Decode decode_fill(Fields fields, FillNotification& fill_notification);
 
 } // namespace kis_websocket

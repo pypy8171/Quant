@@ -4848,3 +4848,39 @@ hang은 아예 못 잡지만 심장박동 문턱 5ms는 셋 다 문턱 그대로
 **확인**: 윈도우 빌드는 이 가지를 타지 않으므로 WSL 우분투에서 `quant_trader`를 따로 세워 확인했다.
 결과는 `scripts/check_runtime_health.py`의 "HTTP 연결 재사용" 행이 본다 — 버린 요청이 하루 5건을 넘으면 WARN이다
 (09-22는 21건). 넘으면 상주 핸들이 안 사는 것이므로 사람이 로그를 열 필요가 없다.
+### D-118 헤더에는 선언만 두고 구현은 .cpp 로 내린다 (2026-09-22)
+
+**상태**: 채택
+
+**배경**: `Quant/include/risk/ProtectiveOrders.h` 처럼 클래스 하나를 헤더 한 장에 통째로 써 둔 파일이 55개였다.
+규약 문서(`docs/STYLE_GUIDE.md`·`docs/guides/MAINTENANCE_AUTOMATION.md`)와 `../quant-devtools/check_code_conventions.py`
+어디에도 "헤더에 구현을 둔다"는 규칙은 없었다. 관행이 굳은 자리(D-037·D-060·D-063 의 순수 판정기)도 "헤더 전용으로
+둔다"고 적은 적이 없고, `Quant/CMakeLists.txt` 는 같은 이름의 `.cpp` 를 이미 몇 개 링크하고 있어 기준이 반반이었다.
+헤더에 몸통이 있으면 그 헤더를 include 하는 번역 단위마다 같은 몸통을 다시 컴파일하고, 몸통 한 줄을 고쳐도 그 헤더를
+건드린 파일 전부가 다시 빌드된다.
+
+**결정**:
+- 헤더에는 선언만 둔다. 구현은 같은 이름의 `.cpp` 로 내린다.
+- 헤더에 남는 것은 셋뿐이다 — **문법상 불가피한 것**(template·`constexpr`·`consteval`), **한두 줄짜리 순수 접근자**
+  (값을 돌려주기만 하고 분기·반복이 없는 5줄 이하), **멤버 기본값**.
+- 내린 구현은 `quant_header_impl` 정적 라이브러리 하나로 묶어 실행 타깃 58개가 전부 건다(`Quant/CMakeLists.txt`).
+  타깃마다 소스를 나열하지 않으려는 것이고, 정적 링크라 실제로 부르는 오브젝트만 끌어간다.
+
+**적용 범위**: 헤더 55장에서 정의 330개를 `.cpp` 55개로 내렸다 — 새 파일 46개와, 같은 이름으로 이미 있던 파일 9개다.
+그중 `Quant/src/strategy/StrategyBase.cpp`·`Quant/src/strategy/MACrossStrategy.cpp`·
+`Quant/src/strategy/MomentumStrategy.cpp` 셋은 `// placeholder` 한 줄뿐인 빈 파일이었다. 헤더에서 7,252줄이 빠지고
+`.cpp` 로 7,983줄이 갔다.
+
+**검증**: 동작은 그대로다 — `ctest --preset x64-release` 43/43 통과, `check_code_conventions.py` 위반 0건,
+`brace_style.py` 110개 파일 중 고칠 것 0건, `check_docs.py` 통과.
+
+**버린 대안**:
+- **지금 것은 두고 새 파일부터 지킨다**: 기준이 파일마다 달라 "이 헤더는 왜 이런가"를 계속 묻게 된다. 전수로 맞춰야
+  검사기로 지킬 수 있다.
+- **헤더 전용(header-only)으로 반대 방향 통일**: 일관은 되지만 빌드 시간이 컴파일 단위 수만큼 늘고, 전 시장 피드로
+  파일이 더 늘 예정이라(D-071) 손해가 커진다.
+- **`.inl` 로 내리고 헤더 끝에서 include**: 컴파일 비용은 헤더에 몸통이 있는 것과 같다. 파일 수만 는다.
+- **타깃마다 필요한 `.cpp` 를 나열**: 시험·벤치 타깃이 많아 타깃을 하나 더할 때마다 링크 오류를 보고 고치게 된다.
+
+**남은 위험**: 지금은 사람이 지키는 규칙이다. `../quant-devtools/check_code_conventions.py` 에 헤더 안 함수 몸통
+검사를 붙이는 것이 남았다 — 위 예외 셋을 그대로 구현해야 해서 이번 변경에 같이 넣지 않았다.

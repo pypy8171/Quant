@@ -104,12 +104,63 @@ set(KIS_CLIENT_SOURCES
 )
 
 # 실시간 WS 클라이언트. 소켓 계층은 플랫폼당 한 파일만 링크한다(D-049).
-set(KIS_WS_SOURCES src/api/WebSocketClient.cpp)
+set(KIS_WS_SOURCES src/api/WebSocketClient.cpp src/api/KisWebSocket.cpp)
 if(WIN32)
   list(APPEND KIS_WS_SOURCES src/api/WsSocketWin.cpp)
 else()
   list(APPEND KIS_WS_SOURCES src/api/WsSocketPosix.cpp)
 endif()
+
+# 헤더에 선언만 두고 구현은 여기로 내린 단위들(template·constexpr·짧은 접근자만 헤더에 남는다).
+#   정적 라이브러리 하나로 묶어 모든 실행 파일이 건다 — 정적 링크라 실제로 부르는 오브젝트만 끌어간다.
+set(HEADER_IMPL_SOURCES
+  src/strategy/StrategyBase.cpp
+  src/api/KisClient.cpp
+  src/api/KisRestDecode.cpp
+  src/api/KisWsDecode.cpp
+  src/core/FeedMux.cpp
+  src/core/FeedSupervisor.cpp
+  src/core/IFeedSource.cpp
+  src/core/KstTime.cpp
+  src/core/LatencyTrace.cpp
+  src/core/MarketSession.cpp
+  src/core/PaperExecutor.cpp
+  src/core/ReconcilePlan.cpp
+  src/core/RegimeFileJudge.cpp
+  src/core/ReplaySource.cpp
+  src/core/SessionEndJudge.cpp
+  src/core/ShardRoutes.cpp
+  src/core/StrategyShard.cpp
+  src/core/StrategyTable.cpp
+  src/core/SymbolTable.cpp
+  src/core/TickCapture.cpp
+  src/core/TickSize.cpp
+  src/core/Types.cpp
+  src/core/UniverseExit.cpp
+  src/core/WakeGate.cpp
+  src/ipc/FillKey.cpp
+  src/ipc/OpsProtocol.cpp
+  src/risk/GateReasons.cpp
+  src/risk/LedgerJournal.cpp
+  src/risk/ProtectiveOrders.cpp
+  src/risk/ProtectiveRule.cpp
+  src/strategy/DevScaleRules.cpp
+  src/strategy/DeviationScaleStrategy.cpp
+  src/strategy/FixedIntervalStrategy.cpp
+  src/strategy/IntradayBreakoutStrategy.cpp
+  src/strategy/MarketMakingStrategy.cpp
+  src/strategy/PriceTargetStrategy.cpp
+  src/strategy/SeedPeakStore.cpp
+  src/strategy/SupplyDemandPullbackStrategy.cpp
+  src/strategy/ThemeStrategy.cpp
+  src/strategy/ValueContraryStrategy.cpp
+  src/universe/MaAlign.cpp
+  src/universe/ScoreWeight.cpp
+  src/utils/EtfFilter.cpp
+  src/utils/JsonNode.cpp
+  src/utils/ThreadName.cpp
+  src/utils/Utf8.cpp
+)
 
 # main.cpp를 뺀 전부가 엔진 라이브러리다 — quant_trader와 test_engine이 같은 오브젝트를 링크한다(D-071).
 set(ENGINE_SOURCES
@@ -127,7 +178,6 @@ set(ENGINE_SOURCES
   src/core/RingBuffer.cpp
   ${KIS_CLIENT_SOURCES}
   ${KIS_WS_SOURCES}
-  src/strategy/StrategyBase.cpp
   src/strategy/MACrossStrategy.cpp
   src/strategy/MomentumStrategy.cpp
   src/strategy/TargetBasketPlan.cpp
@@ -143,12 +193,26 @@ if(ZMQ_FOUND)
   list(APPEND ENGINE_SOURCES src/ipc/ZmqBridge.cpp)
 endif()
 
+# ─── 헤더에서 내려온 구현 ────────────────────────────
+add_library(quant_header_impl STATIC ${HEADER_IMPL_SOURCES})
+target_include_directories(quant_header_impl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(quant_header_impl PUBLIC nlohmann_json::nlohmann_json)
+if(UNIX)
+    target_link_libraries(quant_header_impl PUBLIC pthread stdc++fs)
+endif()
+
 # ─── 엔진 라이브러리 ────────────────────────────────
 add_library(quant_engine STATIC ${ENGINE_SOURCES})
 
 target_include_directories(quant_engine PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+target_link_libraries(quant_engine PUBLIC quant_header_impl)
+
+# 두 아카이브는 서로를 부른다 — 헤더에서 내려온 DeviationScaleStrategy 몸통이 엔진 소스의 bars::BarAggregator 를
+# 쓰고, 엔진은 그 구현들을 쓴다. 순환을 적어 두면 CMake 가 링크 줄에 두 아카이브를 반복해 적는다.
+# GNU ld 는 아카이브를 한 번만 훑어 이것이 없으면 뒤에 온 아카이브가 앞 것을 못 본다(MSVC 는 그냥 지나간다). [why D-118]
+target_link_libraries(quant_header_impl PUBLIC quant_engine)
 
 if(ZMQ_FOUND)
   target_include_directories(quant_engine PUBLIC ${ZMQ_INC} ${cppzmq_SOURCE_DIR})
@@ -736,6 +800,7 @@ if(MSVC)
             tools/ops_terminal/OpsTerminal.cpp
             tools/ops_terminal/OpsTerminalDlg.cpp
             tools/ops_terminal/OpsLink.cpp
+            src/ipc/OpsProtocol.cpp
             tools/ops_terminal/OpsTerminal.rc
         )
         target_include_directories(ops_terminal PRIVATE
@@ -799,3 +864,12 @@ if(UNIX)
 else()
     target_link_libraries(bench_rest_pool PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
 endif()
+
+# 헤더에서 내려온 구현은 시험·벤치 타깃도 쓴다 — 타깃마다 소스를 나열하는 대신 한 번에 건다.
+get_property(QUANT_ALL_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(one_target ${QUANT_ALL_TARGETS})
+    get_target_property(target_kind ${one_target} TYPE)
+    if(target_kind STREQUAL "EXECUTABLE" AND NOT one_target STREQUAL "ops_terminal")
+        target_link_libraries(${one_target} PRIVATE quant_header_impl)
+    endif()
+endforeach()

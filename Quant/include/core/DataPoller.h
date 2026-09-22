@@ -22,19 +22,8 @@ inline bool same_specification(const WatchSpec& specification_a, const WatchSpec
 }
 
 // REST 현재가 한 건을 WS 체결 틱과 같은 모양으로. quantity·direction·strength는 REST에 없어 0이다.
-inline TradeData make_tick(const std::string& ticker, double price, int32_t hhmmss,
-                           std::chrono::system_clock::time_point timestamp)
-{
-    TradeData trade;
-    trade.ticker    = ticker;
-    trade.hhmmss    = hhmmss;
-    trade.price     = price;
-    trade.quantity  = 0;
-    trade.direction = 0;
-    trade.market    = Market::KR;
-    trade.timestamp = timestamp;
-    return trade;
-}
+TradeData make_tick(const std::string& ticker, double price, int32_t hhmmss,
+                           std::chrono::system_clock::time_point timestamp);
 
 // 이 틱이 make_tick이 만든 REST 대체 틱인가. WS 체결 틱은 체결량이 항상 1주 이상이고 REST 현재가에는
 //  체결량·누적량이 없다 — 봉 집계기가 REST 틱을 거르고 REST 봉으로 되돌아가는 판정에 쓴다. [why D-069]
@@ -47,23 +36,8 @@ inline bool is_rest_tick(const TradeData& trade)
 //  않는다: 유니버스 밖 보유(구독 없음)와 WS 상한에 밀린 종목(구독 실패)을 한 조건으로 다 잡기 위해서다.
 using LastSeenFn = std::function<std::optional<std::chrono::steady_clock::time_point>(const std::string&)>;
 
-inline std::vector<std::string> select_stale(const std::vector<std::string>& held, const LastSeenFn& last_seen,
-                                             std::chrono::steady_clock::time_point cutoff)
-{
-    std::vector<std::string> out;
-
-    for (const auto& held_ticker : held)
-    {
-        const auto at = last_seen(held_ticker);
-
-        if (!at || *at < cutoff)
-        {
-            out.push_back(held_ticker);
-        }
-    }
-
-    return out;
-}
+std::vector<std::string> select_stale(const std::vector<std::string>& held, const LastSeenFn& last_seen,
+                                             std::chrono::steady_clock::time_point cutoff);
 } // namespace poller
 
 class DataPoller

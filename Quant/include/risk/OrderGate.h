@@ -222,15 +222,9 @@ public:
     void on_reject(const std::string& account, const std::string& ticker, OrderSide side, int quantity, const OrderRef& reference,
                    std::string_view reason);
     // 접수 뒤 선점 — 라우터가 on_intent로 옮겨 가기 전 이름. 저널에는 INTENT(order_id 0)로 남는다. 테스트 전용으로 남긴다.
-    void on_accept(const std::string& account, const std::string& ticker, OrderSide side, int quantity, double price)
-    {
-        (void)on_intent(account, ticker, side, quantity, price, OrderRef{});
-    }
+    void on_accept(const std::string& account, const std::string& ticker, OrderSide side, int quantity, double price);
 
-    void on_accept(const std::string& ticker, OrderSide side, int quantity, double price)
-    {
-        on_accept(std::string(), ticker, side, quantity, price);
-    }
+    void on_accept(const std::string& ticker, OrderSide side, int quantity, double price);
 
     void add_realized_pnl(double pnl);  // SELL 체결 시 실현 손익 추가 (테스트에서도 사용)
     // C-1: rest_price_feed 모드는 체결 콜백이 없어 daily_pnl_이 0에 고정되고, 그러면 §4의
@@ -259,15 +253,9 @@ public:
     // sellable < 0 이면 "모름"으로 보고 보유수량을 그대로 쓴다.
     void seed_position(const std::string& account, const std::string& ticker, int quantity, double average_price,
                        int sellable);
-    void seed_position(const std::string& account, const std::string& ticker, int quantity, double average_price)
-    {
-        seed_position(account, ticker, quantity, average_price, -1);
-    }
+    void seed_position(const std::string& account, const std::string& ticker, int quantity, double average_price);
 
-    void seed_position(const std::string& ticker, int quantity, double average_price)
-    {
-        seed_position(std::string(), ticker, quantity, average_price, -1);
-    }
+    void seed_position(const std::string& ticker, int quantity, double average_price);
 
     // ── 미체결 취소/정정 축소 시 선점 해제 (C5, MM-1) ─────────────────────
     // quantity = 취소된 미체결 잔량(>0). reserved_만 감소 — positions_/average_price는 불변(취소는 체결 아님).
@@ -278,15 +266,9 @@ public:
     //  읽히므로 거기서 만든다. 아래 on_fill_confirmed도 같다.
     void on_cancel(const std::string& account, const std::string& ticker, OrderSide side, int quantity,
                    const OrderRef& reference);
-    void on_cancel(const std::string& account, const std::string& ticker, OrderSide side, int quantity)
-    {
-        on_cancel(account, ticker, side, quantity, OrderRef{});
-    }
+    void on_cancel(const std::string& account, const std::string& ticker, OrderSide side, int quantity);
 
-    void on_cancel(const std::string& ticker, OrderSide side, int quantity)
-    {
-        on_cancel(std::string(), ticker, side, quantity);
-    }
+    void on_cancel(const std::string& ticker, OrderSide side, int quantity);
 
     // ── 체결 확인 시 원장 갱신 ─────────────────────────────────────────────
     // H0STCNI0 체결통보 수신 후 호출. average_price 재계산 + 실현손익 적립.
@@ -324,10 +306,7 @@ public:
     }
 
     // ── Kill switch ─────────────────────────────────────────────────────────
-    void set_kill_switch(bool on)
-    {
-        kill_switch_.store(on);
-    }
+    void set_kill_switch(bool on);
 
     bool is_killed() const
     {
@@ -337,20 +316,14 @@ public:
     // ── Entry halt (신규 진입 정지) ────────────────────────────────────────────
     // kill_switch_(전방향 하드스톱)와 분리된 "BUY-only 정지" 플래그. 지수 급락·일일손실 등
     // 국면 리스크로 신규 진입만 막고 보유분 청산(SELL)은 통과시킨다 — 급락장에서 청산이 미완료로 남지 않게(C-2).
-    void set_entry_halt(bool on)
-    {
-        entry_halt_.store(on);
-    }
+    void set_entry_halt(bool on);
 
     // 운영단말(HALT_REQ)이 켜는 수동 정지 — entry_halt_(국면 자동, RegimeFileJudge가 갱신)와
     //  분리된 플래그다. 같은 변수를 같이 쓰면 RegimeFileJudge의 자동 해제가 사람이 켠 정지를
     //  모른 채 지워버린다 — is_entry_halted()에서만 OR로 합친다. [why D-091]
     //  매수·매도 따로다(D-095). 매도 정지는 전략이 내는 SELL NEW만 막고(SignalDispatcher::from_strategy),
     //  운영단말 수동 매도와 국면 강제청산(force_liquidate)은 그대로 나간다.
-    void set_manual_halt(OrderSide side, bool on)
-    {
-        (side == OrderSide::SELL ? manual_sell_halt_ : manual_buy_halt_).store(on);
-    }
+    void set_manual_halt(OrderSide side, bool on);
 
     bool is_manual_buy_halted() const
     {
@@ -369,10 +342,7 @@ public:
 
     // 매수 명목 비율(0~1). 국면 점수를 스위치가 아니라 비율로 옮긴 값 — 전략이 분할 단계 명목에 곱한다.
     //  게이트 자체는 이 값으로 주문을 막지 않는다(0이면 entry_halt가 같이 켜진다). [why D-083]
-    void set_entry_scale(double entry_scale)
-    {
-        entry_scale_.store(entry_scale);
-    }
+    void set_entry_scale(double entry_scale);
 
     double entry_scale() const
     {
@@ -437,10 +407,7 @@ public:
     // 값이라, 그 창에서 손실이 나도 §4 손실컷이 트립하지 못한다. Engine이 실패 스트릭이 임계를
     // 넘으면 이 플래그를 세워 BUY NEW만 보수적으로 차단(SELL 청산·취소는 통과 — entry_halt와 동일
     // 의미론). 잔고조회 복구 시 자동 해제. 손실컷을 대체하지 않고 "믿을 수 없는 창"만 보수 처리.
-    void set_pnl_stale(bool on)
-    {
-        pnl_stale_.store(on);
-    }
+    void set_pnl_stale(bool on);
 
     bool is_pnl_stale() const
     {
@@ -558,13 +525,7 @@ private:
 
     struct PosKeyHash
     {
-        size_t operator()(const PosKey& key) const noexcept
-        {
-            // 두 32비트를 64비트 하나로 붙여 곱셈으로 섞는다. xor만 하면 (a,b)와 (b,a)가 같은 버킷에 간다.
-            const uint64_t packed = (static_cast<uint64_t>(key.account) << 32) | key.symbol;
-            const uint64_t mixed  = packed * 0x9e3779b97f4a7c15ull;
-            return static_cast<size_t>(mixed ^ (mixed >> 29));
-        }
+        size_t operator()(const PosKey& key) const noexcept;
     };
 
     template <class V>
@@ -689,12 +650,7 @@ private:
 
     struct StrategyKeyHash
     {
-        size_t operator()(const StrategyKey& key) const noexcept
-        {
-            const uint64_t packed = (static_cast<uint64_t>(key.strategy) << 32) | key.symbol;
-            const uint64_t mixed  = packed * 0x9e3779b97f4a7c15ull;
-            return static_cast<size_t>(mixed ^ (mixed >> 29));
-        }
+        size_t operator()(const StrategyKey& key) const noexcept;
     };
 
     strategy_table::StrategyTable                            strategies_; // 전략 이름 → 번호. 자체 소유(엔진·디스패처·라우터가 이 표를 쓴다)
@@ -723,14 +679,7 @@ private:
 
     struct SignalKeyHash
     {
-        size_t operator()(const SignalKey& key) const noexcept
-        {
-            uint64_t mixed = (static_cast<uint64_t>(key.account) << 32) | key.symbol;
-            mixed          = (mixed ^ (static_cast<uint64_t>(key.strategy) << 8) ^ static_cast<uint64_t>(key.side)) *
-                    0x9e3779b97f4a7c15ull;
-            mixed ^= static_cast<uint64_t>(key.price) * 0xbf58476d1ce4e5b9ull;
-            return static_cast<size_t>(mixed ^ (mixed >> 31));
-        }
+        size_t operator()(const SignalKey& key) const noexcept;
     };
 
     mutable std::mutex deduplicate_mutex_;

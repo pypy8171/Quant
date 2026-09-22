@@ -33,15 +33,7 @@ struct KisConfig
 };
 
 // 주문 전문의 EXCG_ID_DVSN_CD. 모의투자는 KRX만 받는다(NXT·SOR을 보내면 거부).
-inline const char* kis_order_exchange(const KisConfig& config) noexcept
-{
-    if (config.is_paper || config.exchange == "KRX")
-    {
-        return "KRX";
-    }
-
-    return config.exchange == "NXT" ? "NXT" : "SOR";
-}
+const char* kis_order_exchange(const KisConfig& config) noexcept;
 
 // 실시간 체결·호가를 KRX+NXT 통합 채널(H0UNCNT0/H0UNASP0)로 받나. 필드 배열은 KRX 채널과 같아
 //  파서는 하나다(체결 46필드 동일, 호가는 뒤에 중간가 6필드가 붙을 뿐). 모의 도메인은 KRX 채널만 준다.
@@ -53,41 +45,7 @@ inline bool kis_unified_feed(const KisConfig& config) noexcept
 // HHMMSS 문자열에서 minutes분을 빼 같은 형식으로 돌려준다. 자릿수 산술이 아니라 초로 바꿔 뺀다
 //  ("100000" - 1분 = "095900". 10진수 -100은 "099900"이라는 없는 시각을 만든다).
 //  형식이 아니거나 결과가 00:00:00 아래로 내려가면 빈 문자열.
-inline std::string kis_hhmmss_minus_minutes(const std::string& hhmmss, int minutes)
-{
-    if (hhmmss.size() != 6)
-    {
-        return "";
-    }
-
-    for (char character : hhmmss)
-    {
-        if (character < '0' || character > '9')
-        {
-            return "";
-        }
-    }
-
-    const int hour = (hhmmss[0] - '0') * 10 + (hhmmss[1] - '0');
-    const int minute = (hhmmss[2] - '0') * 10 + (hhmmss[3] - '0');
-    const int second = (hhmmss[4] - '0') * 10 + (hhmmss[5] - '0');
-
-    if (hour > 23 || minute > 59 || second > 59)
-    {
-        return "";
-    }
-
-    const long total = static_cast<long>(hour) * 3600 + minute * 60 + second - static_cast<long>(minutes) * 60;
-
-    if (total < 0)
-    {
-        return "";
-    }
-
-    char buffer[8];
-    std::snprintf(buffer, sizeof(buffer), "%02ld%02ld%02ld", total / 3600, (total / 60) % 60, total % 60);
-    return buffer;
-}
+std::string kis_hhmmss_minus_minutes(const std::string& hhmmss, int minutes);
 
 class KisClient : public IOrderExecutor, public IMarketDataSource
 {

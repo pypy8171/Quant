@@ -147,6 +147,13 @@ config.json을 읽는 곳은 `Quant/src/core/AppConfig.cpp`의 `parse_config()` 
 낸다. 값이 컴파일 타임에 정해지면 함수 밖 `constexpr` 표로 빼고(`WebSocketClient.cpp`의 base64 역표가 그 예),
 런타임 입력이 필요하면 위 두 목록으로 올린다.
 
+헤더·구현 분리 — 헤더에는 선언만 둔다. 구현은 같은 이름의 `.cpp` 로 내리고(`Quant/include/risk/ProtectiveOrders.h` →
+`Quant/src/risk/ProtectiveOrders.cpp`), 새 파일은 `Quant/CMakeLists.txt` 의 `HEADER_IMPL_SOURCES` 에 한 줄 더한다
+(그 목록은 `quant_header_impl` 정적 라이브러리가 되어 실행 타깃 전부가 건다). 헤더에 남는 것은 셋뿐이다 — 문법상
+불가피한 것(template·`constexpr`·`consteval`), 값만 돌려주고 분기·반복이 없는 5줄 이하 접근자
+(`int size() const { return count_; }`), 멤버 기본값. 헤더에 몸통이 있으면 그 헤더를 include 하는 번역 단위마다 같은
+몸통을 다시 컴파일하고, 몸통 한 줄을 고쳐도 그 헤더를 건드린 파일이 전부 다시 빌드된다(D-118).
+
 주석을 줄이는 작업(에이전트 포함)의 확인 절차:
 1. 지우기 전에 그 주장이 지금 코드와 맞는지 확인한다. 틀린 주석을 D-NNN으로 옮기면 오류를 정본에 승격시킨다.
 2. 삭제 줄에서 숫자·식별자·ID(`\d+%`, 날짜, `[A-Z]-?\d+`, `§\d`)를 뽑아 각각이 남은 주석·DECISIONS·대상 문서 중 한 곳에 있는지 목록으로 보고한다. 없으면 삭제하지 않는다.

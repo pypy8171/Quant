@@ -342,12 +342,16 @@
 
 - [KisAccount.cpp](../Quant/src/api/KisAccount.cpp) — 잔고·미체결 조회 구현(연속조회 tr_cont)
 - [KisAuth.cpp](../Quant/src/api/KisAuth.cpp) — OAuth2 토큰 발급·캐시·만료 전 재발급 구현(D-073)
+- [KisClient.cpp](../Quant/src/api/KisClient.cpp) — KisClient.h 구현 — 주문 거래소 코드 고르기·hhmmss 에서 분 빼기
 - [KisClientInternal.h](../Quant/src/api/KisClientInternal.h) — KisClient 구현 파일 공유 include·상수(D-048)
 - [KisIndex.cpp](../Quant/src/api/KisIndex.cpp) — 지수·업종 일봉, 수급, 선물 시세·전광판 구현
 - [KisMarket.cpp](../Quant/src/api/KisMarket.cpp) — 국내·해외 주식 일봉·분봉·현재가 구현
 - [KisOrder.cpp](../Quant/src/api/KisOrder.cpp) — 주문 발주·정정·취소 및 응답 파서 구현(D-039)
+- [KisRestDecode.cpp](../Quant/src/api/KisRestDecode.cpp) — KisRestDecode.h 구현 — KIS REST JSON 응답 디코드 순수 함수(D-051·D-059)
 - [KisTransport.cpp](../Quant/src/api/KisTransport.cpp) — 플랫폼별 HTTP 전송·재시도·한도·인증헤더 구현(D-048)
 - [KisUniverse.cpp](../Quant/src/api/KisUniverse.cpp) — 유니버스 후보(시총·거래대금·수급) 조회 구현
+- [KisWebSocket.cpp](../Quant/src/api/KisWebSocket.cpp) — KisWebSocket.h 구현 — 수신 끊김 판정과 마지막 수신 시각 갱신(D-049)
+- [KisWsDecode.cpp](../Quant/src/api/KisWsDecode.cpp) — KisWsDecode.h 구현 — KIS 실시간 채널 레코드 디코더 순수 함수(D-037·D-042)
 - [WebSocketClient.cpp](../Quant/src/api/WebSocketClient.cpp) — KIS WS 클라이언트 플랫폼독립부(연결·재연결·백오프)(D-049)
 - [WsSocket.h](../Quant/src/api/WsSocket.h) — 플랫폼 소켓 인터페이스 경계(D-049)
 - [WsSocketPosix.cpp](../Quant/src/api/WsSocketPosix.cpp) — POSIX 소켓+RFC 6455 프레이밍, libcurl·OpenSSL 구현(D-049)
@@ -360,13 +364,35 @@
 - [DataPoller.cpp](../Quant/src/core/DataPoller.cpp) — REST 현재가 폴러 구현 — 호출 간격·넘침 목록(D-062)
 - [Engine.cpp](../Quant/src/core/Engine.cpp) — 엔진 본체 구현 — 생성자·전략 등록·파이프라인
 - [EngineConfigure.cpp](../Quant/src/core/EngineConfigure.cpp) — `Engine::configure(const AppConfig&)` — AppConfig 값을 Engine 세터에 옮기는 배선 4단계(채널·국면맵·시세 키·위험 한도)
+- [FeedMux.cpp](../Quant/src/core/FeedMux.cpp) — FeedMux.h 구현 — 피드 소스 여러 개를 한 소스로 묶는 mux(D-071)
+- [FeedSupervisor.cpp](../Quant/src/core/FeedSupervisor.cpp) — FeedSupervisor.h 구현 — WS stale→재연결 백오프→폴백 요구 판정 상태기계(D-071)
+- [IFeedSource.cpp](../Quant/src/core/IFeedSource.cpp) — IFeedSource.h 구현 — 피드 소스 인터페이스의 기본 동작(레인 콜백 등록·stale 재연결 기본값, D-071)
+- [KstTime.cpp](../Quant/src/core/KstTime.cpp) — KstTime.h 구현 — UTC → KST 시각 분해 변환 유틸
+- [LatencyTrace.cpp](../Quant/src/core/LatencyTrace.cpp) — LatencyTrace.h 구현 — 신호 구간 지연을 CSV로 남기는 기록기
 - [LedgerReconciler.cpp](../Quant/src/core/LedgerReconciler.cpp) — 잔고 대조기 구현 — 원장 부트스트랩(D-061)
+- [MarketSession.cpp](../Quant/src/core/MarketSession.cpp) — MarketSession.h 구현 — KRX 정규장 세션 시각 판정
 - [OrderRateLimiter.cpp](../Quant/src/core/OrderRateLimiter.cpp) — 발주 조절기 구현 — 재시도 분류(D-065)
+- [PaperExecutor.cpp](../Quant/src/core/PaperExecutor.cpp) — PaperExecutor.h 구현 — 리플레이용 모의 체결기(D-071)
+- [ReconcilePlan.cpp](../Quant/src/core/ReconcilePlan.cpp) — ReconcilePlan.h 구현 — 잔고 대조 차이 계산 순수 함수(D-038)
+- [RegimeFileJudge.cpp](../Quant/src/core/RegimeFileJudge.cpp) — RegimeFileJudge.h 구현 — 매크로 국면 파일 → 진입정지·강제청산 상태기계(D-060)
+- [ReplaySource.cpp](../Quant/src/core/ReplaySource.cpp) — ReplaySource.h 구현 — 캡처 파일 리플레이 피드 소스(D-071)
 - [RingBuffer.cpp](../Quant/src/core/RingBuffer.cpp) — 빈 구현 파일 — 템플릿 헤더 전용
+- [SessionEndJudge.cpp](../Quant/src/core/SessionEndJudge.cpp) — SessionEndJudge.h 구현 — 마감 자기 종료 판정(창 닫힘→유예→큐 비면 종료, D-098)
+- [ShardRoutes.cpp](../Quant/src/core/ShardRoutes.cpp) — ShardRoutes.h 구현 — 종목 id → 그 종목을 보는 샤드 비트마스크 표(D-110)
 - [SignalDispatcher.cpp](../Quant/src/core/SignalDispatcher.cpp) — 신호 디스패처 구현 — 강제청산·한도 정리 신호 생성(D-063)
+- [StrategyShard.cpp](../Quant/src/core/StrategyShard.cpp) — StrategyShard.h 구현 — 전략 샤드 — 링 행렬 열 하나 소비(D-071)
+- [StrategyTable.cpp](../Quant/src/core/StrategyTable.cpp) — StrategyTable.h 구현 — 전략 이름 ↔ 정수 번호 표 — 등록 때 한 번 번호를 주고 신호·서브원장은 번호로 다닌다(D-112)
+- [SymbolTable.cpp](../Quant/src/core/SymbolTable.cpp) — SymbolTable.h 구현 — 종목 문자열 ↔ 정수 id 테이블(D-071)
+- [TickCapture.cpp](../Quant/src/core/TickCapture.cpp) — TickCapture.h 구현 — 틱·호가 append-only 이진 캡처와 리더(D-071)
+- [TickSize.cpp](../Quant/src/core/TickSize.cpp) — TickSize.h 구현 — KRX 호가단위 표
+- [Types.cpp](../Quant/src/core/Types.cpp) — Types.h 구현 — 숫자 문자열 → 정수, 주문번호 채번, Regime·StrategyType·Mode 문자열 변환
+- [UniverseExit.cpp](../Quant/src/core/UniverseExit.cpp) — UniverseExit.h 구현 — 유니버스 이탈·복귀 판정 순수 함수(D-077)
+- [WakeGate.cpp](../Quant/src/core/WakeGate.cpp) — WakeGate.h 구현 — 생산자가 소비자를 깨우는 대기 조각(D-071)
 
 ### Quant/src/ipc/
 
+- [FillKey.cpp](../Quant/src/ipc/FillKey.cpp) — FillKey.h 구현 — 체결통보 중복 키 — 날짜·주문번호·시각·수량·가격 정수 5개와 해시(D-112)
+- [OpsProtocol.cpp](../Quant/src/ipc/OpsProtocol.cpp) — OpsProtocol.h 구현 — 운영단말 ↔ 엔진 TCP 프레이밍 프로토콜(D-043)
 - [OpsServer.cpp](../Quant/src/ipc/OpsServer.cpp) — 운영단말 TCP 서버 구현(D-043)
 - [OrderRouter.cpp](../Quant/src/ipc/OrderRouter.cpp) — 주문 라우터 구현 — 제출·순번·거부코드 처리
 - [ZmqBridge.cpp](../Quant/src/ipc/ZmqBridge.cpp) — ZMQ IPC 브릿지 구현 — PUB/REP 소켓
@@ -377,25 +403,45 @@
 
 ### Quant/src/risk/
 
+- [GateReasons.cpp](../Quant/src/risk/GateReasons.cpp) — GateReasons.h 구현 — 게이트 거부 사유 문자열 계약(D-067)
+- [LedgerJournal.cpp](../Quant/src/risk/LedgerJournal.cpp) — LedgerJournal.h 구현 — 원장 선기록 저널: 192바이트 고정 레코드·CRC32·seq, 주문을 보내기 전에 적고 재기동 때 리플레이(D-113)
 - [OrderGate.cpp](../Quant/src/risk/OrderGate.cpp) — 주문 위험 게이트 구현 — 수수료율·우선순위 바
+- [ProtectiveOrders.cpp](../Quant/src/risk/ProtectiveOrders.cpp) — ProtectiveOrders.h 구현 — 보호 주문 표(주문 쪽): 보유·현재가·미체결 매도만으로 손절·트레일 청산 신호를 만든다(D-114 단계 1)
+- [ProtectiveRule.cpp](../Quant/src/risk/ProtectiveRule.cpp) — ProtectiveRule.h 구현 — 보호 주문 규칙과 등록 창구 — 전략이 보는 경계(D-114 단계 1)
 
 ### Quant/src/strategy/
 
-- [MACrossStrategy.cpp](../Quant/src/strategy/MACrossStrategy.cpp) — 빈 placeholder 파일
-- [MomentumStrategy.cpp](../Quant/src/strategy/MomentumStrategy.cpp) — 빈 placeholder 파일
-- [StrategyBase.cpp](../Quant/src/strategy/StrategyBase.cpp) — 빈 placeholder 파일
+- [DeviationScaleStrategy.cpp](../Quant/src/strategy/DeviationScaleStrategy.cpp) — DeviationScaleStrategy.h 구현 — 일봉 정배열+3분봉 이격도 분할매매 전략
+- [DevScaleRules.cpp](../Quant/src/strategy/DevScaleRules.cpp) — DevScaleRules.h 구현 — DevScale 순수 판정(무장 후 고가 트레일·원장 매수 종목·ATR14·전일 변동성 진입 허용·넘김 상수, D-111)
+- [FixedIntervalStrategy.cpp](../Quant/src/strategy/FixedIntervalStrategy.cpp) — FixedIntervalStrategy.h 구현 — 고정 종목 주기 매수/매도 테스트용 전략
+- [IntradayBreakoutStrategy.cpp](../Quant/src/strategy/IntradayBreakoutStrategy.cpp) — IntradayBreakoutStrategy.h 구현 — 장중 채널 돌파 전략(ITB v2)
+- [MACrossStrategy.cpp](../Quant/src/strategy/MACrossStrategy.cpp) — MACrossStrategy.h 구현 — 골든/데드크로스 이평 전략
+- [MarketMakingStrategy.cpp](../Quant/src/strategy/MarketMakingStrategy.cpp) — MarketMakingStrategy.h 구현 — 미니 시장조성기(MM-1) 전략
+- [MomentumStrategy.cpp](../Quant/src/strategy/MomentumStrategy.cpp) — MomentumStrategy.h 구현 — 돈치안 채널 브레이크아웃 전략
+- [PriceTargetStrategy.cpp](../Quant/src/strategy/PriceTargetStrategy.cpp) — PriceTargetStrategy.h 구현 — 가격 도달 시장가+예약 지정가 주문 전략
+- [SeedPeakStore.cpp](../Quant/src/strategy/SeedPeakStore.cpp) — SeedPeakStore.h 구현 — 청산관리 시드분 당일 고점 재기동 간 보존(D-052)
+- [StrategyBase.cpp](../Quant/src/strategy/StrategyBase.cpp) — StrategyBase.h 구현 — 원장 보유·매도가능 조회, 보호 주문 무장·해제, 종목 비교
 - [StrategyFactory.cpp](../Quant/src/strategy/StrategyFactory.cpp) — 전략 로더 구현 — config 파싱·국면 부착
+- [SupplyDemandPullbackStrategy.cpp](../Quant/src/strategy/SupplyDemandPullbackStrategy.cpp) — SupplyDemandPullbackStrategy.h 구현 — 수급 선별+5일선 눌림목 진입 전략
 - [TargetBasketPlan.cpp](../Quant/src/strategy/TargetBasketPlan.cpp) — 목표 비중표 파싱·검증과 밴드·DROP·liquidate_all 규칙으로 매도/매수 계획을 만든다
 - [TargetBasketStrategy.cpp](../Quant/src/strategy/TargetBasketStrategy.cpp) — 파일 재읽기, 14:40~15:00 매도→매수 레그, 종목:방향 하루 한 번(상태 파일 먼저 쓰기), 남의 틱을 심장박동으로
+- [ThemeStrategy.cpp](../Quant/src/strategy/ThemeStrategy.cpp) — ThemeStrategy.h 구현 — 3단 필터 테마 모멘텀 전략
+- [ValueContraryStrategy.cpp](../Quant/src/strategy/ValueContraryStrategy.cpp) — ValueContraryStrategy.h 구현 — 저PBR 3일 연속 하락 반전 매수 전략
 
 ### Quant/src/universe/
 
+- [MaAlign.cpp](../Quant/src/universe/MaAlign.cpp) — MaAlign.h 구현 — 일봉 이동평균 정배열 판정 공용 함수(D-005)
+- [ScoreWeight.cpp](../Quant/src/universe/ScoreWeight.cpp) — ScoreWeight.h 구현 — 종합 점수 → 종목별 비중 배수 변환
 - [UniverseScanner.cpp](../Quant/src/universe/UniverseScanner.cpp) — 유니버스 스캐너 구현 — 정배열 판정 캐시
 
 ### Quant/src/utils/
 
-- [Logger.cpp](../Quant/src/utils/Logger.cpp) — 빈 placeholder 파일
+- [EtfFilter.cpp](../Quant/src/utils/EtfFilter.cpp) — EtfFilter.h 구현 — ETF·ETN 종목명 판별 필터
+- [JsonNode.cpp](../Quant/src/utils/JsonNode.cpp) — JsonNode.h 구현 — json 하위 노드를 복사 없이 참조로 집어 오는 헬퍼(jsonx::array_or_empty·object_or_empty)
+- [Logger.cpp](../Quant/src/utils/Logger.cpp) — Logger.h 구현 — 비동기 로거의 큐·writer 스레드(D-045)
+- [ThreadName.cpp](../Quant/src/utils/ThreadName.cpp) — ThreadName.h 구현 — 현재 스레드에 이름을 붙인다(리눅스 pthread_setname_np·Windows SetThreadDescription) — procwatch 스레드별 CPU 표에 그 이름이 실린다
 - [Timer.cpp](../Quant/src/utils/Timer.cpp) — 빈 placeholder 파일
+- [Utf8.cpp](../Quant/src/utils/Utf8.cpp) — Utf8.h 구현 — UTF-8 터미널 표시폭 계산·패딩 유틸
 
 ### Quant/tests/
 

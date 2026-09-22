@@ -34,15 +34,5 @@ constexpr double tick_size(double price)
 }
 
 // 호가단위 격자로 절사. BUY=내림, SELL=올림(스프레드 보존).
-inline double round_to_tick(double price, OrderSide side)
-{
-    const double threshold = tick_size(price);
-
-    if (threshold <= 0.0)
-    {
-        return price;
-    }
-
-    return (side == OrderSide::BUY) ? std::floor(price / threshold) * threshold : std::ceil(price / threshold) * threshold;
-}
+double round_to_tick(double price, OrderSide side);
 } // namespace krx

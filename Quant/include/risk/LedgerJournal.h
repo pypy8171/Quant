@@ -93,26 +93,12 @@ struct Record
 
 static_assert(sizeof(Record) == 192, "레코드 크기가 바뀌면 kVersion을 올리고 ledger_dump.py의 struct 포맷을 같이 고친다");
 
-inline void put_string(char* destination, size_t capacity, std::string_view text) noexcept
-{
-    const size_t count = text.size() < capacity - 1 ? text.size() : capacity - 1;
-    std::memcpy(destination, text.data(), count);
-    destination[count] = '\0';
-}
+void put_string(char* destination, size_t capacity, std::string_view text) noexcept;
 
 // CRC32(IEEE 802.3, zlib과 같은 다항식) — 표는 컴파일 타임에 만든다.
 // path::string()은 와이드 경로를 프로세스 코드페이지로 되돌린다 — 사용자 폴더 이름에 한글이 들어 있으면
 //  매핑이 없어 예외를 던지고, 저널을 못 열면 엔진이 기동을 거부한다. Windows에서는 와이드 그대로 연다. [why D-113]
-inline std::FILE* open_journal_file(const std::filesystem::path& file, const char* mode)
-{
-#ifdef _WIN32
-    const std::wstring wide_mode(mode, mode + std::strlen(mode));
-
-    return _wfopen(file.c_str(), wide_mode.c_str());
-#else
-    return std::fopen(file.c_str(), mode);
-#endif
-}
+std::FILE* open_journal_file(const std::filesystem::path& file, const char* mode);
 
 namespace detail
 {
@@ -141,18 +127,7 @@ constexpr std::array<uint32_t, kCrcTableSize> make_crc_table()
 inline constexpr std::array<uint32_t, kCrcTableSize> kCrcTable = make_crc_table();
 } // namespace detail
 
-inline uint32_t crc32(const void* data, size_t length) noexcept
-{
-    const auto* bytes = static_cast<const unsigned char*>(data);
-    uint32_t    value = 0xFFFFFFFFu;
-
-    for (size_t index = 0; index < length; ++index)
-    {
-        value = detail::kCrcTable[(value ^ bytes[index]) & 0xFFu] ^ (value >> 8);
-    }
-
-    return value ^ 0xFFFFFFFFu;
-}
+uint32_t crc32(const void* data, size_t length) noexcept;
 
 inline uint32_t record_crc(Record record) noexcept
 {
@@ -173,53 +148,9 @@ class LedgerJournal
 public:
     // directory/ledger_<date>.bin 을 append로 연다. 파일이 없으면 헤더를 쓰고, 있으면 헤더를 검사하고 마지막 seq를
     //  읽어 이어 쓴다. 못 열거나 헤더가 다르면 ok()가 false다 — 호출자(Engine)는 그때 기동을 거부한다. [why D-113]
-    LedgerJournal(const std::filesystem::path& directory, std::string_view date_yyyymmdd, bool fsync)
-        : path_(directory / (std::string("ledger_") + std::string(date_yyyymmdd) + ".bin")), fsync_(fsync)
-    {
-        std::error_code error_code;
-        std::filesystem::create_directories(directory, error_code);
+    LedgerJournal(const std::filesystem::path& directory, std::string_view date_yyyymmdd, bool fsync);
 
-        const ReplayResult existing = replay(path_, nullptr);
-        opened_                     = existing;
-
-        if (std::filesystem::exists(path_, error_code) && std::filesystem::file_size(path_, error_code) > 0 && !existing.header_ok)
-        {
-            return; // 있는 파일의 헤더가 다르다 — 덮어쓰지 않는다
-        }
-
-        next_sequence_ = existing.last_sequence + 1;
-        file_     = open_journal_file(path_, "ab");
-
-        if (file_ == nullptr)
-        {
-            return;
-        }
-
-        if (!existing.header_ok)
-        {
-            FileHeader header;
-            header.record_size   = sizeof(Record);
-            header.date_yyyymmdd = static_cast<uint32_t>(std::strtoul(std::string(date_yyyymmdd).c_str(), nullptr, 10));
-
-            if (std::fwrite(&header, sizeof(header), 1, file_) != 1 || std::fflush(file_) != 0)
-            {
-                close();
-                return;
-            }
-        }
-        else if (existing.truncated_tail)
-        {
-            // 꼬리의 깨진 레코드는 리플레이가 무시했다. 그 뒤에 이어 쓰면 판독기도 같은 자리에서 멈추므로 잘라 낸다.
-            close();
-            std::filesystem::resize_file(path_, sizeof(FileHeader) + existing.applied * sizeof(Record), error_code);
-            file_ = open_journal_file(path_, "ab");
-        }
-    }
-
-    ~LedgerJournal()
-    {
-        close();
-    }
+    ~LedgerJournal();
 
     LedgerJournal(const LedgerJournal&)            = delete;
     LedgerJournal& operator=(const LedgerJournal&) = delete;
@@ -248,98 +179,14 @@ public:
 
     // seq·시각·CRC를 채워 한 레코드를 붙인다. 거짓이면 디스크에 남지 않은 것이다 — 호출자는 그 변경을 되돌리고
     //  주문을 거부한다(적히지 않은 주문은 나가지 않는다). [inv] positions_mutex_ 아래서 부른다.
-    [[nodiscard]] bool append(Record& record) noexcept
-    {
-        if (file_ == nullptr)
-        {
-            return false;
-        }
-
-        record.sequence     = next_sequence_;
-        record.wall_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                             std::chrono::system_clock::now().time_since_epoch())
-                             .count();
-        record.crc32 = record_crc(record);
-
-        if (std::fwrite(&record, sizeof(record), 1, file_) != 1 || std::fflush(file_) != 0)
-        {
-            return false;
-        }
-
-        if (fsync_)
-        {
-#ifdef _WIN32
-            _commit(_fileno(file_));
-#else
-            ::fsync(fileno(file_));
-#endif
-        }
-
-        ++next_sequence_;
-        return true;
-    }
+    [[nodiscard]] bool append(Record& record) noexcept;
 
     // 파일을 처음부터 읽어 레코드마다 apply를 부른다(nullptr이면 세기만). 헤더가 다르면 header_ok=false로 바로 돌아온다.
     //  꼬리의 불완전·CRC 불일치 레코드에서 멈춘다 — 그 앞까지가 정본이다.
-    static ReplayResult replay(const std::filesystem::path& file, const std::function<void(const Record&)>& apply)
-    {
-        ReplayResult result;
-        std::FILE*   handle = open_journal_file(file, "rb");
-
-        if (handle == nullptr)
-        {
-            return result;
-        }
-
-        FileHeader header;
-
-        if (std::fread(&header, sizeof(header), 1, handle) != 1 || header.magic != kMagic || header.version != kVersion ||
-            header.record_size != sizeof(Record))
-        {
-            std::fclose(handle);
-            return result;
-        }
-
-        result.header_ok = true;
-        Record record;
-
-        while (true)
-        {
-            const size_t read = std::fread(&record, 1, sizeof(record), handle);
-
-            if (read == 0)
-            {
-                break;
-            }
-
-            if (read != sizeof(record) || record.crc32 != record_crc(record))
-            {
-                result.truncated_tail = true;
-                break;
-            }
-
-            if (apply)
-            {
-                apply(record);
-            }
-
-            ++result.applied;
-            result.last_sequence = record.sequence;
-        }
-
-        std::fclose(handle);
-        return result;
-    }
+    static ReplayResult replay(const std::filesystem::path& file, const std::function<void(const Record&)>& apply);
 
 private:
-    void close() noexcept
-    {
-        if (file_ != nullptr)
-        {
-            std::fclose(file_);
-            file_ = nullptr;
-        }
-    }
+    void close() noexcept;
 
     std::filesystem::path path_;
     bool                  fsync_    = false;

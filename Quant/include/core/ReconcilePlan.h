@@ -48,73 +48,7 @@ inline bool average_differs(double amount, double base)
 //  - 브로커에 있는 종목: 수량 또는 평단이 어긋나면 resync면 OVERWRITE, 아니면 KEEP(WS 모드는 원장이 정본).
 //  - 원장에만 있는 종목: pruned에 들어 있으면 PRUNE(엔진이 이미 걷어냄), 아니면 KEEP(갓 열린 포지션 유예).
 //  브로커 quantity<=0 항목은 보유가 아니므로 건너뛴다. 순서는 브로커 목록 → 원장 목록으로 결정적이다.
-inline std::vector<Row> plan(const std::vector<Held>& ledger, const std::vector<Held>& broker, bool resync,
-                             const std::vector<symbol::SymbolId>& pruned, const std::string& note)
-{
-    // 종목 id 인덱스 표 세 개 — 크기는 세 목록의 가장 큰 id+1.
-    symbol::SymbolId top = 0;
-
-    for (const auto& entry : ledger)
-    {
-        top = (std::max)(top, entry.symbol);
-    }
-
-    for (const auto& entry : broker)
-    {
-        top = (std::max)(top, entry.symbol);
-    }
-
-    for (const symbol::SymbolId symbol : pruned)
-    {
-        top = (std::max)(top, symbol);
-    }
-
-    std::vector<const Held*> by_symbol(static_cast<size_t>(top) + 1, nullptr);
-    std::vector<bool>        seen(by_symbol.size(), false);
-    std::vector<bool>        gone(by_symbol.size(), false);
-    std::vector<Row>         rows;
-
-    for (const auto& ledger_entry : ledger)
-    {
-        by_symbol[ledger_entry.symbol] = &ledger_entry;
-    }
-
-    for (const symbol::SymbolId symbol : pruned)
-    {
-        gone[symbol] = true;
-    }
-
-    for (const auto& broker_entry : broker)
-    {
-        if (broker_entry.ticker.empty() || broker_entry.quantity <= 0)
-        {
-            continue;
-        }
-
-        seen[broker_entry.symbol]    = true;
-        const Held* ledger_entry     = by_symbol[broker_entry.symbol];
-        const int   ledger_quantity  = ledger_entry ? ledger_entry->quantity : 0;
-        const auto  ledger_average   = ledger_entry ? ledger_entry->average : 0.0;
-
-        if (ledger_quantity == broker_entry.quantity && !average_differs(ledger_average, broker_entry.average))
-        {
-            continue;
-        }
-
-        rows.push_back(Row{broker_entry.ticker, ledger_quantity, broker_entry.quantity, ledger_average, broker_entry.average, resync ? "OVERWRITE" : "KEEP", note});
-    }
-
-    for (const auto& ledger_entry : ledger)
-    {
-        if (ledger_entry.quantity <= 0 || seen[ledger_entry.symbol])
-        {
-            continue;
-        }
-
-        rows.push_back(Row{ledger_entry.ticker, ledger_entry.quantity, 0, ledger_entry.average, 0.0, gone[ledger_entry.symbol] ? "PRUNE" : "KEEP", note});
-    }
-
-    return rows;
-}
+std::vector<Row> plan(const std::vector<Held>& ledger, const std::vector<Held>& broker, bool resync,
+                             const std::vector<symbol::SymbolId>& pruned, const std::string& note);
 
 } // namespace reconcile

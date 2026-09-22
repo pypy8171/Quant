@@ -418,3 +418,65 @@ void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)
         gate_.set_pnl_stale(*out.pnl_stale);
     }
 }
+
+namespace ledger
+{
+bool ReconcileBreaker::take_skip()
+{
+    if (skip_remaining_ <= 0)
+    {
+        return false;
+    }
+
+    --skip_remaining_;
+    return true;
+}
+
+BreakerOutcome ReconcileBreaker::on_result(bool responded)
+{
+    BreakerOutcome out;
+
+    if (responded)
+    {
+        out.log_recovered = fail_streak_ > 0;
+        out.log_stale_off = fail_streak_ >= kPnlStaleStreak;
+        fail_streak_ = 0;
+        skip_remaining_ = 0;
+        out.pnl_stale = false;
+        return out;
+    }
+
+    ++fail_streak_;
+    int capture = fail_streak_ - 1;
+
+    if (capture > 3)
+    {
+        capture = 3; // 백오프 상한: 2^3 = 8 사이클
+    }
+
+    skip_remaining_ = 1 << capture;
+    out.skip_cycles = skip_remaining_;
+    out.log_backoff = true;
+    out.log_stale_on = fail_streak_ == kPnlStaleStreak;
+
+    if (fail_streak_ >= kPnlStaleStreak)
+    {
+        out.pnl_stale = true;
+    }
+
+    return out;
+}
+
+std::string baseline_file_name(const std::string& date_yyyymmdd, const std::string& account)
+{
+    std::string name = "pnl_baseline_" + date_yyyymmdd;
+
+    if (!account.empty())
+    {
+        name += "_" + account;
+    }
+
+    return name + ".txt";
+}
+
+} // namespace ledger

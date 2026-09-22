@@ -33,52 +33,10 @@ public:
 
     // 이름을 등록하고 번호를 돌려준다. 이미 있으면 그 번호. 빈 이름·테이블 가득 참은 kNone.
     //  기동·전략 추가 때만 부른다 — 선형 탐색이라 hot path에서 부르지 않는다.
-    StrategyId intern(std::string_view name)
-    {
-        if (name.empty())
-        {
-            return kNone;
-        }
-
-        std::lock_guard<std::mutex> write_lock(write_mutex_);
-        const StrategyId            count = count_.load(std::memory_order_relaxed);
-
-        for (StrategyId id = 1; id < count; ++id)
-        {
-            if (names_[id] == name)
-            {
-                return id;
-            }
-        }
-
-        if (count >= capacity_)
-        {
-            return kNone;
-        }
-
-        // [inv] 발행 순서 — names_[id]를 채운 뒤 count_를 release로 올린다. name(id)는 acquire로 count_를 읽으므로
-        //  번호를 본 순간 이름은 완성돼 있다.
-        names_[count] = std::string(name);
-        count_.store(count + 1, std::memory_order_release);
-        return count;
-    }
+    StrategyId intern(std::string_view name);
 
     // 등록하지 않고 찾기만. 모르면 kNone.
-    [[nodiscard]] StrategyId lookup(std::string_view name) const
-    {
-        std::lock_guard<std::mutex> write_lock(write_mutex_);
-        const StrategyId            count = count_.load(std::memory_order_relaxed);
-
-        for (StrategyId id = 1; id < count; ++id)
-        {
-            if (names_[id] == name)
-            {
-                return id;
-            }
-        }
-
-        return kNone;
-    }
+    [[nodiscard]] StrategyId lookup(std::string_view name) const;
 
     // 번호 → 이름. 모르는 번호면 빈 문자열. 배열이 고정이라 참조가 테이블 수명 동안 유효하다.
     [[nodiscard]] const std::string& name(StrategyId id) const
