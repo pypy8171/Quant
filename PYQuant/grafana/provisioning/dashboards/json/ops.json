@@ -681,6 +681,39 @@
       }
     },
     {
+      "id": 26,
+      "type": "table",
+      "title": "지금 살아 있는 스레드 — 이름별 개수",
+      "description": "가장 최근 표본 한 장만 센다 — 옆 그림(스레드별 CPU)은 시간 창 안에 지나간 스레드를 다 쌓아 계열이 수백 개로 보인다. 리눅스는 새 스레드가 만든 쪽 이름을 물려받아, 이름을 안 붙인 스레드는 quant_trader나 DataThread로 찍힌다",
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 54
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "tsdb"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "tsdb"
+          },
+          "format": "table",
+          "rawSql": "SELECT thread_name AS \"스레드 이름\", COUNT(*) AS \"개수\", ROUND(SUM(cpu_percent)::numeric, 2) AS \"CPU 합(%)\"\nFROM proc_thread_stats\nWHERE process_name LIKE 'quant_trader%'\n  AND ts = (SELECT MAX(ts) FROM proc_thread_stats WHERE process_name LIKE 'quant_trader%')\nGROUP BY 1 ORDER BY 2 DESC, 1;",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
       "id": 16,
       "type": "table",
       "title": "함수별 CPU 자기 시간 (최근 perf 표본, %)",
