@@ -403,6 +403,7 @@
 - [bench_market_firehose.cpp](../Quant/tests/bench_market_firehose.cpp) — 전종목 규모 시세 파이프라인 부하테스트(E2E 지연·처리량)
 - [bench_order_gate_position.cpp](../Quant/tests/bench_order_gate_position.cpp) — OrderGate 원장 조회 벤치: 키가 (계좌, 종목) 문자열일 때와 정수 id일 때의 position() 비용(D-105 결정 3)
 - [bench_order_path_keys.cpp](../Quant/tests/bench_order_path_keys.cpp) — 주문 경로 키 벤치: 중복 신호 키·우선순위 표·서브원장·체결 키를 문자열과 정수로 잰다(D-112)
+- [bench_peer_failure.cpp](../Quant/tests/bench_peer_failure.cpp) — 프로세스 경계 고장 실측 벤치: 공유메모리 한 방향 지연, crash·exit·hang 감지 지연, append+flush 비용(D-071 큐 34)
 - [bench_sleep_res.cpp](../Quant/tests/bench_sleep_res.cpp) — sleep_for·condvar 대기 해상도 실측 도구
 - [bench_wake_gate.cpp](../Quant/tests/bench_wake_gate.cpp) — WakeGate 대 atomic::wait 깨우기 지연 비교 벤치(D-070)
 - [bench_zmq_publish.cpp](../Quant/tests/bench_zmq_publish.cpp) — ZmqBridge::publish_trade가 수신 스레드에 얹는 비용 벤치 + TRADE 와이어 포맷이 예전 dump()와 같은지 검사(ctest)
@@ -547,6 +548,7 @@
 
 ### docs/reports/
 
+- [FEED_MEASURE.md](reports/FEED_MEASURE.md) — 프로세스 경계 실측 보고서: 공유메모리 전달 비용·죽음 감지 지연·기록 후 마무리 비용(D-071 큐 34)
 - [MAINTENANCE_WEEKLY.md](reports/MAINTENANCE_WEEKLY.md) — 주간 유지보수 현황 보고서
 - [MDC_BLOCK_REPORT.md](reports/MDC_BLOCK_REPORT.md) — KRX 데이터 차단 진단 보고서
 - [PIPELINE_LATENCY_REPORT.md](reports/PIPELINE_LATENCY_REPORT.md) — 파이프라인 지연 벤치마크 보고서

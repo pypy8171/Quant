@@ -430,6 +430,15 @@ else()
     target_link_libraries(bench_feed_ingest PRIVATE ws2_32)
 endif()
 
+# ─── 벤치 타겟: 프로세스 경계 고장 실측 (공유메모리 전달·죽음 감지, D-071 큐 34) ────
+add_executable(bench_peer_failure tests/bench_peer_failure.cpp)
+target_include_directories(bench_peer_failure PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(bench_peer_failure PRIVATE pthread rt)
+endif()
+
 # ─── 테스트 타겟: WakeGate 깨우기 유실·만기 (헤더 전용, D-071) ──
 add_executable(test_wake_gate tests/test_wake_gate.cpp)
 target_include_directories(test_wake_gate PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
