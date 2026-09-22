@@ -475,6 +475,55 @@ int main()
         CHECK((visited == std::vector<uint32_t>{9}));
     }
 
+    // 5. 표를 바꾸는 중에도 mask() 한 번이 돌려주는 값은 어느 한 세대의 값 그대로다 — 두 세대를 섞은 값이 나오면 안 된다.
+    //  옛 구조는 전체 구독 마스크(all)를 종목별 마스크보다 먼저 놓아서, 한 번의 호출이 새 all과 옛 마스크를 같이 보는 창이 있었다.
+    //  세대 A는 종목 마스크만(샤드 1), 세대 B는 전체 마스크만(샤드 2)이라 옳은 답은 둘 중 하나뿐이고, 섞이면 둘을 합친 값이나 0이 나온다. [why D-116]
+    {
+        // 작은 표로 돈다 — 지난 표를 안 지우는 구조라 회차만큼 쌓인다(128종목 x 8바이트 x 2만 회 = 20MB).
+        symbol::SymbolTable small_table(128);
+        shard::RouteTable   routes(small_table.capacity());
+        const auto          id_a = small_table.intern("R10001");
+
+        const shard::ShardMask generation_a = shard::mask_of(1);
+        const shard::ShardMask generation_b = shard::mask_of(2);
+
+        std::atomic<bool> keep_going{true};
+        std::atomic<int>  mixed{0};
+
+        std::thread reader([&]
+        {
+            while (keep_going.load(std::memory_order_acquire))
+            {
+                const shard::ShardMask seen = routes.mask(id_a);
+
+                if (seen != generation_a && seen != generation_b)
+                {
+                    mixed.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        });
+
+        for (uint32_t round = 0; round < 20000; ++round)
+        {
+            auto next = routes.draft();
+
+            if (round % 2 == 0)
+            {
+                next.add(id_a, 1);
+            }
+            else
+            {
+                next.add_all(2);
+            }
+
+            routes.commit(next);
+        }
+
+        keep_going.store(false, std::memory_order_release);
+        reader.join();
+        CHECK(mixed.load() == 0);
+    }
+
     std::cout << "test_strategy_shard: " << g_checks << " checks passed\n";
     return 0;
 }
