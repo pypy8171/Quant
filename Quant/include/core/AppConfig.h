@@ -43,6 +43,11 @@ struct AppConfig
     std::string            regime_file;
     int                    regime_stale_sec = kDefaultRegimeStaleSec;
     int                    regime_halt_expire_min = kDefaultRegimeHaltExpireMin;
+    // 보호 주문 표(D-114 단계 1) — off/shadow/owner. 기본 shadow는 판정만 로그로 남기고 발주는 전략이 한다.
+    //  owner로 두면 표가 발주하고 등록한 전략은 자기 손절·트레일 판정을 건너뛰다.
+    std::string            protective_orders = "shadow";
+    int                    protective_orders_interval_ms = 200;  // 주문 쪽이 표를 보는 간격
+    int                    protective_orders_retry_ms = 30000;   // 청산이 안 먹힐 때 다시 내는 간격
     std::string            zmq_bind_address;
     std::string            zmq_control_token;
     // 한 기계에 엔진이 둘 이상 뜨면 포트가 겹쳐 뒤에 뜬 쪽이 ZMQ 없이 돈다 — 그래서 설정으로 뺀다.

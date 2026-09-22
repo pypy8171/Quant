@@ -574,6 +574,15 @@ if(UNIX)
     target_link_libraries(test_account_ledger PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: 보호 주문 표 검증 (D-114 단계 1) ─────────────
+add_executable(test_protective_orders tests/test_protective_orders.cpp src/risk/OrderGate.cpp src/utils/Logger.cpp)
+target_include_directories(test_protective_orders PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_protective_orders PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟: 비동기 Logger MPSC 큐·flush 계약 (D-045) ───────────────
 add_executable(test_logger tests/test_logger.cpp src/utils/Logger.cpp)
 target_include_directories(test_logger PRIVATE
@@ -627,6 +636,7 @@ set(QUANT_ASSERT_TARGETS
     test_strategy_router
     test_account_ledger
     test_logger
+    test_protective_orders
 )
 foreach(_qt IN LISTS QUANT_ASSERT_TARGETS)
     if(MSVC)

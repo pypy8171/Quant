@@ -22,7 +22,7 @@ graph LR
   api -->|7| utils
   core -->|10| api
   core -->|3| ipc
-  core -->|5| risk
+  core -->|6| risk
   core -->|3| strategy
   core -->|10| utils
   ipc -->|2| api
@@ -37,9 +37,11 @@ graph LR
   modes -->|3| core
   modes --> ipc
   modes -->|2| utils
-  risk -->|4| core
+  risk -->|5| core
+  risk --> utils
   strategy -->|5| api
   strategy -->|22| core
+  strategy --> risk
   strategy -->|3| universe
   strategy -->|11| utils
   universe --> api
@@ -55,8 +57,8 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 31 |
-| `utils/Logger.h` | 28 |
+| `core/Types.h` | 32 |
+| `utils/Logger.h` | 29 |
 | `core/KstTime.h` | 16 |
 | `strategy/StrategyBase.h` | 14 |
 | `api/KisClient.h` | 12 |
@@ -136,6 +138,8 @@ graph LR
   subgraph risk
     n_risk_OrderGate_cpp["risk/OrderGate.cpp"]
     n_risk_OrderGate_h["risk/OrderGate.h"]
+    n_risk_ProtectiveOrders_h["risk/ProtectiveOrders.h"]
+    n_risk_ProtectiveRule_h["risk/ProtectiveRule.h"]
   end
   subgraph strategy
     n_strategy_DevScaleRules_h["strategy/DevScaleRules.h"]
@@ -248,6 +252,7 @@ graph LR
   n_core_Engine_h --> n_ipc_OrderRouter_h
   n_core_Engine_h --> n_ipc_ZmqBridge_h
   n_core_Engine_h --> n_risk_OrderGate_h
+  n_core_Engine_h --> n_risk_ProtectiveOrders_h
   n_core_Engine_h --> n_strategy_StrategyBase_h
   n_core_EngineConfigure_cpp --> n_core_AppConfig_h
   n_core_EngineConfigure_cpp --> n_core_Engine_h
@@ -349,6 +354,10 @@ graph LR
   n_risk_OrderGate_h --> n_core_SymbolTable_h
   n_risk_OrderGate_h --> n_core_Types_h
   n_risk_OrderGate_h --> n_risk_LedgerJournal_h
+  n_risk_ProtectiveOrders_h --> n_risk_OrderGate_h
+  n_risk_ProtectiveOrders_h --> n_risk_ProtectiveRule_h
+  n_risk_ProtectiveOrders_h --> n_utils_Logger_h
+  n_risk_ProtectiveRule_h --> n_core_Types_h
   n_strategy_DevScaleRules_h --> n_core_Types_h
   n_strategy_DeviationScaleStrategy_h --> n_api_KisClient_h
   n_strategy_DeviationScaleStrategy_h --> n_core_BarAggregator_h
@@ -377,6 +386,7 @@ graph LR
   n_strategy_SeedPeakStore_h --> n_utils_Logger_h
   n_strategy_StrategyBase_h --> n_core_StrategyTable_h
   n_strategy_StrategyBase_h --> n_core_Types_h
+  n_strategy_StrategyBase_h --> n_risk_ProtectiveRule_h
   n_strategy_StrategyFactory_cpp --> n_core_Engine_h
   n_strategy_StrategyFactory_cpp --> n_core_KstTime_h
   n_strategy_StrategyFactory_cpp --> n_core_Types_h

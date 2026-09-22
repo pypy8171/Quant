@@ -1,6 +1,7 @@
 #pragma once
 #include "core/StrategyTable.h"
 #include "core/Types.h"
+#include "risk/ProtectiveRule.h"
 #include <atomic>
 #include <functional>
 #include <optional>
@@ -215,6 +216,13 @@ public:
         return sellable_provider_(account, ticker);
     }
 
+    // 보호 주문 표 주입 — Engine이 전략 등록 때 넣는다. 미주입이면 아래 arm_protective가 아무것도 하지 않는다. [why D-114]
+    //  수명은 Engine이 가진다 — 표는 Engine 멤버고 전략보다 늦게 죽는다. [inv]
+    void set_protective_registry(risk::ProtectiveOrderRegistry* registry)
+    {
+        protective_registry_ = registry;
+    }
+
     // 종목 문자열 → 정수 id. Engine이 SymbolTable::intern을 넣는다 — 전략은 기동·설정 때 한 번 받아 두고
     //  틱에서는 trade.symbol_id과 정수로만 비교한다(원칙 6, D-071). 미주입이면 kNone — 아래 same_symbol이 문자열로 되돌아간다.
     using SymbolResolver = std::function<symbol::SymbolId(std::string_view)>;
@@ -228,6 +236,48 @@ protected:
     symbol::SymbolId symbol_of(std::string_view ticker) const
     {
         return symbol_resolver_ ? symbol_resolver_(ticker) : symbol::kNone;
+    }
+
+    // 보호 주문 등록 — "이 종목은 평단 -stop_loss_percent면 판다"를 주문 쪽 표에 미리 올려둔다.
+    //  전략이 멈춰도 그 표만 보고 청산이 나간다. 조건이 없으면(전부 0) 해제로 친다. [why D-114]
+    void arm_protective(const std::string& account, const std::string& ticker, symbol::SymbolId symbol,
+                        double stop_loss_percent, double trail_arm_percent, double trail_percent)
+    {
+        if (protective_registry_ == nullptr)
+        {
+            return;
+        }
+
+        risk::ProtectiveRule rule;
+        rule.account           = account;
+        rule.ticker            = ticker;
+        rule.symbol            = symbol;
+        rule.stop_loss_percent = stop_loss_percent;
+        rule.trail_arm_percent = trail_arm_percent;
+        rule.trail_percent     = trail_percent;
+        rule.owner             = id();
+        rule.owner_index       = strategy_index_;
+        protective_registry_->arm(rule);
+    }
+
+    void disarm_protective(const std::string& account, symbol::SymbolId symbol)
+    {
+        if (protective_registry_ != nullptr)
+        {
+            protective_registry_->disarm(account, symbol);
+        }
+    }
+
+    // 표가 이 종목의 청산을 맡았는가. true면 전략은 자기 손절·트레일 판정을 건너뛰다.
+    bool protective_owns(const std::string& account, symbol::SymbolId symbol) const
+    {
+        return protective_registry_ != nullptr && protective_registry_->owns(account, symbol);
+    }
+
+    // 표가 방금 청산했는가(한 번의 발사를 한 번만). 전략은 이것을 보고 미체결 매수를 거두고 재진입 우도를 건다.
+    bool consume_protective_fire(const std::string& account, symbol::SymbolId symbol)
+    {
+        return protective_registry_ != nullptr && protective_registry_->consume_fired(account, symbol);
     }
 
     // 틱이 내 종목인가. 둘 다 id가 있으면 정수 비교, 한쪽이라도 kNone(주입 전·시험)이면 문자열.
@@ -255,6 +305,7 @@ protected:
     std::function<bool()> entry_halt_provider_; // 신규매수 차단 여부(OrderGate). 미주입=false
     std::function<double()> entry_scale_provider_; // 매수 명목 비율(OrderGate). 미주입=1.0
     std::function<SellableInfo(const std::string&, const std::string&)> sellable_provider_; // 원장 매도가능·평단
+    risk::ProtectiveOrderRegistry* protective_registry_ = nullptr; // non-owning; 보호 주문 표(Engine 소유). 미주입=표 없음
     SymbolResolver symbol_resolver_; // 종목 문자열 → id(SymbolTable::intern). 미주입=kNone
     std::atomic<bool> active_{true};      // 국면 게이트(Engine이 설정). 기본 true=통과 (G-1)
     std::atomic<bool> in_universe_{true}; // 유니버스 재스캔 게이트(Engine이 설정). 미등록 전략은 늘 true

@@ -9,7 +9,7 @@
 - [(루트)](#루트) — 10개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 113개
-- [Quant](#quant) — 187개
+- [Quant](#quant) — 190개
 - [docs](#docs) — 65개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
@@ -297,6 +297,8 @@
 - [GateReasons.h](../Quant/include/risk/GateReasons.h) — 게이트 거부 사유 문자열 계약(D-067)
 - [LedgerJournal.h](../Quant/include/risk/LedgerJournal.h) — 원장 선기록 저널: 192바이트 고정 레코드·CRC32·seq, 주문을 보내기 전에 적고 재기동 때 리플레이(D-113)
 - [OrderGate.h](../Quant/include/risk/OrderGate.h) — 주문 전 위험 검증 게이트
+- [ProtectiveOrders.h](../Quant/include/risk/ProtectiveOrders.h) — 보호 주문 표(주문 쪽): 보유·현재가·미체결 매도만으로 손절·트레일 청산 신호를 만든다(D-114 단계 1)
+- [ProtectiveRule.h](../Quant/include/risk/ProtectiveRule.h) — 보호 주문 규칙과 등록 창구 — 전략이 보는 경계(D-114 단계 1)
 
 ### Quant/include/strategy/
 
@@ -428,6 +430,7 @@
 - [test_order_router.cpp](../Quant/tests/test_order_router.cpp) — OrderRouter 통합 테스트(접수·체결·이력)
 - [test_paper_executor.cpp](../Quant/tests/test_paper_executor.cpp) — 모의 체결기 단위 테스트(다음틱 체결·취소·정정)
 - [test_pipeline_stress.cpp](../Quant/tests/test_pipeline_stress.cpp) — 파이프라인 E2E 부하 테스트(WS수신-전략-주문-체결)
+- [test_protective_orders.cpp](../Quant/tests/test_protective_orders.cpp) — 보호 주문 표 단위 테스트: 전략 없이 가격 경로만으로 청산이 나가는지 검증(D-114 단계 1)
 - [test_reconcile_plan.cpp](../Quant/tests/test_reconcile_plan.cpp) — 잔고 대조 차이 계산 순수 함수 단위 테스트(D-038)
 - [test_regime_file_judge.cpp](../Quant/tests/test_regime_file_judge.cpp) — 매크로 국면 파일 판정기 단위 테스트(D-033·D-060)
 - [test_replay_source.cpp](../Quant/tests/test_replay_source.cpp) — 캡처 리플레이 소스 단위 테스트

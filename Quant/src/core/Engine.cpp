@@ -71,6 +71,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
         return ledger_sellable(account, ticker);
     });
     strategy->set_symbol_resolver([this](std::string_view ticker) { return symbols_.table.intern(ticker); });
+    strategy->set_protective_registry(&protective_book_);
     assign_strategy_identity(*strategy);
 
     try
@@ -969,6 +970,7 @@ void Engine::start_strategies()
             return ledger_sellable(account, ticker);
         });
         strategy->set_symbol_resolver([this](std::string_view ticker) { return symbols_.table.intern(ticker); });
+        strategy->set_protective_registry(&protective_book_);
 
         try
         {
@@ -2232,6 +2234,28 @@ void Engine::poll_regime_file()
 // ─── 전략 처리 스레드 ─────────────────────────────────────────────────────
 // order_book_queue_(호가) → trade_queue_(체결) → market_queue_(일봉) 순 우선처리
 // 아이들 시 100µs 슬립 → 저지연 유지
+// 보호 주문 표 한 주기. 전략이 등록해 둔 규칙과 원장 보유·현재가만으로 청산을 만든다 — 전략 코드를 한 줄도 안 봐도 된다는 것이
+//  이 단계의 요점이다. 프로세스를 가르면 이 함수가 주문 프로세스로 간다(단계 4). [why D-114]
+//  시퀀서 하나만 부른다 — strategy_thread 전용이라 protective_next_는 잠금이 필요 없다. [inv]
+void Engine::run_protective_orders(SignalDispatcher& dispatcher, std::chrono::steady_clock::time_point now)
+{
+    if (now < protective_next_ || !protective_book_.enabled())
+    {
+        return;
+    }
+
+    protective_next_ = now + protective_interval_;
+
+    auto orders = protective_book_.evaluate(
+        order_gate_.snapshot_positions(), [this](symbol::SymbolId symbol) { return last_price(symbol); },
+        [this](const std::string& account, symbol::SymbolId symbol) { return order_gate_.reserved(account, symbol); }, now);
+
+    for (auto& protective_signal : orders)
+    {
+        dispatcher.submit(std::move(protective_signal));
+    }
+}
+
 void Engine::strategy_thread_fn(std::stop_token stop_token)
 {
     thread_name::set_current("Strategy");
@@ -2295,6 +2319,9 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
 
         // 종목당 명목 한도 초과분 정리 — 기동 20초 뒤(잔고 시드가 끝난 뒤) 한 번.
         dispatcher.trim_excess_once(loop_now);
+
+        // 보호 주문 표 — 전략이 등록해 둔 손절·트레일을 주문 쪽에서 본다(전략이 멈춰도 나간다).
+        run_protective_orders(dispatcher, loop_now);
 
         bool did_work = false;
 

@@ -206,6 +206,9 @@ AppConfig parse_config(const json& document, const std::string& mode_override)
     app.regime_halt_expire_min        = document.value("regime_halt_expire_min", app.regime_halt_expire_min);
     app.zmq_bind_address              = document.value("zmq_bind_addr", std::string());
     app.zmq_control_token             = document.value("zmq_control_token", std::string());
+    app.protective_orders             = document.value("protective_orders", app.protective_orders);
+    app.protective_orders_interval_ms = document.value("protective_orders_interval_ms", app.protective_orders_interval_ms);
+    app.protective_orders_retry_ms    = document.value("protective_orders_retry_ms", app.protective_orders_retry_ms);
     app.zmq_pub_port                  = document.value("zmq_pub_port", app.zmq_pub_port);
     app.zmq_rep_port                  = document.value("zmq_rep_port", app.zmq_rep_port);
     app.ops_bind_address              = document.value("ops_bind_addr", std::string());

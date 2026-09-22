@@ -21,6 +21,7 @@
 #include "core/LatencyTrace.h"
 #include "core/Types.h"
 #include "risk/OrderGate.h"
+#include "risk/ProtectiveOrders.h"
 #include "strategy/StrategyBase.h"
 #ifdef HAS_ZMQ
 #include "ipc/ZmqBridge.h"
@@ -284,6 +285,20 @@ public:
         zmq_rep_port_ = rep_port;
     }
 
+    // 보호 주문 표(config `protective_orders`) — off/shadow/owner. 전략이 멈춰도 주문 쪽이 표만 보고
+    //  손절·트레일 청산을 낸다. 스레드 시작 전에만. [why D-114]
+    static constexpr int kProtectiveIntervalMsDefault = 200;   // 표를 보는 간격
+    static constexpr int kProtectiveRetryMsDefault    = 30000; // 청산이 안 먹힐 때 다시 내는 간격
+
+    void set_protective_orders(const std::string& mode, int interval_ms, int retry_ms)
+    {
+        protective_book_.set_mode(risk::protective_mode_from_string(mode));
+        protective_interval_ =
+            std::chrono::milliseconds(interval_ms > 0 ? interval_ms : kProtectiveIntervalMsDefault);
+        protective_book_.set_retry_interval(
+            std::chrono::milliseconds(retry_ms > 0 ? retry_ms : kProtectiveRetryMsDefault));
+    }
+
     // 운영단말 TCP 채널(config `ops_bind_addr`·`ops_port`·`ops_token`). port 0이면 열지 않는다.
     //  스레드 시작 전에만. 루프백이 아닌 주소는 token이 있어야 서버가 뜬다(OpsServer::start).
     void set_ops_control(const std::string& bind_address, int port, const std::string& token)
@@ -373,6 +388,9 @@ private:
     void order_thread_fn(std::stop_token stop_token);
     void fill_thread_fn(std::stop_token stop_token);     // 체결통보 소비(fill_queue → OrderRouter::on_fill → ops 방송). WS 수신 스레드에서 뗀 것 [why D-056]
     void control_thread_fn(std::stop_token stop_token); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
+
+    // 보호 주문 표 한 주기 — 원장 보유 스냅샷·현재가로 청산을 만들어 디스패처로 보낸다. strategy_thread 전용. [why D-114]
+    void run_protective_orders(SignalDispatcher& dispatcher, std::chrono::steady_clock::time_point now);
 
     // ── 전략 레지스트리·국면·유니버스 보조 ─────────────────────────────────
     StrategyBase::SellableInfo ledger_sellable(const std::string& account, const std::string& ticker) const;
@@ -645,6 +663,10 @@ private:
     // ── ZMQ ──────────────────────────────────────────────────────────────────
     std::string zmq_bind_address_ = "127.0.0.1";
     std::string zmq_control_token_;
+    // 보호 주문 표 — 전략(샤드 스레드)가 등록하고 strategy_thread(주문 시퀀서)가 본다. 표 자체가 잠금을 가진다. [why D-114]
+    risk::ProtectiveOrderBook             protective_book_;
+    std::chrono::milliseconds             protective_interval_{kProtectiveIntervalMsDefault};
+    std::chrono::steady_clock::time_point protective_next_{}; // 다음에 표를 볼 시각. strategy_thread 전용
     int         zmq_pub_port_ = 5555;
     int         zmq_rep_port_ = 5556;
 

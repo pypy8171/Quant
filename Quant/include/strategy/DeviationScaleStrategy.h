@@ -260,6 +260,10 @@ public:
     void on_start() override
     {
         symbol_id_ = symbol_of(parameters_.ticker); // 집계기 키·틱 비교·신호 도장 — 여기서 한 번
+
+        // 손절·트레일 조건을 주문 쪽 보호 주문 표에 올린다 — 이 전략이 멈춰도 표가 보유분을 지킨다. [why D-114]
+        arm_protective(parameters_.account, parameters_.ticker, symbol_id_, parameters_.stop_loss_percent,
+                       parameters_.trail_arm_percent, parameters_.trail_percent);
         live_.clear();
         last_split_buy_reference_ = 0.0;
         last_position_ = -1;
@@ -309,6 +313,9 @@ public:
     void on_stop() override
     {
         stop_prefetch();
+
+        // 보호 주문 표에서 내린다 — 떨어진 전략의 규칙이 남아 다른 전략의 보유분을 팔면 안 된다. [why D-114]
+        disarm_protective(parameters_.account, symbol_id_);
 
         // 마지막 진행 봉(마감 동시호가 뒤엔 다음 틱이 없다)을 시계로 닫아 비교표에 남긴다. 전략 스레드는 이미
         //  이 전략을 안 부른다(엔진 종료 뒤이거나 재스캔이 뗀 뒤). [why D-074]
@@ -561,11 +568,21 @@ public:
             }
         }
 
+        // 표가 이 종목을 맡았으면(owner 모드) 손절·트레일 판정은 표가 한다 — 두 곳이 같은 판정을 내면
+        //  중복 매도가 된다. 여기서는 표가 낸 청산만 받아 미체결 매수를 거두고 재진입 우도를 건다. [why D-114]
+        const bool protective_owner = protective_owns(parameters_.account, symbol_id_);
+
+        if (protective_owner && consume_protective_fire(parameters_.account, symbol_id_))
+        {
+            cancel_all(out);
+            stop_cooldown_until_ = now + std::chrono::seconds(parameters_.stop_cooldown_sec);
+        }
+
         // ── 하드 스탑: 평단 대비 stop_loss_percent 아래면 존 상태와 무관하게 청산 ─────────
         //  유지 게이트가 진입보다 넓어(히스테리시스) 존 안에서도 평단에서 크게 밀릴 수 있다.
         //  평단은 sellable_quantity()가 잔고 조회 때 채운다. 재기동 직후 첫 재구성 전에는 0이라
         //  보유가 있으면 60초에 한 번 직접 채운다(REST 1회).
-        if (parameters_.stop_loss_percent > 0.0)
+        if (!protective_owner && parameters_.stop_loss_percent > 0.0)
         {
             const int position = confirmed_position(parameters_.account, symbol_id_, parameters_.ticker);
 
@@ -606,7 +623,7 @@ public:
         // ── 무장 후 고가 트레일: 평단 대비 +trail_arm_percent에 닿은 뒤 최고가 대비 −trail_percent면 청산 ──
         //  최고가는 보유 구간 동안 현재가로 갱신하고 보유가 0이면 비운다. 평단은 위 스탑 블록이 채운 캐시를 쓴다
         //  (스탑이 꺼져 있으면 여기서 채운다). 무장 여부는 따로 들고 있지 않다 — 최고가 ≥ 평단×(1+무장%)이면 무장이다.
-        if (parameters_.trail_arm_percent > 0.0)
+        if (!protective_owner && parameters_.trail_arm_percent > 0.0)
         {
             const int position = confirmed_position(parameters_.account, symbol_id_, parameters_.ticker);
 

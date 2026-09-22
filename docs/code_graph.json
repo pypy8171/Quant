@@ -34,7 +34,7 @@
     {
       "from": "core",
       "to": "risk",
-      "weight": 5
+      "weight": 6
     },
     {
       "from": "core",
@@ -109,7 +109,12 @@
     {
       "from": "risk",
       "to": "core",
-      "weight": 4
+      "weight": 5
+    },
+    {
+      "from": "risk",
+      "to": "utils",
+      "weight": 1
     },
     {
       "from": "strategy",
@@ -120,6 +125,11 @@
       "from": "strategy",
       "to": "core",
       "weight": 22
+    },
+    {
+      "from": "strategy",
+      "to": "risk",
+      "weight": 1
     },
     {
       "from": "strategy",
@@ -204,6 +214,8 @@
     "risk/GateReasons.h": "risk",
     "risk/LedgerJournal.h": "risk",
     "risk/OrderGate.h": "risk",
+    "risk/ProtectiveOrders.h": "risk",
+    "risk/ProtectiveRule.h": "risk",
     "strategy/DeviationScaleStrategy.h": "strategy",
     "strategy/DevScaleRules.h": "strategy",
     "strategy/FixedIntervalStrategy.h": "strategy",
@@ -391,6 +403,7 @@
       "ipc/OrderRouter.h",
       "ipc/ZmqBridge.h",
       "risk/OrderGate.h",
+      "risk/ProtectiveOrders.h",
       "strategy/StrategyBase.h"
     ],
     "core/EngineConfigure.cpp": [
@@ -559,6 +572,14 @@
       "core/Types.h",
       "risk/LedgerJournal.h"
     ],
+    "risk/ProtectiveOrders.h": [
+      "risk/OrderGate.h",
+      "risk/ProtectiveRule.h",
+      "utils/Logger.h"
+    ],
+    "risk/ProtectiveRule.h": [
+      "core/Types.h"
+    ],
     "strategy/DevScaleRules.h": [
       "core/Types.h"
     ],
@@ -605,7 +626,8 @@
     ],
     "strategy/StrategyBase.h": [
       "core/StrategyTable.h",
-      "core/Types.h"
+      "core/Types.h",
+      "risk/ProtectiveRule.h"
     ],
     "strategy/StrategyFactory.cpp": [
       "core/Engine.h",
@@ -919,6 +941,7 @@
       "main.cpp",
       "modes/Monitors.cpp",
       "risk/OrderGate.h",
+      "risk/ProtectiveRule.h",
       "strategy/DevScaleRules.h",
       "strategy/StrategyBase.h",
       "strategy/StrategyFactory.cpp",
@@ -976,7 +999,15 @@
       "core/LedgerReconciler.h",
       "core/SignalDispatcher.h",
       "ipc/OrderRouter.h",
-      "risk/OrderGate.cpp"
+      "risk/OrderGate.cpp",
+      "risk/ProtectiveOrders.h"
+    ],
+    "risk/ProtectiveOrders.h": [
+      "core/Engine.h"
+    ],
+    "risk/ProtectiveRule.h": [
+      "risk/ProtectiveOrders.h",
+      "strategy/StrategyBase.h"
     ],
     "strategy/DevScaleRules.h": [
       "strategy/DeviationScaleStrategy.h",
@@ -1082,6 +1113,7 @@
       "ipc/ZmqBridge.cpp",
       "main.cpp",
       "modes/Monitors.cpp",
+      "risk/ProtectiveOrders.h",
       "strategy/DeviationScaleStrategy.h",
       "strategy/FixedIntervalStrategy.h",
       "strategy/IntradayBreakoutStrategy.h",
@@ -1110,11 +1142,11 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 31
+      "in_degree": 32
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 28
+      "in_degree": 29
     },
     {
       "header": "core/KstTime.h",
@@ -1142,7 +1174,7 @@
     },
     {
       "header": "risk/OrderGate.h",
-      "in_degree": 6
+      "in_degree": 7
     },
     {
       "header": "utils/ThreadName.h",
