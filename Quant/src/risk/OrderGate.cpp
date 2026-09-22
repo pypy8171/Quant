@@ -4,10 +4,12 @@
 #include "risk/GateReasons.h"
 #include "core/KstTime.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <ctime>
 #include <format>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
 using Clock = std::chrono::steady_clock;
@@ -23,6 +25,32 @@ constexpr double kSellTaxRate    = 0.0020;  // 증권거래세 0.20% (매도에�
 //  들고 하루를 끝내는 것과 같아서, 그때는 바를 없애고 아무나 받는 게 맞다.
 constexpr int kSessionOpenMin  = 9 * 60;   // 09:00 KST
 constexpr int kSessionBarEndMin = 15 * 60; // 15:00 KST — 이후로는 바 없음
+
+// 금액을 주문 수량으로 옮긴다. 몫이 int 범위를 넘으면 캐스팅 결과가 정해져 있지 않아
+//  x86 에서 INT_MIN 이 나오고, 호출한 쪽 끝의 `quantity > 0 ? quantity : 0` 이 그것을 0 으로
+//  바꾼다 — 한도에 걸리지도 않은 주문이 조용히 수량 0 이 되는 것이다. 그래서 잘라서 받는다.
+//  현금이 조 단위인 구성(부하시험)에서 싼 종목을 만나면 바로 넘는다.
+int quantity_from_notional(double notional, double price)
+{
+    if (!(price > 0.0) || !std::isfinite(notional))
+    {
+        return 0;
+    }
+
+    const double quantity = notional / price;
+
+    if (quantity >= static_cast<double>(std::numeric_limits<int>::max()))
+    {
+        return std::numeric_limits<int>::max();
+    }
+
+    if (quantity <= static_cast<double>(std::numeric_limits<int>::lowest()))
+    {
+        return std::numeric_limits<int>::lowest();
+    }
+
+    return static_cast<int>(quantity);
+}
 
 // 지금 KST, 자정부터의 분.
 int kst_minute_of_day()
@@ -122,7 +150,7 @@ int OrderGate::clamp_buy_quantity(const OrderSignal& signal)
 
     if (evaluation_price > 0.0 && config_.max_notional_per_order > 0.0)
     {
-        const int quantity_ceiling = static_cast<int>(config_.max_notional_per_order / evaluation_price);
+        const int quantity_ceiling = quantity_from_notional(config_.max_notional_per_order, evaluation_price);
 
         if (quantity_ceiling < quantity)
         {
@@ -150,7 +178,7 @@ int OrderGate::clamp_buy_quantity(const OrderSignal& signal)
 
         if (evaluation_price > 0.0 && config_.max_notional_per_ticker > 0.0)
         {
-            const int room = static_cast<int>(config_.max_notional_per_ticker / evaluation_price) - current_quantity;
+            const int room = quantity_from_notional(config_.max_notional_per_ticker, evaluation_price) - current_quantity;
 
             if (room < quantity)
             {
@@ -189,7 +217,7 @@ int OrderGate::clamp_buy_quantity(const OrderSignal& signal)
             }
 
             const double exposure_ceiling  = config_.max_gross_exposure_percent * equity;
-            const int    room = static_cast<int>((exposure_ceiling - gross) / evaluation_price);
+            const int    room = quantity_from_notional(exposure_ceiling - gross, evaluation_price);
 
             if (room < quantity)
             {
@@ -217,7 +245,7 @@ int OrderGate::clamp_buy_quantity(const OrderSignal& signal)
                 pending_buy += entry.second * (reserved_price_iterator != reserved_price_.end() ? reserved_price_iterator->second : 0.0);
             }
 
-            const int room = static_cast<int>((cash - pending_buy) / evaluation_price);
+            const int room = quantity_from_notional(cash - pending_buy, evaluation_price);
 
             if (room < quantity)
             {
@@ -601,8 +629,8 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 
         if (daily_pnl_ <= config_.daily_loss_limit)
         {
-            reject_reason = std::format("일일 손실 한도 초과 (현재 {}원 / 한도 {}원)",
-                                        static_cast<int>(daily_pnl_), static_cast<int>(config_.daily_loss_limit));
+            reject_reason = std::format("일일 손실 한도 초과 (현재 {:.0f}원 / 한도 {:.0f}원)",
+                                        daily_pnl_, config_.daily_loss_limit);
             return false;
         }
     }
