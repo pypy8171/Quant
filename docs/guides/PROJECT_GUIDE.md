@@ -132,6 +132,8 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 스레드가 여럿 붙는 코드(`src/core`·`src/risk`·`src/ipc`·`src/feed`)를 고친 워크트리는 main에 머지하기 전에
 한 판 돌린다([MULTI_SESSION.md](MULTI_SESSION.md) 머지 절차). 결과 판정은
 `scripts/check_runtime_health.py`의 "TSAN 회차" 행이 하고, 경합 보고 원문은 `logs/tsan/`에 남는다.
+빌드 폴더는 트리마다 갈라 쓴다 — `$HOME/quant-build-tsan-<트리 폴더 이름>`, `QUANT_TSAN_BUILD`로 덮어쓸 수 있다.
+폴더가 하나뿐이면 워크트리에서 불러도 그 폴더에 적힌 메인 트리를 다시 지어 놓고 통과를 적는다.
 
 ---
 

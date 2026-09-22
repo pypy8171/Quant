@@ -12,6 +12,9 @@
 #   bash scripts/tsan_round.sh --clean           # 빌드 폴더를 지우고 처음부터
 #   bash scripts/tsan_round.sh --jobs 4          # 동시 컴파일 수(기본 nproc)
 #
+# 빌드 폴더는 저장소 트리마다 따로 쓴다 — $HOME/quant-build-tsan-<트리 폴더 이름>.
+# QUANT_TSAN_BUILD 로 덮어쓸 수 있다.
+#
 # 남기는 것:
 #   _private/state/tsan_last.json                   마지막 회차 한 줄 요약 — scripts/check_runtime_health.py
 #                                                   "TSAN 회차" 행이 이것을 읽는다. 사람이 열어 볼 파일이 아니다
@@ -20,7 +23,6 @@
 # 종료코드: 0 = 경합·실패 없음, 1 = 경합 또는 테스트 실패, 2 = 빌드·설정이 안 됨
 set -u
 
-build_dir="${QUANT_TSAN_BUILD:-$HOME/quant-build-tsan}"
 clean=0
 jobs=""
 
@@ -34,6 +36,11 @@ done
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo" || exit 2
+
+# 빌드 폴더는 트리마다 갈라 쓴다. 폴더가 하나뿐이면 워크트리에서 불러도 그 폴더에 적힌 원본 폴더(메인 트리)를
+# 그대로 다시 지어 놓고 "41/41 통과"를 적는다 — 워크트리 코드는 한 줄도 시험하지 않은 채로다
+# (2026-09-22 에 실제로 그렇게 거짓 통과했다). 폴더 이름에 트리 폴더 이름을 붙여 서로 안 겹치게 한다.
+build_dir="${QUANT_TSAN_BUILD:-$HOME/quant-build-tsan-$(basename "$repo")}"
 
 export TZ=Asia/Seoul
 started="$(date '+%Y-%m-%dT%H:%M:%S')"
@@ -113,6 +120,20 @@ fi
 
 if [ "$clean" -eq 1 ] && [ -d "$build_dir" ]; then
   say "[TSAN] 빌드 폴더 비움"
+  rm -rf "$build_dir"
+fi
+
+# QUANT_TSAN_BUILD 로 폴더를 직접 준 경우까지 막는다 — 그 폴더에 다른 트리 설정이 남아 있으면 비운다.
+# CMake 는 한 번 정한 원본 폴더를 바꾸지 못해(재설정해도 "does not match the source directory"),
+# 그냥 두면 엉뚱한 트리를 지어 놓고 통과를 적는다.
+cache_home=""
+
+if [ -f "$build_dir/CMakeCache.txt" ]; then
+  cache_home="$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$build_dir/CMakeCache.txt" | tr -d '\r')"
+fi
+
+if [ -n "$cache_home" ] && [ "$cache_home" != "$repo/Quant" ]; then
+  say "[TSAN] 빌드 폴더가 다른 트리를 가리킨다($cache_home) — 비우고 다시 설정한다"
   rm -rf "$build_dir"
 fi
 
