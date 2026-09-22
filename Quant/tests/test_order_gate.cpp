@@ -696,6 +696,27 @@ void test_publish_ledger_matches_gate()
     assert(gate.ledger_foreign_account_rows() > before);
     assert(snapshot.row(gate.symbol_id_of("A")).position == 10); // 남의 계좌 값이 덮지 않았다
 
+    // ⑨ 이 판이 담은 계좌 이름 — 전략 쪽이 강제청산·한도 정리 주문에 적을 값이다. 단일 계좌의
+    //  원장 키는 빈 이름이라 여기서는 빈 문자열이 나온다.
+    assert(std::string(snapshot.globals().account).empty());
+
+    {
+        // 이름이 있는 계좌면 그 이름이 실린다.
+        OrderGate named_gate(config);
+        named_gate.seed_position("TEST-ACCOUNT", "A", 1, 100.0);
+        named_gate.publish_ledger(snapshot);
+        assert(std::string(snapshot.globals().account) == "TEST-ACCOUNT");
+
+        // 32칸을 넘는 이름은 잘리되 끝은 0으로 끊긴다 — 끊기지 않으면 읽는 쪽이 옆칸까지 읽는다.
+        OrderGate         long_name_gate(config);
+        const std::string long_name(60, 'X');
+        long_name_gate.seed_position(long_name, "A", 1, 100.0);
+        long_name_gate.publish_ledger(snapshot);
+        const std::string copied = snapshot.globals().account;
+        assert(copied.size() == sizeof(ipc::LedgerGlobals::account) - 1);
+        assert(copied == long_name.substr(0, copied.size()));
+    }
+
     PASS("publish_ledger_matches_gate");
 }
 

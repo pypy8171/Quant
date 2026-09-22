@@ -29,7 +29,7 @@
     {
       "from": "core",
       "to": "ipc",
-      "weight": 6
+      "weight": 7
     },
     {
       "from": "core",
@@ -605,6 +605,7 @@
     ],
     "core/SignalDispatcher.h": [
       "core/Types.h",
+      "ipc/LedgerSnapshot.h",
       "risk/OrderGate.h"
     ],
     "core/StrategyRouter.h": [
@@ -1257,6 +1258,7 @@
     ],
     "ipc/LedgerSnapshot.h": [
       "core/Engine.h",
+      "core/SignalDispatcher.h",
       "ipc/LedgerSnapshot.cpp",
       "risk/OrderGate.cpp"
     ],

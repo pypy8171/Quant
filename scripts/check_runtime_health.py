@@ -544,6 +544,8 @@ def collect(date: str, log: Path, since: int = 0):
     order_duplicate = 0                          # 주문 쪽이 같은 순번을 두 번 받아 거른 수
     order_response_dropped = 0                   # 전략이 답을 안 가져가 버린 수
     ledger_gen = 0                               # 장부 사본이 낸 판 수
+    ledger_gen_previous = -1                     # 직전 고수위 줄의 판 번호. 같으면 그사이에 한 판도 안 나간 것
+    ledger_stall_at = []                         # 판이 안 늘어난 지점의 초
     ledger_foreign = -1                          # 사본에 못 실은 남의 계좌 줄 수. -1이면 그 줄이 없는 구 exe
 
     # 7일 지난 날은 archive/quant_trader_<날짜>.log.gz — market_close_autodoc이 그 경로를 그대로 넘긴다
@@ -584,7 +586,13 @@ def collect(date: str, log: Path, since: int = 0):
             if found := ORDER_RESPONSE_DROP_RE.search(line):
                 order_response_dropped = max(order_response_dropped, int(found.group(1)))
             if found := LEDGER_GEN_RE.search(line):
-                ledger_gen = max(ledger_gen, int(found.group(1)))
+                generation = int(found.group(1))
+                # 같은 판 번호가 두 번 실리면 그사이에 사본이 한 판도 안 나간 것이다. 줄어든 것은
+                #  멈춤이 아니라 재기동이다 — 새 프로세스는 0부터 다시 센다.
+                if generation == ledger_gen_previous:
+                    ledger_stall_at.append(second)
+                ledger_gen_previous = generation
+                ledger_gen = max(ledger_gen, generation)
             if found := LEDGER_FOREIGN_RE.search(line):
                 ledger_foreign = max(ledger_foreign, int(found.group(1)))
             if GUARD_RE.search(line):
@@ -776,6 +784,11 @@ def collect(date: str, log: Path, since: int = 0):
         # 사본은 한 계좌만 담는다(계좌당 프로세스). 남의 계좌 줄이 세어지면 전략이 보는 장부가 원장과 다르다.
         ledger_row("장부 사본 어긋남", ledger_foreign == 0, "FAIL",
                    f"다른 계좌 줄 {ledger_foreign}건 · 낸 판 {ledger_gen}판 (어긋남 기대 0)"),
+        # 전략은 이제 장부가 아니라 사본을 본다 — 판이 안 늘면 보유·여력이 굳어 같은 종목을 또 산다(A등급).
+        #  주문이 없는 회차에도 주문 스레드가 100ms마다 한 판씩 내므로, 고수위 줄 사이에 0판은 멈춘 것이다.
+        ledger_row("장부 사본 갱신", not ledger_stall_at, "FAIL",
+                   f"판이 안 늘어난 구간 {len(ledger_stall_at)}곳 · 낸 판 {ledger_gen}판 (기대 0곳)"
+                   + (f" — {', '.join(hhmm(second) for second in ledger_stall_at[:5])}" if ledger_stall_at else "")),
         devscale_v2_row("장 마감 청산(넘김)", not devscale_close_exits, "FAIL",
                         f"DEVSCALE 장 마감 청산 신호 {len(devscale_close_exits)}건 (기대 0 — market_close_exit_hhmm 2400, D-111)"
                         + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in devscale_close_exits[:5])}" if devscale_close_exits else "")),

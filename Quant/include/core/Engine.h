@@ -376,7 +376,12 @@ private:
                                  std::chrono::steady_clock::time_point now);
 
     // ── 전략 레지스트리·국면·유니버스 보조 ─────────────────────────────────
+    //  계좌 인자는 장부 사본을 읽게 된 뒤로 쓰지 않는다 — 한 판은 한 계좌만 담는다. 전략에 주는 함수 모양이라
+    //  자리는 남겨 둔다(전략마다 고치지 않게). [why D-114]
     StrategyBase::SellableInfo ledger_sellable(const std::string& account, const std::string& ticker) const;
+
+    // 전략이 보는 보유 수량 — 문자열 티커로 묻는 자리. 사본 한 줄을 읽는다.
+    int ledger_position(const std::string& ticker) const;
     // 매크로 레짐 파일 읽기 → RegimeFileJudge 판정 → OrderGate entry_halt·force_liquidate_ 적용 (data_thread 전용)
     void poll_regime_file();
     // 전략 번호·청산 관리 여부를 등록 때 한 번 정한다 — 신호 봉투가 이 값을 싣는다. [why D-112]

@@ -4,6 +4,7 @@
 #include "risk/GateReasons.h"
 #include "core/KstTime.h"
 #include <algorithm>
+#include <cstring>
 #include <ctime>
 #include <format>
 #include <iostream>
@@ -2167,14 +2168,14 @@ std::vector<OrderGate::HeldPos> OrderGate::snapshot_positions() const
 
 // ─── 장부 사본 발행 (D-114 단계 2.5) ─────────────────────────────────────────
 //  전략 쪽이 OrderGate를 직접 부르는 자리를 이 사본 하나로 바꾸기 위한 채우기다. 지금은 채우기만 하고
-//  읽는 쪽은 없다 — 배선은 뒤에 한다. 한 바퀴에 한 번 부르므로 사본을 읽는 쪽이 굶지 않는다.
+//  읽는 쪽은 없다 — 배선은 뒤에 한다. 한 바퀴에 한 번 부르므로 사본을 읽는 쪽이 밀리지 않는다.
 //
 //  [inv] 판 안에서는 사본을 읽지 않는다. 판 번호가 홀수인 동안 읽는 쪽 함수(collect_rows·row)는
 //  짝수가 될 때까지 도는데, 그 짝수를 만드는 것이 자기 자신이라 영영 안 끝난다.
 //  그래서 미체결(reserved_)을 먼저 싣고 보유(positions_)를 돌 때 매도가능을 같이 셈한다.
 void OrderGate::publish_ledger(ipc::LedgerSnapshot& snapshot) const
 {
-    // 발행끼리 줄을 세운다. 판 번호를 둘이 동시에 뒤집으면 짝수인 순간이 안 와 읽는 쪽이 굶는다.
+    // 발행끼리 줄을 세운다. 판 번호를 둘이 동시에 뒤집으면 짝수인 순간이 안 와 읽는 쪽이 밀린다.
     std::lock_guard<std::mutex> publish_lock(ledger_publish_mutex_);
 
     // 자기 원자변수가 지키는 값들은 positions_mutex_ 밖에서 읽는다 — 잠금을 쥔 구간을 좁게 둔다.
@@ -2216,6 +2217,16 @@ void OrderGate::publish_ledger(ipc::LedgerSnapshot& snapshot) const
             {
                 account = entry.first.account;
             }
+        }
+
+        // 이번 판의 계좌 이름. 실린 줄이 하나도 없으면(기동 직후) 0번 = ""을 쓴다 — 단일 계좌에서
+        //  원장 키가 쓰는 이름이 그것이고, 이름을 비워 두면 전략 쪽이 강제청산 주문에 계좌를 못 적는다.
+        {
+            const std::string& account_name = account_names_[(account == kUnknownAccount) ? 0 : account];
+            const size_t       copied       = (account_name.size() < sizeof(globals.account)) ? account_name.size()
+                                                                                              : sizeof(globals.account) - 1;
+            std::memcpy(globals.account, account_name.data(), copied);
+            globals.account[copied] = '\0';
         }
 
         size_t open_slots = 0;

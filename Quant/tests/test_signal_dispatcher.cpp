@@ -11,6 +11,7 @@
 #include "utils/Logger.h"
 
 #include <cstdlib>
+#include <memory>
 #include <iostream>
 #include <map>
 #include <set>
@@ -68,26 +69,39 @@ OrderGate::Config displace_config()
     return config;
 }
 
-void seed_full_book(OrderGate& gate)
-{
-    gate.seed_position("", "A", 10, 1000.0);
-    gate.seed_position("", "B", 10, 1000.0);
-    gate.set_entry_priority({{gate.intern_symbol("A"), 1, 0.9}, {gate.intern_symbol("B"), 2, -0.8}, {gate.intern_symbol("C"), 3, 1.5}}, 3);
-}
-
 struct Rig
 {
-    OrderGate                gate;
+    OrderGate gate;
+
+    // 디스패처는 장부를 직접 보지 않고 이 사본만 본다(D-114 단계 2.5). 실물은 295KB라 스택에 얹지 않는다.
+    std::unique_ptr<ipc::LedgerSnapshot> ledger = std::make_unique<ipc::LedgerSnapshot>();
+
     std::vector<OrderSignal> out;
     Clock::time_point        start_time = Clock::now();
     SignalDispatcher         dispatcher;
 
     explicit Rig(OrderGate::Config config)
-        : gate(config), dispatcher(gate, [this](const OrderSignal& signal) { out.push_back(signal); }, start_time)
+        : gate(config), dispatcher(gate, *ledger, [this](const OrderSignal& signal) { out.push_back(signal); }, start_time)
     {
         dispatcher.set_label([](const std::string& ticker) { return "<" + ticker + ">"; });
+        publish();
     }
+
+    // 장부를 고친 뒤에는 사본을 한 판 낸다 — 실제로는 주문 스레드가 한 바퀴 끝에 내는 것을 시험이 손으로 낸다.
+    //  이걸 빼먹으면 디스패처는 고치기 전 판을 본다.
+    void publish() { gate.publish_ledger(*ledger); }
 };
+
+// 슬롯 2개가 다 찬 책을 만들고 그 상태로 사본을 한 판 낸다.
+void seed_full_book(Rig& rig)
+{
+    rig.gate.seed_position("", "A", 10, 1000.0);
+    rig.gate.seed_position("", "B", 10, 1000.0);
+    rig.gate.set_entry_priority({{rig.gate.intern_symbol("A"), 1, 0.9}, {rig.gate.intern_symbol("B"), 2, -0.8},
+                                 {rig.gate.intern_symbol("C"), 3, 1.5}},
+                                3);
+    rig.publish();
+}
 
 int test_stamp()
 {
@@ -160,6 +174,7 @@ int test_manual_sell_halt()
 {
     Rig rig(open_config());
     rig.gate.set_manual_halt(OrderSide::SELL, true);
+    rig.publish();
     CHECK(rig.gate.is_manual_sell_halted() && !rig.gate.is_manual_buy_halted() && !rig.gate.is_entry_halted());
 
     rig.dispatcher.from_strategy(true, false, signal("A", OrderSide::SELL, 1));
@@ -169,11 +184,13 @@ int test_manual_sell_halt()
     CHECK(rig.out.size() == 2 && rig.out[0].side == OrderSide::BUY && rig.out[1].action == OrderAction::CANCEL);
 
     rig.gate.set_manual_halt(OrderSide::SELL, false);
+    rig.publish();
     rig.dispatcher.from_strategy(true, false, signal("A", OrderSide::SELL, 1));
     CHECK(rig.out.size() == 3 && rig.out[2].side == OrderSide::SELL);
 
     // 매수 정지는 is_entry_halted()로만 드러난다(전략이 신호를 안 만든다) — 디스패처는 매도를 막지 않는다.
     rig.gate.set_manual_halt(OrderSide::BUY, true);
+    rig.publish();
     CHECK(rig.gate.is_entry_halted() && !rig.gate.is_manual_sell_halted());
     rig.dispatcher.from_strategy(true, false, signal("A", OrderSide::SELL, 1));
     CHECK(rig.out.size() == 4);
@@ -254,7 +271,7 @@ int test_universe_evict_pick()
 int test_displace_hold_and_release()
 {
     Rig rig(displace_config());
-    seed_full_book(rig.gate);
+    seed_full_book(rig);
     CHECK(rig.gate.capacity_full());
 
     // 꽉 찬 책에 C 매수 → 최약체 B 전량 매도가 나가고 C 매수는 보류.
@@ -275,6 +292,7 @@ int test_displace_hold_and_release()
 
     // B 매도 체결 → 자리 → 보류 매수 둘이 순번을 이어 나간다.
     rig.gate.on_fill_confirmed("", "B", OrderSide::SELL, 10, 1000.0);
+    rig.publish();
     CHECK(!rig.gate.capacity_full());
     rig.dispatcher.flush_held(Clock::now());
     CHECK(rig.out.size() == 4 && rig.out[2].ticker == "C" && rig.out[2].quantity == 1 && rig.out[3].quantity == 2 &&
@@ -291,7 +309,7 @@ int test_displace_cancel_and_expiry()
 {
     {
         Rig rig(displace_config());
-        seed_full_book(rig.gate);
+        seed_full_book(rig);
         rig.dispatcher.submit(signal("C", OrderSide::BUY, 1));
         CHECK(rig.dispatcher.held_count() == 1);
         // 전략이 분할 매수를 다시 깐다 — 취소가 오면 들고 있던 분할 단계를 비운다(취소 자체는 나간다).
@@ -301,10 +319,11 @@ int test_displace_cancel_and_expiry()
 
     {
         Rig rig(displace_config());
-        seed_full_book(rig.gate);
+        seed_full_book(rig);
         rig.dispatcher.submit(signal("C", OrderSide::BUY, 1));
         // 예약 시한이 지나면 버린다 — 자리가 났어도.
         rig.gate.on_fill_confirmed("", "B", OrderSide::SELL, 10, 1000.0);
+        rig.publish();
         rig.dispatcher.flush_held(Clock::now() + std::chrono::seconds(301));
         CHECK(rig.dispatcher.held_count() == 0 && rig.dispatcher.held_ticker().empty() && rig.out.size() == 1);
     }
@@ -314,7 +333,7 @@ int test_displace_cancel_and_expiry()
         auto config             = displace_config();
         config.displace_enabled = false;
         Rig rig(config);
-        seed_full_book(rig.gate);
+        seed_full_book(rig);
         rig.dispatcher.submit(signal("C", OrderSide::BUY, 1));
         CHECK(rig.out.size() == 1 && rig.out[0].ticker == "C" && rig.dispatcher.held_ticker().empty());
     }
@@ -375,6 +394,7 @@ int test_force_liquidation_throttle()
 {
     Rig rig(open_config());
     rig.gate.seed_position("", "A", 10, 100.0);
+    rig.publish();
 
     // 기준 시각 직후에는 안 나가고(간격 미달), 간격이 차야 한 번, 다시 간격이 차야 또 한 번.
     rig.dispatcher.force_liquidate(rig.start_time);
@@ -400,6 +420,7 @@ int test_trim_once()
     config.max_notional_per_ticker = 1000.0;
     Rig rig(config);
     rig.gate.seed_position("", "A", 20, 100.0);
+    rig.publish();
 
     rig.dispatcher.trim_excess_once(rig.start_time + std::chrono::seconds(19));
     CHECK(rig.out.empty() && !rig.dispatcher.trim_done());
@@ -411,6 +432,7 @@ int test_trim_once()
     // 시각을 바꾸면 그때부터. 한도가 0이면 정리 없이 끝난 것으로 표시한다.
     Rig second_rig(open_config());
     second_rig.gate.seed_position("", "A", 20, 100.0);
+    second_rig.publish();
     second_rig.dispatcher.set_trim_at(second_rig.start_time + std::chrono::seconds(1));
     second_rig.dispatcher.trim_excess_once(second_rig.start_time + std::chrono::seconds(1));
     CHECK(second_rig.out.empty() && second_rig.dispatcher.trim_done());
@@ -426,6 +448,7 @@ int test_sleeve_scan_skips_basket()
     rig.gate.set_slot_exempt({"BK"});
     rig.gate.seed_position("", "BK", 50, 100.0); // 명목 5,000 > 한도 1,000이지만 바스켓 것
     rig.gate.seed_position("", "A", 20, 100.0);
+    rig.publish();
 
     const auto sleeve = rig.dispatcher.scan_sleeve_positions();
     CHECK(sleeve.size() == 1 && sleeve[0].ticker == "A");

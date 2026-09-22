@@ -4,6 +4,7 @@
 //  Engine의 strategy_thread만 부른다 — order_queue_ 단일 생산자라 순번·보류 목록·차단 로그 집합에 락이 없다.
 //  큐·ZMQ·종목 표기·청산 관리 여부는 std::function으로 받아 Engine 없이 시험한다. [why D-063]
 #include "core/Types.h"
+#include "ipc/LedgerSnapshot.h"
 #include "risk/OrderGate.h"
 
 #include <chrono>
@@ -17,6 +18,8 @@
 namespace dispatch
 {
 // 미체결 잔량 조회 — 보유 스냅샷(HeldPos)이 든 종목 id로 묻는다. 문자열 티커는 로그에만 남긴다. [why D-112]
+//  계좌 인자는 장부 사본을 읽게 된 뒤로 쓰지 않는다 — 한 판은 한 계좌만 담기 때문이다. 자리는 남겨 둔다:
+//  이 함수 모양은 시험이 직접 넘기는 자리라, 계좌가 다시 필요해질 때 부르는 쪽을 안 고치게. [why D-114]
 using ReservedFn = std::function<int(const std::string& account, symbol::SymbolId symbol)>;
 
 // 강제청산 매도 — 보유마다 이미 낸 미체결 매도를 뺀 잔량을 시장가로. 잔량이 남는 한 다음 주기에 다시 만든다.
@@ -45,7 +48,10 @@ public:
     // now는 강제청산 스로틀의 기준 시각. 한도 정리는 now+20초 뒤 한 번(set_trim_at으로 바꾼다).
     //  시스템 신호의 전략 이름("FORCE_LIQ"·"LIMIT_TRIM"·"DISPLACE")은 여기서 한 번 번호로 받아 둔다 — 신호마다 문자열을
     //  키로 쓰지 않는다. [why D-112]
-    SignalDispatcher(OrderGate& gate, Sink sink, Clock::time_point now);
+    //  ledger는 전략 쪽이 보는 장부 사본이다. 보유·미체결·여력은 전부 여기서 읽는다 — 주문 쪽 장부를
+    //  직접 부르면 단계 4에서 프로세스가 갈릴 때 그 자리가 전부 막힌다. gate는 종목 표·전략 번호·
+    //  교체 계획만 쓴다(교체는 갈래 B에서 통째로 주문 쪽으로 간다). [why D-114]
+    SignalDispatcher(OrderGate& gate, const ipc::LedgerSnapshot& ledger, Sink sink, Clock::time_point now);
 
     void set_label(LabelFn label) { label_ = std::move(label); }
     void set_exit_managed_check(GuardFn exit_managed_check) { exit_managed_check_ = std::move(exit_managed_check); }
@@ -90,10 +96,11 @@ private:
     // 종목당 한 번 로그 — id 인덱스 비트. 처음이면 true. 배열은 종목 테이블 용량으로 한 번 잡는다.
     static bool mark_once(std::vector<bool>& flags, symbol::SymbolId symbol);
 
-    OrderGate& gate_;
-    Sink       sink_;
-    LabelFn    label_;
-    GuardFn    exit_managed_check_;
+    OrderGate&                 gate_;
+    const ipc::LedgerSnapshot& ledger_;
+    Sink                       sink_;
+    LabelFn                    label_;
+    GuardFn                    exit_managed_check_;
 
     // 시스템 신호 전략 번호 — 생성자에서 한 번 받는다.
     strategy_table::StrategyId force_liquidation_index_;
@@ -111,6 +118,10 @@ private:
     std::vector<bool> guard_logged_;     // 청산 관리 차단 로그는 종목당 한 번(id 인덱스)
     std::vector<bool> sell_halt_logged_; // 수동 매도 정지 차단 로그도 종목당 한 번, 정지가 풀리면 비운다 [why D-095]
     bool              sell_halt_logged_any_ = false; // 위 배열에 켜진 비트가 있는가 — 정지 해제 때만 전부 끈다
+
+    // 사본 한 판을 통째로 받아 오는 자리(강제청산·한도 정리). 이 스레드 전용이라 재사용해 매번 새로 잡지 않는다.
+    mutable std::vector<symbol::SymbolId> snapshot_ids_;
+    mutable std::vector<ipc::LedgerRow>   snapshot_rows_;
 
     Clock::time_point         last_liquidation_;
     std::chrono::milliseconds liquidation_interval_{2000}; // deduplicate 윈도우(1s)보다 길어야 재발주가 통과한다

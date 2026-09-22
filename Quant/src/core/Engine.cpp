@@ -60,14 +60,16 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     strategy->set_kis(feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get());
     strategy->set_account_kis(feed_.kis.get()); // 잔고·매도가능수량은 계좌를 가진 주문 클라이언트로
     strategy->set_prefetch_pool(&prefetch_pool_);  // 프리페치는 전략마다 스레드를 띄우지 않고 공용 풀이 돌린다 [why D-071]
-    strategy->set_position_provider([this](const std::string& account, const std::string& ticker) {
-        return order_gate_.position(account, ticker);
+    // 전략이 보는 보유·진입정지·매수비율은 전부 장부 사본에서 읽는다. 주문 쪽 장부를 직접 부르면
+    //  단계 4에서 프로세스가 갈릴 때 이 네 자리가 한꺼번에 막힌다. [why D-114]
+    strategy->set_position_provider([this](const std::string&, const std::string& ticker) {
+        return ledger_position(ticker);
     });
-    strategy->set_position_provider_by_id([this](const std::string& account, symbol::SymbolId symbol) {
-        return order_gate_.position(account, symbol);
+    strategy->set_position_provider_by_id([this](const std::string&, symbol::SymbolId symbol) {
+        return ledger_snapshot_->row(symbol).position;
     });
-    strategy->set_entry_halt_provider([this] { return order_gate_.is_entry_halted(); });
-    strategy->set_entry_scale_provider([this] { return order_gate_.entry_scale(); });
+    strategy->set_entry_halt_provider([this] { return ledger_snapshot_->globals().entry_halted != 0; });
+    strategy->set_entry_scale_provider([this] { return ledger_snapshot_->globals().entry_scale; });
     strategy->set_sellable_provider([this](const std::string& account, const std::string& ticker) {
         return ledger_sellable(account, ticker);
     });
@@ -455,17 +457,23 @@ void Engine::maybe_rescan_universe()
             }
         }
 
-        for (const auto& snapshot_position : order_gate_.snapshot_positions())
+        // 보유·선점 종목은 사본 한 판에서 함께 본다 — 줄마다 따로 읽으면 앞 종목과 뒤 종목이 다른 판의 것이 되어
+        //  방금 판 종목을 아직 보유로 보고 유니버스에 붙들어 둔다. [why D-114]
+        std::vector<symbol::SymbolId> ledger_ids;
+        std::vector<ipc::LedgerRow>   ledger_rows;
+        ipc::collect_all_rows(*ledger_snapshot_, ledger_ids, ledger_rows);
+
+        for (size_t index = 0; index < ledger_rows.size(); ++index)
         {
-            if (snapshot_position.symbol < extent &&
-                (snapshot_position.quantity != 0 || order_gate_.reserved(snapshot_position.account, snapshot_position.symbol) != 0))
+            const symbol::SymbolId symbol = ledger_ids[index];
+
+            if (symbol < extent && (ledger_rows[index].position != 0 || ledger_rows[index].reserved != 0))
             {
-                held[snapshot_position.symbol] = true;
+                held[symbol] = true;
             }
         }
 
-        // 선점(reserved)은 기본 계좌 기준 — 예전 문자열 겹정의 reserved(ticker)와 같은 계좌 규칙이다.
-        auto reserved_of = [this](symbol::SymbolId symbol) { return order_gate_.reserved(std::string(), symbol); };
+        auto reserved_of = [this](symbol::SymbolId symbol) { return ledger_snapshot_->row(symbol).reserved; };
         auto absent_sec_of = [&job, now_steady](symbol::SymbolId symbol) -> long long
         {
             const auto since = job.owned[symbol].absent_since;
@@ -994,15 +1002,16 @@ void Engine::start_strategies()
         //  그러면 매도가능수량이 항상 0으로 떨어져 익절·존이탈청산·장 마감청산이 전부 발주되지 않는다.
         strategy->set_account_kis(feed_.kis.get());
         strategy->set_prefetch_pool(&prefetch_pool_); // 프리페치는 전략마다 스레드를 띄우지 않고 공용 풀이 돌린다 [why D-071]
-        // D2: 확정 포지션 접근자 주입 — 전략이 OrderGate 원장(WS/REST 공용)을 진실원천으로 읽음.
-        strategy->set_position_provider([this](const std::string& account, const std::string& ticker) {
-            return order_gate_.position(account, ticker);
+        // D2: 확정 포지션 접근자 주입 — 전략이 원장을 진실원천으로 읽는다. 그 원장을 이제는 사본으로 본다:
+        //  주문 쪽 장부를 직접 부르면 단계 4에서 프로세스가 갈릴 때 이 네 자리가 한꺼번에 막힌다. [why D-114]
+        strategy->set_position_provider([this](const std::string&, const std::string& ticker) {
+            return ledger_position(ticker);
         });
-        strategy->set_position_provider_by_id([this](const std::string& account, symbol::SymbolId symbol) {
-            return order_gate_.position(account, symbol);
+        strategy->set_position_provider_by_id([this](const std::string&, symbol::SymbolId symbol) {
+            return ledger_snapshot_->row(symbol).position;
         });
-        strategy->set_entry_halt_provider([this] { return order_gate_.is_entry_halted(); });
-        strategy->set_entry_scale_provider([this] { return order_gate_.entry_scale(); });
+        strategy->set_entry_halt_provider([this] { return ledger_snapshot_->globals().entry_halted != 0; });
+        strategy->set_entry_scale_provider([this] { return ledger_snapshot_->globals().entry_scale; });
         strategy->set_sellable_provider([this](const std::string& account, const std::string& ticker) {
             return ledger_sellable(account, ticker);
         });
@@ -1276,6 +1285,11 @@ void Engine::connect_feed()
 
 void Engine::spawn_threads()
 {
+    // 전략 스레드가 돌기 전에 사본을 한 판 내 둔다. 재기동 직후 잔고 재시드로 보유가 이미 들어와 있는데
+    //  전략이 빈 판을 보면 "보유 0"으로 읽고 같은 종목을 또 산다(이중 발주, A등급). 첫 주문이 들어와야
+    //  첫 판이 나가는 구조라 여기서 한 번 먼저 낸다. [why D-114]
+    order_gate_.publish_ledger(*ledger_snapshot_);
+
     // jthread는 stop_token을 첫 인자로 넣으므로 멤버 함수 포인터(this가 첫 인자)는 람다로 감싼다.
     data_thread_     = std::jthread([this](std::stop_token stop_token) { data_thread_fn(stop_token); });
 
@@ -1435,14 +1449,22 @@ std::string Engine::ticker_name(symbol::SymbolId symbol) const
 
 // 전략에 주는 매도가능수량. 게이트 clamp와 같은 식(possible_quantity_cap - pending)이라 전략이 낸 수량이 게이트에서
 //  다시 잘리지 않는다. psbl_cap은 잔고 대조(refresh_sellable)가 매 사이클 맞춘다. [why D-055]
-StrategyBase::SellableInfo Engine::ledger_sellable(const std::string& account, const std::string& ticker) const
+//  그 셈은 이제 사본을 낼 때 주문 쪽이 한다 — 여기서는 한 판에서 매도가능과 평단을 함께 읽기만 한다.
+//  따로 읽으면 그 사이에 판이 바뀌어 "매도가능 3인데 평단 0" 같은 조합을 본다. [why D-114]
+StrategyBase::SellableInfo Engine::ledger_sellable(const std::string&, const std::string& ticker) const
 {
-    const auto sellable_view = order_gate_.sellable_view(account, ticker);
+    const ipc::LedgerRow row = ledger_snapshot_->row(symbols_.table.lookup(ticker));
     StrategyBase::SellableInfo sellable_info;
-    const int room = sellable_view.possible_quantity_cap - sellable_view.pending;
-    sellable_info.sellable = room > 0 ? room : 0;
-    sellable_info.average_price   = order_gate_.average_price(account, ticker);
+    sellable_info.sellable      = row.sellable;
+    sellable_info.average_price = row.average_price;
     return sellable_info;
+}
+
+// 전략이 보는 보유 수량 — 문자열 티커를 종목 번호로 한 번 바꿔 사본에서 읽는다. 모르는 종목은 번호가
+//  kNone이라 빈 줄이 오고, 보유 0이 된다(등록하지 않는다 — 읽기만 하는 자리다).
+int Engine::ledger_position(const std::string& ticker) const
+{
+    return ledger_snapshot_->row(symbols_.table.lookup(ticker)).position;
 }
 
 void Engine::request_shutdown(std::string_view reason)
@@ -1642,11 +1664,16 @@ void Engine::data_thread_fn(std::stop_token stop_token)
             {
                 std::vector<std::string> held;
 
-                for (const auto& snapshot_position : order_gate_.snapshot_positions())
+                // 사본을 본다 — 단계 5에서 시세가 딴 프로세스로 가면 여기서 주문 쪽 장부를 못 부른다. [why D-114]
+                std::vector<symbol::SymbolId> ledger_ids;
+                std::vector<ipc::LedgerRow>   ledger_rows;
+                ipc::collect_all_rows(*ledger_snapshot_, ledger_ids, ledger_rows);
+
+                for (size_t index = 0; index < ledger_rows.size(); ++index)
                 {
-                    if (snapshot_position.quantity > 0)
+                    if (ledger_rows[index].position > 0)
                     {
-                        held.push_back(snapshot_position.ticker);
+                        held.push_back(symbols_.table.name(ledger_ids[index]).string());
                     }
                 }
 
@@ -2406,6 +2433,7 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
     //  자리 — 단일 생산자 규약은 이 람다가 이 스레드에서만 불린다는 데 기댄다. [why D-063]
     SignalDispatcher dispatcher(
         order_gate_,
+        *ledger_snapshot_,
         [this, &pending_requests](const OrderSignal& signal)
         {
             ++signal_count_;
@@ -2679,6 +2707,11 @@ void Engine::order_thread_fn(std::stop_token stop_token)
     ipc::DuplicateFilter duplicate_filter(ShardPipeline::kOrderQueueCapacity);
     ipc::HeartbeatMonitor strategy_monitor;
 
+    // 주문이 없는 회차에도 사본을 이 간격으로는 낸다(아래 대기 구간). 100ms는 대기 상한과 같은 값이라
+    //  쉬는 동안 회차마다 한 번꼴이고, 전략이 보는 장부가 그보다 더 낡지 않는다.
+    constexpr auto kIdlePublishInterval = 100ms;
+    auto           last_idle_publish    = steady_clock::now();
+
     // 결과를 전략 쪽으로 돌려준다. 지금은 같은 프로세스의 큐고, 단계 4에서 공유메모리로 바뀌어도
     //  레코드는 그대로다. [inv] 순번 0은 통로 밖에서 들어온 신호라 맞출 짝이 없어 답하지 않는다. [why D-114]
     auto answer = [this](uint64_t sequence, ipc::OrderResult result, uint64_t kis_order_number, std::string_view reason)
@@ -2729,6 +2762,15 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             // 재시도 만기가 있으면 그 시각까지, 없으면 100ms 상한(종료 확인). 신규 신호는 전략 스레드의 notify가 깨운다.
             const auto deadline = rate_limiter.next_retry_at().value_or(steady_clock::now() + 100ms);
             pipeline_.order_wake.wait_until(deadline, stop_token, [this] { return pipeline_.order_queue.empty(); });
+
+            // 주문이 없어도 장부는 바뀐다 — 잔고 재시드·진입 정지·평가금·슬롯 면제 집합은 다른 스레드가 고친다.
+            //  그 변화가 사본에 닿는 시간을 100ms 안으로 묶는다. 매 회차 내면 읽는 쪽이 밀리므로 간격을 둔다. [why D-114]
+            if (const auto now = steady_clock::now(); now - last_idle_publish >= kIdlePublishInterval)
+            {
+                last_idle_publish = now;
+                order_gate_.publish_ledger(*ledger_snapshot_);
+            }
+
             continue;
         }
 
@@ -2811,7 +2853,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         }
 
         // 장부가 바뀌었으니 사본을 한 판 낸다. 큐가 비어 쉬는 회차는 위에서 continue로 빠지므로
-        //  여기는 실제로 주문을 다룬 회차뿐이다 — 쉼 없이 판을 내면 읽는 쪽이 굶는다. [why D-114]
+        //  여기는 실제로 주문을 다룬 회차뿐이다 — 쉼 없이 판을 내면 읽는 쪽이 밀린다. [why D-114]
         order_gate_.publish_ledger(*ledger_snapshot_);
     }
 
@@ -3260,17 +3302,24 @@ std::string Engine::ops_status_json() const
     double position_value = 0.0;
     double unrealized_pnl = 0.0;
 
-    for (const auto& snapshot_position : order_gate_.snapshot_positions())
-    {
-        const double last = last_price(snapshot_position.ticker);
+    // 사본 한 판을 훑는다 — 줄마다 주문 쪽 잠금을 잡던 것이 없어진다. 단말이 1초마다 물어도
+    //  주문·체결 스레드를 세우지 않는다. [why D-114]
+    std::vector<symbol::SymbolId> ledger_ids;
+    std::vector<ipc::LedgerRow>   ledger_rows;
+    ipc::collect_all_rows(*ledger_snapshot_, ledger_ids, ledger_rows);
 
-        if (snapshot_position.quantity <= 0 || last <= 0.0)
+    for (size_t index = 0; index < ledger_rows.size(); ++index)
+    {
+        const ipc::LedgerRow& row  = ledger_rows[index];
+        const double          last = last_price(ledger_ids[index]);
+
+        if (row.position <= 0 || last <= 0.0)
         {
             continue;
         }
 
-        position_value += snapshot_position.quantity * last;
-        unrealized_pnl += snapshot_position.quantity * (last - snapshot_position.average_price);
+        position_value += row.position * last;
+        unrealized_pnl += row.position * (last - row.average_price);
     }
 
     return nlohmann::json{{"running", running_.load()},
@@ -3278,7 +3327,7 @@ std::string Engine::ops_status_json() const
                           {"signal", signal_count_.load()},
                           {"order", order_count_.load()},
                           {"kill", order_gate_.is_killed()},
-                          {"entry_halt", order_gate_.is_entry_halted()},
+                          {"entry_halt", ledger_snapshot_->globals().entry_halted != 0},
                           {"manual_buy_halt", order_gate_.is_manual_buy_halted()},
                           {"manual_sell_halt", order_gate_.is_manual_sell_halted()},
                           {"force_liq", force_liquidate_.load(std::memory_order_relaxed)},
@@ -3296,15 +3345,31 @@ std::string Engine::ops_positions_json() const
 {
     nlohmann::json array = nlohmann::json::array();
 
-    for (const auto& snapshot_position : order_gate_.snapshot_positions())
+    // 보유와 미체결 선점을 한 판에서 함께 읽는다 — 따로 읽으면 "보유 10, 선점 -10"처럼 서로 다른 순간의
+    //  값이 한 줄에 실려 단말이 없는 상태를 본다. [why D-114]
+    std::vector<symbol::SymbolId> ledger_ids;
+    std::vector<ipc::LedgerRow>   ledger_rows;
+    ipc::collect_all_rows(*ledger_snapshot_, ledger_ids, ledger_rows);
+
+    const std::string account = ledger_snapshot_->globals().account;
+
+    for (size_t index = 0; index < ledger_rows.size(); ++index)
     {
-        array.push_back({{"account", snapshot_position.account},
-                       {"ticker", snapshot_position.ticker},
-                       {"name", ticker_name(snapshot_position.ticker)},
-                       {"qty", snapshot_position.quantity},
-                       {"avg_price", snapshot_position.average_price},
-                       {"reserved", order_gate_.reserved(snapshot_position.account, snapshot_position.ticker)},
-                       {"last", last_price(snapshot_position.ticker)}});
+        const ipc::LedgerRow& row = ledger_rows[index];
+
+        if (row.position <= 0)
+        {
+            continue; // 선점만 있는 줄은 보유 목록이 아니다(구 snapshot_positions()와 같은 규칙)
+        }
+
+        const std::string ticker = symbols_.table.name(ledger_ids[index]).string();
+        array.push_back({{"account", account},
+                       {"ticker", ticker},
+                       {"name", ticker_name(ticker)},
+                       {"qty", row.position},
+                       {"avg_price", row.average_price},
+                       {"reserved", row.reserved},
+                       {"last", last_price(ledger_ids[index])}});
     }
 
     return nlohmann::json{{"positions", array}}.dump();
@@ -3333,14 +3398,12 @@ void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& e
             int held = 0;
             double average = 0.0;
 
-            for (const auto& snapshot_position : order_gate_.snapshot_positions())
+            // 보유와 평단을 사본 한 줄에서 함께 읽는다. 계좌는 한 판이 한 계좌라 판의 계좌와 맞는지만 본다.
+            if (ledger_snapshot_->globals().account == ops_order_request.account)
             {
-                if (snapshot_position.ticker == ops_order_request.ticker && snapshot_position.account == ops_order_request.account)
-                {
-                    held = snapshot_position.quantity;
-                    average  = snapshot_position.average_price;
-                    break;
-                }
+                const ipc::LedgerRow row = ledger_snapshot_->row(symbols_.table.lookup(ops_order_request.ticker));
+                held    = row.position;
+                average = row.average_price;
             }
 
             if (held <= 0)

@@ -20,6 +20,7 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace
 {
@@ -55,7 +56,10 @@ int main()
 {
     // ── ① 빈 사본 ────────────────────────────────────────────────────────
     {
-        ipc::LedgerSnapshot snapshot;
+        // 사본 한 판은 295KB다 — 스택에 얹으면 시험 하나가 여러 판을 쓸 때 프레임이 넘친다.
+        //  실제로도 Engine이 make_unique로 잡아 쓴다.
+        auto                 snapshot_holder = std::make_unique<ipc::LedgerSnapshot>();
+        ipc::LedgerSnapshot& snapshot        = *snapshot_holder;
         const ipc::LedgerRow row = snapshot.row(7);
         check(row.position == 0 && row.reserved == 0 && row.sellable == 0, "안 실은 종목은 전부 0");
         check(snapshot.generation() == 0, "판을 안 냈으면 판 번호 0");
@@ -63,7 +67,10 @@ int main()
 
     // ── ② 실은 값이 그대로 ───────────────────────────────────────────────
     {
-        ipc::LedgerSnapshot snapshot;
+        // 사본 한 판은 295KB다 — 스택에 얹으면 시험 하나가 여러 판을 쓸 때 프레임이 넘친다.
+        //  실제로도 Engine이 make_unique로 잡아 쓴다.
+        auto                 snapshot_holder = std::make_unique<ipc::LedgerSnapshot>();
+        ipc::LedgerSnapshot& snapshot        = *snapshot_holder;
         publish_one(snapshot, 3, 10, -4, 6, 71500.0);
 
         const ipc::LedgerRow row = snapshot.row(3);
@@ -76,7 +83,10 @@ int main()
 
     // ── ③ 지난 판 값이 남지 않는다 ────────────────────────────────────────
     {
-        ipc::LedgerSnapshot snapshot;
+        // 사본 한 판은 295KB다 — 스택에 얹으면 시험 하나가 여러 판을 쓸 때 프레임이 넘친다.
+        //  실제로도 Engine이 make_unique로 잡아 쓴다.
+        auto                 snapshot_holder = std::make_unique<ipc::LedgerSnapshot>();
+        ipc::LedgerSnapshot& snapshot        = *snapshot_holder;
         publish_one(snapshot, 3, 10, 0, 10, 71500.0);
         check(snapshot.row(3).position == 10, "첫 판에는 보유가 있다");
 
@@ -91,7 +101,10 @@ int main()
 
     // ── ④ entry()는 셋을 함께 ────────────────────────────────────────────
     {
-        ipc::LedgerSnapshot snapshot;
+        // 사본 한 판은 295KB다 — 스택에 얹으면 시험 하나가 여러 판을 쓸 때 프레임이 넘친다.
+        //  실제로도 Engine이 make_unique로 잡아 쓴다.
+        auto                 snapshot_holder = std::make_unique<ipc::LedgerSnapshot>();
+        ipc::LedgerSnapshot& snapshot        = *snapshot_holder;
         snapshot.begin_publish();
         ipc::LedgerRow& row = snapshot.row_for_write(5);
         row.position        = 2;
@@ -110,7 +123,10 @@ int main()
 
     // ── ⑤ 상한을 넘은 번호 ───────────────────────────────────────────────
     {
-        ipc::LedgerSnapshot snapshot;
+        // 사본 한 판은 295KB다 — 스택에 얹으면 시험 하나가 여러 판을 쓸 때 프레임이 넘친다.
+        //  실제로도 Engine이 make_unique로 잡아 쓴다.
+        auto                 snapshot_holder = std::make_unique<ipc::LedgerSnapshot>();
+        ipc::LedgerSnapshot& snapshot        = *snapshot_holder;
         publish_one(snapshot, 11, 5, 0, 5, 1000.0);
 
         snapshot.begin_publish();
@@ -126,7 +142,10 @@ int main()
 
     // ── ⑥ 보유 전체 훑기 ─────────────────────────────────────────────────
     {
-        ipc::LedgerSnapshot snapshot;
+        // 사본 한 판은 295KB다 — 스택에 얹으면 시험 하나가 여러 판을 쓸 때 프레임이 넘친다.
+        //  실제로도 Engine이 make_unique로 잡아 쓴다.
+        auto                 snapshot_holder = std::make_unique<ipc::LedgerSnapshot>();
+        ipc::LedgerSnapshot& snapshot        = *snapshot_holder;
         snapshot.begin_publish();
 
         for (symbol::SymbolId id = 1; id <= 3; ++id)
@@ -160,10 +179,13 @@ int main()
         //  반쪽 판을 읽으면 앞 종목과 뒤 종목의 값이 달라져 이 약속이 깨진다.
         //  한 판에 싣는 줄 수를 실제에 맞춘다 — 값이 실리는 종목은 보유 + 미체결이고 슬롯 상한이 20~30이라
         //  수십 줄이다. 64줄이면 300ms에 읽기가 16만~27만 번 들어간다. 2,000줄로 넓혀 재면 같은 300ms에
-        //  44~90번으로 떨어진다 — 아래 읽기 횟수 단언이 그 굶음을 잡는다.
+        //  44~90번으로 떨어진다 — 아래 읽기 횟수 단언이 그 밀림을 잡는다.
         constexpr symbol::SymbolId kRowsPerRound = 64;
 
-        ipc::LedgerSnapshot   snapshot;
+        // 사본 한 판은 295KB다 — 스택에 얹으면 시험 하나가 여러 판을 쓸 때 프레임이 넘친다.
+        //  실제로도 Engine이 make_unique로 잡아 쓴다.
+        auto                 snapshot_holder = std::make_unique<ipc::LedgerSnapshot>();
+        ipc::LedgerSnapshot& snapshot        = *snapshot_holder;
         std::atomic<bool>     stop{false};
         std::atomic<uint64_t> reads{0};
         std::atomic<uint64_t> torn{0};
@@ -222,7 +244,10 @@ int main()
 
     // ── ⑧ 판 번호 ───────────────────────────────────────────────────────
     {
-        ipc::LedgerSnapshot snapshot;
+        // 사본 한 판은 295KB다 — 스택에 얹으면 시험 하나가 여러 판을 쓸 때 프레임이 넘친다.
+        //  실제로도 Engine이 make_unique로 잡아 쓴다.
+        auto                 snapshot_holder = std::make_unique<ipc::LedgerSnapshot>();
+        ipc::LedgerSnapshot& snapshot        = *snapshot_holder;
         check(snapshot.generation() == 0, "처음은 0");
 
         snapshot.begin_publish();
@@ -232,6 +257,38 @@ int main()
         snapshot.begin_publish();
         snapshot.end_publish();
         check(snapshot.generation() == 2, "두 판 내면 2");
+    }
+
+    // ── ⑨ 판 전체를 벡터로 받아 오는 자리 ───────────────────
+    {
+        // collect_all_rows는 64칸으로 시작해 모자라면 실제 수만큼 키워 한 번 더 읽는다. 호출부가
+        //  kMaxSymbols(295KB)짜리 버퍼를 들고 있지 않아도 전부 받게 하려고 둔 자리다.
+        auto                 snapshot_holder = std::make_unique<ipc::LedgerSnapshot>();
+        ipc::LedgerSnapshot& snapshot        = *snapshot_holder;
+
+        constexpr symbol::SymbolId kWide = 200; // 첫 짐작(64)보다 많다
+
+        snapshot.begin_publish();
+
+        for (symbol::SymbolId id = 1; id <= kWide; ++id)
+        {
+            snapshot.row_for_write(id).position = static_cast<int32_t>(id);
+        }
+
+        snapshot.end_publish();
+
+        std::vector<symbol::SymbolId> ids;
+        std::vector<ipc::LedgerRow>   rows;
+        ipc::collect_all_rows(snapshot, ids, rows);
+        check(ids.size() == kWide && rows.size() == kWide, "첫 짐작보다 많아도 전부 담는다");
+        check(ids[0] == 1 && rows[0].position == 1, "첫 줄이 짝이 맞다");
+        check(ids[kWide - 1] == kWide && rows[kWide - 1].position == static_cast<int32_t>(kWide),
+              "마지막 줄도 짝이 맞다");
+
+        // 같은 버퍼를 다시 쓴다 — 지난 판의 줄이 남으면 이미 판 종목을 아직 보유로 본다.
+        publish_one(snapshot, 7, 5, 0, 5, 1000.0);
+        ipc::collect_all_rows(snapshot, ids, rows);
+        check(ids.size() == 1 && ids[0] == 7 && rows[0].position == 5, "다음 판은 그 판의 줄만 담는다");
     }
 
     std::cout << "test_ledger_snapshot: " << g_checks << " checks passed\n";

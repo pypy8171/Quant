@@ -21,7 +21,7 @@ graph LR
   api -->|11| core
   api -->|7| utils
   core -->|11| api
-  core -->|6| ipc
+  core -->|7| ipc
   core -->|6| risk
   core -->|3| strategy
   core -->|12| utils
@@ -380,6 +380,7 @@ graph LR
   n_core_SignalDispatcher_cpp --> n_core_SignalDispatcher_h
   n_core_SignalDispatcher_cpp --> n_utils_Logger_h
   n_core_SignalDispatcher_h --> n_core_Types_h
+  n_core_SignalDispatcher_h --> n_ipc_LedgerSnapshot_h
   n_core_SignalDispatcher_h --> n_risk_OrderGate_h
   n_core_StrategyRouter_h --> n_core_SymbolTable_h
   n_core_StrategyRouter_h --> n_strategy_StrategyBase_h

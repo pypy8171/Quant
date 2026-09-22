@@ -132,4 +132,32 @@ uint64_t LedgerSnapshot::generation() const noexcept
     return generation_.load(std::memory_order_acquire);
 }
 
+void collect_all_rows(const LedgerSnapshot& snapshot, std::vector<symbol::SymbolId>& ids, std::vector<LedgerRow>& rows)
+{
+    // 한 판에 실리는 줄은 "보유 + 미체결"이라 슬롯 상한 언저리의 수십 줄이다. 그 크기로 시작해서
+    //  모자랄 때만 키운다 — 호출부마다 295KB를 들고 있지 않으려고 이렇게 한다.
+    constexpr size_t kFirstGuess = 64;
+
+    if (ids.size() < kFirstGuess)
+    {
+        ids.resize(kFirstGuess);
+        rows.resize(kFirstGuess);
+    }
+
+    size_t total = snapshot.collect_rows(ids.data(), rows.data(), ids.size());
+
+    if (total > ids.size())
+    {
+        // 모자랐다. 실제 수만큼 키워 한 번 더 읽는다. 그 사이 판이 바뀌어 또 모자랄 수 있으므로
+        //  담긴 만큼으로 줄여 끝낸다 — 못 담은 줄이 남은 채로 "전부"라고 말하지 않는다.
+        ids.resize(total);
+        rows.resize(total);
+        total = snapshot.collect_rows(ids.data(), rows.data(), ids.size());
+    }
+
+    const size_t taken = (total < ids.size()) ? total : ids.size();
+    ids.resize(taken);
+    rows.resize(taken);
+}
+
 } // namespace ipc
