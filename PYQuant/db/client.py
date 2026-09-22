@@ -385,6 +385,39 @@ class DbClient:
         except Exception as error:
             logger.error(f"ensure_proc_statistics_table 실패: {error}")
 
+        self.ensure_observability_policies()   # 표를 만든 자리에서 정책까지 — 표만 있고 정책이 없는 DB를 안 남긴다
+
+    # 관측 표 압축·보존. 2026-09-22 실측으로 proc_thread_stats가 제일 빨리 붇는다(모의 하루 21 MB·실계좌 36 MB,
+    # 1년이면 5~9 GB). 스레드별 CPU는 "어느 단계가 바빴나"를 보는 값이라 90일이면 충분하고, 나머지 둘은
+    # 1년에 합쳐 1.1 GB라 삭제하지 않는다. 압축을 7일 뒤로 두는 건 최근 일주일은 장중에 그대로 읽히게 하려고다.
+    _OBSERVABILITY_POLICIES = (
+        # (표, 압축 묶음 열, 압축 시작, 삭제 — None이면 안 지운다)
+        ("proc_stats", "process_name", "7 days", None),
+        ("proc_thread_stats", "process_name,thread_name", "7 days", "90 days"),
+        ("proc_hotspots", "process_name", "7 days", None),
+    )
+
+    def ensure_observability_policies(self):
+        """기존 DB의 관측 표에도 압축·보존 정책을 건다. TimescaleDB가 아니거나 압축을 못 켜는 판이면
+        그 표만 건너뛴다 — 적재는 정책 없이도 돌아간다."""
+        for table, segment_by, compress_after, drop_after in self._OBSERVABILITY_POLICIES:
+            try:
+                with self._cursor() as cursor:
+                    cursor.execute(
+                        f"ALTER TABLE {table} SET (timescaledb.compress,"
+                        f" timescaledb.compress_segmentby = '{segment_by}',"
+                        " timescaledb.compress_orderby = 'ts DESC')")
+                    cursor.execute(
+                        f"SELECT add_compression_policy('{table}', INTERVAL '{compress_after}',"
+                        " if_not_exists => TRUE)")
+
+                    if drop_after is not None:
+                        cursor.execute(
+                            f"SELECT add_retention_policy('{table}', INTERVAL '{drop_after}',"
+                            " if_not_exists => TRUE)")
+            except Exception as error:
+                logger.warning(f"{table} 압축·보존 정책 못 검: {error}")
+
     def ensure_query_statistics(self) -> bool:
         """pg_stat_statements 확장을 켠다(쿼리별 호출 수·누적 시간). 서버가 shared_preload_libraries에
         그 모듈을 싣고 떠야만 켜지므로(docker-compose.yml timescaledb command), 못 켜면 False."""

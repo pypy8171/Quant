@@ -312,6 +312,10 @@ CREATE UNIQUE INDEX bars_1d_ticker_ts ON bars_1d (ticker, ts DESC);
 
 스키마는 Docker 최초 기동 시 `/docker-entrypoint-initdb.d/01_schema.sql`로 마운트되어 자동 적용됩니다.
 
+관측 표(`proc_stats`·`proc_thread_stats`·`proc_hotspots`)는 7일 뒤 압축하고, 스레드별 CPU만 90일 뒤 지웁니다.
+이미 있는 DB에는 `DbClient.ensure_observability_policies()`가 걸어 줍니다(수집기 기동 때 한 번). 기간을 정한
+근거 수치는 그 함수 위 주석에 있습니다.
+
 ### 접속 방법
 
 ```python

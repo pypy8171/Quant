@@ -213,6 +213,22 @@ CREATE TABLE IF NOT EXISTS proc_hotspots (
 SELECT create_hypertable('proc_hotspots', 'ts', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS proc_hotspots_ts ON proc_hotspots (ts DESC);
 
+-- 관측 표 압축·보존 (2026-09-22 실측). 5초 주기 시계열이라 ts·process_name·thread_name이 반복돼 압축비가 잘 나온다.
+-- 최근 일주일은 장중에 그대로 읽어야 해서 그 앞은 건드리지 않는다. 삭제는 스레드별 CPU만 — 나머지 둘은
+-- 1년에 합쳐 1.1 GB라 지우는 값어치가 없고, proc_stats는 "작년 이맘때 대비"를 볼 수 있는 유일한 표다.
+ALTER TABLE proc_stats SET (timescaledb.compress,
+    timescaledb.compress_segmentby = 'process_name', timescaledb.compress_orderby = 'ts DESC');
+SELECT add_compression_policy('proc_stats', INTERVAL '7 days', if_not_exists => TRUE);
+
+ALTER TABLE proc_thread_stats SET (timescaledb.compress,
+    timescaledb.compress_segmentby = 'process_name,thread_name', timescaledb.compress_orderby = 'ts DESC');
+SELECT add_compression_policy('proc_thread_stats', INTERVAL '7 days', if_not_exists => TRUE);
+SELECT add_retention_policy('proc_thread_stats', INTERVAL '90 days', if_not_exists => TRUE);
+
+ALTER TABLE proc_hotspots SET (timescaledb.compress,
+    timescaledb.compress_segmentby = 'process_name', timescaledb.compress_orderby = 'ts DESC');
+SELECT add_compression_policy('proc_hotspots', INTERVAL '7 days', if_not_exists => TRUE);
+
 -- ── 벤치마크용 테스트 테이블 (bench_market_open.py) ───────────────────────────
 -- 실거래 테이블(ticks/signals/orders/fills/positions)과 같은 모양으로 별도 유지 —
 -- 개장 폭주를 재현해 DB 부하를 측정할 때 실계좌/모의계좌 원장을 건드리지 않으려고 분리했다.
