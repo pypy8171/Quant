@@ -53,10 +53,11 @@ schtasks /query /tn claude_stock_study /v /fo list | Select-String "다음 실�
 schtasks /change /tn claude_stock_study /st 20:30    # 예시 — 실제 변경은 scripts/market_close_timetable.ps1 -Apply (시각 정본)
 ```
 
-> **2026-09-14~09-18 정지.** 토큰 사용량을 줄이려고 클로드를 부르는 셋 — `claude_stock_study`·`claude_dashboard_sync`
-> (둘 다 `Disable-ScheduledTask`)과 2절의 장전 시황 브리핑 루틴(enabled=false) — 을 껐다. 순수 파이썬 작업은 그대로 돌고
-> `Quant Maintain Daily`는 이날 처음 Enable했다. 루틴은 09-19에 프롬프트를 새로 올리며 다시 켰다. 예약작업 둘은 아직 꺼져 있다 —
-> 복구는 `Enable-ScheduledTask -TaskName claude_stock_study`, `Enable-ScheduledTask -TaskName claude_dashboard_sync`.
+> **2026-09-14~09-22 정지했다가 다시 켰다.** 토큰 사용량을 줄이려고 클로드를 부르는 셋 — `claude_stock_study`·`claude_dashboard_sync`
+> (둘 다 `Disable-ScheduledTask`)과 2절의 장전 시황 브리핑 루틴 — 을 껐었다. 순수 파이썬 작업은 그때도 그대로 돌았다.
+> 09-22에 예약작업 둘을 `Enable-ScheduledTask`로 켜고 되살리기용 `*_resume` 작업을 지웠으며, 사라져 있던 브리핑 루틴을
+> 같은 프롬프트로 다시 만들었다(`scripts/premarket_routine.py --render` → `/schedule` → `--mark`). 같은 날 등록이 빠져 있던
+> `Quant Basket Targets`(평일 08:40)도 다시 걸었다 — 이 파일이 없으면 엔진 `TARGET_BASKET`이 그날 아무것도 내지 않는다.
 
 > **시간표는 계좌 모드로 갈린다 — 정본은 `scripts/market_close_timetable.ps1`.** 감시견 예약작업이 넘기는 config의 `kis.is_paper`를 읽어
 > 모의면 매매 끝 15:30(KIS 모의 서버가 15:30 뒤 주문을 거부, T-18 2026-09-18 실측)·마감 루틴 16:00대, 실계좌면 애프터마켓 20:00(D-097)

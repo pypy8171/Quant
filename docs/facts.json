@@ -7,6 +7,11 @@
         "run": "powershell -File scripts\\market_close_timetable.ps1 -Apply"
       },
       {
+        "name": "Quant Basket Targets",
+        "at": "08:40",
+        "run": "py PYQuant\\main.py basket"
+      },
+      {
         "name": "Quant Market Close AutoDoc",
         "at": "16:05",
         "run": "py scripts\\market_close_autodoc.py"
@@ -42,6 +47,11 @@
         "name": "QuantAutoTradeGuard",
         "at": "08:45~ 5분마다, -Until 20:05, 11.5h",
         "run": "powershell -File scripts\\market_close_timetable.ps1 -Apply"
+      },
+      {
+        "name": "Quant Basket Targets",
+        "at": "08:40",
+        "run": "py PYQuant\\main.py basket"
       },
       {
         "name": "Quant Market Close AutoDoc",
@@ -429,8 +439,22 @@
     "us_universe.json"
   ],
   "config_keys": {
-    "top": [],
-    "strategies": []
+    "top": [
+      "//reservation_journal_dir",
+      "fetch_interval_sec",
+      "kis",
+      "mode",
+      "reservation_journal_dir",
+      "strategies"
+    ],
+    "strategies": [
+      "exchange",
+      "market",
+      "market_close_exit_hhmm",
+      "pbr_max",
+      "quantity",
+      "type"
+    ]
   },
   "dir_tree": {
     ".claude": {
@@ -458,6 +482,7 @@
       "data": {},
       "db": {},
       "features": {},
+      "grafana": {},
       "ipc": {},
       "kis": {},
       "live": {},
@@ -468,6 +493,7 @@
       "tools": {}
     },
     "Quant": {
+      "build": {},
       "config": {},
       "include": {},
       "src": {},
@@ -499,8 +525,8 @@
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::data_thread_fn",
-      "lines": 515,
-      "start": 1444
+      "lines": 516,
+      "start": 1445
     },
     {
       "file": "Quant/src/risk/OrderGate.cpp",
@@ -524,25 +550,37 @@
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::new_route",
       "lines": 287,
-      "start": 73
+      "start": 75
     },
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::maybe_rescan_universe",
       "lines": 253,
-      "start": 361
+      "start": 362
+    },
+    {
+      "file": "scripts/check_runtime_health.py",
+      "symbol": "collect",
+      "lines": 247,
+      "start": 132
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::on_fill",
       "lines": 229,
-      "start": 1690
+      "start": 1692
+    },
+    {
+      "file": "PYQuant/backtest/devscale_replay_rescue.py",
+      "symbol": "replay_day",
+      "lines": 216,
+      "start": 403
     },
     {
       "file": "Quant/src/risk/OrderGate.cpp",
       "symbol": "OrderGate::plan_displacement",
       "lines": 216,
-      "start": 1256
+      "start": 1280
     },
     {
       "file": "PYQuant/backtest/devscale_replay.py",
@@ -554,19 +592,13 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::connect_feed",
       "lines": 200,
-      "start": 983
-    },
-    {
-      "file": "scripts/check_runtime_health.py",
-      "symbol": "collect",
-      "lines": 191,
-      "start": 85
+      "start": 984
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::cancel_stale_orders_async",
       "lines": 188,
-      "start": 861
+      "start": 863
     },
     {
       "file": "scripts/market_close_autodoc.py",
@@ -578,13 +610,19 @@
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::reconcile_blocked_sell",
       "lines": 185,
-      "start": 368
+      "start": 370
+    },
+    {
+      "file": "PYQuant/main.py",
+      "symbol": "main",
+      "lines": 177,
+      "start": 499
     },
     {
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::cancel_route",
       "lines": 176,
-      "start": 1387
+      "start": 1389
     },
     {
       "file": "PYQuant/dashboard/build_dashboard.py",
@@ -620,13 +658,7 @@
       "file": "Quant/src/ipc/OpsServer.cpp",
       "symbol": "OpsServer::on_frame",
       "lines": 150,
-      "start": 456
-    },
-    {
-      "file": "PYQuant/main.py",
-      "symbol": "main",
-      "lines": 145,
-      "start": 443
+      "start": 458
     },
     {
       "file": "Quant/src/api/KisIndex.cpp",
@@ -635,10 +667,16 @@
       "start": 7
     },
     {
+      "file": "PYQuant/tools/bench_market_open.py",
+      "symbol": "run_call_auction",
+      "lines": 140,
+      "start": 235
+    },
+    {
       "file": "Quant/src/ipc/ZmqBridge.cpp",
       "symbol": "ZmqBridge::thread_fn",
-      "lines": 138,
-      "start": 90
+      "lines": 139,
+      "start": 91
     },
     {
       "file": "Quant/src/api/WsSocketPosix.cpp",
@@ -647,16 +685,16 @@
       "start": 205
     },
     {
+      "file": "Quant/src/ipc/OpsServer.cpp",
+      "symbol": "OpsServer::thread_fn",
+      "lines": 135,
+      "start": 216
+    },
+    {
       "file": "Quant/src/api/KisAuth.cpp",
       "symbol": "KisClient::issue_token",
       "lines": 134,
-      "start": 86
-    },
-    {
-      "file": "Quant/src/ipc/OpsServer.cpp",
-      "symbol": "OpsServer::thread_fn",
-      "lines": 134,
-      "start": 215
+      "start": 88
     },
     {
       "file": "scripts/summarize_trading_day.py",
@@ -667,8 +705,8 @@
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::shard_thread_fn",
-      "lines": 126,
-      "start": 2250
+      "lines": 127,
+      "start": 2253
     },
     {
       "file": "Quant/src/api/KisUniverse.cpp",
@@ -692,7 +730,7 @@
       "file": "Quant/src/ipc/OrderRouter.cpp",
       "symbol": "OrderRouter::replace_route",
       "lines": 118,
-      "start": 1570
+      "start": 1572
     },
     {
       "file": "Quant/src/strategy/StrategyFactory.cpp",
@@ -719,16 +757,16 @@
       "start": 83
     },
     {
+      "file": "Quant/src/core/Engine.cpp",
+      "symbol": "Engine::control_thread_fn",
+      "lines": 112,
+      "start": 2644
+    },
+    {
       "file": "PYQuant/live/forward_trader.py",
       "symbol": "run_once",
       "lines": 111,
       "start": 151
-    },
-    {
-      "file": "Quant/src/core/Engine.cpp",
-      "symbol": "Engine::control_thread_fn",
-      "lines": 111,
-      "start": 2638
     },
     {
       "file": "Quant/src/strategy/TargetBasketPlan.cpp",
@@ -757,14 +795,26 @@
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::strategy_thread_fn",
-      "lines": 105,
-      "start": 2144
+      "lines": 106,
+      "start": 2146
     },
     {
       "file": "Quant/src/api/WsSocketPosix.cpp",
       "symbol": "websocket_tcp_connect",
       "lines": 103,
       "start": 52
+    },
+    {
+      "file": "Quant/src/api/WebSocketClient.cpp",
+      "symbol": "KisWebSocket::recv_loop",
+      "lines": 102,
+      "start": 143
+    },
+    {
+      "file": "Quant/src/core/Engine.cpp",
+      "symbol": "Engine::order_thread_fn",
+      "lines": 102,
+      "start": 2382
     },
     {
       "file": "Quant/src/universe/UniverseScanner.cpp",
@@ -777,18 +827,6 @@
       "symbol": "build_payload",
       "lines": 102,
       "start": 438
-    },
-    {
-      "file": "Quant/src/api/WebSocketClient.cpp",
-      "symbol": "KisWebSocket::recv_loop",
-      "lines": 101,
-      "start": 142
-    },
-    {
-      "file": "Quant/src/core/Engine.cpp",
-      "symbol": "Engine::order_thread_fn",
-      "lines": 101,
-      "start": 2378
     },
     {
       "file": "Quant/src/universe/UniverseScanner.cpp",
@@ -830,13 +868,13 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::apply_regime_selection",
       "lines": 95,
-      "start": 154
+      "start": 155
     },
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::register_strategy_runtime",
       "lines": 94,
-      "start": 50
+      "start": 51
     },
     {
       "file": "Quant/src/api/KisMarket.cpp",
@@ -863,6 +901,12 @@
       "start": 497
     },
     {
+      "file": "Quant/src/api/KisAccount.cpp",
+      "symbol": "KisClient::get_balance",
+      "lines": 91,
+      "start": 9
+    },
+    {
       "file": "Quant/src/core/BarAggregator.cpp",
       "symbol": "BarAggregator::on_tick",
       "lines": 91,
@@ -872,7 +916,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::drain_manual_inbox",
       "lines": 91,
-      "start": 2956
+      "start": 2963
     },
     {
       "file": "Quant/include/strategy/DeviationScaleStrategy.h",
@@ -884,7 +928,7 @@
       "file": "Quant/src/api/KisAccount.cpp",
       "symbol": "KisClient::get_open_orders",
       "lines": 90,
-      "start": 87
+      "start": 107
     },
     {
       "file": "PYQuant/tools/log_report.py",
@@ -902,7 +946,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::start_ops_server",
       "lines": 87,
-      "start": 2811
+      "start": 2818
     },
     {
       "file": "Quant/include/core/RegimeFileJudge.h",
@@ -933,6 +977,12 @@
       "symbol": "BarAggregator::seed",
       "lines": 83,
       "start": 291
+    },
+    {
+      "file": "PYQuant/tools/bench_market_open.py",
+      "symbol": "_continuous_phase",
+      "lines": 82,
+      "start": 125
     }
   ],
   "regime_model": {
