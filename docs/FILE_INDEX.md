@@ -445,6 +445,7 @@
 
 ### Quant/tests/
 
+- [bench_engine_load.cpp](../Quant/tests/bench_engine_load.cpp) — 전 종목 부하 하네스. 합성 체결 2,700종목을 진짜 Engine에 밀어넣고 수신 스레드 N × 전략 샤드 M을 쓸어 처리량·드롭·지연을 CSV로 낸다
 - [bench_feed_ingest.cpp](../Quant/tests/bench_feed_ingest.cpp) — 시세 피드 수신 부하테스트, TCP loopback 네트워크·처리 구간 분해
 - [bench_gate_contention.cpp](../Quant/tests/bench_gate_contention.cpp) — OrderGate 락 경합 벤치(읽기 지연 분포)
 - [bench_intake.cpp](../Quant/tests/bench_intake.cpp) — 멀티생산자 주문 인테이크 큐 부하 벤치(MPSC 대 Mutex)
@@ -611,11 +612,19 @@
 
 ### docs/reports/stresstest/
 
+- [2026-09-22_A_cpu_sampled.md](reports/stresstest/2026-09-22_A_cpu_sampled.md) — 09-22 A회차. 같은 39구성에 프로세스 CPU·스레드 표본을 붙임. 8레인은 10코어만 쓰고도 느려짐(다툼), 주문 경로는 CPU 2코어 밑(I/O 대기)
+- [2026-09-22_engine_full_path.md](reports/stresstest/2026-09-22_engine_full_path.md) — 09-22 엔진 전 구간 부하 실측. 천장은 샤드→전략 큐 40만/초와 주문 경로 초당 200건대
 - [2026-09-22_prefetch_pool.md](reports/stresstest/2026-09-22_prefetch_pool.md) — 부하 회차: 프리페치 전략당 스레드→공용 풀, 스냅샷 복사 492→10ns(D-115)
 - [2026-09-22_prefetch_pool_threads.md](reports/stresstest/2026-09-22_prefetch_pool_threads.md) — 부하 회차: 프리페치 풀 스레드 수 스윕, 주기를 지연→비율로(D-115 후속)
+- [README.md](reports/stresstest/README.md) — 부하테스트 결과 모음의 색인·실행 가이드·결과 열 읽는 법
 
 ### docs/reports/stresstest/data/
 
+- [2026-09-22_A2_orders_clean.csv](reports/stresstest/data/2026-09-22_A2_orders_clean.csv) — 하네스가 구성마다 미체결 파일을 지우도록 고친 뒤 ③(4×4 유량 7단계)만 다시 돈 7행. 주문/초 99~418, 100건/초 p50 1.1초
+- [2026-09-22_A_cpu_sampled.csv](reports/stresstest/data/2026-09-22_A_cpu_sampled.csv) — A회차 하네스 원자료 39행(`started_at` 열 있음)
+- [2026-09-22_A_joined.csv](reports/stresstest/data/2026-09-22_A_joined.csv) — A회차 하네스 행과 수집기 표본을 시각으로 맞춘 표(구성별 CPU 코어 수·스레드 최대)
+- [2026-09-22_A_procwatch_samples.csv](reports/stresstest/data/2026-09-22_A_procwatch_samples.csv) — A회차 procwatch 2초 표본 125개(CPU %·메모리 MB·스레드)
+- [2026-09-22_bench_engine_load.csv](reports/stresstest/data/2026-09-22_bench_engine_load.csv) — 1차 회차 하네스 원자료 39행(+헤더 중복 2줄, 시각 열 없음)
 - [2026-09-22_bench_prefetch_pool.csv](reports/stresstest/data/2026-09-22_bench_prefetch_pool.csv) — 위 회차 원자료(계산형·대기형·이웃 지연 스윕 37행, tag로 회차 구분)
 - [2026-09-22_bench_snapshot_swap.csv](reports/stresstest/data/2026-09-22_bench_snapshot_swap.csv) — 위 회차 원자료(bench_snapshot_swap 1차 5회 + atomic 열 2차 5회)
 
@@ -1031,6 +1040,7 @@
 - [seed_open_orders.py](../scripts/seed_open_orders.py) — 미체결 주문 상태 복구 스크립트
 - [start.sh](../scripts/start.sh) — Docker Compose 기동 스크립트
 - [stop.sh](../scripts/stop.sh) — Docker Compose 종료 스크립트
+- [stresstest_join_procwatch.py](../scripts/stresstest_join_procwatch.py) — 부하 회차 CSV의 `started_at`과 procwatch 로그 표본을 시각으로 맞춰 구성별 CPU 평균·최대(코어 수)·스레드 최대를 낸다
 - [summarize_trading_day.py](../scripts/summarize_trading_day.py) — 일일 매매 사실 요약 스크립트
 - [trade_costs.py](../scripts/trade_costs.py) — 체결 원장(trades_YYYYMMDD.csv)의 날짜별·종목별 매매 비용(수수료·거래세)과 실현손익을 누적 JSON(logs/trade_costs.json)과 표로 낸다(--days, --symbol)
 - [tsan_round.sh](../scripts/tsan_round.sh) — ThreadSanitizer 회차(WSL2) — Debug+TSAN으로 짓고 벤치를 뺀 ctest를 한 판 돌려 스레드 경합을 찾는다. 동시성 코드를 고친 워크트리가 머지 전에 부른다. 결과 한 줄은 `_private/state/tsan_last.json`(`check_runtime_health.py` "TSAN 회차" 행이 읽는다), 원문은 `logs/tsan/`

@@ -1605,6 +1605,7 @@
       "scripts/premarket_routine.py",
       "scripts/refresh_dashboard.py",
       "scripts/seed_open_orders.py",
+      "scripts/stresstest_join_procwatch.py",
       "scripts/summarize_trading_day.py",
       "scripts/trade_costs.py"
     ],

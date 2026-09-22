@@ -2,6 +2,7 @@
 
 > 시세 파이프라인의 부하·지연을 **직접 돌려 수치를 확인**하는 실행 가이드다.
 > 결과 해석과 측정 배경은 [PIPELINE_LATENCY_REPORT.md](../reports/PIPELINE_LATENCY_REPORT.md)에 있다.
+> 회차별 실측값·원자료·그 수치로 내린 판단은 [reports/stresstest/](../reports/stresstest/README.md)에 모은다.
 > 지표 약어는 [GLOSSARY.md](../GLOSSARY.md) 성능·지연 섹션 참조: 중앙값(p50)·상위 1%(p99)·상위 0.1%(p999)·전 구간(E2E).
 
 ## 하네스 — 무엇을 재나
@@ -11,6 +12,7 @@
 | `bench_market_firehose` | 없음 | 내부 3단 처리단(링버퍼→전략→주문) 지연·처리량 | 없음(합성, 전종목 규모) |
 | `bench_feed_ingest` | 실 TCP(loopback) | 코스콤→서버 소켓 수신 경로(net/proc/e2e 분해) | 없음(합성, 전종목 규모) |
 | `feed_latency_measure` | 실 KIS WS | 실데이터로 수신콜백→주문결정 내부 지연 재확인 | **app_key당 ~40종목**(API 하드캡) |
+| `bench_engine_load` | 없음 | **진짜 Engine 한 바퀴**(수신 스레드 N → 샤드 M → 전략 → OrderGate → 체결) 처리량·구간별 드롭·지연 | 없음(합성, 종목 2,700개) |
 | `bench_latency_path` | 없음 | 09-13 hot path 조각(시각 디코드·현재가 캐시·라우터·상태 키·캡처·FeedMux 홉·연쇄)의 옛/새 A/B | 없음(합성, 종목 2,600개 고정) |
 
 부하테스트의 규모는 앞의 둘(합성)이 담당한다. 라이브 지연 측정은 규모가 아니라 "합성이 낸 처리단 지연이 실데이터에서도 성립하는가"를 확인하는 용도다(장 중에만 틱이 있음).
@@ -131,6 +133,22 @@ wsl -d Ubuntu-24.04 -- /usr/lib/linux-tools-6.8.0-139/perf report -i /root/fh.da
   라이브 엔진의 시계 비용으로 옮겨 적으면 안 된다.
 
 결과는 리포트 결과 ⑦.
+
+## 6. 진짜 Engine 한 바퀴 — bench_engine_load
+
+위 하네스들은 엔진의 조각을 재거나(firehose·latency_path) 실 KIS라 규모가 막힌다(feed_latency_measure).
+이것은 **진짜 `Engine`을 띄워** 수신 스레드 N → 샤드 M → 전략 → OrderGate → 체결까지 한 바퀴를 돌린다.
+
+```powershell
+# 스레드 수를 쓸어 본다(시세 → 전략 구간만)
+.\Quant\build_win\bench_engine_load.exe sweep --tickers 2700 --lane-list 1,2,4,8 --shard-list 1,2,4,8 --seconds 5 --no-orders --rate 0 --out logs\bench_engine_load.csv
+
+# 유량을 올려 가며 천장(드롭 시작점)을 찾는다
+.\Quant\build_win\bench_engine_load.exe sweep --tickers 2700 --lanes 4 --shards 4 --seconds 5 --rate-list 100000,200000,400000,800000 --out logs\bench_engine_load.csv
+```
+
+노브 전체·열 읽는 법·실측값은 [reports/stresstest/README.md](../reports/stresstest/README.md)에 있다.
+ctest에 붙이지 않았다 — 수십 초씩 코어를 다 쓴다. **장중에는 돌리지 않는다.**
 
 ## 노브 — 수치 바꿔가며 보기
 

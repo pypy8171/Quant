@@ -154,6 +154,39 @@ public:
     // 종목 id의 틱을 받는 샤드 마스크(시험·진단용). 0이면 아무 전략도 안 보는 종목이다.
     shard::ShardMask route_mask(symbol::SymbolId symbol_id) const { return pipeline_.routes.mask(symbol_id); }
 
+    // 큐 수위·버린 건수 — control_thread가 1분마다 찍는 [큐 고수위] 로그와 같은 값을 그 주기를 기다리지 않고 준다.
+    //  부하 하네스(bench_engine_load)가 구간마다 읽는다. 읽기 전용이라 어느 스레드에서 불러도 된다.
+    struct QueueStatistics
+    {
+        size_t   shard_high_water = 0; // 샤드 셀 가운데 가장 높았던 수위
+        size_t   shard_out_size   = 0; // 샤드 → 전략 스레드 큐의 현재 깊이
+        uint64_t trade_dropped    = 0; // 수신 스레드 → 샤드 셀에서 버린 체결 수(trade_drop_count_)
+        size_t   order_high_water = 0;
+        size_t   fill_high_water  = 0;
+        uint64_t shard_dropped    = 0;
+        uint64_t order_dropped    = 0;
+        uint64_t fill_dropped     = 0;
+    };
+
+    QueueStatistics queue_statistics() const
+    {
+        QueueStatistics statistics;
+
+        for (const auto& shard : pipeline_.shards)
+        {
+            statistics.shard_high_water = std::max(statistics.shard_high_water, shard->high_water());
+        }
+
+        statistics.shard_out_size   = pipeline_.shard_out.size();
+        statistics.trade_dropped    = trade_drop_count_.load(std::memory_order_relaxed);
+        statistics.order_high_water = pipeline_.order_queue.high_water();
+        statistics.fill_high_water  = pipeline_.fill_queue.high_water();
+        statistics.shard_dropped    = pipeline_.shard_dropped.load(std::memory_order_relaxed);
+        statistics.order_dropped    = pipeline_.order_dropped.load(std::memory_order_relaxed);
+        statistics.fill_dropped     = pipeline_.fill_dropped.load(std::memory_order_relaxed);
+        return statistics;
+    }
+
     // ── 매크로 레짐 브리지 ──────────────────────────────────────────────────
     // 매크로 레짐 보조 프로세스 브리지(2026-08-09 회의 Task 3). Python macro_regime_feed.py가
     // 원자적으로 쓰는 regime.json 경로를 지정하면, data_thread가 매 사이클 그 파일을 읽어
@@ -254,6 +287,10 @@ public:
     static constexpr int kProtectiveRetryMsDefault    = 30000; // 청산이 안 먹힐 때 다시 내는 간격
 
     void set_protective_orders(const std::string& mode, int interval_ms, int retry_ms);
+
+    // ZMQ 발행·제어 채널을 아예 열지 않는다(스레드 시작 전에만). 구독자 없이 도는 부하 하네스에서
+    //  발행 큐가 차며 나는 drop 로그가 측정을 가리기 때문이다. 라이브는 기본값(켜짐) 그대로 쓴다.
+    void set_zmq_enabled(bool enabled) { zmq_enabled_ = enabled; }
 
     // 운영단말 TCP 채널(config `ops_bind_addr`·`ops_port`·`ops_token`). port 0이면 열지 않는다.
     //  스레드 시작 전에만. 루프백이 아닌 주소는 token이 있어야 서버가 뜬다(OpsServer::start).
@@ -616,6 +653,7 @@ private:
     mutable std::mutex     watch_specifications_mutex_;
 
     // ── ZMQ ──────────────────────────────────────────────────────────────────
+    bool        zmq_enabled_      = true; // set_zmq_enabled. 부하 하네스만 끈다
     std::string zmq_bind_address_ = "127.0.0.1";
     std::string zmq_control_token_;
     // 보호 주문 표 — 전략(샤드 스레드)가 등록하고 strategy_thread(주문 시퀀서)가 본다. 표 자체가 잠금을 가진다. [why D-114]

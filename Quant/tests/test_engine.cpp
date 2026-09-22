@@ -8,6 +8,7 @@
 #include "core/ShardMatrix.h"
 #include "core/TickCapture.h"
 #include "strategy/StrategyBase.h"
+#include "utils/Logger.h"
 
 #include <algorithm>
 #include <atomic>
@@ -263,6 +264,8 @@ int run_spanning_case(uint32_t lanes, uint32_t shards, const std::vector<std::st
     auto* strategy       = strategy_owned.get();
 
     Engine engine(KisConfig{});
+    // 발행 채널을 열지 않는다 — 열면 운영 리코더가 이 테스트의 합성 주문·체결을 물어 실거래 DB에 넣는다(09-22 실제로 났다).
+    engine.set_zmq_enabled(false);
     engine.set_strategy_shards(shards);
     engine.add_strategy(std::move(strategy_owned));
     engine.set_feed_source(std::move(feed_owned), 1'000'000.0);
@@ -320,6 +323,8 @@ int run_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& ti
     std::vector<BuyOnce*> strategies;
 
     Engine engine(KisConfig{});
+    // 발행 채널을 열지 않는다 — 열면 운영 리코더가 이 테스트의 합성 주문·체결을 물어 실거래 DB에 넣는다(09-22 실제로 났다).
+    engine.set_zmq_enabled(false);
     engine.set_strategy_shards(shards);
 
     for (const auto& ticker : tickers)
@@ -441,6 +446,8 @@ int run_replay_case()
     }
 
     Engine engine(KisConfig{});
+    // 발행 채널을 열지 않는다 — 열면 운영 리코더가 이 테스트의 합성 주문·체결을 물어 실거래 DB에 넣는다(09-22 실제로 났다).
+    engine.set_zmq_enabled(false);
     auto   st_owned = std::make_unique<BuyOnce>("005930");
     auto*  stop_token       = st_owned.get();
     engine.add_strategy(std::move(st_owned));
@@ -488,6 +495,10 @@ int run_replay_case()
 
 int main()
 {
+    // 산출물은 실행파일 옆 logs_test/ — 기본 logs/는 트레이더·부하 하네스와 같은 폴더라, 거기 남은 open_orders.txt를
+    //  OrderRouter가 이전 세션 미체결로 읽어 수만 건 취소에 매달리고 이 테스트의 주문이 5초 안에 안 나온다(09-22 실제로 났다).
+    Logger::instance().set_base_directory(Logger::executable_directory() / "logs_test");
+
     if (const int result_code = run_case(1, 1, {"005930"}); result_code != 0)
     {
         return result_code;

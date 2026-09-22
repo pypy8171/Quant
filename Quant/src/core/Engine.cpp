@@ -1278,7 +1278,10 @@ void Engine::start()
     setup_shards();
 
 #ifdef HAS_ZMQ
-    setup_zmq_bridge();
+    if (zmq_enabled_)
+    {
+        setup_zmq_bridge();
+    }
 #endif
 
     const bool offline = feed_.feed_override != nullptr || !feed_.replay_file.empty();

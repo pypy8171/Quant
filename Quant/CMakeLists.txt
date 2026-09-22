@@ -564,6 +564,11 @@ endif()
 add_executable(test_engine tests/test_engine.cpp)
 target_link_libraries(test_engine PRIVATE quant_engine)
 
+# ─── 벤치 타깃: 전 종목 부하 — 합성 체결 2,700종목을 진짜 Engine에 밀어넣고 수신 스레드 N × 전략 샤드 M을 쓸어 잰다 (D-071 원칙 7) ──
+#     ctest에 붙이지 않는다 — 수십 초씩 코어를 다 쓴다. 부하 하네스의 관례다(bench_market_firehose와 같다).
+add_executable(bench_engine_load tests/bench_engine_load.cpp)
+target_link_libraries(bench_engine_load PRIVATE quant_engine)
+
 # ─── 테스트 타깃: config.json → AppConfig 경계 — 키 이름·기본값·kis.exchange 검증·매매 창 hhmm→분 (json 읽기는 이 한 곳) ──
 add_executable(test_app_config tests/test_app_config.cpp)
 target_link_libraries(test_app_config PRIVATE quant_engine)
