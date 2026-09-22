@@ -369,6 +369,7 @@
       "core/DataPoller.h",
       "core/FeedMux.h",
       "core/FeedSupervisor.h",
+      "core/LatencyTrace.h",
       "core/LedgerReconciler.h",
       "core/MpscQueue.h",
       "core/OrderRateLimiter.h",
@@ -797,6 +798,7 @@
     ],
     "core/LatencyTrace.h": [
       "core/Engine.cpp",
+      "core/Engine.h",
       "core/SignalDispatcher.cpp"
     ],
     "core/LedgerReconciler.h": [

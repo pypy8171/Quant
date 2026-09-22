@@ -484,7 +484,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 80
+        "y": 94
       },
       "datasource": {
         "type": "postgres",
@@ -838,6 +838,156 @@
       },
       "options": {
         "showHeader": true
+      }
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "큐 사용률 (%) — 고수위는 기동 후 누적 최대",
+      "description": "엔진이 HEALTH에 싣는 값. 샤드 셀·주문 큐·체결 큐는 기동 후 가장 높았던 깊이라 줄지 않는다(용량 대비 %). 샤드→전략 큐만 그 시점의 현재 깊이다. 100%에 닿으면 그 다음 건부터 버린다 — 아래 '버린 건수'와 같이 본다.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 74
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "tsdb"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "tsdb"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time, 100.0 * queue_shard_high_water / NULLIF(queue_shard_capacity, 0) AS \"샤드 셀 고수위\", 100.0 * queue_shard_out_size / NULLIF(queue_shard_out_capacity, 0) AS \"샤드→전략 현재 깊이\", 100.0 * queue_order_high_water / NULLIF(queue_order_capacity, 0) AS \"주문 큐 고수위\", 100.0 * queue_fill_high_water / NULLIF(queue_fill_capacity, 0) AS \"체결 큐 고수위\" FROM health WHERE $__timeFilter(ts) AND queue_shard_capacity IS NOT NULL ORDER BY ts;",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "fillOpacity": 0,
+            "lineWidth": 2
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "큐가 가득 차 버린 건수 (기동 후 누적)",
+      "description": "0이 아니면 그만큼 틱·주문·체결통보가 파이프라인에서 빠졌다는 뜻이다. 계단이 생긴 시각이 폭주 시각이다.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 74
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "tsdb"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "tsdb"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time, dropped_shard AS \"샤드→전략\", dropped_order AS \"주문 큐\", dropped_fill AS \"체결 큐\" FROM health WHERE $__timeFilter(ts) AND dropped_shard IS NOT NULL ORDER BY ts;",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 0,
+            "lineWidth": 2,
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "구간 지연 p50 (기동 후 누적 분포)",
+      "description": "주문 하나가 지나는 네 구간. 틱 수신→신호, 신호→주문 큐 pop, pop→주문 반환(게이트+KIS 왕복), 전체. 표본은 첫 시도 주문만(재시도 제외)이고 히스토그램 칸 상한이라 참값보다 최대 12% 크다.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 84
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "tsdb"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "tsdb"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p50_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p50_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_done_p50_us, -1) AS \"pop→주문 반환\", NULLIF(total_p50_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND latency_samples > 0 ORDER BY ts;",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "µs",
+          "custom": {
+            "fillOpacity": 0,
+            "lineWidth": 2
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "구간 지연 p99 (기동 후 누적 분포)",
+      "description": "같은 분포의 p99. 누적이라 한번 튄 값이 계속 남는다 — 오늘 안에서 비교하려면 대시보드 기간을 오늘로 둔다.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 84
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "tsdb"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "tsdb"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p99_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p99_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_done_p99_us, -1) AS \"pop→주문 반환\", NULLIF(total_p99_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND latency_samples > 0 ORDER BY ts;",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "µs",
+          "custom": {
+            "fillOpacity": 0,
+            "lineWidth": 2
+          }
+        },
+        "overrides": []
       }
     }
   ]

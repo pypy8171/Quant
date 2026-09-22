@@ -41,11 +41,33 @@ SELECT create_hypertable('orders', 'ts', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS orders_ticker_ts ON orders (ticker, ts DESC);
 
 -- ── 엔진 상태 (ZMQ HEALTH) ───────────────────────────────────────────────────
+-- 큐 고수위·지연 분위수는 엔진 기동 후 누적이라 줄지 않는다. 구간 값은 읽는 쪽이 직전 행과 뺀다.
+-- 지연 열은 표본이 없으면 -1, 옛 엔진이 보낸 행은 NULL(그 필드를 아예 안 싣는다).
 CREATE TABLE IF NOT EXISTS health (
     ts         TIMESTAMPTZ  NOT NULL,
     data_cnt   BIGINT       DEFAULT 0,
     signal_cnt BIGINT       DEFAULT 0,
-    order_cnt  BIGINT       DEFAULT 0
+    order_cnt  BIGINT       DEFAULT 0,
+    queue_shard_high_water   BIGINT,   -- 샤드 셀 가운데 가장 높았던 깊이
+    queue_shard_capacity     BIGINT,
+    queue_shard_out_size     BIGINT,   -- 샤드 → 전략 큐의 지금 깊이(누적 최대가 아니다)
+    queue_shard_out_capacity BIGINT,
+    queue_order_high_water   BIGINT,
+    queue_order_capacity     BIGINT,
+    queue_fill_high_water    BIGINT,
+    queue_fill_capacity      BIGINT,
+    dropped_shard            BIGINT,   -- 큐가 가득 차 버린 건수(누적)
+    dropped_order            BIGINT,
+    dropped_fill             BIGINT,
+    latency_samples          BIGINT,   -- 분위수의 표본 수(누적 주문 건수)
+    tick_to_signal_p50_us    BIGINT,
+    tick_to_signal_p99_us    BIGINT,
+    signal_to_pop_p50_us     BIGINT,
+    signal_to_pop_p99_us     BIGINT,
+    pop_to_done_p50_us       BIGINT,
+    pop_to_done_p99_us       BIGINT,
+    total_p50_us             BIGINT,
+    total_p99_us             BIGINT
 );
 SELECT create_hypertable('health', 'ts', if_not_exists => TRUE);
 

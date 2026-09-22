@@ -51,7 +51,36 @@ public:
     void publish_trade(const TradeData& trade);
     void publish_signal(const OrderSignal& signal);
     void publish_order(const OrderSignal& signal, bool ok);
-    void publish_health(uint64_t data_count, uint64_t signal_count, uint64_t order_count);
+    // HEALTH 한 건에 싣는 엔진 내부 수치. 큐 고수위와 지연 분위수는 기동 후 누적이라 줄지 않는다 —
+    // 구간 값이 필요하면 읽는 쪽이 직전 행과 뺀다. 표본이 없는 지연은 -1. [why D-071]
+    struct HealthSnapshot
+    {
+        uint64_t data_count             = 0;
+        uint64_t signal_count           = 0;
+        uint64_t order_count            = 0;
+        uint64_t shard_high_water       = 0;   // 샤드 셀 가운데 가장 높았던 값
+        uint64_t shard_capacity         = 0;
+        uint64_t shard_out_size         = 0;   // 지금 쌓여 있는 깊이(누적 최대가 아니다)
+        uint64_t shard_out_capacity     = 0;
+        uint64_t order_queue_high_water = 0;
+        uint64_t order_queue_capacity   = 0;
+        uint64_t fill_queue_high_water  = 0;
+        uint64_t fill_queue_capacity    = 0;
+        uint64_t shard_dropped          = 0;
+        uint64_t order_dropped          = 0;
+        uint64_t fill_dropped           = 0;
+        uint64_t latency_samples        = 0;
+        int64_t  tick_to_signal_p50_us  = -1;
+        int64_t  tick_to_signal_p99_us  = -1;
+        int64_t  signal_to_pop_p50_us   = -1;
+        int64_t  signal_to_pop_p99_us   = -1;
+        int64_t  pop_to_done_p50_us     = -1;
+        int64_t  pop_to_done_p99_us     = -1;
+        int64_t  total_p50_us           = -1;
+        int64_t  total_p99_us           = -1;
+    };
+
+    void publish_health(const HealthSnapshot& snapshot);
     void publish_fill(const FillNotification& fill_notification, const std::string& strategy_id,
                       double commission, double tax,
                       double average_price, int net_quantity, double realized_pnl);

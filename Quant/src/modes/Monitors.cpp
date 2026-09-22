@@ -676,7 +676,7 @@ int run_kr_test(const KisConfig& kis_config, const std::atomic<bool>& running)
 
         std::this_thread::sleep_for(std::chrono::seconds(1));
 #ifdef HAS_ZMQ
-        zmq_br->publish_health(0, 0, 0);
+        zmq_br->publish_health({});   // FEED 모드는 생존 신호만 — 큐·지연 수치는 TRADE 엔진이 채운다
 #endif
     }
 

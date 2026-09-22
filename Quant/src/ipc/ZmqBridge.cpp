@@ -346,14 +346,35 @@ void ZmqBridge::publish_order(const OrderSignal& signal, bool ok)
     enqueue(Topic::Order, document.dump());
 }
 
-void ZmqBridge::publish_health(uint64_t data_count, uint64_t signal_count, uint64_t order_count)
+void ZmqBridge::publish_health(const HealthSnapshot& snapshot)
 {
     json document;
-    document["ts"]    = now_ms();
-    document["data"]  = data_count;
-    document["signal"] = signal_count;
-    document["order"] = order_count;
-    document["drop"]  = drop_count_.load();
+    document["ts"]     = now_ms();
+    document["data"]   = snapshot.data_count;
+    document["signal"] = snapshot.signal_count;
+    document["order"]  = snapshot.order_count;
+    document["drop"]   = drop_count_.load();
+    // 큐와 지연 — 적재기가 health 표의 같은 이름 열에 그대로 넣는다.
+    document["queue_shard_high_water"]   = snapshot.shard_high_water;
+    document["queue_shard_capacity"]     = snapshot.shard_capacity;
+    document["queue_shard_out_size"]     = snapshot.shard_out_size;
+    document["queue_shard_out_capacity"] = snapshot.shard_out_capacity;
+    document["queue_order_high_water"]   = snapshot.order_queue_high_water;
+    document["queue_order_capacity"]     = snapshot.order_queue_capacity;
+    document["queue_fill_high_water"]    = snapshot.fill_queue_high_water;
+    document["queue_fill_capacity"]      = snapshot.fill_queue_capacity;
+    document["dropped_shard"]            = snapshot.shard_dropped;
+    document["dropped_order"]            = snapshot.order_dropped;
+    document["dropped_fill"]             = snapshot.fill_dropped;
+    document["latency_samples"]          = snapshot.latency_samples;
+    document["tick_to_signal_p50_us"]    = snapshot.tick_to_signal_p50_us;
+    document["tick_to_signal_p99_us"]    = snapshot.tick_to_signal_p99_us;
+    document["signal_to_pop_p50_us"]     = snapshot.signal_to_pop_p50_us;
+    document["signal_to_pop_p99_us"]     = snapshot.signal_to_pop_p99_us;
+    document["pop_to_done_p50_us"]       = snapshot.pop_to_done_p50_us;
+    document["pop_to_done_p99_us"]       = snapshot.pop_to_done_p99_us;
+    document["total_p50_us"]             = snapshot.total_p50_us;
+    document["total_p99_us"]             = snapshot.total_p99_us;
     enqueue(Topic::Health, document.dump());
 }
 

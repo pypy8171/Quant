@@ -1,4 +1,5 @@
-// LatencyTrace 단위 테스트 — 구간 계산의 0 처리, CSV 행 형식, 파일 머리글이 한 번만 쓰이는지.
+// LatencyTrace 단위 테스트 — 구간 계산의 0 처리, CSV 행 형식, 파일 머리글이 한 번만 쓰이는지,
+// 그리고 HEALTH가 싣는 LatencyHistogram의 칸 나눔·분위수.
 // 빌드: cmake --build <directory> --target test_latency_trace
 #include "core/LatencyTrace.h"
 
@@ -121,6 +122,38 @@ int main()
     CHECK(split(lines[3])[11] == "0");
     in.close(); // 열린 채로 지우면 Windows가 공유 위반을 내고 filesystem_error가 잡히지 않는다
     std::filesystem::remove(path);
+
+    // 5. 히스토그램: 작은 값은 칸 하나가 값 하나, 큰 값은 칸 너비가 12% 안쪽.
+    CHECK(trace::LatencyHistogram::bucket_of(0) == 0);
+    CHECK(trace::LatencyHistogram::bucket_of(7) == 7);
+    CHECK(trace::LatencyHistogram::upper_bound_of(trace::LatencyHistogram::bucket_of(7)) == 7);
+    CHECK(trace::LatencyHistogram::upper_bound_of(trace::LatencyHistogram::bucket_of(1000)) >= 1000);
+    CHECK(trace::LatencyHistogram::upper_bound_of(trace::LatencyHistogram::bucket_of(1000)) < 1000 * 113 / 100);
+
+    trace::LatencyHistogram histogram;
+    CHECK(histogram.count() == 0);
+    CHECK(histogram.percentile(0.50) == -1);   // 표본이 없으면 -1
+    histogram.add(-1);                         // 측정 불가는 버린다
+    CHECK(histogram.count() == 0);
+
+    for (int64_t microseconds = 1; microseconds <= 1000; ++microseconds)
+    {
+        histogram.add(microseconds);
+    }
+
+    CHECK(histogram.count() == 1000);
+    // 칸 상한을 돌려주므로 참값 이상이되 칸 너비(12%) 안쪽이어야 한다.
+    CHECK(histogram.percentile(0.50) >= 500 && histogram.percentile(0.50) < 500 * 113 / 100);
+    CHECK(histogram.percentile(0.99) >= 990 && histogram.percentile(0.99) < 990 * 113 / 100);
+
+    // 구간 넷을 한 번에 채운다 — tick_ns가 0인 신호는 tick_to_signal만 표본이 안 잡힌다.
+    trace::PipelineLatency pipeline_latency;
+    pipeline_latency.add(trace::Marks{0, 1000, 3000, 9000});
+    CHECK(pipeline_latency.tick_to_signal.count() == 0);
+    CHECK(pipeline_latency.signal_to_pop.count() == 1);
+    CHECK(pipeline_latency.pop_to_done.count() == 1);
+    CHECK(pipeline_latency.total.count() == 1);
+    CHECK(pipeline_latency.total.percentile(0.50) >= 8);   // 8000ns = 8us
 
     std::cout << "test_latency_trace: " << g_checks << " checks passed\n";
     return 0;

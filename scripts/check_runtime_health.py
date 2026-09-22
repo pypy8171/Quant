@@ -242,6 +242,50 @@ def feed_ledger_rows(date: str) -> list:
     return [feed_row, ledger_row]
 
 
+def queue_latency_row(date: str) -> tuple:
+    """엔진이 HEALTH에 큐 고수위·버린 건수·구간 지연을 실었는지, 그리고 그날 버린 건이 있었는지.
+    버린 건수가 0이 아니면 그만큼 틱·주문·체결통보가 파이프라인에서 빠진 것이라 FAIL이다.
+    열이 NULL만 있으면 그 수치를 안 싣는 옛 exe가 돌고 있다는 뜻이다(배포 전 상태)."""
+    password = tsdb_password()
+
+    if not password:
+        return ("큐·지연 적재", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함")
+
+    psycopg2 = import_psycopg2()
+
+    if psycopg2 is None:
+        return ("큐·지연 적재", False, "WARN",
+                "psycopg2 없음 — venv(PYQuant/.venv*)로 부르거나 pip install psycopg2-binary")
+
+    try:
+        connection = psycopg2.connect(host="localhost", port=5432, dbname="quant", user="quant",
+                                      password=password, connect_timeout=3)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*) FILTER (WHERE queue_shard_capacity IS NOT NULL),"
+                " COALESCE(MAX(dropped_shard), 0) + COALESCE(MAX(dropped_order), 0)"
+                " + COALESCE(MAX(dropped_fill), 0),"
+                " COALESCE(MAX(100.0 * queue_shard_high_water / NULLIF(queue_shard_capacity, 0)), 0),"
+                " COALESCE(MAX(100.0 * queue_order_high_water / NULLIF(queue_order_capacity, 0)), 0),"
+                " COALESCE(MAX(total_p99_us), -1)"
+                " FROM health WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s", (date,))
+            metric_rows, dropped, shard_percent, order_percent, total_p99 = cursor.fetchone()
+
+        connection.close()
+    except psycopg2.errors.UndefinedColumn:   # 열을 아직 안 만든 DB — 새 적재기가 첫 HEALTH에서 만든다
+        return ("큐·지연 적재", True, "WARN", "health 표에 큐·지연 열 없음 — 적재기 배포 전")
+    except Exception as error:   # DB가 없거나 잠든 날은 판정을 미룬다
+        return ("큐·지연 적재", True, "WARN", f"DB 조회 실패 — 판정 안 함 ({str(error).strip()[:80]})")
+
+    if metric_rows == 0:
+        return ("큐·지연 적재", True, "WARN", "HEALTH에 큐·지연 수치 없음 — 그 수치를 안 싣는 옛 exe")
+
+    return ("큐·지연 적재", dropped == 0, "FAIL",
+            f"HEALTH {metric_rows}건, 버린 건수 {dropped} (기대 0), 고수위 샤드 {float(shard_percent):.1f}%"
+            f"·주문 큐 {float(order_percent):.1f}%, 전체 지연 p99 "
+            + (f"{total_p99 / 1000:.0f}ms" if total_p99 >= 0 else "표본 없음"))
+
+
 def collect(date: str, log: Path, since: int = 0):
     """로그 한 파일에서 그날 점검 행을 만든다.
 
@@ -488,6 +532,7 @@ def collect(date: str, log: Path, since: int = 0):
                     if basket_run_end else f"집행 끝 줄 없음, 창 종료 이월 {basket_window_closed}회, 주문 {len(basket_orders)}건")),
         *resource_sampling_rows(date),
         *feed_ledger_rows(date),
+        queue_latency_row(date),
     ]
     return rows, len(starts)
 

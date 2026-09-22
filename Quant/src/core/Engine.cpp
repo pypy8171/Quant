@@ -1956,7 +1956,36 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 #ifdef HAS_ZMQ
         if (zmq_bridge_)
         {
-            zmq_bridge_->publish_health(data_count_.load(), signal_count_.load(), order_count_.load());
+            ZmqBridge::HealthSnapshot snapshot;
+            snapshot.data_count   = data_count_.load();
+            snapshot.signal_count = signal_count_.load();
+            snapshot.order_count  = order_count_.load();
+
+            for (const auto& shard : pipeline_.shards)   // 샤드마다 셀 하나 — 가장 높았던 값만 싣는다
+            {
+                snapshot.shard_high_water = std::max<uint64_t>(snapshot.shard_high_water, shard->high_water());
+            }
+
+            snapshot.shard_capacity         = ShardPipeline::kTickCellCapacity;
+            snapshot.shard_out_size         = pipeline_.shard_out.size();
+            snapshot.shard_out_capacity     = pipeline_.shard_out.capacity();
+            snapshot.order_queue_high_water = pipeline_.order_queue.high_water();
+            snapshot.order_queue_capacity   = pipeline_.order_queue.capacity();
+            snapshot.fill_queue_high_water  = pipeline_.fill_queue.high_water();
+            snapshot.fill_queue_capacity    = pipeline_.fill_queue.capacity();
+            snapshot.shard_dropped          = pipeline_.shard_dropped.load(std::memory_order_relaxed);
+            snapshot.order_dropped          = pipeline_.order_dropped.load(std::memory_order_relaxed);
+            snapshot.fill_dropped           = pipeline_.fill_dropped.load(std::memory_order_relaxed);
+            snapshot.latency_samples        = pipeline_latency_.total.count();
+            snapshot.tick_to_signal_p50_us  = pipeline_latency_.tick_to_signal.percentile(0.50);
+            snapshot.tick_to_signal_p99_us  = pipeline_latency_.tick_to_signal.percentile(0.99);
+            snapshot.signal_to_pop_p50_us   = pipeline_latency_.signal_to_pop.percentile(0.50);
+            snapshot.signal_to_pop_p99_us   = pipeline_latency_.signal_to_pop.percentile(0.99);
+            snapshot.pop_to_done_p50_us     = pipeline_latency_.pop_to_done.percentile(0.50);
+            snapshot.pop_to_done_p99_us     = pipeline_latency_.pop_to_done.percentile(0.99);
+            snapshot.total_p50_us           = pipeline_latency_.total.percentile(0.50);
+            snapshot.total_p99_us           = pipeline_latency_.total.percentile(0.99);
+            zmq_bridge_->publish_health(snapshot);
         }
 #endif
     }
@@ -2444,8 +2473,9 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             // 재시도 건은 pop 시각이 첫 시도 것이라 구간이 부풀지 않게 첫 시도만 남긴다.
             if (next->attempts == 0)
             {
-                latency_trace.record(signal, trace::Marks{signal.tick_at_ns, signal.signal_at_ns, pop_ns, trace::now_ns()}, kis_called,
-                                 managed_order.status == OrderStatus::ACCEPTED);
+                const trace::Marks marks{signal.tick_at_ns, signal.signal_at_ns, pop_ns, trace::now_ns()};
+                latency_trace.record(signal, marks, kis_called, managed_order.status == OrderStatus::ACCEPTED);
+                pipeline_latency_.add(marks);   // 같은 값을 분포로도 — HEALTH가 분위수를 싣는다
             }
 
             // 단말이 없으면 JSON 직렬화를 건너뛴다 — 주문 스레드 hot path에서 받는 이 없는 문자열을 만들지 않는다.

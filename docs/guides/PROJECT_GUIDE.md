@@ -300,8 +300,8 @@ SELECT create_hypertable('signals', 'ts');
 CREATE TABLE orders ( ts, ticker, side, qty, price, ok BOOLEAN, market );
 SELECT create_hypertable('orders', 'ts');
 
--- 엔진 상태 (ZMQ HEALTH)
-CREATE TABLE health ( ts, data_cnt, signal_cnt, order_cnt );
+-- 엔진 상태 (ZMQ HEALTH) — 큐 고수위·버린 건수·구간 지연 p50/p99 열이 뒤에 더 붙는다(PYQuant/db/schema.sql)
+CREATE TABLE health ( ts, data_cnt, signal_cnt, order_cnt, queue_*, dropped_*, *_p50_us, *_p99_us );
 SELECT create_hypertable('health', 'ts');
 
 -- KIS REST 일봉 (bars_1d) — ON CONFLICT DO NOTHING (중복 방지)
@@ -527,7 +527,11 @@ topic    payload 예시
 TRADE    {"ts":1716220800000,"ticker":"005930","price":65000,"volume":1234,"direction":1,"market":"KR"}
 SIGNAL   {"ts":...,"strategy":"VALUE_CONTRARY","ticker":"005930","side":"BUY","qty":1,"price":0,"market":"KR"}
 ORDER    {"ts":...,"ticker":"005930","side":"BUY","qty":1,"price":0,"ok":true,"market":"KR"}
-HEALTH   {"ts":...,"data":123,"signal":5,"order":3}
+HEALTH   {"ts":...,"data":123,"signal":5,"order":3,"drop":0,
+          "queue_shard_high_water":37,"queue_shard_capacity":4096,"queue_order_high_water":3, ...,
+          "dropped_shard":0,"dropped_order":0,"dropped_fill":0,
+          "latency_samples":5,"tick_to_signal_p50_us":120,...,"total_p99_us":421000}
+         큐 고수위·지연 분위수는 기동 후 누적이라 줄지 않는다 — 구간 값은 읽는 쪽이 직전 행과 뺀다
 
 REP tcp://*:5556  요청/응답
   KILL   → "OK"

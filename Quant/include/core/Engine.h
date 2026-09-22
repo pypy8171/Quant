@@ -18,6 +18,7 @@
 #include "core/ShardRoutes.h"
 #include "core/StrategyShard.h"
 #include "core/RegimeFileJudge.h"
+#include "core/LatencyTrace.h"
 #include "core/Types.h"
 #include "risk/OrderGate.h"
 #include "strategy/StrategyBase.h"
@@ -574,6 +575,8 @@ private:
         wake::WakeGate order_wake; // order_thread ← strategy_thread
     };
     ShardPipeline pipeline_;
+    // 구간 지연 분포 — 주문 스레드가 넣고 데이터 스레드가 HEALTH에 분위수로 싣는다(원자 버킷이라 락 없음). [why D-071]
+    trace::PipelineLatency pipeline_latency_;
 
     // ── 스레드 핸들 ──────────────────────────────────────────────────────────
     std::jthread data_thread_;

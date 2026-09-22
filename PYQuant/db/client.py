@@ -71,6 +71,7 @@ class DbClient:
             )
 
         self._connect_parameters = dict(host=host, port=port, dbname=db, user=user, password=password)
+        self._health_columns_ready = False   # 첫 HEALTH에서 한 번 ALTER TABLE을 돌린다
         self._connect(retries, retry_interval)
 
     def _connect(self, retries: int, retry_interval: float):
@@ -160,18 +161,61 @@ class DbClient:
         except Exception as e:
             logger.error(f"insert_order 실패 (data={data}): {e}")
 
+    # 엔진이 HEALTH에 싣는 큐·지연 열. 옛 엔진(이 필드를 안 싣는 exe)이 보낸 행은 NULL로 들어간다.
+    _HEALTH_METRIC_COLUMNS = (
+        "queue_shard_high_water",
+        "queue_shard_capacity",
+        "queue_shard_out_size",
+        "queue_shard_out_capacity",
+        "queue_order_high_water",
+        "queue_order_capacity",
+        "queue_fill_high_water",
+        "queue_fill_capacity",
+        "dropped_shard",
+        "dropped_order",
+        "dropped_fill",
+        "latency_samples",
+        "tick_to_signal_p50_us",
+        "tick_to_signal_p99_us",
+        "signal_to_pop_p50_us",
+        "signal_to_pop_p99_us",
+        "pop_to_done_p50_us",
+        "pop_to_done_p99_us",
+        "total_p50_us",
+        "total_p99_us",
+    )
+
+    def ensure_health_metric_columns(self):
+        """기존 DB의 health 표에도 큐·지연 열이 있도록 보장. schema.sql은 DB를 새로 만들 때만 돈다."""
+        try:
+            with self._cursor() as cursor:
+                for name in self._HEALTH_METRIC_COLUMNS:
+                    cursor.execute(f"ALTER TABLE health ADD COLUMN IF NOT EXISTS {name} BIGINT")
+
+            self._health_columns_ready = True
+        except Exception as error:
+            logger.error(f"ensure_health_metric_columns 실패: {error}")
+
     def insert_health(self, data: dict):
         try:
             _require(data, "ts")
+
+            if not self._health_columns_ready:   # 리코더 기동 뒤 첫 HEALTH 한 번만
+                self.ensure_health_metric_columns()
+
+            names = ",".join(self._HEALTH_METRIC_COLUMNS)
+            placeholders = ",".join(["%s"] * (4 + len(self._HEALTH_METRIC_COLUMNS)))
+
             with self._cursor() as cursor:
                 cursor.execute(
-                    "INSERT INTO health(ts,data_cnt,signal_cnt,order_cnt)"
-                    " VALUES (%s,%s,%s,%s)",
+                    f"INSERT INTO health(ts,data_cnt,signal_cnt,order_cnt,{names})"
+                    f" VALUES ({placeholders})",
                     (
                         _ms_to_dt(data["ts"]),
                         data.get("data", 0),
                         data.get("signal", 0),
                         data.get("order", 0),
+                        *(data.get(name) for name in self._HEALTH_METRIC_COLUMNS),
                     ),
                 )
         except Exception as e:
