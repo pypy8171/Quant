@@ -412,6 +412,10 @@ if(UNIX)
     target_link_libraries(test_order_rate_limiter PRIVATE pthread)
 endif()
 
+# KIS REST 초당 한도 버킷(api/KisRateBucket.h) — 헤더 전용 constexpr, 네트워크 없음
+add_executable(test_kis_rate_bucket tests/test_kis_rate_bucket.cpp)
+target_include_directories(test_kis_rate_bucket PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # 매크로 국면 파일 전달(core/RegimeFileJudge.h) — 헤더 전용, 파일·로그 없음 (D-060)
 add_executable(test_devscale_rules tests/test_devscale_rules.cpp)
 target_include_directories(test_devscale_rules PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -748,6 +752,7 @@ set(QUANT_ASSERT_TARGETS
     test_data_poller
     test_signal_dispatcher
     test_order_rate_limiter
+    test_kis_rate_bucket
     test_bar_aggregator
     test_ops_protocol
     test_ops_server
