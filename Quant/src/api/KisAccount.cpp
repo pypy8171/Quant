@@ -3,6 +3,8 @@
 #include "KisClientInternal.h"
 #include "api/KisRestDecode.h"
 
+#include <ctime>
+
 // ─── 잔고 조회 (체결 확인용) — inquire-balance ────────────────────────────
 //  output1 = 보유종목 배열(pdno·hldg_qty·pchs_avg_pric), output2 = 계좌 요약. 필드 해석은
 //  kis_rest::decode_balance_page가 소유한다. (모의: VTTC8434R / 실거래: TTTC8434R)
@@ -104,9 +106,32 @@ KisResult<AccountBalance> KisClient::get_balance()
 //  응답 output(array) 필드는 소문자: kis_order_no·ord_gno_brno·pdno·prdt_name·psbl_qty·
 //  ord_unpr·sll_buy_dvsn_cd(01매도/02매수). 수량·단가는 문자열이라 파싱 가드.
 //  잔고처럼 ctx_area(FK/NK)로 페이지네이션한다.
+// 오늘 날짜 YYYYMMDD. 모의계좌 미체결 조회가 조회구간을 요구해서 쓴다.
+static std::string today_yyyymmdd()
+{
+    const std::time_t now = std::time(nullptr);
+    std::tm broken{};
+#ifdef _WIN32
+    localtime_s(&broken, &now);
+#else
+    localtime_r(&now, &broken);
+#endif
+    char buffer[16] = {0};
+    std::strftime(buffer, sizeof(buffer), "%Y%m%d", &broken);
+
+    return std::string(buffer);
+}
+
+// ─── 미체결 조회 ──────────────────────────────────────────────────────────
+//  실거래는 정정취소가능주문조회(inquire-psbl-rvsecncl, TTTC0084R)를 쓴다 — 취소 가능 수량을 바로 준다.
+//  모의계좌는 그 업무를 지원하지 않아("모의투자에서는 해당업무를 지원하지 않습니다") 늘 빈 목록이 돌아왔다.
+//  그래서 브로커에는 살아 있는데 엔진이 모르는 주문이 생겨도 대사가 못 잡았다 — 2026-09-23 09:26 021240에서
+//  전송 실패로 접수된 매도 18주(ODNO=0000007886)를 못 찾아 손절 불능 상태가 됐다. 모의는 일별주문체결조회
+//  (inquire-daily-ccld, VTTC0081R)로 당일분을 받아 잔여수량>0·미취소만 남긴다. [why D-101]
 std::vector<OpenOrder> KisClient::get_open_orders()
 {
-    std::string transaction_id = config_.is_paper ? "VTTC0084R" : "TTTC0084R";
+    const bool paper = config_.is_paper;
+    std::string transaction_id = paper ? "VTTC0081R" : "TTTC0084R";
 
     auto to_int = [](const std::string& text) -> int
     { try { return text.empty() ? 0 : std::stoi(text); } catch (...) { return 0; } };
@@ -127,11 +152,25 @@ std::vector<OpenOrder> KisClient::get_open_orders()
 
     for (int page = 0; page < 30; ++page) // 안전 상한(무한루프 방지)
     {
-        std::string url = base_url() +
-                          "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl" +
-                          "?CANO=" + config_.account_no + "&ACNT_PRDT_CD=" + config_.account_type +
-                          "&INQR_DVSN_1=0&INQR_DVSN_2=0" +
-                          "&CTX_AREA_FK100=" + forward_key + "&CTX_AREA_NK100=" + next_key;
+        std::string url = base_url();
+
+        if (paper)
+        {
+            const std::string today = today_yyyymmdd();
+            url += "/uapi/domestic-stock/v1/trading/inquire-daily-ccld"
+                   "?CANO=" + config_.account_no + "&ACNT_PRDT_CD=" + config_.account_type +
+                   "&INQR_STRT_DT=" + today + "&INQR_END_DT=" + today +
+                   "&SLL_BUY_DVSN_CD=00&INQR_DVSN=00&PDNO=&CCLD_DVSN=00&ORD_GNO_BRNO=&ODNO="
+                   "&INQR_DVSN_3=00&INQR_DVSN_1=" +
+                   "&CTX_AREA_FK100=" + forward_key + "&CTX_AREA_NK100=" + next_key;
+        }
+        else
+        {
+            url += "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl"
+                   "?CANO=" + config_.account_no + "&ACNT_PRDT_CD=" + config_.account_type +
+                   "&INQR_DVSN_1=0&INQR_DVSN_2=0" +
+                   "&CTX_AREA_FK100=" + forward_key + "&CTX_AREA_NK100=" + next_key;
+        }
 
         std::string response = http_get(url, authentication_headers(transaction_id, {"tr_cont: " + continuation}));
 
@@ -157,16 +196,26 @@ std::vector<OpenOrder> KisClient::get_open_orders()
             break;
         }
 
-        if (document.contains("output") && document["output"].is_array())
+        // 응답 배열 이름과 수량 필드가 두 엔드포인트에서 다르다. 모의는 output1/rmn_qty(잔여), 실거래는
+        //  output/psbl_qty(취소가능). [inv] rows는 document가 사는 동안만 유효하다.
+        const char* const rows_key = paper ? "output1" : "output";
+        const auto rows = document.find(rows_key);
+
+        if (rows != document.end() && rows->is_array())
         {
-            for (auto& output_node : document["output"])
+            for (auto& output_node : *rows)
             {
+                if (paper && output_node.value("cncl_yn", std::string("")) == "Y")
+                {
+                    continue; // 이미 취소된 주문
+                }
+
                 OpenOrder open_order;
                 open_order.ticker    = output_node.value("pdno", std::string(""));
                 open_order.name      = output_node.value("prdt_name", std::string(""));
                 open_order.kis_order_no      = output_node.value("odno", output_node.value("ODNO", std::string("")));
                 open_order.krx_forwarding_org_no = output_node.value("ord_gno_brno", std::string(""));
-                open_order.psbl_qty  = to_int(output_node.value("psbl_qty", std::string("")));
+                open_order.psbl_qty  = to_int(output_node.value(paper ? "rmn_qty" : "psbl_qty", std::string("")));
                 open_order.ord_unpr  = to_dbl(output_node.value("ord_unpr", std::string("")));
                 std::string buy_sell_code = output_node.value("sll_buy_dvsn_cd", std::string(""));
                 open_order.side = (buy_sell_code == "01") ? OrderSide::SELL

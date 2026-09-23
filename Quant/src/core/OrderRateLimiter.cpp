@@ -30,6 +30,15 @@ RetryPlan classify(const OrderSignal& signal, int attempts, int max_retries, Ord
         return {Retry::RATE_LIMIT, per_min ? std::chrono::milliseconds(kPerMinuteBackoff) : retry_delay};
     }
 
+    // 전송 실패는 거부가 아니라 '모름'이다 — 응답을 못 받았을 뿐 KIS에는 접수됐을 수 있다. 되쏘면 같은 주문이
+    //  둘이 된다. 2026-09-23 09:26 021240에서 실제로 났다: 매도 세 번을 내고 셋 다 실패로 적었는데 브로커에는
+    //  18주 매도(ODNO=0000007886)가 살아 있었다. 엔진이 모르는 주문이라 손절이 닿아도 팔 수 없는 상태가 됐다.
+    //  BUY를 빼 둔 이유와 같은 이유이므로 SELL에도 똑같이 적용한다. 접수 여부는 미체결 조회로 맞춘다.
+    if (reject_reason.find(kis_error::kTransport) != std::string::npos)
+    {
+        return {};
+    }
+
     // 청산 SELL 유실 방지(C-2). BUY는 제외: 빈-ODNO 응답이 실제로는 접수됐을 수 있어 재시도가 중복주문을 낳는다.
     //  40240000(주문가능분 없음)도 제외: 보유수량이 예약매도/미결제로 묶인 '지속성' 조건이라 되쏘면 매번 같은
     //  거부다. 유일 해법(예약매도 취소→시장가 재매도)은 라우터의 reconcile_blocked_sell이 이미 1회 시도했다.

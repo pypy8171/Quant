@@ -1082,6 +1082,39 @@ void OrderRouter::cancel_stale_orders_async()
         }
     }
 
+    // 부속 파일은 우리가 ODNO를 받은 주문만 안다. 전송이 타임아웃 나면 KIS에는 접수됐는데 우리는 ODNO를
+    //  못 받아 파일에 못 적는다 — 그렇게 남은 주문은 아무도 취소해 주지 않는다(2026-09-23 09:26 021240,
+    //  ODNO=0000007886 매도 18주가 살아남아 보유분이 묶이고 손절 불능이 됐다). 브로커에 직접 물어 빠진
+    //  주문을 채운다. [why D-101]
+    try
+    {
+        for (const auto& open : kis_.get_open_orders())
+        {
+            if (open.kis_order_no.empty() || open.psbl_qty <= 0)
+            {
+                continue;
+            }
+
+            const bool known = std::any_of(rows.begin(), rows.end(),
+                                           [&open](const std::array<std::string, 5>& parts)
+                                           { return parts[0] == open.kis_order_no; });
+
+            if (known)
+            {
+                continue;
+            }
+
+            LOG_WARN("[OrderRouter] 부속 파일에 없는 미체결 — 브로커 조회로 보충 " + open.ticker + " ODNO=" +
+                     open.kis_order_no + " " + std::to_string(open.psbl_qty) + "주");
+            rows.push_back({open.kis_order_no, open.krx_forwarding_org_no, open.ticker,
+                            open.side == OrderSide::SELL ? "SELL" : "BUY", std::to_string(open.psbl_qty)});
+        }
+    }
+    catch (const std::exception& exception)
+    {
+        LOG_WARN("[OrderRouter] 미체결 보충 조회 실패 — " + std::string(exception.what()));
+    }
+
     if (rows.empty())
     {
         return;
@@ -1142,6 +1175,7 @@ void OrderRouter::cancel_stale_orders_async()
 
             OrderAck result;
             bool     rate_limited = false;
+            bool     transport_unknown = false;
 
             // 한도 거부(EGW00201)는 "이미 종료"가 아니다. 같은 분기로 흘리면 유령 예약이 KIS에
             //  남은 채 전략이 같은 종목을 새로 깔아 체결 시 이중 포지션이 된다(09-11 09:17~09:18
@@ -1160,8 +1194,11 @@ void OrderRouter::cancel_stale_orders_async()
                 }
 
                 rate_limited = !result.ok() && result.error_code == kis_error::kRateLimit;
+                // 전송 실패는 '취소됨'이 아니라 '모름'이다 — 응답만 못 받았을 뿐 취소가 안 갔을 수 있다.
+                //  아래에서 한도 거부와 같이 잔존으로 다룬다.
+                transport_unknown = !result.ok() && result.error_code == kis_error::kTransport;
 
-                if (!rate_limited || stop_token.stop_requested())
+                if ((!rate_limited && !transport_unknown) || stop_token.stop_requested())
                 {
                     break;
                 }
@@ -1169,11 +1206,16 @@ void OrderRouter::cancel_stale_orders_async()
                 std::this_thread::sleep_for(std::chrono::milliseconds(1200));
             }
 
-            if (rate_limited)
+            if (rate_limited || transport_unknown)
             {
                 // 줄은 carry_rows_에 남긴다 — 다음 재기동이 다시 시도한다.
-                LOG_WARN("[OrderRouter] 유령주문 취소 실패(한도 거부 반복) — KIS에 잔존 " + row[2] +
-                         " ODNO=" + row[0] + " " + std::to_string(quantity) + "주 (부속 파일에 유지)");
+                //  전송 실패를 종료로 단정해 지우면 그 주문은 아무도 다시 지우지 않는다. 2026-09-23 09:43
+                //  기동 취소에서 316140(ODNO=0000009703)·012750(ODNO=0000009712) 두 건이 그렇게 사라졌고,
+                //  보유 37주·16주가 주문가능 0으로 묶여 손절이 닿아도 못 파는 상태가 됐다. [why D-101]
+                LOG_WARN(std::string("[OrderRouter] 유령주문 취소 실패(") +
+                         (rate_limited ? "한도 거부 반복" : "전송 실패 — 취소됐는지 모름") +
+                         ") — KIS에 잔존 " + row[2] + " ODNO=" + row[0] + " " +
+                         std::to_string(quantity) + "주 (부속 파일에 유지)");
                 continue;
             }
 
