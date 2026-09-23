@@ -615,8 +615,9 @@ int run_symbol_role_case()
     return 0;
 }
 
-// D-114 단계 4 — 주문 쪽 스위치를 고치는 자리가 주문 스레드 하나인 것을 고정한다. 전략 역할이면
-//  Engine::request_* 가 제어 요청 한 줄로 바뀌고, 값은 주문 스레드가 그 줄을 집은 뒤에 바뀐다.
+// D-114 단계 4 — 주문 쪽 스위치를 고치는 자리가 주문 스레드 하나인 것을 고정한다. Engine::request_* 는
+//  제어 요청 한 줄로 바뀌고, 값은 주문 스레드가 그 줄을 집은 뒤에 바뀐다. Both 로 돌 때도 같은 통로다 —
+//  전략 프로세스 안 여러 생산자가 앞 토막에 모이고, 전략 스레드가 경계 너머 제어 면으로 옮긴다.
 int run_switch_role_case()
 {
     using namespace std::chrono_literals;
@@ -630,15 +631,13 @@ int run_switch_role_case()
     engine.add_strategy(std::make_unique<BuyOnce>("005930"));
     engine.set_feed_source(std::move(feed_owned), 1'000'000.0);
 
-    // 1. 역할을 주기 전은 지금까지와 같다 — 부른 그 자리에서 바뀐다.
+    // 1. 역할을 주기 전에도 통로를 탄다 — 부른 그 자리에서는 바뀌지 않는다. Both 만 질러가게 두면
+    //  그 통로가 갈라 띄운 날 처음 돈다.
     engine.request_entry_halt(true);
-    CHECK(engine.is_entry_halted());
-    engine.request_entry_halt(false);
     CHECK(!engine.is_entry_halted());
 
     engine.start();
     CHECK(engine.is_running());
-    engine.set_role(ProcessRole::Strategy);
 
     // 주문 스레드가 제어 큐를 집어 갈 때까지 짧게 본다. 값이 바뀌는 시점이 부른 자리가 아니라는 것이 요점이다.
     const auto settled = [](auto&& reached) -> bool
@@ -658,31 +657,36 @@ int run_switch_role_case()
         return false;
     };
 
-    // 2. 신규 진입 정지 — 켜고 끈다.
-    engine.request_entry_halt(true);
+    // 2. 뜨기 전에 넣은 줄도 잃지 않는다 — 전략 스레드가 옮기고 주문 스레드가 건다.
     CHECK(settled([&engine] { return engine.is_entry_halted(); }));
+
+    engine.set_role(ProcessRole::Strategy);
+
+    // 3. 신규 진입 정지 — 끄고 다시 켠다. 역할을 줘도 통로는 같다.
     engine.request_entry_halt(false);
     CHECK(settled([&engine] { return !engine.is_entry_halted(); }));
+    engine.request_entry_halt(true);
+    CHECK(settled([&engine] { return engine.is_entry_halted(); }));
 
-    // 3. 매수 비율 — 스위치가 아니라 값이라 칸을 따로 둔다.
+    // 4. 매수 비율 — 스위치가 아니라 값이라 칸을 따로 둔다.
     constexpr double kScaleUnderTest = 0.4;
     engine.request_entry_scale(kScaleUnderTest);
     CHECK(settled([&engine] { return std::fabs(engine.entry_scale() - kScaleUnderTest) < 1e-9; }));
 
-    // 4. 수동 정지 — 방향 칸이 같이 건너간다(매도만 걸고 매수는 그대로).
+    // 5. 수동 정지 — 방향 칸이 같이 건너간다(매도만 걸고 매수는 그대로).
     engine.request_manual_halt(OrderSide::SELL, true);
     CHECK(settled([&engine] { return engine.is_manual_sell_halted(); }));
 
-    // 5. 전방향 차단 — 마지막에 건다.
+    // 6. 전방향 차단 — 마지막에 건다.
     engine.request_kill_switch(true);
     CHECK(settled([&engine] { return engine.is_killed(); }));
 
     engine.stop();
     CHECK(!engine.is_running());
 
-    // 6. 집어 갈 쪽이 멎으면 값이 안 바뀐다 — 요청은 큐에 남고, 여기서 제 손으로 고치지 않는다.
-    engine.request_entry_halt(true);
-    CHECK(!engine.is_entry_halted());
+    // 7. 집어 갈 쪽이 멎으면 값이 안 바뀐다 — 요청은 통로에 남고, 여기서 제 손으로 고치지 않는다.
+    engine.request_entry_halt(false);
+    CHECK(engine.is_entry_halted());
 
     return 0;
 }

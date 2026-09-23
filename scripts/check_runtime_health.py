@@ -112,6 +112,7 @@ LEDGER_GEN_RE = re.compile(r"ledger_gen=(\d+)")
 LEDGER_FOREIGN_RE = re.compile(r"ledger_foreign=(\d+)")
 # 제어 요청(D-114 단계 2.5 갈래 B) — 전략이 큐가 가득 차 못 보낸 줄 수, 주문 쪽이 반쪽 표로 보고 버린 줄 수.
 CONTROL_DROP_RE = re.compile(r"control_dropped=(\d+)")
+CONTROL_RELAY_DROP_RE = re.compile(r"control_relay_dropped=(\d+)")
 CONTROL_DISCARD_RE = re.compile(r"control_discarded=(\d+)")
 # 티커→번호(D-114 단계 4) — 등록을 주문 쪽에서 못 받은 수, 표에 없는 티커로 잦은 자리가 불린 수.
 SYMBOL_REGISTER_TIMEOUT_RE = re.compile(r"symbol_register_timeout=(\d+)")
@@ -557,7 +558,8 @@ def collect(date: str, log: Path, since: int = 0):
     ledger_gen_previous = -1                     # 직전 고수위 줄의 판 번호. 같으면 그사이에 한 판도 안 나간 것
     ledger_stall_at = []                         # 판이 안 늘어난 지점의 초
     ledger_foreign = -1                          # 사본에 못 실은 남의 계좌 줄 수. -1이면 그 줄이 없는 구 exe
-    control_dropped = 0                          # 큐가 가득 차 전략이 못 보낸 제어 요청 줄 수
+    control_dropped = 0                          # 앞 토막이 가득 차 전략이 못 보낸 제어 요청 줄 수
+    control_relay_dropped = -1                   # 경계 너머 제어 면이 가득 차 못 옮긴 줄 수. -1이면 그 줄이 없는 옛 바이너리
     control_discarded = -1                       # 주문 쪽이 반쪽 표로 보고 버린 줄 수. -1이면 그 줄이 없는 구 exe
     symbol_register_timeout = -1                 # 등록을 주문 쪽에서 못 받은 수. -1이면 그 줄이 없는 구 exe
     symbol_lookup_miss = 0                       # 표에 없는 티커로 잦은 자리가 불린 수
@@ -614,6 +616,8 @@ def collect(date: str, log: Path, since: int = 0):
                 ledger_foreign = max(ledger_foreign, int(found.group(1)))
             if found := CONTROL_DROP_RE.search(line):
                 control_dropped = max(control_dropped, int(found.group(1)))
+            if found := CONTROL_RELAY_DROP_RE.search(line):
+                control_relay_dropped = max(control_relay_dropped, int(found.group(1)))
             if found := CONTROL_DISCARD_RE.search(line):
                 control_discarded = max(control_discarded, int(found.group(1)))
             if found := SYMBOL_REGISTER_TIMEOUT_RE.search(line):
@@ -841,8 +845,13 @@ def collect(date: str, log: Path, since: int = 0):
         # 슬롯 면제 집합·진입 우선순위 표는 전략이 여러 줄로 보내고 주문 쪽이 모아서 건다. 한 줄이라도 새면
         #  그 표는 통째로 안 걸린다 — 면제가 빠진 바스켓 보유분이 남의 슬롯을 먹고, 랭크를 잃은 종목이
         #  우선순위 바를 건너뛴다. 둘 다 0이어야 전략이 고친 표가 그날 실제로 걸린 것이다.
-        control_row("제어 요청 표", control_dropped == 0 and control_discarded == 0, "FAIL",
-                    f"못 보낸 줄 {control_dropped}건 · 버린 줄 {control_discarded}건 (둘 다 기대 0)"),
+        control_row("제어 요청 표",
+                    control_dropped == 0 and control_discarded == 0 and control_relay_dropped <= 0,
+                    "FAIL",
+                    f"못 보낸 줄 {control_dropped}건 · "
+                    # 옮기는 자리가 붙기 전 바이너리는 이 칸이 없다 — 그때는 줄을 비워 두고 나머지 둘로만 본다.
+                    + (f"못 옮긴 줄 {control_relay_dropped}건 · " if control_relay_dropped >= 0 else "")
+                    + f"버린 줄 {control_discarded}건 (모두 기대 0)"),
         # 종목 표에 넣는 쪽은 주문 프로세스 하나다. 등록을 못 받으면 그 종목 줄을 접으므로 전략이 그 종목을
         #  아예 못 보고(신호 유실), 표에 없는 티커로 잦은 자리가 불리면 그 틱·신호가 번호 없이 버려진다.
         symbol_row("종목 번호 등록", symbol_register_timeout == 0 and symbol_lookup_miss == 0, "FAIL",

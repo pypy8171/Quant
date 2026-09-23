@@ -80,6 +80,7 @@ bool Engine::bind_layout(uint32_t feed_lanes)
 
     // 자리표 위 면을 쓰는 자리에 꽂는다. [inv] 이 포인터들은 다음 bind_layout 까지만 유효하다.
     ledger_snapshot_             = layout_.ledger();
+    pipeline_.controls           = &layout_.controls();
     pipeline_.order_responses    = &layout_.responses();
     pipeline_.strategy_heartbeat = &layout_.heartbeats()->strategy;
     return true;
@@ -1595,8 +1596,12 @@ symbol::SymbolId Engine::register_symbol(std::string_view ticker)
 }
 
 // ─── 주문 쪽 스위치 다섯 ──────────────────────────────────────────────────
-//  OrderGate·원장은 주문 프로세스 것이다. 전략 역할이면 제어 요청 한 줄로 바꿔 보내고, 고치는 일은
-//  주문 스레드가 한다(D-071 원칙 4). Both 역할이면 지금까지처럼 그 자리에서 고친다. [why D-114]
+//  OrderGate·원장은 주문 프로세스 것이다. 고치는 일은 주문 스레드가 하고(D-071 원칙 4), 딴 스레드는
+//  제어 요청 한 줄로 부탁한다. 통로를 탈지 그 자리에서 고칠지는 **부르는 자리가 어느 프로세스 것인가**로
+//  갈린다 — 역할 이름이 아니다. [why D-114]
+//  - 신규진입 정지·매수 비율: 매크로 국면 폴링(전략 쪽 일감)만 부른다 → 통로
+//  - 하루치 새로 열기·전방향 차단·수동 정지: 개장 전이(order_side 가드)·ZMQ·시세 감시·운영단말만 부르고
+//    그 넷은 모두 주문 프로세스 것이다 → 그 자리에서 고친다. 전략 역할 분기는 남의 손이 닿을 때의 안전망이다
 
 void Engine::send_control_switch(ipc::ControlRequest& request, std::string_view what)
 {
@@ -1636,7 +1641,10 @@ void Engine::request_reset_daily()
 
 void Engine::request_entry_halt(bool on)
 {
-    if (role_ != ProcessRole::Strategy)
+    // 부르는 자리는 매크로 국면 폴링 하나이고 그것은 전략 쪽 일감이다 — Both 로 돌아도 같은 통로를 태운다.
+    //  여기서 Both 만 질러가게 두면 통로가 갈라 띄운 날 처음 돈다. [why D-114]
+    //  [inv] 주문 프로세스에는 옮겨 줄 전략 스레드가 없다 — 그 역할이면 넣지 않고 그 자리에서 고친다.
+    if (role_ == ProcessRole::Order)
     {
         order_gate_.set_entry_halt(on);
         return;
@@ -1650,7 +1658,8 @@ void Engine::request_entry_halt(bool on)
 
 void Engine::request_entry_scale(double entry_scale)
 {
-    if (role_ != ProcessRole::Strategy)
+    // 신규진입 정지와 같은 자리에서 같은 판정으로 나온다 — 통로도 같다. [why D-114]
+    if (role_ == ProcessRole::Order)
     {
         order_gate_.set_entry_scale(entry_scale);
         return;
@@ -2452,9 +2461,10 @@ bool Engine::send_control(ipc::ControlRequest& request)
     request.sequence   = pipeline_.control_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
     request.sent_at_ns = trace::now_ns();
 
-    if (pipeline_.control_queue.push(request))
+    if (pipeline_.strategy_control_outbox.push(request))
     {
-        pipeline_.order_wake.notify(); // 자고 있으면 깨운다 — 잠드는 조건이 이 큐도 본다
+        // 깨울 쪽은 옮겨 줄 전략 스레드다. 주문 스레드는 옮기는 쪽이 옮긴 뒤 깨운다. [why D-114]
+        pipeline_.strategy_wake.notify();
         return true;
     }
 
@@ -2564,12 +2574,35 @@ bool Engine::ControlProtectiveRegistry::consume_fired(const std::string& account
     return engine_.protective_book_.consume_fired(account, symbol);
 }
 
+void Engine::relay_control_requests()
+{
+    bool moved = false;
+
+    while (auto option = pipeline_.strategy_control_outbox.pop())
+    {
+        if (!pipeline_.controls->push(*option))
+        {
+            // 보낸 쪽은 이미 성공을 받아 갔다 — 여기서 조용히 버리면 사라진 표를 아무도 모른다.
+            pipeline_.control_relay_dropped.fetch_add(1, std::memory_order_relaxed);
+            LOG_ERROR("[Engine] 제어 요청을 주문 쪽에 못 옮겼다 — 경계 너머 제어 면이 가득 찼다");
+            continue;
+        }
+
+        moved = true;
+    }
+
+    if (moved)
+    {
+        pipeline_.order_wake.notify(); // 자고 있으면 깨운다 — 잠드는 조건이 이 면도 본다
+    }
+}
+
 void Engine::apply_control_requests(ControlInbox& inbox)
 {
-    while (auto option = pipeline_.control_queue.pop())
-    {
-        const ipc::ControlRequest& request = *option;
+    ipc::ControlRequest request;
 
+    while (pipeline_.controls->pop(request))
+    {
         switch (request.kind)
         {
         case ipc::ControlKind::kSlotExemptBegin:
@@ -3069,6 +3102,9 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
             pending_requests.note_response(response.sequence);
         }
 
+        // 전략 쪽 생산자들이 넣은 제어 요청을 경계 너머로 옮긴다 — 보내는 쪽이 하나여야 하는 자리다. [why D-114]
+        relay_control_requests();
+
         const auto loop_now = std::chrono::steady_clock::now();
 
         // 운영단말 수동주문 — 소켓 스레드가 넣은 요청을 여기서 OrderSignal로 바꾼다(단일 생산자).
@@ -3396,7 +3432,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             // 제어 요청도 이 스레드가 처리하므로 잠드는 조건에 같이 넣는다 — 안 넣으면 표 고치기가
             //  다음 주문이나 100ms 만기까지 밀린다. [why D-114]
             pipeline_.order_wake.wait_until(deadline, stop_token, [this] {
-                return pipeline_.order_queue.empty() && pipeline_.control_queue.empty();
+                return pipeline_.order_queue.empty() && pipeline_.controls->pending() == 0;
             });
 
             // 주문이 없어도 장부는 바뀐다 — 잔고 재시드·진입 정지·평가금·슬롯 면제 집합은 다른 스레드가 고친다.
@@ -3705,8 +3741,10 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                      // 장부 사본 — 몇 판 나왔는지와 못 실은 남의 계좌 줄 수. 뒤엣것은 0이어야 한다. [why D-114]
                      " ledger_gen=" + std::to_string(ledger_snapshot_->generation()) +
                      " ledger_foreign=" + std::to_string(order_gate_.ledger_foreign_account_rows()) +
-                     // 제어 요청 — 못 보낸 줄과 반쪽 표로 보고 버린 줄. 둘 다 0이어야 한다. [why D-114]
+                     // 제어 요청 — 못 보낸 줄, 경계 너머로 못 옮긴 줄, 반쪽 표로 보고 버린 줄. 셋 다 0이어야 한다. [why D-114]
                      " control_dropped=" + std::to_string(pipeline_.control_dropped.load(std::memory_order_relaxed)) +
+                     " control_relay_dropped=" +
+                     std::to_string(pipeline_.control_relay_dropped.load(std::memory_order_relaxed)) +
                      " control_discarded=" +
                      std::to_string(pipeline_.control_discarded.load(std::memory_order_relaxed)) +
                      // 티커→번호 — 등록을 주문 쪽에서 못 받은 수, 표에 없는 티커로 잦은 자리가 불린 수. 둘 다 0이어야 한다. [why D-114]

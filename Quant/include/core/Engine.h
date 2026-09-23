@@ -456,7 +456,11 @@ private:
         ipc::ControlTableBuilder entry_priority{ipc::kControlTableMax};
     };
 
-    // 큐에 쌓인 제어 요청을 비우고 완성된 표를 건다. [inv] order_thread에서만 부른다(원칙 4).
+    // 전략 쪽 생산자들이 앞 토막에 넣은 제어 요청을 경계 너머 제어 면으로 옮긴다 — 여럿이 넣은 줄을 한 줄로 모으는 자리다.
+    //  [inv] strategy_thread에서만 부른다 — 앞 토막이 MPSC라 꺼내는 쪽이 하나여야 한다. [why D-114]
+    void relay_control_requests();
+
+    // 제어 면에 쌓인 요청을 비우고 완성된 표를 건다. [inv] order_thread에서만 부른다(원칙 4).
     void apply_control_requests(ControlInbox& inbox);
 
     // 전략이 보는 보호 주문 창구. 켜고 끄기는 요청으로 주문 스레드에 넘기고, 읽기 둘은 표를 그대로 본다 —
@@ -713,13 +717,20 @@ private:
         ipc::SharedSpscRing<ipc::OrderResponse>* order_responses = nullptr;
         std::atomic<uint64_t> order_response_dropped{0}; // 전략이 답을 안 가져가 버린 응답 수
         std::atomic<uint64_t> order_duplicate{0};        // 주문 쪽이 같은 순번을 두 번 받아 거른 수. 0이 아니면 통로가 샜다
-        // 전략 쪽이 주문 쪽 표를 고쳐 달라고 보내는 통로(슬롯 면제 집합·진입 우선순위 표·보호 주문 등록).
-        //  생산자가 샤드 스레드·데이터 스레드로 여럿이라 MPSC(원칙 5). 표 하나가 여러 줄로 오므로
-        //  용량은 표 상한의 몇 배로 둔다 — 한 줄만 잃어도 그 표는 통째로 버려진다. [why D-114]
+        // 전략 쪽이 주문 쪽 표를 고쳐 달라고 보내는 통로(슬롯 면제 집합·진입 우선순위 표·보호 주문 등록,
+        //  매크로 국면의 신규진입 정지·매수 비율). 통로는 두 토막이다 — 전략 프로세스 안에서 여럿이 모이는
+        //  앞 토막과, 경계를 넘는 뒤 토막. 공유 쪽지 큐는 보내는 쪽이 하나여야 해서 한 줄로 모은다. [why D-114]
+        //  표 하나가 여러 줄로 오므로 용량은 표 상한의 몇 배로 둔다 — 한 줄만 잃어도 그 표는 통째로 버려진다.
         static constexpr size_t kControlQueueCapacity = 8192;
-        MpscQueue<ipc::ControlRequest> control_queue{kControlQueueCapacity};
+        // 앞 토막. 생산자가 샤드 스레드·데이터 스레드로 여럿이라 MPSC(원칙 5).
+        //  [inv] 비우는 쪽은 전략 스레드 하나다(relay_control_requests). 여럿이 꺼내면 MPSC 약속이 깨진다.
+        MpscQueue<ipc::ControlRequest> strategy_control_outbox{kControlQueueCapacity};
+        // 뒤 토막. 자리표 위 제어 면이고 여기 있는 것은 그 자리를 가리키는 포인터다. 전략 스레드가 넣고
+        //  주문 스레드가 꺼낸다. [inv] bind_layout()이 꽂는다. [why D-114]
+        ipc::SharedSpscRing<ipc::ControlRequest>* controls = nullptr;
         std::atomic<uint64_t> control_sequence{0};  // 제어 요청 순번 발급기. 0은 안 쓴다
-        std::atomic<uint64_t> control_dropped{0};   // 큐가 가득 차 못 보낸 줄 수. 0이 아니면 표가 버려졌다
+        std::atomic<uint64_t> control_dropped{0};   // 앞 토막이 가득 차 못 보낸 줄 수. 0이 아니면 표가 버려졌다
+        std::atomic<uint64_t> control_relay_dropped{0}; // 뒤 토막이 가득 차 못 옮긴 줄 수. 보낸 쪽은 성공을 받은 뒤다
         std::atomic<uint64_t> control_discarded{0}; // 주문 쪽이 반쪽 표로 보고 버린 줄 수
         // 전략 스레드가 한 바퀴마다 찍고 주문 스레드가 공백만 보고 생사를 판정한다. 자리표의 박동 면
         //  가운데 전략 쪽 칸을 가리킨다 — 프로세스가 갈려도 찍는 자리도 보는 자리도 그대로다. [why D-114]
