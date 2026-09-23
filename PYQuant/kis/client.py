@@ -695,29 +695,43 @@ class KisClient:
         return [rows[k] for k in sorted(rows.keys())]
 
     # ── 거래대금 상위 랭킹 (대시보드 스냅샷용) ────────────────────────────────
-    def get_volume_ranking(self, top_n: int = 30, by_value: bool = True) -> list[dict]:
-        """국내주식 거래량/거래대금 순위 (TR FHPST01710000). 코스콤 실시간이 아닌
-        REST 스냅샷이다. by_value=True면 거래금액순(FID_BLNG_CLS_CODE=3), False면 거래량순(0).
-        반환: [{rank, ticker, name, price, change_rate, volume, trade_value}] (trade_value=누적거래대금 원)."""
-        data = self._get(
-            "/uapi/domestic-stock/v1/quotations/volume-rank",
-            {
-                "FID_COND_MRKT_DIV_CODE": "J",
-                "FID_COND_SCR_DIV_CODE":  "20171",
-                "FID_INPUT_ISCD":         "0000",
-                "FID_DIV_CLS_CODE":       "0",
-                "FID_BLNG_CLS_CODE":      "3" if by_value else "0",
-                "FID_TRGT_CLS_CODE":      "111111111",
-                "FID_TRGT_EXLS_CLS_CODE": "0000000000",
-                "FID_INPUT_PRICE_1":      "",
-                "FID_INPUT_PRICE_2":      "",
-                "FID_VOL_CNT":            "",
-                "FID_INPUT_DATE_1":       "",
-            },
-            "FHPST01710000",
-        )
+    # 대상 제외 구분 코드(FID_TRGT_EXLS_CLS_CODE)는 10자리 비트마스크다. 자리 순서는
+    #  투자위험/경고/주의 · 관리종목 · 정리매매 · 불성실공시 · 우선주 · 거래정지 · ETF · ETN · 신용주문불가 · SPAC
+    #  (KIS 공식 샘플 volume_rank.py로 2026-09-23 확인). 7·8번째를 켜면 ETF·ETN이 API단에서 빠진다.
+    RANK_EXCLUDE_ETF_ETN = "0000001100"
+    RANK_EXCLUDE_NONE    = "0000000000"
+    # 한 번에 오는 행수 상한. KIS가 고정한 값이라 요청으로 늘릴 수 없다.
+    VOLUME_RANK_PAGE_ROWS = 30
+
+    def _volume_rank_page(self, by_value: bool, exclude_etf: bool,
+                          price_from: str = "", price_to: str = "") -> list[dict]:
+        """volume-rank 한 페이지(최대 30행). 가격 구간을 주면 그 구간 안에서만 순위를 매긴다."""
+        path = "/uapi/domestic-stock/v1/quotations/volume-rank"
+        parameters = {
+            "FID_COND_MRKT_DIV_CODE": "J",
+            "FID_COND_SCR_DIV_CODE":  "20171",
+            "FID_INPUT_ISCD":         "0000",
+            "FID_DIV_CLS_CODE":       "0",
+            "FID_BLNG_CLS_CODE":      "3" if by_value else "0",
+            "FID_TRGT_CLS_CODE":      "111111111",
+            "FID_TRGT_EXLS_CLS_CODE": self.RANK_EXCLUDE_ETF_ETN if exclude_etf else self.RANK_EXCLUDE_NONE,
+            "FID_INPUT_PRICE_1":      price_from,
+            "FID_INPUT_PRICE_2":      price_to,
+            "FID_VOL_CNT":            "",
+            "FID_INPUT_DATE_1":       "",
+        }
+        # 유량초과(rt_cd=1)는 HTTP 200으로 와서 _get의 재시도가 잡지 못한다 — 여기서 간격을
+        #  벌려 두 번 더 친다(0.4초 한 번으로는 같은 주기의 다른 조회와 겹칠 때 모자랐다, 09-23 실측).
+        data = self._get(path, parameters, "FHPST01710000")
+        for backoff_sec in (0.4, 0.9):
+            if str(data.get("rt_cd", "0")) == "0":
+                break
+
+            time.sleep(backoff_sec)
+            data = self._get(path, parameters, "FHPST01710000")
+
         rows: list[dict] = []
-        for item in data.get("output", [])[:top_n]:
+        for item in data.get("output", []):
             try:
                 rows.append({
                     "rank":        int(item.get("data_rank", 0) or 0),
@@ -730,7 +744,41 @@ class KisClient:
                 })
             except (ValueError, TypeError):
                 continue
+
         return rows
+
+    def get_volume_ranking(self, top_n: int = 30, by_value: bool = True,
+                           exclude_etf: bool = True, price_split: int = 60000) -> list[dict]:
+        """국내주식 거래량/거래대금 순위 (TR FHPST01710000). 코스콤 실시간이 아닌
+        REST 스냅샷이다. by_value=True면 거래금액순(FID_BLNG_CLS_CODE=3), False면 거래량순(0).
+        반환: [{rank, ticker, name, price, change_rate, volume, trade_value}] (trade_value=누적거래대금 원).
+
+        [inv] 이 TR은 한 번에 30행이 상한이고 연속조회가 없다 — 응답 tr_cont 헤더가 빈 값이라
+              tr_cont="N"으로 다시 불러도 같은 30행이 온다(2026-09-23 실측). top_n이 30을 넘으면
+              가격 구간을 price_split 원에서 둘로 갈라 각각 30행씩 받아 합친다. 두 구간은 서로
+              겹치지 않으니 합집합은 상위 60행을 덮는다(실측: 유니크 60, 구간을 안 나눈 조회의
+              30행이 모두 그 안에 들어 있어 누락 없음).
+        exclude_etf=True면 ETF·ETN을 API단에서 뺀다 — 2026-09-23 장중 실측으로 구간을 안 나눈
+        30행 중 18행(60%)이 ETF라 개별주가 12행밖에 남지 않았다."""
+        if top_n <= self.VOLUME_RANK_PAGE_ROWS:
+            return self._volume_rank_page(by_value, exclude_etf)[:top_n]
+
+        rows = self._volume_rank_page(by_value, exclude_etf, "0", str(price_split))
+        # 같은 초에 두 번 치면 유량초과가 난다(2026-09-23 실측).
+        time.sleep(0.4)
+        rows += self._volume_rank_page(by_value, exclude_etf, str(price_split + 1), "")
+
+        by_ticker: dict[str, dict] = {}
+        for row in rows:
+            by_ticker.setdefault(row["ticker"], row)
+
+        merged = sorted(by_ticker.values(),
+                        key=lambda row: -(row["trade_value"] if by_value else row["volume"]))[:top_n]
+        # rank는 구간별 순위라 합친 뒤에는 뜻이 달라진다 — 합집합 기준으로 다시 매긴다.
+        for index, row in enumerate(merged):
+            row["rank"] = index + 1
+
+        return merged
 
     # ── 시장 단위 수급·프로그램·선물 (대시보드 국면 카드용, raw output 반환) ───────
     #  셋 다 시세 REST라 실전 도메인 전용(quote_kis). 응답 키는 2026-09-11 라이브 점검으로 확정.
