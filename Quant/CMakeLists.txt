@@ -148,6 +148,7 @@ set(HEADER_IMPL_SOURCES
   src/ipc/ControlChannel.cpp
   src/ipc/LedgerSnapshot.cpp
   # 공유 쪽지 자리표와 그 위 면들 — 엔진이 경계를 넘을 면을 여기 올린다(D-114 단계 4)
+  src/ipc/ProcessIdentity.cpp
   src/ipc/SharedRegion.cpp
   src/ipc/SharedLayout.cpp
   src/ipc/MarketFeedChannel.cpp
@@ -734,7 +735,7 @@ target_include_directories(test_command_line PRIVATE
 )
 
 # ─── 테스트 타겟: 공유 쪽지 한 장 (D-114 단계 4) ──────────────────
-add_executable(test_shared_region tests/test_shared_region.cpp src/ipc/SharedRegion.cpp)
+add_executable(test_shared_region tests/test_shared_region.cpp src/ipc/SharedRegion.cpp src/ipc/ProcessIdentity.cpp)
 target_include_directories(test_shared_region PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
@@ -744,7 +745,7 @@ if(UNIX)
 endif()
 
 # ─── 테스트 타겟: 공유 쪽지 위 한줄 큐 (D-114 단계 4) ─────────────
-add_executable(test_shared_spsc_ring tests/test_shared_spsc_ring.cpp src/ipc/SharedRegion.cpp src/core/Types.cpp)
+add_executable(test_shared_spsc_ring tests/test_shared_spsc_ring.cpp src/ipc/SharedRegion.cpp src/ipc/ProcessIdentity.cpp src/core/Types.cpp)
 target_include_directories(test_shared_spsc_ring PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )

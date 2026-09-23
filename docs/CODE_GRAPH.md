@@ -175,9 +175,11 @@ graph LR
     n_ipc_OrderChannel_h["ipc/OrderChannel.h"]
     n_ipc_OrderRouter_cpp["ipc/OrderRouter.cpp"]
     n_ipc_OrderRouter_h["ipc/OrderRouter.h"]
+    n_ipc_ProcessIdentity_cpp["ipc/ProcessIdentity.cpp"]
     n_ipc_SharedLayout_cpp["ipc/SharedLayout.cpp"]
     n_ipc_SharedLayout_h["ipc/SharedLayout.h"]
     n_ipc_SharedRegion_cpp["ipc/SharedRegion.cpp"]
+    n_ipc_SharedRegion_h["ipc/SharedRegion.h"]
     n_ipc_SharedStrategyDictionary_cpp["ipc/SharedStrategyDictionary.cpp"]
     n_ipc_SharedStrategyDictionary_h["ipc/SharedStrategyDictionary.h"]
     n_ipc_SharedSymbolDictionary_cpp["ipc/SharedSymbolDictionary.cpp"]
@@ -475,6 +477,7 @@ graph LR
   n_ipc_OrderRouter_h --> n_ipc_FillKey_h
   n_ipc_OrderRouter_h --> n_ipc_ZmqBridge_h
   n_ipc_OrderRouter_h --> n_risk_OrderGate_h
+  n_ipc_ProcessIdentity_cpp --> n_ipc_ProcessIdentity_h
   n_ipc_SharedLayout_cpp --> n_ipc_SharedLayout_h
   n_ipc_SharedLayout_h --> n_ipc_ControlChannel_h
   n_ipc_SharedLayout_h --> n_ipc_Heartbeat_h
@@ -485,6 +488,7 @@ graph LR
   n_ipc_SharedLayout_h --> n_ipc_SharedStrategyDictionary_h
   n_ipc_SharedLayout_h --> n_ipc_SharedSymbolDictionary_h
   n_ipc_SharedRegion_cpp --> n_ipc_SharedRegion_h
+  n_ipc_SharedRegion_h --> n_ipc_ProcessIdentity_h
   n_ipc_SharedStrategyDictionary_cpp --> n_ipc_SharedStrategyDictionary_h
   n_ipc_SharedStrategyDictionary_cpp --> n_ipc_SharedWriteLock_h
   n_ipc_SharedStrategyDictionary_h --> n_core_StrategyTable_h
@@ -650,6 +654,7 @@ graph LR
 ```mermaid
 graph LR
   p_PYQuant["PYQuant"]
+  p_PYQuant__logdir["PYQuant/_logdir"]
   p_PYQuant_backtest["PYQuant/backtest"]
   p_PYQuant_core["PYQuant/core"]
   p_PYQuant_dashboard["PYQuant/dashboard"]
@@ -698,6 +703,7 @@ graph LR
   p_PYQuant_tests -->|3| p_PYQuant_kis
   p_PYQuant_tests -->|4| p_PYQuant_strategy
   p_PYQuant_tools -->|5| p_PYQuant
+  p_PYQuant_tools --> p_PYQuant__logdir
   p_PYQuant_tools --> p_PYQuant_backtest
   p_PYQuant_tools -->|2| p_PYQuant_core
   p_PYQuant_tools -->|7| p_PYQuant_data
@@ -768,6 +774,7 @@ graph LR
 | `PYQuant/tools/index_intraday_logger.py` | `kis.client` |
 | `PYQuant/tools/investor_flow_logger.py` | `kis.client` |
 | `PYQuant/tools/ledger_recorder.py` | `core.logger`, `db.client` |
+| `PYQuant/tools/load_highwater_reader.py` | `_logdir` |
 | `PYQuant/tools/minute_backfill.py` | `kis.client` |
 | `PYQuant/tools/minute_backfill_pairs.py` | `features.fundamental` |
 | `PYQuant/tools/month_start_sweep.py` | `data.datagokr_source`, `main` |
@@ -784,6 +791,7 @@ graph LR
 | `scripts/check_market_open.py` | `kis.client` |
 | `scripts/check_runtime_health.py` | `_logdir`, `log_patterns` |
 | `scripts/dashboard_server.py` | `_logdir`, `kis.client`, `naver.theme` |
+| `scripts/deploy_trader.py` | `deploy_lock`, `notify_trades`, `restart_verify` |
 | `scripts/exit_ev.py` | `backtest.costs` |
 | `scripts/exit_ev_dashboard.py` | `_logdir`, `exit_ev`, `gen_tuning_sheet` |
 | `scripts/extract_swap_what_if.py` | `_logdir` |
@@ -791,6 +799,7 @@ graph LR
 | `scripts/market_close_collect.py` | `_logdir`, `log_patterns` |
 | `scripts/notify_trades.py` | `_logdir`, `dashboard_server`, `kis.client`, `log_patterns` |
 | `scripts/parse_quant_log.py` | `_logdir`, `check_runtime_health` |
+| `scripts/restart_verify.py` | `_logdir` |
 | `scripts/summarize_trading_day.py` | `_logdir`, `log_patterns` |
 | `scripts/trade_costs.py` | `backtest.costs` |
 

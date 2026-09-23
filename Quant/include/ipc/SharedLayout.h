@@ -24,7 +24,8 @@ namespace ipc
 
 // 자리표 판 번호. SharedRegion::create·attach 의 layout_version 으로 그대로 넘긴다.
 //  판 2 — 제어 요청에 전략 이름 칸이 붙었고(kRegisterStrategy) 전략 이름표 칸 수가 힙 표와 같아졌다.
-constexpr uint32_t kSharedLayoutVersion = 2;
+//  판 3 — 구역 머리에 주인 기동 시각·기동 번호·종료 사유가 붙었다(SharedRegionHeader, D-114 단계 4-b).
+constexpr uint32_t kSharedLayoutVersion = 3;
 
 // 칸 수 기본값 — 한 프로세스로 돌던 때 쓰던 값과 같다(Engine::ShardPipeline). 여기서 바꾸면 양쪽이 같이 바뀐다.
 constexpr size_t kLayoutRequestCapacity  = 1024; // 요청 하나에 답 하나라 응답과 같은 수다

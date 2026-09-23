@@ -238,6 +238,7 @@
     "ipc/OpsServer.h": "ipc",
     "ipc/OrderChannel.h": "ipc",
     "ipc/OrderRouter.h": "ipc",
+    "ipc/ProcessIdentity.h": "ipc",
     "ipc/SharedLayout.h": "ipc",
     "ipc/SharedRegion.h": "ipc",
     "ipc/SharedSpscRing.h": "ipc",
@@ -336,6 +337,7 @@
     "ipc/OpsServer.cpp": "ipc",
     "ipc/OrderChannel.cpp": "ipc",
     "ipc/OrderRouter.cpp": "ipc",
+    "ipc/ProcessIdentity.cpp": "ipc",
     "ipc/SharedLayout.cpp": "ipc",
     "ipc/SharedRegion.cpp": "ipc",
     "ipc/SharedStrategyDictionary.cpp": "ipc",
@@ -782,6 +784,9 @@
       "ipc/ZmqBridge.h",
       "risk/OrderGate.h"
     ],
+    "ipc/ProcessIdentity.cpp": [
+      "ipc/ProcessIdentity.h"
+    ],
     "ipc/SharedLayout.cpp": [
       "ipc/SharedLayout.h"
     ],
@@ -797,6 +802,9 @@
     ],
     "ipc/SharedRegion.cpp": [
       "ipc/SharedRegion.h"
+    ],
+    "ipc/SharedRegion.h": [
+      "ipc/ProcessIdentity.h"
     ],
     "ipc/SharedStrategyDictionary.cpp": [
       "ipc/SharedStrategyDictionary.h",
@@ -1432,6 +1440,10 @@
       "core/Engine.h",
       "ipc/OrderRouter.cpp"
     ],
+    "ipc/ProcessIdentity.h": [
+      "ipc/ProcessIdentity.cpp",
+      "ipc/SharedRegion.h"
+    ],
     "ipc/SharedLayout.h": [
       "core/Engine.h",
       "ipc/SharedLayout.cpp"
@@ -1825,7 +1837,10 @@
       "PYQuant/tools/kind_delisted_fill.py",
       "PYQuant/tools/ledger_dump.py",
       "PYQuant/tools/ledger_recorder.py",
+      "PYQuant/tools/load_highwater_reader.py",
       "PYQuant/tools/load_injector.py",
+      "PYQuant/tools/load_latency_reader.py",
+      "PYQuant/tools/load_status_sampler.py",
       "PYQuant/tools/log_report.py",
       "PYQuant/tools/macro_ingest.py",
       "PYQuant/tools/macro_regime_feed.py",
@@ -1853,6 +1868,8 @@
       "scripts/check_runtime_health.py",
       "scripts/dashboard_server.py",
       "scripts/deploy_guard.py",
+      "scripts/deploy_lock.py",
+      "scripts/deploy_trader.py",
       "scripts/exit_ev.py",
       "scripts/exit_ev_dashboard.py",
       "scripts/extract_swap_what_if.py",
@@ -1867,6 +1884,7 @@
       "scripts/parse_quant_log.py",
       "scripts/premarket_routine.py",
       "scripts/refresh_dashboard.py",
+      "scripts/restart_verify.py",
       "scripts/seed_open_orders.py",
       "scripts/stresstest_flow_profile.py",
       "scripts/stresstest_join_procwatch.py",
@@ -2089,6 +2107,9 @@
         "core.logger",
         "db.client"
       ],
+      "PYQuant/tools/load_highwater_reader.py": [
+        "_logdir"
+      ],
       "PYQuant/tools/minute_backfill.py": [
         "kis.client"
       ],
@@ -2144,6 +2165,11 @@
         "kis.client",
         "naver.theme"
       ],
+      "scripts/deploy_trader.py": [
+        "deploy_lock",
+        "notify_trades",
+        "restart_verify"
+      ],
       "scripts/exit_ev.py": [
         "backtest.costs"
       ],
@@ -2174,6 +2200,9 @@
         "_logdir",
         "check_runtime_health"
       ],
+      "scripts/restart_verify.py": [
+        "_logdir"
+      ],
       "scripts/summarize_trading_day.py": [
         "_logdir",
         "log_patterns"
@@ -2184,6 +2213,7 @@
     },
     "imported_by": {
       "_logdir": [
+        "PYQuant/tools/load_highwater_reader.py",
         "scripts/analyze_slot_cost.py",
         "scripts/backfill_fills_db.py",
         "scripts/check_runtime_health.py",
@@ -2194,6 +2224,7 @@
         "scripts/market_close_collect.py",
         "scripts/notify_trades.py",
         "scripts/parse_quant_log.py",
+        "scripts/restart_verify.py",
         "scripts/summarize_trading_day.py"
       ],
       "backtest": [
@@ -2290,6 +2321,9 @@
         "PYQuant/tools/ledger_recorder.py",
         "scripts/backfill_fills_db.py"
       ],
+      "deploy_lock": [
+        "scripts/deploy_trader.py"
+      ],
       "exit_ev": [
         "PYQuant/tests/test_stats.py",
         "scripts/exit_ev_dashboard.py"
@@ -2377,8 +2411,14 @@
         "PYQuant/tools/fetch_naver_themes.py",
         "scripts/dashboard_server.py"
       ],
+      "notify_trades": [
+        "scripts/deploy_trader.py"
+      ],
       "report.account": [
         "PYQuant/main.py"
+      ],
+      "restart_verify": [
+        "scripts/deploy_trader.py"
       ],
       "strategy.base": [
         "PYQuant/backtest/engine.py",
@@ -2581,6 +2621,11 @@
         "from": "PYQuant/tools",
         "to": "PYQuant",
         "weight": 5
+      },
+      {
+        "from": "PYQuant/tools",
+        "to": "PYQuant/_logdir",
+        "weight": 1
       },
       {
         "from": "PYQuant/tools",

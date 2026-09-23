@@ -308,8 +308,9 @@
 - [OpsServer.h](../Quant/include/ipc/OpsServer.h) — 운영단말 TCP 서버 선언(D-043)
 - [OrderChannel.h](../Quant/include/ipc/OrderChannel.h) — 전략↔주문 요청·응답 레코드와 순번 규칙, 꺼낸 값 범위 검사(문자열·포인터 없음, D-114 단계 2·4)
 - [OrderRouter.h](../Quant/include/ipc/OrderRouter.h) — 주문 전처리·중계(FEP) 라우팅 레이어 선언
+- [ProcessIdentity.h](../Quant/include/ipc/ProcessIdentity.h) — 프로세스를 번호 + 기동 시각 한 쌍으로 가리킨다 — 번호 재사용을 가리고 주인이 산지 묻는다(D-114 단계 4-b)
 - [SharedLayout.h](../Quant/include/ipc/SharedLayout.h) — 공유 쪽지 한 장 위의 자리표 — 머리 하나와 면 여덟이 어디서 시작해 몇 바이트를 쓰는지 여기서만 정한다(D-114 단계 4)
-- [SharedRegion.h](../Quant/include/ipc/SharedRegion.h) — 프로세스 둘이 같이 보는 공유 쪽지 한 장 — 만들고 붙고 같은 판인지 본다(D-114 단계 4)
+- [SharedRegion.h](../Quant/include/ipc/SharedRegion.h) — 프로세스 둘이 같이 보는 공유 쪽지 한 장 — 만들고 붙고, 주인 표·기동 번호·종료 사유로 같은 판인지 본다(D-114 단계 4·4-b)
 - [SharedSpscRing.h](../Quant/include/ipc/SharedSpscRing.h) — 공유 쪽지 위 한줄 큐 — 내 자리는 내 프로세스 안에 두고 건너편이 적은 칸은 믿지 않는다(D-114 단계 4)
 - [SharedStrategyDictionary.h](../Quant/include/ipc/SharedStrategyDictionary.h) — 공유 쪽지 위 전략 이름표 — 재스캔이 새로 등록하는 전략도 양쪽에서 같은 번호를 갖게 한다(D-114 단계 4)
 - [SharedSymbolDictionary.h](../Quant/include/ipc/SharedSymbolDictionary.h) — 공유 쪽지 위 종목 표 — 프로세스를 갈라도 같은 종목에 같은 번호가 붙게 한다(D-114 단계 4)
@@ -436,8 +437,9 @@
 - [OpsServer.cpp](../Quant/src/ipc/OpsServer.cpp) — 운영단말 TCP 서버 구현(D-043)
 - [OrderChannel.cpp](../Quant/src/ipc/OrderChannel.cpp) — OrderChannel.h 구현 — 기다리는 요청 표·같은 순번 거름·주문번호 정수 변환, 꺼낸 요청·응답이 말이 되는지 보기(D-114 단계 2·4)
 - [OrderRouter.cpp](../Quant/src/ipc/OrderRouter.cpp) — 주문 라우터 구현 — 제출·순번·거부코드 처리
+- [ProcessIdentity.cpp](../Quant/src/ipc/ProcessIdentity.cpp) — ProcessIdentity.h 구현 — 윈도우는 프로세스 손잡이·만든 시각, 리눅스는 /proc/<번호>/stat 으로 생존을 묻는다(D-114 단계 4-b)
 - [SharedLayout.cpp](../Quant/src/ipc/SharedLayout.cpp) — SharedLayout.h 구현 — 자리 셈·놓기·붙기와, 양쪽 설정이 다르면 붙기를 거절하는 머리 대조(D-114 단계 4)
-- [SharedRegion.cpp](../Quant/src/ipc/SharedRegion.cpp) — SharedRegion.h 구현 — 윈도우·리눅스 공유메모리 만들기·붙기·치우기, 살아 있는 주인이면 실패(D-114 단계 4)
+- [SharedRegion.cpp](../Quant/src/ipc/SharedRegion.cpp) — SharedRegion.h 구현 — 윈도우·리눅스 공유메모리 만들기·붙기·치우기, 살아 있는 주인이면 실패하고 주인 없는 옆 판은 물려받는다(D-114 단계 4·4-b)
 - [SharedStrategyDictionary.cpp](../Quant/src/ipc/SharedStrategyDictionary.cpp) — SharedStrategyDictionary.h 구현 — 자리 셈·놓기·붙기, 칸을 넘는 이름은 잘라 넣지 않고 거절한다(D-114 단계 4)
 - [SharedSymbolDictionary.cpp](../Quant/src/ipc/SharedSymbolDictionary.cpp) — SharedSymbolDictionary.h 구현 — 자리 셈·놓기·붙기와 넣는 동안만 잡는 자물쇠(D-114 단계 4)
 - [SharedWriteLock.cpp](../Quant/src/ipc/SharedWriteLock.cpp) — SharedWriteLock.h 구현 — 돌다가 양보하는 자물쇠(D-114 단계 4)

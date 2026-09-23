@@ -175,6 +175,82 @@ int main()
         CHECK(target.payload()[0] == std::byte{0x21});
     }
 
+    // 9. 주인 표와 종료 사유 — 만든 쪽은 자기 번호·기동 시각을 적고, 붙은 쪽은 그 둘을 그대로 읽는다.
+    //  정상 종료를 적으면 붙은 쪽이 본다. 안 적힌 0이 "크래시"라서 이 칸 하나가 둘을 가른다.
+    {
+        const std::string name = unique_name("owner");
+        ipc::SharedRegion owner;
+        CHECK(owner.create(name, kRegionBytes, kLayoutVersion));
+
+        const ipc::ProcessIdentity mine = ipc::current_process_identity();
+        CHECK(mine.is_set());
+        CHECK(owner.creator_identity().same_as(mine));
+        CHECK(owner.creator_is_alive());
+        CHECK(owner.boot_generation() == 1);
+        CHECK(owner.shutdown_reason() == ipc::SharedShutdownReason::kNone);
+        CHECK(!owner.took_over_stale());
+
+        ipc::SharedRegion peer;
+        CHECK(peer.attach(name, kRegionBytes, kLayoutVersion));
+        CHECK(peer.creator_identity().same_as(mine));
+        CHECK(peer.boot_generation() == 1);
+        CHECK(peer.shutdown_reason() == ipc::SharedShutdownReason::kNone);
+
+        owner.mark_clean_shutdown(ipc::SharedShutdownReason::kSessionEnd);
+        CHECK(peer.shutdown_reason() == ipc::SharedShutdownReason::kSessionEnd);
+
+        // 붙은 쪽은 주인이 아니라 적지 못한다 — 적히면 남은 쪽이 크래시를 정상 종료로 읽는다.
+        peer.mark_clean_shutdown(ipc::SharedShutdownReason::kOperator);
+        CHECK(owner.shutdown_reason() == ipc::SharedShutdownReason::kSessionEnd);
+    }
+
+    // 10. 죽은 표를 묻는다 — 번호가 같아도 기동 시각이 다르면 다른 프로세스다(번호 재사용).
+    {
+        CHECK(!ipc::process_is_alive(ipc::ProcessIdentity{}));
+
+        ipc::ProcessIdentity mine = ipc::current_process_identity();
+        CHECK(ipc::process_is_alive(mine));
+
+        if (mine.start_time != 0)
+        {
+            ipc::ProcessIdentity reused = mine;
+            reused.start_time += 1; // 내 번호를 남이 물려받은 모양
+            CHECK(!ipc::process_is_alive(reused));
+        }
+    }
+
+    // 11. 주인 없이 남은 옛 판을 물려받는다 — 기동 번호가 하나 오르고, 앞선 판이 크래시였음을 남긴다.
+    //  윈도우는 짝이 핸들을 쥐고 있어 이름이 남고, 리눅스는 쥔 곳이 없어도 /dev/shm에 남는다. 둘 다 이 길로 온다.
+    {
+        const std::string name = unique_name("stale");
+        ipc::SharedRegion dead_owner;
+        CHECK(dead_owner.create(name, kRegionBytes, kLayoutVersion));
+        CHECK(dead_owner.boot_generation() == 1);
+
+        ipc::SharedRegion holder; // 짝 — 이것이 붙어 있어 윈도우에서 이름이 사라지지 않는다
+        CHECK(holder.attach(name, kRegionBytes, kLayoutVersion));
+
+        // 주인이 죽은 모양을 만든다. 번호는 내 것 그대로 두고 기동 시각만 어긋내면 "번호는 살아 있는데
+        //  그 프로세스는 아니다"가 되어, 죽은 주인과 번호 재사용을 한 번에 흉내 낸다.
+        auto* forged = const_cast<ipc::SharedRegionHeader*>(holder.header());
+        CHECK(forged != nullptr);
+        forged->creator_start_time = forged->creator_start_time + 1;
+
+        if (ipc::current_process_identity().start_time == 0)
+        {
+            // 기동 시각을 못 읽는 자리에서는 번호로만 가린다 — 그때는 이 흉내가 성립하지 않아 건너뛴다.
+            std::cout << "test_shared_region: 기동 시각을 못 읽어 11번을 건너뛴다\n";
+        }
+        else
+        {
+            ipc::SharedRegion taker;
+            CHECK(taker.create(name, kRegionBytes, kLayoutVersion));
+            CHECK(taker.took_over_stale()); // 앞선 판에 종료 사유가 안 적혀 있었다 = 크래시
+            CHECK(taker.boot_generation() == 2);
+            CHECK(taker.creator_identity().same_as(ipc::current_process_identity()));
+        }
+    }
+
     std::cout << "test_shared_region OK (" << g_checks << " checks)\n";
     return 0;
 }
