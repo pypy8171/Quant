@@ -9,6 +9,7 @@
 //   ④ 박동이 돌아오면 정상으로 내려오고 사망이 다시 무장되는가
 //   ⑤ 본 가장 긴 공백을 쌓는가(문턱을 정하는 근거)
 //   ⑥ 뛰는 쪽과 보는 쪽이 값 하나로 이어지는가
+//   ⑦ 주문 쪽 문턱이 증권사 왕복 상한 위에 있는가(멀쩡히 왕복 중인 주문 스레드를 죽었다고 읽지 않게)
 //
 //   사용법: test_heartbeat
 
@@ -146,6 +147,31 @@ int main()
 
         ipc::HeartbeatMonitor monitor(test_config());
         check(monitor.observe(milliseconds(720), heartbeat.last_ns()) == Step::kHealthy, "보는 쪽이 그 값으로 판정한다");
+    }
+
+    // ── ⑦ 주문 쪽 문턱 ──────────────────────────────────────────────────
+    //  전략 쪽과 달리 주문 스레드의 공백에는 증권사 왕복이 그대로 들어온다 — 한 번 부르는 데 윈도는
+    //  전송 10초·수신 15초(KisTransport.cpp 의 WinHttpSetTimeouts), 리눅스는 10초(CURLOPT_TIMEOUT)
+    //  까지 간다. 문턱을 그 아래로 좁히면 멀쩡히 답을 기다리는 주문 스레드가 사망으로 읽힌다.
+    //  Engine::strategy_thread_fn 이 쓰는 값을 여기 박아 둔다. [why D-114]
+    {
+        constexpr ipc::HeartbeatConfig kOrderSideConfig{50, 30'000, 60'000};
+        ipc::HeartbeatMonitor         monitor(kOrderSideConfig);
+
+        // 마지막 박동을 실제 값으로 둔다 — 0은 "아직 한 번도 안 뛰었다"라 문턱을 안 탄다(①).
+        const int64_t     beat_at             = milliseconds(1'000);
+        constexpr int64_t kWindowsRoundTripMs = 10'000 + 15'000; // 전송 + 수신 상한
+
+        check(monitor.observe(beat_at + milliseconds(kWindowsRoundTripMs), beat_at) == Step::kHealthy,
+              "증권사 왕복 상한만큼 비어도 아직 정상이다");
+
+        check(monitor.observe(beat_at + milliseconds(kOrderSideConfig.suspect_ms), beat_at) == Step::kSuspect,
+              "그 위에서 의심으로 넘어간다");
+        check(monitor.observe(beat_at + milliseconds(kOrderSideConfig.dead_ms), beat_at) == Step::kDead,
+              "사망 문턱은 왕복 상한의 두 배 넘게 떨어져 있다");
+
+        check(kOrderSideConfig.suspect_ms > kWindowsRoundTripMs,
+              "의심 문턱이 왕복 상한 위에 있다 — 좁히려면 실측부터");
     }
 
     std::cout << "test_heartbeat: " << g_checks << " checks passed\n";

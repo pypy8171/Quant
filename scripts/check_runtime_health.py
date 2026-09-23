@@ -647,6 +647,77 @@ def shared_region_exit_row(date: str) -> tuple:
             f" (배포 재기동 {deploy_restarts}회 안이다, deploy_trader.py 가 taskkill /F 로 내린 자국)")
 
 
+def order_answer_row(date: str) -> tuple:
+    """전략이 낸 주문 요청에 답이 돌아왔는지, 주문 쪽이 살아 있었는지.
+
+    전략 스레드는 보낸 요청의 순번을 들고 있다가 답이 오면 지운다. 시한(60초)을 넘겨도 안 지워진
+    것이 있으면 "답이 없는 주문 요청" 을 찍고, 누계는 [큐 고수위] 줄의 order_answer_overdue 에
+    실린다. 답이 안 가는 갈래는 셋이다 — 응답 큐가 차서 못 보냈거나, 재시도를 예약한 채 주문
+    스레드가 내려갔거나, 주문 쪽 프로세스가 죽고 다시 안 떴거나. [why D-114]
+
+    다시 보내지는 않는다. KIS 주식주문(현금) 요청 전문에 우리가 채우는 식별자 칸이 없어
+    (2026-09-24 확인) 증권사가 같은 주문을 걸러 주지 못하고, 이미 접수된 주문을 다시 보내면 두
+    건이 된다. 그래서 이 행이 하는 일은 사람 대신 세어 두는 것까지다.
+
+    박동이 끊긴 것은 FAIL 이다 — 주문 쪽이 죽고 다시 안 뜬 갈래는 이것 말고 잡을 길이 없다.
+    기동 번호는 짝이 다시 떠야 바뀌고, 요청 큐가 가득 차 뜨는 경고는 "주문 쪽이 바쁘다" 는 뜻이라
+    원인을 반대로 가리킨다.
+
+    답이 늦은 것만 있으면 WARN 이다. 시한 60초는 실측이 아니라 증권사 왕복 상한(윈도 전송 10초·
+    수신 15초)에서 잡은 첫 값이라, 한 번 걸렸다고 곧장 고장으로 읽지 않는다. 장중 값이 쌓이면
+    좁힌다.
+    """
+    name = "주문 답 판정"
+    beat_lost: dict[str, int] = {}
+    overdue: dict[str, int] = {}
+    gap_max_ms = -1
+
+    for engine_log in sorted(REPO.glob("Quant/build*/logs*/quant_trader.log")):
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        account = engine_log.parent.name
+
+        for line in body.splitlines():
+            if date not in line:
+                continue
+
+            if "주문 박동이 끊겼다" in line:
+                beat_lost[account] = beat_lost.get(account, 0) + 1
+                continue
+
+            # 누계는 [큐 고수위] 줄이 싣는다 — 경고는 첫 건과 100 배수에만 찍히므로 줄 수로 세면 모자란다.
+            found = re.search(r"order_answer_overdue=(\d+)", line)
+
+            if found:
+                overdue[account] = max(overdue.get(account, 0), int(found.group(1)))
+
+            found = re.search(r"order_beat_gap_max=(\d+)ms", line)
+
+            if found:
+                gap_max_ms = max(gap_max_ms, int(found.group(1)))
+
+    gap_note = f", 주문 박동 최대 공백 {gap_max_ms}ms" if gap_max_ms >= 0 else ""
+
+    if beat_lost:
+        detail = ", ".join(f"{account} {count}회" for account, count in sorted(beat_lost.items()))
+        return (name, False, "FAIL",
+                f"주문 박동이 끊긴 기동 — {detail}"
+                f" (그동안 전략이 낸 주문은 증권사로 나가지 않았다{gap_note})")
+
+    total_overdue = sum(overdue.values())
+
+    if total_overdue:
+        detail = ", ".join(f"{account} {count}건" for account, count in sorted(overdue.items()))
+        return (name, True, "WARN",
+                f"시한 60초를 넘겨도 답이 안 온 요청 {total_overdue}건 — {detail}"
+                f" (시한은 증권사 왕복 상한에서 잡은 첫 값이다{gap_note})")
+
+    return (name, True, "FAIL", f"보낸 요청에 모두 답이 돌아왔다{gap_note}")
+
+
 def scan_registration_row(date: str) -> tuple:
     """유니버스 스캔이 하루 종일 한 종목도 등록하지 못한 계좌가 있는지.
 
@@ -1006,6 +1077,7 @@ def global_rows(date: str) -> list:
         after_market_order_row(date),
         restart_verify_row(date),
         shared_region_exit_row(date),
+        order_answer_row(date),
         fill_notice_session_row(date),
         scan_registration_row(date),
         job_attach_row(date),

@@ -126,6 +126,7 @@ bool Engine::bind_layout(uint32_t feed_lanes)
     pipeline_.requests           = &layout_.requests();
     pipeline_.order_responses    = &layout_.responses();
     pipeline_.strategy_heartbeat = &layout_.heartbeats()->strategy;
+    pipeline_.order_heartbeat    = &layout_.heartbeats()->order;
 
     adopt_shared_dictionaries();
     return true;
@@ -796,6 +797,8 @@ Engine::QueueStatistics Engine::queue_statistics() const
     statistics.order_duplicate  = pipeline_.order_duplicate.load(std::memory_order_relaxed);
     statistics.order_response_dropped = pipeline_.order_response_dropped.load(std::memory_order_relaxed);
     statistics.strategy_beat_gap_max_ns = pipeline_.strategy_beat_gap_max_ns.load(std::memory_order_relaxed);
+    statistics.order_beat_gap_max_ns    = pipeline_.order_beat_gap_max_ns.load(std::memory_order_relaxed);
+    statistics.order_answer_overdue     = pipeline_.order_answer_overdue.load(std::memory_order_relaxed);
     return statistics;
 }
 
@@ -3260,9 +3263,30 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
     thread_name::set_current("Strategy");
     LOG_INFO("[StrategyThread] 시작");
 
-    // 주문 쪽에 보내 놓고 답을 기다리는 순번. 지금은 같은 프로세스라 답이 늦어도 굴러가지만, 단계 4에서
-    //  프로세스가 갈리면 이것이 재전송 후보를 고르는 유일한 근거다. 상한은 요청 큐와 같다. [why D-114]
+    // 주문 쪽에 보내 놓고 답을 기다리는 순번. 답이 오면 지우고, 시한을 넘긴 것은 아래에서 찍는다.
+    //  다시 보내는 데는 쓰지 않는다 — KIS 주식주문(현금) 요청 전문에 우리가 채우는 식별자 칸이 없어
+    //  (CANO·ACNT_PRDT_CD·PDNO·ORD_DVSN·ORD_QTY·ORD_UNPR·EXCG_ID_DVSN_CD·SLL_TYPE·CNDT_PRIC,
+    //  2026-09-24 확인) 증권사가 같은 주문을 걸러 주지 못한다. 이미 접수된 주문을 다시 보내면 두 건이
+    //  된다. 보낸 뒤 답만 못 받은 갈래는 주문 쪽이 그 자리에서 브로커에 되묻는다. 상한은 요청 큐와 같다.
+    //  [why D-114]
     ipc::PendingRequests pending_requests(ShardPipeline::kOrderQueueCapacity);
+
+    // 주문 쪽 생사를 보는 눈. 문턱이 전략 쪽(250ms·1s)보다 훨씬 헐거운 것은 이 공백에 증권사 왕복이
+    //  그대로 들어오기 때문이다 — 한 번 부르는 데 윈도는 전송 10초·수신 15초(KisTransport.cpp의
+    //  WinHttpSetTimeouts), 리눅스는 10초(CURLOPT_TIMEOUT)까지 간다. 그래서 첫 값은 실측이 아니라
+    //  그 상한에서 잡았고, order_beat_gap_max_ns 에 쌓이는 실측으로 뒤에 좁힌다. [why D-114]
+    constexpr int64_t     kOrderBeatPeriodMs  = 50;
+    constexpr int64_t     kOrderBeatSuspectMs = 30'000;
+    constexpr int64_t     kOrderBeatDeadMs    = 60'000;
+    ipc::HeartbeatMonitor order_monitor(
+        ipc::HeartbeatConfig{kOrderBeatPeriodMs, kOrderBeatSuspectMs, kOrderBeatDeadMs});
+    bool                  order_beat_lost = false;
+
+    // 답 없는 요청 훑기는 든 수에 비례하므로 한 바퀴마다 하지 않는다. 시한도 같은 이유로 넉넉하다 —
+    //  주문 하나가 증권사 왕복에 묶이는 동안 뒤엣것은 줄을 서서 기다리는 것이 정상이다. [why D-114]
+    constexpr auto    kOverdueScanInterval  = std::chrono::seconds(5);
+    constexpr int64_t kOrderAnswerTimeoutNs = 60LL * 1'000'000'000;
+    auto              last_overdue_scan     = std::chrono::steady_clock::now();
 
     // 신호 순번·교체 보류·차단 로그는 이 스레드 소유라 디스패처를 여기에 둔다. 싱크가 pipeline_.requests에 넣는 유일한
     //  자리 — 단일 생산자 규약은 이 람다가 이 스레드에서만 불린다는 데 기댄다. [why D-063]
@@ -3347,10 +3371,50 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
             pending_requests.note_response(response.sequence);
         }
 
+        // 주문 쪽이 살아 있는가 — 박동 공백만 본다. 찍고 세기만 하고 아무것도 멈추지 않는다: 문턱이
+        //  증권사 왕복 상한에서 온 값이라 좁히기 전에 조치를 붙이면 멀쩡한 주문 스레드를 죽었다고 읽는다.
+        //  이것으로 보이는 것은 '주문 쪽이 죽고 다시 안 뜬' 갈래다 — 기동 번호는 다시 떠야 바뀌므로
+        //  제어 스레드의 감시가 못 잡고, 요청 큐가 가득 찬 뒤 뜨는 경고는 주문 쪽이 바쁘다는 뜻이라
+        //  원인을 반대로 가리킨다. [why D-114]
+        const auto order_step = order_monitor.observe(trace::now_ns(), pipeline_.order_heartbeat->last_ns());
+        pipeline_.order_beat_gap_max_ns.store(order_monitor.max_gap_ns(), std::memory_order_relaxed);
+
+        if (order_monitor.take_dead_once())
+        {
+            order_beat_lost = true;
+            LOG_ERROR("[전략] 주문 박동이 끊겼다 — 여기서 낸 주문은 나가지 않는다 (가장 긴 공백 " +
+                      std::to_string(order_monitor.max_gap_ns() / kNanosecondsPerMillisecond) + "ms)");
+        }
+        else if (order_step == ipc::HeartbeatMonitor::Step::kHealthy && order_beat_lost)
+        {
+            order_beat_lost = false;
+            LOG_WARN("[전략] 주문 박동이 돌아왔다");
+        }
+
         // 전략 쪽 생산자들이 넣은 제어 요청을 경계 너머로 옮긴다 — 보내는 쪽이 하나여야 하는 자리다. [why D-114]
         relay_control_requests();
 
         const auto loop_now = std::chrono::steady_clock::now();
+
+        // 답이 안 오는 요청을 보는 자리. 저울은 처음부터 있었지만 시한을 묻는 데가 없어 아무도 못 보고
+        //  있었다. 고치지는 않는다 — 위 주석대로 다시 보내면 이중 발주다. 세고 찍어 판정 행이 본다.
+        //  [why D-114]
+        if (loop_now - last_overdue_scan >= kOverdueScanInterval)
+        {
+            last_overdue_scan = loop_now;
+
+            if (const auto overdue = pending_requests.oldest_overdue(trace::now_ns(), kOrderAnswerTimeoutNs))
+            {
+                const auto count = pipeline_.order_answer_overdue.fetch_add(1, std::memory_order_relaxed) + 1;
+
+                if (count == 1 || count % ShardPipeline::kDropLogEvery == 0)
+                {
+                    LOG_WARN("[전략] 답이 없는 주문 요청 순번=" + std::to_string(*overdue) + " (누적 " +
+                             std::to_string(count) + ", 자리가 모자라 버린 기다림 " +
+                             std::to_string(pending_requests.evicted()) + ")");
+                }
+            }
+        }
 
         // G3 강제청산 — force_liquidate 동안 보유 전량(미체결 매도 제외) 시장가 매도를 2초마다 다시 낸다.
         if (force_liquidate_.load(std::memory_order_relaxed))
@@ -3695,6 +3759,10 @@ void Engine::order_thread_fn(std::stop_token stop_token)
 
     while (!stop_token.stop_requested())
     {
+        // 살아 있다고 찍는다 — 전략 쪽이 이 값의 공백만 보고 판정한다. 아래 KIS 왕복이 이 자리를 몇 초
+        //  붙잡으므로 공백에는 그 시간이 그대로 들어간다. 그래서 전략 쪽 문턱이 훨씬 헐겁다. [why D-114]
+        pipeline_.order_heartbeat->beat(trace::now_ns());
+
         // 전략이 살아 있는가 — 박동 공백만 본다. 사망이어도 주문 스레드는 안 내려간다(보유분을 지켜야 한다).
         // 표 고치기가 주문보다 먼저다 — 슬롯 면제·우선순위가 낡은 채로 이 회차의 주문을 거르면
         //  전략이 이미 반영된 줄 알고 낸 신호가 옛 표에 걸린다. [why D-114]
@@ -4138,6 +4206,12 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                      " beat_gap_max=" +
                      std::to_string(pipeline_.strategy_beat_gap_max_ns.load(std::memory_order_relaxed) /
                                     kNanosecondsPerMillisecond) + "ms" +
+                     // 주문 쪽 박동과 답 없는 요청 — 앞엣것에는 증권사 왕복이 들어 있고, 뒤엣것은 0이어야 한다.
+                     " order_beat_gap_max=" +
+                     std::to_string(pipeline_.order_beat_gap_max_ns.load(std::memory_order_relaxed) /
+                                    kNanosecondsPerMillisecond) + "ms" +
+                     " order_answer_overdue=" +
+                     std::to_string(pipeline_.order_answer_overdue.load(std::memory_order_relaxed)) +
                      // 장부 사본 — 몇 판 나왔는지와 못 실은 남의 계좌 줄 수. 뒤엣것은 0이어야 한다. [why D-114]
                      " ledger_gen=" + std::to_string(ledger_snapshot_->generation()) +
                      " ledger_foreign=" + std::to_string(order_gate_.ledger_foreign_account_rows()) +

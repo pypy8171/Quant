@@ -283,6 +283,8 @@ public:
         uint64_t order_duplicate  = 0; // 주문 쪽이 같은 순번을 두 번 받아 거른 수. 0이 아니면 통로가 샜다
         uint64_t order_response_dropped = 0; // 전략이 답을 안 가져가 버린 수
         int64_t  strategy_beat_gap_max_ns = 0; // 전략 박동의 가장 긴 공백. 사망 문턱의 근거
+        int64_t  order_beat_gap_max_ns    = 0; // 주문 박동의 가장 긴 공백. 증권사 왕복이 그대로 들어온다
+        uint64_t order_answer_overdue     = 0; // 시한을 넘겨도 답이 안 온 요청을 본 횟수. 0이 아니면 답이 샌다
     };
 
     QueueStatistics queue_statistics() const;
@@ -857,6 +859,15 @@ private:
     // 주문 스레드가 본 가장 긴 박동 공백(나노초). 문턱을 감으로 정하지 않으려고 밖으로 낸다 — 부하 하네스의
     //  beat_gap_max_ms 열과 [큐 고수위] 줄, check_runtime_health의 판정 행이 이 값 하나를 본다. [why D-114]
     std::atomic<int64_t> strategy_beat_gap_max_ns{0};
+        // 주문 스레드가 한 바퀴마다 찍고 전략 스레드가 공백만 본다. 자리표의 박동 면 가운데 주문 쪽 칸을
+        //  가리킨다 — 칸은 처음부터 있었지만 찍는 쪽도 보는 쪽도 없어 비어 있었다. [why D-114]
+        //  [inv] bind_layout()이 꽂는다.
+        ipc::Heartbeat* order_heartbeat = nullptr;
+        // 전략 스레드가 본 가장 긴 주문 박동 공백(나노초). 전략 쪽 공백과 달리 여기에는 증권사 왕복이
+        //  그대로 들어온다 — 문턱을 실측으로 좁히려고 밖으로 낸다. [why D-114]
+        std::atomic<int64_t> order_beat_gap_max_ns{0};
+        // 시한을 넘겨도 답이 안 온 요청을 본 횟수. 세고 찍기만 한다 — 다시 보내지 않는다. [why D-114]
+        std::atomic<uint64_t> order_answer_overdue{0};
         // 소비자 깨우기 — 생산자가 push 뒤 notify, 소비자는 큐가 비면 잔다. 1ms 폴링은 Windows 타이머 격자 때문에
         //  실측 p50 15.6ms였다(bench_sleep_res). [why D-071]
         wake::WakeGate fill_wake;  // fill_thread ← WS 수신 스레드

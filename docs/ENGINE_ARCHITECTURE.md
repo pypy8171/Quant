@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@0e42d10 Quant/src/core/Engine.cpp@58e2633 Quant/include/core/DataPoller.h@196bcf6 Quant/include/core/SignalDispatcher.h@6aec697 Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@cfe77bc Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
+<!-- sync: Quant/include/core/Engine.h@0681c25 Quant/src/core/Engine.cpp@c7977d4 Quant/include/core/DataPoller.h@196bcf6 Quant/include/core/SignalDispatcher.h@6aec697 Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@cfe77bc Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
 스레드는 다섯 개(데이터·전략·주문·체결·제어)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
 수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름을 붙여 procwatch와 디버거에 그 이름으로 보인다.
@@ -40,7 +40,7 @@ flowchart LR
 | 수신 ×소켓 | 소켓 읽기·디코드·수신 시각 `received_ns` 찍기·push만 | KIS WS → 행렬 행 i, `fill_queue`, 캡처 큐, ZMQ TRADE 큐 | `Quant/include/core/FeedMux.h` · `test_feed_mux` |
 | 데이터 | `fetch_interval_sec`마다 REST 봉 폴링, WS가 못 받는 종목의 현재가 폴링, 유니버스 재스캔(`rescan_interval_sec`), 주문 쪽이면 잔고 대조와 손익 갱신 감시 | KIS REST → `bars_matrix`, `trade_matrix` 데이터 행, 원장 | `Quant/include/core/DataPoller.h`·`Quant/include/core/UniverseExit.h`·`Quant/include/core/LedgerReconciler.h` · `test_data_poller` |
 | 샤드 ×M | 자기 열을 비우고, 틱의 종목 id를 보는 전략만 부른다. 1분봉 집계는 이렇게 불린 전략 안에서 한다 | 행렬 열 m → `shard_out` | `Quant/include/core/StrategyShard.h`·`Quant/include/core/StrategyRouter.h` · `test_strategy_shard`·`test_strategy_router` |
-| 전략(디스패치) | 신호를 주문 요청으로 바꾸기 전 판단, 보호 주문 판정, 강제청산·초과분 정리, 제어 요청 중계, 주문 쪽 응답 수거 | `shard_out` → 요청 면 / 응답 면을 비운다 | `Quant/include/core/SignalDispatcher.h`·`Quant/include/risk/ProtectiveOrders.h` · `test_signal_dispatcher` |
+| 전략(디스패치) | 신호를 주문 요청으로 바꾸기 전 판단, 보호 주문 판정, 강제청산·초과분 정리, 제어 요청 중계, 주문 쪽 응답 수거, 상대 박동 감시와 답 없는 요청 세기 | `shard_out` → 요청 면 / 응답 면을 비운다 | `Quant/include/core/SignalDispatcher.h`·`Quant/include/risk/ProtectiveOrders.h` · `test_signal_dispatcher` |
 | 주문 | 게이트·발주·재시도, 수동주문, 제어 요청 적용, 슬롯 교체, 상대 박동 감시, 장부 사본 발행 | 요청 면·`manual_inbox`·제어 면 → KIS 주문 API, 응답 면, 장부 사본 | `Quant/include/core/OrderRateLimiter.h`·`Quant/include/risk/DisplacementDesk.h` · `test_order_rate_limiter`·`test_engine` |
 | 체결 | 체결통보를 원장·CSV에 반영하고 운영단말에 방송 | `fill_queue` → 원장 | `Engine::fill_thread_fn` (D-056) |
 | 제어 | 토큰 선갱신, 시세 끊김 대응(재연결·REST 대체), 구독 요청 반영, 큐 고수위 기록, 마감 자기 종료 | 주기 작업 | `Quant/include/core/FeedSupervisor.h`·`Quant/include/core/SessionEndJudge.h` |
@@ -127,7 +127,7 @@ flowchart LR
 | 요청·응답 면 | 주문 요청과 종착 상태. 문자열·포인터 없는 고정 레코드 | `Quant/include/ipc/OrderChannel.h` · `test_order_channel` |
 | 제어 면 | 전략이 주문 쪽 표를 고칠 때(슬롯 면제·진입 우선순위·보호 주문 등록·종목 등록)와 스위치 다섯(하루치 새로 열기·신규진입 정지·매수 비율·전방향 차단·수동 정지). 여러 줄 표는 온전히 모였을 때만 건다 | `Quant/include/ipc/ControlChannel.h` · `test_control_channel` |
 | 장부 사본 | 보유·미체결 선점·매도가능·평단과 전역값. 판 번호로 묶여 읽는 쪽은 잠금 없이 읽는다. 발주 한 바퀴마다, 기동 직후 한 번, 한가할 때 100ms마다 낸다 | `Quant/include/ipc/LedgerSnapshot.h` · `test_ledger_snapshot` |
-| 박동 | 의심 250ms·끊김 판정 1,000ms. 전략이 죽으면 주문 쪽이 신규 진입을 끊고 보호 주문을 이어받는다. 주문 쪽은 내려가지 않는다 | `Quant/include/ipc/Heartbeat.h` · `test_heartbeat` |
+| 박동 | 칸이 둘이고 양쪽이 서로를 본다. 전략 쪽은 의심 250ms·끊김 1,000ms — 죽으면 주문 쪽이 신규 진입을 끊고 보호 주문을 이어받는다(주문 쪽은 내려가지 않는다). 주문 쪽은 의심 30초·끊김 60초로 훨씬 헐겁다. 그 공백에 증권사 왕복(윈도 전송 10초·수신 15초)이 그대로 들어오기 때문이고, 그래서 끊겨도 찍고 셀 뿐 아무것도 멈추지 않는다 | `Quant/include/ipc/Heartbeat.h` · `test_heartbeat` |
 | 종목·전략 표 | 이름 ↔ 번호. 넣는 쪽은 주문 프로세스 하나, 전략 쪽은 등록을 요청하고 번호가 뜨기를 기동 중에는 5분, 스레드가 뜬 뒤에는 300ms까지 본다 | `Quant/include/ipc/SharedSymbolDictionary.h`·`Quant/include/ipc/SharedStrategyDictionary.h` · `test_shared_symbol_dictionary` |
 | 시세 통로 | 줄 = 소켓, 마지막 한 줄은 REST로 대신 받는 종목. 꺼내는 쪽이 `ipc::MarketLimits`로 값을 보고 어긋나면 버린다(`feed_channel_discarded`) | `Quant/include/ipc/MarketFeedChannel.h` · `test_market_feed_channel` |
 
