@@ -569,13 +569,24 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
 // ═══════════════════════════════════════════════════════════════════════════
 std::vector<std::string> KisClient::fetch_universe_by_pbr(double max_pbr, const std::string& market_div)
 {
-    std::string url = base_url() + "/uapi/domestic-stock/v1/ranking/market-cap" +
-                      "?FID_COND_MRKT_DIV_CODE=" + market_div + "&FID_COND_SCR_DIV_CODE=20171" +
-                      "&FID_INPUT_ISCD=0000" + "&FID_DIV_CLS_CODE=1" + "&FID_BLNG_CLS_CODE=0" + "&FID_TRGT_CLS_CODE=0" +
-                      "&FID_TRGT_EXLS_CLS_CODE=0" + "&FID_RANK_SORT_CLS_CODE=0" +
-                      "&FID_INPUT_PRICE_1=" + "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
+    // [wire] 시장가치 순위(market-value, TR FHPST01790000, 화면 20179, 정렬 24=PBR, 응답 output[].pbr).
+    //  KIS 코딩도우미 확인 2026-09-24. 예전엔 시가총액 URL에 다른 화면의 TR·화면코드(FHPST01720000·20171)를
+    //  섞어 불렀고, 시가총액 응답에는 PBR 필드가 없어 필터가 한 번도 걸리지 않았다.
+    //  시장은 FID_COND_MRKT_DIV_CODE가 아니라 FID_INPUT_ISCD로 고른다 — "J"는 거래소(0001), "W"는 코스닥(1001).
+    const std::string input_iscd = (market_div == "W") ? "1001" : "0001";
 
-    std::string response = http_get(url, authentication_headers("FHPST01720000"));
+    // 재무 기준은 직전 결산. 결산 공시가 3월 말까지 나오므로 1~3월에는 한 해 더 앞 결산을 쓴다.
+    const std::chrono::year_month_day today{std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now())};
+    const int fiscal_year = static_cast<int>(today.year()) - (static_cast<unsigned>(today.month()) <= 3 ? 2 : 1);
+
+    std::string url = base_url() + "/uapi/domestic-stock/v1/ranking/market-value" +
+                      "?FID_TRGT_CLS_CODE=0" + "&FID_COND_MRKT_DIV_CODE=J" + "&FID_COND_SCR_DIV_CODE=20179" +
+                      "&FID_INPUT_ISCD=" + input_iscd + "&FID_DIV_CLS_CODE=6" + "&FID_INPUT_PRICE_1=" +
+                      "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_OPTION_1=" + std::to_string(fiscal_year) +
+                      "&FID_INPUT_OPTION_2=3" + "&FID_RANK_SORT_CLS_CODE=24" + "&FID_BLNG_CLS_CODE=0" +
+                      "&FID_TRGT_EXLS_CLS_CODE=0";
+
+    std::string response = http_get(url, authentication_headers("FHPST01790000"));
 
     if (response.empty())
     {
@@ -589,10 +600,17 @@ std::vector<std::string> KisClient::fetch_universe_by_pbr(double max_pbr, const 
 
     try
     {
-        auto document = json::parse(response);
-        auto& arr2 = document.contains("output2") ? document["output2"] : document["output"];
+        const auto document = json::parse(response);
+        const auto output = document.find("output");
 
-        for (const auto& item : arr2)
+        if (output == document.end() || !output->is_array())
+        {
+            LOG_WARN("[KIS] Universe(" + market_div + ") 응답에 output 배열 없음: " +
+                     response.substr(0, kRankingPreviewChars));
+            return {};
+        }
+
+        for (const auto& item : *output)
         {
             std::string ticker = item.value("mksc_shrn_iscd", "");
 
@@ -602,7 +620,7 @@ std::vector<std::string> KisClient::fetch_universe_by_pbr(double max_pbr, const 
             }
 
             // PBR 필터: 유효한 값이 있을 때만 적용 (0.00 = 데이터 없음 → 통과)
-            std::string pbr_s = item.value("hts_pbr", "");
+            std::string pbr_s = item.value("pbr", "");
 
             if (!pbr_s.empty() && pbr_s != "0" && pbr_s != "0.00")
             {
