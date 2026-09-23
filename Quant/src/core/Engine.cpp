@@ -812,10 +812,18 @@ void Engine::setup_zmq_bridge()
 
             if (command == "STATUS")
             {
+                // 버린 건수 넷을 여기에도 싣는다 — HEALTH 로도 나가지만 그쪽은 발행 큐를 타고, 그 큐에서 HEALTH 는
+                //  FILL·ORDER·SIGNAL 보다 작은 한도를 쓴다(ZmqBridge::enqueue). 큐가 차면 버린 건수를 알려 줄
+                //  메시지가 가장 먼저 버려져, 정작 버리는 중일 때만 값이 사라진다. REP 는 그 큐를 안 거친다. [why D-125]
                 return "{\"running\":true"
                        ",\"data\":" +
                        std::to_string(data_count_.load()) + ",\"signal\":" + std::to_string(signal_count_.load()) +
-                       ",\"order\":" + std::to_string(order_count_.load()) + "}";
+                       ",\"order\":" + std::to_string(order_count_.load()) +
+                       ",\"drop\":" + std::to_string(zmq_bridge_->drop_count()) +
+                       ",\"drop_socket_full\":" + std::to_string(zmq_bridge_->socket_full_drop_count()) +
+                       ",\"drop_socket_error\":" + std::to_string(zmq_bridge_->socket_error_drop_count()) +
+                       ",\"drop_send_queue_full\":" + std::to_string(zmq_bridge_->send_queue_full_drop_count()) +
+                       ",\"drop_trade_ring_full\":" + std::to_string(zmq_bridge_->trade_ring_full_drop_count()) + "}";
             }
 
             return "UNKNOWN";
