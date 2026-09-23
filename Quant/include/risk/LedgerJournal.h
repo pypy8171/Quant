@@ -2,7 +2,8 @@
 //  증권사 원장과 같은 순서를 지킨다: 주문은 INTENT가 적힌 뒤에만 KIS로 나가고, KIS 응답은 ACCEPT/REJECT로,
 //  체결통보는 FILL로 뒤따라 적힌다. 재기동은 오늘 파일을 처음부터 다시 적용해 보유·평단·선점·매도가능·현금을
 //  되살리고, KIS 잔고는 그 뒤 대조에만 쓴다. [why D-113]
-//  기록은 OrderGate가 positions_mutex_를 쥔 채 동기 append한다 — 주문 이벤트는 초당 수십 건이라 별도 스레드·큐를
+//  [inv] OrderGate가 journal_mutex_를 쥔 채 동기 append한다. positions_mutex_는 기록 종류에 따라 쥐기도 하고
+//  안 쥐기도 한다 — 주문 이벤트는 초당 수십 건이라 별도 스레드·큐를
 //  두지 않는다. 매 append 뒤 fflush(프로세스 재기동 방어)까지가 기본이고, config `ledger_journal_fsync`가 참이면
 //  fsync까지 한다(전원 장애 방어, 주문 스레드에 디스크 동기화 지연이 얹힌다).
 //  파일은 거래일마다 하나(ledger_YYYYMMDD.bin) — KIS 주문은 하루를 넘기지 않으므로 어제 선점은 오늘 의미가 없고,
@@ -95,7 +96,6 @@ static_assert(sizeof(Record) == 192, "레코드 크기가 바뀌면 kVersion을 
 
 void put_string(char* destination, size_t capacity, std::string_view text) noexcept;
 
-// CRC32(IEEE 802.3, zlib과 같은 다항식) — 표는 컴파일 타임에 만든다.
 // path::string()은 와이드 경로를 프로세스 코드페이지로 되돌린다 — 사용자 폴더 이름에 한글이 들어 있으면
 //  매핑이 없어 예외를 던지고, 저널을 못 열면 엔진이 기동을 거부한다. Windows에서는 와이드 그대로 연다. [why D-113]
 std::FILE* open_journal_file(const std::filesystem::path& file, const char* mode);
@@ -127,6 +127,7 @@ constexpr std::array<uint32_t, kCrcTableSize> make_crc_table()
 inline constexpr std::array<uint32_t, kCrcTableSize> kCrcTable = make_crc_table();
 } // namespace detail
 
+// CRC32(IEEE 802.3, zlib과 같은 다항식) — 표는 컴파일 타임에 만든다.
 uint32_t crc32(const void* data, size_t length) noexcept;
 
 inline uint32_t record_crc(Record record) noexcept
@@ -178,7 +179,8 @@ public:
     }
 
     // seq·시각·CRC를 채워 한 레코드를 붙인다. 거짓이면 디스크에 남지 않은 것이다 — 호출자는 그 변경을 되돌리고
-    //  주문을 거부한다(적히지 않은 주문은 나가지 않는다). [inv] positions_mutex_ 아래서 부른다.
+    //  주문을 거부한다(적히지 않은 주문은 나가지 않는다). [inv] OrderGate가 journal_mutex_를 쥔 채 동기 append한다.
+    //  positions_mutex_는 기록 종류에 따라 쥐기도 하고 안 쥐기도 한다.
     [[nodiscard]] bool append(Record& record) noexcept;
 
     // 파일을 처음부터 읽어 레코드마다 apply를 부른다(nullptr이면 세기만). 헤더가 다르면 header_ok=false로 바로 돌아온다.

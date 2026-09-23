@@ -63,8 +63,8 @@ DisplacementDesk::Verdict DisplacementDesk::consider(OrderSignal& signal, Clock:
         return Verdict::kPass;
     }
 
-    // 보유·선점·여력을 주문 쪽 장부에서 바로 읽는다 — 이 스레드가 그 장부의 유일한 쓰는 쪽이라 읽는 사이에
-    //  판이 바뀌지 않는다. 자리(슬롯)만 보던 것을 여력으로 보는 것은 예전과 같다: 여력은 "자리 또는 예산"이다.
+    // 보유·선점·여력을 주문 쪽 장부에서 바로 읽는다 — entry_snapshot은 positions_mutex_ 하나로 읽으므로
+    //  쓰는 스레드가 여럿이어도 한 시점의 값이다. 자리(슬롯)만 보던 것을 여력으로 보는 것은 예전과 같다: 여력은 "자리 또는 예산"이다.
     const OrderGate::EntrySnapshot entry = gate_.entry_snapshot(signal.account_id, signal.ticker);
 
     if (entry.position != 0 || entry.reserved != 0 || !gate_.capacity_full())

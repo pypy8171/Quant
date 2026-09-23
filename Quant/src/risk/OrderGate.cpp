@@ -81,9 +81,9 @@ double session_remaining_ratio()
 // ─── 주문 검증 ──────────────────────────────────────────────────────────────
 // 주의(C6): check()는 항목별 뮤텍스를 독립 스코프로 잡아 호출 단위가 원자적이지 않다.
 // 현재 호출자는 단일 order_thread(Engine::order_thread_fn → OrderRouter::submit)뿐이라
-// check()+on_accept이 직렬 실행돼 검사~사용 사이 경합(TOCTOU, Time-Of-Check-To-Time-Of-Use)이
+// check()+on_intent (on_accept는 테스트·도구용)이 직렬 실행돼 검사~사용 사이 경합(TOCTOU, Time-Of-Check-To-Time-Of-Use)이
 // 없다. 멀티 producer로 확장하려면
-// check()+on_accept을 하나의 임계구역으로 묶어 원자적 reserve로 만들어야 한다.
+// check()+on_intent (on_accept는 테스트·도구용)를 하나의 임계구역으로 묶어 원자적 reserve로 만들어야 한다.
 // ─── 한도 클램프 (BUY NEW) ────────────────────────────────────────────────
 //  check()가 쓰는 것과 같은 한도식을 "얼마까지 되나"로 뒤집어 푼다. 두 곳의 식이 어긋나면
 //  클램프한 수량이 다시 거부되므로, 항목·평가가(evaluation_price)·합산 기준(positions_+reserved_)을
@@ -450,7 +450,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
                 bool declined = false;
                 {
                     // [lock-order] positions_mutex_ → displace_mutex_. 반대 순서로 겹쳐 잡는 곳은 없다
-                    //  (plan_displacement·note_displacement는 displace_mtx_를 단독 구간으로만 쓴다).
+                    //  (plan_displacement·note_displacement는 displace_mutex_를 단독 구간으로만 쓴다).
                     std::lock_guard<std::mutex> dl(displace_mutex_);
                     auto di = displace_decline_.find(key.symbol);
 
@@ -532,7 +532,8 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
             }
 
             // 3c-2. 점수 우선순위 바 — 남은 슬롯이 적을수록 더 높은 점수를 요구한다.
-            //   rank/total ≤ 1 − (open/slots) × decay(t)
+            //   eff_rank/pool ≤ 1 − (open/max_concurrent_positions) × session_remaining_ratio()
+            //   eff_rank = below_by_symbol − taken_ahead + 1, pool = max(total, max_concurrent_positions)
             //  슬롯이 비어 있으면 아무나 통과하고, 마지막 칸에 가까울수록 상위만 남는다.
             //  랭크를 모르는 종목(스캔 유니버스 밖 보유분 청산 관리 등)은 바를 적용하지 않는다.
             if (table)
@@ -577,7 +578,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
         }
 
         // 3d. 포트폴리오 총노출 상한 — 모든 종목 보유(positions_×평단)+미체결 선점(reserved_×선점가) 합이
-        //     자본의 max_gross_exposure_pct를 넘게 만드는 BUY를 차단(신규·물타기 공통). 청산(SELL)은 위에서 제외.
+        //     자본의 max_gross_exposure_percent를 넘게 만드는 BUY를 차단(신규·물타기 공통). 청산(SELL)은 위에서 제외.
         //     종목당 명목(15%)×동시보유(10)=150% 같은 과노출을 총합 단에서 막는다. equity 미주입(0)이면 비활성.
         //     보유분은 원가(평단)로, 분모 equity는 시장 총평가금이라 상승장 과소·하락장 과대의 근사(수용).
         const double equity = equity_.load(std::memory_order_relaxed);
@@ -826,7 +827,7 @@ void OrderGate::apply_reservation_delta(std::string_view account, std::string_vi
 // 선점 해제 한 곳 — 취소 통보와 체결 통보가 같은 규칙을 쓰게 모았다. 규칙이 갈라져 있던 동안
 //  on_cancel에만 가드가 있고 on_fill_confirmed에는 없어, 선점을 잡은 적 없는 포지션의 체결이
 //  없던 선점을 만들어 냈다. delta는 해제 방향(BUY 선점 +는 -quantity, SELL 선점 -는 +quantity).
-//  호출자가 positions_mtx_를 이미 쥐고 있다고 가정한다(여기서 다시 잡지 않는다).
+//  호출자가 positions_mutex_를 이미 쥐고 있다고 가정한다(여기서 다시 잡지 않는다).
 void OrderGate::release_reservation(const PosKey& key, int delta)
 {
     // 잔고 대조가 reserved_를 비운 뒤 온 통보는 대상이 이미 없으므로 아무 것도 하지 않는다.
@@ -1360,8 +1361,8 @@ void OrderGate::add_realized_pnl(double pnl)
 }
 
 // ─── 원장 부트스트랩 (G5) — 실계좌 보유분 시드 ──────────────────────────────
-//  체결이 아니므로 reserved_·daily_pnl_은 두고 positions_/avg_prices_만 설정한다.
-//  기동 initialize 구간(스레드 시작 전)에서만 호출 → 첫 주문/체결과 경합 없음.
+//  체결이 아니므로 reserved_·daily_pnl_은 두고 positions_·average_prices_·sellable_·opened_at_을 설정한다.
+//  기동 때와 데이터 스레드의 재동기(LedgerReconciler) 때 부른다.
 void OrderGate::seed_position(const std::string& account, const std::string& ticker, int quantity, double average,
                               int sellable)
 {
@@ -1403,7 +1404,7 @@ OrderGate::FillResult OrderGate::on_fill_confirmed(
         int pre_quantity    = positions_.count(key) ? positions_[key] : 0; // 체결 전 실보유
         double current_average = average_prices_.count(key) ? average_prices_[key] : 0.0;
 
-        // 전략별 서브원장(D-089) — 위 종목단위 pre_quantity/cur_avg와 별개로 같은 락에서 갱신.
+        // 전략별 서브원장(D-089) — 위 종목단위 pre_quantity/current_average와 별개로 같은 락에서 갱신.
         //  전략 번호가 없으면(kNone) 건드리지 않는다(계산·판정에 영향 없음, 참고용 집계일 뿐).
         if (strategy != strategy_table::kNone)
         {
@@ -1543,8 +1544,8 @@ OrderGate::FillResult OrderGate::on_fill_confirmed(
 
 // ─── 교체 진입 ──────────────────────────────────────────────────────────────
 //  슬롯이 꽉 찼을 때 "먼저 온 순서"가 하루 종일 자리를 지키는 것을 막는다.
-//  락 순서: priority_mutex_ → displace_mutex_ → positions_mutex_ 를 겹치지 않고 차례로 잡는다
-//  (check()의 한도 거부 문구만 positions_mutex_ 안에서 displace_mtx_를 읽는다 — 역순 중첩 금지)
+//  여기서는 positions·priority·displace를 겹치지 않고 하나씩 잡는다. check()는 positions_mutex_ 안에서
+//  priority_mutex_(잎)와 displace_mutex_를 잡는다(한도 거부 문구, 3c-1 쿨다운·슬롯 예약).
 //  (헤더의 중첩 금지 규약 유지 — 각 구간에서 필요한 값만 복사해 나온다).
 bool OrderGate::slots_full() const
 {
@@ -1763,7 +1764,7 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
             //  사라졌다. 그 수량은 잔고 시드(ord_psbl_qty)를 거쳐 sellable_에만 남으므로
             //  여기서도 같이 본다. 안 보면 팔 수 없는 종목을 매번 최약체로 골라 교체가 헛돈다
             //  (09-09: 000215 4회, 001120 1회. 그동안 진짜 팔 수 있는 하위 종목은 그대로 있었다).
-            //  상한 계산은 clamp_buy_qty의 SELL 분기와 같은 규칙을 쓴다.
+            //  상한 계산은 clamp_buy_quantity의 SELL 분기와 같은 규칙을 쓴다.
             int cand_cap = entry.second;
             auto sellable_iterator = sellable_.find(key);
 
@@ -2201,8 +2202,8 @@ std::vector<OrderGate::HeldPos> OrderGate::snapshot_positions() const
 }
 
 // ─── 장부 사본 발행 (D-114 단계 2.5) ─────────────────────────────────────────
-//  전략 쪽이 OrderGate를 직접 부르는 자리를 이 사본 하나로 바꾸기 위한 채우기다. 지금은 채우기만 하고
-//  읽는 쪽은 없다 — 배선은 뒤에 한다. 한 바퀴에 한 번 부르므로 사본을 읽는 쪽이 밀리지 않는다.
+//  전략 쪽이 OrderGate를 직접 부르는 자리를 이 사본 하나로 바꾸기 위한 채우기다. 전략 스레드
+//  (SignalDispatcher·전략 provider)가 이 사본을 읽는다(D-114). 한 바퀴에 한 번 부르므로 사본을 읽는 쪽이 밀리지 않는다.
 //
 //  [inv] 판 안에서는 사본을 읽지 않는다. 판 번호가 홀수인 동안 읽는 쪽 함수(collect_rows·row)는
 //  짝수가 될 때까지 도는데, 그 짝수를 만드는 것이 자기 자신이라 영영 안 끝난다.
