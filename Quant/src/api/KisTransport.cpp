@@ -1,6 +1,6 @@
 // api/KisTransport.cpp — HTTP 전송 한 겹: 플랫폼별 요청(WinHTTP/libcurl)·재시도·초당 한도·공용 인증 헤더.
 //  모든 REST 호출은 http_get/http_post를 지난다. 스레드 공용(연결은 스레드별 캐시, 한도 버킷은 rate_mutex_).
-//  KisClient 구현은 도메인별 7파일이다 — 목록은 Quant/source/api/KisClientInternal.h. [why D-048]
+//  KisClient 구현은 도메인별 7파일이다 — 목록은 Quant/src/api/KisClientInternal.h. [why D-048]
 #include "KisClientInternal.h"
 
 #include "api/HttpGet.h"

@@ -1,8 +1,8 @@
 // tests/bench_market_firehose.cpp
 // 전종목 규모(~2,600) 시세 파이프라인 부하테스트 — 내부 3단 처리단의 전 구간(E2E) 지연 분포
 //  (중앙값(p50)·상위 1%(p99)·상위 0.1%(p999))와 최대 지속가능 처리량(throughput)을 실측한다.
-//  실행 절차의 정본은 `docs/guides/LOAD_TEST_GUIDE.market_data` §1, 결과는
-//  `docs/reports/PIPELINE_LATENCY_REPORT.market_data`.
+//  실행 절차의 정본은 `docs/guides/LOAD_TEST_GUIDE.md` §1, 결과는
+//  `docs/reports/PIPELINE_LATENCY_REPORT.md`.
 //
 // [inv] 측정 범위 — 내부 처리단만 잰다. 실제 KIS REST/WS 네트워크 지연은 빠져 있고, 프로덕션
 //   end-to-end 지연은 무료 API 폴링 주기(초 단위)가 좌우한다. 이 하네스로 "지연을 개선했다"를

@@ -93,7 +93,7 @@ public:
         //  체결되는 시장가가 된다(매수는 위, 매도는 아래). 분할 매수의 전제가 깨진다.
         //  해당 층을 '건너뛰지' 않는다 — 건너뛰면 눌림 진입이나 익절이 통째로 사라진다.
         //  매도는 max(simple_moving_average,현재가), 매수는 min(simple_moving_average,현재가) 기준으로 층을 다시 깐다.
-        bool   cross_guard    = true;  // docs/DECISIONS.market_data D-006
+        bool   cross_guard    = true;  // docs/DECISIONS.md D-006
         int    split_step_count        = 2;     // 밴드 층수
         bool   add_below_simple_moving_average_only = true; // 물타기(매수 밴드)를 현재가가 3분봉 기준선 아래(실제 눌림)일 때만 깐다.
                                           //  true=점진 진입: 활성 시 base만 → 진짜 눌림에서만 평단 낮춤(즉시 10% 만재 방지).

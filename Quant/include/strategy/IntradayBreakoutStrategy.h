@@ -11,7 +11,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // IntradayBreakoutStrategy (ITB v2)  —  장중 채널 돌파 + 물린분/신규분 분리 청산
 //
-//  협의체(전략·아키텍처·데이터·리스크) 확정 스펙(strategies/ITB/SPEC.market_data §2).
+//  협의체(전략·아키텍처·데이터·리스크) 확정 스펙(strategies/ITB/SPEC.md §2).
 //  입력은 오직 WS/REST 체결 틱(on_trade) — 깨진 REST 일봉 경로(G1/G2)를 우회한다.
 //
 //  [입력]  국내 실시간 체결 채널(H0STCNT0) 틱을 on_trade(TradeData)로 받는다. trade.price=현재가, trade.hhmmss=HHMMSS 정수.

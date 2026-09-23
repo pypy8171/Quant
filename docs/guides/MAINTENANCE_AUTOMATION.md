@@ -110,7 +110,7 @@ static·reinterpret·const 세 가지를 겸해 무엇을 의도했는지 코드
 - 예외는 이름이지 약어가 아닌 것뿐이다: KIS 전문 필드(`tr_id`·`odno`·`hhmmss`, `[wire]` 줄), 지표 이름(`pnl`·`atr`·`pbr`·`per`·
   `p50`·`p99`), 단위 접미사(`_ns`·`_ms`·`_us`·`_sec`·`_min`), 표준 라이브러리·OS 멤버(`std::`·`zmq::` 한정 이름, `.str()`·`.ec`·
   `tm_min`·`sin_addr`), `argc`·`argv`·`ok`·`now`, 네임스페이스 별칭 `fs`.
-- 길어지는 것은 감수한다. `simple_moving_average_20`이 `sma20`보다 길지만, 읽는 사람이 이동평균이라는 말을 한 번 더 본다.
+- 길어지는 것은 감수한다. `moving_average_10`이 `ma10`보다 길지만, 읽는 사람이 이동평균이라는 말을 한 번 더 본다.
 - 검사는 `../quant-devtools/check_code_conventions.py` 7번 규칙이 추가된 코드 줄만 본다(오류). 판정 표는 리네임에 쓴
   `../quant-devtools/rename_maps/01_fields.json`·`../quant-devtools/rename_frags.py`를 그대로 쓰므로, 예외를 늘리려면 그 표(SKIP·WIRE)를 고친다.
 - `.py`도 같은 규칙을 받는다(T-14 ②). 다만 줄 단위 정규식이 아니라 `ast`로 그 파일이 이름을 붙이는 자리(변수·인자·함수·

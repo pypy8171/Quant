@@ -69,7 +69,7 @@ _COMMAND_CONFIGURE = 3
 
 _MARKET_ORDER_PRICE = 0  # 0이면 시장가 — exchange::kMarketOrderPrice 와 같은 약속
 
-# ── 국내 호가단위 (Quant/include/core/KrxTick.h 와 짝) ───────────────────────
+# ── 국내 호가단위 (Quant/include/core/TickSize.h 와 짝) ───────────────────────
 # [formula] 유가증권시장 업무규정 시행세칙 제3조 호가가격단위.
 _TICK_BANDS = ((2000, 1), (5000, 5), (20000, 10), (50000, 50), (200000, 100), (500000, 500))
 _TICK_ABOVE = 1000

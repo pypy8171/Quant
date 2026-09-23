@@ -92,7 +92,7 @@ public:
     //  자기 몫을 잰다 — 버킷은 인스턴스 공유라 인스턴스 합계로는 어느 호출이 밀렸는지 못 가른다.
     static std::uint64_t rate_wait_ns_this_thread();
 
-    // 일봉 조회. 기본값은 당일 봉을 뺀 '전일까지'다(docs/DECISIONS.market_data D-005).
+    // 일봉 조회. 기본값은 당일 봉을 뺀 '전일까지'다(docs/DECISIONS.md D-005).
     //   KIS 응답의 output2[0]은 장중이면 오늘 진행 중 봉이고 그 종가가 실시간 현재가다.
     //   이동평균에 넣으면 오늘 가격이 1/n 가중으로 섞여 지표가 스스로를 참조한다(SMA5는 1/5).
     //   스냅샷을 하루 1회만 갱신하는 호출자에게는 그 값이 페치 시각에 동결되기까지 한다.
@@ -111,7 +111,7 @@ public:
     // 지정 날짜(과거일 포함)의 분봉 → interval_min 집계봉. TR FHKST03010230.
     //   당일 분봉 TR은 날짜 인자가 없어 오늘에 갇힌다. 이쪽은 1콜에 1분봉 120개(=130분)를 준다.
     //   end_hhmmss에서 과거로 역페이징. 반환: 최신→과거(result[0]=최신), 최대 count봉.
-    //   라이브 신호용이 아니라 과거 분봉 캐시·오프라인 백테스트 입력용이다(docs/DECISIONS.market_data D-004).
+    //   라이브 신호용이 아니라 과거 분봉 캐시·오프라인 백테스트 입력용이다(docs/DECISIONS.md D-004).
     std::vector<MarketData> get_daily_minute_ohlcv(const std::string& ticker,
                                                    const std::string& yyyymmdd,
                                                    int count, int interval_min = 3,

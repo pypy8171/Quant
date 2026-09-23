@@ -37,7 +37,7 @@
 - 재개 조건: 해외 주문을 실제로 낼 때 별도 tr_id/URL로 구현한다.
 
 ### D-5. send_order와 submit_order_acknowledgement의 본문 중복
-- 위치: [Quant/src/api/KisOrder.cpp](../Quant/src/api/KisOrder.cpp#L52)의 `send_order()`(옛 이름 `submit_order`), `submit_order_acknowledgement()`
+- 위치: [Quant/src/api/KisOrder.cpp](../Quant/src/api/KisOrder.cpp#L138)의 `send_order()`, `submit_order_acknowledgement()`
 - 현상: 두 함수가 본문·tr_id를 거의 그대로 복제한다. `submit_order_acknowledgement`가 응답에서
   조직번호까지 더 캡처하는 점만 다르다.
 - 미룬 이유: 동작은 정확하고, 지금 리팩터해도 기능 변화가 없다.
@@ -211,7 +211,7 @@
   같은 드릴에서 D-11(청산 매도가 증권사 매도가능수량으로 클램프되지 않음)도 함께 드러난다.
 - D-15b (전략선택 분기): 주입 경로가 없어서 못 태우고 있었다 — `RegimeController::Config`가
   config에 뚫려 있지 않아 임계값도 지수코드도 바꿀 수 없었다. 2026-09-07에 config
-  `"regime_tuning"`으로 배선했다(D-021). 실측 score=1을 기준으로 `score_bull_threshold: 1`
+  `"regime_tuning"`으로 배선했었다(D-021, D-085로 판정기와 함께 지웠다). 실측 score=1을 기준으로 `score_bull_threshold: 1`
   이면 BULL, `score_bear_threshold: 1`이면 BEAR로 떨어져 가짜 데이터 없이 두 분기를 태운다.
 - 남은 것: 두 드릴을 모의계좌에서 실제로 한 번씩 돌리는 일(날짜 미정).
 

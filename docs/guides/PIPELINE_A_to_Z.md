@@ -49,8 +49,8 @@ TRADE 모드의 데이터 흐름:
 
 ### 1.1 진입점과 인자 파싱
 - `main()` 진입: `main.cpp::main`. Windows 콘솔 UTF-8/ANSI 설정 후 (`main.cpp::main`) `Logger::instance().init("logs/quant_trader.log", INFO)` (`main.cpp::main`, logs/ 하위 고정·부모폴더 자동생성).
-- 인자 파싱: `quant_trader [config] [MODE] [--role both|order|strategy]`. `KR_TEST/US_TEST/FEED/TRADE`는 `mode_override`로, `--role`은 이 프로세스가 맡는 자리로, 그 외 토큰은 `config_path`로 해석 (`core/CommandLine.cpp::parse_command_line`). 모르는 역할·`-`로 시작하는 모르는 깃발은 기본값으로 낙하하지 않고 종료코드 2로 멈춘다. `order`·`strategy`는 엔진 가르기 전까지 받아만 두고 뜨지 않는다(D-114 단계 4).
-- 설정 로드: `main.cpp::main`이 파일을 읽어 `json::parse`한 뒤 `Quant/src/core/AppConfig.cpp::parse_config`가 typed `AppConfig`로 바꾸고, `Quant/src/core/EngineConfigure.cpp::Engine::configure`가 그 값을 엔진 세터에 옮긴다(d7ef5ac·27a6a70). 옛 `main.cpp::load_config`와 placeholder `Quant/src/utils/Config.cpp`는 삭제됐다.
+- 인자 파싱: `quant_trader [config] [MODE] [--role both|order|strategy]`. `KR_TEST/US_TEST/FEED/TRADE`는 `mode_override`로, `--role`은 이 프로세스가 맡는 자리로, 그 외 토큰은 `config_path`로 해석 (`Quant/src/core/CommandLine.cpp::parse_command_line`). 모르는 역할·`-`로 시작하는 모르는 깃발은 기본값으로 낙하하지 않고 종료코드 2로 멈춘다. `order`·`strategy`는 엔진 가르기 전까지 받아만 두고 뜨지 않는다(D-114 단계 4).
+- 설정 로드: `main.cpp::main`이 파일을 읽어 `json::parse`한 뒤 `Quant/src/core/AppConfig.cpp::parse_config`가 typed `AppConfig`로 바꾸고, `Quant/src/core/EngineConfigure.cpp::Engine::configure`가 그 값을 엔진 세터에 옮긴다(d7ef5ac·27a6a70). 옛 `main.cpp` 안의 설정 로더와 빈 설정 파일은 지웠다.
 
 ### 1.2 config.json 스키마
 `config.json` 최상위 키:
@@ -75,9 +75,9 @@ TRADE 모드의 데이터 흐름:
 
 `KisClient::authenticate()` (`KisClient.cpp::authenticate`)의 흐름:
 
-1. **캐시 재사용 시도**: 토큰 캐시 경로는 `token_cache_path()` — `kis_token_<appkey앞8자>.json` (`KisClient.cpp::token_cache_path`). 환경변수 `KIS_TOKEN_CACHE_DIR`이 있으면 그 디렉터리에 저장(도커 공유 볼륨 → Python balance가 재사용). 캐시 파일을 열어 `access_token`/`expires_at`을 읽고, 만료 **10분 전**까지 남았으면(`exp_t - now_t > 600`) 인메모리로 로드하고 즉시 반환 (`KisClient.cpp::authenticate_locked`).
-2. **신규 발급**: 캐시 미스 시 `POST {base}/oauth2/tokenP`에 `{grant_type:client_credentials, appkey, appsecret}` 전송 (`KisClient.cpp::authenticate_locked`). 응답에서 `access_token`, 만료 필드 `access_token_token_expired` 파싱 (`KisClient.cpp::authenticate_locked`).
-3. **캐시 저장**: `.tmp`에 쓴 뒤 atomic rename — Windows `MoveFileExA`(`KisClient.cpp::authenticate_locked`), Linux는 `chmod 0600` + `fsync` + `rename`(`KisClient.cpp::authenticate_locked`). 읽는 쪽(Python)이 truncated JSON을 보지 않게 함.
+1. **캐시 재사용 시도**: 토큰 캐시 경로는 `token_cache_path()` — `kis_token_<appkey앞8자>.json` (`KisAuth.cpp::token_cache_path`). 환경변수 `KIS_TOKEN_CACHE_DIR`이 있으면 그 디렉터리에 저장(도커 공유 볼륨 → Python balance가 재사용). 캐시 파일을 열어 `access_token`/`expires_at`을 읽고, 만료 **10분 전**까지 남았으면(`exp_t - now_t > 600`) 인메모리로 로드하고 즉시 반환 (`KisAuth.cpp::issue_token`).
+2. **신규 발급**: 캐시 미스 시 `POST {base}/oauth2/tokenP`에 `{grant_type:client_credentials, appkey, appsecret}` 전송 (`KisAuth.cpp::issue_token`). 응답에서 `access_token`, 만료 필드 `access_token_token_expired` 파싱 (`KisAuth.cpp::issue_token`).
+3. **캐시 저장**: `.tmp`에 쓴 뒤 atomic rename — Windows `MoveFileExA`(`KisAuth.cpp::issue_token`), Linux는 `chmod 0600` + `fsync` + `rename`(`KisAuth.cpp::issue_token`). 읽는 쪽(Python)이 truncated JSON을 보지 않게 함.
 4. **자동 갱신**: `ensure_authenticated()` (`KisClient.cpp::ensure_authenticated`)는 만료 **5분 전**이면 `authenticate()`를 다시 부른다. 모든 `http_get`/`http_post`가 URL에 "oauth2"가 없으면 진입 시 이걸 호출한다(재귀 방지 가드 포함) (`KisClient.cpp::http_get`·`KisClient.cpp::http_post`).
 
 **base_url / tr_id 분기**:
@@ -85,7 +85,7 @@ TRADE 모드의 데이터 흐름:
 - 국내 주문 tr_id: 매수 `VTTC0012U`(모의)/`TTTC0012U`(실), 매도 `VTTC0011U`/`TTTC0011U` (`KisClient.cpp::submit_order_acknowledgement`), 본문 `EXCG_ID_DVSN_CD`는 config `kis.exchange`(KRX/NXT/SOR, D-096). 정정/취소는 `VTTC0013U`/`TTTC0013U` (`KisClient.cpp::cancel_order`·`KisClient.cpp::revise_order`). 잔고조회 `VTTC8434R`/`TTTC8434R` (`KisClient.cpp::get_balance`).
 - 조회계 tr_id: 일봉 `FHKST03010100`(`KisClient.cpp::get_daily_ohlcv`), 현재가/펀더멘털 `FHKST01010100`(`KisClient.cpp::get_current_price`·`KisClient.cpp::get_fundamentals`), 시총랭킹 `FHPST01740000`(`KisUniverse.cpp::fetch_kr_ranking`, 화면코드 20174), 지수일봉 `FHKUP03500100`(`KisClient.cpp::get_index_daily_ohlcv`), 지수현재값 `FHPUP02100000`(`KisClient.cpp::get_index_price`), 투자자동향 `FHKST01010900`(`KisClient.cpp::get_investor_trend`·`KisClient.cpp::get_investor_flow`).
 
-**헤더 구성** (공통 4종): `authorization: Bearer <token>`, `appkey`, `appsecret`, `tr_id` (예: `KisClient.cpp::get_daily_ohlcv`). GET에도 KIS는 `Content-Type: application/json`을 요구하므로 `http_get`이 없으면 자동 추가 (`KisClient.cpp::http_get`). HTTP 구현은 플랫폼 분기: Windows `winhttp_request`(`KisClient.cpp::winhttp_request`), Linux `curl_request`(`KisClient.cpp::curl_request`).
+**헤더 구성** (공통 4종): `authorization: Bearer <token>`, `appkey`, `appsecret`, `tr_id` (예: `KisClient.cpp::get_daily_ohlcv`). GET에도 KIS는 `Content-Type: application/json`을 요구하므로 `http_get`이 없으면 자동 추가 (`KisClient.cpp::http_get`). HTTP 구현은 플랫폼 분기: Windows `winhttp_request`(`KisTransport.cpp::winhttp_request`), Linux `curl_request`(`KisTransport.cpp::curl_request`).
 
 ---
 
@@ -116,8 +116,8 @@ TRADE 모드의 데이터 흐름:
 
 `Engine::data_thread_fn()` (`Engine.cpp::data_thread_fn`):
 
-1. **장중 판정 + 장 시작 감지**: `is_any_market_open()`(`Engine.cpp::is_any_market_open`) = KR(09:00~15:30 KST, `Engine.cpp::is_kr_market_open`) 또는 US(KST 22:30~05:00, `Engine.cpp::is_us_market_open`). 판정은 `gmtime + 9h`로 머신 TZ 무관하게 KST를 계산 (`Engine.cpp::utc_plus_hours`).
-2. **장 시작 엣지**(`market_now && !was_market_open`): `order_gate_.reset_daily()` + `order_router_->reset_daily()` + `regime_->evaluate()` 후 전략별 `set_active(regime_->is_active_for(...))` (`Engine.cpp::data_thread_fn`).
+1. **장중 판정 + 장 시작 감지**: `is_any_market_open()`(`Engine.cpp::is_any_market_open`) = KR(09:00~15:30 KST, `Engine.cpp::is_kr_market_open`) 또는 US(KST 22:30~05:00, `Engine.cpp::is_us_market_open`). 판정은 `kst::to_tm`으로 머신 TZ 무관하게 KST를 계산 (`KstTime.h::to_tm`).
+2. **장 시작 엣지**(`market_now && !was_market_open`): 주문 쪽은 `request_reset_daily()`로 게이트·라우터 일별 카운터를 비우고, 전략 쪽은 마지막 국면 선택을 `apply_regime_selection(..., force_log=true)`로 다시 적용한다 (`Engine.cpp::data_thread_fn`). 코스피 판정기는 D-085로 지웠다.
 3. 장 외 시간이면 60초 슬립 후 continue (`Engine.cpp::data_thread_fn`).
 4. **폴링**: `watch_specifications_`의 각 종목에 대해 KR이면 `kis_->get_daily_ohlcv(spec.ticker, 1)`, US면 `get_us_daily_ohlcv(spec.ticker, 1, exchange)` (`Engine.cpp::data_thread_fn`). 반환 `bars[0]`에 `bar_index = data_count_`를 심고 `market_queue_.push(md)` (`Engine.cpp::data_thread_fn`). 큐가 full이면 1ms 슬립하며 재시도. push 후 `data_count_++`.
 5. 루프 말미 `fetch_interval_sec_`초(기본 60s) 슬립 (`Engine.cpp::data_thread_fn`).
@@ -187,7 +187,7 @@ WS 연결/구독은 `KisWebSocket::connect()` (Windows·Linux 두 정의, `WebSo
 3. **market_queue_** (일봉) — if 1건, `on_data` (`Engine.cpp::strategy_thread_fn`).
 4. 아무 일도 없으면 100µs 슬립(저지연 유지) (`Engine.cpp::strategy_thread_fn`).
 
-신호가 나오면 `push_signal` 람다: `signal_count_++`, 로그, `order_queue_.push(sig)`(full이면 100µs 슬립 재시도) (`Engine.cpp::strategy_thread_fn`).
+신호가 나오면 `SignalDispatcher`에 넘긴 싱크 람다가 `signal_count_`를 올리고 `ipc::to_request`로 바꿔 요청 링 `requests`에 넣는다. 가득 차면 기다리지 않고 버리고 `order_dropped`를 센다(D-073) (`Engine.cpp::strategy_thread_fn`).
 
 ### 6.1 MACross on_data 로직 (`MACrossStrategy.h::on_data`)
 1. `data.ticker != ticker_`면 무시 (`MACrossStrategy.h::on_data`).
@@ -246,9 +246,9 @@ MACross의 `make_signal` (`MACrossStrategy.h::make_signal`)은 `type=MARKET`, `q
 1. `ManagedOrder` 생성, `order_id="ORD-000001"` 형식(`next_id`, `OrderRouter.cpp::next_id`), status=PENDING, `total_count_++`.
 2. `gate_.check()` 실패 → REJECTED + `rejected_count_++` + record (`OrderRouter.cpp::new_route`).
 3. 통과 → status=SUBMITTED. **RTT 계측**: `send_thread` 기록 후 `kis_.submit_order_acknowledgement(sig)` 호출, `steady_clock` 차이로 `rtt_ms` 산출 (`OrderRouter.cpp::new_route`). 예외 시 REJECTED (`OrderRouter.cpp::new_route`).
-4. `ack.odno`가 비어있지 않으면 → status=ACCEPTED, `kis_order_no=odno`, `krx_orgno=ack.krx_orgno`(정정/취소용), `accepted_count_++` (`OrderRouter.cpp::new_route`).
+4. `ack.odno`가 비어있지 않으면 → status=ACCEPTED, `kis_order_no=odno`, `krx_forwarding_org_no=ack.krx_forwarding_org_no`(정정/취소용), `accepted_count_++` (`OrderRouter.cpp::new_route`).
 5. **`gate_.on_accept(account, ticker, side, quantity, price)`로 reserved_ 선점** (`OrderRouter.cpp::new_route`) — 실체결 전까지 재주문 차단.
-6. `client_order_id` 있으면 `order_id_index_`에 매핑 (`OrderRouter.cpp::new_route`). 접수 로그에 RTT 포함 (`OrderRouter.cpp::new_route`).
+6. 주문 번호 `client_order_number`를 `slot_by_client_number_`에 이력 순번으로 매핑 (`OrderRouter.cpp::push_history_locked`). 접수 로그에 RTT 포함 (`OrderRouter.cpp::new_route`).
 7. odno 비었으면 REJECTED("빈 ODNO") (`OrderRouter.cpp::new_route`).
 
 `KisClient::submit_order_acknowledgement()` (`KisClient.cpp::submit_order_acknowledgement`): tr_id 분기(§2 참조), body 구성(국내는 `ORD_DVSN` MARKET="01"/LIMIT="00", `ORD_QTY`, `ORD_UNPR`) (`KisClient.cpp::submit_order_acknowledgement`), `http_post` 후 `rt_cd=="0"` 확인, `output.ODNO`와 `output.KRX_FWDG_ORD_ORGNO` 추출해 `OrderAck` 반환 (`KisClient.cpp::submit_order_acknowledgement`).
@@ -283,9 +283,7 @@ MACross의 `make_signal` (`MACrossStrategy.h::make_signal`)은 `type=MARKET`, `q
 
 ## 11. 로깅 / 적재
 
-`Logger`는 헤더온리 싱글톤 (`Logger.h::Logger`). `Quant/src/utils/Logger.cpp`는 placeholder(1줄짜리 빈 파일) — 구현이 전부 헤더 inline. `log()`는 `localtime` 기반 `YYYY-MM-DD HH:MM:SS.mmm` 타임스탬프 + 레벨 + msg를 콘솔(`console_enabled_`일 때)과 `quant_trader.log`에 동시 기록 (`Logger.h::log`). 매크로 `LOG_INFO/WARN/ERROR/DEBUG` (`Logger.h::LOG_INFO`).
-
-> 주석에 "ms UTC"라 적혀 있으나 실제 코드는 `std::localtime`(로컬 TZ)을 쓴다 (`Logger.h::format`). 파일 기록은 append 모드(`Logger.h::init`)이며 명시적 flush가 없어 `std::ofstream` 기본 버퍼링을 탄다. TRADE 모드는 신호가 드물어 로그가 희소한데, 파이프로 stdout을 캡처하면 블록 버퍼링 때문에 실시간으로 안 보일 수 있다(콘솔 직접 출력은 라인 단위라 보임).
+`Logger`는 싱글톤이다. 헤더(`Quant/include/utils/Logger.h`)에는 선언과 매크로 `LOG_INFO/WARN/ERROR/DEBUG`만 있고, 큐·writer 스레드·파일 핸들은 `Quant/src/utils/Logger.cpp`의 `Logger::Implementation`에 있다. 호출 스레드는 레코드를 락 없는 `MpscQueue`에 넣기만 하고, writer 스레드가 로컬 시각(`localtime`) `YYYY-MM-DD HH:MM:SS.mmm` 타임스탬프를 붙여 콘솔(`console_enabled_`일 때)과 `logs/quant_trader.log`에 쓴다. 파일은 큐가 한산해진 순간과 레코드가 몰리는 동안 주기마다 flush하므로 `tail`로 바로 보인다.
 
 FEED/KR_TEST/US_TEST 모드는 `set_console_enabled(false)`로 콘솔 로그를 끄고 화면을 직접 그린다 (`Monitors.cpp::run_feed`·`Monitors.cpp::run_kr_test`·`Monitors.cpp::run_us_test`).
 

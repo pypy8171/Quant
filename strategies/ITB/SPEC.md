@@ -74,10 +74,10 @@
 |------|-----------|--------|------|
 | 종목당 명목 | `notional_per_position` | 700,000 | `entry_qty = max(1, floor(명목/현재가))`. 1주 고정 폐기 |
 | 동시보유 상한 | `max_concurrent_positions` | 3 | 전역 카운터(전략 인스턴스 간 공유 필요) |
-| 총노출 상한 | `max_total_notional` | 계좌 50% | 슬리피지/미체결 버퍼 남김 |
+| 총노출 상한 | `risk.max_gross_exposure_pct` | 계좌 50% | 슬리피지/미체결 버퍼 남김 |
 | 일손실 신규정지 | `daily_loss_limit` | 계좌 -2% | BUY-only(청산 허용). C-1 선결 필수 |
-| 킬스위치 | `kill_loss_limit` | 계좌 -3% | daily보다 harder |
-- OrderGate 현재 하드코딩(`OrderGate.h:31-42`): max_qty_per_ticker=100, daily_loss_limit=-300,000, 5/s·20/min, max_notional_per_order=50M. **config `"risk"` 블록으로 노출**(`main.cpp`에 파서 신설).
+| 킬스위치 | (config 키 없음) | 계좌 -3% | 손실 기준 자동 킬은 만들지 않았다. 지금은 운영단말·ZMQ `KILL`로 손으로 켠다 |
+- OrderGate 현재 하드코딩(`OrderGate.h:31-42`): max_qty_per_ticker=100, daily_loss_limit=-300,000, 5/s·20/min, max_notional_per_order=50M. → 지금은 config `"risk"` 블록을 `Quant/src/core/AppConfig.cpp`의 `parse_risk`가 읽는다.
 - 켈리·변동성타게팅은 표본 0이라 보류. 고정명목+종목수 상한으로 시작, 20~30거래 후 재검토.
 
 ---

@@ -1825,9 +1825,7 @@
       "PYQuant/tools/kind_delisted_fill.py",
       "PYQuant/tools/ledger_dump.py",
       "PYQuant/tools/ledger_recorder.py",
-      "PYQuant/tools/load_highwater_reader.py",
       "PYQuant/tools/load_injector.py",
-      "PYQuant/tools/load_status_sampler.py",
       "PYQuant/tools/log_report.py",
       "PYQuant/tools/macro_ingest.py",
       "PYQuant/tools/macro_regime_feed.py",
@@ -2091,9 +2089,6 @@
         "core.logger",
         "db.client"
       ],
-      "PYQuant/tools/load_highwater_reader.py": [
-        "_logdir"
-      ],
       "PYQuant/tools/minute_backfill.py": [
         "kis.client"
       ],
@@ -2189,7 +2184,6 @@
     },
     "imported_by": {
       "_logdir": [
-        "PYQuant/tools/load_highwater_reader.py",
         "scripts/analyze_slot_cost.py",
         "scripts/backfill_fills_db.py",
         "scripts/check_runtime_health.py",
@@ -2587,11 +2581,6 @@
         "from": "PYQuant/tools",
         "to": "PYQuant",
         "weight": 5
-      },
-      {
-        "from": "PYQuant/tools",
-        "to": "PYQuant/_logdir",
-        "weight": 1
       },
       {
         "from": "PYQuant/tools",

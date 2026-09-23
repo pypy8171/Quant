@@ -32,7 +32,7 @@
 ```
 
 - **렌더링 스택 = FastAPI + 경량 HTML/JS 단일 홈.** 라이브는 어차피 서버 프로세스가 필요하므로 그 프로세스가 백테스트 뷰도 서빙하므로 하네스와 같은 Python으로 스택이 수렴한다. 백테스트 뷰는 **정적 HTML로도 export**해 서버 없이 열람·공유 가능.
-- **라이브 소스 교체 무손실**: 지금은 `state_snapshot.json` 폴링 → 이후 ZMQ SUB → 최종 TimescaleDB. 프론트는 계약만 보므로 불변.
+- **라이브 소스 교체 무손실**: 계획은 `state_snapshot.json` 폴링(엔진 쪽 쓰기는 아직 없다 — 아래 구현 현황) → 이후 ZMQ SUB → 최종 TimescaleDB. 프론트는 계약만 보므로 불변.
 - **Grafana + TimescaleDB는 MVP에 세우지 않는다**(front-loading 금지). Phase 3에서 라이브 보존·운영 등급이 필요해질 때 옵션으로 붙인다. (목표 아키텍처의 종착지.)
 
 > **구현 현황(스펙과의 차이)**: 실제 라이브 MVP는 `scripts/dashboard_server.py`로 먼저 나왔고, 위 확정안과 일부 갈린다. FastAPI 대신 **의존성 0 stdlib `http.server`**를 쓰고, 계약②(`state_snapshot.json`)를 거치지 않고 **기존 소스를 직접 읽는다**: 잔고 REST(PYQuant `KisClient`), 국면 `regime.json`, 유니버스 `universe_scan.json`, `quant_trader.log` tail, 체결원장 `trades_YYYYMMDD.csv`, 거래대금 랭킹. 차트/랭킹은 PYQuant 신규 메서드(`get_chart_ohlcv`·`get_minute_ohlcv`·`get_volume_ranking`)를 소비하며 `/api/state`·`/api/chart`로 서빙한다. state_snapshot.json 계약은 아직 미배선이라, 프론트-소스 분리(계약만 읽기)는 이 서버에는 적용되지 않았다.
@@ -106,6 +106,8 @@ python research/studies/09_crisis_strategies/backtest_crisis_strategies.py # →
 ---
 
 ## 3. 데이터 계약 ② — 라이브 `state_snapshot.json`
+
+> 계획만 있고 엔진은 이 파일을 쓰지 않는다. 지금 라이브 대시보드는 기존 소스를 직접 읽는다(1절 구현 현황).
 
 엔진이 N초마다 **원자적으로 write**(임시파일 → rename). 대시보드는 파일을 폴링. 의존성 0.
 `logs/trades_YYYYMMDD.csv` tail(체결 스트림)로 보강.

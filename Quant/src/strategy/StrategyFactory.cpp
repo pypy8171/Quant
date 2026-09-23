@@ -193,7 +193,7 @@ static void load_intraday_breakout(StrategyLoadCtx& context, const json& node)
     int cooldown_sec   = node.value("reentry_cooldown_sec", 60);
     int entry_quantity      = node.value("entry_qty", 1); // 신규 돌파 진입 수량(명목 미지정 시)
     double average_loss_percent = node.value("avg_loss_pct", 0.0); // 평단 대비 손절률(0=비활성)
-    // ── v2 파라미터(strategies/ITB/SPEC.market_data §2/§3) ──
+    // ── v2 파라미터(strategies/ITB/SPEC.md §2/§3) ──
     double seed_trail_percent      = node.value("seed_trail_pct", 0.0);      // 물린분 기준점 트레일(넓게)
     double exit_near_average_percent   = node.value("exit_near_avg_pct", 0.0);   // 물린분 본전탈출 임계
     int    no_new_entry_hhmm   = node.value("no_new_entry_hhmm", 0);     // 신규진입 금지 시각(0→장 마감)

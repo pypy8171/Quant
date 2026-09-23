@@ -15,7 +15,7 @@
 #include <thread>
 #include <vector>
 
-class WsSocket; // 플랫폼 소켓(Quant/source/api/WsSocket.h). 이 헤더는 플랫폼 헤더를 끌어오지 않는다. [why D-049]
+class WsSocket; // 플랫폼 소켓(Quant/src/api/WsSocket.h). 이 헤더는 플랫폼 헤더를 끌어오지 않는다. [why D-049]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // KisWebSocket  —  국내 + 미국 실시간 WebSocket

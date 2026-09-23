@@ -3,7 +3,7 @@
 
 레코더(PYQuant/main.py record)는 오늘(2026-09-15) 14시 30분경부터 떠 있었다 — 그 전에는
 ZMQ 구독자가 없어서 CSV 원장에는 남았지만 DB엔 안 들어간 모의계좌(config_dev_paper.json,
-50204275) 체결이 쌓여 있다. 날짜별 원장 선택은 scripts/_logdir.find_ledger 하나로 통일한다
+50204275) 체결이 쌓여 있다. 날짜별 원장 선택은 scripts/_logdir.py의 find_ledger 하나로 통일한다
 (market_close_collect.py와 같은 규칙 — 행 수 최대, 동률이면 mtime 최신 — 같은 날을 두고 집계가
 갈리면 안 된다). 테스트 바이너리가 남긴 유령 행 필터도 그대로 가져왔다.
 

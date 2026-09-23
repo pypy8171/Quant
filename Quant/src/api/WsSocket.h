@@ -1,7 +1,7 @@
 // api/WsSocket.h — KisWebSocket이 쓰는 실시간 소켓의 플랫폼 경계.
 //  구현은 WsSocketWin.cpp(WinHTTP)·WsSocketPosix.cpp(POSIX 소켓 + RFC 6455) 중 플랫폼당 하나만 링크된다
 //  (Quant/CMakeLists.txt KIS_WS_SOURCES). 재연결·백오프·구독 복원은 KisWebSocket::recv_loop 한 벌이 맡고,
-//  여기는 열고·보내고·받고·닫는 것만 한다. 공개 헤더가 아니라 Quant/source/api에 둔다. [why D-049]
+//  여기는 열고·보내고·받고·닫는 것만 한다. 공개 헤더가 아니라 Quant/src/api에 둔다. [why D-049]
 #pragma once
 #include <memory>
 #include <string>

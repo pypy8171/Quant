@@ -1,8 +1,8 @@
 // tests/bench_feed_ingest.cpp
 // 시세 피드 수신·처리 부하테스트 — 코스콤(KOSCOM)→증권사 시세 흐름을 실제 TCP loopback으로
 //  통과시켜, wire 송신 시각에서 주문 결정 시각까지를 네트워크 구간과 처리 구간으로 분해한다.
-//  실행 절차의 정본은 `docs/guides/LOAD_TEST_GUIDE.market_data` §2, 결과는
-//  `docs/reports/PIPELINE_LATENCY_REPORT.market_data`.
+//  실행 절차의 정본은 `docs/guides/LOAD_TEST_GUIDE.md` §2, 결과는
+//  `docs/reports/PIPELINE_LATENCY_REPORT.md`.
 //
 // [inv] 측정 범위 — loopback에는 물리 회선(WAN/전용선) 지연이 없다. 재는 것은 "동일 머신 TCP
 //   스택 비용 + 소켓 도착 후 주문 결정까지"다. 이 수치를 실 회선 지연으로 옮겨 적으면 안 된다.

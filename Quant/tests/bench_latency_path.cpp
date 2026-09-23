@@ -1,6 +1,6 @@
 // tests/bench_latency_path.cpp
 // 09-13 hot path 변경(D-071 Phase 2·3)의 항목별 전후 비교 — 옛 방식을 벤치 안에 최소 복제해 같은 입력으로 잰다.
-//  결과는 `docs/reports/PIPELINE_LATENCY_REPORT.market_data` 결과 ⑥, 절차는 `docs/guides/LOAD_TEST_GUIDE.market_data` §6.
+//  결과는 `docs/reports/PIPELINE_LATENCY_REPORT.md` 결과 ⑥, 절차는 `docs/guides/LOAD_TEST_GUIDE.md` §6.
 //  스레드: 항목 1~4는 단일 스레드, 5(캡처)·6(multiplexer)·7(연쇄)은 생산자 1·소비자 1. release 빌드로만 잰다. [why D-071]
 //
 // [inv] 측정 범위 — 실 KIS WS 프레임 수신·복호화·네트워크는 빠져 있다. 재는 것은 디코더 입구(`^` 페이로드)부터
