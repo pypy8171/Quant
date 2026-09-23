@@ -1826,6 +1826,7 @@
       "PYQuant/tools/ledger_dump.py",
       "PYQuant/tools/ledger_recorder.py",
       "PYQuant/tools/load_injector.py",
+      "PYQuant/tools/load_status_sampler.py",
       "PYQuant/tools/log_report.py",
       "PYQuant/tools/macro_ingest.py",
       "PYQuant/tools/macro_regime_feed.py",
