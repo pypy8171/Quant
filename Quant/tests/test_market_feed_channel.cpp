@@ -14,6 +14,7 @@
 #include "ipc/MarketFeedChannel.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -30,7 +31,9 @@ void check(bool condition, const std::string& name)
 
     if (!condition)
     {
-        std::cout << "[FAIL] " << name << "\n";
+        // abort 는 cout 버퍼를 비우지 않는다 — 파이프·파일로 받으면 실패 줄이 통째로 사라져 "아무것도
+        //  못 찍고 죽은" 것처럼 보인다(09-23 이 시험을 쫓다 반나절 헛짚을 뻔했다). 흘려보내고 죽는다.
+        std::cout << "[FAIL] " << name << std::endl;
         std::abort();
     }
 
@@ -280,11 +283,24 @@ void test_two_threads()
 
     constexpr int64_t kTotal = 20000;
 
-    std::atomic<bool>    done{false};
+    // 스레드를 띄우기 전에 큐를 꽉 채운다 — 받는 쪽이 늘 앞서 비우면 한 번도 안 차서, 빈 큐만 오가는
+    //  시험이 된다. 예전엔 그것을 "dropped > 0"으로 잡으려 했는데 그 수 자체가 타이밍에 달려 있어
+    //  스무 번에 두어 번 그 자리에서 죽었다(09-23). 가득 찬 상태는 여기서 손으로 만든다.
+    bool prefilled = true;
+
+    for (int64_t quantity = 1; quantity <= static_cast<int64_t>(kTradeCapacity); ++quantity)
+    {
+        prefilled = prefilled && sender.push_trade(0, trade_of(7, quantity));
+    }
+
+    check(prefilled, "큐를 칸 수만큼 채운다");
+    check(!sender.push_trade(0, trade_of(7, kTradeCapacity + 1)), "꽉 찬 큐는 더 받지 않는다(그 건은 버려진다)");
+
     std::atomic<int64_t> dropped{0};
 
-    std::thread producer([&sender, &done, &dropped] {
-        for (int64_t quantity = 1; quantity <= kTotal; ++quantity)
+    std::thread producer([&sender, &dropped] {
+        // 미리 채운 칸 뒤부터 — 버려진 건은 큐에 안 들어갔으니 순번은 이어진다.
+        for (int64_t quantity = static_cast<int64_t>(kTradeCapacity) + 1; quantity <= kTotal; ++quantity)
         {
             // 큐가 차면 버리는 것이 이 통로의 규칙이지만, 건수를 맞춰 보려고 여기서는 빌 때까지 다시 낸다.
             while (!sender.push_trade(0, trade_of(7, quantity)))
@@ -293,15 +309,18 @@ void test_two_threads()
                 std::this_thread::yield();
             }
         }
-
-        done.store(true, std::memory_order_release);
     });
 
     int64_t   seen        = 0;
     int64_t   out_of_turn = 0;
     TradeData received;
 
-    while (seen < kTotal)
+    // 보내는 쪽이 "끝났다"고 알린 순간에 큐가 빈 것은 아니다 — 마지막 칸의 도장이 이 스레드에 아직
+    //  안 보였을 수 있고, 거기서 멈추면 몇 건을 놓고 끝난다(09-23 스물다섯 번에 네 번 그랬다).
+    //  보낸 수를 다 받을 때까지 돌되, 안 오면 기한에서 끊어 판정으로 넘긴다.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+
+    while (seen < kTotal && std::chrono::steady_clock::now() < deadline)
     {
         if (receiver.pop_trade(0, limits(), received))
         {
@@ -311,12 +330,11 @@ void test_two_threads()
             {
                 ++out_of_turn;
             }
+
+            continue;
         }
-        else if (done.load(std::memory_order_acquire))
-        {
-            // 보내는 쪽이 끝났는데 꺼낼 것이 없으면 더 올 것이 없다.
-            break;
-        }
+
+        std::this_thread::yield();
     }
 
     producer.join();
@@ -325,7 +343,10 @@ void test_two_threads()
     check(out_of_turn == 0, "순서가 뒤집히지 않았다");
     check(receiver.discarded() == 0, "반쪽 레코드를 본 적이 없다");
     check(receiver.stamp_out_of_turn() == 0, "덮인 칸이 없다");
-    check(dropped.load() > 0, "큐가 실제로 찼다 — 빈 큐만 오간 시험이 아니다");
+
+    // 가득 찬 큐를 지나왔다는 것은 위에서 손으로 확인했다. 여기서는 그 뒤 얼마나 더 막혔는지만 남긴다 —
+    //  수 자체는 기계 사정에 따라 0일 수 있어 판정에 쓰지 않는다.
+    std::cout << "[INFO] 보내는 쪽이 큐가 차서 다시 낸 횟수: " << dropped.load() << "\n";
 }
 
 } // namespace

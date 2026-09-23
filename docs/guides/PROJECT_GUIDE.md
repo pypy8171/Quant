@@ -41,15 +41,16 @@ OpsServer(내부 스레드)           운영단말 TCP — 조회·수동주문�
 `order_thread_fn`·`fill_thread_fn`·`control_thread_fn`이고, 큐는 구조체 하나 `pipeline_`(`ShardPipeline`)에 모여 있다.
 다섯 스레드 + 샤드 M개(config `strategy_shards`, 기본 1)에 WS 소켓마다 수신 스레드 하나가 더 붙고,
 전략이 맡긴 REST 미리 당기기는 공용 프리페치 풀이 따로 돈다(`Quant/include/core/PrefetchPool.h`, D-115).
-프로세스를 가르면 이 스레드들을 역할이 나눠 갖는다(D-114 단계 4) — 전략 역할은 샤드 M개·전략·데이터·감시,
-주문 역할은 주문·체결·데이터·감시다. 데이터와 감시는 양쪽에 하나씩 두되 보는 일감이 다르다(전략 쪽은 국면·
+프로세스를 가르면 이 스레드들을 역할이 나눠 갖는다(D-114 단계 4) — 전략 역할은 샤드 M개·시세 줄 L개·전략·데이터·감시,
+주문 역할은 WS 수신 L개·주문·체결·데이터·감시다(L은 WS 소켓 수). 데이터와 감시는 양쪽에 하나씩 두되 보는 일감이 다르다(전략 쪽은 국면·
 재스캔·시세 보충, 주문 쪽은 원장 대조·선점 정리·하루 초기화·마감 종료). 인자 없이 띄우는 `both`는 지금까지처럼
-전부 띄우고, `--role`로 갈라 띄우는 것은 둘을 잇는 통로가 붙을 때까지 막혀 있다.
+전부 띄우고, `--role`로 갈라 띄우는 것은 남은 배선(운영단말 수동 주문·REST 폴러)이 붙을 때까지 막혀 있다.
 
 | 스레드 | 하는 일 | 큐 |
 |---|---|---|
 | 데이터 | KIS REST 봉·현재가 폴링(`fetch_interval_sec`)·유니버스 재스캔. 매매 창 안에서만 — 정규장 09:00~15:30 + 애프터마켓 16:00~20:00 KST(D-097), 모의계좌(`is_paper`)는 15:30까지(`Quant/src/core/AppConfig.cpp`의 `parse_risk`) | `bars_matrix`(1024)·`trade_matrix` 데이터 행 |
-| WS 수신(수신 스레드 i, 소켓마다 하나) | 디코드 뒤 행렬 행 i에 push. 체결통보는 `fill_queue`에 push만(가득 차면 드롭 계수, D-056) | `order_book_matrix`(4096)·`trade_matrix`(4096)·`fill_queue`(1024) |
+| WS 수신(수신 스레드 i, 소켓마다 하나) | 디코드 뒤 행렬 행 i에 push — 주문 역할로 띄우면 행렬 대신 시세 통로에 push한다(D-114 단계 4). 체결통보는 `fill_queue`에 push만(가득 차면 드롭 계수, D-056) | `order_book_matrix`(4096)·`trade_matrix`(4096)·`fill_queue`(1024) |
+| 시세 줄 l (`feed_lane_thread_fn`, 전략 역할에서만, 줄마다 하나) | 시세 통로에서 체결·호가를 꺼내 값이 말이 되는지 보고 행렬 행 l로 나눈다. 건너편이 다른 프로세스라 깨울 게이트가 없어 200µs yield 뒤 500µs씩 잔다 | `MarketFeedChannel`(체결 16384·호가 8192) 소비 → `trade_matrix`·`order_book_matrix` |
 | 샤드 m | 자기 열의 틱을 비우고 자기가 가진 전략을 부른다(전략은 등록 순 라운드로빈으로 샤드 하나가 갖고, 종목 틱은 그 종목을 보는 샤드 전부에 들어온다 — D-110) | `shard_out`(MpscQueue 4096)에 넣는다 |
 | 전략(디스패치) | `SignalDispatcher`가 순번 stamp·신규 차단·교체 진입을 판단하고 주문 큐로 넘긴다. 주문 쪽 답을 비우고 살아 있다는 박동을 찍는다(봉투 256건마다 한 번, D-114 단계 2) | `order_queue`(RingBuffer 1024, D-073)에 넣고 `order_response` 소비 |
 | 주문 | `OrderRouter::submit` → `OrderGate::check` → `IOrderExecutor::submit_order`. 호출 간격·재시도는 `OrderRateLimiter`. 전략 박동이 끊기면 신규 진입을 끊고 보호 주문 표를 이어받는다 — 이 스레드는 내려가지 않는다(D-114 단계 2) | `order_queue` 소비 · `order_response`(RingBuffer 1024)에 넣는다 |

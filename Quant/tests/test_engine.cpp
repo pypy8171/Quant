@@ -312,6 +312,13 @@ int run_spanning_case(uint32_t lanes, uint32_t shards, const std::vector<std::st
 
     CHECK(held.size() == tickers.size());
     CHECK(engine.signal_count() == tickers.size());
+
+    // 한 프로세스로 돌면 시세는 통로를 지나지 않는다 — 수신 스레드가 곧바로 샤드에 넣는다. [why D-114]
+    for (uint32_t lane = 0; lane < lanes; ++lane)
+    {
+        CHECK(engine.feed_channel_pending_trades(lane) == 0);
+    }
+
     engine.stop();
     CHECK(!engine.is_running());
     return 0;
@@ -744,6 +751,12 @@ int run_split_start_case()
         CHECK(engine.symbol_register_timeouts() == 0);
         CHECK(feed->is_connected());                   // 구독 목록이 비어도 연다 — 체결통보를 이 소켓이 듣는다
         CHECK(engine.order_count() == 0);
+
+        // 소켓을 쥔 쪽은 샤드에 넣지 않고 통로에 넣는다 — 전략도 샤드도 저쪽 프로세스에 있다. [why D-114]
+        feed->emit_trade(0, "005930", 70000.0, 93001);
+        CHECK(engine.feed_channel_pending_trades(0) == 1);
+        CHECK(engine.feed_channel_overflows() == 0);
+        CHECK(engine.signal_count() == 0);
 
         engine.stop();
         CHECK(!engine.is_running());

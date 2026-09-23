@@ -132,6 +132,21 @@ public:
         return watch_overflow_.load(std::memory_order_relaxed);
     }
 
+    // 시세 통로가 차서 버린 건수(보내는 쪽) / 꺼낸 값이 말이 안 돼 버린 건수(받는 쪽).
+    //  앞엣것이 늘면 전략 프로세스가 못 따라오는 것이고, 뒤엣것이 늘면 건너편을 의심한다. [why D-114]
+    [[nodiscard]] uint64_t feed_channel_overflows() const noexcept
+    {
+        return feed_channel_overflow_.load(std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] uint64_t feed_channel_discarded() const noexcept
+    {
+        return feed_channel_discarded_.load(std::memory_order_relaxed);
+    }
+
+    // 통로에 쌓여 아직 안 건너간 체결 수(어림값). 한 프로세스로 돌면 늘 0이다 — 시세가 통로를 지나지 않는다. [why D-114]
+    [[nodiscard]] size_t feed_channel_pending_trades(uint32_t lane);
+
     // ── 주문 쪽 스위치를 고치는 자리 ────────────────────────────────────────
     // OrderGate·원장은 주문 프로세스 것이다. 전략 역할이면 여기서 직접 고치지 않고 제어 요청 한 줄을
     //  보낸다 — 표를 고치는 일은 단일 시퀀서인 주문 스레드가 한다(D-071 원칙 4). [why D-114]
@@ -442,11 +457,26 @@ private:
     void connect_feed();
     void spawn_threads();
 
+    // 시세 한 건을 이 종목을 보는 샤드 전부에 나눠 넣는다(경로표 `routes`). 한 프로세스로 돌면 소켓
+    //  수신 스레드가, 갈라 띄우면 전략 쪽 줄 스레드가 부른다 — 어느 쪽이든 행렬 그 행의 생산자는 하나다.
+    //  [inv] 같은 줄(lane)을 두 스레드가 부르지 않는다. [why D-114]
+    void fan_out_trade(uint32_t lane, const TradeData& trade);
+    void fan_out_order_book(uint32_t lane, const OrderBook& order_book);
+
+    // 갈라 띄운 주문 쪽이 시세 한 건을 통로에 넣는다(전략 프로세스가 꺼낸다). 큐가 차면 버리고 센다 —
+    //  여기서 기다리면 그 소켓의 전 종목 시세가 같이 선다(원칙 3). [why D-114]
+    void push_feed_trade(uint32_t lane, const TradeData& trade);
+    void push_feed_order_book(uint32_t lane, const OrderBook& order_book);
+
     // ── 스레드 진입점 ────────────────────────────────────────────────────────
     // 다섯 스레드는 stop_token으로 정지를 본다. running_은 엔진 밖(main 루프·KILL 핸들러·폴러)이 읽는 깃발 [why D-070]
     void data_thread_fn(std::stop_token stop_token);
     void strategy_thread_fn(std::stop_token stop_token);
     void shard_thread_fn(std::stop_token stop_token, uint32_t column); // 행렬 열 m을 비워 전략을 돌리고 신호를 shard_out에 넣는다 [why D-071]
+
+    // 줄 하나(소켓 하나)의 시세를 통로에서 꺼내 행렬에 나눠 넣는다. 전략 역할에만 뜬다 — 그 프로세스에는
+    //  소켓이 없어 이 스레드가 행렬 그 행의 생산자다. [why D-114]
+    void feed_lane_thread_fn(std::stop_token stop_token, uint32_t lane);
     void order_thread_fn(std::stop_token stop_token);
     void fill_thread_fn(std::stop_token stop_token);     // 체결통보 소비(fill_queue → OrderRouter::on_fill → ops 방송). WS 수신 스레드에서 뗀 것 [why D-056]
     void control_thread_fn(std::stop_token stop_token); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
@@ -784,6 +814,9 @@ private:
     std::jthread fill_thread_;
     std::jthread control_thread_;
 
+    // 줄마다 하나. 전략 역할에만 뜬다(주문 쪽은 소켓 수신 스레드가 그 일을 한다). [why D-114]
+    std::vector<std::jthread> feed_lane_threads_;
+
     std::atomic<bool> running_{false};
     session_end::Judge session_end_; // 마감 자기 종료 판정(control_thread 전용). 기본은 창 0 = 판정 없음 [why D-098]
 
@@ -848,6 +881,9 @@ private:
     std::vector<WatchSpec> pending_subscriptions_;
     // 구독 상한에 밀린 종목 수. 0이 아니면 그 종목은 WS 틱을 못 받는다 — 판정 행 "구독 상한"이 본다. [why D-114]
     std::atomic<uint64_t> watch_overflow_{0};
+    // 시세 통로 버린 건수 둘. 보내는 쪽은 소켓 수신 스레드, 받는 쪽은 줄 스레드가 올린다. [why D-114]
+    std::atomic<uint64_t> feed_channel_overflow_{0};
+    std::atomic<uint64_t> feed_channel_discarded_{0};
 
     // ── ZMQ ──────────────────────────────────────────────────────────────────
     bool        zmq_enabled_      = true; // set_zmq_enabled. 부하 하네스만 끈다

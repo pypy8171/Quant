@@ -121,6 +121,9 @@ CONTROL_DISCARD_RE = re.compile(r"control_discarded=(\d+)")
 SYMBOL_REGISTER_TIMEOUT_RE = re.compile(r"symbol_register_timeout=(\d+)")
 SYMBOL_LOOKUP_MISS_RE = re.compile(r"symbol_lookup_miss=(\d+)")
 WATCH_OVERFLOW_RE = re.compile(r"watch_overflow=(\d+)")
+# 시세 통로(D-114 단계 4 배선 2') — 큐가 차서 못 넘긴 건수, 꺼낸 값이 말이 안 돼 버린 건수.
+FEED_CHANNEL_OVERFLOW_RE = re.compile(r"feed_channel_overflow=(\d+)")
+FEED_CHANNEL_DISCARD_RE = re.compile(r"feed_channel_discarded=(\d+)")
 # 체결통보 세션(D-114 단계 3) — 기동마다 한 줄. 맡은 소켓이 몇 번인지, 아무도 안 맡았는지, 둘 이상이 맡았는지.
 FILL_SESSION_ONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 소켓 (\d+)")
 FILL_SESSION_NONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 없음")
@@ -570,6 +573,8 @@ def collect(date: str, log: Path, since: int = 0):
     symbol_register_timeout = -1                 # 등록을 주문 쪽에서 못 받은 수. -1이면 그 줄이 없는 구 exe
     symbol_lookup_miss = 0                       # 표에 없는 티커로 잦은 자리가 불린 수
     watch_overflow = -1                          # 구독 상한에 밀린 종목 수. -1이면 그 줄이 없는 구 exe
+    feed_channel_overflow = -1                   # 통로가 차서 못 넘긴 시세 건수. -1이면 그 줄이 없는 구 exe
+    feed_channel_discarded = -1                  # 꺼낸 값이 말이 안 돼 버린 건수. -1이면 그 줄이 없는 구 exe
     fill_session_socket = -1                     # 체결통보를 맡은 소켓 번호. -1이면 그 줄이 없는 구 exe
     fill_session_none = 0                        # 맡은 소켓이 없다고 찍힌 기동 수
     fill_session_many = 0                        # 둘 이상이 맡았다고 찍힌 기동 수
@@ -637,6 +642,10 @@ def collect(date: str, log: Path, since: int = 0):
                 symbol_lookup_miss = max(symbol_lookup_miss, int(found.group(1)))
             if found := WATCH_OVERFLOW_RE.search(line):
                 watch_overflow = max(watch_overflow, int(found.group(1)))
+            if found := FEED_CHANNEL_OVERFLOW_RE.search(line):
+                feed_channel_overflow = max(feed_channel_overflow, int(found.group(1)))
+            if found := FEED_CHANNEL_DISCARD_RE.search(line):
+                feed_channel_discarded = max(feed_channel_discarded, int(found.group(1)))
             if found := FILL_SESSION_ONE_RE.search(line):
                 fill_session_socket = int(found.group(1))
             elif FILL_SESSION_NONE_RE.search(line):
@@ -836,6 +845,12 @@ def collect(date: str, log: Path, since: int = 0):
             return (name, True, level, "구독 수치 줄 없음(D-114 단계 4 배선 ② 배포 전 바이너리) — 판정 안 함")
         return (name, ok, level, detail)
 
+    # 시세 통로(D-114 단계 4 배선 2') — 이 줄도 구독 줄보다 늦게 붙었으므로 따로 건너뛴다.
+    def feed_channel_row(name: str, ok: bool, level: str, detail: str):
+        if feed_channel_overflow < 0 and feed_channel_discarded < 0:
+            return (name, True, level, "시세 통로 수치 줄 없음(D-114 단계 4 배선 2' 배포 전 바이너리) — 판정 안 함")
+        return (name, ok, level, detail)
+
     # 체결통보 세션(D-114 단계 3) — 이 줄도 사본 줄보다 늦게 붙었으므로 따로 건너뛴다.
     def fill_session_row(name: str, ok: bool, level: str, detail: str):
         if fill_session_socket < 0 and fill_session_none == 0 and fill_session_many == 0:
@@ -885,7 +900,12 @@ def collect(date: str, log: Path, since: int = 0):
         #  보지 못하고, 갈라 띄우면 시세 폴러가 전략 쪽에 있어 REST 대체도 아직 없다 — 그래서 FAIL이다.
         watch_row("구독 상한", watch_overflow == 0, "FAIL",
                   f"소켓에 못 건 종목 {watch_overflow}건 (기대 0 — 밀린 종목은 WS 틱을 못 받는다)"),
-        # 체결통보는 WS 세션 하나만 들어야 한다. 아무도 안 들으면 체결이 원장에 안 들어와 선점이 안 풀리고,
+        # 갈라 띄우면 시세는 주문 쪽 소켓에서 통로를 지나 전략 쪽으로 간다. 통로가 차서 버린 건은 그 종목의
+        #  체결·호가가 전략에 아예 안 닿은 것이고, 말이 안 돼 버린 건은 건너편 프로세스를 의심할 일이다.
+        feed_channel_row("시세 통로", feed_channel_overflow <= 0 and feed_channel_discarded <= 0, "FAIL",
+                         f"못 넘긴 시세 {max(feed_channel_overflow, 0)}건 · 값이 이상해 버린 시세 "
+                         f"{max(feed_channel_discarded, 0)}건 (둘 다 기대 0)"),
+                # 체결통보는 WS 세션 하나만 들어야 한다. 아무도 안 들으면 체결이 원장에 안 들어와 선점이 안 풀리고,
         #  둘이 들으면 KIS가 세션마다 같은 통보를 보내 원장이 체결을 두 번 센다 — 둘 다 A등급이다.
         fill_session_row("체결 세션", fill_session_many == 0 and fill_session_none == 0, "FAIL",
                          (f"소켓 {fill_session_socket}번이 맡는다" if fill_session_socket >= 0 else "맡은 소켓 없음")

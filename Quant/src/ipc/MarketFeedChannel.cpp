@@ -235,7 +235,7 @@ bool MarketFeedChannel::push_trade(uint32_t lane, const TradeData& trade) noexce
 
     if (!trades_[lane].push(trade))
     {
-        ++overflow_trades_;
+        overflow_trades_.fetch_add(1, std::memory_order_relaxed);
         return false;
     }
 
@@ -251,7 +251,7 @@ bool MarketFeedChannel::push_order_book(uint32_t lane, const OrderBook& order_bo
 
     if (!order_books_[lane].push(order_book))
     {
-        ++overflow_order_books_;
+        overflow_order_books_.fetch_add(1, std::memory_order_relaxed);
         return false;
     }
 
@@ -273,7 +273,7 @@ bool MarketFeedChannel::pop_trade(uint32_t lane, const MarketLimits& limits, Tra
             return true;
         }
 
-        ++discarded_;
+        discarded_.fetch_add(1, std::memory_order_relaxed);
     }
 
     return false;
@@ -293,7 +293,7 @@ bool MarketFeedChannel::pop_order_book(uint32_t lane, const MarketLimits& limits
             return true;
         }
 
-        ++discarded_;
+        discarded_.fetch_add(1, std::memory_order_relaxed);
     }
 
     return false;

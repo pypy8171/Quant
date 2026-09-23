@@ -13,6 +13,7 @@
 #include "core/Types.h" // TradeData, OrderBook, symbol::SymbolId
 #include "ipc/SharedSpscRing.h"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -93,18 +94,18 @@ public:
     // 큐가 차서 버린 수. 0이 아니면 전략 프로세스가 못 따라오고 있다는 뜻이다.
     [[nodiscard]] uint64_t overflow_trades() const noexcept
     {
-        return overflow_trades_;
+        return overflow_trades_.load(std::memory_order_relaxed);
     }
 
     [[nodiscard]] uint64_t overflow_order_books() const noexcept
     {
-        return overflow_order_books_;
+        return overflow_order_books_.load(std::memory_order_relaxed);
     }
 
     // 값이 말이 안 돼 버린 수. 0이 아니면 건너편 프로세스를 의심한다.
     [[nodiscard]] uint64_t discarded() const noexcept
     {
-        return discarded_;
+        return discarded_.load(std::memory_order_relaxed);
     }
 
     // 도장이 제 차례보다 앞서 있던 횟수의 합 — 칸이 덮였다는 뜻이다. 건강 판정이 이 수를 본다.
@@ -131,9 +132,12 @@ private:
     std::vector<SharedSpscRing<TradeData>> trades_;
     std::vector<SharedSpscRing<OrderBook>> order_books_;
     uint32_t                               lanes_                = 0;
-    uint64_t                               overflow_trades_      = 0;
-    uint64_t                               overflow_order_books_ = 0;
-    uint64_t                               discarded_            = 0;
+
+    // 줄이 여럿이면 세는 스레드도 여럿이다(보내는 쪽은 소켓 수신 스레드, 받는 쪽은 줄 스레드) — 감시 스레드가
+    //  같은 값을 읽어 로그에 싣는 자리라 원자로 센다. 실패했을 때만 오르므로 hot path 비용은 없다. [why D-114]
+    std::atomic<uint64_t>                  overflow_trades_      = 0;
+    std::atomic<uint64_t>                  overflow_order_books_ = 0;
+    std::atomic<uint64_t>                  discarded_            = 0;
     std::string                            last_error_;
 };
 

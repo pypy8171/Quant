@@ -1198,6 +1198,80 @@ void Engine::drain_pending_subscriptions()
     }
 }
 
+// 소켓을 쥔 쪽이 디코드한 체결을 전략 프로세스로 넘긴다. 기다리지 않는다 — 큐가 차면 버리고 센다(원칙 3).
+//  [inv] 한 줄의 보내는 쪽은 그 소켓의 수신 스레드 하나다. 여기를 다른 스레드가 부르면 SPSC가 깨진다. [why D-114]
+void Engine::push_feed_trade(uint32_t lane, const TradeData& trade)
+{
+    if (!layout_.feed().push_trade(lane, trade) &&
+        feed_channel_overflow_.fetch_add(1, std::memory_order_relaxed) == 0)
+    {
+        LOG_WARN("[Engine] 시세 통로 가득 — 체결 버리기 시작 " + trade.ticker.string() + " (전략 프로세스 정체 의심)");
+    }
+}
+
+size_t Engine::feed_channel_pending_trades(uint32_t lane)
+{
+    return layout_.feed().pending_trades(lane);
+}
+
+void Engine::push_feed_order_book(uint32_t lane, const OrderBook& order_book)
+{
+    if (!layout_.feed().push_order_book(lane, order_book) &&
+        feed_channel_overflow_.fetch_add(1, std::memory_order_relaxed) == 0)
+    {
+        LOG_WARN("[Engine] 시세 통로 가득 — 호가 버리기 시작 " + order_book.ticker.string() + " (전략 프로세스 정체 의심)");
+    }
+}
+
+// 받은 호가를 이 종목을 보는 샤드 전부에 넣는다(아무도 안 보면 해시 열 하나). 버린 수를 세고 넘침이
+//  시작될 때 한 번 남긴다. [why D-110]
+//  부르는 쪽은 둘이다 — 한 프로세스로 돌면 수신 스레드가, 갈라 띄우면 전략 쪽 줄 스레드가 부른다. [why D-114]
+void Engine::fan_out_order_book(uint32_t lane, const OrderBook& order_book)
+{
+    bool dropped = false;
+
+    shard::for_each_shard(pipeline_.routes.mask(order_book.symbol_id),
+                          pipeline_.order_book_matrix.consumer_of(order_book.symbol_id), [&](uint32_t consumer)
+    {
+        if (!pipeline_.order_book_matrix.push_to(lane, consumer, order_book))
+        {
+            dropped = true;
+            return;
+        }
+
+        pipeline_.shards[consumer]->wake().notify();
+    });
+
+    if (dropped && order_book_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
+    {
+        LOG_WARN("[WS] 호가 큐 가득 — 호가 폐기 시작 " + order_book.ticker.string() + " (샤드 스레드 정체 의심)");
+    }
+}
+
+// 체결도 같은 규칙. 전략 스레드가 멈추면 큐가 차고 틱이 여기서 사라진다 — 세어 두고 넘침이 시작될 때
+//  한 번 남긴다(09-11 15:15 잔고 조회 정체). [why D-055]
+void Engine::fan_out_trade(uint32_t lane, const TradeData& trade)
+{
+    bool dropped = false;
+
+    shard::for_each_shard(pipeline_.routes.mask(trade.symbol_id), pipeline_.trade_matrix.consumer_of(trade.symbol_id),
+                          [&](uint32_t consumer)
+    {
+        if (!pipeline_.trade_matrix.push_to(lane, consumer, trade))
+        {
+            dropped = true;
+            return;
+        }
+
+        pipeline_.shards[consumer]->wake().notify();
+    });
+
+    if (dropped && trade_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
+    {
+        LOG_WARN("[WS] 체결 큐 가득 — 틱 폐기 시작 " + trade.ticker.string() + " (샤드 스레드 정체 의심)");
+    }
+}
+
 void Engine::connect_feed()
 {
     // WebSocket — 동적 구독 스펙으로 연결.
@@ -1306,32 +1380,14 @@ void Engine::connect_feed()
                                feed_.capture->on_book(order_book);
                            }
 
-                           // 호가도 체결과 같은 규칙 — 버린 수를 세고 넘침이 시작될 때 한 번 남긴다.
-                           //  이 종목을 보는 샤드 전부에 넣는다(아무도 안 보면 해시 열 하나). [why D-110]
-                           bool dropped = false;
-
-                           shard::for_each_shard(pipeline_.routes.mask(order_book.symbol_id),
-                                                 pipeline_.order_book_matrix.consumer_of(order_book.symbol_id), [&](uint32_t consumer)
+                           // 갈라 띄우면 소켓을 쥔 쪽은 통로에 넣기까지만 한다 — 샤드도 전략도 저쪽에 있다(원칙 3). [why D-114]
+                           if (role_ == ProcessRole::Order)
                            {
-                               if (!pipeline_.order_book_matrix.push_to(lane, consumer, order_book))
-                               {
-                                   dropped = true;
-                                   return;
-                               }
-
-                               pipeline_.shards[consumer]->wake().notify();
-                           });
-
-                           if (dropped)
-                           {
-                               if (order_book_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
-                               {
-                                   LOG_WARN("[WS] 호가 큐 가득 — 호가 폐기 시작 " + in.ticker.string() +
-                                            " (샤드 스레드 정체 의심)");
-                               }
-
+                               push_feed_order_book(lane, order_book);
                                return;
                            }
+
+                           fan_out_order_book(lane, order_book);
                        },
                        [this](uint32_t lane, const TradeData& in)
                        {
@@ -1362,38 +1418,22 @@ void Engine::connect_feed()
                                feed_.paper->on_tick(trade);
                            }
 
-                           // 전략 스레드가 멈추면 큐가 차고 틱이 여기서 사라진다 — 세어 두고
-                           //  넘침이 시작될 때 한 번 남긴다(09-11 15:15 잔고 조회 정체). [why D-055]
-                           bool dropped = false;
-
-                           shard::for_each_shard(pipeline_.routes.mask(trade.symbol_id), pipeline_.trade_matrix.consumer_of(trade.symbol_id),
-                                                 [&](uint32_t consumer)
-                           {
-                               if (!pipeline_.trade_matrix.push_to(lane, consumer, trade))
-                               {
-                                   dropped = true;
-                                   return;
-                               }
-
-                               pipeline_.shards[consumer]->wake().notify();
-                           });
-
-                           if (dropped)
-                           {
-                               if (trade_drop_count_.fetch_add(1, std::memory_order_relaxed) == 0)
-                               {
-                                   LOG_WARN("[WS] 체결 큐 가득 — 틱 폐기 시작 " + in.ticker.string() +
-                                            " (샤드 스레드 정체 의심)");
-                               }
-
-                               return;
-                           }
 #ifdef HAS_ZMQ
+                           // 발행은 팬아웃보다 먼저 한다 — 발행 채널은 주문 쪽에 있어 갈라 띄우면 여기가 유일한 자리이고,
+                           //  샤드 큐가 차서 돌아가던 예전 순서에서는 정체 때 그라파나까지 같이 멎었다. [why D-114]
                            if (zmq_bridge_)
                            {
                                zmq_bridge_->publish_trade(trade);
                            }
 #endif
+
+                           if (role_ == ProcessRole::Order)
+                           {
+                               push_feed_trade(lane, trade);
+                               return;
+                           }
+
+                           fan_out_trade(lane, trade);
                        });
     auto push_fill = [this](const FillNotification& fill_notification)
                            {
@@ -1448,6 +1488,18 @@ void Engine::spawn_threads()
 
     if (runs_strategy_side())
     {
+        // 소켓이 저쪽에 있는 전략 프로세스만 줄 스레드를 띄운다. 한 프로세스로 돌면 수신 스레드가 곧바로
+        //  샤드에 넣으므로 이 홉이 없다 — 갈라 띄우는 날에만 한 홉이 는다. [why D-114]
+        if (role_ == ProcessRole::Strategy)
+        {
+            for (uint32_t lane = 0; lane < layout_.feed().lanes(); ++lane)
+            {
+                feed_lane_threads_.emplace_back([this, lane](std::stop_token stop_token) { feed_lane_thread_fn(stop_token, lane); });
+            }
+
+            LOG_INFO("[Engine] 시세 줄 스레드 " + std::to_string(feed_lane_threads_.size()) + "개 — 통로에서 꺼내 샤드로 나눈다");
+        }
+
         for (uint32_t shard_index = 0; shard_index < static_cast<uint32_t>(pipeline_.shards.size()); ++shard_index)
         {
             pipeline_.shard_threads.emplace_back([this, shard_index](std::stop_token stop_token) { shard_thread_fn(stop_token, shard_index); });
@@ -1843,6 +1895,11 @@ void Engine::request_shutdown(std::string_view reason)
     {
         shard_thread.request_stop();
     }
+
+    for (auto& feed_lane_thread : feed_lane_threads_)
+    {
+        feed_lane_thread.request_stop();
+    }
 }
 
 void Engine::stop()
@@ -1870,7 +1927,16 @@ void Engine::stop()
         order_thread_.join();
     }
 
-    // 샤드가 먼저 — 샤드가 넣던 봉투를 전략 스레드가 비운 뒤 선다.
+    // 줄 스레드가 먼저 — 줄이 넣던 시세를 샤드가 비운 뒤 선다(샤드 행렬의 생산자가 이 스레드다).
+    for (auto& feed_lane_thread : feed_lane_threads_)
+    {
+        if (feed_lane_thread.joinable())
+        {
+            feed_lane_thread.join();
+        }
+    }
+
+    // 그 다음 샤드 — 샤드가 넣던 봉투를 전략 스레드가 비운 뒤 선다.
     for (auto& shard_thread : pipeline_.shard_threads)
     {
         if (shard_thread.joinable())
@@ -3415,6 +3481,72 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
     LOG_INFO("[Shard " + std::to_string(row) + "] 종료");
 }
 
+// ─── 시세 줄 스레드(전략 역할) ────────────────────────────────────────────
+void Engine::feed_lane_thread_fn(std::stop_token stop_token, uint32_t lane)
+{
+    thread_name::set_current("Feed " + std::to_string(lane));
+    LOG_INFO("[Feed " + std::to_string(lane) + "] 시작 — 통로에서 꺼내 샤드로 나눈다");
+
+    // 꺼낸 칸이 말이 되는지 보는 기준. 종목 표는 기동 때 다 차고 장중 재스캔이 뒤에 더 붙일 수 있어
+    //  줄 한 바퀴마다 다시 읽는다 — 새로 등록된 종목의 시세를 "번호가 표 밖"이라고 버리지 않도록. [why D-114]
+    ipc::MarketLimits limits;
+
+    // 유휴 전이: 샤드 스레드와 같은 정책이되 게이트가 없다 — 건너편은 다른 프로세스라 깨울 수 없다. [why D-071]
+    //  놀린 뒤에도 빈 채면 짧게 잔다 — 타이머 격자를 2ms로 내려 둔 위에서(main.cpp timeBeginPeriod) 시세 지연을 1ms 밑으로 둔다.
+    constexpr auto                        kSpinBudget = std::chrono::microseconds(200);
+    constexpr auto                        kIdleSleep  = std::chrono::microseconds(500);
+    std::chrono::steady_clock::time_point idle_since{};
+
+    TradeData trade;
+    OrderBook order_book;
+
+    while (!stop_token.stop_requested())
+    {
+        limits.symbol_count = static_cast<uint32_t>(symbols_.table.size());
+
+        bool did_work = false;
+
+        // 체결을 먼저 비우고 호가를 비운다 — 둘은 다른 큐라 순서에 걸린 규칙이 없다(종목 안 순서는 큐가 지킨다).
+        while (layout_.feed().pop_trade(lane, limits, trade))
+        {
+            data_count_.fetch_add(1, std::memory_order_relaxed);
+            fan_out_trade(lane, trade);
+            did_work = true;
+        }
+
+        while (layout_.feed().pop_order_book(lane, limits, order_book))
+        {
+            fan_out_order_book(lane, order_book);
+            did_work = true;
+        }
+
+        if (did_work)
+        {
+            // 말이 안 돼 버린 수는 꺼내는 쪽만 안다 — 감시 스레드가 읽을 자리에 옮겨 둔다.
+            feed_channel_discarded_.store(layout_.feed().discarded(), std::memory_order_relaxed);
+            idle_since = std::chrono::steady_clock::time_point{};
+            continue;
+        }
+
+        const auto now_idle = std::chrono::steady_clock::now();
+
+        if (idle_since == std::chrono::steady_clock::time_point{})
+        {
+            idle_since = now_idle;
+        }
+
+        if (now_idle - idle_since < kSpinBudget)
+        {
+            std::this_thread::yield();
+            continue;
+        }
+
+        wake::sleep_unless_stopped(stop_token, kIdleSleep);
+    }
+
+    LOG_INFO("[Feed " + std::to_string(lane) + "] 종료");
+}
+
 // ─── 주문 실행 스레드 ─────────────────────────────────────────────────────
 void Engine::order_thread_fn(std::stop_token stop_token)
 {
@@ -3893,7 +4025,10 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                      " symbol_register_timeout=" + std::to_string(symbol_register_timeouts()) +
                      " symbol_lookup_miss=" + std::to_string(symbol_lookup_misses()) +
                      // 구독 — 상한에 밀려 소켓에 못 건 종목 수. 0이어야 한다(밀린 종목은 WS 틱이 없다). [why D-114]
-                     " watch_overflow=" + std::to_string(watch_overflows()));
+                     " watch_overflow=" + std::to_string(watch_overflows()) +
+                     // 시세 통로 — 큐가 차서 못 넘긴 건수와, 값이 말이 안 돼 꺼내는 쪽이 버린 건수. 둘 다 0이어야 한다. [why D-114]
+                     " feed_channel_overflow=" + std::to_string(feed_channel_overflows()) +
+                     " feed_channel_discarded=" + std::to_string(feed_channel_discarded()));
         }
 
         if (++token_tick >= kTokenEvery)
