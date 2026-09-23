@@ -635,7 +635,16 @@ while (-not $NoTrader -and (Get-Date) -lt $deadline) {
   if (Test-Path "_private\state\kill_today$Suffix`_$today")   { Say "운영자 KILL — 오늘은 재기동하지 않는다(풀려면 scripts/kill_release.ps1)." "WARN"; break }
 
   $now = Get-Date
-  $exitTimes = @($exitTimes | Where-Object { ($now - $_) -lt $crashWindow }) + $now
+  # 배포가 일부러 내린 것(scripts/deploy_trader.py 가 pid 표지를 남긴다)은 크래시로 세지 않는다 — 30분 안에 세 번
+  #  배포하면 감시견이 크래시 루프로 보고 멈췄다.
+  $planned = "_private\state\planned_restart_$($p.Id)"
+  if (Test-Path $planned) {
+    Say "배포 재기동($(Get-Content $planned -Raw)) — 크래시 계산에서 뺀다."
+    Remove-Item $planned -ErrorAction SilentlyContinue
+  }
+  else {
+    $exitTimes = @($exitTimes | Where-Object { ($now - $_) -lt $crashWindow }) + $now
+  }
   if ($exitTimes.Count -ge $crashMaxExits) {
     # 30분 안에 세 번 내려갔으면 원인이 배선(config·인증·바이너리·브로커)에 있다. 재기동으로 풀리지 않는다.
     Say "최근 $($crashWindow.TotalMinutes)분 안 종료 $($exitTimes.Count)회 — 크래시 루프로 보고 멈춘다. 로그를 보고 고쳐야 한다." "ERROR"

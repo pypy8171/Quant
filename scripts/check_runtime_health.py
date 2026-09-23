@@ -540,6 +540,40 @@ def after_market_order_row(date: str) -> tuple:
     return (name, True, "FAIL", f"애프터마켓 주문 {after_market_orders}건, 주문구분·거래소 거부 0건")
 
 
+def restart_verify_row(date: str) -> tuple:
+    """그날 배포 재기동이 기동 단계를 다 찍었는지.
+
+    scripts/deploy_trader.py 가 트레이더를 내리고 감시견이 다시 띄우면, scripts/restart_verify.py 가 로그의
+    기동 표지(FEP 초기화 → 모든 스레드 시작, 그 뒤 20초 생존)로 판정해 _private/state/restart_verify.jsonl 에
+    한 줄 남긴다. 떠 있기만 하고 기동을 못 끝낸 재기동을 사람이 로그를 열어 보지 않아도 잡으려는 행이다.
+    """
+    name = "재기동 기동 판정"
+    path = REPO / "_private" / "state" / "restart_verify.jsonl"
+    rows: list[dict] = []
+
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith('{"time": "' + date):
+                    rows.append(json.loads(line))
+    except (OSError, ValueError):
+        pass
+
+    if not rows:
+        return (name, True, "WARN", "배포 재기동 기록 없음 — 판정 안 함")
+
+    failed = [row for row in rows if row["result"] == "실패"]
+    unknown = [row for row in rows if row["result"] == "판정불가"]
+    detail = f"배포 재기동 {len(rows)}회 — 실패 {len(failed)} · 판정불가 {len(unknown)}"
+
+    if failed or unknown:
+        worst = (failed or unknown)[-1]
+        reasons = "; ".join(log["detail"] for log in worst["logs"] if log["detail"])[:160]
+        return (name, False, "FAIL" if failed else "WARN", f"{detail} (마지막 {worst['time'][11:]} {reasons})")
+
+    return (name, True, "FAIL", detail)
+
+
 def scan_registration_row(date: str) -> tuple:
     """유니버스 스캔이 하루 종일 한 종목도 등록하지 못한 계좌가 있는지.
 
@@ -897,6 +931,7 @@ def global_rows(date: str) -> list:
         order_latency_breakdown_row(date),
         market_open_gate_row(date),
         after_market_order_row(date),
+        restart_verify_row(date),
         fill_notice_session_row(date),
         scan_registration_row(date),
         job_attach_row(date),

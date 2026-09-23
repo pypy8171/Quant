@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@824ead6 Quant/src/core/Engine.cpp@510e36c Quant/include/core/DataPoller.h@3cfd21a Quant/include/core/SignalDispatcher.h@dab02c3 Quant/include/core/OrderRateLimiter.h@bfa49f1 Quant/include/core/LedgerReconciler.h@de07986 Quant/include/core/WakeGate.h@1b2b9b7 Quant/include/core/BarAggregator.h@fbb210b Quant/include/core/LatencyTrace.h@4e060b9 Quant/include/core/ReconcilePlan.h@2faea2f -->
+<!-- sync: Quant/include/core/Engine.h@0bff7ae Quant/src/core/Engine.cpp@d80f937 Quant/include/core/DataPoller.h@3cfd21a Quant/include/core/SignalDispatcher.h@dab02c3 Quant/include/core/OrderRateLimiter.h@bfa49f1 Quant/include/core/LedgerReconciler.h@de07986 Quant/include/core/WakeGate.h@1b2b9b7 Quant/include/core/BarAggregator.h@fbb210b Quant/include/core/LatencyTrace.h@4e060b9 Quant/include/core/ReconcilePlan.h@2faea2f -->
 스레드는 다섯 개(데이터·전략·주문·체결·제어)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
 수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름을 붙여 procwatch와 디버거에 그 이름으로 보인다.

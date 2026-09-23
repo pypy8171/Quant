@@ -131,8 +131,16 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 뒤 주문 큐가 비면 엔진이 `_private/state/session_done_<날짜>`를 쓰고 스스로 내려가고, 운영단말·ZMQ `KILL`은
 `_private/state/kill_today_<날짜>`를 쓴다. 워치독은 재기동 직전에 두 파일을 보고 있으면 `phase=closed`로 끝낸다.
 `-Until`은 이 길이 막혔을 때의 백업이다. `taskkill`은 파일을 안 쓰므로 장중 exe 교체는 그대로 5초 뒤 재기동된다.
+장중 배포는 `py scripts/deploy_trader.py --who <세션 이름>` 한 명령이다 — 배포 잠금(`scripts/deploy_lock.py`,
+세션 여럿이 겹치면 뒤에 온 쪽이 잡은 쪽을 보며 기다린다) → 빌드(돌고 있는 exe는 옆으로 옮김) → 트레이더 내림 →
+감시견 재기동 → 기동 판정(`scripts/restart_verify.py`: 재기동 직전 로그 끝 위치 뒤에 `OrderRouter (FEP) 초기화 완료`·
+`모든 스레드 시작 완료`가 찍히고 20초 더 살았는지, 90초 넘으면 판정불가) → `_private/deploy_guard.log`·알림.
+그날 판정은 check_runtime_health.py "재기동 기동 판정" 행에 실린다. 트레이더를 내리기 전에
+`_private/state/planned_restart_<pid>` 표지를 남겨 감시견이 배포 재기동을 30분 안 세 번 크래시 계산에서 뺀다
+(표지가 없으면 30분 안에 세 번 배포할 때 감시견이 크래시 루프로 보고 멈춘다). 손으로 내렸을 때는
+`py scripts/restart_verify.py --watch`로 같은 판정을 받는다.
 장중 exe 교체는 시각을 가리지 않는다(사용자 지시 2026-09-23 — 옛 D-101 결정 1의 시각 제한을 걷었다) —
-`C:/build_tmp/relink.cmd`가 먼저 `py scripts/deploy_guard.py`를 부르지만 이제 막지 않고, 매매 창 안의 교체였다는
+배포 전에 `py scripts/deploy_guard.py`를 부르지만 이제 막지 않고, 매매 창 안의 교체였다는
 한 줄을 `_private/deploy_guard.log`에 남기기만 한다(`--hotfix-a "사유"`를 주면 사유도 같이 적힌다).
 창 끝은 **지금 도는 트레이더·감시견이 실제로 연 config**의 `is_paper`로 잡는다 — 모의면 15:30, 실계좌면 20:00이고,
 둘 다 안 돌고 있으면 바꿔도 깨질 매매가 없어 로그도 남기지 않는다(`--config <경로>`로 특정 config를 지정할 수도 있다).
@@ -328,6 +336,7 @@ scripts/market_close_autodoc.py
 | 스터디가 리포트만 있고 저널이 없다 | 중도 중단. `/stock-study`를 다시 부르면 새 종목을 고르지 않고 빠진 산출물만 채운다 |
 | 예약작업이 `LastTaskResult=1` | 세션 사용량 한도를 먼저 의심한다(`_private/_cron_dashboard.log`) |
 | 트레이더가 계속 죽는다 | `_private/_auto_trade_day.json`의 `history`에서 종료 코드·지속 시간 |
+| 배포 재기동 뒤 트레이더가 제대로 떴는지 | `_private/state/restart_verify.jsonl` 마지막 줄(성공·실패·판정불가와 닿은 단계). 배포가 막혀 기다리면 `py scripts/deploy_lock.py`로 잡은 쪽을 본다 |
 | 엔진이 내려간 뒤 워치독이 다시 띄우지 않는다 | `_private/state/session_done_<날짜>`·`kill_today_<날짜>`가 있는지(D-098). 마감 자기 종료는 정상, KILL이면 원인을 없앤 뒤 `scripts/kill_release.ps1` |
 | 로그가 `[Engine] 종료 요청 — …` 줄 없이 끊겼다 | 요청된 종료가 아니라 죽은 것이다 — 실행파일 옆 `logs/crash_<pid>.dmp`(있으면 예외)·워치독 `history`의 exit 코드 |
 

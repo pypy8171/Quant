@@ -1100,6 +1100,8 @@
 - [check_runtime_health.py](../scripts/check_runtime_health.py) — 실행 로그 장애 패턴 검사 스크립트
 - [dashboard_server.py](../scripts/dashboard_server.py) — 장중 매매 대시보드 서버(계좌·보유·국면·유니버스·차트·테마·종목 뉴스·증권사 리서치)
 - [deploy_guard.py](../scripts/deploy_guard.py) — 매매 창 안 트레이더 exe 교체를 막는 가드(A등급 결함은 --hotfix-a로 통과, D-101 결정 1)
+- [deploy_lock.py](../scripts/deploy_lock.py) — 트레이더 배포를 한 번에 하나만 돌게 하는 운영체제 파일 잠금. 뒤에 온 세션은 잡은 쪽(누구·PID·시작 시각)을 보며 기다린다
+- [deploy_trader.py](../scripts/deploy_trader.py) — 장중 배포 한 명령: 잠금 → 빌드(잠긴 exe는 옆으로) → 트레이더 내림 → 감시견 재기동 → 기동 판정 → 기록·알림
 - [exit_ev.py](../scripts/exit_ev.py) — 원장 매도 체결을 odno 레그로 합쳐 청산 사유별 승률·기대값·일블록 부트스트랩 CI·판정을 낸다(study 17)
 - [exit_ev_dashboard.py](../scripts/exit_ev_dashboard.py) — study 17 표를 셀별 근거까지 펼치는 정적 HTML 생성기(exit_ev.py 재사용) — 종목명 맵, 규칙 탭(실행 config 값), 백테스트 탭(metrics.json). refresh_dashboard.py 가 매매일 마감 뒤 부른다
 - [exit_ev_dashboard_template.html](../scripts/exit_ev_dashboard_template.html) — exit_ev_dashboard.py 가 JSON을 박아 넣는 화면 템플릿
@@ -1120,6 +1122,7 @@
 - [premarket_routine.py](../scripts/premarket_routine.py) — 루틴 프롬프트 본문 출력(--render)·올린 해시 기록(--mark)·정본과 비교(--check, check_docs 가 부른다)
 - [quant_procs.ps1](../scripts/quant_procs.ps1) — 실행 프로세스 점검·정리 스크립트
 - [refresh_dashboard.py](../scripts/refresh_dashboard.py) — 대시보드·리뷰 재생성 스크립트
+- [restart_verify.py](../scripts/restart_verify.py) — 재기동 기동 판정: 직전 로그 끝 위치 뒤에 기동 표지(FEP 초기화 → 모든 스레드 시작 → 20초 생존)가 찍혔는지 보고 성공·실패·판정불가를 `_private/state/restart_verify.jsonl`에 남긴다
 - [run_claude_task.ps1](../scripts/run_claude_task.ps1) — 예약작업이 헤드리스 클로드를 부르는 래퍼(cmd 리다이렉션으로 stderr 경고를 rc=1로 만들지 않고 UTF-8 로그에 붙인다)
 - [seed_open_orders.py](../scripts/seed_open_orders.py) — 미체결 주문 상태 복구 스크립트
 - [start.sh](../scripts/start.sh) — Docker Compose 기동 스크립트
