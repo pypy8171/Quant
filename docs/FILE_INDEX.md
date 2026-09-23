@@ -250,6 +250,7 @@
 
 - [AppConfig.h](../Quant/include/core/AppConfig.h) — config.json을 typed 값으로 옮긴 프로세스 설정 한 벌(`AppConfig`)과 `parse_config` 선언
 - [BarAggregator.h](../Quant/include/core/BarAggregator.h) — 체결 틱 → 종목별 N분봉 집계기(D-068·D-072)
+- [CommandLine.h](../Quant/include/core/CommandLine.h) — 실행 인자 뜯기 선언 — 설정 경로·모드 오버라이드·역할(`ProcessRole` both/order/strategy)(D-114 단계 4)
 - [DataPoller.h](../Quant/include/core/DataPoller.h) — REST 현재가 폴러 — 폴링 모드·WS 폴백(D-062)
 - [Engine.h](../Quant/include/core/Engine.h) — 엔진 클래스 선언 — 파이프라인 스레드 배선
 - [FeedMux.h](../Quant/include/core/FeedMux.h) — 피드 소스 여러 개를 한 소스로 묶는 mux(D-071)
@@ -370,6 +371,7 @@
 
 - [AppConfig.cpp](../Quant/src/core/AppConfig.cpp) — config.json 읽기의 유일한 자리 — 키 이름·기본값·kis.exchange 검증·매매 창 hhmm→분
 - [BarAggregator.cpp](../Quant/src/core/BarAggregator.cpp) — N분봉 집계기 구현(D-068·D-074)
+- [CommandLine.cpp](../Quant/src/core/CommandLine.cpp) — CommandLine.h 구현 — 모르는 역할·모르는 깃발은 기본값으로 낙하하지 않고 멈춘다(D-114 단계 4)
 - [DataPoller.cpp](../Quant/src/core/DataPoller.cpp) — REST 현재가 폴러 구현 — 호출 간격·넘침 목록(D-062)
 - [Engine.cpp](../Quant/src/core/Engine.cpp) — 엔진 본체 구현 — 생성자·전략 등록·파이프라인
 - [EngineConfigure.cpp](../Quant/src/core/EngineConfigure.cpp) — `Engine::configure(const AppConfig&)` — AppConfig 값을 Engine 세터에 옮기는 배선 4단계(채널·국면맵·시세 키·위험 한도)
@@ -500,6 +502,7 @@
 - [test_heartbeat.cpp](../Quant/tests/test_heartbeat.cpp) — 심장박동 단위 테스트: 정상·의심·사망 전이와 사망 한 번만 가져가기를 시계 없이 검증(D-114 단계 2)
 - [test_ledger_snapshot.cpp](../Quant/tests/test_ledger_snapshot.cpp) — 장부 사본 단위 테스트: 지난 판 값이 안 남는지, 쓰는 중에 읽어도 반쪽 판이 안 나오는지 두 스레드로 검증(D-114 단계 2.5)
 - [test_order_channel.cpp](../Quant/tests/test_order_channel.cpp) — 전략↔주문 통로 단위 테스트: 요청·응답 레코드, 기다리는 표, 같은 순번 거름, 주문번호 변환(D-114 단계 2)
+- [test_command_line.cpp](../Quant/tests/test_command_line.cpp) — 실행 인자 뜯기 단위 테스트: 기본값 불변·--role 두 철자·모르는 값에서 멈추는지 검증(D-114 단계 4)
 - [test_control_channel.cpp](../Quant/tests/test_control_channel.cpp) — 제어 요청 단위 테스트: 계좌 칸, 표 모으기, 남의 표 줄·반쪽 표·닫기 누락을 안 거는지 검증(D-114 단계 2.5 갈래 B)
 - [test_shared_region.cpp](../Quant/tests/test_shared_region.cpp) — 공유 쪽지 단위 테스트: 붙기·판 불일치·살아 있는 구역 두 번 만들기·닫은 뒤 재생성을 검증(D-114 단계 4)
 - [test_shared_spsc_ring.cpp](../Quant/tests/test_shared_spsc_ring.cpp) — 공유 쪽지 위 한줄 큐 단위 테스트: 순서·가득참·되감기와, 건너편이 공유 칸을 망가뜨렸을 때 수로 남기는지 검증(D-114 단계 4)

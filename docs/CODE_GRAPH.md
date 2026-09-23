@@ -29,7 +29,7 @@ graph LR
   ipc -->|10| core
   ipc --> risk
   ipc -->|5| utils
-  main -->|3| core
+  main -->|4| core
   main --> modes
   main --> strategy
   main --> utils
@@ -99,6 +99,7 @@ graph LR
     n_core_AppConfig_h["core/AppConfig.h"]
     n_core_BarAggregator_cpp["core/BarAggregator.cpp"]
     n_core_BarAggregator_h["core/BarAggregator.h"]
+    n_core_CommandLine_cpp["core/CommandLine.cpp"]
     n_core_DataPoller_cpp["core/DataPoller.cpp"]
     n_core_DataPoller_h["core/DataPoller.h"]
     n_core_Engine_cpp["core/Engine.cpp"]
@@ -283,6 +284,7 @@ graph LR
   n_core_BarAggregator_cpp --> n_core_BarAggregator_h
   n_core_BarAggregator_cpp --> n_core_KstTime_h
   n_core_BarAggregator_h --> n_core_Types_h
+  n_core_CommandLine_cpp --> n_core_CommandLine_h
   n_core_DataPoller_cpp --> n_core_DataPoller_h
   n_core_DataPoller_cpp --> n_core_KstTime_h
   n_core_DataPoller_cpp --> n_utils_Logger_h
@@ -445,6 +447,7 @@ graph LR
   n_ipc_ZmqBridge_h --> n_core_MpscQueue_h
   n_ipc_ZmqBridge_h --> n_core_Types_h
   n_main_cpp --> n_core_AppConfig_h
+  n_main_cpp --> n_core_CommandLine_h
   n_main_cpp --> n_core_Engine_h
   n_main_cpp --> n_core_Types_h
   n_main_cpp --> n_modes_Monitors_h

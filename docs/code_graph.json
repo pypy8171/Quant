@@ -69,7 +69,7 @@
     {
       "from": "main",
       "to": "core",
-      "weight": 3
+      "weight": 4
     },
     {
       "from": "main",
@@ -181,6 +181,7 @@
     "api/KisWsDecode.h": "api",
     "core/AppConfig.h": "core",
     "core/BarAggregator.h": "core",
+    "core/CommandLine.h": "core",
     "core/DataPoller.h": "core",
     "core/Engine.h": "core",
     "core/FeedMux.h": "core",
@@ -274,6 +275,7 @@
     "api/WsSocketWin.cpp": "api",
     "core/AppConfig.cpp": "core",
     "core/BarAggregator.cpp": "core",
+    "core/CommandLine.cpp": "core",
     "core/DataPoller.cpp": "core",
     "core/Engine.cpp": "core",
     "core/EngineConfigure.cpp": "core",
@@ -440,6 +442,9 @@
     ],
     "core/BarAggregator.h": [
       "core/Types.h"
+    ],
+    "core/CommandLine.cpp": [
+      "core/CommandLine.h"
     ],
     "core/DataPoller.cpp": [
       "core/DataPoller.h",
@@ -734,6 +739,7 @@
     ],
     "main.cpp": [
       "core/AppConfig.h",
+      "core/CommandLine.h",
       "core/Engine.h",
       "core/Types.h",
       "modes/Monitors.h",
@@ -1058,6 +1064,10 @@
     "core/BarAggregator.h": [
       "core/BarAggregator.cpp",
       "strategy/DeviationScaleStrategy.h"
+    ],
+    "core/CommandLine.h": [
+      "core/CommandLine.cpp",
+      "main.cpp"
     ],
     "core/DataPoller.h": [
       "core/DataPoller.cpp",

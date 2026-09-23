@@ -173,6 +173,7 @@ set(ENGINE_SOURCES
   src/universe/UniverseScanner.cpp
   src/strategy/StrategyFactory.cpp
   src/core/AppConfig.cpp
+  src/core/CommandLine.cpp
   src/core/Engine.cpp
   src/core/EngineConfigure.cpp
   src/core/LedgerReconciler.cpp
@@ -704,6 +705,12 @@ if(UNIX)
     target_link_libraries(test_control_channel PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: 실행 인자 뜯기 (D-114 단계 4) ─────────────────
+add_executable(test_command_line tests/test_command_line.cpp src/core/CommandLine.cpp)
+target_include_directories(test_command_line PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
 # ─── 테스트 타겟: 공유 쪽지 한 장 (D-114 단계 4) ──────────────────
 add_executable(test_shared_region tests/test_shared_region.cpp src/ipc/SharedRegion.cpp)
 target_include_directories(test_shared_region PRIVATE
@@ -798,6 +805,7 @@ set(QUANT_ASSERT_TARGETS
     test_protective_orders
     test_order_channel
     test_control_channel
+    test_command_line
     test_shared_region
     test_shared_spsc_ring
     test_displacement_desk
