@@ -133,6 +133,8 @@ struct Fake
     std::mutex               mutex;
     std::vector<OpsOrderReq> orders;
     int                      kills = 0;
+    int                      shutdowns = 0;
+    std::string              shutdown_who;
     std::string              positions = "{\"positions\":[{\"ticker\":\"005930\",\"qty\":3}]}";
 
     void wire(OpsServer& ops_server)
@@ -156,6 +158,13 @@ struct Fake
             {
                 std::lock_guard<std::mutex> lock(mutex);
                 ++kills;
+            });
+        ops_server.set_shutdown_handler(
+            [this](const std::string& who)
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                ++shutdowns;
+                shutdown_who = who;
             });
     }
 };
@@ -240,6 +249,15 @@ static void t_happy_path(OpsServer& ops_server, Fake& forward_key)
     client.send(OpsMsg::PING_REQ, "{}");
     assert(client.expect(OpsMsg::PING_ACK, frame));
 
+    // 곱게 내리기는 부른 이름을 그대로 달고 돌아온다 — 종료 사유 한 줄에 그 이름이 실린다. [why D-114]
+    client.send(OpsMsg::SHUTDOWN_REQ, "{\"who\":\"deploy_trader\"}");
+    assert(client.expect(OpsMsg::SHUTDOWN_ACK, frame) && has(frame.body, "\"ok\":true"));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    {
+        std::lock_guard<std::mutex> lock(forward_key.mutex);
+        assert(forward_key.shutdowns == 1 && forward_key.shutdown_who == "deploy_trader");
+    }
+
     client.send(OpsMsg::KILL_REQ, "{}");
     assert(client.expect(OpsMsg::KILL_ACK, frame) && has(frame.body, "\"ok\":true"));
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -282,9 +300,13 @@ static void t_readonly_without_token()
 
     client.send(OpsMsg::KILL_REQ, "{}");
     assert(client.expect(OpsMsg::KILL_ACK, frame) && has(frame.body, "\"ok\":false"));
+
+    // 곱게 내리기도 토큰이 있어야 한다 — 누구나 부르면 아무 때나 매매가 멈춘다.
+    client.send(OpsMsg::SHUTDOWN_REQ, "{\"who\":\"t\"}");
+    assert(client.expect(OpsMsg::SHUTDOWN_ACK, frame) && has(frame.body, "\"ok\":false"));
     {
         std::lock_guard<std::mutex> lock(forward_key.mutex);
-        assert(forward_key.orders.empty() && forward_key.kills == 0);
+        assert(forward_key.orders.empty() && forward_key.kills == 0 && forward_key.shutdowns == 0);
     }
 
     ops_server.stop();

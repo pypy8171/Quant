@@ -83,12 +83,14 @@ Windows에서는 `SO_EXCLUSIVEADDRUSE`로 잡으므로 엔진이 이미 하나 �
 | 0x31 | KILL_ACK | 서버→단말 | `{"ok":bool,"msg"}` |
 | 0x32 | HALT_REQ | 단말→서버 | `{"side":"BUY"|"SELL","on":bool}` — 수동 정지 on/off. kill과 달리 되돌릴 수 있다(D-091·D-095) |
 | 0x33 | HALT_ACK | 서버→단말 | `{"ok":bool,"manual_buy_halt":bool,"manual_sell_halt":bool}` |
+| 0x34 | SHUTDOWN_REQ | 단말→서버 | `{"who":"…"}` — 배포 교체용 곱게 내리기. kill과 달리 킬스위치도 표지 파일도 안 건드려 감시견이 새 exe로 다시 띄운다(D-114) |
+| 0x35 | SHUTDOWN_ACK | 서버→단말 | `{"ok":bool,"msg"}` — `msg`는 부른 이름. 답을 먼저 내보낸 뒤 내려간다 |
 | 0x7F | ERROR_NTF | 서버→단말 | `{"msg"}` — 규약 위반이면 뒤에 끊고, 알 수 없는 타입이면 연결은 유지 |
 
 규칙
 
 - HELLO_REQ가 첫 프레임이 아니면 ERROR_NTF 뒤 끊는다. 토큰이 틀리면 같다.
-- `auth=false`(서버에 토큰이 없거나 HELLO_REQ에 토큰을 안 냈을 때)면 ORDER_REQ·KILL_REQ·HALT_REQ는 거부 응답만 온다.
+- `auth=false`(서버에 토큰이 없거나 HELLO_REQ에 토큰을 안 냈을 때)면 ORDER_REQ·KILL_REQ·HALT_REQ·SHUTDOWN_REQ는 거부 응답만 온다.
 - `cid`는 단말이 붙이는 1~64자 식별자다. 같은 cid의 재전송은 한 번만 처리한다(연결이 끊겨 ACK를 못 받았을 때
   그대로 다시 보내면 된다).
 - `price` 0은 시장가, 양수는 지정가. `ref_price`는 시장가의 명목 한도 평가 기준가로, 0이면 엔진이 평단으로 대체한다.

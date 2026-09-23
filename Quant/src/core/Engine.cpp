@@ -4170,6 +4170,20 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                 request_shutdown("건너편 프로세스 재기동(공유 쪽지 기동 번호가 바뀌었다)");
                 break;
             }
+
+            // 건너편이 종료 사유를 적고 나갔으면 여기도 따라 내려간다. 예전에는 감시견이 남은 쪽을
+            //  강제로 죽였고, 그러면 stop()이 안 돌아 이쪽 종료 사유 칸이 빈 채로 남아 정상 배포와
+            //  크래시가 갈리지 않았다. 이제 스스로 나가고, 감시견은 그동안 기다렸다가 안 나가면
+            //  그때 강제로 죽인다. 붙은 쪽(전략 프로세스)에서만 돌린다. [why D-114]
+            if (const auto peer_reason = layout_region_.shutdown_reason();
+                peer_reason != ipc::SharedShutdownReason::kNone)
+            {
+                LOG_WARN("[Control] 건너편이 종료 사유를 적고 나갔다(사유 번호 " +
+                         std::to_string(static_cast<uint32_t>(peer_reason)) + ") — 옛 판을 들고 있지 않도록 같이 내려간다");
+                request_shutdown("건너편 프로세스 종료(공유 쪽지에 사유가 적혔다)",
+                                 ipc::SharedShutdownReason::kOperator);
+                break;
+            }
         }
 
         if (++high_water_tick >= kHighWaterEvery)

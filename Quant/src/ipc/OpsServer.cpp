@@ -600,6 +600,37 @@ bool OpsServer::on_frame(Client& client, const ops::Frame& frame)
             return true;
         }
 
+        case OpsMsg::SHUTDOWN_REQ:
+        {
+            if (!client.authentication)
+            {
+                send(client, OpsMsg::SHUTDOWN_ACK, json{{"ok", false}, {"msg", "미인증"}}.dump());
+                return true;
+            }
+
+            // 부른 쪽 이름이 없으면 연결 이름으로 둔다 — 종료 사유 한 줄에 누가 내렸는지가 남아야 한다.
+            const auto  body = json::parse(frame.body, nullptr, false);
+            std::string who  = body.is_object() ? body.value("who", std::string()) : std::string();
+
+            if (who.empty())
+            {
+                who = client.name;
+            }
+
+            LOG_WARN("[Ops] SHUTDOWN 수신 " + client.name + " — " + who);
+            send(client, OpsMsg::SHUTDOWN_ACK, json{{"ok", true}, {"msg", who}}.dump());
+
+            // 답을 먼저 내보낸다 — 아래 손잡이가 스레드를 세우기 시작하면 이 연결도 곧 끊긴다.
+            flush(client);
+
+            if (on_shutdown_)
+            {
+                on_shutdown_(who);
+            }
+
+            return true;
+        }
+
         default:
             send(client, OpsMsg::ERROR_NTF, error_body(std::string("지원하지 않는 타입 ") + std::to_string(frame.type)));
             return true;

@@ -48,6 +48,8 @@ enum class OpsMsg : uint8_t
     KILL_ACK          = 0x31, // s→c {"ok"}
     HALT_REQ          = 0x32, // c→s {"side","on"} — 수동 정지 on/off. side는 "BUY"(신규 진입, 없으면 이것)·"SELL"(전략 매도). kill과 달리 되돌릴 수 있다 [why D-091, D-095]
     HALT_ACK          = 0x33, // s→c {"ok","manual_buy_halt","manual_sell_halt"}
+    SHUTDOWN_REQ      = 0x34, // c→s {"who"} — 배포 교체용 곱게 내리기. KILL_REQ와 달리 킬스위치를 켜지 않고 표지 파일도 안 쓴다 [why D-114]
+    SHUTDOWN_ACK      = 0x35, // s→c {"ok","msg"}
     ERROR_NTF         = 0x7F, // s→c {"msg"}
 };
 

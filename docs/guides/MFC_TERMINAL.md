@@ -1,6 +1,6 @@
 # MFC 운영단말 `ops_terminal` 작업 문서
 
-<!-- sync: Quant/tools/ops_terminal/OpsTerminalDlg.cpp@377ec12 Quant/tools/ops_terminal/OpsTerminalDlg.h@6df8dba Quant/tools/ops_terminal/OpsLink.cpp@2c04c5b Quant/tools/ops_terminal/OpsLink.h@7291ac8 Quant/include/ipc/OpsProtocol.h@1f8a39c -->
+<!-- sync: Quant/tools/ops_terminal/OpsTerminalDlg.cpp@377ec12 Quant/tools/ops_terminal/OpsTerminalDlg.h@6df8dba Quant/tools/ops_terminal/OpsLink.cpp@2c04c5b Quant/tools/ops_terminal/OpsLink.h@7291ac8 Quant/include/ipc/OpsProtocol.h@4e81e96 -->
 `Quant/tools/ops_terminal/`에 있는 MFC 대화상자 단말의 정본이다. 무엇을 하는 프로그램인지, 어떻게 빌드·실행하는지,
 MFC라서 걸린 함정과 지금까지 손댄 이력을 여기에 모은다. **MFC 쪽을 고치면 이 문서를 같이 고친다**(8절 체크리스트).
 채널 자체(프로토콜·서버·콘솔 단말)는 [docs/guides/OPS_TERMINAL.md](OPS_TERMINAL.md), 결정 배경은
@@ -161,3 +161,4 @@ cid→ODNO 대응은 단말이 든다. `ORDER_RESULT_NTF`에 둘이 같이 오�
 | 2026-09-18 | 계좌 요약 한 줄(`IDC_ACCOUNT_STATE`) 추가 — `STATUS`에 `equity`·`cash`·`daily_pnl`·`position_value`·`unrealized_pnl`, 상태 폴링 5초→1초. 대화상자 높이 420→433, 아래 컨트롤 13DLU 내림. 킬스위치가 감시견 재기동 때문에 사실상 재시작이라는 점을 5절에 적음 |
 | 2026-09-18 | 수동 매매 정지 스위치 추가(D-091). `OpsProtocol.h`에 `HALT_REQ`/`HALT_ACK`(0x32/0x33), `OrderGate`에 수동 정지 깃발(지금은 `manual_buy_halt_`·`manual_sell_halt_`, 국면 자동 `entry_halt_`와 분리, `is_entry_halted()`에서 OR), 단말에 `IDC_HALT` 토글 버튼. 착수 계기는 "판단이 안 설 때 신규 진입만 수동으로 멈추고 싶다"는 운영 요구 |
 | 2026-09-19 | 프로토콜 이름 규칙 정리 — 요청/응답은 `*_REQ`/`*_ACK`, 통보는 `*_NTF`(`HELLO_REQ/ACK`·`PING_REQ/ACK`·`STATUS_ACK`·`POSITIONS_REQ/ACK`·`ORDER_RESULT_NTF`·`FILL_NTF`·`KILL_REQ`·`ERROR_NTF`). 응답과 push를 겸하던 POSITIONS는 `POSITIONS_ACK`(0x13)와 `POSITIONS_NTF`(0x14)로 나눔. 타입 번호는 그대로라 단말은 `handle_frame`에 case 하나 추가와 이름 치환뿐 |
+| 2026-09-24 | 곱게 내리기 전문 추가(D-114). `OpsProtocol.h`에 `SHUTDOWN_REQ`/`SHUTDOWN_ACK`(0x34/0x35) — 배포 교체가 `ops_client shutdown <부른 이름>`으로 청하는 길이다. 킬과 달리 킬스위치도 `kill_today` 표지도 안 건드린다. 단말은 이 전문을 보내지 않는다 — 사람이 누르는 버튼이 아니라 배포 스크립트가 부르는 길이라 버튼은 안 만들었다 |

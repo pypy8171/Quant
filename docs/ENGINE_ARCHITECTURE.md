@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@0681c25 Quant/src/core/Engine.cpp@c7977d4 Quant/include/core/DataPoller.h@196bcf6 Quant/include/core/SignalDispatcher.h@6aec697 Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@cfe77bc Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
+<!-- sync: Quant/include/core/Engine.h@0681c25 Quant/src/core/Engine.cpp@5f79351 Quant/include/core/DataPoller.h@196bcf6 Quant/include/core/SignalDispatcher.h@6aec697 Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@cfe77bc Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
 스레드는 다섯 개(데이터·전략·주문·체결·제어)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
 수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름을 붙여 procwatch와 디버거에 그 이름으로 보인다.
@@ -43,7 +43,7 @@ flowchart LR
 | 전략(디스패치) | 신호를 주문 요청으로 바꾸기 전 판단, 보호 주문 판정, 강제청산·초과분 정리, 제어 요청 중계, 주문 쪽 응답 수거, 상대 박동 감시와 답 없는 요청 세기 | `shard_out` → 요청 면 / 응답 면을 비운다 | `Quant/include/core/SignalDispatcher.h`·`Quant/include/risk/ProtectiveOrders.h` · `test_signal_dispatcher` |
 | 주문 | 게이트·발주·재시도, 수동주문, 제어 요청 적용, 슬롯 교체, 상대 박동 감시, 장부 사본 발행 | 요청 면·`manual_inbox`·제어 면 → KIS 주문 API, 응답 면, 장부 사본 | `Quant/include/core/OrderRateLimiter.h`·`Quant/include/risk/DisplacementDesk.h` · `test_order_rate_limiter`·`test_engine` |
 | 체결 | 체결통보를 원장·CSV에 반영하고 운영단말에 방송 | `fill_queue` → 원장 | `Engine::fill_thread_fn` (D-056) |
-| 제어 | 토큰 선갱신, 시세 끊김 대응(재연결·REST 대체), 구독 요청 반영, 큐 고수위 기록, 마감 자기 종료 | 주기 작업 | `Quant/include/core/FeedSupervisor.h`·`Quant/include/core/SessionEndJudge.h` |
+| 제어 | 토큰 선갱신, 시세 끊김 대응(재연결·REST 대체), 구독 요청 반영, 큐 고수위 기록, 마감 자기 종료, 두 프로세스로 띄운 날에는 건너편이 종료 사유를 적고 나갔는지 5초마다 보고 따라 내려가기 | 주기 작업 | `Quant/include/core/FeedSupervisor.h`·`Quant/include/core/SessionEndJudge.h` |
 | 프리페치 ×2~8 | 전략이 `on_start`에서 맡긴 REST 당기기를 3초 간격으로 | 전략 스냅샷 | `Quant/include/core/PrefetchPool.h` · `test_prefetch_pool` (D-115) |
 | 줄 스레드 ×(소켓+1) | 갈라 띄울 때만. 시세 통로 한 줄을 꺼내 행렬로 나눈다 | 시세 통로 → 행렬 | `Engine::feed_lane_thread_fn` · `test_market_feed_channel` |
 

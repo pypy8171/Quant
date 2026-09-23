@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""트레이더 장중 배포 한 번 — 잠금 → 빌드 → 교체 → 재기동 → 기동 판정 → 기록·알림.
+"""트레이더 장중 배포 한 번 — 잠금 → 빌드 → 교체 → 내리기 → 재기동 → 기동 판정 → 기록·알림.
 
-손으로 하던 순서(relink.cmd 빌드 → exe 옆으로 옮기기 → taskkill → 감시견 재기동 기다리기 → 로그 열어 보기)를
+손으로 하던 순서(relink.cmd 빌드 → exe 옆으로 옮기기 → 트레이더 내리기 → 감시견 재기동 기다리기 → 로그 열어 보기)를
 한 명령으로 묶는다. 두 가지를 더한다.
 
   배포 잠금(scripts/deploy_lock.py)  세션 여럿이 동시에 배포해도 한 번에 하나만 돈다. 뒤에 온 세션은 기다린다.
@@ -12,9 +12,15 @@
 트레이더를 내리는 것은 감시견이 떠 있을 때만 한다 — 감시견 없이 내리면 다시 띄울 쪽이 없다. 내리기 전에
 `_private/state/planned_restart_<pid>` 표지를 남겨, 감시견이 이 재기동을 "30분 안 세 번" 크래시 계산에 넣지 않게 한다.
 
-사용:  py scripts/deploy_trader.py --who quant-c9                빌드하고 바뀌었으면 재기동·판정
+내리는 길은 둘인데 곱게 내리기가 먼저다. 도는 트레이더의 명령줄에서 config 를 찾아 운영단말 주소·포트·토큰을 읽고
+Quant/build_win/ops_client.exe 로 `shutdown` 을 보낸다. 엔진이 Engine::stop() 을 거쳐 나가면서 공유 쪽지 머리에
+종료 사유를 적는다(강제로 내리면 그 칸이 비어 크래시로 읽힌다). 운영단말 포트가 없거나(ops_port 0) ops_client.exe 가
+없거나 상한(GRACEFUL_WAIT_SECONDS) 안에 안 내려간 프로세스만 예전처럼 taskkill /F 로 내린다. 킬스위치를 켜는
+ops_client kill 은 쓰지 않는다 — 그날 내내 재기동이 막힌다.
+
+사용:  py scripts/deploy_trader.py --who quant-c9                빌드하고 바뀌었으면 내리고 재기동·판정
        py scripts/deploy_trader.py --who quant-c9 --no-restart   빌드만(잠금은 잡는다)
-       py scripts/deploy_trader.py --who quant-c9 --restart-only 빌드 없이 재기동·판정만
+       py scripts/deploy_trader.py --who quant-c9 --restart-only 빌드 없이 내리기·재기동·판정만
 종료 코드: 0 성공(또는 재기동할 것 없음) · 1 빌드 실패 · 2 기동 실패 · 3 판정불가 · 4 잠금 대기 초과 · 5 감시견 없음
 """
 from __future__ import annotations
@@ -35,9 +41,12 @@ from deploy_lock import DeployLock, LockTimeout  # noqa: E402
 REPO = Path(__file__).resolve().parent.parent
 BUILD_DIRECTORY = REPO / "Quant" / "build_win"
 TARGET_EXE = BUILD_DIRECTORY / "quant_trader.exe"
+OPS_CLIENT_EXE = BUILD_DIRECTORY / "ops_client.exe"
 GUARD_LOG = REPO / "_private" / "deploy_guard.log"
 STATE_DIR = REPO / "_private" / "state"
 RELAUNCH_WAIT_SECONDS = 60.0   # 감시견은 내려간 뒤 5초 쉬고 띄운다. 여유를 크게 둔다
+GRACEFUL_WAIT_SECONDS = 25.0   # 곱게 내리기를 청한 뒤 기다리는 상한. 엔진이 스레드를 거두고 나가는 시간이다
+OPS_CLIENT_TIMEOUT_SECONDS = 15.0   # ops_client.exe 한 번을 기다리는 상한
 
 for _stream in (sys.stdout, sys.stderr):
     try:
@@ -123,6 +132,76 @@ def build() -> int:
     return code
 
 
+def config_path_of(row: dict) -> Path | None:
+    """트레이더 명령줄에서 config 경로를 뽑는다. 상대 경로는 저장소 루트 기준이다 — 트레이더는 루트에서 뜬다."""
+    tokens = [token.strip('"') for token in re.findall(r'"[^"]+"|\S+', row["command"])]
+    names = [token for token in tokens if token.lower().endswith(".json")]
+    if not names:
+        return None
+
+    for candidate in (Path(names[-1]), REPO / names[-1]):
+        if candidate.is_file():
+            return candidate
+
+    return None
+
+
+def ops_endpoint(config_path: Path) -> dict | None:
+    """config 에서 운영단말 접속 정보를 읽는다. 포트가 0이거나 없으면 None — 곱게 내릴 길이 없다."""
+    try:
+        document = json.loads(config_path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exception:
+        say("config 를 못 읽었다({}): {}".format(config_path.name, exception))
+        return None
+
+    port = document.get("ops_port", 0)
+    if not isinstance(port, int) or port <= 0:
+        return None
+
+    # 어디서나 받으라고 적어 둔 주소(0.0.0.0)로는 걸지 않는다. 같은 기계에서 부르니 루프백이면 된다.
+    address = document.get("ops_bind_addr") or ""
+    host = address if address and address != "0.0.0.0" else "127.0.0.1"
+    return {"host": host, "port": port, "token": document.get("ops_token") or ""}
+
+
+def ask_graceful_shutdown(row: dict, who: str) -> bool:
+    """운영단말 전문으로 곱게 내려가 달라고 청한다. 청이 받아들여졌으면 True.
+
+    운영단말 서버는 주문 역할 프로세스에만 열린다. 전략 쪽은 여기서 False 가 나오지만, 주문 쪽이 나가면
+    감시견이 전략 쪽이 스스로 나가기를 기다렸다 짝을 다시 띄운다.
+    """
+    if not OPS_CLIENT_EXE.exists():
+        return False
+
+    config_path = config_path_of(row)
+    if config_path is None:
+        return False
+
+    endpoint = ops_endpoint(config_path)
+    if endpoint is None:
+        return False
+
+    command = [str(OPS_CLIENT_EXE), "--host", endpoint["host"], "--port", str(endpoint["port"])]
+    if endpoint["token"]:
+        command += ["--token", endpoint["token"]]
+
+    command += ["shutdown", who]
+
+    try:
+        done = subprocess.run(command, cwd=REPO, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=OPS_CLIENT_TIMEOUT_SECONDS)
+    except (OSError, subprocess.SubprocessError) as exception:
+        say("pid {} 에 곱게 내리기를 청하지 못했다: {}".format(row["pid"], exception))
+        return False
+
+    if done.returncode != 0:
+        say("pid {} 이 곱게 내리기를 받지 않았다(종료 코드 {}) {}".format(
+            row["pid"], done.returncode, (done.stderr or "").strip()))
+        return False
+
+    return True
+
+
 def restart_and_verify(who: str, reason: str) -> int:
     rows = processes()
     running = traders(rows)
@@ -142,8 +221,41 @@ def restart_and_verify(who: str, reason: str) -> int:
         (STATE_DIR / "planned_restart_{}".format(pid)).write_text(who, encoding="utf-8")
 
     say("트레이더 {}개를 내린다(pid {}) — 감시견이 새 exe 로 다시 띄운다".format(len(old_pids), ", ".join(map(str, sorted(old_pids)))))
-    for pid in old_pids:
+
+    asked_pids = {row["pid"] for row in running if ask_graceful_shutdown(row, who)}
+    if asked_pids:
+        say("pid {} 에 곱게 내려가기를 청했다 — {:.0f}초까지 기다린다".format(
+            ", ".join(map(str, sorted(asked_pids))), GRACEFUL_WAIT_SECONDS))
+    else:
+        say("곱게 내릴 길이 없다(운영단말 포트·ops_client.exe 를 본다) — 바로 강제로 내린다")
+
+    def still_running() -> set[int]:
+        return {row["pid"] for row in traders(processes())} & old_pids
+
+    left_pids = set(old_pids)
+    if asked_pids:
+        graceful_deadline = time.monotonic() + GRACEFUL_WAIT_SECONDS
+        left_pids = still_running()
+        while left_pids and time.monotonic() < graceful_deadline:
+            time.sleep(1.0)
+            left_pids = still_running()
+
+    # 청을 안 보낸 전략 쪽도 짝을 따라 스스로 나간다. 그래서 남은 것만 강제로 내린다.
+    gentle_pids = sorted(old_pids - left_pids)
+    forced_pids = sorted(left_pids)
+    for pid in forced_pids:
         subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+
+    how_parts = []
+    if gentle_pids:
+        how_parts.append("곱게 내려간 pid {}".format(", ".join(map(str, gentle_pids))))
+
+    if forced_pids:
+        how_parts.append("강제로 내린 pid {}".format(", ".join(map(str, forced_pids))))
+
+    how_text = " · ".join(how_parts)
+    say(how_text)
+    guard_log("배포 트레이더 내림 — {} ({})".format(how_text, who))
 
     def fresh() -> int:
         return len([row for row in traders(processes()) if row["pid"] not in old_pids])
@@ -163,11 +275,12 @@ def restart_and_verify(who: str, reason: str) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="트레이더 장중 배포 — 잠금·빌드·교체·재기동·기동 판정")
+    parser = argparse.ArgumentParser(
+        description="트레이더 장중 배포 — 잠금·빌드·교체·내리기(곱게 먼저, 안 되면 강제)·재기동·기동 판정")
     parser.add_argument("--who", required=True, help="배포하는 세션 이름(잠금 소유자로 보인다)")
     parser.add_argument("--reason", default="장중 배포", help="판정 기록에 남길 한 줄")
     parser.add_argument("--no-restart", action="store_true", help="빌드만 한다")
-    parser.add_argument("--restart-only", action="store_true", help="빌드 없이 재기동·판정만")
+    parser.add_argument("--restart-only", action="store_true", help="빌드 없이 내리기·재기동·판정만")
     parser.add_argument("--wait", type=float, default=600.0, help="배포 잠금을 기다릴 최대 초")
     arguments = parser.parse_args()
 

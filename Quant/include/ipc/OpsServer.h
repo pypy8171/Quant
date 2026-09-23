@@ -67,6 +67,9 @@ public:
     // JSON 문자열을 돌려주는 조회기 둘. 서버 스레드에서 1초마다도 불리니 락을 오래 잡지 않는다.
     using JsonProvider = std::function<std::string()>;
     using KillHandler  = std::function<void()>;
+    // 배포 교체가 부르는 곱게 내리기. 킬과 달리 되돌릴 것이 없다 — 감시견이 새 exe로 다시 띄운다.
+    //  인자는 누가 불렀는지 한 줄(로그·종료 사유에 실린다). [why D-114]
+    using ShutdownHandler = std::function<void(const std::string& who)>;
     using HaltHandler  = std::function<void(const std::string& side, bool on)>; // 수동 정지 on/off, side는 "BUY"/"SELL" — OrderGate::set_manual_halt로 배선 [why D-091, D-095]
     using HaltProvider = std::function<std::pair<bool, bool>()>;                 // (매수 정지, 매도 정지) 현재값 — HALT_ACK에 둘 다 싣는다
 
@@ -74,6 +77,7 @@ public:
     void set_status_provider(JsonProvider status_provider) { status_ = std::move(status_provider); }
     void set_positions_provider(JsonProvider positions_provider) { positions_ = std::move(positions_provider); }
     void set_kill_handler(KillHandler kill_handler) { on_kill_ = std::move(kill_handler); }
+    void set_shutdown_handler(ShutdownHandler shutdown_handler) { on_shutdown_ = std::move(shutdown_handler); }
     void set_halt_handler(HaltHandler halt_handler) { on_halt_ = std::move(halt_handler); }
     void set_halt_provider(HaltProvider halt_provider) { halt_provider_ = std::move(halt_provider); }
 
@@ -116,6 +120,7 @@ private:
     JsonProvider status_;
     JsonProvider positions_;
     KillHandler  on_kill_;
+    ShutdownHandler on_shutdown_;
     HaltHandler  on_halt_;
     HaltProvider halt_provider_;
 

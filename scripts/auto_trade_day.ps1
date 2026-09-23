@@ -567,6 +567,10 @@ if (-not $NoRecorder) {
 }
 
 # ─────────────── 트레이더 기동 ───────────────
+# 짝 하나가 내려간 뒤 남은 쪽이 스스로 나가기를 기다리는 시간. 엔진이 공유 쪽지의 종료 사유를
+#  보는 주기가 5초고 거기에 스레드 회수가 더 든다 — 그 둘을 다 덮는다. [why D-114]
+$PeerExitGraceMs = 20000
+
 # 역할 이름이 빈 문자열이면 예전처럼 한 프로세스다(--role 을 안 붙인다). [why D-114]
 function Start-TraderProcess([string]$roleName)
 {
@@ -661,7 +665,21 @@ while (-not $NoTrader -and (Get-Date) -lt $deadline) {
   # 남은 짝을 내린다. 이 창이 죽인 것이라 그쪽 exit 코드는 뜻이 없다 — 판정은 먼저 내려간 쪽으로 한다.
   foreach ($member in $members) {
     if (-not $member.proc.HasExited) {
-      Say "  $($member.role) 쪽 pid=$($member.proc.Id) 도 같이 내린다 — 짝($($exitedMember.role) 쪽)이 내려갔다." "WARN"
+      # 먼저 내려간 쪽이 깔끔하게 나갔을 때만 스스로 나가기를 기다린다 — 엔진의 control 스레드가
+      #  5초마다 공유 쪽지의 종료 사유를 보고 적혀 있으면 제 발로 내려간다(Engine.cpp control_thread_fn).
+      #  그래야 stop() 이 돌아 이쪽 종료 사유도 쪽지에 남는다. 크래시로 나간 날에는 적힌 사유가
+      #  없어 기다려봐야 헛일이다 — 그때는 곧장 강제로 내린다. [why D-114]
+      $peerLeftClean = ($exitedMember.proc.ExitCode -eq 0)
+      $graceMs       = if ($peerLeftClean) { $PeerExitGraceMs } else { 0 }
+      $how           = if ($peerLeftClean) { "스스로 나가기를 기다린다" } else { "짝이 크래시라 곧장 내린다" }
+      Say "  $($member.role) 쪽 pid=$($member.proc.Id) 도 내린다 — 짝($($exitedMember.role) 쪽)이 내려갔다. $how." "WARN"
+
+      if ($graceMs -gt 0 -and $member.proc.WaitForExit($graceMs)) {
+        Say "  $($member.role) 쪽 pid=$($member.proc.Id) 은 스스로 나갔다 — 짝($($exitedMember.role) 쪽)을 따랐다."
+        continue
+      }
+
+      if ($graceMs -gt 0) { Say "  $($member.role) 쪽 pid=$($member.proc.Id) 이 $([int]($graceMs / 1000))초 안에 안 나갔다 — 강제로 내린다." "WARN" }
       try { Stop-Process -Id $member.proc.Id -Force -ErrorAction Stop } catch { }
       $null = $member.proc.WaitForExit(15000)
     }

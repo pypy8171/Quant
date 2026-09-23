@@ -21,7 +21,7 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@f886221 scripts/auto_trade_guard.ps1@6a54b80 -->
+<!-- sync: scripts/auto_trade_day.ps1@ec5b286 scripts/auto_trade_guard.ps1@6a54b80 -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 죽으면 다시
 띄운다. 띄우기 전에 그날 장이 열리는지 KIS에 물어(`scripts/check_market_open.py`) 휴장일이면 아무것도 안 띄우고 끝낸다 —
@@ -30,7 +30,7 @@ $env:PYTHONUTF8 = "1"
 센다 — 떠 있는 프로세스의 명령줄에서 config를 찾아 `kis.account_no`와 `is_paper`를 열쇠로 만든다. config에 `replay_file`이
 있는 프로세스(워크트리의 리플레이 측정)는 증권사에 주문을 내지 않으므로 세지 않고, 열쇠를 읽지 못하면 막는 쪽으로 남긴다.
 `-Split`을 주면 트레이더가 주문 쪽·전략 쪽 두 프로세스다(D-114) — 이날은 `quant_trader`가 둘인 것이 정상이고,
-한쪽이 내려가면 감시견이 짝도 내려 둘을 같이 다시 띄운다.
+한쪽이 내려가면 감시견이 짝도 내려 둘을 같이 다시 띄운다. 먼저 나간 쪽이 정상 종료였으면 짝이 스스로 나가기를 20초 기다렸다가 그래도 안 나가면 강제로 내리고, 크래시였으면 기다리지 않는다 — 기다리는 동안 짝이 `stop()`을 돌려 공유 쪽지에 종료 사유를 남긴다(D-114).
 
 모의와 실계좌를 한 기계에서 같이 돌리는 날은 config `instance` 하나가 두 벌을 가른다(D-122). 실계좌 config에
 `"instance": "live"`가 있으면 감시견이 상태 파일 `_private/_auto_trade_day_live.json`, 실행 로그 `auto_trade_day_live_*.log`,
@@ -193,7 +193,7 @@ cd {ROOT}
 
 ## 5. 운영단말 (수동 매도)
 
-<!-- sync: docs/guides/OPS_TERMINAL.md@0068de8 docs/guides/MFC_TERMINAL.md@3ffd20a -->
+<!-- sync: docs/guides/OPS_TERMINAL.md@d6b2855 docs/guides/MFC_TERMINAL.md@4f61406 -->
 
 토큰은 `Quant\config\config_dev_paper.json`의 `ops_token`. 가이드 [guides/OPS_TERMINAL.md](guides/OPS_TERMINAL.md).
 

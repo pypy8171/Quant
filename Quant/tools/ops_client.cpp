@@ -11,6 +11,8 @@
 //       buy  <ticker> <quantity> [price]  수동 매수
 //       watch                        접속을 유지하며 push(POSITIONS·ORDER_RESULT·FILL)를 출력
 //       kill                         킬스위치 + 엔진 종료 (토큰 필요)
+//       shutdown [who]               곱게 내리기 — 배포 교체용 (토큰 필요).
+//                                    kill 과 달리 킬스위치도 표지 파일도 안 건드려 감시견이 곰 다시 띄운다
 //
 //   종료코드: 0 성공, 1 인자·연결 오류, 2 주문 거부(ACK 거부 또는 RESULT ok=false), 3 결과 대기 시간 초과
 
@@ -203,6 +205,9 @@ std::string make_client_id()
     return "cli-" + std::to_string(milliseconds);
 }
 
+// 한 요청의 답을 기다리는 상한. 서버는 받은 자리에서 답하므로 여유를 넣은 값이다.
+constexpr int kAckWaitMilliseconds = 3000;
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -239,7 +244,7 @@ int main(int argc, char** argv)
 
     if (rest.empty())
     {
-        std::cerr << "사용법: ops_client [--host H] [--port P] [--token T] status|positions|sell|buy|watch|kill\n";
+        std::cerr << "사용법: ops_client [--host H] [--port P] [--token T] status|positions|sell|buy|watch|kill|shutdown\n";
         return 1;
     }
 
@@ -255,7 +260,7 @@ int main(int argc, char** argv)
     connection.send_frame(ops::OpsMsg::HELLO_REQ, json{{"token", token}, {"client", "ops_client/0.1"}}.dump());
     ops::Frame frame;
 
-    if (connection.recv_frame(frame, 3000) != 1 || frame.type != static_cast<uint8_t>(ops::OpsMsg::HELLO_ACK))
+    if (connection.recv_frame(frame, kAckWaitMilliseconds) != 1 || frame.type != static_cast<uint8_t>(ops::OpsMsg::HELLO_ACK))
     {
         std::cerr << "HELLO_ACK 없음: " << (frame.body.empty() ? "(응답 없음)" : frame.body) << "\n";
         return 1;
@@ -304,7 +309,7 @@ int main(int argc, char** argv)
     {
         connection.send_frame(ops::OpsMsg::STATUS_REQ, "{}");
 
-        if (wait_type(ops::OpsMsg::STATUS_ACK, 3000, frame) != 1)
+        if (wait_type(ops::OpsMsg::STATUS_ACK, kAckWaitMilliseconds, frame) != 1)
         {
             return 1;
         }
@@ -317,7 +322,7 @@ int main(int argc, char** argv)
     {
         connection.send_frame(ops::OpsMsg::POSITIONS_REQ, "{}");
 
-        if (wait_type(ops::OpsMsg::POSITIONS_ACK, 3000, frame) != 1)
+        if (wait_type(ops::OpsMsg::POSITIONS_ACK, kAckWaitMilliseconds, frame) != 1)
         {
             return 1;
         }
@@ -348,7 +353,7 @@ int main(int argc, char** argv)
                  {"price", rest.size() > 3 ? std::atof(rest[3].c_str()) : 0.0}};
         connection.send_frame(ops::OpsMsg::ORDER_REQ, request.dump());
 
-        if (wait_type(ops::OpsMsg::ORDER_ACK, 3000, frame) != 1)
+        if (wait_type(ops::OpsMsg::ORDER_ACK, kAckWaitMilliseconds, frame) != 1)
         {
             std::cerr << "ORDER_ACK 없음\n";
             return 1;
@@ -447,7 +452,22 @@ int main(int argc, char** argv)
     {
         connection.send_frame(ops::OpsMsg::KILL_REQ, "{}");
 
-        if (wait_type(ops::OpsMsg::KILL_ACK, 3000, frame) != 1)
+        if (wait_type(ops::OpsMsg::KILL_ACK, kAckWaitMilliseconds, frame) != 1)
+        {
+            return 1;
+        }
+
+        std::cout << frame.body << "\n";
+        return json::parse(frame.body).value("ok", false) ? 0 : 2;
+    }
+
+    if (command == "shutdown")
+    {
+        // 누가 내렸는지 한 줄이 종료 사유에 그대로 실린다. 안 주면 서버가 연결 이름으로 대신한다.
+        const std::string who = rest.size() > 1 ? rest[1] : std::string("ops_client");
+        connection.send_frame(ops::OpsMsg::SHUTDOWN_REQ, json{{"who", who}}.dump());
+
+        if (wait_type(ops::OpsMsg::SHUTDOWN_ACK, kAckWaitMilliseconds, frame) != 1)
         {
             return 1;
         }

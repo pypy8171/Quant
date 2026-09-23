@@ -124,6 +124,8 @@ static void t_names()
 {
     assert(std::string(ops::message_name(0x20)) == "ORDER_REQ");
     assert(std::string(ops::message_name(0x7F)) == "ERROR_NTF");
+    assert(std::string(ops::message_name(0x34)) == "SHUTDOWN_REQ");
+    assert(std::string(ops::message_name(0x35)) == "SHUTDOWN_ACK");
     assert(std::string(ops::message_name(0x55)) == "?");
 }
 

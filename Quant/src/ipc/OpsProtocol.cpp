@@ -40,6 +40,10 @@ const char* message_name(uint8_t message_type)
         return "HALT_REQ";
     case OpsMsg::HALT_ACK:
         return "HALT_ACK";
+    case OpsMsg::SHUTDOWN_REQ:
+        return "SHUTDOWN_REQ";
+    case OpsMsg::SHUTDOWN_ACK:
+        return "SHUTDOWN_ACK";
     case OpsMsg::ERROR_NTF:
         return "ERROR_NTF";
     }

@@ -41,6 +41,14 @@ void Engine::start_ops_server()
             write_state_marker("kill_today", "운영단말 KILL");
             request_shutdown("운영단말 KILL");
         });
+    ops_.server->set_shutdown_handler(
+        [this](const std::string& who)
+        {
+            // 킬과 다른 길이다 — 킬스위치도 표지 파일도 건드리지 않는다. 표지를 남기면 감시견이
+            //  그날 내내 재기동을 거부해(scripts/auto_trade_day.ps1) 배포가 매매를 하루 멈춘다. [why D-114]
+            LOG_WARN("[Ops] SHUTDOWN — 곱게 내린다(배포 교체) " + who);
+            request_shutdown("운영단말 SHUTDOWN — " + who, ipc::SharedShutdownReason::kOperator);
+        });
     ops_.server->set_halt_handler(
         [this](const std::string& side, bool on)
         {
