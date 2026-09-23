@@ -344,6 +344,15 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
     OrderAck    acknowledgement;
     acknowledgement.kis_order_no      = out.value("ODNO", "");
     acknowledgement.krx_forwarding_org_no = out.value("KRX_FWDG_ORD_ORGNO", "");
+
+    // rt_cd=0인데 ODNO가 비면 접수는 됐을 수 있고 번호만 모른다 — 전송 실패와 같이 '모름'으로 돌려
+    //  라우터가 재시도하지 않고 브로커에 되묻게 한다(OrderAck [inv]: 실패면 error_code가 비지 않는다).
+    if (acknowledgement.kis_order_no.empty())
+    {
+        LOG_ERROR("[KIS] 주문 응답에 ODNO 없음: " + signal.ticker + " — 접수 여부 확인 필요");
+        return OrderAck::fail(kis_error::kTransport);
+    }
+
     LOG_INFO("[KIS] 주문 접수: " + signal.ticker +
              (signal.side == OrderSide::BUY ? " BUY " : " SELL ") +
              std::to_string(signal.quantity) + "주  ODNO=" + acknowledgement.kis_order_no +
@@ -407,6 +416,13 @@ OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& o
     }
 
     std::string cancel_order_no = jsonx::object_or_empty(document, "output").value("ODNO", "");
+
+    if (cancel_order_no.empty())
+    {
+        LOG_ERROR("[KIS] 취소 응답에 ODNO 없음: " + ticker + " 원ODNO=" + orig_odno + " — 취소 여부 모름");
+        return OrderAck::fail(kis_error::kTransport);
+    }
+
     LOG_INFO("[KIS] 취소 접수: " + ticker + " 원ODNO=" + orig_odno +
              " 취소ODNO=" + cancel_order_no);
     return OrderAck{std::move(cancel_order_no), std::string(), std::string()};
@@ -467,6 +483,13 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
 
     // 정정 성공 시 새 ODNO 발급 → 반환 (호출부가 kis_order_no 갱신)
     std::string new_order_no = jsonx::object_or_empty(document, "output").value("ODNO", "");
+
+    if (new_order_no.empty())
+    {
+        LOG_ERROR("[KIS] 정정 응답에 ODNO 없음: " + ticker + " 원ODNO=" + orig_odno + " — 정정 여부 모름");
+        return OrderAck::fail(kis_error::kTransport);
+    }
+
     LOG_INFO("[KIS] 정정 접수: " + ticker + " 원ODNO=" + orig_odno +
              " 새ODNO=" + new_order_no + " @" + std::to_string(static_cast<int>(new_price)));
     return OrderAck{std::move(new_order_no), std::string(), std::string()};

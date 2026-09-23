@@ -4,7 +4,8 @@
 // OrderAck::error_code가 이 값을 담는다(D-039). reject_reason 꼬리표 " [코드]"에도 같은 문자열이 남는다.
 namespace kis_error
 {
-// KIS 코드가 아닌 자체 코드 — 응답이 없거나(전송 실패) 응답을 못 읽었을 때. 접수 여부를 모른다.
+// KIS 코드가 아닌 자체 코드 — 응답이 없거나(전송 실패) 응답을 못 읽었을 때, 또는 rt_cd=0인데 ODNO가 빈 응답.
+//  접수 여부를 모른다 — 라우터는 재시도하지 않고 브로커에 되묻는다.
 inline constexpr const char* kTransport = "E_TRANSPORT";
 // KIS가 rt_cd≠0으로 거부했는데 msg_cd가 비어 있을 때.
 inline constexpr const char* kUnknown = "E_UNKNOWN";
