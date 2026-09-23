@@ -795,8 +795,8 @@ int OrderRouter::sweep_stale_reservations()
 
 // ─── 이력 저장 (max_history 초과 시 체결 완료/거부된 것만 삭제) ───────────
 //  쓴 시간(us)을 돌려준다 — 전송 전에 끝난 주문은 이 몫이 곧 record_us다. 값을 안 쓰는 호출자는 그냥 버린다.
-//  open_orders_us를 주면 미결주문 파일 다시쓰기 몫을 거기 따로 담는다. 그 파일만 건당 전체를 다시 쓰므로
-//  (나머지 둘은 한 줄 덧붙이기) 처방이 다르다 — 섞어 두면 어느 쪽을 고칠지 못 고른다. [why D-071]
+//  open_orders_us를 주면 미결주문 파일 몫을 거기 따로 담는다. 지금은 대기함에 넘기는 시간이라 0에 가깝다 —
+//  건당 전체 다시쓰기였을 때 이 값이 record_us의 절반(1,589us)이었고, 그래서 쓰기를 스레드로 뺐다. [why D-071]
 int64_t OrderRouter::record(const ManagedOrder& managed_order, int64_t* open_orders_us)
 {
     const int64_t started_ns = trace::now_ns();
@@ -827,7 +827,7 @@ int64_t OrderRouter::record(const ManagedOrder& managed_order, int64_t* open_ord
     write_trade_row("", managed_order, 0, 0.0);
 
     const int64_t open_orders_started_ns = trace::now_ns();
-    write_open_orders_file(open_orders, sequence);
+    queue_open_orders_file(std::move(open_orders), sequence);
 
     if (open_orders_us != nullptr)
     {
@@ -965,8 +965,9 @@ void OrderRouter::load_order_reasons_locked()
 //  형식: odno|orgno|ticker|side|remaining  (한 줄 한 주문, 헤더 없음)
 //  history_는 프로세스 메모리라 재기동으로 사라진다. 모의투자는 정정취소가능조회
 //  TR을 지원하지 않아 브로커에도 물어볼 수 없다. 그래서 살아있는 주문을 파일에
-//  남겨 두고 다음 기동이 그것을 취소한다. 매 상태변화마다 통째로 덮어쓴다
-//  (동시에 살아있는 주문은 많아야 수십 건이라 비용이 무시할 만하다).
+//  남겨 두고 다음 기동이 그것을 취소한다. 매 상태변화마다 통째로 덮어쓰되, 쓰기는 전담 스레드가 한다.
+//  주문 스레드에서 바로 쓰던 때는 건당 1,589us로 record_us의 절반을 먹었다 — 살아있는 주문이 수십 건이라
+//  비용이 무시할 만하다고 본 것은 라이브 기준이었고, 951줄이 쌓이면 그렇지 않았다(2026-09-23 회차 E). [why D-071]
 std::string OrderRouter::snapshot_open_orders_locked() const
 {
     std::string buffer;
@@ -1012,7 +1013,7 @@ void OrderRouter::rewrite_open_orders()
         sequence  = ++open_orders_sequence_;
     }
 
-    write_open_orders_file(body, sequence);
+    queue_open_orders_file(std::move(body), sequence);
 }
 
 void OrderRouter::write_open_orders_file(const std::string& body, uint64_t sequence)
@@ -1051,6 +1052,61 @@ void OrderRouter::write_open_orders_file(const std::string& body, uint64_t seque
     }
 }
 
+// ─── 부속 파일 쓰기 넘기기 ────────────────────────────────────────────────
+void OrderRouter::queue_open_orders_file(std::string body, uint64_t sequence)
+{
+    {
+        std::lock_guard<std::mutex> lock(open_orders_outbox_mutex_);
+
+        if (sequence <= open_orders_pending_sequence_)
+        {
+            return; // 더 새 스냅샷이 이미 줄 서 있다 — 옛 것으로 덮으면 살아있는 주문이 사라진다
+        }
+
+        open_orders_pending_body_     = std::move(body);
+        open_orders_pending_sequence_ = sequence;
+    }
+
+    open_orders_outbox_signal_.notify_one();
+}
+
+void OrderRouter::flush_open_orders_file()
+{
+    std::string body;
+    uint64_t    sequence = 0;
+    {
+        std::lock_guard<std::mutex> lock(open_orders_outbox_mutex_);
+
+        if (open_orders_pending_sequence_ == 0)
+        {
+            return;
+        }
+
+        body     = std::move(open_orders_pending_body_);
+        sequence = open_orders_pending_sequence_;
+        open_orders_pending_body_.clear();
+        open_orders_pending_sequence_ = 0;
+    }
+
+    write_open_orders_file(body, sequence);
+}
+
+void OrderRouter::open_orders_writer_loop(std::stop_token stop_token)
+{
+    while (!stop_token.stop_requested())
+    {
+        {
+            std::unique_lock<std::mutex> lock(open_orders_outbox_mutex_);
+            open_orders_outbox_signal_.wait(lock, stop_token,
+                                            [this] { return open_orders_pending_sequence_ != 0; });
+        }
+
+        flush_open_orders_file();
+    }
+
+    flush_open_orders_file(); // 멈추라는 말을 듣고도 마지막 스냅샷은 디스크에 남긴다
+}
+
 // ─── 이전 세션이 남긴 미체결 주문 취소 (기동 시 1회) ──────────────────────
 OrderRouter::~OrderRouter()
 {
@@ -1061,6 +1117,15 @@ OrderRouter::~OrderRouter()
     {
         stale_threshold_.join();
     }
+
+    open_orders_writer_.request_stop();
+
+    if (open_orders_writer_.joinable())
+    {
+        open_orders_writer_.join();
+    }
+
+    flush_open_orders_file(); // 스레드가 멈춘 뒤 남은 것이 있으면 여기서 쓴다
 }
 
 void OrderRouter::cancel_stale_orders_async()
@@ -2115,7 +2180,7 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
 
         // 락 밖에서 쓰려고 복사한다 — managed_order는 history_ 원소라 record()의 축출로 참조가 죽을 수 있다.
         const ManagedOrder snapshot        = managed_order;
-        const std::string  open_orders = snapshot_open_orders_locked(); // 잔량이 줄었으니 부속 파일을 다시 쓴다
+        std::string        open_orders = snapshot_open_orders_locked(); // 잔량이 줄었으니 부속 파일을 다시 쓴다
         const uint64_t     sequence         = ++open_orders_sequence_;
         lock.unlock();
 
@@ -2129,7 +2194,7 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
         //   gate_.on_fill_confirmed() 뒤에 쓴다(managed_order.status는 위에서 이미 갱신됨).
         write_trade_row("FILL", snapshot, apply_quantity, fill_notification.filled_price, result.realized_pnl,
                         result.strategy_realized_pnl);
-        write_open_orders_file(open_orders, sequence);
+        queue_open_orders_file(std::move(open_orders), sequence);
 #ifdef HAS_ZMQ
         if (zmq_)
         {

@@ -9,6 +9,7 @@
 #endif
 #include <array>
 #include <atomic>
+#include <condition_variable>
 #include <deque>
 #include <fstream>
 #include <stop_token>
@@ -148,6 +149,14 @@ private:
     // 스냅샷을 새로 떠서 부속 파일을 다시 쓴다(hist_mtx_를 잠깐 잡고, 쓰기는 밖에서).
     //  이전 세션 줄(carry_rows_)이 정리될 때마다 취소 스레드가 부른다.
     void        rewrite_open_orders();
+    // 부속 파일 쓰기를 전담 스레드에 넘기고 곧바로 돌아온다. 대기함은 한 칸이고 최신이 이긴다 —
+    //  중간 스냅샷을 읽는 쪽이 없어서다(다음 기동이 보는 것은 마지막 하나뿐). 주문 스레드가
+    //  여기서 디스크를 기다리면 시퀀서 전체가 같이 선다. [why D-071]
+    void        queue_open_orders_file(std::string body, uint64_t sequence);
+    // 대기 중인 스냅샷을 부르는 스레드에서 끝까지 쓴다. 쓸 것이 없으면 아무것도 안 한다.
+    void        flush_open_orders_file();
+    // 쓰기 스레드 본문 — 대기함에 뭔가 들어올 때까지 자고, 깨면 비운다. 멈춤 요청 뒤 한 번 더 비운다.
+    void        open_orders_writer_loop(std::stop_token stop_token);
     // 거래 원장 CSV 적재 — 주문/체결을 logs/trades_YYYYMMDD.csv 에 한 줄씩 영속화.
     //   event가 빈 문자열이면 managed_order.status를 event로 사용(접수/거부/취소). 체결은 "FILL".
     //   파일 쓰기는 io_mtx_로 직렬화한다(history_mutex_ 밖에서 호출 — 디스크가 원장 락을 잡지 않게).
@@ -277,6 +286,12 @@ private:
     mutable std::mutex                      carry_mutex_;
     std::mutex io_mutex_;                       // 원장 CSV·부속 파일 쓰기 직렬화
     uint64_t open_orders_written_sequence_ = 0;    // io_mutex_ 보호
+    // 부속 파일 쓰기 대기함 — 한 칸짜리, 최신이 이긴다. sequence 0은 "대기 중인 것 없음"(스냅샷 번호는 1부터).
+    //  [lock-order] history_mutex_ → open_orders_outbox_mutex_ → io_mutex_. 쓰기 스레드는 뒤 둘만 잡는다.
+    std::mutex                  open_orders_outbox_mutex_;
+    std::condition_variable_any open_orders_outbox_signal_;
+    std::string                 open_orders_pending_body_;
+    uint64_t                    open_orders_pending_sequence_ = 0;
     // 상주 파일 핸들(io_mutex_ 보호) — 주문마다 열고 닫는 대신 날짜가 바뀔 때만 다시 연다.
     //  LatencyTrace.h의 opened_ 패턴과 같다. [why D-094]
     std::ofstream trade_file_;
@@ -286,6 +301,11 @@ private:
 
     // 유령주문 취소 스레드. 종료가 몇 분씩 걸리지 않도록 매 건 전에 stop_token을 본다.
     std::jthread       stale_threshold_;
+
+    // 부속 파일 쓰기 스레드. 멤버 기본값으로 바로 뜬다.
+    //  [inv] 이 줄은 대기함 멤버(open_orders_outbox_*)·io_mutex_보다 반드시 뒤에 있어야 한다 —
+    //   멤버는 선언 순서대로 지어지고, 스레드는 지어지는 즉시 그 셋을 만진다.
+    std::jthread       open_orders_writer_{[this](std::stop_token stop_token) { open_orders_writer_loop(stop_token); }};
 
     std::atomic<uint64_t> sequence_{0};
     std::atomic<uint64_t> total_count_{0};
