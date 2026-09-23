@@ -14,7 +14,7 @@ namespace
 {
 
 // 받는 곳 — 네이버 금융의 시세 폴링 주소. 바꿀 자리를 한군데로 모으려고 여기 상수 하나로
-//  둔다. 다른 곳으로 옮길 때 고칠 자리는 이 줄과 아래 헤더 두 줄뿐이다.
+//  둔다. 다른 곳으로 옮길 때 고칠 자리는 이 줄·아래 헤더 두 줄·아래 파싱 키다.
 constexpr std::string_view kEndpoint = "https://polling.finance.naver.com/api/realtime/domestic/stock/";
 
 // 응답 한 종목이 시작하는 표지. 이 뒤로 다음 표지 전까지가 한 종목의 구간이다.

@@ -1,5 +1,5 @@
 // core/ReconcilePlan.h — 잔고 대조 차이 계산: 원장 스냅샷 vs 브로커 잔고 → RECONCILE 행 목록.
-//  순수 함수(헤더 전용, 상태 없음). Engine이 덮어쓰기·정리 전에 뜬 원장 값으로 부르고, 결과는
+//  순수 함수(상태 없음, 구현은 Quant/src/core/ReconcilePlan.cpp). Quant/src/core/LedgerReconciler.cpp가 덮어쓰기·정리 전에 뜬 원장 값으로 부르고, 결과는
 //  OrderRouter::record_reconcile이 logs/trades_YYYYMMDD.csv에 남긴다. [why D-038] 대사 단계 귀속.
 #pragma once
 

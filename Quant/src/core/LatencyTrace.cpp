@@ -21,7 +21,8 @@ int64_t segment_us(int64_t from_ns, int64_t to_ns)
 std::string_view csv_header()
 {
     // pop_to_done_us 뒤의 gate·history_guard·journal·bucket_wait·transport·record 여섯 열이 그 한 덩이를
-    //  가른 몫이다 — 합이 pop_to_done_us에 거의 닿는다(남는 몫은 구간 사이 잔돈). 한 덩이만 있으면
+    //  가른 몫이다 — 여섯 열 합에 발주 간격 대기(OrderRateLimiter::wait_before_send, CSV에 없음)를 더하면
+    //  pop_to_done_us에 가깝다. 간격 대기가 걸린 주문은 여섯 열 합과 차이가 크다. 한 덩이만 있으면
     //  느려진 자리를 못 짚는다. [why D-071] 나머지 열은 그 여섯 중 둘을 다시 가른 몫이라 더할 때 뺀다:
     //  history_lock_wait는 history_guard 안, accept·publish·history_store(그 안에 open_orders)는 record 안이다. [why D-126]
     return "utc_ms,seq,ticker,strategy,side,action,tick_to_signal_us,signal_to_pop_us,pop_to_done_us,total_us,"

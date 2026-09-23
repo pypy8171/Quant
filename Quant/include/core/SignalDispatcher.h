@@ -1,8 +1,8 @@
 #pragma once
-// 신호 디스패처 — 전략·운영단말·시스템(강제청산·한도 정리)이 만든 OrderSignal에 순번을 찍어 주문 큐로 보내기 전에
+// 신호 디스패처 — 전략·보호 주문 표·시스템(강제청산·한도 정리)이 만든 OrderSignal에 순번을 찍어 주문 큐로 보내기 전에
 //  거른다: 비활성 전략의 신규 매수, 청산 관리 보유 종목의 신규, 수동 매도 정지. 교체 진입은 여기 있지 않다 —
 //  주문 쪽 risk::DisplacementDesk가 한다(읽고-고쳐-쓰기 한 덩어리라 단일 시퀀서에 둔다, D-114 갈래 B).
-//  Engine의 strategy_thread만 부른다 — order_queue_ 단일 생산자라 순번·보류 목록·차단 로그 집합에 락이 없다.
+//  Engine의 strategy_thread만 부른다 — pipeline_.requests 단일 생산자라 순번·차단 로그 집합에 락이 없다.
 //  큐·ZMQ·종목 표기·청산 관리 여부는 std::function으로 받아 Engine 없이 시험한다. [why D-063]
 #include "core/Types.h"
 #include "ipc/LedgerSnapshot.h"
@@ -70,13 +70,13 @@ public:
     //  exit_manager는 Engine이 전략 등록 때 이름으로 한 번 정한다 — 신호마다 접두를 비교하지 않는다.
     void from_strategy(bool active, bool exit_manager, const OrderSignal& signal);
 
-    // 운영단말·강제청산 등 전략 밖에서 온 신호. 종목 번호를 찍어 emit한다.
+    // 보호 주문 표·강제청산·한도 정리 등 전략 밖에서 온 신호. 종목 번호를 찍어 emit한다.
     //  값으로 받는다 — 순번을 찍어 내보내는 sink라, 임시로 온 신호는 이동으로 들어온다.
     void submit(OrderSignal signal);
 
     std::vector<OrderGate::HeldPos> scan_sleeve_positions() const; // 바스켓 소유 종목을 뺀 보유분 [why D-109]
 
-    // 강제청산 재발주 — liq_interval마다 보유 전량(미체결 매도 제외) 시장가 매도. force_liquidate 동안 매 루프 부른다.
+    // 강제청산 재발주 — liquidation_interval_마다 보유 전량(미체결 매도 제외) 시장가 매도. force_liquidate 동안 매 루프 부른다.
     void force_liquidate(Clock::time_point now);
 
     // 종목당 명목 한도 초과분 정리 — trim_at 이후 한 번만. 매 루프 부른다.

@@ -3,7 +3,7 @@
 // 유예·강제 문턱을 시계 없이 전수 시험하려고 뗐다. control_thread 전용이라 동기화는 없다. [why D-098]
 //
 //  그전에는 엔진이 스스로 내려가는 길이 없어 감시견 -Until(마감+5분) 강제 종료에 기댔고, 감시견은 그 종료와 크래시를
-//  가르지 못했다. 판정이 서면 Engine이 _private/state/session_done_<날짜>를 쓰고, 감시견은 그 파일이 있으면
+//  가르지 못했다. 판정이 서면 Engine이 _private/state/session_done[_<instance>]_<날짜>를 쓰고(D-122), 감시견은 그 파일이 있으면
 //  재기동하지 않는다.
 #pragma once
 

@@ -1,4 +1,4 @@
-// REST 현재가 폴러 구현 — 호출 간격·1회 로그·넘침 목록. 판정·틱 생성은 core/DataPoller.h의 순수 함수. [why D-062]
+// REST 현재가 폴러 구현 — 호출 간격·1회 로그·넘침 목록. 판정·틱 생성은 poller 네임스페이스의 순수 함수(선언은 Quant/include/core/DataPoller.h, 정의는 이 파일 아래쪽). [why D-062]
 #include "core/DataPoller.h"
 
 #include "core/KstTime.h"

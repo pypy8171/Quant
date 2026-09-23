@@ -28,8 +28,8 @@ struct BarSlot
     bool operator<(const BarSlot& slot) const { return day != slot.day ? day < slot.day : bucket < slot.bucket; }
 };
 
-// 틱 → 봉 자리. 분은 hhmmss(거래소 체결 시각)에서, 날짜는 recv_utc의 KST 거래일에서 온다. hhmmss가 여섯 자리가
-//  아니면(REST 대체 틱) 수신 시각의 KST 분을 쓴다. 장 밖(open_hhmm 전·close_hhmm 뒤)이면 valid()가 거짓.
+// 틱 → 봉 자리. 분은 hhmmss(거래소 체결 시각)에서, 날짜는 recv_utc의 KST 거래일에서 온다. hhmmss가 0이면
+//  (close_stale 등 시각 없는 호출) 수신 시각의 KST 분을 쓴다. REST 대체 틱도 hhmmss를 채워 온다. 장 밖(open_hhmm 전·close_hhmm 뒤)이면 valid()가 거짓.
 BarSlot slot_of(int32_t hhmmss, std::time_t recv_utc, int interval_min, int open_hhmm, int close_hhmm);
 
 // 봉 시작 시각(UTC). MarketData.timestamp에 넣는다 — REST 봉의 timestamp가 봉의 마지막 1분 시각이라 뜻이 조금
@@ -63,7 +63,7 @@ public:
 
     void set_sink(BarSink sink) { sink_ = std::move(sink); }
 
-    // 틱 한 개. 장 밖·가격 0·id 없음(symbol_id==kNone)·자리를 못 정하면 버리고 false. 앞 봉을 닫았으면 sink가 그 안에서 불린다.
+    // 틱 한 개. 장 밖·가격 0·id 없음(symbol_id==kNone)·자리를 못 정하면, 이미 닫힌 봉보다 이른 틱이면 버리고 false. 앞 봉을 닫았으면 sink가 그 안에서 불린다.
     bool on_tick(const TradeData& trade);
 
     // REST 봉([0]=최신)을 한 번 넣는다. 닫힌 자리는 REST가 이기고, 진행 중 자리는 합치고(시가 REST·고저 max/min·

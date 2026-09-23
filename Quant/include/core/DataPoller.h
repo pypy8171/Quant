@@ -26,7 +26,8 @@ TradeData make_tick(const std::string& ticker, double price, int32_t hhmmss,
                            std::chrono::system_clock::time_point timestamp);
 
 // 이 틱이 make_tick이 만든 REST 대체 틱인가. WS 체결 틱은 체결량이 항상 1주 이상이고 REST 현재가에는
-//  체결량·누적량이 없다 — 봉 집계기가 REST 틱을 거르고 REST 봉으로 되돌아가는 판정에 쓴다. [why D-069]
+//  체결량·누적량이 없다 — DeviationScaleStrategy가 이 판정으로 REST 틱을 거르고 REST 봉으로 되돌아간다
+//  (봉 집계기는 거르지 않는다). [why D-069]
 inline bool is_rest_tick(const TradeData& trade)
 {
     return trade.quantity == 0 && trade.accumulated_volume == 0;
@@ -68,7 +69,7 @@ public:
     //  목록에서 빼고, 안 되면 REST 현재가를 틱으로 흘린다. 반환 = 흘린 틱 수.
     int poll_overflow(const std::vector<WatchSpec>& from_websocket, const ResubscribeFn& resub, std::time_t now_utc);
 
-    // 틱이 끊긴 보유 종목의 현재가 보충. 전략이 볼 일은 없어 틱은 안 흘리고 on_px로만 준다(운영단말 현재가·
+    // 틱이 끊긴 보유 종목의 현재가 보충. 전략이 볼 일은 없어 틱은 안 흘리고 on_price로만 준다(운영단말 현재가·
     //  수동주문 reference_price). 반환 = 조회한 종목 수.
     int top_up(const std::vector<std::string>& tickers, const std::function<void(const std::string&, double)>& on_price);
 

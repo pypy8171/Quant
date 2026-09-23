@@ -1,7 +1,8 @@
 // 리플레이용 모의 체결기 — OrderRouter가 KIS 대신 주문을 넣는 IOrderExecutor. 주문은 다음 틱에 체결되고
 //  체결통보는 라이브와 같은 콜백으로 나간다. 잔고 대조기에는 자기 장부를 돌려준다.
-// 스레드: submit/cancel/revise는 주문 스레드, on_tick은 피드 스레드, balance는 제어 스레드. mutex_ 하나로 지킨다.
-//  체결통보 콜백은 on_tick(피드 스레드)에서만 부른다 — fill_queue_의 생산자를 하나로 두기 위해.
+// 스레드: submit/cancel/revise는 주문 스레드, on_tick은 피드 스레드, balance는 data_thread가 LedgerReconciler의
+//  fetch_로 띄운 비동기 워커(시작 시에는 start()). mutex_ 하나로 지킨다.
+//  체결통보 콜백은 on_tick(피드 스레드)에서만 부른다 — pipeline_.fill_queue의 생산자를 하나로 두기 위해.
 //  장부·대기 주문은 SymbolId로 인덱스한 배열이다 — on_tick은 수신 스레드에서 틱마다 도니 문자열 생성·해시가
 //  없어야 한다(원칙 3·6). 문자열 티커는 주문·취소·잔고처럼 드문 경로에서만 SymbolTable로 푼다. 실측(09-20,
 //  2,700종목·대기 주문 100건·무작위 틱): 문자열 키 맵 37 ns/틱 → id 배열 14.5 ns/틱, 남은 건 mutex다. [why D-071]

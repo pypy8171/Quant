@@ -1,4 +1,4 @@
-// 캡처 파일(TickCapture v1)을 읽어 WS와 같은 콜백으로 되돌려 주는 피드 소스 — 리플레이 백테스트의 입력.
+// 캡처 파일(TickCapture v1·v2)을 읽어 WS와 같은 콜백으로 되돌려 주는 피드 소스 — 리플레이 백테스트의 입력.
 // 스레드: connect()가 재생 스레드 하나를 띄우고 그 스레드가 콜백을 부른다(WS 수신 스레드 자리). [why D-071]
 #pragma once
 #include "core/IFeedSource.h"

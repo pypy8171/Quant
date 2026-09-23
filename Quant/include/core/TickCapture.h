@@ -38,7 +38,7 @@ constexpr uint8_t kFormatVersion       = 2;
 constexpr uint8_t kFormatVersionOldest = 1; // 리더가 받아 주는 가장 낮은 버전
 constexpr uint8_t kKindTrade           = 1;
 constexpr uint8_t kKindBook            = 2;
-constexpr uint8_t kKindBar             = 3; // 파이프라인에 들어간 봉(일봉 폴링·기동용 과거 봉)
+constexpr uint8_t kKindBar             = 3; // 파이프라인에 들어간 봉(data_thread 일봉 폴링. 기동용 과거 봉은 아직 적지 않는다)
 constexpr uint8_t kKindUniverse        = 4; // 그날 무엇을 보기로 했는지
 constexpr int32_t kDailyBarSeconds     = 86400; // BarBody.interval_sec의 일봉 값
 constexpr uint16_t kMaxRecordBytes     = 4096; // 이보다 긴 레코드는 깨진 것으로 본다(모르는 종류를 건너뛸 때의 안전선)
@@ -79,7 +79,7 @@ struct BarBody
 {
     Common  common;
     int32_t bar_index    = 0; // MarketData.bar_index — 파이프라인에 들어간 순번
-    int32_t interval_sec = 0; // 60=1분봉, 86400=일봉
+    int32_t interval_sec = 0; // 86400=일봉(지금 쓰는 유일한 값). 분봉을 적게 되면 초 단위로 넣는다
     double  open         = 0.0;
     double  high         = 0.0;
     double  low          = 0.0;

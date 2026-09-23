@@ -1,6 +1,7 @@
 #pragma once
 // 매크로 국면 파일(regime.json) → 진입정지(entry_halt)·강제청산(force_liquidate)·매수비율·전략 선택 국면 판정.
-//  파일 읽기·로그·OrderGate 적용은 Engine(data_thread)이 하고, 여기는 관측값과 KST 시각을 받아
+//  파일 읽기·로그는 Engine(data_thread)이 하고, 게이트 적용은 Engine::request_entry_halt·request_entry_scale로
+//  요청한다(갈라 띄우면 제어 요청, D-114). 여기는 관측값과 KST 시각을 받아
 //  "게이트를 어떻게 바꿀지"만 답하는 상태기계다 — 시간 상자(D-033)의 하루 리셋·1회 로그 규칙을
 //  I/O 없이 시험하려고 뗐다. data_thread 전용이라 동기화는 없다. [why D-060]
 #include "core/KstTime.h"
@@ -68,7 +69,7 @@ struct Observation
     Snapshot  snapshot;        // kFresh일 때만 뜻이 있다
 };
 
-// 판정에 필요한 KST 두 값. Engine이 utc_plus_hours(9)로 채운다.
+// 판정에 필요한 KST 두 값. Engine이 kst::to_tm·kst::minute_of_day로 채운다.
 struct KstClock
 {
     int yesterday               = 0;    // tm_yday — 만료 상태를 하루 단위로 되돌리는 기준
@@ -79,9 +80,9 @@ struct KstClock
 //  파일이 없거나 stale·무효면 force_liquidate 플래그도 이전 값을 유지한다.
 struct Outcome
 {
-    std::optional<bool> entry_halt;      // OrderGate::set_entry_halt 호출이 필요할 때만
+    std::optional<bool> entry_halt;      // Engine::request_entry_halt 호출이 필요할 때만
     std::optional<bool> force_liquidate; // 파일이 신선·유효할 때만
-    // OrderGate::set_entry_scale 호출이 필요할 때만(값이 바뀐 회차). halt·청산이면 0, 만료면 1.
+    // Engine::request_entry_scale 호출이 필요할 때만(값이 바뀐 회차). halt·청산이면 0, 만료면 1.
     std::optional<double> entry_scale;
     // Engine::apply_regime_selection 호출이 필요할 때만(라벨이 바뀐 회차). stale·무효·모르는 라벨은 비어 있다.
     std::optional<Regime> selection;

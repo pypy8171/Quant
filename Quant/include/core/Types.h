@@ -32,7 +32,7 @@ struct WatchSpec
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 시세 데이터 (KIS API → 수신 스레드 → RingBuffer → 전략)
+// 시세 데이터 (REST·WS → 샤드 행렬 → 샤드 스레드의 전략)
 // ─────────────────────────────────────────────────────────────────────────────
 struct MarketData
 {
@@ -49,7 +49,7 @@ struct MarketData
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 주문 신호 (전략 → RingBuffer → 주문 실행 스레드)
+// 주문 신호 (샤드 → 전략 스레드 SignalDispatcher → 주문 요청 링 → 주문 스레드)
 // ─────────────────────────────────────────────────────────────────────────────
 // 주문 매수/매도 — enum class는 멤버 함수를 못 가져 문자열 매칭을 못 둔다. StrategyType과 같은
 //  스마트enum idiom(Value 감싸기)으로 OrderSide::from_string(파싱)을 붙인다. [why D-071]
@@ -97,7 +97,8 @@ enum class OrderAction
 struct OrderSignal
 {
     std::string ticker;
-    // 종목 id. 전략 스레드가 신호를 큐에 넣기 전에 ticker로 찍는다(emit_from). 0이면 배선이 빠진 경로.
+    // 종목 id. 신호를 큐에 넣기 전에 ticker로 찍는다 — 샤드 스레드의 emit(Engine::shard_thread_fn)과
+    //  SignalDispatcher::submit이 찍는다. 0이면 배선이 빠진 경로.
     //  남은 문자열(ticker·strategy_id·client_order_id·reason)은 신호가 틱보다 훨씬 드물고 KIS 전문·원장 CSV가
     //  문자열을 요구해 그대로 둔다 — 링 복사 비용은 test_strategy_router 5번이 잰다. [why D-071]
     symbol::SymbolId symbol_id = symbol::kNone;
@@ -111,7 +112,8 @@ struct OrderSignal
     double reference_price = 0.0;
     std::string strategy_id; // 로그·원장 CSV·ZMQ용 이름. 키로는 쓰지 않는다 — 아래 strategy_index가 키다.
     // 전략 번호(StrategyTable). 엔진이 전략 등록 때 매기고 emit에서 찍는다. 게이트 서브원장·중복 신호 키는 이 번호로
-    //  찾는다 — 신호마다 "계좌:전략:종목:방향" 문자열을 만들어 해시하던 것을 정수 4개로 바꿨다. [why D-112]
+    //  찾는다 — 신호마다 "계좌:전략:종목:방향" 문자열을 만들어 해시하던 것을 정수 키로 바꿨다
+    //  (중복 신호 키는 계좌·전략·종목·방향·지정가 다섯 개). [why D-112]
     strategy_table::StrategyId strategy_index = strategy_table::kNone;
     Market market = Market::KR;
     std::string exchange; // US only: "NAS", "NYS"
@@ -186,7 +188,7 @@ struct TradeData
     int32_t       hhmmss = 0;       // KST 체결 시각 정수(093001 → 93001). 0이면 모름. 디코더가 한 번 파싱한다. [why D-071]
     double price = 0.0;
     int64_t quantity = 0;
-    int direction = 0; // 1=매수, 5=매도
+    int direction = 0; // 1=매수, 5=매도, 0=모름(선물·REST 틱)
     Market market = Market::KR;
     std::chrono::system_clock::time_point timestamp;
     // 아래 둘은 국내 현물 체결(H0STCNT0)에만 있다. REST 폴링·선물·미국 틱은 0.

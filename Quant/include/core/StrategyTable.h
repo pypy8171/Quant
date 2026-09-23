@@ -87,7 +87,8 @@ public:
     StrategyTable& operator=(const StrategyTable&) = delete;
 
     // 이름을 등록하고 번호를 돌려준다. 이미 있으면 그 번호. 빈 이름·너무 긴 이름·테이블 가득 참은 kNone.
-    //  기동·재스캔 때만 부른다 — 선형 탐색이라 hot path에서 부르지 않는다.
+    //  주로 기동·재스캔 때 부른다 — 선형 탐색이다. 주문 경로에서는 번호 없는 신호(kNone)에만 부르고,
+    //  이미 있는 이름은 락 없이 찾아 돌아온다.
     StrategyId intern(std::string_view name);
 
     // 표 알맹이를 남이 놓은 것으로 바꾼다 — 공유 쪽지 위 표(ipc::SharedStrategyDictionary)를 엔진이 꽂는다.

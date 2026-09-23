@@ -89,7 +89,8 @@ public:
     [[nodiscard]] size_t high_water() const noexcept;
 
     // 한 바퀴 — 호가 전부, 체결 전부, 봉 하나. 돌려주는 값은 하나라도 처리했나.
-    //  emit(StrategyBase*, const OrderSignal&, tick_ns): 신호 봉투를 만드는 자리. tick_ns는 체결 경로만 0이 아니다.
+    //  emit(StrategyBase*, const OrderSignal&, tick_ns): 신호 봉투를 만드는 자리. tick_ns는 체결 경로와 호가 다건 경로에서
+    //  수신 시각이고, 호가 단건·봉은 0이다.
     //  on_price(SymbolId, double): 체결마다 현재가 캐시. symbol_id_of(ticker): 생산자가 id를 안 찍은 틱(리플레이·옛 경로)만 부른다.
     template <class Emit, class OnPrice, class SymbolIdOf>
     bool step(Emit&& emit, OnPrice&& on_price, SymbolIdOf&& symbol_id_of)

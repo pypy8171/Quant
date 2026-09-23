@@ -23,7 +23,7 @@ struct Marks
 {
     int64_t tick_ns       = 0; // 수신 스레드가 틱을 받은 시각
     int64_t signal_ns     = 0; // 전략 스레드가 신호를 만든 시각(sequence stamp 지점)
-    int64_t pop_ns        = 0; // 주문 스레드가 order_queue_에서 꺼낸 시각
+    int64_t pop_ns        = 0; // 주문 스레드가 pipeline_.requests에서 꺼낸 시각
     int64_t send_ready_ns = 0; // 호출 간격 조절(OrderRateLimiter) sleep이 끝난 시각 — 우리가 스스로 줄 세운 몫의 끝
     int64_t done_ns       = 0; // OrderRouter::submit이 돌아온 시각(게이트+원장+HTTP)
 };
@@ -40,7 +40,7 @@ std::string csv_row(const OrderSignal& signal, const Marks& marks, const OrderSt
                     bool accepted, int64_t utc_ms);
 
 // 구간 지연의 분포를 원자 버킷으로 모은다 — 주문 스레드가 넣고 데이터 스레드가 HEALTH를 만들 때 읽는다(락 없음).
-// 옥타브(2배 구간)마다 8칸이라 분위수 오차는 칸 너비(12% 안쪽)이고, 기동 후 누적 분포다 — 구간 분포가
+// 옥타브(2배 구간)마다 8칸이라 분위수 오차는 칸 너비(12.5% 이내)이고, 기동 후 누적 분포다 — 구간 분포가
 // 필요하면 읽는 쪽이 직전 값과 뺀다. 표본 하나가 원자 덧셈 두 번이라 주문 경로에 얹어도 잰 값이 흔들리지 않는다. [why D-071]
 struct HistogramSnapshot;
 
@@ -49,7 +49,7 @@ class LatencyHistogram
 public:
     static constexpr int kSubBucketBits  = 3;                     // 옥타브당 2^3 = 8칸
     static constexpr int kSubBucketCount = 1 << kSubBucketBits;
-    static constexpr int kOctaveCount    = 40;                    // 2^40us 약 13일까지. 넘치면 마지막 칸에 쌓인다
+    static constexpr int kOctaveCount    = 40;                    // 행 = 옥타브-2라 마지막 행은 2^42us(약 51일)까지. 넘치면 마지막 칸에 쌓인다
     static constexpr int kBucketCount    = kOctaveCount * kSubBucketCount;
 
     // 음수는 버린다 — segment_us가 "그 지점을 안 지났다"를 -1로 주기 때문이다.
@@ -104,7 +104,7 @@ struct PipelineLatency
     LatencyHistogram transport;      // 증권사 REST 왕복
     LatencyHistogram record;         // 전송 뒤 마무리 — 접수 확정·발행·이력 저장·원장 CSV·미결주문 파일
     LatencyHistogram open_orders;    // 그중 미결주문 파일 다시쓰기 — record 안에 든 몫이라 합산에서 뺀다
-    LatencyHistogram pop_to_done;    // 꺼냄 → 라우터 반환(위 여섯을 다 품은 한 덩이)
+    LatencyHistogram pop_to_done;    // 꺼냄 → 라우터 반환(위 여섯 + 발주 간격 대기를 품은 한 덩이)
     LatencyHistogram total;          // 틱 수신 → 라우터 반환
 
     static constexpr int kSegmentCount = 12;
@@ -115,7 +115,7 @@ struct PipelineLatency
     [[nodiscard]] static std::array<std::string_view, kSegmentCount> segment_names() noexcept;
 };
 
-// 한 시점의 열한 구간 사본. 데이터 스레드가 HEALTH를 만들 때 뜨고, 직전 것과 빼 구간 분위수를 낸다.
+// 한 시점의 열두 구간 사본. 데이터 스레드가 HEALTH를 만들 때 뜨고, 직전 것과 빼 구간 분위수를 낸다.
 struct PipelineSnapshot
 {
     std::array<HistogramSnapshot, PipelineLatency::kSegmentCount> segments{};

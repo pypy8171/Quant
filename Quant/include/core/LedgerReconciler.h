@@ -48,7 +48,8 @@ struct BreakerOutcome
 
 // 잔고조회 서킷브레이커 — 모의/실서버 inquire-balance가 연속 타임아웃(12002)하면 GET 3회 재시도로
 //  사이클당 ~60s를 태우고 데이터 스레드를 정체시킨다. 실패 누적 시 지수 백오프(1·2·4·8 사이클)로 조회
-//  자체를 건너뛰어 핫루프를 보호하고, 성공 시 즉시 복귀한다. 순수 상태기계라 헤더에서 시험한다.
+//  자체를 건너뛰어 핫루프를 보호하고, 성공 시 즉시 복귀한다. 순수 상태기계라 KIS 없이 시험한다
+//  (구현은 Quant/src/core/LedgerReconciler.cpp).
 class ReconcileBreaker
 {
 public:
@@ -95,7 +96,7 @@ public:
     // 한 사이클이 잔고 응답을 기다려 주는 상한. 넘기면 조회는 뒤에서 계속 돌고 다음 사이클이 결과를 집는다.
     void set_fetch_wait_budget(std::chrono::milliseconds budget) { fetch_wait_budget_ = budget; }
 
-    // 체결통보 시각. 체결 소비 스레드가 부르고 reconcile(제어 스레드)이 읽는다 — 이 값만 원자적이다.
+    // 체결통보 시각. 체결 소비 스레드가 부르고 reconcile(data_thread)이 읽는다 — 이 값만 원자적이다.
     void note_fill(std::time_t now_utc) { last_fill_utc_.store(static_cast<long long>(now_utc), std::memory_order_relaxed); }
 
     // G5: 잔고 보유 행(ticker/quantity/average_price/주문가능)을 OrderGate.seed_position으로 시드. 실패=false → 기동 중단.

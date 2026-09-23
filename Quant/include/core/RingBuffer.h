@@ -10,7 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // RingBuffer<T>  —  단일생산자·단일소비자(SPSC) Lock-Free Ring Buffer
 //   - mutex 없이 동작, Windows/Linux 공통(std::atomic 표준)
-//   - 퀀트 엔진: 시세 수신 스레드(Producer) → 전략 처리 스레드(Consumer)
+//   - 퀀트 엔진 쓰임: ShardMatrix 셀(수신 스레드 → 전략 샤드), fill_queue(WS 수신 → fill_thread), FeedMux 링
 //   - 용량은 2의 거듭제곱으로 올림하고 인덱스는 마스크로 얻는다(나눗셈 없음). head·tail은 감싸지 않는
 //     누적 카운터라 슬롯 하나를 비워 두지 않는다. [why D-042]
 // ─────────────────────────────────────────────────────────────────────────────
@@ -37,7 +37,8 @@ public:
     RingBuffer& operator=(const RingBuffer&) = delete;
 
     // 생산자 스레드에서 호출. false는 "가득 참"이라 버리면 메시지가 조용히 사라진다.
-    //  T의 복사·이동이 던지지 않을 때만 noexcept — MarketData는 std::string을 품어 조건부다.
+    //  T의 복사·이동이 던지지 않을 때만 noexcept — 틱·호가·봉은 트리비얼 복사라 noexcept이고,
+    //  문자열을 품은 T(OrderSignal 등)만 조건부다.
     [[nodiscard]] bool push(const T& item) noexcept(std::is_nothrow_copy_constructible_v<T>)
     {
         // [lock-order] head_는 생산자만 쓰므로 relaxed로 읽고, tail_은 소비자의 release와 짝인 acquire.

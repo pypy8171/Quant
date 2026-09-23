@@ -1,6 +1,6 @@
 #pragma once
 // 발주 조절기 — 주문 스레드가 KIS에 주문을 낼 때의 간격(초당 한도 회피)과, 거부된 주문의 재시도 예약·만기·폐기를
-//  든다. Engine의 order_thread만 부른다 — order_queue_는 SPSC(생산자=전략 스레드)라 되밀 수 없어 재시도는 이 객체의
+//  든다. Engine의 order_thread만 부른다 — pipeline_.requests는 SPSC(생산자=전략 스레드)라 되밀 수 없어 재시도는 이 객체의
 //  전용 버퍼에 산다. 보유 수량 조회는 std::function으로 받아 OrderGate 없이 시험한다. [why D-065]
 #include "core/Types.h"
 
@@ -63,9 +63,10 @@ public:
 
     // 만기된 재시도 가운데 아직 목적이 남은 것 하나. 청산 SELL은 보유가 0이면 목적이 이미 이뤄진 것이라 버린다.
     //  nullopt면 호출자가 새 신호 큐를 본다.
+    //  [inv] 재시도 줄은 FIFO라 맨 앞만 본다 — 분당 거부(20초)가 앞에 있으면 뒤의 짧은 재시도도 그때까지 기다린다. [why D-065]
     std::optional<Pending> take_due_retry(Clock::time_point now);
 
-    // 가장 이른 재시도 만기. 재시도가 없으면 nullopt — 주문 스레드가 그때까지 자도 되는 시각이다.
+    // 맨 앞 재시도의 만기(FIFO라 가장 이른 만기와 다를 수 있다). 재시도가 없으면 nullopt — 주문 스레드가 그때까지 자도 되는 시각이다.
     std::optional<Clock::time_point> next_retry_at() const;
 
     // 직전 KIS 호출 뒤 min_interval을 채우기까지 남은 시간. 0이면 바로 낸다.

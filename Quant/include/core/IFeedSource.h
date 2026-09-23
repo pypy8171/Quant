@@ -1,4 +1,5 @@
-// 실시간 피드 소스 인터페이스 — Engine이 호가·체결·체결통보를 받는 창구. KIS WebSocket과 캡처 파일 리플레이가 구현한다.
+// 실시간 피드 소스 인터페이스 — Engine이 호가·체결·체결통보를 받는 창구. KIS WebSocket·캡처 파일 리플레이·
+//  여러 소스를 묶는 FeedMux(Quant/include/core/FeedMux.h)·ZmqOrderFeed(Quant/include/exchange/ZmqOrderFeed.h)가 구현한다.
 // 스레드: 구현이 자기 수신 스레드에서 콜백을 부른다 — 수신 스레드 i의 콜백은 스레드 하나만 부른다(lanes()). Engine은 콜백 안에서
 //  push만 한다(원칙 3). [why D-071]
 #pragma once

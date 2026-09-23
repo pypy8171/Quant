@@ -1,5 +1,5 @@
-// 큐 소비자 스레드를 "생산자가 깨우는" 대기 조각. 소비자 하나·생산자 여럿. Logger writer(D-045)·fill_thread(D-056)에
-// 흩어져 있던 sleeping 깃발+fence+condvar 패턴을 한 곳에 둔다. [why D-071]
+// 큐 소비자 스레드를 "생산자가 깨우는" 대기 조각. 소비자 하나·생산자 여럿. fill_thread(D-056) 등에
+// 흩어져 있던 sleeping 깃발+fence+condvar 패턴을 한 곳에 둔다. Logger writer(D-045)는 아직 같은 패턴을 따로 갖는다. [why D-071]
 #pragma once
 
 #include <atomic>
