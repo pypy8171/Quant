@@ -46,6 +46,8 @@ int DataPoller::poll_universe(const std::vector<WatchSpec>& specifications, std:
 
 bool DataPoller::add_overflow(const WatchSpec& specification)
 {
+    const std::lock_guard lock(overflow_mutex_);
+
     for (const auto& overflow_entry : overflow_)
     {
         if (poller::same_specification(overflow_entry, specification))
@@ -58,6 +60,12 @@ bool DataPoller::add_overflow(const WatchSpec& specification)
     return true;
 }
 
+size_t DataPoller::overflow_count() const
+{
+    const std::lock_guard lock(overflow_mutex_);
+    return overflow_.size();
+}
+
 int DataPoller::poll_overflow(const std::vector<WatchSpec>& from_websocket, const ResubscribeFn& resub, std::time_t now_utc)
 {
     // 최초 연결·재연결에서 상한에 밀린 종목도 여기로 합친다 — 재스캔 등록분만 챙기면 기동 시 뒤쪽에 선
@@ -67,23 +75,31 @@ int DataPoller::poll_overflow(const std::vector<WatchSpec>& from_websocket, cons
         if (add_overflow(specification))
         {
             LOG_WARN("[Engine] WS 구독 상한 — " + specification.ticker + " 시세는 REST 폴링으로 대체(넘침 " +
-                     std::to_string(overflow_.size()) + "종목)");
+                     std::to_string(overflow_count()) + "종목)");
         }
     }
 
-    if (overflow_.empty())
+    std::vector<WatchSpec> pending;
+    {
+        // 재구독 성공이 목록을 줄이고 제어 스레드가 목록을 늘리므로, 락 안에서 뜬 사본을 락 밖에서 돈다
+        const std::lock_guard lock(overflow_mutex_);
+        pending = overflow_;
+    }
+
+    if (pending.empty())
     {
         return 0;
     }
 
     const int32_t          hhmmss  = kst::hhmmss_int(now_utc);
-    const auto             pending = overflow_; // 재구독 성공이 목록을 줄이므로 복사본을 돈다
     int                    count       = 0;
 
     for (const auto& specification : pending)
     {
         if (resub && resub(specification))
         {
+            const std::lock_guard lock(overflow_mutex_);
+
             for (auto iterator = overflow_.begin(); iterator != overflow_.end(); ++iterator)
             {
                 if (poller::same_specification(*iterator, specification))

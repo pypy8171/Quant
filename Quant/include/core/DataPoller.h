@@ -1,13 +1,14 @@
 #pragma once
 // REST 현재가 폴러 — WS 대신(폴링 모드·WS 폴백) 유니버스를 훑거나, WS 구독 상한에 밀린 종목을 재구독·REST로
-//  대신 흘리거나, 틱이 끊긴 보유 종목의 현재가를 보충한다. Engine의 data_thread만 부른다 — 넘침 목록·1회 로그
-//  집합은 그 스레드 소유라 락이 없다. 브로커 호출·틱 배출·재구독은 std::function으로 받아 KIS 없이 시험한다.
+//  대신 흘리거나, 틱이 끊긴 보유 종목의 현재가를 보충한다. poll_*·top_up은 Engine의 data_thread가 부르고, add_overflow는
+//  제어 스레드(구독 요청 반영)도 부른다 — 그래서 넘침 목록만 overflow_mutex_로 지킨다. 1회 로그 집합은 data_thread 소유라 락이 없다. 브로커 호출·틱 배출·재구독은 std::function으로 받아 KIS 없이 시험한다.
 //  [why D-062]
 #include "core/Types.h"
 
 #include <chrono>
 #include <ctime>
 #include <functional>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -63,10 +64,10 @@ public:
 
     // WS 상한에 밀린 종목 등록. 이미 있으면 false. 반환 뒤 overflow_count()로 로그 문구를 만든다.
     bool add_overflow(const WatchSpec& specification);
-    size_t overflow_count() const { return overflow_.size(); }
+    size_t overflow_count() const;
 
     // 넘침 처리 한 사이클: from_websocket(최초 연결·재연결에서 밀린 것)를 합치고, 종목마다 재구독을 먼저 시도해 되면
-    //  목록에서 빼고, 안 되면 REST 현재가를 틱으로 흘린다. 반환 = 흘린 틱 수.
+    //  목록에서 빼고, 안 되면 REST 현재가를 틱으로 흘린다. 재구독·REST 호출은 락 밖에서 한다. 반환 = 흘린 틱 수.
     int poll_overflow(const std::vector<WatchSpec>& from_websocket, const ResubscribeFn& resub, std::time_t now_utc);
 
     // 틱이 끊긴 보유 종목의 현재가 보충. 전략이 볼 일은 없어 틱은 안 흘리고 on_price로만 준다(운영단말 현재가·
@@ -81,7 +82,9 @@ private:
     KeepGoingFn               keep_going_;
     std::chrono::milliseconds universe_call_interval_{150};
     std::chrono::milliseconds top_up_call_interval_{300};
-    std::vector<WatchSpec>    overflow_;    // WS 상한에 밀려 REST로 대신 흘리는 종목. data_thread 전용
+    // [lock-order] overflow_mutex_ 안에서는 다른 락을 잡지 않고 네트워크 호출도 하지 않는다.
+    mutable std::mutex        overflow_mutex_;
+    std::vector<WatchSpec>    overflow_;    // WS 상한에 밀려 REST로 대신 흘리는 종목. overflow_mutex_ 아래서만
     // 종목당 첫 성공·첫 실패만 남긴다 — 대체 경로가 실제로 틱을 흘리는지 로그로 확인할 수 있어야 한다.
     //  문자열인 이유: 소스 계층은 종목 테이블 앞이라 WatchSpec.ticker(문자열)만 있다. REST 왕복당 한 번.
     std::unordered_set<std::string> rest_seen_;
