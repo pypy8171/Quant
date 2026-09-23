@@ -39,7 +39,7 @@ constexpr int kSdpRestIntervalMs = 60;
 //
 //  [진입 모드 B — INTRADAY 일중]
 //    on_start에서 전일 확정 일봉으로 reference_ma5_ 고정
-//    on_trade/on_order_book에서 장중 5일선 눌림목 터치 포착 → 즉시 BUY
+//    on_trade에서 장중 5일선 눌림목 터치를 포착한다(호가는 쓰지 않는다) → 즉시 BUY
 //    market_close_exit_hhmm 또는 moving_average_5 이탈 시 손절/청산
 // ─────────────────────────────────────────────────────────────────────────────
 class SupplyDemandPullbackStrategy : public StrategyBase

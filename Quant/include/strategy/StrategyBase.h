@@ -45,7 +45,7 @@ public:
     virtual std::optional<OrderSignal> on_data(const MarketData&) = 0;
 
     // 이 전략이 on_data(일봉)를 실제로 쓰는가. 기본 false — 대부분의 전략은 호가·체결
-    //  이벤트로만 동작하고 on_data는 인터페이스 충족용 no-op이다. Engine은 등록된 전략 중
+    //  이벤트로만 동작하고 on_data는 인터페이스 충족용 no-op이다. Engine은 활성 전략 중
     //  하나라도 true일 때만 일봉을 폴링한다. 아무도 안 쓰면 종목 수만큼의 차트 TR 호출이
     //  매 사이클 그대로 버려지고, 그 호출량이 초당 한도를 밀어올려 다른 조회까지 500으로 떨어뜨린다.
     virtual bool wants_daily_bars() const { return false; }
@@ -57,8 +57,8 @@ public:
     }
 
     // 다건 발주 (취소/정정 포함) — 시장조성(MM) 등 틱당 여러 주문을 내는 전략 전용.
-    // 기본 no-op → 기존 전략 무영향. Engine이 on_order_book 직후 호출하며, out에 채운
-    // 신호를 order_queue_로 push한다. CANCEL/REPLACE는 side가 NONE이어도 통과된다.
+    // 기본 no-op → 기존 전략 무영향. 샤드 스레드(Shard::step)가 on_order_book 직후 부르고,
+    // out의 신호는 봉투(shard_out)로 디스패치 스레드에 넘긴다. CANCEL/REPLACE는 side가 NONE이어도 통과된다.
     virtual void on_order_book_batch(const OrderBook&, std::vector<OrderSignal>& /*out*/)
     {
     }
@@ -72,12 +72,13 @@ public:
     // 다건 발주 (체결틱/현재가 하트비트 구동) — 3분봉 이격도 분할매매(지정가 예약) 등
     // 틱마다 CANCEL+NEW 여러 주문을 내는 전략 전용. 기본 no-op → 기존 전략 무영향.
     // rest_price_feed 모드에서 DataThread가 종목별 현재가를 TradeData로 매 사이클 주입하므로
-    // (WS 없이도) 이 훅이 하트비트로 동작한다. Engine이 on_trade 직후 호출해 out을 order_queue_로 push.
+    // (WS 없이도) 이 훅이 하트비트로 동작한다. 샤드 스레드(Shard::step)가 on_trade 직후 부르고,
+    // out의 신호는 봉투(shard_out)로 디스패치 스레드에 넘긴다.
     virtual void on_trade_batch(const TradeData&, std::vector<OrderSignal>& /*out*/)
     {
     }
 
-    // Engine이 on_start() 직전에 호출
+    // Engine이 set_kis 등을 주입한 뒤 부른다(기동, 그리고 재스캔 등록)
     virtual void on_start()
     {
     }
@@ -124,14 +125,15 @@ public:
     void set_exit_manager(bool exit_manager) { exit_manager_ = exit_manager; }
 
     // Engine이 unique_ptr<KisClient>로 수명을 관리한다.
-    // set_kis()는 Engine::start() 내부에서만 호출되며, 전략 소멸 전에 Engine이 먼저 종료된다.
+    // set_kis()는 Engine::start_strategies와 register_strategy_runtime에서 on_start 전에 부르며,
+    // 전략 소멸 전에 Engine이 먼저 종료된다.
     void set_kis(KisClient* kis)
     {
         kis_ = kis;
     }
 
     // 무거운 REST를 미리 당기는 공용 프리페치 풀. Engine이 소유하며 set_kis()와 같은 자리에서
-    //  주입한다 — 전략마다 스레드를 띄우지 않기 위한 것이다. [why D-071]
+    //  주입한다 — 전략마다 스레드를 띄우지 않기 위한 것이다. [why D-115]
     //  [inv] 풀은 Engine이 들고 있고 전략보다 늦게 사라진다(set_kis와 같은 수명 보장).
     void set_prefetch_pool(prefetch::Pool* pool)
     {
@@ -150,7 +152,7 @@ public:
     }
 
     // OrderGate 확정 포지션 접근자 주입 — WS/REST 양모드 공용 원장 진실원천.
-    // Engine::start()에서 order_gate_.position(account,ticker)로 바인딩. 미주입 시 0 반환.
+    // Engine이 원장 사본(ledger_snapshot_) 행의 position으로 바인딩한다(기동·재스캔 둘 다). 미주입 시 0 반환.
     // (체결콜백 부재 rest 모드에서도 잔고 대조로 원장이 최신이라 이 값이 신뢰 가능)
     void set_position_provider(std::function<int(const std::string&, const std::string&)> provider)
     {
@@ -171,7 +173,7 @@ public:
 
     int confirmed_position(const std::string& account, symbol::SymbolId symbol, const std::string& ticker) const;
 
-    // 신규매수 차단(OrderGate::is_entry_halted) 접근자 주입 — Engine이 바인딩한다.
+    // 신규매수 차단 접근자 주입 — OrderGate가 발행한 원장 사본의 entry_halted를 읽는다. Engine이 바인딩한다.
     //  게이트는 라우터 앞에서 매수를 거부하지만 전략은 그걸 모르고 같은 계획을 유지하므로,
     //  차단이 풀려도 분할 매수를 다시 깔지 않았다(09-10 결함 C). 전략이 계획 단계에서 읽게 한다.
     //  미주입이면 false = 차단 없음.
@@ -185,7 +187,7 @@ public:
         return entry_halt_provider_ ? entry_halt_provider_() : false;
     }
 
-    // 매수 명목 비율(OrderGate::entry_scale) 접근자 주입 — Engine이 바인딩한다. 미주입이면 1.0.
+    // 매수 명목 비율 접근자 주입 — OrderGate가 발행한 원장 사본의 entry_scale을 읽는다. Engine이 바인딩한다. 미주입이면 1.0.
     void set_entry_scale_provider(std::function<double()> provider)
     {
         entry_scale_provider_ = std::move(provider);
@@ -197,7 +199,7 @@ public:
     }
 
     // 매도가능수량·평단 접근자 주입 — OrderGate 원장 기준(잔고 대조가 맞춘 주문가능분에서 이 세션의
-    //  미체결 매도를 뺀 값). 전략 스레드가 잔고 REST를 동기로 부르면 한 종목의 조회(13~16초)가
+    //  미체결 매도를 뺀 값). 샤드 스레드가 잔고 REST를 동기로 부르면 한 종목의 조회(13~16초)가
     //  다른 전략 전부를 막고 체결 큐가 넘친다(09-11 15:15~15:22). [why D-055]
     //  미주입이면 nullopt — 호출측이 기존 동기 조회로 되돌아간다.
     struct SellableInfo
@@ -220,7 +222,8 @@ public:
         protective_registry_ = registry;
     }
 
-    // 종목 문자열 → 정수 id. Engine이 SymbolTable::intern을 넣는다 — 전략은 기동·설정 때 한 번 받아 두고
+    // 종목 문자열 → 정수 id. Engine::register_symbol을 넣는다(주문 역할이면 intern, 전략 역할이면 조회한 뒤
+    //  등록을 요청) — 전략은 기동·설정 때 한 번 받아 두고
     //  틱에서는 trade.symbol_id과 정수로만 비교한다(원칙 6, D-071). 미주입이면 kNone — 아래 same_symbol이 문자열로 되돌아간다.
     using SymbolResolver = std::function<symbol::SymbolId(std::string_view)>;
 
@@ -273,7 +276,7 @@ protected:
     std::function<double()> entry_scale_provider_; // 매수 명목 비율(OrderGate). 미주입=1.0
     std::function<SellableInfo(const std::string&, const std::string&)> sellable_provider_; // 원장 매도가능·평단
     risk::ProtectiveOrderRegistry* protective_registry_ = nullptr; // non-owning; 보호 주문 표(Engine 소유). 미주입=표 없음
-    SymbolResolver symbol_resolver_; // 종목 문자열 → id(SymbolTable::intern). 미주입=kNone
+    SymbolResolver symbol_resolver_; // 종목 문자열 → id(Engine::register_symbol). 미주입=kNone
     std::atomic<bool> active_{true};      // 국면 게이트(Engine이 설정). 기본 true=통과 (G-1)
     std::atomic<bool> in_universe_{true}; // 유니버스 재스캔 게이트(Engine이 설정). 미등록 전략은 늘 true
     uint32_t          shard_index_ = 0;   // 소유 샤드. Engine::setup_shards·register_strategy_runtime가 쓴다

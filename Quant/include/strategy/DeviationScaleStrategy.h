@@ -49,7 +49,7 @@
 //  구동: rest_price_feed 모드에서 DataThread가 매 사이클 현재가를 TradeData로 주입 →
 //        on_trade_batch가 하트비트로 호출된다(WS 불필요). 일봉은 kis_로 자가조회(프리페치 스레드).
 //        3분봉은 bar_source로 고른다 — "rest"는 프리페치 스레드가 봉마다 REST를 다시 받고, "ws"(기본)는
-//        전략 스레드가 체결 틱을 BarAggregator로 1분봉에 모으고 resample로 interval_min 봉을 만든다
+//        샤드 스레드(이 전략을 소유한 샤드)가 체결 틱을 BarAggregator로 1분봉에 모으고 resample로 interval_min 봉을 만든다
 //        (REST 1분봉은 시드·폴백, D-068·D-069·D-072). 판단은 언제나 interval_min 봉으로 한다 — 1분봉은 기저일 뿐이다.
 //
 //  포지션 진실원천: OrderGate 확정 포지션(confirmed_position). 체결콜백 부재(rest)에도
@@ -163,13 +163,13 @@ public:
         //   티커 해시로 고정). 50종목이 같은 초에 조회하면 초당 한도(20)에 걸려 뒤쪽이 HTTP 500이다.
         int    prefetch_jitter_percent = 50;
         //  bar_source: interval_min 봉을 어디서 받나. "rest"는 프리페치 스레드가 봉마다 REST 분봉을 다시 받고,
-        //   "ws"(기본)는 전략 스레드가 체결 틱을 1분봉으로 모아(BarAggregator) resample로 접는다. REST 1분봉은
+        //   "ws"(기본)는 소유 샤드 스레드가 체결 틱을 1분봉으로 모아(BarAggregator) resample로 접는다. REST 1분봉은
         //   시드와 폴백으로 남는다 — 틱이 REST 대체 모양이면(WS 폴백·구독 상한 넘침) 그 종목은 REST 봉으로
         //   되돌아간다. [why D-069] [why D-072]
         std::string bar_source = "ws";
         int    market_close_hhmm       = 1515;  // 이 시각(KST HHMM) 이후 전량 취소+청산
         int    interval_min   = 3;     // 집계봉 간격(분)
-        int    min_action_ms  = 3000;  // on_trade_batch 판단·발주 스로틀 겸 프리페치 루프 주기(분봉 REST는 프리페치 스레드가 당긴다)
+        int    min_action_ms  = 3000;  // on_trade_batch 판단·발주 스로틀(프리페치 주기는 공용 풀이 정한다)
         int    daily_lookback = 70;    // 일봉 조회 개수(SMA60 판정 위해 ≥60)
         std::string account;           // 원장 계좌키(단일계좌는 "")
     };
@@ -225,12 +225,12 @@ private:
 
     static quant::moving_average::SimpleMovingAverages daily_simple_moving_averages(const std::vector<MarketData>& daily, double current_price);
 
-    // ── 프리페치: 무거운 REST(3분봉·일봉·잔고)를 공유 전략 스레드 밖에서 미리 당겨
+    // ── 프리페치: 무거운 REST(3분봉·일봉·잔고)를 샤드 스레드 밖에서 미리 당겨
     //    스냅샷에 적재한다. on_trade_batch는 스냅샷만 읽어(락 짧게) 발주를 판단 → 특정
     //    종목의 느린 REST가 전 전략을 막던 head-output_file-line 블로킹을 없앤다. 발주·매도가능
     //    (sellable_quantity)은 원장 최신성을 위해 동기 유지. 여기서 부르는 KIS 메서드는 전부
     //    읽기전용(get_daily_ohlcv·get_minute_ohlcv·get_balance, 동시호출 감사 완료).
-    //  주기(min_action_ms)와 스레드는 공용 풀이 가진다 — 이 함수는 한 주기에 한 번 불린다. [why D-071]
+    //  주기(Engine::kPrefetchPeriodMs 3초)와 스레드는 공용 풀이 가진다 — 이 함수는 한 주기에 한 번 불린다. [why D-115]
     void prefetch_once();
 
     // 등록 해제. 돌아온 뒤에는 prefetch_once()가 실행 중이지도, 다시 불리지도 않는다.
@@ -274,7 +274,7 @@ private:
     //  버그 이력: 존이탈/장 마감 청산이 원장 보유수량 전량을 시장가 매도했으나, 예약매도
     //  (미연결/미결제)로 실매도가능분(ord_psbl_qty)이 보유보다 작으면 KIS가 전량 거부
     //  (40240000 "잔고내역 없습니다") → 매 하트비트 무한 재거부 스팸. 실계좌 동일.
-    //  대책: (1) 매 시도 get_balance의 '실시간' 주문가능수량으로 클램프 → 잠긴 수량
+    //  대책: (1) 매 시도 원장 사본의 매도가능분으로 클램프(sellable_quantity) → 잠긴 수량
     //  초과분 미발주(과매도·이중주문 위험 0, 브로커 상태 기준이라 체결지연에도 자기교정).
     //  (2) 시도 후 진행(position 감소) 없으면 30·60·120·240·480s(capture 300s) 지수 백오프.
     //  반환: 시장가 매도를 실제로 out에 넣었으면 true.
@@ -283,11 +283,10 @@ private:
                           std::chrono::steady_clock::time_point now, const std::string& tag,
                           long long max_backoff_ms = 300000, bool clamp_sellable = true);
 
-    // 해당 종목의 실시간 매도가능수량(ord_psbl_qty). 안전 우선: 확실히 알 수 없으면 0
-    //  (보류)을 반환해 절대 과매도/이중주문을 유발하지 않는다.
-    //  - kis_ 없음/시세전용(계좌 없는 quote) 클라이언트 → 0 (불필요한 잔고 조회도 안 함).
-    //    실계좌(단일 클라이언트)는 account 보유 → 정상 조회로 클램프.
-    //  - 조회 실패(예외·output1 없음)·잔고에 종목 없음·필드 없음 → 0 (다음 백오프에 재시도).
+    // 해당 종목의 매도가능수량. 원장 사본의 매도가능분으로 클램프한다(접근자가 없으면 계좌 클라이언트
+    //  account_kis() 잔고 조회로 대체, 그것도 없으면 0). 안전 우선: 확실히 알 수 없으면 0(보류)을 반환해
+    //  과매도/이중주문을 유발하지 않는다.
+    //  - 대체 경로에서 조회 실패(예외)·잔고에 종목 없음 → 0 (다음 백오프에 재시도).
     int sellable_quantity();
 
     // ── KST 시각 헬퍼(서버 TZ 독립: core/KstTime.h) ─────────────────────────
@@ -358,11 +357,11 @@ private:
     int    prefetch_jitter_sec_ = 0;                       // 봉 경계 뒤 분봉 조회 지연(초, 티커 해시)
     uint64_t sequence_ = 0;
 
-    // ── 프리페치(무거운 REST를 공유 전략 스레드 밖으로) ──────────────────────
+    // ── 프리페치(무거운 REST를 샤드 스레드 밖으로) ──────────────────────
     prefetch::Pool::TaskId  prefetch_task_ = 0;   // 풀 등록 번호(0=없음). 해제는 stop_prefetch()가 명시(멤버 소멸 순서 앞)
     std::mutex              snap_mutex_;               // 아래 snap_* 보호
     // 스냅샷은 포인터를 바꿔 넘긴다 — 평가마다 일봉 250봉(20KB)을 복사하지 않기 위해서다. 한 번 담은
-    //  벡터는 const라 아무도 고치지 않고, 읽는 쪽은 자기 shared_ptr로 수명을 붙잡는다. [why D-071]
+    //  벡터는 const라 아무도 고치지 않고, 읽는 쪽은 자기 shared_ptr로 수명을 붙잡는다. [why D-115]
     using BarSnapshot = std::shared_ptr<const std::vector<MarketData>>;
 
     BarSnapshot             snap_daily_;             // 일봉 스냅샷(미수신이면 null)
@@ -370,9 +369,9 @@ private:
     double                  snap_equity_ = 0.0;      // 자본 스냅샷(raw, 폴백 미적용)
     BarSnapshot             snap_bars_;              // 3분봉 스냅샷(미수신이면 null)
     int snap_bars_bucket_ = -1;                      // 그 스냅샷을 받은 봉 번호(kst_bar_bucket)
-    uint64_t snap_bars_version_ = 0;                 // 받을 때마다 +1 — 전략 스레드가 새 스냅샷만 시드한다
+    uint64_t snap_bars_version_ = 0;                 // 받을 때마다 +1 — 소유 샤드 스레드가 새 스냅샷만 시드한다
 
-    // ── 틱 집계 봉(bar_source=websocket). 집계기·아래 상태는 전략 스레드만 만진다. [why D-069] ──
+    // ── 틱 집계 봉(bar_source=websocket). 집계기·아래 상태는 소유 샤드 스레드만 만진다(on_stop은 샤드가 이 전략을 놓은 뒤 reap·종료 경로에서 부른다). [why D-069] ──
     //  기저는 1분이다 — interval_min 봉은 판단 직전 resample이 만든다. keep은 SMA 창을 1분으로 편 길이. [why D-072]
     static bars::BarAggregator::Config aggregator_config(const Params& parameters);
 
@@ -383,5 +382,5 @@ private:
     bool        reseed_pending_ = true;  // 출처 전환·날짜 변경 뒤 REST 시드를 한 번 더 받아야 한다
     uint64_t    seeded_version_ = 0;     // 마지막으로 시드한 snap_bars_version_
     std::string aggregator_day_;                // 집계기에 든 봉의 KST 날짜 — 바뀌면 비운다
-    std::atomic<bool> seed_wanted_{true}; // 전략 스레드가 프리페치 스레드에 "다음 봉에 REST 시드를 받아 달라"
+    std::atomic<bool> seed_wanted_{true}; // 샤드 스레드가 프리페치 스레드에 "다음 봉에 REST 시드를 받아 달라"
 };

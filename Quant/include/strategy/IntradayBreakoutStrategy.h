@@ -146,8 +146,8 @@ private:
     double day_base_price_ = 0.0; // 당일 기준점(시가 또는 첫 틱)
     double last_ = 0.0;
     bool in_position_ = false;
-    bool position_is_seed_ = false;
-    bool ledger_confirmed_ = false;   // [inv] 원장이 이 보유를 최소 1회 인정했나 // 현재 포지션이 물린 시드분인가(청산 로직 분기)
+    bool position_is_seed_ = false;   // 현재 포지션이 물린 시드분인가(청산 로직 분기)
+    bool ledger_confirmed_ = false;   // [inv] 원장이 이 보유를 최소 1회 인정했나
     double entry_price_ = 0.0;
     double peak_ = 0.0;
     double saved_peak_ = 0.0;      // 부착 시 seed_peaks.json에서 읽은 당일 고점(없으면 0)

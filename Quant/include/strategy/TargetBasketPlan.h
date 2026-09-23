@@ -94,8 +94,8 @@ struct PlanInput
 };
 
 // [formula] 목표 수량 = floor(순자산 × Σ(share × weight) / 기준가). 차이 = 목표 − 보유.
-//   리밸 날: |차이 × 기준가| ≥ band × 목표 금액이고 |차이| ≥ 1주면 주문.
-//   리밸 아닌 날: DROP 매도, 보유 0 → 목표 매수, 보유 < 목표 × (1 − band)면 채우기만(줄이지 않는다).
+//   보유 0 → 목표 매수(날과 무관, 밴드 없음). 그 밖에 리밸 날: |차이 × 기준가| ≥ band × 목표 금액이면 주문.
+//   리밸 아닌 날: DROP 매도, 보유 < 목표 × (1 − band)면 채우기만(줄이지 않는다).
 //   liquidate_all: 파일의 모든 종목을 매도가능 수량만큼 판다.
 //   매도 수량은 min(차이, 매도가능). 매도가능 0이면 notes에 남긴다.
 Plan make_plan(const Targets& targets, const PlanInput& input);

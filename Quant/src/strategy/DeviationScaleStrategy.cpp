@@ -148,7 +148,7 @@ void DeviationScaleStrategy::on_stop()
     // 보호 주문 표에서 내린다 — 떨어진 전략의 규칙이 남아 다른 전략의 보유분을 팔면 안 된다. [why D-114]
     disarm_protective(parameters_.account, symbol_id_);
 
-    // 마지막 진행 봉(마감 동시호가 뒤엔 다음 틱이 없다)을 시계로 닫아 비교표에 남긴다. 전략 스레드는 이미
+    // 마지막 진행 봉(마감 동시호가 뒤엔 다음 틱이 없다)을 시계로 닫아 비교표에 남긴다. 샤드 스레드는 이미
     //  이 전략을 안 부른다(엔진 종료 뒤이거나 재스캔이 뗀 뒤). [why D-074]
     if (websocket_bars_)
     {
@@ -1077,9 +1077,9 @@ void DeviationScaleStrategy::prefetch_once()
         //  세 번 나가는데(당일 63분치 1분봉을 다시 받아 집계), 그중 마감된 봉은 불변이고
         //  달라지는 건 진행 중인 봉 하나뿐이다. 그 하나는 아래 on_trade_batch가 들어오는
         //  체결 틱으로 덮으므로 SMA 값은 같게 유지되면서 조회는 봉 주기당 1회로 준다.
-        //  bar_source=ws면 이 조회는 시드용이다 — 첫 스냅샷, 그리고 전략 스레드가 원할 때(워밍업·
+        //  bar_source=ws면 이 조회는 시드용이다 — 첫 스냅샷, 그리고 샤드 스레드가 원할 때(워밍업·
         //  REST 대체 틱·출처 전환 뒤)만 봉마다 한 번 받고, 틱이 살아 있고 봉이 찼으면 쉰다. 이때는
-        //  1분봉 그대로 받는다(같은 63분치·같은 GET 수) — 접는 건 전략 스레드의 resample이다. [why D-072]
+        //  1분봉 그대로 받는다(같은 63분치·같은 GET 수) — 접는 건 샤드 스레드의 resample이다. [why D-072]
         const int bucket = kst_bar_bucket(parameters_.interval_min);
         bool need_bars;
         {
@@ -1348,7 +1348,7 @@ bool DeviationScaleStrategy::emit_liquidation(std::vector<OrderSignal>& out, int
 
 int DeviationScaleStrategy::sellable_quantity()
 {
-    // 원장 접근자가 주입돼 있으면 그것으로 끝낸다 — 전략 스레드에서 REST를 부르지 않는다. [why D-055]
+    // 원장 접근자가 주입돼 있으면 그것으로 끝낸다 — 샤드 스레드에서 REST를 부르지 않는다. [why D-055]
     if (const auto sellable_from_ledger = ledger_sellable(parameters_.account, parameters_.ticker))
     {
         if (sellable_from_ledger->average_price > 0.0)
@@ -1368,7 +1368,7 @@ int DeviationScaleStrategy::sellable_quantity()
 
     try
     {
-        // 접근자 미주입(단독 실행·테스트) 경로. 공유 전략 스레드에서 동기로 돌므로 재시도만 뗀다 —
+        // 접근자 미주입(단독 실행·테스트) 경로. 샤드 스레드에서 동기로 돌므로 재시도만 뗀다 —
         //  실패는 아래에서 0으로 떨어지고 다음 하트비트에 다시 온다.
         KisClient::FastFailScope ff;
         const KisResult<AccountBalance> balance = kis_client->get_balance();

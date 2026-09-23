@@ -2,7 +2,7 @@
 
 namespace
 {
-// 미국 정규장을 KST 로 옮긴 창 — 22:30 에 열어 이튿날 05:00 에 닫는다.
+// 미국 정규장(서머타임 기준) KST 22:30~05:00. 표준시 전환은 반영하지 않는다.
 constexpr int kUsSessionOpenHhmm  = 2230;
 constexpr int kUsSessionCloseHhmm = 500;
 } // namespace
@@ -214,6 +214,6 @@ bool ValueContraryStrategy::is_in_session(int hhmm) const
         return krx::in_session(hhmm); // 09:00~15:30 정규장(core/MarketSession.h)
     }
 
-    // 미국 정규장 KST: 22:30~익일 05:00
+    // 미국 정규장(서머타임 기준) KST 22:30~05:00. 표준시 전환은 반영하지 않는다
     return hhmm >= kUsSessionOpenHhmm || hhmm < kUsSessionCloseHhmm;
 }

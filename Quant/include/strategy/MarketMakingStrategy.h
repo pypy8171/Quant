@@ -15,7 +15,7 @@
 //  시장이 requote_move_ticks 이상 이동하면 기존 견적을 취소(CANCEL)하고 재호가(NEW).
 //
 //  발주는 on_order_book_batch로 틱당 최대 4건(취소2+신규2)을 낸다. 실제 KIS 취소/신규는
-//  order_thread(OrderRouter)에서만 실행 — 전략은 order_queue_에 의도만 push한다.
+//  주문 쪽(OrderRouter)에서만 실행한다. 전략은 out에 의도만 담고, 샤드가 봉투로 디스패치 스레드에 넘긴다.
 //
 //  ── 첫 컷 한계 (Phase 1) ──
 //   • 체결 피드백 미수신: 자기 견적이 live인지 낙관 가정. 체결된 견적의 후속 취소는
@@ -84,7 +84,7 @@ private:
     int requote_move_ticks_;
     std::chrono::milliseconds min_requote_;
 
-    // 상태 — order_thread가 아닌 strategy_thread에서만 접근(on_order_book_batch 단일 호출자).
+    // 상태 — 소유 샤드 스레드에서만 접근한다(on_order_book_batch 단일 호출자).
     std::string bid_order_id_;  // 현재 live 매수 견적 client_order_id ("" = 없음/낙관)
     std::string ask_order_id_;  // 현재 live 매도 견적 client_order_id
     uint64_t    bid_order_number_ = 0; // 같은 견적의 주문 번호 — 취소 키

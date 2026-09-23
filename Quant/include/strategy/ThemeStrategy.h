@@ -35,9 +35,7 @@ constexpr int kThemeRestIntervalMs  = 200; // 종목 순위·일봉·수급 조�
 constexpr size_t kThemeMaxSurgeCandidates = 50; // 거래량 급증 후보 안전 상한
 }
 
-// KOSPI 주요 업종 코드
-// 0005:화학  0006:의약품  0008:철강금속  0009:기계  0010:전기전자
-// 0011:의료정밀  0012:운수장비  0015:건설업  0022:서비스업
+// KOSPI 주요 업종 — 업종 코드는 아래 표를 본다.
 static const std::vector<std::pair<std::string,std::string>> KOSPI_SECTORS = {
     // KRX 정본. 2026-09-08 구성종목으로 확증(직전 표는 이름이 밀려 있었다 — 0017을 "통신업"으로
     //  불렀으나 구성은 한국전력·한국가스공사, 즉 전기가스업). 0022(은행)·0023은 폐지돼 지수 0.00.

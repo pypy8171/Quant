@@ -1,6 +1,6 @@
 #pragma once
-// DevScale 슬리브의 순수 판정 두 개 — 전략 본체(DeviationScaleStrategy.h)는 시계·잔고·REST에 묶여 있어
-//  단위 테스트가 안 되므로, 값만 받아 답하는 부분을 여기로 뺀다. 둘 다 상태 없음.
+// DevScale 슬리브의 순수 판정 네 개 —전략 본체(DeviationScaleStrategy.h)는 시계·잔고·REST에 묶여 있어
+//  단위 테스트가 안 되므로, 값만 받아 답하는 부분을 여기로 뺀다. 넷 다 상태 없음.
 //   • peak_trail_triggered: 무장 후 고가 트레일 청산 조건.
 //   • tickers_bought_from_ledger: 체결 원장(logs/trades_YYYYMMDD.csv)에서 이 슬리브가 산 종목 집합.
 //   • average_true_range: 전일까지 확정 일봉의 ATR(참범위 단순평균).
@@ -26,7 +26,7 @@ inline constexpr int kNoMarketCloseHhmm = 2400;   // market_close_hhmm이 이 �
 //  평단이 없으면(0) 무장 판정을 못 하므로 false. arm_percent 0은 기능 끔.
 bool peak_trail_triggered(double peak, double average, double current, double arm_percent, double trail_percent);
 
-// 원장 CSV(ts_kst,event,order_id,odno,strategy,ticker,side,…)에서 event=FILL·side=BUY·strategy가 id_prefix_로
+// 원장 CSV(ts_kst,event,order_id,odno,strategy,ticker,side,…)에서 event=FILL·side=BUY·strategy가 id_prefix + '_'로
 //  시작하는 행의 ticker. 앞 7칸만 본다. 헤더·짧은 행·다른 슬리브 행은 건너뛴다.
 std::set<std::string> tickers_bought_from_ledger(std::istream& ledger, const std::string& id_prefix);
 

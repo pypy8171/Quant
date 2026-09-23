@@ -25,7 +25,7 @@ constexpr int kValueContraryRestIntervalMs = 200;
 //    US: 내장 S&P500 리스트 → PBR/PER 필터
 //    → 3일 연속 하락 체크 → candidates_ 확정
 //
-//  [진입 — on_order_book() KR / on_trade() US]
+//  [진입 — on_order_book()(KR)·on_trade()(KR·US)]
 //    장 시작 후 첫 이벤트에서 시장가 매수 (4일차 시가 효과)
 //
 //  [청산 — on_order_book() / on_trade()]
