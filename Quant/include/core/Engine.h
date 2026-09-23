@@ -164,6 +164,12 @@ public:
         return feed_channel_discarded_.load(std::memory_order_relaxed);
     }
 
+    // 시세가 실제로 경계를 넘었는지 — 밀어 넣은 건수와 꺼낸 건수다. 순번은 프로세스마다 제 쪽
+    //  것이라, 갈라 띄운 날에 주문 쪽에서는 밀어 넣은 수만, 전략 쪽에서는 꺼낸 수만 늘어난다. 한 프로세스로
+    //  돌면 둘 다 0 이다 — 시세가 통로를 지나지 않는다. [why D-114]
+    [[nodiscard]] uint64_t feed_channel_sent();
+    [[nodiscard]] uint64_t feed_channel_received();
+
     // 통로에 쌓여 아직 안 건너간 체결 수(어림값). 한 프로세스로 돌면 늘 0이다 — 시세가 통로를 지나지 않는다. [why D-114]
     [[nodiscard]] size_t feed_channel_pending_trades(uint32_t lane);
 

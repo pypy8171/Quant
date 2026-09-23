@@ -150,6 +150,12 @@ void test_round_trip()
     check(book.asks[0].price == 70100.0 && book.bids[0].quantity == 20, "호가 다섯 단계가 그대로다");
     check(!receiver.pop_order_book(0, limits(), book), "호가도 다 읽으면 빈 큐");
     check(receiver.discarded() == 0, "버린 칸이 없다");
+
+    // 넘어간 건수는 링 순번을 그대로 읽는다 — 보낸 쪽은 sent_* 만, 받은 쪽은 received_* 만 오른다.
+    check(sender.sent_trades() == 5 && sender.sent_order_books() == 1, "보낸 수를 센다");
+    check(sender.received_trades() == 0 && sender.received_order_books() == 0, "보낸 쪽은 꺼낸 수가 없다");
+    check(receiver.received_trades() == 5 && receiver.received_order_books() == 1, "꺼낸 수를 센다");
+    check(receiver.sent_trades() == 0 && receiver.sent_order_books() == 0, "받은 쪽은 보낸 수가 없다");
 }
 
 void test_lanes_are_separate()

@@ -316,6 +316,45 @@ uint64_t MarketFeedChannel::stamp_out_of_turn() const
     return total;
 }
 
+namespace
+{
+
+// 줄마다 링 하나씩을 더한다. 읽개 넷이 같은 꼴이라 꺼내는 법만 바꾼다.
+template <typename Ring, typename Reader>
+uint64_t sum_over_lanes(const std::vector<Ring>& rings, Reader read)
+{
+    uint64_t total = 0;
+
+    for (const Ring& ring : rings)
+    {
+        total += read(ring);
+    }
+
+    return total;
+}
+
+} // namespace
+
+uint64_t MarketFeedChannel::sent_trades() const
+{
+    return sum_over_lanes(trades_, [](const SharedSpscRing<TradeData>& ring) { return ring.sent(); });
+}
+
+uint64_t MarketFeedChannel::sent_order_books() const
+{
+    return sum_over_lanes(order_books_, [](const SharedSpscRing<OrderBook>& ring) { return ring.sent(); });
+}
+
+uint64_t MarketFeedChannel::received_trades() const
+{
+    return sum_over_lanes(trades_, [](const SharedSpscRing<TradeData>& ring) { return ring.received(); });
+}
+
+uint64_t MarketFeedChannel::received_order_books() const
+{
+    return sum_over_lanes(order_books_, [](const SharedSpscRing<OrderBook>& ring) { return ring.received(); });
+}
+
 size_t MarketFeedChannel::pending_trades(uint32_t lane) const
 {
     return lane < lanes_ ? trades_[lane].pending() : 0;

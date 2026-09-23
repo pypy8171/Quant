@@ -1312,6 +1312,16 @@ size_t Engine::feed_channel_pending_trades(uint32_t lane)
     return layout_.feed().pending_trades(lane);
 }
 
+uint64_t Engine::feed_channel_sent()
+{
+    return layout_.feed().sent_trades() + layout_.feed().sent_order_books();
+}
+
+uint64_t Engine::feed_channel_received()
+{
+    return layout_.feed().received_trades() + layout_.feed().received_order_books();
+}
+
 uint32_t Engine::feed_channel_lanes()
 {
     return layout_.feed().lanes();
@@ -4244,7 +4254,11 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                      " watch_overflow=" + std::to_string(watch_overflows()) +
                      // 시세 통로 — 큐가 차서 못 넘긴 건수와, 값이 말이 안 돼 꺼내는 쪽이 버린 건수. 둘 다 0이어야 한다. [why D-114]
                      " feed_channel_overflow=" + std::to_string(feed_channel_overflows()) +
-                     " feed_channel_discarded=" + std::to_string(feed_channel_discarded()));
+                     " feed_channel_discarded=" + std::to_string(feed_channel_discarded()) +
+                     // 경계를 실제로 넘은 건수 — 주문 쪽은 sent 가, 전략 쪽은 received 가 늘어난다. 갈라 띄운 날에
+                     //  둘 다 0 이면 시세가 한 건도 안 넘어간 것이다(한 프로세스로 돌면 원래 둘 다 0 이다). [why D-114]
+                     " feed_channel_sent=" + std::to_string(feed_channel_sent()) +
+                     " feed_channel_received=" + std::to_string(feed_channel_received()));
         }
 
         if (++token_tick >= kTokenEvery)

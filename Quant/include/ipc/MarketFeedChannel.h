@@ -108,6 +108,14 @@ public:
         return discarded_.load(std::memory_order_relaxed);
     }
 
+    // 이 프로세스가 통로로 밀어 넣은 건수·통로에서 꺼낸 건수의 줄 합. 늘리는 계수기를 따로 두지 않는다 —
+    //  링이 순번으로 이미 세고 있어 그 순번을 그대로 읽는다(수신 스레드를 얇게 두는 원칙 3). 순번은
+    //  프로세스마다 제 쪽 것이라, 보내는 쪽에서는 sent_* 만 받는 쪽에서는 received_* 만 늘어난다. [why D-114]
+    [[nodiscard]] uint64_t sent_trades() const;
+    [[nodiscard]] uint64_t sent_order_books() const;
+    [[nodiscard]] uint64_t received_trades() const;
+    [[nodiscard]] uint64_t received_order_books() const;
+
     // 도장이 제 차례보다 앞서 있던 횟수의 합 — 칸이 덮였다는 뜻이다. 건강 판정이 이 수를 본다.
     [[nodiscard]] uint64_t stamp_out_of_turn() const;
 
