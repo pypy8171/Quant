@@ -445,6 +445,14 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
         LOG_ERROR(std::format("[OrderRouter] KIS 거부 [{}] {}{} RTT={}ms 버킷대기={}ms", managed_order.order_id, signal.ticker,
                               managed_order.reject_reason, rtt_ms, bucket_wait_ms));
 
+        // 전송 타임아웃은 거부가 아니라 '모름'이다. 기동 때만 되묻던 것으로는 부족했다 —
+        //  2026-09-23 12:51 001120 매도 32주가 접수돼(ODNO=0000022490) 보유 전량을 묶었는데
+        //  다음 기동까지 아무도 몰랐다. 그 자리에서 브로커에 되물어 맞춘다. [why D-101]
+        if (acknowledgement.error_code == kis_error::kTransport)
+        {
+            reconcile_unknown_order_async(signal.ticker);
+        }
+
         const int64_t publish_started_ns = trace::now_ns();
         managed_order.stages.accept_us   = (publish_started_ns - record_started_ns) / 1000;
 #ifdef HAS_ZMQ
@@ -1276,6 +1284,89 @@ OrderRouter::~OrderRouter()
     }
 
     flush_append_outbox(); // 줄 서 있던 원장 행·사유 줄을 마저 쓴다
+}
+
+// ─── 전송 타임아웃 뒤 되묻기 ────────────────────────────────────────────────
+//  응답을 못 받은 주문이 KIS에 접수돼 있으면 엔진 장부 밖에서 보유분을 묶는다. 부속 파일이
+//  아는 번호와 견주어, 우리 것이 아닌 미체결만 지운다. 주문 스레드를 막지 않으려고 따로 돈다.
+void OrderRouter::reconcile_unknown_order_async(std::string ticker)
+{
+    if (reconcile_busy_.exchange(true))
+    {
+        return;   // 앞 건이 돌고 있다 — 다음 타임아웃이나 다음 기동이 다시 잡는다
+    }
+
+    transport_reconcile_ = std::jthread([this, ticker = std::move(ticker)](std::stop_token stop_token)
+    {
+        // KIS가 접수를 조회에 반영할 틈을 준다. 곧바로 물으면 방금 낸 주문이 안 보인다.
+        std::this_thread::sleep_for(std::chrono::seconds(3));
+
+        if (stop_token.stop_requested())
+        {
+            reconcile_busy_ = false;
+            return;
+        }
+
+        try
+        {
+            std::vector<std::string> known;
+            {
+                std::ifstream in(Logger::instance().path_for("open_orders.txt"));
+                std::string line;
+
+                while (std::getline(in, line))
+                {
+                    const size_t bar = line.find('|');
+
+                    if (bar != std::string::npos)
+                    {
+                        known.push_back(line.substr(0, bar));
+                    }
+                }
+            }
+
+            ++kis_calls_;
+
+            for (const auto& open : kis_.get_open_orders())
+            {
+                if (open.ticker != ticker || open.kis_order_no.empty() || open.psbl_qty <= 0)
+                {
+                    continue;
+                }
+
+                if (std::find(known.begin(), known.end(), open.kis_order_no) != known.end())
+                {
+                    continue;   // 우리가 아는 주문이다
+                }
+
+                LOG_WARN("[OrderRouter] 전송 타임아웃 뒤 장부 밖 주문 발견 — 취소 " + open.ticker +
+                         " ODNO=" + open.kis_order_no + " " + std::to_string(open.psbl_qty) + "주");
+                ++kis_calls_;
+                const OrderAck cancelled = kis_.cancel_order(open.ticker, open.kis_order_no,
+                                                             open.krx_forwarding_org_no, open.psbl_qty,
+                                                             /*all_remaining=*/true);
+
+                if (cancelled.ok())
+                {
+                    if (open.side == OrderSide::SELL)
+                    {
+                        gate_.restore_sellable(std::string(), open.ticker, open.psbl_qty);
+                    }
+                }
+                else
+                {
+                    LOG_WARN("[OrderRouter] 장부 밖 주문 취소 실패 — 다음 기동이 다시 지운다 " + open.ticker +
+                             " ODNO=" + open.kis_order_no);
+                }
+            }
+        }
+        catch (const std::exception& exception)
+        {
+            LOG_WARN("[OrderRouter] 전송 타임아웃 되묻기 실패 — " + std::string(exception.what()));
+        }
+
+        reconcile_busy_ = false;
+    });
 }
 
 void OrderRouter::cancel_stale_orders_async()

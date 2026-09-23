@@ -127,6 +127,9 @@ public:
     //  미체결 기록까지 같이 지워진다(그러면 다음 재기동이 오늘 주문을 잊는다).
     //  KisClient는 토큰·레이트리밋을 뮤텍스로 직렬화해 스레드 공유를 전제로 한다.
     void cancel_stale_orders_async();
+    // 전송이 타임아웃 난 주문을 브로커에 되물어 맞춘다. 응답을 못 받았을 뿐 접수됐을 수 있고,
+    //  그렇게 남은 주문은 엔진 장부 밖이라 보유분을 묶은 채 아무도 못 지운다. [why D-101]
+    void reconcile_unknown_order_async(std::string ticker);
 
     // 줄 세워 둔 원장 CSV·사유 줄을 부르는 스레드에서 전부 써 버린다. 쓸 것이 없으면 아무것도 안 한다.
     //  평소에는 전담 스레드가 알아서 비우므로 부를 일이 없다 — 방금 낸 주문의 행을 곧바로 파일에서
@@ -354,6 +357,11 @@ private:
     //  [inv] 이 줄은 큐 멤버(append_outbox_*)·파일 핸들·io_mutex_보다 반드시 뒤에 있어야 한다 —
     //   멤버는 선언 순서대로 지어지고, 스레드는 지어지는 즉시 그것들을 만진다.
     std::jthread       append_writer_{[this](std::stop_token stop_token) { append_writer_loop(stop_token); }};
+
+    // 전송 타임아웃 뒤 되묻기 스레드. 주문 스레드를 막지 않도록 한 번에 한 건만 돌리고,
+    //  돌고 있으면 새 요청은 버린다(다음 타임아웃이나 다음 기동이 다시 잡는다).
+    std::jthread       transport_reconcile_;
+    std::atomic<bool>  reconcile_busy_{false};
 
     std::atomic<uint64_t> sequence_{0};
     std::atomic<uint64_t> total_count_{0};
