@@ -72,6 +72,10 @@ B2_OFF_RE = re.compile(r"신규 진입 정지 해제\(B2\)")
 TRENDX_REGISTER_RE = re.compile(r"TRENDX universe_from_scan: 초기 (\d+)종목 등록")
 # D-101 결정 3 — 마감 청산이 매매 창 안(모의 15:15·실계좌 19:50, 접속매매)에 나가면 이 거부는 0건이다(09-18 2,188건이 25종목 이월을 만들었다)
 SESSION_WINDOW_REJECT_RE = re.compile(r"\[OrderRouter\] 거부 .*세션 창 밖")
+# 주문구분이 그 시장·그 시각에 안 받는 값이라 되돌아온 거부. APBK1943 = 최유리지정가호가불가 —
+#  KRX 애프터마켓(16:00~20:00)이 최유리지정가를 안 받는데 정규장 밖 시장가를 그것으로 보내던 배선이
+#  2026-09-23 실계좌에서 12건 되돌아왔다. 지금은 지정가(00)+현재가로 보낸다.
+ORDER_DIVISION_REJECT_RE = re.compile(r"\[OrderRouter\] KIS 거부 .*\[APBK1943\]")
 # D-109 — 목표 비중표 바스켓. 격리 3종(청산관리·교체·DEVSCALE)과 재기동 중복 방지가 실제로 지켜졌는지 로그로 본다.
 BASKET_LOADED_RE = re.compile(r"\[BASKET_\w+\] 목표 비중표 읽음 as_of=(\d{8})")
 BASKET_ORDER_RE = re.compile(r"\[BASKET_\w+\] 주문: (\d{6}) (매수|매도) (\d+)주")
@@ -719,6 +723,7 @@ def collect(date: str, log: Path, since: int = 0):
     b2_off: list[int] = []   # 풀린 초
     trendx_registered: list[int] = []
     session_window_rejects = 0
+    order_division_rejects = 0
     basket_as_of: list[str] = []                 # 목표 비중표 읽음 줄의 as_of(YYYYMMDD)
     basket_orders: list[tuple[int, str, str]] = []  # (초, 종목, 매수|매도) — 바스켓이 낸 주문
     basket_run_end: list[int] = []
@@ -862,6 +867,8 @@ def collect(date: str, log: Path, since: int = 0):
                 trendx_registered.append(int(found.group(1)))
             if SESSION_WINDOW_REJECT_RE.search(line):
                 session_window_rejects += 1
+            if ORDER_DIVISION_REJECT_RE.search(line):
+                order_division_rejects += 1
             if "[BASKET_" in line:
                 basket_lines += 1
             if found := BASKET_LOADED_RE.search(line):
@@ -1127,6 +1134,8 @@ def collect(date: str, log: Path, since: int = 0):
           else "TRENDX 등록 줄 없음 — 전략 미로드 또는 등록 0")),
         ("매매 창 밖 거부", session_window_rejects == 0, "FAIL",
          f"세션 창 밖 거부 {session_window_rejects}건 (기대 0 — 마감 청산 모의 15:15·실계좌 19:50, D-101 결정 3)"),
+        ("주문구분 거부", order_division_rejects == 0, "FAIL",
+         f"주문구분을 안 받아 되돌아온 거부 {order_division_rejects}건 (기대 0 — 정규장 밖 시장가는 지정가+현재가로 나간다)"),
         basket_row("바스켓 파일 당일", basket_file_ok, "FAIL",
                    (f"목표 비중표 as_of={basket_as_of[-1]} (기대 {date_compact}, 08:40 작성기)" if basket_as_of
                     else "목표 비중표 읽음 줄 없음 — 08:40 작성기 미실행 또는 파일 검증 실패")),

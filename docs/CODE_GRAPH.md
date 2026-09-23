@@ -19,7 +19,7 @@ graph LR
   ipc[ipc]
   utils[utils]
   exchange[exchange]
-  api -->|11| core
+  api -->|12| core
   api -->|7| utils
   core -->|11| api
   core -->|8| ipc
@@ -259,6 +259,7 @@ graph LR
   n_api_KisIndex_cpp --> n_api_KisRestDecode_h
   n_api_KisMarket_cpp --> n_api_KisRestDecode_h
   n_api_KisOrder_cpp --> n_core_KstTime_h
+  n_api_KisOrder_cpp --> n_core_TickSize_h
   n_api_KisOrder_cpp --> n_utils_JsonNode_h
   n_api_KisRestDecode_cpp --> n_api_KisRestDecode_h
   n_api_KisRestDecode_h --> n_api_KisTypes_h

@@ -15,7 +15,7 @@
     {
       "from": "api",
       "to": "core",
-      "weight": 11
+      "weight": 12
     },
     {
       "from": "api",
@@ -395,6 +395,7 @@
     ],
     "api/KisOrder.cpp": [
       "core/KstTime.h",
+      "core/TickSize.h",
       "utils/JsonNode.h"
     ],
     "api/KisRestDecode.cpp": [
@@ -1255,6 +1256,7 @@
       "core/TickCapture.cpp"
     ],
     "core/TickSize.h": [
+      "api/KisOrder.cpp",
       "core/TickSize.cpp",
       "exchange/MatchingEngine.cpp",
       "strategy/DeviationScaleStrategy.h",
@@ -1600,6 +1602,10 @@
       "in_degree": 5
     },
     {
+      "header": "core/TickSize.h",
+      "in_degree": 5
+    },
+    {
       "header": "utils/JsonNode.h",
       "in_degree": 5
     },
@@ -1621,10 +1627,6 @@
     },
     {
       "header": "core/Engine.h",
-      "in_degree": 4
-    },
-    {
-      "header": "core/ReconcilePlan.h",
       "in_degree": 4
     }
   ],

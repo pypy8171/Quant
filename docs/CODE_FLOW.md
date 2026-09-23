@@ -190,8 +190,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/risk/OrderGate.cpp:1631` · `OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account, symbol::SymbolId new_symbol) const` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
 45. [`OrderGate::on_intent`](../Quant/src/risk/OrderGate.cpp#L746) — 전송 **전에** 원장 저널에 INTENT를 적고 `reserved_`를 선점한다(슬롯·현금). 기록에 실패하면 선점을 되돌리고 거짓을 준다 — 그 주문은 나가지 않는다(D-113). 접수 뒤 짝은 `on_accepted`, 되돌리는 짝은 `on_fill_confirmed`·`on_cancel`·`on_reject`  
    `Quant/src/risk/OrderGate.cpp:746` · `bool OrderGate::on_intent(const std::string& account, const std::string& ticker, OrderSide side, int quantity, …` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
-46. [`KisClient::submit_order_acknowledgement`](../Quant/src/api/KisOrder.cpp#L158) — 현금 주문 REST. tr_id(실/모의)·`EXCG_ID_DVSN_CD`(KRX/NXT/SOR, D-096)·`authentication_headers`·응답에서 ODNO. 여기서만 KIS에 주문이 닿는다  
-   `Quant/src/api/KisOrder.cpp:158` · `OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)`
+46. [`KisClient::submit_order_acknowledgement`](../Quant/src/api/KisOrder.cpp#L257) — 현금 주문 REST. tr_id(실/모의)·`EXCG_ID_DVSN_CD`(KRX/NXT/SOR, D-096)·`authentication_headers`·응답에서 ODNO. 여기서만 KIS에 주문이 닿는다  
+   `Quant/src/api/KisOrder.cpp:257` · `OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)`
 47. [`trace::LatencyTrace::record`](../Quant/include/core/LatencyTrace.h#L132) — 틱 수신→신호→pop→라우터 반환 네 시각을 `logs/latency_trace.csv` 한 줄로  
    `Quant/include/core/LatencyTrace.h:132` · `void record(const OrderSignal& signal, const Marks& marks, const OrderStageTiming& stages, bool kis_called, …` · 시험 [test_latency_trace](../Quant/tests/test_latency_trace.cpp)
 

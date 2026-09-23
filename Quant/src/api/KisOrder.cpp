@@ -3,6 +3,9 @@
 #include "KisClientInternal.h"
 #include "utils/JsonNode.h"
 #include "core/KstTime.h"
+#include "core/TickSize.h"
+
+#include <cstring>
 
 // 주문 응답 파서. 게이트웨이가 HTML 오류 페이지를 주거나 rt_cd가 없으면 예외 대신 false.
 //  호출부(OrderRouter)가 catch로 막고는 있지만 예외 경로에서는 msg_cd가 비어 EGW00201 적응
@@ -20,24 +23,95 @@ static std::string kis_reject_code(const json& document)
     return code;
 }
 
-// 국내 주문구분. 시장가(01)를 받는 곳은 KRX 정규장(09:00~15:30)뿐이다 — KRX 애프터마켓(16:00~20:00)도,
-//  NXT 프리(08:00~08:50)·애프터(15:40~20:00)도 지정가·최우선·최유리만 받는다. 그래서 정규장 밖에서 나온
-//  시장가 신호는 최유리지정가(03, 가격 0)로 바꿔 보낸다 — 반대편 최우선 호가에 붙는 가장 가까운 대체다.
-//  창 바깥(예: 08:50~09:00)은 어차피 OrderGate 세션 창이 막으므로 여기서 다시 보지 않는다.
+// 국내 주문은 시간대가 주문구분과 거래소를 함께 정한다. 2026-09-14 KRX 애프터마켓이 열리면서
+//  구간마다 받는 값이 갈렸다.
+//    09:00~15:30 정규장       — 시장가 01 · 지정가 00, 거래소는 설정값 그대로(SOR 라우팅이 산다)
+//    15:40~16:00 장후 종가매매 — 06 하나뿐이고 단가는 0(종가로 체결된다). 시간외 단일가가 폐지된
+//                               뒤에도 이 구간은 남았다
+//    16:00~20:00 애프터마켓    — 접속매매라 실시간으로 체결되고, 전용 주문구분 41(지정가)·42(IOC)·
+//                               43(FOK)만 받는다. 시장가는 없고 거래소는 KRX 로 못박아야 한다
+//  실계좌에서 두 번 되돌아온 뒤에 얻은 배선이다(2026-09-23, HJ중공업 3주 청산 12회 거부).
+//  최유리지정가(03)는 "최유리지정가호가불가 [APBK1943]", 그 다음에 넣은 지정가(00)는 거래소를
+//  SOR 로 둔 탓에 "SOR 시장에서 거래가 불가능한 종목입니다 [APBK3009]" 로 막혔다. 모의계좌는
+//  애프터마켓 주문 자체를 받지 않아 이 경로는 실증된 적이 없었다.
+//  구간 바깥(예: 08:50~09:00)은 OrderGate 세션 창이 막으므로 여기서 다시 보지 않는다.
 //  [why D-097] [why D-122]
-static constexpr int32_t kRegularSessionOpenHhmmss  = 90000;   // KRX 정규장 시작 09:00:00
-static constexpr int32_t kRegularSessionCloseHhmmss = 153000;  // KRX 정규장 끝 15:30:00
+static constexpr int32_t kRegularOpenHhmmss        = 90000;   // 정규장 시작 09:00:00
+static constexpr int32_t kRegularCloseHhmmss       = 153000;  // 정규장 끝 15:30:00
+static constexpr int32_t kClosingAuctionOpenHhmmss = 154000;  // 장후 종가매매 시작 15:40:00
+static constexpr int32_t kAfterMarketOpenHhmmss    = 160000;  // 애프터마켓 시작 16:00:00
+static constexpr int32_t kAfterMarketCloseHhmmss   = 200000;  // 애프터마켓 끝 20:00:00
 
-static const char* kis_order_division(OrderType type)
+enum class MarketSession
 {
-    if (type != OrderType::MARKET)
+    Regular,         // 정규장
+    ClosingAuction,  // 장후 시간외 종가매매
+    AfterMarket      // 애프터마켓 접속매매
+};
+
+static MarketSession market_session_now()
+{
+    const int32_t hhmmss = kst::hhmmss_int(std::time(nullptr));
+
+    if (hhmmss >= kClosingAuctionOpenHhmmss && hhmmss < kAfterMarketOpenHhmmss)
     {
-        return "00";
+        return MarketSession::ClosingAuction;
     }
 
-    const int32_t hhmmss         = kst::hhmmss_int(std::time(nullptr));
-    const bool    regular_session = hhmmss >= kRegularSessionOpenHhmmss && hhmmss < kRegularSessionCloseHhmmss;
-    return regular_session ? "01" : "03";
+    if (hhmmss >= kAfterMarketOpenHhmmss && hhmmss < kAfterMarketCloseHhmmss)
+    {
+        return MarketSession::AfterMarket;
+    }
+
+    return MarketSession::Regular;
+}
+
+static const char* kis_order_division(OrderType type, MarketSession session)
+{
+    if (session == MarketSession::ClosingAuction)
+    {
+        return "06";
+    }
+
+    if (session == MarketSession::AfterMarket)
+    {
+        return "41";
+    }
+
+    return type == OrderType::MARKET ? "01" : "00";
+}
+
+// 애프터마켓 시장가 신호를 대신할 지정가. 청산을 끝내는 것이 목적이라 현재가에서 한 걸음 물러선
+//  자리에 호가를 얹는다 — 매도는 아래로, 매수는 위로. 한 걸음은 1%로 둔다.
+//  krx::round_to_tick은 BUY=내림·SELL=올림(스프레드 보존)이라, 여기처럼 체결을 당기려는 자리에서는
+//  반대쪽 side를 넘긴다.
+//  현재가를 못 구하면 0 — 호출부가 주문을 접는다(가격 0인 지정가는 KIS가 거부한다).
+static constexpr double kOffHoursPriceStepPct = 0.01;
+
+static int offhours_limit_price(double current_price, OrderSide side)
+{
+    if (!(current_price > 0.0))
+    {
+        return 0;
+    }
+
+    const double    step          = side == OrderSide::SELL ? 1.0 - kOffHoursPriceStepPct : 1.0 + kOffHoursPriceStepPct;
+    const OrderSide rounding_side = side == OrderSide::SELL ? OrderSide::BUY : OrderSide::SELL;
+    return static_cast<int>(krx::round_to_tick(current_price * step, rounding_side));
+}
+
+// 애프터마켓 주문은 KRX로 나간다 — SOR로 보내면 "SOR 시장에서 거래가 불가능한 종목입니다
+//  [APBK3009]"로 되돌아온다(2026-09-23 실계좌 실측). 그 밖의 구간은 설정값 그대로다. [why D-096]
+static const char* kis_session_exchange(const KisConfig& config, MarketSession session)
+{
+    return session == MarketSession::AfterMarket ? "KRX" : kis_order_exchange(config);
+}
+
+// 정정·취소는 원주문과 같은 주문구분으로 보낸다. 애프터마켓에 낸 주문은 41로 나갔으므로 같은
+//  구간 안에서 되부를 때도 41이어야 한다. [why D-122]
+static const char* kis_amend_order_division(MarketSession session)
+{
+    return session == MarketSession::AfterMarket ? "41" : "00";
 }
 
 static bool kis_parse_order_response(const std::string& response, json& document, const char* what)
@@ -110,13 +184,38 @@ bool KisClient::send_order(const OrderSignal& signal)
     }
     else
     {
+        const MarketSession session        = market_session_now();
+        const char*         order_division = kis_order_division(signal.type, session);
+        int                 order_price    = signal.type == OrderType::LIMIT ? static_cast<int>(signal.price) : 0;
+
+        if (session == MarketSession::ClosingAuction)
+        {
+            order_price = 0; // 장후 종가매매(06)는 종가로 체결된다 — 단가를 실으면 거부된다
+        }
+        else if (session == MarketSession::AfterMarket && signal.type == OrderType::MARKET)
+        {
+            // 애프터마켓 접속매매는 지정가(41)만 받는다. 현재가는 REST로 한 번 묻는다 —
+            //  청산·정정은 드물어 이 왕복이 hot path가 아니다.
+            order_price = offhours_limit_price(get_current_price(signal.ticker), signal.side);
+
+            if (order_price <= 0)
+            {
+                LOG_ERROR("[KIS] 애프터마켓 주문에 실을 현재가를 못 구했다 — 주문하지 않는다 " + signal.ticker);
+                return false;
+            }
+
+            LOG_INFO("[KIS] 애프터마켓이라 시장가를 지정가 " + std::to_string(order_price) + "원으로 바꾼다 " + signal.ticker);
+        }
+
+        const char* order_exchange = kis_session_exchange(config_, session);
+
         body = {{"CANO", config_.account_no},
                 {"ACNT_PRDT_CD", config_.account_type},
                 {"PDNO", signal.ticker},
-                {"ORD_DVSN", kis_order_division(signal.type)}, // 정규장 밖엔 시장가→최유리 [why D-097]
+                {"ORD_DVSN", order_division}, // 시간대가 정한다 — 정규장 01/00 · 종가 06 · 애프터 41
                 {"ORD_QTY", std::to_string(signal.quantity)},
-                {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(static_cast<int>(signal.price)) : "0"},
-                {"EXCG_ID_DVSN_CD", kis_order_exchange(config_)}}; // KRX/NXT/SOR [why D-096]
+                {"ORD_UNPR", std::to_string(order_price)},
+                {"EXCG_ID_DVSN_CD", order_exchange}};
     }
 
     std::string response = http_post(url,
@@ -184,12 +283,37 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
     }
     else
     {
+        const MarketSession session        = market_session_now();
+        const char*         order_division = kis_order_division(signal.type, session);
+        int                 order_price    = signal.type == OrderType::LIMIT ? static_cast<int>(signal.price) : 0;
+
+        if (session == MarketSession::ClosingAuction)
+        {
+            order_price = 0; // 장후 종가매매(06)는 종가로 체결된다 — 단가를 실으면 거부된다
+        }
+        else if (session == MarketSession::AfterMarket && signal.type == OrderType::MARKET)
+        {
+            // 애프터마켓 접속매매는 지정가(41)만 받는다. 현재가는 REST로 한 번 묻는다 —
+            //  청산·정정은 드물어 이 왕복이 hot path가 아니다.
+            order_price = offhours_limit_price(get_current_price(signal.ticker), signal.side);
+
+            if (order_price <= 0)
+            {
+                LOG_ERROR("[KIS] 애프터마켓 주문에 실을 현재가를 못 구했다 — 주문하지 않는다 " + signal.ticker);
+                return OrderAck::fail(kis_error::kTransport);
+            }
+
+            LOG_INFO("[KIS] 애프터마켓이라 시장가를 지정가 " + std::to_string(order_price) + "원으로 바꾼다 " + signal.ticker);
+        }
+
+        const char* order_exchange = kis_session_exchange(config_, session);
+
         body = {{"CANO", config_.account_no}, {"ACNT_PRDT_CD", config_.account_type},
                 {"PDNO", signal.ticker},
-                {"ORD_DVSN", kis_order_division(signal.type)}, // 정규장 밖엔 시장가→최유리 [why D-097]
+                {"ORD_DVSN", order_division}, // 시간대가 정한다 — 정규장 01/00 · 종가 06 · 애프터 41
                 {"ORD_QTY", std::to_string(signal.quantity)},
-                {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(static_cast<int>(signal.price)) : "0"},
-                {"EXCG_ID_DVSN_CD", kis_order_exchange(config_)}}; // KRX/NXT/SOR [why D-096]
+                {"ORD_UNPR", std::to_string(order_price)},
+                {"EXCG_ID_DVSN_CD", order_exchange}};
     }
 
     std::string response = http_post(url,
@@ -243,16 +367,18 @@ OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& o
     std::string transaction_id = config_.is_paper ? "VTTC0013U" : "TTTC0013U";
     std::string url   = base_url() + "/uapi/domestic-stock/v1/trading/order-rvsecncl";
 
+    const MarketSession session = market_session_now();
+
     json body = {{"CANO", config_.account_no},
                  {"ACNT_PRDT_CD", config_.account_type},
                  {"KRX_FWDG_ORD_ORGNO", krx_forwarding_org_no},              // 원주문 조직번호
                  {"ORGN_ODNO", orig_odno},                       // 원주문번호
-                 {"ORD_DVSN", "00"},                             // 지정가 (취소도 원주문 구분 통상 "00")
+                 {"ORD_DVSN", kis_amend_order_division(session)}, // 원주문과 같은 구분 — 정규장 00 · 애프터 41
                  {"RVSE_CNCL_DVSN_CD", "02"},                    // 02=취소
                  {"ORD_QTY", std::to_string(quantity)},               // 취소 수량 (QTY_ALL_ORD_YN=Y면 무시됨)
                  {"ORD_UNPR", "0"},                              // 취소는 단가 0
                  {"QTY_ALL_ORD_YN", all_remaining ? "Y" : "N"}, // 잔량 전체 취소
-                 {"EXCG_ID_DVSN_CD", kis_order_exchange(config_)}}; // 원주문과 같은 거래소 구분 [why D-096]
+                 {"EXCG_ID_DVSN_CD", kis_session_exchange(config_, session)}}; // 원주문과 같은 거래소 [why D-096]
 
     std::string response = http_post(url,
         authentication_headers(transaction_id, {"Content-Type: application/json"}),
@@ -298,11 +424,13 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
     std::string transaction_id = config_.is_paper ? "VTTC0013U" : "TTTC0013U";
     std::string url   = base_url() + "/uapi/domestic-stock/v1/trading/order-rvsecncl";
 
+    const MarketSession session = market_session_now();
+
     json body = {{"CANO", config_.account_no},
                  {"ACNT_PRDT_CD", config_.account_type},
                  {"KRX_FWDG_ORD_ORGNO", krx_forwarding_org_no},
                  {"ORGN_ODNO", orig_odno},
-                 {"ORD_DVSN", "00"},                              // 지정가
+                 {"ORD_DVSN", kis_amend_order_division(session)}, // 원주문과 같은 구분 — 정규장 00 · 애프터 41
                  {"RVSE_CNCL_DVSN_CD", "01"},                     // 01=정정
                  {"ORD_QTY", std::to_string(new_quantity)},            // 정정 수량
                  {"ORD_UNPR", std::to_string(static_cast<int>(new_price))},    // 정정 단가
@@ -310,7 +438,7 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
                  // 수량)는 실제로 반영되지 않는다. 현재 호출부는 단가 정정만 쓰므로 무해하나,
                  // 부분수량 정정이 필요해지면 "N"으로 바꾸고 ORD_QTY를 살려야 한다(보류 목록).
                  {"QTY_ALL_ORD_YN", "Y"},                         // 잔량 전체 정정
-                 {"EXCG_ID_DVSN_CD", kis_order_exchange(config_)}}; // 원주문과 같은 거래소 구분 [why D-096]
+                 {"EXCG_ID_DVSN_CD", kis_session_exchange(config_, session)}}; // 원주문과 같은 거래소 [why D-096]
 
     std::string response = http_post(url,
         authentication_headers(transaction_id, {"Content-Type: application/json"}),
