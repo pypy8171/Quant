@@ -6,9 +6,11 @@
 //                                 ▲                                                    │
 //                                 └────── submit() ◀── 전략이 낸 주문(IOrderExecutor 어댑터) ─┘
 //
+//  지금은 테스트만 submit()을 부른다. IOrderExecutor 어댑터는 아직 없다.
+//
 // 스레드: 수신 스레드 하나가 소켓 하나를 맡는다(원칙 1). 종목은 순번으로 갈라 한 종목의 오더북은 한 스레드만
 //  만진다(원칙 2) — 그래서 오더북에 락이 없다. 다른 스레드가 낸 주문은 MpscQueue로 건너와 그 스레드가 처리한다.
-// [why D-071]
+// [why D-128] (원칙 1·2·6은 D-071)
 #pragma once
 #include "core/IFeedSource.h"
 #include "core/MpscQueue.h"
@@ -53,7 +55,7 @@ public:
         uint64_t batches        = 0; // 받은 전문 통 수
         uint64_t records        = 0; // 읽은 주문 건수
         uint64_t executions     = 0; // 맞은 건수
-        uint64_t rejected       = 0; // 격자 밖·모르는 종목이라 버린 건수
+        uint64_t rejected       = 0; // 모르는 종목과 ACCUMULATE 모드의 격자 밖 주문. MATCH 모드에서 버린 격자 밖 잔량은 세지 않는다.
         uint64_t submitted      = 0; // 전략이 submit()으로 넣은 건수
         uint64_t submit_dropped = 0; // 큐가 차서 못 받은 건수
     };
@@ -88,7 +90,7 @@ public:
 
     // ── 부하시험 전용 ───────────────────────────────────────────────────────
     // 엔진 전략이 낸 주문을 같은 오더북에 넣는다. 어느 스레드에서 불러도 된다 — 종목을 맡은 수신 스레드로 건네준다.
-    //  큐가 차 있으면 false. 이것이 IOrderExecutor 어댑터의 입구다.
+    //  큐가 차 있으면 false. 지금은 테스트만 submit()을 부른다. IOrderExecutor 어댑터는 아직 없다.
     bool submit(const IncomingOrder& order);
 
     // 소켓을 거치지 않고 바이트를 바로 먹인다. 단위 시험과 같은 프로세스 벤치가 쓴다.

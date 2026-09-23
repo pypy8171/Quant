@@ -207,7 +207,8 @@ static LONG WINAPI on_seh(EXCEPTION_POINTERS* exception_pointers)
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  초기화 단계 — main()이 부르는 순서가 곧 초기화 순서다. 새 초기화는 여기 함수 하나로 만들고 main() 목록에
-//  한 줄을 더한다(정본 docs/guides/MAINTENANCE_AUTOMATION.md 4절 "초기화 위치"). json은 core/AppConfig.cpp만 읽는다.
+//  한 줄을 더한다(정본 docs/guides/MAINTENANCE_AUTOMATION.md 4절 "초기화 위치"). config.json은 Quant/src/core/AppConfig.cpp가 읽는다.
+//  전략 파라미터만 Quant/src/strategy/StrategyFactory.cpp가 읽는다.
 // ═══════════════════════════════════════════════════════════════════════════
 
 // 인자 뜯기는 core/CommandLine.cpp가 한다 — 시험이 붙어야 해서 main.cpp 밖으로 냈다.

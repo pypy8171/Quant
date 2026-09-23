@@ -237,7 +237,8 @@ struct Logger::Implementation
         return stream.str();
     }
 
-    // 콘솔·파일 실제 기록. writer 스레드에서 호출(락 불필요 — file_/console은 writer 단독 소유).
+    // 콘솔·파일 실제 기록. 평소에는 writer 스레드가 쓴다. writer가 없을 때 submit 대체 경로(config_mutex_ 아래)와
+    //  소멸자 drain도 부르고, file_은 initialize()가 메인 스레드에서 연다.
     void write_unlocked(const std::string& line)
     {
         if (console_enabled_.load(std::memory_order_relaxed))
@@ -268,7 +269,7 @@ struct Logger::Implementation
         return "?????";
     }
 
-    // 설정(파일 핸들·디렉터리)용 뮤텍스와 큐용 뮤텍스를 분리 — 설정 변경이 hot path 큐잉과 경쟁하지 않게.
+    // 설정(파일 핸들·디렉터리)용 뮤텍스. 큐는 락 없는 MPSC 큐다. wake_mutex_는 writer가 잠들고 깨는 데만 쓴다.
     std::mutex config_mutex_;
     std::ofstream file_;
     std::filesystem::path base_directory_{Logger::default_base_directory()}; // set_base_directory 전에도 실행파일 기준
@@ -283,7 +284,7 @@ struct Logger::Implementation
     MpscQueue<Record> queue_{kQueueCapacity};
     std::atomic<bool> running_{false};
     std::atomic<uint64_t> dropped_{0};
-    std::atomic<bool> writer_sleeping_{false}; // writer가 wake_cv_에서 자는 중(생산자가 notify 여부 결정)
+    std::atomic<bool> writer_sleeping_{false}; // writer가 wake_condition_variable_에서 자는 중(생산자가 notify 여부 결정)
     std::mutex wake_mutex_;                      // writer만 잡는다. 생산자는 notify만 부른다
     std::condition_variable_any wake_condition_variable_;      // stop_token 대기는 _any에만 있다
     std::jthread writer_;

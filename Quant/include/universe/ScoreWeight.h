@@ -50,7 +50,8 @@ ScoreMoments score_moments(const ScoreList& scores);
 //  못 쓰고, 정규화를 아예 안 하면 반대로 넘친다(2026-09-07 실측: 25슬롯 × base_percent 5% =
 //  125% > 총노출 캡 95% → 캡이 신규 매수를 통째로 리젝).
 //
-//  σ가 사실상 0이거나 입력이 비면 전부 1.0을 돌려준다(균등 폴백 — 배선 전 동작과 동일).
+//  σ가 사실상 0이면 모두 같은 값(target_total_percent/(base_percent×min(slots,n)))이다.
+//  입력이 비었거나 파라미터가 무효일 때만 1.0이다.
 // ─────────────────────────────────────────────────────────────────────────────
 std::vector<double> score_to_mult(const ScoreList& scores, double spread, double target_total_percent,
                                          double base_percent, int slots);

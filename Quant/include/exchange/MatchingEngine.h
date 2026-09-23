@@ -98,7 +98,8 @@ public:
     //  ③ 기준가에 가장 가까운 가격. 유가증권시장 업무규정 제23조(단일가격에 의한 개별경쟁매매)와 같은 순서다.
     [[nodiscard]] PriceKrw find_auction_price() const;
 
-    // 단일가로 한 번에 맞춘다. 정한 가격 위의 매수·아래의 매도가 전부 그 한 가격에 체결된다.
+    // 단일가로 한 번에 맞춘다. 그 가격 이상 매수·이하 매도 중 min(누적 매수, 누적 매도)만큼이 그 한 가격에 체결된다.
+    //  남는 쪽은 가격·시간 우선으로 자른다.
     //  돌려주는 값은 체결 수량 합. 체결마다 on_execution을 부른다.
     int64_t run_auction(const std::function<void(const Execution&)>& on_execution);
 

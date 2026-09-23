@@ -19,7 +19,7 @@ enum class LogLevel
 //   전용 writer 스레드가 담당한다. 동기 로깅은 디스크가 튀는 순간 최악 지연을 오염시키므로,
 //   최악 지연을 낮추려고 I/O를 hot path에서 분리했다.
 //
-//   큐·writer 스레드·파일 핸들은 `Logger::Implementation`(`Quant/src/utils/Logger.cpp`)에 있다. 이 헤더는 34개 파일이 직접 포함해
+//   큐·writer 스레드·파일 핸들은 `Logger::Implementation`(`Quant/src/utils/Logger.cpp`)에 있다. 이 헤더는 많은 파일이 직접 포함해
 //   `<fstream>`·`<iostream>`·`<thread>`·`MpscQueue.h`를 여기 두면 헤더 한 줄 수정에 전체 재컴파일 80초가 들었다(T-3).
 //   [inv] 로그를 부르는 스레드는 Logger 소멸(정적 소멸) 전에 join돼 있어야 한다. 소멸 뒤 호출은 미정의.
 class Logger
@@ -51,7 +51,7 @@ public:
     }
 
     // 실행 위치(cwd)와 무관하게 로그·산출물을 한 곳에 모으기 위한 기준 디렉터리.
-    // main에서 실행파일 기준 절대경로로 한 번 고정한다(미설정 시 cwd 하위 "logs").
+    // main에서 실행파일 기준 절대경로로 한 번 고정한다(미설정 시 QUANT_LOG_DIR, 그것도 없으면 실행 파일 폴더 아래 "logs").
     void set_base_directory(const std::filesystem::path& directory);
     std::filesystem::path base_directory();
 

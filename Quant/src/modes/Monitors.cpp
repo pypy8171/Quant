@@ -492,7 +492,7 @@ int run_kr_test(const KisConfig& kis_config, int zmq_pub_port, int zmq_rep_port,
 
         for (const auto& code : display_order)
         {
-            specifications.push_back({code, Market::KR, "", true}); // trade_only: 구독 28개로 한도 절약
+            specifications.push_back({code, Market::KR, "", true}); // trade_only: 구독 29개(상위 20 + 관심 9)로 한도 절약
         }
     }
 
@@ -679,7 +679,7 @@ int run_kr_test(const KisConfig& kis_config, int zmq_pub_port, int zmq_rep_port,
 
         std::this_thread::sleep_for(std::chrono::seconds(1));
 #ifdef HAS_ZMQ
-        zmq_br->publish_health({});   // FEED 모드는 생존 신호만 — 큐·지연 수치는 TRADE 엔진이 채운다
+        zmq_br->publish_health({});   // KR_TEST 모드는 생존 신호만 보낸다 — 큐·지연 수치는 TRADE 엔진이 채운다
 #endif
     }
 

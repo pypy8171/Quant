@@ -24,8 +24,8 @@ namespace universe
 
 namespace
 {
-// 업종 등락률 순위를 한 콜씩 낼 때 사이에 두는 시간. 26개 업종이면 6.5초가 되고, 재스캔 주기
-//  600초에 비하면 무시할 만하다. 값을 줄이면 같은 시세 키를 쓰는 대시보드 조회와 겹쳐
+// 업종 등락률 순위를 한 콜씩 낼 때 사이에 두는 시간. 26개 업종이면 6.5초가 된다. 업종 축은 후보 합집합
+//  갱신 주기(union_refresh_sec)마다 돌아 그에 비하면 작다. 값을 줄이면 같은 시세 키를 쓰는 대시보드 조회와 겹쳐
 //  초당 한도에 걸린다(09-23: 100ms 일 때 이 축에서만 되보냄 452건, 전날 0건).
 constexpr int kSectorCallIntervalMs = 250;
 
@@ -59,9 +59,9 @@ struct DailyLookup
 };
 
 // 일봉 요약 캐시 — 종목 id 인덱스 배열(date_yyyymmdd가 비면 없음). 스캔 스레드 하나가 쓰지만 재조회 대상
-//  선정과 조회가 같은 표를 보므로 락으로 감싼다. [inv] 프로세스 안 종목 테이블은 하나다(OrderGate 것) — id는 지워지지
+//  선정과 조회가 같은 표를 보므로 락으로 감싼다. [inv] 프로세스 안 종목 테이블은 하나다(Engine의 symbols_.table, OrderGate에도 주입된다) — id는 지워지지
 //  않으므로 전역 캐시가 id를 들어도 된다. 파일은 문자열 티커로 쓰고 읽을 때 intern한다. 디스크 사본은 장중 재기동 대비다 — 메모리 캐시가 비면 후보
-//  수백 건의 일봉을 150ms 간격으로 다시 받아야 하고 그동안 발주 경로의 REST까지 밀린다.
+//  수백 건의 일봉을 실계좌 150ms, 모의 600ms 간격으로 다시 받아야 하고 그동안 발주 경로의 REST까지 밀린다.
 //  확정된 과거 일봉이라 같은 거래일 안에서는 그대로 재사용해도 된다. 파일은 거래일별로
 //  나누므로 날짜가 바뀌면 자연히 무시된다.
 class DailyLookupCache
@@ -336,7 +336,7 @@ Market market_from_text(std::string_view text)
 }
 
 // 후보 합집합 — 수집 축들이 공유하는 누적기이자 그대로 재사용 캐시의 몸통이다.
-//  [why D-028] 랭킹·업종 축은 KIS REST 23콜(업종 20콜은 100ms 간격)이라 재스캔을 20초로
+//  [why D-028] 랭킹·업종 축은 KIS REST 랭킹 3콜 + 업종 코드 수만큼(sector_codes, 250ms 간격)이라 재스캔을 20초로
 //  당기면 이 축만으로 초당 한도를 먹는다. 반면 정배열·이격·점수를 다시 매기는 데 필요한 건
 //  일봉 캐시와 시세 표뿐이라 REST가 0이다. 그래서 "누가 후보인가"(비싼 축)와
 //  "그 중 누가 좋은가"(싼 축)의 주기를 분리한다.
@@ -422,7 +422,7 @@ CandidateSet g_candidate_cache;
 std::mutex   g_candidate_mutex;
 
 // 지수 게이트의 래치. 축(코스피·코스닥)마다 현재 차단 여부와 마지막 전환 시각을 들고 있는다.
-//  재스캔 스레드가 유일한 호출자지만 g_pool과 같은 규약으로 뮤텍스를 둔다.
+//  재스캔 스레드가 유일한 호출자지만 g_candidate_mutex가 지키는 후보 풀과 같은 규약으로 뮤텍스를 둔다.
 //  [inv] 프로세스 전역이라 슬리브 여럿이 같은 래치를 공유한다. 슬리브마다 임계가 다르면
 //   먼저 발화한 쪽 판정이 나머지에도 걸린다 — 임계가 갈리는 순간 1회 경고한다. [why D-033]
 struct IdxGateLatch
@@ -530,7 +530,7 @@ struct MarketGate
 {
     double kospi_change  = 0.0;
     double kosdaq_change = 0.0;   // [inv] kosdaq_enabled=false면 미관측이라 0.0 — 표시에 쓰지 않는다
-    bool   kospi_observation  = false; // [inv] 이번 조회가 성공했나. false면 chg는 의미 없다 [why D-033]
+    bool   kospi_observation  = false; // [inv] 이번 조회가 성공했나. false면 kospi_change는 의미 없다 [why D-033]
     bool   kosdaq_observation = false;
     bool   kospi_pass  = false;
     bool   kosdaq_pass = false;
@@ -551,7 +551,7 @@ struct MarketGate
 
 // 지수 등락률 조회 2콜. kosdaq_enabled=false면 코스닥 지수 조회조차 생략한다.
 //  판정은 래치를 거친다(히스테리시스·최소 체류) — 시세 조회를 먼저 끝내고 락을 잡는다.
-//  [lock-order] g_idx_latch_mu는 REST 호출 밖에서만 잡는다. g_pool_mu와 겹치지 않는다.
+//  [lock-order] g_index_latch_mutex는 REST 호출 밖에서만 잡는다. g_candidate_mutex와 겹치지 않는다.
 MarketGate build_market_gate(KisClient& kis, const DevScanCfg& config)
 {
     MarketGate market_gate;
@@ -885,8 +885,8 @@ void take_sector_ranking(KisClient& kis, const DevScanCfg& config, QuoteTable& q
     {
         auto rows = kis.fetch_sector_ranking(sector_code, config.sector_top_n);
         // 26콜을 쉬지 않고 내면 8.8콜/s로 나가 문서상 한도 20/s의 절반을 이 축 하나가
-        //  버스트로 먹는다(09-08: ranking/fluctuation HTTP 500 70건). 재스캔 주기가
-        //  600초라 2.6초에서 5.2초로 늘어나는 지연은 무시할 만하다.
+        //  버스트로 먹는다(09-08: ranking/fluctuation HTTP 500 70건). 지금은 업종 수 × 250ms
+        //  (kSectorCallIntervalMs)라 26개면 약 6.5초다. 합집합 갱신 주기(union_refresh_sec)에 비하면 작다.
         //  100ms 로는 모자랐다 — 축마다 따로 쉬는 방식의 한계라, 요청 예산을 한곳에서 재는 것이 근본이다.
         std::this_thread::sleep_for(std::chrono::milliseconds(kSectorCallIntervalMs));
 
@@ -975,7 +975,7 @@ void take_full_market(const DevScanCfg& config, const QuoteTable& quotes, Candid
 }
 
 // 후보 합집합을 채운다. union_refresh_sec 안에 다시 불리면 수집을 통째로 건너뛰고
-//  지난 집합을 그대로 쓴다 — 이 단계만 KIS REST 23콜이고 이후 재판정은 0콜이다(D-028).
+//  지난 집합을 그대로 쓴다 — 이 단계만 KIS REST 랭킹 3콜 + 업종 코드 수만큼(sector_codes, 250ms 간격)이고 이후 재판정은 0콜이다(D-028).
 //  0이면 매 호출 새로 모은다(기존 동작).
 void collect_candidates(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd,
                         QuoteTable& quotes, CandidateSet& candidates, symbol::SymbolTable& symbols)
@@ -1126,7 +1126,7 @@ struct LookupStats
     int illiquid = 0;         // 거래대금 하한 미달로 버린 수
     int misaligned = 0;       // 정배열 조건 미충족으로 버린 수(진단용)
     int budget_skipped = 0;   // 일봉 조회 예산이 끝났고 캐시도 없어 판정 못 한 수
-    long long rest_ms = 0;    // 계측: fetch_daily_lookup(REST 일봉) 안에서 보낸 시간 합. 150ms 간격 sleep은 뺀 값
+    long long rest_ms = 0;    // 계측: fetch_daily_lookup(REST 일봉) 안에서 보낸 시간 합. 실계좌 150ms, 모의 600ms 간격 sleep은 뺀 값
     long long wait_ms = 0;    // 계측: 그중 KIS 토큰버킷 대기 합 — 크면 다른 소비자와 경합
 };
 
@@ -1419,7 +1419,7 @@ ScanResult rank_and_truncate(const DevScanCfg& config, std::vector<Features>& pa
         take_n = static_cast<std::size_t>(config.score_top_n);
     }
 
-    // max_universe(=max_register)는 스코어 경로에도 상한이다 — 0이면 등록 없음(전략 정지용, D-101 결정 2).
+    // max_universe(=max_register)는 스코어 경로에도 상한이다 — 0이면 등록 없음(전략 정지용).
     //  이 줄이 없으면 max_universe 0에 score_top_n 25가 25종목을 그대로 등록한다.
     if (config.max_register >= 0 && static_cast<std::size_t>(config.max_register) < take_n)
     {

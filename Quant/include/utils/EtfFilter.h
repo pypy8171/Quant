@@ -36,7 +36,7 @@ const std::vector<std::string>& default_reit_exacts();
 const std::vector<std::string>& default_tokens();
 
 // 브랜드 접두사 기본값 — etf_prefixes.json 미존재 시 폴백.
-// 주의: KisClient.cpp의 ETF_PREFIXES_FALLBACK과 물리적으로 두 벌 복제라, 한쪽을 고치면 다른 쪽도 함께 고쳐야 한다(정합은 코드로 강제되지 않음).
+// 주의: Quant/src/api/KisUniverse.cpp의 ETF_PREFIXES_FALLBACK과 물리적으로 두 벌 복제라, 한쪽을 고치면 다른 쪽도 함께 고쳐야 한다(정합은 코드로 강제되지 않음).
 const std::vector<std::string>& default_prefixes();
 
 // config JSON(top-level 문자열 배열) 로드. QUANT_CONFIG_DIR(없으면 "Quant/config") 기준.
