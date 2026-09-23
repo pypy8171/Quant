@@ -625,6 +625,7 @@
 - [2026-09-18.md](market_close/2026-09-18.md) — 09-18 매매 사후검토
 - [2026-09-21.md](market_close/2026-09-21.md) — 09-21 매매 사후검토(D-023 SEH 크래시 재발·재시도로 해소, A등급 결함 없음)
 - [2026-09-22.md](market_close/2026-09-22.md) — 09-22 매매 사후검토
+- [2026-09-23.md](market_close/2026-09-23.md) — 09-23 매매 사후검토
 - [README.md](market_close/README.md) — 장 마감 리뷰 색인
 
 ### docs/premarket/
@@ -1142,6 +1143,7 @@
 - [2026-09-18.md](../strategies/DeviationScale/live/2026-09-18.md) — 09-18 라이브 매매일지
 - [2026-09-21.md](../strategies/DeviationScale/live/2026-09-21.md) — 09-21 라이브 매매일지
 - [2026-09-22.md](../strategies/DeviationScale/live/2026-09-22.md) — 09-22 라이브 매매일지
+- [2026-09-23.md](../strategies/DeviationScale/live/2026-09-23.md) — 09-23 라이브 매매일지
 
 ### strategies/DeviationScale/reviews/
 

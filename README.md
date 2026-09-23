@@ -2,7 +2,7 @@
 
 한국투자증권(KIS) OpenAPI로 시세를 받아 전략 판단, 리스크 검증, 주문까지 한 프로세스 안에서 처리하는 개인 자동매매 시스템입니다. 실매매 엔진은 C++로, 백테스트와 리서치, 운영 보조 도구는 Python으로 썼습니다.
 
-**대시보드(백테스트 스터디 22건 + 모의계좌 매매 결과):** https://claude.ai/artifact/LuFGpPCgBhrNgDVNc3obrq
+**대시보드(백테스트 스터디 24건 + 모의계좌 매매 결과):** https://claude.ai/artifact/CVr332PFqRQbkoadjCfShP
 
 ## 결과 보기
 
@@ -10,7 +10,7 @@
 
 | 보고 싶은 것 | 위치 |
 |---|---|
-| 백테스트 스터디 22건의 질문, 방법, 데이터, 결과, 판정. 모의계좌 매매의 날짜별 주문·체결·실현손익 | [퀀트 백테스트·모의매매 결과](https://claude.ai/artifact/LuFGpPCgBhrNgDVNc3obrq) |
+| 백테스트 스터디 24건의 질문, 방법, 데이터, 결과, 판정. 모의계좌 매매의 날짜별 주문·체결·실현손익 | [퀀트 백테스트·모의매매 결과](https://claude.ai/artifact/CVr332PFqRQbkoadjCfShP) |
 | 스터디별 코드와 숫자 표 | [research/studies/](research/studies/), 색인은 [research/README.md](research/README.md) |
 | 날짜별 매매일지(무엇을 왜 사고팔았고 무엇이 거부됐는지) | [strategies/DeviationScale/live/](strategies/DeviationScale/live/), 전략 색인은 [strategies/README.md](strategies/README.md) |
 | 엔진이 1초에 몇 건까지 받고 어디서 막히는지 — 측정 열세 번을 그래프와 표로 | [부하 시험 결과 한 장](https://claude.ai/artifact/2HR69XdJRKU4puWt3aoMz7) |
