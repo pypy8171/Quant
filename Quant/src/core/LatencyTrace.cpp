@@ -23,7 +23,8 @@ std::string_view csv_header()
     // pop_to_done_us 뒤의 여섯 열이 그 한 덩이를 가른 몫이다 — 합이 pop_to_done_us에 거의 닿는다
     //  (남는 몫은 구간 사이 잔돈). 한 덩이만 있으면 느려진 자리를 못 짚는다. [why D-071]
     return "utc_ms,seq,ticker,strategy,side,action,tick_to_signal_us,signal_to_pop_us,pop_to_done_us,total_us,"
-           "gate_us,history_guard_us,journal_us,bucket_wait_us,transport_us,record_us,kis_called,accepted\n";
+           "gate_us,history_guard_us,journal_us,bucket_wait_us,transport_us,record_us,open_orders_us,kis_"
+           "called,accepted\n";
 }
 
 std::string csv_row(const OrderSignal& signal, const Marks& marks, const OrderStageTiming& stages, bool kis_called,
@@ -63,6 +64,8 @@ std::string csv_row(const OrderSignal& signal, const Marks& marks, const OrderSt
     text += std::to_string(stages.transport_us);
     text += ',';
     text += std::to_string(stages.record_us);
+    text += ',';
+    text += std::to_string(stages.open_orders_us);
     text += ',';
     text += kis_called ? '1' : '0';
     text += ',';
@@ -183,6 +186,7 @@ void PipelineLatency::add(const Marks& marks, const OrderStageTiming& stages) no
     bucket_wait.add(stages.bucket_wait_us);
     transport.add(stages.transport_us);
     record.add(stages.record_us);
+    open_orders.add(stages.open_orders_us);
     pop_to_done.add(segment_us(marks.pop_ns, marks.done_ns));
     total.add(segment_us(first, marks.done_ns));
 }
@@ -190,15 +194,15 @@ void PipelineLatency::add(const Marks& marks, const OrderStageTiming& stages) no
 std::array<std::string_view, PipelineLatency::kSegmentCount> PipelineLatency::segment_names() noexcept
 {
     return {"tick_to_signal", "signal_to_pop", "pop_to_send", "gate",        "history_guard", "journal",
-            "bucket_wait",    "transport",     "record",      "pop_to_done", "total"};
+            "bucket_wait",    "transport",     "record",      "open_orders", "pop_to_done",   "total"};
 }
 
 void PipelineSnapshot::capture(const PipelineLatency& source) noexcept
 {
     const std::array<const LatencyHistogram*, PipelineLatency::kSegmentCount> order{
         &source.tick_to_signal, &source.signal_to_pop, &source.pop_to_send, &source.gate,        &source.history_guard,
-        &source.journal,        &source.bucket_wait,   &source.transport,   &source.record,      &source.pop_to_done,
-        &source.total};
+        &source.journal,        &source.bucket_wait,   &source.transport,   &source.record,      &source.open_orders,
+        &source.pop_to_done,    &source.total};
 
     for (int index = 0; index < PipelineLatency::kSegmentCount; ++index)
     {

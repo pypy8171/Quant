@@ -91,6 +91,8 @@ CREATE TABLE IF NOT EXISTS health (
     transport_p99_interval_us      BIGINT,
     record_p50_interval_us         BIGINT,   -- 전송 뒤 마무리(접수 확정·이력 저장·파일 쓰기)
     record_p99_interval_us         BIGINT,
+    open_orders_p50_interval_us    BIGINT,   -- 그중 미결주문 파일 다시쓰기(record 안에 든 몫)
+    open_orders_p99_interval_us    BIGINT,
     pop_to_done_p50_interval_us    BIGINT,
     pop_to_done_p99_interval_us    BIGINT,
     total_p50_interval_us          BIGINT,

@@ -203,6 +203,8 @@ Quant\build_win\bench_engine_load.exe run --tickers 2700 --lanes 4 --shards 4 --
 `p50_us`가 커진 회차는 그 `latency_trace.csv`를 직접 연다. `total_us` 뒤 여섯 열(`gate_us`·`history_guard_us`·
 `journal_us`·`bucket_wait_us`·`transport_us`·`record_us`)이 `pop_to_done_us` 한 덩이를 가른 몫이고, 합이 그 덩이에
 거의 닿는다(D-117 후속). 이 여섯이 없던 회차 B·C는 2.07ms·3.31ms가 어디서 온 것인지 표만 보고는 말할 수 없다.
+09-23 짧은 회차 둘에서 답이 `record_us` 하나로 나왔다(`pop_to_done_us`의 99%). 그 안에서도 미결주문 파일
+다시쓰기가 절반이다 — `open_orders_us` 열이 그 몫이고, `record_us` 안에 든 값이라 더할 때는 뺀다.
 | `strategy` | 그 구성이 쓴 전략(`counter` 또는 `itb`) |
 | `zmq` | 발행 바인드 주소, 껐으면 `off` |
 | `started_at` | 구성 시작 벽시계(HH:MM:SS). 5절의 수집기 표본과 이 행을 맞추는 열쇠 |

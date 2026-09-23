@@ -137,7 +137,8 @@ private:
     std::string next_id();
     // 직전 KIS 주문/취소/정정 오류코드를 " [코드]" 꼬리표로 만든다(EGW00201 재시도 판별용). 없으면 "".
     static std::string kis_error_suffix(const OrderAck& acknowledgement);
-    int64_t     record(const ManagedOrder& managed_order); // 쓴 시간(us) 반환 — 구간 계측용, 버려도 된다
+    int64_t     record(const ManagedOrder& managed_order,
+                       int64_t* open_orders_us = nullptr); // 쓴 시간(us) 반환 — 구간 계측용, 버려도 된다
     // 살아있는(ACCEPTED·미체결 잔량>0) 주문 목록을 부속 파일 본문 문자열로 만든다.
     //  호출자는 hist_mtx_를 보유해야 한다. 파일 쓰기는 write_open_orders_file이 락 밖에서 한다.
     std::string snapshot_open_orders_locked() const;

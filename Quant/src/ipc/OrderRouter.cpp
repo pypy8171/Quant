@@ -167,7 +167,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
             stamp_gate_stages(managed_order, route_entered_ns, history_guard_ns);
             LOG_WARN("[OrderRouter] 대체 주문 보류 [" + managed_order.order_id + "] " + signal.ticker +
                      " " + managed_order.reject_reason);
-            managed_order.stages.record_us = record(managed_order);
+            managed_order.stages.record_us = record(managed_order, &managed_order.stages.open_orders_us);
             return managed_order;
         }
     }
@@ -215,7 +215,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
             stamp_gate_stages(managed_order, route_entered_ns, history_guard_ns);
             LOG_INFO("[OrderRouter] 중복 생략 [" + managed_order.order_id + "] " + signal.ticker + " " +
                      std::to_string(signal.quantity) + "주 → " + managed_order.reject_reason);
-            managed_order.stages.record_us = record(managed_order);
+            managed_order.stages.record_us = record(managed_order, &managed_order.stages.open_orders_us);
             return managed_order;
         }
     }
@@ -277,7 +277,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
             zmq_->publish_order(signal, false);
         }
 #endif
-        managed_order.stages.record_us = record(managed_order);
+        managed_order.stages.record_us = record(managed_order, &managed_order.stages.open_orders_us);
         return managed_order;
     }
 
@@ -306,7 +306,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
             zmq_->publish_order(signal, false);
         }
 #endif
-        managed_order.stages.record_us = record(managed_order);
+        managed_order.stages.record_us = record(managed_order, &managed_order.stages.open_orders_us);
         return managed_order;
     }
 
@@ -356,7 +356,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
             zmq_->publish_order(signal, false);
         }
 #endif
-        managed_order.stages.record_us = record(managed_order);
+        managed_order.stages.record_us = record(managed_order, &managed_order.stages.open_orders_us);
         return managed_order;
     }
 
@@ -431,7 +431,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
 #endif
     }
 
-    record(managed_order);
+    record(managed_order, &managed_order.stages.open_orders_us);
     managed_order.stages.record_us = (trace::now_ns() - record_started_ns) / 1000;
     return managed_order;
 }
@@ -795,7 +795,9 @@ int OrderRouter::sweep_stale_reservations()
 
 // ─── 이력 저장 (max_history 초과 시 체결 완료/거부된 것만 삭제) ───────────
 //  쓴 시간(us)을 돌려준다 — 전송 전에 끝난 주문은 이 몫이 곧 record_us다. 값을 안 쓰는 호출자는 그냥 버린다.
-int64_t OrderRouter::record(const ManagedOrder& managed_order)
+//  open_orders_us를 주면 미결주문 파일 다시쓰기 몫을 거기 따로 담는다. 그 파일만 건당 전체를 다시 쓰므로
+//  (나머지 둘은 한 줄 덧붙이기) 처방이 다르다 — 섞어 두면 어느 쪽을 고칠지 못 고른다. [why D-071]
+int64_t OrderRouter::record(const ManagedOrder& managed_order, int64_t* open_orders_us)
 {
     const int64_t started_ns = trace::now_ns();
     std::string open_orders;
@@ -823,7 +825,15 @@ int64_t OrderRouter::record(const ManagedOrder& managed_order)
     // 거래 원장 CSV — 주문 종착 상태(접수/거부/취소)를 한 줄로 영속화.
     //   event="" → managed_order.status 문자열(ACCEPTED/REJECTED/CANCELLED)이 event가 된다.
     write_trade_row("", managed_order, 0, 0.0);
+
+    const int64_t open_orders_started_ns = trace::now_ns();
     write_open_orders_file(open_orders, sequence);
+
+    if (open_orders_us != nullptr)
+    {
+        *open_orders_us = (trace::now_ns() - open_orders_started_ns) / 1000;
+    }
+
     append_order_reason(managed_order);
     return (trace::now_ns() - started_ns) / 1000;
 }

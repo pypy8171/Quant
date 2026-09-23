@@ -253,6 +253,7 @@ struct OrderStageTiming
     int64_t bucket_wait_us   = -1; // 증권사 초당한도 버킷에서 줄 선 시간
     int64_t transport_us     = -1; // 증권사 REST 왕복(버킷 대기 뺀 몫)
     int64_t record_us        = -1; // 전송 뒤 마무리 — 접수 확정(원장 ACCEPT)·발행·이력 저장·원장 CSV·미결주문 파일
+    int64_t open_orders_us   = -1; // 그중 미결주문 파일 다시쓰기 몫(record_us 안에 포함된다 — 더할 때 빼야 한다)
 };
 
 struct ManagedOrder

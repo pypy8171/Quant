@@ -192,8 +192,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/risk/OrderGate.cpp:746` · `bool OrderGate::on_intent(const std::string& account, const std::string& ticker, OrderSide side, int quantity, …` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
 46. [`KisClient::submit_order_acknowledgement`](../Quant/src/api/KisOrder.cpp#L152) — 현금 주문 REST. tr_id(실/모의)·`EXCG_ID_DVSN_CD`(KRX/NXT/SOR, D-096)·`authentication_headers`·응답에서 ODNO. 여기서만 KIS에 주문이 닿는다  
    `Quant/src/api/KisOrder.cpp:152` · `OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)`
-47. [`trace::LatencyTrace::record`](../Quant/include/core/LatencyTrace.h#L131) — 틱 수신→신호→pop→라우터 반환 네 시각을 `logs/latency_trace.csv` 한 줄로  
-   `Quant/include/core/LatencyTrace.h:131` · `void record(const OrderSignal& signal, const Marks& marks, const OrderStageTiming& stages, bool kis_called, …` · 시험 [test_latency_trace](../Quant/tests/test_latency_trace.cpp)
+47. [`trace::LatencyTrace::record`](../Quant/include/core/LatencyTrace.h#L132) — 틱 수신→신호→pop→라우터 반환 네 시각을 `logs/latency_trace.csv` 한 줄로  
+   `Quant/include/core/LatencyTrace.h:132` · `void record(const OrderSignal& signal, const Marks& marks, const OrderStageTiming& stages, bool kis_called, …` · 시험 [test_latency_trace](../Quant/tests/test_latency_trace.cpp)
 
 리뷰할 때 볼 것:
 
@@ -212,8 +212,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/include/api/KisWsDecode.h:150` · `Decode decode_fill(Fields fields, FillNotification& fill_notification);` · 시험 [test_ws_decode](../Quant/tests/test_ws_decode.cpp)
 50. [`Engine::fill_thread_fn`](../Quant/src/core/Engine.cpp#L2868) — `pipeline_.fill_queue` pop → `on_fill` → `ledger_->note_fill`(대조 5초 유예, D-074) → 운영단말 `broadcast`(FILL). 비면 `WakeGate`  
    `Quant/src/core/Engine.cpp:2868` · `void Engine::fill_thread_fn(std::stop_token stop_token)`
-51. [`OrderRouter::on_fill`](../Quant/src/ipc/OrderRouter.cpp#L1911) — ODNO로 주문 찾기 → 상태 갱신 → `gate_.on_fill_confirmed` → 원장 CSV. 못 찾으면 미연결 체결 경로  
-   `Quant/src/ipc/OrderRouter.cpp:1911` · `void OrderRouter::on_fill(const FillNotification& fill_notification)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
+51. [`OrderRouter::on_fill`](../Quant/src/ipc/OrderRouter.cpp#L1921) — ODNO로 주문 찾기 → 상태 갱신 → `gate_.on_fill_confirmed` → 원장 CSV. 못 찾으면 미연결 체결 경로  
+   `Quant/src/ipc/OrderRouter.cpp:1921` · `void OrderRouter::on_fill(const FillNotification& fill_notification)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
 52. [`OrderGate::on_fill_confirmed`](../Quant/src/risk/OrderGate.cpp#L1386) — 포지션·평단·실현손익 갱신, `reserved_` 해제. `FillResult`가 실현 PnL을 돌려준다  
    `Quant/src/risk/OrderGate.cpp:1386` · `OrderGate::FillResult OrderGate::on_fill_confirmed( …` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
 

@@ -103,10 +103,11 @@ struct PipelineLatency
     LatencyHistogram bucket_wait;    // 증권사 초당한도 버킷 줄서기
     LatencyHistogram transport;      // 증권사 REST 왕복
     LatencyHistogram record;         // 전송 뒤 마무리 — 접수 확정·발행·이력 저장·원장 CSV·미결주문 파일
+    LatencyHistogram open_orders;    // 그중 미결주문 파일 다시쓰기 — record 안에 든 몫이라 합산에서 뺀다
     LatencyHistogram pop_to_done;    // 꺼냄 → 라우터 반환(위 여섯을 다 품은 한 덩이)
     LatencyHistogram total;          // 틱 수신 → 라우터 반환
 
-    static constexpr int kSegmentCount = 11;
+    static constexpr int kSegmentCount = 12;
 
     void add(const Marks& marks, const OrderStageTiming& stages) noexcept;
 

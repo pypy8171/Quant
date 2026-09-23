@@ -69,12 +69,13 @@ int main()
                                   .journal_us       = 900,
                                   .bucket_wait_us   = 150000,
                                   .transport_us     = 210000,
-                                  .record_us        = 1800};
+                                  .record_us        = 1800,
+                                  .open_orders_us   = 1200};
 
     const auto row = trace::csv_row(signal, marks, stages, true, true, 1'700'000'000'123LL);
     CHECK(row.back() == '\n');
     const auto fields = split(row.substr(0, row.size() - 1));
-    CHECK(fields.size() == 18);
+    CHECK(fields.size() == 19);
     CHECK(fields[0] == "1700000000123");
     CHECK(fields[1] == "42");
     CHECK(fields[2] == "005930");
@@ -91,8 +92,9 @@ int main()
     CHECK(fields[13] == "150000");  // bucket_wait
     CHECK(fields[14] == "210000");  // transport
     CHECK(fields[15] == "1800");    // record
-    CHECK(fields[16] == "1");
+    CHECK(fields[16] == "1200");    // open_orders
     CHECK(fields[17] == "1");
+    CHECK(fields[18] == "1");
 
     // 3. REST 봉 신호(tick_ns=0): 첫 구간 -1, total은 signal부터.
     marks.tick_ns = 0;
@@ -102,8 +104,9 @@ int main()
     CHECK(fields_two[9] == "15010");
     CHECK(fields_two[10] == "-1"); // 게이트 앞에서 끝난 주문은 라우터 구간이 전부 -1이다
     CHECK(fields_two[15] == "-1");
-    CHECK(fields_two[16] == "0");
+    CHECK(fields_two[16] == "-1");
     CHECK(fields_two[17] == "0");
+    CHECK(fields_two[18] == "0");
 
     // 4. 파일: 머리글은 새 파일에만, 두 번째 인스턴스가 이어 써도 머리글이 다시 안 붙는다.
     const auto path = std::filesystem::temp_directory_path() / "quant_test_latency_trace.csv";
@@ -132,9 +135,9 @@ int main()
 
     CHECK(lines.size() == 4);
     CHECK(lines[0].rfind("utc_ms,seq,", 0) == 0);
-    CHECK(split(lines[1]).size() == 18);
-    CHECK(split(lines[3])[16] == "1");
-    CHECK(split(lines[3])[17] == "0");
+    CHECK(split(lines[1]).size() == 19);
+    CHECK(split(lines[3])[17] == "1");
+    CHECK(split(lines[3])[18] == "0");
     in.close(); // 열린 채로 지우면 Windows가 공유 위반을 내고 filesystem_error가 잡히지 않는다
     std::filesystem::remove(path);
 
@@ -181,13 +184,15 @@ int main()
                                           .journal_us       = 900,
                                           .bucket_wait_us   = 150000,
                                           .transport_us     = 210000,
-                                          .record_us        = 1800});
+                                          .record_us        = 1800,
+                                          .open_orders_us   = 1200});
     CHECK(pipeline_latency.gate.count() == 1);
     CHECK(pipeline_latency.history_guard.count() == 1);
     CHECK(pipeline_latency.journal.count() == 1);
     CHECK(pipeline_latency.bucket_wait.count() == 1);
     CHECK(pipeline_latency.transport.count() == 1);
     CHECK(pipeline_latency.record.count() == 1);
+    CHECK(pipeline_latency.open_orders.count() == 1);
     CHECK(pipeline_latency.transport.percentile(0.50) >= 210000);
     CHECK(pipeline_latency.record.percentile(0.50) >= 1800);
 
@@ -198,7 +203,8 @@ int main()
     CHECK(names[3] == "gate");
     CHECK(names[4] == "history_guard");
     CHECK(names[8] == "record");
-    CHECK(names[9] == "pop_to_done");
+    CHECK(names[9] == "open_orders");
+    CHECK(names[10] == "pop_to_done");
 
     // 구간 분포: 사본을 뜬 뒤 들어온 표본만 잡힌다 — 누적 분위수와 달리 지난 값이 안 남는다. [why D-071]
     trace::PipelineSnapshot before;

@@ -217,6 +217,7 @@ class DbClient:
         "bucket_wait",     # 증권사 초당한도 버킷 줄서기
         "transport",       # 증권사 REST 왕복
         "record",          # 전송 뒤 마무리(접수 확정·발행·이력 저장·파일 쓰기)
+        "open_orders",     # 그중 미결주문 파일 다시쓰기 — record 안에 든 몫이라 합산에서 뺀다
         "pop_to_done",     # 꺼냄 → 라우터 반환(위 여섯을 품은 한 덩이)
         "total",           # 체결 수신 → 라우터 반환
     )
