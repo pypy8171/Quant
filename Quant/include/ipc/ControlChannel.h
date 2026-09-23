@@ -46,6 +46,7 @@ enum class ControlKind : uint8_t
     kKillSwitch          = 13, // 전방향 주문 차단
     kManualHalt          = 14, // 운영단말이 손으로 거는 한 방향 정지
     kWatchSubscribe      = 15, // 이 종목 시세를 구독해 달라 — 소켓을 쥔 쪽은 주문 프로세스 하나다
+    kRegisterStrategy    = 16, // 전략 이름표에 이름 하나를 넣어 달라 — 넣는 쪽은 주문 프로세스 하나다
 };
 
 // 제어 요청 한 줄. 칸은 kind 마다 쓰는 것만 채우고 나머지는 기본값 그대로 둔다.
@@ -72,6 +73,8 @@ struct ControlRequest
     char                       account[kControlAccountMax]   = {}; // kArmProtective·kDisarmProtective
     char                       exchange[kControlExchangeMax] = {}; // kWatchSubscribe — 미국 거래소 코드
     symbol::Ticker             ticker;                             // kRegisterSymbol·kWatchSubscribe
+    // kRegisterStrategy. 티커 칸(15자)을 겹쳐 쓰지 않는다 — 전략 이름은 설정이 정해 31자까지 온다.
+    strategy_table::StrategyName strategy_name;
 };
 
 // 계좌 이름을 칸에 담는다. 칸을 넘으면 자르고 끝에 0을 넣는다.

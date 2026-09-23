@@ -114,8 +114,26 @@ StrategyTable::StrategyTable(size_t capacity)
     slots_ = TableSlots{names_.get(), &count_, bounded_capacity};
 }
 
+void StrategyTable::adopt(const TableSlots& slots, std::function<StrategyId(std::string_view)> register_hook)
+{
+    slots_         = slots;
+    register_hook_ = std::move(register_hook);
+    names_.reset(); // 힙 배열은 여기서 놓는다 — slots_가 이미 남의 자리를 가리킨다
+}
+
 StrategyId StrategyTable::intern(std::string_view name)
 {
+    // 빠른 길 — 이미 있으면 자물쇠도 부탁도 없다.
+    if (const StrategyId found = table_lookup(slots_, name); found != kNone)
+    {
+        return found;
+    }
+
+    if (register_hook_)
+    {
+        return register_hook_(name);
+    }
+
     std::lock_guard<std::mutex> write_lock(write_mutex_);
 
     return table_insert(slots_, name);

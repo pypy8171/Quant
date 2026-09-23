@@ -78,6 +78,13 @@ public:
         return symbol::table_name(slots_, id);
     }
 
+    // 표 알맹이. 엔진이 symbol::SymbolTable에 이것을 꽂아, 프로세스가 갈려도 조회 경로가 한 벌로 남는다.
+    //  [inv] 돌려주는 자리는 unbind()까지만 유효하다. [why D-114]
+    [[nodiscard]] const symbol::TableSlots& slots() const noexcept
+    {
+        return slots_;
+    }
+
     // 등록된 종목 수(번호 0 제외).
     [[nodiscard]] size_t size() const;
 

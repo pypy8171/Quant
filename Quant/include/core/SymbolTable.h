@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <ostream>
@@ -140,6 +141,13 @@ public:
     //  읽기(수신 스레드가 틱마다 한 번)는 락도 원자 카운터 갱신도 없다. 삽입만 write_mutex_로 직렬화한다. [why D-071]
     SymbolId intern(std::string_view ticker);
 
+    // 표 알맹이를 남이 놓은 것으로 바꾼다 — 공유 쪽지 위 표(ipc::SharedSymbolDictionary)를 엔진이 꽂는다.
+    //  조회는 그대로 자물쇠 없이 그 배열을 읽고, 넣기만 register_hook 이 대신한다. 넣는 쪽이 한 프로세스여야
+    //  해서다 — 양쪽이 각자 번호를 찍으면 같은 번호가 다른 종목을 가리킨다. 주문 쪽 hook 은 공유 표에 바로
+    //  넣고, 전략 쪽 hook 은 주문 쪽에 넣어 달라고 부탁한다(Engine::register_symbol). [why D-114]
+    //  [inv] 스레드가 뜨기 전에만 부른다. 힙 배열은 여기서 놓는다 — 꽂은 뒤에는 옛 번호를 볼 길이 없다.
+    void adopt(const TableSlots& slots, std::function<SymbolId(std::string_view)> register_hook);
+
     [[nodiscard]] SymbolId lookup(std::string_view ticker) const
     {
         return table_lookup(slots_, ticker);
@@ -151,10 +159,11 @@ public:
         return table_name(slots_, id);
     }
 
-    // 등록된 종목 수(id 0 제외).
+    // 등록된 종목 수(id 0 제외). 세는 칸은 slots_ 가 가리키는 것이다 — adopt로 공유 표를 꽂았으면
+    //  쪽지 위 칸이고, 그러지 않았으면 아래 count_다.
     [[nodiscard]] size_t size() const
     {
-        return count_.load(std::memory_order_acquire) - 1;
+        return slots_.count->load(std::memory_order_acquire) - 1;
     }
 
     [[nodiscard]] size_t capacity() const noexcept
@@ -168,6 +177,9 @@ private:
     std::atomic<SymbolId>                    count_{1};
     TableSlots                               slots_;
     std::mutex                               write_mutex_; // 삽입만 잡는다. 읽기 경로는 잡지 않는다
+    // 비어 있지 않으면 표가 남의 것이다 — 넣기를 이쪽에 넘긴다(adopt). 부르는 자리는 기동·재스캔뿐이라
+    //  이 한 번 호출이 hot path에 끼지 않는다.
+    std::function<SymbolId(std::string_view)> register_hook_;
 };
 
 } // namespace symbol

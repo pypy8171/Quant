@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -89,6 +90,11 @@ public:
     //  기동·재스캔 때만 부른다 — 선형 탐색이라 hot path에서 부르지 않는다.
     StrategyId intern(std::string_view name);
 
+    // 표 알맹이를 남이 놓은 것으로 바꾼다 — 공유 쪽지 위 표(ipc::SharedStrategyDictionary)를 엔진이 꽂는다.
+    //  종목 표(core/SymbolTable.h)의 adopt와 같은 규약이다. [why D-114]
+    //  [inv] 스레드가 뜨기 전에만 부른다. 힙 배열은 여기서 놓는다.
+    void adopt(const TableSlots& slots, std::function<StrategyId(std::string_view)> register_hook);
+
     // 등록하지 않고 찾기만. 모르면 kNone.
     [[nodiscard]] StrategyId lookup(std::string_view name) const
     {
@@ -101,10 +107,11 @@ public:
         return table_name(slots_, id);
     }
 
-    // 등록된 전략 수(id 0 제외).
+    // 등록된 전략 수(id 0 제외). 세는 칸은 slots_가 가리키는 것이다 — adopt로 공유 표를 꽂았으면
+    //  쪽지 위 칸이고, 그러지 않았으면 아래 count_다.
     [[nodiscard]] size_t size() const
     {
-        return count_.load(std::memory_order_acquire) - 1;
+        return slots_.count->load(std::memory_order_acquire) - 1;
     }
 
     [[nodiscard]] size_t capacity() const noexcept
@@ -117,6 +124,8 @@ private:
     std::atomic<StrategyId>         count_{1};
     TableSlots                      slots_;
     mutable std::mutex              write_mutex_;
+    // 비어 있지 않으면 표가 남의 것이다 — 넣기를 이쪽에 넘긴다(adopt).
+    std::function<StrategyId(std::string_view)> register_hook_;
 };
 
 } // namespace strategy_table

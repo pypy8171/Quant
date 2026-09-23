@@ -861,23 +861,40 @@ int run_split_start_case()
         CHECK(engine.shard_count() == 1);              // 틱 파이프라인 자리는 전략 쪽에 남는다
         CHECK(!feed->is_connected());                  // 시세 소켓은 주문 쪽이 쥔다
         CHECK(engine.order_count() == 0);              // 주문 스레드가 없다
-        CHECK(engine.symbol_register_timeouts() >= 1); // 번호 표는 아직 각자 것이다 — 주문 쪽이 넣어도 여기엔 안 뜬다
         CHECK(engine.feed_channel_lanes() == engine.websocket_lanes() + 1); // 꺼내는 쪽도 같은 줄 수를 본다
-        CHECK(strategy->symbol_id() == symbol::kNone);
 
-        // 주문 쪽이 넣어 둔 체결 한 건을 이쪽 줄 스레드가 꺼내 간다 — 같은 쪽지를 보고 있다는 뜻이다.
-        //  다만 종목 번호 표는 아직 프로세스마다 따로라(단계 4 남은 배선) 꺼낸 쪽이 "번호가 표 밖"이라며
-        //  버린다 — 지금 보는 것은 건너갔다는 사실까지다. 표를 공유로 옮기면 여기서 data_count가 는다. [why D-114]
+        // 종목 표는 이제 한 장이다 — 전략이 on_start 에서 부탁한 번호를 주문 쪽이 그 표에 넣고, 전략은
+        //  같은 표에서 읽는다. 양쪽이 같은 종목에 같은 번호를 본다. [why D-114]
+        CHECK(engine.symbol_register_timeouts() == 0);
+        const symbol::SymbolId shared_id = strategy->symbol_id();
+        CHECK(shared_id != symbol::kNone);
+        CHECK(order_engine.symbols().lookup("005930") == shared_id);
+
+        // 이 세션이 뜨기 전에 주문 쪽이 넣어 둔 체결 한 건이 그대로 건너온다 — 번호가 한 표에서 나오니
+        //  꺼낸 쪽이 알아본다. 표가 프로세스마다 따로이던 때는 이 한 건이 "번호가 표 밖"이라며 버려졌다.
         const auto deadline = std::chrono::steady_clock::now() + 5s;
 
-        while (engine.feed_channel_discarded() == 0 && std::chrono::steady_clock::now() < deadline)
+        while (engine.data_count() == 0 && std::chrono::steady_clock::now() < deadline)
         {
             std::this_thread::sleep_for(10ms);
         }
 
         CHECK(order_engine.feed_channel_pending_trades(0) == 0);
-        CHECK(engine.feed_channel_discarded() == 1);
-        CHECK(engine.data_count() == 0);
+        CHECK(engine.data_count() == 1);
+        CHECK(engine.feed_channel_discarded() == 0);
+
+        // 전략이 뜬 뒤에 넣은 체결도 같은 길로 온다. [why D-114]
+        order_feed->emit_trade(0, "005930", 70100.0, 93002);
+
+        const auto second_deadline = std::chrono::steady_clock::now() + 5s;
+
+        while (engine.data_count() < 2 && std::chrono::steady_clock::now() < second_deadline)
+        {
+            std::this_thread::sleep_for(10ms);
+        }
+
+        CHECK(engine.data_count() == 2);
+        CHECK(engine.feed_channel_discarded() == 0); // 버린 것은 없다
 
         engine.stop();
         CHECK(!engine.is_running());

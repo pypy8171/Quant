@@ -34,7 +34,9 @@ void configure_channels(Engine& engine, const AppConfig& app)
 
     // 부하시험 주문 수신단(D-071). 리플레이와 같은 자리에 들어가 같은 콜백으로 체결을 올린다 — 엔진이 보기에는
     //  그냥 또 하나의 피드라 샤드·전략·OrderGate·원장이 평소대로 돈다. KIS·인증·실주문 경로는 만들어지지 않는다.
-    if (app.load_test_enabled)
+    //  갈라 띄우면 소켓을 쥐는 쪽만 만든다 — 생성자가 유니버스 파일을 비우고 다시 쓰기 때문에(ZmqOrderFeed.cpp:129)
+    //  둘이 만들면 부하 투입기가 반쪽짜리를 읽는다. 바인드 자체는 connect()가 하고 그쪽은 이미 갈라져 있다. [why D-114]
+    if (app.load_test_enabled && engine.runs_order_side())
     {
         exchange::ZmqOrderFeed::Options load_test_options;
         load_test_options.lane_count   = app.load_test_lanes;
@@ -128,4 +130,12 @@ void Engine::configure(const AppConfig& app)
     configure_regime_strategies(*this, app);
     configure_quote_kis(*this, app);
     configure_risk(*this, app);
+
+    // 자리표는 여기서 마지막으로 깐다. 시세 줄 수가 이 함수로 정해지고, 곧 이어지는 전략 적재가 종목
+    //  수백 개와 전략 이름을 표에 넣기 때문이다 — 그 뒤에 다시 깔면 찍어 둔 번호가 통째로 사라진다.
+    //  줄 하나를 더 두는 것은 setup_shards 와 같다(마지막 줄은 REST 대체 틱 자리). [why D-114]
+    if (!bind_layout(websocket_lane_count() + 1))
+    {
+        LOG_ERROR("[Engine] 설정을 읽은 뒤 자리표를 못 깔았다 — " + std::string(layout_.last_error()));
+    }
 }

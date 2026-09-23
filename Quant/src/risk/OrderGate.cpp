@@ -774,6 +774,12 @@ bool OrderGate::on_intent(const std::string& account, const std::string& ticker,
     return false;
 }
 
+void OrderGate::adopt_strategy_table(const strategy_table::TableSlots&                          slots,
+                                    std::function<strategy_table::StrategyId(std::string_view)> register_hook)
+{
+    strategies_.adopt(slots, std::move(register_hook));
+}
+
 void OrderGate::on_accepted(const std::string& account, const std::string& ticker, OrderSide side, int quantity,
                             const OrderRef& reference)
 {

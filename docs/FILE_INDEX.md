@@ -8,9 +8,9 @@
 
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 115개
+- [PYQuant](#pyquant) — 116개
 - [Quant](#quant) — 293개
-- [docs](#docs) — 94개
+- [docs](#docs) — 96개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
 - [scripts](#scripts) — 47개
@@ -201,6 +201,7 @@
 - [ledger_dump.py](../PYQuant/tools/ledger_dump.py) — 원장 저널 파일을 DB 없이 읽는 도구: 레코드 표·CSV·보유 재구성·미결 주문(D-113)
 - [ledger_recorder.py](../PYQuant/tools/ledger_recorder.py) — 원장 저널 꼬리를 따라 읽어 TimescaleDB ledger_events에 적재, 읽은 위치는 ledger_offsets(D-113)
 - [load_injector.py](../PYQuant/tools/load_injector.py) — 부하시험 주문 인젝터 — 동시호가·연속매매 주문을 난수로 만들어 32바이트 전문으로 ZMQ PUSH, 씨앗을 고정하면 같은 주문열이 다시 나온다
+- [load_status_sampler.py](../PYQuant/tools/load_status_sampler.py) — 부하시험 상태 표본기 — 요청·응답 소켓의 STATUS 로 버린 건수를 원인별·역할별로 읽어 CSV 로 남긴다, 발행 큐가 포화해도 답한다
 - [log_report.py](../PYQuant/tools/log_report.py) — quant_trader 로그 운용 리포트 생성기
 - [macro_ingest.py](../PYQuant/tools/macro_ingest.py) — FRED(ALFRED 판본, A)·ECOS(B)·관세청 10일 잠정치(B) 거시 시계열을 시점 고정 스키마로 PYQuant/data/macro/<source>_<series>.parquet에 append-only 적재
 - [macro_regime_feed.py](../PYQuant/tools/macro_regime_feed.py) — 매크로 지표 기반 국면 게이트 발행기

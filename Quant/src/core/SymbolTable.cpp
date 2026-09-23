@@ -226,12 +226,27 @@ SymbolTable::SymbolTable(size_t capacity)
     slots_   = TableSlots{buckets_.get(), names_.get(), &count_, bounded_capacity, bucket_count - 1};
 }
 
+void SymbolTable::adopt(const TableSlots& slots, std::function<SymbolId(std::string_view)> register_hook)
+{
+    slots_         = slots;
+    register_hook_ = std::move(register_hook);
+
+    // 힙 배열은 여기서 놓는다. 꽂은 뒤에 이 배열을 읽는 길은 없다 — slots_가 이미 남의 자리를 가리킨다.
+    buckets_.reset();
+    names_.reset();
+}
+
 SymbolId SymbolTable::intern(std::string_view ticker)
 {
-    // 빠른 길 — 이미 있으면 자물쇠를 잡지 않는다. 등록은 기동·재스캔에서만 일어난다.
+    // 빠른 길 — 이미 있으면 자물쇠도 부탁도 없다. 등록은 기동·재스캔에서만 일어난다.
     if (const SymbolId found = table_lookup(slots_, ticker); found != kNone)
     {
         return found;
+    }
+
+    if (register_hook_)
+    {
+        return register_hook_(ticker);
     }
 
     std::lock_guard<std::mutex> write_lock(write_mutex_);

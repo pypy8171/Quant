@@ -23,13 +23,16 @@ namespace ipc
 {
 
 // 자리표 판 번호. SharedRegion::create·attach 의 layout_version 으로 그대로 넘긴다.
-constexpr uint32_t kSharedLayoutVersion = 1;
+//  판 2 — 제어 요청에 전략 이름 칸이 붙었고(kRegisterStrategy) 전략 이름표 칸 수가 힙 표와 같아졌다.
+constexpr uint32_t kSharedLayoutVersion = 2;
 
 // 칸 수 기본값 — 한 프로세스로 돌던 때 쓰던 값과 같다(Engine::ShardPipeline). 여기서 바꾸면 양쪽이 같이 바뀐다.
 constexpr size_t kLayoutRequestCapacity  = 1024; // 요청 하나에 답 하나라 응답과 같은 수다
 constexpr size_t kLayoutResponseCapacity = 1024;
 constexpr size_t kLayoutControlCapacity  = 8192; // 표 한 장이 줄 2,048개까지라 그 네 배를 둔다
-constexpr size_t kLayoutStrategyCapacity = 256;
+// 전략 이름표 칸 수 — 힙 표(strategy_table::kDefaultCapacity)와 같은 수여야 한다. 갈라 띄우면 엔진이
+//  힙 표 대신 이 표를 꽂는데, 칸 수가 다르면 상한을 보는 자리(ipc::RequestLimits)가 역할마다 달라진다.
+constexpr size_t kLayoutStrategyCapacity = strategy_table::kDefaultCapacity;
 
 // 자리표 머리 — 면 여덟 앞에 둔다. 양쪽이 넘긴 설정이 한 칸이라도 다르면 붙기를 여기서 거절한다.
 //  머리가 없으면 어긋난 설정이 "면의 머리가 우연히 안 맞아서" 걸리는 데 기대게 된다 — 값 하나가 우연히

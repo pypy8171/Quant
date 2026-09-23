@@ -197,6 +197,12 @@ public:
         return strategies_;
     }
 
+    // 전략 이름표 알맹이를 남이 놓은 것으로 바꾼다 — 갈라 띄운 두 프로세스가 공유 쪽지 위 한 표를 같이 본다.
+    //  [inv] 스레드가 뜨기 전, 원장에 첫 서브원장 키가 생기기 전에 부른다 — 뒤에 바꾸면 이미 든 키의
+    //  번호가 다른 표의 것이 된다. [why D-114]
+    void adopt_strategy_table(const strategy_table::TableSlots&                          slots,
+                              std::function<strategy_table::StrategyId(std::string_view)> register_hook);
+
     // ── 주문 검증 (true = 통과, false = 거부) ──────────────────────────────
     bool check(const OrderSignal& signal, std::string& reject_reason);
 

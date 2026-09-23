@@ -75,6 +75,13 @@ public:
         return strategy_table::table_name(slots_, id);
     }
 
+    // 표 알맹이. 엔진이 strategy_table::StrategyTable에 이것을 꽂는다 — 종목 표와 같은 규약이다. [why D-114]
+    //  [inv] 돌려주는 자리는 unbind()까지만 유효하다.
+    [[nodiscard]] const strategy_table::TableSlots& slots() const noexcept
+    {
+        return slots_;
+    }
+
     // 등록된 전략 수(번호 0 제외).
     [[nodiscard]] size_t size() const;
 

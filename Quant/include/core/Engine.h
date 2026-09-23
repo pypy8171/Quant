@@ -140,6 +140,12 @@ public:
         return symbol_lookup_misses_.load(std::memory_order_relaxed);
     }
 
+    // 전략 이름 등록을 주문 쪽에 맡겼다가 못 받은 횟수. 0이 아니면 그 전략의 손익 귀속이 비어 있다.
+    [[nodiscard]] uint64_t strategy_register_timeouts() const noexcept
+    {
+        return strategy_register_timeouts_.load(std::memory_order_relaxed);
+    }
+
     // 구독 상한에 밀려 소켓에 못 건 종목 수. 0이 아니면 그 종목은 WS 틱을 못 받는다.
     [[nodiscard]] uint64_t watch_overflows() const noexcept
     {
@@ -454,6 +460,18 @@ public:
 private:
     // ── start() 단계 분리 (가독성용, 로직은 그대로) ────────────────────────────
     void setup_shards();
+
+    // 소켓 수 = WS 수신 줄 수. 소켓을 만들기 전에 필요해 설정으로 센다(리플레이·소켓 하나면 1,
+    //  feed_keys 가 있으면 1+N). 자리표를 깔 때와 샤드 행렬을 잡을 때가 같은 수를 써야 해서 한 벌로 둔다.
+    [[nodiscard]] uint32_t websocket_lane_count() const;
+
+    // 종목 표·전략 이름표를 공유 쪽지 위 한 벌로 바꾼다(갈라 띄울 때만). [why D-114]
+    void adopt_shared_dictionaries();
+
+    // 전략 쪽 넣기 — 주문 쪽에 넣어 달라 부탁하고 번호가 같은 표에 뜨는 것을 본다.
+    //  [inv] 전략 프로세스에서만 부른다(adopt_shared_dictionaries 가 꽂는 hook).
+    symbol::SymbolId           request_symbol_registration(std::string_view ticker);
+    strategy_table::StrategyId request_strategy_registration(std::string_view name);
 
 #ifdef HAS_ZMQ
     void setup_zmq_bridge();
@@ -817,8 +835,11 @@ private:
         //  표 하나가 여러 줄로 오므로 용량은 표 상한의 몇 배로 둔다 — 한 줄만 잃어도 그 표는 통째로 버려진다.
         static constexpr size_t kControlQueueCapacity = 8192;
         // 앞 토막. 생산자가 샤드 스레드·데이터 스레드로 여럿이라 MPSC(원칙 5).
-        //  [inv] 비우는 쪽은 전략 스레드 하나다(relay_control_requests). 여럿이 꺼내면 MPSC 약속이 깨진다.
+        //  [inv] 꺼내는 자리는 relay_control_requests 하나뿐이고, 그 안을 control_relay_mutex 가 감싼다 —
+        //  여럿이 동시에 꺼내면 MPSC 약속이 깨진다. 자물쇠를 둔 것은 번호를 기다리는 쪽이 제 손으로
+        //  옮겨야 하기 때문이다(전략 스레드가 on_start 안에서 막히면 아무도 안 옮긴다). [why D-114]
         MpscQueue<ipc::ControlRequest> strategy_control_outbox{kControlQueueCapacity};
+        std::mutex                     control_relay_mutex;
         // 뒤 토막. 자리표 위 제어 면이고 여기 있는 것은 그 자리를 가리키는 포인터다. 전략 스레드가 넣고
         //  주문 스레드가 꺼낸다. [inv] bind_layout()이 꽂는다. [why D-114]
         ipc::SharedSpscRing<ipc::ControlRequest>* controls = nullptr;
@@ -856,6 +877,9 @@ private:
     std::vector<std::jthread> feed_lane_threads_;
 
     std::atomic<bool> running_{false};
+    // start() 를 한 번이라도 불렀는가. 번호를 기다리는 시간을 여기서 가른다 — 기동 중에는 건너편이
+    //  제 일감을 하느라 늦게 집어도 기다리고, 한 번 뜬 뒤에는 짧게 본다(멈춘 채로 5분을 기다리지 않는다).
+    std::atomic<bool> start_was_called_{false};
     session_end::Judge session_end_; // 마감 자기 종료 판정(control_thread 전용). 기본은 창 0 = 판정 없음 [why D-098]
 
 #ifdef HAS_ZMQ
@@ -902,9 +926,11 @@ private:
     // 고정 이름 신호의 전략 번호 — 게이트 테이블에서 한 번 받는다. order_gate_ 뒤에 선언해야 한다.
     //  스레드가 뜨기 전(생성자)이라 표를 고치는 쪽은 여전히 하나다. 전략 스레드에서 받으면 그것이
     //  전략 쪽의 표 쓰기가 된다 — 디스패처가 자기 생성자에서 받던 것을 여기로 올렸다. [why D-114]
-    const strategy_table::StrategyId manual_strategy_index_ = order_gate_.strategy_index_of("MANUAL");
-    const strategy_table::StrategyId force_liquidation_index_ = order_gate_.strategy_index_of("FORCE_LIQ");
-    const strategy_table::StrategyId limit_trim_index_        = order_gate_.strategy_index_of("LIMIT_TRIM");
+    //  갈라 띄우면 표가 공유 쪽지 위 것으로 바뀌므로(adopt_shared_dictionaries) 그 자리에서 다시 받는다 —
+    //  그래서 const 가 아니다. 바꾸는 자리는 거기 하나이고 스레드 전이다. [why D-114]
+    strategy_table::StrategyId manual_strategy_index_   = order_gate_.strategy_index_of("MANUAL");
+    strategy_table::StrategyId force_liquidation_index_ = order_gate_.strategy_index_of("FORCE_LIQ");
+    strategy_table::StrategyId limit_trim_index_        = order_gate_.strategy_index_of("LIMIT_TRIM");
     std::unique_ptr<OrderRouter> order_router_; // 주문 전처리·중계 레이어(증권업계 용어로 FEP, Front-End Processor). start() 이후 유효
     // 전략 쪽이 읽을 장부 사본. 장부가 바뀔 때마다 order_gate_가 여기에 한 판을 낸다. 자리표의 마지막
     //  면이라 Engine 안에 실체가 없다 — 여기 있는 것은 그 자리를 가리키는 포인터다. [why D-114]
@@ -967,6 +993,7 @@ private:
     ProcessRole           role_ = ProcessRole::Both;
     std::atomic<uint64_t> symbol_register_timeouts_{0};
     std::atomic<uint64_t> symbol_lookup_misses_{0};
+    std::atomic<uint64_t> strategy_register_timeouts_{0};
 
     // ── 종목명 캐시 ──────────────────────────────────────────────────────────
     // 종목 id→종목명 라벨(로그 표시용, 빈 문자열=없음). 여러 스레드가 접근해 ticker_names_mutex_로 보호.

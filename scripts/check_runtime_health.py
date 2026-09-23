@@ -140,6 +140,8 @@ CONTROL_DISCARD_RE = re.compile(r"control_discarded=(\d+)")
 # 티커→번호(D-114 단계 4) — 등록을 주문 쪽에서 못 받은 수, 표에 없는 티커로 잦은 자리가 불린 수.
 SYMBOL_REGISTER_TIMEOUT_RE = re.compile(r"symbol_register_timeout=(\d+)")
 SYMBOL_LOOKUP_MISS_RE = re.compile(r"symbol_lookup_miss=(\d+)")
+# 전략 이름→번호(D-114 단계 4) — 이름표 등록을 주문 쪽에서 못 받은 수.
+STRATEGY_REGISTER_TIMEOUT_RE = re.compile(r"strategy_register_timeout=(\d+)")
 WATCH_OVERFLOW_RE = re.compile(r"watch_overflow=(\d+)")
 # 시세 통로(D-114 단계 4 배선 2') — 큐가 차서 못 넘긴 건수, 꺼낸 값이 말이 안 돼 버린 건수.
 FEED_CHANNEL_OVERFLOW_RE = re.compile(r"feed_channel_overflow=(\d+)")
@@ -985,6 +987,7 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     control_discarded = -1                       # 주문 쪽이 반쪽 표로 보고 버린 줄 수. -1이면 그 줄이 없는 구 exe
     symbol_register_timeout = -1                 # 등록을 주문 쪽에서 못 받은 수. -1이면 그 줄이 없는 구 exe
     symbol_lookup_miss = 0                       # 표에 없는 티커로 잦은 자리가 불린 수
+    strategy_register_timeout = -1               # 이름표 등록을 못 받은 수. -1이면 그 줄이 없는 구 exe
     watch_overflow = -1                          # 구독 상한에 밀린 종목 수. -1이면 그 줄이 없는 구 exe
     feed_channel_overflow = -1                   # 통로가 차서 못 넘긴 시세 건수. -1이면 그 줄이 없는 구 exe
     feed_channel_discarded = -1                  # 꺼낸 값이 말이 안 돼 버린 건수. -1이면 그 줄이 없는 구 exe
@@ -1062,6 +1065,8 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 symbol_register_timeout = max(symbol_register_timeout, int(found.group(1)))
             if found := SYMBOL_LOOKUP_MISS_RE.search(line):
                 symbol_lookup_miss = max(symbol_lookup_miss, int(found.group(1)))
+            if found := STRATEGY_REGISTER_TIMEOUT_RE.search(line):
+                strategy_register_timeout = max(strategy_register_timeout, int(found.group(1)))
             if found := WATCH_OVERFLOW_RE.search(line):
                 watch_overflow = max(watch_overflow, int(found.group(1)))
             if found := FEED_CHANNEL_OVERFLOW_RE.search(line):
@@ -1344,6 +1349,14 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
         #  아예 못 보고(신호 유실), 표에 없는 티커로 잦은 자리가 불리면 그 틱·신호가 번호 없이 버려진다.
         symbol_row("종목 번호 등록", symbol_register_timeout == 0 and symbol_lookup_miss == 0, "FAIL",
                    f"등록 못 받음 {symbol_register_timeout}건 · 표에 없는 티커 {symbol_lookup_miss}건 (둘 다 기대 0)"),
+        # 전략 이름표도 넣는 쪽은 주문 프로세스 하나다. 등록을 못 받으면 그 전략의 주문이 번호 없이 나가고
+        #  손익이 남의 칸이나 빈 칸에 붙는다 — 매매일지의 전략별 손익이 조용히 틀어진다.
+        ("전략 이름 등록",
+         True if strategy_register_timeout < 0 else strategy_register_timeout == 0,
+         "FAIL",
+         "전략 이름→번호 수치 줄 없음(D-114 단계 4 배선 ③ 배포 전 바이너리) — 판정 안 함"
+         if strategy_register_timeout < 0
+         else f"등록 못 받음 {strategy_register_timeout}건 (기대 0)"),
         # 구독은 KIS 상한(41건)에 걸리면 조용히 거절된다. 밀린 종목은 WS 틱이 안 와 전략이 그 종목을
         #  보지 못하고, 갈라 띄우면 시세 폴러가 전략 쪽에 있어 REST 대체도 아직 없다 — 그래서 FAIL이다.
         watch_row("구독 상한", watch_overflow == 0, "FAIL",

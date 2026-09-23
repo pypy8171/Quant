@@ -25,10 +25,53 @@ using namespace std::chrono_literals;
 namespace
 {
 
-// 전략 쪽이 새 종목의 번호를 기다리는 시간. 주문 쪽이 요청을 집어 표에 넣고 그 값이 같은 공유 표에
+// 전략 쪽이 새 번호를 기다리는 시간. 주문 쪽이 요청을 집어 표에 넣고 그 값이 같은 공유 표에
 //  뜨기까지 걸리는 시간이다 — 느린 경로(기동·재스캔·바스켓)에서만 기다린다.
-constexpr auto kSymbolRegisterWait = std::chrono::milliseconds(50);
-constexpr auto kSymbolRegisterPoll = std::chrono::microseconds(200);
+//  스레드가 뜬 뒤에는 짧게 본다. 그 스레드가 기다리는 동안 틱도 신호도 멎기 때문이다.
+//  다만 주문 쪽 잠 깨우기(order_wake)는 프로세스를 못 넘는다 — 제어 줄에 넣어도 건너편은
+//  제 잠 만기(100ms)가 되어서야 집는다. 그 만기보다 넉넉히 길게 잡는다. [why D-114]
+constexpr auto kRegisterWaitRunning = std::chrono::milliseconds(300);
+constexpr auto kRegisterPollRunning = std::chrono::microseconds(200);
+
+// 기동 중(스레드 전)에는 길게 본다. 건너편도 제 유니버스 스캔·잔고 대조를 하느라 제어 줄을 몇 분 뒤에
+//  집을 수 있고, 여기서 접으면 그 종목·전략이 통째로 빠진 채 장을 연다 — 기다려도 잃는 것이 없는 구간이다.
+//  [why D-114] 주문 쪽이 전략 적재를 건너뛰게 만들면(다음 단계) 이 기다림은 짧아진다.
+constexpr auto kRegisterWaitStartup = std::chrono::minutes(5);
+constexpr auto kRegisterPollStartup = std::chrono::milliseconds(5);
+constexpr auto kRegisterNoticeEvery = std::chrono::seconds(10);
+
+static_assert(symbol::kNone == 0 && strategy_table::kNone == 0, "둘 다 0이어야 한 함수로 기다린다");
+
+// 번호가 표에 뜰 때까지 본다. 뜨면 그 번호, 시간이 다하면 0.
+[[nodiscard]] uint32_t wait_for_shared_id(const std::function<uint32_t()>& lookup, bool running, const std::string& what)
+{
+    using Duration = std::chrono::steady_clock::duration;
+
+    const auto start    = std::chrono::steady_clock::now();
+    const auto deadline = start + (running ? std::chrono::duration_cast<Duration>(kRegisterWaitRunning)
+                                           : std::chrono::duration_cast<Duration>(kRegisterWaitStartup));
+    const auto poll     = running ? std::chrono::duration_cast<Duration>(kRegisterPollRunning)
+                                  : std::chrono::duration_cast<Duration>(kRegisterPollStartup);
+    auto       notice   = start + kRegisterNoticeEvery;
+
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        if (const uint32_t id = lookup(); id != 0)
+        {
+            return id;
+        }
+
+        if (!running && std::chrono::steady_clock::now() >= notice)
+        {
+            LOG_WARN("[Engine] " + what + " 번호를 주문 쪽에서 아직 못 받았다 — 계속 기다린다");
+            notice = std::chrono::steady_clock::now() + kRegisterNoticeEvery;
+        }
+
+        std::this_thread::sleep_for(poll);
+    }
+
+    return 0;
+}
 
 // 전략 프로세스가 공유 쪽지를 기다리는 시간. 주문 쪽은 토큰 발급·잔고 대조·원장 리플레이를 먼저 하므로
 //  기동이 몇 초 늦을 수 있다 — 그보다 넉넉히 두되, 아예 안 뜬 경우에는 기다림이 끝나야 한다. [why D-114]
@@ -39,6 +82,11 @@ constexpr auto kSharedRegionAttachTimeout = std::chrono::seconds(30);
 Engine::Engine(KisConfig kis_config, int fetch_interval_sec)
     : kis_config_(std::move(kis_config)), fetch_interval_sec_(fetch_interval_sec)
 {
+    // 쪽지 위 표의 칸 수는 힙 표와 같아야 한다 — 종목 번호로 바로 색인하는 배열(마지막 값·청산 관리·경로표)이
+    //  힙 표의 칸 수로 잡혀 있어, 쪽지 쪽이 크면 그 배열 밖을 짚는다. [why D-114]
+    layout_config_.symbol_capacity   = symbols_.table.capacity();
+    layout_config_.strategy_capacity = order_gate_.strategy_table().capacity();
+
     // 자리표를 먼저 깐다 — 장부 사본·박동·응답 큐가 그 위에 있어 전략이 붙기 전에 자리가 서 있어야 한다.
     //  시세 줄 수는 아직 모른다(config를 안 읽었다). 한 줄로 깔아 두고 start()가 소켓 수로 다시 깐다. [why D-114]
     if (!bind_layout(1))
@@ -78,7 +126,47 @@ bool Engine::bind_layout(uint32_t feed_lanes)
     pipeline_.requests           = &layout_.requests();
     pipeline_.order_responses    = &layout_.responses();
     pipeline_.strategy_heartbeat = &layout_.heartbeats()->strategy;
+
+    adopt_shared_dictionaries();
     return true;
+}
+
+// 종목 표·전략 이름표를 공유 쪽지 위 한 벌로 바꾼다. 주문 요청이 종목·전략을 정수로 나르므로(원칙 6)
+//  양쪽 번호가 갈리면 엉뚱한 종목에 주문이 나가고 손익이 남의 전략에 붙는다. [why D-114]
+//  [inv] 스레드가 뜨기 전에만 부른다 — 표를 바꾸면 그 전에 받아 둔 번호는 다른 표의 것이 된다.
+void Engine::adopt_shared_dictionaries()
+{
+    // 한 프로세스로 돌면 힙 표 그대로다 — 같이 볼 건너편이 없다.
+    if (role_ == ProcessRole::Both)
+    {
+        return;
+    }
+
+    if (role_ == ProcessRole::Order)
+    {
+        // 넣는 쪽 — 쪽지 위 표에 바로 넣는다(그 안 쓰기 자물쇠가 이 프로세스의 스레드를 직렬화한다).
+        symbols_.table.adopt(layout_.symbols().slots(),
+                             [this](std::string_view ticker) { return layout_.symbols().intern(ticker); });
+        order_gate_.adopt_strategy_table(layout_.strategies().slots(),
+                                         [this](std::string_view name) { return layout_.strategies().intern(name); });
+    }
+    else
+    {
+        // 읽는 쪽 — 찾기는 같은 배열에서 자물쇠 없이, 넣기는 주문 쪽에 부탁한다.
+        symbols_.table.adopt(layout_.symbols().slots(),
+                             [this](std::string_view ticker) { return request_symbol_registration(ticker); });
+        order_gate_.adopt_strategy_table(layout_.strategies().slots(),
+                                         [this](std::string_view name) { return request_strategy_registration(name); });
+    }
+
+    // 고정 이름 셋은 힙 표에 찍힌 번호다 — 표를 바꿨으니 새 표에서 다시 받는다. 안 받으면 강제청산·수동
+    //  주문의 손익이 남의 전략에 붙는다.
+    manual_strategy_index_   = order_gate_.strategy_index_of("MANUAL");
+    force_liquidation_index_ = order_gate_.strategy_index_of("FORCE_LIQ");
+    limit_trim_index_        = order_gate_.strategy_index_of("LIMIT_TRIM");
+
+    LOG_INFO("[Engine] 공유 종목 표 " + std::to_string(symbols_.table.size()) + "종목 · 전략 이름표 " +
+             std::to_string(order_gate_.strategy_table().size()) + "개 연결");
 }
 
 bool Engine::bind_layout_on_heap(size_t needed)
@@ -830,9 +918,7 @@ void Engine::setup_shards()
 
     // [inv] WS 수신 스레드 수 = 소켓 수 — 아래 feed_.websocket 생성과 같은 조건(리플레이·소켓 하나면 1, feed_keys가 있으면 1+N)이라
     //  feed_.websocket->lanes()와 같다. 소켓을 만들기 전에 행 수가 필요해 config로 센다.
-    pipeline_.websocket_lanes = feed_.feed_override ? feed_.feed_override->lanes()
-                : (feed_.replay_file.empty() && !feed_.extra_feed_cfgs.empty()) ? static_cast<uint32_t>(feed_.extra_feed_cfgs.size() + 1)
-                                                                      : 1u;
+    pipeline_.websocket_lanes = websocket_lane_count();
     pipeline_.data_row = pipeline_.websocket_lanes;
     pipeline_.order_book_matrix.reshape(pipeline_.websocket_lanes, shard_count, ShardPipeline::kTickCellCapacity);
     pipeline_.trade_matrix.reshape(pipeline_.websocket_lanes + 1, shard_count, ShardPipeline::kTickCellCapacity);
@@ -852,6 +938,21 @@ void Engine::setup_shards()
 
     LOG_INFO("[Engine] 전략 샤드 " + std::to_string(shard_count) + "개 (config strategy_shards=" +
              std::to_string(pipeline_.strategy_shards) + ")");
+}
+
+uint32_t Engine::websocket_lane_count() const
+{
+    if (feed_.feed_override)
+    {
+        return feed_.feed_override->lanes();
+    }
+
+    if (feed_.replay_file.empty() && !feed_.extra_feed_cfgs.empty())
+    {
+        return static_cast<uint32_t>(feed_.extra_feed_cfgs.size() + 1);
+    }
+
+    return 1u;
 }
 
 void Engine::assign_shard(StrategyBase& strategy)
@@ -1633,21 +1734,47 @@ void Engine::start()
         return;
     }
 
+    start_was_called_.store(true, std::memory_order_release);
+
     LOG_INFO("[Engine] ── 퀀트 엔진 시작 ──────────────────────────────");
+
+    // 자리표부터 맞춘다. 뒤에 오는 setup_shards 가 전략이 다루는 종목을 표에 올리는데, 그때 표가
+    //  아직 힙 것이면 거기 찍힌 번호가 곧 버려진다 — 갈라 띄운 쪽은 그 번호로 시세를 못 알아본다.
+    //  소켓 수는 setup_shards 가 쓰는 것과 같은 셈(websocket_lane_count)이라 먼저 물어도 된다.
+    //  줄 하나를 더 둔다 — 마지막 줄은 구독 상한에 밀린 종목을 REST로 대신 흘리는 자리다(넣는 쪽은
+    //  주문 프로세스의 데이터 스레드 하나). 행렬이 데이터 스레드 행을 따로 두는 것과 같은 모양이다. [why D-114]
+    const uint32_t feed_lane_count = websocket_lane_count() + 1;
+
+    if (layout_config_.feed_lanes != feed_lane_count)
+    {
+        // 쪽지를 이미 열었으면 여기서 다시 깔면 안 된다 — 쪽지 위 종목 표·전략 이름표가 0으로 밀려,
+        //  설정을 읽고 전략을 올리며 찍어 둔 번호 수백 개가 통째로 사라진다. configure()가 같은 셈으로
+        //  미리 깔아 두므로 여기서 갈리는 것은 그 뒤에 피드가 더 붙었다는 뜻이다 — 조용히 넘기지 않는다.
+        //  아직 안 열었으면(설정을 안 읽고 역할만 준 길) 여기서 처음 여는 것이라 잃을 번호가 없다. [why D-114]
+        if (layout_region_.is_open())
+        {
+            LOG_ERROR("[Engine] 시세 줄 수가 설정을 읽을 때와 다르다(" + std::to_string(layout_config_.feed_lanes) +
+                      "→" + std::to_string(feed_lane_count) + ") — 갈라 띄운 채로는 다시 깔 수 없어 뜨지 않는다");
+            return;
+        }
+
+        if (!bind_layout(feed_lane_count))
+        {
+            LOG_ERROR("[Engine] 시세 줄 " + std::to_string(feed_lane_count) + "개로 자리표를 다시 못 깔았다");
+            return;
+        }
+    }
 
     // 틱 파이프라인 자리는 양쪽에 그대로 둔다 — 소켓을 쥔 쪽이 아직 샤드에 흘리기 때문이다.
     //  시세가 통로로 건너가는 단계 5에서 주문 쪽 샤드는 사라진다. [why D-114]
     setup_shards();
 
-    // 소켓 수가 여기서 정해진다. 자리표의 시세 줄 수가 그와 다르면 뒤따르는 면의 자리가 통째로 밀리므로
-    //  줄 수를 맞춰 다시 깐다 — 스레드 전이라 칸을 밀어도 될 때다. [why D-114]
-    //  줄 하나를 더 둔다 — 마지막 줄은 구독 상한에 밀린 종목을 REST로 대신 흘리는 자리다(넣는 쪽은
-    //  주문 프로세스의 데이터 스레드 하나). 행렬이 데이터 스레드 행을 따로 두는 것과 같은 모양이다.
-    const uint32_t feed_lane_count = pipeline_.websocket_lanes + 1;
-
-    if (layout_config_.feed_lanes != feed_lane_count && !bind_layout(feed_lane_count))
+    // [inv] 자리표를 깔 때 쓴 셈과 샤드가 실제로 연 줄 수는 같아야 한다 — 다르면 통로의 줄 자리가
+    //  어긋나 건너편이 남의 줄을 읽는다.
+    if (pipeline_.websocket_lanes + 1 != layout_config_.feed_lanes)
     {
-        LOG_ERROR("[Engine] 시세 줄 " + std::to_string(feed_lane_count) + "개로 자리표를 다시 못 깔았다");
+        LOG_ERROR("[Engine] 시세 줄 수가 자리표와 어긋난다(" + std::to_string(layout_config_.feed_lanes) + "→" +
+                  std::to_string(pipeline_.websocket_lanes + 1) + ") — 통로 자리가 밀려 뜨지 않는다");
         return;
     }
 
@@ -1782,44 +1909,71 @@ symbol::SymbolId Engine::lookup_symbol(std::string_view ticker) noexcept
 
 symbol::SymbolId Engine::register_symbol(std::string_view ticker)
 {
-    // 표에 넣는 쪽은 주문 프로세스 하나다 — 양쪽이 각자 번호를 찍으면 같은 번호가 다른 종목을 가리킨다. [why D-114]
-    if (role_ != ProcessRole::Strategy)
+    // 표에 넣는 쪽은 주문 프로세스 하나다 — 양쪽이 각자 번호를 찍으면 같은 번호가 다른 종목을 가리킨다.
+    //  갈라 띄우면 표 자체가 넣기를 주문 쪽으로 돌리므로(adopt_shared_dictionaries) 부르는 자리는 역할을
+    //  몰라도 된다. 아래 한 갈래는 표를 아직 안 바꾼 채 전략 역할로 도는 길을 막는 것이다 —
+    //  자리표를 못 깔았거나 단위 시험이 역할만 바꿔 도는 때다. [why D-114]
+    if (role_ == ProcessRole::Strategy)
     {
-        return symbols_.table.intern(ticker);
+        const symbol::SymbolId known = symbols_.table.lookup(ticker);
+
+        return known != symbol::kNone ? known : request_symbol_registration(ticker);
     }
 
-    const symbol::SymbolId known = symbols_.table.lookup(ticker);
+    return symbols_.table.intern(ticker);
+}
 
-    if (known != symbol::kNone)
-    {
-        return known;
-    }
-
+symbol::SymbolId Engine::request_symbol_registration(std::string_view ticker)
+{
     ipc::ControlRequest request;
     request.kind   = ipc::ControlKind::kRegisterSymbol;
     request.ticker = ticker;
 
     if (send_control(request))
     {
-        // 답을 따로 받지 않는다 — 주문 쪽이 넣으면 같은 공유 표에 뜬다. 뜰 때까지만 짧게 본다.
-        const auto deadline = std::chrono::steady_clock::now() + kSymbolRegisterWait;
+        // 앞 토막에서 경계 너머로 직접 옮긴다 — 평소 옮겨 주는 전략 스레드가 바로 이 자리에서 번호를
+        //  기다리고 있을 수 있다. 그때는 아무도 안 옮겨 기다림이 헛돈다. [why D-114]
+        relay_control_requests();
 
-        while (std::chrono::steady_clock::now() < deadline)
+        // 답을 따로 받지 않는다 — 주문 쪽이 넣으면 같은 공유 표에 뜬다. 그것을 본다.
+        const symbol::SymbolId id = wait_for_shared_id([this, ticker] { return symbols_.table.lookup(ticker); },
+                                                       start_was_called_.load(std::memory_order_acquire),
+                                                       "종목 " + std::string(ticker));
+
+        if (id != symbol::kNone)
         {
-            const symbol::SymbolId id = symbols_.table.lookup(ticker);
-
-            if (id != symbol::kNone)
-            {
-                return id;
-            }
-
-            std::this_thread::sleep_for(kSymbolRegisterPoll);
+            return id;
         }
     }
 
     symbol_register_timeouts_.fetch_add(1, std::memory_order_relaxed);
     LOG_WARN("[Engine] 종목 " + std::string(ticker) + " 등록을 주문 쪽에서 못 받았다 — 이번 줄을 접는다");
     return symbol::kNone;
+}
+
+strategy_table::StrategyId Engine::request_strategy_registration(std::string_view name)
+{
+    ipc::ControlRequest request;
+    request.kind = ipc::ControlKind::kRegisterStrategy;
+    request.strategy_name.assign(name);
+
+    if (send_control(request))
+    {
+        relay_control_requests(); // 종목 등록과 같은 이유로 이 자리에서 직접 옮긴다 [why D-114]
+
+        const strategy_table::StrategyId id =
+            wait_for_shared_id([this, name] { return order_gate_.strategy_table().lookup(name); },
+                               start_was_called_.load(std::memory_order_acquire), "전략 " + std::string(name));
+
+        if (id != strategy_table::kNone)
+        {
+            return id;
+        }
+    }
+
+    strategy_register_timeouts_.fetch_add(1, std::memory_order_relaxed);
+    LOG_WARN("[Engine] 전략 " + std::string(name) + " 등록을 주문 쪽에서 못 받았다 — 손익 귀속이 빈 채로 간다");
+    return strategy_table::kNone;
 }
 
 // ─── 주문 쪽 스위치 다섯 ──────────────────────────────────────────────────
@@ -2818,6 +2972,9 @@ bool Engine::ControlProtectiveRegistry::consume_fired(const std::string& account
 
 void Engine::relay_control_requests()
 {
+    // 꺼내는 쪽을 하나로 묶는다 — 평소에는 전략 스레드가, 번호를 기다리는 동안에는 기다리는 쪽이 부른다.
+    std::lock_guard<std::mutex> relay_lock(pipeline_.control_relay_mutex);
+
     bool moved = false;
 
     while (auto option = pipeline_.strategy_control_outbox.pop())
@@ -2917,7 +3074,12 @@ void Engine::apply_control_requests(ControlInbox& inbox)
 
         // 종목 표에 넣는 자리는 여기 하나다 — 전략 쪽은 이 요청을 보내고 번호는 같은 표에서 읽어 간다.
         case ipc::ControlKind::kRegisterSymbol:
-            symbols_.table.intern(request.ticker.view());
+            (void)symbols_.table.intern(request.ticker.view());
+            break;
+
+        // 전략 이름표에 넣는 자리도 여기 하나다 — 이름과 번호가 갈리면 서브원장 귀속이 남의 전략에 붙는다.
+        case ipc::ControlKind::kRegisterStrategy:
+            (void)order_gate_.strategy_index_of(request.strategy_name.view());
             break;
 
         // 주문 쪽 스위치를 고치는 자리도 여기 하나다 — 전략 쪽은 요청만 보낸다.
@@ -4186,6 +4348,8 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                      // 티커→번호 — 등록을 주문 쪽에서 못 받은 수, 표에 없는 티커로 잦은 자리가 불린 수. 둘 다 0이어야 한다. [why D-114]
                      " symbol_register_timeout=" + std::to_string(symbol_register_timeouts()) +
                      " symbol_lookup_miss=" + std::to_string(symbol_lookup_misses()) +
+                     // 전략 이름→번호 — 이름표 등록을 못 받은 수. 0이 아니면 그 전략 손익이 빈 칸에 붙는다. [why D-114]
+                     " strategy_register_timeout=" + std::to_string(strategy_register_timeouts()) +
                      // 구독 — 상한에 밀려 소켓에 못 건 종목 수. 0이어야 한다(밀린 종목은 WS 틱이 없다). [why D-114]
                      " watch_overflow=" + std::to_string(watch_overflows()) +
                      // 시세 통로 — 큐가 차서 못 넘긴 건수와, 값이 말이 안 돼 꺼내는 쪽이 버린 건수. 둘 다 0이어야 한다. [why D-114]

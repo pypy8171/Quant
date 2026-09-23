@@ -650,6 +650,7 @@ graph LR
 ```mermaid
 graph LR
   p_PYQuant["PYQuant"]
+  p_PYQuant__logdir["PYQuant/_logdir"]
   p_PYQuant_backtest["PYQuant/backtest"]
   p_PYQuant_core["PYQuant/core"]
   p_PYQuant_dashboard["PYQuant/dashboard"]
@@ -698,6 +699,7 @@ graph LR
   p_PYQuant_tests -->|3| p_PYQuant_kis
   p_PYQuant_tests -->|4| p_PYQuant_strategy
   p_PYQuant_tools -->|5| p_PYQuant
+  p_PYQuant_tools --> p_PYQuant__logdir
   p_PYQuant_tools --> p_PYQuant_backtest
   p_PYQuant_tools -->|2| p_PYQuant_core
   p_PYQuant_tools -->|7| p_PYQuant_data
@@ -768,6 +770,7 @@ graph LR
 | `PYQuant/tools/index_intraday_logger.py` | `kis.client` |
 | `PYQuant/tools/investor_flow_logger.py` | `kis.client` |
 | `PYQuant/tools/ledger_recorder.py` | `core.logger`, `db.client` |
+| `PYQuant/tools/load_highwater_reader.py` | `_logdir` |
 | `PYQuant/tools/minute_backfill.py` | `kis.client` |
 | `PYQuant/tools/minute_backfill_pairs.py` | `features.fundamental` |
 | `PYQuant/tools/month_start_sweep.py` | `data.datagokr_source`, `main` |
