@@ -1,0 +1,4 @@
+round,orders_per_symbol,inject_seconds,orders,fills,signals,ticks,total_rows,rows_per_second,drain_seconds,min_available_gb
+J,30000,72.2,3018,817,2267,14501,20603,285,0.0,4.64
+K,50000,78.2,3926,706,5742,18712,29086,372,9.3,3.58
+L,70000,90.3,2655,232,2700,19001,24588,272,3.2,2.76

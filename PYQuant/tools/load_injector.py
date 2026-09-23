@@ -23,6 +23,7 @@ import random
 import struct
 import sys
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -80,6 +81,10 @@ _PRICE_LIMIT_RATIO = 0.30
 _BATCH_SIZES = (1, 30, 100)
 
 _SECONDS_PER_PHASE = 60
+
+# 1단계 주문을 한 번에 몇 건씩 만들어 보낼지. 전문 자체는 32바이트지만 값을 고르는 동안 float64 배열
+# 여섯 개를 같이 들어 건당 100바이트 넘게 쓴다 — 이 상수가 그 봉우리를 묶음 하나 크기로 묶어 둔다.
+_ACCUMULATE_CHUNK_RECORDS = 8_000_000
 
 
 def tick_size(price_krw: int) -> int:
@@ -235,40 +240,58 @@ def build_auction_records(universe: Universe) -> numpy.ndarray:
     return records
 
 
-def build_accumulate_records(
-    universe: Universe, orders_per_symbol: int, quantities: numpy.ndarray, generator: numpy.random.Generator
-) -> numpy.ndarray:
-    """1단계에 쏟을 주문 전부를 한 번에 만든다. 종목당 orders_per_symbol 건, 주문번호는 전역에서 겹치지 않는다.
+def iterate_accumulate_records(
+    universe: Universe,
+    orders_per_symbol: int,
+    quantities: numpy.ndarray,
+    generator: numpy.random.Generator,
+    records_per_chunk: int = _ACCUMULATE_CHUNK_RECORDS,
+) -> Iterator[numpy.ndarray]:
+    """1단계에 쏟을 주문을 종목 묶음 단위로 만들어 내놓는다. 종목당 orders_per_symbol 건,
+    주문번호는 전역에서 겹치지 않는다.
+
+    [inv] 묶음 경계는 종목 경계다 — 한 종목의 주문은 반드시 한 묶음 안에 다 들어간다. 주문번호를
+      종목 순번에서 바로 뽑을 수 있는 것도, 받는 쪽 수신 스레드가 섞이지 않는 것도 이 덕이다.
+
+    전부를 한 배열로 들면 주문 한 건에 100바이트 넘게 든다 — 32바이트짜리 전문 말고도 값을 고르는
+    float64 배열 여섯 개를 같이 들어서다. 묶음으로 내놓으면 그 100바이트가 묶음 크기에만 걸린다.
 
     값은 기준가 둘레 ±30% 안에서 고른다 — 매수는 기준가 위로도 걸리게, 매도는 아래로도 걸리게 해서
     단일가에서 실제로 맞는 물량이 생기도록.
     """
     symbol_count = len(universe)
-    total = symbol_count * orders_per_symbol
-    records = numpy.zeros(total, dtype=_WIRE_DTYPE)
+    symbols_per_chunk = max(1, records_per_chunk // max(orders_per_symbol, 1))
 
-    # 주문번호: 종목 순번 × 종목당 건수 + 1.. — 종목 간에도 안 겹친다.
-    records["order_id"] = numpy.arange(1, total + 1, dtype=numpy.uint64)
-    records["symbol_index"] = numpy.repeat(
-        numpy.arange(symbol_count, dtype=numpy.uint32), orders_per_symbol
-    )
-    records["quantity"] = numpy.repeat(quantities, orders_per_symbol)
-    records["side"] = generator.integers(0, 2, size=total, dtype=numpy.uint8)
-    records["command"] = _COMMAND_ACCUMULATE
+    for first_symbol in range(0, symbol_count, symbols_per_chunk):
+        last_symbol = min(first_symbol + symbols_per_chunk, symbol_count)
+        total = (last_symbol - first_symbol) * orders_per_symbol
+        records = numpy.zeros(total, dtype=_WIRE_DTYPE)
 
-    # 값: 기준가 × (1 + 정규난수). 매수는 위로, 매도는 아래로 조금 치우치게 해서 교차가 생기게 한다.
-    reference = numpy.repeat(universe.reference_prices.astype(numpy.float64), orders_per_symbol)
-    drift = numpy.where(records["side"] == _SIDE_BUY, 0.004, -0.004)
-    noise = generator.normal(0.0, 0.010, size=total)
-    prices = reference * (1.0 + drift + noise)
+        # 주문번호: 종목 순번 × 종목당 건수 + 1.. — 종목 간에도, 묶음 간에도 안 겹친다.
+        first_order_id = first_symbol * orders_per_symbol + 1
+        records["order_id"] = numpy.arange(first_order_id, first_order_id + total, dtype=numpy.uint64)
+        records["symbol_index"] = numpy.repeat(
+            numpy.arange(first_symbol, last_symbol, dtype=numpy.uint32), orders_per_symbol
+        )
+        records["quantity"] = numpy.repeat(quantities[first_symbol:last_symbol], orders_per_symbol)
+        records["side"] = generator.integers(0, 2, size=total, dtype=numpy.uint8)
+        records["command"] = _COMMAND_ACCUMULATE
 
-    lower = reference * (1.0 - _PRICE_LIMIT_RATIO)
-    upper = reference * (1.0 + _PRICE_LIMIT_RATIO)
-    prices = numpy.clip(prices, lower, upper)
+        # 값: 기준가 × (1 + 정규난수). 매수는 위로, 매도는 아래로 조금 치우치게 해서 교차가 생기게 한다.
+        reference = numpy.repeat(
+            universe.reference_prices[first_symbol:last_symbol].astype(numpy.float64), orders_per_symbol
+        )
+        drift = numpy.where(records["side"] == _SIDE_BUY, 0.004, -0.004)
+        noise = generator.normal(0.0, 0.010, size=total)
+        prices = reference * (1.0 + drift + noise)
 
-    records["price_krw"] = _round_array_to_tick(prices)
+        lower = reference * (1.0 - _PRICE_LIMIT_RATIO)
+        upper = reference * (1.0 + _PRICE_LIMIT_RATIO)
+        prices = numpy.clip(prices, lower, upper)
 
-    return records
+        records["price_krw"] = _round_array_to_tick(prices)
+
+        yield records
 
 
 def _round_array_to_tick(prices: numpy.ndarray) -> numpy.ndarray:
@@ -457,6 +480,12 @@ def parse_arguments(argument_list: list[str] | None = None) -> argparse.Namespac
     )
     parser.add_argument("--orders-per-symbol", type=int, default=10000, help="1단계 종목당 주문 수")
     parser.add_argument("--lanes", type=int, default=1, help="받는 쪽 수신 스레드 수")
+    parser.add_argument(
+        "--accumulate-chunk-records",
+        type=int,
+        default=_ACCUMULATE_CHUNK_RECORDS,
+        help="1단계 주문을 한 번에 몇 건씩 만들어 보낼지 — 이 값이 메모리 봉우리를 정한다",
+    )
     parser.add_argument("--base-port", type=int, default=5600, help="수신 스레드 0번 포트")
     parser.add_argument("--host", default="127.0.0.1", help="받는 쪽 주소")
     parser.add_argument(
@@ -504,11 +533,6 @@ def main(argument_list: list[str] | None = None) -> int:
     build_started = time.perf_counter()
     configure_records = build_configure_records(universe)
     auction_records = build_auction_records(universe)
-    accumulate_records = (
-        build_accumulate_records(universe, arguments.orders_per_symbol, quantities, numpy_generator)
-        if arguments.phase in ("all", "auction")
-        else numpy.zeros(0, dtype=_WIRE_DTYPE)
-    )
     continuous_seconds = (
         build_continuous_records(
             universe,
@@ -520,9 +544,11 @@ def main(argument_list: list[str] | None = None) -> int:
         if arguments.phase in ("all", "continuous")
         else []
     )
-    built_bytes = accumulate_records.nbytes + sum(records.nbytes for records in continuous_seconds)
+    # 1단계는 보내면서 만든다 — 여기 잡힌 것은 3단계 60초치뿐이다.
+    built_bytes = sum(records.nbytes for records in continuous_seconds)
     print(
         f"  {time.perf_counter() - build_started:.1f}초  메모리 {built_bytes / (1 << 30):.2f}GB"
+        f"  (1단계는 {arguments.accumulate_chunk_records:,}건씩 만들어 가며 보낸다)"
     )
 
     if arguments.dry_run:
@@ -545,9 +571,20 @@ def main(argument_list: list[str] | None = None) -> int:
         send_one_per_symbol(senders, configure_records, arguments.lanes)
 
         if arguments.phase in ("all", "auction"):
-            print(f"1단계: 동시호가 적재 — {len(accumulate_records):,}건을 쉬지 않고 쏟는다")
+            planned = len(universe) * arguments.orders_per_symbol
+            print(f"1단계: 동시호가 적재 — {planned:,}건을 쉬지 않고 쏟는다")
             started = time.perf_counter()
-            sent = dump_saturated(senders, split_by_lane(accumulate_records, arguments.lanes), batch_generator)
+            sent = 0
+
+            for chunk in iterate_accumulate_records(
+                universe,
+                arguments.orders_per_symbol,
+                quantities,
+                numpy_generator,
+                arguments.accumulate_chunk_records,
+            ):
+                sent += dump_saturated(senders, split_by_lane(chunk, arguments.lanes), batch_generator)
+
             _report("적재", sent, time.perf_counter() - started)
 
             print("2단계: 단일가 일괄 체결")
