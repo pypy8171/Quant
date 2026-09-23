@@ -86,17 +86,17 @@ bool KisClient::refresh_token(std::chrono::seconds margin)
         return true;
     }
 
-    return issue_token();
+    return issue_token(margin);
 }
 
 bool KisClient::authenticate()
 {
     std::lock_guard<std::mutex> refresh_lock(refresh_mutex_);
-    return issue_token();
+    return issue_token(std::chrono::minutes(10));
 }
 
-// refresh_mtx_를 쥔 상태에서만 호출. token_mtx_는 set_token 안에서만 잠깐 잡는다.
-bool KisClient::issue_token()
+// refresh_mutex_를 쥔 상태에서만 호출. token_mutex_는 set_token 안에서만 잠깐 잡는다.
+bool KisClient::issue_token(std::chrono::seconds reuse_margin)
 {
     // ── 캐시 파일에 유효한 토큰이 있으면 재사용 ──────────────────────────
     std::string cache_path = token_cache_path(config_.app_key);
@@ -131,8 +131,9 @@ bool KisClient::issue_token()
                         auto exp_t = std::mktime(&tm_exp);
                         auto now_t = std::time(nullptr);
 
-                        // 만료 10분 전까지 사용
-                        if (exp_t - now_t > 600)
+                        // 부른 쪽의 여유보다 오래 남았을 때만 다시 쓴다. 고정 10분으로 두던 동안 제어 스레드의
+                        //  30분 선갱신이 같은 캐시 토큰을 되읽기만 해서, 실제 선갱신은 만료 10분 전에야 났다.
+                        if (exp_t - now_t > reuse_margin.count())
                         {
                             set_token(std::move(token), std::chrono::system_clock::from_time_t(exp_t));
                             LOG_INFO("[KIS] 캐시 토큰 재사용 (만료: " + expires + ")");

@@ -269,9 +269,10 @@ private:
 
     // 토큰 만료 5분 전이면 자동 재발급 — http_get/http_post가 요청마다 부른다(refresh_token(5분)).
     void ensure_authenticated();
-    // 실제 발급/캐시 로직 — refresh_mtx_를 쥔 상태에서만 호출. 토큰 쓰기는 set_token으로만.
-    bool issue_token();
-    // 만료 margin 안인지 — token_mtx_를 이 검사 동안만 잡는다.
+    // 실제 발급/캐시 로직 — refresh_mutex_를 쥔 상태에서만 호출. 토큰 쓰기는 set_token으로만.
+    //  캐시 토큰은 남은 시간이 reuse_margin보다 길 때만 다시 쓴다.
+    bool issue_token(std::chrono::seconds reuse_margin);
+    // 만료 margin 안인지 — token_mutex_를 이 검사 동안만 잡는다.
     bool token_expiring(std::chrono::seconds margin) const;
     void set_token(std::string token, std::chrono::system_clock::time_point expires_at);
     // 현재 토큰의 락-보호 스냅샷 복사본. 헤더 조립 시 access_token_ 직접 참조 대신 사용
