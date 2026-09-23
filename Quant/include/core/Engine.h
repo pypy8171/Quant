@@ -32,11 +32,13 @@
 #include "ipc/OrderChannel.h"
 #include "ipc/ControlChannel.h"
 #include "ipc/LedgerSnapshot.h"
+#include "ipc/SharedLayout.h"
 #include "ipc/OrderRouter.h"
 #include "ipc/OpsServer.h"
 #include "core/MpscQueue.h"
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
 #include <functional>
 #include <stop_token>
@@ -658,6 +660,17 @@ private:
     void retire_owned(RescanJob& job, symbol::SymbolId symbol,
                       const std::function<std::string(const StrategyBase&)>& make_line);
 
+    // ── 공유 쪽지 자리표 ────────────────────────────────────────────────────
+    // 경계를 넘을 면 여덟을 자리표 한 장 위에 모은다(ipc::SharedLayout). 갈라 띄우면 이 바이트가 공유
+    //  쪽지가 되고, Both 로 돌면 아래 힙 한 덩이가 그 자리를 대신한다 — 자리 셈도 코드 경로도 하나다.
+    //  여기서 둘로 갈라 두면 갈라 띄운 날에만 도는 코드가 생기고, 그런 코드는 그날 처음 돈다. [why D-114]
+    //  [inv] 아래 파이프라인·장부 사본이 이 자리표를 가리킨다 — 먼저 선언해 나중에 죽는다.
+    //  [inv] 스레드가 뜨기 전에만 다시 깐다(생성자와 start()의 준비 단계). 뜬 뒤에 깔면 돌던 큐가 지워진다.
+    std::vector<std::byte>  layout_storage_;
+    ipc::SharedLayoutConfig layout_config_;
+    ipc::SharedLayout       layout_;
+    [[nodiscard]] bool      bind_layout(uint32_t feed_lanes);
+
     // ── N×M 샤드 파이프라인·큐 ──────────────────────────────────────────────
     // 수신 N × 전략 샤드 M 링 행렬. 셀 하나의 생산자는 스레드 하나다 — WS 수신 스레드 i(소켓 i의 수신 스레드)는 행 i, 체결은
     //  데이터 스레드 행(REST 대체 틱, 행 data_row)을 더 둔다(D-053이 두 큐로 풀던 것을 행으로 푼다). 열은 전략 단위다 —
@@ -692,9 +705,12 @@ private:
         RingBuffer<FillNotification> fill_queue{kFillQueueCapacity};
         std::atomic<uint64_t> fill_dropped{0};   // fill_queue 가득 차 버린 체결통보 수. 0이 아니면 잔고 대조가 원장을 메운다
         std::atomic<uint64_t> order_dropped{0};  // order_queue 가득 차 버린 신호 수. [큐 고수위] 줄에 같이 찍힌다
-        // 주문 → 전략 응답. 생산자가 주문 스레드 하나라 SPSC. 레코드에 문자열·포인터가 없어 단계 4에서
-        //  공유메모리 링으로 그대로 옮겨 간다 — 지금은 같은 프로세스의 큐다. [why D-114]
-        RingBuffer<ipc::OrderResponse> order_response_queue{kOrderResponseCapacity};
+        // 주문 → 전략 응답. 보내는 쪽이 주문 스레드 하나, 받는 쪽이 전략 스레드 하나라 SPSC다. 큐는
+        //  자리표 위에 있고 여기 있는 것은 그 자리를 가리키는 포인터뿐이라, 프로세스를 갈라도 이 줄은
+        //  그대로다. [inv] bind_layout()이 꽂는다. [why D-114]
+        //  [inv] Both 로 돌 때는 한 인스턴스가 양쪽 끝을 맡는다 — 보내는 쪽 자리와 받는 쪽 자리를 각각
+        //   한 스레드만 만지므로 같은 인스턴스라도 값이 섞이지 않는다(칸 하나에 값 하나씩 따로 있다).
+        ipc::SharedSpscRing<ipc::OrderResponse>* order_responses = nullptr;
         std::atomic<uint64_t> order_response_dropped{0}; // 전략이 답을 안 가져가 버린 응답 수
         std::atomic<uint64_t> order_duplicate{0};        // 주문 쪽이 같은 순번을 두 번 받아 거른 수. 0이 아니면 통로가 샜다
         // 전략 쪽이 주문 쪽 표를 고쳐 달라고 보내는 통로(슬롯 면제 집합·진입 우선순위 표·보호 주문 등록).
@@ -705,9 +721,10 @@ private:
         std::atomic<uint64_t> control_sequence{0};  // 제어 요청 순번 발급기. 0은 안 쓴다
         std::atomic<uint64_t> control_dropped{0};   // 큐가 가득 차 못 보낸 줄 수. 0이 아니면 표가 버려졌다
         std::atomic<uint64_t> control_discarded{0}; // 주문 쪽이 반쪽 표로 보고 버린 줄 수
-        // 전략 스레드가 한 바퀴마다 찍고 주문 스레드가 공백만 보고 생사를 판정한다. 프로세스가 갈려도
-        //  판정 방식은 그대로다 — 공유메모리의 int64 하나가 된다. [why D-114]
-        ipc::Heartbeat strategy_heartbeat;
+        // 전략 스레드가 한 바퀴마다 찍고 주문 스레드가 공백만 보고 생사를 판정한다. 자리표의 박동 면
+        //  가운데 전략 쪽 칸을 가리킨다 — 프로세스가 갈려도 찍는 자리도 보는 자리도 그대로다. [why D-114]
+        //  [inv] bind_layout()이 꽂는다.
+        ipc::Heartbeat* strategy_heartbeat = nullptr;
     // 주문 스레드가 본 가장 긴 박동 공백(나노초). 문턱을 감으로 정하지 않으려고 밖으로 낸다 — 부하 하네스의
     //  beat_gap_max_ms 열과 [큐 고수위] 줄, check_runtime_health의 판정 행이 이 값 하나를 본다. [why D-114]
     std::atomic<int64_t> strategy_beat_gap_max_ns{0};
@@ -777,10 +794,10 @@ private:
     const strategy_table::StrategyId force_liquidation_index_ = order_gate_.strategy_index_of("FORCE_LIQ");
     const strategy_table::StrategyId limit_trim_index_        = order_gate_.strategy_index_of("LIMIT_TRIM");
     std::unique_ptr<OrderRouter> order_router_; // 주문 전처리·중계 레이어(증권업계 용어로 FEP, Front-End Processor). start() 이후 유효
-    // 전략 쪽이 읽을 장부 사본. 장부가 바뀔 때마다 order_gate_가 여기에 한 판을 낸다.
-    //  지금은 채우기만 한다 — 읽는 자리를 옮기는 것은 뒤 단계다. 290KB라 Engine을 스택에 두는 경우를
-    //  생각해 힙에 둔다. 단계 4에서 이 자리가 공유메모리로 바뀐다. [why D-114]
-    std::unique_ptr<ipc::LedgerSnapshot> ledger_snapshot_ = std::make_unique<ipc::LedgerSnapshot>();
+    // 전략 쪽이 읽을 장부 사본. 장부가 바뀔 때마다 order_gate_가 여기에 한 판을 낸다. 자리표의 마지막
+    //  면이라 Engine 안에 실체가 없다 — 여기 있는 것은 그 자리를 가리키는 포인터다. [why D-114]
+    //  [inv] bind_layout()이 꽂는다. 못 깔면 start()가 뜨지 않으니 여기서 빈 포인터를 보지 않는다.
+    ipc::LedgerSnapshot* ledger_snapshot_ = nullptr;
 
     // ── 구독 스펙 ─────────────────────────────────────────────────────────────
     // 전략에서 수집한 구독 스펙 (on_start 이후 확정)

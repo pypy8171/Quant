@@ -29,7 +29,7 @@
     {
       "from": "core",
       "to": "ipc",
-      "weight": 8
+      "weight": 9
     },
     {
       "from": "core",
@@ -506,6 +506,7 @@
       "ipc/OpsServer.h",
       "ipc/OrderChannel.h",
       "ipc/OrderRouter.h",
+      "ipc/SharedLayout.h",
       "ipc/ZmqBridge.h",
       "risk/OrderGate.h",
       "risk/ProtectiveOrders.h",
@@ -1383,6 +1384,7 @@
       "ipc/OrderRouter.cpp"
     ],
     "ipc/SharedLayout.h": [
+      "core/Engine.h",
       "ipc/SharedLayout.cpp"
     ],
     "ipc/SharedRegion.h": [

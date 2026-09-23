@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <memory>
 #include <sstream>
 #include <thread>
 #include <unordered_set>
@@ -34,8 +35,54 @@ constexpr auto kSymbolRegisterPoll = std::chrono::microseconds(200);
 Engine::Engine(KisConfig kis_config, int fetch_interval_sec)
     : kis_config_(std::move(kis_config)), fetch_interval_sec_(fetch_interval_sec)
 {
+    // 자리표를 먼저 깐다 — 장부 사본·박동·응답 큐가 그 위에 있어 전략이 붙기 전에 자리가 서 있어야 한다.
+    //  시세 줄 수는 아직 모른다(config를 안 읽었다). 한 줄로 깔아 두고 start()가 소켓 수로 다시 깐다. [why D-114]
+    if (!bind_layout(1))
+    {
+        // 여기서 실패하는 길은 칸 수 상수나 자리 셈이 어긋났을 때뿐이다. start()가 이 상태를 보고 안 뜬다.
+        LOG_ERROR("[Engine] 자리표를 못 깔았다 — " + std::string(layout_.last_error()));
+    }
+
     // 원장 키의 종목 번호를 신호·틱과 같은 테이블에서 받는다. 첫 시드·체결 전에 묶어야 한다. [why D-105]
     order_gate_.set_symbol_table(&symbols_.table);
+}
+
+// 자리표를 깐다. 갈라 띄우면 이 바이트가 공유 쪽지가 되고, Both 로 돌면 힙 한 덩이가 그 자리를 대신한다 —
+//  놓는 자리도 셈도 같아서 갈라 띄우는 날 처음 도는 코드가 없다. [why D-114]
+//  [inv] 스레드가 뜨기 전에만 부른다. 돌던 큐 위에 다시 깔면 칸이 0으로 밀려 오가던 것이 사라진다.
+bool Engine::bind_layout(uint32_t feed_lanes)
+{
+    // 큐 칸 수는 한 프로세스로 돌던 때 쓰던 상수를 그대로 쓴다 — 자리표에 따로 적으면 두 벌이 된다.
+    layout_config_.feed_lanes        = feed_lanes;
+    layout_config_.request_capacity  = ShardPipeline::kOrderQueueCapacity;
+    layout_config_.response_capacity = ShardPipeline::kOrderResponseCapacity;
+    layout_config_.control_capacity  = ShardPipeline::kControlQueueCapacity;
+
+    const size_t needed = ipc::SharedLayout::bytes_for(layout_config_);
+
+    // 자리표는 캐시라인 경계에서 시작해야 한다. 힙이 주는 경계는 그보다 작아 한 줄만큼 더 잡고 밀어 맞춘다.
+    layout_.unbind();
+    layout_storage_.assign(needed + ipc::kSharedCacheLine, std::byte{});
+
+    void*  aligned   = layout_storage_.data();
+    size_t available = layout_storage_.size();
+
+    if (std::align(ipc::kSharedCacheLine, needed, aligned, available) == nullptr)
+    {
+        LOG_ERROR("[Engine] 자리표를 캐시라인 경계에 못 맞췄다");
+        return false;
+    }
+
+    if (!layout_.create(static_cast<std::byte*>(aligned), available, layout_config_))
+    {
+        return false;
+    }
+
+    // 자리표 위 면을 쓰는 자리에 꽂는다. [inv] 이 포인터들은 다음 bind_layout 까지만 유효하다.
+    ledger_snapshot_             = layout_.ledger();
+    pipeline_.order_responses    = &layout_.responses();
+    pipeline_.strategy_heartbeat = &layout_.heartbeats()->strategy;
+    return true;
 }
 
 Engine::~Engine()
@@ -1357,11 +1404,26 @@ void Engine::start()
         return;
     }
 
+    // 자리표가 없으면 장부 사본도 박동도 응답 큐도 없다 — 그 상태로는 뜨지 않는다. [why D-114]
+    if (!layout_.is_bound())
+    {
+        LOG_ERROR("[Engine] 자리표 없이는 뜨지 않는다 — " + std::string(layout_.last_error()));
+        return;
+    }
+
     LOG_INFO("[Engine] ── 퀀트 엔진 시작 ──────────────────────────────");
 
     // 틱 파이프라인 자리는 양쪽에 그대로 둔다 — 소켓을 쥔 쪽이 아직 샤드에 흘리기 때문이다.
     //  시세가 통로로 건너가는 단계 5에서 주문 쪽 샤드는 사라진다. [why D-114]
     setup_shards();
+
+    // 소켓 수가 여기서 정해진다. 자리표의 시세 줄 수가 그와 다르면 뒤따르는 면의 자리가 통째로 밀리므로
+    //  줄 수를 맞춰 다시 깐다 — 스레드 전이라 칸을 밀어도 될 때다. [why D-114]
+    if (layout_config_.feed_lanes != pipeline_.websocket_lanes && !bind_layout(pipeline_.websocket_lanes))
+    {
+        LOG_ERROR("[Engine] 시세 줄 " + std::to_string(pipeline_.websocket_lanes) + "개로 자리표를 다시 못 깔았다");
+        return;
+    }
 
 #ifdef HAS_ZMQ
     // 발행 채널은 주문 쪽에 둔다 — 전략이 멎어도 KILL과 잔고 조회는 살아 있어야 한다. [why D-114]
@@ -2997,12 +3059,14 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
     {
         // 살아 있다고 찍는다 — 주문 쪽이 이 값의 공백만 보고 판정한다. 한 바퀴가 길어지면 공백도 길어지니
         //  부하 아래 실측(HeartbeatMonitor::max_gap_ns)으로 문턱을 정한다. [why D-114]
-        pipeline_.strategy_heartbeat.beat(trace::now_ns());
+        pipeline_.strategy_heartbeat->beat(trace::now_ns());
 
         // 주문 쪽 답을 걷어 기다리던 것에서 지운다.
-        while (auto response = pipeline_.order_response_queue.pop())
+        ipc::OrderResponse response;
+
+        while (pipeline_.order_responses->pop(response))
         {
-            pending_requests.note_response(response->sequence);
+            pending_requests.note_response(response.sequence);
         }
 
         const auto loop_now = std::chrono::steady_clock::now();
@@ -3037,7 +3101,7 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
                 if (++envelopes_since_beat >= kBeatEveryEnvelopes)
                 {
                     envelopes_since_beat = 0;
-                    pipeline_.strategy_heartbeat.beat(trace::now_ns());
+                    pipeline_.strategy_heartbeat->beat(trace::now_ns());
                 }
             }
         }
@@ -3244,7 +3308,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             return;
         }
 
-        if (!pipeline_.order_response_queue.push(
+        if (!pipeline_.order_responses->push(
                 ipc::make_response(sequence, result, kis_order_number, reason, trace::now_ns())))
         {
             pipeline_.order_response_dropped.fetch_add(1, std::memory_order_relaxed);
@@ -3258,7 +3322,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         //  전략이 이미 반영된 줄 알고 낸 신호가 옛 표에 걸린다. [why D-114]
         apply_control_requests(control_inbox);
 
-        const auto step = strategy_monitor.observe(trace::now_ns(), pipeline_.strategy_heartbeat.last_ns());
+        const auto step = strategy_monitor.observe(trace::now_ns(), pipeline_.strategy_heartbeat->last_ns());
         pipeline_.strategy_beat_gap_max_ns.store(strategy_monitor.max_gap_ns(), std::memory_order_relaxed);
         track_strategy_liveness(step, strategy_monitor.take_dead_once(), steady_clock::now());
 

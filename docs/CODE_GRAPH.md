@@ -21,7 +21,7 @@ graph LR
   api -->|11| core
   api -->|7| utils
   core -->|11| api
-  core -->|8| ipc
+  core -->|9| ipc
   core -->|7| risk
   core -->|3| strategy
   core -->|12| utils
@@ -337,6 +337,7 @@ graph LR
   n_core_Engine_h --> n_ipc_OpsServer_h
   n_core_Engine_h --> n_ipc_OrderChannel_h
   n_core_Engine_h --> n_ipc_OrderRouter_h
+  n_core_Engine_h --> n_ipc_SharedLayout_h
   n_core_Engine_h --> n_ipc_ZmqBridge_h
   n_core_Engine_h --> n_risk_OrderGate_h
   n_core_Engine_h --> n_risk_ProtectiveOrders_h

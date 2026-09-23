@@ -13,7 +13,7 @@ digraph code_graph {
   "api" -> "core" [label="11"];
   "api" -> "utils" [label="7"];
   "core" -> "api" [label="11"];
-  "core" -> "ipc" [label="8"];
+  "core" -> "ipc" [label="9"];
   "core" -> "risk" [label="7"];
   "core" -> "strategy" [label="3"];
   "core" -> "utils" [label="12"];
