@@ -73,7 +73,7 @@ struct SharedHeartbeats
 // 면 여덟의 크기를 정하는 값들. 양쪽이 **같은 값**을 넘겨야 같은 자리를 본다 — 다르면 붙기가 거절한다.
 struct SharedLayoutConfig
 {
-    uint32_t feed_lanes               = 1; // 시세 소켓 수(줄 하나에 큐 둘)
+    uint32_t feed_lanes               = 1; // 시세 줄 수 = 소켓 수 + REST 대체 줄 하나(줄 하나에 큐 둘)
     size_t   symbol_capacity          = symbol::kDefaultSymbolCapacity;
     size_t   strategy_capacity        = kLayoutStrategyCapacity;
     size_t   request_capacity         = kLayoutRequestCapacity;

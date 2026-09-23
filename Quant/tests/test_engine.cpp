@@ -806,9 +806,43 @@ int run_manual_order_case()
 
 int run_split_start_case()
 {
+    using namespace std::chrono_literals;
     std::cout << "case split start\n";
 
-    // 1. 전략 역할 — 전략은 올라가지만 주문 쪽은 이 프로세스에 없다.
+    // 두 프로세스를 한 프로세스 안에서 흉내낸다 — 주문 역할이 공유 쪽지를 만들고, 전략 역할이 같은 이름으로 붙는다.
+    //  붙는 쪽이 늦게 뜨는 순서까지 그대로다. [why D-114]
+    auto  order_feed_owned = std::make_unique<FakeFeed>(1);
+    auto* order_feed       = order_feed_owned.get();
+    auto  order_strategy   = std::make_unique<BuyOnce>("005930");
+    auto* order_side_view  = order_strategy.get();
+
+    Engine order_engine(KisConfig{});
+    order_engine.set_zmq_enabled(false);
+    order_engine.set_strategy_shards(1);
+    order_engine.add_strategy(std::move(order_strategy));
+    order_engine.set_feed_source(std::move(order_feed_owned), 1'000'000.0);
+    order_engine.set_role(ProcessRole::Order);
+    order_engine.start();
+
+    // 1. 주문 역할 — 전략을 올리지 않는다. on_start 를 부르지 않으니 종목 번호를 달라는 요청도 없다.
+    CHECK(order_engine.is_running());
+    CHECK(order_side_view->symbol_id() == symbol::kNone); // 전략을 올리지 않았다
+    CHECK(order_engine.symbol_register_timeouts() == 0);
+    CHECK(order_feed->is_connected());                    // 구독 목록이 비어도 연다 — 체결통보를 이 소켓이 듣는다
+    CHECK(order_engine.order_count() == 0);
+
+    // 소켓을 쥔 쪽은 샤드에 넣지 않고 통로에 넣는다 — 전략도 샤드도 저쪽 프로세스에 있다. [why D-114]
+    order_feed->emit_trade(0, "005930", 70000.0, 93001);
+    CHECK(order_engine.feed_channel_pending_trades(0) == 1);
+    CHECK(order_engine.feed_channel_overflows() == 0);
+
+    // 통로에는 소켓 줄 말고 REST 대체 줄이 하나 더 있다 — 구독 상한에 밀린 종목을 데이터 스레드가
+    //  여기로 흘린다. 시세 클라이언트가 없는 시험이라 아직 비어 있다. [why D-114]
+    CHECK(order_engine.feed_channel_lanes() == order_engine.websocket_lanes() + 1);
+    CHECK(order_engine.feed_channel_pending_trades(order_engine.websocket_lanes()) == 0);
+    CHECK(order_engine.signal_count() == 0);
+
+    // 2. 전략 역할 — 전략은 올라가지만 주문 쪽은 이 프로세스에 없다. 자리표는 주문 쪽이 만든 쪽지에 붙는다.
     {
         auto  feed_owned     = std::make_unique<FakeFeed>(1);
         auto* feed           = feed_owned.get();
@@ -827,43 +861,30 @@ int run_split_start_case()
         CHECK(engine.shard_count() == 1);              // 틱 파이프라인 자리는 전략 쪽에 남는다
         CHECK(!feed->is_connected());                  // 시세 소켓은 주문 쪽이 쥔다
         CHECK(engine.order_count() == 0);              // 주문 스레드가 없다
-        CHECK(engine.symbol_register_timeouts() >= 1); // 번호를 놓아 주는 쪽이 이 프로세스에 없다
+        CHECK(engine.symbol_register_timeouts() >= 1); // 번호 표는 아직 각자 것이다 — 주문 쪽이 넣어도 여기엔 안 뜬다
+        CHECK(engine.feed_channel_lanes() == engine.websocket_lanes() + 1); // 꺼내는 쪽도 같은 줄 수를 본다
         CHECK(strategy->symbol_id() == symbol::kNone);
 
-        engine.stop();
-        CHECK(!engine.is_running());
-    }
+        // 주문 쪽이 넣어 둔 체결 한 건을 이쪽 줄 스레드가 꺼내 간다 — 같은 쪽지를 보고 있다는 뜻이다.
+        //  다만 종목 번호 표는 아직 프로세스마다 따로라(단계 4 남은 배선) 꺼낸 쪽이 "번호가 표 밖"이라며
+        //  버린다 — 지금 보는 것은 건너갔다는 사실까지다. 표를 공유로 옮기면 여기서 data_count가 는다. [why D-114]
+        const auto deadline = std::chrono::steady_clock::now() + 5s;
 
-    // 2. 주문 역할 — 전략을 올리지 않는다. on_start 를 부르지 않으니 종목 번호를 달라는 요청도 없다.
-    {
-        auto  feed_owned     = std::make_unique<FakeFeed>(1);
-        auto* feed           = feed_owned.get();
-        auto  strategy_owned = std::make_unique<BuyOnce>("005930");
-        auto* strategy       = strategy_owned.get();
+        while (engine.feed_channel_discarded() == 0 && std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::sleep_for(10ms);
+        }
 
-        Engine engine(KisConfig{});
-        engine.set_zmq_enabled(false);
-        engine.set_strategy_shards(1);
-        engine.add_strategy(std::move(strategy_owned));
-        engine.set_feed_source(std::move(feed_owned), 1'000'000.0);
-        engine.set_role(ProcessRole::Order);
-        engine.start();
-
-        CHECK(engine.is_running());
-        CHECK(strategy->symbol_id() == symbol::kNone); // 전략을 올리지 않았다
-        CHECK(engine.symbol_register_timeouts() == 0);
-        CHECK(feed->is_connected());                   // 구독 목록이 비어도 연다 — 체결통보를 이 소켓이 듣는다
-        CHECK(engine.order_count() == 0);
-
-        // 소켓을 쥔 쪽은 샤드에 넣지 않고 통로에 넣는다 — 전략도 샤드도 저쪽 프로세스에 있다. [why D-114]
-        feed->emit_trade(0, "005930", 70000.0, 93001);
-        CHECK(engine.feed_channel_pending_trades(0) == 1);
-        CHECK(engine.feed_channel_overflows() == 0);
-        CHECK(engine.signal_count() == 0);
+        CHECK(order_engine.feed_channel_pending_trades(0) == 0);
+        CHECK(engine.feed_channel_discarded() == 1);
+        CHECK(engine.data_count() == 0);
 
         engine.stop();
         CHECK(!engine.is_running());
     }
+
+    order_engine.stop();
+    CHECK(!order_engine.is_running());
 
     return 0;
 }

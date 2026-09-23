@@ -148,6 +148,7 @@ set(HEADER_IMPL_SOURCES
   src/ipc/ControlChannel.cpp
   src/ipc/LedgerSnapshot.cpp
   # 공유 쪽지 자리표와 그 위 면들 — 엔진이 경계를 넘을 면을 여기 올린다(D-114 단계 4)
+  src/ipc/SharedRegion.cpp
   src/ipc/SharedLayout.cpp
   src/ipc/MarketFeedChannel.cpp
   src/ipc/SharedSymbolDictionary.cpp

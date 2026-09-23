@@ -212,20 +212,6 @@ static LONG WINAPI on_seh(EXCEPTION_POINTERS* exception_pointers)
 
 // 인자 뜯기는 core/CommandLine.cpp가 한다 — 시험이 붙어야 해서 main.cpp 밖으로 냈다.
 
-// 엔진은 이제 역할대로 제 스레드만 띄운다 — 전략 쪽은 주문 스레드가 없어 신호가 나가지 않고, 주문 쪽은
-//  전략이 없어 구독할 종목이 없다. 그러니 갈라 띄워도 이중 발주는 나지 않지만 양쪽 다 일을 못 한다.
-//  남은 것은 둘을 잇는 배선 셋이다 — 큐를 공유 쪽지에 앉히기, 전략 쪽 구독 목록을 주문 쪽에 건네기,
-//  운영단말 수동 주문을 주문 쪽에서 받기. 그때까지 인자는 받아 두되(감시견·배포 가드가 그 인자로 먼저
-//  갈릴 수 있게) 뜨지는 않는다. [why D-114]
-static int refuse_split_role(ProcessRole role)
-{
-    LOG_ERROR(std::string("[Main] 역할 ") + role.to_string() +
-              " 로는 아직 뜨지 않는다 — 엔진은 역할대로 갈렸지만 둘을 잇는 통로가 아직 안 붙었다"
-              "(D-114 단계 4 진행 중). 지금은 --role both(인자 없음)로만 띄운다.");
-    Logger::instance().flush();
-    return 2;
-}
-
 #ifdef _WIN32
 // 콘솔 UTF-8 + ANSI 이스케이프(색). 로그 파일과 무관하게 화면 출력만 바꾼다.
 static void setup_console()
@@ -270,10 +256,14 @@ static void log_exchange_choice(const KisConfig& kis_config)
 // TRADE 모드: 전략 매매 엔진 (tickers 설정 불필요 — 전략이 동적으로 구성). configure() → 전략 로딩 → start() 순서이고,
 //  configure() 안의 배선은 core/EngineConfigure.cpp, start() 안의 순서(샤드·인증·주문 라우터·원장·전략·피드·스레드)는
 //  Engine::start()가 정본이다.
-static int run_trade(const AppConfig& app)
+static int run_trade(const AppConfig& app, ProcessRole role)
 {
     Engine engine(app.kis, app.fetch_interval_sec);
     g_engine = &engine;
+
+    // 역할은 configure·전략 로딩보다 먼저 정한다 — start()가 자리표를 역할대로 깔고(주문 쪽은 공유 쪽지를
+    //  만들고 전략 쪽은 붙는다) 스레드도 역할대로 띄운다. [why D-114]
+    engine.set_role(role);
     engine.configure(app);
 
     // 전략 로딩 — 타입별 로더 디스패치 + active_regimes 후처리 (strategy/StrategyFactory.cpp)
@@ -327,11 +317,6 @@ int main(int argc, char* argv[])
 
     LOG_INFO(std::string("[Main] 역할: ") + command_line.role.to_string());
 
-    if (command_line.role != ProcessRole::Both)
-    {
-        return refuse_split_role(command_line.role);
-    }
-
     AppConfig app;
 
     try // 5. 설정 — 키 누락·값 오류는 여기서 멈춘다. 네트워크는 아직 안 건드렸다
@@ -370,5 +355,5 @@ int main(int argc, char* argv[])
         return run_us_test(app.kis, g_running);
     }
 
-    return run_trade(app);
+    return run_trade(app, command_line.role);
 }

@@ -30,6 +30,10 @@ namespace
 constexpr auto kSymbolRegisterWait = std::chrono::milliseconds(50);
 constexpr auto kSymbolRegisterPoll = std::chrono::microseconds(200);
 
+// 전략 프로세스가 공유 쪽지를 기다리는 시간. 주문 쪽은 토큰 발급·잔고 대조·원장 리플레이를 먼저 하므로
+//  기동이 몇 초 늦을 수 있다 — 그보다 넉넉히 두되, 아예 안 뜬 경우에는 기다림이 끝나야 한다. [why D-114]
+constexpr auto kSharedRegionAttachTimeout = std::chrono::seconds(30);
+
 } // namespace
 
 Engine::Engine(KisConfig kis_config, int fetch_interval_sec)
@@ -60,20 +64,10 @@ bool Engine::bind_layout(uint32_t feed_lanes)
 
     const size_t needed = ipc::SharedLayout::bytes_for(layout_config_);
 
-    // 자리표는 캐시라인 경계에서 시작해야 한다. 힙이 주는 경계는 그보다 작아 한 줄만큼 더 잡고 밀어 맞춘다.
     layout_.unbind();
-    layout_storage_.assign(needed + ipc::kSharedCacheLine, std::byte{});
 
-    void*  aligned   = layout_storage_.data();
-    size_t available = layout_storage_.size();
-
-    if (std::align(ipc::kSharedCacheLine, needed, aligned, available) == nullptr)
-    {
-        LOG_ERROR("[Engine] 자리표를 캐시라인 경계에 못 맞췄다");
-        return false;
-    }
-
-    if (!layout_.create(static_cast<std::byte*>(aligned), available, layout_config_))
+    // 한 프로세스로 돌면 힙, 갈라 띄우면 공유 쪽지다. 고르는 자리는 여기 하나다. [why D-114]
+    if (!(role_ == ProcessRole::Both ? bind_layout_on_heap(needed) : bind_layout_on_region(needed)))
     {
         return false;
     }
@@ -85,6 +79,81 @@ bool Engine::bind_layout(uint32_t feed_lanes)
     pipeline_.order_responses    = &layout_.responses();
     pipeline_.strategy_heartbeat = &layout_.heartbeats()->strategy;
     return true;
+}
+
+bool Engine::bind_layout_on_heap(size_t needed)
+{
+    // 자리표는 캐시라인 경계에서 시작해야 한다. 힙이 주는 경계는 그보다 작아 한 줄만큼 더 잡고 밀어 맞춘다.
+    layout_region_.close();
+    layout_storage_.assign(needed + ipc::kSharedCacheLine, std::byte{});
+
+    void*  aligned   = layout_storage_.data();
+    size_t available = layout_storage_.size();
+
+    if (std::align(ipc::kSharedCacheLine, needed, aligned, available) == nullptr)
+    {
+        LOG_ERROR("[Engine] 자리표를 캐시라인 경계에 못 맞췄다");
+        return false;
+    }
+
+    return layout_.create(static_cast<std::byte*>(aligned), available, layout_config_);
+}
+
+std::string Engine::shared_region_name() const
+{
+    // 계좌가 다르면 쪽지도 다르다 — 모의와 실계좌를 같이 띄우는 날(감시견 두 갈래)에 서로의 큐를 보지 않게.
+    const std::string account = kis_config_.account_no.empty() ? std::string("default") : kis_config_.account_no;
+    return std::string("quant.engine.") + (kis_config_.is_paper ? "paper." : "live.") + account;
+}
+
+bool Engine::bind_layout_on_region(size_t needed)
+{
+    const std::string name  = shared_region_name();
+    const size_t      bytes = sizeof(ipc::SharedRegionHeader) + needed;
+
+    layout_storage_.clear();
+    layout_storage_.shrink_to_fit();
+    layout_region_.close();
+
+    if (role_ == ProcessRole::Order)
+    {
+        // 만드는 쪽은 주문 프로세스 하나다. 이미 있다는 것은 아직 누가 쥐고 있다는 뜻이라 뜨지 않는다 —
+        //  엔진 둘이 같은 계좌에 뜨는 것을 여기서 잡는다(이중 발주가 A등급이다).
+        if (!layout_region_.create(name, bytes, ipc::kSharedLayoutVersion))
+        {
+            LOG_ERROR("[Engine] 공유 쪽지를 못 만들었다 — " + name + " (" + std::string(layout_region_.last_error()) + ")");
+            return false;
+        }
+
+        LOG_INFO("[Engine] 공유 쪽지 생성: " + name + " " + std::to_string(bytes) + "바이트");
+        return layout_.create(layout_region_.payload(), layout_region_.payload_bytes(), layout_config_);
+    }
+
+    // 붙는 쪽은 전략 프로세스다. 주문 쪽이 먼저 떠야 쪽지가 있으므로 그동안 기다린다 — 감시견은 둘을
+    //  같이 띄우고 순서를 정해 주지 않는다. 기다려도 없으면 뜨지 않는다(빈 큐로 돌면 신호가 사라진다).
+    const auto deadline = std::chrono::steady_clock::now() + kSharedRegionAttachTimeout;
+    bool       waited   = false;
+
+    while (!layout_region_.attach(name, bytes, ipc::kSharedLayoutVersion))
+    {
+        if (std::chrono::steady_clock::now() >= deadline)
+        {
+            LOG_ERROR("[Engine] 공유 쪽지에 못 붙었다 — " + name + " (" + std::string(layout_region_.last_error()) +
+                      ") 주문 프로세스가 떠 있는지 본다");
+            return false;
+        }
+
+        if (!waited)
+        {
+            LOG_INFO("[Engine] 공유 쪽지 기다리는 중: " + name + " — 주문 프로세스가 만들면 붙는다");
+            waited = true;
+        }
+
+        std::this_thread::sleep_for(100ms);
+    }
+
+    LOG_INFO("[Engine] 공유 쪽지 연결: " + name + " " + std::to_string(bytes) + "바이트");
+    return layout_.attach(layout_region_.payload(), layout_region_.payload_bytes(), layout_config_);
 }
 
 Engine::~Engine()
@@ -962,6 +1031,15 @@ void Engine::initialize_data_poller()
         {
             trade.symbol_id       = lookup_symbol(trade.ticker);
 
+            // 갈라 띄우면 샤드가 저쪽에 있다 — WS 수신 스레드와 같은 길로 통로에 넣고, 꺼내 가르는 일은
+            //  전략 쪽 줄 스레드가 한다. 줄 번호는 행렬의 데이터 스레드 행과 같은 자리다(폴러 몫 한 줄).
+            //  [inv] 이 줄에 넣는 스레드는 데이터 스레드 하나다 — SPSC가 그 위에 서 있다. [why D-114]
+            if (role_ == ProcessRole::Order)
+            {
+                push_feed_trade(pipeline_.data_row, trade);
+                return;
+            }
+
             shard::for_each_shard(pipeline_.routes.mask(trade.symbol_id), pipeline_.trade_matrix.consumer_of(trade.symbol_id),
                                   [&](uint32_t consumer)
             {
@@ -1193,8 +1271,8 @@ void Engine::drain_pending_subscriptions()
 
         watch_overflow_.fetch_add(1, std::memory_order_relaxed);
 
-        // 넘침 목록에 넣어 데이터 스레드가 REST 로 대신 흘린다. 폴러는 전략 쪽 것이라 갈라 띄우면 여기 없다 —
-        //  그 경우 REST 대체는 시세 통로를 배선할 때 주문 쪽으로 옮긴다. [why D-114]
+        // 넘침 목록에 넣어 데이터 스레드가 REST 로 대신 흘린다. 폴러는 양쪽에 있고, 갈라 띄우면 주문 쪽
+        //  폴러가 받아 시세 통로의 마지막 줄로 보낸다(구독을 거는 쪽과 같은 프로세스다). [why D-114]
         if (poller_ && poller_->add_overflow(specification))
         {
             LOG_WARN("[Engine] WS 구독 상한 — " + specification.ticker + " 시세는 REST 폴링으로 대체(넘침 " +
@@ -1221,6 +1299,11 @@ void Engine::push_feed_trade(uint32_t lane, const TradeData& trade)
 size_t Engine::feed_channel_pending_trades(uint32_t lane)
 {
     return layout_.feed().pending_trades(lane);
+}
+
+uint32_t Engine::feed_channel_lanes()
+{
+    return layout_.feed().lanes();
 }
 
 void Engine::push_feed_order_book(uint32_t lane, const OrderBook& order_book)
@@ -1558,9 +1641,13 @@ void Engine::start()
 
     // 소켓 수가 여기서 정해진다. 자리표의 시세 줄 수가 그와 다르면 뒤따르는 면의 자리가 통째로 밀리므로
     //  줄 수를 맞춰 다시 깐다 — 스레드 전이라 칸을 밀어도 될 때다. [why D-114]
-    if (layout_config_.feed_lanes != pipeline_.websocket_lanes && !bind_layout(pipeline_.websocket_lanes))
+    //  줄 하나를 더 둔다 — 마지막 줄은 구독 상한에 밀린 종목을 REST로 대신 흘리는 자리다(넣는 쪽은
+    //  주문 프로세스의 데이터 스레드 하나). 행렬이 데이터 스레드 행을 따로 두는 것과 같은 모양이다.
+    const uint32_t feed_lane_count = pipeline_.websocket_lanes + 1;
+
+    if (layout_config_.feed_lanes != feed_lane_count && !bind_layout(feed_lane_count))
     {
-        LOG_ERROR("[Engine] 시세 줄 " + std::to_string(pipeline_.websocket_lanes) + "개로 자리표를 다시 못 깔았다");
+        LOG_ERROR("[Engine] 시세 줄 " + std::to_string(feed_lane_count) + "개로 자리표를 다시 못 깔았다");
         return;
     }
 
@@ -1580,6 +1667,10 @@ void Engine::start()
         return;
     }
 
+    // REST 폴러는 양쪽에 둔다 — 전략 쪽은 유니버스·일봉·시세 보충에 쓰고, 주문 쪽은 WS 구독 상한에 밀린
+    //  종목의 대체 시세에 쓴다. 그 넘침 목록은 소켓을 쥔 쪽에만 있어 폴링도 그쪽이 해야 한다. [why D-114]
+    initialize_data_poller();
+
     if (runs_order_side())
     {
         setup_paper_executor(offline);
@@ -1597,8 +1688,6 @@ void Engine::start()
 
     if (runs_strategy_side())
     {
-        initialize_data_poller();
-
         // 프리페치 스레드는 전략이 붙기 전에 미리 띄운다 — 장중 전략 등록이 스레드를 새로 만들지 않게. [why D-115]
         prefetch_pool_.start();
 
@@ -2463,7 +2552,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
                 // WS 상한에 밀린 종목 — 재구독을 먼저 시도하고(드롭으로 슬롯이 비었을 수 있다) 안 되면 REST로.
                 //  rest 분기가 도는 사이클에는 부르지 않는다(그쪽이 이미 전 종목을 폴링한다).
-                if (feed_.websocket)
+                if (order_side && poller_ && feed_.websocket)
                 {
                     data_count_ += poller_->poll_overflow(
                         feed_.websocket->take_overflow_specifications(), [this](const WatchSpec& specification) { return feed_.websocket->subscribe_incremental(specification); },
@@ -3544,10 +3633,16 @@ void Engine::feed_lane_thread_fn(std::stop_token stop_token, uint32_t lane)
             did_work = true;
         }
 
+        // 말이 안 돼 버린 수는 꺼내는 쪽만 안다 — 감시 스레드가 읽을 자리에 옮겨 둔다. 한 건도 못 건진 바퀴에도
+        //  옮긴다 — 번호 표가 반쪽이면 꺼내는 족족 버려 did_work가 계속 거짓이고, 그때가 바로 봐야 할 때다. [why D-114]
+        if (const uint64_t discarded_now = layout_.feed().discarded();
+            discarded_now != feed_channel_discarded_.load(std::memory_order_relaxed))
+        {
+            feed_channel_discarded_.store(discarded_now, std::memory_order_relaxed);
+        }
+
         if (did_work)
         {
-            // 말이 안 돼 버린 수는 꺼내는 쪽만 안다 — 감시 스레드가 읽을 자리에 옮겨 둔다.
-            feed_channel_discarded_.store(layout_.feed().discarded(), std::memory_order_relaxed);
             idle_since = std::chrono::steady_clock::time_point{};
             continue;
         }

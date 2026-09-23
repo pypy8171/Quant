@@ -33,6 +33,7 @@
 #include "ipc/ControlChannel.h"
 #include "ipc/LedgerSnapshot.h"
 #include "ipc/SharedLayout.h"
+#include "ipc/SharedRegion.h"
 #include "ipc/OrderRouter.h"
 #include "ipc/OpsServer.h"
 #include "core/MpscQueue.h"
@@ -159,6 +160,9 @@ public:
 
     // 통로에 쌓여 아직 안 건너간 체결 수(어림값). 한 프로세스로 돌면 늘 0이다 — 시세가 통로를 지나지 않는다. [why D-114]
     [[nodiscard]] size_t feed_channel_pending_trades(uint32_t lane);
+
+    // 통로의 줄 수 = 소켓 수 + REST 대체 줄 하나. 마지막 줄에 넣는 쪽은 데이터 스레드다. [why D-114]
+    [[nodiscard]] uint32_t feed_channel_lanes();
 
     // ── 주문 쪽 스위치를 고치는 자리 ────────────────────────────────────────
     // OrderGate·원장은 주문 프로세스 것이다. 전략 역할이면 여기서 직접 고치지 않고 제어 요청 한 줄을
@@ -740,9 +744,19 @@ private:
     //  [inv] 아래 파이프라인·장부 사본이 이 자리표를 가리킨다 — 먼저 선언해 나중에 죽는다.
     //  [inv] 스레드가 뜨기 전에만 다시 깐다(생성자와 start()의 준비 단계). 뜬 뒤에 깔면 돌던 큐가 지워진다.
     std::vector<std::byte>  layout_storage_;
+    // 갈라 띄울 때만 열리는 공유 쪽지. 주문 쪽이 만들고 전략 쪽이 붙는다 — Both 로 돌면 닫힌 채다.
+    //  [inv] layout_ 보다 먼저 선언한다. 지도가 접히면 자리표가 가리키던 바이트가 사라진다.
+    ipc::SharedRegion       layout_region_;
     ipc::SharedLayoutConfig layout_config_;
     ipc::SharedLayout       layout_;
     [[nodiscard]] bool      bind_layout(uint32_t feed_lanes);
+    // 자리표를 힙 한 덩이 위에 깐다(Both). 바이트를 잡고 캐시라인 경계에 맞춰 얹는다.
+    [[nodiscard]] bool      bind_layout_on_heap(size_t needed);
+    // 자리표를 공유 쪽지 위에 얹는다(Order는 만들고 Strategy는 붙는다). 만드는 쪽이 늦게 떠도
+    //  붙는 쪽이 잠깐 기다린다 — 감시견이 띄우는 순서를 정해 주지 않는다. [why D-114]
+    [[nodiscard]] bool      bind_layout_on_region(size_t needed);
+    // 두 프로세스가 같은 이름을 보게 계좌로 짓는다 — 모의·실계좌를 같이 띄워도 쪽지가 겹치지 않는다.
+    [[nodiscard]] std::string shared_region_name() const;
 
     // ── N×M 샤드 파이프라인·큐 ──────────────────────────────────────────────
     // 수신 N × 전략 샤드 M 링 행렬. 셀 하나의 생산자는 스레드 하나다 — WS 수신 스레드 i(소켓 i의 수신 스레드)는 행 i, 체결은
