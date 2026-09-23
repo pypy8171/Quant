@@ -528,8 +528,8 @@ if(UNIX)
     target_link_libraries(test_wake_gate PRIVATE pthread)
 endif()
 
-# ─── 테스트 타겟: SymbolTable id 부여·상한·동시 등록 (헤더 전용, D-071) ──
-add_executable(test_symbol_table tests/test_symbol_table.cpp)
+# ─── 테스트 타겟: SymbolTable id 부여·상한·동시 등록 (D-071) ─────────
+add_executable(test_symbol_table tests/test_symbol_table.cpp src/core/SymbolTable.cpp)
 target_include_directories(test_symbol_table PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(UNIX)
     target_link_libraries(test_symbol_table PRIVATE pthread)
@@ -730,6 +730,16 @@ if(UNIX)
     target_link_libraries(test_shared_spsc_ring PRIVATE pthread rt)
 endif()
 
+# ─── 테스트 타겟: 공유 쪽지 위 종목 표 (D-114 단계 4) ─────────────
+add_executable(test_shared_symbol_dictionary tests/test_shared_symbol_dictionary.cpp
+    src/ipc/SharedSymbolDictionary.cpp src/core/SymbolTable.cpp)
+target_include_directories(test_shared_symbol_dictionary PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_shared_symbol_dictionary PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟: 장부 사본 (D-114 단계 2.5) ──────────────────────
 add_executable(test_ledger_snapshot tests/test_ledger_snapshot.cpp src/ipc/LedgerSnapshot.cpp)
 target_include_directories(test_ledger_snapshot PRIVATE
@@ -808,6 +818,7 @@ set(QUANT_ASSERT_TARGETS
     test_command_line
     test_shared_region
     test_shared_spsc_ring
+    test_shared_symbol_dictionary
     test_displacement_desk
     test_heartbeat
     test_ledger_snapshot

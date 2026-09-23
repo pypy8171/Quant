@@ -54,7 +54,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 10
+      "weight": 11
     },
     {
       "from": "ipc",
@@ -224,6 +224,7 @@
     "ipc/OrderRouter.h": "ipc",
     "ipc/SharedRegion.h": "ipc",
     "ipc/SharedSpscRing.h": "ipc",
+    "ipc/SharedSymbolDictionary.h": "ipc",
     "ipc/ZmqBridge.h": "ipc",
     "modes/Monitors.h": "modes",
     "risk/DisplacementDesk.h": "risk",
@@ -313,6 +314,7 @@
     "ipc/OrderChannel.cpp": "ipc",
     "ipc/OrderRouter.cpp": "ipc",
     "ipc/SharedRegion.cpp": "ipc",
+    "ipc/SharedSymbolDictionary.cpp": "ipc",
     "ipc/ZmqBridge.cpp": "ipc",
     "modes/Monitors.cpp": "modes",
     "risk/DisplacementDesk.cpp": "risk",
@@ -727,6 +729,13 @@
     ],
     "ipc/SharedRegion.cpp": [
       "ipc/SharedRegion.h"
+    ],
+    "ipc/SharedSymbolDictionary.cpp": [
+      "ipc/SharedSymbolDictionary.h"
+    ],
+    "ipc/SharedSymbolDictionary.h": [
+      "core/SymbolTable.h",
+      "ipc/SharedSpscRing.h"
     ],
     "ipc/ZmqBridge.cpp": [
       "ipc/ZmqBridge.h",
@@ -1217,6 +1226,7 @@
       "core/Types.h",
       "core/UniverseExit.h",
       "ipc/LedgerSnapshot.h",
+      "ipc/SharedSymbolDictionary.h",
       "risk/OrderGate.h",
       "universe/ScoreWeight.h",
       "universe/UniverseScanner.h"
@@ -1322,6 +1332,12 @@
     ],
     "ipc/SharedRegion.h": [
       "ipc/SharedRegion.cpp"
+    ],
+    "ipc/SharedSpscRing.h": [
+      "ipc/SharedSymbolDictionary.h"
+    ],
+    "ipc/SharedSymbolDictionary.h": [
+      "ipc/SharedSymbolDictionary.cpp"
     ],
     "ipc/ZmqBridge.h": [
       "core/Engine.h",
@@ -1531,12 +1547,12 @@
       "in_degree": 17
     },
     {
-      "header": "strategy/StrategyBase.h",
+      "header": "core/SymbolTable.h",
       "in_degree": 15
     },
     {
-      "header": "core/SymbolTable.h",
-      "in_degree": 14
+      "header": "strategy/StrategyBase.h",
+      "in_degree": 15
     },
     {
       "header": "api/KisClient.h",

@@ -295,6 +295,7 @@
 - [OpsServer.h](../Quant/include/ipc/OpsServer.h) — 운영단말 TCP 서버 선언(D-043)
 - [OrderRouter.h](../Quant/include/ipc/OrderRouter.h) — 주문 전처리·중계(FEP) 라우팅 레이어 선언
 - [SharedRegion.h](../Quant/include/ipc/SharedRegion.h) — 프로세스 둘이 같이 보는 공유 쪽지 한 장 — 만들고 붙고 같은 판인지 본다(D-114 단계 4)
+- [SharedSymbolDictionary.h](../Quant/include/ipc/SharedSymbolDictionary.h) — 공유 쪽지 위 종목 표 — 프로세스를 갈라도 같은 종목에 같은 번호가 붙게 한다(D-114 단계 4)
 - [SharedSpscRing.h](../Quant/include/ipc/SharedSpscRing.h) — 공유 쪽지 위 한줄 큐 — 내 자리는 내 프로세스 안에 두고 건너편이 적은 칸은 믿지 않는다(D-114 단계 4)
 - [ZmqBridge.h](../Quant/include/ipc/ZmqBridge.h) — C++ 엔진 ↔ Python ZMQ IPC 브릿지
 
@@ -412,6 +413,7 @@
 - [OpsServer.cpp](../Quant/src/ipc/OpsServer.cpp) — 운영단말 TCP 서버 구현(D-043)
 - [OrderRouter.cpp](../Quant/src/ipc/OrderRouter.cpp) — 주문 라우터 구현 — 제출·순번·거부코드 처리
 - [SharedRegion.cpp](../Quant/src/ipc/SharedRegion.cpp) — SharedRegion.h 구현 — 윈도우·리눅스 공유메모리 만들기·붙기·치우기, 살아 있는 주인이면 실패(D-114 단계 4)
+- [SharedSymbolDictionary.cpp](../Quant/src/ipc/SharedSymbolDictionary.cpp) — SharedSymbolDictionary.h 구현 — 자리 셈·놓기·붙기와 넣는 동안만 잡는 자물쇠(D-114 단계 4)
 - [ZmqBridge.cpp](../Quant/src/ipc/ZmqBridge.cpp) — ZMQ IPC 브릿지 구현 — PUB/REP 소켓
 
 ### Quant/src/modes/
@@ -506,6 +508,7 @@
 - [test_control_channel.cpp](../Quant/tests/test_control_channel.cpp) — 제어 요청 단위 테스트: 계좌 칸, 표 모으기, 남의 표 줄·반쪽 표·닫기 누락을 안 거는지 검증(D-114 단계 2.5 갈래 B)
 - [test_shared_region.cpp](../Quant/tests/test_shared_region.cpp) — 공유 쪽지 단위 테스트: 붙기·판 불일치·살아 있는 구역 두 번 만들기·닫은 뒤 재생성을 검증(D-114 단계 4)
 - [test_shared_spsc_ring.cpp](../Quant/tests/test_shared_spsc_ring.cpp) — 공유 쪽지 위 한줄 큐 단위 테스트: 순서·가득참·되감기와, 건너편이 공유 칸을 망가뜨렸을 때 수로 남기는지 검증(D-114 단계 4)
+- [test_shared_symbol_dictionary.cpp](../Quant/tests/test_shared_symbol_dictionary.cpp) — 공유 쪽지 위 종목 표 단위 테스트: 손잡이 둘이 같은 번호를 보는지·가득참·붙기 거절·넣는 스레드 여럿을 검증(D-114 단계 4)
 - [test_displacement_desk.cpp](../Quant/tests/test_displacement_desk.cpp) — 교체 진입 창구 단위 테스트: 최약체 매도 앞세우기, 매수 보류·자리 나면 발주·시한 만료(D-114 단계 2.5 갈래 B)
 - [test_protective_orders.cpp](../Quant/tests/test_protective_orders.cpp) — 보호 주문 표 단위 테스트: 전략 없이 가격 경로만으로 청산이 나가는지 검증(D-114 단계 1)
 - [test_reconcile_plan.cpp](../Quant/tests/test_reconcile_plan.cpp) — 잔고 대조 차이 계산 순수 함수 단위 테스트(D-038)

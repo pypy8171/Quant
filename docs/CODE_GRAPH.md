@@ -26,7 +26,7 @@ graph LR
   core -->|3| strategy
   core -->|12| utils
   ipc -->|2| api
-  ipc -->|10| core
+  ipc -->|11| core
   ipc --> risk
   ipc -->|5| utils
   main -->|4| core
@@ -61,8 +61,8 @@ graph LR
 | `core/Types.h` | 37 |
 | `utils/Logger.h` | 31 |
 | `core/KstTime.h` | 17 |
+| `core/SymbolTable.h` | 15 |
 | `strategy/StrategyBase.h` | 15 |
-| `core/SymbolTable.h` | 14 |
 | `api/KisClient.h` | 13 |
 | `core/MarketSession.h` | 9 |
 | `core/WakeGate.h` | 9 |
@@ -165,6 +165,8 @@ graph LR
     n_ipc_OrderRouter_cpp["ipc/OrderRouter.cpp"]
     n_ipc_OrderRouter_h["ipc/OrderRouter.h"]
     n_ipc_SharedRegion_cpp["ipc/SharedRegion.cpp"]
+    n_ipc_SharedSymbolDictionary_cpp["ipc/SharedSymbolDictionary.cpp"]
+    n_ipc_SharedSymbolDictionary_h["ipc/SharedSymbolDictionary.h"]
     n_ipc_ZmqBridge_cpp["ipc/ZmqBridge.cpp"]
     n_ipc_ZmqBridge_h["ipc/ZmqBridge.h"]
   end
@@ -441,6 +443,9 @@ graph LR
   n_ipc_OrderRouter_h --> n_ipc_ZmqBridge_h
   n_ipc_OrderRouter_h --> n_risk_OrderGate_h
   n_ipc_SharedRegion_cpp --> n_ipc_SharedRegion_h
+  n_ipc_SharedSymbolDictionary_cpp --> n_ipc_SharedSymbolDictionary_h
+  n_ipc_SharedSymbolDictionary_h --> n_core_SymbolTable_h
+  n_ipc_SharedSymbolDictionary_h --> n_ipc_SharedSpscRing_h
   n_ipc_ZmqBridge_cpp --> n_ipc_ZmqBridge_h
   n_ipc_ZmqBridge_cpp --> n_utils_Logger_h
   n_ipc_ZmqBridge_cpp --> n_utils_ThreadName_h
