@@ -478,6 +478,7 @@
     "core/Engine.h": [
       "api/KisClient.h",
       "api/KisWebSocket.h",
+      "core/CommandLine.h",
       "core/DataPoller.h",
       "core/FeedMux.h",
       "core/FeedSupervisor.h",
@@ -1116,6 +1117,7 @@
     ],
     "core/CommandLine.h": [
       "core/CommandLine.cpp",
+      "core/Engine.h",
       "main.cpp"
     ],
     "core/DataPoller.h": [

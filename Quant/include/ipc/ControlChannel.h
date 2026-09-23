@@ -1,7 +1,8 @@
 // 전략 → 주문 제어 요청 — 사고 파는 주문이 아니라 주문 쪽 표를 고치는 요청이다.
 //  전략 쪽이 OrderGate·보호 주문 표를 직접 고치던 자리(슬롯 면제 집합·진입 우선순위 표·보호 주문 등록)를
 //  이 레코드 한 줄로 바꾼다. 표를 고치는 일은 단일 시퀀서인 주문 스레드가 한다(원칙 4). [why D-114]
-//  ipc/OrderChannel.h 와 같은 규칙이다 — 문자열도 포인터도 안 싣는다. 단계 4에서 프로세스가 갈리면
+//  ipc/OrderChannel.h 와 같은 규칙이다 — 포인터도, 길이가 정해지지 않은 문자열도 안 싣는다
+//  (계좌·티커는 고정 칸이다). 단계 4에서 프로세스가 갈리면
 //  레코드는 그대로 두고 운반 수단만 공유메모리로 바꾼다. 처리량은 분당 몇 건이라 레코드 크기보다
 //  어느 칸이 무슨 뜻인지가 먼저다 — 그래서 칸을 겹쳐 쓰지 않고 이름을 따로 둔다.
 #pragma once
@@ -11,7 +12,7 @@
 #include <string_view>
 #include <vector>
 
-#include "core/Types.h" // symbol::SymbolId, strategy_table::StrategyId
+#include "core/Types.h" // symbol::SymbolId, symbol::Ticker, strategy_table::StrategyId
 
 namespace ipc
 {
@@ -35,6 +36,7 @@ enum class ControlKind : uint8_t
     kEntryPriorityCommit = 6, // 모은 표를 통째로 건다(rank 칸에 전체 종목 수)
     kArmProtective       = 7, // 보호 주문 한 건 등록
     kDisarmProtective    = 8, // 보호 주문 한 건 해제
+    kRegisterSymbol      = 9, // 종목 표에 티커 하나를 넣어 달라 — 넣는 쪽은 주문 프로세스 하나다
 };
 
 // 제어 요청 한 줄. 칸은 kind 마다 쓰는 것만 채우고 나머지는 기본값 그대로 둔다.
@@ -55,6 +57,7 @@ struct ControlRequest
     double                     trail_arm_percent = 0.0; // kArmProtective
     double                     trail_percent     = 0.0; // kArmProtective
     char                       account[kControlAccountMax] = {}; // kArmProtective·kDisarmProtective
+    symbol::Ticker             ticker;                            // kRegisterSymbol
 };
 
 // 계좌 이름을 칸에 담는다. 칸을 넘으면 자르고 끝에 0을 넣는다.

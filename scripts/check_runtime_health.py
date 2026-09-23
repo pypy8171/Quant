@@ -113,6 +113,9 @@ LEDGER_FOREIGN_RE = re.compile(r"ledger_foreign=(\d+)")
 # 제어 요청(D-114 단계 2.5 갈래 B) — 전략이 큐가 가득 차 못 보낸 줄 수, 주문 쪽이 반쪽 표로 보고 버린 줄 수.
 CONTROL_DROP_RE = re.compile(r"control_dropped=(\d+)")
 CONTROL_DISCARD_RE = re.compile(r"control_discarded=(\d+)")
+# 티커→번호(D-114 단계 4) — 등록을 주문 쪽에서 못 받은 수, 표에 없는 티커로 잦은 자리가 불린 수.
+SYMBOL_REGISTER_TIMEOUT_RE = re.compile(r"symbol_register_timeout=(\d+)")
+SYMBOL_LOOKUP_MISS_RE = re.compile(r"symbol_lookup_miss=(\d+)")
 # 체결통보 세션(D-114 단계 3) — 기동마다 한 줄. 맡은 소켓이 몇 번인지, 아무도 안 맡았는지, 둘 이상이 맡았는지.
 FILL_SESSION_ONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 소켓 (\d+)")
 FILL_SESSION_NONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 없음")
@@ -556,6 +559,8 @@ def collect(date: str, log: Path, since: int = 0):
     ledger_foreign = -1                          # 사본에 못 실은 남의 계좌 줄 수. -1이면 그 줄이 없는 구 exe
     control_dropped = 0                          # 큐가 가득 차 전략이 못 보낸 제어 요청 줄 수
     control_discarded = -1                       # 주문 쪽이 반쪽 표로 보고 버린 줄 수. -1이면 그 줄이 없는 구 exe
+    symbol_register_timeout = -1                 # 등록을 주문 쪽에서 못 받은 수. -1이면 그 줄이 없는 구 exe
+    symbol_lookup_miss = 0                       # 표에 없는 티커로 잦은 자리가 불린 수
     fill_session_socket = -1                     # 체결통보를 맡은 소켓 번호. -1이면 그 줄이 없는 구 exe
     fill_session_none = 0                        # 맡은 소켓이 없다고 찍힌 기동 수
     fill_session_many = 0                        # 둘 이상이 맡았다고 찍힌 기동 수
@@ -611,6 +616,10 @@ def collect(date: str, log: Path, since: int = 0):
                 control_dropped = max(control_dropped, int(found.group(1)))
             if found := CONTROL_DISCARD_RE.search(line):
                 control_discarded = max(control_discarded, int(found.group(1)))
+            if found := SYMBOL_REGISTER_TIMEOUT_RE.search(line):
+                symbol_register_timeout = max(symbol_register_timeout, int(found.group(1)))
+            if found := SYMBOL_LOOKUP_MISS_RE.search(line):
+                symbol_lookup_miss = max(symbol_lookup_miss, int(found.group(1)))
             if found := FILL_SESSION_ONE_RE.search(line):
                 fill_session_socket = int(found.group(1))
             elif FILL_SESSION_NONE_RE.search(line):
@@ -798,6 +807,12 @@ def collect(date: str, log: Path, since: int = 0):
             return (name, True, level, "제어 요청 수치 줄 없음(D-114 단계 2.5 갈래 B 배포 전 바이너리) — 판정 안 함")
         return (name, ok, level, detail)
 
+    # 티커→번호(D-114 단계 4) — 이 줄도 제어 요청 줄보다 늦게 붙었으므로 따로 건너뛴다.
+    def symbol_row(name: str, ok: bool, level: str, detail: str):
+        if symbol_register_timeout < 0:
+            return (name, True, level, "티커→번호 수치 줄 없음(D-114 단계 4 배포 전 바이너리) — 판정 안 함")
+        return (name, ok, level, detail)
+
     # 체결통보 세션(D-114 단계 3) — 이 줄도 사본 줄보다 늦게 붙었으므로 따로 건너뛴다.
     def fill_session_row(name: str, ok: bool, level: str, detail: str):
         if fill_session_socket < 0 and fill_session_none == 0 and fill_session_many == 0:
@@ -828,6 +843,10 @@ def collect(date: str, log: Path, since: int = 0):
         #  우선순위 바를 건너뛴다. 둘 다 0이어야 전략이 고친 표가 그날 실제로 걸린 것이다.
         control_row("제어 요청 표", control_dropped == 0 and control_discarded == 0, "FAIL",
                     f"못 보낸 줄 {control_dropped}건 · 버린 줄 {control_discarded}건 (둘 다 기대 0)"),
+        # 종목 표에 넣는 쪽은 주문 프로세스 하나다. 등록을 못 받으면 그 종목 줄을 접으므로 전략이 그 종목을
+        #  아예 못 보고(신호 유실), 표에 없는 티커로 잦은 자리가 불리면 그 틱·신호가 번호 없이 버려진다.
+        symbol_row("종목 번호 등록", symbol_register_timeout == 0 and symbol_lookup_miss == 0, "FAIL",
+                   f"등록 못 받음 {symbol_register_timeout}건 · 표에 없는 티커 {symbol_lookup_miss}건 (둘 다 기대 0)"),
         # 체결통보는 WS 세션 하나만 들어야 한다. 아무도 안 들으면 체결이 원장에 안 들어와 선점이 안 풀리고,
         #  둘이 들으면 KIS가 세션마다 같은 통보를 보내 원장이 체결을 두 번 센다 — 둘 다 A등급이다.
         fill_session_row("체결 세션", fill_session_many == 0 and fill_session_none == 0, "FAIL",

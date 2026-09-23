@@ -21,6 +21,16 @@
 
 using namespace std::chrono_literals;
 
+namespace
+{
+
+// 전략 쪽이 새 종목의 번호를 기다리는 시간. 주문 쪽이 요청을 집어 표에 넣고 그 값이 같은 공유 표에
+//  뜨기까지 걸리는 시간이다 — 느린 경로(기동·재스캔·바스켓)에서만 기다린다.
+constexpr auto kSymbolRegisterWait = std::chrono::milliseconds(50);
+constexpr auto kSymbolRegisterPoll = std::chrono::microseconds(200);
+
+} // namespace
+
 Engine::Engine(KisConfig kis_config, int fetch_interval_sec)
     : kis_config_(std::move(kis_config)), fetch_interval_sec_(fetch_interval_sec)
 {
@@ -77,7 +87,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     strategy->set_sellable_provider([this](const std::string& account, const std::string& ticker) {
         return ledger_sellable(account, ticker);
     });
-    strategy->set_symbol_resolver([this](std::string_view ticker) { return symbols_.table.intern(ticker); });
+    strategy->set_symbol_resolver([this](std::string_view ticker) { return register_symbol(ticker); });
     strategy->set_protective_registry(&protective_requests_);
     assign_strategy_identity(*strategy);
 
@@ -108,7 +118,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     {
         if (specification.market == Market::KR)
         {
-            rescan_set_registered(symbols_.table.intern(specification.ticker), true);
+            rescan_set_registered(register_symbol(specification.ticker), true);
         }
 
         bool exists = false;
@@ -286,7 +296,7 @@ void Engine::seed_universe_rescan(const std::vector<symbol::SymbolId>& symbols)
             }
 
             // 구독 스펙의 티커는 문자열이라 여기서 id로 바꾼다(기동 1회).
-            const symbol::SymbolId symbol = symbols_.table.intern(specification.ticker);
+            const symbol::SymbolId symbol = register_symbol(specification.ticker);
 
             if (symbol < wanted.size() && wanted[symbol] && job.owned[symbol].strategy == nullptr)
             {
@@ -775,7 +785,7 @@ void Engine::rebuild_routes_locked()
 
         for (const auto& watch_specification : specifications)
         {
-            const symbol::SymbolId id = symbols_.table.intern(watch_specification.ticker);
+            const symbol::SymbolId id = register_symbol(watch_specification.ticker);
 
             if (id == symbol::kNone)
             {
@@ -918,7 +928,7 @@ void Engine::initialize_data_poller()
         },
         [this](TradeData trade)
         {
-            trade.symbol_id       = symbols_.table.intern(trade.ticker);
+            trade.symbol_id       = lookup_symbol(trade.ticker);
 
             shard::for_each_shard(pipeline_.routes.mask(trade.symbol_id), pipeline_.trade_matrix.consumer_of(trade.symbol_id),
                                   [&](uint32_t consumer)
@@ -1019,7 +1029,7 @@ void Engine::start_strategies()
         strategy->set_sellable_provider([this](const std::string& account, const std::string& ticker) {
             return ledger_sellable(account, ticker);
         });
-        strategy->set_symbol_resolver([this](std::string_view ticker) { return symbols_.table.intern(ticker); });
+        strategy->set_symbol_resolver([this](std::string_view ticker) { return register_symbol(ticker); });
         strategy->set_protective_registry(&protective_requests_);
 
         try
@@ -1069,7 +1079,7 @@ void Engine::collect_watch_specifications()
     {
         if (specification.market == Market::KR)
         {
-            rescan_set_registered(symbols_.table.intern(specification.ticker), true);
+            rescan_set_registered(register_symbol(specification.ticker), true);
         }
     }
 }
@@ -1428,7 +1438,67 @@ void Engine::set_last_price(symbol::SymbolId id, double price) noexcept
 
 void Engine::set_last_price(const std::string& ticker, double price)
 {
-    set_last_price(symbols_.table.intern(ticker), price);
+    // 폴러가 주는 티커는 이미 구독 목록에 있는 것뿐이다 — 여기서 새로 넣지 않는다.
+    set_last_price(lookup_symbol(ticker), price);
+}
+
+void Engine::set_role(ProcessRole role)
+{
+    role_ = role;
+}
+
+symbol::SymbolId Engine::lookup_symbol(std::string_view ticker) noexcept
+{
+    const symbol::SymbolId id = symbols_.table.lookup(ticker);
+
+    if (id == symbol::kNone)
+    {
+        symbol_lookup_misses_.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    return id;
+}
+
+symbol::SymbolId Engine::register_symbol(std::string_view ticker)
+{
+    // 표에 넣는 쪽은 주문 프로세스 하나다 — 양쪽이 각자 번호를 찍으면 같은 번호가 다른 종목을 가리킨다. [why D-114]
+    if (role_ != ProcessRole::Strategy)
+    {
+        return symbols_.table.intern(ticker);
+    }
+
+    const symbol::SymbolId known = symbols_.table.lookup(ticker);
+
+    if (known != symbol::kNone)
+    {
+        return known;
+    }
+
+    ipc::ControlRequest request;
+    request.kind   = ipc::ControlKind::kRegisterSymbol;
+    request.ticker = ticker;
+
+    if (send_control(request))
+    {
+        // 답을 따로 받지 않는다 — 주문 쪽이 넣으면 같은 공유 표에 뜬다. 뜰 때까지만 짧게 본다.
+        const auto deadline = std::chrono::steady_clock::now() + kSymbolRegisterWait;
+
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            const symbol::SymbolId id = symbols_.table.lookup(ticker);
+
+            if (id != symbol::kNone)
+            {
+                return id;
+            }
+
+            std::this_thread::sleep_for(kSymbolRegisterPoll);
+        }
+    }
+
+    symbol_register_timeouts_.fetch_add(1, std::memory_order_relaxed);
+    LOG_WARN("[Engine] 종목 " + std::string(ticker) + " 등록을 주문 쪽에서 못 받았다 — 이번 줄을 접는다");
+    return symbol::kNone;
 }
 
 // 값으로 돌려준다 — ticker_names_는 뮤텍스 아래 갱신되므로 락을 벗어난 참조는 쓸 수 없다.
@@ -2007,7 +2077,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
                         auto& market_data = bars[0];
                         market_data.bar_index = static_cast<int>(data_count_.load());
-                        market_data.symbol_id       = symbols_.table.intern(market_data.ticker);
+                        market_data.symbol_id       = lookup_symbol(market_data.ticker);
 
                         if (feed_.capture)
                         {
@@ -2208,7 +2278,7 @@ void Engine::set_slot_exempt_tickers(const std::vector<std::string>& tickers)
         ipc::ControlRequest row;
         row.kind      = ipc::ControlKind::kSlotExemptEntry;
         row.batch     = open.sequence;
-        row.symbol_id = symbols_.table.intern(ticker); // 티커 문자열이 번호가 되는 경계 [why D-112]
+        row.symbol_id = register_symbol(ticker); // 티커 문자열이 번호가 되는 경계 [why D-112]
 
         if (row.symbol_id == symbol::kNone)
         {
@@ -2366,6 +2436,11 @@ void Engine::apply_control_requests(ControlInbox& inbox)
 
         case ipc::ControlKind::kDisarmProtective:
             protective_book_.disarm(std::string(ipc::account_of(request)), request.symbol_id);
+            break;
+
+        // 종목 표에 넣는 자리는 여기 하나다 — 전략 쪽은 이 요청을 보내고 번호는 같은 표에서 읽어 간다.
+        case ipc::ControlKind::kRegisterSymbol:
+            symbols_.table.intern(request.ticker.view());
             break;
 
         default:
@@ -2847,7 +2922,7 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
     // 붙들고 있어 재구성 전의 옛 포인터도 유효하다(reap_retired가 seen 버전을 보고 파기).
     std::vector<StrategyBase*> snapshot;
     uint64_t                   seen_version = static_cast<uint64_t>(-1);
-    const auto                 symbol_id_of   = [this](std::string_view ticker) { return symbols_.table.intern(ticker); };
+    const auto                 symbol_id_of   = [this](std::string_view ticker) { return lookup_symbol(ticker); };
 
     // 신호 봉투 — 전략 상태(active·id)는 여기서 읽는다. 전략 스레드는 전략 객체를 보지 않는다.
     //  tick_ns는 체결 경로만 0이 아니다 — 봉·호가는 CSV에서 -1(측정 불가)로 남는다.
@@ -2860,7 +2935,7 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
         // 전략이 안 찍었으면 여기서 한 번. 신호 종목이 지금 틱과 다를 수 있어(테마·청산) 틱 id를 그대로 쓰지 않는다.
         if (emitted.signal.symbol_id == symbol::kNone)
         {
-            emitted.signal.symbol_id = symbols_.table.intern(emitted.signal.ticker);
+            emitted.signal.symbol_id = lookup_symbol(emitted.signal.ticker);
         }
 
         emitted.signal.strategy_index = strategy->strategy_index();
@@ -3407,7 +3482,10 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                      // 제어 요청 — 못 보낸 줄과 반쪽 표로 보고 버린 줄. 둘 다 0이어야 한다. [why D-114]
                      " control_dropped=" + std::to_string(pipeline_.control_dropped.load(std::memory_order_relaxed)) +
                      " control_discarded=" +
-                     std::to_string(pipeline_.control_discarded.load(std::memory_order_relaxed)));
+                     std::to_string(pipeline_.control_discarded.load(std::memory_order_relaxed)) +
+                     // 티커→번호 — 등록을 주문 쪽에서 못 받은 수, 표에 없는 티커로 잦은 자리가 불린 수. 둘 다 0이어야 한다. [why D-114]
+                     " symbol_register_timeout=" + std::to_string(symbol_register_timeouts()) +
+                     " symbol_lookup_miss=" + std::to_string(symbol_lookup_misses()));
         }
 
         if (++token_tick >= kTokenEvery)
@@ -3872,5 +3950,5 @@ void Engine::mark_exit_managed(symbol::SymbolId symbol)
 
 void Engine::register_ticker_name(const std::string& ticker, const std::string& name)
 {
-    register_ticker_name(symbols_.table.intern(ticker), name);
+    register_ticker_name(register_symbol(ticker), name);
 }

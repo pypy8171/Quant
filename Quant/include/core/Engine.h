@@ -1,6 +1,7 @@
 #pragma once
 #include "api/KisClient.h"
 #include "api/KisWebSocket.h"
+#include "core/CommandLine.h"
 #include "core/DataPoller.h"
 #include "core/LedgerReconciler.h"
 #include "core/RingBuffer.h"
@@ -77,6 +78,40 @@ public:
     Engine& operator=(const Engine&) = delete;
 
 public:
+    // ── 이 프로세스가 맡는 자리 ─────────────────────────────────────────────
+    // start() 전에만 부른다. Both 는 지금까지의 한 프로세스다. [why D-114]
+    void set_role(ProcessRole role);
+
+    [[nodiscard]] ProcessRole role() const noexcept
+    {
+        return role_;
+    }
+
+    // ── 티커 문자열이 종목 번호가 되는 자리 ─────────────────────────────────
+    // 종목 표에 **넣는 쪽은 주문 프로세스 하나**다(D-114 단계 4). 전략 프로세스는 읽기만 한다 —
+    //  양쪽이 각자 번호를 찍으면 전략 쪽 3번과 주문 쪽 3번이 다른 종목이 되고, 그건 엉뚱한 종목에
+    //  주문이 나가는 것이다. 그래서 티커를 번호로 바꾸는 자리를 이 둘로만 모았다.
+
+    // 없으면 넣어서라도 번호를 받아 온다. **느린 경로 전용**이다 — 기동·재스캔·바스켓처럼 분당 몇 건인
+    //  자리에서만 부른다. 전략 역할이면 넣기를 주문 쪽에 맡기고 표에 뜰 때까지 잠깐 기다린다.
+    //  못 받으면 symbol::kNone 이다(부른 쪽이 그 줄을 접는다).
+    [[nodiscard]] symbol::SymbolId register_symbol(std::string_view ticker);
+
+    // 표에 있으면 번호, 없으면 symbol::kNone. **넣지 않는다** — 틱·신호처럼 잦은 자리에서 부른다.
+    //  없는 티커가 오는 것은 등록 경로가 빠진 것이라 세어서 드러낸다.
+    [[nodiscard]] symbol::SymbolId lookup_symbol(std::string_view ticker) noexcept;
+
+    // 등록을 주문 쪽에 맡겼다가 못 받은 횟수 / 표에 없는 티커로 잦은 자리가 불린 횟수.
+    [[nodiscard]] uint64_t symbol_register_timeouts() const noexcept
+    {
+        return symbol_register_timeouts_.load(std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] uint64_t symbol_lookup_misses() const noexcept
+    {
+        return symbol_lookup_misses_.load(std::memory_order_relaxed);
+    }
+
     // ── 전략 등록 ────────────────────────────────────────────────────────────
     void add_strategy(std::unique_ptr<StrategyBase> strategy);
 
@@ -754,6 +789,11 @@ private:
         std::vector<bool> exit_managed{std::vector<bool>(table.capacity(), false)};
     };
     SymbolCache symbols_;
+
+    // 이 프로세스가 맡는 자리. 기동 때 한 번 정해지고 그 뒤로 안 바뀐다.
+    ProcessRole           role_ = ProcessRole::Both;
+    std::atomic<uint64_t> symbol_register_timeouts_{0};
+    std::atomic<uint64_t> symbol_lookup_misses_{0};
 
     // ── 종목명 캐시 ──────────────────────────────────────────────────────────
     // 종목 id→종목명 라벨(로그 표시용, 빈 문자열=없음). 여러 스레드가 접근해 ticker_names_mutex_로 보호.

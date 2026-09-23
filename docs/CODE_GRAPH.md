@@ -309,6 +309,7 @@ graph LR
   n_core_Engine_cpp --> n_utils_Utf8_h
   n_core_Engine_h --> n_api_KisClient_h
   n_core_Engine_h --> n_api_KisWebSocket_h
+  n_core_Engine_h --> n_core_CommandLine_h
   n_core_Engine_h --> n_core_DataPoller_h
   n_core_Engine_h --> n_core_FeedMux_h
   n_core_Engine_h --> n_core_FeedSupervisor_h

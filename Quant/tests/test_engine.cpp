@@ -3,6 +3,7 @@
 // 수신 스레드 2×샤드 2(종목 둘이 서로 다른 수신 스레드에서 들어와 서로 다른 열에서 판단된다). 관련 결정: D-071(Phase 3·Phase 4 앞단계).
 // 스레드: 테스트 스레드가 피드 소스의 수신 스레드 역할(수신 스레드 0..N-1)을 하고 나머지는 Engine이 띄운다.
 // 케이스 하나 더 — 보호 주문 한 주기를 두 스레드가 같이 잡지 못하는지(D-114 전략 사망 마무리).
+// 케이스 하나 더 — 티커가 종목 번호가 되는 자리 둘(D-114 단계 4): 넣는 쪽은 주문 프로세스 하나고, 잦은 자리는 없는 티커를 만들지 않는다.
 // 빌드: cmake --build <directory> --target test_engine
 #include "core/Engine.h"
 #include "core/IFeedSource.h"
@@ -556,6 +557,61 @@ int run_replay_case()
     std::filesystem::remove(path);
     return 0;
 }
+
+// D-114 단계 4 — 티커가 종목 번호가 되는 자리를 둘로 가른 것을 고정한다. 넣는 쪽(register_symbol)은
+//  주문 프로세스 하나고, 잦은 자리(lookup_symbol)는 표에 없는 티커를 만들지 않는다.
+int run_symbol_role_case()
+{
+    using namespace std::chrono_literals;
+    std::cout << "case symbol role\n";
+
+    auto feed_owned = std::make_unique<FakeFeed>(1);
+
+    Engine engine(KisConfig{});
+    engine.set_zmq_enabled(false);
+    engine.set_strategy_shards(1);
+    engine.add_strategy(std::make_unique<BuyOnce>("005930"));
+    engine.set_feed_source(std::move(feed_owned), 1'000'000.0);
+
+    // 1. 역할을 주기 전은 지금까지와 같다 — 넣는 쪽이라 그 자리에서 번호가 나고, 같은 티커는 같은 번호다.
+    const symbol::SymbolId samsung = engine.register_symbol("005930");
+    CHECK(samsung != symbol::kNone);
+    CHECK(engine.register_symbol("005930") == samsung);
+
+    // 2. 잦은 자리는 없는 티커를 만들지 않는다 — kNone을 주고 센다(등록 경로가 빠진 것을 드러낸다).
+    CHECK(engine.lookup_symbol("000660") == symbol::kNone);
+    CHECK(engine.symbol_lookup_misses() == 1);
+    CHECK(engine.lookup_symbol("000660") == symbol::kNone);
+    CHECK(engine.symbol_lookup_misses() == 2);
+
+    engine.start();
+    CHECK(engine.is_running());
+
+    // 3. 전략 역할은 표에 직접 넣지 않는다 — 제어 요청을 보내고, 주문 쪽이 넣은 번호를 같은 표에서 읽어 온다.
+    engine.set_role(ProcessRole::Strategy);
+
+    const symbol::SymbolId hynix = engine.register_symbol("000660");
+    CHECK(hynix != symbol::kNone);
+    CHECK(hynix != samsung);
+    CHECK(engine.lookup_symbol("000660") == hynix);
+    CHECK(engine.symbol_register_timeouts() == 0);
+
+    // 4. 이미 표에 있으면 요청을 보내지 않고 바로 답한다.
+    CHECK(engine.register_symbol("000660") == hynix);
+    CHECK(engine.symbol_register_timeouts() == 0);
+
+    engine.stop();
+    CHECK(!engine.is_running());
+
+    // 5. 집어 갈 쪽이 멎으면 번호가 안 뜬다 — 기다리다 kNone을 주고 세고, 표에도 안 들어간다.
+    //  부른 쪽이 그 줄을 접게 하려는 것이다(전략 쪽이 제 번호를 찍어 버리는 쪽이 훨씬 나쁘다).
+    CHECK(engine.register_symbol("373220") == symbol::kNone);
+    CHECK(engine.symbol_register_timeouts() == 1);
+    CHECK(engine.lookup_symbol("373220") == symbol::kNone);
+
+    return 0;
+}
+
 } // namespace
 
 int main()
@@ -585,6 +641,11 @@ int main()
     }
 
     if (const int result_code = run_protective_claim_case(); result_code != 0)
+    {
+        return result_code;
+    }
+
+    if (const int result_code = run_symbol_role_case(); result_code != 0)
     {
         return result_code;
     }
