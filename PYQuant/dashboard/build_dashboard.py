@@ -1232,11 +1232,20 @@ VARIANTS = {
                "schemas": "research/RESET_*", "tabs": ("rounds",)},
 }
 
-# 공개본에 있으면 안 되는 것 — 세션 이름·비공개 폴더·키 이름·계좌번호 꼴. 걸리면 파일을 안 쓴다.
-_PUBLIC_FORBIDDEN = [re.compile(pattern) for pattern in
-                     (r"\bquant-[0-9a-f]{2}\b", r"_private", r"app_?key", r"app_?secret", r"\b\d{8}-\d{2}\b")]
+# 개인정보 모양 — 주민번호·휴대폰·개인 이메일(commit_gate.py PRIVATE_PATTERNS와 같은 꼴).
+_PERSONAL_PATTERNS = (
+    (r"\b\d{6}-[1-4]\d{6}\b",                                              "(주민번호)"),
+    (r"(?<![\d.])01[016789]-?\d{3,4}-?\d{4}(?!\d)",                       "(전화번호)"),
+    (r"[A-Za-z0-9._%+-]+@(?:gmail|naver|daum|kakao|outlook|hotmail)\.com", "(이메일)"),
+)
 
-# 공개본 일지 가림 — 세션 이름(quant-53, quant-53-e4b2c7), 계좌번호(8자리-2자리), 비공개 경로, 키 이름.
+# 공개본에 있으면 안 되는 것 — 세션 이름·비공개 폴더·키 이름·계좌번호 꼴·개인정보 모양. 걸리면 파일을 안 쓴다.
+# 실제 계좌번호·HTS ID·가족 실명 같은 낱말은 _private_literals()가 더한다.
+_PUBLIC_FORBIDDEN = [re.compile(pattern) for pattern in
+                     (r"\bquant-[0-9a-f]{2}\b", r"_private", r"app_?key", r"app_?secret", r"\b\d{8}-\d{2}\b",
+                      *(pattern for pattern, _ in _PERSONAL_PATTERNS))]
+
+# 공개본 일지 가림 — 세션 이름, 계좌번호(8자리-2자리), 비공개 경로, 키 이름, 개인정보 모양.
 # 가린 결과도 위 _PUBLIC_FORBIDDEN 검사를 한 번 더 지난다.
 _PUBLIC_MASKS = [(re.compile(pattern), replacement) for pattern, replacement in (
     (r"\bquant-[0-9a-f]{2}(?:-[0-9a-f]+)?\b", "(세션)"),
@@ -1244,16 +1253,61 @@ _PUBLIC_MASKS = [(re.compile(pattern), replacement) for pattern, replacement in 
     (r"(pnl_baseline_\d{8}_)\d{8}",          r"\1(계좌번호)"),
     (r"[\w./\\-]*_private[\w./\\-]*",        "(비공개 경로)"),
     (r"app_?(?:key|secret)",                 "(키)"),
+    *_PERSONAL_PATTERNS,
 )]
 
 
-# 하이픈 없는 8자리 계좌번호("주문·체결 계좌 50204275 87건")는 금액과 모양이 같아 "계좌"가 든 줄에서만 가린다.
+# 하이픈 없는 8자리 계좌번호("주문·체결 계좌 <번호> 87건")는 금액과 모양이 같아 "계좌"가 든 줄에서만 가린다.
 _BARE_ACCOUNT_NUMBER = re.compile(r"\b(?!20\d{6}\b)\d{8}\b")
+
+# 설정 파일에서 글자 그대로 가릴 값을 읽는 키 — 계좌번호 앞 8자리와 HTS ID.
+_CONFIG_PRIVATE_KEYS = ("account_no", "hts_id")
+
+
+def _private_literals():
+    """글자 그대로 가릴 값 — 설정 파일의 계좌번호·HTS ID와 _private/gate_words.txt 낱말(가족 실명 등).
+
+    [inv] 값 자체는 저장소에 두지 않는다. 설정·낱말 파일은 둘 다 gitignore 대상이다.
+    """
+    literals = set()
+    for config_path in (_REPO / "Quant" / "config").glob("config*.json"):
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+
+        stack = [config]
+        while stack:
+            node = stack.pop()
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key in _CONFIG_PRIVATE_KEYS and isinstance(value, str) and value.strip():
+                        literals.add(value.strip()[:8] if key == "account_no" else value.strip())
+                    else:
+                        stack.append(value)
+
+            elif isinstance(node, list):
+                stack.extend(node)
+
+    words_path = _REPO / "_private" / "gate_words.txt"
+    try:
+        literals.update(line.strip() for line in words_path.read_text(encoding="utf-8").splitlines()
+                        if line.strip() and not line.startswith("#"))
+    except OSError:
+        print("! _private/gate_words.txt가 없다 — 가족 실명 같은 낱말은 가리지 못한다", file=sys.stderr)
+
+    return sorted((literal for literal in literals if len(literal) >= 2), key=len, reverse=True)
+
+
+_PRIVATE_LITERALS = _private_literals()
 
 
 def _mask_public(text):
     for pattern, replacement in _PUBLIC_MASKS:
         text = pattern.sub(replacement, text)
+
+    for literal in _PRIVATE_LITERALS:
+        text = text.replace(literal, "(가림)")
 
     return "\n".join(_BARE_ACCOUNT_NUMBER.sub("(계좌번호)", line) if "계좌" in line else line
                      for line in text.split("\n"))
@@ -1748,6 +1802,7 @@ def main():
         page = render(rows, live, reviews, premarket, rounds, study_index, variant)
         if variant == "public":
             hits = [pattern.pattern for pattern in _PUBLIC_FORBIDDEN if pattern.search(page)]
+            hits += ["(비공개 낱말)" for literal in _PRIVATE_LITERALS if literal in page][:1]
             if hits:
                 print(f"! 공개본에 금지 패턴 {hits} — {variant_specification['out'].name}을 쓰지 않는다", file=sys.stderr)
                 continue
