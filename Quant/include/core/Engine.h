@@ -87,6 +87,18 @@ public:
         return role_;
     }
 
+    // 이 프로세스가 맡는 일감. Both 면 둘 다 참이다 — 지금까지의 한 프로세스와 같다.
+    //  주문 쪽은 주문·체결·원장·게이트, 전략 쪽은 시세·전략·신호다(가르는 선은 docs/DECISIONS.md D-114).
+    [[nodiscard]] bool runs_order_side() const noexcept
+    {
+        return role_ != ProcessRole::Strategy;
+    }
+
+    [[nodiscard]] bool runs_strategy_side() const noexcept
+    {
+        return role_ != ProcessRole::Order;
+    }
+
     // ── 티커 문자열이 종목 번호가 되는 자리 ─────────────────────────────────
     // 종목 표에 **넣는 쪽은 주문 프로세스 하나**다(D-114 단계 4). 전략 프로세스는 읽기만 한다 —
     //  양쪽이 각자 번호를 찍으면 전략 쪽 3번과 주문 쪽 3번이 다른 종목이 되고, 그건 엉뚱한 종목에

@@ -1320,20 +1320,34 @@ void Engine::spawn_threads()
     // 전략 스레드가 돌기 전에 사본을 한 판 내 둔다. 재기동 직후 잔고 재시드로 보유가 이미 들어와 있는데
     //  전략이 빈 판을 보면 "보유 0"으로 읽고 같은 종목을 또 산다(이중 발주, A등급). 첫 주문이 들어와야
     //  첫 판이 나가는 구조라 여기서 한 번 먼저 낸다. [why D-114]
-    order_gate_.publish_ledger(*ledger_snapshot_);
-
-    // jthread는 stop_token을 첫 인자로 넣으므로 멤버 함수 포인터(this가 첫 인자)는 람다로 감싼다.
-    data_thread_     = std::jthread([this](std::stop_token stop_token) { data_thread_fn(stop_token); });
-
-    for (uint32_t shard_index = 0; shard_index < static_cast<uint32_t>(pipeline_.shards.size()); ++shard_index)
+    if (runs_order_side())
     {
-        pipeline_.shard_threads.emplace_back([this, shard_index](std::stop_token stop_token) { shard_thread_fn(stop_token, shard_index); });
+        order_gate_.publish_ledger(*ledger_snapshot_);
     }
 
-    strategy_thread_ = std::jthread([this](std::stop_token stop_token) { strategy_thread_fn(stop_token); });
-    order_thread_    = std::jthread([this](std::stop_token stop_token) { order_thread_fn(stop_token); });
-    fill_thread_     = std::jthread([this](std::stop_token stop_token) { fill_thread_fn(stop_token); });
-    control_thread_  = std::jthread([this](std::stop_token stop_token) { control_thread_fn(stop_token); });
+    // 데이터 스레드는 양쪽에 하나씩 둔다 — 보는 일감이 다르다. 전략 쪽은 국면·재스캔·시세 보충이고,
+    //  주문 쪽은 원장 대조·선점 정리·하루 초기화다(가르는 선은 docs/DECISIONS.md D-114). [why D-114]
+    // jthread는 stop_token을 첫 인자로 넣으므로 멤버 함수 포인터(this가 첫 인자)는 람다로 감싼다.
+    data_thread_ = std::jthread([this](std::stop_token stop_token) { data_thread_fn(stop_token); });
+
+    if (runs_strategy_side())
+    {
+        for (uint32_t shard_index = 0; shard_index < static_cast<uint32_t>(pipeline_.shards.size()); ++shard_index)
+        {
+            pipeline_.shard_threads.emplace_back([this, shard_index](std::stop_token stop_token) { shard_thread_fn(stop_token, shard_index); });
+        }
+
+        strategy_thread_ = std::jthread([this](std::stop_token stop_token) { strategy_thread_fn(stop_token); });
+    }
+
+    if (runs_order_side())
+    {
+        order_thread_ = std::jthread([this](std::stop_token stop_token) { order_thread_fn(stop_token); });
+        fill_thread_  = std::jthread([this](std::stop_token stop_token) { fill_thread_fn(stop_token); });
+    }
+
+    // 감시 스레드도 양쪽에 하나씩 — 시세 소켓을 쥔 쪽이 재연결을 보고, 주문 쪽이 마감 종료를 본다.
+    control_thread_ = std::jthread([this](std::stop_token stop_token) { control_thread_fn(stop_token); });
 }
 
 void Engine::start()
@@ -1345,10 +1359,13 @@ void Engine::start()
 
     LOG_INFO("[Engine] ── 퀀트 엔진 시작 ──────────────────────────────");
 
+    // 틱 파이프라인 자리는 양쪽에 그대로 둔다 — 소켓을 쥔 쪽이 아직 샤드에 흘리기 때문이다.
+    //  시세가 통로로 건너가는 단계 5에서 주문 쪽 샤드는 사라진다. [why D-114]
     setup_shards();
 
 #ifdef HAS_ZMQ
-    if (zmq_enabled_)
+    // 발행 채널은 주문 쪽에 둔다 — 전략이 멎어도 KILL과 잔고 조회는 살아 있어야 한다. [why D-114]
+    if (zmq_enabled_ && runs_order_side())
     {
         setup_zmq_bridge();
     }
@@ -1356,35 +1373,49 @@ void Engine::start()
 
     const bool offline = feed_.feed_override != nullptr || !feed_.replay_file.empty();
 
+    // 인증은 양쪽이 한다 — 주문 쪽은 주문·잔고에, 전략 쪽은 시세·일봉 조회에 REST를 쓴다.
     if (!authenticate_feed(offline))
     {
         return;
     }
 
-    setup_paper_executor(offline);
-    initialize_order_router();
-    initialize_ledger_reconciler();
-    initialize_data_poller();
-
-    if (!try_open_ledger_journal() || !try_bootstrap_ledger())
+    if (runs_order_side())
     {
-        return;
+        setup_paper_executor(offline);
+        initialize_order_router();
+        initialize_ledger_reconciler();
+
+        // 원장 파일·미결주문 파일은 한 프로세스만 연다 — 둘이 같은 파일을 쓰면 줄이 섞인다. [why D-114]
+        if (!try_open_ledger_journal() || !try_bootstrap_ledger())
+        {
+            return;
+        }
+
+        resolve_open_intents();
     }
 
-    resolve_open_intents();
+    if (runs_strategy_side())
+    {
+        initialize_data_poller();
 
-    // 프리페치 스레드는 전략이 붙기 전에 미리 띄운다 — 장중 전략 등록이 스레드를 새로 만들지 않게. [why D-115]
-    prefetch_pool_.start();
+        // 프리페치 스레드는 전략이 붙기 전에 미리 띄운다 — 장중 전략 등록이 스레드를 새로 만들지 않게. [why D-115]
+        prefetch_pool_.start();
 
-    start_strategies();
-    collect_watch_specifications();
+        start_strategies();
+        collect_watch_specifications();
+    }
 
     running_.store(true);
 
     // 런타임 피드 상태를 config 의도로 초기화. 이후 WS 생사에 따라 control_thread가 토글한다.
     feed_.rest_feed_active.store(feed_.rest_price_feed, std::memory_order_relaxed);
 
-    connect_feed();
+    // 시세 소켓은 주문 쪽이 쥔다 — 체결통보와 현재가 배열이 경계를 넘지 않게 하는 갈래다. [why D-114]
+    if (runs_order_side())
+    {
+        connect_feed();
+    }
+
     spawn_threads();
 
     LOG_INFO("[Engine] 모든 스레드 시작 완료");
@@ -1758,6 +1789,11 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 {
     thread_name::set_current("DataThread");
     LOG_INFO("[DataThread] 시작");
+
+    // 맡는 일감은 역할로 갈린다. [inv] 역할은 start() 전에 정해지고 도는 동안 바뀌지 않는다. [why D-114]
+    const bool strategy_side = runs_strategy_side();
+    const bool order_side    = runs_order_side();
+
     bool was_market_open = false;
 
     while (!stop_token.stop_requested())
@@ -1769,13 +1805,17 @@ void Engine::data_thread_fn(std::stop_token stop_token)
         //  그날 KR 손익 기록을 지우지만 그 시각 KR 주문은 나가지 않는다(W-9, 시장별 분리는 보류).
         if (market_now && !was_market_open)
         {
-            request_reset_daily();
-            LOG_INFO(std::string("[DataThread] 장 개장 전이(") + (is_kr_market_open() ? "KR" : "US") +
-                     ") — OrderGate 일별 카운터 리셋");
+            // 하루치를 새로 여는 것은 주문 쪽 제 주기다 — 게이트·원장·라우터가 거기 있다. [why D-114]
+            if (order_side)
+            {
+                request_reset_daily();
+                LOG_INFO(std::string("[DataThread] 장 개장 전이(") + (is_kr_market_open() ? "KR" : "US") +
+                         ") — OrderGate 일별 카운터 리셋");
+            }
 
             // 기동 뒤 첫 개장이면 아직 라벨 전이가 없었을 수 있다. 마지막 선택을 강제 로그로 다시 적용해
             //  "오늘 무엇이 켜져 있나"가 하루 한 줄은 남게 한다.
-            if (strategy_.last_selected_regime != Regime::UNKNOWN)
+            if (strategy_side && strategy_.last_selected_regime != Regime::UNKNOWN)
             {
                 apply_regime_selection(strategy_.last_selected_regime, /*force_log=*/true);
             }
@@ -1801,10 +1841,14 @@ void Engine::data_thread_fn(std::stop_token stop_token)
         {
             // 매크로 레짐 게이트: 보조 프로세스가 쓴 regime.json → OrderGate entry_halt 토글.
             //  재스캔/잔고 대조와 같은 "사이클 1회" 계층. rest·일봉 모드 공통 경로라 두 모드 다 커버.
-            poll_regime_file();
+            //  국면을 읽는 것은 전략 쪽이다 — 게이트를 고치는 일은 제어 요청으로 주문 쪽에 넘어간다. [why D-114]
+            if (strategy_side)
+            {
+                poll_regime_file();
+            }
 
             // 주기적 유니버스 재스캔(동적 등록) — 슬리브별 주기는 각 job이 자체 판단한다.
-            if (!universe_rescan_.jobs.empty())
+            if (strategy_side && !universe_rescan_.jobs.empty())
             {
                 {
                     const auto rescan_start = cycle_clock::now();
@@ -1828,21 +1872,26 @@ void Engine::data_thread_fn(std::stop_token stop_token)
             //  머물러 총노출 게이트가 조용히 통과만 하고, 일간손실 한도의 기준값도 안 움직인다.
             //  잔고 조회 자체는 대조기가 뒤 스레드에서 돌리고 여기서는 짧게만 기다리므로(기본 500ms) 서버가
             //  늦어도 아래 재선점 정리·시세 보충은 제때 돈다. 늦은 응답은 다음 사이클이 집는다.
-            const auto reconcile_start = cycle_clock::now();
-            ledger_->reconcile(/*resync_positions=*/rest_now, std::time(nullptr));
-            reconcile_ms = ms_between(reconcile_start, cycle_clock::now());
-
-            // 잔고가 실보유를 바로잡는 자리 옆에서, 라우터가 선점을 바로잡는다. 정본이 서로
-            //  다르다 — 실보유는 브로커, 선점은 라우터 이력. 둘 다 슬롯을 세므로 같이 돈다.
-            if (order_router_)
+            //  원장과 라우터는 주문 프로세스 것이라 대조·선점 정리도 그쪽 제 주기로 돈다. [why D-114]
+            if (order_side)
             {
-                order_router_->sweep_stale_reservations();
+                const auto reconcile_start = cycle_clock::now();
+                ledger_->reconcile(/*resync_positions=*/rest_now, std::time(nullptr));
+                reconcile_ms = ms_between(reconcile_start, cycle_clock::now());
+
+                // 잔고가 실보유를 바로잡는 자리 옆에서, 라우터가 선점을 바로잡는다. 정본이 서로
+                //  다르다 — 실보유는 브로커, 선점은 라우터 이력. 둘 다 슬롯을 세므로 같이 돈다.
+                if (order_router_)
+                {
+                    order_router_->sweep_stale_reservations();
+                }
             }
 
             // 틱이 끊긴 보유 종목은 REST 현재가로 보충한다 — 운영단말 현재가가 비어 있던 원인(09-11)은
             //  둘이었다: 유니버스 밖 보유(구독 자체가 없음)와 WS 구독 상한에 밀린 종목. 구독 여부를 따지지
             //  않고 "최근 틱이 없다"로만 고르면 둘 다 잡힌다. 전략이 볼 일은 없으니 td_queue_에는 넣지 않는다.
-            //  모의 도메인 초당 한도가 낮아 300ms 간격.
+            //  모의 도메인 초당 한도가 낮아 300ms 간격. 시세를 채우는 일이라 전략 쪽이 한다. [why D-114]
+            if (strategy_side)
             {
                 std::vector<std::string> held;
 
@@ -1879,7 +1928,8 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                 top_up_ms = ms_between(top_up_start, cycle_clock::now());
             }
 
-            if (rest_now)
+            // 시세를 받아 흘리는 자리는 전부 전략 쪽이다 — 폴링·일봉·수급 관측 적재. [why D-114]
+            if (rest_now && strategy_side)
             {
 
                 // ── 당일 외국인·기관 추정 순매수 "관측 적재"(게이트 아님) ──────────────
@@ -2132,7 +2182,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                 //  싱크는 행렬의 데이터 스레드 행이라 그 경우가 없다. [why D-062]
                 data_count_ += poller_->poll_universe(watch_specifications_, std::time(nullptr));
             }
-            else
+            else if (strategy_side)
             {
                 // 차트(일봉) TR은 모의 도메인에서 HTTP 500을 돌려준다. 주문 클라이언트로 부르면
                 //  종목 수×사이클마다 500이 쌓여 로그가 그걸로 덮인다(3회 재시도까지 붙는다).
@@ -2257,7 +2307,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
                 slept += step;
 
-                if (slept < cycle)
+                if (strategy_side && slept < cycle)
                 {
                     maybe_rescan_universe();   // 사이클 시작의 호출과 합쳐 재스캔 주기를 지킨다
                 }
@@ -3617,8 +3667,14 @@ void Engine::control_thread_fn(std::stop_token stop_token)
             }
         }
 
-        step_session_end(); // 마감 자기 종료 — WS 유무와 무관하게 매 주기 [why D-098]
+        // 마감 자기 종료 — WS 유무와 무관하게 매 주기 [why D-098]. 판정이 주문 큐를 보므로 주문 쪽이 한다. [why D-114]
+        if (runs_order_side())
+        {
+            step_session_end();
+        }
 
+        // 재연결은 소켓을 쥔 쪽이 본다 — 단계 4에서 소켓은 주문 프로세스에 있다(체결통보가 경계를 넘지
+        //  않게 하는 갈래). 전략 프로세스는 이 포인터가 비어 있어 아래를 통째로 건너뛴다. [why D-114]
         if (!feed_.websocket)
         {
             continue;

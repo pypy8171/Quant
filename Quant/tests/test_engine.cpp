@@ -5,6 +5,7 @@
 // 케이스 하나 더 — 보호 주문 한 주기를 두 스레드가 같이 잡지 못하는지(D-114 전략 사망 마무리).
 // 케이스 하나 더 — 티커가 종목 번호가 되는 자리 둘(D-114 단계 4): 넣는 쪽은 주문 프로세스 하나고, 잦은 자리는 없는 티커를 만들지 않는다.
 // 케이스 하나 더 — 주문 쪽 스위치 다섯(D-114 단계 4): 전략 역할이면 제어 요청을 거쳐 주문 스레드가 고친다.
+// 케이스 하나 더 — 역할대로 제 스레드만 띄우는지(D-114 단계 4): 전략 역할은 주문 스레드가 없고, 주문 역할은 전략을 올리지 않는다.
 // 빌드: cmake --build <directory> --target test_engine
 #include "core/Engine.h"
 #include "core/IFeedSource.h"
@@ -686,6 +687,67 @@ int run_switch_role_case()
     return 0;
 }
 
+// D-114 단계 4 — 역할대로 제 몫만 띄운다. 전략 역할은 샤드·전략 스레드만, 주문 역할은 주문·체결 스레드만이다.
+//  둘 다 브로커 없이 뜨고 멎는다. 여기서 드러나는 빈자리가 --role 을 아직 막아 둔 이유다 — 전략 쪽은 종목
+//  번호를 주는 주문 쪽이 없어 못 받고, 주문 쪽은 구독 목록이 전략 쪽에 있어 소켓을 열 게 없다.
+int run_split_start_case()
+{
+    std::cout << "case split start\n";
+
+    // 1. 전략 역할 — 전략은 올라가지만 주문 쪽은 이 프로세스에 없다.
+    {
+        auto  feed_owned     = std::make_unique<FakeFeed>(1);
+        auto* feed           = feed_owned.get();
+        auto  strategy_owned = std::make_unique<BuyOnce>("005930");
+        auto* strategy       = strategy_owned.get();
+
+        Engine engine(KisConfig{});
+        engine.set_zmq_enabled(false);
+        engine.set_strategy_shards(1);
+        engine.add_strategy(std::move(strategy_owned));
+        engine.set_feed_source(std::move(feed_owned), 1'000'000.0);
+        engine.set_role(ProcessRole::Strategy);
+        engine.start();
+
+        CHECK(engine.is_running());
+        CHECK(engine.shard_count() == 1);              // 틱 파이프라인 자리는 전략 쪽에 남는다
+        CHECK(!feed->is_connected());                  // 시세 소켓은 주문 쪽이 쥔다
+        CHECK(engine.order_count() == 0);              // 주문 스레드가 없다
+        CHECK(engine.symbol_register_timeouts() >= 1); // 번호를 놓아 주는 쪽이 이 프로세스에 없다
+        CHECK(strategy->symbol_id() == symbol::kNone);
+
+        engine.stop();
+        CHECK(!engine.is_running());
+    }
+
+    // 2. 주문 역할 — 전략을 올리지 않는다. on_start 를 부르지 않으니 종목 번호를 달라는 요청도 없다.
+    {
+        auto  feed_owned     = std::make_unique<FakeFeed>(1);
+        auto* feed           = feed_owned.get();
+        auto  strategy_owned = std::make_unique<BuyOnce>("005930");
+        auto* strategy       = strategy_owned.get();
+
+        Engine engine(KisConfig{});
+        engine.set_zmq_enabled(false);
+        engine.set_strategy_shards(1);
+        engine.add_strategy(std::move(strategy_owned));
+        engine.set_feed_source(std::move(feed_owned), 1'000'000.0);
+        engine.set_role(ProcessRole::Order);
+        engine.start();
+
+        CHECK(engine.is_running());
+        CHECK(strategy->symbol_id() == symbol::kNone); // 전략을 올리지 않았다
+        CHECK(engine.symbol_register_timeouts() == 0);
+        CHECK(!feed->is_connected());                  // 구독 목록이 아직 전략 쪽에서 건너오지 않는다
+        CHECK(engine.order_count() == 0);
+
+        engine.stop();
+        CHECK(!engine.is_running());
+    }
+
+    return 0;
+}
+
 } // namespace
 
 int main()
@@ -725,6 +787,11 @@ int main()
     }
 
     if (const int result_code = run_switch_role_case(); result_code != 0)
+    {
+        return result_code;
+    }
+
+    if (const int result_code = run_split_start_case(); result_code != 0)
     {
         return result_code;
     }
