@@ -142,7 +142,9 @@ set(HEADER_IMPL_SOURCES
   src/ipc/Heartbeat.cpp
   src/ipc/OpsProtocol.cpp
   src/ipc/OrderChannel.cpp
+  src/ipc/ControlChannel.cpp
   src/ipc/LedgerSnapshot.cpp
+  src/risk/DisplacementDesk.cpp
   src/risk/GateReasons.cpp
   src/risk/LedgerJournal.cpp
   src/risk/ProtectiveOrders.cpp
@@ -683,6 +685,25 @@ if(UNIX)
     target_link_libraries(test_order_channel PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: 교체 진입 창구 (D-114 단계 2.5 갈래 B) ────────
+add_executable(test_displacement_desk tests/test_displacement_desk.cpp src/risk/DisplacementDesk.cpp
+    src/risk/OrderGate.cpp src/utils/Logger.cpp)
+target_include_directories(test_displacement_desk PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_displacement_desk PRIVATE pthread)
+endif()
+
+# ─── 테스트 타겟: 전략→주문 제어 요청 (D-114 단계 2.5 갈래 B) ────
+add_executable(test_control_channel tests/test_control_channel.cpp src/ipc/ControlChannel.cpp src/core/Types.cpp)
+target_include_directories(test_control_channel PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_control_channel PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟: 장부 사본 (D-114 단계 2.5) ──────────────────────
 add_executable(test_ledger_snapshot tests/test_ledger_snapshot.cpp src/ipc/LedgerSnapshot.cpp)
 target_include_directories(test_ledger_snapshot PRIVATE
@@ -757,6 +778,8 @@ set(QUANT_ASSERT_TARGETS
     test_logger
     test_protective_orders
     test_order_channel
+    test_control_channel
+    test_displacement_desk
     test_heartbeat
     test_ledger_snapshot
 )

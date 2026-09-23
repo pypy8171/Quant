@@ -285,6 +285,7 @@
 
 ### Quant/include/ipc/
 
+- [ControlChannel.h](../Quant/include/ipc/ControlChannel.h) — 전략→주문 제어 요청 레코드와 표 모으기 규칙(문자열·포인터 없음, D-114 단계 2.5 갈래 B)
 - [FillKey.h](../Quant/include/ipc/FillKey.h) — 체결통보 중복 키 — 날짜·주문번호·시각·수량·가격 정수 5개와 해시(D-112)
 - [Heartbeat.h](../Quant/include/ipc/Heartbeat.h) — 심장박동 — 박동 공백만으로 상대의 생사를 판정한다(시계·스레드 없음, D-114 단계 2)
 - [LedgerSnapshot.h](../Quant/include/ipc/LedgerSnapshot.h) — 장부 사본 — 전략이 주문 쪽 장부 대신 읽을 한 판(판 번호로 묶고 줄마다 판 번호를 찍는다, D-114 단계 2.5)
@@ -300,6 +301,7 @@
 
 ### Quant/include/risk/
 
+- [DisplacementDesk.h](../Quant/include/risk/DisplacementDesk.h) — 교체 진입 창구(주문 쪽): 꽉 찬 책에 새 종목 매수가 오면 최약체를 먼저 비우고 그 매수를 자리가 날 때까지 든다(D-114 단계 2.5 갈래 B)
 - [GateReasons.h](../Quant/include/risk/GateReasons.h) — 게이트 거부 사유 문자열 계약(D-067)
 - [LedgerJournal.h](../Quant/include/risk/LedgerJournal.h) — 원장 선기록 저널: 192바이트 고정 레코드·CRC32·seq, 주문을 보내기 전에 적고 재기동 때 리플레이(D-113)
 - [OrderGate.h](../Quant/include/risk/OrderGate.h) — 주문 전 위험 검증 게이트
@@ -397,6 +399,7 @@
 
 ### Quant/src/ipc/
 
+- [ControlChannel.cpp](../Quant/src/ipc/ControlChannel.cpp) — ControlChannel.h 구현 — 계좌 칸 넣고 빼기, 여러 줄로 오는 표를 온전할 때만 거는 모으개(D-114 단계 2.5 갈래 B)
 - [FillKey.cpp](../Quant/src/ipc/FillKey.cpp) — FillKey.h 구현 — 체결통보 중복 키 — 날짜·주문번호·시각·수량·가격 정수 5개와 해시(D-112)
 - [Heartbeat.cpp](../Quant/src/ipc/Heartbeat.cpp) — Heartbeat.h 구현 — 박동 찍기와 정상·의심·사망 전이 판정(D-114 단계 2)
 - [LedgerSnapshot.cpp](../Quant/src/ipc/LedgerSnapshot.cpp) — LedgerSnapshot.h 구현 — 판 뒤집기와 되읽기, 이번 판에 실린 줄만 모아 주기(D-114 단계 2.5)
@@ -412,6 +415,7 @@
 
 ### Quant/src/risk/
 
+- [DisplacementDesk.cpp](../Quant/src/risk/DisplacementDesk.cpp) — DisplacementDesk.h 구현 — 최약체 고르기·교체 매도 발주·쿨다운 기록·보류 매수 꺼내기(D-114 단계 2.5 갈래 B)
 - [GateReasons.cpp](../Quant/src/risk/GateReasons.cpp) — GateReasons.h 구현 — 게이트 거부 사유 문자열 계약(D-067)
 - [LedgerJournal.cpp](../Quant/src/risk/LedgerJournal.cpp) — LedgerJournal.h 구현 — 원장 선기록 저널: 192바이트 고정 레코드·CRC32·seq, 주문을 보내기 전에 적고 재기동 때 리플레이(D-113)
 - [OrderGate.cpp](../Quant/src/risk/OrderGate.cpp) — 주문 위험 게이트 구현 — 수수료율·우선순위 바
@@ -493,6 +497,8 @@
 - [test_heartbeat.cpp](../Quant/tests/test_heartbeat.cpp) — 심장박동 단위 테스트: 정상·의심·사망 전이와 사망 한 번만 가져가기를 시계 없이 검증(D-114 단계 2)
 - [test_ledger_snapshot.cpp](../Quant/tests/test_ledger_snapshot.cpp) — 장부 사본 단위 테스트: 지난 판 값이 안 남는지, 쓰는 중에 읽어도 반쪽 판이 안 나오는지 두 스레드로 검증(D-114 단계 2.5)
 - [test_order_channel.cpp](../Quant/tests/test_order_channel.cpp) — 전략↔주문 통로 단위 테스트: 요청·응답 레코드, 기다리는 표, 같은 순번 거름, 주문번호 변환(D-114 단계 2)
+- [test_control_channel.cpp](../Quant/tests/test_control_channel.cpp) — 제어 요청 단위 테스트: 계좌 칸, 표 모으기, 남의 표 줄·반쪽 표·닫기 누락을 안 거는지 검증(D-114 단계 2.5 갈래 B)
+- [test_displacement_desk.cpp](../Quant/tests/test_displacement_desk.cpp) — 교체 진입 창구 단위 테스트: 최약체 매도 앞세우기, 매수 보류·자리 나면 발주·시한 만료(D-114 단계 2.5 갈래 B)
 - [test_protective_orders.cpp](../Quant/tests/test_protective_orders.cpp) — 보호 주문 표 단위 테스트: 전략 없이 가격 경로만으로 청산이 나가는지 검증(D-114 단계 1)
 - [test_reconcile_plan.cpp](../Quant/tests/test_reconcile_plan.cpp) — 잔고 대조 차이 계산 순수 함수 단위 테스트(D-038)
 - [test_regime_file_judge.cpp](../Quant/tests/test_regime_file_judge.cpp) — 매크로 국면 파일 판정기 단위 테스트(D-033·D-060)

@@ -21,12 +21,12 @@ graph LR
   api -->|11| core
   api -->|7| utils
   core -->|11| api
-  core -->|7| ipc
-  core -->|6| risk
+  core -->|8| ipc
+  core -->|7| risk
   core -->|3| strategy
   core -->|12| utils
   ipc -->|2| api
-  ipc -->|9| core
+  ipc -->|10| core
   ipc --> risk
   ipc -->|5| utils
   main -->|3| core
@@ -37,9 +37,9 @@ graph LR
   modes -->|3| core
   modes --> ipc
   modes -->|2| utils
-  risk -->|5| core
+  risk -->|6| core
   risk --> ipc
-  risk --> utils
+  risk -->|2| utils
   strategy -->|5| api
   strategy -->|23| core
   strategy --> risk
@@ -58,8 +58,8 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 35 |
-| `utils/Logger.h` | 30 |
+| `core/Types.h` | 37 |
+| `utils/Logger.h` | 31 |
 | `core/KstTime.h` | 17 |
 | `strategy/StrategyBase.h` | 15 |
 | `core/SymbolTable.h` | 14 |
@@ -150,6 +150,8 @@ graph LR
     n_core_WakeGate_cpp["core/WakeGate.cpp"]
   end
   subgraph ipc
+    n_ipc_ControlChannel_cpp["ipc/ControlChannel.cpp"]
+    n_ipc_ControlChannel_h["ipc/ControlChannel.h"]
     n_ipc_FillKey_cpp["ipc/FillKey.cpp"]
     n_ipc_Heartbeat_cpp["ipc/Heartbeat.cpp"]
     n_ipc_LedgerSnapshot_cpp["ipc/LedgerSnapshot.cpp"]
@@ -172,6 +174,8 @@ graph LR
     n_modes_Monitors_h["modes/Monitors.h"]
   end
   subgraph risk
+    n_risk_DisplacementDesk_cpp["risk/DisplacementDesk.cpp"]
+    n_risk_DisplacementDesk_h["risk/DisplacementDesk.h"]
     n_risk_GateReasons_cpp["risk/GateReasons.cpp"]
     n_risk_LedgerJournal_cpp["risk/LedgerJournal.cpp"]
     n_risk_OrderGate_cpp["risk/OrderGate.cpp"]
@@ -287,6 +291,7 @@ graph LR
   n_core_Engine_cpp --> n_core_LatencyTrace_h
   n_core_Engine_cpp --> n_core_ReconcilePlan_h
   n_core_Engine_cpp --> n_core_UniverseExit_h
+  n_core_Engine_cpp --> n_risk_DisplacementDesk_h
   n_core_Engine_cpp --> n_utils_Logger_h
   n_core_Engine_cpp --> n_utils_ThreadName_h
   n_core_Engine_cpp --> n_utils_Utf8_h
@@ -313,6 +318,7 @@ graph LR
   n_core_Engine_h --> n_core_TickCapture_h
   n_core_Engine_h --> n_core_Types_h
   n_core_Engine_h --> n_core_WakeGate_h
+  n_core_Engine_h --> n_ipc_ControlChannel_h
   n_core_Engine_h --> n_ipc_Heartbeat_h
   n_core_Engine_h --> n_ipc_LedgerSnapshot_h
   n_core_Engine_h --> n_ipc_OpsServer_h
@@ -406,6 +412,8 @@ graph LR
   n_core_UniverseExit_cpp --> n_core_UniverseExit_h
   n_core_UniverseExit_h --> n_core_SymbolTable_h
   n_core_WakeGate_cpp --> n_core_WakeGate_h
+  n_ipc_ControlChannel_cpp --> n_ipc_ControlChannel_h
+  n_ipc_ControlChannel_h --> n_core_Types_h
   n_ipc_FillKey_cpp --> n_ipc_FillKey_h
   n_ipc_Heartbeat_cpp --> n_ipc_Heartbeat_h
   n_ipc_LedgerSnapshot_cpp --> n_ipc_LedgerSnapshot_h
@@ -450,6 +458,10 @@ graph LR
   n_modes_Monitors_cpp --> n_utils_Logger_h
   n_modes_Monitors_cpp --> n_utils_Utf8_h
   n_modes_Monitors_h --> n_api_KisClient_h
+  n_risk_DisplacementDesk_cpp --> n_risk_DisplacementDesk_h
+  n_risk_DisplacementDesk_cpp --> n_utils_Logger_h
+  n_risk_DisplacementDesk_h --> n_core_Types_h
+  n_risk_DisplacementDesk_h --> n_risk_OrderGate_h
   n_risk_GateReasons_cpp --> n_risk_GateReasons_h
   n_risk_LedgerJournal_cpp --> n_risk_LedgerJournal_h
   n_risk_OrderGate_cpp --> n_core_KstTime_h

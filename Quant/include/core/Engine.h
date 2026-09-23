@@ -29,6 +29,7 @@
 #endif
 #include "ipc/Heartbeat.h"
 #include "ipc/OrderChannel.h"
+#include "ipc/ControlChannel.h"
 #include "ipc/LedgerSnapshot.h"
 #include "ipc/OrderRouter.h"
 #include "ipc/OpsServer.h"
@@ -222,7 +223,9 @@ public:
 
     // 바스켓 슬리브 소유 종목 — 슬롯·교체·강제청산 밖(OrderGate::set_slot_exempt). 바스켓 로더가 기동 때, 전략이 파일을
     //  다시 읽을 때 넣고, DEVSCALE 재스캔이 이 목록을 유니버스에서 뺀다(같은 종목을 두 슬리브가 들지 않게). [why D-109]
-    void set_slot_exempt_tickers(const std::vector<std::string>& tickers) { order_gate_.set_slot_exempt(tickers); }
+    //  전략 쪽에서 부르는 자리라 게이트를 바로 고치지 않고 제어 요청으로 보낸다 — 표를 고치는 것은
+    //  주문 스레드 하나다(원칙 4). 건 결과는 장부 사본의 slot_exempt 비트로 돌아온다. [why D-114]
+    void set_slot_exempt_tickers(const std::vector<std::string>& tickers);
     std::vector<symbol::SymbolId> slot_exempt_symbols() const { return order_gate_.slot_exempt_symbols(); }
 
     // ── 유니버스 재스캔 ─────────────────────────────────────────────────────
@@ -370,6 +373,38 @@ private:
     // 보호 주문 표 한 주기 — 원장 보유 스냅샷·현재가로 청산을 만들어 디스패처로 보낸다. strategy_thread 전용. [why D-114]
     void run_protective_orders(SignalDispatcher& dispatcher, std::chrono::steady_clock::time_point now);
     std::vector<OrderSignal> build_protective_orders(std::chrono::steady_clock::time_point now);
+    // ── 제어 요청 (전략 쪽 → 주문 스레드) ───────────────────────────────────
+    // 요청 한 줄 보내기. 순번은 여기서 찍는다. 큐가 가득이면 거짓 — 표를 보내는 쪽은 그때 commit 을
+    //  보내지 않고 접는다(반쪽 표를 거느니 이번 판을 통째로 거른다). [why D-114]
+    bool send_control(ipc::ControlRequest& request);
+
+    // 주문 스레드가 표를 모으는 자리. 표마다 하나씩 둬 둘이 큐에서 섞여 와도 각자 모인다.
+    struct ControlInbox
+    {
+        ipc::ControlTableBuilder slot_exempt{ipc::kControlTableMax};
+        ipc::ControlTableBuilder entry_priority{ipc::kControlTableMax};
+    };
+
+    // 큐에 쌓인 제어 요청을 비우고 완성된 표를 건다. [inv] order_thread에서만 부른다(원칙 4).
+    void apply_control_requests(ControlInbox& inbox);
+
+    // 전략이 보는 보호 주문 창구. 켜고 끄기는 요청으로 주문 스레드에 넘기고, 읽기 둘은 표를 그대로 본다 —
+    //  표를 고치는 것은 단일 시퀀서다(원칙 4). 프로세스를 가르면 읽기 둘도 응답 통로로 바뀐다. [why D-114]
+    class ControlProtectiveRegistry : public risk::ProtectiveOrderRegistry
+    {
+    public:
+        explicit ControlProtectiveRegistry(Engine& engine);
+
+        void arm(const risk::ProtectiveRule& rule) override;
+        void disarm(const std::string& account, symbol::SymbolId symbol) override;
+        bool owns(const std::string& account, symbol::SymbolId symbol) const override;
+        bool consume_fired(const std::string& account, symbol::SymbolId symbol) override;
+
+    private:
+        // [inv] Engine 멤버라 Engine보다 오래 살지 않는다.
+        Engine& engine_;
+    };
+
     // 전략 생사에 따라 주문 쪽 마무리를 켜고 끈다. 주문 스레드는 안 내려간다 — 보유분을 지키는 것이 남은 일이다.
     //  [inv] order_thread에서만 부른다(OrderRouter::submit의 단일 스레드 규약). [why D-114]
     void track_strategy_liveness(ipc::HeartbeatMonitor::Step step, bool just_died,
@@ -593,6 +628,14 @@ private:
         RingBuffer<ipc::OrderResponse> order_response_queue{kOrderResponseCapacity};
         std::atomic<uint64_t> order_response_dropped{0}; // 전략이 답을 안 가져가 버린 응답 수
         std::atomic<uint64_t> order_duplicate{0};        // 주문 쪽이 같은 순번을 두 번 받아 거른 수. 0이 아니면 통로가 샜다
+        // 전략 쪽이 주문 쪽 표를 고쳐 달라고 보내는 통로(슬롯 면제 집합·진입 우선순위 표·보호 주문 등록).
+        //  생산자가 샤드 스레드·데이터 스레드로 여럿이라 MPSC(원칙 5). 표 하나가 여러 줄로 오므로
+        //  용량은 표 상한의 몇 배로 둔다 — 한 줄만 잃어도 그 표는 통째로 버려진다. [why D-114]
+        static constexpr size_t kControlQueueCapacity = 8192;
+        MpscQueue<ipc::ControlRequest> control_queue{kControlQueueCapacity};
+        std::atomic<uint64_t> control_sequence{0};  // 제어 요청 순번 발급기. 0은 안 쓴다
+        std::atomic<uint64_t> control_dropped{0};   // 큐가 가득 차 못 보낸 줄 수. 0이 아니면 표가 버려졌다
+        std::atomic<uint64_t> control_discarded{0}; // 주문 쪽이 반쪽 표로 보고 버린 줄 수
         // 전략 스레드가 한 바퀴마다 찍고 주문 스레드가 공백만 보고 생사를 판정한다. 프로세스가 갈려도
         //  판정 방식은 그대로다 — 공유메모리의 int64 하나가 된다. [why D-114]
         ipc::Heartbeat strategy_heartbeat;
@@ -658,8 +701,12 @@ private:
 
     // ── 리스크 게이트·주문 라우터 ────────────────────────────────────────────
     OrderGate order_gate_;
-    // 수동주문("MANUAL")의 전략 번호 — 게이트 테이블에서 한 번 받는다. order_gate_ 뒤에 선언해야 한다.
+    // 고정 이름 신호의 전략 번호 — 게이트 테이블에서 한 번 받는다. order_gate_ 뒤에 선언해야 한다.
+    //  스레드가 뜨기 전(생성자)이라 표를 고치는 쪽은 여전히 하나다. 전략 스레드에서 받으면 그것이
+    //  전략 쪽의 표 쓰기가 된다 — 디스패처가 자기 생성자에서 받던 것을 여기로 올렸다. [why D-114]
     const strategy_table::StrategyId manual_strategy_index_ = order_gate_.strategy_index_of("MANUAL");
+    const strategy_table::StrategyId force_liquidation_index_ = order_gate_.strategy_index_of("FORCE_LIQ");
+    const strategy_table::StrategyId limit_trim_index_        = order_gate_.strategy_index_of("LIMIT_TRIM");
     std::unique_ptr<OrderRouter> order_router_; // 주문 전처리·중계 레이어(증권업계 용어로 FEP, Front-End Processor). start() 이후 유효
     // 전략 쪽이 읽을 장부 사본. 장부가 바뀔 때마다 order_gate_가 여기에 한 판을 낸다.
     //  지금은 채우기만 한다 — 읽는 자리를 옮기는 것은 뒤 단계다. 290KB라 Engine을 스택에 두는 경우를
@@ -678,6 +725,8 @@ private:
     std::string zmq_control_token_;
     // 보호 주문 표 — 전략(샤드 스레드)가 등록하고 strategy_thread(주문 시퀀서)가 본다. 표 자체가 잠금을 가진다. [why D-114]
     risk::ProtectiveOrderBook             protective_book_;
+    // 전략에 꽂아 주는 창구. 등록·해제는 요청이 되고 표는 주문 스레드가 고친다. [why D-114]
+    ControlProtectiveRegistry             protective_requests_{*this};
     std::chrono::milliseconds             protective_interval_{kProtectiveIntervalMsDefault};
     // 다음에 표를 볼 시각(steady_clock 틱). 전략·주문 두 스레드가 잡으러 오므로 원자다 — claim_protective_cycle만 민다.
     std::atomic<std::chrono::steady_clock::rep> protective_next_ticks_{0};

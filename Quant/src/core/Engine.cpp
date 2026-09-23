@@ -3,6 +3,7 @@
 #include "core/KstTime.h"
 #include "core/LatencyTrace.h"
 #include "core/ReconcilePlan.h"
+#include "risk/DisplacementDesk.h"
 #include "utils/Logger.h"
 #include "utils/ThreadName.h"
 #include "utils/Utf8.h"
@@ -42,6 +43,9 @@ void Engine::add_strategy(std::unique_ptr<StrategyBase> strategy)
 void Engine::assign_strategy_identity(StrategyBase& strategy)
 {
     // 이름은 여기서만 본다 — 접두 "ITB_"가 청산 관리 전략(청산 관리 보유 종목 차단 면제)이다.
+    // [inv] 기동 등록은 스레드 전이고, 장중 재스캔 등록은 데이터 스레드다. 표 쓰기는 StrategyTable이
+    //  뮤텍스로 막아 지금은 안전하다. 프로세스를 가르면 번호가 갈리는 자리라 단계 4에서 이름↔번호
+    //  사전을 공유 쪽지에 올린다 — 여기서 답을 기다리게 만들면 재스캔이 주문 한 바퀴에 묶인다. [why D-114]
     strategy.set_strategy_index(order_gate_.strategy_index_of(strategy.id()));
     strategy.set_exit_manager(strategy.id().starts_with("ITB_"));
 }
@@ -74,7 +78,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
         return ledger_sellable(account, ticker);
     });
     strategy->set_symbol_resolver([this](std::string_view ticker) { return symbols_.table.intern(ticker); });
-    strategy->set_protective_registry(&protective_book_);
+    strategy->set_protective_registry(&protective_requests_);
     assign_strategy_identity(*strategy);
 
     try
@@ -1016,7 +1020,7 @@ void Engine::start_strategies()
             return ledger_sellable(account, ticker);
         });
         strategy->set_symbol_resolver([this](std::string_view ticker) { return symbols_.table.intern(ticker); });
-        strategy->set_protective_registry(&protective_book_);
+        strategy->set_protective_registry(&protective_requests_);
 
         try
         {
@@ -2153,6 +2157,208 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 //  판정(stale·시간 상자·1회 로그)은 core/RegimeFileJudge.h의 상태기계가 맡는다. [why D-060]
 // 스캔 스레드가 슬리브마다 부른다(20초 간격). 파일은 임시 이름으로 쓰고 바꿔치기해
 //  대시보드가 반쯤 쓰인 JSON을 읽지 않게 한다. 쓰기 실패는 매매와 무관하므로 경고만 남긴다.
+bool Engine::send_control(ipc::ControlRequest& request)
+{
+    request.sequence   = pipeline_.control_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
+    request.sent_at_ns = trace::now_ns();
+
+    if (pipeline_.control_queue.push(request))
+    {
+        pipeline_.order_wake.notify(); // 자고 있으면 깨운다 — 잠드는 조건이 이 큐도 본다
+        return true;
+    }
+
+    pipeline_.control_dropped.fetch_add(1, std::memory_order_relaxed);
+    return false;
+}
+
+void Engine::set_slot_exempt_tickers(const std::vector<std::string>& tickers)
+{
+    ipc::ControlRequest open;
+    open.kind = ipc::ControlKind::kSlotExemptBegin;
+
+    if (!send_control(open))
+    {
+        LOG_WARN("[Engine] 슬롯 면제 " + std::to_string(tickers.size()) + "종목 — 제어 통로가 가득 차 이번 판을 접는다");
+        return;
+    }
+
+    uint32_t sent = 0;
+
+    for (const auto& ticker : tickers)
+    {
+        ipc::ControlRequest row;
+        row.kind      = ipc::ControlKind::kSlotExemptEntry;
+        row.batch     = open.sequence;
+        row.symbol_id = symbols_.table.intern(ticker); // 티커 문자열이 번호가 되는 경계 [why D-112]
+
+        if (row.symbol_id == symbol::kNone)
+        {
+            continue;
+        }
+
+        // 한 줄이라도 못 보내면 commit 을 안 보내고 접는다 — 받는 쪽은 commit 없는 표를 걸지 않는다.
+        if (!send_control(row))
+        {
+            LOG_WARN("[Engine] 슬롯 면제 집합을 보내다 통로가 가득 찼다 — 이번 판을 접는다(보낸 " +
+                     std::to_string(sent) + "줄)");
+            return;
+        }
+
+        ++sent;
+    }
+
+    ipc::ControlRequest close;
+    close.kind      = ipc::ControlKind::kSlotExemptCommit;
+    close.batch     = open.sequence;
+    close.rank      = static_cast<int32_t>(sent);
+    close.row_count = sent;
+
+    if (!send_control(close))
+    {
+        LOG_WARN("[Engine] 슬롯 면제 집합 마무리를 못 보냈다 — 이번 판은 걸리지 않는다");
+    }
+}
+
+Engine::ControlProtectiveRegistry::ControlProtectiveRegistry(Engine& engine) : engine_(engine)
+{
+}
+
+void Engine::ControlProtectiveRegistry::arm(const risk::ProtectiveRule& rule)
+{
+    if (rule.symbol == symbol::kNone)
+    {
+        return; // 번호가 없으면 표가 어차피 받지 않는다(ProtectiveOrderBook::arm) — 요청도 안 보낸다
+    }
+
+    ipc::ControlRequest request;
+    request.kind              = ipc::ControlKind::kArmProtective;
+    request.symbol_id         = rule.symbol;
+    request.owner_index       = rule.owner_index;
+    request.stop_loss_percent = rule.stop_loss_percent;
+    request.trail_arm_percent = rule.trail_arm_percent;
+    request.trail_percent     = rule.trail_percent;
+    ipc::set_account(request, rule.account);
+
+    if (!engine_.send_control(request))
+    {
+        LOG_WARN("[Engine] 보호 주문 등록을 못 보냈다 — " + rule.ticker + " 는 표가 지키지 않는다");
+    }
+}
+
+void Engine::ControlProtectiveRegistry::disarm(const std::string& account, symbol::SymbolId symbol)
+{
+    if (symbol == symbol::kNone)
+    {
+        return;
+    }
+
+    ipc::ControlRequest request;
+    request.kind      = ipc::ControlKind::kDisarmProtective;
+    request.symbol_id = symbol;
+    ipc::set_account(request, account);
+
+    if (!engine_.send_control(request))
+    {
+        LOG_WARN("[Engine] 보호 주문 해제를 못 보냈다 — 떨어진 전략의 규칙이 표에 남는다");
+    }
+}
+
+bool Engine::ControlProtectiveRegistry::owns(const std::string& account, symbol::SymbolId symbol) const
+{
+    return engine_.protective_book_.owns(account, symbol);
+}
+
+bool Engine::ControlProtectiveRegistry::consume_fired(const std::string& account, symbol::SymbolId symbol)
+{
+    return engine_.protective_book_.consume_fired(account, symbol);
+}
+
+void Engine::apply_control_requests(ControlInbox& inbox)
+{
+    while (auto option = pipeline_.control_queue.pop())
+    {
+        const ipc::ControlRequest& request = *option;
+
+        switch (request.kind)
+        {
+        case ipc::ControlKind::kSlotExemptBegin:
+            inbox.slot_exempt.begin(request.sequence);
+            break;
+
+        case ipc::ControlKind::kSlotExemptEntry:
+            inbox.slot_exempt.add(request);
+            break;
+
+        case ipc::ControlKind::kSlotExemptCommit:
+            if (inbox.slot_exempt.commit(request.batch, request.row_count))
+            {
+                std::vector<symbol::SymbolId> symbols;
+                symbols.reserve(inbox.slot_exempt.rows().size());
+
+                for (const ipc::ControlRequest& row : inbox.slot_exempt.rows())
+                {
+                    symbols.push_back(row.symbol_id);
+                }
+
+                order_gate_.set_slot_exempt_by_id(symbols);
+            }
+
+            break;
+
+        case ipc::ControlKind::kEntryPriorityBegin:
+            inbox.entry_priority.begin(request.sequence);
+            break;
+
+        case ipc::ControlKind::kEntryPriorityEntry:
+            inbox.entry_priority.add(request);
+            break;
+
+        case ipc::ControlKind::kEntryPriorityCommit:
+            if (inbox.entry_priority.commit(request.batch, request.row_count))
+            {
+                std::vector<OrderGate::PriorityEntry> entries;
+                entries.reserve(inbox.entry_priority.rows().size());
+
+                for (const ipc::ControlRequest& row : inbox.entry_priority.rows())
+                {
+                    entries.push_back({row.symbol_id, row.rank, row.score_z});
+                }
+
+                order_gate_.set_entry_priority(entries, request.rank);
+            }
+
+            break;
+
+        case ipc::ControlKind::kArmProtective:
+        {
+            // 레코드에 문자열을 안 실으므로 티커·전략 이름은 번호로 되찾는다(로그·신호 strategy_id 용도다).
+            risk::ProtectiveRule rule;
+            rule.account           = std::string(ipc::account_of(request));
+            rule.ticker            = symbols_.table.name(request.symbol_id).string();
+            rule.symbol            = request.symbol_id;
+            rule.stop_loss_percent = request.stop_loss_percent;
+            rule.trail_arm_percent = request.trail_arm_percent;
+            rule.trail_percent     = request.trail_percent;
+            rule.owner             = order_gate_.strategy_table().name(request.owner_index);
+            rule.owner_index       = request.owner_index;
+            protective_book_.arm(rule);
+            break;
+        }
+
+        case ipc::ControlKind::kDisarmProtective:
+            protective_book_.disarm(std::string(ipc::account_of(request)), request.symbol_id);
+            break;
+
+        default:
+            break;
+        }
+    }
+
+    const uint64_t discarded = inbox.slot_exempt.discarded() + inbox.entry_priority.discarded();
+    pipeline_.control_discarded.store(discarded, std::memory_order_relaxed);
+}
+
 void Engine::set_entry_priority(const std::vector<OrderGate::PriorityEntry>& entries, int total)
 {
     nlohmann::json scores = nlohmann::json::object();
@@ -2162,7 +2368,60 @@ void Engine::set_entry_priority(const std::vector<OrderGate::PriorityEntry>& ent
         scores[symbols_.table.name(entry.symbol).string()] = {{"rank", entry.rank}, {"z", entry.z_score}};
     }
 
-    order_gate_.set_entry_priority(entries, total);
+    // 표를 게이트에 바로 걸지 않고 주문 스레드로 보낸다 — 표를 고치는 것은 단일 시퀀서다(원칙 4).
+    //  부르는 쪽이 스캔 스레드라 프로세스가 갈리면 이 자리가 통째로 막힌다. [why D-114]
+    {
+        ipc::ControlRequest open;
+        open.kind = ipc::ControlKind::kEntryPriorityBegin;
+
+        if (send_control(open))
+        {
+            uint32_t sent = 0;
+            bool     full = false;
+
+            for (const OrderGate::PriorityEntry& entry : entries)
+            {
+                ipc::ControlRequest row;
+                row.kind      = ipc::ControlKind::kEntryPriorityEntry;
+                row.batch     = open.sequence;
+                row.symbol_id = entry.symbol;
+                row.rank      = entry.rank;
+                row.score_z   = entry.z_score;
+
+                if (!send_control(row))
+                {
+                    full = true;
+                    break;
+                }
+
+                ++sent;
+            }
+
+            if (full)
+            {
+                LOG_WARN("[Engine] 진입 우선순위 표를 보내다 통로가 가득 찼다 — 이번 판을 접는다(보낸 " +
+                         std::to_string(sent) + "줄)");
+            }
+            else
+            {
+                ipc::ControlRequest close;
+                close.kind      = ipc::ControlKind::kEntryPriorityCommit;
+                close.batch     = open.sequence;
+                close.rank      = total;
+                close.row_count = sent;
+
+                if (!send_control(close))
+                {
+                    LOG_WARN("[Engine] 진입 우선순위 표 마무리를 못 보냈다 — 이번 판은 걸리지 않는다");
+                }
+            }
+        }
+        else
+        {
+            LOG_WARN("[Engine] 진입 우선순위 " + std::to_string(entries.size()) +
+                     "종목 — 제어 통로가 가득 차 이번 판을 접는다");
+        }
+    }
 
     static std::mutex file_mutex; // 두 슬리브가 겹쳐 불러도 파일은 한 번에 하나만 쓴다
     std::lock_guard<std::mutex> lock(file_mutex);
@@ -2463,7 +2722,8 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
             // 보냈다고 적는다. 답이 오면 지워지고, 문턱을 넘게 안 오면 재전송 후보로 나온다. [why D-114]
             pending_requests.note_sent(signal.sequence, trace::now_ns());
         },
-        std::chrono::steady_clock::now());
+        std::chrono::steady_clock::now(),
+        SignalDispatcher::SystemIds{force_liquidation_index_, limit_trim_index_});
     dispatcher.set_label([this](const std::string& ticker) { return ticker_label(ticker); });
     dispatcher.set_exit_managed_check([this](symbol::SymbolId symbol) { return is_exit_managed(symbol); });
     auto push_signal = [&](const OrderSignal& signal) { dispatcher.submit(signal); };
@@ -2491,7 +2751,6 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
         }
 
         const auto loop_now = std::chrono::steady_clock::now();
-        dispatcher.flush_held(loop_now);
 
         // 운영단말 수동주문 — 소켓 스레드가 넣은 요청을 여기서 OrderSignal로 바꾼다(단일 생산자).
         drain_manual_inbox(push_signal);
@@ -2707,6 +2966,15 @@ void Engine::order_thread_fn(std::stop_token stop_token)
     ipc::DuplicateFilter duplicate_filter(ShardPipeline::kOrderQueueCapacity);
     ipc::HeartbeatMonitor strategy_monitor;
 
+    // 전략 쪽이 보낸 표를 모으는 자리. 주문 스레드 지역 변수라 이 스레드 말고는 손대지 않는다. [why D-114]
+    ControlInbox control_inbox;
+
+    // 교체 진입 — 최약체 고르기·매도 발주·쿨다운 기록·매수 보류가 여기 한 덩어리로 있다. 전략 쪽에 두면
+    //  고르는 시점과 예약하는 시점이 갈려 둘이 같은 종목을 두 번 판다. [why D-114]
+    risk::DisplacementDesk displace_desk(order_gate_);
+    displace_desk.set_label([this](const std::string& ticker) { return ticker_label(ticker); });
+    std::vector<OrderSignal> displace_expired;
+
     // 주문이 없는 회차에도 사본을 이 간격으로는 낸다(아래 대기 구간). 100ms는 대기 상한과 같은 값이라
     //  쉬는 동안 회차마다 한 번꼴이고, 전략이 보는 장부가 그보다 더 낡지 않는다.
     constexpr auto kIdlePublishInterval = 100ms;
@@ -2731,13 +2999,36 @@ void Engine::order_thread_fn(std::stop_token stop_token)
     while (!stop_token.stop_requested())
     {
         // 전략이 살아 있는가 — 박동 공백만 본다. 사망이어도 주문 스레드는 안 내려간다(보유분을 지켜야 한다).
+        // 표 고치기가 주문보다 먼저다 — 슬롯 면제·우선순위가 낡은 채로 이 회차의 주문을 거르면
+        //  전략이 이미 반영된 줄 알고 낸 신호가 옛 표에 걸린다. [why D-114]
+        apply_control_requests(control_inbox);
+
         const auto step = strategy_monitor.observe(trace::now_ns(), pipeline_.strategy_heartbeat.last_ns());
         pipeline_.strategy_beat_gap_max_ns.store(strategy_monitor.max_gap_ns(), std::memory_order_relaxed);
         track_strategy_liveness(step, strategy_monitor.take_dead_once(), steady_clock::now());
 
-        // 발주 대상 선택: 만기된 재시도분 우선, 없으면 신규 큐
+        // 교체 보류 시한이 지난 매수는 버리고 그 순번에 답을 돌려준다 — 답이 없으면 전략 쪽 PendingRequests가 샌다.
+        displace_desk.expire(steady_clock::now(), displace_expired);
+
+        for (const OrderSignal& dropped : displace_expired)
+        {
+            answer(dropped.sequence, ipc::OrderResult::kRejected, 0, "교체 보류 만료");
+        }
+
+        displace_expired.clear();
+
+        // 발주 대상 선택: 만기된 재시도분 우선, 자리가 나 풀린 교체 보류분, 없으면 신규 큐
         std::optional<OrderRateLimiter::Pending> next = rate_limiter.take_due_retry(steady_clock::now());
         int64_t                            pop_ns = 0;
+
+        if (!next)
+        {
+            if (OrderSignal ready; displace_desk.take_ready(ready))
+            {
+                next   = OrderRateLimiter::Pending{std::move(ready), 0};
+                pop_ns = trace::now_ns();
+            }
+        }
 
         if (!next)
         {
@@ -2752,6 +3043,28 @@ void Engine::order_thread_fn(std::stop_token stop_token)
                     continue;
                 }
 
+                // 번호는 주문 쪽이 준다 — 전략 쪽은 종목 표를 찾기만 하고, 처음 보는 종목은 받는 이 자리에서
+                //  표에 올린다. 표를 고치는 쪽을 하나로 두는 것이 원칙 4다. [why D-114]
+                if (option->symbol_id == symbol::kNone && !option->ticker.empty())
+                {
+                    option->symbol_id = order_gate_.intern_symbol(option->ticker);
+                }
+
+                // 자리가 꽉 찬 책에 새 종목 매수가 왔는가 — 최약체 매도를 앞세우고 이 매수는 창구가 든다.
+                switch (displace_desk.consider(*option, steady_clock::now()))
+                {
+                case risk::DisplacementDesk::Verdict::kHold:
+                    continue;
+
+                case risk::DisplacementDesk::Verdict::kSellFirst:
+                    // option 자리에 교체 매도가 들어왔다 — 순번이 0이라 답하지 않는다. 원래의 매수는
+                    //  창구가 순번째로 들고 있다가 자리가 나면 내고, 못 내면 expire가 답한다.
+                    break;
+
+                case risk::DisplacementDesk::Verdict::kPass:
+                    break;
+                }
+
                 next   = OrderRateLimiter::Pending{std::move(*option), 0};
                 pop_ns = trace::now_ns();
             }
@@ -2761,7 +3074,11 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         {
             // 재시도 만기가 있으면 그 시각까지, 없으면 100ms 상한(종료 확인). 신규 신호는 전략 스레드의 notify가 깨운다.
             const auto deadline = rate_limiter.next_retry_at().value_or(steady_clock::now() + 100ms);
-            pipeline_.order_wake.wait_until(deadline, stop_token, [this] { return pipeline_.order_queue.empty(); });
+            // 제어 요청도 이 스레드가 처리하므로 잠드는 조건에 같이 넣는다 — 안 넣으면 표 고치기가
+            //  다음 주문이나 100ms 만기까지 밀린다. [why D-114]
+            pipeline_.order_wake.wait_until(deadline, stop_token, [this] {
+                return pipeline_.order_queue.empty() && pipeline_.control_queue.empty();
+            });
 
             // 주문이 없어도 장부는 바뀐다 — 잔고 재시드·진입 정지·평가금·슬롯 면제 집합은 다른 스레드가 고친다.
             //  그 변화가 사본에 닿는 시간을 100ms 안으로 묶는다. 매 회차 내면 읽는 쪽이 밀리므로 간격을 둔다. [why D-114]
@@ -3068,7 +3385,11 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                                     kNanosecondsPerMillisecond) + "ms" +
                      // 장부 사본 — 몇 판 나왔는지와 못 실은 남의 계좌 줄 수. 뒤엣것은 0이어야 한다. [why D-114]
                      " ledger_gen=" + std::to_string(ledger_snapshot_->generation()) +
-                     " ledger_foreign=" + std::to_string(order_gate_.ledger_foreign_account_rows()));
+                     " ledger_foreign=" + std::to_string(order_gate_.ledger_foreign_account_rows()) +
+                     // 제어 요청 — 못 보낸 줄과 반쪽 표로 보고 버린 줄. 둘 다 0이어야 한다. [why D-114]
+                     " control_dropped=" + std::to_string(pipeline_.control_dropped.load(std::memory_order_relaxed)) +
+                     " control_discarded=" +
+                     std::to_string(pipeline_.control_discarded.load(std::memory_order_relaxed)));
         }
 
         if (++token_tick >= kTokenEvery)

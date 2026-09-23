@@ -7,9 +7,6 @@
 
 namespace
 {
-// 교체 보류 시한의 기본값 — config의 displace_slot_hold_sec이 0 이하일 때만 쓴다.
-//  2분이면 교체 매도 한 건이 체결되고 자리가 나기에 넉넉하다.
-constexpr int kDefaultDisplaceHoldSeconds = 120;
 } // namespace
 
 namespace dispatch
@@ -117,22 +114,21 @@ std::string describe(const OrderSignal& signal, const std::string& label)
 }
 } // namespace dispatch
 
-SignalDispatcher::SignalDispatcher(OrderGate& gate, const ipc::LedgerSnapshot& ledger, Sink sink, Clock::time_point now)
-    : gate_(gate), ledger_(ledger), sink_(std::move(sink)), force_liquidation_index_(gate.strategy_index_of("FORCE_LIQ")),
-      limit_trim_index_(gate.strategy_index_of("LIMIT_TRIM")), displace_index_(gate.strategy_index_of("DISPLACE")),
+SignalDispatcher::SignalDispatcher(OrderGate& gate, const ipc::LedgerSnapshot& ledger, Sink sink, Clock::time_point now,
+                                   SystemIds system_ids)
+    : gate_(gate), ledger_(ledger), sink_(std::move(sink)), force_liquidation_index_(system_ids.force_liquidation),
+      limit_trim_index_(system_ids.limit_trim),
       guard_logged_(gate.symbols().capacity(), false), sell_halt_logged_(gate.symbols().capacity(), false),
       last_liquidation_(now), trim_at_(now + std::chrono::seconds(20))
 {
 }
 
-std::string SignalDispatcher::held_ticker() const
+symbol::SymbolId SignalDispatcher::symbol_of(const OrderSignal& signal) const
 {
-    return held_symbol_ == symbol::kNone ? std::string() : gate_.symbols().name(held_symbol_).string();
-}
-
-symbol::SymbolId SignalDispatcher::symbol_of(const OrderSignal& signal)
-{
-    return signal.symbol_id != symbol::kNone ? signal.symbol_id : gate_.intern_symbol(signal.ticker);
+    // 찾기만 한다 — 종목 표에 줄을 더하는 것은 주문 쪽이다. 처음 보는 종목은 여기서 kNone이고,
+    //  주문 스레드가 받는 자리에서 번호를 준다. 그 사이 종목당 한 번 로그(mark_once)가 한 줄 덜 나가는 것이
+    //  유일한 차이다 — 기동·시드·피드를 한 번이라도 지난 종목은 이미 번호가 있다. [why D-114]
+    return signal.symbol_id != symbol::kNone ? signal.symbol_id : gate_.symbol_id_of(signal.ticker);
 }
 
 bool SignalDispatcher::mark_once(std::vector<bool>& flags, symbol::SymbolId symbol)
@@ -211,109 +207,11 @@ void SignalDispatcher::from_strategy(bool active, bool exit_manager, const Order
 
 void SignalDispatcher::submit(OrderSignal signal)
 {
-    // 교체 진입 — 슬롯이 꽉 찬 상태에서 더 높은 점수의 신규 종목이 오면 최약체를 먼저 비운다. 비우고 끝내는
-    //  이유: 매도 체결은 비동기라 같은 틱에 매수를 붙이면 노출이 이중 계상된다. 게이트가 빈 자리를 이 종목에게
-    //  예약해 두고, 매수 신호는 여기서 들고 있다가 자리가 나면 낸다. 흘리기만 하면 안 되는 이유: 전략은 자기
-    //  예약이 살아 있다고 낙관하므로(계획 시그니처 가드) 게이트 거부를 모르고 다시 내지 않는다. 그러면 예약된
-    //  슬롯이 displace_slot_hold_sec 동안 비어 있다가 만료되고, 그동안 다른 종목까지 "예약분" 거부를 받는다
-    //  (09-11 10:05 322000: 교체 매도 뒤 매수는 40>=40 거부, 5분간 아무도 못 삼).
-    // 사본은 한 번만 읽고 이 함수 안에서는 그 한 판만 본다 — 같은 판단 안에서 여력을 두 번 읽으면
-    //  두 값이 다른 판의 것이 될 수 있다.
-    const ipc::LedgerGlobals globals = ledger_.globals();
-    const bool               buy_new = signal.side == OrderSide::BUY && signal.action == OrderAction::NEW;
-
-    // 여기서 한 번 찍어 두면 게이트·교체 계획·보류 비교가 전부 이 번호로 간다.
+    // 여기서 한 번 찍어 두면 게이트·교체 창구·원장이 전부 이 번호로 간다.
+    //  교체 진입(최약체 매도 뒤 매수 보류)은 주문 쪽 risk::DisplacementDesk가 한다 — 최약체를 고르는 읽기와
+    //  자리를 예약하는 쓰기가 한 덩어리라 전략 쪽에 두면 둘이 같은 종목을 두 번 판다. [why D-114]
     signal.symbol_id = symbol_of(signal);
-
-    if (held_symbol_ != symbol::kNone && signal.symbol_id == held_symbol_)
-    {
-        if (signal.action == OrderAction::CANCEL)
-        {
-            held_.clear(); // 전략이 분할 매수를 다시 깐다 — 새 분할 단계가 뒤따른다
-        }
-        else if (buy_new && Clock::now() < held_until_ && globals.capacity_full != 0)
-        {
-            held_.push_back(std::move(signal)); // 아직 자리가 안 났다 — 같은 분할 매수의 다음 분할 단계
-            return;
-        }
-    }
-
-    // 보유·선점·여력을 사본 한 판에서 함께 읽는다 — 따로 세 번 읽으면 그 사이에 판이 바뀌어
-    //  낡은 조합을 본다. [why D-086]
-    //  자리(슬롯)만 보던 것을 여력으로 바꿨다. 여력은 "자리 또는 예산"이라 자리가 찬 경우를 이미 포함하고,
-    //  둘을 따로 읽어 OR하던 구 코드는 그 둘이 다른 순간의 값이었다.
-    const ipc::EntryView entry = buy_new ? ledger_.entry(signal.symbol_id) : ipc::EntryView{};
-
-    if (globals.displace_enabled != 0 && buy_new && entry.position == 0 && entry.reserved == 0 && entry.capacity_full)
-    {
-        const auto plan = gate_.plan_displacement(signal.account_id, signal.symbol_id);
-
-        if (plan.ok)
-        {
-            OrderSignal event;
-            event.ticker      = plan.ticker;
-            event.symbol_id   = plan.symbol;
-            event.account_id  = plan.account;
-            event.side        = OrderSide::SELL;
-            event.type        = OrderType::MARKET;
-            event.quantity    = plan.quantity;
-            event.price       = 0.0;
-            event.reference_price   = plan.average_price; // 시장가 명목 백스톱이 우회되지 않게 평단을 stamp
-            event.strategy_id    = "DISPLACE";
-            event.strategy_index = displace_index_;
-            event.reason      = plan.reason;
-            LOG_INFO("[Displace] " + label(plan.ticker) + " 전량 매도 " + std::to_string(plan.quantity) + "주 — " +
-                     plan.reason);
-            emit(std::move(event));
-            gate_.note_displacement(plan, signal.symbol_id);
-            held_.clear();
-            held_symbol_ = signal.symbol_id;
-            // 교체 보류 시한. 교체 진입은 갈래 B에서 통째로 주문 쪽으로 옮기므로 여기만 아직 주문 쪽 설정을 본다.
-            const int hold_seconds = gate_.config().displace_slot_hold_sec;
-            held_until_ = Clock::now() +
-                          std::chrono::seconds(hold_seconds > 0 ? hold_seconds : kDefaultDisplaceHoldSeconds);
-            held_.push_back(std::move(signal)); // 매도 체결로 자리가 나면 flush_held가 낸다
-            return;
-        }
-    }
-
     emit(std::move(signal));
-}
-
-void SignalDispatcher::flush_held(Clock::time_point now)
-{
-    if (held_symbol_ == symbol::kNone)
-    {
-        return;
-    }
-
-    // 예약 시한이 지나면 버린다 — 그 뒤엔 게이트 예약도 풀려 있어 전략의 다음 재구성이 보통 경로로 들어온다.
-    if (now >= held_until_)
-    {
-        if (!held_.empty())
-        {
-            LOG_WARN("[Displace] 보류 매수 만료 " + label(held_symbol_) + " " + std::to_string(held_.size()) +
-                     "건 — 자리가 안 나 버린다");
-        }
-
-        held_.clear();
-        held_symbol_ = symbol::kNone;
-        return;
-    }
-
-    if (held_.empty() || ledger_.globals().capacity_full != 0)
-    {
-        return;
-    }
-
-    LOG_INFO("[Displace] 자리가 나 보류 매수 " + std::to_string(held_.size()) + "건 발주 " + label(held_symbol_));
-
-    for (auto& held_signal : held_)
-    {
-        emit(std::move(held_signal)); // 바로 아래에서 비우므로 옮겨 보낸다
-    }
-
-    held_.clear();
 }
 
 // 강제청산·초과 정리가 보는 보유분 — 바스켓 슬리브 소유 종목은 뺀다. 국면 강제청산은 스캔 슬리브의 당일 포지션을

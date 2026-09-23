@@ -1,6 +1,7 @@
 #pragma once
 // 신호 디스패처 — 전략·운영단말·시스템(강제청산·한도 정리)이 만든 OrderSignal에 순번을 찍어 주문 큐로 보내기 전에
-//  거른다: 비활성 전략의 신규 매수, 청산 관리 보유 종목의 신규, 슬롯이 찬 상태의 교체 진입(최약체 매도 뒤 매수 보류).
+//  거른다: 비활성 전략의 신규 매수, 청산 관리 보유 종목의 신규, 수동 매도 정지. 교체 진입은 여기 있지 않다 —
+//  주문 쪽 risk::DisplacementDesk가 한다(읽고-고쳐-쓰기 한 덩어리라 단일 시퀀서에 둔다, D-114 갈래 B).
 //  Engine의 strategy_thread만 부른다 — order_queue_ 단일 생산자라 순번·보류 목록·차단 로그 집합에 락이 없다.
 //  큐·ZMQ·종목 표기·청산 관리 여부는 std::function으로 받아 Engine 없이 시험한다. [why D-063]
 #include "core/Types.h"
@@ -45,13 +46,19 @@ public:
     using LabelFn = std::function<std::string(const std::string&)>; // 로그용 종목 표기
     using GuardFn = std::function<bool(symbol::SymbolId)>;       // 청산 관리가 맡은 보유 종목인가(id로 묻는다)
 
+    // 시스템 신호("FORCE_LIQ"·"LIMIT_TRIM")의 전략 번호. 주문 쪽 표를 고쳐 받는 번호라 여기서 받지 않고
+    //  Engine이 스레드를 띄우기 전에 받아 둔 것을 넘겨받는다 — 디스패처는 전략 스레드에서 지어진다. [why D-114]
+    struct SystemIds
+    {
+        strategy_table::StrategyId force_liquidation = strategy_table::kNone;
+        strategy_table::StrategyId limit_trim        = strategy_table::kNone;
+    };
+
     // now는 강제청산 스로틀의 기준 시각. 한도 정리는 now+20초 뒤 한 번(set_trim_at으로 바꾼다).
-    //  시스템 신호의 전략 이름("FORCE_LIQ"·"LIMIT_TRIM"·"DISPLACE")은 여기서 한 번 번호로 받아 둔다 — 신호마다 문자열을
-    //  키로 쓰지 않는다. [why D-112]
     //  ledger는 전략 쪽이 보는 장부 사본이다. 보유·미체결·여력은 전부 여기서 읽는다 — 주문 쪽 장부를
-    //  직접 부르면 단계 4에서 프로세스가 갈릴 때 그 자리가 전부 막힌다. gate는 종목 표·전략 번호·
-    //  교체 계획만 쓴다(교체는 갈래 B에서 통째로 주문 쪽으로 간다). [why D-114]
-    SignalDispatcher(OrderGate& gate, const ipc::LedgerSnapshot& ledger, Sink sink, Clock::time_point now);
+    //  직접 부르면 단계 4에서 프로세스가 갈릴 때 그 자리가 전부 막힌다. gate는 종목 표를 읽기만 한다. [why D-114]
+    SignalDispatcher(OrderGate& gate, const ipc::LedgerSnapshot& ledger, Sink sink, Clock::time_point now,
+                     SystemIds system_ids);
 
     void set_label(LabelFn label) { label_ = std::move(label); }
     void set_exit_managed_check(GuardFn exit_managed_check) { exit_managed_check_ = std::move(exit_managed_check); }
@@ -63,12 +70,9 @@ public:
     //  exit_manager는 Engine이 전략 등록 때 이름으로 한 번 정한다 — 신호마다 접두를 비교하지 않는다.
     void from_strategy(bool active, bool exit_manager, const OrderSignal& signal);
 
-    // 운영단말·강제청산 등 전략 밖에서 온 신호. 교체 진입 판단을 거쳐 emit한다.
-    //  값으로 받는다 — 보류 목록에 넣거나 순번을 찍어 내보내는 sink라, 임시로 온 신호는 이동으로 들어온다.
+    // 운영단말·강제청산 등 전략 밖에서 온 신호. 종목 번호를 찍어 emit한다.
+    //  값으로 받는다 — 순번을 찍어 내보내는 sink라, 임시로 온 신호는 이동으로 들어온다.
     void submit(OrderSignal signal);
-
-    // 교체 매도가 체결돼 자리가 났으면 보류 매수를 낸다. 예약 시한이 지나면 버린다. 루프 머리마다 부른다.
-    void flush_held(Clock::time_point now);
 
     std::vector<OrderGate::HeldPos> scan_sleeve_positions() const; // 바스켓 소유 종목을 뺀 보유분 [why D-109]
 
@@ -78,11 +82,8 @@ public:
     // 종목당 명목 한도 초과분 정리 — trim_at 이후 한 번만. 매 루프 부른다.
     void trim_excess_once(Clock::time_point now);
 
-    uint64_t         sequence() const { return sequence_; }           // 마지막으로 부여한 순번(0=아직 없음)
-    std::size_t      held_count() const { return held_.size(); }
-    symbol::SymbolId held_symbol() const { return held_symbol_; }     // 보류 중인 수혜 종목 id(kNone=없음)
-    std::string      held_ticker() const;                             // 같은 것을 문자열로(테스트·로그)
-    bool             trim_done() const { return trim_done_; }
+    uint64_t sequence() const { return sequence_; }                   // 마지막으로 부여한 순번(0=아직 없음)
+    bool     trim_done() const { return trim_done_; }
 
 private:
     // 순번 stamp → 로그 → 싱크. 큐에 넣는 유일한 길. 값으로 받아 그 자리에서 순번을 찍는다(sink).
@@ -90,8 +91,9 @@ private:
     std::string label(const std::string& ticker) const { return label_ ? label_(ticker) : ticker; }
     std::string label(symbol::SymbolId symbol) const { return label(gate_.symbols().name(symbol).string()); }
 
-    // 신호의 종목 id — 전략 경로는 이미 찍혀 온다. 안 찍힌 신호(테스트·운영단말)는 여기서 한 번 등록한다.
-    symbol::SymbolId symbol_of(const OrderSignal& signal);
+    // 신호의 종목 id — 전략 경로는 이미 찍혀 온다. 안 찍힌 신호(테스트·운영단말)는 모르는 종목이면 kNone이고,
+    //  번호를 주는 것은 주문 쪽이다(주문 스레드가 받는 자리에서 등록한다). [why D-114]
+    symbol::SymbolId symbol_of(const OrderSignal& signal) const;
 
     // 종목당 한 번 로그 — id 인덱스 비트. 처음이면 true. 배열은 종목 테이블 용량으로 한 번 잡는다.
     static bool mark_once(std::vector<bool>& flags, symbol::SymbolId symbol);
@@ -105,15 +107,9 @@ private:
     // 시스템 신호 전략 번호 — 생성자에서 한 번 받는다.
     strategy_table::StrategyId force_liquidation_index_;
     strategy_table::StrategyId limit_trim_index_;
-    strategy_table::StrategyId displace_index_;
 
     // [inv] 단조 증가, strategy_thread 전용. 게이트 거부·큐 드롭·접수·체결 행이 전부 이 번호를 물고 간다. [why D-038]
     uint64_t sequence_ = 0;
-
-    // 교체 진입 보류 — 최약체 매도를 낸 뒤 수혜 종목의 매수(분할 단계 전부)를 자리가 날 때까지 든다. [why D-019]
-    std::vector<OrderSignal> held_;
-    symbol::SymbolId         held_symbol_ = symbol::kNone;
-    Clock::time_point        held_until_{};
 
     std::vector<bool> guard_logged_;     // 청산 관리 차단 로그는 종목당 한 번(id 인덱스)
     std::vector<bool> sell_halt_logged_; // 수동 매도 정지 차단 로그도 종목당 한 번, 정지가 풀리면 비운다 [why D-095]

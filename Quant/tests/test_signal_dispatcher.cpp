@@ -1,9 +1,10 @@
 // 신호 디스패처(core/SignalDispatcher.h) 단위 테스트. 주문 큐·ZMQ·종목 표기·청산 관리 여부를 std::function으로
-//  대신해 Engine 없이 순번 부여, 비활성 전략·청산 관리 티커 차단, 교체 진입의 매도-보류-발주·만료·취소, 강제청산
-//  잔량 계산과 스로틀, 한도 초과분 정리의 1회성, 전략 활성 플래그(국면·유니버스 AND), 유니버스 이탈·복귀 판정과
-//  등록 상한 교체 후보 선택(core/UniverseExit.h)을 고정한다. OrderGate·Logger를 링크한다.
+//  대신해 Engine 없이 순번 부여, 비활성 전략·청산 관리 티커 차단, 강제청산 잔량 계산과 스로틀, 한도 초과분
+//  정리의 1회성, 전략 활성 플래그(국면·유니버스 AND), 유니버스 이탈·복귀 판정과 등록 상한 교체 후보
+//  선택(core/UniverseExit.h)을 고정한다. OrderGate·Logger를 링크한다.
 //  바스켓 슬롯 제외 종목은 강제청산·초과분 정리가 건드리지 않는 것도 본다.
-//  관련 결정: D-019(교체 진입), D-038(순번), D-063(분리), D-077(유니버스 이탈), D-087(등록층 점수 교체), D-109(바스켓 슬리브).
+//  교체 진입은 주문 쪽으로 옮겼다 — tests/test_displacement_desk.cpp. [why D-114]
+//  관련 결정: D-038(순번), D-063(분리), D-077(유니버스 이탈), D-087(등록층 점수 교체), D-109(바스켓 슬리브).
 // 빌드: cmake --build <directory> --target test_signal_dispatcher
 #include "core/SignalDispatcher.h"
 #include "core/UniverseExit.h"
@@ -57,18 +58,6 @@ OrderGate::Config open_config()
     return config;
 }
 
-// 슬롯 2개가 찬 책. 교체 진입은 켜고 보유 시간 조건은 끈다(test_order_gate와 같은 설정).
-OrderGate::Config displace_config()
-{
-    auto config                     = open_config();
-    config.max_concurrent_positions = 2;
-    config.displace_enabled         = true;
-    config.displace_min_z_gap       = 0.5;
-    config.displace_min_hold_sec    = 0;
-    config.displace_slot_hold_sec   = 300;
-    return config;
-}
-
 struct Rig
 {
     OrderGate gate;
@@ -81,7 +70,9 @@ struct Rig
     SignalDispatcher         dispatcher;
 
     explicit Rig(OrderGate::Config config)
-        : gate(config), dispatcher(gate, *ledger, [this](const OrderSignal& signal) { out.push_back(signal); }, start_time)
+        : gate(config), dispatcher(gate, *ledger, [this](const OrderSignal& signal) { out.push_back(signal); }, start_time,
+                                   SignalDispatcher::SystemIds{gate.strategy_index_of("FORCE_LIQ"),
+                                                               gate.strategy_index_of("LIMIT_TRIM")})
     {
         dispatcher.set_label([](const std::string& ticker) { return "<" + ticker + ">"; });
         publish();
@@ -91,17 +82,6 @@ struct Rig
     //  이걸 빼먹으면 디스패처는 고치기 전 판을 본다.
     void publish() { gate.publish_ledger(*ledger); }
 };
-
-// 슬롯 2개가 다 찬 책을 만들고 그 상태로 사본을 한 판 낸다.
-void seed_full_book(Rig& rig)
-{
-    rig.gate.seed_position("", "A", 10, 1000.0);
-    rig.gate.seed_position("", "B", 10, 1000.0);
-    rig.gate.set_entry_priority({{rig.gate.intern_symbol("A"), 1, 0.9}, {rig.gate.intern_symbol("B"), 2, -0.8},
-                                 {rig.gate.intern_symbol("C"), 3, 1.5}},
-                                3);
-    rig.publish();
-}
 
 int test_stamp()
 {
@@ -268,79 +248,6 @@ int test_universe_evict_pick()
     return 0;
 }
 
-int test_displace_hold_and_release()
-{
-    Rig rig(displace_config());
-    seed_full_book(rig);
-    CHECK(rig.gate.capacity_full());
-
-    // 꽉 찬 책에 C 매수 → 최약체 B 전량 매도가 나가고 C 매수는 보류.
-    rig.dispatcher.submit(signal("C", OrderSide::BUY, 1));
-    CHECK(rig.out.size() == 1 && rig.out[0].ticker == "B" && rig.out[0].side == OrderSide::SELL &&
-          rig.out[0].type == OrderType::MARKET && rig.out[0].quantity == 10 && rig.out[0].reference_price == 1000.0 &&
-          rig.out[0].strategy_id == "DISPLACE");
-    CHECK(rig.dispatcher.held_ticker() == "C" && rig.dispatcher.held_count() == 1);
-
-    // 같은 분할 매수의 다음 분할 단계도 보류에 붙는다. 다른 종목의 매도는 그대로 나간다.
-    rig.dispatcher.submit(signal("C", OrderSide::BUY, 2));
-    rig.dispatcher.submit(signal("A", OrderSide::SELL, 1));
-    CHECK(rig.dispatcher.held_count() == 2 && rig.out.size() == 2 && rig.out[1].ticker == "A");
-
-    // 자리가 안 났으면 flush는 아무것도 안 한다.
-    rig.dispatcher.flush_held(Clock::now());
-    CHECK(rig.out.size() == 2);
-
-    // B 매도 체결 → 자리 → 보류 매수 둘이 순번을 이어 나간다.
-    rig.gate.on_fill_confirmed("", "B", OrderSide::SELL, 10, 1000.0);
-    rig.publish();
-    CHECK(!rig.gate.capacity_full());
-    rig.dispatcher.flush_held(Clock::now());
-    CHECK(rig.out.size() == 4 && rig.out[2].ticker == "C" && rig.out[2].quantity == 1 && rig.out[3].quantity == 2 &&
-          rig.out[3].sequence == 4);
-    CHECK(rig.dispatcher.held_count() == 0 && rig.dispatcher.held_ticker() == "C");
-
-    // 자리가 있는 책에서는 매수가 곧장 나간다.
-    rig.dispatcher.submit(signal("C", OrderSide::BUY, 3));
-    CHECK(rig.out.size() == 5 && rig.out[4].ticker == "C");
-    return 0;
-}
-
-int test_displace_cancel_and_expiry()
-{
-    {
-        Rig rig(displace_config());
-        seed_full_book(rig);
-        rig.dispatcher.submit(signal("C", OrderSide::BUY, 1));
-        CHECK(rig.dispatcher.held_count() == 1);
-        // 전략이 분할 매수를 다시 깐다 — 취소가 오면 들고 있던 분할 단계를 비운다(취소 자체는 나간다).
-        rig.dispatcher.submit(signal("C", OrderSide::BUY, 0, OrderAction::CANCEL));
-        CHECK(rig.dispatcher.held_count() == 0 && rig.out.size() == 2 && rig.out[1].action == OrderAction::CANCEL);
-    }
-
-    {
-        Rig rig(displace_config());
-        seed_full_book(rig);
-        rig.dispatcher.submit(signal("C", OrderSide::BUY, 1));
-        // 예약 시한이 지나면 버린다 — 자리가 났어도.
-        rig.gate.on_fill_confirmed("", "B", OrderSide::SELL, 10, 1000.0);
-        rig.publish();
-        rig.dispatcher.flush_held(Clock::now() + std::chrono::seconds(301));
-        CHECK(rig.dispatcher.held_count() == 0 && rig.dispatcher.held_ticker().empty() && rig.out.size() == 1);
-    }
-
-    {
-        // 교체가 꺼져 있으면 꽉 찬 책이라도 매수는 그대로 나간다(거부는 게이트 몫).
-        auto config             = displace_config();
-        config.displace_enabled = false;
-        Rig rig(config);
-        seed_full_book(rig);
-        rig.dispatcher.submit(signal("C", OrderSide::BUY, 1));
-        CHECK(rig.out.size() == 1 && rig.out[0].ticker == "C" && rig.dispatcher.held_ticker().empty());
-    }
-
-    return 0;
-}
-
 int test_force_liquidation_orders()
 {
     // 종목 id는 스냅샷에 실려 온다 — 미체결 조회도 그 id로 묻는다.
@@ -471,8 +378,8 @@ int main()
     }
 
     if (test_stamp() || test_strategy_gate() || test_manual_sell_halt() || test_universe_exit_judge() || test_universe_evict_pick() ||
-        test_displace_hold_and_release() || test_displace_cancel_and_expiry() || test_force_liquidation_orders() ||
-        test_trim_orders() || test_force_liquidation_throttle() || test_trim_once() || test_sleeve_scan_skips_basket())
+        test_force_liquidation_orders() || test_trim_orders() || test_force_liquidation_throttle() || test_trim_once() ||
+        test_sleeve_scan_skips_basket())
     {
         return 1;
     }

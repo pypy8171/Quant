@@ -29,12 +29,12 @@
     {
       "from": "core",
       "to": "ipc",
-      "weight": 7
+      "weight": 8
     },
     {
       "from": "core",
       "to": "risk",
-      "weight": 6
+      "weight": 7
     },
     {
       "from": "core",
@@ -54,7 +54,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 9
+      "weight": 10
     },
     {
       "from": "ipc",
@@ -109,7 +109,7 @@
     {
       "from": "risk",
       "to": "core",
-      "weight": 5
+      "weight": 6
     },
     {
       "from": "risk",
@@ -119,7 +119,7 @@
     {
       "from": "risk",
       "to": "utils",
-      "weight": 1
+      "weight": 2
     },
     {
       "from": "strategy",
@@ -213,6 +213,7 @@
     "core/Types.h": "core",
     "core/UniverseExit.h": "core",
     "core/WakeGate.h": "core",
+    "ipc/ControlChannel.h": "ipc",
     "ipc/FillKey.h": "ipc",
     "ipc/Heartbeat.h": "ipc",
     "ipc/LedgerSnapshot.h": "ipc",
@@ -222,6 +223,7 @@
     "ipc/OrderRouter.h": "ipc",
     "ipc/ZmqBridge.h": "ipc",
     "modes/Monitors.h": "modes",
+    "risk/DisplacementDesk.h": "risk",
     "risk/GateReasons.h": "risk",
     "risk/LedgerJournal.h": "risk",
     "risk/OrderGate.h": "risk",
@@ -298,6 +300,7 @@
     "core/Types.cpp": "core",
     "core/UniverseExit.cpp": "core",
     "core/WakeGate.cpp": "core",
+    "ipc/ControlChannel.cpp": "ipc",
     "ipc/FillKey.cpp": "ipc",
     "ipc/Heartbeat.cpp": "ipc",
     "ipc/LedgerSnapshot.cpp": "ipc",
@@ -307,6 +310,7 @@
     "ipc/OrderRouter.cpp": "ipc",
     "ipc/ZmqBridge.cpp": "ipc",
     "modes/Monitors.cpp": "modes",
+    "risk/DisplacementDesk.cpp": "risk",
     "risk/GateReasons.cpp": "risk",
     "risk/LedgerJournal.cpp": "risk",
     "risk/OrderGate.cpp": "risk",
@@ -448,6 +452,7 @@
       "core/LatencyTrace.h",
       "core/ReconcilePlan.h",
       "core/UniverseExit.h",
+      "risk/DisplacementDesk.h",
       "utils/Logger.h",
       "utils/ThreadName.h",
       "utils/Utf8.h"
@@ -476,6 +481,7 @@
       "core/TickCapture.h",
       "core/Types.h",
       "core/WakeGate.h",
+      "ipc/ControlChannel.h",
       "ipc/Heartbeat.h",
       "ipc/LedgerSnapshot.h",
       "ipc/OpsServer.h",
@@ -660,6 +666,12 @@
     "core/WakeGate.cpp": [
       "core/WakeGate.h"
     ],
+    "ipc/ControlChannel.cpp": [
+      "ipc/ControlChannel.h"
+    ],
+    "ipc/ControlChannel.h": [
+      "core/Types.h"
+    ],
     "ipc/FillKey.cpp": [
       "ipc/FillKey.h"
     ],
@@ -735,6 +747,14 @@
     ],
     "modes/Monitors.h": [
       "api/KisClient.h"
+    ],
+    "risk/DisplacementDesk.cpp": [
+      "risk/DisplacementDesk.h",
+      "utils/Logger.h"
+    ],
+    "risk/DisplacementDesk.h": [
+      "core/Types.h",
+      "risk/OrderGate.h"
     ],
     "risk/GateReasons.cpp": [
       "risk/GateReasons.h"
@@ -1218,11 +1238,13 @@
       "core/TickCapture.h",
       "core/TickSize.h",
       "core/Types.cpp",
+      "ipc/ControlChannel.h",
       "ipc/OrderChannel.h",
       "ipc/OrderRouter.h",
       "ipc/ZmqBridge.h",
       "main.cpp",
       "modes/Monitors.cpp",
+      "risk/DisplacementDesk.h",
       "risk/OrderGate.h",
       "risk/ProtectiveRule.h",
       "strategy/DevScaleRules.h",
@@ -1247,6 +1269,10 @@
       "core/WakeGate.cpp",
       "ipc/OrderRouter.cpp",
       "strategy/DeviationScaleStrategy.h"
+    ],
+    "ipc/ControlChannel.h": [
+      "core/Engine.h",
+      "ipc/ControlChannel.cpp"
     ],
     "ipc/FillKey.h": [
       "ipc/FillKey.cpp",
@@ -1288,6 +1314,10 @@
       "main.cpp",
       "modes/Monitors.cpp"
     ],
+    "risk/DisplacementDesk.h": [
+      "core/Engine.cpp",
+      "risk/DisplacementDesk.cpp"
+    ],
     "risk/GateReasons.h": [
       "core/OrderRateLimiter.cpp",
       "risk/GateReasons.cpp",
@@ -1303,6 +1333,7 @@
       "core/LedgerReconciler.h",
       "core/SignalDispatcher.h",
       "ipc/OrderRouter.h",
+      "risk/DisplacementDesk.h",
       "risk/OrderGate.cpp",
       "risk/ProtectiveOrders.h"
     ],
@@ -1437,6 +1468,7 @@
       "ipc/ZmqBridge.cpp",
       "main.cpp",
       "modes/Monitors.cpp",
+      "risk/DisplacementDesk.cpp",
       "risk/ProtectiveOrders.h",
       "strategy/DeviationScaleStrategy.h",
       "strategy/FixedIntervalStrategy.h",
@@ -1469,11 +1501,11 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 35
+      "in_degree": 37
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 30
+      "in_degree": 31
     },
     {
       "header": "core/KstTime.h",
@@ -1501,7 +1533,7 @@
     },
     {
       "header": "risk/OrderGate.h",
-      "in_degree": 7
+      "in_degree": 8
     },
     {
       "header": "utils/ThreadName.h",

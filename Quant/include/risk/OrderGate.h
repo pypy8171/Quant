@@ -524,6 +524,8 @@ public:
     //  바스켓 로더·전략이 자기 종목을 여기 넣으면 그 종목은 슬롯을 먹지도, 교체·청산 대상이 되지도 않는다.
     //  종목당 명목·수량 한도·현금·총노출·일일 손실은 그대로 적용된다(바스켓도 계좌 위험을 진다). [why D-109]
     void set_slot_exempt(const std::vector<std::string>& tickers);
+    // 번호로 받는 갈래 — 전략 쪽 제어 요청이 티커가 아니라 id를 실어 온다(레코드에 문자열을 안 싣는다). [why D-114]
+    void set_slot_exempt_by_id(const std::vector<symbol::SymbolId>& symbols);
     bool is_slot_exempt(symbol::SymbolId symbol) const;
     std::vector<symbol::SymbolId> slot_exempt_symbols() const; // 오름차순 id
 

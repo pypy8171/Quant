@@ -2355,6 +2355,23 @@ void OrderGate::set_slot_exempt(const std::vector<std::string>& tickers)
     slot_exempt_ = std::move(next);
 }
 
+void OrderGate::set_slot_exempt_by_id(const std::vector<symbol::SymbolId>& symbols)
+{
+    std::unordered_set<symbol::SymbolId> next;
+    next.reserve(symbols.size());
+
+    for (const symbol::SymbolId symbol : symbols)
+    {
+        if (symbol != symbol::kNone)
+        {
+            next.insert(symbol);
+        }
+    }
+
+    std::lock_guard<std::mutex> lock(positions_mutex_);
+    slot_exempt_ = std::move(next);
+}
+
 bool OrderGate::is_slot_exempt(symbol::SymbolId symbol) const
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
