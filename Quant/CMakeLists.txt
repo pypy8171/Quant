@@ -187,6 +187,8 @@ set(ENGINE_SOURCES
   src/core/CommandLine.cpp
   src/core/Engine.cpp
   src/core/EngineConfigure.cpp
+  src/core/EngineRegime.cpp
+  src/core/EngineOpsServer.cpp
   src/core/LedgerReconciler.cpp
   src/core/DataPoller.cpp
   src/core/HttpQuoteFeed.cpp

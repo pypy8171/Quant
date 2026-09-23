@@ -45,7 +45,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 12
+      "weight": 14
     },
     {
       "from": "exchange",
@@ -300,6 +300,8 @@
     "core/DataPoller.cpp": "core",
     "core/Engine.cpp": "core",
     "core/EngineConfigure.cpp": "core",
+    "core/EngineOpsServer.cpp": "core",
+    "core/EngineRegime.cpp": "core",
     "core/FeedMux.cpp": "core",
     "core/FeedSupervisor.cpp": "core",
     "core/HttpQuoteFeed.cpp": "core",
@@ -537,6 +539,15 @@
     ],
     "core/EngineConfigure.cpp": [
       "core/AppConfig.h",
+      "core/Engine.h",
+      "utils/Logger.h"
+    ],
+    "core/EngineOpsServer.cpp": [
+      "core/Engine.h",
+      "core/KstTime.h",
+      "utils/Logger.h"
+    ],
+    "core/EngineRegime.cpp": [
       "core/Engine.h",
       "utils/Logger.h"
     ],
@@ -1178,6 +1189,8 @@
     "core/Engine.h": [
       "core/Engine.cpp",
       "core/EngineConfigure.cpp",
+      "core/EngineOpsServer.cpp",
+      "core/EngineRegime.cpp",
       "main.cpp",
       "strategy/StrategyFactory.cpp"
     ],
@@ -1205,6 +1218,7 @@
       "core/BarAggregator.cpp",
       "core/DataPoller.cpp",
       "core/Engine.cpp",
+      "core/EngineOpsServer.cpp",
       "core/KstTime.cpp",
       "core/LedgerReconciler.h",
       "core/RegimeFileJudge.h",
@@ -1626,6 +1640,8 @@
       "core/DataPoller.cpp",
       "core/Engine.cpp",
       "core/EngineConfigure.cpp",
+      "core/EngineOpsServer.cpp",
+      "core/EngineRegime.cpp",
       "core/HttpQuoteFeed.cpp",
       "core/LedgerReconciler.cpp",
       "core/OrderRateLimiter.cpp",
@@ -1674,11 +1690,11 @@
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 32
+      "in_degree": 34
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 18
+      "in_degree": 19
     },
     {
       "header": "core/SymbolTable.h",
@@ -1707,6 +1723,10 @@
     {
       "header": "utils/ThreadName.h",
       "in_degree": 7
+    },
+    {
+      "header": "core/Engine.h",
+      "in_degree": 6
     },
     {
       "header": "core/IFeedSource.h",
@@ -1742,10 +1762,6 @@
     },
     {
       "header": "api/KisRestDecode.h",
-      "in_degree": 4
-    },
-    {
-      "header": "api/KisTypes.h",
       "in_degree": 4
     }
   ],
@@ -2688,12 +2704,13 @@
     "regime.json": {
       "writers": [
         "PYQuant/tools/macro_regime_feed.py",
-        "Quant/src/core/Engine.cpp"
+        "Quant/src/core/EngineRegime.cpp"
       ],
       "readers": [
         "PYQuant/tools/macro_regime_feed.py",
         "Quant/src/core/AppConfig.cpp",
         "Quant/src/core/Engine.cpp",
+        "Quant/src/core/EngineRegime.cpp",
         "Quant/src/core/RegimeFileJudge.cpp",
         "scripts/dashboard_server.py",
         "scripts/notify_trades.py"
@@ -2706,6 +2723,7 @@
         "Quant/src/core/AppConfig.cpp",
         "Quant/src/core/Engine.cpp",
         "Quant/src/core/EngineConfigure.cpp",
+        "Quant/src/core/EngineRegime.cpp",
         "Quant/src/core/RegimeFileJudge.cpp",
         "scripts/dashboard_server.py",
         "scripts/notify_trades.py"
