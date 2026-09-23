@@ -91,6 +91,8 @@ Windows에서는 `SO_EXCLUSIVEADDRUSE`로 잡으므로 엔진이 이미 하나 �
 
 - HELLO_REQ가 첫 프레임이 아니면 ERROR_NTF 뒤 끊는다. 토큰이 틀리면 같다.
 - `auth=false`(서버에 토큰이 없거나 HELLO_REQ에 토큰을 안 냈을 때)면 ORDER_REQ·KILL_REQ·HALT_REQ·SHUTDOWN_REQ는 거부 응답만 온다.
+- STATUS_ACK의 `strategies`는 전략을 올린 프로세스에서는 전략 수고, 갈라 띄워 주문만 맡은 프로세스에서는
+  공유 이름표의 등록 수다 — 고정 이름 몇이 더해져 전략 수와 딱 맞지는 않고, "전략이 올라왔나"를 보는 칸이다(D-114).
 - `cid`는 단말이 붙이는 1~64자 식별자다. 같은 cid의 재전송은 한 번만 처리한다(연결이 끊겨 ACK를 못 받았을 때
   그대로 다시 보내면 된다).
 - `price` 0은 시장가, 양수는 지정가. `ref_price`는 시장가의 명목 한도 평가 기준가로, 0이면 엔진이 평단으로 대체한다.

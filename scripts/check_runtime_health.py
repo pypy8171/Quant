@@ -94,6 +94,18 @@ MAX_STOP_PER_BUY = 0.25
 #  거른다. 두 행은 새 바이너리 표식(진입 필터 판정 줄)이 있는 날만 판정한다 — 배포 전 로그에서는 건너뛴다.
 DEVSCALE_CLOSE_EXIT_RE = re.compile(r"신호: \[DEVSCALE_(\d{6})\] \d{6}.* SELL \d+ \| 근거: 청산:장 마감\(")
 DEVSCALE_ENTRY_FILTER_RE = re.compile(r"\[DEVSCALE_(\d{6})\] 진입 필터 (통과|차단)\(")
+# 보호 주문 표(D-114 단계 1)는 기본이 shadow 다 — 표는 판정만 남기고 발주는 전략이 하던 대로 한다.
+#  owner 로 올리려면 표의 판정과 전략의 실제 청산이 같은 자리에서 나는지를 며칠 봐야 한다(D-114 "남은 것").
+#  그림자: "[보호주문] 그림자 판정 005930 손절(평단 70000.0 -6.5%) 보유=10 (발주는 전략이 한다)"
+PROTECTIVE_SHADOW_RE = re.compile(r"\[보호주문\] 그림자 판정 (\d{6}) (손절|트레일)\(")
+#  owner 로 올린 날은 표가 직접 낸다. 그 줄이 있으면 맞댈 짝이 없으므로 대조를 접는다.
+PROTECTIVE_FIRED_RE = re.compile(r"\[보호주문\] 청산 (\d{6}) (손절|트레일)\(")
+#  전략 쪽 청산. 표에 규칙을 거는 전략은 지금 DeviationScale 하나뿐이라 그것만 맞댄다(D-114 "남은 것").
+#  손절은 DEVSCALE_STOP_RE 가 이미 모으고 있어 트레일만 더한다 — 표가 보는 것도 이 둘뿐이다.
+DEVSCALE_TRAIL_RE = re.compile(r"신호: \[DEVSCALE_(\d{6})\] \d{6}.* SELL \d+ \| 근거: 청산:트레일\(")
+# 같은 종목의 그림자 판정과 전략 청산을 한 자리로 볼 시간 폭(초). 표의 재발주 간격이 30초이고
+#  (protective_orders_retry_ms 기본값) 전략 쪽 청산 백오프 상한도 30초라 둘을 더한 만큼 벌려 둔다.
+PROTECTIVE_MATCH_SEC = 60
 
 # 임계값. 넘으면 그날 운영이 실제로 상했던 수준이다.
 MAX_STALE_ORDERS = 25     # 유령주문 재부활 — 취소 왕복이 초당한도를 밀어낸다
@@ -1165,6 +1177,9 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     itb_attached: list[str] = []
     devscale_stops: list[tuple[int, str]] = []     # (초, 종목) — DEVSCALE 손절 신호
     devscale_close_exits: list[tuple[int, str]] = []   # (초, 종목) — DEVSCALE 장 마감 청산 신호(넘김 모드면 0이어야 한다)
+    devscale_trails: list[tuple[int, str]] = []    # (초, 종목) — DEVSCALE 트레일 청산 신호
+    protective_shadow: list[tuple[int, str]] = []  # (초, 종목) — 보호 주문 표의 그림자 판정
+    protective_fired = 0                           # 표가 직접 낸 청산 수(owner 모드면 0보다 크다)
     entry_filter: dict[str, int] = {"통과": 0, "차단": 0}  # 진입 필터 판정 줄 수
     platforms: list[str] = []                    # 엔진이 실제로 뜬 기동의 실행 플랫폼(Windows|Linux)
     pending_platform = ""                        # 플랫폼 줄은 봤지만 아직 엔진이 뜨지 않은 기동
@@ -1359,6 +1374,12 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 devscale_close_exits.append((second, found.group(1)))
             if found := DEVSCALE_ENTRY_FILTER_RE.search(line):
                 entry_filter[found.group(2)] += 1
+            if found := DEVSCALE_TRAIL_RE.search(line):
+                devscale_trails.append((second, found.group(1)))
+            if found := PROTECTIVE_SHADOW_RE.search(line):
+                protective_shadow.append((second, found.group(1)))
+            if PROTECTIVE_FIRED_RE.search(line):
+                protective_fired += 1
 
     if not starts:
         return [], 0
@@ -1439,6 +1460,15 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     stop_rebuys = [(buy_t, ticker) for buy_t, sid, ticker, side in signals
                    if sid.startswith("DEVSCALE_") and side == "BUY"
                    and any(stop_ticker == ticker and buy_t > stop_t for stop_t, stop_ticker in devscale_stops)]
+    # 보호 주문 표의 그림자 판정과 전략의 실제 청산을 종목·시각으로 맞댄다. 표가 보는 것은 손절과 트레일
+    #  둘뿐이라 전략 쪽도 그 둘만 센다. 짝이 없는 쪽을 어긋남으로 세어 둔다.
+    devscale_guard_exits = devscale_stops + devscale_trails
+    shadow_without_exit = [(second, ticker) for second, ticker in protective_shadow
+                           if not any(exit_ticker == ticker and abs(second - exit_second) <= PROTECTIVE_MATCH_SEC
+                                      for exit_second, exit_ticker in devscale_guard_exits)]
+    exit_without_shadow = [(second, ticker) for second, ticker in devscale_guard_exits
+                           if not any(shadow_ticker == ticker and abs(second - shadow_second) <= PROTECTIVE_MATCH_SEC
+                                      for shadow_second, shadow_ticker in protective_shadow)]
     devscale_buys = sum(1 for _, sid, _, side in signals if sid.startswith("DEVSCALE_") and side == "BUY")
     stop_ratio = len(devscale_stops) / devscale_buys if devscale_buys else 0.0
 
@@ -1501,6 +1531,18 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     def feed_channel_row(name: str, ok: bool, level: str, detail: str):
         if feed_channel_overflow < 0 and feed_channel_discarded < 0:
             return (name, True, level, "시세 통로 수치 줄 없음(D-114 단계 4 배선 2' 배포 전 바이너리) — 판정 안 함")
+        return (name, ok, level, detail)
+
+    # 보호 주문 대조(D-114 단계 1) — 표가 shadow 인 날만 맞댈 것이 있다. owner 로 올린 날이나
+    #  걸린 규칙도 청산도 없던 날은 판정하지 않는다.
+    def protective_row(name: str, ok: bool, level: str, detail: str):
+        if protective_fired > 0:
+            return (name, True, level,
+                    f"표가 직접 낸 청산 {protective_fired}건(owner 모드) — 대조 판정 안 함")
+
+        if not protective_shadow and not devscale_guard_exits:
+            return (name, True, level, "그림자 판정도 전략 청산도 없던 날 — 대조 판정 안 함")
+
         return (name, ok, level, detail)
 
     # 체결통보 세션(D-114 단계 3) — 이 줄도 사본 줄보다 늦게 붙었으므로 따로 건너뛴다.
@@ -1569,6 +1611,17 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
         feed_channel_row("시세 통로", feed_channel_overflow <= 0 and feed_channel_discarded <= 0, "FAIL",
                          f"못 넘긴 시세 {max(feed_channel_overflow, 0)}건 · 값이 이상해 버린 시세 "
                          f"{max(feed_channel_discarded, 0)}건 (둘 다 기대 0)"),
+        # 보호 주문 표는 아직 shadow — 판정만 남기고 발주는 전략이 한다. 표의 판정과 전략의 청산이 같은
+        #  종목·같은 자리에서 나는 날이 쌓여야 owner 로 올릴 수 있다. 어긋나면 표가 먼저 보거나 놓친 것이다.
+        protective_row("보호 주문 대조",
+                       not shadow_without_exit and not exit_without_shadow, "WARN",
+                       f"그림자 판정 {len(protective_shadow)}건 · 전략 청산 {len(devscale_guard_exits)}건 · "
+                       f"어긋남 {len(shadow_without_exit) + len(exit_without_shadow)}건"
+                       f"(판정만 {len(shadow_without_exit)} · 청산만 {len(exit_without_shadow)}, 맞대는 폭 ±{PROTECTIVE_MATCH_SEC}초)"
+                       + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in (shadow_without_exit + exit_without_shadow)[:5])}"
+                          if shadow_without_exit or exit_without_shadow else "")
+                       + " | 다음에 볼 곳: docs/DECISIONS.md D-114 '남은 것' — 어긋남 0인 날이 며칠 쌓이면"
+                         " protective_orders 를 owner 로 올린다"),
                 # 체결통보는 WS 세션 하나만 들어야 한다. 아무도 안 들으면 체결이 원장에 안 들어와 선점이 안 풀리고,
         #  둘이 들으면 KIS가 세션마다 같은 통보를 보내 원장이 체결을 두 번 센다 — 둘 다 A등급이다.
         fill_session_row("체결 세션", fill_session_many == 0 and fill_session_none == 0, "FAIL",

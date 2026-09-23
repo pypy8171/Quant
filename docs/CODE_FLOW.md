@@ -55,8 +55,8 @@ flowchart LR
 
 config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전략을 만든 뒤, `Engine::start()`가 행렬·샤드·원장·소켓 콜백·스레드 다섯을 세운다. 이 절만 읽으면 누가 무엇을 소유하는지 보인다.
 
-1. [`main`](../Quant/src/main.cpp#L294) — 진입. 번호 주석이 초기화 순서다 — 콘솔·로거 → 인자 → `parse_config` → 로그 임계값 → 크래시 핸들러 → 모드 분기(FEED·KR_TEST·US_TEST는 modes/, TRADE는 `run_trade`)  
-   `Quant/src/main.cpp:294` · `int main(int argc, char* argv[])`
+1. [`main`](../Quant/src/main.cpp#L307) — 진입. 번호 주석이 초기화 순서다 — 콘솔·로거 → 인자 → `parse_config` → 로그 임계값 → 크래시 핸들러 → 모드 분기(FEED·KR_TEST·US_TEST는 modes/, TRADE는 `run_trade`)  
+   `Quant/src/main.cpp:307` · `int main(int argc, char* argv[])`
 2. [`parse_config`](../Quant/src/core/AppConfig.cpp#L196) — json → `AppConfig`. 키 누락·값 오류는 여기서 멈춘다(네트워크 전). 모드 오버라이드(인자)도 여기서 반영  
    `Quant/src/core/AppConfig.cpp:196` · `AppConfig parse_config(const json& document, const std::string& mode_override)`
 3. [`run_trade`](../Quant/src/main.cpp#L260) — `Engine engine(...)` → `engine.configure(app)` → `load_strategies` → `engine.start()` → `is_running` 대기 → `engine.stop()`. join은 여기 한 곳  

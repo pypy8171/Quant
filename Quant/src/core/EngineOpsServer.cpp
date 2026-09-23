@@ -102,7 +102,10 @@ std::string Engine::ops_status_json() const
                           {"manual_sell_halt", order_gate_.is_manual_sell_halted()},
                           {"force_liq", force_liquidate_.load(std::memory_order_relaxed)},
                           {"paper", kis_config_.is_paper},
-                          {"strategies", strategy_.list.size()},
+                          // 전략을 올리지 않는 주문 전용 프로세스에서는 제 목록이 항상 비어 있다 — 그때는 공유 이름표의
+                          //  등록 수를 대신 싣는다. 전략 쪽이 올린 수에 고정 이름(MANUAL·FORCE_LIQ·LIMIT_TRIM·UNLINKED·
+                          //  DISPLACE) 몇이 더해진 값이라 딱 맞아떨어지지는 않고, "전략이 올라왔나"를 보는 데 쓴다. [why D-114]
+                          {"strategies", runs_strategy_side() ? strategy_.list.size() : order_gate_.strategy_table().size()},
                           {"equity", order_gate_.equity()},
                           {"cash", order_gate_.available_cash()},
                           {"daily_pnl", order_gate_.daily_pnl()},

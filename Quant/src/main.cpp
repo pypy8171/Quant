@@ -267,11 +267,24 @@ static int run_trade(const AppConfig& app, ProcessRole role)
     engine.set_role(role);
     engine.configure(app);
 
-    // 전략 로딩 — 타입별 로더 디스패치 + active_regimes 후처리 (strategy/StrategyFactory.cpp)
-    const KisConfig  no_quote_kis;
-    StrategyLoadCtx  load_context{engine, app.kis, app.quote_kis ? *app.quote_kis : no_quote_kis,
-                                  app.quote_kis.has_value()};
-    load_strategies(load_context, app.strategies);
+    // 전략은 전략 쪽만 올린다. 주문 프로세스도 올리면 기동 때 유니버스 스캔이 양쪽에서 한 번씩 돌아
+    //  같은 조회를 두 번 때리는데, 올린 전략을 start()가 켜 주지도 않는다 — start_strategies()와
+    //  collect_watch_specifications()는 이미 전략 역할에서만 돌기 때문이다. 주문 쪽이 쓰는 것은 전략
+    //  알맹이가 아니라 이름표 번호이고, 그건 전략 쪽 등록 요청이 제어 통로로 건너와 채운다
+    //  (Engine::apply_control_requests). [why D-114]
+    if (engine.runs_strategy_side())
+    {
+        // 전략 로딩 — 타입별 로더 디스패치 + active_regimes 후처리 (strategy/StrategyFactory.cpp)
+        const KisConfig no_quote_kis;
+        StrategyLoadCtx load_context{engine, app.kis, app.quote_kis ? *app.quote_kis : no_quote_kis,
+                                     app.quote_kis.has_value()};
+        load_strategies(load_context, app.strategies);
+    }
+    else
+    {
+        LOG_INFO("[Main] 주문 역할 — 전략은 올리지 않는다(유니버스 스캔은 전략 프로세스에서 한 번만 돌린다)");
+    }
+
     engine.start();
 
     while (engine.is_running())
