@@ -5,6 +5,7 @@ namespace
 // 미국 정규장(서머타임 기준) KST 22:30~05:00. 표준시 전환은 반영하지 않는다.
 constexpr int kUsSessionOpenHhmm  = 2230;
 constexpr int kUsSessionCloseHhmm = 500;
+constexpr int kHhmmNextDay        = 2400; // 자정 뒤 hhmm에 더해 전날 밤 창 뒤로 놓는다
 } // namespace
 
 std::string ValueContraryStrategy::describe() const
@@ -184,7 +185,8 @@ std::optional<OrderSignal> ValueContraryStrategy::check_entry_exit(symbol::Symbo
     }
 
     // 청산: 매수 보냈고, 청산 안 했고, 청산 시각 도달
-    if (buy_sent_.count(symbol_id) && !sell_sent_.count(symbol_id) && hhmm >= market_close_exit_hhmm_)
+    if (buy_sent_.count(symbol_id) && !sell_sent_.count(symbol_id) &&
+        session_order(hhmm) >= session_order(market_close_exit_hhmm_))
     {
         sell_sent_.insert(symbol_id);
 
@@ -216,4 +218,14 @@ bool ValueContraryStrategy::is_in_session(int hhmm) const
 
     // 미국 정규장(서머타임 기준) KST 22:30~05:00. 표준시 전환은 반영하지 않는다
     return hhmm >= kUsSessionOpenHhmm || hhmm < kUsSessionCloseHhmm;
+}
+
+int ValueContraryStrategy::session_order(int hhmm) const
+{
+    if (market_ == Market::US && hhmm < kUsSessionOpenHhmm)
+    {
+        return hhmm + kHhmmNextDay;
+    }
+
+    return hhmm;
 }

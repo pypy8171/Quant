@@ -37,7 +37,8 @@ public:
     // market   : Market::KR 또는 Market::US
     // exchange : US일 때 "NAS" / "NYS" (KR은 무시)
     // pbr_max  : PBR 상한 (0이면 PBR 조건 미적용)
-    // market_close_exit_hhmm : 청산 시각 KST (KR=1520, US=0330)
+    // market_close_exit_hhmm : 청산 시각 KST(기본 1520). US는 자정을 넘기는 창이라 장 시작(22:30)부터 잰
+    //                          순서로 비교한다 — 0330은 같은 밤 22:30 이후가 아니라 새벽 03:30에 청산한다
     ValueContraryStrategy(Market market, std::string exchange, double pbr_max, int quantity, int market_close_exit_hhmm)
         : market_(market), exchange_(std::move(exchange)), pbr_max_(pbr_max), quantity_(quantity),
           market_close_exit_hhmm_(market_close_exit_hhmm)
@@ -76,6 +77,8 @@ private:
 
     // 장 세션 내 여부 (KST 기준)
     bool is_in_session(int hhmm) const;
+    // 장 시작부터의 순서로 편 hhmm. US는 자정 뒤(05:00 전)를 +2400 해 22:30 창 뒤로 놓는다. KR은 그대로.
+    int session_order(int hhmm) const;
 
     Market market_;
     std::string exchange_;
