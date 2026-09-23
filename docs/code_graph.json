@@ -2,6 +2,7 @@
   "modules": [
     "api",
     "core",
+    "exchange",
     "ipc",
     "main",
     "modes",
@@ -29,12 +30,12 @@
     {
       "from": "core",
       "to": "ipc",
-      "weight": 8
+      "weight": 7
     },
     {
       "from": "core",
       "to": "risk",
-      "weight": 7
+      "weight": 6
     },
     {
       "from": "core",
@@ -47,6 +48,16 @@
       "weight": 12
     },
     {
+      "from": "exchange",
+      "to": "core",
+      "weight": 7
+    },
+    {
+      "from": "exchange",
+      "to": "utils",
+      "weight": 2
+    },
+    {
       "from": "ipc",
       "to": "api",
       "weight": 2
@@ -54,7 +65,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 10
+      "weight": 9
     },
     {
       "from": "ipc",
@@ -109,7 +120,7 @@
     {
       "from": "risk",
       "to": "core",
-      "weight": 6
+      "weight": 5
     },
     {
       "from": "risk",
@@ -119,7 +130,7 @@
     {
       "from": "risk",
       "to": "utils",
-      "weight": 2
+      "weight": 1
     },
     {
       "from": "strategy",
@@ -213,7 +224,9 @@
     "core/Types.h": "core",
     "core/UniverseExit.h": "core",
     "core/WakeGate.h": "core",
-    "ipc/ControlChannel.h": "ipc",
+    "exchange/MatchingEngine.h": "exchange",
+    "exchange/OrderWire.h": "exchange",
+    "exchange/ZmqOrderFeed.h": "exchange",
     "ipc/FillKey.h": "ipc",
     "ipc/Heartbeat.h": "ipc",
     "ipc/LedgerSnapshot.h": "ipc",
@@ -223,7 +236,6 @@
     "ipc/OrderRouter.h": "ipc",
     "ipc/ZmqBridge.h": "ipc",
     "modes/Monitors.h": "modes",
-    "risk/DisplacementDesk.h": "risk",
     "risk/GateReasons.h": "risk",
     "risk/LedgerJournal.h": "risk",
     "risk/OrderGate.h": "risk",
@@ -300,7 +312,9 @@
     "core/Types.cpp": "core",
     "core/UniverseExit.cpp": "core",
     "core/WakeGate.cpp": "core",
-    "ipc/ControlChannel.cpp": "ipc",
+    "exchange/MatchingEngine.cpp": "exchange",
+    "exchange/OrderWire.cpp": "exchange",
+    "exchange/ZmqOrderFeed.cpp": "exchange",
     "ipc/FillKey.cpp": "ipc",
     "ipc/Heartbeat.cpp": "ipc",
     "ipc/LedgerSnapshot.cpp": "ipc",
@@ -310,7 +324,6 @@
     "ipc/OrderRouter.cpp": "ipc",
     "ipc/ZmqBridge.cpp": "ipc",
     "modes/Monitors.cpp": "modes",
-    "risk/DisplacementDesk.cpp": "risk",
     "risk/GateReasons.cpp": "risk",
     "risk/LedgerJournal.cpp": "risk",
     "risk/OrderGate.cpp": "risk",
@@ -452,7 +465,6 @@
       "core/LatencyTrace.h",
       "core/ReconcilePlan.h",
       "core/UniverseExit.h",
-      "risk/DisplacementDesk.h",
       "utils/Logger.h",
       "utils/ThreadName.h",
       "utils/Utf8.h"
@@ -481,7 +493,6 @@
       "core/TickCapture.h",
       "core/Types.h",
       "core/WakeGate.h",
-      "ipc/ControlChannel.h",
       "ipc/Heartbeat.h",
       "ipc/LedgerSnapshot.h",
       "ipc/OpsServer.h",
@@ -666,11 +677,22 @@
     "core/WakeGate.cpp": [
       "core/WakeGate.h"
     ],
-    "ipc/ControlChannel.cpp": [
-      "ipc/ControlChannel.h"
+    "exchange/MatchingEngine.cpp": [
+      "core/TickSize.h"
     ],
-    "ipc/ControlChannel.h": [
+    "exchange/MatchingEngine.h": [
+      "core/SymbolTable.h",
       "core/Types.h"
+    ],
+    "exchange/ZmqOrderFeed.cpp": [
+      "core/KstTime.h",
+      "utils/Logger.h",
+      "utils/Utf8.h"
+    ],
+    "exchange/ZmqOrderFeed.h": [
+      "core/IFeedSource.h",
+      "core/MpscQueue.h",
+      "core/SymbolTable.h"
     ],
     "ipc/FillKey.cpp": [
       "ipc/FillKey.h"
@@ -747,14 +769,6 @@
     ],
     "modes/Monitors.h": [
       "api/KisClient.h"
-    ],
-    "risk/DisplacementDesk.cpp": [
-      "risk/DisplacementDesk.h",
-      "utils/Logger.h"
-    ],
-    "risk/DisplacementDesk.h": [
-      "core/Types.h",
-      "risk/OrderGate.h"
     ],
     "risk/GateReasons.cpp": [
       "risk/GateReasons.h"
@@ -1079,7 +1093,8 @@
       "api/KisWebSocket.h",
       "core/FeedMux.h",
       "core/IFeedSource.cpp",
-      "core/ReplaySource.h"
+      "core/ReplaySource.h",
+      "exchange/ZmqOrderFeed.h"
     ],
     "core/KstTime.h": [
       "api/KisOrder.cpp",
@@ -1090,6 +1105,7 @@
       "core/KstTime.cpp",
       "core/LedgerReconciler.h",
       "core/RegimeFileJudge.h",
+      "exchange/ZmqOrderFeed.cpp",
       "ipc/OrderRouter.cpp",
       "modes/Monitors.cpp",
       "risk/OrderGate.cpp",
@@ -1125,6 +1141,7 @@
     "core/MpscQueue.h": [
       "core/Engine.h",
       "core/TickCapture.h",
+      "exchange/ZmqOrderFeed.h",
       "ipc/ZmqBridge.h",
       "utils/Logger.cpp"
     ],
@@ -1200,6 +1217,8 @@
       "core/SymbolTable.cpp",
       "core/Types.h",
       "core/UniverseExit.h",
+      "exchange/MatchingEngine.h",
+      "exchange/ZmqOrderFeed.h",
       "ipc/LedgerSnapshot.h",
       "risk/OrderGate.h",
       "universe/ScoreWeight.h",
@@ -1212,6 +1231,7 @@
     ],
     "core/TickSize.h": [
       "core/TickSize.cpp",
+      "exchange/MatchingEngine.cpp",
       "strategy/DeviationScaleStrategy.h",
       "strategy/MarketMakingStrategy.h"
     ],
@@ -1238,13 +1258,12 @@
       "core/TickCapture.h",
       "core/TickSize.h",
       "core/Types.cpp",
-      "ipc/ControlChannel.h",
+      "exchange/MatchingEngine.h",
       "ipc/OrderChannel.h",
       "ipc/OrderRouter.h",
       "ipc/ZmqBridge.h",
       "main.cpp",
       "modes/Monitors.cpp",
-      "risk/DisplacementDesk.h",
       "risk/OrderGate.h",
       "risk/ProtectiveRule.h",
       "strategy/DevScaleRules.h",
@@ -1269,10 +1288,6 @@
       "core/WakeGate.cpp",
       "ipc/OrderRouter.cpp",
       "strategy/DeviationScaleStrategy.h"
-    ],
-    "ipc/ControlChannel.h": [
-      "core/Engine.h",
-      "ipc/ControlChannel.cpp"
     ],
     "ipc/FillKey.h": [
       "ipc/FillKey.cpp",
@@ -1314,10 +1329,6 @@
       "main.cpp",
       "modes/Monitors.cpp"
     ],
-    "risk/DisplacementDesk.h": [
-      "core/Engine.cpp",
-      "risk/DisplacementDesk.cpp"
-    ],
     "risk/GateReasons.h": [
       "core/OrderRateLimiter.cpp",
       "risk/GateReasons.cpp",
@@ -1333,7 +1344,6 @@
       "core/LedgerReconciler.h",
       "core/SignalDispatcher.h",
       "ipc/OrderRouter.h",
-      "risk/DisplacementDesk.h",
       "risk/OrderGate.cpp",
       "risk/ProtectiveOrders.h"
     ],
@@ -1463,12 +1473,12 @@
       "core/LedgerReconciler.cpp",
       "core/OrderRateLimiter.cpp",
       "core/SignalDispatcher.cpp",
+      "exchange/ZmqOrderFeed.cpp",
       "ipc/OpsServer.cpp",
       "ipc/OrderRouter.cpp",
       "ipc/ZmqBridge.cpp",
       "main.cpp",
       "modes/Monitors.cpp",
-      "risk/DisplacementDesk.cpp",
       "risk/ProtectiveOrders.h",
       "strategy/DeviationScaleStrategy.h",
       "strategy/FixedIntervalStrategy.h",
@@ -1494,6 +1504,7 @@
     ],
     "utils/Utf8.h": [
       "core/Engine.cpp",
+      "exchange/ZmqOrderFeed.cpp",
       "modes/Monitors.cpp",
       "utils/Utf8.cpp"
     ]
@@ -1501,7 +1512,7 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 37
+      "in_degree": 36
     },
     {
       "header": "utils/Logger.h",
@@ -1509,15 +1520,15 @@
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 17
+      "in_degree": 18
+    },
+    {
+      "header": "core/SymbolTable.h",
+      "in_degree": 16
     },
     {
       "header": "strategy/StrategyBase.h",
       "in_degree": 15
-    },
-    {
-      "header": "core/SymbolTable.h",
-      "in_degree": 14
     },
     {
       "header": "api/KisClient.h",
@@ -1533,14 +1544,22 @@
     },
     {
       "header": "risk/OrderGate.h",
-      "in_degree": 8
+      "in_degree": 7
     },
     {
       "header": "utils/ThreadName.h",
       "in_degree": 7
     },
     {
+      "header": "core/IFeedSource.h",
+      "in_degree": 5
+    },
+    {
       "header": "core/LatencyTrace.h",
+      "in_degree": 5
+    },
+    {
+      "header": "core/MpscQueue.h",
       "in_degree": 5
     },
     {
@@ -1565,14 +1584,6 @@
     },
     {
       "header": "core/Engine.h",
-      "in_degree": 4
-    },
-    {
-      "header": "core/IFeedSource.h",
-      "in_degree": 4
-    },
-    {
-      "header": "core/MpscQueue.h",
       "in_degree": 4
     },
     {
@@ -1668,6 +1679,7 @@
       "PYQuant/tools/kind_delisted_fill.py",
       "PYQuant/tools/ledger_dump.py",
       "PYQuant/tools/ledger_recorder.py",
+      "PYQuant/tools/load_injector.py",
       "PYQuant/tools/log_report.py",
       "PYQuant/tools/macro_ingest.py",
       "PYQuant/tools/macro_regime_feed.py",
@@ -1699,6 +1711,7 @@
       "scripts/gen_tuning_sheet.py",
       "scripts/live_prices_feed.py",
       "scripts/log_patterns.py",
+      "scripts/make_load_test_config.py",
       "scripts/market_close_autodoc.py",
       "scripts/market_close_collect.py",
       "scripts/market_close_minute_backfill.py",
@@ -2544,21 +2557,27 @@
       ]
     },
     "universe*.json": {
-      "writers": [],
+      "writers": [
+        "PYQuant/tools/load_injector.py",
+        "scripts/make_load_test_config.py"
+      ],
       "readers": [
         "PYQuant/main.py",
         "PYQuant/tools/full_universe_dump.py",
+        "PYQuant/tools/load_injector.py",
         "PYQuant/tools/nxt_divergence_check.py",
         "PYQuant/tools/universe_feed.py",
         "Quant/src/universe/UniverseScanner.cpp",
         "scripts/exit_ev_dashboard.py",
         "scripts/live_prices_feed.py",
+        "scripts/make_load_test_config.py",
         "scripts/market_close_minute_backfill.py",
         "scripts/notify_trades.py"
       ],
       "mentions": [
         "PYQuant/main.py",
         "PYQuant/tools/full_universe_dump.py",
+        "PYQuant/tools/load_injector.py",
         "PYQuant/tools/nxt_divergence_check.py",
         "PYQuant/tools/universe_feed.py",
         "Quant/include/universe/UniverseScanner.h",
@@ -2568,6 +2587,7 @@
         "scripts/dashboard_server.py",
         "scripts/exit_ev_dashboard.py",
         "scripts/live_prices_feed.py",
+        "scripts/make_load_test_config.py",
         "scripts/market_close_minute_backfill.py",
         "scripts/notify_trades.py"
       ]

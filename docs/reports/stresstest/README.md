@@ -199,6 +199,10 @@ Quant\build_win\bench_engine_load.exe run --tickers 2700 --lanes 4 --shards 4 --
 | `shard_dropped` | 샤드 → 전략 스레드 큐에서 버린 신호 수 |
 | `order_dropped` | 전략 스레드 → 주문 큐에서 버린 신호 수 |
 | `p50_us` / `p99_us` / `max_us` | 주문 한 건의 전 구간 지연(마이크로초). 엔진이 쓰는 `latency_trace.csv`에서 이번 실행분만 읽는다 |
+
+`p50_us`가 커진 회차는 그 `latency_trace.csv`를 직접 연다. `total_us` 뒤 여섯 열(`gate_us`·`history_guard_us`·
+`journal_us`·`bucket_wait_us`·`transport_us`·`record_us`)이 `pop_to_done_us` 한 덩이를 가른 몫이고, 합이 그 덩이에
+거의 닿는다(D-117 후속). 이 여섯이 없던 회차 B·C는 2.07ms·3.31ms가 어디서 온 것인지 표만 보고는 말할 수 없다.
 | `strategy` | 그 구성이 쓴 전략(`counter` 또는 `itb`) |
 | `zmq` | 발행 바인드 주소, 껐으면 `off` |
 | `started_at` | 구성 시작 벽시계(HH:MM:SS). 5절의 수집기 표본과 이 행을 맞추는 열쇠 |

@@ -243,14 +243,16 @@ uint64_t digits_to_number(std::string_view digits) noexcept;
 uint64_t next_client_order_number() noexcept;
 
 // 주문 하나가 OrderRouter 안에서 쓴 시간(us). -1은 그 구간을 안 지났다 — 게이트 거부는 원장·전송이 없다.
-// 주문 스레드가 이 값을 구간 분포에 넣는다. pop→반환을 한 덩이로 두면 게이트·원장 디스크·초당한도 줄서기·
-// 망 왕복 중 누구 탓인지 못 가른다. [why D-071] [wire] Quant/include/core/LatencyTrace.h PipelineLatency::add
+// 주문 스레드가 이 값을 구간 분포에 넣는다. pop→반환을 한 덩이로 두면 게이트·이력 훑기·원장 디스크·초당한도
+// 줄서기·망 왕복·파일 쓰기 중 누구 탓인지 못 가른다. 여섯을 더하면 pop→반환에 거의 닿는다. [why D-071] [wire] Quant/include/core/LatencyTrace.h PipelineLatency::add
 struct OrderStageTiming
 {
-    int64_t gate_us        = -1; // 라우터 진입 → 게이트 판정 끝(한도 클램프·예약매도 정리·check)
-    int64_t journal_us     = -1; // 원장 선기록(take_intent — 디스크에 닿는다) [why D-113]
-    int64_t bucket_wait_us = -1; // 증권사 초당한도 버킷에서 줄 선 시간
-    int64_t transport_us   = -1; // 증권사 REST 왕복(버킷 대기 뺀 몫)
+    int64_t gate_us          = -1; // 라우터 진입 → 게이트 판정 끝(한도 클램프·예약매도 정리·check). history_guard_us를 뺀 몫
+    int64_t history_guard_us = -1; // 주문 이력 잠금·중복 가드(취소누락 보류 조회 + 같은 시장가 매도 선형 탐색)
+    int64_t journal_us       = -1; // 원장 선기록(take_intent — 디스크에 닿는다) [why D-113]
+    int64_t bucket_wait_us   = -1; // 증권사 초당한도 버킷에서 줄 선 시간
+    int64_t transport_us     = -1; // 증권사 REST 왕복(버킷 대기 뺀 몫)
+    int64_t record_us        = -1; // 전송 뒤 마무리 — 접수 확정(원장 ACCEPT)·발행·이력 저장·원장 CSV·미결주문 파일
 };
 
 struct ManagedOrder

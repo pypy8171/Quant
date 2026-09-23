@@ -81,12 +81,16 @@ CREATE TABLE IF NOT EXISTS health (
     pop_to_send_p99_interval_us    BIGINT,
     gate_p50_interval_us           BIGINT,   -- 리스크 점검(락 포함)
     gate_p99_interval_us           BIGINT,
+    history_guard_p50_interval_us  BIGINT,   -- 주문 이력 잠금·중복 가드 훑기
+    history_guard_p99_interval_us  BIGINT,
     journal_p50_interval_us        BIGINT,   -- 원장 선기록(D-113)
     journal_p99_interval_us        BIGINT,
     bucket_wait_p50_interval_us    BIGINT,   -- 증권사 초당 한도 대기
     bucket_wait_p99_interval_us    BIGINT,
     transport_p50_interval_us      BIGINT,   -- 증권사 왕복(한도 대기를 뺀 것)
     transport_p99_interval_us      BIGINT,
+    record_p50_interval_us         BIGINT,   -- 전송 뒤 마무리(접수 확정·이력 저장·파일 쓰기)
+    record_p99_interval_us         BIGINT,
     pop_to_done_p50_interval_us    BIGINT,
     pop_to_done_p99_interval_us    BIGINT,
     total_p50_interval_us          BIGINT,

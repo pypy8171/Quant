@@ -62,6 +62,13 @@ static constexpr int kDupMarketSellGuardSec = 120;
 // 기동 직후 유령 지정가를 하나씩 취소할 때 취소 사이에 두는 간격(ms). 초당 거래건수 상한(EGW00201)을 피할 만큼만.
 static constexpr int kStaleCancelGapMs = 400;
 
+// 게이트까지의 두 구간을 한 번에 찍는다 — 이력 가드 몫을 게이트에서 빼 둘이 겹치지 않게 한다. [why D-071]
+static void stamp_gate_stages(ManagedOrder& managed_order, int64_t route_entered_ns, int64_t history_guard_ns)
+{
+    managed_order.stages.gate_us          = (trace::now_ns() - route_entered_ns - history_guard_ns) / 1000;
+    managed_order.stages.history_guard_us = history_guard_ns / 1000;
+}
+
 ManagedOrder OrderRouter::submit(const OrderSignal& signal)
 {
     switch (signal.action)
@@ -79,6 +86,9 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
     auto now = std::chrono::system_clock::now();
     // 구간 계측 시작. 여기부터 게이트 판정 끝까지가 gate_us — 주문 스레드가 HEALTH 분포에 넣는다. [why D-071]
     const int64_t route_entered_ns = trace::now_ns();
+    // 이력 잠금·중복 가드에 쓴 시간 합. 아래 두 가드 블록이 더하고, gate_us에서 뺀다 — 둘을 한 칸에 두면
+    //  선형 탐색 탓인지 한도 판정 탓인지 못 가른다(처방이 종목별 색인 대 분리로 서로 다르다). [why D-071]
+    int64_t history_guard_ns = 0;
 
     // 0. 한도 클램프 — 한도를 넘치면 거부 대신 한도 안으로 줄여 낸다.
     //    분할 매수 전략은 매 틱 같은 분할 단계를 다시 내므로, 넘친다고 버리면 그 종목은 하루 종일
@@ -127,7 +137,8 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
     //  매도는 막지 않는다 — 노출을 줄이는 쪽이고, 늦추면 손실이 커진다.
     if (signal.side == OrderSide::BUY)
     {
-        bool blocked = false;
+        bool          blocked          = false;
+        const int64_t guard_started_ns = trace::now_ns();
         {
             std::lock_guard<std::mutex> lock(history_mutex_);
 
@@ -146,14 +157,17 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
             }
         }
 
+        history_guard_ns += trace::now_ns() - guard_started_ns;
+
         if (blocked)
         {
             managed_order.status        = OrderStatus::REJECTED;
             managed_order.reject_reason = "직전 취소가 대상 없음 — 보유수량 재확인까지 보류";
             ++rejected_count_;
+            stamp_gate_stages(managed_order, route_entered_ns, history_guard_ns);
             LOG_WARN("[OrderRouter] 대체 주문 보류 [" + managed_order.order_id + "] " + signal.ticker +
                      " " + managed_order.reject_reason);
-            record(managed_order);
+            managed_order.stages.record_us = record(managed_order);
             return managed_order;
         }
     }
@@ -164,7 +178,8 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
     //  KIS 호출이 없으니 발주 스레드 예산을 안 쓴다. [why D-082]
     if (signal.side == OrderSide::SELL && signal.action == OrderAction::NEW && signal.type == OrderType::MARKET)
     {
-        std::string duplicate;
+        std::string   duplicate;
+        const int64_t guard_started_ns = trace::now_ns();
         {
             std::lock_guard<std::mutex> lock(history_mutex_);
             const auto now_sc = std::chrono::system_clock::now();
@@ -190,14 +205,17 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
             }
         }
 
+        history_guard_ns += trace::now_ns() - guard_started_ns;
+
         if (!duplicate.empty())
         {
             managed_order.status        = OrderStatus::REJECTED;
             managed_order.reject_reason = "같은 시장가 매도 진행 중 [" + duplicate + "] — 중복 발주 생략";
             ++rejected_count_;
+            stamp_gate_stages(managed_order, route_entered_ns, history_guard_ns);
             LOG_INFO("[OrderRouter] 중복 생략 [" + managed_order.order_id + "] " + signal.ticker + " " +
                      std::to_string(signal.quantity) + "주 → " + managed_order.reject_reason);
-            record(managed_order);
+            managed_order.stages.record_us = record(managed_order);
             return managed_order;
         }
     }
@@ -249,7 +267,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
     {
         managed_order.status          = OrderStatus::REJECTED;
         managed_order.reject_reason   = reject_reason;
-        managed_order.stages.gate_us  = (trace::now_ns() - route_entered_ns) / 1000;
+        stamp_gate_stages(managed_order, route_entered_ns, history_guard_ns);
         ++rejected_count_;
         LOG_WARN("[OrderRouter] 거부 [" + managed_order.order_id + "] " +
                  signal.ticker + " → " + reject_reason);
@@ -259,7 +277,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
             zmq_->publish_order(signal, false);
         }
 #endif
-        record(managed_order);
+        managed_order.stages.record_us = record(managed_order);
         return managed_order;
     }
 
@@ -268,7 +286,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
     //    RTT 안에는 초당 한도 버킷 대기(rate_limit_acquire)가 섞여 있어 그 몫을 따로 적는다 — 09-14~18 RTT p50 2초가
     //    망 지연인지 버킷 줄서기인지 이 숫자 없이는 못 가른다. 전송 스레드 분리(T-13-2)는 이 값을 보고 정한다. [why D-071]
     managed_order.status = OrderStatus::SUBMITTED;
-    managed_order.stages.gate_us = (trace::now_ns() - route_entered_ns) / 1000;
+    stamp_gate_stages(managed_order, route_entered_ns, history_guard_ns);
     const auto send_thread = std::chrono::steady_clock::now();
     const std::uint64_t bucket_wait_before_ns = kis_.rate_limit_wait_ns_this_thread();
     std::chrono::milliseconds::rep rtt_ms = 0; // count()의 타입 그대로 — MSVC는 long long이라 long이면 잘린다(C4244)
@@ -288,7 +306,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
             zmq_->publish_order(signal, false);
         }
 #endif
-        record(managed_order);
+        managed_order.stages.record_us = record(managed_order);
         return managed_order;
     }
 
@@ -338,9 +356,13 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
             zmq_->publish_order(signal, false);
         }
 #endif
-        record(managed_order);
+        managed_order.stages.record_us = record(managed_order);
         return managed_order;
     }
+
+    // 3. 전송 뒤 마무리 — 접수 확정(원장 ACCEPT 기록)·발행·이력 저장·파일 쓰기. 여기부터가 record_us다.
+    //    왕복만 재고 끝내면 남은 시간이 어디로 갔는지 말할 수 없다 — 건당 파일 쓰기가 후보 중 하나다. [why D-071]
+    const int64_t record_started_ns = trace::now_ns();
 
     managed_order.updated_at = std::chrono::system_clock::now();
 
@@ -410,6 +432,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
     }
 
     record(managed_order);
+    managed_order.stages.record_us = (trace::now_ns() - record_started_ns) / 1000;
     return managed_order;
 }
 
@@ -771,8 +794,10 @@ int OrderRouter::sweep_stale_reservations()
 }
 
 // ─── 이력 저장 (max_history 초과 시 체결 완료/거부된 것만 삭제) ───────────
-void OrderRouter::record(const ManagedOrder& managed_order)
+//  쓴 시간(us)을 돌려준다 — 전송 전에 끝난 주문은 이 몫이 곧 record_us다. 값을 안 쓰는 호출자는 그냥 버린다.
+int64_t OrderRouter::record(const ManagedOrder& managed_order)
 {
+    const int64_t started_ns = trace::now_ns();
     std::string open_orders;
     uint64_t    sequence = 0;
     {
@@ -800,6 +825,7 @@ void OrderRouter::record(const ManagedOrder& managed_order)
     write_trade_row("", managed_order, 0, 0.0);
     write_open_orders_file(open_orders, sequence);
     append_order_reason(managed_order);
+    return (trace::now_ns() - started_ns) / 1000;
 }
 
 // ─── ODNO → 주문 사유 기록 ────────────────────────────────────────────────

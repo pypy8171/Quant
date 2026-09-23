@@ -3138,7 +3138,8 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             {
                 const trace::Marks marks{signal.tick_at_ns, signal.signal_at_ns, pop_ns, send_ready_ns,
                                          trace::now_ns()};
-                latency_trace.record(signal, marks, kis_called, managed_order.status == OrderStatus::ACCEPTED);
+                latency_trace.record(signal, marks, managed_order.stages, kis_called,
+                                     managed_order.status == OrderStatus::ACCEPTED);
                 // 같은 값을 분포로도 — HEALTH가 분위수를 싣는다. 라우터 안 구간은 managed_order가 실어 왔다.
                 pipeline_latency_.add(marks, managed_order.stages);
             }

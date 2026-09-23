@@ -20,12 +20,14 @@ int64_t segment_us(int64_t from_ns, int64_t to_ns)
 
 std::string_view csv_header()
 {
-    return "utc_ms,seq,ticker,strategy,side,action,tick_to_signal_us,signal_to_pop_us,pop_to_done_us,total_us,kis_"
-           "called,"
-           "accepted\n";
+    // pop_to_done_us 뒤의 여섯 열이 그 한 덩이를 가른 몫이다 — 합이 pop_to_done_us에 거의 닿는다
+    //  (남는 몫은 구간 사이 잔돈). 한 덩이만 있으면 느려진 자리를 못 짚는다. [why D-071]
+    return "utc_ms,seq,ticker,strategy,side,action,tick_to_signal_us,signal_to_pop_us,pop_to_done_us,total_us,"
+           "gate_us,history_guard_us,journal_us,bucket_wait_us,transport_us,record_us,kis_called,accepted\n";
 }
 
-std::string csv_row(const OrderSignal& signal, const Marks& marks, bool kis_called, bool accepted, int64_t utc_ms)
+std::string csv_row(const OrderSignal& signal, const Marks& marks, const OrderStageTiming& stages, bool kis_called,
+                    bool accepted, int64_t utc_ms)
 {
     const int64_t first = marks.tick_ns != 0 ? marks.tick_ns : marks.signal_ns;
     std::string text;
@@ -49,6 +51,18 @@ std::string csv_row(const OrderSignal& signal, const Marks& marks, bool kis_call
     text += std::to_string(segment_us(marks.pop_ns, marks.done_ns));
     text += ',';
     text += std::to_string(segment_us(first, marks.done_ns));
+    text += ',';
+    text += std::to_string(stages.gate_us);
+    text += ',';
+    text += std::to_string(stages.history_guard_us);
+    text += ',';
+    text += std::to_string(stages.journal_us);
+    text += ',';
+    text += std::to_string(stages.bucket_wait_us);
+    text += ',';
+    text += std::to_string(stages.transport_us);
+    text += ',';
+    text += std::to_string(stages.record_us);
     text += ',';
     text += kis_called ? '1' : '0';
     text += ',';
@@ -164,24 +178,27 @@ void PipelineLatency::add(const Marks& marks, const OrderStageTiming& stages) no
     signal_to_pop.add(segment_us(marks.signal_ns, marks.pop_ns));
     pop_to_send.add(segment_us(marks.pop_ns, marks.send_ready_ns));
     gate.add(stages.gate_us);
+    history_guard.add(stages.history_guard_us);
     journal.add(stages.journal_us);
     bucket_wait.add(stages.bucket_wait_us);
     transport.add(stages.transport_us);
+    record.add(stages.record_us);
     pop_to_done.add(segment_us(marks.pop_ns, marks.done_ns));
     total.add(segment_us(first, marks.done_ns));
 }
 
 std::array<std::string_view, PipelineLatency::kSegmentCount> PipelineLatency::segment_names() noexcept
 {
-    return {"tick_to_signal", "signal_to_pop", "pop_to_send", "gate", "journal",
-            "bucket_wait",    "transport",     "pop_to_done", "total"};
+    return {"tick_to_signal", "signal_to_pop", "pop_to_send", "gate",        "history_guard", "journal",
+            "bucket_wait",    "transport",     "record",      "pop_to_done", "total"};
 }
 
 void PipelineSnapshot::capture(const PipelineLatency& source) noexcept
 {
     const std::array<const LatencyHistogram*, PipelineLatency::kSegmentCount> order{
-        &source.tick_to_signal, &source.signal_to_pop, &source.pop_to_send, &source.gate, &source.journal,
-        &source.bucket_wait,    &source.transport,     &source.pop_to_done, &source.total};
+        &source.tick_to_signal, &source.signal_to_pop, &source.pop_to_send, &source.gate,        &source.history_guard,
+        &source.journal,        &source.bucket_wait,   &source.transport,   &source.record,      &source.pop_to_done,
+        &source.total};
 
     for (int index = 0; index < PipelineLatency::kSegmentCount; ++index)
     {
@@ -189,7 +206,8 @@ void PipelineSnapshot::capture(const PipelineLatency& source) noexcept
     }
 }
 
-void LatencyTrace::record(const OrderSignal& signal, const Marks& marks, bool kis_called, bool accepted)
+void LatencyTrace::record(const OrderSignal& signal, const Marks& marks, const OrderStageTiming& stages,
+                          bool kis_called, bool accepted)
 {
     if (!opened_)
     {
@@ -204,7 +222,7 @@ void LatencyTrace::record(const OrderSignal& signal, const Marks& marks, bool ki
     const auto utc_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
             .count();
-    out_ << csv_row(signal, marks, kis_called, accepted, utc_ms);
+    out_ << csv_row(signal, marks, stages, kis_called, accepted, utc_ms);
     out_.flush();
     ++rows_;
 }
