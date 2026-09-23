@@ -129,6 +129,9 @@ ctest --test-dir Quant/build_win    # 수동 Ninja 레이아웃일 때
 ```
 Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 있다(ASAN과 배타).
 그 회차는 WSL2 저장소 루트에서 `bash scripts/tsan_round.sh [--clean]`로 돌린다 —
+**배포판은 Ubuntu-24.04**를 골라야 한다(기본 22.04는 g++ 11이라 C++23 `<format>`·`<expected>`가 없다).
+윈도우에서는 `wsl.exe -d Ubuntu-24.04 -e bash -c "cd '/mnt/c/.../Quant' && bash scripts/tsan_round.sh"` —
+잘못 고르면 스크립트가 먼저 막고 rc=2로 끝난다. 돌고 있는 스크립트는 고치지 않는다(bash가 조금씩 읽어 실행해 파싱이 깨진다).
 스레드가 여럿 붙는 코드(`src/core`·`src/risk`·`src/ipc`·`src/feed`)를 고친 워크트리는 main에 머지하기 전에
 한 판 돌린다([MULTI_SESSION.md](MULTI_SESSION.md) 머지 절차). 결과 판정은
 `scripts/check_runtime_health.py`의 "TSAN 회차" 행이 하고, 경합 보고 원문은 `logs/tsan/`에 남는다.

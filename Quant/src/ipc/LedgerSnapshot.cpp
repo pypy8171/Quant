@@ -1,7 +1,36 @@
 #include "ipc/LedgerSnapshot.h"
 
+// TSAN 빌드에서만 주석을 부른다. gcc 는 __SANITIZE_THREAD__, clang 은 __has_feature 로 알린다.
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+#define QUANT_TSAN_ANNOTATE 1
+#endif
+#endif
+#if defined(__SANITIZE_THREAD__) && !defined(QUANT_TSAN_ANNOTATE)
+#define QUANT_TSAN_ANNOTATE 1
+#endif
+#ifdef QUANT_TSAN_ANNOTATE
+// libtsan 이 내보내는 이름인데 sanitizer/tsan_interface.h 에는 선언이 없어 직접 적는다(gcc 13 확인).
+extern "C" void AnnotateIgnoreReadsBegin(const char* file, int line);
+extern "C" void AnnotateIgnoreReadsEnd(const char* file, int line);
+#endif
+
 namespace ipc
 {
+
+void LedgerSnapshot::begin_optimistic_read() const noexcept
+{
+#ifdef QUANT_TSAN_ANNOTATE
+    AnnotateIgnoreReadsBegin(__FILE__, __LINE__);
+#endif
+}
+
+void LedgerSnapshot::end_optimistic_read() const noexcept
+{
+#ifdef QUANT_TSAN_ANNOTATE
+    AnnotateIgnoreReadsEnd(__FILE__, __LINE__);
+#endif
+}
 
 void LedgerSnapshot::begin_publish() noexcept
 {

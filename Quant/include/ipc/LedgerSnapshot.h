@@ -112,6 +112,15 @@ public:
     [[nodiscard]] uint64_t generation() const noexcept;
 
 private:
+    // ThreadSanitizer 는 seqlock 을 이해하지 못한다 — 값 칸(rows_·written_ids_)이 보통 메모리라, 반쪽을
+    //  읽고 판 번호로 버리는 정당한 설계인데도 경합으로 찍는다(2026-09-23 회차에서 3건). 그래서 낙관적
+    //  읽기 구간의 **읽기만** 세지 않게 한다. 순서 간선(__tsan_acquire/__tsan_release)으로는 못 덮는다 —
+    //  간선은 읽는 쪽이 쓰는 쪽보다 나중일 때만 생기는데, 이 경합은 정확히 겹쳐 읽을 때 나온다.
+    //  [inv] 이 둘 사이에서는 사본 값만 읽는다. 밖으로 내보내는 쓰기(out 버퍼)는 그대로 검사받는다.
+    //  TSAN 빌드가 아니면 둘 다 빈 함수다. [why D-114]
+    void begin_optimistic_read() const noexcept;
+    void end_optimistic_read() const noexcept;
+
     // 판이 안정될 때까지 다시 읽는다. 쓰는 쪽이 한 바퀴에 한 번만 판을 뒤집으므로 되읽기는 드물다.
     //  [inv] reader는 이 사본만 읽고 부수효과가 없어야 한다 — 버려지는 판을 읽을 수 있다.
     template <typename Reader>
@@ -126,7 +135,9 @@ private:
                 continue; // 쓰는 중이다
             }
 
+            begin_optimistic_read();
             auto value = reader();
+            end_optimistic_read();
 
             // 값을 다 읽은 뒤에 판 번호를 다시 본다. acquire 로드는 "뒤에 오는 읽기"만 묶으므로
             //  이 울타리가 없으면 위의 값 읽기가 아래로 내려가 다시 본 판 번호보다 늦게 일어날 수 있다.

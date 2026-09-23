@@ -7,10 +7,14 @@
 # 5~15배 느리다). 그래서 스레드가 여럿 붙는 코드를 고친 워크트리가 main 에 머지하기 전에 한 판
 # 부른다 — docs/guides/MULTI_SESSION.md 머지 절차(D-116 후속).
 #
-# 사용 (WSL2, 저장소 루트에서):
+# 사용 (WSL2 **Ubuntu-24.04**, 저장소 루트에서):
 #   bash scripts/tsan_round.sh                   # 증분 — 빌드 폴더가 있으면 바뀐 것만 다시 짓는다
 #   bash scripts/tsan_round.sh --clean           # 빌드 폴더를 지우고 처음부터
 #   bash scripts/tsan_round.sh --jobs 4          # 동시 컴파일 수(기본 nproc)
+#
+# 배포판을 골라야 한다 — 기본(Ubuntu-22.04)은 g++ 11 이라 C++23 <format>·<expected> 가 없어 못 짓는다.
+# 윈도우에서 부를 때: wsl.exe -d Ubuntu-24.04 -e bash -c "cd '/mnt/c/.../Quant' && bash scripts/tsan_round.sh"
+# 잘못 고르면 아래 컴파일러 검사가 먼저 막는다.
 #
 # 빌드 폴더는 저장소 트리마다 따로 쓴다 — $HOME/quant-build-tsan-<트리 폴더 이름>.
 # QUANT_TSAN_BUILD 로 덮어쓸 수 있다.
@@ -51,6 +55,19 @@ state_file="$repo/_private/state/tsan_last.json"
 mkdir -p "$repo/logs/tsan" "$repo/_private/state"
 
 [ -n "$jobs" ] || jobs="$(nproc 2>/dev/null || echo 4)"
+
+# 컴파일러가 C++23 <format>·<expected> 를 갖췄는가. 배포판을 잘못 고르면 272개를 짓다가 첫 파일에서 죽는데,
+# 메시지가 "format: No such file or directory" 라 코드가 깨진 것처럼 보인다(2026-09-23 에 세 회차를 그렇게 버렸다).
+compiler_ok() {
+  local cxx
+  cxx="${CXX:-c++}"
+  "$cxx" -std=gnu++23 -fsyntax-only -x c++ - 2>/dev/null <<'CHECK_EOF'
+#include <format>
+#include <expected>
+int main() { return 0; }
+CHECK_EOF
+}
+
 # 커밋 해시. 이게 unknown 이면 판정기가 "그 회차 뒤로 동시성 코드가 몇 번 바뀌었나"를 못 센다.
 # 걸리는 것 둘: /mnt/c 아래 저장소는 소유자가 달라 git 이 거절하고(dubious ownership),
 # 워크트리는 .git 이 "gitdir: C:/..." 라는 윈도우 절대 경로라 WSL 에서 그대로는 못 따라간다.
@@ -114,6 +131,13 @@ say "[TSAN] 회차 시작 — HEAD $commit, 빌드 폴더 $build_dir, 동시 $jo
 
 if ! command -v cmake >/dev/null 2>&1 || ! command -v ninja >/dev/null 2>&1; then
   say "[TSAN] cmake 또는 ninja 없음 — apt install cmake ninja-build"
+  write_state "no_toolchain" 0 0 0 ""
+  exit 2
+fi
+
+if ! compiler_ok; then
+  say "[TSAN] $(${CXX:-c++} --version 2>/dev/null | head -1) 에 C++23 <format>·<expected> 가 없다 — 배포판을 잘못 골랐다"
+  say "[TSAN] wsl.exe -d Ubuntu-24.04 -e bash -c \"cd '$repo' && bash scripts/tsan_round.sh\""
   write_state "no_toolchain" 0 0 0 ""
   exit 2
 fi
