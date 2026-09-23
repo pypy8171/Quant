@@ -81,6 +81,7 @@ bool Engine::bind_layout(uint32_t feed_lanes)
     // 자리표 위 면을 쓰는 자리에 꽂는다. [inv] 이 포인터들은 다음 bind_layout 까지만 유효하다.
     ledger_snapshot_             = layout_.ledger();
     pipeline_.controls           = &layout_.controls();
+    pipeline_.requests           = &layout_.requests();
     pipeline_.order_responses    = &layout_.responses();
     pipeline_.strategy_heartbeat = &layout_.heartbeats()->strategy;
     return true;
@@ -748,7 +749,7 @@ Engine::QueueStatistics Engine::queue_statistics() const
 
     statistics.shard_out_size   = pipeline_.shard_out.size();
     statistics.trade_dropped    = trade_drop_count_.load(std::memory_order_relaxed);
-    statistics.order_high_water = pipeline_.order_queue.high_water();
+    statistics.order_high_water = static_cast<size_t>(pipeline_.order_high_water.load(std::memory_order_relaxed));
     statistics.fill_high_water  = pipeline_.fill_queue.high_water();
     statistics.shard_dropped    = pipeline_.shard_dropped.load(std::memory_order_relaxed);
     statistics.order_dropped    = pipeline_.order_dropped.load(std::memory_order_relaxed);
@@ -2400,8 +2401,8 @@ void Engine::data_thread_fn(std::stop_token stop_token)
             snapshot.shard_capacity         = ShardPipeline::kTickCellCapacity;
             snapshot.shard_out_size         = pipeline_.shard_out.size();
             snapshot.shard_out_capacity     = pipeline_.shard_out.capacity();
-            snapshot.order_queue_high_water = pipeline_.order_queue.high_water();
-            snapshot.order_queue_capacity   = pipeline_.order_queue.capacity();
+            snapshot.order_queue_high_water = pipeline_.order_high_water.load(std::memory_order_relaxed);
+            snapshot.order_queue_capacity   = pipeline_.requests->capacity();
             snapshot.fill_queue_high_water  = pipeline_.fill_queue.high_water();
             snapshot.fill_queue_capacity    = pipeline_.fill_queue.capacity();
             snapshot.shard_dropped          = pipeline_.shard_dropped.load(std::memory_order_relaxed);
@@ -2914,7 +2915,7 @@ void Engine::poll_regime_file()
                  " score=" + std::to_string(observation.snapshot.risk_score));
     }
 
-    // force_liquidate 배선(G3): 플래그만 세우고 실제 매도는 pipeline_.order_queue 단일 생산자인
+    // force_liquidate 배선(G3): 플래그만 세우고 실제 매도는 pipeline_.requests 단일 생산자인
     //  strategy_thread가 낸다(SPSC 준수). 여기(data_thread)는 원자 플래그 토글과 1회 로그뿐이다.
     if (out.log_liquidation_on)
     {
@@ -3038,7 +3039,7 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
     //  프로세스가 갈리면 이것이 재전송 후보를 고르는 유일한 근거다. 상한은 요청 큐와 같다. [why D-114]
     ipc::PendingRequests pending_requests(ShardPipeline::kOrderQueueCapacity);
 
-    // 신호 순번·교체 보류·차단 로그는 이 스레드 소유라 디스패처를 여기에 둔다. 싱크가 pipeline_.order_queue에 넣는 유일한
+    // 신호 순번·교체 보류·차단 로그는 이 스레드 소유라 디스패처를 여기에 둔다. 싱크가 pipeline_.requests에 넣는 유일한
     //  자리 — 단일 생산자 규약은 이 람다가 이 스레드에서만 불린다는 데 기댄다. [why D-063]
     SignalDispatcher dispatcher(
         order_gate_,
@@ -3052,7 +3053,19 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
                 zmq_bridge_->publish_signal(signal);
             }
 #endif
-            if (!pipeline_.order_queue.push(signal))
+            // 경계를 건너는 모양으로 바꾼다. 신호 안의 글자 칸 넷(종목코드·계좌·주문 이름·판단 근거)은
+            //  std::string 이라 포인터를 물고 있어 그대로는 공유 쪽지를 건널 수 없다. [why D-114]
+            bool                    truncated = false;
+            const ipc::OrderRequest request   = ipc::to_request(signal, &truncated);
+
+            if (truncated)
+            {
+                // 잘린 것은 판단 근거나 주문 이름이다. 주문은 그대로 나가지만 나중에 "왜 샀나"를 읽을 때
+                //  글이 짧아져 있다 — 몇 건이 그랬는지는 남긴다.
+                pipeline_.order_reason_truncated.fetch_add(1, std::memory_order_relaxed);
+            }
+
+            if (!pipeline_.requests->push(request))
             {
                 // 주문 스레드가 KIS 왕복에 묶여 큐가 찬 상태. 여기서 빌 때까지 돌면 전략 스레드가 서고 그 뒤로
                 //  호가·체결 큐까지 밀려 판단이 옛 틱으로 흐른다 — 신호를 버리고 센다. 잃는 것은 신호 하나고
@@ -3066,6 +3079,13 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
                 }
 
                 return;
+            }
+
+            // 링이 스스로 고수위를 재지 않아 넣은 쪽이 한 번 본다. [inv] 넣는 쪽이 이 스레드 하나다.
+            if (const auto pending = static_cast<uint64_t>(pipeline_.requests->pending());
+                pending > pipeline_.order_high_water.load(std::memory_order_relaxed))
+            {
+                pipeline_.order_high_water.store(pending, std::memory_order_relaxed);
             }
 
             pipeline_.order_wake.notify();
@@ -3308,7 +3328,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
     thread_name::set_current("Order");
     LOG_INFO("[OrderThread] 시작");
 
-    // 발주 간격과 거부 재시도는 이 스레드 소유라 조절기를 여기에 둔다. pipeline_.order_queue는 SPSC(생산자=전략 스레드)라
+    // 발주 간격과 거부 재시도는 이 스레드 소유라 조절기를 여기에 둔다. pipeline_.requests는 SPSC(생산자=전략 스레드)라
     //  되밀 수 없어 재시도는 조절기의 전용 버퍼에 산다. [why D-065]
     OrderRateLimiter rate_limiter({order_min_interval_ms_, order_max_retries_}, steady_clock::now());
     rate_limiter.set_position([this](const std::string& argument, const std::string& ticker) { return order_gate_.position(argument, ticker); });
@@ -3320,6 +3340,11 @@ void Engine::order_thread_fn(std::stop_token stop_token)
     //  공유메모리로 바뀌면 재전송이 생긴다 — 거르는 자리를 먼저 둔다. 창은 요청 큐 크기다. [why D-114]
     ipc::DuplicateFilter duplicate_filter(ShardPipeline::kOrderQueueCapacity);
     ipc::HeartbeatMonitor strategy_monitor;
+
+    // 꺼낸 값이 표 밖을 짚지 않는지 보는 기준. 지금 든 수가 아니라 표가 받을 수 있는 칸 수를 쓴다 —
+    //  종목 표는 장중에도 늘어나서(처음 보는 종목) 지금 든 수로 재면 방금 올라온 종목이 걸린다. [why D-114]
+    const ipc::RequestLimits request_limits{static_cast<uint32_t>(order_gate_.symbols().capacity()),
+                                            static_cast<uint32_t>(order_gate_.strategy_table().capacity())};
 
     // 전략 쪽이 보낸 표를 모으는 자리. 주문 스레드 지역 변수라 이 스레드 말고는 손대지 않는다. [why D-114]
     ControlInbox control_inbox;
@@ -3387,32 +3412,50 @@ void Engine::order_thread_fn(std::stop_token stop_token)
 
         if (!next)
         {
-            if (auto option = pipeline_.order_queue.pop())
+            if (ipc::OrderRequest request; pipeline_.requests->pop(request))
             {
-                if (option->sequence != 0 && !duplicate_filter.accept(option->sequence))
+                // 건너편이 망가졌거나 칸이 덮였으면 여기서 멎는다 — 그 값으로 낸 주문은 되돌릴 수 없다.
+                if (!ipc::is_plausible(request, request_limits))
                 {
-                    const auto count = pipeline_.order_duplicate.fetch_add(1, std::memory_order_relaxed) + 1;
-                    LOG_WARN("[주문] 같은 순번을 다시 받아 거른다 순번=" + std::to_string(option->sequence) +
-                             " (누적 " + std::to_string(count) + ")");
-                    answer(option->sequence, ipc::OrderResult::kDuplicate, 0, "같은 순번");
+                    const auto count = pipeline_.order_implausible.fetch_add(1, std::memory_order_relaxed) + 1;
+                    LOG_ERROR("[주문] 값이 말이 안 되는 요청을 버린다 순번=" + std::to_string(request.sequence) +
+                              " 종목=" + std::to_string(request.symbol_id) + " 전략=" +
+                              std::to_string(request.strategy_index) + " 수량=" + std::to_string(request.quantity) +
+                              " (누적 " + std::to_string(count) + ")");
+                    answer(request.sequence, ipc::OrderResult::kInvalid, 0, "값이 말이 안 된다");
                     continue;
                 }
 
+                if (request.sequence != 0 && !duplicate_filter.accept(request.sequence))
+                {
+                    const auto count = pipeline_.order_duplicate.fetch_add(1, std::memory_order_relaxed) + 1;
+                    LOG_WARN("[주문] 같은 순번을 다시 받아 거른다 순번=" + std::to_string(request.sequence) +
+                             " (누적 " + std::to_string(count) + ")");
+                    answer(request.sequence, ipc::OrderResult::kDuplicate, 0, "같은 순번");
+                    continue;
+                }
+
+                // 여기서 신호 모양으로 되살린다 — 아래 사슬(교체 창구·발주 조절기·라우터)은 그대로 OrderSignal을
+                //  받는다. 전략 이름은 레코드에 없어 번호로 표에서 찾는다. [why D-114]
+                const strategy_table::StrategyName strategy_name =
+                    order_gate_.strategy_table().name(request.strategy_index);
+                OrderSignal signal = ipc::to_signal(request, strategy_name.view());
+
                 // 번호는 주문 쪽이 준다 — 전략 쪽은 종목 표를 찾기만 하고, 처음 보는 종목은 받는 이 자리에서
                 //  표에 올린다. 표를 고치는 쪽을 하나로 두는 것이 원칙 4다. [why D-114]
-                if (option->symbol_id == symbol::kNone && !option->ticker.empty())
+                if (signal.symbol_id == symbol::kNone && !signal.ticker.empty())
                 {
-                    option->symbol_id = order_gate_.intern_symbol(option->ticker);
+                    signal.symbol_id = order_gate_.intern_symbol(signal.ticker);
                 }
 
                 // 자리가 꽉 찬 책에 새 종목 매수가 왔는가 — 최약체 매도를 앞세우고 이 매수는 창구가 든다.
-                switch (displace_desk.consider(*option, steady_clock::now()))
+                switch (displace_desk.consider(signal, steady_clock::now()))
                 {
                 case risk::DisplacementDesk::Verdict::kHold:
                     continue;
 
                 case risk::DisplacementDesk::Verdict::kSellFirst:
-                    // option 자리에 교체 매도가 들어왔다 — 순번이 0이라 답하지 않는다. 원래의 매수는
+                    // signal 자리에 교체 매도가 들어왔다 — 순번이 0이라 답하지 않는다. 원래의 매수는
                     //  창구가 순번째로 들고 있다가 자리가 나면 내고, 못 내면 expire가 답한다.
                     break;
 
@@ -3420,7 +3463,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
                     break;
                 }
 
-                next   = OrderRateLimiter::Pending{std::move(*option), 0};
+                next   = OrderRateLimiter::Pending{std::move(signal), 0};
                 pop_ns = trace::now_ns();
             }
         }
@@ -3432,7 +3475,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             // 제어 요청도 이 스레드가 처리하므로 잠드는 조건에 같이 넣는다 — 안 넣으면 표 고치기가
             //  다음 주문이나 100ms 만기까지 밀린다. [why D-114]
             pipeline_.order_wake.wait_until(deadline, stop_token, [this] {
-                return pipeline_.order_queue.empty() && pipeline_.controls->pending() == 0;
+                return pipeline_.requests->pending() == 0 && pipeline_.controls->pending() == 0;
             });
 
             // 주문이 없어도 장부는 바뀐다 — 잔고 재시드·진입 정지·평가금·슬롯 면제 집합은 다른 스레드가 고친다.
@@ -3728,11 +3771,16 @@ void Engine::control_thread_fn(std::stop_token stop_token)
             LOG_INFO("[큐 고수위] shard=" + shard_high_water + "/" + std::to_string(ShardPipeline::kTickCellCapacity) + " shard_out=" + std::to_string(pipeline_.shard_out.size()) + "/" +
                      std::to_string(pipeline_.shard_out.capacity()) + " shard_dropped=" +
                      std::to_string(pipeline_.shard_dropped.load(std::memory_order_relaxed)) + " order=" +
-                     std::to_string(pipeline_.order_queue.high_water()) + "/" + std::to_string(pipeline_.order_queue.capacity()) +
+                     std::to_string(pipeline_.order_high_water.load(std::memory_order_relaxed)) + "/" +
+                     std::to_string(pipeline_.requests->capacity()) +
                      " fill=" + std::to_string(pipeline_.fill_queue.high_water()) + "/" + std::to_string(pipeline_.fill_queue.capacity()) +
                      " fill_dropped=" + std::to_string(pipeline_.fill_dropped.load(std::memory_order_relaxed)) +
                      " order_dropped=" + std::to_string(pipeline_.order_dropped.load(std::memory_order_relaxed)) +
                      " order_duplicate=" + std::to_string(pipeline_.order_duplicate.load(std::memory_order_relaxed)) +
+                     " order_implausible=" +
+                     std::to_string(pipeline_.order_implausible.load(std::memory_order_relaxed)) +
+                     " order_truncated=" +
+                     std::to_string(pipeline_.order_reason_truncated.load(std::memory_order_relaxed)) +
                      " order_response_dropped=" +
                      std::to_string(pipeline_.order_response_dropped.load(std::memory_order_relaxed)) +
                      " beat_gap_max=" +
@@ -3834,13 +3882,13 @@ void Engine::control_thread_fn(std::stop_token stop_token)
 }
 
 // ─── 마감 자기 종료 (D-098) ───────────────────────────────────────────────
-//  판정은 SessionEndJudge, 여기는 적용만. "주문 큐가 비었다"는 order_queue 기준이다 — order_thread가 꺼낸 뒤 KIS 왕복
+//  판정은 SessionEndJudge, 여기는 적용만. "주문 큐가 비었다"는 요청 면 기준이다 — order_thread가 꺼낸 뒤 KIS 왕복
 //  중인 한 건은 stop()의 join이 끝까지 기다리고, OrderRateLimiter의 재시도 큐는 세션 창 밖이라 게이트가 어차피 막는다.
 void Engine::step_session_end()
 {
     const auto kst            = ::kst::to_tm(std::time(nullptr));
     const int  now_sec_of_day = kst.tm_hour * 3600 + kst.tm_min * 60 + kst.tm_sec;
-    const bool orders_pending = !pipeline_.order_queue.empty();
+    const bool orders_pending = pipeline_.requests->pending() > 0;
     const auto step           = session_end_.observe(now_sec_of_day, orders_pending);
 
     switch (step)
@@ -3860,7 +3908,7 @@ void Engine::step_session_end()
 
     case session_end::Judge::Step::kShutdownForced:
         LOG_ERROR("[Engine] 마감 뒤 " + std::to_string(session_end_.config().drain_limit_sec) + "초가 지나도 주문 큐 " +
-                  std::to_string(pipeline_.order_queue.size()) + "건이 남아 강제 종료한다");
+                  std::to_string(pipeline_.requests->pending()) + "건이 남아 강제 종료한다");
         write_state_marker("session_done", "마감 자기 종료(배출 한도 초과, 강제)");
         request_shutdown("마감 자기 종료 — 배출 한도 초과(강제)");
         return;

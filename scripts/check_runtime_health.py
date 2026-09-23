@@ -107,6 +107,9 @@ BEAT_BACK_RE = re.compile(r"\[마무리\] 전략 박동이 돌아왔다")
 BEAT_GAP_RE = re.compile(r"beat_gap_max=(\d+)ms")
 ORDER_DUPLICATE_RE = re.compile(r"order_duplicate=(\d+)")
 ORDER_RESPONSE_DROP_RE = re.compile(r"order_response_dropped=(\d+)")
+# 요청 면(D-114 단계 4) — 값이 말이 안 돼 버린 요청 수, 판단 근거가 칸을 넘어 잘린 신호 수.
+ORDER_IMPLAUSIBLE_RE = re.compile(r"order_implausible=(\d+)")
+ORDER_TRUNCATED_RE = re.compile(r"order_truncated=(\d+)")
 # 장부 사본(D-114 단계 2.5) — 낸 판 수와, 한 계좌만 담는 사본에 못 실은 남의 계좌 줄 수.
 LEDGER_GEN_RE = re.compile(r"ledger_gen=(\d+)")
 LEDGER_FOREIGN_RE = re.compile(r"ledger_foreign=(\d+)")
@@ -554,6 +557,8 @@ def collect(date: str, log: Path, since: int = 0):
     beat_gap_max = -1                            # 전략 박동의 가장 긴 공백(ms). -1이면 그 줄이 없는 구 exe
     order_duplicate = 0                          # 주문 쪽이 같은 순번을 두 번 받아 거른 수
     order_response_dropped = 0                   # 전략이 답을 안 가져가 버린 수
+    order_implausible = -1                       # 값이 말이 안 돼 버린 요청 수. -1이면 그 칸이 없는 옛 바이너리
+    order_truncated = -1                         # 판단 근거·주문 이름이 칸을 넘어 잘린 신호 수. -1도 같다
     ledger_gen = 0                               # 장부 사본이 낸 판 수
     ledger_gen_previous = -1                     # 직전 고수위 줄의 판 번호. 같으면 그사이에 한 판도 안 나간 것
     ledger_stall_at = []                         # 판이 안 늘어난 지점의 초
@@ -602,6 +607,10 @@ def collect(date: str, log: Path, since: int = 0):
                 beat_gap_max = max(beat_gap_max, int(found.group(1)))
             if found := ORDER_DUPLICATE_RE.search(line):
                 order_duplicate = max(order_duplicate, int(found.group(1)))
+            if found := ORDER_IMPLAUSIBLE_RE.search(line):
+                order_implausible = max(order_implausible, int(found.group(1)))
+            if found := ORDER_TRUNCATED_RE.search(line):
+                order_truncated = max(order_truncated, int(found.group(1)))
             if found := ORDER_RESPONSE_DROP_RE.search(line):
                 order_response_dropped = max(order_response_dropped, int(found.group(1)))
             if found := LEDGER_GEN_RE.search(line):
@@ -834,6 +843,12 @@ def collect(date: str, log: Path, since: int = 0):
         # 통로가 새면 같은 주문이 두 번 가거나 전략이 답을 영영 못 받아 기다림 표가 샌다.
         channel_row("주문 통로 무결", order_duplicate == 0 and order_response_dropped == 0, "FAIL",
                     f"중복 거름 {order_duplicate}건 · 버린 응답 {order_response_dropped}건 (둘 다 기대 0)"),
+        # 요청 면에서 꺼낸 값이 말이 안 되면 그 신호는 주문이 되지 않고 사라진다 — 건너편이 덮였다는 뜻이라 FAIL이다.
+        channel_row("요청 값 성함", order_implausible <= 0, "FAIL",
+                    f"말이 안 돼 버린 요청 {order_implausible}건 (기대 0 — 0이 아니면 그만큼 주문이 안 나갔다)"),
+        # 잘린 것은 주문이 아니라 판단 근거다. 주문은 나갔지만 원장 CSV의 "왜 샀나"가 짧아져 있다.
+        channel_row("판단 근거 온전", order_truncated <= 0, "WARN",
+                    f"칸을 넘어 잘린 신호 {order_truncated}건 (주문은 나갔다 · 원장 근거 글만 짧아진다)"),
         # 사본은 한 계좌만 담는다(계좌당 프로세스). 남의 계좌 줄이 세어지면 전략이 보는 장부가 원장과 다르다.
         ledger_row("장부 사본 어긋남", ledger_foreign == 0, "FAIL",
                    f"다른 계좌 줄 {ledger_foreign}건 · 낸 판 {ledger_gen}판 (어긋남 기대 0)"),

@@ -11,12 +11,15 @@
 //   ⑥ 답이 늦은 것을 재전송 후보로 꺼내는가
 //   ⑦ 답이 계속 안 오면 상한에서 오래된 것부터 버리고 세는가
 //   ⑧ 큐에서 꺼낸 요청·응답의 값이 말이 되는지 보는가(D-114 단계 4 — 건너편을 믿지 않는다)
+//   ⑨ 신호가 레코드를 건너갔다 돌아와도 그대로인가 — 글자 칸까지(D-114 단계 4)
+//   ⑩ 액션마다 기준이 다른가 — 취소는 수량 0·방향 NONE 도 맞는 주문이다
 //
 //   사용법: test_order_channel
 
 #include "ipc/OrderChannel.h"
 
 #include <cassert>
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <limits>
@@ -33,7 +36,7 @@ void check(bool condition, const std::string& name)
 
     if (!condition)
     {
-        std::cout << "[FAIL] " << name << "\n";
+        std::cout << "[FAIL] " << name << std::endl; // 여기서 멈추므로 버퍼에 남겨 두지 않는다
         std::abort();
     }
 
@@ -276,6 +279,122 @@ int main()
         ipc::OrderResponse unterminated = response;
         std::memset(unterminated.reason, 'x', ipc::kOrderReasonMax);
         check(!ipc::is_plausible(unterminated), "사유 칸이 칸 안에서 안 끝나면 버린다");
+    }
+
+    // ── ⑨ 신호 → 레코드 → 신호 왕복 ─────────────────────────────────────
+    {
+        OrderSignal signal;
+        signal.ticker                       = "005930";
+        signal.symbol_id                    = 11;
+        signal.side                         = OrderSide::BUY;
+        signal.type                         = OrderType::LIMIT;
+        signal.quantity                     = 7;
+        signal.price                        = 68'500.0;
+        signal.reference_price              = 68'900.0;
+        signal.strategy_index               = 3;
+        signal.market                       = Market::KR;
+        signal.exchange                     = "NAS";
+        signal.account_id                   = "5020";
+        signal.action                       = OrderAction::NEW;
+        signal.client_order_id              = "DEVSCALE_005930:B:12";
+        signal.original_client_order_id     = "DEVSCALE_005930:B:11";
+        signal.client_order_number          = 900123;
+        signal.original_client_order_number = 900122;
+        signal.reason                       = "평단 대비 -2.3% 눌림, 5분 거래대금 상위";
+        signal.tick_at_ns                   = milliseconds(2);
+        signal.signal_at_ns                 = milliseconds(3);
+        signal.sequence                     = 77;
+        signal.timestamp                    = std::chrono::system_clock::now();
+
+        bool                    truncated = true;
+        const ipc::OrderRequest request   = ipc::to_request(signal, &truncated);
+        check(!truncated, "칸에 드는 글은 안 잘린다");
+
+        const OrderSignal back = ipc::to_signal(request, "DEVSCALE_005930");
+        check(back.ticker == signal.ticker, "종목 코드가 글자 그대로 돌아온다");
+        check(back.symbol_id == signal.symbol_id, "종목 번호가 돌아온다");
+        check(back.side == signal.side && back.type == signal.type, "방향·주문 종류가 돌아온다");
+        check(back.quantity == signal.quantity && back.price == signal.price, "수량·가격이 돌아온다");
+        check(back.reference_price == signal.reference_price, "참조가가 돌아온다");
+        check(back.strategy_id == "DEVSCALE_005930", "전략 이름은 번호로 표에서 찾아 넣는다");
+        check(back.strategy_index == signal.strategy_index, "전략 번호가 돌아온다");
+        check(back.market == signal.market && back.exchange == signal.exchange, "시장·거래소가 돌아온다");
+        check(back.account_id == signal.account_id, "계좌가 돌아온다");
+        check(back.action == signal.action, "주문 동작이 돌아온다");
+        check(back.client_order_id == signal.client_order_id, "주문 이름이 돌아온다");
+        check(back.original_client_order_id == signal.original_client_order_id, "원주문 이름이 돌아온다");
+        check(back.client_order_number == signal.client_order_number, "주문 번호가 돌아온다");
+        check(back.original_client_order_number == signal.original_client_order_number, "원주문 번호가 돌아온다");
+        check(back.reason == signal.reason, "판단 근거가 한글 그대로 돌아온다");
+        check(back.tick_at_ns == signal.tick_at_ns && back.signal_at_ns == signal.signal_at_ns, "두 시각이 돌아온다");
+        check(back.sequence == signal.sequence, "순번이 돌아온다");
+        // system_clock 눈금(MSVC는 100나노초)보다 작은 자리는 버려진다 — 1마이크로초 안이면 같은 시각으로 본다.
+        const auto time_gap = back.timestamp - signal.timestamp;
+        check(time_gap < std::chrono::microseconds(1) && time_gap > std::chrono::microseconds(-1),
+              "신호를 만든 시각이 눈금 안에서 돌아온다");
+
+        // 한글은 한 글자가 세 바이트다. 바이트로 끊으면 반쪽 글자가 남아 원장 CSV·로그가 깨진다.
+        OrderSignal long_reason = signal;
+        long_reason.reason      = std::string(80, 'x') + std::string(60, ' ');
+
+        for (int index = 0; index < 60; ++index)
+        {
+            long_reason.reason += "가";
+        }
+
+        const ipc::OrderRequest cut = ipc::to_request(long_reason, &truncated);
+        check(truncated, "칸을 넘으면 잘렸다고 알린다");
+        check(std::strlen(cut.reason) < ipc::kSignalReasonMax, "잘려도 칸 안에서 끝난다");
+
+        const std::string kept = ipc::to_signal(cut, "DEVSCALE_005930").reason;
+        check(long_reason.reason.compare(0, kept.size(), kept) == 0, "잘린 글은 앞쪽이 그대로다");
+        // 자른 자리가 글자 경계인가 — 버린 첫 바이트가 글자 가운데(10xxxxxx)면 앞에 반쪽 글자를 남긴 것이다.
+        //  남긴 글의 마지막 바이트로는 못 본다. 온전한 한글의 셋째 바이트도 10xxxxxx 라서 그렇다.
+        check((static_cast<unsigned char>(long_reason.reason[kept.size()]) & 0xC0) != 0x80,
+              "자르는 자리가 글자 경계다 — 반쪽 글자를 남기지 않는다");
+    }
+
+    // ── ⑩ 액션마다 기준이 다르다 ────────────────────────────────────────
+    {
+        const ipc::RequestLimits limits{.symbol_count = 100, .strategy_count = 8};
+
+        ipc::OrderRequest cancel;
+        cancel.sequence                     = 9;
+        cancel.sent_at_ns                   = milliseconds(3);
+        cancel.symbol_id                    = 41;
+        cancel.strategy_index               = 2;
+        cancel.action                       = static_cast<uint8_t>(OrderAction::CANCEL);
+        cancel.quantity                     = 0;
+        cancel.side                         = OrderSide::NONE;
+        cancel.original_client_order_number = 900122;
+        check(ipc::is_plausible(cancel, limits), "취소는 수량 0·방향 NONE 이어도 지나간다");
+
+        ipc::OrderRequest by_name = cancel;
+        by_name.original_client_order_number = 0;
+        std::memcpy(by_name.original_client_order_id, "DEV:B:11", 9);
+        check(ipc::is_plausible(by_name, limits), "원주문 이름만 있어도 지나간다");
+
+        ipc::OrderRequest no_target                 = cancel;
+        no_target.original_client_order_number      = 0;
+        check(!ipc::is_plausible(no_target, limits), "취소인데 대상이 없으면 버린다");
+
+        ipc::OrderRequest empty_new = cancel;
+        empty_new.action            = static_cast<uint8_t>(OrderAction::NEW);
+        check(!ipc::is_plausible(empty_new, limits), "신규인데 수량 0이면 버린다");
+
+        // 처음 보는 종목은 번호가 없다 — 받는 쪽이 코드 글자로 표에 올린다.
+        ipc::OrderRequest fresh = cancel;
+        fresh.symbol_id         = symbol::kNone;
+        fresh.ticker            = "068270";
+        check(ipc::is_plausible(fresh, limits), "표에 없는 종목은 코드 글자로 지나간다");
+
+        ipc::OrderRequest nameless = fresh;
+        nameless.ticker           = "";
+        check(!ipc::is_plausible(nameless, limits), "번호도 코드도 없으면 버린다");
+
+        ipc::OrderRequest unterminated = cancel;
+        std::memset(unterminated.reason, 'x', ipc::kSignalReasonMax);
+        check(!ipc::is_plausible(unterminated, limits), "근거 칸이 칸 안에서 안 끝나면 버린다");
     }
 
     std::cout << "test_order_channel: " << g_checks << " checks passed\n";

@@ -1,10 +1,56 @@
 #include "ipc/OrderChannel.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
+#include <string>
 
 namespace ipc
 {
+namespace
+{
+
+// 고정 칸에 글자를 옮긴다. 칸을 넘으면 자르되 **글자 경계에서** 자른다 — UTF-8 한글은 한 글자가 세 바이트라
+//  바이트로 끊으면 반쪽 글자가 남고, 그 글을 그대로 싣는 원장 CSV·로그가 깨진다. 항상 0으로 끝낸다.
+//  잘렸으면 참을 준다.
+bool copy_text(char* destination, size_t capacity, std::string_view text) noexcept
+{
+    size_t      length = std::min(text.size(), capacity - 1);
+    const bool  cut    = length < text.size();
+
+    if (cut)
+    {
+        // 자를 자리가 글자 가운데(10xxxxxx)면 그 글자가 시작하는 자리까지 물러선다.
+        while (length > 0 && (static_cast<unsigned char>(text[length]) & 0xC0) == 0x80)
+        {
+            --length;
+        }
+    }
+
+    if (length > 0)
+    {
+        std::memcpy(destination, text.data(), length);
+    }
+
+    destination[length] = '\0';
+    return cut;
+}
+
+// 칸 안에서 0으로 끝나는가. 끝나지 않으면 읽는 쪽이 칸을 넘어 읽는다.
+bool is_terminated(const char* field, size_t capacity) noexcept
+{
+    return std::memchr(field, '\0', capacity) != nullptr;
+}
+
+// 칸을 글자로 읽는다. [inv] 0으로 끝나는 것을 확인한 뒤에만 부른다(is_plausible).
+std::string_view text_of(const char* field, size_t capacity) noexcept
+{
+    const void* end = std::memchr(field, '\0', capacity);
+    const size_t length = (end != nullptr) ? static_cast<size_t>(static_cast<const char*>(end) - field) : capacity;
+    return std::string_view(field, length);
+}
+
+} // namespace
 
 bool is_plausible(const OrderRequest& request, const RequestLimits& limits) noexcept
 {
@@ -14,7 +60,18 @@ bool is_plausible(const OrderRequest& request, const RequestLimits& limits) noex
     }
 
     // 종목·전략 번호는 표 안의 자리를 가리킨다. 표 밖이면 그 값으로 배열을 짚는 순간 끝이다.
-    if (request.symbol_id == symbol::kNone || request.symbol_id > limits.symbol_count)
+    //  아직 표에 없는 종목은 번호가 kNone 이고 코드 글자로 온다 — 받는 쪽이 그 글자로 표에 올린다.
+    if (request.symbol_id > limits.symbol_count)
+    {
+        return false;
+    }
+
+    if (request.symbol_id == symbol::kNone && request.ticker.length == 0)
+    {
+        return false;
+    }
+
+    if (request.ticker.length > symbol::Ticker::kMax)
     {
         return false;
     }
@@ -24,7 +81,36 @@ bool is_plausible(const OrderRequest& request, const RequestLimits& limits) noex
         return false;
     }
 
-    if (request.quantity <= 0 || request.quantity > limits.quantity_max)
+    if (request.action > static_cast<uint8_t>(OrderAction::REPLACE))
+    {
+        return false;
+    }
+
+    if (request.quantity < 0 || request.quantity > limits.quantity_max)
+    {
+        return false;
+    }
+
+    // 신규 주문만 수량과 방향을 요구한다. 취소는 수량이 0이고 방향이 NONE 이어도 맞는 주문이다 —
+    //  대상은 원주문 번호로 찾고, 수량·방향은 참고 값이다. [why D-114]
+    if (request.action == static_cast<uint8_t>(OrderAction::NEW))
+    {
+        if (request.quantity <= 0)
+        {
+            return false;
+        }
+
+        if (request.side != OrderSide::BUY && request.side != OrderSide::SELL)
+        {
+            return false;
+        }
+    }
+    else if (request.original_client_order_number == 0 && request.original_client_order_id[0] == '\0')
+    {
+        // 취소·정정인데 대상이 없다 — 이 줄로는 무엇을 거둘지 정할 수 없다.
+        return false;
+    }
+    else if (request.side > OrderSide::NONE)
     {
         return false;
     }
@@ -35,7 +121,7 @@ bool is_plausible(const OrderRequest& request, const RequestLimits& limits) noex
         return false;
     }
 
-    if (request.side != OrderSide::BUY && request.side != OrderSide::SELL)
+    if (!(request.reference_price >= 0.0) || request.reference_price > limits.price_max)
     {
         return false;
     }
@@ -45,7 +131,16 @@ bool is_plausible(const OrderRequest& request, const RequestLimits& limits) noex
         return false;
     }
 
-    if (request.action > static_cast<uint8_t>(OrderAction::REPLACE))
+    if (request.market > static_cast<uint8_t>(Market::US))
+    {
+        return false;
+    }
+
+    // 글자 칸은 모두 칸 안에서 끝나야 한다 — 하나라도 안 끝나면 읽다가 칸을 넘는다.
+    if (!is_terminated(request.exchange, kExchangeMax) || !is_terminated(request.account_id, kAccountIdMax) ||
+        !is_terminated(request.client_order_id, kClientOrderIdMax) ||
+        !is_terminated(request.original_client_order_id, kClientOrderIdMax) ||
+        !is_terminated(request.reason, kSignalReasonMax))
     {
         return false;
     }
@@ -61,7 +156,7 @@ bool is_plausible(const OrderResponse& response) noexcept
     }
 
     if (response.result < static_cast<uint8_t>(OrderResult::kAccepted) ||
-        response.result > static_cast<uint8_t>(OrderResult::kDuplicate))
+        response.result > static_cast<uint8_t>(OrderResult::kInvalid))
     {
         return false;
     }
@@ -75,19 +170,69 @@ bool is_plausible(const OrderResponse& response) noexcept
     return true;
 }
 
-OrderRequest to_request(const OrderSignal& signal) noexcept
+OrderRequest to_request(const OrderSignal& signal, bool* truncated) noexcept
 {
     OrderRequest request;
-    request.sequence       = signal.sequence;
-    request.sent_at_ns     = signal.signal_at_ns;
-    request.symbol_id      = signal.symbol_id;
-    request.strategy_index = signal.strategy_index;
-    request.quantity       = signal.quantity;
-    request.price          = signal.price;
-    request.side           = static_cast<uint8_t>(signal.side);
-    request.order_type     = static_cast<uint8_t>(signal.type);
-    request.action         = static_cast<uint8_t>(signal.action);
+    request.sequence                     = signal.sequence;
+    request.sent_at_ns                   = signal.signal_at_ns;
+    request.tick_at_ns                   = signal.tick_at_ns;
+    request.timestamp_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(signal.timestamp.time_since_epoch()).count();
+    request.client_order_number          = signal.client_order_number;
+    request.original_client_order_number = signal.original_client_order_number;
+    request.price                        = signal.price;
+    request.reference_price              = signal.reference_price;
+    request.symbol_id                    = signal.symbol_id;
+    request.strategy_index               = signal.strategy_index;
+    request.quantity                     = signal.quantity;
+    request.side                         = static_cast<uint8_t>(signal.side);
+    request.order_type                   = static_cast<uint8_t>(signal.type);
+    request.action                       = static_cast<uint8_t>(signal.action);
+    request.market                       = static_cast<uint8_t>(signal.market);
+    request.ticker                       = signal.ticker;
+
+    bool cut = copy_text(request.exchange, kExchangeMax, signal.exchange);
+    cut      = copy_text(request.account_id, kAccountIdMax, signal.account_id) || cut;
+    cut      = copy_text(request.client_order_id, kClientOrderIdMax, signal.client_order_id) || cut;
+    cut      = copy_text(request.original_client_order_id, kClientOrderIdMax, signal.original_client_order_id) || cut;
+    cut      = copy_text(request.reason, kSignalReasonMax, signal.reason) || cut;
+
+    if (truncated != nullptr)
+    {
+        *truncated = cut;
+    }
+
     return request;
+}
+
+OrderSignal to_signal(const OrderRequest& request, std::string_view strategy_id)
+{
+    OrderSignal signal;
+    signal.ticker          = request.ticker.string();
+    signal.symbol_id       = request.symbol_id;
+    signal.side            = static_cast<OrderSide::Value>(request.side);
+    signal.type            = static_cast<OrderType>(request.order_type);
+    signal.quantity        = request.quantity;
+    signal.price           = request.price;
+    signal.reference_price = request.reference_price;
+    signal.strategy_id     = std::string(strategy_id);
+    signal.strategy_index  = request.strategy_index;
+    signal.market          = static_cast<Market>(request.market);
+    signal.exchange        = std::string(text_of(request.exchange, kExchangeMax));
+    // system_clock 의 눈금은 나노초가 아니다(MSVC는 100나노초) — 눈금을 맞춰 넣는다. 눈금보다 작은 자리는 버려진다.
+    signal.timestamp = std::chrono::system_clock::time_point(
+        std::chrono::duration_cast<std::chrono::system_clock::duration>(std::chrono::nanoseconds(request.timestamp_ns)));
+    signal.account_id                   = std::string(text_of(request.account_id, kAccountIdMax));
+    signal.action                       = static_cast<OrderAction>(request.action);
+    signal.client_order_id              = std::string(text_of(request.client_order_id, kClientOrderIdMax));
+    signal.original_client_order_id     = std::string(text_of(request.original_client_order_id, kClientOrderIdMax));
+    signal.client_order_number          = request.client_order_number;
+    signal.original_client_order_number = request.original_client_order_number;
+    signal.reason                       = std::string(text_of(request.reason, kSignalReasonMax));
+    signal.tick_at_ns                   = request.tick_at_ns;
+    signal.signal_at_ns                 = request.sent_at_ns;
+    signal.sequence                     = request.sequence;
+    return signal;
 }
 
 uint64_t to_order_number(std::string_view kis_order_no) noexcept
@@ -117,14 +262,7 @@ OrderResponse make_response(uint64_t sequence, OrderResult result, uint64_t kis_
     response.result           = static_cast<uint8_t>(result);
 
     // 칸을 넘치면 자르고 항상 0으로 끝낸다 — 받는 쪽이 길이 없이 읽는다.
-    const size_t length = std::min(reason.size(), kOrderReasonMax - 1);
-
-    if (length > 0)
-    {
-        std::memcpy(response.reason, reason.data(), length);
-    }
-
-    response.reason[length] = '\0';
+    (void)copy_text(response.reason, kOrderReasonMax, reason);
     return response;
 }
 

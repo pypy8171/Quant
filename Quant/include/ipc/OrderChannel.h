@@ -16,8 +16,22 @@
 namespace ipc
 {
 
-// 사유 문자열 칸. 고정 길이라 레코드가 통째로 바이트 복사된다(ledger_journal::Record와 같은 이유).
+// 답의 사유 칸. 고정 길이라 레코드가 통째로 바이트 복사된다(ledger_journal::Record와 같은 이유).
 constexpr size_t kOrderReasonMax = 48;
+
+// 신호가 싣고 온 판단 근거 칸. 답의 사유보다 넓다 — 이 글은 원장 CSV의 entry_reason 열로 그대로 남아
+//  나중에 "왜 샀나"를 읽는 유일한 근거다(G4). DeviationScale 진입 근거가 한글 섞어 130바이트 남짓이라
+//  여유를 뒀다. 넘치면 바이트가 아니라 글자 경계에서 자른다. [why D-114]
+constexpr size_t kSignalReasonMax = 192;
+
+// 주문 이름 칸. "<전략이름>:B:<순번>" 꼴이라 전략 이름(최대 31자)에 꼬리가 붙는다.
+constexpr size_t kClientOrderIdMax = 48;
+
+// 계좌 칸. 계좌는 표를 두지 않는다 — 한 프로세스가 보는 계좌가 몇 개뿐이라 글자 그대로 나른다.
+constexpr size_t kAccountIdMax = 16;
+
+// 해외 거래소 칸("NAS"·"NYS"). 국내는 빈 칸이다.
+constexpr size_t kExchangeMax = 8;
 
 // 주문 쪽이 요청 한 건을 어떻게 했는지. 값은 로그·시험이 물고 가므로 끝에만 더한다.
 enum class OrderResult : uint8_t
@@ -26,22 +40,40 @@ enum class OrderResult : uint8_t
     kRejected  = 2, // 게이트나 증권사가 거부했다 — 사유가 reason에 있다
     kFailed    = 3, // 보내다 실패했다(예외·전송 오류) — 재시도 대상
     kDuplicate = 4, // 이미 받은 순번이라 아무것도 하지 않았다
+    kInvalid   = 5, // 값이 말이 안 되는 요청이라 버렸다(is_plausible). 재전송해도 같은 값이면 또 버린다
 };
 
-// 전략 → 주문. OrderSignal 전체가 아니라 주문을 내는 데 필요한 것만 담는다 — 문자열(종목코드·전략이름·사유)은
-//  종목 id·전략 번호로 대신하고, 받는 쪽이 표에서 되찾는다(원칙 6). [inv] 순번은 0이 아니어야 한다.
+// 전략 → 주문. OrderSignal에서 std::string을 걷어낸 모양이다 — 포인터가 들어가면 공유 쪽지를 건널 수 없다.
+//  전략 이름은 번호로 대신하고 받는 쪽이 전략 표에서 되찾는다(원칙 6). 종목 코드·계좌·주문 이름·판단 근거는
+//  고정 칸에 글자 그대로 싣는다. [why D-114]
+//  - 종목 코드: 표에 아직 없는 종목은 번호가 kNone 으로 오고, 받는 쪽이 이 글자로 표에 올린다. 번호만 실으면
+//    그 종목은 주문이 되지 않는다.
+//  - 계좌: 표가 없다. 전략 이름과 달리 기동 때 다 모이지 않는다(보유분을 따라온다).
+//  - 주문 이름·판단 근거: 로그와 원장 CSV에 그대로 실리는 글이라 번호로 바꿀 수 없다.
+//  [inv] 순번은 0이 아니어야 한다. [inv] 글자 칸은 모두 0으로 끝난다 — is_plausible 이 그것까지 본다.
 struct OrderRequest
 {
-    uint64_t                   sequence       = 0;
-    int64_t                    sent_at_ns     = 0; // steady_clock, 전략이 보낸 시각
-    symbol::SymbolId           symbol_id      = symbol::kNone;
-    strategy_table::StrategyId strategy_index = strategy_table::kNone;
-    int32_t                    quantity       = 0;
-    double                     price          = 0.0; // 0 = 시장가
-    uint8_t                    side           = 0;   // OrderSide::Value
-    uint8_t                    order_type     = 0;   // OrderType
-    uint8_t                    action         = 0;   // OrderAction
-    uint8_t                    reserved0      = 0;
+    uint64_t                   sequence                     = 0;
+    int64_t                    sent_at_ns                   = 0;   // steady_clock, 전략이 보낸 시각
+    int64_t                    tick_at_ns                   = 0;   // steady_clock, 근거가 된 체결을 받은 시각. 0=안 찍음
+    int64_t                    timestamp_ns                 = 0;   // system_clock epoch ns, 신호를 만든 시각
+    uint64_t                   client_order_number          = 0;   // 취소·정정이 원주문을 찾는 키
+    uint64_t                   original_client_order_number = 0;   // CANCEL/REPLACE 대상 원주문 번호
+    double                     price                        = 0.0; // 0 = 시장가
+    double                     reference_price              = 0.0; // 시장가 명목 한도 평가용 참조가
+    symbol::SymbolId           symbol_id                    = symbol::kNone;
+    strategy_table::StrategyId strategy_index               = strategy_table::kNone;
+    int32_t                    quantity                     = 0;
+    uint8_t                    side                         = 0;   // OrderSide::Value
+    uint8_t                    order_type                   = 0;   // OrderType
+    uint8_t                    action                       = 0;   // OrderAction
+    uint8_t                    market                       = 0;   // Market
+    symbol::Ticker             ticker;                             // 고정 배열이라 레코드가 통째로 복사된다
+    char                       exchange[kExchangeMax]                    = {};
+    char                       account_id[kAccountIdMax]                 = {};
+    char                       client_order_id[kClientOrderIdMax]        = {};
+    char original_client_order_id[kClientOrderIdMax]                     = {};
+    char                       reason[kSignalReasonMax]                  = {};
 };
 
 // 주문 → 전략. 전략은 이걸 받아야 그 순번을 기다리는 것에서 지운다.
@@ -73,14 +105,21 @@ struct RequestLimits
 
 // 큐에서 꺼낸 요청이 주문이 되어도 되는가. 프로세스를 갈라도 남는 공유 면이 큐 하나뿐이라, 건너편이
 //  망가졌거나 칸이 덮였을 때 그 값으로 주문을 내지 않으려고 여기를 지나게 한다. 거짓이면 버리고 센다.
-//  순번 단조·중복은 DuplicateFilter가 본다 — 여기서는 값의 범위만 본다. [why D-114]
+//  순번 단조·중복은 DuplicateFilter가 본다 — 여기서는 값의 범위와 글자 칸이 0으로 끝나는지만 본다.
+//  보는 기준이 액션마다 다르다 — 취소는 수량이 0이고 방향이 NONE 이어도 맞는 주문이다(대상은 원주문 번호로
+//  찾는다). 여기서 NEW 기준 하나로 보면 전략이 낸 취소가 통째로 사라진다. [why D-114]
 [[nodiscard]] bool is_plausible(const OrderRequest& request, const RequestLimits& limits) noexcept;
 
 // 큐에서 꺼낸 응답이 말이 되는가. 사유 칸이 칸 안에서 끝나는지(끝나지 않으면 읽다가 칸을 넘는다)까지 본다.
 [[nodiscard]] bool is_plausible(const OrderResponse& response) noexcept;
 
 // 신호 하나를 요청 레코드로 옮긴다. 순번·시각은 신호가 이미 갖고 있는 것을 그대로 쓴다(SignalDispatcher::emit이 찍는다).
-OrderRequest to_request(const OrderSignal& signal) noexcept;
+//  칸을 넘는 글자는 글자 경계에서 잘린다 — 잘렸는지는 truncated 가 참으로 알린다(널이면 안 알린다).
+OrderRequest to_request(const OrderSignal& signal, bool* truncated = nullptr) noexcept;
+
+// 요청 레코드를 신호로 되돌린다. 전략 이름은 레코드에 없어 받는 쪽이 전략 표에서 찾아 넘긴다.
+//  [inv] 받는 쪽(주문 프로세스)에서만 부른다 — 표를 가진 쪽이 그쪽이다(원칙 4). [why D-114]
+[[nodiscard]] OrderSignal to_signal(const OrderRequest& request, std::string_view strategy_id);
 
 // 결과·사유로 응답 레코드를 만든다. 사유는 칸을 넘으면 잘린다.
 // 증권사 주문번호 문자열("0000123456")을 레코드의 정수 손잡이로. 숫자가 아니면 0이다.

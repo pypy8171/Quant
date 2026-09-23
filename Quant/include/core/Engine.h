@@ -60,8 +60,8 @@ struct AppConfig;
 //
 //  [데이터 스레드]  KIS REST 일봉·대체 틱   → bars_matrix·trade_matrix (행렬의 데이터 스레드 행)
 //  [샤드 스레드 m]  order_book_matrix + trade_matrix + bars_matrix 열 m → 전략 → shard_out
-//  [전략 스레드]    shard_out + 수동주문 → 디스패처(순번·슬롯·교체) → order_queue
-//  [주문 스레드]    order_queue → KIS REST 주문 (KR/US 자동 분기)
+//  [전략 스레드]    shard_out + 수동주문 → 디스패처(순번·슬롯·교체) → 요청 면
+//  [주문 스레드]    요청 면 → KIS REST 주문 (KR/US 자동 분기)
 //
 //  WS 구독 목록은 on_start() 이후 전략의 get_watch_specifications()로 동적 수집
 // ─────────────────────────────────────────────────────────────────────────────
@@ -575,9 +575,9 @@ private:
     std::string                      regime_file_;   // 빈 문자열이면 기능 미가동
     regime_file::RegimeFileJudge  regime_file_judge_; // stale·시간 상자·1회 로그 판정 [why D-060]
     // G3: 극단 위험회피(force_liquidate=TRUE) 시 보유 전량 강제청산 요청 플래그.
-    //  data_thread(poll_regime_file)가 set → strategy_thread(order_queue 단일 생산자)가
-    //  이 플래그를 보고 매 주기 시장가 전량 매도를 발주(주문큐의 단일생산자·단일소비자(SPSC)
-    //  규약 위반 회피 — order_queue에 넣는 스레드를 하나로 유지). 해제 시 중단.
+    //  data_thread(poll_regime_file)가 set → strategy_thread(요청 면 단일 생산자)가
+    //  이 플래그를 보고 매 주기 시장가 전량 매도를 발주(요청 면의 단일생산자·단일소비자(SPSC)
+    //  규약 위반 회피 — 요청 면에 넣는 스레드를 하나로 유지). 해제 시 중단.
     std::atomic<bool> force_liquidate_{false};
     // ── 주문 설정 ───────────────────────────────────────────────────────────
     int order_min_interval_ms_ = 350; // 주문 간 최소 간격(milliseconds) — order_thread의 OrderRateLimiter가 쓴다 [why D-065]
@@ -703,12 +703,22 @@ private:
         // 샤드 → 전략(디스패치) 스레드. 생산자가 M이라 MPSC(원칙 5). 가득 차면 버리고 센다 — order_dropped와 같은 규칙.
         MpscQueue<strategy::Emitted> shard_out{kTickCellCapacity};
         std::atomic<uint64_t>     shard_dropped{0};
-        RingBuffer<OrderSignal> order_queue{kOrderQueueCapacity}; // 주문 스레드가 KIS 왕복에 묶이는 몇 초를 받는다 [why D-073]
+        // 전략 → 주문 요청 면. 큐는 자리표 위에 있고 여기 있는 것은 그 자리를 가리키는 포인터뿐이라,
+        //  프로세스를 갈라도 이 줄은 그대로다. 크기는 주문 스레드가 KIS 왕복에 묶이는 몇 초를 받는 만큼이다.
+        //  [inv] bind_layout()이 꽂는다. [inv] 넣는 쪽은 전략 스레드 하나, 꺼내는 쪽은 주문 스레드 하나다.
+        //  [why D-114] [why D-073]
+        ipc::SharedSpscRing<ipc::OrderRequest>* requests = nullptr;
+        // 요청 면에 한 번에 쌓였던 최대 줄 수. 공유 쪽지 링은 이것을 스스로 재지 않는다 — 재려면 칸을 하나 더
+        //  두어야 하고 그 칸은 건너편이 덮을 수 있다. 그래서 넣는 쪽이 넣은 뒤 한 번 보고 최고치만 남긴다.
+        //  [inv] 넣는 쪽이 하나라 읽고 쓰는 사이에 끼어들 쪽이 없다. [why D-114]
+        std::atomic<uint64_t> order_high_water{0};
         // 체결통보. WS 수신 스레드는 여기 push만 하고 원장 반영(OrderRouter::on_fill)은 fill_thread가 한다 —
         //  체결 하나 처리(history_mutex_·CSV 쓰기) 동안 전 종목 틱 수신이 멈추지 않게. [why D-056]
         RingBuffer<FillNotification> fill_queue{kFillQueueCapacity};
         std::atomic<uint64_t> fill_dropped{0};   // fill_queue 가득 차 버린 체결통보 수. 0이 아니면 잔고 대조가 원장을 메운다
-        std::atomic<uint64_t> order_dropped{0};  // order_queue 가득 차 버린 신호 수. [큐 고수위] 줄에 같이 찍힌다
+        std::atomic<uint64_t> order_dropped{0};  // 요청 면이 가득 차 버린 신호 수. [큐 고수위] 줄에 같이 찍힌다
+        std::atomic<uint64_t> order_implausible{0};      // 값이 말이 안 돼 버린 요청 수. 0이 아니면 통로가 덮였다
+        std::atomic<uint64_t> order_reason_truncated{0}; // 판단 근거·주문 이름이 칸을 넘어 잘린 신호 수
         // 주문 → 전략 응답. 보내는 쪽이 주문 스레드 하나, 받는 쪽이 전략 스레드 하나라 SPSC다. 큐는
         //  자리표 위에 있고 여기 있는 것은 그 자리를 가리키는 포인터뿐이라, 프로세스를 갈라도 이 줄은
         //  그대로다. [inv] bind_layout()이 꽂는다. [why D-114]
@@ -766,9 +776,9 @@ private:
 #endif
 
     // ── 운영 채널(Ops·수동주문) ──────────────────────────────────────────────
-    // 운영단말 서버와 수동주문 인테이크. 서버 스레드가 push, strategy_thread(order_queue 단일
+    // 운영단말 서버와 수동주문 인테이크. 서버 스레드가 push, strategy_thread(요청 면 단일
     //  생산자)가 pop해 OrderSignal(strategy_id="MANUAL")로 바꿔 게이트·원장을 그대로 지난다.
-    //  FORCE_LIQ와 같은 이유로 소켓 스레드가 order_queue에 직접 넣지 않는다. [why D-043]
+    //  FORCE_LIQ와 같은 이유로 소켓 스레드가 요청 면에 직접 넣지 않는다. [why D-043]
     struct OpsChannel
     {
         std::unique_ptr<OpsServer>      server;
