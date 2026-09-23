@@ -480,6 +480,11 @@ AFTER_MARKET_OPEN_HHMM = "16:00"
 AFTER_MARKET_CLOSE_HHMM = "20:00"
 
 
+# 스캔 로그 한 줄에서 "이름=숫자" 를 전부 뽑는다. 데이터부족 은 "데이터부족(<60봉)=4" 처럼
+#  괄호가 끼어 있어 이름과 = 사이를 건너뛴다.
+SCAN_COUNTER_PATTERN = re.compile(r"([가-힣]+)(?:\([^)]*\))?=(\d+)")
+
+
 def after_market_order_row(date: str) -> tuple:
     """애프터마켓(16:00~20:00) 주문이 주문구분·거래소 때문에 되돌아왔는지.
 
@@ -520,6 +525,69 @@ def after_market_order_row(date: str) -> tuple:
                 " (16:00~20:00 은 주문구분 41 + 거래소 KRX 여야 한다, D-097)")
 
     return (name, True, "FAIL", f"애프터마켓 주문 {after_market_orders}건, 주문구분·거래소 거부 0건")
+
+
+def scan_registration_row(date: str) -> tuple:
+    """유니버스 스캔이 하루 종일 한 종목도 등록하지 못한 계좌가 있는지.
+
+    스캔이 0종목으로 끝나면 신호가 만들어지지 않아 매매가 통째로 없다. 그런데 엔진은
+    아무 경고도 내지 않는다 — "오늘은 후보가 없었다" 와 "거르는 조건이 어긋나 있다" 가
+    로그에서 똑같이 보이기 때문이다. 2026-09-23 실계좌 애프터마켓이 그랬다. 거래대금
+    문턱을 10억에서 1억으로 낮춰 검사 대상을 23에서 36으로 늘렸는데도 늘어난 13종목이
+    전부 역배열컷에 걸려 등록은 0 그대로였다. 후보는 급등락 랭킹에서 오는데 진입은
+    정배열을 요구해, 두 기준이 서로 반대쪽을 본다. [why D-097]
+
+    로그 폴더별로 가른다 — 실계좌·모의·리눅스가 저마다 폴더를 쓰는데 한데 합치면 모의의
+    정상 등록이 실계좌의 0을 덮는다(09-23 실측: 합치면 948회 11,108종목으로 통과했다).
+    등록이 한 번도 안 난 폴더는 무엇이 걸렀는지를 같이 낸다 — 그 내역이 곧 다음에 고칠 자리다.
+    """
+    name = "스캔 등록"
+    scans_by_account: dict = {}
+    registered_by_account: dict = {}
+    breakdown_by_account: dict = {}
+
+    for engine_log in sorted(REPO.glob("Quant/build*/logs*/quant_trader.log")):
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        account = engine_log.parent.name
+
+        for line in body.splitlines():
+            if date not in line or "정배열 프리필터" not in line:
+                continue
+
+            counters = dict(SCAN_COUNTER_PATTERN.findall(line))
+            scans_by_account[account] = scans_by_account.get(account, 0) + 1
+            registered_by_account[account] = (registered_by_account.get(account, 0)
+                                              + int(counters.get("등록", "0")))
+
+            # 마지막 스캔의 내역만 남긴다 — 하루치를 합치면 재스캔 주기만큼 부풀어
+            #  "몇 종목이 왜 걸렸나" 를 못 읽는다.
+            breakdown_by_account[account] = (
+                f"후보 {counters.get('후보', '?')} 중"
+                f" 거래대금미달 {counters.get('거래대금미달', '?')}"
+                f"·역배열 {counters.get('역배열컷', '?')}"
+                f"·과확장 {counters.get('과확장컷', '?')}"
+                f"·데이터부족 {counters.get('데이터부족', '?')}"
+            )
+
+    if not scans_by_account:
+        return (name, True, "WARN", f"{date} 스캔 로그가 없다 — 판정 안 함")
+
+    empty = [account for account, total in registered_by_account.items() if not total]
+
+    if empty:
+        details = "; ".join(
+            f"{account} 스캔 {scans_by_account[account]}회 모두 0종목"
+            f" ({breakdown_by_account[account]})" for account in sorted(empty))
+        return (name, False, "FAIL",
+                f"{details} (신호가 안 만들어져 매매가 통째로 없다, D-097)")
+
+    summary = ", ".join(f"{account} {registered_by_account[account]}종목"
+                        for account in sorted(registered_by_account))
+    return (name, True, "FAIL", f"모든 계좌가 등록했다 — {summary}")
 
 
 def fill_notice_session_row(date: str) -> tuple:
@@ -1280,6 +1348,7 @@ def collect(date: str, log: Path, since: int = 0):
         market_open_gate_row(date),
         after_market_order_row(date),
         fill_notice_session_row(date),
+        scan_registration_row(date),
         job_attach_row(date),
         *orphan_process_rows(),
         tsan_row(date),

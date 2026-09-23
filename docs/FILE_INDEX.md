@@ -9,12 +9,12 @@
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 115개
-- [Quant](#quant) — 270개
-- [docs](#docs) — 93개
+- [Quant](#quant) — 271개
+- [docs](#docs) — 94개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
-- [scripts](#scripts) — 45개
-- [strategies](#strategies) — 33개
+- [scripts](#scripts) — 47개
+- [strategies](#strategies) — 34개
 - [tools](#tools) — 3개
 
 ## (루트)
@@ -1063,11 +1063,13 @@
 - [auto_trade_day.ps1](../scripts/auto_trade_day.ps1) — 일일 자동매매 기동 스크립트
 - [auto_trade_day.sh](../scripts/auto_trade_day.sh) — 리눅스(WSL2) 쪽 하루 루프 — 트레이더만 띄우고 마감까지 재기동(부속 창·마감 정리는 `auto_trade_day.ps1 -NoTrader`). 상태 `_private/_auto_trade_linux.json`, 절차 `docs/RUNBOOK.md` 1.1절
 - [auto_trade_guard.ps1](../scripts/auto_trade_guard.ps1) — 자동매매 감시견 스크립트
+- [auto_trade_live.ps1](../scripts/auto_trade_live.ps1) — 실계좌 감시견을 띄우는 진입구. 설정·포트·원장 폴더를 세트로 넘기고(하나만 빠져도 모의 값이 섞인다) 매매 창·마감 시각을 띄우기 전에 보여준다
 - [backfill_fills_db.py](../scripts/backfill_fills_db.py) — 과거 체결 원장 CSV를 TimescaleDB fills 테이블에 적재하는 스크립트
 - [backfill_studies.py](../scripts/backfill_studies.py) — 스터디 결과 메트릭 백필 스크립트
 - [build.sh](../scripts/build.sh) — Docker 이미지 빌드 스크립트
 - [build_review_entry.py](../scripts/build_review_entry.py) — 장 마감 리뷰 항목 생성 스크립트
 - [build_study_site.py](../scripts/build_study_site.py) — 주식 스터디 리더 사이트 생성 스크립트
+- [build_trader.ps1](../scripts/build_trader.ps1) — 장중 재빌드 진입구. 한글 TEMP·실행 중 exe 잠금으로 나는 LNK1104 두 가지를 링크 전에 가른다
 - [check_backtest.py](../scripts/check_backtest.py) — 백테스트 재현성 검사 스크립트
 - [check_market_open.py](../scripts/check_market_open.py) — (설명 필요)
 - [check_runtime_health.py](../scripts/check_runtime_health.py) — 실행 로그 장애 패턴 검사 스크립트
