@@ -61,3 +61,8 @@ struct CommandLine
 
 // 인자를 못 알아들었을 때 로그에 같이 싣는 한 줄. 쓰는 사람이 로그만 보고 고칠 수 있게.
 [[nodiscard]] const char* command_line_usage();
+
+// 이 역할이 쓸 실행 로그 파일 이름. 갈라 띄우면 두 프로세스가 한 파일에 섞여 써서 `[큐 고수위]` 줄이
+//  어느 쪽 수인지 줄만 보고는 모른다 — 역할을 주고 띄운 경우만 파일을 가른다. Both는 이름을 그대로 둔다,
+//  로그를 읽는 스크립트 열 개와 운영 경로가 이 이름을 보기 때문이다. [why D-114]
+[[nodiscard]] const char* log_file_name(ProcessRole role);

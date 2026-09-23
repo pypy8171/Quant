@@ -135,3 +135,19 @@ CommandLine parse_command_line(int argc, char* argv[])
 
     return command_line;
 }
+
+const char* log_file_name(ProcessRole role)
+{
+    switch (role)
+    {
+        case ProcessRole::Order:
+            return "quant_trader.order.log";
+
+        case ProcessRole::Strategy:
+            return "quant_trader.strategy.log";
+
+        case ProcessRole::Both:
+        default:
+            return "quant_trader.log";
+    }
+}

@@ -287,7 +287,7 @@ static int run_trade(const AppConfig& app, ProcessRole role)
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  main — 아래 호출 순서가 초기화 순서 문서다. 각 단계는 위 함수 하나에 대응한다.
-//   1 타이머 격자 · 2 콘솔 · 3 로거 · 4 인자 · 5 설정(json→AppConfig, 검증 포함) · 6 로그 임계값 ·
+//   1 타이머 격자 · 2 콘솔 · 3 인자 · 4 로거 · 5 설정(json→AppConfig, 검증 포함) · 6 로그 임계값 ·
 //   7 크래시 핸들러 · 8 모드 분기(관찰 모드는 modes/Monitors.cpp, TRADE는 run_trade)
 // ═══════════════════════════════════════════════════════════════════════════
 int main(int argc, char* argv[])
@@ -296,16 +296,19 @@ int main(int argc, char* argv[])
     TimerResolution timer_resolution; // 1. 1ms 격자, 소멸자에서 되돌린다
     setup_console();                  // 2.
 #endif
-    // 3. 로그·산출물 기준 폴더는 Logger::default_base_directory()(QUANT_LOG_DIR > 실행파일 옆 logs/).
+    // 3. 인자 — 로거보다 먼저 뜯는다. 로그 파일 이름이 역할에 달려서다. 뜯는 동안은 아무것도 찍지 않고
+    //  오류는 문자열로 담아 오므로, 못 알아들은 인자도 로거가 열린 뒤에 그대로 찍힌다. [why D-114]
+    const CommandLine command_line = parse_command_line(argc, argv);
+
+    // 4. 로그·산출물 기준 폴더는 Logger::default_base_directory()(QUANT_LOG_DIR > 실행파일 옆 logs/).
     Logger::instance().set_base_directory(Logger::default_base_directory());
-    Logger::instance().initialize(Logger::instance().path_for("quant_trader.log"), LogLevel::INFO);
+    Logger::instance().initialize(Logger::instance().path_for(log_file_name(command_line.role)), LogLevel::INFO);
     LOG_INFO("=== Quant Trader v2.0 ===");
 #ifdef _WIN32
     LOG_INFO("[Main] 실행 플랫폼 Windows");
 #else
     LOG_INFO("[Main] 실행 플랫폼 Linux"); // 같은 날 두 플랫폼이 찍히면 같은 계좌에 엔진이 둘이다 — check_runtime_health '실행 플랫폼' 행
 #endif
-    const CommandLine command_line = parse_command_line(argc, argv); // 4.
 
     if (!command_line.error.empty())
     {

@@ -2763,14 +2763,12 @@
     "quant_trader.log": {
       "writers": [
         "PYQuant/tools/log_report.py",
-        "scripts/_logdir.py",
         "scripts/build_review_entry.py",
         "scripts/dashboard_server.py",
         "scripts/summarize_trading_day.py"
       ],
       "readers": [
         "PYQuant/tools/compare_ws_bars.py",
-        "scripts/_logdir.py",
         "scripts/check_runtime_health.py",
         "scripts/dashboard_server.py",
         "scripts/extract_swap_what_if.py",
@@ -2783,7 +2781,7 @@
       "mentions": [
         "PYQuant/tools/compare_ws_bars.py",
         "PYQuant/tools/log_report.py",
-        "Quant/src/main.cpp",
+        "Quant/src/core/CommandLine.cpp",
         "scripts/_logdir.py",
         "scripts/build_review_entry.py",
         "scripts/check_runtime_health.py",
