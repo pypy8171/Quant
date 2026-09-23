@@ -30,9 +30,9 @@
 |---|---|
 | `QuantAutoTradeGuard` | 워치독이 없으면 하루 루프 기동 (§4). 5분마다 도는 시간 폭(`-Hours`)이 매매 끝 시각을 정한다 |
 | `Quant Basket Targets` | 장 전 08:40, 바스켓 두 슬리브(가치 기울임·모멘텀)의 목표 비중표를 `Quant/config/basket_targets.json`에 쓴다(전일 종가 기준, 주문 없음). 엔진 `TARGET_BASKET`이 14:40~15:00에 원장과의 차이만 낸다(D-109). 파일이 없거나 `as_of`가 오늘이 아니면 엔진은 아무것도 안 낸다 — 판정은 `check_runtime_health.py` "바스켓 파일 당일" 행 |
-| `Quant Market Close AutoDoc` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` · **결정 원장 파생 문서**(`sync_ledgers.py`) |
+| `Quant Market Close AutoDoc` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` |
 | `Quant Maintain Daily` | `장 마감 AutoDoc` 뒤. 먼저 로그 정리(`rotate_logs` — 엔진 로그에서 7일 지난 날의 줄을 `logs/archive/quant_trader_<날짜>.log.gz`로 떼어내고(갈라 띄운 엔진은 역할별 `quant_trader.order.log`·`quant_trader.strategy.log`를 각각 돌려 `quant_trader_order_<날짜>.log.gz`로 간다), 감시견 로그는 7일 지나면 gz·90일 지나면 삭제. 엔진이 떠 있으면 엔진 로그는 건너뛴다. 원장 `trades_*.csv`는 손대지 않는다. 옮긴 gz는 잃는 게 아니다 — 날짜를 받는 스크립트(`market_close_autodoc`·`market_close_collect`·`parse_quant_log --full`·`summarize_trading_day`·`extract_swap_what_if`)는 `_logdir.log_sources()`로 그 날짜 gz와 라이브 로그를 이어서 읽으니 지난 날 재생성은 그대로 된다), 이어서 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers` · `gen_automation_hub`(`_private/AUTOMATION_HUB.md`) · `gen_tuning_sheet`(`_private/TUNING_SHEET.md`). 대시보드는 부르지 않는다. 손으로는 `py ../quant-devtools/maintain.py --rotate-logs [--dry-run]` |
-| `Quant Minute Backfill` | 아침 스캔 `Quant/config/universe_scan.json`을 `PYQuant/data/pit_universe/<오늘>.json`으로 옮기고 그날 유니버스 전체의 1분봉을 `PYQuant/data/minute/`에 쌓는다(`PYQuant/tools/minute_backfill.py --top-n 0`, 약 260종목×4콜). 매매 끝 15분 뒤(모의 15:45·실계좌 20:15) 전엔 돌지 않는다(반쪽 파일이 그날치를 건너뛰게 만든다). 대시보드 차트가 같은 파일을 읽는다 |
+| `Quant Minute Backfill` | 장 마지막 재스캔본 `Quant/config/universe_scan.json`을 `PYQuant/data/pit_universe/<오늘>.json`으로 옮기고 그날 유니버스 전체의 1분봉을 `PYQuant/data/minute/`에 쌓는다(`PYQuant/tools/minute_backfill.py --top-n 0`, 약 260종목×4콜). 매매 끝 15분 뒤(모의 15:45·실계좌 20:15) 전엔 돌지 않는다(반쪽 파일이 그날치를 건너뛰게 만든다). 대시보드 차트가 같은 파일을 읽는다 |
 | `claude_stock_study` | `claude -p "/stock-study auto"` → `_private/주식_study/{날짜}_재무/` 1종목 · 저널 · 스터디 사이트 |
 | `claude_dashboard_sync` | `claude -p "/dashboard-sync"` → 대시보드·스터디 사이트 HTML 재생성. 아티팩트 재발행은 헤드리스 `claude -p`에 Artifact 도구가 없어 못 한다 — 대화 세션에서 `/dashboard-sync`를 불러 같은 URL로 올린다 |
 | `Quant Maintain Weekly` | 금요일, `claude_dashboard_sync` 뒤. 미참조 스크립트 · 에이전트 죽은 경로 · 부산물 용량 · 주석 밀도 · 훅 배선 양방향 검사 → `docs/reports/MAINTENANCE_WEEKLY.md` |
@@ -103,7 +103,7 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 | `session-board-server.ps1` | SessionStart | `../quant-devtools/session_board_server.py`(:8788)를 숨긴 창으로 띄운다 — 트레이더 대시보드가 없어도 세션이 하나라도 열려 있으면 현황판을 보게. 포트가 이미 쓰이면 서버가 스스로 끝나므로 매번 띄운다 |
 | `cron-gate.ps1` | SessionStart | 예약작업이 예정 시각을 넘겨 안 돌았거나 `LastTaskResult≠0`이면 작업 이름·실패 시각·복구 커맨드를 알림 |
 | `dashboard-refresh.ps1` | Stop | 매매일지·백테스트가 `dashboard.html`보다 새것이면 리뷰 항목과 대시보드를 다시 만든다. 같은 훅이 `session_board.py --quiet`로 세션 현황판도 턴마다 다시 쓴다. 낡았는지는 수정시각으로 보므로 편집 도구·스크립트·다른 세션 어느 경로로 고쳤든 걸린다 |
-| `handoff-due.ps1` | Stop | 인계할 때가 되면 exit 2로 턴을 되돌려 `/handoff`를 밟게 한다. 갈래가 둘이다 — ①작업 경계: 이 턴에 HEAD가 바뀌었고(커밋 직후) 문맥이 100K를 넘었다. ②압축 임박: 경계가 아니어도 문맥이 145K를 넘었다(커밋을 하지 않는 세션은 ①이 오지 않아 자동 압축까지 가므로). ②는 압축 구간마다 한 번만 알린다. 판정은 `session_board.py --due`(세션별 직전 HEAD와 알린 이력을 `_private/session_board.state.json`에 둠) |
+| `handoff-due.ps1` | Stop | 인계할 때가 되면 exit 2로 턴을 되돌려 `/handoff`를 밟게 한다. 갈래가 둘이다 — ①작업 경계: 이 턴에 HEAD가 바뀌었고(커밋 직후) 문맥이 100K를 넘었다. ②압축 임박: 경계가 아니어도 문맥이 140K를 넘었다(커밋을 하지 않는 세션은 ①이 오지 않아 자동 압축까지 가므로). ②는 압축 구간마다 한 번만 알린다. 판정은 `session_board.py --due`(세션별 직전 HEAD와 알린 이력을 `_private/session_board.state.json`에 둠) |
 | `resume-work.ps1` | SessionStart | 압축 직후(`source=compact`)와 무인일 때 인계 파일의 '남은 것'을 가리켜 하던 일을 잇게 한다. 사람이 없으면 `/clear`를 칠 수 없어 자동 압축이 곧 문맥 초기화이므로, 압축 다음 턴이 무엇을 하던 중이었는지 알 길이 이 파일뿐이다. 세션 이름은 짧은 해시라 며칠 전 세션과 겹치므로 **한 시간 안에 갱신된 자기 파일만** 집는다(옛 인계를 이어받아 엉뚱한 일을 하는 것을 막는다) |
 | `output-gate.ps1` | Stop | 채팅으로 나가는 문장도 `check_plain_language.py`로 검사한다 — 파일은 lexicon-gate가 막는데 대화에는 게이트가 없어 금지어가 새던 것을 막는다 |
 | `handoff-list.ps1` | SessionStart | 아직 보관되지 않은 `_private/HANDOFF_*.md`를 나이·첫 줄과 함께 보여 새 세션이 이어받을 것을 고르게 한다 |
@@ -145,7 +145,7 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 창 끝은 **지금 도는 트레이더·감시견이 실제로 연 config**의 `is_paper`로 잡는다 — 모의면 15:30, 실계좌면 20:00이고,
 둘 다 안 돌고 있으면 바꿔도 깨질 매매가 없어 로그도 남기지 않는다(`--config <경로>`로 특정 config를 지정할 수도 있다).
 재기동은 보유분을 청산 래퍼로 넘기므로 그 로그가 몇 번 그랬는지를 보여 준다(재기동 42회 중 29회·−198만/주).
-KILL을 풀고 다시 매매하려면 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/kill_release.ps1` — 표지
+KILL을 풀고 다시 매매하려면 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/kill_release.ps1`(실계좌 인스턴스는 `-Instance live`) — 표지
 파일을 지우고 워치독 상태파일을 옆으로 치워 감시자가 다음 주기(5분 안)에 워치독을 다시 띄운다. 엔진을 손으로 띄우지 않는다.
 
 ### 프로세스 수명 — 잡(Job Object)과 감시자
@@ -165,7 +165,7 @@ Windows에는 리눅스의 프로세스 그룹 cascade가 없다. 부모가 죽�
 반대 방향, 즉 부속 창 안의 파이썬만 죽는 경우도 잡는다. 창은 `-NoExit`로 띄우므로 안의 스크립트가
 끝나도 빈 창은 남고, 창 목록만 보면 살아 있는 것처럼 보인다. 워치독은 트레이더를 기다리는 동안
 60초마다 `python`/`py` 프로세스의 명령줄을 훑어 등록된 스크립트 이름(`macro_regime_feed.py`,
-`dashboard_server.py`, `notify_trades.py`, `live_prices_feed.py`, `main.py record`)이 있는지 확인하고, 없으면 남은 창을 내리고 같은 명령으로
+`dashboard_server.py`, `notify_trades.py`, `live_prices_feed.py`, `main.py record`, `main.py procwatch`, `ledger_recorder.py`)이 있는지 확인하고, 없으면 남은 창을 내리고 같은 명령으로
 다시 띄운다. 기동 직후 45초는 아직 파이썬이 뜨는 중일 수 있어 건너뛴다. 알림 보조 프로세스가 조용히
 사라진 것을 사람이 화면을 봐야 아는 상태를 없애기 위한 것이다.
 
@@ -228,7 +228,7 @@ powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -KillAll # 전�
 | 루프 | 주체 | 주기 | 하는 일 |
 |---|---|---|---|
 | 매크로 국면 파일 전달 | `PYQuant/tools/macro_regime_feed.py` | 상시 | `regime.json` 갱신 → 엔진이 매수 비율 `entry_scale`·`entry_halt`(신규 매수만 차단)·`force_liquidate`를 옮기고 라벨로 전략 집합을 고른다(D-083·D-084) |
-| 제어 스레드 | `Engine::control_thread_fn` | 상시 | 잔고 대조·손익 갱신 감시, 끊기면 보수정지 |
+| 제어 스레드 | `Engine::control_thread_fn` | 상시 | 5초 주기: 시세 끊김이면 재연결, 안 되면 REST 대체, 그것도 안 되면 kill switch. 토큰 선갱신·큐 고수위 기록·마감 자기 종료 판정(잔고 대조·손익 갱신 감시는 데이터 스레드) |
 | 증분 로그 감시 | `scripts/parse_quant_log.py --watch` | 15~20분 | 유의미한 창일 때만 출력. 조용하면 토큰 0 |
 | 실행 건전성 점검 | `scripts/check_runtime_health.py` | 세션 종료마다(감시견)·마감 뒤 하루 전체 | 유령주문·조기 사망·재기동 투매·회전·초당한도·WS 폴백·주문 접수 지연·잔고 조회 지연·전략 박동(끊김·여유)·주문 통로 무결·시세 통로(못 넘긴 시세·값이 이상해 버린 시세)를 PASS/WARN/FAIL로 판정. 같은 표를 `market_close_autodoc.py`가 매매일지 4절에 싣는다 — 고친 뒤 "다음 날 확인할 것"은 사람이 아니라 여기 행으로 만든다 |
 | 전 종목 시세 파일 전달 | `scripts/live_prices_feed.py` | 20초(`PRICES_PERIOD_SEC`, D-028) | 네이버 벌크 시세를 100종목씩 묶어 받아 `Quant/config/prices_live.json`으로 떨군다. KIS REST 초당 한도와 무관해서 2,700종목을 20초 주기로 훑을 수 있다. `UniverseScanner`가 이 파일을 읽는다 |
@@ -275,7 +275,7 @@ py scripts/notify_trades.py --config … --events FILL,REJECTED --echo          
 
 ```
 scripts/market_close_autodoc.py
-  ├─ 매매일지 사실 구간   strategies/<전략>/live/YYYY-MM-DD.md   (수기 일지가 있으면 보존)
+  ├─ 매매일지 사실 구간   strategies/DeviationScale/live/YYYY-MM-DD.md   (경로 고정, 수기 일지가 있으면 보존)
   ├─ PYQuant/dashboard/backfill_live.py      → research/dashboard/live.json
   ├─ scripts/build_review_entry.py --date …  → research/dashboard/reviews.json  (사실 키만)
   └─ PYQuant/dashboard/build_dashboard.py    → research/dashboard/dashboard.html
@@ -300,7 +300,7 @@ scripts/market_close_autodoc.py
 | `scripts/stresstest_flow_profile.py` | 엔진이 남긴 체결 캡처(QTCAP)에서 종목별 초당 건수를 재고, 순위별 몫을 멱법칙으로 전 종목 규모까지 늘려 부하 프로파일 JSON을 만든다. 부하 하네스가 `--profile`로 읽어 실제 장만큼의 유량을 민다. 절차는 `docs/reports/stresstest/README.md` 6절 |
 | `scripts/stresstest_join_procwatch.py` | 부하 회차 CSV(`bench_engine_load`의 `started_at` 열)와 `logs/procwatch_<이름>.log`의 `cpu=` 줄을 시각으로 맞춰 구성별 CPU 평균·최대(코어 수)·스레드 최대를 낸다. 표본 없는 구성은 빈칸. 절차는 `docs/reports/stresstest/README.md` 5절 |
 | `scripts/make_load_test_config.py` | 부하시험용 config(`Quant/config/config_load_test.json`)를 만든다. KIS 자리에 `exchange::ZmqOrderFeed`가 들어가고 종목마다 `FIXED_INTERVAL` 전략이 걸려, 바깥에서 들어온 주문이 오더북·전략·게이트·원장까지 다 지나간다. 인증 정보는 더미라 실계좌 config 와 섞이지 않는다. 주문을 밀어 넣는 쪽은 `PYQuant/tools/load_injector.py`(같은 `--seed` 면 같은 입력) |
-| `scripts/trade_costs.py` | 체결 원장 `logs/trades_YYYYMMDD.csv`의 날짜별·종목별 매매 비용(수수료·거래세, 요율은 인자)과 실현손익(`realized_pnl` 열)을 `logs/trade_costs.json`에 누적하고 표로 낸다. 거래 빈도와 손익의 경계를 보는 용도. `py scripts/trade_costs.py --days 7` |
+| `scripts/trade_costs.py` | 체결 원장 `logs/trades_YYYYMMDD.csv`의 날짜별·종목별 매매 비용(수수료·거래세, 요율은 인자)과 실현손익(`realized_pnl` 열)을 `<--log-dir>/trade_costs.json`(기본 `Quant/build_win/logs/`)에 누적하고 표로 낸다. 거래 빈도와 손익의 경계를 보는 용도. `py scripts/trade_costs.py --days 7` |
 | `../quant-devtools/check_docs.py` | 깨진 내부 링크·색인 누락 검사. exit 0이어야 문서 커밋 |
 | `../quant-devtools/sync_impact.py` | 바뀐 파일을 `docs/sync_map.toml`의 규칙과 대조해 봐야 할 문서를 찍고, 문서 안 `<!-- sync: 경로@해시 -->` 도장으로 낡은 문단을 집어낸다. `--fix`는 gen 블록 치환, `--restamp`는 도장 갱신, `--render`는 `docs/SYNC_MAP.md` §2 표 생성. Stop 훅과 커밋 훅이 부른다(D-075) |
 | `../quant-devtools/commit_gate.py` | 커밋 직전 게이트 — 스테이징 diff의 보안(시크릿·개인정보·비공개 단어)·문체·문서 드리프트·코드 규약·재현성과 커밋 메시지 형식(`--msg-file`)을 한 번에 본다. 0 통과·1 차단·3 사람 판단 남음. 돌 때마다 규칙별 견본으로 자기 시험을 하고, 통과하면 `.claude/commit-gate.state`에 스테이징 트리 해시를 적어 `secret-gate.ps1` 훅이 게이트를 건너뛴 커밋을 막게 한다. 비공개 단어 목록은 `_private/gate_words.txt`에서 읽는다(없으면 차단) |
@@ -319,7 +319,7 @@ scripts/market_close_autodoc.py
 | `scripts/premarket_routine.py` | 장전 시황 브리핑 루틴 프롬프트 정본 `docs/premarket/ROUTINE_PROMPT.md`의 본문 출력(`--render`)·올린 해시 기록(`--mark`)·정본과 비교(`--check`, check_docs가 부른다). 루틴 갱신 자체는 세션(`/schedule`)이 한다 |
 | `../quant-devtools/brace_style.py` | 중괄호와 블록 앞뒤 빈 줄을 기계적으로 맞춘다(`.clang-format`의 Allman·`InsertBraces`와 같은 규칙). 손으로 맞추지 않는다 |
 | `../quant-devtools/check_plain_language.py` | 쓰지 않기로 한 말을 검출·치환한다(`--fix`는 뒤 조사까지 맞춘다). 정본은 `docs/STYLE_GUIDE.md`, 게이트는 `lexicon-gate.ps1`과 `@committer` |
-| `../quant-devtools/session_board.py` | 살아 있는 세션(`~/.claude/sessions/*.json`)마다 기록 jsonl의 늘어난 꼬리만 읽어 문맥 K/%·턴(모델 호출 수)·압축 횟수·마지막 사용자 요청을 세고, 현황판 `_private/SESSION_CLAIMS.md` 줄과 인계 파일 유무를 붙여 `_private/session_board.json`·`.html`(30초 자동 새로고침)로 쓴다. 파일은 Stop 훅이 턴마다 다시 쓰고, 서버(`:8788`, 트레이더가 돌 때는 대시보드 `:8787/sessions`도)는 파일이 30초보다 낡았으면 요청 때 한 번 더 만든다(어느 세션도 턴을 안 끝내면 훅만으로는 멈춰 있어서). 문맥 50%↑ 노랑, 80%↑ 빨강, 100K↑면 인계 시점 표시(145K↑는 경계를 안 기다리고 알린다). `--facts`·`--skeleton`·`--due`는 인계 훅이 쓴다 |
+| `../quant-devtools/session_board.py` | 살아 있는 세션(`~/.claude/sessions/*.json`)마다 기록 jsonl의 늘어난 꼬리만 읽어 문맥 K/%·턴(모델 호출 수)·압축 횟수·마지막 사용자 요청을 세고, 현황판 `_private/SESSION_CLAIMS.md` 줄과 인계 파일 유무를 붙여 `_private/session_board.json`·`.html`(30초 자동 새로고침)로 쓴다. 파일은 Stop 훅이 턴마다 다시 쓰고, 서버(`:8788`, 트레이더가 돌 때는 대시보드 `:8787/sessions`도)는 파일이 30초보다 낡았으면 요청 때 한 번 더 만든다(어느 세션도 턴을 안 끝내면 훅만으로는 멈춰 있어서). 문맥 50%↑ 노랑, 80%↑ 빨강, 100K↑면 인계 시점 표시(140K↑는 경계를 안 기다리고 알린다). `--facts`·`--skeleton`·`--due`는 인계 훅이 쓴다 |
 | `../quant-devtools/session_board_server.py` | 세션 현황판만 내주는 작은 HTTP 서버(`http://127.0.0.1:8788/sessions`, `/sessions.json`). SessionStart 훅이 세션마다 띄우고 포트가 쓰이면 바로 끝난다. 이 저장소의 세션이 2분 연속 없으면 스스로 내려간다 — 프로젝트를 닫으면 같이 사라진다 |
 | `../quant-devtools/session_triage.py` | 코드 세션 여럿이 하루 동안 남긴 상태(미푸시·worktree·브랜치·현황판 `_private/SESSION_CLAIMS.md`·인계 파일·배포 exe 뒤에 쌓인 C++ 커밋)를 한 보고서로 모은다. 되돌릴 수 있는 정리만 옵션으로 한다 — `--prune-branches`(main에 들어간 브랜치 `-d`)·`--archive-handoffs`·`--unowned-patch`. worktree 제거·푸시·exe 교체는 하지 않는다. 절차는 `/triage`(로컬 커맨드), 규칙은 CLAUDE.md 다중 세션 절 |
 | `../quant-devtools/unattended_run.ps1` | 사람이 자는 동안 지시서 하나를 여러 사이클에 걸쳐 잇는다. 한 사이클은 `claude -p --permission-mode bypassPermissions` 한 번이고, 끝나면 프로세스가 죽으므로 다음 사이클은 문맥 0에서 시작한다 — 대화 세션에서 불가능한 `/clear`를 이렇게 대신한다. 사이클 사이를 잇는 것은 `_private/HANDOFF_<이름>.md` 하나뿐이라, 매 사이클 지시에 '남은 것'을 파일 경로와 다음 명령까지 적으라는 규칙을 붙인다. `-Name`마다 인계·완료표시·로그가 따로라 여러 개를 동시에 돌려도 섞이지 않는다(단, 같은 파일을 고치는 일을 겹쳐 주지 않는다). 모델이 `_private/DONE_<이름>.flag`를 만들면 남은 사이클을 버리고 끝낸다. 한글 지시는 반드시 `-PromptFile`(UTF-8 BOM)로 준다 — `-Prompt`는 PS 5.1 파이프 인코딩 탓에 물음표로 깨진 적이 있다 |

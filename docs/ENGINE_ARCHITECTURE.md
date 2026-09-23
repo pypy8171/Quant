@@ -29,7 +29,8 @@ flowchart LR
     RECV -- "fill_queue (체결통보)" --> FILL["체결<br/>Fill"]
     FILL --> LEDGER["원장 · 저널"]
     ORDER --> LEDGER
-    CTRL["제어<br/>Control"] -. "잔고 대조 · 토큰 · 시세 감시" .-> LEDGER
+    DATA -. "잔고 대조" .-> LEDGER
+    CTRL["제어<br/>Control"] -. "토큰 · 시세 감시" .-> RECV
 ```
 
 #### 스레드
@@ -37,12 +38,12 @@ flowchart LR
 | 스레드 | 하는 일 | 받는 것 → 내보내는 것 | 코드 · 테스트 |
 |---|---|---|---|
 | 수신 ×소켓 | 소켓 읽기·디코드·수신 시각 `received_ns` 찍기·push만 | KIS WS → 행렬 행 i, `fill_queue`, 캡처 큐, ZMQ TRADE 큐 | `Quant/include/core/FeedMux.h` · `test_feed_mux` |
-| 데이터 | `fetch_interval_sec`마다 REST 봉 폴링, WS가 못 받는 종목의 현재가 폴링, 유니버스 재스캔(`rescan_interval_sec`) | KIS REST → `bars_matrix`, `trade_matrix` 데이터 행 | `Quant/include/core/DataPoller.h`·`Quant/include/core/UniverseExit.h` · `test_data_poller` |
-| 샤드 ×M | 자기 열을 비우고, 틱의 종목 id를 보는 전략만 부른다 | 행렬 열 m → `shard_out` | `Quant/include/core/StrategyShard.h`·`Quant/include/core/StrategyRouter.h` · `test_strategy_shard`·`test_strategy_router` |
-| 전략(디스패치) | 신호를 주문 요청으로 바꾸기 전 판단, 보호 주문 판정, 1분봉 집계, 제어 요청 중계 | `shard_out` → 요청 면 / 응답 면을 비운다 | `Quant/include/core/SignalDispatcher.h`·`Quant/include/risk/ProtectiveOrders.h` · `test_signal_dispatcher` |
+| 데이터 | `fetch_interval_sec`마다 REST 봉 폴링, WS가 못 받는 종목의 현재가 폴링, 유니버스 재스캔(`rescan_interval_sec`), 주문 쪽이면 잔고 대조와 손익 갱신 감시 | KIS REST → `bars_matrix`, `trade_matrix` 데이터 행, 원장 | `Quant/include/core/DataPoller.h`·`Quant/include/core/UniverseExit.h`·`Quant/include/core/LedgerReconciler.h` · `test_data_poller` |
+| 샤드 ×M | 자기 열을 비우고, 틱의 종목 id를 보는 전략만 부른다. 1분봉 집계는 이렇게 불린 전략 안에서 한다 | 행렬 열 m → `shard_out` | `Quant/include/core/StrategyShard.h`·`Quant/include/core/StrategyRouter.h` · `test_strategy_shard`·`test_strategy_router` |
+| 전략(디스패치) | 신호를 주문 요청으로 바꾸기 전 판단, 보호 주문 판정, 강제청산·초과분 정리, 제어 요청 중계, 주문 쪽 응답 수거 | `shard_out` → 요청 면 / 응답 면을 비운다 | `Quant/include/core/SignalDispatcher.h`·`Quant/include/risk/ProtectiveOrders.h` · `test_signal_dispatcher` |
 | 주문 | 게이트·발주·재시도, 수동주문, 제어 요청 적용, 슬롯 교체, 상대 박동 감시, 장부 사본 발행 | 요청 면·`manual_inbox`·제어 면 → KIS 주문 API, 응답 면, 장부 사본 | `Quant/include/core/OrderRateLimiter.h`·`Quant/include/risk/DisplacementDesk.h` · `test_order_rate_limiter`·`test_engine` |
 | 체결 | 체결통보를 원장·CSV에 반영하고 운영단말에 방송 | `fill_queue` → 원장 | `Engine::fill_thread_fn` (D-056) |
-| 제어 | 잔고 대조, 손익 갱신 감시, 토큰 선갱신, 시세 끊김 대응, 큐 고수위 기록, 마감 자기 종료 | 주기 작업 | `Quant/include/core/LedgerReconciler.h`·`Quant/include/core/FeedSupervisor.h`·`Quant/include/core/SessionEndJudge.h` |
+| 제어 | 토큰 선갱신, 시세 끊김 대응(재연결·REST 대체), 구독 요청 반영, 큐 고수위 기록, 마감 자기 종료 | 주기 작업 | `Quant/include/core/FeedSupervisor.h`·`Quant/include/core/SessionEndJudge.h` |
 | 프리페치 ×2~8 | 전략이 `on_start`에서 맡긴 REST 당기기를 3초 간격으로 | 전략 스냅샷 | `Quant/include/core/PrefetchPool.h` · `test_prefetch_pool` (D-115) |
 | 줄 스레드 ×(소켓+1) | 갈라 띄울 때만. 시세 통로 한 줄을 꺼내 행렬로 나눈다 | 시세 통로 → 행렬 | `Engine::feed_lane_thread_fn` · `test_market_feed_channel` |
 
@@ -71,8 +72,8 @@ flowchart LR
    종목 → 샤드는 `Quant/include/core/ShardRoutes.h`의 비트마스크로 고른다(D-110).
 2. 샤드 스레드가 전략의 `on_data`를 부른다. 전략은 종목을 `on_start`에서 받은 정수 id로만 비교한다(원칙 6).
    `NONE`이 아닌 신호는 `strategy::Emitted`로 `shard_out`에 들어간다.
-3. 전략 스레드의 `SignalDispatcher`가 순번 `seq`를 찍고, 비활성 전략·청산 관리 종목의 신규 매수·수동 매도 정지(D-095)를
-   거른 뒤 문자열 없는 고정 레코드 `ipc::OrderRequest`로 요청 면에 넣는다.
+3. 전략 스레드의 `SignalDispatcher`가 비활성 전략의 신규 매수, 청산 관리 종목의 신규 주문(매수·매도), 수동 매도 정지(D-095)를
+   거른 뒤 순번 `seq`를 찍어 문자열 없는 고정 레코드 `ipc::OrderRequest`로 요청 면에 넣는다.
 4. 주문 스레드가 꺼내 `ipc::is_plausible`로 값을 보고 `ipc::to_signal`로 되살린다. 1초 넘게 기다린 신규 매수는
    보내지 않는다 — 초당 주문 한도가 꺼내는 속도를 정하므로 낡은 판단이 새 판단의 자리를 먹는다. 취소·정정·매도는 나이를 안 본다(D-127).
 5. `OrderRouter`가 `OrderGate::check()` → 저널에 INTENT 선기록 → 초당 한도 대기 → KIS 발주를 한다.
@@ -127,7 +128,7 @@ flowchart LR
 | 제어 면 | 전략이 주문 쪽 표를 고칠 때(슬롯 면제·진입 우선순위·보호 주문 등록·종목 등록)와 스위치 다섯(하루치 새로 열기·신규진입 정지·매수 비율·전방향 차단·수동 정지). 여러 줄 표는 온전히 모였을 때만 건다 | `Quant/include/ipc/ControlChannel.h` · `test_control_channel` |
 | 장부 사본 | 보유·미체결 선점·매도가능·평단과 전역값. 판 번호로 묶여 읽는 쪽은 잠금 없이 읽는다. 발주 한 바퀴마다, 기동 직후 한 번, 한가할 때 100ms마다 낸다 | `Quant/include/ipc/LedgerSnapshot.h` · `test_ledger_snapshot` |
 | 박동 | 의심 250ms·끊김 판정 1,000ms. 전략이 죽으면 주문 쪽이 신규 진입을 끊고 보호 주문을 이어받는다. 주문 쪽은 내려가지 않는다 | `Quant/include/ipc/Heartbeat.h` · `test_heartbeat` |
-| 종목·전략 표 | 이름 ↔ 번호. 넣는 쪽은 주문 프로세스 하나, 전략 쪽은 등록을 요청하고 50ms 동안 번호가 뜨기를 본다 | `Quant/include/ipc/SharedSymbolDictionary.h`·`Quant/include/ipc/SharedStrategyDictionary.h` · `test_shared_symbol_dictionary` |
+| 종목·전략 표 | 이름 ↔ 번호. 넣는 쪽은 주문 프로세스 하나, 전략 쪽은 등록을 요청하고 번호가 뜨기를 기동 중에는 5분, 스레드가 뜬 뒤에는 300ms까지 본다 | `Quant/include/ipc/SharedSymbolDictionary.h`·`Quant/include/ipc/SharedStrategyDictionary.h` · `test_shared_symbol_dictionary` |
 | 시세 통로 | 줄 = 소켓, 마지막 한 줄은 REST로 대신 받는 종목. 꺼내는 쪽이 `ipc::MarketLimits`로 값을 보고 어긋나면 버린다(`feed_channel_discarded`) | `Quant/include/ipc/MarketFeedChannel.h` · `test_market_feed_channel` |
 
 스레드도 역할대로 갈린다 — 주문 역할은 수신·주문·체결, 전략 역할은 줄·샤드·전략을 띄우고, 데이터·제어 스레드는
@@ -156,11 +157,12 @@ flowchart LR
 #### 그 밖의 규칙
 
 - 티커 → 번호는 두 길이다. 느린 경로(기동·재스캔·종목명)는 `Engine::register_symbol`이 없으면 넣어서 받고, 잦은 경로
-  (틱·신호·현재가)는 `Engine::lookup_symbol`이 있는 번호만 주고 없으면 `kNone`을 주며 센다(`symbol_lookup_miss`, D-106).
+  (신호·현재가)는 `Engine::lookup_symbol`이 있는 번호만 주고 없으면 `kNone`을 주며 센다(`symbol_lookup_miss`, D-106).
+  WS 수신 콜백은 표에 직접 `intern`해 체결·호가에 번호를 찍는다.
 - 프리페치 풀 스레드 수는 전략 수와 무관하게 고정이고, 한 작업이 두 스레드에서 겹쳐 돌지 않는다. 종료 순서는
   전략 정리 → 풀 `stop()`이다. 전략 스냅샷은 `std::shared_ptr<const std::vector<MarketData>>`라 락 안에서 포인터만 바꾼다.
 - 시각은 정수 HHMMSS(`hhmmss`)다. 문자열로는 화면·캡처 파일에서만 되돌린다(`Quant/include/core/MarketSession.h`, D-071).
-- 3분봉은 config `bar_source`로 고른다. `"ws"`(기본)는 전략 스레드가 체결로 1분봉을 모아 판단 직전에
+- 3분봉은 config `bar_source`로 고른다. `"ws"`(기본)는 샤드 스레드에서 도는 전략이 체결로 1분봉을 모아 판단 직전에
   `interval_min` 봉으로 묶고, `"rest"`는 REST 3분봉을 그대로 쓴다(`Quant/include/core/BarAggregator.h`, D-068·D-069·D-072·D-074).
 - 보호 주문(손절·트레일)은 전략이 `on_start`에서 등록하고 전략 스레드가 원장만 보고 판정한다. config `protective_orders`
   (`off`/`shadow`/`owner`, 기본 `shadow`). 전략 박동이 끊기면 주문 스레드가 이어받고, 둘이 같은 차례를 잡지 않게
@@ -208,7 +210,7 @@ flowchart LR
 3. `Quant/src/strategy/StrategyFactory.cpp`의 타입별 로더에서 `engine.add_strategy(std::make_unique<YourStrategy>(...))` 로 등록합니다.
 4. 필요하면 `"strategies"` 아래에 설정 항목을 추가하고 같은 로더에서 파싱합니다(전략 배열 밖의 키는 `Quant/src/core/AppConfig.cpp`의 `parse_config`만 읽습니다).
 
-### KIS API 클라이언트 (`Quant/include/api/KisClient.h`, 구현은 `Quant/src/api/Kis*.cpp` 8파일)
+### KIS API 클라이언트 (`Quant/include/api/KisClient.h`, 멤버 구현은 7파일, 목록 `Quant/src/api/KisClientInternal.h`, 자유 함수는 `KisClient.cpp`)
 
 <!-- sync: Quant/include/api/KisClient.h@514e02b Quant/include/api/KisResult.h@654719e Quant/include/api/KisTypes.h@57ffdb9 Quant/include/api/KisRestDecode.h@0076845 Quant/include/api/IOrderExecutor.h@625dd34 Quant/include/api/IMarketDataSource.h@8c8d745 -->
 클래스는 하나고 구현이 도메인별로 나뉩니다(D-048): `KisTransport.cpp`(플랫폼별 HTTP — Windows는 WinHTTP, Linux는 libcurl — 재시도·초당 한도·공용 인증 헤더 `authentication_headers()`), `KisAuth.cpp`(OAuth2 토큰 발급·캐시), `KisMarket.cpp`(주식 시세 — 분봉 페이지 병합·집계는 순수 함수 헤더 `Quant/include/api/KisRestDecode.h`, D-051), `KisIndex.cpp`(지수·수급·선물), `KisOrder.cpp`(주문 — config `kis.exchange`(KRX/NXT/SOR)가 `EXCG_ID_DVSN_CD`와 tr_id `TTTC0012U/0011U/0013U`를 정한다, D-096), `KisAccount.cpp`(잔고·미체결), `KisUniverse.cpp`(순위·유니버스), `KisClient.cpp`(어디에도 안 붙는 공용 함수 — 주문 거래소 코드 고르기, hhmmss 에서 분 빼기). 구현끼리만 쓰는 include·상수는 `Quant/src/api/KisClientInternal.h`. 주요 메서드: `authenticate()`, `get_chart_ohlcv()`, `get_current_price()`, `send_order()`, 국내 선물 시세 `get_future_price()`(단일 시세)·`get_future_board()`(전광판, 그릭스 포함). 새 REST 호출은 인증 헤더 네 줄을 손으로 쓰지 말고 `authentication_headers(tr_id, {추가 항목})`을 씁니다. 공개 헤더는 `nlohmann::json`을 내보내지 않습니다 — 잔고 `get_balance()`·전광판 `get_future_board()`는 `KisResult<T>`(`Quant/include/api/KisResult.h`, 실패 코드 동반) 봉투에 값 타입(`Quant/include/api/KisTypes.h`)을 담아 돌려주고, 응답 필드 해석은 `Quant/include/api/KisRestDecode.h`의 순수 함수가 맡습니다(D-059). 인터페이스는 둘을 구현합니다 — 주문 `IOrderExecutor`(`Quant/include/api/IOrderExecutor.h`, D-039)와 읽기 전용 시세·봉 `IMarketDataSource`(`Quant/include/api/IMarketDataSource.h`, D-066 — 현재가·일봉·분봉·지수 일봉·지수 현재값·해외 일봉). 순위·수급·잔고는 인터페이스 밖입니다. 거래대금 상위(`fetch_value_ranking`)와 시가총액 상위(`fetch_kr_ranking`)는 한 번에 30행이 상한이고 연속조회가 없어, 그보다 많이 달라고 하면 가격 구간을 갈라 두 번 부르고 합칩니다 — 거래대금 쪽은 ETF·ETN을 제외 마스크로 KIS 쪽에서 빼고, 시가총액 쪽은 그 마스크를 API가 막아 두어 보통주 구분값과 이름 필터로 거릅니다(2026-09-23 실측). 주문 스레드가 초당 한도 버킷에서 기다린 시간은 `IOrderExecutor::rate_limit_wait_ns_this_thread()`로 재서 접수·거부 로그의 `버킷대기=`에 남깁니다(전송 분리 여부는 이 숫자로 정한다, T-13-2). 모의·실계좌 REST 접속점(호스트·포트)은 `Quant/include/api/KisEndpoints.h`의 `rest_base_url()` 한 곳에서 옵니다 — 파이썬 쪽 같은 표는 `PYQuant/kis/endpoints.py`입니다(T-13-3).

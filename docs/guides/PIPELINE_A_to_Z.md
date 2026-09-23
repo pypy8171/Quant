@@ -4,7 +4,7 @@
 
 이 문서는 C++ 퀀트 트레이딩 엔진(`Quant/`)의 **TRADE 모드 실행 경로**를 파일·함수 단위로 추적한다. 모든 주장에는 `파일::심볼` 근거가 달려 있으며, 데이터가 큐/콜백을 넘을 때 "무엇이 무엇으로 변환되는가"를 명시한다.
 
-> 이 문서를 쓴 뒤 코드가 옮겨간 곳이 있다. 전략 로딩은 `Quant/src/main.cpp`에서 `Quant/src/strategy/StrategyFactory.cpp`로, 관찰 모드(FEED·KR_TEST·US_TEST) 화면은 `Quant/src/modes/Monitors.cpp`로 분리됐고, `Logger`는 writer 스레드를 둔 비동기 구조가 됐다. 심볼 참조는 옮겨간 곳으로 맞췄으나 11절과 13절의 서술 일부는 아직 분리 이전 구조를 설명한다.
+> 이 문서를 쓴 뒤 코드가 옮겨간 곳이 있다. 전략 로딩은 `Quant/src/main.cpp`에서 `Quant/src/strategy/StrategyFactory.cpp`로, 관찰 모드(FEED·KR_TEST·US_TEST) 화면은 `Quant/src/modes/Monitors.cpp`로 분리됐고, `Logger`는 writer 스레드를 둔 비동기 구조가 됐다. 심볼 참조는 옮겨간 곳으로 맞췄으나(KisClient 멤버는 `Quant/src/api/Kis{Auth,Market,Order,Account,Transport,Index,Universe}.cpp`) 11절과 13절의 서술 일부는 아직 분리 이전 구조를 설명한다.
 
 > 시크릿(app_key/app_secret/access_token/account_no)은 `Quant/config/*.json`에 평문으로 존재하나(예: `config.json:3-5`), 본 문서에는 값을 옮기지 않는다. 존재 사실만 언급한다.
 
@@ -49,7 +49,7 @@ TRADE 모드의 데이터 흐름:
 
 ### 1.1 진입점과 인자 파싱
 - `main()` 진입: `main.cpp::main`. Windows 콘솔 UTF-8/ANSI 설정 후 (`main.cpp::main`) `Logger::instance().init("logs/quant_trader.log", INFO)` (`main.cpp::main`, logs/ 하위 고정·부모폴더 자동생성).
-- 인자 파싱: `quant_trader [config] [MODE] [--role both|order|strategy]`. `KR_TEST/US_TEST/FEED/TRADE`는 `mode_override`로, `--role`은 이 프로세스가 맡는 자리로, 그 외 토큰은 `config_path`로 해석 (`Quant/src/core/CommandLine.cpp::parse_command_line`). 모르는 역할·`-`로 시작하는 모르는 깃발은 기본값으로 낙하하지 않고 종료코드 2로 멈춘다. `order`·`strategy`는 엔진 가르기 전까지 받아만 두고 뜨지 않는다(D-114 단계 4).
+- 인자 파싱: `quant_trader [config] [MODE] [--role both|order|strategy]`. `KR_TEST/US_TEST/FEED/TRADE`는 `mode_override`로, `--role`은 이 프로세스가 맡는 자리로, 그 외 토큰은 `config_path`로 해석 (`Quant/src/core/CommandLine.cpp::parse_command_line`). 모르는 역할·`-`로 시작하는 모르는 깃발은 기본값으로 낙하하지 않고 종료코드 2로 멈춘다. `order`·`strategy`를 주면 그 역할만 띄우고(`engine.set_role`), 로그는 `logs/quant_trader.order.log`·`logs/quant_trader.strategy.log`로 갈린다(D-114 단계 4).
 - 설정 로드: `main.cpp::main`이 파일을 읽어 `json::parse`한 뒤 `Quant/src/core/AppConfig.cpp::parse_config`가 typed `AppConfig`로 바꾸고, `Quant/src/core/EngineConfigure.cpp::Engine::configure`가 그 값을 엔진 세터에 옮긴다(d7ef5ac·27a6a70). 옛 `main.cpp` 안의 설정 로더와 빈 설정 파일은 지웠다.
 
 ### 1.2 config.json 스키마
@@ -73,19 +73,19 @@ TRADE 모드의 데이터 흐름:
 
 ## 2. 인증 / 로그인 — OAuth2 + 토큰 캐시
 
-`KisClient::authenticate()` (`KisClient.cpp::authenticate`)의 흐름:
+`KisClient::authenticate()` (`KisAuth.cpp::authenticate`)의 흐름:
 
 1. **캐시 재사용 시도**: 토큰 캐시 경로는 `token_cache_path()` — `kis_token_<appkey앞8자>.json` (`KisAuth.cpp::token_cache_path`). 환경변수 `KIS_TOKEN_CACHE_DIR`이 있으면 그 디렉터리에 저장(도커 공유 볼륨 → Python balance가 재사용). 캐시 파일을 열어 `access_token`/`expires_at`을 읽고, 만료 **10분 전**까지 남았으면(`exp_t - now_t > 600`) 인메모리로 로드하고 즉시 반환 (`KisAuth.cpp::issue_token`).
 2. **신규 발급**: 캐시 미스 시 `POST {base}/oauth2/tokenP`에 `{grant_type:client_credentials, appkey, appsecret}` 전송 (`KisAuth.cpp::issue_token`). 응답에서 `access_token`, 만료 필드 `access_token_token_expired` 파싱 (`KisAuth.cpp::issue_token`).
 3. **캐시 저장**: `.tmp`에 쓴 뒤 atomic rename — Windows `MoveFileExA`(`KisAuth.cpp::issue_token`), Linux는 `chmod 0600` + `fsync` + `rename`(`KisAuth.cpp::issue_token`). 읽는 쪽(Python)이 truncated JSON을 보지 않게 함.
-4. **자동 갱신**: `ensure_authenticated()` (`KisClient.cpp::ensure_authenticated`)는 만료 **5분 전**이면 `authenticate()`를 다시 부른다. 모든 `http_get`/`http_post`가 URL에 "oauth2"가 없으면 진입 시 이걸 호출한다(재귀 방지 가드 포함) (`KisClient.cpp::http_get`·`KisClient.cpp::http_post`).
+4. **자동 갱신**: `ensure_authenticated()` (`KisAuth.cpp::ensure_authenticated`)는 만료 **5분 전**이면 `authenticate()`를 다시 부른다. 모든 `http_get`/`http_post`가 URL에 "oauth2"가 없으면 진입 시 이걸 호출한다(재귀 방지 가드 포함) (`KisTransport.cpp::http_get`·`KisTransport.cpp::http_post`).
 
 **base_url / tr_id 분기**:
 - `base_url()`: `is_paper ? openapivts...:29443 : openapi...:9443` (`KisClient.h::base_url`).
-- 국내 주문 tr_id: 매수 `VTTC0012U`(모의)/`TTTC0012U`(실), 매도 `VTTC0011U`/`TTTC0011U` (`KisClient.cpp::submit_order_acknowledgement`), 본문 `EXCG_ID_DVSN_CD`는 config `kis.exchange`(KRX/NXT/SOR, D-096). 정정/취소는 `VTTC0013U`/`TTTC0013U` (`KisClient.cpp::cancel_order`·`KisClient.cpp::revise_order`). 잔고조회 `VTTC8434R`/`TTTC8434R` (`KisClient.cpp::get_balance`).
-- 조회계 tr_id: 일봉 `FHKST03010100`(`KisClient.cpp::get_daily_ohlcv`), 현재가/펀더멘털 `FHKST01010100`(`KisClient.cpp::get_current_price`·`KisClient.cpp::get_fundamentals`), 시총랭킹 `FHPST01740000`(`KisUniverse.cpp::fetch_kr_ranking`, 화면코드 20174), 지수일봉 `FHKUP03500100`(`KisClient.cpp::get_index_daily_ohlcv`), 지수현재값 `FHPUP02100000`(`KisClient.cpp::get_index_price`), 투자자동향 `FHKST01010900`(`KisClient.cpp::get_investor_trend`·`KisClient.cpp::get_investor_flow`).
+- 국내 주문 tr_id: 매수 `VTTC0012U`(모의)/`TTTC0012U`(실), 매도 `VTTC0011U`/`TTTC0011U` (`KisOrder.cpp::submit_order_acknowledgement`), 본문 `EXCG_ID_DVSN_CD`는 config `kis.exchange`(KRX/NXT/SOR, D-096). 정정/취소는 `VTTC0013U`/`TTTC0013U` (`KisOrder.cpp::cancel_order`·`KisOrder.cpp::revise_order`). 잔고조회 `VTTC8434R`/`TTTC8434R` (`KisAccount.cpp::get_balance`).
+- 조회계 tr_id: 일봉 `FHKST03010100`(`KisMarket.cpp::get_daily_ohlcv`), 현재가/펀더멘털 `FHKST01010100`(`KisMarket.cpp::get_current_price`·`KisMarket.cpp::get_fundamentals`), 시총랭킹 `FHPST01740000`(`KisUniverse.cpp::fetch_kr_ranking`, 화면코드 20174), 지수일봉 `FHKUP03500100`(`KisIndex.cpp::get_index_daily_ohlcv`), 지수현재값 `FHPUP02100000`(`KisIndex.cpp::get_index_price`), 투자자동향 `FHKST01010900`(`KisIndex.cpp::get_investor_trend`·`KisIndex.cpp::get_investor_flow`).
 
-**헤더 구성** (공통 4종): `authorization: Bearer <token>`, `appkey`, `appsecret`, `tr_id` (예: `KisClient.cpp::get_daily_ohlcv`). GET에도 KIS는 `Content-Type: application/json`을 요구하므로 `http_get`이 없으면 자동 추가 (`KisClient.cpp::http_get`). HTTP 구현은 플랫폼 분기: Windows `winhttp_request`(`KisTransport.cpp::winhttp_request`), Linux `curl_request`(`KisTransport.cpp::curl_request`).
+**헤더 구성** (공통 4종): `authorization: Bearer <token>`, `appkey`, `appsecret`, `tr_id` (예: `KisMarket.cpp::get_daily_ohlcv`). GET에도 KIS는 `Content-Type: application/json`을 요구하므로 `http_get`이 없으면 자동 추가 (`KisTransport.cpp::http_get`). HTTP 구현은 플랫폼 분기: Windows `winhttp_request`(`KisTransport.cpp::winhttp_request`), Linux `curl_request`(`KisTransport.cpp::curl_request`).
 
 ---
 
@@ -122,18 +122,18 @@ TRADE 모드의 데이터 흐름:
 4. **폴링**: `watch_specifications_`의 각 종목에 대해 KR이면 `kis_->get_daily_ohlcv(spec.ticker, 1)`, US면 `get_us_daily_ohlcv(spec.ticker, 1, exchange)` (`Engine.cpp::data_thread_fn`). 반환 `bars[0]`에 `bar_index = data_count_`를 심고 `market_queue_.push(md)` (`Engine.cpp::data_thread_fn`). 큐가 full이면 1ms 슬립하며 재시도. push 후 `data_count_++`.
 5. 루프 말미 `fetch_interval_sec_`초(기본 60s) 슬립 (`Engine.cpp::data_thread_fn`).
 
-**데이터 변환**: KIS REST JSON `output2[i]`의 `stck_clpr/oprc/hgpr/lwpr/acml_vol`(문자열) → `std::stod/stoll` → `MarketData{close,open,high,low,volume, timestamp=now, bar_index}` (`KisClient.cpp::get_daily_ohlcv`). `timestamp`는 거래소 체결시각이 아니라 **REST 응답 처리 시각**임에 주의 (`Types.h::MarketData`).
+**데이터 변환**: KIS REST JSON `output2[i]`의 `stck_clpr/oprc/hgpr/lwpr/acml_vol`(문자열) → `std::stod/stoll` → `MarketData{close,open,high,low,volume, timestamp=now, bar_index}` (`KisMarket.cpp::get_daily_ohlcv`). `timestamp`는 거래소 체결시각이 아니라 **REST 응답 처리 시각**임에 주의 (`Types.h::MarketData`).
 
 ### 4.1 ★버그: get_daily_ohlcv 날짜 하드코딩 → 모의서버 HTTP 500 → 전략 밀림
-`get_daily_ohlcv()`의 URL이 `FID_INPUT_DATE_1=19000101` … `FID_INPUT_DATE_2=99991231`로 **하드코딩**되어 있다 (`KisClient.cpp::get_daily_ohlcv`):
+`get_daily_ohlcv()`의 URL이 `FID_INPUT_DATE_1=19000101` … `FID_INPUT_DATE_2=99991231`로 **하드코딩**되어 있다 (`KisMarket.cpp::get_daily_ohlcv`):
 
 ```cpp
 "?FID_COND_MRKT_DIV_CODE=J" + "&FID_INPUT_ISCD=" + ticker + "&FID_INPUT_DATE_1=19000101" +
 "&FID_INPUT_DATE_2=99991231" + "&FID_PERIOD_DIV_CODE=D" + "&FID_ORG_ADJ_PRC=0";
 ```
 
-- **왜 문제인가**: `inquire-daily-itemchartprice`(TR `FHKST03010100`)는 조회 구간을 합리적 범위(보통 ~100일 이내)로 기대한다. 1900~9999년 전 구간을 요청하면 서버가 처리하지 못해 HTTP 500 또는 빈 `output2`를 반환한다. `http_get`이 빈 문자열/에러를 돌려주면 `get_daily_ohlcv`는 빈 벡터를 반환하고(`KisClient.cpp::get_daily_ohlcv`), DataThread는 `bars.empty()`에서 continue → **market_queue_에 아무것도 push되지 않는다** (`Engine.cpp::data_thread_fn`). 결과적으로 StrategyThread의 `on_data`가 호출되지 않아 MACross 같은 일봉 기반 전략이 **신호를 전혀 내지 못한다**(입력이 밀림).
-- **올바른 값**: 같은 파일의 `get_index_daily_ohlcv`가 쓰는 방식처럼 `DATE_2 = 오늘(KST)`, `DATE_1 = 오늘 - N일`로 유한 구간을 넣어야 한다 (참조 패턴: `KisClient.cpp::get_index_daily_ohlcv`의 `format_date(end_t)` / `end_t - kWindowDays*86400`). count봉을 채우려면 페이지네이션도 함께 필요.
+- **왜 문제인가**: `inquire-daily-itemchartprice`(TR `FHKST03010100`)는 조회 구간을 합리적 범위(보통 ~100일 이내)로 기대한다. 1900~9999년 전 구간을 요청하면 서버가 처리하지 못해 HTTP 500 또는 빈 `output2`를 반환한다. `http_get`이 빈 문자열/에러를 돌려주면 `get_daily_ohlcv`는 빈 벡터를 반환하고(`KisMarket.cpp::get_daily_ohlcv`), DataThread는 `bars.empty()`에서 continue → **market_queue_에 아무것도 push되지 않는다** (`Engine.cpp::data_thread_fn`). 결과적으로 StrategyThread의 `on_data`가 호출되지 않아 MACross 같은 일봉 기반 전략이 **신호를 전혀 내지 못한다**(입력이 밀림).
+- **올바른 값**: 같은 파일의 `get_index_daily_ohlcv`가 쓰는 방식처럼 `DATE_2 = 오늘(KST)`, `DATE_1 = 오늘 - N일`로 유한 구간을 넣어야 한다 (참조 패턴: `KisIndex.cpp::get_index_daily_ohlcv`의 `format_date(end_t)` / `end_t - kWindowDays*86400`). count봉을 채우려면 페이지네이션도 함께 필요.
 
 ### 4.2 부차 문제: count=1 폴링과 일봉 반복
 DataThread는 `get_daily_ohlcv(ticker, 1)`로 **최신 1봉만** 가져온다 (`Engine.cpp::data_thread_fn`). 이 봉은 "오늘의(미완성) 일봉"이라, 60초마다 폴링할 때마다 사실상 같은 날짜의 종가가 반복 push된다. MACross의 `prices_` deque(`MACrossStrategy.h::prices_`)는 서로 거의 같은 값으로 채워져 골든/데드크로스가 잘 발생하지 않는다. 설령 4.1 버그가 고쳐져도, 장중 일봉 크로스 전략이 의미 있게 동작하려면 과거 N봉을 시드하는 로직이 필요하다. (KR_TEST 경로는 `get_daily_ohlcv(code, 65)`로 여러 봉을 받아 MA를 계산하므로 대조적 — `Monitors.cpp::run_kr_test`.)
@@ -142,7 +142,7 @@ DataThread는 `get_daily_ohlcv(ticker, 1)`로 **최신 1봉만** 가져온다 (`
 
 ## 5. 시세 수신 경로 B — WebSocket 수신 스레드
 
-WS 연결/구독은 `KisWebSocket::connect()` (Windows·Linux 두 정의, `WebSocketClient.cpp::connect`), 수신 파싱은 `parse_message()`가 입구이고, D-093(fc748e6)부터 JSON 제어 프레임은 `handle_control_frame()`, 데이터 프레임은 `handle_data_frame()` → 레코드별 `dispatch_record()`로 갈라진다(`WebSocketClient.cpp::handle_control_frame`, `WebSocketClient.cpp::handle_data_frame`, `WebSocketClient.cpp::dispatch_record`). 아래 5.2는 분리 전 서사다.
+WS 연결/구독은 `KisWebSocket::connect()` (한 정의 `WebSocketClient.cpp::connect`, 소켓은 `Quant/src/api/WsSocket.h` 뒤의 `WsSocketWin.cpp`/`WsSocketPosix.cpp`), 수신 파싱은 `parse_message()`가 입구이고, D-093(fc748e6)부터 JSON 제어 프레임은 `handle_control_frame()`, 데이터 프레임은 `handle_data_frame()` → 레코드별 `dispatch_record()`로 갈라진다(`WebSocketClient.cpp::handle_control_frame`, `WebSocketClient.cpp::handle_data_frame`, `WebSocketClient.cpp::dispatch_record`). 아래 5.2는 분리 전 서사다.
 
 ### 5.1 연결·구독
 - approval key 발급: `POST /oauth2/Approval` with `{grant_type, appkey, secretkey}` → `approval_key_` (`WebSocketClient.cpp::get_approval_key`). REST OAuth 토큰과 별개 키.
@@ -151,7 +151,7 @@ WS 연결/구독은 `KisWebSocket::connect()` (Windows·Linux 두 정의, `WebSo
 
 ### 5.2 프레임 파싱 (`parse_message`)
 - JSON 프레임(`msg[0]=='{'`): `PINGPONG`이면 그대로 echo (`WebSocketClient.cpp::parse_message`). 구독 응답이면 rt_cd/msg1 로그. 체결통보 구독 응답이면 `output.key/iv`를 확보해 **AES-256-CBC key(32B)/iv(16B)**를 저장(길이 검증 후) (`WebSocketClient.cpp::parse_message`).
-- 데이터 프레임: `TYPE|TR_ID|COUNT|DATA`로 `|` 분리 (`WebSocketClient.cpp::parse_message`). `parts[0]=="1"`이면 암호화 프레임(체결통보) → `base64_decode` + `aes_cbc_decrypt` (`WebSocketClient.cpp::aes_cbc_decrypt`). 그 후 `data`를 `^`로 분리해 tr_id별 파서 호출 (`WebSocketClient.cpp::dispatch_record`).
+- 데이터 프레임: `TYPE|TR_ID|COUNT|DATA`로 `|` 분리 (`WebSocketClient.cpp::parse_message`). `parts[0]=="1"`이면 암호화 프레임(체결통보) → `base64_decode` + `aes_cbc_decrypt` (`websocket_platform::aes_cbc_decrypt`). 그 후 `data`를 `^`로 분리해 tr_id별 파서 호출 (`WebSocketClient.cpp::dispatch_record`).
 
 ### 5.3 H0STCNT0 체결 필드 인덱스 (parse_kr_trade, `WebSocketClient.cpp::parse_kr_trade`)
 | 인덱스 | 의미 | 파싱 → 필드 |
@@ -251,7 +251,7 @@ MACross의 `make_signal` (`MACrossStrategy.h::make_signal`)은 `type=MARKET`, `q
 6. 주문 번호 `client_order_number`를 `slot_by_client_number_`에 이력 순번으로 매핑 (`OrderRouter.cpp::push_history_locked`). 접수 로그에 RTT 포함 (`OrderRouter.cpp::new_route`).
 7. odno 비었으면 REJECTED("빈 ODNO") (`OrderRouter.cpp::new_route`).
 
-`KisClient::submit_order_acknowledgement()` (`KisClient.cpp::submit_order_acknowledgement`): tr_id 분기(§2 참조), body 구성(국내는 `ORD_DVSN` MARKET="01"/LIMIT="00", `ORD_QTY`, `ORD_UNPR`) (`KisClient.cpp::submit_order_acknowledgement`), `http_post` 후 `rt_cd=="0"` 확인, `output.ODNO`와 `output.KRX_FWDG_ORD_ORGNO` 추출해 `OrderAck` 반환 (`KisClient.cpp::submit_order_acknowledgement`).
+`KisClient::submit_order_acknowledgement()` (`KisOrder.cpp::submit_order_acknowledgement`): tr_id 분기(§2 참조), body 구성(국내는 `ORD_DVSN` MARKET="01"/LIMIT="00", `ORD_QTY`, `ORD_UNPR`) (`KisOrder.cpp::submit_order_acknowledgement`), `http_post` 후 `rt_cd=="0"` 확인, `output.ODNO`와 `output.KRX_FWDG_ORD_ORGNO` 추출해 `OrderAck` 반환 (`KisOrder.cpp::submit_order_acknowledgement`).
 
 **on_accept** (`OrderGate.cpp::on_accept`): `reserved_[k] += (BUY? +quantity : -quantity)`, 0이면 erase. positions_/avg_price는 불변(접수는 체결이 아님).
 
@@ -260,7 +260,7 @@ MACross의 `make_signal` (`MACrossStrategy.h::make_signal`)은 `type=MARKET`, `q
 ## 10. 원장 / 체결 — 체결통보 AES 복호화 → on_fill
 
 ### 10.1 체결통보 수신·복호화
-`parse_fill_notification` (`WebSocketClient.cpp::parse_fill_notification`)는 암호 프레임 복호 후 호출된다. 복호는 `parse_message`에서 `parts[0]=="1"` → `aes_cbc_decrypt(base64_decode(data), aes_key_, aes_iv_)` (`WebSocketClient.cpp::aes_cbc_decrypt`). AES 구현은 Windows BCrypt와 Linux OpenSSL EVP 두 정의(`WebSocketClient.cpp::aes_cbc_decrypt`). key/iv는 구독 응답에서 확보(§5.2).
+`parse_fill_notification` (`WebSocketClient.cpp::parse_fill_notification`)는 암호 프레임 복호 후 호출된다. 복호는 `parse_message`에서 `parts[0]=="1"` → `aes_cbc_decrypt(base64_decode(data), aes_key_, aes_iv_)` (`websocket_platform::aes_cbc_decrypt`). AES 구현은 Windows BCrypt와 Linux OpenSSL EVP 두 정의(`websocket_platform::aes_cbc_decrypt`). key/iv는 구독 응답에서 확보(§5.2).
 
 체결통보 필드 (`WebSocketClient.cpp::parse_fill_notification`): `f[2]`=ODNO, `f[4]`=매도/매수구분(01=매도,02=매수), `f[8]`=종목코드, `f[9]`=체결수량, `f[10]`=체결단가, `f[11]`=체결시각, `f[13]`=CNTG_YN(1=접수통보,2=체결통보). **`f[13]!="2"`면 반환** — 체결(2)만 처리 (`WebSocketClient.cpp::parse_fill_notification`). 결과 `FillNotification`을 `on_fill_(fn)` → Engine 콜백 → `OrderRouter::on_fill(fn)` (`Engine.cpp::start`).
 
@@ -293,7 +293,7 @@ FEED/KR_TEST/US_TEST 모드는 `set_console_enabled(false)`로 콘솔 로그를 
 
 - SIGINT/SIGTERM → `signal_handler`가 `g_running=false` + `g_engine->stop()` (`main.cpp::signal_handler`, 등록 `main.cpp::main`).
 - `Engine::stop()` (`Engine.cpp::stop`): `running_.exchange(false)`로 1회성 보장 → control→order→strategy→data 역순 join → `ws_->disconnect()` → 전략 `on_stop()` → `print_statistics()`.
-- `KisWebSocket::disconnect()` (`WebSocketClient.cpp::disconnect` — Win·Linux 두 정의): `connected_.exchange(false)`, 소켓 close, recv_thread_ join. Linux는 `shutdown(SHUT_RDWR)`로 블로킹 recv를 깨워 join 무한대기 방지(W-1).
+- `KisWebSocket::disconnect()` (`WebSocketClient.cpp::disconnect` — 한 정의, 플랫폼 소켓 닫기는 `WsSocketWin.cpp`/`WsSocketPosix.cpp`): `connected_.exchange(false)`, 소켓 close, recv_thread_ join. Linux는 `shutdown(SHUT_RDWR)`로 블로킹 recv를 깨워 join 무한대기 방지(W-1).
 - 메인 스레드는 `engine.is_running()`이 false가 되면 루프 탈출 후 종료 로그 (`main.cpp::main`). 로그 flush는 `std::ofstream` 소멸자에 의존(명시적 flush 없음).
 
 ---
@@ -302,13 +302,13 @@ FEED/KR_TEST/US_TEST 모드는 `set_console_enabled(false)`로 콘솔 로그를 
 
 | # | 항목 | 근거(파일::심볼) | 영향 | 개선 방향 |
 |---|---|---|---|---|
-| G1 | **get_daily_ohlcv 날짜 하드코딩 → 500/빈응답** | `KisClient.cpp::get_daily_ohlcv` | 모의서버에서 일봉 응답 실패 → market_queue_ 미적재 → MACross 등 일봉 전략 **신호 0건**. TRADE 모드 핵심 경로가 사실상 무동작. | `get_index_daily_ohlcv`처럼 KST 기준 유한 날짜구간(오늘, 오늘-N일) + 페이지네이션으로 교체 (`KisClient.cpp::get_index_daily_ohlcv` 패턴 재사용). |
+| G1 | **get_daily_ohlcv 날짜 하드코딩 → 500/빈응답** | `KisMarket.cpp::get_daily_ohlcv` | 모의서버에서 일봉 응답 실패 → market_queue_ 미적재 → MACross 등 일봉 전략 **신호 0건**. TRADE 모드 핵심 경로가 사실상 무동작. | `get_index_daily_ohlcv`처럼 KST 기준 유한 날짜구간(오늘, 오늘-N일) + 페이지네이션으로 교체 (`KisIndex.cpp::get_index_daily_ohlcv` 패턴 재사용). |
 | G2 | **count=1 폴링 + 일봉 반복** | `Engine.cpp::data_thread_fn`, `MACrossStrategy.h::on_data` | 최신 1봉만 반복 수신 → deque가 동일 종가로 채워져 크로스 미발생. 과거봉 시드 부재. | on_start에서 과거 N봉 시드(seed) 또는 DataThread에서 `count=long_period+α` 요청 + 신규봉만 push. |
 | G3 | **WS 실시간 체결/호가가 전략에 미활용** | `MACrossStrategy.h::on_data`(on_trade/on_order_book 미구현), `StrategyBase.h::on_trade` | H0STCNT0 현재가가 들어와도 MACross는 무시. 실시간성 없음. 구독은 하되 소비 안 함. | 실시간 가격 기반 전략(예: 밴드/스탑) 도입 또는 MACross를 WS 가격으로 교차 판정하도록 확장. |
 | G5 | **포지션 원장이 실제 계좌잔고와 분리되어 시작** | `OrderGate.cpp::reset_daily`(positions_는 리셋하지 않는다), `OrderGate` 초기 상태 = 빈 맵 | 엔진 기동 시 `positions_`는 비어 있어, 실제 계좌에 보유분이 있어도 게이트는 0으로 인식 → 매도 가능수량 오판/평단 부정확. universe_from_balance는 전략 시드만 하고 게이트 원장은 시드 안 함(`StrategyFactory.cpp::load_moving_average_cross`). | 기동 시 `get_balance()`로 positions_/avg_prices_ 시드하는 원장 부트스트랩 추가. |
 | G6 | **US 체결 방향 필드 인덱스 추정** | `WebSocketClient.cpp::parse_us_trade`("방향 필드 위치 확인 후 조정" 주석) | 미국 체결 direction이 부정확할 수 있음(현재 US 전략 미사용이라 저위험). | 실측 로그로 인덱스 확정. |
 | G7 | **정정(REPLACE) 부분체결·조직번호 재캡처 미완** | `OrderRouter.cpp::replace_route`(TODO) | 부분체결 상태 정정은 수량 정합 미보장 → MM은 CANCEL+NEW만 사용. 정정 응답의 새 조직번호 미파싱(원 조직번호 승계). | 정정 응답 파싱 강화 + 부분체결 정정 로직(Phase 2). |
-| G8 | **해외 정정/취소 미구현** | `KisClient.cpp::cancel_order`(주석 "해외 정정/취소 별도 tr_id — 미구현 TODO") | US 주문 취소/정정 불가. | overseas order-rvsecncl tr_id/URL 추가. |
+| G8 | **해외 정정/취소 미구현** | `KisOrder.cpp::cancel_order`(주석 "해외 정정/취소 별도 tr_id — 미구현 TODO") | US 주문 취소/정정 불가. | overseas order-rvsecncl tr_id/URL 추가. |
 | G9 | **Config.cpp / Logger.cpp placeholder** | (당시) `Quant/src/utils/Config.cpp`, `Quant/src/utils/Logger.cpp` | 설정 파서/로거가 헤더·main에 inline. 모듈 경계가 흐림(유지보수 시 혼란). | 해소: 설정 파싱은 `Quant/src/core/AppConfig.cpp::parse_config`, 엔진 배선은 `Quant/src/core/EngineConfigure.cpp::Engine::configure`로 옮겼고 `Config.cpp`는 삭제(d7ef5ac·27a6a70). |
 | G10 | **Logger 타임스탬프 로컬 TZ + flush 없음** | `Logger.h::format` | 주석은 "UTC"인데 localtime 사용. 파이프 캡처 시 블록버퍼링으로 실시간 미표시(§11). | flush 정책 명시(줄마다 `<< std::flush` 또는 파일 라인버퍼), TZ 주석 정정. |
 | G11 | **OrderGate 원자성은 단일 소비자 전제에 의존** | `Quant/src/risk/OrderGate.cpp`(C6), `OrderRouter.cpp::submit` | 멀티 프로듀서로 확장 시 check()+on_accept TOCTOU 발생. 현재는 안전. | 다계좌/멀티스레드 발주 확장 시 check+reserve를 단일 임계구역으로 묶기. |
@@ -318,12 +318,12 @@ FEED/KR_TEST/US_TEST 모드는 `set_console_enabled(false)`로 콘솔 로그를 
 
 ## 검증한 파일 목록
 
-- `Quant/src/main.cpp` (전체, 당시 1048줄 — 지금은 325줄, 설정 파싱은 `Quant/src/core/AppConfig.cpp` 243줄·`Quant/src/core/EngineConfigure.cpp` 124줄로 분리)
+- `Quant/src/main.cpp` (전체, 당시 1048줄 — 설정 파싱은 이후 `Quant/src/core/AppConfig.cpp`·`Quant/src/core/EngineConfigure.cpp`로 분리)
 - `Quant/include/core/Types.h` (전체)
 - `Quant/src/core/Engine.cpp` (전체) / `Quant/include/core/Engine.h` (전체)
 - `Quant/include/core/RingBuffer.h` (전체)
 - `Quant/src/api/KisClient.cpp` (전체, 당시 1620줄 — 2페이지 분할 확인; D-048로 `Quant/src/api/Kis*.cpp`로 분할됨: KisTransport 578·KisAuth 220·KisAccount 180·KisOrder 392·KisMarket 693·KisIndex 478·KisUniverse 732줄) / `Quant/include/api/KisClient.h` (전체)
-- `Quant/src/api/WebSocketClient.cpp` (전체, 당시 1294줄 — 지금은 940줄) / `Quant/include/api/KisWebSocket.h` (전체)
+- `Quant/src/api/WebSocketClient.cpp` (전체, 당시 1294줄) / `Quant/include/api/KisWebSocket.h` (전체)
 - `Quant/include/risk/OrderGate.h` / `Quant/src/risk/OrderGate.cpp` (전체)
 - `Quant/src/ipc/OrderRouter.cpp` / `Quant/include/ipc/OrderRouter.h` (전체)
 - `Quant/include/api/IOrderExecutor.h` (전체)

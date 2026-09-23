@@ -117,7 +117,7 @@ wsl -e docker ps -a --filter name=quant-tsdb
 1절 감시견이 도는 날에는 쓰지 않는다(트레이더가 둘이 된다). 대상은 DevScale 모의계좌 `Quant\config\config_dev_paper.json` —
 `Quant\config\config.json`은 실계좌라 장중 시험에 쓰지 않는다. 각 창은 별도 프로세스이고 닫으면 그 부분만 멈춘다.
 
-창 1 — 매크로 국면 보조 프로세스(제일 먼저, 장 끝까지 유지). 죽으면 `regime.json`이 낡아 신규 매수가 막힌다.
+창 1 — 매크로 국면 보조 프로세스(제일 먼저, 장 끝까지 유지). 죽으면 `regime.json`이 낡아(기본 600초) 국면 게이트가 마지막 값으로 굳는다 — 새 정지·해제·매수 비율이 반영되지 않는다.
 
 ```powershell
 cd {ROOT}
@@ -126,7 +126,7 @@ $env:PYTHONUTF8 = "1"
 ```
 
 창 2 — 유니버스 갱신(장 전 1회, 끝나면 닫아도 된다). 코스피+코스닥 시총 500 ∪ 거래대금 500. 실패해도 KIS 랭킹 폴백으로 매매는 된다.
-`--date`는 기본 T-1이라 그냥 돌리면 전일 종가 기준. `count=NNN, basDt=(어제)`가 찍히면 성공.
+종목 목록은 T-1 data.go.kr, 시총·거래대금은 실행 시점 네이버 값이다(`--no-live`면 스냅샷 값). `[universe_feed] 기록 완료 → … (N종목, 목록 기준일 …)`이 찍히면 성공.
 
 ```powershell
 cd {ROOT}
@@ -281,7 +281,7 @@ $env:PYTHONUTF8 = "1"
 
 ## 10. 부하·지연 벤치 (처리량·꼬리지연 실측 · 주문 없음)
 
-벤치 실행파일은 기본 빌드에 안 들어간다 — 타깃을 지정해 먼저 빌드(`Quant\build_win\`에 산출). 인메모리 벤치는 인증이
+벤치 실행파일도 기본 빌드에 들어간다 — 벤치만 다시 만들 때는 타깃을 지정해 빌드(`Quant\build_win\`에 산출). 인메모리 벤치는 인증이
 필요 없고 `feed_latency_measure`만 실제 KIS 조회를 한다.
 
 ```powershell

@@ -28,7 +28,7 @@ KIS OpenAPI
   WebSocket(체결통보) ──▶ [WS 수신 스레드] ──▶ pipeline_.fill_queue ──▶ [체결 소비 스레드] ──▶ OrderRouter::on_fill
 
 행렬 열 m ──▶ [샤드 스레드 m] ──▶ pipeline_.shard_out(MpscQueue) ──▶ [전략(디스패치) 스레드]
-          ──▶ pipeline_.order_queue(RingBuffer 1024) ──▶ [주문 스레드] OrderRouter → OrderGate → IOrderExecutor(KisClient)
+          ──▶ pipeline_.requests(SharedSpscRing 1024) ──▶ [주문 스레드] OrderRouter → OrderGate → IOrderExecutor(KisClient)
 
 [제어 스레드]  잔고 대조 · 토큰 선갱신 · WS 단절 판정  (파이프라인 밖)
 ZmqBridge(HAS_ZMQ, 내부 스레드)  PUB :5555 / REP :5556  →  quant-recorder → TimescaleDB  (목표 아키텍처, 3·4절)
@@ -47,8 +47,8 @@ OpsServer(내부 스레드)           운영단말 TCP — 조회·수동주문�
 전부 띄우고, `--role order`·`--role strategy`도 이제 실제로 뜬다 — 자리표가 공유 쪽지
 (`quant.engine.<paper|live>.<계좌번호>`)에 앉아 주문 쪽이 만들고 전략 쪽이 붙는다(없으면 30초까지 기다렸다 못 붙으면
 뜨지 않는다). 역할을 주고 띄우면 로그 파일도 갈린다 — `logs/quant_trader.order.log`·
-`logs/quant_trader.strategy.log`이고, `both`는 지금까지처럼 `logs/quant_trader.log`다. 다만 종목 번호 표가 아직
-프로세스마다 따로고 감시견도 `both` 하나만 띄운다.
+`logs/quant_trader.strategy.log`이고, `both`는 지금까지처럼 `logs/quant_trader.log`다. 종목 번호 표는 공유 메모리 위의 표 하나를 양쪽이 쓴다(주문 쪽이 넣고,
+전략 쪽은 등록을 부탁한다). 감시견은 기본으로 `both`를 띄우고, `-Split`을 주면 주문 쪽과 전략 쪽을 따로 띄운다.
 
 | 스레드 | 하는 일 | 큐 |
 |---|---|---|
@@ -93,7 +93,7 @@ OpsServer(내부 스레드)           운영단말 TCP — 조회·수동주문�
 | 경로 | 역할 |
 |---|---|
 | `Quant/include/core` · `Quant/src/core` | 엔진 본체 — `Engine.h`(스레드·`pipeline_`), `AppConfig`(config.json을 읽는 유일한 곳), `Types.h`, 큐(`RingBuffer`·`MpscQueue`·`ShardMatrix`), `SignalDispatcher`·`OrderRateLimiter`·`LedgerReconciler`·`FeedSupervisor`·`BarAggregator` 같은 스레드별 지역 객체, `WakeGate`, 틱 캡처·리플레이 |
-| `Quant/include/api` · `Quant/src/api` | KIS REST(`KisClient`, 구현은 도메인별 `Kis*.cpp`)·WebSocket(`KisWebSocket`, 소켓은 `WsSocketWin.cpp`/`WsSocketPosix.cpp` 파일 단위 분기)·순수 함수 디코더(`KisRestDecode.h`·`KisWsDecode.h`)·인터페이스(`IOrderExecutor`·`IMarketDataSource`) |
+| `Quant/include/api` · `Quant/src/api` | KIS REST(`KisClient`, 구현은 도메인별 7파일, 목록 `Quant/src/api/KisClientInternal.h`)·WebSocket(`KisWebSocket`, 소켓은 `WsSocketWin.cpp`/`WsSocketPosix.cpp` 파일 단위 분기)·순수 함수 디코더(`KisRestDecode.h`·`KisWsDecode.h`)·인터페이스(`IOrderExecutor`·`IMarketDataSource`) |
 | `Quant/include/risk` · `Quant/src/risk` | `OrderGate`(주문 검증·확정 포지션 원장·kill switch·entry_halt)와 거부 사유 문장 계약 `GateReasons.h`(D-067) |
 | `Quant/include/strategy` · `Quant/src/strategy` | `StrategyBase`와 전략 구현, 타입별 로더 `StrategyFactory.cpp`. 가상 함수는 `on_data`·`on_order_book`·`on_order_book_batch`·`on_trade`·`on_trade_batch`·`on_start`·`on_stop`·`get_watch_specifications`·`wants_daily_bars`·`id`·`describe` |
 | `Quant/include/ipc` · `Quant/src/ipc` | `OrderRouter`(FEP 층 — 라우팅·이력·통계), 운영단말 TCP `OpsServer`·`OpsProtocol`, `ZmqBridge`(HAS_ZMQ일 때만) |
@@ -106,7 +106,7 @@ OpsServer(내부 스레드)           운영단말 TCP — 조회·수동주문�
 | `Quant/config` | `config.json`(gitignore — 실KIS 인증정보·계좌번호), 모의용 `config_*_paper.json`, ETF·리츠 이름 목록, 매크로 보조 프로세스가 쓰는 `regime.json`, 유니버스 스캔 결과 |
 | `Quant/CMakeLists.txt` · `Quant/Dockerfile` | 빌드 정의(ZMQ 선택, FetchContent), C++ 2-stage 이미지 |
 | `PYQuant/` | 파이썬 — `kis/`(REST 클라이언트), `strategy/`, `backtest/`, `live/`, `ipc/`(ZMQ 구독·명령), `db/`(TimescaleDB 스키마·적재), `tools/`(매크로 국면·지수 적재 보조 프로세스), `main.py` |
-| `docker-compose.yml` | 4개 서비스(engine/python/recorder/tsdb) — 3절 |
+| `docker-compose.yml` | 5개 서비스(engine/python/recorder/tsdb/grafana) — 3절 |
 | `docs/` | 설계·운영 문서. 이 파일 외에 [OPS_TERMINAL.md](OPS_TERMINAL.md)·[MFC_TERMINAL.md](MFC_TERMINAL.md)·[CPP20_23_GUIDE.md](CPP20_23_GUIDE.md), 결정 이력 [../DECISIONS.md](../DECISIONS.md) |
 | `ARCHITECTURE.md` · `CODE_REVIEW.md` | 저장소 루트의 로컬전용 개인 문서(gitignore) — 저장소에 남는 요약은 `docs/ENGINE_ARCHITECTURE.md` |
 
@@ -116,7 +116,7 @@ OpsServer(내부 스레드)           운영단말 TCP — 조회·수동주문�
 
 | 모드 | 동작 |
 |------|------|
-| `KR_TEST` | KOSPI 상위 20 + 관심종목 실시간 시세. WS 체결 수신 + ZMQ publish. 주문 없음. Docker 기본값. |
+| `KR_TEST` | KOSPI 상위 20 + 관심종목 실시간 시세. WS 체결 수신 + ZMQ publish. 주문 없음. |
 | `FEED` | WebSocket 호가+체결 5단계 콘솔 표시. 연결·인증 검증용. |
 | `US_TEST` | M7(AAPL·MSFT·NVDA 등) REST 시세 반복 조회. 장 외 시간에도 동작. |
 | `TRADE` | Engine 실행(1절 스레드 모델). 전략 신호 → OrderGate → KIS 실주문. |
@@ -141,7 +141,7 @@ Linux에서는 `-DQUANT_TSAN=ON`으로 Debug를 ThreadSanitizer로 만들 수 �
 **배포판은 Ubuntu-24.04**를 골라야 한다(기본 22.04는 g++ 11이라 C++23 `<format>`·`<expected>`가 없다).
 윈도우에서는 `wsl.exe -d Ubuntu-24.04 -e bash -c "cd '/mnt/c/.../Quant' && bash scripts/tsan_round.sh"` —
 잘못 고르면 스크립트가 먼저 막고 rc=2로 끝난다. 돌고 있는 스크립트는 고치지 않는다(bash가 조금씩 읽어 실행해 파싱이 깨진다).
-스레드가 여럿 붙는 코드(`src/core`·`src/risk`·`src/ipc`·`src/feed`)를 고친 워크트리는 main에 머지하기 전에
+스레드가 여럿 붙는 코드(`src/core`·`src/risk`·`src/ipc`·`src/exchange`)를 고친 워크트리는 main에 머지하기 전에
 한 판 돌린다([MULTI_SESSION.md](MULTI_SESSION.md) 머지 절차). 결과 판정은
 `scripts/check_runtime_health.py`의 "TSAN 회차" 행이 하고, 경합 보고 원문은 `logs/tsan/`에 남는다.
 빌드 폴더는 트리마다 갈라 쓴다 — `$HOME/quant-build-tsan-<트리 폴더 이름>`, `QUANT_TSAN_BUILD`로 덮어쓸 수 있다.
@@ -165,13 +165,14 @@ docker compose version
 ### Docker 서비스 구성
 
 ```
-docker-compose.yml 4개 서비스:
+docker-compose.yml 5개 서비스:
 
 ┌──────────────────────────────────────────────────────────────────┐
 │  quant-engine    C++ 엔진  (포트 5555 PUB, 5556 REP 노출)         │
 │  quant-python    모니터    (ZMQ SUB → stdout)                      │
 │  quant-recorder  DB 적재기 (ZMQ SUB → TimescaleDB, healthcheck 대기)│
 │  quant-tsdb      TimescaleDB (포트 5432, healthcheck: pg_isready)  │
+│  quant-grafana   Grafana     (포트 3000, TimescaleDB 조회)          │
 └──────────────────────────────────────────────────────────────────┘
          모두 quant-net (bridge) 네트워크로 연결
 
@@ -187,7 +188,7 @@ docker-compose.yml 4개 서비스:
 ```bash
 # ── WSL에서 실행 ──────────────────────────────────────────────────
 
-# 전체 스택 기동 (KR_TEST 모드)
+# 전체 스택 기동 (엔진은 config_paper.json TRADE 모드)
 docker compose up -d
 
 # C++ 엔진만 먼저 기동 (DB/Python 없이 검증)
@@ -364,7 +365,7 @@ CMD 열기
   └─ wsl                              WSL(Ubuntu) 진입
        └─ cd /mnt/c/.../Quant
             ├─ docker compose build   이미지 빌드
-            ├─ docker compose up -d   4개 컨테이너 시작
+            ├─ docker compose up -d   5개 컨테이너 시작
             └─ docker compose logs -f quant-engine
 ```
 
@@ -447,7 +448,7 @@ cmake --build Quant/build
 ### 주문 흐름 (OrderRouter::submit 내부)
 
 ```
-OrderSignal (전략 → SignalDispatcher → pipeline_.order_queue → 주문 스레드)
+OrderSignal (전략 → SignalDispatcher → pipeline_.requests → 주문 스레드)
      │
      ▼
  [1] OrderGate::check()  — 검사 순서의 정본은 이 함수 하나
@@ -460,7 +461,7 @@ OrderSignal (전략 → SignalDispatcher → pipeline_.order_queue → 주문 �
      └─ 초당·분당 주문 수(기본 5건/초·20건/분, config risk.max_orders_per_sec/min)
      │
      ▼ PASS
- [2] IOrderExecutor::submit_order()
+ [2] IOrderExecutor::submit_order_acknowledgement()
      ├─ 성공 → ODNO 수신              → ACCEPTED + gate_.on_accept() 포지션 선점
      └─ 실패 → 빈 문자열 반환         → REJECTED
      │
@@ -472,15 +473,17 @@ OrderSignal (전략 → SignalDispatcher → pipeline_.order_queue → 주문 �
 ### OrderGate 뮤텍스 구조
 
 ```
-뮤텍스 6개(`Quant/include/risk/OrderGate.h`):
+뮤텍스 8개(`Quant/include/risk/OrderGate.h`):
   positions_mutex_     — positions_ · reserved_ · avg_prices_ · 전략별 서브원장
   pnl_mutex_           — daily_pnl_
   rate_mutex_          — order_times_min_ / order_times_sec_
   deduplicate_mutex_   — last_signal_
   displace_mutex_      — 교체 진입 후보·쿨다운
-  priority_mutex_      — 점수 우선순위 랭크
+  priority_mutex_      — 점수 우선순위 표(포인터만 복사하고 락 밖에서 읽는다)
+  journal_mutex_       — 원장 저널 쓰기
+  ledger_publish_mutex_ — 장부 사본 발행끼리 줄 세우기
 
-[lock-order] check()는 positions_mutex_ 안에서 displace_mutex_·priority_mutex_를 잡는다(보유 스냅샷과 같은 시점).
+[lock-order] check()는 positions_mutex_ 안에서 displace_mutex_만 잡는다(보유 스냅샷과 같은 시점). priority는 포인터만 복사해 겹쳐 잡지 않는다(D-112).
   반대 순서는 없고 pnl·rate·dedup은 독립 스코프에서만 잡는다.
 ```
 
@@ -559,8 +562,8 @@ HEALTH   {"ts":...,"data":123,"signal":5,"order":3,"drop":0,
          큐 고수위·지연 분위수는 기동 후 누적이라 줄지 않는다 — 구간 값은 읽는 쪽이 직전 행과 뺀다
 
 REP tcp://*:5556  요청/응답
-  KILL   → "OK"
-  STATUS → {"running":true,"data":123,"signal":5,"order":3}
+  KILL <zmq_control_token> → "OK" (토큰이 없거나 틀리면 "DENIED")
+  STATUS → {"running":true,"data":123,"signal":5,"order":3,"kill":false,"entry_halt":false, …}
 ```
 
 ### 관련 파일
@@ -577,7 +580,7 @@ REP tcp://*:5556  요청/응답
 | [Quant/include/ipc/ZmqBridge.h](../../Quant/include/ipc/ZmqBridge.h) | ZMQ 브리지 (HAS_ZMQ) |
 | [Quant/src/ipc/ZmqBridge.cpp](../../Quant/src/ipc/ZmqBridge.cpp) | 전용 스레드 + 송신 큐 |
 | [Quant/tests/test_order_gate.cpp](../../Quant/tests/test_order_gate.cpp) | 단위 테스트 |
-| [Quant/tests/test_order_router.cpp](../../Quant/tests/test_order_router.cpp) | 6개 통합 테스트 |
+| [Quant/tests/test_order_router.cpp](../../Quant/tests/test_order_router.cpp) | 통합 테스트 |
 
 ---
 

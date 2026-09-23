@@ -32,7 +32,7 @@ Python SUB (PYQuant/main.py record)     Python 적재기 (PYQuant/tools/ledger_r
                TimescaleDB
 ```
 
-- 엔진은 한 프로세스에서 수신·전략·주문 스레드를 나눠 돌리고, 종목 id 해시로 전략 스레드를 골라 한 종목의 순서를 지킵니다. 전략과 주문을 두 프로세스로 나누는 작업을 모의계좌에서 시험하고 있습니다(D-114).
+- 엔진은 한 프로세스에서 수신·전략·주문 스레드를 나눠 돌리고, 전략은 등록 순서대로 샤드 스레드에 하나씩 배정되고, 한 종목의 체결은 그 종목을 보는 샤드마다 한 줄로 들어가 순서가 지켜집니다. 전략과 주문을 두 프로세스로 나누는 작업을 모의계좌에서 시험하고 있습니다(D-114).
 - 원장은 주문을 보내기 전에 파일에 먼저 적고, 적재기가 그 파일을 따라 읽어 DB에 넣습니다. DB가 내려가 있어도 매매는 멈추지 않습니다(D-113).
 - 스레드·큐 상세는 [docs/ENGINE_ARCHITECTURE.md](docs/ENGINE_ARCHITECTURE.md), 읽는 순서는 [docs/CODE_FLOW.md](docs/CODE_FLOW.md).
 
