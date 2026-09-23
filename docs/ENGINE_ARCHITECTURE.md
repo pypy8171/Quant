@@ -8,25 +8,166 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@0bff7ae Quant/src/core/Engine.cpp@d80f937 Quant/include/core/DataPoller.h@3cfd21a Quant/include/core/SignalDispatcher.h@dab02c3 Quant/include/core/OrderRateLimiter.h@bfa49f1 Quant/include/core/LedgerReconciler.h@de07986 Quant/include/core/WakeGate.h@1b2b9b7 Quant/include/core/BarAggregator.h@fbb210b Quant/include/core/LatencyTrace.h@4e060b9 Quant/include/core/ReconcilePlan.h@2faea2f -->
-엔진은 락-프리 파이프라인(데이터→전략 샤드→디스패치→주문)에 체결 소비 스레드와 제어 스레드를 더해 다섯 개 + 샤드 M개의 스레드를 실행하고, 전략의 무거운 REST 미리 당기기는 공용 프리페치 풀(코어/4, 2~8개 고정)이 맡습니다. 각 스레드는 기동 직후 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름(DataThread·Strategy·Shard N·Order·Fill·Control, 소켓 수신은 WsRecv, 프리페치 풀은 Prefetch N)을 붙여 procwatch의 스레드별 CPU 표와 디버거에 그 이름으로 보입니다(config `strategy_shards`, 기본 1). 주문 스레드는 큐에서 꺼낼 때 1초를 넘게 기다린 신규 매수를 보내지 않고 버립니다 — 증권사 초당 주문 한도가 꺼내는 속도를 정하므로, 그 한 건을 보내면 그만큼 방금 만든 판단이 못 나갑니다. 취소·정정과 매도는 나이를 안 봅니다(D-127):
+<!-- sync: Quant/include/core/Engine.h@824ead6 Quant/src/core/Engine.cpp@510e36c Quant/include/core/DataPoller.h@3cfd21a Quant/include/core/SignalDispatcher.h@dab02c3 Quant/include/core/OrderRateLimiter.h@bfa49f1 Quant/include/core/LedgerReconciler.h@de07986 Quant/include/core/WakeGate.h@1b2b9b7 Quant/include/core/BarAggregator.h@fbb210b Quant/include/core/LatencyTrace.h@4e060b9 Quant/include/core/ReconcilePlan.h@2faea2f -->
+스레드는 다섯 개(데이터·전략·주문·체결·제어)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
+수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
+`thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름을 붙여 procwatch와 디버거에 그 이름으로 보인다.
 
-```
-[데이터 스레드]  →  pipeline_.bars_matrix·pipeline_.trade_matrix (링 행렬 행)  →  [샤드 스레드 m]  →  pipeline_.shard_out (MpscQueue)  →  [전략(디스패치) 스레드]  →  자리표의 요청 면(pipeline_.requests)  →  [주문 스레드]
-  KIS REST                                           열 m의 전략들                                   SignalDispatcher                              KIS 주문 API
-  OHLCV 봉·대체 틱   [WS 수신] → pipeline_.order_book_matrix·pipeline_.trade_matrix  → Emitted 봉투                     → OrderSignal                                 send_order()
+#### 한 프로세스로 띄울 때 (`Both`, 기본)
+
+```mermaid
+flowchart LR
+    WS["KIS WebSocket"] --> RECV["수신 ×N<br/>WsRecv"]
+    REST["KIS REST"] --> DATA["데이터<br/>DataThread"]
+    RECV -- "체결·호가 링 행렬" --> SHARD["샤드 ×M<br/>Shard N"]
+    DATA -- "봉·대체 체결 링 행렬" --> SHARD
+    SHARD -- "shard_out" --> STRAT["전략(디스패치)<br/>Strategy"]
+    STRAT -- "요청 면" --> ORDER["주문<br/>Order"]
+    ORDER -- "응답 면" --> STRAT
+    ORDER --> KISO["KIS 주문 API"]
+    OPS["운영단말"] -- "manual_inbox" --> ORDER
+    RECV -- "fill_queue (체결통보)" --> FILL["체결<br/>Fill"]
+    FILL --> LEDGER["원장 · 저널"]
+    ORDER --> LEDGER
+    CTRL["제어<br/>Control"] -. "잔고 대조 · 토큰 · 시세 감시" .-> LEDGER
 ```
 
-- `RingBuffer<T>`는 명시적 메모리 순서를 가진 `std::atomic`을 사용하는 SPSC(단일 생산자/단일 소비자) 락-프리 큐입니다.
-- 데이터 스레드는 `fetch_interval_sec`초마다 KIS REST를 폴링하며, 장 외 시간에는 건너뜁니다. REST 현재가 폴링(폴링 모드 유니버스·WS 구독 상한 넘침 대체·틱 끊긴 보유 보충)은 `Quant/include/core/DataPoller.h`의 `DataPoller`가 맡고, 폴러의 틱은 체결 행렬 `pipeline_.trade_matrix`의 데이터 스레드 행으로 갑니다(WS 콜백 행과 생산자를 나눈다, D-062, `test_data_poller`). KST 시각 변환은 `Quant/include/core/KstTime.h`. 유니버스 재스캔(`rescan_interval_sec`)도 이 스레드가 돌린다 — 소유 종목이 스캔에서 연속으로 빠지면 `rescan_block_after_sec`에 신규매수를 막고 `rescan_drop_after_sec`에 전략을 떼며, 판정은 `Quant/include/core/UniverseExit.h`의 순수 함수다(D-077, `test_signal_dispatcher`). 틱·호가의 시각은 정수 HHMMSS(`hhmmss`, 093001 → 93001)다 — 디코더가 `krx::parse_hhmmss`(`Quant/include/core/MarketSession.h`)로 한 번 읽고 폴러는 `kst::hhmmss_int`로 만들며, 문자열은 화면·캡처 파일에서만 `krx::hhmmss_string`로 되돌린다(D-071). 수신 시각 `received_ns`(steady_clock ns)는 호가·체결 모두 소켓 읽기 스레드가 디코드 직후 찍는다 — 채널이 달라도 같은 시계라 도착 순서를 되돌릴 수 있고, 구간 지연 CSV의 출발점이다(REST 대체 틱은 0, 리플레이는 내보낼 때 다시 찍는다, D-071).
-- 틱은 수신 N×전략 샤드 M SPSC 링 행렬(`Quant/include/core/ShardMatrix.h`의 `shard::Matrix`, 열은 전략 단위 — 종목 id → 그 종목을 보는 샤드 비트마스크(`Quant/include/core/ShardRoutes.h`의 `shard::RouteTable`, D-110)로 고르고 아무도 안 보는 종목만 종목 해시, 행은 WS 소켓(수신 스레드)마다 하나에 데이터 스레드 행을 더한 것 — `pipeline_.websocket_lanes`·`pipeline_.data_row`, `test_shard_matrix`)을 지나 샤드 스레드(`shard_thread_fn`, `Quant/include/core/StrategyShard.h`의 `strategy::Shard`, `test_strategy_shard`)가 자기 열을 비웁니다. 샤드는 틱의 종목 id로 그 종목을 보는 전략만 방문하며(`Quant/include/core/StrategyRouter.h`의 `strategy::Router`, 구독 종목을 안 밝힌 전략은 전부 받는다, D-071, `test_strategy_router`), `NONE`이 아닌 신호를 봉투 `strategy::Emitted`로 `pipeline_.shard_out`(MpscQueue)에 넣고 전략(디스패치) 스레드가 이를 요청 면으로 넘깁니다 — 경계를 건너는 모양은 `ipc::OrderRequest`(문자열 없는 고정 레코드)이고, 종목 코드·계좌·주문 이름·판단 근거만 고정 칸에 글자로 싣습니다. 꺼낸 쪽은 값이 말이 되는지 보고(`ipc::is_plausible`, 액션마다 기준이 다릅니다) `ipc::to_signal`로 되살려 그 아래 사슬에 그대로 넘깁니다(D-114 단계 4, `test_order_channel`). 갈라 띄우면 이 길에 토막이 하나 붙습니다 — 소켓을 쥔 주문 프로세스의 수신 스레드는 디코드한 체결·호가를 `Quant/include/ipc/MarketFeedChannel.h`의 줄별 SPSC 한 쌍(줄 = 소켓, 체결 16,384칸·호가 8,192칸)에 넣기만 하고, 전략 프로세스는 줄마다 띄운 줄 스레드(`Engine::feed_lane_thread_fn`)가 꺼내 행렬로 나눕니다. 넣는 쪽은 기다리지 않습니다 — 차면 버리고 세고(`feed_channel_overflow`), 꺼낸 값은 꺼내는 자리에서 종목 번호·수량·가격이 말이 되는지 봅니다(`ipc::MarketLimits`, 어긋나면 버리고 `feed_channel_discarded`로 셉니다). 둘 다 `[큐 고수위]` 줄에 실리고 `scripts/check_runtime_health.py`가 0이 아니면 FAIL로 판정합니다. ZMQ TRADE 발행은 팬아웃보다 먼저 합니다 — 발행 채널이 주문 쪽에 있어 갈라 띄우면 거기가 유일한 자리이고, 샤드 큐가 차서 돌아가던 예전 순서에서는 정체 때 그라파나까지 같이 멎었습니다. `Both`로 돌면 시세가 통로를 지나지 않습니다 — 수신 스레드가 지금까지처럼 곧바로 행렬에 넣습니다(D-114 단계 4, `test_market_feed_channel`·`test_engine`). 샤드 수는 config `strategy_shards`(기본 1, 상한 64)이고 전략 객체는 등록 순 라운드로빈으로 샤드 하나가 소유합니다(`StrategyBase::shard_index`) — 종목이 몇 개든 그 샤드 스레드만 객체를 만지고, 종목 하나를 여러 샤드의 전략이 보면 수신 스레드가 그 샤드 전부에 틱을 넣습니다(D-110). 전략은 자기 종목·후보를 `on_start`에서 `symbol_of()`(Engine이 `set_symbol_resolver`로 `Engine::register_symbol`을 넣는다 — 표는 고정 배열이라 읽기에 락이 없다, D-106)로 id로 받아 두고 틱에서는 `trade.symbol_id`와 정수로만 비교합니다(`same_symbol`, 원칙 6) — 집계기도 id 키입니다. 수신 스레드가 행렬과 별도로 틱을 주는 두 소비자도 문자열 키가 없다 — 리플레이·모의 체결의 `feed::PaperExecutor::on_tick`은 대기 주문·마지막가를 `symbol_id` 배열로 들고(37→14.5 ns/틱), ZMQ TRADE 발행(포트는 config `zmq_pub_port`·`zmq_rep_port`, 기본 5555·5556 — 한 기계에 엔진이 둘이면 바꾼다)은 `TradeData`를 `MpscQueue`에 memcpy로만 넣고 JSON은 송신 스레드가 만든다(1,000→26 ns/틱, `bench_zmq_publish`가 와이어 포맷 동일성을 검사, D-105). 신호가 큐에 가기 전의 판단 — 순번 stamp, 비활성 전략·청산 관리 보유 종목의 신규 차단, 운영단말 수동 매도 정지(전략 SELL만, D-095), 강제청산 재발주 스로틀, 기동 뒤 한도 초과분 정리 — 는 `Quant/include/core/SignalDispatcher.h`의 `SignalDispatcher`가 맡습니다(전략 스레드의 지역 객체, D-063, `test_signal_dispatcher`). 같은 스레드가 주기마다 보호 주문 표(`Quant/include/risk/ProtectiveOrders.h`의 `risk::ProtectiveOrderBook`, `Engine::run_protective_orders`)도 봅니다 — 전략이 `on_start`에서 등록해 둔 손절·트레일 규칙을 원장 보유·현재가·미체결 매도만으로 판정해 청산을 내므로, 전략이 멈춰도 보유분을 지킬 것이 주문 쪽에 남습니다. 모드는 config `protective_orders`(`off`/`shadow`/`owner`, 기본 `shadow`는 판정만 로그로 남기고 발주는 전략이 한다)이고 전략이 보는 경계는 `Quant/include/risk/ProtectiveRule.h`의 등록 창구뿐입니다(D-114 단계 1, `test_protective_orders`). 전략 스레드의 박동이 끊기면 같은 표를 주문 스레드가 이어받습니다 — 차례를 둘이 같이 잡으면 같은 청산이 두 번 나가므로 다음 차례 시각을 원자로 두고 `Engine::claim_protective_cycle`이 CAS로 한 쪽만 통과시킵니다(D-114 단계 2, `test_engine`). DeviationScale의 3분봉은 config `bar_source`로 고른다 — `"ws"`(기본)는 전략 스레드가 체결 틱을 `Quant/include/core/BarAggregator.h`의 `bars::BarAggregator`로 1분봉에 모으고 판단 직전 `bars::resample`로 `interval_min` 봉을 만든다(REST 1분봉은 시드·폴백, REST 대체 틱이 오면 REST 봉으로 되돌아간다, 판단은 언제나 interval_min 봉, 틱이 없어도 판단 직전 `close_stale`이 지난 분 봉을 시계로 닫는다, D-068·D-069·D-072·D-074, `test_bar_aggregator`), `"rest"`는 REST 3분봉을 그대로 쓴다.
-- 체결 소비 스레드(`fill_thread_fn`, D-056)는 WS 수신 스레드가 `pipeline_.fill_queue`(SPSC)에 넣은 체결통보를 받아 `OrderRouter::on_fill`(원장 반영·CSV)과 운영단말 방송을 합니다. 수신 스레드는 push만 하므로 체결 처리 동안 틱이 서지 않습니다. 큐가 비면 condvar에서 자고 생산자가 깨웁니다(Logger와 같은 방식). 이 깨우기는 `Quant/include/core/WakeGate.h`의 `wake::WakeGate` 한 조각이고 전략·주문 스레드의 유휴도 같은 조각을 씁니다 — 전략은 200us yield 뒤 잠들고, 주문은 재시도 만기까지 `wait_until`합니다(D-071, `test_wake_gate`). `Quant/src/main.cpp`가 `timeBeginPeriod(1)`을 잡아 sleep 격자를 15.6ms에서 2ms로 내리며, `RingBuffer::high_water()`를 제어 스레드가 1분마다 `[큐 고수위]`로 남깁니다. 신호 하나의 구간 지연(틱 수신→신호→pop→라우터 반환)은 주문 스레드가 `Quant/include/core/LatencyTrace.h`로 `logs/latency_trace.csv`에 한 줄씩 남깁니다(`test_latency_trace`). 그 줄은 `pop→라우터 반환`을 다시 여섯으로 갈라 같이 싣습니다 — 리스크 점검·이력 잠금과 중복 가드·원장 선기록·증권사 초당한도 대기·증권사 왕복·전송 뒤 마무리(D-117).
-- 주문 스레드는 큐에서 꺼낸 신호를 `OrderRouter`에 넘깁니다. 직전 KIS 호출 뒤 최소 간격 대기, 거부의 재시도 분류(유량 한도는 action 불문, 청산 SELL은 40240000 제외, BUY 제외), 재시도 버퍼의 만기·청산 완료 폐기는 `Quant/include/core/OrderRateLimiter.h`의 `OrderRateLimiter`가 맡습니다(주문 스레드의 지역 객체, D-065, `test_order_rate_limiter`). 게이트가 만들고 조절기가 읽는 유량 한도 거부 문장은 `Quant/include/risk/GateReasons.h` 한 곳이 정의합니다(D-067). 운영단말이 낸 수동주문도 이 스레드가 꺼냅니다 — 서버 스레드는 값만 보고 인테이크(MpscQueue)에 넣고(`Engine::accept_manual_order`, 같은 cid 재전송은 여기서 거릅니다), 주문 스레드가 재시도 다음·교체 보류 앞 자리에서 한 건씩 꺼내(`Engine::take_manual_order`) 통로로 온 신호와 같은 문(종목 번호 채우기·교체 창구 판정)을 지납니다. 통로 밖에서 온 것이라 순번이 0이고 전략 쪽에 돌려줄 답이 없으며, 결과는 단말에 `ORDER_RESULT_NTF`로 갑니다 — 전략 프로세스가 멎어도 사람이 손으로 낼 수 있어야 해서 꺼내는 쪽을 주문 쪽에 두었습니다(D-114 단계 4, `test_engine`). 전략과 주문 사이에는 요청 큐만이 아니라 답이 돌아오는 길도 있습니다 — 주문 스레드가 종착 상태를 `ipc::OrderResponse`로 `pipeline_.order_responses`(SPSC 1,024칸)에 넣고 전략 스레드가 비우며, 답을 기다리는 표와 같은 순번 거름은 `Quant/include/ipc/OrderChannel.h`가 갖습니다. 레코드에 문자열·포인터가 없어 이 큐는 이미 자리표(`Quant/include/ipc/SharedLayout.h`) 위에 앉아 있습니다 — 갈라 띄우면 같은 바이트가 공유 쪽지가 되고 `Both`로 돌면 엔진이 깐 힙 한 덩이가 그 자리를 대신하므로, 어느 쪽으로 띄워도 넣고 꺼내는 코드가 하나입니다. 전략 박동과 장부 사본도 같은 자리표의 면입니다. 전략이 주문 쪽 표를 고치는 것도 같은 방식입니다 — 슬롯 면제 집합·진입 우선순위 표·보호 주문 등록은 `Quant/include/ipc/ControlChannel.h`의 제어 요청으로 가고 주문 스레드가 겁니다. 주문 쪽 스위치 다섯(하루치 새로 열기·신규진입 정지·매수 비율·전방향 차단·수동 정지)도 같은 길입니다 — `Engine::request_*`가 제어 요청으로 바꿔 보내고, 값이 바뀌는 자리는 주문 스레드 하나입니다(못 실으면 `LOG_ERROR` — 사라진 것이 kill switch일 수 있어 조용히 넘기지 않습니다). 통로를 탈지 그 자리에서 고칠지는 부르는 자리가 어느 프로세스 것인가로 갈립니다 — 매크로 국면 폴링이 내는 둘(신규진입 정지·매수 비율)은 전략 쪽 일감이라 `Both`로 돌 때도 통로를 타고, 나머지 셋은 개장 전이·ZMQ·시세 감시·운영단말만 부르는 주문 프로세스 것이라 그 자리에서 고칩니다. 통로 자체는 두 토막입니다 — 전략 프로세스 안 생산자 여럿이 `ShardPipeline::strategy_control_outbox`(MPSC)에 모이고, 전략 스레드가 한 바퀴마다 그것을 비워 자리표의 제어 면(SPSC)으로 옮깁니다. 공유 쪽지 큐는 보내는 쪽이 하나여야 하기 때문입니다. 옮기다 면이 차면 보낸 쪽은 이미 성공을 받아 간 뒤라 `control_relay_dropped`로 세고 `LOG_ERROR`를 남깁니다. 스레드도 역할대로 갈립니다 — `Engine::start()`·`spawn_threads()`가 전략 역할이면 샤드·전략 스레드만, 주문 역할이면 주문·체결 스레드만 띄우고, 데이터 스레드와 감시 스레드는 양쪽에 하나씩 두되 보는 일감이 다릅니다(`Both`는 지금까지처럼 전부). 자리표 자체도 역할대로 갈립니다 — `Both`면 엔진이 깐 힙 한 덩이, 갈리면 이름 붙은 공유 쪽지(`quant.engine.<paper|live>.<계좌번호>`, `Quant/include/ipc/SharedRegion.h`) 위에 같은 바이트가 앉고, 고르는 자리는 `Engine::bind_layout` 하나입니다. 만드는 쪽은 주문 프로세스 하나이고(이미 있는 이름으로는 만들지 않습니다 — 같은 계좌에 엔진이 둘 뜨는 것을 여기서 잡습니다) 전략 프로세스는 같은 이름에 붙습니다(없으면 100ms마다 30초까지 기다리고, 그래도 없으면 뜨지 않습니다 — 빈 큐로 돌면 낸 신호가 조용히 사라집니다). 시세 통로의 줄 수는 소켓 수보다 하나 많습니다 — 마지막 줄은 구독 상한에 밀려 REST로 대신 받는 종목의 자리로, 넣는 쪽은 구독을 거는 프로세스(주문 쪽)의 데이터 스레드 하나이고 꺼내 가르는 일은 전략 쪽 줄 스레드가 소켓 줄과 같은 코드로 합니다. 그래서 `--role order`·`--role strategy`로 갈라 띄우는 것은 이제 뜹니다(`Quant/src/main.cpp`의 거절 함수를 걷었습니다). 표 하나가 여러 줄로 오면 여는 줄의 순번으로 묶어 모으고, 온전할 때만 겁니다(반쪽으로 걸면 면제를 잃은 보유분이 남의 자리를 먹는다). 슬롯이 찬 책에 새 종목 매수가 오면 최약체를 먼저 비우고 그 매수를 자리가 날 때까지 드는 일도 주문 스레드가 `Quant/include/risk/DisplacementDesk.h`에서 합니다 — 최약체 고르기와 자리 예약이 한 덩어리라 전략 쪽과 나눌 수 없습니다(D-114 단계 2.5 갈래 B, `test_control_channel`·`test_displacement_desk`). 서로의 생사는 `Quant/include/ipc/Heartbeat.h`의 박동 공백으로만 봅니다(의심 250ms·사망 1,000ms, 부하 실측 24ms 위에 둔 값) — 전략이 죽으면 주문 스레드가 신규 진입을 끊고(`OrderGate::set_strategy_down_halt`, 국면·사람이 켜는 것과 별도 원천으로 OR만 한다) 보호 주문 표를 이어받고, 박동이 돌아오면 정지를 풉니다. 주문 스레드는 내려가지 않습니다 — 보유분을 지키는 것이 남은 일입니다(D-114 단계 2, `test_order_channel`·`test_heartbeat`). 전략이 보는 장부도 같은 길로 갑니다 — 주문·체결 스레드가 장부를 바꿀 때마다 보유·미체결 선점·매도가능·평단과 전역값(진입 정지·열린 자리 수·여력)을 `Quant/include/ipc/LedgerSnapshot.h`의 사본 한 판으로 냅니다. 판 번호 하나로 묶어 읽는 쪽은 잠금을 잡지 않고, 줄마다 판 번호를 찍어 지난 판 값이 남지 않습니다. 전략·데이터·운영 쪽이 장부를 읽던 29곳 중 27곳이 이 사본을 봅니다 — 주문 한 바퀴 끝마다, 스레드를 띄우기 전에 한 번(재기동 직후 빈 판을 읽으면 같은 종목을 또 산다), 주문이 없는 동안 100ms마다 한 판씩 냅니다. 남은 둘(`Engine::build_protective_orders`와 주문 스레드의 유량 조절기 보유 반영)은 주문 스레드가 부르는 자리라 원본을 그대로 봅니다(D-114 단계 2.5, `test_ledger_snapshot`). 양쪽이 주고받는 것이 정수 번호뿐이라 이름↔번호 표도 같이 가야 합니다 — 종목 표와 전략 이름표의 알맹이를 `symbol::TableSlots`·`strategy_table::TableSlots`로 떼어, 힙에 두면 지금 표이고 공유 쪽지에 두면 `ipc::SharedSymbolDictionary`·`ipc::SharedStrategyDictionary`가 됩니다. 해시·탐사·선형 탐색·발행 순서는 한 벌만 있습니다. 넣는 쪽은 주문 프로세스 하나로 두고(건너편이 자물쇠를 쥔 채 죽어도 읽는 쪽이 멈추지 않게) 전략 쪽은 등록을 요청으로 보내고 번호가 표에 뜨는 것을 봅니다. 엔진 안에서도 티커가 번호가 되는 자리를 둘로 갈랐습니다 — 느린 경로(기동·재스캔·바스켓·종목명)는 `Engine::register_symbol`이 없으면 넣어서라도 받아 오고, 잦은 경로(틱·신호·현재가)는 `Engine::lookup_symbol`이 표에 있는 번호만 주고 없으면 `kNone`을 주며 셉니다. 전략 역할이면 넣기를 주문 쪽에 맡기고(제어 요청 `kRegisterSymbol`) 같은 공유 표에 뜰 때까지 50ms만 봅니다 — 못 받으면 그 줄을 접습니다. 세는 것 둘(`symbol_register_timeout`·`symbol_lookup_miss`)은 `[큐 고수위]` 줄에 실립니다. 표 자체는 아직 엔진에 배선하지 않았습니다(D-114 단계 4, `test_shared_symbol_dictionary`·`test_shared_strategy_dictionary`·`test_engine`).
-- 제어 스레드(`control_thread_fn`)는 파이프라인 밖에서 잔고 대조·손익(daily_pnl) 갱신 상태 감시 등 주기 운영 작업을 담당합니다(갱신이 끊기면 OrderGate 보수정지 토글). KIS 토큰도 이 스레드가 5분마다 만료 30분 전에 미리 갱신합니다 — 발급 HTTP 왕복이 파이프라인 스레드에 걸리지 않게 하고, 전략 스레드는 요청 면(`pipeline_.requests`)이 차면 기다리지 않고 신호를 버리고 셉니다(`pipeline_.order_dropped`, D-073). WS 시세가 끊겼을 때의 판정 — 장 외 무시, 재연결 백오프(실패 n회째 30×n초, 상한 300초), 연속 3회 실패에 한 번 REST 폴백 요구 — 는 `Quant/include/core/FeedSupervisor.h`의 `feed::Supervisor`가 맡고, 제어 스레드는 소켓 재연결(`IFeedSource::reconnect_stale` — 소켓이 여럿이면 멈춘 것만 자기 종목으로 다시 잇는다)과 폴백 적용(불가면 kill switch)만 합니다(D-071, `test_feed_supervisor`). 마감 자기 종료도 이 스레드가 합니다 — 마지막 매매 창이 닫히고 `risk.session_end_grace_sec`(기본 120초) 뒤 요청 면이 비면 `_private/state/session_done_<날짜>`를 쓰고 `request_shutdown(사유)`를 부릅니다(판정은 `Quant/include/core/SessionEndJudge.h`, D-098, `test_session_end`). 감시견은 그 파일을 보고 그날은 재기동하지 않습니다.
-- 잔고 → 원장 대조(기동 시드·주기 대조·당일 손익 기준선 파일·잔고조회 서킷브레이커)는 `Quant/include/core/LedgerReconciler.h`의 `LedgerReconciler`가 맡습니다. 브로커 호출·대조 행 기록·종목명 등록을 `std::function`으로 받아 `Engine`은 배선만 하고, 테스트는 KIS 없이 `OrderGate`만 링크합니다(D-061, `test_ledger_reconciler`). 체결 직후 5초는 대조를 미루고 30초마다 한 번은 돕니다(`note_fill`, D-074). 잔고 조회 자체는 뒤 스레드(`std::async`)에서 돌고 한 사이클은 500ms만 기다립니다 — 브로커가 늦으면 다음 사이클이 결과를 집어 적용하고, 그 사이 재스캔·시세 보충은 멈추지 않습니다(D-100).
-- 원장은 메모리에만 두지 않습니다 — 주문을 KIS로 보내기 **전에** `Quant/include/risk/LedgerJournal.h`가 오늘 파일(`ledger_YYYYMMDD.bin`, 16바이트 헤더 + 192바이트 고정 레코드·순번·CRC32)에 INTENT를 적고 선점을 잡습니다. 못 적으면 선점을 되돌리고 주문을 보내지 않고, 저널을 못 열면 엔진이 기동하지 않습니다. 기동은 그 파일을 처음부터 다시 적용해(리플레이) 보유·평단·매도가능·선점·현금·당일손익을 되쌓은 다음 잔고 시드와 대조하고, 결말을 못 본 주문은 KIS 미체결조회와 맞춰 되살리거나 선점만 풉니다. DB는 하류 복제본입니다(`PYQuant/tools/ledger_recorder.py`가 파일 꼬리를 따라 읽어 적재, D-113).
-- 프리페치 풀(`Quant/include/core/PrefetchPool.h`의 `prefetch::Pool`, D-115)은 전략이 `on_start`에서 맡긴 함수 하나를 3초마다 한 번씩 부릅니다(`StrategyBase::set_prefetch_pool`로 Engine이 주입, DeviationScale은 `prefetch_once`로 일봉·3분봉·잔고를 당긴다). 스레드는 `Engine::start()`에서 미리 띄워 장중 전략 등록이 새로 만들지 않고, 수는 전략 수와 무관하게 고정이며(전략 100개에도 3개, `test_prefetch_pool`), 작업은 번호로 스레드에 붙어 한 작업이 두 스레드에서 겹쳐 돌지 않으며, `remove()`는 실행 중인 호출이 끝난 뒤 돌아와 전략 소멸자가 그 뒤에 자기 객체를 지워도 됩니다. 풀은 Engine이 전략 레지스트리보다 먼저 선언해 나중에 사라지고, 종료 순서는 전략 정리 → `stop()`입니다. 주기는 '쉬는 시간'이 아니라 '도는 간격'이라 한 바퀴에 쓴 시간을 빼고 잡니다(41종목·3초에서 3,550ms → 3,014ms, `bench_prefetch_pool`). 전략이 받는 스냅샷은 `std::shared_ptr<const std::vector<MarketData>>`라 평가는 락 안에서 포인터만 바꿔 잡습니다(벡터 복사 472~494ns → 10ns, `bench_snapshot_swap`).
-- 대사 단계 귀속(D-038): 전략 스레드가 신호마다 `OrderSignal.seq`를 단조 stamp하고 라우터가 원장 CSV 전 행에 같은 번호를 남깁니다. 잔고 대조는 덮어쓰기·정리 전 원장 값으로 `core/ReconcilePlan.h`(순수 함수)가 어긋난 종목만 골라 `RECONCILE` 행(`OVERWRITE|PRUNE|KEEP`)을 씁니다.
+#### 스레드
+
+| 스레드 | 하는 일 | 받는 것 → 내보내는 것 | 코드 · 테스트 |
+|---|---|---|---|
+| 수신 ×소켓 | 소켓 읽기·디코드·수신 시각 `received_ns` 찍기·push만 | KIS WS → 행렬 행 i, `fill_queue`, 캡처 큐, ZMQ TRADE 큐 | `Quant/include/core/FeedMux.h` · `test_feed_mux` |
+| 데이터 | `fetch_interval_sec`마다 REST 봉 폴링, WS가 못 받는 종목의 현재가 폴링, 유니버스 재스캔(`rescan_interval_sec`) | KIS REST → `bars_matrix`, `trade_matrix` 데이터 행 | `Quant/include/core/DataPoller.h`·`Quant/include/core/UniverseExit.h` · `test_data_poller` |
+| 샤드 ×M | 자기 열을 비우고, 틱의 종목 id를 보는 전략만 부른다 | 행렬 열 m → `shard_out` | `Quant/include/core/StrategyShard.h`·`Quant/include/core/StrategyRouter.h` · `test_strategy_shard`·`test_strategy_router` |
+| 전략(디스패치) | 신호를 주문 요청으로 바꾸기 전 판단, 보호 주문 판정, 1분봉 집계, 제어 요청 중계 | `shard_out` → 요청 면 / 응답 면을 비운다 | `Quant/include/core/SignalDispatcher.h`·`Quant/include/risk/ProtectiveOrders.h` · `test_signal_dispatcher` |
+| 주문 | 게이트·발주·재시도, 수동주문, 제어 요청 적용, 슬롯 교체, 상대 박동 감시, 장부 사본 발행 | 요청 면·`manual_inbox`·제어 면 → KIS 주문 API, 응답 면, 장부 사본 | `Quant/include/core/OrderRateLimiter.h`·`Quant/include/risk/DisplacementDesk.h` · `test_order_rate_limiter`·`test_engine` |
+| 체결 | 체결통보를 원장·CSV에 반영하고 운영단말에 방송 | `fill_queue` → 원장 | `Engine::fill_thread_fn` (D-056) |
+| 제어 | 잔고 대조, 손익 갱신 감시, 토큰 선갱신, 시세 끊김 대응, 큐 고수위 기록, 마감 자기 종료 | 주기 작업 | `Quant/include/core/LedgerReconciler.h`·`Quant/include/core/FeedSupervisor.h`·`Quant/include/core/SessionEndJudge.h` |
+| 프리페치 ×2~8 | 전략이 `on_start`에서 맡긴 REST 당기기를 3초 간격으로 | 전략 스냅샷 | `Quant/include/core/PrefetchPool.h` · `test_prefetch_pool` (D-115) |
+| 줄 스레드 ×(소켓+1) | 갈라 띄울 때만. 시세 통로 한 줄을 꺼내 행렬로 나눈다 | 시세 통로 → 행렬 | `Engine::feed_lane_thread_fn` · `test_market_feed_channel` |
+
+#### 큐
+
+| 큐 | 종류 | 넣는 쪽 → 꺼내는 쪽 | 칸 | 찼을 때 |
+|---|---|---|---|---|
+| `trade_matrix`·`order_book_matrix` | SPSC 링 N×M 행렬 (`Quant/include/core/ShardMatrix.h`) | 수신 i·데이터 → 샤드 m | 칸당 4,096 | 수신은 버리고 센다, 데이터는 기다린다 |
+| `bars_matrix` | SPSC 링 행렬 | 데이터 → 샤드 m | 칸당 1,024 | 기다린다 |
+| `shard_out` | MPSC | 샤드 여럿 → 전략 | 4,096 | 버리고 센다 (`shard_dropped`) |
+| 요청 면 `requests` | SPSC, 자리표 위 | 전략 → 주문 | 1,024 | 버리고 센다 (`order_dropped`, D-073) |
+| 응답 면 `order_responses` | SPSC, 자리표 위 | 주문 → 전략 | 1,024 | — |
+| 제어 면 | SPSC, 자리표 위 | 전략 → 주문 | 8,192 | 버리고 `LOG_ERROR` (`control_relay_dropped`) |
+| `strategy_control_outbox` | MPSC | 전략 프로세스의 여러 스레드 → 전략 | 8,192 | 전략 스레드가 제어 면으로 옮긴다 |
+| `fill_queue` | SPSC | 수신 → 체결 | 1,024 | 버리고 `LOG_ERROR` (`fill_dropped`) |
+| `manual_inbox` | MPSC | 운영단말 서버 → 주문 | 256 | 단말에 거부로 답한다 |
+| 시세 통로 (갈라 띄울 때) | 줄별 SPSC 한 쌍 (`Quant/include/ipc/MarketFeedChannel.h`) | 주문 쪽 수신 → 전략 쪽 줄 스레드 | 체결 16,384·호가 8,192 | 버리고 센다 (`feed_channel_overflow`) |
+
+버리고 세는 카운터는 제어 스레드가 1분마다 `[큐 고수위]` 줄에 싣고, `scripts/check_runtime_health.py`가 0이 아니면 FAIL로 판정한다.
+큐가 비면 소비자는 `Quant/include/core/WakeGate.h`의 `wake::WakeGate`에서 잠들고 생산자가 깨운다 — 전략은 200us yield 뒤,
+주문은 재시도 만기까지 잔다(D-071, `test_wake_gate`).
+
+#### 주문 한 건 따라가기
+
+1. 수신 스레드가 체결을 디코드해 `received_ns`를 찍고, ZMQ TRADE 발행 큐에 먼저 넣은 뒤 그 종목을 보는 샤드의 행렬 칸에 넣는다.
+   종목 → 샤드는 `Quant/include/core/ShardRoutes.h`의 비트마스크로 고른다(D-110).
+2. 샤드 스레드가 전략의 `on_data`를 부른다. 전략은 종목을 `on_start`에서 받은 정수 id로만 비교한다(원칙 6).
+   `NONE`이 아닌 신호는 `strategy::Emitted`로 `shard_out`에 들어간다.
+3. 전략 스레드의 `SignalDispatcher`가 순번 `seq`를 찍고, 비활성 전략·청산 관리 종목의 신규 매수·수동 매도 정지(D-095)를
+   거른 뒤 문자열 없는 고정 레코드 `ipc::OrderRequest`로 요청 면에 넣는다.
+4. 주문 스레드가 꺼내 `ipc::is_plausible`로 값을 보고 `ipc::to_signal`로 되살린다. 1초 넘게 기다린 신규 매수는
+   보내지 않는다 — 초당 주문 한도가 꺼내는 속도를 정하므로 낡은 판단이 새 판단의 자리를 먹는다. 취소·정정·매도는 나이를 안 본다(D-127).
+5. `OrderRouter`가 `OrderGate::check()` → 저널에 INTENT 선기록 → 초당 한도 대기 → KIS 발주를 한다.
+   재시도 분류와 최소 간격은 `OrderRateLimiter`(D-065). 구간별 소요는 `logs/latency_trace.csv`에 한 줄씩(D-117).
+6. 종착 상태는 `ipc::OrderResponse`로 응답 면에 돌아가고, 체결통보는 수신 → `fill_queue` → 체결 스레드가 원장에 반영한다.
+
+운영단말 수동주문은 3단계를 건너뛰고 `manual_inbox`로 바로 주문 스레드에 간다. 전략 프로세스가 멎어도 사람이 낼 수 있게
+꺼내는 쪽을 주문 쪽에 두었다(D-114 단계 4).
+
+#### 두 프로세스로 나누기 (D-114, 모의계좌 시험 중)
+
+`--role order`·`--role strategy`로 띄우면 주문 프로세스가 공유 메모리(`quant.engine.<paper|live>.<계좌번호>`,
+`Quant/include/ipc/SharedRegion.h`)를 만들고 전략 프로세스가 붙는다. `Both`일 때는 같은 바이트가 힙 한 덩이에 앉을 뿐
+넣고 꺼내는 코드는 같다 — 고르는 자리는 `Engine::bind_layout` 하나다.
+
+```mermaid
+flowchart LR
+    subgraph ORD["주문 프로세스"]
+        R["수신 ×N"]
+        O["주문"]
+        F["체결"]
+    end
+    subgraph SHM["공유 메모리 (SharedLayout)"]
+        FEED["시세 통로"]
+        REQ["요청 면"]
+        RESP["응답 면"]
+        CF["제어 면"]
+        SNAP["장부 사본"]
+        HB["박동"]
+        DICT["종목·전략 표"]
+    end
+    subgraph STR["전략 프로세스"]
+        L["줄 스레드"]
+        S["샤드 ×M"]
+        D["전략"]
+    end
+    R --> FEED --> L --> S --> D
+    D --> REQ --> O
+    O --> RESP --> D
+    D --> CF --> O
+    O --> SNAP
+    F --> SNAP
+    SNAP --> D
+    O <--> HB
+    D <--> HB
+    O --> DICT --> D
+```
+
+| 공유 면 | 하는 일 | 코드 · 테스트 |
+|---|---|---|
+| 요청·응답 면 | 주문 요청과 종착 상태. 문자열·포인터 없는 고정 레코드 | `Quant/include/ipc/OrderChannel.h` · `test_order_channel` |
+| 제어 면 | 전략이 주문 쪽 표를 고칠 때(슬롯 면제·진입 우선순위·보호 주문 등록·종목 등록)와 스위치 다섯(하루치 새로 열기·신규진입 정지·매수 비율·전방향 차단·수동 정지). 여러 줄 표는 온전히 모였을 때만 건다 | `Quant/include/ipc/ControlChannel.h` · `test_control_channel` |
+| 장부 사본 | 보유·미체결 선점·매도가능·평단과 전역값. 판 번호로 묶여 읽는 쪽은 잠금 없이 읽는다. 발주 한 바퀴마다, 기동 직후 한 번, 한가할 때 100ms마다 낸다 | `Quant/include/ipc/LedgerSnapshot.h` · `test_ledger_snapshot` |
+| 박동 | 의심 250ms·끊김 판정 1,000ms. 전략이 죽으면 주문 쪽이 신규 진입을 끊고 보호 주문을 이어받는다. 주문 쪽은 내려가지 않는다 | `Quant/include/ipc/Heartbeat.h` · `test_heartbeat` |
+| 종목·전략 표 | 이름 ↔ 번호. 넣는 쪽은 주문 프로세스 하나, 전략 쪽은 등록을 요청하고 50ms 동안 번호가 뜨기를 본다 | `Quant/include/ipc/SharedSymbolDictionary.h`·`Quant/include/ipc/SharedStrategyDictionary.h` · `test_shared_symbol_dictionary` |
+| 시세 통로 | 줄 = 소켓, 마지막 한 줄은 REST로 대신 받는 종목. 꺼내는 쪽이 `ipc::MarketLimits`로 값을 보고 어긋나면 버린다(`feed_channel_discarded`) | `Quant/include/ipc/MarketFeedChannel.h` · `test_market_feed_channel` |
+
+스레드도 역할대로 갈린다 — 주문 역할은 수신·주문·체결, 전략 역할은 줄·샤드·전략을 띄우고, 데이터·제어 스레드는
+양쪽에 하나씩 두되 맡는 일이 다르다. 스위치 중 매크로 국면이 내는 둘(신규진입 정지·매수 비율)은 전략 쪽 일이라
+`Both`에서도 제어 면을 타고, 나머지 셋은 주문 쪽에서 그 자리에서 고친다.
+같은 계좌에 엔진이 둘 뜨는 것은 공유 메모리 이름이 이미 있으면 만들지 않는 것으로 막는다. 전략 프로세스는 이름이 없으면
+30초까지 기다리고 그래도 없으면 뜨지 않는다.
+
+#### 원장과 재기동
+
+- 주문을 보내기 **전에** `Quant/include/risk/LedgerJournal.h`가 `ledger_YYYYMMDD.bin`(192바이트 고정 레코드, 순번·CRC32)에
+  INTENT를 적는다. 못 적으면 주문을 보내지 않고, 저널을 못 열면 기동하지 않는다.
+- 기동은 저널을 처음부터 리플레이해 보유·평단·선점·현금·당일손익을 되쌓고, 잔고 시드와 대조한 뒤, 결말을 못 본 주문은
+  KIS 미체결조회로 맞춘다. DB는 복제본이다(`PYQuant/tools/ledger_recorder.py`, D-113).
+- 주기 잔고 대조는 `LedgerReconciler`(D-061)가 한다. 체결 직후 5초는 미루고 30초마다 한 번은 돈다(D-074).
+  잔고 조회는 뒤 스레드에서 돌고 한 사이클은 500ms만 기다린다(D-100). 어긋난 종목만 `Quant/include/core/ReconcilePlan.h`가
+  골라 `RECONCILE` 행(`OVERWRITE|PRUNE|KEEP`)을 쓰고, 원장 CSV의 모든 행에는 신호의 `seq`가 남는다(D-038).
+
+#### 시세 끊김과 마감
+
+- WS가 끊기면 `Quant/include/core/FeedSupervisor.h`가 판정한다 — 장 외는 무시, 재연결 백오프 30×n초(상한 300초),
+  연속 3회 실패면 REST 폴백. 제어 스레드는 멈춘 소켓만 다시 잇고 폴백을 적용한다(D-071, `test_feed_supervisor`).
+- 마지막 매매 창이 닫히고 `risk.session_end_grace_sec`(기본 120초) 뒤 요청 면이 비면 `_private/state/session_done_<날짜>`를
+  쓰고 스스로 내린다. 감시견은 그 파일을 보면 그날 다시 띄우지 않는다(D-098, `test_session_end`).
+
+#### 그 밖의 규칙
+
+- 티커 → 번호는 두 길이다. 느린 경로(기동·재스캔·종목명)는 `Engine::register_symbol`이 없으면 넣어서 받고, 잦은 경로
+  (틱·신호·현재가)는 `Engine::lookup_symbol`이 있는 번호만 주고 없으면 `kNone`을 주며 센다(`symbol_lookup_miss`, D-106).
+- 프리페치 풀 스레드 수는 전략 수와 무관하게 고정이고, 한 작업이 두 스레드에서 겹쳐 돌지 않는다. 종료 순서는
+  전략 정리 → 풀 `stop()`이다. 전략 스냅샷은 `std::shared_ptr<const std::vector<MarketData>>`라 락 안에서 포인터만 바꾼다.
+- 시각은 정수 HHMMSS(`hhmmss`)다. 문자열로는 화면·캡처 파일에서만 되돌린다(`Quant/include/core/MarketSession.h`, D-071).
+- 3분봉은 config `bar_source`로 고른다. `"ws"`(기본)는 전략 스레드가 체결로 1분봉을 모아 판단 직전에
+  `interval_min` 봉으로 묶고, `"rest"`는 REST 3분봉을 그대로 쓴다(`Quant/include/core/BarAggregator.h`, D-068·D-069·D-072·D-074).
+- 보호 주문(손절·트레일)은 전략이 `on_start`에서 등록하고 전략 스레드가 원장만 보고 판정한다. config `protective_orders`
+  (`off`/`shadow`/`owner`, 기본 `shadow`). 전략 박동이 끊기면 주문 스레드가 이어받고, 둘이 같은 차례를 잡지 않게
+  `Engine::claim_protective_cycle`이 한쪽만 통과시킨다(D-114 단계 1·2, `test_protective_orders`).
+- ZMQ 포트는 config `zmq_pub_port`·`zmq_rep_port`(기본 5555·5556). 발행 큐에는 `TradeData`를 memcpy로만 넣고 JSON은
+  송신 스레드가 만든다(D-105, `bench_zmq_publish`).
+- `Quant/src/main.cpp`가 `timeBeginPeriod(1)`로 sleep 격자를 15.6ms에서 2ms로 내린다.
 
 ### 남는 것과 가는 곳
 
