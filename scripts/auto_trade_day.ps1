@@ -473,6 +473,26 @@ Say ("계좌 모드: {0}" -f $(if ($paper) { "모의(is_paper=true)" } else { "�
 
 $py = if (Test-Path $VenvPy) { $VenvPy } else { Say "venv 없음 — 보조 프로세스는 FDR 없이 UNKNOWN만 낸다." "WARN"; "py" }
 
+# 휴장일 관문 — 여태 주말 판정조차 없어서 토·일·공휴일에도 트레이더와 부속 창이 다 떴다.
+# 시세가 안 오고 주문도 안 나가니 손해는 없지만 토큰을 새로 받고 WS 재접속을 되풀이한다.
+# 부속 창보다 앞에 둔다 — 뒤에 두면 이미 띄운 창을 도로 내려야 한다.
+# 종료코드 0=개장 1=휴장 2=모름. 2는 휴장으로 보지 않는다 — 조회 한 번 실패한 날 매매를 통째로
+# 거르는 쪽이 휴장일에 헛도는 것보다 비싸다. -DryRun·-NoTrader도 같은 관문을 지난다. [why D-120]
+$marketOpenOutput = & cmd /c "`"$py`" scripts\check_market_open.py --config `"$Config`" 2>&1"
+$marketOpenCode   = $LASTEXITCODE
+foreach ($line in $marketOpenOutput) { if ("$line".Trim()) { Write-RunLog "    $line" } }
+$marketOpenVerdict = "$(($marketOpenOutput | Where-Object { "$_" -match '^\[' } | Select-Object -First 1))"
+
+if ($marketOpenCode -eq 1) {
+  Say "휴장일 — 트레이더도 부속 창도 띄우지 않는다. $marketOpenVerdict"
+  Save-Status "market_closed" @{ paper = $paper; head = $head; detail = $marketOpenVerdict }
+  exit 0
+}
+
+if ($marketOpenCode -ne 0) {
+  Say "개장 여부를 확인하지 못했다(rc=$marketOpenCode) — 휴장으로 단정하지 않고 그대로 진행한다. $marketOpenVerdict" "WARN"
+}
+
 Save-Status "starting" @{ paper = $paper; head = $head; dirty = $dirty }
 
 # 수치·주기 시트(_private/TUNING_SHEET.md)를 오늘 띄우는 config 기준으로 다시 쓴다. 실패해도 매매와 무관하다.

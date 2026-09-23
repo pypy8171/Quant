@@ -102,12 +102,14 @@ class KisClient:
 
     def __init__(self, app_key: str, app_secret: str,
                  account_no: str, account_type: str = "01",
-                 is_paper: bool = False):
+                 is_paper: bool = False, exchange: str = "KRX"):
         self.app_key      = app_key
         self.app_secret   = app_secret
         self.account_no   = account_no
         self.account_type = account_type
         self.is_paper     = is_paper
+        # 주문 거래소(KRX/NXT/SOR). 모의 서버는 KRX만 받으므로 되돌린다 — C++ kis_order_exchange와 같은 규칙. [why D-096]
+        self.exchange     = "KRX" if is_paper else (exchange or "KRX")
         self.base_url     = self.PAPER_URL if is_paper else self.REAL_URL
         self._token: Optional[str] = None
         self._token_exp: float = 0.0
@@ -199,7 +201,7 @@ class KisClient:
             return "***"
         return s[:4] + "****" + s[-4:]
 
-    def _headers(self, tr_id: str) -> dict:
+    def _headers(self, transaction_id: str) -> dict:
         """헤더 생성. appsecret을 포함하므로 절대 직접 로깅하지 말 것 — _mask() 사용."""
         self._ensure_token()
         if not self._token:
@@ -208,21 +210,21 @@ class KisClient:
             "authorization": f"Bearer {self._token}",
             "appkey":        self.app_key,
             "appsecret":     self.app_secret,
-            "tr_id":         tr_id,
+            "tr_id":         transaction_id,
             "Content-Type":  "application/json",
         }
 
-    def _get(self, path: str, params: dict, tr_id: str, extra_headers: dict | None = None) -> dict:
+    def _get(self, path: str, parameters: dict, transaction_id: str, extra_headers: dict | None = None) -> dict:
         """extra_headers는 연속조회(tr_cont) 같은 TR별 헤더를 얹을 때만 쓴다."""
         last = None
         for attempt in range(3):   # KIS(특히 모의) 지연 대비 재시도, 타임아웃 20s
             try:
-                h = self._headers(tr_id)
+                headers = self._headers(transaction_id)
                 if extra_headers:
-                    h.update(extra_headers)
-                r = requests.get(self.base_url + path, params=params,
-                                 headers=h, timeout=20)
-                return r.json()
+                    headers.update(extra_headers)
+                response = requests.get(self.base_url + path, params=parameters,
+                                        headers=headers, timeout=20)
+                return response.json()
             except requests.RequestException as e:
                 last = e
                 if attempt < 2:
@@ -233,12 +235,12 @@ class KisClient:
         logger.error(f"GET 네트워크 오류(재시도 3회) {path}: {last}")
         return {}
 
-    def _post(self, path: str, body: dict, tr_id: str) -> dict:
+    def _post(self, path: str, body: dict, transaction_id: str) -> dict:
         # ⚠️ 자동 재시도 없음 — _post는 주문(send_order) 등 상태변경에 쓰여,
         #    타임아웃 후 재시도하면 이중주문 위험. 타임아웃만 20s로 완화.
         try:
             r = requests.post(self.base_url + path, json=body,
-                              headers=self._headers(tr_id), timeout=20)
+                              headers=self._headers(transaction_id), timeout=20)
             return r.json()
         except requests.RequestException as e:
             logger.error(f"POST 네트워크 오류 {path}: {e}")
@@ -246,6 +248,38 @@ class KisClient:
         except ValueError as e:
             logger.error(f"POST 응답 JSON 파싱 실패 {path}: {e}")
             return {}
+
+    # ── 휴장일 ──────────────────────────────────────────────────────────────
+
+    def get_holiday_calendar(self, base_date: str) -> list:
+        """국내휴장일 조회 — 기준일부터 며칠치의 영업일·거래일·개장일·결제일 여부.
+
+        TR CTCA0903R 하나로 실전·모의가 같다(2026-09-23 공식 샘플 확인). 주문을 낼 수 있는 날인지는
+        opnd_yn(개장일여부)으로 본다. 공식 안내가 "원장 서비스와 연관되어 있어 가급적 1일 1회 호출"이라
+        장중에 되풀이해 부르면 안 된다 — 부르는 쪽이 하루치를 캐시한다. [why D-120]
+        """
+        response = self._get("/uapi/domestic-stock/v1/quotations/chk-holiday",
+                             {"BASS_DT": base_date, "CTX_AREA_FK": "", "CTX_AREA_NK": ""},
+                             "CTCA0903R")
+
+        if str(response.get("rt_cd", "")) != "0":
+            logger.error(f"휴장일 조회 실패: {response.get('msg1', '응답 없음')}")
+            return []
+
+        output = response.get("output", [])
+        return output if isinstance(output, list) else [output]
+
+    def is_market_open(self, base_date: str):
+        """그 날 주문을 낼 수 있으면 True, 휴장이면 False, 판정을 못 했으면 None.
+
+        모름을 휴장으로 단정하지 않는다 — 조회가 한 번 실패한 날 매매를 통째로 건너뛰는 쪽이
+        휴장일에 엔진이 헛도는 것보다 비싸다.
+        """
+        for row in self.get_holiday_calendar(base_date):
+            if str(row.get("bass_dt", "")) == base_date:
+                return str(row.get("opnd_yn", "")).upper() == "Y"
+
+        return None
 
     # ── 현재가 + PBR/PER ────────────────────────────────────────────────────
     def get_fundamentals(self, ticker: str) -> Fundamentals:
@@ -783,7 +817,7 @@ class KisClient:
 
     # ── 잔고 조회 ────────────────────────────────────────────────────────────
     def get_kr_balance(self) -> tuple[list[BalanceItem], AccountSummary]:
-        tr_id = "VTTC8434R" if self.is_paper else "TTTC8434R"
+        transaction_id = "VTTC8434R" if self.is_paper else "TTTC8434R"
         # 연속조회: 잔고 output1은 한 페이지에 20종목까지만 온다. 더 있으면 응답의
         #  ctx_area_nk100이 채워지므로 그걸 되넣고 tr_cont:N으로 다음 장을 받는다.
         #  이 처리가 없으면 21번째부터가 통째로 빠져 보유 종목수·평가금이 적게 나온다
@@ -808,7 +842,7 @@ class KisClient:
                     "CTX_AREA_FK100":       fk,
                     "CTX_AREA_NK100":       nk,
                 },
-                tr_id,
+                transaction_id,
                 {"tr_cont": cont} if cont else None,
             )
             if not page:
@@ -862,9 +896,10 @@ class KisClient:
 
     # ── 주문 실행 ────────────────────────────────────────────────────────────
     def send_order(self, signal: OrderSignal) -> OrderResult:
-        tr_id = ("VTTC0802U" if self.is_paper else "TTTC0802U") \
+        # 매수 0012U·매도 0011U. 옛 0802U/0801U는 KRX 전용이라 NXT·SOR을 낼 수 없다. [why D-096]
+        transaction_id = ("VTTC0012U" if self.is_paper else "TTTC0012U") \
                 if signal.side == "BUY" \
-                else ("VTTC0801U" if self.is_paper else "TTTC0801U")
+                else ("VTTC0011U" if self.is_paper else "TTTC0011U")
 
         body = {
             "CANO":         self.account_no,
@@ -874,9 +909,10 @@ class KisClient:
             "ORD_QTY":      str(signal.quantity),
             "ORD_UNPR":     "0" if signal.order_type == "MARKET"
                             else str(int(signal.price)),
+            "EXCG_ID_DVSN_CD": self.exchange,  # 새 주문 TR의 필수 항목 [why D-096]
         }
         data = self._post(
-            "/uapi/domestic-stock/v1/trading/order-cash", body, tr_id
+            "/uapi/domestic-stock/v1/trading/order-cash", body, transaction_id
         )
         rt_cd  = data.get("rt_cd", "")
         msg_cd = data.get("msg_cd", "")
@@ -904,4 +940,5 @@ def from_config(config_path: str = None, section: str = "kis") -> KisClient:
         account_no   = section_config.get("account_no", ""),  # 시세 계정 절엔 계좌번호가 없다
         account_type = section_config.get("account_type", "01"),
         is_paper     = section_config.get("is_paper", False),
+        exchange     = section_config.get("exchange", "KRX"),
     )

@@ -21,10 +21,11 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@09987ed scripts/auto_trade_guard.ps1@0bfa6d9 -->
+<!-- sync: scripts/auto_trade_day.ps1@0cebe52 scripts/auto_trade_guard.ps1@0bfa6d9 -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 죽으면 다시
-띄운다. 마감 뒤 `scripts/market_close_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 부속 창에는 체결 기록기·엔진 자원 표본기와 원장 저널 적재기(`quant-ledger`)가 있는데, 저널 적재기는 엔진이 주문 전에 파일로 적어 둔 원장(D-113)을 DB로 따라 적는다 — 죽어도 되살아나면 안 읽은 구간부터 따라잡는다. 트레이더는 이 감시견이 소유한다 —
+띄운다. 띄우기 전에 그날 장이 열리는지 KIS에 물어(`scripts/check_market_open.py`) 휴장일이면 아무것도 안 띄우고 끝낸다 —
+조회가 실패해 개장 여부를 모르는 날은 휴장으로 보지 않고 그대로 진행한다. 마감 뒤 `scripts/market_close_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 부속 창에는 체결 기록기·엔진 자원 표본기와 원장 저널 적재기(`quant-ledger`)가 있는데, 저널 적재기는 엔진이 주문 전에 파일로 적어 둔 원장(D-113)을 DB로 따라 적는다 — 죽어도 되살아나면 안 읽은 구간부터 따라잡는다. 트레이더는 이 감시견이 소유한다 —
 손으로 따로 띄우면 엔진이 둘이 된다. 기동 전에 이미 떠 있는 `quant_trader`가 있으면 중단하는데, **발주하는 계좌가 같을 때만**
 센다 — 떠 있는 프로세스의 명령줄에서 config를 찾아 `kis.account_no`와 `is_paper`를 열쇠로 만든다. config에 `replay_file`이
 있는 프로세스(워크트리의 리플레이 측정)는 증권사에 주문을 내지 않으므로 세지 않고, 열쇠를 읽지 못하면 막는 쪽으로 남긴다.
@@ -106,7 +107,7 @@ wsl -e docker ps -a --filter name=quant-tsdb
 
 ## 2. 장중 매매를 창 5개로 손으로 띄우기
 
-<!-- sync: PYQuant/tools/macro_regime_feed.py@712c14b PYQuant/tools/universe_feed.py@543096a scripts/notify_trades.py@14c08c1 -->
+<!-- sync: PYQuant/tools/macro_regime_feed.py@712c14b PYQuant/tools/universe_feed.py@543096a scripts/notify_trades.py@41177d1 -->
 
 1절 감시견이 도는 날에는 쓰지 않는다(트레이더가 둘이 된다). 대상은 DevScale 모의계좌 `Quant\config\config_dev_paper.json` —
 `Quant\config\config.json`은 실계좌라 장중 시험에 쓰지 않는다. 각 창은 별도 프로세스이고 닫으면 그 부분만 멈춘다.
@@ -331,7 +332,7 @@ Stop-Process -Id <PID> -Force
 
 ## 12. 매매 알림 수신처 설정 (최초 1회)
 
-<!-- sync: scripts/notify_trades.py@14c08c1 -->
+<!-- sync: scripts/notify_trades.py@41177d1 -->
 
 Discord — 서버 → 채널 설정 → 연동 → 웹후크 → 새 웹후크 → URL 복사. 폰 Discord 앱에서 그 채널 알림을 켜면 푸시가 온다.
 `_private\notify.json`(gitignore)에 적는다. 체결과 포지션 요약을 다른 채널로 나누려면 웹후크를 둘 발급해 두 번째 형태로.

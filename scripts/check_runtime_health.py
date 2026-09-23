@@ -26,6 +26,8 @@ from log_patterns import GUARD_ATTACH_RE as GUARD_RE  # noqa: E402
 DEFAULT_LOG = _logdir.log_dir() / "quant_trader.log"
 # ThreadSanitizer 회차가 남기는 한 줄 요약. scripts/tsan_round.sh 가 쓴다.
 TSAN_STATE = REPO / "_private" / "state" / "tsan_last.json"
+# KIS 국내휴장일조회(CTCA0903R) 24일치 캐시. scripts/check_market_open.py 가 쓴다.
+HOLIDAY_CALENDAR = REPO / "logs" / "holiday_calendar.json"
 # 그 회차가 본 커밋 뒤로 여기가 바뀌었으면 회차를 다시 돌 때다 — 스레드가 여럿 붙는 코드만 고른다.
 TSAN_WATCH_PATHS = ("Quant/include/core", "Quant/src/core", "Quant/include/risk", "Quant/src/risk",
                     "Quant/include/ipc", "Quant/src/ipc", "Quant/include/feed", "Quant/src/feed")
@@ -100,6 +102,12 @@ MAX_RATE_RETRIES = 10     # 초당 한도로 되보낸 HTTP 요청 — 09-22 37�
 LEDGER_REPLAY_RE = re.compile(r"\[Engine\] 원장 저널 리플레이: (\d+)건 \(마지막 seq (\d+)(, 꼬리 잘림)?\)")
 LEDGER_RESOLVE_RE = re.compile(r"\[Engine\] 원장 미결 주문 대조: 되살림 (\d+)건 · 선점해제 (\d+)건 · 저널기록실패 (\d+)건")
 LEDGER_WRITE_FAIL_RE = re.compile(r"\[OrderRouter\] 원장 저널 기록 실패")
+# 엔진이 모르는 채 브로커에 살아 있던 주문 — 전송이 타임아웃 나면 KIS에는 접수됐는데 ODNO를 못 받아
+#  부속 파일에 못 적는다. 그 주문이 보유분을 묶으면 손절이 닿아도 못 판다(2026-09-23 09:26 021240,
+#  ODNO=0000007886 매도 18주). 기동 때 브로커 조회로 보충하면 이 줄이 남는다 — 남았다는 건 그날 샜다는 뜻이다.
+UNTRACKED_OPEN_RE = re.compile(r"부속 파일에 없는 미체결 — 브로커 조회로 보충")
+# 청산이 막혔는데 풀지 못한 채 넘어간 것. 위와 같은 뿌리이나 이쪽은 재기동 전까지 방치된다.
+BLOCKED_SELL_RE = re.compile(r"청산차단 미해소")
 # 전략 사망 마무리(D-114 단계 2) — 주문 스레드가 전략 박동 공백만 보고 낸 판정.
 BEAT_DEAD_RE = re.compile(r"\[마무리\] 전략 박동이 끊겼다")
 BEAT_BACK_RE = re.compile(r"\[마무리\] 전략 박동이 돌아왔다")
@@ -452,6 +460,54 @@ def tsan_row(date: str) -> tuple:
             + (f"{stale}건" if stale >= 0 else "셀 수 없음"))
 
 
+def market_open_gate_row(date: str) -> tuple:
+    """감시견의 휴장일 관문(scripts/auto_trade_day.ps1)이 그날 제대로 갈렸는지.
+
+    휴장일에 떠도 주문은 안 나가지만 토큰을 새로 받고 WS 재접속을 되풀이한다. 반대로 개장일에 관문이
+    잘못 걸리면 그날 매매가 통째로 없다 — 이쪽이 훨씬 비싸서 FAIL로 본다. [why D-120]
+    개장 여부를 모르는 날(조회 실패)은 판정하지 않는다 — 관문 자체가 그때는 통과시키기로 돼 있다.
+    """
+    name = "휴장일 관문"
+    date_compact = date.replace("-", "")
+
+    try:
+        cached = json.loads(HOLIDAY_CALENDAR.read_text(encoding="utf-8"))
+        calendar = {str(row.get("bass_dt", "")): str(row.get("opnd_yn", "")).upper()
+                    for row in cached.get("rows", [])}
+    except (OSError, ValueError):
+        calendar = {}
+
+    open_flag = calendar.get(date_compact, "")
+
+    if open_flag not in ("Y", "N"):
+        return (name, True, "WARN",
+                f"{date_compact} 개장 여부를 달력에서 못 찾았다 — 판정 안 함"
+                " (py scripts/check_market_open.py 로 달력을 받는다)")
+
+    # 감시견은 엔진 로그 폴더가 아니라 저장소 logs/ 에 쓴다(scripts/auto_trade_day.ps1 $RunLog).
+    run_log = REPO / "logs" / f"auto_trade_day_{date_compact}.log"
+
+    try:
+        log_text = run_log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return (name, True, "WARN", f"감시견 실행 로그 없음({run_log.name}) — 감시견이 안 돌았다, 판정 안 함")
+
+    skipped = "휴장일 — 트레이더도 부속 창도 띄우지 않는다" in log_text
+    unknown = "개장 여부를 확인하지 못했다" in log_text
+
+    if open_flag == "N":
+        return (name, skipped, "FAIL",
+                ("휴장일을 걸러 아무것도 안 띄웠다" if skipped
+                 else "휴장일인데 관문이 안 걸렸다 — 감시견이 창을 띄우고 하루를 헛돌았다"))
+
+    if skipped:
+        return (name, False, "FAIL",
+                "개장일인데 휴장으로 걸러 아무것도 안 띄웠다 — 그날 매매가 통째로 없다")
+
+    return (name, True, "FAIL",
+            "개장일을 그대로 통과했다" + (" (개장 여부 조회는 실패했고 관문이 통과시켰다)" if unknown else ""))
+
+
 def order_latency_breakdown_row(date: str) -> tuple:
     """주문 한 건이 어디서 시간을 썼는지. 우리 쪽 구간(리스크 점검·원장 선기록)만 판정하고
     증권사 쪽(초당 한도 대기·왕복)은 수치만 적는다 — 우리가 줄일 수 없는 것으로 FAIL을 내면 판정이 무뎌진다.
@@ -520,6 +576,8 @@ def collect(date: str, log: Path, since: int = 0):
     breakeven: list[int] = []
     fills: list[tuple[int, str, str]] = []
     rate_hits = 0
+    untracked_opens = 0
+    blocked_sells = 0
     ws_fallbacks = 0
     rtts: list[int] = []
     bucket_waits: list[int] = []
@@ -633,6 +691,10 @@ def collect(date: str, log: Path, since: int = 0):
                 fills.append((second, found.group(1), found.group(2)))
             if RATE_RE.search(line):
                 rate_hits += 1
+            if UNTRACKED_OPEN_RE.search(line):
+                untracked_opens += 1
+            if BLOCKED_SELL_RE.search(line):
+                blocked_sells += 1
             if WSFALL_RE.search(line):
                 ws_fallbacks += 1
             found = RTT_RE.search(line)
@@ -881,6 +943,12 @@ def collect(date: str, log: Path, since: int = 0):
          + (f" — {', '.join(hhmm(second) for second in dump[:5])}" if dump else "")),
         ("매도→재매수 회전", churn <= MAX_CHURN, "FAIL",
          f"{CHURN_SEC}초 내 반대매매 {churn}회 (허용 {MAX_CHURN})"),
+        ("엔진밖 미체결", untracked_opens == 0, "FAIL",
+         f"부속 파일에 없던 브로커 미체결 {untracked_opens}건"
+         " — 전송 타임아웃 난 주문이 실제로는 접수돼 엔진 장부 밖에 살아 있었다는 뜻이다."
+         " 그 종목은 보유분이 묶여 손절이 닿아도 못 판다(2026-09-23 09:26 021240)"),
+        ("청산차단 해소", blocked_sells == 0, "FAIL",
+         f"청산차단 미해소 {blocked_sells}건 — 예약매도를 못 찾아 청산이 막힌 채 넘어갔다"),
         ("초당한도 압박", rate_hits <= MAX_RATE_HITS, "WARN",
          f"초당 거래건수 거부 {rate_hits}건 (허용 {MAX_RATE_HITS})"),
         ("HTTP 연결 재사용", curl_giveups <= MAX_CURL_GIVEUPS, "WARN",
@@ -923,6 +991,7 @@ def collect(date: str, log: Path, since: int = 0):
         *feed_ledger_rows(date),
         queue_latency_row(date),
         order_latency_breakdown_row(date),
+        market_open_gate_row(date),
         tsan_row(date),
     ]
     return rows, len(starts)
