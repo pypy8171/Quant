@@ -713,6 +713,7 @@ void test_reconcile_row_written()
     reconcile_note.note       = "mode=REST";
     router.record_reconcile(reconcile_note);
 
+    router.flush_file_writes();   // 원장 행은 전담 스레드가 쓴다 — 읽기 전에 내린다(D-123)
     auto rows = tail_trade_rows(1);
     assert(rows.size() == 1);
     auto other_split_csv = split_csv(rows[0]);
@@ -748,6 +749,7 @@ void test_sequence_propagates_to_rows()
     fill_notification.fill_time    = "100100";
     router.on_fill(fill_notification);
 
+    router.flush_file_writes();
     auto rows = tail_trade_rows(2);
     assert(rows.size() == 2);
     auto accepted_row  = split_csv(rows[0]);
@@ -757,6 +759,7 @@ void test_sequence_propagates_to_rows()
 
     // 미부여(0)는 빈 칸으로 남는다 — 0이 진짜 순번으로 읽히지 않게.
     (void)router.submit(make_signal("005930", OrderSide::BUY, 1));
+    router.flush_file_writes();
     auto last = split_csv(tail_trade_rows(1)[0]);
     assert(last[1] == "ACCEPTED" && last[16].empty());
     PASS("seq_propagates_to_rows");
@@ -811,6 +814,7 @@ void test_blocked_sell_releases_reservation()
     assert(gate.reserved("005930") == -8);
 
     // 원장에 CANCELLED 행이 남는다(재매도 ACCEPTED 행 앞).
+    router.flush_file_writes();
     auto rows = tail_trade_rows(2);
     assert(split_csv(rows[0])[1] == "CANCELLED" && split_csv(rows[0])[3] == "0000000301");
     assert(split_csv(rows[1])[1] == "ACCEPTED" && split_csv(rows[1])[3] == "0000000302");

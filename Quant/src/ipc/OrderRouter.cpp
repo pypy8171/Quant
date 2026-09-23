@@ -869,22 +869,11 @@ void OrderRouter::append_order_reason(const ManagedOrder& managed_order)
                                          static_cast<long long>(managed_order.signal.reference_price), safe(managed_order.signal.strategy_id),
                                          safe(managed_order.signal.reason));
 
-    std::lock_guard<std::mutex> lock(io_mutex_);
-    const std::string date = today_ymd();
-
-    if (date != order_reason_file_date_ || !order_reason_file_.is_open())
-    {
-        order_reason_file_.close();
-        order_reason_file_.clear();
-        order_reason_file_.open(Logger::instance().path_for("order_reasons_" + date + ".txt"), std::ios::app);
-        order_reason_file_date_ = date;
-    }
-
-    if (order_reason_file_)
-    {
-        order_reason_file_ << line;
-        order_reason_file_.flush();
-    }
+    PendingLine pending;
+    pending.sink = PendingLine::Sink::REASON;
+    pending.date = today_ymd();
+    pending.text = line;   // 줄바꿈이 이미 붙어 있다
+    queue_append_line(std::move(pending));
 }
 
 void OrderRouter::load_order_reasons_locked()
@@ -1107,6 +1096,129 @@ void OrderRouter::open_orders_writer_loop(std::stop_token stop_token)
     flush_open_orders_file(); // 멈추라는 말을 듣고도 마지막 스냅샷은 디스크에 남긴다
 }
 
+// ─── 원장 CSV·사유 덧붙이기 넘기기 ────────────────────────────────────────
+void OrderRouter::queue_append_line(PendingLine line)
+{
+    bool backed_up = false;
+    {
+        std::lock_guard<std::mutex> lock(append_outbox_mutex_);
+        append_outbox_.push_back(std::move(line));
+        backed_up = append_outbox_.size() >= kAppendOutboxLimit;
+    }
+
+    append_outbox_signal_.notify_one();
+
+    if (backed_up)
+    {
+        // 디스크가 못 따라간다. 여기서 기다리는 것은 고치기 전과 같은 상태지만, 큐가 메모리를
+        //  끝없이 먹는 것보다 낫다. 순서는 flush_append_outbox가 io_mutex_ 안에서 지킨다.
+        flush_append_outbox();
+    }
+}
+
+void OrderRouter::flush_append_outbox()
+{
+    // io_mutex_를 먼저 잡고 그 안에서 꺼낸다 — 쓰기 스레드와 부른 쪽이 같이 비우더라도
+    //  꺼낸 순서와 쓴 순서가 어긋나지 않는다. [lock-order] io_mutex_ → append_outbox_mutex_
+    std::lock_guard<std::mutex> io_lock(io_mutex_);
+
+    while (true)
+    {
+        std::deque<PendingLine> batch;
+        {
+            std::lock_guard<std::mutex> lock(append_outbox_mutex_);
+
+            if (append_outbox_.empty())
+            {
+                return;
+            }
+
+            batch.swap(append_outbox_);
+        }
+
+        write_pending_lines_locked(batch);   // 쓰는 동안 들어온 줄은 다음 바퀴가 가져간다
+    }
+}
+
+void OrderRouter::write_pending_lines_locked(const std::deque<PendingLine>& batch)
+{
+    bool wrote_trade  = false;
+    bool wrote_reason = false;
+
+    for (const PendingLine& pending : batch)
+    {
+        if (pending.sink == PendingLine::Sink::TRADE)
+        {
+            if (pending.date != trade_file_date_ || !trade_file_.is_open())
+            {
+                open_trade_file_locked(pending.date);
+            }
+
+            if (!trade_file_.is_open())
+            {
+                continue; // best-effort — 원장 정본은 OrderGate 저널이다(D-113)
+            }
+
+            trade_file_ << pending.text << '\n';
+            wrote_trade = true;
+        }
+        else
+        {
+            if (pending.date != order_reason_file_date_ || !order_reason_file_.is_open())
+            {
+                open_order_reason_file_locked(pending.date);
+            }
+
+            if (!order_reason_file_)
+            {
+                continue;
+            }
+
+            order_reason_file_ << pending.text;
+            wrote_reason = true;
+        }
+    }
+
+    // flush는 묶음당 한 번이다 — 줄마다 하던 것을 줄여 쓰기 스레드가 큐에 밀리지 않게 한다.
+    if (wrote_trade)
+    {
+        trade_file_.flush();
+    }
+
+    if (wrote_reason)
+    {
+        order_reason_file_.flush();
+    }
+}
+
+void OrderRouter::open_order_reason_file_locked(const std::string& date)
+{
+    order_reason_file_.close();
+    order_reason_file_.clear();
+    order_reason_file_.open(Logger::instance().path_for("order_reasons_" + date + ".txt"), std::ios::app);
+    order_reason_file_date_ = date;
+}
+
+void OrderRouter::append_writer_loop(std::stop_token stop_token)
+{
+    while (!stop_token.stop_requested())
+    {
+        {
+            std::unique_lock<std::mutex> lock(append_outbox_mutex_);
+            append_outbox_signal_.wait(lock, stop_token, [this] { return !append_outbox_.empty(); });
+        }
+
+        flush_append_outbox();
+    }
+
+    flush_append_outbox(); // 멈추라는 말을 듣고도 줄 서 있던 것은 디스크에 남긴다
+}
+
+void OrderRouter::flush_file_writes()
+{
+    flush_append_outbox();
+}
+
 // ─── 이전 세션이 남긴 미체결 주문 취소 (기동 시 1회) ──────────────────────
 OrderRouter::~OrderRouter()
 {
@@ -1126,6 +1238,15 @@ OrderRouter::~OrderRouter()
     }
 
     flush_open_orders_file(); // 스레드가 멈춘 뒤 남은 것이 있으면 여기서 쓴다
+
+    append_writer_.request_stop();
+
+    if (append_writer_.joinable())
+    {
+        append_writer_.join();
+    }
+
+    flush_append_outbox(); // 줄 서 있던 원장 행·사유 줄을 마저 쓴다
 }
 
 void OrderRouter::cancel_stale_orders_async()
@@ -1474,23 +1595,15 @@ void OrderRouter::open_trade_file_locked(const std::string& date)
 
 void OrderRouter::append_trade_line(const std::string& line)
 {
-    std::lock_guard<std::mutex> io_lk(io_mutex_);
+    // 시각은 지금 박는다 — 쓰기 스레드가 언제 쓰든 행의 시각은 주문 스레드가 지나간 그 순간이어야 한다.
+    std::string date, time_buffer;
+    trade_row_timestamp(date, time_buffer);
 
-    std::string dbuf, time_buffer;
-    trade_row_timestamp(dbuf, time_buffer);
-
-    if (dbuf != trade_file_date_ || !trade_file_.is_open())
-    {
-        open_trade_file_locked(dbuf);
-    }
-
-    if (!trade_file_.is_open())
-    {
-        return; // best-effort
-    }
-
-    trade_file_ << time_buffer << ',' << line << '\n';
-    trade_file_.flush();
+    PendingLine pending;
+    pending.sink = PendingLine::Sink::TRADE;
+    pending.date = std::move(date);
+    pending.text = time_buffer + ',' + line;
+    queue_append_line(std::move(pending));
 }
 
 void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& managed_order,
@@ -2058,6 +2171,13 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
     //  처리하므로, 전략 귀속을 잃는 미매핑 경로로 빠지지 않는다.
     if (order_number != 0)
     {
+        if (!order_reasons_loaded_)
+        {
+            // 읽기 전에 줄 서 있는 사유를 디스크에 내린다 — 큐에 남은 줄은 아직 파일에 없어서다.
+            //  아래 호출이 세션당 한 번만 읽으므로 이 비용도 한 번뿐이다. [why D-123]
+            flush_append_outbox();
+        }
+
         load_order_reasons_locked();   // 첫 체결통보 때 1회만 파일을 읽는다
         const bool known  = find_by_order_number_locked(order_number) != nullptr;
         auto       jitter = known ? order_reasons_.end() : order_reasons_.find(order_number);
