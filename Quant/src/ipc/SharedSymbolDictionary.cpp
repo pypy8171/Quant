@@ -1,42 +1,11 @@
 #include "ipc/SharedSymbolDictionary.h"
 
+#include "ipc/SharedWriteLock.h"
+
 #include <cstring>
-#include <thread>
 
 namespace ipc
 {
-namespace
-{
-// 넣는 동안만 잡는 자물쇠. 등록은 기동·재스캔·처음 보는 종목에서만 일어나 경합이 거의 없다. 잡는 쪽은
-//  주문 프로세스의 스레드뿐이라 건너편이 쥔 채 죽는 일이 없고, 읽기 경로는 이 칸을 건드리지 않는다.
-class WriteLock
-{
-public:
-    explicit WriteLock(std::atomic<uint32_t>& flag) : flag_(flag)
-    {
-        uint32_t expected = 0;
-
-        while (!flag_.compare_exchange_weak(expected, 1, std::memory_order_acquire, std::memory_order_relaxed))
-        {
-            expected = 0;
-            std::this_thread::yield();
-        }
-    }
-
-    ~WriteLock()
-    {
-        flag_.store(0, std::memory_order_release);
-    }
-
-    WriteLock(const WriteLock&)            = delete;
-    WriteLock& operator=(const WriteLock&) = delete;
-
-private:
-    std::atomic<uint32_t>& flag_;
-};
-
-} // namespace
-
 // 제어 칸은 캐시라인 배수여야 뒤따르는 버킷 배열이 캐시라인 경계에서 시작한다.
 static_assert(sizeof(SharedDictionaryControl) % kSharedCacheLine == 0, "표 머리는 캐시라인 배수여야 한다");
 
@@ -152,7 +121,7 @@ symbol::SymbolId SharedSymbolDictionary::intern(std::string_view ticker)
         return found;
     }
 
-    const WriteLock write_lock(control_->write_lock);
+    const SharedWriteLock write_lock(control_->write_lock);
     return symbol::table_insert(slots_, ticker);
 }
 

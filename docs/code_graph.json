@@ -54,7 +54,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 11
+      "weight": 12
     },
     {
       "from": "ipc",
@@ -224,7 +224,9 @@
     "ipc/OrderRouter.h": "ipc",
     "ipc/SharedRegion.h": "ipc",
     "ipc/SharedSpscRing.h": "ipc",
+    "ipc/SharedStrategyDictionary.h": "ipc",
     "ipc/SharedSymbolDictionary.h": "ipc",
+    "ipc/SharedWriteLock.h": "ipc",
     "ipc/ZmqBridge.h": "ipc",
     "modes/Monitors.h": "modes",
     "risk/DisplacementDesk.h": "risk",
@@ -314,7 +316,9 @@
     "ipc/OrderChannel.cpp": "ipc",
     "ipc/OrderRouter.cpp": "ipc",
     "ipc/SharedRegion.cpp": "ipc",
+    "ipc/SharedStrategyDictionary.cpp": "ipc",
     "ipc/SharedSymbolDictionary.cpp": "ipc",
+    "ipc/SharedWriteLock.cpp": "ipc",
     "ipc/ZmqBridge.cpp": "ipc",
     "modes/Monitors.cpp": "modes",
     "risk/DisplacementDesk.cpp": "risk",
@@ -730,12 +734,24 @@
     "ipc/SharedRegion.cpp": [
       "ipc/SharedRegion.h"
     ],
+    "ipc/SharedStrategyDictionary.cpp": [
+      "ipc/SharedStrategyDictionary.h",
+      "ipc/SharedWriteLock.h"
+    ],
+    "ipc/SharedStrategyDictionary.h": [
+      "core/StrategyTable.h",
+      "ipc/SharedSpscRing.h"
+    ],
     "ipc/SharedSymbolDictionary.cpp": [
-      "ipc/SharedSymbolDictionary.h"
+      "ipc/SharedSymbolDictionary.h",
+      "ipc/SharedWriteLock.h"
     ],
     "ipc/SharedSymbolDictionary.h": [
       "core/SymbolTable.h",
       "ipc/SharedSpscRing.h"
+    ],
+    "ipc/SharedWriteLock.cpp": [
+      "ipc/SharedWriteLock.h"
     ],
     "ipc/ZmqBridge.cpp": [
       "ipc/ZmqBridge.h",
@@ -1211,6 +1227,7 @@
     "core/StrategyTable.h": [
       "core/StrategyTable.cpp",
       "core/Types.h",
+      "ipc/SharedStrategyDictionary.h",
       "risk/OrderGate.h",
       "strategy/StrategyBase.h"
     ],
@@ -1334,10 +1351,19 @@
       "ipc/SharedRegion.cpp"
     ],
     "ipc/SharedSpscRing.h": [
+      "ipc/SharedStrategyDictionary.h",
       "ipc/SharedSymbolDictionary.h"
+    ],
+    "ipc/SharedStrategyDictionary.h": [
+      "ipc/SharedStrategyDictionary.cpp"
     ],
     "ipc/SharedSymbolDictionary.h": [
       "ipc/SharedSymbolDictionary.cpp"
+    ],
+    "ipc/SharedWriteLock.h": [
+      "ipc/SharedStrategyDictionary.cpp",
+      "ipc/SharedSymbolDictionary.cpp",
+      "ipc/SharedWriteLock.cpp"
     ],
     "ipc/ZmqBridge.h": [
       "core/Engine.h",
@@ -1579,6 +1605,10 @@
       "in_degree": 5
     },
     {
+      "header": "core/StrategyTable.h",
+      "in_degree": 5
+    },
+    {
       "header": "utils/JsonNode.h",
       "in_degree": 5
     },
@@ -1608,10 +1638,6 @@
     },
     {
       "header": "core/MpscQueue.h",
-      "in_degree": 4
-    },
-    {
-      "header": "core/ReconcilePlan.h",
       "in_degree": 4
     }
   ],

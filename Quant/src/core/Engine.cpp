@@ -2358,7 +2358,7 @@ void Engine::apply_control_requests(ControlInbox& inbox)
             rule.stop_loss_percent = request.stop_loss_percent;
             rule.trail_arm_percent = request.trail_arm_percent;
             rule.trail_percent     = request.trail_percent;
-            rule.owner             = order_gate_.strategy_table().name(request.owner_index);
+            rule.owner             = order_gate_.strategy_table().name(request.owner_index).string();
             rule.owner_index       = request.owner_index;
             protective_book_.arm(rule);
             break;
