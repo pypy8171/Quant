@@ -70,8 +70,15 @@ def fetch_calendar(config_path: Path, date: str) -> list:
         print(f"[오류] KIS 클라이언트를 못 불러왔다 ({error})", file=sys.stderr)
         return []
 
-    client = from_config(str(config_path))
-    return client.get_holiday_calendar(date)
+    # 어떤 예외도 밖으로 내보내지 않는다 — 파이썬이 예외로 죽으면 종료코드가 1이고,
+    # 부르는 쪽은 1을 '휴장'으로 읽어 개장일 매매를 통째로 건너뛴다.
+    # 설정 파일 없음·인증 실패·연결 끊김이 모두 이 자리로 온다. [inv] 실패는 빈 목록 = 모름(2)
+    try:
+        client = from_config(str(config_path))
+        return client.get_holiday_calendar(date)
+    except Exception as error:
+        print(f"[오류] 휴장일 조회 실패 ({type(error).__name__}: {error})", file=sys.stderr)
+        return []
 
 
 def main() -> int:
