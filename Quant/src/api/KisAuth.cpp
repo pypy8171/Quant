@@ -9,7 +9,18 @@
 #include <windows.h> // MoveFileExA — 토큰 캐시 원자 교체
 #else
 #include <curl/curl.h> // curl_global_init/cleanup — 프로세스당 한 번
+#include <unistd.h>    // getpid — 토큰 캐시 tmp 이름 구분
 #endif
+
+// 토큰 캐시 tmp 파일 이름을 프로세스마다 다르게 하려고 쓴다. [why D-122]
+static unsigned long current_process_id()
+{
+#ifdef _WIN32
+    return static_cast<unsigned long>(GetCurrentProcessId());
+#else
+    return static_cast<unsigned long>(::getpid());
+#endif
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  KisClient 구현
@@ -186,7 +197,10 @@ bool KisClient::issue_token()
         // 읽는 쪽(Python balance)이 스트리밍 중인 truncated JSON을 보지 않게 한다.
         json cache_j = {{"access_token", token}, {"expires_at", expires}};
         set_token(std::move(token), expires_at);
-        std::string temporary_path = cache_path + ".tmp";
+        // tmp 이름에 프로세스 id를 붙인다 — 모의·실계좌 엔진이 같은 app_key(시세용)를 쓰면 캐시 파일
+        //  이름이 같아, tmp 이름까지 같으면 한쪽 ofstream이 다른 쪽 tmp를 비운 뒤 반쪽 JSON이 정본으로
+        //  올라간다. 읽는 쪽은 그걸 버리고 재발급을 시도해 1분 1회 제한에 걸린다. [why D-122]
+        std::string temporary_path = cache_path + "." + std::to_string(current_process_id()) + ".tmp";
         {
             std::ofstream cf(temporary_path);
 

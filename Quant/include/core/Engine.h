@@ -284,6 +284,11 @@ public:
     //  발행 큐가 차며 나는 drop 로그가 측정을 가리기 때문이다. 라이브는 기본값(켜짐) 그대로 쓴다.
     void set_zmq_enabled(bool enabled) { zmq_enabled_ = enabled; }
 
+    // 한 기계에서 계좌를 둘 이상 돌릴 때 이 엔진을 가르는 이름(config `instance`, 예 "live").
+    //  마감 표지 파일 이름에 붙는다 — 모의 엔진이 15:30에 남긴 마감 표지를 실계좌 감시견이 읽고
+    //  20:00까지 도는 실계좌 트레이더를 되살리지 않던 것을 막는다. [why D-122]
+    void set_instance(std::string name) { instance_ = std::move(name); }
+
     // 운영단말 TCP 채널(config `ops_bind_addr`·`ops_port`·`ops_token`). port 0이면 열지 않는다.
     //  스레드 시작 전에만. 루프백이 아닌 주소는 token이 있어야 서버가 뜬다(OpsServer::start).
     void set_ops_control(const std::string& bind_address, int port, const std::string& token)
@@ -686,6 +691,9 @@ private:
         std::unordered_set<std::string> manual_cids;
     };
     OpsChannel ops_;
+
+    // 표지 파일 이름 접미. 비어 있으면 접미 없이 예전 이름을 쓴다. [why D-122]
+    std::string instance_;
     void        start_ops_server();
     std::string ops_status_json() const;
     std::string ops_positions_json() const;

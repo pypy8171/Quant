@@ -117,6 +117,10 @@ CONTROL_DISCARD_RE = re.compile(r"control_discarded=(\d+)")
 FILL_SESSION_ONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 소켓 (\d+)")
 FILL_SESSION_NONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 없음")
 FILL_SESSION_MANY_RE = re.compile(r"\[Engine\] 체결통보 세션: (\d+)개")
+# ZMQ PUB/REP 포트를 먼저 뜬 엔진이 잡고 있으면 나중에 뜬 쪽은 bind 에 실패한 뒤 ERROR 한 줄만 남기고
+#  계속 돈다 — 체결·시그널이 TimescaleDB 에 하나도 안 들어간 채로 매매한다. 계좌를 둘 돌리는 날의
+#  가장 조용한 실패라 판정 행으로 둔다(실계좌는 5565/5566 으로 옮겨 놨다). [why D-122]
+ZMQ_BIND_FAIL_RE = re.compile(r"\[ZMQ\] 소켓 bind 실패")
 
 BASKET_BUY_LEG_DEADLINE = 15 * 3600 + 5 * 60  # 매수 레그는 15:05까지 끝나야 마감 청산(15:15)과 겹치지 않는다(D-109)
 
@@ -559,6 +563,7 @@ def collect(date: str, log: Path, since: int = 0):
     fill_session_socket = -1                     # 체결통보를 맡은 소켓 번호. -1이면 그 줄이 없는 구 exe
     fill_session_none = 0                        # 맡은 소켓이 없다고 찍힌 기동 수
     fill_session_many = 0                        # 둘 이상이 맡았다고 찍힌 기동 수
+    zmq_bind_fail = 0                            # ZMQ 포트 bind 실패(포트 충돌) 횟수
 
     # 7일 지난 날은 archive/quant_trader_<날짜>.log.gz — market_close_autodoc이 그 경로를 그대로 넘긴다
     opener = (lambda: gzip.open(log, "rt", encoding="utf-8", errors="replace")) if log.suffix == ".gz"         else (lambda: log.open(encoding="utf-8", errors="replace"))
@@ -617,6 +622,8 @@ def collect(date: str, log: Path, since: int = 0):
                 fill_session_none += 1
             elif FILL_SESSION_MANY_RE.search(line):
                 fill_session_many += 1
+            if ZMQ_BIND_FAIL_RE.search(line):
+                zmq_bind_fail += 1
             if GUARD_RE.search(line):
                 guard_at.append(second)
             if BREAKEVEN_RE.search(line):
@@ -812,6 +819,10 @@ def collect(date: str, log: Path, since: int = 0):
         # 문턱 아래여도 의심 문턱을 넘은 날은 전략 스레드가 한 바퀴에 오래 붙들린 것이라 미리 본다.
         channel_row("전략 박동 여유", beat_gap_max <= BEAT_SUSPECT_MS, "WARN",
                     f"가장 긴 공백 {beat_gap_max}ms (의심 문턱 {BEAT_SUSPECT_MS}ms, 부하 하네스 실측 24ms)"),
+        # 포트를 못 잡은 엔진은 매매는 하면서 적재만 안 한다 — 로그에 ERROR 한 줄뿐이라 놓치기 쉽다.
+        ("ZMQ 포트", zmq_bind_fail == 0, "FAIL",
+                    f"bind 실패 {zmq_bind_fail}회 (기대 0 — 실패하면 그 엔진의 체결·시그널이"
+                    f" TimescaleDB 에 하나도 안 들어간다. 계좌를 둘 돌리면 포트를 갈라야 한다: D-122)"),
         # 통로가 새면 같은 주문이 두 번 가거나 전략이 답을 영영 못 받아 기다림 표가 샌다.
         channel_row("주문 통로 무결", order_duplicate == 0 and order_response_dropped == 0, "FAIL",
                     f"중복 거름 {order_duplicate}건 · 버린 응답 {order_response_dropped}건 (둘 다 기대 0)"),

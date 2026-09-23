@@ -31,7 +31,12 @@ param(
   [switch]$Reap,            # 중복·빈 창을 실제로 내린다(없으면 현황만)
   [switch]$KillAll,         # 역할 프로세스·quant 창을 전부 내리고 감시자 재기동을 막는다
   [switch]$IncludeTrader,   # 트레이더 중복도 정리 대상에 넣는다(기본 제외 — 원장 위험)
-  [switch]$Quiet            # 표를 찍지 않고 정리 결과만
+  [switch]$Quiet,           # 표를 찍지 않고 정리 결과만
+  # 한 기계에서 계좌를 둘 돌리는 날(모의 비교군 + 실계좌)에 쓴다. -KillAll 은 원래 이 기계의 quant
+  #  프로세스를 전부 내린다 — 그러면 15:35에 마감하는 모의 감시견이 20:00까지 도는 실계좌 트레이더와
+  #  그 부속 창까지 같이 내린다. OwnerPid 를 주면 그 감시견의 자손만 내린다. [why D-122]
+  [int]$OwnerPid = 0,
+  [string]$Instance = ""    # 상태 파일 이름 접미(_auto_trade_day_live.json). 비면 예전 이름
 )
 
 $ErrorActionPreference = "Stop"
@@ -108,7 +113,7 @@ foreach ($p in $all) {
   if ($p.CommandLine -notlike "*RawUI.WindowTitle='quant-*") { continue }
   if (Get-QRole $p.CommandLine) { continue }        # 역할이 직접 붙은 셸은 위에서 이미 잡혔다
   $shellTitle = if ($p.CommandLine -match "WindowTitle='([^']+)'") { $Matches[1] } else { "quant-?" }
-  $allShells += [pscustomobject]@{ QPid = $pid_; Title = $shellTitle; Start = $p.CreationDate }
+  $allShells += [pscustomobject]@{ QPid = $pid_; Title = $shellTitle; Start = $p.CreationDate; Anc = (Get-Ancestors $pid_) }
   $alive = @($tagged | Where-Object { $_.Anc -contains $pid_ })
   if ($alive.Count -eq 0) {
     $title = if ($p.CommandLine -match "WindowTitle='([^']+)'") { $Matches[1] } else { "quant-?" }
@@ -149,9 +154,13 @@ if (-not $Quiet) {
 
 # ─────────────── 전부 내리기 ───────────────
 if ($KillAll) {
+  # OwnerPid 가 있으면 그 감시견이 띄운 것만 내린다. 트레이더도 창도 감시견의 자손이라 이 하나로
+  #  갈린다 — 다른 계좌의 감시견·트레이더·부속 창은 건드리지 않는다. [why D-122]
+  $mine = { param($item) $OwnerPid -eq 0 -or $item.Anc -contains $OwnerPid }
+
   $victims = @()
-  foreach ($t in $tagged)    { $victims += [pscustomobject]@{ Pid = $t.QPid; What = $t.Role } }
-  foreach ($s in $allShells) { $victims += [pscustomobject]@{ Pid = $s.QPid; What = "창 $($s.Title)" } }
+  foreach ($t in $tagged)    { if (& $mine $t) { $victims += [pscustomobject]@{ Pid = $t.QPid; What = $t.Role } } }
+  foreach ($s in $allShells) { if (& $mine $s) { $victims += [pscustomobject]@{ Pid = $s.QPid; What = "창 $($s.Title)" } } }
 
   $killed = 0
   # 자식이 먼저 죽어야 부모 셸이 재기동 로직을 타지 않는다. 나중에 뜬 것부터 내린다.
@@ -162,7 +171,8 @@ if ($KillAll) {
 
   # 감시자가 5분 뒤 되살리지 않도록 오늘 상태에 종료를 남긴다.
   $repo   = Split-Path -Parent $PSScriptRoot
-  $status = Join-Path $repo "_private\_auto_trade_day.json"
+  $suffix = if ($Instance) { "_$Instance" } else { "" }
+  $status = Join-Path $repo ("_private\_auto_trade_day{0}.json" -f $suffix)
   if (Test-Path $status) {
     try {
       $st = Get-Content $status -Raw -Encoding UTF8 | ConvertFrom-Json

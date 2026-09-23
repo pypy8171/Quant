@@ -61,8 +61,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/core/AppConfig.cpp:195` · `AppConfig parse_config(const json& document, const std::string& mode_override)`
 3. [`run_trade`](../Quant/src/main.cpp#L288) — `Engine engine(...)` → `engine.configure(app)` → `load_strategies` → `engine.start()` → `is_running` 대기 → `engine.stop()`. join은 여기 한 곳  
    `Quant/src/main.cpp:288` · `static int run_trade(const AppConfig& app)`
-4. [`Engine::configure`](../Quant/src/core/EngineConfigure.cpp#L106) — AppConfig 값을 엔진 세터로 — 채널(ZMQ·운영단말)·국면별 전략 집합·시세 전용 KIS·리스크(게이트 한도·매매 창) 네 묶음  
-   `Quant/src/core/EngineConfigure.cpp:106` · `void Engine::configure(const AppConfig& app)`
+4. [`Engine::configure`](../Quant/src/core/EngineConfigure.cpp#L107) — AppConfig 값을 엔진 세터로 — 채널(ZMQ·운영단말)·국면별 전략 집합·시세 전용 KIS·리스크(게이트 한도·매매 창) 네 묶음  
+   `Quant/src/core/EngineConfigure.cpp:107` · `void Engine::configure(const AppConfig& app)`
 5. [`load_strategies`](../Quant/src/strategy/StrategyFactory.cpp#L1170) — config `strategies[]`를 전략 객체로. 새 전략을 붙이는 자리(docs/ENGINE_ARCHITECTURE.md '전략 추가하기')  
    `Quant/src/strategy/StrategyFactory.cpp:1170` · `void load_strategies(StrategyLoadCtx& context, const json& strategies)`
 6. [`Engine::add_strategy`](../Quant/src/core/Engine.cpp#L36) — 전략 등록. 심볼 해석기(`set_symbol_resolver` → `SymbolTable::intern`)가 여기서 주입된다  
@@ -159,8 +159,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/core/SignalDispatcher.cpp:208` · `void SignalDispatcher::submit(OrderSignal signal)` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
 35. [`dispatch::SignalDispatcher::force_liquidate`](../Quant/src/core/SignalDispatcher.cpp#L252) — 보유 전량 시장가 매도를 2초 간격 재발주. `reference_price`가 여기서 찍히는지 본다  
    `Quant/src/core/SignalDispatcher.cpp:252` · `void SignalDispatcher::force_liquidate(Clock::time_point now)` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
-36. [`Engine::drain_manual_inbox`](../Quant/src/core/Engine.cpp#L3717) — 운영단말 수동 주문(`ops_.manual_inbox`)이 같은 싱크로 들어온다 — 생산자를 늘리지 않기 위해 이 스레드가 꺼낸다  
-   `Quant/src/core/Engine.cpp:3717` · `void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& emit)`
+36. [`Engine::drain_manual_inbox`](../Quant/src/core/Engine.cpp#L3729) — 운영단말 수동 주문(`ops_.manual_inbox`)이 같은 싱크로 들어온다 — 생산자를 늘리지 않기 위해 이 스레드가 꺼낸다  
+   `Quant/src/core/Engine.cpp:3729` · `void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& emit)`
 
 리뷰할 때 볼 것:
 
@@ -190,8 +190,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/risk/OrderGate.cpp:1603` · `OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account, symbol::SymbolId new_symbol) const` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
 45. [`OrderGate::on_intent`](../Quant/src/risk/OrderGate.cpp#L718) — 전송 **전에** 원장 저널에 INTENT를 적고 `reserved_`를 선점한다(슬롯·현금). 기록에 실패하면 선점을 되돌리고 거짓을 준다 — 그 주문은 나가지 않는다(D-113). 접수 뒤 짝은 `on_accepted`, 되돌리는 짝은 `on_fill_confirmed`·`on_cancel`·`on_reject`  
    `Quant/src/risk/OrderGate.cpp:718` · `bool OrderGate::on_intent(const std::string& account, const std::string& ticker, OrderSide side, int quantity, …` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
-46. [`KisClient::submit_order_acknowledgement`](../Quant/src/api/KisOrder.cpp#L152) — 현금 주문 REST. tr_id(실/모의)·`EXCG_ID_DVSN_CD`(KRX/NXT/SOR, D-096)·`authentication_headers`·응답에서 ODNO. 여기서만 KIS에 주문이 닿는다  
-   `Quant/src/api/KisOrder.cpp:152` · `OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)`
+46. [`KisClient::submit_order_acknowledgement`](../Quant/src/api/KisOrder.cpp#L158) — 현금 주문 REST. tr_id(실/모의)·`EXCG_ID_DVSN_CD`(KRX/NXT/SOR, D-096)·`authentication_headers`·응답에서 ODNO. 여기서만 KIS에 주문이 닿는다  
+   `Quant/src/api/KisOrder.cpp:158` · `OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)`
 47. [`trace::LatencyTrace::record`](../Quant/include/core/LatencyTrace.h#L128) — 틱 수신→신호→pop→라우터 반환 네 시각을 `logs/latency_trace.csv` 한 줄로  
    `Quant/include/core/LatencyTrace.h:128` · `void record(const OrderSignal& signal, const Marks& marks, bool kis_called, bool accepted);` · 시험 [test_latency_trace](../Quant/tests/test_latency_trace.cpp)
 

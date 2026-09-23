@@ -233,6 +233,7 @@ AppConfig parse_config(const json& document, const std::string& mode_override)
     app.ops_bind_address              = document.value("ops_bind_addr", std::string());
     app.ops_port                      = document.value("ops_port", 0);
     app.ops_token                     = document.value("ops_token", std::string());
+    app.instance                      = document.value("instance", std::string());
 
     if (document.contains("regime_strategies"))
     {

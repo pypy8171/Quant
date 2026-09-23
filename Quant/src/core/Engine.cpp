@@ -3521,12 +3521,24 @@ void Engine::step_session_end()
 
 // 표지 파일은 repo 루트 기준 상대 경로다 — 트레이더는 반드시 repo 루트에서 띄운다(감시견도 같은 경로를 본다).
 //  실패해도 엔진은 멈추지 않는다 — 그러면 감시견이 -Until 마감 판정으로 되돌아갈 뿐이다.
+//  instance_가 있으면 이름에 붙인다(session_done_live_2026-09-29) — 계좌를 둘 돌릴 때 모의가 15:30에
+//  남긴 마감 표지로 실계좌 감시견이 멈추던 것을 막는다. 감시견도 -Instance 로 같은 이름을 본다. [why D-122]
 void Engine::write_state_marker(std::string_view name, std::string_view body) const
 {
     const auto kst = ::kst::to_tm(std::time(nullptr));
     char       date_buffer[16];
     std::snprintf(date_buffer, sizeof(date_buffer), "%04d-%02d-%02d", kst.tm_year + 1900, kst.tm_mon + 1, kst.tm_mday);
-    const std::filesystem::path path = std::filesystem::path("_private") / "state" / (std::string(name) + "_" + date_buffer);
+    std::string file_name(name);
+
+    if (!instance_.empty())
+    {
+        file_name += "_";
+        file_name += instance_;
+    }
+
+    file_name += "_";
+    file_name += date_buffer;
+    const std::filesystem::path path = std::filesystem::path("_private") / "state" / file_name;
 
     std::error_code error;
     std::filesystem::create_directories(path.parent_path(), error);

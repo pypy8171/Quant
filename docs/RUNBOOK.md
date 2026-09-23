@@ -21,12 +21,22 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@db182dd scripts/auto_trade_guard.ps1@74bf998 -->
+<!-- sync: scripts/auto_trade_day.ps1@09987ed scripts/auto_trade_guard.ps1@0bfa6d9 -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 죽으면 다시
 띄운다. 마감 뒤 `scripts/market_close_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 부속 창에는 체결 기록기·엔진 자원 표본기와 원장 저널 적재기(`quant-ledger`)가 있는데, 저널 적재기는 엔진이 주문 전에 파일로 적어 둔 원장(D-113)을 DB로 따라 적는다 — 죽어도 되살아나면 안 읽은 구간부터 따라잡는다. 트레이더는 이 감시견이 소유한다 —
-손으로 따로 띄우면 엔진이 둘이 된다. 기동 전에 이미 떠 있는 `quant_trader`가 있으면 중단하는데, config에 `replay_file`이
-있는 프로세스(워크트리의 리플레이 측정)는 증권사에 주문을 내지 않으므로 세지 않는다.
+손으로 따로 띄우면 엔진이 둘이 된다. 기동 전에 이미 떠 있는 `quant_trader`가 있으면 중단하는데, **발주하는 계좌가 같을 때만**
+센다 — 떠 있는 프로세스의 명령줄에서 config를 찾아 `kis.account_no`와 `is_paper`를 열쇠로 만든다. config에 `replay_file`이
+있는 프로세스(워크트리의 리플레이 측정)는 증권사에 주문을 내지 않으므로 세지 않고, 열쇠를 읽지 못하면 막는 쪽으로 남긴다.
+
+모의와 실계좌를 한 기계에서 같이 돌리는 날은 config `instance` 하나가 두 벌을 가른다(D-122). 실계좌 config에
+`"instance": "live"`가 있으면 감시견이 상태 파일 `_private/_auto_trade_day_live.json`, 실행 로그 `auto_trade_day_live_*.log`,
+엔진 로그 폴더 `Quant/build_win/logs_live`(`QUANT_LOG_DIR`), 마감 표지 `session_done_live_<날짜>`, 창 제목 접미를 쓴다.
+마감 정리(`quant_procs.ps1 -KillAll`)도 그 감시견의 자손만 내리므로, 15:35에 마감하는 모의 쪽이 20:00까지 도는 실계좌를
+같이 내리지 않는다. 가드도 예약작업 이름이 `QuantAutoTradeGuard_live`로 갈린다.
+
+실계좌 기동은 아래 기본 명령에 `-Config Quant\config\config_live.json -Until 20:05`을 붙이고, 가드는 같은 `-Config`로 `-Install`한다.
+그 config는 실계좌 인증 정보라 저장소에 없다(gitignore) — 복붙할 명령 전문은 `_private/LINKS.md`에 있다.
 
 ```powershell
 cd {ROOT}
