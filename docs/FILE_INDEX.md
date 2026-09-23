@@ -548,7 +548,7 @@
 - [manual_order.cpp](../Quant/tools/manual_order.cpp) — 수동 주문 도구(모의계좌 접수-체결 확인)
 - [ops_client.cpp](../Quant/tools/ops_client.cpp) — 운영단말 콘솔 클라이언트(상태·보유 조회·수동주문, D-043)
 - [query_balance.py](../Quant/tools/query_balance.py) — 모의계좌 잔고 조회 스크립트(연속조회 포함)
-- [value_rank_check.cpp](../Quant/tools/value_rank_check.cpp) — 거래대금 상위 랭킹 점검 도구(행수·ETF 섞임·정렬 판정)
+- [ranking_check.cpp](../Quant/tools/ranking_check.cpp) — 거래대금·시가총액 상위 랭킹 점검 도구(행수·ETF 섞임·정렬 판정)
 
 ### Quant/tools/ops_terminal/
 

@@ -49,6 +49,10 @@ WSFALL_RE = re.compile(r"WS → REST 폴링 폴백")
 # 거래대금 랭킹: 축·ETF드롭·생존 행수. ETF드롭이 0이 아니면 API단 제외 마스크가 안 먹는 것이다.
 VALUE_RANK_DIAG_RE = re.compile(r"거래대금랭킹 진단\(축=(\d).*?ETF드롭=(\d+).*?생존=(\d+)")
 VALUE_RANK_DONE_RE = re.compile(r"거래대금 랭킹 조회 완료: (\d+)종목 \(요청 count=(\d+)\)")
+# 시총 랭킹: 이 축은 ETF를 API단에서 못 빼 보통주 구분값과 이름 필터로만 거른다. raw의 절반 넘게
+#  ETF면 화면코드·tr_id 짝이 어긋나 거래량 순위가 온 것이다(2026-09-23까지 그렇게 새고 있었다).
+MARKET_CAP_DIAG_RE = re.compile(r"시총랭킹 진단: raw=(\d+).*?ETF드롭=(\d+).*?생존=(\d+)")
+MARKET_CAP_DONE_RE = re.compile(r"시총 랭킹 조회 완료: (\d+)종목 \(요청 count=(\d+)\)")
 # 주문 접수·거부 한 줄의 왕복 시간. 버킷대기는 09-19 이후 바이너리만 찍는다(없으면 None).
 RTT_RE = re.compile(r"\[OrderRouter\] (?:접수|KIS 거부) .*?RTT=(\d+)ms(?: 버킷대기=(\d+)ms)?")
 # D-100 — 잔고 조회가 한 사이클(500ms)을 넘겨 뒤 사이클에서 적용된 건
@@ -581,6 +585,8 @@ def collect(date: str, log: Path, since: int = 0):
     rate_hits = 0
     value_rank_etf_drops = 0          # 랭킹 응답에 ETF가 섞여 들어온 행수
     value_rank_short: list[tuple[int, int]] = []   # (받은 행수, 요청 행수) — 요청보다 모자랐던 회차
+    market_cap_axis_broken = 0        # raw의 절반 넘게 ETF였던 회차 — 순위 축이 어긋난 신호
+    market_cap_short: list[tuple[int, int]] = []   # (받은 행수, 요청 행수) — 요청보다 모자랐던 회차
     untracked_opens = 0
     blocked_sells = 0
     ws_fallbacks = 0
@@ -702,6 +708,12 @@ def collect(date: str, log: Path, since: int = 0):
             found = VALUE_RANK_DONE_RE.search(line)
             if found and int(found.group(1)) < int(found.group(2)):
                 value_rank_short.append((int(found.group(1)), int(found.group(2))))
+            found = MARKET_CAP_DIAG_RE.search(line)
+            if found and int(found.group(2)) * 2 > int(found.group(1)):
+                market_cap_axis_broken += 1
+            found = MARKET_CAP_DONE_RE.search(line)
+            if found and int(found.group(1)) < int(found.group(2)):
+                market_cap_short.append((int(found.group(1)), int(found.group(2))))
             if UNTRACKED_OPEN_RE.search(line):
                 untracked_opens += 1
             if BLOCKED_SELL_RE.search(line):
@@ -969,6 +981,13 @@ def collect(date: str, log: Path, since: int = 0):
          + (f" · 요청보다 모자란 회차 {len(value_rank_short)}건"
             f" (가장 적을 때 {min(short[0] for short in value_rank_short)}/"
             f"{max(short[1] for short in value_rank_short)}행)" if value_rank_short else " · 행수 모자람 없음")),
+        # 행수는 실패 조건이 아니다 — 이 조회는 두 페이지 60행이 구조적 상한이라 scan_top_n=80이면
+        #  늘 모자란다. 축이 어긋났는지(거래량 순위가 왔는지)만 본다.
+        ("시총 랭킹 축", market_cap_axis_broken == 0, "WARN",
+         f"raw 절반 넘게 ETF였던 회차 {market_cap_axis_broken}건 (기대 0 — 넘으면 거래량 순위가 온 것)"
+         + (f" · 상한에 걸려 요청보다 적게 온 회차 {len(market_cap_short)}건"
+            f" (가장 적을 때 {min(short[0] for short in market_cap_short)}/"
+            f"{max(short[1] for short in market_cap_short)}행)" if market_cap_short else " · 행수 모자람 없음")),
         ("HTTP 연결 재사용", curl_giveups <= MAX_CURL_GIVEUPS, "WARN",
          f"제한 시간 초과로 버린 요청 {curl_giveups}건 (허용 {MAX_CURL_GIVEUPS}, 09-22 21건)"
          " — 넘으면 스레드별 상주 핸들이 안 살아 매 요청이 TCP+TLS를 다시 맺는 것"),

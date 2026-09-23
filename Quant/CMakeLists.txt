@@ -933,17 +933,17 @@ endif()
 
 # ─── 벤치: REST 커넥션 풀링(P-2) 효과 — 조회 왕복 지연 분포, QUANT_HTTP_NOPOOL로 A/B ──
 # 거래대금 랭킹 점검 — 행수·ETF 섞임·정렬을 한 번에 본다(D-120 절차의 실측 자리).
-add_executable(value_rank_check
-    tools/value_rank_check.cpp
+add_executable(ranking_check
+    tools/ranking_check.cpp
     ${KIS_CLIENT_SOURCES}
     src/utils/Logger.cpp
 )
-target_include_directories(value_rank_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(ranking_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(UNIX)
-    target_link_libraries(value_rank_check PRIVATE
+    target_link_libraries(ranking_check PRIVATE
         CURL::libcurl OpenSSL::Crypto nlohmann_json::nlohmann_json pthread stdc++fs)
 else()
-    target_link_libraries(value_rank_check PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
+    target_link_libraries(ranking_check PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
 endif()
 
 add_executable(bench_rest_pool
