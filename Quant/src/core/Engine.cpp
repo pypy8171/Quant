@@ -813,7 +813,7 @@ void Engine::setup_zmq_bridge()
             if (command == "KILL")
             {
                 LOG_WARN("[ZMQ] KILL 명령 수신 — 신규 주문 차단 + 엔진 종료");
-                order_gate_.set_kill_switch(true);
+                request_kill_switch(true);
                 write_state_marker("kill_today", "ZMQ KILL");
                 request_shutdown("ZMQ KILL 명령");
                 return "OK";
@@ -1501,6 +1501,103 @@ symbol::SymbolId Engine::register_symbol(std::string_view ticker)
     return symbol::kNone;
 }
 
+// ─── 주문 쪽 스위치 다섯 ──────────────────────────────────────────────────
+//  OrderGate·원장은 주문 프로세스 것이다. 전략 역할이면 제어 요청 한 줄로 바꿔 보내고, 고치는 일은
+//  주문 스레드가 한다(D-071 원칙 4). Both 역할이면 지금까지처럼 그 자리에서 고친다. [why D-114]
+
+void Engine::send_control_switch(ipc::ControlRequest& request, std::string_view what)
+{
+    if (send_control(request))
+    {
+        return;
+    }
+
+    // 제어 큐가 가득 찼다. 사라진 것이 kill switch 일 수 있어 조용히 넘기지 않는다.
+    LOG_ERROR("[Engine] 주문 쪽에 " + std::string(what) + " 요청을 못 실었다 — 제어 큐가 가득 찼다");
+}
+
+void Engine::apply_reset_daily()
+{
+    order_gate_.reset_daily();
+
+    if (order_router_)
+    {
+        order_router_->reset_daily(); // V-4: 중복방지 키 일별 정리(거래일 prefix와 함께 cross-day 충돌 차단)
+    }
+
+    ledger_->new_trading_day(); // C-1: 새 거래일 → 총평가금 기준선 재캡처
+}
+
+void Engine::request_reset_daily()
+{
+    if (role_ != ProcessRole::Strategy)
+    {
+        apply_reset_daily();
+        return;
+    }
+
+    ipc::ControlRequest request;
+    request.kind = ipc::ControlKind::kResetDaily;
+    send_control_switch(request, "하루치 새로 열기");
+}
+
+void Engine::request_entry_halt(bool on)
+{
+    if (role_ != ProcessRole::Strategy)
+    {
+        order_gate_.set_entry_halt(on);
+        return;
+    }
+
+    ipc::ControlRequest request;
+    request.kind      = ipc::ControlKind::kEntryHalt;
+    request.toggle_on = on ? 1 : 0;
+    send_control_switch(request, "신규 진입 정지");
+}
+
+void Engine::request_entry_scale(double entry_scale)
+{
+    if (role_ != ProcessRole::Strategy)
+    {
+        order_gate_.set_entry_scale(entry_scale);
+        return;
+    }
+
+    ipc::ControlRequest request;
+    request.kind        = ipc::ControlKind::kEntryScale;
+    request.entry_scale = entry_scale;
+    send_control_switch(request, "매수 비율");
+}
+
+void Engine::request_kill_switch(bool on)
+{
+    if (role_ != ProcessRole::Strategy)
+    {
+        order_gate_.set_kill_switch(on);
+        return;
+    }
+
+    ipc::ControlRequest request;
+    request.kind      = ipc::ControlKind::kKillSwitch;
+    request.toggle_on = on ? 1 : 0;
+    send_control_switch(request, "전방향 주문 차단");
+}
+
+void Engine::request_manual_halt(OrderSide side, bool on)
+{
+    if (role_ != ProcessRole::Strategy)
+    {
+        order_gate_.set_manual_halt(side, on);
+        return;
+    }
+
+    ipc::ControlRequest request;
+    request.kind      = ipc::ControlKind::kManualHalt;
+    request.halt_side = static_cast<uint8_t>(static_cast<OrderSide::Value>(side));
+    request.toggle_on = on ? 1 : 0;
+    send_control_switch(request, "수동 정지");
+}
+
 // 값으로 돌려준다 — ticker_names_는 뮤텍스 아래 갱신되므로 락을 벗어난 참조는 쓸 수 없다.
 std::string Engine::ticker_label(symbol::SymbolId symbol) const
 {
@@ -1672,14 +1769,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
         //  그날 KR 손익 기록을 지우지만 그 시각 KR 주문은 나가지 않는다(W-9, 시장별 분리는 보류).
         if (market_now && !was_market_open)
         {
-            order_gate_.reset_daily();
-
-            if (order_router_)
-            {
-                order_router_->reset_daily();   // V-4: 중복방지 키 일별 정리(거래일 prefix와 함께 cross-day 충돌 차단)
-            }
-
-            ledger_->new_trading_day(); // C-1: 새 거래일 → 총평가금 기준선 재캡처
+            request_reset_daily();
             LOG_INFO(std::string("[DataThread] 장 개장 전이(") + (is_kr_market_open() ? "KR" : "US") +
                      ") — OrderGate 일별 카운터 리셋");
 
@@ -2238,7 +2328,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 // ─── 매크로 레짐 파일 폴링 → OrderGate entry_halt 토글 (data_thread 전용) ─────
 //  Python macro_regime_feed.py가 원자적으로 쓰는 regime.json을 매 사이클 읽어,
 //  entry_halt(신규 진입만 차단, 청산은 통과)를 국면에 맞춰 켜고 끈다.
-//  set_entry_halt는 이 함수가 유일 호출자라 소유권 단순. 파일 없음/손상/
+//  신규진입 정지를 내는 곳은 이 함수뿐이라 소유권 단순. 파일 없음/손상/
 //  판정보류(valid=false)/stale이면 게이트를 새로 켜지 않는다(유지가 실패안전).
 //  매크로 risk-off 오버레이 축(G2): entry_halt·force_liquidate(강제청산)를 건다.
 //  전략선택 축(apply_regime_selection)과는 별개 관심사다.
@@ -2443,6 +2533,28 @@ void Engine::apply_control_requests(ControlInbox& inbox)
             symbols_.table.intern(request.ticker.view());
             break;
 
+        // 주문 쪽 스위치를 고치는 자리도 여기 하나다 — 전략 쪽은 요청만 보낸다.
+        case ipc::ControlKind::kResetDaily:
+            apply_reset_daily();
+            break;
+
+        case ipc::ControlKind::kEntryHalt:
+            order_gate_.set_entry_halt(request.toggle_on != 0);
+            break;
+
+        case ipc::ControlKind::kEntryScale:
+            order_gate_.set_entry_scale(request.entry_scale);
+            break;
+
+        case ipc::ControlKind::kKillSwitch:
+            order_gate_.set_kill_switch(request.toggle_on != 0);
+            break;
+
+        case ipc::ControlKind::kManualHalt:
+            order_gate_.set_manual_halt(request.halt_side == OrderSide::SELL ? OrderSide::SELL : OrderSide::BUY,
+                                        request.toggle_on != 0);
+            break;
+
         default:
             break;
         }
@@ -2624,10 +2736,10 @@ void Engine::poll_regime_file()
                  "s) — 보조 프로세스 중단 의심, 게이트 신규 변경 보류(현 halt 유지)");
     }
 
-    // set_entry_halt는 이 함수가 유일 호출자라 소유권이 단순하다.
+    // 신규진입 정지를 내는 곳은 이 함수뿐이라 소유권이 단순하다.
     if (out.entry_halt)
     {
-        order_gate_.set_entry_halt(*out.entry_halt);
+        request_entry_halt(*out.entry_halt);
     }
 
     if (out.log_halt_transition)
@@ -2643,10 +2755,10 @@ void Engine::poll_regime_file()
         apply_regime_selection(*out.selection, /*force_log=*/false);
     }
 
-    // 비율은 halt와 같은 소유권(이 함수만 set). 전략은 다음 계획 회차에 분할 단계 명목에 곱한다.
+    // 비율은 halt와 같은 소유권(이 함수만 낸다). 전략은 다음 계획 회차에 분할 단계 명목에 곱한다.
     if (out.entry_scale)
     {
-        order_gate_.set_entry_scale(*out.entry_scale);
+        request_entry_scale(*out.entry_scale);
     }
 
     if (out.log_scale_change)
@@ -3557,7 +3669,7 @@ void Engine::control_thread_fn(std::stop_token stop_token)
             if (!activate_rest_fallback("재연결 " + std::to_string(feed_.feed_sup.fail_streak()) + "회 실패"))
             {
                 LOG_ERROR("[Control] 폴링 폴백 불가(시세 소스 없음) — kill switch 작동");
-                order_gate_.set_kill_switch(true);
+                request_kill_switch(true);
             }
         }
     }
@@ -3641,7 +3753,7 @@ void Engine::start_ops_server()
         [this]
         {
             LOG_WARN("[Ops] KILL — 신규 주문 차단 + 엔진 종료");
-            order_gate_.set_kill_switch(true);
+            request_kill_switch(true);
             write_state_marker("kill_today", "운영단말 KILL");
             request_shutdown("운영단말 KILL");
         });
@@ -3649,7 +3761,7 @@ void Engine::start_ops_server()
         [this](const std::string& side, bool on)
         {
             LOG_WARN(std::string("[Ops] HALT_REQ — 수동 ") + (side == "SELL" ? "전략 매도 정지 " : "진입 정지 ") + (on ? "ON" : "OFF"));
-            order_gate_.set_manual_halt(side == "SELL" ? OrderSide::SELL : OrderSide::BUY, on);
+            request_manual_halt(side == "SELL" ? OrderSide::SELL : OrderSide::BUY, on);
         });
     ops_.server->set_halt_provider(
         [this] { return std::make_pair(order_gate_.is_manual_buy_halted(), order_gate_.is_manual_sell_halted()); });

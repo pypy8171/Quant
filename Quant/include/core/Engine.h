@@ -112,6 +112,22 @@ public:
         return symbol_lookup_misses_.load(std::memory_order_relaxed);
     }
 
+    // ── 주문 쪽 스위치를 고치는 자리 ────────────────────────────────────────
+    // OrderGate·원장은 주문 프로세스 것이다. 전략 역할이면 여기서 직접 고치지 않고 제어 요청 한 줄을
+    //  보낸다 — 표를 고치는 일은 단일 시퀀서인 주문 스레드가 한다(D-071 원칙 4). [why D-114]
+    //  Both 역할이면 지금까지처럼 그 자리에서 고친다.
+    void request_reset_daily();                       // 장이 열렸다 — 하루치를 새로 연다
+    void request_entry_halt(bool on);                 // 신규 진입 정지(청산·취소는 통과)
+    void request_entry_scale(double entry_scale);     // 신규 진입 매수 비율 0~1
+    void request_kill_switch(bool on);                // 전방향 주문 차단
+    void request_manual_halt(OrderSide side, bool on); // 운영단말이 손으로 거는 한 방향 정지
+
+    // 지금 값. 고치는 것은 위의 요청으로만 하고 읽기는 어느 쪽에서나 한다(게이트 안은 원자값이다).
+    [[nodiscard]] bool   is_entry_halted() const { return order_gate_.is_entry_halted(); }
+    [[nodiscard]] double entry_scale() const { return order_gate_.entry_scale(); }
+    [[nodiscard]] bool   is_killed() const { return order_gate_.is_killed(); }
+    [[nodiscard]] bool   is_manual_sell_halted() const { return order_gate_.is_manual_sell_halted(); }
+
     // ── 전략 등록 ────────────────────────────────────────────────────────────
     void add_strategy(std::unique_ptr<StrategyBase> strategy);
 
@@ -412,6 +428,12 @@ private:
     // 요청 한 줄 보내기. 순번은 여기서 찍는다. 큐가 가득이면 거짓 — 표를 보내는 쪽은 그때 commit 을
     //  보내지 않고 접는다(반쪽 표를 거느니 이번 판을 통째로 거른다). [why D-114]
     bool send_control(ipc::ControlRequest& request);
+
+    // 스위치 요청 한 줄을 싣는다. 못 실으면 큰 소리로 남긴다 — 사라진 것이 kill switch 일 수 있다.
+    void send_control_switch(ipc::ControlRequest& request, std::string_view what);
+
+    // 하루치를 새로 여는 실제 손질. [inv] 주문 쪽에서만 부른다(Both 의 data_thread 또는 order_thread).
+    void apply_reset_daily();
 
     // 주문 스레드가 표를 모으는 자리. 표마다 하나씩 둬 둘이 큐에서 섞여 와도 각자 모인다.
     struct ControlInbox

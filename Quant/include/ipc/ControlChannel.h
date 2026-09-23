@@ -1,6 +1,6 @@
 // 전략 → 주문 제어 요청 — 사고 파는 주문이 아니라 주문 쪽 표를 고치는 요청이다.
-//  전략 쪽이 OrderGate·보호 주문 표를 직접 고치던 자리(슬롯 면제 집합·진입 우선순위 표·보호 주문 등록)를
-//  이 레코드 한 줄로 바꾼다. 표를 고치는 일은 단일 시퀀서인 주문 스레드가 한다(원칙 4). [why D-114]
+//  전략 쪽이 OrderGate·보호 주문 표를 직접 고치던 자리(슬롯 면제 집합·진입 우선순위 표·보호 주문 등록·
+//  종목 표 등록·주문 쪽 스위치 다섯)를 이 레코드 한 줄로 바꾼다. 표를 고치는 일은 단일 시퀀서인 주문 스레드가 한다(원칙 4). [why D-114]
 //  ipc/OrderChannel.h 와 같은 규칙이다 — 포인터도, 길이가 정해지지 않은 문자열도 안 싣는다
 //  (계좌·티커는 고정 칸이다). 단계 4에서 프로세스가 갈리면
 //  레코드는 그대로 두고 운반 수단만 공유메모리로 바꾼다. 처리량은 분당 몇 건이라 레코드 크기보다
@@ -37,6 +37,11 @@ enum class ControlKind : uint8_t
     kArmProtective       = 7, // 보호 주문 한 건 등록
     kDisarmProtective    = 8, // 보호 주문 한 건 해제
     kRegisterSymbol      = 9, // 종목 표에 티커 하나를 넣어 달라 — 넣는 쪽은 주문 프로세스 하나다
+    kResetDaily          = 10, // 장이 열렸다 — 하루치 세기·중복방지 키·총평가금 기준선을 새로 연다
+    kEntryHalt           = 11, // 신규 진입 정지 스위치(청산·취소는 그대로 통과한다)
+    kEntryScale          = 12, // 신규 진입 매수 비율 0~1
+    kKillSwitch          = 13, // 전방향 주문 차단
+    kManualHalt          = 14, // 운영단말이 손으로 거는 한 방향 정지
 };
 
 // 제어 요청 한 줄. 칸은 kind 마다 쓰는 것만 채우고 나머지는 기본값 그대로 둔다.
@@ -50,9 +55,11 @@ struct ControlRequest
     int32_t                    rank              = 0;   // kEntryPriorityEntry 랭크 / kEntryPriorityCommit 표의 전체 종목 수
     uint32_t                   row_count         = 0;   // *Commit: 이 표로 보낸 줄 수. 받는 쪽이 셈이 맞는지 본다
     ControlKind                kind              = ControlKind::kNone;
+    uint8_t                    toggle_on         = 0;   // kEntryHalt·kKillSwitch·kManualHalt — 켜면 1
+    uint8_t                    halt_side         = 0;   // kManualHalt — OrderSide::Value 를 담는다
     uint8_t                    reserved0         = 0;
-    uint16_t                   reserved1         = 0;
     double                     score_z           = 0.0; // kEntryPriorityEntry
+    double                     entry_scale       = 0.0; // kEntryScale
     double                     stop_loss_percent = 0.0; // kArmProtective
     double                     trail_arm_percent = 0.0; // kArmProtective
     double                     trail_percent     = 0.0; // kArmProtective
