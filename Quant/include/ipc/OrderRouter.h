@@ -243,9 +243,20 @@ private:
     //  같은 초·같은 수량·단가의 분할체결은 키가 겹치므로 집합이 아니라 횟수로 센다.
     //  자세한 배경은 on_fill() 주석 참고.
     std::unordered_map<FillKey, int, FillKeyHash> seen_fills_;
-    // 미매핑(미연결) 체결로 이미 반영한 키 (history_mutex_로 보호). 미연결 주문은 주문수량을 모르니
-    //  잔량 클램프가 없어 같은 통보의 재전송을 이 키로만 막는다.
+    // 미매핑(미연결) 체결로 이미 반영한 키 (history_mutex_로 보호). 전문이 주문수량(ODER_QTY)을 주지 않아
+    //  잔량 상한을 못 잡는 통보만 여기로 막는다 — 주문수량을 받은 통보는 아래 unlinked_orders_가 맡는다.
     std::unordered_set<FillKey, FillKeyHash> unlinked_fill_keys_;
+
+    // 미연결 주문 하나의 누적 상태. 연결된 주문의 (signal.quantity, confirmed_quantity) 짝과 같은 역할이다.
+    struct UnlinkedOrder
+    {
+        int order_quantity     = 0; // 전문 [16]ODER_QTY. 0이면 "전문이 안 줘서 모른다"
+        int confirmed_quantity = 0; // 지금까지 원장에 반영한 수량
+    };
+
+    // 주문 단위 키(거래일+ODNO, 체결 건별 칸은 0) → 그 주문의 누적 상태 (history_mutex_로 보호).
+    //  ODNO는 영업일마다 재사용되므로 거래일을 키에 같이 담는다. 일별 리셋으로 비운다.
+    std::unordered_map<FillKey, UnlinkedOrder, FillKeyHash> unlinked_orders_;
     // ODNO 정수 → 이전 세션이 남긴 주문 사유 (history_mutex_로 보호). 파일에서 한 번 읽고,
     //  되살린 주문은 지운다(같은 ODNO를 두 번 되살리지 않게).
     std::unordered_map<uint64_t, OrderReason> order_reasons_;

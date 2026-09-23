@@ -241,10 +241,27 @@ Decode decode_fill(Fields fields, FillNotification& fill_notification)
         return Decode::kBadSide;
     }
 
-    fill_notification.kis_order_no = fields[2];
-    fill_notification.ticker = fields[8];
-    fill_notification.fill_time = fields[11];
-    fill_notification.timestamp = std::chrono::system_clock::now();
+    fill_notification.kis_order_no      = fields[2];
+    fill_notification.original_order_no = fields[3];
+    fill_notification.ticker            = fields[8];
+    fill_notification.fill_time         = fields[11];
+    fill_notification.timestamp         = std::chrono::system_clock::now();
+
+    // 보조 필드는 있으면 채우고 없으면 "모른다"로 둔다. 호출자가 같은 구조체를 돌려 쓰므로
+    //  앞 레코드의 값이 남지 않게 먼저 비운다.
+    fill_notification.order_quantity = 0;
+    fill_notification.exchange.clear();
+
+    if (fields.size() > kFillFieldOrderQuantity)
+    {
+        (void)detail::to_int(fields[kFillFieldOrderQuantity], fill_notification.order_quantity);
+    }
+
+    if (fields.size() > kFillFieldExchange)
+    {
+        fill_notification.exchange = fields[kFillFieldExchange];
+    }
+
     bool ok = detail::to_int(fields[9], fill_notification.filled_quantity);
     ok &= detail::to_double(fields[10], fill_notification.filled_price);
     return ok ? Decode::kOk : Decode::kBadNumber;

@@ -65,7 +65,12 @@ constexpr size_t kMinFieldsKrTrade      = 22; // 체결구분 = f[21]
 constexpr size_t kMinFieldsUsTrade      = 9;  // 체결량 = f[8]
 constexpr size_t kMinFieldsFutTrade     = 19; // 미결제약정 = f[18]
 constexpr size_t kMinFieldsFutOrderbook = 32; // 매수잔량5 = f[31]
-constexpr size_t kMinFieldsFill         = 14; // CNTG_YN = f[13]
+constexpr size_t kMinFieldsFill         = 14; // CNTG_YN = f[13] — 체결 한 건을 만드는 데 꼭 있어야 하는 폭
+
+// 체결통보의 보조 필드 위치. 최소 폭에는 넣지 않는다 — 여기까지 없는 전문이 와도 체결 자체는 만들어야 한다.
+//  최소 폭을 올리면 그 전문이 통째로 버려지고, 그건 체결 누락이다(A등급).
+constexpr size_t kFillFieldOrderQuantity = 16; // ODER_QTY   주문수량
+constexpr size_t kFillFieldExchange      = 19; // ORD_EXG_GB 주문거래소 구분
 
 namespace detail
 {
@@ -143,10 +148,18 @@ Decode decode_future_trade(Fields fields, TradeData& trade);
 Decode decode_future_orderbook(Fields fields, OrderBook& order_book);
 
 // ─── 체결통보 (H0STCNI0 실거래 / H0STCNI9 모의) ──────────────────────────
-// [wire] [2]ODER_NO [4]SELN_BYOV_CLS(01=매도,02=매수) [8]STCK_SHRN_ISCD [9]CNTG_QTY [10]CNTG_UNPR
-//        [11]STCK_CNTG_HOUR [13]CNTG_YN(1=접수/정정/취소/거부 통보, 2=체결 — 모의 실측 확인)
-//        [11]체결시각(HHMMSS) [13]CNTG_YN(1=접수/정정/취소/거부 통보, 2=체결통보)
+// [wire] 전문 26칸. KIS 공식 예제 ccnl_notice.py의 열 순서다(2026-09-23 대조). ●=읽는 칸.
+//   [0]CUST_ID 고객ID          [1]ACNT_NO 계좌번호        ●[2]ODER_NO 주문번호        ●[3]OODER_NO 원주문번호
+//  ●[4]SELN_BYOV_CLS 매도매수구분(01=매도,02=매수)        [5]RCTF_CLS 접수구분        [6]ODER_KIND 주문종류
+//   [7]ODER_COND 주문조건     ●[8]STCK_SHRN_ISCD 종목코드 ●[9]CNTG_QTY 체결수량      ●[10]CNTG_UNPR 체결단가
+//  ●[11]STCK_CNTG_HOUR 체결시각(HHMMSS)                    [12]RFUS_YN 거부여부
+//  ●[13]CNTG_YN 체결여부(1=접수/정정/취소/거부 통보, 2=체결 — 모의 실측 확인)
+//   [14]ACPT_YN 접수여부       [15]BRNC_NO 지점번호       ●[16]ODER_QTY 주문수량      [17]ACNT_NAME 계좌명
+//   [18]ORD_COND_PRC 호가조건가격                         ●[19]ORD_EXG_GB 주문거래소 구분(KRX/NXT)
+//   [20]POPUP_YN [21]FILLER [22]CRDT_CLS [23]CRDT_LOAN_DATE [24]CNTG_ISNM40 [25]ODER_PRC 주문가격
+// 체결 건별 고유번호는 이 전문에 없다 — 식별자는 [2]·[3] 둘뿐이다. 체결 한 건을 가리키는 키는 라우터가 만든다.
 // 체결통보(2)만 kOk. 원장에 들어가는 값이라 매매구분·수량·단가 어느 하나라도 못 읽으면 채우지 않는다.
+// [16]·[19]는 없어도 kOk다(order_quantity=0·exchange 빈 값) — 최소 폭 주석 참고.
 Decode decode_fill(Fields fields, FillNotification& fill_notification);
 
 } // namespace kis_websocket

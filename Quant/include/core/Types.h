@@ -204,14 +204,21 @@ static_assert(std::is_trivially_copyable_v<TradeData> && std::is_trivially_copya
 // ─────────────────────────────────────────────────────────────────────────────
 // 체결통보 (H0STCNI0 실거래 / H0STCNI9 모의투자)
 // ─────────────────────────────────────────────────────────────────────────────
+// [inv] 전문에 체결 건별 고유번호가 없다 — 식별자는 주문번호(ODER_NO)와 원주문번호(OODER_NO) 둘뿐이다.
+//  그래서 체결 한 건을 가리키려면 라우터가 (거래일:주문번호:체결시각:수량:단가) 조합키를 만든다(ipc/FillKey.h).
 struct FillNotification
 {
-    std::string kis_order_no;                              // KIS 주문번호 (ODNO)
-    std::string ticker;                            // 단축종목코드
-    OrderSide   side        = OrderSide::NONE;
-    int         filled_quantity  = 0;                   // 체결수량 (CNTG_QTY)
-    double      filled_price = 0.0;                // 체결단가 (CNTG_UNPR)
-    std::string fill_time;                         // 체결시간 HHMMSS
+    std::string kis_order_no;                        // KIS 주문번호 (ODER_NO)
+    std::string original_order_no;                   // 원주문번호 (OODER_NO). 정정·취소면 고친 대상, 신규는 0 채움
+    std::string ticker;                              // 단축종목코드
+    OrderSide   side            = OrderSide::NONE;
+    int         filled_quantity = 0;                 // 체결수량 (CNTG_QTY)
+    double      filled_price    = 0.0;               // 체결단가 (CNTG_UNPR)
+    std::string fill_time;                           // 체결시간 HHMMSS
+    // 주문수량 (ODER_QTY). 전문 뒤쪽 필드라 짧은 전문에서는 0 — 0이면 "모른다"는 뜻이다.
+    //  미연결 체결의 잔량 상한이 이 값이다(OrderRouter::on_fill).
+    int         order_quantity  = 0;
+    std::string exchange;                            // 주문거래소 구분 (ORD_EXG_GB, KRX/NXT). 짧은 전문에서는 빈 값
     std::chrono::system_clock::time_point timestamp;
 };
 
