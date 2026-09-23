@@ -30,7 +30,7 @@
     {
       "from": "core",
       "to": "ipc",
-      "weight": 8
+      "weight": 9
     },
     {
       "from": "core",
@@ -65,7 +65,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 10
+      "weight": 13
     },
     {
       "from": "ipc",
@@ -80,7 +80,7 @@
     {
       "from": "main",
       "to": "core",
-      "weight": 3
+      "weight": 4
     },
     {
       "from": "main",
@@ -193,6 +193,7 @@
     "api/KisWsDecode.h": "api",
     "core/AppConfig.h": "core",
     "core/BarAggregator.h": "core",
+    "core/CommandLine.h": "core",
     "core/DataPoller.h": "core",
     "core/Engine.h": "core",
     "core/FeedMux.h": "core",
@@ -232,10 +233,17 @@
     "ipc/FillKey.h": "ipc",
     "ipc/Heartbeat.h": "ipc",
     "ipc/LedgerSnapshot.h": "ipc",
+    "ipc/MarketFeedChannel.h": "ipc",
     "ipc/OpsProtocol.h": "ipc",
     "ipc/OpsServer.h": "ipc",
     "ipc/OrderChannel.h": "ipc",
     "ipc/OrderRouter.h": "ipc",
+    "ipc/SharedLayout.h": "ipc",
+    "ipc/SharedRegion.h": "ipc",
+    "ipc/SharedSpscRing.h": "ipc",
+    "ipc/SharedStrategyDictionary.h": "ipc",
+    "ipc/SharedSymbolDictionary.h": "ipc",
+    "ipc/SharedWriteLock.h": "ipc",
     "ipc/ZmqBridge.h": "ipc",
     "modes/Monitors.h": "modes",
     "risk/DisplacementDesk.h": "risk",
@@ -287,6 +295,7 @@
     "api/WsSocketWin.cpp": "api",
     "core/AppConfig.cpp": "core",
     "core/BarAggregator.cpp": "core",
+    "core/CommandLine.cpp": "core",
     "core/DataPoller.cpp": "core",
     "core/Engine.cpp": "core",
     "core/EngineConfigure.cpp": "core",
@@ -322,10 +331,16 @@
     "ipc/FillKey.cpp": "ipc",
     "ipc/Heartbeat.cpp": "ipc",
     "ipc/LedgerSnapshot.cpp": "ipc",
+    "ipc/MarketFeedChannel.cpp": "ipc",
     "ipc/OpsProtocol.cpp": "ipc",
     "ipc/OpsServer.cpp": "ipc",
     "ipc/OrderChannel.cpp": "ipc",
     "ipc/OrderRouter.cpp": "ipc",
+    "ipc/SharedLayout.cpp": "ipc",
+    "ipc/SharedRegion.cpp": "ipc",
+    "ipc/SharedStrategyDictionary.cpp": "ipc",
+    "ipc/SharedSymbolDictionary.cpp": "ipc",
+    "ipc/SharedWriteLock.cpp": "ipc",
     "ipc/ZmqBridge.cpp": "ipc",
     "modes/Monitors.cpp": "modes",
     "risk/DisplacementDesk.cpp": "risk",
@@ -458,6 +473,9 @@
     "core/BarAggregator.h": [
       "core/Types.h"
     ],
+    "core/CommandLine.cpp": [
+      "core/CommandLine.h"
+    ],
     "core/DataPoller.cpp": [
       "core/DataPoller.h",
       "core/KstTime.h",
@@ -480,6 +498,7 @@
     "core/Engine.h": [
       "api/KisClient.h",
       "api/KisWebSocket.h",
+      "core/CommandLine.h",
       "core/DataPoller.h",
       "core/FeedMux.h",
       "core/FeedSupervisor.h",
@@ -507,6 +526,7 @@
       "ipc/OpsServer.h",
       "ipc/OrderChannel.h",
       "ipc/OrderRouter.h",
+      "ipc/SharedLayout.h",
       "ipc/ZmqBridge.h",
       "risk/OrderGate.h",
       "risk/ProtectiveOrders.h",
@@ -721,6 +741,13 @@
     "ipc/LedgerSnapshot.h": [
       "core/SymbolTable.h"
     ],
+    "ipc/MarketFeedChannel.cpp": [
+      "ipc/MarketFeedChannel.h"
+    ],
+    "ipc/MarketFeedChannel.h": [
+      "core/Types.h",
+      "ipc/SharedSpscRing.h"
+    ],
     "ipc/OpsProtocol.cpp": [
       "ipc/OpsProtocol.h"
     ],
@@ -754,6 +781,41 @@
       "ipc/ZmqBridge.h",
       "risk/OrderGate.h"
     ],
+    "ipc/SharedLayout.cpp": [
+      "ipc/SharedLayout.h"
+    ],
+    "ipc/SharedLayout.h": [
+      "ipc/ControlChannel.h",
+      "ipc/Heartbeat.h",
+      "ipc/LedgerSnapshot.h",
+      "ipc/MarketFeedChannel.h",
+      "ipc/OrderChannel.h",
+      "ipc/SharedSpscRing.h",
+      "ipc/SharedStrategyDictionary.h",
+      "ipc/SharedSymbolDictionary.h"
+    ],
+    "ipc/SharedRegion.cpp": [
+      "ipc/SharedRegion.h"
+    ],
+    "ipc/SharedStrategyDictionary.cpp": [
+      "ipc/SharedStrategyDictionary.h",
+      "ipc/SharedWriteLock.h"
+    ],
+    "ipc/SharedStrategyDictionary.h": [
+      "core/StrategyTable.h",
+      "ipc/SharedSpscRing.h"
+    ],
+    "ipc/SharedSymbolDictionary.cpp": [
+      "ipc/SharedSymbolDictionary.h",
+      "ipc/SharedWriteLock.h"
+    ],
+    "ipc/SharedSymbolDictionary.h": [
+      "core/SymbolTable.h",
+      "ipc/SharedSpscRing.h"
+    ],
+    "ipc/SharedWriteLock.cpp": [
+      "ipc/SharedWriteLock.h"
+    ],
     "ipc/ZmqBridge.cpp": [
       "ipc/ZmqBridge.h",
       "utils/Logger.h",
@@ -765,6 +827,7 @@
     ],
     "main.cpp": [
       "core/AppConfig.h",
+      "core/CommandLine.h",
       "core/Engine.h",
       "core/Types.h",
       "modes/Monitors.h",
@@ -1093,6 +1156,11 @@
       "core/BarAggregator.cpp",
       "strategy/DeviationScaleStrategy.h"
     ],
+    "core/CommandLine.h": [
+      "core/CommandLine.cpp",
+      "core/Engine.h",
+      "main.cpp"
+    ],
     "core/DataPoller.h": [
       "core/DataPoller.cpp",
       "core/Engine.h",
@@ -1229,6 +1297,7 @@
     "core/StrategyTable.h": [
       "core/StrategyTable.cpp",
       "core/Types.h",
+      "ipc/SharedStrategyDictionary.h",
       "risk/OrderGate.h",
       "strategy/StrategyBase.h"
     ],
@@ -1246,6 +1315,7 @@
       "exchange/MatchingEngine.h",
       "exchange/ZmqOrderFeed.h",
       "ipc/LedgerSnapshot.h",
+      "ipc/SharedSymbolDictionary.h",
       "risk/OrderGate.h",
       "universe/ScoreWeight.h",
       "universe/UniverseScanner.h"
@@ -1287,6 +1357,7 @@
       "core/Types.cpp",
       "exchange/MatchingEngine.h",
       "ipc/ControlChannel.h",
+      "ipc/MarketFeedChannel.h",
       "ipc/OrderChannel.h",
       "ipc/OrderRouter.h",
       "ipc/ZmqBridge.h",
@@ -1320,7 +1391,8 @@
     ],
     "ipc/ControlChannel.h": [
       "core/Engine.h",
-      "ipc/ControlChannel.cpp"
+      "ipc/ControlChannel.cpp",
+      "ipc/SharedLayout.h"
     ],
     "ipc/FillKey.h": [
       "ipc/FillKey.cpp",
@@ -1328,13 +1400,19 @@
     ],
     "ipc/Heartbeat.h": [
       "core/Engine.h",
-      "ipc/Heartbeat.cpp"
+      "ipc/Heartbeat.cpp",
+      "ipc/SharedLayout.h"
     ],
     "ipc/LedgerSnapshot.h": [
       "core/Engine.h",
       "core/SignalDispatcher.h",
       "ipc/LedgerSnapshot.cpp",
+      "ipc/SharedLayout.h",
       "risk/OrderGate.cpp"
+    ],
+    "ipc/MarketFeedChannel.h": [
+      "ipc/MarketFeedChannel.cpp",
+      "ipc/SharedLayout.h"
     ],
     "ipc/OpsProtocol.h": [
       "ipc/OpsProtocol.cpp",
@@ -1346,11 +1424,38 @@
     ],
     "ipc/OrderChannel.h": [
       "core/Engine.h",
-      "ipc/OrderChannel.cpp"
+      "ipc/OrderChannel.cpp",
+      "ipc/SharedLayout.h"
     ],
     "ipc/OrderRouter.h": [
       "core/Engine.h",
       "ipc/OrderRouter.cpp"
+    ],
+    "ipc/SharedLayout.h": [
+      "core/Engine.h",
+      "ipc/SharedLayout.cpp"
+    ],
+    "ipc/SharedRegion.h": [
+      "ipc/SharedRegion.cpp"
+    ],
+    "ipc/SharedSpscRing.h": [
+      "ipc/MarketFeedChannel.h",
+      "ipc/SharedLayout.h",
+      "ipc/SharedStrategyDictionary.h",
+      "ipc/SharedSymbolDictionary.h"
+    ],
+    "ipc/SharedStrategyDictionary.h": [
+      "ipc/SharedLayout.h",
+      "ipc/SharedStrategyDictionary.cpp"
+    ],
+    "ipc/SharedSymbolDictionary.h": [
+      "ipc/SharedLayout.h",
+      "ipc/SharedSymbolDictionary.cpp"
+    ],
+    "ipc/SharedWriteLock.h": [
+      "ipc/SharedStrategyDictionary.cpp",
+      "ipc/SharedSymbolDictionary.cpp",
+      "ipc/SharedWriteLock.cpp"
     ],
     "ipc/ZmqBridge.h": [
       "core/Engine.h",
@@ -1551,7 +1656,7 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 38
+      "in_degree": 39
     },
     {
       "header": "utils/Logger.h",
@@ -1563,7 +1668,7 @@
     },
     {
       "header": "core/SymbolTable.h",
-      "in_degree": 16
+      "in_degree": 17
     },
     {
       "header": "strategy/StrategyBase.h",
@@ -1602,7 +1707,15 @@
       "in_degree": 5
     },
     {
+      "header": "core/StrategyTable.h",
+      "in_degree": 5
+    },
+    {
       "header": "core/TickSize.h",
+      "in_degree": 5
+    },
+    {
+      "header": "ipc/LedgerSnapshot.h",
       "in_degree": 5
     },
     {
@@ -1619,14 +1732,6 @@
     },
     {
       "header": "api/KisTypes.h",
-      "in_degree": 4
-    },
-    {
-      "header": "api/KisWebSocket.h",
-      "in_degree": 4
-    },
-    {
-      "header": "core/Engine.h",
       "in_degree": 4
     }
   ],

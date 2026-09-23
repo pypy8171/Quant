@@ -1,6 +1,7 @@
 #pragma once
 #include "api/KisClient.h"
 #include "api/KisWebSocket.h"
+#include "core/CommandLine.h"
 #include "core/DataPoller.h"
 #include "core/LedgerReconciler.h"
 #include "core/RingBuffer.h"
@@ -31,11 +32,13 @@
 #include "ipc/OrderChannel.h"
 #include "ipc/ControlChannel.h"
 #include "ipc/LedgerSnapshot.h"
+#include "ipc/SharedLayout.h"
 #include "ipc/OrderRouter.h"
 #include "ipc/OpsServer.h"
 #include "core/MpscQueue.h"
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
 #include <functional>
 #include <stop_token>
@@ -57,8 +60,8 @@ struct AppConfig;
 //
 //  [데이터 스레드]  KIS REST 일봉·대체 틱   → bars_matrix·trade_matrix (행렬의 데이터 스레드 행)
 //  [샤드 스레드 m]  order_book_matrix + trade_matrix + bars_matrix 열 m → 전략 → shard_out
-//  [전략 스레드]    shard_out + 수동주문 → 디스패처(순번·슬롯·교체) → order_queue
-//  [주문 스레드]    order_queue → KIS REST 주문 (KR/US 자동 분기)
+//  [전략 스레드]    shard_out + 수동주문 → 디스패처(순번·슬롯·교체) → 요청 면
+//  [주문 스레드]    요청 면 → KIS REST 주문 (KR/US 자동 분기)
 //
 //  WS 구독 목록은 on_start() 이후 전략의 get_watch_specifications()로 동적 수집
 // ─────────────────────────────────────────────────────────────────────────────
@@ -90,6 +93,89 @@ public:
     Engine& operator=(const Engine&) = delete;
 
 public:
+    // ── 이 프로세스가 맡는 자리 ─────────────────────────────────────────────
+    // start() 전에만 부른다. Both 는 지금까지의 한 프로세스다. [why D-114]
+    void set_role(ProcessRole role);
+
+    [[nodiscard]] ProcessRole role() const noexcept
+    {
+        return role_;
+    }
+
+    // 이 프로세스가 맡는 일감. Both 면 둘 다 참이다 — 지금까지의 한 프로세스와 같다.
+    //  주문 쪽은 주문·체결·원장·게이트, 전략 쪽은 시세·전략·신호다(가르는 선은 docs/DECISIONS.md D-114).
+    [[nodiscard]] bool runs_order_side() const noexcept
+    {
+        return role_ != ProcessRole::Strategy;
+    }
+
+    [[nodiscard]] bool runs_strategy_side() const noexcept
+    {
+        return role_ != ProcessRole::Order;
+    }
+
+    // ── 티커 문자열이 종목 번호가 되는 자리 ─────────────────────────────────
+    // 종목 표에 **넣는 쪽은 주문 프로세스 하나**다(D-114 단계 4). 전략 프로세스는 읽기만 한다 —
+    //  양쪽이 각자 번호를 찍으면 전략 쪽 3번과 주문 쪽 3번이 다른 종목이 되고, 그건 엉뚱한 종목에
+    //  주문이 나가는 것이다. 그래서 티커를 번호로 바꾸는 자리를 이 둘로만 모았다.
+
+    // 없으면 넣어서라도 번호를 받아 온다. **느린 경로 전용**이다 — 기동·재스캔·바스켓처럼 분당 몇 건인
+    //  자리에서만 부른다. 전략 역할이면 넣기를 주문 쪽에 맡기고 표에 뜰 때까지 잠깐 기다린다.
+    //  못 받으면 symbol::kNone 이다(부른 쪽이 그 줄을 접는다).
+    [[nodiscard]] symbol::SymbolId register_symbol(std::string_view ticker);
+
+    // 표에 있으면 번호, 없으면 symbol::kNone. **넣지 않는다** — 틱·신호처럼 잦은 자리에서 부른다.
+    //  없는 티커가 오는 것은 등록 경로가 빠진 것이라 세어서 드러낸다.
+    [[nodiscard]] symbol::SymbolId lookup_symbol(std::string_view ticker) noexcept;
+
+    // 등록을 주문 쪽에 맡겼다가 못 받은 횟수 / 표에 없는 티커로 잦은 자리가 불린 횟수.
+    [[nodiscard]] uint64_t symbol_register_timeouts() const noexcept
+    {
+        return symbol_register_timeouts_.load(std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] uint64_t symbol_lookup_misses() const noexcept
+    {
+        return symbol_lookup_misses_.load(std::memory_order_relaxed);
+    }
+
+    // 구독 상한에 밀려 소켓에 못 건 종목 수. 0이 아니면 그 종목은 WS 틱을 못 받는다.
+    [[nodiscard]] uint64_t watch_overflows() const noexcept
+    {
+        return watch_overflow_.load(std::memory_order_relaxed);
+    }
+
+    // 시세 통로가 차서 버린 건수(보내는 쪽) / 꺼낸 값이 말이 안 돼 버린 건수(받는 쪽).
+    //  앞엣것이 늘면 전략 프로세스가 못 따라오는 것이고, 뒤엣것이 늘면 건너편을 의심한다. [why D-114]
+    [[nodiscard]] uint64_t feed_channel_overflows() const noexcept
+    {
+        return feed_channel_overflow_.load(std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] uint64_t feed_channel_discarded() const noexcept
+    {
+        return feed_channel_discarded_.load(std::memory_order_relaxed);
+    }
+
+    // 통로에 쌓여 아직 안 건너간 체결 수(어림값). 한 프로세스로 돌면 늘 0이다 — 시세가 통로를 지나지 않는다. [why D-114]
+    [[nodiscard]] size_t feed_channel_pending_trades(uint32_t lane);
+
+    // ── 주문 쪽 스위치를 고치는 자리 ────────────────────────────────────────
+    // OrderGate·원장은 주문 프로세스 것이다. 전략 역할이면 여기서 직접 고치지 않고 제어 요청 한 줄을
+    //  보낸다 — 표를 고치는 일은 단일 시퀀서인 주문 스레드가 한다(D-071 원칙 4). [why D-114]
+    //  Both 역할이면 지금까지처럼 그 자리에서 고친다.
+    void request_reset_daily();                       // 장이 열렸다 — 하루치를 새로 연다
+    void request_entry_halt(bool on);                 // 신규 진입 정지(청산·취소는 통과)
+    void request_entry_scale(double entry_scale);     // 신규 진입 매수 비율 0~1
+    void request_kill_switch(bool on);                // 전방향 주문 차단
+    void request_manual_halt(OrderSide side, bool on); // 운영단말이 손으로 거는 한 방향 정지
+
+    // 지금 값. 고치는 것은 위의 요청으로만 하고 읽기는 어느 쪽에서나 한다(게이트 안은 원자값이다).
+    [[nodiscard]] bool   is_entry_halted() const { return order_gate_.is_entry_halted(); }
+    [[nodiscard]] double entry_scale() const { return order_gate_.entry_scale(); }
+    [[nodiscard]] bool   is_killed() const { return order_gate_.is_killed(); }
+    [[nodiscard]] bool   is_manual_sell_halted() const { return order_gate_.is_manual_sell_halted(); }
+
     // ── 전략 등록 ────────────────────────────────────────────────────────────
     void add_strategy(std::unique_ptr<StrategyBase> strategy);
 
@@ -377,14 +463,39 @@ private:
     bool        ledger_journal_fsync_ = false;
     void start_strategies();
     void collect_watch_specifications();
+
+    // 구독 스펙 하나를 내 목록에 넣는다. 이미 있으면 거짓 — 같은 종목을 두 번 구독하지 않는다.
+    bool add_watch_specification(const WatchSpec& specification);
+
+    // 구독 스펙 하나를 소켓 쥔 쪽에 보낸다. 소켓이 어느 프로세스에 있든 거는 자리는 하나다. [why D-114]
+    void send_watch_request(const WatchSpec& specification);
+
+    // 쌓인 구독 스펙을 소켓에 건다. [inv] 감시 스레드만 부른다(주문 쪽). [why D-114]
+    void drain_pending_subscriptions();
+
     void connect_feed();
     void spawn_threads();
+
+    // 시세 한 건을 이 종목을 보는 샤드 전부에 나눠 넣는다(경로표 `routes`). 한 프로세스로 돌면 소켓
+    //  수신 스레드가, 갈라 띄우면 전략 쪽 줄 스레드가 부른다 — 어느 쪽이든 행렬 그 행의 생산자는 하나다.
+    //  [inv] 같은 줄(lane)을 두 스레드가 부르지 않는다. [why D-114]
+    void fan_out_trade(uint32_t lane, const TradeData& trade);
+    void fan_out_order_book(uint32_t lane, const OrderBook& order_book);
+
+    // 갈라 띄운 주문 쪽이 시세 한 건을 통로에 넣는다(전략 프로세스가 꺼낸다). 큐가 차면 버리고 센다 —
+    //  여기서 기다리면 그 소켓의 전 종목 시세가 같이 선다(원칙 3). [why D-114]
+    void push_feed_trade(uint32_t lane, const TradeData& trade);
+    void push_feed_order_book(uint32_t lane, const OrderBook& order_book);
 
     // ── 스레드 진입점 ────────────────────────────────────────────────────────
     // 다섯 스레드는 stop_token으로 정지를 본다. running_은 엔진 밖(main 루프·KILL 핸들러·폴러)이 읽는 깃발 [why D-070]
     void data_thread_fn(std::stop_token stop_token);
     void strategy_thread_fn(std::stop_token stop_token);
     void shard_thread_fn(std::stop_token stop_token, uint32_t column); // 행렬 열 m을 비워 전략을 돌리고 신호를 shard_out에 넣는다 [why D-071]
+
+    // 줄 하나(소켓 하나)의 시세를 통로에서 꺼내 행렬에 나눠 넣는다. 전략 역할에만 뜬다 — 그 프로세스에는
+    //  소켓이 없어 이 스레드가 행렬 그 행의 생산자다. [why D-114]
+    void feed_lane_thread_fn(std::stop_token stop_token, uint32_t lane);
     void order_thread_fn(std::stop_token stop_token);
     void fill_thread_fn(std::stop_token stop_token);     // 체결통보 소비(fill_queue → OrderRouter::on_fill → ops 방송). WS 수신 스레드에서 뗀 것 [why D-056]
     void control_thread_fn(std::stop_token stop_token); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
@@ -397,6 +508,12 @@ private:
     //  보내지 않고 접는다(반쪽 표를 거느니 이번 판을 통째로 거른다). [why D-114]
     bool send_control(ipc::ControlRequest& request);
 
+    // 스위치 요청 한 줄을 싣는다. 못 실으면 큰 소리로 남긴다 — 사라진 것이 kill switch 일 수 있다.
+    void send_control_switch(ipc::ControlRequest& request, std::string_view what);
+
+    // 하루치를 새로 여는 실제 손질. [inv] 주문 쪽에서만 부른다(Both 의 data_thread 또는 order_thread).
+    void apply_reset_daily();
+
     // 주문 스레드가 표를 모으는 자리. 표마다 하나씩 둬 둘이 큐에서 섞여 와도 각자 모인다.
     struct ControlInbox
     {
@@ -404,7 +521,11 @@ private:
         ipc::ControlTableBuilder entry_priority{ipc::kControlTableMax};
     };
 
-    // 큐에 쌓인 제어 요청을 비우고 완성된 표를 건다. [inv] order_thread에서만 부른다(원칙 4).
+    // 전략 쪽 생산자들이 앞 토막에 넣은 제어 요청을 경계 너머 제어 면으로 옮긴다 — 여럿이 넣은 줄을 한 줄로 모으는 자리다.
+    //  [inv] strategy_thread에서만 부른다 — 앞 토막이 MPSC라 꺼내는 쪽이 하나여야 한다. [why D-114]
+    void relay_control_requests();
+
+    // 제어 면에 쌓인 요청을 비우고 완성된 표를 건다. [inv] order_thread에서만 부른다(원칙 4).
     void apply_control_requests(ControlInbox& inbox);
 
     // 전략이 보는 보호 주문 창구. 켜고 끄기는 요청으로 주문 스레드에 넘기고, 읽기 둘은 표를 그대로 본다 —
@@ -519,9 +640,9 @@ private:
     std::string                      regime_file_;   // 빈 문자열이면 기능 미가동
     regime_file::RegimeFileJudge  regime_file_judge_; // stale·시간 상자·1회 로그 판정 [why D-060]
     // G3: 극단 위험회피(force_liquidate=TRUE) 시 보유 전량 강제청산 요청 플래그.
-    //  data_thread(poll_regime_file)가 set → strategy_thread(order_queue 단일 생산자)가
-    //  이 플래그를 보고 매 주기 시장가 전량 매도를 발주(주문큐의 단일생산자·단일소비자(SPSC)
-    //  규약 위반 회피 — order_queue에 넣는 스레드를 하나로 유지). 해제 시 중단.
+    //  data_thread(poll_regime_file)가 set → strategy_thread(요청 면 단일 생산자)가
+    //  이 플래그를 보고 매 주기 시장가 전량 매도를 발주(요청 면의 단일생산자·단일소비자(SPSC)
+    //  규약 위반 회피 — 요청 면에 넣는 스레드를 하나로 유지). 해제 시 중단.
     std::atomic<bool> force_liquidate_{false};
     // ── 주문 설정 ───────────────────────────────────────────────────────────
     int order_min_interval_ms_ = 350; // 주문 간 최소 간격(milliseconds) — order_thread의 OrderRateLimiter가 쓴다 [why D-065]
@@ -608,6 +729,17 @@ private:
     void retire_owned(RescanJob& job, symbol::SymbolId symbol,
                       const std::function<std::string(const StrategyBase&)>& make_line);
 
+    // ── 공유 쪽지 자리표 ────────────────────────────────────────────────────
+    // 경계를 넘을 면 여덟을 자리표 한 장 위에 모은다(ipc::SharedLayout). 갈라 띄우면 이 바이트가 공유
+    //  쪽지가 되고, Both 로 돌면 아래 힙 한 덩이가 그 자리를 대신한다 — 자리 셈도 코드 경로도 하나다.
+    //  여기서 둘로 갈라 두면 갈라 띄운 날에만 도는 코드가 생기고, 그런 코드는 그날 처음 돈다. [why D-114]
+    //  [inv] 아래 파이프라인·장부 사본이 이 자리표를 가리킨다 — 먼저 선언해 나중에 죽는다.
+    //  [inv] 스레드가 뜨기 전에만 다시 깐다(생성자와 start()의 준비 단계). 뜬 뒤에 깔면 돌던 큐가 지워진다.
+    std::vector<std::byte>  layout_storage_;
+    ipc::SharedLayoutConfig layout_config_;
+    ipc::SharedLayout       layout_;
+    [[nodiscard]] bool      bind_layout(uint32_t feed_lanes);
+
     // ── N×M 샤드 파이프라인·큐 ──────────────────────────────────────────────
     // 수신 N × 전략 샤드 M 링 행렬. 셀 하나의 생산자는 스레드 하나다 — WS 수신 스레드 i(소켓 i의 수신 스레드)는 행 i, 체결은
     //  데이터 스레드 행(REST 대체 틱, 행 data_row)을 더 둔다(D-053이 두 큐로 풀던 것을 행으로 푼다). 열은 전략 단위다 —
@@ -636,29 +768,50 @@ private:
         // 샤드 → 전략(디스패치) 스레드. 생산자가 M이라 MPSC(원칙 5). 가득 차면 버리고 센다 — order_dropped와 같은 규칙.
         MpscQueue<strategy::Emitted> shard_out{kTickCellCapacity};
         std::atomic<uint64_t>     shard_dropped{0};
-        RingBuffer<OrderSignal> order_queue{kOrderQueueCapacity}; // 주문 스레드가 KIS 왕복에 묶이는 몇 초를 받는다 [why D-073]
+        // 전략 → 주문 요청 면. 큐는 자리표 위에 있고 여기 있는 것은 그 자리를 가리키는 포인터뿐이라,
+        //  프로세스를 갈라도 이 줄은 그대로다. 크기는 주문 스레드가 KIS 왕복에 묶이는 몇 초를 받는 만큼이다.
+        //  [inv] bind_layout()이 꽂는다. [inv] 넣는 쪽은 전략 스레드 하나, 꺼내는 쪽은 주문 스레드 하나다.
+        //  [why D-114] [why D-073]
+        ipc::SharedSpscRing<ipc::OrderRequest>* requests = nullptr;
+        // 요청 면에 한 번에 쌓였던 최대 줄 수. 공유 쪽지 링은 이것을 스스로 재지 않는다 — 재려면 칸을 하나 더
+        //  두어야 하고 그 칸은 건너편이 덮을 수 있다. 그래서 넣는 쪽이 넣은 뒤 한 번 보고 최고치만 남긴다.
+        //  [inv] 넣는 쪽이 하나라 읽고 쓰는 사이에 끼어들 쪽이 없다. [why D-114]
+        std::atomic<uint64_t> order_high_water{0};
         // 체결통보. WS 수신 스레드는 여기 push만 하고 원장 반영(OrderRouter::on_fill)은 fill_thread가 한다 —
         //  체결 하나 처리(history_mutex_·CSV 쓰기) 동안 전 종목 틱 수신이 멈추지 않게. [why D-056]
         RingBuffer<FillNotification> fill_queue{kFillQueueCapacity};
         std::atomic<uint64_t> fill_dropped{0};   // fill_queue 가득 차 버린 체결통보 수. 0이 아니면 잔고 대조가 원장을 메운다
-        std::atomic<uint64_t> order_dropped{0};  // order_queue 가득 차 버린 신호 수. [큐 고수위] 줄에 같이 찍힌다
+        std::atomic<uint64_t> order_dropped{0};  // 요청 면이 가득 차 버린 신호 수. [큐 고수위] 줄에 같이 찍힌다
         std::atomic<uint64_t> order_stale{0};    // 큐에서 너무 오래 기다려 꺼낼 때 버린 신규 매수 수 [why D-127]
-        // 주문 → 전략 응답. 생산자가 주문 스레드 하나라 SPSC. 레코드에 문자열·포인터가 없어 단계 4에서
-        //  공유메모리 링으로 그대로 옮겨 간다 — 지금은 같은 프로세스의 큐다. [why D-114]
-        RingBuffer<ipc::OrderResponse> order_response_queue{kOrderResponseCapacity};
+        std::atomic<uint64_t> order_implausible{0};      // 값이 말이 안 돼 버린 요청 수. 0이 아니면 통로가 덮였다
+        std::atomic<uint64_t> order_reason_truncated{0}; // 판단 근거·주문 이름이 칸을 넘어 잘린 신호 수
+        // 주문 → 전략 응답. 보내는 쪽이 주문 스레드 하나, 받는 쪽이 전략 스레드 하나라 SPSC다. 큐는
+        //  자리표 위에 있고 여기 있는 것은 그 자리를 가리키는 포인터뿐이라, 프로세스를 갈라도 이 줄은
+        //  그대로다. [inv] bind_layout()이 꽂는다. [why D-114]
+        //  [inv] Both 로 돌 때는 한 인스턴스가 양쪽 끝을 맡는다 — 보내는 쪽 자리와 받는 쪽 자리를 각각
+        //   한 스레드만 만지므로 같은 인스턴스라도 값이 섞이지 않는다(칸 하나에 값 하나씩 따로 있다).
+        ipc::SharedSpscRing<ipc::OrderResponse>* order_responses = nullptr;
         std::atomic<uint64_t> order_response_dropped{0}; // 전략이 답을 안 가져가 버린 응답 수
         std::atomic<uint64_t> order_duplicate{0};        // 주문 쪽이 같은 순번을 두 번 받아 거른 수. 0이 아니면 통로가 샜다
-        // 전략 쪽이 주문 쪽 표를 고쳐 달라고 보내는 통로(슬롯 면제 집합·진입 우선순위 표·보호 주문 등록).
-        //  생산자가 샤드 스레드·데이터 스레드로 여럿이라 MPSC(원칙 5). 표 하나가 여러 줄로 오므로
-        //  용량은 표 상한의 몇 배로 둔다 — 한 줄만 잃어도 그 표는 통째로 버려진다. [why D-114]
+        // 전략 쪽이 주문 쪽 표를 고쳐 달라고 보내는 통로(슬롯 면제 집합·진입 우선순위 표·보호 주문 등록,
+        //  매크로 국면의 신규진입 정지·매수 비율). 통로는 두 토막이다 — 전략 프로세스 안에서 여럿이 모이는
+        //  앞 토막과, 경계를 넘는 뒤 토막. 공유 쪽지 큐는 보내는 쪽이 하나여야 해서 한 줄로 모은다. [why D-114]
+        //  표 하나가 여러 줄로 오므로 용량은 표 상한의 몇 배로 둔다 — 한 줄만 잃어도 그 표는 통째로 버려진다.
         static constexpr size_t kControlQueueCapacity = 8192;
-        MpscQueue<ipc::ControlRequest> control_queue{kControlQueueCapacity};
+        // 앞 토막. 생산자가 샤드 스레드·데이터 스레드로 여럿이라 MPSC(원칙 5).
+        //  [inv] 비우는 쪽은 전략 스레드 하나다(relay_control_requests). 여럿이 꺼내면 MPSC 약속이 깨진다.
+        MpscQueue<ipc::ControlRequest> strategy_control_outbox{kControlQueueCapacity};
+        // 뒤 토막. 자리표 위 제어 면이고 여기 있는 것은 그 자리를 가리키는 포인터다. 전략 스레드가 넣고
+        //  주문 스레드가 꺼낸다. [inv] bind_layout()이 꽂는다. [why D-114]
+        ipc::SharedSpscRing<ipc::ControlRequest>* controls = nullptr;
         std::atomic<uint64_t> control_sequence{0};  // 제어 요청 순번 발급기. 0은 안 쓴다
-        std::atomic<uint64_t> control_dropped{0};   // 큐가 가득 차 못 보낸 줄 수. 0이 아니면 표가 버려졌다
+        std::atomic<uint64_t> control_dropped{0};   // 앞 토막이 가득 차 못 보낸 줄 수. 0이 아니면 표가 버려졌다
+        std::atomic<uint64_t> control_relay_dropped{0}; // 뒤 토막이 가득 차 못 옮긴 줄 수. 보낸 쪽은 성공을 받은 뒤다
         std::atomic<uint64_t> control_discarded{0}; // 주문 쪽이 반쪽 표로 보고 버린 줄 수
-        // 전략 스레드가 한 바퀴마다 찍고 주문 스레드가 공백만 보고 생사를 판정한다. 프로세스가 갈려도
-        //  판정 방식은 그대로다 — 공유메모리의 int64 하나가 된다. [why D-114]
-        ipc::Heartbeat strategy_heartbeat;
+        // 전략 스레드가 한 바퀴마다 찍고 주문 스레드가 공백만 보고 생사를 판정한다. 자리표의 박동 면
+        //  가운데 전략 쪽 칸을 가리킨다 — 프로세스가 갈려도 찍는 자리도 보는 자리도 그대로다. [why D-114]
+        //  [inv] bind_layout()이 꽂는다.
+        ipc::Heartbeat* strategy_heartbeat = nullptr;
     // 주문 스레드가 본 가장 긴 박동 공백(나노초). 문턱을 감으로 정하지 않으려고 밖으로 낸다 — 부하 하네스의
     //  beat_gap_max_ms 열과 [큐 고수위] 줄, check_runtime_health의 판정 행이 이 값 하나를 본다. [why D-114]
     std::atomic<int64_t> strategy_beat_gap_max_ns{0};
@@ -681,6 +834,9 @@ private:
     std::jthread fill_thread_;
     std::jthread control_thread_;
 
+    // 줄마다 하나. 전략 역할에만 뜬다(주문 쪽은 소켓 수신 스레드가 그 일을 한다). [why D-114]
+    std::vector<std::jthread> feed_lane_threads_;
+
     std::atomic<bool> running_{false};
     session_end::Judge session_end_; // 마감 자기 종료 판정(control_thread 전용). 기본은 창 0 = 판정 없음 [why D-098]
 
@@ -689,9 +845,9 @@ private:
 #endif
 
     // ── 운영 채널(Ops·수동주문) ──────────────────────────────────────────────
-    // 운영단말 서버와 수동주문 인테이크. 서버 스레드가 push, strategy_thread(order_queue 단일
+    // 운영단말 서버와 수동주문 인테이크. 서버 스레드가 push, strategy_thread(요청 면 단일
     //  생산자)가 pop해 OrderSignal(strategy_id="MANUAL")로 바꿔 게이트·원장을 그대로 지난다.
-    //  FORCE_LIQ와 같은 이유로 소켓 스레드가 order_queue에 직접 넣지 않는다. [why D-043]
+    //  FORCE_LIQ와 같은 이유로 소켓 스레드가 요청 면에 직접 넣지 않는다. [why D-043]
     struct OpsChannel
     {
         std::unique_ptr<OpsServer>      server;
@@ -731,16 +887,26 @@ private:
     const strategy_table::StrategyId force_liquidation_index_ = order_gate_.strategy_index_of("FORCE_LIQ");
     const strategy_table::StrategyId limit_trim_index_        = order_gate_.strategy_index_of("LIMIT_TRIM");
     std::unique_ptr<OrderRouter> order_router_; // 주문 전처리·중계 레이어(증권업계 용어로 FEP, Front-End Processor). start() 이후 유효
-    // 전략 쪽이 읽을 장부 사본. 장부가 바뀔 때마다 order_gate_가 여기에 한 판을 낸다.
-    //  지금은 채우기만 한다 — 읽는 자리를 옮기는 것은 뒤 단계다. 290KB라 Engine을 스택에 두는 경우를
-    //  생각해 힙에 둔다. 단계 4에서 이 자리가 공유메모리로 바뀐다. [why D-114]
-    std::unique_ptr<ipc::LedgerSnapshot> ledger_snapshot_ = std::make_unique<ipc::LedgerSnapshot>();
+    // 전략 쪽이 읽을 장부 사본. 장부가 바뀔 때마다 order_gate_가 여기에 한 판을 낸다. 자리표의 마지막
+    //  면이라 Engine 안에 실체가 없다 — 여기 있는 것은 그 자리를 가리키는 포인터다. [why D-114]
+    //  [inv] bind_layout()이 꽂는다. 못 깔면 start()가 뜨지 않으니 여기서 빈 포인터를 보지 않는다.
+    ipc::LedgerSnapshot* ledger_snapshot_ = nullptr;
 
     // ── 구독 스펙 ─────────────────────────────────────────────────────────────
     // 전략에서 수집한 구독 스펙 (on_start 이후 확정)
     //  data_thread(재스캔 등록)가 쓰고 control_thread(WS 재연결)가 읽는다 — watch_specs_mtx_로 보호.
     std::vector<WatchSpec> watch_specifications_;
     mutable std::mutex     watch_specifications_mutex_;
+
+    // 아직 소켓에 걸지 않은 구독 스펙. 주문 스레드가 제어 요청에서 꺼내 여기 쌓고, 감시 스레드가
+    //  비우며 소켓에 건다 — 주문 스레드는 단일 시퀀서라 소켓 쓰기로 막으면 그동안 주문이 안 나간다. [why D-114]
+    //  [inv] watch_specifications_mutex_ 로 보호한다(넣는 쪽 주문 스레드, 비우는 쪽 감시 스레드).
+    std::vector<WatchSpec> pending_subscriptions_;
+    // 구독 상한에 밀린 종목 수. 0이 아니면 그 종목은 WS 틱을 못 받는다 — 판정 행 "구독 상한"이 본다. [why D-114]
+    std::atomic<uint64_t> watch_overflow_{0};
+    // 시세 통로 버린 건수 둘. 보내는 쪽은 소켓 수신 스레드, 받는 쪽은 줄 스레드가 올린다. [why D-114]
+    std::atomic<uint64_t> feed_channel_overflow_{0};
+    std::atomic<uint64_t> feed_channel_discarded_{0};
 
     // ── ZMQ ──────────────────────────────────────────────────────────────────
     bool        zmq_enabled_      = true; // set_zmq_enabled. 부하 하네스만 끈다
@@ -777,6 +943,11 @@ private:
         std::vector<bool> exit_managed{std::vector<bool>(table.capacity(), false)};
     };
     SymbolCache symbols_;
+
+    // 이 프로세스가 맡는 자리. 기동 때 한 번 정해지고 그 뒤로 안 바뀐다.
+    ProcessRole           role_ = ProcessRole::Both;
+    std::atomic<uint64_t> symbol_register_timeouts_{0};
+    std::atomic<uint64_t> symbol_lookup_misses_{0};
 
     // ── 종목명 캐시 ──────────────────────────────────────────────────────────
     // 종목 id→종목명 라벨(로그 표시용, 빈 문자열=없음). 여러 스레드가 접근해 ticker_names_mutex_로 보호.

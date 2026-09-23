@@ -1,7 +1,8 @@
 // 전략 → 주문 제어 요청 — 사고 파는 주문이 아니라 주문 쪽 표를 고치는 요청이다.
-//  전략 쪽이 OrderGate·보호 주문 표를 직접 고치던 자리(슬롯 면제 집합·진입 우선순위 표·보호 주문 등록)를
-//  이 레코드 한 줄로 바꾼다. 표를 고치는 일은 단일 시퀀서인 주문 스레드가 한다(원칙 4). [why D-114]
-//  ipc/OrderChannel.h 와 같은 규칙이다 — 문자열도 포인터도 안 싣는다. 단계 4에서 프로세스가 갈리면
+//  전략 쪽이 OrderGate·보호 주문 표를 직접 고치던 자리(슬롯 면제 집합·진입 우선순위 표·보호 주문 등록·
+//  종목 표 등록·주문 쪽 스위치 다섯)를 이 레코드 한 줄로 바꾼다. 표를 고치는 일은 단일 시퀀서인 주문 스레드가 한다(원칙 4). [why D-114]
+//  ipc/OrderChannel.h 와 같은 규칙이다 — 포인터도, 길이가 정해지지 않은 문자열도 안 싣는다
+//  (계좌·티커는 고정 칸이다). 단계 4에서 프로세스가 갈리면
 //  레코드는 그대로 두고 운반 수단만 공유메모리로 바꾼다. 처리량은 분당 몇 건이라 레코드 크기보다
 //  어느 칸이 무슨 뜻인지가 먼저다 — 그래서 칸을 겹쳐 쓰지 않고 이름을 따로 둔다.
 #pragma once
@@ -11,13 +12,16 @@
 #include <string_view>
 #include <vector>
 
-#include "core/Types.h" // symbol::SymbolId, strategy_table::StrategyId
+#include "core/Types.h" // symbol::SymbolId, symbol::Ticker, strategy_table::StrategyId
 
 namespace ipc
 {
 
 // 계좌 이름 칸. LedgerGlobals::account 와 같은 크기다 — 같은 값이 오간다.
 constexpr size_t kControlAccountMax = 32;
+
+// 거래소 칸. kWatchSubscribe 가 미국 거래소 코드("NAS"·"NYS")를 나른다 — 국내는 비어 있다.
+constexpr size_t kControlExchangeMax = 8;
 
 // 표 한 장이 담을 수 있는 줄 수. 슬롯 면제는 바스켓 소유 종목 수, 우선순위는 전 슬리브를 합친 수다.
 //  넘으면 그 표는 버린다 — 반만 거는 것보다 낫다(아래 ControlTableBuilder 주석).
@@ -35,6 +39,13 @@ enum class ControlKind : uint8_t
     kEntryPriorityCommit = 6, // 모은 표를 통째로 건다(rank 칸에 전체 종목 수)
     kArmProtective       = 7, // 보호 주문 한 건 등록
     kDisarmProtective    = 8, // 보호 주문 한 건 해제
+    kRegisterSymbol      = 9, // 종목 표에 티커 하나를 넣어 달라 — 넣는 쪽은 주문 프로세스 하나다
+    kResetDaily          = 10, // 장이 열렸다 — 하루치 세기·중복방지 키·총평가금 기준선을 새로 연다
+    kEntryHalt           = 11, // 신규 진입 정지 스위치(청산·취소는 그대로 통과한다)
+    kEntryScale          = 12, // 신규 진입 매수 비율 0~1
+    kKillSwitch          = 13, // 전방향 주문 차단
+    kManualHalt          = 14, // 운영단말이 손으로 거는 한 방향 정지
+    kWatchSubscribe      = 15, // 이 종목 시세를 구독해 달라 — 소켓을 쥔 쪽은 주문 프로세스 하나다
 };
 
 // 제어 요청 한 줄. 칸은 kind 마다 쓰는 것만 채우고 나머지는 기본값 그대로 둔다.
@@ -48,13 +59,19 @@ struct ControlRequest
     int32_t                    rank              = 0;   // kEntryPriorityEntry 랭크 / kEntryPriorityCommit 표의 전체 종목 수
     uint32_t                   row_count         = 0;   // *Commit: 이 표로 보낸 줄 수. 받는 쪽이 셈이 맞는지 본다
     ControlKind                kind              = ControlKind::kNone;
-    uint8_t                    reserved0         = 0;
-    uint16_t                   reserved1         = 0;
+    uint8_t                    toggle_on         = 0;   // kEntryHalt·kKillSwitch·kManualHalt — 켜면 1
+    uint8_t                    halt_side         = 0;   // kManualHalt — OrderSide::Value 를 담는다
+    uint8_t                    market            = 0;   // kWatchSubscribe — Market 을 담는다
+    uint8_t                    trade_only        = 0;   // kWatchSubscribe — 호가 빼고 체결만 구독
+    uint8_t                    is_future         = 0;   // kWatchSubscribe — 국내 선물 채널로 구독
     double                     score_z           = 0.0; // kEntryPriorityEntry
+    double                     entry_scale       = 0.0; // kEntryScale
     double                     stop_loss_percent = 0.0; // kArmProtective
     double                     trail_arm_percent = 0.0; // kArmProtective
     double                     trail_percent     = 0.0; // kArmProtective
-    char                       account[kControlAccountMax] = {}; // kArmProtective·kDisarmProtective
+    char                       account[kControlAccountMax]   = {}; // kArmProtective·kDisarmProtective
+    char                       exchange[kControlExchangeMax] = {}; // kWatchSubscribe — 미국 거래소 코드
+    symbol::Ticker             ticker;                             // kRegisterSymbol·kWatchSubscribe
 };
 
 // 계좌 이름을 칸에 담는다. 칸을 넘으면 자르고 끝에 0을 넣는다.
@@ -62,6 +79,12 @@ void set_account(ControlRequest& request, std::string_view account) noexcept;
 
 // 칸에 담긴 계좌 이름. [inv] 돌려주는 조각은 request 가 사는 동안만 유효하다.
 [[nodiscard]] std::string_view account_of(const ControlRequest& request) noexcept;
+
+// 거래소 코드를 칸에 담는다. 칸을 넘으면 자르고 끝에 0을 넣는다.
+void set_exchange(ControlRequest& request, std::string_view exchange) noexcept;
+
+// 칸에 담긴 거래소 코드. [inv] 돌려주는 조각은 request 가 사는 동안만 유효하다.
+[[nodiscard]] std::string_view exchange_of(const ControlRequest& request) noexcept;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 주문 쪽 — 여러 줄로 나뉘어 오는 표 하나를 모은다

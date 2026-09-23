@@ -49,7 +49,7 @@ TRADE 모드의 데이터 흐름:
 
 ### 1.1 진입점과 인자 파싱
 - `main()` 진입: `main.cpp::main`. Windows 콘솔 UTF-8/ANSI 설정 후 (`main.cpp::main`) `Logger::instance().init("logs/quant_trader.log", INFO)` (`main.cpp::main`, logs/ 하위 고정·부모폴더 자동생성).
-- 인자 파싱: `quant_trader [config] [MODE]`. `KR_TEST/US_TEST/FEED/TRADE`는 `mode_override`로, 그 외 토큰은 `config_path`로 해석 (`main.cpp::main`).
+- 인자 파싱: `quant_trader [config] [MODE] [--role both|order|strategy]`. `KR_TEST/US_TEST/FEED/TRADE`는 `mode_override`로, `--role`은 이 프로세스가 맡는 자리로, 그 외 토큰은 `config_path`로 해석 (`core/CommandLine.cpp::parse_command_line`). 모르는 역할·`-`로 시작하는 모르는 깃발은 기본값으로 낙하하지 않고 종료코드 2로 멈춘다. `order`·`strategy`는 엔진 가르기 전까지 받아만 두고 뜨지 않는다(D-114 단계 4).
 - 설정 로드: `main.cpp::main`이 파일을 읽어 `json::parse`한 뒤 `Quant/src/core/AppConfig.cpp::parse_config`가 typed `AppConfig`로 바꾸고, `Quant/src/core/EngineConfigure.cpp::Engine::configure`가 그 값을 엔진 세터에 옮긴다(d7ef5ac·27a6a70). 옛 `main.cpp::load_config`와 placeholder `Quant/src/utils/Config.cpp`는 삭제됐다.
 
 ### 1.2 config.json 스키마

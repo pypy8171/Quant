@@ -117,9 +117,9 @@ LEDGER_WRITE_FAIL_RE = re.compile(r"\[OrderRouter\] 원장 저널 기록 실패"
 # 엔진이 모르는 채 브로커에 살아 있던 주문 — 전송이 타임아웃 나면 KIS에는 접수됐는데 ODNO를 못 받아
 #  부속 파일에 못 적는다. 그 주문이 보유분을 묶으면 손절이 닿아도 못 판다(2026-09-23 09:26 021240,
 #  ODNO=0000007886 매도 18주). 기동 때 브로커 조회로 보충하면 이 줄이 남는다 — 남았다는 건 그날 샜다는 뜻이다.
-UNTRACKED_OPEN_RE = re.compile(r"부속 파일에 없는 미체결 — 브로커 조회로 보충")
+UNTRACKED_OPEN_RE = re.compile(r"부속 파일에 없는 미체결 — 브로커 조회로 보충 (\d{6})")
 # 청산이 막혔는데 풀지 못한 채 넘어간 것. 위와 같은 뿌리이나 이쪽은 재기동 전까지 방치된다.
-BLOCKED_SELL_RE = re.compile(r"청산차단 미해소")
+BLOCKED_SELL_RE = re.compile(r"청산차단 미해소 (\d{6})")
 # 전략 사망 마무리(D-114 단계 2) — 주문 스레드가 전략 박동 공백만 보고 낸 판정.
 BEAT_DEAD_RE = re.compile(r"\[마무리\] 전략 박동이 끊겼다")
 BEAT_BACK_RE = re.compile(r"\[마무리\] 전략 박동이 돌아왔다")
@@ -127,12 +127,23 @@ BEAT_BACK_RE = re.compile(r"\[마무리\] 전략 박동이 돌아왔다")
 BEAT_GAP_RE = re.compile(r"beat_gap_max=(\d+)ms")
 ORDER_DUPLICATE_RE = re.compile(r"order_duplicate=(\d+)")
 ORDER_RESPONSE_DROP_RE = re.compile(r"order_response_dropped=(\d+)")
+# 요청 면(D-114 단계 4) — 값이 말이 안 돼 버린 요청 수, 판단 근거가 칸을 넘어 잘린 신호 수.
+ORDER_IMPLAUSIBLE_RE = re.compile(r"order_implausible=(\d+)")
+ORDER_TRUNCATED_RE = re.compile(r"order_truncated=(\d+)")
 # 장부 사본(D-114 단계 2.5) — 낸 판 수와, 한 계좌만 담는 사본에 못 실은 남의 계좌 줄 수.
 LEDGER_GEN_RE = re.compile(r"ledger_gen=(\d+)")
 LEDGER_FOREIGN_RE = re.compile(r"ledger_foreign=(\d+)")
 # 제어 요청(D-114 단계 2.5 갈래 B) — 전략이 큐가 가득 차 못 보낸 줄 수, 주문 쪽이 반쪽 표로 보고 버린 줄 수.
 CONTROL_DROP_RE = re.compile(r"control_dropped=(\d+)")
+CONTROL_RELAY_DROP_RE = re.compile(r"control_relay_dropped=(\d+)")
 CONTROL_DISCARD_RE = re.compile(r"control_discarded=(\d+)")
+# 티커→번호(D-114 단계 4) — 등록을 주문 쪽에서 못 받은 수, 표에 없는 티커로 잦은 자리가 불린 수.
+SYMBOL_REGISTER_TIMEOUT_RE = re.compile(r"symbol_register_timeout=(\d+)")
+SYMBOL_LOOKUP_MISS_RE = re.compile(r"symbol_lookup_miss=(\d+)")
+WATCH_OVERFLOW_RE = re.compile(r"watch_overflow=(\d+)")
+# 시세 통로(D-114 단계 4 배선 2') — 큐가 차서 못 넘긴 건수, 꺼낸 값이 말이 안 돼 버린 건수.
+FEED_CHANNEL_OVERFLOW_RE = re.compile(r"feed_channel_overflow=(\d+)")
+FEED_CHANNEL_DISCARD_RE = re.compile(r"feed_channel_discarded=(\d+)")
 # 체결통보 세션(D-114 단계 3) — 기동마다 한 줄. 맡은 소켓이 몇 번인지, 아무도 안 맡았는지, 둘 이상이 맡았는지.
 FILL_SESSION_ONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 소켓 (\d+)")
 FILL_SESSION_NONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 없음")
@@ -480,6 +491,11 @@ AFTER_MARKET_OPEN_HHMM = "16:00"
 AFTER_MARKET_CLOSE_HHMM = "20:00"
 
 
+# 스캔 로그 한 줄에서 "이름=숫자" 를 전부 뽑는다. 데이터부족 은 "데이터부족(<60봉)=4" 처럼
+#  괄호가 끼어 있어 이름과 = 사이를 건너뛴다.
+SCAN_COUNTER_PATTERN = re.compile(r"([가-힣]+)(?:\([^)]*\))?=(\d+)")
+
+
 def after_market_order_row(date: str) -> tuple:
     """애프터마켓(16:00~20:00) 주문이 주문구분·거래소 때문에 되돌아왔는지.
 
@@ -520,6 +536,69 @@ def after_market_order_row(date: str) -> tuple:
                 " (16:00~20:00 은 주문구분 41 + 거래소 KRX 여야 한다, D-097)")
 
     return (name, True, "FAIL", f"애프터마켓 주문 {after_market_orders}건, 주문구분·거래소 거부 0건")
+
+
+def scan_registration_row(date: str) -> tuple:
+    """유니버스 스캔이 하루 종일 한 종목도 등록하지 못한 계좌가 있는지.
+
+    스캔이 0종목으로 끝나면 신호가 만들어지지 않아 매매가 통째로 없다. 그런데 엔진은
+    아무 경고도 내지 않는다 — "오늘은 후보가 없었다" 와 "거르는 조건이 어긋나 있다" 가
+    로그에서 똑같이 보이기 때문이다. 2026-09-23 실계좌 애프터마켓이 그랬다. 거래대금
+    문턱을 10억에서 1억으로 낮춰 검사 대상을 23에서 36으로 늘렸는데도 늘어난 13종목이
+    전부 역배열컷에 걸려 등록은 0 그대로였다. 후보는 급등락 랭킹에서 오는데 진입은
+    정배열을 요구해, 두 기준이 서로 반대쪽을 본다. [why D-097]
+
+    로그 폴더별로 가른다 — 실계좌·모의·리눅스가 저마다 폴더를 쓰는데 한데 합치면 모의의
+    정상 등록이 실계좌의 0을 덮는다(09-23 실측: 합치면 948회 11,108종목으로 통과했다).
+    등록이 한 번도 안 난 폴더는 무엇이 걸렀는지를 같이 낸다 — 그 내역이 곧 다음에 고칠 자리다.
+    """
+    name = "스캔 등록"
+    scans_by_account: dict = {}
+    registered_by_account: dict = {}
+    breakdown_by_account: dict = {}
+
+    for engine_log in sorted(REPO.glob("Quant/build*/logs*/quant_trader.log")):
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        account = engine_log.parent.name
+
+        for line in body.splitlines():
+            if date not in line or "정배열 프리필터" not in line:
+                continue
+
+            counters = dict(SCAN_COUNTER_PATTERN.findall(line))
+            scans_by_account[account] = scans_by_account.get(account, 0) + 1
+            registered_by_account[account] = (registered_by_account.get(account, 0)
+                                              + int(counters.get("등록", "0")))
+
+            # 마지막 스캔의 내역만 남긴다 — 하루치를 합치면 재스캔 주기만큼 부풀어
+            #  "몇 종목이 왜 걸렸나" 를 못 읽는다.
+            breakdown_by_account[account] = (
+                f"후보 {counters.get('후보', '?')} 중"
+                f" 거래대금미달 {counters.get('거래대금미달', '?')}"
+                f"·역배열 {counters.get('역배열컷', '?')}"
+                f"·과확장 {counters.get('과확장컷', '?')}"
+                f"·데이터부족 {counters.get('데이터부족', '?')}"
+            )
+
+    if not scans_by_account:
+        return (name, True, "WARN", f"{date} 스캔 로그가 없다 — 판정 안 함")
+
+    empty = [account for account, total in registered_by_account.items() if not total]
+
+    if empty:
+        details = "; ".join(
+            f"{account} 스캔 {scans_by_account[account]}회 모두 0종목"
+            f" ({breakdown_by_account[account]})" for account in sorted(empty))
+        return (name, False, "FAIL",
+                f"{details} (신호가 안 만들어져 매매가 통째로 없다, D-097)")
+
+    summary = ", ".join(f"{account} {registered_by_account[account]}종목"
+                        for account in sorted(registered_by_account))
+    return (name, True, "FAIL", f"모든 계좌가 등록했다 — {summary}")
 
 
 def fill_notice_session_row(date: str) -> tuple:
@@ -803,7 +882,43 @@ def orphan_process_rows() -> list:
             (tool_name, tool_bytes < tool_limit_bytes, "WARN", tool_detail)]
 
 
-def collect(date: str, log: Path, since: int = 0):
+def global_rows(date: str) -> list:
+    """계좌와 무관한 판정 — 하루에 한 번만 낸다.
+
+    자원·피드·큐·부속 잡·TSAN 은 로그 폴더를 스스로 훑거나 저장소 전체를 본다.
+    계좌별로 다시 부르면 같은 줄이 계좌 수만큼 반복된다.
+    """
+    return [
+        *resource_sampling_rows(date),
+        *feed_ledger_rows(date),
+        queue_latency_row(date),
+        order_latency_breakdown_row(date),
+        market_open_gate_row(date),
+        after_market_order_row(date),
+        fill_notice_session_row(date),
+        scan_registration_row(date),
+        job_attach_row(date),
+        *orphan_process_rows(),
+        tsan_row(date),
+    ]
+
+
+def print_rows(rows: list) -> int:
+    """판정 줄을 찍고 FAIL 수를 돌려준다."""
+    bad = 0
+
+    for name, ok, level, detail in rows:
+        tag = "PASS" if ok else level
+
+        if not ok and level == "FAIL":
+            bad += 1
+
+        print(f"  [{tag:4}] {name:16} {detail}")
+
+    return bad
+
+
+def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     """로그 한 파일에서 그날 점검 행을 만든다.
 
     반환 (rows, session_count). rows 원소는 (이름, 통과, 등급, 설명). 세션이 없으면 rows 빈 리스트.
@@ -821,8 +936,8 @@ def collect(date: str, log: Path, since: int = 0):
     value_rank_short: list[tuple[int, int]] = []   # (받은 행수, 요청 행수) — 요청보다 모자랐던 회차
     market_cap_axis_broken = 0        # raw의 절반 넘게 ETF였던 회차 — 순위 축이 어긋난 신호
     market_cap_short: list[tuple[int, int]] = []   # (받은 행수, 요청 행수) — 요청보다 모자랐던 회차
-    untracked_opens = 0
-    blocked_sells = 0
+    untracked_opens: list[tuple[int, str]] = []
+    blocked_sells: list[tuple[int, str]] = []
     ws_fallbacks = 0
     rtts: list[int] = []
     bucket_waits: list[int] = []
@@ -859,12 +974,20 @@ def collect(date: str, log: Path, since: int = 0):
     beat_gap_max = -1                            # 전략 박동의 가장 긴 공백(ms). -1이면 그 줄이 없는 구 exe
     order_duplicate = 0                          # 주문 쪽이 같은 순번을 두 번 받아 거른 수
     order_response_dropped = 0                   # 전략이 답을 안 가져가 버린 수
+    order_implausible = -1                       # 값이 말이 안 돼 버린 요청 수. -1이면 그 칸이 없는 옛 바이너리
+    order_truncated = -1                         # 판단 근거·주문 이름이 칸을 넘어 잘린 신호 수. -1도 같다
     ledger_gen = 0                               # 장부 사본이 낸 판 수
     ledger_gen_previous = -1                     # 직전 고수위 줄의 판 번호. 같으면 그사이에 한 판도 안 나간 것
     ledger_stall_at = []                         # 판이 안 늘어난 지점의 초
     ledger_foreign = -1                          # 사본에 못 실은 남의 계좌 줄 수. -1이면 그 줄이 없는 구 exe
-    control_dropped = 0                          # 큐가 가득 차 전략이 못 보낸 제어 요청 줄 수
+    control_dropped = 0                          # 앞 토막이 가득 차 전략이 못 보낸 제어 요청 줄 수
+    control_relay_dropped = -1                   # 경계 너머 제어 면이 가득 차 못 옮긴 줄 수. -1이면 그 줄이 없는 옛 바이너리
     control_discarded = -1                       # 주문 쪽이 반쪽 표로 보고 버린 줄 수. -1이면 그 줄이 없는 구 exe
+    symbol_register_timeout = -1                 # 등록을 주문 쪽에서 못 받은 수. -1이면 그 줄이 없는 구 exe
+    symbol_lookup_miss = 0                       # 표에 없는 티커로 잦은 자리가 불린 수
+    watch_overflow = -1                          # 구독 상한에 밀린 종목 수. -1이면 그 줄이 없는 구 exe
+    feed_channel_overflow = -1                   # 통로가 차서 못 넘긴 시세 건수. -1이면 그 줄이 없는 구 exe
+    feed_channel_discarded = -1                  # 꺼낸 값이 말이 안 돼 버린 건수. -1이면 그 줄이 없는 구 exe
     fill_session_socket = -1                     # 체결통보를 맡은 소켓 번호. -1이면 그 줄이 없는 구 exe
     fill_session_none = 0                        # 맡은 소켓이 없다고 찍힌 기동 수
     fill_session_many = 0                        # 둘 이상이 맡았다고 찍힌 기동 수
@@ -913,6 +1036,10 @@ def collect(date: str, log: Path, since: int = 0):
                 beat_gap_max = max(beat_gap_max, int(found.group(1)))
             if found := ORDER_DUPLICATE_RE.search(line):
                 order_duplicate = max(order_duplicate, int(found.group(1)))
+            if found := ORDER_IMPLAUSIBLE_RE.search(line):
+                order_implausible = max(order_implausible, int(found.group(1)))
+            if found := ORDER_TRUNCATED_RE.search(line):
+                order_truncated = max(order_truncated, int(found.group(1)))
             if found := ORDER_RESPONSE_DROP_RE.search(line):
                 order_response_dropped = max(order_response_dropped, int(found.group(1)))
             if found := LEDGER_GEN_RE.search(line):
@@ -927,8 +1054,20 @@ def collect(date: str, log: Path, since: int = 0):
                 ledger_foreign = max(ledger_foreign, int(found.group(1)))
             if found := CONTROL_DROP_RE.search(line):
                 control_dropped = max(control_dropped, int(found.group(1)))
+            if found := CONTROL_RELAY_DROP_RE.search(line):
+                control_relay_dropped = max(control_relay_dropped, int(found.group(1)))
             if found := CONTROL_DISCARD_RE.search(line):
                 control_discarded = max(control_discarded, int(found.group(1)))
+            if found := SYMBOL_REGISTER_TIMEOUT_RE.search(line):
+                symbol_register_timeout = max(symbol_register_timeout, int(found.group(1)))
+            if found := SYMBOL_LOOKUP_MISS_RE.search(line):
+                symbol_lookup_miss = max(symbol_lookup_miss, int(found.group(1)))
+            if found := WATCH_OVERFLOW_RE.search(line):
+                watch_overflow = max(watch_overflow, int(found.group(1)))
+            if found := FEED_CHANNEL_OVERFLOW_RE.search(line):
+                feed_channel_overflow = max(feed_channel_overflow, int(found.group(1)))
+            if found := FEED_CHANNEL_DISCARD_RE.search(line):
+                feed_channel_discarded = max(feed_channel_discarded, int(found.group(1)))
             if found := FILL_SESSION_ONE_RE.search(line):
                 fill_session_socket = int(found.group(1))
             elif FILL_SESSION_NONE_RE.search(line):
@@ -958,10 +1097,12 @@ def collect(date: str, log: Path, since: int = 0):
             found = MARKET_CAP_DONE_RE.search(line)
             if found and int(found.group(1)) < int(found.group(2)):
                 market_cap_short.append((int(found.group(1)), int(found.group(2))))
-            if UNTRACKED_OPEN_RE.search(line):
-                untracked_opens += 1
-            if BLOCKED_SELL_RE.search(line):
-                blocked_sells += 1
+            found = UNTRACKED_OPEN_RE.search(line)
+            if found:
+                untracked_opens.append((second, found.group(1)))
+            found = BLOCKED_SELL_RE.search(line)
+            if found:
+                blocked_sells.append((second, found.group(1)))
             if WSFALL_RE.search(line):
                 ws_fallbacks += 1
             found = RTT_RE.search(line)
@@ -1136,6 +1277,24 @@ def collect(date: str, log: Path, since: int = 0):
             return (name, True, level, "제어 요청 수치 줄 없음(D-114 단계 2.5 갈래 B 배포 전 바이너리) — 판정 안 함")
         return (name, ok, level, detail)
 
+    # 티커→번호(D-114 단계 4) — 이 줄도 제어 요청 줄보다 늦게 붙었으므로 따로 건너뛴다.
+    def symbol_row(name: str, ok: bool, level: str, detail: str):
+        if symbol_register_timeout < 0:
+            return (name, True, level, "티커→번호 수치 줄 없음(D-114 단계 4 배포 전 바이너리) — 판정 안 함")
+        return (name, ok, level, detail)
+
+    # 구독(D-114 단계 4 배선 ②) — 이 줄도 티커→번호 줄보다 늦게 붙었으므로 따로 건너뛴다.
+    def watch_row(name: str, ok: bool, level: str, detail: str):
+        if watch_overflow < 0:
+            return (name, True, level, "구독 수치 줄 없음(D-114 단계 4 배선 ② 배포 전 바이너리) — 판정 안 함")
+        return (name, ok, level, detail)
+
+    # 시세 통로(D-114 단계 4 배선 2') — 이 줄도 구독 줄보다 늦게 붙었으므로 따로 건너뛴다.
+    def feed_channel_row(name: str, ok: bool, level: str, detail: str):
+        if feed_channel_overflow < 0 and feed_channel_discarded < 0:
+            return (name, True, level, "시세 통로 수치 줄 없음(D-114 단계 4 배선 2' 배포 전 바이너리) — 판정 안 함")
+        return (name, ok, level, detail)
+
     # 체결통보 세션(D-114 단계 3) — 이 줄도 사본 줄보다 늦게 붙었으므로 따로 건너뛴다.
     def fill_session_row(name: str, ok: bool, level: str, detail: str):
         if fill_session_socket < 0 and fill_session_none == 0 and fill_session_many == 0:
@@ -1157,6 +1316,12 @@ def collect(date: str, log: Path, since: int = 0):
         # 통로가 새면 같은 주문이 두 번 가거나 전략이 답을 영영 못 받아 기다림 표가 샌다.
         channel_row("주문 통로 무결", order_duplicate == 0 and order_response_dropped == 0, "FAIL",
                     f"중복 거름 {order_duplicate}건 · 버린 응답 {order_response_dropped}건 (둘 다 기대 0)"),
+        # 요청 면에서 꺼낸 값이 말이 안 되면 그 신호는 주문이 되지 않고 사라진다 — 건너편이 덮였다는 뜻이라 FAIL이다.
+        channel_row("요청 값 성함", order_implausible <= 0, "FAIL",
+                    f"말이 안 돼 버린 요청 {order_implausible}건 (기대 0 — 0이 아니면 그만큼 주문이 안 나갔다)"),
+        # 잘린 것은 주문이 아니라 판단 근거다. 주문은 나갔지만 원장 CSV의 "왜 샀나"가 짧아져 있다.
+        channel_row("판단 근거 온전", order_truncated <= 0, "WARN",
+                    f"칸을 넘어 잘린 신호 {order_truncated}건 (주문은 나갔다 · 원장 근거 글만 짧아진다)"),
         # 사본은 한 계좌만 담는다(계좌당 프로세스). 남의 계좌 줄이 세어지면 전략이 보는 장부가 원장과 다르다.
         ledger_row("장부 사본 어긋남", ledger_foreign == 0, "FAIL",
                    f"다른 계좌 줄 {ledger_foreign}건 · 낸 판 {ledger_gen}판 (어긋남 기대 0)"),
@@ -1168,9 +1333,27 @@ def collect(date: str, log: Path, since: int = 0):
         # 슬롯 면제 집합·진입 우선순위 표는 전략이 여러 줄로 보내고 주문 쪽이 모아서 건다. 한 줄이라도 새면
         #  그 표는 통째로 안 걸린다 — 면제가 빠진 바스켓 보유분이 남의 슬롯을 먹고, 랭크를 잃은 종목이
         #  우선순위 바를 건너뛴다. 둘 다 0이어야 전략이 고친 표가 그날 실제로 걸린 것이다.
-        control_row("제어 요청 표", control_dropped == 0 and control_discarded == 0, "FAIL",
-                    f"못 보낸 줄 {control_dropped}건 · 버린 줄 {control_discarded}건 (둘 다 기대 0)"),
-        # 체결통보는 WS 세션 하나만 들어야 한다. 아무도 안 들으면 체결이 원장에 안 들어와 선점이 안 풀리고,
+        control_row("제어 요청 표",
+                    control_dropped == 0 and control_discarded == 0 and control_relay_dropped <= 0,
+                    "FAIL",
+                    f"못 보낸 줄 {control_dropped}건 · "
+                    # 옮기는 자리가 붙기 전 바이너리는 이 칸이 없다 — 그때는 줄을 비워 두고 나머지 둘로만 본다.
+                    + (f"못 옮긴 줄 {control_relay_dropped}건 · " if control_relay_dropped >= 0 else "")
+                    + f"버린 줄 {control_discarded}건 (모두 기대 0)"),
+        # 종목 표에 넣는 쪽은 주문 프로세스 하나다. 등록을 못 받으면 그 종목 줄을 접으므로 전략이 그 종목을
+        #  아예 못 보고(신호 유실), 표에 없는 티커로 잦은 자리가 불리면 그 틱·신호가 번호 없이 버려진다.
+        symbol_row("종목 번호 등록", symbol_register_timeout == 0 and symbol_lookup_miss == 0, "FAIL",
+                   f"등록 못 받음 {symbol_register_timeout}건 · 표에 없는 티커 {symbol_lookup_miss}건 (둘 다 기대 0)"),
+        # 구독은 KIS 상한(41건)에 걸리면 조용히 거절된다. 밀린 종목은 WS 틱이 안 와 전략이 그 종목을
+        #  보지 못하고, 갈라 띄우면 시세 폴러가 전략 쪽에 있어 REST 대체도 아직 없다 — 그래서 FAIL이다.
+        watch_row("구독 상한", watch_overflow == 0, "FAIL",
+                  f"소켓에 못 건 종목 {watch_overflow}건 (기대 0 — 밀린 종목은 WS 틱을 못 받는다)"),
+        # 갈라 띄우면 시세는 주문 쪽 소켓에서 통로를 지나 전략 쪽으로 간다. 통로가 차서 버린 건은 그 종목의
+        #  체결·호가가 전략에 아예 안 닿은 것이고, 말이 안 돼 버린 건은 건너편 프로세스를 의심할 일이다.
+        feed_channel_row("시세 통로", feed_channel_overflow <= 0 and feed_channel_discarded <= 0, "FAIL",
+                         f"못 넘긴 시세 {max(feed_channel_overflow, 0)}건 · 값이 이상해 버린 시세 "
+                         f"{max(feed_channel_discarded, 0)}건 (둘 다 기대 0)"),
+                # 체결통보는 WS 세션 하나만 들어야 한다. 아무도 안 들으면 체결이 원장에 안 들어와 선점이 안 풀리고,
         #  둘이 들으면 KIS가 세션마다 같은 통보를 보내 원장이 체결을 두 번 센다 — 둘 다 A등급이다.
         fill_session_row("체결 세션", fill_session_many == 0 and fill_session_none == 0, "FAIL",
                          (f"소켓 {fill_session_socket}번이 맡는다" if fill_session_socket >= 0 else "맡은 소켓 없음")
@@ -1213,12 +1396,16 @@ def collect(date: str, log: Path, since: int = 0):
          + (f" — {', '.join(hhmm(second) for second in dump[:5])}" if dump else "")),
         ("매도→재매수 회전", churn <= MAX_CHURN, "FAIL",
          f"{CHURN_SEC}초 내 반대매매 {churn}회 (허용 {MAX_CHURN})"),
-        ("엔진밖 미체결", untracked_opens == 0, "FAIL",
-         f"부속 파일에 없던 브로커 미체결 {untracked_opens}건"
+        ("엔진밖 미체결", not untracked_opens, "FAIL",
+         f"부속 파일에 없던 브로커 미체결 {len(untracked_opens)}건"
          " — 전송 타임아웃 난 주문이 실제로는 접수돼 엔진 장부 밖에 살아 있었다는 뜻이다."
-         " 그 종목은 보유분이 묶여 손절이 닿아도 못 판다(2026-09-23 09:26 021240)"),
-        ("청산차단 해소", blocked_sells == 0, "FAIL",
-         f"청산차단 미해소 {blocked_sells}건 — 예약매도를 못 찾아 청산이 막힌 채 넘어갔다"),
+         " 그 종목은 보유분이 묶여 손절이 닿아도 못 판다"
+         + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in untracked_opens[:5])}"
+            if untracked_opens else "")),
+        ("청산차단 해소", not blocked_sells, "FAIL",
+         f"청산차단 미해소 {len(blocked_sells)}건 — 예약매도를 못 찾아 청산이 막힌 채 넘어갔다"
+         + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in blocked_sells[:5])}"
+            if blocked_sells else "")),
         ("초당한도 압박", rate_hits <= MAX_RATE_HITS, "WARN",
          f"초당 거래건수 거부 {rate_hits}건 (허용 {MAX_RATE_HITS})"),
         # 유니버스 후보의 한 축이다. ETF가 섞이면 그만큼 개별주 자리가 밀리고, 요청보다 적게 오면
@@ -1273,17 +1460,11 @@ def collect(date: str, log: Path, since: int = 0):
         basket_row("바스켓 매수 레그 시각", buy_leg_ok, "WARN",
                    (f"집행 끝 {hhmm(max(basket_run_end))} (기한 15:05), 창 종료 이월 {basket_window_closed}회, 주문 {len(basket_orders)}건"
                     if basket_run_end else f"집행 끝 줄 없음, 창 종료 이월 {basket_window_closed}회, 주문 {len(basket_orders)}건")),
-        *resource_sampling_rows(date),
-        *feed_ledger_rows(date),
-        queue_latency_row(date),
-        order_latency_breakdown_row(date),
-        market_open_gate_row(date),
-        after_market_order_row(date),
-        fill_notice_session_row(date),
-        job_attach_row(date),
-        *orphan_process_rows(),
-        tsan_row(date),
     ]
+
+    if include_global:
+        rows.extend(global_rows(date))
+
     return rows, len(starts)
 
 
@@ -1302,23 +1483,43 @@ def main() -> int:
         since = int(hour_text) * 3600 + int(minute_text or 0) * 60
 
     log = Path(arguments.log)
-    if not log.exists():
+
+    if arguments.log != str(DEFAULT_LOG):
+        log_files = [log] if log.exists() else []
+    else:
+        # 계좌마다 로그 폴더가 다르다. 기본값 하나만 보면 _logdir.log_dir() 이 그날 마지막으로
+        #  쓰인 폴더를 고르므로, 실계좌를 돌린 날에도 모의 로그만 판정하는 일이 생긴다
+        #  (2026-09-23 실계좌 첫날 실측 — FAIL 7건 중 실계좌 것은 하나였는데 구분이 안 됐다).
+        #  계좌 폴더를 모두 돌고 계좌별로 낸다. [why D-097]
+        log_files = sorted(REPO.glob("Quant/build*/logs*/quant_trader.log"))
+
+    if not log_files:
         print(f"로그 없음: {log}")
         return 1
 
-    rows, session_count = collect(arguments.date, log, since)
-    if not rows:
+    scope = f" {arguments.since}~" if arguments.since else ""
+    print(f"=== 실행 건전성 점검 {arguments.date}{scope} ===")
+
+    bad = 0
+    seen_session = False
+
+    for log_file in log_files:
+        rows, session_count = collect(arguments.date, log_file, since, include_global=False)
+
+        if not rows:
+            continue
+
+        seen_session = True
+        print(f"-- 계좌 {log_file.parent.name} (세션 {session_count}회) --")
+        bad += print_rows(rows)
+
+    if not seen_session:
         print(f"{arguments.date}: 엔진 시작 기록이 없다 — 점검할 세션이 없음")
         return 0
 
-    scope = f" {arguments.since}~" if arguments.since else ""
-    print(f"=== 실행 건전성 점검 {arguments.date}{scope} (세션 {session_count}회) ===")
-    bad = 0
-    for name, ok, level, detail in rows:
-        tag = "PASS" if ok else level
-        if not ok and level == "FAIL":
-            bad += 1
-        print(f"  [{tag:4}] {name:16} {detail}")
+    print("-- 계좌 무관 --")
+    bad += print_rows(global_rows(arguments.date))
+
     print(f"--- FAIL {bad}건 ---")
     return 1 if bad else 0
 

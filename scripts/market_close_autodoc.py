@@ -404,16 +404,42 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
     # 찾지 않아도 "다음 거래일 확인할 것"이 여기서 자동으로 판정되게 하려는 것이다(FAIL/WARN만 읽으면 된다).
     add("### 실행 건전성 점검 (`scripts/check_runtime_health.py`)")
     add("")
-    health_rows = []
-    if log_path is not None:
-        health_rows, _ = check_runtime_health.collect(ymd, Path(log_path))
-    if not health_rows:
-        add("_엔진 시작 기록이 없어 점검 세션 없음._")
-    else:
+    # 계좌마다 로그 폴더가 다르다. 하나만 실으면 그날 마지막으로 쓰인 폴더가 뽑혀
+    #  실계좌를 돌린 날에도 모의 판정이 문서에 남는다(2026-09-23 실계좌 첫날 실측).
+    #  계좌별로 표를 나누고, 계좌와 무관한 판정은 끝에 한 번만 싣는다. [why D-097]
+    log_files = sorted(REPO.glob("Quant/build*/logs*/quant_trader.log"))
+    if not log_files and log_path is not None:
+        log_files = [Path(log_path)]
+
+    def add_health_table(rows: list) -> None:
         add("| 판정 | 항목 | 내용 |")
         add("|---|---|---|")
-        for name, ok, level, detail in health_rows:
+
+        for name, ok, level, detail in rows:
             add(f"| {'PASS' if ok else level} | {name} | {detail} |")
+
+        add("")
+
+    seen_session = False
+
+    for log_file in log_files:
+        health_rows, session_count = check_runtime_health.collect(
+            ymd, log_file, include_global=False)
+
+        if not health_rows:
+            continue
+
+        seen_session = True
+        add(f"**계좌 `{log_file.parent.name}`** (세션 {session_count}회)")
+        add("")
+        add_health_table(health_rows)
+
+    if not seen_session:
+        add("_엔진 시작 기록이 없어 점검 세션 없음._")
+    else:
+        add("**계좌 무관**")
+        add("")
+        add_health_table(check_runtime_health.global_rows(ymd))
     add("")
 
     add(AUTO_END)

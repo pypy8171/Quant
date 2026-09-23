@@ -1,4 +1,5 @@
 #include "core/AppConfig.h"
+#include "core/CommandLine.h"
 #include "core/Engine.h"
 #include "core/Types.h"
 #include "modes/Monitors.h"
@@ -209,36 +210,20 @@ static LONG WINAPI on_seh(EXCEPTION_POINTERS* exception_pointers)
 //  한 줄을 더한다(정본 docs/guides/MAINTENANCE_AUTOMATION.md 4절 "초기화 위치"). json은 core/AppConfig.cpp만 읽는다.
 // ═══════════════════════════════════════════════════════════════════════════
 
-struct CommandLine
+// 인자 뜯기는 core/CommandLine.cpp가 한다 — 시험이 붙어야 해서 main.cpp 밖으로 냈다.
+
+// 엔진은 이제 역할대로 제 스레드만 띄운다 — 전략 쪽은 주문 스레드가 없어 신호가 나가지 않고, 주문 쪽은
+//  전략이 없어 구독할 종목이 없다. 그러니 갈라 띄워도 이중 발주는 나지 않지만 양쪽 다 일을 못 한다.
+//  남은 것은 둘을 잇는 배선 셋이다 — 큐를 공유 쪽지에 앉히기, 전략 쪽 구독 목록을 주문 쪽에 건네기,
+//  운영단말 수동 주문을 주문 쪽에서 받기. 그때까지 인자는 받아 두되(감시견·배포 가드가 그 인자로 먼저
+//  갈릴 수 있게) 뜨지는 않는다. [why D-114]
+static int refuse_split_role(ProcessRole role)
 {
-    std::string config_path = "config/config.json";
-    std::string mode_override; // 비어 있으면 config의 "mode"
-};
-
-// quant_trader [config] [MODE]
-//   quant_trader.exe                  → config/config.json, mode from json
-//   quant_trader.exe KR_TEST          → config/config.json, mode=KR_TEST
-//   quant_trader.exe US_TEST          → config/config.json, mode=US_TEST
-//   quant_trader.exe config.json TRADE → 지정 config, mode=TRADE
-static CommandLine parse_command_line(int argc, char* argv[])
-{
-    CommandLine command_line;
-
-    for (int index = 1; index < argc; ++index)
-    {
-        const std::string_view argument = argv[index];
-
-        if (argument == "KR_TEST" || argument == "US_TEST" || argument == "FEED" || argument == "TRADE")
-        {
-            command_line.mode_override = argument;
-        }
-        else
-        {
-            command_line.config_path = argument;
-        }
-    }
-
-    return command_line;
+    LOG_ERROR(std::string("[Main] 역할 ") + role.to_string() +
+              " 로는 아직 뜨지 않는다 — 엔진은 역할대로 갈렸지만 둘을 잇는 통로가 아직 안 붙었다"
+              "(D-114 단계 4 진행 중). 지금은 --role both(인자 없음)로만 띄운다.");
+    Logger::instance().flush();
+    return 2;
 }
 
 #ifdef _WIN32
@@ -331,6 +316,22 @@ int main(int argc, char* argv[])
     LOG_INFO("[Main] 실행 플랫폼 Linux"); // 같은 날 두 플랫폼이 찍히면 같은 계좌에 엔진이 둘이다 — check_runtime_health '실행 플랫폼' 행
 #endif
     const CommandLine command_line = parse_command_line(argc, argv); // 4.
+
+    if (!command_line.error.empty())
+    {
+        LOG_ERROR("[Main] 실행 인자 오류: " + command_line.error);
+        LOG_ERROR(std::string("[Main] ") + command_line_usage());
+        Logger::instance().flush();
+        return 2;
+    }
+
+    LOG_INFO(std::string("[Main] 역할: ") + command_line.role.to_string());
+
+    if (command_line.role != ProcessRole::Both)
+    {
+        return refuse_split_role(command_line.role);
+    }
+
     AppConfig app;
 
     try // 5. 설정 — 키 누락·값 오류는 여기서 멈춘다. 네트워크는 아직 안 건드렸다

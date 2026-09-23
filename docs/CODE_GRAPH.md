@@ -22,17 +22,17 @@ graph LR
   api -->|12| core
   api -->|7| utils
   core -->|11| api
-  core -->|8| ipc
+  core -->|9| ipc
   core -->|7| risk
   core -->|3| strategy
   core -->|12| utils
   exchange -->|7| core
   exchange -->|2| utils
   ipc -->|2| api
-  ipc -->|10| core
+  ipc -->|13| core
   ipc --> risk
   ipc -->|5| utils
-  main -->|3| core
+  main -->|4| core
   main --> modes
   main --> strategy
   main --> utils
@@ -61,10 +61,10 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 38 |
+| `core/Types.h` | 39 |
 | `utils/Logger.h` | 32 |
 | `core/KstTime.h` | 18 |
-| `core/SymbolTable.h` | 16 |
+| `core/SymbolTable.h` | 17 |
 | `strategy/StrategyBase.h` | 15 |
 | `api/KisClient.h` | 13 |
 | `core/MarketSession.h` | 9 |
@@ -102,6 +102,7 @@ graph LR
     n_core_AppConfig_h["core/AppConfig.h"]
     n_core_BarAggregator_cpp["core/BarAggregator.cpp"]
     n_core_BarAggregator_h["core/BarAggregator.h"]
+    n_core_CommandLine_cpp["core/CommandLine.cpp"]
     n_core_DataPoller_cpp["core/DataPoller.cpp"]
     n_core_DataPoller_h["core/DataPoller.h"]
     n_core_Engine_cpp["core/Engine.cpp"]
@@ -165,6 +166,8 @@ graph LR
     n_ipc_Heartbeat_cpp["ipc/Heartbeat.cpp"]
     n_ipc_LedgerSnapshot_cpp["ipc/LedgerSnapshot.cpp"]
     n_ipc_LedgerSnapshot_h["ipc/LedgerSnapshot.h"]
+    n_ipc_MarketFeedChannel_cpp["ipc/MarketFeedChannel.cpp"]
+    n_ipc_MarketFeedChannel_h["ipc/MarketFeedChannel.h"]
     n_ipc_OpsProtocol_cpp["ipc/OpsProtocol.cpp"]
     n_ipc_OpsServer_cpp["ipc/OpsServer.cpp"]
     n_ipc_OpsServer_h["ipc/OpsServer.h"]
@@ -172,6 +175,14 @@ graph LR
     n_ipc_OrderChannel_h["ipc/OrderChannel.h"]
     n_ipc_OrderRouter_cpp["ipc/OrderRouter.cpp"]
     n_ipc_OrderRouter_h["ipc/OrderRouter.h"]
+    n_ipc_SharedLayout_cpp["ipc/SharedLayout.cpp"]
+    n_ipc_SharedLayout_h["ipc/SharedLayout.h"]
+    n_ipc_SharedRegion_cpp["ipc/SharedRegion.cpp"]
+    n_ipc_SharedStrategyDictionary_cpp["ipc/SharedStrategyDictionary.cpp"]
+    n_ipc_SharedStrategyDictionary_h["ipc/SharedStrategyDictionary.h"]
+    n_ipc_SharedSymbolDictionary_cpp["ipc/SharedSymbolDictionary.cpp"]
+    n_ipc_SharedSymbolDictionary_h["ipc/SharedSymbolDictionary.h"]
+    n_ipc_SharedWriteLock_cpp["ipc/SharedWriteLock.cpp"]
     n_ipc_ZmqBridge_cpp["ipc/ZmqBridge.cpp"]
     n_ipc_ZmqBridge_h["ipc/ZmqBridge.h"]
   end
@@ -293,6 +304,7 @@ graph LR
   n_core_BarAggregator_cpp --> n_core_BarAggregator_h
   n_core_BarAggregator_cpp --> n_core_KstTime_h
   n_core_BarAggregator_h --> n_core_Types_h
+  n_core_CommandLine_cpp --> n_core_CommandLine_h
   n_core_DataPoller_cpp --> n_core_DataPoller_h
   n_core_DataPoller_cpp --> n_core_KstTime_h
   n_core_DataPoller_cpp --> n_utils_Logger_h
@@ -308,6 +320,7 @@ graph LR
   n_core_Engine_cpp --> n_utils_Utf8_h
   n_core_Engine_h --> n_api_KisClient_h
   n_core_Engine_h --> n_api_KisWebSocket_h
+  n_core_Engine_h --> n_core_CommandLine_h
   n_core_Engine_h --> n_core_DataPoller_h
   n_core_Engine_h --> n_core_FeedMux_h
   n_core_Engine_h --> n_core_FeedSupervisor_h
@@ -335,6 +348,7 @@ graph LR
   n_core_Engine_h --> n_ipc_OpsServer_h
   n_core_Engine_h --> n_ipc_OrderChannel_h
   n_core_Engine_h --> n_ipc_OrderRouter_h
+  n_core_Engine_h --> n_ipc_SharedLayout_h
   n_core_Engine_h --> n_ipc_ZmqBridge_h
   n_core_Engine_h --> n_risk_OrderGate_h
   n_core_Engine_h --> n_risk_ProtectiveOrders_h
@@ -438,6 +452,9 @@ graph LR
   n_ipc_Heartbeat_cpp --> n_ipc_Heartbeat_h
   n_ipc_LedgerSnapshot_cpp --> n_ipc_LedgerSnapshot_h
   n_ipc_LedgerSnapshot_h --> n_core_SymbolTable_h
+  n_ipc_MarketFeedChannel_cpp --> n_ipc_MarketFeedChannel_h
+  n_ipc_MarketFeedChannel_h --> n_core_Types_h
+  n_ipc_MarketFeedChannel_h --> n_ipc_SharedSpscRing_h
   n_ipc_OpsProtocol_cpp --> n_ipc_OpsProtocol_h
   n_ipc_OpsServer_cpp --> n_ipc_OpsServer_h
   n_ipc_OpsServer_cpp --> n_utils_Logger_h
@@ -457,12 +474,32 @@ graph LR
   n_ipc_OrderRouter_h --> n_ipc_FillKey_h
   n_ipc_OrderRouter_h --> n_ipc_ZmqBridge_h
   n_ipc_OrderRouter_h --> n_risk_OrderGate_h
+  n_ipc_SharedLayout_cpp --> n_ipc_SharedLayout_h
+  n_ipc_SharedLayout_h --> n_ipc_ControlChannel_h
+  n_ipc_SharedLayout_h --> n_ipc_Heartbeat_h
+  n_ipc_SharedLayout_h --> n_ipc_LedgerSnapshot_h
+  n_ipc_SharedLayout_h --> n_ipc_MarketFeedChannel_h
+  n_ipc_SharedLayout_h --> n_ipc_OrderChannel_h
+  n_ipc_SharedLayout_h --> n_ipc_SharedSpscRing_h
+  n_ipc_SharedLayout_h --> n_ipc_SharedStrategyDictionary_h
+  n_ipc_SharedLayout_h --> n_ipc_SharedSymbolDictionary_h
+  n_ipc_SharedRegion_cpp --> n_ipc_SharedRegion_h
+  n_ipc_SharedStrategyDictionary_cpp --> n_ipc_SharedStrategyDictionary_h
+  n_ipc_SharedStrategyDictionary_cpp --> n_ipc_SharedWriteLock_h
+  n_ipc_SharedStrategyDictionary_h --> n_core_StrategyTable_h
+  n_ipc_SharedStrategyDictionary_h --> n_ipc_SharedSpscRing_h
+  n_ipc_SharedSymbolDictionary_cpp --> n_ipc_SharedSymbolDictionary_h
+  n_ipc_SharedSymbolDictionary_cpp --> n_ipc_SharedWriteLock_h
+  n_ipc_SharedSymbolDictionary_h --> n_core_SymbolTable_h
+  n_ipc_SharedSymbolDictionary_h --> n_ipc_SharedSpscRing_h
+  n_ipc_SharedWriteLock_cpp --> n_ipc_SharedWriteLock_h
   n_ipc_ZmqBridge_cpp --> n_ipc_ZmqBridge_h
   n_ipc_ZmqBridge_cpp --> n_utils_Logger_h
   n_ipc_ZmqBridge_cpp --> n_utils_ThreadName_h
   n_ipc_ZmqBridge_h --> n_core_MpscQueue_h
   n_ipc_ZmqBridge_h --> n_core_Types_h
   n_main_cpp --> n_core_AppConfig_h
+  n_main_cpp --> n_core_CommandLine_h
   n_main_cpp --> n_core_Engine_h
   n_main_cpp --> n_core_Types_h
   n_main_cpp --> n_modes_Monitors_h

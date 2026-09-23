@@ -147,6 +147,12 @@ set(HEADER_IMPL_SOURCES
   src/ipc/OrderChannel.cpp
   src/ipc/ControlChannel.cpp
   src/ipc/LedgerSnapshot.cpp
+  # 공유 쪽지 자리표와 그 위 면들 — 엔진이 경계를 넘을 면을 여기 올린다(D-114 단계 4)
+  src/ipc/SharedLayout.cpp
+  src/ipc/MarketFeedChannel.cpp
+  src/ipc/SharedSymbolDictionary.cpp
+  src/ipc/SharedStrategyDictionary.cpp
+  src/ipc/SharedWriteLock.cpp
   src/risk/DisplacementDesk.cpp
   src/risk/GateReasons.cpp
   src/risk/LedgerJournal.cpp
@@ -176,6 +182,7 @@ set(ENGINE_SOURCES
   src/universe/UniverseScanner.cpp
   src/strategy/StrategyFactory.cpp
   src/core/AppConfig.cpp
+  src/core/CommandLine.cpp
   src/core/Engine.cpp
   src/core/EngineConfigure.cpp
   src/core/LedgerReconciler.cpp
@@ -534,8 +541,8 @@ if(UNIX)
     target_link_libraries(test_wake_gate PRIVATE pthread)
 endif()
 
-# ─── 테스트 타겟: SymbolTable id 부여·상한·동시 등록 (헤더 전용, D-071) ──
-add_executable(test_symbol_table tests/test_symbol_table.cpp)
+# ─── 테스트 타겟: SymbolTable id 부여·상한·동시 등록 (D-071) ─────────
+add_executable(test_symbol_table tests/test_symbol_table.cpp src/core/SymbolTable.cpp)
 target_include_directories(test_symbol_table PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(UNIX)
     target_link_libraries(test_symbol_table PRIVATE pthread)
@@ -719,6 +726,74 @@ if(UNIX)
     target_link_libraries(test_control_channel PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: 실행 인자 뜯기 (D-114 단계 4) ─────────────────
+add_executable(test_command_line tests/test_command_line.cpp src/core/CommandLine.cpp)
+target_include_directories(test_command_line PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+# ─── 테스트 타겟: 공유 쪽지 한 장 (D-114 단계 4) ──────────────────
+add_executable(test_shared_region tests/test_shared_region.cpp src/ipc/SharedRegion.cpp)
+target_include_directories(test_shared_region PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    # shm_open/shm_unlink — glibc 2.34부터는 libc 안에 있지만 예전 배포판은 librt가 따로다
+    target_link_libraries(test_shared_region PRIVATE pthread rt)
+endif()
+
+# ─── 테스트 타겟: 공유 쪽지 위 한줄 큐 (D-114 단계 4) ─────────────
+add_executable(test_shared_spsc_ring tests/test_shared_spsc_ring.cpp src/ipc/SharedRegion.cpp src/core/Types.cpp)
+target_include_directories(test_shared_spsc_ring PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_shared_spsc_ring PRIVATE pthread rt)
+endif()
+
+# ─── 테스트 타겟: 공유 쪽지 위 종목 표 (D-114 단계 4) ─────────────
+add_executable(test_shared_symbol_dictionary tests/test_shared_symbol_dictionary.cpp
+    src/ipc/SharedSymbolDictionary.cpp src/ipc/SharedWriteLock.cpp src/core/SymbolTable.cpp)
+target_include_directories(test_shared_symbol_dictionary PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_shared_symbol_dictionary PRIVATE pthread)
+endif()
+
+# ─── 테스트 타겟: 공유 쪽지 위 전략 이름표 (D-114 단계 4) ─────────
+add_executable(test_shared_strategy_dictionary tests/test_shared_strategy_dictionary.cpp
+    src/ipc/SharedStrategyDictionary.cpp src/ipc/SharedWriteLock.cpp src/core/StrategyTable.cpp)
+target_include_directories(test_shared_strategy_dictionary PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_shared_strategy_dictionary PRIVATE pthread)
+endif()
+
+# ─── 테스트 타겟: 주문 → 전략 시세 통로 (D-114 단계 4) ───────────
+add_executable(test_market_feed_channel tests/test_market_feed_channel.cpp
+    src/ipc/MarketFeedChannel.cpp src/core/SymbolTable.cpp)
+target_include_directories(test_market_feed_channel PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_market_feed_channel PRIVATE pthread)
+endif()
+
+# ─── 테스트 타겟: 공유 쪽지 위 자리표 (D-114 단계 4) ─────────────
+add_executable(test_shared_layout tests/test_shared_layout.cpp
+    src/ipc/SharedLayout.cpp src/ipc/MarketFeedChannel.cpp src/ipc/SharedSymbolDictionary.cpp
+    src/ipc/SharedStrategyDictionary.cpp src/ipc/SharedWriteLock.cpp src/ipc/LedgerSnapshot.cpp
+    src/ipc/ControlChannel.cpp src/ipc/Heartbeat.cpp
+    src/core/SymbolTable.cpp src/core/StrategyTable.cpp src/core/Types.cpp)
+target_include_directories(test_shared_layout PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_shared_layout PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟: 장부 사본 (D-114 단계 2.5) ──────────────────────
 add_executable(test_ledger_snapshot tests/test_ledger_snapshot.cpp src/ipc/LedgerSnapshot.cpp)
 target_include_directories(test_ledger_snapshot PRIVATE
@@ -797,6 +872,13 @@ set(QUANT_ASSERT_TARGETS
     test_protective_orders
     test_order_channel
     test_control_channel
+    test_command_line
+    test_shared_region
+    test_shared_spsc_ring
+    test_shared_symbol_dictionary
+    test_shared_strategy_dictionary
+    test_market_feed_channel
+    test_shared_layout
     test_displacement_desk
     test_heartbeat
     test_ledger_snapshot

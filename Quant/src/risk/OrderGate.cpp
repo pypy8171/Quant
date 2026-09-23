@@ -756,7 +756,7 @@ bool OrderGate::on_intent(const std::string& account, const std::string& ticker,
 
     ledger_journal::Record record = make_order_record(ledger_journal::Kind::INTENT, side, quantity, reference);
     record.price                  = price;
-    ledger_journal::put_string(record.strategy, sizeof(record.strategy), strategies_.name(strategy));
+    ledger_journal::put_string(record.strategy, sizeof(record.strategy), strategies_.name(strategy).view());
 
     if (journal_append(record, account, ticker))
     {
@@ -1517,7 +1517,7 @@ OrderGate::FillResult OrderGate::on_fill_confirmed(
         ledger_journal::Record record = make_order_record(ledger_journal::Kind::FILL, side, quantity, reference);
         record.price                  = price;
         record.pnl                    = result.realized_pnl;
-        ledger_journal::put_string(record.strategy, sizeof(record.strategy), strategies_.name(strategy));
+        ledger_journal::put_string(record.strategy, sizeof(record.strategy), strategies_.name(strategy).view());
         journal_append(record, account, ticker);
     }
 

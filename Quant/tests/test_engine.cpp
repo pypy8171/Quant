@@ -3,6 +3,9 @@
 // 수신 스레드 2×샤드 2(종목 둘이 서로 다른 수신 스레드에서 들어와 서로 다른 열에서 판단된다). 관련 결정: D-071(Phase 3·Phase 4 앞단계).
 // 스레드: 테스트 스레드가 피드 소스의 수신 스레드 역할(수신 스레드 0..N-1)을 하고 나머지는 Engine이 띄운다.
 // 케이스 하나 더 — 보호 주문 한 주기를 두 스레드가 같이 잡지 못하는지(D-114 전략 사망 마무리).
+// 케이스 하나 더 — 티커가 종목 번호가 되는 자리 둘(D-114 단계 4): 넣는 쪽은 주문 프로세스 하나고, 잦은 자리는 없는 티커를 만들지 않는다.
+// 케이스 하나 더 — 주문 쪽 스위치 다섯(D-114 단계 4): 전략 역할이면 제어 요청을 거쳐 주문 스레드가 고친다.
+// 케이스 하나 더 — 역할대로 제 스레드만 띄우는지(D-114 단계 4): 전략 역할은 주문 스레드가 없고, 주문 역할은 전략을 올리지 않는다.
 // 빌드: cmake --build <directory> --target test_engine
 #include "core/Engine.h"
 #include "core/IFeedSource.h"
@@ -14,6 +17,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
@@ -308,6 +312,13 @@ int run_spanning_case(uint32_t lanes, uint32_t shards, const std::vector<std::st
 
     CHECK(held.size() == tickers.size());
     CHECK(engine.signal_count() == tickers.size());
+
+    // 한 프로세스로 돌면 시세는 통로를 지나지 않는다 — 수신 스레드가 곧바로 샤드에 넣는다. [why D-114]
+    for (uint32_t lane = 0; lane < lanes; ++lane)
+    {
+        CHECK(engine.feed_channel_pending_trades(lane) == 0);
+    }
+
     engine.stop();
     CHECK(!engine.is_running());
     return 0;
@@ -594,6 +605,204 @@ int run_replay_case()
     std::filesystem::remove(path);
     return 0;
 }
+
+// D-114 단계 4 — 티커가 종목 번호가 되는 자리를 둘로 가른 것을 고정한다. 넣는 쪽(register_symbol)은
+//  주문 프로세스 하나고, 잦은 자리(lookup_symbol)는 표에 없는 티커를 만들지 않는다.
+int run_symbol_role_case()
+{
+    using namespace std::chrono_literals;
+    std::cout << "case symbol role\n";
+
+    auto feed_owned = std::make_unique<FakeFeed>(1);
+
+    Engine engine(KisConfig{});
+    engine.set_zmq_enabled(false);
+    engine.set_strategy_shards(1);
+    engine.add_strategy(std::make_unique<BuyOnce>("005930"));
+    engine.set_feed_source(std::move(feed_owned), 1'000'000.0);
+
+    // 1. 역할을 주기 전은 지금까지와 같다 — 넣는 쪽이라 그 자리에서 번호가 나고, 같은 티커는 같은 번호다.
+    const symbol::SymbolId samsung = engine.register_symbol("005930");
+    CHECK(samsung != symbol::kNone);
+    CHECK(engine.register_symbol("005930") == samsung);
+
+    // 2. 잦은 자리는 없는 티커를 만들지 않는다 — kNone을 주고 센다(등록 경로가 빠진 것을 드러낸다).
+    CHECK(engine.lookup_symbol("000660") == symbol::kNone);
+    CHECK(engine.symbol_lookup_misses() == 1);
+    CHECK(engine.lookup_symbol("000660") == symbol::kNone);
+    CHECK(engine.symbol_lookup_misses() == 2);
+
+    engine.start();
+    CHECK(engine.is_running());
+
+    // 3. 전략 역할은 표에 직접 넣지 않는다 — 제어 요청을 보내고, 주문 쪽이 넣은 번호를 같은 표에서 읽어 온다.
+    engine.set_role(ProcessRole::Strategy);
+
+    const symbol::SymbolId hynix = engine.register_symbol("000660");
+    CHECK(hynix != symbol::kNone);
+    CHECK(hynix != samsung);
+    CHECK(engine.lookup_symbol("000660") == hynix);
+    CHECK(engine.symbol_register_timeouts() == 0);
+
+    // 4. 이미 표에 있으면 요청을 보내지 않고 바로 답한다.
+    CHECK(engine.register_symbol("000660") == hynix);
+    CHECK(engine.symbol_register_timeouts() == 0);
+
+    engine.stop();
+    CHECK(!engine.is_running());
+
+    // 5. 집어 갈 쪽이 멎으면 번호가 안 뜬다 — 기다리다 kNone을 주고 세고, 표에도 안 들어간다.
+    //  부른 쪽이 그 줄을 접게 하려는 것이다(전략 쪽이 제 번호를 찍어 버리는 쪽이 훨씬 나쁘다).
+    CHECK(engine.register_symbol("373220") == symbol::kNone);
+    CHECK(engine.symbol_register_timeouts() == 1);
+    CHECK(engine.lookup_symbol("373220") == symbol::kNone);
+
+    return 0;
+}
+
+// D-114 단계 4 — 주문 쪽 스위치를 고치는 자리가 주문 스레드 하나인 것을 고정한다. Engine::request_* 는
+//  제어 요청 한 줄로 바뀌고, 값은 주문 스레드가 그 줄을 집은 뒤에 바뀐다. Both 로 돌 때도 같은 통로다 —
+//  전략 프로세스 안 여러 생산자가 앞 토막에 모이고, 전략 스레드가 경계 너머 제어 면으로 옮긴다.
+int run_switch_role_case()
+{
+    using namespace std::chrono_literals;
+    std::cout << "case switch role\n";
+
+    auto feed_owned = std::make_unique<FakeFeed>(1);
+
+    Engine engine(KisConfig{});
+    engine.set_zmq_enabled(false);
+    engine.set_strategy_shards(1);
+    engine.add_strategy(std::make_unique<BuyOnce>("005930"));
+    engine.set_feed_source(std::move(feed_owned), 1'000'000.0);
+
+    // 1. 역할을 주기 전에도 통로를 탄다 — 부른 그 자리에서는 바뀌지 않는다. Both 만 질러가게 두면
+    //  그 통로가 갈라 띄운 날 처음 돈다.
+    engine.request_entry_halt(true);
+    CHECK(!engine.is_entry_halted());
+
+    engine.start();
+    CHECK(engine.is_running());
+
+    // 주문 스레드가 제어 큐를 집어 갈 때까지 짧게 본다. 값이 바뀌는 시점이 부른 자리가 아니라는 것이 요점이다.
+    const auto settled = [](auto&& reached) -> bool
+    {
+        const auto deadline = std::chrono::steady_clock::now() + 2s;
+
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            if (reached())
+            {
+                return true;
+            }
+
+            std::this_thread::sleep_for(200us);
+        }
+
+        return false;
+    };
+
+    // 2. 뜨기 전에 넣은 줄도 잃지 않는다 — 전략 스레드가 옮기고 주문 스레드가 건다.
+    CHECK(settled([&engine] { return engine.is_entry_halted(); }));
+
+    engine.set_role(ProcessRole::Strategy);
+
+    // 3. 신규 진입 정지 — 끄고 다시 켠다. 역할을 줘도 통로는 같다.
+    engine.request_entry_halt(false);
+    CHECK(settled([&engine] { return !engine.is_entry_halted(); }));
+    engine.request_entry_halt(true);
+    CHECK(settled([&engine] { return engine.is_entry_halted(); }));
+
+    // 4. 매수 비율 — 스위치가 아니라 값이라 칸을 따로 둔다.
+    constexpr double kScaleUnderTest = 0.4;
+    engine.request_entry_scale(kScaleUnderTest);
+    CHECK(settled([&engine] { return std::fabs(engine.entry_scale() - kScaleUnderTest) < 1e-9; }));
+
+    // 5. 수동 정지 — 방향 칸이 같이 건너간다(매도만 걸고 매수는 그대로).
+    engine.request_manual_halt(OrderSide::SELL, true);
+    CHECK(settled([&engine] { return engine.is_manual_sell_halted(); }));
+
+    // 6. 전방향 차단 — 마지막에 건다.
+    engine.request_kill_switch(true);
+    CHECK(settled([&engine] { return engine.is_killed(); }));
+
+    engine.stop();
+    CHECK(!engine.is_running());
+
+    // 7. 집어 갈 쪽이 멎으면 값이 안 바뀐다 — 요청은 통로에 남고, 여기서 제 손으로 고치지 않는다.
+    engine.request_entry_halt(false);
+    CHECK(engine.is_entry_halted());
+
+    return 0;
+}
+
+// D-114 단계 4 — 역할대로 제 몫만 띄운다. 전략 역할은 샤드·전략 스레드만, 주문 역할은 주문·체결 스레드만이다.
+//  둘 다 브로커 없이 뜨고 멎는다. 여기서 드러나는 빈자리가 --role 을 아직 막아 둔 이유다 — 전략 쪽은 종목
+//  번호를 주는 주문 쪽이 없어 못 받고, 주문 쪽은 구독 목록이 전략 쪽에 있어 소켓을 열 게 없다.
+int run_split_start_case()
+{
+    std::cout << "case split start\n";
+
+    // 1. 전략 역할 — 전략은 올라가지만 주문 쪽은 이 프로세스에 없다.
+    {
+        auto  feed_owned     = std::make_unique<FakeFeed>(1);
+        auto* feed           = feed_owned.get();
+        auto  strategy_owned = std::make_unique<BuyOnce>("005930");
+        auto* strategy       = strategy_owned.get();
+
+        Engine engine(KisConfig{});
+        engine.set_zmq_enabled(false);
+        engine.set_strategy_shards(1);
+        engine.add_strategy(std::move(strategy_owned));
+        engine.set_feed_source(std::move(feed_owned), 1'000'000.0);
+        engine.set_role(ProcessRole::Strategy);
+        engine.start();
+
+        CHECK(engine.is_running());
+        CHECK(engine.shard_count() == 1);              // 틱 파이프라인 자리는 전략 쪽에 남는다
+        CHECK(!feed->is_connected());                  // 시세 소켓은 주문 쪽이 쥔다
+        CHECK(engine.order_count() == 0);              // 주문 스레드가 없다
+        CHECK(engine.symbol_register_timeouts() >= 1); // 번호를 놓아 주는 쪽이 이 프로세스에 없다
+        CHECK(strategy->symbol_id() == symbol::kNone);
+
+        engine.stop();
+        CHECK(!engine.is_running());
+    }
+
+    // 2. 주문 역할 — 전략을 올리지 않는다. on_start 를 부르지 않으니 종목 번호를 달라는 요청도 없다.
+    {
+        auto  feed_owned     = std::make_unique<FakeFeed>(1);
+        auto* feed           = feed_owned.get();
+        auto  strategy_owned = std::make_unique<BuyOnce>("005930");
+        auto* strategy       = strategy_owned.get();
+
+        Engine engine(KisConfig{});
+        engine.set_zmq_enabled(false);
+        engine.set_strategy_shards(1);
+        engine.add_strategy(std::move(strategy_owned));
+        engine.set_feed_source(std::move(feed_owned), 1'000'000.0);
+        engine.set_role(ProcessRole::Order);
+        engine.start();
+
+        CHECK(engine.is_running());
+        CHECK(strategy->symbol_id() == symbol::kNone); // 전략을 올리지 않았다
+        CHECK(engine.symbol_register_timeouts() == 0);
+        CHECK(feed->is_connected());                   // 구독 목록이 비어도 연다 — 체결통보를 이 소켓이 듣는다
+        CHECK(engine.order_count() == 0);
+
+        // 소켓을 쥔 쪽은 샤드에 넣지 않고 통로에 넣는다 — 전략도 샤드도 저쪽 프로세스에 있다. [why D-114]
+        feed->emit_trade(0, "005930", 70000.0, 93001);
+        CHECK(engine.feed_channel_pending_trades(0) == 1);
+        CHECK(engine.feed_channel_overflows() == 0);
+        CHECK(engine.signal_count() == 0);
+
+        engine.stop();
+        CHECK(!engine.is_running());
+    }
+
+    return 0;
+}
+
 } // namespace
 
 int main()
@@ -628,6 +837,21 @@ int main()
     }
 
     if (const int result_code = run_stale_entry_case(); result_code != 0)
+    {
+        return result_code;
+    }
+
+    if (const int result_code = run_symbol_role_case(); result_code != 0)
+    {
+        return result_code;
+    }
+
+    if (const int result_code = run_switch_role_case(); result_code != 0)
+    {
+        return result_code;
+    }
+
+    if (const int result_code = run_split_start_case(); result_code != 0)
     {
         return result_code;
     }

@@ -5,7 +5,6 @@
 #pragma once
 
 #include <atomic>
-#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -26,6 +25,9 @@ constexpr SymbolId kNone = 0;
 // 국내 현물 종목코드 자릿수 — 거래소 규격이라 config가 아니라 상수다(6이 아니면 종목이 아니다).
 constexpr size_t kKoreanTickerLength = 6;
 
+// 표 하나가 드는 종목 수 기본값 — 코스콤 전 종목이 2,500여 개라 8,192면 재스캔 누적분까지 든다.
+constexpr size_t kDefaultSymbolCapacity = 8192;
+
 // 국내 현물 종목코드인가 — 숫자 6자리. 운영단말 수동주문·유니버스 스캔·거래소 종목 목록이 같은 판정을 쓴다.
 bool is_korean_ticker(std::string_view ticker) noexcept;
 
@@ -38,7 +40,7 @@ struct Ticker
     static constexpr size_t kMax = 15;
 
     char    data[kMax] = {};
-    uint8_t length        = 0;
+    uint8_t length     = 0;
 
     constexpr Ticker() = default;
 
@@ -94,29 +96,59 @@ struct Ticker
 
 static_assert(sizeof(Ticker) == 16);
 
+// 표의 알맹이 — 버킷 배열, 이름 배열, 다음에 줄 번호 한 칸. 이 셋이면 표가 선다.
+//  힙에 두면 SymbolTable, 공유 쪽지에 두면 ipc::SharedSymbolDictionary다. 프로세스를 가르면 양쪽이 같은
+//  종목에 같은 번호를 써야 하고(주문 요청이 종목을 번호로 나른다, D-071 원칙 6), 그러려면 배열이 공유
+//  쪽지에 놓여야 한다. 알맹이만 떼어 두면 해시·탐사·발행 순서는 한 벌로 남는다 — 두 벌이 되면 한쪽만
+//  고쳐지고 그 순간 양쪽 번호가 갈린다. [why D-114]
+//  [inv] 배열 둘은 표가 사는 동안 자리를 옮기지 않는다. 재할당이 없어야 읽기가 락 없이 간다.
+struct TableSlots
+{
+    std::atomic<SymbolId>* buckets     = nullptr; // 0 = 빈 칸. 삭제 없음, 번호는 한 번 놓이면 안 바뀐다
+    Ticker*                names       = nullptr; // [inv] names[id] == 그 번호를 받은 티커(15자 넘으면 잘린 채)
+    std::atomic<SymbolId>* count       = nullptr; // 다음에 줄 번호 = 채워진 names 수(0번 자리 포함)
+    size_t                 capacity    = 0;       // 번호 상한(0 제외)
+    size_t                 bucket_mask = 0;       // 버킷 수 − 1
+
+    [[nodiscard]] bool empty() const noexcept
+    {
+        return buckets == nullptr;
+    }
+};
+
+// 버킷 수 — capacity의 2배 이상인 2의 거듭제곱. 절반 넘게 차지 않아 선형 탐사가 반드시 빈 칸에서 끝난다.
+[[nodiscard]] size_t bucket_count_for(size_t capacity);
+
+// 있으면 그 번호, 없으면 kNone. 락도 원자 카운터 갱신도 없다 — 버킷 하나 acquire 읽기와 16바이트 비교.
+[[nodiscard]] SymbolId table_lookup(const TableSlots& slots, std::string_view ticker);
+
+// 있으면 그 번호, 없으면 새 번호를 놓는다. 가득 차면 kNone.
+//  [inv] 쓰기 직렬화는 부르는 쪽 몫이다 — 이 함수는 자물쇠를 잡지 않는다. 읽는 쪽은 자물쇠 없이 들어오므로,
+//  읽기와의 약속은 발행 순서(이름 → count → 버킷)로 지킨다.
+[[nodiscard]] SymbolId table_insert(const TableSlots& slots, std::string_view ticker);
+
+// 모르는 번호면 빈 Ticker. 값으로 돌려준다(16바이트, 할당 없음).
+[[nodiscard]] Ticker table_name(const TableSlots& slots, SymbolId id);
+
 class SymbolTable
 {
 public:
-    // capacity는 id 상한(0 제외). 코스콤 전 종목이 2,500여 개라 기본 8,192면 재스캔 누적분까지 든다.
-    //  버킷은 capacity의 2배 이상인 2의 제곱 — 절반 넘게 차지 않아 선형 탐사가 빈 칸에서 끝나는 것이 보장된다.
-    explicit SymbolTable(size_t capacity = 8192)
-        : capacity_(capacity < 2 ? 2 : capacity), bucket_mask_(bucket_count_for(capacity_) - 1),
-          buckets_(std::make_unique<std::atomic<SymbolId>[]>(bucket_mask_ + 1)), names_(std::make_unique<Ticker[]>(capacity_))
-    {
-    }
+    // capacity는 id 상한(0 제외). 기본값은 kDefaultSymbolCapacity다.
+    explicit SymbolTable(size_t capacity = kDefaultSymbolCapacity);
 
     // 있으면 그 id, 없으면 새 id. 가득 차면 kNone — 호출 쪽은 문자열 경로로 돌아간다.
-    //  읽기(수신 스레드가 틱마다 한 번)는 락도 원자 카운터 갱신도 없다 — 버킷 하나 acquire 읽기와 16바이트 비교.
-    //  삽입만 write_mutex_로 직렬화한다. [why D-071]
+    //  읽기(수신 스레드가 틱마다 한 번)는 락도 원자 카운터 갱신도 없다. 삽입만 write_mutex_로 직렬화한다. [why D-071]
     SymbolId intern(std::string_view ticker);
 
-    [[nodiscard]] SymbolId lookup(std::string_view ticker) const;
+    [[nodiscard]] SymbolId lookup(std::string_view ticker) const
+    {
+        return table_lookup(slots_, ticker);
+    }
 
-    // 모르는 id면 빈 Ticker. 값으로 돌려준다(16바이트, 할당 없음) — 배열이 고정이라 참조도 안전하지만
-    //  호출 쪽이 수명을 생각할 일이 없게 값이다.
+    // 모르는 id면 빈 Ticker. 배열이 고정이라 참조도 안전하지만, 호출 쪽이 수명을 생각할 일이 없게 값이다.
     [[nodiscard]] Ticker name(SymbolId id) const
     {
-        return id < count_.load(std::memory_order_acquire) ? names_[id] : Ticker{};
+        return table_name(slots_, id);
     }
 
     // 등록된 종목 수(id 0 제외).
@@ -127,53 +159,15 @@ public:
 
     [[nodiscard]] size_t capacity() const noexcept
     {
-        return capacity_;
+        return slots_.capacity;
     }
 
 private:
-    static size_t bucket_count_for(size_t capacity);
-
-    // Ticker 16바이트를 uint64 둘로 본 것 — 비교·해시가 길이별 memcmp 호출 대신 정수 두 번이 된다.
-    //  low = data[0..7], high = data[8..14] + 마지막 바이트에 length. 남는 바이트는 0.
-    struct TickerWords
-    {
-        uint64_t low  = 0;
-        uint64_t high = 0;
-
-        friend bool operator==(const TickerWords& words_a, const TickerWords& words_b)
-        {
-            return words_a.low == words_b.low && words_a.high == words_b.high;
-        }
-    };
-
-    // [inv] 아래 두 words_of는 같은 문자열에 같은 워드를 내야 한다 — 하나는 names_의 Ticker를 그대로 읽고, 하나는
-    //  string_view에서 Ticker를 거치지 않고 바로 만든다(조회마다 16바이트 임시 객체를 채우고 다시 읽던 두 단계를 한 단계로).
-    //  바이트를 아래 자리부터 쌓으므로 리틀 엔디언에서만 Ticker의 메모리 배치와 같다.
-    static_assert(std::endian::native == std::endian::little);
-
-    static TickerWords words_of(const Ticker& ticker);
-
-    // Ticker::assign과 같은 규칙으로 자른다(kMax 넘으면 잘림).
-    static TickerWords words_of(std::string_view text);
-
-    static bool same_words(const Ticker& ticker, const TickerWords& key)
-    {
-        return words_of(ticker) == key;
-    }
-
-    // [formula] Ticker 16바이트를 uint64 둘로 읽어 곱셈 믹스 — 종목 코드는 여섯 자리 숫자열이라 앞 8바이트만으로는
-    //  하위 비트가 몰린다. splitmix64 상수.
-    static uint64_t hash_of(const TickerWords& words);
-
-    // 선형 탐사. 빈 버킷(kNone)을 만나면 없는 것 — 삭제가 없고 절반 넘게 차지 않아 반드시 끝난다.
-    [[nodiscard]] SymbolId find(const TickerWords& key, uint64_t hash) const;
-
-    const size_t                                capacity_;
-    const size_t                                bucket_mask_;
-    std::unique_ptr<std::atomic<SymbolId>[]>    buckets_; // 0 = 빈 칸. 삭제 없음, id는 한 번 놓이면 안 바뀐다
-    std::unique_ptr<Ticker[]>                   names_;   // [inv] names_[id] == 그 id를 받은 티커(15자 넘으면 잘린 채)
-    std::atomic<SymbolId>                       count_{1}; // 다음에 줄 id = 채워진 names_ 수(0번 자리 포함)
-    std::mutex                                  write_mutex_; // 삽입만 잡는다. 읽기 경로는 잡지 않는다
+    std::unique_ptr<std::atomic<SymbolId>[]> buckets_;
+    std::unique_ptr<Ticker[]>                names_;
+    std::atomic<SymbolId>                    count_{1};
+    TableSlots                               slots_;
+    std::mutex                               write_mutex_; // 삽입만 잡는다. 읽기 경로는 잡지 않는다
 };
 
 } // namespace symbol
