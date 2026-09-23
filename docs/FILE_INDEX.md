@@ -8,12 +8,12 @@
 
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 116개
+- [PYQuant](#pyquant) — 118개
 - [Quant](#quant) — 293개
 - [docs](#docs) — 96개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
-- [scripts](#scripts) — 47개
+- [scripts](#scripts) — 50개
 - [strategies](#strategies) — 34개
 - [tools](#tools) — 3개
 
@@ -200,7 +200,9 @@
 - [kind_delisted_fill.py](../PYQuant/tools/kind_delisted_fill.py) — KIND 상장폐지 목록(2000~) 적재·종목코드 붙이기·패널에 없는 상폐사 일봉 보강(--fill-bars)
 - [ledger_dump.py](../PYQuant/tools/ledger_dump.py) — 원장 저널 파일을 DB 없이 읽는 도구: 레코드 표·CSV·보유 재구성·미결 주문(D-113)
 - [ledger_recorder.py](../PYQuant/tools/ledger_recorder.py) — 원장 저널 꼬리를 따라 읽어 TimescaleDB ledger_events에 적재, 읽은 위치는 ledger_offsets(D-113)
+- [load_highwater_reader.py](../PYQuant/tools/load_highwater_reader.py) — 부하시험 큐 고수위 판독기 — 역할별 실행 로그의 `[큐 고수위]` 줄을 CSV 로 펴고, 0 이어야 하는 칸이 0 인지로 분리판 안전성을 판정한다
 - [load_injector.py](../PYQuant/tools/load_injector.py) — 부하시험 주문 인젝터 — 동시호가·연속매매 주문을 난수로 만들어 32바이트 전문으로 ZMQ PUSH, 씨앗을 고정하면 같은 주문열이 다시 나온다
+- [load_latency_reader.py](../PYQuant/tools/load_latency_reader.py) — 부하시험 구간 지연 판독기 — `latency_trace.csv` 를 시세 수신 → 전략 판단 → 주문 전송 → 응답 열두 칸으로 펴 분위수 표를 내고, 회차 둘을 칸별로 견줘 분리가 어느 칸에 얼마를 얹었는지를 한 줄로 낸다
 - [load_status_sampler.py](../PYQuant/tools/load_status_sampler.py) — 부하시험 상태 표본기 — 요청·응답 소켓의 STATUS 로 버린 건수를 원인별·역할별로 읽어 CSV 로 남긴다, 발행 큐가 포화해도 답한다
 - [log_report.py](../PYQuant/tools/log_report.py) — quant_trader 로그 운용 리포트 생성기
 - [macro_ingest.py](../PYQuant/tools/macro_ingest.py) — FRED(ALFRED 판본, A)·ECOS(B)·관세청 10일 잠정치(B) 거시 시계열을 시점 고정 스키마로 PYQuant/data/macro/<source>_<series>.parquet에 append-only 적재

@@ -21,7 +21,7 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@70884fb scripts/auto_trade_guard.ps1@6a54b80 -->
+<!-- sync: scripts/auto_trade_day.ps1@f886221 scripts/auto_trade_guard.ps1@6a54b80 -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 죽으면 다시
 띄운다. 띄우기 전에 그날 장이 열리는지 KIS에 물어(`scripts/check_market_open.py`) 휴장일이면 아무것도 안 띄우고 끝낸다 —
@@ -29,6 +29,8 @@ $env:PYTHONUTF8 = "1"
 손으로 따로 띄우면 엔진이 둘이 된다. 기동 전에 이미 떠 있는 `quant_trader`가 있으면 중단하는데, **발주하는 계좌가 같을 때만**
 센다 — 떠 있는 프로세스의 명령줄에서 config를 찾아 `kis.account_no`와 `is_paper`를 열쇠로 만든다. config에 `replay_file`이
 있는 프로세스(워크트리의 리플레이 측정)는 증권사에 주문을 내지 않으므로 세지 않고, 열쇠를 읽지 못하면 막는 쪽으로 남긴다.
+`-Split`을 주면 트레이더가 주문 쪽·전략 쪽 두 프로세스다(D-114) — 이날은 `quant_trader`가 둘인 것이 정상이고,
+한쪽이 내려가면 감시견이 짝도 내려 둘을 같이 다시 띄운다.
 
 모의와 실계좌를 한 기계에서 같이 돌리는 날은 config `instance` 하나가 두 벌을 가른다(D-122). 실계좌 config에
 `"instance": "live"`가 있으면 감시견이 상태 파일 `_private/_auto_trade_day_live.json`, 실행 로그 `auto_trade_day_live_*.log`,

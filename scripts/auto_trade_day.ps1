@@ -29,6 +29,7 @@ param(
   [switch]$NoMarketClose,                    # 마감 뒤 사실 문서·대시보드 갱신을 건너뛴다
   [switch]$NoBuild,                  # 기동 전 재빌드를 건너뛴다(exe를 손으로 바꾼 날). 이때는 소스가 exe보다 새면 중단
   [switch]$NoTrader,                 # 트레이더를 이 창이 띄우지 않는다(리눅스 등 다른 곳이 띄우는 날). 부속 창·유니버스 갱신·마감 정리는 그대로
+  [switch]$Split,                    # 엔진을 주문 쪽·전략 쪽 두 프로세스로 띄운다(D-114 단계 4). 한쪽이 내려가면 짝도 내리고 둘을 같이 재기동한다
   [switch]$DryRun
 )
 
@@ -417,7 +418,9 @@ $dup = @(Get-Process quant_trader -ErrorAction SilentlyContinue | Where-Object {
 })
 if ($dup) {
   # 두 프로세스가 같은 계좌에 발주하면 원장이 깨진다. 자동으로 정리하지 않고 멈춘다.
-  Say "같은 계좌($myAccountKey)에 발주하는 quant_trader가 이미 $($dup.Count)개 떠 있다. 중복 발주를 막기 위해 중단한다." "ERROR"
+  # 갈라 띄운 날에는 한 엔진이 프로세스 둘이다(주문·전략) — 2개가 떠 있어도 엔진은 하나다.
+  #  그래도 막는 판정은 같다. 이 창이 또 띄우면 그 계좌에 엔진이 둘이 된다. [why D-114]
+  Say "같은 계좌($myAccountKey)에 발주하는 quant_trader가 이미 $($dup.Count)개 떠 있다(갈라 띄운 날에는 엔진 하나가 2개다). 중복 발주를 막기 위해 중단한다." "ERROR"
   Save-Status "aborted" @{ error = "duplicate_process"; pids = @($dup.Id); account = $myAccountKey }
   exit 2
 }
@@ -563,6 +566,27 @@ if (-not $NoRecorder) {
   Start-Window "quant-ledger"    "& '$py' PYQuant\tools\ledger_recorder.py --dir '$ledgerDir'" "ledger_recorder.py"
 }
 
+# ─────────────── 트레이더 기동 ───────────────
+# 역할 이름이 빈 문자열이면 예전처럼 한 프로세스다(--role 을 안 붙인다). [why D-114]
+function Start-TraderProcess([string]$roleName)
+{
+  $arguments = if ($roleName) { @($Config, "--role", $roleName) } else { @($Config) }
+  # 트레이더도 잡에 넣는다. 워치독이 사라졌는데 엔진만 살아 있으면 아무도 감시하지 않는 채
+  # 발주가 계속되고, 다음 기동은 중복 프로세스로 막힌다(duplicate_process). 같이 내리고
+  # 감시자(auto_trade_guard.ps1)가 다시 띄우면 잔고 재시드가 포지션을 도로 잡는다.
+  $process = Start-Process -FilePath $Exe -ArgumentList $arguments -WorkingDirectory $Repo -PassThru -NoNewWindow
+  # Process.ExitCode는 종료 전에 Handle을 한 번 만져 둔 객체에서만 채워진다. 안 만지면 아래
+  # 세션 기록·크래시 루프 판정(last_exit)이 전부 null을 본다.
+  $null = $process.Handle
+  $tag  = if ($roleName) { " $roleName 쪽" } else { "" }
+  if ($script:Job -ne [IntPtr]::Zero) {
+    if (-not [WinJob]::Add($script:Job, $process.Id)) { Say "  트레이더$tag pid=$($process.Id) 잡 편입 실패 — 워치독이 죽으면 미연결로 남는다." "WARN" }
+  }
+  Say "  트레이더$tag pid=$($process.Id)"
+
+  return $process
+}
+
 # ─────────────── 감시 루프 ───────────────
 $deadline = [datetime]::ParseExact((Get-Date -Format "yyyy-MM-dd") + " " + $Until, "yyyy-MM-dd HH:mm", $null)
 if ((Get-Date) -ge $deadline) { Say "이미 $Until 을 지났다. 매매하지 않고 종료." "WARN"; Save-Status "past_deadline" $null; exit 0 }
@@ -582,7 +606,7 @@ if ($NoTrader) {
 }
 while (-not $NoTrader -and (Get-Date) -lt $deadline) {
   $n = $script:Sessions.Count + 1
-  Say "세션 #$n 기동 — $Exe $Config"
+  Say $(if ($Split) { "세션 #$n 기동 — $Exe $Config (갈라 띄운다: 주문 쪽 + 전략 쪽)" } else { "세션 #$n 기동 — $Exe $Config" })
   if ($DryRun) { Say "  (dry) 트레이더 기동 생략, 루프 종료"; break }
 
   # 직전 세션이 '이미 한 번 당한' 실패 유형을 다시 냈는지 본다. 재기동마다 확인하지 않으면
@@ -599,29 +623,57 @@ while (-not $NoTrader -and (Get-Date) -lt $deadline) {
   # 엔진이 스스로 쓰는 보조 프로세스가 정상이면 이 복원은 같은 내용을 다시 쓸 뿐이라 무해하다.
   $null = Run-Native ("py `"{0}`"" -f (Join-Path $Repo "scripts\seed_open_orders.py")) "  "
 
-  # 트레이더도 잡에 넣는다. 워치독이 사라졌는데 엔진만 살아 있으면 아무도 감시하지 않는 채
-  # 발주가 계속되고, 다음 기동은 중복 프로세스로 막힌다(duplicate_process). 같이 내리고
-  # 감시자(auto_trade_guard.ps1)가 다시 띄우면 잔고 재시드가 포지션을 도로 잡는다.
-  $p = Start-Process -FilePath $Exe -ArgumentList $Config -WorkingDirectory $Repo -PassThru -NoNewWindow
-  # Process.ExitCode는 종료 전에 Handle을 한 번 만져 둔 객체에서만 채워진다. 안 만지면 아래
-  # 세션 기록·크래시 루프 판정(last_exit)이 전부 null을 본다.
-  $null = $p.Handle
-  if ($script:Job -ne [IntPtr]::Zero) {
-    if (-not [WinJob]::Add($script:Job, $p.Id)) { Say "  트레이더 pid=$($p.Id) 잡 편입 실패 — 워치독이 죽으면 미연결로 남는다." "WARN" }
+  # 갈라 띄우는 날은 순서가 있다 — 주문 쪽이 공유 쪽지를 만들고 전략 쪽이 거기 붙는다.
+  #  뒤집어 띄우면 전략 쪽이 30초를 기다리다 못 붙고 내려간다. [why D-114]
+  if ($Split) {
+    $members = @(
+      [pscustomobject]@{ role = "order";    proc = (Start-TraderProcess "order") }
+      [pscustomobject]@{ role = "strategy"; proc = (Start-TraderProcess "strategy") }
+    )
+    # pid 는 예전 이름 그대로 주문 쪽을 담는다 — 이 값을 읽는 감시자·판정이 그대로 돌게.
+    Save-Status "running" @{ pid = $members[0].proc.Id; session = $n; split = $true
+                             pids = @{ order = $members[0].proc.Id; strategy = $members[1].proc.Id } }
+  } else {
+    $members = @([pscustomobject]@{ role = ""; proc = (Start-TraderProcess "") })
+    Save-Status "running" @{ pid = $members[0].proc.Id; session = $n }
   }
-  Save-Status "running" @{ pid = $p.Id; session = $n }
+
   # WaitForExit로 통째로 막지 않는다. 트레이더를 기다리는 동안 부속 창 안의 파이썬이
   # 죽었는지도 같이 본다 — 알림·국면 보조 프로세스가 조용히 사라지는 것을 놓치지 않기 위해서다.
-  while (-not $p.HasExited) {
-    if ($p.WaitForExit(60000)) { break }
-    Restore-Windows
-    Refresh-Universe
+  #  갈라 띄운 날에는 5초마다 짝을 함께 본다. 한쪽만 내려간 채로 도는 시간을 짧게 하려는 것이다 —
+  #  주문 쪽이 없으면 전략 쪽은 발주를 못 하고, 전략 쪽이 없으면 주문 쪽은 신호가 없다.
+  #  부속 창·유니버스 갱신은 예전처럼 60초에 한 번만 한다(REST 호출이 붙는다). [why D-114]
+  $exitedMember = $null
+  $lastChores   = Get-Date
+  while (-not $exitedMember) {
+    foreach ($member in $members) { if ($member.proc.HasExited) { $exitedMember = $member; break } }
+    if ($exitedMember) { break }
+
+    $null = $members[0].proc.WaitForExit($(if ($Split) { 5000 } else { 60000 }))
+
+    if (((Get-Date) - $lastChores).TotalSeconds -ge 60) {
+      $lastChores = Get-Date
+      Restore-Windows
+      Refresh-Universe
+    }
   }
+
+  # 남은 짝을 내린다. 이 창이 죽인 것이라 그쪽 exit 코드는 뜻이 없다 — 판정은 먼저 내려간 쪽으로 한다.
+  foreach ($member in $members) {
+    if (-not $member.proc.HasExited) {
+      Say "  $($member.role) 쪽 pid=$($member.proc.Id) 도 같이 내린다 — 짝($($exitedMember.role) 쪽)이 내려갔다." "WARN"
+      try { Stop-Process -Id $member.proc.Id -Force -ErrorAction Stop } catch { }
+      $null = $member.proc.WaitForExit(15000)
+    }
+  }
+
+  $p    = $exitedMember.proc
   $secs = [int]((Get-Date) - $t0).TotalSeconds
 
   $script:Sessions += [ordered]@{ n = $n; start = $t0.ToString("HH:mm:ss"); end = (Get-Date).ToString("HH:mm:ss")
                                   seconds = $secs; exit = $p.ExitCode }
-  Say "세션 #$n 종료 — exit=$($p.ExitCode) 지속 ${secs}s" $(if ($p.ExitCode -eq 0) { "INFO" } else { "WARN" })
+  $firstOut = if ($exitedMember.role) { " 먼저 내려간 쪽=$($exitedMember.role)" } else { "" }
+  Say "세션 #$n 종료 — exit=$($p.ExitCode)$firstOut 지속 ${secs}s" $(if ($p.ExitCode -eq 0) { "INFO" } else { "WARN" })
 
   if ((Get-Date) -ge $deadline) { Say "마감 시각 도달 — 재기동하지 않는다."; break }
 
@@ -637,10 +689,17 @@ while (-not $NoTrader -and (Get-Date) -lt $deadline) {
   $now = Get-Date
   # 배포가 일부러 내린 것(scripts/deploy_trader.py 가 pid 표지를 남긴다)은 크래시로 세지 않는다 — 30분 안에 세 번
   #  배포하면 감시견이 크래시 루프로 보고 멈췄다.
-  $planned = "_private\state\planned_restart_$($p.Id)"
-  if (Test-Path $planned) {
-    Say "배포 재기동($(Get-Content $planned -Raw)) — 크래시 계산에서 뺀다."
-    Remove-Item $planned -ErrorAction SilentlyContinue
+  # 갈라 띄운 날에는 표지가 프로세스마다 하나다 — 먼저 내려간 쪽 것만 지우면 짝의 표지가 _private\state\ 에 쌓인다. [why D-114]
+  $plannedReason = ""
+  foreach ($member in $members) {
+    $planned = "_private\state\planned_restart_$($member.proc.Id)"
+    if (Test-Path $planned) {
+      if (-not $plannedReason) { $plannedReason = (Get-Content $planned -Raw) }
+      Remove-Item $planned -ErrorAction SilentlyContinue
+    }
+  }
+  if ($plannedReason) {
+    Say "배포 재기동($plannedReason) — 크래시 계산에서 뺀다."
   }
   else {
     $exitTimes = @($exitTimes | Where-Object { ($now - $_) -lt $crashWindow }) + $now
@@ -689,5 +748,8 @@ if ((Test-Path $reaper) -and -not $DryRun) {
   Say "부속 프로세스 정리 — quant_procs.ps1 -KillAll"
   # 자기 PID를 넘겨 자기가 띄운 것만 내린다 — 계좌를 둘 돌리는 날 15:35에 마감하는 모의 감시견이
   #  20:00까지 도는 실계좌 트레이더까지 내리던 것을 막는다. [why D-122]
-  & powershell -ExecutionPolicy Bypass -NoProfile -File $reaper -KillAll -Quiet -OwnerPid $PID -Instance $Instance 2>&1 | ForEach-Object { if ("$_".Trim()) { Write-RunLog "    $_" } }
+  # -File 로 부르면 빈 문자열 인자는 사라진다. 인스턴스가 없는 날 "-Instance" 뒤가 비어 정리기가 통째로
+  #  실패했고(09-23 실측: Missing an argument for parameter 'Instance'), 밤새 창이 남았다. 있을 때만 붙인다.
+  $instanceArguments = if ($Instance) { @("-Instance", $Instance) } else { @() }
+  & powershell -ExecutionPolicy Bypass -NoProfile -File $reaper -KillAll -Quiet -OwnerPid $PID @instanceArguments 2>&1 | ForEach-Object { if ("$_".Trim()) { Write-RunLog "    $_" } }
 }

@@ -11,6 +11,9 @@
 고정 경로 `Quant/config/config.json`(실계좌)만 읽어 창 끝을 20:00으로 잡는 바람에, 15:30에 이미 끝난
 매매의 마감 뒤 배포를 네 시간 반 막았다.
 
+엔진을 갈라 띄운 날에는 트레이더가 두 프로세스다(주문 쪽·전략 쪽, D-114 단계 4). exe 하나를 바꾸면 둘 다
+내려갔다 다시 뜨므로, 몇 개가 도는지와 각 역할을 로그 줄에 같이 남긴다.
+
 사용:  py scripts/deploy_guard.py            (항상 0 — 장중이면 로그 한 줄)
        py scripts/deploy_guard.py --hotfix-a "<한 줄 사유>"   사유를 로그에 같이 남긴다
        py scripts/deploy_guard.py --config <경로>   도는 프로세스를 보지 않고 이 config로만 판정한다
@@ -34,6 +37,8 @@ DEFAULT_CONFIG = REPO / "Quant" / "config" / "config.json"
 TRADER_PATTERN = re.compile(r"quant_trader(\.exe)?(?:[\s\"']|$)", re.IGNORECASE)
 WATCHDOG_PATTERN = re.compile(r"auto_trade_day\.(?:ps1|sh)", re.IGNORECASE)
 CONFIG_TOKEN_PATTERN = re.compile(r"[^\s\"']*config[^\s\"']*\.json", re.IGNORECASE)
+# 갈라 띄운 엔진의 역할. `--role order` 와 `--role=order` 둘 다 받는다(CommandLine.cpp 와 같다).
+ROLE_PATTERN = re.compile(r"--role[=\s]+(order|strategy|both)", re.IGNORECASE)
 
 PAPER_WINDOW_END = dt.time(15, 30)   # 모의는 정규장까지
 LIVE_WINDOW_END = dt.time(20, 0)     # 실계좌는 애프터마켓까지(D-097)
@@ -96,6 +101,25 @@ def live_configs(lines: list[str]) -> list[str]:
     return found
 
 
+def running_roles(lines: list[str]) -> list[str]:
+    """지금 도는 트레이더의 역할. 갈라 띄운 날에는 주문 쪽·전략 쪽 둘이라 exe 하나를 바꾸면 둘 다 내려간다.
+
+    감시견은 세지 않는다 — 바꾸는 exe 를 붙잡고 있는 것은 엔진 프로세스뿐이다.
+    """
+    roles: list[str] = []
+    for line in lines:
+        if "deploy_guard" in line:
+            continue
+
+        if not TRADER_PATTERN.search(line):
+            continue
+
+        match = ROLE_PATTERN.search(line)
+        roles.append(match.group(1).lower() if match else "both")
+
+    return roles
+
+
 def window_end(config_path: Path) -> dt.time | None:
     """그 config가 모의면 15:30, 실계좌면 20:00. 못 읽으면 None."""
     try:
@@ -136,26 +160,28 @@ def write_log(line: str) -> None:
         log_file.write(line + "\n")
 
 
-def decide(arguments: argparse.Namespace) -> tuple[dt.time | None, str]:
-    """창 끝과 그 근거. 창 끝이 None이면 막을 이유가 없다는 뜻이다."""
+def decide(arguments: argparse.Namespace) -> tuple[dt.time | None, str, list[str]]:
+    """창 끝과 그 근거, 그리고 지금 도는 엔진 역할. 창 끝이 None이면 막을 이유가 없다는 뜻이다."""
     if arguments.config:
         path = Path(arguments.config)
         end = window_end(path if path.is_absolute() else REPO / path)
         if end is None:
-            return LIVE_WINDOW_END, f"{arguments.config}를 읽지 못해 실계좌로 본다"
+            return LIVE_WINDOW_END, f"{arguments.config}를 읽지 못해 실계좌로 본다", []
 
-        return end, f"--config {arguments.config}"
+        return end, f"--config {arguments.config}", []
 
     lines = command_lines()
     if lines is None:
         end = window_end(DEFAULT_CONFIG) or LIVE_WINDOW_END
-        return end, "도는 프로세스를 못 읽어 Quant/config/config.json으로 본다"
+        return end, "도는 프로세스를 못 읽어 Quant/config/config.json으로 본다", []
 
     configs = live_configs(lines)
     if not configs:
-        return None, "트레이더도 감시견도 돌고 있지 않다"
+        return None, "트레이더도 감시견도 돌고 있지 않다", []
 
-    return window_end_of_running(configs)
+    end, reason = window_end_of_running(configs)
+
+    return end, reason, running_roles(lines)
 
 
 def main() -> int:
@@ -166,7 +192,13 @@ def main() -> int:
 
     now = dt.datetime.now()
     stamp = now.strftime("%Y-%m-%d %H:%M:%S")
-    end, reason = decide(arguments)
+    end, reason, roles = decide(arguments)
+    # 갈라 띄운 날에는 이 한 줄이 "몇 개를 내렸다 다시 띄우는가"를 말해 준다.
+    role_note = ""
+    if roles:
+        role_note = " 도는 엔진 " + "·".join(roles) + f" {len(roles)}개."
+        if len(roles) > 1:
+            role_note += " exe 하나를 바꾸면 둘 다 내려갔다 다시 뜬다."
 
     if end is None:
         print(f"[deploy_guard] 통과 — {reason}. 바꿀 exe를 쓰는 프로세스가 없다.")
@@ -177,13 +209,13 @@ def main() -> int:
         return 0
 
     if arguments.hotfix_a:
-        write_log(f"{stamp} 장중 교체 허용(A등급) — {arguments.hotfix_a}")
+        write_log(f"{stamp} 장중 교체 허용(A등급) — {arguments.hotfix_a}.{role_note}")
         print(f"[deploy_guard] 장중이지만 A등급 결함으로 통과 — 사유: {arguments.hotfix_a}")
         return 0
 
-    write_log(f"{stamp} 장중 교체 — {reason}")
+    write_log(f"{stamp} 장중 교체 — {reason}.{role_note}")
     print(f"[deploy_guard] 매매 창(09:00~{end:%H:%M}) 안에서 바꾼다 — 재기동마다 보유분이 청산 래퍼로 넘어간다. "
-          f"판정 근거: {reason}.")
+          f"판정 근거: {reason}.{role_note}")
     return 0
 
 

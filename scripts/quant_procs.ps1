@@ -64,6 +64,13 @@ function Get-QRole([string]$cmd) {
   return $null
 }
 
+# 갈라 띄운 날에는 quant_trader.exe 가 둘이다 — 주문 쪽과 전략 쪽. 명령줄의 --role 로 가른다.
+#  안 가르면 성한 짝 하나가 "중복"으로 찍히고, -Reap -IncludeTrader 가 그걸 내린다. [why D-114]
+function Get-QVariant([string]$cmd) {
+  if ($cmd -match '--role[=\s]+(order|strategy|both)') { return $Matches[1].ToLower() }
+  return ""
+}
+
 function Get-Ancestors([int]$start) {
   # 자기 자신은 빼고 위로 올라간 조상 PID 목록. 사슬이 끊기거나 20홉이면 멈춘다.
   $out = @(); $cur = $start; $hop = 0
@@ -87,19 +94,23 @@ foreach ($p in $all) {
   if ($selfChain -contains $pid_) { continue }
   $anc = Get-Ancestors $pid_
   if (($anc | Where-Object { $selfChain -contains $_ }).Count -gt 0 -and $role -ne "trader") { }
+  # 묶고 세는 열쇠는 RoleKey 다(trader(order)·trader(strategy)). 내리는 판정은 Role 그대로 본다.
+  $variant = Get-QVariant $p.CommandLine
   $tagged += [pscustomobject]@{
     QPid = $pid_; QPpid = [int]$p.ParentProcessId; Name = $p.Name
-    Role = $role; Start = $p.CreationDate; Anc = $anc
+    Role = $role; Variant = $variant
+    RoleKey = $(if ($variant -and $variant -ne "both") { "$role($variant)" } else { $role })
+    Start = $p.CreationDate; Anc = $anc
   }
 }
 
 # 인스턴스 묶기 — 조상 중에 같은 역할이 이미 있으면 그건 자식이다(py → python → python은 하나).
 $sameRole = @{}
-foreach ($t in $tagged) { $sameRole[$t.QPid] = $t.Role }
+foreach ($t in $tagged) { $sameRole[$t.QPid] = $t.RoleKey }
 $roots = @()
 foreach ($t in $tagged) {
   $isChild = $false
-  foreach ($a in $t.Anc) { if ($sameRole.ContainsKey($a) -and $sameRole[$a] -eq $t.Role) { $isChild = $true; break } }
+  foreach ($a in $t.Anc) { if ($sameRole.ContainsKey($a) -and $sameRole[$a] -eq $t.RoleKey) { $isChild = $true; break } }
   if (-not $isChild) { $roots += $t }
 }
 
@@ -124,15 +135,15 @@ foreach ($p in $all) {
 # ─────────────── 판정 ───────────────
 $rows = @()
 $dupRoots = @()
-foreach ($g in @($roots | Group-Object Role)) {
+foreach ($g in @($roots | Group-Object RoleKey)) {
   $ordered = @($g.Group | Sort-Object Start)
   $keep = $ordered[-1]
   foreach ($i in $ordered) {
     $v = if ($g.Count -le 1) { "정상" } elseif ($i.QPid -eq $keep.QPid) { "정상(최신)" } else { "중복"; }
     if ($g.Count -gt 1 -and $i.QPid -ne $keep.QPid) { $dupRoots += $i }
-    $kids = @($tagged | Where-Object { $_.Role -eq $i.Role -and $_.Anc -contains $i.QPid }).Count
+    $kids = @($tagged | Where-Object { $_.RoleKey -eq $i.RoleKey -and $_.Anc -contains $i.QPid }).Count
     $rows += [pscustomobject]@{
-      역할 = $i.Role; PID = $i.QPid; 자식 = $kids
+      역할 = $i.RoleKey; PID = $i.QPid; 자식 = $kids
       기동 = $i.Start.ToString("HH:mm:ss"); 판정 = $v
     }
   }
