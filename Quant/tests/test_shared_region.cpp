@@ -1,0 +1,180 @@
+// 공유 쪽지 한 장(ipc::SharedRegion) 경계 시험 — 프로세스가 갈렸을 때 둘이 같은 판을 보는지, 판이 다르면
+//  안 붙는지, 앞서 죽은 판이 남아 있어도 다시 만들 수 있는지. 프로세스를 띄우지 않고 한 프로세스 안에서
+//  만든 쪽·붙은 쪽 손잡이를 둘 두고 본다 — 공유메모리는 같은 프로세스에서도 매핑이 둘이라 검사가 성립한다.
+#include "ipc/SharedRegion.h"
+
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <utility>
+
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
+namespace
+{
+int g_checks = 0;
+
+#define CHECK(condition)                                                                 \
+    do                                                                                   \
+    {                                                                                    \
+        ++g_checks;                                                                      \
+        if (!(condition))                                                                \
+        {                                                                                \
+            std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #condition << "\n"; \
+            return 1;                                                                    \
+        }                                                                                \
+    } while (0)
+
+// 같은 이름이 다른 시험 회차와 부딪히지 않게 프로세스 번호를 붙인다(ctest는 시험을 나란히 돌린다).
+std::string unique_name(const char* suffix)
+{
+#ifdef _WIN32
+    const unsigned long process_id = GetCurrentProcessId();
+#else
+    const unsigned long process_id = static_cast<unsigned long>(getpid());
+#endif
+    return "quant_test_region_" + std::to_string(process_id) + "_" + suffix;
+}
+
+constexpr size_t   kRegionBytes   = 4096;
+constexpr uint32_t kLayoutVersion = 7;
+} // namespace
+
+int main()
+{
+    // 1. 만들면 머리가 채워지고, 쓸 수 있는 칸은 구역 크기에서 머리를 뺀 만큼이다.
+    {
+        const std::string  name = unique_name("basic");
+        ipc::SharedRegion  region;
+        CHECK(region.create(name, kRegionBytes, kLayoutVersion));
+        CHECK(region.is_open());
+        CHECK(region.is_owner());
+        CHECK(region.name() == name);
+        CHECK(region.last_error().empty());
+        CHECK(region.payload_bytes() == kRegionBytes - ipc::SharedRegion::header_bytes());
+
+        const ipc::SharedRegionHeader* header = region.header();
+        CHECK(header != nullptr);
+        CHECK(header->magic == ipc::kSharedRegionMagic);
+        CHECK(header->layout_version == kLayoutVersion);
+        CHECK(header->bytes == kRegionBytes);
+        CHECK(header->created_at_ns > 0);
+        CHECK(header->creator_process_id != 0);
+
+        // 새로 만든 칸은 비어 있다 — 앞선 판의 찌꺼기를 읽지 않게 만들면서 지운다.
+        CHECK(region.payload()[0] == std::byte{0});
+        CHECK(region.payload()[region.payload_bytes() - 1] == std::byte{0});
+    }
+
+    // 2. 붙은 쪽은 만든 쪽이 쓴 것을 그대로 본다. 붙은 쪽은 주인이 아니다.
+    {
+        const std::string name = unique_name("attach");
+        ipc::SharedRegion owner;
+        CHECK(owner.create(name, kRegionBytes, kLayoutVersion));
+
+        const char        message[] = "체결통보";
+        std::memcpy(owner.payload(), message, sizeof(message));
+
+        ipc::SharedRegion guest;
+        CHECK(guest.attach(name, kRegionBytes, kLayoutVersion));
+        CHECK(guest.is_open());
+        CHECK(!guest.is_owner());
+        CHECK(std::memcmp(guest.payload(), message, sizeof(message)) == 0);
+        CHECK(guest.header()->created_at_ns == owner.header()->created_at_ns);
+
+        // 붙은 쪽이 쓴 것도 만든 쪽이 본다 — 같은 종이 한 장이다.
+        guest.payload()[0] = std::byte{0x7f};
+        CHECK(owner.payload()[0] == std::byte{0x7f});
+    }
+
+    // 3. 판이 다르거나 크기가 다르면 붙지 않는다 — 옛 exe가 새 배치에 붙어 엉뚱한 칸을 읽는 것을 막는다.
+    {
+        const std::string name = unique_name("layout");
+        ipc::SharedRegion owner;
+        CHECK(owner.create(name, kRegionBytes, kLayoutVersion));
+
+        ipc::SharedRegion other_layout;
+        CHECK(!other_layout.attach(name, kRegionBytes, kLayoutVersion + 1));
+        CHECK(!other_layout.is_open());
+        CHECK(!other_layout.last_error().empty());
+
+        ipc::SharedRegion other_size;
+        CHECK(!other_size.attach(name, kRegionBytes * 2, kLayoutVersion));
+        CHECK(!other_size.is_open());
+    }
+
+    // 4. 없는 이름에는 붙지 않는다(주문 쪽이 아직 안 떴을 때 전략 쪽이 보는 경우).
+    {
+        ipc::SharedRegion guest;
+        CHECK(!guest.attach(unique_name("absent"), kRegionBytes, kLayoutVersion));
+        CHECK(!guest.is_open());
+        CHECK(!guest.last_error().empty());
+    }
+
+    // 5. 살아 있는 구역을 또 만들려 하면 실패한다 — 엔진이 둘 뜬 것을 기동 자리에서 잡는다.
+    {
+        const std::string name = unique_name("twice");
+        ipc::SharedRegion first;
+        CHECK(first.create(name, kRegionBytes, kLayoutVersion));
+
+        ipc::SharedRegion second;
+        CHECK(!second.create(name, kRegionBytes, kLayoutVersion));
+        CHECK(!second.is_open());
+        CHECK(!second.last_error().empty());
+    }
+
+    // 6. 닫은 뒤에는 같은 이름으로 다시 만들 수 있고, 만든 시각이 바뀐다 — 붙은 쪽이 재기동을 구분하는 값이다.
+    {
+        const std::string name = unique_name("restart");
+        int64_t           first_created_at_ns = 0;
+        {
+            ipc::SharedRegion first;
+            CHECK(first.create(name, kRegionBytes, kLayoutVersion));
+            first_created_at_ns = first.header()->created_at_ns;
+        }
+
+        ipc::SharedRegion second;
+        CHECK(second.create(name, kRegionBytes, kLayoutVersion));
+        CHECK(second.header()->created_at_ns >= first_created_at_ns);
+    }
+
+    // 7. 잘못된 인자는 열지 않는다 — 머리도 못 담는 크기, 빈 이름.
+    {
+        ipc::SharedRegion region;
+        CHECK(!region.create("", kRegionBytes, kLayoutVersion));
+        CHECK(!region.create(unique_name("tiny"), ipc::SharedRegion::header_bytes() - 1, kLayoutVersion));
+        CHECK(!region.is_open());
+        CHECK(region.header() == nullptr);
+        CHECK(region.payload() == nullptr);
+        CHECK(region.payload_bytes() == 0);
+    }
+
+    // 8. 옮기면 손잡이도 같이 간다 — 옮겨 간 쪽이 열려 있고 옮긴 쪽은 닫혀 있다(Engine이 멤버로 들고 있을 자리).
+    {
+        const std::string name = unique_name("move");
+        ipc::SharedRegion source;
+        CHECK(source.create(name, kRegionBytes, kLayoutVersion));
+        source.payload()[0] = std::byte{0x21};
+
+        ipc::SharedRegion moved = std::move(source);
+        CHECK(moved.is_open());
+        CHECK(moved.is_owner());
+        CHECK(moved.payload()[0] == std::byte{0x21});
+        CHECK(!source.is_open()); // NOLINT(bugprone-use-after-move) — 옮긴 뒤 닫혔는지가 시험 대상이다
+        CHECK(source.payload() == nullptr);
+
+        ipc::SharedRegion target;
+        target = std::move(moved);
+        CHECK(target.is_open());
+        CHECK(target.payload()[0] == std::byte{0x21});
+    }
+
+    std::cout << "test_shared_region OK (" << g_checks << " checks)\n";
+    return 0;
+}

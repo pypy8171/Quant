@@ -10,6 +10,7 @@
 //   ⑤ 답이 오면 기다리는 것에서 지워지는가
 //   ⑥ 답이 늦은 것을 재전송 후보로 꺼내는가
 //   ⑦ 답이 계속 안 오면 상한에서 오래된 것부터 버리고 세는가
+//   ⑧ 큐에서 꺼낸 요청·응답의 값이 말이 되는지 보는가(D-114 단계 4 — 건너편을 믿지 않는다)
 //
 //   사용법: test_order_channel
 
@@ -18,6 +19,7 @@
 #include <cassert>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <type_traits>
 
@@ -192,6 +194,88 @@ int main()
         const size_t before = pending.size();
         pending.note_sent(0, milliseconds(99));
         check(pending.size() == before, "순번 0은 기다리는 것에 안 넣는다");
+    }
+
+    // ── ⑧ 꺼낸 칸은 믿지 않는다 ─────────────────────────────────────────
+    {
+        const ipc::RequestLimits limits{.symbol_count = 100, .strategy_count = 8};
+
+        ipc::OrderRequest request;
+        request.sequence       = 7;
+        request.sent_at_ns     = milliseconds(3);
+        request.symbol_id      = 41;
+        request.strategy_index = 2;
+        request.quantity       = 10;
+        request.price          = 71'200.0;
+        request.side           = OrderSide::BUY;
+        request.order_type     = static_cast<uint8_t>(OrderType::LIMIT);
+        request.action         = static_cast<uint8_t>(OrderAction::NEW);
+        check(ipc::is_plausible(request, limits), "성한 요청은 지나간다");
+
+        ipc::OrderRequest market = request;
+        market.price             = 0.0;
+        market.order_type        = static_cast<uint8_t>(OrderType::MARKET);
+        check(ipc::is_plausible(market, limits), "시장가는 가격 0이 정상이다");
+
+        const auto rejects = [&limits](ipc::OrderRequest broken, const std::string& name) {
+            check(!ipc::is_plausible(broken, limits), name);
+        };
+
+        ipc::OrderRequest no_sequence = request;
+        no_sequence.sequence          = 0;
+        rejects(no_sequence, "순번 0은 버린다");
+
+        ipc::OrderRequest out_of_table = request;
+        out_of_table.symbol_id        = 101;
+        rejects(out_of_table, "종목 표 밖 번호는 버린다 — 그 값으로 배열을 짚지 않는다");
+
+        ipc::OrderRequest no_symbol = request;
+        no_symbol.symbol_id        = symbol::kNone;
+        rejects(no_symbol, "종목 번호 0은 버린다");
+
+        ipc::OrderRequest bad_strategy = request;
+        bad_strategy.strategy_index   = 9;
+        rejects(bad_strategy, "전략 표 밖 번호는 버린다");
+
+        ipc::OrderRequest negative_quantity = request;
+        negative_quantity.quantity         = -5;
+        rejects(negative_quantity, "수량이 0 이하면 버린다");
+
+        ipc::OrderRequest huge_quantity = request;
+        huge_quantity.quantity         = 2'000'000;
+        rejects(huge_quantity, "수량 상한을 넘으면 버린다");
+
+        ipc::OrderRequest negative_price = request;
+        negative_price.price           = -1.0;
+        rejects(negative_price, "음수 가격은 버린다");
+
+        ipc::OrderRequest not_a_number = request;
+        not_a_number.price            = std::numeric_limits<double>::quiet_NaN();
+        rejects(not_a_number, "NaN 가격은 버린다 — 비교가 전부 거짓이라 뒤집어 본다");
+
+        ipc::OrderRequest bad_side = request;
+        bad_side.side             = OrderSide::NONE;
+        rejects(bad_side, "방향이 매수·매도가 아니면 버린다");
+
+        ipc::OrderRequest bad_action = request;
+        bad_action.action          = 9;
+        rejects(bad_action, "모르는 주문 동작은 버린다");
+
+        ipc::OrderResponse response =
+            ipc::make_response(7, ipc::OrderResult::kAccepted, 123, "접수", milliseconds(4));
+        check(ipc::is_plausible(response), "성한 응답은 지나간다");
+
+        ipc::OrderResponse no_sequence_response = response;
+        no_sequence_response.sequence           = 0;
+        check(!ipc::is_plausible(no_sequence_response), "순번 0 응답은 버린다");
+
+        ipc::OrderResponse bad_result = response;
+        bad_result.result            = 9;
+        check(!ipc::is_plausible(bad_result), "모르는 결과 값은 버린다");
+
+        ipc::OrderResponse unterminated = response;
+        std::memset(unterminated.reason, 'x', ipc::kOrderReasonMax);
+        check(!ipc::is_plausible(unterminated), "사유 칸이 칸 안에서 안 끝나면 버린다");
     }
 
     std::cout << "test_order_channel: " << g_checks << " checks passed\n";

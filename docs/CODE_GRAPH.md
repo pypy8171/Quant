@@ -163,6 +163,7 @@ graph LR
     n_ipc_OrderChannel_h["ipc/OrderChannel.h"]
     n_ipc_OrderRouter_cpp["ipc/OrderRouter.cpp"]
     n_ipc_OrderRouter_h["ipc/OrderRouter.h"]
+    n_ipc_SharedRegion_cpp["ipc/SharedRegion.cpp"]
     n_ipc_ZmqBridge_cpp["ipc/ZmqBridge.cpp"]
     n_ipc_ZmqBridge_h["ipc/ZmqBridge.h"]
   end
@@ -437,6 +438,7 @@ graph LR
   n_ipc_OrderRouter_h --> n_ipc_FillKey_h
   n_ipc_OrderRouter_h --> n_ipc_ZmqBridge_h
   n_ipc_OrderRouter_h --> n_risk_OrderGate_h
+  n_ipc_SharedRegion_cpp --> n_ipc_SharedRegion_h
   n_ipc_ZmqBridge_cpp --> n_ipc_ZmqBridge_h
   n_ipc_ZmqBridge_cpp --> n_utils_Logger_h
   n_ipc_ZmqBridge_cpp --> n_utils_ThreadName_h

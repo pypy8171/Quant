@@ -57,6 +57,28 @@ struct OrderResponse
     char     reason[kOrderReasonMax] = {};
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 꺼낸 칸은 믿지 않는다 — 값이 말이 되는지 보고 아니면 버린다
+// ─────────────────────────────────────────────────────────────────────────────
+
+// 요청 한 건이 말이 되는지 보는 기준. 종목·전략 수는 기동 때 표에서 받아 채운다.
+//  [inv] 한 번 정하면 장중에 안 바뀐다 — 표가 커지는 자리(SymbolTable::intern)는 기동 구간뿐이다.
+struct RequestLimits
+{
+    uint32_t symbol_count   = 0;             // 종목 표 크기. id는 1부터 이 수까지다(0은 없음)
+    uint32_t strategy_count = 0;             // 전략 표 크기. 번호도 1부터다
+    int32_t  quantity_max   = 1'000'000;     // 한 건 최대 수량
+    double   price_max      = 100'000'000.0; // 한 주 최대 가격(원)
+};
+
+// 큐에서 꺼낸 요청이 주문이 되어도 되는가. 프로세스를 갈라도 남는 공유 면이 큐 하나뿐이라, 건너편이
+//  망가졌거나 칸이 덮였을 때 그 값으로 주문을 내지 않으려고 여기를 지나게 한다. 거짓이면 버리고 센다.
+//  순번 단조·중복은 DuplicateFilter가 본다 — 여기서는 값의 범위만 본다. [why D-114]
+[[nodiscard]] bool is_plausible(const OrderRequest& request, const RequestLimits& limits) noexcept;
+
+// 큐에서 꺼낸 응답이 말이 되는가. 사유 칸이 칸 안에서 끝나는지(끝나지 않으면 읽다가 칸을 넘는다)까지 본다.
+[[nodiscard]] bool is_plausible(const OrderResponse& response) noexcept;
+
 // 신호 하나를 요청 레코드로 옮긴다. 순번·시각은 신호가 이미 갖고 있는 것을 그대로 쓴다(SignalDispatcher::emit이 찍는다).
 OrderRequest to_request(const OrderSignal& signal) noexcept;
 

@@ -221,6 +221,8 @@
     "ipc/OpsServer.h": "ipc",
     "ipc/OrderChannel.h": "ipc",
     "ipc/OrderRouter.h": "ipc",
+    "ipc/SharedRegion.h": "ipc",
+    "ipc/SharedSpscRing.h": "ipc",
     "ipc/ZmqBridge.h": "ipc",
     "modes/Monitors.h": "modes",
     "risk/DisplacementDesk.h": "risk",
@@ -308,6 +310,7 @@
     "ipc/OpsServer.cpp": "ipc",
     "ipc/OrderChannel.cpp": "ipc",
     "ipc/OrderRouter.cpp": "ipc",
+    "ipc/SharedRegion.cpp": "ipc",
     "ipc/ZmqBridge.cpp": "ipc",
     "modes/Monitors.cpp": "modes",
     "risk/DisplacementDesk.cpp": "risk",
@@ -716,6 +719,9 @@
       "ipc/FillKey.h",
       "ipc/ZmqBridge.h",
       "risk/OrderGate.h"
+    ],
+    "ipc/SharedRegion.cpp": [
+      "ipc/SharedRegion.h"
     ],
     "ipc/ZmqBridge.cpp": [
       "ipc/ZmqBridge.h",
@@ -1303,6 +1309,9 @@
     "ipc/OrderRouter.h": [
       "core/Engine.h",
       "ipc/OrderRouter.cpp"
+    ],
+    "ipc/SharedRegion.h": [
+      "ipc/SharedRegion.cpp"
     ],
     "ipc/ZmqBridge.h": [
       "core/Engine.h",

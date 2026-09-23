@@ -704,6 +704,25 @@ if(UNIX)
     target_link_libraries(test_control_channel PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: 공유 쪽지 한 장 (D-114 단계 4) ──────────────────
+add_executable(test_shared_region tests/test_shared_region.cpp src/ipc/SharedRegion.cpp)
+target_include_directories(test_shared_region PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    # shm_open/shm_unlink — glibc 2.34부터는 libc 안에 있지만 예전 배포판은 librt가 따로다
+    target_link_libraries(test_shared_region PRIVATE pthread rt)
+endif()
+
+# ─── 테스트 타겟: 공유 쪽지 위 한줄 큐 (D-114 단계 4) ─────────────
+add_executable(test_shared_spsc_ring tests/test_shared_spsc_ring.cpp src/ipc/SharedRegion.cpp src/core/Types.cpp)
+target_include_directories(test_shared_spsc_ring PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_shared_spsc_ring PRIVATE pthread rt)
+endif()
+
 # ─── 테스트 타겟: 장부 사본 (D-114 단계 2.5) ──────────────────────
 add_executable(test_ledger_snapshot tests/test_ledger_snapshot.cpp src/ipc/LedgerSnapshot.cpp)
 target_include_directories(test_ledger_snapshot PRIVATE
@@ -779,6 +798,8 @@ set(QUANT_ASSERT_TARGETS
     test_protective_orders
     test_order_channel
     test_control_channel
+    test_shared_region
+    test_shared_spsc_ring
     test_displacement_desk
     test_heartbeat
     test_ledger_snapshot

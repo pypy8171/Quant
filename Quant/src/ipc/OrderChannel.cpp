@@ -6,6 +6,75 @@
 namespace ipc
 {
 
+bool is_plausible(const OrderRequest& request, const RequestLimits& limits) noexcept
+{
+    if (request.sequence == 0 || request.sent_at_ns <= 0)
+    {
+        return false;
+    }
+
+    // 종목·전략 번호는 표 안의 자리를 가리킨다. 표 밖이면 그 값으로 배열을 짚는 순간 끝이다.
+    if (request.symbol_id == symbol::kNone || request.symbol_id > limits.symbol_count)
+    {
+        return false;
+    }
+
+    if (request.strategy_index == strategy_table::kNone || request.strategy_index > limits.strategy_count)
+    {
+        return false;
+    }
+
+    if (request.quantity <= 0 || request.quantity > limits.quantity_max)
+    {
+        return false;
+    }
+
+    // 시장가는 가격이 0이다. 음수·NaN·무한대는 비교가 전부 거짓이라 뒤집어 본다.
+    if (!(request.price >= 0.0) || request.price > limits.price_max)
+    {
+        return false;
+    }
+
+    if (request.side != OrderSide::BUY && request.side != OrderSide::SELL)
+    {
+        return false;
+    }
+
+    if (request.order_type > static_cast<uint8_t>(OrderType::LIMIT))
+    {
+        return false;
+    }
+
+    if (request.action > static_cast<uint8_t>(OrderAction::REPLACE))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool is_plausible(const OrderResponse& response) noexcept
+{
+    if (response.sequence == 0)
+    {
+        return false;
+    }
+
+    if (response.result < static_cast<uint8_t>(OrderResult::kAccepted) ||
+        response.result > static_cast<uint8_t>(OrderResult::kDuplicate))
+    {
+        return false;
+    }
+
+    // 사유 칸이 칸 안에서 끝나야 한다 — 끝나지 않으면 읽는 쪽이 칸을 넘어 읽는다.
+    if (std::memchr(response.reason, '\0', kOrderReasonMax) == nullptr)
+    {
+        return false;
+    }
+
+    return true;
+}
+
 OrderRequest to_request(const OrderSignal& signal) noexcept
 {
     OrderRequest request;

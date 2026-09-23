@@ -290,9 +290,11 @@
 - [Heartbeat.h](../Quant/include/ipc/Heartbeat.h) — 심장박동 — 박동 공백만으로 상대의 생사를 판정한다(시계·스레드 없음, D-114 단계 2)
 - [LedgerSnapshot.h](../Quant/include/ipc/LedgerSnapshot.h) — 장부 사본 — 전략이 주문 쪽 장부 대신 읽을 한 판(판 번호로 묶고 줄마다 판 번호를 찍는다, D-114 단계 2.5)
 - [OpsProtocol.h](../Quant/include/ipc/OpsProtocol.h) — 운영단말 ↔ 엔진 TCP 프레이밍 프로토콜(D-043)
-- [OrderChannel.h](../Quant/include/ipc/OrderChannel.h) — 전략↔주문 요청·응답 레코드와 순번 규칙(문자열·포인터 없음, D-114 단계 2)
+- [OrderChannel.h](../Quant/include/ipc/OrderChannel.h) — 전략↔주문 요청·응답 레코드와 순번 규칙, 꺼낸 값 범위 검사(문자열·포인터 없음, D-114 단계 2·4)
 - [OpsServer.h](../Quant/include/ipc/OpsServer.h) — 운영단말 TCP 서버 선언(D-043)
 - [OrderRouter.h](../Quant/include/ipc/OrderRouter.h) — 주문 전처리·중계(FEP) 라우팅 레이어 선언
+- [SharedRegion.h](../Quant/include/ipc/SharedRegion.h) — 프로세스 둘이 같이 보는 공유 쪽지 한 장 — 만들고 붙고 같은 판인지 본다(D-114 단계 4)
+- [SharedSpscRing.h](../Quant/include/ipc/SharedSpscRing.h) — 공유 쪽지 위 한줄 큐 — 내 자리는 내 프로세스 안에 두고 건너편이 적은 칸은 믿지 않는다(D-114 단계 4)
 - [ZmqBridge.h](../Quant/include/ipc/ZmqBridge.h) — C++ 엔진 ↔ Python ZMQ IPC 브릿지
 
 ### Quant/include/modes/
@@ -404,9 +406,10 @@
 - [Heartbeat.cpp](../Quant/src/ipc/Heartbeat.cpp) — Heartbeat.h 구현 — 박동 찍기와 정상·의심·사망 전이 판정(D-114 단계 2)
 - [LedgerSnapshot.cpp](../Quant/src/ipc/LedgerSnapshot.cpp) — LedgerSnapshot.h 구현 — 판 뒤집기와 되읽기, 이번 판에 실린 줄만 모아 주기(D-114 단계 2.5)
 - [OpsProtocol.cpp](../Quant/src/ipc/OpsProtocol.cpp) — OpsProtocol.h 구현 — 운영단말 ↔ 엔진 TCP 프레이밍 프로토콜(D-043)
-- [OrderChannel.cpp](../Quant/src/ipc/OrderChannel.cpp) — OrderChannel.h 구현 — 기다리는 요청 표·같은 순번 거름·주문번호 정수 변환(D-114 단계 2)
+- [OrderChannel.cpp](../Quant/src/ipc/OrderChannel.cpp) — OrderChannel.h 구현 — 기다리는 요청 표·같은 순번 거름·주문번호 정수 변환, 꺼낸 요청·응답이 말이 되는지 보기(D-114 단계 2·4)
 - [OpsServer.cpp](../Quant/src/ipc/OpsServer.cpp) — 운영단말 TCP 서버 구현(D-043)
 - [OrderRouter.cpp](../Quant/src/ipc/OrderRouter.cpp) — 주문 라우터 구현 — 제출·순번·거부코드 처리
+- [SharedRegion.cpp](../Quant/src/ipc/SharedRegion.cpp) — SharedRegion.h 구현 — 윈도우·리눅스 공유메모리 만들기·붙기·치우기, 살아 있는 주인이면 실패(D-114 단계 4)
 - [ZmqBridge.cpp](../Quant/src/ipc/ZmqBridge.cpp) — ZMQ IPC 브릿지 구현 — PUB/REP 소켓
 
 ### Quant/src/modes/
@@ -498,6 +501,8 @@
 - [test_ledger_snapshot.cpp](../Quant/tests/test_ledger_snapshot.cpp) — 장부 사본 단위 테스트: 지난 판 값이 안 남는지, 쓰는 중에 읽어도 반쪽 판이 안 나오는지 두 스레드로 검증(D-114 단계 2.5)
 - [test_order_channel.cpp](../Quant/tests/test_order_channel.cpp) — 전략↔주문 통로 단위 테스트: 요청·응답 레코드, 기다리는 표, 같은 순번 거름, 주문번호 변환(D-114 단계 2)
 - [test_control_channel.cpp](../Quant/tests/test_control_channel.cpp) — 제어 요청 단위 테스트: 계좌 칸, 표 모으기, 남의 표 줄·반쪽 표·닫기 누락을 안 거는지 검증(D-114 단계 2.5 갈래 B)
+- [test_shared_region.cpp](../Quant/tests/test_shared_region.cpp) — 공유 쪽지 단위 테스트: 붙기·판 불일치·살아 있는 구역 두 번 만들기·닫은 뒤 재생성을 검증(D-114 단계 4)
+- [test_shared_spsc_ring.cpp](../Quant/tests/test_shared_spsc_ring.cpp) — 공유 쪽지 위 한줄 큐 단위 테스트: 순서·가득참·되감기와, 건너편이 공유 칸을 망가뜨렸을 때 수로 남기는지 검증(D-114 단계 4)
 - [test_displacement_desk.cpp](../Quant/tests/test_displacement_desk.cpp) — 교체 진입 창구 단위 테스트: 최약체 매도 앞세우기, 매수 보류·자리 나면 발주·시한 만료(D-114 단계 2.5 갈래 B)
 - [test_protective_orders.cpp](../Quant/tests/test_protective_orders.cpp) — 보호 주문 표 단위 테스트: 전략 없이 가격 경로만으로 청산이 나가는지 검증(D-114 단계 1)
 - [test_reconcile_plan.cpp](../Quant/tests/test_reconcile_plan.cpp) — 잔고 대조 차이 계산 순수 함수 단위 테스트(D-038)
