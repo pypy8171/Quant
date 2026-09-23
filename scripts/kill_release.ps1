@@ -1,5 +1,7 @@
 ﻿# 킬스위치 해제 — 운영단말·ZMQ KILL이 남긴 표지 파일(_private/state/kill_today_<날짜>)을 지운다.
-#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/kill_release.ps1 [-Date 2026-09-19] [-DryRun]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/kill_release.ps1 [-Date 2026-09-19] [-Instance live] [-DryRun]
+#   -Instance는 config의 "instance" 값이다(D-122). 주면 표지·상태파일 이름에 _<instance>가 붙은 쪽을 다룬다 — 엔진
+#   write_state_marker·감시견 $Suffix와 같은 규칙.
 # 동작 원리(D-098):
 #   - KILL을 받은 엔진은 kill_today_<KST 날짜> 파일을 쓰고 내려간다. 감시견(scripts/auto_trade_day.ps1)은 재기동 전에
 #     이 파일을 보고 그날은 다시 띄우지 않는다("오늘은 끝"). 가드(auto_trade_guard.ps1)는 감시견 상태 closed를 존중한다.
@@ -8,12 +10,14 @@
 #   - session_done_<날짜>(마감 자기 종료)는 지우지 않는다. 그건 KILL이 아니라 하루가 끝난 것이다.
 param(
     [string]$Date = (Get-Date -Format yyyy-MM-dd),
+    [string]$Instance = "",
     [switch]$DryRun
 )
 
 $ErrorActionPreference = "Stop"
 $repo   = Split-Path -Parent $PSScriptRoot
-$marker = Join-Path $repo "_private\state\kill_today_$Date"
+$suffix = if ($Instance) { "_$Instance" } else { "" }
+$marker = Join-Path $repo "_private\state\kill_today$($suffix)_$Date"
 
 if (-not (Test-Path $marker))
 {
@@ -35,7 +39,7 @@ Write-Host "지웠다: $marker"
 
 # 감시견은 KILL을 보고 phase=closed로 끝났고, 가드는 오늘 phase가 closed면 되살리지 않는다. 상태파일을 옆으로 치워
 #  가드가 "상태 없음"으로 보게 한다 — 다음 5분 주기에 감시견을 다시 띄운다.
-$statusPath = Join-Path $repo "_private\_auto_trade_day.json"
+$statusPath = Join-Path $repo "_private\_auto_trade_day$suffix.json"
 
 if (Test-Path $statusPath)
 {

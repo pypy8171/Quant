@@ -491,19 +491,6 @@ def run_dashboard(ymd: str, dry: bool) -> list[str]:
     return body or [f"refresh_dashboard rc={r.returncode}"]
 
 
-def run_ledger_sync(dry: bool) -> list[str]:
-    """결정 원장 파생 문서 갱신. 매매 없는 날에도 결정은 쌓이므로 원장 유무와 무관하게 돈다."""
-    script = REPO / "scripts" / "sync_ledgers.py"
-    if not script.exists():
-        return []
-    if dry:
-        return ["원장 동기화 건너뜀(dry-run)"]
-    r = subprocess.run([sys.executable, str(script)], cwd=REPO,
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
-    out = (r.stdout or r.stderr).strip().splitlines()
-    return out[-1:] if out else ["원장 동기화: 출력 없음"]
-
-
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", help="YYYY-MM-DD (기본: 오늘)")
@@ -516,8 +503,6 @@ def main() -> int:
     log_path, csv_path = find_files(compact)
 
     lines = [f"[{datetime.now():%Y-%m-%d %H:%M:%S}] market_close_autodoc {ymd}"]
-    for l in run_ledger_sync(a.dry_run):
-        lines.append("  " + l)
     if csv_path is None:
         lines.append("  원장 없음 — 매매하지 않은 날로 보고 건너뜀")
         print("\n".join(lines))
