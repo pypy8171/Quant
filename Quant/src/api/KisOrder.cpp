@@ -20,9 +20,14 @@ static std::string kis_reject_code(const json& document)
     return code;
 }
 
-// 국내 주문구분. KRX 애프터마켓(16:00~20:00)은 시장가(01)를 받지 않고 지정가·최우선·최유리만 받으므로,
-//  시장가 신호는 그 시간대에 최유리지정가(03, 가격 0)로 나간다 — 반대편 최우선 호가에 붙는 가장 가까운 대체.
-//  [why D-097]
+// 국내 주문구분. 시장가(01)를 받는 곳은 KRX 정규장(09:00~15:30)뿐이다 — KRX 애프터마켓(16:00~20:00)도,
+//  NXT 프리(08:00~08:50)·애프터(15:40~20:00)도 지정가·최우선·최유리만 받는다. 그래서 정규장 밖에서 나온
+//  시장가 신호는 최유리지정가(03, 가격 0)로 바꿔 보낸다 — 반대편 최우선 호가에 붙는 가장 가까운 대체다.
+//  창 바깥(예: 08:50~09:00)은 어차피 OrderGate 세션 창이 막으므로 여기서 다시 보지 않는다.
+//  [why D-097] [why D-122]
+static constexpr int32_t kRegularSessionOpenHhmmss  = 90000;   // KRX 정규장 시작 09:00:00
+static constexpr int32_t kRegularSessionCloseHhmmss = 153000;  // KRX 정규장 끝 15:30:00
+
 static const char* kis_order_division(OrderType type)
 {
     if (type != OrderType::MARKET)
@@ -30,8 +35,9 @@ static const char* kis_order_division(OrderType type)
         return "00";
     }
 
-    const int32_t hhmmss = kst::hhmmss_int(std::time(nullptr));
-    return (hhmmss >= 160000 && hhmmss < 200000) ? "03" : "01";
+    const int32_t hhmmss         = kst::hhmmss_int(std::time(nullptr));
+    const bool    regular_session = hhmmss >= kRegularSessionOpenHhmmss && hhmmss < kRegularSessionCloseHhmmss;
+    return regular_session ? "01" : "03";
 }
 
 static bool kis_parse_order_response(const std::string& response, json& document, const char* what)
@@ -107,7 +113,7 @@ bool KisClient::send_order(const OrderSignal& signal)
         body = {{"CANO", config_.account_no},
                 {"ACNT_PRDT_CD", config_.account_type},
                 {"PDNO", signal.ticker},
-                {"ORD_DVSN", kis_order_division(signal.type)}, // 애프터마켓엔 시장가→최유리 [why D-097]
+                {"ORD_DVSN", kis_order_division(signal.type)}, // 정규장 밖엔 시장가→최유리 [why D-097]
                 {"ORD_QTY", std::to_string(signal.quantity)},
                 {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(static_cast<int>(signal.price)) : "0"},
                 {"EXCG_ID_DVSN_CD", kis_order_exchange(config_)}}; // KRX/NXT/SOR [why D-096]
@@ -180,7 +186,7 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
     {
         body = {{"CANO", config_.account_no}, {"ACNT_PRDT_CD", config_.account_type},
                 {"PDNO", signal.ticker},
-                {"ORD_DVSN", kis_order_division(signal.type)}, // 애프터마켓엔 시장가→최유리 [why D-097]
+                {"ORD_DVSN", kis_order_division(signal.type)}, // 정규장 밖엔 시장가→최유리 [why D-097]
                 {"ORD_QTY", std::to_string(signal.quantity)},
                 {"ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(static_cast<int>(signal.price)) : "0"},
                 {"EXCG_ID_DVSN_CD", kis_order_exchange(config_)}}; // KRX/NXT/SOR [why D-096]
