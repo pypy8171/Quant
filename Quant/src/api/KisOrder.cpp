@@ -107,8 +107,9 @@ static const char* kis_session_exchange(const KisConfig& config, MarketSession s
     return session == MarketSession::AfterMarket ? "KRX" : kis_order_exchange(config);
 }
 
-// 정정·취소는 원주문과 같은 주문구분으로 보낸다. 애프터마켓에 낸 주문은 41로 나갔으므로 같은
-//  구간 안에서 되부를 때도 41이어야 한다. [why D-122]
+// 취소·정정 구분은 부르는 시각의 구간으로 정한다 — 애프터마켓이면 41, 그 밖은 00(지정가).
+//  원주문 구분(01 시장가·06 종가)을 그대로 쓰지 않는다. 애프터마켓 주문은 41로 나갔으므로 같은
+//  구간 안에서 되부르면 41이 맞는다. [why D-122]
 static const char* kis_amend_order_division(MarketSession session)
 {
     return session == MarketSession::AfterMarket ? "41" : "00";
@@ -373,7 +374,7 @@ OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& o
                  {"ACNT_PRDT_CD", config_.account_type},
                  {"KRX_FWDG_ORD_ORGNO", krx_forwarding_org_no},              // 원주문 조직번호
                  {"ORGN_ODNO", orig_odno},                       // 원주문번호
-                 {"ORD_DVSN", kis_amend_order_division(session)}, // 원주문과 같은 구분 — 정규장 00 · 애프터 41
+                 {"ORD_DVSN", kis_amend_order_division(session)}, // 지금 구간으로 정한다 — 애프터 41 · 그 밖 00
                  {"RVSE_CNCL_DVSN_CD", "02"},                    // 02=취소
                  {"ORD_QTY", std::to_string(quantity)},               // 취소 수량 (QTY_ALL_ORD_YN=Y면 무시됨)
                  {"ORD_UNPR", "0"},                              // 취소는 단가 0
@@ -430,7 +431,7 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
                  {"ACNT_PRDT_CD", config_.account_type},
                  {"KRX_FWDG_ORD_ORGNO", krx_forwarding_org_no},
                  {"ORGN_ODNO", orig_odno},
-                 {"ORD_DVSN", kis_amend_order_division(session)}, // 원주문과 같은 구분 — 정규장 00 · 애프터 41
+                 {"ORD_DVSN", kis_amend_order_division(session)}, // 지금 구간으로 정한다 — 애프터 41 · 그 밖 00
                  {"RVSE_CNCL_DVSN_CD", "01"},                     // 01=정정
                  {"ORD_QTY", std::to_string(new_quantity)},            // 정정 수량
                  {"ORD_UNPR", std::to_string(static_cast<int>(new_price))},    // 정정 단가

@@ -1,5 +1,5 @@
 // api/KisAuth.cpp — OAuth2 토큰 발급·캐시·만료 전 재발급. access_token_은 token_mutex_ 아래에서만 읽고 쓰고,
-//  발급 HTTP 왕복은 refresh_mtx_만 쥔 채 돈다. [why D-073]
+//  발급 HTTP 왕복은 refresh_mutex_만 쥔 채 돈다. [why D-073]
 //  [why D-048] 파일 분할 경위.
 #include "KisClientInternal.h"
 #ifdef _WIN32
@@ -75,10 +75,10 @@ void KisClient::ensure_authenticated()
 
 bool KisClient::refresh_token(std::chrono::seconds margin)
 {
-    // [lock-order] refresh_mutex_ → token_mutex_. 발급은 refresh_mtx_가 직렬화하고, 안에서 만료를 다시 봐
-    //  만료창에 같이 들어온 스레드는 첫 발급 뒤 건너뛴다. HTTP 왕복(수백 milliseconds~수 초) 동안 token_mtx_는
+    // [lock-order] refresh_mutex_ → token_mutex_. 발급은 refresh_mutex_가 직렬화하고, 안에서 만료를 다시 봐
+    //  만료창에 같이 들어온 스레드는 첫 발급 뒤 건너뛴다. HTTP 왕복(수백 milliseconds~수 초) 동안 token_mutex_는
     //  잡지 않으므로 다른 스레드의 token()·헤더 조립은 옛 토큰으로 바로 나간다 — 옛 토큰은 margin 안까지
-    //  유효하다. 예전엔 token_mtx_를 왕복 내내 쥐어 그 사이 전략·데이터·주문 스레드가 전부 섰다. [why D-073]
+    //  유효하다. 예전엔 token_mutex_를 왕복 내내 쥐어 그 사이 전략·데이터·주문 스레드가 전부 섰다. [why D-073]
     std::lock_guard<std::mutex> refresh_lock(refresh_mutex_);
 
     if (!token_expiring(margin))

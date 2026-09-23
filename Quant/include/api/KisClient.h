@@ -109,7 +109,7 @@ public:
     //   반환: 최신→과거(result[0]=최신), 최대 count봉. interval_min=1이면 1분봉 그대로.
     std::vector<MarketData> get_minute_ohlcv(const std::string& ticker, int count, int interval_min = 3) override;
     // 지정 날짜(과거일 포함)의 분봉 → interval_min 집계봉. TR FHKST03010230.
-    //   당일 분봉 TR은 날짜 인자가 없어 오늘에 갇힌다. 이쪽은 1콜에 1분봉 120개(=130분)를 준다.
+    //   당일 분봉 TR은 날짜 인자가 없어 오늘에 갇힌다. 이쪽은 1콜에 1분봉 120개(=120분)를 준다.
     //   end_hhmmss에서 과거로 역페이징. 반환: 최신→과거(result[0]=최신), 최대 count봉.
     //   라이브 신호용이 아니라 과거 분봉 캐시·오프라인 백테스트 입력용이다(docs/DECISIONS.md D-004).
     std::vector<MarketData> get_daily_minute_ohlcv(const std::string& ticker,
@@ -119,7 +119,8 @@ public:
     double get_current_price(const std::string& ticker) override;
     Fundamentals get_fundamentals(const std::string& ticker);
     bool send_order(const OrderSignal& signal);
-    // 주문 3메서드는 단일 order_thread에서만 호출된다. 실패 사유는 반환값 err_code에 있다(D-039).
+    // submit·revise는 order_thread가 부른다. cancel_order는 OrderRouter의 재조회·오래된 주문 정리 스레드도 부른다.
+    //  실패 사유는 반환값 error_code에 있다(D-039).
     // MM-1: 신규 주문 + KRX 조직번호(정정/취소용) 캡처
     [[nodiscard]] OrderAck submit_order_acknowledgement(const OrderSignal& signal) override;
     // MM-1: 국내 미체결 취소 (order-rvsecncl). 성공 시 kis_order_no=취소접수번호
@@ -129,7 +130,7 @@ public:
     [[nodiscard]] OrderAck revise_order(const std::string& ticker, const std::string& orig_odno,
                                         const std::string& krx_forwarding_org_no, int new_quantity, double new_price) override;
     [[nodiscard]] bool is_paper() const noexcept override { return config_.is_paper; }
-    // 미체결(정정취소 가능) 예약주문 조회 — inquire-psbl-rvsecncl (모의 VTTC0084R / 실전 TTTC0084R)
+    // 미체결(정정취소 가능) 예약주문 조회 — 실전 inquire-psbl-rvsecncl(TTTC0084R), 모의는 VTTC0081R(inquire-daily-ccld)
     [[nodiscard]] std::vector<OpenOrder> get_open_orders() override;
     [[nodiscard]] std::uint64_t rate_limit_wait_ns_this_thread() const noexcept override { return rate_wait_ns_this_thread(); }
     // 잔고 — inquire-balance(모의 VTTC8434R / 실전 TTTC8434R). 연속조회로 보유 전 페이지를 합친다.
@@ -295,7 +296,7 @@ private:
 
     KisConfig config_;
     // 토큰 상태(access_token_/token_expires_at_)는 전략·데이터·주문·제어 스레드가 같은 인스턴스를 공유한다.
-    //  token_mtx_는 그 두 멤버의 읽기·쓰기만 지키고(몇 줄), 발급 HTTP 왕복은 refresh_mtx_가 직렬화한다.
+    //  token_mutex_는 그 두 멤버의 읽기·쓰기만 지키고(몇 줄), 발급 HTTP 왕복은 refresh_mutex_가 직렬화한다.
     //  [lock-order] refresh_mutex_ → token_mutex_. [why D-073]
     mutable std::mutex token_mutex_;
     std::mutex         refresh_mutex_;

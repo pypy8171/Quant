@@ -5,7 +5,8 @@
 
 // 주문·취소·정정 한 번의 결과. 성공이면 kis_order_no, 실패면 error_code — 한 값에 둘 다 있어
 //  호출자가 부채널을 다시 묻지 않는다(D-039).
-// [inv] ok() == !kis_order_no.empty(). 실패면 err_code가 비지 않는다(KIS msg_cd 또는 kis_error::kTransport·kUnknown).
+// [inv] ok() == !kis_order_no.empty(). 실패면 error_code가 비지 않는다 — KIS msg_cd, 또는 자체 코드
+//  kis_error::kTransport·kUnknown·kLedgerWriteFailed, "E_NO_ORIG_ODNO"(Quant/src/api/KisOrder.cpp), "E_UNSUPPORTED"(아래 기본 구현).
 struct OrderAck
 {
     std::string kis_order_no;      // KIS 접수번호 (ODNO). 취소·정정은 그 접수번호
@@ -38,7 +39,7 @@ public:
     virtual ~IOrderExecutor() = default;
 
     // 신규 주문. ODNO와 KRX 조직번호(정정/취소에 필요)를 캡처한다. 실패면 ok()가 false이고
-    //  err_code에 사유가 있다. 결과를 버리면 컴파일러가 알린다 — 접수 여부를 모른 채 넘어가는 경로가 없게.
+    //  error_code에 사유가 있다. 결과를 버리면 컴파일러가 알린다 — 접수 여부를 모른 채 넘어가는 경로가 없게.
     [[nodiscard]] virtual OrderAck submit_order_acknowledgement(const OrderSignal& signal) = 0;
 
     // 미체결 취소 (order-rvsecncl, RVSE_CNCL_DVSN_CD="02"). 성공 시 kis_order_no=취소접수번호.
@@ -60,8 +61,8 @@ public:
         return OrderAck::fail("E_UNSUPPORTED");
     }
 
-    // 모의투자 서버 여부. 모의는 정정취소가능조회(inquire-psbl-rvsecncl) 등 일부 거래코드(TR)를
-    //  미지원("없는 서비스 코드")이라, 호출부가 그 경로(청산차단 자가정리)를 건너뛰도록 노출한다. 기본 false(실전).
+    // 모의투자 서버 여부. 모의도 get_open_orders는 동작한다(VTTC0081R, D-101). is_paper는 OrderRouter가
+    //  모의에서 브로커 대신 라우터 이력을 쓰는 분기(청산차단 예약매도 찾기·기동 시 주문 복원)에 쓴다. 기본 false(실전).
     [[nodiscard]] virtual bool is_paper() const noexcept { return false; }
 
     // 미체결(정정취소 가능) 예약주문 조회 (inquire-psbl-rvsecncl). 기본은 빈 목록.

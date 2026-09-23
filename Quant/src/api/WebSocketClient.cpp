@@ -1,6 +1,6 @@
 // api/WebSocketClient.cpp — KIS 실시간 WebSocket 클라이언트의 플랫폼 독립 부분.
 //  연결·재연결·백오프·구독 복원·프레임 파싱이 한 벌이고, 소켓 자체는 WsSocket(WsSocketWin/WsSocketPosix)이 맡는다.
-//  스레드: recv_loop 전용 스레드가 sock_를 소유하고 바꾼다. data_thread는 send_text(send_mutex_)만 지난다. [why D-049]
+//  스레드: recv_loop 전용 스레드가 socket_를 소유하고 바꾼다. data_thread는 send_text(send_mutex_)만 지난다. [why D-049]
 #include "api/KisEndpoints.h"
 #include "api/KisWebSocket.h"
 #include "WsSocket.h"
@@ -108,7 +108,7 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specifications)
     }
 
     // 구 수신 스레드가 자체 종료(connected_=false)로 join되지 않은 채 남아 있을 수 있다.
-    // joinable 상태에서 재대입하면 std::terminate → 재대입 전 반드시 reap. sock_도 그 스레드가 만지므로 그 뒤에 바꾼다.
+    // joinable 상태에서 재대입하면 std::terminate → 재대입 전 반드시 reap. socket_도 그 스레드가 만지므로 그 뒤에 바꾼다.
     if (recv_thread_.joinable())
     {
         recv_thread_.join();
@@ -138,7 +138,7 @@ void KisWebSocket::send_text(const std::string& message)
     }
 }
 
-// [inv] sock_는 이 스레드가 바꾼다. connect()는 스레드를 띄우기 전, disconnect()는 join한 뒤에만 만지므로
+// [inv] socket_는 이 스레드가 바꾼다. connect()는 스레드를 띄우기 전, disconnect()는 join한 뒤에만 만지므로
 //       여기서 락 없이 읽어도 된다. data_thread의 send_text와는 교체·close를 send_mutex_ 아래서 해서 갈린다.
 void KisWebSocket::recv_loop(std::stop_token stop_token)
 {
@@ -172,7 +172,7 @@ void KisWebSocket::recv_loop(std::stop_token stop_token)
         // 충분히 오래(≥5s) 유지된 연결이 끊긴 것이면 일시 장애로 보고 백오프 리셋 후
         // 빠르게 재시도. 즉시 죽는 연결(=서버가 appkey 세션 미해제/off-hours abort)은
         // 지수적으로 물러서서 서버가 직전 세션을 놓을 시간을 준다. 직전 재연결이 실패해
-        // sock_가 비어 있으면 conn_start가 방금이라 리셋되지 않는다 — 의도한 동작.
+        // socket_가 비어 있으면 connection_start가 방금이라 리셋되지 않는다 — 의도한 동작.
         if (std::chrono::steady_clock::now() - connection_start > std::chrono::seconds(5))
         {
             retry_sec = 1;
@@ -748,7 +748,8 @@ void KisWebSocket::dispatch_record(std::string_view transaction_id, kis_websocke
 }
 
 // ─── 채널 파서 ─────────────────────────────────────────────────────────
-// 필드 위치·최소 길이·숫자 변환은 api/KisWsDecode.h(헤더 전용, 테스트 대상)가 갖는다.
+// 필드 위치·최소 길이·숫자 변환은 디코더가 갖는다(테스트 대상) — Quant/include/api/KisWsDecode.h에 선언,
+//  Quant/src/api/KisWsDecode.cpp에 구현.
 // 여기는 진단 로그와 콜백 호출만 남긴다. [why D-037]
 
 // 채널별 첫 수신 레코드를 한 번만 통째로 찍는다. 전문 필드 순서를 실데이터로 확인하는 용도라
@@ -820,7 +821,7 @@ void KisWebSocket::parse_kr_trade(kis_websocket::Fields fields)
     }
 }
 
-// tr_key 형식: "NAS|AAPL" → ticker = "AAPL". 방향 필드 f[20]은 실데이터 미검증(보류 목록).
+// fields[0]을 그대로 ticker로 쓴다(거래소 접두어를 떼는 변환은 없다). 방향 필드 f[20]은 실데이터 미검증(보류 목록).
 void KisWebSocket::parse_us_trade(kis_websocket::Fields fields)
 {
     static bool first_us_logged = false;

@@ -6,7 +6,7 @@
 //  하드코딩 리스트 externalize — 외부 JSON에서 로드, 부재·오류 시 내장 폴백.
 //  프로젝트 패턴(universe_scan.json)과 동일: ifstream + 파싱 + LOG_WARN 폴백.
 //  파일 위치: 환경변수 $QUANT_CONFIG_DIR, 미설정 시 기본 "Quant/config".
-//  폴백은 아래 내장 상수와 동일하므로 파일이 없어도 동작은 바이트 동일.
+//  파일이 없으면 아래 내장 폴백을 쓴다. Quant/config/etf_prefixes.json(32개)이 폴백(24개)보다 많다 — 파일이 정본.
 // ═══════════════════════════════════════════════════════════════════════════
 namespace
 {
@@ -176,7 +176,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking_page(const std:
         // KOSPI 보통주 티커는 반드시 6자리 숫자
         auto is_normal_ticker = [](const std::string& ticker) { return symbol::is_korean_ticker(ticker); };
 
-        // API 응답 키: "output" (단일 배열)
+        // API 응답 키: "output2"가 있으면 그것을, 없으면 "output"
         auto& array = document.contains("output2") ? document["output2"] : document["output"];
         int drop_etf = 0, drop_ticker = 0; // 진단: raw 행이 어디서 새는지 계측
 
@@ -634,12 +634,12 @@ std::vector<std::string> KisClient::fetch_universe_by_pbr(double max_pbr, const 
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  미국 Universe — 내장 S&P 500 주요 100종목 + 3일 하락 필터
+//  미국 Universe — 내장 73종목(NASDAQ 30·NYSE 43)에 PBR 필터만 건다(하락 필터는 없다)
 //  PBR은 KIS 해외주식 API에서 미제공 시 스킵 (pbr_max=0 → PBR 조건 무시)
 // ═══════════════════════════════════════════════════════════════════════════
 std::vector<std::string> KisClient::fetch_us_universe_by_pbr(double max_pbr, const std::string& exchange)
 {
-    // S&P 500 핵심 100종목 (가치주·성장주 혼합) — 외부 us_universe.json {"nasdaq","nyse"} 로드/폴백
+    // 대형주 73종목(NASDAQ 30·NYSE 43) — 외부 us_universe.json {"nasdaq","nyse"} 로드/폴백
     static const std::vector<std::string> NAS_LIST =
         load_string_list("us_universe.json", "nasdaq", US_NAS_FALLBACK, "US NASDAQ 유니버스");
     static const std::vector<std::string> NYS_LIST =

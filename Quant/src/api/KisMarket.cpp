@@ -313,7 +313,7 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
 
 // 지정 날짜(과거일 포함)의 분봉. TR FHKST03010230 (inquire-time-dailychartprice).
 //  당일 분봉 TR(FHKST03010200)은 날짜 인자가 없어 오늘에 갇힌다. 이 TR은 FID_INPUT_DATE_1을 받아
-//  과거 날짜를 조회할 수 있고 1콜에 1분봉 120개(=130분)를 준다.
+//  과거 날짜를 조회할 수 있고 1콜에 1분봉 120개(=120분)를 준다.
 //  주의: 이 TR의 output1은 요청 날짜가 아니라 실시간 현재 스냅샷이라 쓰지 않는다. output2만 쓴다.
 std::vector<MarketData> KisClient::get_daily_minute_ohlcv(const std::string& ticker,
                                                           const std::string& yyyymmdd,

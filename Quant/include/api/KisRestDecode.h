@@ -1,6 +1,7 @@
 #pragma once
 // KIS REST 응답(JSON) → 값 타입. 분봉 → MarketData 집계봉, 잔고 → AccountBalance, 선물 전광판 → FutureContract.
-// 헤더 전용·순수 함수. 로그·HTTP·인증 의존이 없어 테스트(`Quant/tests/test_kis_decode.cpp`)가 KisClient를
+// 순수 함수. 선언은 여기, 구현은 Quant/src/api/KisRestDecode.cpp. [why D-118]
+// 로그·HTTP·인증 의존이 없어 테스트(`Quant/tests/test_kis_decode.cpp`)가 KisClient를
 // 링크하지 않고 직접 부른다. 호출 스레드: 데이터 스레드(KisClient::get_minute_ohlcv*·get_balance)와 테스트.
 // 관련 결정: D-051(분봉), D-059(잔고·전광판).
 //

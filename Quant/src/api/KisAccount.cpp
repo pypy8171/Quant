@@ -102,11 +102,11 @@ KisResult<AccountBalance> KisClient::get_balance()
 
 // ─── 미체결(정정취소 가능) 예약주문 조회 — inquire-psbl-rvsecncl ─────────────
 //  장중 청산이 40240000(주문가능분 없음)으로 막힐 때, 그 종목의 예약매도를 찾아
-//  취소→재매도로 자가정리하기 위한 조회. (모의: VTTC0084R / 실거래: TTTC0084R)
-//  응답 output(array) 필드는 소문자: kis_order_no·ord_gno_brno·pdno·prdt_name·psbl_qty·
+//  취소→재매도로 자가정리하기 위한 조회. (실거래: TTTC0084R / 모의는 VTTC0081R(inquire-daily-ccld))
+//  주문번호는 odno(ODNO), 행 배열은 모의 output1·실전 output. 필드는 소문자: ord_gno_brno·pdno·prdt_name·psbl_qty·
 //  ord_unpr·sll_buy_dvsn_cd(01매도/02매수). 수량·단가는 문자열이라 파싱 가드.
 //  잔고처럼 ctx_area(FK/NK)로 페이지네이션한다.
-// 오늘 날짜 YYYYMMDD. 모의계좌 미체결 조회가 조회구간을 요구해서 쓴다.
+// 오늘(로컬 시각 기준 — 운영 PC가 KST라 같다) 날짜 YYYYMMDD. 모의계좌 미체결 조회가 조회구간을 요구해서 쓴다.
 static std::string today_yyyymmdd()
 {
     const std::time_t now = std::time(nullptr);

@@ -291,7 +291,8 @@ namespace
 
 // provider·대칭키 핸들을 recv_loop 스레드마다 하나씩 들고 있는다 — 매 프레임(초당 수백 건)마다
 //  BCryptOpenAlgorithmProvider/BCryptGenerateSymmetricKey를 다시 부르지 않는다. thread_local인 이유는
-//  D-071에서 소켓당 스레드가 N개로 늘 것이므로 정적 하나를 공유하면 레이스가 나기 때문.
+//  KisWebSocket마다 recv 스레드가 하나씩 있고 FeedMux로 여러 개가 함께 돌므로, 정적 하나를 공유하면
+//  레이스가 나기 때문(D-071).
 struct AesDecryptState
 {
     BCRYPT_ALG_HANDLE algorithm_handle = nullptr;

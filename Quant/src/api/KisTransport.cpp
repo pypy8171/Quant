@@ -1,6 +1,7 @@
 // api/KisTransport.cpp — HTTP 전송 한 겹: 플랫폼별 요청(WinHTTP/libcurl)·재시도·초당 한도·공용 인증 헤더.
 //  모든 REST 호출은 http_get/http_post를 지난다. 스레드 공용(연결은 스레드별 캐시, 한도 버킷은 rate_mutex_).
-//  KisClient 구현은 도메인별 7파일이다 — 목록은 Quant/src/api/KisClientInternal.h. [why D-048]
+//  KisClient 멤버 구현은 도메인별 7파일이다(목록 Quant/src/api/KisClientInternal.h). 자유 함수는
+//  Quant/src/api/KisClient.cpp. [why D-048]
 #include "KisClientInternal.h"
 
 #include "api/HttpGet.h"
@@ -9,7 +10,7 @@
 // 재시도 없이 즉시 실패 스코프 깊이(스레드별). 0보다 크면 조회 재시도를 하지 않는다.
 static thread_local int g_fastfail_depth = 0;
 // 직전 단발 시도가 "서버가 제한 시간 안에 답을 안 준" 실패였는가(WinHTTP 12002·curl 28). 재시도 래퍼가 읽는다.
-//  이 실패는 이미 수신 제한 시간(15초)만큼 기다린 뒤라 다시 보내면 또 그만큼 걸린다 — 09-18 모의 서버가 잔고
+//  이 실패는 이미 수신 제한 시간(WinHTTP 15초, curl 10초)만큼 기다린 뒤라 다시 보내면 또 그만큼 걸린다 — 09-18 모의 서버가 잔고
 //  조회에 195번 이렇게 답했고 재시도 3회가 한 조회를 45초 넘게 붙잡았다. 다른 전송 실패(빈 응답 12152·연결 끊김)는
 //  바로 다시 보내면 대개 붙으므로 재시도를 유지한다.
 static thread_local bool g_last_attempt_timed_out = false;
@@ -64,7 +65,8 @@ static void emit_header_lines(const std::vector<std::string>& headers, const Hea
 
 // 초당 호출 한도 초과 신호. KIS는 이걸 HTTP 500으로도 돌려줘서 상태코드만으로는 일시 서버
 //  장애와 구분이 안 된다 — 바디의 코드로 가른다. 한도 초과에 즉시 재시도하면 호출량을 1→3배로
-//  늘려 초과를 더 키운다(양의 되먹임). 한도 창이 1초라 150·300ms 백오프도 같은 창 안에 떨어진다.
+//  늘려 초과를 더 키운다(양의 되먹임). 한도 창이 1초라 한도 초과에는 1100ms를 쉬어
+//  다음 창으로 넘긴다(일반 재시도 백오프 500·1000ms는 같은 창 안에 떨어질 수 있다).
 static bool is_rate_limited(const std::string& body)
 {
     return body.find("EGW00201") != std::string::npos ||
@@ -393,7 +395,7 @@ static size_t write_callback(char* pointer, size_t size, size_t nmemb, std::stri
 //  easy 핸들은 자기 연결 캐시를 들고 있으므로 상주시키고 curl_easy_reset()만 하면 같은 호스트에 재사용된다
 //  (reset은 옵션만 지우고 살아 있는 연결·DNS 캐시는 남긴다). 스레드별 소유라 락이 없다.
 //  전송 계층 실패 시 핸들을 파기해 다음 호출이 새 연결을 맺는다(끊긴 keep-alive 복구).
-//  [why D-119] `_private/PROJECT_FACTS.md` P-2("커넥션 풀링, 450표본에서 지연 이득 없음")과는 대상이 다르다 —
+//  [why D-119] `.claude/PROJECT_FACTS.md` P-2("커넥션 풀링, 450표본에서 지연 이득 없음")과는 대상이 다르다 —
 //  그 측정은 이미 재사용하던 윈도우 WinHTTP에 풀을 더 얹고 재었던 것이고, 여기는 재사용 자체가 없던 것을 넣는다.
 namespace
 {
@@ -642,7 +644,7 @@ void KisClient::rate_limit_acquire(const std::string& url)
 void KisClient::note_rate_limited()
 {
     std::lock_guard<std::mutex> lock(rate_mutex_);
-    rate_tokens_ = 0.0; // 다음 호출은 리필을 기다린다(≈1초치)
+    rate_tokens_ = 0.0; // 다음 호출은 리필을 기다린다(모의 기준 ≈1초, 실전은 ≈0.13초)
 }
 
 std::string KisClient::http_get(const std::string& url, const std::vector<std::string>& headers)

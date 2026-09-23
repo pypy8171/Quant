@@ -1,6 +1,7 @@
 #pragma once
 // KIS 실시간 채널 레코드(`^`로 나눈 필드 뷰) → 구조체 디코더.
-// 헤더 전용·순수 함수. 로그·소켓·암호 의존이 없어 테스트가 플랫폼 링크 없이 직접 부른다.
+// 순수 함수. 선언만 두고 구현은 Quant/src/api/KisWsDecode.cpp. [why D-118]
+// 로그·소켓·암호 의존이 없어 테스트가 플랫폼 링크 없이 직접 부른다.
 // 호출 스레드: WS 수신 스레드(KisWebSocket::parse_*)와 테스트. 관련 결정: D-037, D-042.
 //
 // 필드는 원문 버퍼를 가리키는 string_view다 — 프레임 한 장에 std::string 40~50개를 만들던 것을
@@ -63,7 +64,7 @@ enum class Decode
 constexpr size_t kMinFieldsOrderbook    = 38; // BIDP_RSQN5 = f[37]
 constexpr size_t kMinFieldsKrTrade      = 22; // 체결구분 = f[21]
 constexpr size_t kMinFieldsUsTrade      = 9;  // 체결량 = f[8]
-constexpr size_t kMinFieldsFutTrade     = 19; // 미결제약정 = f[18]
+constexpr size_t kMinFieldsFutTrade     = 19; // H0IFCNT0 레코드 길이 가드. 지금 읽는 마지막 인덱스는 f[9]
 constexpr size_t kMinFieldsFutOrderbook = 32; // 매수잔량5 = f[31]
 constexpr size_t kMinFieldsFill         = 14; // CNTG_YN = f[13] — 체결 한 건을 만드는 데 꼭 있어야 하는 폭
 
@@ -140,7 +141,8 @@ Decode decode_kr_trade(Fields fields, TradeData& trade);
 Decode decode_us_trade(Fields fields, TradeData& trade);
 
 // ─── 국내 선물 체결 (H0IFCNT0) ───────────────────────────────────────────
-// [wire] [0]종목코드 [1]체결시각 [5]현재가 [9]단위체결량 [10]누적거래량 [18]미결제약정. 방향 코드가 없어 direction=0.
+// [wire] 읽는 필드: [0]종목코드 [1]체결시각 [5]현재가 [9]단위체결량. [10]누적거래량·[18]미결제약정은 읽지 않는다.
+//  방향 코드가 없어 direction=0.
 Decode decode_future_trade(Fields fields, TradeData& trade);
 
 // ─── 국내 선물 호가 (H0IFASP0) ───────────────────────────────────────────
