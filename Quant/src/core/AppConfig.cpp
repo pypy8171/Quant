@@ -261,6 +261,14 @@ AppConfig parse_config(const json& document, const std::string& mode_override)
     {
         app.quote_kis = parse_quote_kis(document["quote_kis"], app.kis);
     }
+    else if (!app.kis.is_paper)
+    {
+        // 실계좌는 주문 키가 곰 실전 키다 — 시세용을 따로 적을 이유가 없다. 모의계좌만 시세가 막혀
+        //  있어 quote_kis 로 실전 키를 하나 더 받는다. 이 갈래가 없던 탓에 2026-09-23 실계좌 첫날
+        //  유니버스 스캔이 "quote_kis(실전 시세 키) 미설정"으로 통째 건너뛰었고, 그 탓에 구독 종목이
+        //  0개가 돼 WS 자체가 안 열려 체결통보까지 못 받았다. [why D-097]
+        app.quote_kis = app.kis;
+    }
 
     parse_risk(document, app);
 

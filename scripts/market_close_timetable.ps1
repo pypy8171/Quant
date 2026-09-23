@@ -48,7 +48,7 @@ elseif (-not $Config)
 if (-not $Mode)
 {
     $configPath = if ([IO.Path]::IsPathRooted($Config)) { $Config } else { Join-Path $repo $Config }
-    $paper = [bool](Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json).kis.is_paper
+    $paper = [bool](Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json).kis.is_paper
 }
 
 $modeLabel = if ($paper) { '모의' } else { '실계좌' }

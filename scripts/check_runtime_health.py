@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import datetime as dt
 import gzip
 import json
@@ -469,6 +470,117 @@ def tsan_row(date: str) -> tuple:
             f"{finished} 회차 (커밋 {commit}, {minutes}분): 테스트 {tests_total - tests_failed}/{tests_total}, "
             f"경합 보고 {races}건, 그 뒤 동시성 코드 변경 "
             + (f"{stale}건" if stale >= 0 else "셀 수 없음"))
+
+
+# 애프터마켓 주문을 되돌려보낸 KIS 오류. 주문구분·거래소를 잘못 실으면 이 코드로 온다.
+#   APBK1943 최유리지정가호가불가 — 애프터마켓은 최유리·최우선을 안 받는다
+#   APBK3009 SOR 시장에서 거래가 불가능한 종목 — 애프터마켓은 거래소를 KRX 로 못박아야 한다
+AFTER_MARKET_REJECT_CODES = ("APBK1943", "APBK3009")
+AFTER_MARKET_OPEN_HHMM = "16:00"
+AFTER_MARKET_CLOSE_HHMM = "20:00"
+
+
+def after_market_order_row(date: str) -> tuple:
+    """애프터마켓(16:00~20:00) 주문이 주문구분·거래소 때문에 되돌아왔는지.
+
+    모의계좌는 애프터마켓 주문 자체를 받지 않아, 이 경로는 실계좌에서만 드러난다. 2026-09-23
+    실계좌 첫날 청산 주문 12건이 이 자리에서 전부 거부됐다 — 최유리지정가(03)로 8건, 거래소를
+    SOR 로 둔 지정가(00)로 4건. 보유분이 청산되지 않고 다음 날로 이월된다. [why D-097]
+    원장은 한 곳이 아니다 — 실계좌·모의·리눅스 빌드가 저마다 폴더를 쓰므로 전부 훑는다.
+    """
+    name = "애프터마켓 주문구분"
+    date_compact = date.replace("-", "")
+    rejects: list[str] = []
+    after_market_orders = 0
+
+    for ledger in sorted(REPO.glob(f"Quant/build*/logs*/trades_{date_compact}.csv")):
+        try:
+            with ledger.open(encoding="utf-8", errors="replace", newline="") as handle:
+                for record in csv.DictReader(handle):
+                    stamp = (record.get("ts_kst") or "")[11:16]
+
+                    if not AFTER_MARKET_OPEN_HHMM <= stamp < AFTER_MARKET_CLOSE_HHMM:
+                        continue
+
+                    after_market_orders += 1
+                    reason = record.get("reason") or ""
+
+                    if any(code in reason for code in AFTER_MARKET_REJECT_CODES):
+                        rejects.append(f"{stamp} {record.get('ticker', '')} [{ledger.parent.name}]")
+        except OSError:
+            continue
+
+    if not after_market_orders:
+        return (name, True, "WARN", "애프터마켓 시간대 주문이 없다 — 판정 안 함")
+
+    if rejects:
+        return (name, False, "FAIL",
+                f"애프터마켓 주문 {after_market_orders}건 중 주문구분·거래소 거부 {len(rejects)}건"
+                f" — {', '.join(rejects[:3])}"
+                " (16:00~20:00 은 주문구분 41 + 거래소 KRX 여야 한다, D-097)")
+
+    return (name, True, "FAIL", f"애프터마켓 주문 {after_market_orders}건, 주문구분·거래소 거부 0건")
+
+
+def fill_notice_session_row(date: str) -> tuple:
+    """체결통보 세션이 붙었는지. 없으면 체결이 원장에 안 실린다.
+
+    2026-09-23 실계좌 첫날, 설정에 quote_kis 가 없어 유니버스 스캔이 통째 건너뛰었고,
+    구독 종목이 0개라 WS 자체가 안 열려 체결통보까지 끈겼다. 그 탓에 16:59 청산 체결이
+    원장에 안 실리고, 잔고 대조가 보유를 지우는(PRUNE) 것으로 끝났다 — 손익 귀속이 통째 비었다.
+    기동 로그 한 줄로 드러나므로 그걸 본다. [why D-097]
+    """
+    name = "체결통보 세션"
+    missing: list[str] = []
+    attached = 0
+
+    for engine_log in sorted(REPO.glob("Quant/build*/logs*/quant_trader.log")):
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        # 기동 하나를 "WS 구독 종목" 줄로 끊는다. 그 뒤에 "체결통보 세션" 줄이 아예
+        #  안 나오면 WS 를 안 열었다는 뜻이다 — 그 갈래가 조용했던 탓에 09-23 실계좌 기동
+        #  다섯 번이 통보 없이 돌았는데도 판정이 통과했다. 이제 엔진이 그 줄을 남기지만
+        #  지나간 날 로그에는 없어 순서로도 가른다. 한 파일 안에 옆 엔진과 새 엔진의 기동이
+        #  섞여 있어(09-23 모의는 13:29부터 새 exe) 파일 단위로는 가를 수 없다.
+        pending_start = ""
+
+        for line in body.splitlines():
+            if date not in line:
+                continue
+
+            if "WS 구독 종목" in line:
+                if pending_start:
+                    missing.append(f"{pending_start} [{engine_log.parent.name}]")
+
+                # 구독이 한 종목이라도 있으면 WS 는 열렸다 — 문제는 0개일 때였다.
+                pending_start = line[11:19] if "0개" in line else ""
+                continue
+
+            if "체결통보 세션" not in line:
+                continue
+
+            pending_start = ""
+
+            if "없음" in line:
+                missing.append(f"{line[11:19]} [{engine_log.parent.name}]")
+            else:
+                attached += 1
+
+        if pending_start:
+            missing.append(f"{pending_start} [{engine_log.parent.name}]")
+
+    if not attached and not missing:
+        return (name, True, "WARN", f"{date} 기동 로그가 없다 — 판정 안 함")
+
+    if missing:
+        return (name, False, "FAIL",
+                f"체결통보 없이 둔 기동 {len(missing)}회 — {', '.join(missing[:3])}"
+                " (체결이 원장에 안 실려 손익 귀속이 비고, 잔고 대조가 보유를 지운다, D-097)")
+
+    return (name, True, "FAIL", f"기동 {attached}회 모두 체결통보 세션을 잡았다")
 
 
 def market_open_gate_row(date: str) -> tuple:
@@ -1166,6 +1278,8 @@ def collect(date: str, log: Path, since: int = 0):
         queue_latency_row(date),
         order_latency_breakdown_row(date),
         market_open_gate_row(date),
+        after_market_order_row(date),
+        fill_notice_session_row(date),
         job_attach_row(date),
         *orphan_process_rows(),
         tsan_row(date),

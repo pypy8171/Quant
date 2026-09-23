@@ -1082,8 +1082,16 @@ void Engine::connect_feed()
     //  허용하는데, 세션 정리가 서버측에 걸려 rt=9(ALREADY IN USE) 재연결 폭주가 나므로
     //  체결 피드를 REST 현재가 폴링(data_thread_fn)으로 대체하고 WS 의존을 제거한다.
     //  주문은 REST(order_thread_fn)로 나가므로 매매에는 영향 없음(체결통보 on_fill만 없음).
-    if (feed_.rest_price_feed || watch_specifications_.empty())
+    //  구독할 종목이 없어도 hts_id 가 있으면 열어둔다 — 체결통보(H0STCNI)는 종목 구독과
+    //  별개라, 유니버스가 비었다고 닫아버리면 이월 보유분을 청산하는 주문의 체결을 못 듣고
+    //  원장이 빈다. 2026-09-23 실계좌 첫날 청산 체결이 이렇게 사라졌다. [why D-097]
+    if (feed_.rest_price_feed || (watch_specifications_.empty() && kis_config_.hts_id.empty()))
     {
+        // 안 열었다는 것도 남긴다 — 이 줄이 없으면 건강 점검은 체결통보가 끈겼는지를 못 가른다.
+        LOG_INFO(std::string("[Engine] 체결통보 세션: 없음(") +
+                 (feed_.rest_price_feed ? "REST 시세 모드라 WS를 열지 않는다"
+                                        : "구독 종목 0개·hts_id 비었다") +
+                 ")");
         return;
     }
 

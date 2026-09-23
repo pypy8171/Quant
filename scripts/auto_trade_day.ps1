@@ -48,8 +48,12 @@ $env:KIS_TOKEN_CACHE_DIR = Join-Path $Repo "Quant\config"
 # 한 기계에서 계좌를 둘 돌리는 날(모의 비교군 + 실계좌)에는 두 감시견이 상태 파일·실행 로그·
 #  엔진 로그 폴더를 공유해 서로를 덮어썼다. config `instance`가 있으면 그 이름을 전부에 붙인다.
 #  없으면 예전 이름 그대로 — 계좌 하나만 돌리는 날은 아무것도 안 바뀐다. [why D-122]
+# config 를 읽을 때는 -Encoding UTF8 을 반드시 붙인다. PowerShell 5.1 의 Get-Content 기본값은
+#  시스템 ANSI(한국어 Windows 는 cp949) 라, BOM 없는 UTF-8 인 config 의 한글 주석이 깨지면서
+#  닫는 따옴표가 사라져 ConvertFrom-Json 이 통째로 실패한다. 2026-09-23 실계좌 첫 기동이
+#  config_live.json 의 "//risk_100만" 키에서 이걸로 막혔다. 이 파일의 JSON 읽기 전부가 같다.
 $Instance = ""
-try { $Instance = [string](Get-Content $Config -Raw | ConvertFrom-Json).instance } catch { }
+try { $Instance = [string](Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).instance } catch { }
 $Suffix = if ($Instance) { "_$Instance" } else { "" }
 
 $Exe     = Join-Path $Repo "Quant\build_win\quant_trader.exe"
@@ -375,7 +379,7 @@ function Get-TraderAccountKey([System.Diagnostics.Process]$traderProcess)
     {
       try
       {
-        $json = Get-Content $candidatePath -Raw | ConvertFrom-Json
+        $json = Get-Content $candidatePath -Raw -Encoding UTF8 | ConvertFrom-Json
 
         if ($json.replay_file) { return $null }
 
@@ -400,7 +404,7 @@ function Get-AccountKey($configJson)
 $myAccountKey = "?"
 try
 {
-  $myConfigJson = Get-Content $Config -Raw | ConvertFrom-Json
+  $myConfigJson = Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json
 
   if ($myConfigJson.kis.account_no) { $myAccountKey = Get-AccountKey $myConfigJson }
 }
@@ -467,7 +471,7 @@ if ($NoTrader) {
 # 모의를 실계좌로 잘못 읽는다 — 실제로 config_dev_paper는 quote_kis.is_paper=false다.
 # 설정을 못 읽으면 '모의'로 가정하지 않는다 — 실계좌 설정을 모의로 잘못 알고 띄우는 쪽이 더 위험하다.
 $paper = $null
-try { $paper = [bool](Get-Content $Config -Raw | ConvertFrom-Json).kis.is_paper } catch { }
+try { $paper = [bool](Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).kis.is_paper } catch { }
 if ($null -eq $paper) { Say "설정 $Config 에서 kis.is_paper 를 읽지 못했다 — 계좌 모드를 모른 채 띄우지 않는다." "ERROR"; exit 2 }
 Say ("계좌 모드: {0}" -f $(if ($paper) { "모의(is_paper=true)" } else { "실계좌(is_paper=false)" })) $(if ($paper) { "INFO" } else { "WARN" })
 
@@ -508,7 +512,22 @@ if (-not $NoUniverse)  {
   }
 }
 if (-not $NoPrices)    { Start-Window "quant-prices"    "& '$py' scripts\live_prices_feed.py" "live_prices_feed.py" }
-if (-not $NoDashboard) { Start-Window "quant-dashboard" "py scripts\dashboard_server.py" "dashboard_server.py" }
+if (-not $NoDashboard)
+{
+  # --config·--port 를 안 넘기면 dashboard_server.py 는 기본값(config_dev_paper.json·8787)을 읽는다.
+  #  실계좌 감시견이 띄워도 화면에는 모의 계좌가 뿌려지고, 두 감시견이 같은 8787 을 다투다(2026-09-23).
+  $dashboardPort = 0
+  try { $dashboardPort = [int](Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).dashboard_port } catch { }
+  if (-not $dashboardPort) { $dashboardPort = 8787 }
+  # --logs 도 같이 넘긴다. 이게 없으면 대시보드는 같은 날짜 원장 중 행 수가 많은 쪽을 고른다
+  #  (_logdir.find_ledger). 모의가 하루 종일 돌아 원장이 훨씬 크므로, 실계좌 화면에 모의의
+  #  실현손익·체결 건수가 뜨고 계좌 잔고만 실계좌이다(2026-09-23 실측).
+  $ledgerDirectory = ""
+  try { $ledgerDirectory = (Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).ledger_journal_dir } catch { }
+  $logsClause = if ($ledgerDirectory) { " --logs $ledgerDirectory" } else { "" }
+  Start-Window "quant-dashboard" "py scripts\dashboard_server.py --config $Config --port $dashboardPort$logsClause" "dashboard_server.py"
+  Say "  대시보드 http://127.0.0.1:$dashboardPort  ($Config)"
+}
 if (-not $NoNotify)    { Start-Window "quant-notify"    "& '$py' scripts\notify_trades.py --config $Config --interval 1800" "notify_trades.py" }
 # 네이티브 트레이더는 컨테이너가 아니라 ZMQ PUB(127.0.0.1:5555)만 낸다 — docker-compose의
 # quant-recorder는 quant-engine 컨테이너를 구독하므로 이 프로세스를 못 본다(D-090 후속).
@@ -523,10 +542,15 @@ if (-not $NoRecorder) {
   # --account: 이 계좌의 주문·체결만 받는다. Engine 을 그대로 띄우는 테스트·부하 하네스가 같은 5555에
   #  bind 하면 리코더가 그쪽을 잡아 합성 데이터가 운영 표에 섞인다(09-22 장중 실측).
   $recorderAccount = ""
-  try { $recorderAccount = (Get-Content $Config -Raw | ConvertFrom-Json).kis.account_no } catch { }
+  try { $recorderAccount = (Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).kis.account_no } catch { }
   if (-not $recorderAccount) { Say "config 에서 kis.account_no 를 못 읽었다 — 리코더 계좌 거르기 없이 띄운다." "WARN" }
   $recorderArgs = if ($recorderAccount) { "--account $recorderAccount" } else { "" }
-  Start-Window "quant-recorder"  "& '$py' PYQuant\main.py record --host localhost --port 5555 --record-ticks $recorderArgs" "main.py record"
+  # --port: 엔진이 PUB 을 여는 포트다. 실계좌는 모의 엔진과 bind 가 겹치지 않게 5565 로 옮겨 놓았으므로
+  #  (config_live.json 의 zmq_pub_port) 5555 를 박아 두면 실계좌 체결·틱이 DB 에 한 건도 안 들어간다.
+  $recorderPort = 0
+  try { $recorderPort = [int](Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).zmq_pub_port } catch { }
+  if (-not $recorderPort) { $recorderPort = 5555; Say "config 에서 zmq_pub_port 를 못 읽었다 — 기본 $recorderPort 로 띄운다." "WARN" }
+  Start-Window "quant-recorder"  "& '$py' PYQuant\main.py record --host localhost --port $recorderPort --record-ticks $recorderArgs" "main.py record"
   # 엔진 자원(CPU·메모리·스레드별 CPU·perf 함수 핫스팟) → 그라파나 ops. -NoTrader 날은 엔진이 WSL(Ubuntu-24.04)에
   # 있어 /proc를 그 배포판에서 읽고, Windows exe 날은 psutil로 본다.
   $procwatchArgs = if ($NoTrader) { "--wsl-distro Ubuntu-24.04" } else { "" }
@@ -534,7 +558,7 @@ if (-not $NoRecorder) {
   # 원장 저널 파일(D-113) → TimescaleDB 복제. 2초 주기로 꼬리를 따라가고, DB가 없으면 그냥 죽는다 —
   #  되살릴 때 안 읽은 구간부터 따라잡으므로 잃는 것이 없다. 폴더는 config의 ledger_journal_dir(엔진과 같은 곳).
   $ledgerDir = ""
-  try { $ledgerDir = (Get-Content $Config -Raw | ConvertFrom-Json).ledger_journal_dir } catch { }
+  try { $ledgerDir = (Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).ledger_journal_dir } catch { }
   if (-not $ledgerDir) { $ledgerDir = "Quant\build_win\logs"; Say "config 에서 ledger_journal_dir 을 못 읽었다 — $ledgerDir 로 띄운다." "WARN" }
   Start-Window "quant-ledger"    "& '$py' PYQuant\tools\ledger_recorder.py --dir '$ledgerDir'" "ledger_recorder.py"
 }

@@ -25,7 +25,7 @@ try {
     if (-not [Environment]::GetEnvironmentVariable('QUANT_OPS_TOKEN', 'User')) {
         $configPath = Join-Path $repo 'Quant\config\config_dev_paper.json'
         if (Test-Path $configPath) {
-            $token = (Get-Content $configPath -Raw | ConvertFrom-Json).ops_token
+            $token = (Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json).ops_token
             if ($token) {
                 [Environment]::SetEnvironmentVariable('QUANT_OPS_TOKEN', $token, 'User')
                 Write-Host "[ops_terminal_shortcut] 사용자 환경변수 QUANT_OPS_TOKEN 설정(길이 $($token.Length))."
@@ -42,6 +42,24 @@ try {
     $link.Description      = 'quant_trader 운영단말 (토큰은 사용자 환경변수 QUANT_OPS_TOKEN)'
     $link.Save()
     Write-Host "[ops_terminal_shortcut] $linkPath -> $exeFull"
+
+    # 실계좌용을 하나 더 만든다. 같은 exe 지만 붙는 곳이 다르다 — 기본값이 7100(모의)이라
+    #  인자 없이 띄우면 실계좌 엔진에는 안 붙는다. 환경변수 QUANT_OPS_TOKEN 은 하나뿐이라
+    #  두 계좌를 동시에 못 담는다 — 실계좌 토큰은 바로가기 인자로 넣는다(2026-09-23).
+    $liveConfigPath = Join-Path $repo 'Quant\config\config_live.json'
+    if (Test-Path $liveConfigPath) {
+        $liveConfig = Get-Content $liveConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($liveConfig.ops_port -and $liveConfig.ops_token) {
+            $livePath = Join-Path $desktop '운영단말-실계좌.lnk'
+            $liveLink = $shell.CreateShortcut($livePath)
+            $liveLink.TargetPath       = $exeFull
+            $liveLink.Arguments        = "--host 127.0.0.1 --port $($liveConfig.ops_port) --token $($liveConfig.ops_token)"
+            $liveLink.WorkingDirectory = Split-Path -Parent $exeFull
+            $liveLink.Description      = "실계좌 운영단말 (포트 $($liveConfig.ops_port)) — 모의는 운영단말.lnk"
+            $liveLink.Save()
+            Write-Host "[ops_terminal_shortcut] $livePath -> 포트 $($liveConfig.ops_port)"
+        }
+    }
 }
 catch {
     Write-Host "[ops_terminal_shortcut] 건너뜀 — $($_.Exception.Message)"

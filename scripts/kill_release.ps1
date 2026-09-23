@@ -39,7 +39,7 @@ $statusPath = Join-Path $repo "_private\_auto_trade_day.json"
 
 if (Test-Path $statusPath)
 {
-    $phase = (Get-Content $statusPath -Raw | ConvertFrom-Json).phase
+    $phase = (Get-Content $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json).phase
 
     if ($phase -ne "running")
     {

@@ -21,7 +21,7 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@0cebe52 scripts/auto_trade_guard.ps1@0bfa6d9 -->
+<!-- sync: scripts/auto_trade_day.ps1@b77c05f scripts/auto_trade_guard.ps1@6a54b80 -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 죽으면 다시
 띄운다. 띄우기 전에 그날 장이 열리는지 KIS에 물어(`scripts/check_market_open.py`) 휴장일이면 아무것도 안 띄우고 끝낸다 —
@@ -35,6 +35,9 @@ $env:PYTHONUTF8 = "1"
 엔진 로그 폴더 `Quant/build_win/logs_live`(`QUANT_LOG_DIR`), 마감 표지 `session_done_live_<날짜>`, 창 제목 접미를 쓴다.
 마감 정리(`quant_procs.ps1 -KillAll`)도 그 감시견의 자손만 내리므로, 15:35에 마감하는 모의 쪽이 20:00까지 도는 실계좌를
 같이 내리지 않는다. 가드도 예약작업 이름이 `QuantAutoTradeGuard_live`로 갈린다.
+부속 창도 config를 따라 뜬다 — 대시보드는 `dashboard_port`와 `ledger_journal_dir`를, 체결 기록기는 `zmq_pub_port`를 읽는다.
+이 셋을 안 넘기면 실계좌 감시견이 띄운 화면에 모의 계좌의 원장·체결이 뜨고 두 감시견이 8787 한 자리를 다툰다(2026-09-23 실측).
+config는 `-Encoding UTF8`로 읽는다 — PowerShell 5.1의 기본값이 cp949라 BOM 없는 UTF-8 config의 한글 주석에서 JSON 읽기가 통째로 실패한다.
 
 실계좌 기동은 아래 기본 명령에 `-Config Quant\config\config_live.json -Until 20:05`을 붙이고, 가드는 같은 `-Config`로 `-Install`한다.
 그 config는 실계좌 인증 정보라 저장소에 없다(gitignore) — 복붙할 명령 전문은 `_private/LINKS.md`에 있다.

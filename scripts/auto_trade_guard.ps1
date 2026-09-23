@@ -38,7 +38,7 @@ $Day    = Join-Path $Repo "scripts\auto_trade_day.ps1"
 #  `instance` 가 있으면 상태 파일·실행 로그·예약작업 이름에 붙인다 — 이게 없으면 두 번째 계좌용
 #  가드를 -Install 할 때 첫 번째 예약작업을 덮어쓰고, 한쪽 상태를 보고 다른 쪽을 판정한다. [why D-122]
 $Instance = ""
-try { $Instance = [string](Get-Content $Config -Raw | ConvertFrom-Json).instance } catch { }
+try { $Instance = [string](Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).instance } catch { }
 $Suffix = if ($Instance) { "_$Instance" } else { "" }
 
 $Status = Join-Path $Repo ("_private\_auto_trade_day{0}.json" -f $Suffix)
@@ -91,7 +91,7 @@ if ($now -ge $close) { Say "$Until 이후 — 넘어간다."; exit 0 }
 # 오늘 이미 끝났거나 사람이 멈춘 상태면 되살리지 않는다. 어제 상태파일은 무시한다.
 if (Test-Path $Status) {
   try {
-    $st = Get-Content $Status -Raw | ConvertFrom-Json
+    $st = Get-Content $Status -Raw -Encoding UTF8 | ConvertFrom-Json
     $stop = @("crash_loop", "aborted", "done", "closed", "past_deadline")
     if (([datetime]$st.updated).Date -eq $now.Date -and $stop -contains $st.phase) {
       Say "오늘 phase=$($st.phase) — 되살리지 않는다(원인을 없앤 뒤 손으로 기동)."

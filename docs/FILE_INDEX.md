@@ -10,7 +10,7 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 115개
 - [Quant](#quant) — 270개
-- [docs](#docs) — 90개
+- [docs](#docs) — 93개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
 - [scripts](#scripts) — 45개
@@ -658,6 +658,7 @@
 - [2026-09-22_engine_full_path.md](reports/stresstest/2026-09-22_engine_full_path.md) — 09-22 엔진 전 구간 부하 실측. 천장은 샤드→전략 큐 40만/초와 주문 경로 초당 200건대
 - [2026-09-22_prefetch_pool.md](reports/stresstest/2026-09-22_prefetch_pool.md) — 부하 회차: 프리페치 전략당 스레드→공용 풀, 스냅샷 복사 492→10ns(D-115)
 - [2026-09-22_prefetch_pool_threads.md](reports/stresstest/2026-09-22_prefetch_pool_threads.md) — 부하 회차: 프리페치 풀 스레드 수 스윕, 주기를 지연→비율로(D-115 후속)
+- [2026-09-23_db_ingest_cost.md](reports/stresstest/2026-09-23_db_ingest_cost.md) — 09-23 J~L회차. 적재기(TimescaleDB)를 붙이면 꺼냄→반환이 1.5~1.7배 느려지고 늘어난 몫은 거의 전부 이력 저장. 적재는 입력을 2.3배 올려도 초당 272~372행에서 평평 — 09-22의 5.8%·회차 B의 0.013%와 같은 천장
 - [2026-09-23_order_stage_breakdown.md](reports/stresstest/2026-09-23_order_stage_breakdown.md) — 09-23 D~I회차. 주문 한 건의 2밀리초를 12구간으로 가르니 절반이 미결주문 파일 다시쓰기. 그 파일과 원장 CSV·사유 줄을 차례로 전담 스레드로 빼고 몇 분 간격 대조 — pop→반환 누적 대략 2.6배(D-123·D-124)
 - [README.md](reports/stresstest/README.md) — 부하테스트 결과 모음의 색인·실행 가이드·결과 열 읽는 법
 
@@ -677,6 +678,8 @@
 - [2026-09-22_bench_prefetch_pool.csv](reports/stresstest/data/2026-09-22_bench_prefetch_pool.csv) — 위 회차 원자료(계산형·대기형·이웃 지연 스윕 37행, tag로 회차 구분)
 - [2026-09-22_bench_snapshot_swap.csv](reports/stresstest/data/2026-09-22_bench_snapshot_swap.csv) — 위 회차 원자료(bench_snapshot_swap 1차 5회 + atomic 열 2차 5회)
 - [2026-09-22_flow_profile.json](reports/stresstest/data/2026-09-22_flow_profile.json) — 09-21 체결 캡처에서 뽑은 유량 프로파일. 관측 39종목 891,670건 → 2,700종목 환산 초당 p50 1,592·p99 17,446·최대 73,315과 순위별 몫
+- [2026-09-23_db_ingest.csv](reports/stresstest/data/2026-09-23_db_ingest.csv) — 09-23 회차 J·K·L을 적재기 있음·없음으로 두 번씩 돌린 구간별 p50·p90·p99·최대 90행. 원본 latency_trace.csv에서 뽑은 요약
+- [2026-09-23_db_ingest_rows.csv](reports/stresstest/data/2026-09-23_db_ingest_rows.csv) — 회차 J·K·L이 DB 표(주문·체결·신호·시세)에 남긴 행 수와 초당 행, 주입 뒤 밀린 시간, 최소 여유 메모리
 - [2026-09-23_order_stages.csv](reports/stresstest/data/2026-09-23_order_stages.csv) — 09-23 회차 E·F·G·H·I의 구간별 p50·p90·p99·최대 80행(창 둘: 첫 60초·전체). 원본 latency_trace.csv에서 뽑은 요약
 
 ## linux_practice
