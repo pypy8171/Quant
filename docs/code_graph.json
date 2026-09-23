@@ -30,12 +30,12 @@
     {
       "from": "core",
       "to": "ipc",
-      "weight": 7
+      "weight": 8
     },
     {
       "from": "core",
       "to": "risk",
-      "weight": 6
+      "weight": 7
     },
     {
       "from": "core",
@@ -65,7 +65,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 9
+      "weight": 10
     },
     {
       "from": "ipc",
@@ -120,7 +120,7 @@
     {
       "from": "risk",
       "to": "core",
-      "weight": 5
+      "weight": 6
     },
     {
       "from": "risk",
@@ -130,7 +130,7 @@
     {
       "from": "risk",
       "to": "utils",
-      "weight": 1
+      "weight": 2
     },
     {
       "from": "strategy",
@@ -185,6 +185,7 @@
     "api/KisClient.h": "api",
     "api/KisEndpoints.h": "api",
     "api/KisErrorCodes.h": "api",
+    "api/KisRateBucket.h": "api",
     "api/KisRestDecode.h": "api",
     "api/KisResult.h": "api",
     "api/KisTypes.h": "api",
@@ -227,6 +228,7 @@
     "exchange/MatchingEngine.h": "exchange",
     "exchange/OrderWire.h": "exchange",
     "exchange/ZmqOrderFeed.h": "exchange",
+    "ipc/ControlChannel.h": "ipc",
     "ipc/FillKey.h": "ipc",
     "ipc/Heartbeat.h": "ipc",
     "ipc/LedgerSnapshot.h": "ipc",
@@ -236,6 +238,7 @@
     "ipc/OrderRouter.h": "ipc",
     "ipc/ZmqBridge.h": "ipc",
     "modes/Monitors.h": "modes",
+    "risk/DisplacementDesk.h": "risk",
     "risk/GateReasons.h": "risk",
     "risk/LedgerJournal.h": "risk",
     "risk/OrderGate.h": "risk",
@@ -315,6 +318,7 @@
     "exchange/MatchingEngine.cpp": "exchange",
     "exchange/OrderWire.cpp": "exchange",
     "exchange/ZmqOrderFeed.cpp": "exchange",
+    "ipc/ControlChannel.cpp": "ipc",
     "ipc/FillKey.cpp": "ipc",
     "ipc/Heartbeat.cpp": "ipc",
     "ipc/LedgerSnapshot.cpp": "ipc",
@@ -324,6 +328,7 @@
     "ipc/OrderRouter.cpp": "ipc",
     "ipc/ZmqBridge.cpp": "ipc",
     "modes/Monitors.cpp": "modes",
+    "risk/DisplacementDesk.cpp": "risk",
     "risk/GateReasons.cpp": "risk",
     "risk/LedgerJournal.cpp": "risk",
     "risk/OrderGate.cpp": "risk",
@@ -401,7 +406,8 @@
       "core/Types.h"
     ],
     "api/KisTransport.cpp": [
-      "api/HttpGet.h"
+      "api/HttpGet.h",
+      "api/KisRateBucket.h"
     ],
     "api/KisWebSocket.cpp": [
       "api/KisWebSocket.h"
@@ -465,6 +471,7 @@
       "core/LatencyTrace.h",
       "core/ReconcilePlan.h",
       "core/UniverseExit.h",
+      "risk/DisplacementDesk.h",
       "utils/Logger.h",
       "utils/ThreadName.h",
       "utils/Utf8.h"
@@ -493,6 +500,7 @@
       "core/TickCapture.h",
       "core/Types.h",
       "core/WakeGate.h",
+      "ipc/ControlChannel.h",
       "ipc/Heartbeat.h",
       "ipc/LedgerSnapshot.h",
       "ipc/OpsServer.h",
@@ -694,6 +702,12 @@
       "core/MpscQueue.h",
       "core/SymbolTable.h"
     ],
+    "ipc/ControlChannel.cpp": [
+      "ipc/ControlChannel.h"
+    ],
+    "ipc/ControlChannel.h": [
+      "core/Types.h"
+    ],
     "ipc/FillKey.cpp": [
       "ipc/FillKey.h"
     ],
@@ -769,6 +783,14 @@
     ],
     "modes/Monitors.h": [
       "api/KisClient.h"
+    ],
+    "risk/DisplacementDesk.cpp": [
+      "risk/DisplacementDesk.h",
+      "utils/Logger.h"
+    ],
+    "risk/DisplacementDesk.h": [
+      "core/Types.h",
+      "risk/OrderGate.h"
     ],
     "risk/GateReasons.cpp": [
       "risk/GateReasons.h"
@@ -1030,6 +1052,9 @@
       "core/PaperExecutor.h",
       "ipc/OrderRouter.cpp"
     ],
+    "api/KisRateBucket.h": [
+      "api/KisTransport.cpp"
+    ],
     "api/KisRestDecode.h": [
       "api/KisAccount.cpp",
       "api/KisIndex.cpp",
@@ -1259,11 +1284,13 @@
       "core/TickSize.h",
       "core/Types.cpp",
       "exchange/MatchingEngine.h",
+      "ipc/ControlChannel.h",
       "ipc/OrderChannel.h",
       "ipc/OrderRouter.h",
       "ipc/ZmqBridge.h",
       "main.cpp",
       "modes/Monitors.cpp",
+      "risk/DisplacementDesk.h",
       "risk/OrderGate.h",
       "risk/ProtectiveRule.h",
       "strategy/DevScaleRules.h",
@@ -1288,6 +1315,10 @@
       "core/WakeGate.cpp",
       "ipc/OrderRouter.cpp",
       "strategy/DeviationScaleStrategy.h"
+    ],
+    "ipc/ControlChannel.h": [
+      "core/Engine.h",
+      "ipc/ControlChannel.cpp"
     ],
     "ipc/FillKey.h": [
       "ipc/FillKey.cpp",
@@ -1329,6 +1360,10 @@
       "main.cpp",
       "modes/Monitors.cpp"
     ],
+    "risk/DisplacementDesk.h": [
+      "core/Engine.cpp",
+      "risk/DisplacementDesk.cpp"
+    ],
     "risk/GateReasons.h": [
       "core/OrderRateLimiter.cpp",
       "risk/GateReasons.cpp",
@@ -1344,6 +1379,7 @@
       "core/LedgerReconciler.h",
       "core/SignalDispatcher.h",
       "ipc/OrderRouter.h",
+      "risk/DisplacementDesk.h",
       "risk/OrderGate.cpp",
       "risk/ProtectiveOrders.h"
     ],
@@ -1479,6 +1515,7 @@
       "ipc/ZmqBridge.cpp",
       "main.cpp",
       "modes/Monitors.cpp",
+      "risk/DisplacementDesk.cpp",
       "risk/ProtectiveOrders.h",
       "strategy/DeviationScaleStrategy.h",
       "strategy/FixedIntervalStrategy.h",
@@ -1512,11 +1549,11 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 36
+      "in_degree": 38
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 31
+      "in_degree": 32
     },
     {
       "header": "core/KstTime.h",
@@ -1544,7 +1581,7 @@
     },
     {
       "header": "risk/OrderGate.h",
-      "in_degree": 7
+      "in_degree": 8
     },
     {
       "header": "utils/ThreadName.h",
@@ -1696,12 +1733,14 @@
       "PYQuant/tools/universe_feed.py",
       "PYQuant/tools/walkforward.py",
       "scripts/_logdir.py",
+      "scripts/aftermarket_feed_check.py",
       "scripts/analyze_slot_cost.py",
       "scripts/backfill_fills_db.py",
       "scripts/backfill_studies.py",
       "scripts/build_review_entry.py",
       "scripts/build_study_site.py",
       "scripts/check_backtest.py",
+      "scripts/check_market_open.py",
       "scripts/check_runtime_health.py",
       "scripts/dashboard_server.py",
       "scripts/deploy_guard.py",
@@ -1984,6 +2023,9 @@
       "scripts/build_review_entry.py": [
         "market_close_collect"
       ],
+      "scripts/check_market_open.py": [
+        "kis.client"
+      ],
       "scripts/check_runtime_health.py": [
         "_logdir",
         "log_patterns"
@@ -2188,6 +2230,7 @@
         "PYQuant/tools/minute_backfill.py",
         "PYQuant/tools/nxt_divergence_check.py",
         "PYQuant/tools/pit_universe_backfill.py",
+        "scripts/check_market_open.py",
         "scripts/dashboard_server.py",
         "scripts/notify_trades.py"
       ],
@@ -2478,7 +2521,7 @@
       {
         "from": "scripts",
         "to": "PYQuant/kis",
-        "weight": 2
+        "weight": 3
       },
       {
         "from": "scripts",

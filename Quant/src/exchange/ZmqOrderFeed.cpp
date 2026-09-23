@@ -488,8 +488,7 @@ ZmqOrderFeed::Statistics ZmqOrderFeed::statistics() const
     return total;
 }
 
-#ifdef HAS_ZMQ
-
+// 장 시각. ZMQ 없이 빌드해도 ingest()가 부르므로 가드 밖에 둔다.
 int32_t ZmqOrderFeed::market_hhmmss() const
 {
     if (options_.session_start_hhmmss == 0)
@@ -503,6 +502,8 @@ int32_t ZmqOrderFeed::market_hhmmss() const
     return second_of_day_to_hhmmss(hhmmss_to_second_of_day(options_.session_start_hhmmss) +
                                    static_cast<int32_t>(elapsed_seconds));
 }
+
+#ifdef HAS_ZMQ
 
 void ZmqOrderFeed::report_throughput(uint32_t lane, std::chrono::steady_clock::time_point& last_report,
                                      uint64_t& last_records, uint64_t& last_executions)
