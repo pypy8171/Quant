@@ -189,10 +189,19 @@ public:
     };
     std::vector<RankingStock> fetch_kr_ranking(int count = 200, const std::string& market_div = "J");
 
-    // 거래대금 상위 순위 — volume-rank API (transaction_id FHPST01710000). 상위 ~30행 고정(연속조회 불가).
+    // 한 번에 오는 행수 상한. KIS가 고정한 값이고 연속조회가 없어 요청으로 늘릴 수 없다(2026-09-23 실측).
+    static constexpr int kValueRankPageRows = 30;
+    // 30행을 넘겨 받을 때 가격 구간을 가르는 경계(원). 위아래 각각 30행이 오므로 합쳐서 60행까지
+    //  덮는다. 경계가 너무 낮거나 높으면 한쪽 구간에 상위 종목이 몰려 나머지가 잘린다.
+    static constexpr int kValueRankPriceSplit = 60000;
+
+    // 거래대금 상위 순위 — volume-rank API (transaction_id FHPST01710000).
     //  blng_cls = FID_BLNG_CLS_CODE 정렬축: "0"=거래량 "1"=거래증가율 "3"=거래금액(기본). 축마다
-    //  다른 30행이 오므로 여러 축을 union하면 유니버스를 넓힐 수 있다(페이지네이션 대체).
+    //  다른 30행이 오므로 여러 축을 union하면 유니버스를 넓힐 수 있다.
     //  거래대금축("3")일 때만 acml_tr_pbmn 내림차순 재정렬, 그 외엔 API 순위 순서 유지.
+    //  count가 30을 넘으면 거래대금축에 한해 가격 구간을 갈라 두 페이지를 합친다 — 다른 축은
+    //  trade_value가 비어 있어 두 페이지를 다시 줄 세울 수 없으므로 30행에서 끊는다.
+    //  ETF·ETN은 API단에서 뺀다(FID_TRGT_EXLS_CLS_CODE 7·8번째 자리).
     std::vector<RankingStock> fetch_value_ranking(int count = 30, const std::string& market_div = "J",
                                                   const std::string& blng_cls = "3");
 
@@ -315,6 +324,11 @@ private:
     mutable std::mutex rate_mutex_;
     double rate_tokens_ = 0.0;
     std::chrono::steady_clock::time_point rate_last_;
+    // volume-rank 한 페이지(최대 kValueRankPageRows행). 가격 구간을 주면 그 안에서만 순위를 매긴다.
+    //  두 인자가 모두 비면 전체 가격이다. 자르기·재정렬은 하지 않고 걸러낸 행을 그대로 돌려준다.
+    std::vector<RankingStock> fetch_value_ranking_page(const std::string& market_div, const std::string& blng_cls,
+                                                       const std::string& price_from, const std::string& price_to);
+
     void rate_limit_acquire(const std::string& url);
     // 서버가 한도 초과를 알려오면 버킷을 비워 다음 호출들을 스스로 늦춘다. 리필률 추정이
     //  실제 한도보다 높았을 때 되돌리는 유일한 경로다(응답이 알려주는 값을 그대로 쓴다).

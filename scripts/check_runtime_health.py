@@ -46,6 +46,9 @@ BREAKEVEN_RE = re.compile(r"본전탈출\)")
 FILL_RE = re.compile(r"체결통보 ODNO=\d+ (\d{6}) (BUY|SELL) (\d+)주")
 RATE_RE = re.compile(r"EGW00201|초당 거래건수")
 WSFALL_RE = re.compile(r"WS → REST 폴링 폴백")
+# 거래대금 랭킹: 축·ETF드롭·생존 행수. ETF드롭이 0이 아니면 API단 제외 마스크가 안 먹는 것이다.
+VALUE_RANK_DIAG_RE = re.compile(r"거래대금랭킹 진단\(축=(\d).*?ETF드롭=(\d+).*?생존=(\d+)")
+VALUE_RANK_DONE_RE = re.compile(r"거래대금 랭킹 조회 완료: (\d+)종목 \(요청 count=(\d+)\)")
 # 주문 접수·거부 한 줄의 왕복 시간. 버킷대기는 09-19 이후 바이너리만 찍는다(없으면 None).
 RTT_RE = re.compile(r"\[OrderRouter\] (?:접수|KIS 거부) .*?RTT=(\d+)ms(?: 버킷대기=(\d+)ms)?")
 # D-100 — 잔고 조회가 한 사이클(500ms)을 넘겨 뒤 사이클에서 적용된 건
@@ -576,6 +579,8 @@ def collect(date: str, log: Path, since: int = 0):
     breakeven: list[int] = []
     fills: list[tuple[int, str, str]] = []
     rate_hits = 0
+    value_rank_etf_drops = 0          # 랭킹 응답에 ETF가 섞여 들어온 행수
+    value_rank_short: list[tuple[int, int]] = []   # (받은 행수, 요청 행수) — 요청보다 모자랐던 회차
     untracked_opens = 0
     blocked_sells = 0
     ws_fallbacks = 0
@@ -691,6 +696,12 @@ def collect(date: str, log: Path, since: int = 0):
                 fills.append((second, found.group(1), found.group(2)))
             if RATE_RE.search(line):
                 rate_hits += 1
+            found = VALUE_RANK_DIAG_RE.search(line)
+            if found:
+                value_rank_etf_drops += int(found.group(2))
+            found = VALUE_RANK_DONE_RE.search(line)
+            if found and int(found.group(1)) < int(found.group(2)):
+                value_rank_short.append((int(found.group(1)), int(found.group(2))))
             if UNTRACKED_OPEN_RE.search(line):
                 untracked_opens += 1
             if BLOCKED_SELL_RE.search(line):
@@ -951,6 +962,13 @@ def collect(date: str, log: Path, since: int = 0):
          f"청산차단 미해소 {blocked_sells}건 — 예약매도를 못 찾아 청산이 막힌 채 넘어갔다"),
         ("초당한도 압박", rate_hits <= MAX_RATE_HITS, "WARN",
          f"초당 거래건수 거부 {rate_hits}건 (허용 {MAX_RATE_HITS})"),
+        # 유니버스 후보의 한 축이다. ETF가 섞이면 그만큼 개별주 자리가 밀리고, 요청보다 적게 오면
+        #  가격 구간을 갈라 합치는 쪽이 한 페이지에서 멈춘 것이다(30행이 API 상한이라 그 위는 합쳐야 한다).
+        ("거래대금 랭킹 폭", value_rank_etf_drops == 0 and not value_rank_short, "WARN",
+         f"ETF 섞임 {value_rank_etf_drops}행 (기대 0 — 제외 마스크가 먹으면 0)"
+         + (f" · 요청보다 모자란 회차 {len(value_rank_short)}건"
+            f" (가장 적을 때 {min(short[0] for short in value_rank_short)}/"
+            f"{max(short[1] for short in value_rank_short)}행)" if value_rank_short else " · 행수 모자람 없음")),
         ("HTTP 연결 재사용", curl_giveups <= MAX_CURL_GIVEUPS, "WARN",
          f"제한 시간 초과로 버린 요청 {curl_giveups}건 (허용 {MAX_CURL_GIVEUPS}, 09-22 21건)"
          " — 넘으면 스레드별 상주 핸들이 안 살아 매 요청이 TCP+TLS를 다시 맺는 것"),

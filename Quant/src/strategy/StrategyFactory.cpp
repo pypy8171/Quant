@@ -801,7 +801,9 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
         //             자격 종목만 실제 오실레이션.
         universe::DevScanCfg scan_config;
         scan_config.scan_top_n      = node.value("scan_top_n", 80);   // 시총 상위 스캔 수(넓은 유니버스)
-        scan_config.value_top_n     = node.value("value_top_n", 30);  // 거래대금 상위 스캔 수(장중 급변)
+        // 거래대금 상위 스캔 수(장중 급변). 30을 넘기면 가격 구간을 갈라 두 번 부르므로 REST 호출이
+        //  하나 는다 — 그 대신 ETF를 뺀 개별주를 60종목까지 볼 수 있다.
+        scan_config.value_top_n     = node.value("value_top_n", 30);
         scan_config.min_price       = node.value("min_price", 5000.0);
         scan_config.max_price       = node.value("max_price", 0.0);   // 0이면 상한 없음(고가주 포함)
         scan_config.max_register    = node.value("max_universe", 40);
