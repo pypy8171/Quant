@@ -2690,7 +2690,15 @@ void Engine::track_strategy_liveness(ipc::HeartbeatMonitor::Step step, bool just
     {
         try
         {
-            order_router_->submit(protective_signal);
+            const ManagedOrder managed_order = order_router_->submit(protective_signal);
+
+            // 게이트가 막으면 예외가 아니라 거부 상태로 돌아온다. 결과를 버리면 손절·청산이 한 건도
+            //  안 나간 채로 조용히 넘어간다 — 보호 주문만은 못 나간 사실을 반드시 남긴다. 2026-09-23
+            if (managed_order.status == OrderStatus::REJECTED)
+            {
+                LOG_ERROR("[마무리] 보호 주문 거부 " + protective_signal.ticker + ": " +
+                          (managed_order.reject_reason.empty() ? "사유 없음" : managed_order.reject_reason));
+            }
         }
         catch (const std::exception& exception)
         {
@@ -3549,7 +3557,7 @@ void Engine::step_session_end()
 void Engine::write_state_marker(std::string_view name, std::string_view body) const
 {
     const auto kst = ::kst::to_tm(std::time(nullptr));
-    char       date_buffer[16];
+    char       date_buffer[32];   // 연도는 int 라 컴파일러가 11자리까지 본다 — 16이면 잘림 경고가 난다
     std::snprintf(date_buffer, sizeof(date_buffer), "%04d-%02d-%02d", kst.tm_year + 1900, kst.tm_mon + 1, kst.tm_mday);
     std::string file_name(name);
 

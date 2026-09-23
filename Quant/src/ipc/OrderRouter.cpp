@@ -1398,26 +1398,37 @@ void OrderRouter::cancel_stale_orders_async()
             }
 
             std::array<std::string, 5> fields;
-            size_t position = 0, index = 0;
-            bool ok = true;
+            size_t position = 0;
+            size_t index = 0;
+            bool parsed = true;
 
             while (index < 5)
             {
-                size_t bar = line.find('|', position);
+                const size_t separator = line.find('|', position);
 
-                if (index < 4 && bar == std::string::npos) { ok = false; break; }
-                fields[index++] = line.substr(position, index < 5 && bar != std::string::npos
-                                                ? bar - position : std::string::npos);
+                if (index < 4 && separator == std::string::npos)
+                {
+                    parsed = false;
+                    break;
+                }
 
-                if (bar == std::string::npos)
+                // 마지막 칸은 구분자가 없어도 줄 끝까지 가져온다. 칸 번호를 늘리는 것과 읽는 것을
+                //  한 식에 두면 어느 값으로 판단할지 정해지지 않아 마지막 칸이 잘릴 수도,
+                //  끝까지 갈 수도 있었다(-Wsequence-point). 둘을 갈랐다.
+                const size_t length = (index < 4 && separator != std::string::npos)
+                                        ? separator - position : std::string::npos;
+                fields[index] = line.substr(position, length);
+                ++index;
+
+                if (separator == std::string::npos)
                 {
                     break;
                 }
 
-                position = bar + 1;
+                position = separator + 1;
             }
 
-            if (ok && index == 5 && !fields[0].empty())
+            if (parsed && index == 5 && !fields[0].empty())
             {
                 rows.push_back(std::move(fields));
             }

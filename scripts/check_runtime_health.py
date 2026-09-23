@@ -734,7 +734,8 @@ def collect(date: str, log: Path, since: int = 0):
     devscale_stops: list[tuple[int, str]] = []     # (초, 종목) — DEVSCALE 손절 신호
     devscale_close_exits: list[tuple[int, str]] = []   # (초, 종목) — DEVSCALE 장 마감 청산 신호(넘김 모드면 0이어야 한다)
     entry_filter: dict[str, int] = {"통과": 0, "차단": 0}  # 진입 필터 판정 줄 수
-    platforms: list[str] = []                    # 기동마다 찍히는 실행 플랫폼(Windows|Linux)
+    platforms: list[str] = []                    # 엔진이 실제로 뜬 기동의 실행 플랫폼(Windows|Linux)
+    pending_platform = ""                        # 플랫폼 줄은 봤지만 아직 엔진이 뜨지 않은 기동
     ledger_replays: list[int] = []               # 기동마다 원장 저널에서 되적용한 레코드 수
     ledger_truncated = 0                         # 꼬리 잘린 기동 수 — 쓰다 만 레코드, 곧 비정상 종료 흔적
     ledger_restored = 0                          # 재기동 때 이력에 되살린 미체결 주문
@@ -770,8 +771,16 @@ def collect(date: str, log: Path, since: int = 0):
             last_ts = second
             if START_RE.search(line):
                 starts.append(second)
+
+                # 플랫폼은 엔진이 실제로 뜬 기동만 센다. FEED 모드와 설정 로드 실패는 플랫폼 줄까지만
+                #  찍고 엔진 시작 줄이 없다 — 주문을 한 건도 못 내므로 "엔진 둘" 판정의 대상이 아니다.
+                #  09-23 에 Windows FEED 점검 6회가 이 판정을 FAIL 로 만들었다.
+                if pending_platform:
+                    platforms.append(pending_platform)
+                    pending_platform = ""
+
             if found := PLATFORM_RE.search(line):
-                platforms.append(found.group(1))
+                pending_platform = found.group(1)
             found = STALE_RE.search(line)
             if found:
                 stale_max = max(stale_max, int(found.group(1)))
@@ -1061,7 +1070,8 @@ def collect(date: str, log: Path, since: int = 0):
                         f"진입 필터 통과 {entry_filter['통과']} / 차단 {entry_filter['차단']} 종목 (리플레이 기대: 존 안 종목의 절반쯤 차단, 차단 0이면 필터 값이 안 실린 것)"),
         # 리눅스 실행일(09-22~)은 Windows 감시견이 -NoTrader라 Windows 기동이 0이어야 한다. 둘이 섞이면 같은 계좌에 엔진 둘.
         ("실행 플랫폼", len(set(platforms)) <= 1, "FAIL",
-         "·".join(f"{name} {platforms.count(name)}회" for name in sorted(set(platforms))) or "플랫폼 줄 없음(구 exe)"),
+         ("·".join(f"{name} {platforms.count(name)}회" for name in sorted(set(platforms)))
+          + " (엔진이 뜬 기동만)") if platforms else "플랫폼 줄 없음(구 exe)"),
         ("교체 매도", not displace_sells, "FAIL",
          f"교체 매도 신호 {len(displace_sells)}건 (기대 0 — displace_enabled false, 09-20)"
          + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in displace_sells[:5])}" if displace_sells else "")),

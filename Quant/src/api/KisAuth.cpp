@@ -229,7 +229,33 @@ bool KisClient::issue_token()
     }
     catch (const std::exception& exception)
     {
-        LOG_ERROR(std::string("[KIS] 토큰 파싱 오류: ") + exception.what());
+        // 응답 본문에서 KIS 가 준 거절 사유만 꺼내 남긴다. 파서 메시지만 남기면("type must be string,
+        //  but is null") 앱키가 죽은 것인지 계좌 등록이 빠진 것인지 구분이 안 된다 — 09-23 에 키가
+        //  바뀐 채로 세 시간을 돌았다. access_token 은 어떤 경우에도 로그에 싣지 않는다.
+        std::string reason;
+
+        try
+        {
+            const json failure = json::parse(response);
+
+            for (const char* key : {"error_code", "error_description", "msg_cd", "msg1"})
+            {
+                const auto field = failure.find(key);
+
+                if (field != failure.end() && field->is_string())
+                {
+                    reason += (reason.empty() ? "" : " ") + field->get<std::string>();
+                }
+            }
+        }
+        catch (const std::exception&)
+        {
+            reason.clear();   // 본문이 JSON 도 아니면 길이만 남긴다
+        }
+
+        LOG_ERROR(std::string("[KIS] 토큰 파싱 오류: ") + exception.what()
+                  + (reason.empty() ? " — 응답에 사유 필드 없음(본문 " + std::to_string(response.size()) + "바이트)"
+                                    : " — KIS 응답: " + reason));
         return false;
     }
 }
