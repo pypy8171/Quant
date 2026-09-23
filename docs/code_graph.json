@@ -54,7 +54,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 12
+      "weight": 13
     },
     {
       "from": "ipc",
@@ -218,6 +218,7 @@
     "ipc/FillKey.h": "ipc",
     "ipc/Heartbeat.h": "ipc",
     "ipc/LedgerSnapshot.h": "ipc",
+    "ipc/MarketFeedChannel.h": "ipc",
     "ipc/OpsProtocol.h": "ipc",
     "ipc/OpsServer.h": "ipc",
     "ipc/OrderChannel.h": "ipc",
@@ -311,6 +312,7 @@
     "ipc/FillKey.cpp": "ipc",
     "ipc/Heartbeat.cpp": "ipc",
     "ipc/LedgerSnapshot.cpp": "ipc",
+    "ipc/MarketFeedChannel.cpp": "ipc",
     "ipc/OpsProtocol.cpp": "ipc",
     "ipc/OpsServer.cpp": "ipc",
     "ipc/OrderChannel.cpp": "ipc",
@@ -697,6 +699,13 @@
     ],
     "ipc/LedgerSnapshot.h": [
       "core/SymbolTable.h"
+    ],
+    "ipc/MarketFeedChannel.cpp": [
+      "ipc/MarketFeedChannel.h"
+    ],
+    "ipc/MarketFeedChannel.h": [
+      "core/Types.h",
+      "ipc/SharedSpscRing.h"
     ],
     "ipc/OpsProtocol.cpp": [
       "ipc/OpsProtocol.h"
@@ -1282,6 +1291,7 @@
       "core/TickSize.h",
       "core/Types.cpp",
       "ipc/ControlChannel.h",
+      "ipc/MarketFeedChannel.h",
       "ipc/OrderChannel.h",
       "ipc/OrderRouter.h",
       "ipc/ZmqBridge.h",
@@ -1331,6 +1341,9 @@
       "ipc/LedgerSnapshot.cpp",
       "risk/OrderGate.cpp"
     ],
+    "ipc/MarketFeedChannel.h": [
+      "ipc/MarketFeedChannel.cpp"
+    ],
     "ipc/OpsProtocol.h": [
       "ipc/OpsProtocol.cpp",
       "ipc/OpsServer.h"
@@ -1351,6 +1364,7 @@
       "ipc/SharedRegion.cpp"
     ],
     "ipc/SharedSpscRing.h": [
+      "ipc/MarketFeedChannel.h",
       "ipc/SharedStrategyDictionary.h",
       "ipc/SharedSymbolDictionary.h"
     ],
@@ -1562,7 +1576,7 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 37
+      "in_degree": 38
     },
     {
       "header": "utils/Logger.h",

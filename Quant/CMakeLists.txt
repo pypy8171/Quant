@@ -750,6 +750,16 @@ if(UNIX)
     target_link_libraries(test_shared_strategy_dictionary PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: 주문 → 전략 시세 통로 (D-114 단계 4) ───────────
+add_executable(test_market_feed_channel tests/test_market_feed_channel.cpp
+    src/ipc/MarketFeedChannel.cpp src/core/SymbolTable.cpp)
+target_include_directories(test_market_feed_channel PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_market_feed_channel PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟: 장부 사본 (D-114 단계 2.5) ──────────────────────
 add_executable(test_ledger_snapshot tests/test_ledger_snapshot.cpp src/ipc/LedgerSnapshot.cpp)
 target_include_directories(test_ledger_snapshot PRIVATE
@@ -830,6 +840,7 @@ set(QUANT_ASSERT_TARGETS
     test_shared_spsc_ring
     test_shared_symbol_dictionary
     test_shared_strategy_dictionary
+    test_market_feed_channel
     test_displacement_desk
     test_heartbeat
     test_ledger_snapshot

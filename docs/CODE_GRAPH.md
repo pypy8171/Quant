@@ -26,7 +26,7 @@ graph LR
   core -->|3| strategy
   core -->|12| utils
   ipc -->|2| api
-  ipc -->|12| core
+  ipc -->|13| core
   ipc --> risk
   ipc -->|5| utils
   main -->|4| core
@@ -58,7 +58,7 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 37 |
+| `core/Types.h` | 38 |
 | `utils/Logger.h` | 31 |
 | `core/KstTime.h` | 17 |
 | `core/SymbolTable.h` | 15 |
@@ -157,6 +157,8 @@ graph LR
     n_ipc_Heartbeat_cpp["ipc/Heartbeat.cpp"]
     n_ipc_LedgerSnapshot_cpp["ipc/LedgerSnapshot.cpp"]
     n_ipc_LedgerSnapshot_h["ipc/LedgerSnapshot.h"]
+    n_ipc_MarketFeedChannel_cpp["ipc/MarketFeedChannel.cpp"]
+    n_ipc_MarketFeedChannel_h["ipc/MarketFeedChannel.h"]
     n_ipc_OpsProtocol_cpp["ipc/OpsProtocol.cpp"]
     n_ipc_OpsServer_cpp["ipc/OpsServer.cpp"]
     n_ipc_OpsServer_h["ipc/OpsServer.h"]
@@ -426,6 +428,9 @@ graph LR
   n_ipc_Heartbeat_cpp --> n_ipc_Heartbeat_h
   n_ipc_LedgerSnapshot_cpp --> n_ipc_LedgerSnapshot_h
   n_ipc_LedgerSnapshot_h --> n_core_SymbolTable_h
+  n_ipc_MarketFeedChannel_cpp --> n_ipc_MarketFeedChannel_h
+  n_ipc_MarketFeedChannel_h --> n_core_Types_h
+  n_ipc_MarketFeedChannel_h --> n_ipc_SharedSpscRing_h
   n_ipc_OpsProtocol_cpp --> n_ipc_OpsProtocol_h
   n_ipc_OpsServer_cpp --> n_ipc_OpsServer_h
   n_ipc_OpsServer_cpp --> n_utils_Logger_h
