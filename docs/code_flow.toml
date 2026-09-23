@@ -271,7 +271,7 @@ review = [
   [[stage.step]]
   sym = "Engine::strategy_thread_fn"
   file = "Quant/src/core/Engine.cpp"
-  what = "루프 한 바퀴: `flush_held` → `drain_manual_inbox` → 강제청산(2초 재발주) → `trim_excess_once`(기동 20초 뒤 1회) → `pipeline_.shard_out` 비우기(`from_strategy`) → 잠(상한 10ms). 국면 파일은 데이터 스레드가 읽는다(6절)"
+  what = "루프 한 바퀴: `flush_held` → 강제청산(2초 재발주) → `trim_excess_once`(기동 20초 뒤 1회) → `pipeline_.shard_out` 비우기(`from_strategy`) → 잠(상한 10ms). 국면 파일은 데이터 스레드가 읽는다(6절)"
 
   [[stage.step]]
   sym = "dispatch::SignalDispatcher::from_strategy"
@@ -291,11 +291,6 @@ review = [
   what = "보유 전량 시장가 매도를 2초 간격 재발주. `reference_price`가 여기서 찍히는지 본다"
   test = "test_signal_dispatcher"
 
-  [[stage.step]]
-  sym = "Engine::drain_manual_inbox"
-  file = "Quant/src/core/Engine.cpp"
-  what = "운영단말 수동 주문(`ops_.manual_inbox`)이 같은 싱크로 들어온다 — 생산자를 늘리지 않기 위해 이 스레드가 꺼낸다"
-
 # ───────────────────────────────────────────────────────────────────────────────
 
 [[stage]]
@@ -313,6 +308,12 @@ review = [
   sym = "Engine::order_thread_fn"
   file = "Quant/src/core/Engine.cpp"
   what = "`take_due_retry` 우선 → 큐 pop → `wait_before_send` → `router->submit` → 성공이면 `note_sent`, 거부면 `on_rejected` → `LatencyTrace::record`. 비면 재시도 만기까지 `wait_until`"
+
+  [[stage.step]]
+  sym = "Engine::take_manual_order"
+  file = "Quant/src/core/Engine.cpp"
+  what = "운영단말 수동 주문(`ops_.manual_inbox`)을 이 스레드가 꺼낸다 — 전략이 멎어도 사람이 손으로 낼 수 있게(D-114). 순번 0이라 전략 쪽에 돌려줄 답이 없고, 결과는 단말에 `ORDER_RESULT_NTF`로 간다"
+  test = "test_engine"
 
   [[stage.step]]
   sym = "order_rate::OrderRateLimiter::wait_before_send"

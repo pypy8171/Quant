@@ -9,7 +9,7 @@
 |---|---|
 | `Quant/include/ipc/OpsProtocol.h` | 프레임 인코더·디코더(`FrameReader`) 선언. 구현은 `Quant/src/ipc/OpsProtocol.cpp`(D-118), 의존 없음 — 서버·콘솔 단말·MFC 단말이 같은 파일을 쓴다 |
 | `Quant/include/ipc/OpsServer.h`, `Quant/src/ipc/OpsServer.cpp` | 서버. 소켓 전부를 전용 스레드 하나가 `select()`로 다룬다 |
-| `Quant/src/core/Engine.cpp` (`start_ops_server`·`drain_manual_inbox`·`ops_*_json`) | 엔진 쪽 배선 — 수동 주문을 strategy_thread에서 `OrderSignal`로 바꾼다 |
+| `Quant/src/core/Engine.cpp` (`start_ops_server`·`accept_manual_order`·`take_manual_order`·`ops_*_json`) | 엔진 쪽 배선 — 서버 스레드가 인테이크에 넣고 order_thread가 꺼내 `OrderSignal`로 바꾼다(D-114) |
 | `Quant/tools/ops_client.cpp` | C++ 콘솔 단말. 왕복 검증·운영용 |
 | `Quant/tools/ops_terminal/` | MFC 대화상자 단말. `OpsLink.*`(소켓 작업자 스레드)·`OpsTerminalDlg.*`(화면)·`OpsTerminal.rc`(레이아웃) |
 | `Quant/tests/test_ops_protocol.cpp`, `Quant/tests/test_ops_server.cpp` | ctest 등록 테스트 |
@@ -132,7 +132,6 @@ cd C:\Users\<사용자>\source\repos\Quant
 
 ```
 [Ops] 수동주문 → 게이트 cid=cli-1789094702775 066570 SELL 1 시장가
-[Strategy] 신호: [MANUAL] 066570(LG전자) SELL 1 | 근거: 운영단말 수동주문 cid=cli-1789094702775
 [OrderRouter] 접수 [ORD-000001] ODNO=0000023135 066570 SELL 1주 RTT=3578ms
 [WS] 체결통보 ODNO=0000023135 066570 SELL 1주 @199100
 ```

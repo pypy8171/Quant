@@ -739,6 +739,71 @@ int run_switch_role_case()
 // D-114 단계 4 — 역할대로 제 몫만 띄운다. 전략 역할은 샤드·전략 스레드만, 주문 역할은 주문·체결 스레드만이다.
 //  둘 다 브로커 없이 뜨고 멎는다. 여기서 드러나는 빈자리가 --role 을 아직 막아 둔 이유다 — 전략 쪽은 종목
 //  번호를 주는 주문 쪽이 없어 못 받고, 주문 쪽은 구독 목록이 전략 쪽에 있어 소켓을 열 게 없다.
+int run_manual_order_case()
+{
+    using namespace std::chrono_literals;
+    std::cout << "case manual order\n";
+
+    // 전략을 하나도 올리지 않는다 — 수동주문이 전략 쪽을 안 거치고 주문 스레드에서 나가는지만 본다. [why D-114]
+    auto feed_owned = std::make_unique<FakeFeed>(1);
+
+    Engine engine(KisConfig{});
+    engine.set_zmq_enabled(false);
+    engine.set_strategy_shards(1);
+    engine.set_feed_source(std::move(feed_owned), 1'000'000.0);
+    engine.set_role(ProcessRole::Order);
+    engine.start();
+
+    CHECK(engine.is_running());
+
+    // 값이 틀린 것은 인테이크에서 되돌린다 — 단말이 그 자리에서 사유를 본다.
+    OpsOrderReq bad_ticker;
+    bad_ticker.client_id = "manual-bad-1";
+    bad_ticker.ticker    = "삼성전자";
+    bad_ticker.side      = "BUY";
+    bad_ticker.quantity  = 1;
+    CHECK(!engine.accept_manual_order(bad_ticker).empty());
+
+    OpsOrderReq bad_side  = bad_ticker;
+    bad_side.client_id    = "manual-bad-2";
+    bad_side.ticker       = "005930";
+    bad_side.side         = "LONG";
+    CHECK(!engine.accept_manual_order(bad_side).empty());
+
+    // 보유가 없는 매도는 꺼내는 자리(주문 스레드)에서 끊긴다 — 인테이크는 값만 보므로 여기선 통과다.
+    OpsOrderReq sell_without_position = bad_side;
+    sell_without_position.client_id   = "manual-sell-1";
+    sell_without_position.side        = "SELL";
+    CHECK(engine.accept_manual_order(sell_without_position).empty());
+
+    OpsOrderReq buy;
+    buy.client_id       = "manual-buy-1";
+    buy.ticker          = "005930";
+    buy.side            = "BUY";
+    buy.quantity        = 1;
+    buy.price           = 70000.0;
+    buy.reference_price = 70000.0;
+    CHECK(engine.accept_manual_order(buy).empty());
+
+    // 같은 cid 재전송은 한 번만 받는다.
+    CHECK(!engine.accept_manual_order(buy).empty());
+
+    // 지정가라 체결은 시세가 닿아야 난다 — 여기서 보는 것은 주문이 나갔는가까지다.
+    const auto deadline = std::chrono::steady_clock::now() + 8s;
+
+    while (engine.order_count() == 0 && std::chrono::steady_clock::now() < deadline)
+    {
+        std::this_thread::sleep_for(10ms);
+    }
+
+    CHECK(engine.order_count() == 1);   // 매수 한 건만 나갔다 — 보유 없는 매도는 꺼내는 자리에서 끊겼다
+    CHECK(engine.signal_count() == 0);  // 전략 쪽 순번은 찍히지 않았다 — 통로를 안 지났다
+
+    engine.stop();
+    CHECK(!engine.is_running());
+    return 0;
+}
+
 int run_split_start_case()
 {
     std::cout << "case split start\n";
@@ -852,6 +917,11 @@ int main()
     }
 
     if (const int result_code = run_split_start_case(); result_code != 0)
+    {
+        return result_code;
+    }
+
+    if (const int result_code = run_manual_order_case(); result_code != 0)
     {
         return result_code;
     }

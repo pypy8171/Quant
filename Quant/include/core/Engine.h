@@ -398,6 +398,10 @@ public:
         ops_.token     = token;
     }
 
+    // 운영단말이 낸 수동주문을 받는다 — 값만 보고 인테이크에 넣는다. 통과면 빈 문자열, 아니면 단말에 보일
+    //  거부 사유. 내는 것은 주문 스레드가 take_manual_order로 꺼내서 한다. [why D-043][why D-114]
+    std::string accept_manual_order(const OpsOrderReq& ops_order_request);
+
     // ── 종목명·청산 관리 티커 ───────────────────────────────────────────────
     // 티커→종목명 매핑 등록/조회 (로그 가독성). 스캔·청산 관리 부착 스레드가 write,
     //  전략 스레드의 신호 로그가 read라 ticker_names_mu_로 보호.
@@ -845,9 +849,10 @@ private:
 #endif
 
     // ── 운영 채널(Ops·수동주문) ──────────────────────────────────────────────
-    // 운영단말 서버와 수동주문 인테이크. 서버 스레드가 push, strategy_thread(요청 면 단일
-    //  생산자)가 pop해 OrderSignal(strategy_id="MANUAL")로 바꿔 게이트·원장을 그대로 지난다.
-    //  FORCE_LIQ와 같은 이유로 소켓 스레드가 요청 면에 직접 넣지 않는다. [why D-043]
+    // 운영단말 서버와 수동주문 인테이크. 서버 스레드가 push, order_thread가 pop해
+    //  OrderSignal(strategy_id="MANUAL")로 바꿔 게이트·원장을 그대로 지난다. 소켓 스레드가 발주 사슬에
+    //  직접 들어가지 않는 것은 FORCE_LIQ와 같은 이유고, 꺼내는 쪽을 주문 쪽에 둔 것은 전략 프로세스가
+    //  멎어도 사람이 손으로 낼 수 있어야 해서다. [why D-043][why D-114]
     struct OpsChannel
     {
         std::unique_ptr<OpsServer>      server;
@@ -868,8 +873,8 @@ private:
     void        start_ops_server();
     std::string ops_status_json() const;
     std::string ops_positions_json() const;
-    // strategy_thread 전용. emit은 그 스레드의 push_signal(단일 생산자 경로).
-    void        drain_manual_inbox(const std::function<void(const OrderSignal&)>& emit);
+    // order_thread 전용 — 낼 것이 있으면 signal에 담고 true. 거부는 그 자리에서 단말에 알리고 다음 건을 본다. [why D-114]
+    [[nodiscard]] bool take_manual_order(OrderSignal& signal);
 
     // ── 카운터 ───────────────────────────────────────────────────────────────
     std::atomic<uint64_t> data_count_{0};

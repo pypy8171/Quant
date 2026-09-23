@@ -3275,10 +3275,10 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
         SignalDispatcher::SystemIds{force_liquidation_index_, limit_trim_index_});
     dispatcher.set_label([this](const std::string& ticker) { return ticker_label(ticker); });
     dispatcher.set_exit_managed_check([this](symbol::SymbolId symbol) { return is_exit_managed(symbol); });
-    auto push_signal = [&](const OrderSignal& signal) { dispatcher.submit(signal); };
 
-    // 틱은 샤드 스레드가 돌린다(shard_thread_fn). 여기는 샤드가 보낸 봉투와 수동주문을 디스패처 한 곳으로 모아
-    //  순번·슬롯·교체·강제청산 같은 종목 횡단 판단을 한 스레드에서 한다(원칙 4). [why D-071]
+    // 틱은 샤드 스레드가 돌린다(shard_thread_fn). 여기는 샤드가 보낸 봉투를 디스패처 한 곳으로 모아
+    //  순번·슬롯·교체·강제청산 같은 종목 횡단 판단을 한 스레드에서 한다(원칙 4). 사람이 낸 수동주문은
+    //  이 스레드를 안 지난다 — 주문 쪽이 자기 스레드에서 꺼낸다. [why D-071][why D-114]
     // 유휴 전이: 마지막 일 뒤 이 시간은 yield로 돌고, 넘기면 pipeline_.strategy_wake에서 잔다. [why D-071]
     constexpr auto kStratSpinBudget = std::chrono::microseconds(200);
     std::chrono::steady_clock::time_point idle_since{};
@@ -3305,9 +3305,6 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
         relay_control_requests();
 
         const auto loop_now = std::chrono::steady_clock::now();
-
-        // 운영단말 수동주문 — 소켓 스레드가 넣은 요청을 여기서 OrderSignal로 바꾼다(단일 생산자).
-        drain_manual_inbox(push_signal);
 
         // G3 강제청산 — force_liquidate 동안 보유 전량(미체결 매도 제외) 시장가 매도를 2초마다 다시 낸다.
         if (force_liquidate_.load(std::memory_order_relaxed))
@@ -3366,7 +3363,7 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
             continue;
         }
 
-        pipeline_.strategy_wake.wait_for(10ms, stop_token, [this] { return pipeline_.shard_out.empty() && ops_.manual_inbox.empty(); });
+        pipeline_.strategy_wake.wait_for(10ms, stop_token, [this] { return pipeline_.shard_out.empty(); });
     }
 
     LOG_INFO("[StrategyThread] 종료");
@@ -3621,6 +3618,29 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         }
     };
 
+    // 발주 대상이 되기 전 지나는 한 자리 — 종목 번호를 채우고 교체 창구의 판정을 받는다. 통로로 온
+    //  신호와 운영단말이 낸 수동주문이 같은 자리를 지나게 한다. [why D-114]
+    auto admit = [this, &displace_desk](OrderSignal&& signal) -> std::optional<OrderRateLimiter::Pending>
+    {
+        // 번호는 주문 쪽이 준다 — 전략 쪽은 종목 표를 찾기만 하고, 처음 보는 종목은 받는 이 자리에서
+        //  표에 올린다. 표를 고치는 쪽을 하나로 두는 것이 원칙 4다. [why D-114]
+        if (signal.symbol_id == symbol::kNone && !signal.ticker.empty())
+        {
+            signal.symbol_id = order_gate_.intern_symbol(signal.ticker);
+        }
+
+        // 자리가 꽉 찬 책에 새 종목 매수가 왔는가 — 최약체 매도를 앞세우고 이 매수는 창구가 든다.
+        //  kSellFirst면 signal 자리에 교체 매도가 들어와 있다(순번이 0이라 답하지 않는다). 원래의
+        //  매수는 창구가 들고 있다가 자리가 나면 내고, 못 내면 expire가 답한다. kHold면 이 회차에
+        //  낼 것이 없다.
+        if (displace_desk.consider(signal, steady_clock::now()) == risk::DisplacementDesk::Verdict::kHold)
+        {
+            return std::nullopt;
+        }
+
+        return OrderRateLimiter::Pending{std::move(signal), 0};
+    };
+
     while (!stop_token.stop_requested())
     {
         // 전략이 살아 있는가 — 박동 공백만 본다. 사망이어도 주문 스레드는 안 내려간다(보유분을 지켜야 한다).
@@ -3642,9 +3662,21 @@ void Engine::order_thread_fn(std::stop_token stop_token)
 
         displace_expired.clear();
 
-        // 발주 대상 선택: 만기된 재시도분 우선, 자리가 나 풀린 교체 보류분, 없으면 신규 큐
+        // 발주 대상 선택: 만기된 재시도분 우선, 사람이 낸 수동주문, 자리가 나 풀린 교체 보류분, 없으면 신규 큐
         std::optional<OrderRateLimiter::Pending> next = rate_limiter.take_due_retry(steady_clock::now());
         int64_t                            pop_ns = 0;
+
+        if (!next)
+        {
+            // 운영단말 수동주문 — 소켓 스레드가 넣은 것을 주문 쪽이 바로 꺼낸다. 전략 프로세스를 거치지
+            //  않아야 전략이 멎어도 사람이 손으로 낼 수 있다. 통로 밖에서 온 것이라 순번은 0이고,
+            //  단말에는 발주 결과를 ORDER_RESULT_NTF로 따로 알린다. [why D-114][why D-043]
+            if (OrderSignal manual_signal; take_manual_order(manual_signal))
+            {
+                pop_ns = trace::now_ns();
+                next   = admit(std::move(manual_signal));
+            }
+        }
 
         if (!next)
         {
@@ -3707,40 +3739,26 @@ void Engine::order_thread_fn(std::stop_token stop_token)
                     continue;
                 }
 
-                // 번호는 주문 쪽이 준다 — 전략 쪽은 종목 표를 찾기만 하고, 처음 보는 종목은 받는 이 자리에서
-                //  표에 올린다. 표를 고치는 쪽을 하나로 두는 것이 원칙 4다. [why D-114]
-                if (signal.symbol_id == symbol::kNone && !signal.ticker.empty())
-                {
-                    signal.symbol_id = order_gate_.intern_symbol(signal.ticker);
-                }
+                next = admit(std::move(signal));
 
-                // 자리가 꽉 찬 책에 새 종목 매수가 왔는가 — 최약체 매도를 앞세우고 이 매수는 창구가 든다.
-                switch (displace_desk.consider(signal, steady_clock::now()))
+                // 창구가 들고 있기로 했으면 이 회차에 낼 것이 없다.
+                if (!next)
                 {
-                case risk::DisplacementDesk::Verdict::kHold:
                     continue;
-
-                case risk::DisplacementDesk::Verdict::kSellFirst:
-                    // signal 자리에 교체 매도가 들어왔다 — 순번이 0이라 답하지 않는다. 원래의 매수는
-                    //  창구가 순번째로 들고 있다가 자리가 나면 내고, 못 내면 expire가 답한다.
-                    break;
-
-                case risk::DisplacementDesk::Verdict::kPass:
-                    break;
                 }
-
-                next = OrderRateLimiter::Pending{std::move(signal), 0};
             }
         }
 
         if (!next)
         {
-            // 재시도 만기가 있으면 그 시각까지, 없으면 100ms 상한(종료 확인). 신규 신호는 전략 스레드의 notify가 깨운다.
+            // 재시도 만기가 있으면 그 시각까지, 없으면 100ms 상한(종료 확인). 신규 신호는 전략 스레드의
+            //  notify가, 수동주문은 운영단말 서버 스레드의 notify가 깨운다.
             const auto deadline = rate_limiter.next_retry_at().value_or(steady_clock::now() + 100ms);
-            // 제어 요청도 이 스레드가 처리하므로 잠드는 조건에 같이 넣는다 — 안 넣으면 표 고치기가
-            //  다음 주문이나 100ms 만기까지 밀린다. [why D-114]
+            // 제어 요청·수동주문도 이 스레드가 처리하므로 잠드는 조건에 같이 넣는다 — 안 넣으면 표 고치기와
+            //  사람이 누른 주문이 다음 주문이나 100ms 만기까지 밀린다. [why D-114]
             pipeline_.order_wake.wait_until(deadline, stop_token, [this] {
-                return pipeline_.requests->pending() == 0 && pipeline_.controls->pending() == 0;
+                return pipeline_.requests->pending() == 0 && pipeline_.controls->pending() == 0 &&
+                       ops_.manual_inbox.empty();
             });
 
             // 주문이 없어도 장부는 바뀐다 — 잔고 재시드·진입 정지·평가금·슬롯 면제 집합은 다른 스레드가 고친다.
@@ -4226,8 +4244,9 @@ void Engine::write_state_marker(std::string_view name, std::string_view body) co
 }
 
 // ─── 운영단말(OpsServer) 배선 ─────────────────────────────────────────────
-//  서버 스레드에서 불리는 콜백은 큐에 넣거나 스냅샷을 읽기만 한다. 주문은 strategy_thread가
-//  drain_manual_inbox에서 OrderSignal로 바꿔 push_signal로 낸다. [why D-043]
+//  서버 스레드에서 불리는 콜백은 큐에 넣거나 스냅샷을 읽기만 한다. 주문은 order_thread가
+//  take_manual_order에서 OrderSignal로 바꿔 그 자리에서 발주 사슬에 올린다. 단말은 주문 쪽에만 뜬다
+//  (initialize_order_router가 연다) — 전략 프로세스가 멎어도 사람이 손으로 낼 수 있어야 한다. [why D-043][why D-114]
 
 void Engine::start_ops_server()
 {
@@ -4258,58 +4277,7 @@ void Engine::start_ops_server()
         });
     ops_.server->set_halt_provider(
         [this] { return std::make_pair(order_gate_.is_manual_buy_halted(), order_gate_.is_manual_sell_halted()); });
-    // 수동주문 입력 상한 — 운영 중 바꿀 값이 아니라 config가 아닌 상수다. cid는 중복 방지 set의 키라 길이를 막고,
-    // 수량은 오타를 거르는 선일 뿐 실제 한도는 OrderGate가 본다.
-    constexpr size_t kManualOrderClientIdMaxLength = 64;
-    constexpr int    kManualOrderMaxQuantity       = 100000;
-
-    ops_.server->set_order_handler(
-        [this](const OpsOrderReq& ops_order_request) -> std::string
-        {
-            if (ops_order_request.client_id.empty() || ops_order_request.client_id.size() > kManualOrderClientIdMaxLength)
-            {
-                return "cid는 1~64자";
-            }
-
-            if (!symbol::is_korean_ticker(ops_order_request.ticker))
-            {
-                return "ticker는 6자리 숫자";
-            }
-
-            if (ops_order_request.side != "SELL" && ops_order_request.side != "BUY")
-            {
-                return "side는 SELL|BUY";
-            }
-
-            if (ops_order_request.quantity <= 0 || ops_order_request.quantity > kManualOrderMaxQuantity)
-            {
-                return "qty 범위 1~100000";
-            }
-
-            if (ops_order_request.price < 0.0 || ops_order_request.reference_price < 0.0)
-            {
-                return "가격은 0 이상";
-            }
-
-            // 재전송 차단: 있나 확인 → 큐에 넣기 → 들어갔을 때만 cid 기록. 세 줄이 한 락 안이라 서버 스레드가
-            //  늘어도 같은 cid가 두 번 큐에 들어가지 않는다. [inv] 지금은 OpsServer 스레드 하나만 부른다.
-            std::lock_guard<std::mutex> lock(ops_.manual_client_id_mutex);
-
-            if (ops_.manual_cids.count(ops_order_request.client_id) != 0)
-            {
-                return "중복 cid — 이미 접수";
-            }
-
-            if (!ops_.manual_inbox.push(ops_order_request))
-            {
-                return "수동주문 인테이크 가득 참";
-            }
-
-            ops_.manual_cids.insert(ops_order_request.client_id);
-
-            pipeline_.strategy_wake.notify();
-            return std::string();
-        });
+    ops_.server->set_order_handler([this](const OpsOrderReq& ops_order_request) { return accept_manual_order(ops_order_request); });
 
     if (!ops_.server->start())
     {
@@ -4397,7 +4365,60 @@ std::string Engine::ops_positions_json() const
     return nlohmann::json{{"positions", array}}.dump();
 }
 
-void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& emit)
+std::string Engine::accept_manual_order(const OpsOrderReq& ops_order_request)
+{
+    // 수동주문 입력 상한 — 운영 중 바꿀 값이 아니라 config가 아닌 상수다. cid는 중복 방지 set의 키라 길이를 막고,
+    //  수량은 오타를 거르는 선일 뿐 실제 한도는 OrderGate가 본다.
+    constexpr size_t kManualOrderClientIdMaxLength = 64;
+    constexpr int    kManualOrderMaxQuantity       = 100000;
+
+    if (ops_order_request.client_id.empty() || ops_order_request.client_id.size() > kManualOrderClientIdMaxLength)
+    {
+        return "cid는 1~64자";
+    }
+
+    if (!symbol::is_korean_ticker(ops_order_request.ticker))
+    {
+        return "ticker는 6자리 숫자";
+    }
+
+    if (ops_order_request.side != "SELL" && ops_order_request.side != "BUY")
+    {
+        return "side는 SELL|BUY";
+    }
+
+    if (ops_order_request.quantity <= 0 || ops_order_request.quantity > kManualOrderMaxQuantity)
+    {
+        return "qty 범위 1~100000";
+    }
+
+    if (ops_order_request.price < 0.0 || ops_order_request.reference_price < 0.0)
+    {
+        return "가격은 0 이상";
+    }
+
+    // 재전송 차단: 있나 확인 → 큐에 넣기 → 들어갔을 때만 cid 기록. 세 줄이 한 락 안이라 서버 스레드가
+    //  늘어도 같은 cid가 두 번 큐에 들어가지 않는다. [inv] 지금은 OpsServer 스레드 하나만 부른다.
+    std::lock_guard<std::mutex> lock(ops_.manual_client_id_mutex);
+
+    if (ops_.manual_cids.count(ops_order_request.client_id) != 0)
+    {
+        return "중복 cid — 이미 접수";
+    }
+
+    if (!ops_.manual_inbox.push(ops_order_request))
+    {
+        return "수동주문 인테이크 가득 참";
+    }
+
+    ops_.manual_cids.insert(ops_order_request.client_id);
+
+    // 꺼내 가는 쪽은 주문 스레드다 — 자고 있으면 여기서 깨운다. [why D-114]
+    pipeline_.order_wake.notify();
+    return std::string();
+}
+
+bool Engine::take_manual_order(OrderSignal& signal)
 {
     while (auto request = ops_.manual_inbox.pop())
     {
@@ -4467,24 +4488,27 @@ void Engine::drain_manual_inbox(const std::function<void(const OrderSignal&)>& e
             continue;
         }
 
-        OrderSignal signal;
-        signal.ticker      = ops_order_request.ticker;
-        signal.account_id  = ops_order_request.account;
-        signal.side        = OrderSide::from_string(ops_order_request.side);
-        signal.type        = ops_order_request.price > 0.0 ? OrderType::LIMIT : OrderType::MARKET;
-        signal.quantity    = ops_order_request.quantity;
-        signal.price       = ops_order_request.price;
-        signal.reference_price   = reference;
-        signal.strategy_id    = "MANUAL";
-        signal.strategy_index = manual_strategy_index_;
-        signal.client_order_id  = ops_order_request.client_id;
-        signal.client_order_number = next_client_order_number();
-        signal.reason      = "운영단말 수동주문 cid=" + ops_order_request.client_id;
-        signal.timestamp   = std::chrono::system_clock::now();
+        OrderSignal built;
+        built.ticker      = ops_order_request.ticker;
+        built.account_id  = ops_order_request.account;
+        built.side        = OrderSide::from_string(ops_order_request.side);
+        built.type        = ops_order_request.price > 0.0 ? OrderType::LIMIT : OrderType::MARKET;
+        built.quantity    = ops_order_request.quantity;
+        built.price       = ops_order_request.price;
+        built.reference_price   = reference;
+        built.strategy_id    = "MANUAL";
+        built.strategy_index = manual_strategy_index_;
+        built.client_order_id  = ops_order_request.client_id;
+        built.client_order_number = next_client_order_number();
+        built.reason      = "운영단말 수동주문 cid=" + ops_order_request.client_id;
+        built.timestamp   = std::chrono::system_clock::now();
         LOG_INFO("[Ops] 수동주문 → 게이트 cid=" + ops_order_request.client_id + " " + ops_order_request.ticker + " " + ops_order_request.side + " " + std::to_string(ops_order_request.quantity) +
                  (ops_order_request.price > 0.0 ? " @" + std::to_string(static_cast<long long>(ops_order_request.price)) : " 시장가"));
-        emit(signal);
+        signal = std::move(built);
+        return true;
     }
+
+    return false;
 }
 
 void Engine::set_last_active_regimes(const std::vector<Regime>& last_active_regimes)
