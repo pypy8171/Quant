@@ -137,7 +137,7 @@ check = "hint"
 note = "금지 표현을 추가했으면 게이트 두 곳의 사전도"
 
 [[rule]]
-src = ["docs/guides/MAINTENANCE_AUTOMATION.md#4"]
+src = ["docs/guides/CODE_CONVENTIONS.md"]
 deps = ["CLAUDE.md#코드 작업 규약"]
 check = "hint"
 note = "규약을 더하거나 예외를 늘리면 검사기 규칙과 판정 표도. 약어 예외는 rename_frags.py의 SKIP·WIRE가 정본"

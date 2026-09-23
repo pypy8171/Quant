@@ -89,8 +89,8 @@ config에는 **실계좌 인증 정보**가 있다. 모의투자는 `"is_paper":
 
 ### 코드 작업 규약
 
-주석 위치별 내용·태그 5개(`[inv]`·`[lock-order]`·`[wire]`·`[why D-NNN]`·`[formula]`)·주석 삭제 3단계의 정본은
-[docs/guides/MAINTENANCE_AUTOMATION.md](docs/guides/MAINTENANCE_AUTOMATION.md) 4절 — 코드를 고치기 전에 읽는다.
+코드 규약 전체(주석 위치별 내용·태그 7개·주석 삭제 3단계 포함)의 정본은
+[docs/guides/CODE_CONVENTIONS.md](docs/guides/CODE_CONVENTIONS.md) — 코드를 고치기 전에 읽는다.
 헤더에는 선언만 둔다 — 구현은 같은 이름 `.cpp`로 내린다. 헤더에 남는 것은 template·`constexpr`, 5줄 이하 순수
 접근자, 멤버 기본값뿐이다(D-118).
 중괄호는 Allman, 한 줄 본문에도 붙이고 `}` 뒤·제어문 앞에 빈 줄 하나. C스타일 캐스트(`(int)x`)는 금지 — 값은

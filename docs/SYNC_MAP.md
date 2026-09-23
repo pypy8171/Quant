@@ -52,7 +52,7 @@
 | `research/studies/*/README.md` | `research/studies/README.md`, `research/BACKTESTS.md`, `research/README.md` | 자동(명령) `py ../quant-devtools/check_docs.py` | 색인 등재는 check_docs가 잡는다. 요지 1줄·타임라인 서사는 사람 |
 | `strategies/*/SPEC.md`, `strategies/*/live/*.md` | `strategies/README.md`, `README.md` | 힌트 | 표에 SPEC·실증·검증경로 행 |
 | `docs/STYLE_GUIDE.md` | `CLAUDE.md#문서 문체 규약`, `.claude/hooks/lexicon-gate.ps1` | 힌트 | 금지 표현을 추가했으면 게이트 두 곳의 사전도 |
-| `docs/guides/MAINTENANCE_AUTOMATION.md#4` | `CLAUDE.md#코드 작업 규약` | 힌트 | 규약을 더하거나 예외를 늘리면 검사기 규칙과 판정 표도. 약어 예외는 rename_frags.py의 SKIP·WIRE가 정본 |
+| `docs/guides/CODE_CONVENTIONS.md` | `CLAUDE.md#코드 작업 규약` | 힌트 | 규약을 더하거나 예외를 늘리면 검사기 규칙과 판정 표도. 약어 예외는 rename_frags.py의 SKIP·WIRE가 정본 |
 | `docs/sync_map.toml` | `docs/SYNC_MAP.md`, `docs/AUTOMATION.md#스크립트`, `docs/HARNESS.md` | 자동(명령) `py ../quant-devtools/sync_impact.py --render --check` | SYNC_MAP.md §2 표는 이 파일에서 생성 |
 | `docs/RUNBOOK.md` | `docs/RUNBOOK.html` | 자동(명령) `py ../quant-devtools/gen_runbook.py --check` | 운영 런북 HTML 은 RUNBOOK.md 에서 통째로 렌더(gitignore). 코드 블록의 스크립트 경로가 없으면 --check 가 잡는다 |
 | `scripts/auto_trade_day.ps1`, `scripts/auto_trade_guard.ps1`, `scripts/dashboard_server.py`, `scripts/parse_quant_log.py`, `scripts/notify_trades.py`, `PYQuant/tools/macro_regime_feed.py`, `PYQuant/tools/universe_feed.py`, `PYQuant/tools/investor_flow_logger.py`, `PYQuant/tools/index_intraday_logger.py`, `docs/guides/OPS_TERMINAL.md`, `docs/guides/MFC_TERMINAL.md` | `docs/RUNBOOK.md` | 도장 | 런북이 인용하는 스크립트 인자·옵션. 절 머리 도장이 낡으면 그 절의 명령을 맞추고 --restamp docs/RUNBOOK.md |

@@ -66,103 +66,10 @@
 표식이 붙은 문서는 현행 근거로 인용하지 않는다. 지금의 `REALTIME_READINESS_REVIEW.md`·`OPTIMIZATION_REVIEW.md`·
 `PIPELINE_A_to_Z.md`(줄번호 227건)가 여기 해당한다. 계속 갱신할 문서만 검사 대상이다.
 
-## 4. 주석·표기 규약 (코드) — 정본
+## 4. 주석·표기 규약 (코드)
 
-- 파일 머리: 목적 한 줄, 스레드 소유권(어느 메서드를 어느 스레드가 부르는지), 관련 결정 D-NNN. 목록·개수는 적지 않고
-  정본 위치를 가리킨다(예: "검사 항목과 순서의 정본은 `OrderGate.cpp::check` 하나다").
-- 함수 위: 왜 이 함수가 따로 있는지, 호출 제약(어느 스레드·락 상태), 실패 시 동작. 절차 서술 금지.
-- 멤버 옆: 단위와 불변식만(`// 원, 장중 갱신`), 경위는 D-NNN.
-- 블록 안: 함정과 비자명한 결정만. 태그 없는 블록이 세 줄을 넘으면 함수로 뽑거나 D-NNN으로 보낸다.
-- 줄 수 제한의 예외는 접두 태그로 표시한다. 함수로 뽑을 수 없는 지식은 코드 옆에 둔다.
-  `// [inv]` 불변식 · `// [lock-order]` 락 순서·memory_order 근거 · `// [wire]` 외부 프로토콜 필드 인덱스·에러코드 ·
-  `// [why D-NNN]` 결정 참조 · `// [formula]` 수식·임계값 유도.
-- 경위를 D-NNN으로 옮길 때: 코드 주석의 별칭(`MM-1`, `G1`, `C-2`, `B2`, `H-1` 등)과 D-NNN의 매핑표를 먼저 한 번 만들고,
-  이관은 파일별로 그 파일을 고칠 때 같이 한다. 대응 항목이 없으면 신규 발번하고 `**상태**: 사후 기록(코드 주석에서 이관)`을 단다.
-- 밀도는 게이트로 걸지 않는다. 주간 리포트에 파일별 밀도와 태그 없는 4줄 이상 연속 주석 블록만 표로 남긴다.
-
-캐스트 표기 — C스타일 캐스트(`(int)x`)는 쓰지 않는다. 값은 `static_cast<T>(x)`, 포인터는 `reinterpret_cast<T>(x)`,
-const 제거는 `const_cast<T>(x)`다. 미사용 인자 관용구 `(void)x;`만 예외다. 이유는 두 가지다 — C스타일은 한 문법이
-static·reinterpret·const 세 가지를 겸해 무엇을 의도했는지 코드만 보고는 알 수 없고, `(int)`처럼 짧아 grep으로 훑을 수도
-없다. 값이 잘리거나 부호가 뒤집히는 것을 막아주지는 않으니(동작은 `static_cast`도 같다), 범위가 걱정되면 캐스트 말고
-호출측 가드나 `std::cmp_less` 같은 안전 비교를 쓴다. 검사는 `../quant-devtools/check_code_conventions.py` 5번 규칙이 추가된 줄만 본다.
-
-복사 표기 — 안 해도 되는 복사는 만들지 않는다. 측정해서 느린 곳을 고치라는 원칙 7과 충돌하지 않는다. 여기서 말하는 것은
-성능이 아니라 문법이다. 복사가 필요 없는 자리에 복사를 쓰면 읽는 사람이 "왜 여기서 값을 떠 가나"를 매번 다시 판단해야 한다.
-
-- 조회 결과를 값으로 돌려주지 않는다. 멤버를 그대로 주면 `const std::string&`, 리터럴 폴백이 섞이면 `std::string_view`다
-  (`std::string_view`를 돌려줄 때는 어느 컨테이너에 수명이 묶이는지 `// [inv]`로 적는다 — 재해시가 뷰를 끊는다).
-- json 노드는 `j.value("k", json::array())`로 받지 않는다. 기본값을 만들려고 노드 전체를 베낀다 — 원소가 수천이면
-  수천을 베낀다. `find()`로 참조를 잡고 없을 때만 함수 지역 `static const`의 빈 노드를 가리킨다.
-- range-for는 `const auto&`가 기본이다. 값으로 받는 것은 원소가 정수·포인터일 때만이다.
-- 값 전달 파라미터는 sink일 때만 쓴다 — 받은 값을 `std::move`로 멤버에 넣는 자리다. 읽기만 하면 `const&`다.
-- 복사가 의도한 것이면(락 안에서 뜬 스냅샷, 호출자가 나중에 고칠 사본) 왜 복사인지 주석으로 남긴다. 그래야 다음 사람이
-  지우지 않는다. `KisClient::token()`이 그 예다.
-
-검사는 `../quant-devtools/check_code_conventions.py` 5번 규칙이 추가된 줄만 본다. json 쪽은 오류, 값 range-for는 원소 타입을 알 수
-없어 경고다. 나머지 셋은 기계로 가릴 수 없으니 리뷰에서 본다.
-
-이름 표기 — 약어를 쓰지 않는다. 변수·인자·멤버·함수·타입 모두 풀어 쓴다(`qty`→`quantity`, `cfg`→`config`, `it`→`iterator`,
-`ev`→`event`, `sym`→`symbol_id`). 한 글자 이름도 같다(`i`·`n`·`x` 금지, 템플릿 인자 `T`·`U`만 예외). 이유는 성능이나 취향이
-아니라 순서다 — 이 코드를 읽고 고치는 사람은 아직 도메인 용어(호가·체결·원장·유니버스·수신 스레드)를 익히는 중이고, 용어를 코드에서
-매번 온전한 말로 만나야 몸에 붙는다. `qty`는 아는 사람에게만 `quantity`다. 익숙해진 뒤에 줄이는 것은 언제든 할 수 있지만,
-약어로 시작하면 익숙해질 기회가 없다. 경위와 전수 변환 규칙은 D-092.
-
-- 예외는 이름이지 약어가 아닌 것뿐이다: KIS 전문 필드(`tr_id`·`odno`·`hhmmss`, `[wire]` 줄), 지표 이름(`pnl`·`atr`·`pbr`·`per`·
-  `p50`·`p99`), 단위 접미사(`_ns`·`_ms`·`_us`·`_sec`·`_min`), 표준 라이브러리·OS 멤버(`std::`·`zmq::` 한정 이름, `.str()`·`.ec`·
-  `tm_min`·`sin_addr`), `argc`·`argv`·`ok`·`now`, 네임스페이스 별칭 `fs`.
-- 길어지는 것은 감수한다. `moving_average_10`이 `ma10`보다 길지만, 읽는 사람이 이동평균이라는 말을 한 번 더 본다.
-- 검사는 `../quant-devtools/check_code_conventions.py` 7번 규칙이 추가된 코드 줄만 본다(오류). 판정 표는 리네임에 쓴
-  `../quant-devtools/rename_maps/01_fields.json`·`../quant-devtools/rename_frags.py`를 그대로 쓰므로, 예외를 늘리려면 그 표(SKIP·WIRE)를 고친다.
-- `.py`도 같은 규칙을 받는다(T-14 ②). 다만 줄 단위 정규식이 아니라 `ast`로 그 파일이 이름을 붙이는 자리(변수·인자·함수·
-  클래스·import 별칭)만 보므로, f-문자열 접두사나 독스트링 본문, 남의 라이브러리 멤버(`frame.iloc`)는 걸리지 않는다.
-  파이썬 관례로 굳은 이름(`np`·`pd`·`df`·`ax`·`kwargs`·`_`)은 검사기의 `PY_CONVENTION` 집합에 적어 예외로 둔다.
-
-숫자 표기 — 뜻이 있는 숫자는 이름을 붙인다. 식(비교·산술·인자)에 맨 숫자를 두지 않고 `constexpr` 상수(`kKrMarketOpenMinute`·
-`kTickCellCapacity`)나 config로 뺀다. 이유는 위와 같다 — `row < 1200`은 아는 사람에게만 20:00이고, 창이 바뀔 때(D-097) 흩어진
-숫자를 하나 놓치면 장중 결함이 된다. 시각은 `Quant/include/core/KstTime.h`의 분 상수, 큐 용량은 `Engine::ShardPipeline`의 상수,
-거래소 규칙 표(`Quant/include/core/TickSize.h`)는 `constexpr` 표에 `[formula]`와 출처를 붙인다.
-
-- 이름을 붙이는 자리는 그대로 둔다: `constexpr`·`enum`·`case`·`#define`, 멤버 기본값(`int stale_sec = 30;`), json 기본값
-  (`node.value("interval_sec", 300)` — 키가 이름이다), 배열 크기·템플릿 인자·시프트·chrono 리터럴(`100ms`), 10의 거듭제곱(단위
-  환산), 문자열 안, `Quant/tests/`(고정값이 곧 검증 대상).
-- 검사는 `../quant-devtools/check_code_conventions.py` 8번 규칙이 추가된 C++ 코드 줄만 본다(오류, 세 자리 이상).
-
-컨테이너 키 표기 — `std::unordered_map<std::string, …>`·`std::unordered_set<std::string>`은 가급적 쓰지 않는다.
-문자열 해시는 길이만큼 바이트를 읽으므로 키 길이에 따라 비용이 달라지고, 조회마다 비교도 길이에 비례한다. 종목은
-`symbol::SymbolId`(`Quant/include/core/SymbolTable.h`), 전략은 `strategy_table::StrategyId`, 주문번호는 `uint64_t`, 체결 키는
-`fill_key::FillKey`로 기동 때 한 번 정수로 바꾸고 그 뒤로는 정수 키나 배열 인덱스로 찾는다(D-112 — 체결 키 296 → 31 ns).
-"절대"가 아니라 "가급적"인 이유는 입력 자체가 문자열인 경계가 있어서다 — config 열거값, REST·WebSocket 응답 필드,
-캡처 파일 헤더, 운영단말이 넘기는 cid. 그런 자리는 문자열 키를 써도 되고, 대신 왜 문자열인지 한 줄 주석을 붙인다
-(예: `Quant/include/core/FeedMux.h`의 `assign_`, `Quant/include/core/DataPoller.h`의 `rest_seen_`).
-
-초기화 위치 — 초기화는 세 목록에만 쓴다. 프로세스 수준(콘솔·로거·인자·설정·크래시 핸들러·모드 분기)은
-`Quant/src/main.cpp`의 `main()` 호출 목록, 설정값을 엔진 세터에 옮기는 배선은 `Engine::configure(const AppConfig&)`
-(`Quant/src/core/EngineConfigure.cpp`)의 호출 목록, 엔진 수준(샤드·인증·주문 라우터·원장·전략·피드·스레드)은
-`Engine::start()`의 호출 목록이다. 새 초기화는 이름 있는 함수 하나로 만들고 그 목록에 한 줄을 더한다 — 함수 몸통
-안에 섞어 넣거나 주기 블록·콜백에서 처음 불릴 때 만들지 않는다. 순서를 읽는 사람은 그 두 목록만 보면 되게 한다.
-config.json을 읽는 곳은 `Quant/src/core/AppConfig.cpp`의 `parse_config()` 하나다(전략별 파라미터는
-`strategy/StrategyFactory.cpp`가 예외) — Engine 세터와 모드 함수는 typed 값만 받고, 키 누락·값 오류는 네트워크를
-건드리기 전에 그 자리에서 던진다. 함수 안 `static` 지역 변수는 `constexpr`(또는 상수 초기화되는 정수·bool·mutex)만
-쓴다 — 람다·생성자로 채우는 매직 스태틱은 호출마다 초기화 가드를 거치고 첫 호출이 hot path에 걸리면 그때 비용을
-낸다. 값이 컴파일 타임에 정해지면 함수 밖 `constexpr` 표로 빼고(`WebSocketClient.cpp`의 base64 역표가 그 예),
-런타임 입력이 필요하면 위 두 목록으로 올린다.
-
-헤더·구현 분리 — 헤더에는 선언만 둔다. 구현은 같은 이름의 `.cpp` 로 내리고(`Quant/include/risk/ProtectiveOrders.h` →
-`Quant/src/risk/ProtectiveOrders.cpp`), 새 파일은 `Quant/CMakeLists.txt` 의 `HEADER_IMPL_SOURCES` 에 한 줄 더한다
-(그 목록은 `quant_header_impl` 정적 라이브러리가 되어 실행 타깃 전부가 건다). 헤더에 남는 것은 셋뿐이다 — 문법상
-불가피한 것(template·`constexpr`·`consteval`), 값만 돌려주고 분기·반복이 없는 5줄 이하 접근자
-(`int size() const { return count_; }`), 멤버 기본값. 헤더에 몸통이 있으면 그 헤더를 include 하는 번역 단위마다 같은
-몸통을 다시 컴파일하고, 몸통 한 줄을 고쳐도 그 헤더를 건드린 파일이 전부 다시 빌드된다(D-118).
-
-- 검사는 `../quant-devtools/check_code_conventions.py` 9번 규칙이 이번 변경이 건드린 줄에 걸친 몸통만 본다(오류). 중괄호 깊이를
-  따라가며 함수 몸통만 골라내므로 람다·멤버 초기화자·제어문은 걸리지 않는다.
-- 통과하는 것은 셋이다 — template·`requires`가 붙은 것, `constexpr`·`consteval`·`static_assert`, 분기·반복이 없는 5줄 이하 몸통.
-  `Quant/tests/`·`Quant/tools/` 아래 헤더는 보지 않는다(실행 타깃에 안 들어간다).
-
-주석을 줄이는 작업(에이전트 포함)의 확인 절차:
-1. 지우기 전에 그 주장이 지금 코드와 맞는지 확인한다. 틀린 주석을 D-NNN으로 옮기면 오류를 정본에 승격시킨다.
-2. 삭제 줄에서 숫자·식별자·ID(`\d+%`, 날짜, `[A-Z]-?\d+`, `§\d`)를 뽑아 각각이 남은 주석·DECISIONS·대상 문서 중 한 곳에 있는지 목록으로 보고한다. 없으면 삭제하지 않는다.
-3. 코드 라인 diff는 0이어야 한다(`git diff -U0`에서 `//`·`*`가 없는 삭제·추가 줄 0). 주석 정리 커밋은 기능 수정 커밋과 분리한다.
+정본은 [CODE_CONVENTIONS.md](CODE_CONVENTIONS.md)로 옮겼다(2026-09-24). 주석 위치별 내용·태그는 그 문서 10절, 이름·숫자·캐스트·복사는 2·3·6절,
+초기화 위치와 헤더·구현 분리는 8·1절이다. 검사는 `../quant-devtools/check_code_conventions.py`(검사기 번호표는 그 문서 0절).
 
 ## 5. 에이전트 쪽 요구
 

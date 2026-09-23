@@ -626,6 +626,7 @@
 
 - [AUTOMATION_SCRIPTING_GUIDE.md](guides/AUTOMATION_SCRIPTING_GUIDE.md) — PowerShell·Python 자동화 스크립트를 직접 쓰기 위한 문법·API·설계 패턴 가이드(auto_trade_day·market_close_autodoc·dashboard_server 해부)
 - [BENCH_MARKET_OPEN_GUIDE.md](guides/BENCH_MARKET_OPEN_GUIDE.md) — 개장 동시호가 DB 부하 벤치마크(bench_market_open.py --call-auction) 실행 가이드, config 파라미터 표·Grafana/SQL 검증 포함
+- [CODE_CONVENTIONS.md](guides/CODE_CONVENTIONS.md) — C++ 코드 규약 정본(구조·이름·스레드·공유 메모리·복사·초기화·오류·주석·빌드), 검사기 번호표와 라벨
 - [CODE_GRAPH_GUIDE.md](guides/CODE_GRAPH_GUIDE.md) — 코드 그래프 생성기 사용법
 - [CPP20_23_GUIDE.md](guides/CPP20_23_GUIDE.md) — C++20/23 기능 사용 가이드
 - [LINUX_SETUP.md](guides/LINUX_SETUP.md) — 리눅스 빌드·실행 설정 가이드

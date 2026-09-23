@@ -1106,4 +1106,4 @@ Say "끝 — 세션 $($script:Sessions.Count)회"
 7. 문구는 [docs/STYLE_GUIDE.md](../STYLE_GUIDE.md) — 로그·주석도 게이트 대상이다.
 
 관련 문서: 운영 절차 [docs/AUTOMATION.md](../AUTOMATION.md), 훅·하네스 [docs/HARNESS.md](../HARNESS.md),
-주석 규약 [docs/guides/MAINTENANCE_AUTOMATION.md](MAINTENANCE_AUTOMATION.md) 4절.
+주석 규약 [docs/guides/CODE_CONVENTIONS.md](CODE_CONVENTIONS.md) 10절.

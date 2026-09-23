@@ -304,3 +304,32 @@
   (b) 유예와 무관하게 승계분은 항상 넓은 트레일로 본다. 둘의 차이는 유예 중 급락 때 나오는데 그 표본이 없다.
 - 재개 조건: 1년 리플레이 하네스가 서면 재기동 시각을 옮겨 가며 두 방향을 같은 구간에 태운다
   (리플레이 입력은 1분봉 백필 중 — [docs/market_close/2026-09-22.md](market_close/2026-09-22.md) 5절). 그 전까지는 `guard_warmup_sec`를 올리지 않는다 — 창만 길어진다.
+
+## 코드 규약 도입 (2026-09-24 요청)
+
+### D-26. 코드 규약을 장치로 옮기는 일곱 단계
+- 위치: [docs/guides/CODE_CONVENTIONS.md](guides/CODE_CONVENTIONS.md)의 `(예정: …)` 라벨이 붙은 규칙 전부.
+- 현상: 규약은 확정했지만 라벨의 절반 가까이가 아직 장치 없이 리뷰로만 본다. 아래 순서대로 옮긴다.
+  1. 규약을 저장소에 반영한다. 검사기 쪽에서는 `../quant-devtools/check_code_conventions.py`의 `ALLOWED_TAGS`에
+     `shm`·`hot`을 넣고, 머리 주석의 정본 가리킴을 새 문서로 바꾸고, 규약 0절 번호표와 어긋나면 `[확인]`을 내게 한다.
+     - 1a. 타깃별 경고 수를 베이스라인에 적고, 규약 11.1의 목표 옵션을 켠다.
+  2. [Quant/src/ipc/SharedLayout.cpp:118](../Quant/src/ipc/SharedLayout.cpp#L118)의 `magic`을 release로 저장한다(지금은
+     일반 대입). 그다음 `[shm]` 태그를 붙이고, 규약 5.1·5.3·5.9의 `static_assert`가 실제로 도는지 확인한다.
+  3. 할당 테스트를 베이스라인 카운트 방식으로 만든다(규약 6.4). 이어서 `docs/examples/seqlock.cpp`, 슬롯 시퀀스 링 예시,
+     TSan 테스트를 만든다.
+  4. clang 프리셋을 추가하고, `GUARDED_BY`는 주문·체결 경로부터 붙인다. 순위 있는 락 래퍼(`LockLevel`, `DebugMutex`)와
+     락 깊이 베이스라인도 만든다(규약 4.7·4.8).
+     - 구현 참고: clang이 `GUARDED_BY`를 래퍼에 대해 인식하려면 래퍼 타입에 `CAPABILITY("mutex")`, `lock()`에 `ACQUIRE()`,
+       `unlock()`에 `RELEASE()` 어노테이션이 있어야 한다. 타입 이름은 하나(`Mutex`)로 두고, 디버그 빌드에서는 어노테이션을
+       단 `DebugMutex`, 릴리즈 빌드에서는 `std::mutex`의 별칭이 되도록 빌드 종류에 따라 정의를 바꾼다. 그래야 4.1의 검사와
+       4.8의 순위 검사가 같은 선언 위에서 함께 돈다.
+  5. 베이스라인을 쓰고 clang-tidy를 게이트에 연결한다. `StrategyFactory` 예외(규약 8.3)와 `Engine::start()`의 스레드 시작
+     위치(규약 8.1)를 확인한다.
+  6. 기존 이름을 일괄로 바꾼다. 바꾼 뒤 `git diff --word-diff`를 사람이 검토하는 것을 조건으로 한다. 예를 들어
+     [Quant/src/ipc/OrderRouter.cpp:2314](../Quant/src/ipc/OrderRouter.cpp#L2314)의 `jitter`처럼 뜻이 달라진 이름을 이
+     검토에서 잡는다.
+  7. 체결 원본 복구: 체결통보 큐에서 버린 건([Quant/src/core/Engine.cpp:1552](../Quant/src/core/Engine.cpp#L1552))은
+     주문번호만 목록에 남긴다. 통제 스레드가 그 목록을 보고 REST 체결 조회로 가격·시각·주문번호를 다시 받아 원장에 넣는다.
+     끝나면 규약 4.2의 예외 문장을 "버린 건은 REST로 복구한다"로 바꾼다.
+- 미룬 이유: 규약 문서를 먼저 확정하고, 장치는 한 단계씩 따로 커밋한다(단계마다 ctest와 베이스라인이 따로 필요하다).
+- 재개 조건: 1부터 순서대로. 단계가 끝나면 규약의 해당 라벨을 `(예정: X)`에서 X로 바꾸고 이 목록에서 지운다.
