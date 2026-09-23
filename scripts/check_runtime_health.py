@@ -569,6 +569,124 @@ def order_latency_breakdown_row(date: str) -> tuple:
             f"·왕복 {milliseconds(transport)}, 우리가 건 호출 간격 조절 {milliseconds(rate_limit)}")
 
 
+def job_attach_row(date: str) -> tuple:
+    """감시견이 띄운 프로세스가 작업 개체에 전부 들어갔는지.
+
+    감시견은 부속 창과 트레이더를 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE 잡에 넣는다 —
+    감시견이 어떻게 죽든 커널이 자식을 같이 정리하게 하려는 것이다. 편입에 실패한 프로세스는
+    감시견이 사라져도 혼자 남는다. 트레이더가 그렇게 남으면 아무도 보지 않는 채 발주가 이어지고,
+    다음 기동은 중복 프로세스 검사에 막혀 그날 매매가 통째로 빈다.
+    감시견은 실패를 WARN 한 줄로만 남기고 지나가므로 여기서 판정한다.
+    """
+    name = "부속 잡 편입"
+    date_compact = date.replace("-", "")
+    # 계좌마다 감시견이 따로 돌고 로그도 갈린다 — 모의는 auto_trade_day_, 실계좌는
+    #  auto_trade_day_live_. 한쪽만 보면 나머지 계좌의 실패를 통째로 놓친다. [why D-122]
+    run_logs = sorted((REPO / "logs").glob(f"auto_trade_day_*{date_compact}.log"))
+
+    if not run_logs:
+        return (name, True, "WARN",
+                f"감시견 실행 로그 없음(auto_trade_day_*{date_compact}.log) — 감시견이 안 돌았다, 판정 안 함")
+
+    attached = 0
+    create_failures = 0
+    add_failures: list[str] = []
+
+    for run_log in run_logs:
+        try:
+            log_text = run_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        attached += log_text.count("잡에 묶음")
+        create_failures += log_text.count("Job Object 생성 실패")
+        # 어느 계좌에서 났는지 남긴다 — 파일 이름의 auto_trade_day_ 뒤, 날짜 앞이 인스턴스다.
+        instance = run_log.stem[len("auto_trade_day_"):-len(date_compact)].strip("_") or "모의"
+
+        for line in log_text.splitlines():
+            if "잡 편입 실패" in line:
+                add_failures.append(f"{instance}: {line.strip()[:70]}")
+
+    ok = not add_failures and create_failures == 0
+    detail = f"편입 {attached}건 성공, 편입 실패 {len(add_failures)}건, 잡 생성 실패 {create_failures}회"
+
+    if add_failures:
+        detail += " — " + " / ".join(add_failures[:3])
+
+    if create_failures:
+        detail += " — 잡이 아예 없는 세션은 부속 창이 감시견보다 오래 남는다"
+
+    return (name, ok, "FAIL", detail)
+
+
+def orphan_process_rows() -> list:
+    """부모가 이미 죽었는데 혼자 남은 프로세스를 지금 이 순간 기준으로 센다.
+
+    엔진 계열이 그렇게 남는 것은 잡이 제 일을 못 했거나 누가 손으로 띄운 것이라 이중 발주로 이어진다.
+    개발 도구 쪽은 아직 하루를 망친 적이 없어 수치만 적는다 — 며칠 쌓아 보고 기준값을 정한다
+    (2026-09-23 시작. 그날 재부팅 전 도구들이 물리 메모리 15GB를 물고 있었고, 부모 없이 남은 것은
+    9MB 하나뿐이라 원인이 그게 아니라 안 닫은 창이었다. 그 판단을 수치로 이어 두려는 행이다).
+    """
+    engine_name = "엔진 남은 프로세스"
+    tool_name = "도구 남은 프로세스"
+
+    try:
+        import psutil
+    except ImportError:
+        return [(engine_name, True, "WARN", "psutil 없음 — 판정 안 함 (py -m pip install psutil)"),
+                (tool_name, True, "WARN", "psutil 없음 — 판정 안 함")]
+
+    # 감시견 잡이 지켜야 하는 것들. 부모 없이 남으면 감시 밖에서 도는 중이다.
+    engine_names = ("quant_trader", "ops_terminal")
+    # 창을 닫아도 남는지 보려고 세는 것들. 판정이 아니라 관측이라 목록이 넉넉해도 된다.
+    tool_names = ("Code", "devenv", "node", "python", "py", "claude",
+                  "cpptools", "cpptools-srv", "vcpkgsrv", "copilot-language-server",
+                  "msedgewebview2", "ServiceHub.Host.dotnet.x64")
+
+    engine_orphans: list[str] = []
+    tool_orphans: list[str] = []
+    tool_bytes = 0
+
+    for process in psutil.process_iter(["name"]):
+        try:
+            raw_name = process.info["name"] or ""
+            base_name = raw_name[:-4] if raw_name.lower().endswith(".exe") else raw_name
+
+            if base_name not in engine_names and base_name not in tool_names:
+                continue
+
+            # parent() 는 부모 PID 를 찾은 뒤 그 프로세스의 생성 시각이 자식보다 이른지까지 본다 —
+            #  윈도는 PID 를 재사용하므로 이 확인이 없으면 남의 프로세스를 부모로 착각한다.
+            if process.parent() is not None:
+                continue
+
+            resident_bytes = process.memory_info().rss
+        except (psutil.Error, OSError):
+            continue
+
+        if base_name in engine_names:
+            engine_orphans.append(f"{base_name} pid={process.pid}")
+        else:
+            tool_orphans.append(base_name)
+            tool_bytes += resident_bytes
+
+    engine_detail = (f"부모 없이 남은 엔진 프로세스 {len(engine_orphans)}개"
+                     + (" — " + ", ".join(engine_orphans[:5]) if engine_orphans
+                        else " (감시견 잡이 지키고 있다)"))
+
+    # 이 한도는 근거가 얇다. 재부팅 전 도구들이 물고 있던 15GB 에 견줘 눈에 띄는 크기로 잡았을 뿐이라
+    #  며칠 수치를 보고 고친다. 넘어도 매매와는 무관하니 WARN 이다.
+    tool_limit_bytes = 1 << 30
+    tool_counts = {name: tool_orphans.count(name) for name in sorted(set(tool_orphans))}
+    tool_detail = (f"부모 없이 남은 도구 프로세스 {len(tool_orphans)}개 "
+                   f"{tool_bytes / (1 << 20):.0f}MB (기준 {tool_limit_bytes >> 30}GB)"
+                   + (" — " + ", ".join(f"{name} {count}개" for name, count in tool_counts.items())
+                      if tool_counts else ""))
+
+    return [(engine_name, not engine_orphans, "FAIL", engine_detail),
+            (tool_name, tool_bytes < tool_limit_bytes, "WARN", tool_detail)]
+
+
 def collect(date: str, log: Path, since: int = 0):
     """로그 한 파일에서 그날 점검 행을 만든다.
 
@@ -1029,6 +1147,8 @@ def collect(date: str, log: Path, since: int = 0):
         queue_latency_row(date),
         order_latency_breakdown_row(date),
         market_open_gate_row(date),
+        job_attach_row(date),
+        *orphan_process_rows(),
         tsan_row(date),
     ]
     return rows, len(starts)
