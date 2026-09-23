@@ -170,35 +170,9 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
             rescan_set_registered(register_symbol(specification.ticker), true);
         }
 
-        bool exists = false;
+        if (add_watch_specification(specification))
         {
-            std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
-
-            for (auto& watch_specification : watch_specifications_)
-            {
-                if (watch_specification.market == specification.market && watch_specification.exchange == specification.exchange && watch_specification.ticker == specification.ticker)
-                {
-                    exists = true;
-                    break;
-                }
-            }
-
-            if (!exists)
-            {
-                watch_specifications_.push_back(specification);
-            }
-        }
-
-        if (!exists && feed_.websocket)
-        {
-            // false 자체는 정상일 수 있다(연결 전·이미 구독). 목록에서까지 빠졌으면 구독 상한에
-            //  밀린 것이고, 그대로 두면 이 종목은 틱 없이 조용히 매매하지 않는다(09-11 실측:
-            //  40 초과 종목 체결 0건). 넘침 목록에 넣어 data_thread가 REST로 대신 흘린다.
-            if (!feed_.websocket->subscribe_incremental(specification) && !feed_.websocket->has_specification(specification) && poller_->add_overflow(specification))
-            {
-                LOG_WARN("[Engine] WS 구독 상한 — " + specification.ticker + " 시세는 REST 폴링으로 대체(넘침 " +
-                         std::to_string(poller_->overflow_count()) + "종목)");
-            }
+            send_watch_request(specification);
         }
     }
 
@@ -1130,6 +1104,97 @@ void Engine::collect_watch_specifications()
         {
             rescan_set_registered(register_symbol(specification.ticker), true);
         }
+
+        // 거는 자리는 소켓을 쥔 주문 쪽 하나다. Both 로 돌면 connect_feed() 가 이미 이 목록을 통째로
+        //  걸어 둔 뒤라 이 요청은 "이미 구독 중"으로 끝난다 — 갈라 띄운 날 처음 도는 코드를 안 만들려고
+        //  양쪽이 같은 길을 쓴다. [why D-114]
+        send_watch_request(specification);
+    }
+}
+
+bool Engine::add_watch_specification(const WatchSpec& specification)
+{
+    std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
+
+    for (const auto& watch_specification : watch_specifications_)
+    {
+        if (watch_specification.market == specification.market && watch_specification.exchange == specification.exchange &&
+            watch_specification.ticker == specification.ticker && watch_specification.is_future == specification.is_future)
+        {
+            return false;
+        }
+    }
+
+    watch_specifications_.push_back(specification);
+    return true;
+}
+
+void Engine::send_watch_request(const WatchSpec& specification)
+{
+    // 칸을 넘는 종목 코드는 잘라 보내지 않는다 — 잘린 코드로 구독하면 엉뚱한 종목의 틱이 이 종목 것으로 온다.
+    if (specification.ticker.size() > symbol::Ticker::kMax || specification.exchange.size() >= ipc::kControlExchangeMax)
+    {
+        LOG_ERROR("[Engine] 구독 스펙이 칸을 넘어 보내지 못했다 — " + specification.ticker + "(" + specification.exchange + ")");
+        return;
+    }
+
+    ipc::ControlRequest request;
+    request.kind       = ipc::ControlKind::kWatchSubscribe;
+    request.ticker     = std::string_view(specification.ticker);
+    request.market     = static_cast<uint8_t>(specification.market);
+    request.trade_only = specification.trade_only ? 1 : 0;
+    request.is_future  = specification.is_future ? 1 : 0;
+    ipc::set_exchange(request, specification.exchange);
+
+    if (!send_control(request))
+    {
+        // 사라지면 그 종목은 틱이 영영 오지 않는다(09-11 실측: 구독 밖 종목 체결 0건). 큰 소리로 남긴다.
+        LOG_ERROR("[Engine] 구독 요청을 못 보냈다 — " + specification.ticker + " 는 시세를 받지 못한다");
+    }
+}
+
+void Engine::drain_pending_subscriptions()
+{
+    std::vector<WatchSpec> specifications;
+    {
+        std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
+        specifications.swap(pending_subscriptions_); // 소켓 쓰기는 자물쇠 밖에서 한다
+    }
+
+    if (specifications.empty() || !feed_.websocket)
+    {
+        return;
+    }
+
+    for (const auto& specification : specifications)
+    {
+        if (feed_.capture)
+        {
+            // 그날 무엇을 구독했는지 캡처 파일 머리에 남긴다 — 호가가 빈 종목이 trade_only 인지 파일만 보고 알 수 있게.
+            feed_.capture->on_universe(specification.ticker, static_cast<uint8_t>(specification.market),
+                                       symbols_.table.intern(specification.ticker), specification.trade_only);
+        }
+
+        // 거짓 자체는 정상일 수 있다(연결 전·이미 구독). 목록에서까지 빠졌으면 구독 상한에 밀린 것이고,
+        //  그대로 두면 이 종목은 틱 없이 조용히 매매하지 않는다(09-11 실측: 40 초과 종목 체결 0건).
+        if (feed_.websocket->subscribe_incremental(specification) || feed_.websocket->has_specification(specification))
+        {
+            continue;
+        }
+
+        watch_overflow_.fetch_add(1, std::memory_order_relaxed);
+
+        // 넘침 목록에 넣어 데이터 스레드가 REST 로 대신 흘린다. 폴러는 전략 쪽 것이라 갈라 띄우면 여기 없다 —
+        //  그 경우 REST 대체는 시세 통로를 배선할 때 주문 쪽으로 옮긴다. [why D-114]
+        if (poller_ && poller_->add_overflow(specification))
+        {
+            LOG_WARN("[Engine] WS 구독 상한 — " + specification.ticker + " 시세는 REST 폴링으로 대체(넘침 " +
+                     std::to_string(poller_->overflow_count()) + "종목)");
+        }
+        else if (!poller_)
+        {
+            LOG_ERROR("[Engine] WS 구독 상한 — " + specification.ticker + " 는 REST 대체가 아직 없어 틱을 못 받는다");
+        }
     }
 }
 
@@ -1140,7 +1205,9 @@ void Engine::connect_feed()
     //  허용하는데, 세션 정리가 서버측에 걸려 rt=9(ALREADY IN USE) 재연결 폭주가 나므로
     //  체결 피드를 REST 현재가 폴링(data_thread_fn)으로 대체하고 WS 의존을 제거한다.
     //  주문은 REST(order_thread_fn)로 나가므로 매매에는 영향 없음(체결통보 on_fill만 없음).
-    if (feed_.rest_price_feed || watch_specifications_.empty())
+    //  갈라 띄우면 구독 목록은 전략 쪽에서 요청으로 온다 — 그때 소켓이 없으면 걸 곳이 없다. 체결통보도
+    //  이 소켓이 듣는다. 그래서 주문만 맡은 프로세스는 목록이 비어도 연다. [why D-114]
+    if (feed_.rest_price_feed || (watch_specifications_.empty() && role_ != ProcessRole::Order))
     {
         return;
     }
@@ -2701,6 +2768,33 @@ void Engine::apply_control_requests(ControlInbox& inbox)
                                         request.toggle_on != 0);
             break;
 
+        // 구독을 거는 자리도 소켓을 쥔 여기 하나다. 다만 여기서는 목록에만 올리고 소켓에 거는 것은
+        //  감시 스레드가 한다 — 주문 스레드는 단일 시퀀서라 소켓 쓰기에 막히면 그동안 주문이 안 나간다. [why D-114]
+        case ipc::ControlKind::kWatchSubscribe:
+        {
+            if (request.ticker.empty() || request.ticker.size() > symbol::Ticker::kMax)
+            {
+                break; // 통로 저쪽에서 온 칸은 믿지 않는다 — 길이가 칸을 넘으면 view() 가 칸 밖을 읽는다
+            }
+
+            WatchSpec specification;
+            specification.ticker     = std::string(request.ticker.view());
+            specification.market     = request.market == static_cast<uint8_t>(Market::US) ? Market::US : Market::KR;
+            specification.exchange   = std::string(ipc::exchange_of(request));
+            specification.trade_only = request.trade_only != 0;
+            specification.is_future  = request.is_future != 0;
+
+            // 목록에 이미 있어도 구독은 건다 — Both 로 돌면 connect_feed() 가 채운 목록에 그대로 들어 있다.
+            add_watch_specification(specification);
+
+            {
+                std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
+                pending_subscriptions_.push_back(std::move(specification));
+            }
+
+            break;
+        }
+
         default:
             break;
         }
@@ -3797,7 +3891,9 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                      std::to_string(pipeline_.control_discarded.load(std::memory_order_relaxed)) +
                      // 티커→번호 — 등록을 주문 쪽에서 못 받은 수, 표에 없는 티커로 잦은 자리가 불린 수. 둘 다 0이어야 한다. [why D-114]
                      " symbol_register_timeout=" + std::to_string(symbol_register_timeouts()) +
-                     " symbol_lookup_miss=" + std::to_string(symbol_lookup_misses()));
+                     " symbol_lookup_miss=" + std::to_string(symbol_lookup_misses()) +
+                     // 구독 — 상한에 밀려 소켓에 못 건 종목 수. 0이어야 한다(밀린 종목은 WS 틱이 없다). [why D-114]
+                     " watch_overflow=" + std::to_string(watch_overflows()));
         }
 
         if (++token_tick >= kTokenEvery)
@@ -3829,6 +3925,9 @@ void Engine::control_thread_fn(std::stop_token stop_token)
         {
             continue;
         }
+
+        // 전략 쪽이 보낸 구독 요청을 소켓에 건다. 여기 두는 이유는 위 case 주석에 있다. [why D-114]
+        drain_pending_subscriptions();
 
         // 장 외 시간에는 stale이 정상 — 장 중에만 묻는다. 전이 판정은 감독기, 소켓·폴백 적용은 여기. [why D-071]
         const bool market_open = is_any_market_open();

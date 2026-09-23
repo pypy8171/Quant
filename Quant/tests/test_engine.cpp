@@ -742,7 +742,7 @@ int run_split_start_case()
         CHECK(engine.is_running());
         CHECK(strategy->symbol_id() == symbol::kNone); // 전략을 올리지 않았다
         CHECK(engine.symbol_register_timeouts() == 0);
-        CHECK(!feed->is_connected());                  // 구독 목록이 아직 전략 쪽에서 건너오지 않는다
+        CHECK(feed->is_connected());                   // 구독 목록이 비어도 연다 — 체결통보를 이 소켓이 듣는다
         CHECK(engine.order_count() == 0);
 
         engine.stop();

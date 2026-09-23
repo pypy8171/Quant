@@ -126,6 +126,12 @@ public:
         return symbol_lookup_misses_.load(std::memory_order_relaxed);
     }
 
+    // 구독 상한에 밀려 소켓에 못 건 종목 수. 0이 아니면 그 종목은 WS 틱을 못 받는다.
+    [[nodiscard]] uint64_t watch_overflows() const noexcept
+    {
+        return watch_overflow_.load(std::memory_order_relaxed);
+    }
+
     // ── 주문 쪽 스위치를 고치는 자리 ────────────────────────────────────────
     // OrderGate·원장은 주문 프로세스 것이다. 전략 역할이면 여기서 직접 고치지 않고 제어 요청 한 줄을
     //  보낸다 — 표를 고치는 일은 단일 시퀀서인 주문 스레드가 한다(D-071 원칙 4). [why D-114]
@@ -423,6 +429,16 @@ private:
     bool        ledger_journal_fsync_ = false;
     void start_strategies();
     void collect_watch_specifications();
+
+    // 구독 스펙 하나를 내 목록에 넣는다. 이미 있으면 거짓 — 같은 종목을 두 번 구독하지 않는다.
+    bool add_watch_specification(const WatchSpec& specification);
+
+    // 구독 스펙 하나를 소켓 쥔 쪽에 보낸다. 소켓이 어느 프로세스에 있든 거는 자리는 하나다. [why D-114]
+    void send_watch_request(const WatchSpec& specification);
+
+    // 쌓인 구독 스펙을 소켓에 건다. [inv] 감시 스레드만 부른다(주문 쪽). [why D-114]
+    void drain_pending_subscriptions();
+
     void connect_feed();
     void spawn_threads();
 
@@ -825,6 +841,13 @@ private:
     //  data_thread(재스캔 등록)가 쓰고 control_thread(WS 재연결)가 읽는다 — watch_specs_mtx_로 보호.
     std::vector<WatchSpec> watch_specifications_;
     mutable std::mutex     watch_specifications_mutex_;
+
+    // 아직 소켓에 걸지 않은 구독 스펙. 주문 스레드가 제어 요청에서 꺼내 여기 쌓고, 감시 스레드가
+    //  비우며 소켓에 건다 — 주문 스레드는 단일 시퀀서라 소켓 쓰기로 막으면 그동안 주문이 안 나간다. [why D-114]
+    //  [inv] watch_specifications_mutex_ 로 보호한다(넣는 쪽 주문 스레드, 비우는 쪽 감시 스레드).
+    std::vector<WatchSpec> pending_subscriptions_;
+    // 구독 상한에 밀린 종목 수. 0이 아니면 그 종목은 WS 틱을 못 받는다 — 판정 행 "구독 상한"이 본다. [why D-114]
+    std::atomic<uint64_t> watch_overflow_{0};
 
     // ── ZMQ ──────────────────────────────────────────────────────────────────
     bool        zmq_enabled_      = true; // set_zmq_enabled. 부하 하네스만 끈다

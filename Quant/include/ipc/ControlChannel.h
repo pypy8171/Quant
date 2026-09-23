@@ -20,6 +20,9 @@ namespace ipc
 // 계좌 이름 칸. LedgerGlobals::account 와 같은 크기다 — 같은 값이 오간다.
 constexpr size_t kControlAccountMax = 32;
 
+// 거래소 칸. kWatchSubscribe 가 미국 거래소 코드("NAS"·"NYS")를 나른다 — 국내는 비어 있다.
+constexpr size_t kControlExchangeMax = 8;
+
 // 표 한 장이 담을 수 있는 줄 수. 슬롯 면제는 바스켓 소유 종목 수, 우선순위는 전 슬리브를 합친 수다.
 //  넘으면 그 표는 버린다 — 반만 거는 것보다 낫다(아래 ControlTableBuilder 주석).
 constexpr size_t kControlTableMax = 2048;
@@ -42,6 +45,7 @@ enum class ControlKind : uint8_t
     kEntryScale          = 12, // 신규 진입 매수 비율 0~1
     kKillSwitch          = 13, // 전방향 주문 차단
     kManualHalt          = 14, // 운영단말이 손으로 거는 한 방향 정지
+    kWatchSubscribe      = 15, // 이 종목 시세를 구독해 달라 — 소켓을 쥔 쪽은 주문 프로세스 하나다
 };
 
 // 제어 요청 한 줄. 칸은 kind 마다 쓰는 것만 채우고 나머지는 기본값 그대로 둔다.
@@ -57,14 +61,17 @@ struct ControlRequest
     ControlKind                kind              = ControlKind::kNone;
     uint8_t                    toggle_on         = 0;   // kEntryHalt·kKillSwitch·kManualHalt — 켜면 1
     uint8_t                    halt_side         = 0;   // kManualHalt — OrderSide::Value 를 담는다
-    uint8_t                    reserved0         = 0;
+    uint8_t                    market            = 0;   // kWatchSubscribe — Market 을 담는다
+    uint8_t                    trade_only        = 0;   // kWatchSubscribe — 호가 빼고 체결만 구독
+    uint8_t                    is_future         = 0;   // kWatchSubscribe — 국내 선물 채널로 구독
     double                     score_z           = 0.0; // kEntryPriorityEntry
     double                     entry_scale       = 0.0; // kEntryScale
     double                     stop_loss_percent = 0.0; // kArmProtective
     double                     trail_arm_percent = 0.0; // kArmProtective
     double                     trail_percent     = 0.0; // kArmProtective
-    char                       account[kControlAccountMax] = {}; // kArmProtective·kDisarmProtective
-    symbol::Ticker             ticker;                            // kRegisterSymbol
+    char                       account[kControlAccountMax]   = {}; // kArmProtective·kDisarmProtective
+    char                       exchange[kControlExchangeMax] = {}; // kWatchSubscribe — 미국 거래소 코드
+    symbol::Ticker             ticker;                             // kRegisterSymbol·kWatchSubscribe
 };
 
 // 계좌 이름을 칸에 담는다. 칸을 넘으면 자르고 끝에 0을 넣는다.
@@ -72,6 +79,12 @@ void set_account(ControlRequest& request, std::string_view account) noexcept;
 
 // 칸에 담긴 계좌 이름. [inv] 돌려주는 조각은 request 가 사는 동안만 유효하다.
 [[nodiscard]] std::string_view account_of(const ControlRequest& request) noexcept;
+
+// 거래소 코드를 칸에 담는다. 칸을 넘으면 자르고 끝에 0을 넣는다.
+void set_exchange(ControlRequest& request, std::string_view exchange) noexcept;
+
+// 칸에 담긴 거래소 코드. [inv] 돌려주는 조각은 request 가 사는 동안만 유효하다.
+[[nodiscard]] std::string_view exchange_of(const ControlRequest& request) noexcept;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 주문 쪽 — 여러 줄로 나뉘어 오는 표 하나를 모은다

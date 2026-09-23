@@ -4,6 +4,7 @@
 //   큐도 스레드도 쓰지 않는다. 레코드와 모으는 규칙만 손으로 먹여 본다.
 //
 //   ① 계좌 이름이 칸에 들어가고 그대로 나오는가(칸을 넘으면 잘리는가)
+//   ①′ 거래소 칸도 같은가, 그리고 0 없이 꽉 찬 칸을 읽어도 칸 밖으로 안 나가는가
 //   ② 열고-쌓고-닫으면 그 줄이 그대로 나오는가
 //   ③ 열지 않고 온 줄은 버리고 세는가
 //   ④ 남의 표 줄이 섞여 들어오지 않는가(표를 만드는 쪽이 둘일 때)
@@ -17,6 +18,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <string>
 
@@ -62,6 +64,24 @@ int main()
 
         ipc::set_account(request, "");
         check(ipc::account_of(request).empty(), "빈 이름은 빈 채로 나온다");
+    }
+
+    // ── ①′ 거래소 칸 ───────────────────────────────────────────────────────
+    {
+        ipc::ControlRequest request;
+        ipc::set_exchange(request, "NAS");
+        check(ipc::exchange_of(request) == "NAS", "거래소 코드가 칸에 들어가고 그대로 나온다");
+
+        const std::string long_code(ipc::kControlExchangeMax + 5, 'N');
+        ipc::set_exchange(request, long_code);
+        check(ipc::exchange_of(request).size() == ipc::kControlExchangeMax - 1, "칸을 넘는 코드는 잘린다");
+
+        ipc::set_exchange(request, "");
+        check(ipc::exchange_of(request).empty(), "국내 종목은 거래소 칸이 빈 채로 온다");
+
+        // 통로 저쪽이 0을 안 넣고 보낸 칸 — 읽는 쪽이 칸 밖을 넘겨다보면 안 된다.
+        std::memset(request.exchange, 'X', ipc::kControlExchangeMax);
+        check(ipc::exchange_of(request).size() == ipc::kControlExchangeMax, "0 없이 꽉 찬 칸은 칸 끝까지만 읽는다");
     }
 
     // ── ② 온전한 표 ────────────────────────────────────────────────────────

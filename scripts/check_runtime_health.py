@@ -120,6 +120,7 @@ CONTROL_DISCARD_RE = re.compile(r"control_discarded=(\d+)")
 # 티커→번호(D-114 단계 4) — 등록을 주문 쪽에서 못 받은 수, 표에 없는 티커로 잦은 자리가 불린 수.
 SYMBOL_REGISTER_TIMEOUT_RE = re.compile(r"symbol_register_timeout=(\d+)")
 SYMBOL_LOOKUP_MISS_RE = re.compile(r"symbol_lookup_miss=(\d+)")
+WATCH_OVERFLOW_RE = re.compile(r"watch_overflow=(\d+)")
 # 체결통보 세션(D-114 단계 3) — 기동마다 한 줄. 맡은 소켓이 몇 번인지, 아무도 안 맡았는지, 둘 이상이 맡았는지.
 FILL_SESSION_ONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 소켓 (\d+)")
 FILL_SESSION_NONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 없음")
@@ -568,6 +569,7 @@ def collect(date: str, log: Path, since: int = 0):
     control_discarded = -1                       # 주문 쪽이 반쪽 표로 보고 버린 줄 수. -1이면 그 줄이 없는 구 exe
     symbol_register_timeout = -1                 # 등록을 주문 쪽에서 못 받은 수. -1이면 그 줄이 없는 구 exe
     symbol_lookup_miss = 0                       # 표에 없는 티커로 잦은 자리가 불린 수
+    watch_overflow = -1                          # 구독 상한에 밀린 종목 수. -1이면 그 줄이 없는 구 exe
     fill_session_socket = -1                     # 체결통보를 맡은 소켓 번호. -1이면 그 줄이 없는 구 exe
     fill_session_none = 0                        # 맡은 소켓이 없다고 찍힌 기동 수
     fill_session_many = 0                        # 둘 이상이 맡았다고 찍힌 기동 수
@@ -633,6 +635,8 @@ def collect(date: str, log: Path, since: int = 0):
                 symbol_register_timeout = max(symbol_register_timeout, int(found.group(1)))
             if found := SYMBOL_LOOKUP_MISS_RE.search(line):
                 symbol_lookup_miss = max(symbol_lookup_miss, int(found.group(1)))
+            if found := WATCH_OVERFLOW_RE.search(line):
+                watch_overflow = max(watch_overflow, int(found.group(1)))
             if found := FILL_SESSION_ONE_RE.search(line):
                 fill_session_socket = int(found.group(1))
             elif FILL_SESSION_NONE_RE.search(line):
@@ -826,6 +830,12 @@ def collect(date: str, log: Path, since: int = 0):
             return (name, True, level, "티커→번호 수치 줄 없음(D-114 단계 4 배포 전 바이너리) — 판정 안 함")
         return (name, ok, level, detail)
 
+    # 구독(D-114 단계 4 배선 ②) — 이 줄도 티커→번호 줄보다 늦게 붙었으므로 따로 건너뛴다.
+    def watch_row(name: str, ok: bool, level: str, detail: str):
+        if watch_overflow < 0:
+            return (name, True, level, "구독 수치 줄 없음(D-114 단계 4 배선 ② 배포 전 바이너리) — 판정 안 함")
+        return (name, ok, level, detail)
+
     # 체결통보 세션(D-114 단계 3) — 이 줄도 사본 줄보다 늦게 붙었으므로 따로 건너뛴다.
     def fill_session_row(name: str, ok: bool, level: str, detail: str):
         if fill_session_socket < 0 and fill_session_none == 0 and fill_session_many == 0:
@@ -871,6 +881,10 @@ def collect(date: str, log: Path, since: int = 0):
         #  아예 못 보고(신호 유실), 표에 없는 티커로 잦은 자리가 불리면 그 틱·신호가 번호 없이 버려진다.
         symbol_row("종목 번호 등록", symbol_register_timeout == 0 and symbol_lookup_miss == 0, "FAIL",
                    f"등록 못 받음 {symbol_register_timeout}건 · 표에 없는 티커 {symbol_lookup_miss}건 (둘 다 기대 0)"),
+        # 구독은 KIS 상한(41건)에 걸리면 조용히 거절된다. 밀린 종목은 WS 틱이 안 와 전략이 그 종목을
+        #  보지 못하고, 갈라 띄우면 시세 폴러가 전략 쪽에 있어 REST 대체도 아직 없다 — 그래서 FAIL이다.
+        watch_row("구독 상한", watch_overflow == 0, "FAIL",
+                  f"소켓에 못 건 종목 {watch_overflow}건 (기대 0 — 밀린 종목은 WS 틱을 못 받는다)"),
         # 체결통보는 WS 세션 하나만 들어야 한다. 아무도 안 들으면 체결이 원장에 안 들어와 선점이 안 풀리고,
         #  둘이 들으면 KIS가 세션마다 같은 통보를 보내 원장이 체결을 두 번 센다 — 둘 다 A등급이다.
         fill_session_row("체결 세션", fill_session_many == 0 and fill_session_none == 0, "FAIL",
