@@ -166,6 +166,8 @@ graph LR
     n_ipc_OrderChannel_h["ipc/OrderChannel.h"]
     n_ipc_OrderRouter_cpp["ipc/OrderRouter.cpp"]
     n_ipc_OrderRouter_h["ipc/OrderRouter.h"]
+    n_ipc_SharedLayout_cpp["ipc/SharedLayout.cpp"]
+    n_ipc_SharedLayout_h["ipc/SharedLayout.h"]
     n_ipc_SharedRegion_cpp["ipc/SharedRegion.cpp"]
     n_ipc_SharedStrategyDictionary_cpp["ipc/SharedStrategyDictionary.cpp"]
     n_ipc_SharedStrategyDictionary_h["ipc/SharedStrategyDictionary.h"]
@@ -450,6 +452,15 @@ graph LR
   n_ipc_OrderRouter_h --> n_ipc_FillKey_h
   n_ipc_OrderRouter_h --> n_ipc_ZmqBridge_h
   n_ipc_OrderRouter_h --> n_risk_OrderGate_h
+  n_ipc_SharedLayout_cpp --> n_ipc_SharedLayout_h
+  n_ipc_SharedLayout_h --> n_ipc_ControlChannel_h
+  n_ipc_SharedLayout_h --> n_ipc_Heartbeat_h
+  n_ipc_SharedLayout_h --> n_ipc_LedgerSnapshot_h
+  n_ipc_SharedLayout_h --> n_ipc_MarketFeedChannel_h
+  n_ipc_SharedLayout_h --> n_ipc_OrderChannel_h
+  n_ipc_SharedLayout_h --> n_ipc_SharedSpscRing_h
+  n_ipc_SharedLayout_h --> n_ipc_SharedStrategyDictionary_h
+  n_ipc_SharedLayout_h --> n_ipc_SharedSymbolDictionary_h
   n_ipc_SharedRegion_cpp --> n_ipc_SharedRegion_h
   n_ipc_SharedStrategyDictionary_cpp --> n_ipc_SharedStrategyDictionary_h
   n_ipc_SharedStrategyDictionary_cpp --> n_ipc_SharedWriteLock_h

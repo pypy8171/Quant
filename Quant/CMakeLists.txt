@@ -760,6 +760,19 @@ if(UNIX)
     target_link_libraries(test_market_feed_channel PRIVATE pthread)
 endif()
 
+# ─── 테스트 타겟: 공유 쪽지 위 자리표 (D-114 단계 4) ─────────────
+add_executable(test_shared_layout tests/test_shared_layout.cpp
+    src/ipc/SharedLayout.cpp src/ipc/MarketFeedChannel.cpp src/ipc/SharedSymbolDictionary.cpp
+    src/ipc/SharedStrategyDictionary.cpp src/ipc/SharedWriteLock.cpp src/ipc/LedgerSnapshot.cpp
+    src/ipc/ControlChannel.cpp src/ipc/Heartbeat.cpp
+    src/core/SymbolTable.cpp src/core/StrategyTable.cpp src/core/Types.cpp)
+target_include_directories(test_shared_layout PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+if(UNIX)
+    target_link_libraries(test_shared_layout PRIVATE pthread)
+endif()
+
 # ─── 테스트 타겟: 장부 사본 (D-114 단계 2.5) ──────────────────────
 add_executable(test_ledger_snapshot tests/test_ledger_snapshot.cpp src/ipc/LedgerSnapshot.cpp)
 target_include_directories(test_ledger_snapshot PRIVATE
@@ -841,6 +854,7 @@ set(QUANT_ASSERT_TARGETS
     test_shared_symbol_dictionary
     test_shared_strategy_dictionary
     test_market_feed_channel
+    test_shared_layout
     test_displacement_desk
     test_heartbeat
     test_ledger_snapshot

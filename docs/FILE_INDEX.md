@@ -298,6 +298,7 @@
 - [SharedSymbolDictionary.h](../Quant/include/ipc/SharedSymbolDictionary.h) — 공유 쪽지 위 종목 표 — 프로세스를 갈라도 같은 종목에 같은 번호가 붙게 한다(D-114 단계 4)
 - [SharedStrategyDictionary.h](../Quant/include/ipc/SharedStrategyDictionary.h) — 공유 쪽지 위 전략 이름표 — 재스캔이 새로 등록하는 전략도 양쪽에서 같은 번호를 갖게 한다(D-114 단계 4)
 - [MarketFeedChannel.h](../Quant/include/ipc/MarketFeedChannel.h) — 주문 → 전략 시세 통로 — 소켓 한 줄이 나르는 체결·호가 두 큐 한 벌(D-114 단계 4)
+- [SharedLayout.h](../Quant/include/ipc/SharedLayout.h) — 공유 쪽지 한 장 위의 자리표 — 머리 하나와 면 여덟이 어디서 시작해 몇 바이트를 쓰는지 여기서만 정한다(D-114 단계 4)
 - [SharedWriteLock.h](../Quant/include/ipc/SharedWriteLock.h) — 공유 쪽지 위 표에 넣는 동안만 잡는 자물쇠 한 벌(D-114 단계 4)
 - [SharedSpscRing.h](../Quant/include/ipc/SharedSpscRing.h) — 공유 쪽지 위 한줄 큐 — 내 자리는 내 프로세스 안에 두고 건너편이 적은 칸은 믿지 않는다(D-114 단계 4)
 - [ZmqBridge.h](../Quant/include/ipc/ZmqBridge.h) — C++ 엔진 ↔ Python ZMQ IPC 브릿지
@@ -419,6 +420,7 @@
 - [SharedSymbolDictionary.cpp](../Quant/src/ipc/SharedSymbolDictionary.cpp) — SharedSymbolDictionary.h 구현 — 자리 셈·놓기·붙기와 넣는 동안만 잡는 자물쇠(D-114 단계 4)
 - [SharedStrategyDictionary.cpp](../Quant/src/ipc/SharedStrategyDictionary.cpp) — SharedStrategyDictionary.h 구현 — 자리 셈·놓기·붙기, 칸을 넘는 이름은 잘라 넣지 않고 거절한다(D-114 단계 4)
 - [MarketFeedChannel.cpp](../Quant/src/ipc/MarketFeedChannel.cpp) — MarketFeedChannel.h 구현 — 줄마다 큐 둘을 놓고 붙기, 꺼낸 칸의 값 검사(D-114 단계 4)
+- [SharedLayout.cpp](../Quant/src/ipc/SharedLayout.cpp) — SharedLayout.h 구현 — 자리 셈·놓기·붙기와, 양쪽 설정이 다르면 붙기를 거절하는 머리 대조(D-114 단계 4)
 - [SharedWriteLock.cpp](../Quant/src/ipc/SharedWriteLock.cpp) — SharedWriteLock.h 구현 — 돌다가 양보하는 자물쇠(D-114 단계 4)
 - [ZmqBridge.cpp](../Quant/src/ipc/ZmqBridge.cpp) — ZMQ IPC 브릿지 구현 — PUB/REP 소켓
 
@@ -517,6 +519,7 @@
 - [test_shared_symbol_dictionary.cpp](../Quant/tests/test_shared_symbol_dictionary.cpp) — 공유 쪽지 위 종목 표 단위 테스트: 손잡이 둘이 같은 번호를 보는지·가득참·붙기 거절·넣는 스레드 여럿을 검증(D-114 단계 4)
 - [test_shared_strategy_dictionary.cpp](../Quant/tests/test_shared_strategy_dictionary.cpp) — 공유 쪽지 위 전략 이름표 단위 테스트: 손잡이 둘이 같은 번호를 보는지·긴 이름 거절·가득참·붙기 거절·넣는 스레드 여럿을 검증(D-114 단계 4)
 - [test_market_feed_channel.cpp](../Quant/tests/test_market_feed_channel.cpp) — 주문 → 전략 시세 통로 단위 테스트: 보낸 순서·줄 가르기·붙기 거절·넘침 세기·망가진 칸 버리기·두 스레드를 검증(D-114 단계 4)
+- [test_shared_layout.cpp](../Quant/tests/test_shared_layout.cpp) — 공유 쪽지 위 자리표 단위 테스트: 자리 셈·면끼리 안 덮는지·붙어도 값이 남는지·설정이 다르면 거절하는지를 검증(D-114 단계 4)
 - [test_displacement_desk.cpp](../Quant/tests/test_displacement_desk.cpp) — 교체 진입 창구 단위 테스트: 최약체 매도 앞세우기, 매수 보류·자리 나면 발주·시한 만료(D-114 단계 2.5 갈래 B)
 - [test_protective_orders.cpp](../Quant/tests/test_protective_orders.cpp) — 보호 주문 표 단위 테스트: 전략 없이 가격 경로만으로 청산이 나가는지 검증(D-114 단계 1)
 - [test_reconcile_plan.cpp](../Quant/tests/test_reconcile_plan.cpp) — 잔고 대조 차이 계산 순수 함수 단위 테스트(D-038)

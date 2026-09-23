@@ -223,6 +223,7 @@
     "ipc/OpsServer.h": "ipc",
     "ipc/OrderChannel.h": "ipc",
     "ipc/OrderRouter.h": "ipc",
+    "ipc/SharedLayout.h": "ipc",
     "ipc/SharedRegion.h": "ipc",
     "ipc/SharedSpscRing.h": "ipc",
     "ipc/SharedStrategyDictionary.h": "ipc",
@@ -317,6 +318,7 @@
     "ipc/OpsServer.cpp": "ipc",
     "ipc/OrderChannel.cpp": "ipc",
     "ipc/OrderRouter.cpp": "ipc",
+    "ipc/SharedLayout.cpp": "ipc",
     "ipc/SharedRegion.cpp": "ipc",
     "ipc/SharedStrategyDictionary.cpp": "ipc",
     "ipc/SharedSymbolDictionary.cpp": "ipc",
@@ -739,6 +741,19 @@
       "ipc/FillKey.h",
       "ipc/ZmqBridge.h",
       "risk/OrderGate.h"
+    ],
+    "ipc/SharedLayout.cpp": [
+      "ipc/SharedLayout.h"
+    ],
+    "ipc/SharedLayout.h": [
+      "ipc/ControlChannel.h",
+      "ipc/Heartbeat.h",
+      "ipc/LedgerSnapshot.h",
+      "ipc/MarketFeedChannel.h",
+      "ipc/OrderChannel.h",
+      "ipc/SharedSpscRing.h",
+      "ipc/SharedStrategyDictionary.h",
+      "ipc/SharedSymbolDictionary.h"
     ],
     "ipc/SharedRegion.cpp": [
       "ipc/SharedRegion.h"
@@ -1325,7 +1340,8 @@
     ],
     "ipc/ControlChannel.h": [
       "core/Engine.h",
-      "ipc/ControlChannel.cpp"
+      "ipc/ControlChannel.cpp",
+      "ipc/SharedLayout.h"
     ],
     "ipc/FillKey.h": [
       "ipc/FillKey.cpp",
@@ -1333,16 +1349,19 @@
     ],
     "ipc/Heartbeat.h": [
       "core/Engine.h",
-      "ipc/Heartbeat.cpp"
+      "ipc/Heartbeat.cpp",
+      "ipc/SharedLayout.h"
     ],
     "ipc/LedgerSnapshot.h": [
       "core/Engine.h",
       "core/SignalDispatcher.h",
       "ipc/LedgerSnapshot.cpp",
+      "ipc/SharedLayout.h",
       "risk/OrderGate.cpp"
     ],
     "ipc/MarketFeedChannel.h": [
-      "ipc/MarketFeedChannel.cpp"
+      "ipc/MarketFeedChannel.cpp",
+      "ipc/SharedLayout.h"
     ],
     "ipc/OpsProtocol.h": [
       "ipc/OpsProtocol.cpp",
@@ -1354,24 +1373,31 @@
     ],
     "ipc/OrderChannel.h": [
       "core/Engine.h",
-      "ipc/OrderChannel.cpp"
+      "ipc/OrderChannel.cpp",
+      "ipc/SharedLayout.h"
     ],
     "ipc/OrderRouter.h": [
       "core/Engine.h",
       "ipc/OrderRouter.cpp"
+    ],
+    "ipc/SharedLayout.h": [
+      "ipc/SharedLayout.cpp"
     ],
     "ipc/SharedRegion.h": [
       "ipc/SharedRegion.cpp"
     ],
     "ipc/SharedSpscRing.h": [
       "ipc/MarketFeedChannel.h",
+      "ipc/SharedLayout.h",
       "ipc/SharedStrategyDictionary.h",
       "ipc/SharedSymbolDictionary.h"
     ],
     "ipc/SharedStrategyDictionary.h": [
+      "ipc/SharedLayout.h",
       "ipc/SharedStrategyDictionary.cpp"
     ],
     "ipc/SharedSymbolDictionary.h": [
+      "ipc/SharedLayout.h",
       "ipc/SharedSymbolDictionary.cpp"
     ],
     "ipc/SharedWriteLock.h": [
@@ -1623,6 +1649,10 @@
       "in_degree": 5
     },
     {
+      "header": "ipc/LedgerSnapshot.h",
+      "in_degree": 5
+    },
+    {
       "header": "utils/JsonNode.h",
       "in_degree": 5
     },
@@ -1648,10 +1678,6 @@
     },
     {
       "header": "core/IFeedSource.h",
-      "in_degree": 4
-    },
-    {
-      "header": "core/MpscQueue.h",
       "in_degree": 4
     }
   ],
