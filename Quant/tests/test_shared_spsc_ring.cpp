@@ -285,6 +285,38 @@ int main()
         CHECK(ResponseRing::bytes_for(4) < owner_region.payload_bytes());
     }
 
+    // 10. 받는 쪽은 readable() 로 묻는다 — 건너편이 공유 칸에 적은 순번만 보고, 보내는 쪽 값은 안 읽는다.
+    //  받는 쪽이 pending() 을 부르면 쌓여 있어도 0으로 보인다는 것까지 같이 고정한다 — 잠드는 조건에
+    //  그것을 쓰면 프로세스를 가른 뒤 주문이 만기까지 밀린다.
+    {
+        Ring sender;
+        CHECK(sender.create(g_storage, storage_bytes, kCapacity));
+        Ring receiver;
+        CHECK(receiver.attach(g_storage, storage_bytes, kCapacity));
+
+        CHECK(receiver.readable() == 0);
+
+        for (uint64_t value = 1; value <= 3; ++value)
+        {
+            CHECK(sender.push(Counted{value, 0x77, 0}));
+        }
+
+        CHECK(sender.pending() == 3);
+        CHECK(receiver.readable() == 3);
+        CHECK(receiver.pending() == 0); // 붙은 쪽은 보낸 것이 없다 — 이 물음은 받는 쪽 것이 아니다
+
+        Counted taken;
+        CHECK(receiver.pop(taken));
+        CHECK(taken.value == 1);
+        CHECK(receiver.readable() == 2);
+
+        while (receiver.pop(taken))
+        {
+        }
+
+        CHECK(receiver.readable() == 0);
+    }
+
     std::cout << "test_shared_spsc_ring OK (" << g_checks << " checks)\n";
     return 0;
 }

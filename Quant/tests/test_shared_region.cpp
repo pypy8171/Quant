@@ -202,6 +202,14 @@ int main()
         // 붙은 쪽은 주인이 아니라 적지 못한다 — 적히면 남은 쪽이 크래시를 정상 종료로 읽는다.
         peer.mark_clean_shutdown(ipc::SharedShutdownReason::kOperator);
         CHECK(owner.shutdown_reason() == ipc::SharedShutdownReason::kSessionEnd);
+
+        // 먼저 적은 사유가 남는다 — stop()은 소멸자에서 한 번 더 불리고, 그때는 왜 내려갔는지를 모른다.
+        owner.mark_clean_shutdown(ipc::SharedShutdownReason::kStartupFail);
+        CHECK(owner.shutdown_reason() == ipc::SharedShutdownReason::kSessionEnd);
+
+        // 사유 없음을 적는 것은 아무것도 안 하는 것이다 — 정상 종료 표시를 지워 크래시로 바꾸지 않는다.
+        owner.mark_clean_shutdown(ipc::SharedShutdownReason::kNone);
+        CHECK(owner.shutdown_reason() == ipc::SharedShutdownReason::kSessionEnd);
     }
 
     // 10. 죽은 표를 묻는다 — 번호가 같아도 기동 시각이 다르면 다른 프로세스다(번호 재사용).

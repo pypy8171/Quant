@@ -574,6 +574,79 @@ def restart_verify_row(date: str) -> tuple:
     return (name, True, "FAIL", detail)
 
 
+def shared_region_exit_row(date: str) -> tuple:
+    """앞선 기동이 정상 종료로 끝났는지, 짝이 몰래 다시 떴는지.
+
+    공유 쪽지 머리에는 종료 사유 칸이 있다. 스레드를 다 회수한 뒤 Engine::stop() 이 거기에
+    사유를 적으므로, 비어 있는(0) 채로 남았다면 적기 전에 죽었다는 뜻이다. 다음 기동이 그 쪽지를
+    물려받으면서 "앞선 기동이 정상 종료로 끝나지 않았다" 를 로그에 남긴다 — 사람이 로그를 열어
+    보지 않아도 크래시를 세려고 그 줄을 본다. [why D-114]
+
+    그냥 세면 안 된다. scripts/deploy_trader.py 는 taskkill /F 로 트레이더를 내리는데, 그러면
+    Quant/src/main.cpp 의 시그널 처리기를 건너뛰어 stop() 이 아예 안 돈다. 배포 재기동은 정상인데도
+    사유 칸이 빈 채로 남아 다음 기동이 크래시로 읽는다. 그래서 배포 재기동 기록
+    (_private/state/restart_verify.jsonl) 과 대조해, 기록보다 많을 때만 FAIL 한다. 기록만큼이면
+    배포가 남긴 자국이라 적어만 둔다.
+
+    기동 번호가 바뀐 것을 제어 스레드가 잡은 줄은 대조 없이 FAIL 이다 — 짝 프로세스가 죽고 다시
+    떠서 한쪽이 옛 판을 들고 주문을 내려 했다는 뜻이고, 배포로는 설명되지 않는다.
+    """
+    name = "공유 쪽지 종료 판정"
+    crashes: dict[str, int] = {}
+    desyncs: dict[str, int] = {}
+
+    for engine_log in sorted(REPO.glob("Quant/build*/logs*/quant_trader.log")):
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        account = engine_log.parent.name
+
+        for line in body.splitlines():
+            if date not in line:
+                continue
+
+            if "앞선 기동이 정상 종료로 끝나지 않았다" in line:
+                crashes[account] = crashes.get(account, 0) + 1
+            elif "건너편이 다시 떴다" in line:
+                desyncs[account] = desyncs.get(account, 0) + 1
+
+    # 배포가 남긴 자국을 빼려고 그날 재기동 수를 센다. 파일이 없으면 0 으로 두는데, 그러면 배포
+    #  자국이 크래시로 남아 시끄러운 쪽으로 틀린다 — 조용히 넘기는 것보다 낫다.
+    deploy_restarts = 0
+
+    try:
+        with (REPO / "_private" / "state" / "restart_verify.jsonl").open(encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith('{"time": "' + date):
+                    deploy_restarts += 1
+    except OSError:
+        pass
+
+    if desyncs:
+        detail = ", ".join(f"{account} {count}회" for account, count in sorted(desyncs.items()))
+        return (name, False, "FAIL",
+                f"짝 프로세스 재기동을 제어 스레드가 잡았다 — {detail}"
+                " (한쪽이 옛 공유 판을 들고 있었다, 주문이 허공으로 나갔을 수 있다)")
+
+    total_crashes = sum(crashes.values())
+
+    if not total_crashes:
+        return (name, True, "FAIL", f"앞선 기동이 모두 사유를 적고 내려갔다 (배포 재기동 {deploy_restarts}회)")
+
+    detail = ", ".join(f"{account} {count}회" for account, count in sorted(crashes.items()))
+
+    if total_crashes > deploy_restarts:
+        return (name, False, "FAIL",
+                f"종료 사유가 안 적힌 기동 {total_crashes}회 — {detail}"
+                f" (배포 재기동 {deploy_restarts}회로는 {total_crashes - deploy_restarts}회가 안 설명된다)")
+
+    return (name, True, "WARN",
+            f"종료 사유가 안 적힌 기동 {total_crashes}회 — {detail}"
+            f" (배포 재기동 {deploy_restarts}회 안이다, deploy_trader.py 가 taskkill /F 로 내린 자국)")
+
+
 def scan_registration_row(date: str) -> tuple:
     """유니버스 스캔이 하루 종일 한 종목도 등록하지 못한 계좌가 있는지.
 
@@ -932,6 +1005,7 @@ def global_rows(date: str) -> list:
         market_open_gate_row(date),
         after_market_order_row(date),
         restart_verify_row(date),
+        shared_region_exit_row(date),
         fill_notice_session_row(date),
         scan_registration_row(date),
         job_attach_row(date),

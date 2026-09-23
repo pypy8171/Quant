@@ -200,6 +200,8 @@ public:
     }
 
     // 보내는 쪽이 보는 대기 칸 수(어림값 — 건너편이 그 사이 더 읽었을 수 있다).
+    //  [inv] 이것은 보내는 스레드만 부른다. next_to_send_ 는 그 스레드의 값이라 남이 읽으면 경합이다.
+    //  받는 쪽은 readable() 을 부른다.
     [[nodiscard]] size_t pending() const noexcept
     {
         if (control_ == nullptr)
@@ -210,6 +212,25 @@ public:
         const uint64_t peer_tail = control_->published_tail.load(std::memory_order_acquire);
         const uint64_t used      = next_to_send_ - peer_tail;
         return used > capacity_ ? 0 : static_cast<size_t>(used);
+    }
+
+    // 받는 쪽이 보는 읽을 칸 수(어림값 — 건너편이 그 사이 더 보냈을 수 있다).
+    //  건너편이 공유 칸에 적어 둔 순번과 내 자리의 차다. 보내는 쪽 값(next_to_send_)은 건드리지 않는다
+    //  — 그것은 남의 프로세스·남의 스레드 것이라 읽으면 경합이고, 프로세스를 가르면 0이라 뜻도 없다.
+    //  받는 쪽이 pending() 을 부르면 큐에 쌓여 있어도 "비었다"로 읽어 잠든다. [why D-114]
+    [[nodiscard]] size_t readable() const noexcept
+    {
+        if (control_ == nullptr)
+        {
+            return 0;
+        }
+
+        const uint64_t peer_head = control_->published_head.load(std::memory_order_acquire);
+        const uint64_t ready     = peer_head - next_to_receive_;
+
+        // 건너편 순번이 내 자리보다 뒤면(부호 없는 뺄셈이라 아주 큰 수로 보인다) 그 값은 못 믿는다.
+        //  0을 주면 깨울 때까지·만기까지 잠들 뿐이고, 진짜 남은 칸은 pop() 의 도장이 가린다.
+        return ready > capacity_ ? 0 : static_cast<size_t>(ready);
     }
 
     [[nodiscard]] uint64_t sent() const noexcept

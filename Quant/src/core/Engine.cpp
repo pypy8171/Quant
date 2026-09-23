@@ -251,6 +251,8 @@ bool Engine::bind_layout_on_region(size_t needed)
 
     LOG_INFO("[Engine] 공유 쪽지 연결: " + name + " " + std::to_string(bytes) + "바이트 (기동 번호 " +
              std::to_string(layout_region_.boot_generation()) + ")");
+    // 붙은 판의 기동 번호를 적어 둔다 — 제어 스레드가 이 값과 대조해 건너편 재기동을 잡는다. [why D-114]
+    peer_boot_generation_ = layout_region_.boot_generation();
     return layout_.attach(layout_region_.payload(), layout_region_.payload_bytes(), layout_config_);
 }
 
@@ -2044,12 +2046,14 @@ int Engine::ledger_position(const std::string& ticker) const
     return ledger_snapshot_->row(symbols_.table.lookup(ticker)).position;
 }
 
-void Engine::request_shutdown(std::string_view reason)
+void Engine::request_shutdown(std::string_view reason, ipc::SharedShutdownReason recorded_reason)
 {
     // 이미 내려가는 중이면 사유를 다시 적지 않는다 — stop()이 KILL 뒤에 한 번 더 부른다.
     if (running_.exchange(false, std::memory_order_acq_rel))
     {
         LOG_WARN("[Engine] 종료 요청 — " + std::string(reason));
+        // 쪽지에 남길 사유도 먼저 부른 쪽 것으로 굳힌다. 적는 것은 stop() 끝이다. [why D-114]
+        shutdown_reason_.store(static_cast<uint32_t>(recorded_reason), std::memory_order_relaxed);
     }
 
     for (std::jthread* thread : {&data_thread_, &strategy_thread_, &order_thread_, &fill_thread_, &control_thread_})
@@ -2077,6 +2081,9 @@ void Engine::stop()
 
     if (!data_thread_.joinable())
     {
+        // 회수할 스레드가 없다 — 기동하다 접었거나 이미 한 번 내려갔다. 앞이면 여기서 사유를 적어야
+        //  다음 기동이 크래시로 읽지 않는다. 뒤면 먼저 적힌 사유가 그대로 남는다. [why D-114]
+        layout_region_.mark_clean_shutdown(ipc::SharedShutdownReason::kStartupFail);
         return;
     }
 
@@ -2152,6 +2159,11 @@ void Engine::stop()
     reap_retired(/*force=*/true);
     prefetch_pool_.stop(); // 전략이 전부 자기 작업을 뗀 뒤 스레드를 접는다
     print_statistics();
+
+    // 여기까지 왔으면 스레드를 다 회수한 깨끗한 종료다. 쪽지에 사유를 적어 둬야 짝과 다음 기동이
+    //  크래시와 가른다 — 안 적힌 0 이 크래시다. 만든 쪽(주문 프로세스)만 적힌다. [why D-114]
+    layout_region_.mark_clean_shutdown(
+        static_cast<ipc::SharedShutdownReason>(shutdown_reason_.load(std::memory_order_relaxed)));
     LOG_INFO("[Engine] 종료 완료");
 }
 
@@ -3797,7 +3809,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             // 제어 요청·수동주문도 이 스레드가 처리하므로 잠드는 조건에 같이 넣는다 — 안 넣으면 표 고치기와
             //  사람이 누른 주문이 다음 주문이나 100ms 만기까지 밀린다. [why D-114]
             pipeline_.order_wake.wait_until(deadline, stop_token, [this] {
-                return pipeline_.requests->pending() == 0 && pipeline_.controls->pending() == 0 &&
+                return pipeline_.requests->readable() == 0 && pipeline_.controls->readable() == 0 &&
                        ops_.manual_inbox.empty();
             });
 
@@ -4076,6 +4088,21 @@ void Engine::control_thread_fn(std::stop_token stop_token)
 
     while (wake::sleep_unless_stopped(stop_token, std::chrono::seconds(kCheckIntervalSec)))
     {
+        // 붙어 있는 쪽지의 기동 번호가 바뀌었으면 건너편이 죽고 다시 떴다는 뜻이다. 그 판의 큐·장부
+        //  사본은 내가 아는 것이 아니라, 그대로 두면 신호가 허공으로 나간다 — 같이 내려가 감시견이
+        //  짝을 다시 띄우게 한다. 붙은 쪽(전략 프로세스)에서만 0이 아니다. [why D-114]
+        if (peer_boot_generation_ != 0)
+        {
+            if (const uint64_t now_generation = layout_region_.boot_generation();
+                now_generation != peer_boot_generation_)
+            {
+                LOG_ERROR("[Control] 건너편이 다시 떴다 — 공유 쪽지 기동 번호 " +
+                          std::to_string(peer_boot_generation_) + " → " + std::to_string(now_generation) +
+                          ". 옛 판을 들고 주문을 내지 않도록 같이 내려간다");
+                request_shutdown("건너편 프로세스 재기동(공유 쪽지 기동 번호가 바뀌었다)");
+                break;
+            }
+        }
 
         if (++high_water_tick >= kHighWaterEvery)
         {
@@ -4223,7 +4250,9 @@ void Engine::step_session_end()
 {
     const auto kst            = ::kst::to_tm(std::time(nullptr));
     const int  now_sec_of_day = kst.tm_hour * 3600 + kst.tm_min * 60 + kst.tm_sec;
-    const bool orders_pending = pipeline_.requests->pending() > 0;
+    // 받는 쪽이라 readable() 로 묻는다 — pending() 은 내가 보낸 수라 여기서는 늘 0이고, 큐에 주문이
+    //  남았는데도 비었다고 보고 마감 종료를 내보낸다. [why D-114]
+    const bool orders_pending = pipeline_.requests->readable() > 0;
     const auto step           = session_end_.observe(now_sec_of_day, orders_pending);
 
     switch (step)
@@ -4238,14 +4267,15 @@ void Engine::step_session_end()
 
     case session_end::Judge::Step::kShutdown:
         write_state_marker("session_done", "마감 자기 종료(주문 큐 비움)");
-        request_shutdown("마감 자기 종료 — 창 닫힘 + 유예 " + std::to_string(session_end_.config().grace_sec) + "초, 주문 큐 비움");
+        request_shutdown("마감 자기 종료 — 창 닫힘 + 유예 " + std::to_string(session_end_.config().grace_sec) + "초, 주문 큐 비움",
+                         ipc::SharedShutdownReason::kSessionEnd);
         return;
 
     case session_end::Judge::Step::kShutdownForced:
         LOG_ERROR("[Engine] 마감 뒤 " + std::to_string(session_end_.config().drain_limit_sec) + "초가 지나도 주문 큐 " +
-                  std::to_string(pipeline_.requests->pending()) + "건이 남아 강제 종료한다");
+                  std::to_string(pipeline_.requests->readable()) + "건이 남아 강제 종료한다");
         write_state_marker("session_done", "마감 자기 종료(배출 한도 초과, 강제)");
-        request_shutdown("마감 자기 종료 — 배출 한도 초과(강제)");
+        request_shutdown("마감 자기 종료 — 배출 한도 초과(강제)", ipc::SharedShutdownReason::kSessionEnd);
         return;
     }
 }

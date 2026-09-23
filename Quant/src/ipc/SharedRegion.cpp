@@ -450,12 +450,17 @@ void SharedRegion::mark_clean_shutdown(SharedShutdownReason reason) noexcept
 {
     SharedRegionHeader* head = mutable_header();
 
-    if (head == nullptr || !owner_)
+    if (head == nullptr || !owner_ || reason == SharedShutdownReason::kNone)
     {
         return;
     }
 
-    std::atomic_ref<uint32_t>(head->shutdown_reason).store(static_cast<uint32_t>(reason), std::memory_order_release);
+    // 먼저 적은 사유가 남는다 — stop() 은 두 번 불릴 수 있고(소멸자가 또 부른다) 뒤엣것은 왜 내려갔는지를
+    //  모른다. 덮어쓰면 마감 자기 종료가 기동 실패로 바뀐다.
+    uint32_t expected = static_cast<uint32_t>(SharedShutdownReason::kNone);
+    std::atomic_ref<uint32_t>(head->shutdown_reason)
+        .compare_exchange_strong(expected, static_cast<uint32_t>(reason), std::memory_order_release,
+                                 std::memory_order_relaxed);
 }
 
 std::byte* SharedRegion::payload() noexcept

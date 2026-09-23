@@ -450,7 +450,10 @@ public:
 
     // running_ 내리고 다섯 스레드에 정지 요청. KILL 핸들러·시그널 핸들러·마감 판정·stop()이 부른다. join은 stop()만.
     //  reason은 로그 한 줄로 남는다 — 종료가 요청된 것인지 죽은 것인지 로그만으로 가르기 위해서다(D-20). [why D-098]
-    void request_shutdown(std::string_view reason);
+    //  recorded_reason 은 공유 쪽지에 남길 사유다. 먼저 부른 쪽 것이 남고, 적는 것은 stop() 끝이다 —
+    //  여기서 적으면 그 뒤에 죽어도 정상 종료로 보인다. [why D-114]
+    void request_shutdown(std::string_view         reason,
+                          ipc::SharedShutdownReason recorded_reason = ipc::SharedShutdownReason::kOperator);
 
     // 보호 주문 한 주기를 부른 스레드가 맡는다. 평소 주인은 전략 스레드고 전략이 죽으면 주문 스레드가 이어받는데,
     //  멈췄던 전략이 깨어나면 둘 다 살아 있을 수 있다 — 시각을 원자로 밀어 잡은 쪽만 참을 받는다.
@@ -880,6 +883,10 @@ private:
     // start() 를 한 번이라도 불렀는가. 번호를 기다리는 시간을 여기서 가른다 — 기동 중에는 건너편이
     //  제 일감을 하느라 늦게 집어도 기다리고, 한 번 뜬 뒤에는 짧게 본다(멈춘 채로 5분을 기다리지 않는다).
     std::atomic<bool> start_was_called_{false};
+    // 공유 쪽지에 적을 종료 사유. 스레드를 다 회수한 뒤 stop() 이 적는다 — 안 적힌 0 이 크래시다. [why D-114]
+    std::atomic<uint32_t> shutdown_reason_{static_cast<uint32_t>(ipc::SharedShutdownReason::kOperator)};
+    // 붙을 때 본 건너편 기동 번호. 0 이면 안 붙은 것이다(주문 쪽·Both). 달라지면 건너편이 죽고 다시 떴다. [why D-114]
+    uint64_t peer_boot_generation_ = 0;
     session_end::Judge session_end_; // 마감 자기 종료 판정(control_thread 전용). 기본은 창 0 = 판정 없음 [why D-098]
 
 #ifdef HAS_ZMQ
