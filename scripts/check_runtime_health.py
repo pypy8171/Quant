@@ -113,6 +113,10 @@ LEDGER_FOREIGN_RE = re.compile(r"ledger_foreign=(\d+)")
 # 제어 요청(D-114 단계 2.5 갈래 B) — 전략이 큐가 가득 차 못 보낸 줄 수, 주문 쪽이 반쪽 표로 보고 버린 줄 수.
 CONTROL_DROP_RE = re.compile(r"control_dropped=(\d+)")
 CONTROL_DISCARD_RE = re.compile(r"control_discarded=(\d+)")
+# 체결통보 세션(D-114 단계 3) — 기동마다 한 줄. 맡은 소켓이 몇 번인지, 아무도 안 맡았는지, 둘 이상이 맡았는지.
+FILL_SESSION_ONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 소켓 (\d+)")
+FILL_SESSION_NONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 없음")
+FILL_SESSION_MANY_RE = re.compile(r"\[Engine\] 체결통보 세션: (\d+)개")
 
 BASKET_BUY_LEG_DEADLINE = 15 * 3600 + 5 * 60  # 매수 레그는 15:05까지 끝나야 마감 청산(15:15)과 겹치지 않는다(D-109)
 
@@ -552,6 +556,9 @@ def collect(date: str, log: Path, since: int = 0):
     ledger_foreign = -1                          # 사본에 못 실은 남의 계좌 줄 수. -1이면 그 줄이 없는 구 exe
     control_dropped = 0                          # 큐가 가득 차 전략이 못 보낸 제어 요청 줄 수
     control_discarded = -1                       # 주문 쪽이 반쪽 표로 보고 버린 줄 수. -1이면 그 줄이 없는 구 exe
+    fill_session_socket = -1                     # 체결통보를 맡은 소켓 번호. -1이면 그 줄이 없는 구 exe
+    fill_session_none = 0                        # 맡은 소켓이 없다고 찍힌 기동 수
+    fill_session_many = 0                        # 둘 이상이 맡았다고 찍힌 기동 수
 
     # 7일 지난 날은 archive/quant_trader_<날짜>.log.gz — market_close_autodoc이 그 경로를 그대로 넘긴다
     opener = (lambda: gzip.open(log, "rt", encoding="utf-8", errors="replace")) if log.suffix == ".gz"         else (lambda: log.open(encoding="utf-8", errors="replace"))
@@ -604,6 +611,12 @@ def collect(date: str, log: Path, since: int = 0):
                 control_dropped = max(control_dropped, int(found.group(1)))
             if found := CONTROL_DISCARD_RE.search(line):
                 control_discarded = max(control_discarded, int(found.group(1)))
+            if found := FILL_SESSION_ONE_RE.search(line):
+                fill_session_socket = int(found.group(1))
+            elif FILL_SESSION_NONE_RE.search(line):
+                fill_session_none += 1
+            elif FILL_SESSION_MANY_RE.search(line):
+                fill_session_many += 1
             if GUARD_RE.search(line):
                 guard_at.append(second)
             if BREAKEVEN_RE.search(line):
@@ -785,6 +798,12 @@ def collect(date: str, log: Path, since: int = 0):
             return (name, True, level, "제어 요청 수치 줄 없음(D-114 단계 2.5 갈래 B 배포 전 바이너리) — 판정 안 함")
         return (name, ok, level, detail)
 
+    # 체결통보 세션(D-114 단계 3) — 이 줄도 사본 줄보다 늦게 붙었으므로 따로 건너뛴다.
+    def fill_session_row(name: str, ok: bool, level: str, detail: str):
+        if fill_session_socket < 0 and fill_session_none == 0 and fill_session_many == 0:
+            return (name, True, level, "체결통보 세션 줄 없음(D-114 단계 3 배포 전 바이너리) — 판정 안 함")
+        return (name, ok, level, detail)
+
     rows = [
         # 사망 판정이 한 번이라도 났으면 그날 그만큼 신규 진입이 막혔다. 공백 문턱은 부하 실측 24ms 위의 1,000ms다.
         channel_row("전략 박동", beat_dead == 0, "FAIL",
@@ -809,6 +828,11 @@ def collect(date: str, log: Path, since: int = 0):
         #  우선순위 바를 건너뛴다. 둘 다 0이어야 전략이 고친 표가 그날 실제로 걸린 것이다.
         control_row("제어 요청 표", control_dropped == 0 and control_discarded == 0, "FAIL",
                     f"못 보낸 줄 {control_dropped}건 · 버린 줄 {control_discarded}건 (둘 다 기대 0)"),
+        # 체결통보는 WS 세션 하나만 들어야 한다. 아무도 안 들으면 체결이 원장에 안 들어와 선점이 안 풀리고,
+        #  둘이 들으면 KIS가 세션마다 같은 통보를 보내 원장이 체결을 두 번 센다 — 둘 다 A등급이다.
+        fill_session_row("체결 세션", fill_session_many == 0 and fill_session_none == 0, "FAIL",
+                         (f"소켓 {fill_session_socket}번이 맡는다" if fill_session_socket >= 0 else "맡은 소켓 없음")
+                         + f" · 맡은 곳 없음 {fill_session_none}회 · 둘 이상 {fill_session_many}회 (둘 다 기대 0)"),
         devscale_v2_row("장 마감 청산(넘김)", not devscale_close_exits, "FAIL",
                         f"DEVSCALE 장 마감 청산 신호 {len(devscale_close_exits)}건 (기대 0 — market_close_exit_hhmm 2400, D-111)"
                         + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in devscale_close_exits[:5])}" if devscale_close_exits else "")),

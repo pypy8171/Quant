@@ -1099,10 +1099,12 @@ void Engine::connect_feed()
     else if (feed_.extra_feed_cfgs.empty())
     {
         feed_.websocket = std::make_unique<KisWebSocket>(kis_config_);
+        LOG_INFO(std::string("[Engine] 체결통보 세션: ") + (kis_config_.hts_id.empty() ? "없음(hts_id가 비어 있다)" : "소켓 0"));
     }
     else
     {
-        // 소켓 여럿 — 첫 소스가 기본 키다(체결통보는 첫 소스만 받는다). 직접 호출 모드라 소켓 i의 수신 스레드가
+        // 소켓 여럿 — 첫 소스가 기본 키다. 체결통보는 hts_id를 가진 소켓 하나가 맡는다(자리가 아니라 설정이 정한다,
+        //  D-114 단계 3). 직접 호출 모드라 소켓 i의 수신 스레드가
         //  행렬의 행 i에 직접 넣는다(multiplexer 스레드 없음). 소켓이 하나면 FeedMux를 끼우지 않는다.
         std::vector<std::unique_ptr<feed::IFeedSource>> socks;
         socks.push_back(std::make_unique<KisWebSocket>(kis_config_));
@@ -1112,9 +1114,25 @@ void Engine::connect_feed()
             socks.push_back(std::make_unique<KisWebSocket>(extra_feed_config));
         }
 
-        feed_.websocket = std::make_unique<feed::FeedMux>(std::move(socks));
+        auto                      multiplexed  = std::make_unique<feed::FeedMux>(std::move(socks));
+        const std::vector<size_t> fill_sources = multiplexed->fill_notice_sources();
+        feed_.websocket                        = std::move(multiplexed);
         LOG_INFO("[Engine] WS 소켓 " + std::to_string(feed_.extra_feed_cfgs.size() + 1) + "개를 FeedMux 수신 스레드 " +
                  std::to_string(pipeline_.websocket_lanes) + "개로 묶는다");
+
+        if (fill_sources.size() > 1)
+        {
+            LOG_ERROR("[Engine] 체결통보 세션: " + std::to_string(fill_sources.size()) +
+                      "개 — 하나만 맡아야 한다. KIS는 세션마다 같은 통보를 보내 원장이 체결을 두 번 센다");
+        }
+        else if (fill_sources.empty())
+        {
+            LOG_INFO("[Engine] 체결통보 세션: 없음(hts_id가 비어 있다)");
+        }
+        else
+        {
+            LOG_INFO("[Engine] 체결통보 세션: 소켓 " + std::to_string(fill_sources.front()));
+        }
     }
 
     // 리플레이를 다시 캡처하면 같은 틱이 두 파일에 남으므로 캡처는 WS일 때만 연다.

@@ -169,7 +169,7 @@ review = [
   [[stage.step]]
   sym = "feed::FeedMux"
   file = "Quant/include/core/FeedMux.h"
-  what = "소켓 여럿을 한 `IFeedSource`로. 직접 호출 모드면 소켓 i 스레드가 행 i로 직접 push(mux 스레드 없음). 체결통보는 첫 소켓만"
+  what = "소켓 여럿을 한 `IFeedSource`로. 직접 호출 모드면 소켓 i 스레드가 행 i로 직접 push(mux 스레드 없음). 체결통보는 맡은 소켓 하나만(`owns_fill_notice`)"
   test = "test_feed_mux"
 
   [[stage.step]]

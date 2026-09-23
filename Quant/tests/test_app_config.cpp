@@ -94,7 +94,8 @@ int main()
         CHECK(parse_config(document, "").kis.exchange == "SOR");
     }
 
-    // 4. feed_keys는 기본 키의 계좌·모의 여부를 물려받고 hts_id는 비운다. quote_kis는 실전 도메인 + 주문 쪽 exchange.
+    // 4. feed_keys는 기본 키의 계좌·모의 여부를 물려받고 hts_id는 비운다(체결통보는 기본 키가 맡는다).
+    //    quote_kis는 실전 도메인 + 주문 쪽 exchange.
     {
         json document = minimal_document();
         document["kis"]["hts_id"]   = "hts";
@@ -111,6 +112,21 @@ int main()
         CHECK(!app.quote_kis->is_paper);
         CHECK(app.quote_kis->account_type == "01");
         CHECK(app.quote_kis->exchange == "NXT");
+        CHECK(app.kis.hts_id == "hts"); // 아무도 안 가져가면 기본 키가 체결통보를 맡는다
+    }
+
+    // 4b. feed_keys 항목이 fill_notice를 켜면 체결통보를 맡는 자리가 그 키로 넘어간다 — 기본 키는 hts_id를 잃고,
+    //     둘이 켜도 첫 번째만 맡는다(둘이 받으면 원장이 체결을 두 번 센다). [why D-114]
+    {
+        json document = minimal_document();
+        document["kis"]["hts_id"] = "hts";
+        document["feed_keys"]     = json::array({{{"app_key", "k2"}, {"app_secret", "s2"}, {"fill_notice", true}},
+                                                 {{"app_key", "k3"}, {"app_secret", "s3"}, {"fill_notice", true}}});
+        const AppConfig app = parse_config(document, "");
+        CHECK(app.feed_keys.size() == 2);
+        CHECK(app.feed_keys[0].hts_id == "hts");
+        CHECK(app.feed_keys[1].hts_id.empty());
+        CHECK(app.kis.hts_id.empty());
     }
 
     // 5. risk — 지정한 키만 덮고, hhmm은 분으로, after_market=false면 실계좌라도 애프터 창 0/0, 리플레이면 창 전부 0.

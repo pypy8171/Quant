@@ -1,5 +1,5 @@
 // FeedMux 단위 테스트 — 종목 배정, 소스별 수신 스레드 → multiplexer 스레드 하나로 콜백, 소스 안 순서 보존, 증분 구독·상한·
-//  넘침 회수, 체결통보는 첫 소스만, 연결 실패 시 전부 끊기, 링 넘침 카운트.
+//  넘침 회수, 체결통보는 맡은 소스 하나만(자리가 아니라 owns_fill_notice로 고른다), 연결 실패 시 전부 끊기, 링 넘침 카운트.
 // 빌드: cmake --build <directory> --target test_feed_mux
 #include "core/FeedMux.h"
 
@@ -159,8 +159,14 @@ struct FakeSource final : feed::IFeedSource
         return specifications_.size();
     }
 
+    bool owns_fill_notice() const override
+    {
+        return fill_notice;
+    }
+
     std::atomic<bool> stale{false};
     int               disconnects = 0;
+    bool              fill_notice = true; // 이 소스가 체결통보를 맡나(설정의 hts_id 자리)
 
 private:
     mutable std::mutex     mutex_;
@@ -504,6 +510,43 @@ int main()
                                [&](uint32_t lane, const TradeData&) { received_lane = lane; });
         one.emit_trade("Z", 1.0);
         CHECK(received_lane == 0);
+    }
+
+    // 7. 체결통보는 자리(0번)가 아니라 맡은 소스로 간다 — 맡는 자리를 옮겨도 한 소스만 받는다(원장 이중 계상 방지).
+    {
+        auto fake_source_a         = std::make_unique<FakeSource>(4);
+        auto fake_source_b         = std::make_unique<FakeSource>(4);
+        fake_source_a->fill_notice = false; // 0번은 맡지 않는다
+        auto* source_a             = fake_source_a.get();
+        auto* source_b             = fake_source_b.get();
+
+        std::vector<std::unique_ptr<feed::IFeedSource>> sources;
+        sources.push_back(std::move(fake_source_a));
+        sources.push_back(std::move(fake_source_b));
+        feed::FeedMux multiplexer(std::move(sources), 64);
+
+        CHECK(multiplexer.fill_notice_sources() == std::vector<size_t>{1});
+        CHECK(multiplexer.owns_fill_notice());
+
+        std::atomic<int> fills{0};
+        multiplexer.set_lane_callbacks([](uint32_t, const OrderBook&) {}, [](uint32_t, const TradeData&) {});
+        multiplexer.set_fill_callback([&](const FillNotification&) { fills.fetch_add(1); });
+
+        CHECK(!source_a->emit_fill("N1")); // 맡지 않은 소스에는 콜백이 걸리지 않는다
+        CHECK(source_b->emit_fill("Y1") && fills.load() == 1);
+
+        // 아무도 맡지 않으면 아무 데도 걸지 않는다.
+        auto fake_source_c         = std::make_unique<FakeSource>(4);
+        fake_source_c->fill_notice = false;
+        auto* source_c             = fake_source_c.get();
+
+        std::vector<std::unique_ptr<feed::IFeedSource>> none;
+        none.push_back(std::move(fake_source_c));
+        feed::FeedMux no_owner(std::move(none), 64);
+        no_owner.set_lane_callbacks([](uint32_t, const OrderBook&) {}, [](uint32_t, const TradeData&) {});
+        no_owner.set_fill_callback([&](const FillNotification&) { fills.fetch_add(1); });
+        CHECK(no_owner.fill_notice_sources().empty() && !no_owner.owns_fill_notice());
+        CHECK(!source_c->emit_fill("N2") && fills.load() == 1);
     }
 
     std::cout << "test_feed_mux: " << g_checks << " checks passed\n";

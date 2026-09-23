@@ -38,6 +38,14 @@ public:
     // 체결통보가 없는 소스(리플레이)는 등록을 무시한다 — 주문은 어차피 REST 라우터가 낸다.
     virtual void set_fill_callback(FillCb) {}
 
+    // 이 소스가 체결통보를 맡나. 맡은 소스는 **하나뿐이어야 한다** — KIS는 세션마다 같은 통보를 보내므로
+    //  둘이 받으면 원장이 체결을 두 번 센다. 소켓 여럿을 묶는 쪽(FeedMux)이 이것으로 맡은 소스를 고른다 —
+    //  자리(0번)가 아니라 맡았는지로 고르는 것이라, 맡은 세션을 나중에 주문 쪽으로 옮길 수 있다. [why D-114]
+    virtual bool owns_fill_notice() const
+    {
+        return true;
+    }
+
     virtual bool connect(const std::vector<WatchSpec>& specifications) = 0;
     virtual void disconnect()                                 = 0;
 

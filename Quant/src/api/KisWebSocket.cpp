@@ -7,6 +7,11 @@ bool KisWebSocket::is_stale(int threshold_sec) const
     return (now_ns - last_ns) / 1'000'000'000LL >= threshold_sec;
 }
 
+bool KisWebSocket::owns_fill_notice() const
+{
+    return !config_.hts_id.empty();
+}
+
 void KisWebSocket::on_message_received()
 {
     last_message_ns_.store(std::chrono::steady_clock::now().time_since_epoch().count(), std::memory_order_relaxed);

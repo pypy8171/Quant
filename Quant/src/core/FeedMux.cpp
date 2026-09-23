@@ -51,11 +51,19 @@ void FeedMux::set_fill_callback(FillCb callback)
 {
     on_fill_ = std::move(callback);
 
-    if (!sources_.empty())
+    // 맡은 소스 하나에만 건다 — 자리(0번)가 아니라 맡았는지로 고른다. 맡은 소스가 둘이면 KIS가 세션마다
+    //  같은 통보를 보내 원장이 두 번 세므로, 설정이 하나만 맡게 하고(AppConfig::parse_feed_keys) 여기서도
+    //  첫 하나에만 건다. 아무도 안 맡으면 아무 데도 걸지 않는다. [why D-114]
+    for (size_t source_index = 0; source_index < sources_.size(); ++source_index)
     {
+        if (!sources_[source_index]->owns_fill_notice())
+        {
+            continue;
+        }
+
         // 모드는 부르는 시점에 본다 — set_callbacks/set_lane_callbacks와 등록 순서에 매이지 않게.
-        Lane* lane = lanes_[0].get();
-        sources_[0]->set_fill_callback(
+        Lane* lane = lanes_[source_index].get();
+        sources_[source_index]->set_fill_callback(
             [this, lane](const FillNotification& fill_notification)
             {
                 if (lane_mode_)
@@ -66,7 +74,36 @@ void FeedMux::set_fill_callback(FillCb callback)
 
                 enqueue(*lane, Event{fill_notification});
             });
+        return;
     }
+}
+
+std::vector<size_t> FeedMux::fill_notice_sources() const
+{
+    std::vector<size_t> owners;
+
+    for (size_t source_index = 0; source_index < sources_.size(); ++source_index)
+    {
+        if (sources_[source_index]->owns_fill_notice())
+        {
+            owners.push_back(source_index);
+        }
+    }
+
+    return owners;
+}
+
+bool FeedMux::owns_fill_notice() const
+{
+    for (const auto& source : sources_)
+    {
+        if (source->owns_fill_notice())
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 bool FeedMux::connect(const std::vector<WatchSpec>& specifications)

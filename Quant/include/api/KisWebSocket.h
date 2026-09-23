@@ -79,6 +79,10 @@ public:
     // 임계 시간(초) 이상 메시지 미수신 시 true — 장 중 호출할 것
     bool is_stale(int threshold_sec) const override;
 
+    // 체결통보(H0STCNI0/9)를 맡은 세션인지 — hts_id가 있는 세션만 맡는다. 추가 피드 키는 설정이 hts_id를
+    //  비워 두므로 맡지 않고, 그 덕에 구독 슬롯(kMaxWsSubs)도 한 칸 남는다. [why D-114]
+    bool owns_fill_notice() const override;
+
 private:
     // 메시지 수신 시 호출 — parse_message 진입부에서 갱신
     void on_message_received();

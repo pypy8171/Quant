@@ -4,8 +4,10 @@
 //  multiplexer 모드(set_callbacks)는 소스당 SPSC 링 하나를 multiplexer 스레드 하나가 돌아가며 비워 콜백을 부른다 — 소비자가 하나여야
 //  하는 쪽(시험·단일 큐)만 쓴다. 소켓이 하나면 끼우지 않는다.
 // 스레드: 직접 호출 모드는 소스의 수신 스레드가 콜백까지. multiplexer 모드는 수신 스레드가 push, multiplexer 스레드가 pop·콜백.
-//  connect/subscribe는 Engine의 제어·데이터 스레드. 체결통보는 첫 소스만 넘긴다 — KIS는 세션마다 같은 통보를
-//  보내므로 둘 이상 받으면 원장이 두 번 센다. 직접 호출 모드에서도 첫 소스 스레드 하나만 부르므로 통보 큐는 SPSC로 남는다. [why D-071]
+//  connect/subscribe는 Engine의 제어·데이터 스레드. 체결통보는 **맡은 소스 하나**만 넘긴다(owns_fill_notice가
+//  참인 첫 소스) — KIS는 세션마다 같은 통보를 보내므로 둘 이상 받으면 원장이 두 번 센다. 맡은 자리가 0번으로
+//  고정돼 있지 않아 나중에 그 세션만 주문 쪽으로 뗄 수 있다(D-114 단계 3). 직접 호출 모드에서도 그 소스 스레드
+//  하나만 부르므로 통보 큐는 SPSC로 남는다. [why D-071]
 #pragma once
 #include "core/IFeedSource.h"
 #include "core/RingBuffer.h"
@@ -61,6 +63,13 @@ public:
     void set_callbacks(OrderBookCb on_order_book, TradeCb on_trade) override;
 
     void set_fill_callback(FillCb callback) override;
+
+    // 묶인 소스 중 하나라도 체결통보를 맡으면 참.
+    bool owns_fill_notice() const override;
+
+    // 체결통보를 맡은 소스들의 번호. 비면 아무도 안 맡은 것이고, 둘 이상이면 설정이 잘못된 것이다
+    //  (원장이 체결을 두 번 센다). Engine이 기동 로그·판정에 쓰고 테스트가 읽는다. [why D-114]
+    [[nodiscard]] std::vector<size_t> fill_notice_sources() const;
 
     // specs를 소스에 고르게 나눠(i % N) 각각 connect한다. 이미 배정된 종목은 그 소스를 지킨다(재연결).
     //  하나라도 실패하면 전부 끊고 false — Engine의 재연결 판단이 소스 단위가 아니라 하나이기 때문이다.
