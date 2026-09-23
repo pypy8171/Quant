@@ -9,7 +9,18 @@
 #include <windows.h> // MoveFileExA — 토큰 캐시 원자 교체
 #else
 #include <curl/curl.h> // curl_global_init/cleanup — 프로세스당 한 번
+#include <unistd.h>    // getpid — 토큰 캐시 tmp 이름 구분
 #endif
+
+// 토큰 캐시 tmp 파일 이름을 프로세스마다 다르게 하려고 쓴다. [why D-122]
+static unsigned long current_process_id()
+{
+#ifdef _WIN32
+    return static_cast<unsigned long>(GetCurrentProcessId());
+#else
+    return static_cast<unsigned long>(::getpid());
+#endif
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  KisClient 구현
@@ -186,7 +197,10 @@ bool KisClient::issue_token()
         // 읽는 쪽(Python balance)이 스트리밍 중인 truncated JSON을 보지 않게 한다.
         json cache_j = {{"access_token", token}, {"expires_at", expires}};
         set_token(std::move(token), expires_at);
-        std::string temporary_path = cache_path + ".tmp";
+        // tmp 이름에 프로세스 id를 붙인다 — 모의·실계좌 엔진이 같은 app_key(시세용)를 쓰면 캐시 파일
+        //  이름이 같아, tmp 이름까지 같으면 한쪽 ofstream이 다른 쪽 tmp를 비운 뒤 반쪽 JSON이 정본으로
+        //  올라간다. 읽는 쪽은 그걸 버리고 재발급을 시도해 1분 1회 제한에 걸린다. [why D-122]
+        std::string temporary_path = cache_path + "." + std::to_string(current_process_id()) + ".tmp";
         {
             std::ofstream cf(temporary_path);
 
@@ -215,7 +229,33 @@ bool KisClient::issue_token()
     }
     catch (const std::exception& exception)
     {
-        LOG_ERROR(std::string("[KIS] 토큰 파싱 오류: ") + exception.what());
+        // 응답 본문에서 KIS 가 준 거절 사유만 꺼내 남긴다. 파서 메시지만 남기면("type must be string,
+        //  but is null") 앱키가 죽은 것인지 계좌 등록이 빠진 것인지 구분이 안 된다 — 09-23 에 키가
+        //  바뀐 채로 세 시간을 돌았다. access_token 은 어떤 경우에도 로그에 싣지 않는다.
+        std::string reason;
+
+        try
+        {
+            const json failure = json::parse(response);
+
+            for (const char* key : {"error_code", "error_description", "msg_cd", "msg1"})
+            {
+                const auto field = failure.find(key);
+
+                if (field != failure.end() && field->is_string())
+                {
+                    reason += (reason.empty() ? "" : " ") + field->get<std::string>();
+                }
+            }
+        }
+        catch (const std::exception&)
+        {
+            reason.clear();   // 본문이 JSON 도 아니면 길이만 남긴다
+        }
+
+        LOG_ERROR(std::string("[KIS] 토큰 파싱 오류: ") + exception.what()
+                  + (reason.empty() ? " — 응답에 사유 필드 없음(본문 " + std::to_string(response.size()) + "바이트)"
+                                    : " — KIS 응답: " + reason));
         return false;
     }
 }

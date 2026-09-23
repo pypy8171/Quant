@@ -50,7 +50,11 @@ CREATE TABLE IF NOT EXISTS health (
     data_cnt   BIGINT       DEFAULT 0,
     signal_cnt BIGINT       DEFAULT 0,
     order_cnt  BIGINT       DEFAULT 0,
-    drop_cnt   BIGINT,      -- ZMQ 발행이 버린 건수(구독자가 못 따라오거나 소켓이 막힐 때)
+    drop_cnt   BIGINT,      -- ZMQ 발행이 버린 건수 합계. 아래 넷의 합이다
+    drop_socket_full     BIGINT,   -- PUB 소켓이 안 받았다(소켓 상한·구독자가 못 따라옴)
+    drop_socket_error    BIGINT,   -- 보내다 예외가 났다
+    drop_send_queue_full BIGINT,   -- 줄서기 큐가 상한에 닿았다(송신 스레드가 못 따라옴)
+    drop_trade_ring_full BIGINT,   -- 체결 링이 찼다(수신 스레드가 송신보다 빠름)
     queue_shard_high_water   BIGINT,   -- 샤드 셀 가운데 가장 높았던 깊이
     queue_shard_capacity     BIGINT,
     queue_shard_out_size     BIGINT,   -- 샤드 → 전략 큐의 지금 깊이(누적 최대가 아니다)
@@ -61,6 +65,7 @@ CREATE TABLE IF NOT EXISTS health (
     queue_fill_capacity      BIGINT,
     dropped_shard            BIGINT,   -- 큐가 가득 차 버린 건수(누적)
     dropped_order            BIGINT,
+    stale_order              BIGINT,   -- 주문 큐에서 너무 오래 기다려 꺼낼 때 버린 신규 매수 수
     dropped_fill             BIGINT,
     latency_samples          BIGINT,   -- 분위수의 표본 수(누적 주문 건수)
     tick_to_signal_p50_us    BIGINT,
@@ -81,12 +86,18 @@ CREATE TABLE IF NOT EXISTS health (
     pop_to_send_p99_interval_us    BIGINT,
     gate_p50_interval_us           BIGINT,   -- 리스크 점검(락 포함)
     gate_p99_interval_us           BIGINT,
+    history_guard_p50_interval_us  BIGINT,   -- 주문 이력 잠금·중복 가드 훑기
+    history_guard_p99_interval_us  BIGINT,
     journal_p50_interval_us        BIGINT,   -- 원장 선기록(D-113)
     journal_p99_interval_us        BIGINT,
     bucket_wait_p50_interval_us    BIGINT,   -- 증권사 초당 한도 대기
     bucket_wait_p99_interval_us    BIGINT,
     transport_p50_interval_us      BIGINT,   -- 증권사 왕복(한도 대기를 뺀 것)
     transport_p99_interval_us      BIGINT,
+    record_p50_interval_us         BIGINT,   -- 전송 뒤 마무리(접수 확정·이력 저장·파일 쓰기)
+    record_p99_interval_us         BIGINT,
+    open_orders_p50_interval_us    BIGINT,   -- 그중 미결주문 파일 다시쓰기(record 안에 든 몫)
+    open_orders_p99_interval_us    BIGINT,
     pop_to_done_p50_interval_us    BIGINT,
     pop_to_done_p99_interval_us    BIGINT,
     total_p50_interval_us          BIGINT,

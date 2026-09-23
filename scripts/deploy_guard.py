@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
-"""장중 트레이더 exe 교체를 막는다(D-101 결정 1).
+"""장중 트레이더 exe 교체를 기록한다(막지는 않는다 — 사용자 지시 2026-09-23).
 
-재기동 42회 중 29회가 세션이 리팩터·이름·문서를 반영하려고 트레이더를 죽인 것이었고,
-재기동마다 보유분이 청산 래퍼로 넘어가 −198만/주가 나갔다. 그래서 매매 창(평일 09:00~15:30,
-실계좌면 20:00까지) 안의 exe 교체는 A등급 결함(체결 누락·이중 발주·원장 불일치·주문 불능)일 때만 한다.
+예전에는 매매 창 안의 교체를 A등급 결함일 때만 허용했다(D-101 결정 1). 고친 것을 그날 바로 쓰려고
+그 제한을 걷었다 — 이제 언제 바꾸든 통과시키고, 매매 창 안의 교체였다는 사실만 `_private/deploy_guard.log`에
+한 줄 남긴다. 재기동은 여전히 보유분을 청산 래퍼로 넘기므로(재기동 42회 중 29회·−198만/주가 그 값이다)
+로그로 몇 번 그랬는지는 볼 수 있게 둔다.
 
 막을지는 **지금 도는 프로세스**를 보고 정한다. 트레이더도 감시견도 없으면 바꿔도 깨질 매매가 없어 그냥 통과하고,
 돌고 있으면 그 프로세스가 실제로 연 config의 `is_paper`로 창 끝을 잡는다. 2026-09-22에 모의계좌로 돌던 날
 고정 경로 `Quant/config/config.json`(실계좌)만 읽어 창 끝을 20:00으로 잡는 바람에, 15:30에 이미 끝난
 매매의 마감 뒤 배포를 네 시간 반 막았다.
 
-사용:  py scripts/deploy_guard.py            (막히면 exit 1, 아니면 0)
-       py scripts/deploy_guard.py --hotfix-a "<한 줄 사유>"   A등급 결함으로 예외 통과(사유는 로그에 남는다)
+사용:  py scripts/deploy_guard.py            (항상 0 — 장중이면 로그 한 줄)
+       py scripts/deploy_guard.py --hotfix-a "<한 줄 사유>"   사유를 로그에 같이 남긴다
        py scripts/deploy_guard.py --config <경로>   도는 프로세스를 보지 않고 이 config로만 판정한다
 C:/build_tmp/relink.cmd가 exe를 다시 만들기 전에 이 스크립트를 먼저 부른다.
 """
@@ -180,11 +181,10 @@ def main() -> int:
         print(f"[deploy_guard] 장중이지만 A등급 결함으로 통과 — 사유: {arguments.hotfix_a}")
         return 0
 
-    write_log(f"{stamp} 장중 교체 차단 — {reason}")
-    print(f"[deploy_guard] 매매 창(09:00~{end:%H:%M}) 안이라 exe를 바꾸지 않는다 — "
-          "리팩터·이름·문서·성능은 장 마감 뒤에. A등급 결함(체결 누락·이중 발주·원장 불일치·주문 불능)이면 "
-          f"--hotfix-a \"사유\"로 지나간다. 판정 근거: {reason}. 정본 CLAUDE.md '장중 운영'.", file=sys.stderr)
-    return 1
+    write_log(f"{stamp} 장중 교체 — {reason}")
+    print(f"[deploy_guard] 매매 창(09:00~{end:%H:%M}) 안에서 바꾼다 — 재기동마다 보유분이 청산 래퍼로 넘어간다. "
+          f"판정 근거: {reason}.")
+    return 0
 
 
 if __name__ == "__main__":

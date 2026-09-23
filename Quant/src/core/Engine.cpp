@@ -727,6 +727,7 @@ Engine::QueueStatistics Engine::queue_statistics() const
     statistics.fill_high_water  = pipeline_.fill_queue.high_water();
     statistics.shard_dropped    = pipeline_.shard_dropped.load(std::memory_order_relaxed);
     statistics.order_dropped    = pipeline_.order_dropped.load(std::memory_order_relaxed);
+    statistics.order_stale      = pipeline_.order_stale.load(std::memory_order_relaxed);
     statistics.fill_dropped     = pipeline_.fill_dropped.load(std::memory_order_relaxed);
     statistics.order_duplicate  = pipeline_.order_duplicate.load(std::memory_order_relaxed);
     statistics.order_response_dropped = pipeline_.order_response_dropped.load(std::memory_order_relaxed);
@@ -1279,10 +1280,19 @@ void Engine::connect_feed()
     //  허용하는데, 세션 정리가 서버측에 걸려 rt=9(ALREADY IN USE) 재연결 폭주가 나므로
     //  체결 피드를 REST 현재가 폴링(data_thread_fn)으로 대체하고 WS 의존을 제거한다.
     //  주문은 REST(order_thread_fn)로 나가므로 매매에는 영향 없음(체결통보 on_fill만 없음).
-    //  갈라 띄우면 구독 목록은 전략 쪽에서 요청으로 온다 — 그때 소켓이 없으면 걸 곳이 없다. 체결통보도
-    //  이 소켓이 듣는다. 그래서 주문만 맡은 프로세스는 목록이 비어도 연다. [why D-114]
-    if (feed_.rest_price_feed || (watch_specifications_.empty() && role_ != ProcessRole::Order))
+    //  구독할 종목이 없어도 hts_id 가 있으면 열어둔다 — 체결통보(H0STCNI)는 종목 구독과
+    //  별개라, 유니버스가 비었다고 닫아버리면 이월 보유분을 청산하는 주문의 체결을 못 듣고
+    //  원장이 빈다. 2026-09-23 실계좌 첫날 청산 체결이 이렇게 사라졌다. [why D-097]
+    //  갈라 띄울 때도 같다 — 구독 목록은 전략 쪽에서 요청으로 오므로 주문만 맡은 프로세스는
+    //  목록이 비어도 소켓을 열어 둔다. 그때 소켓이 없으면 걸 곳이 없다. [why D-114]
+    if (feed_.rest_price_feed ||
+        (watch_specifications_.empty() && kis_config_.hts_id.empty() && role_ != ProcessRole::Order))
     {
+        // 안 열었다는 것도 남긴다 — 이 줄이 없으면 건강 점검은 체결통보가 끈겼는지를 못 가른다.
+        LOG_INFO(std::string("[Engine] 체결통보 세션: 없음(") +
+                 (feed_.rest_price_feed ? "REST 시세 모드라 WS를 열지 않는다"
+                                        : "구독 종목 0개·hts_id 비었다") +
+                 ")");
         return;
     }
 
@@ -2540,6 +2550,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
             snapshot.fill_queue_capacity    = pipeline_.fill_queue.capacity();
             snapshot.shard_dropped          = pipeline_.shard_dropped.load(std::memory_order_relaxed);
             snapshot.order_dropped          = pipeline_.order_dropped.load(std::memory_order_relaxed);
+            snapshot.order_stale            = pipeline_.order_stale.load(std::memory_order_relaxed);
             snapshot.fill_dropped           = pipeline_.fill_dropped.load(std::memory_order_relaxed);
             snapshot.latency_samples        = pipeline_latency_.total.count();
             snapshot.tick_to_signal_p50_us  = pipeline_latency_.tick_to_signal.percentile(0.50);
@@ -3181,7 +3192,15 @@ void Engine::track_strategy_liveness(ipc::HeartbeatMonitor::Step step, bool just
     {
         try
         {
-            order_router_->submit(protective_signal);
+            const ManagedOrder managed_order = order_router_->submit(protective_signal);
+
+            // 게이트가 막으면 예외가 아니라 거부 상태로 돌아온다. 결과를 버리면 손절·청산이 한 건도
+            //  안 나간 채로 조용히 넘어간다 — 보호 주문만은 못 나간 사실을 반드시 남긴다. 2026-09-23
+            if (managed_order.status == OrderStatus::REJECTED)
+            {
+                LOG_ERROR("[마무리] 보호 주문 거부 " + protective_signal.ticker + ": " +
+                          (managed_order.reject_reason.empty() ? "사유 없음" : managed_order.reject_reason));
+            }
         }
         catch (const std::exception& exception)
         {
@@ -3667,6 +3686,27 @@ void Engine::order_thread_fn(std::stop_token stop_token)
                     order_gate_.strategy_table().name(request.strategy_index);
                 OrderSignal signal = ipc::to_signal(request, strategy_name.view());
 
+                pop_ns = trace::now_ns();
+
+                // 오래 기다린 신규 매수는 여기서 버린다 — 큐가 찬 동안 증권사 초당한도는 그대로라, 이 한 건을
+                //  보내면 그만큼 방금 만든 판단이 못 나간다. 조건이 남아 있으면 다음 틱·봉이 다시 만든다.
+                //  취소·정정과 매도는 나이를 안 본다(손절·청산은 늦어도 나가야 한다). 신호를 낸 시각은
+                //  통로 레코드의 sent_at_ns 가 실어 오므로 갈라 띄워도 같은 나이로 잰다. [why D-127][why D-114]
+                if (is_stale_entry(signal, pop_ns))
+                {
+                    const auto waited_ms = (pop_ns - signal.signal_at_ns) / kNanosecondsPerMillisecond;
+                    const auto count = pipeline_.order_stale.fetch_add(1, std::memory_order_relaxed) + 1;
+
+                    if (count == 1 || count % ShardPipeline::kDropLogEvery == 0)
+                    {
+                        LOG_WARN("[주문] 큐에서 " + std::to_string(waited_ms) + "ms 기다린 신규 매수를 버린다 " +
+                                 signal.ticker + " (누적 " + std::to_string(count) + ")");
+                    }
+
+                    answer(request.sequence, ipc::OrderResult::kStale, 0, "큐 대기가 길어 버림");
+                    continue;
+                }
+
                 // 번호는 주문 쪽이 준다 — 전략 쪽은 종목 표를 찾기만 하고, 처음 보는 종목은 받는 이 자리에서
                 //  표에 올린다. 표를 고치는 쪽을 하나로 두는 것이 원칙 4다. [why D-114]
                 if (signal.symbol_id == symbol::kNone && !signal.ticker.empty())
@@ -3689,8 +3729,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
                     break;
                 }
 
-                next   = OrderRateLimiter::Pending{std::move(signal), 0};
-                pop_ns = trace::now_ns();
+                next = OrderRateLimiter::Pending{std::move(signal), 0};
             }
         }
 
@@ -3744,7 +3783,8 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             {
                 const trace::Marks marks{signal.tick_at_ns, signal.signal_at_ns, pop_ns, send_ready_ns,
                                          trace::now_ns()};
-                latency_trace.record(signal, marks, kis_called, managed_order.status == OrderStatus::ACCEPTED);
+                latency_trace.record(signal, marks, managed_order.stages, kis_called,
+                                     managed_order.status == OrderStatus::ACCEPTED);
                 // 같은 값을 분포로도 — HEALTH가 분위수를 싣는다. 라우터 안 구간은 managed_order가 실어 왔다.
                 pipeline_latency_.add(marks, managed_order.stages);
             }
@@ -4002,6 +4042,7 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                      " fill=" + std::to_string(pipeline_.fill_queue.high_water()) + "/" + std::to_string(pipeline_.fill_queue.capacity()) +
                      " fill_dropped=" + std::to_string(pipeline_.fill_dropped.load(std::memory_order_relaxed)) +
                      " order_dropped=" + std::to_string(pipeline_.order_dropped.load(std::memory_order_relaxed)) +
+                     " order_stale=" + std::to_string(pipeline_.order_stale.load(std::memory_order_relaxed)) +
                      " order_duplicate=" + std::to_string(pipeline_.order_duplicate.load(std::memory_order_relaxed)) +
                      " order_implausible=" +
                      std::to_string(pipeline_.order_implausible.load(std::memory_order_relaxed)) +
@@ -4151,12 +4192,24 @@ void Engine::step_session_end()
 
 // 표지 파일은 repo 루트 기준 상대 경로다 — 트레이더는 반드시 repo 루트에서 띄운다(감시견도 같은 경로를 본다).
 //  실패해도 엔진은 멈추지 않는다 — 그러면 감시견이 -Until 마감 판정으로 되돌아갈 뿐이다.
+//  instance_가 있으면 이름에 붙인다(session_done_live_2026-09-29) — 계좌를 둘 돌릴 때 모의가 15:30에
+//  남긴 마감 표지로 실계좌 감시견이 멈추던 것을 막는다. 감시견도 -Instance 로 같은 이름을 본다. [why D-122]
 void Engine::write_state_marker(std::string_view name, std::string_view body) const
 {
     const auto kst = ::kst::to_tm(std::time(nullptr));
-    char       date_buffer[16];
+    char       date_buffer[32];   // 연도는 int 라 컴파일러가 11자리까지 본다 — 16이면 잘림 경고가 난다
     std::snprintf(date_buffer, sizeof(date_buffer), "%04d-%02d-%02d", kst.tm_year + 1900, kst.tm_mon + 1, kst.tm_mday);
-    const std::filesystem::path path = std::filesystem::path("_private") / "state" / (std::string(name) + "_" + date_buffer);
+    std::string file_name(name);
+
+    if (!instance_.empty())
+    {
+        file_name += "_";
+        file_name += instance_;
+    }
+
+    file_name += "_";
+    file_name += date_buffer;
+    const std::filesystem::path path = std::filesystem::path("_private") / "state" / file_name;
 
     std::error_code error;
     std::filesystem::create_directories(path.parent_path(), error);

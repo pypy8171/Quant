@@ -66,6 +66,19 @@ struct AppConfig;
 //  WS 구독 목록은 on_start() 이후 전략의 get_watch_specifications()로 동적 수집
 // ─────────────────────────────────────────────────────────────────────────────
 
+// 주문 큐에서 이 시간을 넘게 기다린 신규 매수는 꺼낼 때 버린다. 큐가 찬 동안 증권사에 낼 수 있는 건수는
+//  초당한도로 고정이라 늘릴 수 없고, 남은 예산을 2초 전 판단에 쓰면 그만큼 지금 판단이 못 나간다.
+//  취소·정정과 매도(손절·청산)는 나이를 안 본다 — 늦어도 보내야 하는 주문이다. [why D-127]
+inline constexpr int64_t kOrderSignalMaxAgeNs   = 1'000'000'000; // 1초
+inline constexpr int64_t kNanosecondsPerMillisecond = 1'000'000; // 로그에 ms로 적을 때 쓰는 나눗수
+
+// 지금 꺼내 보내기엔 너무 오래된 신호인가. 시각을 안 찍은 신호(signal_at_ns=0)는 나이를 모르니 보낸다.
+constexpr bool is_stale_entry(const OrderSignal& signal, int64_t popped_at_ns)
+{
+    return signal.action == OrderAction::NEW && signal.side == OrderSide::BUY && signal.signal_at_ns != 0
+           && popped_at_ns - signal.signal_at_ns > kOrderSignalMaxAgeNs;
+}
+
 class Engine
 {
 public:
@@ -255,6 +268,7 @@ public:
         size_t   fill_high_water  = 0;
         uint64_t shard_dropped    = 0;
         uint64_t order_dropped    = 0;
+        uint64_t order_stale      = 0; // 큐에서 너무 오래 기다려 버린 신규 매수 수 [why D-127]
         uint64_t fill_dropped     = 0;
         uint64_t order_duplicate  = 0; // 주문 쪽이 같은 순번을 두 번 받아 거른 수. 0이 아니면 통로가 샜다
         uint64_t order_response_dropped = 0; // 전략이 답을 안 가져가 버린 수
@@ -369,6 +383,11 @@ public:
     // ZMQ 발행·제어 채널을 아예 열지 않는다(스레드 시작 전에만). 구독자 없이 도는 부하 하네스에서
     //  발행 큐가 차며 나는 drop 로그가 측정을 가리기 때문이다. 라이브는 기본값(켜짐) 그대로 쓴다.
     void set_zmq_enabled(bool enabled) { zmq_enabled_ = enabled; }
+
+    // 한 기계에서 계좌를 둘 이상 돌릴 때 이 엔진을 가르는 이름(config `instance`, 예 "live").
+    //  마감 표지 파일 이름에 붙는다 — 모의 엔진이 15:30에 남긴 마감 표지를 실계좌 감시견이 읽고
+    //  20:00까지 도는 실계좌 트레이더를 되살리지 않던 것을 막는다. [why D-122]
+    void set_instance(std::string name) { instance_ = std::move(name); }
 
     // 운영단말 TCP 채널(config `ops_bind_addr`·`ops_port`·`ops_token`). port 0이면 열지 않는다.
     //  스레드 시작 전에만. 루프백이 아닌 주소는 token이 있어야 서버가 뜬다(OpsServer::start).
@@ -763,6 +782,7 @@ private:
         RingBuffer<FillNotification> fill_queue{kFillQueueCapacity};
         std::atomic<uint64_t> fill_dropped{0};   // fill_queue 가득 차 버린 체결통보 수. 0이 아니면 잔고 대조가 원장을 메운다
         std::atomic<uint64_t> order_dropped{0};  // 요청 면이 가득 차 버린 신호 수. [큐 고수위] 줄에 같이 찍힌다
+        std::atomic<uint64_t> order_stale{0};    // 큐에서 너무 오래 기다려 꺼낼 때 버린 신규 매수 수 [why D-127]
         std::atomic<uint64_t> order_implausible{0};      // 값이 말이 안 돼 버린 요청 수. 0이 아니면 통로가 덮였다
         std::atomic<uint64_t> order_reason_truncated{0}; // 판단 근거·주문 이름이 칸을 넘어 잘린 신호 수
         // 주문 → 전략 응답. 보내는 쪽이 주문 스레드 하나, 받는 쪽이 전략 스레드 하나라 SPSC다. 큐는
@@ -842,6 +862,9 @@ private:
         std::unordered_set<std::string> manual_cids;
     };
     OpsChannel ops_;
+
+    // 표지 파일 이름 접미. 비어 있으면 접미 없이 예전 이름을 쓴다. [why D-122]
+    std::string instance_;
     void        start_ops_server();
     std::string ops_status_json() const;
     std::string ops_positions_json() const;

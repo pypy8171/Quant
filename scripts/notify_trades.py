@@ -29,6 +29,7 @@ import json
 import os
 import re
 import signal
+import subprocess
 import sys
 import time
 import traceback
@@ -436,20 +437,67 @@ def ensure_name(names, missed, kis, ticker):
         save_name_cache(_learned)
 
 
-def trader_alive():
-    """quant_trader 생존 여부. 판정할 수 없으면 None을 준다(알림을 내지 않는다)."""
-    import subprocess
+# 리눅스 트레이더 날에 들여다볼 WSL2 배포판. auto_trade_day.ps1 이 procwatch 에 넘기는 것과 같다.
+WSL_DISTRIBUTION = os.environ.get("QUANT_WSL_DISTRIBUTION", "Ubuntu-24.04")
+
+
+def _read_state(name, encoding):
+    """_private 상태파일 하나를 읽는다. 없거나 깨졌으면 빈 dict."""
     try:
-        if os.name == "nt":
-            r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq quant_trader.exe", "/NH"],
-                               capture_output=True, text=True, encoding="utf-8",
-                               errors="replace", timeout=10)
-            return "quant_trader.exe" in (r.stdout or "")
-        r = subprocess.run(["pgrep", "-f", "quant_trader"], capture_output=True,
-                           text=True, timeout=10)
-        return r.returncode == 0
+        with open(REPO / "_private" / name, encoding=encoding) as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return {}
+
+
+def _trader_runs_on_linux():
+    """오늘 트레이더가 WSL2 쪽에 있는가. 워치독 상태파일 둘로 본다.
+    [why] 평소 날까지 15초마다 wsl 을 깨우지 않으려고 먼저 이걸 묻는다."""
+    # Windows 워치독은 -NoTrader 로 뜨면 trader=external 을 적는다. 파일에 BOM 이 붙는다.
+    if _read_state("_auto_trade_day.json", "utf-8-sig").get("trader") == "external":
+        return True
+
+    return _read_state("_auto_trade_linux.json", "utf-8").get("phase") == "running"
+
+
+def _wsl_trader_alive():
+    """WSL2 배포판 안의 quant_trader 생존. 판정 못 하면 None."""
+    try:
+        result = subprocess.run(["wsl", "-d", WSL_DISTRIBUTION, "-u", "root", "-e",
+                                 "pgrep", "-f", "quant_trader"],
+                                capture_output=True, timeout=15)
     except Exception:
         return None
+
+    # pgrep 은 못 찾으면 1, 그보다 크면 pgrep·wsl 자체가 실패한 것이라 모른다고 답한다.
+    if result.returncode in (0, 1):
+        return result.returncode == 0
+
+    return None
+
+
+def trader_alive():
+    """quant_trader 생존 여부. 판정할 수 없으면 None을 준다(알림을 내지 않는다).
+    [why] 리눅스 트레이더 날(auto_trade_day.ps1 -NoTrader)은 엔진이 WSL2 안이라
+    tasklist 에 안 잡힌다 — Windows 쪽이 비면 배포판 안을 한 번 더 본다."""
+    try:
+        if os.name != "nt":
+            result = subprocess.run(["pgrep", "-f", "quant_trader"], capture_output=True,
+                                    text=True, timeout=10)
+            return result.returncode == 0
+
+        result = subprocess.run(["tasklist", "/FI", "IMAGENAME eq quant_trader.exe", "/NH"],
+                                capture_output=True, text=True, encoding="utf-8",
+                                errors="replace", timeout=10)
+        if "quant_trader.exe" in (result.stdout or ""):
+            return True
+    except Exception:
+        return None
+
+    if not _trader_runs_on_linux():
+        return False
+
+    return _wsl_trader_alive()
 
 
 def read_daily_pnl(log_path):

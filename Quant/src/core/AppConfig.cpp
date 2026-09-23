@@ -137,7 +137,8 @@ int hhmm_to_minute(int hhmm)
 void parse_risk(const json& document, AppConfig& app)
 {
     const json& risk_node   = jsonx::object_or_empty(document, "risk");
-    const bool  replaying    = !app.replay_file.empty();
+    // 부하시험도 밤에 돌리므로 리플레이와 같이 장 시간 창을 끈다 — 창이 닫혀 있으면 주문이 전부 거부된다.
+    const bool  replaying    = !app.replay_file.empty() || app.load_test_enabled;
     const bool  after_market = risk_node.value("after_market", true) && !app.kis.is_paper;
     OrderGate::Config& risk  = app.risk;
     risk.session_open_min    = replaying ? 0 : hhmm_to_minute(risk_node.value("session_open_hhmm", 900));
@@ -220,6 +221,15 @@ AppConfig parse_config(const json& document, const std::string& mode_override)
     app.replay_file                   = document.value("replay_file", std::string());
     app.replay_speed                  = document.value("replay_speed", app.replay_speed);
     app.replay_cash                   = document.value("replay_cash", app.replay_cash);
+
+    const json& load_test_node        = jsonx::object_or_empty(document, "load_test");
+    app.load_test_enabled             = load_test_node.value("enabled", false);
+    app.load_test_lanes               = load_test_node.value("lanes", app.load_test_lanes);
+    app.load_test_base_port           = load_test_node.value("base_port", app.load_test_base_port);
+    app.load_test_bind_address        = load_test_node.value("bind_addr", app.load_test_bind_address);
+    app.load_test_session_hhmmss      = load_test_node.value("session_start_hhmmss", 0);
+    app.load_test_universe_out        = load_test_node.value("universe_out", std::string());
+
     app.regime_file                   = document.value("regime_file", std::string());
     app.regime_stale_sec              = document.value("regime_stale_sec", app.regime_stale_sec);
     app.regime_halt_expire_min        = document.value("regime_halt_expire_min", app.regime_halt_expire_min);
@@ -233,6 +243,7 @@ AppConfig parse_config(const json& document, const std::string& mode_override)
     app.ops_bind_address              = document.value("ops_bind_addr", std::string());
     app.ops_port                      = document.value("ops_port", 0);
     app.ops_token                     = document.value("ops_token", std::string());
+    app.instance                      = document.value("instance", std::string());
 
     if (document.contains("regime_strategies"))
     {
@@ -249,6 +260,14 @@ AppConfig parse_config(const json& document, const std::string& mode_override)
     if (document.contains("quote_kis"))
     {
         app.quote_kis = parse_quote_kis(document["quote_kis"], app.kis);
+    }
+    else if (!app.kis.is_paper)
+    {
+        // 실계좌는 주문 키가 곰 실전 키다 — 시세용을 따로 적을 이유가 없다. 모의계좌만 시세가 막혀
+        //  있어 quote_kis 로 실전 키를 하나 더 받는다. 이 갈래가 없던 탓에 2026-09-23 실계좌 첫날
+        //  유니버스 스캔이 "quote_kis(실전 시세 키) 미설정"으로 통째 건너뛰었고, 그 탓에 구독 종목이
+        //  0개가 돼 WS 자체가 안 열려 체결통보까지 못 받았다. [why D-097]
+        app.quote_kis = app.kis;
     }
 
     parse_risk(document, app);

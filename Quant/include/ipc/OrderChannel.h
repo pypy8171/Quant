@@ -41,6 +41,7 @@ enum class OrderResult : uint8_t
     kFailed    = 3, // 보내다 실패했다(예외·전송 오류) — 재시도 대상
     kDuplicate = 4, // 이미 받은 순번이라 아무것도 하지 않았다
     kInvalid   = 5, // 값이 말이 안 되는 요청이라 버렸다(is_plausible). 재전송해도 같은 값이면 또 버린다
+    kStale     = 6, // 큐에서 너무 오래 기다려 보내지 않고 버렸다 — 거부가 아니다 [why D-127]
 };
 
 // 전략 → 주문. OrderSignal에서 std::string을 걷어낸 모양이다 — 포인터가 들어가면 공유 쪽지를 건널 수 없다.

@@ -211,17 +211,25 @@ class DbClient:
         "tick_to_signal",  # 체결 수신 → 신호
         "signal_to_pop",   # 신호 → 주문 큐에서 꺼냄
         "pop_to_send",     # 꺼냄 → 호출 간격 조절 끝(우리가 스스로 줄 세운 시간)
-        "gate",            # 주문 게이트 판정
+        "gate",            # 주문 게이트 판정(아래 이력 가드 몰을 벜 것)
+        "history_guard",   # 주문 이력 잠금·중복 가드 훑기
         "journal",         # 원장 선기록(디스크)
         "bucket_wait",     # 증권사 초당한도 버킷 줄서기
         "transport",       # 증권사 REST 왕복
-        "pop_to_done",     # 꺼냄 → 라우터 반환(위 다섯을 품은 한 덩이)
+        "record",          # 전송 뒤 마무리(접수 확정·발행·이력 저장·파일 쓰기)
+        "open_orders",     # 그중 미결주문 파일 다시쓰기 — record 안에 든 몫이라 합산에서 뺀다
+        "pop_to_done",     # 꺼냄 → 라우터 반환(위 여섯을 품은 한 덩이)
         "total",           # 체결 수신 → 라우터 반환
     )
 
     # 엔진이 HEALTH에 싣는 큐·지연 열. 옛 엔진(이 필드를 안 싣는 exe)이 보낸 행은 NULL로 들어간다.
     _HEALTH_METRIC_COLUMNS = (
         "drop_cnt",
+        # 버린 건수 내역 — 넷의 합이 drop_cnt 다. 원인마다 손댈 곳이 달라 갈라 싣는다(D-125).
+        "drop_socket_full",
+        "drop_socket_error",
+        "drop_send_queue_full",
+        "drop_trade_ring_full",
         "queue_shard_high_water",
         "queue_shard_capacity",
         "queue_shard_out_size",
@@ -232,6 +240,8 @@ class DbClient:
         "queue_fill_capacity",
         "dropped_shard",
         "dropped_order",
+        # 큐에서 너무 오래 기다려 꺼낼 때 버린 신규 매수. 큐가 차서 못 넣은 dropped_order와 원인이 다르다(D-127).
+        "stale_order",
         "dropped_fill",
         "latency_samples",
         "tick_to_signal_p50_us",

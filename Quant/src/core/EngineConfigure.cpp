@@ -3,6 +3,7 @@
 //  (정본 docs/guides/MAINTENANCE_AUTOMATION.md 4절 "초기화 위치"). start() 전에만 부른다.
 #include "core/AppConfig.h"
 #include "core/Engine.h"
+#include "exchange/ZmqOrderFeed.h"
 #include "utils/Logger.h"
 
 #include <algorithm>
@@ -31,11 +32,29 @@ void configure_channels(Engine& engine, const AppConfig& app)
         engine.set_replay(app.replay_file, app.replay_speed, app.replay_cash);
     }
 
+    // 부하시험 주문 수신단(D-071). 리플레이와 같은 자리에 들어가 같은 콜백으로 체결을 올린다 — 엔진이 보기에는
+    //  그냥 또 하나의 피드라 샤드·전략·OrderGate·원장이 평소대로 돈다. KIS·인증·실주문 경로는 만들어지지 않는다.
+    if (app.load_test_enabled)
+    {
+        exchange::ZmqOrderFeed::Options load_test_options;
+        load_test_options.lane_count   = app.load_test_lanes;
+        load_test_options.base_port    = app.load_test_base_port;
+        load_test_options.bind_address = app.load_test_bind_address;
+        load_test_options.session_start_hhmmss = app.load_test_session_hhmmss;
+        load_test_options.universe_out_path    = app.load_test_universe_out;
+
+        engine.set_feed_source(std::make_unique<exchange::ZmqOrderFeed>(engine.symbols(), load_test_options),
+                               app.replay_cash);
+        LOG_INFO("[Engine] 부하시험 주문 수신단: " + app.load_test_bind_address + " 포트 " +
+                 std::to_string(app.load_test_base_port) + " 부터 " + std::to_string(app.load_test_lanes) + "개");
+    }
+
     engine.set_regime_file(app.regime_file, app.regime_stale_sec);
     engine.set_regime_halt_expire_min(app.regime_halt_expire_min);
     engine.set_zmq_control(app.zmq_bind_address, app.zmq_control_token);
     engine.set_zmq_ports(app.zmq_pub_port, app.zmq_rep_port);
     engine.set_protective_orders(app.protective_orders, app.protective_orders_interval_ms, app.protective_orders_retry_ms);
+    engine.set_instance(app.instance);
     engine.set_ops_control(app.ops_bind_address, app.ops_port, app.ops_token);
 }
 

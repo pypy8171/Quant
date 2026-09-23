@@ -21,12 +21,26 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@db182dd scripts/auto_trade_guard.ps1@74bf998 -->
+<!-- sync: scripts/auto_trade_day.ps1@b77c05f scripts/auto_trade_guard.ps1@6a54b80 -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 죽으면 다시
-띄운다. 마감 뒤 `scripts/market_close_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 부속 창에는 체결 기록기·엔진 자원 표본기와 원장 저널 적재기(`quant-ledger`)가 있는데, 저널 적재기는 엔진이 주문 전에 파일로 적어 둔 원장(D-113)을 DB로 따라 적는다 — 죽어도 되살아나면 안 읽은 구간부터 따라잡는다. 트레이더는 이 감시견이 소유한다 —
-손으로 따로 띄우면 엔진이 둘이 된다. 기동 전에 이미 떠 있는 `quant_trader`가 있으면 중단하는데, config에 `replay_file`이
-있는 프로세스(워크트리의 리플레이 측정)는 증권사에 주문을 내지 않으므로 세지 않는다.
+띄운다. 띄우기 전에 그날 장이 열리는지 KIS에 물어(`scripts/check_market_open.py`) 휴장일이면 아무것도 안 띄우고 끝낸다 —
+조회가 실패해 개장 여부를 모르는 날은 휴장으로 보지 않고 그대로 진행한다. 마감 뒤 `scripts/market_close_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 부속 창에는 체결 기록기·엔진 자원 표본기와 원장 저널 적재기(`quant-ledger`)가 있는데, 저널 적재기는 엔진이 주문 전에 파일로 적어 둔 원장(D-113)을 DB로 따라 적는다 — 죽어도 되살아나면 안 읽은 구간부터 따라잡는다. 트레이더는 이 감시견이 소유한다 —
+손으로 따로 띄우면 엔진이 둘이 된다. 기동 전에 이미 떠 있는 `quant_trader`가 있으면 중단하는데, **발주하는 계좌가 같을 때만**
+센다 — 떠 있는 프로세스의 명령줄에서 config를 찾아 `kis.account_no`와 `is_paper`를 열쇠로 만든다. config에 `replay_file`이
+있는 프로세스(워크트리의 리플레이 측정)는 증권사에 주문을 내지 않으므로 세지 않고, 열쇠를 읽지 못하면 막는 쪽으로 남긴다.
+
+모의와 실계좌를 한 기계에서 같이 돌리는 날은 config `instance` 하나가 두 벌을 가른다(D-122). 실계좌 config에
+`"instance": "live"`가 있으면 감시견이 상태 파일 `_private/_auto_trade_day_live.json`, 실행 로그 `auto_trade_day_live_*.log`,
+엔진 로그 폴더 `Quant/build_win/logs_live`(`QUANT_LOG_DIR`), 마감 표지 `session_done_live_<날짜>`, 창 제목 접미를 쓴다.
+마감 정리(`quant_procs.ps1 -KillAll`)도 그 감시견의 자손만 내리므로, 15:35에 마감하는 모의 쪽이 20:00까지 도는 실계좌를
+같이 내리지 않는다. 가드도 예약작업 이름이 `QuantAutoTradeGuard_live`로 갈린다.
+부속 창도 config를 따라 뜬다 — 대시보드는 `dashboard_port`와 `ledger_journal_dir`를, 체결 기록기는 `zmq_pub_port`를 읽는다.
+이 셋을 안 넘기면 실계좌 감시견이 띄운 화면에 모의 계좌의 원장·체결이 뜨고 두 감시견이 8787 한 자리를 다툰다(2026-09-23 실측).
+config는 `-Encoding UTF8`로 읽는다 — PowerShell 5.1의 기본값이 cp949라 BOM 없는 UTF-8 config의 한글 주석에서 JSON 읽기가 통째로 실패한다.
+
+실계좌 기동은 아래 기본 명령에 `-Config Quant\config\config_live.json -Until 20:05`을 붙이고, 가드는 같은 `-Config`로 `-Install`한다.
+그 config는 실계좌 인증 정보라 저장소에 없다(gitignore) — 복붙할 명령 전문은 `_private/LINKS.md`에 있다.
 
 ```powershell
 cd {ROOT}
@@ -96,7 +110,7 @@ wsl -e docker ps -a --filter name=quant-tsdb
 
 ## 2. 장중 매매를 창 5개로 손으로 띄우기
 
-<!-- sync: PYQuant/tools/macro_regime_feed.py@712c14b PYQuant/tools/universe_feed.py@543096a scripts/notify_trades.py@14c08c1 -->
+<!-- sync: PYQuant/tools/macro_regime_feed.py@712c14b PYQuant/tools/universe_feed.py@543096a scripts/notify_trades.py@41177d1 -->
 
 1절 감시견이 도는 날에는 쓰지 않는다(트레이더가 둘이 된다). 대상은 DevScale 모의계좌 `Quant\config\config_dev_paper.json` —
 `Quant\config\config.json`은 실계좌라 장중 시험에 쓰지 않는다. 각 창은 별도 프로세스이고 닫으면 그 부분만 멈춘다.
@@ -140,7 +154,7 @@ config별 전략: `config_dev_paper.json` DEVIATION_SCALE(일봉 정배열+눌�
 
 ## 3. 실시간 대시보드
 
-<!-- sync: scripts/dashboard_server.py@d2ac64c -->
+<!-- sync: scripts/dashboard_server.py@5207587 -->
 
 엔진 재빌드 없이 이미 있는 데이터(KIS 잔고·`regime.json`·`universe_scan.json`·로그·체결원장)를 브라우저에 3초마다
 표시한다. 종목 행 클릭 → 일/주/5분/3분봉 차트. 종목 뉴스·속보(네이버, 보유 종목 전부 + 유니버스 순환)와 증권사 리서치(매시간 갱신) 카드도 같은 화면에 있다. 라이브 데이터는 이 로컬 서버가 있어야 뜬다(발행 URL 하나로는 안 된다).
@@ -321,7 +335,7 @@ Stop-Process -Id <PID> -Force
 
 ## 12. 매매 알림 수신처 설정 (최초 1회)
 
-<!-- sync: scripts/notify_trades.py@14c08c1 -->
+<!-- sync: scripts/notify_trades.py@41177d1 -->
 
 Discord — 서버 → 채널 설정 → 연동 → 웹후크 → 새 웹후크 → URL 복사. 폰 Discord 앱에서 그 채널 알림을 켜면 푸시가 온다.
 `_private\notify.json`(gitignore)에 적는다. 체결과 포지션 요약을 다른 채널로 나누려면 웹후크를 둘 발급해 두 번째 형태로.

@@ -18,13 +18,16 @@ graph LR
   risk[risk]
   ipc[ipc]
   utils[utils]
-  api -->|11| core
+  exchange[exchange]
+  api -->|12| core
   api -->|7| utils
   core -->|11| api
   core -->|9| ipc
   core -->|7| risk
   core -->|3| strategy
   core -->|12| utils
+  exchange -->|7| core
+  exchange -->|2| utils
   ipc -->|2| api
   ipc -->|13| core
   ipc --> risk
@@ -58,10 +61,10 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 38 |
-| `utils/Logger.h` | 31 |
-| `core/KstTime.h` | 17 |
-| `core/SymbolTable.h` | 15 |
+| `core/Types.h` | 39 |
+| `utils/Logger.h` | 32 |
+| `core/KstTime.h` | 18 |
+| `core/SymbolTable.h` | 17 |
 | `strategy/StrategyBase.h` | 15 |
 | `api/KisClient.h` | 13 |
 | `core/MarketSession.h` | 9 |
@@ -149,6 +152,12 @@ graph LR
     n_core_UniverseExit_cpp["core/UniverseExit.cpp"]
     n_core_UniverseExit_h["core/UniverseExit.h"]
     n_core_WakeGate_cpp["core/WakeGate.cpp"]
+  end
+  subgraph exchange
+    n_exchange_MatchingEngine_cpp["exchange/MatchingEngine.cpp"]
+    n_exchange_MatchingEngine_h["exchange/MatchingEngine.h"]
+    n_exchange_ZmqOrderFeed_cpp["exchange/ZmqOrderFeed.cpp"]
+    n_exchange_ZmqOrderFeed_h["exchange/ZmqOrderFeed.h"]
   end
   subgraph ipc
     n_ipc_ControlChannel_cpp["ipc/ControlChannel.cpp"]
@@ -261,12 +270,14 @@ graph LR
   n_api_KisIndex_cpp --> n_api_KisRestDecode_h
   n_api_KisMarket_cpp --> n_api_KisRestDecode_h
   n_api_KisOrder_cpp --> n_core_KstTime_h
+  n_api_KisOrder_cpp --> n_core_TickSize_h
   n_api_KisOrder_cpp --> n_utils_JsonNode_h
   n_api_KisRestDecode_cpp --> n_api_KisRestDecode_h
   n_api_KisRestDecode_h --> n_api_KisTypes_h
   n_api_KisRestDecode_h --> n_core_KstTime_h
   n_api_KisRestDecode_h --> n_core_Types_h
   n_api_KisTransport_cpp --> n_api_HttpGet_h
+  n_api_KisTransport_cpp --> n_api_KisRateBucket_h
   n_api_KisWebSocket_cpp --> n_api_KisWebSocket_h
   n_api_KisWebSocket_h --> n_api_KisClient_h
   n_api_KisWebSocket_h --> n_api_KisWsDecode_h
@@ -426,6 +437,15 @@ graph LR
   n_core_UniverseExit_cpp --> n_core_UniverseExit_h
   n_core_UniverseExit_h --> n_core_SymbolTable_h
   n_core_WakeGate_cpp --> n_core_WakeGate_h
+  n_exchange_MatchingEngine_cpp --> n_core_TickSize_h
+  n_exchange_MatchingEngine_h --> n_core_SymbolTable_h
+  n_exchange_MatchingEngine_h --> n_core_Types_h
+  n_exchange_ZmqOrderFeed_cpp --> n_core_KstTime_h
+  n_exchange_ZmqOrderFeed_cpp --> n_utils_Logger_h
+  n_exchange_ZmqOrderFeed_cpp --> n_utils_Utf8_h
+  n_exchange_ZmqOrderFeed_h --> n_core_IFeedSource_h
+  n_exchange_ZmqOrderFeed_h --> n_core_MpscQueue_h
+  n_exchange_ZmqOrderFeed_h --> n_core_SymbolTable_h
   n_ipc_ControlChannel_cpp --> n_ipc_ControlChannel_h
   n_ipc_ControlChannel_h --> n_core_Types_h
   n_ipc_FillKey_cpp --> n_ipc_FillKey_h
@@ -686,7 +706,7 @@ graph LR
   p_PYQuant_tools --> p_PYQuant_naver
   p_scripts -->|3| p_PYQuant_backtest
   p_scripts --> p_PYQuant_db
-  p_scripts -->|2| p_PYQuant_kis
+  p_scripts -->|3| p_PYQuant_kis
   p_scripts --> p_PYQuant_naver
 ```
 
@@ -760,6 +780,7 @@ graph LR
 | `scripts/backfill_fills_db.py` | `_logdir`, `db.client` |
 | `scripts/backfill_studies.py` | `backtest.report` |
 | `scripts/build_review_entry.py` | `market_close_collect` |
+| `scripts/check_market_open.py` | `kis.client` |
 | `scripts/check_runtime_health.py` | `_logdir`, `log_patterns` |
 | `scripts/dashboard_server.py` | `_logdir`, `kis.client`, `naver.theme` |
 | `scripts/exit_ev.py` | `backtest.costs` |
@@ -781,8 +802,8 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 |---|---|---|---|
 | `regime.json` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/Engine.cpp` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/AppConfig.cpp`, `Quant/src/core/Engine.cpp`, `Quant/src/core/RegimeFileJudge.cpp`, `scripts/dashboard_server.py`, `scripts/notify_trades.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/include/core/RegimeFileJudge.h`, `Quant/src/core/EngineConfigure.cpp` |
 | `prices_live.json` | `scripts/live_prices_feed.py` | `scripts/live_prices_feed.py` |  |
-| `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderRouter.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
-| `universe*.json` |  | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/nxt_divergence_check.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseScanner.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/live_prices_feed.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |
+| `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderRouter.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
+| `universe*.json` | `PYQuant/tools/load_injector.py`, `scripts/make_load_test_config.py` | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/load_injector.py`, `PYQuant/tools/nxt_divergence_check.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseScanner.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/live_prices_feed.py`, `scripts/make_load_test_config.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |
 | `open_orders.txt` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` |  |
 | `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/_logdir.py`, `scripts/build_review_entry.py`, `scripts/dashboard_server.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `scripts/_logdir.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/extract_swap_what_if.py`, `scripts/notify_trades.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `Quant/src/main.cpp`, `scripts/exit_ev_dashboard.py` |
 | `kis_token_*.json` |  |  | `PYQuant/kis/client.py`, `Quant/src/api/KisAuth.cpp` |

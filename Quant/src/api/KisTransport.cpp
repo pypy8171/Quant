@@ -4,6 +4,7 @@
 #include "KisClientInternal.h"
 
 #include "api/HttpGet.h"
+#include "api/KisRateBucket.h"
 
 // 재시도 없이 즉시 실패 스코프 깊이(스레드별). 0보다 크면 조회 재시도를 하지 않는다.
 static thread_local int g_fastfail_depth = 0;
@@ -594,13 +595,12 @@ std::uint64_t KisClient::rate_wait_ns_this_thread()
 void KisClient::rate_limit_acquire(const std::string& url)
 {
     const auto acquire_start = std::chrono::steady_clock::now();
-    // 실전 초당 20건, 모의 초당 2건이 공표 한도다. 재시도·토큰 갱신이 끼어들 여유를 남겨 낮게 잡는다.
-    const double refill = config_.is_paper ? 2.0 : 15.0;
-    const double capacity = refill; // 1초치까지만 모아둔다(그 이상 몰아치면 어차피 한도에 걸린다)
-    // 주문·잔고 경로에는 예약분을 남긴다. 시세 조회가 버킷을 다 비운 순간 청산 주문이
-    //  그 뒤에 줄서면 몇 백 ms가 늦는데, 그 지연은 조회 지연과 값이 다르다.
+    // 버킷 크기는 api/KisRateBucket.h에 둔다 — 공표 한도를 넘지 않는지를 단위 테스트가 본다.
+    const kis_rate::BucketPlan plan = kis_rate::bucket_plan(config_.is_paper);
+    const double refill   = plan.refill;
+    const double capacity = plan.capacity;
     const bool priority = url.find("/trading/") != std::string::npos;
-    const double need = priority ? 1.0 : 2.0;
+    const double need = priority ? plan.trade_need : plan.quote_need;
 
     while (true) // while (1)
     {

@@ -41,7 +41,7 @@
 
 표 전체는 `RESULT.md`(생성물, `exit_ev_all.tsv`·`exit_ev_segment_a.tsv`·`exit_ev_segment_b.tsv`). 2026-09-19 재계산, 청산 레그 716건(구간 A 105·B 611), 평단 미상 13행.
 
-**눈으로 보는 화면**은 `exit_ev_dashboard.html`(생성물, `py scripts/exit_ev_dashboard.py`; 발행본 https://claude.ai/artifact/VsTd9E4CiPBdLiTqfCAcAB — 재계산 뒤 같은 URL로 재발행). 셀마다 판정 이유·날짜별·종목별·레그 분포·비용 감도를 펼쳐 보이므로, 판정이 안 난 셀도 "왜 이 숫자인가"를 원장 행까지 따라갈 수 있다. 판정 결과보다 이 근거가 이 스터디의 산출물이다. 탭이 셋이다 — 장중 매매(이 표), 매매 규칙(TRENDX·DEVSCALE·ITB 승계분·DISPLACE가 어떤 지표의 어떤 수치로 사고 파는지를 실행 중 config 값으로 적고, 각 청산 규칙을 같은 사유 셀의 결과에 잇는다), 백테스트(`research/studies/**/metrics.json` 스터디별 지표·정직성 표식). 종목은 코드와 이름을 같이 적는다(`Quant/config/universe_scan.json`·`ticker_names.json`·엔진 로그에서 찾고, 못 찾으면 코드만). 매매일 마감 뒤 `scripts/refresh_dashboard.py`가 원장 최신 날짜까지 다시 만들고, 발행본은 `/dashboard-sync`가 같은 URL로 올린다.
+**눈으로 보는 화면**은 `exit_ev_dashboard.html`(생성물, `py scripts/exit_ev_dashboard.py`; 발행본 https://claude.ai/artifact/V9xoz7832dejoGja7wj3jK — 재계산 뒤 같은 URL로 재발행). 셀마다 판정 이유·날짜별·종목별·레그 분포·비용 감도를 펼쳐 보이므로, 판정이 안 난 셀도 "왜 이 숫자인가"를 원장 행까지 따라갈 수 있다. 판정 결과보다 이 근거가 이 스터디의 산출물이다. 탭이 셋이다 — 장중 매매(이 표), 매매 규칙(TRENDX·DEVSCALE·ITB 승계분·DISPLACE가 어떤 지표의 어떤 수치로 사고 파는지를 실행 중 config 값으로 적고, 각 청산 규칙을 같은 사유 셀의 결과에 잇는다), 백테스트(`research/studies/**/metrics.json` 스터디별 지표·정직성 표식). 종목은 코드와 이름을 같이 적는다(`Quant/config/universe_scan.json`·`ticker_names.json`·엔진 로그에서 찾고, 못 찾으면 코드만). 매매일 마감 뒤 `scripts/refresh_dashboard.py`가 원장 최신 날짜까지 다시 만들고, 발행본은 `/dashboard-sync`가 같은 URL로 올린다.
 
 **판정 규칙대로 난 것 — 없다.** 판정 대상 셀(부호 고정·비전략 제외) 중 구간 A·B 모두 N일≥3인 것은 ITB seed-trail 하나이고, 그것은 A 수익률 CI [-1.43, 0.99]·B [-2.73, -0.81]로 부호가 갈려 "보류". 나머지(TRENDX 장마감·존이탈, ITB trail, DEVSCALE 장마감·존이탈·먼지정리)는 한쪽 구간이 없거나 N일<3이라 "판정불가". 9거래일로는 어떤 청산 규칙도 판정이 나지 않는다.
 

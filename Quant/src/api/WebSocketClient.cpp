@@ -640,7 +640,7 @@ void KisWebSocket::handle_data_frame(const std::string& message)
 
     kis_websocket::split_fields(data, '^', fields_);
 
-    // 복호 평문은 ^구분 다필드(체결통보 23필드). 너무 적으면 키 불일치/손상 의심 (C-1)
+    // 복호 평문은 ^구분 다필드(체결통보 26칸 — 공식 예제 대조). 너무 적으면 키 불일치/손상 의심 (C-1)
     if (!plain.empty() && fields_.size() < kis_websocket::kMinFieldsFill)
     {
         LOG_WARN(std::string("[WS] 체결통보 복호 평문 비정상(필드부족) — 키 불일치/손상 의심 tr_id=").append(transaction_id));
@@ -924,9 +924,23 @@ void KisWebSocket::parse_fill_notification(kis_websocket::Fields fields)
         return;
     }
 
+    // 주문수량·거래소는 전문 뒤쪽 칸이라 짧은 전문에서는 안 온다. 실제로 오는지를 로그로 확인할 수 있게
+    //  받은 때만 덧붙인다 — 안 오면 미연결 잔량 상한이 종전(키 중복 제거)으로 떨어진다.
+    std::string extra;
+
+    if (fill_notification.order_quantity > 0)
+    {
+        extra += " 주문수량=" + std::to_string(fill_notification.order_quantity) + "주";
+    }
+
+    if (!fill_notification.exchange.empty())
+    {
+        extra += " 거래소=" + fill_notification.exchange;
+    }
+
     LOG_INFO("[WS] 체결통보 ODNO=" + fill_notification.kis_order_no + " " + fill_notification.ticker +
              (fill_notification.side == OrderSide::BUY ? " BUY " : " SELL ") +
              std::to_string(fill_notification.filled_quantity) + "주 @" +
-             std::to_string(static_cast<int>(fill_notification.filled_price)));
+             std::to_string(static_cast<int>(fill_notification.filled_price)) + extra);
     on_fill_(fill_notification);
 }

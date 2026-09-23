@@ -175,28 +175,44 @@ note = "매매 판단에는 안 끼지만 KIS REST 버킷을 같이 쓴다."
 
 # --- KIS REST 속도 ---
 [[code_value]]
-id = "kis_rest_refill_paper"
-file = "Quant/src/api/KisTransport.cpp"
-regex = 'const double refill = config_\.is_paper \? ([\d.]+) : [\d.]+;'
+id = "kis_rest_limit_paper"
+file = "Quant/include/api/KisRateBucket.h"
+regex = 'bucket_published_limit\(bool is_paper\)\s*\{\s*return is_paper \? ([\d.]+) : [\d.]+;'
 unit = "회/초"
 group = "KIS REST — 호출 속도·재시도·토큰"
-meaning = "모의투자 REST 토큰버킷 충전률(초당 허용 호출, 공표 2/s)"
+meaning = "모의투자 공표 한도. 몰아치기와 충전률이 이 값을 나눠 갖는다(충전률 = 한도 − 몰아치기)"
 
 [[code_value]]
-id = "kis_rest_refill_real"
-file = "Quant/src/api/KisTransport.cpp"
-regex = 'const double refill = config_\.is_paper \? [\d.]+ : ([\d.]+);'
+id = "kis_rest_limit_real"
+file = "Quant/include/api/KisRateBucket.h"
+regex = 'bucket_published_limit\(bool is_paper\)\s*\{\s*return is_paper \? [\d.]+ : ([\d.]+);'
 unit = "회/초"
 group = "KIS REST — 호출 속도·재시도·토큰"
-meaning = "실계좌 충전률(공표 20/s 에서 여유)"
+meaning = "실계좌 공표 한도"
+
+[[code_value]]
+id = "kis_rest_burst_paper"
+file = "Quant/include/api/KisRateBucket.h"
+regex = 'bucket_burst\(bool is_paper\)\s*\{\s*return is_paper \? ([\d.]+) : [\d.]+;'
+unit = "토큰"
+group = "KIS REST — 호출 속도·재시도·토큰"
+meaning = "모의투자에서 한 번에 몰아칠 수 있는 양. 이만큼 모아 두었다가 한꺼번에 내보낸다"
+
+[[code_value]]
+id = "kis_rest_burst_real"
+file = "Quant/include/api/KisRateBucket.h"
+regex = 'bucket_burst\(bool is_paper\)\s*\{\s*return is_paper \? [\d.]+ : ([\d.]+);'
+unit = "토큰"
+group = "KIS REST — 호출 속도·재시도·토큰"
+meaning = "실계좌 몰아치기 양"
 
 [[code_value]]
 id = "kis_rest_quote_tokens"
-file = "Quant/src/api/KisTransport.cpp"
-regex = 'const double need = priority \? [\d.]+ : ([\d.]+);'
+file = "Quant/include/api/KisRateBucket.h"
+regex = 'bucket_quote_need\(bool is_paper\)\s*\{\s*return bucket_burst\(is_paper\) >= [\d.]+ \? ([\d.]+) : [\d.]+;'
 unit = "토큰"
 group = "KIS REST — 호출 속도·재시도·토큰"
-meaning = "시세 조회 한 건이 쓰는 토큰(주문 /trading/ 은 1) — 시세가 주문 예약분을 못 먹게"
+meaning = "시세 조회 한 건이 쓰는 토큰(주문·잔고는 1) — 시세가 주문 예약분을 못 먹게. 버킷이 작은 모의는 예약 없이 1"
 
 [[code_value]]
 id = "kis_rest_get_attempts"
@@ -298,7 +314,7 @@ meaning = "같은 간격의 모의계좌 값 — 모의는 키 한도가 초당 
 [[code_value]]
 id = "scanner_sector_call_sleep_ms"
 file = "Quant/src/universe/UniverseScanner.cpp"
-regex = 'sleep_for\(std::chrono::milliseconds\((100)\)\);'
+regex = 'constexpr int kSectorCallIntervalMs = (\d+);'
 unit = "ms"
 group = "KIS REST — 일봉·분봉·랭킹 조회"
 meaning = "업종 랭킹 26콜 사이 쉼(union_refresh_sec 마다)"
@@ -1118,7 +1134,7 @@ used_for = "⑧ 신규 진입 허용 여부"
 [[cycle]]
 step = "⑧ 주문"
 source = "OrderGate(단일 시퀀서) → KIS 주문 REST"
-what = "슬롯 {max_concurrent_positions}개, 발주 간격 {order_min_interval_ms}, 거부 재시도 {order_max_retries}. 모의 REST 버킷 {kis_rest_refill_paper}를 대시보드 잔고조회({dashboard_warm_loop_sec})와 나눠 쓴다"
+what = "슬롯 {max_concurrent_positions}개, 발주 간격 {order_min_interval_ms}, 거부 재시도 {order_max_retries}. 모의 REST 한도 {kis_rest_limit_paper}를 대시보드 잔고조회({dashboard_warm_loop_sec})와 나눠 쓴다"
 every = "신호가 날 때. 주문 창 {session_open_hhmm}~{session_close_hhmm} (+ 애프터마켓 {default_risk_after_open_hhmm}~{default_risk_after_close_hhmm}, after_market 켰을 때)"
 used_for = "체결"
 

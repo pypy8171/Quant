@@ -3,6 +3,255 @@
  "_comment": "실증 사후검토(post-mortem) 데이터 계약. build_dashboard.py render_reviews()가 이 파일만 읽어 '리뷰' 탭을 렌더한다. *_html 필드는 신뢰된 인라인 HTML(작성자=본인), 그 외는 이스케이프. 새 리뷰는 reviews 배열에 append.",
  "reviews": [
   {
+   "id": "2026-09-23_session_review",
+   "strategy": "DEVSCALE",
+   "eyebrow": "세션 리뷰 · 09-23 · 원장/로그 자동 집계",
+   "headline_html": "09-23 세션 정리 — 전일대비 −171,876원",
+   "verdict_html": "원장 150이벤트(접수 75 · 체결 28 · 거부 19), 재기동 15회. 당일 라운드트립 4건 중 이익 4건, 라운드트립 실현 +2,500원(당일 양변 확인분·비용 제외). 전일 종가 대비 종료 손익은 −171,876원이다. 세션 시작을 0으로 잡은 잔고 대조 카운터로는 −171,876원인데, 재기동마다 기준이 옮겨가고 간밤 갭이 빠지므로 하루의 성과는 앞의 값으로 읽는다. 여기까지는 원장·로그에서 기계로 뽑은 사실이고, 원인과 다음 조치는 아래 항목에 사람이 적는다.",
+   "meta_html": [
+    "근거 로그 <span class=\"mono\">quant_trader.log</span> · 원장 <span class=\"mono\">150</span>이벤트",
+    "재기동 <span class=\"mono\">15</span>회 · 접수 <span class=\"mono\">75</span> / 체결 <span class=\"mono\">28</span> / 거부 <span class=\"mono\">19</span>",
+    "전략별 이벤트 <span class=\"mono\">DEVSCALE_010120 17</span> · <span class=\"mono\">DEVSCALE_293490 16</span> · <span class=\"mono\">DEVSCALE_021240 13</span> · <span class=\"mono\">DEVSCALE_004450 10</span>"
+   ],
+   "doc_path": "strategies/DeviationScale/live/2026-09-23.md",
+   "log_path": "Quant/build_win/logs/quant_trader.log",
+   "incidents": [
+    {
+     "sev": "거부",
+     "when": "09-23 종일",
+     "title": "주문 거부 5건 — 같은 시장가 매도 진행 중 [ORD-N 미체결 N주] — 중복 발주 생략",
+     "desc_html": "원장 REJECTED 사유 상위. 정규화 문구 <span class=\"mono\">같은 시장가 매도 진행 중 [ORD-N 미체결 N주] — 중복 발주 생략</span>.",
+     "evidence": "Quant/build_win/logs/trades_20260923.csv · REJECTED 5건",
+     "impact_html": "설계된 중복 거름이다. 같은 종목·전략의 미체결 시장가 매도가 살아 있는 동안 재발주를 막는 D-082 경로로, 최종 실패 0건이다."
+    },
+    {
+     "sev": "로그",
+     "when": "09-23 종일",
+     "title": "ERROR/WARN 885건 — [CURL] HTTP N (초당 한도) — 재시도 2/3  url=https://ope",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[CURL] HTTP N (초당 한도) — 재시도 2/3  url=https://openapi.koreainvestment.com:N/uapi/</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 885건",
+     "impact_html": "오늘 켠 업종 등락률 축이 뿌리다. URL별로 갈라 보니 <span class=\"mono\">ranking/fluctuation</span> 452건이 단일 최대이고 어제는 0건이었다 — 26개 업종을 100ms 간격으로 몰아쳤다. 전부 재시도로 복구돼 매매에는 닿지 않았고, 간격을 250ms로 넓혔다."
+    },
+    {
+     "sev": "로그",
+     "when": "09-23 종일",
+     "title": "ERROR/WARN 333건 — [CURL] HTTP N — 재시도 2/3  url=https://openapi.kor",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[CURL] HTTP N — 재시도 2/3  url=https://openapi.koreainvestment.com:N/uapi/domestic</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 333건",
+     "impact_html": "위와 같은 뿌리다(재시도 2/3과 3/3이 따로 세어졌다). 재시도가 버킷을 다시 안 거치는 것이 남은 문제로, 요청 예산을 하나로 모으는 것이 진짜 수정이다."
+    },
+    {
+     "sev": "로그",
+     "when": "09-23 종일",
+     "title": "ERROR/WARN 333건 — [CURL] HTTP N — 재시도 3/3  url=https://openapi.kor",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[CURL] HTTP N — 재시도 3/3  url=https://openapi.koreainvestment.com:N/uapi/domestic</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 333건",
+     "impact_html": "위와 같은 뿌리다(재시도 2/3과 3/3이 따로 세어졌다). 재시도가 버킷을 다시 안 거치는 것이 남은 문제로, 요청 예산을 하나로 모으는 것이 진짜 수정이다."
+    },
+    {
+     "sev": "공백",
+     "when": "13:30~14:48",
+     "title": "주문 이벤트 공백 77.7분",
+     "desc_html": "접수·체결·거부가 한 건도 없는 최장 구간. 신호 고갈인지 배관 정지인지는 로그로 갈라야 한다.",
+     "evidence": "Quant/build_win/logs/trades_20260923.csv",
+     "impact_html": "결함이 아니다. 13:30에 보유분 익절 지정가를 아홉 건 걸어 두었고 그 뒤로 새 진입 신호가 없었다. 같은 시간 운영단말 피드가 비어 엔진이 죽은 것처럼 보였는데, 그것은 피드가 로그 끝 400KB만 읽던 별개의 결함이다."
+    }
+   ],
+   "pnl": {
+    "title_html": "09-23 세션 당일손익 <span class=\"u\">KRW · 잔고 대조 폴링에서 시작·고점·저점·마감 4점</span>",
+    "series": [
+     {
+      "t": "09:01",
+      "v": 35703
+     },
+     {
+      "t": "12:17",
+      "v": -242626
+     },
+     {
+      "t": "15:31",
+      "v": -171876
+     }
+    ],
+    "floor": -242626,
+    "ceil": 35703,
+    "gridlines": [
+     100000,
+     0,
+     -100000,
+     -200000
+    ],
+    "last_label": "세션손익",
+    "note_html": "고점 <b class=\"pos\">+35,703</b>@09:01 · 저점 <b class=\"neg\">−242,626</b>@12:17 · 마감 <b>−171,876</b>@15:31. 폴링 283건 중 4점만 표시했다(연속 곡선 아님)."
+   },
+   "axes": [
+    {
+     "n": "AXIS 1",
+     "title": "전송이 타임아웃 나면 주문이 엔진 장부 밖에 살아남는다 — 하루 세 번",
+     "tag": "오늘의 본질",
+     "tag_cls": "crit",
+     "items": [
+      {
+       "kind": "bug",
+       "text_html": "09:26 <span class=\"mono\">021240</span> 매도 18주를 세 번 냈는데 둘은 <span class=\"mono\">E_TRANSPORT</span>(RTT 9440·9207ms), 하나는 <span class=\"mono\">40240000</span>이었다. 엔진은 셋 다 거부로 적었으나 KIS에는 ODNO=0000007886이 잔여 18주로 살아 있었다. 보유 18주가 주문가능 0주로 묶여 손절 −6.5%가 닿아도 못 파는 상태로 17분."
+      },
+      {
+       "kind": "bug",
+       "text_html": "같은 뿌리가 09:59 <span class=\"mono\">316140</span> 37주·<span class=\"mono\">012750</span> 16주, 12:51 <span class=\"mono\">001120</span> 32주(보유 전량)로 두 번 더 나왔다. 뒤의 둘은 기동 취소가 타임아웃 났을 때 \"이미 종료 추정\"으로 부속 파일에서 지운 것이 원인이다 — 실제로는 취소가 KIS에 도달해 있었다."
+      },
+      {
+       "kind": "bug",
+       "text_html": "대사가 이것을 못 찾은 이유가 따로 있었다. <span class=\"mono\">get_open_orders()</span>가 모의계좌는 지원하지 않는 <span class=\"mono\">inquire-psbl-rvsecncl</span>만 써서 미체결이 늘 빈 목록이었다. 09:26:59 \"취소할 예약매도 없음\"의 정체다."
+      },
+      {
+       "kind": "des",
+       "text_html": "조치 — 넷을 갈라 장중에 고쳤다. 전송 실패를 재시도에서 제외(<span class=\"mono\">OrderRateLimiter.cpp</span>), 모의 미체결은 <span class=\"mono\">inquire-daily-ccld</span>로(<span class=\"mono\">KisAccount.cpp</span>), 기동 취소가 브로커를 직접 보게, 취소 타임아웃은 잔존으로 다뤄 재시도. 여기에 더해 기동 때만 돌던 되묻기를 상시로 바꿨다(<span class=\"mono\">reconcile_unknown_order_async</span>, 커밋 198005a). 주문가능 복구는 세 번 다 로그로 확인했다."
+      },
+      {
+       "kind": "des",
+       "text_html": "남은 것 — 상시 되묻기는 배포 뒤 전송 타임아웃이 안 나 <b>한 번도 실행되지 않았다.</b> 단위 테스트로 검증한다."
+      }
+     ]
+    },
+    {
+     "n": "AXIS 2",
+     "title": "리눅스 상시 운영 첫날 — 엔진은 무탈, 부속 도구가 Windows만 봤다",
+     "tag": "확인됨",
+     "tag_cls": "info",
+     "items": [
+      {
+       "kind": "des",
+       "text_html": "트레이더가 하루 종일 WSL2(Ubuntu-24.04)에서 돌았고 Windows 워치독은 <span class=\"mono\">-NoTrader</span>로 부속 창만 맡았다. 엔진 기동 7회 전부 <span class=\"mono\">OrderRouter(FEP) 초기화</span>·원장 시드 정상이고, 플랫폼 탓으로 돌릴 결함은 하나도 없었다."
+      },
+      {
+       "kind": "bug",
+       "text_html": "부속 도구 둘이 Windows만 보고 있었다. 디스코드 기동 알림은 <span class=\"mono\">tasklist</span>만 봐서 배포판 안의 엔진을 못 찾아 영영 안 떴고(08:55 수정), 마감 판정 <span class=\"mono\">실행 플랫폼</span>은 주문을 내지 않는 기동(FEED 4회·설정 로드 실패 2회)까지 세어 FAIL을 냈다."
+      },
+      {
+       "kind": "des",
+       "text_html": "조치 — 알림은 배포판 안까지 보게 하고, 판정은 엔진이 실제로 뜬 기동만 세게 고쳤다. 재판정 <span class=\"mono\">Linux 7회 (엔진이 뜬 기동만)</span> PASS."
+      }
+     ]
+    },
+    {
+     "n": "AXIS 3",
+     "title": "매매는 규칙대로 돌았다 — 손실은 이월분 한 건에 몰렸다",
+     "tag": "관찰",
+     "tag_cls": "info",
+     "items": [
+      {
+       "kind": "des",
+       "text_html": "진입 신호 11건 전부 정배열눌림 조건을 채웠고 손절은 0건이다. 정배열 판정이 하루 종일 8~21종목뿐이었고 거래대금 미달 컷이 37~44종목을 걷어내 슬롯 20을 못 채웠다 — 규칙대로의 결과다."
+      },
+      {
+       "kind": "des",
+       "text_html": "원장 실현 −39,131원 가운데 −40,983원이 09:01 <span class=\"mono\">293490</span> 전일 이월분 청산(존 이탈) 한 건이다. 이월분은 진입가를 모르므로 오늘 전략의 성과로 읽으면 안 된다. 오늘 진입분 세 종목은 전부 미청산으로 넘어갔다."
+      },
+      {
+       "kind": "des",
+       "text_html": "손절 표본이 0건이라 −6.5%가 잡음에 걸리는지는 아직 모른다. 매수 신호 20건이 쌓일 때까지 판정 보류."
+      }
+     ]
+    }
+   ],
+   "improvements": {
+    "section_sub": "다음 거래일(09-24) 전까지. 근거는 docs/market_close/2026-09-23.md · strategies/DeviationScale/live/2026-09-23.md",
+    "lanes": [
+     {
+      "prio": "P0",
+      "title": "유령 주문 뒤처리를 검증한다",
+      "count_note": "1건",
+      "items": [
+       {
+        "id": "T-01",
+        "cat": "라우터",
+        "eff": "M",
+        "title": "상시 되묻기 단위 테스트",
+        "prob_html": "13:28 배포 뒤 전송 타임아웃이 한 번도 안 나 새 경로가 실행된 적이 없다. 오늘 A등급 셋의 최종 방어선인데 동작을 못 봤다.",
+        "fix_html": "<span class=\"mono\">reconcile_unknown_order_async</span>에 가짜 브로커 응답을 물려, 부속 파일에 없는 미체결만 취소하고 있는 주문은 건드리지 않는 것을 본다."
+       }
+      ]
+     },
+     {
+      "prio": "P1",
+      "title": "요청 예산을 하나로 모은다",
+      "count_note": "2건",
+      "items": [
+       {
+        "id": "T-02",
+        "cat": "통신",
+        "eff": "M",
+        "title": "재시도·보조 호출도 버킷을 거치게",
+        "prob_html": "초당 한도 되보냄 903건(허용 10, 09-22 37건). 재시도 래퍼가 <span class=\"mono\">rate_limit_acquire</span> 없이 되보내 세지 않은 호출이 된다.",
+        "fix_html": "한 클라이언트의 모든 발신을 한 버킷으로 모은다. 오늘 넣은 업종 간격 250ms는 증상 완화다."
+       },
+       {
+        "id": "T-03",
+        "cat": "통신",
+        "eff": "S",
+        "title": "GET 재시도 판별식 특정",
+        "prob_html": "수신 제한 시간 초과 34건이 \"재시도 없이 실패 처리\"로 남는데, 코드를 다시 보니 curl 경로에는 재시도가 있다.",
+        "fix_html": "<span class=\"mono\">retryable</span> 판별식을 읽고 실제로 어느 조건에서 빠지는지 특정한 뒤 고친다."
+       }
+      ]
+     },
+     {
+      "prio": "P2",
+      "title": "운영 인프라·입력 데이터",
+      "count_note": "4건",
+      "items": [
+       {
+        "id": "T-04",
+        "cat": "운영",
+        "eff": "S",
+        "title": "크래시 가드가 정상 종료를 세지 않게",
+        "prob_html": "의도적 재기동 3회가 30분 창에 몰려 하루 루프가 <span class=\"mono\">phase=crash_loop</span>로 61초 멈췄다. 종료코드는 셋 다 rc=0이다.",
+        "fix_html": "<span class=\"mono\">scripts/auto_trade_day.sh</span> 가드가 0이 아닌 종료만 세게 한다."
+       },
+       {
+        "id": "T-05",
+        "cat": "적재",
+        "eff": "M",
+        "title": "부하시험 적재와 운영 DB를 가른다",
+        "prob_html": "오늘 DB에 계좌 00000000 34873건(지난밤 부하시험)·50204275 113건(실매매)·69706076 4건(다른 세션 수동 도구)이 섞여 <span class=\"mono\">원장 계좌 단일</span>·<span class=\"mono\">큐·지연 적재</span>가 FAIL이다.",
+        "fix_html": "부하시험 결과를 운영 DB에 쓰는 쪽과 논의해 스키마나 인스턴스를 가른다."
+       },
+       {
+        "id": "T-06",
+        "cat": "데이터",
+        "eff": "S",
+        "title": "장전 지표 두 건",
+        "prob_html": "네이버 코스피 개인 순매수가 4거래일 연속 세 주체 합계 −16,4xx로 상수 오프셋이고, 코스피 거래대금은 null이다.",
+        "fix_html": "대체 소스와 대조한다. 매매 로직 입력이 아니라 장전 문서 입력이다."
+       },
+       {
+        "id": "T-07",
+        "cat": "데이터",
+        "eff": "M",
+        "title": "data.go.kr 보조 프로세스 하루 밀림",
+        "prob_html": "기준일이 직전 평일보다 항상 하루 더 밀려 장전 구간에서 거래대금 축을 못 쓴다.",
+        "fix_html": "보조 프로세스 rebuild. 09:00부터는 네이버 실시간으로 넘어가 장중 영향은 없다."
+       }
+      ]
+     }
+    ]
+   },
+   "gate": [
+    {
+     "html": "<b class=\"stop\">실계좌 전환 게이트 유지</b> — 오늘 A등급 셋이 같은 뿌리에서 나왔다. 상시 되묻기가 실제로 한 번 발동해 유령 주문을 회수하는 것을 보기 전에는 실계좌로 가지 않는다."
+    },
+    {
+     "html": "<b>재기동은 묶어서</b> — 의도적 재기동 3회가 30분 창에 몰려 하루 루프가 스스로 멈췄다. A등급이 아니면 모아서 배포한다."
+    },
+    {
+     "html": "<b>초당 한도는 축을 켤 때마다 다시 센다</b> — 업종 등락률 축 하나로 되보냄이 37건에서 903건이 됐다. 새 조회 축을 켜면 그날 되보냄 수를 먼저 본다."
+    },
+    {
+     "html": "<b>설정 변경은 도는 프로세스에 안 닿는다</b> — 시세 앱키가 바뀐 채 엔진·대시보드가 17분을 돌았다. 인증 정보를 고치면 그 자리에서 재기동한다."
+    }
+   ]
+  },
+  {
    "id": "2026-09-22_session_review",
    "strategy": "DEVSCALE · buy_once",
    "eyebrow": "세션 리뷰 · 09-22 · 원장/로그 자동 집계",

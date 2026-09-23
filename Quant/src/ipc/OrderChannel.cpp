@@ -156,7 +156,7 @@ bool is_plausible(const OrderResponse& response) noexcept
     }
 
     if (response.result < static_cast<uint8_t>(OrderResult::kAccepted) ||
-        response.result > static_cast<uint8_t>(OrderResult::kInvalid))
+        response.result > static_cast<uint8_t>(OrderResult::kStale))
     {
         return false;
     }

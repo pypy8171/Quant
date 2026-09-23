@@ -83,7 +83,7 @@ TRADE 모드의 데이터 흐름:
 **base_url / tr_id 분기**:
 - `base_url()`: `is_paper ? openapivts...:29443 : openapi...:9443` (`KisClient.h::base_url`).
 - 국내 주문 tr_id: 매수 `VTTC0012U`(모의)/`TTTC0012U`(실), 매도 `VTTC0011U`/`TTTC0011U` (`KisClient.cpp::submit_order_acknowledgement`), 본문 `EXCG_ID_DVSN_CD`는 config `kis.exchange`(KRX/NXT/SOR, D-096). 정정/취소는 `VTTC0013U`/`TTTC0013U` (`KisClient.cpp::cancel_order`·`KisClient.cpp::revise_order`). 잔고조회 `VTTC8434R`/`TTTC8434R` (`KisClient.cpp::get_balance`).
-- 조회계 tr_id: 일봉 `FHKST03010100`(`KisClient.cpp::get_daily_ohlcv`), 현재가/펀더멘털 `FHKST01010100`(`KisClient.cpp::get_current_price`·`KisClient.cpp::get_fundamentals`), 시총랭킹 `FHPST01720000`(`KisClient.cpp::fetch_kr_ranking`), 지수일봉 `FHKUP03500100`(`KisClient.cpp::get_index_daily_ohlcv`), 지수현재값 `FHPUP02100000`(`KisClient.cpp::get_index_price`), 투자자동향 `FHKST01010900`(`KisClient.cpp::get_investor_trend`·`KisClient.cpp::get_investor_flow`).
+- 조회계 tr_id: 일봉 `FHKST03010100`(`KisClient.cpp::get_daily_ohlcv`), 현재가/펀더멘털 `FHKST01010100`(`KisClient.cpp::get_current_price`·`KisClient.cpp::get_fundamentals`), 시총랭킹 `FHPST01740000`(`KisUniverse.cpp::fetch_kr_ranking`, 화면코드 20174), 지수일봉 `FHKUP03500100`(`KisClient.cpp::get_index_daily_ohlcv`), 지수현재값 `FHPUP02100000`(`KisClient.cpp::get_index_price`), 투자자동향 `FHKST01010900`(`KisClient.cpp::get_investor_trend`·`KisClient.cpp::get_investor_flow`).
 
 **헤더 구성** (공통 4종): `authorization: Bearer <token>`, `appkey`, `appsecret`, `tr_id` (예: `KisClient.cpp::get_daily_ohlcv`). GET에도 KIS는 `Content-Type: application/json`을 요구하므로 `http_get`이 없으면 자동 추가 (`KisClient.cpp::http_get`). HTTP 구현은 플랫폼 분기: Windows `winhttp_request`(`KisClient.cpp::winhttp_request`), Linux `curl_request`(`KisClient.cpp::curl_request`).
 

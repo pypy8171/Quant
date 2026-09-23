@@ -238,10 +238,80 @@ def build_name_map(bal, uni, log_text=""):
     return dict(_NAME_CACHE)
 
 
+def _today_log_text(path, size, max_bytes=80_000_000):
+    """로그에서 오늘 날짜로 시작하는 첫 줄부터 끝까지. 피드 씨앗을 뿌릴 때 한 번만 쓴다."""
+    today = datetime.now().strftime("%Y-%m-%d").encode()
+    chunk = 4_000_000
+    start = size
+
+    try:
+        with open(path, "rb") as handle:
+            while start > 0 and size - start < max_bytes:
+                start = max(0, start - chunk)
+                handle.seek(start)
+                block = handle.read(min(chunk, size - start))
+
+                if not block.startswith(today) and today + b" " not in block:
+                    start += chunk   # 이 구간엔 오늘 줄이 없다 — 여기가 어제까지다
+                    break
+
+            handle.seek(min(start, size))
+
+            if start > 0:
+                handle.readline()   # 잘린 첫 줄 버림
+
+            return handle.read().decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+# 피드 누적 상태. 읽은 끝 위치를 기억해 폴링마다 새로 붙은 바이트만 읽는다.
+#  예전에는 매번 로그 끝 400KB를 잘라 읽었는데, 조용한 장에서도 로그가 분당 16KB씩
+#  쌓여 25분이면 그날 주문이 창 밖으로 밀려났다. 13:30에 아홉 건을 낸 뒤 13:56에
+#  피드가 비어 엔진이 죽은 것처럼 보였다. 2026-09-23
+_FEED_OFFSET = 0
+_FEED_EVENTS = deque(maxlen=400)
+_FEED_LATEST = {}
+# 요청마다 스레드가 뜨는 서버(ThreadingHTTPServer)라 위 셋을 동시에 건드릴 수 있다. 읽은 끝
+#  위치를 올리는 것과 쌓인 이벤트를 갈아 끼우는 것이 갈라지면 같은 줄이 두 번 실리거나
+#  한 구간이 통째로 빈다. 예전의 무상태 읽기에는 없던 위험이라 여기서 막는다. 2026-09-23
+_FEED_LOCK = threading.Lock()
+
+
 def read_log_events(max_events=40):
     """콘솔 상당 이벤트 피드 + 헤더용 최신 상태(당일손익/국면선택/스캔)."""
-    text = tail_bytes(logfile(), 400_000)
-    events, latest = [], {}
+    with _FEED_LOCK:
+        return _read_log_events_locked(max_events)
+
+
+def _read_log_events_locked(max_events=40):
+    """read_log_events 의 본문. 부르는 쪽이 _FEED_LOCK 을 쥔다. [inv]"""
+    global _FEED_OFFSET
+
+    path = logfile()
+
+    try:
+        size = path.stat().st_size
+    except OSError:
+        size = 0
+
+    if _FEED_OFFSET == 0 or _FEED_OFFSET > size:
+        # 첫 호출이거나 로그가 갈렸다 — 오늘치 전부로 씨앗을 뿌리고 거기서부터 잇는다.
+        text = _today_log_text(path, size)
+        _FEED_OFFSET = size
+        _FEED_EVENTS.clear()
+    else:
+        try:
+            with open(path, "rb") as handle:
+                handle.seek(_FEED_OFFSET)
+                text = handle.read().decode("utf-8", errors="replace")
+
+            _FEED_OFFSET = size
+        except OSError:
+            text = ""
+
+    events, latest = list(_FEED_EVENTS), dict(_FEED_LATEST)
+
     for raw in text.splitlines():
         m = _LINE.match(raw)
         if not m:
@@ -280,6 +350,11 @@ def read_log_events(max_events=40):
             cat = "error"
         if cat:
             events.append({"ts": hhmmss, "cat": cat, "msg": rest[:220]})
+    _FEED_EVENTS.clear()
+    _FEED_EVENTS.extend(events)
+    _FEED_LATEST.clear()
+    _FEED_LATEST.update(latest)
+
     events = events[-max_events:]
     events.reverse()  # 최신 먼저
     return {"events": events, "latest": latest, "_text": text}
@@ -827,7 +902,7 @@ def _warm_loop(kis: KisClient, quote: KisClient, interval=5.0, flow_every=6):
         except Exception as e:
             _live_err("kr_index", str(e))
         try:
-            _live_set("ranking", {"rows": quote.get_volume_ranking(top_n=25)})
+            _live_set("ranking", {"rows": quote.get_volume_ranking(top_n=40)})
         except Exception as e:
             _live_err("ranking", str(e))
         # 수급·프로그램·선물은 REST 6회(약 30초)라 매 주기 돌리지 않는다. 잠정치 갱신도 그 정도 간격이다.

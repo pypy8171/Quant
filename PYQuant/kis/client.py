@@ -102,12 +102,14 @@ class KisClient:
 
     def __init__(self, app_key: str, app_secret: str,
                  account_no: str, account_type: str = "01",
-                 is_paper: bool = False):
+                 is_paper: bool = False, exchange: str = "KRX"):
         self.app_key      = app_key
         self.app_secret   = app_secret
         self.account_no   = account_no
         self.account_type = account_type
         self.is_paper     = is_paper
+        # 주문 거래소(KRX/NXT/SOR). 모의 서버는 KRX만 받으므로 되돌린다 — C++ kis_order_exchange와 같은 규칙. [why D-096]
+        self.exchange     = "KRX" if is_paper else (exchange or "KRX")
         self.base_url     = self.PAPER_URL if is_paper else self.REAL_URL
         self._token: Optional[str] = None
         self._token_exp: float = 0.0
@@ -199,7 +201,7 @@ class KisClient:
             return "***"
         return s[:4] + "****" + s[-4:]
 
-    def _headers(self, tr_id: str) -> dict:
+    def _headers(self, transaction_id: str) -> dict:
         """헤더 생성. appsecret을 포함하므로 절대 직접 로깅하지 말 것 — _mask() 사용."""
         self._ensure_token()
         if not self._token:
@@ -208,21 +210,21 @@ class KisClient:
             "authorization": f"Bearer {self._token}",
             "appkey":        self.app_key,
             "appsecret":     self.app_secret,
-            "tr_id":         tr_id,
+            "tr_id":         transaction_id,
             "Content-Type":  "application/json",
         }
 
-    def _get(self, path: str, params: dict, tr_id: str, extra_headers: dict | None = None) -> dict:
+    def _get(self, path: str, parameters: dict, transaction_id: str, extra_headers: dict | None = None) -> dict:
         """extra_headers는 연속조회(tr_cont) 같은 TR별 헤더를 얹을 때만 쓴다."""
         last = None
         for attempt in range(3):   # KIS(특히 모의) 지연 대비 재시도, 타임아웃 20s
             try:
-                h = self._headers(tr_id)
+                headers = self._headers(transaction_id)
                 if extra_headers:
-                    h.update(extra_headers)
-                r = requests.get(self.base_url + path, params=params,
-                                 headers=h, timeout=20)
-                return r.json()
+                    headers.update(extra_headers)
+                response = requests.get(self.base_url + path, params=parameters,
+                                        headers=headers, timeout=20)
+                return response.json()
             except requests.RequestException as e:
                 last = e
                 if attempt < 2:
@@ -233,12 +235,12 @@ class KisClient:
         logger.error(f"GET 네트워크 오류(재시도 3회) {path}: {last}")
         return {}
 
-    def _post(self, path: str, body: dict, tr_id: str) -> dict:
+    def _post(self, path: str, body: dict, transaction_id: str) -> dict:
         # ⚠️ 자동 재시도 없음 — _post는 주문(send_order) 등 상태변경에 쓰여,
         #    타임아웃 후 재시도하면 이중주문 위험. 타임아웃만 20s로 완화.
         try:
             r = requests.post(self.base_url + path, json=body,
-                              headers=self._headers(tr_id), timeout=20)
+                              headers=self._headers(transaction_id), timeout=20)
             return r.json()
         except requests.RequestException as e:
             logger.error(f"POST 네트워크 오류 {path}: {e}")
@@ -246,6 +248,38 @@ class KisClient:
         except ValueError as e:
             logger.error(f"POST 응답 JSON 파싱 실패 {path}: {e}")
             return {}
+
+    # ── 휴장일 ──────────────────────────────────────────────────────────────
+
+    def get_holiday_calendar(self, base_date: str) -> list:
+        """국내휴장일 조회 — 기준일부터 며칠치의 영업일·거래일·개장일·결제일 여부.
+
+        TR CTCA0903R 하나로 실전·모의가 같다(2026-09-23 공식 샘플 확인). 주문을 낼 수 있는 날인지는
+        opnd_yn(개장일여부)으로 본다. 공식 안내가 "원장 서비스와 연관되어 있어 가급적 1일 1회 호출"이라
+        장중에 되풀이해 부르면 안 된다 — 부르는 쪽이 하루치를 캐시한다. [why D-120]
+        """
+        response = self._get("/uapi/domestic-stock/v1/quotations/chk-holiday",
+                             {"BASS_DT": base_date, "CTX_AREA_FK": "", "CTX_AREA_NK": ""},
+                             "CTCA0903R")
+
+        if str(response.get("rt_cd", "")) != "0":
+            logger.error(f"휴장일 조회 실패: {response.get('msg1', '응답 없음')}")
+            return []
+
+        output = response.get("output", [])
+        return output if isinstance(output, list) else [output]
+
+    def is_market_open(self, base_date: str):
+        """그 날 주문을 낼 수 있으면 True, 휴장이면 False, 판정을 못 했으면 None.
+
+        모름을 휴장으로 단정하지 않는다 — 조회가 한 번 실패한 날 매매를 통째로 건너뛰는 쪽이
+        휴장일에 엔진이 헛도는 것보다 비싸다.
+        """
+        for row in self.get_holiday_calendar(base_date):
+            if str(row.get("bass_dt", "")) == base_date:
+                return str(row.get("opnd_yn", "")).upper() == "Y"
+
+        return None
 
     # ── 현재가 + PBR/PER ────────────────────────────────────────────────────
     def get_fundamentals(self, ticker: str) -> Fundamentals:
@@ -661,29 +695,43 @@ class KisClient:
         return [rows[k] for k in sorted(rows.keys())]
 
     # ── 거래대금 상위 랭킹 (대시보드 스냅샷용) ────────────────────────────────
-    def get_volume_ranking(self, top_n: int = 30, by_value: bool = True) -> list[dict]:
-        """국내주식 거래량/거래대금 순위 (TR FHPST01710000). 코스콤 실시간이 아닌
-        REST 스냅샷이다. by_value=True면 거래금액순(FID_BLNG_CLS_CODE=3), False면 거래량순(0).
-        반환: [{rank, ticker, name, price, change_rate, volume, trade_value}] (trade_value=누적거래대금 원)."""
-        data = self._get(
-            "/uapi/domestic-stock/v1/quotations/volume-rank",
-            {
-                "FID_COND_MRKT_DIV_CODE": "J",
-                "FID_COND_SCR_DIV_CODE":  "20171",
-                "FID_INPUT_ISCD":         "0000",
-                "FID_DIV_CLS_CODE":       "0",
-                "FID_BLNG_CLS_CODE":      "3" if by_value else "0",
-                "FID_TRGT_CLS_CODE":      "111111111",
-                "FID_TRGT_EXLS_CLS_CODE": "0000000000",
-                "FID_INPUT_PRICE_1":      "",
-                "FID_INPUT_PRICE_2":      "",
-                "FID_VOL_CNT":            "",
-                "FID_INPUT_DATE_1":       "",
-            },
-            "FHPST01710000",
-        )
+    # 대상 제외 구분 코드(FID_TRGT_EXLS_CLS_CODE)는 10자리 비트마스크다. 자리 순서는
+    #  투자위험/경고/주의 · 관리종목 · 정리매매 · 불성실공시 · 우선주 · 거래정지 · ETF · ETN · 신용주문불가 · SPAC
+    #  (KIS 공식 샘플 volume_rank.py로 2026-09-23 확인). 7·8번째를 켜면 ETF·ETN이 API단에서 빠진다.
+    RANK_EXCLUDE_ETF_ETN = "0000001100"
+    RANK_EXCLUDE_NONE    = "0000000000"
+    # 한 번에 오는 행수 상한. KIS가 고정한 값이라 요청으로 늘릴 수 없다.
+    VOLUME_RANK_PAGE_ROWS = 30
+
+    def _volume_rank_page(self, by_value: bool, exclude_etf: bool,
+                          price_from: str = "", price_to: str = "") -> list[dict]:
+        """volume-rank 한 페이지(최대 30행). 가격 구간을 주면 그 구간 안에서만 순위를 매긴다."""
+        path = "/uapi/domestic-stock/v1/quotations/volume-rank"
+        parameters = {
+            "FID_COND_MRKT_DIV_CODE": "J",
+            "FID_COND_SCR_DIV_CODE":  "20171",
+            "FID_INPUT_ISCD":         "0000",
+            "FID_DIV_CLS_CODE":       "0",
+            "FID_BLNG_CLS_CODE":      "3" if by_value else "0",
+            "FID_TRGT_CLS_CODE":      "111111111",
+            "FID_TRGT_EXLS_CLS_CODE": self.RANK_EXCLUDE_ETF_ETN if exclude_etf else self.RANK_EXCLUDE_NONE,
+            "FID_INPUT_PRICE_1":      price_from,
+            "FID_INPUT_PRICE_2":      price_to,
+            "FID_VOL_CNT":            "",
+            "FID_INPUT_DATE_1":       "",
+        }
+        # 유량초과(rt_cd=1)는 HTTP 200으로 와서 _get의 재시도가 잡지 못한다 — 여기서 간격을
+        #  벌려 두 번 더 친다(0.4초 한 번으로는 같은 주기의 다른 조회와 겹칠 때 모자랐다, 09-23 실측).
+        data = self._get(path, parameters, "FHPST01710000")
+        for backoff_sec in (0.4, 0.9):
+            if str(data.get("rt_cd", "0")) == "0":
+                break
+
+            time.sleep(backoff_sec)
+            data = self._get(path, parameters, "FHPST01710000")
+
         rows: list[dict] = []
-        for item in data.get("output", [])[:top_n]:
+        for item in data.get("output", []):
             try:
                 rows.append({
                     "rank":        int(item.get("data_rank", 0) or 0),
@@ -696,7 +744,41 @@ class KisClient:
                 })
             except (ValueError, TypeError):
                 continue
+
         return rows
+
+    def get_volume_ranking(self, top_n: int = 30, by_value: bool = True,
+                           exclude_etf: bool = True, price_split: int = 60000) -> list[dict]:
+        """국내주식 거래량/거래대금 순위 (TR FHPST01710000). 코스콤 실시간이 아닌
+        REST 스냅샷이다. by_value=True면 거래금액순(FID_BLNG_CLS_CODE=3), False면 거래량순(0).
+        반환: [{rank, ticker, name, price, change_rate, volume, trade_value}] (trade_value=누적거래대금 원).
+
+        [inv] 이 TR은 한 번에 30행이 상한이고 연속조회가 없다 — 응답 tr_cont 헤더가 빈 값이라
+              tr_cont="N"으로 다시 불러도 같은 30행이 온다(2026-09-23 실측). top_n이 30을 넘으면
+              가격 구간을 price_split 원에서 둘로 갈라 각각 30행씩 받아 합친다. 두 구간은 서로
+              겹치지 않으니 합집합은 상위 60행을 덮는다(실측: 유니크 60, 구간을 안 나눈 조회의
+              30행이 모두 그 안에 들어 있어 누락 없음).
+        exclude_etf=True면 ETF·ETN을 API단에서 뺀다 — 2026-09-23 장중 실측으로 구간을 안 나눈
+        30행 중 18행(60%)이 ETF라 개별주가 12행밖에 남지 않았다."""
+        if top_n <= self.VOLUME_RANK_PAGE_ROWS:
+            return self._volume_rank_page(by_value, exclude_etf)[:top_n]
+
+        rows = self._volume_rank_page(by_value, exclude_etf, "0", str(price_split))
+        # 같은 초에 두 번 치면 유량초과가 난다(2026-09-23 실측).
+        time.sleep(0.4)
+        rows += self._volume_rank_page(by_value, exclude_etf, str(price_split + 1), "")
+
+        by_ticker: dict[str, dict] = {}
+        for row in rows:
+            by_ticker.setdefault(row["ticker"], row)
+
+        merged = sorted(by_ticker.values(),
+                        key=lambda row: -(row["trade_value"] if by_value else row["volume"]))[:top_n]
+        # rank는 구간별 순위라 합친 뒤에는 뜻이 달라진다 — 합집합 기준으로 다시 매긴다.
+        for index, row in enumerate(merged):
+            row["rank"] = index + 1
+
+        return merged
 
     # ── 시장 단위 수급·프로그램·선물 (대시보드 국면 카드용, raw output 반환) ───────
     #  셋 다 시세 REST라 실전 도메인 전용(quote_kis). 응답 키는 2026-09-11 라이브 점검으로 확정.
@@ -783,7 +865,7 @@ class KisClient:
 
     # ── 잔고 조회 ────────────────────────────────────────────────────────────
     def get_kr_balance(self) -> tuple[list[BalanceItem], AccountSummary]:
-        tr_id = "VTTC8434R" if self.is_paper else "TTTC8434R"
+        transaction_id = "VTTC8434R" if self.is_paper else "TTTC8434R"
         # 연속조회: 잔고 output1은 한 페이지에 20종목까지만 온다. 더 있으면 응답의
         #  ctx_area_nk100이 채워지므로 그걸 되넣고 tr_cont:N으로 다음 장을 받는다.
         #  이 처리가 없으면 21번째부터가 통째로 빠져 보유 종목수·평가금이 적게 나온다
@@ -808,7 +890,7 @@ class KisClient:
                     "CTX_AREA_FK100":       fk,
                     "CTX_AREA_NK100":       nk,
                 },
-                tr_id,
+                transaction_id,
                 {"tr_cont": cont} if cont else None,
             )
             if not page:
@@ -862,9 +944,10 @@ class KisClient:
 
     # ── 주문 실행 ────────────────────────────────────────────────────────────
     def send_order(self, signal: OrderSignal) -> OrderResult:
-        tr_id = ("VTTC0802U" if self.is_paper else "TTTC0802U") \
+        # 매수 0012U·매도 0011U. 옛 0802U/0801U는 KRX 전용이라 NXT·SOR을 낼 수 없다. [why D-096]
+        transaction_id = ("VTTC0012U" if self.is_paper else "TTTC0012U") \
                 if signal.side == "BUY" \
-                else ("VTTC0801U" if self.is_paper else "TTTC0801U")
+                else ("VTTC0011U" if self.is_paper else "TTTC0011U")
 
         body = {
             "CANO":         self.account_no,
@@ -874,9 +957,10 @@ class KisClient:
             "ORD_QTY":      str(signal.quantity),
             "ORD_UNPR":     "0" if signal.order_type == "MARKET"
                             else str(int(signal.price)),
+            "EXCG_ID_DVSN_CD": self.exchange,  # 새 주문 TR의 필수 항목 [why D-096]
         }
         data = self._post(
-            "/uapi/domestic-stock/v1/trading/order-cash", body, tr_id
+            "/uapi/domestic-stock/v1/trading/order-cash", body, transaction_id
         )
         rt_cd  = data.get("rt_cd", "")
         msg_cd = data.get("msg_cd", "")
@@ -904,4 +988,5 @@ def from_config(config_path: str = None, section: str = "kis") -> KisClient:
         account_no   = section_config.get("account_no", ""),  # 시세 계정 절엔 계좌번호가 없다
         account_type = section_config.get("account_type", "01"),
         is_paper     = section_config.get("is_paper", False),
+        exchange     = section_config.get("exchange", "KRX"),
     )

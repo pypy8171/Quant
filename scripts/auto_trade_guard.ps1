@@ -33,10 +33,18 @@ $ErrorActionPreference = "Stop"
 $Repo   = Split-Path -Parent $PSScriptRoot
 Set-Location $Repo
 $Day    = Join-Path $Repo "scripts\auto_trade_day.ps1"
-$Status = Join-Path $Repo "_private\_auto_trade_day.json"
+
+# 한 기계에서 계좌를 둘 돌리는 날(모의 비교군 + 실계좌)에는 가드도 계좌마다 따로 돈다. config
+#  `instance` 가 있으면 상태 파일·실행 로그·예약작업 이름에 붙인다 — 이게 없으면 두 번째 계좌용
+#  가드를 -Install 할 때 첫 번째 예약작업을 덮어쓰고, 한쪽 상태를 보고 다른 쪽을 판정한다. [why D-122]
+$Instance = ""
+try { $Instance = [string](Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).instance } catch { }
+$Suffix = if ($Instance) { "_$Instance" } else { "" }
+
+$Status = Join-Path $Repo ("_private\_auto_trade_day{0}.json" -f $Suffix)
 $LogDir = Join-Path $Repo "logs"
-$RunLog = Join-Path $LogDir ("auto_trade_guard_{0}.log" -f (Get-Date -Format yyyyMMdd))
-$TaskName = "QuantAutoTradeGuard"
+$RunLog = Join-Path $LogDir ("auto_trade_guard{0}_{1}.log" -f $Suffix, (Get-Date -Format yyyyMMdd))
+$TaskName = "QuantAutoTradeGuard$Suffix"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
 function Say([string]$msg, [string]$level = "INFO") {
@@ -83,7 +91,7 @@ if ($now -ge $close) { Say "$Until 이후 — 넘어간다."; exit 0 }
 # 오늘 이미 끝났거나 사람이 멈춘 상태면 되살리지 않는다. 어제 상태파일은 무시한다.
 if (Test-Path $Status) {
   try {
-    $st = Get-Content $Status -Raw | ConvertFrom-Json
+    $st = Get-Content $Status -Raw -Encoding UTF8 | ConvertFrom-Json
     $stop = @("crash_loop", "aborted", "done", "closed", "past_deadline")
     if (([datetime]$st.updated).Date -eq $now.Date -and $stop -contains $st.phase) {
       Say "오늘 phase=$($st.phase) — 되살리지 않는다(원인을 없앤 뒤 손으로 기동)."
@@ -101,12 +109,20 @@ if (Test-Path $Status) {
 # ─────────────── 워치독 생존 확인 ───────────────
 # -Command로 감싸 띄운 래퍼 창은 -NoExit라 스크립트가 끝나도 살아 있고, 그 명령줄에도 스크립트
 # 이름이 박혀 있다. 그걸 워치독으로 세면 죽은 뒤로도 영영 되살리지 않는다. -File 실행만 센다.
+# 계좌를 둘 돌리는 날에는 config 까지 봐야 한다 — 실계좌 감시견이 떠 있다고 죽은 모의 감시견을
+#  안 살리면, 모의 쪽은 아무도 안 지킨다. config 이름이 명령줄에 그대로 박혀 있다. [why D-122]
+$configLeaf = Split-Path $Config -Leaf
 $live = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-  Where-Object { $_.CommandLine -like "*auto_trade_day.ps1*" -and $_.CommandLine -notlike "*-Command*" })
+  Where-Object { $_.CommandLine -like "*auto_trade_day.ps1*" -and $_.CommandLine -notlike "*-Command*" -and $_.CommandLine -like "*$configLeaf*" })
 if ($live.Count -gt 0) { Say "워치독 생존(pid=$($live.ProcessId -join ',')) — 할 일 없음."; exit 0 }
 
 # 워치독 없이 남은 트레이더는 감시자가 없다. 두면 다음 기동이 duplicate_process로 막힌다.
-$leftover_trader = @(Get-Process quant_trader -ErrorAction SilentlyContinue)
+# 이 config 로 뜬 트레이더만 내린다. 예전에는 이름만 보고 전부 내려, 다른 계좌의 멀쩡한 엔진까지
+#  같이 죽었다. 명령줄을 못 읽으면 건드리지 않는다 — 남의 것일 수 있다. [why D-122]
+$leftover_trader = @(Get-Process quant_trader -ErrorAction SilentlyContinue | Where-Object {
+  $commandLine = (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)" -ErrorAction SilentlyContinue).CommandLine
+  $commandLine -and $commandLine -like "*$configLeaf*"
+})
 if ($leftover_trader.Count -gt 0) {
   Say "워치독 없이 떠 있는 quant_trader $($leftover_trader.Count)개(pid=$($leftover_trader.Id -join ',')) — 내린다." "WARN"
   if (-not $DryRun) { $leftover_trader | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }

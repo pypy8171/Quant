@@ -138,12 +138,12 @@ void ZmqBridge::thread_fn()
                 }
                 else
                 {
-                    ++drop_count_;
+                    ++socket_full_drop_count_;
                 }
             }
             catch (const zmq::error_t& zmq_error)
             {
-                ++drop_count_;
+                ++socket_error_drop_count_;
                 LOG_WARN(std::string("[ZMQ] publish 실패 topic=") + topic_name(topic) + " : " + zmq_error.what());
             }
         };
@@ -243,6 +243,12 @@ const char* ZmqBridge::topic_name(Topic topic)
     return "UNKNOWN";
 }
 
+uint64_t ZmqBridge::drop_count() const
+{
+    return socket_full_drop_count_.load() + socket_error_drop_count_.load()
+         + send_queue_full_drop_count_.load() + trade_ring_full_drop_count_.load();
+}
+
 void ZmqBridge::enqueue(Topic topic, std::string payload)
 {
     std::lock_guard<std::mutex> lock(queue_mutex_);
@@ -253,7 +259,7 @@ void ZmqBridge::enqueue(Topic topic, std::string payload)
 
     if (send_queue_.size() >= capacity)
     {
-        ++drop_count_;
+        ++send_queue_full_drop_count_;
 
         if (critical)
         {
@@ -290,7 +296,7 @@ void ZmqBridge::publish_trade(const TradeData& trade)
     // 수신 스레드 쪽은 memcpy 한 번뿐. 링이 차면 버린다 — TRADE는 원장과 무관해 예전 큐 상한과 같은 정책이다.
     if (!trade_queue_.push(TradeEnvelope{now_ms(), trade}))
     {
-        ++drop_count_;
+        ++trade_ring_full_drop_count_;
     }
 }
 
@@ -357,7 +363,12 @@ void ZmqBridge::publish_health(const HealthSnapshot& snapshot)
     document["data"]   = snapshot.data_count;
     document["signal"] = snapshot.signal_count;
     document["order"]  = snapshot.order_count;
-    document["drop"]   = drop_count_.load();
+    document["drop"]   = drop_count();
+    // 원인별 내역 — 합이 위 drop 이다. [why D-125]
+    document["drop_socket_full"]     = socket_full_drop_count_.load();
+    document["drop_socket_error"]    = socket_error_drop_count_.load();
+    document["drop_send_queue_full"] = send_queue_full_drop_count_.load();
+    document["drop_trade_ring_full"] = trade_ring_full_drop_count_.load();
     // 큐와 지연 — 적재기가 health 표의 같은 이름 열에 그대로 넣는다.
     document["queue_shard_high_water"]   = snapshot.shard_high_water;
     document["queue_shard_capacity"]     = snapshot.shard_capacity;
@@ -369,6 +380,8 @@ void ZmqBridge::publish_health(const HealthSnapshot& snapshot)
     document["queue_fill_capacity"]      = snapshot.fill_queue_capacity;
     document["dropped_shard"]            = snapshot.shard_dropped;
     document["dropped_order"]            = snapshot.order_dropped;
+    // 큐에서 너무 오래 기다려 꺼낼 때 버린 신규 매수. dropped_order(큐가 차서 못 넣은 것)와 원인이 다르다. [why D-127]
+    document["stale_order"]              = snapshot.order_stale;
     document["dropped_fill"]             = snapshot.fill_dropped;
     document["latency_samples"]          = snapshot.latency_samples;
     document["tick_to_signal_p50_us"]    = snapshot.tick_to_signal_p50_us;

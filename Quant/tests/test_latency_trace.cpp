@@ -50,7 +50,7 @@ int main()
     CHECK(trace::segment_us(1000, 4000) == 3);
     CHECK(trace::segment_us(1'000'000, 3'500'000) == 2500);
 
-    // 2. 행 형식 — 열 12개, 값이 자리에 맞게 들어간다.
+    // 2. 행 형식 — 열 23개, 값이 자리에 맞게 들어간다.
     OrderSignal signal;
     signal.sequence         = 42;
     signal.ticker      = "005930";
@@ -64,10 +64,22 @@ int main()
     marks.pop_ns    = 10'060'000; // +10us
     marks.done_ns   = 25'060'000; // +15,000us (HTTP)
 
-    const auto row = trace::csv_row(signal, marks, true, true, 1'700'000'000'123LL);
+    const OrderStageTiming stages{.gate_us             = 40,
+                                  .history_guard_us    = 70,
+                                  .history_lock_wait_us = 25,
+                                  .journal_us          = 900,
+                                  .bucket_wait_us      = 150000,
+                                  .transport_us        = 210000,
+                                  .record_us           = 1800,
+                                  .accept_us           = 300,
+                                  .publish_us          = 20,
+                                  .history_store_us    = 1480,
+                                  .open_orders_us      = 1200};
+
+    const auto row = trace::csv_row(signal, marks, stages, true, true, 1'700'000'000'123LL);
     CHECK(row.back() == '\n');
     const auto fields = split(row.substr(0, row.size() - 1));
-    CHECK(fields.size() == 12);
+    CHECK(fields.size() == 23);
     CHECK(fields[0] == "1700000000123");
     CHECK(fields[1] == "42");
     CHECK(fields[2] == "005930");
@@ -78,17 +90,32 @@ int main()
     CHECK(fields[7] == "10");
     CHECK(fields[8] == "15000");
     CHECK(fields[9] == "15060");
-    CHECK(fields[10] == "1");
-    CHECK(fields[11] == "1");
+    CHECK(fields[10] == "40");      // gate
+    CHECK(fields[11] == "70");      // history_guard
+    CHECK(fields[12] == "25");      // history_lock_wait — history_guard를 가른 몫
+    CHECK(fields[13] == "900");     // journal
+    CHECK(fields[14] == "150000");  // bucket_wait
+    CHECK(fields[15] == "210000");  // transport
+    CHECK(fields[16] == "1800");    // record
+    CHECK(fields[17] == "300");     // accept       — 아래 셋이 record를 가른 몫
+    CHECK(fields[18] == "20");      // publish
+    CHECK(fields[19] == "1480");    // history_store
+    CHECK(fields[20] == "1200");    // open_orders
+    CHECK(fields[21] == "1");
+    CHECK(fields[22] == "1");
 
     // 3. REST 봉 신호(tick_ns=0): 첫 구간 -1, total은 signal부터.
     marks.tick_ns = 0;
-    const auto row2 = trace::csv_row(signal, marks, false, false, 0);
+    const auto row2 = trace::csv_row(signal, marks, OrderStageTiming{}, false, false, 0);
     const auto fields_two   = split(row2.substr(0, row2.size() - 1));
     CHECK(fields_two[6] == "-1");
     CHECK(fields_two[9] == "15010");
-    CHECK(fields_two[10] == "0");
-    CHECK(fields_two[11] == "0");
+    CHECK(fields_two[10] == "-1"); // 게이트 앞에서 끝난 주문은 라우터 구간이 전부 -1이다
+    CHECK(fields_two[16] == "-1");
+    CHECK(fields_two[19] == "-1");
+    CHECK(fields_two[20] == "-1");
+    CHECK(fields_two[21] == "0");
+    CHECK(fields_two[22] == "0");
 
     // 4. 파일: 머리글은 새 파일에만, 두 번째 인스턴스가 이어 써도 머리글이 다시 안 붙는다.
     const auto path = std::filesystem::temp_directory_path() / "quant_test_latency_trace.csv";
@@ -96,14 +123,14 @@ int main()
     {
         trace::LatencyTrace latency_trace(path);
         CHECK(latency_trace.rows() == 0);
-        latency_trace.record(signal, marks, true, true);
-        latency_trace.record(signal, marks, false, false);
+        latency_trace.record(signal, marks, stages, true, true);
+        latency_trace.record(signal, marks, OrderStageTiming{}, false, false);
         CHECK(latency_trace.rows() == 2);
     }
 
     {
         trace::LatencyTrace latency_trace(path);
-        latency_trace.record(signal, marks, true, false);
+        latency_trace.record(signal, marks, stages, true, false);
     }
 
     std::ifstream            in(path);
@@ -117,9 +144,9 @@ int main()
 
     CHECK(lines.size() == 4);
     CHECK(lines[0].rfind("utc_ms,seq,", 0) == 0);
-    CHECK(split(lines[1]).size() == 12);
-    CHECK(split(lines[3])[10] == "1");
-    CHECK(split(lines[3])[11] == "0");
+    CHECK(split(lines[1]).size() == 23);
+    CHECK(split(lines[3])[21] == "1");
+    CHECK(split(lines[3])[22] == "0");
     in.close(); // 열린 채로 지우면 Windows가 공유 위반을 내고 filesystem_error가 잡히지 않는다
     std::filesystem::remove(path);
 
@@ -161,20 +188,37 @@ int main()
 
     // 라우터가 값을 실어 오면 그 구간만 표본이 는다.
     pipeline_latency.add(trace::Marks{0, 1000, 3000, 5000, 9000},
-                         OrderStageTiming{.gate_us        = 40,
-                                          .journal_us     = 900,
-                                          .bucket_wait_us = 150000,
-                                          .transport_us   = 210000});
+                         OrderStageTiming{.gate_us          = 40,
+                                          .history_guard_us = 70,
+                                          .journal_us       = 900,
+                                          .bucket_wait_us   = 150000,
+                                          .transport_us     = 210000,
+                                          .record_us        = 1800,
+                                          .open_orders_us   = 1200});
     CHECK(pipeline_latency.gate.count() == 1);
+    CHECK(pipeline_latency.history_guard.count() == 1);
     CHECK(pipeline_latency.journal.count() == 1);
     CHECK(pipeline_latency.bucket_wait.count() == 1);
     CHECK(pipeline_latency.transport.count() == 1);
+    CHECK(pipeline_latency.record.count() == 1);
+    CHECK(pipeline_latency.open_orders.count() == 1);
     CHECK(pipeline_latency.transport.percentile(0.50) >= 210000);
+    CHECK(pipeline_latency.record.percentile(0.50) >= 1800);
+
+    // 이름 배열과 사본 배열은 같은 첨자로 짝지어 읽는다 — 구간을 늘릴 때 둘이 어긋나면 그라파나가
+    //  다른 열에 값을 넣으면서도 아무 오류도 안 난다. 그래서 자리를 고정한다.
+    const auto names = trace::PipelineLatency::segment_names();
+    CHECK(names.size() == static_cast<size_t>(trace::PipelineLatency::kSegmentCount));
+    CHECK(names[3] == "gate");
+    CHECK(names[4] == "history_guard");
+    CHECK(names[8] == "record");
+    CHECK(names[9] == "open_orders");
+    CHECK(names[10] == "pop_to_done");
 
     // 구간 분포: 사본을 뜬 뒤 들어온 표본만 잡힌다 — 누적 분위수와 달리 지난 값이 안 남는다. [why D-071]
     trace::PipelineSnapshot before;
     before.capture(pipeline_latency);
-    const int transport_index = 6; // segment_names()의 "transport" 자리
+    const int transport_index = 7; // segment_names()의 "transport" 자리
     CHECK(trace::PipelineLatency::segment_names()[transport_index] == "transport");
     CHECK(trace::percentile_of_difference(before.segments[transport_index], before.segments[transport_index],
                                           0.50) == -1);

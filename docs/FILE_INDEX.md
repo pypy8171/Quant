@@ -6,15 +6,15 @@
 
 ## 목차
 
-- [(루트)](#루트) — 10개
+- [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 113개
-- [Quant](#quant) — 245개
-- [docs](#docs) — 87개
+- [PYQuant](#pyquant) — 115개
+- [Quant](#quant) — 293개
+- [docs](#docs) — 94개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
-- [scripts](#scripts) — 42개
-- [strategies](#strategies) — 33개
+- [scripts](#scripts) — 47개
+- [strategies](#strategies) — 34개
 - [tools](#tools) — 3개
 
 ## (루트)
@@ -24,6 +24,7 @@
 - [.env.example](../.env.example) — Docker Compose 환경변수 예시 파일
 - [.gitattributes](../.gitattributes) — GitHub 언어 통계에서 대시보드 생성 HTML 제외(linguist-generated)
 - [.gitignore](../.gitignore) — 빌드 산출물·시크릿·로그 제외 목록
+- [.mcp.json](../.mcp.json) — MCP 서버 설정 — KIS 코딩도우미(`kis-code-assistant`) 한 대(D-120)
 - [CLAUDE.md](../CLAUDE.md) — 저장소 빌드·설계 가이드 문서
 - [CMakeLists.txt](../CMakeLists.txt) — 최상위 CMake 프로젝트 정의
 - [CMakePresets.json](../CMakePresets.json) — Windows Ninja/MSVC 빌드 프리셋
@@ -114,6 +115,7 @@
 
 ### PYQuant/grafana/provisioning/dashboards/json/
 
+- [load_test.json](../PYQuant/grafana/provisioning/dashboards/json/load_test.json) — 부하시험 대시보드 정의(초당 체결·체결대금·표별 적재·큐 사용률·버린 건수·종목별 표)
 - [ops.json](../PYQuant/grafana/provisioning/dashboards/json/ops.json) — 운영 대시보드 정의(엔진 CPU/메모리·DB부하 벤치·원장 이벤트·구간 지연·주문 시간 분해 패널)
 
 ### PYQuant/grafana/provisioning/datasources/
@@ -198,6 +200,7 @@
 - [kind_delisted_fill.py](../PYQuant/tools/kind_delisted_fill.py) — KIND 상장폐지 목록(2000~) 적재·종목코드 붙이기·패널에 없는 상폐사 일봉 보강(--fill-bars)
 - [ledger_dump.py](../PYQuant/tools/ledger_dump.py) — 원장 저널 파일을 DB 없이 읽는 도구: 레코드 표·CSV·보유 재구성·미결 주문(D-113)
 - [ledger_recorder.py](../PYQuant/tools/ledger_recorder.py) — 원장 저널 꼬리를 따라 읽어 TimescaleDB ledger_events에 적재, 읽은 위치는 ledger_offsets(D-113)
+- [load_injector.py](../PYQuant/tools/load_injector.py) — 부하시험 주문 인젝터 — 동시호가·연속매매 주문을 난수로 만들어 32바이트 전문으로 ZMQ PUSH, 씨앗을 고정하면 같은 주문열이 다시 나온다
 - [log_report.py](../PYQuant/tools/log_report.py) — quant_trader 로그 운용 리포트 생성기
 - [macro_ingest.py](../PYQuant/tools/macro_ingest.py) — FRED(ALFRED 판본, A)·ECOS(B)·관세청 10일 잠정치(B) 거시 시계열을 시점 고정 스키마로 PYQuant/data/macro/<source>_<series>.parquet에 append-only 적재
 - [macro_regime_feed.py](../PYQuant/tools/macro_regime_feed.py) — 매크로 지표 기반 국면 게이트 발행기
@@ -240,6 +243,7 @@
 - [KisClient.h](../Quant/include/api/KisClient.h) — KIS REST 클라이언트 선언과 KisConfig
 - [KisEndpoints.h](../Quant/include/api/KisEndpoints.h) — KIS 접속점(모의·실계좌 REST URL, WebSocket 호스트·포트) 한 곳
 - [KisErrorCodes.h](../Quant/include/api/KisErrorCodes.h) — KIS 주문 거부 오류코드 문자열 상수
+- [KisRateBucket.h](../Quant/include/api/KisRateBucket.h) — KIS REST 초당 한도 버킷의 크기 계산 — 공표 한도·몰아치기·채우기·호출별 요구량(헤더 전용 constexpr, D-118)
 - [KisRestDecode.h](../Quant/include/api/KisRestDecode.h) — KIS REST JSON 응답 디코드 순수 함수(D-051·D-059)
 - [KisResult.h](../Quant/include/api/KisResult.h) — KIS REST 결과 봉투 — 값과 실패를 구분(D-059·D-070)
 - [KisTypes.h](../Quant/include/api/KisTypes.h) — KIS 잔고·선물 전광판 응답 값 타입(D-059)
@@ -284,23 +288,29 @@
 - [UniverseExit.h](../Quant/include/core/UniverseExit.h) — 유니버스 이탈·복귀 판정 순수 함수(D-077)
 - [WakeGate.h](../Quant/include/core/WakeGate.h) — 생산자가 소비자를 깨우는 대기 조각(D-071)
 
+### Quant/include/exchange/
+
+- [MatchingEngine.h](../Quant/include/exchange/MatchingEngine.h) — 부하시험용 오더북 선언 — 종목별 호가 격자, 단일가 산출, 가격 우선·시간 우선 체결(D-071)
+- [OrderWire.h](../Quant/include/exchange/OrderWire.h) — 주문 전문 정본 — 16바이트 머리 + 32바이트 고정 레코드, 파이썬 인젝터가 같은 배치를 쓴다
+- [ZmqOrderFeed.h](../Quant/include/exchange/ZmqOrderFeed.h) — 부하시험 주문 수신단 선언 — 바깥 주문을 ZMQ로 받아 오더북에 넣고 체결을 엔진 시세 창구로 올린다(D-071)
+
 ### Quant/include/ipc/
 
 - [ControlChannel.h](../Quant/include/ipc/ControlChannel.h) — 전략→주문 제어 요청 레코드와 표 모으기 규칙(문자열·포인터 없음, D-114 단계 2.5 갈래 B)
 - [FillKey.h](../Quant/include/ipc/FillKey.h) — 체결통보 중복 키 — 날짜·주문번호·시각·수량·가격 정수 5개와 해시(D-112)
 - [Heartbeat.h](../Quant/include/ipc/Heartbeat.h) — 심장박동 — 박동 공백만으로 상대의 생사를 판정한다(시계·스레드 없음, D-114 단계 2)
 - [LedgerSnapshot.h](../Quant/include/ipc/LedgerSnapshot.h) — 장부 사본 — 전략이 주문 쪽 장부 대신 읽을 한 판(판 번호로 묶고 줄마다 판 번호를 찍는다, D-114 단계 2.5)
-- [OpsProtocol.h](../Quant/include/ipc/OpsProtocol.h) — 운영단말 ↔ 엔진 TCP 프레이밍 프로토콜(D-043)
-- [OrderChannel.h](../Quant/include/ipc/OrderChannel.h) — 전략↔주문 요청·응답 레코드와 순번 규칙, 꺼낸 값 범위 검사(문자열·포인터 없음, D-114 단계 2·4)
-- [OpsServer.h](../Quant/include/ipc/OpsServer.h) — 운영단말 TCP 서버 선언(D-043)
-- [OrderRouter.h](../Quant/include/ipc/OrderRouter.h) — 주문 전처리·중계(FEP) 라우팅 레이어 선언
-- [SharedRegion.h](../Quant/include/ipc/SharedRegion.h) — 프로세스 둘이 같이 보는 공유 쪽지 한 장 — 만들고 붙고 같은 판인지 본다(D-114 단계 4)
-- [SharedSymbolDictionary.h](../Quant/include/ipc/SharedSymbolDictionary.h) — 공유 쪽지 위 종목 표 — 프로세스를 갈라도 같은 종목에 같은 번호가 붙게 한다(D-114 단계 4)
-- [SharedStrategyDictionary.h](../Quant/include/ipc/SharedStrategyDictionary.h) — 공유 쪽지 위 전략 이름표 — 재스캔이 새로 등록하는 전략도 양쪽에서 같은 번호를 갖게 한다(D-114 단계 4)
 - [MarketFeedChannel.h](../Quant/include/ipc/MarketFeedChannel.h) — 주문 → 전략 시세 통로 — 소켓 한 줄이 나르는 체결·호가 두 큐 한 벌(D-114 단계 4)
+- [OpsProtocol.h](../Quant/include/ipc/OpsProtocol.h) — 운영단말 ↔ 엔진 TCP 프레이밍 프로토콜(D-043)
+- [OpsServer.h](../Quant/include/ipc/OpsServer.h) — 운영단말 TCP 서버 선언(D-043)
+- [OrderChannel.h](../Quant/include/ipc/OrderChannel.h) — 전략↔주문 요청·응답 레코드와 순번 규칙, 꺼낸 값 범위 검사(문자열·포인터 없음, D-114 단계 2·4)
+- [OrderRouter.h](../Quant/include/ipc/OrderRouter.h) — 주문 전처리·중계(FEP) 라우팅 레이어 선언
 - [SharedLayout.h](../Quant/include/ipc/SharedLayout.h) — 공유 쪽지 한 장 위의 자리표 — 머리 하나와 면 여덟이 어디서 시작해 몇 바이트를 쓰는지 여기서만 정한다(D-114 단계 4)
-- [SharedWriteLock.h](../Quant/include/ipc/SharedWriteLock.h) — 공유 쪽지 위 표에 넣는 동안만 잡는 자물쇠 한 벌(D-114 단계 4)
+- [SharedRegion.h](../Quant/include/ipc/SharedRegion.h) — 프로세스 둘이 같이 보는 공유 쪽지 한 장 — 만들고 붙고 같은 판인지 본다(D-114 단계 4)
 - [SharedSpscRing.h](../Quant/include/ipc/SharedSpscRing.h) — 공유 쪽지 위 한줄 큐 — 내 자리는 내 프로세스 안에 두고 건너편이 적은 칸은 믿지 않는다(D-114 단계 4)
+- [SharedStrategyDictionary.h](../Quant/include/ipc/SharedStrategyDictionary.h) — 공유 쪽지 위 전략 이름표 — 재스캔이 새로 등록하는 전략도 양쪽에서 같은 번호를 갖게 한다(D-114 단계 4)
+- [SharedSymbolDictionary.h](../Quant/include/ipc/SharedSymbolDictionary.h) — 공유 쪽지 위 종목 표 — 프로세스를 갈라도 같은 종목에 같은 번호가 붙게 한다(D-114 단계 4)
+- [SharedWriteLock.h](../Quant/include/ipc/SharedWriteLock.h) — 공유 쪽지 위 표에 넣는 동안만 잡는 자물쇠 한 벌(D-114 단계 4)
 - [ZmqBridge.h](../Quant/include/ipc/ZmqBridge.h) — C++ 엔진 ↔ Python ZMQ IPC 브릿지
 
 ### Quant/include/modes/
@@ -406,21 +416,27 @@
 - [UniverseExit.cpp](../Quant/src/core/UniverseExit.cpp) — UniverseExit.h 구현 — 유니버스 이탈·복귀 판정 순수 함수(D-077)
 - [WakeGate.cpp](../Quant/src/core/WakeGate.cpp) — WakeGate.h 구현 — 생산자가 소비자를 깨우는 대기 조각(D-071)
 
+### Quant/src/exchange/
+
+- [MatchingEngine.cpp](../Quant/src/exchange/MatchingEngine.cpp) — MatchingEngine.h 구현 — 호가 쌓기, 체결량 최대·불균형 최소로 단일가 찾기, 일괄 체결과 건별 체결
+- [OrderWire.cpp](../Quant/src/exchange/OrderWire.cpp) — OrderWire.h 구현 — 전문 통 읽기와 검사
+- [ZmqOrderFeed.cpp](../Quant/src/exchange/ZmqOrderFeed.cpp) — ZmqOrderFeed.h 구현 — 수신 스레드·종목 순번 배정·체결 발행·전략 주문 되돌림
+
 ### Quant/src/ipc/
 
 - [ControlChannel.cpp](../Quant/src/ipc/ControlChannel.cpp) — ControlChannel.h 구현 — 계좌 칸 넣고 빼기, 여러 줄로 오는 표를 온전할 때만 거는 모으개(D-114 단계 2.5 갈래 B)
 - [FillKey.cpp](../Quant/src/ipc/FillKey.cpp) — FillKey.h 구현 — 체결통보 중복 키 — 날짜·주문번호·시각·수량·가격 정수 5개와 해시(D-112)
 - [Heartbeat.cpp](../Quant/src/ipc/Heartbeat.cpp) — Heartbeat.h 구현 — 박동 찍기와 정상·의심·사망 전이 판정(D-114 단계 2)
 - [LedgerSnapshot.cpp](../Quant/src/ipc/LedgerSnapshot.cpp) — LedgerSnapshot.h 구현 — 판 뒤집기와 되읽기, 이번 판에 실린 줄만 모아 주기(D-114 단계 2.5)
-- [OpsProtocol.cpp](../Quant/src/ipc/OpsProtocol.cpp) — OpsProtocol.h 구현 — 운영단말 ↔ 엔진 TCP 프레이밍 프로토콜(D-043)
-- [OrderChannel.cpp](../Quant/src/ipc/OrderChannel.cpp) — OrderChannel.h 구현 — 기다리는 요청 표·같은 순번 거름·주문번호 정수 변환, 꺼낸 요청·응답이 말이 되는지 보기(D-114 단계 2·4)
-- [OpsServer.cpp](../Quant/src/ipc/OpsServer.cpp) — 운영단말 TCP 서버 구현(D-043)
-- [OrderRouter.cpp](../Quant/src/ipc/OrderRouter.cpp) — 주문 라우터 구현 — 제출·순번·거부코드 처리
-- [SharedRegion.cpp](../Quant/src/ipc/SharedRegion.cpp) — SharedRegion.h 구현 — 윈도우·리눅스 공유메모리 만들기·붙기·치우기, 살아 있는 주인이면 실패(D-114 단계 4)
-- [SharedSymbolDictionary.cpp](../Quant/src/ipc/SharedSymbolDictionary.cpp) — SharedSymbolDictionary.h 구현 — 자리 셈·놓기·붙기와 넣는 동안만 잡는 자물쇠(D-114 단계 4)
-- [SharedStrategyDictionary.cpp](../Quant/src/ipc/SharedStrategyDictionary.cpp) — SharedStrategyDictionary.h 구현 — 자리 셈·놓기·붙기, 칸을 넘는 이름은 잘라 넣지 않고 거절한다(D-114 단계 4)
 - [MarketFeedChannel.cpp](../Quant/src/ipc/MarketFeedChannel.cpp) — MarketFeedChannel.h 구현 — 줄마다 큐 둘을 놓고 붙기, 꺼낸 칸의 값 검사(D-114 단계 4)
+- [OpsProtocol.cpp](../Quant/src/ipc/OpsProtocol.cpp) — OpsProtocol.h 구현 — 운영단말 ↔ 엔진 TCP 프레이밍 프로토콜(D-043)
+- [OpsServer.cpp](../Quant/src/ipc/OpsServer.cpp) — 운영단말 TCP 서버 구현(D-043)
+- [OrderChannel.cpp](../Quant/src/ipc/OrderChannel.cpp) — OrderChannel.h 구현 — 기다리는 요청 표·같은 순번 거름·주문번호 정수 변환, 꺼낸 요청·응답이 말이 되는지 보기(D-114 단계 2·4)
+- [OrderRouter.cpp](../Quant/src/ipc/OrderRouter.cpp) — 주문 라우터 구현 — 제출·순번·거부코드 처리
 - [SharedLayout.cpp](../Quant/src/ipc/SharedLayout.cpp) — SharedLayout.h 구현 — 자리 셈·놓기·붙기와, 양쪽 설정이 다르면 붙기를 거절하는 머리 대조(D-114 단계 4)
+- [SharedRegion.cpp](../Quant/src/ipc/SharedRegion.cpp) — SharedRegion.h 구현 — 윈도우·리눅스 공유메모리 만들기·붙기·치우기, 살아 있는 주인이면 실패(D-114 단계 4)
+- [SharedStrategyDictionary.cpp](../Quant/src/ipc/SharedStrategyDictionary.cpp) — SharedStrategyDictionary.h 구현 — 자리 셈·놓기·붙기, 칸을 넘는 이름은 잘라 넣지 않고 거절한다(D-114 단계 4)
+- [SharedSymbolDictionary.cpp](../Quant/src/ipc/SharedSymbolDictionary.cpp) — SharedSymbolDictionary.h 구현 — 자리 셈·놓기·붙기와 넣는 동안만 잡는 자물쇠(D-114 단계 4)
 - [SharedWriteLock.cpp](../Quant/src/ipc/SharedWriteLock.cpp) — SharedWriteLock.h 구현 — 돌다가 양보하는 자물쇠(D-114 단계 4)
 - [ZmqBridge.cpp](../Quant/src/ipc/ZmqBridge.cpp) — ZMQ IPC 브릿지 구현 — PUB/REP 소켓
 
@@ -490,37 +506,34 @@
 - [test_account_ledger.cpp](../Quant/tests/test_account_ledger.cpp) — 계좌별 원장 파티셔닝(다계좌 독립성) 단위 테스트
 - [test_app_config.cpp](../Quant/tests/test_app_config.cpp) — config.json → AppConfig 경계 단위 테스트(기본값·오버라이드·feed_keys 상속·risk·regime_strategies)
 - [test_bar_aggregator.cpp](../Quant/tests/test_bar_aggregator.cpp) — N분봉 집계기 단위 테스트(D-068·D-072)
+- [test_command_line.cpp](../Quant/tests/test_command_line.cpp) — 실행 인자 뜯기 단위 테스트: 기본값 불변·--role 두 철자·모르는 값에서 멈추는지 검증(D-114 단계 4)
+- [test_control_channel.cpp](../Quant/tests/test_control_channel.cpp) — 제어 요청 단위 테스트: 계좌 칸, 표 모으기, 남의 표 줄·반쪽 표·닫기 누락을 안 거는지 검증(D-114 단계 2.5 갈래 B)
 - [test_data_poller.cpp](../Quant/tests/test_data_poller.cpp) — REST 현재가 폴러 단위 테스트(D-053·D-062)
 - [test_devscale_rules.cpp](../Quant/tests/test_devscale_rules.cpp) — DevScale 순수 판정 단위 테스트 25검사(트레일 경계·원장 읽기·ATR·진입 허용, D-111)
+- [test_displacement_desk.cpp](../Quant/tests/test_displacement_desk.cpp) — 교체 진입 창구 단위 테스트: 최약체 매도 앞세우기, 매수 보류·자리 나면 발주·시한 만료(D-114 단계 2.5 갈래 B)
 - [test_engine.cpp](../Quant/tests/test_engine.cpp) — Engine 한 바퀴 단위 테스트(시험용 시세 주입, KIS·소켓 없이 틱→주문→모의 체결→원장, 수신 스레드 1×샤드 1과 2×2, 캡처 파일 리플레이는 KIS 없이)
 - [test_feed_mux.cpp](../Quant/tests/test_feed_mux.cpp) — 다중 소켓 피드 묶음(FeedMux) 단위 테스트
 - [test_feed_supervisor.cpp](../Quant/tests/test_feed_supervisor.cpp) — WS 피드 감독기 단위 테스트
+- [test_heartbeat.cpp](../Quant/tests/test_heartbeat.cpp) — 심장박동 단위 테스트: 정상·의심·사망 전이와 사망 한 번만 가져가기를 시계 없이 검증(D-114 단계 2)
 - [test_kis_decode.cpp](../Quant/tests/test_kis_decode.cpp) — KIS REST 응답 디코더 단위 테스트(분봉·잔고·전광판, D-051·D-059)
+- [test_kis_rate_bucket.cpp](../Quant/tests/test_kis_rate_bucket.cpp) — 한도 버킷 단위 테스트: 한 초 최대치가 공표 한도 안인지, 첫 호출이 안 기다리는지, 시세 호출 요구량이 버킷 안인지
 - [test_latency_trace.cpp](../Quant/tests/test_latency_trace.cpp) — 구간 지연 CSV 기록기 단위 테스트
 - [test_ledger_reconciler.cpp](../Quant/tests/test_ledger_reconciler.cpp) — 잔고-원장 대조기 단위 테스트(D-038·D-061)
+- [test_ledger_snapshot.cpp](../Quant/tests/test_ledger_snapshot.cpp) — 장부 사본 단위 테스트: 지난 판 값이 안 남는지, 쓰는 중에 읽어도 반쪽 판이 안 나오는지 두 스레드로 검증(D-114 단계 2.5)
 - [test_logger.cpp](../Quant/tests/test_logger.cpp) — 비동기 Logger 무손실·flush·드롭 계수 검증(D-045)
+- [test_market_feed_channel.cpp](../Quant/tests/test_market_feed_channel.cpp) — 주문 → 전략 시세 통로 단위 테스트: 보낸 순서·줄 가르기·붙기 거절·넘침 세기·망가진 칸 버리기·두 스레드를 검증(D-114 단계 4)
 - [test_market_session.cpp](../Quant/tests/test_market_session.cpp) — 정규장 시각 판정·KST 시각 분해 단위 테스트(D-037·D-070)
+- [test_matching_engine.cpp](../Quant/tests/test_matching_engine.cpp) — 오더북 단위 테스트 — 단일가 규칙·체결 우선순위·호가 격자
 - [test_mpsc.cpp](../Quant/tests/test_mpsc.cpp) — MpscQueue·MutexQueue 정확성 검증
 - [test_ops_protocol.cpp](../Quant/tests/test_ops_protocol.cpp) — 운영단말 프레이밍 단위 테스트(D-043)
 - [test_ops_server.cpp](../Quant/tests/test_ops_server.cpp) — 운영단말 서버 TCP 왕복 테스트(D-043)
+- [test_order_channel.cpp](../Quant/tests/test_order_channel.cpp) — 전략↔주문 통로 단위 테스트: 요청·응답 레코드, 기다리는 표, 같은 순번 거름, 주문번호 변환(D-114 단계 2)
 - [test_order_gate.cpp](../Quant/tests/test_order_gate.cpp) — OrderGate 한도·거부 사유 단위 테스트
 - [test_order_rate_limiter.cpp](../Quant/tests/test_order_rate_limiter.cpp) — 발주 조절기 단위 테스트(재시도 분류·만기, D-065)
 - [test_order_router.cpp](../Quant/tests/test_order_router.cpp) — OrderRouter 통합 테스트(접수·체결·이력)
 - [test_paper_executor.cpp](../Quant/tests/test_paper_executor.cpp) — 모의 체결기 단위 테스트(다음틱 체결·취소·정정)
 - [test_pipeline_stress.cpp](../Quant/tests/test_pipeline_stress.cpp) — 파이프라인 E2E 부하 테스트(WS수신-전략-주문-체결)
 - [test_prefetch_pool.cpp](../Quant/tests/test_prefetch_pool.cpp) — 프리페치 풀 고정 스레드·주기 실행·해제 대기·정지 단위 테스트
-- [test_heartbeat.cpp](../Quant/tests/test_heartbeat.cpp) — 심장박동 단위 테스트: 정상·의심·사망 전이와 사망 한 번만 가져가기를 시계 없이 검증(D-114 단계 2)
-- [test_ledger_snapshot.cpp](../Quant/tests/test_ledger_snapshot.cpp) — 장부 사본 단위 테스트: 지난 판 값이 안 남는지, 쓰는 중에 읽어도 반쪽 판이 안 나오는지 두 스레드로 검증(D-114 단계 2.5)
-- [test_order_channel.cpp](../Quant/tests/test_order_channel.cpp) — 전략↔주문 통로 단위 테스트: 요청·응답 레코드, 기다리는 표, 같은 순번 거름, 주문번호 변환(D-114 단계 2)
-- [test_command_line.cpp](../Quant/tests/test_command_line.cpp) — 실행 인자 뜯기 단위 테스트: 기본값 불변·--role 두 철자·모르는 값에서 멈추는지 검증(D-114 단계 4)
-- [test_control_channel.cpp](../Quant/tests/test_control_channel.cpp) — 제어 요청 단위 테스트: 계좌 칸, 표 모으기, 남의 표 줄·반쪽 표·닫기 누락을 안 거는지 검증(D-114 단계 2.5 갈래 B)
-- [test_shared_region.cpp](../Quant/tests/test_shared_region.cpp) — 공유 쪽지 단위 테스트: 붙기·판 불일치·살아 있는 구역 두 번 만들기·닫은 뒤 재생성을 검증(D-114 단계 4)
-- [test_shared_spsc_ring.cpp](../Quant/tests/test_shared_spsc_ring.cpp) — 공유 쪽지 위 한줄 큐 단위 테스트: 순서·가득참·되감기와, 건너편이 공유 칸을 망가뜨렸을 때 수로 남기는지 검증(D-114 단계 4)
-- [test_shared_symbol_dictionary.cpp](../Quant/tests/test_shared_symbol_dictionary.cpp) — 공유 쪽지 위 종목 표 단위 테스트: 손잡이 둘이 같은 번호를 보는지·가득참·붙기 거절·넣는 스레드 여럿을 검증(D-114 단계 4)
-- [test_shared_strategy_dictionary.cpp](../Quant/tests/test_shared_strategy_dictionary.cpp) — 공유 쪽지 위 전략 이름표 단위 테스트: 손잡이 둘이 같은 번호를 보는지·긴 이름 거절·가득참·붙기 거절·넣는 스레드 여럿을 검증(D-114 단계 4)
-- [test_market_feed_channel.cpp](../Quant/tests/test_market_feed_channel.cpp) — 주문 → 전략 시세 통로 단위 테스트: 보낸 순서·줄 가르기·붙기 거절·넘침 세기·망가진 칸 버리기·두 스레드를 검증(D-114 단계 4)
-- [test_shared_layout.cpp](../Quant/tests/test_shared_layout.cpp) — 공유 쪽지 위 자리표 단위 테스트: 자리 셈·면끼리 안 덮는지·붙어도 값이 남는지·설정이 다르면 거절하는지를 검증(D-114 단계 4)
-- [test_displacement_desk.cpp](../Quant/tests/test_displacement_desk.cpp) — 교체 진입 창구 단위 테스트: 최약체 매도 앞세우기, 매수 보류·자리 나면 발주·시한 만료(D-114 단계 2.5 갈래 B)
 - [test_protective_orders.cpp](../Quant/tests/test_protective_orders.cpp) — 보호 주문 표 단위 테스트: 전략 없이 가격 경로만으로 청산이 나가는지 검증(D-114 단계 1)
 - [test_reconcile_plan.cpp](../Quant/tests/test_reconcile_plan.cpp) — 잔고 대조 차이 계산 순수 함수 단위 테스트(D-038)
 - [test_regime_file_judge.cpp](../Quant/tests/test_regime_file_judge.cpp) — 매크로 국면 파일 판정기 단위 테스트(D-033·D-060)
@@ -529,6 +542,11 @@
 - [test_ringbuffer_stress.cpp](../Quant/tests/test_ringbuffer_stress.cpp) — SPSC RingBuffer 실환경 부하 시뮬레이션(버스트·가변지연)
 - [test_session_end.cpp](../Quant/tests/test_session_end.cpp) — 마감 자기 종료 판정 단위 테스트(D-098)
 - [test_shard_matrix.cpp](../Quant/tests/test_shard_matrix.cpp) — 수신 N×전략 샤드 M 링 행렬 단위 테스트
+- [test_shared_layout.cpp](../Quant/tests/test_shared_layout.cpp) — 공유 쪽지 위 자리표 단위 테스트: 자리 셈·면끼리 안 덮는지·붙어도 값이 남는지·설정이 다르면 거절하는지를 검증(D-114 단계 4)
+- [test_shared_region.cpp](../Quant/tests/test_shared_region.cpp) — 공유 쪽지 단위 테스트: 붙기·판 불일치·살아 있는 구역 두 번 만들기·닫은 뒤 재생성을 검증(D-114 단계 4)
+- [test_shared_spsc_ring.cpp](../Quant/tests/test_shared_spsc_ring.cpp) — 공유 쪽지 위 한줄 큐 단위 테스트: 순서·가득참·되감기와, 건너편이 공유 칸을 망가뜨렸을 때 수로 남기는지 검증(D-114 단계 4)
+- [test_shared_strategy_dictionary.cpp](../Quant/tests/test_shared_strategy_dictionary.cpp) — 공유 쪽지 위 전략 이름표 단위 테스트: 손잡이 둘이 같은 번호를 보는지·긴 이름 거절·가득참·붙기 거절·넣는 스레드 여럿을 검증(D-114 단계 4)
+- [test_shared_symbol_dictionary.cpp](../Quant/tests/test_shared_symbol_dictionary.cpp) — 공유 쪽지 위 종목 표 단위 테스트: 손잡이 둘이 같은 번호를 보는지·가득참·붙기 거절·넣는 스레드 여럿을 검증(D-114 단계 4)
 - [test_signal_dispatcher.cpp](../Quant/tests/test_signal_dispatcher.cpp) — 신호 디스패처 단위 테스트(교체진입·강제청산·유니버스 이탈)
 - [test_strategy_router.cpp](../Quant/tests/test_strategy_router.cpp) — 종목 id 전략 라우터 단위 테스트, 틱당 시간 측정
 - [test_strategy_shard.cpp](../Quant/tests/test_strategy_shard.cpp) — 전략 샤드 단위 테스트(열 소비 순서·다건 발주)
@@ -540,6 +558,7 @@
 - [test_wake_gate.cpp](../Quant/tests/test_wake_gate.cpp) — WakeGate 소비자 깨우기 단위 테스트
 - [test_ws_decode.cpp](../Quant/tests/test_ws_decode.cpp) — KIS 실시간 채널 디코더 단위 테스트(D-037)
 - [test_ws_frame.cpp](../Quant/tests/test_ws_frame.cpp) — WS 다건 프레임 분리·분봉 커서 시각 산술 단위 테스트
+- [test_zmq_order_feed.cpp](../Quant/tests/test_zmq_order_feed.cpp) — 부하시험 수신단 단위 테스트 — 전문 해석·종목 순번·체결 발행
 - [tsan.supp](../Quant/tests/tsan.supp) — TSAN 회차가 지울 보고 목록 — 지금은 libzmq 한 줄(계측 없이 링크되는 라이브러리라 자기 안의 fd 동기화가 TSAN에 안 보인다). `scripts/tsan_round.sh`가 읽는다
 
 ### Quant/tools/
@@ -551,6 +570,7 @@
 - [manual_order.cpp](../Quant/tools/manual_order.cpp) — 수동 주문 도구(모의계좌 접수-체결 확인)
 - [ops_client.cpp](../Quant/tools/ops_client.cpp) — 운영단말 콘솔 클라이언트(상태·보유 조회·수동주문, D-043)
 - [query_balance.py](../Quant/tools/query_balance.py) — 모의계좌 잔고 조회 스크립트(연속조회 포함)
+- [ranking_check.cpp](../Quant/tools/ranking_check.cpp) — 거래대금·시가총액 상위 랭킹 점검 도구(행수·ETF 섞임·정렬 판정)
 
 ### Quant/tools/ops_terminal/
 
@@ -627,6 +647,7 @@
 - [2026-09-18.md](market_close/2026-09-18.md) — 09-18 매매 사후검토
 - [2026-09-21.md](market_close/2026-09-21.md) — 09-21 매매 사후검토(D-023 SEH 크래시 재발·재시도로 해소, A등급 결함 없음)
 - [2026-09-22.md](market_close/2026-09-22.md) — 09-22 매매 사후검토
+- [2026-09-23.md](market_close/2026-09-23.md) — 09-23 매매 사후검토
 - [README.md](market_close/README.md) — 장 마감 리뷰 색인
 
 ### docs/premarket/
@@ -639,6 +660,7 @@
 - [2026-09-11.md](premarket/2026-09-11.md) — 09-11 장전 시황 브리핑
 - [2026-09-21.md](premarket/2026-09-21.md) — 09-21 장전 시황 브리핑
 - [2026-09-22.md](premarket/2026-09-22.md) — 09-22 장전 시황 브리핑
+- [2026-09-23.md](premarket/2026-09-23.md) — 09-23 장전 시황 브리핑
 - [README.md](premarket/README.md) — 장전 브리핑 색인(날짜 결함 설명)
 - [ROUTINE_PROMPT.md](premarket/ROUTINE_PROMPT.md) — 장전 시황 브리핑 클라우드 루틴 프롬프트 정본. 국면 모델 표는 gen:regime-model, 올린 해시는 premarket_routine.py --mark
 
@@ -658,6 +680,8 @@
 - [2026-09-22_engine_full_path.md](reports/stresstest/2026-09-22_engine_full_path.md) — 09-22 엔진 전 구간 부하 실측. 천장은 샤드→전략 큐 40만/초와 주문 경로 초당 200건대
 - [2026-09-22_prefetch_pool.md](reports/stresstest/2026-09-22_prefetch_pool.md) — 부하 회차: 프리페치 전략당 스레드→공용 풀, 스냅샷 복사 492→10ns(D-115)
 - [2026-09-22_prefetch_pool_threads.md](reports/stresstest/2026-09-22_prefetch_pool_threads.md) — 부하 회차: 프리페치 풀 스레드 수 스윕, 주기를 지연→비율로(D-115 후속)
+- [2026-09-23_db_ingest_cost.md](reports/stresstest/2026-09-23_db_ingest_cost.md) — 09-23 J~L회차. 적재기(TimescaleDB)를 붙이면 꺼냄→반환이 1.5~1.7배 느려지고 늘어난 몫은 거의 전부 이력 저장. 적재는 입력을 2.3배 올려도 초당 272~372행에서 평평 — 09-22의 5.8%·회차 B의 0.013%와 같은 천장
+- [2026-09-23_order_stage_breakdown.md](reports/stresstest/2026-09-23_order_stage_breakdown.md) — 09-23 D~I회차. 주문 한 건의 2밀리초를 12구간으로 가르니 절반이 미결주문 파일 다시쓰기. 그 파일과 원장 CSV·사유 줄을 차례로 전담 스레드로 빼고 몇 분 간격 대조 — pop→반환 누적 대략 2.6배(D-123·D-124)
 - [README.md](reports/stresstest/README.md) — 부하테스트 결과 모음의 색인·실행 가이드·결과 열 읽는 법
 
 ### docs/reports/stresstest/data/
@@ -676,6 +700,9 @@
 - [2026-09-22_bench_prefetch_pool.csv](reports/stresstest/data/2026-09-22_bench_prefetch_pool.csv) — 위 회차 원자료(계산형·대기형·이웃 지연 스윕 37행, tag로 회차 구분)
 - [2026-09-22_bench_snapshot_swap.csv](reports/stresstest/data/2026-09-22_bench_snapshot_swap.csv) — 위 회차 원자료(bench_snapshot_swap 1차 5회 + atomic 열 2차 5회)
 - [2026-09-22_flow_profile.json](reports/stresstest/data/2026-09-22_flow_profile.json) — 09-21 체결 캡처에서 뽑은 유량 프로파일. 관측 39종목 891,670건 → 2,700종목 환산 초당 p50 1,592·p99 17,446·최대 73,315과 순위별 몫
+- [2026-09-23_db_ingest.csv](reports/stresstest/data/2026-09-23_db_ingest.csv) — 09-23 회차 J·K·L을 적재기 있음·없음으로 두 번씩 돌린 구간별 p50·p90·p99·최대 90행. 원본 latency_trace.csv에서 뽑은 요약
+- [2026-09-23_db_ingest_rows.csv](reports/stresstest/data/2026-09-23_db_ingest_rows.csv) — 회차 J·K·L이 DB 표(주문·체결·신호·시세)에 남긴 행 수와 초당 행, 주입 뒤 밀린 시간, 최소 여유 메모리
+- [2026-09-23_order_stages.csv](reports/stresstest/data/2026-09-23_order_stages.csv) — 09-23 회차 E·F·G·H·I의 구간별 p50·p90·p99·최대 80행(창 둘: 첫 60초·전체). 원본 latency_trace.csv에서 뽑은 요약
 
 ## linux_practice
 
@@ -1053,16 +1080,20 @@
 ### scripts/
 
 - [_logdir.py](../scripts/_logdir.py) — 로그·원장 경로 탐색 헬퍼
+- [aftermarket_feed_check.py](../scripts/aftermarket_feed_check.py) — 애프터마켓 체결이 이미 구독 중인 WS 채널로 오는지 FEED 모드로 재 보고 판정까지 낸다(D-097)
 - [analyze_slot_cost.py](../scripts/analyze_slot_cost.py) — 보유 슬롯 한도 비용 분석 스크립트
 - [auto_trade_day.ps1](../scripts/auto_trade_day.ps1) — 일일 자동매매 기동 스크립트
 - [auto_trade_day.sh](../scripts/auto_trade_day.sh) — 리눅스(WSL2) 쪽 하루 루프 — 트레이더만 띄우고 마감까지 재기동(부속 창·마감 정리는 `auto_trade_day.ps1 -NoTrader`). 상태 `_private/_auto_trade_linux.json`, 절차 `docs/RUNBOOK.md` 1.1절
 - [auto_trade_guard.ps1](../scripts/auto_trade_guard.ps1) — 자동매매 감시견 스크립트
+- [auto_trade_live.ps1](../scripts/auto_trade_live.ps1) — 실계좌 감시견을 띄우는 진입구. 설정·포트·원장 폴더를 세트로 넘기고(하나만 빠져도 모의 값이 섞인다) 매매 창·마감 시각을 띄우기 전에 보여준다
 - [backfill_fills_db.py](../scripts/backfill_fills_db.py) — 과거 체결 원장 CSV를 TimescaleDB fills 테이블에 적재하는 스크립트
 - [backfill_studies.py](../scripts/backfill_studies.py) — 스터디 결과 메트릭 백필 스크립트
 - [build.sh](../scripts/build.sh) — Docker 이미지 빌드 스크립트
 - [build_review_entry.py](../scripts/build_review_entry.py) — 장 마감 리뷰 항목 생성 스크립트
 - [build_study_site.py](../scripts/build_study_site.py) — 주식 스터디 리더 사이트 생성 스크립트
+- [build_trader.ps1](../scripts/build_trader.ps1) — 장중 재빌드 진입구. 한글 TEMP·실행 중 exe 잠금으로 나는 LNK1104 두 가지를 링크 전에 가른다
 - [check_backtest.py](../scripts/check_backtest.py) — 백테스트 재현성 검사 스크립트
+- [check_market_open.py](../scripts/check_market_open.py) — 오늘 개장인지 KIS 국내휴장일조회로 묻는다(달력 24일치 캐시, 종료코드 0 개장·1 휴장·2 모름)
 - [check_runtime_health.py](../scripts/check_runtime_health.py) — 실행 로그 장애 패턴 검사 스크립트
 - [dashboard_server.py](../scripts/dashboard_server.py) — 장중 매매 대시보드 서버(계좌·보유·국면·유니버스·차트·테마·종목 뉴스·증권사 리서치)
 - [deploy_guard.py](../scripts/deploy_guard.py) — 매매 창 안 트레이더 exe 교체를 막는 가드(A등급 결함은 --hotfix-a로 통과, D-101 결정 1)
@@ -1075,6 +1106,7 @@
 - [live_prices_feed.py](../scripts/live_prices_feed.py) — 전종목 실시간 시세 보조 프로세스
 - [log_patterns.py](../scripts/log_patterns.py) — 로그 파싱 공용 정규식 모듈
 - [logs.sh](../scripts/logs.sh) — Docker 컨테이너 로그 확인 스크립트
+- [make_load_test_config.py](../scripts/make_load_test_config.py) — 부하시험 config·유니버스 생성기 — 종목 수·포트·장중 시작시각을 받아 config_load_test.json을 적는다
 - [market_close_autodoc.py](../scripts/market_close_autodoc.py) — 장 마감 매매일지 자동생성 스크립트
 - [market_close_collect.py](../scripts/market_close_collect.py) — 장 마감 사실 수집 스크립트
 - [market_close_minute_backfill.py](../scripts/market_close_minute_backfill.py) — 장 마감 후 분봉 백필 스크립트
@@ -1138,6 +1170,7 @@
 - [2026-09-18.md](../strategies/DeviationScale/live/2026-09-18.md) — 09-18 라이브 매매일지
 - [2026-09-21.md](../strategies/DeviationScale/live/2026-09-21.md) — 09-21 라이브 매매일지
 - [2026-09-22.md](../strategies/DeviationScale/live/2026-09-22.md) — 09-22 라이브 매매일지
+- [2026-09-23.md](../strategies/DeviationScale/live/2026-09-23.md) — 09-23 라이브 매매일지
 
 ### strategies/DeviationScale/reviews/
 

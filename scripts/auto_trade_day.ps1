@@ -45,12 +45,29 @@ Set-Location $Repo
 # 1분 1회 제한에 걸려 403 → 크래시 루프가 됐다(09-18 08:30 실측). 자식 창·트레이더가 모두 물려받는다.
 $env:KIS_TOKEN_CACHE_DIR = Join-Path $Repo "Quant\config"
 
+# 한 기계에서 계좌를 둘 돌리는 날(모의 비교군 + 실계좌)에는 두 감시견이 상태 파일·실행 로그·
+#  엔진 로그 폴더를 공유해 서로를 덮어썼다. config `instance`가 있으면 그 이름을 전부에 붙인다.
+#  없으면 예전 이름 그대로 — 계좌 하나만 돌리는 날은 아무것도 안 바뀐다. [why D-122]
+# config 를 읽을 때는 -Encoding UTF8 을 반드시 붙인다. PowerShell 5.1 의 Get-Content 기본값은
+#  시스템 ANSI(한국어 Windows 는 cp949) 라, BOM 없는 UTF-8 인 config 의 한글 주석이 깨지면서
+#  닫는 따옴표가 사라져 ConvertFrom-Json 이 통째로 실패한다. 2026-09-23 실계좌 첫 기동이
+#  config_live.json 의 "//risk_100만" 키에서 이걸로 막혔다. 이 파일의 JSON 읽기 전부가 같다.
+$Instance = ""
+try { $Instance = [string](Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).instance } catch { }
+$Suffix = if ($Instance) { "_$Instance" } else { "" }
+
 $Exe     = Join-Path $Repo "Quant\build_win\quant_trader.exe"
 $VenvPy  = Join-Path $Repo "PYQuant\.venv-win\Scripts\python.exe"
-$Status  = Join-Path $Repo "_private\_auto_trade_day.json"
+$Status  = Join-Path $Repo ("_private\_auto_trade_day{0}.json" -f $Suffix)
 $LogDir  = Join-Path $Repo "logs"
-$RunLog  = Join-Path $LogDir ("auto_trade_day_{0}.log" -f (Get-Date -Format yyyyMMdd))
+$RunLog  = Join-Path $LogDir ("auto_trade_day{0}_{1}.log" -f $Suffix, (Get-Date -Format yyyyMMdd))
 New-Item -ItemType Directory -Force -Path $LogDir, (Split-Path $Status) | Out-Null
+
+# 엔진 로그 폴더. 엔진은 기본으로 exe 옆 logs\ 를 쓰는데 exe가 하나뿐이라 두 계좌가 같은
+#  quant_trader.log·trades_*.csv·open_orders.txt 를 쓴다. 그러면 재기동 때 남의 계좌 미체결을
+#  취소하려 들고, 알림·대시보드·건전성 판정이 두 계좌를 합산한다. 부속 파이썬 창도 이 값을
+#  물려받아 같은 폴더를 본다(scripts/_logdir.py 가 QUANT_LOG_DIR 를 가장 먼저 본다).
+if ($Instance) { $env:QUANT_LOG_DIR = Join-Path $Repo ("Quant\build_win\logs_{0}" -f $Instance) }
 
 # ─────────────── .env 로드 ───────────────
 # TimescaleDB 비밀번호 등은 소스에 심지 않는다 — 리포 루트 .env(gitignore)에서 읽어
@@ -189,7 +206,10 @@ $script:Windows = [ordered]@{}   # title -> @{cmd; marker; proc; started} — �
 function Start-Window([string]$title, [string]$cmd, [string]$marker = "") {
   Say "창 기동: $title"
   if ($DryRun) { Say "  (dry) $cmd"; return }
-  $inner = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; `$Host.UI.RawUI.WindowTitle='$title'; Set-Location '$Repo'; $cmd"
+  # 창 제목에만 인스턴스를 붙인다 — 목록 키($script:Windows)는 원래 제목 그대로 둬야 아래
+  #  Restore-Windows 의 제목 비교가 안 깨진다. [why D-122]
+  $windowTitle = "$title$Suffix"
+  $inner = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; `$Host.UI.RawUI.WindowTitle='$windowTitle'; Set-Location '$Repo'; $cmd"
   $proc = Start-Process powershell -ArgumentList @("-NoExit", "-NoProfile", "-Command", $inner) -PassThru
   if ($script:Job -ne [IntPtr]::Zero) {
     # 잡에 들어간 뒤 생기는 손자(py → python)는 자동으로 상속된다.
@@ -223,11 +243,41 @@ function Wait-Tsdb {
   else { Say "  quant-tsdb 여전히 미기동(status=$tsdb) — recorder는 재시도 루프로 뜬다, DB 적재는 못 할 수 있다." "WARN" }
 }
 
+# candidate 의 부모 사슬을 따라 올라가 ancestor 를 만나는지 본다. ancestor 가 0이면(창 핸들이 없는
+#  경우) 판정을 포기하고 참으로 둔다 — 멀쩡한 창을 다시 띄우는 쪽이 더 나쁘다. [why D-122]
+function Test-Descendant([int]$candidate, [int]$ancestor, [hashtable]$parentOf)
+{
+  if ($ancestor -eq 0) { return $true }
+
+  $current = $candidate
+  $hop = 0
+
+  while ($hop -lt 20)
+  {
+    if (-not $parentOf.ContainsKey($current)) { return $false }
+
+    $current = $parentOf[$current]
+
+    if (-not $current) { return $false }
+
+    if ($current -eq $ancestor) { return $true }
+
+    $hop++
+  }
+
+  return $false
+}
+
 function Restore-Windows {
   # 창(powershell)은 -NoExit라 안의 파이썬이 죽어도 남는다. 빈 창만 보면 살아 있는 줄 안다.
   # 그래서 파이썬 프로세스의 명령줄에서 스크립트 이름을 직접 찾는다.
   if ($DryRun -or $script:Windows.Count -eq 0) { return }
-  $procs = @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='py.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue)
+  # 이름만 보면 다른 계좌의 감시견이 띄운 같은 스크립트를 자기 것으로 오인해, 죽은 자기 자식을
+  #  영영 안 살린다. 그래서 부모 사슬을 따라 자기 창의 자손인지까지 본다. [why D-122]
+  $allProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+  $parentOf = @{}
+  foreach ($process in $allProcesses) { $parentOf[[int]$process.ProcessId] = [int]$process.ParentProcessId }
+  $procs = @($allProcesses | Where-Object { $_.Name -eq "python.exe" -or $_.Name -eq "py.exe" -or $_.Name -eq "pythonw.exe" })
   foreach ($title in @($script:Windows.Keys)) {
     $w = $script:Windows[$title]
     if (-not $w.marker) {
@@ -241,7 +291,8 @@ function Restore-Windows {
     }
     # 기동 직후에는 아직 파이썬이 안 뜬 상태일 수 있다. 뜰 시간을 준다.
     if (((Get-Date) - $w.started).TotalSeconds -lt 45) { continue }
-    if ($procs | Where-Object { $_.CommandLine -like "*$($w.marker)*" }) { continue }
+    $ownerPid = if ($w.proc) { [int]$w.proc.Id } else { 0 }
+    if ($procs | Where-Object { $_.CommandLine -like "*$($w.marker)*" -and (Test-Descendant ([int]$_.ProcessId) $ownerPid $parentOf) }) { continue }
     Say "부속 창 '$title' 안에서 $($w.marker)가 죽었다 — 다시 띄운다." "WARN"
     if ($w.proc -and -not $w.proc.HasExited) { Stop-Process -Id $w.proc.Id -Force -ErrorAction SilentlyContinue }
     if ($title -eq "quant-recorder") { Wait-Tsdb }
@@ -305,17 +356,19 @@ if ((Test-Path $reaper) -and -not $DryRun) {
 # 이름이 quant_trader라고 다 발주하는 것은 아니다. 리플레이 측정용 프로세스는 config에 replay_file이
 #  있어 저장된 체결을 다시 먹일 뿐 증권사에 주문을 내지 않는다(워크트리 세션이 장중에도 돌린다).
 #  그것까지 중복으로 보면 부속 워치독이 못 뜬다 — 09-22 실측. 판정이 안 서면 막는 쪽으로 남긴다.
-function Test-ReplayOnly([System.Diagnostics.Process]$traderProcess)
+#  모의와 실계좌를 같이 돌리는 날에는 계좌까지 봐야 한다 — 다른 계좌면 같이 떠도 원장이 안 섞인다.
+#  그래서 "발주하는 계좌"를 열쇠로 돌려준다: $null=리플레이 전용(발주 안 함), "?"=판정 불가(막는다). [why D-122]
+function Get-TraderAccountKey([System.Diagnostics.Process]$traderProcess)
 {
   $commandLine = (Get-CimInstance Win32_Process -Filter "ProcessId=$($traderProcess.Id)" -ErrorAction SilentlyContinue).CommandLine
 
-  if (-not $commandLine) { return $false }
+  if (-not $commandLine) { return "?" }
 
   $configArgument = [regex]::Matches($commandLine, '"[^"]+"|\S+') |
                     ForEach-Object { $_.Value.Trim('"') } |
                     Where-Object { $_ -like "*.json" } | Select-Object -Last 1
 
-  if (-not $configArgument) { return $false }
+  if (-not $configArgument) { return "?" }
 
   # exe는 <저장소>\Quant\build_win\quant_trader.exe — 세 단계 올라가면 그 트리의 루트다.
   $repoRoot = Split-Path (Split-Path (Split-Path $traderProcess.Path -Parent) -Parent) -Parent
@@ -324,19 +377,48 @@ function Test-ReplayOnly([System.Diagnostics.Process]$traderProcess)
   {
     if (Test-Path $candidatePath)
     {
-      try { return [bool]((Get-Content $candidatePath -Raw | ConvertFrom-Json).replay_file) }
-      catch { return $false }
+      try
+      {
+        $json = Get-Content $candidatePath -Raw -Encoding UTF8 | ConvertFrom-Json
+
+        if ($json.replay_file) { return $null }
+
+        if (-not $json.kis.account_no) { return "?" }
+
+        return (Get-AccountKey $json)
+      }
+      catch { return "?" }
     }
   }
 
-  return $false
+  return "?"
 }
 
-$dup = @(Get-Process quant_trader -ErrorAction SilentlyContinue | Where-Object { -not (Test-ReplayOnly $_) })
+# 계좌를 가르는 열쇠. 모의와 실계좌는 계좌번호가 다르지만, 번호가 같고 is_paper만 다른 경우도
+#  섞이지 않게 둘을 함께 쓴다.
+function Get-AccountKey($configJson)
+{
+  return ("{0}/{1}" -f $configJson.kis.account_no, [bool]$configJson.kis.is_paper)
+}
+
+$myAccountKey = "?"
+try
+{
+  $myConfigJson = Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json
+
+  if ($myConfigJson.kis.account_no) { $myAccountKey = Get-AccountKey $myConfigJson }
+}
+catch { }
+
+$dup = @(Get-Process quant_trader -ErrorAction SilentlyContinue | Where-Object {
+  $otherKey = Get-TraderAccountKey $_
+  # 리플레이 전용은 통과. 한쪽이라도 판정이 안 서면 막는 쪽으로 남긴다.
+  $null -ne $otherKey -and ($otherKey -eq "?" -or $myAccountKey -eq "?" -or $otherKey -eq $myAccountKey)
+})
 if ($dup) {
   # 두 프로세스가 같은 계좌에 발주하면 원장이 깨진다. 자동으로 정리하지 않고 멈춘다.
-  Say "quant_trader가 이미 $($dup.Count)개 떠 있다. 중복 발주를 막기 위해 중단한다." "ERROR"
-  Save-Status "aborted" @{ error = "duplicate_process"; pids = @($dup.Id) }
+  Say "같은 계좌($myAccountKey)에 발주하는 quant_trader가 이미 $($dup.Count)개 떠 있다. 중복 발주를 막기 위해 중단한다." "ERROR"
+  Save-Status "aborted" @{ error = "duplicate_process"; pids = @($dup.Id); account = $myAccountKey }
   exit 2
 }
 if (-not $NoTrader -and -not (Test-Path $Exe)) { Say "실행파일 없음: $Exe — /build 먼저." "ERROR"; Save-Status "aborted" @{ error = "no_exe" }; exit 2 }
@@ -389,11 +471,31 @@ if ($NoTrader) {
 # 모의를 실계좌로 잘못 읽는다 — 실제로 config_dev_paper는 quote_kis.is_paper=false다.
 # 설정을 못 읽으면 '모의'로 가정하지 않는다 — 실계좌 설정을 모의로 잘못 알고 띄우는 쪽이 더 위험하다.
 $paper = $null
-try { $paper = [bool](Get-Content $Config -Raw | ConvertFrom-Json).kis.is_paper } catch { }
+try { $paper = [bool](Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).kis.is_paper } catch { }
 if ($null -eq $paper) { Say "설정 $Config 에서 kis.is_paper 를 읽지 못했다 — 계좌 모드를 모른 채 띄우지 않는다." "ERROR"; exit 2 }
 Say ("계좌 모드: {0}" -f $(if ($paper) { "모의(is_paper=true)" } else { "실계좌(is_paper=false)" })) $(if ($paper) { "INFO" } else { "WARN" })
 
 $py = if (Test-Path $VenvPy) { $VenvPy } else { Say "venv 없음 — 보조 프로세스는 FDR 없이 UNKNOWN만 낸다." "WARN"; "py" }
+
+# 휴장일 관문 — 여태 주말 판정조차 없어서 토·일·공휴일에도 트레이더와 부속 창이 다 떴다.
+# 시세가 안 오고 주문도 안 나가니 손해는 없지만 토큰을 새로 받고 WS 재접속을 되풀이한다.
+# 부속 창보다 앞에 둔다 — 뒤에 두면 이미 띄운 창을 도로 내려야 한다.
+# 종료코드 0=개장 1=휴장 2=모름. 2는 휴장으로 보지 않는다 — 조회 한 번 실패한 날 매매를 통째로
+# 거르는 쪽이 휴장일에 헛도는 것보다 비싸다. -DryRun·-NoTrader도 같은 관문을 지난다. [why D-120]
+$marketOpenOutput = & cmd /c "`"$py`" scripts\check_market_open.py --config `"$Config`" 2>&1"
+$marketOpenCode   = $LASTEXITCODE
+foreach ($line in $marketOpenOutput) { if ("$line".Trim()) { Write-RunLog "    $line" } }
+$marketOpenVerdict = "$(($marketOpenOutput | Where-Object { "$_" -match '^\[' } | Select-Object -First 1))"
+
+if ($marketOpenCode -eq 1) {
+  Say "휴장일 — 트레이더도 부속 창도 띄우지 않는다. $marketOpenVerdict"
+  Save-Status "market_closed" @{ paper = $paper; head = $head; detail = $marketOpenVerdict }
+  exit 0
+}
+
+if ($marketOpenCode -ne 0) {
+  Say "개장 여부를 확인하지 못했다(rc=$marketOpenCode) — 휴장으로 단정하지 않고 그대로 진행한다. $marketOpenVerdict" "WARN"
+}
 
 Save-Status "starting" @{ paper = $paper; head = $head; dirty = $dirty }
 
@@ -410,7 +512,22 @@ if (-not $NoUniverse)  {
   }
 }
 if (-not $NoPrices)    { Start-Window "quant-prices"    "& '$py' scripts\live_prices_feed.py" "live_prices_feed.py" }
-if (-not $NoDashboard) { Start-Window "quant-dashboard" "py scripts\dashboard_server.py" "dashboard_server.py" }
+if (-not $NoDashboard)
+{
+  # --config·--port 를 안 넘기면 dashboard_server.py 는 기본값(config_dev_paper.json·8787)을 읽는다.
+  #  실계좌 감시견이 띄워도 화면에는 모의 계좌가 뿌려지고, 두 감시견이 같은 8787 을 다투다(2026-09-23).
+  $dashboardPort = 0
+  try { $dashboardPort = [int](Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).dashboard_port } catch { }
+  if (-not $dashboardPort) { $dashboardPort = 8787 }
+  # --logs 도 같이 넘긴다. 이게 없으면 대시보드는 같은 날짜 원장 중 행 수가 많은 쪽을 고른다
+  #  (_logdir.find_ledger). 모의가 하루 종일 돌아 원장이 훨씬 크므로, 실계좌 화면에 모의의
+  #  실현손익·체결 건수가 뜨고 계좌 잔고만 실계좌이다(2026-09-23 실측).
+  $ledgerDirectory = ""
+  try { $ledgerDirectory = (Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).ledger_journal_dir } catch { }
+  $logsClause = if ($ledgerDirectory) { " --logs $ledgerDirectory" } else { "" }
+  Start-Window "quant-dashboard" "py scripts\dashboard_server.py --config $Config --port $dashboardPort$logsClause" "dashboard_server.py"
+  Say "  대시보드 http://127.0.0.1:$dashboardPort  ($Config)"
+}
 if (-not $NoNotify)    { Start-Window "quant-notify"    "& '$py' scripts\notify_trades.py --config $Config --interval 1800" "notify_trades.py" }
 # 네이티브 트레이더는 컨테이너가 아니라 ZMQ PUB(127.0.0.1:5555)만 낸다 — docker-compose의
 # quant-recorder는 quant-engine 컨테이너를 구독하므로 이 프로세스를 못 본다(D-090 후속).
@@ -425,10 +542,15 @@ if (-not $NoRecorder) {
   # --account: 이 계좌의 주문·체결만 받는다. Engine 을 그대로 띄우는 테스트·부하 하네스가 같은 5555에
   #  bind 하면 리코더가 그쪽을 잡아 합성 데이터가 운영 표에 섞인다(09-22 장중 실측).
   $recorderAccount = ""
-  try { $recorderAccount = (Get-Content $Config -Raw | ConvertFrom-Json).kis.account_no } catch { }
+  try { $recorderAccount = (Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).kis.account_no } catch { }
   if (-not $recorderAccount) { Say "config 에서 kis.account_no 를 못 읽었다 — 리코더 계좌 거르기 없이 띄운다." "WARN" }
   $recorderArgs = if ($recorderAccount) { "--account $recorderAccount" } else { "" }
-  Start-Window "quant-recorder"  "& '$py' PYQuant\main.py record --host localhost --port 5555 --record-ticks $recorderArgs" "main.py record"
+  # --port: 엔진이 PUB 을 여는 포트다. 실계좌는 모의 엔진과 bind 가 겹치지 않게 5565 로 옮겨 놓았으므로
+  #  (config_live.json 의 zmq_pub_port) 5555 를 박아 두면 실계좌 체결·틱이 DB 에 한 건도 안 들어간다.
+  $recorderPort = 0
+  try { $recorderPort = [int](Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).zmq_pub_port } catch { }
+  if (-not $recorderPort) { $recorderPort = 5555; Say "config 에서 zmq_pub_port 를 못 읽었다 — 기본 $recorderPort 로 띄운다." "WARN" }
+  Start-Window "quant-recorder"  "& '$py' PYQuant\main.py record --host localhost --port $recorderPort --record-ticks $recorderArgs" "main.py record"
   # 엔진 자원(CPU·메모리·스레드별 CPU·perf 함수 핫스팟) → 그라파나 ops. -NoTrader 날은 엔진이 WSL(Ubuntu-24.04)에
   # 있어 /proc를 그 배포판에서 읽고, Windows exe 날은 psutil로 본다.
   $procwatchArgs = if ($NoTrader) { "--wsl-distro Ubuntu-24.04" } else { "" }
@@ -436,7 +558,7 @@ if (-not $NoRecorder) {
   # 원장 저널 파일(D-113) → TimescaleDB 복제. 2초 주기로 꼬리를 따라가고, DB가 없으면 그냥 죽는다 —
   #  되살릴 때 안 읽은 구간부터 따라잡으므로 잃는 것이 없다. 폴더는 config의 ledger_journal_dir(엔진과 같은 곳).
   $ledgerDir = ""
-  try { $ledgerDir = (Get-Content $Config -Raw | ConvertFrom-Json).ledger_journal_dir } catch { }
+  try { $ledgerDir = (Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).ledger_journal_dir } catch { }
   if (-not $ledgerDir) { $ledgerDir = "Quant\build_win\logs"; Say "config 에서 ledger_journal_dir 을 못 읽었다 — $ledgerDir 로 띄운다." "WARN" }
   Start-Window "quant-ledger"    "& '$py' PYQuant\tools\ledger_recorder.py --dir '$ledgerDir'" "ledger_recorder.py"
 }
@@ -507,8 +629,10 @@ while (-not $NoTrader -and (Get-Date) -lt $deadline) {
   #  session_done_<날짜>: 마지막 매매 창 + 유예가 지나 엔진이 큐를 비우고 종료. kill_today_<날짜>: 운영단말·ZMQ KILL.
   #  KILL을 풀고 다시 띄우려면 scripts/kill_release.ps1(표지 파일을 지운다) — 이 창을 닫으면 가드가 5분 안에 다시 띄운다.
   $today = Get-Date -Format yyyy-MM-dd
-  if (Test-Path "_private\state\session_done_$today") { Say "엔진이 마감 자기 종료 — 재기동하지 않는다."; break }
-  if (Test-Path "_private\state\kill_today_$today")   { Say "운영자 KILL — 오늘은 재기동하지 않는다(풀려면 scripts/kill_release.ps1)." "WARN"; break }
+  # 표지 파일 이름에도 인스턴스가 붙는다(Engine::write_state_marker) — 모의가 15:30에 남긴 마감
+  #  표지로 20:00까지 도는 실계좌 감시견이 멈추지 않게. [why D-122]
+  if (Test-Path "_private\state\session_done$Suffix`_$today") { Say "엔진이 마감 자기 종료 — 재기동하지 않는다."; break }
+  if (Test-Path "_private\state\kill_today$Suffix`_$today")   { Say "운영자 KILL — 오늘은 재기동하지 않는다(풀려면 scripts/kill_release.ps1)." "WARN"; break }
 
   $now = Get-Date
   $exitTimes = @($exitTimes | Where-Object { ($now - $_) -lt $crashWindow }) + $now
@@ -554,5 +678,7 @@ Save-Status "done" @{ }
 #  역할 프로세스·창을 전부 내린다. 이 창(watchdog 역할)도 같이 닫히므로 이 줄이 마지막이어야 한다.
 if ((Test-Path $reaper) -and -not $DryRun) {
   Say "부속 프로세스 정리 — quant_procs.ps1 -KillAll"
-  & powershell -ExecutionPolicy Bypass -NoProfile -File $reaper -KillAll -Quiet 2>&1 | ForEach-Object { if ("$_".Trim()) { Write-RunLog "    $_" } }
+  # 자기 PID를 넘겨 자기가 띄운 것만 내린다 — 계좌를 둘 돌리는 날 15:35에 마감하는 모의 감시견이
+  #  20:00까지 도는 실계좌 트레이더까지 내리던 것을 막는다. [why D-122]
+  & powershell -ExecutionPolicy Bypass -NoProfile -File $reaper -KillAll -Quiet -OwnerPid $PID -Instance $Instance 2>&1 | ForEach-Object { if ("$_".Trim()) { Write-RunLog "    $_" } }
 }

@@ -209,6 +209,7 @@ static std::vector<std::string> fill_record(const std::string& side, const std::
 {
     auto fields = blank(kis_websocket::kMinFieldsFill);
     fields[2] = "0000123456";
+    fields[3] = "0000123455";
     fields[4] = side;
     fields[8] = "005930";
     fields[9] = "10";
@@ -224,6 +225,23 @@ static void test_fill()
     assert(kis_websocket::decode_fill(FieldList(fill_record("02", "2")), fill_notification) == Decode::kOk);
     assert(fill_notification.side == OrderSide::BUY && fill_notification.kis_order_no == "0000123456" && fill_notification.ticker == "005930");
     assert(fill_notification.filled_quantity == 10 && fill_notification.filled_price == 71500.0 && fill_notification.fill_time == "093512");
+    // 원주문번호는 최소 폭 안이라 늘 읽는다.
+    assert(fill_notification.original_order_no == "0000123455");
+    // 주문수량·거래소는 전문 뒤쪽 칸이다. 짧은 전문이면 "모른다"로 두고 체결 자체는 그대로 만든다.
+    assert(fill_notification.order_quantity == 0 && fill_notification.exchange.empty());
+
+    // 26칸 전문이면 보조 필드도 채운다.
+    auto wide_record = fill_record("02", "2");
+    wide_record.resize(26);
+    wide_record[kis_websocket::kFillFieldOrderQuantity] = "91";
+    wide_record[kis_websocket::kFillFieldExchange]      = "KRX";
+    FillNotification wide;
+    assert(kis_websocket::decode_fill(FieldList(wide_record), wide) == Decode::kOk);
+    assert(wide.order_quantity == 91 && wide.exchange == "KRX");
+
+    // 같은 구조체를 돌려 써도 앞 레코드의 보조 필드가 남지 않는다.
+    assert(kis_websocket::decode_fill(FieldList(fill_record("02", "2")), wide) == Decode::kOk);
+    assert(wide.order_quantity == 0 && wide.exchange.empty());
 
     FillNotification sell;
     assert(kis_websocket::decode_fill(FieldList(fill_record("01", "2")), sell) == Decode::kOk);

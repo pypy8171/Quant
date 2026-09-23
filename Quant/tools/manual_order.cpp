@@ -5,14 +5,20 @@
 //   실제(비벤치) 경로. OrderGate(리스크) → KIS submit_order_acknowledgement(접수, ODNO) →
 //   get_balance 폴링(체결=보유수량 변화)까지 한 흐름으로 확인한다.
 //
-//   안전: is_paper=true(모의계좌)에서만 실행된다. 실거래 config면 즉시 중단.
+//   안전: 모의계좌(is_paper=true)는 그냥 돈다. 실계좌는 --live 를 손으로 적었을 때만 돌고,
+//         그때도 지정가 · 5만원 이내만 받는다. 엔진을 띄우기 전에 "이 계좌로 주문이 접수되는가"를
+//         한 건으로 재는 것이 실계좌를 여는 이유다.
+//
+//   --cancel 은 접수 직후 그 주문을 거둔다. 체결될 수 없는 가격과 함께 쓰면 "이 계좌로 주문이
+//   접수되는가"만 재고 미체결을 남기지 않는다.
 //
 //   사용법:
-//     manual_order <config> <buy|sell> <ticker> <quantity> [price] [market|limit]
+//     manual_order <config> <buy|sell> <ticker> <quantity> [price] [market|limit] [--live] [--cancel]
 //   예)
 //     manual_order config/config_paper.json buy  005930 1            (시장가 매수 1주)
 //     manual_order config/config_paper.json buy  005930 1 70000 limit (지정가 70000 매수)
 //     manual_order config/config_paper.json sell 005930 1            (시장가 매도 1주)
+//     manual_order Quant/config/config_live.json buy 201490 1 2610 limit --live  (실계좌 지정가 1주)
 
 #include "api/KisClient.h"
 #include "core/Types.h"
@@ -25,6 +31,7 @@
 #include <nlohmann/json.hpp>
 #include <string>
 #include <thread>
+#include <vector>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -41,20 +48,45 @@ int main(int argc, char** argv)
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
-    if (argc < 5)
+    // --live · --cancel 은 위치 인자가 아니다. 먼저 걷어내고 나머지를 순서대로 읽는다.
+    bool                     allow_live = false;
+    bool                     cancel_after_acknowledgement = false;
+    std::vector<std::string> arguments;
+
+    for (int index = 0; index < argc; ++index)
     {
-        std::cout << "사용법: manual_order <config> <buy|sell> <ticker> <qty> [price] [market|limit]\n"
+        const std::string argument = argv[index];
+
+        if (argument == "--live")
+        {
+            allow_live = true;
+            continue;
+        }
+
+        if (argument == "--cancel")
+        {
+            cancel_after_acknowledgement = true;
+            continue;
+        }
+
+        arguments.emplace_back(argument);
+    }
+
+    if (arguments.size() < 5)
+    {
+        std::cout << "사용법: manual_order <config> <buy|sell> <ticker> <qty> [price] [market|limit] [--live]\n"
                      "예) manual_order config/config_paper.json buy 005930 1\n"
-                     "    manual_order config/config_paper.json buy 005930 1 70000 limit\n";
+                     "    manual_order config/config_paper.json buy 005930 1 70000 limit\n"
+                     "    manual_order config/config_live.json  buy 201490 1 2610 limit --live --cancel  (실계좌 경로 확인)\n";
         return 1;
     }
 
-    const std::string config_path = argv[1];
-    const std::string side_s = argv[2];
-    const std::string ticker = argv[3];
-    const int quantity = std::atoi(argv[4]);
-    const double price = (argc > 5) ? std::atof(argv[5]) : 0.0;
-    const std::string type_s = (argc > 6) ? argv[6] : (price > 0 ? "limit" : "market");
+    const std::string config_path = arguments[1];
+    const std::string side_s = arguments[2];
+    const std::string ticker = arguments[3];
+    const int quantity = std::atoi(arguments[4].c_str());
+    const double price = (arguments.size() > 5) ? std::atof(arguments[5].c_str()) : 0.0;
+    const std::string type_s = (arguments.size() > 6) ? arguments[6] : (price > 0 ? "limit" : "market");
 
     // ── config 로드 ──────────────────────────────────────────────────────────
     std::ifstream file(config_path);
@@ -75,16 +107,42 @@ int main(int argc, char** argv)
     kis_config.hts_id       = config["kis"].value("hts_id", "");
     kis_config.is_paper     = config["kis"]["is_paper"].get<bool>();
 
-    // ── ★ 안전 게이트: 모의계좌 아니면 거부 ──────────────────────────────────
-    if (!kis_config.is_paper)
-    {
-        std::cerr << "[중단] is_paper=false (실거래 config). 이 도구는 모의계좌 전용입니다.\n"
-                     "       config/config_paper.json 을 쓰거나 is_paper=true로 설정하세요.\n";
-        return 2;
-    }
-
     const OrderSide side = (side_s == "sell" || side_s == "SELL") ? OrderSide::SELL : OrderSide::BUY;
     const OrderType type = (type_s == "limit") ? OrderType::LIMIT : OrderType::MARKET;
+
+    // ── ★ 안전 게이트: 실계좌는 --live 를 손으로 적었을 때만 ──────────────────
+    //   엔진을 띄우기 전에 "이 계좌로 주문이 접수되는가"를 한 건으로 재는 자리다. 실계좌를 아예
+    //   막아 두면 그 확인을 할 수 없어, 거부 사유를 장중에야 알게 된다. 대신 실수로 큰 돈이 나가지
+    //   않도록 세 가지를 건다 — 플래그를 손으로 적을 것, 지정가일 것, 금액이 kLiveNotionalCap 이내일 것.
+    //   [inv] allow_live 는 argv 에 "--live" 가 있을 때만 true 다.
+    constexpr double kLiveNotionalCap = 50000.0;
+
+    if (!kis_config.is_paper)
+    {
+        if (!allow_live)
+        {
+            std::cerr << "[중단] is_paper=false (실계좌 config). 실계좌로 내려면 --live 를 붙이세요.\n"
+                         "       예) manual_order Quant/config/config_live.json buy 201490 1 2610 limit --live\n";
+            return 2;
+        }
+
+        if (type != OrderType::LIMIT)
+        {
+            std::cerr << "[중단] 실계좌에서는 지정가만 받습니다 — 가격과 limit 을 적으세요.\n"
+                         "       사람이 내는 단발 주문에 시장가를 허용하면 오타 한 번이 그대로 체결됩니다.\n";
+            return 2;
+        }
+
+        const double notional = price * quantity;
+
+        if (notional > kLiveNotionalCap)
+        {
+            std::cerr << "[중단] 실계좌 주문 금액 " << static_cast<long long>(notional) << "원이 이 도구의 상한 "
+                      << static_cast<long long>(kLiveNotionalCap) << "원을 넘습니다.\n"
+                         "       이 도구는 경로 확인용입니다. 그보다 큰 주문은 엔진으로 내세요.\n";
+            return 2;
+        }
+    }
 
     OrderSignal signal;
     signal.ticker      = ticker;
@@ -97,7 +155,8 @@ int main(int argc, char** argv)
     signal.account_id  = kis_config.account_no; // 계좌별 원장에 실제 계좌로 파티션
 
     // ── 주문 양식 출력 (KIS 요청 본문) ───────────────────────────────────────
-    std::cout << "=== 수동 주문 (모의계좌 " << mask(kis_config.account_no) << ") ===\n";
+    std::cout << "=== 수동 주문 (" << (kis_config.is_paper ? "모의계좌 " : "실계좌 ")
+              << mask(kis_config.account_no) << ") ===\n";
     std::cout << "종목=" << ticker << "  " << (side == OrderSide::BUY ? "매수" : "매도")
               << "  수량=" << quantity << "  유형=" << (type == OrderType::MARKET ? "시장가" : "지정가")
               << "  가격=" << (type == OrderType::LIMIT ? std::to_string(static_cast<int>(price)) : "-") << "\n";
@@ -106,7 +165,9 @@ int main(int argc, char** argv)
               << "  PDNO=" << ticker << "\n"
               << "  ORD_DVSN=" << (type == OrderType::MARKET ? "01(시장가)" : "00(지정가)")
               << "  ORD_QTY=" << quantity << "  ORD_UNPR=" << (type == OrderType::LIMIT ? static_cast<int>(price) : 0) << "\n"
-              << "  tr_id=" << (side == OrderSide::BUY ? "VTTC0802U(모의매수)" : "VTTC0801U(모의매도)") << "\n\n";
+              << "  tr_id=" << (kis_config.is_paper ? (side == OrderSide::BUY ? "VTTC0012U(모의매수)" : "VTTC0011U(모의매도)")
+                                                    : (side == OrderSide::BUY ? "TTTC0012U(실매수)" : "TTTC0011U(실매도)"))
+              << "\n\n";
 
     // ── [1] 인증 ─────────────────────────────────────────────────────────────
     KisClient kis(kis_config);
@@ -159,6 +220,28 @@ int main(int argc, char** argv)
 
     gate.on_accept(signal.account_id, ticker, side, quantity, price); // 미체결 선점(원장)
     std::cout << "[3] 접수 완료 — ODNO=" << kis_order_no << "\n";
+
+    // ── [3-1] 접수만 확인하고 거두기(--cancel) ───────────────────────────────
+    //   "이 계좌로 주문이 접수되는가"만 재는 쓰임이다. 체결될 수 없는 가격으로 내고 곧바로
+    //   거두므로 미체결이 남지 않는다. 남기면 엔진이 기동할 때 open_orders.txt 에 없는 주문이라
+    //   아무도 취소하지 않는다.
+    if (cancel_after_acknowledgement)
+    {
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        const OrderAck cancel = kis.cancel_order(ticker, kis_order_no, acknowledgement.krx_forwarding_org_no,
+                                                 quantity, true);
+
+        if (!cancel.ok())
+        {
+            std::cerr << "[경고] 취소 실패 [" << cancel.error_code << "] — 미체결 주문 " << kis_order_no
+                      << " 가 남아 있다. HTS 나 scripts 로 즉시 거둘 것.\n";
+            return 6;
+        }
+
+        std::cout << "[4] 취소 완료 — 접수번호 " << cancel.kis_order_no << "\n"
+                  << "[판정] 이 계좌로 주문이 접수되고 취소된다. 엔진을 띄워도 된다.\n";
+        return 0;
+    }
 
     // ── [4] 체결 확인 (잔고 폴링) ────────────────────────────────────────────
     //   시장가 주문은 장중이면 곧 체결된다. 지정가/장외 시간이면 미체결일 수 있음.

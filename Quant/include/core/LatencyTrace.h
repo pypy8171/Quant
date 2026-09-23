@@ -36,7 +36,8 @@ int64_t segment_us(int64_t from_ns, int64_t to_ns);
 std::string_view csv_header();
 
 // utc_ms는 줄을 쓴 시각(system_clock). 문자열 필드에 쉼표가 들어올 일은 없다(종목코드·전략 id·enum 이름).
-std::string csv_row(const OrderSignal& signal, const Marks& marks, bool kis_called, bool accepted, int64_t utc_ms);
+std::string csv_row(const OrderSignal& signal, const Marks& marks, const OrderStageTiming& stages, bool kis_called,
+                    bool accepted, int64_t utc_ms);
 
 // 구간 지연의 분포를 원자 버킷으로 모은다 — 주문 스레드가 넣고 데이터 스레드가 HEALTH를 만들 때 읽는다(락 없음).
 // 옥타브(2배 구간)마다 8칸이라 분위수 오차는 칸 너비(12% 안쪽)이고, 기동 후 누적 분포다 — 구간 분포가
@@ -96,14 +97,17 @@ struct PipelineLatency
     LatencyHistogram tick_to_signal; // 틱 수신 → 신호
     LatencyHistogram signal_to_pop;  // 신호 → 주문 큐에서 꺼냄
     LatencyHistogram pop_to_send;    // 꺼냄 → 호출 간격 조절 끝(우리가 스스로 줄 세운 시간)
-    LatencyHistogram gate;           // 주문 게이트 판정
+    LatencyHistogram gate;           // 주문 게이트 판정(아래 이력 가드 몰을 벙 것)
+    LatencyHistogram history_guard;  // 주문 이력 잠금·중복 가드 훑기(선형 탐색)
     LatencyHistogram journal;        // 원장 선기록(디스크)
     LatencyHistogram bucket_wait;    // 증권사 초당한도 버킷 줄서기
     LatencyHistogram transport;      // 증권사 REST 왕복
-    LatencyHistogram pop_to_done;    // 꺼냄 → 라우터 반환(위 다섯을 다 품은 한 덩이)
+    LatencyHistogram record;         // 전송 뒤 마무리 — 접수 확정·발행·이력 저장·원장 CSV·미결주문 파일
+    LatencyHistogram open_orders;    // 그중 미결주문 파일 다시쓰기 — record 안에 든 몫이라 합산에서 뺀다
+    LatencyHistogram pop_to_done;    // 꺼냄 → 라우터 반환(위 여섯을 다 품은 한 덩이)
     LatencyHistogram total;          // 틱 수신 → 라우터 반환
 
-    static constexpr int kSegmentCount = 9;
+    static constexpr int kSegmentCount = 12;
 
     void add(const Marks& marks, const OrderStageTiming& stages) noexcept;
 
@@ -111,7 +115,7 @@ struct PipelineLatency
     [[nodiscard]] static std::array<std::string_view, kSegmentCount> segment_names() noexcept;
 };
 
-// 한 시점의 아홉 구간 사본. 데이터 스레드가 HEALTH를 만들 때 뜨고, 직전 것과 빼 구간 분위수를 낸다.
+// 한 시점의 열한 구간 사본. 데이터 스레드가 HEALTH를 만들 때 뜨고, 직전 것과 빼 구간 분위수를 낸다.
 struct PipelineSnapshot
 {
     std::array<HistogramSnapshot, PipelineLatency::kSegmentCount> segments{};
@@ -125,7 +129,8 @@ class LatencyTrace
 public:
     explicit LatencyTrace(std::filesystem::path path) : path_(std::move(path)) {}
 
-    void record(const OrderSignal& signal, const Marks& marks, bool kis_called, bool accepted);
+    void record(const OrderSignal& signal, const Marks& marks, const OrderStageTiming& stages, bool kis_called,
+                bool accepted);
 
     [[nodiscard]] uint64_t rows() const noexcept
     {

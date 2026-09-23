@@ -204,14 +204,21 @@ static_assert(std::is_trivially_copyable_v<TradeData> && std::is_trivially_copya
 // ─────────────────────────────────────────────────────────────────────────────
 // 체결통보 (H0STCNI0 실거래 / H0STCNI9 모의투자)
 // ─────────────────────────────────────────────────────────────────────────────
+// [inv] 전문에 체결 건별 고유번호가 없다 — 식별자는 주문번호(ODER_NO)와 원주문번호(OODER_NO) 둘뿐이다.
+//  그래서 체결 한 건을 가리키려면 라우터가 (거래일:주문번호:체결시각:수량:단가) 조합키를 만든다(ipc/FillKey.h).
 struct FillNotification
 {
-    std::string kis_order_no;                              // KIS 주문번호 (ODNO)
-    std::string ticker;                            // 단축종목코드
-    OrderSide   side        = OrderSide::NONE;
-    int         filled_quantity  = 0;                   // 체결수량 (CNTG_QTY)
-    double      filled_price = 0.0;                // 체결단가 (CNTG_UNPR)
-    std::string fill_time;                         // 체결시간 HHMMSS
+    std::string kis_order_no;                        // KIS 주문번호 (ODER_NO)
+    std::string original_order_no;                   // 원주문번호 (OODER_NO). 정정·취소면 고친 대상, 신규는 0 채움
+    std::string ticker;                              // 단축종목코드
+    OrderSide   side            = OrderSide::NONE;
+    int         filled_quantity = 0;                 // 체결수량 (CNTG_QTY)
+    double      filled_price    = 0.0;               // 체결단가 (CNTG_UNPR)
+    std::string fill_time;                           // 체결시간 HHMMSS
+    // 주문수량 (ODER_QTY). 전문 뒤쪽 필드라 짧은 전문에서는 0 — 0이면 "모른다"는 뜻이다.
+    //  미연결 체결의 잔량 상한이 이 값이다(OrderRouter::on_fill).
+    int         order_quantity  = 0;
+    std::string exchange;                            // 주문거래소 구분 (ORD_EXG_GB, KRX/NXT). 짧은 전문에서는 빈 값
     std::chrono::system_clock::time_point timestamp;
 };
 
@@ -236,14 +243,23 @@ uint64_t digits_to_number(std::string_view digits) noexcept;
 uint64_t next_client_order_number() noexcept;
 
 // 주문 하나가 OrderRouter 안에서 쓴 시간(us). -1은 그 구간을 안 지났다 — 게이트 거부는 원장·전송이 없다.
-// 주문 스레드가 이 값을 구간 분포에 넣는다. pop→반환을 한 덩이로 두면 게이트·원장 디스크·초당한도 줄서기·
-// 망 왕복 중 누구 탓인지 못 가른다. [why D-071] [wire] Quant/include/core/LatencyTrace.h PipelineLatency::add
+// 주문 스레드가 이 값을 구간 분포에 넣는다. pop→반환을 한 덩이로 두면 게이트·이력 훑기·원장 디스크·초당한도
+// 줄서기·망 왕복·파일 쓰기 중 누구 탓인지 못 가른다. gate·이력가드·원장·버킷·왕복·마무리 여섯을 더하면
+// pop→반환에 거의 닿고, 나머지 칸은 그 여섯을 다시 가른 몫이다(합에 두 번 넣지 않는다). [why D-071] [wire] Quant/include/core/LatencyTrace.h PipelineLatency::add
 struct OrderStageTiming
 {
-    int64_t gate_us        = -1; // 라우터 진입 → 게이트 판정 끝(한도 클램프·예약매도 정리·check)
-    int64_t journal_us     = -1; // 원장 선기록(take_intent — 디스크에 닿는다) [why D-113]
-    int64_t bucket_wait_us = -1; // 증권사 초당한도 버킷에서 줄 선 시간
-    int64_t transport_us   = -1; // 증권사 REST 왕복(버킷 대기 뺀 몫)
+    int64_t gate_us          = -1; // 라우터 진입 → 게이트 판정 끝(한도 클램프·예약매도 정리·check). history_guard_us를 뺀 몫
+    int64_t history_guard_us = -1; // 주문 이력 잠금·중복 가드(취소누락 보류 조회 + 같은 시장가 매도 선형 탐색)
+    int64_t history_lock_wait_us = -1; // 그중 잠금을 기다린 몫. 나머지가 잠금 안에서 훑은 몫이다 [why D-126]
+    int64_t journal_us       = -1; // 원장 선기록(take_intent — 디스크에 닿는다) [why D-113]
+    int64_t bucket_wait_us   = -1; // 증권사 초당한도 버킷에서 줄 선 시간
+    int64_t transport_us     = -1; // 증권사 REST 왕복(버킷 대기 뺀 몫)
+    int64_t record_us        = -1; // 전송 뒤 마무리 — 접수 확정(원장 ACCEPT)·발행·이력 저장·원장 CSV·미결주문 파일
+    // record_us를 셋으로 가른 몫. 셋을 더하면 record_us에 거의 닿는다(남는 건 구간 사이 잔돈). [why D-126]
+    int64_t accept_us        = -1; // 접수 확정 — 원장 ACCEPT/REJECT 기록(드물게 청산차단 자가정리 왕복도 여기 든다)
+    int64_t publish_us       = -1; // ZMQ 발행
+    int64_t history_store_us = -1; // 이력 저장 — 이력 잠금·미결주문 스냅숏·파일 넘기기(open_orders_us를 품는다)
+    int64_t open_orders_us   = -1; // 그중 미결주문 파일 다시쓰기 몫(record_us 안에 포함된다 — 더할 때 빼야 한다)
 };
 
 struct ManagedOrder

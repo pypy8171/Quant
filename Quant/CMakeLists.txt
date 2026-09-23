@@ -138,6 +138,9 @@ set(HEADER_IMPL_SOURCES
   src/core/Types.cpp
   src/core/UniverseExit.cpp
   src/core/WakeGate.cpp
+  src/exchange/MatchingEngine.cpp
+  src/exchange/OrderWire.cpp
+  src/exchange/ZmqOrderFeed.cpp
   src/ipc/FillKey.cpp
   src/ipc/Heartbeat.cpp
   src/ipc/OpsProtocol.cpp
@@ -419,6 +422,10 @@ if(UNIX)
     target_link_libraries(test_order_rate_limiter PRIVATE pthread)
 endif()
 
+# KIS REST 초당 한도 버킷(api/KisRateBucket.h) — 헤더 전용 constexpr, 네트워크 없음
+add_executable(test_kis_rate_bucket tests/test_kis_rate_bucket.cpp)
+target_include_directories(test_kis_rate_bucket PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # 매크로 국면 파일 전달(core/RegimeFileJudge.h) — 헤더 전용, 파일·로그 없음 (D-060)
 add_executable(test_devscale_rules tests/test_devscale_rules.cpp)
 target_include_directories(test_devscale_rules PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -565,6 +572,14 @@ endif()
 # ─── 테스트 타겟: PaperExecutor 다음 틱 체결·지정가 대기·한도 거부·취소/정정 (헤더 전용, D-071) ──
 add_executable(test_paper_executor tests/test_paper_executor.cpp)
 target_include_directories(test_paper_executor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# ─── 테스트 타겟: 부하시험용 거래소 매칭 엔진 — 호가 격자·동시호가 적재·단일가 일괄 체결·연속매매 (헤더 전용, D-071) ──
+add_executable(test_matching_engine tests/test_matching_engine.cpp)
+target_include_directories(test_matching_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# ─── 테스트 타겟: 부하시험 주문 수신단 — 주문 전문 읽기/적기·종목 순번 배선·체결 올리기 (헤더 전용, D-071) ──
+add_executable(test_zmq_order_feed tests/test_zmq_order_feed.cpp)
+target_include_directories(test_zmq_order_feed PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # ─── 테스트 타겟: FeedMux 종목 배정·소스별 스레드 → mux 스레드 하나·증분/넘침·체결통보 첫 소스 (헤더 전용, D-071) ──
 add_executable(test_feed_mux tests/test_feed_mux.cpp)
@@ -823,6 +838,7 @@ set(QUANT_ASSERT_TARGETS
     test_data_poller
     test_signal_dispatcher
     test_order_rate_limiter
+    test_kis_rate_bucket
     test_bar_aggregator
     test_ops_protocol
     test_ops_server
@@ -841,6 +857,8 @@ set(QUANT_ASSERT_TARGETS
     test_prefetch_pool
     test_replay_source
     test_paper_executor
+    test_matching_engine
+    test_zmq_order_feed
     test_feed_mux
     test_feed_supervisor
     test_session_end
@@ -996,6 +1014,20 @@ else()
 endif()
 
 # ─── 벤치: REST 커넥션 풀링(P-2) 효과 — 조회 왕복 지연 분포, QUANT_HTTP_NOPOOL로 A/B ──
+# 거래대금 랭킹 점검 — 행수·ETF 섞임·정렬을 한 번에 본다(D-120 절차의 실측 자리).
+add_executable(ranking_check
+    tools/ranking_check.cpp
+    ${KIS_CLIENT_SOURCES}
+    src/utils/Logger.cpp
+)
+target_include_directories(ranking_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(ranking_check PRIVATE
+        CURL::libcurl OpenSSL::Crypto nlohmann_json::nlohmann_json pthread stdc++fs)
+else()
+    target_link_libraries(ranking_check PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
+endif()
+
 add_executable(bench_rest_pool
     tools/bench_rest_pool.cpp
     ${KIS_CLIENT_SOURCES}

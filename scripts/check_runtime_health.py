@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import datetime as dt
 import gzip
 import json
@@ -26,6 +27,8 @@ from log_patterns import GUARD_ATTACH_RE as GUARD_RE  # noqa: E402
 DEFAULT_LOG = _logdir.log_dir() / "quant_trader.log"
 # ThreadSanitizer 회차가 남기는 한 줄 요약. scripts/tsan_round.sh 가 쓴다.
 TSAN_STATE = REPO / "_private" / "state" / "tsan_last.json"
+# KIS 국내휴장일조회(CTCA0903R) 24일치 캐시. scripts/check_market_open.py 가 쓴다.
+HOLIDAY_CALENDAR = REPO / "logs" / "holiday_calendar.json"
 # 그 회차가 본 커밋 뒤로 여기가 바뀌었으면 회차를 다시 돌 때다 — 스레드가 여럿 붙는 코드만 고른다.
 TSAN_WATCH_PATHS = ("Quant/include/core", "Quant/src/core", "Quant/include/risk", "Quant/src/risk",
                     "Quant/include/ipc", "Quant/src/ipc", "Quant/include/feed", "Quant/src/feed")
@@ -44,6 +47,13 @@ BREAKEVEN_RE = re.compile(r"본전탈출\)")
 FILL_RE = re.compile(r"체결통보 ODNO=\d+ (\d{6}) (BUY|SELL) (\d+)주")
 RATE_RE = re.compile(r"EGW00201|초당 거래건수")
 WSFALL_RE = re.compile(r"WS → REST 폴링 폴백")
+# 거래대금 랭킹: 축·ETF드롭·생존 행수. ETF드롭이 0이 아니면 API단 제외 마스크가 안 먹는 것이다.
+VALUE_RANK_DIAG_RE = re.compile(r"거래대금랭킹 진단\(축=(\d).*?ETF드롭=(\d+).*?생존=(\d+)")
+VALUE_RANK_DONE_RE = re.compile(r"거래대금 랭킹 조회 완료: (\d+)종목 \(요청 count=(\d+)\)")
+# 시총 랭킹: 이 축은 ETF를 API단에서 못 빼 보통주 구분값과 이름 필터로만 거른다. raw의 절반 넘게
+#  ETF면 화면코드·tr_id 짝이 어긋나 거래량 순위가 온 것이다(2026-09-23까지 그렇게 새고 있었다).
+MARKET_CAP_DIAG_RE = re.compile(r"시총랭킹 진단: raw=(\d+).*?ETF드롭=(\d+).*?생존=(\d+)")
+MARKET_CAP_DONE_RE = re.compile(r"시총 랭킹 조회 완료: (\d+)종목 \(요청 count=(\d+)\)")
 # 주문 접수·거부 한 줄의 왕복 시간. 버킷대기는 09-19 이후 바이너리만 찍는다(없으면 None).
 RTT_RE = re.compile(r"\[OrderRouter\] (?:접수|KIS 거부) .*?RTT=(\d+)ms(?: 버킷대기=(\d+)ms)?")
 # D-100 — 잔고 조회가 한 사이클(500ms)을 넘겨 뒤 사이클에서 적용된 건
@@ -63,6 +73,10 @@ B2_OFF_RE = re.compile(r"신규 진입 정지 해제\(B2\)")
 TRENDX_REGISTER_RE = re.compile(r"TRENDX universe_from_scan: 초기 (\d+)종목 등록")
 # D-101 결정 3 — 마감 청산이 매매 창 안(모의 15:15·실계좌 19:50, 접속매매)에 나가면 이 거부는 0건이다(09-18 2,188건이 25종목 이월을 만들었다)
 SESSION_WINDOW_REJECT_RE = re.compile(r"\[OrderRouter\] 거부 .*세션 창 밖")
+# 주문구분이 그 시장·그 시각에 안 받는 값이라 되돌아온 거부. APBK1943 = 최유리지정가호가불가 —
+#  KRX 애프터마켓(16:00~20:00)이 최유리지정가를 안 받는데 정규장 밖 시장가를 그것으로 보내던 배선이
+#  2026-09-23 실계좌에서 12건 되돌아왔다. 지금은 지정가(00)+현재가로 보낸다.
+ORDER_DIVISION_REJECT_RE = re.compile(r"\[OrderRouter\] KIS 거부 .*\[APBK1943\]")
 # D-109 — 목표 비중표 바스켓. 격리 3종(청산관리·교체·DEVSCALE)과 재기동 중복 방지가 실제로 지켜졌는지 로그로 본다.
 BASKET_LOADED_RE = re.compile(r"\[BASKET_\w+\] 목표 비중표 읽음 as_of=(\d{8})")
 BASKET_ORDER_RE = re.compile(r"\[BASKET_\w+\] 주문: (\d{6}) (매수|매도) (\d+)주")
@@ -100,6 +114,12 @@ MAX_RATE_RETRIES = 10     # 초당 한도로 되보낸 HTTP 요청 — 09-22 37�
 LEDGER_REPLAY_RE = re.compile(r"\[Engine\] 원장 저널 리플레이: (\d+)건 \(마지막 seq (\d+)(, 꼬리 잘림)?\)")
 LEDGER_RESOLVE_RE = re.compile(r"\[Engine\] 원장 미결 주문 대조: 되살림 (\d+)건 · 선점해제 (\d+)건 · 저널기록실패 (\d+)건")
 LEDGER_WRITE_FAIL_RE = re.compile(r"\[OrderRouter\] 원장 저널 기록 실패")
+# 엔진이 모르는 채 브로커에 살아 있던 주문 — 전송이 타임아웃 나면 KIS에는 접수됐는데 ODNO를 못 받아
+#  부속 파일에 못 적는다. 그 주문이 보유분을 묶으면 손절이 닿아도 못 판다(2026-09-23 09:26 021240,
+#  ODNO=0000007886 매도 18주). 기동 때 브로커 조회로 보충하면 이 줄이 남는다 — 남았다는 건 그날 샜다는 뜻이다.
+UNTRACKED_OPEN_RE = re.compile(r"부속 파일에 없는 미체결 — 브로커 조회로 보충")
+# 청산이 막혔는데 풀지 못한 채 넘어간 것. 위와 같은 뿌리이나 이쪽은 재기동 전까지 방치된다.
+BLOCKED_SELL_RE = re.compile(r"청산차단 미해소")
 # 전략 사망 마무리(D-114 단계 2) — 주문 스레드가 전략 박동 공백만 보고 낸 판정.
 BEAT_DEAD_RE = re.compile(r"\[마무리\] 전략 박동이 끊겼다")
 BEAT_BACK_RE = re.compile(r"\[마무리\] 전략 박동이 돌아왔다")
@@ -128,6 +148,10 @@ FEED_CHANNEL_DISCARD_RE = re.compile(r"feed_channel_discarded=(\d+)")
 FILL_SESSION_ONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 소켓 (\d+)")
 FILL_SESSION_NONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 없음")
 FILL_SESSION_MANY_RE = re.compile(r"\[Engine\] 체결통보 세션: (\d+)개")
+# ZMQ PUB/REP 포트를 먼저 뜬 엔진이 잡고 있으면 나중에 뜬 쪽은 bind 에 실패한 뒤 ERROR 한 줄만 남기고
+#  계속 돈다 — 체결·시그널이 TimescaleDB 에 하나도 안 들어간 채로 매매한다. 계좌를 둘 돌리는 날의
+#  가장 조용한 실패라 판정 행으로 둔다(실계좌는 5565/5566 으로 옮겨 놨다). [why D-122]
+ZMQ_BIND_FAIL_RE = re.compile(r"\[ZMQ\] 소켓 bind 실패")
 
 BASKET_BUY_LEG_DEADLINE = 15 * 3600 + 5 * 60  # 매수 레그는 15:05까지 끝나야 마감 청산(15:15)과 겹치지 않는다(D-109)
 
@@ -459,6 +483,233 @@ def tsan_row(date: str) -> tuple:
             + (f"{stale}건" if stale >= 0 else "셀 수 없음"))
 
 
+# 애프터마켓 주문을 되돌려보낸 KIS 오류. 주문구분·거래소를 잘못 실으면 이 코드로 온다.
+#   APBK1943 최유리지정가호가불가 — 애프터마켓은 최유리·최우선을 안 받는다
+#   APBK3009 SOR 시장에서 거래가 불가능한 종목 — 애프터마켓은 거래소를 KRX 로 못박아야 한다
+AFTER_MARKET_REJECT_CODES = ("APBK1943", "APBK3009")
+AFTER_MARKET_OPEN_HHMM = "16:00"
+AFTER_MARKET_CLOSE_HHMM = "20:00"
+
+
+# 스캔 로그 한 줄에서 "이름=숫자" 를 전부 뽑는다. 데이터부족 은 "데이터부족(<60봉)=4" 처럼
+#  괄호가 끼어 있어 이름과 = 사이를 건너뛴다.
+SCAN_COUNTER_PATTERN = re.compile(r"([가-힣]+)(?:\([^)]*\))?=(\d+)")
+
+
+def after_market_order_row(date: str) -> tuple:
+    """애프터마켓(16:00~20:00) 주문이 주문구분·거래소 때문에 되돌아왔는지.
+
+    모의계좌는 애프터마켓 주문 자체를 받지 않아, 이 경로는 실계좌에서만 드러난다. 2026-09-23
+    실계좌 첫날 청산 주문 12건이 이 자리에서 전부 거부됐다 — 최유리지정가(03)로 8건, 거래소를
+    SOR 로 둔 지정가(00)로 4건. 보유분이 청산되지 않고 다음 날로 이월된다. [why D-097]
+    원장은 한 곳이 아니다 — 실계좌·모의·리눅스 빌드가 저마다 폴더를 쓰므로 전부 훑는다.
+    """
+    name = "애프터마켓 주문구분"
+    date_compact = date.replace("-", "")
+    rejects: list[str] = []
+    after_market_orders = 0
+
+    for ledger in sorted(REPO.glob(f"Quant/build*/logs*/trades_{date_compact}.csv")):
+        try:
+            with ledger.open(encoding="utf-8", errors="replace", newline="") as handle:
+                for record in csv.DictReader(handle):
+                    stamp = (record.get("ts_kst") or "")[11:16]
+
+                    if not AFTER_MARKET_OPEN_HHMM <= stamp < AFTER_MARKET_CLOSE_HHMM:
+                        continue
+
+                    after_market_orders += 1
+                    reason = record.get("reason") or ""
+
+                    if any(code in reason for code in AFTER_MARKET_REJECT_CODES):
+                        rejects.append(f"{stamp} {record.get('ticker', '')} [{ledger.parent.name}]")
+        except OSError:
+            continue
+
+    if not after_market_orders:
+        return (name, True, "WARN", "애프터마켓 시간대 주문이 없다 — 판정 안 함")
+
+    if rejects:
+        return (name, False, "FAIL",
+                f"애프터마켓 주문 {after_market_orders}건 중 주문구분·거래소 거부 {len(rejects)}건"
+                f" — {', '.join(rejects[:3])}"
+                " (16:00~20:00 은 주문구분 41 + 거래소 KRX 여야 한다, D-097)")
+
+    return (name, True, "FAIL", f"애프터마켓 주문 {after_market_orders}건, 주문구분·거래소 거부 0건")
+
+
+def scan_registration_row(date: str) -> tuple:
+    """유니버스 스캔이 하루 종일 한 종목도 등록하지 못한 계좌가 있는지.
+
+    스캔이 0종목으로 끝나면 신호가 만들어지지 않아 매매가 통째로 없다. 그런데 엔진은
+    아무 경고도 내지 않는다 — "오늘은 후보가 없었다" 와 "거르는 조건이 어긋나 있다" 가
+    로그에서 똑같이 보이기 때문이다. 2026-09-23 실계좌 애프터마켓이 그랬다. 거래대금
+    문턱을 10억에서 1억으로 낮춰 검사 대상을 23에서 36으로 늘렸는데도 늘어난 13종목이
+    전부 역배열컷에 걸려 등록은 0 그대로였다. 후보는 급등락 랭킹에서 오는데 진입은
+    정배열을 요구해, 두 기준이 서로 반대쪽을 본다. [why D-097]
+
+    로그 폴더별로 가른다 — 실계좌·모의·리눅스가 저마다 폴더를 쓰는데 한데 합치면 모의의
+    정상 등록이 실계좌의 0을 덮는다(09-23 실측: 합치면 948회 11,108종목으로 통과했다).
+    등록이 한 번도 안 난 폴더는 무엇이 걸렀는지를 같이 낸다 — 그 내역이 곧 다음에 고칠 자리다.
+    """
+    name = "스캔 등록"
+    scans_by_account: dict = {}
+    registered_by_account: dict = {}
+    breakdown_by_account: dict = {}
+
+    for engine_log in sorted(REPO.glob("Quant/build*/logs*/quant_trader.log")):
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        account = engine_log.parent.name
+
+        for line in body.splitlines():
+            if date not in line or "정배열 프리필터" not in line:
+                continue
+
+            counters = dict(SCAN_COUNTER_PATTERN.findall(line))
+            scans_by_account[account] = scans_by_account.get(account, 0) + 1
+            registered_by_account[account] = (registered_by_account.get(account, 0)
+                                              + int(counters.get("등록", "0")))
+
+            # 마지막 스캔의 내역만 남긴다 — 하루치를 합치면 재스캔 주기만큼 부풀어
+            #  "몇 종목이 왜 걸렸나" 를 못 읽는다.
+            breakdown_by_account[account] = (
+                f"후보 {counters.get('후보', '?')} 중"
+                f" 거래대금미달 {counters.get('거래대금미달', '?')}"
+                f"·역배열 {counters.get('역배열컷', '?')}"
+                f"·과확장 {counters.get('과확장컷', '?')}"
+                f"·데이터부족 {counters.get('데이터부족', '?')}"
+            )
+
+    if not scans_by_account:
+        return (name, True, "WARN", f"{date} 스캔 로그가 없다 — 판정 안 함")
+
+    empty = [account for account, total in registered_by_account.items() if not total]
+
+    if empty:
+        details = "; ".join(
+            f"{account} 스캔 {scans_by_account[account]}회 모두 0종목"
+            f" ({breakdown_by_account[account]})" for account in sorted(empty))
+        return (name, False, "FAIL",
+                f"{details} (신호가 안 만들어져 매매가 통째로 없다, D-097)")
+
+    summary = ", ".join(f"{account} {registered_by_account[account]}종목"
+                        for account in sorted(registered_by_account))
+    return (name, True, "FAIL", f"모든 계좌가 등록했다 — {summary}")
+
+
+def fill_notice_session_row(date: str) -> tuple:
+    """체결통보 세션이 붙었는지. 없으면 체결이 원장에 안 실린다.
+
+    2026-09-23 실계좌 첫날, 설정에 quote_kis 가 없어 유니버스 스캔이 통째 건너뛰었고,
+    구독 종목이 0개라 WS 자체가 안 열려 체결통보까지 끈겼다. 그 탓에 16:59 청산 체결이
+    원장에 안 실리고, 잔고 대조가 보유를 지우는(PRUNE) 것으로 끝났다 — 손익 귀속이 통째 비었다.
+    기동 로그 한 줄로 드러나므로 그걸 본다. [why D-097]
+    """
+    name = "체결통보 세션"
+    missing: list[str] = []
+    attached = 0
+
+    for engine_log in sorted(REPO.glob("Quant/build*/logs*/quant_trader.log")):
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        # 기동 하나를 "WS 구독 종목" 줄로 끊는다. 그 뒤에 "체결통보 세션" 줄이 아예
+        #  안 나오면 WS 를 안 열었다는 뜻이다 — 그 갈래가 조용했던 탓에 09-23 실계좌 기동
+        #  다섯 번이 통보 없이 돌았는데도 판정이 통과했다. 이제 엔진이 그 줄을 남기지만
+        #  지나간 날 로그에는 없어 순서로도 가른다. 한 파일 안에 옆 엔진과 새 엔진의 기동이
+        #  섞여 있어(09-23 모의는 13:29부터 새 exe) 파일 단위로는 가를 수 없다.
+        pending_start = ""
+
+        for line in body.splitlines():
+            if date not in line:
+                continue
+
+            if "WS 구독 종목" in line:
+                if pending_start:
+                    missing.append(f"{pending_start} [{engine_log.parent.name}]")
+
+                # 구독이 한 종목이라도 있으면 WS 는 열렸다 — 문제는 0개일 때였다.
+                pending_start = line[11:19] if "0개" in line else ""
+                continue
+
+            if "체결통보 세션" not in line:
+                continue
+
+            pending_start = ""
+
+            if "없음" in line:
+                missing.append(f"{line[11:19]} [{engine_log.parent.name}]")
+            else:
+                attached += 1
+
+        if pending_start:
+            missing.append(f"{pending_start} [{engine_log.parent.name}]")
+
+    if not attached and not missing:
+        return (name, True, "WARN", f"{date} 기동 로그가 없다 — 판정 안 함")
+
+    if missing:
+        return (name, False, "FAIL",
+                f"체결통보 없이 둔 기동 {len(missing)}회 — {', '.join(missing[:3])}"
+                " (체결이 원장에 안 실려 손익 귀속이 비고, 잔고 대조가 보유를 지운다, D-097)")
+
+    return (name, True, "FAIL", f"기동 {attached}회 모두 체결통보 세션을 잡았다")
+
+
+def market_open_gate_row(date: str) -> tuple:
+    """감시견의 휴장일 관문(scripts/auto_trade_day.ps1)이 그날 제대로 갈렸는지.
+
+    휴장일에 떠도 주문은 안 나가지만 토큰을 새로 받고 WS 재접속을 되풀이한다. 반대로 개장일에 관문이
+    잘못 걸리면 그날 매매가 통째로 없다 — 이쪽이 훨씬 비싸서 FAIL로 본다. [why D-120]
+    개장 여부를 모르는 날(조회 실패)은 판정하지 않는다 — 관문 자체가 그때는 통과시키기로 돼 있다.
+    """
+    name = "휴장일 관문"
+    date_compact = date.replace("-", "")
+
+    try:
+        cached = json.loads(HOLIDAY_CALENDAR.read_text(encoding="utf-8"))
+        calendar = {str(row.get("bass_dt", "")): str(row.get("opnd_yn", "")).upper()
+                    for row in cached.get("rows", [])}
+    except (OSError, ValueError):
+        calendar = {}
+
+    open_flag = calendar.get(date_compact, "")
+
+    if open_flag not in ("Y", "N"):
+        return (name, True, "WARN",
+                f"{date_compact} 개장 여부를 달력에서 못 찾았다 — 판정 안 함"
+                " (py scripts/check_market_open.py 로 달력을 받는다)")
+
+    # 감시견은 엔진 로그 폴더가 아니라 저장소 logs/ 에 쓴다(scripts/auto_trade_day.ps1 $RunLog).
+    run_log = REPO / "logs" / f"auto_trade_day_{date_compact}.log"
+
+    try:
+        log_text = run_log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return (name, True, "WARN", f"감시견 실행 로그 없음({run_log.name}) — 감시견이 안 돌았다, 판정 안 함")
+
+    skipped = "휴장일 — 트레이더도 부속 창도 띄우지 않는다" in log_text
+    unknown = "개장 여부를 확인하지 못했다" in log_text
+
+    if open_flag == "N":
+        return (name, skipped, "FAIL",
+                ("휴장일을 걸러 아무것도 안 띄웠다" if skipped
+                 else "휴장일인데 관문이 안 걸렸다 — 감시견이 창을 띄우고 하루를 헛돌았다"))
+
+    if skipped:
+        return (name, False, "FAIL",
+                "개장일인데 휴장으로 걸러 아무것도 안 띄웠다 — 그날 매매가 통째로 없다")
+
+    return (name, True, "FAIL",
+            "개장일을 그대로 통과했다" + (" (개장 여부 조회는 실패했고 관문이 통과시켰다)" if unknown else ""))
+
+
 def order_latency_breakdown_row(date: str) -> tuple:
     """주문 한 건이 어디서 시간을 썼는지. 우리 쪽 구간(리스크 점검·원장 선기록)만 판정하고
     증권사 쪽(초당 한도 대기·왕복)은 수치만 적는다 — 우리가 줄일 수 없는 것으로 FAIL을 내면 판정이 무뎌진다.
@@ -513,6 +764,124 @@ def order_latency_breakdown_row(date: str) -> tuple:
             f"·왕복 {milliseconds(transport)}, 우리가 건 호출 간격 조절 {milliseconds(rate_limit)}")
 
 
+def job_attach_row(date: str) -> tuple:
+    """감시견이 띄운 프로세스가 작업 개체에 전부 들어갔는지.
+
+    감시견은 부속 창과 트레이더를 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE 잡에 넣는다 —
+    감시견이 어떻게 죽든 커널이 자식을 같이 정리하게 하려는 것이다. 편입에 실패한 프로세스는
+    감시견이 사라져도 혼자 남는다. 트레이더가 그렇게 남으면 아무도 보지 않는 채 발주가 이어지고,
+    다음 기동은 중복 프로세스 검사에 막혀 그날 매매가 통째로 빈다.
+    감시견은 실패를 WARN 한 줄로만 남기고 지나가므로 여기서 판정한다.
+    """
+    name = "부속 잡 편입"
+    date_compact = date.replace("-", "")
+    # 계좌마다 감시견이 따로 돌고 로그도 갈린다 — 모의는 auto_trade_day_, 실계좌는
+    #  auto_trade_day_live_. 한쪽만 보면 나머지 계좌의 실패를 통째로 놓친다. [why D-122]
+    run_logs = sorted((REPO / "logs").glob(f"auto_trade_day_*{date_compact}.log"))
+
+    if not run_logs:
+        return (name, True, "WARN",
+                f"감시견 실행 로그 없음(auto_trade_day_*{date_compact}.log) — 감시견이 안 돌았다, 판정 안 함")
+
+    attached = 0
+    create_failures = 0
+    add_failures: list[str] = []
+
+    for run_log in run_logs:
+        try:
+            log_text = run_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        attached += log_text.count("잡에 묶음")
+        create_failures += log_text.count("Job Object 생성 실패")
+        # 어느 계좌에서 났는지 남긴다 — 파일 이름의 auto_trade_day_ 뒤, 날짜 앞이 인스턴스다.
+        instance = run_log.stem[len("auto_trade_day_"):-len(date_compact)].strip("_") or "모의"
+
+        for line in log_text.splitlines():
+            if "잡 편입 실패" in line:
+                add_failures.append(f"{instance}: {line.strip()[:70]}")
+
+    ok = not add_failures and create_failures == 0
+    detail = f"편입 {attached}건 성공, 편입 실패 {len(add_failures)}건, 잡 생성 실패 {create_failures}회"
+
+    if add_failures:
+        detail += " — " + " / ".join(add_failures[:3])
+
+    if create_failures:
+        detail += " — 잡이 아예 없는 세션은 부속 창이 감시견보다 오래 남는다"
+
+    return (name, ok, "FAIL", detail)
+
+
+def orphan_process_rows() -> list:
+    """부모가 이미 죽었는데 혼자 남은 프로세스를 지금 이 순간 기준으로 센다.
+
+    엔진 계열이 그렇게 남는 것은 잡이 제 일을 못 했거나 누가 손으로 띄운 것이라 이중 발주로 이어진다.
+    개발 도구 쪽은 아직 하루를 망친 적이 없어 수치만 적는다 — 며칠 쌓아 보고 기준값을 정한다
+    (2026-09-23 시작. 그날 재부팅 전 도구들이 물리 메모리 15GB를 물고 있었고, 부모 없이 남은 것은
+    9MB 하나뿐이라 원인이 그게 아니라 안 닫은 창이었다. 그 판단을 수치로 이어 두려는 행이다).
+    """
+    engine_name = "엔진 남은 프로세스"
+    tool_name = "도구 남은 프로세스"
+
+    try:
+        import psutil
+    except ImportError:
+        return [(engine_name, True, "WARN", "psutil 없음 — 판정 안 함 (py -m pip install psutil)"),
+                (tool_name, True, "WARN", "psutil 없음 — 판정 안 함")]
+
+    # 감시견 잡이 지켜야 하는 것들. 부모 없이 남으면 감시 밖에서 도는 중이다.
+    engine_names = ("quant_trader", "ops_terminal")
+    # 창을 닫아도 남는지 보려고 세는 것들. 판정이 아니라 관측이라 목록이 넉넉해도 된다.
+    tool_names = ("Code", "devenv", "node", "python", "py", "claude",
+                  "cpptools", "cpptools-srv", "vcpkgsrv", "copilot-language-server",
+                  "msedgewebview2", "ServiceHub.Host.dotnet.x64")
+
+    engine_orphans: list[str] = []
+    tool_orphans: list[str] = []
+    tool_bytes = 0
+
+    for process in psutil.process_iter(["name"]):
+        try:
+            raw_name = process.info["name"] or ""
+            base_name = raw_name[:-4] if raw_name.lower().endswith(".exe") else raw_name
+
+            if base_name not in engine_names and base_name not in tool_names:
+                continue
+
+            # parent() 는 부모 PID 를 찾은 뒤 그 프로세스의 생성 시각이 자식보다 이른지까지 본다 —
+            #  윈도는 PID 를 재사용하므로 이 확인이 없으면 남의 프로세스를 부모로 착각한다.
+            if process.parent() is not None:
+                continue
+
+            resident_bytes = process.memory_info().rss
+        except (psutil.Error, OSError):
+            continue
+
+        if base_name in engine_names:
+            engine_orphans.append(f"{base_name} pid={process.pid}")
+        else:
+            tool_orphans.append(base_name)
+            tool_bytes += resident_bytes
+
+    engine_detail = (f"부모 없이 남은 엔진 프로세스 {len(engine_orphans)}개"
+                     + (" — " + ", ".join(engine_orphans[:5]) if engine_orphans
+                        else " (감시견 잡이 지키고 있다)"))
+
+    # 이 한도는 근거가 얇다. 재부팅 전 도구들이 물고 있던 15GB 에 견줘 눈에 띄는 크기로 잡았을 뿐이라
+    #  며칠 수치를 보고 고친다. 넘어도 매매와는 무관하니 WARN 이다.
+    tool_limit_bytes = 1 << 30
+    tool_counts = {name: tool_orphans.count(name) for name in sorted(set(tool_orphans))}
+    tool_detail = (f"부모 없이 남은 도구 프로세스 {len(tool_orphans)}개 "
+                   f"{tool_bytes / (1 << 20):.0f}MB (기준 {tool_limit_bytes >> 30}GB)"
+                   + (" — " + ", ".join(f"{name} {count}개" for name, count in tool_counts.items())
+                      if tool_counts else ""))
+
+    return [(engine_name, not engine_orphans, "FAIL", engine_detail),
+            (tool_name, tool_bytes < tool_limit_bytes, "WARN", tool_detail)]
+
+
 def collect(date: str, log: Path, since: int = 0):
     """로그 한 파일에서 그날 점검 행을 만든다.
 
@@ -527,6 +896,12 @@ def collect(date: str, log: Path, since: int = 0):
     breakeven: list[int] = []
     fills: list[tuple[int, str, str]] = []
     rate_hits = 0
+    value_rank_etf_drops = 0          # 랭킹 응답에 ETF가 섞여 들어온 행수
+    value_rank_short: list[tuple[int, int]] = []   # (받은 행수, 요청 행수) — 요청보다 모자랐던 회차
+    market_cap_axis_broken = 0        # raw의 절반 넘게 ETF였던 회차 — 순위 축이 어긋난 신호
+    market_cap_short: list[tuple[int, int]] = []   # (받은 행수, 요청 행수) — 요청보다 모자랐던 회차
+    untracked_opens = 0
+    blocked_sells = 0
     ws_fallbacks = 0
     rtts: list[int] = []
     bucket_waits: list[int] = []
@@ -539,6 +914,7 @@ def collect(date: str, log: Path, since: int = 0):
     b2_off: list[int] = []   # 풀린 초
     trendx_registered: list[int] = []
     session_window_rejects = 0
+    order_division_rejects = 0
     basket_as_of: list[str] = []                 # 목표 비중표 읽음 줄의 as_of(YYYYMMDD)
     basket_orders: list[tuple[int, str, str]] = []  # (초, 종목, 매수|매도) — 바스켓이 낸 주문
     basket_run_end: list[int] = []
@@ -549,7 +925,8 @@ def collect(date: str, log: Path, since: int = 0):
     devscale_stops: list[tuple[int, str]] = []     # (초, 종목) — DEVSCALE 손절 신호
     devscale_close_exits: list[tuple[int, str]] = []   # (초, 종목) — DEVSCALE 장 마감 청산 신호(넘김 모드면 0이어야 한다)
     entry_filter: dict[str, int] = {"통과": 0, "차단": 0}  # 진입 필터 판정 줄 수
-    platforms: list[str] = []                    # 기동마다 찍히는 실행 플랫폼(Windows|Linux)
+    platforms: list[str] = []                    # 엔진이 실제로 뜬 기동의 실행 플랫폼(Windows|Linux)
+    pending_platform = ""                        # 플랫폼 줄은 봤지만 아직 엔진이 뜨지 않은 기동
     ledger_replays: list[int] = []               # 기동마다 원장 저널에서 되적용한 레코드 수
     ledger_truncated = 0                         # 꼬리 잘린 기동 수 — 쓰다 만 레코드, 곧 비정상 종료 흔적
     ledger_restored = 0                          # 재기동 때 이력에 되살린 미체결 주문
@@ -578,6 +955,7 @@ def collect(date: str, log: Path, since: int = 0):
     fill_session_socket = -1                     # 체결통보를 맡은 소켓 번호. -1이면 그 줄이 없는 구 exe
     fill_session_none = 0                        # 맡은 소켓이 없다고 찍힌 기동 수
     fill_session_many = 0                        # 둘 이상이 맡았다고 찍힌 기동 수
+    zmq_bind_fail = 0                            # ZMQ 포트 bind 실패(포트 충돌) 횟수
 
     # 7일 지난 날은 archive/quant_trader_<날짜>.log.gz — market_close_autodoc이 그 경로를 그대로 넘긴다
     opener = (lambda: gzip.open(log, "rt", encoding="utf-8", errors="replace")) if log.suffix == ".gz"         else (lambda: log.open(encoding="utf-8", errors="replace"))
@@ -592,8 +970,16 @@ def collect(date: str, log: Path, since: int = 0):
             last_ts = second
             if START_RE.search(line):
                 starts.append(second)
+
+                # 플랫폼은 엔진이 실제로 뜬 기동만 센다. FEED 모드와 설정 로드 실패는 플랫폼 줄까지만
+                #  찍고 엔진 시작 줄이 없다 — 주문을 한 건도 못 내므로 "엔진 둘" 판정의 대상이 아니다.
+                #  09-23 에 Windows FEED 점검 6회가 이 판정을 FAIL 로 만들었다.
+                if pending_platform:
+                    platforms.append(pending_platform)
+                    pending_platform = ""
+
             if found := PLATFORM_RE.search(line):
-                platforms.append(found.group(1))
+                pending_platform = found.group(1)
             found = STALE_RE.search(line)
             if found:
                 stale_max = max(stale_max, int(found.group(1)))
@@ -652,6 +1038,8 @@ def collect(date: str, log: Path, since: int = 0):
                 fill_session_none += 1
             elif FILL_SESSION_MANY_RE.search(line):
                 fill_session_many += 1
+            if ZMQ_BIND_FAIL_RE.search(line):
+                zmq_bind_fail += 1
             if GUARD_RE.search(line):
                 guard_at.append(second)
             if BREAKEVEN_RE.search(line):
@@ -661,6 +1049,22 @@ def collect(date: str, log: Path, since: int = 0):
                 fills.append((second, found.group(1), found.group(2)))
             if RATE_RE.search(line):
                 rate_hits += 1
+            found = VALUE_RANK_DIAG_RE.search(line)
+            if found:
+                value_rank_etf_drops += int(found.group(2))
+            found = VALUE_RANK_DONE_RE.search(line)
+            if found and int(found.group(1)) < int(found.group(2)):
+                value_rank_short.append((int(found.group(1)), int(found.group(2))))
+            found = MARKET_CAP_DIAG_RE.search(line)
+            if found and int(found.group(2)) * 2 > int(found.group(1)):
+                market_cap_axis_broken += 1
+            found = MARKET_CAP_DONE_RE.search(line)
+            if found and int(found.group(1)) < int(found.group(2)):
+                market_cap_short.append((int(found.group(1)), int(found.group(2))))
+            if UNTRACKED_OPEN_RE.search(line):
+                untracked_opens += 1
+            if BLOCKED_SELL_RE.search(line):
+                blocked_sells += 1
             if WSFALL_RE.search(line):
                 ws_fallbacks += 1
             found = RTT_RE.search(line)
@@ -687,6 +1091,8 @@ def collect(date: str, log: Path, since: int = 0):
                 trendx_registered.append(int(found.group(1)))
             if SESSION_WINDOW_REJECT_RE.search(line):
                 session_window_rejects += 1
+            if ORDER_DIVISION_REJECT_RE.search(line):
+                order_division_rejects += 1
             if "[BASKET_" in line:
                 basket_lines += 1
             if found := BASKET_LOADED_RE.search(line):
@@ -865,6 +1271,10 @@ def collect(date: str, log: Path, since: int = 0):
         # 문턱 아래여도 의심 문턱을 넘은 날은 전략 스레드가 한 바퀴에 오래 붙들린 것이라 미리 본다.
         channel_row("전략 박동 여유", beat_gap_max <= BEAT_SUSPECT_MS, "WARN",
                     f"가장 긴 공백 {beat_gap_max}ms (의심 문턱 {BEAT_SUSPECT_MS}ms, 부하 하네스 실측 24ms)"),
+        # 포트를 못 잡은 엔진은 매매는 하면서 적재만 안 한다 — 로그에 ERROR 한 줄뿐이라 놓치기 쉽다.
+        ("ZMQ 포트", zmq_bind_fail == 0, "FAIL",
+                    f"bind 실패 {zmq_bind_fail}회 (기대 0 — 실패하면 그 엔진의 체결·시그널이"
+                    f" TimescaleDB 에 하나도 안 들어간다. 계좌를 둘 돌리면 포트를 갈라야 한다: D-122)"),
         # 통로가 새면 같은 주문이 두 번 가거나 전략이 답을 영영 못 받아 기다림 표가 샌다.
         channel_row("주문 통로 무결", order_duplicate == 0 and order_response_dropped == 0, "FAIL",
                     f"중복 거름 {order_duplicate}건 · 버린 응답 {order_response_dropped}건 (둘 다 기대 0)"),
@@ -917,7 +1327,8 @@ def collect(date: str, log: Path, since: int = 0):
                         f"진입 필터 통과 {entry_filter['통과']} / 차단 {entry_filter['차단']} 종목 (리플레이 기대: 존 안 종목의 절반쯤 차단, 차단 0이면 필터 값이 안 실린 것)"),
         # 리눅스 실행일(09-22~)은 Windows 감시견이 -NoTrader라 Windows 기동이 0이어야 한다. 둘이 섞이면 같은 계좌에 엔진 둘.
         ("실행 플랫폼", len(set(platforms)) <= 1, "FAIL",
-         "·".join(f"{name} {platforms.count(name)}회" for name in sorted(set(platforms))) or "플랫폼 줄 없음(구 exe)"),
+         ("·".join(f"{name} {platforms.count(name)}회" for name in sorted(set(platforms)))
+          + " (엔진이 뜬 기동만)") if platforms else "플랫폼 줄 없음(구 exe)"),
         ("교체 매도", not displace_sells, "FAIL",
          f"교체 매도 신호 {len(displace_sells)}건 (기대 0 — displace_enabled false, 09-20)"
          + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in displace_sells[:5])}" if displace_sells else "")),
@@ -947,8 +1358,28 @@ def collect(date: str, log: Path, since: int = 0):
          + (f" — {', '.join(hhmm(second) for second in dump[:5])}" if dump else "")),
         ("매도→재매수 회전", churn <= MAX_CHURN, "FAIL",
          f"{CHURN_SEC}초 내 반대매매 {churn}회 (허용 {MAX_CHURN})"),
+        ("엔진밖 미체결", untracked_opens == 0, "FAIL",
+         f"부속 파일에 없던 브로커 미체결 {untracked_opens}건"
+         " — 전송 타임아웃 난 주문이 실제로는 접수돼 엔진 장부 밖에 살아 있었다는 뜻이다."
+         " 그 종목은 보유분이 묶여 손절이 닿아도 못 판다(2026-09-23 09:26 021240)"),
+        ("청산차단 해소", blocked_sells == 0, "FAIL",
+         f"청산차단 미해소 {blocked_sells}건 — 예약매도를 못 찾아 청산이 막힌 채 넘어갔다"),
         ("초당한도 압박", rate_hits <= MAX_RATE_HITS, "WARN",
          f"초당 거래건수 거부 {rate_hits}건 (허용 {MAX_RATE_HITS})"),
+        # 유니버스 후보의 한 축이다. ETF가 섞이면 그만큼 개별주 자리가 밀리고, 요청보다 적게 오면
+        #  가격 구간을 갈라 합치는 쪽이 한 페이지에서 멈춘 것이다(30행이 API 상한이라 그 위는 합쳐야 한다).
+        ("거래대금 랭킹 폭", value_rank_etf_drops == 0 and not value_rank_short, "WARN",
+         f"ETF 섞임 {value_rank_etf_drops}행 (기대 0 — 제외 마스크가 먹으면 0)"
+         + (f" · 요청보다 모자란 회차 {len(value_rank_short)}건"
+            f" (가장 적을 때 {min(short[0] for short in value_rank_short)}/"
+            f"{max(short[1] for short in value_rank_short)}행)" if value_rank_short else " · 행수 모자람 없음")),
+        # 행수는 실패 조건이 아니다 — 이 조회는 두 페이지 60행이 구조적 상한이라 scan_top_n=80이면
+        #  늘 모자란다. 축이 어긋났는지(거래량 순위가 왔는지)만 본다.
+        ("시총 랭킹 축", market_cap_axis_broken == 0, "WARN",
+         f"raw 절반 넘게 ETF였던 회차 {market_cap_axis_broken}건 (기대 0 — 넘으면 거래량 순위가 온 것)"
+         + (f" · 상한에 걸려 요청보다 적게 온 회차 {len(market_cap_short)}건"
+            f" (가장 적을 때 {min(short[0] for short in market_cap_short)}/"
+            f"{max(short[1] for short in market_cap_short)}행)" if market_cap_short else " · 행수 모자람 없음")),
         ("HTTP 연결 재사용", curl_giveups <= MAX_CURL_GIVEUPS, "WARN",
          f"제한 시간 초과로 버린 요청 {curl_giveups}건 (허용 {MAX_CURL_GIVEUPS}, 09-22 21건)"
          " — 넘으면 스레드별 상주 핸들이 안 살아 매 요청이 TCP+TLS를 다시 맺는 것"),
@@ -970,6 +1401,8 @@ def collect(date: str, log: Path, since: int = 0):
           else "TRENDX 등록 줄 없음 — 전략 미로드 또는 등록 0")),
         ("매매 창 밖 거부", session_window_rejects == 0, "FAIL",
          f"세션 창 밖 거부 {session_window_rejects}건 (기대 0 — 마감 청산 모의 15:15·실계좌 19:50, D-101 결정 3)"),
+        ("주문구분 거부", order_division_rejects == 0, "FAIL",
+         f"주문구분을 안 받아 되돌아온 거부 {order_division_rejects}건 (기대 0 — 정규장 밖 시장가는 지정가+현재가로 나간다)"),
         basket_row("바스켓 파일 당일", basket_file_ok, "FAIL",
                    (f"목표 비중표 as_of={basket_as_of[-1]} (기대 {date_compact}, 08:40 작성기)" if basket_as_of
                     else "목표 비중표 읽음 줄 없음 — 08:40 작성기 미실행 또는 파일 검증 실패")),
@@ -989,6 +1422,12 @@ def collect(date: str, log: Path, since: int = 0):
         *feed_ledger_rows(date),
         queue_latency_row(date),
         order_latency_breakdown_row(date),
+        market_open_gate_row(date),
+        after_market_order_row(date),
+        fill_notice_session_row(date),
+        scan_registration_row(date),
+        job_attach_row(date),
+        *orphan_process_rows(),
         tsan_row(date),
     ]
     return rows, len(starts)

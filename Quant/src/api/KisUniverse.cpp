@@ -10,6 +10,9 @@
 // ═══════════════════════════════════════════════════════════════════════════
 namespace
 {
+// 순위 응답 원문을 로그에 남길 길이 — rt_cd와 첫 몇 행을 보기에 넉넉하다.
+constexpr std::string::size_type kRankingPreviewChars = 400;
+
 // ETF/ETN 제외용 이름 접두사 — Quant/config/etf_prefixes.json 미존재 시 폴백.
 const std::vector<std::string> ETF_PREFIXES_FALLBACK = {
     "KODEX",    "TIGER", "KINDEX", "KOSEF",  "ARIRANG",  "ACE",       "SOL",  "HANARO",
@@ -87,27 +90,38 @@ std::vector<std::string> load_string_list(const std::string& filename, const std
 }
 } // namespace
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  국내 시가총액 순위 — 현재가·등락률·PBR 포함
-//  tr_id: FHPST01720000
-// ═══════════════════════════════════════════════════════════════════════════
-std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, const std::string& market_div)
+// ══════════════════════════════════════════════════════════════════════════
+//  국내 시가총액 순위 한 페이지 — market-cap API
+//  tr_id: FHPST01740000, 화면코드 20174 (KIS 공식 샘플 market_cap.py로 2026-09-23 확인).
+//  [inv] 화면코드와 tr_id는 이 짝만 시가총액 순위를 준다 — 옛 코드가 쓰던 20171/FHPST01720000은
+//        같은 URL에 붙여도 거래량 순위가 왔다(1~5위가 KODEX 인버스류, 2026-09-23 실측).
+//  [inv] 이 축은 FID_TRGT_CLS_CODE·FID_TRGT_EXLS_CLS_CODE가 "0" 고정이라 거래대금 축과 달리 ETF를
+//        API단에서 뺄 수 없다. FID_DIV_CLS_CODE=1(보통주)이 대부분을 거르고 남는 것은 이름 필터가 받는다.
+//  [inv] 한 번에 오는 행수는 30이 상한이고 연속조회가 없다 — tr_cont=N으로 다시 불러도 같은 30행이
+//        온다(2026-09-23 실측). 30행을 넘겨 받는 길은 가격 구간을 갈라 두 번 부르는 것뿐이라,
+//        자르기와 재정렬은 fetch_kr_ranking이 한다.
+// ══════════════════════════════════════════════════════════════════════════
+std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking_page(const std::string& market_div,
+                                                                     const std::string& price_from,
+                                                                     const std::string& price_to)
 {
+    // FID_DIV_CLS_CODE 0=전체 1=보통주 2=우선주. FID_INPUT_PRICE_1/2는 가격 구간이고 둘 다 비면 전체다.
+    //  공식 스펙에 없는 FID_BLNG_CLS_CODE·FID_RANK_SORT_CLS_CODE·FID_INPUT_DATE_1은 보내지 않는다.
     std::string url = base_url() + "/uapi/domestic-stock/v1/ranking/market-cap" +
-                      "?FID_COND_MRKT_DIV_CODE=" + market_div + "&FID_COND_SCR_DIV_CODE=20171" +
-                      "&FID_INPUT_ISCD=0000" + "&FID_DIV_CLS_CODE=1" + "&FID_BLNG_CLS_CODE=0" + "&FID_TRGT_CLS_CODE=0" +
-                      "&FID_TRGT_EXLS_CLS_CODE=0" + "&FID_RANK_SORT_CLS_CODE=0" +
-                      "&FID_INPUT_PRICE_1=" + "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
+                      "?FID_COND_MRKT_DIV_CODE=" + market_div + "&FID_COND_SCR_DIV_CODE=20174" +
+                      "&FID_INPUT_ISCD=0000" + "&FID_DIV_CLS_CODE=1" + "&FID_TRGT_CLS_CODE=0" +
+                      "&FID_TRGT_EXLS_CLS_CODE=0" + "&FID_INPUT_PRICE_1=" + price_from +
+                      "&FID_INPUT_PRICE_2=" + price_to + "&FID_VOL_CNT=";
 
-    std::string response = http_get(url, authentication_headers("FHPST01720000"));
+    std::string response = http_get(url, authentication_headers("FHPST01740000"));
 
     if (response.empty())
     {
-        LOG_WARN("[KIS] 랭킹 조회 실패 (" + market_div + ")");
+        LOG_WARN("[KIS] 시총 랭킹 조회 실패 (" + market_div + ")");
         return {};
     }
 
-    LOG_DEBUG("[KIS] 랭킹 응답: " + response.substr(0, 400));
+    LOG_DEBUG("[KIS] 시총 랭킹 응답: " + response.substr(0, kRankingPreviewChars));
 
     std::vector<RankingStock> result;
 
@@ -182,55 +196,108 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
             stock.change = safe_d(item, "prdy_vrss");
             stock.change_rate = safe_d(item, "prdy_ctrt");
             stock.volume = safe_i(item, "acml_vol");
-            stock.pbr = safe_d(item, "hts_pbr");
-            stock.per = safe_d(item, "hts_per");
+            stock.market_cap = safe_d(item, "stck_avls"); // 시가총액(억원)
             result.push_back(std::move(stock));
         }
 
-        // 진단: raw 행수 vs 필터 후. raw가 ~30 고정이면 페이지네이션 필요, ETF드롭이 크면 API단 제외로 회복.
+        // 진단: raw 행수 vs 필터 후. raw가 30보다 적으면 가격 구간이 그만큼 좁은 것이고, ETF드롭이
+        //  크면 보통주 구분값이 안 먹는 것이다.
+        std::string price_range =
+            price_from.empty() && price_to.empty() ? std::string("전체") : price_from + "~" + price_to;
         LOG_INFO("[KIS] 시총랭킹 진단: raw=" + std::to_string(array.size()) +
                  " ETF드롭=" + std::to_string(drop_etf) + " 티커드롭=" + std::to_string(drop_ticker) +
-                 " 생존=" + std::to_string(result.size()) + " (요청 count=" + std::to_string(count) + ")");
-
-        // API 정렬 기준이 불명확하므로 거래대금(가격×거래량) 내림차순 정렬 — 시가총액 대용
-        std::ranges::sort(result, std::ranges::greater{},
-                          [](const RankingStock& stock) { return stock.price * static_cast<double>(stock.volume); });
-
-        // count개로 자르고 순위 재부여
-        if (static_cast<int>(result.size()) > count)
-        {
-            result.resize(count);
-        }
-
-        for (int result_index = 0; result_index < static_cast<int>(result.size()); ++result_index)
-        {
-            result[result_index].rank = result_index + 1;
-        }
+                 " 생존=" + std::to_string(result.size()) + " (가격 " + price_range + ")");
     }
     catch (const std::exception& exception)
     {
-        LOG_ERROR("[KIS] 랭킹 파싱 오류: " + std::string(exception.what()));
+        LOG_ERROR("[KIS] 시총 랭킹 파싱 오류: " + std::string(exception.what()));
     }
 
-    LOG_INFO("[KIS] 랭킹 조회 완료: " + std::to_string(result.size()) + "종목");
+    return result;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+//  시가총액 상위 count종목 — 30행이 넘으면 가격 구간을 갈라 두 페이지를 합친다.
+//  두 구간은 겹치지 않으므로 합집합은 상위 60행을 덮는다. 구간을 안 나눈 조회의 30행이 모두 그 안에
+//  들어 있는 것을 2026-09-23 실측으로 확인했다(누락 없음). 거래대금 쪽과 같은 방법이다.
+// ══════════════════════════════════════════════════════════════════════════
+std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, const std::string& market_div)
+{
+    std::vector<RankingStock> result;
+
+    if (count <= kRankingPageRows)
+    {
+        result = fetch_kr_ranking_page(market_div, "", "");
+    }
+    else
+    {
+        result = fetch_kr_ranking_page(market_div, "0", std::to_string(kRankingPriceSplit));
+        std::vector<RankingStock> upper =
+            fetch_kr_ranking_page(market_div, std::to_string(kRankingPriceSplit + 1), "");
+        result.insert(result.end(), std::make_move_iterator(upper.begin()), std::make_move_iterator(upper.end()));
+
+        // 두 조회 사이에 가격이 경계를 넘으면 같은 종목이 양쪽에 걸린다 — 먼저 온 쪽만 남긴다.
+        std::unordered_set<std::string> seen;
+        std::erase_if(result, [&seen](const RankingStock& stock) { return !seen.insert(stock.ticker).second; });
+
+        LOG_INFO("[KIS] 시총랭킹 두 페이지 합침: 유니크 " + std::to_string(result.size()) + "종목 (경계 " +
+                 std::to_string(kRankingPriceSplit) + "원)");
+    }
+
+    // 한 페이지는 API가 이미 시가총액 내림차순으로 주지만, 두 페이지를 이어 붙이면 그 순서가 끊긴다.
+    std::ranges::sort(result, std::ranges::greater{}, &RankingStock::market_cap);
+
+    if (static_cast<int>(result.size()) > count)
+    {
+        result.resize(count);
+    }
+
+    // 페이지별 순위는 합친 뒤에는 뜻이 달라진다 — 합집합 기준으로 다시 매긴다.
+    for (int result_index = 0; result_index < static_cast<int>(result.size()); ++result_index)
+    {
+        result[result_index].rank = result_index + 1;
+    }
+
+    // 요청이 두 페이지 상한을 넘으면 그 사실을 같이 적는다 — 80을 달라고 해도 60행이 끝이고,
+    //  ETF·비보통주를 거르고 나면 50행 안팎이 남는다(2026-09-23 실측).
+    std::string request_note = "요청 count=" + std::to_string(count);
+
+    if (count > 2 * kRankingPageRows)
+    {
+        request_note += ", 두 페이지 상한 " + std::to_string(2 * kRankingPageRows);
+    }
+
+    LOG_INFO("[KIS] 시총 랭킹 조회 완료: " + std::to_string(result.size()) + "종목 (" + request_note + ")");
     return result;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  국내 거래대금 상위 순위 — volume-rank API
 //  tr_id: FHPST01710000, FID_BLNG_CLS_CODE=3(거래금액순). acml_tr_pbmn 직접 사용.
-//  ⚠️ 응답 스키마 변동 잦음 — 첫 400자 로깅으로 필드/행수 확인. 상위 ~30행 고정 반환.
+//  ⚠️ 응답 스키마 변동 잦음 — 첫 400자 로깅으로 필드/행수 확인.
+//  [inv] 한 번에 오는 행수는 30이 상한이고 연속조회가 없다 — 응답 tr_cont 헤더가 빈 값이고
+//        tr_cont=N으로 다시 불러도 같은 30행이 온다(2026-09-23 실측). 30행을 넘겨 받는 길은
+//        가격 구간을 갈라 두 번 부르는 것뿐이라, 자르는 일은 fetch_value_ranking이 한다.
 // ═══════════════════════════════════════════════════════════════════════════
-std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, const std::string& market_div,
-                                                                   const std::string& blng_cls)
+std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking_page(const std::string& market_div,
+                                                                        const std::string& blng_cls,
+                                                                        const std::string& price_from,
+                                                                        const std::string& price_to)
 {
-    // FID_TRGT_CLS_CODE(대상 9자리)/EXLS(제외 6자리)는 전체 대상 기본값.
+    // FID_TRGT_CLS_CODE(대상 9자리)는 전체 대상 기본값.
+    // FID_TRGT_EXLS_CLS_CODE(제외)는 10자리 비트마스크다. 자리 순서는 투자위험/경고/주의 · 관리종목 ·
+    //  정리매매 · 불성실공시 · 우선주 · 거래정지 · ETF · ETN · 신용주문불가 · SPAC
+    //  (KIS 공식 샘플 volume_rank.py로 2026-09-23 확인). 7·8번째를 켜서 ETF·ETN을 API단에서 뺀다 —
+    //  안 빼면 30행 중 18행이 ETF라 개별주가 12행밖에 안 남았다(2026-09-23 장중 실측).
+    //  아래 이름 필터는 그대로 둔다 — 마스크가 놓치는 ELW·신형 상품명을 받는 두 번째 그물이다.
     // FID_BLNG_CLS_CODE 정렬축: 0=거래량 1=거래증가율 3=거래금액(기본) — 호출자가 지정.
+    // FID_INPUT_PRICE_1/2는 가격 구간. 둘 다 비면 전체 가격이다.
     std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/volume-rank" +
                       "?FID_COND_MRKT_DIV_CODE=" + market_div + "&FID_COND_SCR_DIV_CODE=20171" +
                       "&FID_INPUT_ISCD=0000" + "&FID_DIV_CLS_CODE=0" + "&FID_BLNG_CLS_CODE=" + blng_cls +
-                      "&FID_TRGT_CLS_CODE=111111111" + "&FID_TRGT_EXLS_CLS_CODE=000000" +
-                      "&FID_INPUT_PRICE_1=" + "&FID_INPUT_PRICE_2=" + "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
+                      "&FID_TRGT_CLS_CODE=111111111" + "&FID_TRGT_EXLS_CLS_CODE=0000001100" +
+                      "&FID_INPUT_PRICE_1=" + price_from + "&FID_INPUT_PRICE_2=" + price_to +
+                      "&FID_VOL_CNT=" + "&FID_INPUT_DATE_1=";
 
     std::string response = http_get(url, authentication_headers("FHPST01710000"));
 
@@ -240,7 +307,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
         return {};
     }
 
-    LOG_DEBUG("[KIS] 거래대금 랭킹 응답: " + response.substr(0, 400));
+    LOG_DEBUG("[KIS] 거래대금 랭킹 응답: " + response.substr(0, kRankingPreviewChars));
 
     std::vector<RankingStock> result;
 
@@ -323,34 +390,72 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
             result.push_back(std::move(stock));
         }
 
-        // 진단: raw 행수 vs 필터 후. raw가 ~30 고정이면 페이지네이션 필요, ETF드롭이 크면 API단 제외로 회복.
-        LOG_INFO("[KIS] 거래대금랭킹 진단(축=" + blng_cls + "): raw=" + std::to_string(array.size()) +
+        // 진단: raw 행수 vs 필터 후. ETF드롭이 계속 크면 제외 마스크가 안 먹고 있다는 뜻이다.
+        LOG_INFO("[KIS] 거래대금랭킹 진단(축=" + blng_cls + " 가격=" +
+                 (price_from.empty() ? std::string("전체") : price_from + "~" + (price_to.empty() ? "" : price_to)) +
+                 "): raw=" + std::to_string(array.size()) +
                  " ETF드롭=" + std::to_string(drop_etf) + " 티커드롭=" + std::to_string(drop_ticker) +
-                 " 생존=" + std::to_string(result.size()) + " (요청 count=" + std::to_string(count) + ")");
+                 " 생존=" + std::to_string(result.size()));
 
-        // 거래대금축(3)일 때만 acml_tr_pbmn 내림차순 재정렬. 다른 축(거래량0·거래증가율1)은
-        // trade_value가 비어 있어 재정렬하면 순서가 망가지므로 API 순위 순서를 그대로 유지.
-        if (blng_cls == "3")
-        {
-            std::ranges::sort(result, std::ranges::greater{}, &RankingStock::trade_value);
-        }
-
-        if (static_cast<int>(result.size()) > count)
-        {
-            result.resize(count);
-        }
-
-        for (int result_index = 0; result_index < static_cast<int>(result.size()); ++result_index)
-        {
-            result[result_index].rank = result_index + 1;
-        }
     }
     catch (const std::exception& exception)
     {
         LOG_ERROR("[KIS] 거래대금 랭킹 파싱 오류: " + std::string(exception.what()));
     }
 
-    LOG_INFO("[KIS] 거래대금 랭킹 조회 완료: " + std::to_string(result.size()) + "종목");
+    return result;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  거래대금 상위 count종목 — 30행이 넘으면 가격 구간을 갈라 두 페이지를 합친다.
+//  두 구간은 서로 겹치지 않으므로 합집합은 전체 순위의 상위 60행을 덮는다. 구간을 안 나눈
+//  조회의 30행이 모두 그 안에 들어 있는 것을 2026-09-23 실측으로 확인했다(누락 없음).
+// ═══════════════════════════════════════════════════════════════════════════
+std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, const std::string& market_div,
+                                                                   const std::string& blng_cls)
+{
+    // 거래대금축(3)만 acml_tr_pbmn으로 두 페이지를 다시 줄 세울 수 있다. 다른 축(거래량 0 ·
+    //  거래증가율 1)은 그 값이 비어 있어 합치면 순서가 망가지므로 한 페이지에서 끊는다.
+    const bool can_merge_pages = blng_cls == "3";
+    std::vector<RankingStock> result;
+
+    if (count <= kRankingPageRows || !can_merge_pages)
+    {
+        result = fetch_value_ranking_page(market_div, blng_cls, "", "");
+    }
+    else
+    {
+        result = fetch_value_ranking_page(market_div, blng_cls, "0", std::to_string(kRankingPriceSplit));
+        std::vector<RankingStock> upper =
+            fetch_value_ranking_page(market_div, blng_cls, std::to_string(kRankingPriceSplit + 1), "");
+        result.insert(result.end(), std::make_move_iterator(upper.begin()), std::make_move_iterator(upper.end()));
+
+        // 두 조회 사이에 가격이 경계를 넘으면 같은 종목이 양쪽에 걸린다 — 먼저 온 쪽만 남긴다.
+        std::unordered_set<std::string> seen;
+        std::erase_if(result, [&seen](const RankingStock& stock) { return !seen.insert(stock.ticker).second; });
+
+        LOG_INFO("[KIS] 거래대금랭킹 두 페이지 합침: 유니크 " + std::to_string(result.size()) +
+                 "종목 (경계 " + std::to_string(kRankingPriceSplit) + "원)");
+    }
+
+    if (can_merge_pages)
+    {
+        std::ranges::sort(result, std::ranges::greater{}, &RankingStock::trade_value);
+    }
+
+    if (static_cast<int>(result.size()) > count)
+    {
+        result.resize(count);
+    }
+
+    // 페이지별 순위는 합친 뒤에는 뜻이 달라진다 — 합집합 기준으로 다시 매긴다.
+    for (int result_index = 0; result_index < static_cast<int>(result.size()); ++result_index)
+    {
+        result[result_index].rank = result_index + 1;
+    }
+
+    LOG_INFO("[KIS] 거래대금 랭킹 조회 완료: " + std::to_string(result.size()) + "종목 (요청 count=" +
+             std::to_string(count) + ")");
     return result;
 }
 

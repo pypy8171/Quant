@@ -2,6 +2,7 @@
   "modules": [
     "api",
     "core",
+    "exchange",
     "ipc",
     "main",
     "modes",
@@ -14,7 +15,7 @@
     {
       "from": "api",
       "to": "core",
-      "weight": 11
+      "weight": 12
     },
     {
       "from": "api",
@@ -45,6 +46,16 @@
       "from": "core",
       "to": "utils",
       "weight": 12
+    },
+    {
+      "from": "exchange",
+      "to": "core",
+      "weight": 7
+    },
+    {
+      "from": "exchange",
+      "to": "utils",
+      "weight": 2
     },
     {
       "from": "ipc",
@@ -174,6 +185,7 @@
     "api/KisClient.h": "api",
     "api/KisEndpoints.h": "api",
     "api/KisErrorCodes.h": "api",
+    "api/KisRateBucket.h": "api",
     "api/KisRestDecode.h": "api",
     "api/KisResult.h": "api",
     "api/KisTypes.h": "api",
@@ -214,6 +226,9 @@
     "core/Types.h": "core",
     "core/UniverseExit.h": "core",
     "core/WakeGate.h": "core",
+    "exchange/MatchingEngine.h": "exchange",
+    "exchange/OrderWire.h": "exchange",
+    "exchange/ZmqOrderFeed.h": "exchange",
     "ipc/ControlChannel.h": "ipc",
     "ipc/FillKey.h": "ipc",
     "ipc/Heartbeat.h": "ipc",
@@ -309,6 +324,9 @@
     "core/Types.cpp": "core",
     "core/UniverseExit.cpp": "core",
     "core/WakeGate.cpp": "core",
+    "exchange/MatchingEngine.cpp": "exchange",
+    "exchange/OrderWire.cpp": "exchange",
+    "exchange/ZmqOrderFeed.cpp": "exchange",
     "ipc/ControlChannel.cpp": "ipc",
     "ipc/FillKey.cpp": "ipc",
     "ipc/Heartbeat.cpp": "ipc",
@@ -392,6 +410,7 @@
     ],
     "api/KisOrder.cpp": [
       "core/KstTime.h",
+      "core/TickSize.h",
       "utils/JsonNode.h"
     ],
     "api/KisRestDecode.cpp": [
@@ -403,7 +422,8 @@
       "core/Types.h"
     ],
     "api/KisTransport.cpp": [
-      "api/HttpGet.h"
+      "api/HttpGet.h",
+      "api/KisRateBucket.h"
     ],
     "api/KisWebSocket.cpp": [
       "api/KisWebSocket.h"
@@ -685,6 +705,23 @@
     ],
     "core/WakeGate.cpp": [
       "core/WakeGate.h"
+    ],
+    "exchange/MatchingEngine.cpp": [
+      "core/TickSize.h"
+    ],
+    "exchange/MatchingEngine.h": [
+      "core/SymbolTable.h",
+      "core/Types.h"
+    ],
+    "exchange/ZmqOrderFeed.cpp": [
+      "core/KstTime.h",
+      "utils/Logger.h",
+      "utils/Utf8.h"
+    ],
+    "exchange/ZmqOrderFeed.h": [
+      "core/IFeedSource.h",
+      "core/MpscQueue.h",
+      "core/SymbolTable.h"
     ],
     "ipc/ControlChannel.cpp": [
       "ipc/ControlChannel.h"
@@ -1079,6 +1116,9 @@
       "core/PaperExecutor.h",
       "ipc/OrderRouter.cpp"
     ],
+    "api/KisRateBucket.h": [
+      "api/KisTransport.cpp"
+    ],
     "api/KisRestDecode.h": [
       "api/KisAccount.cpp",
       "api/KisIndex.cpp",
@@ -1147,7 +1187,8 @@
       "api/KisWebSocket.h",
       "core/FeedMux.h",
       "core/IFeedSource.cpp",
-      "core/ReplaySource.h"
+      "core/ReplaySource.h",
+      "exchange/ZmqOrderFeed.h"
     ],
     "core/KstTime.h": [
       "api/KisOrder.cpp",
@@ -1158,6 +1199,7 @@
       "core/KstTime.cpp",
       "core/LedgerReconciler.h",
       "core/RegimeFileJudge.h",
+      "exchange/ZmqOrderFeed.cpp",
       "ipc/OrderRouter.cpp",
       "modes/Monitors.cpp",
       "risk/OrderGate.cpp",
@@ -1193,6 +1235,7 @@
     "core/MpscQueue.h": [
       "core/Engine.h",
       "core/TickCapture.h",
+      "exchange/ZmqOrderFeed.h",
       "ipc/ZmqBridge.h",
       "utils/Logger.cpp"
     ],
@@ -1269,6 +1312,8 @@
       "core/SymbolTable.cpp",
       "core/Types.h",
       "core/UniverseExit.h",
+      "exchange/MatchingEngine.h",
+      "exchange/ZmqOrderFeed.h",
       "ipc/LedgerSnapshot.h",
       "ipc/SharedSymbolDictionary.h",
       "risk/OrderGate.h",
@@ -1281,7 +1326,9 @@
       "core/TickCapture.cpp"
     ],
     "core/TickSize.h": [
+      "api/KisOrder.cpp",
       "core/TickSize.cpp",
+      "exchange/MatchingEngine.cpp",
       "strategy/DeviationScaleStrategy.h",
       "strategy/MarketMakingStrategy.h"
     ],
@@ -1308,6 +1355,7 @@
       "core/TickCapture.h",
       "core/TickSize.h",
       "core/Types.cpp",
+      "exchange/MatchingEngine.h",
       "ipc/ControlChannel.h",
       "ipc/MarketFeedChannel.h",
       "ipc/OrderChannel.h",
@@ -1568,6 +1616,7 @@
       "core/LedgerReconciler.cpp",
       "core/OrderRateLimiter.cpp",
       "core/SignalDispatcher.cpp",
+      "exchange/ZmqOrderFeed.cpp",
       "ipc/OpsServer.cpp",
       "ipc/OrderRouter.cpp",
       "ipc/ZmqBridge.cpp",
@@ -1599,6 +1648,7 @@
     ],
     "utils/Utf8.h": [
       "core/Engine.cpp",
+      "exchange/ZmqOrderFeed.cpp",
       "modes/Monitors.cpp",
       "utils/Utf8.cpp"
     ]
@@ -1606,19 +1656,19 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 38
+      "in_degree": 39
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 31
+      "in_degree": 32
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 17
+      "in_degree": 18
     },
     {
       "header": "core/SymbolTable.h",
-      "in_degree": 15
+      "in_degree": 17
     },
     {
       "header": "strategy/StrategyBase.h",
@@ -1645,11 +1695,23 @@
       "in_degree": 7
     },
     {
+      "header": "core/IFeedSource.h",
+      "in_degree": 5
+    },
+    {
       "header": "core/LatencyTrace.h",
       "in_degree": 5
     },
     {
+      "header": "core/MpscQueue.h",
+      "in_degree": 5
+    },
+    {
       "header": "core/StrategyTable.h",
+      "in_degree": 5
+    },
+    {
+      "header": "core/TickSize.h",
       "in_degree": 5
     },
     {
@@ -1670,18 +1732,6 @@
     },
     {
       "header": "api/KisTypes.h",
-      "in_degree": 4
-    },
-    {
-      "header": "api/KisWebSocket.h",
-      "in_degree": 4
-    },
-    {
-      "header": "core/Engine.h",
-      "in_degree": 4
-    },
-    {
-      "header": "core/IFeedSource.h",
       "in_degree": 4
     }
   ],
@@ -1773,6 +1823,7 @@
       "PYQuant/tools/kind_delisted_fill.py",
       "PYQuant/tools/ledger_dump.py",
       "PYQuant/tools/ledger_recorder.py",
+      "PYQuant/tools/load_injector.py",
       "PYQuant/tools/log_report.py",
       "PYQuant/tools/macro_ingest.py",
       "PYQuant/tools/macro_regime_feed.py",
@@ -1789,12 +1840,14 @@
       "PYQuant/tools/universe_feed.py",
       "PYQuant/tools/walkforward.py",
       "scripts/_logdir.py",
+      "scripts/aftermarket_feed_check.py",
       "scripts/analyze_slot_cost.py",
       "scripts/backfill_fills_db.py",
       "scripts/backfill_studies.py",
       "scripts/build_review_entry.py",
       "scripts/build_study_site.py",
       "scripts/check_backtest.py",
+      "scripts/check_market_open.py",
       "scripts/check_runtime_health.py",
       "scripts/dashboard_server.py",
       "scripts/deploy_guard.py",
@@ -1804,6 +1857,7 @@
       "scripts/gen_tuning_sheet.py",
       "scripts/live_prices_feed.py",
       "scripts/log_patterns.py",
+      "scripts/make_load_test_config.py",
       "scripts/market_close_autodoc.py",
       "scripts/market_close_collect.py",
       "scripts/market_close_minute_backfill.py",
@@ -2076,6 +2130,9 @@
       "scripts/build_review_entry.py": [
         "market_close_collect"
       ],
+      "scripts/check_market_open.py": [
+        "kis.client"
+      ],
       "scripts/check_runtime_health.py": [
         "_logdir",
         "log_patterns"
@@ -2280,6 +2337,7 @@
         "PYQuant/tools/minute_backfill.py",
         "PYQuant/tools/nxt_divergence_check.py",
         "PYQuant/tools/pit_universe_backfill.py",
+        "scripts/check_market_open.py",
         "scripts/dashboard_server.py",
         "scripts/notify_trades.py"
       ],
@@ -2570,7 +2628,7 @@
       {
         "from": "scripts",
         "to": "PYQuant/kis",
-        "weight": 2
+        "weight": 3
       },
       {
         "from": "scripts",
@@ -2629,6 +2687,7 @@
         "Quant/src/ipc/OrderRouter.cpp",
         "Quant/src/strategy/StrategyFactory.cpp",
         "scripts/backfill_fills_db.py",
+        "scripts/check_runtime_health.py",
         "scripts/exit_ev.py",
         "scripts/exit_ev_dashboard.py",
         "scripts/parse_quant_log.py",
@@ -2641,6 +2700,7 @@
         "Quant/src/strategy/StrategyFactory.cpp",
         "scripts/_logdir.py",
         "scripts/backfill_fills_db.py",
+        "scripts/check_runtime_health.py",
         "scripts/exit_ev.py",
         "scripts/exit_ev_dashboard.py",
         "scripts/notify_trades.py",
@@ -2649,21 +2709,27 @@
       ]
     },
     "universe*.json": {
-      "writers": [],
+      "writers": [
+        "PYQuant/tools/load_injector.py",
+        "scripts/make_load_test_config.py"
+      ],
       "readers": [
         "PYQuant/main.py",
         "PYQuant/tools/full_universe_dump.py",
+        "PYQuant/tools/load_injector.py",
         "PYQuant/tools/nxt_divergence_check.py",
         "PYQuant/tools/universe_feed.py",
         "Quant/src/universe/UniverseScanner.cpp",
         "scripts/exit_ev_dashboard.py",
         "scripts/live_prices_feed.py",
+        "scripts/make_load_test_config.py",
         "scripts/market_close_minute_backfill.py",
         "scripts/notify_trades.py"
       ],
       "mentions": [
         "PYQuant/main.py",
         "PYQuant/tools/full_universe_dump.py",
+        "PYQuant/tools/load_injector.py",
         "PYQuant/tools/nxt_divergence_check.py",
         "PYQuant/tools/universe_feed.py",
         "Quant/include/universe/UniverseScanner.h",
@@ -2673,6 +2739,7 @@
         "scripts/dashboard_server.py",
         "scripts/exit_ev_dashboard.py",
         "scripts/live_prices_feed.py",
+        "scripts/make_load_test_config.py",
         "scripts/market_close_minute_backfill.py",
         "scripts/notify_trades.py"
       ]

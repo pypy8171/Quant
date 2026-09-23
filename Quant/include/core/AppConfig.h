@@ -40,6 +40,16 @@ struct AppConfig
     std::string            replay_file;  // 비어 있지 않으면 캡처 파일 리플레이(D-071 원칙 8)
     double                 replay_speed = 1.0;
     double                 replay_cash = 100'000'000.0;
+    // 부하시험 주문 수신단(exchange::ZmqOrderFeed). 켜면 WS·KIS 대신 바깥 인젝터가 보낸 가상 주문을 오더북에
+    //  넣고, 거기서 난 체결을 시세로 올린다 — KIS로는 아무것도 나가지 않는다. 밤에 돌리므로 장 시간 창은
+    //  리플레이와 같이 끈다. 현금은 replay_cash 를 같이 쓴다. [why D-071]
+    bool                   load_test_enabled = false;
+    unsigned               load_test_lanes = 1;            // 수신 스레드 = 소켓 수. 종목을 순번으로 나눠 맡는다
+    int                    load_test_base_port = 5600;     // 수신 스레드 i 는 base_port + i 를 연다
+    std::string            load_test_bind_address = "tcp://127.0.0.1";
+    int                    load_test_session_hhmmss = 0; // 체결에 찍을 장중 시각 시작점. 0이면 실제 시계
+    // 기동 때 종목 순번표를 적을 파일. 인젝터가 이것을 읽어 순번을 맞춘다. 비면 안 적는다
+    std::string            load_test_universe_out;
     std::string            regime_file;
     int                    regime_stale_sec = kDefaultRegimeStaleSec;
     int                    regime_halt_expire_min = kDefaultRegimeHaltExpireMin;
@@ -53,6 +63,9 @@ struct AppConfig
     // 한 기계에 엔진이 둘 이상 뜨면 포트가 겹쳐 뒤에 뜬 쪽이 ZMQ 없이 돈다 — 그래서 설정으로 뺀다.
     int                    zmq_pub_port = 5555; // 시세·주문 발행(PUB)
     int                    zmq_rep_port = 5556; // 제어 명령(REP)
+    // 한 기계에서 계좌를 둘 이상 돌릴 때 프로세스를 가르는 이름(예: "live"). 마감 표지 파일과
+    //  감시견 상태 파일 이름에 붙는다 — 비어 있으면 예전과 같은 이름을 쓴다. [why D-122]
+    std::string            instance;
     std::string            ops_bind_address;
     int                    ops_port = 0;
     std::string            ops_token;

@@ -377,6 +377,81 @@ void test_unmapped_fill_duplicate_ignored()
     PASS("unmapped_fill_duplicate_ignored");
 }
 
+// ─── 테스트 7d: 주문수량(ODER_QTY)을 받은 미매핑 체결은 잔량으로 묶는다 ─────
+//   전문 [16]이 그 주문의 총수량이라, 오면 상한이 "키가 겹치지 않을 것"이 아니라 "주문수량"이 된다.
+//   연결된 주문(테스트 7)과 같은 규칙이 되므로 같은 초·같은 수량·단가로 갈라진 분할체결도 잃지 않는다.
+void test_unmapped_fill_clamped_by_order_quantity()
+{
+    OrderGate         gate(relaxed_config());
+    StubOrderExecutor stub(true, "0000000557");
+    OrderRouter       router(gate, stub);
+
+    // 6주 주문이 같은 초에 2+2+2로 갈라졌다 — 세 통보의 키가 모두 같다.
+    FillNotification fill_notification;
+    fill_notification.kis_order_no = "0000014893"; fill_notification.ticker = "047050"; fill_notification.side = OrderSide::BUY;
+    fill_notification.filled_quantity = 2; fill_notification.filled_price = 54700.0; fill_notification.fill_time = "110707";
+    fill_notification.order_quantity = 6;
+    router.on_fill(fill_notification);
+    router.on_fill(fill_notification);
+    router.on_fill(fill_notification);
+    assert(gate.position("047050") == 6);   // 종전 키 중복 제거로는 2주만 남았다
+    assert(gate.reserved("047050") == 0);   // 없던 선점을 깎아 음수로 만들지 않음
+
+    router.on_fill(fill_notification);      // 주문수량을 채운 뒤의 재전송
+    assert(gate.position("047050") == 6);   // 8로 부풀지 않는다
+
+    // 통보 수량이 잔량을 넘으면 잔량까지만 반영한다(연결된 주문의 클램프와 같다).
+    FillNotification partial;
+    partial.kis_order_no = "0000014894"; partial.ticker = "005930"; partial.side = OrderSide::BUY;
+    partial.filled_price = 71500.0; partial.order_quantity = 6; partial.filled_quantity = 4;
+    partial.fill_time = "093512";
+    router.on_fill(partial);
+    partial.fill_time = "093513";
+    router.on_fill(partial);
+    assert(gate.position("005930") == 6);   // 8이 아니라 주문수량에서 멈춘다
+
+    // 주문수량이 통보 수량보다 작은 전문은 믿지 않는다 — 체결을 깎는 대신 종전 키 중복 제거로 떨어진다.
+    FillNotification inconsistent;
+    inconsistent.kis_order_no = "0000014895"; inconsistent.ticker = "000660"; inconsistent.side = OrderSide::BUY;
+    inconsistent.filled_quantity = 5; inconsistent.filled_price = 20000.0; inconsistent.fill_time = "100000";
+    inconsistent.order_quantity = 3;
+    router.on_fill(inconsistent);
+    assert(gate.position("000660") == 5);   // 3주로 깎이지 않는다
+    router.on_fill(inconsistent);
+    assert(gate.position("000660") == 5);   // 재전송은 종전대로 키가 막는다
+    PASS("unmapped_fill_clamped_by_order_quantity");
+}
+
+// ─── 테스트 7e: 정정 응답을 못 받아도 원주문번호로 체결을 연결한다 ──────────
+//   정정이 나가면 KIS가 새 ODNO를 준다. 그 응답을 못 받으면 이력에는 옛 ODNO가 남고, 체결통보는
+//   새 ODNO로 오므로 전략 귀속을 잃은 채 미연결로 떨어진다. 전문 [3]OODER_NO가 옛 ODNO라 되찾는다.
+void test_fill_linked_by_original_order_number()
+{
+    OrderGate         gate(relaxed_config());
+    StubOrderExecutor stub(true, "0000000301");
+    OrderRouter       router(gate, stub);
+
+    (void)router.submit(make_signal("005930", OrderSide::BUY, 10)); // 이력의 ODNO = 0000000301
+
+    // 정정 뒤 새 ODNO로 오는 체결통보. 원주문번호가 이력의 ODNO다.
+    FillNotification fill_notification;
+    fill_notification.kis_order_no      = "0000000302";
+    fill_notification.original_order_no = "0000000301";
+    fill_notification.ticker            = "005930";
+    fill_notification.side              = OrderSide::BUY;
+    fill_notification.filled_quantity   = 10;
+    fill_notification.filled_price      = 75000.0;
+    fill_notification.fill_time         = "100000";
+    router.on_fill(fill_notification);
+
+    auto recent = router.recent(1);
+    assert(recent[0].confirmed_quantity == 10);
+    assert(recent[0].status == OrderStatus::FILLED);
+    assert(recent[0].signal.strategy_id != "UNLINKED");  // 전략 귀속을 잃지 않았다
+    assert(gate.position("005930") == 10);
+    PASS("fill_linked_by_original_order_number");
+}
+
 // ─── 테스트 8: cross-day 중복방지 키 (V-4 fix) ────────────────────────────────────
 //   ODNO는 영업일 단위 재사용 + fill_time은 HHMMSS(날짜 없음). 다른 거래일의 동일
 //   (kis_order_no,fill_time,quantity,price) 통보가 전일 체결로 오인돼 drop되면 실체결 누락 사고.
@@ -638,6 +713,7 @@ void test_reconcile_row_written()
     reconcile_note.note       = "mode=REST";
     router.record_reconcile(reconcile_note);
 
+    router.flush_file_writes();   // 원장 행은 전담 스레드가 쓴다 — 읽기 전에 내린다(D-124)
     auto rows = tail_trade_rows(1);
     assert(rows.size() == 1);
     auto other_split_csv = split_csv(rows[0]);
@@ -673,6 +749,7 @@ void test_sequence_propagates_to_rows()
     fill_notification.fill_time    = "100100";
     router.on_fill(fill_notification);
 
+    router.flush_file_writes();
     auto rows = tail_trade_rows(2);
     assert(rows.size() == 2);
     auto accepted_row  = split_csv(rows[0]);
@@ -682,6 +759,7 @@ void test_sequence_propagates_to_rows()
 
     // 미부여(0)는 빈 칸으로 남는다 — 0이 진짜 순번으로 읽히지 않게.
     (void)router.submit(make_signal("005930", OrderSide::BUY, 1));
+    router.flush_file_writes();
     auto last = split_csv(tail_trade_rows(1)[0]);
     assert(last[1] == "ACCEPTED" && last[16].empty());
     PASS("seq_propagates_to_rows");
@@ -736,6 +814,7 @@ void test_blocked_sell_releases_reservation()
     assert(gate.reserved("005930") == -8);
 
     // 원장에 CANCELLED 행이 남는다(재매도 ACCEPTED 행 앞).
+    router.flush_file_writes();
     auto rows = tail_trade_rows(2);
     assert(split_csv(rows[0])[1] == "CANCELLED" && split_csv(rows[0])[3] == "0000000301");
     assert(split_csv(rows[1])[1] == "ACCEPTED" && split_csv(rows[1])[3] == "0000000302");
@@ -783,6 +862,8 @@ int main()
     test_duplicate_fill_ignored();
     test_unmapped_fill_applied();
     test_unmapped_fill_duplicate_ignored();
+    test_unmapped_fill_clamped_by_order_quantity();
+    test_fill_linked_by_original_order_number();
     test_cross_day_fill_not_deduped();
     test_cancel_releases_reserved();
     test_cancel_unknown_order_id();

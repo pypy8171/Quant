@@ -24,6 +24,11 @@ namespace universe
 
 namespace
 {
+// 업종 등락률 순위를 한 콜씩 낼 때 사이에 두는 시간. 26개 업종이면 6.5초가 되고, 재스캔 주기
+//  600초에 비하면 무시할 만하다. 값을 줄이면 같은 시세 키를 쓰는 대시보드 조회와 겹쳐
+//  초당 한도에 걸린다(09-23: 100ms 일 때 이 축에서만 되보냄 452건, 전날 0건).
+constexpr int kSectorCallIntervalMs = 250;
+
 // ── 일봉 정배열 판정 캐시 ───────────────────────────────────────────────
 //  캐시하는 것은 정배열 판정이 아니라 그 재료인 확정된 과거 일봉이다.
 //  KIS 일봉을 include_today=false로 받으므로(D-005) d[0]은 전일 확정봉이고 장중에
@@ -882,7 +887,8 @@ void take_sector_ranking(KisClient& kis, const DevScanCfg& config, QuoteTable& q
         // 26콜을 쉬지 않고 내면 8.8콜/s로 나가 문서상 한도 20/s의 절반을 이 축 하나가
         //  버스트로 먹는다(09-08: ranking/fluctuation HTTP 500 70건). 재스캔 주기가
         //  600초라 2.6초에서 5.2초로 늘어나는 지연은 무시할 만하다.
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        //  100ms 로는 모자랐다 — 축마다 따로 쉬는 방식의 한계라, 요청 예산을 한곳에서 재는 것이 근본이다.
+        std::this_thread::sleep_for(std::chrono::milliseconds(kSectorCallIntervalMs));
 
         if (rows.empty())
         {
@@ -1256,7 +1262,10 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
         previous.average_5 = daily_lookup.average_5; previous.average_10 = daily_lookup.average_10; previous.average_20 = daily_lookup.average_20; previous.average_60 = daily_lookup.average_60;
         const quant::moving_average::SimpleMovingAverages moving_average =
             quant::moving_average::fold_today(previous, daily_lookup.r5, daily_lookup.r10, daily_lookup.r20, daily_lookup.r60, price);
-        const double average_5 = moving_average.average_5, average_10 = moving_average.average_10, average_20 = moving_average.average_20, average_60 = moving_average.average_60;
+        // average_10 은 정배열 판정(aligned) 안에서만 쓰여 여기서는 꺼내지 않는다.
+        const double average_5  = moving_average.average_5;
+        const double average_20 = moving_average.average_20;
+        const double average_60 = moving_average.average_60;
 
         if (!quant::moving_average::aligned(moving_average, config.align_moving_average_tolerance_percent))
         {
