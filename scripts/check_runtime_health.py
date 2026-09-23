@@ -117,9 +117,9 @@ LEDGER_WRITE_FAIL_RE = re.compile(r"\[OrderRouter\] 원장 저널 기록 실패"
 # 엔진이 모르는 채 브로커에 살아 있던 주문 — 전송이 타임아웃 나면 KIS에는 접수됐는데 ODNO를 못 받아
 #  부속 파일에 못 적는다. 그 주문이 보유분을 묶으면 손절이 닿아도 못 판다(2026-09-23 09:26 021240,
 #  ODNO=0000007886 매도 18주). 기동 때 브로커 조회로 보충하면 이 줄이 남는다 — 남았다는 건 그날 샜다는 뜻이다.
-UNTRACKED_OPEN_RE = re.compile(r"부속 파일에 없는 미체결 — 브로커 조회로 보충")
+UNTRACKED_OPEN_RE = re.compile(r"부속 파일에 없는 미체결 — 브로커 조회로 보충 (\d{6})")
 # 청산이 막혔는데 풀지 못한 채 넘어간 것. 위와 같은 뿌리이나 이쪽은 재기동 전까지 방치된다.
-BLOCKED_SELL_RE = re.compile(r"청산차단 미해소")
+BLOCKED_SELL_RE = re.compile(r"청산차단 미해소 (\d{6})")
 # 전략 사망 마무리(D-114 단계 2) — 주문 스레드가 전략 박동 공백만 보고 낸 판정.
 BEAT_DEAD_RE = re.compile(r"\[마무리\] 전략 박동이 끊겼다")
 BEAT_BACK_RE = re.compile(r"\[마무리\] 전략 박동이 돌아왔다")
@@ -882,7 +882,43 @@ def orphan_process_rows() -> list:
             (tool_name, tool_bytes < tool_limit_bytes, "WARN", tool_detail)]
 
 
-def collect(date: str, log: Path, since: int = 0):
+def global_rows(date: str) -> list:
+    """계좌와 무관한 판정 — 하루에 한 번만 낸다.
+
+    자원·피드·큐·부속 잡·TSAN 은 로그 폴더를 스스로 훑거나 저장소 전체를 본다.
+    계좌별로 다시 부르면 같은 줄이 계좌 수만큼 반복된다.
+    """
+    return [
+        *resource_sampling_rows(date),
+        *feed_ledger_rows(date),
+        queue_latency_row(date),
+        order_latency_breakdown_row(date),
+        market_open_gate_row(date),
+        after_market_order_row(date),
+        fill_notice_session_row(date),
+        scan_registration_row(date),
+        job_attach_row(date),
+        *orphan_process_rows(),
+        tsan_row(date),
+    ]
+
+
+def print_rows(rows: list) -> int:
+    """판정 줄을 찍고 FAIL 수를 돌려준다."""
+    bad = 0
+
+    for name, ok, level, detail in rows:
+        tag = "PASS" if ok else level
+
+        if not ok and level == "FAIL":
+            bad += 1
+
+        print(f"  [{tag:4}] {name:16} {detail}")
+
+    return bad
+
+
+def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     """로그 한 파일에서 그날 점검 행을 만든다.
 
     반환 (rows, session_count). rows 원소는 (이름, 통과, 등급, 설명). 세션이 없으면 rows 빈 리스트.
@@ -900,8 +936,8 @@ def collect(date: str, log: Path, since: int = 0):
     value_rank_short: list[tuple[int, int]] = []   # (받은 행수, 요청 행수) — 요청보다 모자랐던 회차
     market_cap_axis_broken = 0        # raw의 절반 넘게 ETF였던 회차 — 순위 축이 어긋난 신호
     market_cap_short: list[tuple[int, int]] = []   # (받은 행수, 요청 행수) — 요청보다 모자랐던 회차
-    untracked_opens = 0
-    blocked_sells = 0
+    untracked_opens: list[tuple[int, str]] = []
+    blocked_sells: list[tuple[int, str]] = []
     ws_fallbacks = 0
     rtts: list[int] = []
     bucket_waits: list[int] = []
@@ -1061,10 +1097,12 @@ def collect(date: str, log: Path, since: int = 0):
             found = MARKET_CAP_DONE_RE.search(line)
             if found and int(found.group(1)) < int(found.group(2)):
                 market_cap_short.append((int(found.group(1)), int(found.group(2))))
-            if UNTRACKED_OPEN_RE.search(line):
-                untracked_opens += 1
-            if BLOCKED_SELL_RE.search(line):
-                blocked_sells += 1
+            found = UNTRACKED_OPEN_RE.search(line)
+            if found:
+                untracked_opens.append((second, found.group(1)))
+            found = BLOCKED_SELL_RE.search(line)
+            if found:
+                blocked_sells.append((second, found.group(1)))
             if WSFALL_RE.search(line):
                 ws_fallbacks += 1
             found = RTT_RE.search(line)
@@ -1358,12 +1396,16 @@ def collect(date: str, log: Path, since: int = 0):
          + (f" — {', '.join(hhmm(second) for second in dump[:5])}" if dump else "")),
         ("매도→재매수 회전", churn <= MAX_CHURN, "FAIL",
          f"{CHURN_SEC}초 내 반대매매 {churn}회 (허용 {MAX_CHURN})"),
-        ("엔진밖 미체결", untracked_opens == 0, "FAIL",
-         f"부속 파일에 없던 브로커 미체결 {untracked_opens}건"
+        ("엔진밖 미체결", not untracked_opens, "FAIL",
+         f"부속 파일에 없던 브로커 미체결 {len(untracked_opens)}건"
          " — 전송 타임아웃 난 주문이 실제로는 접수돼 엔진 장부 밖에 살아 있었다는 뜻이다."
-         " 그 종목은 보유분이 묶여 손절이 닿아도 못 판다(2026-09-23 09:26 021240)"),
-        ("청산차단 해소", blocked_sells == 0, "FAIL",
-         f"청산차단 미해소 {blocked_sells}건 — 예약매도를 못 찾아 청산이 막힌 채 넘어갔다"),
+         " 그 종목은 보유분이 묶여 손절이 닿아도 못 판다"
+         + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in untracked_opens[:5])}"
+            if untracked_opens else "")),
+        ("청산차단 해소", not blocked_sells, "FAIL",
+         f"청산차단 미해소 {len(blocked_sells)}건 — 예약매도를 못 찾아 청산이 막힌 채 넘어갔다"
+         + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in blocked_sells[:5])}"
+            if blocked_sells else "")),
         ("초당한도 압박", rate_hits <= MAX_RATE_HITS, "WARN",
          f"초당 거래건수 거부 {rate_hits}건 (허용 {MAX_RATE_HITS})"),
         # 유니버스 후보의 한 축이다. ETF가 섞이면 그만큼 개별주 자리가 밀리고, 요청보다 적게 오면
@@ -1418,18 +1460,11 @@ def collect(date: str, log: Path, since: int = 0):
         basket_row("바스켓 매수 레그 시각", buy_leg_ok, "WARN",
                    (f"집행 끝 {hhmm(max(basket_run_end))} (기한 15:05), 창 종료 이월 {basket_window_closed}회, 주문 {len(basket_orders)}건"
                     if basket_run_end else f"집행 끝 줄 없음, 창 종료 이월 {basket_window_closed}회, 주문 {len(basket_orders)}건")),
-        *resource_sampling_rows(date),
-        *feed_ledger_rows(date),
-        queue_latency_row(date),
-        order_latency_breakdown_row(date),
-        market_open_gate_row(date),
-        after_market_order_row(date),
-        fill_notice_session_row(date),
-        scan_registration_row(date),
-        job_attach_row(date),
-        *orphan_process_rows(),
-        tsan_row(date),
     ]
+
+    if include_global:
+        rows.extend(global_rows(date))
+
     return rows, len(starts)
 
 
@@ -1448,23 +1483,43 @@ def main() -> int:
         since = int(hour_text) * 3600 + int(minute_text or 0) * 60
 
     log = Path(arguments.log)
-    if not log.exists():
+
+    if arguments.log != str(DEFAULT_LOG):
+        log_files = [log] if log.exists() else []
+    else:
+        # 계좌마다 로그 폴더가 다르다. 기본값 하나만 보면 _logdir.log_dir() 이 그날 마지막으로
+        #  쓰인 폴더를 고르므로, 실계좌를 돌린 날에도 모의 로그만 판정하는 일이 생긴다
+        #  (2026-09-23 실계좌 첫날 실측 — FAIL 7건 중 실계좌 것은 하나였는데 구분이 안 됐다).
+        #  계좌 폴더를 모두 돌고 계좌별로 낸다. [why D-097]
+        log_files = sorted(REPO.glob("Quant/build*/logs*/quant_trader.log"))
+
+    if not log_files:
         print(f"로그 없음: {log}")
         return 1
 
-    rows, session_count = collect(arguments.date, log, since)
-    if not rows:
+    scope = f" {arguments.since}~" if arguments.since else ""
+    print(f"=== 실행 건전성 점검 {arguments.date}{scope} ===")
+
+    bad = 0
+    seen_session = False
+
+    for log_file in log_files:
+        rows, session_count = collect(arguments.date, log_file, since, include_global=False)
+
+        if not rows:
+            continue
+
+        seen_session = True
+        print(f"-- 계좌 {log_file.parent.name} (세션 {session_count}회) --")
+        bad += print_rows(rows)
+
+    if not seen_session:
         print(f"{arguments.date}: 엔진 시작 기록이 없다 — 점검할 세션이 없음")
         return 0
 
-    scope = f" {arguments.since}~" if arguments.since else ""
-    print(f"=== 실행 건전성 점검 {arguments.date}{scope} (세션 {session_count}회) ===")
-    bad = 0
-    for name, ok, level, detail in rows:
-        tag = "PASS" if ok else level
-        if not ok and level == "FAIL":
-            bad += 1
-        print(f"  [{tag:4}] {name:16} {detail}")
+    print("-- 계좌 무관 --")
+    bad += print_rows(global_rows(arguments.date))
+
     print(f"--- FAIL {bad}건 ---")
     return 1 if bad else 0
 
