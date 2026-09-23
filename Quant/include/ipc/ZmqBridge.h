@@ -70,6 +70,7 @@ public:
         uint64_t fill_queue_capacity    = 0;
         uint64_t shard_dropped          = 0;
         uint64_t order_dropped          = 0;
+        uint64_t order_stale            = 0;
         uint64_t fill_dropped           = 0;
         uint64_t latency_samples        = 0;
         int64_t  tick_to_signal_p50_us  = -1;
@@ -109,7 +110,15 @@ public:
         command_handler_ = std::move(handler);
     }
 
-    uint64_t drop_count() const { return drop_count_.load(); }
+    // 버린 건수는 원인별로 나눠 센다 — 한 칸에 뭉치면 고칠 자리를 못 고른다. 소켓이 안 받은 것은
+    //  구독자·소켓 상한 쪽이고, 줄서기 큐가 찬 것은 송신 스레드가 못 따라온 것이며, 링이 찬 것은
+    //  수신 스레드가 송신보다 빠른 것이라 손댈 곳이 서로 다르다. [why D-125]
+    uint64_t drop_count() const;
+
+    uint64_t socket_full_drop_count() const { return socket_full_drop_count_.load(); }
+    uint64_t socket_error_drop_count() const { return socket_error_drop_count_.load(); }
+    uint64_t send_queue_full_drop_count() const { return send_queue_full_drop_count_.load(); }
+    uint64_t trade_ring_full_drop_count() const { return trade_ring_full_drop_count_.load(); }
 
     // TRADE 전용 봉투 — ts는 부른 시각(수신 스레드)이라 송신이 밀려도 바뀌지 않는다. trivially copyable.
     struct TradeEnvelope
@@ -160,7 +169,10 @@ private:
     std::string              trade_payload_; // 송신 스레드 전용 재사용 버퍼 // 생산자 = WS 수신 스레드 수(둘 이상일 수 있다) → MPSC [why D-071 원칙 5]
 
     CmdHandler command_handler_;
-    std::atomic<uint64_t> drop_count_{0};
+    std::atomic<uint64_t> socket_full_drop_count_{0};      // PUB 소켓이 안 받았다(상한·구독자)
+    std::atomic<uint64_t> socket_error_drop_count_{0};     // 보내다 예외가 났다
+    std::atomic<uint64_t> send_queue_full_drop_count_{0};  // 줄서기 큐가 상한에 닿았다
+    std::atomic<uint64_t> trade_ring_full_drop_count_{0};  // 체결 링이 찼다
 };
 
 #endif // HAS_ZMQ

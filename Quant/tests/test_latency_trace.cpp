@@ -50,7 +50,7 @@ int main()
     CHECK(trace::segment_us(1000, 4000) == 3);
     CHECK(trace::segment_us(1'000'000, 3'500'000) == 2500);
 
-    // 2. 행 형식 — 열 12개, 값이 자리에 맞게 들어간다.
+    // 2. 행 형식 — 열 23개, 값이 자리에 맞게 들어간다.
     OrderSignal signal;
     signal.sequence         = 42;
     signal.ticker      = "005930";
@@ -64,18 +64,22 @@ int main()
     marks.pop_ns    = 10'060'000; // +10us
     marks.done_ns   = 25'060'000; // +15,000us (HTTP)
 
-    const OrderStageTiming stages{.gate_us          = 40,
-                                  .history_guard_us = 70,
-                                  .journal_us       = 900,
-                                  .bucket_wait_us   = 150000,
-                                  .transport_us     = 210000,
-                                  .record_us        = 1800,
-                                  .open_orders_us   = 1200};
+    const OrderStageTiming stages{.gate_us             = 40,
+                                  .history_guard_us    = 70,
+                                  .history_lock_wait_us = 25,
+                                  .journal_us          = 900,
+                                  .bucket_wait_us      = 150000,
+                                  .transport_us        = 210000,
+                                  .record_us           = 1800,
+                                  .accept_us           = 300,
+                                  .publish_us          = 20,
+                                  .history_store_us    = 1480,
+                                  .open_orders_us      = 1200};
 
     const auto row = trace::csv_row(signal, marks, stages, true, true, 1'700'000'000'123LL);
     CHECK(row.back() == '\n');
     const auto fields = split(row.substr(0, row.size() - 1));
-    CHECK(fields.size() == 19);
+    CHECK(fields.size() == 23);
     CHECK(fields[0] == "1700000000123");
     CHECK(fields[1] == "42");
     CHECK(fields[2] == "005930");
@@ -88,13 +92,17 @@ int main()
     CHECK(fields[9] == "15060");
     CHECK(fields[10] == "40");      // gate
     CHECK(fields[11] == "70");      // history_guard
-    CHECK(fields[12] == "900");     // journal
-    CHECK(fields[13] == "150000");  // bucket_wait
-    CHECK(fields[14] == "210000");  // transport
-    CHECK(fields[15] == "1800");    // record
-    CHECK(fields[16] == "1200");    // open_orders
-    CHECK(fields[17] == "1");
-    CHECK(fields[18] == "1");
+    CHECK(fields[12] == "25");      // history_lock_wait — history_guard를 가른 몫
+    CHECK(fields[13] == "900");     // journal
+    CHECK(fields[14] == "150000");  // bucket_wait
+    CHECK(fields[15] == "210000");  // transport
+    CHECK(fields[16] == "1800");    // record
+    CHECK(fields[17] == "300");     // accept       — 아래 셋이 record를 가른 몫
+    CHECK(fields[18] == "20");      // publish
+    CHECK(fields[19] == "1480");    // history_store
+    CHECK(fields[20] == "1200");    // open_orders
+    CHECK(fields[21] == "1");
+    CHECK(fields[22] == "1");
 
     // 3. REST 봉 신호(tick_ns=0): 첫 구간 -1, total은 signal부터.
     marks.tick_ns = 0;
@@ -103,10 +111,11 @@ int main()
     CHECK(fields_two[6] == "-1");
     CHECK(fields_two[9] == "15010");
     CHECK(fields_two[10] == "-1"); // 게이트 앞에서 끝난 주문은 라우터 구간이 전부 -1이다
-    CHECK(fields_two[15] == "-1");
     CHECK(fields_two[16] == "-1");
-    CHECK(fields_two[17] == "0");
-    CHECK(fields_two[18] == "0");
+    CHECK(fields_two[19] == "-1");
+    CHECK(fields_two[20] == "-1");
+    CHECK(fields_two[21] == "0");
+    CHECK(fields_two[22] == "0");
 
     // 4. 파일: 머리글은 새 파일에만, 두 번째 인스턴스가 이어 써도 머리글이 다시 안 붙는다.
     const auto path = std::filesystem::temp_directory_path() / "quant_test_latency_trace.csv";
@@ -135,9 +144,9 @@ int main()
 
     CHECK(lines.size() == 4);
     CHECK(lines[0].rfind("utc_ms,seq,", 0) == 0);
-    CHECK(split(lines[1]).size() == 19);
-    CHECK(split(lines[3])[17] == "1");
-    CHECK(split(lines[3])[18] == "0");
+    CHECK(split(lines[1]).size() == 23);
+    CHECK(split(lines[3])[21] == "1");
+    CHECK(split(lines[3])[22] == "0");
     in.close(); // 열린 채로 지우면 Windows가 공유 위반을 내고 filesystem_error가 잡히지 않는다
     std::filesystem::remove(path);
 

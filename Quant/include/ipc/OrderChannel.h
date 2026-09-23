@@ -26,6 +26,7 @@ enum class OrderResult : uint8_t
     kRejected  = 2, // 게이트나 증권사가 거부했다 — 사유가 reason에 있다
     kFailed    = 3, // 보내다 실패했다(예외·전송 오류) — 재시도 대상
     kDuplicate = 4, // 이미 받은 순번이라 아무것도 하지 않았다
+    kStale     = 5, // 큐에서 너무 오래 기다려 보내지 않고 버렸다 — 거부가 아니다 [why D-127]
 };
 
 // 전략 → 주문. OrderSignal 전체가 아니라 주문을 내는 데 필요한 것만 담는다 — 문자열(종목코드·전략이름·사유)은

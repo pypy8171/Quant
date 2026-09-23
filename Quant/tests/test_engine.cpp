@@ -423,6 +423,44 @@ int run_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& ti
 // 보호 주문 한 주기는 한 스레드만 잡는다. 평소 주인은 전략 스레드고 전략이 죽으면 주문 스레드가 이어받는데,
 //  멈췄던 전략이 깨어나면 둘 다 같은 주기를 보게 된다 — 둘 다 잡으면 같은 청산이 두 번 나간다(A등급).
 //  스레드 넷이 같은 시각으로 한꺼번에 달려들어도 참이 하나뿐인지 본다. [why D-114]
+// ─── 큐에서 오래 기다린 신규 매수만 버린다 (D-127) ──────────────────────────
+int run_stale_entry_case()
+{
+    const int64_t emitted_ns = 1'000'000'000;                        // 신호를 만든 시각
+    const int64_t fresh_ns   = emitted_ns + kOrderSignalMaxAgeNs / 2; // 문턱의 절반만 기다렸다
+    const int64_t stale_ns   = emitted_ns + kOrderSignalMaxAgeNs + 1; // 문턱을 막 넘겼다
+
+    OrderSignal buy;
+    buy.action       = OrderAction::NEW;
+    buy.side         = OrderSide::BUY;
+    buy.signal_at_ns = emitted_ns;
+
+    CHECK(!is_stale_entry(buy, fresh_ns));
+    CHECK(is_stale_entry(buy, stale_ns));
+
+    // 매도는 손절·청산이라 늦어도 보낸다.
+    OrderSignal sell = buy;
+    sell.side        = OrderSide::SELL;
+    CHECK(!is_stale_entry(sell, stale_ns));
+
+    // 취소·정정도 늦어도 보낸다 — 원주문이 살아 있다.
+    OrderSignal cancel = buy;
+    cancel.action      = OrderAction::CANCEL;
+    CHECK(!is_stale_entry(cancel, stale_ns));
+
+    OrderSignal replace = buy;
+    replace.action      = OrderAction::REPLACE;
+    CHECK(!is_stale_entry(replace, stale_ns));
+
+    // 시각을 안 찍은 신호는 나이를 모르니 버리지 않는다.
+    OrderSignal unstamped = buy;
+    unstamped.signal_at_ns = 0;
+    CHECK(!is_stale_entry(unstamped, stale_ns));
+
+    std::cout << "  stale_entry OK" << std::endl;
+    return 0;
+}
+
 int run_protective_claim_case()
 {
     std::cout << "case protective claim\n";
@@ -585,6 +623,11 @@ int main()
     }
 
     if (const int result_code = run_protective_claim_case(); result_code != 0)
+    {
+        return result_code;
+    }
+
+    if (const int result_code = run_stale_entry_case(); result_code != 0)
     {
         return result_code;
     }

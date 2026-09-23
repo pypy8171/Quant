@@ -63,6 +63,19 @@ struct AppConfig;
 //  WS 구독 목록은 on_start() 이후 전략의 get_watch_specifications()로 동적 수집
 // ─────────────────────────────────────────────────────────────────────────────
 
+// 주문 큐에서 이 시간을 넘게 기다린 신규 매수는 꺼낼 때 버린다. 큐가 찬 동안 증권사에 낼 수 있는 건수는
+//  초당한도로 고정이라 늘릴 수 없고, 남은 예산을 2초 전 판단에 쓰면 그만큼 지금 판단이 못 나간다.
+//  취소·정정과 매도(손절·청산)는 나이를 안 본다 — 늦어도 보내야 하는 주문이다. [why D-127]
+inline constexpr int64_t kOrderSignalMaxAgeNs   = 1'000'000'000; // 1초
+inline constexpr int64_t kNanosecondsPerMillisecond = 1'000'000; // 로그에 ms로 적을 때 쓰는 나눗수
+
+// 지금 꺼내 보내기엔 너무 오래된 신호인가. 시각을 안 찍은 신호(signal_at_ns=0)는 나이를 모르니 보낸다.
+constexpr bool is_stale_entry(const OrderSignal& signal, int64_t popped_at_ns)
+{
+    return signal.action == OrderAction::NEW && signal.side == OrderSide::BUY && signal.signal_at_ns != 0
+           && popped_at_ns - signal.signal_at_ns > kOrderSignalMaxAgeNs;
+}
+
 class Engine
 {
 public:
@@ -169,6 +182,7 @@ public:
         size_t   fill_high_water  = 0;
         uint64_t shard_dropped    = 0;
         uint64_t order_dropped    = 0;
+        uint64_t order_stale      = 0; // 큐에서 너무 오래 기다려 버린 신규 매수 수 [why D-127]
         uint64_t fill_dropped     = 0;
         uint64_t order_duplicate  = 0; // 주문 쪽이 같은 순번을 두 번 받아 거른 수. 0이 아니면 통로가 샜다
         uint64_t order_response_dropped = 0; // 전략이 답을 안 가져가 버린 수
@@ -628,6 +642,7 @@ private:
         RingBuffer<FillNotification> fill_queue{kFillQueueCapacity};
         std::atomic<uint64_t> fill_dropped{0};   // fill_queue 가득 차 버린 체결통보 수. 0이 아니면 잔고 대조가 원장을 메운다
         std::atomic<uint64_t> order_dropped{0};  // order_queue 가득 차 버린 신호 수. [큐 고수위] 줄에 같이 찍힌다
+        std::atomic<uint64_t> order_stale{0};    // 큐에서 너무 오래 기다려 꺼낼 때 버린 신규 매수 수 [why D-127]
         // 주문 → 전략 응답. 생산자가 주문 스레드 하나라 SPSC. 레코드에 문자열·포인터가 없어 단계 4에서
         //  공유메모리 링으로 그대로 옮겨 간다 — 지금은 같은 프로세스의 큐다. [why D-114]
         RingBuffer<ipc::OrderResponse> order_response_queue{kOrderResponseCapacity};

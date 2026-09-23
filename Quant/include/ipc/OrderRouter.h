@@ -165,7 +165,7 @@ private:
 
     // ── 덧붙이기 큐(원장 CSV·사유) ────────────────────────────────────────
     //  미결주문 파일과 달리 이 둘은 중간 것도 다 남아야 한다. 그래서 한 칸짜리 대기함이 아니라
-    //  줄을 세우는 큐이고, 꺼낸 순서와 쓴 순서가 같아야 한다. [why D-123]
+    //  줄을 세우는 큐이고, 꺼낸 순서와 쓴 순서가 같아야 한다. [why D-124]
     struct PendingLine
     {
         enum class Sink
@@ -202,7 +202,7 @@ private:
                                 double strategy_realized_pnl = 0.0);
     // 원장 CSV에 덧붙일 한 줄을 줄 세우는 큐에 놓고 곧바로 돌아온다(디스크는 전담 스레드가 기다린다).
     //  시각 열은 여기서 박는다 — 쓰기 스레드가 언제 쓰든 행의 시각은 주문 스레드가 지나간 그 순간이다.
-    //  write_trade_row·record_reconcile이 줄을 만들어 여기로 보낸다. [why D-094] [why D-123]
+    //  write_trade_row·record_reconcile이 줄을 만들어 여기로 보낸다. [why D-094] [why D-124]
     void        append_trade_line(const std::string& line);
     // trade_file_을 그 날짜 파일로 (재)연다 — 없으면 헤더를 쓰고, 옛 헤더면 열을 맞춰 한 번
     //  재작성한다. 호출자는 io_mutex_를 보유해야 한다.

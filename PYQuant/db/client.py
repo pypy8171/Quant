@@ -225,6 +225,11 @@ class DbClient:
     # 엔진이 HEALTH에 싣는 큐·지연 열. 옛 엔진(이 필드를 안 싣는 exe)이 보낸 행은 NULL로 들어간다.
     _HEALTH_METRIC_COLUMNS = (
         "drop_cnt",
+        # 버린 건수 내역 — 넷의 합이 drop_cnt 다. 원인마다 손댈 곳이 달라 갈라 싣는다(D-125).
+        "drop_socket_full",
+        "drop_socket_error",
+        "drop_send_queue_full",
+        "drop_trade_ring_full",
         "queue_shard_high_water",
         "queue_shard_capacity",
         "queue_shard_out_size",
@@ -235,6 +240,8 @@ class DbClient:
         "queue_fill_capacity",
         "dropped_shard",
         "dropped_order",
+        # 큐에서 너무 오래 기다려 꺼낼 때 버린 신규 매수. 큐가 차서 못 넣은 dropped_order와 원인이 다르다(D-127).
+        "stale_order",
         "dropped_fill",
         "latency_samples",
         "tick_to_signal_p50_us",

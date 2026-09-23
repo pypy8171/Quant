@@ -694,6 +694,7 @@ Engine::QueueStatistics Engine::queue_statistics() const
     statistics.fill_high_water  = pipeline_.fill_queue.high_water();
     statistics.shard_dropped    = pipeline_.shard_dropped.load(std::memory_order_relaxed);
     statistics.order_dropped    = pipeline_.order_dropped.load(std::memory_order_relaxed);
+    statistics.order_stale      = pipeline_.order_stale.load(std::memory_order_relaxed);
     statistics.fill_dropped     = pipeline_.fill_dropped.load(std::memory_order_relaxed);
     statistics.order_duplicate  = pipeline_.order_duplicate.load(std::memory_order_relaxed);
     statistics.order_response_dropped = pipeline_.order_response_dropped.load(std::memory_order_relaxed);
@@ -2125,6 +2126,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
             snapshot.fill_queue_capacity    = pipeline_.fill_queue.capacity();
             snapshot.shard_dropped          = pipeline_.shard_dropped.load(std::memory_order_relaxed);
             snapshot.order_dropped          = pipeline_.order_dropped.load(std::memory_order_relaxed);
+            snapshot.order_stale            = pipeline_.order_stale.load(std::memory_order_relaxed);
             snapshot.fill_dropped           = pipeline_.fill_dropped.load(std::memory_order_relaxed);
             snapshot.latency_samples        = pipeline_latency_.total.count();
             snapshot.tick_to_signal_p50_us  = pipeline_latency_.tick_to_signal.percentile(0.50);
@@ -3061,6 +3063,26 @@ void Engine::order_thread_fn(std::stop_token stop_token)
                     continue;
                 }
 
+                pop_ns = trace::now_ns();
+
+                // 오래 기다린 신규 매수는 여기서 버린다 — 큐가 찬 동안 증권사 초당한도는 그대로라, 이 한 건을
+                //  보내면 그만큼 방금 만든 판단이 못 나간다. 조건이 남아 있으면 다음 틱·봉이 다시 만든다.
+                //  취소·정정과 매도는 나이를 안 본다(손절·청산은 늦어도 나가야 한다). [why D-127]
+                if (is_stale_entry(*option, pop_ns))
+                {
+                    const auto waited_ms = (pop_ns - option->signal_at_ns) / kNanosecondsPerMillisecond;
+                    const auto count = pipeline_.order_stale.fetch_add(1, std::memory_order_relaxed) + 1;
+
+                    if (count == 1 || count % ShardPipeline::kDropLogEvery == 0)
+                    {
+                        LOG_WARN("[주문] 큐에서 " + std::to_string(waited_ms) + "ms 기다린 신규 매수를 버린다 " +
+                                 option->ticker + " (누적 " + std::to_string(count) + ")");
+                    }
+
+                    answer(option->sequence, ipc::OrderResult::kStale, 0, "큐 대기가 길어 버림");
+                    continue;
+                }
+
                 // 번호는 주문 쪽이 준다 — 전략 쪽은 종목 표를 찾기만 하고, 처음 보는 종목은 받는 이 자리에서
                 //  표에 올린다. 표를 고치는 쪽을 하나로 두는 것이 원칙 4다. [why D-114]
                 if (option->symbol_id == symbol::kNone && !option->ticker.empty())
@@ -3084,7 +3106,6 @@ void Engine::order_thread_fn(std::stop_token stop_token)
                 }
 
                 next   = OrderRateLimiter::Pending{std::move(*option), 0};
-                pop_ns = trace::now_ns();
             }
         }
 
@@ -3396,6 +3417,7 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                      " fill=" + std::to_string(pipeline_.fill_queue.high_water()) + "/" + std::to_string(pipeline_.fill_queue.capacity()) +
                      " fill_dropped=" + std::to_string(pipeline_.fill_dropped.load(std::memory_order_relaxed)) +
                      " order_dropped=" + std::to_string(pipeline_.order_dropped.load(std::memory_order_relaxed)) +
+                     " order_stale=" + std::to_string(pipeline_.order_stale.load(std::memory_order_relaxed)) +
                      " order_duplicate=" + std::to_string(pipeline_.order_duplicate.load(std::memory_order_relaxed)) +
                      " order_response_dropped=" +
                      std::to_string(pipeline_.order_response_dropped.load(std::memory_order_relaxed)) +

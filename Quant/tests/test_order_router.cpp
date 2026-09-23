@@ -713,7 +713,7 @@ void test_reconcile_row_written()
     reconcile_note.note       = "mode=REST";
     router.record_reconcile(reconcile_note);
 
-    router.flush_file_writes();   // 원장 행은 전담 스레드가 쓴다 — 읽기 전에 내린다(D-123)
+    router.flush_file_writes();   // 원장 행은 전담 스레드가 쓴다 — 읽기 전에 내린다(D-124)
     auto rows = tail_trade_rows(1);
     assert(rows.size() == 1);
     auto other_split_csv = split_csv(rows[0]);

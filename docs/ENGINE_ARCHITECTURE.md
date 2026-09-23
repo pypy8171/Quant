@@ -8,8 +8,8 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@852109c Quant/src/core/Engine.cpp@37278f0 Quant/include/core/DataPoller.h@3cfd21a Quant/include/core/SignalDispatcher.h@dab02c3 Quant/include/core/OrderRateLimiter.h@bfa49f1 Quant/include/core/LedgerReconciler.h@de07986 Quant/include/core/WakeGate.h@1b2b9b7 Quant/include/core/BarAggregator.h@fbb210b Quant/include/core/LatencyTrace.h@a975fa9 Quant/include/core/ReconcilePlan.h@2faea2f -->
-엔진은 락-프리 파이프라인(데이터→전략 샤드→디스패치→주문)에 체결 소비 스레드와 제어 스레드를 더해 다섯 개 + 샤드 M개의 스레드를 실행하고, 전략의 무거운 REST 미리 당기기는 공용 프리페치 풀(코어/4, 2~8개 고정)이 맡습니다. 각 스레드는 기동 직후 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름(DataThread·Strategy·Shard N·Order·Fill·Control, 소켓 수신은 WsRecv, 프리페치 풀은 Prefetch N)을 붙여 procwatch의 스레드별 CPU 표와 디버거에 그 이름으로 보입니다(config `strategy_shards`, 기본 1):
+<!-- sync: Quant/include/core/Engine.h@7a49044 Quant/src/core/Engine.cpp@8def702 Quant/include/core/DataPoller.h@3cfd21a Quant/include/core/SignalDispatcher.h@dab02c3 Quant/include/core/OrderRateLimiter.h@bfa49f1 Quant/include/core/LedgerReconciler.h@de07986 Quant/include/core/WakeGate.h@1b2b9b7 Quant/include/core/BarAggregator.h@fbb210b Quant/include/core/LatencyTrace.h@4e060b9 Quant/include/core/ReconcilePlan.h@2faea2f -->
+엔진은 락-프리 파이프라인(데이터→전략 샤드→디스패치→주문)에 체결 소비 스레드와 제어 스레드를 더해 다섯 개 + 샤드 M개의 스레드를 실행하고, 전략의 무거운 REST 미리 당기기는 공용 프리페치 풀(코어/4, 2~8개 고정)이 맡습니다. 각 스레드는 기동 직후 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름(DataThread·Strategy·Shard N·Order·Fill·Control, 소켓 수신은 WsRecv, 프리페치 풀은 Prefetch N)을 붙여 procwatch의 스레드별 CPU 표와 디버거에 그 이름으로 보입니다(config `strategy_shards`, 기본 1). 주문 스레드는 큐에서 꺼낼 때 1초를 넘게 기다린 신규 매수를 보내지 않고 버립니다 — 증권사 초당 주문 한도가 꺼내는 속도를 정하므로, 그 한 건을 보내면 그만큼 방금 만든 판단이 못 나갑니다. 취소·정정과 매도는 나이를 안 봅니다(D-127):
 
 ```
 [데이터 스레드]  →  pipeline_.bars_matrix·pipeline_.trade_matrix (링 행렬 행)  →  [샤드 스레드 m]  →  pipeline_.shard_out (MpscQueue)  →  [전략(디스패치) 스레드]  →  pipeline_.order_queue  →  [주문 스레드]
@@ -48,8 +48,8 @@
 
 ### 핵심 타입 (`Quant/include/core/Types.h`)
 
-<!-- sync: Quant/include/core/Types.h@4f1ed2d -->
-`MarketData`(OHLCV + bar_index), `OrderSignal`(side/type/quantity/price/**reference_price** + strategy_id, 종목 id `symbol_id`는 전략 스레드가 큐에 넣기 전에 찍고, 전략 번호 `strategy_index`·주문 번호 `client_order_number`는 정수라 게이트·라우터가 문자열 없이 찾는다, D-112), `Position`, `OrderBook`(5단계 호가, 채널 `H0STASP0`/선물 `H0IFASP0`), `TradeData`(실시간 체결, 채널 `H0STCNT0`/선물 `H0IFCNT0`; 호가·체결 모두 종목 id `symbol_id`와 정수 시각 `hhmmss`를 들고, 봉·호가·체결의 `ticker`는 `symbol::Ticker` 15자 고정 배열이라 세 구조체는 trivially copyable이다 — 문자열은 `.str()`, D-071), `WatchSpec`(FEED 구독 종목 명세 — `is_future` 플래그로 현·선 채널 선택), `Regime`(enum: BULL/NEUTRAL/BEAR/UNKNOWN), `RegimeSnapshot`(장 시작 국면 판정 결과 — score·200MA·정배열/역배열·지수 이평 분해), `OrderStageTiming`(주문 한 건이 라우터 안에서 구간마다 쓴 시간 — 리스크 점검·이력 잠금과 중복 가드·원장 선기록·초당 한도 대기·증권사 왕복·전송 뒤 마무리 여섯. 관측 전용이라 매매 판단에는 안 쓴다, D-117), `FillNotification`(체결통보 한 건 — 주문번호·원주문번호·종목·방향·체결수량·체결단가·체결시각에 주문수량 `order_quantity`와 주문거래소 `exchange`가 붙는다. 뒤쪽 두 칸은 전문이 짧으면 안 오므로 0·빈 값이 모른다는 뜻이다, D-121).
+<!-- sync: Quant/include/core/Types.h@5fe4efb -->
+`MarketData`(OHLCV + bar_index), `OrderSignal`(side/type/quantity/price/**reference_price** + strategy_id, 종목 id `symbol_id`는 전략 스레드가 큐에 넣기 전에 찍고, 전략 번호 `strategy_index`·주문 번호 `client_order_number`는 정수라 게이트·라우터가 문자열 없이 찾는다, D-112), `Position`, `OrderBook`(5단계 호가, 채널 `H0STASP0`/선물 `H0IFASP0`), `TradeData`(실시간 체결, 채널 `H0STCNT0`/선물 `H0IFCNT0`; 호가·체결 모두 종목 id `symbol_id`와 정수 시각 `hhmmss`를 들고, 봉·호가·체결의 `ticker`는 `symbol::Ticker` 15자 고정 배열이라 세 구조체는 trivially copyable이다 — 문자열은 `.str()`, D-071), `WatchSpec`(FEED 구독 종목 명세 — `is_future` 플래그로 현·선 채널 선택), `Regime`(enum: BULL/NEUTRAL/BEAR/UNKNOWN), `RegimeSnapshot`(장 시작 국면 판정 결과 — score·200MA·정배열/역배열·지수 이평 분해), `OrderStageTiming`(주문 한 건이 라우터 안에서 구간마다 쓴 시간 — 리스크 점검·이력 잠금과 중복 가드·원장 선기록·초당 한도 대기·증권사 왕복·전송 뒤 마무리 여섯. 그중 둘은 다시 갈라 싣는다: 이력 잠금은 기다린 몫, 전송 뒤 마무리는 접수 확정·발행·이력 저장 셋(이력 저장 안의 미결주문 파일 다시쓰기 몫은 따로 한 칸 더) — 더할 때 두 번 넣지 않는다, D-126. 관측 전용이라 매매 판단에는 안 쓴다, D-117), `FillNotification`(체결통보 한 건 — 주문번호·원주문번호·종목·방향·체결수량·체결단가·체결시각에 주문수량 `order_quantity`와 주문거래소 `exchange`가 붙는다. 뒤쪽 두 칸은 전문이 짧으면 안 오므로 0·빈 값이 모른다는 뜻이다, D-121).
 
 > `OrderSignal.reference_price`는 시장가(price=0) 주문의 명목 한도 평가 기준가다. 지정가는 `price`로 명목을 재지만 시장가는 `price`가 0이라 이 값이 없으면 명목 백스톱이 우회된다(특히 급락장 강제청산의 시장가 전량매도). 발주 측이 직전 현재가/평단을 stamp한다.
 

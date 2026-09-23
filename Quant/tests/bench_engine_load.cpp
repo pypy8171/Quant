@@ -810,7 +810,7 @@ RunResult run_once(const Options& options, const std::vector<std::string>& unive
 // offered_per_sec = 내보낸 유량, accepted_per_sec = 샤드까지 들어간 유량(= goodput). 둘이 갈라지는 지점이 그 구성의 천장이다.
 const char* kCsvHeader = "lanes,shards,tickers,seconds,order_every,zipf,strategy,zmq,rate,elapsed_sec,ticks_emitted,offered_per_sec,"
                          "accepted_per_sec,drop_pct,signals,orders,orders_per_sec,"
-                         "shard_high_water,order_high_water,fill_high_water,trade_dropped,shard_dropped,order_dropped,fill_dropped,"
+                         "shard_high_water,order_high_water,fill_high_water,trade_dropped,shard_dropped,order_dropped,order_stale,fill_dropped,"
                          "latency_samples,p50_us,p99_us,max_us,started_at,"
                          "source,sweep_ms,feed_sweeps,feed_calls,feed_failures,feed_quotes,feed_megabytes,"
                          "feed_sweep_average_ms,feed_sweep_max_ms,feed_overruns,"
@@ -840,6 +840,7 @@ std::string to_csv_row(const Options& options, const RunResult& result)
         << static_cast<uint64_t>(static_cast<double>(result.orders) / seconds) << ','
         << result.queues.shard_high_water << ',' << result.queues.order_high_water << ',' << result.queues.fill_high_water << ','
         << result.queues.trade_dropped << ',' << result.queues.shard_dropped << ',' << result.queues.order_dropped << ','
+        << result.queues.order_stale << ','
         << result.queues.fill_dropped << ','
         << result.latency.samples << ',' << result.latency.p50_us << ',' << result.latency.p99_us << ',' << result.latency.max_us << ','
         << result.started_at << ','
