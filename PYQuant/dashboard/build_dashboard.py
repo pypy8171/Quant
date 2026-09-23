@@ -57,7 +57,7 @@ REVIEWS_JSON = OUT_DIR / "reviews.json"
 PREMARKET_DIR = _REPO / "docs" / "premarket"
 RESEARCH_DIR = _REPO / "research"          # 리셋 라운드 종합 문서(research/RESET_*.md · RESET_*/README.md)
 OUT_HTML = OUT_DIR / "dashboard.html"            # 운영용: 스터디·라이브·리뷰·장전 브리핑
-OUT_PUBLIC = OUT_DIR / "dashboard_public.html"   # 공개용: 스터디만(README 링크 대상, 발행 전 _PUBLIC_FORBIDDEN 검사)
+OUT_PUBLIC = OUT_DIR / "dashboard_public.html"   # 공개용: 스터디 + 라이브(일지는 가림, README 링크 대상, 발행 전 _PUBLIC_FORBIDDEN 검사)
 OUT_ROUNDS = OUT_DIR / "dashboard_rounds.html"   # 리서치 라운드만 — 작업 과정 문서라 공개본과 섞지 않는다
 STUDY_INDEX = STUDIES / "index.json"   # 스터디마다 질문·방법·데이터·결과·왜를 손으로 적은 정본(번호순 카드 탭의 원천)
 
@@ -861,7 +861,7 @@ def holdout_banner(rows):
 # ── 백테스트 탭 ───────────────────────────────────────────────────────────────
 # ── 라이브 탭 ─────────────────────────────────────────────────────────────────
 def render_live(live, public=False):
-    """public=True면 일지 본문을 싣지 않는다 — 원문에는 계좌번호·세션 이름·오너 지시가 섞여 있다."""
+    """public=True면 일지 본문의 세션 이름·계좌번호·비공개 경로를 가려서 싣는다(_mask_public)."""
     journals = live.get("journals", [])
     order_log = live.get("order_log", [])
     stamp = live.get("generated") or ""
@@ -871,8 +871,8 @@ def render_live(live, public=False):
            '<p class="fdesc">KIS 모의계좌(paper) 실증. <b>주문 로그</b>는 <code>logs/trades_*.csv</code> 일자별 롤업 — '
            '체결 열은 최종 상태가 체결인 주문 수, 실현손익은 원장 체결 행의 합(매도측 수수료·거래세를 뺀 값)이고 '
            '평가손익은 넣지 않는다. '
-           + ('<b>매매 일지</b>는 제목만 싣는다(원문은 저장소 <code>strategies/&lt;전략&gt;/live/</code>).'
-              if public else '<b>매매 일지</b>는 카드 클릭으로 원문이 펼쳐진다.')
+           + '<b>매매 일지</b>는 카드 클릭으로 원문이 펼쳐진다'
+           + ('(세션 이름·계좌번호는 가림).' if public else '.')
            + tail + '</p>']
 
     # 날짜별 실현손익 한 줄 요약(원장 값이 있는 날만)
@@ -894,9 +894,13 @@ def render_live(live, public=False):
             # <details>라 JS 없이도 펼쳐진다.
             body = ""
             try:
-                body = (_REPO / rel).read_text(encoding="utf-8") if (rel and not public) else ""
+                body = (_REPO / rel).read_text(encoding="utf-8") if rel else ""
             except OSError:
                 body = ""
+
+            if public:
+                body = _mask_public(body)
+
             inner = (f'<summary>'
                      f'<div class="chead"><span class="cdate">{esc(c.get("date",""))}</span>'
                      f'<span class="pill p-strat">{esc(c.get("strategy",""))}</span></div>'
@@ -906,13 +910,11 @@ def render_live(live, public=False):
                 body_lines = [line for line in body.splitlines() if not line.startswith("# ")]
                 inner += (f'<div class="jsrc">{esc(rel)}</div>'
                           f'<div class="jbody">{_md_block(body_lines)}</div>')
-            elif public:
-                inner += f'<div class="jsrc">{esc(rel)}</div>'
             else:
                 inner += f'<div class="jsrc">원문을 찾지 못했다 — {esc(rel)}</div>'
             cards.append(f'<details class="card jcard">{inner}</details>')
         out.append('<div class="grp"><h3>매매 일지 <span class="win">'
-                   + ('(제목만)' if public else '(카드 클릭 = 원문 펼치기)') + '</span></h3>'
+                   + '(카드 클릭 = 원문 펼치기)</span></h3>'
                    f'<div class="cards">{"".join(cards)}</div></div>')
 
     # 주문 로그 롤업
@@ -1223,7 +1225,7 @@ VARIANTS = {
     "ops":    {"out": OUT_HTML,   "title": "퀀트 매매 대시보드",   "brand": "매매 대시보드",
                "schemas": "quant.metrics/v1 · quant.live/v1 · quant.review/v1",
                "tabs": ("studies", "live", "reviews", "premarket")},
-    # 공개본의 라이브 탭은 일지 원문을 싣지 않는다(계좌·세션 이름이 든 서술) — 날짜별 요약 표와 일지 제목만.
+    # 공개본의 라이브 탭은 일지 원문을 싣되 세션 이름·계좌번호·비공개 경로를 가린다(_mask_public).
     "public": {"out": OUT_PUBLIC, "title": "퀀트 백테스트·모의매매 결과", "brand": "백테스트·모의매매 결과",
                "schemas": "quant.metrics/v1 · quant.live/v1", "tabs": ("studies", "live"), "public": True},
     "rounds": {"out": OUT_ROUNDS, "title": "퀀트 리서치 라운드",   "brand": "리서치 라운드",
@@ -1233,6 +1235,28 @@ VARIANTS = {
 # 공개본에 있으면 안 되는 것 — 세션 이름·비공개 폴더·키 이름·계좌번호 꼴. 걸리면 파일을 안 쓴다.
 _PUBLIC_FORBIDDEN = [re.compile(pattern) for pattern in
                      (r"\bquant-[0-9a-f]{2}\b", r"_private", r"app_?key", r"app_?secret", r"\b\d{8}-\d{2}\b")]
+
+# 공개본 일지 가림 — 세션 이름(quant-53, quant-53-e4b2c7), 계좌번호(8자리-2자리), 비공개 경로, 키 이름.
+# 가린 결과도 위 _PUBLIC_FORBIDDEN 검사를 한 번 더 지난다.
+_PUBLIC_MASKS = [(re.compile(pattern), replacement) for pattern, replacement in (
+    (r"\bquant-[0-9a-f]{2}(?:-[0-9a-f]+)?\b", "(세션)"),
+    (r"\b\d{8}-\d{2}\b",                     "(계좌번호)"),
+    (r"(pnl_baseline_\d{8}_)\d{8}",          r"\1(계좌번호)"),
+    (r"[\w./\\-]*_private[\w./\\-]*",        "(비공개 경로)"),
+    (r"app_?(?:key|secret)",                 "(키)"),
+)]
+
+
+# 하이픈 없는 8자리 계좌번호("주문·체결 계좌 50204275 87건")는 금액과 모양이 같아 "계좌"가 든 줄에서만 가린다.
+_BARE_ACCOUNT_NUMBER = re.compile(r"\b(?!20\d{6}\b)\d{8}\b")
+
+
+def _mask_public(text):
+    for pattern, replacement in _PUBLIC_MASKS:
+        text = pattern.sub(replacement, text)
+
+    return "\n".join(_BARE_ACCOUNT_NUMBER.sub("(계좌번호)", line) if "계좌" in line else line
+                     for line in text.split("\n"))
 
 
 def render(rows, live, reviews, premarket, rounds, study_index, variant="ops"):
