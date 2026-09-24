@@ -584,7 +584,9 @@ int run_replay_case()
     {
         held = engine.held_positions();
 
-        if (!held.empty())
+        // 체결은 수신 스레드의 모의 체결기가 내고 틱은 전략 스레드가 따로 본다 — 보유가 먼저 잡혀도 전략이
+        //  둘째 틱을 아직 못 봤을 수 있어 둘 다 기다린다(병렬 ctest에서 5회 중 1회 어긋났다).
+        if (!held.empty() && stop_token->ticks_seen.load() >= 2)
         {
             break;
         }
