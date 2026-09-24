@@ -181,6 +181,7 @@ FILL_SESSION_NONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 없음")
 FILL_SESSION_MANY_RE = re.compile(r"\[Engine\] 체결통보 세션: (\d+)개")
 # 재연결 뒤 같은 체결통보가 다시 와서 원장에 안 넣은 줄(CODE_REVIEW C-1). 수량은 잔고 대조가 맞춘다.
 FILL_REPLAY_RE = re.compile(r"\[OrderRouter\] 재연결 뒤 같은 체결통보")
+FILL_PRODUCER_OVERLAP_RE = re.compile(r"\[Engine\] 체결통보 생산자 겹침")
 # 공유 쪽지 종료 사유(D-114) — 짝이 사유를 적고 나간 것을 보고 따라 내려간 줄에 그 번호가 실린다.
 PEER_EXIT_REASON_RE = re.compile(r"건너편이 종료 사유를 적고 나갔다\(사유 번호 (\d+)\)")
 # Quant/include/ipc/SharedRegion.h 의 SharedShutdownReason 중 기동하다 접은 값. 0 은 적기 전에 죽은 것이고,
@@ -1415,6 +1416,7 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     fill_session_none = 0                        # 맡은 소켓이 없다고 찍힌 기동 수
     fill_session_many = 0                        # 둘 이상이 맡았다고 찍힌 기동 수
     fill_replayed = 0                            # 재연결 뒤 다시 온 체결통보로 보고 버린 수
+    fill_producer_overlap = 0                    # 체결통보를 두 스레드가 같이 넣으려 한 수(W-6)
     zmq_bind_fail = 0                            # ZMQ 포트 bind 실패(포트 충돌) 횟수
 
     # 폴더면 갈라 띄운 로그를 시각순으로 합쳐 본다. 파일 하나면 그 파일만 —
@@ -1520,6 +1522,8 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 fill_session_many += 1
             elif FILL_REPLAY_RE.search(line):
                 fill_replayed += 1
+            elif FILL_PRODUCER_OVERLAP_RE.search(line):
+                fill_producer_overlap += 1
             if ZMQ_BIND_FAIL_RE.search(line):
                 zmq_bind_fail += 1
             if GUARD_RE.search(line):
@@ -1904,6 +1908,8 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
         #  마침 재연결 순간에 오면 그것도 버려지므로, 0이 아니면 그날 잔고 대조가 수량을 맞췄는지 본다.
         ("체결 재전송", fill_replayed == 0, "WARN",
          f"재연결 뒤 다시 온 체결통보 {fill_replayed}건을 원장에 안 넣음 (기대 0 — 있으면 잔고 대조가 수량을 맞춘다)"),
+        ("체결통보 생산자 하나", fill_producer_overlap == 0, "FAIL",
+         f"체결통보를 두 스레드가 같이 넣으려 한 {fill_producer_overlap}건 (기대 0 — 한 줄로 세워 넣었지만 생산자가 둘 생긴 것이다)"),
         devscale_v2_row("장 마감 청산(넘김)", not devscale_close_exits, "FAIL",
                         f"DEVSCALE 장 마감 청산 신호 {len(devscale_close_exits)}건 (기대 0 — market_close_exit_hhmm 2400, D-111)"
                         + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in devscale_close_exits[:5])}" if devscale_close_exits else "")),

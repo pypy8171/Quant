@@ -876,6 +876,12 @@ private:
         //  체결 하나 처리(history_mutex_·CSV 쓰기) 동안 전 종목 틱 수신이 멈추지 않게. [why D-056]
         RingBuffer<FillNotification> fill_queue{kFillQueueCapacity};
         std::atomic<uint64_t> fill_dropped{0};   // fill_queue 가득 차 버린 체결통보 수. 0이 아니면 잔고 대조가 원장을 메운다
+        // 체결통보를 지금 넣고 있는 쪽이 있는지. fill_queue·체결 통로 둘 다 SPSC라 넣는 쪽은 한 번에 하나여야 한다 —
+        //  실매매는 체결통보를 맡은 소켓의 수신 스레드 하나, 오프라인은 모의 체결기 하나(전달을 스스로 한 줄로 세운다).
+        //  둘이 겹치면 뒤에 온 쪽이 기다려 한 줄로 서고 fill_producer_overlap에 센다.
+        //  [inv] fill_producer_overlap은 0이다. 0이 아니면 생산자가 둘 생긴 것이다. [why CODE_REVIEW W-6]
+        std::atomic<bool>     fill_producing{false};
+        std::atomic<uint64_t> fill_producer_overlap{0};
         std::atomic<uint64_t> order_dropped{0};  // 요청 면이 가득 차 버린 신호 수. [큐 고수위] 줄에 같이 찍힌다
         std::atomic<uint64_t> order_stale{0};    // 큐에서 너무 오래 기다려 꺼낼 때 버린 신규 매수 수 [why D-127]
         std::atomic<uint64_t> order_implausible{0};      // 값이 말이 안 돼 버린 요청 수. 0이 아니면 통로가 덮였다

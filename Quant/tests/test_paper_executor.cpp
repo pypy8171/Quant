@@ -3,8 +3,11 @@
 #include "core/PaperExecutor.h"
 #include "core/SymbolTable.h"
 
+#include <atomic>
+#include <chrono>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace
@@ -138,6 +141,53 @@ int main()
         const auto balance = executor.balance();
         CHECK(balance.has_value() && balance->holdings.empty());
         CHECK(executor.is_paper());
+    }
+
+    // 7. 수신 스레드 둘이 서로 다른 종목 틱을 같이 넣어도 체결 전달은 한 번에 하나다(CODE_REVIEW W-6).
+    //  받는 쪽 체결 큐가 SPSC라, 콜백이 겹쳐 불리면 실제 엔진에서는 체결이 사라진다.
+    {
+        symbol::SymbolTable concurrent_symbols;
+        feed::PaperExecutor concurrent_executor(1e12, concurrent_symbols);
+        std::atomic<bool>   delivering{false};
+        std::atomic<int>    overlap_count{0};
+        std::atomic<int>    delivered_count{0};
+        concurrent_executor.set_fill_callback(
+            [&](const FillNotification&)
+            {
+                if (delivering.exchange(true))
+                {
+                    overlap_count.fetch_add(1);
+                }
+
+                // 스레드마다 첫 전달에서 50ms 머문다 — 전달이 한 줄로 서 있지 않으면 그 사이 다른 스레드가 들어온다.
+                thread_local bool first_delivery = true;
+
+                if (first_delivery)
+                {
+                    first_delivery = false;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                }
+
+                delivering.store(false);
+                delivered_count.fetch_add(1);
+            });
+
+        constexpr int kOrdersPerTicker = 300;
+
+        for (int order_index = 0; order_index < kOrdersPerTicker; ++order_index)
+        {
+            CHECK(concurrent_executor.submit_order_acknowledgement(signal("005930", OrderSide::BUY, 1, 0.0, 1000.0)).ok());
+            CHECK(concurrent_executor.submit_order_acknowledgement(signal("000660", OrderSide::BUY, 1, 0.0, 1000.0)).ok());
+        }
+
+        std::atomic<bool> start{false};
+        std::thread first([&] { while (!start.load()) {} concurrent_executor.on_tick(tick("005930", 1000.0, 90600)); });
+        std::thread second([&] { while (!start.load()) {} concurrent_executor.on_tick(tick("000660", 1000.0, 90600)); });
+        start.store(true);
+        first.join();
+        second.join();
+        CHECK(delivered_count.load() == 2 * kOrdersPerTicker);
+        CHECK(overlap_count.load() == 0);
     }
 
     std::cout << "test_paper_executor: " << g_checks << " checks passed\n";

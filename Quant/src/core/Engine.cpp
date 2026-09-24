@@ -1797,8 +1797,8 @@ void Engine::connect_feed()
                                feed_.capture->on_trade(trade);
                            }
 
-                           // 모의 체결은 틱 스레드에서 — 체결통보 큐의 생산자가 이 스레드 하나로 남는다
-                           //  (feed_.paper는 리플레이·피드 주입 전용이고 둘 다 수신 스레드 하나다).
+                           // 모의 체결은 틱 스레드에서 낸다(feed_.paper는 리플레이·피드 주입 전용). 수신 스레드가
+                           //  여럿이면 여기가 동시에 불리므로 체결기가 전달을 한 줄로 세운다(PaperExecutor::on_tick, W-6).
                            if (feed_.paper)
                            {
                                feed_.paper->on_tick(trade);
@@ -1828,6 +1828,32 @@ void Engine::connect_feed()
 
     auto push_fill = [this, fill_crosses_boundary](const FillNotification& fill_notification)
                            {
+                               // 넣는 쪽은 한 번에 하나다(pipeline_.fill_producing 설명). 겹치면 뒤에 온 쪽이
+                               //  기다려 한 줄로 서고 센다 — 그대로 넣으면 SPSC 큐의 칸 번호가 어긋나 체결이 사라진다.
+                               if (pipeline_.fill_producing.exchange(true, std::memory_order_acquire))
+                               {
+                                   const auto count = pipeline_.fill_producer_overlap.fetch_add(1, std::memory_order_relaxed) + 1;
+                                   LOG_ERROR("[Engine] 체결통보 생산자 겹침 — 두 스레드가 같이 넣으려 했다 ODNO=" +
+                                             fill_notification.kis_order_no + " (누적 " + std::to_string(count) + "건, 기대 0)");
+
+                                   while (pipeline_.fill_producing.exchange(true, std::memory_order_acquire))
+                                   {
+                                       std::this_thread::yield();
+                                   }
+                               }
+
+                               struct ProducerTurn
+                               {
+                                   std::atomic<bool>& producing;
+
+                                   ~ProducerTurn()
+                                   {
+                                       producing.store(false, std::memory_order_release);
+                                   }
+                               };
+
+                               const ProducerTurn producer_turn{pipeline_.fill_producing};
+
                                if (fill_crosses_boundary)
                                {
                                    bool           truncated = false;

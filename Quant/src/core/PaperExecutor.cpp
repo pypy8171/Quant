@@ -166,6 +166,9 @@ void PaperExecutor::on_tick(const TradeData& trade)
 
     if (callback)
     {
+        // 수신 스레드 여럿이 여기 같이 오면 한 번에 하나씩 넘긴다(delivery_mutex_ 설명).
+        std::lock_guard<std::mutex> delivery_lock(delivery_mutex_);
+
         for (const auto& fill : fills)
         {
             callback(fill);

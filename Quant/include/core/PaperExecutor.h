@@ -121,6 +121,10 @@ private:
     symbol::SymbolTable& symbols_;
     mutable std::mutex   mutex_;
     FillCb               on_fill_;
+    // 체결 전달만 한 줄로 세운다. 수신 스레드가 여럿이면 on_tick이 동시에 불리는데, 받는 쪽 체결 큐
+    //  (Engine fill_queue)는 생산자가 하나여야 하는 SPSC다. mutex_와 따로 두는 건 콜백을 mutex_ 밖에서
+    //  불러야 해서다 — 콜백이 체결기를 다시 부르면 mutex_ 안에서는 교착된다. [why CODE_REVIEW W-6]
+    std::mutex           delivery_mutex_;
 
     std::vector<std::vector<Pending>>             pending_;    // [symbol_id] → 접수 순서. 빈 칸이 대부분이다
     std::unordered_map<symbol::SymbolId, Holding> book_;       // 보유 종목만
